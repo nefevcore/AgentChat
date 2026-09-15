@@ -1,7 +1,7 @@
 // ============================================================
 // ac-sap-adt/src/engine.ts —— 引擎宿主适配层（纯适配，零业务）
 //
-// 引擎 = @nefevcore/abap-adt-core 纯内核（46 个 adt_* 工具 + 目的地注册表
+// 引擎 = @nefevcore/abap-adt-core 纯内核（32 个 adt_* 工具 + 目的地注册表
 // + 策略/锁/调试器，零宿主依赖——与 DeepSeek Harness 适配层同源）。
 // 内核通过三个结构化缝与宿主对话（见内核 src/tooldef.ts）：
 //

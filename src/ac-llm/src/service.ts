@@ -289,16 +289,31 @@ export class LlmService extends Service {
     let sawText = false;
     let sawTools = false;
     let textBeforeTools: boolean | undefined;
+    // 思考相位计时（与前端直播 reasoningStartAt 同源定义）：首个 reasoning
+    // 片到达 → 首个非 reasoning 片（正文/工具调用分片）到达。定格为
+    // reasoningMs 随结果透传——落盘后历史回放恢复「已思考 · XmYs」。
+    let reasoningStartAt = 0;
+    let reasoningMs: number | undefined;
+    const closeReasoningPhase = () => {
+      if (reasoningStartAt && reasoningMs === undefined) {
+        reasoningMs = Date.now() - reasoningStartAt;
+      }
+    };
     this.ctx.emit('llm/delta-start', input, input.meta);
     try {
       for await (const chunk of this.run(call)) {
         this.ctx.emit('llm/delta', input, chunk, input.meta);
         if (chunk.delta) {
+          closeReasoningPhase();
           if (!sawText) { sawText = true; if (textBeforeTools === undefined && sawTools) textBeforeTools = false; }
           text += chunk.delta;
         }
-        if (chunk.reasoning) reasoning += chunk.reasoning;
+        if (chunk.reasoning) {
+          if (!reasoningStartAt) reasoningStartAt = Date.now();
+          reasoning += chunk.reasoning;
+        }
         for (const frag of chunk.toolCalls ?? []) {
+          closeReasoningPhase();
           if (!sawTools) { sawTools = true; if (textBeforeTools === undefined && sawText) textBeforeTools = true; }
           const acc = toolCalls.get(frag.index) ?? { id: '', name: '', args: '' };
           if (frag.id) acc.id = frag.id;
@@ -312,6 +327,9 @@ export class LlmService extends Service {
     } finally {
       this.ctx.emit('llm/delta-end', input, input.meta);
     }
+    // 流末仍在思考相位（纯 reasoning 无正文/工具的收束步）：以流结束时刻
+    // 收口——思考确实持续到了最后
+    closeReasoningPhase();
     const calls = [...toolCalls.entries()]
       .sort(([a], [b]) => a - b)
       // 聚合兜底：从未收到 id/name 的分片（provider 空冲洗等）不成为调用——
@@ -326,6 +344,7 @@ export class LlmService extends Service {
       ...(reasoning ? { reasoning } : {}),
       ...(calls.length ? { toolCalls: calls } : {}),
       ...(calls.length && text ? { textBeforeTools: textBeforeTools ?? false } : {}),
+      ...(reasoningMs !== undefined ? { reasoningMs } : {}),
       ...(finish ? { finish } : {}),
       ...(usage ? { usage } : {}),
     };

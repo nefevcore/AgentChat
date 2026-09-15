@@ -307,7 +307,11 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 </template>
 
 <style scoped>
-.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; }
+/* 气泡宽度单源管控（所有消息形态经此）：
+   min(100%, max(70%, 440px)) —— 宽主区维持 70% 对话语境；主区被辅栏/主栏
+   压缩时（视口不变，@media 断点不触发）占比平滑放大；内容宽 ≤440px 时
+   完全填满（与手机视口窄形态行为统一）。 */
+.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: min(100%, max(70%, 440px)); }
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
 .turn-bubble { width: 100%; }

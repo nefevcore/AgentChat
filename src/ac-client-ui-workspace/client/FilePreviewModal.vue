@@ -3,7 +3,7 @@
      内容逻辑自 filePreviewContent.ts composable 共用（与 pane 单一逻辑源） -->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
-import { Icon, Tooltip } from '@agentchat/webui-kit';
+import { Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import {
   useFilePreviewContent,
   previewModeOptions,
@@ -31,7 +31,7 @@ const emit = defineEmits<{
 // 内容逻辑（共用 composable；visible 作为 enabled 门——关闭期间不发请求）
 const {
   loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown,
-  imageSrc, highlightedCode, renderedMarkdown, codeLines, sizeDisplay,
+  imageSrc, highlightedCode, renderedMarkdown, codeLines, sizeDisplay, reload,
 } = useFilePreviewContent(
   () => props.filePath,
   () => ({ agentId: props.fallbackAgentId ?? '', conversationId: props.conversationId ?? '' }),
@@ -83,11 +83,9 @@ function close() {
   emit('close');
 }
 
-// ── 本地打开（系统默认程序；错误就地短暂反馈）──
+// ── 本地打开（系统默认程序；失败经全局 toast 呈现，按钮仅错误标记位）──
 const rpc = useClientContext()?.rpc ?? null;
 const openLocalState = ref<'idle' | 'opening' | 'error'>('idle');
-const openLocalMsg = ref('');
-let openLocalTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function openLocally() {
   if (!rpc || openLocalState.value === 'opening') return;
@@ -97,15 +95,15 @@ async function openLocally() {
       agentId: props.fallbackAgentId || undefined,
       conversationId: props.conversationId || undefined,
     }, rpc);
-    openLocalState.value = r.error ? 'error' : 'idle';
-    openLocalMsg.value = r.error ?? '';
+    if (r.error) {
+      openLocalState.value = 'error';
+      toastError(`本地打开失败：${r.error}`, { key: 'open-local', duration: 4000 });
+    } else {
+      openLocalState.value = 'idle';
+    }
   } catch (err: any) {
     openLocalState.value = 'error';
-    openLocalMsg.value = err?.message ?? String(err);
-  }
-  if (openLocalState.value === 'error' && openLocalTimer) {
-    clearTimeout(openLocalTimer);
-    openLocalTimer = setTimeout(() => { openLocalState.value = 'idle'; }, 3000);
+    toastError(`本地打开失败：${err?.message ?? String(err)}`, { key: 'open-local', duration: 4000 });
   }
 }
 
@@ -121,7 +119,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown);
   if (copyTimer) clearTimeout(copyTimer);
-  if (openLocalTimer) clearTimeout(openLocalTimer);
 });
 </script>
 
@@ -179,6 +176,14 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </Teleport>
+            <!-- 刷新（重新拉取文件内容；加载中转圈禁点——错误态点击即重试） -->
+            <Tooltip text="刷新" placement="bottom">
+              <button
+                class="fp-icon-btn"
+                :disabled="loading"
+                @click="reload"
+              ><Icon name="refresh-cw" :size="15" :class="{ 'fp-spin': loading }" /></button>
+            </Tooltip>
             <Tooltip v-if="fileData && !fileData.binary" :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制内容'" placement="bottom">
               <button
                 class="fp-icon-btn"
@@ -208,7 +213,7 @@ onBeforeUnmount(() => {
             <button
               v-else
               class="fp-icon-btn error"
-              :title="openLocalMsg"
+              title="本地打开失败（详见全局提示）"
               @click="openLocally"
             ><Icon name="alert-circle" :size="15" /></button>
             <Tooltip v-if="isHtml" text="在新窗口打开" placement="bottom">
@@ -242,6 +247,7 @@ onBeforeUnmount(() => {
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <span>{{ error }}</span>
+            <button class="fp-error-retry" @click="reload">重试</button>
           </div>
 
           <!-- HTML 预览（sandbox 仅 allow-scripts：去掉 allow-same-origin，防止恶意 HTML 触达父页面 DOM/存储） -->
@@ -470,6 +476,24 @@ onBeforeUnmount(() => {
   gap: 10px;
   color: var(--color-error, #f44336);
   font-size: 13px;
+}
+/* 错误区重试按钮（文字按钮形态——大点击目标；同 pane 的 fpt-error-retry） */
+.fp-error-retry {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border, rgba(255,255,255,0.12));
+  background: var(--color-bg-surface, rgba(255,255,255,0.04));
+  color: var(--color-text-secondary, rgba(255,255,255,0.7));
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.fp-error-retry:hover {
+  background: var(--color-bg-hover, rgba(255,255,255,0.1));
+  color: var(--color-text-primary, #e0e0e0);
 }
 
 /* iframe */

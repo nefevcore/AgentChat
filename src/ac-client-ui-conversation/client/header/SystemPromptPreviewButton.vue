@@ -20,10 +20,12 @@ import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 const props = defineProps<{
   /** 席位 owner 上下文透传（D16-③：ConversationView 经 SlotOutlet data 传入） */
   data: {
-    /** 会话形态（仅 direct/single 显示入口） */
+    /** 会话形态（pair 无系统提示词预览入口） */
     form?: 'direct' | 'group' | 'single' | 'pair';
-    /** 头部目标 Agent（direct = 激活 Agent；single = 会话承载 Agent） */
+    /** 头部目标 Agent（direct = 激活 Agent；single = 会话承载 Agent；群 = 群主） */
     agentId?: string | null;
+    /** 会话键（群 = gid——预览按群成员视角装配：记忆桶/群共享记忆按 gid 解析） */
+    conversationId?: string | null;
   };
 }>();
 
@@ -32,21 +34,31 @@ const ui = useUiStore();
 const roster = useRosterCore();
 
 const agentId = toRef(() => props.data.agentId);
+const conversationId = toRef(() => props.data.conversationId);
 
-/** 形态 gate：仅 direct/single（group/pair 无系统提示词预览入口） */
+/** 形态 gate：direct/single/群（群 = 群主视角预览；pair 只读无入口） */
 const applicable = computed(() =>
-  (props.data.form === 'direct' || props.data.form === 'single') && !!agentId.value);
+  (props.data.form === 'direct' || props.data.form === 'single' || props.data.form === 'group') && !!agentId.value);
 
-/** 弹窗标题快照（getAgentName 含预设目录解析——与内核 activeAgentName 同源） */
+/** 弹窗标题快照（getAgentName 含预设目录解析——与内核 activeAgentName 同源）；
+ *  群形态标注视角（群主 xxx） */
 const agentName = computed(() => {
   const id = agentId.value;
   if (!id) return '';
-  return roster.getAgentName(id) || id;
+  const name = roster.getAgentName(id) || id;
+  return props.data.form === 'group' ? `${name}（群主视角）` : name;
 });
 
 /** 打开 System Prompt 预览（overlay 贡献——开关态住 ui store；内容请求经 chatStore） */
 function openPreview() {
-  if (agentId.value) chatStore.requestSystemPrompt(agentId.value);
+  if (agentId.value) {
+    // 群形态带 gid——后端按群成员视角装配（记忆桶按 gid 解析）
+    if (props.data.form === 'group' && conversationId.value) {
+      chatStore.requestSystemPrompt(agentId.value, { conversationId: conversationId.value });
+    } else {
+      chatStore.requestSystemPrompt(agentId.value);
+    }
+  }
   ui.openSystemPrompt(agentName.value);
 }
 </script>

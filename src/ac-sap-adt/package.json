@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "SAP ABAP ADT 工具行：46 个 adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试器/$batch…）直连 SAP ADT REST 协议，引擎 = @nefevcore/abap-adt-core 纯内核；工具需 sap-adt 能力标签；demo 目的地（进程内 mock）开箱即用",
+  "description": "SAP ABAP ADT 工具行：32 个 adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试器/$batch…）直连 SAP ADT REST 协议，引擎 = @nefevcore/abap-adt-core 纯内核；工具需 sap-adt 能力标签；demo 目的地（进程内 mock）开箱即用",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -11,14 +11,19 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",
-    "@nefevcore/abap-adt-core": "^0.7.2",
+    "@nefevcore/abap-adt-core": "^0.10.0",
     "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-presets": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-plugin-core": "workspace:*",
+    "ac-shell-tools": "workspace:*",
     "ac-tools": "workspace:*",
+    "ac-web-tools": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

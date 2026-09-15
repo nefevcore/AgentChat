@@ -643,14 +643,15 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   const REPLY_RETRY_MAX = 20;
   /**
    * 提交回答：answers 与 questions 对齐（未答/跳过的题传 null——工具结果如实
-   * 呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。
+   * 呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。多选题的
+   * 答案为勾选项数组（answer 侧 JsonValue 原样落账，Agent 侧数组呈现）。
    * 可靠投递（2026-09-12 反馈修正）：此前 fire-and-forget + catch 吞错 + 提交即
    * 出列——ws 断连/后端重启窗口期作答被静默丢弃（弹窗已关、后端 pending 永久
    * 残留、Agent 永久等待，表现为"答了没反应/刷新后无法继续回答"）。现改为：
    * 成功后才出列；失败重试（后端 reply 幂等——duplicate 语义，重试无副作用）；
    * 超上限提示重试——弹窗未出列，用户作答入口不失联。
    */
-  function respondInteraction(answers: Array<string | null>) {
+  function respondInteraction(answers: Array<string | string[] | null>) {
     const current = interaction.value;
     if (!current) return;
     const id = current.interaction_id;
@@ -680,12 +681,15 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   /** 预览请求（Port B 直连）：agents/system-prompt RPC → 直接填状态。
    *  single 会话透传 sessionId——后端按真实会话键装配（模型覆盖/挂载
    *  工作区白名单/工作区技能组/记忆桶按 sid 解析）；pair 场景不传（服务端
-   *  落 viewer 对桶键，与 deliver 边界同口径）。 */
-  function requestSystemPrompt(agentId?: string) {
+   *  落 viewer 对桶键，与 deliver 边界同口径）。
+   *  options.conversationId（群视角）：显式会话键——群 gid 下后端按
+   *  群成员视角装配（记忆桶按 gid 解析、群共享记忆属主注入），不回落
+   *  viewer 对桶死键。 */
+  function requestSystemPrompt(agentId?: string, options?: { conversationId?: string }) {
     const ctx = resolveContext();
     const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
-    const sessionId = ctx?.kind === 'single' ? ctx.sessionId : undefined;
+    const sessionId = options?.conversationId ?? (ctx?.kind === 'single' ? ctx.sessionId : undefined);
     systemPromptLoading.value = true;
     systemPromptContent.value = '';
     systemPromptError.value = '';

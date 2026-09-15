@@ -141,9 +141,20 @@ function sessionTitle(r: RunsRunningEntry): string {
     const gid = r.convKey.split('~')[1] ?? '';
     return `${memberName(r.agentId)} @ ${memberName(gid)}`;
   }
+  // single 会话标题：singles 域投影（singleBoard.singles——含自动生成
+  // 标题，singles/updated 帧驱动刷新；矩阵域 RunsSnapshot.singles 在客户端
+  // 投影恒空，不参与）。无标题时与会话列表 titleOf 同款回落（新会话 /
+  // Agent · 创建时间），不再拿路由预设名（"标准模式"等模式名）冒充会话
+  // 名——2026-12 反馈：运行跟踪应显示具体会话标题。
   const sid = r.convKey.split('~')[1] ?? '';
-  const single = snapshot.value?.singles.find(s => s.id === sid);
-  return single?.title || memberName(r.agentId || (single?.agentId ?? '')) || sid.slice(0, 8);
+  const single = singlesBoard?.singles.value.find(s => s.id === sid);
+  if (single) {
+    if (single.title) return single.title;
+    return single.agentId
+      ? `${memberName(single.agentId)} · ${new Date(single.createdAt).toLocaleString()}`
+      : '新会话';
+  }
+  return memberName(r.agentId) || sid.slice(0, 8);
 }
 
 /** 该运行会话能否在主区打开（前端视角支持：single / 群 / viewer 参与的 1v1；
@@ -227,6 +238,9 @@ onMounted(() => {
   runSvc?.ensurePolling(); // 域件未装载 → 静默跳过（空态渲染）
   jobBoard?.ensureStarted(); // 域件未装载 → 静默跳过（空态渲染）
   roster.requestAgents();
+  // single 会话标题数据源（会话列表未开过时此处兜底拉取；后续
+  // singles/updated 帧驱动刷新——自动标题生成后即时上屏）
+  if (!(singlesBoard?.loaded.value ?? false)) void singlesBoard?.refresh();
 });
 </script>
 

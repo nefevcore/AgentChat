@@ -823,8 +823,10 @@ export function apply(ctx: Context) {
     // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁（requiredTags）
     // 先过滤，再按 AgentConfig.tools 解析 include/exclude
     const caps = capabilitySetOf(ctx, agentId);
-    const all = ctx.tools.list().filter((t) => toolAllowedFor(t, caps)).map((t) => t.name);
-    const names = resolveToolNames(config.tools, all) ?? all;
+    const visible = ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+    const all = visible.map((t) => t.name);
+    // 解析传 defs（tag 引用 'tag:<tag>' 展开——与 router 同口径）
+    const names = resolveToolNames(config.tools, visible) ?? all;
     // defs：生效集的完整定义（description/parameters；execute 不跨 JSON）
     const defs = ctx.tools
       .list()
@@ -1261,6 +1263,54 @@ export function apply(ctx: Context) {
   web.registerRpc('session/tokens', async (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
+    // 群会话（conversationId = gid，命中群名册）：前端群聊仪表以群主
+    //   （memoryOwner）视角分析——每成员上下文 = 同一群本体按读者派生
+    //   （historyFor：<msg> 包装/peer 合并/轮转摘要头），群主是代表读者；
+    //   未配群主回落首成员。占用 = historyFor 全量估算（派生窗 = 回放
+    //   窗口的派生源），预算分母 = 群主的 archive settings。
+    const group = ctx.group.get(conversationId);
+    if (group !== undefined) {
+      const viewer = group.memoryOwner ?? group.members[0] ?? '';
+      const msgs = await ctx.group.historyFor(conversationId, viewer);
+      let promptTokens = 0;
+      for (const m of msgs) {
+        promptTokens += estimateTokens(
+          typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+        );
+      }
+      const archiveSettings = ctx.agents.settingsOf(viewer, 'archive') as
+        | { maxContextTokens?: unknown }
+        | undefined;
+      const maxContextTokens =
+        typeof archiveSettings?.maxContextTokens === 'number' && archiveSettings.maxContextTokens > 0
+          ? archiveSettings.maxContextTokens
+          : 1_000_000;
+      const usagePercent = Math.min(100, (promptTokens / maxContextTokens) * 100);
+      const st = ctx.session.stats(conversationId);
+      const messageCount = st?.messageCount ?? 0;
+      const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
+      const estimatedMsgsRemaining =
+        avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0;
+      const usageAgg = ctx.usage.byConversation()[conversationId];
+      return {
+        conversationId,
+        messageCount,
+        contextTokens: promptTokens,
+        maxContextTokens,
+        avgTokensPerMsg: Math.round(avgTokensPerMsg),
+        usagePercent,
+        estimatedMsgsRemaining,
+        status: usagePercent < 50 ? 'low' : usagePercent < 75 ? 'moderate' : usagePercent < 90 ? 'high' : 'critical',
+        agentId: viewer,
+        cache: {
+          lastHit: usageAgg?.lastCacheHit ?? 0,
+          lastMiss: usageAgg?.lastCacheMiss ?? 0,
+          hit: usageAgg?.cacheHit ?? 0,
+          miss: usageAgg?.cacheMiss ?? 0,
+          lastRunPrompt: usageAgg?.lastContextPrompt ?? 0,
+        },
+      };
+    }
     // single 会话（conversationId = sid，无 ~ 段）：承载 Agent 优先调用方显式
     //   agentId；缺省时从 singles 元数据解析（agentId 空 = 默认预设）——与
     //   session/archive 显式传参、前端 defaultPresetId 补全同口径。回放估算
@@ -2217,6 +2267,18 @@ export function apply(ctx: Context) {
     const path = optStr(p.path);
     if (!path) throw new Error('参数 path 缺失');
     return ctx.workspace.openLocal(path, {
+      ...(optStr(p.agentId) ? { agentId: optStr(p.agentId) } : {}),
+      ...(optStr(p.conversationId) ? { conversationId: optStr(p.conversationId) } : {}),
+    });
+  });
+
+  // 本地资源管理器（系统文件管理器打开工作区/树基准文件夹——会话侧边栏
+  // 工作区节点与辅助侧边栏工作区面板头部入口；workspaceId 在场 = 登记工作区，
+  // 缺席按 agentId/conversationId 树基准推导。错误经 error 字段回传不抛错）
+  web.registerRpc('workspace/open-dir', (params) => {
+    const p = obj(params);
+    return ctx.workspace.openDir({
+      ...(optStr(p.workspaceId) ? { workspaceId: optStr(p.workspaceId) } : {}),
       ...(optStr(p.agentId) ? { agentId: optStr(p.agentId) } : {}),
       ...(optStr(p.conversationId) ? { conversationId: optStr(p.conversationId) } : {}),
     });

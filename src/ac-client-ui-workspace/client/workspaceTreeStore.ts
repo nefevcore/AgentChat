@@ -8,6 +8,10 @@
 //   · 会话上下文定位（反馈 #1）：树基准 = 当前活跃会话上下文
 //     （single > agent pair > group > 全局数据根），随上下文切换重定位；
 //     per-context 记忆（树数据/展开态各自独立，切回即恢复）。
+//   · 展开态跨刷新持久化：expanded 住 store 外另存 workspaceTreePrefs
+//     （localStorage）——基准建册时读回，恢复链按深度序逐层懒加载
+//     重铺；expand/collapse 即时写回。树数据/滚动/activePath 仍是
+//     会话内瞬态（懒加载重取 + 滚动随高度变化）。
 //
 // 树节点 shape（TreeNode）单源住本 store（组件树消费）。
 // 本 store 是数据的唯一事实源，组件只渲染 + 写回交互态。
@@ -15,6 +19,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { fetchWorkspaceTree } from './index.ts';
+import { loadExpanded, saveExpanded } from './workspaceTreePrefs.ts';
 
 /** 树节点（含懒加载运行时态；WorkspaceTreeNode/WorkspaceTree 消费——
  *  本 store 是 shape 单源，避免 .ts 链反向引 .vue）。文件大小不入树
@@ -46,6 +51,11 @@ function freshState(): TreeContextState {
   return { root: [], expanded: new Set(), scrollTop: 0, label: '', loading: false, error: '', activePath: '' };
 }
 
+/** 建册态（含持久化展开态读回——刷新/新会话首触即回放） */
+function registeredState(key: string): TreeContextState {
+  return { ...freshState(), expanded: loadExpanded(key) };
+}
+
 /** per-path in-flight 守卫（双击同一目录不重复请求） */
 const pendingDirs = new Set<string>();
 
@@ -62,7 +72,8 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
     return conversationId ? `c:${conversationId}` : agentId ? `a:${agentId}` : '';
   }
 
-  /** 切换/设定当前树基准（同 key 且已有状态 = 幂等；key 不在册则建空态并加载根层） */
+  /** 切换/设定当前树基准（同 key 且已有状态 = 幂等；key 不在册则建空态、加载根层
+   *  并重铺持久化展开态（恢复链按深度序逐层懒加载）。 */
   async function setContext(agentId: string, conversationId: string): Promise<void> {
     const key = contextKey(agentId, conversationId);
     // 幂等判据 = key 相同且状态已在册（初态 currentKey='' 与目标 '' 相同
@@ -70,15 +81,16 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
     if (currentKey.value === key && trees.value[key]) return;
     currentKey.value = key;
     if (!trees.value[key]) {
-      trees.value[key] = freshState();
+      trees.value[key] = registeredState(key);
       await loadDir(key, '', true);
+      await restoreExpanded(key);
     }
   }
 
   /** 加载目录子项（isRoot=true 写回根层 + 驱动全局 loading/error——
    *  子目录懒加载行内占位不动整树；返回值供 expandDir 挂树） */
   async function loadDir(key: string, dirPath: string, isRoot = false): Promise<TreeNode[]> {
-    const st = trees.value[key] ?? (trees.value[key] = freshState());
+    const st = trees.value[key] ?? (trees.value[key] = registeredState(key));
     if (isRoot) {
       st.loading = true;
       st.error = '';
@@ -114,6 +126,7 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
     const st = trees.value[key];
     if (!st) return;
     st.expanded.add(dirPath);
+    persistExpanded(st, key);
     const node = dirPath ? findNode(st.root, dirPath) : null;
     // 子层请求：节点未带 children 才发（per-path in-flight 守卫）
     if (node && node.type === 'dir' && !node.children) {
@@ -128,7 +141,37 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
   }
 
   function collapseDir(key: string, dirPath: string): void {
-    trees.value[key]?.expanded.delete(dirPath);
+    const st = trees.value[key];
+    if (!st) return;
+    st.expanded.delete(dirPath);
+    persistExpanded(st, key);
+  }
+
+  /** 展开集合写回持久层（满集合全量替换；去抖落盘见 prefs 模块） */
+  function persistExpanded(st: TreeContextState, key: string): void {
+    saveExpanded(key, st.expanded);
+  }
+
+  /** 刷新恢复链：持久化展开集合按深度序逐层懒加载重铺（父先子后，
+   *  findNode 才逐级可寻）。恢复期并发 expandDir 会被 in-flight 守卫
+   *  归一（pendingDirs 全局共享）；恢复完成后 store 集合即事实源，
+   *  幽灵路径（目录已更名/删除）静默忽略——重铺找不到节点即止。 */
+  async function restoreExpanded(key: string): Promise<void> {
+    const st = trees.value[key];
+    if (!st || st.expanded.size === 0) return;
+    const byDepth = [...st.expanded].sort((a, b) => a.split('/').length - b.split('/').length);
+    for (const p of byDepth) {
+      const node = p ? findNode(st.root, p) : null;
+      // 节点已带 children 或路径不命中（幽灵）——只补 expanded 标记
+      if (!(node && node.type === 'dir' && !node.children)) continue;
+      if (pendingDirs.has(p)) continue;
+      pendingDirs.add(p);
+      try {
+        node.children = await loadDir(key, p);
+      } finally {
+        pendingDirs.delete(p);
+      }
+    }
   }
 
   /** 树内按路径找节点（'a/b/c' 下钻；'' = 不找——根层无节点壳） */

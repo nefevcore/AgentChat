@@ -198,7 +198,8 @@ export class AgentAdminService extends Service {
       tools: {
         include: Array.isArray(tools) ? tools : tools?.include ?? [],
         exclude: Array.isArray(tools) ? [] : tools?.exclude ?? [],
-        enabled: resolveToolNames(tools, names) ?? names,
+        // 解析传 defs（tag 引用展开——与 router 同口径）
+        enabled: resolveToolNames(tools, allTools) ?? names,
         catalog: allTools.map((t) => ({
           name: t.name,
           description: t.description ?? '',
@@ -342,7 +343,7 @@ export class AgentAdminService extends Service {
       ...(provider ? { provider } : {}),
       ...(config.system ? { system: config.system } : {}),
       ...(config.tools !== undefined
-        ? { tools: resolveToolNames(config.tools, this.ctx.tools.list().map((t) => t.name)) ?? [] }
+        ? { tools: resolveToolNames(config.tools, this.ctx.tools.list()) ?? [] }
         : {}),
       messages: [],
       // 预览视角：显式会话键优先（singles sid——挂载工作区/技能组/记忆桶

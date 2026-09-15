@@ -1,5 +1,5 @@
 // ============================================================
-// ac-sap-adt —— SAP ABAP ADT 工具行（46 个 adt_* 工具）
+// ac-sap-adt —— SAP ABAP ADT 工具行（32 个 adt_* 工具）
 //
 // 引擎复用 @nefevcore/abap-adt-core 纯内核（与 DeepSeek Harness 适配层
 // 同源——单一事实源，290 项内核测试在源仓库锁定行为）。本行只做宿主适配：
@@ -10,7 +10,7 @@
 //       undefined——模型边界是 JSON 而非 JS）
 //   2. 能力门禁：全部工具 requiredTags ['sap-adt']——只有 tags 里
 //      显式加了 sap-adt 的 Agent 可见/可调（对齐 DSH 侧"默认不加载、
-//      按需启用"的哲学；普通 Agent 的工具列表不被 46 个工具淹没）
+//      按需启用"的哲学；普通 Agent 的工具列表不被 32 个工具淹没）
 //   3. 启停分层（对齐 mcp 语义——platform 标准词汇）：
 //        · 行 config `enabled:false` = 进程级硬停（boot 不注册工具）
 //        · `settings['sap-adt'].enabled` = 软停用（热生效）：
@@ -26,14 +26,25 @@
 //      destinations/configFile/policy）< 显式 configFile（相对路径锚定
 //      数据根）——config/changed 热重载目的地表与策略，无需重启
 //
-// 会话工作区层（per-call 锚点按调用方作用域）：Agent 调用 →
-// <数据根>/.ac-sap-adt/agents/<agentId>/destinations.yaml（per-Agent 隔离，
-// 对话式 adt_create_destination 写这里）；宿主直调 → <数据根>/.ac-sap-adt/
-// destinations.yaml。快照/导出的 fs 子树是独立的 <数据根>/sap-adt/。demo
-// 目的地（进程内 mock ADT 服务器）默认开启——零 SAP 系统即可端到端体验。
+// 会话工作区层（per-call 锚点按调用方作用域，Agent × 会话工作区双维）：
+// Agent 调用 → <数据根>/.ac-sap-adt/agents/<agentId>/destinations.yaml
+// （per-Agent 隔离，对话式 adt_create_destination 写这里）；该会话挂载了
+// 工作区（singles workspaceId，ac-workspace conversationWorkspaceRoot 唯一
+// 事实源）→ 再切一层 ws/<工作区路径 slug>/destinations.yaml——同一 Agent
+// 在不同工作区的 single 会话各持一份，互不可见（2026-09-15 修复）；宿主
+// 直调 → <数据根>/.ac-sap-adt/destinations.yaml。快照/导出的 fs 子树是
+// 独立的 <数据根>/sap-adt/。demo 目的地（进程内 mock ADT 服务器）默认
+// 开启——零 SAP 系统即可端到端体验。
+//   6. 使用规约注入（loop/before-run，对齐 ac-fs-tools FILE_MENTION_GUIDE
+//      形态）：生效工具集含 adt_* 且调用方未停用 → 向 request.system 追加
+//      一块静态规约（先问后建/复用已有传输请求/删改前确认/先读后写）。
+//      判据只看工具名前缀 `adt_`（代际无关——引擎换名不换前缀，0.8 fs
+//      风格 → 0.9+ 整合收敛两代都成立）；文案同样不引用具体工具名，
+//      引擎升级后指引自动跟随。
 // ============================================================
 import * as fs from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only）
 import z from '@agentchat/schemastery';
@@ -62,6 +73,28 @@ export const name = 'ac-sap-adt';
 export const CAPABILITY_TAG = 'sap-adt';
 
 /**
+ * ADT 工具使用规约（生效工具集含 adt_* 时注入 system prompt；对齐
+ * ac-fs-tools FILE_MENTION_GUIDE / ac-collab-tools AGENT_MENTION_GUIDE
+ * 的 owner 行条件注入形态）。追加语义（规约块追加到 system 末尾）——
+ * 与 persona 前置块 / 记忆块任意注册顺序都收敛到同一结构（顺序无关
+ * 收敛规约）。**静态常量**：KV Cache 前缀稳定（输入不变则输出不变）。
+ *
+ * 文案纪律：不引用具体工具名（判据与文案都只认 `adt_` 前缀——引擎
+ * 换代换名不换前缀，0.8 fs 风格 → 0.9+ 整合收敛两代都成立），
+ * 指引随引擎升级自动成立，不改这块文本。
+ */
+const ADT_TOOLS_GUIDE = [
+  '<sap-adt-tools>',
+  '[ADT 使用规约] adt_* 工具直连真实 SAP 系统，写侧动作前先征得用户同意：',
+  '- 建请求先问：新建传输请求（workbench task）、目的地（destination）等请求/连接配置前，先向用户确认名称与参数，不得自建；用户给了编号/名称就直接用。',
+  '- 复用优先：改对象前用传输请求列表工具查用户名下未释放的请求（status=modifiable），有就在其上继续，避免后端自动新建任务；仅在用户明确要求时才新建。',
+  '- 写前先读：改任何对象前先读取当前源码（快照兼作乐观并发基准），基于最新内容修改；遇冲突错误先重读再改，不要盲目重试。',
+  '- 删除必确认：删除对象不可逆——即使 policy 放行，也必须先向用户复述对象名并确认。',
+  '- 探路起步：拿到新目的地先 ping/系统信息确认可达与权限（adt_permissions 可查策略），再进入读改流程。',
+  '</sap-adt-tools>',
+].join('\n');
+
+/**
  * AgentChat 宿主档案（内核 hostprofile 检测缝，core ≥ 0.7.1）：声明本宿主
  * 的凭证存储词汇与工作区 destinations 目录，内核据此把 adt_create_destination
  * 的工具描述/notes/hint 与 destinations.yaml 自文档注释全部换成 AgentChat
@@ -75,7 +108,7 @@ const AGENTCHAT_HOST_PROFILE: HostProfile = {
   credentialStore: { label: 'AgentChat encrypted credential store' },
   passwordResolution: 'AgentChat credential store > process env',
   globalConfigHint: 'overrides the `sap-adt:` section of the AgentChat config',
-  // '.' = 锚点即配置目录（core ≥ 0.7.2）：锚点已按调用方作用域（per-Agent）
+  // '.' = 锚点即配置目录：锚点已按调用方作用域（per-Agent）
   // 切分，destinations.yaml 直接落锚点下，不再嵌一层常量目录
   workspaceConfigDir: '.',
 };
@@ -118,7 +151,7 @@ export const extension: ExtensionMeta = {
   name: 'sap-adt',
   label: 'SAP ABAP ADT 工具行',
   description:
-    '46 个 adt_* 工具直连 SAP ADT REST（搜索/读写/激活/单测/ATC/传输/调试器/$batch）；' +
+    '32 个 adt_* 工具直连 SAP ADT REST（搜索/读写/激活/单测/ATC/传输/调试器/$batch）；' +
     '需 sap-adt 能力标签；引擎配置走行 config 与 config.json `sap-adt:` 段（热生效）；' +
     'demo 目的地（进程内 mock）默认可用',
   fields: [
@@ -142,6 +175,12 @@ export const extension: ExtensionMeta = {
       event: 'loop/before-run',
       role: 'visibility',
       description: '停用 Agent 的 run 从 request.tools 移除 adt_* 暴露面（非 adt 工具不动）',
+      respectsEnabled: true,
+    },
+    {
+      event: 'loop/before-run',
+      role: 'guide',
+      description: '生效工具集含 adt_* 且未停用 → system prompt 追加 <sap-adt-tools> 使用规约（先问后建/复用传输请求/删改前确认）',
       respectsEnabled: true,
     },
   ],
@@ -248,6 +287,28 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
     { description: 'sap-adt：停用 Agent 的 adt_* 暴露面收敛（非 adt 工具不动）' },
   );
 
+  // ---- 使用规约注入（owner 行条件注入；对齐 ac-fs-tools FILE_MENTION_GUIDE）----
+  // 判据 = 生效工具集含 adt_*（request.tools 已声明 → 有 adt 即注入；
+  // 未声明 → 回落全目录，工具行 init 失败/硬停时目录里没有 adt_* 自然不注）
+  // ∧ 调用方未停用（与上方暴露面收敛同一 settingsOf 合成口径——停用方
+  // 的 adt_* 已被移除，双保险判据一致，不产生"工具没了还留指引"的错位）。
+  // 判据只认 `adt_` 前缀：engine 代际换名（0.8 fs 风格 → 0.9 CRUD 时代）
+  // 不影响成立；文案不引用具体工具名，随引擎升级自动跟随。
+  ctx.on(
+    'loop/before-run',
+    (call, next) => {
+      const request = (call as { request?: { agent?: string; tools?: string[]; system?: string } }).request;
+      if (!request || settingsDisabledFor(request.agent)) return next();
+      const names = new Set(request.tools ?? ctx.get('tools')?.list().map((t) => t.name) ?? []);
+      const hasAdt = [...names].some((n) => n.startsWith('adt_'));
+      if (hasAdt) {
+        request.system = request.system ? `${request.system}\n\n${ADT_TOOLS_GUIDE}` : ADT_TOOLS_GUIDE;
+      }
+      return next();
+    },
+    { description: 'sap-adt：注入 <sap-adt-tools> 使用规约（生效工具集含 adt_* 时）' },
+  );
+
   // ---- 引擎配置分层与热重载 ----
   async function currentEffective(): Promise<{ config: EffectiveConfig; warnings: string[] }> {
     const warnings: string[] = [];
@@ -285,19 +346,52 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
     for (const tool of catalog) {
       // 执行上下文垫片：内核读 exec.signal（取消）与
       // exec.agent.session.header.cwd（per-call 工作区层锚点）。
-      // 锚点按调用方作用域切分（Agent 隔离）：Agent 调用 →
-      // <数据根>/.ac-sap-adt/agents/<agentId>/；宿主直调（无身份）→
-      // <数据根>/.ac-sap-adt/。各 Agent 一份独立 destinations 表，互不可见。
-      // agentId 只保留路径安全字符（防目录穿越），快照/导出仍锚定 fs
-      // 适配器自己的 <数据根>/sap-adt/ 子树，与该锚点无关。
-      const agentScopeDir = (agentId: string | undefined): string => {
+      // 锚点按调用方作用域切分（Agent × 会话工作区 双维隔离）：
+      //   · Agent 调用 → <数据根>/.ac-sap-adt/agents/<agentId>/
+      //   · 该会话还挂载了工作区（singles workspaceId，经
+      //     ac-workspace conversationWorkspaceRoot 唯一事实源解析）→
+      //     再按工作区本机路径切一层 ws/<slug>/：
+      //     同一 Agent 在两个工作区的 single 会话各持一份 destinations，
+      //     互不可见（2026-09-15 修复：此前仅按 agentId 切分，同一 Agent
+      //     挂两个工作区时配置互相混入）。宿主直调（无身份）→
+      //     <数据根>/.ac-sap-adt/。agentId 只保留路径安全字符（防目录
+      // 穿越），快照/导出仍锚定 fs 适配器自己的 <数据根>/sap-adt/
+      //     子树，与该锚点无关。
+      type WorkspaceFace = {
+        conversationWorkspaceRoot?(conversationId: string | undefined): string | null;
+      };
+      const agentScopeDir = (agentId: string | undefined, conversationId?: string): string => {
         if (agentId === undefined || agentId === '') return resolve(dataRoot, '.ac-sap-adt');
         const slug = agentId.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+$/, '_') || 'agent';
-        return resolve(dataRoot, '.ac-sap-adt', 'agents', slug);
+        const agentDir = resolve(dataRoot, '.ac-sap-adt', 'agents', slug);
+        // 每次现取（不闭包捕获）：workspace 是可选能力行，装配顺序不定，
+        // 且热插拔后首次调用也要能解析到。
+        const workspaceSvc = ctx.get('workspace', false) as WorkspaceFace | undefined;
+        const wsRoot = workspaceSvc?.conversationWorkspaceRoot?.(conversationId);
+        if (!wsRoot) return agentDir;
+        // 工作区本机路径 → 稳定 slug（跨平台分隔符统一；盘符保留）
+        const wsSlug =
+          wsRoot.replace(/[:\\\/]+/g, '-').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'ws';
+        const wsDir = join(agentDir, 'ws', wsSlug);
+        // 旧布局迁移（一次性，幂等）：修复前同一 Agent 的目的地全部落在
+        // agents/<id>/destinations.yaml——首个带工作区身份的调用把这份
+        // 存量复制到本工作区子目录，既有配置不丢；已迁移/用户已在子目录
+        // 自建时跳过（复制仅当目标不存在）。
+        const legacy = join(agentDir, 'destinations.yaml');
+        const target = join(wsDir, 'destinations.yaml');
+        if (existsSync(legacy) && !existsSync(target)) {
+          try {
+            fs.mkdirSync(wsDir, { recursive: true });
+            fs.copyFileSync(legacy, target);
+          } catch {
+            /* 迁移失败由后续读写自然报错；不阻断工具注册 */
+          }
+        }
+        return wsDir;
       };
-      const execOf = (signal?: AbortSignal, agentId?: string): ToolExec => ({
+      const execOf = (signal?: AbortSignal, agentId?: string, conversationId?: string): ToolExec => ({
         signal,
-        agent: { session: { header: { cwd: agentScopeDir(agentId) } } },
+        agent: { session: { header: { cwd: agentScopeDir(agentId, conversationId) } } },
       });
       ctx.tools.register({
         name: tool.name,
@@ -307,7 +401,8 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
         async execute(args, call) {
           try {
             const agentId = (call as { agentId?: string }).agentId;
-            const value = await tool.execute((args ?? {}) as Record<string, unknown>, execOf(call.signal, agentId));
+            const conversationId = (call as { conversationId?: string }).conversationId;
+            const value = await tool.execute((args ?? {}) as Record<string, unknown>, execOf(call.signal, agentId, conversationId));
             return { ok: true, output: deepCompact(value) };
           } catch (err: unknown) {
             return { ok: false, error: err instanceof Error ? err.message : String(err) };

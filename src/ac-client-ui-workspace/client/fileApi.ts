@@ -61,6 +61,20 @@ export function openLocalFile(path: string, ctx: ReadContext | undefined, rpc: R
   });
 }
 
+/** 本地资源管理器（workspace/open-dir——系统文件管理器打开工作区/树基准
+ *  文件夹；workspaceId 在场 = 登记工作区，缺席按树基准推导〔会话挂载
+ *  工作区 > Agent 基准 > 数据根〕——同工作区树面板） */
+export function openLocalDir(
+  rpc: Rpc,
+  opts: { workspaceId?: string; agentId?: string; conversationId?: string },
+): Promise<OpenLocalResult> {
+  return rpc.call<OpenLocalResult>('workspace/open-dir', {
+    ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
+    ...(opts.agentId ? { agentId: opts.agentId } : {}),
+    ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+  });
+}
+
 /** 本机系统原生文件夹选择（阻塞至用户在系统对话框完成操作——10 分钟长
  *  超时与服务端兜底对齐，另加 5s 网络余量；缺省 60s 会中途掐断） */
 export function pickFolder(rpc: Rpc, title?: string): Promise<PickFolderResult> {

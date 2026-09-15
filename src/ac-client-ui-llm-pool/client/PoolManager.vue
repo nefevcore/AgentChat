@@ -11,7 +11,7 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts';
-import { Modal, Button, Icon } from '@agentchat/webui-kit';
+import { Modal, Button, Icon, toastOk } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 // agents 数据面直连已退役（2026-11 语义归位：模型发现/池模型归一化
@@ -55,7 +55,6 @@ const LLM_CONN_FIELDS: FieldMeta[] = [
 const editingName = ref<string | null>(null); // null=列表视图, ''=新建, 'xxx'=编辑
 const draft = ref<Record<string, any>>({});
 const error = ref('');
-const saved = ref('');
 /** 模型发现（编辑弹窗内「读取模型」） */
 const modelsLoading = ref(false);
 const modelsError = ref('');
@@ -96,14 +95,12 @@ const visionProbing = ref(false);
 function startAdd() {
   editingName.value = '';
   error.value = '';
-  saved.value = '';
   modelsError.value = '';
   draft.value = { template: '' };
 }
 function startEdit(name: string) {
   editingName.value = name;
   error.value = '';
-  saved.value = '';
   modelsError.value = '';
   const entry = JSON.parse(JSON.stringify(props.pools[name] ?? {}));
   // 模板反查（按 base_url 匹配；不匹配 = 自定义）
@@ -292,8 +289,7 @@ function saveEntry() {
   emit('update:pools', pool);
   editingName.value = null;
   draft.value = {};
-  saved.value = '已保存';
-  setTimeout(() => { saved.value = ''; }, 2000);
+  toastOk('已保存');
   // 落盘完成后，新建连接若无发现缓存 → 自动「读取模型」一次（静默失败：
   // key 无效时用户可经「读取模型」看重试报错）——选模板 + 填 Key 即完成
   if (!(Array.isArray(models) && models.length > 0)) {
@@ -464,7 +460,6 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
           </div>
         </div>
         <div v-if="error" class="pool-error">{{ error }}</div>
-        <div v-if="saved" class="pool-saved">{{ saved }}</div>
       </div>
       <template #footer>
         <Button variant="ghost" @click="cancelEdit()">取消</Button>
@@ -565,5 +560,4 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
 .pool-model-flag { display: inline-flex; align-items: center; cursor: pointer; }
 .pool-model-flag input { margin: 0; cursor: pointer; accent-color: var(--primary, #4f46e5); }
 .pool-error { color: var(--err); font-size: 12px; }
-.pool-saved { color: var(--ok); font-size: 12px; }
 </style>

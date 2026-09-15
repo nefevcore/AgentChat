@@ -8,9 +8,9 @@
 // 高亮 / Finder reveal / linux 尚无通用选中协议——退化为打开所在目录）。
 //
 // 平台矩阵（与 open 系工具同一套系统命令词汇）：
-//   win32   explorer.exe <path>（选中：/select,<path>）。explorer 对
-//           不存在的路径会弹「找不到」对话框而非退出码报错——调用方
-//           （服务方法）已先行 statSync 保证存在，explorer 仅执行。
+//   win32   cmd /c start "" <path>（ShellExecute——直 CreateProcess
+//           explorer 的窗口在 Win11 可能永不显示，2026-09-14 排查；
+//           选中：explorer.exe /select,<path>）。
 //   darwin  open <path>（选中：open -R <path>——Finder reveal）
 //   linux   xdg-open <path>（父目录定位 = xdg-open <dir>）。无选中
 //           协议：桌面环境各异（dolphin --select / nautilus -s），
@@ -47,11 +47,16 @@ export function openCommands(
   opts: { select?: boolean } = {},
 ): { command: OpenCommand; family: OpenFamily } | null {
   if (platform === 'win32') {
+    // 经 cmd start（ShellExecute）而非直呼 explorer.exe：Win11 直接
+    // CreateProcess explorer 产的 CabinetWClass 窗口可能永不显示
+    //（实测 vis=False 的隐藏窗口池，2026-09-14 排查）；ShellExecute
+    // 走 shell 集成路径稳定前台弹窗。start 后首个空串参数 = 标题占位
+    //（防带空格路径被当窗口标题解析）。select 用 explorer /select 选中
+    // 形态（cmd start 不支持选中参数——explorer 直接子命令）
     return {
-      command: {
-        cmd: 'explorer.exe',
-        args: opts.select ? ['/select,', target] : [target],
-      },
+      command: opts.select
+        ? { cmd: 'explorer.exe', args: ['/select,', target] }
+        : { cmd: 'cmd.exe', args: ['/c', 'start', '', target] },
       family: 'always',
     };
   }

@@ -17,7 +17,9 @@
 //   · 回放值仅作初值——Agent/模型在新建会话时作为创建参数透传
 //     （服务端校验，失效静默回落），effort/elevation 直接设为初值；
 //   · effort ''/elevation '' 与「未记录」都合法记录值（''=明确选择
-//     的关闭态/跟随态，回放时保持——非缺省值才覆写）。
+//     的关闭态/跟随态，回放时保持——非缺省值才覆写）。agentId/model
+//     同语义（2026-09 修复）：'' = 明确选回默认预设/默认模型——写回
+//     覆盖旧记录，新会话跟随（不再残留旧模式；'' ≠ 未记录）。
 // ============================================================
 
 /** 思考强度档位（与 ChatInput EFFORT_OPTIONS 同词表；''=关闭思考） */
@@ -27,9 +29,9 @@ export type ComposeElevation = '' | 'sandbox-access' | 'full-access';
 
 /** 输入栏组合偏好（wire 形 = 持久形态；逐键可选） */
 export interface ComposePrefs {
-  /** 上次选定的 Agent/预设 id（新建独立会话透传；''=默认预设） */
+  /** 上次选定的 Agent/预设 id（新建独立会话透传；''=明确选了默认预设） */
   agentId?: string;
-  /** 上次选定的模型（name@model 引用或裸名；''=默认模型） */
+  /** 上次选定的模型（name@model 引用或裸名；''=明确选了默认模型） */
   model?: string;
   /** 上次思考强度（''=思考关闭） */
   effort?: ComposeEffort;
@@ -49,11 +51,10 @@ const KEY = 'agentchat.composePrefs';
 const EFFORTS = new Set<ComposeEffort>(['', 'low', 'high', 'max']);
 const ELEVATIONS = new Set<ComposeElevation>(['', 'sandbox-access', 'full-access']);
 
-function asString(v: unknown): string | undefined {
-  return typeof v === 'string' && v ? v : undefined;
-}
-
-/** 读取组合偏好（无记录/损坏 → null：全部走各控件缺省值） */
+/** 读取组合偏好（无记录/损坏 → null：全部走各控件缺省值。
+ *  agentId/model 的 '' 是合法记录值（明确选回默认）——带出供消费方
+ *  区分「未记录」与「选了默认」；SessionList 透传时 '' 不进创建参数
+ *  （singles/create 的 agentId 缺省即默认预设）。 */
 export function loadComposePrefs(): ComposePrefs | null {
   try {
     const raw = store?.getItem(KEY);
@@ -61,10 +62,9 @@ export function loadComposePrefs(): ComposePrefs | null {
     const v = JSON.parse(raw) as Record<string, unknown>;
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
     const out: ComposePrefs = {};
-    const agentId = asString(v.agentId);
-    if (agentId) out.agentId = agentId;
-    const model = asString(v.model);
-    if (model) out.model = model;
+    for (const key of ['agentId', 'model'] as const) {
+      if (typeof v[key] === 'string') out[key] = v[key] as string;
+    }
     if (typeof v.effort === 'string' && EFFORTS.has(v.effort as ComposeEffort)) out.effort = v.effort as ComposeEffort;
     if (typeof v.elevation === 'string' && ELEVATIONS.has(v.elevation as ComposeElevation)) out.elevation = v.elevation as ComposeElevation;
     return Object.keys(out).length > 0 ? out : null;
@@ -73,7 +73,9 @@ export function loadComposePrefs(): ComposePrefs | null {
   }
 }
 
-/** 合并写（patch 键级：值覆盖；未识别键忽略）。失败静默（无 localStorage 面） */
+/** 合并写（patch 键级：值覆盖；未识别键忽略）。失败静默（无 localStorage 面）。
+ *  agentId/model 的 '' 同为合法写值——明确选回默认时覆盖旧记录（新会话
+ *  跟随），与 effort/elevation 的关闭态语义一致。 */
 export function saveComposePrefs(patch: ComposePrefs): void {
   try {
     const next: ComposePrefs = { ...(loadComposePrefs() ?? {}) };
@@ -81,7 +83,7 @@ export function saveComposePrefs(patch: ComposePrefs): void {
       switch (key) {
         case 'agentId':
         case 'model':
-          if (typeof value === 'string' && value) (next as Record<string, unknown>)[key] = value;
+          if (typeof value === 'string') (next as Record<string, unknown>)[key] = value;
           break;
         case 'effort':
           if (typeof value === 'string' && EFFORTS.has(value as ComposeEffort)) next.effort = value as ComposeEffort;

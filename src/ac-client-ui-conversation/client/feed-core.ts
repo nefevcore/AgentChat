@@ -196,10 +196,14 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     d.streamAgent = keys.agentId;
   }
 
-  /** 激活群聊对话（与 direct/single 互斥） */
+  /** 激活群聊对话（与 direct/single 互斥）；进入即清该群未读
+   *  （与 direct 点开 Agent 清未读同语义——名册群行徽章/活动栏聚合
+   *  同源回落；调用方 ui-group selectGroup 三路径共用：列表点击/
+   *  创建后自动选中/上次上下文恢复） */
   function setActiveGroup(groupId: string) {
     activeGroupId.value = groupId;
     activeSingleId.value = '';
+    clearUnread(groupDialog(groupId));
   }
   /** 取消群聊激活（回到 direct） */
   function clearActiveGroup() {
@@ -371,7 +375,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   function requestHistoryPage(to: string, session: string | undefined, srcOffset: number, reqId: string) {
     const base = historyPage(session, to, srcOffset);
     const conversationId = session ?? bucketKey(VIEWER_ID.value, to);
-    void rpc.call<{ records?: unknown[] }>('session/history', { ...base, conversationId })
+    void rpc.call<{ records?: unknown[]; hasMore?: boolean }>('session/history', { ...base, conversationId })
       .then((r) => {
         const records = (r.records ?? []) as Array<Record<string, unknown>>;
         historyServed(session, to, records.length);
@@ -380,6 +384,12 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
           agentId: to,
           ...(session ? { session } : {}),
           requestId: reqId,
+          // 服务端分页回显（M16）：hasMore = offset+limit < total（原始记录
+          // 口径，精确）。透传给 mergeHistory 优先于页内 viewer 消息数
+          // 启发式——single 机制驱动会话（timer/goal/子 Agent 接力）尾部
+          // 整页可无 viewer 消息，启发式误判「没有更早历史」→ 上翻续拉
+          // 被 hasMore 守卫挡死（2026-09 反馈：single 只见尾部消息）。
+          ...(typeof r.hasMore === 'boolean' ? { serverHasMore: r.hasMore } : {}),
         });
       })
       .catch((err: unknown) => {
@@ -423,7 +433,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     traceSwitch('req-more', `offset=${_historyOffset[to]} ${dialogId} reqId=${reqId.slice(-6)}`);
     requestHistoryPage(to, session, _historyOffset[to], reqId);
   }
-  function mergeHistory(dialogId: DialogId, msgs: ChatMessage[], isFirstPage: boolean): DialogFeed | null {
+  function mergeHistory(dialogId: DialogId, msgs: ChatMessage[], isFirstPage: boolean, serverHasMore?: boolean): DialogFeed | null {
     const d = dialogs.value[dialogId];
     if (!d) return null;
     const mergeT0 = performance.now();
@@ -432,7 +442,11 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     // agentId）——direct 分区对话键是对桶键，键词表漂移会让校准恒读 0（校准失效）
     const { kind: mKind, key: mKey } = parseDialogId(dialogId);
     const agentId = mKind === 'single' ? mKey : agentKeyOf(dialogId);
-    d.hasMore = msgs.filter(m => m.agent_id === VIEWER_ID.value).length >= HISTORY_PAGE_SIZE;
+    // hasMore 判定：服务端回显（原始记录口径 offset+limit < total，精确）
+    // 优先；旧后端无回显时回落页内 viewer 消息数启发式（≥5 条 = 可能还有）。
+    d.hasMore = serverHasMore !== undefined
+      ? serverHasMore
+      : msgs.filter(m => m.agent_id === VIEWER_ID.value).length >= HISTORY_PAGE_SIZE;
     const prevOffset = _historyOffset[agentId] || 0;
     // 首屏整体替换前，保留活跃 run 的直播行。直播行是工具结果的【唯一】载体
     // ——后端 run 进行中只落 partial 检查点行（result 恒 null，结果在收束行
@@ -1202,7 +1216,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
       const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
       traceSwitch('resp', `single:${sid.slice(-8)} ${msgs.length} 条，${rtt}`);
       const isFirstPage = (_historyOffset[sid] || 0) === 0;
-      mergeHistory(dialogId, msgs, isFirstPage);
+      mergeHistory(dialogId, msgs, isFirstPage, typeof data.serverHasMore === 'boolean' ? data.serverHasMore : undefined);
       // 首屏加载后合并 resume 快照（single 当前轮未落盘部分；
       // 订阅响应先于历史到达时在此补合，与 direct 路径对齐）。
       // 快照带 session id 时精确匹配；旧载荷回退 agentId 比对
@@ -1225,7 +1239,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
     traceSwitch('resp', `${target} ${msgs.length} 条，${rtt}`);
     const isFirstPage = (_historyOffset[target] || 0) === 0;
-    mergeHistory(dialogId, msgs, isFirstPage);
+    mergeHistory(dialogId, msgs, isFirstPage, typeof data.serverHasMore === 'boolean' ? data.serverHasMore : undefined);
     // 初次加载完成后，合并 resume 快照（当前轮未落盘消息）
     if (isFirstPage && resumeSnapshot && resumeSnapshot.agentId === target) {
       mergeResumeSnapshot(resumeSnapshot);
@@ -1657,6 +1671,10 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         touch(gDialog, from, posted.content, Date.now());
         bump(gDialog);
         recordActivity({ dialogId: gDialog, agentId: from, summary: posted.content.slice(0, 60), event: 'group' });
+        // 未读：非 viewer 发言且该群非当前活跃群 → +1（与 direct 入站同口径
+        // ——正在看的会话不计未读；清除经 clearUnread(group:gid)，由 ui-group
+        // selectGroup 触发，名册群行/活动栏聚合徽章同源消费）
+        if (from !== VIEWER_ID.value && gDialog !== activeDialogId.value) gd.unread += 1;
         return;
       }
       case 'router/message-received': {

@@ -23,16 +23,16 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.18"
   },
   "scripts": {
     "start": "node ./bin/agentchat.js",
-    "dev": "node --expose-internals --import tsx src/ac-app/src/boot.ts",
-    "dev:supervised": "node --import tsx src/supervisor.mjs",
-    "dev:demo": "node --expose-internals --import tsx src/ac-app/src/boot-yml-main.ts",
-    "smoke": "tsx src/ac-app/src/smoke.ts",
-    "chat": "tsx src/ac-app/src/chat.ts",
-    "bench": "tsx src/ac-bench/src/cli.ts",
+    "dev": "node --expose-internals src/ac-app/src/boot.ts",
+    "dev:supervised": "node src/supervisor.mjs",
+    "dev:demo": "node --expose-internals src/ac-app/src/boot-yml-main.ts",
+    "smoke": "node src/ac-app/src/smoke.ts",
+    "chat": "node src/ac-app/src/chat.ts",
+    "bench": "node src/ac-bench/src/cli.ts",
     "webui": "pnpm --filter ac-webui-app dev",
     "webui:build": "pnpm --filter ac-webui-app build",
     "webui:typecheck": "pnpm --filter ac-webui-app typecheck",
@@ -69,6 +69,7 @@
     "ac-agent-admin": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agent-presets": "workspace:*",
+    "ac-agent-presets-builtin": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-agents-dir": "workspace:*",

@@ -41,23 +41,21 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'load_skill',
   // ac-plugin-registry（M23 增 install_plugin）
   'register_plugin', 'unregister_plugin', 'install_plugin',
-  // ac-sap-adt（46 个 adt_* 工具：SAP ADT 直连——需 sap-adt 能力标签才可见，
-  // 但注册面无条件占名；清单由引擎 assembleAdtTools 锁定，一致性测试对账）
-  'adt_activate', 'adt_batch', 'adt_check', 'adt_cochange',
-  'adt_create_destination', 'adt_create_object', 'adt_crud',
-  'adt_data_preview', 'adt_debug_breakpoint', 'adt_debug_inspect',
-  'adt_debug_session', 'adt_debug_set_variable', 'adt_debug_step',
-  'adt_delete_object', 'adt_edit_object', 'adt_execute',
-  'adt_export_objects', 'adt_get_atc_result', 'adt_get_dump',
-  'adt_get_transport', 'adt_list_atc_runs', 'adt_list_destinations',
-  'adt_list_dumps', 'adt_list_gui_connections', 'adt_list_transports',
-  'adt_local_check', 'adt_lock_info', 'adt_object_versions',
-  'adt_package_content', 'adt_permissions', 'adt_ping',
-  'adt_push_object', 'adt_read_object', 'adt_read_structure',
-  'adt_read_textelements', 'adt_release_gate', 'adt_run_atc',
-  'adt_run_unit_tests', 'adt_search', 'adt_selfcheck',
-  'adt_system_info', 'adt_unlock_all', 'adt_version_diff',
-  'adt_where_used', 'adt_write_object', 'adt_write_structure',
+  // ac-sap-adt（32 个 adt_* 工具：SAP ADT 直连——需 sap-adt 能力标签才可见，
+  // 但注册面无条件占名；清单由引擎 assembleAdtTools 锁定，一致性测试对账。
+  // 引擎 0.8 起 CRUD 时代 A 组 9 名 + adt_push_object 退位，fs 风格
+  // adt_object_write/read/edit/delete 顶替；0.9 起整合批次再收敛：
+  // 调试器五件套→adt_debug、ATC list+get→adt_atc_runs、dumps→adt_dumps、
+  // transports→adt_transports、adt_read_textelements→adt_object_read {part}）
+  'adt_activate', 'adt_atc_runs', 'adt_batch', 'adt_check', 'adt_cochange',
+  'adt_create_destination', 'adt_data_preview', 'adt_debug', 'adt_dumps',
+  'adt_execute', 'adt_export_objects', 'adt_list_destinations',
+  'adt_list_gui_connections', 'adt_local_check', 'adt_lock_info',
+  'adt_object_delete', 'adt_object_edit', 'adt_object_read',
+  'adt_object_versions', 'adt_object_write', 'adt_permissions', 'adt_ping',
+  'adt_release_gate', 'adt_run_atc', 'adt_run_unit_tests', 'adt_search',
+  'adt_selfcheck', 'adt_system_info', 'adt_transports', 'adt_unlock_all',
+  'adt_version_diff', 'adt_where_used',
 ];
 
 /** 常见 LLM provider 名（占名护栏：防动态插件抢注用户常用连接名——
@@ -66,15 +64,17 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
 export const BUILTIN_LLM_PROVIDER_NAMES: readonly string[] = ['openai', 'deepseek', 'glm'];
 
 /**
- * 内置 Agent id（workspace 的 user/admin + ac-agent-presets 的预设 id）。
- * admin 仅在配置了 model 时物化——表按全集维护（一致性测试断言
- * 实际面 ⊆ 表）。
+ * 内置 Agent id（workspace 的 user/admin + ac-agent-presets-builtin 数据行
+ * 注入的预设 id）。admin 仅在配置了 model 时物化——表按全集维护（一致性
+ * 测试断言实际面 ⊆ 表）。
  */
 export const BUILTIN_AGENT_IDS: readonly string[] = [
   'user',
   'admin',
   '__standard__',
   '__dsh_minimal__',
+  // ac-sap-adt/preset 子行注入的 ABAP 开发模式
+  '__abap_dev__',
 ];
 
 /** 保留字冲突描述（可诊断拒绝的错误载荷） */

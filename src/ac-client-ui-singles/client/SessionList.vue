@@ -6,8 +6,10 @@
 //   3. 树列表：用户工作区为根节点（按名称排列，整行点击展开/收起，
 //      文件夹开合图标即状态；hover 显示 更多（重命名/删除）+ 新增会话），
 //      各 session 为单行叶节点（头像 - 标题 - 删除；未挂工作区的会话
-//      归入固定「未分组」根，排在末尾）；工作区内会话默认只显示最近
-//      5 条（按最近活动排序），更多时尾部出「展开其余记录」展开全量
+//      归入固定「未分组」根，排在末尾）；工作区内会话按最近活动分桶
+//      （今天/昨天/三天/一周/两周/一个月/更早）分批展开：桶头点击
+//      开合，桶内默认只渲染最近一页（5 条）、「展开更多」渐进追加；
+//      工作区节点折叠后再展开恢复缺省态（不记录「展开全部/很多」）
 //
 // 用户工作区 = 用户登记的本机文件夹：挂在其下的会话运行时工作目录
 // 指向该文件夹（会话级工作目录——后端 sandboxWorkdir 会话感知链路）。
@@ -20,14 +22,16 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal, Icon } from '@agentchat/webui-kit';
+import { StarAvatar, Modal, Icon, toastError } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import { loadComposePrefs } from 'ac-client-ui-conversation/client/composePrefs.ts';
+import { loadCollapsed, saveCollapsed } from './sessionTreePrefs.ts';
+import { bucketByTime, bucketLimitOf, growBucket, resetGroupReveal, toggleBucketHead, BUCKET_PAGE_SIZE, type RevealMap, type TimeBucket } from './sessionTimeBuckets.ts';
 import { formatRelativeTime } from '@agentchat/webui-kit';
 import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';
-import { pickFolder } from 'ac-client-ui-workspace/client/fileApi.ts';
+import { pickFolder, openLocalDir } from 'ac-client-ui-workspace/client/fileApi.ts';
 import type { Workspace } from 'ac-client-ui-workspace/client';
 
 const emit = defineEmits<{
@@ -102,59 +106,88 @@ interface WorkspaceGroup {
   /** undefined = 未分组（固定根） */
   workspace?: Workspace;
   sessions: SessionItem[];
+  /** 按最近活动的时间分桶（近→远，空桶不出现；随 sessions 变化重算——
+   *  桶界锚重算时刻的「今天 00:00」，长闲置跨界由下次 singles 刷新校正） */
+  buckets: TimeBucket<SessionItem>[];
 }
 
 /** 树模型：工作区根（按名称排序）+ 未分组固定根（有会话才出现） */
 const treeGroups = computed<WorkspaceGroup[]>(() => {
+  const now = Date.now();
   const groups: WorkspaceGroup[] = wsList.value.map(w => ({
-    key: w.id, name: w.name, workspace: w, sessions: [],
+    key: w.id, name: w.name, workspace: w, sessions: [], buckets: [],
   }));
   // 已按名称排序（后端 localeCompare numeric）；此处再排一次保持确定序
   groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  const ungrouped: WorkspaceGroup = { key: '__ungrouped__', name: '未分组', sessions: [] };
+  const ungrouped: WorkspaceGroup = { key: '__ungrouped__', name: '未分组', sessions: [], buckets: [] };
   for (const item of sessionItems.value) {
     const g = item.workspaceId ? groups.find(g => g.key === item.workspaceId) : undefined;
     (g ?? ungrouped).sessions.push(item);
   }
   const out = groups; // 空工作区也显示（可挂新会话）
   if (ungrouped.sessions.length > 0) out.push(ungrouped);
+  // sessions 已按最近活动降序（sessionItems 契约）——单趟分桶
+  for (const g of out) g.buckets = bucketByTime(g.sessions, now);
   return out;
 });
 
-// ── 展开/收起（默认展开；记住用户折叠状态）──
-const collapsed = ref(new Set<string>());
+// ── 展开/收起（默认展开；记住用户折叠状态——localStorage 持久化，
+//    切换视图/刷新不丢；与 composePrefs 同款降级手法）──
+const collapsed = ref(loadCollapsed());
 
 function toggleGroup(key: string) {
   const next = new Set(collapsed.value);
   if (next.has(key)) next.delete(key);
   else next.add(key);
   collapsed.value = next;
+  saveCollapsed(next);
+  // 折叠即弃置该组桶展开记录——重开回到「首桶+激活桶」缺省态，
+  // 不把「展开全部」越折越积地记下去（分批展开可回退）
+  if (next.has(key)) reveal.value = resetGroupReveal(reveal.value, key);
 }
 
-// ── 工作区内会话折叠：默认只显示最近 5 条，更多时「展开其余记录」──
-const RECENT_LIMIT = 5;
-const expandedGroups = ref(new Set<string>());
+// ── 工作区内会话分批展开：按最近活动分桶（今天/昨天/三天/一周/两周/
+//    一个月/更早），桶头点击开合，桶内默认只渲染最近一页（5 条）、
+//    尾部「展开更多」渐进追加——空间效率优先，不再一次铺出全量。
+//    桶显示上限 = 显式记录（group key → bucket key → 上限，纯函数住
+//    sessionTimeBuckets）：无记录走「首桶 + 激活会话所在桶各一页」
+//    缺省规则；工作区节点折叠即弃置记录，重开恢复缺省态（不记住
+//    「展开很多/全部」）──
+const reveal = ref<RevealMap>(new Map());
 
-/** 该组实际渲染的会话切片（已按最近活动排序；未展开截前 5 条。
- *  当前激活会话即使落在截断区也保持可见（选中态不被折叠藏掉） */
-function visibleSessionsOf(group: WorkspaceGroup): SessionItem[] {
-  const sessions = group.sessions;
-  if (expandedGroups.value.has(group.key) || sessions.length <= RECENT_LIMIT) return sessions;
-  const top = sessions.slice(0, RECENT_LIMIT);
-  const active = sessions.find(s => s.id === activeSingleId.value);
-  return active && !top.includes(active) ? [...top, active] : top;
+/** 该组缺省显示上限：首桶 + 激活会话所在桶各一页（选中态不被折叠藏掉） */
+function defaultLimitsOf(group: WorkspaceGroup): Map<string, number> {
+  const limits = new Map<string, number>();
+  if (group.buckets.length === 0) return limits;
+  limits.set(group.buckets[0].key, BUCKET_PAGE_SIZE);
+  const activeKey = group.buckets.find(b => b.items.some(s => s.id === activeSingleId.value))?.key;
+  if (activeKey && !limits.has(activeKey)) limits.set(activeKey, BUCKET_PAGE_SIZE);
+  return limits;
 }
 
-/** 未渲染的记录数（= 全量 - 实际渲染；展开态恒 0） */
-function hiddenCountOf(group: WorkspaceGroup): number {
-  return group.sessions.length - visibleSessionsOf(group).length;
+/** 桶当前显示上限（显式记录优先，无记录回落缺省规则） */
+function bucketLimit(group: WorkspaceGroup, bucketKey: string): number {
+  return bucketLimitOf(reveal.value, group.key, bucketKey, defaultLimitsOf(group).get(bucketKey) ?? 0);
 }
 
-function toggleExpand(key: string) {
-  const next = new Set(expandedGroups.value);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
-  expandedGroups.value = next;
+/** 桶内实际渲染的会话（前 limit 条；桶内序 = 最近活动序） */
+function visibleItemsOf(group: WorkspaceGroup, bucket: TimeBucket<SessionItem>): SessionItem[] {
+  return bucket.items.slice(0, bucketLimit(group, bucket.key));
+}
+
+/** 桶头点击：开 ↔ 合（合后再开回一页——不记住「展开很多」） */
+function toggleBucket(group: WorkspaceGroup, bucketKey: string) {
+  reveal.value = toggleBucketHead(reveal.value, group.key, bucketKey, defaultLimitsOf(group));
+}
+
+/** 桶内「展开更多」：追加一页 */
+function growBucketItems(group: WorkspaceGroup, bucket: TimeBucket<SessionItem>) {
+  reveal.value = growBucket(reveal.value, group.key, bucket.key, bucket.items.length, defaultLimitsOf(group));
+}
+
+/** 桶内未渲染条数（= 桶全量 - 实际渲染；满额恒 0） */
+function bucketHiddenOf(group: WorkspaceGroup, bucket: TimeBucket<SessionItem>): number {
+  return bucket.items.length - visibleItemsOf(group, bucket).length;
 }
 
 function timeOf(ts: number): string { return formatRelativeTime(ts); }
@@ -164,6 +197,9 @@ function timeOf(ts: number): string { return formatRelativeTime(ts); }
 // Agent/模型作为创建参数（服务端校验，失效抛错→回退空会话创建——
 // 偏好过期〔Agent 已删/provider 未注册〕不应阻断新建）；effort/
 // elevation 由 ChatInput 挂载时回放（不属会话元数据）。
+// agentId/model 的 '' = 明确选回默认（2026-09 修复）——不透传创建参数
+// （缺省即默认预设/默认模型），走原路径；否则会残留旧模式（用户选回
+// 默认后新会话仍带旧 Agent）。
 const creatingSession = ref(false);
 async function createSession(workspaceId?: string) {
   if (creatingSession.value) return; // 双击守卫：快速双击会创建两个空会话
@@ -313,6 +349,11 @@ async function confirmDeleteWorkspace() {
   }
 }
 
+// ── 树列表滚动条：默认零宽不占位，hover 列表时浮现（与 AgentList 同款机制）──
+const treeScrollRef = ref<HTMLElement>();
+function onTreeEnter() { treeScrollRef.value?.classList.add('scroll-visible'); }
+function onTreeLeave() { treeScrollRef.value?.classList.remove('scroll-visible'); }
+
 // ── 工作区「更多」菜单（重命名 / 删除；单开，点击外部关闭）──
 const wsMenuOpen = ref<string | null>(null);
 
@@ -321,6 +362,29 @@ function toggleWsMenu(key: string) {
 }
 
 function onDocClick() { wsMenuOpen.value = null; }
+
+// ── 本地资源管理器（工作区节点：系统文件管理器打开该登记文件夹）──
+const wsExplorerKey = ref<string | null>(null); // 打开中的节点 key（互斥单飞）
+const wsExplorerFailed = ref(false); // 最近一次失败标记（错误经全局 toast 呈现）
+
+async function openWsInExplorer(group: WorkspaceGroup) {
+  if (!rpcFace || wsExplorerKey.value) return;
+  wsExplorerKey.value = group.key;
+  wsExplorerFailed.value = false;
+  let errMsg = '';
+  try {
+    const r = await openLocalDir(rpcFace, { workspaceId: group.workspace?.id });
+    if (r.error) errMsg = r.error;
+  } catch (err: any) {
+    errMsg = err?.message ?? String(err);
+  } finally {
+    wsExplorerKey.value = null;
+    if (errMsg) {
+      wsExplorerFailed.value = true;
+      toastError(`打开文件夹失败：${errMsg}`, { key: 'open-dir', duration: 4000 });
+    }
+  }
+}
 
 // ── 重命名工作区 ──
 const renameTarget = ref<{ id: string; name: string } | null>(null);
@@ -356,10 +420,14 @@ onMounted(() => {
   void singlesBoard?.refresh();
   void wsBoard?.refresh();
   document.addEventListener('click', onDocClick);
+  treeScrollRef.value?.addEventListener('mouseenter', onTreeEnter);
+  treeScrollRef.value?.addEventListener('mouseleave', onTreeLeave);
 });
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick);
+  treeScrollRef.value?.removeEventListener('mouseenter', onTreeEnter);
+  treeScrollRef.value?.removeEventListener('mouseleave', onTreeLeave);
 });
 </script>
 
@@ -387,14 +455,21 @@ onUnmounted(() => {
     </div>
 
     <!-- 3. 树列表：工作区根节点（按名称排列）→ 各 session 叶节点 -->
-    <div class="tree-scroll">
+    <div ref="treeScrollRef" class="tree-scroll">
       <template v-for="group in treeGroups" :key="group.key">
         <!-- 根节点：工作区 / 未分组（点击整行展开/收起；文件夹开合图标即状态） -->
         <div class="ws-node" :class="{ ungrouped: !group.workspace }" :title="group.workspace ? `${group.name}\n${group.workspace.path}` : '未挂工作区的会话'" @click="toggleGroup(group.key)">
           <span class="ws-icon"><Icon :name="collapsed.has(group.key) ? 'folder' : 'folder-open'" :size="15" /></span>
           <span class="ws-name">{{ group.name }}</span>
-          <!-- hover 操作：更多（重命名/删除）· 新增会话（未分组根无操作） -->
+          <!-- hover 操作：资源管理器 · 更多（重命名/删除）· 新增会话（未分组根无操作） -->
           <template v-if="group.workspace">
+            <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
+              :title="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开\n${group.workspace.path}`)"
+              @click.stop="openWsInExplorer(group)">
+              <Icon v-if="wsExplorerKey === group.key" name="loader-circle" :size="14" class="ws-spin" />
+              <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
+              <Icon v-else name="external-link" :size="14" />
+            </button>
             <div class="ws-more-wrap" @click.stop>
               <button class="ws-act" :class="{ active: wsMenuOpen === group.key }" title="更多" @click.stop="toggleWsMenu(group.key)">
                 <Icon name="more-horizontal" :size="14" />
@@ -417,28 +492,40 @@ onUnmounted(() => {
             </button>
           </template>
         </div>
-        <!-- 叶节点：会话（一行：头像 - 标题 - 删除） -->
+        <!-- 叶节点：会话按时间分桶分批展开（桶头开合 + 桶内分页；行：头像 - 标题 - 删除） -->
         <div v-if="!collapsed.has(group.key)" class="ws-children">
-          <div v-for="item in visibleSessionsOf(group)" :key="item.id" class="list-item"
-            :class="{ active: activeSingleId === item.id }"
-            :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
-            @click="selectSingle(item.id)">
-            <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
-            <div class="item-info">
-              <div class="item-name">{{ item.title }}</div>
-            </div>
-            <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+          <template v-for="bucket in group.buckets" :key="bucket.key">
+            <!-- 桶头：时间分组标签 + 条数（点击开合；chevron 随桶显示状态） -->
+            <button class="bucket-head" type="button" :aria-expanded="bucketLimit(group, bucket.key) > 0"
+              :title="bucketLimit(group, bucket.key) > 0 ? `收起「${bucket.label}」（共 ${bucket.items.length} 条）` : `展开「${bucket.label}」的最近 ${Math.min(BUCKET_PAGE_SIZE, bucket.items.length)} 条会话（共 ${bucket.items.length} 条）`"
+              @click.stop="toggleBucket(group, bucket.key)">
+              <span class="bucket-chevron" :class="{ open: bucketLimit(group, bucket.key) > 0 }"><Icon name="chevron-down" :size="14" /></span>
+              <span class="bucket-label">{{ bucket.label }}</span>
+              <span class="bucket-count">{{ bucket.items.length }}</span>
             </button>
-          </div>
-          <!-- 折叠闸门：超过 5 条时尾部「展开其余记录」/展开后「收起」 -->
-          <button v-if="group.sessions.length > RECENT_LIMIT" class="expand-toggle" type="button"
-            :aria-expanded="expandedGroups.has(group.key)"
-            :title="expandedGroups.has(group.key) ? '收起，只显示最近会话' : `展开其余 ${hiddenCountOf(group)} 条记录`"
-            @click.stop="toggleExpand(group.key)">
-            <span class="expand-chevron" :class="{ open: expandedGroups.has(group.key) }"><Icon name="chevron-down" :size="15" /></span>
-            <span>{{ expandedGroups.has(group.key) ? '收起' : `展开其余记录（${hiddenCountOf(group)}）` }}</span>
-          </button>
+            <!-- 桶内会话行（前 limit 条；尾部「展开更多」渐进追加） -->
+            <template v-if="bucketLimit(group, bucket.key) > 0">
+              <div v-for="item in visibleItemsOf(group, bucket)" :key="item.id" class="list-item"
+                :class="{ active: activeSingleId === item.id }"
+                :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
+                @click="selectSingle(item.id)">
+                <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+                <div class="item-info">
+                  <div class="item-name">{{ item.title }}</div>
+                </div>
+                <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+                </button>
+              </div>
+              <!-- 桶内分页闸门：还有未渲染条目时尾部「展开更多」 -->
+              <button v-if="bucketHiddenOf(group, bucket) > 0" class="expand-more" type="button"
+                :title="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`"
+                @click.stop="growBucketItems(group, bucket)">
+                <span class="expand-more-dots">···</span>
+                <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
+              </button>
+            </template>
+          </template>
         </div>
       </template>
 
@@ -554,6 +641,11 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 .tree-scroll::-webkit-scrollbar-track{background:var(--color-bg-surface,#f8f9fa)}
 html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14)}
 .tree-scroll::-webkit-scrollbar-thumb{background:transparent}
+/* hover 列表时滚动条浮现（与 AgentList 同款细滚动条样式） */
+.tree-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--color-border-primary) transparent}
+.tree-scroll.scroll-visible::-webkit-scrollbar{width:6px;height:6px}
+.tree-scroll.scroll-visible::-webkit-scrollbar-thumb{background:var(--color-border-primary);border-radius:var(--r-full,999px)}
+.tree-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:var(--color-primary)}
 
 /* 根节点：工作区（整行点击展开/收起；文件夹开合图标即状态） */
 .ws-node{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:13px;cursor:pointer;user-select:none;transition:background var(--transition-fast);border:1px solid transparent;gap:8px}
@@ -564,6 +656,9 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;flex-shrink:0;line-height:0}
 .ws-node:hover .ws-act{display:flex}
 .ws-act:hover,.ws-act.active{background:var(--color-bg-subtle);color:var(--color-primary,#6366f1)}
+/* 本地资源管理器：打开中的 loader 旋转 */
+.ws-spin{animation:ws-spin-rot 1s linear infinite}
+@keyframes ws-spin-rot{to{transform:rotate(360deg)}}
 
 /* 「更多」下拉（重命名 / 删除） */
 .ws-more-wrap{position:relative;display:flex;flex-shrink:0}
@@ -591,12 +686,22 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-children .list-item:hover .item-delete{opacity:1}
 .item-delete:hover{background:rgba(231,76,60,.1);color:#e74c3c}
 
-/* 折叠闸门行：「展开其余记录（N）」/「收起」——与叶节点同缩进、幽灵样式
-   （不抢 hover 视觉；chevron 展开态旋转 180° 指示方向） */
-.expand-toggle{display:flex;align-items:center;gap:8px;height:26px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--radius-md);background:none;color:var(--color-text-tertiary,#a8abb2);font-size:12px;font-weight:500;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast);flex-shrink:0}
-.expand-toggle:hover{background:var(--role-hover-bg,var(--color-bg-page));color:var(--color-primary,#6366f1)}
-.expand-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s ease}
-.expand-chevron.open{transform:rotate(180deg)}
+/* 时间分桶桶头：「今天/昨天/…/更早」标签 + 条数胶囊——与叶节点近似
+   缩进、轻量小字行（比会话行矮一档，层级从视觉密度读出）；点击开合，
+   chevron 收起指右、展开向下（与工作区文件夹开合同语言） */
+.bucket-head{display:flex;align-items:center;gap:6px;height:24px;width:100%;margin:2px 0 var(--space-xs);padding:0 8px 0 16px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);font-size:11.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
+.bucket-head:hover{background:var(--role-hover-bg,var(--color-bg-page));color:var(--color-primary,#6366f1)}
+.bucket-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--color-text-muted,#999);transition:transform .15s ease;transform:rotate(-90deg)}
+.bucket-chevron.open{transform:rotate(0deg)}
+.bucket-label{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bucket-count{flex-shrink:0;min-width:18px;text-align:center;padding:0 6px;line-height:16px;border-radius:var(--r-full,999px);font-size:10.5px;font-weight:500;color:var(--color-text-muted,#999);background:var(--color-bg-subtle,rgba(0,0,0,.06))}
+html.dark .bucket-count{background:rgba(255,255,255,.07)}
+
+/* 桶内分页闸门：「··· 展开更多（N）」——与桶内会话行同缩进、轻量
+   幽灵样式（渐进追加一页；满额自然消失） */
+.expand-more{display:flex;align-items:center;gap:8px;height:24px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-muted,#999);font-size:11.5px;font-weight:500;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
+.expand-more:hover{background:var(--role-hover-bg,var(--color-bg-page));color:var(--color-primary,#6366f1)}
+.expand-more-dots{flex-shrink:0;letter-spacing:1px;font-weight:700;line-height:1}
 .empty{padding:var(--space-lg);text-align:center;color:var(--color-text-muted);font-size:14px}
 .empty-hint{font-size:12px;color:var(--color-text-tertiary,#a8abb2)}
 

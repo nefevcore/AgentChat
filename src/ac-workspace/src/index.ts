@@ -705,6 +705,46 @@ export class WorkspaceService extends Service {
   }
 
   /**
+   * 用系统文件管理器打开目录（前端「本地资源管理器」动作——会话侧边栏
+   * 工作区节点 / 辅助侧边栏工作区面板头部）。目录解析与守卫住
+   * resolveOpenDir 单源；编排复用 runNativeOpen（目录目标 = 打开文件夹：
+   * win explorer / darwin open / linux xdg-open）。
+   */
+  async openDir(opts: { workspaceId?: string; agentId?: string; conversationId?: string }): Promise<NativeOpenOutcome> {
+    const resolved = this.resolveOpenDir(opts);
+    return 'error' in resolved ? resolved : runNativeOpen(resolved.dir, { select: false });
+  }
+
+  /**
+   * 「本地资源管理器」目录解析（openDir 单源）：workspaceId 在场 =
+   * 登记工作区文件夹；缺席按 treeBase 树基准推导（会话挂载工作区 >
+   * Agent 级基准 > 数据根——与工作区树面板同基准）。守卫：工作区未登记 /
+   * 目录不存在 / 非目录 → error（不抛错，前端按钮态就地显示）。
+   */
+  resolveOpenDir(opts: { workspaceId?: string; agentId?: string; conversationId?: string }): { dir: string } | { error: string } {
+    let dir: string;
+    if (opts.workspaceId) {
+      const ws = this.listWorkspaces().find((w) => w.id === opts.workspaceId);
+      if (!ws) return { error: `工作区不存在：${opts.workspaceId}` };
+      dir = ws.path;
+    } else {
+      dir = this.treeBase(
+        opts.agentId || opts.conversationId
+          ? { agentId: opts.agentId, conversationId: opts.conversationId }
+          : undefined,
+      ).dir;
+    }
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(dir);
+    } catch {
+      return { error: `文件夹不存在或不可访问：${dir}` };
+    }
+    if (!st.isDirectory()) return { error: `目标不是文件夹：${dir}` };
+    return { dir };
+  }
+
+  /**
    * 本机系统原生文件夹选择对话框（工作区登记「选择文件夹」的主路径；
    * 编排/协议住纯模块 native-dialog）。结果三态：path（选定——服务端
    * 不再二次校验，登记口 registerWorkspace 既有存在性校验兜底）/

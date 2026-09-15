@@ -13,7 +13,7 @@ import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
-import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
+import { directDialog, groupDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import type { AgentInfo, GroupInfo } from 'ac-client-ui-conversation/client/types.ts';
 
@@ -146,9 +146,13 @@ const filteredItems = computed(() => {
   return unifiedList.value.filter(i => i.name.toLowerCase().includes(q));
 });
 
-/** 未读数量（进入会话后清除，徽章显示具体数字） */
-function unreadCountOf(id: string): number { return chatStore.getUnreadCount(id); }
-function unreadLabel(id: string): string { const n = chatStore.getUnreadCount(id); return n > 99 ? '99+' : String(n); }
+/** 未读数量（进入会话后清除，徽章显示具体数字）。direct = chatStore 未读
+ *  （viewer⇄agent 对桶）；group = feed 群分区未读（group/message-posted 增量、
+ *  setActiveGroup 进入清零——与 direct 同源同语义） */
+function unreadCountOf(id: string): number {
+  return chatStore.getUnreadCount(id) || feedStore.getDialog(groupDialog(id))?.unread || 0;
+}
+function unreadLabel(id: string): string { const n = unreadCountOf(id); return n > 99 ? '99+' : String(n); }
 const listScrollRef = ref<HTMLElement>();
 function onListEnter() { listScrollRef.value?.classList.add('scroll-visible'); }
 function onListLeave() { listScrollRef.value?.classList.remove('scroll-visible'); }
@@ -217,8 +221,8 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
         :class="{ active: item.type === 'agent' ? roster.activeAgentId.value === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
         <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" fallback-icon="bot" plain-fallback :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
-        <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释） -->
-        <div v-else-if="item.type === 'group' && item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
+        <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释）；未读徽章与 Agent 行同款 -->
+        <div v-else-if="item.type === 'group' && item.group" class="group-avatar-wrap"><div class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
@@ -269,6 +273,7 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 /* 选中态：角色色板（主色系底，色系身份而非浓度渐变；名称保持默认色） */
 .list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
 .item-avatar-wrap{position:relative;flex-shrink:0}
+.group-avatar-wrap{position:relative;flex-shrink:0}
 .unread-badge{position:absolute;top:-6px;right:-8px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1;border:2px solid var(--color-bg-surface,#fff);z-index:1}
 .item-info{flex:1;min-width:0}
 .item-name{font-size:13px;font-weight:600;line-height:17px;margin-bottom:1px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

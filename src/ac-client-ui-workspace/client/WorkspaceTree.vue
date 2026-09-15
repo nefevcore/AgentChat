@@ -6,8 +6,10 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useClientContext } from 'ac-client-runtime';
+import { toastError } from '@agentchat/webui-kit';
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue';
 import { useWorkspaceTreeStore, type TreeNode } from './workspaceTreeStore.ts';
+import { openLocalDir } from './fileApi.ts';
 
 const emit = defineEmits<{
   (e: 'previewFile', filePath: string, agentId: string, conversationId: string): void;
@@ -73,6 +75,32 @@ function onFileClick(node: TreeNode, parentPath: string) {
   const conversationId = treeKey.value.startsWith('c:') ? treeKey.value.slice(2) : '';
   emit('previewFile', full, agentId, conversationId);
 }
+
+// ── 本地资源管理器（头部按钮：系统文件管理器打开当前树基准文件夹——
+//    服务端按同基准推导〔会话挂载工作区 > Agent 基准 > 数据根〕）──
+const rpc = ctx?.rpc ?? null;
+const openDirState = ref<'idle' | 'opening' | 'error'>('idle');
+
+async function openInExplorer() {
+  if (!rpc || openDirState.value === 'opening') return;
+  openDirState.value = 'opening';
+  let errMsg = '';
+  try {
+    const r = await openLocalDir(rpc, {
+      agentId: treeKey.value.startsWith('a:') ? treeKey.value.slice(2) : undefined,
+      conversationId: treeKey.value.startsWith('c:') ? treeKey.value.slice(2) : undefined,
+    });
+    if (r.error) errMsg = r.error;
+  } catch (err: any) {
+    errMsg = err?.message ?? String(err);
+  }
+  if (errMsg) {
+    openDirState.value = 'error';
+    toastError(`打开文件夹失败：${errMsg}`, { key: 'open-dir', duration: 4000 });
+  } else {
+    openDirState.value = 'idle';
+  }
+}
 </script>
 
 <template>
@@ -84,9 +112,19 @@ function onFileClick(node: TreeNode, parentPath: string) {
         </svg>
         {{ rootLabel }}
       </span>
-      <button class="wt-close" @click="emit('close')" title="关闭">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+      <span class="wt-header-actions">
+        <!-- 本地资源管理器：打开当前树基准文件夹（失败经全局 toast 呈现） -->
+        <button v-if="openDirState !== 'error'" class="wt-open-dir" :title="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" @click="openInExplorer">
+          <svg v-if="openDirState === 'opening'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="wt-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+        </button>
+        <button v-else class="wt-open-dir error" title="打开失败（详见全局提示）" @click="openInExplorer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </button>
+        <button class="wt-close" @click="emit('close')" title="关闭">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </span>
     </div>
     <div v-if="st.loading" class="wt-loading">加载中…</div>
     <div v-else-if="st.error" class="wt-error">{{ st.error }}</div>
@@ -128,6 +166,17 @@ function onFileClick(node: TreeNode, parentPath: string) {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .wt-title svg { color: var(--color-text-secondary, #7f8c8d); flex-shrink: 0; }
+.wt-header-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.wt-open-dir {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border: none; background: none; cursor: pointer;
+  color: var(--color-text-secondary); border-radius: 6px;
+}
+.wt-open-dir:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.wt-open-dir.error { color: var(--color-error, #e74c3c); }
+.wt-spin { animation: wt-spin-rot 1s linear infinite; }
+@keyframes wt-spin-rot { to { transform: rotate(360deg); } }
 .wt-close {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px;

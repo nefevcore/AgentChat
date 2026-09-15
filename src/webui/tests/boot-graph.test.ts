@@ -29,7 +29,12 @@ describe('S3 · boot graph 装载器（静态映射 + 行装载）', () => {
     const ctx = boot.ctx;
     const fiber = await ctx.plugin(runviewClientPlugin);
     expect(ctx.runs).toBeDefined();
-    expect(ctx.runs.snapshot.value).toBeNull(); // rpc stub 离线 → 空态
+    // 装载即启动轮询（rail 徽章数据源常驻）——stub 空对象 {} 合成空视图
+    //（running: []）；refresh 异步在飞，等它落定再断言
+    for (let i = 0; i < 50 && !ctx.runs.snapshot.value; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(ctx.runs.snapshot.value?.running).toEqual([]);
     await fiber.dispose();
     expect((ctx as { runs?: unknown }).runs).toBeUndefined();
   });

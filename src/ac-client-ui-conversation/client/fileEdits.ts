@@ -14,7 +14,10 @@
 //      不存在（全量新增）；存量编辑 → 逆向回退（edit 的逆操作是
 //      确定的 new→old 替换），回退到断链点（覆盖性 write 的前一版
 //      不在消息流中——标记 partial，UI 提示「自会话内首次可重建
-//      点起算」）。
+//      点起算」；
+//   4. versionPointsOf / editStepsOf —— 逐次回放：版本点序列（每
+//      次成功编辑后的全文形态）+ 可回放步枚举（初版↔终版之间的
+//      单次编辑视角——UI 下拉选择查看某次编辑用）。
 //
 // 覆盖工具面：write / edit（ac-fs-tools）+ str_replace_editor 的
 // create / str_replace / insert（ac-str-replace-editor）。bash 等
@@ -28,7 +31,7 @@
 // 注意：从子路径直接导入 diff.ts（包入口 ./src/index.ts 聚合了
 // mutation-queue/executor（node:fs 依赖）——浏览器构建会炸；
 // diff.ts 本身零 node 依赖，前端安全）。
-import { generateDiffString } from 'ac-edit-core/src/diff.ts';
+import { generateDiffString, countLineChanges } from 'ac-edit-core/src/diff.ts';
 import type { ChatMessage } from './types.ts';
 
 /** 编辑事件工具名（可追踪面） */
@@ -361,6 +364,108 @@ export function diffOfSummary(s: FileEditSummary, contextLines = 4): FileDiffRes
   }
   const r = generateDiffString(base, finalContent, contextLines);
   return { path: s.path, comparable: true, diff: r.diff, added: r.diffAdded, removed: r.diffRemoved, partial: s.partial };
+}
+
+// ------------------------------------------------------------
+// 逐次回放：版本点序列（每次成功编辑后的全文形态）
+// ------------------------------------------------------------
+
+/**
+ * 单个版本点（UI 逐次回放的数据单元）：触发编辑事件 + 编辑后全文。
+ * before/after 供单次编辑 diff；content 供初版↔该版的累计 diff。
+ */
+export interface FileVersionPoint {
+  /** 触发本版的编辑事件（时间序） */
+  event: FileEditEvent;
+  /** 编辑后全文（= 本版形态；终版点 = lastAt 时点全文） */
+  content: string;
+  /** 编辑前全文（前一版点 content；首版点 = 初版 base） */
+  before: string;
+}
+
+/**
+ * 单文件版本点序列（初版 → 终版逐次回放）。
+ *
+ * 序列语义 = replayFiles 的步进版：初版 = summary 的 diff 基底
+ * （created 文件 = 会话首版；快照/磁盘兜底 = 各自接管后的 base），
+ * 之后每条成功编辑推进一版。与顶层 diff 同口径——partials /
+ * mismatch / 终版兜底语义先在 summary 层收口，这里只做纯步进。
+ *
+ * 终版点修正：最后一版 content 用 summary.finalContent（兜底场景
+ * 磁盘现内容才是可信终版——重放链可能停在失配点）。
+ *
+ * 不可回放（partial 且无 partialBase、或初/终版缺失）= 空数组——
+ * UI 降级为仅统计展示（与顶层 diff.comparable 同判据）。
+ */
+export function versionPointsOf(
+  summary: FileEditSummary,
+  events: FileEditEvent[],
+): FileVersionPoint[] {
+  const base = summary.partial ? summary.partialBase : summary.baseContent;
+  const final = summary.finalContent;
+  if (base === null || final === null) return [];
+  const okEvents = events.filter((e) => e.path === summary.path && e.ok);
+  const points: FileVersionPoint[] = [];
+  let cur = base;
+  for (const ev of okEvents) {
+    let next: string | null = null;
+    if (ev.action === 'create' || ev.action === 'overwrite') {
+      next = ev.fullContent ?? '';
+    } else {
+      const r = ev.action === 'insert'
+        ? applyInsert(cur, ev)
+        : applyReplace(cur, ev);
+      if ('mismatch' in r) {
+        // 失配步不可信：截断到失配前（与顶层重放口径一致——不计
+        // 入演进）。断链文件通常已有快照/磁盘兜底接管，此分支
+        // 只是防御。
+        break;
+      }
+      next = r.next;
+    }
+    points.push({ event: ev, content: next, before: cur });
+    cur = next;
+  }
+  if (points.length > 0) points[points.length - 1].content = final;
+  return points;
+}
+
+/** 单次编辑视角：事件与前后全文形态 */
+export interface FileEditStep {
+  /** 步序（0 起——版本点索引） */
+  index: number;
+  event: FileEditEvent;
+  /** 编辑前全文 */
+  before: string;
+  /** 编辑后全文 */
+  after: string;
+  /**
+   * 该步真实行变更（LCS 全量比对 before→after——上下文行重复
+   * 不计）。与工具报告的 added/removed（编辑区域计数，old/new 含
+   * 未变上下文时偏大）区分：UI 展示用本值，所见即所得。
+   */
+  added: number;
+  removed: number;
+}
+
+/**
+ * 可回放步枚举：初版（第 0 版）+ 每个版本点各为一步——用户「查看
+ * 某次编辑」即选定一步，面板展示该步 before→after 的单次 diff。
+ * 返回数组时间序（索引 = 版次 - 1：index 0 = 第一次编辑后）。
+ */
+export function editStepsOf(summary: FileEditSummary, events: FileEditEvent[]): FileEditStep[] {
+  const base = summary.partial ? summary.partialBase : summary.baseContent;
+  if (base === null) return [];
+  return versionPointsOf(summary, events).map((p, index) => {
+    const stat = countLineChanges(p.before, p.content);
+    return { index, event: p.event, before: p.before, after: p.content, added: stat.added, removed: stat.removed };
+  });
+}
+
+/** 单步 diff（before → after；与 diffOfSummary 同输出形态） */
+export function diffOfStep(step: FileEditStep): FileDiffResult {
+  const r = generateDiffString(step.before, step.after);
+  return { path: step.event.path, comparable: true, diff: r.diff, added: r.diffAdded, removed: r.diffRemoved, partial: false };
 }
 
 // ------------------------------------------------------------

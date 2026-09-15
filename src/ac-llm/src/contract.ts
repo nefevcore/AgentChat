@@ -176,6 +176,12 @@ export interface LlmChatResult {
    * 前端渲染据此恢复步内真实顺序（思考恒前、正文/工具卡相对序由它定）。
    */
   textBeforeTools?: boolean;
+  /**
+   * 思考相位时长（毫秒）：首个 reasoning 片到达 → 首个非 reasoning 片
+   * （正文/工具调用分片）到达的间隔。无 reasoning 的步无此键。与前端
+   * 直播「已思考 · XmYs」同源定义——落盘透传，刷新后历史回放恢复耗时。
+   */
+  reasoningMs?: number;
   finish?: string;
   usage?: LlmUsage;
 }

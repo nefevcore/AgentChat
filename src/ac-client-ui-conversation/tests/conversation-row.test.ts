@@ -65,4 +65,38 @@ describe('M27.2 · ac-client-ui-conversation 数据面（历史回放纯函数�
     expect(parseToolArgs('not-json')).toBe('not-json');
     expect(parseToolArgs(undefined)).toEqual({});
   });
+
+  // 思考耗时（2026-09-13 反馈：刷新后思考卡片 label 无耗时）：steps[].reasoningMs
+  // 落盘透传 → 历史展开恢复「已思考 · XmYs」；与直播 closeThinking 同款构造
+  it('toHistoryMessages：步带 reasoningMs → agent 气泡 label=已思考 · XmYs', async () => {
+    const { toHistoryMessages } = await import('../client/historyApi.ts');
+    const rows = toHistoryMessages([
+      {
+        role: 'agent', content: '', message_id: 'm1', timestamp: '2026-01-01T00:00:02Z', agent_id: 'a',
+        steps: [
+          { content: '', reasoning: '想想', reasoningMs: 75400 },  // 1m15s
+          { content: '答', reasoning: '又想', reasoningMs: 400 },  // <1s：不写 label
+        ],
+      },
+    ], 'a~user');
+    const agentRows = rows.filter((m) => m.role === 'agent');
+    expect(agentRows[0].label).toBe('已思考 · 1m15s');
+    expect(agentRows[1].label).toBeUndefined();
+  });
+
+  it('expandGroupRecord（fetchGroupHistory 内核）：步带 reasoningMs → 群步气泡 label=已思考', async () => {
+    const { fetchGroupHistory } = await import('../client/historyApi.ts');
+    const rpc = {
+      call: async (_method: string, params: Record<string, unknown>) => ({
+        messages: [{
+          from: 'a', content: '群答', at: 1,
+          steps: [{ content: '', reasoning: '想想', reasoningMs: 63_000 }],
+        }],
+        ...params,
+      }),
+    };
+    const { messages } = await fetchGroupHistory('g1', 0, 50, rpc as any);
+    const stepRow = messages.find((m) => m.role === 'agent');
+    expect(stepRow?.label).toBe('已思考 · 1m3s');
+  });
 });

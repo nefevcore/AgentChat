@@ -104,6 +104,7 @@ export interface SubagentSpawnOptions {
   context?: string;
   toolNames?: string[];
   maxSteps?: number;
+  /** 每轮 run 超时毫秒（缺省 300000；0 = 不设看门狗） */
   timeoutMs?: number;
   /** 发起会话键（job 完成通知回投目标） */
   conversationId?: string;
@@ -275,7 +276,8 @@ export class SubagentsService extends Service {
       updatedAt: now,
       runs: 0,
       maxSteps: opts.maxSteps && opts.maxSteps > 0 ? opts.maxSteps : DEFAULT_MAX_STEPS,
-      timeoutMs: opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS,
+      // 0 = 显式不设看门狗（合法值）；未传/负数/NaN = 缺省 300s
+      timeoutMs: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS,
       ...(opts.toolNames && opts.toolNames.length > 0 ? { toolNames: opts.toolNames } : {}),
     };
     this.records.set(id, record);
@@ -563,12 +565,20 @@ export class SubagentsService extends Service {
       this.ctx.logger.warn(`[subagent] "${rec.id}" 登记 ctx.jobs 失败（不影响执行）: ${String(err)}`);
     }
 
-    // 超时看门狗（abort 在步边界生效；LLM 传输层直达）
-    const timer = setTimeout(() => {
-      entry.abortReason = 'timeout';
-      controller.abort();
-    }, rec.timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
+    // 超时看门狗（abort 在步边界生效；LLM 传输层直达）。0 = 不设看门狗。
+    // 竞态守卫：stop 先 abort 且 run 收束中时，迟到触发不覆写既有
+    // abortReason（否则终态误标 timeout）——仅本 run 的 controller 在役
+    // 且尚无中止原因时才记 timeout。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (rec.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        if (entry.controller === controller && entry.abortReason === undefined) {
+          entry.abortReason = 'timeout';
+          controller.abort();
+        }
+      }, rec.timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+    }
 
     let result: LoopRunResult;
     try {
@@ -834,7 +844,7 @@ export class SubagentsService extends Service {
               '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）',
           },
           max_steps: { type: 'number', description: '[spawn] 每轮步数上限（默认 15）', minimum: 1 },
-          timeout_s: { type: 'number', description: '[spawn] 每轮 run 超时秒数（默认 300，超时强制终止）', minimum: 1 },
+          timeout_s: { type: 'number', description: '[spawn] 每轮 run 超时秒数（默认 300 超时强制终止；0 = 不限）', minimum: 0 },
           wait_time: {
             type: 'number',
             description: '[spawn] 正值 = 阻塞等首轮 run 完成并直接返回结果（默认 0 立即返回）',
@@ -863,7 +873,7 @@ export class SubagentsService extends Service {
               ...(args.context ? { context: String(args.context) } : {}),
               ...(Array.isArray(args.tools) ? { toolNames: args.tools.map((s: unknown) => String(s)) } : {}),
               ...(Number(args.max_steps) > 0 ? { maxSteps: Number(args.max_steps) } : {}),
-              ...(Number(args.timeout_s) > 0 ? { timeoutMs: Math.round(Number(args.timeout_s) * 1000) } : {}),
+              ...(Number(args.timeout_s) >= 0 ? { timeoutMs: Math.round(Number(args.timeout_s) * 1000) } : {}),
               ...(call.conversationId ? { conversationId: call.conversationId } : {}),
               ...(call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? { elevation: call.elevation } : {}),
             });

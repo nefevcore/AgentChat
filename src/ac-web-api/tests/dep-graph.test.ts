@@ -28,6 +28,7 @@ import { PluginRegistryService } from 'ac-plugin-registry';
 import { WorkspaceService } from 'ac-workspace';
 import { SinglesService } from 'ac-singles';
 import { AgentPresetsService } from 'ac-agent-presets';
+import * as builtinRow from 'ac-agent-presets-builtin';
 import * as helloRow from 'ac-hello';
 import * as timersRow from 'ac-timer';
 import { buildFrame, parseFrame, RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
@@ -78,6 +79,7 @@ async function boot(): Promise<{ ctx: Context; port: number }> {
   new WorkspaceService(ctx, { root, browserDaemon: false });
   new SinglesService(ctx, { root });
   new AgentPresetsService(ctx);
+  await ctx.plugin(builtinRow as unknown as { apply(ctx: Context): unknown });
   await ctx.plugin(timersRow, { root, heartbeatMs: 60_000 });
   await ctx.plugin(helloRow); // 模块行（inject 无——独立行，聚合锚点）
   await ctx.plugin(webApiRow);

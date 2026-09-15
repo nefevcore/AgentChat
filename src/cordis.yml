@@ -11,7 +11,7 @@
 # 本地插件直接写相对路径（教程同款：'./my-widget.ts'）。
 #
 # 启动（官方路径，零自研引导）：
-#   cd src && node --import tsx ./vendor/cordis/bin.js
+#   cd src && node ./vendor/cordis/bin.js
 #   （仓库脚本 pnpm dev）
 #
 # hmr 行默认 disabled：构造需要 --expose-internals；带 flag 的演示入口
@@ -37,6 +37,10 @@
   name: 'ac-agents-dir'
 - id: agent-presets
   name: 'ac-agent-presets'
+# 预设模式数据行（标准/极简注入目录——ac-agent-presets 只做注册中心，
+# 数据住独立行：插件注入自有模式同一注册面）
+- id: preset-builtin
+  name: 'ac-agent-presets-builtin'
 - id: llm
   name: 'ac-llm'
 # llm provider 注册面 = 配置驱动（llm-provider-model-plan P2）：读 config
@@ -105,6 +109,10 @@
 # config.json `sap-adt:` 段 < configFile，热生效） ----
 - id: sap-adt
   name: 'ac-sap-adt'
+# ABAP 开发模式预设子行（__abap_dev__ 注入预设目录——工具面与预设面
+# 独立装配：摘本行不影响 46 个 adt_* 工具）
+- id: sap-adt-preset
+  name: './ac-sap-adt/src/preset.ts'
 - id: dev-tools
   name: 'ac-dev-tools'
 # ---- 标签注册中心（tag-registry P1：tool/registered 采集 + 档位/base

@@ -8,7 +8,7 @@
   不出现在下拉里）。 -->
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
-import { Icon, Tooltip } from '@agentchat/webui-kit';
+import { Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import {
   useFilePreviewContent,
   previewModeOptions,
@@ -41,7 +41,7 @@ const props = defineProps<{
 
 const {
   loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown,
-  imageSrc, highlightedLines, renderedMarkdown, codeLines, sizeDisplay, invalidate,
+  imageSrc, highlightedLines, renderedMarkdown, codeLines, sizeDisplay, invalidate, reload,
 } = useFilePreviewContent(
   () => props.path,
   () => ({ agentId: props.fallbackAgentId, conversationId: props.conversationId }),
@@ -104,14 +104,11 @@ onBeforeUnmount(() => {
 // ── 本地打开（系统默认程序）──
 const rpc = useClientContext()?.rpc ?? null;
 const openLocalState = ref<'idle' | 'opening' | 'error'>('idle');
-const openLocalMsg = ref('');
-let openLocalTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** 失败经全局 toast 呈现（错误按钮仅标记位，title 兜底） */
 function flashOpenLocalError(msg: string) {
-  openLocalMsg.value = msg;
   openLocalState.value = 'error';
-  if (openLocalTimer) clearTimeout(openLocalTimer);
-  openLocalTimer = setTimeout(() => { openLocalState.value = 'idle'; }, 3000);
+  toastError(`本地打开失败：${msg}`, { key: 'open-local', duration: 4000 });
 }
 
 async function openLocally() {
@@ -130,7 +127,7 @@ async function openLocally() {
 }
 
 onBeforeUnmount(() => {
-  if (openLocalTimer) clearTimeout(openLocalTimer);
+  invalidate(); // 作废在途请求
 });
 </script>
 
@@ -183,6 +180,14 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </Teleport>
+        <!-- 刷新（重新拉取文件内容；加载中转圈禁点——错误态点击即重试） -->
+        <Tooltip text="刷新" placement="bottom">
+          <button
+            class="fpt-icon-btn"
+            :disabled="loading"
+            @click="reload"
+          ><Icon name="refresh-cw" :size="14" :class="{ 'fpt-spin': loading }" /></button>
+        </Tooltip>
         <!-- 自动换行（代码/文本类视图生效；icon 开关 + on 态高亮） -->
         <Tooltip v-if="wrapApplies" :text="wrap ? '自动换行：开 · 点击关闭' : '自动换行：关 · 点击开启'" placement="bottom">
           <button
@@ -191,7 +196,8 @@ onBeforeUnmount(() => {
             @click="onToggleWrap"
           ><Icon name="wrap-text" :size="14" /></button>
         </Tooltip>
-        <!-- 本地打开（系统默认程序；icon 按钮 + tooltip；错误态经 title 兜底） -->
+        <!-- 本地打开（系统默认程序；icon 按钮 + tooltip；失败经全局
+             toast 呈现，此处仅错误标记位） -->
         <Tooltip
           v-if="openLocalState !== 'error'"
           :text="openLocalState === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
@@ -209,7 +215,7 @@ onBeforeUnmount(() => {
         <button
           v-else
           class="fpt-icon-btn error"
-          :title="openLocalMsg"
+          title="本地打开失败（详见全局提示）"
           @click="openLocally"
         ><Icon name="alert-circle" :size="14" /></button>
         <Tooltip v-if="fileData && !fileData.binary" :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制内容'" placement="bottom">
@@ -230,9 +236,6 @@ onBeforeUnmount(() => {
             class="fpt-icon-btn"
           ><Icon name="external-link" :size="14" /></a>
         </Tooltip>
-        <Tooltip v-if="error" text="重试加载" placement="bottom">
-          <button class="fpt-icon-btn" @click="invalidate(); undefined"><Icon name="rotate-ccw" :size="14" /></button>
-        </Tooltip>
       </div>
     </div>
 
@@ -248,7 +251,7 @@ onBeforeUnmount(() => {
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
         <span>{{ error }}</span>
-        <button class="fpt-error-retry" @click="invalidate()">重试</button>
+        <button class="fpt-error-retry" @click="reload">重试</button>
       </div>
 
       <!-- HTML 预览（sandbox 仅 allow-scripts——同 Modal 安全基线） -->

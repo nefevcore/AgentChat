@@ -51,6 +51,13 @@ export interface AuxSidebarPanelDef {
     /** 辅助活动栏点击时的域侧激活动作（可选）：把本选区的 active()
      *  置真（如 group 选区 = drawerOpen 置位）。恒真选区（workspace）可省。 */
     activate?: () => void;
+    /**
+     * 徽章数据源（可选——域态驱动，壳零域知识）：返回数字或已格式化
+     * 文本（如「99+」「√」）；0 / null / undefined / 空串 = 不渲染，
+     * 数字 >99 由壳封顶「99+」。壳每渲染帧安全求值（抛错 = 按不渲染
+     * 跳过）。
+     */
+    badge?: () => number | string | null;
   };
   /**
    * 辅助活动栏按钮可见性谓词（可选——域态驱动：如 group 选区仅在群

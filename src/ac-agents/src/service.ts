@@ -42,7 +42,11 @@ export interface AgentConfig {
    *   · string[]            —— 白名单（原形态）
    *   · {include?, exclude?} —— include 白名单 / exclude 增量停用；
    *     同给 = include 再减 exclude；均缺省 = 全部
-   * 信封构建（router）时解析为 string[]——loop 契约不变。
+   * 条目词形（两形态通用）：精确工具名，或 **tag 引用** `'tag:<tag>'`
+   * ——展开为 requiredTags 含该 tag 的全部工具（resolveToolNames 信封构建
+   * 时按注册面展开；工具集增删自动跟随，预设/Agent 不必点名）。tag 引用
+   * 与精确名可混排；无 defs 的消费面（纯名字数组）不展开，引用条目静默
+   * 落空。信封构建（router）时解析为 string[]——loop 契约不变。
    */
   tools?: string[] | { include?: string[]; exclude?: string[] };
   /**
@@ -116,20 +120,36 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
  * 解析 AgentConfig.tools 为生效工具名清单（router 构建 LoopRunRequest /
  * list_tools 展示实际生效集共用）。
  *   · undefined      → undefined（= 全部已注册；调用方语义）
- *   · string[]       → 原样白名单
+ *   · string[]       → 原样白名单（tag 引用见下）
  *   · {include}      → include 白名单
  *   · {exclude}      → all 减 exclude（增量停用）
  *   · {include,exclude} → include 减 exclude
+ * tag 引用（条目词形 `'tag:<tag>'`，两形态通用）：universe 传工具定义
+ * （{name, requiredTags?}）时展开为 requiredTags 含该 tag 的全部工具名
+ * ——工具集增删自动跟随（预设不必点名工具）。universe 传纯名字数组时
+ * 无 tag 信息，引用条目展开为空（不落字面名——它不是合法工具名）。
  */
 export function resolveToolNames(
   tools: AgentConfig['tools'],
-  all: string[],
+  all: readonly (string | { name: string; requiredTags?: string[] })[],
 ): string[] | undefined {
   if (tools === undefined) return undefined;
-  if (Array.isArray(tools)) return [...tools];
-  const include = Array.isArray(tools.include) ? tools.include : undefined;
-  const exclude = Array.isArray(tools.exclude) ? new Set(tools.exclude) : new Set<string>();
-  const base = include ?? all;
+  // tag 展开表：tag → requiredTags 含该 tag 的工具名（仅 defs 条目贡献）
+  const byTag = new Map<string, string[]>();
+  for (const entry of all) {
+    if (typeof entry === 'string') continue;
+    for (const t of entry.requiredTags ?? []) {
+      const list = byTag.get(t);
+      if (list) list.push(entry.name);
+      else byTag.set(t, [entry.name]);
+    }
+  }
+  const expand = (names: readonly string[]): string[] =>
+    names.flatMap((n) => (n.startsWith('tag:') ? (byTag.get(n.slice(4)) ?? []) : [n]));
+  if (Array.isArray(tools)) return expand(tools);
+  const include = Array.isArray(tools.include) ? expand(tools.include) : undefined;
+  const exclude = Array.isArray(tools.exclude) ? new Set(expand(tools.exclude)) : new Set<string>();
+  const base = include ?? all.map((e) => (typeof e === 'string' ? e : e.name));
   return base.filter((name) => !exclude.has(name));
 }
 

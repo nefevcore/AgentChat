@@ -29,7 +29,7 @@ import * as api from './pluginApi.ts';
 import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from './pluginApi.ts';
 import { getEventPolicy, setEventPolicy, getGlobalSettings, setGlobalSetting } from 'ac-client-ui-settings/client/api.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { Icon, Modal, Button } from '@agentchat/webui-kit';
+import { Icon, Modal, Button, toastOk, toastError } from '@agentchat/webui-kit';
 import StagingReviewModal from './StagingReviewModal.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
@@ -72,13 +72,12 @@ const tab = ref<'directory' | 'config' | 'market'>('config');
 const view = ref<'plugins' | 'tools' | 'events'>('plugins');
 const busyName = ref('');
 const error = ref('');
-const success = ref('');
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 const reviewRecord = ref<StagingRecord | null>(null);
 
+/** 成功类瞬时反馈统一走全局 toast（同文案去重刷新，不占面板内联位） */
 function flash(msg: string) {
-  success.value = msg;
-  setTimeout(() => { success.value = ''; }, 3500);
+  toastOk(msg);
 }
 
 // ── 行偏好层 cordis.patch.yml（「插件目录」页签：强制停用开关；锚点 = yml 裸行 entryId） ──
@@ -775,7 +774,6 @@ const SOURCE_LABELS: Record<string, string> = {
       </div>
       <button class="pl-refresh" title="刷新插件库" @click="emit('refresh')"><Icon name="refresh-cw" :size="13" />刷新</button>
     </div>
-    <div v-if="success" class="pl-success">{{ success }}</div>
     <div v-if="error" class="pl-error">{{ error }}</div>
 
     <!-- ══════ 页签 1：插件目录（patch 装配层专页——强制停用 / 急救 / 还原） ══════ -->
@@ -1245,7 +1243,6 @@ const SOURCE_LABELS: Record<string, string> = {
   background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer;
 }
 .pl-refresh:hover { background: var(--bg-hover); color: var(--text-1); }
-.pl-success { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); font-size: 12px; flex-shrink: 0; }
 .pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); font-size: 12px; flex-shrink: 0; }
 /* 批量还原行（最小集 / 出厂）——「插件目录」页签 */
 .pl-reset-row { display: flex; gap: 8px; }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AgentChat preview 预设 Agent 目录（src agent-presets 的 preview 落地：内置预设数据 + ctx.agents 物化 + 默认池模型解析）",
+  "description": "AgentChat 预设模式目录（ctx.agentPresets 注册中心：数据行注入预设定义 → ctx.agents 物化 + 默认池模型解析；内置数据住 ac-agent-presets-builtin）",
   "exports": {
     ".": "./src/index.ts"
   },

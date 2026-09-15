@@ -22,39 +22,59 @@ const ui = useUiStore();
 const chatStore = useChatStore();
 
 /** 当前会话目标 Agent（与会话头 headerAgentId 同款解析：single 承载
- *  Agent 优先，回落活跃 1v1 Agent；群/无选中 = null）。rail 直开与
- *  会话头按钮两入口同源——行为差异消除（此前 rail 直开走无参请求，
- *  群视角静默不发起 + 标题用旧快照）。 */
+ *  Agent 优先，回落活跃 1v1 Agent；群视角 = 群主〔memoryOwner 回落首
+ *  成员〕。rail 直开与会话头按钮两入口同源——行为差异消除（此前 rail
+ *  直开走无参请求，群视角静默不发起 + 标题用旧快照）。 */
 const agentId = computed(() => {
   const sid = singlesBoard?.activeSingleId.value;
   if (sid) {
     const meta = singlesBoard?.singles.value.find((s) => s.id === sid);
     return meta?.agentId || roster.defaultPresetId.value;
   }
+  const gid = ctx?.groups?.activeGroupId.value;
+  if (gid) {
+    const g = ctx?.groups?.groups.value.find((r) => r.group_id === gid);
+    return g?.memory_owner || g?.participants[0] || null;
+  }
   return roster.activeAgentId.value || null;
 });
-/** 标题（实时解析——不依赖按钮快照 systemPromptAgentName） */
+/** 群视角会话键（gid——按群成员视角装配：记忆桶/群共享记忆按 gid 解析） */
+const groupConversationId = computed(() => {
+  const gid = ctx?.groups?.activeGroupId.value;
+  return gid || null;
+});
+/** 标题（实时解析——不依赖按钮快照 systemPromptAgentName）；群视角
+ *  标注（群主视角） */
 const agentName = computed(() => {
   const id = agentId.value;
   if (!id) return '';
-  return roster.getAgentName(id) || id;
+  const name = roster.getAgentName(id) || id;
+  return groupConversationId.value ? `${name}（群主视角）` : name;
 });
 const inGroupView = computed(() => !agentId.value && !!ctx?.groups?.activeGroupId.value);
 
+/** 按当前视角发起请求（群带 gid） */
+function requestForView() {
+  const id = agentId.value;
+  if (!id) return;
+  if (groupConversationId.value) chatStore.requestSystemPrompt(id, { conversationId: groupConversationId.value });
+  else chatStore.requestSystemPrompt(id);
+}
+
 /** 选区激活时兜底请求：目标解析自持（带 agentId——single 视角由
  *  chatStore resolveContext 附 sessionId）；内容已有则不重复。 */
-watch(() => [ui.auxPanel, ui.auxVisible, agentId.value] as const, ([panel, visible, id]) => {
-  if (panel === 'prompt' && visible && id && !chatStore.systemPromptContent
+watch(() => [ui.auxPanel, ui.auxVisible, agentId.value, groupConversationId.value] as const, ([panel, visible]) => {
+  if (panel === 'prompt' && visible && agentId.value && !chatStore.systemPromptContent
     && !chatStore.systemPromptLoading && !chatStore.systemPromptError) {
-    chatStore.requestSystemPrompt(id);
+    requestForView();
   }
 }, { immediate: true });
 
 /** 目标切换（会话切换）→ 内容清空重取（旧 Agent 的 prompt 不残留） */
-watch(agentId, (id, old) => {
-  if (id !== old && id) {
+watch(() => [agentId.value, groupConversationId.value] as const, ([id, gid], old) => {
+  if ((id !== old?.[0] || gid !== old?.[1]) && id) {
     chatStore.clearSystemPrompt();
-    chatStore.requestSystemPrompt(id);
+    requestForView();
   }
 });
 
@@ -121,7 +141,7 @@ function fallbackCopy(text: string) {
         <div v-if="chatStore.systemPromptLoading" class="spp-loading"><span class="spp-spinner"></span><span>正在组装 System Prompt…</span></div>
         <div v-else-if="chatStore.systemPromptError" class="spp-error">{{ chatStore.systemPromptError }}</div>
         <pre v-else-if="chatStore.systemPromptContent" class="spp-content">{{ chatStore.systemPromptContent }}</pre>
-        <div v-else class="spp-empty">{{ agentId ? '点击右上刷新组装当前 Agent 的完整提示词' : '在主侧边栏选择一个 Agent 后查看其 System Prompt' }}</div>
+        <div v-else class="spp-empty">{{ groupConversationId ? '群成员未解析——请检查群成员配置' : agentId ? '点击右上刷新组装当前 Agent 的完整提示词' : '在主侧边栏选择一个 Agent 后查看其 System Prompt' }}</div>
       </template>
     </div>
     <div v-if="chatStore.systemPromptContent" class="spp-foot">

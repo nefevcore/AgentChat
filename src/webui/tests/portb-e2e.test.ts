@@ -380,8 +380,13 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'datetime', 'dev-tools', 'durable-interaction', 'event-policy',
       'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
-      'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
-      'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
+      'plugin-gates', 'plugin-market', 'plugin-registry',
+      'preset-builtin', // 内置预设模式数据行（标准/极简注入预设目录）
+      'restart', 'router',
+      'sap-adt',
+      'sap-adt-preset', // ABAP 开发模式预设子行（__abap_dev__ 注入预设目录）
+      'security', 'session', 'session-query', 'shell-tools', 'singles',
+      // sap-adt-preset 见上（独立子行自述，条目与行名同名）
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
       'tag-registry', // tag-registry P1：标签注册中心（目录随行集全量生长）
       'timer-tools', 'timers', 'todo', 'tools', 'ui-agents',

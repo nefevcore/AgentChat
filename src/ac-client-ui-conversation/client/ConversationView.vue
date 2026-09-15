@@ -91,8 +91,15 @@ const feedDialog = computed(() => (dialogId.value ? feed.getDialog(dialogId.valu
  *  selectSingle 同款补 defaultPresetId；空串会令后端把 sid 当 viewer 估算） */
 const singleAgentId = computed(() =>
   props.single ? (props.single.agentId || roster.defaultPresetId.value) : null);
-/** 头部目标 Agent（single 场景 = 会话承载 Agent；否则当前激活 Agent） */
-const headerAgentId = computed(() => singleAgentId.value ?? roster.activeAgentId.value);
+/** 群主（记忆属主）——群形态的头部目标 Agent：Token 仪表/系统提示词预览
+ *  以群主视角分析（未配群主回落首成员；无成员 = null 不出仪表） */
+const groupOwnerAgentId = computed(() => {
+  if (!props.group) return null;
+  return props.group.memory_owner || props.group.participants[0] || null;
+});
+/** 头部目标 Agent（single 场景 = 会话承载 Agent；群 = 群主；否则当前激活 Agent） */
+const headerAgentId = computed(() =>
+  singleAgentId.value ?? (isGroup.value ? groupOwnerAgentId.value : roster.activeAgentId.value));
 
 const activeAgentName = computed(() => {
   const id = headerAgentId.value;
@@ -132,7 +139,10 @@ const jobsConversationId = computed(() => {
   return a ? bucketKey(VIEWER_ID.value, a) : null;
 });
 
-/** 头部席位 owner 上下文（D16-③：贡献按 form 自取自gate） */
+/** 头部席位 owner 上下文（D16-③：贡献按 form 自取自gate）——群形态
+ *  agentId = 群主（memoryOwner 回落首成员），conversationId = gid：
+ *  Token 仪表/系统提示词预览按群主视角请求（session/tokens 群分支 +
+ *  agents/system-prompt 带 conversationId） */
 const headerWidgetData = computed(() => ({
   form: (isPair.value ? 'pair' : props.single ? 'single' : props.group ? 'group' : 'direct') as 'direct' | 'group' | 'single' | 'pair',
   agentId: isPair.value ? null : headerAgentId.value,
@@ -473,7 +483,6 @@ watch(() => chatStore.loadingHistory, (loading) => {
         <div class="header-info">
           <span class="agent-label">{{ title }}</span>
         </div>
-        <span v-if="isGroup" class="participant-count">{{ props.group!.participants.length }} 个参与者</span>
         <div class="header-actions">
           <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
                整体不渲染，消息区仅显示正文回复。图标内嵌滑块（随开合滑动，
@@ -612,8 +621,9 @@ watch(() => chatStore.loadingHistory, (loading) => {
   backdrop-filter: blur(8px); z-index: 100;
 }
 .header-info { flex: 1; min-width: 0; }
-.agent-label { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
-.participant-count { font-size: 12px; color: var(--color-text-tertiary); }
+/* 单行截断：主区被辅栏/主栏压缩时长标题（+ 头部 widget 挤压）不得换行
+   撑破 48px 头部；pair 形态双端点名同理（.pair-title 已 min-width:0） */
+.agent-label { font-size: 15px; font-weight: 600; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 汉堡菜单按钮：默认隐藏，窄屏显示 */
 .hamburger-btn {

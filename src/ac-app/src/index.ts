@@ -13,6 +13,7 @@ import * as agentLoopRow from 'ac-agent-loop';
 import * as agentsRow from 'ac-agents';
 import * as agentsDirRow from 'ac-agents-dir';
 import * as agentPresetsRow from 'ac-agent-presets';
+import * as presetBuiltinRow from 'ac-agent-presets-builtin';
 import * as agentStoreRow from 'ac-agent-store';
 import * as archiveRow from 'ac-archive';
 import * as backupRow from 'ac-backup';
@@ -60,6 +61,7 @@ import * as webApiRow from 'ac-web-api';
 import * as webServerRow from 'ac-web-server';
 import * as webToolsRow from 'ac-web-tools';
 import * as sapAdtRow from 'ac-sap-adt';
+import { apply as sapAdtPresetApply, extension as sapAdtPresetExtension } from 'ac-sap-adt/src/preset.ts';
 import * as webuiRow from 'ac-webui';
 // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族（runview 运行矩阵域）
 import * as runviewClientRow from 'ac-client-ui-runview';
@@ -122,6 +124,7 @@ export const TREE: TreeRow[] = [
   { id: 'agents', plugin: agentsRow },
   { id: 'agents-dir', plugin: agentsDirRow },
   { id: 'agent-presets', plugin: agentPresetsRow },
+  { id: 'preset-builtin', plugin: presetBuiltinRow },
   { id: 'llm', plugin: llmRow },
   { id: 'llm-pool', plugin: llmPoolRow },
   { id: 'agent-loop', plugin: agentLoopRow },
@@ -151,6 +154,9 @@ export const TREE: TreeRow[] = [
   { id: 'web-tools', plugin: webToolsRow },
   // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
   { id: 'sap-adt', plugin: sapAdtRow },
+  // ABAP 开发模式预设子行（工具面与预设面独立装配；对象行显式带自述
+  // extension——collectExtensionCatalog 读 runtime.plugin.extension）
+  { id: 'sap-adt-preset', plugin: { name: 'ac-sap-adt/preset', inject: ['agentPresets'], apply: sapAdtPresetApply, extension: sapAdtPresetExtension } as unknown as Plugin },
   { id: 'dev-tools', plugin: devToolsRow },
   // ---- 标签注册中心（行集与 cordis.yml 同步；tool/registered 采集） ----
   { id: 'tag-registry', plugin: tagRegistryRow },

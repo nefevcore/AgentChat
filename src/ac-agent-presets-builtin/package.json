@@ -1,0 +1,26 @@
+{
+  "name": "ac-agent-presets-builtin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentChat 内置预设模式数据行（标准模式/极简模式注入 ac-agent-presets 目录）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-presets": "workspace:*",
+    "ac-extension-core": "workspace:*"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

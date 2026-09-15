@@ -6,7 +6,7 @@
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings.ts';
-import { Button, Icon, StatusDot } from '@agentchat/webui-kit';
+import { Button, Icon, StatusDot, toastOk } from '@agentchat/webui-kit';
 import NsFieldList from './NsFieldList.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
@@ -26,7 +26,6 @@ const ui = useUiStore();
 const selectedNode = ref('llmPools');
 const saving = ref(false);
 const restarting = ref(false);
-const successMsg = ref('');
 const errorText = computed(() => settings.error.value);
 
 // ── 树（2026-11 左树数据化）：域行叶自 settings:section 席位条目派生
@@ -123,10 +122,7 @@ async function saveAll() {
   saving.value = true;
   settings.error.value = '';
   const ok = await settings.saveGlobal();
-  if (ok) {
-    successMsg.value = '全局配置已保存 · 下次运行生效';
-    setTimeout(() => { successMsg.value = ''; }, 3500);
-  }
+  if (ok) toastOk('全局配置已保存 · 下次运行生效');
   saving.value = false;
 }
 
@@ -247,7 +243,6 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
         <div class="sp-footer">
           <div class="sp-footer-left">
             <span v-if="errorText" class="sp-error">{{ errorText }}</span>
-            <span v-if="successMsg" class="sp-success">{{ successMsg }}</span>
             <span v-else-if="isDirty && !errorText" class="sp-hint">有未保存的更改</span>
             <button
               class="sp-restart-minor" :disabled="restarting"
@@ -338,7 +333,6 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 .sp-restart-minor:hover:not(:disabled) { background: var(--role-active-bg); color: var(--warn); }
 .sp-restart-minor:disabled { opacity: .5; cursor: not-allowed; }
 .sp-error { color: var(--err); font-size: 12px; }
-.sp-success { color: var(--ok); font-size: 12px; }
 .sp-hint { color: var(--warn); font-size: 12px; }
 .sp-footer-actions { display: flex; gap: 8px; flex-shrink: 0; }
 

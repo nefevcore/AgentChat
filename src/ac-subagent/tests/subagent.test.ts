@@ -530,3 +530,80 @@ describe('access-tier：子 Agent 档位继承（§7.3 elevation = tierOf(parent
     expect(seen[2]).toBe('sandbox-access');
   });
 });
+
+describe('ac-subagent：超时看门狗语义', () => {
+  it('timeout_ms=0：不设看门狗——挂起的 run 不会 300s 兜底，也不会被误判超时', async () => {
+    const gates = [newGate()];
+    const { ctx } = await boot({ provider: makeGatedProvider(gates), model: 'gated-1' });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '不限时任务', timeout_s: 0 },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    await until(() => captured.length >= 1);
+    // run 挂起中（gated provider 不放行）——看门狗未设，状态恒 running
+    const running = await exec(ctx, { name: 'subagent', args: { action: 'list', running_only: true }, agentId: 'chief' });
+    expect(running.output.total).toBe(1);
+    gates[0].release();
+    const done = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    expect(done.output.status).toBe('done');
+  });
+
+  it('stop/timeout 竞态：stop 先 abort 后，迟到的看门狗不覆写 abortReason（终态 stopped 而非 timeout）', async () => {
+    // 窗口构造：首步产出 tool_calls，工具不响应 signal 挂在 gate——run 停在
+    // tools.execute；stop abort 后 run 不收束（工具仍挂），1s 看门狗在窗口
+    // 内迟到触发。修复前：覆写 abortReason='timeout'；放行工具 → 步边界
+    // interrupted → 终态误标 timeout。修复后守卫不覆写 → stopped。
+    const toolCallProvider = {
+      name: 'toolcall-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register(
+          'mock',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              if (captured.length === 1) {
+                yield {
+                  delta: '',
+                  finish: 'tool_calls',
+                  toolCalls: [{ index: 0, id: 'tc1', name: 'deaf_tool', argumentsDelta: '{}' }],
+                };
+              } else {
+                yield { delta: `结论:${String(input.messages.at(-1)?.content).slice(0, 10)}` };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              }
+            },
+          }),
+          { models: ['mock-1'] },
+        );
+      },
+    };
+    const { ctx } = await boot({ provider: toolCallProvider });
+    let releaseTool!: () => void;
+    const toolGate = new Promise<void>((r) => {
+      releaseTool = r;
+    });
+    ctx.tools.register({
+      name: 'deaf_tool',
+      // 有意不响应 signal（模拟不可中止的慢工具），只等 gate
+      execute: () => new Promise((resolve) => void toolGate.then(() => resolve({ ok: true, output: '完成' }))),
+    });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '竞态任务', tools: ['deaf_tool'], timeout_s: 1 },
+      agentId: 'chief',
+    });
+    const id = r.output.subagent_id as string;
+    await until(() => captured.length >= 1);
+    const st = await exec(ctx, { name: 'subagent', args: { action: 'stop', subagent_id: id }, agentId: 'chief' });
+    expect(st.ok).toBe(true);
+    expect(st.output.stopped).toBe(true);
+    await new Promise((res) => setTimeout(res, 1200)); // 看门狗迟到触发过（abort 已发生、run 未收束）
+    releaseTool(); // 放行工具 → 下一步边界检查 aborted → interrupted 收束
+    const done = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    expect(done.output.status).toBe('stopped'); // 不得误标 timeout
+  });
+});

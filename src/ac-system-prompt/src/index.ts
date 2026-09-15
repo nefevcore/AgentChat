@@ -41,7 +41,7 @@
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // LoopSender（经 LoopRunRequest 传入，仅文档引用）
-import { displayNameOf } from 'ac-agents'; // 显示名单源解析（值导入连带 ctx.agents 类型增强）
+import { displayNameOf, effectiveTierOf, type AccessTier, type AgentConfig } from 'ac-agents'; // 显示名单源解析 + 有效档位单源（值导入连带 ctx.agents 类型增强）
 import type {} from 'ac-group'; // ctx.group 可选能力类型（type-only）
 import type {} from 'ac-tools'; // ctx.tools 可选能力类型（type-only）
 import type {} from 'ac-workspace'; // ctx.workspace 可选能力类型（type-only）
@@ -182,6 +182,14 @@ export interface AssembleInput {
   vision?: boolean | undefined;
   /** 本 run 模型名（[模型能力] 行展示；vision 给定才有意义） */
   model?: string;
+  /**
+   * 本 run 有效权限档位（access-tier：effectiveTierOf(agent,
+   * request.elevation)——apply 侧单源判定后传入；undefined = agents
+   * 能力缺位，按 base 措辞）。[路径规则] 行按档位分措辞：旧全局句
+   * "沙箱越界一律拦截"在 access-tier 下三处失真（读不设防 §9.1 /
+   * full 档不受限 / base 有人桶越界可审批放行）。
+   */
+  accessTier?: AccessTier;
 }
 
 function buildTerminologyBlock(): string {
@@ -222,9 +230,12 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   }
 
   // 2. 命令执行（工具结果响应纪律：退出码协议 / 报错勿原样重发——
-  //    v3 framework 遗产的 bash 门控落点 / 中断≠失败 / 截断出路）
+  //    v3 framework 遗产的 bash 门控落点 / 中断≠失败 / 截断出路；
+  //    2026-09-15 追加进程清理纪律——当日事故：Agent 用
+  //    Stop-Process -Name node 清理测试进程，把后端宿主连带杀掉，
+  //    所有运行中会话无端中断）
   if (names.has('bash')) {
-    add('命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。');
+    add('命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。清理进程只用自己启动时记录的 PID 精确点名（Start-Process -PassThru 拿 Id，再 Stop-Process -Id / taskkill /PID），绝不按进程名广谱杀 node/pnpm——后端宿主就是其中之一，按名杀会中断整个后端（该模式任何权限档位都会被拦截）。');
   }
 
   // 3. 后台任务（生命周期闭环：记住 id → 通知到达不忙轮询 → 等待的
@@ -264,9 +275,12 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
     add('不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作，先 ask_questions 征求确认，不要擅自替用户决定。');
   }
 
-  // 9. 并行子任务（多轮会话：续用优先/mode 决策/止损与清理；边界：依赖后续输出的任务不适合派出）
+  // 9. 并行子任务（多轮会话：派发克制/续用优先/mode 决策/止损与清理；边界：
+  //    依赖后续输出的任务不适合派出。派发克制 = 2026-12 追加：实测 Agent
+  //    倾向一轮铺开多个 subagent，结果收集与纠偏成本陡增——少量试探、
+  //    看清进展再补派）
   if (names.has('subagent')) {
-    add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
+    add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
   }
 
   // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界；形态
@@ -286,6 +300,27 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   return `## 指引\n${list.map((g, i) => `${i + 1}. ${g}`).join('\n')}`;
 }
 
+/**
+ * [路径规则] 行（access-tier 分档措辞）。原始动机（2026-09-02）：Agent 在
+ * bash 吃过"绝对路径越界"拦截后行为泛化成"绝对路径不可用"——实际拦截原因
+ * 是越界而非绝对形态。access-tier 落地后单句全局措辞失真，按有效档位分写：
+ *   · base：写限沙箱（越界触发审批/拒绝），读不设防；
+ *   · sandbox：沙箱白名单内自由写、bash 软边界，读不设防；
+ *   · full：不受沙箱限制（仍过黑名单——域规则与档位正交）。
+ * 读不设防（§9.1）：read/glob/grep 脱离工作区沙箱，只过双黑名单；黑名单
+ * 点名拒绝时工具报错自带口径，不在此展开。
+ */
+function pathRuleLine(accessTier: AccessTier | undefined): string {
+  const tier = accessTier ?? 'base-access';
+  if (tier === 'full-access') {
+    return '[路径规则] full-access 档：路径访问不受沙箱限制（系统域黑名单仍生效）；工作目录与白名单内绝对/相对路径均可正常使用';
+  }
+  if (tier === 'sandbox-access') {
+    return '[路径规则] 沙箱白名单内绝对/相对路径均可自由读写（含 bash 软边界）；读不受沙箱限制；越界写会被拦截，系统域黑名单仍生效';
+  }
+  return '[路径规则] 工作目录与白名单内绝对/相对路径均可读写；读路径不受沙箱限制；越界写会触发审批询问或被拦截——拦截原因是越界而非绝对路径形态';
+}
+
 function buildEnvBlock(
   security: EnvSecurityInput | undefined,
   wsRoot: string | undefined,
@@ -293,6 +328,7 @@ function buildEnvBlock(
   vision: boolean | undefined,
   model: string | undefined,
   sessionWorkspace: string | undefined,
+  accessTier: AccessTier | undefined,
 ): string {
   const lines: string[] = [];
   lines.push('## 系统环境');
@@ -306,9 +342,9 @@ function buildEnvBlock(
   // 沙箱缺省基准）。
   const base = sessionWorkspace ?? security?.workdir ?? agentWorkdir ?? wsRoot ?? './';
   lines.push(`[工作目录] ${path.resolve(base)}`);
-  // 路径规则一句话（2026-09-02 反馈：Agent 在 bash 吃过"绝对路径越界"拦截后
-  // 行为泛化成"绝对路径不可用"——实际拦截原因是越界而非绝对形态）
-  lines.push('[路径规则] 工作目录与白名单内绝对/相对路径均可；沙箱越界一律拦截');
+  // 路径规则：按本 run 有效档位分措辞（见 pathRuleLine 注释——旧全局句
+  // "沙箱越界一律拦截"在 access-tier 下对读不设防/full 档/base 审批三处失真）
+  lines.push(pathRuleLine(accessTier));
   // 模型能力（多模态）：注册面可判定才注入——视觉模型自认"看不了图"、
   // 文本模型硬猜图片内容都是实测高频幻觉；undefined（无元数据）零噪音
   if (vision === true) {
@@ -404,7 +440,7 @@ export function assembleBlocks(input: AssembleInput): string[] {
     blocks.push(settings.override.trim());
   } else {
     if (settings.systemEnv !== false) {
-      blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model, input.sessionWorkspace));
+      blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model, input.sessionWorkspace, input.accessTier));
     }
     if (hasCollab && input.single !== true) {
       blocks.push(buildTerminologyBlock());
@@ -471,6 +507,17 @@ export function apply(ctx: Context) {
 
     const agents = ctx.get('agents');
     const security = agentId && agents ? agents.settingsOf(agentId, 'security') : undefined;
+    // 有效档位（access-tier §3.2 单源）：elevation（机制提权/审批注入）??
+    // tierOf(agent)。agents 能力缺位（软依赖未装）= undefined → 纯函数按
+    // base 措辞（fail 方向与安全行 tierOf(undefined)=base 一致）
+    const agentsLike = agents as
+      | { get(id: string): AgentConfig | undefined }
+      | undefined;
+    const accessTier = effectiveTierOf(
+      agentId !== undefined ? agentsLike?.get(agentId) : undefined,
+      request.elevation === 'full-access' ? 'full-access'
+        : request.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
+    );
     // 可选能力：独立会话形态（singles 注册表命中 → 多 Agent 协作知识、
     // 主动安排（timer）与系统管理（system_restart——工具已随形态面裁剪）
     // 条目不注入。协作/计时工具面不裁剪，仅不教）
@@ -495,6 +542,7 @@ export function apply(ctx: Context) {
       ...(single ? { single: true } : {}),
       ...(vision !== undefined ? { vision } : {}),
       ...(request.model ? { model: request.model } : {}),
+      accessTier,
     });
 
     if (blocks.length > 0) {

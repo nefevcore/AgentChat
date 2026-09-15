@@ -200,13 +200,16 @@ export class RouterService extends Service {
     const caps = capabilitySetOf(this.ctx, call.agentId);
     const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
     const allToolNames = visibleTools.map((t) => t.name);
+    // 解析传 defs（tag 引用展开：include/exclude 条目 'tag:<tag>' 按
+    // requiredTags 展开为工具名——工具集增删自动跟随）；无配置回落全量
+    const resolved = resolveToolNames(agent.tools, visibleTools) ?? allToolNames;
     const form = this.conversationForm(call.conversationId);
     const formAllowed = (name: string): boolean => {
       if (form === null) return true;
       const def = this.ctx.tools.get(name);
       return def === undefined || !(def.excludeForms ?? []).includes(form);
     };
-    const tools = (resolveToolNames(agent.tools, allToolNames) ?? allToolNames).filter(formAllowed);
+    const tools = resolved.filter(formAllowed);
     // 未配置 include/exclude 时也**显式**传可见面全量：loop 的 tools 缺省
     // 语义是"全部已注册"——省略即绕过能力面（空集照传，loop 收敛为无工具）
     const llmParams = filterLlmParams(agent.llmParams);

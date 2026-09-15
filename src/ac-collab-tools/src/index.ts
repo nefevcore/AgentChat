@@ -290,7 +290,8 @@ export function apply(ctx: Context) {
       const all = ctx.tools.list().filter(
         (t) => toolAllowedFor(t, caps) && (form === null || !(t.excludeForms ?? []).includes(form)),
       );
-      const effectiveNames = resolveToolNames(self?.tools, all.map((t) => t.name));
+      // 解析传 defs（tag 引用 'tag:<tag>' 展开——与 router 同口径）
+      const effectiveNames = resolveToolNames(self?.tools, all);
       const effective =
         effectiveNames === undefined ? all : all.filter((t) => effectiveNames.includes(t.name));
       return {

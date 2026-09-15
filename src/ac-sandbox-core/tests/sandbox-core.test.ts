@@ -13,6 +13,7 @@ import {
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
   bashCommandViolation,
+  hostKillViolation,
   stripHeredocPayloads,
   makeSecretRedactor,
   redactSecretValue,
@@ -370,6 +371,61 @@ describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
     const out = stripHeredocPayloads("@'\nconst re = /const\\s+/g;\n'@ | Set-Content f.ps1");
     expect(out).toContain('<heredoc-payload>');
     expect(out).toContain('| Set-Content f.ps1');
+  });
+});
+
+describe('防自杀检测（hostKillViolation）——按进程名广谱杀宿主进程拦截', () => {
+  it('事故原句（2026-09-15）：Stop-Process -Name node 清理测试进程连带杀宿主', () => {
+    // 事故实录：Agent 验证 pnpm dev 后清理 demo 进程，按名杀光所有 node
+    const v = hostKillViolation(
+      'if (!$p.HasExited) { Stop-Process -Id $p.Id -Force; Stop-Process -Name node -Force -ErrorAction SilentlyContinue }',
+    );
+    expect(v).toMatch(/防自杀保护/);
+    expect(v).toContain('Stop-Process -Name node');
+    // 报错必须给出 PID 替代方案（可行动的出路）
+    expect(v).toMatch(/Stop-Process -Id/);
+  });
+
+  it('PowerShell 各形态：-Name node / node.exe / 多目标 / kill 别名全拦', () => {
+    expect(hostKillViolation('Stop-Process -Name node')).toMatch(/防自杀/);
+    expect(hostKillViolation('Stop-Process -Name "node.exe" -Force')).toMatch(/防自杀/);
+    expect(hostKillViolation('Stop-Process -Name node,pnpm -Force')).toMatch(/防自杀/);
+    expect(hostKillViolation('Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Name node')).toMatch(/防自杀/);
+    expect(hostKillViolation('kill -name pnpm')).toMatch(/防自杀/);
+    expect(hostKillViolation('Stop-Process -Name node*')).toMatch(/防自杀/);
+  });
+
+  it('taskkill /IM 与 Unix pkill/killall 形态拦截', () => {
+    expect(hostKillViolation('taskkill /F /IM node.exe')).toMatch(/防自杀/);
+    expect(hostKillViolation('taskkill /IM node* /T')).toMatch(/防自杀/);
+    expect(hostKillViolation('pkill -9 node')).toMatch(/防自杀/);
+    expect(hostKillViolation('pkill node')).toMatch(/防自杀/);
+    expect(hostKillViolation('killall node')).toMatch(/防自杀/);
+    expect(hostKillViolation('pkill -f "agentchat.*boot"')).toMatch(/防自杀/);
+  });
+
+  it('PID 精确点名放行（合法清理形态——引导 Agent 走这条路）', () => {
+    expect(hostKillViolation('Stop-Process -Id 35648,38708 -Force')).toBeNull();
+    expect(hostKillViolation('taskkill /PID 1234 /F')).toBeNull();
+    expect(hostKillViolation('kill -9 12345')).toBeNull();
+    expect(hostKillViolation('Get-Process node | Where-Object { $_.Id -ne 15660 } | Stop-Process -Id $_.Id')).toBeNull();
+    // 管道直传 Stop-Process（无 -Name，对象沿管道带 PID）
+    expect(hostKillViolation('Get-Process msedge | Stop-Process -Force')).toBeNull();
+  });
+
+  it('杀其他进程名放行（Playwright 清理浏览器等正当操作）', () => {
+    expect(hostKillViolation('Stop-Process -Name msedge -Force')).toBeNull();
+    expect(hostKillViolation('taskkill /IM chromedriver.exe /F')).toBeNull();
+    expect(hostKillViolation('pkill -f playwright')).toBeNull();
+    expect(hostKillViolation('Get-Process node')).toBeNull(); // 只看不杀
+    expect(hostKillViolation('Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne 15660 }')).toBeNull();
+  });
+
+  it('大小写与无关命令不受影响', () => {
+    expect(hostKillViolation('STOP-PROCESS -NAME NODE')).toMatch(/防自杀/);
+    expect(hostKillViolation('echo "node server running" && ls')).toBeNull();
+    expect(hostKillViolation('node server.js &')).toBeNull(); // 启动不是杀
+    expect(hostKillViolation('npm run dev')).toBeNull();
   });
 });
 

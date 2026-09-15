@@ -20,6 +20,7 @@
     "ac-agent-admin": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agent-presets": "workspace:*",
+    "ac-agent-presets-builtin": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-agents-dir": "workspace:*",

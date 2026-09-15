@@ -10,7 +10,7 @@
 //     遗留项的宿主层落点）
 //   · worker = 官方 boot 路径（ac-app/src/boot.ts：chdir preview 后
 //     复用 vendor cordis bin.js）；--expose-internals 供 hmr 行
-//   · 策略纯函数住 ac-supervisor-core（TS 纯库；本脚本经 tsx 加载）
+//   · 策略纯函数住 ac-supervisor-core（TS 纯库；Node ≥22.18 原生加载）
 //
 // 本文件是纯 JS（.mjs 不经 TS strip-only 加载器）。
 // 用法：pnpm preview:supervised
@@ -57,8 +57,11 @@ let restartAttempts = 0;
 
 function startChild() {
   restartAttempts += 1;
-  // worker 与官方 boot 同参：--expose-internals（hmr 行）+ tsx（TS strip-only）
-  const args = ['--expose-internals', '--import', 'tsx', WORKER_ENTRY, ...passthroughArgs];
+  // worker 与官方 boot 同参：--expose-internals（hmr 行）。TS 加载 =
+  // Node ≥22.18/≥23.6 原生 strip-only（仓库红线本就禁 enum/参数属性，
+  // strip 兼容；2026-09-15：替换 tsx——dev 冷启动 3.2s → 1.2s，tsx 的
+  // esbuild 每进程重新编译 80+ 行包是静默期大头）
+  const args = ['--expose-internals', WORKER_ENTRY, ...passthroughArgs];
   log(`spawn 工作进程: ${process.execPath} ${args.join(' ')}`);
   log(`AGENTCHAT_SUPERVISED=1（重启约定：exit ${EXIT_RESTART}）`);
   // 数据根锚点（M18）：worker 的持久化目录 = supervisor 的启动文件夹

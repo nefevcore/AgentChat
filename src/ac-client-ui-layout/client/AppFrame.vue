@@ -27,6 +27,7 @@ import ResizeHandle from './ResizeHandle.vue';
 import MainViewHost from './MainViewHost.vue';
 import AuxSidebarHost from './AuxSidebarHost.vue';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
+import { ToastHost } from '@agentchat/webui-kit';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
@@ -89,6 +90,10 @@ provide('closeDrawer', () => ui.closeDrawer());
          （文件预览 90 / 建群 95 / 用量 96 / 版本 97 / 设置 100——M28 P1
           起 AppFrame 零内联 overlay 项） -->
     <SlotOutlet name="overlay" />
+
+    <!-- 全局 Toast 栈（global:toast 原语半件——各面板瞬时反馈统一出口；
+         Teleport body + z9500，见 webui-kit/toast.ts） -->
+    <ToastHost />
   </div>
 </template>
 

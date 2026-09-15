@@ -41,11 +41,11 @@ const visible = computed(() => {
 const questions = computed(() => interaction.value?.questions ?? []);
 const question = computed(() => questions.value[index.value]);
 const isLast = computed(() => index.value >= questions.value.length - 1);
-const isMulti = computed(() => questions.value.length > 1);
-/** 当前题已答（选中选项或非空自定义） */
+const isMulti = computed(() => questions.value[index.value]?.multi === true);
+/** 当前题已答（选中至少一项或非空自定义） */
 const answered = computed(() => {
   const d = drafts.value[index.value];
-  return !!d && (!!d.selected || d.custom.trim() !== '');
+  return !!d && ((d.selected?.length ?? 0) > 0 || d.custom.trim() !== '');
 });
 
 /** 超时自动关闭：后端超时后选项残留会"点了没反应" */
@@ -58,7 +58,7 @@ function syncDrafts(val: typeof interaction.value): void {
   index.value = 0;
   feedback.value = '';
   minimized.value = false;
-  drafts.value = (val?.questions ?? []).map(() => ({ selected: null, custom: '', skipped: false }));
+  drafts.value = (val?.questions ?? []).map(() => ({ selected: [] as string[], custom: '', skipped: false }));
 }
 watch(interaction, (val) => {
   if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
@@ -74,18 +74,25 @@ watch(interaction, (val) => {
 }, { immediate: true });
 onUnmounted(() => { if (timeoutTimer) clearTimeout(timeoutTimer); });
 
-/** 点选项 = 选中（清自定义——互斥）；非末题自动翻页（DSH choose 语义） */
+/** 点选项：单选 = 覆盖选中并翻页（即选即走）；多选 = 增删勾选（停留本题）。
+ *  两种都清自定义与跳过态（互斥）。 */
 function choose(option: string) {
   const d = drafts.value[index.value];
   if (!d) return;
-  d.selected = option;
+  if (isMulti.value) {
+    d.selected = d.selected.includes(option)
+      ? d.selected.filter((o) => o !== option)
+      : [...d.selected, option];
+  } else {
+    d.selected = [option];
+  }
   d.custom = '';
   d.skipped = false;
   feedback.value = '';
-  if (!isLast.value) index.value += 1;
+  if (!isMulti.value && !isLast.value) index.value += 1;
 }
 
-/** 输入自定义回答 = 清除选项选中（互斥）；显式跳过状态作废。
+/** 输入自定义回答 = 清除全部选中（互斥）；显式跳过状态作废。
  *  受控写回（原 v-model 直写 drafts[index]!.custom——挂载竞态下 drafts 空
  *  数组会读 undefined.custom 崩溃；改 :value + 事件写回，空草稿安全回落）。 */
 function onCustomInput(e: Event) {
@@ -94,7 +101,7 @@ function onCustomInput(e: Event) {
   d.custom = (e.target as HTMLInputElement).value;
   d.skipped = false;
   if (d.custom.trim()) {
-    d.selected = null;
+    d.selected = [];
     feedback.value = '';
   }
 }
@@ -102,7 +109,7 @@ function onCustomInput(e: Event) {
 /** 主按钮：未答拦下提示；非末题翻页，末题校验全卷后一次提交 */
 function continueFlow() {
   if (!answered.value) {
-    feedback.value = '请选择一个选项或填写自定义回答。';
+    feedback.value = isMulti.value ? '请至少勾选一项或填写自定义回答。' : '请选择一个选项或填写自定义回答。';
     return;
   }
   if (!isLast.value) {
@@ -117,7 +124,7 @@ function continueFlow() {
 function skipQuestion() {
   const d = drafts.value[index.value];
   if (d) {
-    d.selected = null;
+    d.selected = [];
     d.custom = '';
     d.skipped = true;
   }
@@ -130,21 +137,25 @@ function skipQuestion() {
 }
 
 /** 一次提交全部——answers 与 questions 对齐，未答/跳过的题传 null
- *  （工具结果如实呈现"用户跳过"，Agent 自行决断）。有漏答题跳回并提示。 */
+ *  （工具结果如实呈现"用户跳过"，Agent 自行决断）。多选题答案为勾选项
+ *  数组（保持选项顺序），单选题为单个字符串。有漏答题跳回并提示。 */
 function submitAll() {
   const qs = questions.value;
-  const missing = drafts.value.findIndex((d) => !d.selected && !d.custom.trim() && !d.skipped);
+  const missing = drafts.value.findIndex((d) => !(d.selected?.length ?? 0) && !d.custom.trim() && !d.skipped);
   if (missing >= 0) {
     index.value = missing;
     feedback.value = '请先完成这道问题。';
     return;
   }
-  const answers = qs.map((_, i) => {
+  const answers = qs.map((q, i) => {
     const d = drafts.value[i];
     if (!d) return null;
-    return d.custom.trim() || d.selected || null;
+    const custom = d.custom.trim();
+    if (custom) return custom;
+    if (d.selected.length) return q.multi ? d.selected : d.selected[0];
+    return null;
   });
-  chatStore.respondInteraction(answers);
+  chatStore.respondInteraction(answers as Array<string | string[] | null>);
 }
 
 /** 自定义输入 Enter = 翻页/提交（Shift+Enter 换行；输入法组合中不触发） */
@@ -168,7 +179,7 @@ function step(delta: number) {
         <header class="ib-header">
           <div class="ib-heading">
             <div class="ib-eyebrow">决策请求 · {{ interaction.agent_id || 'Agent' }}</div>
-            <h3 class="ib-title">{{ question?.question }}</h3>
+            <h3 class="ib-title">{{ question?.question }}<span v-if="isMulti" class="ib-multi-tag">多选</span></h3>
           </div>
           <div class="ib-header-actions">
             <button
@@ -188,17 +199,22 @@ function step(delta: number) {
 
         <template v-if="!minimized">
           <!-- 选项区：整行选项（序号徽标 + 文案），选中 = 底色 + 主色描边；
+               单选 radiogroup 即选即走，多选 checkbox 组停留勾选；
                末行自定义输入（铅笔图标，与选项互斥） -->
           <div class="ib-body">
-            <div class="ib-options" role="radiogroup" :aria-label="question?.question">
+            <div
+              class="ib-options"
+              :role="isMulti ? 'group' : 'radiogroup'"
+              :aria-label="question?.question"
+            >
               <button
                 v-for="(opt, oi) in question?.options ?? []"
                 :key="oi"
                 type="button"
-                role="radio"
-                :aria-checked="drafts[index]?.selected === opt"
+                :role="isMulti ? 'checkbox' : 'radio'"
+                :aria-checked="drafts[index]?.selected.includes(opt)"
                 class="ib-option"
-                :class="{ selected: drafts[index]?.selected === opt }"
+                :class="{ selected: drafts[index]?.selected.includes(opt) }"
                 @click="choose(opt)"
               >
                 <span class="ib-number">{{ oi + 1 }}</span>
@@ -219,7 +235,7 @@ function step(delta: number) {
 
           <!-- 底部：分页器（多题）+ 反馈 + 跳过 / 下一题·提交 -->
           <footer class="ib-footer">
-            <div v-if="isMulti" class="ib-pager">
+            <div v-if="questions.length > 1" class="ib-pager">
               <button type="button" class="ib-icon-btn" :disabled="index === 0" title="上一题" @click="step(-1)">
                 <Icon name="chevron-left" :size="13" />
               </button>
@@ -290,6 +306,20 @@ function step(delta: number) {
   line-height: 20px;
   color: var(--color-text-primary);
   word-break: break-word;
+}
+/* 多选题徽标（对齐 ib-eyebrow 密度：11px 微标，主色描边轻底） */
+.ib-multi-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  vertical-align: 1px;
+  white-space: nowrap;
 }
 .ib-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
 

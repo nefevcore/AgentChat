@@ -1183,9 +1183,11 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
-        <!-- 模型选择（P6：所有会话形态——singles/1v1；'' = Agent 原配置；
-             未配置任何模型时警示标识——默认模型发不出去，防用户误以为可直接会话） -->
-        <div class="dd">
+        <!-- 模型选择（P6：singles/1v1 直答；'' = Agent 原配置；未配置任何
+             模型时警示标识——默认模型发不出去，防用户误以为可直接会话。
+             群聊隐藏：发言投递给全部成员，各自的模型由成员 Agent 自有
+             配置决定，此处选择无作用对象） -->
+        <div v-if="!isGroupCtx" class="dd">
           <button type="button" class="select-btn" :class="{ open: modelMenuOpen, warn: noModels && !selModel }" @click.stop="toggleModelMenu" :title="modelTitle">
             <Icon :name="noModels && !selModel ? 'alert-circle' : 'cpu'" :size="15" />
             <span class="select-text">{{ modelLabel }}</span>
@@ -1216,8 +1218,9 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
-        <!-- 思考强度：'' = 关闭思考 -->
-        <div class="dd">
+        <!-- 思考强度：'' = 关闭思考（群聊隐藏——思考档随 direct/single 消息
+             信封下发，群发不携带；各成员按自有配置） -->
+        <div v-if="!isGroupCtx" class="dd">
           <button type="button" class="select-btn" :class="{ open: effortMenuOpen, off: !reasoningEffort }" @click.stop="toggleEffortMenu" :title="reasoningEffort ? `思考强度：${reasoningEffort}` : '思考：关闭'">
             <Icon name="clock" :size="15" />
             <span class="select-text">{{ effortLabel }}</span>

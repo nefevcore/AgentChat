@@ -155,6 +155,16 @@ tierOf(parentId)）与宿主 API 人工快捷提权（web-api deliver RPC → we
 工具体返回 `{ok, output}`；宿主级行为（reload/restart/插件装卸）经
 `ToolResult.interrupt` 上报 → loop 收束 → 宿主半边执行。
 
+**AgentConfig.tools 的 tag 引用**（条目词形 `'tag:<tag>'`，include/exclude
+通用）：`resolveToolNames`（ac-agents 单源，router 信封构建时展开）把
+引用条目展开为 requiredTags 含该 tag 的全部工具名——白名单不必点名
+工具，工具集增删自动跟随；与精确名可混排，无匹配展开为空。注意：tag
+引用只做**点名**不做**解锁**——能力面仍由 `tags` 单源裁决（requiredTags
+缺标签的工具不在可见宇宙，include 引用条目也展开不出来）；预设声明
+工具面的主形态 = 只写 tags（标准/ABAP 开发模式同构），tools 白名单与
+tag 引用是收窄/混排的补充手段（极简模式的 include、批量排除的
+exclude）。
+
 **群拓扑**（单通道 v3）：
 
 ```
@@ -204,7 +214,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | config | `ac-config/src/service.ts` | `ac-config/src/events.ts`（config/*） |
 | credentials | `ac-credentials/src/service.ts` | — |
 | agentStore | `ac-agent-store/src/service.ts`（+ 文档实体 saveDoc/readDoc） | — |
-| agentPresets | `ac-agent-presets/src/index.ts`（预设数据定义） | — |
+| agentPresets | `ac-agent-presets/src/index.ts`（预设模式注册中心：register/list/defaultPreset + 物化语义） | — |
 | subagents | `ac-subagent/src/service.ts`（持久多轮实体） | — |
 | jobs | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled） |
 | browser | `ac-web-tools/src/browser.ts`（守护进程命令配置） | — |
@@ -312,9 +322,13 @@ src/
 │                            settingsOf(id, name?)（全局默认层 ∪ 差异层合成口）+
 │                            displayNameOf；Agent 是数据不是插件
 ├── ac-agents-dir/           数据驱动行：<root>/agents/ 目录扫描物化进 ctx.agents
-├── ac-agent-presets/        预设 Agent 目录（ctx.agentPresets）：__standard__/
-│                            __dsh_minimal__ 数据定义物化；skip-if-present；
-│                            无记忆语义 = 预设软停用 memory/skill/datetime 等行
+├── ac-agent-presets/        预设模式目录（ctx.agentPresets）：注册中心——数据行
+│                            注入预设定义（register 即归属）→ ctx.agents 物化 +
+│                            默认池模型解析（config/changed 热更）；skip-if-present
+├── ac-agent-presets-builtin/ 内置预设模式数据行：__standard__/__dsh_minimal__
+│                            （标准/极简）注入预设目录——插件注入自有模式走
+│                            同一注册面；无记忆语义 = 预设软停用 memory/skill/
+│                            datetime 等行
 ├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json +
 │                            机制 entries（timer/skills 等唯一写口）+ 文档实体
 │                            （AGENT.md 等）；getAgent 读边界归一（旧 hooks→settings）
@@ -393,7 +407,10 @@ src/
 │                            observe⊂manipulate⊂inject 动作分层门禁）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
-│                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）
+│                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+
+│                            preset.ts 子行：ABAP开发模式（__abap_dev__）注入
+│                            预设目录（tags 即工具面：sap-adt/shell/web，与
+│                            标准模式同构）——工具面与预设面独立装配
 ├── ac-collab-tools/         协作：send_agent（经 conversation，busy=steer/wait=
 │                            next-run）/send_group/list_*/read_agent_info/
 │                            update_agent_profile + @<名称> 引用约定

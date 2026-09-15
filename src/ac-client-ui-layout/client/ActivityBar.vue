@@ -5,7 +5,8 @@
 // 单源住 ac-client-runtime（M29 P1-1 收敛）。
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
-import { Avatar, Icon, FeedbackNotice } from '@agentchat/webui-kit';
+import { Avatar, Icon, toastBusy, toastOk, toastError } from '@agentchat/webui-kit';
+import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useActivityBarActions, type ActivityBarActionDef } from './activityBarActions.ts';
 import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
 
@@ -29,6 +30,21 @@ const themeSvc = clientCtx?.theme;
 const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID.value) ?? null);
 const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID.value) || 'User');
 
+// ── 未读聚合徽章（Agent 列表按钮）──
+// single 会话激活时主侧边栏 Agent 名册不可见，Agent 发来的私信只在
+// 名册行上有数字徽章——活动栏「Agent 列表」按钮同步展示未读总数，
+// 避免消息被忽略。数据与名册行徽章同源（feed 分区 unread 聚合），
+// 进入对应会话即清除（clearUnread/setActiveGroup 等多路径联动）。
+// 口径 = 全分区求和（direct 对桶 + single 独立会话 + group 群聊）：
+// 名册只列 Agent/群（single 无行入口），漏加会少报总数。
+const feedStore = useFeedStore();
+const agentsUnreadTotal = computed(() => {
+  let n = 0;
+  for (const d of Object.values(feedStore.dialogs)) n += d.unread;
+  return n;
+});
+const agentsUnreadLabel = computed(() => agentsUnreadTotal.value > 99 ? '99+' : String(agentsUnreadTotal.value));
+
 // activity-bar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
 const sortedActivityBarActions = useActivityBarActions(clientCtx);
 
@@ -37,37 +53,25 @@ const moreOpen = ref(false);
 const moreTriggerRef = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 const hasUpdate = ref(false);
-const backupMsg = ref('');
-/** 备份反馈语义态（ok/error/info → FeedbackNotice 派生图标/配色） */
-const backupTone = ref<'info' | 'ok' | 'error'>('info');
 const backupBusy = ref(false);
 
-let backupMsgTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** 备份反馈统一写口（文案 + 语义态成对设置） */
-function setBackupMsg(text: string, tone: 'info' | 'ok' | 'error' = 'info') {
-  backupMsg.value = text;
-  backupTone.value = tone;
-}
-
+/** 备份反馈走全局 toast（原菜单内 FeedbackNotice 随「点菜单即关」消失——
+ *  结果不可见的真 bug；同 key 'backup' 刷新：busy → ok/error 原位更新） */
 async function runBackup() {
   if (backupBusy.value) return;
   backupBusy.value = true;
-  setBackupMsg('正在备份…');
+  toastBusy('正在备份…', { key: 'backup' });
   try {
     const d = await backupNow(clientCtx!.rpc);
     if (d.status === 'ok') {
-      setBackupMsg(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`, 'ok');
+      toastOk(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`, { key: 'backup' });
     } else {
-      setBackupMsg(`备份失败：${d.error || '未知错误'}`, 'error');
+      toastError(`备份失败：${d.error || '未知错误'}`, { key: 'backup' });
     }
   } catch (err: any) {
-    setBackupMsg(`备份失败：${err?.message || '网络错误'}`, 'error');
+    toastError(`备份失败：${err?.message || '网络错误'}`, { key: 'backup' });
   } finally {
     backupBusy.value = false;
-    // 跟踪定时器：连续备份时旧定时器会提前清掉新消息（叠加多个互踩）
-    if (backupMsgTimer) clearTimeout(backupMsgTimer);
-    backupMsgTimer = setTimeout(() => { backupMsg.value = ''; }, 5000);
   }
 }
 
@@ -129,11 +133,13 @@ onUnmounted(() => {
       <Avatar :src="currentAvatar" :name="currentAgentName" :size="30" />
     </button>
 
-    <!-- Agent 列表（活动栏第一位：Agent + 群组名册） -->
+    <!-- Agent 列表（活动栏第一位：Agent + 群组名册）；徽章 = 未读聚合
+         （私信 + 群聊 + single 会话；single 会话时名册不可见，此按钮是唯一的未读提示位） -->
     <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'agents' }" @click="emit('openPrimaryPanel', 'agents')" title="Agent 列表">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
+      <span v-if="agentsUnreadTotal > 0" class="unread-badge">{{ agentsUnreadLabel }}</span>
     </button>
 
     <!-- 会话列表（独立会话页，与 Agent 列表同级） -->
@@ -191,12 +197,6 @@ onUnmounted(() => {
           </svg>
           <span>{{ backupBusy ? '备份中…' : '数据备份' }}</span>
         </button>
-        <FeedbackNotice
-          v-if="backupMsg"
-          class="agentchat-more-backup-msg"
-          :text="backupMsg"
-          :tone="backupTone"
-        />
         <button class="agentchat-more-item" @click="onItemClick(() => emit('showVersion'))">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -241,6 +241,17 @@ onUnmounted(() => {
   width: 2px; background: var(--color-primary, #4f46e5); border-radius: 0 2px 2px 0;
 }
 
+/* 未读聚合徽章（Agent 列表按钮——视觉与 AgentList 行徽章同款：红底白字圆角胶囊，
+   描边用活动栏底色切出分离感；右上限位在按钮内，不与相邻按钮/指示条打架） */
+.unread-badge {
+  position: absolute; top: 3px; right: 3px;
+  min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: #ef4444; color: #fff;
+  font-size: 9.5px; font-weight: 600; line-height: 1;
+  border: 1.5px solid var(--color-bg-subtle, #333); z-index: 1;
+}
+
 .activity-bar-spacer { flex: 1; }
 .more-wrapper { position: relative; z-index: 10; }
 
@@ -276,9 +287,4 @@ onUnmounted(() => {
   background: #ef4444; border-radius: 50%; flex-shrink: 0;
 }
 .agentchat-more-item:disabled { opacity: 0.6; cursor: wait; }
-.agentchat-more-backup-msg {
-  padding: 6px 14px; font-size: 12px; line-height: 1.5;
-  background: var(--color-bg-surface, #f5f5f5);
-  border-top: 1px solid var(--color-border-secondary, #e0e0e0);
-}
 </style>

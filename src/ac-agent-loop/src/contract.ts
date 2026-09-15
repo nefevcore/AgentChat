@@ -123,6 +123,12 @@ export interface LoopStepRecord {
    * 相对序由本标记定）。缺省/无值 = 正文后于工具（常见形态）。
    */
   textBeforeTools?: boolean;
+  /**
+   * 思考相位时长（毫秒；源自 llm 聚合的 LlmChatResult.reasoningMs）：
+   * 首个 reasoning 片到达 → 首个非 reasoning 片到达的间隔。落盘透传——
+   * 前端历史回放据此恢复「已思考 · XmYs」耗时（与直播同源定义）。
+   */
+  reasoningMs?: number;
   usage?: LlmUsage;
   finish?: string;
   /**

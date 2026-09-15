@@ -899,5 +899,19 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     expect(pickAskQuestions({ kind: 'approval', id: 'dur-4' }, now)).toBeNull();
     expect(pickAskQuestions({ kind: 'ask_questions', id: 'dur-5', questions: [] }, now)).toBeNull();
     expect(pickAskQuestions({ kind: 'ask_questions', id: 'dur-6', questions: [{ options: ['y'] }] }, now)).toBeNull();
+    // multi：显式 true 透传（多选题），false/缺省剔除（旧载荷向后兼容）
+    const multi = pickAskQuestions({
+      kind: 'ask_questions', id: 'dur-7', owner: 'helper',
+      questions: [
+        { question: '勾选哪些？', options: ['A', 'B'], multi: true },
+        { question: '单选', options: ['x'], multi: false },
+        { question: '缺省', options: ['m'] },
+      ],
+    }, now);
+    expect(multi!.questions).toEqual([
+      { question: '勾选哪些？', options: ['A', 'B'], multi: true },
+      { question: '单选', options: ['x'] },
+      { question: '缺省', options: ['m'] },
+    ]);
   });
 });

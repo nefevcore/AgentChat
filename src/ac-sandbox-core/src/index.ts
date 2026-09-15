@@ -23,7 +23,7 @@ export {
   denyExtrasOf,
 } from './paths.ts';
 export type { SandboxResolver, SandboxResolverOptions, SandboxWorkdirSource } from './paths.ts';
-export { bashCommandViolation, stripHeredocPayloads } from './bash-scan.ts';
+export { bashCommandViolation, hostKillViolation, stripHeredocPayloads } from './bash-scan.ts';
 export type { BashScanOptions } from './bash-scan.ts';
 export { makeSecretRedactor, redactSecretValue } from './redact.ts';
 export { securityNoticeText, wrapWithSecurityNotice } from './notice.ts';

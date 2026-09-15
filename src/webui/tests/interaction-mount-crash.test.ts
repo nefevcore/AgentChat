@@ -76,4 +76,24 @@ describe('InteractionBar 挂载崩溃回归（watch immediate 修复）', () => 
     expect(error).toBeNull();
     expect(html).not.toContain('选哪个？');
   });
+
+  it('多选题（multi: true）：checkbox 语义渲染 + 「多选」徽标可见', async () => {
+    interactionRef.value = {
+      interaction_id: 'dur-multi-1',
+      agent_id: 'helper',
+      key: 'user~helper',
+      created_at: Date.now(),
+      questions: [{ question: '勾选要部署的模块？', options: ['网关', '鉴权', '计费'], multi: true }],
+      allow_custom: true,
+      timeout_ms: 0,
+    };
+    const { html, error } = await renderToString(InteractionBar);
+    expect(error).toBeNull();
+    expect(html).toContain('勾选要部署的模块？');
+    expect(html).toContain('多选'); // 题头徽标
+    // checkbox 语义（role=checkbox + 容器 group），而非 radio
+    expect(html).toContain('role="checkbox"');
+    expect(html).toContain('role="group"');
+    expect(html).not.toContain('role="radio"');
+  });
 });

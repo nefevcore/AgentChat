@@ -9,10 +9,12 @@ import { describe, it, expect } from 'vitest';
 import { openCommands, parentDirOf, runNativeOpen, type OpenCommand } from '../src/native-open.ts';
 
 describe('平台命令矩阵 openCommands', () => {
-  it('win32：explorer.exe 直开；select → /select, 形态（资源管理器选中）', () => {
+  it('win32：cmd start（ShellExecute）直开；select → explorer /select, 形态（资源管理器选中）', () => {
     const open = openCommands('win32', 'C:\\proj\\demo.md')!;
-    expect(open.command).toEqual({ cmd: 'explorer.exe', args: ['C:\\proj\\demo.md'] } satisfies OpenCommand);
-    expect(open.family).toBe('always'); // explorer 退出码不可靠——只认 spawn error
+    // 直开经 cmd start（Win11 直 CreateProcess explorer 的窗口可能永不
+    // 显示——2026-09-14 排查；ShellExecute 走 shell 集成路径稳定弹窗）
+    expect(open.command).toEqual({ cmd: 'cmd.exe', args: ['/c', 'start', '', 'C:\\proj\\demo.md'] } satisfies OpenCommand);
+    expect(open.family).toBe('always'); // start 退出码不可靠——只认 spawn error
     const sel = openCommands('win32', 'C:\\proj\\demo.md', { select: true })!;
     expect(sel.command.args).toEqual(['/select,', 'C:\\proj\\demo.md']);
   });

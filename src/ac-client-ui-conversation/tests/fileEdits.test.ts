@@ -7,9 +7,10 @@
 // insert 逆推、直播/历史双形态参数与结果解析。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import { countLineChanges } from 'ac-edit-core/src/diff.ts';
 import {
   extractFileEdits, replayFiles, fileEditsOf, diffOfSummary, fileEditsWithSnapshots, applySnapshots,
-  applyDiskFinals, fileEditsFull,
+  applyDiskFinals, fileEditsFull, versionPointsOf, editStepsOf, diffOfStep,
   type FileEditEvent,
 } from '../client/fileEdits.ts';
 import type { ChatMessage } from '../client/types.ts';
@@ -360,5 +361,102 @@ describe('applyDiskFinals / fileEditsFull —— 磁盘终版兜底（无快照�
     expect(s.finalContent).toBe('{\r\n"a": 1,\r\n"b": 99\r\n}\r\n');
     const d = diffs.find((x) => x.path === 'C:/w/crlf.json')!;
     expect(d.comparable).toBe(true);
+  });
+});
+
+describe('versionPointsOf / editStepsOf / diffOfStep —— 逐次回放（查看某次编辑）', () => {
+  const chainMsgs: ChatMessage[] = [
+    histMsg('m1', [{ id: 'c1', name: 'write', args: { file_path: 'a.ts', content: 'v1\n' }, result: { ok: true, output: { diff_added: 2 } } }], 1000),
+    histMsg('m2', [{ id: 'c2', name: 'edit', args: { file_path: 'a.ts', old_string: 'v1', new_string: 'v2' }, result: okEdit('a.ts', 1, 1) }], 2000),
+    histMsg('m3', [{ id: 'c3', name: 'str_replace_editor', args: { command: 'insert', path: 'a.ts', new_str: 'head-', insert_line: 0 }, result: okEdit('a.ts', 1, 0) }], 3000),
+  ];
+
+  it('版本点序列：base 起步逐步推进，终版点 = finalContent', () => {
+    const { files, events } = fileEditsOf(chainMsgs);
+    const s = files.get('a.ts')!;
+    const points = versionPointsOf(s, events);
+    expect(points).toHaveLength(3); // write + edit + insert
+    expect(points.map((p) => p.content)).toEqual(['v1\n', 'v2\n', 'head-\nv2\n']);
+    expect(points[0].before).toBe('v1\n'); // 首点 before = 初版（write 前 = 不存在）
+    expect(points[2].before).toBe('v2\n');
+    expect(points[2].content).toBe(s.finalContent); // 终版点与顶层重放一致
+  });
+
+  it('editStepsOf：步事件锚 + before/after；diffOfStep 输出单次编辑 diff', () => {
+    const { files, events } = fileEditsOf(chainMsgs);
+    const steps = editStepsOf(files.get('a.ts')!, events);
+    expect(steps.map((st) => st.event.callId)).toEqual(['c1', 'c2', 'c3']);
+    // 第 2 步（edit v1→v2）：单次 diff 只有这一处变更
+    const d2 = diffOfStep(steps[1]);
+    expect(d2.comparable).toBe(true);
+    expect(d2.diff).toContain('- 1 v1');
+    expect(d2.diff).toContain('+ 1 v2');
+    // 第 3 步（insert head-，行插入）：before = v2\n
+    const d3 = diffOfStep(steps[2]);
+    expect(steps[2].before).toBe('v2\n');
+    expect(steps[2].after).toBe('head-\nv2\n');
+    expect(d3.diff).toContain('+ 1 head-');
+  });
+
+  it('不可回放（partial 且无基底）= 空步序列', () => {
+    const msgs: ChatMessage[] = [
+      histMsg('m1', [{ id: 'c1', name: 'edit', args: { file_path: '存量.ts', old_string: 'x', new_string: 'y' }, result: okEdit('存量.ts', 1, 1) }]),
+    ];
+    const { files, events } = fileEditsOf(msgs);
+    expect(editStepsOf(files.get('存量.ts')!, events)).toHaveLength(0);
+  });
+
+  it('快照接管断链后：步序列自快照底起算（首步 before = 快照内容）', () => {
+    const snaps = [{ absPath: '/ws/old.ts', content: 'before\n', capturedAt: 999 }];
+    const { files, events } = fileEditsWithSnapshots([
+      histMsg('m1', [{ id: 'c1', name: 'edit', args: { file_path: 'old.ts', old_string: 'before', new_string: 'after' }, result: okEdit('old.ts', 1, 1) }], 1000),
+    ], snaps);
+    const steps = editStepsOf(files.get('old.ts')!, events);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].before).toBe('before\n'); // 快照底
+    expect(steps[0].after).toBe('after\n');
+  });
+
+  it('失败事件不产步（时间线保留但不可回放）', () => {
+    const msgs: ChatMessage[] = [
+      ...chainMsgs,
+      histMsg('m4', [{ id: 'c4', name: 'edit', args: { file_path: 'a.ts', old_string: 'nope', new_string: 'x' }, result: fail('未逐字出现') }], 4000),
+    ];
+    const { files, events } = fileEditsOf(msgs);
+    const s = files.get('a.ts')!;
+    expect(s.events).toHaveLength(4);      // 失败行在列表
+    expect(editStepsOf(s, events)).toHaveLength(3); // 但无步
+  });
+
+  it('步统计 = LCS 真实变更（old/new 含未变上下文行时，工具报告偏大——以所见为准）', () => {
+    // 场景：edit 的 old/new 各带一行未变上下文（保证唯一性的惯用写法）——
+    // 工具按编辑区域报 +8/-3，实际只变了 5 行（+5/-0）
+    const base = 'ctx-a\nL1\nL2\nL3\nL4\nL5\nctx-b\n';
+    const after = 'ctx-a\nN1\nN2\nN3\nN4\nN5\nctx-b\n';
+    const msgs: ChatMessage[] = [
+      histMsg('m1', [{ id: 'c1', name: 'write', args: { file_path: 'b.ts', content: base }, result: { ok: true } }], 1000),
+      histMsg('m2', [{
+        id: 'c2', name: 'edit',
+        // old/new 各带首尾上下文行（ctx-a/ctx-b 未变）
+        args: { file_path: 'b.ts', old_string: 'ctx-a\nL1\nL2\nL3\nL4\nL5', new_string: 'ctx-a\nN1\nN2\nN3\nN4\nN5' },
+        result: okEdit('b.ts', 8, 3), // 工具报告口径（区域计数）
+      }], 2000),
+    ];
+    const { files, events } = fileEditsOf(msgs);
+    const steps = editStepsOf(files.get('b.ts')!, events);
+    expect(steps).toHaveLength(2);
+    const step = steps[1];
+    expect(step.after).toBe(after);
+    // LCS：ctx-a/ctx-b 是公共行——真实变更只有 5 行替换中发生变化的行
+    const real = countLineChanges(base, after);
+    expect(step.added).toBe(real.added);
+    expect(step.removed).toBe(real.removed);
+    // 与单次 diff 渲染一致（所见即所得）
+    const d = diffOfStep(step);
+    expect(d.added).toBe(step.added);
+    expect(d.removed).toBe(step.removed);
+    // 与工具报告不同（工具把未变上下文行也计入了）
+    expect(step.event.added).toBe(8);
+    expect(step.event.removed).toBe(3);
   });
 });

@@ -4,6 +4,92 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added（群聊未读数字徽章——名册群行 + 活动栏聚合同源）
+- **动机**：群聊离线时收到的消息无任何可见提示——Agent 私信有数字徽章（名册行 + 活动栏聚合），群聊却完全没有对等机制；正在别的会话/别的群里时，Agent 在群里发了什么全靠碰运气发现。
+- **状态机**（feed-core，与 direct 同字段同语义——分区 `unread`）：`group/message-posted` 增量时非 viewer 发言且该群非当前活跃群 → `unread += 1`（正在看的群不计未读，与 direct 入站同口径）；清除收口在 `setActiveGroup`（进入即 `clearUnread(group:gid)`）——ui-group `selectGroup` 三路径（列表点击/创建后自动选中/上次上下文恢复）全经此，零改动自然生效。
+- **名册群行**（AgentList.vue）：群头像外包 `group-avatar-wrap`（`position:relative` 容器，与 Agent 行 `item-avatar-wrap` 同构），挂 `.unread-badge` 数字徽章（复用既有样式：>99 封顶「99+」）；`unreadCountOf/unreadLabel` 泛化为 direct 对桶 + group 分区双源读取。
+- **活动栏聚合**（ActivityBar.vue）：`agentsUnreadTotal` 从「viewer 直答对桶求和」改为**全分区求和**（direct + single + group）——名册只列 Agent/群（single 无行入口），原口径漏加 single 会话少报总数；群聊并入后徽章仍是全局唯一未读提示位。`unreadAgents` 旧接口保持原语义（名册行徽章消费），不动。
+- **验证**：新增 `webui/tests/feed-group-unread.test.ts` 4 例（增量累加/viewer 自发不计/活跃群不计且清零稳定/direct-group 分区独立）+ `activity-bar-unread.test.ts` 扩 1 例（聚合含 group/single 分区、setActiveGroup 回落）；feed/群组/会话相关 13 文件 55 例 + 根 tsc 全绿。
+
+### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.8.1 → 0.10.0：整合批次收敛工具面 40 → 32）
+- **依赖**：`ac-sap-adt` 的 `@nefevcore/abap-adt-core` `^0.8.1` → `^0.10.0`（0.x 下 `^` 不跨 minor，需显式改 specifier；lock 同步为 registry 条目；`pnpm-workspace.yaml` minimumReleaseAgeExclude 白名单补 0.10.0 三件套）。
+- **工具面变化（40 → 32）**：引擎 0.9.0 起整合批次（C/D/E 组）——调试器五件套（adt_debug_session/breakpoint/step/inspect/set_variable）合并为单工具 `adt_debug`（九 action 路由：listen/status/detach/setBreakpoint/deleteBreakpoint/step/variables/stack/setVariable）；ATC（adt_list_atc_runs + adt_get_atc_result）、dumps（adt_list_dumps + adt_get_dump）、transports（adt_list_transports + adt_get_transport）各并为一（adt_atc_runs / adt_dumps / adt_transports）；adt_read_textelements 并入 `adt_object_read {part:'textelements'}`。实现全部退位为内部引擎，策略/OCC/锁链不绕过。宿主适配层零改动——结构化缝（fs/credentials/host）与 assembleAdtTools 签名跨两代兼容（使用规约注入本就只认 `adt_` 前缀，代际无关设计按预期成立）。
+- **连带同步**：ac-plugin-core `reserved.ts` 占名名单精确对账新注册面（32 adt_*，删 12 退位名 + 4 合并名）；ac-sap-adt 测试 2 处更新（adt_debug_session → adt_debug 策略拒绝断言；目录规模断言 40 → 32）；README/package.json/扩展自述/行头注释/preset 注释文案同步；engine.ts/index.ts 代际注释措辞更正（0.8 → 0.9+ 两代均成立）。
+- **验证**：ac-sap-adt 20 例 + reserved-consistency 2 例全绿（boot 全 TREE 对账注册面 === BUILTIN_TOOL_NAMES）。
+
+### Changed（会话列表工作区分批展开：时间分桶 + 桶内分页 + 折叠重置——空间效率优先）
+- **动机**：工作区内会话增多后，「展开其余记录」一次展开全部——长列表折叠麻烦、定位困难；且工作区节点折叠再展开后仍记住「展开全部」状态，回到长列表。分桶本身不够省空间：深史桶（如「更早」）可能聚几十上百条，桶一开仍是一面墙。
+- **新件 `sessionTimeBuckets.ts`**（ac-client-ui-singles client）：① 分桶纯函数 `bucketByTime`——最近活动按自然日分桶（今天/昨天/三天/一周/两周/一个月/更早；「三天」=2~3 天前、「一周」=4~7 天前……「更早」聚拢一个月外全部深史；桶边界锚本地时区 00:00，降序输入单趟游标 O(n)，空桶不出现）。② 桶内分页状态机（`RevealMap` = group key → bucket key → **显示条数上限**）——桶展开 ≠ 全量铺出：桶头点击 = 展开 `BUCKET_PAGE_SIZE`(5) 条/收起归 0（再展开回一页，不记住「展开很多」）；桶内「展开更多」= 每次追加一页（夹到桶大小，满额闸门消失）。无记录走缺省规则（首桶 + 激活会话所在桶各一页）；一旦有记录显式值是唯一事实源；首次交互以当前缺省上限播种——未被点击的桶视觉不跳变。
+- **`SessionList.vue`**：桶住 `treeGroups` computed（随 sessions 变化重算）；桶头行（时间标签 + 条数胶囊，chevron 开合）+ 桶内会话行（前 limit 条）+ 尾部「··· 展开更多（N）」闸门。激活会话所在桶缺省开一页（选中态不被折叠藏掉；无今天会话时首桶顺延）。工作区节点折叠即 `resetGroupReveal` 弃置该组桶展开记录——重开恢复缺省分批态。工作区分组整体折叠态（collapsed）持久化语义不变。
+- **验证**：新增 `session-time-buckets.test.ts` 12 例（分桶边界全轴/空桶/首桶顺延/未来时间戳兜底；状态机：缺省回落/桶头开合回一页/播种不跳变/分页追加与满额夹持/小桶夹持/组间隔离/折叠重置幂等）+ `session-list-buckets.test.ts` 6 例（组件级：分桶分页呈现/桶头开合/分页渐进与回退/首桶顺延/折叠重置/未分组同规则——jsdom 孤立挂载，桩 ctx 经 provide(CLIENT_CONTEXT_KEY) 注入）；ac-client-ui-singles 22 例 + 根 tsc 通过。
+
+### Fixed（运行跟踪面板 single 会话显示具体标题——不再拿路由预设的「模式名」冒充会话名）
+- **动机**：辅助侧边栏运行跟踪的「运行中」清单里，single 独立会话一行显示的是预设名（如「标准模式」）——`sessionTitle()` 先查 `snapshot.singles`，但客户端域投影 `toRunsSnapshot` 里 `singles: []` 恒为空，逐级回落到 `memberName(r.agentId)`，而 single 会话的运行 Agent 恰是路由目标预设（`__standard__` 等），预设名经 `getAgentName` 的预设目录解析即成「标准模式」。用户在会话列表看到的会话明明有具体标题，运行跟踪却只给模式名，无法分辨是哪个会话在跑。
+- **改法**（ac-client-ui-runview `RunTrackingPanel.vue`）：single 分支改查 singles 域投影 `ctx.singleBoard.singles`（含自动生成标题；`singles/updated` 帧驱动刷新，标题生成后即时上屏——矩阵域 `RunsSnapshot.singles` 客户端投影恒空，不参与）；无标题会话与会话列表 `titleOf` 同款回落（`Agent 名 · 创建时间`；空 Agent →「新会话」）。`onMounted` 补拉 `singlesBoard.refresh()`（未开过会话列表时面板直接打开的数据源兜底，对齐 SessionList/ChatInput 既有模式）；域件未装载 → `?.` 静默跳过，可摘除性（D19）不变。
+- **验证**：webui 全量 416 例全绿；根 tsc 干净。
+
+### Added（前端 HTTP 面瞬时断网重试——后端 ac-llm 重试语义的前端镜像）
+- **动机**：后端 LLM 调用自 2026-09-05 nana 事故后有瞬时网络错误退避重试（`ac-llm` dispatch——首块 chunk 产出前 fetch failed/ECONNRESET 等按 500/1500ms 重试 2 次），WS 面也有断线自动重连（退避 2s→30s + requestId 幂等重发），唯独前端 HTTP 面完全裸奔——网络一抖，`/api/ui/extensions`、`/api/ui/boot-graph` 等拉取直接失败；boot graph 拉取失败还静默返回空图，热通道 diff 会把全部 domain 行的 fiber 真回收（一次抖动拆光行集，代价远高于多等 2s）。
+- **改法**（webui `core/api/client.ts`——全项目唯一 fetch 入口）：`request()` 增加瞬时故障退避重试，与后端 ac-llm 同款语义——仅幂等请求（GET/HEAD 且无 body）且仅在响应到达【之前】失败（fetch reject）才重试（缺省 2 次：500ms/1500ms）；非 2xx 应答（含 502/503——服务器已应答，后端重启窗口由 WS 通道重连恢复链兜底）、POST 等非幂等方法（重放可能重复执行）一律不重试；退避等待可被 `init.signal` 中止（中止优先于重试）；每次重试 `console.warn` 留痕。瞬时判定 `isTransientNetworkError` 镜像 `ac-error-core`（cause 链 AbortError 优先短路 / "fetch failed" 外壳 / 瞬时 code 清单——浏览器裸 TypeError 与 undici cause 链双形态），前端零依赖不复刻于本文件。新增 `setApiFetcher` 测试注入口。
+- **收编**：两处绕过统一入口的裸 fetch 改走 `request()`——`api/extensions.ts`（扩展清单）、`runtime/bootGraph.ts`（boot graph 拉取；catch 兜底语义不变：重试耗尽仍不可达才空图）。
+- **验证**：新增 `webui/tests/api-client-retry.test.ts` 10 例（重试成功/耗尽抛最后一次/退避节奏真实计时下界/POST 与带 body GET 不重试/503 不重试/AbortError 不重试/退避中 signal 中止/warn 留痕计数 + 与后端 `ac-error-core` 同输入对拍锁定双端口径一致防漂移）；webui 全量 416 例全绿；根 tsc 干净（webui vue-tsc 对本改动文件干净——InteractionBar.vue 的 13 个错误为另一在途多选题改动的存量，与本轮无关）。
+
+### Changed（dev 启动去 tsx——Node 原生 TS strip-only 直跑，冷启动 3.2s → 1.2s）
+- **动机**：`pnpm dev` 经 `--import tsx` 启动，tsx 的 esbuild 转换无持久缓存——每个新进程重新编译 80+ 行包，是冷启动静默期大头（boot 横幅打印后 ~2.7s 无任何行日志）。实测（同数据根）：tsx 路径 API 可用 @ 3.24s，Node 24 原生 strip-types @ 1.24s，dist bundle @ 0.99s。
+- **改法**：仓库本就遵守原生 strip 红线（显式 `.ts` 扩展 / `verbatimModuleSyntax` / 无 enum 参数属性），Node ≥22.18（23.6 的 LTS 回移）type stripping 默认启用，直接去掉 tsx 层——`package.json` dev/dev:supervised/dev:demo/smoke/chat/bench 六脚本、`supervisor.mjs` worker spawn 参数、`bin/agentchat.js` 仓库回退路径（低版本 Node 兜底 tsx 不变）。vitest 不动（测试文件仍走 tsx transform，与运行时加载解耦）。
+- **门槛**：engines `>=20` → `>=22.18`（原生 strip 的最低版本；Node 20/21 无此能力，dev 需升级 Node）。
+- **附带验证**：NODE_COMPILE_CACHE 实测对该负载无收益（strip 产物小文件 V8 编译本就快，缓存目录读写反增 ~0.15s）——不引入。
+- **验证**：`pnpm dev` 三端点全 200 @ 1.50s（隔离数据根探针）；`dev:demo` 完整跑通（e2e 链路 + HMR 热重载 v1→v2，exit 0）；supervisor 原生加载 + 锁协议正常（用户实例持锁时按协议退 78）；全仓 vitest 1936 例全绿 + 根 tsc 干净。
+
+### Fixed（runs/snapshot 轮询整读会话文件堵事件循环——刷新页面 API 秒级排队）
+- **动机**：`runs/snapshot` RPC（ac-web-api）每 3s 对全部会话调 `session.tail()` 取名册末条摘要，`tail()` 原实现每轮 `readFileSync` 整读 messages.jsonl 且零缓存——百 MB 级数据根（153 会话/182MB）实测稳态单轮 ~1.2s、进程冷后首轮 ~8s，同步 IO 全程阻塞事件循环：并发到达的 HTTP 请求（`/api/ui/extensions`、`/api/workspaces` 等）全部排队，用户侧表现为「启动完成后再刷新页面也要 5 秒+」。
+- **改法**（ac-session）：`tail()` 两级加速——① `tailCache`（mtime/size 门，同 stats/records 缓存模式）：文件未变直接返回缓存投影零读；② 尾窗读取：变化时只读文件尾 8 MiB 窗口找末条完整记录（窗起点在行中时跳过被撕裂的半行），窗内找不到（病态大记录）才全读兜底（`tailFullRead`）。主动失效点对齐既有缓存：setShelf 迁移 / rewriteMessages 重写 / clear 各处同步 `tailCache.delete`。
+- **验证**：新增 `ac-session/tests/tail-cache.test.ts` 8 例（命中全等/写后失效/外部直改失效/重写失效/clear 回 undefined/partial 行跳过/大文件尾窗命中/双桶隔离）；ac-session 全部 + ac-web-api 回归 118 例全绿；根 tsc 干净。实测同一数据根副本：稳态轮询 1230ms → 75ms，刷新时并发 HTTP 1048~2462ms → 6~12ms。
+
+### Added（辅助活动栏「运行跟踪」rail 按钮：主题色数字徽章——一眼可见当前运行中会话数）
+- **动机**：运行是否在进行要展开面板才能看到——运行中会话数是最常盯的监视量，常驻 rail 按钮上直接给数字（有 run 进行中即可见，无需展开）。
+- **契约**（ac-client-ui-layout `auxSidebarViews.ts`）：`AuxSidebarPanelDef.rail` 新增可选 `badge?: () => number | string | null`——徽章数据源随 owning 行声明（壳零域知识）；0 / null / undefined / 空串 = 不渲染，数字 >99 壳封顶「99+」，文本（如「√」）原样透传。
+- **壳渲染**（`AuxActivityBar.vue`）：rail 按钮右上角主题色胶囊徽章（`--color-primary` 底白字、`--color-bg-page` 描边 1.5px——同 more-dot/unread-badge 定位语言）；每渲染帧安全求值（badge() 抛错 = 该按钮无徽章 + console.warn，同 available 谓词姿势，不击穿栏）。
+- **域行供数**（ac-client-ui-runview）：tracking 选区 `rail.badge` = `ctx.runs.snapshot.running.length`（经根 runtime 解析——本 fiber 未 inject runs，直访会抛被安全求值吞掉）；**行装载即启动 runs 快照轮询**（`ensurePolling` 在 apply 首调用，幂等；此前轮询只随面板挂载启动，收起面板徽章会失活）。fiber 卸载随 RunsClientService 定时器一并回收。
+- **连带**：`boot-graph.test.ts` 装载断言更新——装载即拉取后 rpc stub（返回 `{}`）合成空视图（running: []），原「snapshot = null 空态」断言过时。
+- **验证**：新增 `webui/tests/aux-badge.test.ts` 2 例（数字渲染/0·null 隐藏/99+ 封顶/文本透传 + 抛错不击穿）+ `clients-runview.test.ts` 补徽章数据源用例（随 snapshot running 数更新、行卸载同灭）；根 tsc + webui vue-tsc 干净；webui 全量测试回归。
+
+### Changed（统一下 Toast 行为——全 UI 唯一瞬时反馈通道，收编 9 处自制实现）
+- **动机**：项目没有全局 Toast 原语，各面板自制了 9 处「ref + setTimeout 短暂反馈」——时长 1500/2000/3000/3500/5000ms 五种口径、连续触发互踩（旧定时器清掉新消息或多条刷屏）、两处错误反馈埋在 title 属性里基本不可见、一处（活动栏备份结果）挂在「点击即关」的菜单里随菜单消失。webui-slot-tree ⑥ global 层早已预留 `global:toast` 候选席（宿主先建原语再开口），本轮落原语半件。
+- **新件 `toast.ts`**（webui-kit，命令式写口 + 模块级单例栈，零 DOM 依赖）：tone 语义态与 FeedbackNotice 同轴（ok/error/info/busy → 图标/配色派生）；时长按 tone 分级（ok 2s / info 3s / busy 4s / error 5s——错误文本长阅读时间最长；`duration: 0` 永驻手动关）；**同 key 原位刷新**（缺省 key = 文本）：连续触发不叠加不互踩，busy → ok/error 同 key 演进（计时重置）；栈上限 4 条（超出丢最旧）；hover 暂停/恢复（剩余时长快照，resume 续走）。便捷别名 toastOk/toastError/toastInfo/toastBusy；dismissToast/clearToasts 手动管理。
+- **新件 `ToastHost.vue`**（webui-kit，渲染半件）：Teleport body 右下角栈，z-index 9500（低于更多菜单 9999 / FilePreview 10000，盖过设置域弹窗 1200），TransitionGroup 进出动效，`role="status" aria-live="polite"`，逐条关闭钮。AppFrame 挂载一次（overlay 席之后），全局唯一渲染点。
+- **收编 9 处**（行为统一为 toast；错误展示从 title 兜底升级为直接可见）：① PluginLibraryPane `flash()`（3500ms → toastOk）② SettingsPanel 保存 successMsg（footer 占位互斥 dirty 提示 → toastOk）③ PoolManager ④ SearchPoolManager `saved`（2000ms → toastOk）⑤ FilePreviewTabPane ⑥ FilePreviewModal 本地打开错误（title 3s → toastError）⑦ WorkspaceTree ⑧ SessionList 工作区资源管理器错误（同上）⑨ FileEditsPanel 本地打开错误。**连带修真 bug**：ActivityBar 备份反馈原挂「更多」菜单内的 FeedbackNotice——`onItemClick` 点菜单项即关菜单，备份结果随菜单消失不可见；改 toastBusy → toastOk/toastError 同 key 'backup' 演进，全程可见。
+- **不收编面（原地翻转语义，保留各组件自实现）**：复制按钮的图标/文案翻转（AssistantMessage/UserMessage/ToolResultCode/Edit/Write/StagingReviewModal/SystemPrompt 族——反馈点即按钮本身，无脱离上下文需求）；表单内联错误（ExtensionSettingsModal/GroupDrawer/AgentList——错误锚定字段位置）；FeedbackNotice 嵌入式反馈条（ConversationView 投递反馈——就地呈现语义）。
+- **验证**：新增 `webui/tests/toast.test.ts` 14 例（时长分级/去重刷新/上限/手动管理/hover 暂停快照续走/ToastHost Teleport 渲染与 aria）；根 tsc + webui vue-tsc 干净；全仓 vitest 1915 例（244 文件）全绿。
+
+### Changed（[路径规则] 行按 access-tier 档位分措辞——单句全局口径在权限轴下失真）
+- **动机**：access-tier（`full-access`/`sandbox-access`/缺省 base × `ToolCall.elevation`）落地后，[路径规则] 单句"工作目录与白名单内绝对/相对路径均可；沙箱越界一律拦截"三处失真：① 读不设防（§9.1，read/glob/grep 脱离沙箱只过双黑名单——旧句诱导 Agent 误以为读工作目录外会被拦）；② full 档不受沙箱限制（旧句对 full Agent 是假的）；③ base 有人桶越界写不是"一律拦截"而是审批询问、人批即放行。
+- **改法**：ac-system-prompt `buildEnvBlock` 新增 `pathRuleLine(accessTier)`——按本 run 有效档位注入三套措辞（base：均可读写 + 读不设防 + 越界写触发审批/拦截，保留 2026-09-02 反泛化锚"拦截原因是越界而非绝对路径形态"；sandbox：白名单内自由读写含 bash 软边界；full：不受沙箱限制、黑名单仍生效）。档位判定走 `effectiveTierOf(agent, request.elevation)` 单源（ac-agents，与安全行/工具行同源）；agents 能力缺位 = base 措辞（fail 方向一致）。`AssembleInput` 新增 `accessTier`，纯函数与 apply 两级装配。
+- **验证**：ac-system-prompt 33 例（新增分档措辞纯函数例 + apply 侧 tags/elevation 装配例）+ ac-agents/ac-security 回归 76 例全绿；根 tsc 干净。旧全局句不再出现于任何档位。
+
+### Added（工作区树展开态跨刷新持久化——刷新后不再全部回到收起态）
+- **新件 `workspaceTreePrefs.ts`**（ac-client-ui-workspace client）：各树基准（`c:<sid>` / `a:<agentId>` / `''` 全局——`contextKey` 同源）的展开目录路径集合记入 localStorage 单键 `agentchat.workspaceTreePrefs`（`{ contexts: { [key]: string[] } }`）。写侧去抖 200ms 合帧 + `pagehide` 冲刷兜底；读取逐项 string 校验、损坏/无 localStorage 静默降级空态（与 composePrefs 同款手法——存储面在 import 时捕获，jsdom/node 缺省 undefined）。
+- **store 接线（`workspaceTreeStore`）**：基准建册（`setContext` 首触 / `loadDir` 防御兜底）改走 `registeredState(key)` 读回持久化展开集合；`expandDir`/`collapseDir` 变更即时 `saveExpanded` 写回（满集合全量替换）；新增 `restoreExpanded` 恢复链——根层加载后按**深度序**逐层懒加载重铺（父先子后 `findNode` 才可寻；复用 per-path in-flight 守卫，恢复期并发展开归一；幽灵路径（目录已更名/删除）静默忽略）。树数据/滚动位置/activePath 仍是会话内瞬态（懒加载重取 + 滚动随高度变化）。
+- **护栏**：单基准 200 条展开路径、全基准 50 条目（超限裁最旧留最新——补丁键重排到尾）。
+- **验证**：新增 `tests/workspace-tree-prefs.test.ts` 8 例（prefs 读写/损坏降级/条目护栏 + store 写回/刷新重铺/深度序/孤儿与幽灵路径/per-context 隔离；fetchWorkspaceTree 经 vi.mock 换克隆 fixture——store 会把返回节点挂树，共享引用曾致跨测试污染）+ 行内既有 3 例；根 tsc + webui vue-tsc 干净 + webui 全量 386 例 + webui:build 通过。
+
+### Fixed（主侧边栏会话列表工作区分组折叠态从未持久化——注释承诺的「记住折叠」是句空话）
+- **动机**：`SessionList.vue`（single 页主侧边栏）的工作区分组展开/收起态住组件内 `ref(new Set())`——注释写着「记住用户折叠状态」，但无任何持久化：切换活动栏视图（面板卸载 ref 清零）或刷新即全部回到展开。此前一轮「工作区树展开态持久化」改的是辅助侧边栏文件树（`WorkspaceTree`），两处常被混称「工作区树」，用户反馈「没生效」实际指本处。
+- **改法**：新件 `sessionTreePrefs.ts`（ac-client-ui-singles client）——折叠分组 key 集合（workspace id + `__ungrouped__`）记入 localStorage 单键 `agentchat.sessionTreePrefs`（string[] 全量替换）；`SessionList` 初值 `loadCollapsed()` 读回、`toggleGroup` 即时 `saveCollapsed` 写回。与 composePrefs/workspaceTreePrefs 同款手法：storage 面 import 时捕获（jsdom/node 缺省 undefined → 静默无持久化）、损坏 JSON 降级空态、200 条护栏；幽灵 key（工作区已删）读取无害，随下次交互自然淘汰。
+- **验证**：新增 `tests/session-tree-prefs.test.ts` 7 例（空态/写读往返/全量替换/损坏降级×2/护栏/幽灵 key；node 环境内存桩先于模块 import 注入——与 workspace-tree-prefs.test 同款）；根 tsc + webui vue-tsc 干净；Playwright 端到端：折叠 → 落键 → 刷新回放保持折叠，无页面错误。
+
+---
+
+## [0.8.7] - 2026-09-14
+
+### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.7.2 → 0.8.1：CRUD 时代 A 组工具退位，fs 风格 adt_object_* 顶替）
+- **依赖**：`ac-sap-adt` 的 `@nefevcore/abap-adt-core` `^0.7.2` → `^0.8.1`（0.x 下 `^` 不跨 minor，需显式改 specifier；lock 同步为 registry 条目；`pnpm-workspace.yaml` minimumReleaseAgeExclude 白名单补 0.8.1）。
+- **工具面变化（46 → 40）**：引擎 0.8 起 CRUD 时代 A 组 9 名（adt_crud / adt_create_object / adt_read_object / adt_read_structure / adt_write_object / adt_edit_object / adt_write_structure / adt_delete_object / adt_package_content）与 adt_push_object 不再注册（实现退位为内部路由引擎），新增 4 个 fs 风格门面 adt_object_write / read / edit / delete（无 name 调用返回 fs 能力矩阵卡；非法 type 给可读违规）。宿主适配层零改动——结构化缝（fs/credentials/host）与 assembleAdtTools 签名兼容。
+- **连带同步**：ac-plugin-core `reserved.ts` 占名名单精确对账新注册面（40 adt_* + 新 4 名，删 10 旧名）；ac-sap-adt 测试 4 处旧名调用换新（含矩阵卡/参数校验断言）+ 目录规模断言 46→40；README/package.json/扩展自述/行头注释等文案同步。
+- **验证**：ac-sap-adt 15 例 + reserved-consistency 2 例 + root tsc 干净 + 全量 vitest 1876 例（241 文件）全绿。
+
 ## [0.8.6] - 2026-09-13
 
 ### Fixed（CI Linux 门禁四连修：v0.8.6 发布测试失败——平台差异与精度撞值）

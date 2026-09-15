@@ -756,7 +756,8 @@ export class ConversationService extends Service {
     // （stale = 从文件重派生；无视图时以 session.history(conv,{viewer})
     // 播种——重启/直答/独立会话路径上下文不再为空）。机制标记 run
     // （归档整理，M20）自身的事件被投影通道 meta 判定跳过，视图零污染。
-    const view = await this.contextFor(handle, conversationId, agentId, options.history);
+    // 链跑轮间可因 stale 重派生被替换（见循环顶部）——let 持有。
+    let view = await this.contextFor(handle, conversationId, agentId, options.history);
     let message = firstMessage;
     let sender = options.sender ?? DEFAULT_SENDER;
     let source: LoopSource = options.source ?? 'user';
@@ -774,6 +775,15 @@ export class ConversationService extends Service {
 
     try {
       while (true) {
+        // 轮间重派生（2026-09-13 事故修复）：steer/链跑把 run 拉长到
+        // 分钟级，而视图快照只在 startRun 拍一次——群本体增长（markStale）
+        // 只在"下次 startRun"生效，busy 成员在 run 延伸中看不到自己
+        // 刚 send_group 的发言（误判"没发出去"而重发）。链跑轮间检查
+        // stale：重派生后再拍信封快照。首轮视图刚在 startRun 顶部派生
+        // 过（fresh），此检查天然零开销；非 stale 轮零重算。
+        // 在途 run 的信封快照不受影响（S3 语义保持——每轮快照仍为
+        // "本条之前"的稳定拷贝，轮内不再变）。
+        if (view.stale) view = await this.contextFor(handle, conversationId, agentId, undefined);
         // run 信封快照：事件投影会并发追加视图（本条入站/同桶对端事件），
         // 信封须稳定——取"本条之前"的拷贝，router 会把本条追加到信封末尾。
         // 入站/回复行由 router 事件投影进视图（S1：视图 = 文件事件派生，
@@ -840,6 +850,13 @@ export class ConversationService extends Service {
    *     F1 修复——直答/独立会话重启后首跑不再空上下文）；
    *   · session 行未装载（测试/最小组合）→ 显式种子/空兜底；
    *   · 已有视图 → 沿用（增量投影维护，不再重复播种）。
+   *
+   * 群桶感知（2026-09-13 事故修复）：群本体只收 post 事实行（hint/
+   * 终稿/steer 均不入账，M26），而 session.history 的角色投影不含
+   * <msg> 包装/相邻 peer 合并——形状与 historyFor 派生漂移。群桶
+   * stale 重派生时优先经可选 group 服务取 historyFor 专用投影
+   * （seed 未给时），保持「群成员上下文 = 本体 per-member 视角派生」
+   * 单源。链跑轮间重派生（见 startRun）无种子可携带，依赖此路径。
    */
   private async contextFor(
     handle: string,
@@ -853,10 +870,22 @@ export class ConversationService extends Service {
     if (seed && seed.length > 0) {
       messages = [...seed];
     } else {
-      const session = this.ctx.get('session', false) as
-        | { history(id: string, options?: { viewer?: string }): Promise<LlmMessage[]> }
+      // 群桶：historyFor 专用投影优先（<msg> 包装/peer 合并/own=assistant）
+      const group = this.ctx.get('group', false) as
+        | { get(id: string): unknown; historyFor(id: string, viewer: string): Promise<LlmMessage[]> }
         | undefined;
-      messages = session ? await session.history(conversationId, { viewer }) : [];
+      const groupView =
+        group !== undefined && group.get(conversationId) !== undefined
+          ? await group.historyFor(conversationId, viewer)
+          : undefined;
+      if (groupView !== undefined && groupView.length > 0) {
+        messages = groupView;
+      } else {
+        const session = this.ctx.get('session', false) as
+          | { history(id: string, options?: { viewer?: string }): Promise<LlmMessage[]> }
+          | undefined;
+        messages = session ? await session.history(conversationId, { viewer }) : [];
+      }
     }
     const view: ContextView = { conversationId, viewer, messages, stale: false };
     this.views.set(handle, view);

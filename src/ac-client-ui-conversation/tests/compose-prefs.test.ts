@@ -52,11 +52,21 @@ describe('composePrefs：上次会话选择持久化', () => {
     expect(prefs.loadComposePrefs()).toEqual({ effort: '', elevation: '' });
   });
 
+  it('agentId/model 的 "" 同为合法记录值：明确选回默认覆盖旧记录（2026-09 修复——选回默认后新会话跟随，不残留旧模式）', () => {
+    storage.clear();
+    prefs.saveComposePrefs({ agentId: '__abap_dev__', model: 'glm@glm-5.3' });
+    // 会话里明确选回默认预设/默认模型（下拉第一项）
+    prefs.saveComposePrefs({ agentId: '' });
+    prefs.saveComposePrefs({ model: '' });
+    // '' 记录在案（区别于未记录）；消费方（SessionList）据此走缺省路径
+    expect(prefs.loadComposePrefs()).toEqual({ agentId: '', model: '' });
+  });
+
   it('wire 宽容：非法档位值/未知键忽略，损坏 JSON → null', () => {
     storage.clear();
     prefs.saveComposePrefs({ effort: 'ultra' as never, elevation: 'root' as never });
-    prefs.saveComposePrefs({ agentId: '', model: '' }); // 空串 = 不记录（'' 语义 = 缺省）
-    expect(prefs.loadComposePrefs()).toBeNull();
+    prefs.saveComposePrefs({ agentId: '', model: '' }); // '' = 明确选回默认（合法记录值）
+    expect(prefs.loadComposePrefs()).toEqual({ agentId: '', model: '' });
     storage.setItem('agentchat.composePrefs', '{broken json');
     expect(prefs.loadComposePrefs()).toBeNull();
   });

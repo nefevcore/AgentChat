@@ -272,6 +272,13 @@ export interface SessionStepRecord {
    */
   textBeforeTools?: boolean;
   /**
+   * 思考相位时长（毫秒；源自 loop 步记录的 reasoningMs，llm 聚合时记录）：
+   * 首个 reasoning 片到达 → 首个非 reasoning 片到达的间隔。落盘于此并
+   * 透传前端——历史回放恢复「已思考 · XmYs」耗时。旧行无此键 → 不显示
+   * 耗时（组件回落「已思考」）。
+   */
+  reasoningMs?: number;
+  /**
    * 步完成时刻（epoch ms；源自 loop 的步级时序锚）。收束行把整轮 run
    * 折叠为单行，中途插行（投递消息/机制通知）与步的相对位置靠 steps[].ts
    * 在前端展开时恢复（2026-09-02 反馈：渲染序与落盘序不一致）。
@@ -321,6 +328,31 @@ function runLogKey(agent: string | undefined, conversationId: string | undefined
 /** 部分行行内探测（stats/tail 窗口计数用）：record() 构造的 JSON 行该键值
  *  对唯一且无空格（JSON.stringify 无参格式）——前缀探测免全量 parse */
 const PARTIAL_MARK = '"partial":true';
+
+/**
+ * tail() 尾窗读取字节数：单条记录受限长输出，8 MiB 窗口足够覆盖末条
+ * 完整记录（与 repairTail 的尾窗同款尺寸；越界属病态文件，按「无末条」
+ * 处理走全读兜底）。
+ */
+const TAIL_WINDOW_BYTES = 8 * 1024 * 1024;
+
+/** tail() 的末条记录投影（展示字段投影，非完整 SessionRecord） */
+type TailRecord = Pick<SessionRecord, 'role' | 'content' | 'timestamp' | 'agent_id' | 'name' | 'source'>;
+
+/**
+ * 尾窗文本 → 末条记录投影（tail 的解析核）：自尾向头找最后一条可解析的
+ * 非部分行（部分行是 run 进行中的临时 checkpoint）。窗内找不到 = 交回
+ * 调用方兜底（可能窗太小或文件病态）。
+ */
+function tailFromWindow(text: string): TailRecord | undefined {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i]!.trim() || lines[i]!.includes(PARTIAL_MARK)) continue;
+    const rec = parseRecordLine(lines[i]!);
+    if (rec !== undefined) return rec;
+  }
+  return undefined;
+}
 
 /** 行内时间戳提取（避免全量 JSON.parse；无/坏时间戳不计窗） */
 const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
@@ -467,6 +499,7 @@ export function stepsFromRunResult(
       ...(s.reasoning ? { reasoning: s.reasoning } : {}),
       ...(s.ts !== undefined ? { ts: s.ts } : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
+      ...(s.reasoningMs !== undefined ? { reasoningMs: s.reasoningMs } : {}),
       ...(s.toolCalls.length > 0
         ? {
             toolCalls: s.toolCalls.map((tc, i) => ({
@@ -513,6 +546,27 @@ export class SessionService extends Service {
   private shelfFile: string;
   /** stats() 热窗缓存（file → mtime/size 对应的窗口计数；轮询零重算） */
   private windowCache = new Map<string, { mtimeMs: number; size: number; windows: SessionWindowCounts; messageCount: number }>();
+  /**
+   * tail() 尾部摘要缓存（file → mtime/size 对应的末条记录投影；mtime/size
+   * 任一变化即失效重读）。动机：runs/snapshot 每 3s 对全部会话调
+   * tail()，原先每轮 readFileSync 整读 messages.jsonl（数百 MB 数据根
+   * 实测单轮秒级、同步阻塞事件循环——刷新页面时的 HTTP 请求全部排队）。
+   * 缓存 + 尾部窗口读（TAIL_WINDOW_BYTES）后：文件未变零读，变化时也只
+   * 读尾窗不整读。同 windowCache/recordsCache 的 mtime 门模式。
+   */
+  private tailCache = new Map<string, { mtimeMs: number; size: number; tail: TailRecord | undefined }>();
+  /**
+   * records() 解析缓存（file → mtime/size 对应的已解析记录）：读侧投影
+   * 缓存，非第二事实源——mtime/size 任一变化即失效重读，重启随进程消失
+   * （S1/S3 同 stats() windowCache 模式）。动机：run 收束的 3 连读
+   * （归档判定 + session/tokens + UI 回放）与夜间 archiveAll 批量扫描
+   * 原本每次全量 readFileSync + 逐行 JSON.parse（4.6MB 会话 ~30ms 同步
+   * 阻塞/次）。条目返回浅拷贝数组；元素对象共享——records() 内部的
+   * supplements 覆盖幂等（同值重复覆盖），仓内调用方均为只读投影。
+   * LRU 上限防 archiveAll 类全量扫描把内存吃穿（超出按插入序淘汰冷会话）。
+   */
+  private recordsCache = new Map<string, { mtimeMs: number; size: number; records: SessionRecord[] }>();
+  private static RECORDS_CACHE_MAX = 16;
   /**
    * 活跃 run 簿记（步级部分行配套）：loop/run-started 登记、reply-completed
    * 消费清除。key = runLogKey(agent, conversationId)；同键新 run 覆盖旧项
@@ -620,6 +674,7 @@ export class SessionService extends Service {
         ...(step.reasoning ? { reasoning: step.reasoning } : {}),
         ...(step.ts !== undefined ? { ts: step.ts } : {}),
         ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
+        ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}),
         toolCalls: step.toolCalls.map((tc) => ({
           id: tc.id,
           name: tc.name,
@@ -883,6 +938,10 @@ export class SessionService extends Service {
     this.queues.delete(oldFile);
     this.windowCache.delete(oldFile);
     this.windowCache.delete(newFile);
+    this.recordsCache.delete(oldFile);
+    this.recordsCache.delete(newFile);
+    this.tailCache.delete(oldFile);
+    this.tailCache.delete(newFile);
 
     this.shelfIndex.set(conversationId, normalized);
     this.saveShelfIndex();
@@ -1175,6 +1234,19 @@ export class SessionService extends Service {
       this.ctx.logger.warn(`[session] 回放前 flush 失败（${conversationId}）: ${String(err)}`);
     }
     const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
+    // 解析缓存（mtime/size 门）：文件未变 → 免 readFileSync + 逐行 parse，
+    // 直接复用已解析记录（run 收束 3 连读降为 1 读）。返回浅拷贝数组，
+    // 元素对象共享（调用方只读；supplements 覆盖幂等）。缺失/失准 =
+    // stat 兜底重读，行为与无缓存完全一致。
+    try {
+      const stat = fs.statSync(file);
+      const cached = this.recordsCache.get(file);
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        return [...cached.records];
+      }
+    } catch {
+      // stat 失败 = 会话文件不存在/不可达 → 走下方空会话路径
+    }
     let lines: string[] = [];
     try {
       if (fs.existsSync(file)) lines = fs.readFileSync(file, 'utf-8').split('\n');
@@ -1234,7 +1306,9 @@ export class SessionService extends Service {
       visible = out.filter((r) => r.partial !== true || r.run === undefined || !absorbedRuns.has(r.run));
     }
     // 补行覆盖：未收束 run 的部分行 result:null ← 工具终值（收束行已带
-    // 权威结果，被吸收 run 的补行无落点、自然失效）
+    // 权威结果，被吸收 run 的补行无落点、自然失效）。覆盖发生在缓存入库
+    // **之前**——缓存条目即已含覆盖结果，命中路径零重复计算（同 run 补行
+    // 重复到达时同值幂等覆盖，无漂移）。
     if (supplements.size > 0) {
       for (const r of visible) {
         if (r.partial !== true || r.run === undefined || r.steps === undefined) continue;
@@ -1246,6 +1320,19 @@ export class SessionService extends Service {
           }
         }
       }
+    }
+    // 缓存入库（快照按读取时刻的 mtime/size 盖章；后续写/重写使 mtime 或
+    // size 变化即失准重读）。LRU 上限：archiveAll 类全量扫描 135+ 会话时
+    // 防内存无界（淘汰最冷条目 = 重读一次，行为不变）。
+    try {
+      const stat = fs.statSync(file);
+      this.recordsCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, records: visible });
+      if (this.recordsCache.size > SessionService.RECORDS_CACHE_MAX) {
+        const coldest = this.recordsCache.keys().next().value;
+        if (coldest !== undefined) this.recordsCache.delete(coldest);
+      }
+    } catch {
+      // stat 失败（并发删除等）：不入缓存，读结果仍正确返回
     }
     return visible;
   }
@@ -1262,6 +1349,48 @@ export class SessionService extends Service {
     const messageId = this.record(conversationId, agentId, message);
     await this.flush(conversationId);
     return messageId;
+  }
+
+  /**
+   * 重启后作答对账补记（late-reply 恢复源，2026-09-15 上下文丢失事故修复）：
+   * 按 toolCallId 反查会话里**未收束 run** 的部分行（result:null 悬空调用），
+   * 落一条 tool-result 补行——读侧 records() 覆盖后 history() 的 stepsComplete
+   * 门放行，悬空 tool_calls 获得结果，整段轨迹（正文/思维链/调用对）回到
+   * 回放上下文。run 死亡（后端重启/进程中断）时 tool/after-execute 永不再发
+   * （进程内簿记随进程消失）——ask_questions 等对账型工具的答案由本口补位
+   * （result 形状与工具正常返回约定一致，由调用方构造）。
+   * 幂等：目标调用已有非 null 结果（已补记过/收束行）→ 无落点返回 false，
+   * 不落行。返回 true = 补行已落盘（await flush——先补记后唤醒的时序锚）。
+   */
+  async backfillToolResult(conversationId: string, toolCallId: string, result: unknown): Promise<boolean> {
+    if (typeof toolCallId !== 'string' || !toolCallId) return false;
+    const records = await this.records(conversationId);
+    // 反查落点：可见部分行（absorbedRuns 未吸收 = run 未收束）里 id 匹配且
+    // 结果仍悬空的调用——沿用读侧既有 supplements 覆盖键（run|tool_call_id）
+    let run: string | undefined;
+    outer: for (const r of records) {
+      if (r.partial !== true || r.run === undefined || r.steps === undefined) continue;
+      for (const s of r.steps) {
+        for (const tc of s.toolCalls ?? []) {
+          if (tc.id === toolCallId && (tc.result === null || tc.result === undefined)) {
+            run = r.run;
+            break outer;
+          }
+        }
+      }
+    }
+    if (run === undefined) return false;
+    const queue = this.queueOf(conversationId);
+    const line: ToolResultLine = {
+      type: 'tool-result',
+      run,
+      tool_call_id: toolCallId,
+      result,
+      seq: queue.nextSeq++,
+    };
+    queue.pending.push(JSON.stringify(line));
+    await this.flush(conversationId);
+    return true;
   }
 
   /**
@@ -1305,6 +1434,8 @@ export class SessionService extends Service {
     fs.writeFileSync(tmp, `${[...(hadHeader ? [headerLine()] : []), ...(body ? [body] : [])].join('\n')}\n`, 'utf-8');
     fs.renameSync(tmp, file);
     this.queues.delete(file); // 旧队列作废（seen 引用防重入；nextSeq 由建队续号恢复）
+    this.recordsCache.delete(file); // 重写即失效（mtime 门兜底存在；主动删免一次失准读）
+    this.tailCache.delete(file);
   }
 
   /**
@@ -1389,7 +1520,10 @@ export class SessionService extends Service {
   clear(conversationId: string): void {
     const dir = this.conversationDir(conversationId);
     fs.rmSync(dir, { recursive: true, force: true });
-    this.queues.delete(path.join(dir, 'messages.jsonl'));
+    const file = path.join(dir, 'messages.jsonl');
+    this.queues.delete(file);
+    this.recordsCache.delete(file);
+    this.tailCache.delete(file);
   }
 
   /** 诊断：全部会话 id（直存目录 + 已上架目录；shelf 根目录排除） */
@@ -1461,30 +1595,65 @@ export class SessionService extends Service {
    * 只取展示所需字段；不存在/损坏返回 undefined。与 stats() 同为只读
    * 面向（不 flush 在途队列——实时侧由前端 bump 覆盖）。部分行（步级
    * checkpoint）跳过——名册预览不显示 run 进行中的中间步。
+   *
+   * 性能（2026-09-15 优化）：runs/snapshot 每 3s 对全部会话调用本方法，
+   * 原先每轮 readFileSync 整读 messages.jsonl（百 MB 级数据根单轮秒级、
+   * 同步阻塞事件循环——并发 HTTP 全部排队）。现两级加速：
+   *   · tailCache（mtime/size 门）：文件未变直接返回缓存投影，零读；
+   *   · 尾窗读取：变化时只读文件尾 TAIL_WINDOW_BYTES 找末条记录，
+   *     不再整读；窗内找不到（病态文件/记录超窗）才全读兜底。
    */
-  tail(conversationId: string): Pick<SessionRecord, 'role' | 'content' | 'timestamp' | 'agent_id' | 'name' | 'source'> | undefined {
+  tail(conversationId: string): TailRecord | undefined {
+    let stat: fs.Stats;
+    const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
     try {
-      const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
-      if (!fs.existsSync(file)) return undefined;
+      stat = fs.statSync(file);
+    } catch {
+      return undefined;
+    }
+    // 缓存命中：mtime/size 未变 → 直接投影（文件不变即稳定）
+    const cached = this.tailCache.get(file);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.tail === undefined ? undefined : { ...cached.tail };
+    }
+    // 未命中：尾窗读取找末条记录（免整读大文件）
+    let tail: TailRecord | undefined;
+    try {
+      if (stat.size === 0) {
+        tail = undefined;
+      } else {
+        const fd = fs.openSync(file, 'r');
+        try {
+          const window = Math.min(stat.size, TAIL_WINDOW_BYTES);
+          const start = stat.size - window;
+          const buf = Buffer.alloc(window);
+          fs.readSync(fd, buf, 0, window, start);
+          let text: string;
+          if (start > 0) {
+            // 窗起点在行中：首段是被撕裂的半行，跳到首个换行后再解析
+            const nl = buf.indexOf('\n');
+            text = nl >= 0 ? buf.toString('utf-8', nl + 1) : '';
+          } else {
+            text = buf.toString('utf-8');
+          }
+          tail = tailFromWindow(text) ?? this.tailFullRead(file);
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
+    } catch {
+      return undefined;
+    }
+    this.tailCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, tail });
+    return tail === undefined ? undefined : { ...tail };
+  }
+
+  /** tail() 全读兜底：尾窗内找不到可解析记录（病态大记录/窗太小）时整读 */
+  private tailFullRead(file: string): TailRecord | undefined {
+    try {
       const text = fs.readFileSync(file, 'utf-8').trimEnd();
       if (!text) return undefined;
-      // 自尾向头找最后一条非部分行（部分行是 run 进行中的临时 checkpoint）
-      const lines = text.split('\n');
-      let rec: SessionRecord | undefined;
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (!lines[i]!.trim() || lines[i]!.includes(PARTIAL_MARK)) continue;
-        rec = parseRecordLine(lines[i]!);
-        if (rec !== undefined) break;
-      }
-      if (rec === undefined) return undefined;
-      return {
-        role: rec.role,
-        content: rec.content,
-        timestamp: rec.timestamp,
-        ...(rec.agent_id !== undefined ? { agent_id: rec.agent_id } : {}),
-        ...(rec.name !== undefined ? { name: rec.name } : {}),
-        ...(rec.source !== undefined ? { source: rec.source } : {}),
-      };
+      return tailFromWindow(text);
     } catch {
       return undefined;
     }

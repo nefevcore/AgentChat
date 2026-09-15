@@ -8,6 +8,7 @@
 // 维持旧路径。rpc 契约面注入（webui 包装传 wireRpc 缺省）。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
+import { fmtElapsed } from './feed.ts';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
@@ -48,6 +49,8 @@ interface PSessionStep {
   ts?: number;
   /** 步内相位序（落盘透传）：true = 本步正文先于工具调用——步内卡片渲染序 */
   textBeforeTools?: boolean;
+  /** 思考相位时长（毫秒；落盘透传）：历史回放恢复「已思考 · XmYs」耗时 */
+  reasoningMs?: number;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -111,6 +114,11 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             content: s.content || '',
             thinking: s.reasoning || undefined,
             reasoning_content: s.reasoning,
+            // 思考耗时（与直播 closeThinking 同款构造）：<1s 不写（秒级以下
+            // 不显示是既有产品约定）——组件回落「已思考」
+            ...(s.reasoningMs !== undefined && s.reasoningMs >= 1000
+              ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` }
+              : {}),
             ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             agent_id: agentId,
@@ -221,6 +229,8 @@ interface PGroupRecord {
     reasoning?: string;
     /** 步内相位序（落盘透传）：true = 本步正文先于工具调用——步内卡片渲染序 */
     textBeforeTools?: boolean;
+    /** 思考相位时长（毫秒；落盘透传）：历史回放恢复「已思考 · XmYs」耗时 */
+    reasoningMs?: number;
     toolCalls?: Array<{ id: string; name: string; arguments: string; result?: unknown }>;
   }>;
 }
@@ -262,6 +272,10 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
       role: 'agent',
       content: s.content || '',
       ...(s.reasoning ? { reasoning_content: s.reasoning } : {}),
+      // 思考耗时（与 1v1 展开同款构造；<1s 不写）
+      ...(s.reasoningMs !== undefined && s.reasoningMs >= 1000
+        ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` }
+        : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       ...base,

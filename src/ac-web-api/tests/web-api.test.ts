@@ -32,6 +32,7 @@ import { ConvSettingsService } from 'ac-conv-settings';
 import { GoalsService } from 'ac-goal';
 import { TodosService } from 'ac-todo';
 import { AgentPresetsService } from 'ac-agent-presets';
+import * as builtinRow from 'ac-agent-presets-builtin';
 import { JobsService } from 'ac-jobs';
 import { SkillsService } from 'ac-skill';
 import * as timersRow from 'ac-timer';
@@ -146,8 +147,10 @@ async function boot(options?: { jobs?: boolean }): Promise<Harness> {
   const convSettings = new ConvSettingsService(ctx, { root });
   void convSettings;
   // presets（预设 Agent 目录；可选能力行——agents/presets RPC 数据源）
+  // + builtin（内置模式数据行——标准/极简注入目录）
   const presets = new AgentPresetsService(ctx);
   void presets;
+  await ctx.plugin(builtinRow as unknown as { apply(ctx: Context): unknown });
   // goal/todo（任务追踪；可选能力行——goal/get·todo/get RPC 数据源）
   const goals = new GoalsService(ctx);
   const todos = new TodosService(ctx);
@@ -1221,10 +1224,11 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     const ws = await connect(h.port);
     // 基线：harness 直构服务不经 registry——目录条目仅 harness 实际装载的
     // 行可见（2026-08-30 C6 目录扩容后 ac-timer 有条目且本 harness 装载
-    // 了 timersRow；2026-11 起本 harness 装载的 webApiRow 也自述——
-    // ['timers', 'web-api']；其余条目行未装载 → 不可见）
+    // 了 timersRow；2026-11 起本 harness 装载的 webApiRow 也自述；
+    // 预设拆分后 harness 另装载 builtinRow（内置模式数据行）——
+    // ['preset-builtin', 'timers', 'web-api']；其余条目行未装载 → 不可见）
     const base = await rpc(ws, 'plugin/extension-catalog', 'r1');
-    expect((base.result as { extensions: Array<{ name: string }> }).extensions.map((e) => e.name)).toEqual(['timers', 'web-api']);
+    expect((base.result as { extensions: Array<{ name: string }> }).extensions.map((e) => e.name)).toEqual(['preset-builtin', 'timers', 'web-api']);
 
     // 装载真实扩展行（ac-datetime：inject ['agents'] 已满足）→ 条目出现
     const datetimeRow = await import('ac-datetime');
@@ -1232,7 +1236,7 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     await fiber;
     const r = await rpc(ws, 'plugin/extension-catalog', 'r2');
     const extensions = (r.result as { extensions: Array<{ name: string; row: string; targets: string[] }> }).extensions;
-    expect(extensions.map((e) => e.name)).toEqual(['datetime', 'timers', 'web-api']);
+    expect(extensions.map((e) => e.name)).toEqual(['datetime', 'preset-builtin', 'timers', 'web-api']);
     expect(extensions[0].row).toBe('ac-datetime');
     // 2026-09-05 收尾档位化：日期行改落尾档 before-run-last（三档装配链
     // 中结构性晚于主档一切装配）——自述 listeners 声明两事件

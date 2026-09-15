@@ -588,3 +588,68 @@ describe('ac-workspace 目录树基准（M33 前端反馈 #1：树随会话上�
     expect(t3.root.label).toBe('项目X');
   });
 });
+
+describe('ac-workspace 本地资源管理器目录解析（resolveOpenDir）', () => {
+  /** stub singles（会话挂载工作区结构面——同树基准 describe） */
+  async function bootWithSingles(root: string, sessions: Map<string, { workspaceId?: string }>) {
+    const h = await boot(root);
+    const { Service } = await import('@agentchat/cordis');
+    class SinglesStub extends Service {
+      constructor(c: any) {
+        super(c, 'singles');
+      }
+      get(sid: string): { workspaceId?: string } | null {
+        return sessions.get(sid) ?? null;
+      }
+    }
+    void new SinglesStub(h.ctx as any);
+    return h;
+  }
+
+  it('workspaceId 在场 = 登记工作区文件夹；未登记 id → error 点名', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const wsRoot = path.join(root, 'proj-a');
+    fs.mkdirSync(wsRoot, { recursive: true });
+    const reg = ctx.workspace.registerWorkspace(wsRoot, '项目A');
+    expect(ctx.workspace.resolveOpenDir({ workspaceId: reg.id })).toEqual({ dir: wsRoot });
+    expect('error' in ctx.workspace.resolveOpenDir({ workspaceId: 'ghost-ws' })).toBe(true);
+    expect((ctx.workspace.resolveOpenDir({ workspaceId: 'ghost-ws' }) as { error: string }).error).toContain('ghost-ws');
+  });
+
+  it('缺席 workspaceId = 树基准推导：会话挂载工作区 > Agent 基准 > 数据根', async () => {
+    const root = tmpRoot();
+    const sessions = new Map<string, { workspaceId?: string }>();
+    const { ctx } = await bootWithSingles(root, sessions);
+    ctx.agents.register({ id: 'plain', model: 'm' });
+
+    const wsRoot = path.join(root, 'project-x');
+    fs.mkdirSync(wsRoot, { recursive: true });
+    fs.mkdirSync(path.join(root, 'files', 'plain'), { recursive: true });
+    const reg = ctx.workspace.registerWorkspace(wsRoot, '项目X');
+    sessions.set('sid-1', { workspaceId: reg.id });
+
+    // 会话挂载工作区（最优先）
+    expect(ctx.workspace.resolveOpenDir({ conversationId: 'sid-1' })).toEqual({ dir: wsRoot });
+    // Agent 基准（无会话工作区时）
+    expect(ctx.workspace.resolveOpenDir({ agentId: 'plain' })).toEqual({ dir: path.join(root, 'files', 'plain') });
+    // 全缺 = 数据根
+    expect(ctx.workspace.resolveOpenDir({})).toEqual({ dir: root });
+  });
+
+  it('守卫：登记路径被删/换成文件 → error 不抛异常', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const wsRoot = path.join(root, 'gone');
+    fs.mkdirSync(wsRoot, { recursive: true });
+    const reg = ctx.workspace.registerWorkspace(wsRoot, '已删');
+    fs.rmSync(wsRoot, { recursive: true });
+    expect((ctx.workspace.resolveOpenDir({ workspaceId: reg.id }) as { error: string }).error).toContain('不存在');
+    // 路径被替换为文件
+    const fake = path.join(root, 'now-a-file');
+    fs.writeFileSync(fake, 'x');
+    ctx.workspace.registerWorkspace(fake, '伪目录');
+    const reg2 = ctx.workspace.listWorkspaces().find((w) => w.path === fake)!;
+    expect((ctx.workspace.resolveOpenDir({ workspaceId: reg2.id }) as { error: string }).error).toContain('不是文件夹');
+  });
+});

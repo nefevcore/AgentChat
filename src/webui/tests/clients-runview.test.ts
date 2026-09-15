@@ -125,4 +125,27 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
     expect(mainIds()).not.toContain('webui-domain-runview.matrix');
     expect(ctx.slots.entries('primary-sidebar:domain').find((e) => e.meta?.panel === 'tracking')).toBeUndefined();
   });
+
+  it('tracking aux 选区 rail 徽章：随 ctx.runs 快照 running 数更新；行卸载 → 选区与徽章源同灭', async () => {
+    const { ctx } = await bootWebuiRuntime();
+    const fiber = await ctx.plugin(runviewClientPlugin);
+    const entry = ctx.slots.entries('aux-sidebar').find((e) => e.id === 'webui-domain-runview.sidebar');
+    expect(entry).toBeDefined();
+    const def = entry!.meta?.def as { rail?: { badge?: () => number | string | null } };
+    // 快照空 → 徽章 0（壳渲染面 v-if 0 = null 不渲染——这里锁数据源语义）
+    expect(def.rail?.badge).toBeTypeOf('function');
+    expect(def.rail!.badge!()).toBe(0);
+    // 快照 running 2 条 → 徽章 2（引用稳定性无关——badge 每渲染帧求值）
+    ctx.runs.snapshot.value = {
+      generatedAt: 't', members: [], pairs: [], groups: [], groupArchives: [], singles: [],
+      running: [
+        { convKey: 'chat~a~b', kind: 'chat', agentId: 'a', startedAt: 1 },
+        { convKey: 'single~s1', kind: 'single', agentId: 'x', startedAt: 2 },
+      ],
+      coverage: { matrixSessions: 0, pairSessions: 0, groupSessions: 0, singleSessions: 0, runningTotal: 2, runningSingles: 0, unknownMembers: [] },
+    };
+    expect(def.rail!.badge!()).toBe(2);
+    await fiber.dispose();
+    expect(ctx.slots.entries('aux-sidebar').find((e) => e.id === 'webui-domain-runview.sidebar')).toBeUndefined();
+  });
 });

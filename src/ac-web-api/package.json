@@ -29,6 +29,7 @@
     "@agentchat/cordis-timer": "workspace:*",
     "@types/ws": "^8.18.1",
     "ac-agent-presets": "workspace:*",
+    "ac-agent-presets-builtin": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-archive": "workspace:*",
     "ac-backup": "workspace:*",

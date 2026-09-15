@@ -482,6 +482,7 @@ export class AgentLoopService extends Service {
         toolCalls: res.toolCalls ?? [],
         toolResults: [] as LoopStepRecord['toolResults'],
         ...(res.textBeforeTools !== undefined ? { textBeforeTools: res.textBeforeTools } : {}),
+        ...(res.reasoningMs !== undefined ? { reasoningMs: res.reasoningMs } : {}),
         ...(res.usage ? { usage: res.usage } : {}),
         ...(res.finish ? { finish: res.finish } : {}),
       } satisfies LoopStepRecord;

@@ -2,7 +2,7 @@
 // ac-app/src/boot-yml-main.ts —— 配置驱动 boot 入口
 //
 // 运行方式：pnpm preview:boot:demo
-//   = node --expose-internals --import tsx src/ac-app/src/boot-yml-main.ts
+//   = node --expose-internals src/ac-app/src/boot-yml-main.ts
 //
 // --expose-internals 是 hmr 行的构造前提（无 flag 时 hmr 保持 disabled，
 // 其余行不受影响）。演示：cordis.yml 驱动装配 + logger 控制台输出 +

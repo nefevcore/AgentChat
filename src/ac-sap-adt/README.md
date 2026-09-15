@@ -1,6 +1,6 @@
 # ac-sap-adt — SAP ABAP ADT 工具行
 
-AgentChat 的 **SAP ABAP 开发工具面**：46 个 `adt_*` 工具直连 SAP ADT REST 协议
+AgentChat 的 **SAP ABAP 开发工具面**：32 个 `adt_*` 工具直连 SAP ADT REST 协议
 （`/sap/bc/adt`，不依赖任何 SAP 闭源库），覆盖完整开发闭环
 *搜索 → 读 → 改 → 激活 → 单测 → ATC → 传输 → 执行 → 调试 → 错误分析*，
 外加代理尺度能力（协议级 `$batch`、整包发布门禁、DDIC 结构化编辑器、
@@ -19,7 +19,7 @@ AgentChat 的 **SAP ABAP 开发工具面**：46 个 `adt_*` 工具直连 SAP ADT
 
 工具带 `requiredTags: ['sap-adt']` 门禁——只有 `tags` 里显式加了
 `sap-adt` 的 Agent 可见/可调用（对齐 DSH 侧"默认不加载、按会话启用"的哲学；
-未授权 Agent 的工具列表不会被 46 个工具淹没）：
+未授权 Agent 的工具列表不会被 32 个工具淹没）：
 
 ```json
 // <数据根>/agents/<id>/config.json
@@ -95,3 +95,19 @@ AgentChat 的 **SAP ABAP 开发工具面**：46 个 `adt_*` 工具直连 SAP ADT
 写侧治理（per-destination policy 11 开关、dev/qa/prd 环境分级——prd 硬拒
 执行/批量写/调试器、读侧敏感表黑名单）全部随引擎，`adt_permissions` 可查
 每个目的地的生效策略。
+
+## 使用规约注入（loop/before-run）
+
+生效工具集含 `adt_*` 且调用方未停用时，行向 `request.system` 追加一块
+`<sap-adt-tools>` 静态规约（对齐 ac-fs-tools `FILE_MENTION_GUIDE` 的
+owner 行条件注入形态）——教模型在真实 SAP 系统上的安全习惯：
+
+- **建请求先问**：新建传输请求 / 目的地等配置前先向用户确认，不得自建；
+- **复用优先**：改对象前查未释放传输请求（`status=modifiable`），避免
+  后端自动新建任务；
+- **写前先读**（快照兼作乐观并发基准）、**删除必确认**、**探路起步**
+  （新目的地先 ping / 查 `adt_permissions`）。
+
+判据与文案都只认 `adt_` 前缀（代际无关——引擎换代换名不影响），引擎
+升级后指引自动跟随；停用方（`settings['sap-adt'].enabled = false`）
+不注入，与暴露面收敛同口径。

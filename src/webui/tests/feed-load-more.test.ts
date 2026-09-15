@@ -123,4 +123,37 @@ describe('上翻续拉分页（direct 对桶 / single）', () => {
     expect(feed.hasMoreHistory).toBe(false);
     expect(feed.getRaw(dialog).some(m => m.persistedMsgId === 'u50')).toBe(true);
   });
+
+  it('single：机制驱动会话（页内 0 条 viewer 消息）服务端 hasMore 回显优先——上翻不被误判挡死', async () => {
+    // 2026-09 反馈：性能优化后 single 只加载尾部消息，上翻无法加载更多。
+    // 根因：hasMore 用「页内 viewer 消息数 ≥5」启发式判定——机制驱动会话
+    //（timer/goal/子 Agent 接力）尾部整页可无 viewer 消息 → 误判 false →
+    // 上翻 triggerLoadMore 被 !hasMore 守卫挡死。服务端 M16 分页早已回显
+    // hasMore（原始记录口径 offset+limit < total）——本用例锁定其优先级。
+    const feed = cores.feed;
+    const sid = 'sess-mech';
+    feed.setActiveSingle(sid, A);
+    const dialog = singleDialog(sid);
+
+    // 首屏：一页机制消息（全部 agent 行，0 条 viewer）
+    const mechPage = Array.from({ length: 40 }, (_, i) => ({
+      message_id: `m${i}`,
+      role: 'agent',
+      content: `机制推进 ${i}`,
+      agent_id: A,
+      timestamp: new Date(1_700_000_000_000 + i * 60_000).toISOString(),
+    }));
+    feed.loadHistory(dialog, 'user', A, sid);
+    rpcCalls[0].resolve({ records: mechPage, total: 130, hasMore: true });
+    await flush();
+    // 旧启发式：40 条里 0 条 viewer → hasMore=false（错）；服务端回显 true 胜出
+    expect(feed.hasMoreHistory).toBe(true);
+
+    // 上翻续拉正常放行（寻址与 offset 推进同既有词表）
+    feed.loadMoreHistory(dialog);
+    expect(rpcCalls[1].params).toMatchObject({ conversationId: sid, offset: 40, limit: 50 });
+    rpcCalls[1].resolve({ records: mechPage.slice(0, 10), total: 130, hasMore: false });
+    await flush();
+    expect(feed.hasMoreHistory).toBe(false); // 拉尽：服务端口径收口
+  });
 });

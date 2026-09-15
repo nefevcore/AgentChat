@@ -1,7 +1,9 @@
 // ============================================================
 // ac-app/src/boot.ts —— 官方启动器入口
 //
-// pnpm preview:boot = node --expose-internals --import tsx 本文件
+// pnpm dev = node --expose-internals 本文件（Node ≥22.18 原生 TS
+// strip-only 加载；2026-09-15 前经 tsx——esbuild 每进程重编译 80+ 行包
+// 是 dev 冷启动静默期大头，实测 3.2s → 1.2s）
 // 职责：
 //   1. 锚定数据根（M18 前端反馈 #10）：持久化目录 = 启动文件夹（不套
 //      data/ 壳）。pnpm/npm 运行脚本时会把 cwd 切到 package.json 所在

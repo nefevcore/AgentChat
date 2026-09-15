@@ -11,7 +11,7 @@
 import { ref, computed } from 'vue';
 import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts';
 import { toFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Modal, Button, Icon } from '@agentchat/webui-kit';
+import { Modal, Button, Icon, toastOk } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 
 const props = defineProps<{
@@ -76,7 +76,6 @@ const effectiveSchemas = computed<Record<string, any[]>>(() => {
 const editingName = ref<string | null>(null); // null=列表视图, ''=新建, 'xxx'=编辑
 const draft = ref<Record<string, any>>({});
 const error = ref('');
-const saved = ref('');
 
 const providerOptions = computed(() => Object.keys(effectiveSchemas.value));
 const currentProvider = computed(() => (draft.value.provider || 'tavily') as string);
@@ -87,13 +86,11 @@ const title = '搜索引擎';
 function startAdd() {
   editingName.value = '';
   error.value = '';
-  saved.value = '';
   draft.value = applyDefaults({ provider: currentProvider.value });
 }
 function startEdit(name: string) {
   editingName.value = name;
   error.value = '';
-  saved.value = '';
   const entry = JSON.parse(JSON.stringify(props.pools[name] ?? {}));
   const provider = entry.provider || currentProvider.value;
   draft.value = { ...applyDefaults({ provider }), ...entry };
@@ -151,8 +148,7 @@ function saveEntry() {
   emit('update:pools', pool);
   editingName.value = null;
   draft.value = {};
-  saved.value = '已保存';
-  setTimeout(() => { saved.value = ''; }, 2000);
+  toastOk('已保存');
   props.onSaved?.();
 }
 
@@ -236,7 +232,6 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
           </div>
         </div>
         <div v-if="error" class="pool-error">{{ error }}</div>
-        <div v-if="saved" class="pool-saved">{{ saved }}</div>
       </div>
       <template #footer>
         <Button variant="ghost" @click="cancelEdit()">取消</Button>
@@ -295,5 +290,4 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
 .pool-field-desc { font-size: 11px; color: var(--text-3); }
 .pool-field-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .pool-error { color: var(--err); font-size: 12px; }
-.pool-saved { color: var(--ok); font-size: 12px; }
 </style>

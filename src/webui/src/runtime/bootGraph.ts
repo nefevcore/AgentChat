@@ -26,6 +26,7 @@ import type {} from 'ac-client-ui-group/client';
 import type {} from 'ac-client-ui-singles/client';
 import type {} from 'ac-client-ui-workspace/client';
 import type {} from 'ac-client-ui-agents/client';
+import { request } from '../core/api/client';
 import { clientRuntime } from './clientRuntime';
 // 静态 loader 映射（virtual 模块——vite 插件生成：行名 → () => import）
 import { rowClientLoaders } from 'virtual:row-clients';
@@ -43,12 +44,13 @@ const HOT_SYNC_DEBOUNCE_MS = 300;
 
 async function fetchBootGraph(): Promise<RowClientGraphEntry[]> {
   try {
-    const res = await fetch('/api/ui/boot-graph');
-    if (!res.ok) return [];
-    const data = (await res.json()) as { clients?: RowClientGraphEntry[] };
+    // 经统一 HTTP 客户端：瞬时断网抖动按退避重试（GET 幂等），不再
+    // 一次抖动就静默返回空图（空图 = 全部 domain 行被拆——热通道
+    // diff 会真回收 fiber，代价远高于多等 2s）
+    const data = await request<{ clients?: RowClientGraphEntry[] }>('/api/ui/boot-graph');
     return data.clients ?? [];
   } catch {
-    return []; // 宿主不可达（旧后端）→ 空图（in-bundle 基础件不受影响）
+    return []; // 重试耗尽仍不可达（旧后端/长断网）→ 空图（in-bundle 基础件不受影响）
   }
 }
 

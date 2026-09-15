@@ -25,6 +25,25 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'toggle', def: AuxSidebarPanelDef): void;
 }>();
+
+/** 徽章安全求值：抛错/0/空 = 不渲染（同 available 谓词姿势——缺陷 def 不击穿栏） */
+function badgeOf(d: AuxSidebarPanelDef): number | string | null {
+  try {
+    const v = d.rail?.badge?.() ?? null;
+    // 0 / 空串 = 无可计数态 → 不渲染（真值文本「√」等照常）
+    if (v === null || v === 0 || v === '') return null;
+    return v;
+  } catch (err) {
+    console.warn(`[aux-sidebar] 区域选区 "${d.id}" 的 badge() 徽章源抛错——按不渲染跳过`, err);
+    return null;
+  }
+}
+
+/** 数字徽章文案：>99 封顶「99+」（文本徽章原样透传） */
+function badgeLabel(v: number | string | null): string {
+  if (typeof v === 'number' && v > 99) return '99+';
+  return String(v ?? '');
+}
 </script>
 
 <template>
@@ -39,6 +58,7 @@ const emit = defineEmits<{
       @click="emit('toggle', d)"
     >
       <Icon :name="d.rail!.icon" :size="22" />
+      <span v-if="badgeOf(d) !== null" class="aux-ab-badge">{{ badgeLabel(badgeOf(d)) }}</span>
     </button>
   </nav>
 </template>
@@ -65,5 +85,18 @@ const emit = defineEmits<{
 .aux-ab-btn.active::before {
   content: ''; position: absolute; right: 0; top: 8px; bottom: 8px;
   width: 2px; background: var(--color-primary, #4f46e5); border-radius: 2px 0 0 2px;
+}
+
+/* 数字徽章（域行 rail.badge 供数——主题色底白字，右上角；数据源/格式
+   随 owning 行，壳只管渲染） */
+.aux-ab-badge {
+  position: absolute; top: 3px; right: 1px;
+  min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: var(--color-primary, #4f46e5); color: #fff;
+  font-size: 9px; font-weight: 600; line-height: 1;
+  border: 1.5px solid var(--color-bg-page, transparent);
+  z-index: 1; pointer-events: none;
 }
 </style>

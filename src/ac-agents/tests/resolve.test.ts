@@ -41,6 +41,31 @@ describe('resolveToolNames（tools 对象形态收编）', () => {
     expect(resolveToolNames({ include: [] }, all)).toEqual([]);
     expect(resolveToolNames({}, all)).toEqual(all);
   });
+
+  it('tag 引用（universe 传 defs 时按 requiredTags 展开；纯名字数组 = 落空）', () => {
+    const defs = [
+      { name: 'read' },
+      { name: 'bash', requiredTags: ['shell'] },
+      { name: 'adt_search', requiredTags: ['sap-adt'] },
+      { name: 'adt_read', requiredTags: ['sap-adt'] },
+      { name: 'hello' },
+    ];
+    // 对象形态 include：tag 引用与精确名混排
+    expect(resolveToolNames({ include: ['tag:sap-adt', 'read'] }, defs)).toEqual([
+      'adt_search',
+      'adt_read',
+      'read',
+    ]);
+    // 数组白名单同语义
+    expect(resolveToolNames(['tag:shell', 'hello'], defs)).toEqual(['bash', 'hello']);
+    // exclude 侧同样展开（tag 批量停用）
+    const excluded = resolveToolNames({ exclude: ['tag:sap-adt'] }, defs)!;
+    expect(excluded).toEqual(defs.map((d) => d.name).filter((n) => !n.startsWith('adt_')));
+    // 无匹配 tag → 空展开（tag: 非字面名，不落进结果）
+    expect(resolveToolNames({ include: ['tag:none', 'hello'] }, defs)).toEqual(['hello']);
+    // 纯名字 universe（无 tag 信息）：引用条目静默落空
+    expect(resolveToolNames({ include: ['tag:sap-adt', 'hello'] }, all)).toEqual(['hello']);
+  });
 });
 
 describe('filterLlmParams（采样白名单）', () => {

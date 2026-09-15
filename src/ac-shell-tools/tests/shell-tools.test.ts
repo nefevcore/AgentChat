@@ -474,4 +474,34 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/超时（1500ms）/);
   }, 20000);
+
+  it('timeout=0 显式不限：无计时器——挂起命令不被缺省 30s 收束（依赖 signal 收束）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const controller = new AbortController();
+    const pending = exec(ctx, {
+      name: 'bash',
+      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30', timeout: 0 },
+      signal: controller.signal,
+    });
+    // 超过缺省 30s 的观察窗内（3.2s > CLOSE_FALLBACK_MS + KILL_CONFIRM_MS
+    // 余量）没有超时收束——不限时生效；signal abort 收束工具
+    setTimeout(() => controller.abort(), 3200);
+    const r = await pending;
+    expect(r.ok).toBe(false);
+    expect(r.error ?? '').not.toMatch(/超时/);
+  }, 20000);
+
+  it('kill 存活确认看门狗（永挂补丁）：树杀后轮询确认进程死亡——超时收束不被 kill 失败拖挂', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, {
+      name: 'bash',
+      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30', timeout: 1500 },
+    });
+    // 断言超时口径收束（非永挂）——正常路径 taskkill/组杀生效，看门狗
+    // 在轮询首拍确认死亡后即停
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/超时（1500ms）/);
+  }, 20000);
 });

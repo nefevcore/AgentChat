@@ -338,6 +338,12 @@ export const runviewClientPlugin = clientPlugin({
   inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RunsClientService);
+    // 徽章数据源常驻：tracking rail 按钮的运行中徽章不依赖面板展开——
+    // 行装载即启动快照轮询（幂等；面板挂载处的 ensurePolling 同函数短路），
+    // fiber 卸载随 RunsClientService 定时器一并回收。经根 runtime 解析
+    //（runs 由本行子 fiber 提供，本 fiber 未 inject——直访会抛；同下方
+    // 让位 watch 的 clientRuntime() 姿势，裸 boot 测试 = undefined 静默跳过）。
+    clientRuntime()?.runs?.ensurePolling();
     // 运行矩阵主区视图（main 席位 keyed 选举贡献——2026-11 主区语义
     // 纯化：原 main:tracking 专座收编为 main 选举条目）：active 谓词
     // 自带让位协议（见 trackingActive）；volatile（缺省）——离开即卸载，
@@ -419,6 +425,11 @@ export const runviewClientPlugin = clientPlugin({
               icon: 'activity',
               title: '运行跟踪',
               activate: () => { /* 意图通道路径自理（auxOpenTracking） */ },
+              // 徽章 = 运行中会话数（rail 按钮常驻可见——数字随 runs 轮询
+              // 更新；0 = 不渲染。轮询随本行装载启动〔见 apply 首〕，
+              // 收起面板不丢徽章数据源。runs 经根 runtime 解析——本 fiber
+              // 未 inject，闭包直访 ctx.runs 会抛，被壳安全求值吞掉）。
+              badge: () => clientRuntime()?.runs?.snapshot.value?.running.length ?? 0,
             },
           } satisfies AuxSidebarPanelDef,
         },

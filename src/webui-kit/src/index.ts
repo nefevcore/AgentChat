@@ -4,7 +4,7 @@
 // 分层：
 //   L0 设计令牌  tokens.css（main.ts 引入）
 //   L1 基础原语  Icon / Button / Avatar / Modal
-//   工具组件    StatusDot / Tooltip
+//   工具组件    StatusDot / Tooltip / Toast
 //   L2 组合组件  StarAvatar / StarCard / PulseTrace
 //
 // 设计规范：docs/webui-design-system.md
@@ -18,6 +18,12 @@ export { default as RingProgress } from './RingProgress.vue';
 export { default as StatusDot } from './StatusDot.vue';
 export { default as Tooltip } from './Tooltip.vue';
 export { default as FeedbackNotice } from './FeedbackNotice.vue';
+export { default as ToastHost } from './ToastHost.vue';
+export {
+  toast, toastOk, toastError, toastInfo, toastBusy,
+  dismissToast, clearToasts, pauseToast, resumeToast, toasts,
+  type ToastTone, type ToastOptions, type ToastItem,
+} from './toast.ts';
 export { default as StarAvatar } from './StarAvatar.vue';
 export { default as StarCard } from './StarCard.vue';
 export { default as PulseTrace } from './PulseTrace.vue';

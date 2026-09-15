@@ -412,11 +412,13 @@ export class ArchiveService extends Service {
   private reviewPrompt(conversationId: string, agentId: string, other: string): string {
     const agent = this.ctx.agents.require(agentId);
     const budget = this.summaryBudgetChars(agentId);
-    const registered = this.ctx.tools.list().map((t) => t.name);
-    // 工具集解析（对象形态 → string[]；全部已注册 = 不传——与 router 同语义）
+    // 工具集解析（对象形态 → string[]；全部已注册 = 不传——与 router 同
+    // 语义；传 defs 支持 tag 引用展开）
+    const registered = this.ctx.tools.list();
     const effective = resolveToolNames(agent.tools, registered);
+    const registeredNames = registered.map((t) => t.name);
     const has = (name: string): boolean =>
-      effective !== undefined ? effective.includes(name) : registered.includes(name);
+      effective !== undefined ? effective.includes(name) : registeredNames.includes(name);
     const summaryRel = this.anchorReviewPath(agentId, `summary/${fileNameSafe(conversationId)}.md`);
     const lines: string[] = [
       `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话（会话键 ${conversationId}）已达到归档阈值，早期消息即将移出会话流。请在归档前完成以下整理：`,

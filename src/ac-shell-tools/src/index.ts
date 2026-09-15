@@ -18,7 +18,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import { bashCommandViolation, createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
+import { bashCommandViolation, createAgentSandboxCache, hostKillViolation, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
 import { effectiveTierOf } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { getShellConfig } from './shell.ts';
@@ -26,9 +26,9 @@ import { translateUnixToPowerShell } from './unix-translate.ts';
 import { buildErrorMessage, isProcessAlive, killProcessTree, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
 
 export interface ShellToolsRowOptions extends SandboxResolverOptions {
-  /** 命令默认超时毫秒（缺省 30000；settings['shell-tools'] 分层覆盖） */
+  /** 命令默认超时毫秒（缺省 30000；0 = 不限；settings['shell-tools'] 分层覆盖） */
   defaultTimeout?: number;
-  /** 命令允许的最大超时毫秒（缺省 120000；settings['shell-tools'] 分层覆盖） */
+  /** 命令允许的最大超时毫秒（缺省 120000；0 = 不设上限；settings['shell-tools'] 分层覆盖） */
   maxTimeout?: number;
   /** 命令输出最大保留字符数（缺省 50000；settings['shell-tools'] 分层覆盖） */
   outputMaxLen?: number;
@@ -78,6 +78,15 @@ function cleanupOldBashLogs(): void {
  */
 const CLOSE_FALLBACK_MS = 2500;
 
+/**
+ * 树杀存活确认宽限 ms（永挂窗口补丁）：exit/close 双兜底只覆盖"exit
+ * 已到、close 不来"；若树杀本身没杀掉（taskkill 异步静默失败/特权进程
+ * 拒杀），exit 永不到 → 兜底永不 arm → 工具 Promise 永挂（与 close
+ * 悬挂同症状，触发面更苛刻）。超时/中止 kill 后轮询确认进程已死，
+ * 宽限过仍活即销毁本端读端强制收束。
+ */
+const KILL_CONFIRM_MS = 4000;
+
 export const name = 'ac-shell-tools';
 
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
@@ -89,8 +98,8 @@ export const extension: ExtensionMeta = {
   description: 'bash（前台超时/流式 + 后台 job）+ job 管理（owner 隔离）；超时/输出预算 = settings.shell-tools 分层（行 config 基线 → 全局默认层 → Agent 差异层，执行期按 call.agentId 合成）。启停走 shell 能力标签（AgentConfig.tags）',
   automatic: true,
   fields: [
-    { name: 'defaultTimeout', type: 'number', min: 0, step: 1000, default: 30_000, description: '命令缺省超时毫秒（bash 未传 timeout 时）——差异层覆盖后本 Agent 长任务免逐次传参' },
-    { name: 'maxTimeout', type: 'number', min: 0, step: 1000, default: 120_000, description: '命令超时上限毫秒（timeout 参数按本 Agent 生效值 clamp；defaultTimeout 同步收敛不超过它）' },
+    { name: 'defaultTimeout', type: 'number', min: 0, step: 1000, default: 30_000, description: '命令缺省超时毫秒（bash 未传 timeout 时；0 = 不限）——差异层覆盖后本 Agent 长任务免逐次传参' },
+    { name: 'maxTimeout', type: 'number', min: 0, step: 1000, default: 120_000, description: '命令超时上限毫秒（timeout 参数按本 Agent 生效值 clamp；0 = 不设上限）。defaultTimeout 收敛不超过它（两者同为 0 时即全不限）' },
     { name: 'outputMaxLen', type: 'number', min: 0, step: 1000, default: 50_000, description: '单次命令输出最大保留字符数（超出中段截断并标注）' },
   ],
 };
@@ -121,10 +130,15 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
       | undefined;
     const s = agents?.settingsOf?.(agentId, 'shell-tools') as ShellToolsSettings | undefined;
     if (!s || typeof s !== 'object' || Array.isArray(s)) return baseLimits;
+    // 0 = 显式关闭（不限时/不设上限）为合法值；负数/NaN/非数 = 无效回落基线
+    const num0 = (v: unknown, fb: number): number =>
+      typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fb;
+    // outputMaxLen 语义不变：仅正值覆盖（0 无意义）
     const num = (v: unknown, fb: number): number => (typeof v === 'number' && v > 0 ? v : fb);
-    const max = num(s.maxTimeout, maxTimeout);
+    const max = num0(s.maxTimeout, maxTimeout);
+    const def = num0(s.defaultTimeout, defaultTimeout);
     return {
-      defaultTimeout: Math.min(num(s.defaultTimeout, defaultTimeout), max),
+      defaultTimeout: max > 0 ? Math.min(def, max) : def,
       maxTimeout: max,
       outputMaxLen: num(s.outputMaxLen, outputMaxLen),
     };
@@ -166,7 +180,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         command: { type: 'string', description: '要执行的命令' },
         description: { type: 'string', description: '命令作用的一句话说明' },
         workdir: { type: 'string', description: '工作目录（默认沙箱工作目录）' },
-        timeout: { type: 'number', description: `超时毫秒（默认 ${defaultTimeout}，上限 ${maxTimeout}）`, minimum: 1000, maximum: maxTimeout },
+        timeout: { type: 'number', description: '超时毫秒（0 = 不限；缺省与上限随本 Agent 的 shell-tools 配置生效，超上限自动截断）。background=true 时本参数不适用（后台任务不限时）', minimum: 0 },
         background: { type: 'boolean', description: '后台执行，立即返回 job_id（用 job 工具管理）' },
       },
       required: ['command'],
@@ -195,6 +209,13 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
       }
       if (!fs.existsSync(dir)) {
         return { ok: false, error: `工作目录不存在：${dir}（workdir 相对沙箱工作目录解析，缺省即沙箱工作目录）` };
+      }
+      // 防自杀保护（2026-09-15 后端无端中断事故）：按进程名广谱杀
+      // node/pnpm 会把宿主（与 supervisor）一起杀掉——**任何档位（含
+      // full-access）都拦**，不属于沙箱边界而是宿主存活保护
+      const hostKill = hostKillViolation(command);
+      if (hostKill) {
+        return { ok: false, error: hostKill, output: { command, cwd: dir } };
       }
       // 命令级沙箱：拦截允许范围外访问（cd .. 越界 / 盘符 / 绝对路径 / ../
       // 引用）——full 档跳过（与 ac-security 加严层同口径，防基线与复检漂移）
@@ -294,12 +315,20 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         let timedOut = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+        let killWatchdog: ReturnType<typeof setInterval> | undefined;
         let settled = false;
 
-        // timeout 可调，clamp 到本 Agent 生效 maxTimeout
+        // timeout 三态：显式 0 = 不限；未传/非法 = 本 Agent 缺省档；正值按
+        // 本 Agent 生效 maxTimeout clamp（maxTimeout=0 = 不设上限，跳过 clamp）
         const timeout = args.timeout as number | undefined;
         const effectiveTimeout =
-          typeof timeout === 'number' && timeout > 0 ? Math.min(timeout, limits.maxTimeout) : limits.defaultTimeout;
+          timeout === 0
+            ? 0
+            : typeof timeout === 'number' && timeout > 0
+              ? limits.maxTimeout > 0
+                ? Math.min(timeout, limits.maxTimeout)
+                : timeout
+              : limits.defaultTimeout;
 
         const child: ChildProcess = spawn(shell, [...shellArgs, commandToRun], {
           cwd: dir,
@@ -338,6 +367,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           settled = true;
           if (timer) clearTimeout(timer);
           if (fallbackTimer) clearTimeout(fallbackTimer);
+          if (killWatchdog) clearInterval(killWatchdog);
           call.signal?.removeEventListener('abort', onAbort);
           resolve(result);
         };
@@ -345,12 +375,10 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         if (effectiveTimeout > 0) {
           timer = setTimeout(() => {
             timedOut = true;
-            if (child.pid) killProcessTree(child.pid);
+            killWithConfirm();
           }, effectiveTimeout);
         }
-        const onAbort = () => {
-          if (child.pid) killProcessTree(child.pid);
-        };
+        const onAbort = () => killWithConfirm();
         call.signal?.addEventListener('abort', onAbort, { once: true });
 
         /**
@@ -365,6 +393,33 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
             child.stderr?.destroy();
             finish(exitCode);
           }, CLOSE_FALLBACK_MS);
+        };
+
+        /**
+         * 树杀 + 存活确认看门狗（KILL_CONFIRM_MS）：kill 后轮询，进程确认
+         * 死亡或已收束即停；宽限过仍活 = kill 没生效（exit 不会来、close
+         * 兜底永不 arm）→ 销毁本端读端强制收束，活进程后续写已关管道得
+         * EPIPE 自灭。timedOut 路径 destroy 后走 finish → 超时口径收束。
+         */
+        const killWithConfirm = (): void => {
+          const pid = child.pid;
+          if (!pid) return;
+          killProcessTree(pid);
+          const killAt = Date.now();
+          killWatchdog = setInterval(() => {
+            if (settled || !isProcessAlive(pid)) {
+              if (killWatchdog) clearInterval(killWatchdog);
+              killWatchdog = undefined;
+              return;
+            }
+            if (Date.now() - killAt >= KILL_CONFIRM_MS) {
+              if (killWatchdog) clearInterval(killWatchdog);
+              killWatchdog = undefined;
+              child.stdout?.destroy();
+              child.stderr?.destroy();
+              finish(child.exitCode);
+            }
+          }, 100);
         };
 
         const finish = (code: number | null) => {

@@ -1,5 +1,5 @@
 // M7 手测脚本：连 ws://127.0.0.1:3830，rpc/call agents/list → usage/tokens → group/list → group/create
-// 运行：node --import tsx src/ac-app/src/m7-rpc-check.ts（boot 已起时）
+// 运行：node src/ac-app/src/m7-rpc-check.ts（boot 已起时）
 import WebSocket from 'ws';
 
 const url = process.env.AC_WS_URL ?? 'ws://127.0.0.1:3830';

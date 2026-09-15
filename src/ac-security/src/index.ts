@@ -28,6 +28,7 @@ import {
   agentSpaceRoots,
   bashCommandViolation,
   createSandboxResolver,
+  hostKillViolation,
   isDeniedPath,
   isPathUnder,
   makeSecretRedactor,
@@ -486,15 +487,23 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
 
     // 4. bash 命令扫描：heredoc 剥离 + 段级启发式（纵深防御；full 跳过——
     //    "不做任何限制"的字面义；bash 软边界语义见 §2.2）
-    if (COMMAND_TOOLS.has(call.name) && tier !== 'full-access') {
+    if (COMMAND_TOOLS.has(call.name)) {
       const command = String(call.args?.command ?? call.args?.cmd ?? '');
-      const resolver = resolverOf(call.agentId, call.conversationId);
-      const violation = bashCommandViolation(command, {
-        roots: resolver.allowedRoots,
-        cwd: resolver.workdir,
-      });
-      if (violation) {
-        return { ok: false as const, error: violation };
+      // 防自杀复检（2026-09-15 事故）：按进程名广谱杀 node/pnpm 不随档位
+      // 跳过——宿主存活保护不是沙箱边界（与工具行基线双保险）
+      const hostKill = hostKillViolation(command);
+      if (hostKill) {
+        return { ok: false as const, error: hostKill };
+      }
+      if (tier !== 'full-access') {
+        const resolver = resolverOf(call.agentId, call.conversationId);
+        const violation = bashCommandViolation(command, {
+          roots: resolver.allowedRoots,
+          cwd: resolver.workdir,
+        });
+        if (violation) {
+          return { ok: false as const, error: violation };
+        }
       }
     }
 

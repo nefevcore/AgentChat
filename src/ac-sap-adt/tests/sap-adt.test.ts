@@ -67,18 +67,20 @@ describe('ac-sap-adt 行装配', () => {
   it('注册全部 adt_* 工具并携带 sap-adt 能力标签（AND 门禁词汇）', async () => {
     const { ctx } = await boot();
     expect(ctx.tools.has('adt_search')).toBe(true);
-    expect(ctx.tools.has('adt_read_object')).toBe(true);
-    expect(ctx.tools.has('adt_write_object')).toBe(true);
-    expect(ctx.tools.has('adt_crud')).toBe(true);
+    expect(ctx.tools.has('adt_object_read')).toBe(true);
+    expect(ctx.tools.has('adt_object_write')).toBe(true);
     const def = (ctx as any).tools.get('adt_search');
     expect(def?.requiredTags).toEqual(['sap-adt']);
     // 参数 schema 是标准 JSON Schema（引擎 defineTool 已转换）
     expect(def?.parameters?.type).toBe('object');
     expect(def?.parameters?.required).toContain('query');
-    // 工具目录规模（引擎 0.7.2 实测 46：45 专用 + 1 CRUD 门面；与
-    // ac-plugin-core reserved.ts 占名名单精确一致——reserved-consistency 锁定）
+    // 工具目录规模（引擎 0.10 实测 32：28 专用 + 4 fs_ops 门面——0.8 起
+    // CRUD 时代 A 组 9 名退位为内部路由引擎；0.9 起整合批次再收敛：
+    // 调试器五件套→adt_debug、ATC/dumps/transports 的 list+get 对→
+    // 单工具、textelements→adt_object_read {part}；与 ac-plugin-core
+    // reserved.ts 占名名单精确一致——reserved-consistency 锁定）
     const adtNames = (ctx as any).tools.list().filter((d: { name: string }) => d.name.startsWith('adt_'));
-    expect(adtNames.length).toBeGreaterThanOrEqual(46);
+    expect(adtNames.length).toBeGreaterThanOrEqual(32);
   });
 
   it('enabled: false 软停用 —— 不注册任何工具', async () => {
@@ -130,7 +132,7 @@ describe('ac-sap-adt demo 端到端（进程内 mock ADT）', () => {
     expect(names).toContain('demo');
   });
 
-  it('adt_search → adt_read_object 闭环；快照经 fs 缝落盘到 <root>/sap-adt/', async () => {
+  it('adt_search → adt_object_read 闭环；快照经 fs 缝落盘到 <root>/sap-adt/', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-'));
     const { ctx } = await boot({}, root);
     const search = await exec(ctx, 'adt_search', { query: 'ZCL_DEMO' });
@@ -138,7 +140,7 @@ describe('ac-sap-adt demo 端到端（进程内 mock ADT）', () => {
     expect(search.output.objects.length).toBeGreaterThan(0);
     expect(search.output.objects[0].objectName).toBe('ZCL_DEMO');
 
-    const read = await exec(ctx, 'adt_read_object', { name: 'ZCL_DEMO', type: 'CLAS' });
+    const read = await exec(ctx, 'adt_object_read', { name: 'ZCL_DEMO', type: 'CLAS' });
     expect(read.ok).toBe(true);
     expect(String(read.output.source).toLowerCase()).toContain('class');
     expect(read.output.localCopy).toBeTruthy();
@@ -149,24 +151,24 @@ describe('ac-sap-adt demo 端到端（进程内 mock ADT）', () => {
 
   it('引擎策略拒绝路径透传为 {ok:false, error 含 [POLICY]}（调试器默认关）', async () => {
     const { ctx } = await boot();
-    const res = await exec(ctx, 'adt_debug_session', { action: 'listen' });
+    const res = await exec(ctx, 'adt_debug', { action: 'listen' });
     expect(res.ok).toBe(false);
     expect(String(res.error)).toContain('[POLICY]');
   });
 
   it('参数校验（引擎 defineTool）拒绝非法枚举并给出可读违规', async () => {
     const { ctx } = await boot();
-    const res = await exec(ctx, 'adt_crud', { verb: 'explode' });
+    const res = await exec(ctx, 'adt_object_delete', { type: 'NOPE', name: 'X' });
     expect(res.ok).toBe(false);
-    expect(String(res.error)).toContain('must be one of');
+    expect(String(res.error)).toContain("unknown object type 'NOPE'");
   });
 
-  it('adt_crud 无 verb 调用返回能力矩阵卡（门面路由装配完好）', async () => {
+  it('adt_object_read 无 name 调用返回能力矩阵卡（门面路由装配完好）', async () => {
     const { ctx } = await boot();
-    const res = await exec(ctx, 'adt_crud');
+    const res = await exec(ctx, 'adt_object_read');
     expect(res.ok).toBe(true);
     const text = JSON.stringify(res.output);
-    expect(text).toContain('create');
+    expect(text).toContain('write');
     expect(text.toLowerCase()).toContain('matrix');
   });
 });
@@ -196,7 +198,7 @@ describe('ac-sap-adt 宿主档案（host seam，core ≥ 0.7.1）', () => {
     // hint 引导到本宿主凭证存储（ac-credentials 未挂时仍是宿主词汇）
     expect(String(res.output.hint)).toContain('AgentChat encrypted credential store');
     // 快照/导出子树不受锚点影响：仍落 <数据根>/sap-adt/
-    const read = await exec(ctx, 'adt_read_object', { name: 'ZCL_DEMO', type: 'CLAS' });
+    const read = await exec(ctx, 'adt_object_read', { name: 'ZCL_DEMO', type: 'CLAS' });
     expect(read.ok).toBe(true);
     expect(existsSync(join(root, 'sap-adt', String(read.output.localCopy)))).toBe(true);
   });
@@ -228,6 +230,75 @@ describe('ac-sap-adt 宿主档案（host seam，core ≥ 0.7.1）', () => {
     const weird = await exec(ctx, 'adt_create_destination', { name: 'w', url: 'https://w.example.com' }, 'a/b..c');
     expect(weird.ok).toBe(true);
     expect(weird.output.file).toBe(join(root, '.ac-sap-adt', 'agents', 'a_b..c', 'destinations.yaml'));
+  });
+
+  it('Agent × 会话工作区双维隔离：同一 Agent 挂两个工作区的 single 会话互不可见；旧布局存量迁移', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-ws-'));
+    const { ctx } = await boot({}, root);
+    // 假 workspace 服务：conversationId → 会话挂载的工作区本机路径
+    // （真实装配里由 ac-workspace conversationWorkspaceRoot 提供——唯一事实源）
+    const wsIm = join(root, 'Project-120-IMPC');
+    const wsDl = join(root, 'Local-20-Deloitte');
+    const offWorkspace = ctx.provide('workspace', {
+      root,
+      conversationWorkspaceRoot(cid: string | undefined): string | null {
+        if (cid === 'conv-impc') return wsIm;
+        if (cid === 'conv-deloitte') return wsDl;
+        return null;
+      },
+    });
+    const inConv = (name: string, args: Record<string, unknown>, agentId: string, conversationId: string) =>
+      ctx.tools.execute({ name, args, agentId, conversationId } as never) as Promise<ExecRes>;
+
+    // 旧布局存量：修复前两个工作区的配置混在 agents/__abap_dev__/destinations.yaml
+    const legacyFile = join(root, '.ac-sap-adt', 'agents', '__abap_dev__', 'destinations.yaml');
+    mkdirSync(join(root, '.ac-sap-adt', 'agents', '__abap_dev__'), { recursive: true });
+    writeFileSync(
+      legacyFile,
+      'destinations:\n  - name: impc-dev\n    url: https://impcerpdev01.example.com\n  - name: deloitte-kic\n    url: https://180.167.68.213:44304\n',
+      'utf8',
+    );
+
+    // IMPC 工作区会话：首次调用触发存量迁移（复制旧文件到本工作区子目录）
+    const im = await inConv('adt_create_destination', { name: 'impc-test', url: 'https://impc-test.example.com' }, '__abap_dev__', 'conv-impc');
+    expect(im.ok).toBe(true);
+    // wsSlug = 工作区完整本机路径的 slug 形态（盘符与分隔符归一，路径跨平台
+    // 不定 → 从期望规则现算，而非硬编码）
+    const slugOf = (p: string) => p.replace(/[:\\\/]+/g, '-').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const agentWsBase = join(root, '.ac-sap-adt', 'agents', '__abap_dev__', 'ws');
+    const imDir = join(agentWsBase, slugOf(wsIm));
+    expect(im.output.file).toBe(join(imDir, 'destinations.yaml'));
+    // 迁移：旧存量（impc-dev + deloitte-kic）已复制进来，且新目的地落同一份
+    const imRaw = readFileSync(join(imDir, 'destinations.yaml'), 'utf8');
+    expect(imRaw).toContain('impc-dev');
+    expect(imRaw).toContain('deloitte-kic');
+    expect(imRaw).toContain('impc-test.example.com');
+
+    // Deloitte 工作区会话：独立文件，先迁移存量再删掉 impc 的、留下自己的
+    const dl = await inConv('adt_create_destination', { name: 'deloitte-kic2', url: 'https://kic2.example.com' }, '__abap_dev__', 'conv-deloitte');
+    expect(dl.ok).toBe(true);
+    const dlDir = join(agentWsBase, slugOf(wsDl));
+    expect(dl.output.file).toBe(join(dlDir, 'destinations.yaml'));
+    // 列表可见性按会话工作区分：IMPC 会话看不到 Deloitte 新建的目的地
+    const imList = await inConv('adt_list_destinations', {}, '__abap_dev__', 'conv-impc');
+    const imNames = (imList.output.destinations as Array<{ name: string }>).map((d) => d.name);
+    expect(imNames).toContain('impc-dev');
+    expect(imNames).toContain('impc-test');
+    expect(imNames).not.toContain('deloitte-kic2');
+    // Deloitte 会话反之
+    const dlList = await inConv('adt_list_destinations', {}, '__abap_dev__', 'conv-deloitte');
+    const dlNames = (dlList.output.destinations as Array<{ name: string }>).map((d) => d.name);
+    expect(dlNames).toContain('deloitte-kic2');
+    expect(dlNames).not.toContain('impc-test');
+
+    // 无工作区归属（conversationId 未挂载/解析为 null）→ 维持 per-Agent 原路径
+    const plain = await exec(ctx, 'adt_create_destination', { name: 'plain', url: 'https://plain.example.com' }, '__abap_dev__');
+    expect(plain.output.file).toBe(legacyFile);
+    // 且不再受工作区子目录影响（各自独立）
+    expect(readFileSync(legacyFile, 'utf8')).toContain('plain.example.com');
+    // 旧文件原样保留（迁移是复制不是移动——无工作区身份的调用仍读它）
+    expect(readFileSync(legacyFile, 'utf8')).toContain('impc-dev');
+    offWorkspace();
   });
 });
 
@@ -261,5 +332,47 @@ describe('SapAdtFs 路径守卫：别名词形（大小写/junction·symlink）�
       rmSync(base, { recursive: true, force: true });
       rmSync(alias, { recursive: true, force: true });
     }
+  });
+});
+
+describe('ac-sap-adt 使用规约注入（loop/before-run，owner 行条件注入）', () => {
+  /** 直接驱动 before-run waterfall（不经 loop——只验本行监听器） */
+  async function systemAfter(ctx: Context, request: Record<string, unknown>): Promise<string | undefined> {
+    const call = { request: { messages: [], ...request } };
+    await ctx.waterfall('loop/before-run', call as never, async () => ({ finish: 'stop' }) as never);
+    return (call.request as { system?: string }).system;
+  }
+
+  it('生效工具集含 adt_* → system 追加 <sap-adt-tools> 规约块（保留既有正文）', async () => {
+    const { ctx } = await boot();
+    const system = await systemAfter(ctx, { tools: ['adt_search', 'read'], system: '你是 ABAP 助手' });
+    expect(system).toContain('你是 ABAP 助手');
+    expect(system).toContain('<sap-adt-tools>');
+    expect(system).toContain('[ADT 使用规约]');
+    // 核心规约在块内：建请求先问 + 复用传输请求
+    expect(system).toContain('不得自建');
+    expect(system).toContain('modifiable');
+  });
+
+  it('tools 未声明 → 回落全目录（demo boot 含 adt_*）→ 注入；无 adt 前缀的工具集不注入', async () => {
+    const { ctx } = await boot();
+    expect(await systemAfter(ctx, {})).toContain('<sap-adt-tools>');
+    expect(await systemAfter(ctx, { tools: ['read', 'write'] })).toBeUndefined();
+  });
+
+  it('停用方不注入（settings 合成 false，与暴露面收敛同口径）；改回热恢复', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-guide-'));
+    const { ctx } = await boot({}, root, true);
+    expect(await systemAfter(ctx, { tools: ['adt_search'] })).toContain('<sap-adt-tools>');
+    ctx.config.set('settings.sap-adt', { enabled: false });
+    expect(await systemAfter(ctx, { tools: ['adt_search'] })).toBeUndefined();
+    ctx.config.set('settings.sap-adt', { enabled: true });
+    expect(await systemAfter(ctx, { tools: ['adt_search'] })).toContain('<sap-adt-tools>');
+  });
+
+  it('硬停（enabled:false，目录无 adt_*）→ 缺省回落目录不含 adt → 不注入', async () => {
+    const { ctx } = await boot({ enabled: false });
+    expect(await systemAfter(ctx, {})).toBeUndefined();
+    expect(await systemAfter(ctx, { tools: ['read'] })).toBeUndefined();
   });
 });

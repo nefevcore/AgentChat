@@ -18,12 +18,14 @@ import { estimateTokens, fmtTokenCount } from '../tokens.ts';
 const props = defineProps<{
   /** 席位 owner 上下文透传（D16-③：ConversationView 经 SlotOutlet data 传入） */
   data: {
-    /** 头部目标 Agent（direct = 激活 Agent；single = 会话承载 Agent） */
+    /** 头部目标 Agent（direct = 激活 Agent；single = 会话承载 Agent；群 = 群主） */
     agentId?: string | null;
     /** 独立会话（非空 = single 形态，会话键 = sid） */
     single?: SingleSession | null;
-    /** 会话形态（仅 direct/single 显示仪表） */
+    /** 会话形态（direct/single/group 显示仪表；pair 只读无仪表） */
     form?: 'direct' | 'group' | 'single' | 'pair';
+    /** 会话键（群 = gid——按群主视角分析） */
+    conversationId?: string | null;
   };
 }>();
 
@@ -45,15 +47,20 @@ const sessionTokens = ref<SessionTokens | null>(null);
 async function fetchTokenBaseline(clearFirst = false) {
   // single：会话键 = sid、承载 Agent = data.agentId（元数据 agentId 空 =
   //   默认预设——不补全则后端以 sid 为 viewer 估算，占用严重偏低）；
+  // group：会话键 = gid、Agent = 群主（后端群分支按群主视角 historyFor 估算
+  //   ——每成员上下文 = 同一群本体按读者派生，群主是代表读者）；
   // direct：data.agentId（后端按对桶推导会话键）。agentId 未选 → 跳过。
   const agentId = props.data.agentId || '';
   if (!agentId || !rpc.value) return;
   if (clearFirst) sessionTokens.value = null;
   const seq = ++tokenFetchSeq; // 竞态守卫：快速切换会话时 A 的迟到响应不得覆盖 B
   try {
-    const data = await fetchSessionTokens(agentId, rpc.value, props.data.single
-      ? { conversationId: props.data.single.id, agentId }
-      : undefined);
+    const data = await fetchSessionTokens(agentId, rpc.value,
+      props.data.single
+        ? { conversationId: props.data.single.id, agentId }
+        : props.data.form === 'group' && props.data.conversationId
+          ? { conversationId: props.data.conversationId, agentId }
+          : undefined);
     if (seq !== tokenFetchSeq) return;
     sessionTokens.value = {
       tokenCount: data.tokenCount ?? 0,
@@ -100,9 +107,13 @@ function toggleTokenPanel() {
   tokenPanelOpen.value = !tokenPanelOpen.value;
   if (tokenPanelOpen.value) {
     // 懒加载固定开销构成（系统提示/工具定义——每次打开重取：人格/记忆/
-    // 生效工具集都可能变化）
+    // 生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid 装配）
     if (props.data.agentId) {
-      chatStore.requestSystemPrompt(props.data.agentId);
+      if (props.data.form === 'group' && props.data.conversationId) {
+        chatStore.requestSystemPrompt(props.data.agentId, { conversationId: props.data.conversationId });
+      } else {
+        chatStore.requestSystemPrompt(props.data.agentId);
+      }
       chatStore.requestToolDefs(props.data.agentId);
     }
     // 点击外部关闭（gauge 点击带 .stop 不触达 document）
@@ -137,9 +148,10 @@ function handleCompress() {
   chatStore.compressSession();
 }
 
-/** 形态 gate：仅 direct/single 且有会话数据时渲染（群无单一会话上下文、pair 只读无仪表） */
+/** 形态 gate：direct/single/群且有会话数据时渲染（群 = 群主视角占用；
+ *  pair 只读无仪表） */
 const applicable = computed(() =>
-  (props.data.form === 'direct' || props.data.form === 'single')
+  (props.data.form === 'direct' || props.data.form === 'single' || props.data.form === 'group')
   && !!sessionTokens.value && sessionTokens.value.messageCount > 0);
 </script>
 
@@ -198,8 +210,10 @@ const applicable = computed(() =>
           </div>
         </template>
         <div class="token-note">≈ 为估算值；缓存命中部分按折扣价计费。</div>
-        <!-- 归档入口：占用量与归档动作同屏——超阈值时顺手整理；run 进行中/整理中禁用 -->
+        <!-- 归档入口：占用量与归档动作同屏——超阈值时顺手整理；run 进行中/整理中禁用。
+             群形态不显示（群归档走后端轮转：达阈值先给群主跑 [群归档整理] run） -->
         <button
+          v-if="props.data.form !== 'group'"
           class="token-panel__action"
           :disabled="chatStore.turnInProgress || chatStore.compressPending"
           :title="chatStore.compressPending ? '正在归档整理记忆…' : chatStore.turnInProgress ? '回复进行中，结束后再归档' : '归档对话：先整理记忆，再归档早期消息'"

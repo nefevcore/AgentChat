@@ -247,14 +247,14 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
 
 const E_FILE = '文件操作：改现有文件用 edit，old_string 从 read 的输出中原样复制（自拟文本会匹配失败）；同一文件有多处独立修改时，并行发多个 edit 调用。write 是整文件覆盖，只用于新建文件。找文件用 glob，搜内容用 grep；不确定文件位置时先用 glob 确认，不要凭记忆拼路径。bash 只做文件工具办不到的事（组合命令、进程、环境）。';
 const E_FILE_NOEDIT = '文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。';
-const E_CMD = '命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。';
+const E_CMD = '命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。清理进程只用自己启动时记录的 PID 精确点名（Start-Process -PassThru 拿 Id，再 Stop-Process -Id / taskkill /PID），绝不按进程名广谱杀 node/pnpm——后端宿主就是其中之一，按名杀会中断整个后端（该模式任何权限档位都会被拦截）。';
 const E_JOB = '后台任务：后台命令会返回 job_id，记住 id，任务完成时会收到通知，不要用 job list 忙轮询；确需等待完成时，用前台 bash 配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。';
 const E_OUT = '产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式；只说"已修改"而不给路径，用户无法定位文件。';
 const E_AGENTS = '多Agent协作：先 list_agents 找对象，再 send_agent 发消息。消息异步送达：发出后继续手头工作，回复会作为新消息到达；仅当下一步依赖对方结果时才设 wait=true。';
 const E_GROUP = '群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。';
 const E_TIMER = '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。';
 const E_ASK = '不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作，先 ask_questions 征求确认，不要擅自替用户决定。';
-const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。';
+const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。';
 const E_RESTART = '系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。';
 const E_TRACK = '目标与待办：承担跨会话的长期任务时，用 goal(action="create") 登记目标——登记后宿主自动逐轮推进直至完成/受阻；多步工作先写 todo(action="write") 清单，随做随更新状态（开工标 in_progress、完成即标）；达成即 goal(action="update", status="completed") 收口，确认无法推进则 status="blocked" 并给 blocked_reason。';
 
@@ -521,6 +521,57 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     const content = blocks.join('\n\n');
     expect(content).toContain(`[工作目录] ${path.resolve('C:/ws')}`);
     expect(content).not.toContain('工作区根）');
+  });
+
+  it('[路径规则] 按有效档位分档措辞（access-tier；undefined = base）', () => {
+    // base（缺省档）：写限沙箱 + 越界审批，读不设防——保留 2026-09-02
+    // 反泛化锚（拦截原因是越界而非绝对路径形态）
+    const base = systemPromptRow.assembleBlocks({ toolNames: [] }).join('\n\n');
+    expect(base).toContain('[路径规则] 工作目录与白名单内绝对/相对路径均可读写');
+    expect(base).toContain('拦截原因是越界而非绝对路径形态');
+    // sandbox：白名单内自由 + bash 软边界
+    const sandbox = systemPromptRow
+      .assembleBlocks({ toolNames: [], accessTier: 'sandbox-access' })
+      .join('\n\n');
+    expect(sandbox).toContain('[路径规则] 沙箱白名单内绝对/相对路径均可自由读写');
+    expect(sandbox).toContain('bash 软边界');
+    // full：不受沙箱限制（黑名单仍生效）
+    const full = systemPromptRow
+      .assembleBlocks({ toolNames: [], accessTier: 'full-access' })
+      .join('\n\n');
+    expect(full).toContain('[路径规则] full-access 档：路径访问不受沙箱限制');
+    expect(full).toContain('系统域黑名单仍生效');
+    // 三档均不再出现旧全局句
+    for (const text of [base, sandbox, full]) {
+      expect(text).not.toContain('沙箱越界一律拦截');
+    }
+  });
+
+  it('[路径规则] apply 侧档位装配：Agent tags 与 run elevation 单源判定', async () => {
+    // ① Agent tags full-access → full 措辞
+    const f = await boot({ agent: { id: 'fulla', model: 'mock-1', tags: ['full-access'] } });
+    await f.ctx.agentLoop.run({ agent: 'fulla', model: 'mock-1', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain(
+      '[路径规则] full-access 档：路径访问不受沙箱限制',
+    );
+    // ② Agent tags sandbox-access → sandbox 措辞
+    const s = await boot({ agent: { id: 'sanda', model: 'mock-1', tags: ['sandbox-access'] } });
+    await s.ctx.agentLoop.run({ agent: 'sanda', model: 'mock-1', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain(
+      '[路径规则] 沙箱白名单内绝对/相对路径均可自由读写',
+    );
+    // ③ base Agent + elevation 提权 → 按本次 run 有效档位（elevation 优先）
+    const e = await boot({ agent: { id: 'basea', model: 'mock-1' } });
+    await e.ctx.agentLoop.run({ agent: 'basea', model: 'mock-1', elevation: 'full-access', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain(
+      '[路径规则] full-access 档：路径访问不受沙箱限制',
+    );
+    // ④ 无 tags 无 elevation → base 措辞
+    const b = await boot({ agent: { id: 'plain', model: 'mock-1' } });
+    await b.ctx.agentLoop.run({ agent: 'plain', model: 'mock-1', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain(
+      '[路径规则] 工作目录与白名单内绝对/相对路径均可读写',
+    );
   });
 
   it('尾档 prepend 收敛：对话信息块先于尾档 push 住户（模拟 ac-datetime 日期行）', async () => {

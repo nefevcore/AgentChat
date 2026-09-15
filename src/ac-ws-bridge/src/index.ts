@@ -121,10 +121,10 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
 
   // ---- interaction wire 整形（M7 §二B：record → 前端友好形） ----
   // ask_questions：payload.questions 上提为顶层 questions（已整形
-  // question/options）；其余 kind 原样透传（含 payload）。帧载荷仍是
+  // question/options[/multi]）；其余 kind 原样透传（含 payload）。帧载荷仍是
   // { args: [wire] }——与全部业务帧同构。
   interface WireQuestions {
-    questions: Array<{ question: string; options: string[] }>;
+    questions: Array<{ question: string; options: string[]; multi?: boolean }>;
   }
   const interactionWire = (record: unknown): unknown => {
     if (record === null || typeof record !== 'object') return record;

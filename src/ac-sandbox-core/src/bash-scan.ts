@@ -10,6 +10,12 @@
 //     白名单同源判定：词法 + 身份回退——大小写/8.3/junction 别名词形
 //     不误拦，见 paths.ts createRootsContainment）
 // 差异：roots/cwd 显式参数化（src 内部读 workspaceRoot 全局）。
+//
+// hostKillViolation（2026-09-15 后端无端中断事故）：按进程名广谱杀
+// node/pnpm 的检测——宿主进程本身就是 node.exe（supervisor 同为 node），
+// `Stop-Process -Name node` / `taskkill /IM node.exe` / `pkill node` 类
+// 命令会把后端连同监护一起杀掉。**任何档位（含 full-access）都必须拦**，
+// 与路径越界的 bashCommandViolation（full 跳过）分开成独立函数。
 // ============================================================
 import * as path from 'node:path';
 import { createRootsContainment } from './paths.ts';
@@ -146,4 +152,82 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
     }
   }
   return null;
+}
+
+// ============================================================
+// 防自杀检测（hostKillViolation）
+// ============================================================
+
+/**
+ * 宿主进程名清单：本后端宿主与监护进程的运行时进程名。
+ * `node`（宿主 boot.ts 与 supervisor.mjs 都是 node 进程）+
+ * `pnpm`（pnpm dev 直启形态——宿主的父进程链）。
+ */
+const HOST_PROCESS_NAMES = ['node', 'pnpm', 'agentchat'];
+
+/**
+ * 检测命令是否按进程名广谱杀伤宿主进程。
+ *
+ * 覆盖形态（对命令原文做小写归一后匹配；不剥 heredoc——载荷里的
+ * 字面量误报代价只是多拦一条命令，而漏报代价是宿主死亡）：
+ *   · PowerShell：`Stop-Process -Name node` / `kill -name node`（别名）
+ *   · Windows：  `taskkill /IM node.exe`（或 node、node* 通配）
+ *   · Unix：     `pkill node` / `pkill -f node` / `killall node`
+ *
+ * 不拦（合法形态）：
+ *   · 按进程 ID 点名：`Stop-Process -Id 1234` / `taskkill /PID 1234`
+ *     / `kill 1234`——PID 不会命中宿主名，Agent 清理自己 spawn 的
+ *     进程应记录 `Start-Process -PassThru` 拿到的 PID；
+ *   · 杀其他进程名：`Stop-Process -Name msedge`（Playwright 清理
+ *     浏览器是正当操作）；
+ *   · `Get-Process node`（只看不杀）。
+ *
+ * @returns 违规说明或 null（允许）。调用方必须在**任何档位**（含
+ *   full-access）下检查——这不是沙箱边界，是宿主存活保护。
+ */
+export function hostKillViolation(command: string): string | null {
+  const norm = command.toLowerCase();
+  // PowerShell Stop-Process -Name <宿主名>（含 kill 别名）。名字后允许
+  // 引号/逗号分隔多目标：-Name node,pnpm 同拦
+  const psKill = /\b(?:stop-process|kill)\s+(?:-[a-z]+\s+)*-name\s+["']?([a-z0-9_*,-]+)/.exec(norm);
+  if (psKill && namesHitHost(psKill[1]!)) {
+    return hostKillMessage(`Stop-Process -Name ${psKill[1]}`);
+  }
+  // taskkill /IM <映像名>（node / node.exe / node* 通配全命中）
+  const tk = /\btaskkill\b[^\n]*?\/im\s+["']?([a-z0-9_*.,-]+)/.exec(norm);
+  if (tk && namesHitHost(tk[1]!)) {
+    return hostKillMessage(`taskkill /IM ${tk[1]}`);
+  }
+  // Unix pkill/killall <宿主名>（开关可含数字如 -9；pkill -f 按命令行
+  // 匹配——含宿主入口路径的形态同样致命，下方 pf 规则兜模式形态）
+  const pk = /\b(?:pkill|killall)\b\s+(?:-[a-z0-9]+\s+)*["']?([a-z0-9_*.,\-/]+)/.exec(norm);
+  if (pk && namesHitHost(pk[1]!)) {
+    return hostKillMessage(`pkill/killall ${pk[1]}`);
+  }
+  // pkill -f <模式>：模式含宿主进程特征（node/pnpm/agentchat 词元且
+  // 不是纯路径片段）——按命令行匹配同样杀得到宿主
+  const pf = /\bpkill\b\s+(?:-[a-z0-9]+\s+)*-f\s+["']?([^\s"']+)/.exec(norm);
+  if (pf && /\b(node|pnpm|agentchat)\b/.test(pf[1]!.replace(/[/\\]/g, ' '))) {
+    return hostKillMessage(`pkill -f ${pf[1]}`);
+  }
+  return null;
+}
+
+/** 逗号/空格分隔的名字清单是否命中宿主进程名（支持 .exe 后缀与 * 通配） */
+function namesHitHost(names: string): boolean {
+  return names
+    .split(/[,\s]+/)
+    .filter(Boolean)
+    .some((raw) => {
+      const n = raw.replace(/\.exe$/, '').replace(/\*+$/, '');
+      return HOST_PROCESS_NAMES.includes(n);
+    });
+}
+
+function hostKillMessage(pointed: string): string {
+  return (
+    `命令包含按进程名广谱杀宿主进程的模式（${pointed}），被防自杀保护拦截——` +
+    '后端宿主与 supervisor 本身就是 node/pnpm 进程，按名杀会中断整个后端（含所有运行中会话），任何权限档位都不放行。' +
+    '清理进程请改用自己启动时记录的 PID 精确点名（如 Start-Process -PassThru 拿 $p.Id 后 Stop-Process -Id $p.Id、taskkill /PID <pid>），不要按进程名广谱杀。'
+  );
 }
