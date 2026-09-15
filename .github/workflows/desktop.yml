@@ -1,11 +1,13 @@
-# 桌面版发布 —— Electron 壳安装包 → GitHub Releases
+# 桌面版发布 —— Electron 壳安装包 → 自托管下载服务器
 #
 # 触发：推送 v* 标签（与 publish.yml 的 npm 发布同标签并行、互不依赖）。
 # 产物：Windows nsis 安装包（AgentChat-Setup-x.y.z.exe）+ Linux AppImage
-#       + macOS dmg/zip（arm64 + x64 双架构，未签名——Gatekeeper 首启需右键打开）
-#       + latest*.yml（electron-updater 自动更新源，公开仓库匿名可检查）。
-# 凭据：GITHUB_TOKEN（contents: write）——electron-builder 自动为该 tag
-#       创建 Release（releaseType: release，非 draft）并上传全部资产。
+#       + macOS dmg/zip（arm64 + x64 双架构，未签名——Gatekeeper 首启需右键打开）。
+#       2026-09 分发自托管裁决（remote-client-relay-plan §4.6）：不再上传
+#       GitHub Releases——windows 腿 rsync 安装包到下载服务器（secrets：
+#       SERVER_HOST/SERVER_USER/SSH_PRIVATE_KEY），服务器侧 gen-manifest
+#       生成 manifest.json，后续版本拉回 git 双写（git = sha256 信任锚）。
+#       未配 secrets 时优雅降级：跳过上传，安装包留在 Actions artifact。
 #
 # 依赖顺序：pnpm build:frontend → pnpm build:bundle 产出 dist/（后端单文件
 # bundle + plugin-catalog.json + WebUI 静态产物），extraResources 原样带入
@@ -55,8 +57,33 @@ jobs:
       - name: 构建发布 bundle（dist/）
         run: pnpm build:bundle
 
-      - name: 打包桌面安装包并发布到 GitHub Releases
+      - name: 打包桌面安装包（不上传 Releases）
         working-directory: desktop
-        run: npx electron-builder ${{ matrix.targets }} --publish always
+        run: npx electron-builder ${{ matrix.targets }} --publish never
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # ---- 上传与 manifest 生成只在 windows 腿做（防 matrix 三腿并发写冲突）----
+      - name: 上传安装包到下载服务器 + 生成 manifest
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 SERVER_HOST/SSH_PRIVATE_KEY secrets——跳过上传"
+            exit 0
+          fi
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
+          rsync -az desktop/dist/*.exe "${SERVER_USER:-deploy}@$SERVER_HOST":/var/www/agentchat/downloads/$VER/ -e "ssh -i ~/.ssh/deploy_key"
+          # 服务器侧扫目录算 sha256 重生成 manifest（跨腿幂等：多腿各传各的，manifest 全量重建）
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads"
+          echo "manifest 已在服务器更新（git 双写待后续版本统一接自动化）"
