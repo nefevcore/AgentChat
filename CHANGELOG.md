@@ -4,7 +4,7 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.8.8] - 2026-09-16
 
 ### Added（群聊未读数字徽章——名册群行 + 活动栏聚合同源）
 - **动机**：群聊离线时收到的消息无任何可见提示——Agent 私信有数字徽章（名册行 + 活动栏聚合），群聊却完全没有对等机制；正在别的会话/别的群里时，Agent 在群里发了什么全靠碰运气发现。
