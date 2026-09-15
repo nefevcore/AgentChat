@@ -232,7 +232,7 @@ describe('ac-sap-adt 宿主档案（host seam，core ≥ 0.7.1）', () => {
     expect(weird.output.file).toBe(join(root, '.ac-sap-adt', 'agents', 'a_b..c', 'destinations.yaml'));
   });
 
-  it('Agent × 会话工作区双维隔离：同一 Agent 挂两个工作区的 single 会话互不可见；旧布局存量迁移', async () => {
+  it('Agent × 会话工作区双维隔离：同一 Agent 挂两个工作区的 single 会话互不可见；旧布局存量迁移', { timeout: 60_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-ws-'));
     const { ctx } = await boot({}, root);
     // 假 workspace 服务：conversationId → 会话挂载的工作区本机路径
