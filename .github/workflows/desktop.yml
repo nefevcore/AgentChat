@@ -84,7 +84,7 @@ jobs:
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           # Windows runner 无 rsync——scp 逐文件上传（exe 产物数固定，scp 足够）
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
-          for f in desktop/dist/*.exe; do
+          for f in desktop/release/*.exe; do
             scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/$VER/"
           done
           # 服务器侧扫目录算 sha256 重生成 manifest（跨腿幂等：多腿各传各的，manifest 全量重建）
