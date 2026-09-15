@@ -81,8 +81,7 @@ describe('store 状态机与幂等（src 语义原样）', () => {
     expect(restored.listOpen()).toHaveLength(0);
   });
 
-  it('同毫秒连续 open：createdAt 严格递增（2026-09-13 CI：单 step 双 ask_questions 同毫秒撞值，前端「最新优先」路由退化）', () => {
-    const store = new MemoryDurableInteractionStore();
+  it('同毫秒连续 open：createdAt 严格递增（2026-09-13 CI：单 step 双 ask_questions 同毫秒撞值，前端「最新优先」路由退化）', () => {    const store = new MemoryDurableInteractionStore();
     const a = store.open({ key: 'conv1', kind: 'ask_questions', payload: { q: '第一问' } });
     const b = store.open({ key: 'conv1', kind: 'ask_questions', payload: { q: '第二问' } });
     // 同步连开大概率同毫秒——createdAt 仍必须能区分先后（b > a）
@@ -116,6 +115,35 @@ describe('ac-durable-interaction 服务 + 三事件', () => {
 });
 
 describe('ask_questions 工具（write-ahead + 事件等待 + late-reply 对账键）', () => {
+  it('选项对象形态归一：{label,description} → "label —— description"；垃圾项丢弃（2026-09-15 [object Object] 反馈回归）', async () => {
+    const { ctx } = await boot();
+    const pending = exec(ctx, {
+      name: 'ask_questions',
+      args: {
+        questions: [{
+          question: '选哪个？',
+          options: [
+            { label: '方案A', description: '最快' },
+            '纯字符串选项',
+            null,
+            { label: '只有标签' },
+            '',
+          ],
+        }],
+      },
+      agentId: 'norm',
+      conversationId: 'norm',
+      toolCallId: 'call-norm',
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    const open = ctx.durableInteraction.listOpen({ key: 'norm' })[0];
+    const qs = (open!.payload as { questions: Array<{ options: string[] }> }).questions;
+    expect(qs[0].options).toEqual(['方案A —— 最快', '纯字符串选项', '只有标签']);
+    ctx.durableInteraction.reply(open!.id, ['方案A —— 最快']);
+    const r = await pending;
+    expect(r.ok).toBe(true);
+  });
+
   it('事件驱动回答：reply 后工具唤醒并拿到 answers；correlationId=toolCallId', async () => {
     const { ctx } = await boot();
     const pending = exec(ctx, {
@@ -176,6 +204,33 @@ describe('ask_questions 工具（write-ahead + 事件等待 + late-reply 对账�
     });
     expect(noConv.ok).toBe(false);
     expect(noConv.error).toContain('会话上下文');
+  });
+
+  it('multi 归一化：显式 true 进 payload，其余（false/缺省）剔除——旧载荷向后兼容', async () => {
+    const { ctx } = await boot();
+    const pending = exec(ctx, {
+      name: 'ask_questions',
+      args: {
+        questions: [
+          { question: '多选哪些？', options: ['A', 'B', 'C'], multi: true },
+          { question: '单选哪个？', options: ['x', 'y'], multi: false },
+          { question: '缺省单选', options: ['m', 'n'] },
+        ],
+      },
+      agentId: 'helper',
+      conversationId: 'helper',
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    const open = ctx.durableInteraction.listOpen({ key: 'helper' })[0];
+    const qs = (open.payload as { questions: Array<{ multi?: boolean }> }).questions;
+    expect(qs[0].multi).toBe(true);
+    expect(qs[1].multi).toBeUndefined();
+    expect(qs[2].multi).toBeUndefined();
+    // 多选题答案为数组——原样落账透传（Agent 侧数组呈现）
+    ctx.durableInteraction.reply(open.id, { answers: [['A', 'C'], 'x', 'm'] });
+    const r = await pending;
+    expect(r.ok).toBe(true);
+    expect(r.output.answers).toEqual({ answers: [['A', 'C'], 'x', 'm'] });
   });
 });
 
@@ -406,6 +461,70 @@ describe('late-reply 唤醒（run 已死时的作答回投）', () => {
     expect(deliveries[0]!.options).toMatchObject({ sender: 'helper', source: 'event', conversationId: 'sid-late' });
     expect(deliveries[0]!.message).toContain('选哪个？');
     expect(deliveries[0]!.message).toContain('A');
+  });
+
+  it('late-reply 先补记后回投：session.backfillToolResult 收到 correlationId 对账的答案（2026-09-15 上下文丢失事故修复）', async () => {
+    const deliveries: Array<{ agentId: string; message: string; options: Record<string, unknown> }> = [];
+    const backfills: Array<{ conversationId: string; toolCallId: string; result: unknown }> = [];
+    const { Service } = await import('@agentchat/cordis');
+    class SessionStub extends Service {
+      constructor(c: Context) { super(c, 'session'); }
+      backfillToolResult(conversationId: string, toolCallId: string, result: unknown) {
+        backfills.push({ conversationId, toolCallId, result });
+        return Promise.resolve(true);
+      }
+    }
+    class ConvStub extends Service {
+      constructor(c: Context) {
+        super(c, 'conversation');
+      }
+      listRunning() { return []; }
+      deliver(agentId: string, message: string, options: Record<string, unknown>) {
+        deliveries.push({ agentId, message, options });
+        return Promise.resolve({});
+      }
+    }
+    const ctx = new Context();
+    const fibers = [
+      ctx.plugin(toolsRow),
+      ctx.plugin(SessionStub),
+      ctx.plugin(ConvStub),
+      ctx.plugin(diRow, { backend: 'memory' }),
+    ];
+    await Promise.all(fibers);
+    booted.push({ ctx, fibers });
+    for (let i = 0; i < 1000; i++) {
+      if ((ctx as any).durableInteraction && (ctx as any).conversation && (ctx as any).session) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    // run 死亡残留形态：open 时带 correlationId（对账锚），reply 触发 late-reply
+    const rec = ctx.durableInteraction.open({
+      key: 'sid-ctx', kind: 'ask_questions',
+      payload: { questions: [{ question: '选哪个？', options: ['A', 'B'] }] },
+      owner: 'helper', correlationId: 'call-ctx-1',
+    });
+    ctx.durableInteraction.reply(rec.id, { answers: ['全部做'] });
+    await new Promise((r) => setTimeout(r, 50));
+    // 补记先于回投（顺序断言：backfills 非空即已发生；deliveries 也应已发生）
+    expect(backfills).toEqual([{
+      conversationId: 'sid-ctx',
+      toolCallId: 'call-ctx-1',
+      result: { ok: true, output: { answers: { answers: ['全部做'] }, questions: [{ question: '选哪个？', options: ['A', 'B'] }], interaction_id: rec.id } },
+    }]);
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it('late-reply 补记失败（session 行未装/无落点）不阻塞回投——唤醒优先，恢复 best-effort', async () => {
+    const deliveries: Array<{ agentId: string; message: string; options: Record<string, unknown> }> = [];
+    // 不装 SessionStub——session 行缺位的组合（软依赖面）
+    const ctx = await bootWithConversation([], deliveries);
+    const rec = ctx.durableInteraction.open({
+      key: 'sid-nosess', kind: 'ask_questions',
+      payload: { questions: [{ question: 'q' }] }, owner: 'helper', correlationId: 'call-x',
+    });
+    ctx.durableInteraction.reply(rec.id, { answers: ['A'] });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(deliveries).toHaveLength(1); // 回投照常
   });
 
   it('run 活跃等待中（正常路径）→ 不回投（工具事件驱动半边自取，防双消费）', async () => {

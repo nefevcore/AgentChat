@@ -193,10 +193,11 @@ export function stringifyToolResult(result: { ok: boolean; output?: unknown; err
 
 // ---- ask_questions 交互载荷归一（live 帧 / interaction/list 恢复记录两形） ----
 
-/** ask_questions 单题（question + 选项） */
+/** ask_questions 单题（question + 选项；multi: true = 多选，答案为数组） */
 export interface AskQuestionsItem {
   question: string;
   options: string[];
+  multi?: boolean;
 }
 
 /** ask_questions 弹窗状态（stores/chat pendingInteractions 的载荷形状） */
@@ -212,6 +213,29 @@ export interface AskQuestionsUiState {
   questions: AskQuestionsItem[];
   allow_custom: boolean;
   timeout_ms: number;
+}
+
+/**
+ * 选项文本归一（2026-09-15 反馈修复：模型可发 {label, description} 对象
+ * 形态选项——后端 ac-durable-interaction 已归一，此处为恢复路径历史
+ * 污染数据的同款防御）。规则与后端 optionText 一致。
+ */
+function optionTextOf(v: unknown): string {
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    const label = typeof o.label === 'string' ? o.label.trim() : typeof o.text === 'string' ? o.text.trim() : '';
+    const desc = typeof o.description === 'string' ? o.description.trim() : typeof o.desc === 'string' ? o.desc.trim() : '';
+    if (label && desc) return `${label} —— ${desc}`;
+    return label || desc;
+  }
+  return '';
+}
+
+function normalizeOptionList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map(optionTextOf).filter((s) => s.length > 0);
 }
 
 /**
@@ -234,11 +258,13 @@ export function pickAskQuestions(r: Record<string, unknown> | null | undefined, 
   const questions: AskQuestionsItem[] = [];
   for (const q of (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown> | null | undefined>) {
     if (!q) continue;
-    const question = String(q.question ?? '');
+    const question = optionTextOf(q.question);
     if (!question) continue;
     questions.push({
       question,
-      options: Array.isArray(q.options) ? q.options.map(String) : [],
+      options: normalizeOptionList(q.options),
+      // multi 仅显式 true 透传（旧载荷缺省单选）
+      ...(q.multi === true ? { multi: true } : {}),
     });
   }
   if (questions.length === 0) return null;

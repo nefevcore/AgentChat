@@ -14,6 +14,13 @@
 //     恢复决策上下文（与 ac-job-wakeup 同构的机制唤醒形态）。
 //     活跃 run 等待中（正常路径，工具自身的事件驱动半边会拿到答案）
 //     不打扰——listRunning 探测判定，避免双消费。
+//   · late-reply 补记（2026-09-15 上下文丢失事故修复）：回投前先经
+//     session.backfillToolResult 把答案按 correlationId=toolCallId 落成
+//     tool-result 补行——partial 行 result:null 被 records() 覆盖后，
+//     history() 的 stepsComplete 门放行，run 死前产出的完整轨迹（正文/
+//     思维链/提问调用）回到回放上下文。否则新 run 只见通知文本，
+//     "partial 行 + 通知共同恢复"的设计意图落空（事故现场：2471 字
+//     分析正文整段丢失）。补记失败不阻塞回投——唤醒优先。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
@@ -46,24 +53,41 @@ interface ConversationLike {
   }): Promise<unknown>;
 }
 
+/** session 可选能力面（软依赖；窄类型避免行耦合）——backfillToolResult 见 ac-session */
+interface SessionLike {
+  backfillToolResult(conversationId: string, toolCallId: string, result: unknown): Promise<boolean>;
+}
+
+/** 单项答案格式化：多选数组 → 「A、B」；null → (跳过) */
+function formatAnswer(v: string | string[] | null | undefined): string {
+  if (Array.isArray(v)) return v.length ? `「${v.join('、')}」` : '(跳过)';
+  return v ?? '(跳过)';
+}
+
 /** ask_questions 应答通知正文：answers 与工具结果同形（Agent 醒来即可继续决策） */
 function lateReplyNotice(record: DurableInteraction): string {
   const payload = record.payload as { questions?: Array<{ question?: string }> } | null;
   const qs = Array.isArray(payload?.questions) ? payload!.questions! : [];
-  const answer = record.answer as { answers?: Array<string | null> } | null;
+  const answer = record.answer as { answers?: Array<string | string[] | null> } | null;
   const answers = Array.isArray(answer?.answers) ? answer!.answers! : [];
   const lines = qs.map((q, i) => {
     const label = q?.question ? `「${q.question}」` : `第 ${i + 1} 题`;
-    return `- ${label}: ${answers[i] ?? '(跳过)'}`;
+    return `- ${label}: ${formatAnswer(answers[i])}`;
   });
   return `[系统通知] 你此前发起的提问（interaction ${record.id}）已收到用户回答：\n${lines.join('\n')}\n请基于以上回答继续之前的任务。`;
+}
+
+/** 载荷问题列表原样提取（补记 result 的 questions 字段——与工具正常返回同形） */
+function questionsOf(record: DurableInteraction): unknown {
+  const payload = record.payload as { questions?: unknown } | null;
+  return Array.isArray(payload?.questions) ? payload!.questions : [];
 }
 
 export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) {
   const service = new DurableInteractionService(ctx, options);
 
   // ---- late-reply 唤醒：answered 且原 run 已死 → 回投答案（重开 run 闭环） ----
-  ctx.on('durable-interaction/replied', (record) => {
+  ctx.on('durable-interaction/replied', async (record) => {
     if (record.kind !== 'ask_questions') return; // approval 等其他交互各有等待方
     const owner = record.owner;
     const convKey = record.key;
@@ -74,6 +98,24 @@ export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) 
     // 答案并回填消息流，此处回投会造成同一答案双消费（新 run 重复作答）。
     const running = conversation.listRunning().some((r) => r.agentId === owner && r.conversationId === convKey);
     if (running) return;
+    // 补记（2026-09-15 事故修复）：答案先落 tool-result 补行（correlationId
+    // 对账），让 run 死前残留的 partial 行获得结果——history() 门放行后新
+    // run 读到完整轨迹。result 形状与 ask_questions 工具正常返回一致
+    // （answers = 用户原始回答；回投通知文本才是人读格式）。
+    if (record.correlationId !== undefined && record.correlationId) {
+      const session = ctx.get('session', false) as SessionLike | undefined;
+      if (session) {
+        try {
+          await session.backfillToolResult(convKey, record.correlationId, {
+            ok: true,
+            output: { answers: record.answer ?? null, questions: questionsOf(record), interaction_id: record.id },
+          });
+        } catch (err) {
+          // 补记失败不阻塞回投——唤醒优先（新 run 至少还有通知文本）
+          ctx.logger.warn(`[durable-interaction] late-reply 补记失败 ${owner}（${convKey}）: ${String(err)}`);
+        }
+      }
+    }
     // 提权继承走会话水位（2026-09-12 终版设计：ac-conversation deliver 边界
     // 对 source='event' 且未显式带档位时自动继承 conv-settings 水位）——
     // payload.elevation 留痕仅作诊断，不单独透传（防双路径漂移）。
@@ -86,9 +128,35 @@ export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) 
       .catch((err: unknown) => {
         ctx.logger.warn(`[durable-interaction] late-reply 唤醒 ${owner}（${convKey}）失败: ${String(err)}`);
       });
-  }, { description: 'late-reply 唤醒：run 已死时的作答回投（sender:event 信封）' });
+  }, { description: 'late-reply 唤醒：run 已死时的作答回投（sender:event 信封）+ 补记恢复上下文' });
 
   // ---- ask_questions：向用户批量提问等待决策（write-ahead + 事件等待） ----
+
+  /**
+   * 选项/问题文本归一（2026-09-15 反馈修复：模型发 {label, description}
+   * 对象形态的选项——schema 声明 string[] 但模型不守约是常态，此前
+   * String() 直转成 "[object Object]" 且污染选项照常放行）。归一规则：
+   * 字符串原样；{label, description} → "label —— description"；其余形态
+   * （数字/布尔可显示，null/undefined/空串丢弃）。
+   */
+  function optionText(v: unknown): string {
+    if (typeof v === 'string') return v.trim();
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>;
+      const label = typeof o.label === 'string' ? o.label.trim() : typeof o.text === 'string' ? o.text.trim() : '';
+      const desc = typeof o.description === 'string' ? o.description.trim() : typeof o.desc === 'string' ? o.desc.trim() : '';
+      if (label && desc) return `${label} —— ${desc}`;
+      return label || desc;
+    }
+    return '';
+  }
+
+  function normalizeOptions(v: unknown): string[] {
+    if (!Array.isArray(v)) return [];
+    return v.map(optionText).filter((s) => s.length > 0).slice(0, 6);
+  }
+
   ctx.tools.register({
     name: 'ask_questions',
     description: '向用户提问并等待回答。用于需要用户决策或确认的场景（write-ahead：重启后可恢复对账）。',
@@ -102,10 +170,11 @@ export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) 
             properties: {
               question: { type: 'string', description: '问题' },
               options: { type: 'array', items: { type: 'string' }, description: '选项' },
+              multi: { type: 'boolean', description: '多选（用户可勾选多项，答案为数组）' },
             },
             required: ['question', 'options'],
           },
-          description: '选择题列表（最多 5 题）',
+          description: '选择题列表（最多 5 题；每题可 multi: true 开多选）',
         },
         timeout_ms: { type: 'number', description: '等待超时毫秒（不设 = 一直等）', minimum: 0 },
       },
@@ -120,8 +189,10 @@ export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) 
       const qs = rawQuestions
         .slice(0, 5)
         .map((q: Record<string, unknown>) => ({
-          question: String(q?.question ?? ''),
-          options: (Array.isArray(q?.options) ? q.options.map(String) : []).slice(0, 6),
+          question: optionText(q?.question),
+          options: normalizeOptions(q?.options),
+          // multi 仅显式 true 生效（旧载荷缺省单选，向后兼容）
+          ...(q?.multi === true ? { multi: true } : {}),
         }))
         .filter((q) => q.question && q.options.length > 0);
       if (qs.length === 0) {
