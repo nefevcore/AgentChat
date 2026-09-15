@@ -82,8 +82,11 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # Windows runner 无 rsync——scp 逐文件上传（exe 产物数固定，scp 足够）
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
-          rsync -az desktop/dist/*.exe "${SERVER_USER:-deploy}@$SERVER_HOST":/var/www/agentchat/downloads/$VER/ -e "ssh -i ~/.ssh/deploy_key"
+          for f in desktop/dist/*.exe; do
+            scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/$VER/"
+          done
           # 服务器侧扫目录算 sha256 重生成 manifest（跨腿幂等：多腿各传各的，manifest 全量重建）
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads"
           echo "manifest 已在服务器更新（git 双写待后续版本统一接自动化）"
