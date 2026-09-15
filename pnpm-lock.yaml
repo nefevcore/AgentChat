@@ -684,6 +684,9 @@ importers:
       ac-agent-presets:
         specifier: workspace:*
         version: link:../ac-agent-presets
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2937,9 +2940,6 @@ importers:
       ac-jobs:
         specifier: workspace:*
         version: link:../ac-jobs
-      ac-plugin-core:
-        specifier: workspace:*
-        version: link:../ac-plugin-core
       ac-shell-tools:
         specifier: workspace:*
         version: link:../ac-shell-tools

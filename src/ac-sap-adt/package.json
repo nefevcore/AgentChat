@@ -20,7 +20,6 @@
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-jobs": "workspace:*",
-    "ac-plugin-core": "workspace:*",
     "ac-shell-tools": "workspace:*",
     "ac-tools": "workspace:*",
     "ac-web-tools": "workspace:*",

@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "ac-agent-presets": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*"
   },
   "agentchat": {
