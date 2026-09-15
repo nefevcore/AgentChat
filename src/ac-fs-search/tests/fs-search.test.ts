@@ -97,6 +97,37 @@ describe('ac-fs-search', () => {
     expect(r.error).toContain('pattern');
   });
 
+  it('grep：>1MB 大文件走流式行扫描（跨块多字节字符不丢行、行号正确）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-'));
+    const { ctx } = await boot(root);
+    // 构造 >1MB 文件：2621 行×100B 头 + 一行「中文+独特词+中文」（UTF-8 字节
+    // 恰好跨越首个 256KB 读块边界）+ 长尾，强制流式轨道与 StringDecoder 生效
+    const L = 'a'.repeat(99) + '\n';
+    const cross = `中文${UNIQUE}中文\n`;
+    const big = join(root, 'big.txt');
+    writeFileSync(big, L.repeat(2621) + cross + L.repeat(8000));
+    const r = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE, path: big } });
+    expect(r.ok).toBe(true);
+    const out = r.output as { groups: Array<{ matches: Array<{ line: number; preview: string }> }> };
+    expect(out.groups).toHaveLength(1);
+    expect(out.groups[0]!.matches[0]!.line).toBe(2622); // 头 2621 行之后
+    expect(out.groups[0]!.matches[0]!.preview).toContain(UNIQUE);
+  });
+
+  it('grep：字面量预筛保守性——括号/量词拆分的模式不丢真命中', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-'));
+    makeTree(root);
+    const { ctx } = await boot(root);
+    // 捕获组把必需字面量拆成两段：预筛需两段都在全文中才放行（都在）
+    const g = await ctx.tools.execute({ name: 'grep', args: { pattern: `(ACFSSEARCH_UN)IQUE_TOKEN_9x7` } });
+    expect(g.ok).toBe(true);
+    expect((g.output as { total: number }).total).toBe(1);
+    // 尾部 .* 断开运行：前缀字面量仍足以预筛放行
+    const h = await ctx.tools.execute({ name: 'grep', args: { pattern: `${UNIQUE}.*内容` } });
+    expect(h.ok).toBe(true);
+    expect((h.output as { total: number }).total).toBe(1);
+  });
+
   it('dispose：fs-search fiber 卸载后 glob/grep 回收', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-'));
     makeTree(root);

@@ -13,6 +13,7 @@
 // 目录扫描——deny 目录前缀判定覆盖子树）。
 // ============================================================
 import * as fs from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import {
@@ -45,6 +46,95 @@ const GREP_HARD_CAP = 2000;
 const GREP_MAX_LINE_CHARS = 2000;
 /** 二进制探测窗口（前 8KB 含 NUL 即视为二进制跳过） */
 const BINARY_SNIFF_BYTES = 8192;
+/** 流式扫描块大小 */
+const GREP_CHUNK_BYTES = 1 << 18;
+/** 整缓冲+预筛路径的字节上限（更大走流式行扫描，防内存峰值） */
+const GREP_PREFILTER_MAX_BYTES = 1 << 20;
+
+/**
+ * 正则必需字面量（保守提取）：顶层（括号深度 0、字符类外）串联出现的
+ * 字面量运行，且不被 `*`/`?`/`{…}` 修饰掉尾字符。文件全文不含任一运行
+ * ⇒ 正则必不匹配 ⇒ 免正则整文件跳过（includes 预筛远快于逐行 split+test）。
+ * 出现顶层 `|` / 结构异常 → 返回 []（放弃预筛，行为与纯正则一致——
+ * 预筛只允许漏掉「不可能匹配」，不允许放过任何真匹配）。
+ * 提取规则：`\x`（x 标点）计入字面量；`\d` 等预定义类/断言只断开运行；
+ * `(` 前运行保留（组本身必需，除非其后有量词——量词只作用于组不影响
+ * 组前运行）；`)` 于深度 0 = 结构异常，整体放弃。
+ */
+function requiredLiterals(pattern: string): string[] {
+  const runs: string[] = [];
+  let run = '';
+  let depth = 0;
+  let inClass = false;
+  const MIN_LEN = 2; // 短运行区分度低，预筛价值小
+  const flush = (trimTail: boolean): void => {
+    if (trimTail && run.length > 0) run = run.slice(0, -1); // 尾字符被量词转为可选
+    if (run.length >= MIN_LEN) runs.push(run);
+    run = '';
+  };
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (inClass) {
+      if (ch === '\\') i++; // 类内转义：跳过下一字符
+      else if (ch === ']') {
+        inClass = false;
+        flush(false); // 字符类必消费 1 字符，仅断开运行
+      }
+      continue;
+    }
+    if (ch === '\\') {
+      const next = pattern[i + 1];
+      if (next === undefined) break; // 尾悬反斜杠：交给 new RegExp 报错
+      if (/[a-zA-Z]/.test(next)) {
+        flush(false); // \d \w \b \n 等：类/断言，非字面量
+      } else {
+        run += next; // \( \. \* 等：标点字面量
+      }
+      i++;
+      continue;
+    }
+    switch (ch) {
+      case '[':
+        inClass = true;
+        flush(false);
+        break;
+      case '(':
+        depth++;
+        flush(false);
+        break;
+      case ')':
+        if (depth === 0) return []; // 结构异常：放弃
+        depth--;
+        flush(false);
+        break;
+      case '|':
+        if (depth === 0) return []; // 顶层交替：无公共必需字面量
+        flush(false);
+        break;
+      case '*':
+      case '?':
+        flush(true); // 前一字符（运行尾或单原子）转为可选
+        break;
+      case '{': {
+        // {m,M}：m===0 时尾字符可选；解析保守——min 0 才截尾
+        flush(/\{\s*0\s*[,}]/.test(pattern.slice(i)) ? true : false);
+        break;
+      }
+      case '.':
+      case '^':
+      case '$':
+      case '+':
+      case '}':
+        flush(false); // 断开运行（不改变已累积字面量的必需性）
+        break;
+      default:
+        run += ch;
+    }
+  }
+  if (depth !== 0) return []; // 未闭合括号：结构异常，放弃
+  flush(false);
+  return runs;
+}
 
 interface LineMatch {
   line: number;
@@ -75,20 +165,113 @@ function previewOf(line: string): string {
   return line.length > GREP_MAX_LINE_CHARS ? line.slice(0, GREP_MAX_LINE_CHARS) + '…(line truncated)' : line;
 }
 
-/** 在单文件中收集匹配（写入 sink；无匹配则 sink 为空） */
-function searchFile(abs: string, regex: RegExp, sink: LineMatch[]): void {
-  let buf: Buffer;
+/**
+ * 在单文件中收集匹配（写入 sink；无匹配则 sink 为空）。
+ * 双轨：小文件（≤1MB）整读 + 必需字面量全文预筛（不含即免正则跳过——
+ * 正则匹配 ⇒ 每个必需字面量都在全文中出现，预筛只加速不减命中）；
+ * 大文件流式行扫描（按需读块，StringDecoder 处理跨块多字节字符；
+ * 文件含 \r\n 时预览带 \r——与整缓冲路径一致）。多行标志（m）不参与
+ * 预筛（$ 按整缓冲语义，预筛按全文口径保守成立）。
+ * budget = 收集上限（调用方剩余硬顶额度），返回实际收集数。
+ */
+function searchFile(
+  abs: string,
+  regex: RegExp,
+  sink: LineMatch[],
+  literals: readonly string[],
+  budget: number,
+): number {
+  let size = 0;
   try {
-    buf = fs.readFileSync(abs);
+    size = fs.statSync(abs).size;
   } catch {
-    return;
+    return 0;
   }
-  if (buf.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return; // 二进制：跳过
-  const lines = buf.toString('utf-8').split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (!regex.test(lines[i])) continue;
-    sink.push({ line: i + 1, preview: previewOf(lines[i]) });
+
+  if (size <= GREP_PREFILTER_MAX_BYTES) {
+    // 小文件：单次整读；探测窗/预筛/逐行全在缓冲上（无二次 IO）
+    let buf: Buffer;
+    try {
+      buf = fs.readFileSync(abs);
+    } catch {
+      return 0;
+    }
+    if (buf.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return 0; // 二进制：跳过
+    const text = buf.toString('utf-8');
+    for (const lit of literals) {
+      if (!text.includes(lit)) return 0; // 必需字面量缺位：正则必不匹配
+    }
+    const lines = text.split('\n');
+    const before = sink.length;
+    for (let i = 0; i < lines.length && sink.length - before < budget; i++) {
+      if (!regex.test(lines[i])) continue;
+      sink.push({ line: i + 1, preview: previewOf(lines[i]) });
+    }
+    return sink.length - before;
   }
+
+  // 大文件：单个 fd 顺序读；首块兼作二进制探测窗（前 8KB 含 NUL 即弃），
+  // StringDecoder 处理跨块多字节字符；分块字面量预筛——「块解码文本（含
+  // 跨块 pending）不含必需字面量 ⇒ 其中任何完整行都不含 ⇒ 无匹配」，
+  // 免 split+正则只推进行号（大文本文件的主体开销在 split+逐行 test）。
+  // budget 用尽即停（行级粒度）。
+  let collected = 0;
+  try {
+    const fd = fs.openSync(abs, 'r');
+    try {
+      const decoder = new StringDecoder('utf-8');
+      const chunk = Buffer.allocUnsafe(GREP_CHUNK_BYTES);
+      let pending = ''; // 跨块未完结的行
+      let lineNo = 1;
+      let sniffed = false;
+      const useLits = literals.length > 0;
+      const scanLine = (line: string): boolean => {
+        if (collected >= budget) return false;
+        if (regex.test(line)) {
+          sink.push({ line: lineNo, preview: previewOf(line) });
+          collected++;
+        }
+        lineNo++;
+        return true;
+      };
+      for (;;) {
+        const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+        if (n <= 0) break;
+        const data = chunk.subarray(0, n);
+        if (!sniffed) {
+          sniffed = true;
+          if (data.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return 0; // 二进制
+        }
+        const text = pending + decoder.write(data);
+        if (useLits && !literals.every((lit) => text.includes(lit))) {
+          // 无匹配可能：免 split/正则，仅推进行号与未完结尾段
+          let idx = -1;
+          let last = -1;
+          while ((idx = text.indexOf('\n', idx + 1)) !== -1) {
+            lineNo++;
+            last = idx;
+          }
+          pending = text.slice(last + 1);
+          continue;
+        }
+        const lines = text.split('\n');
+        pending = lines.pop() ?? ''; // 末段可能未完结，留待下块
+        for (const line of lines) {
+          if (!scanLine(line)) {
+            decoder.end();
+            return collected;
+          }
+        }
+      }
+      const tail = pending + decoder.end(); // 末块残余 + 不完整多字节序列
+      scanLine(tail); // 尾行（可能空——与 split('\n') 的末元素口径一致）
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return collected; // 读取中断：保留已收集
+  }
+  return collected;
 }
 
 export const name = 'ac-fs-search';
@@ -331,15 +514,17 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       const groups: FileGroup[] = [];
       let total = 0;
       let truncated = false;
+      // 必需字面量预筛（小文件轨道；空数组 = 无可提取，等价关闭）
+      const literals = requiredLiterals(pattern);
       for (const entry of targets) {
         if (total >= GREP_HARD_CAP) {
           truncated = true;
-          break;
+          break; // 硬顶已达：停止扫后续文件
         }
         const sink: LineMatch[] = [];
-        searchFile(entry.abs, regex, sink);
-        if (sink.length === 0) continue;
-        total += sink.length;
+        const n = searchFile(entry.abs, regex, sink, literals, GREP_HARD_CAP - total);
+        if (n === 0) continue;
+        total += n;
         groups.push({ path: entry.rel, matches: sink });
       }
       if (total >= GREP_HARD_CAP) truncated = true;
