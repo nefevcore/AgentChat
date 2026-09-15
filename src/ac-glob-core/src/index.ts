@@ -7,6 +7,6 @@
 //   · walkFiles —— 有界递归收集（SKIP_DIRS/黑名单回调；mtime 惰性——调用方按需补）
 // ac-fs-search 行消费。
 // ============================================================
-export { globToRegExp, normalizeGlobPattern } from './glob-regex.ts';
+export { globToRegExp, normalizeGlobPattern, literalDirPrefix } from './glob-regex.ts';
 export { walkFiles, toPosix, SKIP_DIRS, MAX_SCAN_FILES } from './walk.ts';
 export type { WalkEntry, WalkOptions } from './walk.ts';

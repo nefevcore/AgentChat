@@ -26,7 +26,7 @@ import {
 } from 'ac-sandbox-core';
 import { effectiveTierOf } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
-import { globToRegExp, normalizeGlobPattern, walkFiles, type WalkEntry } from 'ac-glob-core';
+import { globToRegExp, literalDirPrefix, normalizeGlobPattern, walkFiles, type WalkEntry } from 'ac-glob-core';
 
 export interface FsSearchRowOptions extends SandboxResolverOptions {
   /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
@@ -197,9 +197,23 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
         return { ok: false, error: `无效的 glob 模式 "${pattern}": ${String(err)}` };
       }
 
+      // 目录剪枝：字面量目录前缀之外的子树整树不进入（如 `src/ac-*/**` 的
+      // 'src'）。逐段校验（深度对齐——父级已匹配是 descend 的前提，归纳保证
+      // 只查当前段即可）；深于前缀（d ≥ litDirs.length）不剪、自由下探；
+      // matchBase（模式不含 /，按文件名匹配任意深度）不剪。
+      const litDirs = matchBase ? null : literalDirPrefix(normalized);
+      const pruneDir =
+        litDirs === null
+          ? undefined
+          : (name: string, rel: string): boolean => {
+              const d = rel.lastIndexOf('/') + 1; // 0 基段序：rel 深度 d+1
+              return d < litDirs.length && name !== litDirs[d];
+            };
+
       const { entries, capped } = walkFiles(rootAbs, {
         base: sandbox.workdir,
         isDenied,
+        ...(pruneDir !== undefined ? { pruneDir } : {}),
       });
       const matched = entries.filter((e) =>
         re.test(matchBase ? e.rel.slice(e.rel.lastIndexOf('/') + 1) : e.rel),

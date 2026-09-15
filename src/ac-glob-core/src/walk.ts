@@ -34,6 +34,9 @@ export interface WalkOptions {
   base?: string;
   /** 敏感路径过滤（缺省全放行；ac-fs-search 注入沙箱黑名单同口径判定） */
   isDenied?: (abs: string) => boolean;
+  /** 目录剪枝（缺省不剪；返回 true = 整个子树不进入——rel 与 entries 同基准。
+   * 调用方由 glob 模式字面量前缀推导：被剪目录不可能含匹配文件） */
+  pruneDir?: (name: string, rel: string) => boolean;
 }
 
 /** 平台路径 → posix 分隔（结果相对路径统一 / 风格） */
@@ -73,6 +76,7 @@ export function walkFiles(rootAbs: string, options: WalkOptions = {}): { entries
       const rel = dirRel ? `${dirRel}/${ent.name}` : ent.name;
       if (ent.isDirectory()) {
         if (SKIP_DIRS.has(ent.name)) continue;
+        if (options.pruneDir?.(ent.name, rel)) continue; // 模式推导剪枝：子树无匹配可能
         visit(abs, rel);
       } else if (ent.isFile()) {
         if (options.isDenied?.(abs)) continue;

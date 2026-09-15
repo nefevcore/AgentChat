@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { globToRegExp, normalizeGlobPattern, walkFiles, toPosix, SKIP_DIRS } from '../src/index.ts';
+import { globToRegExp, literalDirPrefix, normalizeGlobPattern, walkFiles, toPosix, SKIP_DIRS } from '../src/index.ts';
 
 const tmps: string[] = [];
 function tree(): string {
@@ -85,5 +85,31 @@ describe('walkFiles', () => {
 
   it('toPosix：平台分隔归一', () => {
     expect(toPosix(path.join('a', 'b'))).toBe('a/b');
+  });
+
+  it('literalDirPrefix：字面量目录段提取（通配/`**` 前截断；matchBase 无 / 返回 null）', () => {
+    expect(literalDirPrefix('src/ac-fs-search/**/*.ts')).toEqual(['src', 'ac-fs-search']);
+    expect(literalDirPrefix('src/ac-*/**/*.ts')).toEqual(['src']);
+    expect(literalDirPrefix('src/a.ts')).toEqual(['src']); // 全字面量：末段是文件名
+    expect(literalDirPrefix('**/*.ts')).toBeNull(); // 首段通配：无可剪
+    expect(literalDirPrefix('*.ts')).toBeNull(); // matchBase：任意深度
+    expect(literalDirPrefix('src/*/x.ts')).toEqual(['src']);
+  });
+
+  it('pruneDir：返回 true 的目录子树不进入（fs-search glob 剪枝的库侧行为）', () => {
+    const root = tree();
+    fs.mkdirSync(path.join(root, 'other'), { recursive: true }); // 应被剪的旁支目录
+    fs.writeFileSync(path.join(root, 'other', 'z.ts'), '6');
+    const lit = literalDirPrefix('src/**/*.ts')!; // ['src']
+    const pruned = walkFiles(root, {
+      pruneDir: (name, rel) => {
+        const d = rel.lastIndexOf('/') + 1;
+        return d < lit.length && name !== lit[d];
+      },
+    });
+    const rels = pruned.entries.map((e) => e.rel);
+    expect(rels).toContain('src/c.ts'); // 前缀子树保留
+    expect(rels).not.toContain('other/z.ts'); // 旁支目录整树剪掉
+    expect(rels).toContain('a.ts'); // 根级文件不属目录剪枝（正则层过滤）
   });
 });

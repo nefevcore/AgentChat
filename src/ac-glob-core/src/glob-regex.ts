@@ -137,3 +137,24 @@ export function normalizeGlobPattern(pattern: string): string {
   while (p.endsWith('/') && p.length > 1) p = p.slice(0, -1);
   return p;
 }
+
+/** 段内含通配符（* ? 花括号 字符类 转义）——该段不能作为字面量目录前缀 */
+function segmentHasWildcard(seg: string): boolean {
+  return /[*?[{\\]/.test(seg);
+}
+
+/**
+ * 提取模式的字面量目录前缀段（相对匹配基准，如 `src/ac-fs-search` 起头、
+ * 后接通配层级的模式 → ['src','ac-fs-search']）。命中文件的 rel 必然以这些段
+ * walk 可据此剪掉不可能包含匹配的目录子树（glob 搜索根大时的主要提速点）。
+ * 返回 null = 无可剪（首段即通配/`**`，或模式不含 / 按文件名匹配任意深度）。
+ * 全字面量模式（`src/a.ts`）最后一段是文件名，只取其前的目录段。
+ */
+export function literalDirPrefix(pattern: string): string[] | null {
+  const p = normalizeGlobPattern(pattern);
+  if (!p.includes('/')) return null; // matchBase：任意深度文件名
+  const segs = p.split('/');
+  const wi = segs.findIndex(segmentHasWildcard);
+  const litDirs = wi === -1 ? segs.slice(0, -1) : segs.slice(0, wi);
+  return litDirs.length > 0 ? litDirs : null;
+}
