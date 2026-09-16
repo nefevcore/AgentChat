@@ -1,5 +1,9 @@
 // ============================================================
-// ac-shell-tools：bash（前台超时/流式 + 后台 job）+ job 管理（owner 隔离）
+// ac-shell-tools：pwsh/bash（前台超时/流式 + 后台 job）+ job 管理
+// （owner 隔离）+ 平台注入断言（2026-09-16 工具拆分）
+//
+// 平台词汇：Windows 宿主注册 pwsh（+ bash 兼容别名）；Unix 宿主注册
+// bash。测试命令按平台取词（WIN_CMD 宏），断言用当平台主名。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -10,6 +14,12 @@ import * as jobsRow from 'ac-jobs';
 import * as toolsRow from 'ac-tools';
 import * as agentsRow from 'ac-agents';
 import * as shellRow from '../src/index.ts';
+
+/** 当平台命令工具名（Windows → pwsh；Unix → bash） */
+const CMD_TOOL = process.platform === 'win32' ? 'pwsh' : 'bash';
+/** 长sleep命令（平台方言） */
+const SLEEP_30 = process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30';
+
 type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
 async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
   return (await ctx.tools.execute(call as never)) as ExecRes;
@@ -50,13 +60,47 @@ afterEach(async () => {
   for (const dir of tmps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('ac-shell-tools bash', () => {
+describe('ac-shell-tools 平台注入（2026-09-16 工具拆分）', () => {
+  it('按宿主平台注册单命令工具：Windows → pwsh（无别名）；Unix → bash', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const names = ctx.tools.list().map((t) => t.name).sort();
+    // 单平台单工具（无别名——双名会让 tag:shell 展开出重复工具）
+    expect(names).toEqual(process.platform === 'win32' ? ['job', 'pwsh'] : ['bash', 'job']);
+    // 门禁元数据随平台工具
+    const def = ctx.tools.get(CMD_TOOL);
+    expect(def?.requiredTags).toEqual(['shell']);
+    expect(def?.needPermission).toBe(true);
+  });
+
+  it('pwsh（Windows）Unix 命令经翻译层：translated_command 痕迹', async () => {
+    if (process.platform !== 'win32') return;
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, { name: 'pwsh', args: { command: 'pwd' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.translated_command).toContain('Get-Location');
+    expect(String(r.output.output).trim().length).toBeGreaterThan(0);
+  });
+
+  it('Unix 直写命令（pwsh 工具）不过翻译层：translated_command 缺省', async () => {
+    if (process.platform !== 'win32') return;
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, { name: 'pwsh', args: { command: 'Write-Output native-ok' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.translated_command).toBeUndefined();
+    expect(String(r.output.output)).toContain('native-ok');
+  });
+});
+
+describe(`ac-shell-tools ${CMD_TOOL}`, () => {
   it('前台执行：echo 输出 + exit_code 0；流式 onProgress 收到分片', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const chunks: string[] = [];
     const r = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'echo hello-shell' },
       onProgress: (c: string) => chunks.push(c),
     });
@@ -69,7 +113,7 @@ describe('ac-shell-tools bash', () => {
   it('非零退出：ok=false + 输出保留 + error 引导', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    const r = await exec(ctx, { name: 'bash', args: { command: 'exit 3' } });
+    const r = await exec(ctx, { name: CMD_TOOL, args: { command: 'exit 3' } });
     expect(r.ok).toBe(false);
     expect(r.output.exit_code).toBe(3);
   });
@@ -82,7 +126,7 @@ describe('ac-shell-tools bash', () => {
       process.platform === 'win32'
         ? 'Write-Host "begin" -NoNewline; [Console]::Write([char]27 + "[31m× fail" + [char]27 + "[0m " + [char]27 + "[32m43ms" + [char]27 + "[39m"); Write-Host "end"'
         : 'printf "begin\\033[31m× fail\\033[0m \\033[32m43ms\\033[39mend\\n"';
-    const r = await exec(ctx, { name: 'bash', args: { command: cmd } });
+    const r = await exec(ctx, { name: CMD_TOOL, args: { command: cmd } });
     expect(r.ok).toBe(true);
     const out = String(r.output.output);
     expect(out).not.toMatch(/[\u001b\u009b]/); // 无转义序列残留
@@ -93,13 +137,12 @@ describe('ac-shell-tools bash', () => {
   it('命令级沙箱：越界绝对路径被拦（heredoc 载荷不误判）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    const bad = await exec(ctx, { name: 'bash', args: { command: 'cat /etc/passwd' } });
+    const bad = await exec(ctx, { name: CMD_TOOL, args: { command: 'cat /etc/passwd' } });
     expect(bad.ok).toBe(false);
     expect(bad.error).toMatch(/沙箱/);
     // heredoc 载荷（数据非命令）不触发误拦：失败原因不得是沙箱
-    // （pwsh 本身不支持 bash heredoc 语法，执行可能失败——只断言不被沙箱拦）
     const okCmd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: "cat > out.txt <<'EOF'\nsample /const/g regex\nEOF\ntype out.txt" },
     });
     expect(okCmd.error ?? '').not.toMatch(/沙箱/);
@@ -129,7 +172,7 @@ describe('ac-shell-tools bash', () => {
 
     // base：越界 workdir 被白名单拦
     const baseWd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'echo ok', workdir: outside },
       agentId: 'basea',
     });
@@ -137,7 +180,7 @@ describe('ac-shell-tools bash', () => {
     expect(baseWd.error).toMatch(/沙箱/);
     // base：越界绝对路径命令被扫描拦
     const baseCmd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'cat /etc/passwd' },
       agentId: 'basea',
     });
@@ -146,7 +189,7 @@ describe('ac-shell-tools bash', () => {
 
     // sandbox：软边界仍生效（同 base——扫描不随 sandbox 跳过）
     const sandboxCmd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'cat /etc/passwd' },
       agentId: 'sandboxa',
     });
@@ -154,16 +197,15 @@ describe('ac-shell-tools bash', () => {
     expect(sandboxCmd.error).toMatch(/沙箱/);
 
     // full："不做任何限制"的字面义——workdir 白名单与命令扫描都跳过
-    //（命令实际执行；断言只看失败原因不是沙箱）
     const fullWd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'echo full-ok', workdir: outside },
       agentId: 'fulla',
     });
     expect(fullWd.ok).toBe(true);
     expect(String(fullWd.output?.output ?? '')).toContain('full-ok');
     const fullCmd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'cat /etc/passwd' },
       agentId: 'fulla',
     });
@@ -171,7 +213,7 @@ describe('ac-shell-tools bash', () => {
 
     // 审批 elevation（base + call.elevation=full）同款跳过
     const elevated = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'cat /etc/passwd', workdir: outside },
       agentId: 'basea',
       elevation: 'full-access',
@@ -183,8 +225,8 @@ describe('ac-shell-tools bash', () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const r = await exec(ctx, {
-      name: 'bash',
-      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30', timeout: 2000 },
+      name: CMD_TOOL,
+      args: { command: SLEEP_30, timeout: 2000 },
     });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/超时/);
@@ -195,8 +237,8 @@ describe('ac-shell-tools bash', () => {
     const { ctx } = await boot(root);
     const controller = new AbortController();
     const pending = exec(ctx, {
-      name: 'bash',
-      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30' },
+      name: CMD_TOOL,
+      args: { command: SLEEP_30 },
       signal: controller.signal,
     });
     setTimeout(() => controller.abort(), 500);
@@ -208,17 +250,14 @@ describe('ac-shell-tools bash', () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     // 孙进程继承本端 stdout 管道且比命令活得久——修复前 child 'close' 永不
-    // 触发（exit 已到、管道被持有；taskkill /T 树杀按父子链，脱离者漏杀），
-    // 工具 Promise 永挂 → run 卡死、前端流式态永真（"得刷新才恢复"）。
-    // 修复后：exit 起 CLOSE_FALLBACK_MS 宽限，close 仍不来即销毁本端读端
-    // 强制收束（输出已随 exit 收齐）。孙进程 8s 自杀；Windows 分支 cwd 避开
-    // 测试临时目录（宽限收束后还活着——占住 afterEach 要删的目录会 EPERM），
-    // Linux 分支 cwd 即 workdir（Unix rm 不受进程占用目录影响，无 EPERM 面）。
+    // 触发，工具 Promise 永挂 → run 卡死。孙进程 8s 自杀；Windows 分支
+    // cwd 避开测试临时目录（宽限收束后还活着——占住 afterEach 要删的
+    // 目录会 EPERM），Linux 分支 cwd 即 workdir。
     const cmd = process.platform === 'win32'
       ? `$p = Start-Process node -ArgumentList '-e','setTimeout(()=>{},8000)' -WorkingDirectory $env:TEMP -NoNewWindow -PassThru; Start-Sleep -Milliseconds 300; echo spawned-ok`
       : `(node -e 'setTimeout(()=>{},8000)' &) ; sleep 0.3; echo spawned-ok`;
-    const r = await exec(ctx, { name: 'bash', args: { command: cmd } });
-    expect(r.ok).toBe(true); // 命令本身正常退出（exit 0）——活孙进程不再拖挂工具
+    const r = await exec(ctx, { name: CMD_TOOL, args: { command: cmd } });
+    expect(r.ok).toBe(true);
     expect(String(r.output.output)).toContain('spawned-ok');
     expect(r.output.exit_code).toBe(0);
   }, 20000);
@@ -226,18 +265,21 @@ describe('ac-shell-tools bash', () => {
   it('后台执行：立即返回 job_id；job list/kill/logs 全链路 + owner 隔离', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
+    const longCmd = process.platform === 'win32' ? 'Start-Sleep -Seconds 20; echo done' : 'sleep 20; echo done';
     const r = await exec(ctx, {
-      name: 'bash',
-      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 20; echo done' : 'sleep 20; echo done', background: true, description: '长时间等待验证后台链路' },
+      name: CMD_TOOL,
+      args: { command: longCmd, background: true, description: '长时间等待验证后台链路' },
       agentId: 'agent-a',
     });
     expect(r.ok).toBe(true);
     const jobId = r.output.job_id as string;
-    expect(jobId).toMatch(/^bash-1$/);
-    // label = 意图优先的展示标签（会话头 chip / 侧边栏面板 / job list 共用）；
-    // 原始命令恒存 meta.command（tooltip 详情层）
+    // job id 前缀 = 家族名（pwsh-N / bash-N）
+    expect(jobId).toMatch(new RegExp(`^${CMD_TOOL}-1$`));
+    // label = 意图优先的展示标签；原始命令恒存 meta.command
     expect(ctx.jobs.get(jobId, 'agent-a').label).toBe('长时间等待验证后台链路');
-    expect(ctx.jobs.get(jobId, 'agent-a').meta?.command).toBe(process.platform === 'win32' ? 'Start-Sleep -Seconds 20; echo done' : 'sleep 20; echo done');
+    expect(ctx.jobs.get(jobId, 'agent-a').meta?.command).toBe(longCmd);
+    // kind = 家族名
+    expect(ctx.jobs.get(jobId, 'agent-a').kind).toBe(CMD_TOOL);
 
     // owner 隔离：agent-b 看不到 agent-a 的任务
     const listB = await exec(ctx, { name: 'job', args: { action: 'list' }, agentId: 'agent-b' });
@@ -246,8 +288,7 @@ describe('ac-shell-tools bash', () => {
     expect(listA.output.count).toBe(1);
     expect(listA.output.jobs[0].alive).toBe(true);
 
-    // logs（日志文件尾读）+ kill（终态；Windows taskkill 后 close 不带
-    // signal → settle completed+exit 1，Unix → killed——两平台都算正常终止）
+    // logs（日志文件尾读）+ kill（终态；两平台都算正常终止）
     const kill = await exec(ctx, { name: 'job', args: { action: 'kill', job_id: jobId }, agentId: 'agent-a' });
     expect(kill.output.outcome).toBe('cancellation-requested');
     await new Promise((res) => setTimeout(res, 1500));
@@ -271,7 +312,7 @@ describe('ac-shell-tools bash', () => {
       }
     };
     const r = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'echo quick', background: true },
       agentId: 'a1',
       conversationId: 'a1~user',
@@ -284,7 +325,7 @@ describe('ac-shell-tools bash', () => {
     expect(settled[0]).toMatchObject({ id: jobId, status: 'completed', conversationId: 'a1~user' });
     // 无执行身份会话（宿主直调）→ conversationId 缺省（唤醒行回退 owner 自会话桶）
     const r2 = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       args: { command: 'echo quick2', background: true },
       agentId: 'a1',
     });
@@ -298,8 +339,7 @@ describe('ac-shell-tools bash', () => {
 // settings.security.allowedPaths 端到端（workspace 沙箱面 → 基线 roots）
 // ============================================================
 
-/** 最小 workspace 沙箱面（SandboxWorkdirSource 全形态）：按表出基准与授予根；
- *  sessions 表模拟 singles 挂载（conversationId → 基准指向工作区根） */
+/** 最小 workspace 沙箱面（SandboxWorkdirSource 全形态） */
 class FakeWorkspaceService extends Service {
   private table: Record<string, { base?: string; grants?: string[] }>;
   private sessions: Record<string, string>;
@@ -327,7 +367,7 @@ class FakeWorkspaceService extends Service {
   }
 }
 
-describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', () => {
+describe(`ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）`, () => {
   async function bootWs(
     root: string,
     agents: Record<string, { base?: string; grants?: string[] }>,
@@ -355,22 +395,22 @@ describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', ()
     const granted = path.join(root, 'granted');
     const base = path.join(root, 'files', 'neko');
     fs.mkdirSync(granted, { recursive: true });
-    fs.mkdirSync(base, { recursive: true }); // bash 缺省 cwd 必须存在
+    fs.mkdirSync(base, { recursive: true }); // 命令工具缺省 cwd 必须存在
     fs.writeFileSync(path.join(granted, 'x.txt'), 'ok');
     const { ctx } = await bootWs(root, { neko: { base, grants: [granted] } });
     const fwd = (p: string) => p.replace(/\\/g, '/');
 
     // 授予根内 → 不被命令级沙箱拦（执行结果平台相关，只断言拦截与否）
     const okCmd = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       agentId: 'neko',
       args: { command: `cat ${fwd(path.join(granted, 'x.txt'))}` },
     });
     expect(okCmd.error ?? '').not.toMatch(/沙箱/);
 
-    // 授予外绝对路径 → 命令级沙箱拦截（修复前后都拦——基线不因授予扩大而全开）
+    // 授予外绝对路径 → 命令级沙箱拦截
     const bad = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       agentId: 'neko',
       args: { command: `cat ${fwd(path.join(root, 'outside', 'x.txt'))}` },
     });
@@ -378,17 +418,17 @@ describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', ()
     expect(bad.error).toMatch(/沙箱/);
   });
 
-  it('singles 会话挂载工作区 = 会话级工作目录：bash 缺省 cwd 指向工作区根；未挂会话仍锚专用空间', async () => {
+  it('singles 会话挂载工作区 = 会话级工作目录：缺省 cwd 指向工作区根；未挂会话仍锚专用空间', async () => {
     const root = tmpRoot();
     const base = path.join(root, 'files', 'neko');
     const project = path.join(root, 'project');
-    fs.mkdirSync(base, { recursive: true }); // bash 缺省 cwd 必须存在
+    fs.mkdirSync(base, { recursive: true }); // 缺省 cwd 必须存在
     fs.mkdirSync(project, { recursive: true });
     const { ctx } = await bootWs(root, { neko: { base } }, { 'sid-attached': project });
 
-    // 挂载会话：缺省 cwd = 工作区根（相对命令自然落工作区——Agent 主战场）
+    // 挂载会话：缺省 cwd = 工作区根
     const attached = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       agentId: 'neko',
       conversationId: 'sid-attached',
       args: { command: 'echo in-workspace' },
@@ -398,7 +438,7 @@ describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', ()
 
     // 同一 Agent 的未挂会话：cwd 仍锚 Agent 专用空间（分桶不串）
     const bare = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       agentId: 'neko',
       conversationId: 'sid-bare',
       args: { command: 'echo in-agent-space' },
@@ -432,12 +472,12 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
     });
     const long = 'x'.repeat(500);
 
-    const mine = await exec(ctx, { name: 'bash', agentId: 'small-out', args: { command: `echo ${long}` } });
+    const mine = await exec(ctx, { name: CMD_TOOL, agentId: 'small-out', args: { command: `echo ${long}` } });
     expect(mine.ok).toBe(true);
     expect(mine.output.truncated).toBe(true);
     expect(String(mine.output.output).length).toBeLessThan(50);
 
-    const anon = await exec(ctx, { name: 'bash', args: { command: `echo ${long}` } }); // 无身份 → 行基线 50000
+    const anon = await exec(ctx, { name: CMD_TOOL, args: { command: `echo ${long}` } }); // 无身份 → 行基线 50000
     expect(anon.output.truncated).toBe(false);
   }, 20000);
 
@@ -464,12 +504,9 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
     });
     // 传 60s 超时 → 被 per-Agent maxTimeout=1500 clamp → 1.5s 即超时
     const r = await exec(ctx, {
-      name: 'bash',
+      name: CMD_TOOL,
       agentId: 'short-max',
-      args: {
-        command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30',
-        timeout: 60_000,
-      },
+      args: { command: SLEEP_30, timeout: 60_000 },
     });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/超时（1500ms）/);
@@ -480,12 +517,11 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
     const { ctx } = await boot(root);
     const controller = new AbortController();
     const pending = exec(ctx, {
-      name: 'bash',
-      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30', timeout: 0 },
+      name: CMD_TOOL,
+      args: { command: SLEEP_30, timeout: 0 },
       signal: controller.signal,
     });
-    // 超过缺省 30s 的观察窗内（3.2s > CLOSE_FALLBACK_MS + KILL_CONFIRM_MS
-    // 余量）没有超时收束——不限时生效；signal abort 收束工具
+    // 超过缺省 30s 的观察窗内没有超时收束——不限时生效
     setTimeout(() => controller.abort(), 3200);
     const r = await pending;
     expect(r.ok).toBe(false);
@@ -496,11 +532,9 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const r = await exec(ctx, {
-      name: 'bash',
-      args: { command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30', timeout: 1500 },
+      name: CMD_TOOL,
+      args: { command: SLEEP_30, timeout: 1500 },
     });
-    // 断言超时口径收束（非永挂）——正常路径 taskkill/组杀生效，看门狗
-    // 在轮询首拍确认死亡后即停
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/超时（1500ms）/);
   }, 20000);
