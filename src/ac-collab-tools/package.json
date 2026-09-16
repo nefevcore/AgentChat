@@ -17,6 +17,7 @@
     "ac-agent-store": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-group": "workspace:*",
+    "ac-jobs": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",

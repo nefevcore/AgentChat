@@ -2090,6 +2090,9 @@ importers:
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../ac-jobs
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
