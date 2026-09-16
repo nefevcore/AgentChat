@@ -41,7 +41,7 @@
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // LoopSender（经 LoopRunRequest 传入，仅文档引用）
-import { displayNameOf, effectiveTierOf, type AccessTier, type AgentConfig } from 'ac-agents'; // 显示名单源解析 + 有效档位单源（值导入连带 ctx.agents 类型增强）
+import { displayNameOf } from 'ac-agents'; // 显示名单源解析（值导入连带 ctx.agents 类型增强）
 import type {} from 'ac-group'; // ctx.group 可选能力类型（type-only）
 import type {} from 'ac-tools'; // ctx.tools 可选能力类型（type-only）
 import type {} from 'ac-workspace'; // ctx.workspace 可选能力类型（type-only）
@@ -62,7 +62,7 @@ export const extension: ExtensionMeta = {
   description: '系统环境/术语约定/指引（条目级工具门控；独立会话形态不注入多 Agent 协作知识）/对话信息分块装配（override 可全量覆盖）',
   fields: [
     { name: 'guidelines', type: 'boolean', default: true, description: '指引块开关——条目按生效工具集门控（文件/命令/后台/产出/协作/行为策略）；协作、主动安排（timer）与系统管理（system_restart）条目另受形态门控（独立会话不注入）' },
-    { name: 'systemEnv', type: 'boolean', default: true, description: '系统环境块开关（[工作目录]/[路径规则]/白名单自动注入）' },
+    { name: 'systemEnv', type: 'boolean', default: true, description: '系统环境块开关（[工作目录]/[宿主环境]/[模型能力]/白名单自动注入）' },
     { name: 'conversationPartner', type: 'boolean', default: true, description: '对话信息块开关（sender 三态解析 + 群成员表）' },
     { name: 'override', type: 'text', description: '整段替换文本——非空时替换全部静态块（对话信息仍追加）' },
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
@@ -97,8 +97,6 @@ const COLLAB_TOOLS = [
   'send_group',
   'list_groups',
   'list_tools',
-  'grep_history',
-  'read_history',
   'read_agent_info',
   'update_agent_profile',
 ];
@@ -182,21 +180,13 @@ export interface AssembleInput {
   vision?: boolean | undefined;
   /** 本 run 模型名（[模型能力] 行展示；vision 给定才有意义） */
   model?: string;
-  /**
-   * 本 run 有效权限档位（access-tier：effectiveTierOf(agent,
-   * request.elevation)——apply 侧单源判定后传入；undefined = agents
-   * 能力缺位，按 base 措辞）。[路径规则] 行按档位分措辞：旧全局句
-   * "沙箱越界一律拦截"在 access-tier 下三处失真（读不设防 §9.1 /
-   * full 档不受限 / base 有人桶越界可审批放行）。
-   */
-  accessTier?: AccessTier;
 }
 
 function buildTerminologyBlock(): string {
   return [
     '## 术语约定',
     '',
-    '- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。send_agent、list_agents、grep_history/read_history、read_agent_info 均可操作任意 Agent；update_agent_profile 默认更新自己，具备 admin 能力可更新其他 Agent。',
+    '- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。send_agent、list_agents、read_agent_info 均可操作任意 Agent；update_agent_profile 默认更新自己，具备 admin 能力可更新其他 Agent。',
     '',
   ].join('\n');
 }
@@ -224,30 +214,30 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   // 1. 文件工作流（跨工具编排 read→edit；对比句式：glob=找文件 /
   //    grep=搜内容 / bash=兜底；反推断护栏收编自 v3 framework 遗产）
   if (has('read', 'write', 'edit')) {
-    add('文件操作：改现有文件用 edit，old_string 从 read 的输出中原样复制（自拟文本会匹配失败）；同一文件有多处独立修改时，并行发多个 edit 调用。write 是整文件覆盖，只用于新建文件。找文件用 glob，搜内容用 grep；不确定文件位置时先用 glob 确认，不要凭记忆拼路径。bash 只做文件工具办不到的事（组合命令、进程、环境）。');
+    add('文件操作：改现有文件用 edit，old_string 从 read 的输出中原样复制（自拟文本会匹配失败；连续编辑同一文件段落时必须重新 read 获取——上次编辑的产物 ≠ 记忆中的文本）；同一文件有多处独立修改时，并行发多个 edit 调用。write 是整文件覆盖，只用于新建文件。找文件用 glob，搜内容用 grep；不确定文件位置时先用 glob 确认，不要凭记忆拼路径。文件存在重复/相似文本块时优先用 pwsh/write 整段重写而非 edit。');
   } else if (has('read', 'write') && !names.has('edit')) {
     add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
   }
 
   // 2. 命令执行（工具结果响应纪律：退出码协议 / 报错勿原样重发——
-  //    v3 framework 遗产的 bash 门控落点 / 中断≠失败 / 截断出路；
-  //    2026-09-15 追加进程清理纪律——当日事故：Agent 用
-  //    Stop-Process -Name node 清理测试进程，把后端宿主连带杀掉，
-  //    所有运行中会话无端中断）
-  if (names.has('bash')) {
-    add('命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。清理进程只用自己启动时记录的 PID 精确点名（Start-Process -PassThru 拿 Id，再 Stop-Process -Id / taskkill /PID），绝不按进程名广谱杀 node/pnpm——后端宿主就是其中之一，按名杀会中断整个后端（该模式任何权限档位都会被拦截）。');
+  //    v3 framework 遗产的命令工具门控落点 / 中断≠失败 / 截断出路）。
+  //    2026-09-16 工具拆分：bash → pwsh（Windows）/ bash（Unix）双名，
+  //    任一在场即注入本条；进程清理纪律与 PowerShell 平台提示同日上移
+  //    系统环境块 [宿主环境] 行（宿主事实归环境块，指引只留响应纪律）
+  if (names.has('bash') || names.has('pwsh')) {
+    add('命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。');
   }
 
-  // 3. 后台任务（生命周期闭环：记住 id → 通知到达不忙轮询 → 等待的
-  //    对比出路 → 终答前收集 → kill 清理；v3 并入指引，独立块退役）
-  if (names.has('job') || names.has('bash')) {
-    add('后台任务：后台命令会返回 job_id，记住 id，任务完成时会收到通知，不要用 job list 忙轮询；确需等待完成时，用前台 bash 配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。');
+  // 3. 后台任务（生命周期闭环：记住 id → 等通知不轮询 → 等待的对比
+  //    出路 → 终答前收集 → kill 清理；v3 并入指引，独立块退役）
+  if (names.has('job') || names.has('bash') || names.has('pwsh')) {
+    add('后台任务：后台命令会返回 job_id，记住 id 即可，任务完成时通知会自动送达，无需反复查询任务状态；确需等待完成时，用前台命令工具配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。');
   }
 
   // ── 产出 ──
-  // 4. 产出物引用（有文件产出能力即适用；why 随行）
-  if (names.has('write') || names.has('edit') || names.has('str_replace_editor') || names.has('bash')) {
-    add('产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式；只说"已修改"而不给路径，用户无法定位文件。');
+  // 4. 产出物引用（有文件产出能力即适用）
+  if (names.has('write') || names.has('edit') || names.has('str_replace_editor') || names.has('bash') || names.has('pwsh')) {
+    add('产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式。');
   }
 
   // ── 协作类（形态门控：独立会话不注入——用户↔单 Agent 专注对话，
@@ -301,24 +291,23 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
 }
 
 /**
- * [路径规则] 行（access-tier 分档措辞）。原始动机（2026-09-02）：Agent 在
- * bash 吃过"绝对路径越界"拦截后行为泛化成"绝对路径不可用"——实际拦截原因
- * 是越界而非绝对形态。access-tier 落地后单句全局措辞失真，按有效档位分写：
- *   · base：写限沙箱（越界触发审批/拒绝），读不设防；
- *   · sandbox：沙箱白名单内自由写、bash 软边界，读不设防；
- *   · full：不受沙箱限制（仍过黑名单——域规则与档位正交）。
- * 读不设防（§9.1）：read/glob/grep 脱离工作区沙箱，只过双黑名单；黑名单
- * 点名拒绝时工具报错自带口径，不在此展开。
+ * [宿主环境] 行（shell 命令工具的宿主事实；shell 工具在场才注入——
+ * 不出现未分配的命令工具名，防 Agent 困惑）。前身三处散落（2026-09-16
+ * 收拢）：指引"命令执行"条目的进程清理纪律（当日事故：Agent 用
+ * Stop-Process -Name node 清理测试进程，把后端宿主连带杀掉）、指引
+ * "PowerShell 平台"条目（宿主平台事实）、"文件操作"条目尾句（命令
+ * 工具职责分工）。按本 run 有效工具集单写：pwsh 在场 = Windows 宿主
+ * （Unix→PS 翻译是 fail-closed 的，但覆盖面有限——复杂命令直接写
+ * PowerShell 原生更可靠）；bash 在场 = Unix 宿主。
  */
-function pathRuleLine(accessTier: AccessTier | undefined): string {
-  const tier = accessTier ?? 'base-access';
-  if (tier === 'full-access') {
-    return '[路径规则] full-access 档：路径访问不受沙箱限制（系统域黑名单仍生效）；工作目录与白名单内绝对/相对路径均可正常使用';
+function hostEnvLine(shellTool: 'pwsh' | 'bash' | undefined): string | undefined {
+  if (shellTool === 'pwsh') {
+    return '[宿主环境] 命令实际由 PowerShell 执行；简单 Unix 命令（ls/cat/grep/head/tail 等）会自动翻译为等价写法（结果里的 translated_command 字段是实际执行的命令），复杂或不确定的命令直接写 PowerShell 原生语法（Get-ChildItem / Select-String / Get-Content 等）最可靠。命令工具（pwsh）只做文件工具办不到的事（组合命令、进程、环境）。路径分隔符用 \\ 或 / 均可。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
   }
-  if (tier === 'sandbox-access') {
-    return '[路径规则] 沙箱白名单内绝对/相对路径均可自由读写（含 bash 软边界）；读不受沙箱限制；越界写会被拦截，系统域黑名单仍生效';
+  if (shellTool === 'bash') {
+    return '[宿主环境] 命令实际由 bash 执行。命令工具（bash）只做文件工具办不到的事（组合命令、进程、环境）。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
   }
-  return '[路径规则] 工作目录与白名单内绝对/相对路径均可读写；读路径不受沙箱限制；越界写会触发审批询问或被拦截——拦截原因是越界而非绝对路径形态';
+  return undefined;
 }
 
 function buildEnvBlock(
@@ -328,7 +317,7 @@ function buildEnvBlock(
   vision: boolean | undefined,
   model: string | undefined,
   sessionWorkspace: string | undefined,
-  accessTier: AccessTier | undefined,
+  shellTool: 'pwsh' | 'bash' | undefined,
 ): string {
   const lines: string[] = [];
   lines.push('## 系统环境');
@@ -342,9 +331,9 @@ function buildEnvBlock(
   // 沙箱缺省基准）。
   const base = sessionWorkspace ?? security?.workdir ?? agentWorkdir ?? wsRoot ?? './';
   lines.push(`[工作目录] ${path.resolve(base)}`);
-  // 路径规则：按本 run 有效档位分措辞（见 pathRuleLine 注释——旧全局句
-  // "沙箱越界一律拦截"在 access-tier 下对读不设防/full 档/base 审批三处失真）
-  lines.push(pathRuleLine(accessTier));
+  // 宿主环境（shell 命令工具的宿主事实；shell 工具在场才注入）
+  const hostEnv = hostEnvLine(shellTool);
+  if (hostEnv) lines.push(hostEnv);
   // 模型能力（多模态）：注册面可判定才注入——视觉模型自认"看不了图"、
   // 文本模型硬猜图片内容都是实测高频幻觉；undefined（无元数据）零噪音
   if (vision === true) {
@@ -434,13 +423,21 @@ export function assembleBlocks(input: AssembleInput): string[] {
   const settings = input.settings ?? {};
   const toolNames = input.toolNames;
   const hasCollab = COLLAB_TOOLS.some((n) => toolNames.includes(n));
+  // shell 工具判定（[宿主环境] 行的注入依据）：按有效工具集取单平台名
+  // （Windows 双注册等异常面 pwsh 优先——与 ac-shell-tools 单平台注册
+  // 对齐；两个都不在 = 无命令工具，不注入）
+  const shellTool = toolNames.includes('pwsh')
+    ? 'pwsh' as const
+    : toolNames.includes('bash')
+      ? 'bash' as const
+      : undefined;
 
   const blocks: string[] = [];
   if (typeof settings.override === 'string' && settings.override.trim()) {
     blocks.push(settings.override.trim());
   } else {
     if (settings.systemEnv !== false) {
-      blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model, input.sessionWorkspace, input.accessTier));
+      blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model, input.sessionWorkspace, shellTool));
     }
     if (hasCollab && input.single !== true) {
       blocks.push(buildTerminologyBlock());
@@ -507,17 +504,6 @@ export function apply(ctx: Context) {
 
     const agents = ctx.get('agents');
     const security = agentId && agents ? agents.settingsOf(agentId, 'security') : undefined;
-    // 有效档位（access-tier §3.2 单源）：elevation（机制提权/审批注入）??
-    // tierOf(agent)。agents 能力缺位（软依赖未装）= undefined → 纯函数按
-    // base 措辞（fail 方向与安全行 tierOf(undefined)=base 一致）
-    const agentsLike = agents as
-      | { get(id: string): AgentConfig | undefined }
-      | undefined;
-    const accessTier = effectiveTierOf(
-      agentId !== undefined ? agentsLike?.get(agentId) : undefined,
-      request.elevation === 'full-access' ? 'full-access'
-        : request.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
-    );
     // 可选能力：独立会话形态（singles 注册表命中 → 多 Agent 协作知识、
     // 主动安排（timer）与系统管理（system_restart——工具已随形态面裁剪）
     // 条目不注入。协作/计时工具面不裁剪，仅不教）
@@ -542,7 +528,6 @@ export function apply(ctx: Context) {
       ...(single ? { single: true } : {}),
       ...(vision !== undefined ? { vision } : {}),
       ...(request.model ? { model: request.model } : {}),
-      accessTier,
     });
 
     if (blocks.length > 0) {

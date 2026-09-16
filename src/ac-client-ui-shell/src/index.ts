@@ -16,7 +16,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-shell',
   label: 'Shell 工具卡（前端）',
-  description: 'ac-shell-tools 域工具卡前端行（M28 P2 镜像表）：bash → ToolResultTerminal 终端卡',
+  description: 'ac-shell-tools 域工具卡前端行（M28 P2 镜像表）：bash/pwsh → ToolResultTerminal 终端卡',
   automatic: true,
 };
 

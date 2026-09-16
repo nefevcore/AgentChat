@@ -10,7 +10,8 @@ import { describe, it, expect } from 'vitest';
 import { countLineChanges } from 'ac-edit-core/src/diff.ts';
 import {
   extractFileEdits, replayFiles, fileEditsOf, diffOfSummary, fileEditsWithSnapshots, applySnapshots,
-  applyDiskFinals, fileEditsFull, versionPointsOf, editStepsOf, diffOfStep,
+  applyDiskFinals, fileEditsFull, versionPointsOf, editStepsOf, diffOfStep, diffOfContent,
+  contentOfSummary,
   type FileEditEvent,
 } from '../client/fileEdits.ts';
 import type { ChatMessage } from '../client/types.ts';
@@ -404,6 +405,33 @@ describe('versionPointsOf / editStepsOf / diffOfStep —— 逐次回放（查�
     ];
     const { files, events } = fileEditsOf(msgs);
     expect(editStepsOf(files.get('存量.ts')!, events)).toHaveLength(0);
+  });
+
+  it('单次新建（write 打头且仅此一步）：内容视图可见全文（总览/单步 diff 基底 = 首写版而恒空）', () => {
+    // 会话内新建文件只写一次——base = 首写版与终版相同，总览与单步
+    // diff 均为「（无变更）0/0」；内容视图（diffOfContent）是内容可见面
+    const msgs: ChatMessage[] = [
+      histMsg('m1', [{ id: 'c1', name: 'write', args: { file_path: 'n.ts', content: 'a\nb\n' }, result: { ok: true } }], 1000),
+    ];
+    const { files, events } = fileEditsOf(msgs);
+    const s = files.get('n.ts')!;
+    expect(s.finalContent).toBe('a\nb\n');
+    // 步保留唯一写入（终版对账不涉单步链）
+    const steps = editStepsOf(s, events);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].after).toBe('a\nb\n');
+    // 内容视图：全文 + 行渲染
+    expect(contentOfSummary(s)).toBe('a\nb\n');
+    const c = diffOfContent(s);
+    expect(c.comparable).toBe(true);
+    expect(c.added).toBe(3); // a / b / 尾空行
+    expect(c.diff).toContain('+ 1 a');
+    expect(c.diff).toContain('+ 2 b');
+    // 链不可启（无终版）：内容视图不可比
+    const broken = fileEditsOf([
+      histMsg('m1', [{ id: 'c1', name: 'edit', args: { file_path: '存量.ts', old_string: 'x', new_string: 'y' }, result: okEdit('存量.ts', 1, 1) }]),
+    ]).files.get('存量.ts')!;
+    expect(diffOfContent(broken).comparable).toBe(false);
   });
 
   it('快照接管断链后：步序列自快照底起算（首步 before = 快照内容）', () => {

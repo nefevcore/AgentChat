@@ -149,7 +149,7 @@ describe('ac-app 配置驱动 boot（官方 loader 形态：裸包名行）', ()
       },
     } as any);
     await scripted;
-    ctx.agents.register({ id: 'helper', model: 'mock-1', tools: ['hello'] });
+    ctx.agents.register({ id: 'helper', model: 'mock-1', tags: ['infra'], tools: ['hello'] });
     let replyCount = 0;
     ctx.on('router/reply-completed', () => (replyCount += 1));
     const run = await ctx.router.send('helper', 'q');

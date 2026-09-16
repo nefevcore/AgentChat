@@ -392,6 +392,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'timer-tools', 'timers', 'todo', 'tools', 'ui-agents',
       'ui-browser', // M28 P2：工具卡行（§2.2 镜像表）
       'ui-conversation',
+      'ui-desktop-storage', // desktop 数据根可配置（P1）：存储管理设置面板行
       'ui-fs', // M28 P2：工具卡行（fs 三卡同后端域）
       'ui-goal', // M28 P1：四+一新行之一（goal 域 UI 直达行）
       'ui-group', 'ui-jobs',

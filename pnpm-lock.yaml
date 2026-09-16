@@ -2099,6 +2099,9 @@ importers:
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
+      ac-subagent:
+        specifier: workspace:*
+        version: link:../ac-subagent
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools

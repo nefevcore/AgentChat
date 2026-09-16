@@ -5,7 +5,7 @@
 // · send_group / list_groups：群经可选 ctx.group；执行身份定"自己"
 // · list_agents / read_agent_info：资料面（模型配置仅自查）
 // · list_tools：AgentConfig.tools 白名单过滤
-// · update_agent_profile：agentStore 落盘 + persona 写 AGENT.md +
+// · update_agent_profile：agentStore 落盘 + persona 写 AGENTS.md +
 //   admin 门（改他人）/ 白名单字段校验
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -20,10 +20,12 @@ import * as agentsRow from 'ac-agents';
 import * as collabRow from '../src/index';
 import * as conversationRow from 'ac-conversation';
 import * as groupRow from 'ac-group';
+import * as jobsRow from 'ac-jobs';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as sessionRow from 'ac-session';
+import * as subagentRow from 'ac-subagent';
 import * as toolsRow from 'ac-tools';
 
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
@@ -144,7 +146,7 @@ describe('资料面工具', () => {
         return { ok: true, output: '' };
       },
     });
-    ctx.agents.register({ id: 'a', model: 'mock-1', tools: ['list_tools'] });
+    ctx.agents.register({ id: 'a', model: 'mock-1', tags: ['infra'], tools: ['list_tools'] });
     const r = await call(ctx, 'list_tools', {}, 'a');
     const output = r.output as { count: number; tools: Array<{ name: string }> };
     expect(output.count).toBeGreaterThanOrEqual(1);
@@ -249,6 +251,84 @@ describe('send_agent（经 conversation 状态机）', () => {
   });
 });
 
+describe('send_agent（子 Agent 直投分支）', () => {
+  async function bootWithSubagent() {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    // rows = collab 基础 + jobs（subagent 依赖）+ subagent 行
+    const rows: unknown[] = [
+      toolsRow,
+      llmRow,
+      {
+        name: 'mock-provider',
+        inject: ['llm'],
+        apply(c: Context) {
+          c.llm.register('mock', scriptedProvider(), { models: ['mock-1'] });
+        },
+      },
+      jobsRow,
+      loopRow,
+      agentsRow,
+      routerRow,
+      conversationRow,
+      collabRow,
+      subagentRow,
+    ];
+    for (const row of rows) {
+      const fiber = ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('父 send_agent(子 sub_id)：转投任务收件箱（delivered=started），子 run 消费该消息', async () => {
+    const { ctx } = await bootWithSubagent();
+    ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
+    const sp = await call(ctx, 'subagent', { action: 'spawn', task: '初始任务', wait_time: 30 }, 'chief');
+    const subId = (sp.output as { subagent_id: string }).subagent_id;
+    // 父经 send_agent 直投子 Agent
+    const r = await call(ctx, 'send_agent', { to: subId, message: '补充指示：加个摘要' }, 'chief');
+    expect(r.ok).toBe(true);
+    const output = r.output as { to: string; subagent: boolean; delivered: string; message: string };
+    expect(output.subagent).toBe(true);
+    expect(output.delivered).toBe('started');
+    expect(output.message).toContain('await');
+    // 子 Agent 侧消费：await 收结果（消息进了其会话）
+    const done = await call(ctx, 'subagent', { action: 'await', subagent_id: subId }, 'chief');
+    expect(done.ok).toBe(true);
+    expect((done.output as { status: string }).status).toBe('done');
+  });
+
+  it('非父投递子 Agent → 拒绝（仅其父可投）', async () => {
+    const { ctx } = await bootWithSubagent();
+    ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
+    ctx.agents.register({ id: 'outsider', model: 'mock-1' });
+    const sp = await call(ctx, 'subagent', { action: 'spawn', task: '任务', wait_time: 30 }, 'chief');
+    const subId = (sp.output as { subagent_id: string }).subagent_id;
+    const r = await call(ctx, 'send_agent', { to: subId, message: '插队消息' }, 'outsider');
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain('只接收其父');
+  });
+
+  it('sub_ 前缀但未注册 → 走常规"未注册"报错', async () => {
+    const { ctx } = await bootWithSubagent();
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const r = await call(ctx, 'send_agent', { to: 'sub_ghost_1234', message: 'x' }, 'a');
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain('未注册');
+  });
+
+  it('subagents 行未装载 → sub_ id 照常走常规路径（可选能力缺省不炸）', async () => {
+    const { ctx } = await boot(); // 无 subagent 行
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const r = await call(ctx, 'send_agent', { to: 'sub_whatever', message: 'x' }, 'a');
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain('未注册');
+  });
+});
+
 describe('群协作（可选 ctx.group）', () => {
   it('send_group：成员发言触发其他参与者；非成员拒绝', async () => {
     const { ctx } = await boot();
@@ -287,7 +367,7 @@ describe('群协作（可选 ctx.group）', () => {
 });
 
 describe('update_agent_profile（档案经 agentStore）', () => {
-  it('自查字段落盘 + 内存覆盖注册；persona 写 AGENT.md 并挂载装载', async () => {
+  it('自查字段落盘 + 内存覆盖注册；persona 写 AGENTS.md 并挂载装载', async () => {
     const root = tmpRoot();
     const { ctx } = await boot({ storeRoot: root });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
@@ -306,9 +386,9 @@ describe('update_agent_profile（档案经 agentStore）', () => {
     // 落盘 + 内存态都更新
     expect(ctx.agentStore.getAgent('a')?.description).toBe('新描述');
     expect(ctx.agents.get('a')?.tools).toEqual(['read', 'list_agents']);
-    // persona → AGENT.md + settings['persona'] 挂载
-    expect(ctx.agentStore.readDoc('a', 'AGENT.md')).toContain('认真负责的工程师');
-    expect((ctx.agents.get('a')?.settings?.['persona'] as { file: string }).file).toBe('AGENT.md');
+    // persona → AGENTS.md（生态事实标准；AGENT.md 旧名回退读）+ settings['persona'] 挂载
+    expect(ctx.agentStore.readDoc('a', 'AGENTS.md')).toContain('认真负责的工程师');
+    expect((ctx.agents.get('a')?.settings?.['persona'] as { file: string }).file).toBe('AGENTS.md');
   });
 
   it('显示名语义拆分：改 description 不动 name；name 独立更新（空串清除）', async () => {
@@ -413,6 +493,7 @@ describe('M15 对账补齐', () => {
     ctx.agents.register({
       id: 'e',
       model: 'mock-1',
+      tags: ['collab', 'infra'],
       tools: { exclude: ['send_group', 'list_groups', 'update_agent_profile'] },
     });
     const r = await call(ctx, 'list_tools', {}, 'e');

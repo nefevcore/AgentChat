@@ -124,13 +124,15 @@ watch(
   },
 );
 
-/** 内置 tag 的说明文案 */
+/** 内置 tag 的说明文案（base/agent 已退役——全量标签化 2026-09-16） */
 const TAG_HINTS: Record<string, string> = {
-  base: '基础能力',
-  agent: '基础能力',
+  fs: '文件读写',
+  collab: '多 Agent 协作',
+  infra: '会话基础设施',
+  history: '会话历史回放（read/grep_history）',
   admin: '系统管理工具',
   dev: '开发工具',
-  shell: '命令执行（bash）',
+  shell: '命令执行',
   delegation: '任务委派（subagent）',
   web: 'Web 浏览（browser）',
   observe: '观察层级（只读浏览）',
@@ -279,8 +281,10 @@ function tagHint(t: string): string {
   border-color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 24%, transparent);
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 85%, var(--text-1));
 }
-/* 标签色相表（与 AgentPane tb-* 同源） */
-.agent-pool-tag.tag-agent, .agent-pool-tag.tag-base { --tag-hue: var(--primary); }
+/* 标签色相表（与 AgentPane tb-* 同源；base/agent 已退役） */
+.agent-pool-tag.tag-fs { --tag-hue: var(--primary); }
+.agent-pool-tag.tag-collab { --tag-hue: #6366f1; }
+.agent-pool-tag.tag-infra { --tag-hue: #0891b2; }
 .agent-pool-tag.tag-admin { --tag-hue: #dc2626; }
 .agent-pool-tag.tag-dev { --tag-hue: #059669; }
 .agent-pool-tag.tag-shell { --tag-hue: #b45309; }

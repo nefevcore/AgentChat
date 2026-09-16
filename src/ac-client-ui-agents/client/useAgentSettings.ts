@@ -166,13 +166,16 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
     agentSaved.value = agentStateKey();
   }
 
-  /** 旧能力标签归一：agent → base、conductor → delegation（只归一化内存 raw；写盘时由后端保存） */
+  /** 旧能力标签归一：agent/base 退役词剔除、conductor → delegation
+   *  （只归一化内存 raw；写盘时由后端保存——base 全量标签化后无门禁语义） */
   function normalizeLegacyTags(raw: Record<string, any>): Record<string, any> {
     if (!Array.isArray(raw.tags)) return raw;
+    const RETIRED = new Set(['agent', 'base']);
     const seen = new Set<string>();
     const tags: string[] = [];
     for (const tag of raw.tags) {
-      const canonical = tag === 'agent' ? 'base' : tag === 'conductor' ? 'delegation' : tag;
+      if (RETIRED.has(tag)) continue;
+      const canonical = tag === 'conductor' ? 'delegation' : tag;
       if (!seen.has(canonical)) { seen.add(canonical); tags.push(canonical); }
     }
     return JSON.stringify(tags) === JSON.stringify(raw.tags) ? raw : { ...raw, tags };

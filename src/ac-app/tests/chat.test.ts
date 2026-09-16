@@ -72,6 +72,7 @@ describe('ac-app 端到端（router → loop → tools → llm）', () => {
       id: 'helper',
       model: 'mock-1',
       system: '你是链路验证助手',
+      tags: ['infra'], // hello 工具门禁（全量标签化 2026-09-16）
       tools: ['hello'],
       maxSteps: 4,
     });
@@ -107,7 +108,7 @@ describe('ac-app 端到端（router → loop → tools → llm）', () => {
 
   it('安全拦截跨域生效：tool veto → 工具被拒，循环照常收束', async () => {
     const { ctx } = await boot();
-    ctx.agents.register({ id: 'a', model: 'mock-1', tools: ['hello'] });
+    ctx.agents.register({ id: 'a', model: 'mock-1', tags: ['infra'], tools: ['hello'] });
     ctx.on('tool/before-execute', (execution, next) =>
       execution.call.name === 'hello' ? { ok: false, error: 'blocked by security' } : next(),
     );

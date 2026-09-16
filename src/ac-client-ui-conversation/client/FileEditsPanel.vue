@@ -7,9 +7,10 @@
 // → fileEdits 纯函数层（提取/重放/diff）。
 //
 // 逐次回放（本次新增）：卡片 diff 区顶「视图」下拉——初版→终版
-// / 单次编辑 #N（事件 + 说明 + ±N）。选中后 diff 区切换为对应视
-// 角（单次 = 该步 before→after）；时间线行点击直达该次编辑（双向
-// 联动——下拉与时间线是同一选择面的两个入口）。
+// / 当前内容（终版全文直读）/ 单次编辑 #N（事件 + 说明 + ±N）。选中后
+// diff 区切换为对应视角（单次 = 该步 before→after；当前内容 = 全文
+// +行——新建文件 diff 基底缺失时的内容可见面）；时间线行点击直达该
+// 次编辑（双向联动——下拉与时间线是同一选择面的两个入口）。
 //
 // 会话上下文（同 TasksPanel）：1v1 / single 直连；群聊视角支持
 //（多 Agent 编辑事件均带 agent_id——逐条署名）。bash 等间接写
@@ -27,11 +28,12 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
+import { countLineChanges } from 'ac-edit-core/src/diff.ts';
 import { openLocalFile } from 'ac-client-ui-workspace/client/fileApi.ts';
 import { parseDialogId } from './feed.ts';
 import { useFeedStore } from './feedStore.ts';
 import {
-  fileEditsFull, fileEditsWithSnapshots, diffOfStep, editStepsOf,
+  fileEditsFull, fileEditsWithSnapshots, diffOfStep, editStepsOf, diffOfContent,
   type FileEditSummary, type FileDiffResult, type FileEditStep,
   type FileEditEvent, type RemoteSnapshot, type DiskContents,
 } from './fileEdits.ts';
@@ -137,8 +139,15 @@ const files = computed(() =>
 /** 统计条 */
 const totalEdits = computed(() => analysis.value.events.filter((e) => e.ok).length);
 const totalFiles = computed(() => files.value.length);
-const totalAdded = computed(() => files.value.reduce((n, f) => n + f.added, 0));
-const totalRemoved = computed(() => files.value.reduce((n, f) => n + f.removed, 0));
+/** 卡片统计（工具报告缺失 +0/-0 时以重放初版↔终版 LCS 回填——新建文件可见 +N） */
+function statOf(s: FileEditSummary): { added: number; removed: number } {
+  if ((s.added > 0 || s.removed > 0) || s.finalContent === null) return { added: s.added, removed: s.removed };
+  const base = s.partial ? s.partialBase : s.baseContent;
+  if (base === null) return { added: s.added, removed: s.removed };
+  return countLineChanges(base, s.finalContent);
+}
+const totalAdded = computed(() => files.value.reduce((n, f) => n + statOf(f).added, 0));
+const totalRemoved = computed(() => files.value.reduce((n, f) => n + statOf(f).removed, 0));
 
 /** bash 等间接写提示（会话有 shell 调用但面板只覆盖编辑工具） */
 const hasShellCalls = computed(() =>
@@ -164,26 +173,38 @@ function toggle(path: string) {
 }
 
 // ── 逐次回放（视图选择）──
-// 选中态 per-path：'' = 总览（初版→终版——默认）；数字 = 单次编辑
-// 步序（对应 editStepsOf 索引）。跨文件独立、重放数据变化时归零。
-const viewSel = ref<Map<string, number | ''>>(new Map());
+// 选中态 per-path：'' = 总览（初版→终版——默认）；'content' = 当前内容
+// （终版全文直读——新建文件等 diff 基底缺失场景的内容可见面）；数字 =
+// 单次编辑步序（对应 editStepsOf 索引）。跨文件独立、重放数据变化时归零。
+const viewSel = ref<Map<string, number | 'content' | ''>>(new Map());
 
 /** 单文件可回放步（时间序；comparable 文件至少 1 步） */
 function stepsOf(s: FileEditSummary): FileEditStep[] {
   return editStepsOf(s, analysis.value.events);
 }
 
-function viewOf(path: string): number | '' {
-  return viewSel.value.get(path) ?? '';
+/**
+ * 视图读取：未选择过时智能缺省——总览 diff 恒空（新建后仅单次写入，
+ * 初版=终版）默认「当前内容」，展开即见内容无需手动切换；用户显式
+ * 选择后（含选回总览）以选择为准。
+ */
+function viewOf(path: string): number | 'content' | '' {
+  const v = viewSel.value.get(path);
+  if (v !== undefined) return v;
+  const s = analysis.value.files.get(path);
+  if (s && !s.partial && s.finalContent !== null && s.baseContent === s.finalContent) {
+    return 'content';
+  }
+  return '';
 }
-function setView(path: string, v: number | '') {
+function setView(path: string, v: number | 'content' | '') {
   viewSel.value = new Map(viewSel.value).set(path, v);
 }
 
 /** 当前生效视图：选中步失效（编辑序列变化——越界）时回落总览 */
-function effectiveView(s: FileEditSummary): number | '' {
+function effectiveView(s: FileEditSummary): number | 'content' | '' {
   const v = viewOf(s.path);
-  if (v !== '' && v >= stepsOf(s).length) return '';
+  if (typeof v === 'number' && v >= stepsOf(s).length) return '';
   return v;
 }
 
@@ -191,17 +212,20 @@ function effectiveView(s: FileEditSummary): number | '' {
  *  同一编辑事件——比裸索引稳） */
 function viewOptionOf(s: FileEditSummary): string {
   const v = effectiveView(s);
+  if (v === 'content') return 'content';
   return v === '' ? '' : stepsOf(s)[v]?.event.callId ?? '';
 }
 function selectViewByOption(s: FileEditSummary, option: string) {
   if (option === '') { setView(s.path, ''); return; }
+  if (option === 'content') { setView(s.path, 'content'); return; }
   const idx = stepsOf(s).findIndex((st) => st.event.callId === option);
   setView(s.path, idx >= 0 ? idx : '');
 }
 
-/** 当前视图 diff：总览 = diffOf 既有；单次 = diffOfStep */
+/** 当前视图 diff：总览 = diffOf 既有；单次 = diffOfStep；当前内容 = 全文 + 行 */
 function viewDiff(s: FileEditSummary): FileDiffResult {
   const v = effectiveView(s);
+  if (v === 'content') return diffOfContent(s);
   if (v === '') return diffOf(analysis.value.diffs, s);
   const step = stepsOf(s)[v];
   return step ? diffOfStep(step) : diffOf(analysis.value.diffs, s);
@@ -213,9 +237,10 @@ function jumpToStep(s: FileEditSummary, ev: FileEditEvent) {
   setView(s.path, idx >= 0 ? idx : '');
 }
 
-/** 视图标签：总览固定「初版 → 终版」；单次「编辑 #N」 */
+/** 视图标签：总览固定「初版 → 终版」；当前内容「文件当前内容」；单次「编辑 #N」 */
 function viewLabel(s: FileEditSummary): string {
   const v = effectiveView(s);
+  if (v === 'content') return '文件当前内容';
   return v === '' ? '初版 → 终版' : `编辑 #${v + 1}`;
 }
 
@@ -343,7 +368,7 @@ async function openLocally(s: FileEditSummary) {
           <span class="fe-badges">
             <span v-if="s.created" class="fe-badge new">新建</span>
             <span v-if="s.partial" class="fe-badge partial">部分</span>
-            <span class="fe-stat"><span class="fe-add-num">+{{ s.added }}</span><span class="fe-del-num">/-{{ s.removed }}</span></span>
+            <span class="fe-stat"><span class="fe-add-num">+{{ statOf(s).added }}</span><span class="fe-del-num">/-{{ statOf(s).removed }}</span></span>
             <span class="fe-count">{{ s.editCount }} 次</span>
           </span>
           <!-- 本地打开（系统默认程序；icon 按钮 + tooltip——与预览页
@@ -381,14 +406,14 @@ async function openLocally(s: FileEditSummary) {
           </div>
           <div v-if="s.mismatches > 0" class="fe-partial-note warn">有 {{ s.mismatches }} 条编辑无法在重放中定位（外部修改或消息流残缺）——终版可能与实际有偏差</div>
 
-          <!-- diff 视图（可比对时）：视图下拉 = 总览 / 某次编辑 -->
-          <template v-if="diffOf(analysis.diffs, s).comparable">
+          <!-- diff 视图（可比对 / 当前内容视图）：视图下拉 = 总览 / 当前内容 / 某次编辑 -->
+          <template v-if="diffOf(analysis.diffs, s).comparable || s.finalContent !== null">
             <div class="fe-diff-meta">
               <span class="fe-view-label">{{ viewLabel(s) }}</span>
               <span class="fe-diff-stat">+{{ viewDiff(s).added }} / -{{ viewDiff(s).removed }}</span>
             </div>
-            <!-- 视图选择（编辑次数 > 1 才有逐次视角） -->
-            <div v-if="stepsOf(s).length > 1" class="fe-view-row">
+            <!-- 视图选择（当前内容 / 编辑次数 > 1 才有逐次视角） -->
+            <div v-if="s.finalContent !== null || stepsOf(s).length > 1" class="fe-view-row">
               <span class="fe-view-caption">查看</span>
               <select
                 class="fe-view-select"
@@ -396,6 +421,7 @@ async function openLocally(s: FileEditSummary) {
                 @change="selectViewByOption(s, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="">初版 → 终版</option>
+                <option value="content">当前内容</option>
                 <option v-for="st in stepsOf(s)" :key="st.event.callId" :value="st.event.callId">
                   {{ stepOptionLabel(st) }}
                 </option>

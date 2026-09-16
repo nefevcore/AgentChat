@@ -200,8 +200,8 @@ export const TREE: TreeRow[] = [
   { id: 'ui-browser', plugin: uiBrowserRow },
   { id: 'ui-subagent', plugin: uiSubagentRow },
   { id: 'ui-llm-pool', plugin: uiLlmPoolRow },
-  { id: 'ui-desktop-storage', plugin: uiDesktopStorageRow },
   { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
+  { id: 'ui-desktop-storage', plugin: uiDesktopStorageRow },
   { id: 'ui-search-pool', plugin: uiSearchPoolRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },

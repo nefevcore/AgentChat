@@ -163,7 +163,12 @@ tierOf(parentId)）与宿主 API 人工快捷提权（web-api deliver RPC → we
 缺标签的工具不在可见宇宙，include 引用条目也展开不出来）；预设声明
 工具面的主形态 = 只写 tags（标准/ABAP 开发模式同构），tools 白名单与
 tag 引用是收窄/混排的补充手段（极简模式的 include、批量排除的
-exclude）。
+exclude）。落空可观测（fail-fast）：tag: 引用展开为空与字面名不在
+可见面（拼写错/平台拆分改名，如 Windows 上的 'bash'）都经 router
+logger.warn 告警——不静默。「**tags 即工具面**」的准确边界：对**出厂
+工具**成立（全量标签化 2026-09-16，一切出厂工具挂具体标签）；第三方/
+动态插件工具若不声明 requiredTags 仍默认人人可见（toolAllowedFor
+短路）——生态作者请自觉挂标签，否则该工具游离于 tags 门禁之外。
 
 **群拓扑**（单通道 v3）：
 
@@ -257,7 +262,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf——只收会成运行时环/反向依赖的最小词汇） |
 | `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离） |
 | `ac-config-merge` | deepMerge/computeDiff 差异配置 |
-| `ac-edit-core` | 编辑引擎：三级模糊匹配/增量 diff/行尾保留/文件突变队列 |
+| `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检/readback 回显/增量 diff/行尾保留/文件突变队列 |
 | `ac-sandbox-core` | createSandboxResolver/bash 命令扫描/输出脱敏/agentSpaceRoots（读写侧基准分叉并根） |
 | `ac-text-budget` | token 估算/代理对安全截断 |
 | `ac-glob-core` | glob→RegExp + 有界 walk |
@@ -331,7 +336,7 @@ src/
 │                            datetime 等行
 ├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json +
 │                            机制 entries（timer/skills 等唯一写口）+ 文档实体
-│                            （AGENT.md 等）；getAgent 读边界归一（旧 hooks→settings）
+│                            （AGENTS.md 等）；getAgent 读边界归一（旧 hooks→settings）
 ├── ac-singles/              独立会话元数据（ctx.singles）：会话 = 引用 + 覆盖而非
 │                            拷贝；自动标题（after-run LLM 一句话）；[system+tool
 │                            schema] 前缀快照（修订键锚定，漂移对拍告警）
@@ -396,9 +401,11 @@ src/
 │                            过滤/二进制跳过/上限 250）；结果集过滤双黑名单
 ├── ac-str-replace-editor/   四合一编辑器：view/create/str_replace/insert（写经突变
 │                            队列；requiredTags ['fs_minimal']）
-├── ac-shell-tools/          命令执行：bash 前台超时/流式 onProgress + 后台 job 登记
-│                            + Unix→PowerShell 翻译（requiredTags ['shell']；
-│                            needPermission——档位门）
+├── ac-shell-tools/          命令执行（平台拆分 2026-09-16）：pwsh（Windows；
+│                            Unix→PS fail-closed 翻译 + UTF-8 前缀 + bash 兼容
+│                            别名）/ bash（Unix 纯透传）+ job 管理。前台超时/
+│                            流式 onProgress + 后台 job 登记（requiredTags
+│                            ['shell']；needPermission——档位门）
 ├── ac-math/                 数学：纯表达式解析求值（白名单常量/函数 + BigInt 混算 +
 │                            资源护栏；无 node:vm）
 ├── ac-web-tools/            网络：web_search（requiredTags ['web']，needPermission
@@ -699,3 +706,4 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M30 | 席位语义收口——elect/data 词汇轴扶正 + 壳宿主条目化统一 + conversation:dock-widget 改名 + 服务端 uiExtensions 退役（D3 useSeatOccupancy 原语随主区/aux 选举化失去消费方，同批除役；`docs/m30-slot-semantics-refinement-plan.md`） |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |
+| 2026-12 增量 | subagent 双改：run 超时缺省 300s → 不限（研究型长任务；timeout_s 正值仍可设看门狗）；run 身份未注册合成 → 派生注册（父身份编辑：preset 隐藏 + tags 剥 delegation/admin；信封装配补 system/llmParams/能力面终滤；update_agent_profile 拦 preset 自助改档） |

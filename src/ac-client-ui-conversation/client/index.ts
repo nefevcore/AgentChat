@@ -112,7 +112,9 @@ export class ConversationService extends Service {
     super(ctx, 'sessions');
     void options;
     const rpc = (ctx as ClientContext).rpc;
-    this.feed = createFeedCore(rpc);
+    // persistUnread：生产路径开未读快照持久化（刷新后徽章经
+    // localStorage 单键 agentchat.unread 恢复；独立实例/单测缺省关）
+    this.feed = createFeedCore(rpc, undefined, { persistUnread: true });
     this.chat = createChatCore(reactive(this.feed) as unknown as FeedView, rpc);
   }
 

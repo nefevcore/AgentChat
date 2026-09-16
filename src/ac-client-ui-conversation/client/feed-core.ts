@@ -23,6 +23,7 @@ import {
   historyPage, historyServed, chatPresence,
   type StreamState,
 } from './chatOps.ts';
+import { loadUnreadSnapshot, saveUnreadSnapshot } from './unreadStore.ts';
 import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
@@ -84,15 +85,54 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
+/** createFeedCore 可选面：persistUnread = 未读快照持久化开关（缺省关）。
+ *  生产路径（ConversationService）开：未读徽章刷新后经 localStorage
+ *  单键 agentchat.unread 恢复；测试默认关——独立实例隔离，不互写快照。 */
+export interface FeedCoreOptions {
+  persistUnread?: boolean;
+}
+
 /** 信息流核心工厂（每次调用 = 独立状态实例；rpc = 宿主传输面——webui
  * 门面传 wireRpc，ConversationService 传 ctx.rpc；roster = 名册核心
  * 取用器（M28 §4.2：惰性解析——app 内 ctx.roster.core，缺省 useRosterCore；
  * 单测可显式注入 () => roster 隔离状态） */
-export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = useRosterCore) {
+export function createFeedCore(
+  rpc: RpcClientFace,
+  roster: () => RosterCore = useRosterCore,
+  options: FeedCoreOptions = {},
+) {
+  const persistUnread = options.persistUnread === true;
   // ── State ──
   const dialogs = ref<Record<DialogId, DialogFeed>>({});
   /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算 */
   const _version = ref<Record<DialogId, number>>({});
+
+  // ── 未读持久化（persistUnread 开时生效）：工厂期水合 + 变更写穿 ──
+  // 水合：恢复的分区只设 unread（不动 rawMessages/status——历史仍懒加载，
+  // 徽章数据不触发拉取）；恢复后即视为本实例的当前态，后续增量/清除
+  // 全量写回快照。非 viewer pair（矩阵只读分区）的未读无列表入口、
+  // 徽章不消费——不恢复（与增量路径的 viewerRelevant 口径一致）。
+  if (persistUnread) {
+    const saved = loadUnreadSnapshot();
+    if (saved) {
+      for (const [id, n] of Object.entries(saved)) {
+        if (n === undefined) continue;
+        const { kind, key } = parseDialogId(id as DialogId);
+        if (kind === 'pair' && !pairHasViewer(key)) continue;
+        const d = ensureById(id as DialogId);
+        d.unread = n;
+      }
+    }
+  }
+  /** 未读变更写穿：从 dialogs 全量投影「有未读」映射落盘（开开关时） */
+  function persistUnreadNow(): void {
+    if (!persistUnread) return;
+    const counts: Partial<Record<DialogId, number>> = {};
+    for (const [id, d] of Object.entries(dialogs.value)) {
+      if (d.unread > 0 && isViewerDialog(id as DialogId)) counts[id as DialogId] = d.unread;
+    }
+    saveUnreadSnapshot(counts);
+  }
   const _turnsCache = new Map<DialogId, ComputedRef<Turn[]>>();
   /** 增量 turns 状态：完成轮次复用对象身份，避免每个 token 全列表重渲染 */
   const _turnsMemo = new Map<DialogId, TurnsMemo>();
@@ -209,11 +249,16 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   function clearActiveGroup() {
     activeGroupId.value = '';
   }
-  /** 激活独立会话对话（与 direct/group 互斥；agentId = 消息身份源，激活时登记） */
+  /** 激活独立会话对话（与 direct/group 互斥；agentId = 消息身份源，激活时登记）。
+   *  进入即清该会话未读——与 setActiveGroup 进群清未读同语义：single 无名册
+   *  行（名册只列 Agent/群），活动栏聚合徽章是唯一提示位，进会话不清会
+   *  永久残留（2026-09-16 幽灵未读修复——此前该路径漏 clearUnread，
+   *  后台 run 完成通知/机制事件计入后无任何清除路径，刷新还经快照恢复） */
   function setActiveSingle(sessionId: string, agentId?: string) {
     activeSingleId.value = sessionId;
     activeGroupId.value = '';
     if (agentId) _singleAgent[sessionId] = agentId;
+    clearUnread(singleDialog(sessionId));
   }
   /** 取消独立会话激活（回到 direct） */
   function clearActiveSingle() {
@@ -325,7 +370,10 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   // ── 未读 ──
   function clearUnread(id: DialogId) {
     const d = dialogs.value[id];
-    if (d) d.unread = 0;
+    if (d) {
+      d.unread = 0;
+      persistUnreadNow(); // 读位清除写穿（读即抹除，刷新不复活）
+    }
   }
   /** 获取指定 Agent 的未读消息数量 */
   function getUnreadCount(agentId: string): number {
@@ -1273,9 +1321,16 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   function eventAgentId(d: any): string { return d?.agentId || d?.agent || ''; }
   /** 流式输出处理门控（M19）：viewer 发起的 run（sender=viewer）照常；
    *  非 viewer 对桶（矩阵格子视角）的流式帧是本分区内容，同样放行——
-   *  其余（他人发起且落 viewer 会话的帧）拦截，防推理结果串台。 */
+   *  其余（他人发起且落 viewer 会话的帧）拦截，防推理结果串台。
+   *  机制唤醒豁免（2026-09-16）：source='event' 的 run（ask_questions
+   *  late-reply 回投 / timer 定点等）由后端 ws-bridge 判定落在用户可见
+   *  会话才广播（自会话桶 a~a 与归档整理仍隐藏）——即本会话内容而非
+   *  串台，此处放行。此前按 sender 一刀切拦截：表现为回执（系统事件行）
+   *  可见但整轮隐形、收束瞬间终稿一次性弹出，中途思考与分步正文全部
+   *  丢失（修复前 bug 现场）。 */
   function isForCurrentUser(d: any): boolean {
     if (!d?.sender || d.sender === VIEWER_ID.value) return true;
+    if (d?.source === 'event') return true;
     const id = d?.dialogId as DialogId | undefined;
     if (id) {
       const { kind, key } = parseDialogId(id);
@@ -1438,6 +1493,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     if (viewerRelevant && dialogId !== activeDialogId.value) {
       d.unread += 1;
       roster().bumpAgentById(from, 'assistant', payload);
+      persistUnreadNow();
     }
   }
 
@@ -1458,6 +1514,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     if (isViewerDialog(dialogId) && dialogId !== activeDialogId.value) {
       d.unread += 1;
       roster().bumpAgentById(agentKeyOf(dialogId), 'assistant', content);
+      persistUnreadNow();
     }
   }
 
@@ -1476,7 +1533,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         const [request] = args as [any];
         const agent = frameAgentId(request?.agent);
         if (!isUserConversation(agent, request?.conversationId)) return;
-        const keys = routeDialog(agent, request?.conversationId, request?.sender);
+        const keys = routeDialog(agent, request?.conversationId, request?.sender, request?.source);
         if (!keys) return;
         if (request?.meta?.[ARCHIVE_REVIEW_META_KEY] === true) {
           markArchiveReview(keys.dialogId, true);
@@ -1493,9 +1550,9 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         return;
       }
       case 'loop/step-started': {
-        const [agent, , , envelope] = args as [string | undefined, number, unknown, { conversationId?: string; sender?: string } | undefined];
+        const [agent, , , envelope] = args as [string | undefined, number, unknown, { conversationId?: string; sender?: string; source?: string } | undefined];
         if (!isUserConversation(frameAgentId(agent), envelope?.conversationId)) return;
-        const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender);
+        const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender, envelope?.source);
         if (keys) { noteStreamAgent(keys); onStepStart(keys.dialogId, isForActiveAgent(keys)); }
         return;
       }
@@ -1504,7 +1561,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         const agent = frameAgentId(meta?.agent ?? input?.meta?.agent);
         const conv = meta?.conversationId ?? input?.meta?.conversationId;
         if (!isUserConversation(agent, conv)) return;
-        const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender);
+        const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys || !isForCurrentUser(keys)) return;
         noteStreamAgent(keys);
         const st = streamOf(streams, keys.dialogId);
@@ -1565,7 +1622,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         const agent = frameAgentId(meta?.agent ?? input?.meta?.agent);
         const conv = meta?.conversationId ?? input?.meta?.conversationId;
         if (!isUserConversation(agent, conv)) return;
-        const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender);
+        const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys) return;
         noteStreamAgent(keys);
         const st = streams.get(keys.dialogId);
@@ -1606,15 +1663,15 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         const agent = frameAgentId(input?.meta?.agent);
         const conv = input?.meta?.conversationId;
         if (!isUserConversation(agent, conv)) return;
-        const keys = routeDialog(agent, conv, input?.meta?.sender);
+        const keys = routeDialog(agent, conv, input?.meta?.sender, input?.meta?.source);
         if (!keys) return;
         onMessageError(keys.dialogId, { content: errText(error) }, isForActiveAgent(keys));
         return;
       }
       case 'loop/after-step': {
-        const [agent, step, envelope] = args as [string | undefined, any, { conversationId?: string; sender?: string } | undefined];
+        const [agent, step, envelope] = args as [string | undefined, any, { conversationId?: string; sender?: string; source?: string } | undefined];
         if (!isUserConversation(frameAgentId(agent), envelope?.conversationId)) return;
-        const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender);
+        const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender, envelope?.source);
         if (!keys) return;
         noteStreamAgent(keys);
         // 步终值：message.end（全量替换语义）+ step.end（关闭占位；
@@ -1629,7 +1686,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         const [request, result] = args as [any, any];
         const agent = frameAgentId(request?.agent);
         if (!isUserConversation(agent, request?.conversationId)) return;
-        const keys = routeDialog(agent, request?.conversationId, request?.sender);
+        const keys = routeDialog(agent, request?.conversationId, request?.sender, request?.source);
         if (!keys) return;
         noteStreamAgent(keys);
         // 整理 run 收尾：状态条熄灭（完成反馈另由 archive/completed 驱动）
@@ -1674,7 +1731,10 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         // 未读：非 viewer 发言且该群非当前活跃群 → +1（与 direct 入站同口径
         // ——正在看的会话不计未读；清除经 clearUnread(group:gid)，由 ui-group
         // selectGroup 触发，名册群行/活动栏聚合徽章同源消费）
-        if (from !== VIEWER_ID.value && gDialog !== activeDialogId.value) gd.unread += 1;
+        if (from !== VIEWER_ID.value && gDialog !== activeDialogId.value) {
+          gd.unread += 1;
+          persistUnreadNow();
+        }
         return;
       }
       case 'router/message-received': {

@@ -36,12 +36,20 @@ function llmPoolRefOf(pools: Record<string, any>, provider: unknown): string | u
   return entry && typeof entry === 'object' ? provider : undefined;
 }
 
-/** Agent 配置双视图（get-config + SYSTEM/AGENT.md 双 read-doc 并取 + 池名回显） */
+/** Agent 配置双视图（get-config + SYSTEM/AGENTS.md 双 read-doc 并取 + 池名回显）。
+ *  persona 文档双名同义（2026-11 对齐生态事实标准 AGENTS.md）：读序
+ *  AGENTS.md 优先、AGENT.md（存量名）回退；保存归一写 AGENTS.md。 */
 export async function getAgentConfig(agentId: string, rpc: Rpc): Promise<AgentConfigViews> {
-  const [cfgR, sysR, agentR, poolsR] = await Promise.all([
+  const agentDoc = await rpc
+    .call<{ content?: string }>('agents/read-doc', { agentId, name: 'AGENTS.md' })
+    .catch(() => ({ content: undefined }));
+  const [cfgR, sysR, agentLegacyR, poolsR] = await Promise.all([
     rpc.call<{ config?: Record<string, any> }>('agents/get-config', { agentId }),
     rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'SYSTEM.md' }).catch(() => ({ content: undefined })),
-    rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'AGENT.md' }).catch(() => ({ content: undefined })),
+    // AGENT.md 存量回退：仅当 AGENTS.md 未命中时才取（旧名文档不删，读序兼容）
+    agentDoc.content === undefined
+      ? rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'AGENT.md' }).catch(() => ({ content: undefined }))
+      : Promise.resolve({ content: undefined }),
     // 池反查（快照语义）：后端 AgentConfig 不存池引用——保存时引用被拆为
     // provider/model 双字段，读回按 provider 名（= 连接条目名）回显 $ref
     // （仅展示定位；池内容后续变更不追踪）。config/get 失败容忍 → 不设 $ref。
@@ -70,7 +78,7 @@ export async function getAgentConfig(agentId: string, rpc: Rpc): Promise<AgentCo
     raw: view,
     effective: view,
     sysContent: sysR.content ?? '',
-    agentContent: agentR.content ?? '',
+    agentContent: agentDoc.content ?? agentLegacyR.content ?? '',
   };
 }
 
@@ -106,7 +114,7 @@ export async function saveAgentConfig(
     await rpc.call('agents/save-doc', { agentId, name: 'SYSTEM.md', content: payload.sysContent }).catch(() => undefined);
   }
   if (typeof payload.agentContent === 'string') {
-    await rpc.call('agents/save-doc', { agentId, name: 'AGENT.md', content: payload.agentContent }).catch(() => undefined);
+    await rpc.call('agents/save-doc', { agentId, name: 'AGENTS.md', content: payload.agentContent }).catch(() => undefined);
   }
   return { success: true };
 }

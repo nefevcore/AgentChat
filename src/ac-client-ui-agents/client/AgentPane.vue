@@ -338,10 +338,14 @@ const llmEffectiveSummary = computed(() => {
   return { provider, model, source };
 });
 // ── 能力标签 ──
-/** 工具 requires 可能用到的标签 → 中文说明（base 为隐式基础能力层，始终启用）。
+/** 工具 requires 可能用到的标签 → 中文说明（base 已退役——全量标签化
+ *  2026-09-16：一切出厂工具挂具体标签，隐式基础层不再呈现）。
  *  目录（tags/catalog RPC）可用时仅作 label 兜底；行未装配时是唯一徽章来源 */
 const TOOL_TAG_LABELS: Record<string, string> = {
-  base: '基础能力',
+  fs: '文件读写',
+  collab: '多 Agent 协作',
+  infra: '会话基础设施',
+  history: '会话历史回放（read/grep_history）',
   admin: '系统管理',
   dev: '开发工具',
   shell: '命令执行',
@@ -393,7 +397,7 @@ const tagGroups = computed<TagGroup[]>(() => {
     groups.set(t.group, list);
   }
   const fixed: TagGroup[] = [
-    { key: 'base', label: '基础', items: sortItems(cat.filter((t) => t.category === 'base')) },
+    // base 分组随 base 退役（全量标签化 2026-09-16）——目录不再有该类别条目
     { key: 'access-tier', label: '访问档位（权限轴）', items: sortItems(cat.filter((t) => t.category === 'access-tier')) },
   ];
   const declared: TagGroup[] = [...groups.entries()]
@@ -409,36 +413,38 @@ const tagGroups = computed<TagGroup[]>(() => {
   return [...fixed, ...declared, capability].filter((g) => g.items.length > 0);
 });
 
-/** 目录条目的悬浮提示：启用后将解锁的工具；分层族附「含低层级能力」语义 */
+/** 目录条目的悬浮提示：功能说明 + 解锁工具清单（预注册能力族起
+ *  2026-09-16 也如实带工具计数——后端采集面已并入）；分层族附「含低层级能力」语义 */
 function tagTooltip(item: TagCatalogItem): string {
   const desc = TOOL_TAG_LABELS[item.tag] ?? item.description;
-  if (item.category === 'base') return '基础标签，始终启用';
+  if (item.category === 'base') return desc ?? item.tag; // 历史类别（base 退役后不再产生）
   if (item.category === 'access-tier') return desc ?? item.tag;
   const lines: string[] = [];
   if (desc) lines.push(desc);
   if (item.tier === true) lines.push('分层标签：勾选本层级自动覆盖低层级（无需重复勾选）');
   const tools = item.tools.map((t) => t.name);
-  if (tools.length > 0) lines.push(`解锁工具：${tools.join('、')}`);
+  if (tools.length > 0) lines.push(`解锁 ${tools.length} 个工具：${tools.join('、')}`);
   return lines.join('\n');
 }
-/** 第一行徽章：base/admin/dev/shell/delegation/web/observe/manipulate/inject/档位 固定顺序 + 工具 requiredTags 用到的其他标签排后 */
+/** 第一行徽章：fs/collab/infra/admin/dev/shell/delegation/web/observe/manipulate/inject/档位 固定顺序 + 工具 requiredTags 用到的其他标签排后（base 退役——不再呈现隐式基础层） */
 const toolTagBadges = computed(() => {
-  const order = ['base', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject', 'sandbox-access', 'full-access'];
+  const order = ['fs', 'collab', 'infra', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject', 'sandbox-access', 'full-access'];
   const found = new Set<string>(order);
   for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
   return [...order, ...rest]
-    .map(tag => ({ tag, label: `${tag} · ${TOOL_TAG_LABELS[tag] ?? tag}`, fixed: tag === 'base' }));
+    .map(tag => ({ tag, label: `${tag} · ${TOOL_TAG_LABELS[tag] ?? tag}`, fixed: false }));
 });
 const toolBadgeSet = computed(() => new Set(toolTagBadges.value.map(b => b.tag)));
 const customTagInput = ref('');
-/** 旧 agent 标签读取时视为 base 固定徽章，不落入自定义标签区。目录在场时：
- *  自定义区只收目录外的词（目录词全在分组区管理）——owner 自声明词
- *  （agent:<id> 共享）与外部拼错词都在此可见可删 */
+/** 退役词（agent 旧词 / base——全量标签化后无门禁语义）不落入自定义标签区。
+ *  目录在场时：自定义区只收目录外的词（目录词全在分组区管理）——owner
+ *  自声明词（agent:<id> 共享）与外部拼错词都在此可见可删 */
+const RETIRED_TAGS = new Set(['agent', 'base']);
 const catalogTagSet = computed(() => new Set(tagCatalog.value?.map(t => t.tag) ?? []));
 const customTags = computed(() =>
   (props.raw.tags ?? []).filter((t: string) =>
-    t !== 'agent' && !toolBadgeSet.value.has(t) && !(tagCatalog.value && catalogTagSet.value.has(t)),
+    !RETIRED_TAGS.has(t) && !toolBadgeSet.value.has(t) && !(tagCatalog.value && catalogTagSet.value.has(t)),
   ),
 );
 
@@ -593,7 +599,7 @@ async function removeAvatar() {
                   class="tag-badge" :class="[{ on: item.reserved || (raw.tags ?? []).includes(item.tag) }, 'tb-' + item.tag]"
                   :title="tagTooltip(item)"
                   @click="toggleToolTag(item.tag, item.reserved === true)"
-                >{{ item.tag }} · {{ tagLabelOf(item) }}<span v-if="item.tools.length" class="tag-tool-count">{{ item.tools.length }}</span></button>
+                >{{ item.tag }} · {{ tagLabelOf(item) }}<span v-if="item.tools.length" class="tag-tool-count" :title="`解锁 ${item.tools.length} 个工具`">{{ item.tools.length }}</span></button>
               </div>
             </div>
           </template>
@@ -622,12 +628,12 @@ async function removeAvatar() {
           <textarea v-if="sysEnabled" class="info-textarea code" rows="11" :value="sysContent" @input="emit('update:sysContent', ($event.target as HTMLTextAreaElement).value)" placeholder="输入 SYSTEM.md 内容..."></textarea>
         </div>
 
-        <!-- AGENT.md -->
+        <!-- AGENTS.md（persona 文档；AGENT.md 存量旧名兼容读取） -->
         <div class="info-item">
-          <div class="info-label">AGENT.md</div>
+          <div class="info-label">AGENTS.md</div>
           <div class="info-desc">定义 Agent 的角色、行为和能力边界</div>
           <label class="info-toggle"><input type="checkbox" :checked="agentEnabled" @change="emit('update:agentEnabled', ($event.target as HTMLInputElement).checked)" /><span>启用自定义内容</span></label>
-          <textarea v-if="agentEnabled" class="info-textarea code" rows="11" :value="agentContent" @input="emit('update:agentContent', ($event.target as HTMLTextAreaElement).value)" placeholder="输入 AGENT.md 内容..."></textarea>
+          <textarea v-if="agentEnabled" class="info-textarea code" rows="11" :value="agentContent" @input="emit('update:agentContent', ($event.target as HTMLTextAreaElement).value)" placeholder="输入 AGENTS.md 内容..."></textarea>
         </div>
       </div>
     </div>
@@ -830,8 +836,10 @@ async function removeAvatar() {
   background: color-mix(in srgb, var(--tag-hue, var(--primary)) 14%, transparent);
   border-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 28%, transparent);
 }
-/* 标签色相表（与 AgentListPane 徽章同源） */
-.tb-base { --tag-hue: var(--primary); }
+/* 标签色相表（与 AgentListPane 徽章同源；base 已退役） */
+.tb-fs { --tag-hue: var(--primary); }
+.tb-collab { --tag-hue: #6366f1; }
+.tb-infra { --tag-hue: #0891b2; }
 .tb-admin { --tag-hue: #dc2626; }
 .tb-dev { --tag-hue: #059669; }
 .tb-shell { --tag-hue: #b45309; }

@@ -29,6 +29,7 @@ const TOOL_ICONS: Record<string, string> = {
   grep: 'file-search',
   // ── 命令 / 任务 ──
   bash: 'terminal',
+  pwsh: 'terminal',
   job: 'square-terminal',
   // ── 网络 / 搜索 / 浏览器 ──
   web_search: 'globe',

@@ -2,8 +2,8 @@
 // ac-client-ui-shell/client/index.ts —— 工具卡行 client 半边（M28 P2 §2.2）
 //
 // 贡献面：tool-card:result-view keyed seat——行卸载 → def 消失 →
-// resolve 回落默认文本渲染。bash → ToolResultTerminal
-//（ac-shell-tools 镜像，§2.2）。
+// resolve 回落默认文本渲染。bash / pwsh（2026-09-16 工具拆分双名）
+// → ToolResultTerminal（ac-shell-tools 镜像，§2.2；match 正则族）。
 // ============================================================
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { defineAsyncComponent } from 'vue';
@@ -21,6 +21,13 @@ export const shellCardClientPlugin = clientPlugin({
         id: 'bash',
         component: ToolResultTerminal,
         meta: { def: { match: 'bash', component: ToolResultTerminal, priority: 0, label: '执行命令', icon: 'terminal' } },
+      }),
+    );
+    ctx.slots.inject('tool-card:result-view', () =>
+      ctx.slots.register('tool-card:result-view', {
+        id: 'pwsh',
+        component: ToolResultTerminal,
+        meta: { def: { match: 'pwsh', component: ToolResultTerminal, priority: 0, label: '执行命令', icon: 'terminal' } },
       }),
     );
   },

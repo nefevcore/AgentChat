@@ -4,7 +4,7 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.8.9] - 2026-09-16
 
 ### Added（桌面壳数据根可配置——指针链 + 设置面板「存储管理」）
 - **指针读取链**（desktop/main.mjs，P1）：`env AGENTCHAT_DATA_ROOT`（调试/CI 覆盖）> 注册表 `HKCU\Software\AgentChat\DataRoot`（预留：安装向导/企业部署写入面，win packaged 形态）> `<appData>/AgentChat/data-root.txt`（设置面板写入面）> 缺省 `<appData>/AgentChat`。指针文件放缺省目录（稳定锚点——logs 恒在此，数据根可换而引导配置不丢）；指针失效 = 回落缺省 + 日志留痕，不 fatal。日志目录恒定缺省目录（迁移后重建）。
@@ -12,14 +12,41 @@ All notable changes to AgentChat are documented in this file.
 - **前端行 `ac-client-ui-desktop-storage`**（P2 前端半边）：settings:section 选举席贡献「存储管理」节（StorageHost.vue：位置 + 徽章 + 占用明细 + 迁移选项 + 确认弹层；bridge.ts 同源族端口推导 port+1 + 探活超时）。组合根两表 + ac-app 依赖同步。桥 pickedPort+1 与 vite 3831 理论撞号——仅 Electron 壳内存在（无 vite），无实际冲突。
 - **验证**：行单测 2 例 + 全仓 tsc + check-deps + webui:build 全绿。
 
+### Fixed（steer 消息丢失：连续插话时首条被覆盖）
+- **现象**：Agent 运行中连续发送两条插话（steer），首条消息从会话流消失，Agent 只看到第二条。
+- **根因**：`ac-agent-loop` steer 收集面——连续 steer 写入覆盖竞态，首条未入下一轮注入集。
+- **修复**：收集路径改为追加语义，连续 steer 各自保留并依序注入；`steer.test.ts` 扩例锁定；agent-loop 全部测试 + 根 tsc 干净。
+
+### Fixed（ask_questions 选项对象形态归一——[object Object] 消除）
+- **现象**：模型发 `{label, description}` 对象形态选项时，前端选项显示为 `[object Object]`。
+- **根因**：工具面 `String()` 直转且污染选项照常放行（schema 声明 string[] 但模型不守约是常态）。
+- **修复**：后端 `optionText/normalizeOptions` 归一（`{label,description}` → `"label —— description"`，垃圾项丢弃）+ 前端 `pickAskQuestions` 同款双防御 + 回归测试锁定。
+
+### Changed（NSIS 安装向导化——安装位置可选）
+- `desktop/package.json` nsis：`oneClick: false` + `allowToChangeInstallationDirectory: true`——运行 exe 进传统安装向导（欢迎页 → 选安装目录 → 快捷方式勾选 → 安装）；`/S` 静默参数仍可用。自 0.8.9 生效。
+
+### Added（工具标签化——47 工具全量 requiredTags 迁移，能力面收敛到标签轴）
+- 各工具行注册面声明 `requiredTags`（如 hello/math/timer → `infra`）；工具可见面与执行门禁同源：Agent 无对应标签 = 注册面不可见 + 点名调用被门禁拦（与 subagent 派生身份的 `STRIPPED_TAGS` 剥离联动——delegation/admin 递归与宿主级动作在能力轴上关闭）。约 40 个工具行源文件同步，`ac-plugin-core/reserved` 与 registry 一致性测试锁定。
+
+### Added（edit 写回前语法预检——fail-fast 拒绝结构损坏写盘）
+- 新模块 `ac-edit-core/src/syntax-check.ts`：按扩展名 O(n) 校验（.json 严格 parse / .jsonc 剥注释 / 代码类括号配平单遍状态机——字符串/模板/注释/正则感知）。预检失败 = 拒绝写回、文件保持原状，杜绝「interface 未闭合写回 → 下一轮 typecheck 才暴露 → 调用方基于损坏文件连环二次破坏」（docs/edit-tool-incident-report.md §2.3）。基线比对设计：编辑前已损坏的文件放行（修复编辑不被旧伤锁死）；edit-core 测试 +147 行锁定。
+
+### Fixed（subagent 派生身份能力收敛 + 看门狗中止归因）
+- **派生身份注册**：spawn/触达时 `ctx.agents.register` 派生条目——preset:true（名册不可见）+ 父 tags 剥 delegation/admin；信封装配 tools 按派生身份能力集终滤（点名不可越权）。此前依赖「未注册 fail-closed」，档位继承下 full 父的子 Agent 可见全部已注册工具。
+- **中止归因**：`ac-agent-loop` signal 已中止时的任何抛错归 `interrupted`（user-abort）而非 error——subagent 看门狗超时在 LLM 请求中段 abort 时不再误报 error 语义；`timeout_s` 参数显式化（0 = 不设看门狗）。subagent.test.ts +153 行锁定上述全部。
+
+### Changed（shell-tools 执行器拆分 + Unix→PS 翻译 fail-closed 重写）
+- 单平台工具行拆分：`shells.ts`（shell 谱系——pwsh 探测 pwsh→powershell、cmd 不入谱系；bash 纯透传）+ `executor.ts`（执行编排）从 index.ts 拆出（index -470 行）；`unix-translate.ts` 全面重写（+613/-299）：未识别的 flag/谓词/参数组合 → 该段不翻译原样透传（让命令以 Unix 原文失败——报错能对上 Agent 写的东西），终结旧实现「grep -v 反转丢失 / tail -f 丢操作数静默空成功 / find 谓词丢弃扩大搜索 / export $PATH 字面量污染」类静默语义漂移。shell-tools 测试两文件 +389 行锁定。
+
+### Fixed（未读徽章刷新恢复——localStorage 快照水合）
+- 新件 `unreadStore.ts`：未读分区计数快照入 localStorage 单键 `agentchat.unread`（客户端 UI 态归 localStorage 裁决，不进后端会话文件），feed-core 工厂期水合；读即抹除（clearUnread/进会话），只记 viewer 可见面。此前纯内存 ref 刷新即全零（「未读徽章刷新后消失」）。`unread-restore.test.ts` 130 行锁定。
+
 ## [0.8.8] - 2026-09-16
 
 ### Added（群聊未读数字徽章——名册群行 + 活动栏聚合同源）
-- **动机**：群聊离线时收到的消息无任何可见提示——Agent 私信有数字徽章（名册行 + 活动栏聚合），群聊却完全没有对等机制；正在别的会话/别的群里时，Agent 在群里发了什么全靠碰运气发现。
-- **状态机**（feed-core，与 direct 同字段同语义——分区 `unread`）：`group/message-posted` 增量时非 viewer 发言且该群非当前活跃群 → `unread += 1`（正在看的群不计未读，与 direct 入站同口径）；清除收口在 `setActiveGroup`（进入即 `clearUnread(group:gid)`）——ui-group `selectGroup` 三路径（列表点击/创建后自动选中/上次上下文恢复）全经此，零改动自然生效。
-- **名册群行**（AgentList.vue）：群头像外包 `group-avatar-wrap`（`position:relative` 容器，与 Agent 行 `item-avatar-wrap` 同构），挂 `.unread-badge` 数字徽章（复用既有样式：>99 封顶「99+」）；`unreadCountOf/unreadLabel` 泛化为 direct 对桶 + group 分区双源读取。
-- **活动栏聚合**（ActivityBar.vue）：`agentsUnreadTotal` 从「viewer 直答对桶求和」改为**全分区求和**（direct + single + group）——名册只列 Agent/群（single 无行入口），原口径漏加 single 会话少报总数；群聊并入后徽章仍是全局唯一未读提示位。`unreadAgents` 旧接口保持原语义（名册行徽章消费），不动。
-- **验证**：新增 `webui/tests/feed-group-unread.test.ts` 4 例（增量累加/viewer 自发不计/活跃群不计且清零稳定/direct-group 分区独立）+ `activity-bar-unread.test.ts` 扩 1 例（聚合含 group/single 分区、setActiveGroup 回落）；feed/群组/会话相关 13 文件 55 例 + 根 tsc 全绿。
+- **动机**：群聊离线收到的消息无可见提示——Agent 私信有数字徽章，群聊无对等机制。
+- **状态机**（feed-core，分区 `unread`）：`group/message-posted` 增量时非 viewer 发言且非当前活跃群 → `unread += 1`；`setActiveGroup` 进入即清零。名册群行挂 `.unread-badge`（>99 封顶）；活动栏聚合改全分区求和（direct + single + group——原口径漏 single 少报）。`unreadAgents` 旧接口语义不变。
+- **验证**：`feed-group-unread.test.ts` 4 例 + `activity-bar-unread.test.ts` 扩 1 例；feed/群组/会话相关 13 文件 55 例 + 根 tsc 全绿。
 
 ### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.8.1 → 0.10.0：整合批次收敛工具面 40 → 32）
 - **依赖**：`ac-sap-adt` 的 `@nefevcore/abap-adt-core` `^0.8.1` → `^0.10.0`（0.x 下 `^` 不跨 minor，需显式改 specifier；lock 同步为 registry 条目；`pnpm-workspace.yaml` minimumReleaseAgeExclude 白名单补 0.10.0 三件套）。
@@ -154,13 +181,8 @@ All notable changes to AgentChat are documented in this file.
 - **会话链透传**：ConversationView（single = 会话 id；direct = 激活 Agent 对桶键）→ TranscriptList → TurnDisplayItem（previewFile payload 增 conversationId）→ AssistantMessage/UserMessage 文件链接与 ToolMessage 工具卡（agent-id = 工具消息 agent_id、conversation-id = 所在会话）；`ToolResultWrite` 展开读取同 context（Agent 工作区内产出文件可直接预览）。
 - **验证**：ac-workspace 新增 3 例（Agent 基准/会话基准+数据根优先/越界与敏感遮蔽）共 33 绿；web-api 新增 query 透传端到端 1 例共 69 绿；webui 379 绿 + client UI 包 50 绿；tsc + vue-tsc 干净；dist 重建。
 
-### Added（桌面版新增 macOS 支持：dmg/zip 双架构打包，壳层两处 darwin 行为适配）
-- **打包配置**（`desktop/package.json`）：`build.mac` 块——dmg + zip target、`arm64 + x64` 双架构（非 universal，体积友好）、`identity: null` 显式跳过签名（无 Apple Developer 账号，避免构建机上找不到证书即失败）；图标复用 512×512 `icon.png` 由 electron-builder 自动转 icns。
-- **CI**（`.github/workflows/desktop.yml`）：matrix 增加 `macos-latest` + `--mac`；与 win/linux 并行构建，产物随同一 Release 发布。
-- **壳层适配**（`desktop/main.mjs`，仅两处 darwin 分支，win/linux 零行为变化）：① `app.on('activate')` 恢复主窗口——macOS 关窗=收托盘后点 dock 图标默认无恢复路径；② `autoUpdater.autoDownload` 在 darwin 关闭——未签名包 Squirrel.Mac 装不上，只做更新提醒，避免下载后安装失败的体验（win/linux 照旧自动下载静默安装）。
-- **README**：桌面版段落补 macOS dmg 下载说明（arm64/x64 按芯片选择）、数据根路径 `~/Library/Application Support/AgentChat`、未签名首启引导（右键→打开）与更新策略说明。
-- **Retina 托盘图标**：新增 `build/icon@2x.png`（32×32，logo.svg 按目标密度直渲，细线不发糊）——`nativeImage.createFromPath` 按同名后缀约定自动加载为 2x 表示，`resize(16pt)` 后 1x/2x 双表示保留，macOS Retina 与 Windows HiDPI 托盘均取原生密度渲染；`files` 打包清单同步带入（此前只带 icon.png）。
-- 既有跨平台基础无需改动：杀进程树 win32/else 分支、数据根 `app.getPath('appData')`、托盘均为平台原生支持；后端纯 Node bundle 无 native addon。
+### Added（macOS 桌面支持：dmg/zip 双架构打包，壳层 darwin 适配）
+- **打包**：`build.mac` 块——dmg + zip、arm64 + x64 双架构（非 universal）、`identity: null` 跳过签名；CI matrix 加 `macos-latest + --mac`。壳层仅 darwin 分支适配（activate 恢复主窗口 / autoDownload 关闭只提醒——未签名 Squirrel.Mac 装不上）；Retina 托盘图标（icon@2x 双表示）；README 补 macOS 下载/数据根/未签名首启说明。跨平台基础零改动。
 
 ### Added（文件编辑辅助侧边栏面板：会话文件编辑纵览 + 初版↔终版 diff）
 - **新选区**（conversation 行）：`webui-base-conversation.file-edits`——辅助活动栏新增「文件编辑」按钮（icon `file-diff`，order 20，rail 恒可见；comfyWidth `'half'` diff 对照半屏；keepAlive 展开态跨让位保留）。点击展开侧边栏 / 二次点击收起（活动栏同款交互）。
@@ -504,7 +526,7 @@ All notable changes to AgentChat are documented in this file.
 
 # 历史版本归档
 
-完整变更历史按 minor 线归档（主文件只保留最近两个版本——控制随包分发的体积与弹窗渲染量）：
+完整变更历史按 minor 线归档（主文件滚动保留近期版本，控制随包分发的体积）：
 
 - [CHANGELOG-0.8.md](./CHANGELOG/CHANGELOG-0.8.md)——0.8.0 ~ 0.8.4（M2x 系列）
 - [CHANGELOG-0.7-and-older.md](./CHANGELOG/CHANGELOG-0.7-and-older.md)——0.1.0 ~ 0.7.1（早期）

@@ -40,6 +40,13 @@ interface FrameKeys {
   agentId?: string;
   /** 发送方端点 id（M19：身份而非拓扑词） */
   sender: string;
+  /**
+   * 信封拓扑词（source：'user'|'agent'|'event'；缺省 '' = 未知——工具级
+   * 事件无信封载荷）。'event' = 机制唤醒 run（late-reply 回投 / timer 定点
+   * 等）落在用户可见会话——后端 ws-bridge 已按同口径放行广播，前端
+   * isForCurrentUser 据此放行（本会话内容，非串台）。
+   */
+  source: string;
 }
 
 /**
@@ -50,28 +57,29 @@ interface FrameKeys {
  * 过滤防串台）。conversationId 缺省回退 agent（无会话键的直连 run）→
  * viewer 直答对桶。
  */
-export function routeDialog(agent: string | undefined, conversationId: string | undefined, sender?: string): FrameKeys | null {
+export function routeDialog(agent: string | undefined, conversationId: string | undefined, sender?: string, source?: string): FrameKeys | null {
   const conv = conversationId || agent;
   if (!conv) return null;
   const senderKey = typeof sender === 'string' && sender ? sender : '';
+  const sourceKey = typeof source === 'string' && source ? source : '';
   if (chatPresence.knownSingles.has(conv)) {
-    return { dialogId: singleDialog(conv), ...(agent ? { agentId: agent } : {}), sender: senderKey };
+    return { dialogId: singleDialog(conv), ...(agent ? { agentId: agent } : {}), sender: senderKey, source: sourceKey };
   }
   if (chatPresence.knownGroups.has(conv)) {
     if (!agent) return null;
-    return { dialogId: groupDialog(conv), agentId: agent, sender: senderKey };
+    return { dialogId: groupDialog(conv), agentId: agent, sender: senderKey, source: sourceKey };
   }
   // 对桶（M19）：'a~b'（含 a~a 自会话与 user~agent 直答）→ pair 分区
   if (conv.includes('~')) {
     const parts = conv.split('~');
     if (parts.length === 2 && parts[0] && parts[1]) {
-      return { dialogId: pairDialog(parts[0], parts[1]), ...(agent ? { agentId: agent } : {}), sender: senderKey };
+      return { dialogId: pairDialog(parts[0], parts[1]), ...(agent ? { agentId: agent } : {}), sender: senderKey, source: sourceKey };
     }
     return null;
   }
   // 无会话键（loop 直连 run 等）：viewer 直答对桶
   if (!agent) return null;
-  return { dialogId: directDialog(agent), agentId: agent, sender: senderKey };
+  return { dialogId: directDialog(agent), agentId: agent, sender: senderKey, source: sourceKey };
 }
 
 /** 群桶过程流过滤（feed.isUserDialog 的 preview 版）：群会话键 → 不进 1v1 流 */

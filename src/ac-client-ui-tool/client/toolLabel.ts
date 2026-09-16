@@ -23,6 +23,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   glob: '文件匹配',
   grep: '内容搜索',
   bash: '执行命令',
+  pwsh: '执行命令',
   job: '后台任务',
   web_search: '网络搜索',
   browser: '浏览器',
@@ -61,6 +62,7 @@ function argDetail(name: string, a: Record<string, unknown>): string {
     case 'grep':
       return str(a.pattern).slice(0, 30);
     case 'bash':
+    case 'pwsh':
       return str(a.description) || str(a.command);
     case 'job': {
       // 意图优先（与 bash description 同语义）；回落 action[ · job_id]

@@ -190,7 +190,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     expect(r).toEqual({ llmProviders: { glm: { model: 'glm-5.3' } }, searchProviders: { tavily: {} } });
   });
 
-  it('getAgentConfig：get-config + SYSTEM/AGENT.md 并取 → AgentConfigViews（池名回显 $ref；allowedPaths 不物化——插件配置页单源）', async () => {
+  it('getAgentConfig：get-config + SYSTEM/AGENTS.md 并取 → AgentConfigViews（池名回显 $ref；allowedPaths 不物化——插件配置页单源；AGENTS.md 未命中才回退读 AGENT.md 存量旧名）', async () => {
     const { rpc, calls } = recorder({
       'agents/get-config': { config: { id: 'helper', description: '小助手', provider: 'glm', model: 'glm-5.3', llmParams: { temperature: 0.7 }, settings: { security: { enabled: true, allowedPaths: ['/tmp/x', '../shared'] } } } },
       'agents/read-doc': { content: '# S' },
@@ -245,7 +245,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       llmParams: { temperature: 0.3, top_p: 0.9, stop: 'END', response_format: 'json_object', max_tokens: 4096, reasoning_effort: 'high', thinking: true },
     });
     expect(byMethod('agents/save-doc')[0].params).toMatchObject({ name: 'SYSTEM.md', content: '# 系统' });
-    expect(byMethod('agents/save-doc')[1].params).toMatchObject({ name: 'AGENT.md', content: '' });
+    expect(byMethod('agents/save-doc')[1].params).toMatchObject({ name: 'AGENTS.md', content: '' });
     // 配置里混入 allowedPaths（历史视图残留）也不上送——settings.security 单源走 assembly 契约
     const bare = recorder({
       'agents/update-config': { config: {}, changed: [] },

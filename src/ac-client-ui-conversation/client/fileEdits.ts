@@ -17,7 +17,9 @@
 //      点起算」；
 //   4. versionPointsOf / editStepsOf —— 逐次回放：版本点序列（每
 //      次成功编辑后的全文形态）+ 可回放步枚举（初版↔终版之间的
-//      单次编辑视角——UI 下拉选择查看某次编辑用）。
+//      单次编辑视角——UI 下拉选择查看某次编辑用）；
+//   5. contentOfSummary / diffOfContent —— 当前内容视图：终版全文
+//      直读（+ 行渲染）。新建文件等 diff 基底缺失场景的内容可见面。
 //
 // 覆盖工具面：write / edit（ac-fs-tools）+ str_replace_editor 的
 // create / str_replace / insert（ac-str-replace-editor）。bash 等
@@ -426,7 +428,10 @@ export function versionPointsOf(
     points.push({ event: ev, content: next, before: cur });
     cur = next;
   }
-  if (points.length > 0) points[points.length - 1].content = final;
+  // 终版对账（防御）：多步链中途失配截断时以 finalContent 收口末点；
+  // 单步链不复写——步内容 = 该步写入本身（磁盘兜底改写 final 时可能
+  // 含会话外改动，复写会把单步视图变成 base→磁盘而非该步编辑）。
+  if (points.length > 1) points[points.length - 1].content = final;
   return points;
 }
 
@@ -466,6 +471,27 @@ export function editStepsOf(summary: FileEditSummary, events: FileEditEvent[]): 
 export function diffOfStep(step: FileEditStep): FileDiffResult {
   const r = generateDiffString(step.before, step.after);
   return { path: step.event.path, comparable: true, diff: r.diff, added: r.diffAdded, removed: r.diffRemoved, partial: false };
+}
+
+// ------------------------------------------------------------
+// 当前内容视图：直接查看终版全文（不比对）。新建文件（base=首写版
+// = final）等场景 diff 无从呈现内容——内容视图兜底可见。
+// ------------------------------------------------------------
+
+/** 终版全文（当前文件内容；null = 链不可启无内容） */
+export function contentOfSummary(s: FileEditSummary): string | null {
+  return s.finalContent;
+}
+
+/** 当前内容视图：全文渲染为 + 行（行号与 diff 渲染同约定） */
+export function diffOfContent(s: FileEditSummary): FileDiffResult {
+  const content = s.finalContent;
+  if (content === null) {
+    return { path: s.path, comparable: false, diff: '', added: s.added, removed: s.removed, partial: s.partial };
+  }
+  const lines = content.split('\n');
+  const diff = lines.map((text, i) => `+ ${i + 1} ${text}`).join('\n');
+  return { path: s.path, comparable: true, diff, added: lines.length, removed: 0, partial: s.partial };
 }
 
 // ------------------------------------------------------------

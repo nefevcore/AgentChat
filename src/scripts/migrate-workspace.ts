@@ -288,9 +288,9 @@ if (fs.existsSync(agentsDir)) {
       fs.writeFileSync(path.join(dstDir, 'timer.json'), `${JSON.stringify({ entries }, null, 2)}\n`, 'utf-8');
     }
 
-    // 头像 / AGENT.md（persona 文档）
+    // 头像 / AGENT.md（persona 文档；2026-11 起新标准名 AGENTS.md——两名皆拷）
     for (const f of fs.readdirSync(path.join(agentsDir, d.name))) {
-      if (/^avatar\.(png|jpe?g|svg|webp|gif)$/i.test(f) || f === 'AGENT.md') {
+      if (/^avatar\.(png|jpe?g|svg|webp|gif)$/i.test(f) || f === 'AGENT.md' || f === 'AGENTS.md') {
         fs.copyFileSync(path.join(agentsDir, d.name, f), path.join(dstDir, f));
       }
     }

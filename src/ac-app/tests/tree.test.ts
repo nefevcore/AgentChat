@@ -70,7 +70,9 @@ describe('ac-app 组合树', () => {
     const { ctx } = await boot();
     const events: string[] = [];
     ctx.on('tool/after-execute', (call) => events.push(call.name));
-    const result = await ctx.tools.execute({ name: 'hello', args: { message: 'x' } });
+    // infra 门禁（全量标签化 2026-09-16）：注册带 infra 标签的身份执行
+    ctx.agents.register({ id: 'probe', model: 'mock-1', tags: ['infra'] });
+    const result = await ctx.tools.execute({ name: 'hello', args: { message: 'x' }, agentId: 'probe' } as never);
     expect(result).toEqual({ ok: true, output: 'hello: x' });
     expect(events).toEqual(['hello']);
   });

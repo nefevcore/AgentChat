@@ -245,11 +245,11 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
 // 必须显式改这里（防"顺手加一句"的渐进膨胀；audit 曾发现 20% 冗余）
 // ============================================================
 
-const E_FILE = '文件操作：改现有文件用 edit，old_string 从 read 的输出中原样复制（自拟文本会匹配失败）；同一文件有多处独立修改时，并行发多个 edit 调用。write 是整文件覆盖，只用于新建文件。找文件用 glob，搜内容用 grep；不确定文件位置时先用 glob 确认，不要凭记忆拼路径。bash 只做文件工具办不到的事（组合命令、进程、环境）。';
+const E_FILE = '文件操作：改现有文件用 edit，old_string 从 read 的输出中原样复制（自拟文本会匹配失败；连续编辑同一文件段落时必须重新 read 获取——上次编辑的产物 ≠ 记忆中的文本）；同一文件有多处独立修改时，并行发多个 edit 调用。write 是整文件覆盖，只用于新建文件。找文件用 glob，搜内容用 grep；不确定文件位置时先用 glob 确认，不要凭记忆拼路径。文件存在重复/相似文本块时优先用 pwsh/write 整段重写而非 edit。';
 const E_FILE_NOEDIT = '文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。';
-const E_CMD = '命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。清理进程只用自己启动时记录的 PID 精确点名（Start-Process -PassThru 拿 Id，再 Stop-Process -Id / taskkill /PID），绝不按进程名广谱杀 node/pnpm——后端宿主就是其中之一，按名杀会中断整个后端（该模式任何权限档位都会被拦截）。';
-const E_JOB = '后台任务：后台命令会返回 job_id，记住 id，任务完成时会收到通知，不要用 job list 忙轮询；确需等待完成时，用前台 bash 配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。';
-const E_OUT = '产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式；只说"已修改"而不给路径，用户无法定位文件。';
+const E_CMD = '命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。';
+const E_JOB = '后台任务：后台命令会返回 job_id，记住 id 即可，任务完成时通知会自动送达，无需反复查询任务状态；确需等待完成时，用前台命令工具配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。';
+const E_OUT = '产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式。';
 const E_AGENTS = '多Agent协作：先 list_agents 找对象，再 send_agent 发消息。消息异步送达：发出后继续手头工作，回复会作为新消息到达；仅当下一步依赖对方结果时才设 wait=true。';
 const E_GROUP = '群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。';
 const E_TIMER = '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。';
@@ -292,8 +292,22 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
     expect(guidelineBlock(['read', 'write', 'edit'])).toBe(`## 指引\n1. ${E_FILE}\n2. ${E_OUT}`);
   });
 
-  it('基线② 仅 bash → 命令执行 + 后台任务 + 产出物引用', () => {
+  it('基线② 仅 bash → 命令执行 + 后台任务 + 产出物引用（无 pwsh 平台条目）', () => {
     expect(guidelineBlock(['bash'])).toBe(`## 指引\n1. ${E_CMD}\n2. ${E_JOB}\n3. ${E_OUT}`);
+    // bash 在场 → 环境块注入 Unix 宿主措辞（不出现 pwsh 词汇）
+    const env = systemPromptRow.assembleBlocks({ toolNames: ['bash'] }).join('\n\n');
+    expect(env).toContain('[宿主环境] 命令实际由 bash 执行');
+    expect(env).toContain('命令工具（bash）只做文件工具办不到的事');
+    expect(env).not.toContain('PowerShell');
+  });
+
+  it('基线②b 仅 pwsh → 命令执行 + 后台任务 + 产出物引用（无独立 PowerShell 平台条目——平台事实已并入 [宿主环境] 行）', () => {
+    expect(guidelineBlock(['pwsh'])).toBe(`## 指引\n1. ${E_CMD}\n2. ${E_JOB}\n3. ${E_OUT}`);
+    // pwsh 在场 → 环境块注入 [宿主环境] 行（Windows 宿主措辞）
+    const env = systemPromptRow.assembleBlocks({ toolNames: ['pwsh'] }).join('\n\n');
+    expect(env).toContain('[宿主环境] 命令实际由 PowerShell 执行');
+    expect(env).toContain('translated_command');
+    expect(env).toContain('AgentChat 后端本身');
   });
 
   it('基线③ 全量 dev 工具集 → 11 条全出，顺序与编号锁定', () => {
@@ -523,55 +537,40 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     expect(content).not.toContain('工作区根）');
   });
 
-  it('[路径规则] 按有效档位分档措辞（access-tier；undefined = base）', () => {
-    // base（缺省档）：写限沙箱 + 越界审批，读不设防——保留 2026-09-02
-    // 反泛化锚（拦截原因是越界而非绝对路径形态）
-    const base = systemPromptRow.assembleBlocks({ toolNames: [] }).join('\n\n');
-    expect(base).toContain('[路径规则] 工作目录与白名单内绝对/相对路径均可读写');
-    expect(base).toContain('拦截原因是越界而非绝对路径形态');
-    // sandbox：白名单内自由 + bash 软边界
-    const sandbox = systemPromptRow
-      .assembleBlocks({ toolNames: [], accessTier: 'sandbox-access' })
-      .join('\n\n');
-    expect(sandbox).toContain('[路径规则] 沙箱白名单内绝对/相对路径均可自由读写');
-    expect(sandbox).toContain('bash 软边界');
-    // full：不受沙箱限制（黑名单仍生效）
-    const full = systemPromptRow
-      .assembleBlocks({ toolNames: [], accessTier: 'full-access' })
-      .join('\n\n');
-    expect(full).toContain('[路径规则] full-access 档：路径访问不受沙箱限制');
-    expect(full).toContain('系统域黑名单仍生效');
-    // 三档均不再出现旧全局句
-    for (const text of [base, sandbox, full]) {
-      expect(text).not.toContain('沙箱越界一律拦截');
-    }
+  it('[宿主环境] 按在场 shell 工具单写（2026-09-16 收拢：进程清理纪律 + PowerShell 平台事实 + 命令工具职责分工归环境块；不出现未分配的命令工具名）', () => {
+    // pwsh 在场 → Windows 宿主措辞（翻译提示 + 职责分工 + 进程清理）
+    const pwsh = systemPromptRow.assembleBlocks({ toolNames: ['pwsh'] }).join('\n\n');
+    expect(pwsh).toContain('[宿主环境] 命令实际由 PowerShell 执行');
+    expect(pwsh).toContain('translated_command');
+    expect(pwsh).toContain('命令工具（pwsh）只做文件工具办不到的事（组合命令、进程、环境）');
+    expect(pwsh).toContain('AgentChat 后端本身');
+    expect(pwsh).not.toContain('（bash）');
+
+    // bash 在场 → Unix 宿主措辞（不出现 PowerShell 词汇）
+    const bash = systemPromptRow.assembleBlocks({ toolNames: ['bash'] }).join('\n\n');
+    expect(bash).toContain('[宿主环境] 命令实际由 bash 执行');
+    expect(bash).toContain('命令工具（bash）只做文件工具办不到的事');
+    expect(bash).toContain('AgentChat 后端本身');
+    expect(bash).not.toContain('PowerShell');
+
+    // shell 工具不在场（纯 fs 工具集）→ 不注入 [宿主环境] 行
+    const fsOnly = systemPromptRow.assembleBlocks({ toolNames: ['read', 'write', 'edit'] }).join('\n\n');
+    expect(fsOnly).not.toContain('[宿主环境]');
+
+    // 双 shell 在场（异常面）→ pwsh 优先（与单平台注册对齐，不双写）
+    const both = systemPromptRow.assembleBlocks({ toolNames: ['pwsh', 'bash'] }).join('\n\n');
+    expect(both.match(/\[宿主环境\]/g)?.length).toBe(1);
+    expect(both).toContain('由 PowerShell 执行');
   });
 
-  it('[路径规则] apply 侧档位装配：Agent tags 与 run elevation 单源判定', async () => {
-    // ① Agent tags full-access → full 措辞
-    const f = await boot({ agent: { id: 'fulla', model: 'mock-1', tags: ['full-access'] } });
-    await f.ctx.agentLoop.run({ agent: 'fulla', model: 'mock-1', messages: USER });
-    expect(String(captured[0].messages[0].content)).toContain(
-      '[路径规则] full-access 档：路径访问不受沙箱限制',
-    );
-    // ② Agent tags sandbox-access → sandbox 措辞
-    const s = await boot({ agent: { id: 'sanda', model: 'mock-1', tags: ['sandbox-access'] } });
-    await s.ctx.agentLoop.run({ agent: 'sanda', model: 'mock-1', messages: USER });
-    expect(String(captured[0].messages[0].content)).toContain(
-      '[路径规则] 沙箱白名单内绝对/相对路径均可自由读写',
-    );
-    // ③ base Agent + elevation 提权 → 按本次 run 有效档位（elevation 优先）
-    const e = await boot({ agent: { id: 'basea', model: 'mock-1' } });
-    await e.ctx.agentLoop.run({ agent: 'basea', model: 'mock-1', elevation: 'full-access', messages: USER });
-    expect(String(captured[0].messages[0].content)).toContain(
-      '[路径规则] full-access 档：路径访问不受沙箱限制',
-    );
-    // ④ 无 tags 无 elevation → base 措辞
-    const b = await boot({ agent: { id: 'plain', model: 'mock-1' } });
-    await b.ctx.agentLoop.run({ agent: 'plain', model: 'mock-1', messages: USER });
-    expect(String(captured[0].messages[0].content)).toContain(
-      '[路径规则] 工作目录与白名单内绝对/相对路径均可读写',
-    );
+  it('[宿主环境] apply 侧装配：request.tools 含 pwsh → 注入 Windows 宿主行；纯 fs 工具集 → 不注入', async () => {
+    const p = await boot();
+    await p.ctx.agentLoop.run({ model: 'mock-1', tools: ['read', 'write', 'edit', 'pwsh'], messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain('[宿主环境] 命令实际由 PowerShell 执行');
+
+    const f = await boot();
+    await f.ctx.agentLoop.run({ model: 'mock-1', tools: ['read', 'write', 'edit'], messages: USER });
+    expect(String(captured[0].messages[0].content)).not.toContain('[宿主环境]');
   });
 
   it('尾档 prepend 收敛：对话信息块先于尾档 push 住户（模拟 ac-datetime 日期行）', async () => {
