@@ -25,7 +25,12 @@ export interface AppliedEditsResult {
   newContent: string;
   /** 每个 edit 在 baseContent 中的位置信息（用于增量 diff） */
   editPositions: EditPosition[];
+  /** 每个 edit 实际生效的匹配级别（0=精确, 1=归一化模糊；2 只定位不替换不会出现） */
+  matchLevels: EditMatchLevel[];
 }
+
+/** 编辑实际生效的匹配级别：0=精确, 1=归一化模糊（Level 2 拒绝编辑） */
+export type EditMatchLevel = 0 | 1;
 
 /** 单个编辑在原始内容中的位置 */
 export interface EditPosition {

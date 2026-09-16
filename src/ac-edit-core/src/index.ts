@@ -3,17 +3,19 @@
 //
 // src edit 包 2026-08-20 收敛形态的原样继承（地图审查修正：
 // hashline DSL/行级定位/快照校验已在 src 移除，以现状为准）：
-//   · fuzzy-match  —— 三级模糊匹配（精确 → NFKC+trimEnd → NFKC+trim）
+//   · fuzzy-match  —— 三级模糊匹配（精确 → NFKC+trimEnd → NFKC+trim；
+//                     P0 收口后 trim 级只定位不替换，唯一性三级交叉校验）
 //   · line-ending  —— BOM 剥离 + 混合换行按行保留（防整文件字节污染）
 //   · apply        —— old_string 唯一性/重叠校验 + 从后往前替换
 //   · diff         —— 增量 diff（编辑位置已知 O(edits×ctx)）/ 全量 LCS 兜底
+//   · syntax-check —— 写回前语法预检（JSON 严格解析 / 括号配平，fail-fast）
 //   · mutation-queue —— 同文件写串行化（read/write/edit 共享，一致性）
 //   · executor     —— 统一管线（路径解析归调用方，零策略）
 // ============================================================
 export {
   normalizeForFuzzyMatch,
   fuzzyFindText,
-  countOccurrences,
+  countOccurrencesByLevel,
 } from './fuzzy-match.ts';
 export {
   stripBom,
@@ -26,7 +28,9 @@ export {
 export type { LineEnding, RawLine } from './line-ending.ts';
 export { applyEditsToNormalizedContent } from './apply.ts';
 export { generateIncrementalDiff, generateDiffString, countLineChanges } from './diff.ts';
+export { syntaxCheckBeforeWrite } from './syntax-check.ts';
+export type { SyntaxCheckResult } from './syntax-check.ts';
 export { withFileMutationQueue } from './mutation-queue.ts';
 export { applyEditBatch } from './executor.ts';
 export type { EditBatch, EditBatchResult } from './executor.ts';
-export type { ReplaceEdit, FuzzyMatchResult, AppliedEditsResult, EditPosition } from './types.ts';
+export type { ReplaceEdit, FuzzyMatchResult, AppliedEditsResult, EditPosition, EditMatchLevel } from './types.ts';

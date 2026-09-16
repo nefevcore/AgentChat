@@ -22,8 +22,11 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'hello',
   // ac-fs-tools / ac-fs-search / ac-str-replace-editor
   'read', 'write', 'edit', 'glob', 'grep', 'str_replace_editor',
-  // ac-shell-tools / ac-web-tools
-  'bash', 'job', 'web_search', 'browser',
+  // ac-shell-tools（2026-09-16 工具拆分：Windows → pwsh；Unix → bash。
+  // 本表按占名超集维护（双名都保留——动态插件在任何平台都不得抢注
+  // 内置 shell 工具名；当平台实际注册面见 expectedBuiltinToolNames）
+  // / ac-web-tools
+  'bash', 'pwsh', 'job', 'web_search', 'browser',
   // ac-math
   'math',
   // ac-collab-tools
@@ -56,6 +59,17 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'adt_release_gate', 'adt_run_atc', 'adt_run_unit_tests', 'adt_search',
   'adt_selfcheck', 'adt_system_info', 'adt_transports', 'adt_unlock_all',
   'adt_version_diff', 'adt_where_used',
+];
+
+/**
+ * 当平台实际注册的工具面（一致性测试期望值；2026-09-16 工具拆分）。
+ * BUILTIN_TOOL_NAMES 按占名超集维护（防动态插件抢注任何平台的内置
+ * 名）；实际注册面平台相关——Windows 注册 pwsh（无 bash——单平台
+ * 单工具，双名会让 tag:shell 展开出重复工具），Unix 注册 bash。
+ */
+export const expectedBuiltinToolNames: readonly string[] = [
+  ...BUILTIN_TOOL_NAMES.filter((n) => n !== 'bash' && n !== 'pwsh'),
+  process.platform === 'win32' ? 'pwsh' : 'bash',
 ];
 
 /** 常见 LLM provider 名（占名护栏：防动态插件抢注用户常用连接名——

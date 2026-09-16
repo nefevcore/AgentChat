@@ -20,6 +20,7 @@
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",
+    "ac-subagent": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

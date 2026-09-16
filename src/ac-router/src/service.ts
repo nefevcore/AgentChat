@@ -201,8 +201,20 @@ export class RouterService extends Service {
     const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
     const allToolNames = visibleTools.map((t) => t.name);
     // 解析传 defs（tag 引用展开：include/exclude 条目 'tag:<tag>' 按
-    // requiredTags 展开为工具名——工具集增删自动跟随）；无配置回落全量
-    const resolved = resolveToolNames(agent.tools, visibleTools) ?? allToolNames;
+    // requiredTags 展开为工具名——工具集增删自动跟随）；空展开告警
+    // （fail-fast：点名不存在的标签——tag:fs 事故形态）+ 字面名落空
+    // 告警（存量/拼写错点名不可见工具，如平台拆分后 Windows 的 'bash'
+    // ——前置修复 #2：静默落空变可观测）；无配置回落全量
+    const resolved = resolveToolNames(
+      agent.tools,
+      visibleTools,
+      (tag) => {
+        this.ctx.logger.warn(`[router] tools 引用 'tag:${tag}' 展开为空（标签不存在或无工具声明它），相关条目已静默落空——Agent ${call.agentId ?? '无身份'}`);
+      },
+      (name) => {
+        this.ctx.logger.warn(`[router] tools 点名 '${name}' 不在当前可见工具面（不存在/不可见/已改名，如平台拆分 bash→pwsh），该条目落空——Agent ${call.agentId ?? '无身份'}`);
+      },
+    ) ?? allToolNames;
     const form = this.conversationForm(call.conversationId);
     const formAllowed = (name: string): boolean => {
       if (form === null) return true;

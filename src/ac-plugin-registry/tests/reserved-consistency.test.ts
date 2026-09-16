@@ -15,7 +15,7 @@ import { bootTree } from 'ac-app';
 import {
   BUILTIN_AGENT_IDS,
   BUILTIN_LLM_PROVIDER_NAMES,
-  BUILTIN_TOOL_NAMES,
+  expectedBuiltinToolNames,
 } from 'ac-plugin-core';
 
 const roots: string[] = [];
@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe('保留字常量表一致性（boot 全 TREE 锁定，G1）', () => {
-  it('工具注册面 === BUILTIN_TOOL_NAMES', async () => {
+  it('工具注册面 === expectedBuiltinToolNames（当平台实际面；BUILTIN_TOOL_NAMES 为跨平台占名超集）', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'ac-reserved-'));
     roots.push(dataRoot);
     const prev = process.env.AGENTCHAT_DATA_ROOT;
@@ -34,7 +34,7 @@ describe('保留字常量表一致性（boot 全 TREE 锁定，G1）', () => {
       const { ctx, fibers } = await bootTree();
       try {
         const actual = ctx.tools.list().map((t) => t.name).sort();
-        expect([...new Set(actual)]).toEqual([...BUILTIN_TOOL_NAMES].sort());
+        expect([...new Set(actual)]).toEqual([...expectedBuiltinToolNames].sort());
       } finally {
         for (const fiber of [...fibers.values()].reverse()) {
           if (fiber.uid !== null) await fiber.dispose().catch(() => undefined);

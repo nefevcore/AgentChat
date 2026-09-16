@@ -42,9 +42,9 @@ const ABAP_DEV_PRESET: AgentPresetDefinition = {
     name: 'ABAP开发模式',
     preset: true,
     // 工具面 = tags 解锁（门禁轴单一事实源）：sap-adt（adt_* 全家）+
-    // shell（bash）+ web（web_search）；无门禁工具（read/write/协作等）
-    // 走默认面——与标准模式同构，不写 tools 白名单
-    tags: ['sap-adt', 'shell', 'web'],
+    // shell（命令族）+ web（web_search）+ fs/collab/infra（全量标签化
+    // 2026-09-16 基础族——与标准模式同构，不写 tools 白名单）
+    tags: ['sap-adt', 'fs', 'collab', 'infra', 'shell', 'web'],
     settings: {
       memory: { enabled: false },
       skill: { enabled: false },

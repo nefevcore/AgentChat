@@ -39,8 +39,10 @@ export const extension: ExtensionMeta = {
 export const inject = ['tools', 'timers', 'agents'];
 
 export function apply(ctx: Context) {
+  // infra 标签（2026-09-16 全量标签化）：定时任务属会话基础设施
   ctx.tools.register({
     name: 'timer',
+    requiredTags: ['infra'],
     description:
       '管理定时任务：set 创建/修改、list 查看、disable 禁用。模式：delay 固定间隔 / random 随机间隔 / time 每天定点 / workday 工作日 / holiday 节假日；repeat_count=0 永久重复，N 次后自动归档。',
     parameters: {

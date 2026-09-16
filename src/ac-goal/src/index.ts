@@ -488,8 +488,10 @@ export function apply(ctx: Context) {
   // + 驱动监听同 fiber 归属，摘行整体回收
   const service = new GoalsService(ctx);
 
+  // infra 标签（2026-09-16 全量标签化）：任务追踪属会话基础设施
   ctx.tools.register({
     name: 'goal',
+    requiredTags: ['infra'],
     description:
       '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。',
     parameters: {

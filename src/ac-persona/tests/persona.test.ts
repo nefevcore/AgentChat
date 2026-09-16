@@ -173,6 +173,34 @@ describe('ac-persona 文件装载（M14 形状升级）', () => {
     });
   });
 
+  it("persona 文档双名同义：AGENTS.md 优先、AGENT.md 存量回退（配置写哪个名读序一致）", async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'ac-persona-'));
+    captured.length = 0;
+    const ctx = new Context();
+    await boot(ctx, [...standardRows(), agentStoreRow, personaRow]);
+    // 双名并存 → 新名优先（配置写旧名同样命中 AGENTS.md——旧文档不遮蔽新写内容）
+    ctx.agentStore.saveAgent({ id: 'd1', model: 'mock-1' });
+    ctx.agentStore.saveDoc('d1', 'AGENTS.md', '# 人物设定\n\n新人设\n');
+    ctx.agentStore.saveDoc('d1', 'AGENT.md', '# 人物设定\n\n旧人设\n');
+    ctx.agents.register({ id: 'd1', model: 'mock-1', settings: { persona: { file: 'AGENT.md', text: '内联回退' } } });
+    await ctx.agentLoop.run({ agent: 'd1', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }] });
+    expect(captured[0].messages[0]).toEqual({
+      role: 'system',
+      content: '<persona>\n# 人物设定\n\n新人设\n</persona>',
+    });
+
+    // 仅存量旧名 → 回退命中（配置写新名也读得到——旧名档迁移前不失效）
+    captured.length = 0;
+    ctx.agentStore.saveAgent({ id: 'd2', model: 'mock-1' });
+    ctx.agentStore.saveDoc('d2', 'AGENT.md', '# 人物设定\n\n存量旧名人设\n');
+    ctx.agents.register({ id: 'd2', model: 'mock-1', settings: { persona: { file: 'AGENTS.md' } } });
+    await ctx.agentLoop.run({ agent: 'd2', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }] });
+    expect(captured[0].messages[0]).toEqual({
+      role: 'system',
+      content: '<persona>\n# 人物设定\n\n存量旧名人设\n</persona>',
+    });
+  });
+
   it('agentStore 未装 + 裸名缺失 → text 回退；file 缺失 → 不注入', async () => {
     captured.length = 0;
     const ctx = new Context();

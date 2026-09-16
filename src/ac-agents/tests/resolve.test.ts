@@ -66,6 +66,32 @@ describe('resolveToolNames（tools 对象形态收编）', () => {
     // 纯名字 universe（无 tag 信息）：引用条目静默落空
     expect(resolveToolNames({ include: ['tag:sap-adt', 'hello'] }, all)).toEqual(['hello']);
   });
+
+  it('落空告警回调（前置修复 #2）：字面名不在 universe 与 tag 空展开都回调；字面名仍透传', () => {
+    const defs = [
+      { name: 'read', requiredTags: ['fs'] },
+      { name: 'pwsh', requiredTags: ['shell'] },
+    ];
+    const unknownLiterals: string[] = [];
+    const emptyTags: string[] = [];
+    // 'bash' 不在 universe（平台拆分后 Windows 的存量形态）——回调但透传
+    const resolved = resolveToolNames(
+      ['read', 'bash'],
+      defs,
+      (t) => emptyTags.push(t),
+      (n) => unknownLiterals.push(n),
+    );
+    expect(resolved).toEqual(['read', 'bash']); // 透传不变（执行面报未知工具）
+    expect(unknownLiterals).toEqual(['bash']);
+    expect(emptyTags).toEqual([]); // 无 tag: 引用
+    // tag 空展开照旧回调
+    resolveToolNames(['tag:none'], defs, (t) => emptyTags.push(t));
+    expect(emptyTags).toEqual(['none']);
+    // exclude 侧字面名落空同样回调（点名停用不存在工具——配置噪音）
+    const exclUnknown: string[] = [];
+    resolveToolNames({ exclude: ['ghost'] }, defs, undefined, (n) => exclUnknown.push(n));
+    expect(exclUnknown).toEqual(['ghost']);
+  });
 });
 
 describe('filterLlmParams（采样白名单）', () => {

@@ -68,9 +68,10 @@ describe('ac-sap-adt/preset：ABAP 开发模式预设', () => {
     const dev = ctx.agents.get('__abap_dev__');
     expect(dev?.preset).toBe(true);
     expect(dev?.name).toBe('ABAP开发模式');
-    // 能力声明面：sap-adt 门禁词 + shell + web——与标准模式同构
+    // 能力声明面：sap-adt 门禁词 + 基础族（fs/collab/infra——全量标签化
+    // 2026-09-16）+ shell + web——与标准模式同构
     // （只写 tags，不写 tools 白名单：门禁轴单一事实源）
-    expect(dev?.tags).toEqual(['sap-adt', 'shell', 'web']);
+    expect(dev?.tags).toEqual(['sap-adt', 'fs', 'collab', 'infra', 'shell', 'web']);
     expect(dev?.tools).toBeUndefined();
     // 无记忆语义（与标准/极简同款软停用）
     expect((dev?.settings as Record<string, { enabled?: boolean }>).memory).toEqual({ enabled: false });
@@ -92,8 +93,8 @@ describe('ac-sap-adt/preset：ABAP 开发模式预设', () => {
     const registeredAdt = ctx.tools.list().map((t) => t.name).filter((n) => n.startsWith('adt_'));
     expect(registeredAdt.length).toBeGreaterThanOrEqual(32);
     for (const name of registeredAdt) expect(visible).toContain(name);
-    // bash（shell）/ web_search（web）也解锁
-    expect(visible).toContain('bash');
+    // 命令工具（shell，平台名：Windows pwsh / Unix bash）/ web_search（web）也解锁
+    expect(visible).toContain(process.platform === 'win32' ? 'pwsh' : 'bash');
     expect(visible).toContain('web_search');
 
     // 跟随性证明：再注册一个带 sap-adt 标签的工具 → 无需改预设即解锁

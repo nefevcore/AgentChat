@@ -149,7 +149,7 @@ describe('ac-session-query', () => {
     expect(page.output.messages[0]).toMatchObject({ index: 2, role: 'user' });
   });
 
-  it('# 会话引用约定：生效工具集含 read_history 才注入（owner 行条件安装）', async () => {
+  it('# 会话引用指引：历史工具或文件读取能力在场其一即注入（owner 行条件安装）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
 
@@ -159,12 +159,17 @@ describe('ac-session-query', () => {
       return (call.request as { system?: string }).system;
     }
 
+    // 历史工具在场 → 注入（教 conversation_id 用法 + 磁盘回退）
     const withHistory = await runWithTools(['read_history', 'grep_history']);
     expect(withHistory).toContain('[引用约定]');
     expect(withHistory).toContain('#<标题>(<会话 id>)');
     expect(withHistory).toContain('conversation_id');
-    // 白名单不含 read_history → 不注入
-    const without = await runWithTools(['grep_history']);
+    // 文件工具在场（无历史工具——标准预设形态）→ 仍注入（教磁盘路径分析）
+    const fileOnly = await runWithTools(['read', 'grep', 'pwsh']);
+    expect(fileOnly).toContain('[引用约定]');
+    expect(fileOnly).toContain('sessions/<conversation_id>/messages.jsonl');
+    // 无历史工具也无文件读取能力 → 不注入
+    const without = await runWithTools(['ask_questions']);
     expect(without).toBeUndefined();
     // 缺省 = 全部已注册工具（本行注册了 read_history）→ 注入
     expect(await runWithTools(undefined)).toContain('[引用约定]');

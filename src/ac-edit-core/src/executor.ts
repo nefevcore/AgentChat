@@ -18,6 +18,7 @@ import {
 } from './line-ending.ts';
 import { applyEditsToNormalizedContent } from './apply.ts';
 import { generateDiffString, generateIncrementalDiff } from './diff.ts';
+import { syntaxCheckBeforeWrite } from './syntax-check.ts';
 import { withFileMutationQueue } from './mutation-queue.ts';
 import type { ReplaceEdit } from './types.ts';
 
@@ -34,6 +35,8 @@ export interface EditBatchResult {
   diffAdded: number;
   /** 行级删除数（编辑区 `+ ` 行；工具卡 Label -M 数据源） */
   diffRemoved: number;
+  /** 编辑落点核验回显（readback）：编辑区前后各 ~3 行，带行号（read 同款格式） */
+  readback?: string;
 }
 
 /**
@@ -41,9 +44,10 @@ export interface EditBatchResult {
  *
  * 步骤：
  *   1. 读文件 → stripBom → 检测行尾 → 归一化 LF
- *   2. old_string 文本匹配（唯一性校验 + 三级模糊归一化）
- *   3. diff 生成（增量 / 兜底全量）
- *   4. 写回（混合换行按行保留行尾）
+ *   2. old_string 文本匹配（唯一性交叉校验；Level 2 拒绝编辑）
+ *   3. 语法预检（json/括号配平，失败拒绝写回、文件保持原状）
+ *   4. diff 生成（增量 / 兜底全量）
+ *   5. 写回（混合换行按行保留行尾）
  */
 export async function applyEditBatch(filePath: string, batch: EditBatch): Promise<EditBatchResult> {
   return withFileMutationQueue(filePath, async () => {
@@ -64,22 +68,75 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
     const currentContent = r.newContent;
     const editPositions = r.editPositions;
 
-    // 3. diff 生成
+    // 3. 写回前语法预检（P1 fail-fast）：json/括号配平失败 → 拒绝编辑、文件保持原状。
+    //    编辑前已损坏的文件放行（修复编辑不该被旧伤锁死——事故连环修复期的护栏）
+    const syntax = syntaxCheckBeforeWrite(filePath, normalized, currentContent);
+    if (syntax) {
+      throw new Error(
+        `编辑被拒绝（写回前语法预检）：${syntax.reason}\n` +
+          `恢复建议：用 read 重新读取目标段落核对 old_string 落点；确认无误后可改用 write 整段重写。`,
+      );
+    }
+
+    // 4. diff 生成
     const { diff, firstChangedLine, diffAdded, diffRemoved } =
       editPositions.length === 0
         ? generateDiffString(normalized, currentContent)
         : generateIncrementalDiff(normalized, currentContent, editPositions);
 
-    // 4. 写回（混合换行按行保留行尾）
+    // 5. 写回（混合换行按行保留行尾）
     const finalContent =
       lineEnding === 'mixed'
         ? restoreLineEndingsPreserving(rawContent, currentContent)
         : restoreLineEndings(currentContent, lineEnding);
     await fs.writeFile(filePath, finalContent, 'utf-8');
 
-    // fuzzy 统计（精确 includes 未命中即用了模糊归一化）
-    const fuzzyMatches = batch.textEdits.filter((e) => !normalized.includes(e.oldText)).length;
+    // 6. readback 回显（P2）：编辑落点核验用，行号格式与 read 工具一致
+    const readback =
+      editPositions.length > 0
+        ? renderReadback(currentContent, editPositions.map((p) => p.oldCharStart))
+        : undefined;
 
-    return { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved };
+    // fuzzy 统计（按实际生效的匹配级别：0=精确，1=归一化模糊）
+    const fuzzyMatches = r.matchLevels.filter((lv) => lv >= 1).length;
+
+    return { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved, readback };
   });
+}
+
+/** readback 渲染：编辑区前后各 ~3 行，`行号 文本`（与 read 工具输出同格式） */
+function renderReadback(content: string, editStarts: number[]): string {
+  const lines = content.split('\n');
+  const breaks: number[] = [];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === '\n') breaks.push(i);
+  }
+  const charToLine = (charIndex: number): number => {
+    let lo = 0;
+    let hi = breaks.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (breaks[mid] < charIndex) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo; // 0-based
+  };
+
+  const RANGE = 3;
+  const selected = new Set<number>();
+  for (const start of editStarts) {
+    const line = charToLine(start);
+    for (let l = Math.max(0, line - RANGE); l <= Math.min(lines.length - 1, line + RANGE); l++) {
+      selected.add(l);
+    }
+  }
+
+  const out: string[] = [];
+  let prev = -2;
+  for (const l of Array.from(selected).sort((a, b) => a - b)) {
+    if (l > prev + 1) out.push('...');
+    out.push(`${l + 1} ${lines[l]}`);
+    prev = l;
+  }
+  return out.join('\n');
 }

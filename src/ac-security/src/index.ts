@@ -46,8 +46,8 @@ const READ_PATH_TOOLS = new Set(['read', 'glob', 'grep']);
 const WRITE_PATH_TOOLS = new Set(['write', 'edit', 'str_replace_editor']);
 /** 全部路径类工具（目标路径过复检） */
 const PATH_TOOLS = new Set([...READ_PATH_TOOLS, ...WRITE_PATH_TOOLS]);
-/** 命令类工具（命令文本过 bash 扫描） */
-const COMMAND_TOOLS = new Set(['bash']);
+/** 命令类工具（命令文本过 bash 扫描）——pwsh/bash 双名（2026-09-16 工具拆分） */
+const COMMAND_TOOLS = new Set(['pwsh', 'bash']);
 
 /** settings['security'] 的 per-Agent 配置形状（access-tier §9.4 终态五键） */
 interface SecuritySettings {
@@ -328,9 +328,9 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     return answer === true || answer === 'approve' || answer === 'approved';
   }
 
-  /** 审批载荷的参数摘要（§六：bash 全文 / 写路径全文 / 其余 JSON 截断） */
+  /** 审批载荷的参数摘要（§六：命令工具全文 / 写路径全文 / 其余 JSON 截断） */
   function approvalArgsSummary(name: string, args: Record<string, unknown>): unknown {
-    if (name === 'bash') return args.command ?? args.cmd ?? args;
+    if (name === 'bash' || name === 'pwsh') return args.command ?? args.cmd ?? args;
     const targets = extractTargetPaths(args);
     if (WRITE_PATH_TOOLS.has(name) && targets.length > 0) return { paths: targets };
     const json = JSON.stringify(args);
@@ -347,9 +347,11 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
 
     // 1. 能力轴门禁（requiredTags AND；include 不可绕过）——语义不动。
     //    有效能力集 = {'base', 'agent:<调用方id>'} ∪ tags（tags 单源——
-    //    capabilities 覆盖层已随 §9.4 删除）。base 恒在（收窄出口 =
-    //    AgentConfig.tools include/exclude 三态语义）；owner 段只在有身份
-    //    时合成（L2：防合成 agent:undefined）。
+    //    capabilities 覆盖层已随 §9.4 删除）。base = 未声明 requiredTags
+    //    工具的默认解锁锚（toolAllowedFor 等价 ['base'] 门禁，与
+    //    capabilitySetOf 单源对齐——全量标签化后仅覆盖动态插件未声明面；
+    //    tag-registry 目录侧 base 已不再作为用户可见标签）。owner 段只在
+    //    有身份时合成（L2：防合成 agent:undefined）。
     const def = ctx.tools.get(call.name);
     if (def?.requiredTags && def.requiredTags.length > 0) {
       const agent = call.agentId !== undefined ? ctx.agents.get(call.agentId) : undefined;

@@ -9,9 +9,11 @@
 //   · settings['persona'] = string              兼容旧形状（内联文本）
 //   · settings['persona'] = { text?, file? }    file 优先（本地实体覆盖——
 //     src AGENT.md 语义）、text 回退（内联）；enabled=false 软停用
-//   file 解析：裸文件名（如 'AGENT.md'）→ ctx.agentStore 的 Agent 文档
+//   file 解析：裸文件名（如 'AGENTS.md'）→ ctx.agentStore 的 Agent 文档
 //   （可选能力：agentStore 未装则跳过该路径）；带分隔符路径 → 相对
-//   cwd 的文件系统路径。读取后剥离 YAML frontmatter（src tryLoadFile
+//   cwd 的文件系统路径。persona 文档双名同义（2026-11 对齐生态事实
+//   标准 AGENTS.md）：读时 AGENTS.md 优先、AGENT.md（存量名）回退，
+//   写口归一写 AGENTS.md。读取后剥离 YAML frontmatter（src tryLoadFile
 //   同规则）。均无 → 不注入。
 //
 // 经 request.agent 查 ctx.agents——人设是 Agent 数据，不进 LoopRunRequest
@@ -31,7 +33,7 @@ export interface PersonaSettings {
   enabled?: boolean;
   /** 内联人设文本 */
   text?: string;
-  /** 人设文件：裸名 → agentStore 文档（AGENT.md）；带路径 → 文件系统 */
+  /** 人设文件：裸名 → agentStore 文档（AGENTS.md/AGENT.md 同义）；带路径 → 文件系统 */
   file?: string;
 }
 
@@ -51,6 +53,17 @@ function readFsFile(file: string): string | null {
 }
 
 /**
+ * persona 裸文档名候选（双名同义，2026-11 对齐生态事实标准）：
+ * AGENTS.md 优先、AGENT.md（存量名）回退——不论配置写哪个名，读序一致
+ * （写口归一写 AGENTS.md，读序保证保存后新名即时生效、旧名不遮蔽）。
+ * 其他裸名（如 'SYSTEM.md'）原样单候选。
+ */
+function personaDocCandidates(file: string): string[] {
+  const lower = file.toLowerCase();
+  return lower === 'agents.md' || lower === 'agent.md' ? ['AGENTS.md', 'AGENT.md'] : [file];
+}
+
+/**
  * 解析人设文本：file 优先（目录实体本地覆盖）→ text 回退（内联）。
  * 返回 undefined = 无人设（不注入）。
  */
@@ -66,16 +79,24 @@ export function resolvePersonaText(
 
   if (typeof settings.file === 'string' && settings.file.trim()) {
     const file = settings.file.trim();
-    // 裸文档名（无路径分隔/无遍历）→ agentStore 的 Agent 文档（可选能力）
+    // 裸文档名（无路径分隔/无遍历）→ agentStore 的 Agent 文档（可选能力）；
+    // 双名同义时逐候选名解析：store 文档 → 文件系统路径，先到先得，
+    // 内容 strip 后为空视同未命中（继续下一候选 / 回退 text）。
     const bare = !file.includes('/') && !file.includes('\\') && !file.includes('..');
-    let content: string | null = null;
-    if (bare && agentId) {
-      const store = ctx.get('agentStore');
-      const doc = store ? store.readDoc(agentId, file) : undefined;
-      content = doc && doc.trim() ? doc : null;
+    const candidates = bare ? personaDocCandidates(file) : [file];
+    const store = bare && agentId ? ctx.get('agentStore') : undefined;
+    for (const name of candidates) {
+      let content: string | null = null;
+      if (store && agentId) {
+        const doc = store.readDoc(agentId, name);
+        content = doc && doc.trim() ? doc : null;
+      }
+      if (content === null) content = readFsFile(name);
+      if (content !== null) {
+        const stripped = stripFrontmatter(content);
+        if (stripped) return stripped;
+      }
     }
-    if (content === null) content = readFsFile(file);
-    if (content !== null && stripFrontmatter(content)) return stripFrontmatter(content);
   }
   if (typeof settings.text === 'string' && settings.text.trim()) return settings.text.trim();
   return undefined;
@@ -92,10 +113,10 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'persona',
   label: '人设注入',
-  description: 'AGENT.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）',
+  description: 'AGENTS.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）',
   fields: [
     { name: 'text', type: 'text', description: '人设正文（与 file 二选一，file 优先）' },
-    { name: 'file', type: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENT.md），路径走文件系统；frontmatter 自动剥离；可点「浏览…」选择' },
+    { name: 'file', type: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENTS.md，AGENT.md 旧名兼容），路径走文件系统；frontmatter 自动剥离；可点「浏览…」选择' },
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
   listeners: [{ event: 'loop/before-run', role: '前置 <persona> 块', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],

@@ -12,7 +12,7 @@
 //   read_agent_info → ctx.agents.get（model/provider/settings 仅自查——
 //                     查他人不暴露模型配置，src 脱敏语义）
 //   update_agent_profile → ctx.agentStore 落盘（可选能力）+ ctx.agents
-//                     覆盖注册；persona 写 Agent 目录 AGENT.md（文档
+//                     覆盖注册；persona 写 Agent 目录 AGENTS.md（文档
 //                     唯一写口）并挂载人设装载；改他人需 admin 能力
 //
 // 形态差异（地图认可）：src 的"身份工厂烘焙"（from=config.agent_id）
@@ -36,6 +36,7 @@ import type { AgentConfig } from 'ac-agents';
 import { capabilitySetOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
+import type {} from 'ac-subagent'; // ctx.subagents 可选能力类型（type-only）
 import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only）
 
 /** update_agent_profile 允许修改的字段（白名单；其余拒绝） */
@@ -76,14 +77,16 @@ export function apply(ctx: Context) {
   }, { description: '注入 @ 名称引用约定（Agent 有 list_agents+send_agent 时）' });
 
   // ---- send_agent：投递消息给另一 Agent（经会话状态机） ----
+  // collab 标签（2026-09-16 全量标签化）：多 Agent 协作族门禁
   ctx.tools.register({
     name: 'send_agent',
+    requiredTags: ['collab'],
     description:
-      '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 等待对方独立回复。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。',
+      '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 等待对方独立回复。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。',
     parameters: {
       type: 'object',
       properties: {
-        to: { type: 'string', description: '目标 Agent ID' },
+        to: { type: 'string', description: '目标 Agent ID（含虚拟端点如 user；已 spawn 子 Agent 的 sub_ id 亦可）' },
         message: { type: 'string', description: '消息内容' },
         wait: { type: 'boolean', description: '是否等待回复（默认 false；等待时对方忙则排队独立 run）' },
       },
@@ -93,12 +96,52 @@ export function apply(ctx: Context) {
       try {
         const to = String(args.to ?? '').trim();
         const message = String(args.message ?? '');
+        const from = call.agentId;
+        if (from === undefined) return err('缺少执行身份（agentId）——send_agent 需在 Agent run 内调用');
         if (!to) return err('缺少 to 参数');
         if (!message.trim()) return err('缺少 message 参数');
         if (!ctx.agents.has(to)) return err(`Agent "${to}" 未注册`);
 
-        const from = call.agentId;
-        if (from === undefined) return err('缺少执行身份（agentId）——send_agent 需在 Agent run 内调用');
+        // ---- 子 Agent 直投分支（2026-09-16 news 事故复盘）----
+        // to = 已 spawn 的子 Agent id（sub_*）：不经会话状态机，转投其任务
+        // 收件箱（ctx.subagents.send——忙时排队/空闲开跑，回执经 job-wakeup
+        // 回到发起会话）。父自投走原路径以外的一切 Agent 照旧 deliver。
+        const subagents = ctx.get('subagents');
+        if (subagents !== undefined && to.startsWith('sub_')) {
+          const info = subagents.get(to);
+          if (info !== undefined) {
+            if (info.parentId !== from) {
+              return err(`"${to}" 是 Agent "${info.parentId}" 的子 Agent，只接收其父（或经父的 subagent 工具）的任务消息`);
+            }
+            try {
+              const r = subagents.send(to, {
+                parentId: from,
+                text: message,
+                // 回执直达发起会话（无会话键则回 owner 自会话桶——job-wakeup 缺省）
+                ...(call.conversationId ? { conversationId: call.conversationId } : {}),
+                ...(call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? { elevation: call.elevation } : {}),
+              });
+              const hints: Record<string, string> = {
+                started: '已作为新任务消息投递并启动 run——完成回执会回到本会话；正文与结果用 subagent(action="await", subagent_id) 查看',
+                steered: '该子 Agent 正在执行——消息已注入其当前 run 的下一步',
+                queued: '该子 Agent 正在执行——消息已排队（当前 run 收束后自动消费）',
+              };
+              return {
+                ok: true,
+                output: {
+                  to,
+                  subagent: true,
+                  delivered: r.delivered,
+                  message: hints[r.delivered],
+                },
+              };
+            } catch (e: unknown) {
+              return err(e instanceof Error ? e.message : String(e));
+            }
+          }
+          // sub_ 前缀但注册表无此子 Agent：落入下方常规注册校验（报错口径
+          // 统一为"未注册"，避免双份文案）
+        }
 
         const target = ctx.agents.get(to);
         // 虚拟端点（viewer 等会话端点）：允许投递（M18 前端反馈 #9——
@@ -185,6 +228,7 @@ export function apply(ctx: Context) {
   // ---- send_group：群内发言（可选 ctx.group） ----
   ctx.tools.register({
     name: 'send_group',
+    requiredTags: ['collab'],
     description: '在群组里发消息，群内其他成员会自主决定是否回应。',
     parameters: {
       type: 'object',
@@ -223,6 +267,7 @@ export function apply(ctx: Context) {
   // ---- list_agents：Agent 清单 ----
   ctx.tools.register({
     name: 'list_agents',
+    requiredTags: ['collab'],
     description: '列出所有 Agent（含虚拟 Agent 标注）。',
     parameters: { type: 'object', properties: {} },
     async execute(): Promise<ToolResult> {
@@ -246,6 +291,7 @@ export function apply(ctx: Context) {
   // ---- list_groups：自己所在的群 ----
   ctx.tools.register({
     name: 'list_groups',
+    requiredTags: ['collab'],
     description: '列出自己所在的群组。',
     parameters: { type: 'object', properties: {} },
     async execute(args, call): Promise<ToolResult> {
@@ -274,8 +320,11 @@ export function apply(ctx: Context) {
   });
 
   // ---- list_tools：自己实际可用的工具 ----
+  // infra 标签：自省工具属会话基础设施（不挂 collab——单 Agent 也需要
+  // 查自己的工具面，挂 collab 会让无协作标签的 Agent 失去自省能力）
   ctx.tools.register({
     name: 'list_tools',
+    requiredTags: ['infra'],
     description: '列出自己可用的全部工具。',
     parameters: { type: 'object', properties: {} },
     async execute(args, call): Promise<ToolResult> {
@@ -311,6 +360,7 @@ export function apply(ctx: Context) {
   // ---- read_agent_info：读取 Agent 资料（不传 agent_id 看自己） ----
   ctx.tools.register({
     name: 'read_agent_info',
+    requiredTags: ['collab'],
     description: '查看一个 Agent 的资料（不传 agent_id 看自己；模型配置仅自查可见）。',
     parameters: {
       type: 'object',
@@ -347,8 +397,9 @@ export function apply(ctx: Context) {
   // ---- update_agent_profile：更新档案（admin 可改他人） ----
   ctx.tools.register({
     name: 'update_agent_profile',
+    requiredTags: ['collab'],
     description:
-      '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENT.md。',
+      '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。',
     parameters: {
       type: 'object',
       properties: {
@@ -360,7 +411,7 @@ export function apply(ctx: Context) {
             name: { type: 'string', description: '显示名称（名册/群聊展示；空串 = 清除，回落简介/id）' },
             description: { type: 'string', description: '一句话简介（其他 Agent 与用户可见；不是显示名）' },
             system: { type: 'string', description: '基础系统提示词' },
-            persona: { type: 'string', description: '人物设定（写入 Agent 目录 AGENT.md 并挂载 persona 装载）' },
+            persona: { type: 'string', description: '人物设定（写入 Agent 目录 AGENTS.md 并挂载 persona 装载）' },
             tools: { type: 'array', items: { type: 'string' }, description: '工具白名单（空数组/缺省 = 全部）' },
             maxSteps: { type: 'number', description: '步数预算（0 = 不限）' },
             settings: { type: 'object', description: '具名扩展设置（settings[具名]——已装插件在该 Agent 的行为）' },
@@ -388,6 +439,10 @@ export function apply(ctx: Context) {
 
         const current = ctx.agents.get(targetId);
         if (!current) return err(`Agent "${targetId}" 未找到`);
+        // 预设/派生身份不可编辑（与 send_agent 拒投预设同口径）：子 Agent
+        // 派生条目（preset:true）若可自助改 tags 加回 delegation/admin，
+        // 会突破 spawn 时的剥减防线（递归 spawn / 宿主级动作）。
+        if (current.preset) return err(`Agent "${targetId}" 是预设/派生身份（运行时物化），不可经 update_agent_profile 修改`);
         if (targetId !== selfId && !hasAdminCapability(ctx.agents.get(selfId))) {
           return err(`仅具备 admin 能力的 Agent 可修改他人档案（目标 "${targetId}"）`);
         }
@@ -439,19 +494,21 @@ export function apply(ctx: Context) {
           changed.push('settings');
         }
 
-        // persona：写 Agent 目录 AGENT.md（文档唯一写口）+ 挂载人设装载
+        // persona：写 Agent 目录 AGENTS.md（文档唯一写口；2026-11 对齐生态
+        // 事实标准 AGENTS.md——ac-persona 装载侧读 AGENTS.md 优先、AGENT.md
+        // 存量回退，旧名文档不遮蔽新写内容）+ 挂载人设装载
         if (fields.persona !== undefined) {
           const persona = String(fields.persona ?? '').trim();
           if (!persona) return err('persona 不能为空');
-          if (!store) return err('持久化档案更新需要 ac-agent-store 行（persona 写 AGENT.md）');
-          store.saveDoc(targetId, 'AGENT.md', `# 人物设定\n\n${persona}\n`);
+          if (!store) return err('持久化档案更新需要 ac-agent-store 行（persona 写 AGENTS.md）');
+          store.saveDoc(targetId, 'AGENTS.md', `# 人物设定\n\n${persona}\n`);
           const settings = { ...(next.settings ?? {}) };
           const existing = settings['persona'];
           const shape =
             existing !== undefined && existing !== null && typeof existing === 'object'
               ? (existing as Record<string, unknown>)
               : {};
-          settings['persona'] = { ...shape, file: 'AGENT.md' };
+          settings['persona'] = { ...shape, file: 'AGENTS.md' };
           next.settings = settings;
           changed.push('persona');
         }

@@ -391,8 +391,10 @@ export const extension: ExtensionMeta = {
 export const inject = ['tools'];
 
 export function apply(ctx: Context) {
+  // infra 标签（2026-09-16 全量标签化）：计算属会话基础设施
   ctx.tools.register({
     name: 'math',
+    requiredTags: ['infra'],
     description: '计算数学表达式（如 "1+2*3"、"sqrt(16)"、"(1+2**10)/4"、"10n**21n"；纯数学语法解析求值，非 JS 执行）。',
     parameters: {
       type: 'object',

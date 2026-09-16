@@ -117,6 +117,18 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
 }
 
 /**
+ * 基础族标签（全量标签化 2026-09-16）。历史上有过读边界自动补齐迁移
+ * （normalizeUniversalTags，含一次性标记 _migratedUniversalTags），后经
+ * 用户裁决**整体移除**：tags 完全以用户/预设配置为准，框架不做任何自动
+ * 补齐——新建 Agent 由创建面（UI/预设）负责声明基础族；存量 Agent 由
+ * 用户手工补（用户基数小，明确知情优于隐式改写）。此注释是移除前的
+ * 语义存档（2026-09-16 终态），防止后人"顺手恢复"。
+ */
+const UNIVERSAL_TAGS = ['fs', 'collab', 'infra'] as const;
+
+export { UNIVERSAL_TAGS };
+
+/**
  * 解析 AgentConfig.tools 为生效工具名清单（router 构建 LoopRunRequest /
  * list_tools 展示实际生效集共用）。
  *   · undefined      → undefined（= 全部已注册；调用方语义）
@@ -128,16 +140,33 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
  * （{name, requiredTags?}）时展开为 requiredTags 含该 tag 的全部工具名
  * ——工具集增删自动跟随（预设不必点名工具）。universe 传纯名字数组时
  * 无 tag 信息，引用条目展开为空（不落字面名——它不是合法工具名）。
+ * 空展开告警（2026-09-16，fail-fast；前置修复 #2 扩展）：universe 有
+ * defs 时两类落空都回调——
+ *   · tag: 引用展开为空 = 点名了不存在的标签（拼写错/标签未注册/工具行
+ *     未装载）——静默落空正是 tag:fs 事故的形态；
+ *   · 字面名不在 universe = 点名了不可见/不存在/已改名的工具（如平台
+ *     拆分后 Windows 上的存量 'bash'，或拼写错）。
+ * 回调由调用方挂 logger（纯函数不持 ctx）。字面名透传不变（留待执行
+ * 面报「未知工具」——可见性判定不在此层），但配置错误从静默变可观测。
  */
 export function resolveToolNames(
   tools: AgentConfig['tools'],
   all: readonly (string | { name: string; requiredTags?: string[] })[],
+  onEmptyTagExpand?: (tag: string) => void,
+  onUnknownLiteral?: (name: string) => void,
 ): string[] | undefined {
   if (tools === undefined) return undefined;
   // tag 展开表：tag → requiredTags 含该 tag 的工具名（仅 defs 条目贡献）
   const byTag = new Map<string, string[]>();
+  const known = new Set<string>();
+  let hasDefs = false;
   for (const entry of all) {
-    if (typeof entry === 'string') continue;
+    if (typeof entry === 'string') {
+      known.add(entry);
+      continue;
+    }
+    hasDefs = true;
+    known.add(entry.name);
     for (const t of entry.requiredTags ?? []) {
       const list = byTag.get(t);
       if (list) list.push(entry.name);
@@ -145,7 +174,16 @@ export function resolveToolNames(
     }
   }
   const expand = (names: readonly string[]): string[] =>
-    names.flatMap((n) => (n.startsWith('tag:') ? (byTag.get(n.slice(4)) ?? []) : [n]));
+    names.flatMap((n) => {
+      if (!n.startsWith('tag:')) {
+        if (hasDefs && !known.has(n) && onUnknownLiteral) onUnknownLiteral(n);
+        return [n];
+      }
+      const tag = n.slice(4);
+      const expanded = byTag.get(tag) ?? [];
+      if (expanded.length === 0 && hasDefs && onEmptyTagExpand) onEmptyTagExpand(tag);
+      return expanded;
+    });
   if (Array.isArray(tools)) return expand(tools);
   const include = Array.isArray(tools.include) ? expand(tools.include) : undefined;
   const exclude = Array.isArray(tools.exclude) ? new Set(expand(tools.exclude)) : new Set<string>();
@@ -218,13 +256,19 @@ export function capabilitySetOf(
   return caps;
 }
 
-/** 工具定义对能力集的可见性判定（requiredTags AND；无 requiredTags 恒可见） */
+/**
+ * 工具定义对能力集的可见性判定（requiredTags AND；无 requiredTags 恒可见）。
+ * 2026-09-16 全量标签化：无 requiredTags 显式等价为 ['base'] 门禁（caps
+ * 恒含 base，行为不变）——契约从"默认开放"改写为"base 解锁"，幽灵标签
+ * 变真实锚点。出厂工具已全量挂标签（fs/collab/infra/shell/...），此分支
+ * 仅覆盖动态插件等未声明 requiredTags 的注册面。
+ */
 export function toolAllowedFor(
   def: { requiredTags?: string[] } | undefined,
   caps: Set<string>,
 ): boolean {
-  if (!def?.requiredTags || def.requiredTags.length === 0) return true;
-  return def.requiredTags.every((t) => caps.has(t));
+  const required = def?.requiredTags?.length ? def.requiredTags : ['base'];
+  return required.every((t) => caps.has(t));
 }
 
 /** llmParams 透传白名单（防覆盖 model/messages/tools 等保留键） */

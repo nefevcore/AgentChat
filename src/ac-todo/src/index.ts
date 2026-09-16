@@ -173,8 +173,10 @@ export function apply(ctx: Context) {
   //（M27.1，D19 改裁：前端插件一律 ac-client-ui-* 包——本行回归纯后端）
   const service = new TodosService(ctx);
 
+  // infra 标签（2026-09-16 全量标签化）：任务追踪属会话基础设施
   ctx.tools.register({
     name: 'todo',
+    requiredTags: ['infra'],
     description:
       '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空）、read 查看。条目 = { content, status: pending|in_progress|completed（缺省 pending）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
     parameters: {

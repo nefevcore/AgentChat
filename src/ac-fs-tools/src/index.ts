@@ -163,8 +163,11 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   }, { description: '注入 @ 路径引用约定（Agent 有 read 时）' });
 
   // ---- read：文件（行号分页 + token 预算截断）或目录列表 ----
+  // fs 标签（2026-09-16 全量标签化）：文件族门禁——存量 Agent 由
+  // agent-store 读边界归一补 'fs'；程序化模式 include 用 tag:fs 引用
   ctx.tools.register({
     name: 'read',
+    requiredTags: ['fs'],
     description: '读取文本文件并返回带有行号的内容（目录则返回列表）。',
     parameters: {
       type: 'object',
@@ -236,6 +239,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // ---- write：创建/覆盖文件（同文件经突变队列串行化） ----
   ctx.tools.register({
     name: 'write',
+    requiredTags: ['fs'],
     needPermission: true,
     description: '创建或覆盖文本文件。',
     parameters: {
@@ -289,8 +293,9 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // ---- edit：old_string/new_string 文本匹配编辑（编辑引擎住 ac-edit-core） ----
   ctx.tools.register({
     name: 'edit',
+    requiredTags: ['fs'],
     needPermission: true,
-    description: '通过替换文本内容来编辑文本文件（old_string 必须唯一；引号/空白差异可自动归一化）。',
+    description: '通过替换文本内容来编辑文本文件（old_string 必须唯一且从 read 输出原样复制；行首缩进不同的文本会被拒绝；json/代码文件写回前做语法预检）。',
     parameters: {
       type: 'object',
       properties: {
@@ -338,7 +343,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
         }
         snapshotBefore(call, file); // 首见快照（方案 C——编辑前存底；幂等）
         call.onProgress?.(`正在编辑: ${filePath}（1 处文本匹配）...\n`);
-        const { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved } = await applyEditBatch(file, {
+        const { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved, readback } = await applyEditBatch(file, {
           textEdits: [{ oldText, newText }],
         });
         const appliedCount = diff === '（无变更）' ? 0 : 1;
@@ -352,10 +357,18 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
             file: path.basename(file),
             edits_applied: appliedCount,
             fuzzy_matches: fuzzyMatches,
+            ...(fuzzyMatches > 0
+              ? {
+                  note:
+                    '⚠️ 本次编辑含归一化模糊匹配（old_string 非原文精确复制）：编辑落点可能偏离预期，' +
+                    '请核对下方 readback 与预期位置是否一致；连续编辑同一文件时 old_string 必须重新 read 获取。',
+                }
+              : {}),
             first_changed_line: firstChangedLine,
             diff_added: diffAdded,
             diff_removed: diffRemoved,
             diff,
+            ...(readback !== undefined ? { readback } : {}),
           },
         };
       } catch (err: unknown) {

@@ -40,18 +40,20 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     expect((std?.settings as Record<string, { enabled?: boolean }>).memory).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).skill).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).datetime).toEqual({ enabled: false });
-    // 工具门禁标签（bash 需 shell；web_search 需 web——纯搜索无权限面；
-    // subagent 需 delegation——任务委派能力）
-    expect(std?.tags).toEqual(['shell', 'web', 'delegation']);
+    // 工具门禁标签（全量标签化 2026-09-16：tags 即工具面；2026-09-17
+    // 精简——collab 协作族与 history 会话回放族出局，单会话通用对话不载）
+    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation']);
     // 无 config 行 → 模型留空（router 层报"缺少 model"；会话级模型覆盖可用）
     expect(std?.model).toBeUndefined();
 
     const minimal = ctx.agents.get('__dsh_minimal__');
     expect(minimal?.preset).toBe(true);
     // str_replace_editor 挂 fs_minimal 门禁（2026-09 移出默认工具面）——
-    // 本预设显式授权；include 为真实工具名（str_replace_editor 四命令合一）
-    expect(minimal?.tools).toEqual({ include: ['str_replace_editor', 'bash'] });
-    expect(minimal?.tags).toEqual(['shell', 'fs_minimal']);
+    // 本预设显式授权。预设数据用 'tag:shell' 占位（平台无关），物化层
+    // 解析为当平台字面名（Windows pwsh / Unix bash，2026-09-16 工具拆分）
+    const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';
+    expect(minimal?.tools).toEqual({ include: ['str_replace_editor', shellTool] });
+    expect(minimal?.tags).toEqual(['fs', 'shell', 'infra', 'fs_minimal']);
     expect((minimal?.settings as Record<string, { enabled?: boolean }>)['system-prompt']).toEqual({ enabled: false });
 
     // 目录服务：list/defaultPreset（meta.default 优先）

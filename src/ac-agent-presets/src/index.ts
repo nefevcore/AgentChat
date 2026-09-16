@@ -102,11 +102,27 @@ export class AgentPresetsService extends Service {
     return this.defs.get(id);
   }
 
-  /** 预设 → 可注册 AgentConfig（补默认池连接 provider+model） */
+  /** 预设 → 可注册 AgentConfig（补默认池连接 provider+model；include 的
+   *  'tag:shell' 占位按宿主平台解析为字面工具名——Windows pwsh / Unix
+   *  bash，2026-09-16 工具拆分。物化发生在运行期，平台已知，字面名
+   *  可靠；预设数据保持平台无关（占位词只在本层消化，不进 AgentConfig） */
   private materialize(def: AgentPresetDefinition): AgentConfig {
     const conn = defaultConnection(this.pools());
+    const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';
+    const resolveInclude = (names: string[]): string[] =>
+      names.map((n) => (n === 'tag:shell' ? shellTool : n));
+    const tools =
+      def.agent.tools === undefined
+        ? undefined
+        : Array.isArray(def.agent.tools)
+          ? resolveInclude(def.agent.tools)
+          : {
+              ...(def.agent.tools.include !== undefined ? { include: resolveInclude(def.agent.tools.include) } : {}),
+              ...(def.agent.tools.exclude !== undefined ? { exclude: resolveInclude(def.agent.tools.exclude) } : {}),
+            };
     return {
       ...def.agent,
+      ...(tools !== undefined ? { tools } : {}),
       ...(conn ? { model: conn.model, provider: conn.provider } : {}),
     } as AgentConfig;
   }

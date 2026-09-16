@@ -24,7 +24,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
-import { assertAgentId, resolveToolNames, type AgentConfig } from 'ac-agents';
+import { capabilitySetOf, toolAllowedFor, assertAgentId, resolveToolNames, UNIVERSAL_TAGS, type AgentConfig } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 import { splitModelRef } from 'ac-llm';
 import { pairKey } from 'ac-agent-loop';
@@ -337,14 +337,20 @@ export class AgentAdminService extends Service {
         provider = split.provider;
       }
     }
+    // 工具可见面（与 router.send 同口径）：能力面过滤（capabilitySetOf ∩
+    // toolAllowedFor）+ resolveToolNames 解析，缺省（config.tools 未配置）
+    // 也显式传可见面全量——空集照传。此前 config.tools 未配置时**不传
+    // tools**，loop 缺省语义"全部已注册"绕过能力面：无 sap-adt 标签的
+    // Agent 预览也被注入 <sap-adt-tools> 规约（owner 行判据回落全目录）。
+    const caps = capabilitySetOf(this.ctx, agentId);
+    const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+    const toolNames = resolveToolNames(config.tools, visibleTools) ?? visibleTools.map((t) => t.name);
     const request: LoopRunRequest = {
       agent: agentId,
       model,
       ...(provider ? { provider } : {}),
       ...(config.system ? { system: config.system } : {}),
-      ...(config.tools !== undefined
-        ? { tools: resolveToolNames(config.tools, this.ctx.tools.list()) ?? [] }
-        : {}),
+      tools: toolNames,
       messages: [],
       // 预览视角：显式会话键优先（singles sid——挂载工作区/技能组/记忆桶
       // 按 sid 解析）；否则 viewer 直答形态（M19：sender = 端点 id）。
@@ -443,6 +449,14 @@ export class AgentAdminService extends Service {
       normalized.model = null;
     }
     if (nextProvider) normalized.provider = nextProvider;
+    // 全量标签化（2026-09-16）写口缺省：**新建**（current === undefined）
+    // 且未传 tags 时补基础族（创建面缺省语义，非迁移——UI 裸创建的
+    // Agent 应有基本文件/协作/会话能力）；显式传 tags（含空数组）与
+    // 更新均原样透传——tags 完全以用户配置为准（自动补齐迁移已移除，
+    // 语义存档见 ac-agents service.ts UNIVERSAL_TAGS 注释）。
+    if (current === undefined && rest.tags === undefined) {
+      normalized.tags = [...UNIVERSAL_TAGS];
+    }
     return normalized as unknown as AgentConfig;
   }
 }

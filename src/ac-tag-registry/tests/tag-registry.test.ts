@@ -69,14 +69,18 @@ afterEach(async () => {
 });
 
 describe('ac-tag-registry 目录', () => {
-  it('预注册：base 与档位词启动即在场（带描述与类别）', async () => {
+  it('预注册：能力族与档位词启动即在场（base 已退役——全量标签化 2026-09-16）', async () => {
     const { ctx } = await boot();
     const tags = ctx.tagRegistry.catalog();
     const byTag = new Map(tags.map((t) => [t.tag, t]));
-    expect(byTag.get('base')).toMatchObject({ category: 'base', reserved: true });
+    expect(byTag.get('fs')).toMatchObject({ category: 'capability', reserved: true });
+    expect(byTag.get('collab')).toMatchObject({ category: 'capability', reserved: true });
+    expect(byTag.get('infra')).toMatchObject({ category: 'capability', reserved: true });
+    expect(byTag.get('history')).toMatchObject({ category: 'capability', reserved: true });
     expect(byTag.get('full-access')).toMatchObject({ category: 'access-tier', reserved: true });
     expect(byTag.get('sandbox-access')).toMatchObject({ category: 'access-tier', reserved: true });
-    expect(byTag.get('full-access')?.description).toBeTruthy();
+    // base 从目录退役（无门禁语义——一切工具已挂具体标签）
+    expect(byTag.get('base')).toBeUndefined();
   });
 
   it('采集：工具注册 → tag 目录出现消费工具（AND 组合也如实呈现）', async () => {
@@ -91,6 +95,21 @@ describe('ac-tag-registry 目录', () => {
     expect(byTag.get('web')?.tools.some((t) => t.name === 't-probe')).toBe(true);
     expect(byTag.get('observe')?.tools.some((t) => t.name === 't-probe')).toBe(true);
     // 无 requiredTags 的工具不产生任何目录条目
+    dispose();
+  });
+
+  it('预注册词也如实采集消费工具（2026-09-16：能力族解锁计数/工具清单）', async () => {
+    const { ctx } = await boot();
+    const dispose = ctx.tools.register({
+      name: 't-fs-probe',
+      description: '文件族探针',
+      requiredTags: ['fs'],
+      execute: () => ({ ok: true }),
+    });
+    const byTag = new Map(ctx.tagRegistry.catalog().map((t) => [t.tag, t]));
+    const fs = byTag.get('fs');
+    expect(fs?.reserved).toBe(true); // 目录语义保留（声明不被覆盖）
+    expect(fs?.tools.some((t) => t.name === 't-fs-probe')).toBe(true); // 采集面照常并入
     dispose();
   });
 
@@ -181,13 +200,13 @@ describe('ac-tag-registry 手工声明（A1 注册制）', () => {
           { description: '缺 tag' } as never,
           { tag: '', description: '空 tag' },
           { tag: 'agent:bob', description: 'owner 词不收' },
-          { tag: 'base', description: '预注册词不被覆盖' },
+          { tag: 'fs', description: '预注册词不被覆盖' },
         ],
       },
     });
     const tags = ctx.tagRegistry.catalog();
     const byTag = new Map(tags.map((t) => [t.tag, t]));
-    expect(byTag.get('base')?.description).not.toBe('预注册词不被覆盖');
+    expect(byTag.get('fs')?.description).not.toBe('预注册词不被覆盖');
     expect(tags.some((t) => t.declaredBy === 'bad-decl-row')).toBe(false);
   });
 });

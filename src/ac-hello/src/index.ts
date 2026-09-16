@@ -24,8 +24,10 @@ export function apply(ctx: Context) {
   ctx.logger('ac-hello').info('链路验证插件已挂载（hello 工具 + tool/after-execute 订阅）');
 
   // 注册即归属：本行卸载时 hello 工具自动消失（无需 dispose 代码）
+  // infra 标签（2026-09-16 全量标签化）：链路验证属会话基础设施
   ctx.tools.register({
     name: 'hello',
+    requiredTags: ['infra'],
     description: '链路验证工具：回显消息',
     parameters: {
       type: 'object',

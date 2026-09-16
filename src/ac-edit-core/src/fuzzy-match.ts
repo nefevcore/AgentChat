@@ -124,6 +124,16 @@ export function countOccurrences(
   fuzzyLevel = 0,
 ): number {
   const searchText = useFuzzy ? normalizeForFuzzyMatch(oldText, fuzzyLevel >= 2) : oldText;
+  return countOccurrencesRaw(searchIn, searchText);
+}
+
+/**
+ * 在 searchIn 中统计 searchText 的非重叠出现次数。
+ * 逐次 +1 推进（事故修复：逐字符推进会把「ababab」中的「abab」计成 2 次——
+ * 重复计数直接抬高唯一性报错概率，非重叠计数才是 old_string 唯一性的正确语义）。
+ */
+function countOccurrencesRaw(searchIn: string, searchText: string): number {
+  if (searchText.length === 0) return 0;
   let count = 0;
   let pos = 0;
   while ((pos = searchIn.indexOf(searchText, pos)) !== -1) {
@@ -131,4 +141,28 @@ export function countOccurrences(
     pos += searchText.length;
   }
   return count;
+}
+
+/**
+ * 三级归一化出现次数一次性统计（P0 匹配语义收口）。
+ *
+ * 事故背景（docs/edit-tool-incident-report.md）：模糊命中的唯一性检查只在
+ * 「选定级别」内做——Level 1 命中后 Level 2 视角下可能多处命中（归一化越
+ * 激进、文本折叠越厉害），匹配滑到非预期位置造成静默错位。调用方按更严格
+ * 的语义把关：crossLevel=1 时返回的 lenientCount >1 即应拒绝编辑。
+ */
+export function countOccurrencesByLevel(
+  content: string,
+  oldText: string,
+): { exactCount: number; strictCount: number; lenientCount: number } {
+  const exactCount = countOccurrencesRaw(content, oldText);
+  const strictCount = countOccurrencesRaw(
+    normalizeForFuzzyMatch(content, false),
+    normalizeForFuzzyMatch(oldText, false),
+  );
+  const lenientCount = countOccurrencesRaw(
+    normalizeForFuzzyMatch(content, true),
+    normalizeForFuzzyMatch(oldText, true),
+  );
+  return { exactCount, strictCount, lenientCount };
 }

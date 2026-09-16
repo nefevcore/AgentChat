@@ -22,7 +22,7 @@
 import { Service, type Context } from '@agentchat/cordis';
 import type { TagDeclaration } from './contract.ts';
 
-/** 标签类别（UI 分组依据） */
+/** 标签类别（UI 分组依据；'base' 为历史类别，保留类型兼容——base 已退役） */
 export type TagCategory = 'base' | 'access-tier' | 'capability' | 'owner' | 'unknown';
 
 /** 目录条目（wire 面：JSON 直出） */
@@ -34,7 +34,7 @@ export interface TagCatalogEntry {
   description?: string;
   /** 引用本标签的工具（name + 一句话描述 + 注册方行名；类别 = capability） */
   tools: Array<{ name: string; description?: string; owner?: string }>;
-  /** 预注册词（base/档位）：不可经 tool-required 路径出现，恒有描述 */
+  /** 预注册词（档位与能力族；base 已退役）——目录恒有，手工声明不覆盖 */
   reserved?: boolean;
   /** 手工声明方（行名；声明来源标注） */
   declaredBy?: string;
@@ -46,22 +46,38 @@ export interface TagCatalogEntry {
   tier?: boolean;
 }
 
-/** 预注册词表（描述与 ac-agents tierOf / capabilitySetOf 单源对齐） */
+/** 预注册词表（面向用户的短描述——经 tags/catalog RPC 直出前端 tooltip）。
+ *  base 已退役（全量标签化 2026-09-16：一切出厂工具挂具体标签） */
 const RESERVED: Array<{ tag: string; category: TagCategory; description: string }> = [
   {
-    tag: 'base',
-    category: 'base',
-    description: '基础能力（capabilitySetOf 隐式注入，一切 Agent 恒有；无需也不能手动声明）',
+    tag: 'fs',
+    category: 'capability',
+    description: '文件读写（read/write/edit/glob/grep）',
+  },
+  {
+    tag: 'collab',
+    category: 'capability',
+    description: '多 Agent 协作（发消息/查名册/改档案）',
+  },
+  {
+    tag: 'infra',
+    category: 'capability',
+    description: '会话基础设施（提问/待办/目标/定时/技能/计算等）',
+  },
+  {
+    tag: 'history',
+    category: 'capability',
+    description: '会话历史回放（grep_history 检索 / read_history 分页读取）',
   },
   {
     tag: 'full-access',
     category: 'access-tier',
-    description: '完全访问档：不受白名单限制的权限档位（tierOf 单源判定；人工授予的信任）',
+    description: '完全访问档：不受沙箱限制（人工授予的信任）',
   },
   {
     tag: 'sandbox-access',
     category: 'access-tier',
-    description: '沙箱档：工作区白名单内自由的权限档位（tierOf 单源判定；缺省 = base-access）',
+    description: '沙箱档：工作区白名单内自由',
   },
 ];
 
@@ -142,6 +158,8 @@ export class TagRegistryService extends Service {
    * 依赖装载序。合并规则：手工声明补描述/排序元数据；requiredTags
    * 采集到的消费工具如实并入（双源对同一词 = 描述来自声明、工具清单
    * 取并集——browser 的 observe 两者都有，正好合成完整语义）。
+   * 注：base 退役（全量标签化 2026-09-16）——不再预注册；存量 tags
+   * 里的 'base' 由前端归一剔除（无门禁语义，保留也不影响能力判定）。
    */
   catalog(): TagCatalogEntry[] {
     const byTag = new Map<string, TagCatalogEntry>();
@@ -167,8 +185,9 @@ export class TagRegistryService extends Service {
         if (tag.startsWith('agent:')) continue; // owner 私有标签不进目录（等 owner 自行声明）
         const existing = byTag.get(tag);
         if (existing) {
-          // 已有条目（预注册或手工声明）：采集面只并入消费工具清单
-          if (existing.reserved) continue; // 预注册词不重复收（断言见下）
+          // 已有条目（预注册或手工声明）：消费工具如实并入（预注册词
+          // 不例外——2026-09-16 起能力族预注册也需要解锁计数与工具
+          // 清单；reserved 仍标记"声明不被覆盖"，采集面照常并入）
           if (!existing.tools.some((t) => t.name === def.name)) {
             existing.tools.push({ name: def.name, ...(def.description ? { description: def.description } : {}), owner: def.owner });
           }

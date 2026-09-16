@@ -24,25 +24,29 @@ export const extension: ExtensionMeta = {
 
 export const inject = ['tools', 'session'];
 
-/** # 会话引用约定：read_history/grep_history 的 owner 行教语法——条件安装
- *  （生效工具集含 read_history 才注入）。sid 由发送侧内联（Agent 无枚举
- *  会话的工具，纯标题不可解析）；只依赖工具集 → KV 前缀稳定。 */
+/** # 会话引用指引：owner 行条件注入（历史工具在场教 conversation_id，
+ *  不在场教磁盘回退——# 引用的分析不绑定特定工具）。sid 由发送侧内联
+ *  （Agent 无枚举会话的工具，纯标题不可解析）；只依赖工具集 → KV 前缀稳定。 */
 const SESSION_MENTION_GUIDE =
   '[引用约定] 用户消息中的 #<标题>(<会话 id>) 是用户引用的历史会话：括号内即 conversation_id，'
-  + '可用 read_history / grep_history（conversation_id 参数）读取该会话内容。';
+  + '是分析该会话的线索。可用 read_history / grep_history（conversation_id 参数）直接读取；'
+  + '这两个工具不可用时，会话数据以 JSONL 落盘在 home 数据根的 sessions/<conversation_id>/messages.jsonl'
+  + '（独立会话在 singles/），可用文件工具（read/grep/pwsh）读取分析。';
 
 export function apply(ctx: Context) {
-  // ---- # 会话引用指引（read_history 的 owner 行条件注入）----
+  // ---- # 会话引用指引（owner 行条件注入：历史工具或文件读取能力在场其一）----
   ctx.on('loop/before-run', (call, next) => {
     const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
-    if (names.has('read_history')) {
+    const historyCap = names.has('read_history') || names.has('grep_history');
+    const fileCap = names.has('read') || names.has('grep') || names.has('pwsh') || names.has('bash');
+    if (historyCap || fileCap) {
       call.request = {
         ...call.request,
         system: call.request.system ? `${call.request.system}\n${SESSION_MENTION_GUIDE}` : SESSION_MENTION_GUIDE,
       };
     }
     return next();
-  }, { description: '注入 # 会话引用约定（Agent 有 read_history 时）' });
+  }, { description: '注入 # 会话引用指引（历史工具或文件读取能力在场时）' });
 
   /** 解析目标会话：call.conversationId 正典；缺省回退 call.agentId（1v1） */
   function conversationOf(call: { conversationId?: string; agentId?: string }): string | undefined {
@@ -66,8 +70,11 @@ export function apply(ctx: Context) {
   }
 
   // ---- grep_history：按正则检索会话历史（含跨会话查询——# 引用后端能力） ----
+  // history 标签（2026-09-17 自 infra 拆出）：会话回放门面自立族——标准
+  // 预设精简协作面时连带出局（infra 保留提问/待办等单 Agent 刚需）
   ctx.tools.register({
     name: 'grep_history',
+    requiredTags: ['history'],
     description:
       '按正则表达式检索会话历史消息（回放层查询，含概要）。缺省查当前会话；'
       + '传 conversation_id 可查任意其他会话（如用户 #<标题>(<会话 id>) 引用里括号内的 id）。',
@@ -129,6 +136,7 @@ export function apply(ctx: Context) {
   // ---- read_history：分页回放会话历史（含跨会话读取——# 引用后端能力） ----
   ctx.tools.register({
     name: 'read_history',
+    requiredTags: ['history'],
     description:
       '分页读取会话历史消息（回放层，含概要头部）。缺省读当前会话；'
       + '传 conversation_id 可读任意其他会话（如用户 #<标题>(<会话 id>) 引用里括号内的 id）。',

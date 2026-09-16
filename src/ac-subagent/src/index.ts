@@ -9,8 +9,9 @@
 //     （async/sync/steer/next-run 四投递语义）/ await 收结果 /
 //     list 查询（含历史）/ stop 停推理 / delete 打墓碑。
 //   · 会话消息 + 注册表落盘（<root>/subagents/，跨重启续聊）。
-//   · run 身份 agent=<subId>（未注册合成 id）：steer 可寻址 +
-//     门禁 fail-closed（防递归）+ 扩展行回落缺省（零会话污染保留）。
+//   · run 身份 agent=<subId>（派生注册身份 = 父身份编辑）：steer 可寻址 +
+//     门禁按剥减后 tags（防递归/防宿主级动作）+ persona 等扩展行随 settings
+//     生效。preset:true——名册/协作/管理面不可见（与未注册时代零漂移）。
 // requiredTags ['delegation']（任务委派能力——ac-security 行执行）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
@@ -33,7 +34,7 @@ export function apply(ctx: Context, options: SubagentRowOptions = {}) {
   ctx.plugin(SubagentsService, options);
 }
 
-export { SubagentsService } from './service.ts';
+export { SubagentsService, subagentErr, HINT_AGENT_MESSAGING } from './service.ts';
 export type { SubagentRowOptions } from './service.ts';
 export type {
   SubagentStatus,

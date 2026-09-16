@@ -43,6 +43,7 @@ describe('ac-agent-store：AgentConfig', () => {
       system: '你是助手',
       settings: { persona: { text: '温柔' } },
     });
+    // tags 原样（基础族自动补齐已移除——2026-09-16 终态裁决，无补齐无标记）
     expect(ctx.agentStore.getAgent('helper')).toEqual({
       id: 'helper',
       model: 'glm-5.3',

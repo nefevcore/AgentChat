@@ -269,8 +269,10 @@ export class SkillsService extends Service {
     }, { description: '/name 手势确定性注入技能正文（每消息至多一次）' });
 
     // ---- load_skill：按 <name> 加载完整指令（参照 DSH skill 工具） ----
+    // infra 标签（2026-09-16 全量标签化）：技能加载属会话基础设施
     this.ctx.tools.register({
       name: 'load_skill',
+      requiredTags: ['infra'],
       description:
         '按名称加载一个技能的完整指令正文（<available_skills> 中列出的技能：会话工作区、全局与本 Agent 专属均可；加载后按其指令执行，不再重复加载）。',
       parameters: {

@@ -91,6 +91,7 @@ describe('agent-store 双读归一（M24 X1 store 加载边界）', () => {
       'utf-8',
     );
     const { ctx } = await boot(root);
+    // 更名归一（自动补齐迁移已移除——tags 原样，只做 conductor 改名）
     expect(ctx.agentStore.getAgent('tagged')?.tags).toEqual(['base', 'delegation']);
     // 盘上原样（只读不写）
     const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { tags: string[] };
@@ -99,6 +100,23 @@ describe('agent-store 双读归一（M24 X1 store 加载边界）', () => {
     ctx.agentStore.saveAgent(ctx.agentStore.getAgent('tagged')!);
     const after = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { tags: string[] };
     expect(after.tags).toEqual(['base', 'delegation']);
+  });
+
+  it('基础族自动补齐已移除（2026-09-16 终态裁决）：存量无三族标签原样透传，不做任何补齐', async () => {
+    const root = tmpRoot();
+    const dir = path.join(root, 'agents', 'once');
+    fs.mkdirSync(dir, { recursive: true });
+    // 盘上存量：无三族标签（标签化前创建的形态）——用户裁决手工补，框架不动
+    fs.writeFileSync(
+      path.join(dir, 'config.json'),
+      JSON.stringify({ id: 'once', model: 'm', tags: ['web'] }, null, 2),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    const first = ctx.agentStore.getAgent('once')!;
+    expect(first.tags).toEqual(['web']); // 原样，无补齐、无标记
+    ctx.agentStore.saveAgent(first);
+    expect(ctx.agentStore.getAgent('once')?.tags).toEqual(['web']); // 回写后再读依旧原样
   });
 
   it('显示名语义拆分：存量 description 读取时拷贝为 name（description 保留；回写后物化）', async () => {

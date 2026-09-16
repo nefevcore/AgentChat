@@ -25,11 +25,15 @@ const STANDARD: AgentPresetDefinition = {
     id: '__standard__',
     name: '标准模式',
     preset: true,
-    // 工具门禁随行标签——bash 需 shell（A3 起，dev→shell 拆分）；
-    // web_search 需 web（纯搜索，无权限面）；subagent 需 delegation
-    // （任务委派，2026-12 授权）——标准模式声明面
-    // "读写/Shell/搜索/提问/子任务委派"照此显式授权
-    tags: ['shell', 'web', 'delegation'],
+    // 工具门禁随行标签——全量标签化（2026-09-16）后 tags 即工具面：
+    //   · fs 文件族 / infra 会话基础设施
+    //   · shell 命令执行（A3 起，dev→shell 拆分）
+    //   · web 网络（纯搜索，无权限面）；delegation 任务委派（2026-12 授权）
+    // 标准模式声明面 "读写/Shell/搜索/提问/子任务委派"照此显式授权。
+    // 不含 collab（协作族）与 history（会话回放族，2026-09-17 自 infra
+    // 拆出）——单会话通用对话不需要跨 Agent 协作与历史回放（2026-09-17
+    // 精简裁决；# 会话引用经指引走文件工具分析）
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation'],
     // src allowlist（persona/system-prompt/session/security/usage）不含
     // memory/skill/datetime——软停用对齐（无记忆语义）
     settings: {
@@ -51,12 +55,12 @@ const DSH_MINIMAL: AgentPresetDefinition = {
     id: '__dsh_minimal__',
     name: '极简模式',
     preset: true,
-    // bash 门禁（A3 起；标签 dev→shell 拆分后随行专用标签）——
-    // 极简模式的核心就是跑命令（显式授权）；str_replace_editor 门禁
-    // fs_minimal（2026-09：移出默认工具面，本预设显式授权）
-    tags: ['shell', 'fs_minimal'],
-    // DSH 同款最小工具面：str_replace_editor（四命令合一）+ bash
-    tools: { include: ['str_replace_editor', 'bash'] },
+    // 全量标签化（2026-09-16）：极简模式声明 fs 文件族 + shell 命令族
+    // + infra 基础设施（ask_questions 等会话必需）——fs_minimal 是
+    // str_replace_editor（极简插件包）的独立门禁词，与本族无关
+    tags: ['fs', 'shell', 'infra', 'fs_minimal'],
+    // DSH 同款最小工具面：str_replace_editor（四命令合一）+ 命令工具
+    tools: { include: ['str_replace_editor', 'tag:shell'] },
     settings: {
       memory: { enabled: false },
       skill: { enabled: false },

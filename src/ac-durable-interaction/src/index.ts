@@ -157,8 +157,10 @@ export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) 
     return v.map(optionText).filter((s) => s.length > 0).slice(0, 6);
   }
 
+  // infra 标签（2026-09-16 全量标签化）：用户交互属会话基础设施
   ctx.tools.register({
     name: 'ask_questions',
+    requiredTags: ['infra'],
     description: '向用户提问并等待回答。用于需要用户决策或确认的场景（write-ahead：重启后可恢复对账）。',
     parameters: {
       type: 'object',

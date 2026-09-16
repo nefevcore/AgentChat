@@ -58,6 +58,7 @@ describe('ac-agents-dir', () => {
 
     const { ctx } = await boot(root);
     expect(ctx.agents.ids().sort()).toEqual(['a', 'b']);
+    // tags 原样（基础族自动补齐已移除——2026-09-16 终态裁决）
     expect(ctx.agents.get('a')).toEqual({ id: 'a', model: 'glm-5.3', system: 'SA' });
     expect(ctx.agents.require('b').model).toBe('deepseek-v4-flash');
   });

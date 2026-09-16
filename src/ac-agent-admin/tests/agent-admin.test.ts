@@ -554,4 +554,44 @@ describe('ac-agent-admin 文档 / 预览', () => {
     expect(barePrompt).not.toContain('[路径穿透白名单]');
     expect(barePrompt).not.toContain('vision-m');
   });
+
+  it('system-prompt 预览工具面与 router 同口径（能力面过滤）：无标签 Agent 的预览不再注入标签门禁工具的 owner 行指引', async () => {
+    // 回归锚（2026-09-16）：config.tools 未配置时预览此前**不传 tools**，
+    // loop 缺省语义"全部已注册"绕过能力面——owner 行（ac-sap-adt 等）的
+    // "request.tools 未声明 → 回落全目录"判据让无 sap-adt 标签的 Agent
+    // 预览也被注入 <sap-adt-tools> 规约。
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 注册一个标签门禁工具（模拟 adt_*：requiredTags ['sap-adt']）
+    h.ctx.tools.register({
+      name: 'adt_probe',
+      requiredTags: ['sap-adt'],
+      description: 'x',
+      async execute() {
+        return { ok: true, output: '' };
+      },
+    });
+    // 假 owner 行（模拟 ac-sap-adt 规约注入监听器——同款判据）
+    h.ctx.on('loop/before-run', (call, next) => {
+      const request = (call as { request?: { tools?: string[]; system?: string } }).request;
+      if (!request) return next();
+      const names = new Set(request.tools ?? h.ctx.tools.list().map((t) => t.name));
+      if ([...names].some((n) => n.startsWith('adt_'))) {
+        request.system = request.system ? `${request.system}\n<adt-guide>` : '<adt-guide>';
+      }
+      return next();
+    }, { description: '假 owner 行（规约注入判据模拟）' });
+
+    // 无 sap-adt 标签、未配置 tools 的 Agent → 预览不含规约（修复后）
+    await rpc(ws, 'agents/create', 'r1', { config: { id: 'plain', model: 'm' } });
+    const plain = await rpc(ws, 'agents/system-prompt', 'r2', { agentId: 'plain' });
+    expect(plain.ok).toBe(true);
+    expect((plain.result as { systemPrompt: string }).systemPrompt).not.toContain('<adt-guide>');
+
+    // 带 sap-adt 标签的 Agent → 能力面放行 adt_probe → 预览含规约
+    await rpc(ws, 'agents/create', 'r3', { config: { id: 'abap', model: 'm', tags: ['sap-adt'] } });
+    const abap = await rpc(ws, 'agents/system-prompt', 'r4', { agentId: 'abap' });
+    expect(abap.ok).toBe(true);
+    expect((abap.result as { systemPrompt: string }).systemPrompt).toContain('<adt-guide>');
+  });
 });

@@ -335,8 +335,10 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   }
 
   // ---- glob：按路径模式找文件 ----
+  // fs 标签（2026-09-16 全量标签化）：文件族门禁
   ctx.tools.register({
     name: 'glob',
+    requiredTags: ['fs'],
     description: '按 glob 模式查找文件（如 "**/*.ts"；模式不含 / 时匹配任意深度的文件名）。',
     parameters: {
       type: 'object',
@@ -437,6 +439,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   // ---- grep：按内容找文件 ----
   ctx.tools.register({
     name: 'grep',
+    requiredTags: ['fs'],
     description: '按正则表达式搜索文件内容（结果按文件分组，Line N: 预览）。',
     parameters: {
       type: 'object',
