@@ -209,6 +209,10 @@
   name: 'ac-client-ui-llm-pool'
 - id: ui-plugin-registry
   name: 'ac-client-ui-plugin-registry'
+# ---- 2026-09-16 数据根可配置 P2：桌面壳存储管理节（壳层桥消费；
+#  非桌面形态前端自探活降级隐藏） ----
+- id: ui-desktop-storage
+  name: 'ac-client-ui-desktop-storage'
 # ---- 2026-11 行拆分：搜索池自 ui-llm-pool 拆出（两对象两行——模型池
 #  严格镜像 ac-llm-pool；搜索池无后端池服务，消费方 = ac-web-tools 读
 #  config.searchProviders） ----

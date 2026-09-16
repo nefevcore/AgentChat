@@ -1,0 +1,25 @@
+{
+  "name": "ac-client-ui-desktop-storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "桌面壳「存储管理」设置节（数据根可配置 P2：壳层桥消费 + 迁移编排 UI；非桌面形态自动降级隐藏）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "dependencies": {
+    "ac-client-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-extension-core": "workspace:*"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

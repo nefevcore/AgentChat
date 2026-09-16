@@ -36,6 +36,7 @@
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-llm-pool": "workspace:*",
+    "ac-client-ui-desktop-storage": "workspace:*",
     "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
     "ac-client-ui-runview": "workspace:*",

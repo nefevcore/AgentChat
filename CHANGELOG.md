@@ -4,6 +4,14 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added（桌面壳数据根可配置——指针链 + 设置面板「存储管理」）
+- **指针读取链**（desktop/main.mjs，P1）：`env AGENTCHAT_DATA_ROOT`（调试/CI 覆盖）> 注册表 `HKCU\Software\AgentChat\DataRoot`（预留：安装向导/企业部署写入面，win packaged 形态）> `<appData>/AgentChat/data-root.txt`（设置面板写入面）> 缺省 `<appData>/AgentChat`。指针文件放缺省目录（稳定锚点——logs 恒在此，数据根可换而引导配置不丢）；指针失效 = 回落缺省 + 日志留痕，不 fatal。日志目录恒定缺省目录（迁移后重建）。
+- **壳层存储桥**（P2 壳半边）：独立回环 http server（pickedPort+1）——`GET /desktop-bridge/storage`（当前根 + 占用统计）、`POST …/storage/pick`（Electron 原生目录选择——dialog 仅主进程可用，此即桥存在的理由）、`POST …/storage/set`（目标目录必须为空〔防吞并已有社区〕→ 可选迁移〔关后端 → rename 同盘原子 / 跨盘 cp+校验+删源，失败保源〕→ 写指针 → 壳层 relaunch）。仅桌面形态存在；非桌面/桥端口被占 = 前端 fetch 失败 → 设置节自动隐藏。
+- **前端行 `ac-client-ui-desktop-storage`**（P2 前端半边）：settings:section 选举席贡献「存储管理」节（StorageHost.vue：位置 + 徽章 + 占用明细 + 迁移选项 + 确认弹层；bridge.ts 同源族端口推导 port+1 + 探活超时）。组合根两表 + ac-app 依赖同步。桥 pickedPort+1 与 vite 3831 理论撞号——仅 Electron 壳内存在（无 vite），无实际冲突。
+- **验证**：行单测 2 例 + 全仓 tsc + check-deps + webui:build 全绿。
+
 ## [0.8.8] - 2026-09-16
 
 ### Added（群聊未读数字徽章——名册群行 + 活动栏聚合同源）

@@ -92,6 +92,8 @@ import * as uiWebRow from 'ac-client-ui-web';
 import * as uiBrowserRow from 'ac-client-ui-browser';
 import * as uiSubagentRow from 'ac-client-ui-subagent';
 import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
+// 2026-09-16 数据根可配置 P2：桌面壳存储管理节（壳层桥消费，非桌面降级隐藏）
+import * as uiDesktopStorageRow from 'ac-client-ui-desktop-storage';
 import * as uiSearchPoolRow from 'ac-client-ui-search-pool';
 import * as uiPluginRegistryRow from 'ac-client-ui-plugin-registry';
 import * as workspaceRow from 'ac-workspace';
@@ -198,6 +200,7 @@ export const TREE: TreeRow[] = [
   { id: 'ui-browser', plugin: uiBrowserRow },
   { id: 'ui-subagent', plugin: uiSubagentRow },
   { id: 'ui-llm-pool', plugin: uiLlmPoolRow },
+  { id: 'ui-desktop-storage', plugin: uiDesktopStorageRow },
   { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
   { id: 'ui-search-pool', plugin: uiSearchPoolRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----

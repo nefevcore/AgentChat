@@ -45,11 +45,61 @@ const backendEntry = path.join(backendDir, 'agentchat.mjs');
 const catalogManifest = path.join(backendDir, 'plugin-catalog.json');
 const iconPath = path.join(import.meta.dirname, 'build', 'icon.png');
 
-// 数据根锚定：显式 <appData>/AgentChat——不依赖 Electron 的 app 名解析
-// （dev 形态 ESM 主进程不读 productName，userData 会变成 ac-desktop/，
-// 与 packaged 形态漂移）；Windows %APPDATA%\AgentChat、Linux ~/.config/AgentChat。
-const dataRoot = path.join(app.getPath('appData'), 'AgentChat');
-const logDir = path.join(dataRoot, 'logs');
+// 数据根锚定：指针读取链（2026-09-16 存储管理裁决）
+//   env AGENTCHAT_DATA_ROOT（调试/CI 覆盖）
+//   > 注册表 HKCU\Software\AgentChat\DataRoot（预留：安装向导/企业部署写入面）
+//   > <appData>/AgentChat/data-root.txt（设置面板「存储管理」写入面）
+//   > 缺省 <appData>/AgentChat
+// 指针文件放【缺省目录】而非数据根本身——数据根可被切换，缺省目录永远
+// 先于一切存在（logs 在此），是稳定的引导配置锚点。指针失效（路径不可
+// 写/不存在）= 回落缺省并在日志留痕，不 fatal（数据根切换错误不该阻止
+// 应用启动——用户可再切回）。
+const defaultDataRoot = path.join(app.getPath('appData'), 'AgentChat');
+const pointerFile = path.join(defaultDataRoot, 'data-root.txt');
+
+function readDataRootPointer() {
+  if (process.env.AGENTCHAT_DATA_ROOT) return process.env.AGENTCHAT_DATA_ROOT;
+  try {
+    const reg = safeReadRegistry();
+    if (reg) return reg;
+  } catch { /* 注册表不可用（非 win / 权限）——跳过该层 */ }
+  try {
+    const p = fs.readFileSync(pointerFile, 'utf8').trim();
+    if (p && fs.existsSync(p)) return p;
+    if (p) log?.(`[desktop] 数据根指针失效（路径不存在），回落缺省：${p}`);
+  } catch { /* 无指针文件 = 首次 */ }
+  return defaultDataRoot;
+}
+
+/** win 注册表读取（预留通道；非 win 返回 null） */
+function safeReadRegistry() {
+  if (process.platform !== 'win32' || !app.isPackaged) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { execSync } = require('node:child_process');
+    const out = execSync(
+      `reg query HKCU\\Software\\AgentChat /v DataRoot 2>nul`,
+      { encoding: 'utf8', timeout: 3000 },
+    );
+    const m = out.match(/DataRoot\s+REG_SZ\s+(\S+)/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDataRootPointer(p) {
+  fs.mkdirSync(defaultDataRoot, { recursive: true });
+  if (path.resolve(p) === path.resolve(defaultDataRoot)) {
+    // 切回缺省 = 清指针（缺省本来就是回落值，指针文件没必要存在）
+    try { fs.rmSync(pointerFile); } catch { /* 无文件 */ }
+    return;
+  }
+  fs.writeFileSync(pointerFile, path.resolve(p), 'utf8');
+}
+
+const dataRoot = readDataRootPointer();
+const logDir = path.join(defaultDataRoot, 'logs'); // 日志恒在缺省目录——数据根换了日志还能找到
 const backendLogPath = path.join(logDir, 'backend.log');
 const LOG_TAIL_MAX = 300;
 
@@ -224,6 +274,18 @@ function createWindow(url) {
     if (new URL(target).origin !== new URL(url).origin) event.preventDefault();
   });
 
+  // 刷新快捷键（窗口级 before-input-event，非 globalShortcut——托盘常驻
+  // 不该全局劫持系统 F5）：F5 常规刷新 / Ctrl+F5 忽略缓存强刷。WebUI 自带
+  // WS 断线重连与交互恢复协议（wire.ts），刷新只重建页面壳，后端常驻不受
+  // 影响——这是"页面卡死"场景的手动保险丝（菜单已移除，Ctrl+R 无默认行为）。
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat) return;
+    if (input.key !== 'F5') return;
+    event.preventDefault();
+    if (input.control) mainWindow.webContents.reloadIgnoringCache();
+    else mainWindow.webContents.reload();
+  });
+
   mainWindow.loadURL(url);
 }
 
@@ -266,6 +328,121 @@ async function checkForUpdates() {
 }
 
 // ------------------------------------------------------------
+// 存储管理桥（P2：WebUI 设置面板「存储管理」的壳层半边）
+//   独立回环 http server（pickedPort+1，WebUI 从 location.port 推导同源族）。
+//   GET  /desktop-bridge/storage       —— 当前数据根 + 占用统计
+//   POST /desktop-bridge/storage/pick  —— 原生目录选择对话框（Electron dialog）
+//   POST /desktop-bridge/storage/set   —— 切换数据根（可选迁移）→ 壳层重启
+//   只监听 127.0.0.1；仅桌面形态存在（WebUI 按 fetch 失败优雅隐藏面板）。
+// ------------------------------------------------------------
+let bridgeServer = null;
+
+function dirSize(p) {
+  let total = 0;
+  try {
+    for (const ent of fs.readdirSync(p, { withFileTypes: true })) {
+      const full = path.join(p, ent.name);
+      if (ent.isDirectory()) total += dirSize(full);
+      else { try { total += fs.statSync(full).size; } catch { /* 并发删 */ } }
+    }
+  } catch { /* 不存在 */ }
+  return total;
+}
+
+function storageInfo() {
+  const breakdown = {};
+  for (const sub of ['sessions', 'agents', 'workspace', 'logs', 'reports', 'backups']) {
+    const p = path.join(dataRoot, sub);
+    if (fs.existsSync(p)) breakdown[sub] = dirSize(p);
+  }
+  return {
+    dataRoot,
+    defaultDataRoot,
+    customized: path.resolve(dataRoot) !== path.resolve(defaultDataRoot),
+    total: dirSize(dataRoot),
+    breakdown,
+    platform: process.platform,
+  };
+}
+
+/** 数据根切换：可选迁移（关后端→移动→指针→relaunch）。跨盘 fallback cp+校验。 */
+async function setStorageRoot(newRoot, { migrate }) {
+  const target = path.resolve(newRoot);
+  if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
+  if (path.resolve(target) !== path.resolve(dataRoot)) {
+    const existing = fs.readdirSync(target);
+    if (existing.length > 0) throw new Error(`目标目录非空（${existing.length} 项）——为防覆盖已有数据已拒绝。请选择空目录。`);
+  }
+  if (migrate && path.resolve(target) !== path.resolve(dataRoot)) {
+    killBackendTree();
+    await new Promise((resolve) => {
+      const t = setInterval(() => { if (!backend || backend.exitCode !== null) { clearInterval(t); resolve(); } }, 200);
+      setTimeout(() => { clearInterval(t); resolve(); }, 8000);
+    });
+    try {
+      fs.renameSync(dataRoot, target); // 同盘原子
+    } catch {
+      // 跨盘（EXDEV）：cp + 大小校验 + 删源——失败保源不切换
+      fs.cpSync(dataRoot, target, { recursive: true });
+      const srcSize = dirSize(dataRoot);
+      if (dirSize(target) < srcSize * 0.999) throw new Error('跨盘复制校验失败（目标小于源）——已保留原数据，未切换。');
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+    fs.mkdirSync(logDir, { recursive: true }); // 日志锚点恒在缺省目录（rename 整根后被带走，重建）
+  }
+  writeDataRootPointer(target);
+  log(`[desktop] 数据根已切换：${dataRoot} → ${target}（migrate=${migrate}），应用即将重启`);
+  return { ok: true, restarting: true };
+}
+
+function startBridge(port) {
+  bridgeServer = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+    if (url.pathname === '/desktop-bridge/storage' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(storageInfo()));
+      return;
+    }
+    if (url.pathname === '/desktop-bridge/storage/pick' && req.method === 'POST') {
+      dialog.showOpenDialog(mainWindow ?? undefined, { properties: ['openDirectory', 'createDirectory'] })
+        .then((r) => {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ canceled: r.canceled, path: r.filePaths?.[0] ?? null }));
+        })
+        .catch((e) => {
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: String(e) }));
+        });
+      return;
+    }
+    if (url.pathname === '/desktop-bridge/storage/set' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+      req.on('end', async () => {
+        try {
+          const { path: newRoot, migrate } = JSON.parse(body || '{}');
+          if (typeof newRoot !== 'string' || !newRoot.trim()) throw new Error('缺少 path');
+          const out = await setStorageRoot(newRoot, { migrate: migrate === true });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(out));
+          // 给前端 1.5s 收响应，然后整壳重启（后端+窗口全部重来）
+          setTimeout(() => { quitting = true; killBackendTree(); app.relaunch(); app.exit(0); }, 1500);
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+        }
+      });
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  bridgeServer.listen(port, '127.0.0.1', () => {
+    log(`[desktop] 存储管理桥：http://127.0.0.1:${port}/desktop-bridge/`);
+  });
+}
+
+// ------------------------------------------------------------
 // 启动编排
 // ------------------------------------------------------------
 function fatal(message) {
@@ -287,6 +464,9 @@ async function start() {
 
   const port = await pickPort();
   spawnBackend(port);
+  // 存储管理桥：pickedPort+1（WebUI 从 location.port+1 推导；被占时桥退化为
+  // 不可用——设置面板 fetch 失败即隐藏该节，非致命）
+  try { startBridge(port + 1); } catch { log('[desktop] 存储管理桥端口被占，设置面板存储节不可用'); }
 
   if (!await waitForReady(port)) {
     fatal(`后端 ${READY_TIMEOUT_MS / 1000} 秒内未就绪（http://127.0.0.1:${port}/）。\n\n日志尾部：\n${tailText()}`);

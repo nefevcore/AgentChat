@@ -173,6 +173,7 @@
     "ac-client-ui-subagent": "workspace:*",
     "ac-client-ui-system": "workspace:*",
     "ac-client-ui-timer": "workspace:*",
+    "ac-client-ui-desktop-storage": "workspace:*",
     "esbuild": "^0.28.2",
     "js-yaml": "^4.1.0",
     "pixelmatch": "^5.3.0",
