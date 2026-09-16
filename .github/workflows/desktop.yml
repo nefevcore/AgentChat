@@ -63,8 +63,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      # ---- 上传与 manifest 生成只在 windows 腿做（防 matrix 三腿并发写冲突）----
-      - name: 上传安装包到下载服务器 + 生成 manifest
+      # ---- 三腿各传各的产物（文件名不冲突）；manifest 重算在收尾 job ----
+      - name: 上传安装包到下载服务器
+        if: matrix.os != 'windows-latest'   # windows 腿产物形态不同，单独一步
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过上传"
+            exit 0
+          fi
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
+          # linux: AppImage；macos: dmg + zip（electron-builder 输出在 desktop/release）
+          shopt -s nullglob
+          for f in desktop/release/*.AppImage desktop/release/*.dmg desktop/release/*.zip; do
+            scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/$VER/"
+          done
+
+      - name: 上传安装包到下载服务器（windows 腿）
         if: matrix.os == 'windows-latest'
         shell: bash
         env:
@@ -82,11 +107,32 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          # Windows runner 无 rsync——scp 逐文件上传（exe 产物数固定，scp 足够）
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
           for f in desktop/release/*.exe; do
             scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/$VER/"
           done
-          # 服务器侧扫目录算 sha256 重生成 manifest（跨腿幂等：多腿各传各的，manifest 全量重建）
+
+  # ---- 收尾：三腿产物齐后重算 manifest（消除并发写冲突）----
+  manifest:
+    needs: build
+    if: always() && !cancelled() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 重算 manifest（服务器侧扫描）
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads"
-          echo "manifest 已在服务器更新（git 双写待后续版本统一接自动化）"
+          echo "manifest 已重算（三腿产物齐全）"
