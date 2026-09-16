@@ -458,7 +458,9 @@ function toggleTag(tag: string, on: boolean): void {
   const tags: string[] = props.raw.tags ?? [];
   emitTags(on ? [...tags.filter(t => t !== tag), tag] : tags.filter(t => t !== tag));
 }
-/** 徽章点击：base 隐式固定不可移除 */
+/** 徽章点击：切换该标签（on 态与落盘 tags 一致——reserved 目录词不再
+ *  恒亮，2026-09-16 教训：reserved=「目录恒有此词」≠「该 Agent 恒有此标签」，
+ *  恒亮展示曾让管理员误判存量 Agent 都有 collab，掩盖协作工具静默消失） */
 function toggleToolTag(tag: string, fixed: boolean): void {
   if (fixed) return;
   toggleTag(tag, !(props.raw.tags ?? []).includes(tag));
@@ -596,9 +598,9 @@ async function removeAvatar() {
               <div class="tag-badges">
                 <button
                   v-for="item in g.items" :key="item.tag" type="button"
-                  class="tag-badge" :class="[{ on: item.reserved || (raw.tags ?? []).includes(item.tag) }, 'tb-' + item.tag]"
+                  class="tag-badge" :class="[{ on: (raw.tags ?? []).includes(item.tag) }, 'tb-' + item.tag]"
                   :title="tagTooltip(item)"
-                  @click="toggleToolTag(item.tag, item.reserved === true)"
+                  @click="toggleToolTag(item.tag, false)"
                 >{{ item.tag }} · {{ tagLabelOf(item) }}<span v-if="item.tools.length" class="tag-tool-count" :title="`解锁 ${item.tools.length} 个工具`">{{ item.tools.length }}</span></button>
               </div>
             </div>

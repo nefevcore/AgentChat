@@ -108,9 +108,10 @@ describe('M7 WebUI 服务面端到端', () => {
     const port = await tree.ctx.webServer.ready();
     const ws = await connect(port);
 
-    // 建档（管理面 RPC）→ 注册表热生效
+    // 建档（管理面 RPC）→ 注册表热生效（tags 显式声明——hello 是 infra 门禁，
+    // 写口不再静默补基础族）
     const created = await rpc(ws, 'agents/create', 'r0', {
-      config: { id: 'helper', model: 'mock-1', tools: { include: ['hello'] } },
+      config: { id: 'helper', model: 'mock-1', tags: ['infra'], tools: { include: ['hello'] } },
     });
     expect(created.ok).toBe(true);
 

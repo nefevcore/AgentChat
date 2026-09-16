@@ -128,6 +128,17 @@ describe('ac-agent-admin CRUD', () => {
     expect(updated).toEqual([{ id: 'bot1', change: 'updated' }]);
   });
 
+  it('create 未传 tags：不再静默补基础族（写口不越权代填——2026-09-16 教训：静默注入让配置核对世界与运行时世界不一致）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const r = await rpc(ws, 'agents/create', 'r1', { config: { id: 'bare', model: 'm' } });
+    expect(r.ok).toBe(true);
+    // 落盘与注册表均无 tags——基础族由创建面显式预选（AgentList 对话框）
+    expect(h.agents.get('bare')?.tags).toBeUndefined();
+    const onDisk = JSON.parse(fs.readFileSync(join(h.root, 'agents', 'bare', 'config.json'), 'utf-8')) as Record<string, unknown>;
+    expect(onDisk.tags).toBeUndefined();
+  });
+
   it('apiKey 侧信道已退役（P4/D3）：白名单外键 fail-closed 拒绝', async () => {
     const h = await boot();
     const ws = await connect(h.port);

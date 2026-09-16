@@ -4,6 +4,13 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Fixed（UNIVERSAL_TAGS 静默注入致协作工具对存量 Agent 消失）
+- **现象**：升级后存量 Agent 的协作工具（send_agent 等 collab 族）静默消失。
+- **根因**：双写口语义分裂——`agents/create`/`agents/update` 写口对「新建且未传 tags」静默补基础族（写口世界有 collab），运行时却按落盘 tags 计算（无 collab）；叠加管理面板 reserved 目录词徽章恒亮展示，管理员核对时看到的是写口世界，掩盖了落盘真相。
+- **修复**：写口不再代填（tags 完全以调用方传入为准——基础族预选回归创建面显式传入，`createAgent` 前端签名补 tags 透传）；徽章 on 态改按落盘 tags 计算（reserved=目录恒有此词 ≠ 该 Agent 恒有此标签）。agent-admin 回归测试锁定。
+
 ## [0.8.9] - 2026-09-16
 
 ### Added（桌面壳数据根可配置——指针链 + 设置面板「存储管理」）

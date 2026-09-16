@@ -187,6 +187,9 @@ function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singles
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 
 const adding = ref(false);
+/** 新建缺省标签（创建面显式预选——替代写口静默注入，2026-09-16：
+ *  后端不再越权代填 tags，基础族预选在创建对话框可见可改） */
+const NEW_AGENT_DEFAULT_TAGS = ['fs', 'collab', 'infra'] as const;
 async function createAgent() {
   if (adding.value) return; // 双击守卫：重复提交会创建两个 Agent
   adding.value = true;
@@ -197,6 +200,7 @@ async function createAgent() {
     // provider+model 双字段提交（服务端物化/引用拆分同语义）
     if (selProvider.value) body.provider = selProvider.value;
     if (selModel.value) body.llm = { model: selModel.value };
+    body.tags = [...NEW_AGENT_DEFAULT_TAGS]; // 显式预选（对话框可见，创建后可在 Agent 面板调整）
     await apiCreateAgent(body, rpc);
     showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; roster.requestAgents();
   } catch (err: any) { addError.value = `创建失败: ${err.message}`; }

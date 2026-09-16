@@ -145,7 +145,7 @@ describe('Single 会话 ask_questions 刷新恢复（全链路）', () => {
   it('run 挂起等待时刷新 → 弹窗恢复 + 作答 → run 续跑收束', { timeout: 90_000 }, async () => {
     const { createAgent } = await import('ac-client-ui-agents/client');
     const { createSingle } = await import('ac-client-ui-singles/client');
-    await createAgent({ id: 'helper', name: '小助手', provider: 'askq', llm: { model: 'mock-1' }, tools: { include: ['ask_questions'] } }, wireRpc);
+    await createAgent({ id: 'helper', name: '小助手', provider: 'askq', llm: { model: 'mock-1' }, tags: ['infra'], tools: { include: ['ask_questions'] } }, wireRpc);
     const { session } = await createSingle({ agentId: 'helper' }, wireRpc);
 
     // ---- ① 前端（刷新前）：发送消息 → run 挂起在 ask_questions ----
@@ -271,7 +271,7 @@ describe('Single 会话 ask_questions 刷新恢复（全链路）', () => {
     // ---- 阶段一：挂起提问（run 死于"重启"）----
     const { createAgent } = await import('ac-client-ui-agents/client');
     const { createSingle } = await import('ac-client-ui-singles/client');
-    await createAgent({ id: 'survivor', name: '重启幸存者', provider: 'askq', llm: { model: 'mock-1' }, tools: { include: ['ask_questions'] } }, wireRpc);
+    await createAgent({ id: 'survivor', name: '重启幸存者', provider: 'askq', llm: { model: 'mock-1' }, tags: ['infra'], tools: { include: ['ask_questions'] } }, wireRpc);
     const { session } = await createSingle({ agentId: 'survivor' }, wireRpc);
 
     const { createClient } = await import('ac-client-runtime');
@@ -377,7 +377,7 @@ describe('Single 会话 ask_questions 刷新恢复（全链路）', () => {
 
     const { createAgent } = await import('ac-client-ui-agents/client');
     const { createSingle } = await import('ac-client-ui-singles/client');
-    await createAgent({ id: 'dualasker', name: '双问者', provider: 'dual', llm: { model: 'mock-1' }, tools: { include: ['ask_questions'] } }, wireRpc);
+    await createAgent({ id: 'dualasker', name: '双问者', provider: 'dual', llm: { model: 'mock-1' }, tags: ['infra'], tools: { include: ['ask_questions'] } }, wireRpc);
     const { session } = await createSingle({ agentId: 'dualasker' }, wireRpc);
 
     const { createClient } = await import('ac-client-runtime');

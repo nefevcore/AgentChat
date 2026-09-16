@@ -24,7 +24,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
-import { capabilitySetOf, toolAllowedFor, assertAgentId, resolveToolNames, UNIVERSAL_TAGS, type AgentConfig } from 'ac-agents';
+import { capabilitySetOf, toolAllowedFor, assertAgentId, resolveToolNames, type AgentConfig } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 import { splitModelRef } from 'ac-llm';
 import { pairKey } from 'ac-agent-loop';
@@ -449,14 +449,13 @@ export class AgentAdminService extends Service {
       normalized.model = null;
     }
     if (nextProvider) normalized.provider = nextProvider;
-    // 全量标签化（2026-09-16）写口缺省：**新建**（current === undefined）
-    // 且未传 tags 时补基础族（创建面缺省语义，非迁移——UI 裸创建的
-    // Agent 应有基本文件/协作/会话能力）；显式传 tags（含空数组）与
-    // 更新均原样透传——tags 完全以用户配置为准（自动补齐迁移已移除，
-    // 语义存档见 ac-agents service.ts UNIVERSAL_TAGS 注释）。
-    if (current === undefined && rest.tags === undefined) {
-      normalized.tags = [...UNIVERSAL_TAGS];
-    }
+    // tags 写口：完全以调用方传入为准（2026-09-16 终态裁决：不补齐、
+    // 不改写——此前「新建且未传 tags 静默补基础族」的缺省已移除。
+    // 静默注入的教训：管理员核对配置时看到的是写口世界（有 collab），
+    // 运行时按落盘 tags 计算（无 collab）——两个世界不一致导致误判，
+    // 协作工具对存量 Agent 静默消失。基础族标签由创建面（UI 对话框
+    // 显式预选/预设声明）负责，写口不再越权代填。语义存档见
+    // ac-agents service.ts UNIVERSAL_TAGS 注释。）
     return normalized as unknown as AgentConfig;
   }
 }

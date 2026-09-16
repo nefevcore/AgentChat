@@ -135,7 +135,7 @@ afterAll(async () => {
 describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () => {
   it('建档 → 发送 → 流式状态机 → 历史 → resume 全链路', { timeout: 60_000 }, async () => {
     // ---- ① 建档（Port B RPC） ----
-    const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tools: { include: ['hello'] } }, wireRpc);
+    const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tags: ['infra'], tools: { include: ['hello'] } }, wireRpc);
     expect(created.success).toBe(true);
 
     // ---- ② 核心直连构造（旧 webui 门面 wireFace 独立分支等价——包内
