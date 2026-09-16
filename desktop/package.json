@@ -53,8 +53,9 @@
       ],
       "icon": "build/icon.png"
     },
-    "nsis": {
-      "oneClick": true,
+      "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false
     },
