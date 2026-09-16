@@ -7,15 +7,19 @@
 //     await 收结果，list 查询（含历史），stop 停推理（保留实体），
 //     delete 打墓碑（list 不可见；会话文件保留）。
 //   · run 编排：每 run = ctx.agentLoop.run 直连，身份 agent=<subId>
-//     （未注册合成 id）——
+//     （派生注册身份：spawn/触达时 ctx.agents.register 派生条目）——
 //       - steer 地址 = subId（runAddress：conversationId 缺省 → 地址即
 //         agent）→ send(mode=steer) 经 ctx.agentLoop.steer 注入活跃 run；
-//       - 安全门禁对未知身份 fail-closed（能力集只含 base）：delegation
-//         标签工具（subagent 自身）被拒 → 递归 spawn 天然挡住，与
-//         agent:undefined 时代一致；
-//       - 沙箱/persona/memory/datetime 全部回落缺省（agentWorkdir 对
-//         未注册 id 返回工作区根，与无身份时代同口径）——零会话污染
-//         语义保留：父会话与 ac-session 不受任何影响。
+//       - 身份合成 = 父身份编辑：preset:true（名册/协作/管理面不可见、
+//         工作区根口径——与未注册时代零漂移）+ tags = 父 tags 剥
+//         delegation（防递归 spawn）与 admin（防 system_restart 等宿主级
+//         动作）：工具可见面与执行门禁同源收敛，不再依赖"未注册
+//         fail-closed"（档位继承下 full 父的子 Agent 此前能看到全部
+//         已注册工具）；
+//       - 信封装配（subagent 直连 loop 不经 router）：system/llmParams
+//         每 run 现读父配置（热更生效）、tools 按派生身份能力集终滤
+//         （点名也不可越过门禁）；settings 浅拷贝随父（快照）——
+//         零会话污染语义保留：父会话与 ac-session 不受任何影响。
 //   · 上下文：会话消息 = user/assistant 对（任务框架 + 逐轮追加）；
 //     run 内部 tool 轮次不跨 run 复放（run 结果文本即轮结论）。
 //   · 每 run 登记 job（kind=subagent；owner=父；完成通知回投发起会话）。
@@ -36,7 +40,13 @@ import type { ToolResult } from 'ac-tools';
 import type { JobOutcome } from 'ac-jobs';
 import { splitModelRef } from 'ac-llm';
 import { defaultPoolConnection } from 'ac-llm-pool';
-import { effectiveTierOf } from 'ac-agents';
+import {
+  capabilitySetOf,
+  effectiveTierOf,
+  filterLlmParams,
+  toolAllowedFor,
+  type AgentConfig,
+} from 'ac-agents';
 
 /** 子 Agent 实体状态（run 级终态见 SubagentRunSummary） */
 export type SubagentStatus = 'idle' | 'running';
@@ -104,7 +114,7 @@ export interface SubagentSpawnOptions {
   context?: string;
   toolNames?: string[];
   maxSteps?: number;
-  /** 每轮 run 超时毫秒（缺省 300000；0 = 不设看门狗） */
+  /** 每轮 run 超时毫秒（0 = 不设看门狗；缺省 0 = 不限——研究型任务常为长任务） */
   timeoutMs?: number;
   /** 发起会话键（job 完成通知回投目标） */
   conversationId?: string;
@@ -126,6 +136,8 @@ export interface SubagentSendOptions {
 export interface SubagentListOptions {
   /** id/名称/任务子串过滤 */
   query?: string;
+  /** 只列指定父名下的子 Agent（缺省 = 全部） */
+  parentId?: string;
   runningOnly?: boolean;
   limit?: number;
 }
@@ -180,13 +192,34 @@ interface MessageLine {
   ts: number;
 }
 
-/** 每 run 缺省超时（5 分钟） */
-const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 /** 缺省步数上限 */
 const DEFAULT_MAX_STEPS = 15;
 /** list 缺省/上限条数 */
 const LIST_DEFAULT_LIMIT = 20;
 const LIST_MAX_LIMIT = 100;
+/** 派生身份剔除的能力标签：delegation 防递归 spawn；admin 防宿主级管理动作 */
+const STRIPPED_TAGS = ['delegation', 'admin'];
+
+/** subagent 工具已知参数名（未知参数 = 工具拿错的最强信号，入口报警） */
+const KNOWN_ARG_KEYS = new Set([
+  'action', 'task', 'name', 'tools', 'context', 'subagent_id',
+  'message', 'mode', 'max_steps', 'timeout_s', 'wait_time',
+  'query', 'running_only', 'limit',
+]);
+
+/** 派生身份合成（父身份编辑）：preset 隐藏 + tags 剥 delegation/admin */
+function deriveAgentConfig(rec: SubagentRecord, parent: AgentConfig): AgentConfig {
+  const tags = (parent.tags ?? []).filter((t) => !STRIPPED_TAGS.includes(t));
+  return {
+    id: rec.id,
+    preset: true, // 名册/协作/管理面不可见；工作区根口径（与未注册时代同回落）
+    name: rec.name,
+    description: `子 Agent（父：${rec.parentId}）：${rec.task || rec.name}`,
+    // system/llmParams/tools/maxSteps 不进派生条目——executeRun 每 run 现读父配置
+    ...(tags.length > 0 ? { tags } : {}),
+    ...(parent.settings ? { settings: { ...parent.settings } } : {}),
+  };
+}
 
 /**
  * 首条消息框架（独立上下文，不背父 Agent 历史）。首条 = 任务定位 +
@@ -205,6 +238,25 @@ function frameTask(task: string, context?: string): string {
 /** id 文件名安全（生成端恒安全；装载端防御） */
 function safeId(id: string): boolean {
   return /^[A-Za-z0-9_.-]+$/.test(id);
+}
+
+/**
+ * 「给 Agent/用户发消息」的指路提示（news 事故 2026-09-16：subagent(send)
+ * 被 send_agent 意图串用）。工具层各误用出口共用一份文案，ac-collab-tools
+ * 反向引用同源，避免两处漂移。
+ */
+export const HINT_AGENT_MESSAGING =
+  'subagent 管理的是你私有的子 Agent 看板（spawn/send/await/list/stop/delete）：'
+  + '子 Agent 的回复只返回给你。给其他 Agent 或用户发消息 → send_agent；'
+  + '发群消息 → send_group；给已 spawn 的子 Agent 发任务消息 → subagent(action="send", subagent_id=…, message=…)。';
+
+/** subagent 工具统一报错收敛：服务层 Error → 带指路的 ToolResult */
+export function subagentErr(err: unknown): ToolResult {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes('send_agent') || message.includes('转达') || message.includes('推送')) {
+    return { ok: false, error: message, output: { hint: HINT_AGENT_MESSAGING } };
+  }
+  return { ok: false, error: message };
 }
 
 export class SubagentsService extends Service {
@@ -262,6 +314,10 @@ export class SubagentsService extends Service {
   /** 创建子 Agent；task 给出即投递首条消息并启动 run */
   spawn(opts: SubagentSpawnOptions): SubagentSpawnResult {
     // fail-fast（保持旧语义）：父不存在/无模型在创建口报错
+    const parent = this.ctx.agents.get(opts.parentId);
+    if (!parent) {
+      throw new Error(`父 Agent "${opts.parentId}" 未注册（subagent 需要父的 model 配置）`);
+    }
     this.resolveModel(opts.parentId);
     const id = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const now = Date.now();
@@ -276,12 +332,14 @@ export class SubagentsService extends Service {
       updatedAt: now,
       runs: 0,
       maxSteps: opts.maxSteps && opts.maxSteps > 0 ? opts.maxSteps : DEFAULT_MAX_STEPS,
-      // 0 = 显式不设看门狗（合法值）；未传/负数/NaN = 缺省 300s
-      timeoutMs: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS,
+      // 显式 >= 0 合法（0 = 不设看门狗）；未传/负数/NaN = 缺省不限（长任务友好）
+      timeoutMs: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0 ? opts.timeoutMs : 0,
       ...(opts.toolNames && opts.toolNames.length > 0 ? { toolNames: opts.toolNames } : {}),
     };
     this.records.set(id, record);
     this.persistRegistry();
+    // 派生身份注册（父身份编辑：preset 隐藏 + 剥 delegation/admin）
+    this.ctx.agents.register(deriveAgentConfig(record, parent));
     const entry = this.hydrate(record);
     let settled: Promise<SubagentRunSummary> | undefined;
     const task = opts.task?.trim();
@@ -346,6 +404,12 @@ export class SubagentsService extends Service {
     if (!record || record.deleted) return false;
     record.deleted = true;
     record.updatedAt = Date.now();
+    // 派生身份随撤（register 幂等；宿主级失败容忍——重载时 hydrate 补齐）
+    try {
+      this.ctx.agents.remove(id);
+    } catch (err: unknown) {
+      this.ctx.logger.warn(`[subagent] "${id}" 撤派生身份失败（不影响删除）: ${String(err)}`);
+    }
     const entry = this.entries.get(id);
     if (entry) {
       entry.inbox = [];
@@ -368,6 +432,7 @@ export class SubagentsService extends Service {
     const query = opts.query?.trim().toLowerCase();
     const infos = [...this.records.values()]
       .filter((r) => !r.deleted)
+      .filter((r) => (opts.parentId !== undefined ? r.parentId === opts.parentId : true))
       .map((r) => this.infoOf(r))
       .filter((info) => {
         if (query && !(`${info.id} ${info.name} ${info.task}`.toLowerCase().includes(query))) return false;
@@ -588,15 +653,29 @@ export class SubagentsService extends Service {
       // 永远写不了文件；父 run 处于用户快捷提权态（call.elevation）时
       // 此前也只看 tags——子 Agent 落回 base 逐工具审批。run 编排是
       // agentLoop.run 直连（可信服务，不经 deliver）——elevation 合法装配方。
-      const parentTier = effectiveTierOf(this.ctx.agents.get(rec.parentId), item.elevation);
+      const parent = this.ctx.agents.get(rec.parentId);
+      const parentTier = effectiveTierOf(parent, item.elevation);
+      // 信封装配（router 同款；subagent 直连 loop 不经 router，此处为
+      // 唯一装配点）：工具可见面 = 点名集/全量 ∩ 派生身份能力集——
+      // spawn.tools 点名也不可越过门禁（subagent/system_restart 等
+      // requiredTags 工具对子 Agent 不可见不可执行）；system/llmParams
+      // 现读父配置（热更生效）。
+      const caps = capabilitySetOf(this.ctx, rec.id);
+      const allowed = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps)).map((t) => t.name);
+      const names = rec.toolNames && rec.toolNames.length > 0 ? rec.toolNames.filter((n) => allowed.includes(n)) : allowed;
+      const llmParams = filterLlmParams(parent?.llmParams);
       result = await this.ctx.agentLoop.run({
-        // 未注册合成身份：steer 可寻址 + 门禁 fail-closed（防递归）+ 扩展行回落缺省
+        // 派生注册身份：steer 可寻址 + 门禁按剥减后 tags 判定（防递归/
+        // 防宿主级动作）+ persona/memory 等扩展行随 settings 生效
         agent: rec.id,
         model,
         ...(provider ? { provider } : {}),
         messages: [...messages],
-        ...(rec.toolNames && rec.toolNames.length > 0 ? { tools: rec.toolNames } : {}),
+        // 空集照传（loop 收敛为无工具）——缺省会回落全量已注册，绕过门禁
+        tools: names,
         maxSteps: rec.maxSteps,
+        ...(parent?.system ? { system: parent.system } : {}),
+        ...(Object.keys(llmParams).length > 0 ? { llmParams } : {}),
         ...(parentTier !== 'base-access' ? { elevation: parentTier } : {}),
         signal: controller.signal,
       });
@@ -687,6 +766,18 @@ export class SubagentsService extends Service {
   private hydrate(record: SubagentRecord): SubEntry {
     let entry = this.entries.get(record.id);
     if (entry === undefined) {
+      // 派生身份补注册（跨重启/宿主重启后触达：注册面丢失即按当前父配置
+      // 重派生——与 spawn 同源；父已注销则保持无注册，回落旧 fail-closed 口径）
+      if (!this.ctx.agents.has(record.id)) {
+        const parent = this.ctx.agents.get(record.parentId);
+        if (parent) {
+          try {
+            this.ctx.agents.register(deriveAgentConfig(record, parent));
+          } catch {
+            /* 已注册竞态（并发触达）——忽略 */
+          }
+        }
+      }
       entry = {
         record,
         inbox: [],
@@ -817,11 +908,75 @@ export class SubagentsService extends Service {
   // subagent 工具（spawn/send/await/list/stop/delete 单工具 action 分发）
   // ============================================================
 
+  /**
+   * 缺参/错 id 提前校验（工具返回层）：给最常见的两类失败附上下文引导——
+   *   · send/await 缺 subagent_id 且名下零子 Agent → 大概率工具拿错
+   *     （send_agent 语义串线，news 事故 #3），报错直接点破并指路；
+   *   · id 不存在 → 附近似候选（防手写/记忆复写 id 抄错，如 `…zqql_`）。
+   * 通过则返回 undefined，执行继续。
+   */
+  private earlyCheck(args: Record<string, unknown>, parentId: string): ToolResult | undefined {
+    if (args.action === 'list' || args.action === 'spawn') return undefined;
+    const id = String(args.subagent_id ?? '');
+    if (!id) {
+      if (args.action === 'send' || args.action === 'await' || args.action === 'stop' || args.action === 'delete') {
+        const owned = this.list({ parentId })?.total ?? this.list().total;
+        if (owned === 0) {
+          return {
+            ok: false,
+            error: `缺少 subagent_id：当前没有任何子 Agent（action="${String(args.action)}" 只对已 spawn 的子 Agent 有意义）。若意图是给其他 Agent 或用户发消息 → send_agent；发群消息 → send_group；要派新任务 → action="spawn"`,
+            output: { hint: HINT_AGENT_MESSAGING },
+          };
+        }
+        return { ok: false, error: `缺少 subagent_id 参数（spawn 返回的 subagent_id，可 action="list" 查询）` };
+      }
+      return undefined;
+    }
+    // id 给了但不存在（含墓碑）：附近似候选
+    if (this.get(id) === undefined) {
+      const rec = this.records.get(id);
+      if (rec?.deleted === true) {
+        return {
+          ok: false,
+          error: `子 Agent "${id}" 已删除（delete 后不可再触达；需要时重新 spawn）`,
+        };
+      }
+      const candidates = this.nearbyIds(id);
+      return {
+        ok: false,
+        error:
+          `子 Agent "${id}" 不存在。`
+          + (candidates.length > 0
+            ? `近似候选：${candidates.join(' / ')}`
+            : '名下暂无子 Agent（action="list" 查询；spawn 创建）'),
+      };
+    }
+    return undefined;
+  }
+
+  /** id 近似候选（前缀最长匹配 ≤3 个；含已删除——报错提示用） */
+  private nearbyIds(id: string): string[] {
+    // 剥离常见誊写噪声（尾缀/引号）
+    const needle = id.replace(/[_'"\s]+$/, '');
+    const hits: string[] = [];
+    for (const key of this.records.keys()) {
+      if (key === needle) continue;
+      // 候选 = needle 是 key 的前缀，或 key 是 needle 的前缀（≥8 字符才有区分度）
+      if ((key.startsWith(needle) || needle.startsWith(key)) && Math.min(key.length, needle.length) >= 8) {
+        hits.push(key);
+      }
+      if (hits.length >= 3) break;
+    }
+    return hits;
+  }
+
   private registerTool(): void {
     this.ctx.tools.register({
       name: 'subagent',
       description:
-        '派出子 Agent 执行子任务（多轮会话、消息落盘，可跨重启续聊）：spawn 创建并可选启动首条任务；send 发消息续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（list 不再可见）。',
+        '派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话，不接触任何接收方）。'
+        + 'spawn 创建并可选启动首条任务；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（list 不再可见）。'
+        + '注意：本工具管理的是"你私有的子 Agent 看板"，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。',
       requiredTags: ['delegation'],
       parameters: {
         type: 'object',
@@ -831,12 +986,27 @@ export class SubagentsService extends Service {
             enum: ['spawn', 'send', 'await', 'list', 'stop', 'delete'],
             description: '操作',
           },
-          task: { type: 'string', description: '[spawn] 首条任务消息（需完整自包含；省略则仅创建不启动，之后用 send 发首条）' },
+          task: {
+            type: 'string',
+            description:
+              '[spawn] 首条任务消息，需完整自包含（子 Agent 看不到你的会话）——把内容完整写进本参数，不要"请转交以下内容："式截断。省略则仅创建不启动，之后用 send 发首条',
+          },
           name: { type: 'string', description: '[spawn] 子 Agent 名称' },
-          tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 可用工具名（留空 = 纯推理）' },
+          tools: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              '[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤）。缺省不传 = 纯推理子 Agent：没有任何工具、不能读写文件/联网/发消息，只能基于任务文本推理',
+          },
           context: { type: 'string', description: '[spawn] 首条任务的附加上下文' },
-          subagent_id: { type: 'string', description: '[send/await/stop/delete] 子 Agent ID' },
-          message: { type: 'string', description: '[send] 消息内容（自包含，或基于该子 Agent 已有进展的追问/补充指示）' },
+          subagent_id: {
+            type: 'string',
+            description: '[send/await/stop/delete] 目标子 Agent ID（spawn 返回的 subagent_id，可 list 查询；勿凭记忆复写）',
+          },
+          message: {
+            type: 'string',
+            description: '[send] 给该子 Agent 的消息内容（自包含，或基于该子 Agent 已有进展的追问/补充指示）——不是给其他 Agent 的消息',
+          },
           mode: {
             type: 'string',
             enum: ['async', 'sync', 'steer', 'next-run'],
@@ -844,7 +1014,7 @@ export class SubagentsService extends Service {
               '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）',
           },
           max_steps: { type: 'number', description: '[spawn] 每轮步数上限（默认 15）', minimum: 1 },
-          timeout_s: { type: 'number', description: '[spawn] 每轮 run 超时秒数（默认 300 超时强制终止；0 = 不限）', minimum: 0 },
+          timeout_s: { type: 'number', description: '[spawn] 每轮 run 超时秒数（0 = 缺省不限——研究型任务常为长任务；正值 = 超时强制终止）', minimum: 0 },
           wait_time: {
             type: 'number',
             description: '[spawn] 正值 = 阻塞等首轮 run 完成并直接返回结果（默认 0 立即返回）',
@@ -858,13 +1028,45 @@ export class SubagentsService extends Service {
       },
       // 箭头函数捕获服务实例（execute 由 tools 服务调用，this 不指向本服务）
       execute: async (args, call): Promise<ToolResult> => {
-        // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+        // ── 误用护栏（2026-09-16 news 事故复盘）───────────────────────
+        // ① 未知参数 = 工具拿错的最强信号（当时 send_agent 的 message 正文
+        //    塞进 subagent(send) 被静默丢弃）→ 立即报错并指路，不放行半截内容。
+        const unknownArgs = Object.keys(args).filter((k) => !KNOWN_ARG_KEYS.has(k));
+        if (unknownArgs.length > 0) {
+          const lost = unknownArgs.filter(
+            (k) => typeof args[k] === 'string' && String(args[k]).trim() !== '',
+          );
+          return {
+            ok: false,
+            error:
+              `未知参数 ${unknownArgs.join('/')}：本工具没有这些参数，其中的内容不会送达任何接收方。`
+              + (lost.length > 0
+                ? `其中 ${lost.join('/')} 携带了内容——疑似想用别的工具（给其他 Agent/用户发消息 → send_agent；发群消息 → send_group；给已创建的子 Agent 发任务消息 → 本工具 action="send" 且须带 subagent_id）。`
+                : '请核对参数表后重试。'),
+            output: { hint: HINT_AGENT_MESSAGING },
+          };
+        }
+        // ② 缺参/错 id 提前校验：错误信息附上下文引导（零子 Agent 时点破
+        //    "工具拿错"，id 近似时给出候选）
         const parentId = call.agentId ?? '__host__';
+        const early = this.earlyCheck(args, parentId);
+        if (early !== undefined) return early;
+        // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
         switch (args.action) {
           case 'spawn': {
             const task = String(args.task ?? '').trim();
             if (!task && (Number(args.wait_time) || 0) > 0) {
               return { ok: false, error: 'spawn 未给 task 时没有可等待的 run（wait_time 仅在带任务启动时有效）' };
+            }
+            // 冒号/引号截断嫌疑：task 以"请转交/请输出以下内容：""请发送："等
+            // 引导语+冒号结尾而正文不在 task 里（news 事故 #2：正文在未知参数
+            // message 中丢失，子 Agent 只收到半句话）
+            if (/[:：][""'』」]?$/.test(task) && task.length <= 60) {
+              return {
+                ok: false,
+                error: `task 疑似被截断（以冒号结尾）："${task.slice(0, 40)}…"——引导语后的正文没有出现在 task 参数里。请把完整内容一并放进 task（子 Agent 看不到你的其他参数或会话）`,
+                output: { hint: HINT_AGENT_MESSAGING },
+              };
             }
             const spawned = this.spawn({
               parentId,
@@ -903,8 +1105,8 @@ export class SubagentsService extends Service {
                 status: spawned.info.status,
                 message:
                   spawned.info.status === 'running'
-                    ? `子 Agent "${spawned.info.id}" 已创建并启动，用 subagent(action="await", subagent_id) 收结果，subagent(action="send") 续聊`
-                    : `子 Agent "${spawned.info.id}" 已创建（未启动），用 subagent(action="send") 发首条任务`,
+                    ? `子 Agent "${spawned.info.id}" 已创建并启动（子 Agent 的回复只返回给你，不会送达任何用户或其他 Agent）：用 subagent(action="await", subagent_id) 收结果，subagent(action="send", subagent_id) 续聊`
+                    : `子 Agent "${spawned.info.id}" 已创建（未启动）：用 subagent(action="send", subagent_id) 发首条任务`,
               },
             };
           }
@@ -939,7 +1141,7 @@ export class SubagentsService extends Service {
               };
             }
             const hints: Record<string, string> = {
-              started: '已启动新 run（await 可收结果）',
+              started: '已启动新 run——结果仅返回给你（子 Agent 不能替你向任何接收方转达）；要收结果用 subagent(action="await", subagent_id) 或改用 mode="sync"',
               steered: '已注入当前 run 的下一步',
               queued: '已排队（当前 run 收束后自动消费）',
             };
@@ -972,6 +1174,10 @@ export class SubagentsService extends Service {
                 ...(s.result !== undefined ? { result: s.result } : {}),
                 ...(s.error !== undefined ? { error: s.error } : {}),
                 elapsed_ms: s.finishedAt - s.startedAt,
+                // 触达语义（news 事故 #7）：result 只回到父的执行上下文，
+                // 不构成对任何用户/Agent/群的投递——需要转达时另行调用
+                // send_agent / send_group。
+                note: 'result 是子 Agent 给你的回话（仅本会话可见）——尚未投递给任何用户、Agent 或群；需要转达请另行调用 send_agent / send_group',
               },
             };
           }

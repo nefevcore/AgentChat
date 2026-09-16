@@ -382,11 +382,23 @@ export class AgentLoopService extends Service {
         }
       }
     } catch (err) {
-      finish = 'error';
-      // describeError 展开 cause 链（2026-09-05 nana 事故：Node fetch
-      // 失败 message 只有 "fetch failed"，真实原因在 cause——裸 message
-      // 落会话不可诊断）；非 Error 输入 String 兜底
-      error = describeError(err);
+      // 中止归因（subagent 看门狗超时 / 用户中断直达传输层）：signal 已
+      // 中止时的任何抛错（fetch AbortError、provider 中止拒绝）都是中断
+      // 而非故障——如实标 interrupted + user-abort（abortReason 由调用方
+      // 语义化，loop 只认 signal 状态）。此前无差别归 error：子 Agent 超时
+      // 在 LLM 请求中段 abort 时终态误标 error（"This operation was
+      // aborted"），ac-subagent 据此错报 timeout 语义。
+      if (request.signal?.aborted) {
+        finish = 'interrupted';
+        const text = abortText(request.signal) ?? describeError(err);
+        interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
+      } else {
+        finish = 'error';
+        // describeError 展开 cause 链（2026-09-05 nana 事故：Node fetch
+        // 失败 message 只有 "fetch failed"，真实原因在 cause——裸 message
+        // 落会话不可诊断）；非 Error 输入 String 兜底
+        error = describeError(err);
+      }
     }
 
     // D3 收束封口：settle 判定已过——此后到 run() finally 删队列之间

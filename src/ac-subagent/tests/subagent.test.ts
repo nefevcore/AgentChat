@@ -156,6 +156,69 @@ describe('ac-subagent：spawn / await / 身份', () => {
     expect(r2.error).toMatch(/无可用模型/);
   });
 
+  it('派生身份注册：preset 隐藏 + tags 剥 delegation/admin；delete 撤注册', async () => {
+    const { ctx } = await boot();
+    // 父带 delegation/admin/full-access——子派生应剥前二者、保留档位
+    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'admin', 'full-access'] });
+    ctx.tools.register({
+      name: 'admin_tool',
+      requiredTags: ['admin'],
+      execute: () => ({ ok: true, output: '***' }),
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '身份任务', wait_time: 30 }, agentId: 'chief' });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    const derived = ctx.agents.get(id);
+    // preset=true：名册/协作/管理面过滤口径（agents/list RPC 与 list_agents 同款）
+    expect(derived?.preset).toBe(true);
+    expect(ctx.agents.list().filter((a) => a.preset !== true).map((a) => a.id)).not.toContain(id);
+    // tags 剥减：delegation/admin 移除、full-access 保留（档位继承单源仍在父侧）
+    expect(derived?.tags).toEqual(['full-access']);
+    // delete → 撤派生注册
+    const d = await exec(ctx, { name: 'subagent', args: { action: 'delete', subagent_id: id }, agentId: 'chief' });
+    expect(d.ok).toBe(true);
+    expect(ctx.agents.get(id)).toBeUndefined();
+  });
+
+  it('能力面终滤：spawn.tools 点名 admin 工具也被滤；subagent 工具对子 Agent 不可见', async () => {
+    const { ctx } = await boot();
+    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'admin'] });
+    ctx.tools.register({
+      name: 'admin_tool',
+      requiredTags: ['admin'],
+      execute: () => ({ ok: true, output: '***' }),
+    });
+    // 点名传入被门禁滤掉的工具
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '点名任务', tools: ['admin_tool', 'subagent'], wait_time: 30 },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(true);
+    const input = captured.at(-1)!;
+    // 子 run 工具清单不含 admin_tool（admin 被剥）与 subagent（delegation 被剥）
+    // ——空集经 loop toolSpecs 收敛为 undefined（= 无工具）
+    expect(input.tools ?? []).toEqual([]);
+  });
+
+  it('信封装配继承：子 run system 前缀父 system；llmParams 透传', async () => {
+    const { ctx } = await boot();
+    ctx.agents.reassign({
+      id: 'chief',
+      model: 'mock-1',
+      tags: ['delegation'],
+      system: '你是父级人设',
+      llmParams: { temperature: 0.2 },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '继承任务', wait_time: 30 }, agentId: 'chief' });
+    expect(r.ok).toBe(true);
+    const input = captured[0];
+    // loop 把 request.system 拼为 messages 首行（role:system）
+    const sys = input.messages.find((m: any) => m.role === 'system');
+    expect(String(sys?.content ?? '')).toContain('你是父级人设');
+    expect(input.temperature).toBe(0.2);
+  });
+
   it('spawn 阻塞等待：拿到结果；受控工具集进 LLM 请求；独立上下文（首条任务框架）', async () => {
     const { ctx } = await boot();
     expect(ctx.tools.get('subagent')?.requiredTags).toEqual(['delegation']);
@@ -377,7 +440,11 @@ describe('ac-subagent：delete / list / 旧词汇', () => {
     expect(a.ok).toBe(false);
     const k = await exec(ctx, { name: 'subagent', args: { action: 'kill', subagent_id: id }, agentId: 'chief' });
     expect(k.ok).toBe(false);
-    expect(k.error).toContain('spawn/send/await/list/stop/delete');
+    // 已删除 id 的触达拦截在 earlyCheck（删除态优先于未知词汇提示）
+    expect(k.error).toContain('已删除');
+    const k2 = await exec(ctx, { name: 'subagent', args: { action: 'kill' }, agentId: 'chief' });
+    expect(k2.ok).toBe(false);
+    expect(k2.error).toContain('spawn/send/await/list/stop/delete');
   });
 
   it('list 含历史 + query 过滤 + running_only', async () => {
@@ -393,6 +460,83 @@ describe('ac-subagent：delete / list / 旧词汇', () => {
     expect(q.output.subagents[0].name).toBe('调研员');
     const idleOnly = await exec(ctx, { name: 'subagent', args: { action: 'list', running_only: true }, agentId: 'chief' });
     expect(idleOnly.output.total).toBe(0);
+  });
+});
+
+describe('ac-subagent：误用护栏（2026-09-16 news 事故复盘）', () => {
+  it('未知参数（send_agent 语义串线）：带正文的 message 塞进 subagent(send) → 立即报错指路，不再静默丢弃', async () => {
+    const { ctx } = await boot();
+    // 复刻事故第一现场：action=send、无 subagent_id、正文在 message、还带 to/wait
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'send', message: '📊【特别报道】推送正文…', to: 'user', wait: false },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('未知参数');
+    expect(r.error).toContain('不会送达任何接收方');
+    // 指路：send_agent/send_group 而不是 spawn 送信
+    expect(String(r.error)).toMatch(/send_agent/);
+    expect((r.output as any).hint).toContain('send_agent');
+  });
+
+  it('send 缺 subagent_id 且名下零子 Agent → 报错点破"工具拿错"并指路', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'send', message: '给用户的推送' },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('没有任何子 Agent');
+    expect(r.error).toContain('send_agent');
+  });
+
+  it('spawn task 冒号截断："请转交以下内容："式结尾 → 拒绝并提示补全', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '请将以下内容原样转交给 user（莉莉新闻的推送内容），完成后简单回执即可：' },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('疑似被截断');
+    expect(r.error).toContain('完整内容');
+  });
+
+  it('id 近似候选：誊写噪声（尾下划线/引号）报错附候选', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '原始任务', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const noisy = `${id}_`;
+    const a = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: noisy }, agentId: 'chief' });
+    expect(a.ok).toBe(false);
+    expect(a.error).toContain('不存在');
+    expect(a.error).toContain(id); // 候选列出正确 id
+  });
+
+  it('await 结果带触达 note：result 仅回到父上下文，未投递任何接收方', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '复读任务', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const a = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    expect(a.ok).toBe(true);
+    expect(String((a.output as any).note)).toContain('尚未投递');
+    expect(String((a.output as any).note)).toContain('send_agent');
+  });
+
+  it('合法路径不受护栏影响：正常 spawn/send(sinc)/await 全通', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '正常任务', wait_time: 30 }, agentId: 'chief' });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    const s = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'send', subagent_id: id, message: '补充指示', mode: 'sync' },
+      agentId: 'chief',
+    });
+    expect(s.ok).toBe(true);
+    expect(s.output.status).toBe('done');
   });
 });
 
@@ -532,18 +676,19 @@ describe('access-tier：子 Agent 档位继承（§7.3 elevation = tierOf(parent
 });
 
 describe('ac-subagent：超时看门狗语义', () => {
-  it('timeout_ms=0：不设看门狗——挂起的 run 不会 300s 兜底，也不会被误判超时', async () => {
+  it('缺省不设看门狗：挂起的 run 永不超时（研究型长任务）；timeout_s 正值仍生效', async () => {
     const gates = [newGate()];
     const { ctx } = await boot({ provider: makeGatedProvider(gates), model: 'gated-1' });
+    // 不传 timeout_s——缺省不限（旧缺省 300s 已移除）
     const r = await exec(ctx, {
       name: 'subagent',
-      args: { action: 'spawn', task: '不限时任务', timeout_s: 0 },
+      args: { action: 'spawn', task: '不限时任务' },
       agentId: 'chief',
     });
     expect(r.ok).toBe(true);
     const id = r.output.subagent_id as string;
     await until(() => captured.length >= 1);
-    // run 挂起中（gated provider 不放行）——看门狗未设，状态恒 running
+    // run 挂起中（gated provider 不放行）——无看门狗，状态恒 running
     const running = await exec(ctx, { name: 'subagent', args: { action: 'list', running_only: true }, agentId: 'chief' });
     expect(running.output.total).toBe(1);
     gates[0].release();

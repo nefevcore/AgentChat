@@ -332,4 +332,34 @@ describe('finish:interrupted（ADR-2 最小中断方案）', () => {
     expect(result.finish).toBe('interrupted');
     expect(afterFinish).toBe('interrupted');
   });
+
+  it('LLM 流中段 abort 抛错（fetch AbortError 形态）→ interrupted 而非 error', async () => {
+    // subagent 看门狗超时直达传输层：fetch abort 抛 AbortError——signal
+    // 已中止即中断，不落 error（此前误标 error:"This operation was
+    // aborted"，ac-subagent 据此错报终态）
+    const { ctx } = await boot([]);
+    ctx.llm.register('aborting', () => ({
+      stream: async function* (input: { signal?: AbortSignal }) {
+        yield { delta: 'partial' };
+        await new Promise((r) => setTimeout(r, 30));
+        if (input.signal?.aborted) {
+          const e = new Error('This operation was aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
+        yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+      },
+    }), { models: ['abort-1'] });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new Error('看门狗超时')), 10);
+    const result = await ctx.agentLoop.run({
+      agent: 'a1',
+      model: 'abort-1',
+      messages: USER('q'),
+      signal: controller.signal,
+    });
+    expect(result.finish).toBe('interrupted');
+    expect(result.error).toBeUndefined();
+    expect(result.interruptReason).toEqual({ type: 'user-abort', reason: '看门狗超时' });
+  });
 });
