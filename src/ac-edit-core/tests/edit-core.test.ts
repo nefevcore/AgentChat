@@ -20,10 +20,10 @@ import {
 } from '../src/index.ts';
 
 const tmps: string[] = [];
-function tmpFile(content: string): string {
+function tmpFile(content: string, name = 'a.txt'): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-edit-'));
   tmps.push(dir);
-  const file = path.join(dir, 'a.txt');
+  const file = path.join(dir, name);
   fs.writeFileSync(file, content, 'utf-8');
   return file;
 }
@@ -75,10 +75,10 @@ describe('applyEditsToNormalizedContent 校验', () => {
     ).toThrow(/未找到 old_string/);
   });
 
-  it('多次出现 → 唯一性错误', () => {
+  it('多次出现 → 唯一性错误（含三级计数）', () => {
     expect(() =>
       applyEditsToNormalizedContent('x x x', [{ oldText: 'x', newText: 'y' }], 'f.txt'),
-    ).toThrow(/出现了 3 次/);
+    ).toThrow(/有歧义.*出现 3 次/);
   });
 
   it('空 old_string → 错误', () => {
@@ -232,5 +232,144 @@ describe('applyEditBatch 统一管线', () => {
     await expect(applyEditBatch(file, { textEdits: [{ oldText: 'a', newText: 'b' }] })).rejects.toThrow(
       /文件不存在/,
     );
+  });
+});
+
+// ============================================================
+// P0 匹配语义收口（事故回归：docs/edit-tool-incident-report.md）
+// ============================================================
+
+describe('P0：模糊匹配护栏', () => {
+  it('Level 2（trim 行首空白）命中 → 拒绝编辑、文件不变', async () => {
+    const file = tmpFile('line1\nindented code\nline3\n');
+    await expect(
+      applyEditBatch(file, { textEdits: [{ oldText: '   indented code', newText: 'X' }] }),
+    ).rejects.toThrow(/fuzzy level 2/);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('line1\nindented code\nline3\n'); // 文件未被破坏
+  });
+
+  it('交叉校验：精确唯一但全归一化（trim）下趋同 → 拒绝（事故主形态）', () => {
+    // 两个仅缩进不同的块；old_string 精确匹配第二块，但在 trim 空间与第一块趋同
+    const content = [
+      'if (a) {',
+      '  doWork();',
+      '}',
+      'if (b) {',
+      'doWork();',
+      '}',
+    ].join('\n');
+    expect(() =>
+      applyEditsToNormalizedContent(content, [{ oldText: 'doWork();\n}', newText: 'X' }], 'f.ts'),
+    ).toThrow(/全归一化（trim）.*2 次|有歧义/);
+  });
+
+  it('归一化后趋同的重复块：报错指引不再建议盲目扩大上下文', () => {
+    const content = '/** 注释 v1 */\nconst a = 1;\n/** 注释 v1 */\nconst b = 2;\n';
+    expect(() =>
+      applyEditsToNormalizedContent(content, [{ oldText: '/** 注释 v1 */', newText: 'X' }], 'f.ts'),
+    ).toThrow(/整段重写|行级操作/);
+  });
+
+  it('清晰唯一的精确编辑不受影响（护栏零误伤回归）', async () => {
+    const file = tmpFile('const RESERVED = [\n  "a",\n];\ninterface T {\n  x?: number;\n}\n');
+    const r = await applyEditBatch(file, {
+      textEdits: [{ oldText: 'x?: number;', newText: 'x?: string;' }],
+    });
+    expect(r.fuzzyMatches).toBe(0);
+    expect(fs.readFileSync(file, 'utf-8')).toContain('x?: string;');
+  });
+});
+
+// ============================================================
+// P1 写回前语法预检
+// ============================================================
+
+describe('P1：写回前语法预检', () => {
+  it('.json 破坏（括号丢失）→ 拒绝写回、文件保持原状', async () => {
+    const file = tmpFile('{"a": 1, "b": [2, 3]}\n', 'a.json');
+    await expect(
+      applyEditBatch(file, {
+        // 匹配吞掉闭括号 → JSON 解析失败
+        textEdits: [{ oldText: '"b": [2, 3]}\n', newText: '"b": [2' }],
+      }),
+    ).rejects.toThrow(/语法预检/);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('{"a": 1, "b": [2, 3]}\n'); // 原状
+  });
+
+  it('.ts 括号不配平 → 拒绝写回', async () => {
+    const file = tmpFile('interface T {\n  /** doc */\n  x?: number;\n}\n', 'a.ts');
+    await expect(
+      applyEditBatch(file, {
+        // JSDoc + 字段行 + 闭括号整体替换为新文本但丢失闭括号 → 配平失败
+        textEdits: [{ oldText: '/** doc */\n  x?: number;\n}\n', newText: '/** doc */\n  x?: number;\n' }],
+      }),
+    ).rejects.toThrow(/配平预检失败/);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('interface T {\n  /** doc */\n  x?: number;\n}\n');
+  });
+
+  it('.ts 正常编辑（括号完好的代码含字符串/注释/模板/正则）→ 预检放行', async () => {
+    const file = tmpFile(
+      [
+        'const s = "(((";',
+        'const t = `a ${x} b`;',
+        'const re = /[/](+)/g;',
+        '/* ) { ( 注释 */',
+        'function f() { return (1); }',
+      ].join('\n') + '\n',
+      'a.ts',
+    );
+    const r = await applyEditBatch(file, {
+      textEdits: [{ oldText: 'return (1);', newText: 'return (2);' }],
+    });
+    expect(fs.readFileSync(file, 'utf-8')).toContain('return (2);');
+    expect(r.fuzzyMatches).toBe(0);
+  });
+
+  it('.txt 不做语法预检（配平破坏也放行——非代码文件）', async () => {
+    const file = tmpFile('记录：((( 备忘\n');
+    const r = await applyEditBatch(file, { textEdits: [{ oldText: '备忘', newText: 'X))' }] });
+    // 整行 diff 渲染：文本里的括号不参与任何配平校验
+    expect(r.diff).toContain('X))');
+  });
+
+  it('编辑前已损坏的 .ts → 修复编辑放行（基线比对防死锁）', async () => {
+    const before = 'interface T {\n  x?: number;\n'; // 本身缺闭括号
+    const file = tmpFile(before, 'a.ts');
+    const r = await applyEditBatch(file, {
+      textEdits: [{ oldText: '  x?: number;\n', newText: '  x?: number;\n}\n' }], // 补上闭括号
+    });
+    expect(fs.readFileSync(file, 'utf-8')).toBe('interface T {\n  x?: number;\n}\n');
+    expect(r.fuzzyMatches).toBe(0);
+  });
+});
+
+// ============================================================
+// P2 readback 回显
+// ============================================================
+
+describe('P2：readback 回显', () => {
+  it('编辑落点上下文带行号回显（read 同款格式），远距编辑用 ... 分隔', async () => {
+    const file = tmpFile('l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\n');
+    const r = await applyEditBatch(file, {
+      textEdits: [
+        { oldText: 'l2', newText: 'L2' },
+        { oldText: 'l11', newText: 'L11' },
+      ],
+    });
+    expect(r.readback).toBeDefined();
+    expect(r.readback).toContain('2 L2');
+    expect(r.readback).toContain('11 L11');
+    expect(r.readback).toContain('1 l1');   // 上下文行
+    expect(r.readback).toContain('...');    // 两编辑区之间有间隔
+  });
+
+  it('单处编辑的 readback 覆盖落点前后各 ~3 行', async () => {
+    const file = tmpFile('a\nb\nc\nd\ne\nf\ng\nh\n');
+    const r = await applyEditBatch(file, { textEdits: [{ oldText: 'e', newText: 'E' }] });
+    // 第 5 行编辑 → readback 含 2..8 行（前后各 3），不含第 1 行
+    expect(r.readback).toContain('5 E');
+    expect(r.readback).toContain('2 b');
+    expect(r.readback).toContain('8 h');
+    expect(r.readback).not.toContain('1 a');
   });
 });
