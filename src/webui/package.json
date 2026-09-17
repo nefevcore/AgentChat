@@ -27,6 +27,7 @@
     "ac-client-ui-llm-pool": "workspace:*",
     "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-run-code": "workspace:*",
     "ac-client-ui-runview": "workspace:*",
     "ac-client-ui-search-pool": "workspace:*",
     "ac-client-ui-settings": "workspace:*",

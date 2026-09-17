@@ -217,3 +217,34 @@ describe('ac-usage byPair（端点对分类）', () => {
     expect(pairs.find((p) => (p.a === 'x' && p.b === 'y'))?.runs).toBe(1);
   });
 });
+
+describe('ac-usage bySelfSession（自会话成本观测，P5）', () => {
+  it('对角线桶聚合 + 占比：非对角线对桶计入分母不进分子；群/sid 不计', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 自会话 a~a × 3 run（prompt 10/run）
+    for (let i = 0; i < 3; i++) {
+      await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'a~a' });
+    }
+    // 用户直答 a~user × 1
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'a~user' });
+    // 群（不计入对桶分母）
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'g-1' });
+
+    const s = ctx.usage.bySelfSession();
+    expect(s.byAgent['a']).toMatchObject({ runs: 3, prompt: 30 });
+    expect(s.byAgent['user']).toBeUndefined(); // a~user 不是自会话
+    // 分母 = a~a (30) + a~user (10)；群 g-1 不计
+    expect(s.pairPromptTotal).toBe(40);
+    expect(s.shareOfPairs).toBeCloseTo(0.75);
+  });
+
+  it('无自会话数据 → 空表零占比（不 NaN）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const s = ctx.usage.bySelfSession();
+    expect(s.byAgent).toEqual({});
+    expect(s.pairPromptTotal).toBe(0);
+    expect(s.shareOfPairs).toBe(0);
+  });
+});

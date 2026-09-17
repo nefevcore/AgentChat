@@ -213,6 +213,87 @@ describe('ac-router', () => {
   });
 });
 
+describe('ac-router 程序化开关收窄（2026-09-17 research §十）', () => {
+  /** conv-settings stub（ctx.convSettings 可选能力——get 命中返回存储值） */
+  class ConvSettingsStubService extends Service {
+    private readonly store: Map<string, { programmatic?: boolean }>;
+
+    constructor(ctx: Context, options: { settings?: Record<string, { programmatic?: boolean }> } = {}) {
+      super(ctx, 'convSettings');
+      this.store = new Map(Object.entries(options.settings ?? {}));
+    }
+
+    get(conversationId: string): { programmatic?: boolean } {
+      return this.store.get(conversationId) ?? {};
+    }
+  }
+
+  it('programmatic=true → LLM 工具面收窄为 [run_code]（全形态会话——singles sid 同生效）', async () => {
+    const { ctx } = await boot('回复');
+    // run_code 替身探针（requiredTags code-exec——与真行同门禁形态）
+    ctx.tools.register({
+      name: 'run_code',
+      description: 'd',
+      requiredTags: ['code-exec'],
+      execute: () => ({ ok: true }),
+    });
+    ctx.tools.register({ name: 'plain-tool', description: 'd', execute: () => ({ ok: true }) });
+    ctx.agents.register({ id: 'coder', model: 'mock-1', tags: ['code-exec'] });
+    void new ConvSettingsStubService(ctx, { settings: { 'user~coder': { programmatic: true }, 'sid-9': { programmatic: true } } });
+
+    // 1v1 对桶：开关开 → 收窄为仅 run_code（互斥形态——SDK 投影块由
+    // ac-run-code prompt.ts 按「run_code 在 LLM 面」自然注入，此处只测
+    // router 面收窄）
+    await ctx.router.send('coder', 'q', { conversationId: 'user~coder' });
+    expect((captured.at(-1)!.tools ?? []).map((t) => t.function.name)).toEqual(['run_code']);
+
+    // singles sid（conversationId 命中 singles 注册表）：全形态口径同生效
+    void new SinglesStubService(ctx, { sids: ['sid-9'] });
+    await ctx.router.send('coder', 'q', { conversationId: 'sid-9' });
+    expect((captured.at(-1)!.tools ?? []).map((t) => t.function.name)).toEqual(['run_code']);
+
+    // 关（无键）→ 常规工具面（传统工具 + run_code 并存）
+    await ctx.router.send('coder', 'q', { conversationId: 'other~key' });
+    const coexist = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
+    expect(coexist).toContain('run_code');
+    expect(coexist).toContain('plain-tool');
+  });
+
+  it('开关开但 run_code 不在生效面（无 code-exec）→ warn 并忽略开关（开关惰性，不拦截 run）', async () => {
+    const { ctx } = await boot('回复');
+    ctx.tools.register({
+      name: 'run_code',
+      description: 'd',
+      requiredTags: ['code-exec'],
+      execute: () => ({ ok: true }),
+    });
+    ctx.tools.register({ name: 'plain-tool', description: 'd', execute: () => ({ ok: true }) });
+    ctx.agents.register({ id: 'plain', model: 'mock-1' }); // 无 code-exec
+    void new ConvSettingsStubService(ctx, { settings: { 'user~plain': { programmatic: true } } });
+
+    const warnings: string[] = [];
+    const logger = (ctx as unknown as { logger: { warn(...args: unknown[]): void } }).logger;
+    const origWarn = logger.warn.bind(logger);
+    logger.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+      origWarn(...args);
+    };
+    const run = await ctx.router.send('plain', 'q', { conversationId: 'user~plain' });
+    expect(run.finish).toBe('stop'); // 不拦截 run
+    const tools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
+    expect(tools).toContain('plain-tool'); // 常规工具面照常
+    expect(tools).not.toContain('run_code'); // run_code 本就不可见（能力面）
+    expect(warnings.some((w) => w.includes('程序化开关') && w.includes('run_code'))).toBe(true);
+  });
+
+  it('conv-settings 行缺席 → 无开关语义（面缺省忽略，零开销直通）', async () => {
+    const { ctx } = await boot('回复');
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const run = await ctx.router.send('a', 'q');
+    expect(run.finish).toBe('stop'); // ctx.get('convSettings', false) 缺席 → 不收窄
+  });
+});
+
 describe('ac-router 信封拓扑（L3）', () => {
   it('sender/source/conversationId 进入信封（缺省 user + 直答对键）', async () => {
     const { ctx } = await boot('回复');

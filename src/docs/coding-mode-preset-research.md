@@ -155,12 +155,48 @@ P2 工作区记忆文件（AGENT.md）｜P2.5 fileSnapshots.restore
 P3 git 工具 / plan mode
 ```
 
-## 八、开放问题（v5 修订：剩四条）
+## 八、开放问题（v6 修订：剩三条 + 一条已裁决转实施）
 
 1. run_code 结果是否入会话步记录——建议入摘要+程序体哈希，不入全程序体。
 2. `code-exec` 与 shell 的信任关系：等同（DSH 口径）还是分层（投影面裁剪）？影响预设默认 tags。
 3. PTC 与 subagent 分工：确定性编排 → run_code；探索性研究 → subagent——建议写进指引。
-4. 并存形态的工具面边界：框架协作工具（todo/goal/ask_questions）进不进 SDK 投影？
+4. ~~并存形态的工具面边界~~（已随六次实测收敛 + 开关化裁决解决，见 §十）。
+
+## 十、开关化裁决（v6 · 2026-09-17 终裁：程序化 = 会话级开关，非预设）
+
+> **✅ 已实施（2026-09-17 同日晚）**——a-g 全落地：预设退役（preset.ts 删除 + reserved 双表 + 组合根/cordis.yml/yml 去行）+ conv-settings programmatic 键（wire 'true'/null，持久真 boolean）+ router execute 开关收窄（run_code 不在生效面 warn 忽略）+ prompt.ts 形态判定改读 run 级 request.tools 终值 ∩ 复算面（开关收窄不落 Agent 配置——按 Agent tools 复算看不见开关）+ ChatInput「工具使用模式」dd + presetRetired 防御。验证：ac-run-code 44 / ac-router 25（含开关收窄三用例）/ conv-settings 5 / reserved-consistency / web-api 71 / portb-e2e 全绿，typecheck 双 0 错，smoke 冒烟过（tools=(1/67)）。细节见 `run-code-handoff.md` §四.0。
+
+> 三个半月实测（六次真模型会话）后的形态终裁。起点：用户观察「程序化模式更像是另一个维度的模式，而不是和标准模式极简模式这样的预设，更像是一个开关，开启后，会话的工具集全部进入 SDK 投影」。
+
+**裁决内容**：程序化是**工具暴露形态**的运行时选择，不是 Agent 身份。预设回答「Agent 是谁」（人设/工具授予/模型），开关回答「工具如何暴露给 LLM」（逐个 schema vs 单 SDK 入口）——两个维度正交。
+
+**论据**（按决定性排序）：
+
+1. **架构早已在暗示**：`resolveEffectiveTools` 的 scope 双口径（`'llm'` vs `'projection'`）意味着每次 run 本来就同时计算两张脸，预设只是「挑哪张给 LLM 看」的物化形态。开关把这个已存在的维度显式化。
+2. **弱模型退路直接消灭**：计划文档 §十一预案的「预设拆两个（互斥 + lite 并存，用户按模型选）」——开关化后退路 = 关掉开关。零新增预设。
+3. **预设列表回归语义纯净**：`__programmatic__` 从预设目录退役；列表只剩人设语义（标准/极简/…）。
+4. **并存形态不是第三态**：「Agent 有 code-exec、run_code 与传统工具并列可见」= 开关关闭时的自然状态——两态设计完整覆盖，无需三态。
+
+**状态与注入点**（实施映射，零件已就位大半）：
+
+| 层 | 落点 |
+|---|---|
+| 存储 | `conv-settings`（既有会话级覆盖域）加 `programmatic?: boolean`——与 model/elevation 同域同语义（按 conversationId 寻址、逐键覆盖） |
+| LLM 面收窄 | router `execute` 的工具面合成（capabilitySetOf → resolveToolNames → 形态面终滤，service.ts:200-224）之后、`agentLoop.run` 之前：`programmatic=true` 时 `tools = ['run_code']`（过形态面终滤同口径；run_code 不可见时 warn 一次并忽略开关——无 code-exec 标签的 Agent 开关惰性） |
+| 投影注入 | `prompt.ts` injectProjection **零改动**——它按「run_code 是否在 LLM 面」触发，收窄后自然触发互斥形态分支 |
+| 授权 | code-exec 标签不动——标签管授权（能不能用），开关管暴露形态（怎么给 LLM 看） |
+| lib 临时库 | 零改动（闭包注入与形态无关） |
+
+**UI 形态**（用户终裁）：输入框工具栏的一个**工具使用模式选择器**（与模型选择/思考强度/快捷提权同族的 dd 下拉）——标准 / 程序化两档；选择即写 conv-settings，随会话持久。位置语义正确：它改变的是「这条会话怎么干活」，正是输入框工具栏的语义域。
+
+**中会话切换语义**：允许，run 间隙生效（不在 run 中途翻转）；切换 = 系统提示词投影块出现/消失 = KV 前缀失效点，与 Agent 切换同款处理——不特殊化。
+
+**迁移与防御**（用户终裁的两项）：
+
+1. **`__programmatic__` 预设整体移除**（preset.ts 子行退役 + reserved 双表 + 组合根两行 + portb-e2e 期望）。三次实测会话（4cd1a90d/a7828839/0d55714a）以该预设身份运行——移除后续聊将 404/落空。
+2. **前端防御性检测**：单会话 `session.agentId === '__programmatic__'` 且预设目录（agents/presets RPC）不含该 id 时 → 输入框禁用 + 明确提示「程序化模式预设已退役，请开新会话并用输入框模式选择器开启程序化」——禁止对无预设会话续聊（历史只读保留）。
+
+**保留观察项**：开关 on 时子调用直播事件的前端形态（待办 1 附带项）在该 UI 下更值得实测——直播期 N 张子调用卡 vs 收束后单卡的跳变。
 
 （v4 第 5 条——L2 迁移裁决与 L3 立项——已随全量标签化落地解决，移除。）
 
@@ -186,5 +222,6 @@ P3 git 工具 / plan mode
 - v4（2026-09-16）：交叉整合 `tags-include-semantics-report.md`——门禁三层结构/默认开放根因/L1-L3 修复层次/tag:fs 静默空展开；SDK 投影同源纪律；fs 标签族升 P0 前置。
 - v5：全量标签化落地后的状态刷新——§四 改写为落地事实（fs/collab/infra 三族 + 平台拆分 + 空展开告警 + 存量迁移 + 子 Agent 派生身份）；§三 第三条路校准为「tags 即工具面」名副其实；§六.4 并发分类明确按工具粒度；§六.9 预设形态简化（L1 回退不再需要）；§七 实施路线五项已完成、P0 前置全清；开放问题剩四条。
 - v5.1（2026-09-16）：前置修复合入（技术债清理）——①基础族迁移一次性标记（曾实现）②`resolveToolNames` 增 `onUnknownLiteral` 回调 + router 接线（字面名不在可见面 = 配置错误可观测——覆盖存量 Windows 'bash' 与拼写错）③README 补「tags 即工具面」出厂限定语与落空可观测注记。
-- v5.2（当前）：**基础族自动补齐迁移整体移除**（用户终态裁决：normalizeUniversalTags 与 `_migratedUniversalTags` 标记全部删除，tags 完全以用户/预设配置为准——存量用户手工补、新建走 agent-admin 创建面缺省 UNIVERSAL_TAGS）。v5.1 的 ① 作废、②③ 维持；UNIVERSAL_TAGS 常量导出保留并附语义存档注释（防"顺手恢复"）。相关测试改写为「不补齐」锁定用例。
+- v5.2（2026-09-16）：**基础族自动补齐迁移整体移除**（用户终态裁决：normalizeUniversalTags 与 `_migratedUniversalTags` 标记全部删除，tags 完全以用户/预设配置为准——存量用户手工补、新建走 agent-admin 创建面缺省 UNIVERSAL_TAGS）。v5.1 的 ① 作废、②③ 维持；UNIVERSAL_TAGS 常量导出保留并附语义存档注释（防"顺手恢复"）。相关测试改写为「不补齐」锁定用例。
+- v6（2026-09-17，当前）：**开关化终裁**——程序化从预设改为会话级开关（§十）：`__programmatic__` 预设退役、conv-settings 加 `programmatic` 键、router 工具面合成后收窄 LLM 面、UI = 输入框工具栏模式选择器、存量预设会话禁止续聊（前端防御检测）。六次真模型实测复盘见 `run-code-handoff.md` §六（预检误杀修复/guidance 优化/32KB 预算/lib 临时库/serializeValue 降级链均随实测落地）。
 - 命名二轮（收口）：函数/lambda/组合/闭包/算子五候选全否——共同伤是"描述代码长什么样"而非"模式做什么"（用户选模式需要机制可见性），且各自撞名（函数=function calling、组合=GoF Composite、lambda=AWS/无副作用语义反向）；算子融合（ML 框架 kernel 合并）与 PTC 同构，留档为 description 解释话术不作名。**命名讨论就此收口，终名「程序化模式」。**

@@ -240,7 +240,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
         path: { type: 'string', description: '目标文件或目录路径' },
         file_text: { type: 'string', description: 'create：新文件的完整内容' },
         old_str: { type: 'string', description: 'str_replace：要替换的原文（须唯一）' },
-        new_str: { type: 'string', description: 'str_replace：替换后的文本（空 = 删除）；insert：要插入的文本' },
+        new_str: { type: 'string', description: 'str_replace：替换后的文本（须与 old_str 不同；空 = 删除）；insert：要插入的文本' },
         insert_line: { type: 'integer', description: 'insert：插到第几行之后（与 view 显示的行号一致，0 = 文件开头）' },
         view_range: {
           type: 'array',
@@ -331,6 +331,12 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
             return {
               ok: false,
               error: `未执行替换：old_str 在 ${pathInput} 中出现 ${offsets.length} 次（行 [${lines}]）。请扩大 old_str 上下文使其唯一`,
+            };
+          }
+          if (oldValue === newValue) {
+            return {
+              ok: false,
+              error: `未执行替换：new_str 与 old_str 完全相同，替换后文件不会有任何变化。多半是笔误（写错了其中一侧）：new_str 填替换后的完整新文本。`,
             };
           }
           snapshotBefore(call, target); // 首见快照（方案 C；幂等）

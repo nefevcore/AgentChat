@@ -250,7 +250,7 @@ const E_FILE_NOEDIT = '文件操作：edit 不可用，修改文件需先 read �
 const E_CMD = '命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。';
 const E_JOB = '后台任务：后台命令会返回 job_id，记住 id 即可，任务完成时通知会自动送达，无需反复查询任务状态；确需等待完成时，用前台命令工具配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。';
 const E_OUT = '产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式。';
-const E_AGENTS = '多Agent协作：先 list_agents 找对象，再 send_agent 发消息。消息异步送达：发出后继续手头工作，回复会作为新消息到达；仅当下一步依赖对方结果时才设 wait=true。';
+const E_AGENTS = '多Agent协作：先 list_agents 找对象，再 send_agent 发消息。对端空闲时回复文本随结果直返（reply 字段）；对端正忙时消息注入或排队，回复会作为新消息到达。wait=true 用于明确要求对方忙时也排队独立 run 等回复。';
 const E_GROUP = '群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。';
 const E_TIMER = '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。';
 const E_ASK = '不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作，先 ask_questions 征求确认，不要擅自替用户决定。';

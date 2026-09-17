@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "持久化交互行：write-ahead 状态机（open/reply/close + 三事件）+ ask_questions 工具（correlationId=toolCallId）",
+  "description": "持久化暂停点核行：write-ahead 状态机（open/reply/close + 三事件），领域无关（ask_questions/approval 等工具行在此之上认领 kind 词汇）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -12,8 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*",
-    "ac-tools": "workspace:*"
+    "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",

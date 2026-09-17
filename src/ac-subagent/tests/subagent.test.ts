@@ -134,6 +134,93 @@ afterEach(async () => {
   }
 });
 
+describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随工具集流动）', () => {
+  /** conv-settings stub（ctx.convSettings 可选能力——按 conversationId 存取） */
+  class ConvSettingsStub {
+    private readonly store = new Map<string, { programmatic?: boolean }>();
+    constructor(_ctx: Context, options: { settings?: Record<string, { programmatic?: boolean }> } = {}) {
+      for (const [k, v] of Object.entries(options.settings ?? {})) this.store.set(k, v);
+      (this as unknown as { start(): void }).start?.();
+    }
+    get(conversationId: string): { programmatic?: boolean } {
+      return this.store.get(conversationId) ?? {};
+    }
+  }
+
+  async function bootWithSwitch(settings: Record<string, { programmatic?: boolean }>) {
+    const booted0 = await boot();
+    const stub = new ConvSettingsStub(booted0.ctx, { settings });
+    (booted0.ctx as any).convSettings = stub;
+    // run_code 探针（与真行同门禁形态——requiredTags code-exec）
+    booted0.ctx.tools.register({
+      name: 'run_code',
+      requiredTags: ['code-exec'],
+      description: 'd',
+      execute: () => ({ ok: true }),
+    });
+    booted0.ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'code-exec'] });
+    return booted0;
+  }
+
+  it('开关开 + spawn 不带 tools → 子 Agent 工具面收窄为 [run_code]', async () => {
+    const { ctx } = await bootWithSwitch({ 'conv-prog': { programmatic: true } });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '程序化子任务', wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-prog',
+    });
+    expect(r.ok).toBe(true);
+    const input = captured.at(-1)!;
+    expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['run_code']);
+  });
+
+  it('spawn.tools 显式点名优先于开关传播（点名的工具面不被收窄）', async () => {
+    const { ctx } = await bootWithSwitch({ 'conv-prog': { programmatic: true } });
+    ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '点名任务', tools: ['plain_tool'], wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-prog',
+    });
+    expect(r.ok).toBe(true);
+    const input = captured.at(-1)!;
+    expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['plain_tool']);
+  });
+
+  it('开关关（无键）→ 并存形态：run_code 与传统工具同列', async () => {
+    const { ctx } = await bootWithSwitch({});
+    ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '常规子任务', wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-plain',
+    });
+    expect(r.ok).toBe(true);
+    const names = (captured.at(-1)!.tools ?? []).map((t: any) => t.function.name);
+    expect(names).toContain('run_code');
+    expect(names).toContain('plain_tool');
+  });
+
+  it('父无 code-exec → run_code 不在能力面，传播忽略（惰性同口径）', async () => {
+    const { ctx } = await bootWithSwitch({ 'conv-prog': { programmatic: true } });
+    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation'] }); // 剥 code-exec
+    ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '无授权任务', wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-prog',
+    });
+    expect(r.ok).toBe(true);
+    const names = (captured.at(-1)!.tools ?? []).map((t: any) => t.function.name);
+    expect(names).not.toContain('run_code');
+    expect(names).toContain('plain_tool');
+  });
+});
+
 describe('ac-subagent：spawn / await / 身份', () => {
   it('父 Agent 未声明 model → 默认池连接回落；无池也无 model → fail-closed 拒绝', async () => {
     const { ctx } = await boot();
@@ -555,9 +642,15 @@ describe('ac-subagent：落盘与重启恢复', () => {
     expect(registry.subs).toHaveLength(1);
     expect(registry.subs[0]).toMatchObject({ id, name: '档案员', status: 'idle', runs: 1 });
     const lines = fs.readFileSync(path.join(root, 'subagents', `${id}.jsonl`), 'utf-8').trim().split('\n');
-    expect(lines).toHaveLength(2); // user（框架）+ assistant
-    expect(JSON.parse(lines[0]).role).toBe('user');
-    expect(JSON.parse(lines[1]).role).toBe('assistant');
+    expect(lines).toHaveLength(2); // user（框架）+ agent（收束回复）
+    const userLine = JSON.parse(lines[0]);
+    const agentLine = JSON.parse(lines[1]);
+    expect(userLine.role).toBe('user');
+    expect(userLine.agent_id).toBe('chief'); // 任务发送方 = 父
+    expect(userLine.message_id).toMatch(/^msg-/);
+    expect(typeof userLine.timestamp).toBe('string');
+    expect(agentLine.role).toBe('agent'); // 新行形（SessionRecord 中性格式）
+    expect(agentLine.agent_id).toBe(id); // 说话人 = 子
     // 删除 first 引用（afterEach 统一回收）
 
     // 重启：同一 root 新宿主
@@ -595,6 +688,156 @@ describe('ac-subagent：落盘与重启恢复', () => {
     const l = await exec(ctx2, { name: 'subagent', args: { action: 'list' }, agentId: 'chief' });
     expect(l.output.subagents[0]).toMatchObject({ id, status: 'idle', runs: 0 });
     gates[0].release();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe('ac-subagent：落盘完整消息（subagent-session-view-plan R1/R2/R6/R8）', () => {
+  /** 带工具调用的 provider：一步工具调用 + 一步终文本（toolCalls/results 落盘形状） */
+  function makeToolingProvider() {
+    return {
+      name: 'tooling-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        let round = 0;
+        c.llm.register(
+          'tooling',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              round += 1;
+              if (round % 2 === 1) {
+                // 奇数步：reasoning + 工具调用（模拟 ReAct 中间步；arguments
+                // 走 argumentsDelta 增量——聚合层按 index 拼接）
+                yield { delta: '', reasoning: '先查一下' };
+                yield {
+                  delta: '',
+                  toolCalls: [
+                    { index: 0, id: `tc-${round}`, name: 'math' },
+                    { index: 0, argumentsDelta: '{"expression":"1+2"}' },
+                  ],
+                };
+                yield { delta: '', finish: 'tool-calls', usage: { prompt: 2, completion: 1 } };
+              } else {
+                yield { delta: '调研完成：结论如下' };
+                yield { delta: '', finish: 'stop', usage: { prompt: 3, completion: 2 } };
+              }
+            },
+          }),
+          { models: ['tooling-1'] },
+        );
+      },
+    };
+  }
+
+  it('带工具任务的收束行携带全量 steps（toolCalls/results 一一对应）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-steps-'));
+    const { ctx } = await boot({ root, provider: makeToolingProvider(), model: 'tooling-1' });
+    // 注册 math 工具（纯 LLM 面，无副作用）
+    ctx.tools.register({
+      name: 'math',
+      description: '测试工具',
+      parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+      async execute() {
+        return { ok: true, output: 3 };
+      },
+    });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', name: '调研员', task: '查一下', tools: ['math'], wait_time: 30 },
+      agentId: 'chief',
+    });
+    const id = r.output.subagent_id as string;
+    const lines = fs.readFileSync(path.join(root, 'subagents', `${id}.jsonl`), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(2);
+    const agentLine = JSON.parse(lines[1]);
+    expect(agentLine.role).toBe('agent');
+    expect(agentLine.agent_id).toBe(id);
+    expect(agentLine.steps).toHaveLength(2);
+    // 工具步：reasoning + toolCalls（result = ToolResult 终值）
+    expect(agentLine.steps[0].reasoning).toBe('先查一下');
+    expect(agentLine.steps[0].toolCalls).toHaveLength(1);
+    expect(agentLine.steps[0].toolCalls[0]).toMatchObject({ id: 'tc-1', name: 'math', arguments: '{"expression":"1+2"}' });
+    expect(agentLine.steps[0].toolCalls[0].result).toMatchObject({ ok: true, output: 3 });
+    // 终步：正文收束
+    expect(agentLine.steps[1].content).toBe('调研完成：结论如下');
+    // 展示投影：historyRecords 原样带出
+    const records = ctx.subagents.historyRecords(id);
+    expect(records).toHaveLength(2);
+    expect(records[1].steps).toHaveLength(2);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('旧行（assistant/ts:number）宽容读取：回放不炸、historyRecords 归一为 agent', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-legacy-'));
+    const { ctx } = await boot({ root });
+    // 手写旧行文件 + 注册表条目（模拟升级前数据）
+    const id = 'sub_19990101_abcd';
+    fs.mkdirSync(path.join(root, 'subagents'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'subagents', `${id}.jsonl`),
+      `${JSON.stringify({ role: 'user', content: '旧任务', ts: 1000 })}\n`
+      + `${JSON.stringify({ role: 'assistant', content: '旧回复', ts: 2000 })}\n`,
+      'utf-8',
+    );
+    const registry = { version: 1, subs: [{ id, parentId: 'chief', name: '旧子', task: '旧任务', status: 'idle', deleted: false, createdAt: 1, updatedAt: 1, runs: 1, maxSteps: 15, timeoutMs: 0 }] };
+    fs.writeFileSync(path.join(root, 'subagents', 'index.json'), JSON.stringify(registry), 'utf-8');
+    // 重启装载（同 root 第二宿主）
+    const second = await boot({ root });
+    const records = second.ctx.subagents.historyRecords(id);
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({ role: 'user', content: '旧任务' });
+    expect(records[1]).toMatchObject({ role: 'assistant', content: '旧回复' });
+    // 回放口径：旧 assistant 行 → LlmMessage assistant（续聊可用）
+    const replay = await second.ctx.subagents.history(id);
+    expect(replay).toEqual([
+      { role: 'user', content: '旧任务' },
+      { role: 'assistant', content: '旧回复' },
+    ]);
+    // 新 send 追加行与旧行共存
+    const s = await exec(second.ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '新追问', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    const merged = second.ctx.subagents.historyRecords(id);
+    expect(merged).toHaveLength(4);
+    expect(merged.at(-1)).toMatchObject({ role: 'agent', agent_id: id });
+    void ctx;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('墓碑可读（R6）：delete 后 historyRecords 照常返回；send/await 仍拒', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-tomb-'));
+    const { ctx } = await boot({ root });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '将被删', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    await exec(ctx, { name: 'subagent', args: { action: 'delete', subagent_id: id }, agentId: 'chief' });
+    // 触达面拒绝（requireRecord 墓碑判定）
+    const send = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: 'x' }, agentId: 'chief' });
+    expect(send.ok).toBe(false);
+    // 展示面照常（文件保留语义）
+    const records = ctx.subagents.historyRecords(id);
+    expect(records.length).toBeGreaterThanOrEqual(1);
+    expect(records[0]).toMatchObject({ role: 'user' });
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('interrupted 收束无终文本 → 不落 agent 行（R8 口径）；回放不含 steps（上下文不变量）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-noline-'));
+    const { ctx } = await boot({ root });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '普通任务', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const id2 = (await exec(ctx, { name: 'subagent', args: { action: 'spawn', name: '乙', task: '任务乙', wait_time: 30 }, agentId: 'chief' })).output.subagent_id as string;
+    void id2;
+    // 无工具纯 mock run：收束 text 非空 → 落 agent 行（对照）
+    const lines = fs.readFileSync(path.join(root, 'subagents', `${id}.jsonl`), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(2);
+    const agentLine = JSON.parse(lines[1]);
+    // mock provider 一步终文本：steps=[单步无 toolCalls]——按实际形状锁定
+    expect(Array.isArray(agentLine.steps)).toBe(true);
+    expect(agentLine.steps[0].toolCalls).toBeUndefined();
+    expect(agentLine.steps[0].content).toContain('子任务结论');
+    // 回放口径：history() 只产 user/assistant 纯文本对
+    const replay = await ctx.subagents.history(id);
+    expect(replay.every((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')).toBe(true);
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
@@ -750,5 +993,74 @@ describe('ac-subagent：超时看门狗语义', () => {
     releaseTool(); // 放行工具 → 下一步边界检查 aborted → interrupted 收束
     const done = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
     expect(done.output.status).toBe('stopped'); // 不得误标 timeout
+  });
+});
+
+describe('ac-subagent：output.action 显式标注（前端卡分发单源）', () => {
+  // 六合一工具的每条 output 显式带 action 键——前端 ToolResultSubagent 按
+  // data.action 精确分发（结构猜仅作历史记录回落）。本族断言防回归。
+  it('spawn（异步）：action/name/task 透传；task 超 120 字符截断', async () => {
+    const { ctx } = await boot();
+    const longTask = 'T'.repeat(150);
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', name: '调研员', task: longTask }, agentId: 'chief' });
+    expect(r.ok).toBe(true);
+    expect(r.output.action).toBe('spawn');
+    expect(r.output.name).toBe('调研员');
+    expect(r.output.task).toBe('T'.repeat(120));
+    expect(r.output.status).toBe('running');
+  });
+
+  it('spawn（无 task）：task 为空串（不缺席）', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn' }, agentId: 'chief' });
+    expect(r.ok).toBe(true);
+    expect(r.output.action).toBe('spawn');
+    expect(r.output.task).toBe('');
+    expect(r.output.status).toBe('idle');
+  });
+
+  it('send（async）：action/delivered 回执；send（sync）：action + 结果字段', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '第一轮', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const s = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '追加', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    expect(s.output.action).toBe('send');
+    expect(s.output.delivered).toBe('started');
+    expect(s.output.status).toBe('done');
+  });
+
+  it('await：idle 态与结果态均带 action', async () => {
+    const { ctx } = await boot();
+    const idle = await exec(ctx, { name: 'subagent', args: { action: 'spawn', name: '档案员' }, agentId: 'chief' });
+    const idleId = idle.output.subagent_id as string;
+    const a0 = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: idleId }, agentId: 'chief' });
+    expect(a0.ok).toBe(true);
+    expect(a0.output.action).toBe('await');
+    expect(a0.output.status).toBe('idle');
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '跑一轮', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const a1 = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    expect(a1.output.action).toBe('await');
+    expect(a1.output.status).toBe('done');
+  });
+
+  it('list/stop/delete：均带 action', async () => {
+    const { ctx } = await boot();
+    const l = await exec(ctx, { name: 'subagent', args: { action: 'list' }, agentId: 'chief' });
+    expect(l.ok).toBe(true);
+    expect(l.output.action).toBe('list');
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '停删对象', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const st = await exec(ctx, { name: 'subagent', args: { action: 'stop', subagent_id: id }, agentId: 'chief' });
+    // 已收束的 run 再 stop 报错是合法路径（无进行中 run）——换活跃对象验证
+    if (st.ok) {
+      expect(st.output.action).toBe('stop');
+    }
+    const r2 = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '待删', wait_time: 30 }, agentId: 'chief' });
+    const id2 = r2.output.subagent_id as string;
+    const d = await exec(ctx, { name: 'subagent', args: { action: 'delete', subagent_id: id2 }, agentId: 'chief' });
+    expect(d.ok).toBe(true);
+    expect(d.output.action).toBe('delete');
   });
 });

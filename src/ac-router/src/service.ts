@@ -222,6 +222,28 @@ export class RouterService extends Service {
       return def === undefined || !(def.excludeForms ?? []).includes(form);
     };
     const tools = resolved.filter(formAllowed);
+    // 程序化开关（2026-09-17 开关化终裁，research §十）：conv-settings
+    // programmatic=true → LLM 工具面收窄为 ['run_code']（真互斥形态——
+    // SDK 投影块由 ac-run-code prompt.ts 按「run_code 在 LLM 面」自然
+    // 注入互斥版）。收窄结果过形态面终滤同口径（run_code 自身若被形态面
+    // 排除则收窄面为空——loop 收敛为无工具）；run_code 不在生效面（Agent
+    // 无 code-exec 授权或 run-code 行未装）→ warn 并忽略开关（开关惰性，
+    // 不拦截 run——与 include 点名落空同款可观测语义）。键面同 elevation
+    // 口径：全形态会话生效（含 singles sid——model 才分流 singles）。
+    let llmTools = tools;
+    const convSettings = this.ctx.get('convSettings', false) as
+      | { get(conversationId: string): { programmatic?: boolean } }
+      | undefined;
+    if (convSettings?.get(call.conversationId).programmatic === true) {
+      if (tools.includes('run_code')) {
+        llmTools = tools.filter((name) => name === 'run_code');
+      } else {
+        this.ctx.logger.warn(
+          '[router] 程序化开关已开但 run_code 不在生效工具面（Agent %C 无 code-exec 授权或 run-code 行未装），开关忽略——按常规工具面执行',
+          call.agentId,
+        );
+      }
+    }
     // 未配置 include/exclude 时也**显式**传可见面全量：loop 的 tools 缺省
     // 语义是"全部已注册"——省略即绕过能力面（空集照传，loop 收敛为无工具）
     const llmParams = filterLlmParams(agent.llmParams);
@@ -235,8 +257,8 @@ export class RouterService extends Service {
       call.sender,
       call.source,
       // 能力面 + 形态面过滤后的生效工具数（include/exclude 已解析；含
-      // 未配置 = 可见面全量）
-      `(${tools.length}/${this.ctx.tools.list().length})`,
+      // 未配置 = 可见面全量；程序化开关收窄后为 LLM 实际可见面）
+      `(${llmTools.length}/${this.ctx.tools.list().length})`,
     );
     const run = await this.ctx.agentLoop.run({
       agent: call.agentId,
@@ -244,7 +266,7 @@ export class RouterService extends Service {
       model: resolvedModel,
       ...(provider ? { provider } : {}),
       ...(agent.system ? { system: agent.system } : {}),
-      ...(tools ? { tools } : {}),
+      ...(llmTools ? { tools: llmTools } : {}),
       // 步数上限：run 级覆盖（M20 归档整理硬闸①）> Agent 原配置
       ...((options.maxSteps ?? agent.maxSteps) != null ? { maxSteps: options.maxSteps ?? agent.maxSteps } : {}),
       ...(Object.keys(llmParams).length > 0 ? { llmParams } : {}),

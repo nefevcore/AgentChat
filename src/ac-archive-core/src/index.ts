@@ -37,6 +37,16 @@ export const DEFAULT_ARCHIVE_BUDGETS: ArchiveBudgets = {
   keepRecentRatio: 0.03,
 };
 
+/**
+ * 自会话桶（agent~agent 对角线，机制驱动的运行日志）的 maxContextTokens
+ * 行缺省（P2 成本治理）：不配置 maxSelfContextTokens 时的兜底。
+ * 独立于 DEFAULT_ARCHIVE_BUDGETS（通用缺省 100 万）——自会话无用户交互
+ * 对冲、纯机制成本（定时器每 30 分钟一轮实测单桶吃掉全项目 42.6%
+ * prompt tokens），缺省即收紧：锯齿峰值压到 ~20 万（阈值 = 本值 ×
+ * archiveTokenRatio = 10 万触发），事件行另有 journal 折叠配合。
+ */
+export const DEFAULT_SELF_CONTEXT_TOKENS = 400_000;
+
 /** 结构化消息（SessionRecord / LlmMessage 的公共子集） */
 export interface ArchiveMessage {
   role: string;

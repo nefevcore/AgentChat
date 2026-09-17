@@ -1,11 +1,12 @@
 <!-- ToolMessage.vue -->
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed } from 'vue';
 import type { ChatMessage } from '../types.ts';
 import { useToolResult } from '../useToolResult.ts';
 import { toolDisplayLabel, toolDiffStat } from 'ac-client-ui-tool/client/toolLabel.ts';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { Icon } from '@agentchat/webui-kit';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
 const props = defineProps<{
     message: ChatMessage;
@@ -19,11 +20,18 @@ const rowHover = ref(false);
 
 // 思维链内工具卡默认折叠（无流式自动展开等其他控制），仅用户点击展开
 const isExpanded = ref(false);
-const resultComponentRef = ref<{ open?: () => void }>();
+const ui = useUiStore();
+
+/** write 目标文件路径：结果回传 path 优先；结果未返回（调用中/流式中）回落
+ *  工具参数 file_path——流式期间点击 Label 即可预览（不等结果）。 */
+const writeFilePath = computed(() => {
+  const args = parseArgs(props.message.arguments);
+  return String(parsed.value?.data?.path || args.file_path || args.path || args.filePath || '');
+});
 
 const isWriteTool = computed(() => {
   const name = props.message.toolName || props.message.name;
-  return name === 'write' && parsed.value?.data?.path;
+  return name === 'write' && !!writeFilePath.value;
 });
 
 // 注意：不能用 `toRef(props.message, 'content')` —— 它只捕获初始 message 对象。
@@ -69,7 +77,8 @@ const diffStat = computed(() => toolDiffStat(props.message.content));
 
 /** 行首图标：默认工具图标，hover 换折叠方向箭头（点哪行都知道能展开/收起） */
 const rowIcon = computed(() => {
-    if (rowHover.value) return isExpanded.value ? 'chevron-up' : 'chevron-down';
+    // write 卡点击直达预览、无展开体 → hover 不换折叠箭头（保持工具图标）
+    if (rowHover.value && !isWriteTool.value) return isExpanded.value ? 'chevron-up' : 'chevron-down';
     return iconName.value;
 });
 
@@ -86,11 +95,14 @@ const resultTitle = computed(() => {
 });
 
 const resultData = computed(() => {
-    // 已有结构化结果 → 用结果数据渲染
-    if (parsed.value) return parsed.value.data || parsed.value || {};
+    const args = parseArgs(props.message.arguments);
+    // 已有结构化结果 → 结果数据渲染；工具参数层并入（结果字段优先）——
+    // 卡片普遍依赖参数性字段（path/file 等），run_code 的程序体（code）也
+    // 在参数里：结果不含程序体（上下文纪律——落盘只有 programHash），
+    // 不并入则收束/刷新后程序段直接消失（实测复盘 4cd1a90d）。
+    if (parsed.value) return { ...args, ...(parsed.value.data || parsed.value) };
     // 结果未返回（调用中/流式中）：用工具参数构造预览，调用阶段即可显示
     // 命令/文件路径等；流式中的原始输出喂给 output（bash 终端卡实时显示输出）。
-    const args = parseArgs(props.message.arguments);
     const preview: Record<string, unknown> = { ...args };
     if (props.message.content) preview.output = props.message.content;
     return preview;
@@ -102,11 +114,12 @@ const hasContent = computed(() => {
 
 function handleLabelClick() {
   if (isWriteTool.value) {
-    isExpanded.value = true;
-    nextTick(() => resultComponentRef.value?.open?.());
-  } else {
-    toggleExpand();
+    // write：点击直达文件预览（全局单例 uiStore——宽屏右侧辅助侧边栏
+    // preview 选区，窄屏全屏 Modal）。工具结果体不展开：Label 即终点。
+    ui.openPreview(writeFilePath.value, props.message.agent_id || '', props.conversationId || '');
+    return;
   }
+  toggleExpand();
 }
 function toggleExpand() {
     isExpanded.value = !isExpanded.value;
@@ -141,7 +154,7 @@ function toggleExpand() {
                 </span>
 
                 <!-- write 工具：点击预览图标 -->
-                <span v-if="isWriteTool" class="tool-label-hint" title="点击查看文件内容">
+                <span v-if="isWriteTool" class="tool-label-hint" title="点击预览文件">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
@@ -165,11 +178,10 @@ function toggleExpand() {
                         <Icon name="ban" :size="12" class="tool-json-blocked-icon" />{{ parsed.message || parsed.data?.message }}
                     </div>
                     <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
-                    <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中）；browser 批量部分失败也需渲染（展示已成功 steps） -->
-                    <template v-if="parsed.status !== 'error' || message.name === 'bash' || message.name === 'browser'">
+                    <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中）；browser 批量部分失败也需渲染（展示已成功 steps）；run_code 程序失败也需渲染（错误与执行摘要在卡内——实测复盘后确立）；subagent 的错误带近似候选 id/护栏指路（卡内 error 分支渲染） -->
+                    <template v-if="parsed.status !== 'error' || message.name === 'bash' || message.name === 'browser' || message.name === 'run_code' || message.toolName === 'run_code' || message.name === 'subagent' || message.toolName === 'subagent'">
                         <div v-if="resultTitle" class="tool-json-title">{{ resultTitle }}</div>
                         <component
-                            ref="resultComponentRef"
                             v-if="ResultComponent"
                             :is="ResultComponent"
                             :data="resultData"
@@ -186,7 +198,6 @@ function toggleExpand() {
                      （bash 终端 / edit diff / read 代码…），用工具参数展示命令/路径 + loading 态 -->
                 <template v-else-if="ResultComponent">
                     <component
-                        ref="resultComponentRef"
                         :is="ResultComponent"
                         :data="resultData"
                         :loading="isRunning"

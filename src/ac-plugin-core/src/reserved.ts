@@ -38,6 +38,8 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'grep_history', 'read_history',
   // ac-subagent / ac-durable-interaction / ac-timer-tools
   'subagent', 'ask_questions', 'timer',
+  // ac-run-code（程序化模式 PTC：code-exec 标签门禁）
+  'run_code',
   // ac-goal / ac-todo（任务追踪工具面）
   'goal', 'todo',
   // ac-skill（技能加载工具：按名加载全局/本 Agent 专属技能正文）
@@ -89,6 +91,8 @@ export const BUILTIN_AGENT_IDS: readonly string[] = [
   '__dsh_minimal__',
   // ac-sap-adt/preset 子行注入的 ABAP 开发模式
   '__abap_dev__',
+  // __programmatic__ 已随开关化退役（2026-09-17 research §十：程序化 =
+  // 会话级开关 conv-settings.programmatic + router 收窄，非预设身份）
 ];
 
 /** 保留字冲突描述（可诊断拒绝的错误载荷） */

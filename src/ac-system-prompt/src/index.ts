@@ -242,10 +242,10 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
 
   // ── 协作类（形态门控：独立会话不注入——用户↔单 Agent 专注对话，
   //    多 Agent 会话知识是噪音；工具面不裁剪，仅不教用法）──
-  // 5/6. 跨工具编排 list→send；异步语义 + wait 边界
+  // 5/6. 跨工具编排 list→send；投递语义（空闲直达回复直返 / 忙态注入）
   if (!single) {
     if (has('list_agents', 'send_agent')) {
-      add('多Agent协作：先 list_agents 找对象，再 send_agent 发消息。消息异步送达：发出后继续手头工作，回复会作为新消息到达；仅当下一步依赖对方结果时才设 wait=true。');
+      add('多Agent协作：先 list_agents 找对象，再 send_agent 发消息。对端空闲时回复文本随结果直返（reply 字段）；对端正忙时消息注入或排队，回复会作为新消息到达。wait=true 用于明确要求对方忙时也排队独立 run 等回复。');
     }
     if (has('list_groups', 'send_group')) {
       add('群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。');

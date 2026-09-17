@@ -99,6 +99,12 @@
   name: 'ac-str-replace-editor'
 - id: shell-tools
   name: 'ac-shell-tools'
+# 程序化模式 PTC 内核（run_code 工具：模型写 TS 程序编排成批工具调用；
+# 需 code-exec 能力标签；SDK 投影纯库住 ac-run-code-core。程序化形态 =
+# 会话级开关（conv-settings programmatic + router 收窄 LLM 面）——
+# __programmatic__ 预设已随开关化退役，2026-09-17 research §十）
+- id: run-code
+  name: 'ac-run-code'
 - id: math
   name: 'ac-math'
 - id: web-tools
@@ -129,6 +135,8 @@
   name: 'ac-subagent'
 - id: durable-interaction
   name: 'ac-durable-interaction'
+- id: ask-questions
+  name: 'ac-ask-questions'
 # ---- M12 服务编排（纯库住 ac-archive-core/ac-timer-core/ac-backup-core；
 # 行组合决定装载；workspace root = 各持久化行的统一数据根锚点） ----
 - id: usage
@@ -204,6 +212,9 @@
   name: 'ac-client-ui-browser'
 - id: ui-subagent
   name: 'ac-client-ui-subagent'
+# run_code 程序卡（ac-run-code 镜像：程序体 + 子调用摘要 + 返回值）
+- id: ui-run-code
+  name: 'ac-client-ui-run-code'
 # ---- M28 P2：settings 退化行（大件节 = settings:section 选举席贡献） ----
 - id: ui-llm-pool
   name: 'ac-client-ui-llm-pool'

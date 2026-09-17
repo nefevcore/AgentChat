@@ -203,101 +203,83 @@ describe('ac-sap-adt 宿主档案（host seam，core ≥ 0.7.1）', () => {
     expect(existsSync(join(root, 'sap-adt', String(read.output.localCopy)))).toBe(true);
   });
 
-  it('Agent 隔离：per-Agent destinations 文件，同名互不可见；宿主直调用默认路径', async () => {
+  it('per-Agent 隔离：锚点 = sandboxWorkdir（专用空间 files/<id>/.ac-sap-adt/），同名互不可见；宿主直调落数据根默认文件', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-iso-'));
     const { ctx } = await boot({}, root);
+    // 假 workspace 服务：sandboxWorkdir 简化形态——有 agentId 即专用空间
+    // files/<id>，无身份 undefined（回落数据根 .ac-sap-adt/）。真实装配里由
+    // ac-workspace 提供同名方法——唯一事实源，与提示词 [工作目录] 同源。
+    const off = ctx.provide('workspace', {
+      sandboxWorkdir(agentId: string | undefined): string | undefined {
+        return agentId ? join(root, 'files', agentId) : undefined;
+      },
+    });
     // 两个 Agent 各建同名目的地 dev，URL 不同
     const a1 = await exec(ctx, 'adt_create_destination', { name: 'dev', url: 'https://a1.example.com' }, 'abap_dev');
     const a2 = await exec(ctx, 'adt_create_destination', { name: 'dev', url: 'https://a2.example.com' }, 'abap_qa');
     expect(a1.ok).toBe(true);
     expect(a2.ok).toBe(true);
-    // 各自落自己的作用域文件（无嵌套常量目录）
-    const f1 = join(root, '.ac-sap-adt', 'agents', 'abap_dev', 'destinations.yaml');
-    const f2 = join(root, '.ac-sap-adt', 'agents', 'abap_qa', 'destinations.yaml');
+    // 各自落自己专用空间的 .ac-sap-adt/ 子目录
+    const f1 = join(root, 'files', 'abap_dev', '.ac-sap-adt', 'destinations.yaml');
+    const f2 = join(root, 'files', 'abap_qa', '.ac-sap-adt', 'destinations.yaml');
     expect(a1.output.file).toBe(f1);
     expect(a2.output.file).toBe(f2);
     expect(readFileSync(f1, 'utf8')).toContain('a1.example.com');
     expect(readFileSync(f2, 'utf8')).toContain('a2.example.com');
     expect(readFileSync(f1, 'utf8')).not.toContain('a2.example.com');
-    // 宿主直调（无身份）→ 默认文件，看不到 Agent 的
+    // 宿主直调（无身份 → sandboxWorkdir undefined）→ 数据根默认文件，看不到 Agent 的
     const host = await exec(ctx, 'adt_create_destination', { name: 'host', url: 'https://host.example.com' });
     expect(host.ok).toBe(true);
     expect(host.output.file).toBe(join(root, '.ac-sap-adt', 'destinations.yaml'));
     const hostRaw = readFileSync(join(root, '.ac-sap-adt', 'destinations.yaml'), 'utf8');
     expect(hostRaw).toContain('host.example.com');
     expect(hostRaw).not.toContain('a1.example.com');
-    // 含路径分隔符的 agentId 被 slug 化（防目录穿越）
-    const weird = await exec(ctx, 'adt_create_destination', { name: 'w', url: 'https://w.example.com' }, 'a/b..c');
-    expect(weird.ok).toBe(true);
-    expect(weird.output.file).toBe(join(root, '.ac-sap-adt', 'agents', 'a_b..c', 'destinations.yaml'));
+    off();
   });
 
-  it('Agent × 会话工作区双维隔离：同一 Agent 挂两个工作区的 single 会话互不可见；旧布局存量迁移', { timeout: 60_000 }, async () => {
+  it('单一锚点形态：会话挂载工作区（single 预设）优先于 Agent 专用空间；各工作区互不可见；旧 agents 树不再读写', { timeout: 60_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-ws-'));
     const { ctx } = await boot({}, root);
-    // 假 workspace 服务：conversationId → 会话挂载的工作区本机路径
-    // （真实装配里由 ac-workspace conversationWorkspaceRoot 提供——唯一事实源）
+    // 假 workspace 服务：sandboxWorkdir 优先序 = 会话挂载工作区 > Agent 专用
+    // 空间 > undefined（真实 ac-workspace 同名方法——唯一事实源）
     const wsIm = join(root, 'Project-120-IMPC');
     const wsDl = join(root, 'Local-20-Deloitte');
     const offWorkspace = ctx.provide('workspace', {
       root,
-      conversationWorkspaceRoot(cid: string | undefined): string | null {
-        if (cid === 'conv-impc') return wsIm;
-        if (cid === 'conv-deloitte') return wsDl;
-        return null;
+      sandboxWorkdir(agentId: string | undefined, conversationId?: string): string | undefined {
+        if (conversationId === 'conv-impc') return wsIm;
+        if (conversationId === 'conv-deloitte') return wsDl;
+        return agentId ? join(root, 'files', agentId) : undefined;
       },
     });
     const inConv = (name: string, args: Record<string, unknown>, agentId: string, conversationId: string) =>
       ctx.tools.execute({ name, args, agentId, conversationId } as never) as Promise<ExecRes>;
 
-    // 旧布局存量：修复前两个工作区的配置混在 agents/__abap_dev__/destinations.yaml
-    const legacyFile = join(root, '.ac-sap-adt', 'agents', '__abap_dev__', 'destinations.yaml');
-    mkdirSync(join(root, '.ac-sap-adt', 'agents', '__abap_dev__'), { recursive: true });
-    writeFileSync(
-      legacyFile,
-      'destinations:\n  - name: impc-dev\n    url: https://impcerpdev01.example.com\n  - name: deloitte-kic\n    url: https://180.167.68.213:44304\n',
-      'utf8',
-    );
-
-    // IMPC 工作区会话：首次调用触发存量迁移（复制旧文件到本工作区子目录）
+    // IMPC 工作区会话：目的地落 <项目>/.ac-sap-adt/
     const im = await inConv('adt_create_destination', { name: 'impc-test', url: 'https://impc-test.example.com' }, '__abap_dev__', 'conv-impc');
     expect(im.ok).toBe(true);
-    // wsSlug = 工作区完整本机路径的 slug 形态（盘符与分隔符归一，路径跨平台
-    // 不定 → 从期望规则现算，而非硬编码）
-    const slugOf = (p: string) => p.replace(/[:\\\/]+/g, '-').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-    const agentWsBase = join(root, '.ac-sap-adt', 'agents', '__abap_dev__', 'ws');
-    const imDir = join(agentWsBase, slugOf(wsIm));
-    expect(im.output.file).toBe(join(imDir, 'destinations.yaml'));
-    // 迁移：旧存量（impc-dev + deloitte-kic）已复制进来，且新目的地落同一份
-    const imRaw = readFileSync(join(imDir, 'destinations.yaml'), 'utf8');
-    expect(imRaw).toContain('impc-dev');
-    expect(imRaw).toContain('deloitte-kic');
-    expect(imRaw).toContain('impc-test.example.com');
+    const imFile = join(wsIm, '.ac-sap-adt', 'destinations.yaml');
+    expect(im.output.file).toBe(imFile);
+    expect(readFileSync(imFile, 'utf8')).toContain('impc-test.example.com');
 
-    // Deloitte 工作区会话：独立文件，先迁移存量再删掉 impc 的、留下自己的
+    // Deloitte 工作区会话：独立文件，互不可见
     const dl = await inConv('adt_create_destination', { name: 'deloitte-kic2', url: 'https://kic2.example.com' }, '__abap_dev__', 'conv-deloitte');
     expect(dl.ok).toBe(true);
-    const dlDir = join(agentWsBase, slugOf(wsDl));
-    expect(dl.output.file).toBe(join(dlDir, 'destinations.yaml'));
-    // 列表可见性按会话工作区分：IMPC 会话看不到 Deloitte 新建的目的地
+    expect(dl.output.file).toBe(join(wsDl, '.ac-sap-adt', 'destinations.yaml'));
     const imList = await inConv('adt_list_destinations', {}, '__abap_dev__', 'conv-impc');
     const imNames = (imList.output.destinations as Array<{ name: string }>).map((d) => d.name);
-    expect(imNames).toContain('impc-dev');
     expect(imNames).toContain('impc-test');
     expect(imNames).not.toContain('deloitte-kic2');
-    // Deloitte 会话反之
     const dlList = await inConv('adt_list_destinations', {}, '__abap_dev__', 'conv-deloitte');
     const dlNames = (dlList.output.destinations as Array<{ name: string }>).map((d) => d.name);
     expect(dlNames).toContain('deloitte-kic2');
     expect(dlNames).not.toContain('impc-test');
 
-    // 无工作区归属（conversationId 未挂载/解析为 null）→ 维持 per-Agent 原路径
+    // 同一 Agent 无会话工作区 → 专用空间 files/<id>/.ac-sap-adt/
     const plain = await exec(ctx, 'adt_create_destination', { name: 'plain', url: 'https://plain.example.com' }, '__abap_dev__');
-    expect(plain.output.file).toBe(legacyFile);
-    // 且不再受工作区子目录影响（各自独立）
-    expect(readFileSync(legacyFile, 'utf8')).toContain('plain.example.com');
-    // 旧文件原样保留（迁移是复制不是移动——无工作区身份的调用仍读它）
-    expect(readFileSync(legacyFile, 'utf8')).toContain('impc-dev');
+    expect(plain.output.file).toBe(join(root, 'files', '__abap_dev__', '.ac-sap-adt', 'destinations.yaml'));
+    // 旧布局树 .ac-sap-adt/agents/ 不再被创建
+    expect(existsSync(join(root, '.ac-sap-adt', 'agents'))).toBe(false);
     offWorkspace();
   });
 });

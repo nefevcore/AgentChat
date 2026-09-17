@@ -65,6 +65,10 @@ export const PERSISTENCE_TREES: readonly string[] = [
   'subagents',
   'usage',
   'backups',
+  // 会话文件首见快照（ac-file-snapshots owning 数据目录；实测复盘
+  // 4cd1a90d：glob **/*run*code* 返回 48 条中约 40 条是快照路径——检索面
+  // 纯噪音且量随会话数无界增长，收录标准与本表其余条目一致）
+  'file-snapshots',
 ];
 
 /**

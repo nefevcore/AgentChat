@@ -88,7 +88,7 @@ export function apply(ctx: Context) {
       properties: {
         to: { type: 'string', description: '目标 Agent ID（含虚拟端点如 user；已 spawn 子 Agent 的 sub_ id 亦可）' },
         message: { type: 'string', description: '消息内容' },
-        wait: { type: 'boolean', description: '是否等待回复（默认 false；等待时对方忙则排队独立 run）' },
+        wait: { type: 'boolean', description: '是否等待回复（默认 false）。对端空闲时无论如何都会随结果带回其回复文本（reply 字段）；wait=true 的差异是对端忙时排队等独立 run 而非注入当前 run。' },
       },
       required: ['to', 'message'],
     },
@@ -102,20 +102,35 @@ export function apply(ctx: Context) {
         if (!message.trim()) return err('缺少 message 参数');
         if (!ctx.agents.has(to)) return err(`Agent "${to}" 未注册`);
 
+        // ---- 子 Agent 发信身份归一（2026-12 修复）----
+        // 执行身份 = sub_*（子 Agent 自己在 send_agent）时：对桶
+        // pairKey(sub, to) 会造出"子 ⇄ 对端"幽灵会话——用户视角该对话
+        // 不可见（UI 会话列表按父口径），回复也进不了子的任务收件箱
+        // （子的上下文源 = subagents/<subId>.jsonl + inbox，非 session 桶）。
+        // 归一：会话归属落到**父的口径**——普通 Agent 对桶 = pairKey(parent,
+        // to)（用户在父⇄to 的既有会话里直接看到子的发言，行的 agent_id
+        // 仍是 sub——中性入账认得出说话人）；虚拟端点（user 等）= 父的
+        // 直答对桶（与用户本人的对话）。from（信封 sender）不变——事实
+        // 说话人仍是 sub。
+        const subagents = ctx.get('subagents');
+        const fromSub = subagents !== undefined && from.startsWith('sub_') ? subagents.get(from) : undefined;
+        const fromForPair = fromSub !== undefined ? fromSub.parentId : from;
+
         // ---- 子 Agent 直投分支（2026-09-16 news 事故复盘）----
         // to = 已 spawn 的子 Agent id（sub_*）：不经会话状态机，转投其任务
         // 收件箱（ctx.subagents.send——忙时排队/空闲开跑，回执经 job-wakeup
         // 回到发起会话）。父自投走原路径以外的一切 Agent 照旧 deliver。
-        const subagents = ctx.get('subagents');
+        // 发信方也是子 Agent（sub → sub）时投递权限按其父判定（归一后
+        // fromForPair = 发信子的父）。
         if (subagents !== undefined && to.startsWith('sub_')) {
           const info = subagents.get(to);
           if (info !== undefined) {
-            if (info.parentId !== from) {
+            if (info.parentId !== fromForPair) {
               return err(`"${to}" 是 Agent "${info.parentId}" 的子 Agent，只接收其父（或经父的 subagent 工具）的任务消息`);
             }
             try {
               const r = subagents.send(to, {
-                parentId: from,
+                parentId: fromForPair,
                 text: message,
                 // 回执直达发起会话（无会话键则回 owner 自会话桶——job-wakeup 缺省）
                 ...(call.conversationId ? { conversationId: call.conversationId } : {}),
@@ -153,7 +168,7 @@ export function apply(ctx: Context) {
           await ctx.conversation.deliver(to, message, {
             sender: from,
             source: 'agent',
-            conversationId: pairKey(from, to),
+            conversationId: pairKey(fromForPair, to),
           });
           return {
             ok: true,
@@ -161,7 +176,7 @@ export function apply(ctx: Context) {
               to,
               virtual: true,
               message:
-                `已投递给 "${to}"（虚拟端点 = 用户本人）：消息会出现在用户与你的对话中，` +
+                `已投递给 "${to}"（虚拟端点 = 用户本人）：消息会出现在用户与${fromSub !== undefined ? `"${fromSub.parentId}"（你代表的团队/发起方）` : '你'}的对话中，` +
                 '用户会看到但不会有自动回复——不要等待或重试，可在后续回复中继续说明。',
             },
           };
@@ -172,7 +187,8 @@ export function apply(ctx: Context) {
 
         // 委托对会话键（agent⇄agent 共享桶，双方视角同键）：pairKey 排序
         // 双向一致——发送方/接收方在会话流与用量弦图里对得上。
-        const convKey = pairKey(from, to);
+        // 发信方是子 Agent 时对桶归一到父（见上方归一注释）。
+        const convKey = pairKey(fromForPair, to);
         // 历史播种：委托会话的此前消息（ac-session 回放；无 session 行 = 空）。
         // viewer=目标 Agent（M21/D1）：回放按读者投影——自己的话 assistant、
         // 对端的话 user（修 a⇄b 桶视角颠倒）
@@ -200,6 +216,31 @@ export function apply(ctx: Context) {
               reply: run.text,
               finish: run.finish,
               steps: run.steps.length,
+            },
+          };
+        }
+        // wait=false 空闲直达（2026-12 修复）：deliver 在对端空闲时本就
+        // await 其完整 run 并随 outcome 携带回复——此前被丢弃并对调用方
+        // 撒谎"回复会作为新消息送达"。子 Agent（sub_*）场景这是唯一回
+        // 收通道（其上下文源是任务收件箱，非 session 对桶——对桶里 b 的
+        // 回复永远不会以"新消息"形态回到子）；普通 Agent 场景回复文本
+        // 直返也更诚实。忙态（steered/queued/timeout）语义不变。
+        if (args.wait !== true && outcome.kind === 'run') {
+          const run = outcome.result;
+          if (run.finish === 'error') {
+            return err(`对方执行失败: ${run.error ?? '未知错误'}`);
+          }
+          return {
+            ok: true,
+            output: {
+              to,
+              wait: false,
+              reply: run.text,
+              finish: run.finish,
+              steps: run.steps.length,
+              message: run.text
+                ? '已投递并收到对方回复（见 reply 字段）。'
+                : '已投递，对方未产生文本回复（可能仅执行了工具动作）。',
             },
           };
         }

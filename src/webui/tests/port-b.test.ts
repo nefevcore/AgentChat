@@ -776,7 +776,20 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     });
     const r = await fetchRuns(rpc);
     expect(calls.map((c) => c.method).sort()).toEqual(['agents/list', 'runs/snapshot']);
-    expect(r.members.map((m) => m.id)).toEqual(['user', 'system']);
+    expect(r.snapshot.members.map((m) => m.id)).toEqual(['user', 'system']);
+    expect(r.unchanged).toBe(false);
+  });
+
+  it('fetchRuns：digest 短路——unchanged 轻载荷跳过 agents/list 与投影', async () => {
+    const { rpc, calls } = rec({
+      'runs/snapshot': { unchanged: true, digest: 'ab12cd34' },
+    });
+    const r = await fetchRuns(rpc, 'ab12cd34');
+    // unchanged 轮：单 RPC、无 agents/list（零投影）
+    expect(calls.map((c) => c.method)).toEqual(['runs/snapshot']);
+    expect(calls[0].params).toEqual({ digest: 'ab12cd34' });
+    expect(r.unchanged).toBe(true);
+    expect(r.digest).toBe('ab12cd34');
   });
 
   it('interruptRun：convKey → conversationId 换算（chat/group/single 三形态）', async () => {

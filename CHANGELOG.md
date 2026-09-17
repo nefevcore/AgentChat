@@ -6,10 +6,18 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Changed（思维链吸附过渡柔化——header 渐隐 + 链体顶部模糊带）
+- 展开的思维链滚动吸附时（chain-header sticky 于消息区顶），原先纯色底 + 内容硬切边：header 增设 macOS 式纯色渐变遮罩——page 色不透明段延伸至底部 8px 遮蔽余量带（padding 撑高 + 负 margin 抵消，不占布局）后向下渐隐，卷入的链体内容柔化淡出。遮罩常驻 .expanded（header 恒居可视顶，无需 JS 判定吸附态）；未吸附时仅渐变尾端薄扫首卡顶 ~2px（alpha ≤25%），视觉不可辨。
+
 ### Fixed（UNIVERSAL_TAGS 静默注入致协作工具对存量 Agent 消失）
 - **现象**：升级后存量 Agent 的协作工具（send_agent 等 collab 族）静默消失。
 - **根因**：双写口语义分裂——`agents/create`/`agents/update` 写口对「新建且未传 tags」静默补基础族（写口世界有 collab），运行时却按落盘 tags 计算（无 collab）；叠加管理面板 reserved 目录词徽章恒亮展示，管理员核对时看到的是写口世界，掩盖了落盘真相。
 - **修复**：写口不再代填（tags 完全以调用方传入为准——基础族预选回归创建面显式传入，`createAgent` 前端签名补 tags 透传）；徽章 on 态改按落盘 tags 计算（reserved=目录恒有此词 ≠ 该 Agent 恒有此标签）。agent-admin 回归测试锁定。
+
+### Fixed（冒烟被机器级 AGENTCHAT_DATA_ROOT 劫持——gpt-4o-mini NO_PROVIDER）
+- **现象**：`pnpm smoke` 在设置过 `AGENTCHAT_DATA_ROOT` 的机器上必现 `LlmError: model "gpt-4o-mini" 无法路由到任何 provider`（测试全绿、冒烟独红）。
+- **根因**：smoke.ts/smoke-run-code.ts 的「外部 env 已设则尊重之」分支——机器级 env 指向真实数据根（如 `workspace/home`，无 openai 连接）时，冒烟跳过自建三连接 fixture、用真实配置 boot，硬编码的 `gpt-4o-mini` 断言即 NO_PROVIDER；且 probe/会话文件会写进真实数据根。
+- **修复**：冒烟数据根无条件锚定 `<repo>/workspace/test`（自清理 + 三连接 fixture），加与 vitest global-setup 同款路径护栏；不再读外部 `AGENTCHAT_DATA_ROOT`。两个脚本（`pnpm smoke` / `node src/ac-app/src/smoke-run-code.ts`）同批修复，实测全绿。
 
 ## [0.8.9] - 2026-09-16
 

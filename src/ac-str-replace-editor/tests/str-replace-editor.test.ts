@@ -77,6 +77,20 @@ describe('ac-str-replace-editor', () => {
     expect(readFileSync(join(root, FILE), 'utf8')).toBe(`第一行 alpha\n${NEW_STR}\n第三行 gamma`);
   });
 
+  it('str_replace：new_str 与 old_str 相同 → 拒绝且文件保持原状', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sre-'));
+    writeFileSync(join(root, FILE), BEFORE, 'utf8');
+    const { ctx } = await boot(root);
+
+    const r = await ctx.tools.execute({
+      name: 'str_replace_editor',
+      args: { command: 'str_replace', path: FILE, old_str: OLD_STR, new_str: OLD_STR },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('完全相同');
+    expect(readFileSync(join(root, FILE), 'utf8')).toBe(BEFORE); // 未写盘
+  });
+
   it('create：新文件写入成功；已存在文件拒绝（不可覆盖）', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-sre-'));
     writeFileSync(join(root, FILE), BEFORE, 'utf8');

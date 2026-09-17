@@ -1,4 +1,4 @@
-// AgentChat — Agent 运行跟踪（主区视图：由侧边栏「运行」面板的「运行总览」入口打开）
+// AgentChat — Agent 运行跟踪（主区视图：由侧边栏「运行」面板的「运行矩阵」入口打开）
 //
 // 头部：标题（文本）+ 日期范围筛选 + 快照时间。矩阵：
 //   · 轴集合 = Agent 清单 ∪ 群组清单 ∪ system ∪ 会话残留端点；轴标签用头像；
@@ -23,6 +23,7 @@ import type {
   RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, RunsRunningEntry, WindowCounts,
 } from './index.ts';
 import { sourceLabel } from './index.ts';
+import RunDuration from './RunDuration.vue';
 import { formatFileSize, formatRelativeTime } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
@@ -38,7 +39,6 @@ const chatStore = useChatStore();
 
 const snapshot = computed<RunsSnapshot | null>(() => runSvc?.snapshot.value ?? null);
 const loading = computed(() => runSvc?.loading.value ?? false);
-const now = computed(() => runSvc?.now.value ?? 0);
 
 onMounted(() => { runSvc?.ensurePolling(); roster.requestAgents(); });
 
@@ -377,16 +377,6 @@ const coverage = computed(() => snapshot.value?.coverage);
 const coverageOpen = ref(false);
 
 // ── 格式化 ──
-function fmtDuration(ms: number): string {
-  if (ms < 0) ms = 0;
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
-}
-
 function fmtClock(ts: number): string {
   return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false });
 }
@@ -530,7 +520,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           </div>
           <div v-for="r in tip.v.cell.running" :key="r.convKey" class="tip-row run">
             <span class="tip-k tip-k-run"><Icon name="play" :size="9" /> 运行</span>
-            <span class="tip-v">{{ sourceLabel(r) }} · {{ fmtDuration(now - r.startedAt) }}<template v-if="r.source?.summary"><br />{{ r.source.summary }}</template></span>
+            <span class="tip-v">{{ sourceLabel(r) }} · <RunDuration :started-at="r.startedAt" /><template v-if="r.source?.summary"><br />{{ r.source.summary }}</template></span>
           </div>
         </template>
         <div v-else class="tip-empty">无会话记录</div>

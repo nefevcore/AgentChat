@@ -122,6 +122,10 @@ export const useUiStore = defineStore('ui', () => {
   // ── 主区「Agent 会话对」只读视角（pair）：矩阵格子点击进入，两端点都非 viewer ──
   //    注册在 talk 之前的视角（App.vue），active 期间覆盖聊天视角；关闭/选中别处即回退
   const pairView = ref<{ a: string; b: string } | null>(null);
+  // ── 主区「子 Agent 会话」只读视角（subagent）：运行跟踪面板子Agent 行点击
+  //    进入（subagent-session-view-plan R7）——与 pair 同款让位协议：选中
+  //    Agent/群/独立会话即回退；与 pairView 互斥（open 时互清）。
+  const subagentView = ref<{ subId: string; name?: string; parentId?: string } | null>(null);
   // ── 移动端侧边栏 ──
   const drawerVisible = ref(false); // 移动端抽屉（primary-sidebar 移动形态）
   // ── 右侧区域（aside 席位——第四层；区域级状态，面板内容经选举条目供） ──
@@ -226,8 +230,21 @@ export const useUiStore = defineStore('ui', () => {
 
   /** 主区「Agent 会话对」只读视角（矩阵格子进入）：a/b 为两端点 id（排序与否均可）。
    *  进入时不关矩阵视图 —— 返回（closePairView）即回到矩阵，而非空白聊天区 */
-  function openPairView(a: string, b: string) { pairView.value = { a, b }; }
+  function openPairView(a: string, b: string) {
+    subagentView.value = null; // 反向互斥（subagent 视角让位给 pair）
+    pairView.value = { a, b };
+  }
   function closePairView() { pairView.value = null; }
+
+  /** 主区「子 Agent 会话」只读视角（运行跟踪面板子Agent 行进入）：
+   *  与 pairView 互斥；面板入口时矩阵可能开着——一并收起（矩阵是浏览态，
+   *  子会话是聚焦态）。关闭即回到此前选中上下文（选中三元组未变）。 */
+  function openSubagentView(subId: string, name?: string, parentId?: string) {
+    pairView.value = null;
+    trackingViewVisible.value = false;
+    subagentView.value = { subId, ...(name ? { name } : {}), ...(parentId ? { parentId } : {}) };
+  }
+  function closeSubagentView() { subagentView.value = null; }
   function toggleDrawer() { drawerVisible.value = !drawerVisible.value; }
   function closeDrawer() { drawerVisible.value = false; }
 
@@ -425,7 +442,7 @@ export const useUiStore = defineStore('ui', () => {
     // 面板
     primaryVisible, primaryWidth, primaryPanel, drawerVisible,
     showThinking, setShowThinking,
-    trackingViewVisible, pairView,
+    trackingViewVisible, pairView, subagentView,
     auxVisible, auxWidth, auxPanel,
     globalSettingsVisible, settingsAgentTarget, settingsSectionTarget, agentEditorDirty,
     tokenUsageVisible, versionVisible,
@@ -436,7 +453,8 @@ export const useUiStore = defineStore('ui', () => {
     previewIntentFallback, previewIntentConversationId,
     // 动作
     isNarrow, togglePrimary, openPrimaryPanel, openTrackingView, closeTrackingView, auxOpenTracking, openTimers,
-    openPairView, closePairView, toggleDrawer, closeDrawer, toggleAux, openAux, selectAuxPanel,
+    openPairView, closePairView, openSubagentView, closeSubagentView,
+    toggleDrawer, closeDrawer, toggleAux, openAux, selectAuxPanel,
     openAgentSettings, openGlobalSettings, closeSettings,
     openTokenUsage, closeTokenUsage, openSystemPrompt, closeSystemPrompt,
     openVersion, closeVersion,

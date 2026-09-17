@@ -13,7 +13,7 @@
 import type { Context } from '@agentchat/cordis';
 import { ArchiveService, type ArchiveRowOptions } from './service.ts';
 // 缺省值与实现单源（service 经同常量兜底；声明引用防漂移）
-import { DEFAULT_ARCHIVE_BUDGETS } from 'ac-archive-core';
+import { DEFAULT_ARCHIVE_BUDGETS, DEFAULT_SELF_CONTEXT_TOKENS } from 'ac-archive-core';
 
 export const name = 'ac-archive';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
@@ -25,9 +25,10 @@ export const extension: ExtensionMeta = {
   description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）',
   automatic: true,
   fields: [
-    { name: 'maxContextTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_ARCHIVE_BUDGETS.maxContextTokens, description: '归档触发阈值——上下文估算超过即整理归档' },
-    { name: 'archiveTokenRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.archiveTokenRatio, description: '归档保留比（整理后概要预算占比，0~1）' },
-    { name: 'keepRecentRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.keepRecentRatio, description: '近期消息保留比（尾部不归档比例，0~1）' },
+    { name: 'maxContextTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_ARCHIVE_BUDGETS.maxContextTokens, description: '会话上下文预算上限（token）。实际触发阈值 = 本值 × archiveTokenRatio（缺省 50 万）' },
+    { name: 'archiveTokenRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.archiveTokenRatio, description: '归档触发比（0~1）：上下文回放估算超过 maxContextTokens × 本值 → 触发整理归档' },
+    { name: 'keepRecentRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.keepRecentRatio, description: '尾部保留预算比（0~1）：归档后保留最近消息的 token 预算 = maxContextTokens × 本值（缺省 3 万，超出部分移入归档段）' },
+    { name: 'maxSelfContextTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_SELF_CONTEXT_TOKENS, description: '自会话桶（agent~agent 运行日志）专项预算上限（token）——仅覆盖自会话桶的 maxContextTokens，触发阈值 = 本值 × archiveTokenRatio。缺省 40 万（低于通用 100 万：自会话是机制驱动的运行日志，无用户交互对冲，缺省即收紧锯齿峰值）；高频定时器 Agent（如每 30 分钟监控轮）可再调低，用户直答/委托会话不受影响' },
   ],
   listeners: [{ event: 'loop/after-run', role: '阈值检测触发归档', description: 'run 结束通知（持久化/审计/指标订阅）' }],
 };

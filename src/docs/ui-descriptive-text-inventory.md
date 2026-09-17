@@ -250,7 +250,7 @@
 
 | 位置 | 区域 | 呈现 | 原文 | 建议 |
 |---|---|---|---|---|
-| RunTrackingPanel.vue:192 | 「运行总览」矩阵入口 | title-hover | 运行矩阵：会话对 N · 群 M · 矩阵外独立 K（点击打开/关闭） | 保留 |
+| RunTrackingPanel.vue:192 | 「运行矩阵」矩阵入口 | title-hover | 运行矩阵：会话对 N · 群 M · 矩阵外独立 K（点击打开/关闭） | 保留 |
 | RunTrackingPanel.vue:207 | 「运行中」树空态 | 空态 | 没有正在运行的会话 | 保留 |
 | RunTrackingPanel.vue:210 | 运行中会话叶节点 | title-hover | 会话标题 + convKey + 点击进入会话 | 保留 |
 | RunTrackingPanel.vue:215 | 运行条目·中断按钮 | title-hover | 中断该 run（软中断） | 保留 |

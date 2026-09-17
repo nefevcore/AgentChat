@@ -41,8 +41,10 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     expect((std?.settings as Record<string, { enabled?: boolean }>).skill).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).datetime).toEqual({ enabled: false });
     // 工具门禁标签（全量标签化 2026-09-16：tags 即工具面；2026-09-17
-    // 精简——collab 协作族与 history 会话回放族出局，单会话通用对话不载）
-    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation']);
+    // 精简——collab 协作族与 history 会话回放族出局，单会话通用对话不载；
+    // 同日开关化补授 code-exec——默认预设无此标签时「程序化」开关对
+    // 默认路由路径永不生效〔实测 3a8ea4f7 坑〕，授权与形态正交）
+    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'code-exec']);
     // 无 config 行 → 模型留空（router 层报"缺少 model"；会话级模型覆盖可用）
     expect(std?.model).toBeUndefined();
 
@@ -56,7 +58,8 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     expect(minimal?.tags).toEqual(['fs', 'shell', 'infra', 'fs_minimal']);
     expect((minimal?.settings as Record<string, { enabled?: boolean }>)['system-prompt']).toEqual({ enabled: false });
 
-    // 目录服务：list/defaultPreset（meta.default 优先）
+    // 目录服务：list/defaultPreset（meta.default 优先）——程序化模式已随
+    // ac-run-code 走（preset.ts 子行，独立插件拆分 2026-09-17），本行两预设
     expect(ctx.agentPresets.list().map((d) => d.agent.id)).toEqual(['__standard__', '__dsh_minimal__']);
     expect(ctx.agentPresets.defaultPreset()?.agent.id).toBe('__standard__');
   });

@@ -308,6 +308,26 @@ export class ConversationService extends Service {
         if (view.conversationId === payload.conversationId) view.stale = true;
       }
     }, { description: '归档完成后重建上下文视图' });
+    // journal 折叠漂移守卫（P2）：journal 模式的自会话视图增量投影只追加
+    // 新行（无折叠能力）——视图存活越久，与文件重派生（session.history
+    // 带折叠）形状差越大。机制触发轮收束后把 journal 桶视图标 stale：
+    // 下次 startRun 从 history() 重派生（折叠生效），进程内与重启后形状
+    // 等价（字节一致是 S1/S3 视图契约）。收束即标 = run 进行中零开销，
+    // 代价是每轮一次文件重读（journal 桶本就高频小轮，重读是毫秒级）。
+    this.ctx.on('loop/after-run', (request) => {
+      if (request.source !== 'event') return; // 仅机制触发轮（自会话主体）
+      const viewer = request.agent;
+      if (viewer === undefined) return;
+      const conv = request.conversationId;
+      if (conv !== `${viewer}~${viewer}`) return; // 仅对角线自会话桶
+      const session = this.ctx.get('session', false) as
+        | { eventReplayOf?(viewer: string): 'full' | 'journal' }
+        | undefined;
+      if (session?.eventReplayOf?.(viewer) !== 'journal') return;
+      for (const view of this.views.values()) {
+        if (view.conversationId === conv) view.stale = true;
+      }
+    }, { description: 'journal 模式自会话视图重派生（折叠保真）' });
     // D3 残余观测：before-run veto 窗口内被吞的注入（消息已入账/进视图，
     // 下一条自然 run 可见——自愈）。只告警不重投（重投经
     // router/message-received 二次入账）；收束判定后的迟到注入由

@@ -26,14 +26,15 @@
 //      destinations/configFile/policy）< 显式 configFile（相对路径锚定
 //      数据根）——config/changed 热重载目的地表与策略，无需重启
 //
-// 会话工作区层（per-call 锚点按调用方作用域，Agent × 会话工作区双维）：
-// Agent 调用 → <数据根>/.ac-sap-adt/agents/<agentId>/destinations.yaml
-// （per-Agent 隔离，对话式 adt_create_destination 写这里）；该会话挂载了
-// 工作区（singles workspaceId，ac-workspace conversationWorkspaceRoot 唯一
-// 事实源）→ 再切一层 ws/<工作区路径 slug>/destinations.yaml——同一 Agent
-// 在不同工作区的 single 会话各持一份，互不可见（2026-09-15 修复）；宿主
-// 直调 → <数据根>/.ac-sap-adt/destinations.yaml。快照/导出的 fs 子树是
-// 独立的 <数据根>/sap-adt/。demo 目的地（进程内 mock ADT 服务器）默认
+// 会话工作区层（per-call 锚点 = ac-workspace sandboxWorkdir 唯一事实源，
+// 与提示词 [工作目录] 完全同源）：Agent 会话 → 自身专用空间
+// files/<agentId>/.ac-sap-adt/destinations.yaml；single 预设会话（挂载
+// 项目工作区）→ <项目>/.ac-sap-adt/destinations.yaml——各项目各持一份，
+// 互不可见；仅真宿主直调（无身份且无工作区解析）→
+// <数据根>/.ac-sap-adt/destinations.yaml（2026-09-17 重构：废弃
+// agents/<id>[ws/<slug>] 自建树——隔离维度与 [工作目录] 同构，同一事实
+// 源，不再有第二套切分逻辑）。快照/导出的 fs 子树是独立的
+// <数据根>/sap-adt/。demo 目的地（进程内 mock ADT 服务器）默认
 // 开启——零 SAP 系统即可端到端体验。
 //   6. 使用规约注入（loop/before-run，对齐 ac-fs-tools FILE_MENTION_GUIDE
 //      形态）：生效工具集含 adt_* 且调用方未停用 → 向 request.system 追加
@@ -43,8 +44,7 @@
 //      引擎升级后指引自动跟随。
 // ============================================================
 import * as fs from 'node:fs';
-import { existsSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only）
 import z from '@agentchat/schemastery';
@@ -108,8 +108,8 @@ const AGENTCHAT_HOST_PROFILE: HostProfile = {
   credentialStore: { label: 'AgentChat encrypted credential store' },
   passwordResolution: 'AgentChat credential store > process env',
   globalConfigHint: 'overrides the `sap-adt:` section of the AgentChat config',
-  // '.' = 锚点即配置目录：锚点已按调用方作用域（per-Agent）
-  // 切分，destinations.yaml 直接落锚点下，不再嵌一层常量目录
+  // '.' = 锚点即配置目录：锚点 = sandboxWorkdir（与 [工作目录] 同源）下
+  // 的 .ac-sap-adt/ 子目录，destinations.yaml 直接落锚点下
   workspaceConfigDir: '.',
 };
 
@@ -346,48 +346,23 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
     for (const tool of catalog) {
       // 执行上下文垫片：内核读 exec.signal（取消）与
       // exec.agent.session.header.cwd（per-call 工作区层锚点）。
-      // 锚点按调用方作用域切分（Agent × 会话工作区 双维隔离）：
-      //   · Agent 调用 → <数据根>/.ac-sap-adt/agents/<agentId>/
-      //   · 该会话还挂载了工作区（singles workspaceId，经
-      //     ac-workspace conversationWorkspaceRoot 唯一事实源解析）→
-      //     再按工作区本机路径切一层 ws/<slug>/：
-      //     同一 Agent 在两个工作区的 single 会话各持一份 destinations，
-      //     互不可见（2026-09-15 修复：此前仅按 agentId 切分，同一 Agent
-      //     挂两个工作区时配置互相混入）。宿主直调（无身份）→
-      //     <数据根>/.ac-sap-adt/。agentId 只保留路径安全字符（防目录
-      // 穿越），快照/导出仍锚定 fs 适配器自己的 <数据根>/sap-adt/
-      //     子树，与该锚点无关。
+      // 锚点 = ac-workspace sandboxWorkdir 唯一事实源（与提示词 [工作目录]
+      // 同源，2026-09-17 重构）：Agent 会话 → 自身专用空间 files/<agentId>/，
+      // single 预设会话 → 挂载的项目工作区；destinations.yaml 落锚点下
+      // .ac-sap-adt/ 子目录。仅宿主直调（无身份且无工作区解析）回落
+      // <数据根>/.ac-sap-adt/。废弃旧 agents/<id>[ws/<slug>] 自建树——
+      // 隔离语义与 [工作目录] 完全同构，不再有第二套切分维度。
+      // 快照/导出仍锚定 fs 适配器自己的 <数据根>/sap-adt/ 子树，与该锚点无关。
       type WorkspaceFace = {
-        conversationWorkspaceRoot?(conversationId: string | undefined): string | null;
+        sandboxWorkdir?(agentId: string | undefined, conversationId?: string): string | undefined;
       };
       const agentScopeDir = (agentId: string | undefined, conversationId?: string): string => {
-        if (agentId === undefined || agentId === '') return resolve(dataRoot, '.ac-sap-adt');
-        const slug = agentId.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+$/, '_') || 'agent';
-        const agentDir = resolve(dataRoot, '.ac-sap-adt', 'agents', slug);
         // 每次现取（不闭包捕获）：workspace 是可选能力行，装配顺序不定，
-        // 且热插拔后首次调用也要能解析到。
+        // 且热插拔后首次调用也要能解析到。路径安全由 workspace 服务侧
+        // 负责（专用空间/挂载工作区都是服务解析出的合法目录）。
         const workspaceSvc = ctx.get('workspace', false) as WorkspaceFace | undefined;
-        const wsRoot = workspaceSvc?.conversationWorkspaceRoot?.(conversationId);
-        if (!wsRoot) return agentDir;
-        // 工作区本机路径 → 稳定 slug（跨平台分隔符统一；盘符保留）
-        const wsSlug =
-          wsRoot.replace(/[:\\\/]+/g, '-').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'ws';
-        const wsDir = join(agentDir, 'ws', wsSlug);
-        // 旧布局迁移（一次性，幂等）：修复前同一 Agent 的目的地全部落在
-        // agents/<id>/destinations.yaml——首个带工作区身份的调用把这份
-        // 存量复制到本工作区子目录，既有配置不丢；已迁移/用户已在子目录
-        // 自建时跳过（复制仅当目标不存在）。
-        const legacy = join(agentDir, 'destinations.yaml');
-        const target = join(wsDir, 'destinations.yaml');
-        if (existsSync(legacy) && !existsSync(target)) {
-          try {
-            fs.mkdirSync(wsDir, { recursive: true });
-            fs.copyFileSync(legacy, target);
-          } catch {
-            /* 迁移失败由后续读写自然报错；不阻断工具注册 */
-          }
-        }
-        return wsDir;
+        const workdir = workspaceSvc?.sandboxWorkdir?.(agentId, conversationId);
+        return resolve(workdir ?? dataRoot, '.ac-sap-adt');
       };
       const execOf = (signal?: AbortSignal, agentId?: string, conversationId?: string): ToolExec => ({
         signal,

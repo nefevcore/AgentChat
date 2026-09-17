@@ -14,7 +14,8 @@ import type { AppliedEditsResult, EditMatchLevel, EditPosition, FuzzyMatchResult
  * 对归一化后的内容执行多个精确替换。
  *
  * 验证规则（P0 匹配语义收口，事故背景 docs/edit-tool-incident-report.md）：
- *   1. oldText 不能为空
+ *   1. oldText 不能为空；oldText === newText 时拒绝（无变化的编辑没有任何
+ *      效果，只会白白写盘、拍快照、碰 mtime——多半是模型笔误，写错一侧了）
  *   2. 仅 Level 0/1 可落编辑（Level 1 = NFKC + trimEnd + 引号/破折号归一化，
  *      覆盖 Unicode 噪声主场景）；Level 2（trim 行首空白）只定位不替换——
  *      行首缩进是代码语义的一部分，trim 归一化在重复文本文件里错位率过高
@@ -47,9 +48,16 @@ export function applyEditsToNormalizedContent(
   const matches: EditMatch[] = [];
 
   for (const edit of edits) {
-    // 1. oldText 不能为空
+    // 1. oldText 不能为空；oldText === newText 无变化拒绝
     if (edit.oldText.length === 0) {
       throw new Error('编辑失败：old_string 不能为空。请提供要替换的精确文本。');
+    }
+    if (edit.oldText === edit.newText) {
+      throw new Error(
+        `编辑被拒绝：new_string 与 old_string 完全相同，替换后文件不会有任何变化。` +
+          `\n多半是笔误（写错了其中一侧）：请核对待修改的文本，` +
+          `new_string 填替换后的完整新文本（含希望保留的部分）。`,
+      );
     }
 
     // 2. 三级查找（Level 0 精确 → Level 1 trimEnd → Level 2 trim 仅定位）

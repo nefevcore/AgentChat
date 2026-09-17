@@ -368,12 +368,21 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   /* 允许随容器收缩（侧边栏压缩会话宽度时），label 单行省略 */
   min-width: 0;
 }
-/* 仅展开的思维链：折叠栏吸附在消息区顶部（抵消容器 padding），滚动途中可快速折叠 */
+/* 仅展开的思维链：折叠栏吸附在消息区顶部（抵消容器 padding），滚动途中可快速折叠。
+   渐隐底色常驻 .expanded：吸附中，卷入 header 下缘的链体内容经此渐变带
+   柔化淡出（macOS 式纯色渐变遮罩——header 恒居可视顶，遮罩常驻即可，
+   无需 JS 判定吸附态）。底部 8px 遮蔽余量带（padding 撑高 + 负 margin
+   抵消，不占布局）盖过 header 与 body 间的 6px gap——刚卷入的内容先
+   经渐隐带淡出，而非在 header 下缘被硬切；未吸附（常态）时余量带
+   覆于首卡上方，仅渐变尾端（alpha ≤25% 的 page 色）薄扫卡顶 ~2px，
+   视觉不可辨。 */
 .chain-header.expanded {
   position: sticky;
   top: calc(var(--space-md) * -1);
   z-index: 5;
-  background: var(--color-bg-page);
+  padding-bottom: 8px;
+  margin-bottom: -8px;
+  background: linear-gradient(to bottom, var(--color-bg-page) calc(100% - 8px), transparent);
 }
 .chain-header:hover, .chain-streaming .chain-label { color: var(--color-text-primary); }
 .chain-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); transition: opacity 0.12s ease; }
@@ -405,6 +414,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   margin-left: 7px; /* 对齐 chain-icon（14px）中心 */
   padding: 0 0 0 14px;
 }
+
 .chain-body :deep(.assistant-row) { max-width: 100% !important; }
 /* 思维链内的 AI 气泡正文对齐 12px（与思维链内容一致） */
 .chain-body :deep(.assistant-bubble .markdown-body) { font-size: 12px; }

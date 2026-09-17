@@ -376,13 +376,16 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const cat = await pluginApi.getCatalog(pluginRpc);
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
       'agent-admin', 'agent-loop', 'agent-presets', 'agent-store', 'agents', 'agents-dir',
-      'archive', 'backup', 'bench', 'config', 'conv-settings', 'conversation', 'credentials',
+      'archive', 'ask-questions', 'backup', 'bench', 'config', 'conv-settings', 'conversation', 'credentials',
       'datetime', 'dev-tools', 'durable-interaction', 'event-policy',
       'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
       'plugin-gates', 'plugin-market', 'plugin-registry',
       'preset-builtin', // 内置预设模式数据行（标准/极简注入预设目录）
       'restart', 'router',
+      'run-code', // 程序化模式 PTC 内核（run_code 工具行，2026-09-17 P0；
+                   // 开关化后预设子行 run-code-preset 已随 research §十 退役——
+                   // 程序化 = 会话级开关 conv-settings.programmatic + router 收窄）
       'sap-adt',
       'sap-adt-preset', // ABAP 开发模式预设子行（__abap_dev__ 注入预设目录）
       'security', 'session', 'session-query', 'shell-tools', 'singles',
@@ -400,6 +403,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-llm-pool', // M28 P2：settings 退化行（Provider 连接池管理节）
       'ui-plugin-registry', // M28 P2：settings 退化行（插件库四件）
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
+      'ui-run-code', // run_code 程序卡（ac-run-code 镜像：程序体 + 子调用摘要 + 返回值）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-search-pool', // 2026-11 行拆分：搜索引擎池自 ui-llm-pool 拆出
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）
@@ -417,9 +421,10 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'workspace', 'ws-bridge',
     ]);
-    // 落点：security 三落点（门禁+脱敏+唆使防御注入——access-tier §八）；
+    // 落点：security 四落点（门禁+脱敏+唆使防御注入——access-tier §八；
+    // loop/after-run = run 级审批授权清除，2026-12 功能增强）；
     // web-tools 工具行（能力供给）
-    expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result', 'loop/before-run']);
+    expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result', 'loop/before-run', 'loop/after-run']);
     expect(cat.extensions.find((e) => e.name === 'web-tools')).toMatchObject({ automatic: true, targets: [] });
     // per-Agent 参数面字段由目录声明（M24 P4：enabled 进 fields + configNs 赋值；
     // 2026-08-30 起 fields 演进为字段级描述形态——名字序仍锁定）

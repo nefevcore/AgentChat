@@ -168,7 +168,9 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'read',
     requiredTags: ['fs'],
-    description: '读取文本文件并返回带有行号的内容（目录则返回列表）。',
+    description:
+      '读取文本文件并返回带行号的内容（output: { path, content: "1:…\\n2:…", size, total_lines, … }）；'
+      + 'file_path 是目录时返回条目清单（output: { path, type: "directory", items: Array<{ name, type: "file"|"directory" }>, count }——目录在前、按名排序，条目是对象数组不是字符串数组）。',
     parameters: {
       type: 'object',
       properties: {
@@ -295,13 +297,13 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     name: 'edit',
     requiredTags: ['fs'],
     needPermission: true,
-    description: '通过替换文本内容来编辑文本文件（old_string 必须唯一且从 read 输出原样复制；行首缩进不同的文本会被拒绝；json/代码文件写回前做语法预检）。',
+    description: '通过替换文本内容来编辑文本文件（old_string 必须唯一且从 read 输出原样复制，且须与 new_string 不同；行首缩进不同的文本会被拒绝；json/代码文件写回前做语法预检）。',
     parameters: {
       type: 'object',
       properties: {
         file_path: { type: 'string', description: '文件路径' },
         old_string: { type: 'string', description: '要替换的原文' },
-        new_string: { type: 'string', description: '替换后的文本' },
+        new_string: { type: 'string', description: '替换后的文本（须与 old_string 不同）' },
       },
       required: ['file_path', 'old_string', 'new_string'],
     },

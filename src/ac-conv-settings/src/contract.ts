@@ -22,10 +22,24 @@
 // conversationId；`~` 已被 assertAgentId 挡在路径危险字符外）。
 // ============================================================
 
-/** 会话设置（wire 形 = 持久形态；逐键可选 = 覆盖语义） */
+/**
+ * 会话设置（wire 形 = 持久形态；逐键可选 = 覆盖语义）
+ *
+ * wire 值域约定：布尔键（programmatic）经 set patch 面以字符串 'true' 写入
+ * （patch 泛型为 string | null | undefined——键级覆盖语义统一），'true' = 开，
+ * 其余值（含 null/''/'false'）= 删键。持久形态为真 boolean。
+ */
 export interface ConvSettings {
   /** 会话级模型覆盖：`name@model` 引用或裸模型名（清除 = 删键） */
   model?: string;
   /** 会话提权水位：用户最近一次快捷提权档位（机制唤醒继承用；清除 = 删键） */
   elevation?: 'sandbox-access' | 'full-access';
+  /**
+   * 工具使用模式（2026-09-17 开关化终裁，research §十）：true = 程序化——
+   * 本会话 run 的 LLM 工具面收窄为 ['run_code']（真互斥形态，router
+   * execute 消费）；缺省/false = 标准（传统工具逐个直调）。run_code 不可见
+   * （无 code-exec 授权）时开关惰性（router warn 并忽略）。键面同 elevation
+   * 口径：全形态会话（含 singles sid——model 才分流 singles）。
+   */
+  programmatic?: boolean;
 }

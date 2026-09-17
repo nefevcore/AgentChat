@@ -76,6 +76,12 @@ edges:
   - from: ac-client-ui-runview
     to: ac-client-ui-jobs
     ruling: 契约词汇——RunTrackingPanel 消费 jobs 域任务清单词汇（jobBoard 投影；行卸载 = 任务列降级空态）
+  - from: ac-client-ui-subagent
+    to: ac-client-ui-agents
+    ruling: 惰性取用口——SubagentConversationView useRosterCore（父 Agent 显示名解析；subagent-session-view-plan §3.4；行卸载 = 显示名回落 id）
+  - from: ac-client-ui-subagent
+    to: ac-client-ui-jobs
+    ruling: 契约词汇——SubagentConversationView 消费 jobs 域任务清单词汇（jobBoard 运行态徽章 + job/settled 刷新驱动；行卸载 = 徽章/自动刷新降级、手动刷新兜底）
   - from: ac-client-ui-singles
     to: ac-client-ui-agents
     ruling: 惰性取用口——SessionList/SingleHeaderActions useRosterCore（会话归属 agent 显示名/头像）= agent 域契约词汇（行卸载 = 显示名回落 id）

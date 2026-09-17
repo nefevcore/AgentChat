@@ -87,6 +87,12 @@ describe('applyEditsToNormalizedContent 校验', () => {
     ).toThrow(/不能为空/);
   });
 
+  it('old_string === new_string（无变化）→ 拒绝编辑', () => {
+    expect(() =>
+      applyEditsToNormalizedContent('aaa', [{ oldText: 'a', newText: 'a' }], 'f.txt'),
+    ).toThrow(/完全相同/);
+  });
+
   it('重叠编辑 → 错误', () => {
     expect(() =>
       applyEditsToNormalizedContent(
@@ -232,6 +238,15 @@ describe('applyEditBatch 统一管线', () => {
     await expect(applyEditBatch(file, { textEdits: [{ oldText: 'a', newText: 'b' }] })).rejects.toThrow(
       /文件不存在/,
     );
+  });
+
+  it('old_string === new_string → 拒绝且文件保持原状（不写盘）', async () => {
+    const file = tmpFile('alpha\nbeta\ngamma\n');
+    const before = fs.readFileSync(file, 'utf-8');
+    await expect(
+      applyEditBatch(file, { textEdits: [{ oldText: 'beta', newText: 'beta' }] }),
+    ).rejects.toThrow(/完全相同/);
+    expect(fs.readFileSync(file, 'utf-8')).toBe(before); // 未写回
   });
 });
 

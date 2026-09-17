@@ -14,6 +14,10 @@
 //   · 询问提权（§六）：base + 有人桶经 durableInteraction.open({kind:
 //     'approval'}) 等待人审——批准 = 本次调用按 full 执行（call.elevation
 //     注入，单次不持久化）；无人桶/无身份拒绝并说明。
+//     功能增强（2026-12：审批卡"通过"下拉两档）——批准可带 scope：
+//     'call'（缺省，原语义）| 'run'（本轮全部——本会话本轮 run 内的后续
+//     needPermission 调用免再询问；run 边界 = agent+conversation 维度
+//     "上次 after-run 至现在"窗口，见 runApprovedConvs）。
 //   · 唆使防御（§八，软缓解非边界）：loop/before-run 主档监听——
 //     source='agent' 且 tierOf(sender) 严格低于接收方时注入
 //     <security-notice> system 块（steer 落点在 ac-conversation）。
@@ -42,12 +46,19 @@ import {
 
 /** 读类路径工具（读不设防 §9.1：脱离工作区沙箱，只过双黑名单） */
 const READ_PATH_TOOLS = new Set(['read', 'glob', 'grep']);
-/** 写类路径工具（写侧防线不动：沙箱 + 档位询问/拒绝 + accessDeny） */
-const WRITE_PATH_TOOLS = new Set(['write', 'edit', 'str_replace_editor']);
+/**
+ * 写类路径工具（写侧防线不动：沙箱 + 档位询问/拒绝 + accessDeny）。
+ * 导出（2026-09-17 程序化模式 P0）：ac-run-code 桥接层的子调用并发
+ * 分类（写类按提交序串行）从本单源取词表，不建第二份名单。
+ */
+export const WRITE_PATH_TOOLS = new Set(['write', 'edit', 'str_replace_editor']);
 /** 全部路径类工具（目标路径过复检） */
 const PATH_TOOLS = new Set([...READ_PATH_TOOLS, ...WRITE_PATH_TOOLS]);
-/** 命令类工具（命令文本过 bash 扫描）——pwsh/bash 双名（2026-09-16 工具拆分） */
-const COMMAND_TOOLS = new Set(['pwsh', 'bash']);
+/**
+ * 命令类工具（命令文本过 bash 扫描）——pwsh/bash 双名（2026-09-16 工具拆分）。
+ * 导出（同上）：run_code 并发分类单源（命令类串行）。
+ */
+export const COMMAND_TOOLS = new Set(['pwsh', 'bash']);
 
 /** settings['security'] 的 per-Agent 配置形状（access-tier §9.4 终态五键） */
 interface SecuritySettings {
@@ -157,6 +168,7 @@ export const extension: ExtensionMeta = {
     { event: 'tool/before-execute', role: '双轴门禁+沙箱复检+bash 扫描+询问提权', description: '工具执行前拦截（能力/权限两轴 + 黑名单 + 审批阻塞）——承重：关停失去全部 Agent 的门禁与沙箱', facet: 'gate', respectsEnabled: true },
     { event: 'tool/transform-result', role: '输出脱敏', description: '工具结果变换（脱敏/安全审查 seam——after 通知变换后终值）', facet: 'redact', respectsEnabled: true },
     { event: 'loop/before-run', role: '唆使防御 notice 注入', description: 'source=agent 且来件方档位低于接收方时注入 <security-notice> system 块（软缓解，非硬边界）', facet: 'prompt', respectsEnabled: true },
+    { event: 'loop/after-run', role: 'run 级授权清除', description: 'run 收束即回收"通过（本轮全部）"审批授权（内存表按 agent+conversation 维度）——观察型', facet: 'gate' },
   ],
 };
 
@@ -289,16 +301,46 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
   }
 
   // ---- 询问提权（§六）：durableInteraction.open({kind:'approval'}) 等待人审 ----
+  /**
+   * 审批应答（answer 的解析面，2026-12 scope 两档）：
+   * true / 'approve' / 'approved' = 批准·仅本次（缺省档，兼容原前端）；
+   * { approved: true, scope: 'run' } = 批准·本轮全部（run 内后续
+   * needPermission 调用免再询问）。其余（false / 'reject' / null）= 拒绝。
+   */
+  interface ApprovalAnswer {
+    approved: boolean;
+    /** 批准范围：'call' 仅本次（缺省）| 'run' 本轮全部 */
+    scope: 'call' | 'run';
+    /** 终态来源：answered 应答 / closed 别处关闭 / aborted signal 中止 */
+    kind: 'answered' | 'closed' | 'aborted';
+  }
+
+  function parseApprovalAnswer(answer: unknown, kind: ApprovalAnswer['kind']): ApprovalAnswer {
+    if (kind === 'answered') {
+      if (answer === true || answer === 'approve' || answer === 'approved') {
+        return { approved: true, scope: 'call', kind };
+      }
+      if (answer && typeof answer === 'object') {
+        const o = answer as { approved?: unknown; scope?: unknown };
+        if (o.approved === true && o.scope === 'run') return { approved: true, scope: 'run', kind };
+        if (o.approved === true) return { approved: true, scope: 'call', kind };
+      }
+    }
+    return { approved: false, scope: 'call', kind };
+  }
+
   /** 审批等待：replied 事件驱动 + 轮询双保险 + signal（无缺省 deadline——
-   *  交互层缺省永久等待，late-reply 信封唤醒模式天然支持） */
+   *  交互层缺省永久等待，late-reply 信封唤醒模式天然支持）。返回 settle
+   *  后的应答解析（approved + scope + 终态来源）；closed/aborted 时
+   *  approved=false。 */
   function awaitApproval(
     record: { id: string },
     signal: AbortSignal | undefined,
-  ): Promise<'approved' | 'rejected' | 'closed' | 'aborted'> {
-    const di = ctx.get('durableInteraction', false) as DurableInteractionLike | undefined;
+    di: DurableInteractionLike,
+  ): Promise<ApprovalAnswer> {
     return new Promise((resolve) => {
       let done = false;
-      const finish = (v: 'approved' | 'rejected' | 'closed' | 'aborted') => {
+      const finish = (v: ApprovalAnswer) => {
         if (done) return;
         done = true;
         clearInterval(poller);
@@ -308,25 +350,46 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
       };
       const disposeListener = ctx.on('durable-interaction/replied', (payload: { id: string }) => {
         if (payload.id === record.id) {
-          const cur = di?.get(record.id);
-          finish(approvedAnswer(cur?.answer) ? 'approved' : 'rejected');
+          finish(parseApprovalAnswer(di.get(record.id)?.answer, 'answered'));
         }
       }, { description: '提权审批等待（事件驱动半边）' });
       const poller = setInterval(() => {
-        const cur = di?.get(record.id);
+        const cur = di.get(record.id);
         if (cur && cur.state !== 'pending') {
-          finish(cur.state === 'answered' ? (approvedAnswer(cur.answer) ? 'approved' : 'rejected') : 'closed');
+          finish(parseApprovalAnswer(cur.answer, cur.state === 'answered' ? 'answered' : 'closed'));
         }
       }, APPROVAL_POLL_MS);
-      const onAbort = () => finish('aborted');
+      const onAbort = () => finish({ approved: false, scope: 'call', kind: 'aborted' });
       signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 
-  /** 审批应答判定：true/'approve'/'approved' = 批准，其余（false/'reject'/null）= 拒绝 */
-  function approvedAnswer(answer: unknown): boolean {
-    return answer === true || answer === 'approve' || answer === 'approved';
+  /**
+   * run 级授权表（"通过（本轮全部）"的消费面）：agent+conversation 维度
+   * 记录"本轮 run 已获 run 级批准"。run 边界的定义 = 该维度收到
+   * loop/after-run 即清除——结合 ac-conversation 的串行化门（同维度
+   * 同时至多一个活跃 run），"上次 after-run 至现在"恰好就是本轮 run。
+   * 纯内存（重启即失效——run 级授权不跨进程，与"不持久化"红线一致）。
+   */
+  const runApproved = new Map<string, true>();
+
+  /** 授权键：agent+conversation 维度（对齐 loop runAddress——run 内
+   *  工具调用恒定，跨 run 唯一） */
+  function approvalScopeKey(agentId: string, conversationId: string | undefined): string {
+    return conversationId ? `${agentId}\u0000${conversationId}` : agentId;
   }
+
+  /** loop/after-run：run 收束即清该维度的 run 级授权（观察型） */
+  ctx.on('loop/after-run', (request) => {
+    const dim = approvalScopeKey(request.agent ?? '', request.conversationId);
+    if (runApproved.delete(dim)) {
+      ctx.logger.info(
+        '[security] run 级提权授权随 run 收束清除（agent=%C conv=%C）',
+        request.agent ?? '(直连)',
+        request.conversationId ?? '-',
+      );
+    }
+  }, { description: 'run 级审批授权清除（after-run）' });
 
   /** 审批载荷的参数摘要（§六：命令工具全文 / 写路径全文 / 其余 JSON 截断） */
   function approvalArgsSummary(name: string, args: Record<string, unknown>): unknown {
@@ -394,6 +457,12 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
         covered = tier === 'sandbox-access';
       }
       if (!covered) {
+        // run 级授权（"通过（本轮全部）"）：本轮 run 内已批准过 → 本次
+        // 免再询问，直接按 full 执行（run 收束由 after-run 清除）
+        if (runApproved.has(approvalScopeKey(String(call.agentId), call.conversationId))) {
+          execution.call = { ...call, elevation: 'full-access' };
+          tier = 'full-access';
+        } else {
         // 询问提权（有人桶）/ 拒绝（无人桶、无身份——fail-closed）
         if (call.agentId === undefined) {
           return {
@@ -414,7 +483,8 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
             error: `工具 ${call.name} 需要提权审批，但 durableInteraction 服务不可用（无法询问——fail-closed）。${TIER_GUIDANCE}`,
           };
         }
-        // write-ahead：open 先落盘再通知（opened 事件随 open 发出——审批卡消费面）
+        // write-ahead：open 先落盘再通知（opened 事件随 open 发出——审批卡消费面）。
+        // need 文案只讲单次语义（批不批、批多大由前端两档按钮承载）
         const record = di.open({
           key: String(call.conversationId),
           kind: 'approval',
@@ -426,24 +496,28 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
           ...(call.toolCallId !== undefined ? { correlationId: call.toolCallId } : {}),
           owner: call.agentId,
         });
-        const settled = await awaitApproval(record, call.signal);
-        if (settled === 'approved') {
+        const settled = await awaitApproval(record, call.signal, di);
+        if (settled.approved) {
           // 人审即最高档、一次性：审批展示的是该次调用的完整参数（§六）
           execution.call = { ...call, elevation: 'full-access' };
           tier = 'full-access';
+          if (settled.scope === 'run') {
+            runApproved.set(approvalScopeKey(String(call.agentId), call.conversationId), true);
+          }
         } else {
           const reason =
-            settled === 'rejected'
-              ? '用户拒绝了本次提权请求'
-              : settled === 'aborted'
-                ? '提权等待被中止（signal abort）'
-                : `提权交互已关闭（${di.get(record.id)?.closedReason ?? 'unknown'}）`;
+            settled.kind === 'aborted'
+              ? '提权等待被中止（signal abort）'
+              : settled.kind === 'closed'
+                ? `提权交互已关闭（${di.get(record.id)?.closedReason ?? 'unknown'}）`
+                : '用户拒绝了本次提权请求';
           try {
-            di.close(record.id, settled === 'rejected' ? 'rejected' : settled);
+            di.close(record.id, settled.kind === 'answered' ? 'rejected' : settled.kind);
           } catch {
             /* 已关闭（别处竞态） */
           }
           return { ok: false as const, error: `工具 ${call.name} 未获提权：${reason}。${TIER_GUIDANCE}` };
+        }
         }
       }
     }

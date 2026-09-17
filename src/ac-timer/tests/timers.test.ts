@@ -258,4 +258,90 @@ describe('ac-timer 排程与触发', () => {
     expect(state['utc-agent/tz1']?.startedAt).toMatch(/\+00:00$/); // 差异层 UTC
     expect(state['a/tz2']?.startedAt).toMatch(/\+08:00$/); // 无差异层 → 行基线上海
   });
+
+  it('activeHours 窗口外到点 → 不投递不计数，重排下一周期（调度层静默）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 构造恒在窗口外的 activeHours（00:00-00:01）：到点必跳过
+    const now = new Date();
+    const outer = now.getHours() === 0 && now.getMinutes() === 0
+      ? '00:01-00:02' // 极端巧合：当前恰 00:00 → 换一个同样排除当下的窗口
+      : '00:00-00:01';
+    ctx.timers.save('a', [
+      { id: 'w1', enabled: true, mode: 'delay', delay: '30ms', hint: '窗口外', activeHours: outer },
+    ]);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(received.filter((x) => x.content === '窗口外')).toHaveLength(0); // 不投递
+    const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8'));
+    expect(state['a/w1']?.executedCount ?? 0).toBe(0); // 不计数
+  });
+
+  it('gate 预检非 0 退出码 → 跳过本轮；exit 0 → 正常投递', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root, { gateTimeoutMs: 5_000 });
+    // 跨平台"退出码 1"（cmd /c exit 1 / sh -c 'exit 1'）
+    ctx.timers.save('a', [
+      { id: 'g1', enabled: true, mode: 'delay', delay: '30ms', hint: '被拦', gate: process.platform === 'win32' ? 'cmd /c exit 1' : 'exit 1', repeatCount: 1 },
+    ]);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(received.filter((x) => x.content === '被拦')).toHaveLength(0); // gate 未过 → 不投递
+    const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8'));
+    expect(state['a/g1']?.executedCount ?? 0).toBe(0); // 不计数
+
+    // exit 0 → 正常投递
+    ctx.timers.save('a', [
+      { id: 'g2', enabled: true, mode: 'delay', delay: '30ms', hint: '放行', gate: process.platform === 'win32' ? 'cmd /c exit 0' : 'exit 0' },
+    ]);
+    await until(() => received.some((x) => x.content === '放行'));
+  });
+
+  it('gate 期间 save() 移除条目 → 预检后不重排（在途守卫，防僵尸循环）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root, { gateTimeoutMs: 5_000 });
+    ctx.timers.save('a', [
+      { id: 'gz', enabled: true, mode: 'delay', delay: '30ms', hint: '慢预检', gate: process.platform === 'win32' ? 'cmd /c ping -n 3 127.0.0.1 >nul & exit 1' : 'sleep 2; exit 1' },
+    ]);
+    // 等 fire 启动（排程挂起 30ms → fire 进入 gate 预检 ~2s 窗口）
+    await new Promise((r) => setTimeout(r, 300));
+    ctx.timers.save('a', []); // 预检在途时清空条目
+    await new Promise((r) => setTimeout(r, 3_500));
+    expect(received.filter((x) => x.content === '慢预检')).toHaveLength(0);
+    // 条目清单恒空（守卫拦截了闭包的重排——若缺守卫，僵尸条目会重新出现）
+    expect(ctx.timers.entries('a')).toHaveLength(0);
+  });
+
+  it('重启防重：arm 时距目标 <10s 且有触发史 → 跳过本周期不重复投递（2026-09 双投递修复）', async () => {
+    const root = tmpRoot();
+    // 构造事故现场：旧进程在整点前 4s 已投递（event 入账）后被硬杀——
+    // state.json 里 lastTriggeredAt 停在昨天（记账未落盘的近似），条目
+    // 的目标时刻 = now + 4s。新进程 boot → arm 命中防重守卫 → 不在本
+    // 周期投递（received 恒空），且排程推到下一周期（state 可查）。
+    const now = new Date();
+    const target = new Date(now.getTime() + 4_000); // 4s 后的"整点"
+    const timeStr = `${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`;
+    // 目标时刻若恰好是当前分钟的 :00 边界场景无妨——msUntilTime 按墙上
+    // 时钟算，4s 后的 HH:mm 即本分钟（或下一分钟，均 <10s 命中守卫）。
+    fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'agents', 'a', 'timer.json'),
+      JSON.stringify({ entries: [{ id: 'cal1', enabled: true, mode: 'time', time: timeStr, hint: '日历' }] }),
+      'utf-8',
+    );
+    fs.mkdirSync(path.join(root, 'timer'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'timer', 'state.json'),
+      JSON.stringify({
+        _heartbeat: { lastTriggeredAt: new Date(now.getTime() - 60_000).toISOString() },
+        'a/cal1': { executedCount: 5, lastTriggeredAt: new Date(now.getTime() - 86_400_000).toISOString() },
+      }),
+      'utf-8',
+    );
+    await boot(root);
+    // 守卫应把本周期跳过：4s 内不投递（若未跳过，delay≈4s 必触发）
+    await new Promise((r) => setTimeout(r, 6_000));
+    expect(received.filter((x) => x.content === '日历')).toHaveLength(0);
+    // 状态未记账本周期（防重跳过 = 不计数）
+    const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8'));
+    expect(state['a/cal1']?.executedCount).toBe(5);
+  }, 15_000);
 });

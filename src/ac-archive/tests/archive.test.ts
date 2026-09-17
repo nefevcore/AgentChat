@@ -635,3 +635,47 @@ describe('ac-archive 先整理后归档', () => {
     expect(events[0].archived).toBeGreaterThan(0);
   });
 });
+
+describe('ac-archive 自会话专项预算（settings.archive.maxSelfContextTokens）', () => {
+  // 行缺省 maxContextTokens=1000/ratio 0.5 → 通用阈值 500；maxSelfContextTokens 给 100
+  // → 自会话阈值 50。单轮 100 字（≈60 token）：> 50 触发自会话归档，< 500 不触发直答。
+  it('maxSelfContextTokens 仅作用对角线桶：自会话提前归档，用户直答桶维持通用阈值', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root, { maxContextTokens: 1000, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 });
+    ctx.agents.register({
+      id: 'a',
+      model: 'mock-1',
+      settings: { archive: { maxSelfContextTokens: 100 } },
+    });
+    // 自会话桶（sender='a'/source='event' 形态入账 a~a）：一轮 100 字（≈60 token）
+    // > 自会话阈值 50 → 触发归档
+    await ctx.router.send('a', '话'.repeat(100), { sender: 'a', source: 'event', conversationId: 'a~a' });
+    await until(() => ctx.archive.segments('a~a').length > 0);
+
+    // 用户直答桶（a~user）：同体量一轮 ≈60 token < 通用阈值 500 → 不触发
+    await ctx.router.send('a', '话'.repeat(100));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(ctx.archive.segments('a~user')).toHaveLength(0);
+
+    // 直答桶连发 10 轮（≈600 token > 500）→ 通用阈值才触发
+    for (let i = 0; i < 10; i++) {
+      await ctx.router.send('a', '话'.repeat(100));
+    }
+    await until(() => ctx.archive.segments('a~user').length > 0);
+  });
+
+  it('无 maxSelfContextTokens 配置：自会话用行缺省（selfDefaults，40 万），直答桶用通用缺省', async () => {
+    const root = tmpRoot();
+    // 行缺省注入小值便于测试：selfDefaults.maxContextTokens=100 → 自会话阈值 50
+    const { ctx } = await boot(root, { maxContextTokens: 1000, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 }, {
+      archive: { selfDefaults: { maxContextTokens: 100 } },
+    });
+    ctx.agents.register({ id: 'a', model: 'mock-1' }); // 无 archive settings——纯行缺省
+    await ctx.router.send('a', '话'.repeat(100), { sender: 'a', source: 'event', conversationId: 'a~a' });
+    await until(() => ctx.archive.segments('a~a').length > 0); // 60 > 50：缺省即触发
+    // 直答桶不受自会话缺省影响（60 < 500 通用阈值）
+    await ctx.router.send('a', '话'.repeat(100));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(ctx.archive.segments('a~user')).toHaveLength(0);
+  });
+});

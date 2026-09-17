@@ -40,6 +40,22 @@ export interface TimerEntry {
    * virtual Agent）；per-Agent 条目缺省 = 所属 agent。
    */
   target?: string;
+  /**
+   * 活动窗口（如 "06:30-23:30"；跨午夜形如 "22:00-06:00" 合法）：
+   * 到点触发时墙上时钟不在窗口内 → 不投递不计数，重排下一周期——
+   * 调度层静默（区别于"业务脚本内部判静默"：LLM 不被唤醒，零 token）。
+   * 缺省 = 全天。按 owner 生效时区解释（ac-timer tzOf）。
+   */
+  activeHours?: string;
+  /**
+   * 预检门命令（如 "python files/news/scripts/quiet_check.py"）：
+   * 到点先执行，退出码 0 = 正常投递；非 0 = 跳过本轮（不投递不计数，
+   * 记日志）。用于"平台级 quiet 判定前置"——让静默判定发生在唤醒
+   * LLM 之前，而不是花 30 万 token 上下文换取一句"静默"。
+   * 缺省 = 无预检。命令在宿主 shell 执行，超时 30s 按失败处理
+   * （fail-open：预检失败不挡正常触发）。
+   */
+  gate?: string;
   /** 条目来源标注（诊断） */
   source?: string;
 }
@@ -163,6 +179,54 @@ export function isWeekdayTime(timeStr: string): boolean {
 }
 
 // ============================================================
+// 活动窗口（activeHours）
+// ============================================================
+
+/** 活动窗口解析结果（start/end 为当日分钟数，end ≤ start = 跨午夜） */
+interface ActiveWindow {
+  startMin: number;
+  endMin: number;
+}
+
+/** 解析 activeHours（"HH:mm-HH:mm"；跨午夜 start > end 合法） */
+export function parseActiveHours(spec: string): ActiveWindow | null {
+  const m = spec.trim().match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const sh = parseInt(m[1], 10), sm = parseInt(m[2], 10);
+  const eh = parseInt(m[3], 10), em = parseInt(m[4], 10);
+  if (sh > 23 || sm > 59 || eh > 23 || em > 59) return null;
+  return { startMin: sh * 60 + sm, endMin: eh * 60 + em };
+}
+
+/**
+ * 墙上时钟是否在活动窗口内（tz 缺省 = 运行环境本地）。
+ * 跨午夜窗口（如 22:00-06:00）：now ≥ start 或 now < end 即在窗内；
+ * start === end 视为全天（防御书写 "00:00-00:00" 的本意）。
+ */
+export function withinActiveHours(
+  spec: string,
+  now = new Date(),
+  tz?: string,
+): boolean {
+  const win = parseActiveHours(spec);
+  if (win === null) return true; // 非法窗口不挡触发（fail-open，排程日志另有告警）
+  let nowMin: number;
+  if (tz) {
+    try {
+      const p = zonedParts(now, tz);
+      nowMin = p.h * 60 + p.mi;
+    } catch {
+      nowMin = now.getHours() * 60 + now.getMinutes();
+    }
+  } else {
+    nowMin = now.getHours() * 60 + now.getMinutes();
+  }
+  if (win.startMin === win.endMin) return true;
+  if (win.startMin < win.endMin) return nowMin >= win.startMin && nowMin < win.endMin;
+  return nowMin >= win.startMin || nowMin < win.endMin;
+}
+
+// ============================================================
 // 时区墙上时钟（tz 参数路径；缺省路径不经过——历史行为零变化）
 // ============================================================
 
@@ -232,22 +296,26 @@ export function randomDelay(minStr?: string, maxStr?: string): number {
 
 /** 条目的人类可读标签 */
 export function describeEntry(entry: TimerEntry): string {
-  switch (entry.mode) {
-    case 'time':
-      return isFullDatetime(entry.time ?? '')
-        ? entry.time!
-        : isWeekdayTime(entry.time ?? '')
-          ? formatWeekdayLabel(entry.time!)
-          : `每天 ${entry.time}`;
-    case 'workday':
-      return `工作日 ${entry.time}`;
-    case 'holiday':
-      return `节假日 ${entry.time}`;
-    case 'random':
-      return `随机 ${entry.delayMin || '30s'}~${entry.delayMax || '5m'}`;
-    default:
-      return `每隔 ${entry.delay}`;
-  }
+  const base = (() => {
+    switch (entry.mode) {
+      case 'time':
+        return isFullDatetime(entry.time ?? '')
+          ? entry.time!
+          : isWeekdayTime(entry.time ?? '')
+            ? formatWeekdayLabel(entry.time!)
+            : `每天 ${entry.time}`;
+      case 'workday':
+        return `工作日 ${entry.time}`;
+      case 'holiday':
+        return `节假日 ${entry.time}`;
+      case 'random':
+        return `随机 ${entry.delayMin || '30s'}~${entry.delayMax || '5m'}`;
+      default:
+        return `每隔 ${entry.delay}`;
+    }
+  })();
+  if (entry.activeHours) return `${base}（活动窗口 ${entry.activeHours}）`;
+  return base;
 }
 
 // ============================================================

@@ -55,6 +55,30 @@ try {
   process.exit(1);
 }
 
+// 程序化模式 worker 引导（2026-09-17 实验结论：esbuild 单入口 bundle 对
+// new Worker(new URL('./worker.ts')) 类引用原样保留字符串、文件不进 bundle
+// ——bundle 形态运行时 Cannot find module）。第二入口独立产物 dist/worker.mjs：
+// ac-run-code 工具体按存在性探测（dev ./worker.ts → bundle 同目录 worker.mjs）。
+// 存在性守卫（独立插件拆分）：ac-run-code 包缺席（源码树裁剪/独立部署形态）
+// 时跳过本入口——build 不因可选插件缺席而失败。
+const workerEntry = path.join(root, 'src/ac-run-code/src/worker.ts');
+if (existsSync(workerEntry)) {
+  await esbuild.build({
+    entryPoints: [workerEntry],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    outfile: path.join(dist, 'worker.mjs'),
+    banner: {
+      js: "import { createRequire as __createRequire } from 'module'; const require = __createRequire(import.meta.url);",
+    },
+    logLevel: 'info',
+  });
+} else {
+  console.log('[build-bundle] ac-run-code worker 入口缺席——跳过（独立插件形态）');
+}
+
 await esbuild.build({
   entryPoints: [path.join(root, 'src/ac-app/src/bootstrap.ts')],
   bundle: true,

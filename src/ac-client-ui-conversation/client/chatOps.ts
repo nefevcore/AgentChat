@@ -226,7 +226,8 @@ export interface AskQuestionsUiState {
 /**
  * 选项文本归一（2026-09-15 反馈修复：模型可发 {label, description} 对象
  * 形态选项——后端 ac-durable-interaction 已归一，此处为恢复路径历史
- * 污染数据的同款防御）。规则与后端 optionText 一致。
+ * 污染数据的同款防御）。规则与后端 optionText 一致；2026-09-17 补：
+ * 未知键单键对象（映射形 {"选项全文": "alias"}）取键——与后端归一同步。
  */
 function optionTextOf(v: unknown): string {
   if (typeof v === 'string') return v.trim();
@@ -236,7 +237,10 @@ function optionTextOf(v: unknown): string {
     const label = typeof o.label === 'string' ? o.label.trim() : typeof o.text === 'string' ? o.text.trim() : '';
     const desc = typeof o.description === 'string' ? o.description.trim() : typeof o.desc === 'string' ? o.desc.trim() : '';
     if (label && desc) return `${label} —— ${desc}`;
-    return label || desc;
+    if (label || desc) return label || desc;
+    // 映射形兜底：无 label/text/description 键的对象，取首个键为选项文本
+    const firstKey = Object.keys(o)[0];
+    return firstKey !== undefined ? firstKey.trim() : '';
   }
   return '';
 }

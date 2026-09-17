@@ -157,13 +157,22 @@ tool/before-execute（ac-security，权限轴判定处）
        2. 等待 = durable-interaction/replied 事件 + 轮询双保险 + deadline/signal
           （与 ask_questions 工具体同款姿势，源码级可抄）
        3. 批准 → execution.call.elevation = 'full-access' → next()
-          （人审即最高档、一次性：审批展示的是该次调用的完整参数）
+          （人审即最高档：审批展示的是该次调用的完整参数）
        4. 拒绝/超时/中止 → { ok:false, error: 明确说明 }（interaction close）
   └─ 未覆盖 + 无人桶 → { ok:false, error: 需要的档位 + 配置指引 }
 ```
 
-- **审批不可持久化**：单次批准只放行本次调用。持久授权 = 人经 agentAdmin
-  改 tags 升档（出带）。防审批疲劳的 UX 责任在审批卡（全文展示工具+参数+档位）。
+- **批准范围两档（2026-12 功能增强：审批卡"通过"下拉）**：answer 为
+  `true`（等价 `{approved:true, scope:'call'}`——旧形兼容）= 仅本次（原
+  语义）；`{ approved:true, scope:'run' }` = 本轮全部——ac-security 内存
+  授权表按 agent+conversation 维度记录，本轮 run 内后续 needPermission
+  调用免再询问直接按 full 执行，loop/after-run 即清除。run 边界定义 =
+  该维度"上次 after-run 至现在"的窗口（ac-conversation 串行化门保证同
+  维度同时至多一个活跃 run——窗口即本轮）。纯内存不持久化：重启自然
+  失效，与持久授权（agentAdmin 改 tags）分带清晰。
+- **审批不可持久化**：单次/本轮批准均只放行对应窗口内调用。持久授权 =
+  人经 agentAdmin 改 tags 升档（出带）。防审批疲劳的 UX 责任在审批卡
+  （全文展示工具+参数+档位）。
 - 阻塞语义有先例：ask_questions 同款占住会话串行化门，忙时 steer/入队行为
   正常；signal abort 与 deadline 均有处理路径。
 - 崩溃对账：interaction 已 write-ahead 落盘；run 本身不跨重启，重启后 pending

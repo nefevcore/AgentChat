@@ -647,9 +647,55 @@ describe('ac-session 上架（shelving）+ 热力窗口', () => {
     expect(st.windows).toEqual({ h1: 1, d1: 1, d3: 2, d7: 2, d30: 2 });
     // 未变更再查：缓存命中（同对象引用语义不可断言，值等价即可）
     expect(ctx.session.stats('w')!.windows).toEqual({ h1: 1, d1: 1, d3: 2, d7: 2, d30: 2 });
-    // 纯函数：空文本/坏行容忍
-    expect(countWindowMessages('', now)).toEqual({ h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 });
-    expect(countWindowMessages('not-json\n{"timestamp":"bad"}\n', now)).toEqual({ h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 });
+    // 纯函数：空行数组/坏行容忍（行数组签名——stats 与行计数共享 split）
+    expect(countWindowMessages([''], now)).toEqual({ h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 });
+    expect(countWindowMessages(['not-json', '{"timestamp":"bad"}'], now)).toEqual({ h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 });
+  });
+
+  it('stats 增量：追加段追加计数，与全量口径一致；rewrite 后基线失效重扫', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const dir = path.join(root, 'sessions', 'inc');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'messages.jsonl');
+    const now = Date.now();
+    const mk = (ageMs: number, id: string): string =>
+      JSON.stringify({ role: 'user', content: 'x', message_id: id, timestamp: new Date(now - ageMs).toISOString() });
+
+    // 首轮：全量基线
+    fs.writeFileSync(file, [mk(10 * 60_000, 'm1'), mk(2 * 86_400_000, 'm2')].join('\n') + '\n', 'utf-8');
+    const st1 = ctx.session.stats('inc')!;
+    expect(st1.messageCount).toBe(2);
+    expect(st1.windows).toEqual({ h1: 1, d1: 1, d3: 2, d7: 2, d30: 2 });
+
+    // 追加（mtime 变）→ 增量路径：只读新增段，旧值 + 新行计数
+    fs.appendFileSync(file, mk(30 * 60_000, 'm3') + '\n' + mk(3 * 86_400_000, 'm4') + '\n', 'utf-8');
+    const st2 = ctx.session.stats('inc')!;
+    expect(st2.messageCount).toBe(4);
+    // m3（30 分钟前 → h1..d30）+ m4（3 天前 < 7 天 → d7..d30）
+    expect(st2.windows).toEqual({ h1: 2, d1: 2, d3: 3, d7: 4, d30: 4 });
+
+    // 未变更再查：mtime 门命中
+    const st2b = ctx.session.stats('inc')!;
+    expect(st2b.messageCount).toBe(4);
+
+    // compact（rewriteMessages）：基线失效 → 全量重扫（清 shrink 场景的偏移不可信）
+    await ctx.session.compact('inc', {
+      keep: [
+        { role: 'user', content: 'kept', message_id: 'm4', timestamp: new Date(now - 3 * 86_400_000).toISOString() },
+      ],
+      baselineSeq: undefined,
+    });
+    const st3 = ctx.session.stats('inc')!;
+    expect(st3.messageCount).toBe(1);
+    // m4 = 3 天前：d3 边界外（不小于 3 天）、d7 内
+    expect(st3.windows).toEqual({ h1: 0, d1: 0, d3: 0, d7: 1, d30: 1 });
+
+    // rewrite 后再追加：新基线上增量继续正确
+    fs.appendFileSync(file, mk(5 * 60_000, 'm5') + '\n', 'utf-8');
+    const st4 = ctx.session.stats('inc')!;
+    expect(st4.messageCount).toBe(2);
+    expect(st4.windows.h1).toBe(1);
   });
 });
 
@@ -914,11 +960,32 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
   it('无活跃 run 的 after-execute（宿主直调/收束后迟到）不落补行', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none' });
     ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'c-late' }, { ok: true, output: 'late' }, undefined);
     ctx.emit('tool/after-execute', { name: 'read', conversationId: 'a~user', toolCallId: 'c-late' }, { ok: true, output: 'late' }, undefined);
     await new Promise((r) => setTimeout(r, 10));
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
     expect(fs.existsSync(file)).toBe(false); // 连会话文件都未建
+  });
+
+  it('run_code 子调用补行带 subcall 标记（程序化模式实测复盘 #B：UI 可编程区分）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none' });
+    // 活跃 run + 两个补记：模型直调（无标记）与 run_code 子调用（带标记）
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '跑' }, 'a~user', 'user', 'user');
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-1' }, { ok: true, output: 'x' }, undefined);
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#1', runCodeSubcall: true }, { ok: true, output: 'y' }, undefined);
+    await new Promise((r) => setTimeout(r, 10));
+    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    const raw = fs.readFileSync(file, 'utf-8');
+    const subcallLines = raw.split('\n').filter((l) => l.includes('"tool_call_id":"call-0#1"'));
+    const directLines = raw.split('\n').filter((l) => l.includes('"tool_call_id":"call-1"'));
+    expect(subcallLines.length).toBe(1);
+    expect(subcallLines[0]).toContain('"subcall":true');
+    expect(directLines.length).toBe(1);
+    expect(directLines[0]).not.toContain('"subcall"'); // 模型直调不带标记
   });
 
   it('steer 入账双态（2026-09-02 反馈：机制通知忙时注入不丢事件语义）：source=event → 事件行；普通注入 → 说话人 agent 行', async () => {

@@ -112,6 +112,13 @@ import IconAlarmClock from '~icons/lucide/alarm-clock';
 // System Prompt 象形（会话头按钮 + aux prompt 选区 rail——两入口统一；
 // 卷轴文书 = 行为准则/设定的经典隐喻，与 file-* 文件族拉开区分）
 import IconScrollText from '~icons/lucide/scroll-text';
+// run_code 程序卡象形（工具图标集引用）：花括号 = 代码块的本体象形，
+// 与 file-code（文件代码）/terminal（命令）语义区分——run_code 是
+// 「模型写程序编排工具」的容器，不是文件也不是命令
+import IconBraces from '~icons/lucide/braces';
+// 运行矩阵象形（RunTrackingPanel 运行矩阵入口）：九宫格 = N×N 会话热力
+// 矩阵的本体象形，与 rail「运行跟踪」的 activity（心电图=监控）拉开区分
+import IconGrid3x3 from '~icons/lucide/grid-3x3';
 
 import IconThinkingIcon from './ThinkingIcon.vue';
 import IconThoughtIcon from './ThoughtIcon.vue';
@@ -222,6 +229,10 @@ export const iconMap: Record<string, Component> = {
   'alarm-clock': IconAlarmClock,
   // System Prompt 象形（会话头按钮 + aux prompt 选区 rail）
   'scroll-text': IconScrollText,
+  // run_code 程序卡象形（toolIcon.ts 引用）
+  braces: IconBraces,
+  // 运行矩阵象形（RunTrackingPanel 运行矩阵入口）
+  'grid-3x3': IconGrid3x3,
   // 自绘专属象形（ThinkingIcon/ThoughtIcon.vue）——折叠行图标位默认显示：
   // 'chain' = 思维链脑电波（TurnDisplayItem 链栏）；'thought' = 思考涟漪
   // （AssistantMessage 思考行）。hover 时由 chevron-up/down 接管图标位。

@@ -339,7 +339,9 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   ctx.tools.register({
     name: 'glob',
     requiredTags: ['fs'],
-    description: '按 glob 模式查找文件（如 "**/*.ts"；模式不含 / 时匹配任意深度的文件名）。',
+    description:
+      '按 glob 模式查找文件（如 "**/*.ts"；模式不含 / 时匹配任意深度的文件名）。'
+      + 'output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点（不是搜索根），按修改时间新→旧，内联上限 100；paths 条目可直接作为 read/grep 的相对路径参数（同锚点解析）。',
     parameters: {
       type: 'object',
       properties: {
@@ -440,7 +442,9 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   ctx.tools.register({
     name: 'grep',
     requiredTags: ['fs'],
-    description: '按正则表达式搜索文件内容（结果按文件分组，Line N: 预览）。',
+    description:
+      '按正则表达式搜索文件内容（结果按文件分组，Line N: 预览）。'
+      + 'output: { total, groups: Array<{ path, matches: Array<{ line, preview }> }> }——path 相对工作区锚点，可直接作为 read 的相对路径参数；内联上限 250 条匹配。',
     parameters: {
       type: 'object',
       properties: {

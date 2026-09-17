@@ -27,6 +27,7 @@ import * as datetimeRow from 'ac-datetime';
 import * as devToolsRow from 'ac-dev-tools';
 import * as tagRegistryRow from 'ac-tag-registry';
 import * as durableInteractionRow from 'ac-durable-interaction';
+import * as askQuestionsRow from 'ac-ask-questions';
 import * as fsSearchRow from 'ac-fs-search';
 import * as fsToolsRow from 'ac-fs-tools';
 import * as fileSnapshotsRow from 'ac-file-snapshots';
@@ -42,6 +43,7 @@ import * as mcpRow from 'ac-mcp';
 import * as memoryRow from 'ac-memory';
 import * as personaRow from 'ac-persona';
 import * as restartRow from 'ac-restart';
+import * as runCodeRow from 'ac-run-code';
 import * as routerRow from 'ac-router';
 import * as securityRow from 'ac-security';
 import * as sessionQueryRow from 'ac-session-query';
@@ -91,6 +93,7 @@ import * as uiFsRow from 'ac-client-ui-fs';
 import * as uiWebRow from 'ac-client-ui-web';
 import * as uiBrowserRow from 'ac-client-ui-browser';
 import * as uiSubagentRow from 'ac-client-ui-subagent';
+import * as uiRunCodeRow from 'ac-client-ui-run-code';
 import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
 // 2026-09-16 数据根可配置 P2：桌面壳存储管理节（壳层桥消费，非桌面降级隐藏）
 import * as uiDesktopStorageRow from 'ac-client-ui-desktop-storage';
@@ -152,6 +155,10 @@ export const TREE: TreeRow[] = [
   { id: 'file-snapshots', plugin: fileSnapshotsRow },
   { id: 'str-replace-editor', plugin: strReplaceEditorRow },
   { id: 'shell-tools', plugin: shellToolsRow },
+  // 程序化模式 PTC 内核（run_code 工具行；worker 引导文件随 bundle 第二入口。
+  // 程序化 = 会话级开关（conv-settings programmatic + router 收窄）——
+  // __programmatic__ 预设已随开关化退役，2026-09-17 research §十）
+  { id: 'run-code', plugin: runCodeRow },
   { id: 'math', plugin: mathRow },
   { id: 'web-tools', plugin: webToolsRow },
   // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
@@ -167,6 +174,7 @@ export const TREE: TreeRow[] = [
   { id: 'security', plugin: securityRow },
   { id: 'subagent', plugin: subagentRow },
   { id: 'durable-interaction', plugin: durableInteractionRow },
+  { id: 'ask-questions', plugin: askQuestionsRow },
   // ---- M12 服务编排（行序仅是装配一览；依赖由 inject 声明推导） ----
   { id: 'usage', plugin: usageRow },
   { id: 'archive', plugin: archiveRow },
@@ -199,6 +207,8 @@ export const TREE: TreeRow[] = [
   { id: 'ui-web', plugin: uiWebRow },
   { id: 'ui-browser', plugin: uiBrowserRow },
   { id: 'ui-subagent', plugin: uiSubagentRow },
+  // run_code 程序卡（ac-run-code 镜像——程序体 + 执行摘要 + 返回值）
+  { id: 'ui-run-code', plugin: uiRunCodeRow },
   { id: 'ui-llm-pool', plugin: uiLlmPoolRow },
   { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
   { id: 'ui-desktop-storage', plugin: uiDesktopStorageRow },

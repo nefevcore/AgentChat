@@ -70,6 +70,11 @@ const RESERVED: Array<{ tag: string; category: TagCategory; description: string 
     description: '会话历史回放（grep_history 检索 / read_history 分页读取）',
   },
   {
+    tag: 'code-exec',
+    category: 'capability',
+    description: '程序执行（run_code：以代码编排成批工具调用，PTC）',
+  },
+  {
     tag: 'full-access',
     category: 'access-tier',
     description: '完全访问档：不受沙箱限制（人工授予的信任）',

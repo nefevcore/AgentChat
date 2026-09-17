@@ -265,6 +265,8 @@ export class RunsClientService extends Service {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private inFlight = false;
+  /** 上一轮快照 digest（服务端短路判等；空 = 首轮/旧后端，请求不带） */
+  private digest = '';
 
   constructor(ctx: Context, options: RunsClientOptions = {}) {
     super(ctx, 'runs');
@@ -275,7 +277,12 @@ export class RunsClientService extends Service {
   /**
    * 拉取快照。**内容未变化时保留原对象引用**（只更新 generatedAt）——
    * 轮询若每次都替换对象，会触发矩阵 400+ 格子的 computed 级联重算与
-   * 全量 patch；引用不变则派生全部短路，零渲染。
+   * 全量 patch；引用不变则派生全部短路，零渲染。两级防线：
+   *   1. digest 短路（服务端）：请求带上一轮 digest，内容未变 → 后端回
+   *      unchanged 轻载荷，零序列化/零投影（比下级更省——连投影重算
+   *      都省了）；此时 snapshot 引用不动，只刷新 generatedAt；
+   *   2. signature 短路（客户端兜底）：后端 digest 缺席（旧后端）或误判
+   *      时，投影后对比内容签名，相同保留引用。
    */
   async refresh(): Promise<void> {
     if (this.inFlight) return; // 慢响应乱序防护（回滚防线）
@@ -284,14 +291,20 @@ export class RunsClientService extends Service {
     try {
       // 域投影管线：snapshot + agents/list 双 RPC 聚合 → 矩阵视图合成
       //（并源 fetchRuns——同款聚合单份，服务轮询与按需拉取同源）
-      const next = await fetchRuns(this.own.rpc);
+      const r = await fetchRuns(this.own.rpc, this.digest || undefined);
       this.loadError.value = '';
-      const cur = this.snapshot.value;
-      if (cur && RunsClientService.signature(cur) === RunsClientService.signature(next)) {
-        cur.generatedAt = next.generatedAt; // 仅时间戳变化（快照时间显示的小更新）
+      if (r.digest) this.digest = r.digest;
+      if (r.unchanged) {
+        const cur = this.snapshot.value;
+        if (cur) cur.generatedAt = new Date().toISOString(); // 仅时间戳（快照时间显示）
         return;
       }
-      this.snapshot.value = next;
+      const cur = this.snapshot.value;
+      if (cur && RunsClientService.signature(cur) === RunsClientService.signature(r.snapshot)) {
+        cur.generatedAt = r.snapshot.generatedAt; // 仅时间戳变化（快照时间显示的小更新）
+        return;
+      }
+      this.snapshot.value = r.snapshot;
     } catch (err: unknown) {
       this.loadError.value = (err as { message?: string })?.message ?? String(err);
     } finally {
@@ -300,7 +313,12 @@ export class RunsClientService extends Service {
     }
   }
 
-  /** 首次使用时启动轮询（幂等）；定时器随本域 fiber 卸载回收 */
+  /**
+   * 首次使用时启动轮询（幂等）；定时器随本域 fiber 卸载回收。
+   * 秒针（now）按需启停：仅在有运行中会话时走表——时长显示（tooltip/
+   * 面板行）只在 running 非空时有意义；零运行时秒针每秒打点驱动所有
+   * 消费组件 re-render 是纯基底负载。running 变空 → 停表；再非空 → 复表。
+   */
   ensurePolling(): void {
     if (this.pollTimer) return;
     void this.refresh();
@@ -308,8 +326,21 @@ export class RunsClientService extends Service {
       this.pollTimer = setInterval(() => {
         if (document.visibilityState === 'visible') void this.refresh();
       }, this.pollMs);
-      this.tickTimer = setInterval(() => { this.now.value = Date.now(); }, 1000);
-      return () => this.stopPolling();
+      // 秒针启停随快照 running 数（watch 不进 effect 清理——定时器自身管理）
+      const stopTick = watch(
+        () => this.snapshot.value?.running.length ?? 0,
+        (n) => {
+          if (n > 0 && !this.tickTimer) {
+            this.now.value = Date.now();
+            this.tickTimer = setInterval(() => { this.now.value = Date.now(); }, 1000);
+          } else if (n === 0 && this.tickTimer) {
+            clearInterval(this.tickTimer);
+            this.tickTimer = null;
+          }
+        },
+        { immediate: true },
+      );
+      return () => { stopTick(); this.stopPolling(); };
     }, 'runs.polling');
   }
 
@@ -487,14 +518,23 @@ export async function interruptRun(
   return { success: (r.aborted ?? 0) > 0 };
 }
 
+/** 宿主 preview 快照载荷（完整形 / digest 短路轻载荷的联合） */
+export type PRunsSnapshotResult = PRunsSnapshot & { digest?: string; unchanged?: boolean };
+
 /** 运行跟踪快照（3s 轮询；snapshot + agents/list 双 RPC 聚合——
- *  M28 §4.2 自 webui api/runs.ts 归位：rpc 必传） */
-export async function fetchRuns(rpc: Pick<RpcClientFace, 'call'>): Promise<RunsSnapshot> {
-  const [snapshot, agentsR] = await Promise.all([
-    rpc.call<PRunsSnapshot>('runs/snapshot'),
-    rpc.call<{ agents?: RosterAgentView[] }>('agents/list'),
-  ]);
-  return toRunsSnapshot(snapshot ?? {}, agentsR.agents ?? []);
+ *  M28 §4.2 自 webui api/runs.ts 归位：rpc 必传）。
+ *  digest 短路：带上一轮 digest 请求，后端内容未变 → { unchanged: true }
+ *  轻载荷（零序列化/零传输/零投影重算），此时跳过 agents/list 直接
+ *  返回 unchanged 标记（调用方保留旧快照引用，仅刷新时间戳）。
+ *  旧后端（无 digest 字段）恒返回完整载荷——路径自然兼容。 */
+export async function fetchRuns(
+  rpc: Pick<RpcClientFace, 'call'>,
+  digest?: string,
+): Promise<{ snapshot: RunsSnapshot; unchanged: boolean; digest?: string }> {
+  const raw = await rpc.call<PRunsSnapshotResult>('runs/snapshot', digest ? { digest } : undefined);
+  if (raw?.unchanged && digest) return { snapshot: null as never, unchanged: true, digest };
+  const agentsR = await rpc.call<{ agents?: RosterAgentView[] }>('agents/list');
+  return { snapshot: toRunsSnapshot(raw ?? {}, agentsR.agents ?? []), unchanged: false, digest: raw?.digest };
 }
 
 /** run 来源 → 中文标签（矩阵格/清单行共用——两视图逐字同款，并源单份） */

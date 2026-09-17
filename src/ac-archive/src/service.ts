@@ -34,6 +34,7 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import {
   DEFAULT_ARCHIVE_BUDGETS,
+  DEFAULT_SELF_CONTEXT_TOKENS,
   estimateReplayTokens,
   splitForArchive,
   thresholdOf,
@@ -53,6 +54,11 @@ export interface ArchiveRowOptions {
   root?: string;
   /** 预算缺省值（per-Agent 覆盖走 settings['archive']） */
   defaults?: Partial<ArchiveBudgets>;
+  /**
+   * 自会话桶（agent~agent）专项预算缺省（settings['archive'].
+   * maxSelfContextTokens 的兜底；缺省 DEFAULT_SELF_CONTEXT_TOKENS = 40 万）
+   */
+  selfDefaults?: Partial<Pick<ArchiveBudgets, 'maxContextTokens'>>;
   /**
    * 整理 run 超时兜底（缺省 10 分钟；超时 = abort 该会话在途整理 run →
    * finish='interrupted' 收束 → 强制归档）。
@@ -113,6 +119,8 @@ export class ArchiveService extends Service {
   private dataRoot: string;
   private archiveRoot: string;
   private defaults: ArchiveBudgets;
+  /** 自会话桶专项预算缺省（行配置 selfDefaults ?? DEFAULT_SELF_CONTEXT_TOKENS） */
+  private readonly selfDefaultsMax: number;
   private readonly timeoutMs: number;
   /** 扫描间隔（行配置；懒扫描周期） */
   private readonly scanIntervalMs: number;
@@ -132,6 +140,10 @@ export class ArchiveService extends Service {
     this.dataRoot = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
     this.archiveRoot = path.join(this.dataRoot, 'archive');
     this.defaults = { ...DEFAULT_ARCHIVE_BUDGETS, ...options.defaults };
+    this.selfDefaultsMax =
+      typeof options.selfDefaults?.maxContextTokens === 'number' && Number.isFinite(options.selfDefaults.maxContextTokens)
+        ? options.selfDefaults.maxContextTokens
+        : DEFAULT_SELF_CONTEXT_TOKENS;
     this.timeoutMs = options.timeoutMs ?? 10 * 60_000;
     this.scanIntervalMs = options.scanIntervalMs ?? 5 * 60_000;
     this.reviewMaxSteps = options.reviewMaxSteps ?? 128;
@@ -218,19 +230,32 @@ export class ArchiveService extends Service {
     }
   }
 
-  /** 预算（per-Agent settings['archive'] 覆盖 > 行缺省；M24 A1 合成全局默认层） */
-  private budgetsFor(agentId: string): ArchiveBudgets {
+  /**
+   * 预算（per-Agent settings['archive'] 覆盖 > 行缺省；M24 A1 合成全局默认层）。
+   * 自会话专项（P2 成本治理）：settings['archive'].maxSelfContextTokens 仅当
+   * conversationId 为该 Agent 的对角线自会话桶（agent~agent）时覆盖
+   * maxContextTokens（ratio/keep 系数继承通用值）——机制驱动的运行日志桶
+   * 缺省即收紧（DEFAULT_SELF_CONTEXT_TOKENS，见 ac-archive-core），高频
+   * 定时器 Agent 的锯齿峰值受控，而用户直答/委托对桶维持通用预算不受影响。
+   * 平铺单字段（非嵌套对象）= UI settings 面板按 fields 声明直接可配。
+   * conversationId 缺省（诊断/概要预算等无桶上下文调用）= 不适用专项。
+   */
+  private budgetsFor(agentId: string, conversationId?: string): ArchiveBudgets {
+    const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
     const settings = this.ctx.agents.settingsOf(agentId, 'archive');
-    if (settings && typeof settings === 'object') {
-      const h = settings as Partial<ArchiveBudgets>;
-      const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+    const merged = settings && typeof settings === 'object' ? (settings as Partial<ArchiveBudgets> & { maxSelfContextTokens?: unknown }) : undefined;
+    const base = (): ArchiveBudgets => {
+      if (!merged) return this.defaults;
       return {
-        maxContextTokens: num(h.maxContextTokens, this.defaults.maxContextTokens),
-        archiveTokenRatio: num(h.archiveTokenRatio, this.defaults.archiveTokenRatio),
-        keepRecentRatio: num(h.keepRecentRatio, this.defaults.keepRecentRatio),
+        maxContextTokens: num(merged.maxContextTokens, this.defaults.maxContextTokens),
+        archiveTokenRatio: num(merged.archiveTokenRatio, this.defaults.archiveTokenRatio),
+        keepRecentRatio: num(merged.keepRecentRatio, this.defaults.keepRecentRatio),
       };
-    }
-    return this.defaults;
+    };
+    const isSelfSession = conversationId !== undefined && conversationId === `${agentId}~${agentId}`;
+    if (!isSelfSession) return base();
+    const b = base();
+    return { ...b, maxContextTokens: num(merged?.maxSelfContextTokens, this.selfDefaultsMax) };
   }
 
   /** 阈值检测：估算超阈值 → 请求归档（触发依据 = 回放口径估算——viewer 自有
@@ -238,7 +263,7 @@ export class ArchiveService extends Service {
    *  与实际注入上下文背离 40x+，恒判不触发） */
   private async maybeArchive(agentId: string, conversationId: string): Promise<void> {
     const records = await this.ctx.session.records(conversationId);
-    const threshold = thresholdOf(this.budgetsFor(agentId));
+    const threshold = thresholdOf(this.budgetsFor(agentId, conversationId));
     const estimate = estimateReplayTokens(records, agentId);
     if (estimate <= threshold) return;
     this.ctx.logger.info(
@@ -396,8 +421,8 @@ export class ArchiveService extends Service {
   }
 
   /** 概要字数预算（≈4‰ 上下文；下限 400 防小阈值配置把概要挤成零头） */
-  private summaryBudgetChars(agentId: string): number {
-    return Math.max(400, Math.ceil(this.budgetsFor(agentId).maxContextTokens * 0.004));
+  private summaryBudgetChars(agentId: string, conversationId?: string): number {
+    return Math.max(400, Math.ceil(this.budgetsFor(agentId, conversationId).maxContextTokens * 0.004));
   }
 
   /**
@@ -411,7 +436,7 @@ export class ArchiveService extends Service {
    */
   private reviewPrompt(conversationId: string, agentId: string, other: string): string {
     const agent = this.ctx.agents.require(agentId);
-    const budget = this.summaryBudgetChars(agentId);
+    const budget = this.summaryBudgetChars(agentId, conversationId);
     // 工具集解析（对象形态 → string[]；全部已注册 = 不传——与 router 同
     // 语义；传 defs 支持 tag 引用展开）
     const registered = this.ctx.tools.list();
@@ -552,7 +577,7 @@ export class ArchiveService extends Service {
         const stat = fs.statSync(file);
         if (!Number.isNaN(requestedAt) && stat.mtimeMs >= requestedAt) {
           const text = fs.readFileSync(file, 'utf-8').trim();
-          if (text) return this.clipSummary(text, marker.agent);
+          if (text) return this.clipSummary(text, marker.agent, conversationId);
           this.ctx.logger.info(
             `[archive] ${marker.agent} 亲写概要文件为空（${file}），回退整理回复文本`,
           );
@@ -597,8 +622,8 @@ export class ArchiveService extends Service {
   }
 
   /** 概要截断到预算字数（防 Agent 写超长文件顶爆后续上下文） */
-  private clipSummary(text: string, agentId: string): string {
-    const budget = this.summaryBudgetChars(agentId);
+  private clipSummary(text: string, agentId: string, conversationId?: string): string {
+    const budget = this.summaryBudgetChars(agentId, conversationId);
     if (text.length <= budget) return text;
     this.ctx.logger.warn(`[archive] 概要超预算（${text.length} > ${budget} 字），截断`);
     return `${text.slice(0, budget)}\n\n（已达字数上限截断）`;
@@ -618,7 +643,7 @@ export class ArchiveService extends Service {
     const records: SessionRecord[] = await this.ctx.session.records(conversationId);
     if (records.length === 0) return;
 
-    const budgets = this.budgetsFor(agentId);
+    const budgets = this.budgetsFor(agentId, conversationId);
     const archiveCount = this.archiveCountOf(conversationId);
     const lastArchived = this.readLastArchived(conversationId, archiveCount);
     // 回放口径分割（viewer = owning agent）：尾部水位按该 Agent 实际注入
@@ -696,7 +721,7 @@ export class ArchiveService extends Service {
         report.push({ conversationId, skipped: true, reason: 'empty' });
         continue;
       }
-      const threshold = thresholdOf(this.budgetsFor(owningAgent));
+      const threshold = thresholdOf(this.budgetsFor(owningAgent, conversationId));
       if (estimateReplayTokens(records, owningAgent) < threshold) {
         report.push({ conversationId, skipped: true, reason: 'below-threshold' });
         continue;

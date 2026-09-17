@@ -213,10 +213,13 @@
        dots——工具结果加载等；.tool-spin-ring / .think-spin-ring /
        .chain-spin-ring 工具卡/思考卡/链栏行首旋转环（2026-12 running
        态可见化统一选型，同语义——静止的环与静止的 dots 一样会被读作
-       "卡死"）。系统级关闭动画的机器（SPI client-area animation=0）
-       浏览器报 reduce，不豁免则「有指示无动画」（2026-09-04 反馈：
+       "卡死"）；.glyph-spin / .g-spin 任务清单 in_progress 行首环
+       （TodoPanel dock 卡与 ToolResultTodo 工具结果卡——2026-12 反馈：
+       任务面板进行中 icon 不转，同款「静止的环被读作卡死」）。
+       系统级关闭动画的机器（SPI client-area animation=0）浏览器报
+       reduce，不豁免则「有指示无动画」（2026-09-04 反馈：
        chain-header dots 静止） */
-    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring),
+    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring):not(.glyph-spin):not(.g-spin),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;

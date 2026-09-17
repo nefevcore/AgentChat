@@ -1,0 +1,68 @@
+// ============================================================
+// ac-run-code/src/index.ts —— run_code 工具行（程序化模式 PTC 内核）
+//
+// 单工具 run_code（requiredTags ['code-exec']——与 shell 分治的可
+// 独立授权词；档位随父 Agent，子调用逐个走全安全面，故本工具不挂
+// needPermission：粗信任由子调用细信任实现，裁决 #2）。
+//
+// 激活形态（research §十 开关化终裁：程序化 = 会话级开关，非预设——
+// __programmatic__ 预设已退役）：
+//   · 并存（开关关）：Agent tags 含 code-exec → run_code 与传统工具共存；
+//   · 互斥（开关开）：conv-settings programmatic=true → router 收窄
+//     LLM 面为 ['run_code']（投影源 = 能力面直取，见 tool.ts scope 口径）。
+// worker = containment 非 boundary：执行全在主线程 ctx.tools.execute。
+// ============================================================
+import type { Context } from '@agentchat/cordis';
+import { executeRunCode, type RunCodeRowOptions } from './tool.ts';
+import { registerProjectionInjection } from './prompt.ts';
+
+export type { RunCodeRowOptions } from './tool.ts';
+export { resolveEffectiveTools, resolveWorkerEntry } from './tool.ts';
+
+export const name = 'ac-run-code';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'run-code',
+  label: '程序化执行',
+  description: 'run_code 工具（程序化模式 PTC 内核）：模型写一段可擦除 TS 程序编排成批工具调用，只有最终返回值回上下文——大幅降低 token 消耗。子调用逐个走 ctx.tools.execute（能力轴/档位/黑名单/扫描/脱敏全自动生效）；worker 只做资源约束（computeMs/maxWallMs/maxOutputBytes）。需 code-exec 能力标签',
+  automatic: true,
+  fields: [
+    { name: 'defaultComputeMs', type: 'number', min: 0, step: 1000, default: 120_000, description: '子调用累计执行耗时预算毫秒（缺省 120000；0 = 不限）——程序可传 compute_ms 覆盖' },
+    { name: 'defaultMaxWallMs', type: 'number', min: 0, step: 1000, default: 600_000, description: '墙钟预算毫秒（含审批等待；缺省 600000；0 = 不限）——超限中止程序' },
+    { name: 'defaultMaxOutputBytes', type: 'number', min: 0, step: 1024, default: 65_536, description: '返回值序列化字节上限（缺省 64KB；0 = 不限）——超出中段截断并标注' },
+  ],
+};
+
+// agentLoop 不进 inject（硬依赖会让本行在 loop 行缺席时 PENDING——工具
+// 行与 loop 行独立装配是既有语义）：prompt.ts 的 loop/before-run 订阅
+// 经 ctx.on 挂载，loop 行在场时事件自然可达，缺席时零效果。
+export const inject = ['tools'];
+
+export function apply(ctx: Context, options: RunCodeRowOptions = {}) {
+  // SDK 投影 + 程序书写纪律注入（实测复盘 #A1/#A2：投影必须进模型
+  // 可见面——发送即丢弃 = 盲调 API；KV cache 前缀稳定靠投影字典序）
+  registerProjectionInjection(ctx);
+  ctx.tools.register({
+    name: 'run_code',
+    requiredTags: ['code-exec'],
+    description:
+      '以代码编排成批工具调用，大幅降低 token 消耗：写一段 TypeScript 程序（限可擦除语法），经 tools.<name>(args) 组合多步操作，控制流（循环/条件/并行）进代码，只有 return 的最终值回上下文。'
+      + '跨程序复用的函数经 lib.define(名, 函数) 注册（须自包含），后续程序 lib.resolve(名) 取用（同会话有效）。'
+      + '确定性多步编排用本工具；探索性研究用 subagent。只读工具可 Promise.all 并行；写路径（write/edit/str_replace_editor）与命令（pwsh/bash）自动按提交序串行。预算超限或中止时程序按 interrupted 收束。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: '可擦除 TS 程序体（类型标注可用；enum/命名空间/参数属性不可用；不允许 import）——tools.<name>(args) 调用工具，return 返回压缩后的最终结论' },
+        compute_ms: { type: 'number', minimum: 0, description: '子调用累计执行耗时预算毫秒（缺省随行配置 120000；0 = 不限）' },
+        max_wall_ms: { type: 'number', minimum: 0, description: '墙钟预算毫秒（含审批等待；缺省 600000；0 = 不限）' },
+        max_output_bytes: { type: 'number', minimum: 0, description: '返回值序列化字节上限（缺省 64KB；0 = 不限）' },
+      },
+      required: ['code'],
+    },
+    async execute(args, call) {
+      return executeRunCode(ctx, options, args, call);
+    },
+  });
+}

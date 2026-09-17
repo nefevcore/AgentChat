@@ -190,15 +190,20 @@ describe('资料面工具', () => {
 });
 
 describe('send_agent（经 conversation 状态机）', () => {
-  it('wait=false：受理即返回（idle → run 完成后 outcome=run）', async () => {
+  it('wait=false 空闲直达：回复文本随结果直返（2026-12 修复：不再丢弃 reply 撒谎"会作为新消息送达"）', async () => {
     const { ctx } = await boot();
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     ctx.agents.register({ id: 'b', model: 'mock-1' });
     const r = await call(ctx, 'send_agent', { to: 'b', message: '帮我看下' }, 'a');
     expect(r.ok).toBe(true);
-    const output = r.output as { to: string; outcome: string };
+    const output = r.output as { to: string; wait: boolean; reply: string; finish: string };
     expect(output.to).toBe('b');
-    expect(output.outcome).toBe('run');  });
+    expect(output.wait).toBe(false);
+    // deliver 空闲路径 await 完对方 run——回复直返调用方（子 Agent 场景
+    // 是唯一回收通道：其上下文源是任务收件箱而非 session 对桶）
+    expect(output.reply).toMatch(/^回复\d+$/);
+    expect(output.finish).toBe('stop');
+  });
 
   it('wait=true：等独立 run 拿回复文本', async () => {
     const { ctx } = await boot();
@@ -252,7 +257,7 @@ describe('send_agent（经 conversation 状态机）', () => {
 });
 
 describe('send_agent（子 Agent 直投分支）', () => {
-  async function bootWithSubagent() {
+  async function bootWithSubagent(opts: { withSession?: boolean } = {}) {
     const ctx = new Context();
     const fibers: Fiber[] = [];
     // rows = collab 基础 + jobs（subagent 依赖）+ subagent 行
@@ -271,6 +276,7 @@ describe('send_agent（子 Agent 直投分支）', () => {
       agentsRow,
       routerRow,
       conversationRow,
+      ...(opts.withSession ? [sessionRow] : []),
       collabRow,
       subagentRow,
     ];
@@ -326,6 +332,65 @@ describe('send_agent（子 Agent 直投分支）', () => {
     const r = await call(ctx, 'send_agent', { to: 'sub_whatever', message: 'x' }, 'a');
     expect(r.ok).toBe(false);
     expect(String(r.error)).toContain('未注册');
+  });
+
+  // ---- 子 Agent 发信身份归一（2026-12 修复：注入到正确的会话）----
+  it('子 Agent send_agent(普通 Agent)：对桶归一到父（pairKey(parent, b)，非幽灵 sub~b 桶）+ 回复直返', async () => {
+    const { ctx } = await bootWithSubagent({ withSession: true });
+    ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
+    ctx.agents.register({ id: 'b', model: 'mock-1' });
+    ctx.agents.register({ id: 'user', virtual: true });
+    const sp = await call(ctx, 'subagent', { action: 'spawn', task: '任务', wait_time: 30 }, 'chief');
+    const subId = (sp.output as { subagent_id: string }).subagent_id;
+    // 子 Agent 以自身身份给 b 发消息（模拟子 run 内的工具调用）
+    const r = await call(ctx, 'send_agent', { to: 'b', message: '帮我查资料' }, subId);
+    expect(r.ok).toBe(true);
+    const output = r.output as { to: string; reply: string; wait: boolean };
+    // 空闲直达：b 的回复随结果直返（子 Agent 的唯一回收通道）
+    expect(output.reply).toMatch(/^回复\d+$/);
+    expect(output.wait).toBe(false);
+    // 入账落父对桶（chief~b）：用户在父⇄b 会话里可见子的发言——不是
+    // 无人可达的 sub~b 幽灵桶
+    const history = await (ctx.get('session') as { history(id: string): Promise<Array<{ content: string }>> }).history('b~chief');
+    expect(history.some((m) => m.content.includes('帮我查资料'))).toBe(true);
+    // 幽灵桶不落账
+    const ghost = await (ctx.get('session') as { history(id: string): Promise<Array<{ content: string }>> }).history([subId, 'b'].sort().join('~'));
+    expect(ghost.some((m) => m.content.includes('帮我查资料'))).toBe(false);
+  });
+
+  it('子 Agent send_agent(user 虚拟端点)：落父的直答对桶（chief~user）', async () => {
+    const { ctx } = await bootWithSubagent({ withSession: true });
+    ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
+    ctx.agents.register({ id: 'user', virtual: true });
+    const sp = await call(ctx, 'subagent', { action: 'spawn', task: '任务', wait_time: 30 }, 'chief');
+    const subId = (sp.output as { subagent_id: string }).subagent_id;
+    const r = await call(ctx, 'send_agent', { to: 'user', message: '给用户的话' }, subId);
+    expect(r.ok).toBe(true);
+    const output = r.output as { virtual: boolean; message: string };
+    expect(output.virtual).toBe(true);
+    // 落父的用户对桶（chief~user）——用户在与 chief 的对话里直接看到
+    const history = await (ctx.get('session') as { history(id: string): Promise<Array<{ content: string }>> }).history('chief~user');
+    expect(history.some((m) => m.content.includes('给用户的话'))).toBe(true);
+  });
+
+  it('子 → 兄弟子 Agent 直投：权限按父判定（同父放行；异父拒绝）', async () => {
+    const { ctx } = await bootWithSubagent();
+    ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
+    const sp1 = await call(ctx, 'subagent', { action: 'spawn', task: '甲', wait_time: 30 }, 'chief');
+    const subA = (sp1.output as { subagent_id: string }).subagent_id;
+    const sp2 = await call(ctx, 'subagent', { action: 'spawn', task: '乙', wait_time: 30 }, 'chief');
+    const subB = (sp2.output as { subagent_id: string }).subagent_id;
+    // 同父兄弟：subA 的父 = chief = subB 的父 → 放行
+    const r = await call(ctx, 'send_agent', { to: subB, message: '协同消息' }, subA);
+    expect(r.ok).toBe(true);
+    expect((r.output as { subagent: boolean }).subagent).toBe(true);
+    // 异父：subB 给 chief2 的子 → 拒绝
+    ctx.agents.register({ id: 'chief2', model: 'mock-1', tags: ['delegation'] });
+    const sp3 = await call(ctx, 'subagent', { action: 'spawn', task: '丙', wait_time: 30 }, 'chief2');
+    const subC = (sp3.output as { subagent_id: string }).subagent_id;
+    const denied = await call(ctx, 'send_agent', { to: subC, message: '越权' }, subA);
+    expect(denied.ok).toBe(false);
+    expect(String(denied.error)).toContain('只接收其父');
   });
 });
 

@@ -20,8 +20,8 @@ const interaction = computed(() => chatStore.interaction);
 
 /** 当前题页码；多题逐题作答（DSH 分页模型），单题即 0/1 */
 const index = ref(0);
-/** 作答草稿：selected/custom 互斥；skipped 为显式跳过（提交 null） */
-const drafts = ref<Array<{ selected: string | null; custom: string; skipped: boolean }>>([]);
+/** 作答草稿：selected（勾选项数组，单选题提交时取首项）/custom 互斥；skipped 为显式跳过（提交 null） */
+const drafts = ref<Array<{ selected: string[]; custom: string; skipped: boolean }>>([]);
 /** 收起态：只留头部条（问题仍可见，作答区折叠不遮挡会话流） */
 const minimized = ref(false);
 /** 底部反馈文案（未答就翻页/提交时提示，随任意作答清除） */

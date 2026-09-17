@@ -50,6 +50,8 @@ export interface AgentPresetInfo {
   label: string;
   description: string;
   default: boolean;
+  /** 授权面（2026-09-17 开关化补）——程序化开关可用性判定（code-exec） */
+  tags?: string[];
 }
 
 interface PAgentConfig {
@@ -151,6 +153,9 @@ export async function fetchAgents(rpc: Pick<RpcClientFace, 'call'>): Promise<{ a
     rpc.call<{ running: Array<{ agentId: string; conversationId: string }> }>('conversation/stats'),
     rpc
       .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number; last?: { role: string; text: string; ts: string; name?: string } }> }>('runs/snapshot')
+      // digest 短路轻载荷（unchanged=true，runview 轮询请求带的）无
+      // conversations → catch 之外按缺省空处理，名册静默降级旧形态
+      .then((r) => (r && typeof r === 'object' && !(r as { unchanged?: boolean }).unchanged ? r : undefined))
       .catch(() => undefined),
   ]);
   return toAgentList(agentsR.agents ?? [], statsR.running ?? [], snapR?.conversations ?? []);

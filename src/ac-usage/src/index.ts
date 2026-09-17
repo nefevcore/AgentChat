@@ -372,6 +372,39 @@ export class UsageService extends Service {
     return [...merged.values()].sort((x, y) => y.total - x.total);
   }
 
+  /**
+   * 自会话成本观测（P5）：对角线桶（conv = 'a~a'，机制驱动的运行日志）
+   * 的用量聚合 + 占比。动机：自会话是纯机制成本（timer/job-wakeup 唤醒），
+   * 无用户交互对冲——news 实测单桶吃掉全项目 42.6% prompt tokens，
+   * 该数字应直接可见而非埋在流水里考古。
+   */
+  bySelfSession(): {
+    /** 各自会话桶聚合（键 = agentId；仅对角线桶） */
+    byAgent: Record<string, UsageAggregate>;
+    /** 全部对桶（含自会话）的 prompt 合计（占比分母） */
+    pairPromptTotal: number;
+    /** 自会话 prompt 占比对桶总量比（0~1） */
+    shareOfPairs: number;
+  } {
+    const byAgent: Record<string, UsageAggregate> = {};
+    let selfPrompt = 0;
+    let pairPromptTotal = 0;
+    for (const { agent, conversationId, usage } of this.byAgentConvMap.values()) {
+      // 群 gid / 独立会话 sid（无 '~'）不进端点对口径（byPair 同判）
+      if (!conversationId.includes('~')) continue;
+      pairPromptTotal += usage.prompt;
+      if (conversationId === `${agent}~${agent}`) {
+        byAgent[agent] = { ...usage };
+        selfPrompt += usage.prompt;
+      }
+    }
+    return {
+      byAgent,
+      pairPromptTotal,
+      shareOfPairs: pairPromptTotal > 0 ? selfPrompt / pairPromptTotal : 0,
+    };
+  }
+
   /** 总量（全部 run） */
   totals(): UsageAggregate {
     const out = emptyAggregate();

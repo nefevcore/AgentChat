@@ -40,6 +40,7 @@ const TOOL_ICONS: Record<string, string> = {
   load_skill: 'book-open',
   // ── Agent / 协作 ──
   subagent: 'bot',
+  run_code: 'braces',
   send_agent: 'send',
   send_group: 'messages-square',
   ask_questions: 'help-circle',

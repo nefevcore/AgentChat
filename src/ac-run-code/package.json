@@ -1,0 +1,42 @@
+{
+  "name": "ac-run-code",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "run_code 工具行（程序化模式 PTC 内核）：模型写 TS 程序编排成批工具调用；worker containment（资源约束）+ 主线程桥接（ctx.tools.execute 全安全面）；SDK 投影纯库住 ac-run-code-core。程序化形态 = 会话级开关（conv-settings programmatic + router 收窄 LLM 面——2026-09-17 开关化，__programmatic__ 预设已退役）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-run-code-core": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-conv-settings": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-fs-search": "workspace:*",
+    "ac-fs-tools": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-math": "workspace:*",
+    "ac-security": "workspace:*",
+    "ac-shell-tools": "workspace:*",
+    "ac-tag-registry": "workspace:*",
+    "ac-web-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

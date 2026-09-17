@@ -107,6 +107,13 @@ export interface ToolCall {
    * 身份由调用方（loop / 直连编排方）装配；工具行与安全行只读取。
    */
   elevation?: 'sandbox-access' | 'full-access';
+  /**
+   * run_code 子调用标记（2026-09-17 程序化模式）：本调用由 run_code
+   * 程序内桥接发起（非模型直接 tool_call）。开放词汇面（结构化标记
+   * 供 ac-session 入账/UI 区分——tool_call_id 的 `<runId>#<seq>` 形
+   * 是提示不是判据）；工具行与安全行只读取，执行面语义不变。
+   */
+  runCodeSubcall?: boolean;
   [key: string]: unknown;
 }
 

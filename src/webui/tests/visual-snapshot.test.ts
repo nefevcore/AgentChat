@@ -191,7 +191,7 @@ async function captureSet(context: import('playwright').BrowserContext, theme: '
   // ④ 运行清单面板（aux rail「运行跟踪」按钮——2026-12 入口冗余清理后
   //    主活动栏 tracking 按钮移除，辅助活动栏 rail 为唯一桌面入口）
   await page.click('.aux-activity-bar [title="运行跟踪"]');
-  await page.waitForSelector('text=运行总览', { timeout: 10_000 });
+  await page.waitForSelector('text=运行矩阵', { timeout: 10_000 });
   await shot(page, `${theme}-04-runs-panel`);
 
   // ⑤ 运行矩阵（主区全幅）；快照时间固定文案（几何不变）

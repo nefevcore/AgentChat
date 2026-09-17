@@ -28,6 +28,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   web_search: '网络搜索',
   browser: '浏览器',
   subagent: '子 Agent 调度',
+  run_code: '运行程序',
   timer: '定时任务',
   todo: '任务清单',
   goal: '目标管理',
@@ -90,6 +91,15 @@ function argDetail(name: string, a: Record<string, unknown>): string {
         return m ? `${action} · ${m}${mode}` : (mode ? `${action}${mode}` : action);
       }
       return action; // await/list/stop/delete
+    }
+    case 'run_code': {
+      // 参数摘要：程序首行注释或首个语句行（截 40）——标签行一眼可见
+      // 程序意图；完整程序体在卡内代码视图
+      const code = str(a.code);
+      if (!code) return '';
+      const first = code.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('//'));
+      const comment = code.match(/^\s*\/\/\s*(.+)$/m);
+      return (comment?.[1] ?? first ?? '').slice(0, 40);
     }
     case 'timer': {
       const action = str(a.action) || '?';

@@ -72,6 +72,8 @@ export async function fetchGroups(rpc: Pick<RpcClientFace, 'call'>): Promise<{ g
     rpc.call<{ groups?: PGroupConfig[] }>('group/list'),
     rpc
       .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number }> }>('runs/snapshot')
+      // digest 短路轻载荷（unchanged=true）无 conversations → 按空降级（同 catch 语义）
+      .then((r) => (r && typeof r === 'object' && !(r as { unchanged?: boolean }).unchanged ? r : undefined))
       .catch(() => undefined),
   ]);
   const convOf = new Map((snapR?.conversations ?? []).map((c) => [c.conversationId, c]));

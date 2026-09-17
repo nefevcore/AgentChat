@@ -23,7 +23,8 @@ export interface PMediaAttachment {
   detail?: string;
 }
 
-interface PSessionRecord {
+/** 会话历史行（中性格式；session/history RPC 载荷——导出供跨行 type-import，如 SubagentConversationView） */
+export interface PSessionRecord {
   role: string;
   content: string;
   message_id: string;

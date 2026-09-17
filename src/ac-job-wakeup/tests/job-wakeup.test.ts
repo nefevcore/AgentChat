@@ -3,7 +3,7 @@
 // M19/D2：自会话桶 pairKey(owner, owner)）唤醒 owner；无 owner /
 // conversation 未装 = 跳过
 // ============================================================
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { TimerService as VendorTimer } from '@agentchat/cordis-timer';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
@@ -143,5 +143,50 @@ describe('ac-job-wakeup', () => {
     settleNow(ctx, 'a');
     await new Promise((r) => setTimeout(r, 20));
     expect(delivered).toHaveLength(0);
+  });
+
+  it('合并窗口：同 owner+会话的第二条起暂存，窗口收束补投 digest（2 次唤醒替代 N 次）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ctx } = await boot();
+      settleNow(ctx, 'a'); // 首条：立即投递
+      settleNow(ctx, 'a'); // 后续：暂存
+      settleNow(ctx, 'a'); // 暂存
+      settleNow(ctx, 'b'); // 不同 owner：独立窗口，首条照常投递
+      await vi.advanceTimersByTimeAsync(10);
+      expect(delivered).toHaveLength(2); // a 首条 + b 首条（无中间投递）
+      expect(delivered[0].message).toContain('完成');
+      // 窗口收束 → a 的 digest 补投
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(delivered).toHaveLength(3);
+      const digest = delivered[2];
+      expect(digest.agent).toBe('a');
+      expect(digest.conversationId).toBe('a~a');
+      expect(digest.message).toContain('另有 2 个后台任务收束');
+      // digest 之后新 settled → 新窗口首条（不丢通知）
+      settleNow(ctx, 'a');
+      await vi.advanceTimersByTimeAsync(10);
+      expect(delivered).toHaveLength(4);
+      expect(delivered[3].message).toContain('[系统通知] 后台任务');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('合并窗口按会话分桶：a⇋b 与 a~a 不互相暂存', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ctx } = await boot();
+      settleNow(ctx, 'a', 'a~b'); // a 在 a~b 的首条
+      settleNow(ctx, 'a');        // a 自会话桶首条（不同键 = 各自立即投）
+      await vi.advanceTimersByTimeAsync(10);
+      expect(delivered).toHaveLength(2);
+      expect(delivered[0].conversationId).toBe('a~b');
+      expect(delivered[1].conversationId).toBe('a~a');
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(delivered).toHaveLength(2); // 无暂存 → 无 digest
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

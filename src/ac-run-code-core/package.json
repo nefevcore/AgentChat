@@ -1,0 +1,17 @@
+{
+  "name": "ac-run-code-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "run_code SDK 投影纯库：生效工具集（ToolDefinition[]）→ 可擦除 TS 声明文本（declare const tools: {…}）——模型阅读面 + KV cache 前缀稳定（字典序、内容定），零 cordis 依赖",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

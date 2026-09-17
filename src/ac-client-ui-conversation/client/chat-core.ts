@@ -240,14 +240,15 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     pendingApprovals.value = pendingApprovals.value.filter((it) => it.interaction_id !== id);
   }
 
-  /** 提交审批（true = 批准——本次调用按 full-access 执行；false = 拒绝）：
-   *  answer 单布尔（后端 approvedAnswer 判定 true/'approve'）。 */
-  function respondApproval(approved: boolean): void {
+  /** 提交审批：approved=true 时 scope 选档（'call' 仅本次 = 原语义；
+   *  'run' 本轮全部——本会话本轮 run 内后续 needPermission 调用免再询问，
+   *  run 收束自动失效）；false = 拒绝。answer 形状见后端 parseApprovalAnswer。 */
+  function respondApproval(approved: boolean, scope: 'call' | 'run' = 'call'): void {
     const current = approval.value;
     if (!current) return;
     void rpc.call('interaction/reply', {
       id: current.interaction_id,
-      answer: approved,
+      answer: approved ? { approved: true, scope } : false,
     }).catch(() => undefined);
     removeApproval(current.interaction_id);
   }

@@ -2,12 +2,14 @@
   base 档 Agent 在有人会话里调用 needPermission=true 工具（write/bash/web_search…）
   时，ac-security 经 durableInteraction 开出 kind='approval' 审批卡。审批卡全文
   展示工具 + 参数 + 档位说明（防审批疲劳的 UX 责任在本卡）：
-  · 批准 = 本次调用按 full-access 执行（单次有效，不持久化——持久授权走
-    agentAdmin 改 tags 升档）；
+  · 批准（2026-12 两档）：「通过（本次）」= 本次调用按 full-access 执行（单次
+    有效，不持久化）；下拉可改选「通过（本轮全部）」= 本轮 run 内后续
+    needPermission 调用免再询问，run 收束自动失效（内存授权，不持久化）；
+    持久授权走 agentAdmin 改 tags 升档；
   · 拒绝 = 本次调用被拒（Agent 收到明确说明）。
   外壳与密度对齐 dock 卡族规范（InteractionBar/QueueDock 同族）。 -->
 <script setup lang="ts">
-import { computed, watch, onUnmounted } from 'vue';
+import { computed, ref, watch, onUnmounted } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
 import { useChatStore } from './chatStore.ts';
 
@@ -49,8 +51,11 @@ watch(approval, (val) => {
 });
 onUnmounted(() => { if (timeoutTimer) clearTimeout(timeoutTimer); });
 
-function decide(approved: boolean) {
-  chatStore.respondApproval(approved);
+/** 批准范围（2026-12 功能增强）：'call' 仅本次（缺省）| 'run' 本轮全部 */
+const approveScope = ref<'call' | 'run'>('call');
+
+function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
+  chatStore.respondApproval(approved, scope);
 }
 </script>
 
@@ -76,12 +81,24 @@ function decide(approved: boolean) {
           <pre class="ab-args">{{ argsText }}</pre>
         </div>
 
-        <!-- 底部：拒绝 / 批准（批准 = 本次按 full-access 执行，单次有效） -->
+        <!-- 底部：拒绝 / 批准两档（主钮"通过（本次）"；下拉可改选
+             "通过（本轮 run）全部"——本轮 run 内后续 needPermission 调用
+             免再询问，run 收束自动失效） -->
         <footer class="ab-footer">
-          <div class="ab-note">批准仅对本次调用生效；持久授权请在 Agent 配置 tags 中添加档位标签。</div>
+          <div class="ab-note">
+            {{ approveScope === 'run'
+              ? '本轮 run 内的后续提权请求不再询问；run 结束自动失效（内存授权，不持久化）。'
+              : '批准仅对本次调用生效；持久授权请在 Agent 配置 tags 中添加档位标签。' }}
+          </div>
           <div class="ab-actions">
             <button type="button" class="ab-btn outline" @click="decide(false)">拒绝</button>
-            <button type="button" class="ab-btn primary" @click="decide(true)">批准（本次）</button>
+            <div class="ab-approve-split">
+              <button type="button" class="ab-btn primary" @click="decide(true, approveScope)">通过（{{ approveScope === 'run' ? '本轮全部' : '本次' }}）</button>
+              <select v-model="approveScope" class="ab-scope-select" title="批准范围：仅本次 / 本轮 run 全部" aria-label="批准范围">
+                <option value="call">通过（本次）</option>
+                <option value="run">通过（本轮全部）</option>
+              </select>
+            </div>
           </div>
         </footer>
       </section>
@@ -204,6 +221,32 @@ function decide(approved: boolean) {
   color: #fff;
 }
 .ab-btn.primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+
+/* ── 批准两档：主钮 + 范围下拉（覆盖式 select，视觉融合为分组按钮） ── */
+.ab-approve-split { display: flex; align-items: stretch; }
+.ab-approve-split .ab-btn.primary { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ab-scope-select {
+  width: 18px;
+  padding: 0 2px;
+  border: 1px solid var(--color-primary);
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-primary);
+  color: transparent; /* 收起态只显示箭头指示（文本对视觉无用——当前档位在主钮上） */
+  font-size: 12px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: center;
+  text-indent: 100%;
+  overflow: hidden;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23ffffff' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.ab-scope-select::-ms-expand { display: none; }
+.ab-scope-select:hover { background-color: var(--color-primary-hover); }
+.ab-scope-select option { color: var(--color-text-primary); background: var(--color-bg-secondary, #fff); }
 
 /* ── 卡片入场 ── */
 .ab-card-in-enter-active { transition: opacity 0.16s var(--ease-out), transform 0.16s var(--ease-out); }

@@ -2,6 +2,7 @@
 
 > 2026-09-16 收口。本会话完成了研究、前置修复与两轮命名裁决；**P0 实施未开始**。下一 session 从本单开始。
 > 主报告：`coding-mode-preset-research.md`（v5.2，实施设计要点在 §六/开放问题在 §八）。
+> **2026-09-17 更新：实施计划已制定** → `programmatic-mode-implementation-plan.md`（六项裁决已定——含开放问题四条的裁决与本轮新增的 worker 引导形态实验结论；实施从其 §七 步 1 开始）。
 
 ## 一、下一 session 怎么开始
 

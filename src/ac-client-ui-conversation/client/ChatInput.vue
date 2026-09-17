@@ -61,6 +61,12 @@ const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort as C
  *  （2026-09 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
  *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
 const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation as ComposeElevation) ?? '');
+/** 工具使用模式（程序化开关，research §十——2026-09-17 开关化）：
+ *  true = 本会话 LLM 工具面收窄为 ['run_code']（真互斥形态）。选择即写
+ *  会话 conv-settings（singles sid 与 1v1 对键同走该 RPC——键面同
+ *  elevation 口径，全形态生效）；回放上次选择（true 仅作 UI 初值，挂载
+ *  后以会话存储为准校准）。退役预设防御见 presetRetired。 */
+const programmatic = ref<boolean>(lastPrefs?.programmatic === true);
 const attachedFiles = ref<FileAttachment[]>([]);
 const uploading = ref(false);
 
@@ -70,6 +76,7 @@ const agentMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
 const effortMenuOpen = ref(false);
 const elevMenuOpen = ref(false);
+const toolModeMenuOpen = ref(false);
 /** 模型选项源：池连接（models 发现缓存）——连接池 = 唯一事实源
  *  （种子已移除：未配置即不在池、不注册、不出现在选项里） */
 const llmPools = ref<Record<string, Record<string, unknown>>>({});
@@ -94,6 +101,19 @@ const sessionLocked = computed(() => {
   if (props.single.lastActivity) return true;
   return feed.getRaw(singleDialog(props.single.id)).length > 0;
 });
+
+/**
+ * 退役预设防御（research §十 迁移裁决）：会话登记 Agent 为
+ * __programmatic__（存量实测会话以该预设身份运行）且预设目录已不含
+ * 该 id → 该会话无可用 Agent 身份，续聊将 404/落空——输入框禁用 +
+ * 迁移提示（历史只读保留）。
+ */
+const presetRetired = computed(() =>
+  props.single?.agentId === '__programmatic__'
+  && !roster.presets.value.some(p => p.id === '__programmatic__'));
+
+/** 输入禁用 = 调用方禁用 ∪ 退役预设防御 */
+const inputDisabled = computed(() => props.disabled || presetRetired.value);
 
 async function loadPools() {
   // 已有可选模型即短路；空态保持重取（新配置连接后下次打开即出现）
@@ -198,12 +218,13 @@ onUnmounted(() => {
 });
 
 /** 单开原则：任一下拉打开时关闭其余 */
-function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort' | 'elev') {
+function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort' | 'elev' | 'toolmode') {
   if (except !== 'ws') wsMenuOpen.value = false;
   if (except !== 'agent') agentMenuOpen.value = false;
   if (except !== 'model') modelMenuOpen.value = false;
   if (except !== 'effort') effortMenuOpen.value = false;
   if (except !== 'elev') elevMenuOpen.value = false;
+  if (except !== 'toolmode') toolModeMenuOpen.value = false;
 }
 
 function toggleWsMenu() {
@@ -255,6 +276,11 @@ function toggleElevMenu() {
   const next = !elevMenuOpen.value;
   closeMenus('elev');
   elevMenuOpen.value = next;
+}
+function toggleToolModeMenu() {
+  const next = !toolModeMenuOpen.value;
+  closeMenus('toolmode');
+  toolModeMenuOpen.value = next;
 }
 
 /** 选择 Agent：即时 PATCH（''=清空待选；空会话发送前必须选；已有消息锁定禁选）。
@@ -330,6 +356,26 @@ watch(() => roster.activeAgentId.value, async (id) => {
   }
 }, { immediate: true });
 
+/** 会话覆盖键（工具使用模式）：single = sid；1v1 = pairKey(viewer, agent)
+ *  （与后端 deliver 同口径；模型覆盖键的同款双形态） */
+const programmaticConvKey = computed(() => {
+  if (props.single) return props.single.id;
+  const agentId = roster.activeAgentId.value;
+  return agentId ? [VIEWER_ID.value, agentId].sort().join('~') : null;
+});
+
+/** 挂载/会话切换：回读会话工具使用模式（conv-settings programmatic——
+ *  存储为准校准 UI；回放偏好只作初值）。 */
+watch(programmaticConvKey, async (conversationId) => {
+  if (!conversationId || !rpc) { programmatic.value = false; return; }
+  try {
+    const r = await rpc.call<{ settings?: { programmatic?: boolean } }>('conv-settings/get', { conversationId });
+    programmatic.value = r.settings?.programmatic === true;
+  } catch {
+    programmatic.value = false; // 行未装/面不可用 → 无开关语义
+  }
+}, { immediate: true });
+
 /** 思考强度档位（''=关闭思考） */
 const EFFORT_OPTIONS: Array<{ value: '' | 'low' | 'high' | 'max'; label: string }> = [
   { value: '', label: '思考·关' },
@@ -364,6 +410,55 @@ function selectElevation(v: '' | 'sandbox-access' | 'full-access') {
   saveComposePrefs({ elevation: v });
   elevMenuOpen.value = false;
 }
+
+// ── 工具使用模式（程序化开关，research §十——2026-09-17 开关化）──
+// 与 ELEV/EFFORT 同族的 dd 下拉；选择即写会话 conv-settings（router
+// execute 消费该键收窄 LLM 面——run 间隙生效，非 run 中途翻转）。
+// 覆盖键见 programmaticConvKey（模型覆盖 watch 前声明——挂载回读共用）。
+
+/** 程序化可用性：目标 Agent（single = 会话登记/默认预设；1v1 = 激活
+ *  Agent/默认预设）的授权面含 code-exec 才可开——无授权时开关惰性
+ *  （router warn 忽略），UI 需禁选并说明，防「勾了不生效」的静默落差
+ *  （实测 3a8ea4f7 坑）。名册/presets 目录均无 tags 数据 = 视为可用
+ *  （不误伤旧后端——缺席宽容）。 */
+const programmaticAvailable = computed(() => {
+  const targetId = props.single
+    ? (selAgent.value || roster.defaultPresetId.value)
+    : (roster.activeAgentId.value || roster.defaultPresetId.value);
+  if (!targetId) return true; // 无目标 = 不判定（下拉隐藏于群聊/无会话态）
+  const fromRoster = roster.agents.value.find(a => a.id === targetId)?.tags;
+  if (fromRoster) return fromRoster.includes('code-exec');
+  const fromPresets = roster.presets.value.find(p => p.id === targetId)?.tags;
+  if (fromPresets) return fromPresets.includes('code-exec');
+  return true; // 两目录均无 tags（旧后端/未拉取）——宽容不拦截
+});
+
+/** 选择工具使用模式：即时生效——写会话 conv-settings（singles sid 与
+ *  1v1 对键同走该 RPC）；写回组合偏好（新会话回放 UI 初值）。 */
+function selectToolMode(programmaticOn: boolean) {
+  toolModeMenuOpen.value = false;
+  if (programmatic.value === programmaticOn) return;
+  if (programmaticOn && !programmaticAvailable.value) return; // 无授权禁选（惰性对齐）
+  const prev = programmatic.value;
+  programmatic.value = programmaticOn;
+  saveComposePrefs({ programmatic: programmaticOn });
+  const conversationId = programmaticConvKey.value;
+  if (!conversationId || !rpc) return;
+  // wire 值域：'true' = 开；null = 清除（web-api set 面）
+  void rpc.call('conv-settings/set', { conversationId, patch: { programmatic: programmaticOn ? 'true' : null } })
+    .catch((err: any) => {
+      console.error('[ChatInput] 工具使用模式写入失败:', err?.message);
+      if (programmatic.value === programmaticOn) programmatic.value = prev; // 失败回滚
+    });
+}
+
+/** 工具使用模式档位词表（程序化档 detail/title 按可用性分流） */
+const TOOL_MODE_OPTIONS = computed<Array<{ value: boolean; label: string; icon: string; detail: string; title: string; disabled?: boolean }>>(() => [
+  { value: false, label: '标准', icon: 'wrench', detail: '逐个调用', title: '模型逐个调用工具（默认形态——每个工具独立 schema，直接直调）' },
+  programmaticAvailable.value
+    ? { value: true, label: '程序化', icon: 'braces', detail: 'run_code 编排', title: '本会话工具面收窄为 run_code 单入口：模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文——大幅降低 token 消耗。run 间隙生效' }
+    : { value: true, label: '程序化', icon: 'braces', detail: '需 code-exec 授权', title: '当前 Agent（含预设）未授予 code-exec 标签——程序化开关对其惰性（勾选不生效）。请到 Agent 设置添加 code-exec 标签，或换用已授权的 Agent', disabled: true },
+]);
 
 /** 档位显示词（与后端 tierOf 同词表：full > sandbox > 缺省 base） */
 const TIER_LABEL: Record<'sandbox-access' | 'full-access', string> = {
@@ -450,6 +545,16 @@ const modelTitle = computed(() => {
     : '模型：Agent 原配置';
 });
 const effortLabel = computed(() => EFFORT_OPTIONS.find(o => o.value === reasoningEffort.value)?.label ?? '思考·关');
+/** 工具使用模式按钮显示（'braces' 图标 = 程序卡象形同源） */
+const toolModeLabel = computed(() => (programmatic.value ? '程序化' : '标准'));
+const toolModeTitle = computed(() => {
+  if (!programmaticAvailable.value) {
+    return '工具使用模式：当前 Agent（含预设）未授予 code-exec 标签——程序化开关对其惰性（不生效）。请到 Agent 设置添加该标签，或换用已授权的 Agent';
+  }
+  return programmatic.value
+    ? '工具使用模式：程序化——本会话工具面收窄为 run_code 单入口（模型写 TS 程序编排成批工具调用，只有最终返回值回上下文）。run 间隙生效；关闭即恢复逐个直调'
+    : '工具使用模式：标准——模型逐个调用工具（每个工具独立 schema）。可切换为程序化（run_code 编排，大幅降低 token 消耗）';
+});
 const elevLabel = computed(() => {
   if (!elevation.value) return '提权';
   return elevation.value === 'sandbox-access' ? '提权·沙箱' : '提权·完全';
@@ -1028,6 +1133,13 @@ function onThumbError(i: number) {
     <!-- ask_questions 决策卡片已上移至 ConversationView composer 列（ComposerDock/
          QueueDock 同族的输入框上方 dock 卡，不再内联在输入卡内） -->
 
+    <!-- 退役预设迁移提示（research §十）：存量 __programmatic__ 会话禁止
+         续聊（预设已退役，续聊将 404）——历史只读保留 -->
+    <div v-if="presetRetired" class="retire-banner" role="note">
+      <Icon name="alert-circle" :size="14" />
+      <span>程序化模式预设已退役，本会话无法续聊（历史保留只读）。请开新会话，并在输入框下方工具栏选择「程序化」工具使用模式。</span>
+    </div>
+
     <!-- 快捷输入弹层（/ 命令与技能、@ 引用；触发检测见 utils/mention.ts） -->
     <InputMention
       v-if="mention"
@@ -1054,8 +1166,8 @@ function onThumbError(i: number) {
       <textarea
         ref="textareaEl"
         v-model="inputText"
-        :placeholder="store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…' : (busySend ? busyPlaceholder : (placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)'))"
-        :disabled="disabled"
+        :placeholder="presetRetired ? '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式' : (store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…' : (busySend ? busyPlaceholder : (placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)')))"
+        :disabled="inputDisabled"
         @keydown="onKeydown"
         @input="updateMention"
         @keyup="updateMention"
@@ -1131,6 +1243,38 @@ function onThumbError(i: number) {
                 <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
                 <span class="dd-option-name">{{ opt.label }}</span>
                 <span class="dd-option-detail">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- 工具使用模式（程序化开关，research §十）：标准 / 程序化两档——
+             选择即写会话 conv-settings（router 收窄 LLM 面，run 间隙生效）；
+             群聊隐藏（发言投递全体成员，模式无作用对象） -->
+        <div v-if="!isGroupCtx" class="dd">
+          <button
+            type="button"
+            class="select-btn"
+            :class="{ open: toolModeMenuOpen, off: !programmatic, prog: programmatic }"
+            @click.stop="toggleToolModeMenu"
+            :title="toolModeTitle"
+          >
+            <Icon name="braces" :size="15" />
+            <span class="select-text">{{ toolModeLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: toolModeMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="toolModeMenuOpen" class="dd-menu" @click.stop>
+              <button
+                v-for="opt in TOOL_MODE_OPTIONS" :key="String(opt.value)" type="button"
+                class="dd-option" :class="{ selected: programmatic === opt.value, 'is-disabled': opt.disabled }"
+                :title="opt.title"
+                :disabled="opt.disabled"
+                @click="selectToolMode(opt.value)"
+              >
+                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="dd-option-name">{{ opt.label }}</span>
+                <span class="dd-option-detail" :class="{ 'is-warn': opt.disabled }">{{ opt.detail }}</span>
               </button>
             </div>
           </Transition>
@@ -1256,7 +1400,7 @@ function onThumbError(i: number) {
           type="button"
           class="icon-btn send-btn"
           :class="{ stopping: busySend }"
-          :disabled="disabled || (!busySend && !inputText.trim() && attachedFiles.length === 0)"
+          :disabled="inputDisabled || (!busySend && !inputText.trim() && attachedFiles.length === 0)"
           @click="onPrimary"
           :title="busySend ? '停止生成' : '发送'"
         >
@@ -1527,6 +1671,27 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .select-btn.armed:hover { color: var(--color-warning, #e67e22); background: color-mix(in srgb, var(--color-warning, #e67e22) 10%, transparent); }
 .select-btn.armed-full { color: var(--color-error, #e5484d); }
 .select-btn.armed-full:hover { color: var(--color-error, #e5484d); background: color-mix(in srgb, var(--color-error, #e5484d) 10%, transparent); }
+
+/* 程序化模式激活态（工具使用模式 = 程序化）：主色微亮——模式在场的持续提示 */
+.select-btn.prog { color: var(--color-primary, #4f46e5); font-weight: 600; }
+.select-btn.prog:hover { color: var(--color-primary, #4f46e5); background: color-mix(in srgb, var(--color-primary, #4f46e5) 10%, transparent); }
+/* 档位不可选（Agent 无 code-exec——开关惰性对齐） */
+.dd-option.is-disabled { opacity: .55; cursor: not-allowed; }
+.dd-option.is-disabled:hover { background: none; }
+
+/* 退役预设迁移提示条（research §十防御）：警示色整行——存量会话只读 */
+.retire-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #e67e22) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #e67e22) 8%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--color-warning, #e67e22);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 /* 未配置任何模型警示态（默认模型发不出去——防用户误以为可直接会话） */
 .select-btn.warn { color: var(--color-warning, #e67e22); }

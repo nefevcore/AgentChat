@@ -380,7 +380,7 @@ describe('ac-security 询问提权流（§六：base + 有人桶）', () => {
       key: 'basea~user',
     });
     expect((open[0].payload as { tool: string }).tool).toBe('write');
-    ctx.durableInteraction.reply(open[0].id, true); // 批准
+    ctx.durableInteraction.reply(open[0].id, true); // 批准（旧形：单布尔——scope='call'）
     const r = await pending;
     expect(r.ok).toBe(true);
     // 批准单次有效：下一次同类调用再次询问
@@ -396,6 +396,70 @@ describe('ac-security 询问提权流（§六：base + 有人桶）', () => {
     ctx.durableInteraction.close(open2[0].id, 'consumed');
     const r2 = await again;
     expect(r2.ok).toBe(false);
+  });
+
+  it('run 级批准（scope=run）→ 本轮后续免询问；after-run 清除；跨会话隔离（2026-12 功能增强）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    const target = path.join(root, 'files', 'other', 'shared.txt');
+
+    // 第一次：询问 + run 级批准
+    const p1 = exec(ctx, {
+      name: 'write',
+      args: { file_path: target, content: 'x' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
+      toolCallId: 'c1',
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const open1 = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open1).toHaveLength(1);
+    ctx.durableInteraction.reply(open1[0].id, { approved: true, scope: 'run' });
+    const r1 = await p1;
+    expect(r1.ok).toBe(true);
+
+    // 第二次（同 run 窗口、同会话、另一工具）：免询问直接放行
+    const r2 = await exec(ctx, {
+      name: 'bash',
+      args: { command: 'echo hi' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
+    });
+    expect(r2.ok).toBe(true);
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0); // 无新询问
+
+    // 跨会话隔离：另一 Agent 会话不吃本会话的 run 授权（仍要询问）
+    const p3 = exec(ctx, {
+      name: 'write',
+      args: { file_path: target, content: 'z' },
+      agentId: 'sandboxa', // sandbox 档写越白名单 → 视同 base，走询问
+      conversationId: 'sandboxa~user',
+      toolCallId: 'c3',
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(1);
+    ctx.durableInteraction.reply(ctx.durableInteraction.listOpen({ kind: 'approval' })[0].id, false);
+    const r3 = await p3;
+    expect(r3.ok).toBe(false);
+
+    // run 收束（loop/after-run）→ 授权清除，重新询问
+    ctx.emit('loop/after-run', { agent: 'basea', conversationId: 'basea~user', model: 'm', messages: [] }, {
+      steps: [], text: '', finish: 'stop', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+    });
+    const p4 = exec(ctx, {
+      name: 'write',
+      args: { file_path: target, content: 'w' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
+      toolCallId: 'c4',
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(1);
+    ctx.durableInteraction.close(ctx.durableInteraction.listOpen({ kind: 'approval' })[0].id, 'consumed');
+    const r4 = await p4;
+    expect(r4.ok).toBe(false);
   });
 
   it('拒绝 → {ok:false, error 明确}；interaction 关闭', async () => {

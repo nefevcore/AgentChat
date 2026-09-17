@@ -53,6 +53,9 @@
 //   jobs/list|kill            （后台任务/子Agent 调用清单面：bash 后台与
 //                              subagent 委派的统一任务词汇——运行中 + 最近
 //                              终态；kill 宿主全权不按 owner 收窄）
+//   subagents/list|history    （子Agent 会话展示面：注册表清单（跨重启，
+//                              含墓碑外全部）+ 会话消息读（SubagentMessageLine
+//                              全形——agent 行带 steps[]；墓碑可读，R6）
 //   session/tokens            （M18：补 maxContextTokens/usagePercent/
 //                              avgTokensPerMsg/estimatedMsgsRemaining——
 //                              会话头 Token 仪表的分母与派生值）
@@ -159,6 +162,16 @@ function optStr(v: unknown): string | undefined {
 
 function optNum(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+/** runs/snapshot 数据指纹 → digest（稳定短哈希；短路判等用，非密码学面） */
+function hashFingerprint(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
 }
 
 /** 读面工作区推导上下文（M32）：REST query 的 agentId/conversationId
@@ -802,7 +815,7 @@ export function apply(ctx: Context) {
   // 语义见 session/archive 处权威注释）。
   web.registerRpc('agents/presets', () => {
     const presets = ctx.get('agentPresets', false) as
-      | { list(): Array<{ meta: { label: string; description?: string; default?: boolean } ; agent: { id: string; name?: string; description?: string } }> }
+      | { list(): Array<{ meta: { label: string; description?: string; default?: boolean } ; agent: { id: string; name?: string; description?: string; tags?: string[] } }> }
       | undefined;
     if (!presets) throw new Error('agentPresets 服务未装载（预设目录不可用）');
     return {
@@ -813,6 +826,9 @@ export function apply(ctx: Context) {
         label: d.meta.label,
         description: d.meta.description ?? '',
         default: d.meta.default === true,
+        // tags（2026-09-17 开关化补）：预设授权面——前端判定「程序化」开关
+        // 可用性（code-exec 在场；缺席 = 开关对该 Agent 惰性，UI 需可提示）
+        ...(Array.isArray(d.agent.tags) ? { tags: d.agent.tags } : {}),
       })),
     };
   });
@@ -994,8 +1010,8 @@ export function apply(ctx: Context) {
   function requireConvSettings() {
     const convSettings = ctx.get('convSettings', false) as
       | {
-          get(conversationId: string): { model?: string };
-          set(conversationId: string, patch: Record<string, string | null | undefined>): { model?: string };
+          get(conversationId: string): { model?: string; programmatic?: boolean };
+          set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): { model?: string; programmatic?: boolean };
         }
       | undefined;
     if (!convSettings) throw new Error('convSettings 服务未装载（会话设置面不可用）');
@@ -1007,13 +1023,16 @@ export function apply(ctx: Context) {
     settings: requireConvSettings().get(reqStr(obj(params), 'conversationId')),
   }));
 
-  // set：patch.model = 'name@model' | 裸名 | null（null/'' = 清除覆盖）
+  // set：patch.model = 'name@model' | 裸名 | null（null/'' = 清除覆盖）；
+  // patch.programmatic = 'true' | null（布尔键的 wire 字符串形态——
+  // 程序化开关，2026-09-17 research §十；其余值 = 清除）
   web.registerRpc('conv-settings/set', (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
     const patch = obj(p.patch);
     const settings = requireConvSettings().set(conversationId, {
       model: patch.model === null || patch.model === undefined ? null : String(patch.model),
+      ...(patch.programmatic !== undefined ? { programmatic: patch.programmatic === null ? null : String(patch.programmatic) } : {}),
     });
     return { conversationId, settings };
   });
@@ -1155,6 +1174,7 @@ export function apply(ctx: Context) {
     byDayModel: ctx.usage.byDayModel(),
     byConversation: ctx.usage.byConversation(),
     byPair: ctx.usage.byPair(),
+    bySelfSession: ctx.usage.bySelfSession(),
     totals: ctx.usage.totals(),
   }));
 
@@ -1165,36 +1185,61 @@ export function apply(ctx: Context) {
   // 运行矩阵快照：会话文件扫描（messageCount/size/mtime + 尾部摘要）+
   // 运行中（conversation/stats）+ 群组面 + 用量汇总。纯读——不写任何域数据。
   // last = 每会话尾部一条摘要（Port B P4 名册 lastActivity/lastMessage 合成源）。
-  web.registerRpc('runs/snapshot', () => {
-    const conversations = ctx.session
-      .ids()
-      .map((cid) => {
-        const last = ctx.session.tail(cid);
-        return {
-          conversationId: cid,
-          ...(ctx.session.stats(cid) ?? {}),
-          ...(last
-            ? {
-                last: {
-                  role: last.role,
-                  text: last.content.slice(0, 120),
-                  ts: last.timestamp,
-                  // 中性格式归属（D13）：优先 agent_id；旧 baked 行回落 name
-                  ...(last.agent_id !== undefined ? { agent_id: last.agent_id } : {}),
-                  ...(last.name !== undefined ? { name: last.name } : {}),
-                },
-              }
-            : {}),
-        };
-      })
-      .filter((c) => c.messageCount !== undefined || c.size !== undefined);
+  //
+  // digest 短路（性能）：前端 3s 轮询，绝大多数轮次内容无变化——完整载荷
+  // 几十 KB 的序列化 + 传输 + 前端投影重算都是纯浪费。请求带上一轮 digest
+  // 且当前推导的 digest 相同 → 返回 { unchanged: true, digest, generatedAt }
+  // 轻载荷（前端保留引用零渲染）。digest 由「数据指纹」（会话 id 集 + 各
+  // stats/tail 的 mtime/size + running/queued 句柄集 + 群组面）拼串 hash 而
+  // 成——不依赖载荷 JSON 全序列化（省的就是这份序列化）。指纹元素任一
+  // 变化 digest 即变，漏判为零（误判更新 = 返回完整载荷，无损）。
+  let runsDigestCache: { digest: string; payload: unknown } | null = null;
+  web.registerRpc('runs/snapshot', (params) => {
+    const ids = ctx.session.ids();
+    // 数据指纹：tail/stats 缓存命中时零读（mtime 门），未命中也只增量段
+    const convs = ids.map((cid) => {
+      const last = ctx.session.tail(cid);
+      const st = ctx.session.stats(cid);
+      return { cid, last, st };
+    });
     const stats = ctx.conversation.stats();
-    return {
+    const groups = ctx.group.list();
+    const fingerprint = [
+      convs.map((c) => `${c.cid}:${c.st?.size ?? -1}:${c.st?.updatedAt ?? 0}:${c.last?.timestamp ?? ''}:${c.last?.role ?? ''}`).sort().join('|'),
+      stats.running.map((r) => `${r.agentId}@${r.conversationId}#${r.startedAt}`).sort().join('|'),
+      Object.keys(stats.queued).sort().map((k) => `${k}#${stats.queued[k]}`).join('|'),
+      groups.map((g) => `${g.id}:${g.members.length}:${g.name}`).sort().join('|'),
+    ].join('::');
+    const digest = hashFingerprint(fingerprint);
+    const reqDigest = obj(params).digest;
+    if (typeof reqDigest === 'string' && reqDigest === digest && runsDigestCache) {
+      return { unchanged: true, digest, generatedAt: Date.now() };
+    }
+    const conversations = convs
+      .map((c) => ({
+        conversationId: c.cid,
+        ...(c.st ?? {}),
+        ...(c.last
+          ? {
+              last: {
+                role: c.last.role,
+                text: c.last.content.slice(0, 120),
+                ts: c.last.timestamp,
+                // 中性格式归属（D13）：优先 agent_id；旧 baked 行回落 name
+                ...(c.last.agent_id !== undefined ? { agent_id: c.last.agent_id } : {}),
+                ...(c.last.name !== undefined ? { name: c.last.name } : {}),
+              },
+            }
+          : {}),
+      }))
+      .filter((c) => c.messageCount !== undefined || c.size !== undefined);
+    const payload = {
+      digest,
       generatedAt: Date.now(),
       conversations,
       running: stats.running,
       queued: stats.queued,
-      groups: ctx.group.list().map((g) => ({
+      groups: groups.map((g) => ({
         groupId: g.id,
         name: g.name,
         memberCount: g.members.length,
@@ -1203,6 +1248,8 @@ export function apply(ctx: Context) {
       })),
       usageTotals: ctx.usage.totals(),
     };
+    runsDigestCache = { digest, payload };
+    return payload;
   });
 
   // 软中断（src /api/runs/interrupt 对照；convKey = conversationId）
@@ -1244,6 +1291,59 @@ export function apply(ctx: Context) {
     const p = obj(params);
     const { outcome, job } = requireJobs().kill(reqStr(p, 'id'));
     return { outcome, job: jobWire(job) };
+  });
+
+  // ============ subagents：子Agent 会话展示面（运行跟踪点击 → 主区视图） ============
+
+  // 可选能力（requireJobs 同款非 strict——摘 ac-subagent 行不拖垮 RPC 面；
+  // 面级错误由前端归一空态）。类型面窄化为本面消费的三个方法。
+  function requireSubagents() {
+    const subagents = ctx.get('subagents', false) as
+      | {
+          list(opts?: { query?: string; runningOnly?: boolean; limit?: number }): {
+            activeCount: number;
+            total: number;
+            subs: Array<Record<string, unknown>>;
+          };
+          get(id: string): Record<string, unknown> | undefined;
+          historyRecords(id: string): unknown[];
+        }
+      | undefined;
+    if (!subagents) throw new Error('subagents 服务未装载（ac-subagent 行未装配，子Agent 会话面不可用）');
+    return subagents;
+  }
+
+  // 注册表清单（跨重启；运行跟踪面板历史区数据源——jobBoard 重启即空，
+  // 这里补齐跨重启入口，R5）。limit 缺省 50/上限 100（对齐服务面 LIST 上限）。
+  web.registerRpc('subagents/list', (params) => {
+    const p = obj(params);
+    const r = requireSubagents().list({
+      ...(optStr(p.query) !== undefined ? { query: optStr(p.query) } : {}),
+      ...(p.running_only === true ? { runningOnly: true } : {}),
+      ...(optPageNum(p.limit) !== undefined ? { limit: Math.min(optPageNum(p.limit)!, 100) } : {}),
+    });
+    return { activeCount: r.activeCount, total: r.total, subs: r.subs };
+  });
+
+  // 会话消息（展示口径）：SubagentMessageLine 全形（agent 行带 steps[]——
+  // 工具卡/思维链/步级时序）；墓碑可读（R6——remove 只打墓碑、文件保留的
+  // 既有语义）。分页形状对齐 session/history（limit/offset 从尾部往回取 +
+  // total + hasMore——前端上翻管线可照抄 pair 形态）。
+  web.registerRpc('subagents/history', (params) => {
+    const p = obj(params);
+    const id = reqStr(p, 'id');
+    const all = requireSubagents().historyRecords(id);
+    const limit = optPageNum(p.limit);
+    const offset = optPageNum(p.offset) ?? 0;
+    const page = limit === undefined
+      ? all
+      : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
+    return {
+      id,
+      records: page,
+      total: all.length,
+      ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
+    };
   });
 
   // 会话 Token 仪表（会话头）：messageCount 来自会话文件；contextTokens =

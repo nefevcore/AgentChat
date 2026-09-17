@@ -58,6 +58,8 @@ export function apply(ctx: Context) {
         repeat_count: { type: 'number', description: '[set] 重复次数（0 = 永久）', minimum: 0 },
         hint: { type: 'string', description: '[set] 触发时发给 Agent 的提示' },
         target: { type: 'string', description: '[set] 发送目标（逗号分隔；per-Agent 条目仅本人，忽略此参数）' },
+        active_hours: { type: 'string', description: '[set] 活动窗口（HH:mm-HH:mm，如 06:30-23:30；跨午夜写 22:00-06:00）——窗口外的到点触发不唤醒 Agent（调度层静默，零 token）' },
+        gate: { type: 'string', description: '[set] 预检门命令——触发前先执行，退出码非 0 则跳过本轮（不唤醒不计数）；命令失败/超时不拦截（fail-open）。适合把静默判定前置到唤醒之前' },
       },
       required: ['action'],
     },
@@ -121,6 +123,8 @@ export function apply(ctx: Context) {
           ...(Number.isFinite(repeatRaw) && repeatRaw > 0 ? { repeatCount: Math.floor(repeatRaw) } : {}),
           hint,
           ...(typeof args.target === 'string' && args.target.trim() ? { target: args.target.trim() } : {}),
+          ...(typeof args.active_hours === 'string' && args.active_hours.trim() ? { activeHours: args.active_hours.trim() } : {}),
+          ...(typeof args.gate === 'string' && args.gate.trim() ? { gate: args.gate.trim() } : {}),
           ...(mode === 'delay'
             ? { delay: (typeof args.delay === 'string' && args.delay) || '1h' }
             : mode === 'random'

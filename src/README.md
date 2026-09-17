@@ -124,8 +124,11 @@ tool/before-execute（waterfall 决策）
        2. 权限轴 needPermission × 档位（full/sandbox/缺省 base = tags 判定）：
           full 自由（跳过路径复检与 bash 扫描）· sandbox 白名单内自由
           （越界视同 base）· base+有人桶经 durableInteraction 询问提权
-          （批准 = call.elevation 注入 'full-access' 单次有效）· base+无人桶
-          拒绝并说明 · 无身份 fail-closed；专属空间 files/<id> 写免询问（D1）
+          （批准两档：仅本次 = call.elevation 注入 'full-access' 单次有效；
+          本轮全部 scope='run' = 内存授权表按 agent+conversation 维度记
+          载，本轮 run 内后续 needPermission 调用免询问，after-run 清除）
+          · base+无人桶拒绝并说明 · 无身份 fail-closed；专属空间
+          files/<id> 写免询问（D1）
        3. 双黑名单复检：accessDenyPaths（读+写双禁——控制面 + 持久化域树
           agents/sessions/subagents/usage/backups，不随档位跳过）/
           readDenyPaths（仅读禁——.env 系/密钥，full 跳过）
@@ -169,6 +172,37 @@ logger.warn 告警——不静默。「**tags 即工具面**」的准确边界�
 工具**成立（全量标签化 2026-09-16，一切出厂工具挂具体标签）；第三方/
 动态插件工具若不声明 requiredTags 仍默认人人可见（toolAllowedFor
 短路）——生态作者请自觉挂标签，否则该工具游离于 tags 门禁之外。
+
+**程序化模式（run_code / PTC，2026-09-17 P0；开关化 research §十）**：
+ac-run-code 工具行（`run_code`，requiredTags `['code-exec']`——tag-registry
+预注册，与 shell 分治可独立授予）+ SDK 投影纯库 ac-run-code-core。模型写
+一段可擦除 TS 程序经 `tools.<name>(args)` 编排成批工具调用，只有 return
+值回上下文（步记录 = 摘要 + trace 子调用时间线 + programHash，程序体
+全文入 host 日志）。**形态 = 会话级开关**（`__programmatic__` 预设已随
+开关化退役）：conv-settings `programmatic: true` → router 工具面合成后
+收窄 LLM 面为 `['run_code']`（真互斥——LLM 面单 schema，投影源从能力面
+直取 `resolveEffectiveTools(…, 'projection')` 跳过 include 收窄，token
+单份 + 零决策歧义）；开关关或 Agent 无 code-exec（开关惰性——warn 并
+忽略）= 并存形态（run_code 与传统工具同列，投影注入附执行形态选择
+策略）。UI = 输入框工具栏「工具使用模式」下拉（标准/程序化，选择即写
+conv-settings）。存量 `__programmatic__` 预设会话前端防御性禁止续聊
+（输入框禁用 + 迁移提示，历史只读保留）。**投影注入**
+（loop/before-run 主档）：run_code 在 LLM 生效面时 system 尾部追加投影
+块（SDK 声明 + 程序书写纪律——字典序稳定，KV cache 前缀友好）；形态
+判定读 run 级 request.tools 终值（开关收窄不落 Agent 配置）。子调用带
+`runCodeSubcall` 标记（ToolCall 开放词汇 + ac-session 补行 `subcall`
+字段——UI 折叠，审计全量）。同源纪律：`resolveEffectiveTools`
+（ac-run-code/src/tool.ts，scope 两口径——'llm' 与 router 可见面合成
+同链、'projection' 能力面授权真理），递归防护 = 投影排除 run_code
+自身。安全：子调用一律 `ctx.tools.execute`（能力轴/档位/黑名单/扫描/
+脱敏/事件面全自动生效）；worker = containment 非 boundary（只做资源
+约束 computeMs/maxWallMs/
+maxOutputBytes + unref + 中止）。并发纪律：写路径（WRITE_PATH_TOOLS）∪
+命令（COMMAND_TOOLS，单源 import 自 ac-security）按提交序串行，其余
+并行。worker 引导（2026-09-17 实验结论）：esbuild 单入口 bundle 对
+`new Worker(new URL('./worker.ts'))` 类引用原样保留字符串、文件不进
+bundle——bundle 形态走 build-bundle.mjs 第二入口产物 `dist/worker.mjs`
+（运行时存在性探测：dev `./worker.ts` → bundle 同目录 `worker.mjs`）。
 
 **群拓扑**（单通道 v3）：
 
@@ -223,10 +257,10 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | subagents | `ac-subagent/src/service.ts`（持久多轮实体） | — |
 | jobs | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled） |
 | browser | `ac-web-tools/src/browser.ts`（守护进程命令配置） | — |
-| durableInteraction | `ac-durable-interaction/src/types.ts` + `store.ts` | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}） |
-| timers | `ac-timer/src/service.ts`（TimerRowOptions） | — |
+| durableInteraction | `ac-durable-interaction/src/types.ts` + `store.ts` | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}；核领域无关——ask_questions 工具住 ac-ask-questions，approval 语义住 ac-security） |
+| timers | `ac-timer/src/service.ts`（TimerRowOptions；条目级 activeHours 活动窗口 + gate 预检门——静默判定前置调度层，LLM 零 token 跳过） | — |
 | archive | `ac-archive/src/service.ts` | `ac-archive/src/events.ts`（archive/completed） |
-| usage | `ac-usage/src/index.ts`（双轨聚合桶） | — |
+| usage | `ac-usage/src/index.ts`（双轨聚合桶 + bySelfSession 自会话成本观测） | — |
 | backup | `ac-backup/src/index.ts` | — |
 | workspace | `ac-workspace/src/index.ts`（agentWorkdir/sandboxWorkdir 唯一事实源 + pickFolder 原生选择·纯模块 native-dialog.ts） | — |
 | webServer | `ac-web-server/src/contract.ts`（RouteCall/RpcHandler/RpcCaller） | `ac-web-server/src/events.ts`（ws/ack + ws/connection-*） |
@@ -385,11 +419,17 @@ src/
 ├── ac-subagent/             子 Agent（ctx.subagents）：持久多轮实体（spawn/send
 │                            [async·sync·steer·next-run 四投递语义]/await/list/stop/
 │                            delete）；落盘 <root>/subagents/ 跨重启续聊；每 run job
-│                            登记（usage 记账落 subId 名下）
-├── ac-durable-interaction/  持久化交互（ctx.durableInteraction）：write-ahead 状态机
-│                            （open/reply/close 幂等）+ ask_questions 工具 + 一周保留期
+│                            登记（usage 记账落 subId 名下）；会话行 = SessionRecord
+│                            中性格式兼容形（agent 行带全量 steps[]——收束一次性
+│                            落盘；historyRecords 展示投影墓碑可读；回放口径不变
+│                            ——steps 不进子上下文，subagent-session-view-plan）
+├── ac-durable-interaction/  持久化暂停点核（ctx.durableInteraction）：write-ahead 状态机
+│                            （open/reply/close 幂等，领域无关）+ 一周保留期
 │                            sweep（终态过期清理 + 多代行折叠；pending 永不清；写口后
-│                            懒触发一次性定时器，空闲零定时器）
+│                            懒触发一次性定时器，空闲零定时器）——kind 词汇由各行认领
+├── ac-ask-questions/        ask_questions 工具行：批量提问等待决策（kind='ask_questions'
+│                            认领者；选项归一化防模型不守 schema）+ late-reply 唤醒
+│                            （run 已死作答回投 + backfillToolResult 补记）
 ├── ac-mcp/                  MCP 行（ctx.mcp）：全局服务器注册（懒建连）+ 工具发现
 │                            注册进 ctx.tools（撞名 `${server}__${name}` 前缀）；
 │                            放行走行 config，per-Agent 暴露走 AgentConfig.tools
@@ -406,6 +446,17 @@ src/
 │                            别名）/ bash（Unix 纯透传）+ job 管理。前台超时/
 │                            流式 onProgress + 后台 job 登记（requiredTags
 │                            ['shell']；needPermission——档位门）
+├── ac-run-code/             程序化模式 PTC 内核（2026-09-17 P0）：run_code
+│                            工具行（requiredTags ['code-exec']）——模型写
+│                            可擦除 TS 程序编排成批工具调用；主线程桥接
+│                            （ctx.tools.execute 全安全面）+ worker containment
+│                            （资源约束；引导双入口：dev worker.ts / bundle
+│                            worker.mjs）。程序化 = 会话级开关（conv-settings
+│                            programmatic + router 收窄 LLM 面——research §十
+│                            开关化，__programmatic__ 预设已退役）
+├── ac-run-code-core/        run_code SDK 投影纯库：生效工具集 → 可擦除 TS
+│                            声明文本（字典序稳定——KV cache 前缀不变量；
+│                            零 cordis 依赖）
 ├── ac-math/                 数学：纯表达式解析求值（白名单常量/函数 + BigInt 混算 +
 │                            资源护栏；无 node:vm）
 ├── ac-web-tools/            网络：web_search（requiredTags ['web']，needPermission
@@ -419,7 +470,10 @@ src/
 │                            预设目录（tags 即工具面：sap-adt/shell/web，与
 │                            标准模式同构）——工具面与预设面独立装配
 ├── ac-collab-tools/         协作：send_agent（经 conversation，busy=steer/wait=
-│                            next-run）/send_group/list_*/read_agent_info/
+│                            next-run；空闲投递回复文本随结果直返 reply 字段；
+│                            子 Agent 发信对桶归一到父 pairKey(parent, to)——
+│                            防幽灵 sub~to 桶，用户在父口径会话可见）/
+│                            send_group/list_*/read_agent_info/
 │                            update_agent_profile + @<名称> 引用约定
 ├── ac-dev-tools/            开发辅助：read_logs（环形缓冲）/reload/reload_modules
 │                            （语义化中断）
@@ -479,8 +533,10 @@ src/
 │                            帧不广播（群内容唯一源 = group/message-posted）
 ├── ac-web-api/              WS RPC 业务方法注册薄编排行：conversation/session/
 │                            agents/group/singles/usage/timer/backup/config/llm/
-│                            plugin/events/system 全套 + 扩展目录聚合
-│                            （collectExtensionCatalog）
+│                            plugin/events/system 全套 + jobs/list·kill（运行
+│                            跟踪清单）+ subagents/list·history（子Agent 会话
+│                            展示：注册表清单跨重启 + 消息全形读，墓碑可读）
+│                            + 扩展目录聚合（collectExtensionCatalog）
 ├── ac-agent-admin/          Agent 管理面（ctx.agentAdmin + 写侧 RPC）：CRUD（白名单
 │                            fail-closed + deepMerge 补丁 + 变更报告）+ 装配视图
 │                            （agents/assembly）+ system-prompt dry-run（三档干跑）
@@ -512,7 +568,11 @@ src/
 │   theme,renderer,tool,       版本弹窗+系统小 API / timer 定时视图）+
 │   sidebar,conversation,      **五工具卡行**（M28 P2 §2.2 镜像表：
 │   settings,layout}/          shell/fs/web/browser/subagent——tool 宿主
-│                              退化零卡）+ **settings 退化三行**
+│                              退化零卡；subagent 行兼营**子 Agent 会话
+│                              只读视角**〔main:perspective 贡献 order 9，
+│                              运行跟踪面板点击进入——历史回放复用
+│                              conversation 渲染内核，session-view-plan〕）
+│                              + **settings 退化三行**
 │                              （M28 P2：llm-pool 连接池〔2026-11 收窄
 │                              llm 单节〕+ search-pool 搜索引擎池〔2026-11
 │                              拆行〕+ plugin-registry 插件库四件——

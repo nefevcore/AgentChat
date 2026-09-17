@@ -11,9 +11,11 @@ import {
   localISO,
   msUntilTime,
   nextDelayOf,
+  parseActiveHours,
   parseInterval,
   randomDelay,
   renderHint,
+  withinActiveHours,
   type TimerEntry,
 } from '../src/index.ts';
 
@@ -145,6 +147,52 @@ describe('ac-timer-core nextDelayOf（恢复态）', () => {
     const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', time: '23:59', hint: 'h' };
     const d = nextDelayOf(entry, undefined, new Date('2026-08-22T10:00:00').getTime());
     expect(d).toBe((23 * 60 + 59 - 10 * 60) * 60_000);
+  });
+});
+
+describe('ac-timer-core 活动窗口（activeHours）', () => {
+  it('parseActiveHours：常规/跨午夜/非法', () => {
+    expect(parseActiveHours('06:30-23:30')).toEqual({ startMin: 390, endMin: 1410 });
+    expect(parseActiveHours('22:00-06:00')).toEqual({ startMin: 1320, endMin: 360 }); // 跨午夜合法
+    expect(parseActiveHours('00:00-00:00')).toEqual({ startMin: 0, endMin: 0 }); // 全天防御形
+    expect(parseActiveHours('25:00-26:00')).toBeNull();
+    expect(parseActiveHours('abc')).toBeNull();
+    expect(parseActiveHours('')).toBeNull();
+  });
+
+  it('withinActiveHours：常规窗口边界（含头不含尾）', () => {
+    const at = (h: number, m: number) => new Date(2026, 7, 22, h, m);
+    expect(withinActiveHours('06:30-23:30', at(6, 30))).toBe(true); // 含 start
+    expect(withinActiveHours('06:30-23:30', at(6, 29))).toBe(false);
+    expect(withinActiveHours('06:30-23:30', at(23, 29))).toBe(true);
+    expect(withinActiveHours('06:30-23:30', at(23, 30))).toBe(false); // 不含 end
+    expect(withinActiveHours('06:30-23:30', at(12, 0))).toBe(true);
+  });
+
+  it('withinActiveHours：跨午夜窗口（22:00-06:00）', () => {
+    const at = (h: number, m: number) => new Date(2026, 7, 22, h, m);
+    expect(withinActiveHours('22:00-06:00', at(23, 0))).toBe(true);
+    expect(withinActiveHours('22:00-06:00', at(3, 0))).toBe(true);
+    expect(withinActiveHours('22:00-06:00', at(12, 0))).toBe(false);
+    expect(withinActiveHours('22:00-06:00', at(21, 59))).toBe(false);
+  });
+
+  it('withinActiveHours：start===end 视为全天；非法 spec fail-open 恒 true', () => {
+    const at = (h: number) => new Date(2026, 7, 22, h, 0);
+    expect(withinActiveHours('00:00-00:00', at(12))).toBe(true);
+    expect(withinActiveHours('garbage', at(12))).toBe(true);
+  });
+
+  it('withinActiveHours：按 tz 墙上时钟判定（上海 vs UTC）', () => {
+    // 2026-06-01T02:00:00Z：上海墙 10:00 / UTC 墙 02:00
+    const now = new Date('2026-06-01T02:00:00Z');
+    expect(withinActiveHours('09:00-12:00', now, 'Asia/Shanghai')).toBe(true); // 上海 10:00 在窗内
+    expect(withinActiveHours('09:00-12:00', now, 'UTC')).toBe(false); // UTC 02:00 窗外
+  });
+
+  it('describeEntry：activeHours 追加窗口标注', () => {
+    const e = { id: 'x', enabled: true, mode: 'delay', delay: '30m', hint: 'h', activeHours: '06:30-23:30' } as TimerEntry;
+    expect(describeEntry(e)).toBe('每隔 30m（活动窗口 06:30-23:30）');
   });
 });
 

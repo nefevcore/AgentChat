@@ -169,6 +169,14 @@ interface ToolResultLine {
   tool_call_id: string;
   /** 工具终值（transform 后的 ToolResult——与 loop 回填模型的内容同对象） */
   result: unknown;
+  /**
+   * run_code 子调用标记（2026-09-17 程序化模式实测复盘 #B）：run_code
+   * 程序内的子调用（call.runCodeSubcall）与模型直接调用在回放面同形
+   * ——UI 据本标记区分/折叠（子调用不产生独立工具卡，归入 run_code
+   * 卡片）；审计面保持全量（不做过滤）。旧版本读到本行 → 未知字段
+   * 忽略（前向兼容）。
+   */
+  subcall?: boolean;
   seq?: number;
 }
 
@@ -357,12 +365,17 @@ function tailFromWindow(text: string): TailRecord | undefined {
 /** 行内时间戳提取（避免全量 JSON.parse；无/坏时间戳不计窗） */
 const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
 
+/** stats 基线全量校准间隔（ms）：时间窗随墙钟漂移，久未校准的增量
+ *  计数会缓慢失真（旧消息出窗不回退）——超时强制一次全量重扫对齐。 */
+const STATS_RECALIBRATE_MS = 60_000;
+
 /** 按记录时间戳统计各时间窗内消息数（热力色阶数据源；纯函数）。部分行
- *  （步级 checkpoint）不计——与 stats 行计数口径一致。 */
-export function countWindowMessages(jsonlText: string, now: number): SessionWindowCounts {
+ *  （步级 checkpoint）不计——与 stats 行计数口径一致。入参为已 split
+ *  的行数组（stats 的行计数同源共享，免二次 split）。 */
+export function countWindowMessages(lines: readonly string[], now: number): SessionWindowCounts {
   const out: SessionWindowCounts = { h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 };
-  for (const line of jsonlText.split('\n')) {
-    if (!line.trim() || line.includes(PARTIAL_MARK) || isHeaderLine(line) || isToolResultLine(line)) continue;
+  for (const line of lines) {
+    if (!line || !line.trim() || line.includes(PARTIAL_MARK) || isHeaderLine(line) || isToolResultLine(line)) continue;
     const m = TIMESTAMP_RE.exec(line);
     if (!m) continue;
     const t = Date.parse(m[1]);
@@ -544,8 +557,13 @@ export class SessionService extends Service {
    */
   private shelfIndex = new Map<string, string>();
   private shelfFile: string;
-  /** stats() 热窗缓存（file → mtime/size 对应的窗口计数；轮询零重算） */
-  private windowCache = new Map<string, { mtimeMs: number; size: number; windows: SessionWindowCounts; messageCount: number }>();
+  /**
+   * stats() 热窗缓存 + 增量基线（file → mtime/size 对应的窗口计数与消息数；
+   * scannedBytes/scannedAt = 增量扫描基线，见 stats()）。轮询零重算；
+   * run 活跃期文件每轮变化时只读新增段追加计数（原整读 4~5MB 会话每轮
+   * 同步阻塞数十 ms × 全部活跃会话——3s 轮询下的持续基底负载）。
+   */
+  private windowCache = new Map<string, { mtimeMs: number; size: number; windows: SessionWindowCounts; messageCount: number; scannedBytes?: number; scannedAt?: number }>();
   /**
    * tail() 尾部摘要缓存（file → mtime/size 对应的末条记录投影；mtime/size
    * 任一变化即失效重读）。动机：runs/snapshot 每 3s 对全部会话调
@@ -716,6 +734,7 @@ export class SessionService extends Service {
         run: state.run,
         tool_call_id: call.toolCallId,
         result,
+        ...(call.runCodeSubcall === true ? { subcall: true } : {}),
         seq: queue.nextSeq++,
       };
       queue.pending.push(JSON.stringify(line));
@@ -1156,8 +1175,41 @@ export class SessionService extends Service {
     // config/changed 后下一轮自动生效。
     const replayTrajectory =
       options.viewer !== undefined && this.replayTrajectoryOf(options.viewer);
+    // 事件行 journal 折叠（P2）：仅对角线自会话桶 + viewer 显式配置 journal
+    // 时启用。两遍扫描：先定位全部（对 viewer 可见的）event 行，尾部 K 条
+    // 之外折叠为一条计数摘要（插入在首条被折叠 event 行的位置，保序）。
+    const journalMode =
+      options.viewer !== undefined &&
+      this.eventReplayOf(options.viewer) === 'journal' &&
+      conversationId === `${options.viewer}~${options.viewer}`;
+    let eventIndexes: number[] = [];
+    if (journalMode) {
+      for (let i = 0; i < records.length; i++) {
+        const r = records[i];
+        if (r.role !== 'event') continue;
+        // hint 视点过滤同口径：投递目标非 viewer 的 event 行本就被跳过——
+        // 不计入折叠范围（折叠摘要只覆盖本就会回放的行）。
+        if (r.agent_id !== undefined && r.agent_id !== options.viewer) continue;
+        eventIndexes.push(i);
+      }
+    }
+    const keepEvents = journalMode ? this.eventJournalKeepOf(options.viewer!) : Infinity;
+    const foldedSet = keepEvents < eventIndexes.length
+      ? new Set(eventIndexes.slice(0, eventIndexes.length - keepEvents))
+      : null;
+    let foldSummaryInserted = false;
     const rows: LlmMessage[] = [];
-    for (const r of records) {
+    for (const [idx, r] of records.entries()) {
+      if (foldedSet !== null && foldedSet.has(idx)) {
+        if (!foldSummaryInserted) {
+          foldSummaryInserted = true;
+          rows.push({
+            role: 'user',
+            content: `[机制运行日志] 此前有 ${foldedSet.size} 次机制触发（定时/任务通知），细节已折叠——最新触发见下方近期条目；需要细节可用会话记录工具查阅。`,
+          });
+        }
+        continue; // 折叠行跳过（摘要占位于首条折叠处，保序）
+      }
       // 部分行（run 未收束残留）：工具结果补记齐全（records 覆盖后）→ 视同
       // 普通 steps 行回放——中断 run 已见前缀**字节保真**（provider KV 缓存
       // 命中 + 完成步记忆，2026-09-04）；不齐（工具执行中进程死亡）→ 跳过
@@ -1221,6 +1273,44 @@ export class SessionService extends Service {
     const config = this.ctx.get('config', false) as { get?(key: string): unknown } | undefined;
     const legacy = config?.get?.('session.replayTrajectory');
     return typeof legacy === 'boolean' ? legacy : true;
+  }
+
+  /**
+   * 事件行回放模式（P2 自会话成本治理）：
+   *   · 'full'（缺省）——event 行全量原文回放（历史行为，零变化）；
+   *   · 'journal'——对角线自会话桶（conversationId = viewer~viewer，机制
+   *     驱动的运行日志）的**旧 event 行**折叠为计数摘要，仅保留最近
+   *     eventJournalKeep（缺省 6）条原文。非自会话桶不受影响（用户直答/
+   *     委托对桶的 event 行语义不同，不折叠）。
+   * 动机：30 分钟一轮的定时器让自会话 event 行无限堆积，每条 hint 原文
+   * （数百字符）随全部历史每轮重放——news 实测单轮上下文 37 万 tokens
+   * 中 event 行占大头，而"过去 46 次触发全部静默"的信息量是一行字。
+   * 存储（records/UI）不动——本模式只作用于 LLM 回放投影。
+   */
+  eventReplayOf(viewer: string): 'full' | 'journal' {
+    const agents = this.ctx.get('agents', false) as
+      | { settingsOf?(id: string, name?: string): unknown }
+      | undefined;
+    const merged = agents?.settingsOf?.(viewer, 'session');
+    if (merged !== undefined && merged !== null && typeof merged === 'object' && !Array.isArray(merged)) {
+      const v = (merged as { eventReplay?: unknown }).eventReplay;
+      if (v === 'journal') return 'journal';
+      if (v === 'full') return 'full';
+    }
+    return 'full'; // 缺省零变化
+  }
+
+  /** journal 模式保留的最近 event 行数（settings.session.eventJournalKeep；缺省 6） */
+  eventJournalKeepOf(viewer: string): number {
+    const agents = this.ctx.get('agents', false) as
+      | { settingsOf?(id: string, name?: string): unknown }
+      | undefined;
+    const merged = agents?.settingsOf?.(viewer, 'session');
+    if (merged !== undefined && merged !== null && typeof merged === 'object' && !Array.isArray(merged)) {
+      const v = (merged as { eventJournalKeep?: unknown }).eventJournalKeep;
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return Math.floor(v);
+    }
+    return 6;
   }
 
   /**
@@ -1436,6 +1526,7 @@ export class SessionService extends Service {
     this.queues.delete(file); // 旧队列作废（seen 引用防重入；nextSeq 由建队续号恢复）
     this.recordsCache.delete(file); // 重写即失效（mtime 门兜底存在；主动删免一次失准读）
     this.tailCache.delete(file);
+    this.windowCache.delete(file); // 增量基线随重写作废（tmp+rename 重排全文件，字节偏移不再可信）
   }
 
   /**
@@ -1549,8 +1640,17 @@ export class SessionService extends Service {
   /**
    * 会话轻量统计（M17-D 运行矩阵数据源；只读扫描不写——规约 1）。
    * 读文件行数/mtime + 热力时间窗（windows：h1/dN 窗口内消息数——
-   * 矩阵范围色阶数据源；mtime/size 缓存，3s 轮询零重算）。
-   * 不存在返回 undefined。
+   * 矩阵范围色阶数据源）。不存在返回 undefined。
+   *
+   * 性能（run 活跃期优化）：缓存命中的 mtime/size 门不变；文件变化时
+   * 不再整读——以缓存里的 scannedBytes 为基线只读新增段，行计数与窗口
+   * 计数在旧值上追加。基线失效兜底（自动回落全量重扫，一次性成本）：
+   *   · 文件缩小（partial 行收束重写 / rewriteMessages 后 mtime 门未及
+   *     拦截的外部改写）→ 字节偏移不再可信；
+   *   · scannedAt 超 STATS_RECALIBRATE_MS → 时间窗随墙钟漂移，全量对齐。
+   * 增量语义近似（可接受）：旧消息随时间出窗不回退（最多高估一轮内
+   * 移出量，60s 校准兜底）；步级 partial 行收束替换可能带来 ±1 行抖动，
+   * 同样被下一次全量校准吸收。
    */
   stats(conversationId: string): { messageCount: number; size: number; updatedAt: number; windows: SessionWindowCounts } | undefined {
     try {
@@ -1561,20 +1661,74 @@ export class SessionService extends Service {
       if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
         return { messageCount: cached.messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows: cached.windows };
       }
-      const text = fs.readFileSync(file, 'utf-8');
+      const now = Date.now();
       // 行计数排除会话头行（M21 步骤 7 / F4：防消息数 +1 漂移）、部分行
       // （run 进行中的步级 checkpoint，非独立消息）与工具结果补行
       // （type 判别行，同头行机制）
-      const messageCount =
-        text.trim() === ''
-          ? 0
-          : text.trim().split('\n').filter((l) => !isHeaderLine(l) && !isToolResultLine(l) && !l.includes(PARTIAL_MARK)).length;
-      const windows = countWindowMessages(text, Date.now());
-      this.windowCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, windows, messageCount });
-      return { messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows };
+      const countable = (l: string): boolean => !isHeaderLine(l) && !isToolResultLine(l) && !l.includes(PARTIAL_MARK);
+      // 增量可行：有基线 && 文件只增 && 基线未超校准期（尾部撕裂行由
+      // 基线回退一个换行吸收——增量段起点是「上一轮扫描结束的完整行尾」）
+      const base = cached?.scannedBytes;
+      if (cached && base !== undefined && stat.size > base && now - (cached.scannedAt ?? 0) < STATS_RECALIBRATE_MS) {
+        const fd = fs.openSync(file, 'r');
+        let messageCount = cached.messageCount;
+        let windows = { ...cached.windows };
+        try {
+          // 基线对齐换行边界：正常 append 恒以 \n 收尾，基线即行尾；若
+          // 上轮落在撕裂行中间（异常路径），从基线起找下一个换行对齐
+          let start = base;
+          const probe = Buffer.alloc(1);
+          fs.readSync(fd, probe, 0, 1, start - 1);
+          if (probe[0] !== 0x0a) {
+            // 罕见：基线不在行边界——回退做全量（偏移不可信）
+            return this.statsFullScan(file, stat, now);
+          }
+          const buf = Buffer.alloc(stat.size - start);
+          fs.readSync(fd, buf, 0, buf.length, start);
+          const lines = buf.toString('utf-8').split('\n');
+          // 末元素是末换行后的空串（文件以 \n 结尾）或撕裂半行（计当轮
+          // 不计，下轮基线推进后由收束行补偿——与全量口径在收束后对齐）
+          for (let i = 0; i < lines.length - 1; i++) {
+            const l = lines[i]!;
+            if (!l.trim() || !countable(l)) continue;
+            messageCount++;
+            const m = TIMESTAMP_RE.exec(l);
+            if (m) {
+              const t = Date.parse(m[1]);
+              if (!Number.isNaN(t)) {
+                const age = now - t;
+                if (age < 3_600_000) windows.h1++;
+                if (age < 86_400_000) windows.d1++;
+                if (age < 3 * 86_400_000) windows.d3++;
+                if (age < 7 * 86_400_000) windows.d7++;
+                if (age < 30 * 86_400_000) windows.d30++;
+              }
+            }
+          }
+        } finally {
+          fs.closeSync(fd);
+        }
+        this.windowCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, windows, messageCount, scannedBytes: stat.size, scannedAt: now });
+        return { messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows };
+      }
+      return this.statsFullScan(file, stat, now);
     } catch {
       return undefined;
     }
+  }
+
+  /** stats 全量扫描路径：整读 + 一次 split 双消费（行计数 & 窗口计数） */
+  private statsFullScan(file: string, stat: fs.Stats, now: number): { messageCount: number; size: number; updatedAt: number; windows: SessionWindowCounts } {
+    const text = fs.readFileSync(file, 'utf-8');
+    const lines = text.split('\n');
+    const countable = (l: string): boolean => !isHeaderLine(l) && !isToolResultLine(l) && !l.includes(PARTIAL_MARK);
+    let messageCount = 0;
+    for (const l of lines) {
+      if (l.trim() && countable(l)) messageCount++;
+    }
+    const windows = countWindowMessages(lines, now);
+    this.windowCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, windows, messageCount, scannedBytes: stat.size, scannedAt: now });
+    return { messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows };
   }
 
   /**
@@ -1678,6 +1832,8 @@ export const extension: ExtensionMeta = {
   automatic: true,
   fields: [
     { name: 'replayTrajectory', type: 'boolean', default: true, description: '轨迹回放——开（缺省）= Agent 回看自己历史时保留当时的工具调用轨迹（思考与工具结果对），质量优先但历史轮边界缓存失效、token 略增；关 = 对话级回放只保留每轮最终回复，成本最优。仅影响 Agent 自己的视角，翻转后下一轮生效（Agent 差异层可覆盖）' },
+    { name: 'eventReplay', type: 'string', default: 'full', description: '事件行回放模式——full（缺省）= 机制触发行全量原文回放；journal = 仅自会话桶（agent~agent）的旧机制行折叠为计数摘要（保留最近 eventJournalKeep 条原文），适合高频定时器驱动的 Agent（如 news 每 30 分钟一轮监控）——旧触发记录的信息量是一行计数，不必每轮按原价重放' },
+    { name: 'eventJournalKeep', type: 'number', min: 0, step: 1, default: 6, description: 'journal 模式保留的最近机制行条数（缺省 6；仅 eventReplay=journal 时生效）' },
   ],
   listeners: [
     { event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' },

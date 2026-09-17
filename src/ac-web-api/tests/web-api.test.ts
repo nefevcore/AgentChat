@@ -97,6 +97,43 @@ class StubConversationService extends Service {
   }
 }
 
+/**
+ * 子Agent 服务桩（subagents/list·history RPC 数据透传验证）：注册表条目
+ * 固定两条（一条 done、一条 running），historyRecords 从落盘文件读
+ * （<root>/subagents/<id>.jsonl——SubagentMessageLine 宽容解析同真件）。
+ */
+class StubSubagentsService extends Service {
+  constructor(ctx: Context, root: string) {
+    super(ctx, 'subagents');
+    this.root = root;
+  }
+
+  private readonly root: string;
+
+  list(opts: { runningOnly?: boolean } = {}): { activeCount: number; total: number; subs: Array<Record<string, unknown>> } {
+    const subs = [
+      { id: 'sub_1', parentId: 'a1', name: '调研员', status: 'idle', displayStatus: 'done', task: '查资料', runs: 1, createdAt: 1, updatedAt: 2 },
+      { id: 'sub_2', parentId: 'a1', name: '写作员', status: 'running', displayStatus: 'running', task: '写总结', runs: 0, createdAt: 1, updatedAt: 2 },
+    ];
+    const filtered = opts.runningOnly ? subs.filter((s) => s.status === 'running') : subs;
+    return { activeCount: filtered.filter((s) => s.status === 'running').length, total: filtered.length, subs: filtered };
+  }
+
+  get(id: string): Record<string, unknown> | undefined {
+    return this.list().subs.find((s) => s.id === id);
+  }
+
+  historyRecords(id: string): Array<Record<string, unknown>> {
+    const file = join(this.root, 'subagents', `${id}.jsonl`);
+    try {
+      const raw = readFileSync(file, 'utf-8');
+      return raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as Record<string, unknown>);
+    } catch {
+      return [];
+    }
+  }
+}
+
 interface Harness {
   ctx: Context;
   web: WebServerService;
@@ -117,7 +154,7 @@ interface Harness {
 const harnesses: Array<{ web: WebServerService; ctx: Context }> = [];
 const sockets: WebSocket[] = [];
 
-async function boot(options?: { jobs?: boolean }): Promise<Harness> {
+async function boot(options?: { jobs?: boolean; subagents?: boolean }): Promise<Harness> {
   const ctx = new Context();
   const root = join(await mkdtemp(join(tmpdir(), 'ac-web-api-')), 'data');
   mkdirSync(root, { recursive: true });
@@ -161,6 +198,14 @@ async function boot(options?: { jobs?: boolean }): Promise<Harness> {
   if (options?.jobs) {
     const jobs = new JobsService(ctx);
     void jobs;
+  }
+  // subagents（子Agent 会话展示面；可选能力行——subagents/list·history
+  // RPC 数据源。缺省不装同理。真 SubagentsService 构造即注册 subagent 工具
+  // （inject tools/agentLoop/jobs/agents）——jobs/agentLoop 缺席会阻塞装配，
+  // 此 harness 只验 RPC 面数据透传，用最小桩替身〔StubConversation 同款〕。）
+  if (options?.subagents) {
+    const subagents = new StubSubagentsService(ctx, root);
+    void subagents;
   }
   // timers 行（静态 inject 依赖 timer/agents/agentStore/conversation/config）
   await ctx.plugin(timersRow, { root, heartbeatMs: 60_000 });
@@ -572,14 +617,15 @@ describe('ac-web-api group / usage / interaction 面', () => {
     expect(r.error).toContain('archive');
   });
 
-  it('usage/tokens 六维汇总形状（byPair 端点对 + byDayModel 交叉维含入）', async () => {
+  it('usage/tokens 七维汇总形状（byPair 端点对 + byDayModel 交叉维 + bySelfSession 自会话观测含入）', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     const r = await rpc(ws, 'usage/tokens', 'r1');
     const result = r.result as Record<string, unknown>;
-    expect(Object.keys(result).sort()).toEqual(['byAgent', 'byConversation', 'byDay', 'byDayModel', 'byModel', 'byPair', 'totals']);
+    expect(Object.keys(result).sort()).toEqual(['byAgent', 'byConversation', 'byDay', 'byDayModel', 'byModel', 'byPair', 'bySelfSession', 'totals']);
     expect(Array.isArray(result.byPair)).toBe(true);
     expect(Array.isArray(result.byDayModel)).toBe(true);
+    expect(result.bySelfSession).toMatchObject({ byAgent: {}, pairPromptTotal: 0, shareOfPairs: 0 });
   });
 
   it('session/tokens：估算口径（usage 实测不驱动仪表）+ 归档后即时回落 + 派生', async () => {
@@ -659,9 +705,11 @@ describe('ac-web-api group / usage / interaction 面', () => {
     expect(ids).toContain('user'); // virtual 仍在名册（会话端点可见）
     expect(ids).not.toContain('__standard__'); // 预设不进名册（src 过滤语义）
     expect(ids).not.toContain('__dsh_minimal__');
+    expect(ids).not.toContain('__programmatic__');
 
     const cat = await rpc(ws, 'agents/presets', 'r2');
     const presets = (cat.result as { presets: Array<{ id: string; name: string; label: string; default: boolean }> }).presets;
+    // 程序化模式已随 ac-run-code 走（preset 子行不在本 boot 面）——两预设
     expect(presets.map((p) => p.id)).toEqual(['__standard__', '__dsh_minimal__']);
     expect(presets[0]).toMatchObject({ name: '标准模式', label: '标准模式', default: true });
     expect(presets[1]).toMatchObject({ label: '极简模式', default: false });
@@ -1681,6 +1729,71 @@ describe('ac-web-api jobs 面（后台任务/子Agent 调用清单）', () => {
     const kill2 = await rpc(ws, 'jobs/kill', 'k2', { id: 'bash-1' });
     expect((kill2.result as { outcome: string }).outcome).toBe('already-finished');
     const bad = await rpc(ws, 'jobs/kill', 'k3', {});
+    expect(bad.ok).toBe(false);
+  });
+});
+
+describe('ac-web-api subagents 面（子Agent 会话展示）', () => {
+  it('服务未装载：subagents/list·history 面级 fail-closed，其余 RPC 面不受拖垮', async () => {
+    const h = await boot(); // 默认不装 subagents
+    const ws = await connect(h.port);
+    const l = await rpc(ws, 'subagents/list', 's0');
+    expect(l.ok).toBe(false);
+    expect(l.error).toContain('子Agent 会话面不可用');
+    const hi = await rpc(ws, 'subagents/history', 's0b', { id: 'sub_x' });
+    expect(hi.ok).toBe(false);
+    expect(hi.error).toContain('子Agent 会话面不可用');
+    // 同一 harness 上其他面照常
+    const ok = await rpc(ws, 'conversation/stats', 's1');
+    expect(ok.ok).toBe(true);
+  });
+
+  it('subagents/list：注册表清单（running_only 过滤）+ subagents/history：分页/全量/steps 透传', async () => {
+    const h = await boot({ subagents: true });
+    const ws = await connect(h.port);
+    // 预写会话文件（SubagentMessageLine 全形——agent 行带 steps）
+    mkdirSync(join(h.root, 'subagents'), { recursive: true });
+    const lines = [
+      JSON.stringify({ role: 'user', content: '任务甲', agent_id: 'a1', message_id: 'm1', ts: 1, timestamp: '2026-12-01T00:00:01.000Z' }),
+      JSON.stringify({ role: 'agent', content: '结论甲', agent_id: 'sub_1', message_id: 'm2', ts: 2, timestamp: '2026-12-01T00:00:02.000Z', steps: [{ content: '结论甲', toolCalls: [{ id: 't1', name: 'read', arguments: '{}', result: { ok: true } }] }] }),
+      JSON.stringify({ role: 'user', content: '追问', agent_id: 'a1', message_id: 'm3', ts: 3, timestamp: '2026-12-01T00:00:03.000Z' }),
+    ];
+    writeFileSync(join(h.root, 'subagents', 'sub_1.jsonl'), `${lines.join('\n')}\n`, 'utf-8');
+
+    // list：全量 + running_only
+    const all = await rpc(ws, 'subagents/list', 'l1');
+    expect((all.result as { total: number }).total).toBe(2);
+    const running = await rpc(ws, 'subagents/list', 'l2', { running_only: true });
+    expect((running.result as { total: number }).total).toBe(1);
+    expect((running.result as { subs: Array<{ id: string }> }).subs[0].id).toBe('sub_2');
+
+    // history：全量（无 limit）→ records 原样（steps 含 ToolResult）
+    const full = await rpc(ws, 'subagents/history', 'h1', { id: 'sub_1' });
+    const fr = full.result as { records: Array<Record<string, unknown>>; total: number };
+    expect(fr.total).toBe(3);
+    expect(fr.records).toHaveLength(3);
+    expect(fr.records[0]).toMatchObject({ role: 'user', agent_id: 'a1' });
+    const agentRec = fr.records[1] as { role: string; steps?: Array<{ toolCalls?: Array<{ result: { ok: boolean } }> }> };
+    expect(agentRec.role).toBe('agent');
+    expect(agentRec.steps?.[0]?.toolCalls?.[0]?.result).toMatchObject({ ok: true });
+
+    // history：分页（limit=1 offset=0 → 最新 1 条；hasMore=true）
+    const page = await rpc(ws, 'subagents/history', 'h2', { id: 'sub_1', limit: 1, offset: 0 });
+    const pr = page.result as { records: Array<{ role: string }>; total: number; hasMore: boolean };
+    expect(pr.records).toHaveLength(1);
+    expect(pr.records[0].role).toBe('user'); // 最新一条（追问）
+    expect(pr.hasMore).toBe(true);
+    // offset=2 limit=1 → 最早一条；hasMore=false
+    const older = await rpc(ws, 'subagents/history', 'h3', { id: 'sub_1', limit: 1, offset: 2 });
+    const or = older.result as { records: Array<{ role: string }>; hasMore: boolean };
+    expect(or.records[0].role).toBe('user');
+    expect(or.records[0]).toMatchObject({ content: '任务甲' });
+    expect(or.hasMore).toBe(false);
+
+    // history：不存在 id（无文件）→ 空数组非错误；缺 id → 失败
+    const empty = await rpc(ws, 'subagents/history', 'h4', { id: 'sub_none' });
+    expect((empty.result as { records: unknown[] }).records).toEqual([]);
+    const bad = await rpc(ws, 'subagents/history', 'h5', {});
     expect(bad.ok).toBe(false);
   });
 });

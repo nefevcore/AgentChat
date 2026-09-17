@@ -20,6 +20,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
 import { Service, type Context } from '@agentchat/cordis';
 import type {} from '@agentchat/cordis-timer'; // ctx.timeout/interval（官方 timer mixin，组合根必装）
 import type {} from 'ac-conversation'; // ctx.conversation 服务类型（type-only）
@@ -30,8 +31,10 @@ import {
   msUntilTime,
   nextDelayOf,
   parseInterval,
+  parseActiveHours,
   randomDelay,
   renderHint,
+  withinActiveHours,
   type GlobalScheduleEntry,
   type TimerEntry,
 } from 'ac-timer-core';
@@ -54,6 +57,8 @@ export interface TimerRowOptions {
   entries?: GlobalScheduleEntry[];
   /** 心跳间隔（缺省 30s；测试可调小） */
   heartbeatMs?: number;
+  /** gate 预检命令超时（缺省 30s；超时 fail-open 不挡触发；测试可调小） */
+  gateTimeoutMs?: number;
 }
 
 /** 持久化运行时状态（停机补偿依据；'_' 前缀 = 内部键） */
@@ -93,6 +98,19 @@ const repeatOf = (entry: TimerEntry) =>
     ? entry.repeatCount
     : -1;
 
+/**
+ * 日历重排地板：触发后计算出的下次延迟小于该值 → 跳过本周期（推到
+ * 再下一个）。修复 2026-09 双投递：墙上时钟比真实慢数秒（Windows 渐进
+ * 校时常态）时，setTimeout 到点回调读 Date.now() 仍略早于目标时刻，
+ * msUntilTime 返回 2~5s 小正值 → 同一天重排再触发一次（自会话出现
+ * "计划前数秒 + 整点"两条相同 event）。日历条目（time/workday/holiday）
+ * 的最短合法周期是"下一个目标时刻"，绝不该是数秒后。
+ */
+const CALENDAR_RESCHEDULE_FLOOR_MS = 60_000;
+
+/** gate 预检命令超时（超时按 fail-open 处理 = 不挡触发；行 options gateTimeoutMs 可覆盖） */
+const GATE_TIMEOUT_MS = 30_000;
+
 export class TimersService extends Service {
   /**
    * 服务级依赖声明（构造期/排程闭包的 this.ctx 解析依据）：timer =
@@ -104,6 +122,7 @@ export class TimersService extends Service {
   private readonly tz: string;
   private readonly globalSchedule: GlobalScheduleEntry[];
   private readonly heartbeatMs: number;
+  private readonly gateTimeoutMs: number;
   /** 行 options（timezone/holidays/makeupWorkdays 的基线层） */
   private readonly rowOptions: TimerRowOptions;
   /** owner → 条目清单（agent-store 物化 + 全局配置合成） */
@@ -122,6 +141,7 @@ export class TimersService extends Service {
     this.rowOptions = options;
     this.globalSchedule = options.entries ?? [];
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
+    this.gateTimeoutMs = options.gateTimeoutMs ?? GATE_TIMEOUT_MS;
 
     // 卸载收尾：停全部排程（心跳 interval 随 fiber 自动回收）
     this.ctx.fiber.effect(
@@ -363,6 +383,32 @@ export class TimersService extends Service {
       return;
     }
 
+    // 重启防重（2026-09 双投递根因：旧进程投递在途被硬杀，记账未落盘；
+    // 新进程 boot → arm 算出"距目标 2~5s"再排程 → 整点二次投递。
+    // 证据：executedCount 与天数一致（每天恰 +1）但 event 双条）。
+    // 守卫：日历条目、有触发史（lastTriggeredAt）、本刻距目标 < 10s——
+    // 正常场景几乎不会在整点前 10s 内 arm 一条有历史的日历条目（谁会在
+    // 09:00:00 前 2 秒保存定时器？）；命中即判"前进程刚投递过本周期"，
+    // 跳到下一周期。方向保守：误判代价 = 少跑一天，绝不重复打扰。
+    if (
+      isCalendar(entry.mode) &&
+      ps?.lastTriggeredAt &&
+      delayMs > 0 &&
+      delayMs <= 10_000
+    ) {
+      const shifted = msUntilTime(entry.time!, new Date(Date.now() + delayMs + 1), tz);
+      this.ctx.logger.info(
+        '[timers] "%C" arm 距目标仅 %Cms 且有触发史——判定重启前已投递，跳过本周期',
+        key,
+        String(Math.round(delayMs)),
+      );
+      delayMs = shifted;
+      if (delayMs === null) {
+        this.ctx.logger.warn('[timers] "%C" 跳过本周期后无可解时刻，停止排程', key);
+        return;
+      }
+    }
+
     // 排程态持久化（delay/random 恢复依据；random 首次抽取即固化）
     if (isDeferred(entry.mode)) {
       const totalDelayMs =
@@ -391,17 +437,61 @@ export class TimersService extends Service {
     const fire = async () => {
       this.schedules.delete(key);
       this.syncHeartbeat(); // 一次性到点：先按无排程收敛（重排路径会重新拉起）
+      // 在途守卫（2026-09-17）：fire 执行期（gate 预检可达秒级）条目可能被
+      // save() 清空/禁用——闭包的 scheduleNext 会把已删条目重新挂回排程
+      //（僵尸循环）。所有重排点先验条目仍在册且启用。
+      const stillArmed = () => {
+        const list = this.entriesByAgent.get(owner);
+        return list !== undefined && list.some((e) => e.id === entry.id && e.enabled !== false);
+      };
       // per-owner 生效层（热更友好：每次触发时重读——config/changed 后下一窗口生效）
       const tz = this.tzOf(owner);
       const holidays = this.holidaysOf(owner);
       const nextMs = () => (entry.time ? msUntilTime(entry.time, new Date(), tz) : null);
       // 日历门控：workday/holiday 非目标日 → 不触发不计数，重排下一窗口
       if (entry.mode === 'workday' && !holidays.isWorkday()) {
-        scheduleNext(nextMs());
+        if (stillArmed()) scheduleNext(nextMs());
         return;
       }
       if (entry.mode === 'holiday' && !holidays.isHoliday()) {
-        scheduleNext(nextMs());
+        if (stillArmed()) scheduleNext(nextMs());
+        return;
+      }
+
+      // 活动窗口门控（P1）：到点时墙上时钟不在 activeHours 窗口内 →
+      // 不投递不计数，重排下一周期。静默发生在调度层——LLM 不被唤醒
+      // （区别于业务脚本内部判静默：那是花全额上下文换取一句"静默"）。
+      if (
+        entry.activeHours &&
+        parseActiveHours(entry.activeHours) !== null &&
+        !withinActiveHours(entry.activeHours, new Date(), tz)
+      ) {
+        this.ctx.logger.info(
+          '[timers] "%C" 活动窗口外（%C），跳过本轮',
+          key,
+          entry.activeHours,
+        );
+        if (stillArmed()) {
+          scheduleNext(
+            isCalendar(entry.mode)
+              ? nextMs()
+              : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax),
+          );
+        }
+        return;
+      }
+
+      // gate 预检门（P1）：命令退出码非 0 → 跳过本轮（不投递不计数）。
+      // 预检启动失败/超时 = fail-open（不挡正常触发）。静默判定前置到
+      // 唤醒 LLM 之前——"quiet" 判定不再消耗任何 token。
+      if (entry.gate && !(await this.runGate(key, entry.gate))) {
+        if (stillArmed()) {
+          scheduleNext(
+            isCalendar(entry.mode)
+              ? nextMs()
+              : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax),
+          );
+        }
         return;
       }
 
@@ -434,9 +524,30 @@ export class TimersService extends Service {
           return;
         }
       }
-      // 重排：日历重算目标时刻；delay/random 用 nextDelay
+      // 在途守卫：fireEntry 期间条目被 save() 移除/禁用 → 不重排（防僵尸）
+      if (!stillArmed()) return;
+      // 重排：日历重算目标时刻；delay/random 用 nextDelay。
+      // 日历地板（CALENDAR_RESCHEDULE_FLOOR_MS）：触发后算出的下次延迟
+      // 小于地板 → 推到再下一周期。修复 2026-09 双投递（睡眠唤醒/渐进
+      // 校时使墙上时钟落后单调时钟数秒~数分钟）：setTimeout 单调时钟
+      // 准点回调时 Date.now() 仍早于目标时刻 → msUntilTime 返回 2~5s
+      // 小正值 → 同一天重排再触发（自会话出现"计划前数秒 + 整点"两条
+      // 相同 event）。日历条目的合法周期最小粒度是"下一个目标时刻"，
+      // 绝不该是数秒后。
       if (isCalendar(entry.mode)) {
-        scheduleNext(nextMs());
+        const ms = nextMs();
+        if (ms !== null && ms > 0 && ms < CALENDAR_RESCHEDULE_FLOOR_MS) {
+          const shifted = msUntilTime(entry.time!, new Date(Date.now() + ms + 1), tz);
+          this.ctx.logger.info(
+            '[timers] "%C" 下次延迟 %Cms 低于地板 %Cms（时钟滞后窗口），推至下一周期',
+            key,
+            String(ms),
+            String(CALENDAR_RESCHEDULE_FLOOR_MS),
+          );
+          scheduleNext(shifted);
+        } else {
+          scheduleNext(ms);
+        }
       } else {
         scheduleNext(nextDelay ?? 0);
       }
@@ -458,6 +569,45 @@ export class TimersService extends Service {
   // ============================================================
   // 触发（agent run / 机制任务直调）
   // ============================================================
+
+  /**
+   * gate 预检（P1）：宿主 shell 执行命令，退出码 0 = 通过；数字非 0 =
+   * 跳过本轮。判别依据 err.code 类型（execFile 回调约定）：
+   *   · code 为数字 → 进程真实退出码（cmd/sh 语义：err.code = 1 即命令
+   *     自身返回 1——"命令不存在"经 cmd /c 包装也落在这里，属可接受
+   *     模糊：预检命令写错 = 用户配置问题，拦截比放行安全）；
+   *   · code 为字符串（ENOENT/EACCES 等启动层错误）→ fail-open 不挡；
+   *   · killed=true → 超时 → fail-open 不挡。
+   */
+  private runGate(key: string, command: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const isWin = process.platform === 'win32';
+      execFile(
+        isWin ? 'cmd.exe' : '/bin/sh',
+        isWin ? ['/d', '/s', '/c', command] : ['-c', command],
+        { timeout: this.gateTimeoutMs, windowsHide: true },
+        (err) => {
+          if (err === null) {
+            resolve(true); // 退出码 0
+            return;
+          }
+          if ((err as { killed?: boolean }).killed) {
+            this.ctx.logger.warn('[timers] "%C" gate 预检超时（%Cms，fail-open）: %C', key, String(this.gateTimeoutMs), command);
+            resolve(true);
+            return;
+          }
+          if (typeof err.code !== 'number') {
+            // 启动层失败（shell 不存在等）——fail-open
+            this.ctx.logger.warn('[timers] "%C" gate 预检启动失败（fail-open）: %C', key, String(err.message));
+            resolve(true);
+            return;
+          }
+          this.ctx.logger.info('[timers] "%C" gate 预检退出码 %C，跳过本轮: %C', key, String(err.code), command);
+          resolve(false);
+        },
+      );
+    });
+  }
 
   private async fireEntry(owner: string, entry: TimerEntry, key = `${owner}/${entry.id}`): Promise<void> {
     try {
