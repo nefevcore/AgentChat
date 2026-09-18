@@ -4,13 +4,22 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
-
-### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.10.0 → 0.11.0）
-- **连接自由文本备注**：`adt_create_destination` 增 `description`（manual 与 GUI 导入双模式）——Agent 起名的连接不再需要看名字猜用途；`adt_list_destinations` 面可见；overwrite 保持既有描述（managed 重写不抹手工值）。
-- **FUGR/FF 函数解析修正**：函数模块定位改走 search，不再对未知组伪造组 URI（修「FUGR include 编辑 403/404 后反复试探」类弯路的根因之一）。
-- 本行为纯引擎换代：工具目录/策略/注册表随引擎下发，零适配层改动；ac-sap-adt 域 20 测试全绿 + 根 typecheck 通过。
-
+## [Unreleased]
+
+## [0.8.10] - 2026-09-18
+
+
+
+### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.10.0 → 0.11.0）
+
+- **连接自由文本备注**：`adt_create_destination` 增 `description`（manual 与 GUI 导入双模式）——Agent 起名的连接不再需要看名字猜用途；`adt_list_destinations` 面可见；overwrite 保持既有描述（managed 重写不抹手工值）。
+
+- **FUGR/FF 函数解析修正**：函数模块定位改走 search，不再对未知组伪造组 URI（修「FUGR include 编辑 403/404 后反复试探」类弯路的根因之一）。
+
+- 本行为纯引擎换代：工具目录/策略/注册表随引擎下发，零适配层改动；ac-sap-adt 域 20 测试全绿 + 根 typecheck 通过。
+
+
+
 ### Fixed（run_code lib 引导缺「形态」语义——大结果数据误入注册表撞容量闸后弃用 lib）
 - **现象**（7f48aaff 会话实测样本）：92 个程序仅 1 次尝试 lib.define——把 patch 后的 148KB ABAP 源码当数据 blob 塞 lib，撞 64KB 容量闸抛错；此后全会话弃用 lib，同一对象被重读 ~20 次。模型的跨程序数据传递直觉与 lib「函数注册表」定位错位：它不知道该存的是「读取+加工」函数而非数据本体。
 - **修复**（三处文案，零行为改动）：① DEFAULT_GUIDANCE 增两条——「lib 存小型工具函数（≤数 KB），勿存大结果数据；大数据传递正解 = 把读取/加工逻辑包成 lib 函数调用时现算」+「同一对象被多程序反复读/改的典型场景」；② worker.ts 容量闸错误信息同步形态指引（撞墙时学到正确姿势而非弃用）；③ 工具卡 description 与 prompt.ts 互斥形态注入各补一句。
