@@ -443,6 +443,49 @@ describe('ac-web-api session / agents 面', () => {
     expect((after.result as { records: unknown[] }).records).toEqual([]);
   });
 
+  it('session/history fingerprint 短路（2026-09-19 切换重入优化）：首屏带匹配指纹 → unchanged；文件变 → 全量 + 新指纹；上翻不参与', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    await h.session.append('fp1', 'user', { role: 'user', content: '第一条' });
+    await h.session.append('fp1', 'a', { role: 'user', content: '回复' });
+
+    // 首拉（无指纹）：全量 + 指纹
+    const first = await rpc(ws, 'session/history', 'f1', { conversationId: 'fp1', limit: 50, offset: 0 });
+    expect(first.ok).toBe(true);
+    const firstRes = first.result as { unchanged?: boolean; total: number; fingerprint?: string };
+    expect(firstRes.unchanged).toBeUndefined();
+    expect(firstRes.total).toBe(2);
+    expect(typeof firstRes.fingerprint).toBe('string');
+
+    // 重入（同指纹）：unchanged 轻载荷（零读零序列化）
+    const second = await rpc(ws, 'session/history', 'f2', { conversationId: 'fp1', limit: 50, offset: 0, fingerprint: firstRes.fingerprint });
+    const secondRes = second.result as { unchanged?: boolean; records?: unknown[]; fingerprint?: string };
+    expect(secondRes.unchanged).toBe(true);
+    expect(secondRes.records).toBeUndefined();
+    expect(secondRes.fingerprint).toBe(firstRes.fingerprint);
+
+    // 文件变化（新消息落盘）后同指纹 → 全量 + 新指纹
+    await h.session.append('fp1', 'user', { role: 'user', content: '第二条' });
+    const third = await rpc(ws, 'session/history', 'f3', { conversationId: 'fp1', limit: 50, offset: 0, fingerprint: firstRes.fingerprint });
+    const thirdRes = third.result as { unchanged?: boolean; total: number; fingerprint?: string };
+    expect(thirdRes.unchanged).toBeUndefined();
+    expect(thirdRes.total).toBe(3);
+    expect(thirdRes.fingerprint).not.toBe(firstRes.fingerprint);
+
+    // 上翻（offset>0）：即使带指纹也全量（分页语义需要精确 total）
+    const page = await rpc(ws, 'session/history', 'f4', { conversationId: 'fp1', limit: 1, offset: 1, fingerprint: thirdRes.fingerprint });
+    const pageRes = page.result as { unchanged?: boolean; records: unknown[]; hasMore: boolean };
+    expect(pageRes.unchanged).toBeUndefined();
+    expect(pageRes.records).toHaveLength(1);
+    expect(pageRes.hasMore).toBe(true);
+
+    // 空会话（文件不存在）：无指纹响应，重入不短路
+    const empty = await rpc(ws, 'session/history', 'f5', { conversationId: 'fp-empty', limit: 50, offset: 0 });
+    const emptyRes = empty.result as { total: number; fingerprint?: string };
+    expect(emptyRes.total).toBe(0);
+    expect(emptyRes.fingerprint).toBeUndefined();
+  });
+
   it('session/history 服务端分页（M16）：limit/offset 从尾部往回取', async () => {
     const h = await boot();
     const ws = await connect(h.port);
@@ -864,6 +907,46 @@ describe('ac-web-api conv-settings 面', () => {
     h.ctx.convSettings.set(sid, { model: 'stale@x' });
     await rpc(ws, 'conversation/deliver', 'r3', { agentId: 'a1', message: 'q', conversationId: sid });
     expect(h.conversation.delivered[2]?.options).not.toHaveProperty('model');
+  });
+
+  it('agents/tool-defs 会话模式收窄（2026-12 估算失真修复）：conversationId 给定 → 与 router 真实 run 同口径', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.agents.register({ id: 'coder', model: 'm', tags: ['infra'] });
+    h.ctx.tools.register({ name: 't1', execute: () => ({ ok: true }) });
+    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), requiredTags: ['infra'] });
+    h.ctx.tools.register({ name: 't2', execute: () => ({ ok: true }) });
+
+    // 基线：无 conversationId = viewer 直答对桶键（pairKey('user', agent)）
+    // ——与 systemPromptPreview 干跑同口径；该键无覆盖 = 跟随 tags（tc-base）
+    const base = await rpc(ws, 'agents/tool-defs', 'r1', { agentId: 'coder' });
+    expect((base.result as { names: string[] }).names.sort()).toEqual(['run_code', 't1', 't2']);
+
+    // 缺省键的模式覆盖同样生效（直答会话在输入栏选了程序化 → 估算面收窄）
+    // ——缺省派生键 = pairKey('user', agent)（排序连接：coder~user）
+    const pair = 'coder~user';
+    h.ctx.convSettings.set(pair, { toolMode: 'tc-programmatic' });
+    const defProg = await rpc(ws, 'agents/tool-defs', 'r5', { agentId: 'coder' });
+    expect((defProg.result as { names: string[] }).names).toEqual(['run_code']);
+    h.ctx.convSettings.set(pair, { toolMode: null });
+
+    // 会话覆盖 tc-programmatic → 收窄为仅 run_code（LLM 真实可见面）
+    const conv = 'user~coder';
+    h.ctx.convSettings.set(conv, { toolMode: 'tc-programmatic' });
+    const prog = await rpc(ws, 'agents/tool-defs', 'r2', { agentId: 'coder', conversationId: conv });
+    expect((prog.result as { names: string[] }).names).toEqual(['run_code']);
+    expect((prog.result as { defs: Array<{ name: string }> }).defs.map((d) => d.name)).toEqual(['run_code']);
+
+    // 会话覆盖 tc-none → 空面（纯聊天）
+    h.ctx.convSettings.set(conv, { toolMode: 'tc-none' });
+    const none = await rpc(ws, 'agents/tool-defs', 'r3', { agentId: 'coder', conversationId: conv });
+    expect((none.result as { names: string[] }).names).toEqual([]);
+    expect((none.result as { defs: unknown[] }).defs).toEqual([]);
+
+    // 删键回落跟随（Agent tags 无模式词 = tc-base 不收窄）
+    h.ctx.convSettings.set(conv, { toolMode: null });
+    const follow = await rpc(ws, 'agents/tool-defs', 'r4', { agentId: 'coder', conversationId: conv });
+    expect((follow.result as { names: string[] }).names.sort()).toEqual(['run_code', 't1', 't2']);
   });
 });
 

@@ -59,6 +59,8 @@ interface PSessionStep {
     arguments: string;
     /** 工具体返回的 ToolResult（对象原样） */
     result: unknown;
+    /** run_code 子调用标记（session subcalls 投影注入的条目——平铺卡片缩进样式） */
+    subcall?: boolean;
   }>;
 }
 
@@ -109,6 +111,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             arguments: parseToolArgs(tc.arguments),
             result: tc.result ?? '',
             label: tc.name,
+            ...(tc.subcall === true ? { subcall: true } : {}),
           }));
           out.push({
             role: 'agent',
@@ -136,6 +139,9 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
               toolName: tc.name,
               tool_call_id: tc.id,
               label: tc.name,
+              // run_code 子调用（session subcalls 投影）：平铺卡片带缩进标记；
+              // 参数透传（工具卡按参数渲染专用视图——edit diff / write 预览）
+              ...(tc.subcall === true ? { subcall: true, arguments: parseToolArgs(tc.arguments) } : {}),
               message_id: tc.id || `${r.message_id}-s${i}-t`,
               timestamp: stepTs,
             });

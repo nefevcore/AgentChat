@@ -9,6 +9,8 @@ import {
   tokenizeMentionHighlights,
   buildHighlightSegments,
   formatFileMention,
+  buildSessionMentionCandidates,
+  sessionActivityOf,
 } from '../src/utils/mention';
 
 describe('detectMention', () => {
@@ -169,5 +171,55 @@ describe('formatFileMention（文件引用插入格式——与 [引用约定] �
     expect(highlights).toHaveLength(1);
     expect(highlights[0]).toMatchObject({ kind: 'file' });
     expect(`看 ${token} 谢谢`.slice(highlights[0]!.start, highlights[0]!.end)).toBe(token);
+  });
+});
+
+describe('buildSessionMentionCandidates（# 会话引用候选）', () => {
+  const S = (id: string, over: Partial<Parameters<typeof buildSessionMentionCandidates>[0][number]> = {}) => ({
+    id, agentId: '', title: id, createdAt: '2026-01-01T00:00:00Z', ...over,
+  });
+
+  it('按最近活动降序，排序发生在截断前——新聊会话从快照底部浮到弹层首位（回归：刷新页面才能 # 引用新会话）', () => {
+    // 快照序（模拟旧快照）：旧会话在前、新会话沉底；新会话刚聊过（lastActivity 最新）
+    const sessions = [
+      S('old-a', { lastActivity: '2026-06-01T00:00:00Z' }),
+      S('old-b', { lastActivity: '2026-06-02T00:00:00Z' }),
+      S('new-chat', { createdAt: '2026-09-18T00:00:00Z', lastActivity: '2026-09-18T12:00:00Z' }),
+    ].sort((a, b) => (a.lastActivity ?? a.createdAt) < (b.lastActivity ?? b.createdAt) ? 1 : -1); // 故意反着放
+    const out = buildSessionMentionCandidates([sessions[2], sessions[1], sessions[0]], { query: '', titleOf: (s) => s.title ?? s.id });
+    expect(out[0]!.source.id).toBe('new-chat'); // 排序浮顶——而非快照位次
+    expect(out.map((c) => c.source.id)).toEqual(['new-chat', 'old-b', 'old-a']);
+  });
+
+  it('limit 在排序后截断（默认 8）：最新者必入选', () => {
+    const sessions = Array.from({ length: 20 }, (_, i) =>
+      S('s' + String(i).padStart(2, '0'), { lastActivity: new Date(2026, 0, 1 + i).toISOString() }));
+    const out = buildSessionMentionCandidates(sessions, { query: '', titleOf: (s) => s.title ?? s.id });
+    expect(out).toHaveLength(8);
+    expect(out[0]!.source.id).toBe('s19');
+  });
+
+  it('过滤：排除当前会话 + 标题/agentId 大小写不敏感包含', () => {
+    const sessions = [
+      S('cur', { title: '当前' }),
+      S('t1', { title: '周报整理', agentId: 'helper' }),
+      S('t2', { title: '别的', agentId: 'Reporter' }),
+    ];
+    const out = buildSessionMentionCandidates(sessions, { query: '周报', excludeId: 'cur', titleOf: (s) => s.title ?? s.id });
+    expect(out.map((c) => c.source.id)).toEqual(['t1']);
+    const byAgent = buildSessionMentionCandidates(sessions, { query: 'helper', excludeId: 'cur', titleOf: (s) => s.title ?? s.id });
+    expect(byAgent.map((c) => c.source.id)).toEqual(['t1']);
+  });
+
+  it('insert 内联 sid：#标题(会话 id) + 尾随空格', () => {
+    const out = buildSessionMentionCandidates([S('sid-1', { title: '周报' })], { query: '', titleOf: (s) => s.title ?? s.id });
+    expect(out[0]!.insert).toBe('#周报(sid-1) ');
+  });
+
+  it('sessionActivityOf：无消息回落 createdAt；非法日期回落 0', () => {
+    expect(sessionActivityOf({ createdAt: '2026-01-02T00:00:00Z', lastActivity: '2026-02-01T00:00:00Z' }))
+      .toBe(new Date('2026-02-01T00:00:00Z').getTime());
+    expect(sessionActivityOf({ createdAt: '2026-01-02T00:00:00Z' })).toBe(new Date('2026-01-02T00:00:00Z').getTime());
+    expect(sessionActivityOf({ createdAt: 'not-a-date' })).toBe(0);
   });
 });

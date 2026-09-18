@@ -8,7 +8,7 @@
 // ============================================================
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { Modal, Icon } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useChatStore } from './chatStore.ts';
@@ -23,6 +23,13 @@ function close() {
   ui.closeSystemPrompt();
   chatStore.clearSystemPrompt();
 }
+
+/** 弹窗开着时会话模式被切换（ChatInput 写口 bump）→ 重取：程序化档
+ *  注入 SDK 投影块、收窄档换指引块——所见即当前模式的真实装配
+ *  （2026-12 预览失真修复；模式切换仅在 run 间隙生效，无竞态）。 */
+watch(() => chatStore.convToolMode, () => {
+  if (visible.value) chatStore.requestSystemPrompt();
+});
 
 function copyText(text: string) {
   if (navigator.clipboard && window.isSecureContext) {
@@ -68,7 +75,7 @@ function fallbackCopy(text: string) {
       <div class="prompt-footer">
         <span class="prompt-info">共 {{ chatStore.systemPromptContent.length }} 字符</span>
         <div class="prompt-actions">
-          <button class="btn-refresh" @click="chatStore.requestSystemPrompt()" :disabled="chatStore.systemPromptLoading" title="刷新">
+          <button class="btn-refresh" @click="chatStore.requestSystemPrompt()" :disabled="chatStore.systemPromptLoading" title="刷新（重新组装当前会话视角的提示词——含工具调用模式收窄后的装配面）">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
             刷新
           </button>

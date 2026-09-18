@@ -1,11 +1,12 @@
 // ============================================================
 // ac-run-code 测试：工具体端到端（真 worker + 真 cordis Context）
-// · run_code 注册（code-exec 标签 + 注册面）
+// · run_code 注册（infra 标签 + 注册面——2026-09-17 优化：授权随能力族）
 // · 基本执行：程序 return → 步记录摘要形态（programHash/value）
 // · tools.* 子调用走 ctx.tools.execute（真工具可见）
 // · 并发纪律：写路径按提交序串行（时序断言）
 // · 递归防护：投影排除 run_code；程序内调用 run_code 被拒
 // · import 拒绝 / 类型擦除失败 / 预算 / 中止
+// · 复合返回协议：return 优先 / log 回退合成 / 失败附 logsTail
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -105,15 +106,15 @@ function fibersSlow(ctx: Context): void {
 }
 
 describe('ac-run-code：注册与投影', () => {
-  it('run_code 注册（requiredTags code-exec）；code-exec Agent 可见、无标签 Agent 不可见', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
-    expect(ctx.tools.get('run_code')?.requiredTags).toEqual(['code-exec']);
+  it('run_code 注册（requiredTags infra——2026-09-17 优化裁决：授权随能力族，程序化是形态选择）；infra Agent 可见、无标签 Agent 不可见', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    expect(ctx.tools.get('run_code')?.requiredTags).toEqual(['infra']);
     const r = await call(ctx, 'return 1 + 1;');
     expect(r.ok).toBe(true);
     expect((r.output as { value: number }).value).toBe(2);
   });
 
-  it('无 code-exec 标签 → run_code 不在可见面（resolveEffectiveTools 空投影仍可跑纯计算）', async () => {
+  it('无 infra 标签 → run_code 不在可见面（resolveEffectiveTools 空投影仍可跑纯计算）', async () => {
     const { ctx } = await boot({ agentTags: [] });
     // 工具仍注册（注册面），但投影空——纯计算程序照常（无需工具）
     const r = await call(ctx, 'return "ok";');
@@ -121,7 +122,7 @@ describe('ac-run-code：注册与投影', () => {
   });
 
   it('投影排除 run_code 自身（递归防护）+ include tag 展开随可见面', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, 'return typeof tools.run_code;');
     // 代理 get 抛错 → 程序失败并带明确错误
     expect(r.ok).toBe(false);
@@ -131,7 +132,7 @@ describe('ac-run-code：注册与投影', () => {
 
 describe('ac-run-code：子调用桥接', () => {
   it('tools.echo 子调用走 ctx.tools.execute（结果回填程序）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       const a = await tools.echo({ text: 'hello' });
       return { got: a.output.echoed };
@@ -144,7 +145,7 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('时间线 trace：子调用逐条入摘要（卡片数据源——名字/耗时/状态/简述）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       const [a, b] = await Promise.all([
         tools.echo({ text: 'x1' }),
@@ -161,7 +162,7 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('并发纪律：写路径按提交序串行（真词表工具名命中 WRITE_PATH_TOOLS）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     // 探针注册名 = 'write'（真词表命中——主线程串行链生效）。覆盖实现
     // 而非真实 fs write（单测不落盘；串行判据 = 到达序 == 提交序）
     (globalThis as Record<string, unknown>).__seqLog = [];
@@ -199,7 +200,7 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('程序体含 import → 拒绝（不执行任何子调用）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `import { x } from 'node:fs';\nreturn x;`);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/import|require/);
@@ -207,7 +208,7 @@ describe('ac-run-code：子调用桥接', () => {
 
   // —— 预检收窄（实测复盘 4cd1a90d：四连误杀）——字符串/注释里的词不是模块语义
   it('字符串/注释中含 require 字样 → 不再误杀（pwsh 命令文本、提示注释照常执行）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       // 程序体不允许 require——但注释里提到它不该被拦
       const cmd = "node -e \\"const fs = require('fs');\\"";
@@ -219,7 +220,7 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('模板字面量中的命令文本含 require → 不误杀（base64/脚本拼装场景）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       const script = \`const cs = require('vue/compiler-sfc');\`;
       return { len: script.length };
@@ -228,7 +229,7 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('真 require 调用仍拒绝，错误带命中位置（可定位）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `const fs = require('node:fs');\nreturn fs;`);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/require/);
@@ -236,21 +237,21 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('动态 import() 调用仍拒绝', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `const m = await import('node:fs');\nreturn m;`);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/import/);
   });
 
   it('非可擦除 TS 语法 → 类型擦除失败如实报错', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `enum E { A }\nreturn E.A;`);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/类型擦除|可擦除/);
   });
 
   it('子调用抛错收敛：程序捕获后可继续', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       const bad = await tools.echo({ wrong: true });
       return { okFlag: bad.ok, echoed: bad.output?.echoed ?? '(空)' };
@@ -259,7 +260,7 @@ describe('ac-run-code：子调用桥接', () => {
   });
 
   it('步记录形态：programHash + summary（程序体全文不入 output）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const body = 'return 42;';
     const r = await call(ctx, body);
     const out = r.output as { programHash: string; summary: unknown; value: number };
@@ -271,8 +272,8 @@ describe('ac-run-code：子调用桥接', () => {
 });
 
 describe('ac-run-code：SDK 投影注入（实测复盘 #A1/#A2）', () => {
-  it('code-exec Agent 的 run：system 注入投影块（tools 声明 + 纪律 + 选择策略）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'], withLlm: true });
+  it('并存形态（tools=[run_code, echo]）：不注入投影块——模型读请求面工具 schema 即可', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'], withLlm: true });
     const calls: Array<{ messages?: Array<{ role: string; content: string }> }> = [];
     ctx.on('llm/before-chat', ((payload: { input?: { messages?: Array<{ role: string; content: string }> } }, next: () => Promise<unknown>) => {
       calls.push(payload.input ?? {});
@@ -280,16 +281,12 @@ describe('ac-run-code：SDK 投影注入（实测复盘 #A1/#A2）', () => {
     }) as never, { description: '测试探针：截获 LLM 请求面' });
     await ctx.agentLoop.run({ agent: 'tester', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }], tools: ['run_code', 'echo'] });
     const system = calls[0]?.messages?.find((m) => m.role === 'system');
-    expect(system).toBeDefined();
-    expect(system!.content).toContain('# run_code 工具 SDK');
-    expect(system!.content).toContain('declare const tools');
-    expect(system!.content).toContain('echo(args');
-    // 并存形态（生效面含 echo 等传统工具）→ 选择策略注入
-    expect(system!.content).toContain('执行形态选择');
-    expect(system!.content).not.toMatch(/run_code\s*\(/); // 递归防护
+    // 2026-09-17 续修：SDK 投影只在程序化调用（互斥形态）注入——并存
+    // 形态传统工具 schema 已在请求面可直读，投影块不进系统提示词
+    expect(system?.content ?? '').not.toContain('# run_code 工具 SDK');
   });
 
-  it('无 code-exec Agent 的 run：不注入（run_code 不在生效面）', async () => {
+  it('无 infra Agent 的 run：不注入（run_code 不在生效面）', async () => {
     const { ctx } = await boot({ agentTags: ['fs'], withLlm: true });
     const calls: Array<{ messages?: Array<{ role: string; content: string }> }> = [];
     ctx.on('llm/before-chat', ((payload: { input?: { messages?: Array<{ role: string; content: string }> } }, next: () => Promise<unknown>) => {
@@ -301,13 +298,13 @@ describe('ac-run-code：SDK 投影注入（实测复盘 #A1/#A2）', () => {
     expect(system?.content ?? '').not.toContain('# run_code 工具 SDK');
   });
 
-  it('真互斥形态（tools=[run_code]）：投影仍含全部授权工具 + 基线纪律（无选择策略）', async () => {
+  it('真互斥形态（tools=[run_code]，程序化调用）：注入投影块——投影仍含全部授权工具 + 基线纪律', async () => {
     // Agent tools 收窄为仅 run_code（__programmatic__ 预设同构）——LLM 面
     // 只剩 run_code，投影面（能力面直取）仍涵盖 echo 等
     const ctx = new Context();
     const fibers: Fiber[] = [];
     for (const row of [toolsRow, agentsRow] as unknown[]) fibers.push(await ctx.plugin(row as any));
-    ctx.agents.register({ id: 'tester', model: 'm', tags: ['fs', 'code-exec'], tools: ['run_code'] });
+    ctx.agents.register({ id: 'tester', model: 'm', tags: ['fs', 'infra'], tools: ['run_code'] });
     fibers.push(await ctx.plugin({
       name: 'fake-probe-row',
       inject: ['tools'],
@@ -344,7 +341,7 @@ describe('ac-run-code：SDK 投影注入（实测复盘 #A1/#A2）', () => {
     // 注入存在 + 投影涵盖 echo（能力面直取——include 收窄不影响投影源）
     expect(system?.content ?? '').toContain('# run_code 工具 SDK');
     expect(system?.content ?? '').toContain('echo(args');
-    expect(system?.content ?? '').not.toContain('执行形态选择'); // 互斥形态：无并存策略
+    expect(system?.content ?? '').toContain('本会话为程序化模式'); // 互斥形态引导
     // LLM 工具面 = 仅 run_code（loop 的 tools 已是收窄后清单——tools 数组来自 agent.tools 解析）
     const toolNames = (calls[0]?.tools ?? []).map((t) => t.function.name);
     expect(toolNames).toEqual(['run_code']);
@@ -354,7 +351,7 @@ describe('ac-run-code：SDK 投影注入（实测复盘 #A1/#A2）', () => {
 
 describe('ac-run-code：子调用标记（实测复盘 #B）', () => {
   it('子调用 ToolCall 带 runCodeSubcall=true（after-execute 可编程区分）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const seen: Array<{ name: string; subcall: boolean }> = [];
     ctx.on('tool/after-execute', ((call: { name: string; runCodeSubcall?: boolean }) => {
       seen.push({ name: call.name, subcall: call.runCodeSubcall === true });
@@ -368,7 +365,7 @@ describe('ac-run-code：子调用标记（实测复盘 #B）', () => {
 
 describe('ac-run-code：预算与中止', () => {
   it('max_output_bytes 截断（超大返回值标注）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `return 'x'.repeat(10000);`, { max_output_bytes: 1000 });
     expect(r.ok).toBe(true);
     const out = JSON.stringify((r.output as { value: string }).value);
@@ -377,7 +374,7 @@ describe('ac-run-code：预算与中止', () => {
 
   // —— serializeValue 降级链（实测复盘 0d55714a-W1）——出口序列化失败不再整程序失败
   it('return 值含 BigInt/函数 → 降级标注而非程序失败（子调用结果不丢）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       const a = await tools.echo({ text: 'kept' });
       return { echoed: a.output?.echoed, big: 123n, fn: () => 1 };
@@ -390,7 +387,7 @@ describe('ac-run-code：预算与中止', () => {
   });
 
   it('return 循环引用对象 → [Circular] 占位（程序成功 + 标注）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       const o: any = { name: 'root' };
       o.self = o;
@@ -403,7 +400,7 @@ describe('ac-run-code：预算与中止', () => {
   });
 
   it('compute_ms 预算耗尽 → 中止（interrupt 语义）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     fibersSlow(ctx);
     // 每次 30ms：2 次即 60ms > compute_ms=50——第 2 次完成后主线程发 abort
     const r = await call(ctx, `
@@ -417,7 +414,7 @@ describe('ac-run-code：预算与中止', () => {
   }, 20000);
 
   it('用户中止（AbortSignal）→ interrupted + interrupt 载荷', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const ctl = new AbortController();
     const slow = `for (let i = 0; i < 100; i++) { await tools.slow({}); }\nreturn 'done';`;
     // 慢探针：每次 30ms×100 = 3s——150ms 时程序必然在跑
@@ -438,7 +435,7 @@ describe('ac-run-code：预算与中止', () => {
 
 describe('ac-run-code：lib 临时库（会话级复用）', () => {
   it('define → 同程序内可用；resolve 全量清单可见', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       lib.define('clip', (s: string, n = 80) => (s.length > n ? s.slice(0, n) + '…' : s));
       const all = lib.resolve() as Record<string, unknown>;
@@ -450,7 +447,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('跨程序复用：程序1 define → 程序2 resolve（经主线程会话级缓存往返）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r1 = await ctx.tools.execute({
       name: 'run_code',
       args: { code: `lib.define('countLines', (t: string) => t.split('\\n').length);\nreturn lib.resolve('countLines')('a\\nb');` },
@@ -468,7 +465,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('自由变量：库引用外部变量 → 调用期 ReferenceError（函数体惰性——define 期不触发）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     // 形态 1：函数直传（toString 后 LIMIT 悬空——调用期爆）
     const r = await call(ctx, `
       const LIMIT = 80;
@@ -508,7 +505,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('lib 源码预检：程序体字符串形态藏 require → define 拒绝（防借道注入）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       try {
         const evilSrc = ["const fs = require", String.fromCharCode(40,39) + "node:fs" + String.fromCharCode(39,41) + ";", "return fs;"].join(String.fromCharCode(10));
@@ -523,7 +520,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('resolve 未注册 → 报错附可用名单', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       try { lib.resolve('nope'); return 'unexpected'; } catch (e) { return String(e); }
     `);
@@ -532,7 +529,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('失败程序不回写注册表：define 后抛错 → 库不残留（下次 resolve 报未注册）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r1 = await ctx.tools.execute({
       name: 'run_code',
       args: { code: `lib.define('doomed', () => 1);\nthrow new Error('boom');` },
@@ -549,7 +546,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('同会话累积 + 覆盖：程序2 define 新库 → 程序3 两库并存；重名覆盖', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     await ctx.tools.execute({
       name: 'run_code',
       args: { code: `lib.define('a', () => 'A1');\nreturn 1;` },
@@ -570,7 +567,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('库函数内调工具：async 库经 tools 桥（子调用计数入 summary）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     await ctx.tools.execute({
       name: 'run_code',
       args: { code: `lib.define('shout', async (t: string) => { const r = await tools.echo({ text: t }); return (r.output as { echoed: string }).echoed.toUpperCase(); });\nreturn 1;` },
@@ -588,7 +585,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
   });
 
   it('命名空间隔离：不同 conversation 的注册表互不可见', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'code-exec'] });
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     await ctx.tools.execute({
       name: 'run_code',
       args: { code: `lib.define('onlyHere', () => 1);\nreturn 1;` },
@@ -601,5 +598,65 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
     });
     expect(r.ok).toBe(true);
     expect((r.output as { value: string }).value).toMatch(/onlyHere 未注册/);
+  });
+});
+
+describe('ac-run-code：复合返回协议（return / log）', () => {
+  it('return 有值 → valueVia=return（log 存在也不回流）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "log('中途');\nreturn { sum: 42 }");
+    expect(r.ok).toBe(true);
+    const out = r.output as { value: unknown; valueVia: string; logsTail?: string[] };
+    expect(out.valueVia).toBe('return');
+    expect((out.value as { sum: number }).sum).toBe(42);
+    expect(out.logsTail).toBeUndefined();
+  });
+
+  it('无 return 值有 log → valueVia=logs，各行按序合成', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "log('第一条：a=1');\nlog('第二条：b=2');");
+    expect(r.ok).toBe(true);
+    const out = r.output as { value: string; valueVia: string };
+    expect(out.valueVia).toBe('logs');
+    expect(out.value).toBe('第一条：a=1\n第二条：b=2');
+  });
+
+  it('无 return 无 log → ok 无 value（旧协议兼容）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'const x = 1;');
+    expect(r.ok).toBe(true);
+    expect((r.output as { value?: unknown }).value).toBeUndefined();
+  });
+
+  it('对象 log 参数 JSON 序列化混排', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "log('结果', { ok: 1, list: ['a'] });");
+    const out = r.output as { value: string; valueVia: string };
+    expect(out.valueVia).toBe('logs');
+    expect(out.value).toContain('{"ok":1,"list":["a"]}');
+  });
+
+  it('失败程序：logsTail = 末 5 条（诊断线索，value 缺席）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const code = [
+      "log('step1 ok');",
+      "log('step2 ok');",
+      "log('step3 ok');",
+      "throw new Error('boom');",
+    ].join('\n');
+    const r = await call(ctx, code);
+    expect(r.ok).toBe(false);
+    expect((r.output as { logsTail?: string[] }).logsTail).toEqual(['step1 ok', 'step2 ok', 'step3 ok']);
+    expect((r.output as { value?: unknown }).value).toBeUndefined();
+  });
+
+  it('log 条目超限（>500）：丢弃计数标注在合成值尾部', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "for (let i = 0; i < 503; i++) log('行' + i);");
+    expect(r.ok).toBe(true);
+    const out = r.output as { value: string; valueVia: string };
+    expect(out.valueVia).toBe('logs');
+    expect(out.value).toContain('行499');
+    expect(out.value).toContain('丢弃 3 条');
   });
 });

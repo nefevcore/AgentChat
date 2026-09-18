@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index.ts';
-import { resolveToolNames, filterLlmParams } from '../src/index.ts';
+import { resolveToolNames, filterLlmParams, effectiveToolMode, narrowToolsByMode } from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -20,6 +20,34 @@ afterEach(async () => {
   for (const { fibers } of booted.splice(0)) {
     for (const fiber of fibers) if (fiber.uid !== null) await fiber.dispose();
   }
+});
+
+describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——router 与估算面共用）', () => {
+  const convSettings = {
+    get: (conversationId: string) =>
+      conversationId === 'user~coder' ? { toolMode: 'tc-base' as const } : {},
+  };
+
+  it('effectiveToolMode：会话覆盖 ?? toolModeOf(agent)', () => {
+    const coder = { id: 'coder', model: 'm', tags: ['tc-programmatic'] };
+    // 覆盖压回（tc-programmatic → tc-base）
+    expect(effectiveToolMode(coder, 'user~coder', { convSettings })).toBe('tc-base');
+    // 无键会话 = 跟随 tags
+    expect(effectiveToolMode(coder, 'other~coder', { convSettings })).toBe('tc-programmatic');
+    // 无 conversationId / 无 convSettings = 跟随 tags
+    expect(effectiveToolMode(coder, undefined, { convSettings })).toBe('tc-programmatic');
+    expect(effectiveToolMode(coder, 'user~coder')).toBe('tc-programmatic');
+    // 无 tags = tc-base；tc-none 优先（toolModeOf 语义）
+    expect(effectiveToolMode({ id: 'x', model: 'm' }, undefined)).toBe('tc-base');
+    expect(effectiveToolMode({ id: 'x', model: 'm', tags: ['tc-none', 'tc-programmatic'] }, undefined)).toBe('tc-none');
+  });
+
+  it('narrowToolsByMode：tc-programmatic → 仅 run_code（面内含它）；不含则原面（惰性）', () => {
+    expect(narrowToolsByMode(['read', 'run_code', 'bash'], 'tc-programmatic')).toEqual(['run_code']);
+    expect(narrowToolsByMode(['read', 'bash'], 'tc-programmatic')).toEqual(['read', 'bash']); // run_code 不在面 → 忽略该档
+    expect(narrowToolsByMode(['read', 'run_code'], 'tc-none')).toEqual([]);
+    expect(narrowToolsByMode(['read', 'bash'], 'tc-base')).toEqual(['read', 'bash']);
+  });
 });
 
 describe('resolveToolNames（tools 对象形态收编）', () => {

@@ -19,14 +19,20 @@ import { parkDraft, takeDraft } from './draftParking.ts';
 import { ensurePasteName } from './clipboardFile.ts';
 import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
-import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from './mention.ts';
+import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, buildSessionMentionCandidates, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { loadComposePrefs, saveComposePrefs, type ComposeEffort, type ComposeElevation } from './composePrefs.ts';
+
+import { persistToolMode } from './toolModeInherit.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
 
 const props = defineProps<{
   /** 禁用输入 */
   disabled?: boolean;
+  /** 新会话开场模式（single 空会话）：顶部"工作区 | 预设模式"选择行 +
+   *  输入卡整体由父视图居中；发送后父视图切回常规布局（本组件随之
+   *  重挂载为常规形态）。 */
+  fresh?: boolean;
   /** 占位文本 */
   placeholder?: string;
   /** 自定义发送回调（提供则替代 store.sendMessage） */
@@ -61,22 +67,28 @@ const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort as C
  *  （2026-09 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
  *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
 const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation as ComposeElevation) ?? '');
-/** 工具使用模式（程序化开关，research §十——2026-09-17 开关化）：
- *  true = 本会话 LLM 工具面收窄为 ['run_code']（真互斥形态）。选择即写
- *  会话 conv-settings（singles sid 与 1v1 对键同走该 RPC——键面同
- *  elevation 口径，全形态生效）；回放上次选择（true 仅作 UI 初值，挂载
- *  后以会话存储为准校准）。退役预设防御见 presetRetired。 */
-const programmatic = ref<boolean>(lastPrefs?.programmatic === true);
+/** 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构——
+ *  Agent tags 定默认档、conv-settings.toolMode 会话覆盖）：'' = 跟随
+ *  Agent（tags 档，缺省 tc-base）；'tc-base' | 'tc-programmatic' |
+ *  'tc-none' = 会话覆盖。选择即写会话 conv-settings（键面同 elevation
+ *  口径，全形态生效）。旧 programmatic 布尔开关与「新会话继承写」
+ *  （toolModeInherit）已随重构退役——持久程序化 = 给 Agent 配
+ *  tc-programmatic 标签。退役预设防御见 presetRetired。 */
+const toolMode = ref<'' | 'tc-base' | 'tc-programmatic' | 'tc-none'>('');
 const attachedFiles = ref<FileAttachment[]>([]);
 const uploading = ref(false);
 
 // ══ 会话模型选择（P6）：独立会话 = singles 覆盖；1v1 直答 = conv-settings ══
-const wsMenuOpen = ref(false);
 const agentMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
-const effortMenuOpen = ref(false);
 const elevMenuOpen = ref(false);
 const toolModeMenuOpen = ref(false);
+/** 组合菜单下钻面板（root = 一级设置项列表；点某项下钻二级选项） */
+const agentPanel = ref<'root' | 'ws' | 'agent'>('root');
+const modelPanel = ref<'root' | 'model' | 'effort'>('root');
+/* 执行组拆分（2026-12：提权与工具调用模式分立两钮——组合菜单项过多，
+ * 且「程序化调用模式」需要用户先单独熟悉）。单项菜单直开选项列表
+ * （无下钻）：打开即档位，选择即生效，菜单保持开可连续调整。 */
 /** 模型选项源：池连接（models 发现缓存）——连接池 = 唯一事实源
  *  （种子已移除：未配置即不在池、不注册、不出现在选项里） */
 const llmPools = ref<Record<string, Record<string, unknown>>>({});
@@ -218,20 +230,22 @@ onUnmounted(() => {
 });
 
 /** 单开原则：任一下拉打开时关闭其余 */
-function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort' | 'elev' | 'toolmode') {
-  if (except !== 'ws') wsMenuOpen.value = false;
-  if (except !== 'agent') agentMenuOpen.value = false;
-  if (except !== 'model') modelMenuOpen.value = false;
-  if (except !== 'effort') effortMenuOpen.value = false;
+function closeMenus(except?: 'agent' | 'model' | 'elev' | 'toolmode') {
+  if (except !== 'agent') { agentMenuOpen.value = false; agentPanel.value = 'root'; }
+  if (except !== 'model') { modelMenuOpen.value = false; modelPanel.value = 'root'; }
   if (except !== 'elev') elevMenuOpen.value = false;
   if (except !== 'toolmode') toolModeMenuOpen.value = false;
 }
 
-function toggleWsMenu() {
-  const next = !wsMenuOpen.value;
-  closeMenus('ws');
-  wsMenuOpen.value = next;
-  if (next && !wsLoaded.value) void wsBoard?.refresh();
+/** fresh 顶行菜单开合（工作区/预设直开对应二级；单开原则经 closeMenus） */
+function openFreshMenu(panel: 'ws' | 'agent') {
+  const target = panel === 'ws' ? 'agent' : 'ws';
+  const same = agentMenuOpen.value && agentPanel.value === panel;
+  closeMenus();
+  if (same) return; // 再点同钮 = 关
+  agentMenuOpen.value = true;
+  agentPanel.value = panel;
+  if (panel === 'ws' && !wsLoaded.value) void wsBoard?.refresh();
 }
 
 /** 工作区显示名（'' = 未分组） */
@@ -241,7 +255,8 @@ const wsLabel = computed(() =>
 /** 选择工作区：即时 PATCH（''=移入未分组；随时可换，不随消息锁定）。
  *  回滚校验当前值：快速连选时旧请求的迟到失败不得覆盖新选择。 */
 function selectWorkspace(id: string) {
-  wsMenuOpen.value = false;
+  agentMenuOpen.value = false; // 身份类选择即关整组
+  agentPanel.value = 'root';
   const prev = selWorkspace.value;
   if (id === prev) return;
   selWorkspace.value = id;
@@ -252,25 +267,15 @@ function selectWorkspace(id: string) {
   });
 }
 
-function toggleAgentMenu() {
-  // 规则 1：已有消息的会话锁死预设/Agent（下拉只读展示）
-  if (sessionLocked.value) return;
-  const next = !agentMenuOpen.value;
-  closeMenus('agent');
-  agentMenuOpen.value = next;
-  if (next) void loadPools();
-}
+// toggleAgentMenu 退役（2026-12 身份组收口）：常规工具栏不再放身份入口，
+// fresh 顶行经 openFreshMenu 开合（单开原则同走 closeMenus）。
 function toggleModelMenu() {
   const next = !modelMenuOpen.value;
   closeMenus('model');
   modelMenuOpen.value = next;
+  modelPanel.value = 'root'; // 重开回一级
   // 打开即装数据 + 对无发现缓存的已注册连接补拉一次 /models（静默失败）
   if (next) void loadPools().then(() => ensureDiscovered());
-}
-function toggleEffortMenu() {
-  const next = !effortMenuOpen.value;
-  closeMenus('effort');
-  effortMenuOpen.value = next;
 }
 function toggleElevMenu() {
   const next = !elevMenuOpen.value;
@@ -286,7 +291,8 @@ function toggleToolModeMenu() {
 /** 选择 Agent：即时 PATCH（''=清空待选；空会话发送前必须选；已有消息锁定禁选）。
  *  选择写回组合偏好（新开会话回放）。 */
 function selectAgent(id: string) {
-  agentMenuOpen.value = false;
+  agentMenuOpen.value = false; // 身份类选择即关整组
+  agentPanel.value = 'root';
   if (sessionLocked.value) return;
   const prev = selAgent.value;
   if (id === prev) return;
@@ -320,7 +326,7 @@ const modelGroups = computed(() => {
  *  （deliver 边界合并生效，服务端持久化）。'' = 清除覆盖。回滚校验当前值：
  *  快速连选时旧请求的迟到失败不得覆盖新选择。选择写回组合偏好（新开会话回放）。 */
 function selectModel(value: string) {
-  modelMenuOpen.value = false;
+  modelPanel.value = 'root'; // 参数类选择回一级（可连续调整）
   const prev = selModel.value;
   if (value === prev) return;
   selModel.value = value;
@@ -356,23 +362,82 @@ watch(() => roster.activeAgentId.value, async (id) => {
   }
 }, { immediate: true });
 
-/** 会话覆盖键（工具使用模式）：single = sid；1v1 = pairKey(viewer, agent)
+/** 会话覆盖键（工具调用模式）：single = sid；1v1 = pairKey(viewer, agent)
  *  （与后端 deliver 同口径；模型覆盖键的同款双形态） */
-const programmaticConvKey = computed(() => {
+const toolModeConvKey = computed(() => {
   if (props.single) return props.single.id;
   const agentId = roster.activeAgentId.value;
   return agentId ? [VIEWER_ID.value, agentId].sort().join('~') : null;
 });
 
-/** 挂载/会话切换：回读会话工具使用模式（conv-settings programmatic——
- *  存储为准校准 UI；回放偏好只作初值）。 */
-watch(programmaticConvKey, async (conversationId) => {
-  if (!conversationId || !rpc) { programmatic.value = false; return; }
+/** 目标 Agent 的 tags 工具调用模式档（toolModeOf 同款判定——前端复刻；
+ *  single = 会话登记 Agent/默认预设；1v1 = 激活 Agent/默认预设）。
+ *  名册/presets 目录均无 tags 数据 = 视为 tc-base（缺席宽容——不误伤
+ *  旧后端）。用于跟随态的实际生效档显示。 */
+const agentToolMode = computed<'tc-base' | 'tc-programmatic' | 'tc-none'>(() => {
+  const targetId = props.single
+    ? (selAgent.value || roster.defaultPresetId.value)
+    : (roster.activeAgentId.value || roster.defaultPresetId.value);
+  if (!targetId) return 'tc-base';
+  const tags = roster.agents.value.find(a => a.id === targetId)?.tags
+    ?? roster.presets.value.find(p => p.id === targetId)?.tags;
+  if (!tags) return 'tc-base';
+  if (tags.includes('tc-none')) return 'tc-none';
+  if (tags.includes('tc-programmatic')) return 'tc-programmatic';
+  return 'tc-base';
+});
+/** 程序化可用性：Agent 工具面含 run_code（infra 能力族——2026-09-17
+ *  优化裁决：程序化是形态选择非授权门槛，选「程序化」= 临时程序化档）。
+ *  无 infra（或 run-code 行未装）时覆盖惰性——router warn 忽略，UI
+ *  禁选并说明，防「勾了不生效」的静默落差（实测 3a8ea4f7 坑）。名册/
+ *  presets 目录均无 tags 数据 = 视为可用（缺席宽容——不误伤旧后端）。 */
+const programmaticAvailable = computed(() => {
+  if (agentToolMode.value === 'tc-none') return false; // 无工具档：程序化无意义
+  const targetId = props.single
+    ? (selAgent.value || roster.defaultPresetId.value)
+    : (roster.activeAgentId.value || roster.defaultPresetId.value);
+  if (!targetId) return true;
+  const tags = roster.agents.value.find(a => a.id === targetId)?.tags
+    ?? roster.presets.value.find(p => p.id === targetId)?.tags;
+  if (!tags) return true; // 两目录均无 tags（旧后端/未拉取）——宽容不拦截
+  return tags.includes('infra');
+});
+
+/** 挂载/会话切换：回读会话工具调用模式覆盖（conv-settings toolMode）。
+ *  会话有显式键 = 存储为准（用户在该会话的覆盖）；无键（新会话）=
+ *  **跟随上次选择**——回放组合偏好并写该会话 conv-settings（2026-09-17
+ *  恢复：覆盖必须落存储才生效——router 收窄读的是它；'' 跟随态无需写，
+ *  tags 档天然生效）。写入经 toolModeInherit 登记，deliver 前 await 兜底
+ *  ——首条消息不抢在继承写之前出门。Agent 不支持目标档（如无 infra 的
+ *  程序化）时不写：跟随态兜底（该会话选了也不生效，防「假象继承」）。 */
+watch(toolModeConvKey, async (conversationId) => {
+  if (!conversationId || !rpc) { toolMode.value = ''; return; }
   try {
-    const r = await rpc.call<{ settings?: { programmatic?: boolean } }>('conv-settings/get', { conversationId });
-    programmatic.value = r.settings?.programmatic === true;
+    const r = await rpc.call<{ settings?: { toolMode?: string } }>('conv-settings/get', { conversationId });
+    if (conversationId !== toolModeConvKey.value) return; // 快速连切：迟到响应不覆盖当前会话
+    const stored = r.settings?.toolMode;
+    if (stored === 'tc-base' || stored === 'tc-programmatic' || stored === 'tc-none') {
+      toolMode.value = stored;
+      store.setConvToolMode(stored); // 会话切换回读也同步快照（预览面 watch）
+      return;
+    }
+    // 无显式键：回放偏好（缺记录 = 跟随态，不动存储）
+    const pref = loadComposePrefs()?.toolMode;
+    if (pref === undefined || pref === '') { toolMode.value = ''; store.setConvToolMode(''); return; }
+    if (pref === 'tc-programmatic' && !programmaticAvailable.value) {
+      toolMode.value = ''; // Agent 无 infra：程序化对其惰性——不继承（跟随态兜底）
+      store.setConvToolMode('');
+      return;
+    }
+    toolMode.value = pref;
+    store.setConvToolMode(pref);
+    const writing = rpc.call('conv-settings/set', { conversationId, patch: { toolMode: pref } })
+      .catch((err: unknown) => {
+        console.warn('[ChatInput] 工具调用模式继承写失败:', (err as { message?: string })?.message ?? String(err));
+      });
+    persistToolMode(conversationId, writing);
   } catch {
-    programmatic.value = false; // 行未装/面不可用 → 无开关语义
+    toolMode.value = ''; // 行未装/面不可用 → 无覆盖语义（跟随态）
   }
 }, { immediate: true });
 
@@ -387,7 +452,7 @@ const EFFORT_OPTIONS: Array<{ value: '' | 'low' | 'high' | 'max'; label: string 
 function selectEffort(v: '' | 'low' | 'high' | 'max') {
   reasoningEffort.value = v;
   saveComposePrefs({ effort: v });
-  effortMenuOpen.value = false;
+  modelPanel.value = 'root'; // 参数类选择回一级（可连续调整）
 }
 
 /** 快捷提权档位（access-tier §三 档位词汇）：'' = 跟随 Agent 自有档位
@@ -400,7 +465,7 @@ const ELEV_OPTIONS: Array<{
   detail: string;
   title: string;
 }> = [
-  { value: '', label: '跟随 Agent', icon: 'shield', detail: '', title: '按 Agent 自有档位（tags）执行——需要权限时弹出审批卡询问' },
+  { value: '', label: '默认', icon: 'shield', detail: '', title: '按 Agent 自有档位（tags）执行——需要权限时弹出审批卡询问' },
   { value: 'sandbox-access', label: '沙箱访问', icon: 'shield-check', detail: '白名单内自由', title: '后续消息驱动的 run 至少按 sandbox-access 执行：工作区白名单内自由写、bash 软边界内自由；越界视同基础档。持续生效直到改回；Agent 自有档位更高时按自有档位执行（只升不降）' },
   { value: 'full-access', label: '完全访问', icon: 'shield-check', detail: '不受限', title: '后续消息驱动的 run 按 full-access 执行：跳过路径复检与命令扫描（系统域黑名单仍生效）。持续生效直到改回；持久授权请改 Agent 配置 tags；自有档位更高时按自有档位执行' },
 ];
@@ -408,57 +473,63 @@ const ELEV_OPTIONS: Array<{
 function selectElevation(v: '' | 'sandbox-access' | 'full-access') {
   elevation.value = v;
   saveComposePrefs({ elevation: v });
-  elevMenuOpen.value = false;
+  // 菜单保持开——扁平选项列表可连续调整
 }
 
-// ── 工具使用模式（程序化开关，research §十——2026-09-17 开关化）──
-// 与 ELEV/EFFORT 同族的 dd 下拉；选择即写会话 conv-settings（router
-// execute 消费该键收窄 LLM 面——run 间隙生效，非 run 中途翻转）。
-// 覆盖键见 programmaticConvKey（模型覆盖 watch 前声明——挂载回读共用）。
+// ── 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构）──
+// 与 ELEV 同族的 dd 下拉（跟随 Agent + 三值覆盖）；选择即写会话
+// conv-settings.toolMode（router 按「覆盖 ?? toolModeOf(agent)」收窄——
+// run 间隙生效，非 run 中途翻转）。覆盖键见 toolModeConvKey。
 
-/** 程序化可用性：目标 Agent（single = 会话登记/默认预设；1v1 = 激活
- *  Agent/默认预设）的授权面含 code-exec 才可开——无授权时开关惰性
- *  （router warn 忽略），UI 需禁选并说明，防「勾了不生效」的静默落差
- *  （实测 3a8ea4f7 坑）。名册/presets 目录均无 tags 数据 = 视为可用
- *  （不误伤旧后端——缺席宽容）。 */
-const programmaticAvailable = computed(() => {
-  const targetId = props.single
-    ? (selAgent.value || roster.defaultPresetId.value)
-    : (roster.activeAgentId.value || roster.defaultPresetId.value);
-  if (!targetId) return true; // 无目标 = 不判定（下拉隐藏于群聊/无会话态）
-  const fromRoster = roster.agents.value.find(a => a.id === targetId)?.tags;
-  if (fromRoster) return fromRoster.includes('code-exec');
-  const fromPresets = roster.presets.value.find(p => p.id === targetId)?.tags;
-  if (fromPresets) return fromPresets.includes('code-exec');
-  return true; // 两目录均无 tags（旧后端/未拉取）——宽容不拦截
-});
-
-/** 选择工具使用模式：即时生效——写会话 conv-settings（singles sid 与
- *  1v1 对键同走该 RPC）；写回组合偏好（新会话回放 UI 初值）。 */
-function selectToolMode(programmaticOn: boolean) {
-  toolModeMenuOpen.value = false;
-  if (programmatic.value === programmaticOn) return;
-  if (programmaticOn && !programmaticAvailable.value) return; // 无授权禁选（惰性对齐）
-  const prev = programmatic.value;
-  programmatic.value = programmaticOn;
-  saveComposePrefs({ programmatic: programmaticOn });
-  const conversationId = programmaticConvKey.value;
+/** 选择工具调用模式：即时生效——写会话 conv-settings（singles sid 与
+ *  1v1 对键同走该 RPC，显式键 = 本会话权威态；'' = 删键回到跟随态）。 */
+function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
+  // 菜单保持开——扁平选项列表可连续调整
+  if (toolMode.value === v) return;
+  if (v === 'tc-programmatic' && !programmaticAvailable.value) return; // 无标签禁选（惰性对齐）
+  const prev = toolMode.value;
+  toolMode.value = v;
+  saveComposePrefs({ toolMode: v }); // 新会话跟随上次选择（挂载回读回放并落该会话）
+  const conversationId = toolModeConvKey.value;
   if (!conversationId || !rpc) return;
-  // wire 值域：'true' = 开；null = 清除（web-api set 面）
-  void rpc.call('conv-settings/set', { conversationId, patch: { programmatic: programmaticOn ? 'true' : null } })
+  // wire 值域：合法枚举原样；''/null = 删键（web-api set 面）
+  void rpc.call('conv-settings/set', { conversationId, patch: { toolMode: v === '' ? null : v } })
+    .then(() => {
+      // 写入成功 → bump 会话模式快照：system-prompt 预览（aux 侧栏常驻
+      // 面板）/ Token 估算面 watch 得知装配面已变，重取反映 SDK 投影块
+      // 注入/工具 schema 收窄（2026-12 预览失真修复）。
+      store.setConvToolMode(v);
+    })
     .catch((err: any) => {
-      console.error('[ChatInput] 工具使用模式写入失败:', err?.message);
-      if (programmatic.value === programmaticOn) programmatic.value = prev; // 失败回滚
+      console.error('[ChatInput] 工具调用模式写入失败:', err?.message);
+      if (toolMode.value === v) toolMode.value = prev; // 失败回滚
     });
 }
 
-/** 工具使用模式档位词表（程序化档 detail/title 按可用性分流） */
-const TOOL_MODE_OPTIONS = computed<Array<{ value: boolean; label: string; icon: string; detail: string; title: string; disabled?: boolean }>>(() => [
-  { value: false, label: '标准', icon: 'wrench', detail: '逐个调用', title: '模型逐个调用工具（默认形态——每个工具独立 schema，直接直调）' },
+/** 工具调用模式档位词表（跟随项 detail 按 Agent tags 档分流显示；程序化
+ *  覆盖项在 Agent 无 tc-programmatic 标签时禁选） */
+const TOOL_MODE_OPTIONS = computed<Array<{ value: '' | 'tc-base' | 'tc-programmatic' | 'tc-none'; label: string; icon: string; detail: string; title: string; disabled?: boolean }>>(() => [
+  {
+    value: '',
+    label: '默认',
+    icon: 'wrench',
+    detail: agentToolModeLabel.value,
+    title: `按 Agent tags 决定的模式执行（当前：${agentToolModeLabel.value}）——程序化持久生效请给 Agent 配 tc-programmatic 标签`,
+  },
+  { value: 'tc-base', label: '标准', icon: 'wrench', detail: '逐个调用', title: '本会话覆盖为标准档：模型逐个调用工具（每个工具独立 schema，直接直调）——压制 Agent 的 tc-programmatic/tc-none 标签档' },
   programmaticAvailable.value
-    ? { value: true, label: '程序化', icon: 'braces', detail: 'run_code 编排', title: '本会话工具面收窄为 run_code 单入口：模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文——大幅降低 token 消耗。run 间隙生效' }
-    : { value: true, label: '程序化', icon: 'braces', detail: '需 code-exec 授权', title: '当前 Agent（含预设）未授予 code-exec 标签——程序化开关对其惰性（勾选不生效）。请到 Agent 设置添加 code-exec 标签，或换用已授权的 Agent', disabled: true },
+    ? { value: 'tc-programmatic', label: '程序化', icon: 'braces', detail: 'run_code 编排', title: '本会话覆盖为程序化档：工具面收窄为 run_code 单入口——模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文（大幅降低 token 消耗）。run 间隙生效' }
+    : { value: 'tc-programmatic', label: '程序化', icon: 'braces', detail: '需 infra 标签', title: '当前 Agent（含预设）未授予 infra 能力标签（run_code 不可见）——程序化对其惰性（勾选不生效，后端 warn 并回落）。请到 Agent 设置添加该标签，或换用已授权的 Agent', disabled: true },
+  { value: 'tc-none', label: '无工具', icon: 'message-square', detail: '纯聊天', title: '本会话覆盖为无工具档：移除 LLM 工具面（纯聊天——模型只输出文本，不调用任何工具）' },
 ]);
+
+/** Agent tags 档显示词（跟随态的实际生效档） */
+const AGENT_TOOL_MODE_LABEL: Record<'tc-base' | 'tc-programmatic' | 'tc-none', string> = {
+  'tc-base': '标准',
+  'tc-programmatic': '程序化',
+  'tc-none': '无工具',
+};
+const agentToolModeLabel = computed(() => AGENT_TOOL_MODE_LABEL[agentToolMode.value]);
 
 /** 档位显示词（与后端 tierOf 同词表：full > sandbox > 缺省 base） */
 const TIER_LABEL: Record<'sandbox-access' | 'full-access', string> = {
@@ -545,26 +616,34 @@ const modelTitle = computed(() => {
     : '模型：Agent 原配置';
 });
 const effortLabel = computed(() => EFFORT_OPTIONS.find(o => o.value === reasoningEffort.value)?.label ?? '思考·关');
-/** 工具使用模式按钮显示（'braces' 图标 = 程序卡象形同源） */
-const toolModeLabel = computed(() => (programmatic.value ? '程序化' : '标准'));
+/** 工具调用模式按钮显示（'braces' 图标 = 程序卡象形同源）：覆盖态直名，
+ *  跟随态显 Agent tags 档 */
+const toolModeLabel = computed(() => {
+  if (toolMode.value === '') return `默认·${agentToolModeLabel.value}`;
+  const opt = TOOL_MODE_OPTIONS.value.find(o => o.value === toolMode.value);
+  return opt?.label ?? '默认';
+});
 const toolModeTitle = computed(() => {
-  if (!programmaticAvailable.value) {
-    return '工具使用模式：当前 Agent（含预设）未授予 code-exec 标签——程序化开关对其惰性（不生效）。请到 Agent 设置添加该标签，或换用已授权的 Agent';
+  if (toolMode.value === 'tc-programmatic' && !programmaticAvailable.value) {
+    return '工具调用模式：当前 Agent（含预设）未授予 infra 能力标签（run_code 不可见）——程序化对其惰性（不生效）。请到 Agent 设置添加该标签，或换用已授权的 Agent';
   }
-  return programmatic.value
-    ? '工具使用模式：程序化——本会话工具面收窄为 run_code 单入口（模型写 TS 程序编排成批工具调用，只有最终返回值回上下文）。run 间隙生效；关闭即恢复逐个直调'
-    : '工具使用模式：标准——模型逐个调用工具（每个工具独立 schema）。可切换为程序化（run_code 编排，大幅降低 token 消耗）';
+  const opt = TOOL_MODE_OPTIONS.value.find(o => o.value === toolMode.value);
+  return opt?.title ?? '工具调用模式（tc-* 标签轴）';
 });
-const elevLabel = computed(() => {
-  if (!elevation.value) return '提权';
-  return elevation.value === 'sandbox-access' ? '提权·沙箱' : '提权·完全';
-});
+
 const elevTitle = computed(() => {
   if (!elevation.value) {
     return `快捷提权：未武装——消息按 Agent 自有档位执行（当前：${agentTierLabel.value}）；高于自有档位可临时提权（持续生效直到改回）`;
   }
   const armed = elevation.value === 'sandbox-access' ? 'sandbox-access（至少沙箱访问档）' : 'full-access（完全访问档）';
   return `已武装 ${armed}：后续消息均按此执行（持续生效直到改回；不低于 Agent 自有档位——只升不降）`;
+});
+
+/** 提权按钮显示：默认"权限"；武装态显主动摘要（警示色由类承担） */
+const elevBtnLabel = computed(() => {
+  if (elevation.value === 'full-access') return '提权·完全';
+  if (elevation.value === 'sandbox-access') return '提权·沙箱';
+  return '权限';
 });
 
 function onDocClick() {
@@ -735,14 +814,22 @@ function updateMention(e?: Event): void {
   if (mention.value) ensureMentionData(mention.value.kind);
 }
 
-/** 弹层数据懒加载：/ → 技能目录（per-Agent 缓存）；@ → 本机目录；# → 会话清单 */
+/** 弹层数据懒加载：/ → 技能目录（per-Agent 缓存）；@ → 本机目录；# → 会话清单。
+ *  # 的过期重拉（stale-while-open）：快照只在 singles/updated（元数据事件）
+ *  时刷新，消息活动不触发——弹层每次触发时轻校准一次，保证新会话/新近
+ *  活动即时可引用（另一端创建、事件帧丢失等场景兜底）。 */
+const singlesRefreshAt = ref(0);
 function ensureMentionData(kind: 'slash' | 'at' | 'hash'): void {
   if (kind === 'slash') {
     ensureSkills();
     return;
   }
   if (kind === 'hash') {
-    if (!singlesLoaded.value) void singlesBoard?.refresh();
+    const now = Date.now();
+    if (!singlesLoaded.value || now - singlesRefreshAt.value > 30_000) {
+      singlesRefreshAt.value = now;
+      void singlesBoard?.refresh();
+    }
     return;
   }
   ensureFileBrowse();
@@ -884,20 +971,23 @@ const atGroups = computed<MentionGroup[]>(() => {
 });
 
 /** # 模式分组：历史会话（引用内联 sid——Agent 侧无枚举会话的工具，
- *  read_history/grep_history 需要 conversation_id，纯标题是死引用） */
+ *  read_history/grep_history 需要 conversation_id，纯标题是死引用）。
+ *  候选构造经 buildSessionMentionCandidates（过滤+排序+截断纯函数）：
+ *  按最近活动降序在截断前——singles 快照只在元数据事件时重拉，消息
+ *  活动不触发，按快照序截断会把新聊会话挡在弹层外（"要刷新页面才
+ *  能 # 引用新会话"根因）。 */
 const hashGroups = computed<MentionGroup[]>(() => {
   if (mention.value?.kind !== 'hash') return [];
-  const q = mention.value.query;
-  const sessions: MentionItem[] = activeSingles.value
-    .filter((s) => s.id !== props.single?.id)
-    .map((s) => ({ s, title: singlesBoard?.titleOf(s, (id) => roster.getAgentName(id)) ?? s.title ?? s.id }))
-    .filter(({ s, title }) => mentionMatches(title, q) || mentionMatches(s.agentId, q))
-    .map(({ s, title }) => ({
-      key: `session:${s.id}`, icon: 'message-circle', label: title,
-      hint: s.agentId ? roster.getAgentName(s.agentId) : '默认预设',
-      insert: `#${title}(${s.id}) `,
-    }));
-  return sessions.length > 0 ? [{ key: 'sessions', label: '会话（选中插入 #标题(会话 id)，Agent 可 read_history 读取）', items: sessions.slice(0, 8) }] : [];
+  const sessions: MentionItem[] = buildSessionMentionCandidates(activeSingles.value, {
+    query: mention.value.query,
+    excludeId: props.single?.id,
+    titleOf: (s) => singlesBoard?.titleOf(s, (id) => roster.getAgentName(id)) ?? s.title ?? s.id,
+  }).map(({ source, title }) => ({
+    key: `session:${source.id}`, icon: 'message-circle', label: title,
+    hint: source.agentId ? roster.getAgentName(source.agentId) : '默认预设',
+    insert: `#` + title + '(' + source.id + ') ',
+  }));
+  return sessions.length > 0 ? [{ key: 'sessions', label: '会话（选中插入 #标题(会话 id)，Agent 可 read_history 读取）', items: sessions }] : [];
 });
 
 const mentionGroups = computed<MentionGroup[]>(() => {
@@ -1111,7 +1201,115 @@ function onThumbError(i: number) {
 </script>
 
 <template>
-  <div class="chat-input">
+  <!-- 新会话开场选择行（fresh，多根 fragment 第一根）：移出输入卡——
+       独立成行、靠左对齐（输入卡保持自身布局不受影响）。两项均为开场
+       身份设定（开始会话即固化：工作区不可再改、预设显示在会话头） -->
+  <div v-if="fresh && single" class="fresh-setup-row">
+    <!-- 工作区选择（开场身份之一：开始会话即固化，不可再改）。菜单直开
+         工作区二级列表（复用 agentMenuOpen/agentPanel 状态——fresh 模式
+         下常规身份组隐藏，单开不冲突；选择即 PATCH 生效） -->
+    <div class="dd">
+        <button
+          type="button"
+          class="select-btn"
+          :class="{ open: agentMenuOpen && agentPanel === 'ws' }"
+          @click.stop="openFreshMenu('ws')"
+          title="工作区（开始会话后固化，不可再改）"
+        >
+          <Icon name="folder" :size="15" />
+          <span class="select-text">{{ wsLabel }}</span>
+          <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: agentMenuOpen && agentPanel === 'ws' }" />
+        </button>
+        <Transition name="menu-fade">
+          <div v-if="agentMenuOpen && agentPanel === 'ws'" class="dd-menu" @click.stop>
+            <button type="button" class="dd-option dd-option--2line" :class="{ selected: !selWorkspace }" @click="selectWorkspace('')" title="会话不挂任何工作区">
+              <span class="dd-option-icon"><Icon name="folder-open" :size="16" /></span>
+              <span class="dd-option-body">
+                <span class="dd-option-name">未分组</span>
+                <span class="dd-option-desc">会话不挂任何工作区</span>
+              </span>
+              <Icon v-if="!selWorkspace" name="check" :size="15" class="dd-option-check" />
+            </button>
+            <button
+              v-for="w in wsList" :key="w.id" type="button"
+              class="dd-option dd-option--2line" :class="{ selected: selWorkspace === w.id }"
+              :title="w.path" @click="selectWorkspace(w.id)"
+            >
+              <span class="dd-option-icon"><Icon name="folder" :size="16" /></span>
+              <span class="dd-option-body">
+                <span class="dd-option-name">{{ w.name }}</span>
+                <span class="dd-option-desc">{{ w.path }}</span>
+              </span>
+              <Icon v-if="selWorkspace === w.id" name="check" :size="15" class="dd-option-check" />
+            </button>
+          </div>
+        </Transition>
+      </div>
+      <!-- 预设模式选择（开场身份之二：首条消息后锁定，身份显示在会话头） -->
+      <div class="dd">
+        <button
+          type="button"
+          class="select-btn"
+          :class="{ open: agentMenuOpen && agentPanel === 'agent' }"
+          @click.stop="openFreshMenu('agent')"
+          :title="selAgent ? '预设/Agent：' + agentName : (roster.defaultPreset.value?.description || '默认预设（无人物设定，仅基础工具）')"
+        >
+          <Avatar v-if="selAgent" :src="roster.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" plain-fallback />
+          <Icon v-else name="sparkles" :size="15" />
+          <span class="select-text">{{ agentName }}</span>
+          <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: agentMenuOpen && agentPanel === 'agent' }" />
+        </button>
+        <Transition name="menu-fade">
+          <div v-if="agentMenuOpen && agentPanel === 'agent'" class="dd-menu" @click.stop>
+            <button
+              type="button" class="dd-option dd-option--2line"
+              :class="{ selected: !selAgent, 'is-disabled': sessionLocked }"
+              :disabled="sessionLocked"
+              @click="selectAgent('')"
+              :title="roster.defaultPreset.value?.description || '无人物设定，仅基础工具预设'"
+            >
+              <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
+              <span class="dd-option-body">
+                <span class="dd-option-name">{{ roster.defaultPreset.value?.label || '标准' }}（预设）</span>
+                <span class="dd-option-desc">{{ roster.defaultPreset.value?.description || '无人物设定，仅基础工具' }}</span>
+              </span>
+              <Icon v-if="!selAgent" name="check" :size="15" class="dd-option-check" />
+            </button>
+            <button
+              v-for="p in otherPresets" :key="p.id" type="button"
+              class="dd-option dd-option--2line" :class="{ selected: selAgent === p.id, 'is-disabled': sessionLocked }"
+              :disabled="sessionLocked"
+              :title="p.description" @click="selectAgent(p.id)"
+            >
+              <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
+              <span class="dd-option-body">
+                <span class="dd-option-name">{{ p.label || p.name }}（预设）</span>
+                <span class="dd-option-desc">{{ p.description }}</span>
+              </span>
+              <Icon v-if="selAgent === p.id" name="check" :size="15" class="dd-option-check" />
+            </button>
+            <div v-if="selectableAgents.length > 0" class="dd-divider"></div>
+            <button
+              v-for="a in selectableAgents" :key="a.id" type="button"
+              class="dd-option dd-option--2line" :class="{ selected: selAgent === a.id, 'is-disabled': sessionLocked }"
+              :disabled="sessionLocked"
+              @click="selectAgent(a.id)"
+            >
+              <span class="dd-option-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" plain-fallback /></span>
+              <span class="dd-option-body">
+                <span class="dd-option-name">{{ a.name || a.id }}</span>
+                <span class="dd-option-desc">{{ a.description }}</span>
+              </span>
+              <Icon v-if="selAgent === a.id" name="check" :size="15" class="dd-option-check" />
+            </button>
+          </div>
+        </Transition>
+      </div>
+    </div>
+
+  <!-- 输入卡（fresh 缺席期本根仍渲染——常规会话的唯一根；fresh 态
+       加 fresh-card：限宽 + 水平居中——居中画面下拉满全宽观感失衡） -->
+  <div class="chat-input" :class="{ 'fresh-card': fresh && single }">
     <!-- 附件预览（图片附件只显缩略图——文件名退 hover 提示；加载失败回退文件名 chip） -->
     <div v-if="attachedFiles.length > 0" class="file-preview-bar">
       <template v-for="(file, i) in attachedFiles" :key="`${i}-${file.hash}`">
@@ -1182,169 +1380,69 @@ function onThumbError(i: number) {
       />
     </div>
 
-    <!-- 底部工具栏：工作区 - 提权 - Agent - 模型 - 思考强度 ⋯ 附件 - 发送 -->
+    <!-- 底部工具栏：模型（模型+思考）- 工具模式 - 权限 ⋯ 附件 - 发送
+         （身份组退役 2026-12：开场身份在 fresh 顶行设定，开始会话后
+         预设固化到会话头、工作区不可再改——工具栏不再放身份入口） -->
     <div class="input-toolbar">
       <div class="toolbar-left">
-        <!-- 工作区选择（独立会话）：会话挂载的文件夹白名单分组 -->
-        <div v-if="single" class="dd">
-          <button
-            type="button"
-            class="select-btn"
-            :class="{ open: wsMenuOpen }"
-            @click.stop="toggleWsMenu"
-            :title="selWorkspace ? `工作区：${wsLabel}\n${wsList.find(w => w.id === selWorkspace)?.path ?? ''}` : '未分组（会话不挂任何工作区）'"
-          >
-            <Icon name="folder" :size="15" />
-            <span class="select-text">{{ wsLabel }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: wsMenuOpen }" />
-          </button>
-          <Transition name="menu-fade">
-            <div v-if="wsMenuOpen" class="dd-menu" @click.stop>
-              <!-- 未分组 -->
-              <button type="button" class="dd-option" :class="{ selected: !selWorkspace }" @click="selectWorkspace('')" title="会话不挂任何工作区">
-                <span class="dd-option-icon"><Icon name="folder-open" :size="16" /></span>
-                <span>未分组</span>
-              </button>
-              <!-- 用户工作区（按名称排列） -->
-              <button
-                v-for="w in wsList" :key="w.id" type="button"
-                class="dd-option" :class="{ selected: selWorkspace === w.id }"
-                :title="w.path" @click="selectWorkspace(w.id)"
-              >
-                <span class="dd-option-icon"><Icon name="folder" :size="16" /></span>
-                <span class="dd-option-name">{{ w.name }}</span>
-              </button>
-            </div>
-          </Transition>
-        </div>
-
-        <!-- 快捷提权（access-tier §七 / webui 输入框按钮）：武装后续消息
-             的执行档位，持续生效直到手动改回；群聊（自定义 onSend）无此面 -->
-        <div v-if="!isGroupCtx" class="dd">
-          <button
-            type="button"
-            class="select-btn"
-            :class="{ open: elevMenuOpen, off: !elevation, armed: !!elevation, 'armed-full': elevation === 'full-access' }"
-            @click.stop="toggleElevMenu"
-            :title="elevTitle"
-          >
-            <Icon :name="elevation ? 'shield-check' : 'shield'" :size="15" />
-            <span class="select-text">{{ elevLabel }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
-          </button>
-          <Transition name="menu-fade">
-            <div v-if="elevMenuOpen" class="dd-menu" @click.stop>
-              <button
-                v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
-                class="dd-option" :class="{ selected: elevation === opt.value }"
-                :title="opt.title"
-                @click="selectElevation(opt.value)"
-              >
-                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
-                <span class="dd-option-name">{{ opt.label }}</span>
-                <span class="dd-option-detail">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
-              </button>
-            </div>
-          </Transition>
-        </div>
-
-        <!-- 工具使用模式（程序化开关，research §十）：标准 / 程序化两档——
-             选择即写会话 conv-settings（router 收窄 LLM 面，run 间隙生效）；
-             群聊隐藏（发言投递全体成员，模式无作用对象） -->
-        <div v-if="!isGroupCtx" class="dd">
-          <button
-            type="button"
-            class="select-btn"
-            :class="{ open: toolModeMenuOpen, off: !programmatic, prog: programmatic }"
-            @click.stop="toggleToolModeMenu"
-            :title="toolModeTitle"
-          >
-            <Icon name="braces" :size="15" />
-            <span class="select-text">{{ toolModeLabel }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: toolModeMenuOpen }" />
-          </button>
-          <Transition name="menu-fade">
-            <div v-if="toolModeMenuOpen" class="dd-menu" @click.stop>
-              <button
-                v-for="opt in TOOL_MODE_OPTIONS" :key="String(opt.value)" type="button"
-                class="dd-option" :class="{ selected: programmatic === opt.value, 'is-disabled': opt.disabled }"
-                :title="opt.title"
-                :disabled="opt.disabled"
-                @click="selectToolMode(opt.value)"
-              >
-                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
-                <span class="dd-option-name">{{ opt.label }}</span>
-                <span class="dd-option-detail" :class="{ 'is-warn': opt.disabled }">{{ opt.detail }}</span>
-              </button>
-            </div>
-          </Transition>
-        </div>
-
-        <!-- Agent 选择（独立会话）：头像 + 名称下拉；已有消息 = 锁死（规则 1） -->
-        <div v-if="single" class="dd">
-          <button
-            type="button"
-            class="select-btn agent-btn"
-            :class="{ open: agentMenuOpen, locked: sessionLocked }"
-            @click.stop="toggleAgentMenu"
-            :title="sessionLocked
-              ? `会话已有消息，预设/Agent 已锁定：${agentName}`
-              : (selAgent ? `Agent：${agentName}` : (roster.defaultPreset.value?.description || '默认预设（无人物设定，仅基础工具）'))"
-          >
-            <Avatar v-if="selAgent" :src="roster.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" plain-fallback />
-            <Icon v-else name="sparkles" :size="16" />
-            <span class="select-text">{{ agentName }}</span>
-            <Icon v-if="sessionLocked" name="lock" :size="13" class="lock-icon" />
-            <Icon v-else name="chevron-down" :size="14" class="chevron" :class="{ open: agentMenuOpen }" />
-          </button>
-          <Transition name="menu-fade">
-            <div v-if="agentMenuOpen" class="dd-menu" @click.stop>
-              <!-- 默认预设（= 未选 Agent 的空会话路由目标） -->
-              <button type="button" class="dd-option" :class="{ selected: !selAgent }" @click="selectAgent('')" :title="roster.defaultPreset.value?.description || '无人物设定，仅基础工具预设'">
-                <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
-                <span>{{ roster.defaultPreset.value?.label || '标准' }}（预设）</span>
-              </button>
-              <!-- 其余预设（多预设时可选；agentId = 预设 id） -->
-              <button
-                v-for="p in otherPresets" :key="p.id" type="button"
-                class="dd-option" :class="{ selected: selAgent === p.id }"
-                :title="p.description" @click="selectAgent(p.id)"
-              >
-                <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
-                <span>{{ p.label || p.name }}（预设）</span>
-              </button>
-              <div v-if="otherPresets.length > 0" class="dd-divider"></div>
-              <!-- 常规 Agent -->
-              <button
-                v-for="a in selectableAgents" :key="a.id" type="button"
-                class="dd-option" :class="{ selected: selAgent === a.id }"
-                @click="selectAgent(a.id)"
-              >
-                <span class="dd-option-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" plain-fallback /></span>
-                <span class="dd-option-name">{{ a.name || a.id }}</span>
-              </button>
-            </div>
-          </Transition>
-        </div>
-
-        <!-- 模型选择（P6：singles/1v1 直答；'' = Agent 原配置；未配置任何
-             模型时警示标识——默认模型发不出去，防用户误以为可直接会话。
-             群聊隐藏：发言投递给全部成员，各自的模型由成员 Agent 自有
-             配置决定，此处选择无作用对象） -->
+        <!-- 模型组：模型 + 思考强度（同为推理参数语义域）——一级 = 设置项
+             列表（右显当前值），点行下钻二级选项；选择回一级可连续调整 -->
         <div v-if="!isGroupCtx" class="dd">
           <button type="button" class="select-btn" :class="{ open: modelMenuOpen, warn: noModels && !selModel }" @click.stop="toggleModelMenu" :title="modelTitle">
             <Icon :name="noModels && !selModel ? 'alert-circle' : 'cpu'" :size="15" />
-            <span class="select-text">{{ modelLabel }}</span>
+            <span class="select-text">{{ selModel || (noModels ? '未配置模型' : '模型') }}</span>
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: modelMenuOpen }" />
           </button>
           <Transition name="menu-fade">
             <div v-if="modelMenuOpen" class="dd-menu" @click.stop>
-              <button type="button" class="dd-option" :class="{ selected: !selModel, warn: noModels }" :title="noModels ? '当前未配置任何模型——选择默认直接发送会失败' : '回落 Agent 原配置'" @click="selectModel('')">
-                <span class="dd-option-name">
-                  <Icon v-if="noModels" name="alert-circle" :size="13" class="dd-warn-icon" />
-                  默认模型<template v-if="noModels">（未配置）</template>
+              <!-- 一级：设置项列表 -->
+              <template v-if="modelPanel === 'root'">
+                <button
+                  type="button" class="dd-option"
+                  :class="{ selected: !!selModel }"
+                  @click="modelPanel = 'model'"
+                  :title="modelTitle"
+                >
+                  <span class="dd-option-icon"><Icon name="cpu" :size="16" /></span>
+                  <span class="dd-option-name">模型</span>
+                  <span class="dd-option-detail" :class="{ 'is-warn': noModels }">
+                    {{ modelLabel }}
+                    <Icon name="chevron-right" :size="14" class="dd-arrow" />
+                  </span>
+                </button>
+                <button
+                  type="button" class="dd-option"
+                  :class="{ selected: !!reasoningEffort }"
+                  @click="modelPanel = 'effort'"
+                  :title="reasoningEffort ? `思考强度：${reasoningEffort}` : '思考：关闭'"
+                >
+                  <span class="dd-option-icon"><Icon name="clock" :size="16" /></span>
+                  <span class="dd-option-name">思考强度</span>
+                  <span class="dd-option-detail">
+                    {{ effortLabel }}
+                    <Icon name="chevron-right" :size="14" class="dd-arrow" />
+                  </span>
+                </button>
+              </template>
+              <!-- 二级：模型选项 -->
+              <template v-else-if="modelPanel === 'model'">
+                <button type="button" class="dd-option dd-back" @click="modelPanel = 'root'" title="返回">
+                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="dd-option-name">模型</span>
+                </button>
+                <div class="dd-divider"></div>
+              <button type="button" class="dd-option dd-option--2line" :class="{ selected: !selModel, warn: noModels }" :title="noModels ? '当前未配置任何模型——选择默认直接发送会失败' : '回落 Agent 原配置'" @click="selectModel('')">
+                <span class="dd-option-icon">
+                  <Icon v-if="noModels" name="alert-circle" :size="16" class="dd-warn-icon" />
+                  <Icon v-else name="cpu" :size="16" />
                 </span>
-                <span class="dd-option-detail" :class="{ 'is-warn': noModels }">{{ noModels ? '发送将失败' : 'Agent 原配置' }}</span>
+                <span class="dd-option-body">
+                  <span class="dd-option-name">
+                    默认模型<template v-if="noModels">（未配置）</template>
+                  </span>
+                  <span class="dd-option-desc" :class="{ 'is-warn': noModels }">{{ noModels ? '发送将失败——请到设置 → 模型管理配置连接' : '使用 Agent 原配置的模型' }}</span>
+                </span>
+                <Icon v-if="!selModel" name="check" :size="15" class="dd-option-check" />
               </button>
               <template v-for="g in modelGroups" :key="g.name">
                 <div class="dd-divider"></div>
@@ -1357,27 +1455,91 @@ function onThumbError(i: number) {
                   <span class="dd-option-name">{{ m }}</span>
                 </button>
               </template>
-              <div v-if="modelGroups.length === 0" class="dd-group-label">暂无可选模型（连接未配置或未发现清单——设置 → 模型管理「读取模型」）</div>
+                <div v-if="modelGroups.length === 0" class="dd-group-label">暂无可选模型（连接未配置或未发现清单——设置 → 模型管理「读取模型」）</div>
+              </template>
+              <!-- 二级：思考强度选项 -->
+              <template v-else>
+                <button type="button" class="dd-option dd-back" @click="modelPanel = 'root'" title="返回">
+                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="dd-option-name">思考强度</span>
+                </button>
+                <div class="dd-divider"></div>
+                <button
+                  v-for="opt in EFFORT_OPTIONS" :key="opt.value" type="button"
+                  class="dd-option" :class="{ selected: reasoningEffort === opt.value }"
+                  @click="selectEffort(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </button>
+              </template>
             </div>
           </Transition>
         </div>
 
-        <!-- 思考强度：'' = 关闭思考（群聊隐藏——思考档随 direct/single 消息
-             信封下发，群发不携带；各成员按自有配置） -->
+        <!-- 工具调用模式（独立按钮）：与提权分立——程序化调用模式需要
+             用户先单独熟悉。单项菜单直开档位列表（无下钻）：选择即写
+             会话 conv-settings，菜单保持开可连续调整 -->
         <div v-if="!isGroupCtx" class="dd">
-          <button type="button" class="select-btn" :class="{ open: effortMenuOpen, off: !reasoningEffort }" @click.stop="toggleEffortMenu" :title="reasoningEffort ? `思考强度：${reasoningEffort}` : '思考：关闭'">
-            <Icon name="clock" :size="15" />
-            <span class="select-text">{{ effortLabel }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: effortMenuOpen }" />
+          <button
+            type="button"
+            class="select-btn"
+            :class="{ open: toolModeMenuOpen, prog: toolMode === 'tc-programmatic' }"
+            @click.stop="toggleToolModeMenu"
+            :title="toolModeTitle"
+          >
+            <Icon name="braces" :size="15" />
+            <span class="select-text">{{ toolModeLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: toolModeMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="effortMenuOpen" class="dd-menu" @click.stop>
+            <div v-if="toolModeMenuOpen" class="dd-menu" @click.stop>
               <button
-                v-for="opt in EFFORT_OPTIONS" :key="opt.value" type="button"
-                class="dd-option" :class="{ selected: reasoningEffort === opt.value }"
-                @click="selectEffort(opt.value)"
+                v-for="opt in TOOL_MODE_OPTIONS" :key="String(opt.value)" type="button"
+                class="dd-option dd-option--2line" :class="{ selected: toolMode === opt.value, 'is-disabled': opt.disabled }"
+                :title="opt.title"
+                :disabled="opt.disabled"
+                @click="selectToolMode(opt.value)"
               >
-                <span>{{ opt.label }}</span>
+                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="dd-option-body">
+                  <span class="dd-option-name">{{ opt.label }}</span>
+                  <span class="dd-option-desc" :class="{ 'is-warn': opt.disabled }">{{ opt.detail }}</span>
+                </span>
+                <Icon v-if="toolMode === opt.value" name="check" :size="15" class="dd-option-check" />
+              </button>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- 权限（快捷提权）：与工具模式分立的独立按钮（2026-12 拆分）。
+             单项菜单直开档位列表（无下钻）：选择即武装/解除，菜单保持开；
+             武装态警示色常显 -->
+        <div v-if="!isGroupCtx" class="dd">
+          <button
+            type="button"
+            class="select-btn"
+            :class="{ open: elevMenuOpen, armed: !!elevation, 'armed-full': elevation === 'full-access' }"
+            @click.stop="toggleElevMenu"
+            title="快捷提权（权限档位）"
+          >
+            <Icon :name="elevation ? 'shield-check' : 'shield'" :size="15" />
+            <span class="select-text">{{ elevBtnLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="elevMenuOpen" class="dd-menu" @click.stop>
+              <button
+                v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
+                class="dd-option dd-option--2line" :class="{ selected: elevation === opt.value }"
+                :title="opt.title"
+                @click="selectElevation(opt.value)"
+              >
+                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="dd-option-body">
+                  <span class="dd-option-name">{{ opt.label }}</span>
+                  <span class="dd-option-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
+                </span>
+                <Icon v-if="elevation === opt.value" name="check" :size="15" class="dd-option-check" />
               </button>
             </div>
           </Transition>
@@ -1426,6 +1588,13 @@ function onThumbError(i: number) {
      双主题值见 webui-kit tokens.css --shadow-input */
   box-shadow: var(--shadow-input, 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.08));
   position: relative;
+}
+
+/* ── 新会话开场（fresh）：限宽 + 水平居中——开场画面是居中构图，
+   拉满全宽会失衡；960px 为实测最舒适宽度（F12 调试值），留出两侧呼吸 ── */
+.chat-input.fresh-card {
+  width: min(960px, calc(100% - 20px));
+  align-self: center;
 }
 
 /* ---- 附件预览栏 ---- */
@@ -1614,6 +1783,18 @@ html.dark .tok-file    { color: #6aa6ff; background: color-mix(in srgb, #6aa6ff 
 html.dark .tok-agent   { color: #4cc98a; background: color-mix(in srgb, #4cc98a 14%, transparent); }
 html.dark .tok-session { color: #f0a24a; background: color-mix(in srgb, #f0a24a 14%, transparent); }
 
+/* ---- 新会话开场顶行（fresh，输入卡外独立行）：工作区 | 预设模式
+     （开场身份设定——开始会话即固化）。靠左，但与限宽居中的输入卡
+     对齐——同样的 min(960px) 宽度容器内左对齐，随窗口缩放跟随 ---- */
+.fresh-setup-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: min(960px, calc(100% - 20px));
+  margin: 0 auto 8px;
+}
+
 /* ---- 工具栏 ---- */
 .input-toolbar {
   display: flex;
@@ -1659,10 +1840,7 @@ html.dark .tok-session { color: #f0a24a; background: color-mix(in srgb, #f0a24a 
 .select-btn.open { background: #eff0f1; color: var(--role-selected-text, #4f46e5); }
 html.dark .select-btn.open { background: #1a1f2c; }
 
-/* 思考关闭弱化态 / 会话锁定态（规则 1：已有消息禁换预设） */
-.select-btn.off { color: var(--color-text-tertiary, #a8abb2); }
-.agent-btn.locked { cursor: default; color: var(--color-text-secondary); }
-.agent-btn.locked:hover { background: transparent; }
+/* 会话锁定态图标（规则 1：已有消息禁换预设——fresh 预设面板内 lock 象形） */
 .lock-icon { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
 
 /* 快捷提权武装态（持续生效直到改回）：警示色常显——防"忘记已武装"；
@@ -1675,7 +1853,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 /* 程序化模式激活态（工具使用模式 = 程序化）：主色微亮——模式在场的持续提示 */
 .select-btn.prog { color: var(--color-primary, #4f46e5); font-weight: 600; }
 .select-btn.prog:hover { color: var(--color-primary, #4f46e5); background: color-mix(in srgb, var(--color-primary, #4f46e5) 10%, transparent); }
-/* 档位不可选（Agent 无 code-exec——开关惰性对齐） */
+/* 档位不可选（Agent 无 tc-programmatic 标签——覆盖惰性对齐） */
 .dd-option.is-disabled { opacity: .55; cursor: not-allowed; }
 .dd-option.is-disabled:hover { background: none; }
 
@@ -1743,8 +1921,11 @@ html.dark .select-btn.open { background: #1a1f2c; }
   text-align: left;
 }
 
+/* 选中态 = 行尾 check 勾（主色）——正文/名称保持常态色；此前整行染
+ * --role-selected-text（主题靛蓝）是下拉里"文字发蓝"的观感来源（分组
+ * 标题邻近选中项时尤显突兀——它本身是灰色 var(--color-text-tertiary)） */
 .dd-option:hover { background: var(--role-hover-bg, var(--bg-hover)); }
-.dd-option.selected { color: var(--role-selected-text, #4f46e5); font-weight: 600; }
+.dd-option.selected .dd-option-name { font-weight: 600; }
 
 .dd-option-icon {
   display: inline-flex;
@@ -1753,6 +1934,40 @@ html.dark .select-btn.open { background: #1a1f2c; }
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+}
+
+/* 选中勾（行尾）：主色象形替代整行染色 */
+.dd-option-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--color-primary, #4f46e5);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── 二级选项双层布局（上层 ICON+名称，下层描述）──
+ * 描述获得整行宽度（不再与名称/箭头同行挤压），释放更多说明空间；
+ * 单层行不受影响（模型清单名等仍单行）。 */
+.dd-option--2line {
+  align-items: flex-start;
+  padding: 6px 10px;
+}
+
+.dd-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dd-option-desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-text-tertiary, #a8abb2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dd-option-name {
@@ -1766,6 +1981,13 @@ html.dark .select-btn.open { background: #1a1f2c; }
   font-size: 11px;
   color: var(--color-text-tertiary, #a8abb2);
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 60%;
+  /* 文本部分超长省略（内嵌箭头图标不参与压缩） */
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .dd-divider {
@@ -1773,6 +1995,11 @@ html.dark .select-btn.open { background: #1a1f2c; }
   margin: 4px 6px;
   background: var(--color-border-secondary, #e0e0e0);
 }
+
+.dd-back { color: var(--color-text-secondary); font-weight: 500; }
+.dd-back:hover { color: var(--text-1, var(--color-text-primary)); }
+
+.dd-arrow { margin-left: 4px; color: var(--color-text-tertiary, #a8abb2); }
 
 .dd-group-label {
   padding: 2px 12px 4px;

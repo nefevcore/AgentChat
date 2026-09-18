@@ -24,7 +24,8 @@ import { splitModelRef } from 'ac-llm';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
 import { pairKey } from 'ac-agent-loop';
-import { capabilitySetOf, filterLlmParams, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { capabilitySetOf, conversationFormOf, effectiveToolMode, filterLlmParams, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import type { ConversationForm } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 
 /** 路由入站消息（string 糖衣 → { role:'user', content }） */
@@ -222,27 +223,32 @@ export class RouterService extends Service {
       return def === undefined || !(def.excludeForms ?? []).includes(form);
     };
     const tools = resolved.filter(formAllowed);
-    // 程序化开关（2026-09-17 开关化终裁，research §十）：conv-settings
-    // programmatic=true → LLM 工具面收窄为 ['run_code']（真互斥形态——
-    // SDK 投影块由 ac-run-code prompt.ts 按「run_code 在 LLM 面」自然
-    // 注入互斥版）。收窄结果过形态面终滤同口径（run_code 自身若被形态面
-    // 排除则收窄面为空——loop 收敛为无工具）；run_code 不在生效面（Agent
-    // 无 code-exec 授权或 run-code 行未装）→ warn 并忽略开关（开关惰性，
-    // 不拦截 run——与 include 点名落空同款可观测语义）。键面同 elevation
-    // 口径：全形态会话生效（含 singles sid——model 才分流 singles）。
-    let llmTools = tools;
-    const convSettings = this.ctx.get('convSettings', false) as
-      | { get(conversationId: string): { programmatic?: boolean } }
-      | undefined;
-    if (convSettings?.get(call.conversationId).programmatic === true) {
-      if (tools.includes('run_code')) {
-        llmTools = tools.filter((name) => name === 'run_code');
-      } else {
-        this.ctx.logger.warn(
-          '[router] 程序化开关已开但 run_code 不在生效工具面（Agent %C 无 code-exec 授权或 run-code 行未装），开关忽略——按常规工具面执行',
-          call.agentId,
-        );
-      }
+    // 工具调用模式（2026-09-17 统一重构 + 优化裁决：tc-* 纯模式词——
+    // 与提权档位同构的形态选择，非授权门槛；run_code 授权词 = infra）：
+    //   · 生效档 = 会话覆盖（conv-settings toolMode，无键 = 跟随）??
+    //     toolModeOf(agent)（tags 单源判定，缺省 tc-base）；
+    //   · tc-programmatic → LLM 面收窄为 ['run_code']（SDK 投影块由
+    //     ac-run-code prompt.ts 按 run 级 request.tools 自然注入）——
+    //     前端选「程序化」= 临时程序化档（等同临时分配，无需预配标签）；
+    //   · tc-none → LLM 工具面清空（纯聊天）；
+    //   · tc-base → 不收窄（逐个直调）。
+    // tc-programmatic 但 run_code 不在生效面（Agent 无 infra 或 run-code
+    // 行未装）→ warn 并忽略该档（惰性回落 tags 档，不拦截 run；与
+    // include 点名落空同款可观测语义）。键面同 elevation 口径：全形态
+    // 会话生效（含 singles sid）。
+    // 工具调用模式收窄（单源 effectiveToolMode/narrowToolsByMode——与
+    // system-prompt 干跑/agents/tool-defs 估算面共用，防估算随会话开关漂移）
+    const mode = effectiveToolMode(agent, call.conversationId, {
+      convSettings: this.ctx.get('convSettings', false) as
+        | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+        | undefined,
+    });
+    const llmTools = narrowToolsByMode(tools, mode);
+    if (mode === 'tc-programmatic' && !tools.includes('run_code')) {
+      this.ctx.logger.warn(
+        '[router] 工具调用模式为 tc-programmatic 但 run_code 不在生效工具面（Agent %C 无 infra 标签或 run-code 行未装），该档忽略——按常规工具面执行',
+        call.agentId,
+      );
     }
     // 未配置 include/exclude 时也**显式**传可见面全量：loop 的 tools 缺省
     // 语义是"全部已注册"——省略即绕过能力面（空集照传，loop 收敛为无工具）
@@ -257,7 +263,7 @@ export class RouterService extends Service {
       call.sender,
       call.source,
       // 能力面 + 形态面过滤后的生效工具数（include/exclude 已解析；含
-      // 未配置 = 可见面全量；程序化开关收窄后为 LLM 实际可见面）
+      // 未配置 = 可见面全量；工具调用模式收窄后为 LLM 实际可见面）
       `(${llmTools.length}/${this.ctx.tools.list().length})`,
     );
     const run = await this.ctx.agentLoop.run({
@@ -300,15 +306,11 @@ export class RouterService extends Service {
 
   /**
    * 会话形态（工具形态面的判定输入，见 ToolDefinition.excludeForms）：
-   * conversationId 命中 singles 注册表 = 'single'；其余会话形态/行未装 =
-   * null。singles 为可选能力（ctx.get 非 strict）；纯注册表查询，零会话
-   * 状态（router 转发语义不变）。
+   * conversationFormOf 单源（ac-agents——'single' singles 命中 / 'self'
+   * 对角线自会话 a~a）。router 转发语义不变：纯查询零会话状态。
    */
-  private conversationForm(conversationId: string): 'single' | null {
-    const singles = this.ctx.get('singles', false) as
-      | { get(sid: string): unknown }
-      | undefined;
-    return singles && singles.get(conversationId) ? 'single' : null;
+  private conversationForm(conversationId: string): ConversationForm | null {
+    return conversationFormOf(this.ctx, conversationId);
   }
 
   /**

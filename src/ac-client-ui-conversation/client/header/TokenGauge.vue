@@ -92,11 +92,13 @@ let tokenFetchSeq = 0;
 // 事故同款，随抽取迁移时须保持此声明序）
 const tokenPanelOpen = ref(false);
 
-// 重取时机（自内核原样迁入）：目标 Agent 切换 / single 切换 / run 结束 /
-// 历史拉尽（估算口径补全）/ 归档完成（compact 重写会话——无 run 结束）
+// 重取时机（自内核原样迁入）：目标 Agent 切换 / single 切换 / 步终值
+// （loop/after-step——工具步先于工具执行，长工具运行中即重取；此前挂
+// after-run 要等整轮收束）/ 历史拉尽（估算口径补全）/ 归档完成（compact
+// 重写会话——无 run 结束）
 watch(() => props.data.agentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
 watch(() => props.data.single?.id, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; });
-watch(() => chatStore.lastRunEndAt, () => { fetchTokenBaseline(); });
+watch(() => chatStore.lastStepEndAt, () => { fetchTokenBaseline(); });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
 watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
 
@@ -107,14 +109,22 @@ function toggleTokenPanel() {
   tokenPanelOpen.value = !tokenPanelOpen.value;
   if (tokenPanelOpen.value) {
     // 懒加载固定开销构成（系统提示/工具定义——每次打开重取：人格/记忆/
-    // 生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid 装配）
+    // 生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid 装配）；
+    // single/direct 传会话键——后端按会话工具调用模式收窄生效集（程序化
+    // 会话仅 run_code），估算与真实 run 的 LLM 可见面同口径
     if (props.data.agentId) {
-      if (props.data.form === 'group' && props.data.conversationId) {
-        chatStore.requestSystemPrompt(props.data.agentId, { conversationId: props.data.conversationId });
+      const convId = props.data.form === 'group'
+        ? props.data.conversationId
+        : props.data.single?.id ?? undefined;
+      // 群形态带 gid（记忆桶/群共享记忆按 gid 装配）；single 传 sid；direct
+      // 不传（后端按 viewer 对桶键推导——requestSystemPrompt 同口径）
+      if (convId) {
+        chatStore.requestSystemPrompt(props.data.agentId, { conversationId: convId });
+        chatStore.requestToolDefs(props.data.agentId, { conversationId: convId });
       } else {
         chatStore.requestSystemPrompt(props.data.agentId);
+        chatStore.requestToolDefs(props.data.agentId);
       }
-      chatStore.requestToolDefs(props.data.agentId);
     }
     // 点击外部关闭（gauge 点击带 .stop 不触达 document）
     setTimeout(() => document.addEventListener('click', closeTokenPanel, { once: true }), 0);
@@ -123,10 +133,27 @@ function toggleTokenPanel() {
 function closeTokenPanel() { tokenPanelOpen.value = false; }
 
 // ── 固定开销（≈ 展示口径：与后端 ac-text-budget 同款字符估算）──
+// 弹层打开时经 agents/system-prompt（before-run 三档干跑——与真实 run
+// 同源装配）+ agents/tool-defs（router 同口径生效集）取实值估算；未打开
+// 时为 0。计数行恒示实值；占用比例按 "若有取实值，否则 0" 并入——避免
+// 每步重取干跑（开销大），也不虚假抬高占用（弹层从未打开 = 用户未看过
+// 明细，比例维持会话净占用）。
 const systemPromptTokens = computed(() => estimateTokens(chatStore.systemPromptContent));
 const toolDefsTokens = computed(() =>
   (chatStore.toolDefs as unknown[]).reduce<number>((n, d) => n + estimateTokens(JSON.stringify(d)), 0));
 const overheadLoading = computed(() => chatStore.systemPromptLoading || chatStore.toolDefsLoading);
+
+/** 占用比例（含固定开销）：分子 = 会话净占用 + 系统提示/工具定义实值
+ *  估算（未取 = 0）；分母 = maxContextTokens。status 阈值档与后端
+ *  session/tokens 的档位判定（<50/<75/<90）同款。 */
+const usageWithOverhead = computed(() => {
+  const st = sessionTokens.value;
+  if (!st) return { pct: 0, status: 'low' as const };
+  const total = st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
+  const p = Math.min(100, (total / st.maxContextTokens) * 100);
+  const s = p < 50 ? 'low' : p < 75 ? 'moderate' : p < 90 ? 'high' : 'critical';
+  return { pct: p, status: s as SessionTokens['status'] };
+});
 
 // ── 缓存命中（provider prompt cache；命中率 = hit / (hit + miss)） ──
 const cacheRate = (hit: number, miss: number): number | null =>
@@ -160,35 +187,37 @@ const applicable = computed(() =>
     v-if="applicable"
     class="session-token-gauge"
     :class="{ 'is-open': tokenPanelOpen }"
-    :title="`上下文占用 ${Math.round(sessionTokens!.usagePercent)}% · 点击查看详情`"
+    :title="`上下文占用 ${Math.round(usageWithOverhead.pct)}% · 点击查看详情`"
     @click.stop="toggleTokenPanel()"
   >
-    <!-- 环形进度条：占用率在环中心，语义色随状态（低→临界） -->
+    <!-- 环形进度条：占用率在环中心，语义色随状态（低→临界）
+         （占用比例含系统提示/工具定义固定开销——值取后实值并入，未取 = 0） -->
     <RingProgress
       class="gauge-ring"
-      :tone="sessionTokens!.status"
-      :value="sessionTokens!.usagePercent"
+      :tone="usageWithOverhead.status"
+      :value="usageWithOverhead.pct"
       :size="26"
       :stroke="3"
     >
-      <span class="gauge-ring-pct" :class="sessionTokens!.status">{{ Math.round(sessionTokens!.usagePercent) }}</span>
+      <span class="gauge-ring-pct" :class="usageWithOverhead.status">{{ Math.round(usageWithOverhead.pct) }}</span>
     </RingProgress>
     <transition name="fade">
       <div v-if="tokenPanelOpen" class="token-panel" @click.stop>
         <div class="token-panel__head">
           <span class="token-panel__title">上下文占用</span>
-          <span class="token-panel__status" :class="sessionTokens!.status">{{ TOKEN_STATUS_LABEL[sessionTokens!.status] }}</span>
+          <span class="token-panel__status" :class="usageWithOverhead.status">{{ TOKEN_STATUS_LABEL[usageWithOverhead.status] }}</span>
         </div>
-        <!-- 环形占用仪表：中心 = 占用率；右侧 = 会话上下文 / 上限 -->
+        <!-- 环形占用仪表：中心 = 占用率（含固定开销）；右侧 = 会话上下文 /
+             上限（明细行在下方） -->
         <div class="token-panel__ring-row">
           <RingProgress
             class="token-ring"
-            :tone="sessionTokens!.status"
-            :value="sessionTokens!.usagePercent"
+            :tone="usageWithOverhead.status"
+            :value="usageWithOverhead.pct"
             :size="56"
             :stroke="5"
           >
-            <span class="token-ring-pct" :class="sessionTokens!.status">{{ Math.round(sessionTokens!.usagePercent) }}%</span>
+            <span class="token-ring-pct" :class="usageWithOverhead.status">{{ Math.round(usageWithOverhead.pct) }}%</span>
             <span class="token-ring-sub">已占用</span>
           </RingProgress>
           <div class="token-ring-side">
@@ -198,6 +227,7 @@ const applicable = computed(() =>
         </div>
         <div class="token-row"><span class="k">工具定义</span><span class="v">{{ overheadLoading ? '…' : `≈ ${fmtTokenCount(toolDefsTokens)}` }}</span></div>
         <div class="token-row"><span class="k">系统提示词</span><span class="v">{{ overheadLoading ? '…' : `≈ ${fmtTokenCount(systemPromptTokens)}` }}</span></div>
+        <div class="token-row"><span class="k">合计（含固定开销）</span><span class="v">{{ overheadLoading ? '…' : `≈ ${fmtTokenCount(sessionTokens!.tokenCount + systemPromptTokens + toolDefsTokens)}` }}</span></div>
         <!-- 缓存命中（provider prompt cache；命中部分按服务商折扣价计费） -->
         <template v-if="lastCacheRate !== null || totalCacheRate !== null">
           <div class="token-panel__cache">
@@ -209,7 +239,7 @@ const applicable = computed(() =>
             <div v-if="totalCacheRate !== null" class="token-row"><span class="k">缓存命中 · 本会话累计</span><span class="v">{{ pct(totalCacheRate) }}</span></div>
           </div>
         </template>
-        <div class="token-note">≈ 为估算值；缓存命中部分按折扣价计费。</div>
+        <div class="token-note">≈ 为估算值；占用比例含系统提示/工具定义固定开销；缓存命中部分按折扣价计费。</div>
         <!-- 归档入口：占用量与归档动作同屏——超阈值时顺手整理；run 进行中/整理中禁用。
              群形态不显示（群归档走后端轮转：达阈值先给群主跑 [群归档整理] run） -->
         <button

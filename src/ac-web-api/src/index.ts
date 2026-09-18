@@ -70,7 +70,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
-import { capabilitySetOf, displayNameOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { capabilitySetOf, displayNameOf, effectiveToolMode, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import { OpenAICompletions } from 'ac-openai-completions';
 import { normalizePoolModels, type PoolModelEntry } from 'ac-llm-pool';
@@ -753,18 +753,36 @@ export function apply(ctx: Context) {
     // 返回 total（总条数）与 hasMore（更早是否还有），前端据此判上翻。
     const limit = optPageNum(p.limit);
     const offset = optPageNum(p.offset) ?? 0;
-    const all = await ctx.session.records(conversationId);
+    // fingerprint 短路（2026-09-19 切换重入优化）：首屏请求（offset=0）带
+    // 上次响应的 fingerprint（size:mtimeMs——append-only 下文件未变 = 首屏
+    // 记录未变），stat 相同 → unchanged 轻载荷返回，跳过 records() 全读 +
+    // subcall 注入 + 序列化。切走再切回是纯重入（文件通常没变）——短会话
+    // 的重复全读由此归零。误判率为零：文件任何变化（新消息/partial 收束/
+    // compact 重写）必变 mtime 或 size，短路自动失效回全量。上翻（offset>0）
+    // 不参与——分页语义需要精确 total。
+    const reqFingerprint = typeof p.fingerprint === 'string' ? p.fingerprint : undefined;
+    if (reqFingerprint !== undefined && offset === 0) {
+      const meta = ctx.session.statMeta(conversationId);
+      if (meta !== undefined && reqFingerprint === meta.size + ':' + meta.mtimeMs) {
+        return { conversationId, unchanged: true, fingerprint: reqFingerprint };
+      }
+    }
+    // subcalls 投影（2026-09-17 方面 B）：UI 历史面开启——run_code 子调用
+    // 平铺进 steps[].toolCalls（subcall: true），前端复原完整工具卡
+    const all = await ctx.session.records(conversationId, { subcalls: true });
     const summary = ctx.session.summary(conversationId);
     const page =
       limit === undefined
         ? all
         : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
+    const meta = ctx.session.statMeta(conversationId);
     return {
       conversationId,
       records: page,
       total: all.length,
       ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
       ...(summary !== undefined ? { summary } : {}),
+      ...(offset === 0 && meta !== undefined ? { fingerprint: meta.size + ':' + meta.mtimeMs } : {}),
     };
   });
 
@@ -826,15 +844,23 @@ export function apply(ctx: Context) {
         label: d.meta.label,
         description: d.meta.description ?? '',
         default: d.meta.default === true,
-        // tags（2026-09-17 开关化补）：预设授权面——前端判定「程序化」开关
-        // 可用性（code-exec 在场；缺席 = 开关对该 Agent 惰性，UI 需可提示）
+        // tags（2026-09-17 tc-* 标签轴）：预设授权面——前端判定「程序化」覆盖
+        // 可用性（tc-programmatic 在场；缺席 = 覆盖惰性，UI 禁选可提示）
         ...(Array.isArray(d.agent.tags) ? { tags: d.agent.tags } : {}),
       })),
     };
   });
 
+  // agents/tool-defs：生效工具集（Token 弹层固定开销估算的唯一消费面）。
+  // conversationId（可选，2026-12 估算失真修复）：按「会话覆盖 ?? Agent
+  // tags」的工具调用模式收窄——与 router 真实 run 的 LLM 可见面同口径
+  //（tc-programmatic → 仅 run_code、tc-none → 空）。缺省 = viewer 直答
+  // 对桶键 pairKey('user', agentId)（与 systemPromptPreview 干跑同口径
+  // ——直答会话的模式覆盖对两个估算面同时生效）。
   web.registerRpc('agents/tool-defs', (params) => {
-    const agentId = reqStr(obj(params), 'agentId');
+    const p = obj(params);
+    const agentId = reqStr(p, 'agentId');
+    const conversationId = optStr(p.conversationId) ?? pairKey(VIEWER_AGENT_ID, agentId);
     const config = ctx.agents.require(agentId);
     // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁（requiredTags）
     // 先过滤，再按 AgentConfig.tools 解析 include/exclude
@@ -842,7 +868,14 @@ export function apply(ctx: Context) {
     const visible = ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
     const all = visible.map((t) => t.name);
     // 解析传 defs（tag 引用 'tag:<tag>' 展开——与 router 同口径）
-    const names = resolveToolNames(config.tools, visible) ?? all;
+    const names = narrowToolsByMode(
+      resolveToolNames(config.tools, visible) ?? all,
+      effectiveToolMode(config, conversationId, {
+        convSettings: conversationId ? ctx.get('convSettings', false) as
+          | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+          | undefined : undefined,
+      }),
+    );
     // defs：生效集的完整定义（description/parameters；execute 不跨 JSON）
     const defs = ctx.tools
       .list()
@@ -1010,8 +1043,8 @@ export function apply(ctx: Context) {
   function requireConvSettings() {
     const convSettings = ctx.get('convSettings', false) as
       | {
-          get(conversationId: string): { model?: string; programmatic?: boolean };
-          set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): { model?: string; programmatic?: boolean };
+          get(conversationId: string): { model?: string; toolMode?: string };
+          set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): { model?: string; toolMode?: string };
         }
       | undefined;
     if (!convSettings) throw new Error('convSettings 服务未装载（会话设置面不可用）');
@@ -1024,15 +1057,15 @@ export function apply(ctx: Context) {
   }));
 
   // set：patch.model = 'name@model' | 裸名 | null（null/'' = 清除覆盖）；
-  // patch.programmatic = 'true' | null（布尔键的 wire 字符串形态——
-  // 程序化开关，2026-09-17 research §十；其余值 = 清除）
+  // patch.toolMode = 'tc-base' | 'tc-programmatic' | 'tc-none' | null（工具
+  // 调用模式覆盖，tc-* 标签轴；非法值 = 清除——服务面枚举校验）
   web.registerRpc('conv-settings/set', (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
     const patch = obj(p.patch);
     const settings = requireConvSettings().set(conversationId, {
       model: patch.model === null || patch.model === undefined ? null : String(patch.model),
-      ...(patch.programmatic !== undefined ? { programmatic: patch.programmatic === null ? null : String(patch.programmatic) } : {}),
+      ...(patch.toolMode !== undefined ? { toolMode: patch.toolMode === null ? null : String(patch.toolMode) } : {}),
     });
     return { conversationId, settings };
   });
@@ -1196,16 +1229,16 @@ export function apply(ctx: Context) {
   let runsDigestCache: { digest: string; payload: unknown } | null = null;
   web.registerRpc('runs/snapshot', (params) => {
     const ids = ctx.session.ids();
-    // 数据指纹：tail/stats 缓存命中时零读（mtime 门），未命中也只增量段
-    const convs = ids.map((cid) => {
-      const last = ctx.session.tail(cid);
-      const st = ctx.session.stats(cid);
-      return { cid, last, st };
-    });
+    // 数据指纹（2026-09-19 性能修复重排）：指纹阶段只做 statMeta（stat 直取
+    // size/mtime，零文件读）——原实现指纹先调 tail/stats，冷启动/缓存失效时
+    // 对全部会话触发 8MiB 尾窗读（程序化大会话实测单轮 394ms/267MB 同步读，
+    // 刷新页面 HTTP 全排队）。statMeta 与 tail/stats 缓存门同源（都是文件
+    // stat）——指纹判变能力不变，读成本从 MB 级降为 0。
+    const convsMeta = ids.map((cid) => ({ cid, meta: ctx.session.statMeta(cid) }));
     const stats = ctx.conversation.stats();
     const groups = ctx.group.list();
     const fingerprint = [
-      convs.map((c) => `${c.cid}:${c.st?.size ?? -1}:${c.st?.updatedAt ?? 0}:${c.last?.timestamp ?? ''}:${c.last?.role ?? ''}`).sort().join('|'),
+      convsMeta.map((c) => `${c.cid}:${c.meta?.size ?? -1}:${c.meta?.mtimeMs ?? 0}`).sort().join('|'),
       stats.running.map((r) => `${r.agentId}@${r.conversationId}#${r.startedAt}`).sort().join('|'),
       Object.keys(stats.queued).sort().map((k) => `${k}#${stats.queued[k]}`).join('|'),
       groups.map((g) => `${g.id}:${g.members.length}:${g.name}`).sort().join('|'),
@@ -1215,6 +1248,20 @@ export function apply(ctx: Context) {
     if (typeof reqDigest === 'string' && reqDigest === digest && runsDigestCache) {
       return { unchanged: true, digest, generatedAt: Date.now() };
     }
+    // digest 变化（或首轮无参照）：展开真数据——此刻才调 tail/stats
+    // （tail 增量小窗试探 + stats 增量段，见 ac-session 对应注释）。
+    // single 桶（conversationId 无 '~'）跳过 tail：运行矩阵只认对桶
+    // （toRunsSnapshot 过滤无 ~ 桶），Agent 名册聚合同口径——snapshot 载荷
+    // 里的 single last 是无消费者的死数据；single 列表自己的标题/活动时间
+    // 走 singles/list（title 元数据 + lastActivity = stats mtime）。实测
+    // single 桶占数据根 88% 字节（程序化实测大会话都在此形态）——跳过它
+    // 的 tail 解析是展开段最大单项削减。stats 保留（lastActivity 的 mtime
+    // 源；增量段读成本小）。
+    const convs = ids.map((cid) => {
+      const last = cid.includes('~') ? ctx.session.tail(cid) : undefined;
+      const st = ctx.session.stats(cid);
+      return { cid, last, st };
+    });
     const conversations = convs
       .map((c) => ({
         conversationId: c.cid,

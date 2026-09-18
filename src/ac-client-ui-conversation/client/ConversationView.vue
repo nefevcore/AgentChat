@@ -107,6 +107,13 @@ const activeAgentName = computed(() => {
   // getAgentName 含预设目录解析（预设 Agent 不在 agents 列表）
   return roster.getAgentName(id) || id;
 });
+/** 会话头预设徽标（single 形态：开场固化后的身份回显——默认预设也
+ *  显式点名，工具栏身份组已退役，会话头是唯一的身份显示位）。 */
+const presetChipLabel = computed(() => {
+  if (!props.single) return '';
+  if (!props.single.agentId) return roster.defaultPreset.value?.label || '标准';
+  return roster.getAgentName(props.single.agentId) || props.single.agentId;
+});
 const title = computed(() => {
   if (props.single) {
     if (!props.single.agentId) return props.single.title || '新会话';
@@ -322,6 +329,16 @@ function onTopThreshold() {
 const turns = computed<Turn[]>(() => (dialogId.value ? feed.getTurns(dialogId.value).value : []));
 const turnDisplayItems = useTurnDisplayItems(turns);
 
+/* ── 新会话开场（2026-12 布局重设计）──
+ * single 空会话：输入框区域整体居中呈现（工作区选择 | 预设模式选择
+ * 置于输入卡上方）。首条消息后回到常规底部布局。direct/群/pair 无此面。
+ * 空判定与 ChatInput.sessionLocked 同源口径：无 lastActivity 且 feed
+ * 分区无消息（首轮流式期间文件未落盘，feed 先看到）。 */
+const isSingleFresh = computed(() =>
+  isSingle.value
+  && !props.single!.lastActivity
+  && (!dialogId.value || feed.getRaw(dialogId.value).length === 0));
+
 const streamingTailLen = computed(() => {
   const msgs = rawMessages.value;
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -482,6 +499,11 @@ watch(() => chatStore.loadingHistory, (loading) => {
         </button>
         <div class="header-info">
           <span class="agent-label">{{ title }}</span>
+          <!-- 预设徽标（single 开场固化后的身份回显——工具栏不再放预设入口） -->
+          <span v-if="presetChipLabel" class="preset-chip" title="会话预设（开场时选定，发首条消息后锁定）">
+            <Icon name="sparkles" :size="11" />
+            {{ presetChipLabel }}
+          </span>
         </div>
         <div class="header-actions">
           <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
@@ -549,8 +571,12 @@ watch(() => chatStore.loadingHistory, (loading) => {
     </div>
 
     <div class="chat-body">
-      <div class="chat-main">
+      <div class="chat-main" :class="{ 'composer-centered': isSingleFresh }">
+        <!-- 消息区（fresh 开场模式不渲染：空滚动外壳 flex:1 会占满主区把
+             输入卡压到底部——开场画面 = 居中的输入卡本身；首条消息后
+             isSingleFresh 翻 false 挂载，滚动/装载链路由既有 watch 接管） -->
         <TranscriptList
+          v-if="!isSingleFresh"
           ref="transcript"
           :items="turnDisplayItems"
           :message-count="rawMessages.length"
@@ -569,23 +595,33 @@ watch(() => chatStore.loadingHistory, (loading) => {
         />
 
         <!-- 任务 dock 列（composer 上方；群视角隐藏——多成员无单一归属桶；
-             pair 只读无 composer/dock）。数据/刷新各卡自理 -->
+             pair 只读无 composer/dock；single 空会话开场居中布局也无 dock）。
+             数据/刷新各卡自理 -->
         <ComposerDock
-          v-if="!isGroup && !isPair"
+          v-if="!isGroup && !isPair && !isSingleFresh"
           :agent-id="dockAgentId"
           :conversation-id="dockConversationId"
         />
 
         <!-- 输入区（单实例条件接线：group = RPC 群发路径；direct/single =
-             store.sendMessage 默认路径 + 排队手势；pair 只读无输入） -->
+             store.sendMessage 默认路径 + 排队手势；pair 只读无输入）。
+             single 空会话：fresh 模式（顶部工作区|预设选择行 + 输入卡，
+             整体垂直居中；首条消息后回常规底部布局） -->
         <ChatInput
-          v-if="!isPair"
+          v-if="!isPair && !isSingleFresh"
           :disabled="isGroup && groupTurnInProgress"
           :placeholder="isGroup ? (groupTurnInProgress ? 'Agent 回复中...' : '输入消息发送到群聊...') : undefined"
           :on-send="isGroup ? sendGroupMessage : undefined"
           :single="isGroup ? null : (props.single ?? null)"
           :queued-count="isGroup ? 0 : queuedItems.length"
           :on-steer-all-queued="isGroup ? undefined : steerAllQueued"
+        />
+        <ChatInput
+          v-else-if="isSingleFresh"
+          fresh
+          :single="props.single ?? null"
+          :queued-count="queuedItems.length"
+          :on-steer-all-queued="steerAllQueued"
         />
       </div>
       <!-- 群视角右侧抽屉已迁 aux-sidebar 选区（ui-group 经 aside 区域贡献） -->
@@ -664,6 +700,25 @@ watch(() => chatStore.loadingHistory, (loading) => {
 
 .chat-body { flex: 1; display: flex; overflow: hidden; }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* ── 新会话开场居中（single 空会话）：消息区不渲染，composer 区块
+   垂直居中——视觉焦点聚在"开始会话"这一步 ── */
+.chat-main.composer-centered { justify-content: center; }
+
+/* 会话头预设徽标（开场固化后的身份回显） */
+.preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: var(--r-full, 999px);
+  background: var(--color-primary-light, rgba(99, 102, 241, .1));
+  color: var(--color-primary, #6366f1);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .connection-status { text-align: center; padding: 6px; font-size: 12px; color: var(--color-warning); background: var(--color-bg-surface); flex-shrink: 0; }
 

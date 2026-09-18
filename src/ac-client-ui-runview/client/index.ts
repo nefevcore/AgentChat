@@ -245,7 +245,14 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
 }
 
 export interface RunsClientOptions {
-  /** 快照轮询间隔（ms；缺省 3000） */
+  /**
+   * 兜底轮询间隔（ms；缺省 60_000）。2026-09-19 事件驱动化改造：快照
+   * 刷新的主通道 = WS 事件（loop/run-started · loop/after-run ·
+   * router/message-received——run 生命周期与投递是快照内容的全部变化源）；
+   * 定时轮询降级为兜底（防 WS 断连漏帧——feed-core 同款考量；断连期间
+   * 的变化由 onOpen 重连即刷补齐）。running 非空时缩短到 1/10（运行中
+   * 面板的时长/进度显示仍需走表刷新）。
+   */
   pollMs?: number;
 }
 
@@ -271,7 +278,43 @@ export class RunsClientService extends Service {
   constructor(ctx: Context, options: RunsClientOptions = {}) {
     super(ctx, 'runs');
     this.own = ctx as ClientContext;
-    this.pollMs = options.pollMs ?? 3000;
+    this.pollMs = options.pollMs ?? 60_000;
+    // ---- 事件驱动刷新（2026-09-19 改造主通道）----
+    // 快照内容的变化源 = run 生命周期（running/queued 面）+ 消息入站（stats/
+    // last 面）。WS 帧到达即刷（去抖 500ms——多帧连发合并一次拉取；run 结束
+    // 的收束行落盘在 after-run 帧之前，到达时数据已 durable）。rpc.onEvent
+    // 可选成员（测试桩可能缺省）——缺席时退化纯兜底轮询。
+    const triggerEvents = ['loop/run-started', 'loop/after-run', 'router/message-received'];
+    let refreshDebounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleEventRefresh = (): void => {
+      if (refreshDebounce !== null) clearTimeout(refreshDebounce);
+      refreshDebounce = setTimeout(() => {
+        refreshDebounce = null;
+        void this.refresh();
+      }, 500);
+      if (typeof refreshDebounce.unref === 'function') refreshDebounce.unref();
+    };
+    this.ctx.fiber.effect(() => {
+      // 单 handler 判事件名集合（每帧只过一次——三个订阅各挂一个会让每帧
+      // 被判三遍）；onEvent 可选（测试桩可能缺省）——缺席退化纯兜底轮询
+      const off = this.own.rpc.onEvent?.((type) => {
+        if (triggerEvents.includes(type)) scheduleEventRefresh();
+      }) ?? (() => {});
+      // 重连即刷：断连期间丢失的帧由 onOpen 补齐（feed-core 同款恢复位）
+      const offOpen = this.own.rpc.onOpen?.(() => scheduleEventRefresh()) ?? (() => {});
+      // 前台化即刷：兜底 tick 的相位不随可见性变化——切回后下一 tick
+      // 最坏还要等一个 interval（空闲态 60s）。visible 立即刷新消死区；
+      // 刷后首个 tick 由顺延逻辑（ensurePolling）把相位锚回前台时刻。
+      // 轮询未启动（无视图消费者）时不刷。
+      const onVis = (): void => {
+        if (document.visibilityState === 'visible' && this.pollTimer) void this.refresh();
+      };
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
+      return () => {
+        off(); offOpen();
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
+      };
+    }, 'runs.event-refresh');
   }
 
   /**
@@ -323,9 +366,31 @@ export class RunsClientService extends Service {
     if (this.pollTimer) return;
     void this.refresh();
     this.own.fiber.effect(() => {
-      this.pollTimer = setInterval(() => {
-        if (document.visibilityState === 'visible') void this.refresh();
-      }, this.pollMs);
+      // 兜底轮询（动态间隔）：空闲 = pollMs（缺省 60s——事件驱动已是主通道，
+      // 兜底只防 WS 断连漏帧）；running 非空 = pollMs/10（运行中面板的时长/
+      // 进度仍需走表）。间隔切换 = 重建定时器（低频事件，成本可忽略）。
+      // 后台顺延：hidden 期间 tick 扑空不清 timer（保 interval 节奏），visible
+      // 的第一 tick 即刷 + 把下一轮重排到 interval 之后——消除"切回后要等满
+      // 一个 interval（空闲态最坏 60s）"的死区（浏览器后台节流只影响 tick
+      // 密度，顺延逻辑对此无假设）。
+      const schedule = (): void => {
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+        const interval = (this.snapshot.value?.running.length ?? 0) > 0 ? Math.max(1_000, this.pollMs / 10) : this.pollMs;
+        this.pollTimer = setInterval(() => {
+          if (document.visibilityState === 'visible') {
+            void this.refresh();
+            if (hadHiddenTick) { hadHiddenTick = false; schedule(); }
+          } else {
+            hadHiddenTick = true;
+          }
+        }, interval);
+      };
+      let hadHiddenTick = false;
+      schedule();
+      const stopResched = watch(
+        () => (this.snapshot.value?.running.length ?? 0) > 0,
+        () => schedule(),
+      );
       // 秒针启停随快照 running 数（watch 不进 effect 清理——定时器自身管理）
       const stopTick = watch(
         () => this.snapshot.value?.running.length ?? 0,
@@ -340,7 +405,7 @@ export class RunsClientService extends Service {
         },
         { immediate: true },
       );
-      return () => { stopTick(); this.stopPolling(); };
+      return () => { stopResched(); stopTick(); this.stopPolling(); };
     }, 'runs.polling');
   }
 
@@ -369,12 +434,6 @@ export const runviewClientPlugin = clientPlugin({
   inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RunsClientService);
-    // 徽章数据源常驻：tracking rail 按钮的运行中徽章不依赖面板展开——
-    // 行装载即启动快照轮询（幂等；面板挂载处的 ensurePolling 同函数短路），
-    // fiber 卸载随 RunsClientService 定时器一并回收。经根 runtime 解析
-    //（runs 由本行子 fiber 提供，本 fiber 未 inject——直访会抛；同下方
-    // 让位 watch 的 clientRuntime() 姿势，裸 boot 测试 = undefined 静默跳过）。
-    clientRuntime()?.runs?.ensurePolling();
     // 运行矩阵主区视图（main 席位 keyed 选举贡献——2026-11 主区语义
     // 纯化：原 main:tracking 专座收编为 main 选举条目）：active 谓词
     // 自带让位协议（见 trackingActive）；volatile（缺省）——离开即卸载，
@@ -456,11 +515,6 @@ export const runviewClientPlugin = clientPlugin({
               icon: 'activity',
               title: '运行跟踪',
               activate: () => { /* 意图通道路径自理（auxOpenTracking） */ },
-              // 徽章 = 运行中会话数（rail 按钮常驻可见——数字随 runs 轮询
-              // 更新；0 = 不渲染。轮询随本行装载启动〔见 apply 首〕，
-              // 收起面板不丢徽章数据源。runs 经根 runtime 解析——本 fiber
-              // 未 inject，闭包直访 ctx.runs 会抛，被壳安全求值吞掉）。
-              badge: () => clientRuntime()?.runs?.snapshot.value?.running.length ?? 0,
             },
           } satisfies AuxSidebarPanelDef,
         },

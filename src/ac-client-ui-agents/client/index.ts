@@ -50,7 +50,7 @@ export interface AgentPresetInfo {
   label: string;
   description: string;
   default: boolean;
-  /** 授权面（2026-09-17 开关化补）——程序化开关可用性判定（code-exec） */
+  /** 授权面（2026-09-17 tc-* 标签轴）——程序化覆盖可用性判定（tc-programmatic） */
   tags?: string[];
 }
 

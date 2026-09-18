@@ -68,6 +68,8 @@ describe('M28 P2 · 五工具卡行（§2.2 镜像表——tool 零卡，卡片 
     const { toolIconName } = await import('ac-client-ui-tool/client/toolIcon.ts');
     expect(toolIconName('run_code')).toBe('braces');
     expect(toolDisplayLabel('run_code', 'run_code', { code: '// 程序化模式测试\nreturn 1;' })).toBe('运行程序 · 程序化模式测试');
+    // description（意图）优先于首行启发式
+    expect(toolDisplayLabel('run_code', 'run_code', { description: '读 README 统计行数', code: '// 程序化模式测试\nreturn 1;' })).toBe('运行程序 · 读 README 统计行数');
     await fiber.dispose();
     expect(resolveToolResultView('run_code')).toBeNull();
     // 卸载后回落静态表词条（同值）

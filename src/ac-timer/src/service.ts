@@ -123,6 +123,8 @@ export class TimersService extends Service {
   private readonly globalSchedule: GlobalScheduleEntry[];
   private readonly heartbeatMs: number;
   private readonly gateTimeoutMs: number;
+  /** 数据根目录（gate 预检子进程的 cwd——相对路径的 gate 命令锚定于此） */
+  private readonly dataRoot: string;
   /** 行 options（timezone/holidays/makeupWorkdays 的基线层） */
   private readonly rowOptions: TimerRowOptions;
   /** owner → 条目清单（agent-store 物化 + 全局配置合成） */
@@ -136,7 +138,9 @@ export class TimersService extends Service {
 
   constructor(ctx: Context, options: TimerRowOptions = {}) {
     super(ctx, 'timers');
-    this.stateFile = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'timer', 'state.json');
+    const dataRoot = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
+    this.dataRoot = dataRoot;
+    this.stateFile = path.join(dataRoot, 'timer', 'state.json');
     this.tz = options.timezone ?? 'Asia/Shanghai';
     this.rowOptions = options;
     this.globalSchedule = options.entries ?? [];
@@ -484,7 +488,7 @@ export class TimersService extends Service {
       // gate 预检门（P1）：命令退出码非 0 → 跳过本轮（不投递不计数）。
       // 预检启动失败/超时 = fail-open（不挡正常触发）。静默判定前置到
       // 唤醒 LLM 之前——"quiet" 判定不再消耗任何 token。
-      if (entry.gate && !(await this.runGate(key, entry.gate))) {
+      if (entry.gate && !(await this.runGate(key, owner, entry.gate))) {
         if (stillArmed()) {
           scheduleNext(
             isCalendar(entry.mode)
@@ -578,14 +582,47 @@ export class TimersService extends Service {
    *     模糊：预检命令写错 = 用户配置问题，拦截比放行安全）；
    *   · code 为字符串（ENOENT/EACCES 等启动层错误）→ fail-open 不挡；
    *   · killed=true → 超时 → fail-open 不挡。
+   *
+   * cwd = 条目 owner 的工作目录（workspace.agentWorkdir 唯一事实源：
+   * 常规 Agent = files/<owner>/，预设/未知/全局 = 数据根；workspace 行
+   * 未装回落同款约定）。gate 命令引用工作区脚本天然写相对路径（如
+   * python scripts/is_quiet.py，相对 owner 自身工作区）；继承宿主进程
+   * cwd（项目根/任意启动目录）会解析到不存在的路径 → 退出码 2 → 每轮
+   * 被 fail-closed 拦截（2026-09-18 special-report-monitor 全天停摆事故）。
    */
-  private runGate(key: string, command: string): Promise<boolean> {
+  /** gate 预检子进程 cwd：owner 的 Agent 工作目录。workspace 的
+   * agentWorkdir/ensureAgentWorkdir 是布局约定的唯一事实源（安全行/
+   * 提示词/工具行同源——子进程 cwd 要求目录存在，取 ensure 形态）；
+   * 软依赖未装时回落同款约定（常规 = files/<owner>/ 懒建，全局/预设/
+   * 未知 = 数据根）——与 ac-skill.agentOwnSkillsRoot 的回落口径一致。
+   * 目录缺失不懒建会让 execFile 直接 spawn 失败（ENOENT → fail-open），
+   * 门控语义静默失效。 */
+  private gateCwdOf(owner: string): string {
+    const ws = this.ctx.get('workspace') as
+      | { ensureAgentWorkdir?(agentId: string): string; agentWorkdir?(agentId: string): string }
+      | undefined;
+    if (typeof ws?.ensureAgentWorkdir === 'function' || typeof ws?.agentWorkdir === 'function') {
+      return typeof ws.ensureAgentWorkdir === 'function'
+        ? ws.ensureAgentWorkdir(owner)
+        : ws!.agentWorkdir!(owner);
+    }
+    if (owner === GLOBAL_TIMER_OWNER) return this.dataRoot;
+    const dir = path.join(this.dataRoot, 'files', owner);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      /* 建目录失败由 execFile 自然报错（fail-open） */
+    }
+    return dir;
+  }
+
+  private runGate(key: string, owner: string, command: string): Promise<boolean> {
     return new Promise((resolve) => {
       const isWin = process.platform === 'win32';
       execFile(
         isWin ? 'cmd.exe' : '/bin/sh',
         isWin ? ['/d', '/s', '/c', command] : ['-c', command],
-        { timeout: this.gateTimeoutMs, windowsHide: true },
+        { timeout: this.gateTimeoutMs, windowsHide: true, cwd: this.gateCwdOf(owner) },
         (err) => {
           if (err === null) {
             resolve(true); // 退出码 0

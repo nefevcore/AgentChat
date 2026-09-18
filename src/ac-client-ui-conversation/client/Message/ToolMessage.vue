@@ -50,6 +50,10 @@ const isRunning = computed(() =>
     props.message.isStreaming === true || props.message.status === 'running'
 );
 
+/** run_code 子调用（2026-09-17 方向 B）：平铺卡片带缩进样式——视觉
+ *  归属 run_code 程序卡（紧跟其后、缩进 + 左侧竖线锚） */
+const isSubcall = computed(() => props.message.subcall === true);
+
 /** 工具参数（可能是对象或 OpenAI 风格的 JSON 字符串） */
 function parseArgs(args: unknown): Record<string, unknown> {
     if (!args) return {};
@@ -127,7 +131,7 @@ function toggleExpand() {
 </script>
 
 <template>
-    <div class="message-item message-tool">
+    <div class="message-item message-tool" :class="{ 'tool-subcall': isSubcall }">
         <div class="tool-section">
             <!-- 标签栏：图标位 = 工具图标 ⇄ 折叠箭头（hover 切换）；
                  失败（error/blocked）label 整行红字，不再渲染 OK/ERR 状态徽章 -->
@@ -228,6 +232,15 @@ function toggleExpand() {
 
 .message-tool {
     align-items: flex-start;
+}
+
+/* run_code 子调用平铺卡（方向 B）：缩进 + 左侧竖线——视觉归属 run_code
+   程序卡（不进其折叠体，紧跟其后独立成卡）。与 chain-body 同款竖线
+   （1px / margin 7 / padding 14——对齐 chain-icon 中心的既有节奏） */
+.tool-subcall {
+    margin-left: 7px;
+    padding-left: 14px;
+    border-left: 1px solid var(--color-border-secondary);
 }
 
 .tool-section {

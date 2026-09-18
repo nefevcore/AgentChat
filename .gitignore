@@ -45,6 +45,9 @@ src/webui/.vite/
 temp/
 workspace/
 
+# 本地临时残留（news-timer 备份等）
+/_tmp/
+
 # 测试中断残留（view-derivation 测试在 tests/ 内建临时目录，afterEach 清理外的中断残留）
 src/ac-conversation/tests/.tmp-view-*/
 

@@ -1,15 +1,16 @@
 // ============================================================
-// ac-run-code/tests/switch.test.ts —— 程序化开关面集成测试
-//（2026-09-17 开关化：由 preset.test.ts 改写——__programmatic__ 预设退役，
-// 程序化 = 会话级开关 conv-settings.programmatic + router 收窄）
+// ac-run-code/tests/switch.test.ts —— 工具调用模式面集成测试
+//（2026-09-17 tc-* 标签轴统一重构：工具调用模式与提权档位同构——
+// Agent tags 定默认档 + conv-settings.toolMode 会话覆盖 + router 收窄；
+// code-exec 标签已移除，tc-programmatic 即唯一授权词）
 //
 // 运行期验证（端到端链路——最小行集真行装载）：
-// · 开关开（conv-settings 写键）→ router send → LLM 工具面 = 仅 run_code；
-//   system 注入互斥版投影块（基线纪律，无执行形态选择策略）
-// · 开关关 → 并存形态（传统工具 + run_code；投影块含选择策略）
+// · 生效档 tc-programmatic（tags/会话覆盖〔临时程序化档〕/无标签覆盖）→ LLM 工具面
+//   = 仅 run_code；system 注入投影块（基线纪律）
+// · 覆盖 tc-base 压回标准档 → 并存形态（传统工具 + run_code；不注入投影块）
 // · 投影面 = 能力面全量（scope='projection' 直取——授权真理）+ 递归防护
-// · tag-registry catalog 含 code-exec（预注册 + run_code 消费计数）
-// · 子 Agent 派生身份继承 code-exec（STRIPPED_TAGS 无 code-exec）
+// · tag-registry catalog 含 tc-programmatic（预注册 + run_code 消费计数）
+// · 子 Agent 派生身份继承 tc-programmatic（STRIPPED_TAGS 不剥模式词）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -104,11 +105,11 @@ afterEach(async () => {
   for (const dir of tmps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('程序化开关面集成（2026-09-17 开关化终裁——research §十）', () => {
-  it('开关开 → LLM 面 = 仅 run_code；system 注入互斥版投影块（无选择策略）；投影源 = 能力面全量', async () => {
+describe('工具调用模式面集成（2026-09-17 tc-* 标签轴统一重构）', () => {
+  it('tc-programmatic（tags）→ LLM 面 = 仅 run_code；system 注入投影块（程序化调用）；投影源 = 能力面全量', async () => {
     const { ctx } = await boot();
-    ctx.agents.register({ id: 'coder', model: 'mock-1', tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'code-exec'] });
-    ctx.convSettings.set('user~coder', { programmatic: 'true' });
+    ctx.agents.register({ id: 'coder', model: 'mock-1', tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'tc-programmatic'] });
+    // 无会话覆盖键：跟随 tags（tc-programmatic）
 
     const calls: Array<{ messages?: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string } }> }> = [];
     ctx.on('llm/before-chat', ((payload: { input?: { messages?: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string } }> } }, next: () => Promise<unknown>) => {
@@ -119,15 +120,14 @@ describe('程序化开关面集成（2026-09-17 开关化终裁——research §
     const run = await ctx.router.send('coder', 'q', { conversationId: 'user~coder' });
     expect(run.finish).toBe('stop');
 
-    // ① LLM 工具面收窄为仅 run_code（router 消费开关——真互斥形态）
+    // ① LLM 工具面收窄为仅 run_code（router 消费生效档——tags 驱动）
     expect((calls[0]?.tools ?? []).map((t) => t.function.name)).toEqual(['run_code']);
 
-    // ② system 注入互斥版投影块：基线纪律在场、选择策略缺席
+    // ② system 注入投影块（程序化调用）：基线纪律在场
     const system = calls[0]?.messages?.find((m) => m.role === 'system');
     expect(system?.content ?? '').toContain('# run_code 工具 SDK');
     expect(system?.content ?? '').toContain('declare const tools');
     expect(system?.content ?? '').toContain('程序化模式');
-    expect(system?.content ?? '').not.toContain('执行形态选择');
     expect(system?.content ?? '').not.toMatch(/run_code\s*\(/); // 递归防护
 
     // ③ 投影源 = 能力面直取（scope='projection'——含 read 等全部已授权族；
@@ -147,12 +147,34 @@ describe('程序化开关面集成（2026-09-17 开关化终裁——research §
     expect(names).not.toContain('read_history');
   });
 
-  it('开关关（无键）→ 并存形态：传统工具照常 + run_code 共存；投影块含执行形态选择策略', async () => {
-    const { ctx } = await boot(); // 无键 = 开关关
-    ctx.agents.register({ id: 'coder', model: 'mock-1', tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'code-exec'] });
+  it('无标签 Agent + 会话覆盖 tc-programmatic → 临时程序化档（优化裁决：程序化是形态选择非授权门槛）', async () => {
+    const { ctx } = await boot();
+    // Agent 无任何 tc-* 标签（跟随态 = tc-base）；infra 在（boot 行集含 fs-tools/math 等 infra 族）
+    ctx.agents.register({ id: 'plain', model: 'mock-1', tags: ['fs', 'infra', 'shell', 'web', 'delegation'] });
+    ctx.convSettings.set('user~plain', { toolMode: 'tc-programmatic' }); // 前端选「程序化」= 临时分配
 
-    const calls: Array<{ tools?: Array<{ function: { name: string } }> }> = [];
-    ctx.on('llm/before-chat', ((payload: { input?: { tools?: Array<{ function: { name: string } }> } }, next: () => Promise<unknown>) => {
+    const calls: Array<{ messages?: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string } }> }> = [];
+    ctx.on('llm/before-chat', ((payload: { input?: typeof calls[0] }, next: () => Promise<unknown>) => {
+      calls.push(payload.input ?? {});
+      return next();
+    }) as never, { description: '测试探针：截获 LLM 请求面' });
+
+    const run = await ctx.router.send('plain', 'q', { conversationId: 'user~plain' });
+    expect(run.finish).toBe('stop');
+    // LLM 面收窄为 run_code（覆盖即临时程序化档——无需预配标签）
+    expect((calls[0]?.tools ?? []).map((t) => t.function.name)).toEqual(['run_code']);
+    // SDK 投影块注入（程序化调用）
+    const system = calls[0]?.messages?.find((m) => m.role === 'system');
+    expect(system?.content ?? '').toContain('# run_code 工具 SDK');
+  });
+
+  it('覆盖 tc-base 压回标准档 → 并存形态：传统工具照常 + run_code 共存；不注入投影块', async () => {
+    const { ctx } = await boot();
+    ctx.agents.register({ id: 'coder', model: 'mock-1', tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'tc-programmatic'] });
+    ctx.convSettings.set('user~coder', { toolMode: 'tc-base' }); // 覆盖压回标准档
+
+    const calls: Array<{ messages?: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string } }> }> = [];
+    ctx.on('llm/before-chat', ((payload: { input?: { messages?: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string } }> } }, next: () => Promise<unknown>) => {
       calls.push(payload.input ?? {});
       return next();
     }) as never, { description: '测试探针：截获 LLM 请求面' });
@@ -160,24 +182,31 @@ describe('程序化开关面集成（2026-09-17 开关化终裁——research §
     await ctx.router.send('coder', 'q', { conversationId: 'user~coder' });
     const tools = (calls[0]?.tools ?? []).map((t) => t.function.name);
     expect(tools).toContain('run_code');
-    expect(tools).toContain('read'); // 传统工具照常（开关关 = 并存形态）
+    expect(tools).toContain('read'); // 传统工具照常（覆盖压回 = 并存形态）
+    // 并存形态不注入投影块（2026-09-17 续修：SDK 投影只在程序化调用注入）
+    const system = calls[0]?.messages?.find((m) => m.role === 'system');
+    expect(system?.content ?? '').not.toContain('# run_code 工具 SDK');
   });
 
-  it('tag-registry catalog：code-exec 预注册 + run_code 消费计数 = 1', async () => {
+  it('tag-registry catalog：tc-* 预注册（纯模式词——零消费工具）；run_code 授权随 infra；模式词不进 requiredTags 断言', async () => {
     const { ctx } = await boot();
     const byTag = new Map(ctx.tagRegistry.catalog().map((t) => [t.tag, t]));
-    const codeExec = byTag.get('code-exec');
-    expect(codeExec).toMatchObject({ category: 'capability', reserved: true });
-    expect(codeExec?.tools.map((t) => t.name)).toEqual(['run_code']);
+    expect(byTag.get('tc-programmatic')).toMatchObject({ category: 'tool-mode', reserved: true });
+    expect(byTag.get('tc-programmatic')?.tools).toEqual([]); // 纯模式词——零消费（授权词 = infra）
+    expect(byTag.get('tc-none')?.category).toBe('tool-mode');
+    expect(byTag.get('tc-base')?.category).toBe('tool-mode');
+    expect(byTag.get('infra')?.tools.some((t) => t.name === 'run_code')).toBe(true); // 授权随 infra
+    // 非能力词不进 requiredTags（含 tc-programmatic——白名单已收）——启动期断言
+    expect(() => ctx.tagRegistry.assertNoTierInToolRequirements()).not.toThrow();
   });
 
-  it('子 Agent 派生身份继承 code-exec（STRIPPED_TAGS 只剥 delegation/admin）', async () => {
+  it('子 Agent 派生身份继承 tc-programmatic（STRIPPED_TAGS 只剥 delegation/admin——模式词随父）', async () => {
     const { ctx } = await boot();
     // 模拟派生身份注册（subagent spawn 的派生条目形态：父 tags 剥
-    // delegation/admin——code-exec 不在剥减表，随父继承）
+    // delegation/admin——模式词不在剥减表，随父继承）
     const STRIPPED = ['delegation', 'admin'];
-    const derivedTags = (['fs', 'code-exec', 'delegation'] as string[]).filter((t) => !STRIPPED.includes(t));
-    expect(derivedTags).toEqual(['fs', 'code-exec']); // 自检：剥减表不含 code-exec
+    const derivedTags = (['fs', 'infra', 'tc-programmatic', 'delegation'] as string[]).filter((t) => !STRIPPED.includes(t));
+    expect(derivedTags).toEqual(['fs', 'infra', 'tc-programmatic']); // 自检：剥减表不含模式词（infra 授权随行）
     ctx.agents.register({ id: 'sub_test', model: 'm', tags: derivedTags, preset: true });
     const caps = capabilitySetOf(ctx, 'sub_test');
     const runCodeDef = ctx.tools.get('run_code');

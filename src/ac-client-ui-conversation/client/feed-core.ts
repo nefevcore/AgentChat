@@ -67,6 +67,13 @@ interface DialogFeed {
   status: 'idle' | 'loading' | 'ready';
   hasMore: boolean;
   offset: number;
+  /**
+   * 首屏历史的会话文件指纹（size:mtimeMs；2026-09-19 切换重入优化）：
+   * 服务端 session/history 首屏响应携带。切换会话重入时带上——文件未变
+   * → 服务端 unchanged 短路（零读零序列化），前端保留现有渲染。分区
+   * resetDialog/归档重载时清空（强制全量）。
+   */
+  historyFingerprint?: string;
   // 元数据（供列表/社区流/星图）
   lastActivity: number;
   lastMessage: { role: string; content: string; agentId: string; ts: number } | null;
@@ -156,7 +163,13 @@ export function createFeedCore(
 
   /** 全局指示器（UI 兼容 chat store 的对应状态） */
   const turnInProgress = ref(false);
-  const lastRunEndAt = ref(0);
+  /**
+   * 活跃会话最近一次步终值时刻（loop/after-step——工具步先于工具执行，
+   * 长工具运行中即触发派生数据重取；此前挂 after-run 的 token 仪表
+   * 刷新要等整轮收束）。仅活跃 Agent 的 run 置位；多工具 run 每步
+   * 各置一次（幂等 bump，驱动 watch 重取）。
+   */
+  const lastStepEndAt = ref(0);
   /**
    * 归档整理 run 进行中的对话（2026-09-04 认知缺口修复）：机制 run 流式
    * 隐藏（不扰民）但边界帧对隐藏 run 也广播（ws-bridge：run-started /
@@ -355,6 +368,7 @@ export function createFeedCore(
     d.offset = 0;
     d.status = 'idle';
     d.streaming = false;
+    d.historyFingerprint = undefined; // 重置（归档 compact/编辑后）：下次首屏强制全量
     _settlementReload.delete(id);
     invalidateTurns(id);
     bump(id);
@@ -423,10 +437,29 @@ export function createFeedCore(
   function requestHistoryPage(to: string, session: string | undefined, srcOffset: number, reqId: string) {
     const base = historyPage(session, to, srcOffset);
     const conversationId = session ?? bucketKey(VIEWER_ID.value, to);
-    void rpc.call<{ records?: unknown[]; hasMore?: boolean }>('session/history', { ...base, conversationId })
+    // fingerprint 短路（2026-09-19）：首屏请求带分区现有指纹——文件未变时
+    // 服务端 unchanged 轻载荷，本地分区原样保留（内容仍是最新：切走期间的
+    // 新消息经 WS 直播帧持续路由进分区，不依赖历史通道）。
+    const fpDialogId = session ? singleDialog(session) : directDialog(to);
+    const fp = srcOffset === 0 ? dialogs.value[fpDialogId]?.historyFingerprint : undefined;
+    void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}) })
       .then((r) => {
+        // 指纹命中：分区已是最新（status 回 ready；保留 rawMessages/未读）
+        if (r.unchanged === true) {
+          histReqSentAt.delete(reqId);
+          const d = dialogs.value[fpDialogId];
+          if (d && d.status === 'loading') d.status = 'ready';
+          if (d && typeof r.fingerprint === 'string') d.historyFingerprint = r.fingerprint;
+          return;
+        }
         const records = (r.records ?? []) as Array<Record<string, unknown>>;
         historyServed(session, to, records.length);
+        // 首屏指纹入库（下此重入短路用；服务端旧版无指纹字段则保持 undefined
+        // ——重入退化为普通全量，行为不变）
+        if (srcOffset === 0 && typeof r.fingerprint === 'string') {
+          const d = dialogs.value[fpDialogId];
+          if (d) d.historyFingerprint = r.fingerprint;
+        }
         onHistory({
           messages: toHistoryMessages(records as never, conversationId),
           agentId: to,
@@ -923,6 +956,35 @@ export function createFeedCore(
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
       });
       if (asst) addToolCall({ id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() });
+    }
+    bump(id);
+  }
+  /**
+   * run_code 子调用平铺落卡（2026-09-17 方向 B）：程序内调用的结果到达
+   * 即建独立 tool 消息（subcall 标记）+ 追加进当前流式 agent 步的
+   * toolCalls（fileEdits 等追踪层扫 toolCalls 收录——diff 追踪修复）。
+   * 与 onToolEnd 的差别：无占位可匹配（toolCallId 无模型侧 id），恒建
+   * 新条目；直接终态（run_code 桥接逐个 await 子调用——结果到达即完成，
+   * 无独立 running 窗口）。
+   */
+  function onSubcallEnd(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments: unknown; result: string }) {
+    const d = ensureById(id);
+    const msgs = d.rawMessages;
+    const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find((m: any) => m.role === 'agent' && m.toolCalls?.length) ?? null;
+    if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
+    const tc = toolCallsOf(asst);
+    if (!tc.some((x: any) => x.id === data.tool_call_id)) {
+      const entry: any = { id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: data.result, subcall: true, running: false, startTime: Date.now() };
+      tc.push(entry);
+    }
+    if (!msgs.some((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id)) {
+      const row: any = {
+        id: 'tool-' + data.tool_call_id, role: 'tool', content: data.result ?? '',
+        name: data.tool_name, toolName: data.tool_name,
+        tool_call_id: data.tool_call_id, arguments: data.arguments ?? {},
+        subcall: true, isStreaming: false, timestamp: Date.now(),
+      };
+      msgs.push(row);
     }
     bump(id);
   }
@@ -1655,6 +1717,20 @@ export function createFeedCore(
         // toolCallId 须非空：空 id 是聚合层的幻影调用（unknown tool 错误），
         // 放行会经位置回退把错误结果写进别的工具占位
         if (!keys || typeof call?.toolCallId !== 'string' || !call.toolCallId || !isForCurrentUser(keys)) return;
+        // run_code 子调用平铺（2026-09-17 方向 B）：程序内调用无模型占位卡
+        //（toolCallId 形如 <runId>#<seq>，不在任何 assistant.toolCalls 里）——
+        // onToolEnd 的占位匹配必然落空，改走平铺建卡：紧跟当前流式 agent
+        // 步追加独立 tool 消息（subcall 标记 → 缩进样式），fileEdits 等追踪
+        // 层按消息流 toolCalls 天然收录
+        if (call?.runCodeSubcall === true) {
+          onSubcallEnd(keys.dialogId, {
+            tool_call_id: call.toolCallId,
+            tool_name: typeof call?.name === 'string' ? call.name : '',
+            arguments: call?.args,
+            result: stringifyToolResult(result, error),
+          });
+          return;
+        }
         onToolEnd(keys.dialogId, { tool_call_id: call.toolCallId, result: stringifyToolResult(result, error) });
         return;
       }
@@ -1680,6 +1756,9 @@ export function createFeedCore(
           onMessageEnd(keys.dialogId, { content: String(step?.text ?? ''), reasoning: String(step?.reasoning ?? '') });
         }
         onStepEnd(keys.dialogId, { interrupted: false, toolCalls: step?.toolCalls }, isForActiveAgent(keys));
+        // 步终值时刻：仅活跃 Agent 的 run 置位（TokenGauge 等派生数据重取
+        // 驱动——工具步在工具执行前到达，长工具运行中仪表即可刷新占用）
+        if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }
         return;
       }
       case 'loop/after-run': {
@@ -1700,7 +1779,6 @@ export function createFeedCore(
           onMessageError(keys.dialogId, { content: `生成失败：${errText(result?.error)}` }, isForActiveAgent(keys));
         }
         const active = isForActiveAgent(keys);
-        if (active) { lastRunEndAt.value = Date.now(); }
         onChatEnd(keys.dialogId, { content: finish === 'stop' ? String(result?.text ?? '') : '' }, active);
         // run 进行中做过历史合并的分区：收束后重拉首屏（权威收束行替换
         // partial 检查点行与直播行，补 persistedMsgId 供编辑/删除定位）
@@ -1791,7 +1869,10 @@ export function createFeedCore(
   }
 
   // ── 订阅 wire 事件（单一分发点）──
+  let initialized = false;
   function init() {
+    if (initialized) return; // 重入守卫（chat-core init 幂等语义对齐）
+    initialized = true;
     rpc.onEvent(handleFrame);
     // 重连后清理：断线期间发出的 history 请求已作废（status 残留 'loading'
     // 永久堵死分页）；断线中丢失收尾帧的分区也要关闭残留流式占位
@@ -1808,6 +1889,20 @@ export function createFeedCore(
       }
       // 断线期间整理 run 的 after-run 帧丢失——"正在整理"态一并回落
       if (archiveReviewing.value.size > 0) archiveReviewing.value = new Set();
+      // 历史对账（2026-11-28 可见性恢复缺口补齐）：断线窗口丢失的帧只能
+      // 靠兜底轮询（最坏一个 interval）或用户切会话补回——重连成功的这一
+      // 刻是唯一确定性补偿时机。与切会话同管线（loadHistory 签名零改写），
+      // requestId 时序守卫天然防乱序合并；首屏 fingerprint 短路服务端
+      // unchanged 轻载荷（文件未变时成本 = 一次 RPC 往返）。只重拉当前
+      // 活跃对话（不在视图的分区缺帧本就只有未读语义，下次进入自然全量）。
+      const resume = activeDialogId.value;
+      if (resume) {
+        const { kind, key } = parseDialogId(resume);
+        if (kind === 'single') loadHistory(resume, VIEWER_ID.value, key, key);
+        else if (kind === 'group') void loadGroupHistory(resume, key);
+        else if (pairHasViewer(key)) loadHistory(resume, VIEWER_ID.value, pairPartnerOf(key));
+        // 非 viewer 对桶（只读视角）无写口——重连恢复只覆盖 viewer 主路径
+      }
     });
   }
 
@@ -1816,7 +1911,7 @@ export function createFeedCore(
     dialogs, activeDialogId, activeDialog, activeAgentId, activeGroupId, activeSingleId,
     setActiveGroup, clearActiveGroup, setActiveSingle, clearActiveSingle,
     activity,
-    turnInProgress, lastRunEndAt, archivePending,
+    turnInProgress, lastStepEndAt, archivePending,
     unreadAgents, getUnreadCount, loadingHistory, hasMoreHistory,
     getDialog, getRaw, getTurns,
     // 原语

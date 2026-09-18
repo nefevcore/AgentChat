@@ -103,6 +103,29 @@ describe('run 级 streaming（工具执行窗口忙态不失真）', () => {
   });
 });
 
+describe('lastStepEndAt：token 仪表步级重取驱动', () => {
+  beforeEach(() => {
+    cores = createSessionCores(wireFace, false); // 只消费 feed，不 init chat
+    cores.roster.activeAgentId.value = A;
+  });
+
+  it('after-step（活跃会话）置位——工具步先于工具执行，长工具运行中即可重取', () => {
+    const feed = cores.feed;
+    expect(feed.lastStepEndAt).toBe(0);
+    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
+    feed.ingestFrame('loop/after-step', [A, { text: '', toolCalls: [{ id: 'tc1', name: 'bash', arguments: '{}' }] }, env]);
+    expect(feed.lastStepEndAt).toBeGreaterThan(0); // ← 此前挂 after-run：工具执行窗口不刷新
+  });
+
+  it('非活跃 Agent 的步不置位；after-run 不再置位（语义已由步级取代）', () => {
+    const feed = cores.feed;
+    feed.ingestFrame('loop/after-step', ['beta', { text: '', toolCalls: [{ id: 'tc2', name: 'bash', arguments: '{}' }] }, { conversationId: 'beta~user', sender: 'user' }]);
+    expect(feed.lastStepEndAt).toBe(0); // 非活跃会话的步不驱动当前仪表
+    feed.ingestFrame('loop/after-run', [{ agent: A, conversationId: conv, sender: 'user' }, { finish: 'stop', text: '' }]);
+    expect(feed.lastStepEndAt).toBe(0); // after-run 不置位（防重复重取）
+  });
+});
+
 describe('忙态投递分流（Enter 排队 / Cmd+Ctrl+Enter 插话）', () => {
   beforeEach(() => {
     deliverCalls.length = 0;

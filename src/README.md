@@ -173,25 +173,52 @@ logger.warn 告警——不静默。「**tags 即工具面**」的准确边界�
 动态插件工具若不声明 requiredTags 仍默认人人可见（toolAllowedFor
 短路）——生态作者请自觉挂标签，否则该工具游离于 tags 门禁之外。
 
-**程序化模式（run_code / PTC，2026-09-17 P0；开关化 research §十）**：
-ac-run-code 工具行（`run_code`，requiredTags `['code-exec']`——tag-registry
-预注册，与 shell 分治可独立授予）+ SDK 投影纯库 ac-run-code-core。模型写
-一段可擦除 TS 程序经 `tools.<name>(args)` 编排成批工具调用，只有 return
-值回上下文（步记录 = 摘要 + trace 子调用时间线 + programHash，程序体
-全文入 host 日志）。**形态 = 会话级开关**（`__programmatic__` 预设已随
-开关化退役）：conv-settings `programmatic: true` → router 工具面合成后
-收窄 LLM 面为 `['run_code']`（真互斥——LLM 面单 schema，投影源从能力面
-直取 `resolveEffectiveTools(…, 'projection')` 跳过 include 收窄，token
-单份 + 零决策歧义）；开关关或 Agent 无 code-exec（开关惰性——warn 并
-忽略）= 并存形态（run_code 与传统工具同列，投影注入附执行形态选择
-策略）。UI = 输入框工具栏「工具使用模式」下拉（标准/程序化，选择即写
-conv-settings）。存量 `__programmatic__` 预设会话前端防御性禁止续聊
-（输入框禁用 + 迁移提示，历史只读保留）。**投影注入**
-（loop/before-run 主档）：run_code 在 LLM 生效面时 system 尾部追加投影
-块（SDK 声明 + 程序书写纪律——字典序稳定，KV cache 前缀友好）；形态
+**工具调用模式（tc-* 标签轴，2026-09-17 统一重构：与提权档位同构）**：
+模式词 `tc-none` / `tc-programmatic`（AgentConfig.tags 词汇；缺省 = tc-base），
+`toolModeOf(agent)` 单源判定（ac-agents——对标 tierOf）；生效档 = 会话覆盖
+（conv-settings `toolMode`，三值全暴露，无键 = 跟随）?? toolModeOf(agent)。
+tc-programmatic ⇒ router 收窄 LLM 面为 `['run_code']`（投影源从能力面直取
+`resolveEffectiveTools(…, 'projection')` 跳过 include 收窄）；tc-none ⇒ LLM
+工具面清空（纯聊天）；tc-base ⇒ 不收窄（run_code 与传统工具同列，不注入
+投影块——传统工具 schema 已在请求面可直读，SDK 块省 token）。
+**run_code 授权 = infra 能力族；tc-* 为纯模式词**（2026-09-17 优化裁决：
+程序化是形态选择非授权门槛——run_code requiredTags 挂 infra，标准预设
+与多数 Agent 天然可见；前端选「程序化」= 会话覆盖临时程序化档，等同
+临时分配，无需预配标签。Agent tags 配 tc-programmatic 仍是有效默认档
+——向后兼容）。覆盖 tc-programmatic 但 Agent 无 infra 时惰性（router
+warn 回落 tags 档）。收窄判定单源 `effectiveToolMode` + `narrowToolsByMode`
+（ac-agents——2026-12 估算失真修复）：router dispatch 与估算面
+（agents/system-prompt 干跑、agents/tool-defs 的 conversationId 形态）
+共用，Token 仪表固定开销估算随会话开关同口径收窄（程序化会话注入
+SDK 投影块、仅 run_code schema）。无用户参与的 Agent 会话（机制唤醒/子 Agent 派生）按 tags 档
+执行（子 Agent 继承父 tags——STRIPPED_TAGS 不剥模式词；传播语义同
+router）。UI = 输入框工具栏「工具调用模式」下拉（跟随 Agent/标准/程序化/
+无工具，选择即写 conv-settings；无 tc-programmatic 标签时程序化项禁选）。
+「新会话跟随上次选择」（composePrefs.toolMode + toolModeInherit 登记，
+2026-09-17 恢复）：ChatInput 挂载回读时，目标会话无显式 toolMode 键 →
+回放偏好并写该会话（覆盖必须落存储才生效）；'' 跟随态无需写；Agent
+无 infra 时程序化不继承（跟随态兜底）。存量旧 `programmatic` 布尔键
+读侧失效（不迁移）。存量 `__programmatic__` 预设
+会话前端防御性禁止续聊（输入框禁用 + 迁移提示，历史只读保留）。ac-run-code
+工具行 + SDK 投影纯库 ac-run-code-core：模型写一段可擦除 TS 程序经
+`tools.<name>(args)` 编排成批工具调用，最终结论经复合返回协议回上下文
+（return 有值 → value=valueVia'return'；无值有 log → 按序合成；失败/中止
+附 logsTail）。步记录 = 摘要 + trace 子调用时间线 + programHash，程序体
+全文入 host 日志。**投影注入**
+（loop/before-run 主档）：仅程序化调用（互斥形态——LLM 生效面单
+
+schema 仅 run_code）时 system 尾部追加投影块（SDK 声明 + 程序书写
+
+纪律——字典序稳定，KV cache 前缀友好）；形态
 判定读 run 级 request.tools 终值（开关收窄不落 Agent 配置）。子调用带
 `runCodeSubcall` 标记（ToolCall 开放词汇 + ac-session 补行 `subcall`
-字段——UI 折叠，审计全量）。同源纪律：`resolveEffectiveTools`
+字段，2026-09-17 方向 B 补 `name`/`arguments` 随行落盘）。**子调用
+平铺**（方向 B 重构）：编辑类子调用此前只在 run_code 卡的 trace 摘要里
+——文件编辑追踪/diff 全盲。现在：① `records({subcalls:true})` 投影把
+subcall 补行注入宿主步 `steps[].toolCalls`（按 `<runId>#<seq>` 前缀定位，
+subcall 标记；UI 历史面开启，LLM 回放面 history() 纯净不受污染）；②
+直播面 feed-core 按 `runCodeSubcall` 直接平铺建独立工具卡；③ 渲染层
+subcall 卡片带缩进样式（紧跟 run_code 卡、复用各工具结果卡片组件）。同源纪律：`resolveEffectiveTools`
 （ac-run-code/src/tool.ts，scope 两口径——'llm' 与 router 可见面合成
 同链、'projection' 能力面授权真理），递归防护 = 投影排除 run_code
 自身。安全：子调用一律 `ctx.tools.execute`（能力轴/档位/黑名单/扫描/
@@ -240,7 +267,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | 域（ctx 键） | 域类型（owning 包） | 事件目录 |
 |---|---|---|
 | llm | `ac-llm/src/contract.ts`（+ `refs.ts`：name@model 拆分纯函数） | `ac-llm/src/events.ts`（llm/*，含 delta-* 流式细分） |
-| tools | `ac-tools/src/contract.ts`（执行身份 + requiredTags 能力轴 + needPermission 权限轴 + excludeForms 形态轴 + elevation 机制提权） | `ac-tools/src/events.ts`（tool/*） |
+| tools | `ac-tools/src/contract.ts`（执行身份 + requiredTags 能力轴 + needPermission 权限轴 + excludeForms 形态轴〔single/self，判定单源 conversationFormOf——ac-agents〕 + elevation 机制提权） | `ac-tools/src/events.ts`（tool/*） |
 | agentLoop | `ac-agent-loop/src/contract.ts`（transform-step/run seam） | `ac-agent-loop/src/events.ts`（loop/*，三档装配链） |
 | agents | `ac-agents/src/service.ts`（AgentConfig + settingsOf/displayNameOf + tierOf 档位单源） | `ac-agents/src/events.ts`（agents/updated） |
 | router | `ac-router/src/service.ts`（RouterInbound 信封） | `ac-router/src/events.ts`（router/*） |
@@ -408,7 +435,10 @@ src/
 ├── ac-tools/                工具注册中心（ctx.tools）：fiber 归属注册
 │                            （listWithOwner 目录视图）+ waterfall 拦截链 +
 │                            requiredTags 能力门禁 + excludeForms 形态轴
-│                            （router 按 conversationId 命中形态裁剪生效集）
+│                            （single 独立会话 / self 自会话 a~a；router 按
+│                            conversationId 命中形态裁剪生效集——判定单源
+│                            conversationFormOf〔ac-agents〕，list_tools/
+│                            run_code 投影同口径）
 ├── ac-jobs/                 后台任务注册中心（ctx.jobs）：owner 分桶 + 并发上限 +
 │                            settle first-wins + job/started·settled（登记即发）
 ├── ac-security/             安全行（access-tier）：双轴门禁（requiredTags
@@ -429,7 +459,9 @@ src/
 │                            懒触发一次性定时器，空闲零定时器）——kind 词汇由各行认领
 ├── ac-ask-questions/        ask_questions 工具行：批量提问等待决策（kind='ask_questions'
 │                            认领者；选项归一化防模型不守 schema）+ late-reply 唤醒
-│                            （run 已死作答回投 + backfillToolResult 补记）
+│                            （run 已死作答回投 + backfillToolResult 补记）；
+│                            excludeForms:['self']——自会话桶（机制 run）无人
+│                            应答，不投放
 ├── ac-mcp/                  MCP 行（ctx.mcp）：全局服务器注册（懒建连）+ 工具发现
 │                            注册进 ctx.tools（撞名 `${server}__${name}` 前缀）；
 │                            放行走行 config，per-Agent 暴露走 AgentConfig.tools

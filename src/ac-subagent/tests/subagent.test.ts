@@ -13,7 +13,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { ConfigService } from 'ac-config';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
@@ -135,35 +135,37 @@ afterEach(async () => {
 });
 
 describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随工具集流动）', () => {
-  /** conv-settings stub（ctx.convSettings 可选能力——按 conversationId 存取） */
-  class ConvSettingsStub {
-    private readonly store = new Map<string, { programmatic?: boolean }>();
-    constructor(_ctx: Context, options: { settings?: Record<string, { programmatic?: boolean }> } = {}) {
+  /** conv-settings stub（ctx.convSettings 可选能力——Service 形态注册进 ctx，
+   * ctx.get('convSettings', false) 才可见；裸类实例挂属性不进服务表） */
+  class ConvSettingsStub extends Service {
+    private readonly store = new Map<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }>();
+    constructor(ctx: Context, options: { settings?: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }> } = {}) {
+      super(ctx, 'convSettings');
       for (const [k, v] of Object.entries(options.settings ?? {})) this.store.set(k, v);
-      (this as unknown as { start(): void }).start?.();
     }
-    get(conversationId: string): { programmatic?: boolean } {
+    get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } {
       return this.store.get(conversationId) ?? {};
     }
   }
 
-  async function bootWithSwitch(settings: Record<string, { programmatic?: boolean }>) {
+  async function bootWithSwitch(settings: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }>) {
+
     const booted0 = await boot();
-    const stub = new ConvSettingsStub(booted0.ctx, { settings });
-    (booted0.ctx as any).convSettings = stub;
-    // run_code 探针（与真行同门禁形态——requiredTags code-exec）
-    booted0.ctx.tools.register({
-      name: 'run_code',
-      requiredTags: ['code-exec'],
+
+    void new ConvSettingsStub(booted0.ctx, { settings });    // run_code 探针（与真行同门禁形态——requiredTags infra，2026-09-17 优化：授权随能力族）
+    booted0.ctx.tools.register({
+      name: 'run_code',
+      requiredTags: ['infra'],
       description: 'd',
       execute: () => ({ ok: true }),
     });
-    booted0.ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'code-exec'] });
+    booted0.ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'infra'] });
     return booted0;
   }
 
-  it('开关开 + spawn 不带 tools → 子 Agent 工具面收窄为 [run_code]', async () => {
-    const { ctx } = await bootWithSwitch({ 'conv-prog': { programmatic: true } });
+  it('会话覆盖 tc-programmatic + spawn 不带 tools → 子 Agent 工具面收窄为 [run_code]', async () => {
+
+    const { ctx } = await bootWithSwitch({ 'conv-prog': { toolMode: 'tc-programmatic' } });
     const r = await exec(ctx, {
       name: 'subagent',
       args: { action: 'spawn', task: '程序化子任务', wait_time: 30 },
@@ -176,10 +178,14 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
   });
 
   it('spawn.tools 显式点名优先于开关传播（点名的工具面不被收窄）', async () => {
-    const { ctx } = await bootWithSwitch({ 'conv-prog': { programmatic: true } });
+    const { ctx } = await bootWithSwitch({ 'conv-prog': { toolMode: 'tc-programmatic' } });
+
     ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
+
     const r = await exec(ctx, {
+
       name: 'subagent',
+
       args: { action: 'spawn', task: '点名任务', tools: ['plain_tool'], wait_time: 30 },
       agentId: 'chief',
       conversationId: 'conv-prog',
@@ -189,8 +195,11 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['plain_tool']);
   });
 
-  it('开关关（无键）→ 并存形态：run_code 与传统工具同列', async () => {
-    const { ctx } = await bootWithSwitch({});
+  it('会话覆盖 tc-base 压回标准档 → 并存形态：run_code 与传统工具同列', async () => {
+    // 父 chief tags = ['delegation', 'infra']（bootWithSwitch 配）——
+    // 会话覆盖 tc-base 压回标准档：子 Agent 工具面不收窄（run_code 与
+    // 传统工具同列；tc-base 覆盖 = 跟随态被压制的显式形态）
+    const { ctx } = await bootWithSwitch({ 'conv-plain': { toolMode: 'tc-base' } });
     ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
     const r = await exec(ctx, {
       name: 'subagent',
@@ -204,9 +213,10 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     expect(names).toContain('plain_tool');
   });
 
-  it('父无 code-exec → run_code 不在能力面，传播忽略（惰性同口径）', async () => {
-    const { ctx } = await bootWithSwitch({ 'conv-prog': { programmatic: true } });
-    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation'] }); // 剥 code-exec
+  it('父无 tc-programmatic → run_code 不在能力面，传播忽略（惰性同口径）', async () => {
+    const { ctx } = await bootWithSwitch({ 'conv-prog': { toolMode: 'tc-programmatic' } });
+
+    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation'] }); // 剥 tc-programmatic
     ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
     const r = await exec(ctx, {
       name: 'subagent',

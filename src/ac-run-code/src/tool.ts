@@ -6,6 +6,11 @@
 // （子调用一律 ctx.tools.execute——能力轴/档位/黑名单/扫描/脱敏/
 // 事件面全自动生效）→ 摘要步记录（裁决 #1：程序体全文不回上下文）。
 //
+// 预算冻结：本 run 子调用挂起 durable-interaction（ask_questions /
+// approval——均以 correlationId=子调用 toolCallId 落盘）期间，墙钟看门狗
+// 暂停、子调用计费剔除冻结区间——预算约束机器时间，人的应答时间不是
+// 机器时间（「审批等待不计 compute」口径的执行化）。
+//
 // worker 引导（实验结论 2026-09-17）：
 //   dev   = new URL('./worker.ts', import.meta.url)（TS 直跑）
 //   bundle= 同目录 worker.mjs（build-bundle 第二入口产物）
@@ -17,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { formDeniedBy, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { buildSdkProjection } from 'ac-run-code-core';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
 
@@ -185,12 +190,13 @@ export function resolveEffectiveTools(
     .filter((d): d is ToolDefinition => d !== undefined && !formDenied(ctx, d, conversationId));
 }
 
-/** 形态面（single）判定：与 router formAllowed 同口径（坑 #10） */
+/**
+ * 形态面（single/self）判定：formDeniedBy 单源（ac-agents——router
+ * formAllowed 同口径，坑 #10）。含自会话（a~a）：run_code 程序内子调用
+ * 的可见面与 router 信封一致。
+ */
 function formDenied(ctx: Context, def: ToolDefinition, conversationId: string | undefined): boolean {
-  if (conversationId === undefined) return false;
-  const singles = ctx.get('singles', false) as { get(sid: string): unknown } | undefined;
-  if (!singles || !singles.get(conversationId)) return false;
-  return (def.excludeForms ?? []).includes('single');
+  return formDeniedBy(ctx, def, conversationId);
 }
 
 /** worker 引导 URL 解析（dev ./worker.ts → bundle ./worker.mjs → undefined） */
@@ -234,12 +240,103 @@ export async function executeRunCode(
   // lib 注入：会话级注册表快照（非空才注入——省协议体积）
   const libStore = libStoreOf(call.agentId, call.conversationId);
   const libSource = libStore.size > 0 ? Object.fromEntries(libStore) : undefined;
-  const worker = new Worker(entry);
+  // execArgv = 父进程继承集 ∪ --no-warnings：消音 stripTypeScriptTypes 的
+  // ExperimentalWarning（experimental 类警告无视 'warning' 监听器仍直写
+  // stderr——实测；进程级 flag 是唯一干净路径。worker 是受控执行体，
+  // 顺带静默其一切运行时警告可接受）。
+  const execArgv = process.execArgv.includes('--no-warnings')
+    ? process.execArgv
+    : [...process.execArgv, '--no-warnings'];
+  const worker = new Worker(entry, { execArgv });
   if (typeof worker.unref === 'function') worker.unref();
-  // 中止控制器（compute 预算 / 墙钟看门狗 / 用户 signal 共用——
-  // 一处 abort 全链生效：子调用 signal + worker abort 消息）
-  let abortCtl: AbortController | undefined;
-  const workerAbortSignal = (): AbortSignal | undefined => abortCtl?.signal;
+  // 中止控制器（compute 预算 / 墙钟看门狗 / 用户 signal 共用——一处
+  // abort 全链生效：子调用 signal + worker abort 消息）。run 级先行创建：
+  // 修复旧惰性 bug——旧代码 invoke 时刻 abortCtl 未创建时子调用拿到
+  // undefined signal，在飞等待型工具（ask_questions）永远收不到中止，
+  // 弹窗悬空 pending（write-ahead 兜底也只剩 late-reply 一条路）。
+  const abortCtl = new AbortController();
+  const wallStart = Date.now();
+  let workerReady = false;
+
+  // —— 预算冻结（软依赖 durableInteraction；缺席 = 行为同旧版）——
+  // 冻结区间（毫秒墙钟）：本 run 挂起 durable 交互（ask_questions /
+  // approval）的等待期。区间内的墙钟不计 maxWallMs（看门狗暂停）、
+  // 不计入子调用 compute 计费。区间由 opened/replied/closed 三事件对账
+  // （圈定键 = correlationId 前缀 `runId#`——桥接层拼子调用 toolCallId
+  // 的既有约定，ask-questions 与 approval 的 open 均按它落盘）。
+  const pauseSpans: Array<{ from: number; to: number }> = [];
+  let pauseFrom = 0;
+  const pausedBetween = (from: number, to: number): number => {
+    let sum = 0;
+    for (const s of pauseSpans) sum += Math.max(0, Math.min(s.to, to) - Math.max(s.from, from));
+    if (pauseFrom !== 0) sum += Math.max(0, to - Math.max(pauseFrom, from));
+    return sum;
+  };
+  const wallElapsedNow = (): number => Date.now() - wallStart - pausedBetween(wallStart, Date.now());
+  let wallTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 机器墙钟预算耗尽（超时回调 + 解冻补算共用出口） */
+  const wallExhausted = (): void => {
+    abortCtl.abort();
+    worker.postMessage({ type: 'abort', reason: `墙钟预算耗尽（maxWallMs=${maxWallMs}ms）` } satisfies MainToWorker);
+    setTimeout(() => void worker.terminate(), 5_000).unref?.();
+  };
+  /** 挂看门狗（剩余 = 预算 - 机器墙钟；冻结中不挂，解冻时重挂） */
+  const armWallTimer = (): void => {
+    if (wallTimer !== undefined) {
+      clearTimeout(wallTimer);
+      wallTimer = undefined;
+    }
+    if (maxWallMs <= 0 || pauseFrom !== 0) return;
+    const remain = maxWallMs - wallElapsedNow();
+    if (remain <= 0) {
+      wallExhausted();
+      return;
+    }
+    wallTimer = setTimeout(() => {
+      wallTimer = undefined;
+      if (pauseFrom !== 0 || !workerReady) return; // 竞态：冻结已发生由解冻重挂；worker 未就绪由 error/exit 兜底
+      wallExhausted();
+    }, remain);
+    if (typeof wallTimer.unref === 'function') wallTimer.unref();
+  };
+  const enterFreeze = (): void => {
+    if (pauseFrom !== 0) return;
+    pauseFrom = Date.now();
+    if (wallTimer !== undefined) {
+      clearTimeout(wallTimer);
+      wallTimer = undefined;
+    }
+  };
+  const exitFreeze = (): void => {
+    if (pauseFrom === 0) return;
+    pauseSpans.push({ from: pauseFrom, to: Date.now() });
+    pauseFrom = 0;
+    armWallTimer();
+  };
+  // 订阅对账：opened 增冻结 / 全部终态解冻（refresh 幂等——事件只是触发重查）
+  const disposeFreeze: Array<() => void> = [];
+  const di = ctx.get('durableInteraction', false) as
+    | { listOpen(): Array<{ correlationId?: string }> }
+    | undefined;
+  if (di !== undefined) {
+    const prefix = `${runId}#`;
+    const ours = (rec: { correlationId?: string }): boolean =>
+      typeof rec.correlationId === 'string' && rec.correlationId.startsWith(prefix);
+    const refresh = (): void => {
+      if (di.listOpen().some(ours)) enterFreeze();
+      else exitFreeze();
+    };
+    for (const evt of ['durable-interaction/opened', 'durable-interaction/replied', 'durable-interaction/closed'] as const) {
+      disposeFreeze.push(
+        (ctx.on as unknown as (name: string, listener: () => void, options?: { description?: string }) => () => void)(
+          evt,
+          refresh,
+          { description: 'run_code 预算冻结对账（ask_questions/approval 等待期不计预算）' },
+        ),
+      );
+    }
+    refresh(); // 初始对账（订阅先于首个子调用——窗口防御，幂等）
+  }
 
   // —— 主线程桥接：子调用 → ctx.tools.execute（全安全面）——
   let computeUsed = 0;
@@ -252,7 +349,6 @@ export async function executeRunCode(
   function enforceComputeBudget(): void {
     if (!mainAborted && computeMs > 0 && computeUsed > computeMs) {
       mainAborted = true;
-      abortCtl ??= new AbortController();
       abortCtl.abort();
       worker.postMessage({ type: 'abort', reason: `子调用累计执行耗时超预算（computeMs=${computeMs}ms，已用 ${computeUsed}ms）` } satisfies MainToWorker);
     }
@@ -269,11 +365,11 @@ export async function executeRunCode(
           if (settled) return;
           settled = true;
           const dur = Date.now() - t0;
-          // computeMs 只累计子调用执行耗时（含排队）；审批等待在
-          // before-execute waterfall 内——不计（ac-tools durationMs 口径）。
-          // 此处以墙钟近似：审批等待会略微高估 compute，保守方向可接受
-          // （预算宁可早停）。后续可经 tool/transform-result 观察精化。
-          computeUsed += dur;
+          // computeMs 只累计子调用执行耗时（含排队）：以墙钟近似，但剔除
+          // 预算冻结区间（ask_questions/approval 的用户应答等待——dur 的
+          // 其余部分含排队与执行，仍是保守近似）。旧口径「审批等待高估
+          // compute、保守可接受」已由冻结机制执行化修正。
+          computeUsed += Math.max(0, dur - pausedBetween(t0, Date.now()));
           summary.calls++;
           if (r.ok) summary.ok++;
           else summary.failed++;
@@ -305,7 +401,7 @@ export async function executeRunCode(
             ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
             ...(call.conversationId !== undefined ? { conversationId: call.conversationId } : {}),
             toolCallId: `${runId}#${seq}`,
-            signal: workerAbortSignal(),
+            signal: abortCtl.signal,
             ...(call.elevation ? { elevation: call.elevation } : {}),
             // 子调用标记（实测复盘 #B）：ToolCall 开放词汇面——UI/审计
             // 据此区分「run_code 程序内子调用」与「模型直接调用」（tool_call_id
@@ -323,12 +419,10 @@ export async function executeRunCode(
     return serialChain;
   };
 
-  const wallStart = Date.now();
   // 程序体全文入 host 日志（实测复盘 #D：裁决 #1 的诊断去向——步记录
   // 只有 programHash，排查需按哈希回捞全文）
   ctx.logger.debug('[run_code] 程序体（%s）：\n%s', hashText(code), code);
   const done = await new Promise<WorkerDone>((resolveDone, rejectDone) => {
-    let init = false;
     worker.on('message', (m: WorkerToMain) => {
       if (m.type === 'ready') {
         worker.postMessage({
@@ -340,7 +434,8 @@ export async function executeRunCode(
           maxOutputBytes,
           ...(libSource !== undefined ? { libSource } : {}),
         } satisfies MainToWorker);
-        init = true;
+        workerReady = true;
+        armWallTimer(); // boot 竞态补挂：看门狗若在 ready 前空转（回调空返回），此处按剩余重挂
         return;
       }
       if (m.type === 'invoke') {
@@ -358,46 +453,35 @@ export async function executeRunCode(
       if (code_ !== 0) rejectDone(new Error(`worker 异常退出（code=${code_}）`));
       else resolveDone({ type: 'done', ok: false, error: 'worker 提前退出', summary: { calls: 0, ok: 0, failed: 0, computeMs: 0, wallMs: 0, denied: [], serialized: [], trace: [] } });
     });
-    // 主线程侧看门狗：墙钟预算（含审批等待）——worker 自身无 timer 面
-    const wallTimer = setTimeout(() => {
-      if (init) {
-        abortCtl ??= new AbortController();
-        abortCtl.abort();
-        worker.postMessage({ type: 'abort', reason: `墙钟预算耗尽（maxWallMs=${maxWallMs}ms）` } satisfies MainToWorker);
-        setTimeout(() => void worker.terminate(), 5_000).unref?.();
-      }
-    }, maxWallMs > 0 ? maxWallMs : 2 ** 31 - 1);
-    if (typeof wallTimer.unref === 'function') wallTimer.unref();
+    // 主线程侧看门狗：机器墙钟预算（用户应答等待经预算冻结豁免）——
+    // worker 自身无 timer 面
+    armWallTimer();
     call.signal?.addEventListener('abort', () => {
-      clearTimeout(wallTimer);
-      abortCtl ??= new AbortController();
+      if (wallTimer !== undefined) {
+        clearTimeout(wallTimer);
+        wallTimer = undefined;
+      }
       abortCtl.abort();
       worker.postMessage({ type: 'abort', reason: '用户中止' } satisfies MainToWorker);
     }, { once: true });
   }).finally(() => {
     void worker.terminate();
+    for (const d of disposeFreeze) d();
+    exitFreeze(); // 冻结区间收口（悬空交互不阻塞——run 已结束，wallTimer 无人在等）
   });
 
   summary.computeMs = computeUsed;
   summary.wallMs = Date.now() - wallStart;
+  const frozenMs = pausedBetween(wallStart, Date.now());
+  if (frozenMs > 0) summary.frozenMs = frozenMs;
   // lib 注册表回写：done 快照 → 会话级 store（全量覆写——含程序未 define 的
   // 存量；失败/interrupted 的 run 不回写——注册表只反映成功程序的状态）
   if (done.ok && done.libExports !== undefined) {
     libStore.clear();
     for (const [name, src] of Object.entries(done.libExports)) libStore.set(name, src);
   }
-  // 程序体哈希（步记录入摘要——裁决 #1）+ 收束 info 行（宿主日志可检索）
+  // 程序体哈希（步记录入摘要——裁决 #1）
   const programHash = hashText(code);
-  ctx.logger.info(
-    '[run_code] 收束 run=%C ok=%C ok/总=%C/%C compute=%Cms wall=%Cms hash=%C',
-    runId,
-    done.ok,
-    String(summary.ok),
-    String(summary.calls),
-    String(summary.computeMs),
-    String(summary.wallMs),
-    programHash,
-  );
   const output = {
     summary: {
       ...done.summary,
@@ -408,6 +492,8 @@ export async function executeRunCode(
     },
     programHash,
     ...(done.value !== undefined ? { value: done.value } : {}),
+    ...(done.valueVia !== undefined ? { valueVia: done.valueVia } : {}),
+    ...(done.logsTail !== undefined ? { logsTail: done.logsTail } : {}),
   };
   if (done.interrupted) {
     return { ok: false, error: done.error ?? '程序中止', interrupt: { type: 'run-code-interrupted', reason: done.error ?? '程序中止' }, output };

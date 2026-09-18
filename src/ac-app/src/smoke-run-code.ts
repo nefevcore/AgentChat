@@ -2,10 +2,10 @@
 // ac-app/src/smoke-run-code.ts —— 程序化模式（run_code）dev 形态冒烟
 //
 // 实施计划 §十 验收项「dev 形态 run_code 冒烟」的可复用脚本：
-//   bootTree 全 TREE → 开关面装配（2026-09-17 开关化：__programmatic__
-//   预设退役，程序化 = 会话级开关 conv-settings.programmatic）真实执行：
-//   1) 开关装配：临时测试 Agent（tags 全授权族）+ conv-settings 写键
-//   2) tag-registry catalog：code-exec 预注册 + run_code 消费计数
+//   bootTree 全 TREE → 工具调用模式装配（2026-09-17 tc-* 标签轴：Agent
+//   tags 定默认档 + conv-settings.toolMode 会话覆盖 + router 收窄）真实执行：
+//   1) 模式装配：临时测试 Agent（tags 全授权族含 tc-programmatic）+ 覆盖写键
+//   2) tag-registry catalog：tc-programmatic 预注册 + run_code 消费计数
 //   3) 纯计算：return 1 + 1 → 2（计划 §十 原始验收式）
 //   4) 工具编排（真 fs 行子调用）：read 目录 + glob + 只读 Promise.all
 //   5) 递归防护：程序内 tools.run_code 不可达（代理 get 抛错）
@@ -89,25 +89,32 @@ async function main() {
   const agentId = 'smoke-programmatic';
   const convId = 'smoke-run-code';
 
-  // ---- 1) 开关面装配（开关化：conv-settings programmatic——预设已退役）----
-  console.log('[1] 开关面装配（临时测试 Agent + conv-settings 写键）');
+  // ---- 1) 模式装配（tc-* 标签轴：tags 定档 + conv-settings 覆盖压回再复原）----
+  console.log('[1] 模式装配（临时测试 Agent + conv-settings 覆盖）');
   ctx.agents.register({
     id: agentId,
     model: 'mock-1',
     preset: true,
-    // 全授权族（投影面 = 能力面：tags 即工具面）——原 __programmatic__ 同款
-    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'code-exec'],
+    // 全授权族（投影面 = 能力面：tags 即工具面）——tc-* 纯模式词无需
+    // 预配（2026-09-17 优化裁决）：本会话无覆盖键 = 跟随态 tc-base，
+    // 靠 conv-settings 覆盖 tc-programmatic 实现程序化（见 [1]）；
+    // smoke-programmatic 场景需 run_code 可见 → infra 在（授权随能力族）
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation'],
   });
-  ctx.convSettings.set(convId, { programmatic: 'true' });
+  ctx.convSettings.set(convId, { toolMode: 'tc-programmatic' }); // 无标签 Agent + 覆盖 = 临时程序化档（优化裁决）
   const stored = ctx.convSettings.get(convId);
-  check('开关已落盘（programmatic=true）', stored.programmatic === true);
-  // 开关收窄经 router 消费（LLM 面 = 仅 run_code）——见 [7] 端到端验证
+  check('覆盖已落盘（toolMode=tc-programmatic 临时程序化档）', stored.toolMode === 'tc-programmatic');
+  ctx.convSettings.set(convId, { toolMode: null }); // 清覆盖 = 回到跟随态（tc-base）
+  check('清覆盖后跟随态（toolMode 键删除）', ctx.convSettings.get(convId).toolMode === undefined);
+  // 模式收窄经 router 消费（LLM 面 = 仅 run_code）——见 [7] 端到端验证
 
   // ---- 2) 标签目录 ----
-  console.log('[2] tag-registry catalog（code-exec 预注册）');
-  const codeExec = ctx.tagRegistry.catalog().find((t) => t.tag === 'code-exec');
-  check('catalog 含 code-exec（reserved）', codeExec?.reserved === true);
-  check('run_code 消费计数 = 1', (codeExec?.tools ?? []).map((t) => t.name).join(',') === 'run_code');
+  console.log('[2] tag-registry catalog（tc-programmatic 预注册；run_code 授权随 infra）');
+  const progTag = ctx.tagRegistry.catalog().find((t) => t.tag === 'tc-programmatic');
+  check('catalog 含 tc-programmatic（reserved）', progTag?.reserved === true);
+  check('tc-programmatic 零消费工具（纯模式词）', (progTag?.tools ?? []).length === 0);
+  const infraTag = ctx.tagRegistry.catalog().find((t) => t.tag === 'infra');
+  check('run_code 授权随 infra（消费计数含它）', (infraTag?.tools ?? []).some((t) => t.name === 'run_code'));
 
   // run_code 执行的公共入口（预设身份）
   const runCode = (code: string, extra: Record<string, unknown> = {}) =>
@@ -172,14 +179,16 @@ async function main() {
     chatInputs.push(payload.input ?? {});
     return next();
   }) as never, { description: '冒烟探针：截获 LLM 请求面' });
-  ctx.agents.register({ id: 'prog-helper', model: 'mock-1', tags: ['fs', 'code-exec'] });
-  ctx.convSettings.set('prog-conv', { programmatic: 'true' }); // 开关开（互斥形态）
+  ctx.agents.register({ id: 'prog-helper', model: 'mock-1', tags: ['fs', 'infra'] });
+  // prog-conv 覆盖 tc-programmatic（无标签 Agent 的临时程序化档——优化裁决
+  // 前端选择「程序化」= 临时分配）→ router 收窄 LLM 面 = 仅 run_code
+  ctx.convSettings.set('prog-conv', { toolMode: 'tc-programmatic' });
   const run = await ctx.router.send('prog-helper', '请用 run_code 计算 6*7', { conversationId: 'prog-conv' });
   const system = chatInputs[0]?.messages?.find((m) => m.role === 'system');
   check('run 正常收束（finish=stop）', run.finish === 'stop', `${run.finish}`);
   check('开关收窄：LLM 工具面 = 仅 run_code', (chatInputs[0]?.tools ?? []).map((t) => t.function.name).join(',') === 'run_code', JSON.stringify((chatInputs[0]?.tools ?? []).map((t) => t.function.name)));
   check('system 注入 SDK 投影块（#A1）', (system?.content ?? '').includes('# run_code 工具 SDK') && (system?.content ?? '').includes('declare const tools'), (system?.content ?? '').slice(0, 120));
-  check('互斥形态注入（开关开——无执行形态选择策略 #A2）', !(system?.content ?? '').includes('执行形态选择'));
+  check('互斥形态注入（开关开——程序化调用，基线纪律引导）', (system?.content ?? '').includes('本会话为程序化模式'));
   check('SDK 声明排除 run_code 自身', !/run_code\s*\(/.test(system?.content ?? ''));
   const tr = run.steps[0]?.toolResults?.[0] as { output?: { value?: unknown } } | undefined;
   check('run_code 步结果 value = 42', tr?.output?.value === 42, JSON.stringify(tr?.output));

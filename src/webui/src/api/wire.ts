@@ -23,7 +23,8 @@ const RPC_RESULT = 'rpc/result';
 const WS_ACK = 'ws/ack';
 const WS_READY = 'ws/ready';
 const RPC_TIMEOUT_MS = 60_000;
-const RECONNECT_BASE_MS = 2000;
+/** 退避基线（导出 = 测试对拍"归零回到 base"语义） */
+export const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30_000;
 
 type EventHook = (type: string, args: unknown[]) => void;
@@ -168,12 +169,43 @@ class WireRpcClient {
     }, this.reconnectDelay);
   }
 
+  /**
+   * 前台化即重连（visibilitychange → visible 调用）：后台节流把
+   * scheduleReconnect 的 setTimeout 拖慢到分钟级（Chrome 后台 5 分钟后
+   * 强节流——定时器每分钟至多 1 次），前台化是恢复服务的唯一即时信号
+   * ——跳过等待立刻重连，退避同时归零（用户在场 = 服务优先于避让）。
+   * 已连接 / 连接中 = 无事可做；失败由 onclose 按常规节奏重新排程。
+   */
+  resumeFromBackground(): void {
+    if (this.ws?.readyState === WebSocket.OPEN || this.connecting) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectDelay = RECONNECT_BASE_MS;
+    this.socket().catch(() => undefined);
+  }
+
   private failAll(err: Error): void {
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
       p.reject(err);
     }
     this.pending.clear();
+  }
+
+  /** 测试隔离口：复位连接与退避状态（仅测试用——生产无调用方） */
+  disposeForTest(): void {
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    if (this.ws) {
+      this.ws.onclose = null; this.ws.onmessage = null; this.ws.onopen = null; this.ws.onerror = null;
+      try { this.ws.close(); } catch { /* 已断开 */ }
+      this.ws = null;
+    }
+    this.connecting = null;
+    this.queue = [];
+    this.reconnectDelay = RECONNECT_BASE_MS;
+    this.failAll(new Error('测试复位'));
   }
 
   async call<T = unknown>(method: string, params?: Record<string, unknown>, requestId?: string, timeoutMs: number = RPC_TIMEOUT_MS): Promise<T> {
@@ -198,3 +230,13 @@ class WireRpcClient {
 export const wireRpc = new WireRpcClient();
 // wireRpc → RpcClientFace 契约面适配住 runtime/wireFace.ts（独立模块
 // ——feed/chat 测试族 vi.mock 本模块时适配器仍从被替换的 wireRpc 防御性构建）
+
+// 前台化即重连：断线 + 后台期间，重连定时器被浏览器节流（≥1s，Chrome
+// 后台 5 分钟后强节流至分钟级）——切回可见的第一刻取消等待立即重连。
+// 住传输单例（不做 service/行装配）：可见性是文档级事实，与域无关；
+// 消费方按需自行监听 visibilitychange 的逻辑不受影响（多监听无冲突）。
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') wireRpc.resumeFromBackground();
+  });
+}

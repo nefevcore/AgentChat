@@ -38,7 +38,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'grep_history', 'read_history',
   // ac-subagent / ac-durable-interaction / ac-timer-tools
   'subagent', 'ask_questions', 'timer',
-  // ac-run-code（程序化模式 PTC：code-exec 标签门禁）
+  // ac-run-code（程序化模式 PTC：tc-programmatic 标签门禁——标签即模式）
   'run_code',
   // ac-goal / ac-todo（任务追踪工具面）
   'goal', 'todo',

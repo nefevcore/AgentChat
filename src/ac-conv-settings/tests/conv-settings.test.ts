@@ -78,36 +78,43 @@ describe('ac-conv-settings', () => {
     expect(ctx.convSettings.get('user~helper')).toEqual({});
   });
 
-  it(`programmatic 键（程序化开关，research §十）：wire 'true' 开 / 其余清 / 持久真布尔`, async () => {
+  it(`toolMode 键（工具调用模式覆盖，tc-* 标签轴）：合法枚举写/读、其余清、盘上损坏值丢弃`, async () => {
     const root = tmpRoot();
     const ctx = await boot(root);
     expect(ctx.convSettings.get('user~helper')).toEqual({});
-    // 'true'（wire 字符串形态）→ 开；持久为真 boolean
-    let next = ctx.convSettings.set('user~helper', { programmatic: 'true' });
-    expect(next).toEqual({ programmatic: true });
+    // 合法枚举（wire 字符串原样）→ 持久同值
+    let next = ctx.convSettings.set('user~helper', { toolMode: 'tc-programmatic' });
+    expect(next).toEqual({ toolMode: 'tc-programmatic' });
     expect(JSON.parse(fs.readFileSync(path.join(root, 'conv-settings', 'user~helper.json'), 'utf-8'))).toEqual({
-      programmatic: true,
+      toolMode: 'tc-programmatic',
     });
-    expect(ctx.convSettings.get('user~helper').programmatic).toBe(true);
-    // 真 boolean true 同样可开（服务面宽容双形态）
-    ctx.convSettings.set('user~helper', { programmatic: null });
-    expect(ctx.convSettings.get('user~helper')).toEqual({});
-    ctx.convSettings.set('user~helper', { programmatic: true as never });
-    expect(ctx.convSettings.get('user~helper').programmatic).toBe(true);
-    // 'false'/''/null → 删键（全空 = 删文件）
-    next = ctx.convSettings.set('user~helper', { programmatic: 'false' });
+    expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-programmatic');
+    // 三值都可写入
+    ctx.convSettings.set('user~helper', { toolMode: 'tc-none' });
+    expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-none');
+    ctx.convSettings.set('user~helper', { toolMode: 'tc-base' });
+    expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-base');
+    // 非法值（'tc-foo'/'false'/null）→ 删键（全空 = 删文件）
+    next = ctx.convSettings.set('user~helper', { toolMode: 'tc-foo' as never });
     expect(next).toEqual({});
     expect(fs.existsSync(path.join(root, 'conv-settings', 'user~helper.json'))).toBe(false);
     // 与 model/elevation 共存（键级独立）
-    ctx.convSettings.set('user~helper', { model: 'glm@glm-5.3', programmatic: 'true' });
-    expect(ctx.convSettings.get('user~helper')).toEqual({ model: 'glm@glm-5.3', programmatic: true });
-    // 盘上损坏值（programmatic: 'yes'）→ 读取丢弃（宽容面）
+    ctx.convSettings.set('user~helper', { model: 'glm@glm-5.3', toolMode: 'tc-none' });
+    expect(ctx.convSettings.get('user~helper')).toEqual({ model: 'glm@glm-5.3', toolMode: 'tc-none' });
+    // 盘上损坏值（toolMode: 'programmatic'——旧开关词不迁移，读侧丢弃）→ 宽容面
     fs.writeFileSync(
       path.join(root, 'conv-settings', 'bad.json'),
-      JSON.stringify({ programmatic: 'yes' }),
+      JSON.stringify({ toolMode: 'programmatic' }),
       'utf-8',
     );
     expect(ctx.convSettings.get('bad')).toEqual({});
+    // 盘上旧 programmatic 布尔键（存量不迁移）→ 读侧直接失效（不映射）
+    fs.writeFileSync(
+      path.join(root, 'conv-settings', 'legacy.json'),
+      JSON.stringify({ programmatic: true }),
+      'utf-8',
+    );
+    expect(ctx.convSettings.get('legacy')).toEqual({});
   });
 
   it('conversationId 词法校验：路径分隔/../空白 拒绝（对桶 ~ 合法）', async () => {

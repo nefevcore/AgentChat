@@ -187,6 +187,26 @@ describe('资料面工具', () => {
     const pairTools = (pair.output as { tools: Array<{ name: string }> }).tools;
     expect(pairTools.some((t) => t.name === 'system_restart')).toBe(true);
   });
+
+  it('list_tools：会话形态面 self 同口径（2026-02）——excludeForms:[\'self\'] 工具不进自会话清单；1v1 对桶照常', async () => {
+    const { ctx } = await boot();
+    ctx.tools.register({
+      name: 'ask_questions',
+      description: '向用户提问',
+      excludeForms: ['self'],
+      execute: () => ({ ok: true }),
+    });
+    ctx.agents.register({ id: 'bot', model: 'mock-1' });
+
+    // 自会话（对角线 bot~bot）：与 router 信封同口径——不进生效集
+    const self = await call(ctx, 'list_tools', {}, 'bot', 'bot~bot');
+    const selfTools = (self.output as { tools: Array<{ name: string }> }).tools;
+    expect(selfTools.some((t) => t.name === 'ask_questions')).toBe(false);
+    // 1v1 对桶：照常可见
+    const pair = await call(ctx, 'list_tools', {}, 'bot', 'bot~user');
+    const pairTools = (pair.output as { tools: Array<{ name: string }> }).tools;
+    expect(pairTools.some((t) => t.name === 'ask_questions')).toBe(true);
+  });
 });
 
 describe('send_agent（经 conversation 状态机）', () => {

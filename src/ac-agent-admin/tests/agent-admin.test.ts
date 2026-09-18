@@ -17,6 +17,7 @@ import { CredentialsService } from 'ac-credentials';
 import { AgentsService } from 'ac-agents';
 import { ToolsService } from 'ac-tools';
 import { ConfigService } from 'ac-config';
+import { ConvSettingsService } from 'ac-conv-settings';
 import * as sessionRow from 'ac-session';
 import * as llmRow from 'ac-llm';
 import * as workspaceRow from 'ac-workspace';
@@ -53,6 +54,10 @@ async function boot(): Promise<Harness> {
   const agents = new AgentsService(ctx);
   const tools = new ToolsService(ctx);
   void tools;
+  // conv-settings（2026-12 估算失真修复测试）：system-prompt 干跑按
+  // 「会话覆盖 ?? Agent tags」收窄工具面——ctx.get('convSettings') 读面
+  const convSettings = new ConvSettingsService(ctx, { root });
+  void convSettings;
   // 假组装器：system-prompt dry-run 的 waterfall 过链验证。
   // 与真实组装器（ac-persona/ac-system-prompt）同款"替换 call.request"
   // 变异姿势——干跑回读必须取载体 call.request；本地 request 别名在
@@ -209,12 +214,13 @@ describe('ac-agent-admin CRUD', () => {
     expect(noId.ok).toBe(false);
     expect(noId.error).toContain('id');
 
+    // 无 model 不再拒绝：存 null（「默认服务商」引用语义），解析延迟到投递侧
     const noModel = await rpc(ws, 'agents/create', 'r3', { config: { id: 'y' } });
-    expect(noModel.ok).toBe(false);
-    expect(noModel.error).toContain('model');
+    expect(noModel.ok).toBe(true);
+    expect((noModel.result as { config: Record<string, unknown> }).config).toMatchObject({ id: 'y', model: null });
   });
 
-  it('create 无 model → 物化默认池连接（「默认/继承全局」承诺；P5 统一：provider=条目名, model=defaultModel）', async () => {
+  it('create 无 model → 存 null（「默认服务商/继承全局」引用语义——不物化默认池连接）', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-agent-admin-pool-'));
     // config.json 预置模型池（v2 连接形态）：main(default) + alt
     fs.mkdirSync(root, { recursive: true });
@@ -240,30 +246,34 @@ describe('ac-agent-admin CRUD', () => {
     harnesses.push({ web, ctx });
 
     const ws = await connect(port);
-    // 无 model 无 provider → 物化 default:true 连接的 provider+model
+    // 无 model 无 provider → 存 null（引用语义：投递侧回落默认池连接，创建面零物化）
     const r = await rpc(ws, 'agents/create', 'r1', { config: { id: 'inherit', description: '继承' } });
     expect(r.ok).toBe(true);
     expect((r.result as { config: Record<string, unknown> }).config).toMatchObject({
       id: 'inherit',
-      provider: 'main',
-      model: 'glm-5.3',
+      model: null,
     });
-    // 显式 provider 不被池默认覆盖；virtual 不物化
+    // 落盘 null（与 update 面清除同形态）+ 注册表热生效
+    const inheritDisk = JSON.parse(fs.readFileSync(join(root, 'agents', 'inherit', 'config.json'), 'utf-8')) as Record<string, unknown>;
+    expect(inheritDisk.model).toBeNull();
+    expect(agents.get('inherit')?.model ?? null).toBeNull();
+    // 显式 provider 保留（不被池默认覆盖）；model 仍 null（不物化）；virtual 不置 null
     const keep = await rpc(ws, 'agents/create', 'r2', { config: { id: 'explicit', provider: 'alt' } });
     expect(keep.ok).toBe(true);
-    expect((keep.result as { config: Record<string, unknown> }).config).toMatchObject({ id: 'explicit', provider: 'alt', model: 'glm-5.3' });
+    expect((keep.result as { config: Record<string, unknown> }).config).toMatchObject({ id: 'explicit', provider: 'alt', model: null });
     const virt = await rpc(ws, 'agents/create', 'r3', { config: { id: 'ghost', virtual: true } });
     expect(virt.ok).toBe(true);
     expect((virt.result as { config: Record<string, unknown> }).config).toMatchObject({ id: 'ghost', virtual: true });
 
-    // 空池（config 行在但无条目）→ 仍走原 fail-closed 校验
+    // 空池（config 行在但无条目）→ 创建同样成功存 null（解析延迟到投递侧 fail-closed）
     config.set('llmProviders', {});
     const empty = await rpc(ws, 'agents/create', 'r4', { config: { id: 'z' } });
-    expect(empty.ok).toBe(false);
-    expect(empty.error).toContain('model');
+    expect(empty.ok).toBe(true);
+    expect((empty.result as { config: Record<string, unknown> }).config).toMatchObject({ id: 'z', model: null });
+
   });
 
-  it('create 无 model + 默认连接为自定义提供方（无 defaultModel，仅有 models 缓存）→ 回落物化清单最新项（2026-09-10 反馈）', async () => {
+  it('create 无 model 不读池配置（自定义默认连接无 defaultModel 仅清单缓存 → 也不物化清单最新项，存 null）', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-agent-admin-pool-'));
     fs.mkdirSync(root, { recursive: true });
     // 自定义提供方形态：填了连接与清单缓存（「设为默认」触发 /models 刷新），
@@ -294,11 +304,15 @@ describe('ac-agent-admin CRUD', () => {
 
     const ws = await connect(port);
     const r = await rpc(ws, 'agents/create', 'r1', { config: { id: 'inherit-custom', description: '继承自定义默认' } });
+
     expect(r.ok).toBe(true);
+
     expect((r.result as { config: Record<string, unknown> }).config).toMatchObject({
+
       id: 'inherit-custom',
-      provider: 'my-gw',
-      model: 'glm-5.3', // models 可见清单降序首项
+
+      model: null, // 创建面零物化——清单降序首项回落是投递侧 defaultPoolConnection 的职责
+
     });
   });
 
@@ -368,6 +382,38 @@ describe('ac-agent-admin 文档 / 预览', () => {
     expect(posDate).toBeGreaterThan(posMain);
     expect(prompt.endsWith('\n\n[当前时间] 2026-09-05 周六')).toBe(true);
     expect(started).toEqual([]); // 干跑不发 run 事件
+  });
+
+  it('system-prompt 干跑工具面按会话模式收窄（2026-12 估算失真修复）：request.tools = router 真实 run 同口径', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    await rpc(ws, 'agents/create', 'r1', { config: { id: 'coder', model: 'm', tags: ['infra'] } });
+    h.ctx.tools.register({ name: 't1', execute: () => ({ ok: true }) });
+    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), requiredTags: ['infra'] });
+    h.ctx.tools.register({ name: 't2', execute: () => ({ ok: true }) });
+    // 干跑工具面观察器（主档瀑布——记录送进装配链的 request.tools）
+    const seen: Array<string[] | undefined> = [];
+    h.ctx.on('loop/before-run', (call, next) => {
+      seen.push(call.request.tools ? [...call.request.tools] : undefined);
+      return next();
+    });
+
+    // 基线（无会话键）：tags 无模式词 = tc-base 不收窄——生效集全量
+    await rpc(ws, 'agents/system-prompt', 'r2', { agentId: 'coder' });
+    expect(seen.at(-1)?.sort()).toEqual(['run_code', 't1', 't2']);
+
+    // 会话覆盖 tc-programmatic → 干跑面 = LLM 真实可见面（仅 run_code）
+    // ——下游装配（ac-run-code SDK 投影注入 / system-prompt 指引块门控）
+    // 随面生效，估算不再随会话开关双向失真
+    const conv = 'user~coder';
+    h.ctx.convSettings.set(conv, { toolMode: 'tc-programmatic' });
+    await rpc(ws, 'agents/system-prompt', 'r3', { agentId: 'coder', conversationId: conv });
+    expect(seen.at(-1)).toEqual(['run_code']);
+
+    // 会话覆盖 tc-none → 空面（纯聊天）
+    h.ctx.convSettings.set(conv, { toolMode: 'tc-none' });
+    await rpc(ws, 'agents/system-prompt', 'r4', { agentId: 'coder', conversationId: conv });
+    expect(seen.at(-1)).toEqual([]);
   });
 
   it('get-config：store 优先、回退注册表（行注册预设）', async () => {

@@ -166,6 +166,55 @@ export function buildHighlightSegments(text: string): HighlightSegment[] {
 }
 
 // ============================================================
+// # 历史会话引用候选（hashGroups 数据面）：过滤 + 排序 + 截断纯函数。
+// 排序必须发生在截断前——singles 快照只在元数据事件（singles/updated）
+// 时重拉，消息活动不触发：新聊会话在旧快照里沉底，按快照序截断会被
+// 挡在弹层外（"# 引用新会话要刷新页面才出现"根因）。
+// ============================================================
+
+/** 会话候选输入（SingleSession 结构子集——本模块不依赖 singles 域类型） */
+export interface SessionMentionSource {
+  id: string;
+  agentId: string;
+  title?: string;
+  lastActivity?: string;
+  createdAt: string;
+}
+
+/** # 候选行（title 定版 + 插入 token；source 透传调用方补 icon/key/hint） */
+export interface SessionMentionCandidate<S extends SessionMentionSource = SessionMentionSource> {
+  source: S;
+  title: string;
+  /** 插入文本：#标题(会话 id) + 尾随空格（sid 内联——Agent 侧无枚举工具，纯标题是死引用） */
+  insert: string;
+}
+
+/** 会话最近活动时间戳（排序键；无消息回落 createdAt——后端 listActive 同口径） */
+export function sessionActivityOf(s: { lastActivity?: string; createdAt: string }): number {
+  const t = new Date(s.lastActivity ?? s.createdAt).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * 构造 # 历史会话引用候选：排除当前会话 → 标题/agentId 包含匹配 →
+ * 按最近活动降序 → 截断前 N。titleOf 回调定制标题（board.titleOf 单源：
+ * 无 Agent 会话回落「新会话」、有 Agent 回落「Agent 名 · 创建时间」）。
+ */
+export function buildSessionMentionCandidates<S extends SessionMentionSource>(
+  sessions: readonly S[],
+  opts: { query: string; excludeId?: string; titleOf: (s: S) => string; limit?: number },
+): Array<SessionMentionCandidate<S>> {
+  const { query, excludeId, titleOf, limit = 8 } = opts;
+  return sessions
+    .filter((s) => s.id !== excludeId)
+    .map((s) => ({ s, title: titleOf(s) }))
+    .filter(({ s, title }) => mentionMatches(title, query) || mentionMatches(s.agentId, query))
+    .sort((a, b) => sessionActivityOf(b.s) - sessionActivityOf(a.s))
+    .slice(0, limit)
+    .map(({ s, title }) => ({ source: s, title, insert: `#` + title + '(' + s.id + ') ' }));
+}
+
+// ============================================================
 // 文件引用插入格式（DSH formatFileMention 移植）——与 ac-fs-tools 的
 // [引用约定]（"含空格形如 @"路径"，目录以尾斜杠标识"）同语法：
 //   · 含空白 → 引号形态 @"path"（目录保持引号开 = 补全可继续下钻）；

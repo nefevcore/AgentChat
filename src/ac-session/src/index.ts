@@ -172,17 +172,33 @@ interface ToolResultLine {
   /**
    * run_code 子调用标记（2026-09-17 程序化模式实测复盘 #B）：run_code
    * 程序内的子调用（call.runCodeSubcall）与模型直接调用在回放面同形
-   * ——UI 据本标记区分/折叠（子调用不产生独立工具卡，归入 run_code
-   * 卡片）；审计面保持全量（不做过滤）。旧版本读到本行 → 未知字段
-   * 忽略（前向兼容）。
+   * ——UI 据本标记区分（subcall 卡片平铺展示、带缩进样式，2026-09-17
+   * 方向 B 重构：子调用产生独立工具卡 + 文件编辑追踪）；审计面保持
+   * 全量。旧版本读到本行 → 未知字段忽略（前向兼容）。
    */
   subcall?: boolean;
+  /**
+   * 调用参数原始 JSON 串（subcall 补行携带——前端复原完整工具卡片
+   * 的数据源；模型直调的参数已在 steps[].toolCalls[].arguments，不落
+   * 本键）。旧版本读到本行 → 未知字段忽略（前向兼容）。
+   */
+  arguments?: string;
+  /** 工具名（subcall 补行携带——同上，复原卡片的工具名源） */
+  name?: string;
   seq?: number;
 }
 
 /** 补记行前缀判定（避免全量 JSON.parse） */
 function isToolResultLine(line: string): boolean {
   return line.trimStart().startsWith('{"type":"tool-result"');
+}
+
+/** run_code 子调用 id（`<runId>#<seq>`）的 seq 数字段（无 # 后缀 → 0） */
+function seqOfToolCallId(id: string): number {
+  const at = id.lastIndexOf('#');
+  if (at < 0) return 0;
+  const n = Number(id.slice(at + 1));
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** 合法行角色词表（中性格式 D13 五词 + 旧 baked 兼容词；records/tail 共用谓词） */
@@ -299,6 +315,12 @@ export interface SessionStepRecord {
     arguments: string;
     /** 工具体返回的 ToolResult（对象原样 JSON 往返） */
     result: unknown;
+    /**
+     * run_code 子调用标记（2026-09-17 方向 B：records() subcalls 投影
+     * 注入的条目）：true = 本调用由 run_code 程序内发起——前端平铺
+     * 渲染独立工具卡（缩进样式）；不参与 LLM 回放（history() 不开投影）。
+     */
+    subcall?: boolean;
   }>;
 }
 
@@ -344,6 +366,12 @@ const PARTIAL_MARK = '"partial":true';
  */
 const TAIL_WINDOW_BYTES = 8 * 1024 * 1024;
 
+/**
+ * tail() 增量试探小窗（字节，2026-09-19 性能修复）：run 活跃期单轮新增
+ * 通常 < 数 KB（单条 checkpoint 行）；64KB 覆盖多行新增 + 衔接余量。
+ */
+const TAIL_SMALL_WINDOW_BYTES = 64 * 1024;
+
 /** tail() 的末条记录投影（展示字段投影，非完整 SessionRecord） */
 type TailRecord = Pick<SessionRecord, 'role' | 'content' | 'timestamp' | 'agent_id' | 'name' | 'source'>;
 
@@ -368,6 +396,29 @@ const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
 /** stats 基线全量校准间隔（ms）：时间窗随墙钟漂移，久未校准的增量
  *  计数会缓慢失真（旧消息出窗不回退）——超时强制一次全量重扫对齐。 */
 const STATS_RECALIBRATE_MS = 60_000;
+
+/**
+ * subcall 补行 result 截断阈值（字节，2026-09-19 程序化模式性能修复）：
+ * run_code 子调用的完整结果双写（补行 + 收束行 steps）实测占重度程序化
+ * 会话体积 ~25%（420 行 1.07MB，其中 result 1.00MB——read 全文回传为主）。
+ * 收束行 steps[].toolCalls[].result 承担 KV 前缀保真（字节不可动）；补行
+ * 仅服务【run 未收束窗口】的部分行 result 覆盖（中断恢复）+ subcalls
+ * 投影的 UI 复原（卡片展示）——两者都只需可读摘要，不需要全文。超过阈值
+ * 截断为 string 前缀 + 标记；旧版本读到截断形 = 内容变短（宽容降级）。
+ */
+const SUBCALL_RESULT_CAP = 2_048;
+
+/** result 截断（subcall 补行专用）：超阈值取字符串前缀 + 截断标记 */
+function capSubcallResult(result: unknown): unknown {
+  if (result === undefined || result === null) return result;
+  const s = JSON.stringify(result);
+  if (s === undefined || s.length <= SUBCALL_RESULT_CAP) return result;
+  return {
+    __truncated: true,
+    bytes: s.length,
+    head: s.slice(0, SUBCALL_RESULT_CAP),
+  };
+}
 
 /** 按记录时间戳统计各时间窗内消息数（热力色阶数据源；纯函数）。部分行
  *  （步级 checkpoint）不计——与 stats 行计数口径一致。入参为已 split
@@ -574,7 +625,20 @@ export class SessionService extends Service {
    */
   private tailCache = new Map<string, { mtimeMs: number; size: number; tail: TailRecord | undefined }>();
   /**
-   * records() 解析缓存（file → mtime/size 对应的已解析记录）：读侧投影
+   * tail() 增量基线（2026-09-19 程序化模式性能修复）：file → 末次成功扫描的
+   * 字节偏移 + 该偏移处的行尾状态。run 活跃期 runs/snapshot 3s 轮询对每个
+   * 变化会话触发 8MiB 尾窗读——程序化会话（4~6MB、单行可达 680KB）令窗恒
+   * 顶格：实测 239 会话冷轮 394ms/267MB 同步读。改为：上次扫描后的新增段
+   * 先用小窗（末 64KB）试探——新末条几乎总在近尾部（append-only + 单行
+   * checkpoint 远小于 64KB 的一般情形）；小窗内找不到可解析非部分行才回落
+   * 大窗（部分行收束/大记录病态场景）。窗起点 = 缓存偏移（若仍在文件界内），
+   * 保证与上次扫描的衔接。
+   */
+  private tailScanCache = new Map<string, { mtimeMs: number; size: number; scanEnd: number }>();
+  /**
+   * records() 解析缓存（file → mtime/size 对应的已解析记录 + subcall
+   * 补行清单——2026-09-17 方向 B：投影注入的数据源随缓存走，命中路径
+   * 与首读路径行为一致）：读侧投影
    * 缓存，非第二事实源——mtime/size 任一变化即失效重读，重启随进程消失
    * （S1/S3 同 stats() windowCache 模式）。动机：run 收束的 3 连读
    * （归档判定 + session/tokens + UI 回放）与夜间 archiveAll 批量扫描
@@ -583,7 +647,13 @@ export class SessionService extends Service {
    * supplements 覆盖幂等（同值重复覆盖），仓内调用方均为只读投影。
    * LRU 上限防 archiveAll 类全量扫描把内存吃穿（超出按插入序淘汰冷会话）。
    */
-  private recordsCache = new Map<string, { mtimeMs: number; size: number; records: SessionRecord[] }>();
+  private recordsCache = new Map<string, {
+    mtimeMs: number;
+    size: number;
+    records: SessionRecord[];
+    /** subcall 补行清单（2026-09-17 方向 B）：投影注入数据源——命中路径同服务 */
+    subcallLines?: Array<{ run: string; tool_call_id: string; name?: string; arguments?: string; result: unknown }>;
+  }>();
   private static RECORDS_CACHE_MAX = 16;
   /**
    * 活跃 run 簿记（步级部分行配套）：loop/run-started 登记、reply-completed
@@ -613,12 +683,20 @@ export class SessionService extends Service {
       // owning），逐成员 hint 不重复入账（修影子桶按成员重复 N 次）——
       // 该 run 的回复照常入账（回复是会话事实，reply-completed 不查本键）
       if (isGroupHint(meta)) return;
+      // 入站即落盘（2026-09-18 send_agent 静默丢失）：入站消息本身是对用户
+      // 可见的副作用（与 tool/before-execute 的"副作用前 durable"同语义），
+      // 不能只入队等后续 flush——目标桶此后可能再无任何 run 活动（虚拟端点
+      // 无 reply-completed、无工具 checkpoint，agent⇄agent 委托在对方开跑
+      // 前崩溃同样悬空），pending 滞留内存 = UI 读文件不可见、非优雅退出即
+      // 丢。fire-and-forget 不阻塞 emit 链（既有 flushBestEffort 语义）。
       if (source === 'event') {
         this.record(conversationId, agentId, message, { roleOverride: 'event', source: 'event' });
+        this.flushBestEffort(conversationId, '入站事件行');
         return;
       }
       this.record(conversationId, sender ?? 'user', message);
-    }, { description: '入站消息入账（对桶 + name 说话人）' });
+      this.flushBestEffort(conversationId, '入站消息');
+    }, { description: '入站消息入账 + 即时落盘（对桶 + name 说话人）' });
     this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, source, meta) => {
       // steer 注入的说话人 = 注入方端点（deliver 调用者），非桶主；
       // 机制标记 run / 群 hint 触发同样不入账（M20 / M21-F6①）
@@ -632,10 +710,12 @@ export class SessionService extends Service {
       // 自此同形。
       if (source === 'event') {
         this.record(conversationId, agentId, message, { roleOverride: 'event', source: 'event' });
+        this.flushBestEffort(conversationId, '入站事件行');
         return;
       }
       this.record(conversationId, sender ?? agentId, message);
-    }, { description: 'steer 消息入账（机制通知 → 事件行；普通注入 → 说话人 agent 行）' });
+      this.flushBestEffort(conversationId, '入站消息');
+    }, { description: 'steer 消息入账 + 即时落盘（机制通知 → 事件行；普通注入 → 说话人 agent 行）' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       this.onReplyCompleted(agentId, text, result, conversationId, meta);
     }, { description: '回复入账 + checkpoint 定向 flush' });
@@ -729,12 +809,26 @@ export class SessionService extends Service {
       if (this.isGroupBucket(conversationId)) return;
       if (typeof call.toolCallId !== 'string' || !call.toolCallId) return; // 幻影调用（空 id）无对账锚
       const queue = this.queueOf(conversationId);
+      const isSubcall = call.runCodeSubcall === true;
       const line: ToolResultLine = {
         type: 'tool-result',
         run: state.run,
         tool_call_id: call.toolCallId,
-        result,
-        ...(call.runCodeSubcall === true ? { subcall: true } : {}),
+        // subcall 补行 result 截断（2026-09-19 性能修复）：完整终值由收束行
+        // steps 携带（KV 字节保真不动）；补行只服务中断恢复 + UI 卡片——
+        // 截断为可读摘要。模型直调补行不截断（部分行覆盖源，字节 = 模型
+        // 实际所见，KV 前缀保真的组成部分）。
+        result: isSubcall ? capSubcallResult(result) : result,
+        ...(isSubcall
+          ? {
+              subcall: true,
+              // 子调用参数随行落盘（2026-09-17 方向 B）：run_code 程序内
+              // 调用不在模型 toolCalls 面——参数只在此处可得，records()
+              // subcalls 投影据此复原完整工具卡（含文件编辑 diff 追踪）
+              ...(call.name !== undefined ? { name: call.name } : {}),
+              ...(call.args !== undefined ? { arguments: JSON.stringify(call.args) } : {}),
+            }
+          : {}),
         seq: queue.nextSeq++,
       };
       queue.pending.push(JSON.stringify(line));
@@ -748,6 +842,77 @@ export class SessionService extends Service {
         }),
       'session.writer-flush',
     );
+  }
+
+  /** 已收束 run 的死重行清理（2026-09-19 程序化模式性能修复）：
+   * run 正常收束后其 partial 行（读侧已被收束行吸收）与【模型直调】
+   * tool-result 补行（结果已由收束行 steps 携带）在读侧永久不可见，但
+   * 物理字节残留——实测重度程序化会话 160/160 partial 行 + 直调补行全为
+   * 死重，直接垫高 tail/stats/records 的扫描量。subcall 补行**保留**——
+   * 它是 run_code 子调用卡片（records({subcalls:true}) 注入收束行 → UI
+   * 复原工具卡 + fileEdits diff 追踪）的唯一数据源，删了丢回放。收束时
+   * 原子重写一次（tmp+rename）：行级过滤保留原文（不重序列化，零语义
+   * 漂移）。中断 run 不清理（partial 行是恢复源；唯一调用点 = 正常收束）。
+   * 失败仅记日志（读侧吸收语义兜底）。
+   */
+  private vacuumSettledRun(conversationId: string, run: string): void {
+    const work = (): void => {
+      const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
+      if (!fs.existsSync(file)) return;
+      const lines = fs.readFileSync(file, 'utf-8').split('\n');
+      const kept: string[] = [];
+      if (lines[0] !== undefined && lines[0].trim() && isHeaderLine(lines[0])) kept.push(lines[0]);
+      const bodyStart = kept.length > 0 ? 1 : 0;
+      let removed = 0;
+      for (let i = bodyStart; i < lines.length; i++) {
+        const line = lines[i];
+        if (line === undefined || !line.trim()) continue;
+        let drop = false;
+        if (isToolResultLine(line)) {
+          try {
+            const sup = JSON.parse(line);
+            // subcall 补行保留（2026-09-19 修正）：它是 run_code 子调用卡片的
+            // 唯一数据源——records({subcalls:true}) 投影按 tool_call_id 前缀注入
+            // 宿主收束行 steps（实测 420/420 的宿主全落在收束行，收束后注入是
+            // 主要消费场景；删了 = UI 历史回放丢子调用卡片 + fileEdits diff 追踪）。
+            // 非 subcall 补行（模型直调）删——结果已由收束行 steps 携带，真死重。
+            // subcall 补行的体积由写入侧 2KB 截断约束（capSubcallResult）。
+            if (sup.run === run && sup.subcall !== true) drop = true;
+          } catch {
+            const noop = 1;
+            void noop;
+          }
+        } else {
+          try {
+            const rec = JSON.parse(line);
+            if (rec.partial === true && rec.run === run) drop = true;
+          } catch {
+            const noop = 1;
+            void noop;
+          }
+        }
+        if (drop) removed++;
+        else kept.push(line);
+      }
+      if (removed === 0) return;
+      const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+      fs.writeFileSync(tmp, kept.join('\n') + '\n', 'utf-8');
+      fs.renameSync(tmp, file);
+      // 注意：不删写队列（queues）——drain 中的批次持有 pending，删队列会触发
+      // drain 的作废守卫而静默丢批（2026-09-19 view-derivation 回归抓出）。读缓存
+      // 全作废（重写后 mtime/size 已变，作废免一次失准读）；队列 append 语义不受
+      // rename 影响（文件还在，追加照常）。
+      this.recordsCache.delete(file);
+      this.tailCache.delete(file);
+      this.tailScanCache.delete(file);
+      this.windowCache.delete(file);
+      this.ctx.logger.info('[session] 收束清理：剔除 run ' + run + ' 的 ' + removed + ' 条死重行（partial 行与直调补行——读侧已被收束行吸收；subcall 补行保留供 UI 回放）');
+    };
+    try {
+      work();
+    } catch (err: unknown) {
+      this.ctx.logger.warn('[session] 收束清理失败（' + conversationId + '/' + run + '，读侧吸收兜底无损）: ' + String(err));
+    }
   }
 
   /** 落盘尽力而为（失败记日志不阻塞 emit 链） */
@@ -827,6 +992,19 @@ export class SessionService extends Service {
       },
     );
     this.flushBestEffort(conversationId, '回复');
+    // 死重清理（2026-09-19 性能修复）：本 run 写过部分行 → 其 partial 行
+    // 已被收束行吸收、补行已被收束行 steps 覆盖——物理剔除防死字节累积
+    // （vacuum 内部自带 flush 后快照：flushBestEffort 是 fire-and-forget，
+    // 收束行可能尚未落盘——用微任务延迟一轮，让收束行先 durable）。
+    if (runStamp.run !== undefined) {
+      const run = runStamp.run;
+      queueMicrotask(() => {
+        this.flush(conversationId).then(
+          () => this.vacuumSettledRun(conversationId, run),
+          () => void 0,
+        ).catch(() => void 0);
+      });
+    }
   }
 
   // ============================================================
@@ -1317,8 +1495,10 @@ export class SessionService extends Service {
    * 回放持久化行（含 message_id/timestamp；M12 归档去重与审计的读取口）。
    * 不含概要头部——概要是压缩产物不是事实消息。与 history() 同：先排空在途队列。
    */
-  async records(conversationId: string): Promise<SessionRecord[]> {
+  async records(conversationId: string, options: { subcalls?: boolean } = {}): Promise<SessionRecord[]> {
+
     try {
+
       await this.flush(conversationId);
     } catch (err) {
       this.ctx.logger.warn(`[session] 回放前 flush 失败（${conversationId}）: ${String(err)}`);
@@ -1332,7 +1512,8 @@ export class SessionService extends Service {
       const stat = fs.statSync(file);
       const cached = this.recordsCache.get(file);
       if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-        return [...cached.records];
+        // subcall 投影：缓存的 subcallLines（已解析的补行）注入浅拷贝副本
+        return this.injectSubcalls([...cached.records], cached.subcallLines ?? [], options);
       }
     } catch {
       // stat 失败 = 会话文件不存在/不可达 → 走下方空会话路径
@@ -1345,8 +1526,10 @@ export class SessionService extends Service {
     }
     const out: SessionRecord[] = [];
     // 工具结果补记（run → tool_call_id → 终值）：不产出 SessionRecord，
-    // 尾部统一覆盖到【未收束 run】的部分行 result:null 上
+    // 尾部统一覆盖到【未收束 run】的部分行 result:null 上。
+    // subcall 补行（run_code 子调用）另收集（options.subcalls 投影注入用）
     const supplements = new Map<string, unknown>();
+    const subcallLines: Array<{ run: string; tool_call_id: string; name?: string; arguments?: string; result: unknown }> = [];
     for (const line of lines) {
       if (!line.trim()) continue;
       // 会话头行（M21 步骤 7 / D8）：版本锚点——未知版本 fail-loud
@@ -1370,6 +1553,17 @@ export class SessionService extends Service {
           const sup = JSON.parse(line) as Partial<ToolResultLine>;
           if (typeof sup.run === 'string' && sup.run && typeof sup.tool_call_id === 'string' && sup.tool_call_id) {
             supplements.set(`${sup.run}|${sup.tool_call_id}`, sup.result);
+            // subcall 补行（run_code 子调用）双收：supplements 覆盖未收束
+            // run 的 result（对账）+ subcallLines 注入投影（UI 复原卡片）
+            if (sup.subcall === true) {
+              subcallLines.push({
+                run: sup.run,
+                tool_call_id: sup.tool_call_id,
+                ...(typeof sup.name === 'string' && sup.name ? { name: sup.name } : {}),
+                ...(typeof sup.arguments === 'string' && sup.arguments ? { arguments: sup.arguments } : {}),
+                result: sup.result,
+              });
+            }
           }
         } catch {
           // 损坏补行忽略
@@ -1413,10 +1607,13 @@ export class SessionService extends Service {
     }
     // 缓存入库（快照按读取时刻的 mtime/size 盖章；后续写/重写使 mtime 或
     // size 变化即失准重读）。LRU 上限：archiveAll 类全量扫描 135+ 会话时
-    // 防内存无界（淘汰最冷条目 = 重读一次，行为不变）。
+    // 防内存无界（淘汰最冷条目 = 重读一次，行为不变）。缓存条目保持无
+    // subcall 投影的纯净形（注入在入库之后的返回副本上——见下）。
     try {
       const stat = fs.statSync(file);
-      this.recordsCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, records: visible });
+      // subcall 补行随缓存保存（投影开关注作用于读取方；缓存条目本身
+      // 持有未注入的纯净 records + 补行清单——命中路径两态都可服务）
+      this.recordsCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, records: visible, subcallLines });
       if (this.recordsCache.size > SessionService.RECORDS_CACHE_MAX) {
         const coldest = this.recordsCache.keys().next().value;
         if (coldest !== undefined) this.recordsCache.delete(coldest);
@@ -1424,7 +1621,70 @@ export class SessionService extends Service {
     } catch {
       // stat 失败（并发删除等）：不入缓存，读结果仍正确返回
     }
-    return visible;
+    // subcall 投影注入（2026-09-17 方向 B：run_code 子调用平铺）：
+    // options.subcalls = true 时把 subcall 补行注入同 run 行的
+    // steps[].toolCalls（subcall: true 标记）。定位 = 子调用 toolCallId
+    // 形如 `<runId>#<seq>`——宿主 run_code 调用 id 即前缀 runId；找不到
+    // 宿主（收束行被吸收/删消息）的子调用如实丢弃（无渲染锚）。
+    // 注入在缓存入库**之后**的浅拷贝副本上（缓存对象零污染——命中路径
+    // 复用缓存行对象，投影不得变异它们）；同宿主的多次子调用按 seq 排序
+    // 追加。默认不开（history() LLM 回放面纯净——子调用不进 provider
+    // 上下文，KV 前缀不受污染）。
+    return this.injectSubcalls(visible, subcallLines, options);
+  }
+
+  /**
+   * subcall 投影注入（2026-09-17 方向 B：run_code 子调用平铺）：
+   * options.subcalls = true 时把 subcall 补行注入同 run 行的
+   * steps[].toolCalls（subcall: true 标记）。定位 = 子调用 toolCallId
+   * 形如 `<runId>#<seq>`——宿主 run_code 调用 id 即前缀 runId；找不到
+   * 宿主（收束行被吸收/删消息）的子调用如实丢弃（无渲染锚）。
+   * 注入在浅拷贝副本上（缓存条目与调用方共享对象零污染）；同宿主的
+   * 多次子调用按 seq 排序追加。默认不开（history() LLM 回放面纯净
+   * ——子调用不进 provider 上下文，KV 前缀不受污染）。
+   * 收束行的注入同样生效（收束行 steps 带 run_code 调用对，subcall
+   * 补行按 toolCallId 前缀定位宿主——与 run_code 卡片的 trace 时间线
+   * 互补：trace 是摘要、本投影是完整卡片 + diff 追踪）。
+   */
+  private injectSubcalls(
+    records: SessionRecord[],
+    subcallLines: Array<{ run: string; tool_call_id: string; name?: string; arguments?: string; result: unknown }>,
+    options: { subcalls?: boolean },
+  ): SessionRecord[] {
+    if (options.subcalls !== true || subcallLines.length === 0) return records;
+    // 宿主 id 索引（2026-09-19 性能修复）：tool_call_id 形如 <hostId>#<seq>，
+    // 宿主 id = 首 # 前段——一次分组替代每 toolCall 的全表 startsWith 扫描
+    // （O(N×M) → O(N+M)；重度会话 320 调用 × 420 子调用实测 17ms → <1ms）。
+    const byHost = new Map<string, typeof subcallLines>();
+    for (const k of subcallLines) {
+      const hash = k.tool_call_id.indexOf('#');
+      if (hash <= 0) continue;
+      const host = k.tool_call_id.slice(0, hash);
+      const bucket = byHost.get(host);
+      if (bucket) bucket.push(k);
+      else byHost.set(host, [k]);
+    }
+    const injected = records.map((r) => ({ ...r, ...(r.steps !== undefined ? { steps: r.steps.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: [...s.toolCalls] } : {}) })) } : {}) }));
+    for (const r of injected) {
+      if (r.run === undefined || r.steps === undefined) continue;
+      for (const s of r.steps) {
+        if (!s.toolCalls) continue;
+        for (let i = 0; i < s.toolCalls.length; i++) {
+          const kids = byHost.get(s.toolCalls[i].id);
+          if (kids === undefined || kids.length === 0) continue;
+          kids.sort((a, b) => seqOfToolCallId(a.tool_call_id) - seqOfToolCallId(b.tool_call_id));
+          s.toolCalls.splice(i + 1, 0, ...kids.map((k) => ({
+            id: k.tool_call_id,
+            name: k.name ?? '(unknown)',
+            arguments: k.arguments ?? '{}',
+            result: k.result,
+            subcall: true,
+          })));
+          i += kids.length;
+        }
+      }
+    }
+    return injected;
   }
 
   /**
@@ -1526,6 +1786,7 @@ export class SessionService extends Service {
     this.queues.delete(file); // 旧队列作废（seen 引用防重入；nextSeq 由建队续号恢复）
     this.recordsCache.delete(file); // 重写即失效（mtime 门兜底存在；主动删免一次失准读）
     this.tailCache.delete(file);
+    this.tailScanCache.delete(file); // 增量基线随重写作废（字节偏移不再可信）
     this.windowCache.delete(file); // 增量基线随重写作废（tmp+rename 重排全文件，字节偏移不再可信）
   }
 
@@ -1635,6 +1896,21 @@ export class SessionService extends Service {
       if (fs.existsSync(path.join(this.sessionsDir, ...shelf.split('/'), id))) out.push(id);
     }
     return out;
+  }
+
+  /**
+   * 会话文件元信息（2026-09-19 性能修复，runs/snapshot 指纹专用）：
+   * stat 直取 size/mtime——零文件读、零解析。digest 判等只需「变没变」，
+   * 不需要尾部摘要与窗口计数的值（变化了才展开真数据）。不存在 = undefined。
+   */
+  statMeta(conversationId: string): { size: number; mtimeMs: number } | undefined {
+    try {
+      const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
+      const st = fs.statSync(file);
+      return { size: st.size, mtimeMs: st.mtimeMs };
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -1770,7 +2046,13 @@ export class SessionService extends Service {
     if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
       return cached.tail === undefined ? undefined : { ...cached.tail };
     }
-    // 未命中：尾窗读取找末条记录（免整读大文件）
+    // 未命中：增量优先读取（性能修复见 tailScanCache 注释）。
+    // prev = 上次扫描基线：文件只增且基线可信时，末条新记录几乎总落在
+    // 「基线前一小段 + 新增段」内——先小窗试探，miss 再大窗兜底。
+    const prev = this.tailScanCache.get(file);
+    const incrementalViable = prev !== undefined
+      && stat.size > prev.size
+      && stat.size - prev.size <= TAIL_SMALL_WINDOW_BYTES;
     let tail: TailRecord | undefined;
     try {
       if (stat.size === 0) {
@@ -1778,7 +2060,11 @@ export class SessionService extends Service {
       } else {
         const fd = fs.openSync(file, 'r');
         try {
-          const window = Math.min(stat.size, TAIL_WINDOW_BYTES);
+          // 小窗试探（增量可行时）：窗起点 = min(基线偏移, size - 小窗)——
+          // 保证至少覆盖基线行尾（衔接）且不超过小窗预算
+          const window = incrementalViable
+            ? Math.min(stat.size - Math.max(prev!.scanEnd, stat.size - TAIL_SMALL_WINDOW_BYTES), TAIL_SMALL_WINDOW_BYTES)
+            : Math.min(stat.size, TAIL_WINDOW_BYTES);
           const start = stat.size - window;
           const buf = Buffer.alloc(window);
           fs.readSync(fd, buf, 0, window, start);
@@ -1797,6 +2083,12 @@ export class SessionService extends Service {
       }
     } catch {
       return undefined;
+    }
+    // 增量基线推进：本次扫描落点（成功解析到末条时 = 文件末；未解析到
+    // （全部分行/部分行）= 文件末——下轮从末尾衔接）。文件缩小（重写/截断）
+    // 时基线作废（scanEnd > size 不更新，下轮回落大窗路径）。
+    if (stat.size >= (prev?.scanEnd ?? 0)) {
+      this.tailScanCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, scanEnd: stat.size });
     }
     this.tailCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, tail });
     return tail === undefined ? undefined : { ...tail };

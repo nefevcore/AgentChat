@@ -60,7 +60,7 @@ export class ConvSettingsService extends Service {
       const out: ConvSettings = {};
       if (typeof raw.model === 'string' && raw.model) out.model = raw.model;
       if (raw.elevation === 'sandbox-access' || raw.elevation === 'full-access') out.elevation = raw.elevation;
-      if (raw.programmatic === true) out.programmatic = true;
+      if (raw.toolMode === 'tc-base' || raw.toolMode === 'tc-programmatic' || raw.toolMode === 'tc-none') out.toolMode = raw.toolMode;
       return out;
     } catch {
       return {}; // 不存在/损坏 = 无覆盖
@@ -82,8 +82,8 @@ export class ConvSettingsService extends Service {
 
   /**
    * 合并写（patch 键级：值覆盖、null/'' = 删键；全空结果 = 删文件）。
-   * programmatic 以字符串 'true' 写入（wire 值域——布尔键的字符串形态），
-   * 其余任何值 = 清除。emit conv-settings/updated（终态载荷——观察者见即所得）。
+   * toolMode 合法枚举值原样写入，其余任何值 = 清除。emit
+   * conv-settings/updated（终态载荷——观察者见即所得）。
    */
   set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): ConvSettings {
     assertConversationId(conversationId);
@@ -97,9 +97,9 @@ export class ConvSettingsService extends Service {
         if (value === 'sandbox-access' || value === 'full-access') next.elevation = value;
         else delete next.elevation; // 其余值（含 null/''/undefined）= 清除
       }
-      if (key === 'programmatic') {
-        if (value === true || value === 'true') next.programmatic = true;
-        else delete next.programmatic; // 其余值（含 'false'/null/''）= 清除
+      if (key === 'toolMode') {
+        if (value === 'tc-base' || value === 'tc-programmatic' || value === 'tc-none') next.toolMode = value;
+        else delete next.toolMode; // 其余值（含 null/''/非法枚举）= 清除
       }
     }
     if (Object.keys(next).length > 0) this.writeSettings(conversationId, next);

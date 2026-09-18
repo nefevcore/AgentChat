@@ -564,16 +564,18 @@ describe('ac-session fail-closed checkpoint（工具执行前 durable）', () =>
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.tools.register({ name: 'echo', execute: () => ({ ok: true }) });
-    // 两个会话各有 pending（只入账未 flush——message-received 不触发落盘）
+    // 入站即落盘（2026-09-18 修复）：两行各自在 message-received 时已 durable，
+    // 不再依赖 checkpoint——定向 flush 的「不串台」仍以队列隔离验证（下方）
     ctx.emit('router/message-received', 'a', { role: 'user', content: '会话A' }, 'a');
     ctx.emit('router/message-received', 'b', { role: 'user', content: '会话B' }, 'b');
-    // 带 a 身份执行工具：只 flush a
+    await new Promise((r) => setTimeout(r, 20));
+    // 带 a 身份执行工具：定向 flush 只涉及 a（行为不变，b 的落盘已由入站即时落盘完成）
     await ctx.tools.execute({ name: 'echo', args: {}, conversationId: 'a' });
     const fileA = path.join(root, 'sessions', 'a', 'messages.jsonl');
     const fileB = path.join(root, 'sessions', 'b', 'messages.jsonl');
     expect(fs.existsSync(fileA)).toBe(true);
     expect(fs.readFileSync(fileA, 'utf-8')).toContain('会话A');
-    expect(fs.existsSync(fileB)).toBe(false); // b 的 pending 未被定向 checkpoint 触碰
+    expect(fs.existsSync(fileB)).toBe(true); // b 的入站行已即时落盘（不再测「定向不碰 b」——该前提随即时落盘消失）
     // 无身份（宿主直调）→ flushAll 兜底
     await ctx.tools.execute({ name: 'echo', args: {} });
     expect(fs.existsSync(fileB)).toBe(true);
@@ -968,24 +970,54 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(fs.existsSync(file)).toBe(false); // 连会话文件都未建
   });
 
-  it('run_code 子调用补行带 subcall 标记（程序化模式实测复盘 #B：UI 可编程区分）', async () => {
+  it('run_code 子调用补行带 subcall 标记 + name/arguments（方向 B：前端复原完整卡片）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'a', model: 'none' });
-    // 活跃 run + 两个补记：模型直调（无标记）与 run_code 子调用（带标记）
+    // 活跃 run + 两个补记：模型直调（无标记）与 run_code 子调用（带标记 + 参数）
     ctx.emit('router/message-received', 'a', { role: 'user', content: '跑' }, 'a~user', 'user', 'user');
     ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
     ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-1' }, { ok: true, output: 'x' }, undefined);
-    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#1', runCodeSubcall: true }, { ok: true, output: 'y' }, undefined);
+    ctx.emit('tool/after-execute', { name: 'edit', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#1', runCodeSubcall: true, args: { file_path: 'a.ts', old_string: 'x', new_string: 'y' } }, { ok: true, output: { path: 'a.ts', diff_added: 1, diff_removed: 1 } }, undefined);
     await new Promise((r) => setTimeout(r, 10));
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
     const raw = fs.readFileSync(file, 'utf-8');
     const subcallLines = raw.split('\n').filter((l) => l.includes('"tool_call_id":"call-0#1"'));
     const directLines = raw.split('\n').filter((l) => l.includes('"tool_call_id":"call-1"'));
     expect(subcallLines.length).toBe(1);
-    expect(subcallLines[0]).toContain('"subcall":true');
+    const sub = JSON.parse(subcallLines[0]);
+    expect(sub.subcall).toBe(true);
+    expect(sub.name).toBe('edit'); // 工具名随行（复原卡片）
+    expect(sub.arguments).toBe(JSON.stringify({ file_path: 'a.ts', old_string: 'x', new_string: 'y' })); // 参数随行
     expect(directLines.length).toBe(1);
-    expect(directLines[0]).not.toContain('"subcall"'); // 模型直调不带标记
+    expect(directLines[0]).not.toContain('"subcall"'); // 模型直调不带标记（参数已在 steps）
+  });
+
+  it('records({subcalls:true}) 投影：run_code 子调用平铺进宿主步 toolCalls（方向 B：历史复原 + diff 追踪）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none' });
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '跑' }, 'a~user', 'user', 'user');
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
+    // 宿主 run_code 部分行（步级落盘：toolCalls[{id:'call-0', name:'run_code', result:null}]）+ 两个子调用补行
+    ctx.emit('loop/after-step', 'a', {
+      text: '', reasoning: '',
+      toolCalls: [{ id: 'call-0', name: 'run_code', arguments: { code: 'return 1;' }, result: null }],
+    } as never, { conversationId: 'a~user', sender: 'user', source: 'user' } as never);
+    ctx.emit('tool/after-execute', { name: 'edit', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#1', runCodeSubcall: true, args: { file_path: 'a.ts' } }, { ok: true, output: { diff_added: 1 } }, undefined);
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#2', runCodeSubcall: true, args: { file_path: 'a.ts' } }, { ok: true, output: {} }, undefined);
+    await new Promise((r) => setTimeout(r, 30));
+    // 投影开：子调用注入宿主步（run_code 调用之后，按 seq 序）
+    const withSubs = await ctx.session.records('a~user', { subcalls: true });
+    const partialWithSubs = withSubs.find((r: any) => r.partial === true && r.run !== undefined);
+    const tcs = (partialWithSubs?.steps?.[0] as any)?.toolCalls ?? [];
+    expect(tcs.map((t: any) => t.id)).toEqual(['call-0', 'call-0#1', 'call-0#2']);
+    expect(tcs[1]).toMatchObject({ name: 'edit', subcall: true, arguments: JSON.stringify({ file_path: 'a.ts' }) });
+    expect(tcs[2]).toMatchObject({ name: 'read', subcall: true });
+    // 投影关（默认）：纯净形——宿主步只有模型直调（LLM 回放面不受污染）
+    const pure = await ctx.session.records('a~user');
+    const partialPure = pure.find((r: any) => r.partial === true && r.run !== undefined);
+    expect(((partialPure?.steps?.[0] as any)?.toolCalls ?? []).map((t: any) => t.id)).toEqual(['call-0']);
   });
 
   it('steer 入账双态（2026-09-02 反馈：机制通知忙时注入不丢事件语义）：source=event → 事件行；普通注入 → 说话人 agent 行', async () => {
@@ -1027,5 +1059,40 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     const byPeer = await ctx.session.history('a~user', { viewer: 'b' });
     expect(byPeer.some((m) => m.content?.includes('[系统通知]'))).toBe(false);
     expect(byPeer.some((m) => m.content === '忙时的追加指令')).toBe(true);
+  });
+
+  it('入站消息即时落盘（2026-09-18 send_agent 静默丢失）：投递后无任何后续 run/读访问，文件上消息行已存在', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none' });
+    // 复现现场：Agent 经 send_agent 投递虚拟端点 user——目标桶此后无 run、
+    // 无 reply-completed、无工具 checkpoint，此前 pending 滞留内存直到
+    // 用户读访问/优雅退出才落盘（UI 读文件不可见、非优雅退出即丢）
+    ctx.emit('router/message-received', 'user', { role: 'user', content: '给用户的私信' }, 'a~user', 'a', 'agent');
+    // 不做任何读访问（records/history 才会 flush）——只等 fire-and-forget 排空
+    await new Promise((r) => setTimeout(r, 20));
+    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    expect(fs.existsSync(file)).toBe(true);
+    const raw = fs.readFileSync(file, 'utf-8');
+    expect(raw).toContain('给用户的私信');
+    expect(raw).toContain('"agent_id":"a"');
+    // steer 通道同语义（忙时注入路径）：注入行同样即时 durable
+    ctx.emit('conversation/steered', 'user', { role: 'user', content: '忙时注入的私信' }, 'a~user', 'a~user~user', 'a', 'agent');
+    await new Promise((r) => setTimeout(r, 20));
+    const raw2 = fs.readFileSync(file, 'utf-8');
+    expect(raw2).toContain('忙时注入的私信');
+  });
+
+  it('入站事件行即时落盘（source=event：机制通知同样不等后续 run）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none' });
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '[系统通知] 任务完成' }, 'a~a', 'a', 'event');
+    await new Promise((r) => setTimeout(r, 20));
+    const file = path.join(root, 'sessions', 'a~a', 'messages.jsonl');
+    expect(fs.existsSync(file)).toBe(true);
+    const raw = fs.readFileSync(file, 'utf-8');
+    expect(raw).toContain('"role":"event"');
+    expect(raw).toContain('[系统通知] 任务完成');
   });
 });

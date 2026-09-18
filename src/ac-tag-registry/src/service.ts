@@ -7,9 +7,10 @@
 // 把词表变成显式：
 //   · 采集：监听 tool/registered · tool/unregistered（ac-tools 发出，
 //     注册/回收时同步），按 tag 汇聚消费工具清单——工具行零改动；
-//   · 预注册：档位词（full-access/sandbox-access，tierOf 消费——
-//     无任何 requiredTags 引用）与 base（capabilitySetOf 隐式注入）
-//     启动即在场，带描述与类别；
+//   · 预注册：档位词（full-access/sandbox-access，tierOf 消费）、工具
+//     调用模式词（tc-*，toolModeOf 消费；tc-programmatic 是唯一被
+//     requiredTags 合法引用的非能力词——标签即授权，见 assert 白名单）
+//     与能力族（fs/collab/infra/history），启动即在场；
 //   · 分类：reserved（base/档位）≠ tool-required（被工具门禁消费）≠
 //     owner（agent:<id> 私有工具标签，等 owner 自行声明）≠ unknown
 //     （拼错/外部词——UI 警示）。
@@ -23,7 +24,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import type { TagDeclaration } from './contract.ts';
 
 /** 标签类别（UI 分组依据；'base' 为历史类别，保留类型兼容——base 已退役） */
-export type TagCategory = 'base' | 'access-tier' | 'capability' | 'owner' | 'unknown';
+export type TagCategory = 'base' | 'access-tier' | 'tool-mode' | 'capability' | 'owner' | 'unknown';
 
 /** 目录条目（wire 面：JSON 直出） */
 export interface TagCatalogEntry {
@@ -70,9 +71,19 @@ const RESERVED: Array<{ tag: string; category: TagCategory; description: string 
     description: '会话历史回放（grep_history 检索 / read_history 分页读取）',
   },
   {
-    tag: 'code-exec',
-    category: 'capability',
-    description: '程序执行（run_code：以代码编排成批工具调用，PTC）',
+    tag: 'tc-programmatic',
+    category: 'tool-mode',
+    description: '程序化档：工具调用经 run_code 写程序编排（LLM 面收窄为单入口）',
+  },
+  {
+    tag: 'tc-none',
+    category: 'tool-mode',
+    description: '无工具档：移除 LLM 工具面（纯聊天）',
+  },
+  {
+    tag: 'tc-base',
+    category: 'tool-mode',
+    description: '标准档（缺省）：模型逐个直调工具——预注册仅供目录展示，tags 无需书写',
   },
   {
     tag: 'full-access',
@@ -214,17 +225,19 @@ export class TagRegistryService extends Service {
   }
 
   /**
-   * 断言（access-tier 纪律的机制化）：档位词被任何 requiredTags 引用
-   * 即抛错——「档位标签不进 requiredTags」此前只是注释纪律，此处变成
-   * 启动期检查（boot 后调用一次；测试/宿主可随时复查）。
+   * 断言（档位/模式纪律的机制化）：非能力词（档位 + 全部 tc-* 模式词）
+   * 被任何 requiredTags 引用即抛错——2026-09-17 优化裁决：tc-* 回归纯
+   * 模式词（run_code 授权词 = infra；「程序化」是形态选择非授权门槛，
+   * 会话覆盖/Agent tags 任一可选程序化档，无需预配标签）。启动期检查
+   * （boot 后调用一次；测试/宿主可随时复查）。
    */
   assertNoTierInToolRequirements(): void {
-    const tierWords = RESERVED.filter((r) => r.category === 'access-tier').map((r) => r.tag);
+    const modeWords = RESERVED.filter((r) => r.category !== 'capability').map((r) => r.tag);
     for (const def of this.ctx.tools.list()) {
       for (const t of def.requiredTags ?? []) {
-        if (tierWords.includes(t)) {
+        if (modeWords.includes(t)) {
           throw new Error(
-            `工具 "${def.name}" 的 requiredTags 引用了档位标签 "${t}"——档位由 tierOf 单源判定（AgentConfig.tags），不进任何工具的能力门禁`,
+            `工具 "${def.name}" 的 requiredTags 引用了非能力标签 "${t}"——档位/模式词由 tierOf / toolModeOf 单源判定（AgentConfig.tags），不进任何工具的能力门禁`,
           );
         }
       }

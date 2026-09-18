@@ -359,6 +359,11 @@ const TOOL_TAG_LABELS: Record<string, string> = {
   // 驱动 needPermission 工具的权限轴门）
   'sandbox-access': '沙箱档（工作区白名单内自由）',
   'full-access': '完全访问档（不受限，人工授予的信任）',
+  // 工具调用模式词（2026-09-17 tc-* 标签轴：toolModeOf 单源判定，缺省 =
+  // tc-base——tc-programmatic 同时是 run_code 的授权词：标签即模式）
+  'tc-programmatic': '程序化档（run_code 编排工具调用）',
+  'tc-none': '无工具档（纯聊天）',
+  'tc-base': '标准档（逐个直调，缺省——无需勾选）',
 };
 /** 目录条目的展示名：label 表优先，回退 tag 本名 */
 function tagLabelOf(item: { tag: string; description?: string }): string {
@@ -399,6 +404,8 @@ const tagGroups = computed<TagGroup[]>(() => {
   const fixed: TagGroup[] = [
     // base 分组随 base 退役（全量标签化 2026-09-16）——目录不再有该类别条目
     { key: 'access-tier', label: '访问档位（权限轴）', items: sortItems(cat.filter((t) => t.category === 'access-tier')) },
+    // 工具调用模式（2026-09-17 tc-* 标签轴：与档位同构——标签定默认档，会话可覆盖）
+    { key: 'tool-mode', label: '工具调用模式（tc-* 轴）', items: sortItems(cat.filter((t) => t.category === 'tool-mode')) },
   ];
   const declared: TagGroup[] = [...groups.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -418,7 +425,7 @@ const tagGroups = computed<TagGroup[]>(() => {
 function tagTooltip(item: TagCatalogItem): string {
   const desc = TOOL_TAG_LABELS[item.tag] ?? item.description;
   if (item.category === 'base') return desc ?? item.tag; // 历史类别（base 退役后不再产生）
-  if (item.category === 'access-tier') return desc ?? item.tag;
+  if (item.category === 'access-tier' || item.category === 'tool-mode') return desc ?? item.tag;
   const lines: string[] = [];
   if (desc) lines.push(desc);
   if (item.tier === true) lines.push('分层标签：勾选本层级自动覆盖低层级（无需重复勾选）');
@@ -428,7 +435,7 @@ function tagTooltip(item: TagCatalogItem): string {
 }
 /** 第一行徽章：fs/collab/infra/admin/dev/shell/delegation/web/observe/manipulate/inject/档位 固定顺序 + 工具 requiredTags 用到的其他标签排后（base 退役——不再呈现隐式基础层） */
 const toolTagBadges = computed(() => {
-  const order = ['fs', 'collab', 'infra', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject', 'sandbox-access', 'full-access'];
+  const order = ['fs', 'collab', 'infra', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject', 'sandbox-access', 'full-access', 'tc-programmatic', 'tc-none'];
   const found = new Set<string>(order);
   for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();

@@ -71,6 +71,21 @@ describe('composePrefs：上次会话选择持久化', () => {
     expect(prefs.loadComposePrefs()).toBeNull();
   });
 
+  it('toolMode 回放（2026-09-17 恢复）：三值 + 跟随态都是合法记录值；旧 programmatic 布尔读侧忽略', () => {
+    storage.clear();
+    prefs.saveComposePrefs({ toolMode: 'tc-programmatic' });
+    expect(prefs.loadComposePrefs()).toEqual({ toolMode: 'tc-programmatic' });
+    // 明确选回跟随态 → 覆盖旧记录（新会话跟随 Agent tags 档）
+    prefs.saveComposePrefs({ toolMode: '' });
+    expect(prefs.loadComposePrefs()).toEqual({ toolMode: '' });
+    // 非法值忽略（wire 宽容）
+    prefs.saveComposePrefs({ toolMode: 'tc-foo' as never });
+    expect(prefs.loadComposePrefs()?.toolMode).toBe('');
+    // 存量旧键（programmatic 布尔）读侧忽略
+    storage.setItem('agentchat.composePrefs', JSON.stringify({ programmatic: true, toolMode: 'tc-none' }));
+    expect(prefs.loadComposePrefs()).toEqual({ toolMode: 'tc-none' });
+  });
+
   it('半记录形态：仅 effort 存在（老版本升级场景）', () => {
     storage.clear();
     prefs.saveComposePrefs({ effort: 'high' });

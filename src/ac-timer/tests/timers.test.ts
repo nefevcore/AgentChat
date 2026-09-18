@@ -295,6 +295,22 @@ describe('ac-timer 排程与触发', () => {
     await until(() => received.some((x) => x.content === '放行'));
   });
 
+  it('gate 相对路径命令锚定 owner 工作目录（cwd=agentWorkdir，非宿主进程 cwd）→ 正常放行', async () => {
+    const root = tmpRoot();
+    // owner 'a'（常规 Agent）专用空间下放"恒放行"脚本，gate 用相对路径引用——
+    // 修复前 runGate 不设 cwd，继承 vitest 进程 cwd（项目根）→ 文件不存在
+    // → 退出码 2 → fail-closed 每轮拦截（2026-09-18 is_quiet.py 事故形态）
+    fs.mkdirSync(path.join(root, 'files', 'a', 'scripts'), { recursive: true });
+    const rel = process.platform === 'win32' ? 'scripts\gate-ok.cmd' : 'scripts/gate-ok.sh';
+    const scriptPath = path.join(root, 'files', 'a', ...rel.split(/[\\/]/));
+    fs.writeFileSync(scriptPath, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+    const { ctx } = await boot(root, { gateTimeoutMs: 5_000 });
+    ctx.timers.save('a', [
+      { id: 'gr', enabled: true, mode: 'delay', delay: '30ms', hint: '相对路径放行', gate: process.platform === 'win32' ? rel : 'sh ' + rel },
+    ]);
+    await until(() => received.some((x) => x.content === '相对路径放行'));
+  });
+
   it('gate 期间 save() 移除条目 → 预检后不重排（在途守卫，防僵尸循环）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root, { gateTimeoutMs: 5_000 });

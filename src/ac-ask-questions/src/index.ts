@@ -23,6 +23,8 @@
 //     思维链/提问调用）回到回放上下文。否则新 run 只见通知文本，
 //     "partial 行 + 通知共同恢复"的设计意图落空（事故现场：2471 字
 //     分析正文整段丢失）。补记失败不阻塞回投——唤醒优先。
+//   · 形态面（2026-02）：excludeForms:['self']——自会话桶（机制 run）
+//     不投放。用户应答通道在 1v1/群/独立会话，机制 run 里提问无人能答。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
@@ -217,10 +219,16 @@ export function apply(ctx: Context) {
     }
   }
 
-  // infra 标签（2026-09-16 全量标签化）：用户交互属会话基础设施
+  // infra 标签（2026-09-16 全量标签化）：用户交互属会话基础设施。
+  // excludeForms:['self']（形态轴，2026-02）：自会话（对角线桶 a~a——
+  // timer/goal-round/job-wakeup 机制 run 落点）无人值守，ask_questions
+  // 在那里永无应答（ac-security 无人桶判定同口径——不设 deadline 会
+  // 挂到 setTimeout 上限）。预防性裁剪：模型误用即挂死整轮的病灶面
+  // 直接不投放，1v1/群/独立会话照常。
   ctx.tools.register({
     name: 'ask_questions',
     requiredTags: ['infra'],
+    excludeForms: ['self'],
     description: '向用户提问并等待回答。用于需要用户决策或确认的场景（write-ahead：重启后可恢复对账）。',
     parameters: {
       type: 'object',

@@ -24,7 +24,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
-import { capabilitySetOf, toolAllowedFor, assertAgentId, resolveToolNames, type AgentConfig } from 'ac-agents';
+import { capabilitySetOf, toolAllowedFor, assertAgentId, effectiveToolMode, narrowToolsByMode, resolveToolNames, type AgentConfig } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 import { splitModelRef } from 'ac-llm';
 import { pairKey } from 'ac-agent-loop';
@@ -72,25 +72,16 @@ export class AgentAdminService extends Service {
 
   /**
    * 创建 Agent：sanitize → 落盘 → reassign（数据驱动注册，生命周期 =
-   * 持久化配置）。未携带 model 时先物化默认池连接（UI 两创建口的
-   * 「默认/继承全局」承诺；口径与 ac-agent-presets 物化同源——P5 统一：
-   * provider = 池条目名，model = defaultModel）；
-   * 兜底后 model 与 virtual 至少其一（运行时投递侧会再校验）。
+   * 持久化配置）。未携带 model 且非 virtual → 显式存 null（「默认服务商/
+   * 继承全局」引用语义，与 update 面清除同形态）：不再物化默认池连接——
+   * 物化会把创建时点的默认模型固化进档案（全局换默认对存量 Agent 失效，
+   * 档案核对呈现用户从未选择的模型）；null 由投递侧（router）对 falsy
+   * model 回落 defaultPoolConnection 延迟解析，池配置热更即跟随。
    */
   createAgent(input: Record<string, unknown>): AgentConfig {
     const config = this.sanitize(input, undefined);
     if (!config.model && !config.virtual) {
-      const def = this.defaultPoolConnection();
-      if (def) {
-        config.model = def.model;
-        if (!config.provider) config.provider = def.provider;
-      }
-    }
-    if (!config.model && !config.virtual) {
-      throw new Error(
-        '创建 Agent 需 model（或显式 virtual: true；「默认/继承全局」需模型池默认连接可解析出模型——'
-          + '为默认连接设置默认模型，或先在其编辑弹窗读取模型清单）',
-      );
+      (config as { model?: string | null }).model = null;
     }
     this.ctx.agentStore.saveAgent(config);
     this.ctx.agents.reassign(config); // emit agents/updated
@@ -308,6 +299,12 @@ export class AgentAdminService extends Service {
    * viewer 直答形态（键 = pairKey(sender, agent)，与 deliver 边界同口径：
    * 记忆注入与对话信息块按真实直答会话的键装配。裸 agentId 会让记忆回落
    * memory/<agentId>.md 死键——2026-09-05 前端预览实录）。
+   *
+   * 工具面与 router 同口径（2026-12 估算失真修复）：生效档 = 会话覆盖
+   * （conv-settings toolMode）?? toolModeOf(agent)，干跑 request.tools 按
+   * narrowToolsByMode 收窄——程序化会话注入 run_code SDK 投影块（真值
+   * 反而更大）、tc-none/收窄档不注入文件/命令类指引块（此前全量面 →
+   * 估算随会话开关双向失真）。
    */
   async systemPromptPreview(agentId: string, conversationId?: string): Promise<string> {
     const config = this.getAgent(agentId);
@@ -344,7 +341,16 @@ export class AgentAdminService extends Service {
     // Agent 预览也被注入 <sap-adt-tools> 规约（owner 行判据回落全目录）。
     const caps = capabilitySetOf(this.ctx, agentId);
     const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
-    const toolNames = resolveToolNames(config.tools, visibleTools) ?? visibleTools.map((t) => t.name);
+    const resolvedNames = resolveToolNames(config.tools, visibleTools) ?? visibleTools.map((t) => t.name);
+    // 工具调用模式收窄（与 router dispatch 同源单源函数）：会话覆盖 ??
+    // toolModeOf(agent)——干跑工具面 = 真实 run 的 LLM 可见面，下游装配
+    // 块（system-prompt 指引块门控 / run_code SDK 投影注入条件）随面生效
+    const mode = effectiveToolMode(config, conversationId, {
+      convSettings: this.ctx.get('convSettings', false) as
+        | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+        | undefined,
+    });
+    const toolNames = narrowToolsByMode(resolvedNames, mode);
     const request: LoopRunRequest = {
       agent: agentId,
       model,

@@ -99,6 +99,13 @@ export interface ChatMessage {
   isStreaming?: boolean;
   status?: 'running' | 'success' | 'error';
   isError?: boolean;
+  /**
+   * run_code 子调用标记（2026-09-17 方向 B）：true = 本工具卡由 run_code
+   * 程序内子调用产生（直播 = after-execute runCodeSubcall 平铺；历史 =
+   * session subcalls 投影注入 steps）。渲染层加缩进样式（视觉归属
+   * run_code 卡）；fileEdits 等追踪层据 toolCalls 天然收录。
+   */
+  subcall?: boolean;
   timestamp: number;
   files?: FileAttachment[];
   _archived_context?: boolean;

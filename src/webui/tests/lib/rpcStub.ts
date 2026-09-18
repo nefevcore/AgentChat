@@ -7,6 +7,8 @@ import type { ClientContext, RpcClientFace } from 'ac-client-runtime';
 export interface RpcStubCalls {
   seen: Array<[string, unknown?]>;
   emit(type: string, ...args: unknown[]): void;
+  /** 模拟 WS 重连（onOpen 回放——重连即刷恢复链测试口） */
+  reopen(): void;
   impl: RpcClientFace;
 }
 
@@ -19,6 +21,7 @@ export interface RpcStubCalls {
 export function makeRpcStub(): RpcStubCalls {
   const calls: RpcStubCalls['seen'] = [];
   const handlers: Array<(type: string, args: unknown[]) => void> = [];
+  const openHandlers: Array<() => void> = [];
   return {
     impl: {
       async call<T>(method: string, params?: unknown): Promise<T> {
@@ -32,10 +35,21 @@ export function makeRpcStub(): RpcStubCalls {
           if (i >= 0) handlers.splice(i, 1);
         };
       },
+      onOpen(h: () => void): () => void {
+        openHandlers.push(h);
+        return () => {
+          const i = openHandlers.indexOf(h);
+          if (i >= 0) openHandlers.splice(i, 1);
+        };
+      },
     },
     seen: calls,
     emit(type: string, ...args: unknown[]): void {
       for (const h of [...handlers]) h(type, args);
+    },
+    /** 模拟 WS 重连（onOpen 回放——重连即刷恢复链测试口） */
+    reopen(): void {
+      for (const h of [...openHandlers]) h();
     },
   };
 }

@@ -85,4 +85,19 @@ describe('S3-1b · singles 域行 client（域投影 + ctx.singleBoard 服务面
     await fiber.dispose();
     expect(panelOf('sessions')).toBeUndefined();
   });
+
+  it('重连即刷：loaded 后 WS 重连（onOpen）→ refresh 补拉（断线丢 singles/updated 帧的补偿位）', async () => {
+    const stub = makeRpcStub();
+    const boot = await bootWebuiRuntime(stub.impl);
+    await boot.ctx.plugin(rosterClientPlugin);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    await board.refresh();
+    const before = stub.seen.filter(([m]) => m === 'singles/list').length;
+    expect(before).toBeGreaterThan(0);
+    stub.reopen(); // 模拟重连
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stub.seen.filter(([m]) => m === 'singles/list').length).toBe(before + 1);
+    await fiber.dispose();
+  });
 });

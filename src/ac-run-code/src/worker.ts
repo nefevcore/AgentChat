@@ -10,6 +10,7 @@
 //   · eval 程序体（可擦除 TS 先经 stripTypeScriptTypes 擦除）；
 //   · tools proxy：属性访问 → postMessage invoke → 等 result；
 //   · 资源约束：computeMs/maxWallMs/maxOutputBytes（超限即中止）；
+//   · log 收集：程序内 log(...) 按序收集——无 return 值时合成返回值；
 //   · 中止：主线程 abort 消息 → AbortController → 微任务边界检查。
 // 全部工具执行都在主线程（ctx.tools.execute），本文件零 cordis 面。
 // ============================================================
@@ -29,6 +30,9 @@ const stripTypeScriptTypes: (code: string, options?: { mode?: 'strip' | 'transfo
 
 const port = parentPort;
 if (port === null) throw new Error('run_code worker 必须以 worker_threads 启动');
+// 注：stripTypeScriptTypes 的 ExperimentalWarning 消音不在本文件做——
+// experimental 类警告无视 'warning' 监听器仍直写 stderr（实测），进程级
+// 根治 = 主线程创建本 worker 时 execArgv 追加 --no-warnings（见 tool.ts）。
 
 let aborted = false;
 let abortReason = '';
@@ -75,13 +79,17 @@ function serializeValue(value: unknown, maxBytes: number): { ok: true; text: str
     // 注意：说明走独立 note 字段——text 必须保持纯 JSON（下游 JSON.parse 消费）
     note = 'return 值含不可序列化字段（循环引用/BigInt/函数等，已降级标注）——建议 return 纯数据对象';
   }
+  return { ok: true, text: enforceOutputBudget(text, maxBytes), ...(note !== undefined ? { note } : {}) };
+}
+
+/** 输出预算执行：超限中段截断（保头 60% / 尾 20%），标注原始长度（return 值与 log 合成文本共用） */
+function enforceOutputBudget(text: string, maxBytes: number): string {
   if (maxBytes > 0 && Buffer.byteLength(text, 'utf8') > maxBytes) {
-    // 中段截断（保头尾），标注原始长度
     const head = Math.floor(maxBytes * 0.6);
     const tail = Math.floor(maxBytes * 0.2);
-    text = `${text.slice(0, head)}…[输出超预算截断：原始 ${Buffer.byteLength(text, 'utf8')} 字节 > ${maxBytes}]…${text.slice(-tail)}`;
+    return `${text.slice(0, head)}…[输出超预算截断：原始 ${Buffer.byteLength(text, 'utf8')} 字节 > ${maxBytes}]…${text.slice(-tail)}`;
   }
-  return { ok: true, text, ...(note !== undefined ? { note } : {}) };
+  return text;
 }
 
 async function main(): Promise<void> {
@@ -229,6 +237,33 @@ async function main(): Promise<void> {
     },
   };
 
+  // ── log：输出收集通道（复合返回协议）──
+  // 程序内 log(...) 按序收集；return 有值 → valueVia='return'（return 优先）；
+  // 无值有 log → 收集行合成 value（valueVia='logs'）；失败/中止 → 末 5 条随
+  // done 作 logsTail（诊断线索）。条目上限 500 / 单条截 2000 字符——防循环
+  // 刷 log 撑爆收集面（超限丢弃计数，合成时标注）。
+  const LOG_ENTRY_LIMIT = 500;
+  const LOG_CHAR_LIMIT = 2_000;
+  const logs: string[] = [];
+  let logsDropped = 0;
+  const log = (...args: unknown[]): void => {
+    if (logs.length >= LOG_ENTRY_LIMIT) {
+      logsDropped++;
+      return;
+    }
+    const line = args
+      .map((a) => {
+        if (typeof a === 'string') return a;
+        try {
+          return JSON.stringify(a) ?? String(a);
+        } catch {
+          return String(a);
+        }
+      })
+      .join(' ');
+    logs.push(line.length > LOG_CHAR_LIMIT ? `${line.slice(0, LOG_CHAR_LIMIT)}…[log 条目截断：原始 ${line.length} 字符]` : line);
+  };
+
   // 程序体：先包裹（async IIFE——顶层 return 合法化）再类型擦除。
   // 禁 import/require（静态 import 语法在 strip 后仍会触发模块语义——
   // 用源文本预检拒绝）。
@@ -248,16 +283,27 @@ async function main(): Promise<void> {
     return;
   }
 
-  let result: { ok: boolean; value?: unknown; error?: string; interrupted?: boolean };
+  let result: { ok: boolean; value?: unknown; valueVia?: 'return' | 'logs'; error?: string; interrupted?: boolean };
   try {
-    const fn = new Function('tools', 'lib', `return ${js};`) as (t: typeof tools, l: typeof lib) => Promise<unknown>;
-    const value = await fn(tools, lib);
+    // 闭包三参数：tools / lib / log（log = 输出收集通道，复合返回协议）
+    const fn = new Function('tools', 'lib', 'log', `return ${js};`) as (t: typeof tools, l: typeof lib, g: typeof log) => Promise<unknown>;
+    const value = await fn(tools, lib, log);
     checkAbort();
-    const ser = serializeValue(value, init.maxOutputBytes);
-    // 降级说明并入 value（字段名 __serializeNote——模型可见但不破坏数据主体）
-    result = ser.ok
-      ? { ok: true, value: ser.note === undefined ? JSON.parse(ser.text) : { ...JSON.parse(ser.text), __serializeNote: ser.note } }
-      : { ok: false, error: ser.error };
+    if (value !== undefined) {
+      // return 有值 → return 优先（复合协议上半）
+      const ser = serializeValue(value, init.maxOutputBytes);
+      // 降级说明并入 value（字段名 __serializeNote——模型可见但不破坏数据主体）
+      result = ser.ok
+        ? { ok: true, valueVia: 'return', value: ser.note === undefined ? JSON.parse(ser.text) : { ...JSON.parse(ser.text), __serializeNote: ser.note } }
+        : { ok: false, error: ser.error };
+    } else if (logs.length > 0) {
+      // 无 return 值但有 log → 收集行按序合成 value（复合协议下半）
+      const lines = [...logs, ...(logsDropped > 0 ? [`…[log 条目超限：丢弃 ${logsDropped} 条]`] : [])];
+      result = { ok: true, valueVia: 'logs', value: enforceOutputBudget(lines.join('\n'), init.maxOutputBytes) };
+    } else {
+      // 无 return 无 log——ok 无值（旧协议兼容：步记录无 value 字段）
+      result = { ok: true };
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (aborted || /程序已中止/.test(msg)) {
@@ -268,7 +314,9 @@ async function main(): Promise<void> {
   }
   // lib 注册表快照随 done 带出（主线程 run 间持有；空表省略——旧协议兼容）
   const libExports = libRegistry.size > 0 ? Object.fromEntries(libRegistry) : undefined;
-  send({ type: 'done', ...result, summary: finishSummary(summary, wallStart), ...(libExports !== undefined ? { libExports } : {}) });
+  // 失败/中止且程序已有 log → 末 5 条随行（诊断线索；成功路径不带）
+  const logsTail = !result.ok && logs.length > 0 ? logs.slice(-5) : undefined;
+  send({ type: 'done', ...result, summary: finishSummary(summary, wallStart), ...(libExports !== undefined ? { libExports } : {}), ...(logsTail !== undefined ? { logsTail } : {}) });
 }
 
 function finishSummary(summary: RunSummary, wallStart: number): RunSummary {

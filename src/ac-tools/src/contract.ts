@@ -53,12 +53,15 @@ export interface ToolDefinition {
   needPermission?: boolean;
   /**
    * 会话形态排除（形态轴，2026-12）：本工具不投放的会话形态词表。
-   * 已知词：'single'（独立会话——用户与单 Agent 的专注对话）。router
-   * 物化生效工具集时按 conversationId 命中的形态裁剪（先于 include/
-   * exclude 解析——include 不可绕过，同能力轴语义）；list_tools 同口径。
+   * 已知词：'single'（独立会话——用户与单 Agent 的专注对话）、'self'
+   * （自会话——对角线桶 a~a，timer/goal-round/job-wakeup 等机制 run 的
+   * 落点；无人值守，等用户应答的工具在那里永无回音）。router 物化生效
+   * 工具集时按 conversationId 命中的形态裁剪（先于 include/exclude
+   * 解析——include 不可绕过，同能力轴语义）；list_tools 同口径。
    * 纯可见面裁剪：LLM 不见 schema、指引不注入；执行面不额外拦（幻觉
    * 调用仍走 requiredTags 等既有门禁）。
-   * 例：system_restart（宿主级管理动作）声明 excludeForms:['single']。
+   * 例：system_restart（宿主级管理动作）声明 excludeForms:['single']；
+   * ask_questions（等用户应答）声明 excludeForms:['self']。
    */
   excludeForms?: string[];
   execute(args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> | ToolResult;

@@ -2,12 +2,12 @@
 //
 // 布局（自上而下）：
 //   1. 新增按钮（新建会话，占满一行）
-//   2. 工具栏：工作区（文本）— 间隔 — 新增工作区（纯 ICON）
+//   2. 工具栏：搜索会话（标题过滤——树切扁平结果）— 间隔 — 新增工作区（纯 ICON）
 //   3. 树列表：用户工作区为根节点（按名称排列，整行点击展开/收起，
 //      文件夹开合图标即状态；hover 显示 更多（重命名/删除）+ 新增会话），
 //      各 session 为单行叶节点（头像 - 标题 - 删除；未挂工作区的会话
 //      归入固定「未分组」根，排在末尾）；工作区内会话按最近活动分桶
-//      （今天/昨天/三天/一周/两周/一个月/更早）分批展开：桶头点击
+//      （今天/一周/其他）分批展开：桶头点击
 //      开合，桶内默认只渲染最近一页（5 条）、「展开更多」渐进追加；
 //      工作区节点折叠后再展开恢复缺省态（不记录「展开全部/很多」）
 //
@@ -100,6 +100,23 @@ const sessionItems = computed<SessionItem[]>(() =>
     .sort((a, b) => b.lastActivity - a.lastActivity),
 );
 
+// ── 标题搜索（纯前端过滤：activeSingles 全量在内存，title 包含匹配）──
+// 搜索态接管树列表：q 非空 → 树/桶整体让位扁平结果（跨工作区、按
+// 最近活动降序，行内带归属副标——跨组结果需要归属线索）；清空即回
+// 树视图。只搜会话标题（工作区名不参与——搜的是会话不是容器）。
+const searchQuery = ref('');
+const searching = computed(() => searchQuery.value.trim() !== '');
+const searchResults = computed<SessionItem[]>(() => {
+  const q = searchQuery.value.toLowerCase().trim();
+  if (!q) return [];
+  return sessionItems.value.filter(s => s.title.toLowerCase().includes(q));
+});
+
+/** 会话所属工作区名（搜索结果归属副标；未挂 = 未分组） */
+function wsNameOf(item: SessionItem): string {
+  return wsList.value.find(w => w.id === item.workspaceId)?.name ?? '未分组';
+}
+
 interface WorkspaceGroup {
   key: string;
   name: string;
@@ -146,8 +163,8 @@ function toggleGroup(key: string) {
   if (next.has(key)) reveal.value = resetGroupReveal(reveal.value, key);
 }
 
-// ── 工作区内会话分批展开：按最近活动分桶（今天/昨天/三天/一周/两周/
-//    一个月/更早），桶头点击开合，桶内默认只渲染最近一页（5 条）、
+// ── 工作区内会话分批展开：按最近活动分桶（今天/一周/其他），
+//    桶头点击开合，桶内默认只渲染最近一页（5 条）、
 //    尾部「展开更多」渐进追加——空间效率优先，不再一次铺出全量。
 //    桶显示上限 = 显式记录（group key → bucket key → 上限，纯函数住
 //    sessionTimeBuckets）：无记录走「首桶 + 激活会话所在桶各一页」
@@ -200,35 +217,46 @@ function timeOf(ts: number): string { return formatRelativeTime(ts); }
 // agentId/model 的 '' = 明确选回默认（2026-09 修复）——不透传创建参数
 // （缺省即默认预设/默认模型），走原路径；否则会残留旧模式（用户选回
 // 默认后新会话仍带旧 Agent）。
+// 工作区上下文（2026-12 会话开场重设计）：新建即固化——顶部按钮也
+// 透传当前激活工作区（若有）；「新会话开场卡」内改选工作区经
+// singles/update 即时生效（开场后工具栏隐藏工作区入口）。
 const creatingSession = ref(false);
 async function createSession(workspaceId?: string) {
   if (creatingSession.value) return; // 双击守卫：快速双击会创建两个空会话
   creatingSession.value = true;
+  // 工作区上下文：显式参数 > 激活工作区（新建动作从哪个工作区发起就挂哪个）
+  const wsCtx = workspaceId ?? activeWorkspaceIdOfSelected();
   const prefs = loadComposePrefs();
   const carry = {
-    ...(workspaceId ? { workspaceId } : {}),
+    ...(wsCtx ? { workspaceId: wsCtx } : {}),
     ...(prefs?.agentId ? { agentId: prefs.agentId } : {}),
     ...(prefs?.model ? { model: prefs.model } : {}),
   };
   const carryEmpty = !('agentId' in carry || 'model' in carry);
   try {
     if (carryEmpty) {
-      // 无偏好或仅工作区：原路径（顶部 reuse 复用空白会话；工作区 + 不复用）
-      if (workspaceId) await singlesBoard?.create({ workspaceId });
-      else await singlesBoard?.createQuick();
+      if (wsCtx) await singlesBoard?.create({ workspaceId: wsCtx });
+      else await singlesBoard?.createQuick(); // 未分组：reuse 复用空白会话
     } else {
       // 有 Agent/模型偏好：带参创建（校验失败回退空会话——过期偏好不阻断）
       try {
         await singlesBoard?.create(carry);
       } catch (err: any) {
         console.warn('[SessionList] 按上次偏好创建失败，回退空会话:', err?.message ?? err);
-        if (workspaceId) await singlesBoard?.create({ workspaceId });
+        if (wsCtx) await singlesBoard?.create({ workspaceId: wsCtx });
         else await singlesBoard?.createQuick();
       }
     }
   } finally {
     creatingSession.value = false;
   }
+}
+
+/** 选中会话所在工作区 id（未选中/未挂 = ''——新建落在未分组） */
+function activeWorkspaceIdOfSelected(): string {
+  const sid = activeSingleId.value;
+  if (!sid) return '';
+  return singlesBoard?.singles.value.find(s => s.id === sid)?.workspaceId || '';
 }
 
 /** 进入独立会话：清 Agent/群组选中（互斥），列表只切上下文，历史由 ConversationView 加载。
@@ -441,9 +469,12 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- 2. 工具栏：工作区（文本）— 间隔 — 新增工作区（纯 ICON） -->
+    <!-- 2. 工具栏：搜索会话（标题过滤）— 间隔 — 新增工作区（纯 ICON） -->
     <div class="ws-toolbar">
-      <span class="ws-label">工作区</span>
+      <div class="search-box">
+        <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+        <input v-model="searchQuery" type="text" class="search-input" placeholder="搜索会话…" @keydown.esc="searchQuery = ''" />
+      </div>
       <div class="ws-toolbar-actions">
         <button class="ws-add-btn" @click="openWsDialog" title="新增工作区（登记一个文件夹白名单区域）">
           <Icon name="folder-plus" :size="16" />
@@ -454,84 +485,106 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 3. 树列表：工作区根节点（按名称排列）→ 各 session 叶节点 -->
+    <!-- 3. 树列表：搜索态 → 跨工作区扁平结果；常态 → 工作区根节点（按名称排列）→ 各 session 叶节点 -->
     <div ref="treeScrollRef" class="tree-scroll">
-      <template v-for="group in treeGroups" :key="group.key">
-        <!-- 根节点：工作区 / 未分组（点击整行展开/收起；文件夹开合图标即状态） -->
-        <div class="ws-node" :class="{ ungrouped: !group.workspace }" :title="group.workspace ? `${group.name}\n${group.workspace.path}` : '未挂工作区的会话'" @click="toggleGroup(group.key)">
-          <span class="ws-icon"><Icon :name="collapsed.has(group.key) ? 'folder' : 'folder-open'" :size="15" /></span>
-          <span class="ws-name">{{ group.name }}</span>
-          <!-- hover 操作：资源管理器 · 更多（重命名/删除）· 新增会话（未分组根无操作） -->
-          <template v-if="group.workspace">
-            <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
-              :title="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开\n${group.workspace.path}`)"
-              @click.stop="openWsInExplorer(group)">
-              <Icon v-if="wsExplorerKey === group.key" name="loader-circle" :size="14" class="ws-spin" />
-              <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
-              <Icon v-else name="external-link" :size="14" />
-            </button>
-            <div class="ws-more-wrap" @click.stop>
-              <button class="ws-act" :class="{ active: wsMenuOpen === group.key }" title="更多" @click.stop="toggleWsMenu(group.key)">
-                <Icon name="more-horizontal" :size="14" />
+     <!-- 搜索态：扁平结果（跨工作区、按最近活动降序；行：头像 - 标题/归属 - 删除） -->
+     <div v-if="searching" class="search-results">
+       <div v-for="item in searchResults" :key="item.id" class="list-item"
+         :class="{ active: activeSingleId === item.id }"
+         :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
+         @click="selectSingle(item.id)">
+         <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+         <div class="item-info">
+           <div class="item-name">{{ item.title }}</div>
+           <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
+         </div>
+         <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+         </button>
+       </div>
+       <div v-if="searchResults.length === 0" class="empty">
+         没有标题匹配「{{ searchQuery.trim() }}」的会话
+       </div>
+     </div>
+     <!-- 常态：工作区树（分桶分批展开同前） -->
+     <template v-else>
+        <template v-for="group in treeGroups" :key="group.key">
+          <!-- 根节点：工作区 / 未分组（点击整行展开/收起；文件夹开合图标即状态） -->
+          <div class="ws-node" :class="{ ungrouped: !group.workspace }" :title="group.workspace ? `${group.name}\n${group.workspace.path}` : '未挂工作区的会话'" @click="toggleGroup(group.key)">
+            <span class="ws-icon"><Icon :name="collapsed.has(group.key) ? 'folder' : 'folder-open'" :size="15" /></span>
+            <span class="ws-name">{{ group.name }}</span>
+            <!-- hover 操作：资源管理器 · 更多（重命名/删除）· 新增会话（未分组根无操作） -->
+            <template v-if="group.workspace">
+              <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
+                :title="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开\n${group.workspace.path}`)"
+                @click.stop="openWsInExplorer(group)">
+                <Icon v-if="wsExplorerKey === group.key" name="loader-circle" :size="14" class="ws-spin" />
+                <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
+                <Icon v-else name="external-link" :size="14" />
               </button>
-              <Transition name="menu-fade">
-                <div v-if="wsMenuOpen === group.key" class="ws-menu">
-                  <button class="ws-menu-item" @click="startRename(group.workspace!)">
-                    <Icon name="pencil" :size="13" />
-                    <span>重命名</span>
-                  </button>
-                  <button class="ws-menu-item ws-menu-danger" @click="wsMenuOpen = null; deleteWsTarget = { id: group.workspace!.id, name: group.workspace!.name }">
-                    <Icon name="trash" :size="13" />
-                    <span>删除</span>
-                  </button>
-                </div>
-              </Transition>
-            </div>
-            <button class="ws-act" title="在此工作区新建会话" @click.stop="createSession(group.workspace.id)">
-              <Icon name="plus" :size="14" />
-            </button>
-          </template>
-        </div>
-        <!-- 叶节点：会话按时间分桶分批展开（桶头开合 + 桶内分页；行：头像 - 标题 - 删除） -->
-        <div v-if="!collapsed.has(group.key)" class="ws-children">
-          <template v-for="bucket in group.buckets" :key="bucket.key">
-            <!-- 桶头：时间分组标签 + 条数（点击开合；chevron 随桶显示状态） -->
-            <button class="bucket-head" type="button" :aria-expanded="bucketLimit(group, bucket.key) > 0"
-              :title="bucketLimit(group, bucket.key) > 0 ? `收起「${bucket.label}」（共 ${bucket.items.length} 条）` : `展开「${bucket.label}」的最近 ${Math.min(BUCKET_PAGE_SIZE, bucket.items.length)} 条会话（共 ${bucket.items.length} 条）`"
-              @click.stop="toggleBucket(group, bucket.key)">
-              <span class="bucket-chevron" :class="{ open: bucketLimit(group, bucket.key) > 0 }"><Icon name="chevron-down" :size="14" /></span>
-              <span class="bucket-label">{{ bucket.label }}</span>
-              <span class="bucket-count">{{ bucket.items.length }}</span>
-            </button>
-            <!-- 桶内会话行（前 limit 条；尾部「展开更多」渐进追加） -->
-            <template v-if="bucketLimit(group, bucket.key) > 0">
-              <div v-for="item in visibleItemsOf(group, bucket)" :key="item.id" class="list-item"
-                :class="{ active: activeSingleId === item.id }"
-                :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
-                @click="selectSingle(item.id)">
-                <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
-                <div class="item-info">
-                  <div class="item-name">{{ item.title }}</div>
-                </div>
-                <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+              <div class="ws-more-wrap" @click.stop>
+                <button class="ws-act" :class="{ active: wsMenuOpen === group.key }" title="更多" @click.stop="toggleWsMenu(group.key)">
+                  <Icon name="more-horizontal" :size="14" />
                 </button>
+                <Transition name="menu-fade">
+                  <div v-if="wsMenuOpen === group.key" class="ws-menu">
+                    <button class="ws-menu-item" @click="startRename(group.workspace!)">
+                      <Icon name="pencil" :size="13" />
+                      <span>重命名</span>
+                    </button>
+                    <button class="ws-menu-item ws-menu-danger" @click="wsMenuOpen = null; deleteWsTarget = { id: group.workspace!.id, name: group.workspace!.name }">
+                      <Icon name="trash" :size="13" />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </Transition>
               </div>
-              <!-- 桶内分页闸门：还有未渲染条目时尾部「展开更多」 -->
-              <button v-if="bucketHiddenOf(group, bucket) > 0" class="expand-more" type="button"
-                :title="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`"
-                @click.stop="growBucketItems(group, bucket)">
-                <span class="expand-more-dots">···</span>
-                <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
+              <button class="ws-act" title="在此工作区新建会话" @click.stop="createSession(group.workspace.id)">
+                <Icon name="plus" :size="14" />
               </button>
             </template>
-          </template>
-        </div>
-      </template>
+          </div>
+          <!-- 叶节点：会话按时间分桶分批展开（桶头开合 + 桶内分页；行：头像 - 标题 - 删除） -->
+          <div v-if="!collapsed.has(group.key)" class="ws-children">
+            <template v-for="bucket in group.buckets" :key="bucket.key">
+              <!-- 桶头：时间分组标签 + 条数（点击开合；chevron 随桶显示状态） -->
+              <button class="bucket-head" type="button" :aria-expanded="bucketLimit(group, bucket.key) > 0"
+                :title="bucketLimit(group, bucket.key) > 0 ? `收起「${bucket.label}」（共 ${bucket.items.length} 条）` : `展开「${bucket.label}」的最近 ${Math.min(BUCKET_PAGE_SIZE, bucket.items.length)} 条会话（共 ${bucket.items.length} 条）`"
+                @click.stop="toggleBucket(group, bucket.key)">
+                <span class="bucket-chevron" :class="{ open: bucketLimit(group, bucket.key) > 0 }"><Icon name="chevron-down" :size="14" /></span>
+                <span class="bucket-label">{{ bucket.label }}</span>
+                <span class="bucket-count">{{ bucket.items.length }}</span>
+              </button>
+              <!-- 桶内会话行（前 limit 条；尾部「展开更多」渐进追加） -->
+              <template v-if="bucketLimit(group, bucket.key) > 0">
+                <div v-for="item in visibleItemsOf(group, bucket)" :key="item.id" class="list-item"
+                  :class="{ active: activeSingleId === item.id }"
+                  :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
+                  @click="selectSingle(item.id)">
+                  <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+                  <div class="item-info">
+                    <div class="item-name">{{ item.title }}</div>
+                  </div>
+                  <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+                  </button>
+                </div>
+                <!-- 桶内分页闸门：还有未渲染条目时尾部「展开更多」 -->
+                <button v-if="bucketHiddenOf(group, bucket) > 0" class="expand-more" type="button"
+                  :title="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`"
+                  @click.stop="growBucketItems(group, bucket)">
+                  <span class="expand-more-dots">···</span>
+                  <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
+                </button>
+              </template>
+            </template>
+          </div>
+        </template>
 
-      <div v-if="treeGroups.length === 0" class="empty">
-        暂无会话<br /><span class="empty-hint">点击「新增」直接开始；「+」登记文件夹工作区分组管理会话</span>
-      </div>
+        <div v-if="treeGroups.length === 0" class="empty">
+          暂无会话<br /><span class="empty-hint">点击「新增」直接开始；「+」登记文件夹工作区分组管理会话</span>
+        </div>
+     </template>
     </div>
 
     <!-- 删除会话确认弹窗 -->
@@ -630,6 +683,21 @@ html.dark .create-btn{background:transparent;color:var(--color-text-primary,#e5e
 .ws-toolbar-actions{margin-left:auto;display:flex;align-items:center;gap:2px}
 .ws-add-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:6px;background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast)}
 .ws-add-btn:hover{background:var(--color-bg-subtle);color:var(--color-primary,#6366f1)}
+
+/* 搜索框（标题过滤——输入即树切扁平结果，Esc 清空回树；与 AgentList
+   同款视觉语言，尺寸压到工具栏一档） */
+.search-box{flex:1;min-width:0;position:relative;display:flex;align-items:center}
+.search-icon{position:absolute;left:8px;color:var(--color-text-tertiary,#a8abb2);pointer-events:none}
+.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--color-border-secondary,#ddd);border-radius:var(--radius-sm,6px);background:var(--color-bg-page,#fff);color:var(--color-text-primary,#2c3e50);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
+.search-input:focus{border-color:var(--color-primary,#6366f1)}
+.search-input::placeholder{color:var(--color-text-tertiary,#a8abb2)}
+
+/* 搜索态扁平结果行（跨工作区、按最近活动降序；与树叶节点同视觉语言，
+   左侧不缩进——无层级嵌套；归属副标给跨组结果以线索） */
+.search-results .list-item{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:8px}
+.search-results .list-item:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.search-results .list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
+.item-sub{font-size:11px;line-height:14px;color:var(--color-text-tertiary,#a8abb2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);padding:4px;border-radius:var(--radius-sm);line-height:0}
 .mobile-close-btn:hover{background:var(--color-bg-subtle);color:var(--color-text-primary)}
 
@@ -686,7 +754,7 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-children .list-item:hover .item-delete{opacity:1}
 .item-delete:hover{background:rgba(231,76,60,.1);color:#e74c3c}
 
-/* 时间分桶桶头：「今天/昨天/…/更早」标签 + 条数胶囊——与叶节点近似
+/* 时间分桶桶头：「今天/一周/其他」标签 + 条数胶囊——与叶节点近似
    缩进、轻量小字行（比会话行矮一档，层级从视觉密度读出）；点击开合，
    chevron 收起指右、展开向下（与工作区文件夹开合同语言） */
 .bucket-head{display:flex;align-items:center;gap:6px;height:24px;width:100%;margin:2px 0 var(--space-xs);padding:0 8px 0 16px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);font-size:11.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}

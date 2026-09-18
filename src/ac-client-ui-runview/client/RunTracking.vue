@@ -4,9 +4,11 @@
 //   · 轴集合 = Agent 清单 ∪ 群组清单 ∪ system ∪ 会话残留端点；轴标签用头像；
 //   · 会话无方向 → 下三角 + 对角线为主（上三角有会话数据同样可交互）；自会话落对角线；
 //   · 着色 = 选中日期范围内的消息量做对数归一化浓度（直观看出范围内 Agent 间活跃程度）；
-//     运行中格 = 最深底色 + 流转光环；群参与证据格（无数值）= 证据浅色；
+//     群参与证据格（无数值）= 证据浅色；
+//     运行态展示已退役（2026-12 简化）：矩阵只认落盘快照——正在发生的
+//     运行看运行面板（「运行中会话」节点，事件驱动 + 时长实时走表）。
 //   · hover：十字聚焦分级 —— hover 格主高亮（放大+强描边+提亮），十字行列次高亮，
-//     其余区域置灰；美化 tooltip（两端点、关系、范围内/总量、运行 run）；
+//     其余区域置灰；美化 tooltip（两端点、关系、范围内/总量）；
 //   · 点击格子 → 主区切到该会话：群格子→群聊；viewer 参与的 pair→直接对话（显式
 //     加载 direct 历史，修复从矩阵进入时空白会话的 bug）；其余→ConversationView
 //     readonly 形态（会话对只读视角：双方左气泡，返回回矩阵）。
@@ -20,10 +22,8 @@ import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type {
-  RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, RunsRunningEntry, WindowCounts,
+  RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, WindowCounts,
 } from './index.ts';
-import { sourceLabel } from './index.ts';
-import RunDuration from './RunDuration.vue';
 import { formatFileSize, formatRelativeTime } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
@@ -99,7 +99,6 @@ interface MatrixCell {
   pair?: RunsPairSession;
   group?: RunsGroupSession;
   archive?: RunsGroupArchive;
-  running: RunsRunningEntry[];
   /** 总消息数（tooltip 展示） */
   messageCount: number;
   lastActivity: number;
@@ -120,32 +119,11 @@ const archiveMap = computed(() => {
   for (const a of snapshot.value?.groupArchives ?? []) m.set(`${a.groupId}|${a.agentId}`, a);
   return m;
 });
-/** 运行中 run → 格子（chat = 两端点格；group = 群×Agent 格；single 不入矩阵） */
-const runningCellMap = computed(() => {
-  const m = new Map<string, RunsRunningEntry[]>();
-  for (const r of snapshot.value?.running ?? []) {
-    let key: string | null = null;
-    if (r.kind === 'chat') {
-      const seg = r.convKey.split('~');
-      if (seg.length >= 3) key = cellKey(seg[1], seg.slice(2).join('~'));
-    } else if (r.kind === 'group') {
-      const seg = r.convKey.split('~');
-      if (seg.length >= 3) key = cellKey(seg[1], seg.slice(2).join('~'));
-    }
-    if (!key) continue;
-    const list = m.get(key);
-    if (list) list.push(r);
-    else m.set(key, [r]);
-  }
-  return m;
-});
 
 function cellKey(a: string, b: string): string { return [a, b].sort().join('|'); }
 
 function cellOf(row: RunsMember, col: RunsMember): MatrixCell | null {
   const key = cellKey(row.id, col.id);
-  const running = runningCellMap.value.get(key) ?? [];
-  const runLive = running.length > 0 ? Math.max(...running.map(r => r.startedAt)) : 0;
 
   if (row.kind === 'group' || col.kind === 'group') {
     const gid = row.kind === 'group' ? row.id : col.id;
@@ -154,35 +132,35 @@ function cellOf(row: RunsMember, col: RunsMember): MatrixCell | null {
     if (row.id === col.id) {
       // 群对角线 = 群本体（范围窗口计数）
       const group = groupMap.value.get(gid);
-      if (!group && !runLive) return null;
+      if (!group) return null;
       return {
-        row, col, group, running,
-        messageCount: group?.messageCount ?? 0,
-        lastActivity: Math.max(group?.lastActivity ?? 0, runLive),
-        value: group ? windowValue(group) : 0,
+        row, col, group,
+        messageCount: group.messageCount,
+        lastActivity: group.lastActivity,
+        value: windowValue(group),
         evidence: false,
       };
     }
-    // agent×群：参与证据 = 周归档 / 运行中 / 旧格式群会话键（群本体全员共享，不作个人证据）
+    // agent×群：参与证据 = 周归档 / 旧格式群会话键（群本体全员共享，不作个人证据）
     const archive = archiveMap.value.get(`${gid}|${other.id}`);
     const legacyPair = pairMap.value.get(key);
-    if (!archive && !legacyPair && !runLive) return null;
+    if (!archive && !legacyPair) return null;
     return {
-      row, col, archive, ...(legacyPair ? { pair: legacyPair } : {}), running,
+      row, col, archive, ...(legacyPair ? { pair: legacyPair } : {}),
       messageCount: legacyPair?.messageCount ?? 0,
-      lastActivity: Math.max(archive?.lastActivity ?? 0, legacyPair?.lastActivity ?? 0, runLive),
+      lastActivity: Math.max(archive?.lastActivity ?? 0, legacyPair?.lastActivity ?? 0),
       value: legacyPair ? windowValue(legacyPair) : 0,
       evidence: !legacyPair && !!archive,
     };
   }
 
   const pair = pairMap.value.get(key);
-  if (!pair && !runLive) return null;
+  if (!pair) return null;
   return {
-    row, col, ...(pair ? { pair } : {}), running,
-    messageCount: pair?.messageCount ?? 0,
-    lastActivity: Math.max(pair?.lastActivity ?? 0, runLive),
-    value: pair ? windowValue(pair) : 0,
+    row, col, pair,
+    messageCount: pair.messageCount,
+    lastActivity: pair.lastActivity,
+    value: windowValue(pair),
     evidence: false,
   };
 }
@@ -206,11 +184,10 @@ const matrixRows = computed<RowView[]>(() => axis.value.map((row, i) => ({
 
 /**
  * 浓度分档：范围内消息量 v 封顶 CAP 后 log(1+v)/log(1+CAP) 归一 5 档；
- * 运行中格固定最深（heat-live）+ 光环；证据格（无数值）固定浅证据色；v=0 无色。
+ * 证据格（无数值）固定浅证据色；v=0 无色。
  */
 function densityClass(cell: MatrixCell | null): string {
   if (!cell) return 'heat-none';
-  if (cell.running.length > 0) return 'heat-live';
   const v = cell.value;
   if (v > 0) {
     const c = RANGE_CAP[range.value];
@@ -409,7 +386,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
     </div>
     <div v-if="loadError" class="load-error">快照拉取失败：{{ loadError }}</div>
 
-    <!-- ═══ 矩阵（居中；运行中会话以红点标注）═══ -->
+    <!-- ═══ 矩阵（居中；纯快照着色——运行态看运行面板）═══ -->
     <div class="tab-body">
       <div class="matrix-scroll">
         <div class="matrix-wrap" @mouseleave="clearHover" @mousemove="onCellMove">
@@ -442,30 +419,12 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
                 :class="[densityClass(v.cell), { mirror: v.mirror, 'mirror-data': v.mirror && !!v.cell, diag: v.diag, hl: inCross(mr, v) }]"
                 @mouseenter="onCellEnter(mr, v, $event)"
                 @click="openCell(mr, v)"
-              >
-                <!-- 运行光环（StarAvatar 同款 transform 旋转方案：合成器线程，零主线程开销）。
-                     方形格子不能旋转（变形）→ 光环取内切圆形（视觉更贴近头像光环语言） -->
-                <svg v-if="v.cell && v.cell.running.length > 0" class="cell-ring" viewBox="0 0 100 100" aria-hidden="true">
-                  <!-- 底环：白色低透明（主色浓底上保持分离度） -->
-                  <circle cx="50" cy="50" r="46" fill="none" class="ring-track" stroke-width="7" />
-                  <!-- 主流光：白色长弧，旋转组顺时针流转 -->
-                  <g class="ring-spin">
-                    <circle cx="50" cy="50" r="46" fill="none" class="ring-main" stroke-width="7"
-                      stroke-linecap="round" stroke-dasharray="119 289" />
-                  </g>
-                  <!-- 副流光：强调色短弧，慢速错相 -->
-                  <g class="ring-spin ring-spin--sub">
-                    <circle cx="50" cy="50" r="46" fill="none" class="ring-sub" stroke-width="7"
-                      stroke-linecap="round" stroke-dasharray="50 289" />
-                  </g>
-                </svg>
-              </div>
+              ></div>
             </template>
           </div>
 
           <!-- 图例 + 覆盖面分析 -->
           <div class="legend">
-            <span class="lg"><i class="lg-ring"></i>运行中</span>
             <span class="lg scale" :title="`${rangeLabel}范围内消息量（对数刻度，上限 ${RANGE_CAP[range]} 条封顶）：${thresholdLabel} 条`">
               <i class="swatch c1"></i><i class="swatch c2"></i><i class="swatch c3"></i><i class="swatch c4"></i><i class="swatch c5"></i>
               活跃度（{{ rangeLabel }}）：{{ thresholdLabel }} 条
@@ -479,7 +438,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           </button>
           <div v-if="coverageOpen" class="coverage">
             <div v-if="coverage" class="coverage-body">
-              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个 + 群会话 {{ coverage.groupSessions }} 个；轴集合 = Agent 清单 ∪ 群组清单 ∪ system（无主触发）。agent×群格子仅在有参与证据（周归档 / 运行中 / 旧格式会话键）时点亮——并非所有群成员都实际参与过群聊；群消息按人比例归属为后续增量。</p>
+              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个 + 群会话 {{ coverage.groupSessions }} 个；轴集合 = Agent 清单 ∪ 群组清单 ∪ system（无主触发）。agent×群格子仅在有参与证据（周归档 / 旧格式会话键）时点亮——并非所有群成员都实际参与过群聊；群消息按人比例归属为后续增量。</p>
               <p v-if="coverage.singleSessions > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />矩阵之外：独立会话（single~）{{ coverage.singleSessions }} 个 —— 它们没有两两端点（用户 ↔ 会话引用的 Agent，上下文按会话隔离），结构上无法落入两两格子；其中 {{ coverage.runningSingles }} 个正在运行，请看「运行中会话」。</p>
               <p v-else>独立会话（single~）：0 个 —— 当前全部会话均已入矩阵。</p>
               <p v-if="coverage.unknownMembers.length > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />残留端点：{{ coverage.unknownMembers.join('、') }} —— 出现在会话键但已无对应 Agent/群组（已删除等），以「未知端点」入轴保留数据。</p>
@@ -517,10 +476,6 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           </div>
           <div v-if="tip.v.cell.archive" class="tip-row">
             <span class="tip-k">证据</span><span class="tip-v">周归档（参与过群会话）</span>
-          </div>
-          <div v-for="r in tip.v.cell.running" :key="r.convKey" class="tip-row run">
-            <span class="tip-k tip-k-run"><Icon name="play" :size="9" /> 运行</span>
-            <span class="tip-v">{{ sourceLabel(r) }} · <RunDuration :started-at="r.startedAt" /><template v-if="r.source?.summary"><br />{{ r.source.summary }}</template></span>
           </div>
         </template>
         <div v-else class="tip-empty">无会话记录</div>
@@ -599,20 +554,6 @@ html.dark .row-head{background:#11151d}
 .cell.mirror.mirror-data:hover{opacity:1;box-shadow:inset 0 0 0 2px var(--color-primary,#6366f1)}
 .cell.diag{outline:1px dashed rgba(127,127,127,.5);outline-offset:-4px}
 
-/* ── 运行光环（StarAvatar 同款：transform 旋转 SVG 组）──
- * 性能关键：旋转走 transform → 浏览器合成器线程（GPU），主线程零开销 ——
- * 此前的 stroke-dashoffset 方案不在合成器加速白名单，每帧主线程 style→paint，
- * 是持续的基底负载（与其他卡顿源叠加放大）。方形格子不能旋转（变形）→
- * 光环取内切圆形；运行格底色为主色浓底（heat-live）→ 白色主弧 + 强调色副弧保证对比。 */
-.cell-ring{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-.ring-track{stroke:#fff;opacity:.2}
-.ring-main{stroke:#fff;opacity:.95}
-.ring-sub{stroke:var(--accent,#f472b6);opacity:.85}
-/* 旋转：transform-box 对齐 viewBox，绕圆心匀速（周长 2π×46≈289） */
-.ring-spin{transform-box:view-box;transform-origin:center;animation:ring-rotate 1.15s linear infinite}
-.ring-spin--sub{animation-duration:1.9s;animation-delay:-.6s}
-@keyframes ring-rotate{to{transform:rotate(360deg)}}
-
 /* 十字聚焦：hover 时非十字区域置灰（衬托底色带十字）。
  * 只用 opacity（GPU 合成）不用 filter —— 400+ 格子上的 saturate() 会在
  * 每次 hover 切换时触发全矩阵样式重算，是滑动卡顿主因 */
@@ -620,9 +561,8 @@ html.dark .row-head{background:#11151d}
 .matrix-grid.cross-active .row-head:not(.hl){opacity:.35}
 .matrix-grid.cross-active .col-head:not(.hl){opacity:.35}
 
-/* ── 浓度色阶：范围内消息量对数归一化（c1 最浅 → c5；heat-live 留给运行中）── */
+/* ── 浓度色阶：范围内消息量对数归一化（c1 最浅 → c5）── */
 .heat-none{background:transparent}
-.heat-live{background:color-mix(in srgb,var(--color-primary,#6366f1) 48%,transparent)}
 .c1{background:color-mix(in srgb,var(--color-primary,#6366f1) 6%,transparent)}
 .c2{background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,transparent)}
 .c3{background:color-mix(in srgb,var(--color-primary,#6366f1) 20%,transparent)}
@@ -635,9 +575,6 @@ html.dark .row-head{background:#11151d}
 .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;font-size:11px;color:var(--color-text-tertiary,#a8abb2)}
 .lg{display:inline-flex;align-items:center;gap:4px}
 .swatch{display:inline-block;width:11px;height:11px;border-radius:4px}
-/* 图例·运行光环小样：heat-live 底 + 白/accent 交替描边示意流转 */
-.lg-ring{display:inline-block;width:11px;height:11px;border-radius:4px;background:color-mix(in srgb,var(--color-primary,#6366f1) 48%,transparent);border:2px solid #fff;animation:lg-ring-alt 1.15s linear infinite}
-@keyframes lg-ring-alt{0%,45%{border-color:#fff}55%,100%{border-color:var(--accent,#f472b6)}}
 .legend .note{color:var(--color-text-muted,#999)}
 .coverage-toggle{display:flex;align-items:center;gap:4px;border:none;background:none;padding:2px 0;font-size:12px;color:var(--color-primary,#6366f1);cursor:pointer}
 .coverage-toggle:hover{text-decoration:underline}
@@ -676,9 +613,7 @@ html.dark .mx-tip{background:#1c222e;border-color:rgba(255,255,255,.12)}
 .mx-tip .tip-rel{font-size:11px;color:var(--color-primary,#6366f1);padding-bottom:4px;border-bottom:1px dashed var(--color-border-secondary,rgba(127,127,127,.2))}
 .mx-tip .tip-row{display:flex;align-items:flex-start;gap:8px;line-height:1.5}
 .mx-tip .tip-k{flex-shrink:0;min-width:38px;font-size:11px;color:var(--color-text-tertiary,#a8abb2)}
-.mx-tip .tip-k-run{display:inline-flex;align-items:center;gap:3px}
 .mx-tip .tip-v{color:var(--color-text-secondary);min-width:0;word-break:break-word}
-.mx-tip .tip-row.run .tip-v{color:var(--color-text-primary)}
 .mx-tip .tip-empty{font-size:11.5px;color:var(--color-text-muted,#999);padding:2px 0}
 .mx-tip .tip-foot{margin-top:3px;padding-top:5px;border-top:1px solid var(--color-border-secondary,rgba(127,127,127,.14));font-size:10.5px;color:var(--color-text-tertiary,#a8abb2);text-align:center}
 </style>

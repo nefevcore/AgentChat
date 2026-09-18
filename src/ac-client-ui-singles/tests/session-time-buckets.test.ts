@@ -3,7 +3,7 @@
 // 会话列表工作区「按时间分批展开」纯函数单测
 //
 // 覆盖：分桶边界（自然日切分/桶区间归属/空桶不出现）、降序
-// 前置契约、深史聚拢（「更早」）、分批展开显式记录状态机
+// 前置契约、深史聚拢（「其他」）、分批展开显式记录状态机
 // （缺省回落/播种不跳变/折叠重置回缺省）。
 //
 // now 由参数注入——不依赖真实墙钟；边界时刻（自然日 00:00）
@@ -39,36 +39,26 @@ describe('bucketByTime：按自然日分桶', () => {
     expect(bucketByTime([], fixedNow())).toEqual([]);
   });
 
-  it('各日桶归属：今天/昨天/三天(2-3天前)/一周(4-7天前) 边界精确', () => {
+  it('各日桶归属：今天/一周(昨天起 7 个自然日)边界精确，「其他」聚拢深史', () => {
     const items = [
       item('a-now', fixedNow()),            // 今天 14:30
       item('b-today-start', todayStart()),  // 今天 00:00（今天桶下界，含）
-      item('c-yesterday', atDays(1)),       // 昨天
-      item('d-3d', atDays(3)),              // 3 天前 → 三天桶
-      item('e-4d', atDays(4)),              // 4 天前 → 一周桶
-      item('f-7d', atDays(7)),              // 7 天前 → 一周桶下界，含
-      item('g-8d', atDays(8)),              // 8 天前 → 两周桶
-      item('h-14d', atDays(14)),            // 14 天前 → 两周桶下界，含
-      item('i-15d', atDays(15)),            // 15 天前 → 一个月桶
-      item('j-30d', atDays(30)),            // 30 天前 → 一个月桶下界，含
-      item('k-31d', atDays(31)),            // 31 天前 → 更早
-      item('l-year', new Date(2020, 0, 1).getTime()), // 深史 → 更早
+      item('c-yesterday', atDays(1)),       // 昨天 → 一周桶
+      item('d-7d', atDays(7)),              // 7 天前 → 一周桶下界，含
+      item('e-8d', atDays(8)),              // 8 天前 → 其他
+      item('f-month', atDays(30)),          // 30 天前 → 其他
+      item('g-year', new Date(2020, 0, 1).getTime()), // 深史 → 其他
     ];
     const buckets = bucketByTime(items, fixedNow());
-    expect(buckets.map(b => b.key)).toEqual(['today', 'yesterday', '3d', '1w', '2w', '1m', 'older']);
+    expect(buckets.map(b => b.key)).toEqual(['today', '1w', 'older']);
     const byId = new Map(buckets.flatMap(b => b.items.map(i => [(i as { id: string }).id, b.key])));
     expect(byId.get('a-now')).toBe('today');
     expect(byId.get('b-today-start')).toBe('today');
-    expect(byId.get('c-yesterday')).toBe('yesterday');
-    expect(byId.get('d-3d')).toBe('3d');
-    expect(byId.get('e-4d')).toBe('1w');
-    expect(byId.get('f-7d')).toBe('1w');
-    expect(byId.get('g-8d')).toBe('2w');
-    expect(byId.get('h-14d')).toBe('2w');
-    expect(byId.get('i-15d')).toBe('1m');
-    expect(byId.get('j-30d')).toBe('1m');
-    expect(byId.get('k-31d')).toBe('older');
-    expect(byId.get('l-year')).toBe('older');
+    expect(byId.get('c-yesterday')).toBe('1w');
+    expect(byId.get('d-7d')).toBe('1w');
+    expect(byId.get('e-8d')).toBe('older');
+    expect(byId.get('f-month')).toBe('older');
+    expect(byId.get('g-year')).toBe('older');
   });
 
   it('空桶不出现；桶内保持调用方顺序', () => {
@@ -79,11 +69,11 @@ describe('bucketByTime：按自然日分桶', () => {
     expect(buckets[0].items.map(i => (i as { id: string }).id)).toEqual(['t1', 't2']);
   });
 
-  it('无今天会话时缺省首桶顺延（如最新在昨天）——桶序列正确，首桶 = 昨天', () => {
-    const items = [item('y1', atDays(1, 20)), item('y2', atDays(1, 8)), item('w1', atDays(5))];
+  it('无今天会话时缺省首桶顺延（如最新在一周内）——桶序列正确', () => {
+    const items = [item('w1', atDays(1, 20)), item('w2', atDays(1, 8)), item('w3', atDays(5))];
     const buckets = bucketByTime(items, fixedNow());
-    expect(buckets[0].key).toBe('yesterday'); // 首桶 = 首个非空桶
-    expect(buckets[0].items).toHaveLength(2);
+    expect(buckets[0].key).toBe('1w'); // 首桶 = 首个非空桶
+    expect(buckets[0].items).toHaveLength(3);
   });
 
   it('未来时间戳（时钟偏差/刚创建）落「今天」桶', () => {

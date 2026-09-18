@@ -61,6 +61,13 @@ function requestForView() {
   else chatStore.requestSystemPrompt(id);
 }
 
+/** 会话工具调用模式变化（ChatInput 写口 bump——run 间隙生效）→ 重取：
+ *  装配面已变（程序化注入 SDK 投影块/收窄后指引块），常驻面板即时
+ *  反映新模式下的真实 system prompt（2026-12 预览失真修复）。 */
+watch(() => chatStore.convToolMode, () => {
+  if (agentId.value) requestForView();
+});
+
 /** 选区激活时兜底请求：目标解析自持（带 agentId——single 视角由
  *  chatStore resolveContext 附 sessionId）；内容已有则不重复。 */
 watch(() => [ui.auxPanel, ui.auxVisible, agentId.value, groupConversationId.value] as const, ([panel, visible]) => {
@@ -113,7 +120,7 @@ function fallbackCopy(text: string) {
           <button
             class="spp-btn"
             :disabled="chatStore.systemPromptLoading || !agentId"
-            @click="chatStore.requestSystemPrompt(agentId!)"
+            @click="requestForView()"
           >
             <Icon v-if="chatStore.systemPromptLoading" name="loader-circle" :size="14" class="spp-spin" />
             <Icon v-else name="refresh-cw" :size="14" />

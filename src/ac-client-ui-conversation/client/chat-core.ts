@@ -19,7 +19,8 @@ import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions, pickApproval } from './chatOps.ts';
 import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
-import { loadComposePrefs } from './composePrefs.ts';
+import { loadComposePrefs } from './composePrefs.ts';
+import { settleToolMode } from './toolModeInherit.ts';
 import type { FeedView } from './feed-core.ts';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
@@ -101,6 +102,15 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     } catch { /* stats 失败静默（刷新恢复是尽力而为） */ }
   }
 
+  /** ctx/target → 工具调用模式的会话键（与 ChatInput toolModeConvKey
+   *  同口径：single = sid；1v1 直答 = pairKey(viewer, agent)）。用于投递前
+   *  等待「新会话跟随上次选择」的继承写（toolModeInherit）落定。 */
+  function toolModeKeyOf(ctx: ChatContext | null, target: string): string | null {
+    if (ctx?.kind === 'single' && ctx.sessionId) return ctx.sessionId;
+    const agentId = ctx?.agentId ?? target;
+    return agentId ? bucketKey(VIEWER_ID.value, agentId) : null;
+  }
+
   /** ctx → feed 分区键（pair = direct dialog；single = single dialog） */
   function ctxDialog(ctx: ChatContext): DialogId {
     return ctx.kind === 'single' && ctx.sessionId
@@ -115,7 +125,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   // ══ 视图状态（委托 feed，storeToRefs 保持响应式引用）══
   const {
     activeDialogId, unreadAgents, turnInProgress,
-    loadingHistory, hasMoreHistory, lastRunEndAt, archivePending,
+    loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
   } = toRefs(feed);
 
   const messages = computed(() => {
@@ -148,8 +158,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   const pendingArchiveConv = ref('');
   const compressFeedback = ref('');
   const compressTone = ref<'info' | 'ok' | 'error'>('info');
-  /** 归档完成时刻（当前 Agent）——token 仪表等"无 run 结束也会变"的派生
-   *  数据在归档 compact 后需要重取（lastRunEndAt 不覆盖该时刻） */
+  /** 归档完成时刻（当前 Agent）——token 仪表等"无步终值也会变"的派生
+   *  数据在归档 compact 后需要重取（lastStepEndAt 不覆盖该时刻） */
   const sessionArchivedAt = ref(0);
   let compressFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
   function setCompressFeedback(text: string, tone: 'info' | 'ok' | 'error' = 'info') {
@@ -303,6 +313,15 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   const toolDefsLoading = ref(false);
   const toolDefs = ref<any[]>([]);
 
+  // ══ 会话工具调用模式快照（2026-12 预览失真修复）══
+  /** 当前会话的工具调用模式覆盖（''=跟随；ChatInput 写口 conv-settings
+   *  成功后同步 bump——system-prompt 预览/Token 估算面据此得知装配面
+   *  已变，重取反映程序化 SDK 投影块/收窄后的工具 schema）。 */
+  const convToolMode = ref<'' | 'tc-base' | 'tc-programmatic' | 'tc-none'>('');
+  function setConvToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
+    convToolMode.value = v;
+  }
+
   // ── Actions ──
 
   /** 发送后流式态看门狗：后端重启/事件丢失时无 stepStart/stepEnd/chatEnd，
@@ -335,7 +354,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    *  source='user' 判定两档直达，且只升不降（Agent 自有 tags 档位恒为
    *  底座，武装低档被剥除）；steer 注入活跃 run 时不生效（run 档位
    *  在开跑时已定），排队路径随消息入队、消费时生效。 */
-  function deliver(
+  async function deliver(
     ctx: ChatContext | null,
     target: string,
     content: string,
@@ -343,9 +362,12 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     requestId?: string,
     busyMode?: 'queue' | 'steer',
     elevation?: 'sandbox-access' | 'full-access',
-  ) {
+  ): Promise<void> {
     const composed = composeContent(content, files);
     const attachments = imageAttachmentsOf(files);
+    // 工具调用模式「新会话跟随上次选择」：本会话的继承写（偏好 → conv-settings，
+    // ChatInput 挂载时发起）未落定时先等——首条消息不得抢在继承写之前出门
+    await settleToolMode(toolModeKeyOf(ctx, target));
     if (requestId) deliverTargets.set(requestId, target);
     void rpc.call('conversation/deliver', {
       agentId: target,
@@ -469,7 +491,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     armSendWatchdog(dialogId);
     if (!to && ctx?.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
-    deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode, options?.elevation);
+    // 异步（继承写等待）——失败已在 deliver 内部收敛为红条反馈，不抛
+    void deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode, options?.elevation);
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理/编辑重发。
@@ -479,7 +502,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     void deepThink;
     const elev = loadComposePrefs()?.elevation;
     turnInProgress.value = true;
-    deliver(ctx, ctx.agentId, content, files, uid('send'), undefined,
+    void deliver(ctx, ctx.agentId, content, files, uid('send'), undefined,
       elev === 'sandbox-access' || elev === 'full-access' ? elev : undefined);
   }
 
@@ -715,14 +738,18 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   // ── 工具定义（Token 弹层固定开销估算）──
   /** 工具定义请求（target 推导同 requestSystemPrompt：显式 agentId 优先，
    *  否则当前会话上下文——single = 会话引用 Agent，pair = 激活 Agent）。
-   *  独立会话引用 Agent ≠ 全局激活 Agent 时，缺省取错会污染固定开销估算。 */
-  function requestToolDefs(agentId?: string) {
+   *  独立会话引用 Agent ≠ 全局激活 Agent 时，缺省取错会污染固定开销估算。
+   *  conversationId（2026-12 估算失真修复）：透传会话键 → 后端按「会话
+   *  覆盖（conv-settings toolMode）?? Agent tags」收窄生效集——与 router
+   *  真实 run 的 LLM 可见面同口径（程序化会话仅 run_code、tc-none 空）。 */
+  function requestToolDefs(agentId?: string, options?: { conversationId?: string }) {
     const ctx = resolveContext();
     const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
+    const sessionId = options?.conversationId ?? (ctx?.kind === 'single' ? ctx.sessionId : undefined);
     toolDefsLoading.value = true;
     toolDefs.value = [];
-    void rpc.call<{ defs?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }>('agents/tool-defs', { agentId: target })
+    void rpc.call<{ defs?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }>('agents/tool-defs', { agentId: target, ...(sessionId ? { conversationId: sessionId } : {}) })
       .then((r) => {
         toolDefsLoading.value = false;
         toolDefs.value = toToolDefs(r.defs ?? []) as never;
@@ -903,7 +930,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   return {
     // 视图状态
     messages, turns, currentMessages, contextBusy,
-    unreadAgents, turnInProgress, loadingHistory, hasMoreHistory, lastRunEndAt, archivePending,
+    unreadAgents, turnInProgress, loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
     // 未读：进入会话时清除；获取指定 Agent 未读数
     clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),
     getUnreadCount: feed.getUnreadCount,
@@ -920,6 +947,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     systemPromptLoading, systemPromptContent, systemPromptError,
     // 工具定义（Token 弹层固定开销估算）
     toolDefsLoading, toolDefs,
+    // 会话工具调用模式快照（ChatInput 写口 bump；预览/估算面 watch 重取）
+    convToolMode, setConvToolMode,
     // Actions
     sendMessage, interruptGeneration, regenerateMessage, deleteMessage, editMessage,
     appendOwnSteered,

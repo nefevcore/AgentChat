@@ -93,8 +93,11 @@ function argDetail(name: string, a: Record<string, unknown>): string {
       return action; // await/list/stop/delete
     }
     case 'run_code': {
-      // 参数摘要：程序首行注释或首个语句行（截 40）——标签行一眼可见
-      // 程序意图；完整程序体在卡内代码视图
+      // 意图优先（与 bash/job 的 description 同语义）：模型显式给的
+      // 一句话意图；回落程序首行注释或首个语句行（截 40）——标签行
+      // 一眼可见程序意图；完整程序体在卡内代码视图
+      const intent = str(a.description);
+      if (intent) return intent.slice(0, 60);
       const code = str(a.code);
       if (!code) return '';
       const first = code.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('//'));

@@ -167,6 +167,7 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
       // 携带工具参数：让 ToolMessage 在"结果返回前"即可按参数渲染专用卡片
       // （如 bash 显示命令、edit/read 显示文件路径），无需等结果 JSON。
       arguments: tc.arguments,
+      ...(tc.subcall === true ? { subcall: true } : {}), // run_code 子调用平铺标记
       isStreaming: stepStreaming ? (tc.running || !tc.result) : !tc.result,
       status: stepStreaming && (tc.running || !tc.result) ? 'running' : undefined, timestamp: ts,
     } as ChatMessage));
@@ -304,6 +305,7 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
           id: tc.id, name: tc.name || tc.function?.name || '',
           arguments: tc.arguments || tc.function?.arguments || '',
           result: '', label: tc.label || tc.name || '',
+          ...(tc.subcall === true ? { subcall: true } : {}),
         })),
         content: msg.content || '',
         ts,

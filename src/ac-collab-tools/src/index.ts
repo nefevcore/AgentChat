@@ -33,7 +33,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { capabilitySetOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { capabilitySetOf, conversationFormOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 import type {} from 'ac-subagent'; // ctx.subagents 可选能力类型（type-only）
@@ -374,9 +374,7 @@ export function apply(ctx: Context) {
       // （requiredTags 缺标签不可见）+ 会话形态面（excludeForms——独立
       // 会话不投放的工具，2026-12）先过滤，再按 AgentConfig.tools 解析
       const caps = capabilitySetOf(ctx, call.agentId);
-      const singles = ctx.get('singles', false) as { get(sid: string): unknown } | undefined;
-      const form =
-        singles && call.conversationId && singles.get(call.conversationId) ? 'single' : null;
+      const form = conversationFormOf(ctx, call.conversationId);
       const all = ctx.tools.list().filter(
         (t) => toolAllowedFor(t, caps) && (form === null || !(t.excludeForms ?? []).includes(form)),
       );

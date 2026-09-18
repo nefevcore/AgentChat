@@ -9,11 +9,14 @@
 // 修复：loop/before-run 主档注入 system 块（系统提示词装配常规落点）：
 //   · SDK 投影声明（buildSdkProjection——字典序稳定，工具集不变则
 //     字节不变，KV cache 前缀友好）；
-//   · 程序书写纪律（互斥形态基线 + 并存形态选择策略，report §六.8
-//     「指引双版本」的落地）。
-// 每次注入前按 request 现算生效面（与 run_code 工具体同源 resolveEffectiveTools
-// ——不缓存，防装卸窗口漂移）；Agent 无 code-exec（run_code 不可见）
-// 时不注入（并存形态才需要，互斥形态 run_code 恒在生效面）。
+//   · 程序书写纪律（DEFAULT_GUIDANCE 基线）。
+// 注入条件（2026-09-17 续修）：仅程序化调用——互斥形态（LLM 生效面
+// 单 schema 仅 run_code：会话开关开 router 收窄，或 Agent include 收窄，
+// 两者同构）。并存形态（run_code 与传统工具同列）不注入：传统工具
+// schema 已在请求面可直读，SDK 块对多数 run 是纯 token 开销，模型偶用
+// run_code 时按请求面 schema 写程序即可。每次注入前按 request 现算
+// 生效面（与 run_code 工具体同源 resolveEffectiveTools——不缓存，防
+// 装卸窗口漂移）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { LoopRunCall } from 'ac-agent-loop';
@@ -23,11 +26,12 @@ import { resolveEffectiveTools } from './tool.ts';
 /** 注入块首行标记（幂等判定 + UI 可识别） */
 const MARKER = '# run_code 工具 SDK（程序化模式）';
 
-/** 并存形态附加的选择策略（report §三：预期 >3 步确定性序列优先 run_code） */
-const COEXISTENCE_GUIDANCE = [
-  '执行形态选择：预期超过 3 步的确定性操作序列优先写进一个 run_code 程序',
-  '（中间结果不占上下文、一次可见全部计划）；单步操作或探索性试探直接调工具；',
-  '探索性多任务研究用 subagent。',
+/** 互斥形态引导语（程序化调用：tools.* 是唯一工具 API） */
+const INTRO = [
+  '本会话为程序化模式：一切工具操作经 run_code 编写 TypeScript 程序完成（限可擦除语法，',
+  '不允许 import）——下方 tools.* 是本模式唯一的工具 API（循环/条件/并行进代码，最终结论经 ',
+  'return 或 log 回上下文——无 return 值时 log 各行按序合成返回，按任务形态自选）。',
+  '跨程序复用的函数经 lib.define 注册（同会话后续程序 lib.resolve 取用）。工具 API 类型签名：',
 ].join('');
 
 /**
@@ -43,10 +47,10 @@ export function registerProjectionInjection(ctx: Context): void {
       system: call.request.system ? `${call.request.system}\n\n${block}` : block,
     };
     return next();
-  }, { description: 'run_code SDK 投影 + 程序书写纪律注入（run_code 生效时）' });
+  }, { description: 'run_code SDK 投影 + 程序书写纪律注入（程序化互斥形态时）' });
 }
 
-/** 组装注入块；run_code 不在生效面 → undefined（不注入） */
+/** 组装注入块；非程序化调用（LLM 面非单 run_code）→ undefined（不注入） */
 function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
   const request = call.request;
   // LLM 面判定（run 级请求面优先）：request.tools 是 router 合成后的
@@ -59,37 +63,26 @@ function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
   const llmNames = llmFace
     .map((d) => d.name)
     .filter((name) => requested === null || requested.has(name));
-  const hasRunCode = llmNames.includes('run_code');
-  if (!hasRunCode) return undefined;
+  // 程序化调用 = 互斥形态：LLM 面单 schema（仅 run_code）。并存形态
+  //（run_code 与传统工具同列）不注入——传统工具 schema 已在请求面可
+  // 直读，SDK 块省 token；run_code 不在面（Agent 无 tc-programmatic
+  // 标签）同样不注入。
+  const programmaticOnly = llmNames.length === 1 && llmNames[0] === 'run_code';
+  if (!programmaticOnly) return undefined;
   // 投影源（scope='projection'——能力面直取，不受 include/exclude/开关
-  // 收窄；互斥形态下 LLM 面只有 run_code，投影仍涵盖全部已授权工具）
+  // 收窄；互斥形态的投影要涵盖全部已授权工具，否则程序里除了 run_code
+  // 什么都调不了）
   const projectionFace = resolveEffectiveTools(ctx, request.agent, request.conversationId, 'projection');
   const projection = buildSdkProjection(projectionFace);
-  // 纪律双版本：LLM 面同时含传统工具（并存形态——开关关/Agent 未收窄）
-  // 时附选择策略；互斥形态（LLM 面只有 run_code 一个 schema——开关开或
-  // include 收窄）只留基线——多步操作唯一路径是写程序
-  const coexistence = llmNames.length > 1;
-  const guidance = coexistence
-    ? `${DEFAULT_GUIDANCE}\n${COEXISTENCE_GUIDANCE}`
-    : DEFAULT_GUIDANCE;
-  const intro = coexistence
-    ? '本会话可用 run_code 工具：写一段 TypeScript 程序（限可擦除语法，不允许 import），'
-      + '经下方 tools.* API 编排成批工具调用——循环/条件/并行进代码，只有 return 的最终值'
-      + '回上下文。跨程序复用的函数经 lib.define 注册（同会话后续程序 lib.resolve 取用）。'
-      + '工具 API 类型签名：'
-    : '本会话为程序化模式：一切工具操作经 run_code 编写 TypeScript 程序完成（限可擦除语法，'
-      + '不允许 import）——下方 tools.* 是本模式唯一的工具 API（循环/条件/并行进代码，只有 '
-      + 'return 的最终值回上下文）。跨程序复用的函数经 lib.define 注册（同会话后续程序 '
-      + 'lib.resolve 取用）。工具 API 类型签名：';
   return [
     MARKER,
     '',
-    intro,
+    INTRO,
     '',
     '```ts',
     projection,
     '```',
     '',
-    guidance,
+    DEFAULT_GUIDANCE,
   ].join('\n');
 }

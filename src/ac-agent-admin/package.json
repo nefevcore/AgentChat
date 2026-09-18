@@ -23,6 +23,7 @@
     "@types/ws": "^8.18.1",
     "ac-agent-store": "workspace:*",
     "ac-config": "workspace:*",
+    "ac-conv-settings": "workspace:*",
     "ac-credentials": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-session": "workspace:*",

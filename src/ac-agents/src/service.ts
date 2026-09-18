@@ -237,6 +237,76 @@ export function effectiveTierOf(
 }
 
 /**
+ * 工具调用模式（2026-09-17 统一重构：tc-* 标签轴——与提权档位 access-tier
+ * 同构的第三条轴）：AgentConfig.tags 新增词汇 tc-none / tc-programmatic；
+ * 缺省（无任一模式词）= tc-base。模式词经 toolModeOf 单源判定，router
+ * / ac-subagent 按「会话覆盖（conv-settings toolMode）?? toolModeOf(agent)」
+ * 收窄 LLM 工具面：tc-programmatic ⇒ ['run_code']、tc-none ⇒ 空面纯聊天、
+ * tc-base ⇒ 不收窄（逐个直调）。
+ *
+ * 与档位词的差别：tc-programmatic 是唯一进 requiredTags 的非能力词
+ * （run_code 挂它——标签即授权：含该词 ⇒ run_code 可见 + 程序化档；
+ * code-exec 标签已随之移除）。tc-none / tc-base 与档位词同款不进 requiredTags
+ * （tag-registry assert 白名单外的非能力词禁入）。
+ */
+export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
+
+/** 模式词表（tags 中合法的 tc-* 词；判定序 = 数组序——tc-none 优先） */
+export const TOOL_MODE_TAGS: readonly ToolMode[] = ['tc-none', 'tc-programmatic'];
+
+/**
+ * 工具调用模式判定单源（对标 tierOf）：tags 含 'tc-none' → none；
+ * 含 'tc-programmatic' → programmatic；否则 base（none 优先——无工具
+ * 是最强约束，fail-closed 方向）。未注册 Agent（undefined，如存量
+ * sub_* 合成身份）→ base。纯函数住 AgentConfig owning 包，router /
+ * ac-subagent / 前端展示共用。
+ */
+export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
+  const tags = agent?.tags;
+  if (!tags) return 'tc-base';
+  if (tags.includes('tc-none')) return 'tc-none';
+  if (tags.includes('tc-programmatic')) return 'tc-programmatic';
+  return 'tc-base';
+}
+
+/**
+ * 生效工具调用模式：会话覆盖（conv-settings toolMode）?? toolModeOf(agent)。
+ * 单源合成（2026-12 估算失真修复）：router / system-prompt 干跑 /
+ * agents/tool-defs 估算面三处共用——「LLM 面按模式收窄」的判定输入
+ * 必须与真实 run 同口径，否则估算（工具 schema 数 + 系统提示词门控块
+ * + run_code SDK 投影块）随会话开关漂移。
+ */
+export interface EffectiveToolModeEnv {
+  /** conv-settings 会话覆盖读取（ctx.get('convSettings', false) 面） */
+  convSettings?: { get(conversationId: string): { toolMode?: ToolMode } } | undefined;
+}
+export function effectiveToolMode(
+  agent: AgentConfig | undefined,
+  conversationId: string | undefined,
+  env: EffectiveToolModeEnv = {},
+): ToolMode {
+  const override = conversationId ? env.convSettings?.get(conversationId).toolMode : undefined;
+  return override ?? toolModeOf(agent);
+}
+
+/**
+ * 工具调用模式收窄（router dispatch 语义的单源平移——行为原样）：
+ *   · tc-programmatic → ['run_code']（工具面含它时；不含则惰性忽略该档
+ *     ——warn 归调用方，本函数返回原面）；
+ *   · tc-none → []；
+ *   · tc-base → 原面。
+ * 消费方：router dispatch（真实 run）+ system-prompt 干跑 /
+ * agents/tool-defs（估算面——与真实 run 同口径的修复点）。
+ */
+export function narrowToolsByMode(tools: string[], mode: ToolMode): string[] {
+  if (mode === 'tc-programmatic') {
+    return tools.includes('run_code') ? tools.filter((name) => name === 'run_code') : tools;
+  }
+  if (mode === 'tc-none') return [];
+  return tools;
+}
+
+/**
  * 有效能力集（与 ac-security 执行门禁同款合成——工具【可见面】过滤的
  * 单源，2026-09-02 反馈 #1：requiredTags 缺标签的工具此前只在执行时 veto，
  * LLM 仍能在工具清单里看到并浪费一轮调用）：
@@ -269,6 +339,45 @@ export function toolAllowedFor(
 ): boolean {
   const required = def?.requiredTags?.length ? def.requiredTags : ['base'];
   return required.every((t) => caps.has(t));
+}
+
+/**
+ * 会话形态词（工具形态轴 ToolDefinition.excludeForms 的判定输入）：
+ * 'single' 独立会话（singles 注册表命中）/ 'self' 自会话（对角线桶
+ * a~a——机制 run 落点）。conversationFormOf 单源判定，router /
+ * list_tools / run_code 形态面共用。
+ */
+export type ConversationForm = 'single' | 'self';
+
+/**
+ * conversationId → 会话形态（形态轴单源，2026-12 'single' / 2026-02
+ * 'self'）：singles 可选能力命中 = 'single'；对角线对桶（恰两段且相等
+ * ——Agent id 禁 `~`（assertAgentId），词法判定构造性可靠）= 'self'；
+ * 其余 = null（无形态约束）。纯查询零会话状态。
+ */
+export function conversationFormOf(
+  ctx: Pick<Context, 'get'>,
+  conversationId: string | undefined,
+): ConversationForm | null {
+  if (!conversationId) return null;
+  const singles = ctx.get('singles', false) as { get(sid: string): unknown } | undefined;
+  if (singles && singles.get(conversationId)) return 'single';
+  const parts = conversationId.split('~');
+  return parts.length === 2 && parts[0] !== '' && parts[0] === parts[1] ? 'self' : null;
+}
+
+/**
+ * 工具是否被会话形态裁剪（excludeForms 命中判定——list_tools /
+ * run_code 等复制点与 router formAllowed 同口径的方便入口；router
+ * 先解析 include/exclude 再终滤，故本函数只做单工具判定）。
+ */
+export function formDeniedBy(
+  ctx: Pick<Context, 'get'>,
+  def: { excludeForms?: string[] },
+  conversationId: string | undefined,
+): boolean {
+  const form = conversationFormOf(ctx, conversationId);
+  return form !== null && (def.excludeForms ?? []).includes(form);
 }
 
 /** llmParams 透传白名单（防覆盖 model/messages/tools 等保留键） */

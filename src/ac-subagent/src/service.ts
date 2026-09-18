@@ -50,6 +50,7 @@ import {
   effectiveTierOf,
   filterLlmParams,
   toolAllowedFor,
+  toolModeOf,
   type AgentConfig,
 } from 'ac-agents';
 
@@ -763,21 +764,23 @@ export class SubagentsService extends Service {
       const caps = capabilitySetOf(this.ctx, rec.id);
       const allowed = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps)).map((t) => t.name);
       let names = rec.toolNames && rec.toolNames.length > 0 ? rec.toolNames.filter((n) => allowed.includes(n)) : allowed;
-      // 程序化开关传播（2026-09-17 用户裁决：程序化 = 对工具集的转换——
-      // 工具集 → SDK 投影 → 覆盖为 run_code 单入口；转换随工具集流动）。
-      // 发起会话（spawn/send 携带的 conversationId）conv-settings
-      // programmatic=true 且子 Agent 未显式点名 tools（spawn.tools 优先）
-      // 时，子 Agent 工具面同样收窄为 ['run_code']——投影注入由 ac-run-code
-      // prompt.ts 按 run 级 request.tools 自然生效（互斥版纪律）。run_code
-      // 不在能力面（父无 code-exec）时忽略传播（与 router 惰性同口径）。
+      // 工具调用模式传播（2026-09-17 统一重构 + 优化裁决：tc-* 纯模式词
+      // ——run_code 授权词 = infra，程序化是形态选择非授权门槛）：子
+      // Agent 未显式点名 tools（spawn.tools 优先）时，生效档 = 发起会话
+      // 覆盖（conv-settings toolMode）?? toolModeOf(父)——tc-programmatic
+      // ⇒ 收窄 ['run_code']、tc-none ⇒ 空面、tc-base ⇒ 不动。投影注入由
+      // ac-run-code prompt.ts 按 run 级 request.tools 自然生效。run_code
+      // 不在能力面（父无 infra）时忽略该档（与 router 惰性同口径）。
       if (!rec.toolNames || rec.toolNames.length === 0) {
-        if (item.conversationId && allowed.includes('run_code')) {
-          const convSettings = this.ctx.get('convSettings', false) as
-            | { get(conversationId: string): { programmatic?: boolean } }
-            | undefined;
-          if (convSettings?.get(item.conversationId).programmatic === true) {
-            names = ['run_code'];
-          }
+        const convSettings = this.ctx.get('convSettings', false) as
+          | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+          | undefined;
+        const parentMode = toolModeOf(parent);
+        const mode = (item.conversationId ? convSettings?.get(item.conversationId).toolMode : undefined) ?? parentMode;
+        if (mode === 'tc-programmatic' && allowed.includes('run_code')) {
+          names = ['run_code'];
+        } else if (mode === 'tc-none') {
+          names = [];
         }
       }
       const llmParams = filterLlmParams(parent?.llmParams);

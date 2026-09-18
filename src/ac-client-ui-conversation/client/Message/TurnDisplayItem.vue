@@ -413,6 +413,10 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   border-left: 1px solid var(--color-border-secondary);
   margin-left: 7px; /* 对齐 chain-icon（14px）中心 */
   padding: 0 0 0 14px;
+  /* 链内思考卡 label 吸附位下移量（子树继承）：chain-header 展开吸顶时的
+     实底遮挡高——label 行盒 12px×1.6 + 上下 padding 2×2 + 渐隐带 8px，
+     向上取整到 30px。链内 label 吸顶时正好接在 chain-header 下缘 */
+  --think-label-stack: 30px;
 }
 
 .chain-body :deep(.assistant-row) { max-width: 100% !important; }

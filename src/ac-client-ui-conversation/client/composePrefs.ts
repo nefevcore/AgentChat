@@ -16,23 +16,22 @@
 // 语义边界：
 //   · 记录的是「最后被用户选定的值」，不做会话级区分（全局一份）；
 //   · 回放值仅作初值——Agent/模型在新建会话时作为创建参数透传
-//     （服务端校验，失效静默回落），effort/elevation/programmatic
-//     直接设为初值；
+//     （服务端校验，失效静默回落），effort/elevation 直接设为初值；
 //   · effort ''/elevation '' 与「未记录」都合法记录值（''=明确选择
 //     的关闭态/跟随态，回放时保持——非缺省值才覆写）。agentId/model
 //     同语义（2026-09 修复）：'' = 明确选回默认预设/默认模型——写回
 //     覆盖旧记录，新会话跟随（不再残留旧模式；'' ≠ 未记录）。
-//     programmatic（2026-09-17 开关化）false 同为合法记录值（明确选
-//     回标准模式）；true 只作 UI 回放初值——实际生效以会话
-//     conv-settings 为准（选择即写会话，新会话不自动开）。
+//     工具调用模式偏好键（旧 programmatic 布尔）已随 2026-09-17 tc-*
+//     标签轴重构退役：跟随态（无覆盖键）即默认——持久程序化的正路是
+//     Agent 配 tc-programmatic 标签；存量 localStorage 记录读侧忽略。
 // ============================================================
 
 /** 思考强度档位（与 ChatInput EFFORT_OPTIONS 同词表；''=关闭思考） */
 export type ComposeEffort = '' | 'low' | 'high' | 'max';
 /** 快捷提权档位（access-tier 档位词汇；''=跟随 Agent 自有档位） */
 export type ComposeElevation = '' | 'sandbox-access' | 'full-access';
-/** 工具使用模式（程序化开关，research §十；false=标准模式） */
-export type ComposeProgrammatic = boolean;
+/** 工具调用模式（tc-* 模式词汇；''=跟随 Agent tags 档） */
+export type ComposeToolMode = '' | 'tc-base' | 'tc-programmatic' | 'tc-none';
 
 /** 输入栏组合偏好（wire 形 = 持久形态；逐键可选） */
 export interface ComposePrefs {
@@ -44,8 +43,10 @@ export interface ComposePrefs {
   effort?: ComposeEffort;
   /** 上次快捷提权档位（''=未武装） */
   elevation?: ComposeElevation;
-  /** 上次工具使用模式（false=标准；true=程序化——选择即写会话 conv-settings，回放仅作 UI 初值） */
-  programmatic?: ComposeProgrammatic;
+  /** 上次工具调用模式（''=跟随 Agent tags 档；2026-09-17 恢复：新会话
+   *  无显式键时回放并写入该会话——选择要落 conv-settings 才生效，见
+   *  toolModeInherit.ts） */
+  toolMode?: ComposeToolMode;
 }
 
 /** 结构化 localStorage 面（jsdom/node 环境缺省 undefined——既有 try/catch 兜底） */
@@ -59,6 +60,7 @@ const KEY = 'agentchat.composePrefs';
 
 const EFFORTS = new Set<ComposeEffort>(['', 'low', 'high', 'max']);
 const ELEVATIONS = new Set<ComposeElevation>(['', 'sandbox-access', 'full-access']);
+const TOOL_MODES = new Set<ComposeToolMode>(['', 'tc-base', 'tc-programmatic', 'tc-none']);
 
 /** 读取组合偏好（无记录/损坏 → null：全部走各控件缺省值。
  *  agentId/model 的 '' 是合法记录值（明确选回默认）——带出供消费方
@@ -76,7 +78,7 @@ export function loadComposePrefs(): ComposePrefs | null {
     }
     if (typeof v.effort === 'string' && EFFORTS.has(v.effort as ComposeEffort)) out.effort = v.effort as ComposeEffort;
     if (typeof v.elevation === 'string' && ELEVATIONS.has(v.elevation as ComposeElevation)) out.elevation = v.elevation as ComposeElevation;
-    if (typeof v.programmatic === 'boolean') out.programmatic = v.programmatic;
+    if (typeof v.toolMode === 'string' && TOOL_MODES.has(v.toolMode as ComposeToolMode)) out.toolMode = v.toolMode as ComposeToolMode;
     return Object.keys(out).length > 0 ? out : null;
   } catch {
     return null; // 损坏/不可用：无偏好回放
@@ -101,8 +103,8 @@ export function saveComposePrefs(patch: ComposePrefs): void {
         case 'elevation':
           if (typeof value === 'string' && ELEVATIONS.has(value as ComposeElevation)) next.elevation = value as ComposeElevation;
           break;
-        case 'programmatic':
-          if (typeof value === 'boolean') next.programmatic = value;
+        case 'toolMode':
+          if (typeof value === 'string' && TOOL_MODES.has(value as ComposeToolMode)) next.toolMode = value as ComposeToolMode;
           break;
         default:
           break; // 未知键忽略（wire 宽容）

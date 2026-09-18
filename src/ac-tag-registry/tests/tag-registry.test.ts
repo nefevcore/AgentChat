@@ -79,6 +79,11 @@ describe('ac-tag-registry 目录', () => {
     expect(byTag.get('history')).toMatchObject({ category: 'capability', reserved: true });
     expect(byTag.get('full-access')).toMatchObject({ category: 'access-tier', reserved: true });
     expect(byTag.get('sandbox-access')).toMatchObject({ category: 'access-tier', reserved: true });
+    // 工具调用模式词（tc-* 标签轴——toolModeOf 消费；tc-programmatic 是
+    // 唯一被 requiredTags 合法引用的非能力词）
+    expect(byTag.get('tc-programmatic')).toMatchObject({ category: 'tool-mode', reserved: true });
+    expect(byTag.get('tc-none')).toMatchObject({ category: 'tool-mode', reserved: true });
+    expect(byTag.get('tc-base')).toMatchObject({ category: 'tool-mode', reserved: true });
     // base 从目录退役（无门禁语义——一切工具已挂具体标签）
     expect(byTag.get('base')).toBeUndefined();
   });
@@ -212,7 +217,7 @@ describe('ac-tag-registry 手工声明（A1 注册制）', () => {
 });
 
 describe('ac-tag-registry 断言', () => {
-  it('档位词进 requiredTags → assertNoTierInToolRequirements 抛错', async () => {
+  it('非能力词（档位 + 全部 tc-* 模式词）进 requiredTags → assertNoTierInToolRequirements 抛错', async () => {
     const { ctx } = await boot();
     const dispose = ctx.tools.register({
       name: 't-violation',

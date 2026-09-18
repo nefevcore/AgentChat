@@ -615,6 +615,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../ac-conv-settings
       ac-credentials:
         specifier: workspace:*
         version: link:../ac-credentials
@@ -3030,9 +3033,15 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-ask-questions:
+        specifier: workspace:*
+        version: link:../ac-ask-questions
       ac-conv-settings:
         specifier: workspace:*
         version: link:../ac-conv-settings
+      ac-durable-interaction:
+        specifier: workspace:*
+        version: link:../ac-durable-interaction
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core

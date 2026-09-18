@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // run_code 程序卡（v2 时间线版）：四段式——程序体（TS）· 工具调用时间线
 // （逐条 trace：图标 + 工具名 + 一句话 + 耗时 + 状态；**展示调用了哪些
-// 工具**是本版核心诉求）· 返回值（return 压缩结论）· 错误。
+// 工具**是本版核心诉求）· 返回值（return 压缩结论；纯 string 按普通
+// 文本直显，其余走 JSON 代码块）· 错误。
 // 数据面（useToolResult 三形归一后传入 data）：
 //   调用中：{ code, ... }（参数预览——程序体即时可见；无时间线）
 //   完成态：{ summary: { calls, ok, failed, computeMs, wallMs, denied,
@@ -82,8 +83,12 @@ const deniedList = computed(() => summary.value?.denied ?? []);
 
 // ---- 返回值 ----
 const value = computed<unknown>(() => props.data.value);
+// 纯 string 返回值（如 ask_questions 的「用户已答复」）按普通文本渲染——
+// 不 stringify 成带引号的 JSON（多行文本会全变 \n 转义，可读性差）
+const valueIsPlain = computed(() => typeof value.value === 'string');
 const valueText = computed(() => {
   if (value.value === undefined) return '';
+  if (typeof value.value === 'string') return value.value;
   // BigInt 等不可 JSON 化的值会让 stringify 抛错（整个卡崩）——回落字符串形态
   try {
     return JSON.stringify(value.value, null, 2) ?? 'null';
@@ -95,10 +100,12 @@ const VALUE_CLIP = 600;
 const valueExpanded = ref(false);
 const valueIsLong = computed(() => valueText.value.length > VALUE_CLIP);
 // 折叠态只截文本本体；「已截断」提示在代码块外单列（json 高亮下非法尾缀观感差）
+const valueBody = computed(() =>
+  valueExpanded.value || !valueIsLong.value ? valueText.value : valueText.value.slice(0, VALUE_CLIP),
+);
 const renderedValue = computed(() => {
-  if (valueText.value === '') return '';
-  const body = valueExpanded.value || !valueIsLong.value ? valueText.value : valueText.value.slice(0, VALUE_CLIP);
-  return render(`${fenceOf(body)}json\n${body}\n${fenceOf(body)}`);
+  if (valueBody.value === '' || valueIsPlain.value) return '';
+  return render(`${fenceOf(valueBody.value)}json\n${valueBody.value}\n${fenceOf(valueBody.value)}`);
 });
 
 // ---- 错误 ----
@@ -148,11 +155,10 @@ async function copyCode() {
       </ScrollableViewport>
     </div>
 
-    <!-- 执行中（无摘要返回时） -->
+    <!-- 执行中（无摘要返回时）：琥珀旋转环——2026-12 全前端"忙"指示统一
+         （tool-spin-ring 同款；类名复用以进 prefers-reduced-motion 豁免清单） -->
     <div v-if="loading || (!summary && !errorText)" class="rc-running">
-      <span class="loading-dot dot-yellow"></span>
-      <span class="loading-dot dot-gray"></span>
-      <span class="loading-dot dot-gray"></span>
+      <span class="tool-spin-ring rc-spin" aria-hidden="true"></span>
       <span class="rc-running-text">程序执行中…（中间调用不回上下文，仅 return 值返回）</span>
     </div>
 
@@ -201,15 +207,25 @@ async function copyCode() {
       <div class="rc-error-title"><Icon name="alert-circle" :size="12" /> 程序失败</div>
       <pre class="rc-error-text"><code>{{ errorText }}</code></pre>
     </div>
-    <div v-else-if="value !== undefined" class="rc-section rc-value">
-      <div class="rc-head">
+    <div v-else-if="value !== undefined" class="rc-section rc-value" :class="{ 'rc-value-plain': valueIsPlain }">
+      <div v-if="!valueIsPlain" class="rc-head">
         <span class="rc-head-label">return</span>
         <span v-if="valueIsLong && !valueExpanded" class="rc-meta-dim">已折叠（{{ valueText.length }} 字符）</span>
         <button v-if="valueIsLong" class="rc-expand-btn" @click="valueExpanded = !valueExpanded">
           {{ valueExpanded ? '收起' : `展开全部（${valueText.length} 字符）` }}
         </button>
       </div>
-      <ScrollableViewport max-height="30vh" class="rc-viewport">
+      <!-- 纯 string 返回值：普通文本直显（保留换行，无引号无转义）；其余：json 代码块 -->
+      <div v-if="valueIsPlain && valueIsLong" class="rc-plain-fold">
+        <span v-if="!valueExpanded" class="rc-meta-dim">已折叠（{{ valueText.length }} 字符）</span>
+        <button class="rc-expand-btn" @click="valueExpanded = !valueExpanded">
+          {{ valueExpanded ? '收起' : `展开全部（${valueText.length} 字符）` }}
+        </button>
+      </div>
+      <ScrollableViewport v-if="valueIsPlain" max-height="30vh" class="rc-viewport">
+        <pre class="rc-value-text"><code>{{ valueBody }}</code></pre>
+      </ScrollableViewport>
+      <ScrollableViewport v-else max-height="30vh" class="rc-viewport">
         <div class="rc-value-body" v-html="renderedValue" />
       </ScrollableViewport>
     </div>
@@ -290,18 +306,25 @@ async function copyCode() {
 .rc-running {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 6px 12px;
   color: var(--color-text-tertiary);
   font-size: 11.5px;
   user-select: none;
 }
-.rc-running .loading-dot { width: 5px; height: 5px; border-radius: 50%; animation: rc-dot-pulse 1.4s infinite ease-in-out; }
-.rc-running .loading-dot.dot-yellow { background: #e6a817; }
-.rc-running .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
-.rc-running .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
-@keyframes rc-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
-.rc-running-text { margin-left: 2px; }
+/* 琥珀旋转环（tool-spin-ring 形态复刻——scoped 环境下样式自持；类名
+   复用使其进入 main.css prefers-reduced-motion 豁免选择器） */
+.rc-running .rc-spin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
+  border-top-color: var(--color-warning, #f59e0b);
+  animation: rcSpin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes rcSpin { to { transform: rotate(360deg); } }
+.rc-running-text { margin-left: 0; }
 
 /* ---- 时间线段 ---- */
 .rc-trace { border: none; background: transparent; }
@@ -337,9 +360,11 @@ async function copyCode() {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  border-left: 2px solid var(--color-border-secondary, rgba(148, 163, 184, 0.18));
-  padding-left: 8px;
-  margin-left: 4px;
+  /* 嵌套竖线与 chain-body / tool-subcall 同款节奏（1px / margin 7 /
+     padding 14）——run_code 卡内时间线与全前端层级视觉统一 */
+  border-left: 1px solid var(--color-border-secondary);
+  padding-left: 14px;
+  margin-left: 7px;
 }
 .rc-trace-row {
   display: flex;
@@ -455,6 +480,28 @@ async function copyCode() {
   flex-shrink: 0;
 }
 .rc-expand-btn:hover { background: var(--color-bg-hover, rgba(148, 163, 184, 0.12)); }
+
+/* 纯 string 返回值：退掉卡内小卡框（扁平文本直显，与错误文本同规格） */
+.rc-value-plain { border: none; background: transparent; }
+.rc-plain-fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 2px;
+  font-size: 10.5px;
+  user-select: none;
+}
+.rc-plain-fold .rc-expand-btn { margin-left: auto; padding: 1px 4px; }
+.rc-value-text {
+  margin: 0;
+  padding: 6px 10px;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 .rc-empty-return { border: none; background: transparent; padding: 0; }
 </style>

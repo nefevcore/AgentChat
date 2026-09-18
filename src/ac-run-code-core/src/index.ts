@@ -30,13 +30,14 @@ export interface ProjectionOptions {
   guidance?: string;
 }
 
-/** 内置程序书写纪律（互斥形态基线；并存形态由调用方补选择策略） */
+/** 内置程序书写纪律（程序化互斥形态注入用；并存形态不注入投影块） */
 export const DEFAULT_GUIDANCE = [
   '工具调用纪律：',
   '- 只读工具（read/glob/grep/web_search 等）可用 Promise.all 并行（上限 5）；',
   '- 写路径（write/edit/str_replace_editor）与命令（pwsh/bash）按提交序串行执行；',
-  '- return 只返回下一步需要的结论（读文件/搜索结果取摘要，不回传全文；超限会被截断）；',
-  '- 结果解包后 return：用 r.output?.xxx 取值，勿透传 {ok, output} 信封或整个结果对象；',
+  '- 返回结论的两种方式（按任务形态自选）：① return——程序末尾一次合成压缩后的结论（读文件/搜索结果取摘要，不回传全文；超限会被截断）；② log——沿途 log("…") 按序打印结论，程序无 return 值时各行按序合成返回；',
+  '- return 适合在信息完备时一次合成完整结论；log 适合边执行边给结论、失败时留下过程现场——同一程序内不要混用两通道给结论；',
+  '- 结果解包后再 return/log：用 r.output?.xxx 取值，勿透传 {ok, output} 信封或整个结果对象；',
   '- 程序体不做类型检查（可擦除语法）——类型标注可自由省略，访问属性直接写 r.output?.total，无需 as any；',
   '- 语法限可擦除 TS（类型标注/接口可用，enum/命名空间/参数属性不可用）；',
   '- 预算耗尽或中止时程序按 interrupted 收束，已完成的子调用如实计数。',
@@ -137,7 +138,12 @@ export function buildSdkProjection(
     body,
     `};`,
     // lib：会话级临时库（内置 API——闭包第二参数；与 tools 同注入）
-    `declare const lib: {`,
+    // log：输出收集通道（复合返回协议）——程序无 return 值时按序合成返回
+    `declare const log: {`,
+    `  /** 输出收集：按调用顺序打印结论（字符串直传，其余 JSON 序列化）；程序无 return 值时各行按序合成返回值，有 return 值时不回流 */`,
+    `  (...args: unknown[]): void;`,
+    `};`,
+    `declare const lib: {`,,
     `  /** 注册库（value = 函数源码或含 return 的程序体字符串）；本程序起生效，同会话后续程序可用 */`,
     `  define(name: string, value: unknown): { ok: boolean; registered: string; sizeBytes: number };`,
     `  /** 取用已注册库（无参 = 全部 { 名: 值 }——按已知库形状直接解构，无需 as any）；未注册报错并附可用名单 */`,

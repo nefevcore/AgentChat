@@ -69,6 +69,12 @@ describe('buildSdkProjection', () => {
     expect(out).toContain('**\\/*.ts'); // glob 模式里的 */ 同样被转义保形
   });
 
+  it('log 输出收集通道声明（复合返回协议）', () => {
+    const out = buildSdkProjection([READ]);
+    expect(out).toContain('declare const log: {');
+    expect(out).toContain('(...args: unknown[]): void;');
+  });
+
   it('guidance 头部注释注入（默认程序书写纪律）', () => {
     const out = buildSdkProjection([READ]);
     expect(out).toContain(DEFAULT_GUIDANCE.split('\n')[0]);

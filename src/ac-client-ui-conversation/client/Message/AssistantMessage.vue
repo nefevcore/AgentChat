@@ -1,6 +1,6 @@
 <!-- AssistantMessage.vue -->
 <script setup lang="ts">
-import { computed, ref, watch, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -112,6 +112,100 @@ function isThinkingExpanded(): boolean {
 function toggleThinking() {
     showThinking.value = !showThinking.value;
 }
+
+// ── 思考卡限高滚动 + 流式平滑跟随 ──
+// 展开态思考正文超长时收进固定高度视口内滚动；流式跟随为 useChatShell
+// 同款算法的卡片级微缩：token 突发/代码块提交造成的高度跳变经 rAF 指数
+// 缓动追赶柔化（一顿一顿 → 连续流动），距底极近时直接吸收增量（视口
+// 视觉静止）；程序写入与用户滚动按「记账对账」区分——用户上滚帧粒度
+// 即察觉并停机让位，滚回底部附近自动恢复跟随。
+const thinkBodyEl = ref<HTMLElement | null>(null);
+
+/** 用户停在底部附近（scroll 事件回读；跟随拉起的意图门槛） */
+const thinkAtBottom = ref(true);
+
+/** 指数缓动时间常数（ms）——与 useChatShell GLIDE_TAU 一致 */
+const THINK_GLIDE_TAU = 80;
+/** 距底容差（px）：scroll 事件判定「仍在底部附近」的阈值 */
+const THINK_BOTTOM_EPS = 16;
+/** 用户上滚察觉容差（px）：忽略亚像素/触控板噪声 */
+const THINK_USER_EPS = 2;
+let thinkFollowRaf = 0;
+let thinkGlideY = 0;
+let thinkGlideT = 0;
+/** 最近一次程序写入的 scrollTop（scroll 回声对账基线） */
+let thinkExpectedTop = NaN;
+/** 系统减弱动效偏好：跳过缓动，仅贴底吸收（rAF 写入不受 CSS 豁免管辖） */
+const thinkReduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function syncThinkScrollState() {
+    const el = thinkBodyEl.value;
+    if (!el) return;
+    thinkAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < THINK_BOTTOM_EPS;
+}
+
+/** 跟随心跳：向实时底部指数逼近（目标随流式增长每帧重读 scrollHeight）；
+ *  用户上滚（当前值低于记账值超容差且未贴最大值）→ 帧粒度停机让位，
+ *  用户向下助力 → 从用户当前位置续接缓动 */
+function thinkFollowTick() {
+    const el = thinkBodyEl.value;
+    if (!el) { thinkFollowRaf = 0; return; }
+    const cur = el.scrollTop;
+    if (cur < thinkExpectedTop - THINK_USER_EPS && cur < el.scrollHeight - el.clientHeight - THINK_USER_EPS) {
+        thinkFollowRaf = 0;
+        return;
+    }
+    if (cur > thinkGlideY + 0.5) thinkGlideY = cur;
+    const now = performance.now();
+    const target = el.scrollHeight - el.clientHeight;
+    const dt = Math.max(1, now - thinkGlideT);
+    let y = thinkGlideY + (target - thinkGlideY) * (1 - Math.exp(-dt / THINK_GLIDE_TAU));
+    if (y > target) y = target;
+    el.scrollTop = y;
+    thinkExpectedTop = el.scrollTop;
+    thinkGlideY = el.scrollTop;
+    thinkGlideT = now;
+    if (target - thinkGlideY <= 0.5) { thinkFollowRaf = 0; return; }
+    thinkFollowRaf = requestAnimationFrame(thinkFollowTick);
+}
+
+/** 流式增量到达：用户在底部附近 → 距底极小直接吸收（视觉静止），否则
+ *  平滑缓动追赶；用户在阅读上文 → 不打扰 */
+watch(reasoningText, () => {
+    requestAnimationFrame(() => {
+        const el = thinkBodyEl.value;
+        if (!el || !isThinkingLive.value || !thinkAtBottom.value) return;
+        if (thinkFollowRaf) return; // 引擎在跑：目标每帧重读，自动追新增量
+        const dist = el.scrollHeight - el.clientHeight - el.scrollTop;
+        if (thinkReduceMotion || dist <= 1) {
+            el.scrollTop = el.scrollHeight; // 贴底吸收
+            thinkExpectedTop = el.scrollTop;
+        } else {
+            thinkGlideY = el.scrollTop;
+            thinkGlideT = performance.now();
+            thinkFollowRaf = requestAnimationFrame(thinkFollowTick);
+        }
+    });
+});
+
+// 展开初始化（nextTick 等 v-show 完成 display 切换，display:none 下
+// scrollHeight 恒为 0 读不到真实值）：历史思考停在顶部；流式思考中
+// 展开 → 吸底直接看最新输出。收起时停机跟随引擎。
+watch(showThinking, (expanded) => {
+    if (!expanded) {
+        if (thinkFollowRaf) { cancelAnimationFrame(thinkFollowRaf); thinkFollowRaf = 0; }
+        return;
+    }
+    nextTick(() => {
+        const el = thinkBodyEl.value;
+        if (!el) return;
+        if (isThinkingLive.value) {
+            el.scrollTop = el.scrollHeight;
+            thinkExpectedTop = el.scrollTop;
+        }
+        syncThinkScrollState();
+    });
+});
 
 // 思考相位 = 流式中且思考文本在场（由 TurnDisplayItem 步级判定：正文或
 // 工具调用任一到场即思考收束，经 isStreaming 传入）。label 形态（段间
@@ -225,6 +319,7 @@ function copyMessageContent() {
 
 onBeforeUnmount(() => {
     if (copyTimer) clearTimeout(copyTimer);
+    if (thinkFollowRaf) { cancelAnimationFrame(thinkFollowRaf); thinkFollowRaf = 0; }
 });
 </script>
 
@@ -248,6 +343,7 @@ onBeforeUnmount(() => {
                 <div v-if="hasThinking && thinkingVisible" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
                     <div
                         class="think-content-label"
+                        :class="{ 'is-expanded': isThinkingExpanded() }"
                         @click="toggleThinking()"
                         @mouseenter="rowHover = true"
                         @mouseleave="rowHover = false"
@@ -259,7 +355,7 @@ onBeforeUnmount(() => {
                         <Icon v-else :name="rowIcon" :size="14" class="think-icon" />
                         <span class="think-label-text" :title="thinkingLabel">{{ thinkingLabel }}</span>
                     </div>
-                    <div v-show="isThinkingExpanded()" class="think-content-body markdown-body">
+                    <div v-show="isThinkingExpanded()" ref="thinkBodyEl" class="think-content-body markdown-body" @scroll="syncThinkScrollState">
                         <div class="think-content-rendered" v-html="reasoningHtml" />
                         <span v-if="reasoningPendingText" class="streaming-pending">{{ reasoningPendingText }}</span>
                     </div>
@@ -479,6 +575,24 @@ onBeforeUnmount(() => {
     color: var(--color-text-primary);
 }
 
+/* 仅展开态：label 吸附会话可视区顶（chain-header 同款）——渐隐底色常驻，
+   卷入 label 下缘的思考内容经此渐变带柔化淡出（macOS 式纯色渐变遮罩，
+   无需 JS 判定吸附态）。底部 8px 遮蔽余量带（padding 撑高 + 负 margin
+   抵消，不占布局）盖过正文首行——刚卷入的内容先经渐隐带淡出，而非在
+   label 下缘被硬切；未吸附（常态）时余量带覆于正文上方，仅渐变尾端
+   （alpha ≤25% 的 page 色）薄扫 ~2px，视觉不可辨。 */
+.think-content-label.is-expanded {
+    position: sticky;
+    /* 吸附位叠加偏移变量：链内思考卡由 chain-body 提供 chain-header 吸顶
+       实底遮挡高（label 行盒 19.2 + 上下 padding 2×2 + 渐隐带 8 ≈ 30px），
+       使两者吸顶时错层不互覆；独立思考卡无链栏 → 变量缺省 0，吸附位不变 */
+    top: calc(var(--space-md) * -1 + var(--think-label-stack, 0px));
+    z-index: 5;
+    padding-bottom: 8px;
+    margin-bottom: -8px;
+    background: linear-gradient(to bottom, var(--color-bg-page) calc(100% - 8px), transparent);
+}
+
 /* label 单行截断：折叠态携带思考预览文本时，超宽部分尾部省略 */
 .think-label-text {
     min-width: 0;
@@ -516,15 +630,29 @@ onBeforeUnmount(() => {
     color: var(--color-text-secondary);
     display: flex;
     flex-direction: column;
-    justify-content: center;
     min-height: calc(12px * 1.7 + 12px);
+    /* 限高滚动：超长思考收进固定视口（流式随输出自动吸底，见 script），
+       不再把消息流撑出数屏。原 justify-content: center 在滚动容器中会把
+       溢出内容两端裁掉（无法滚到顶部），故移除 */
+    max-height: 260px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-secondary) transparent;
     margin-left: 7px;
     border-left: 1px solid var(--color-border-secondary);
-    padding-left: 14px;
+    /* 右侧避让滚动条 */
+    padding: 0 8px 0 14px;
     /* 防止思考区代码块（含 hljs-string 超长）撑破 */
     min-width: 0;
     max-width: 100%;
 }
+.think-content-body::-webkit-scrollbar { width: 5px; }
+.think-content-body::-webkit-scrollbar-track { background: transparent; }
+.think-content-body::-webkit-scrollbar-thumb { background: var(--color-border-secondary); border-radius: 3px; }
+.think-content-body::-webkit-scrollbar-thumb:hover { background: var(--color-border-primary); }
 
 .think-content-body :deep(p) {
     /* 对齐全局行距节奏（--md-gap-line）：换行/分段等距 */
@@ -570,7 +698,9 @@ onBeforeUnmount(() => {
 
 .think-content-body :deep(ul),
 .think-content-body :deep(ol) {
-    padding-left: 18px;
+    /* 缩进对齐正文基准（markdown.css：ul/ol padding-left 4px + li 24px）——
+       此前 18px 使每级列表比正文多缩进 14px，嵌套列表累积错位 */
+    padding-left: 4px;
     margin: 4px 0;
 }
 

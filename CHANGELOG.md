@@ -6,6 +6,22 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（页面/托盘后台化再切回：断线重连被节流拖延、兜底轮询死区、断线窗口漏帧无对账）
+- **现象**：切走一段时间再回来（浏览器后台标签 / desktop 托盘隐藏——visibilityState=hidden 期间），要等数秒到数十秒才恢复实时；断线过的会话缺消息，直到手动切会话或最多等一个轮询周期（空闲态 60s）才补上。
+- **根因**：浏览器对 hidden 页面的节流是三层叠加——rAF 停摆、定时器 ≥1s（Chrome 后台 5 分钟后强节流至分钟级）、内存换出。前端此前在"可见性恢复"时机零处理：① wire 的重连 setTimeout 在后台被无限拖延，切回也不提前；② runview 兜底轮询的 visible 守卫只跳过 tick 不重排——切回后相位不变，最坏仍要等满一个 interval；③ onOpen 重连恢复链只清占位（loading/流式残留）不补数据——断线窗口丢失的帧无确定性补偿。
+- **修复**（三处，均增量逻辑不动渲染管线）：① wire.ts 新增 resumeFromBackground() + 模块级 visibilitychange→visible 监听：断线态跳过退避等待立即重连，退避归零（用户在场 = 服务优先于避让）；② runview 兜底轮询改"后台顺延"——hidden 期 tick 扑空不清 timer，visible 首 tick 即刷 + 重建定时器把相位锚回前台，另在事件刷新 effect 挂 visible 立即 refresh（消"切回后最多再等一个 interval"死区）；③ feed-core onOpen 恢复链补历史对账：对当前活跃对话（direct/group/single 三形态）重拉首屏历史，与切会话同管线（requestId 时序守卫防乱序合并，fingerprint 短路保服务端 unchanged 轻载荷），feed init 补幂等守卫防订阅累积。
+- **验收**：webui/tests/visibility-resume.test.ts（8 用例：退避取消与归零、健康连接无操作、hidden 不误触；轮询顺延与立即刷新；三形态对账与无活跃不请求、init 重入守卫）；feed 族/portb-e2e/runview 回归 23 例全绿；webui+根 typecheck 零错误。
+
+### Changed（新建 Agent 选「默认服务商」→ model 落 null，不再物化默认池连接）
+- **现象**：新建 Agent 时模型字段默认继承「默认服务商」的模型——创建时点的默认 provider+model 被固化写进档案；之后全局换默认连接，存量 Agent 不跟随；档案核对呈现的是用户从未选择过的模型。
+- **根因**：`agents/create` 写口对「未携带 model」物化 defaultPoolConnection（`provider = 池条目名, model = defaultModel`，自定义默认连接无 defaultModel 时回落清单最新项），且无默认连接可解析时前置 fail-closed 拒绝创建。而编辑面「默认」选项的既有语义是 `model: null`（投递侧 router 对 falsy model 回落默认池连接）——同一「默认」承诺在 create/update 两面形态分裂：create 固化、update 引用。
+- **修复**：create 未携带 model 且非 virtual → 显式存 null（与 update 面清除同形态），删除物化块与前置校验——解析延迟到投递侧（无默认连接时在投递时 fail-closed，报错位置不变）。全局默认连接热更对所有「默认」Agent 即时生效；档案世界与运行时世界一致。
+
+### Fixed（send_agent 投递虚拟端点静默丢失——入站消息滞留内存不落盘）
+- **现象**：Agent 经 send_agent 给用户（虚拟端点）发消息返回 ok，但 UI 全程无感知（无气泡/无未读/刷新也无历史），news 例行简报投递后目标会话文件零写入；偶发——用户恰好随后打开该会话或在其中回复时消息会"复活"。
+- **根因**：ac-session 入站入账（router/message-received / conversation/steered）只入队不落盘，落盘依赖后续定向 flush（tool/before-execute / reply-completed 均 flush 发起方桶）。虚拟端点无 LLM run——无 reply-completed、无工具 checkpoint、目标桶再无任何活动，pending 永久滞留内存；此前的"成功"全靠用户读访问/回复触发的兜底 flush（幸存者偏差）。
+- **修复**：入账即 flushBestEffort（fire-and-forget，不阻塞 emit 链）——入站消息本身是用户可见副作用，与 tool/before-execute 的"副作用前 durable"同语义。顺带覆盖 agent⇄agent 委托在对方开跑前的崩溃窗口。回归测试锁定（无任何后续 run/读访问时断言文件已有消息行）。
+
 ### Changed（思维链吸附过渡柔化——header 渐隐 + 链体顶部模糊带）
 - 展开的思维链滚动吸附时（chain-header sticky 于消息区顶），原先纯色底 + 内容硬切边：header 增设 macOS 式纯色渐变遮罩——page 色不透明段延伸至底部 8px 遮蔽余量带（padding 撑高 + 负 margin 抵消，不占布局）后向下渐隐，卷入的链体内容柔化淡出。遮罩常驻 .expanded（header 恒居可视顶，无需 JS 判定吸附态）；未吸附时仅渐变尾端薄扫首卡顶 ~2px（alpha ≤25%），视觉不可辨。
 

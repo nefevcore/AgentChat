@@ -29,15 +29,14 @@ const STANDARD: AgentPresetDefinition = {
     //   · fs 文件族 / infra 会话基础设施
     //   · shell 命令执行（A3 起，dev→shell 拆分）
     //   · web 网络（纯搜索，无权限面）；delegation 任务委派（2026-12 授权）
-    //   · code-exec 程序化执行（2026-09-17 开关化补授——实测 3a8ea4f7 坑：
-    //     默认预设无此标签时「程序化」勾选对默认路径永不生效，开关惰性
-    //     静默回落标准形态。授权与形态正交：开关关 = run_code 与传统工具
-    //     并存〔投影注入带选择策略〕；开关开 = LLM 面收窄为 run_code 单入口）
+    //   · （run_code 程序化执行随 infra 族——2026-09-17 优化裁决：
+    //     tc-* 回归纯模式词，预设/Agent 无需预配；「程序化」由会话
+    //     工具调用模式下拉按需选择，等同临时程序化档）
     // 标准模式声明面 "读写/Shell/搜索/提问/子任务委派"照此显式授权。
     // 不含 collab（协作族）与 history（会话回放族，2026-09-17 自 infra
     // 拆出）——单会话通用对话不需要跨 Agent 协作与历史回放（2026-09-17
     // 精简裁决；# 会话引用经指引走文件工具分析）
-    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'code-exec'],
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation'],
     // src allowlist（persona/system-prompt/session/security/usage）不含
     // memory/skill/datetime——软停用对齐（无记忆语义）
     settings: {

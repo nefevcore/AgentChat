@@ -41,10 +41,11 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     expect((std?.settings as Record<string, { enabled?: boolean }>).skill).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).datetime).toEqual({ enabled: false });
     // 工具门禁标签（全量标签化 2026-09-16：tags 即工具面；2026-09-17
-    // 精简——collab 协作族与 history 会话回放族出局，单会话通用对话不载；
-    // 同日开关化补授 code-exec——默认预设无此标签时「程序化」开关对
-    // 默认路由路径永不生效〔实测 3a8ea4f7 坑〕，授权与形态正交）
-    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'code-exec']);
+    // 精简——collab 协作族与 history 会话回放族出局，单会话通用对话不载。
+    // run_code 随 infra 族（2026-09-17 优化裁决：tc-* 纯模式词——程序化
+    // 是会话形态选择，无需预配标签）
+    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation']);
+
     // 无 config 行 → 模型留空（router 层报"缺少 model"；会话级模型覆盖可用）
     expect(std?.model).toBeUndefined();
 

@@ -197,7 +197,7 @@ export async function deleteAgent(agentId: string, rpc: Rpc): Promise<{ success?
 /** 标签目录条目（tags/catalog 线形） */
 export interface TagCatalogItem {
   tag: string;
-  category: 'base' | 'access-tier' | 'capability' | 'owner' | 'unknown';
+  category: 'base' | 'access-tier' | 'tool-mode' | 'capability' | 'owner' | 'unknown';
   description?: string;
   tools: Array<{ name: string; description?: string; owner?: string }>;
   reserved?: boolean;

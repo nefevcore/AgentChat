@@ -145,6 +145,12 @@ export class SingleBoardService extends Service {
     this.own.fiber.effect(() => this.own.rpc.onEvent((type) => {
       if (type === 'singles/updated') void this.refresh();
     }), 'singleBoard.wire');
+    // 重连即刷：断连期间 singles/updated 帧丢失（新建/改名/归档不可见）
+    // ——WS 恢复后补拉一次（feed-core/runview 同款恢复位；onOpen 可选
+    // 成员，测试桩缺席时跳过）
+    this.own.fiber.effect(() => this.own.rpc.onOpen?.(() => {
+      if (this.loaded.value) void this.refresh();
+    }) ?? (() => {}), 'singleBoard.reconnect');
   }
 
   /** presence 同步面（帧路由 single~sid 判别——sessions 协调面） */

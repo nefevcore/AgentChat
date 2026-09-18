@@ -19,7 +19,9 @@
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
+    "ac-ask-questions": "workspace:*",
     "ac-conv-settings": "workspace:*",
+    "ac-durable-interaction": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-router": "workspace:*",
     "ac-fs-search": "workspace:*",

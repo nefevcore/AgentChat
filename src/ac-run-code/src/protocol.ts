@@ -63,10 +63,14 @@ export interface WorkerDone {
   ok: boolean;
   /** return 值（序列化 + 截断后） */
   value?: unknown;
+  /** value 来源（复合返回协议）：'return' = 程序 return 值；'logs' = 无 return 值时 log 收集合成的文本 */
+  valueVia?: 'return' | 'logs';
   /** 错误（编译/执行/预算/中止） */
   error?: string;
   /** 中止（interrupt 语义——loop 收束 interrupted） */
   interrupted?: boolean;
+  /** 失败/中止时程序已收集 log 的末 5 条（诊断线索；成功不带） */
+  logsTail?: string[];
   /** 执行摘要（子调用计数/耗时/被拒清单） */
   summary: RunSummary;
   /**
@@ -90,6 +94,12 @@ export interface RunSummary {
   computeMs: number;
   /** 墙钟毫秒（含审批等待） */
   wallMs: number;
+  /**
+   * 预算冻结区间毫秒（ask_questions/approval 用户应答等待期）：含在
+   * wallMs 内但不计入 compute/墙钟预算（预算约束机器时间，人的应答
+   * 时间不是机器时间）。无冻结区间时省略。
+   */
+  frozenMs?: number;
   /** 被安全面拒绝的子调用（name + error） */
   denied: Array<{ name: string; error: string }>;
   /** 串行执行的子调用 seq（写路径/命令类，提交序） */

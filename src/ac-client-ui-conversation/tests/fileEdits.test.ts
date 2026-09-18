@@ -51,6 +51,21 @@ const okEdit = (path: string, added: number, removed: number) => ({ ok: true, ou
 const fail = (error: string) => ({ ok: false, error });
 
 describe('extractFileEdits —— 消息流 → 编辑事件', () => {
+  it('run_code 子调用（subcall 平铺，方向 B）：编辑类子调用天然追踪（参数 + diff 统计齐全）', () => {
+    // 直播形态：run_code 步的 toolCalls 混排宿主 + 子调用（feed-core
+    // onSubcallEnd 追加；历史形态同构——subcalls 投影注入 steps）
+    const msgs: ChatMessage[] = [
+      histMsg('m1', [
+        { id: 'run-1', name: 'run_code', args: { code: 'return 1;' }, result: { ok: true, output: { value: 1 } } },
+        { id: 'run-1#2', name: 'edit', args: { file_path: 'src/a.ts', old_string: 'x', new_string: 'y' }, result: okEdit('src/a.ts', 1, 1) },
+      ]),
+    ];
+    const ev = extractFileEdits(msgs);
+    // 宿主 run_code 不是编辑工具——跳过；子调用 edit 是——收录（diff 追踪修复的验收点）
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ tool: 'edit', path: 'src/a.ts', ok: true, added: 1, removed: 1, oldStr: 'x', newStr: 'y' });
+  });
+
   it('历史形态：arguments JSON 字符串 + result 对象', () => {
     const msgs: ChatMessage[] = [
       histMsg('m1', [{ id: 'c1', name: 'write', args: { file_path: 'a.ts', content: 'hi\n' }, result: okWrite('a.ts', 'hi\n') }]),
