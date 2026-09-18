@@ -3103,8 +3103,8 @@ importers:
         specifier: workspace:*
         version: link:../vendor/schemastery
       '@nefevcore/abap-adt-core':
-        specifier: ^0.10.0
-        version: 0.10.0
+        specifier: ^0.11.0
+        version: 0.11.0
       ac-sandbox-core:
         specifier: workspace:*
         version: link:../ac-sandbox-core
@@ -5046,16 +5046,16 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@nefevcore/abap-adt-core@0.10.0':
-    resolution: {integrity: sha512-qILKwhxPbRG/AzY205BggvkH3qRfvFGURCocQITvc1FUttXU435nb0oDBgxUg9UouRYqqeR+6yiYoYsBywEbag==}
+  '@nefevcore/abap-adt-core@0.11.0':
+    resolution: {integrity: sha512-7WDdNXpG6+yqiR5gYVMoeHGLWCvyFPGq0ynYt3KAKEOLxxzdOKLOy2k+dGZ3hQHdVLu8dfjaekD/CgUAb0BLkw==}
     engines: {node: '>=20'}
 
-  '@nefevcore/abap-adt-mock@0.10.0':
-    resolution: {integrity: sha512-tdKxFNw96ng6UlOL6XvVZgpnzeTY5WWDO0dVA1gaXK8a6zXVsY0DgCMSXo716Qb+GPH+Z0sFkN6GTuJrUX0EJg==}
+  '@nefevcore/abap-adt-mock@0.11.0':
+    resolution: {integrity: sha512-yyOj1dPwhsKIqcb+zQ9V0ek0XMXz3bHDFwJiEQLt4iKQVrArC2qFwEMWTz7Wu5x8M1eJRhVz47aaI6xxUSxONQ==}
     engines: {node: '>=20'}
 
-  '@nefevcore/abap-adt-protocol@0.10.0':
-    resolution: {integrity: sha512-oLsEZzdaB6BJMtxzOtKYjAAyulmuDi1Ra4K6HEP/g+tOfyeXPiqz8JFNYVyqH58mrxNwJaS0nIBRRulA1NLSWw==}
+  '@nefevcore/abap-adt-protocol@0.11.0':
+    resolution: {integrity: sha512-UWgwQ0rmDeqSOZ0+Edrosi0L7Lw9O+Apl+88HcErPHAqGKO96vQqo5dJBuRNnW1NeMuUAszOrX9PUF/SuNc8lA==}
     engines: {node: '>=20'}
 
   '@noble/hashes@1.4.0':
@@ -8059,20 +8059,20 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@nefevcore/abap-adt-core@0.10.0':
+  '@nefevcore/abap-adt-core@0.11.0':
     dependencies:
       '@abaplint/core': 2.120.42
       '@deepseek-ai/cosmokit': 1.8.3
       '@deepseek-ai/schemastery': 3.18.2
-      '@nefevcore/abap-adt-mock': 0.10.0
-      '@nefevcore/abap-adt-protocol': 0.10.0
+      '@nefevcore/abap-adt-mock': 0.11.0
+      '@nefevcore/abap-adt-protocol': 0.11.0
       yaml: 2.9.0
 
-  '@nefevcore/abap-adt-mock@0.10.0':
+  '@nefevcore/abap-adt-mock@0.11.0':
     dependencies:
-      '@nefevcore/abap-adt-protocol': 0.10.0
+      '@nefevcore/abap-adt-protocol': 0.11.0
 
-  '@nefevcore/abap-adt-protocol@0.10.0':
+  '@nefevcore/abap-adt-protocol@0.11.0':
     dependencies:
       undici: 7.29.0
 

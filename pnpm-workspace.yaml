@@ -9,6 +9,6 @@ allowBuilds:
   vue-demi: true
 minimumReleaseAgeExclude:
   - '@nefevcore/abap-adt-dsh-plugin@0.6.0'
-  - '@nefevcore/abap-adt-mock@0.6.0 || 0.7.0 || 0.7.1 || 0.7.2 || 0.8.1 || 0.10.0'
-  - '@nefevcore/abap-adt-protocol@0.6.0 || 0.7.0 || 0.7.1 || 0.7.2 || 0.8.1 || 0.10.0'
-  - '@nefevcore/abap-adt-core@0.7.0 || 0.7.1 || 0.7.2 || 0.8.1 || 0.10.0'
+  - '@nefevcore/abap-adt-mock@0.6.0 || 0.7.0 || 0.7.1 || 0.7.2 || 0.8.1 || 0.10.0 || 0.11.0'
+  - '@nefevcore/abap-adt-protocol@0.6.0 || 0.7.0 || 0.7.1 || 0.7.2 || 0.8.1 || 0.10.0 || 0.11.0'
+  - '@nefevcore/abap-adt-core@0.7.0 || 0.7.1 || 0.7.2 || 0.8.1 || 0.10.0 || 0.11.0'

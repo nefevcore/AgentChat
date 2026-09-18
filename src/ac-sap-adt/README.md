@@ -9,9 +9,12 @@ AgentChat 的 **SAP ABAP 开发工具面**：32 个 `adt_*` 工具直连 SAP ADT
 
 ## 引擎与单一事实源
 
-引擎 = npm 包 [`@nefevcore/abap-adt-core`](https://github.com/nefevcore/dsh-adt)
-（纯内核）——同一份代码同时服务 DeepSeek Harness 适配层（`abap-adt-dsh-plugin`）
-与本行（源仓库 290 项测试锁定全部行为：策略/OCC 快照/$batch/调试器/quirk 回归）。
+引擎 = npm 包 [`@nefevcore/abap-adt-core`](https://github.com/nefevcore/dsh-adt)
+（纯内核）——同一份代码同时服务 DeepSeek Harness 适配层（`abap-adt-dsh-plugin`）
+与本行（源仓库 290+ 项测试锁定全部行为：策略/OCC 快照/$batch/调试器/quirk 回归）。
+0.11 起 `adt_create_destination` 支持自由文本 `description`（连接用途备注，
+list 面可见——Agent 起名的连接不再需要看名字猜用途）；FUGR/FF 函数模块解析
+改走 search 定位，不再对未知组伪造 URI。
 本行只做宿主适配（工具形状归一、能力门禁、fs/credentials/config 三缝），
 **不含任何业务逻辑**——升级内核即升级两宿主。
 
