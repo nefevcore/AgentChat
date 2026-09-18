@@ -31,7 +31,7 @@ const INTRO = [
   '本会话为程序化模式：一切工具操作经 run_code 编写 TypeScript 程序完成（限可擦除语法，',
   '不允许 import）——下方 tools.* 是本模式唯一的工具 API（循环/条件/并行进代码，最终结论经 ',
   'return 或 log 回上下文——无 return 值时 log 各行按序合成返回，按任务形态自选）。',
-  '跨程序复用的函数经 lib.define 注册（同会话后续程序 lib.resolve 取用）。工具 API 类型签名：',
+  '跨程序复用的函数经 lib.define 注册（同会话后续程序 lib.resolve 取用；lib 存小型工具函数，勿存大结果数据——大数据传递 = 把读取/加工逻辑包成 lib 函数，调用时现算）。工具 API 类型签名：',
 ].join('');
 
 /**

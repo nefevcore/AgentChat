@@ -55,7 +55,7 @@ export function apply(ctx: Context, options: RunCodeRowOptions = {}) {
     description:
       '以代码编排成批工具调用，大幅降低 token 消耗：写一段 TypeScript 程序（限可擦除语法），经 tools.<name>(args) 组合多步操作，控制流（循环/条件/并行）进代码，最终结论经 return 或 log 回上下文'
       + '（return 末端一次合成 / log 沿途收集——无 return 值时 log 各行按序合成返回，按任务形态自选）。'
-      + '跨程序复用的函数经 lib.define(名, 函数) 注册（须自包含），后续程序 lib.resolve(名) 取用（同会话有效）。'
+      + '跨程序复用的函数经 lib.define(名, 函数) 注册（须自包含；存小型函数而非大结果数据——大数据跨程序传递 = 把读取/加工逻辑包成 lib 函数调用时现算），后续程序 lib.resolve(名) 取用（同会话有效）。'
       + '确定性多步编排用本工具；探索性研究用 subagent。调用时带 description 参数写明本次程序意图（工具卡 Label）。只读工具可 Promise.all 并行；写路径（write/edit/str_replace_editor）与命令（pwsh/bash）自动按提交序串行。预算超限或中止时程序按 interrupted 收束。',
     parameters: {
       type: 'object',

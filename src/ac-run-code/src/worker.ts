@@ -230,7 +230,7 @@ async function main(): Promise<void> {
       // 容量闸：源码总量 64KB / 条目 32
       const prev = libRegistry.get(name);
       const total = [...libRegistry.entries()].reduce((n, [k, v]) => n + (k === name ? 0 : v.length), 0) + src.length;
-      if (total > 64 * 1024) throw new Error(`lib 注册表超容量（总量 ${total}B > 64KB）——请精简或复用已有库`);
+      if (total > 64 * 1024) throw new Error(`lib 注册表超容量（总量 ${total}B > 64KB）——lib 存小型工具函数而非数据本体：请把「读取+加工」逻辑包成函数（数据经参数传入、调用时现算），或精简/复用已有库`);
       if (libRegistry.size >= 32 && prev === undefined) throw new Error('lib 条目数超限（32）');
       libRegistry.set(name, src);
       return { ok: true, registered: name, sizeBytes: src.length };
