@@ -1,7 +1,7 @@
 # Tag 系统报告（2026-09-16 终态）
 
 > 目的：标签系统全貌一份文档说清——词表、机制、归属、演进裁决与防漂移守则。过一遍即可建立完整心智模型；后续改动先对照本文（尤其 §七 守则），改完同步本文。
-> 关联文档：`tags-include-semantics-report.md`（本次重构的根因分析）、`coding-mode-preset-research.md` v5.1（消费方视角）。
+> 关联文档：`tags-include-semantics-report.md`（本次重构的根因分析）、coding-mode-preset-research.md v5.1（消费方视角；已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）。
 
 ## 一、词表总账（当前全量）
 

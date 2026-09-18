@@ -4,7 +4,13 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
+## [Unreleased]
+
+### Changed（文档归整 2026-12：28 份收官过程文档移仓库外归档根 + 三级索引重写 + 失效引用修复）
+- **归档**：M7-M25 里程碑终稿（11 份）、m15/m16/m17 对账套件（10 件）、WebUI 适配器系列（4 份）、程序化模式三件套+研究报告（4 份）、T0/精简审计（3 份）→ `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`（git 记删除，仓库不再留存过时副本；归档根带 README 清单与回迁规则）。
+- **索引重写**：docs/README.md（归档根从失效的 `Dev\docs\AgentChat` 改指 `Dev\Note\AgentChat`，补 2026-12 批次与收官判据）；src/README.md 设计档案索引（增标签系统行、补归档根注，文件清单对齐现状）+ 轨道历史注；根 README（v0.6.2→0.8.9、37 包旧口径→119 ac-* 包、文档章节对齐）。
+- **失效引用修复 7 处**：session-design / tag-system-report / tags-include-semantics-report ×2 / llm-provider-model-plan ×2 / src/README 里程碑表——全部补归档根指路。
+- **解跟踪误入产物**：vitest-out.txt、desktop/release/ 构建副本（补 .gitignore）。
 
 ### Fixed（页面/托盘后台化再切回：断线重连被节流拖延、兜底轮询死区、断线窗口漏帧无对账）
 - **现象**：切走一段时间再回来（浏览器后台标签 / desktop 托盘隐藏——visibilityState=hidden 期间），要等数秒到数十秒才恢复实时；断线过的会话缺消息，直到手动切会话或最多等一个轮询周期（空闲态 60s）才补上。

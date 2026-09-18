@@ -11,9 +11,14 @@ plugin-logger-console 控制台输出）。
 > 历史文档中的 "preview" 即本轨道；`src/vendor/`（cordis 框架行）为运行时基座。
 
 **本文件是本轨道的事实源**，只记现状：三层架构 / 端到端链路 / 契约归属总表 /
-纯库清单 / 布局 / 装配与运行时分层。历史决策、裁决点与踩坑档案住 `docs/`
-（见[设计档案索引](#设计档案索引)）；开发姿势与新增能力域 checklist 住
-`.dsh/skills/agentchat-framework-dev`。
+
+纯库清单 / 布局 / 装配与运行时分层。历史决策、裁决点与踩坑档案住 `src/docs/`
+
+（见[设计档案索引](#设计档案索引)；收官过程文档冻结于 `src/docs/archive/` 与
+
+仓库外归档根 `Dev\Note\AgentChat\docs-stale-2026-12\`）；开发姿势与新增能力域
+
+checklist 住 `.dsh/skills/agentchat-framework-dev`。
 
 ## 心法
 
@@ -753,20 +758,29 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 
 ## 设计档案索引
 
-历史决策、裁决点与事故档案住 `docs/`（多数"新"能力已有踩坑沉淀——动手前先查）；
-**已收官里程碑的过程文档**（计划/评审/交接/复审）冻结于 `docs/archive/`
-（索引与取代关系见其 README——被取代的裁决不是待办，勿"顺手恢复"）：
+历史决策、裁决点与事故档案住本目录（多数"新"能力已有踩坑沉淀——动手前先查）；
+
+**已收官里程碑的过程文档**（计划/评审/交接/复审）冻结于 `archive/` 与仓库外
+
+归档根（见下方注——被取代的裁决不是待办，勿"顺手恢复"）：
 
 | 分组 | 档案 |
 |---|---|
-| 总览与对账 | `src-to-preview-map.md`（四域深度审查 + ADR-1~7）· `m15-reconciliation.md` · `m24-m25-review.md` · `m24-m25-handoff.md` · `architecture-diagram.html`（架构图可视化） |
-| 会话与 LLM 域 | `session-design.md` · `m21-replay-prefix-cache-plan.md`（回放正确性 + KV 前缀）· `m19-pair-bucket-plan.md`（user 去特殊化 · 全对键桶）· `m20-archive-review-plan.md`（归档整理 run + 失控防线）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
-| WebUI | `m7-webui-plan.md` · `m16-native-webui-plan.md` · `m17-ui-parity-plan.md` · `m18-layout-style-parity-plan.md` · `webui-adapter-plan.md` + `webui-adapter-notes.md`（同源迁移，已收口）· `webui-portb-issues.md` · `webui-src-alignment.md` · `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/m27-*.md` + `archive/m28-*.md` + `archive/m29-row-dep-hygiene-plan.md` + `archive/ui-rows-and-slots-review.md`（M27-M29 过程档案，已收官冻结） |
+| 总览 | `architecture-diagram.html`（架构图可视化） |
+| 会话与 LLM 域 | `session-design.md`（域深设计事实源）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
+| WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
 | 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
-| 治理与插件域 | `m22-ext-plugin-ui-plan.md` · `m23-agent-plugin-plan.md` · `m24-global-defaults-plan.md` · `m25-event-governance-plan.md` · `event-graphs.html`（事件图谱可视化） |
-| 审计与精简 | `t0-audit-2026-08-31.md`（安全与健壮性加固）· `simplify-audit-2026-08-31.md` · `simplify-audit-fulltrack.md` |
-| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md` |
+| 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-12 计划，P0 已随 subagents/history 落地） |
+| 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） |
+| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `remote-client-relay-plan.md`（本地多端远程接入，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md`（打磨残留条目 + 边界备忘） |
 | 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单——已实施） |
+| 标签系统 | `tag-system-report.md`（词表/机制/归属/守则全貌）· `tags-include-semantics-report.md`（× tools.include 语义裁决） |
+
+> **归档根**（2026-12 起）：收官里程碑终稿（M7-M25 计划、m15/m16/m17 对账套件、
+> WebUI 适配器系列、程序化模式三件套、T0/精简审计、src→preview 映射图）已移至
+> `C:\Users\xiaofeng\Documents\Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`；
+> 更早批次见 `docs-pre-refactor-2026-09\` / `docs-stale-2026-09\`。需要历史决策
+> 上下文时按文件名检索归档根。
 
 ### 里程碑一览
 
@@ -782,7 +796,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M12 | 服务编排：usage 双轨 · archive 整理漏斗 · timer · workspace · backup |
 | M13 | 宿主与可视化：web-server · ws-bridge · webui/slot · 插件域 · supervisor |
 | M14 | 扩展补全：datetime · skill · mcp · memory · collab-tools · persona 文件装载 |
-| M15 | 对账收官（六轴对照 + 补齐 13 项，见 m15-reconciliation.md） |
+| M15 | 对账收官（六轴对照 + 补齐 13 项；过程档案已归档 `docs-stale-2026-12\src-docs\m15-reconciliation.md`） |
 | M16-M18 | WebUI 原生重写 → UI 对账补齐 → 布局风格对齐（M16 后经同源迁移回滚，分支 archive/webui-native-m16 留档） |
 | M19 | user 去特殊化——全对键桶模型（pairKey 对桶 + sender/source 分离） |
 | M20 | 归档分支回归——会话内整理 run + 失控防线（maxSteps 128 硬闸） |

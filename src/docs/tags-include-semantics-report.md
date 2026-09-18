@@ -1,6 +1,6 @@
 # 标签体系 × tools.include 语义分析——程序化模式实施前的裁决报告
 
-> 2026-09-16 · 由「极简模式为什么用 tag:shell」的追问触发，延伸至工具门禁体系的结构性核查，面向准备实施的程序化模式（run_code / PTC，见 `coding-mode-preset-research.md` v3.1）。
+> 2026-09-16 · 由「极简模式为什么用 tag:shell」的追问触发，延伸至工具门禁体系的结构性核查，面向准备实施的程序化模式（run_code / PTC，见 coding-mode-preset-research.md v3.1——已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）。
 > 结论先行：**当前门禁体系的根本缺陷是"无 requiredTags = 恒可见"的默认开放设计，而非 base 隐形注入；程序化模式的 P0 预设方案（`include: ['run_code', 'tag:fs', …]`）在当前标签体系下会静默失效，必须在实施前补齐 fs 标签族或改用显式点名**。
 
 ## 一、现状事实（全量核查结果）
@@ -166,4 +166,4 @@ read/write/edit/glob/grep 补 `requiredTags: ['fs']`（新标签），str_replac
 - include 首版语义：`git show 422ea9a:preview/ac-agents/src/service.ts`（M15 收编时 `const base = include ?? all`）
 - tag:fs 空展开实证：模拟 byTag 构建脚本（2026-09-16 运行于本仓 HEAD）
 - base 无消费方：全仓扫 `'base'` 生产引用仅 2 处注入点 + tag-registry 目录描述 + UI 归一化
-- 程序化模式方案：`src/docs/coding-mode-preset-research.md` v3.1（§三 能力轴第三条路、§四 P0 缺口表、§五.2 SDK 投影）
+- 程序化模式方案：coding-mode-preset-research.md v3.1（§三 能力轴第三条路、§四 P0 缺口表、§五.2 SDK 投影；已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）

@@ -12,9 +12,9 @@
 > baseUrl/apiKey（连接面锁死在 provider 定义）；④ Agent 会话设置参考
 > singles，允许快速切换模型。
 >
-> 关联事实源：`src/README.md`（能力地图）、`docs/m15-reconciliation.md` #7
+> 关联事实源：`src/README.md`（能力地图）、m15-reconciliation.md #7（已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）
 > （池抽象当年显式延迟——"延迟到有多模型管理的实际需求"，本方案即该需求
-> 到期）、`docs/m17-recon/settings-spec.md`（池/AgentPane 现形状）。
+> 到期）、m17-recon/settings-spec.md（池/AgentPane 现形状；已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）。
 
 ---
 
