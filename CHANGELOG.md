@@ -8,6 +8,9 @@ All notable changes to AgentChat are documented in this file.
 
 ## [0.8.10] - 2026-09-18
 
+### Fixed（忙态投递测试断言时序——settleToolMode 异步化后同步断言扑空）
+- `chat-core.deliver` 自工具模式继承写落定等待（`await settleToolMode`）引入后，deliver 在微任务后发出——feed-run-busy ×2 / feed-queued-echo ×1 的同步断言扑空（deliverParams undefined）。用例改 async + 双微任务 flush；2292 测试全绿。（v0.8.10 首次 CI 因之失败，本批修复后重发标签。）
+
 
 
 ### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.10.0 → 0.11.0）

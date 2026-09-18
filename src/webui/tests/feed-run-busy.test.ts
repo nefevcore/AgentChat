@@ -135,19 +135,29 @@ describe('忙态投递分流（Enter 排队 / Cmd+Ctrl+Enter 插话）', () => {
 
   const deliverParams = () => deliverCalls.at(-1)?.params as Record<string, unknown>;
 
-  it('忙时 Enter → lane next-turn（排队等本轮结束独立投递，不插话）', () => {
+  it('忙时 Enter → lane next-turn（排队等本轮结束独立投递，不插话）', async () => {
+
     const feed = cores.feed;
+
     // 模拟 run 进行中（工具执行窗口）：run-started 点亮 + 未闭合工具行
+
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
+
     cores.chat.sendMessage('稍后处理这个');
+
+    // deliver 异步化（settleToolMode await 一拍微任务）——断言前 flush
+
+    await Promise.resolve(); await Promise.resolve();
+
     expect(deliverParams()?.lane).toBe('next-turn');
     expect(deliverParams()?.placement).toBeUndefined();
   });
 
-  it('忙时 Cmd/Ctrl+Enter（mode steer）→ placement steer（注入运行中 run）', () => {
-    const feed = cores.feed;
-    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
-    cores.chat.sendMessage('着急，现在就改', undefined, { mode: 'steer' });
+  it('忙时 Cmd/Ctrl+Enter（mode steer）→ placement steer（注入运行中 run）', async () => {
+    const feed = cores.feed;
+    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
+    cores.chat.sendMessage('着急，现在就改', undefined, { mode: 'steer' });
+    await Promise.resolve(); await Promise.resolve();
     expect(deliverParams()?.placement).toBe('steer');
     expect(deliverParams()?.lane).toBeUndefined();
   });

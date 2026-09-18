@@ -68,13 +68,15 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
     cores.roster.activeAgentId.value = A;
   });
 
-  it('忙时 Enter → 本地不上屏（只住 QueueDock）；消费回显才落会话流', () => {
+  it('忙时 Enter → 本地不上屏（只住 QueueDock）；消费回显才落会话流', async () => {
     const feed = cores.feed;
     const chat = cores.chat;
     const id = directDialog(A);
     // 模拟 run 进行中
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
     chat.sendMessage('稍后处理这个');
+    // deliver 异步化（settleToolMode）——断言前 flush 微任务
+    await Promise.resolve(); await Promise.resolve();
     // ← 修复前：这里立即出现用户气泡（与 QueueDock 双现、顺序错乱）
     expect(feed.getRaw(id).filter((m) => m.agent_id === 'user')).toHaveLength(0);
     // 投递形态：排队（lane next-turn，不插话）
