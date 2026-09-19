@@ -309,9 +309,10 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     expect(asst?.content).toBe('最终回答');
     expect(asst?.reasoning_content).toBe('先想想');
     expect(asst?.steps).toHaveLength(2);
+    // 2026-09-20 防冗余：steps[].reasoning 不落盘（唯一存储 = 行级
+    // reasoning_content，上断言）；步级仅保 content/toolCalls/时序键
     expect(asst?.steps?.[0]).toMatchObject({
       content: '',
-      reasoning: '先想想',
       toolCalls: [
         { id: 'c1', name: 'read', arguments: '{"file_path":"a.ts"}', result: { ok: true, output: { content: '...' } } },
       ],
@@ -800,7 +801,8 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(after[1]).toMatchObject({ role: 'agent', agent_id: 'a', content: '' });
     expect(after[1]!.partial).toBeUndefined();
     expect(typeof after[1]!.run).toBe('string');
-    expect(after[1]!.steps![0]).toMatchObject({ reasoning: '需要先问用户' });
+    // 2026-09-20 防冗余：steps[].reasoning 不落盘——思维链在行级 reasoning_content
+    expect(after[1]!.reasoning_content).toBe('需要先问用户');
     expect(after[1]!.steps![0]!.toolCalls![0]).toMatchObject({ result: { ok: false, error: '等待被中止' } });
     // LLM 回放：空 content 但 steps 结果齐全 + viewer 轨迹回放 → 展开轨迹
     //（2026-09-04 语义升级：中断 run 已见前缀字节保真——KV 命中 + 完成步

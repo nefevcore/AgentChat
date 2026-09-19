@@ -591,10 +591,14 @@ export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
 export function stepsFromRunResult(
   result: Pick<LoopRunResult, 'steps'>,
 ): SessionStepRecord[] {
+  // reasoning 防冗余（2026-09-20 裁决修订）：steps[].reasoning 不落盘——
+  // 唯一存储 = 收束行 reasoning_content（整轮 '\n\n' 拼接，可逆拆分）；
+  // 读侧 expandSteps 按步数拆回（UI 步级 thinking 卡数据源）。API 请求
+  // 侧本就不回传 reasoning（适配层请求体无此键），剥除不影响任何链路。
+  // 注意 filter 判据同步：reasoning-only 步改由 map 后的 content/调用来判。
   return result.steps
     .map((s) => ({
       content: s.text,
-      ...(s.reasoning ? { reasoning: s.reasoning } : {}),
       ...(s.ts !== undefined ? { ts: s.ts } : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(s.reasoningMs !== undefined ? { reasoningMs: s.reasoningMs } : {}),
@@ -611,7 +615,12 @@ export function stepsFromRunResult(
           }
         : {}),
     }))
-    .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
+    // 滤除判据用原始步（reasoning 虽不落盘，纯思考步仍占位——整轮拼接
+    // 与步数拆分对齐依赖它在场）
+    .filter((s, i) => {
+      const raw = result.steps[i];
+      return !!raw?.text || !!raw?.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0);
+    });
 }
 
 /** writer 队列（src SessionLogWriter 语义原样：按文件串行 + barrier + 失败回队首） */

@@ -33,8 +33,10 @@ export interface PSessionRecord {
   agent_id?: string;
   /** 旧 baked 格式说话人标注（兼容读取） */
   name?: string;
-  /** 事件来源标注（role:'event' 行；P3） */
+  /** 事件来源标注（role:'event' 行；P3）/ context 行来源决策词（词汇 v2） */
   source?: string;
+  /** context 行 UI 文案（词汇 v2；缺省按 source 回落） */
+  label?: string;
   /** 思维链全文（agent 回复行；P3——刷新后恢复 thinking 折叠栏） */
   reasoning_content?: string;
   /** ReAct 步记录（agent 回复行；M18 #6——刷新后按步重建工具卡片） */
@@ -52,6 +54,10 @@ interface PSessionStep {
   textBeforeTools?: boolean;
   /** 思考相位时长（毫秒；落盘透传）：历史回放恢复「已思考 · XmYs」耗时 */
   reasoningMs?: number;
+  /** 本步 API 流时间（毫秒；dispatch 计时）+ 步用量——链头速率（输出口径）
+   * 数据源：completion/elapsedMs 成对消费 */
+  elapsedMs?: number;
+  usage?: { prompt: number; completion: number; total?: number };
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -99,8 +105,16 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     if (r.role === 'agent' || r.role === 'assistant') {
       const agentId = r.agent_id ?? r.name ?? conversationId;
       if (r.steps && r.steps.length > 0) {
+        // 步级 thinking 恢复（2026-09-20 防冗余裁决读侧）：steps[].reasoning
+        // 已不落盘——从行级 reasoning_content（整轮 '\n\n' 拼接）拆回；段数
+        // 与步数对齐时逐步映射，不对齐全量挂首步（保底可见）
+        const rcSegs = (r.reasoning_content ?? '').split('\n\n').filter((x) => x.trim());
+        const byStep = rcSegs.length === r.steps.length ? rcSegs : undefined;
+        const fallback = byStep ? '' : rcSegs.join('\n\n');
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
+          // 优先行级拆回；steps[].reasoning 在场（存量数据/未剥除链路）直读
+          const stepThinking = byStep ? byStep[i] : s.reasoning || (i === 0 ? fallback : '');
           const stepTs = typeof s.ts === 'number' ? new Date(s.ts).toISOString() : r.timestamp;
           // 幻影调用（id/name 双空的聚合残片——provider 空冲洗片曾产生）不
           // 展开：否则历史多一张无名工具卡（result null 永久转圈）
@@ -116,14 +130,18 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
           out.push({
             role: 'agent',
             content: s.content || '',
-            thinking: s.reasoning || undefined,
-            reasoning_content: s.reasoning,
+            thinking: stepThinking || undefined,
+            reasoning_content: stepThinking || undefined,
             // 思考耗时（与直播 closeThinking 同款构造）：<1s 不写（秒级以下
             // 不显示是既有产品约定）——组件回落「已思考」
             ...(s.reasoningMs !== undefined && s.reasoningMs >= 1000
               ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` }
               : {}),
             ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
+            // 步级 API 计时/token（直播/历史同源；成对在场才参与链头速率）
+            ...(s.elapsedMs !== undefined && s.usage?.completion !== undefined
+              ? { apiMs: s.elapsedMs, apiCompletion: s.usage.completion }
+              : {}),
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             agent_id: agentId,
             name: r.name,
@@ -162,8 +180,8 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       });
       continue;
     }
-    if (r.role === 'error') {
-      // run 错误收束（D12/F7）：错误分隔符（feed 渲染 system 级错误行）
+    if (r.role === 'error' || (r.role === 'context' && r.source === 'error')) {
+      // run 错误收束（D12/F7；词汇 v2：context+source:error 同形态）：错误分隔符
       out.push({ role: 'error', content: r.content, agent_id: 'system', message_id: r.message_id, timestamp: r.timestamp });
       continue;
     }
@@ -171,7 +189,10 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       out.push({ role: 'tool', content: r.content, agent_id: r.agent_id ?? r.name ?? conversationId, name: r.name, tool_call_id: r.message_id, message_id: r.message_id, timestamp: r.timestamp });
       continue;
     }
-    out.push({ role: 'event', content: r.content, agent_id: r.agent_id ?? r.name ?? 'system', message_id: r.message_id, timestamp: r.timestamp });
+    // 词汇 v2：context 行（source:event 机制行 / source:skill 技能注入）与
+    // 存量 event 行同渲染位（分隔符；label 条组件二期）——正文在场可查，
+    // UI 不因新词汇断渲染
+    out.push({ role: 'event', content: r.label ?? r.content, agent_id: r.agent_id ?? r.name ?? 'system', message_id: r.message_id, timestamp: r.timestamp, ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}) });
   }
   // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻/
   // 不可解析时刻保持输入序——旧行为兼容）
@@ -238,6 +259,9 @@ interface PGroupRecord {
     textBeforeTools?: boolean;
     /** 思考相位时长（毫秒；落盘透传）：历史回放恢复「已思考 · XmYs」耗时 */
     reasoningMs?: number;
+    /** 本步 API 流时间（毫秒；dispatch 计时）+ 步用量——链头速率数据源 */
+    elapsedMs?: number;
+    usage?: { prompt: number; completion: number; total?: number };
     toolCalls?: Array<{ id: string; name: string; arguments: string; result?: unknown }>;
   }>;
 }
@@ -284,6 +308,9 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
         ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` }
         : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
+      ...(s.elapsedMs !== undefined && s.usage?.completion !== undefined
+        ? { apiMs: s.elapsedMs, apiCompletion: s.usage.completion }
+        : {}),
       ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       ...base,
     });

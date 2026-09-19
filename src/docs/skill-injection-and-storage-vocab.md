@@ -170,11 +170,17 @@ label 条（收起态；source 定样式：error 红 / event 中性 / 其他按 
   steer 落盘全无）。修：stash 存目标 Agent（steered 首参）；插入行归属说话人
   = sender（与空闲路径同语义）。回归测试 steer-split（真实 deliver 链 +
   60ms 工具阻塞窗口确保 busy 路径）。
-- **reasoning 双份存储 = 有意冗余**（膨胀问题裁决）：reasoning_content
-  （整轮）服务 replayTrajectory 关闭用户——唯一思考来源；steps[].reasoning
-  （步级）服务展开面（UI 步级 thinking 卡）。两消费面互斥但拆任一断其一
-  （session.integration「步记录持久化」用例锁定）。膨胀治理移交归档/compact
-  层（未来 compact 可剥历史 reasoning，热数据保双份）。
+- **reasoning 双份存储 → 单份化**（2026-09-20 裁决修订，用户拍板）：
+  官方文档核实——API 请求侧不回传 reasoning（OpenAI Responses 以
+  encrypted reasoning item 服务端续链，stateless 重放不消费明文思维链；
+  DeepSeek 规则：带 tools 时须回传 reasoning_content 否则 400，无 tools
+  时静默忽略；本项目适配层请求体从无 reasoning 键）——存储里的思维链
+  纯服务 UI。据此 steps[].reasoning 不再落盘（唯一存储 = 行级
+  reasoning_content 整轮 '
+
+' 拼接），UI 步级 thinking 前端拆回
+  （段数=步数逐步映射；存量数据回落直读 steps[].reasoning）。膨胀 ~40%
+  消除。
 
 ## 9. 不做与遗留
 
