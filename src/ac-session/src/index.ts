@@ -703,7 +703,10 @@ export class SessionService extends Service {
    * （串行会话门保证同会话不并发；残留项在进程死亡时随内存消失，无害）。
    */
   /** steer 消费前 stash（消息对象 → 投递信息）：步边界消费时切分落账 */
-  private steerStash = new WeakMap<object, { conversationId: string; agentId?: string; message: LlmMessage; source?: string; meta?: Record<string, unknown> }>();
+  private steerStash = new WeakMap<object, { conversationId: string; agentId?: string; message: LlmMessage; source?: string; sender?: string; meta?: Record<string, unknown> }>();
+  /** stash 会话索引（conversationId → 消息对象集）：after-run 兜底扫描用
+   *  （WeakMap 无法按会话遍历；条目随消费/drop/兜底摘除） */
+  private steerStashByConv = new Map<string, Set<object>>();
 
   private activeRuns = new Map<string, {
     run: string;
@@ -771,7 +774,16 @@ export class SessionService extends Service {
       // 比 LLM 实际消费提前一步的错位；空闲路径照旧直落（下方原逻辑）。
       const busyKey = runLogKey(agentId, conversationId);
       if (busyKey !== undefined && this.activeRuns.has(busyKey)) {
-        this.steerStash.set(message, { conversationId, agentId: sender, message, source, meta });
+        // agentId 存【目标 Agent】（steered 首参——splitRunAt 的 runLogKey 锚），
+        // sender 仅入账归属（消费时 splitRunAt 第二参为目标；说话人在 message
+        // 投递链上）——此前误存 sender 导致切分查不到 activeRuns 而静默丢行
+        this.steerStash.set(message, { conversationId, agentId, message, source, meta, sender });
+        let bag = this.steerStashByConv.get(conversationId);
+        if (!bag) {
+          bag = new Set();
+          this.steerStashByConv.set(conversationId, bag);
+        }
+        bag.add(message);
         return;
       }
       // steer 注入的说话人 = 注入方端点（deliver 调用者），非桶主；
@@ -893,6 +905,27 @@ export class SessionService extends Service {
     // 时序：steer 投递时挂 stash，步边界消费时才切分（LLM 流期间到达的
     // steer 实际进队在步 N 之后——投递时落盘会提前一步；未消费的 steer
     // 随 loop steerQueue 语义一起丢——模型没见过就不算会话事实）。
+    // steer-dropped 兜底（2026-09-20 丢失修复）：run 收束清队时未被模型
+    // 消费的注入——loop 契约假设 steered 事件已入账，但变体乙的入账
+    // 延迟到消费点，此窗口 stash 挂着无人消费 = 消息凭空消失。此处把
+    // stash 命中项落盘（不重投；与旧「事件即入账」语义等价——用户说过
+    // 的话是会话事实，模型没见到也要留痕，下一条自然 run 的历史可见）。
+    this.ctx.on('loop/steer-dropped', (agent: string | undefined, conversationId: string | undefined, _handle: string, dropped: Array<{ message: unknown; sender?: string; source?: string }>) => {
+      if (conversationId === undefined) return;
+      for (const d of dropped) {
+        const info = this.steerStash.get(d.message as object);
+        if (info === undefined) continue;
+        this.steerStash.delete(d.message as object);
+        this.steerStashByConv.get(conversationId)?.delete(d.message as object);
+        // 未消费 → 直接落盘（无切分：run 已收束，位置 = 收束行后）
+        if (info.source === 'event') {
+          this.record(conversationId, agent ?? conversationId, info.message, { roleOverride: 'context', source: 'event' });
+        } else {
+          this.record(conversationId, info.agentId ?? 'user', info.message);
+        }
+        this.flushBestEffort(conversationId, 'steer-dropped 补落账');
+      }
+    }, { description: 'steer 收束竞态兜底：未消费注入补落账（不丢用户事实）' });
     this.ctx.on('loop/step-started', (agent: string | undefined, index: number, messages: unknown, envelope) => {
       const conversationId = envelope?.conversationId;
       if (conversationId === undefined) return;
@@ -903,13 +936,40 @@ export class SessionService extends Service {
       for (const { m } of stashed) {
         const info = this.steerStash.get(m as object)!;
         this.steerStash.delete(m as object);
+        this.steerStashByConv.get(conversationId)?.delete(m as object);
         // 机制标记/群 hint 的 steer 不入账（与空闲路径同款门控）
         if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
         // 切分：关闭行（切分前全部步）→ 插入行 → 新 run 键
-        this.splitRunAt(conversationId, info.agentId ?? agent, info.message, info.source);
+        this.splitRunAt(conversationId, info.agentId ?? agent, info.message, info.source, info.sender);
       }
       void index;
     }, { description: '步边界 steer 消费点：插入切分 + 落账' });
+    // after-run 兜底（2026-09-20 丢失修复二道网）：run 收束时同会话 stash
+    // 仍有残留（消费匹配断链 / 事件时序缝隙等漏路径）——全部落盘。宁可
+    // 位置保守（收束行后）不可丢用户事实；正常路径残留恒空，零成本。
+    this.ctx.on('loop/after-run', (request) => {
+      const cid = request.conversationId;
+      if (cid === undefined) return;
+      const bag = this.steerStashByConv.get(cid);
+      if (bag === undefined || bag.size === 0) return;
+      for (const obj of [...bag]) {
+        const info = this.steerStash.get(obj);
+        if (info === undefined) {
+          bag.delete(obj);
+          continue;
+        }
+        this.steerStash.delete(obj);
+        bag.delete(obj);
+        if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
+        if (info.source === 'event') {
+          this.record(cid, request.agent ?? cid, info.message, { roleOverride: 'context', source: 'event' });
+        } else {
+          this.record(cid, info.agentId ?? 'user', info.message);
+        }
+      }
+      if (bag.size === 0) this.steerStashByConv.delete(cid);
+      this.flushBestEffort(cid, 'steer 兜底落账');
+    }, { description: 'run 收束 stash 残留兜底落账（二道网——不丢用户事实）' });
     // ---- 工具结果补记（2026-09-04：部分行 result 覆盖源）----
     // after-step 部分行按设计先于工具执行落盘（副作用前 durable），result
     // 恒 null；结果到达（after-execute，transform 后终值）即追加 tool-result
@@ -999,7 +1059,7 @@ export class SessionService extends Service {
    *   （后续步走新 run，收束行 steps 只含切分后的步）。
    * 落盘自然顺序 = 回放顺序（KV 前缀保真）；读侧吸收机制既有，零新逻辑。
    */
-  private splitRunAt(conversationId: string, agentId: string | undefined, message: LlmMessage, source?: string, meta?: Record<string, unknown>): void {
+  private splitRunAt(conversationId: string, agentId: string | undefined, message: LlmMessage, source?: string, sender?: string, meta?: Record<string, unknown>): void {
     const key = runLogKey(agentId, conversationId);
     const state = key !== undefined ? this.activeRuns.get(key) : undefined;
     if (state === undefined || key === undefined) return; // 无簿记（机制 run 等）：不切分，插入行直落
@@ -1011,11 +1071,12 @@ export class SessionService extends Service {
         run: state.run,
       });
     }
-    // 插入行：与空闲路径同款入账形态（机制行 context / 普通注入 agent）
+    // 插入行：与空闲路径同款入账形态（机制行 context / 普通注入 agent
+    // 行归属说话人=注入方 sender——steer 语义，非桶主）
     if (source === 'event') {
       this.record(conversationId, agentId ?? conversationId, message, { roleOverride: 'context', source: 'event' });
     } else {
-      this.record(conversationId, message.role === 'user' ? (agentId ?? 'user') : agentId ?? 'user', message);
+      this.record(conversationId, sender ?? agentId ?? 'user', message);
     }
     this.flushBestEffort(conversationId, '插入切分');
     // 死重清理已退役（2026-09-20 partials 摘除——见档案 §7）
@@ -1067,11 +1128,15 @@ export class SessionService extends Service {
     }
     // 思维链持久化（Port B P3）：run 各步 reasoning 拼接为整轮 thinking，
     // 刷新后历史回放可恢复思维链折叠栏。
+    // 思维链双份存储是有意冗余（2026-09-20 裁决）：reasoning_content 服务
+    // replayTrajectory 关闭用户（整轮折叠栏唯一来源——session.integration
+    // 「步记录持久化」用例锁定）；steps[].reasoning 服务展开面（UI 步级
+    // thinking 卡）。膨胀治理移交归档/compact 层（archive 已跳 partial；
+    // 未来 compact 可剥历史 reasoning，热数据保双份）。
     const reasoning = result.steps
       .map((s) => s.reasoning?.trim())
       .filter((r): r is string => !!r)
       .join('\n\n');
-    // 步记录持久化（M18 反馈 #6）：工具调用对随 assistant 行落盘——
     // 刷新后 toHistoryMessages 按步重建 assistant+tool 气泡（与直播/
     // resume 快照同构），工具卡片不再丢失。映射核 = stepsFromRunResult
     // （导出：ac-conversation 视图投影同形状——单一事实源防漂移）。

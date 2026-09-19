@@ -163,7 +163,20 @@ label 条（收起态；source 定样式：error 红 / event 中性 / 其他按 
 - **覆盖面扩展**：补行覆盖从 partial 行扩到关闭行（切分 steps 的 result:null）；
 - **迁移 v1 扩**：M-partials-split（主文件 partial 行 + 直调补行 → partials.jsonl）。
 
-## 8. 不做与遗留
+## 8. 后续修复与裁决（2026-09-20 实测三连）
+
+- **steer 切分丢行修复**：stash 值曾误存 sender 为 agentId——splitRunAt 的
+  runLogKey 锚查不到 activeRuns 即静默丢行（实测复现：busy 会话 next-step
+  steer 落盘全无）。修：stash 存目标 Agent（steered 首参）；插入行归属说话人
+  = sender（与空闲路径同语义）。回归测试 steer-split（真实 deliver 链 +
+  60ms 工具阻塞窗口确保 busy 路径）。
+- **reasoning 双份存储 = 有意冗余**（膨胀问题裁决）：reasoning_content
+  （整轮）服务 replayTrajectory 关闭用户——唯一思考来源；steps[].reasoning
+  （步级）服务展开面（UI 步级 thinking 卡）。两消费面互斥但拆任一断其一
+  （session.integration「步记录持久化」用例锁定）。膨胀治理移交归档/compact
+  层（未来 compact 可剥历史 reasoning，热数据保双份）。
+
+## 9. 不做与遗留
 
 - 信封 source（LoopSource 'user'|'agent'|'event'）不动——运行时拓扑，与存储
   source 同词不同义，按所在对象区分。
