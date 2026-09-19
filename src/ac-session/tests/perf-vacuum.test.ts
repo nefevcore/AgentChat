@@ -76,15 +76,19 @@ describe('程序化模式性能修复', () => {
     await new Promise((r) => setTimeout(r, 50));
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
     const raw = fs.readFileSync(file, 'utf-8');
-    // partial 行与模型直调补行剔除（真死重）
+    // partial 行与补行（直调 + 存量 subcall）剔除——主文件只剩会话事实
     expect(raw).not.toContain('"partial":true');
     expect(raw).not.toContain('"tool_call_id":"call-0"'); // 直调（run_code 宿主自身）补行剔除
-    // subcall 补行保留——子调用卡片唯一数据源（UI 回放依赖）
-    expect(raw).toContain('"tool_call_id":"call-0#1"');
-    expect(raw).toContain('"tool_call_id":"call-0#2"');
+    expect(raw).not.toContain('"tool_call_id":"call-0#1"'); // subcall 补行已迁 subcalls.jsonl
     // 会话事实保留：入站消息 + 收束行（steps 带结果）
     expect(raw).toContain('"content":"跑"');
     expect(raw).toContain('"content":"完成"');
+    // subcalls.jsonl：子调用补行如实保留（UI 回放唯一数据源，不进主文件）
+    const subFile = path.join(root, 'sessions', 'a~user', 'subcalls.jsonl');
+    const subRaw = fs.readFileSync(subFile, 'utf-8');
+    expect(subRaw).toContain('"tool_call_id":"call-0#1"');
+    expect(subRaw).toContain('"tool_call_id":"call-0#2"');
+    expect(subRaw).toContain('"subcall":true');
     // 读侧零变化：records = 入站 + 收束两条，steps 结果齐全
     const recs = await ctx.session.records('a~user', { subcalls: true });
     expect(recs).toHaveLength(2);
@@ -96,12 +100,13 @@ describe('程序化模式性能修复', () => {
     const tcs = settled?.steps?.[0]?.toolCalls ?? [];
     expect(tcs.map((t) => t.id)).toEqual(['call-0', 'call-0#1', 'call-0#2']);
     expect(tcs[1]).toMatchObject({ name: 'read', subcall: true });
-    // 截断形结果（5KB > 2KB 阈值）
-    expect((tcs[1].result as any).__truncated).toBe(true);
+    // 如实记录（2026-09-20 截断废除）：5KB 结果全文在场，无截断标记
+    expect((tcs[1].result as any).__truncated).toBeUndefined();
+    expect((tcs[1].result as any).output).toBe('x'.repeat(5000));
     expect(tcs[2]).toMatchObject({ name: 'read', subcall: true, result: { ok: true, output: { path: 'b.ts' } } });
   });
 
-  it('subcall 补行 result 截断：超 2KB 的结果落盘为截断标记形（直调补行不截断）', async () => {
+  it('双文件分流：subcall 补行落 subcalls.jsonl 且如实不截断（2026-09-20 截断废除）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'a', model: 'none' });
@@ -112,14 +117,47 @@ describe('程序化模式性能修复', () => {
     // 直调补行（大结果）——不截断（部分行覆盖源，KV 字节保真）
     ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-1' }, { ok: true, output: 'z'.repeat(5000) }, undefined);
     await new Promise((r) => setTimeout(r, 30));
+    // subcall 全文如实落 subcalls.jsonl（无截断标记）
+    const subFile = path.join(root, 'sessions', 'a~user', 'subcalls.jsonl');
+    const subRaw = fs.readFileSync(subFile, 'utf-8');
+    const sub = JSON.parse(subRaw.split('\n').find((l) => l.includes('call-0#1'))!);
+    expect(sub.subcall).toBe(true);
+    expect(typeof sub.seq).toBe('number'); // 行 seq（对齐 run_code 编排顺序）
+    expect(sub.result.__truncated).toBeUndefined();
+    expect(sub.result.output).toBe('y'.repeat(5000));
+    // 直调不截断（KV 字节保真）；主文件无 subcall 行（直调补行在 partials.jsonl）
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
     const raw = fs.readFileSync(file, 'utf-8');
-    const sub = JSON.parse(raw.split('\n').find((l) => l.includes('call-0#1'))!);
-    expect(sub.result.__truncated).toBe(true);
-    expect(sub.result.bytes).toBeGreaterThan(5000);
-    expect(typeof sub.result.head).toBe('string');
-    const direct = JSON.parse(raw.split('\n').find((l) => l.includes('"tool_call_id":"call-1"'))!);
-    expect(direct.result.output).toBe('z'.repeat(5000)); // 直调不截断
+    expect(raw).not.toContain('call-0#1');
+    const partRaw = fs.readFileSync(path.join(root, 'sessions', 'a~user', 'partials.jsonl'), 'utf-8');
+    const direct = JSON.parse(partRaw.split('\n').find((l) => l.includes('"tool_call_id":"call-1"'))!);
+    expect(direct.result.output).toBe('z'.repeat(5000));
+  });
+
+  it('subcalls 行 seq：乱序到达（并行 Promise 完成序）→ 注入按落盘 seq（编排序）排', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none' });
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '跑' }, 'a~user', 'user', 'user');
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
+    // 模拟并行编排：提交序 #1 #2 #3，完成/落盘序乱（#3 先回、#1 后回）
+    //（tool_call_id 尾段 = 程序内调用次序；行 seq = 到达落盘序——本用例
+    // 验证注入排序采用 seq 而非尾段）
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#3', runCodeSubcall: true, args: { file_path: 'c.ts' } }, { ok: true, output: { path: 'c.ts' } }, undefined);
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#1', runCodeSubcall: true, args: { file_path: 'a.ts' } }, { ok: true, output: { path: 'a.ts' } }, undefined);
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#2', runCodeSubcall: true, args: { file_path: 'b.ts' } }, { ok: true, output: { path: 'b.ts' } }, undefined);
+    // 正常收束（宿主 run_code 调用对在场 → 注入锚）
+    ctx.emit('router/reply-completed', 'a', '完成', {
+      steps: [{ index: 0, text: '', reasoning: '', ts: 1, toolCalls: [{ id: 'call-0', name: 'run_code', arguments: {} }], toolResults: [{ ok: true, output: {} }] }, { index: 1, text: '完成', reasoning: '', ts: 2, toolCalls: [], toolResults: [] }],
+      finish: 'stop', usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 2 },
+    } as never, 'a~user', 'user', 'user');
+    await new Promise((r) => setTimeout(r, 50));
+    const recs = await ctx.session.records('a~user', { subcalls: true });
+    // 无 partial 步行的 run → 收束行不带 run 键：按 run_code 调用对定位宿主记录
+    const hostRec = recs.find((r) => r.steps?.some((s) => s.toolCalls?.some((t) => t.id === 'call-0')));
+    const tcs = hostRec?.steps?.[0]?.toolCalls ?? [];
+    // 注入序 = 行 seq（到达序 #3 #1 #2），非尾段序（#1 #2 #3）
+    expect(tcs.map((t) => t.id)).toEqual(['call-0', 'call-0#3', 'call-0#1', 'call-0#2']);
   });
 
   it('tail 增量小窗：多轮小 append 后 tail 仍正确（小窗试探路径）', async () => {

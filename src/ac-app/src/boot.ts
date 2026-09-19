@@ -84,6 +84,25 @@ if (process.env.AGENTCHAT_SUPERVISED !== '1') {
   }
 }
 
+// ---- 版本升级数据迁移（锁后、装载前——顺序敏感，skill-injection-and-
+// storage-vocab §4）：meta.json 版本标记 + 迁移前强制快照 + 按序应用。
+// 失败 = 拒绝启动（绝不带半迁移数据跑——后续行会以新词汇写盘）----
+{
+  const dataRoot = process.env.AGENTCHAT_DATA_ROOT!;
+  try {
+    const { runMigrations } = await import('ac-migration-core');
+    const { SESSION_MIGRATIONS } = await import('ac-session/src/migrations.ts');
+    const applied = runMigrations(dataRoot, SESSION_MIGRATIONS);
+    if (applied.length > 0) {
+      console.log(`[boot] 数据迁移完成: ${applied.map((m) => m.id).join(', ')}`);
+    }
+  } catch (err) {
+    console.error('[boot] 数据迁移失败——拒绝启动（半迁移数据不可用；快照已留存于 backups/，修复后重试）:');
+    console.error(err instanceof Error ? err.stack ?? err.message : String(err));
+    process.exit(EXIT_CONFIG);
+  }
+}
+
 // ---- 行偏好层读取（fail-soft；M23 A2 桥接） ----
 let patches: PatchFileEntry[] = [];
 {

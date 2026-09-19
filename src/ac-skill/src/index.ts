@@ -92,7 +92,18 @@ interface WorkdirSource {
   agentWorkdir(agentId: string): string;
 }
 
-/** load_skill 工具输出形状 */
+/** session 服务最小结构面（context 行落账口；行未装时技能行只做步内注入） */
+interface SessionRecordFace {
+  recordContext(
+    conversationId: string,
+    agentId: string,
+    content: string,
+    extra: { source: string; label?: string; split?: boolean },
+  ): void;
+}
+
+/** load_skill 工具输出形状（词汇 v2 轻量化：正文不随返回值走——注入
+ *  机制保证在场，见 skill-injection-and-storage-vocab §1） */
 export interface SkillLoadOutput {
   /** 技能名（<name>） */
   name: string;
@@ -100,8 +111,8 @@ export interface SkillLoadOutput {
   scope: 'global' | 'agent' | 'workspace';
   /** 技能目录（SKILL.md 所在目录；相对引用以此为基准） */
   baseDir: string;
-  /** SKILL.md 正文（frontmatter 已剥离） */
-  content: string;
+  /** 注入状态：正文已注入会话上下文（context 行/步内注入），按其指令执行 */
+  status: 'injected';
 }
 
 /** /name 用户调用手势（DSH SKILL_GESTURE 同款）：用户消息中以空白为界、
@@ -130,11 +141,18 @@ function scanSkillGestures(message: { role?: string; content?: unknown }): strin
 }
 
 /** 手势注入体识别：本行产出的 <system-reminder> user 消息（正文含
- *  技能指令，可能出现 /token 词形——识别以跳过扫描与销账判据） */
+ *  技能指令，可能出现 /token 词形——识别以跳过扫描，防级联触发） */
 function isGestureInjection(message: { role?: string; content?: unknown }): boolean {
   return message.role === 'user'
     && typeof message.content === 'string'
-    && message.content.startsWith('<system-reminder>用户以 /<name> 显式调用以下技能');
+    && (message.content.startsWith('<system-reminder>用户以 /<name> 显式调用以下技能')
+      || message.content.startsWith('<system-reminder>以下技能已加载（load_skill）'));
+}
+
+/** 子调用登记键：<agentId>|<conversationId>（双身份齐备才有账） */
+function subcallKey(agentId: string | undefined, conversationId: string | undefined): string | undefined {
+  if (agentId === undefined || conversationId === undefined) return undefined;
+  return agentId + '|' + conversationId;
 }
 
 /** [引用约定] 词形锚点（ac-fs-tools @路径 / ac-session-query #会话 /
@@ -179,10 +197,10 @@ export class SkillsService extends Service {
   private skillsRoot: string;
   private locationPrefix: string;
   private cache: SkillManifest[] | null = null;
-  /** /name 手势已服务账本（per-run 翻页）：键 = 循环工作消息数组（身份即
-   *  run 页——会话层每轮 run 浅拷贝新数组，跨 run 自然换键；run 结束数组
-   *  可整体回收 → WeakMap 无泄漏），值 = 已服务过的用户消息对象集 */
-  private gestureServed = new WeakMap<object, Set<unknown>>();
+  /** run_code 子调用技能待落账清单：键 = <agentId>|<conversationId>，
+   *  值 = 本 run 内 load_skill 加载的技能（name → 注入正文；after-execute
+   *  登记，reply-completed 收束合并落账后清空——跨 run 不残留） */
+  private subcallPending = new Map<string, Map<string, { name: string; body: string }>>();
 
   constructor(ctx: Context, options: SkillRowOptions = {}) {
     super(ctx, 'skills');
@@ -220,53 +238,40 @@ export class SkillsService extends Service {
       return next();
     }, { description: '注入 <available_skills> 会话工作区 + 全局 + 本 Agent 专属技能目录' });
 
-    // ---- /name 用户显式调用：before-step 手势边界确定性注入（DSH
-    //      dsh-tool-skill pre-step 同款）——识别用户消息中以空白为界的
-    //      /<kebab-name> token，命中已发现技能即为该步注入 <skill_content>
-    //      正文。菜单 pick 与手打 token 同一语义，不依赖模型自觉调
-    //      load_skill；改写仅本步生效（循环主历史不受影响）。
-    //      每消息至多服务一次（gestureServed）：同 run 多步不重复注入——
-    //      工作数组身份即 run 页（会话层每轮 run 浅拷贝新数组，run 边界
-    //      自然翻页）；注入体自身先销账，防技能正文里的 /token 级联触发。
-    this.ctx.on('loop/before-step', (call, next) => {
-      const served = this.gestureServed.get(call.messages) ?? new Set<unknown>();
-      const names: string[] = [];
-      for (const message of call.messages) {
-        // 注入体（isGestureInjection）按识别跳过：其正文含技能指令，
-        // 可能出现 /token 词形——扫描它会在后续步级联注入
-        if (message.role !== 'user' || isGestureInjection(message) || served.has(message)) continue;
-        for (const name of scanSkillGestures(message)) {
-          if (!names.includes(name)) names.push(name);
-        }
-      }
-      if (names.length === 0) {
-        if (served.size > 0) this.gestureServed.set(call.messages, served);
-        return next();
-      }
-      const state = this.agentSkillState(call.agent, call.conversationId);
+    // ---- /name 用户显式调用：before-run 判定 + 持久化注入（存储词汇 v2，
+    //      skill-injection-and-storage-vocab §1）——只判「当前触发消息」=
+    //      request.messages 尾部连续 user 块（已服务者与后续消息之间有
+    //      context/reply 行天然分界）；命中技能经 session 落账 role:'context'
+    //      行（跨 run 永久回放，KV 前缀友好）+ 同字节 append 进
+    //      request.messages（当前 run 即刻生效——双写同源，无瞬态/持久漂移）。
+    //      语义变更（显式签收，档案 §5）：历史手势不再逐 run 重扫（去重
+    //      依据 = 历史 context 行在场）；mid-run steer 的手势不再服务（判定
+    //      收窄为 run 触发消息）；手势未命中不再补偿（一次性判定）。
+    //      gestureServed 账本退役——注入体持久在场即天然去重。
+    this.ctx.on('loop/before-run', (call, next) => {
+      const req = call.request;
+      // 无会话键无处落账（宿主直调 agentLoop 的测试路径）：跳过判定
+      if (req.conversationId === undefined) return next();
+      const state = this.agentSkillState(req.agent, req.conversationId);
+      const names = this.pendingGestureNames(req.messages);
+      if (names.length === 0) return next();
       // 与目录注入同一可见性口径（locateSkill 内含遮蔽序与门控）
       const bodies = names
         .map((name) => this.renderSkillContent(name, state))
         .filter((body) => body !== '');
-      if (bodies.length === 0) {
-        // 未解析到技能（未创建/被白名单挡）：不销账——保留中途创建技能
-        // 或换 Agent 重试后被拾取的能力
-        if (served.size > 0) this.gestureServed.set(call.messages, served);
-        return next();
-      }
-      for (const message of call.messages) {
-        if (message.role === 'user' && !isGestureInjection(message)) served.add(message);
-      }
-      this.gestureServed.set(call.messages, served);
-      call.messages = [
-        ...call.messages,
+      if (bodies.length === 0) return next(); // 未命中：一次性判定，不再补偿（档案 §5-2）
+      this.injectSkillContext(req.agent, req.conversationId, bodies);
+      // 双写同源：append 进 request.messages（当前 run 首步即可见——
+      // session 落账行与工作数组注入体同字节，history() 回放亦同形）
+      req.messages = [
+        ...req.messages,
         {
           role: 'user',
           content: `<system-reminder>用户以 /<name> 显式调用以下技能，按其指令执行；这些技能已内联注入，无需再经 load_skill 加载。\n${bodies.join('\n')}</system-reminder>`,
         },
       ];
       return next();
-    }, { description: '/name 手势确定性注入技能正文（每消息至多一次）' });
+    }, { description: '/name 手势 before-run 判定 + context 行持久化注入（每消息一次）' });
 
     // ---- load_skill：按 <name> 加载完整指令（参照 DSH skill 工具） ----
     // infra 标签（2026-09-16 全量标签化）：技能加载属会话基础设施
@@ -291,6 +296,63 @@ export class SkillsService extends Service {
           call.agentId,
           call.conversationId,
         ),
+    });
+
+    // ---- run_code 子调用 load_skill：after-execute 登记 → before-step
+    //      瞬态注入（run 内每步尾部，字节稳定、按名排序——并行 load 完成
+    //      序抖动不击穿 KV）→ reply-completed 收束合并落账（run 行之后：
+    //      append-only 序正确，群桶并发 run 防穿插）。当前 run 后续步靠
+    //      瞬态注入补位，下轮 run 起历史 context 行在场。直调不登记——
+    //      run 行 steps 携带结果，replayTrajectory 展开即正文在场。
+    this.ctx.on('tool/after-execute', (call, result) => {
+      if (call.name !== 'load_skill' || !result.ok) return;
+      if (call.runCodeSubcall !== true) return;
+      const out = result.output as SkillLoadOutput | undefined;
+      if (!out || typeof out.name !== 'string') return;
+      const key = subcallKey(call.agentId, call.conversationId);
+      if (key === undefined) return;
+      // 正文现读（返回值已轻量化）：与 loadSkill 同源 renderSkillContent
+      const state = this.agentSkillState(call.agentId, call.conversationId);
+      const body = this.renderSkillContent(out.name, state);
+      if (body === '') return; // 读取失败（不注入坏块，与手势口径一致）
+      let pending = this.subcallPending.get(key);
+      if (!pending) {
+        pending = new Map<string, { name: string; body: string }>();
+        this.subcallPending.set(key, pending);
+      }
+      pending.set(out.name, { name: out.name, body });
+    });
+    this.ctx.on('loop/before-step', (call, next) => {
+      const key = subcallKey(call.agent, call.conversationId);
+      const pending = key === undefined ? undefined : this.subcallPending.get(key);
+      if (pending === undefined || pending.size === 0) return next();
+      const names = [...pending.keys()].sort();
+      const bodies = names.map((n) => pending.get(n)!.body);
+      const content = `<system-reminder>以下技能已加载（load_skill），按其指令执行；正文已注入，无需重复加载。\n${bodies.join('\n')}</system-reminder>`;
+      // 落账（变体乙 split）：首见 pending 集即切分落 context 行（落位 =
+      // 进入消息数组的位置）；pending 变化（新技能）再落新行。per-run 首步
+      // 注入时刻 = 正文实际进入消息数组的位置。
+      const fingerprint = names.join('|');
+      const state = pending.get('__recorded__');
+      const recordedFp = state !== undefined ? (state as { fp?: string }).fp : undefined;
+      if (recordedFp !== fingerprint) {
+        pending.set('__recorded__', { name: '__recorded__', body: fingerprint } as { name: string; body: string });
+        this.recordSkillContext(call.agent, call.conversationId, [content], `已加载技能 ${names.join('、')}`, true);
+      }
+      call.messages = [
+        ...call.messages,
+        {
+          role: 'user',
+          content,
+        },
+      ];
+      return next();
+    }, { description: 'run_code 子调用技能注入 + 切分落账（正文在场 + context 行）' });
+    // 落账已挪至 before-step 注入时刻（变体乙 split：落位 = 正文进入消息
+    // 数组的位置）；此处仅清 run 级 pending（防跨 run 残留）
+    this.ctx.on('loop/after-run', (request) => {
+      const key = subcallKey(request.agent, request.conversationId);
+      if (key !== undefined) this.subcallPending.delete(key);
     });
   }
 
@@ -418,7 +480,147 @@ export class SkillsService extends Service {
     } catch {
       return '';
     }
+
   }
+
+
+
+  /**
+
+   * before-run 手势判定：request.messages 尾部连续 user 块中的 /<name>
+
+   * token（去重）——「当前触发消息」语义（档案 §1）。历史消息不判定：
+
+   * 其手势已被服务（注入体/技能 context 行在历史中场即天然分界），逐 run
+
+   * 重扫重注入正是 KV 漏损的根因。注入体自身跳过（防级联）。
+
+   */
+
+  private pendingGestureNames(messages: { role?: string; content?: unknown }[]): string[] {
+
+    const names: string[] = [];
+
+    let sawInjection = false;
+    for (let i = messages.length - 1; i >= 0; i--) {
+
+      const message = messages[i];
+
+      if (message.role !== 'user') break; // 尾部连续 user 块到非 user 为止
+
+      if (isGestureInjection(message)) {
+        // 已有注入体在块内 = 手势已服务（busy 排队重触发窗口）——天然
+        // 去重：注入体之前的消息正是触发它的消息，整块跳过
+        sawInjection = true;
+        continue;
+      }
+      if (sawInjection) continue; // 注入体之前的消息：已服务过
+
+      for (const name of scanSkillGestures(message)) {
+
+        if (!names.includes(name)) names.push(name);
+
+      }
+
+    }
+
+    return names.reverse(); // 保持消息内出现序
+
+  }
+
+
+
+  /**
+
+   * 手势通道落账（档案 §1）：session 落账 context 行（跨 run 永久回放）。
+
+   * 工作数组 append 已由 before-run 钩子完成（同字节渲染）。
+
+   */
+
+  private injectSkillContext(
+
+    agentId: string | undefined,
+
+    conversationId: string | undefined,
+
+    bodies: string[],
+
+  ): void {
+
+    this.recordSkillContext(
+
+      agentId,
+
+      conversationId,
+
+      bodies,
+
+      '用户调用技能 ' + this.skillNamesOf(bodies),
+
+    );
+
+  }
+
+
+
+  /** context 行落账（session 结构化面；source:'skill' + label） */
+
+  private recordSkillContext(
+
+    agentId: string | undefined,
+
+    conversationId: string | undefined,
+
+    bodies: string[],
+
+    label: string,
+
+    split = false,
+
+  ): void {
+
+    if (agentId === undefined || conversationId === undefined) return;
+
+    const session = this.ctx.get('session') as SessionRecordFace | undefined;
+
+    if (!session || typeof session.recordContext !== 'function') return; // session 行未装：只做步内注入，不落账
+
+    session.recordContext(conversationId, agentId, bodies.join('\n\n'), {
+
+      source: 'skill',
+
+      label,
+
+      ...(split ? { split: true } : {}),
+
+    });
+
+  }
+
+
+
+  /** 注入体 → label 技能名串（skill_content name 提取） */
+
+  private skillNamesOf(bodies: string[]): string {
+
+    const names: string[] = [];
+
+    const re = /<skill_content name="([^"]+)">/;
+
+    for (const body of bodies) {
+
+      const m = body.match(re);
+
+      if (m && !names.includes(m[1])) names.push(m[1]);
+
+    }
+
+    return names.join('、');
+
+  }
+
+
 
   /** load_skill 执行体：按名解析（本 Agent 专属 > 会话工作区 > 全局）+ 读正文 */
   private loadSkill(name: string, agentId: string | undefined, conversationId?: string): ToolResult {
@@ -441,11 +643,15 @@ export class SkillsService extends Service {
     } catch (err) {
       throw new Error(`技能 "${name}" 读取失败：${err instanceof Error ? err.message : String(err)}`);
     }
+    // 返回值轻量化（档案 §1 前提）：正文不随返回值走（run_code 场景防
+    // 「返回一份 + 注入一份」双份冗余与搬运诱饵）——注入由 after-execute
+    // 登记 + before-step 瞬态注入 + 收束落账三段保证；程序内分析 SKILL.md
+    // 改走 read（baseDir 在返回值）。
     const output: SkillLoadOutput = {
       name: located.hit.name,
       scope: located.scope,
       baseDir: dir.replace(/\\/g, '/'),
-      content: readSkillBody(content),
+      status: 'injected',
     };
     return { ok: true, output };
   }
@@ -480,8 +686,9 @@ export const extension: ExtensionMeta = {
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
   listeners: [
-    { event: 'loop/before-run', role: '注入 <available_skills>', description: 'Agent 循环启动前拦截（人格/框架/记忆等扩展装配链的一环）', respectsEnabled: true },
-    { event: 'loop/before-step', role: '/name 手势注入技能正文', description: '识别用户消息中的 /<name> 调用 token，为该步内联 <skill_content>（每条消息至多服务一次，同 run 多步不重复注入；新 run 重新服务）', respectsEnabled: true },
+    { event: 'loop/before-run', role: '注入 <available_skills> + /name 手势判定', description: 'Agent 循环启动前拦截：技能目录注入（装配链一环）+ 当前触发消息尾部 user 块的 /<name> 判定——命中落账 context 行（跨 run 永久回放）+ 工作数组双写（每消息一次）', respectsEnabled: true },
+    { event: 'loop/before-step', role: 'run_code 子调用技能步内瞬态注入', description: '本 run 内 load_skill 子调用加载的技能，为每步尾部注入正文（字节稳定、按名排序；收束时经 router/reply-completed 合并落账 context 行）', respectsEnabled: true },
+    { event: 'router/reply-completed', role: 'run_code 技能收束落账', description: 'run 收束后把本 run 内 load_skill 子调用加载的技能合并落账 context 行（session 的 run 行之后——同事件注册序保证）', respectsEnabled: true },
   ],
 };
 

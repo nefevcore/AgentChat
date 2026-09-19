@@ -279,7 +279,7 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     } as never, 'a~user', 'user', 'user');
     const records = await ctx.session.records('a~user');
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ role: 'error', content: 'LLM HTTP 500', agent_id: 'a' });
+    expect(records[0]).toMatchObject({ role: 'context', source: 'error', content: 'LLM HTTP 500', agent_id: 'a' });
     // 回放语义位：user（告知"出了错"而无自他归因污染）
     const log = await ctx.session.history('a~user', { viewer: 'a' });
     expect(log).toEqual([{ role: 'user', content: 'LLM HTTP 500', name: 'a' }]);
@@ -739,7 +739,8 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     const replay = await ctx.session.history('a~user', { viewer: 'a' });
     expect(replay).toEqual([{ role: 'user', content: '帮我决定', name: 'user' }]);
     // 原始文件确实落盘（tool/before-execute checkpoint 同款 flush 语义）
-    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    // partials 摘除（2026-09-20）：partial 步行落 partials.jsonl，主文件零死重
+    const file = path.join(root, 'sessions', 'a~user', 'partials.jsonl');
     expect(fs.readFileSync(file, 'utf-8')).toContain('"partial":true');
     // stats/tail 排除部分行：消息计数 1（仅入站行），名册预览不入中间步
     expect(ctx.session.stats('a~user')!.messageCount).toBe(1);
@@ -828,9 +829,10 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
       usage: { prompt: 1, completion: 0, promptAccumulated: 1, steps: 0 },
     } as never, 'a~user', 'user', 'user');
     const afterError = await ctx.session.records('a~user');
+    console.log('AFTER_ERR:', JSON.stringify(afterError.map((r) => ({ role: r.role, partial: r.partial === true, run: r.run, ts: r.timestamp }))));
     expect(afterError).toHaveLength(3);
     expect(afterError[1]!.partial).toBe(true);
-    expect(afterError[2]).toMatchObject({ role: 'error', content: 'LLM HTTP 500' });
+    expect(afterError[2]).toMatchObject({ role: 'context', source: 'error', content: 'LLM HTTP 500' });
   });
 
   it('纯文本步不落部分行（无工具 run 落盘形态零漂移）；机制 run（archive-review）跳过', async () => {
@@ -884,8 +886,8 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     emitSupplementedPending(ctx);
     await new Promise((r) => setTimeout(r, 10)); // flushBestEffort 尽力而为 → 等落盘
 
-    // 补行物理存在（type 判别行，非消息行）
-    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    // 补行物理存在（type 判别行，非消息行）——partials 摘除后落 partials.jsonl
+    const file = path.join(root, 'sessions', 'a~user', 'partials.jsonl');
     const raw = fs.readFileSync(file, 'utf-8');
     expect(raw).toContain('"type":"tool-result"');
     expect(raw).toContain('"tool_call_id":"call-7"');
@@ -980,10 +982,15 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-1' }, { ok: true, output: 'x' }, undefined);
     ctx.emit('tool/after-execute', { name: 'edit', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-0#1', runCodeSubcall: true, args: { file_path: 'a.ts', old_string: 'x', new_string: 'y' } }, { ok: true, output: { path: 'a.ts', diff_added: 1, diff_removed: 1 } }, undefined);
     await new Promise((r) => setTimeout(r, 10));
+    // 三文件（2026-09-20 partials 摘除）：subcall 补行落 subcalls.jsonl；直调补行落 partials.jsonl
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
     const raw = fs.readFileSync(file, 'utf-8');
-    const subcallLines = raw.split('\n').filter((l) => l.includes('"tool_call_id":"call-0#1"'));
-    const directLines = raw.split('\n').filter((l) => l.includes('"tool_call_id":"call-1"'));
+    const partRaw = fs.readFileSync(path.join(root, 'sessions', 'a~user', 'partials.jsonl'), 'utf-8');
+    const subFile = path.join(root, 'sessions', 'a~user', 'subcalls.jsonl');
+    const subRaw = fs.readFileSync(subFile, 'utf-8');
+    const subcallLines = subRaw.split('\n').filter((l) => l.includes('"tool_call_id":"call-0#1"'));
+    const directLines = partRaw.split('\n').filter((l) => l.includes('"tool_call_id":"call-1"'));
+    expect(raw).not.toContain('call-0#1'); // 主文件无 subcall 行（直调补行也在 partials）
     expect(subcallLines.length).toBe(1);
     const sub = JSON.parse(subcallLines[0]);
     expect(sub.subcall).toBe(true);
@@ -1047,7 +1054,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     const records = await ctx.session.records('a~user');
     expect(records).toHaveLength(2);
     expect(records[0]).toMatchObject({
-      role: 'event', source: 'event', agent_id: 'a',
+      role: 'context', source: 'event', agent_id: 'a',
       content: '[系统通知] 后台任务 bash-1（bash）完成：exit code: 0。',
     });
     expect(records[1]).toMatchObject({ role: 'agent', agent_id: 'user', content: '忙时的追加指令' });
@@ -1092,7 +1099,8 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     const file = path.join(root, 'sessions', 'a~a', 'messages.jsonl');
     expect(fs.existsSync(file)).toBe(true);
     const raw = fs.readFileSync(file, 'utf-8');
-    expect(raw).toContain('"role":"event"');
+    expect(raw).toContain('"role":"context"');
+    expect(raw).toContain('"source":"event"');
     expect(raw).toContain('[系统通知] 任务完成');
   });
 });

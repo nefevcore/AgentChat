@@ -23,6 +23,7 @@
     "ac-agent-presets-builtin": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
+    "ac-migration-core": "workspace:*",
     "ac-agents-dir": "workspace:*",
     "ac-archive": "workspace:*",
     "ac-backup": "workspace:*",

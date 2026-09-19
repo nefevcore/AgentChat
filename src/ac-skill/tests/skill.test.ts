@@ -115,6 +115,34 @@ async function bootSkill(provider: typeof scriptedProvider = scriptedProvider, o
   return { ctx, fiber };
 }
 
+/** 带 agentStore/session/workspace/singles 的 boot（工作区根 = <tmp>/ws；
+ *  行式装载（ctx.plugin）——WorkspaceService 静态依赖 agents/agentStore/
+ *  session，直构绕过 fiber inject 填充会在 agentWorkdir 处断链）。
+ *  词汇 v2：手势判定/落账需要会话键 + session 行——提升模块级共用 */
+async function bootSkillWithSession() {
+  const ctx = new Context();
+  await boot(ctx, standardRows());
+  await boot(ctx, [
+    agentStoreRow,
+    sessionRow,
+    {
+      name: 'workspace-row',
+      apply(c: Context) {
+        void c.plugin(workspaceRow, { root: tmp, browserDaemon: false });
+      },
+    },
+    {
+      name: 'singles-row',
+      apply(c: Context) {
+        void c.plugin(singlesRow, { root: tmp });
+      },
+    },
+  ]);
+  const fiber = ctx.plugin(skillRow, { root: tmp });
+  await fiber;
+  return { ctx, fiber };
+}
+
 afterEach(async () => {
   for (const { fibers } of booted.splice(0)) {
     for (const fiber of [...fibers].reverse()) {
@@ -392,7 +420,7 @@ describe('load_skill 工具', () => {
     expect(res.output).toMatchObject({
       name: 'pdf-export',
       scope: 'global',
-      content: '# PDF 正文\n\n按规则导出。',
+      status: 'injected',
     });
     expect(String(res.output && (res.output as { baseDir?: string }).baseDir).replace(/\\/g, '/')).toBe(
       `${String(tmp).replace(/\\/g, '/')}/skills/pdf`,
@@ -410,7 +438,7 @@ describe('load_skill 工具', () => {
       agentId: 'a',
     })) as ToolResult;
     expect(res.ok).toBe(true);
-    expect(res.output).toMatchObject({ name: 'agent-only', scope: 'agent', content: '专属指令正文' });
+    expect(res.output).toMatchObject({ name: 'agent-only', scope: 'agent', status: 'injected' });
   });
 
   it('专属技能同名遮蔽全局同名技能', async () => {
@@ -425,7 +453,7 @@ describe('load_skill 工具', () => {
       agentId: 'a',
     })) as ToolResult;
     expect(res.ok).toBe(true);
-    expect(res.output).toMatchObject({ scope: 'agent', content: '本 Agent 的 dup 正文' });
+    expect(res.output).toMatchObject({ scope: 'agent', status: 'injected' });
   });
 
   it('白名单外的全局技能不可加载（目录未列出）', async () => {
@@ -500,10 +528,7 @@ describe('load_skill 工具', () => {
 });
 
 describe('会话工作区技能（singles 挂载工作区）', () => {
-  /** 带 agentStore/session/workspace/singles 的 boot（工作区根 = <tmp>/ws；
-   *  行式装载（ctx.plugin）——WorkspaceService 静态依赖 agents/agentStore/
-   *  session，直构绕过 fiber inject 填充会在 agentWorkdir 处断链） */
-  async function bootSkillWithSession() {
+  async function bootSkillWithSessionLocal() {
     const ctx = new Context();
     await boot(ctx, standardRows());
     await boot(ctx, [
@@ -542,7 +567,7 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
     makeRoot();
     writeSkill('pdf', 'pdf-export', '全局技能');
     const wsRoot = writeWsSkill('.claude/skills', 'ws-review', 'ws-review', '# 审查正文');
-    const { ctx } = await bootSkillWithSession();
+    const { ctx } = await bootSkillWithSessionLocal();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
     // 预置 title：短路 singles 自动标题（run-started 的 fire-and-forget LLM
     // 调用会插进 mock captured，污染 captured[0] 断言）——本组用例测注入，不关心标题
@@ -569,7 +594,7 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
       conversationId: single.id,
     })) as ToolResult;
     expect(res.ok).toBe(true);
-    expect(res.output).toMatchObject({ name: 'ws-review', scope: 'workspace', content: '# 审查正文' });
+    expect(res.output).toMatchObject({ name: 'ws-review', scope: 'workspace', status: 'injected' });
 
     // 全局技能在该 Agent 下被软停用挡住（门控语义不变）
     const denied = (await ctx.tools.execute({
@@ -585,7 +610,7 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
   it('会话隔离：未挂工作区的会话看不到工作区组；1v1/群键恒无', async () => {
     makeRoot();
     const wsRoot = writeWsSkill('.github/skills', 'gh', 'gh-skill');
-    const { ctx } = await bootSkillWithSession();
+    const { ctx } = await bootSkillWithSessionLocal();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
     const attached = ctx.singles.create({ workspaceId: ws.id, title: '已挂载' });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
@@ -606,7 +631,7 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
     writeSkill('dup', 'dup', '全局版本', '全局正文');
     writeAgentSkill('a', 'dup', 'dup', '专属版本', '专属正文');
     const wsRoot = writeWsSkill('skills', 'dup', 'dup', '工作区正文');
-    const { ctx } = await bootSkillWithSession();
+    const { ctx } = await bootSkillWithSessionLocal();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
     const single = ctx.singles.create({ workspaceId: ws.id });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
@@ -617,7 +642,7 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
       conversationId: single.id,
     })) as ToolResult;
     expect(res.ok).toBe(true);
-    expect(res.output).toMatchObject({ scope: 'agent', content: '专属正文' });
+    expect(res.output).toMatchObject({ scope: 'agent', status: 'injected' });
     // 无专属时工作区遮蔽全局
     const res2 = (await ctx.tools.execute({
       name: 'load_skill',
@@ -626,50 +651,14 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
       conversationId: single.id,
     })) as ToolResult;
     expect(res2.ok).toBe(true);
-    expect(res2.output).toMatchObject({ scope: 'workspace', content: '工作区正文' });
+    expect(res2.output).toMatchObject({ scope: 'workspace', status: 'injected' });
   });
 
-  it('/name 用户显式调用：before-step 确定性注入 <skill_content>（DSH pre-step 同款）', async () => {
-    makeRoot();
-    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文\n\n按规则导出。');
-    writeSkill('triage', 'triage', '对输入分类', '分类正文');
-    const { ctx } = await bootSkill();
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
-
-    // 用户消息带 /pdf-export token → 步尾注入 system-reminder + 正文
-    captured.length = 0;
-    await ctx.agentLoop.run({
-      agent: 'a',
-      model: 'mock-1',
-      messages: [{ role: 'user', content: '请用 /pdf-export 处理这份文档\nhttps://x.com/a 不算调用' }],
-    });
-    const stepMessages = captured[0].messages;
-    const reminder = stepMessages[stepMessages.length - 1];
-    expect(reminder.role).toBe('user');
-    expect(String(reminder.content)).toContain('<system-reminder>');
-    expect(String(reminder.content)).toContain('<skill_content name="pdf-export">');
-    expect(String(reminder.content)).toContain('# PDF 正文');
-    expect(String(reminder.content)).not.toContain('skill_content name="triage"'); // 只注入被点名的
-    // URL 的 // 不触发；原始用户消息保持不动（改写仅注入尾部）
-    expect(String(stepMessages[1]?.content ?? stepMessages[0]?.content)).toContain('/pdf-export 处理这份文档');
-
-    // 无 /name 的普通消息 → 零注入
-    captured.length = 0;
-    await ctx.agentLoop.run({
-      agent: 'a',
-      model: 'mock-1',
-      messages: [{ role: 'user', content: '普通消息，https://example.com/x 链接不算' }],
-    });
-    const plain = captured[0].messages;
-    expect(plain.some((m) => String(m.content).includes('<system-reminder>'))).toBe(false);
-  });
-
-  it('/name 手势与工作区技能：conversationId（步载体出生字段）解析挂载工作区', async () => {
+  it('/name 手势与工作区技能：conversationId 解析挂载工作区（before-run 判定 + 落账）', async () => {
     makeRoot();
     const wsRoot = writeWsSkill('.claude/skills', 'ws-tool', 'ws-tool', '# 工作区技能正文');
-    const { ctx } = await bootSkillWithSession();
+    const { ctx } = await bootSkillWithSessionLocal();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
-    // 预置 title 短路自动标题（同上：防 fire-and-forget LLM 调用污染 captured）
     const single = ctx.singles.create({ workspaceId: ws.id, title: '手势会话' });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     captured.length = 0;
@@ -689,116 +678,109 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
       agent: 'a',
       model: 'mock-1',
       messages: [{ role: 'user', content: '按 /ws-tool 执行' }],
+      conversationId: ctx.singles.create({ title: '无工作区' }).id,
     });
     expect(captured[0].messages.some((m) => String(m.content).includes('<system-reminder>'))).toBe(false);
   });
 });
 
-describe('/name 手势注入去重（每消息至多服务一次）', () => {
-  /** 两步 run：首步 tool_call（echo）→ 工具执行 → 次步文本收束。第 2 步
-   *  的消息列表仍含手势用户消息（旧实现在此重复注入）——本组验证修复。 */
-  function countInjections(input: LlmChatInput): number {
-    return input.messages.filter(
-      (m) => m.role === 'user' && String(m.content).startsWith('<system-reminder>用户以 /<name> 显式调用'),
-    ).length;
-  }
-
-  it('同 run 两步：技能正文只在首步注入一次，次步零注入', async () => {
-    makeRoot();
-    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
-    const { ctx } = await bootSkill(toolThenTextProvider);
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
-    ctx.tools.register({
-      name: 'echo',
-      description: '回显',
-      parameters: { type: 'object', properties: { text: { type: 'string' } } },
-      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
-    });
-    captured.length = 0;
-    const result = await ctx.agentLoop.run({
-      agent: 'a',
-      model: 'mock-1',
-      messages: [{ role: 'user', content: '请用 /pdf-export 处理文档' }],
-    });
-    expect(result.steps).toHaveLength(2);
-    expect(countInjections(captured[0])).toBe(1);
-    expect(countInjections(captured[1])).toBe(0);
-  });
-
-  it('新 run（同 ctx、含同一手势消息的新数组）：重新服务', async () => {
-    makeRoot();
-    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
-    const { ctx } = await bootSkill(toolThenTextProvider);
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
-    ctx.tools.register({
-      name: 'echo',
-      description: '回显',
-      parameters: { type: 'object', properties: { text: { type: 'string' } } },
-      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
-    });
-    captured.length = 0;
-    const gestureMessage = { role: 'user' as const, content: '请用 /pdf-export 处理文档' };
-    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [gestureMessage] });
-    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [gestureMessage] });
-    // 会话层每轮 run 浅拷贝新数组 → 新账页 → 两个 run 的首步各注入一次
-    expect(countInjections(captured[0])).toBe(1);
-    expect(countInjections(captured[2])).toBe(1);
-  });
-
-  it('同 run 中途 steer 新手势消息：仍被服务（未销账的新消息）', async () => {
+describe('/name 手势与注入通道（词汇 v2：before-run 判定 + context 行落账）', () => {
+  it('before-run 判定尾部 user 块：工作数组注入 + context 行落账 + 回放含正文', async () => {
     makeRoot();
     writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
     writeSkill('triage', 'triage', '对输入分类', '分类正文');
-    const { ctx } = await bootSkill(toolThenTextProvider);
+    const { ctx } = await bootSkillWithSession();
+    const single = ctx.singles.create({ title: '手势会话' });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
-    ctx.tools.register({
-      name: 'echo',
-      description: '回显',
-      parameters: { type: 'object', properties: { text: { type: 'string' } } },
-      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
-    });
-    captured.length = 0;
-    // 首步的 before-run 阶段 steer：工具执行中注入 → 次步消息含新手势
-    const runPromise = ctx.agentLoop.run({
-      agent: 'a',
-      model: 'mock-1',
-      messages: [{ role: 'user', content: '开始 /triage' }],
-    });
-    ctx.agentLoop.steer('a', { role: 'user', content: '补充：用 /pdf-export 也处理' });
-    await runPromise;
-    expect(countInjections(captured[0])).toBe(1); // 首步：triage（steer 尚未消费）
-    const step2 = captured[1].messages;
-    expect(step2.some((m) => String(m.content) === '补充：用 /pdf-export 也处理')).toBe(true);
-    expect(countInjections(captured[1])).toBe(1); // 次步：仅 pdf-export
-    const reminder = String(step2.filter((m) => m.role === 'user' && String(m.content).includes('system-reminder')).at(-1)?.content);
-    expect(reminder).toContain('pdf-export');
-    expect(reminder).not.toContain('triage');
-  });
 
-  it('技能正文含 /token 词形：注入体不级联（识别即跳过扫描）', async () => {
-    makeRoot();
-    // 正文含 /another-skill token：若注入体被当作普通用户消息扫描，
-    // 下一步会为 another-skill 追加第二份 reminder
-    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF\n执行时参考 /another-skill 的规范');
-    writeSkill('another', 'another-skill', '另一技能', '另一正文');
-    const { ctx } = await bootSkill(toolThenTextProvider);
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
-    ctx.tools.register({
-      name: 'echo',
-      description: '回显',
-      parameters: { type: 'object', properties: { text: { type: 'string' } } },
-      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
-    });
     captured.length = 0;
     await ctx.agentLoop.run({
       agent: 'a',
       model: 'mock-1',
-      messages: [{ role: 'user', content: '请用 /pdf-export 处理文档' }],
+      messages: [{ role: 'user', content: '请用 /pdf-export 处理这份文档\nhttps://x.com/a 不算调用' }],
+      conversationId: single.id,
     });
-    expect(countInjections(captured[0])).toBe(1);
-    expect(countInjections(captured[1])).toBe(0);
-    // 注入体只含 pdf-export 的正文块；another-skill 仅以正文内提及的
-    // 文本形式在场，没有被级联加载为独立 <skill_content>
-    expect(String(captured[0].messages.at(-1)?.content)).not.toContain('<skill_content name="another-skill">');
+    const stepMessages = captured[0].messages;
+    const reminder = stepMessages[stepMessages.length - 1];
+    expect(reminder.role).toBe('user');
+    expect(String(reminder.content)).toContain('<system-reminder>');
+    expect(String(reminder.content)).toContain('<skill_content name="pdf-export">');
+    expect(String(reminder.content)).toContain('# PDF 正文');
+    expect(String(reminder.content)).not.toContain('skill_content name="triage"');
+    // context 行落账：history() 回放含注入正文（context → user 语义位）
+    const rows = await ctx.session.history(single.id, { viewer: 'a' });
+    expect(rows.some((m) => String(m.content).includes('skill_content name="pdf-export"'))).toBe(true);
+    // 落账行 role 形态：records() 直读（context + source:skill + label）
+    const recs = await ctx.session.records(single.id);
+    const ctxRow = recs.find((r) => r.role === 'context');
+    expect(ctxRow).toBeDefined();
+    expect(ctxRow?.source).toBe('skill');
+    expect(String(ctxRow?.label ?? '')).toContain('pdf-export');
+
+    // 无 /name 普通消息 → 零注入
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '普通消息，https://example.com/x 链接不算' }],
+      conversationId: single.id,
+    });
+    expect(captured[0].messages.some((m) => String(m.content).includes('<system-reminder>用户以 /<name>'))).toBe(false);
+  });
+
+  it('一次性判定：尾部已含注入体 → 跳过（busy 排队重触发窗口去重）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
+    const { ctx } = await bootSkillWithSession();
+    const single = ctx.singles.create({ title: '手势会话' });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    captured.length = 0;
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: '请用 /pdf-export 处理文档' }], conversationId: single.id });
+    expect(captured[0].messages.some((m) => String(m.content).startsWith('<system-reminder>用户以 /<name>'))).toBe(true);
+    // 第二轮：messages 尾部已带注入体（等价于 busy 排队后重触发同消息）→ 不再注入
+    // （第二轮请求中手势注入体恰为传入的那一条，未新增）
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: '请用 /pdf-export 处理文档' }, { role: 'user', content: '<system-reminder>用户以 /<name> 显式调用以下技能，按其指令执行；这些技能已内联注入，无需再经 load_skill 加载。\n<skill_content name="pdf-export">\n# PDF 正文\n</skill_content></system-reminder>' }], conversationId: single.id });
+    const secondRunInputs = captured.slice(1);
+    const gestureCounts = secondRunInputs.map(
+      (input) => input.messages.filter((m) => String(m.content).startsWith('<system-reminder>用户以 /<name>')).length,
+    );
+    expect(gestureCounts.every((n) => n === 1)).toBe(true); // 每步恰 1（传入的那条），无新增
+  });
+
+  it('mid-run steer 手势不再服务（判定收窄为 run 触发消息——档案 §5 行为变更）', async () => {
+    makeRoot();
+    writeSkill('triage', 'triage', '对输入分类', '分类正文');
+    const { ctx } = await bootSkillWithSession();
+    const single = ctx.singles.create({ title: 'steer 会话' });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.tools.register({
+      name: 'echo',
+      description: '回显',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
+    });
+    captured.length = 0;
+    const runPromise = ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '开始工作' }],
+      conversationId: single.id,
+    });
+    ctx.agentLoop.steer('a', { role: 'user', content: '补充：用 /triage 也处理' });
+    await runPromise;
+    expect(captured.some((input) => input.messages.some((m) => String(m.content).includes('skill_content name="triage"')))).toBe(false);
+  });
+
+  it('run_code 子调用通道：直调 load_skill 不瞬态注入（steps 回放承担）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
+    const { ctx } = await bootSkillWithSession();
+    const single = ctx.singles.create({ title: '直调会话' });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    captured.length = 0;
+    // 直调（runCodeSubcall 未标）：load_skill 结果在 steps，无步内注入体
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'load pdf' }], conversationId: single.id });
+    expect(captured[0].messages.every((m) => !String(m.content).startsWith('<system-reminder>以下技能已加载'))).toBe(true);
   });
 });
+

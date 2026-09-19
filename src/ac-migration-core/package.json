@@ -1,0 +1,21 @@
+{
+  "name": "ac-migration-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "版本升级数据迁移纯库（零 cordis 依赖）：迁移注册表 + 执行器（按序应用/幂等/断点续跑；meta.json 版本标记 + 迁移前强制快照）——boot.ts 锁后装载前调用（顺序敏感，非行非服务）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "ac-backup-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-session": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}
