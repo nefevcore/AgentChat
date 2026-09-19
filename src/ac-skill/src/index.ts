@@ -328,7 +328,7 @@ export class SkillsService extends Service {
       if (pending === undefined || pending.size === 0) return next();
       const names = [...pending.keys()].sort();
       const bodies = names.map((n) => pending.get(n)!.body);
-      const content = `<system-reminder>以下技能已加载（load_skill），按其指令执行；正文已注入，无需重复加载。\n${bodies.join('\n')}</system-reminder>`;
+      const content = this.renderInjectedReminder(bodies);
       // 落账（变体乙 split）：首见 pending 集即切分落 context 行（落位 =
       // 进入消息数组的位置）；pending 变化（新技能）再落新行。per-run 首步
       // 注入时刻 = 正文实际进入消息数组的位置。
@@ -348,11 +348,32 @@ export class SkillsService extends Service {
       ];
       return next();
     }, { description: 'run_code 子调用技能注入 + 切分落账（正文在场 + context 行）' });
-    // 落账已挪至 before-step 注入时刻（变体乙 split：落位 = 正文进入消息
-    // 数组的位置）；此处仅清 run 级 pending（防跨 run 残留）
+    // 收束兜底（2026-09-20 单步 run 丢失修复）：before-step 注入时刻落账
+    // 需要「下一步」存在——单步 run（load 后即收束，run_code 唯一步形态）
+    // 没有下一步，pending 挂着无人消费 = context 行丢失。after-run 时
+    // pending 非空即补落（split=true：run 已收束走直落分支，位置在收束
+    // 行后——次优但正文在场）。
     this.ctx.on('loop/after-run', (request) => {
       const key = subcallKey(request.agent, request.conversationId);
-      if (key !== undefined) this.subcallPending.delete(key);
+      if (key === undefined) return;
+      const pending = this.subcallPending.get(key);
+      this.subcallPending.delete(key);
+      if (pending === undefined) return;
+      const fp = pending.get('__recorded__');
+      const recorded = fp !== undefined ? (fp as unknown as { body?: string }).body : undefined;
+      // 未曾落账（本 run 无下一步）→ 收束后直落；已落账（指纹一致）→ 跳过
+      const names = [...pending.keys()].filter((n) => n !== '__recorded__').sort();
+      if (names.length === 0) return;
+      const fingerprint = names.join('|');
+      if (recorded === fingerprint) return;
+      const bodies = names.map((n) => pending.get(n)!.body);
+      this.recordSkillContext(
+        request.agent,
+        request.conversationId,
+        [this.renderInjectedReminder(bodies)],
+        '已加载技能 ' + names.join('、'),
+        true,
+      );
     });
   }
 
@@ -598,6 +619,11 @@ export class SkillsService extends Service {
 
   }
 
+
+  /** 子调用注入体渲染（before-step 与 after-run 兜底共用，字节同源） */
+  private renderInjectedReminder(bodies: string[]): string {
+    return '<system-reminder>以下技能已加载（load_skill），按其指令执行；正文已注入，无需重复加载。\n' + bodies.join('\n') + '</system-reminder>';
+  }
 
 
   /** 注入体 → label 技能名串（skill_content name 提取） */
