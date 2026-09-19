@@ -105,16 +105,12 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     if (r.role === 'agent' || r.role === 'assistant') {
       const agentId = r.agent_id ?? r.name ?? conversationId;
       if (r.steps && r.steps.length > 0) {
-        // 步级 thinking 恢复（2026-09-20 防冗余裁决读侧）：steps[].reasoning
-        // 已不落盘——从行级 reasoning_content（整轮 '\n\n' 拼接）拆回；段数
-        // 与步数对齐时逐步映射，不对齐全量挂首步（保底可见）
-        const rcSegs = (r.reasoning_content ?? '').split('\n\n').filter((x) => x.trim());
-        const byStep = rcSegs.length === r.steps.length ? rcSegs : undefined;
-        const fallback = byStep ? '' : rcSegs.join('\n\n');
+        // reasoning 单份存储（2026-09-20 终版）读侧：正源 = steps[].reasoning
+        // 直读；存量行级 reasoning_content（迁移前旧数据）挂首步保底
+        const legacyRc = r.reasoning_content || '';
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
-          // 优先行级拆回；steps[].reasoning 在场（存量数据/未剥除链路）直读
-          const stepThinking = byStep ? byStep[i] : s.reasoning || (i === 0 ? fallback : '');
+          const stepThinking = s.reasoning || (i === 0 ? legacyRc : '');
           const stepTs = typeof s.ts === 'number' ? new Date(s.ts).toISOString() : r.timestamp;
           // 幻影调用（id/name 双空的聚合残片——provider 空冲洗片曾产生）不
           // 展开：否则历史多一张无名工具卡（result null 永久转圈）
@@ -174,7 +170,13 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         name: r.name,
         message_id: r.message_id,
         timestamp: r.timestamp,
-        ...(r.reasoning_content !== undefined ? { reasoning_content: r.reasoning_content } : {}),
+        // reasoning 单份存储读侧投影：行级缺场（新数据）从 steps[].reasoning
+        // 拼整轮（replayTrajectory 关闭用户的折叠栏）；存量行级原样透传
+        ...(r.reasoning_content !== undefined
+          ? { reasoning_content: r.reasoning_content }
+          : r.steps?.some((s) => s.reasoning)
+            ? { reasoning_content: (r.steps ?? []).map((s) => s.reasoning ?? '').filter((x) => x.trim()).join('\n\n') }
+            : {}),
         // 附件引用透传（多模态一期：中性 role:'agent' 行的入站消息也可能带图）
         ...(r.attachments?.length ? { attachments: r.attachments } : {}),
       });

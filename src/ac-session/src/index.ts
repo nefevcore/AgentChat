@@ -591,14 +591,15 @@ export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
 export function stepsFromRunResult(
   result: Pick<LoopRunResult, 'steps'>,
 ): SessionStepRecord[] {
-  // reasoning 防冗余（2026-09-20 裁决修订）：steps[].reasoning 不落盘——
-  // 唯一存储 = 收束行 reasoning_content（整轮 '\n\n' 拼接，可逆拆分）；
-  // 读侧 expandSteps 按步数拆回（UI 步级 thinking 卡数据源）。API 请求
-  // 侧本就不回传 reasoning（适配层请求体无此键），剥除不影响任何链路。
-  // 注意 filter 判据同步：reasoning-only 步改由 map 后的 content/调用来判。
+  // reasoning 单份存储（2026-09-20 终版裁决，方向反转）：正源 = steps[]
+  // [].reasoning（步级粒度——UI 步级 thinking 卡直读）；收束行
+  // reasoning_content 不落盘（读侧投影：replayTrajectory 关闭用户的整轮
+  // 折叠栏由前端从 steps 拼接，见 historyApi）。API 请求侧从不回传
+  // reasoning（适配层请求体无此键），存储形态不影响 API 交互。
   return result.steps
     .map((s) => ({
       content: s.text,
+      ...(s.reasoning ? { reasoning: s.reasoning } : {}),
       ...(s.ts !== undefined ? { ts: s.ts } : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(s.reasoningMs !== undefined ? { reasoningMs: s.reasoningMs } : {}),
@@ -615,12 +616,7 @@ export function stepsFromRunResult(
           }
         : {}),
     }))
-    // 滤除判据用原始步（reasoning 虽不落盘，纯思考步仍占位——整轮拼接
-    // 与步数拆分对齐依赖它在场）
-    .filter((s, i) => {
-      const raw = result.steps[i];
-      return !!raw?.text || !!raw?.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0);
-    });
+    .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
 }
 
 /** writer 队列（src SessionLogWriter 语义原样：按文件串行 + barrier + 失败回队首） */
@@ -1135,17 +1131,9 @@ export class SessionService extends Service {
       this.flushBestEffort(conversationId, '错误行');
       return;
     }
-    // 思维链持久化（Port B P3）：run 各步 reasoning 拼接为整轮 thinking，
-    // 刷新后历史回放可恢复思维链折叠栏。
-    // 思维链双份存储是有意冗余（2026-09-20 裁决）：reasoning_content 服务
-    // replayTrajectory 关闭用户（整轮折叠栏唯一来源——session.integration
-    // 「步记录持久化」用例锁定）；steps[].reasoning 服务展开面（UI 步级
-    // thinking 卡）。膨胀治理移交归档/compact 层（archive 已跳 partial；
-    // 未来 compact 可剥历史 reasoning，热数据保双份）。
-    const reasoning = result.steps
-      .map((s) => s.reasoning?.trim())
-      .filter((r): r is string => !!r)
-      .join('\n\n');
+    // reasoning 单份存储（2026-09-20 终版）：收束行不再落 reasoning_content
+    // ——正源是 steps[].reasoning（步级粒度）；整轮视图（replayTrajectory
+    // 关闭用户的折叠栏）由前端从 steps 拼接投影（historyApi），存储零冗余。
     // 刷新后 toHistoryMessages 按步重建 assistant+tool 气泡（与直播/
     // resume 快照同构），工具卡片不再丢失。映射核 = stepsFromRunResult
     // （导出：ac-conversation 视图投影同形状——单一事实源防漂移）。
@@ -1163,7 +1151,6 @@ export class SessionService extends Service {
       agentId,
       { role: 'user', content: text },
       {
-        ...(reasoning ? { reasoning } : {}),
         ...(steps.length > 0 ? { steps } : {}),
         ...runStamp,
       },
