@@ -34,14 +34,13 @@
 // 形态门控（2026-12）：独立会话（singles）= 用户与单 Agent 的专注对话
 // ——多 Agent 会话知识（术语约定块 + 多Agent协作/群聊协作指引条目）不
 // 注入；主动安排（timer）与系统管理（system_restart）条目同受形态门控
-// （前者：独立会话有后台任务反馈即可；后者：工具已随形态面裁剪出生效
-// 集〔ToolDefinition.excludeForms → router〕，双保险锁定）。工具面不
-// 裁剪协作/计时工具（显式配置仍可用），只是不教。
+// （前者：独立会话有后台任务反馈即可；后者：2026-12 注入轴重构起工具
+// 面无形态裁剪——system_restart 不再排除独立会话，指引只随在场不教）。
 // ============================================================
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // LoopSender（经 LoopRunRequest 传入，仅文档引用）
-import { displayNameOf } from 'ac-agents'; // 显示名单源解析（值导入连带 ctx.agents 类型增强）
+import { displayNameOf, widenToolsForGating } from 'ac-agents'; // 显示名单源解析 + PTC 门控面展开（值导入连带 ctx.agents 类型增强）
 import type {} from 'ac-group'; // ctx.group 可选能力类型（type-only）
 import type {} from 'ac-tools'; // ctx.tools 可选能力类型（type-only）
 import type {} from 'ac-workspace'; // ctx.workspace 可选能力类型（type-only）
@@ -273,10 +272,9 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
     add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
   }
 
-  // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界；形态
-  //     门控：独立会话不注入——system_restart 已随形态面裁剪出生效工具集
-  //     〔router 形态轴，ToolDefinition.excludeForms〕，此处双保险锁定）
-  if (!single && names.has('system_restart')) {
+  // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界；指引随
+  //     工具在场而教——2026-12 注入轴重构起 system_restart 不限独立会话）
+  if (names.has('system_restart')) {
     add('系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。');
   }
 
@@ -405,11 +403,17 @@ function buildConversationBlock(input: AssembleInput): string {
   const group = input.group;
   if (group) {
     lines.push(`[当前群聊] ${group.name}（${input.conversationId ?? ''}）`);
-    lines.push(`[群聊成员] ${group.members.map((m) => {
+    // user 是隐式成员（永不入册）：成员表首位并入，展示面与发言面一致
+    //（<msg from="user" name="…"> 的发言人会出现，成员表缺它 = 自相矛盾）
+    const members = group.members.includes('user') ? group.members : ['user', ...group.members];
+    lines.push(`[群聊成员] ${members.map((m) => {
       const label = labelOf(m);
       return label !== m ? `${label} (${m})` : m;
     }).join('、')}`);
     if (group.description) lines.push(`[群聊简介] ${group.description}`);
+    // 称呼引导：群成员表已有 id↔name 对照，明示用名字称呼可抵消模型默认
+    // 拿 id 指代成员的习惯（<msg> 包装有 name，但仅覆盖发言过的成员）
+    lines.push('[群聊称呼] 与成员交流或提及成员时使用其显示名（成员表中的名字），不要用成员 id 指代。');
   }
 
   return lines.join('\n');
@@ -480,10 +484,12 @@ export function apply(ctx: Context) {
     const settings = readSettings(ctx, agentId);
     if (settings === null) return next();
 
-    // 有效工具名：request.tools 白名单 ?? 全部已注册工具（门控依据）
-    const tools = ctx.get('tools');
-    const toolNames =
-      request.tools ?? (tools ? tools.list().map((t) => t.name) : []);
+    // 有效工具名（门控依据）：request.tools 白名单 ?? 全部已注册工具；
+    // 程序化 run（请求面恰为 mode 工具集）换成能力面展开——PTC 下
+    // request.tools 已收窄成 ['run_code']，直读会误伤全部按「工具在场」
+    // 门控的指引/环境行（2026-12 PTC 基线段丢失修复，widenToolsForGating
+    // 单源——内部 ctx.get root-traced 解析，tools 行缺席 = 回落请求面）。
+    const toolNames = widenToolsForGating(ctx, request.agent, request.conversationId, request.tools);
 
     // 可选能力：工作区根（环境块的工作目录基准）+ Agent 专用空间推导
     // （agentWorkdir：常规 Agent = files/<id>；预设 = 工作区根——M18 #3）

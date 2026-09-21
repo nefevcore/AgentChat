@@ -33,7 +33,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { capabilitySetOf, conversationFormOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { capabilitySetOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 import type {} from 'ac-subagent'; // ctx.subagents 可选能力类型（type-only）
@@ -63,10 +63,51 @@ const AGENT_MENTION_GUIDE =
   '[引用约定] 用户消息中的 @<名称>（非路径形态）是用户提到的其他 Agent：'
   + '用 list_agents 按名称解析出 id 后可经 send_agent 联系；解析不到时如实说明，不要虚构。';
 
+/** wait=true 限时等待缺省（语法糖口径：常规对端 run 分钟级内；宿主墙钟兜底失控） */
+const WAIT_TIMEOUT_MS = 60_000;
+
+/**
+ * 迟到回复薄通知（2026-09-23 send_agent 收敛；2026-12 修复回投目标）：
+ * wait 超时后对端 run 跑完时，经 deliver（sender=owner、source=event
+ * ——会话水位提权继承/MAX_AUTO_WAKES 防自激全走既有机制）唤醒发起方。
+ * 回投目标 = 调用会话（call.conversationId——工具在哪个会话里执行，通知
+ * 就回到哪个会话：用户在 user⇄a 会话里让 a 发起的等待，通知回到 user⇄a
+ * 而非 a⇄b 委托桶，否则通知混进双方对话流、用户侧发起会话永远收不到
+ * 唤醒）；无会话键（宿主直调 / 子 Agent run——其 run 不带 conversationId）
+ * 回退 owner 自会话桶。对桶里已有回复正文（session 落账）——通知只指路
+ * 不搬运，防双记录（job-wakeup followup notice 同款形态）。
+ */
+function notifyLateReply(
+  ctx: Context,
+  owner: string,
+  convKey: string | undefined,
+  to: string,
+  failed?: string,
+): Promise<unknown> {
+  const notice = failed !== undefined
+    ? '[系统通知] 你此前 send_agent(wait) 等待超时后，对方 "' + to + '" 执行失败（' + failed
+      + '）——委托未达成，可另寻方案或稍后重试，不要原地空等。'
+    : '[系统通知] 你此前 send_agent(wait) 等待超时后，对方已完成处理：回复已在与 "'
+      + to + '" 的会话记录中，需要时查看该会话继续你的任务，不要重发消息。';
+  const conversation = ctx.get('conversation', false) as
+    | { deliver(agentId: string, message: string, options?: Record<string, unknown>): Promise<unknown> }
+    | undefined;
+  if (conversation === undefined) return Promise.resolve();
+  return conversation.deliver(owner, notice, {
+    sender: owner,
+    source: 'event',
+    ...(convKey !== undefined ? { conversationId: convKey } : {}),
+  }).catch((err: unknown) => {
+    ctx.logger.warn(`[collab-tools] 迟到回复通知 ${owner}（${convKey ?? owner + ' 自会话桶'}）失败: ${String(err)}`);
+  });
+}
+
 export function apply(ctx: Context) {
   // ---- @ 名称引用指引（list_agents/send_agent 的 owner 行条件注入）----
   ctx.on('loop/before-run', (call, next) => {
-    const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
+    // PTC 门控面（widenToolsForGating 单源）：程序化 run 的 request.tools
+    // 已收窄成 ['run_code']——按能力面展开判协作工具在场
+    const names = new Set(widenToolsForGating(ctx, call.request.agent, call.request.conversationId, call.request.tools));
     if (names.has('list_agents') && names.has('send_agent')) {
       call.request = {
         ...call.request,
@@ -82,13 +123,14 @@ export function apply(ctx: Context) {
     name: 'send_agent',
     requiredTags: ['collab'],
     description:
-      '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 等待对方独立回复。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。',
+      '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 是异步发送的语法糖——发起后最多等 timeout_ms 拿回复，超时不影响对方的处理（对方继续跑完，回复迟到时以系统通知注入会话）。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。',
     parameters: {
       type: 'object',
       properties: {
         to: { type: 'string', description: '目标 Agent ID（含虚拟端点如 user；已 spawn 子 Agent 的 sub_ id 亦可）' },
         message: { type: 'string', description: '消息内容' },
-        wait: { type: 'boolean', description: '是否等待回复（默认 false）。对端空闲时无论如何都会随结果带回其回复文本（reply 字段）；wait=true 的差异是对端忙时排队等独立 run 而非注入当前 run。' },
+        wait: { type: 'boolean', description: '是否等待回复（默认 false）。语法糖：发起后限时等待（timeout_ms，缺省 60s），超时即返回超时说明——不中断对方的处理，回复迟到会以系统通知送达（含对方执行失败的情形）。对端空闲直跑时随结果带回回复文本（reply 字段）；对端正忙时受理即返（steered/queued），不进入限时等待。' },
+        timeout_ms: { type: 'number', description: '[wait=true] 等待上限毫秒（缺省 60000；超时返回引导说明，不中断对方——其回复迟到时以系统通知送达）。仅对端空闲直跑时生效；对端忙（受理即返）不适用', minimum: 0 },
       },
       required: ['to', 'message'],
     },
@@ -194,10 +236,12 @@ export function apply(ctx: Context) {
         // 对端的话 user（修 a⇄b 桶视角颠倒）
         const session = ctx.get('session');
         const history = session ? await session.history(convKey, { viewer: to }) : undefined;
-        // wait=true：等独立 run（placement next-run：对方忙则等空闲，
-        // 回复文本随 outcome 返回）；wait=false：默认 steer（忙时注入
-        // 活跃 run，受理即返回——对齐 src 异步语义）
-        const outcome = await ctx.conversation.deliver(to, message, {
+        // 投递语义（2026-09-23 收敛）：wait=false 默认 steer（忙时注入活跃
+        // run，受理即返回）；wait=true = placement next-run（等对端独立
+        // run）+ 限时语法糖——超时即返回引导说明，**不中断对方**（不透传
+        // signal：对端 run 由对端域的钟管辖，发起方不跨域代管）。
+        const waitMs = args.wait === true ? Math.max(0, Number(args.timeout_ms) > 0 ? Number(args.timeout_ms) : WAIT_TIMEOUT_MS) : 0;
+        const outcomeP = ctx.conversation.deliver(to, message, {
           sender: from,
           source: 'agent',
           conversationId: convKey,
@@ -205,20 +249,57 @@ export function apply(ctx: Context) {
           ...(args.wait === true ? { placement: 'next-run' } : {}),
         });
 
-        if (args.wait === true && outcome.kind === 'run') {
-          const run = outcome.result;
-          if (run.finish === 'error') return err(`对方执行失败: ${run.error ?? '未知错误'}`);
-          return {
-            ok: true,
-            output: {
-              to,
-              wait: true,
-              reply: run.text,
-              finish: run.finish,
-              steps: run.steps.length,
-            },
-          };
+        if (args.wait === true) {
+          // 异步语法糖：限时等待对端 run 收束。超时不取消投递（deliver promise
+          // 继续在后台完成）——回复迟到时以薄通知注入发起方会话（下方 then 分支）。
+          const outcome = await Promise.race([
+            outcomeP,
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), waitMs)),
+          ]);
+          if (outcome === null) {
+            // 超时：对方继续跑完（不中断）；回复迟到 → 薄通知唤醒（对桶已有
+            // 回复正文，通知只指路不搬运——防双记录）。回投 = 调用会话
+            // （call.conversationId；无会话键回退 owner 自会话桶）——不是
+            // 委托桶 convKey：发起方的唤醒要落在发起地，否则通知混进
+            // a⇄b 双方对话流、用户侧发起会话收不到。
+            const wakeKey = call.conversationId ?? pairKey(from, from);
+            void outcomeP.then((late) => {
+              if (late === null || late === undefined || late.kind !== 'run') return;
+              // 正常收束 → 指路通知；error 收束 → 失败通知（发起方不再空等，
+              // 委托未达成的事实要送达——error 文本随通知，对桶另有完整记录）
+              if (late.result.finish === 'error') {
+                void notifyLateReply(ctx, from, wakeKey, to, late.result.error ?? '未知错误');
+              } else {
+                void notifyLateReply(ctx, from, wakeKey, to);
+              }
+            }).catch(() => { /* 投递失败静默——超时路径已收束 */ });
+            return {
+              ok: true,
+              output: {
+                to,
+                wait: true,
+                timed_out: true,
+                message: `已投递并等待 ${waitMs}ms 未见回复（对方仍在处理，未受影响）。不要重发或重复等待：对方的回复会出现在会话中（迟到时以系统通知唤醒你），你现在可以继续其他工作或先给出阶段性结论。`,
+              },
+            };
+          }
+          if (outcome.kind === 'run') {
+            const run = outcome.result;
+            if (run.finish === 'error') return err(`对方执行失败: ${run.error ?? '未知错误'}`);
+            return {
+              ok: true,
+              output: {
+                to,
+                wait: true,
+                reply: run.text,
+                finish: run.finish,
+                steps: run.steps.length,
+              },
+            };
+          }
+          // 忙态/排队等 outcome（steered/queued/timeout）——落入下方通用返回
         }
+        const outcome = await outcomeP;
         // wait=false 空闲直达（2026-12 修复）：deliver 在对端空闲时本就
         // await 其完整 run 并随 outcome 携带回复——此前被丢弃并对调用方
         // 撒谎"回复会作为新消息送达"。子 Agent（sub_*）场景这是唯一回
@@ -244,17 +325,22 @@ export function apply(ctx: Context) {
             },
           };
         }
+        // 忙态受理即返（steered/queued）+ wait=true：限时等待未启用——对端在忙
+        // 无法承诺回复时机，返回受理事实（回复照常作为新消息送达，别重发）。
+        const waited = args.wait === true;
         return {
           ok: true,
           output: {
             to,
-            wait: false,
+            wait: waited,
             outcome: outcome.kind,
             message:
               outcome.kind === 'steered'
                 ? '对方正忙，消息已注入其当前 run 的下一步。'
+                  + (waited ? '（忙态不进入限时等待：对方回复会作为新消息送达，不要重发或轮询等待）' : '')
                 : outcome.kind === 'queued'
                   ? '对方正忙，消息已入队（当前 run 结束后处理）。'
+                    + (waited ? '（忙态不进入限时等待：对方回复会作为新消息送达，不要重发或轮询等待）' : '')
                   : outcome.kind === 'timeout'
                     ? '对方持续繁忙，等待空闲超时——消息未投递。'
                     : '已投递，对方回复会作为新消息送达。',
@@ -291,12 +377,20 @@ export function apply(ctx: Context) {
         if (!message.trim()) return err('缺少 message 参数');
         if (!group.isMember(gid, from)) return err(`你不是群 "${gid}" 的成员（先确认 group_id）`);
         const result = await group.send(gid, from, message);
+        // 回执带群名与触发者显示名：模型下一轮引用成员时手边就有
+        // id↔name 对照（不用回翻上下文找 <msg> 包装）
+        const g = group.get(gid);
+        const who = result.triggered.map((m) => {
+          const label = displayNameOf(ctx.agents.get(m));
+          return label !== undefined && label !== m ? `${label} (${m})` : m;
+        });
         return {
           ok: true,
           output: {
             group_id: gid,
+            group_name: g?.name ?? gid,
             triggered: result.triggered,
-            message: `已投递到群 ${gid}，触发 ${result.triggered.length} 个参与者。`,
+            message: `已投递到群「${g?.name ?? gid}」，触发 ${result.triggered.length} 个参与者：${who.join('、')}。`,
           },
         };
       } catch (e: unknown) {
@@ -349,7 +443,12 @@ export function apply(ctx: Context) {
             groups: groups.map((g) => ({
               id: g.id,
               name: g.name,
-              members: g.members,
+              // 完整参与面（含隐式成员 user）+ 显示名对照——提及成员
+              // 用显示名，勿用 id 指代（用户视角自然称呼）
+              members: group.membersWithUser(g.id).map((m) => {
+                const label = displayNameOf(ctx.agents.get(m));
+                return label !== undefined && label !== m ? { id: m, name: label } : { id: m };
+              }),
               ...(g.description ? { description: g.description } : {}),
             })),
           },
@@ -371,12 +470,12 @@ export function apply(ctx: Context) {
     async execute(args, call): Promise<ToolResult> {
       const self = call.agentId ? ctx.agents.get(call.agentId) : undefined;
       // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁
-      // （requiredTags 缺标签不可见）+ 会话形态面（excludeForms——独立
-      // 会话不投放的工具，2026-12）先过滤，再按 AgentConfig.tools 解析
+      // （requiredTags 缺标签不可见）+ mode 工具排除（injection 轴——
+      // 不进常规面）+ 交互面（requiresInteraction——self 会话排除，
+      // formDeniedBy 单源）先过滤，再按 AgentConfig.tools 解析
       const caps = capabilitySetOf(ctx, call.agentId);
-      const form = conversationFormOf(ctx, call.conversationId);
       const all = ctx.tools.list().filter(
-        (t) => toolAllowedFor(t, caps) && (form === null || !(t.excludeForms ?? []).includes(form)),
+        (t) => t.injection !== 'mode' && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, call.conversationId),
       );
       // 解析传 defs（tag 引用 'tag:<tag>' 展开——与 router 同口径）
       const effectiveNames = resolveToolNames(self?.tools, all);

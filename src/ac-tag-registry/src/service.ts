@@ -14,6 +14,9 @@
 //   · 分类：reserved（base/档位）≠ tool-required（被工具门禁消费）≠
 //     owner（agent:<id> 私有工具标签，等 owner 自行声明）≠ unknown
 //     （拼错/外部词——UI 警示）。
+//   · 抉择组（2026-12）：access-tier / tool-mode 预注册组与 browser
+//     声明组挂 exclusive 元数据——UI 聚合为下拉单选（落词由 UI 规则
+//     保证同组至多一词；判定面不受影响）。
 //
 // 双源校正：ac-tools 的 defs 是 tags→tools 的原始事实，本服务只是
 // 附加描述元数据——采集不经过任何注册面，纵贯线最短。注册序上
@@ -45,11 +48,26 @@ export interface TagCatalogEntry {
   order?: number;
   /** 分层族标记（低 ⊂ 高：勾选高层含低层全部能力） */
   tier?: boolean;
+  /** 抉择组名（同组互斥——UI 聚合为下拉单选；目录侧只标注不判定） */
+  exclusive?: string;
+  /** 抉择组「都不选」词（落词不写 tags，缺席即语义——如 base-access/tc-base） */
+  exclusiveNone?: boolean;
+  /** 抉择组「全关」后果说明（无缺省词的组——UI 关闭态旁注/弹层关闭项描述） */
+  exclusiveOffDesc?: string;
 }
 
 /** 预注册词表（面向用户的短描述——经 tags/catalog RPC 直出前端 tooltip）。
- *  base 已退役（全量标签化 2026-09-16：一切出厂工具挂具体标签） */
-const RESERVED: Array<{ tag: string; category: TagCategory; description: string }> = [
+ *  base 已退役（全量标签化 2026-09-16：一切出厂工具挂具体标签）。
+ *  access-tier / tool-mode 两组是抉择组（exclusive 同名——UI 聚合为
+ *  下拉单选；base-access / tc-base 为 exclusiveNone 缺省词，落词不写） */
+const RESERVED: Array<{
+  tag: string;
+  category: TagCategory;
+  description: string;
+  exclusive?: string;
+  exclusiveNone?: boolean;
+  order?: number;
+}> = [
   {
     tag: 'fs',
     category: 'capability',
@@ -73,27 +91,46 @@ const RESERVED: Array<{ tag: string; category: TagCategory; description: string 
   {
     tag: 'tc-programmatic',
     category: 'tool-mode',
-    description: '程序化档：工具调用经 run_code 写程序编排（LLM 面收窄为单入口）',
+    description: '程序化：工具调用经 run_code 写程序编排（LLM 面收窄为单入口）',
+    exclusive: 'tool-mode',
+    order: 2,
   },
   {
     tag: 'tc-none',
     category: 'tool-mode',
-    description: '无工具档：移除 LLM 工具面（纯聊天）',
+    description: '无工具：移除 LLM 工具面（纯聊天）',
+    exclusive: 'tool-mode',
+    order: 1,
   },
   {
     tag: 'tc-base',
     category: 'tool-mode',
-    description: '标准档（缺省）：模型逐个直调工具——预注册仅供目录展示，tags 无需书写',
+    description: '标准（缺省）：模型逐个直调工具——预注册仅供目录展示，tags 无需书写',
+    exclusive: 'tool-mode',
+    exclusiveNone: true,
+    order: 3,
+  },
+  {
+    tag: 'base-access',
+    category: 'access-tier',
+    description: '基础档（缺省）：工作区外/写类操作走审批或白名单门',
+    exclusive: 'access-tier',
+    exclusiveNone: true,
+    order: 1,
   },
   {
     tag: 'full-access',
     category: 'access-tier',
-    description: '完全访问档：不受沙箱限制（人工授予的信任）',
+    description: '完全访问：不受沙箱限制（人工授予的信任）',
+    exclusive: 'access-tier',
+    order: 3,
   },
   {
     tag: 'sandbox-access',
     category: 'access-tier',
     description: '沙箱档：工作区白名单内自由',
+    exclusive: 'access-tier',
+    order: 2,
   },
 ];
 
@@ -180,7 +217,16 @@ export class TagRegistryService extends Service {
   catalog(): TagCatalogEntry[] {
     const byTag = new Map<string, TagCatalogEntry>();
     for (const r of RESERVED) {
-      byTag.set(r.tag, { tag: r.tag, category: r.category, description: r.description, tools: [], reserved: true });
+      byTag.set(r.tag, {
+        tag: r.tag,
+        category: r.category,
+        description: r.description,
+        tools: [],
+        reserved: true,
+        ...(r.order !== undefined ? { order: r.order } : {}),
+        ...(r.exclusive ? { exclusive: r.exclusive } : {}),
+        ...(r.exclusiveNone ? { exclusiveNone: true } : {}),
+      });
     }
     // 手工声明（先于采集合并：声明可为纯领域词——无任何工具引用也进目录）
     for (const d of this.collectDeclarations()) {
@@ -194,6 +240,9 @@ export class TagRegistryService extends Service {
         ...(d.group ? { group: d.group } : {}),
         ...(d.order !== undefined ? { order: d.order } : {}),
         ...(d.tier === true ? { tier: true } : {}),
+        ...(d.exclusive ? { exclusive: d.exclusive } : {}),
+        ...(d.exclusiveNone === true ? { exclusiveNone: true } : {}),
+        ...(d.exclusiveOffDesc ? { exclusiveOffDesc: d.exclusiveOffDesc } : {}),
       });
     }
     for (const def of this.ctx.tools.listWithOwner()) {
@@ -225,15 +274,21 @@ export class TagRegistryService extends Service {
   }
 
   /**
-   * 断言（档位/模式纪律的机制化）：非能力词（档位 + 全部 tc-* 模式词）
-   * 被任何 requiredTags 引用即抛错——2026-09-17 优化裁决：tc-* 回归纯
-   * 模式词（run_code 授权词 = infra；「程序化」是形态选择非授权门槛，
-   * 会话覆盖/Agent tags 任一可选程序化档，无需预配标签）。启动期检查
-   * （boot 后调用一次；测试/宿主可随时复查）。
+   * 断言（档位/模式/注入纪律的机制化）：① 非能力词（档位 + 全部 tc-*
+   * 模式词）被任何 requiredTags 引用即抛错——tc-* 是纯模式词（2026-09-17
+   * 裁决；「程序化」是形态选择非授权门槛）。② injection:'mode' 工具
+   * 挂 requiredTags 即抛错（2026-12 injection 轴：mode 通道与能力轴
+   * 无关，双门语义混乱）。启动期检查（boot 后调用一次；测试/宿主可
+   * 随时复查）。
    */
   assertNoTierInToolRequirements(): void {
     const modeWords = RESERVED.filter((r) => r.category !== 'capability').map((r) => r.tag);
     for (const def of this.ctx.tools.list()) {
+      if (def.injection === 'mode' && (def.requiredTags?.length ?? 0) > 0) {
+        throw new Error(
+          `工具 "${def.name}" 声明 injection:'mode' 但挂了 requiredTags——mode 通道与能力轴正交（tc-programmatic 档合成，与 tags 无关），禁止双门`,
+        );
+      }
       for (const t of def.requiredTags ?? []) {
         if (modeWords.includes(t)) {
           throw new Error(

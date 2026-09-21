@@ -8,5 +8,5 @@
 // ac-fs-search 行消费。
 // ============================================================
 export { globToRegExp, normalizeGlobPattern, literalDirPrefix } from './glob-regex.ts';
-export { walkFiles, toPosix, SKIP_DIRS, MAX_SCAN_FILES } from './walk.ts';
+export { walkFiles, toPosix, SKIP_DIRS, SKIP_BASE, MAX_SCAN_FILES } from './walk.ts';
 export type { WalkEntry, WalkOptions } from './walk.ts';

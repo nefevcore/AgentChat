@@ -50,6 +50,12 @@ export interface UsageAggregate {
   /** 累加轨：缓存命中/未命中 token 合计（会话累计命中率） */
   cacheHit: number;
   cacheMiss: number;
+  /**
+   * 累加轨：API 流时间合计（毫秒；LoopRunUsage.elapsedMs 各 run 累加）
+   * ——token/秒速率的分母（总 total / 总 elapsedMs）。只含 LLM API 流
+   * 时间，工具执行/编排/重试退避不计入；旧流水行无此键 = 0（速率不显示）。
+   */
+  elapsedMs?: number;
 }
 
 /** 按日聚合桶（M15：跨天可比） */
@@ -97,6 +103,7 @@ function mergeAggregate(acc: UsageAggregate, usage: LoopRunUsage): void {
   acc.lastCacheMiss = usage.cacheMiss ?? 0;
   acc.cacheHit += usage.cacheHit ?? 0;
   acc.cacheMiss += usage.cacheMiss ?? 0;
+  if (usage.elapsedMs != null) acc.elapsedMs = (acc.elapsedMs ?? 0) + usage.elapsedMs;
 }
 
 /** 审计流水行 */
@@ -365,6 +372,7 @@ export class UsageService extends Service {
         acc.lastCacheMiss = usage.lastCacheMiss;
         acc.cacheHit += usage.cacheHit;
         acc.cacheMiss += usage.cacheMiss;
+        if (usage.elapsedMs != null) acc.elapsedMs = (acc.elapsedMs ?? 0) + usage.elapsedMs;
       } else {
         merged.set(key, { a, b, ...usage });
       }
@@ -416,6 +424,7 @@ export class UsageService extends Service {
       out.total += acc.total;
       out.cacheHit += acc.cacheHit;
       out.cacheMiss += acc.cacheMiss;
+      if (acc.elapsedMs != null) out.elapsedMs = (out.elapsedMs ?? 0) + acc.elapsedMs;
     }
     return out;
   }

@@ -170,6 +170,16 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   });
 
   // ============ 工具执行通知（无 sender 载荷 → run 登记表判定） ============
+  // 开始通知（2026-12 前端反馈 #2）：run_code 子调用平铺卡此前无 running
+  // 生命周期（终值到达才建卡）——串行链阻塞（approval 等待/长工具）时后续
+  // 子调用无终值即无卡，「堆积在 run_code 卡下不动」。tool/started 是
+  // ac-tools 在 before-execute waterfall 放行后 emit 的通知型事件（emit
+  // 面——before-execute 本体是拦截链不桥，见头注释纪律），此处与
+  // after-execute 同口径转发。
+  fwd('tool/started', (call) => {
+    if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
+    forward('tool/started', call);
+  });
   fwd('tool/after-execute', (call, result, error) => {
     if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
     forward('tool/after-execute', call, result, error);
@@ -217,6 +227,11 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   // → 前端 routeDialog 分区路由，无需另设过滤）
   fwd('conversation/queue-changed', (agentId, conversationId, handle, items) =>
     forward('conversation/queue-changed', agentId, conversationId, handle, items));
+  // context 注入行落账通知（2026-09-21 前端反馈 #3）：流式运行期技能注入
+  //（load_skill 等）此前只在 journal，前端零感知——刷新才见。广播面只带
+  // label/来源（正文瘦身纪律）；前端渲染事件分隔行。
+  fwd('session/context-injected', (conversationId, agentId, meta) =>
+    forward('session/context-injected', conversationId, agentId, meta));
   fwd('group/created', (group) => forward('group/created', group));
   fwd('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
   fwd('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));

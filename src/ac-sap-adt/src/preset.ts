@@ -35,7 +35,7 @@ const ABAP_DEV_PRESET: AgentPresetDefinition = {
   meta: {
     label: 'ABAP开发模式',
     description: 'SAP ABAP 开发面：adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试）+ Shell 与本地文件，单会话无记忆不归档',
-    order: 3,
+    order: 4, // 创造模式（__creator__）占 3 后顺延
   },
   agent: {
     id: '__abap_dev__',

@@ -89,7 +89,7 @@ import {
 } from 'ac-plugin-core';
 import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
 import { requestSystemRestart } from 'ac-restart';
-import { compareVersion, fetchLatestRelease, findProjectVersion, GITHUB_REPO, isDesktopInstall, readChangelog, readCurrentVersion, runSelfUpdate } from './version.ts';
+import { compareVersion, DOWNLOAD_BASE, fetchLatestRelease, findProjectVersion, isDesktopInstall, readChangelog, readCurrentVersion, runSelfUpdate } from './version.ts';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
 import { estimateReplayTokens } from 'ac-archive-core';
@@ -865,11 +865,14 @@ export function apply(ctx: Context) {
     // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁（requiredTags）
     // 先过滤，再按 AgentConfig.tools 解析 include/exclude
     const caps = capabilitySetOf(ctx, agentId);
-    const visible = ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+    // mode 工具不进常规面（与 router 同口径）；narrow 用全量 defs（mode 标记）
+    const allDefs = ctx.tools.list();
+    const visible = allDefs.filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
     const all = visible.map((t) => t.name);
     // 解析传 defs（tag 引用 'tag:<tag>' 展开——与 router 同口径）
     const names = narrowToolsByMode(
       resolveToolNames(config.tools, visible) ?? all,
+      allDefs,
       effectiveToolMode(config, conversationId, {
         convSettings: conversationId ? ctx.get('convSettings', false) as
           | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
@@ -991,6 +994,7 @@ export function apply(ctx: Context) {
           listActive(): unknown[];
           create(input?: unknown): unknown;
           update(id: string, input: unknown): unknown;
+          fork(id: string, anchorMessageId: string): Promise<unknown>;
           archive(id: string): unknown;
           remove(id: string): void;
         }
@@ -1023,6 +1027,15 @@ export function apply(ctx: Context) {
       ...(p.title !== undefined ? { title: String(p.title) } : {}),
       ...(p.workspaceId !== undefined ? { workspaceId: String(p.workspaceId) } : {}),
     });
+    return { single };
+  });
+
+  // fork：会话分支——以 anchorMessageId 消息（含）为终点复制出新会话
+  //（元数据继承；消息流经 session 域服务方法拷贝。anchorMessageId =
+  // 空/缺省 = 到最新一条；不透明锚点，未命中 rpc error）
+  web.registerRpc('singles/fork', async (params) => {
+    const p = obj(params);
+    const single = await requireSingles().fork(reqStr(p, 'id'), optStr(p.anchorMessageId) ?? '');
     return { single };
   });
 
@@ -1299,10 +1312,20 @@ export function apply(ctx: Context) {
     return payload;
   });
 
-  // 软中断（src /api/runs/interrupt 对照；convKey = conversationId）
+  // 软中断（src /api/runs/interrupt 对照；convKey = conversationId）。
+  // 实测修复：旧实现 abort(conversationId) 把桶键塞进 agentId 位——abort 按
+  // entry.agentId 严格匹配，恒不命中 → aborted 恒 0，运行跟踪面板中止按钮无效。
+  // 桶键无法反推 agentId（群会话聚合 run 的 agentId = gid、1v1/自会话 = 端点、
+  // 同桶还可能有多个 run）——按 runs 注册表精确匹配后逐 run 中止。
   web.registerRpc('runs/interrupt', (params) => {
     const p = obj(params);
-    return { aborted: ctx.conversation.abort(reqStr(p, 'conversationId')) };
+    const conversationId = reqStr(p, 'conversationId');
+    let aborted = 0;
+    for (const e of ctx.conversation.listRunning()) {
+      if (e.conversationId !== conversationId) continue;
+      aborted += ctx.conversation.abort(e.agentId, conversationId);
+    }
+    return { aborted };
   });
 
   // ============ jobs：后台任务/子Agent 调用清单面（webui 运行跟踪面板） ============
@@ -1706,11 +1729,17 @@ export function apply(ctx: Context) {
       // 【能力元数据保留】models 宽容双形态归一后按新清单合并——已有
       // vision/hidden 标志随同名模型保留（刷新清单不丢探测结果/隐藏位），
       // 新模型裸名直入；写回最小形态（无标志 = 裸 string，有标志 = 对象）。
+      // 【手工条目保留】manual 条目（端点不暴露 /models 清单、手工加的
+      // 模型 id）刷新时并入尾部——发现清单覆盖不掉手工新增。
       const existing = normalizePoolModels((entry as { models?: unknown } | undefined)?.models);
-      const merged: Array<string | PoolModelEntry> = normalized.map((model) => {
-        const prev = existing.find((e) => e.model === model);
-        return prev && (prev.vision === true || prev.hidden === true) ? prev : model;
-      });
+      const manualKept = existing.filter((e) => e.manual === true && !normalized.includes(e.model));
+      const merged: Array<string | PoolModelEntry> = [
+        ...normalized.map((model) => {
+          const prev = existing.find((e) => e.model === model);
+          return prev && (prev.vision === true || prev.hidden === true) ? prev : model;
+        }),
+        ...manualKept,
+      ];
       ctx.config.set(`llmProviders.${name}.models`, merged);
     }
     // 响应带能力元数据（前端徽章/过滤；models 维持裸名数组向后兼容）
@@ -2313,11 +2342,11 @@ export function apply(ctx: Context) {
     return { current: pkg?.version ?? '0.0.0', name: pkg?.name ?? 'agentchat' };
   });
 
-  /** 更新检查：GitHub Releases 最新版对比（TTL 缓存；失败 checkFailed 显式
-   *  呈现不垫假数据）。simulate=true 伪造 patch+1 高版本——前端
-   *  localStorage 'agentchat.simulateUpdate' 开关的测试通道。
-   *  desktop=true（桌面壳装配）：更新归 electron-updater，前端据此
-   *  换桌面文案、不渲染 git 自更新按钮。 */
+  /** 更新检查：自托管下载面 manifest 最新版对比（主源，GitHub Releases
+   *  兜底；TTL 缓存；失败 checkFailed 显式呈现不垫假数据）。simulate=true
+   *  伪造 patch+1 高版本——前端 localStorage 'agentchat.simulateUpdate'
+   *  开关的测试通道。desktop=true（桌面壳装配）：更新归壳层 manifest
+   *  检查（提醒制），前端据此换桌面文案、不渲染 git 自更新按钮。 */
   web.registerRpc('system/version-check', async (params) => {
     const current = readCurrentVersion()?.version ?? '0.0.0';
     const desktop = isDesktopInstall();
@@ -2327,7 +2356,7 @@ export function apply(ctx: Context) {
         current,
         latest: `${major}.${minor}.${patch + 1}`,
         hasUpdate: true,
-        latestUrl: `https://github.com/${GITHUB_REPO}/releases/latest`,
+        latestUrl: `${DOWNLOAD_BASE}/`,
         simulated: true,
         ...(desktop ? { desktop: true } : {}),
       };

@@ -8,6 +8,7 @@
 // 缺省 1v1（= agentId）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
+import { widenToolsForGating } from 'ac-agents';
 
 /** read_history 单页上限 */
 const HISTORY_PAGE_MAX = 500;
@@ -36,7 +37,10 @@ const SESSION_MENTION_GUIDE =
 export function apply(ctx: Context) {
   // ---- # 会话引用指引（owner 行条件注入：历史工具或文件读取能力在场其一）----
   ctx.on('loop/before-run', (call, next) => {
-    const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
+    // PTC 门控面（widenToolsForGating 单源）：程序化 run 的 request.tools
+    // 已收窄成 ['run_code']——按能力面展开判文件读取能力在场，否则 #
+    // 会话引用约定整段丢失
+    const names = new Set(widenToolsForGating(ctx, call.request.agent, call.request.conversationId, call.request.tools));
     const historyCap = names.has('read_history') || names.has('grep_history');
     const fileCap = names.has('read') || names.has('grep') || names.has('pwsh') || names.has('bash');
     if (historyCap || fileCap) {

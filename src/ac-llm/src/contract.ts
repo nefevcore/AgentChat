@@ -182,6 +182,12 @@ export interface LlmChatResult {
    * 直播「已思考 · XmYs」同源定义——落盘透传，刷新后历史回放恢复耗时。
    */
   reasoningMs?: number;
+  /**
+   * 本次 API 调用耗时（毫秒；dispatch 层计时：请求发起 → 流末，不含
+   * 拦截链/重试退避等待）。token/秒速率统计的数据源——排除一切非 API
+   * 耗时（工具执行、loop 编排），只有流时间进分母。
+   */
+  elapsedMs?: number;
   finish?: string;
   usage?: LlmUsage;
 }
@@ -213,4 +219,10 @@ export type LlmProviderFactory = () => LlmProvider;
  */
 export interface LlmChatCall {
   input: LlmChatInput;
+  /**
+   * 本次 API 调用耗时（毫秒；dispatch 层回填——provider 流的纯耗时，
+   * 不含重试退避等待）。chat() 聚合时读取入 LlmChatResult.elapsedMs；
+   * waterfall 载体顺带回传，避免结果对象二次包装。
+   */
+  elapsedMs?: number;
 }

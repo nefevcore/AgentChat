@@ -43,6 +43,17 @@ declare module '@agentchat/cordis' {
     ): Promise<ToolResult> | ToolResult;
 
     /**
+     * 工具开始执行通知（before-execute waterfall 放行后、工具体执行前）。
+     * 与 after-execute 对称的 begin/end 通知对：veto 路径不 emit（无
+     * 「开始」事实）。call 携带执行身份（含 runCodeSubcall 标记）——
+     * 消费方（ws-bridge → 前端）据此建 running 占位卡（run_code 子调用
+     * 平铺卡此前终值到达才建卡，串行链阻塞时无从感知在途状态）。
+     * @mode emit
+     * @scope run
+     */
+    'tool/started'(call: ToolCall): void;
+
+    /**
      * 工具执行后通知（审计/持久化/WS 广播订阅；error 非空表示工具体抛错）。
      * 通知的是**变换后**的最终结果（transform-result 之后的值）。
      * @mode emit

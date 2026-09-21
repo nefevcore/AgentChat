@@ -21,6 +21,7 @@ export {
   stripBom,
   detectLineEnding,
   normalizeToLF,
+  repairDuplicatedCr,
   restoreLineEndings,
   restoreLineEndingsPreserving,
   parseRawLines,

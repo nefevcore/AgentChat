@@ -172,6 +172,33 @@ declare module '@agentchat/cordis' {
     ): void;
 
     /**
+     * run 自然停点拦截（2026-02 ask 挂起重构）：模型本轮无工具调用且 steer
+     * 队列已消费尽时，循环先不收束，把「是否有系统持有的待注入材料」交给
+     * 领域行裁决——ask_questions 的答案等待（发起体即时返回，等待归 loop）
+     * 即本事件的第一住户。
+     * @mode waterfall
+     * @scope run
+     * 监听器两种姿势：
+     *   · 持有注入：等待材料就绪后返回 LlmMessage[]（如答案 context 消息）
+     *     ——循环注入工作数组并继续步循环（同 run 续走，消息数组连续）；
+     *   · 无事可做：`return next()`（透传下游）——全体空手 → 收束照旧。
+     * 注意（注入位置与预算）：
+     *   · 注入到 messages 尾部（2026-09-21 头部注入修正）：自然停点上
+     *     工作数组尾是本轮 assistant 终文本——loop 先把它补进工作数组，
+     *     注入材料追加其后（尾部追加对 provider 相邻性安全：idle 点尾部
+     *     不悬空 tool_calls）。头部注入（splice 于 system 后）使 system
+     *     之后的已缓存前缀整体后移（provider 前缀缓存 miss 扩大——实测
+     *     ask_questions 会话三次调用 cacheHit 恒 5888、miss 30→425），且
+     *     注入材料在位置上先于更早的用户消息、扰乱模型时序感知，已废弃；
+     *   · idle 注入的续走步不占 maxSteps 预算（外部输入的接续，不是模型
+     *     自主推理延长——上限只防后者）。
+     */
+    'loop/run-idle'(
+      call: LoopRunCall,
+      next: () => Promise<LlmMessage[]>,
+    ): Promise<LlmMessage[]>;
+
+    /**
      * 轮结果变换（run 已收束，返回调用方/通知之前）。
      * @mode waterfall
      * @scope run

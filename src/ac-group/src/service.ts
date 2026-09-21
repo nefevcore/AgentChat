@@ -1125,6 +1125,18 @@ export class GroupService extends Service {
     return this.groups.get(groupId);
   }
 
+  /**
+   * 完整参与面（含隐式成员 user）：'user' 端点永不入册（post 特权 + UI
+   * 建群流程过滤），但它恒在群内——成员表展示/注入的参与者全貌以本方法
+   * 为单源（[群聊成员] 块、list_groups、前端成员列表）。保持 members
+   * 纯 Agent 语义不变（send 触发目标、属主校验等继续用它）。
+   */
+  membersWithUser(groupId: string): string[] {
+    const group = this.groups.get(groupId);
+    if (!group) return [];
+    return group.members.includes('user') ? group.members : ['user', ...group.members];
+  }
+
   list(): GroupConfig[] {
     return [...this.groups.values()];
   }

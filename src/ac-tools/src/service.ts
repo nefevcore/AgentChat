@@ -80,6 +80,11 @@ export class ToolsService extends Service {
     const execution: ToolExecution = { call };
     return this.ctx.waterfall('tool/before-execute', execution, async () => {
       const finalCall = execution.call; // 读取时机在拦截之后：改写生效
+      // 开始通知（2026-12 前端反馈 #2）：waterfall 放行后、工具体执行前
+      // emit——与 after-execute 对称的 emit 面（before-execute 本体是拦截
+      // 链不是广播面）。消费者：ws-bridge → 前端 run_code 子调用占位卡等。
+      // 放行后必 emit：veto 路径不进本块（无「开始」事实）。
+      this.ctx.emit('tool/started', finalCall);
       // 中央接线（M7）：工具体调 onProgress → 逐片 emit tool/progress，
       // 再委托调用方自挂的回调。包装对象传入工具体（不改写调用方对象）。
       const wired: ToolCall = {

@@ -179,85 +179,121 @@ interface Change {
   newEnd: number;
 }
 
-/** 简单的逐行 diff：找出变化的连续块 */
+/** 简单的逐行 diff：找出变化的连续块（Myers O(ND) 内核）。
+ *
+ * 2026-12 性能整改：原实现为 O(m×n) LCS DP 矩阵（时间与内存双二次），
+ * 数千行文件的比对即卡顿主源（文件编辑面板逐版本 diff × 每渲染重算）。
+ * Myers 前向路径产出公共行配对（配对数 = LCS 长度——任意最优解下增删
+ * 行数统计不变，块划分在歧义输入下可能不同但等价）；前后缀公共行快
+ * 路径吸收 append/prepend 型编辑；编辑距离超 MYERS_D_CAP 时中段退化
+ * 为单替换块（完全重写的大文件——近似最优，避免病态二次耗时）。 */
+const MYERS_D_CAP = 1024;
+
 function computeChanges(oldLines: string[], newLines: string[]): Change[] {
+  const N = oldLines.length;
+  const M = newLines.length;
+  // 前后缀公共行快路径（append/prepend 型编辑免比对，同时缩小 Myers 域）
+  let pre = 0;
+  while (pre < N && pre < M && oldLines[pre] === newLines[pre]) pre++;
+  let suf = 0;
+  while (suf < N - pre && suf < M - pre && oldLines[N - 1 - suf] === newLines[M - 1 - suf]) suf++;
+  const midPairs = myersMatchedPairs(oldLines, newLines, pre, N - suf, pre, M - suf);
   const changes: Change[] = [];
-
-  // 使用 LCS 找到公共子序列
-  const lcsMatrix = buildLCSMatrix(oldLines, newLines);
-  const lcsPairs = backtrackLCS(lcsMatrix, oldLines, newLines);
-
-  if (lcsPairs.length === 0 && oldLines.length === 0 && newLines.length === 0) {
-    return [];
-  }
-
-  // 从 LCS 反推变更区域
-  const changesRaw: Change[] = [];
-  let oldPos = 0;
-  let newPos = 0;
-
-  for (const [ol, nl] of lcsPairs) {
-    if (oldPos < ol || newPos < nl) {
-      changesRaw.push({
-        oldStart: oldPos,
-        oldEnd: ol,
-        newStart: newPos,
-        newEnd: nl,
-      });
+  if (midPairs === null) {
+    // D 超限：中段整体单块（old 中段全计删、new 中段全计增——近似最优）
+    if (pre < N - suf || pre < M - suf) {
+      changes.push({ oldStart: pre, oldEnd: N - suf, newStart: pre, newEnd: M - suf });
     }
-    oldPos = ol + 1;
-    newPos = nl + 1;
-  }
-
-  // 尾部变更
-  if (oldPos < oldLines.length || newPos < newLines.length) {
-    changesRaw.push({
-      oldStart: oldPos,
-      oldEnd: oldLines.length,
-      newStart: newPos,
-      newEnd: newLines.length,
-    });
-  }
-
-  // 合并相邻变更
-  return mergeAdjacentChanges(changesRaw);
-}
-
-function buildLCSMatrix(a: string[], b: string[]): number[][] {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+  } else {
+    // 从公共配对反推变更区域（同原 LCS 回溯产物的推导口径）
+    let oldPos = pre;
+    let newPos = pre;
+    for (const [ol, nl] of midPairs) {
+      if (oldPos < ol || newPos < nl) {
+        changes.push({ oldStart: oldPos, oldEnd: ol, newStart: newPos, newEnd: nl });
       }
+      oldPos = ol + 1;
+      newPos = nl + 1;
+    }
+    if (oldPos < N - suf || newPos < M - suf) {
+      changes.push({ oldStart: oldPos, oldEnd: N - suf, newStart: newPos, newEnd: M - suf });
     }
   }
-
-  return dp;
+  return mergeAdjacentChanges(changes);
 }
 
-function backtrackLCS(dp: number[][], a: string[], b: string[]): Array<[number, number]> {
-  const pairs: Array<[number, number]> = [];
-  let i = a.length;
-  let j = b.length;
+/** 行等价判定的哨兵键：null/undefined 行与 '' 行在 split 产物中不可区分，
+ * 但 null === '' 为 false——保留严格判等语义，避免把空串行误当公共行。 */
+function lineKey(s: string | null | undefined): string {
+  return s == null ? '\u0000null' : s;
+}
 
-  while (i > 0 && j > 0) {
-    if (a[i - 1] === b[j - 1]) {
-      pairs.unshift([i - 1, j - 1]);
-      i--;
-      j--;
-    } else if (dp[i - 1][j] > dp[i][j - 1]) {
-      i--;
-    } else {
-      j--;
+/**
+ * Myers 贪心前向算法（O(ND)）：返回 aLo..aHi / bLo..bHi 域内的公共行配对
+ * （时间序；配对数 = 该域 LCS 长度）。编辑距离 d 超过 MYERS_D_CAP 时返回
+ * null（调用方退化处理）。v 数组以 k = x - y 为索引双向使用（负偏移量
+ * N；数组长度 2N+1——d ≤ N 保证不越界）；每轮 d 保存快照用于回溯。
+ */
+function myersMatchedPairs(
+  a: string[], b: string[], aLo: number, aHi: number, bLo: number, bHi: number,
+): Array<[number, number]> | null {
+  const N = aHi - aLo;
+  const M = bHi - bLo;
+  if (N === 0 || M === 0) return []; // 空（含全等）——无中段配对
+  const MAX = N + M;
+  const v = new Int32Array(2 * MAX + 1);
+  const trace: Int32Array[] = [];
+  const vA = a; const vB = b; // 行取用别名（snake 内层高频）
+  // 快照预算：总条目 ~2M（Int32 ≈ 16MB 上限）——大文件自动收紧 d 上限
+  //（超大编辑距离本就近乎重写，退化单块是诚实近似；小文件不受影响）
+  const dCap = Math.min(MYERS_D_CAP, Math.max(16, Math.floor(2_000_000 / (2 * MAX + 1))));
+  let foundD = -1;
+  for (let d = 0; d <= Math.min(MAX, dCap); d++) {
+    trace.push(v.slice());
+    for (let k = -d; k <= d; k += 2) {
+      let x: number;
+      if (k === -d || (k !== d && v[k - 1 + MAX] < v[k + 1 + MAX])) {
+        x = v[k + 1 + MAX]; // 下移（插入）
+      } else {
+        x = v[k - 1 + MAX] + 1; // 右移（删除）
+      }
+      let y = x - k;
+      while (x < N && y < M && lineKey(vA[aLo + x]) === lineKey(vB[bLo + y])) {
+        x++; y++;
+      }
+      v[k + MAX] = x;
+      if (x >= N && y >= M) { foundD = d; break; }
     }
+    if (foundD >= 0) break;
   }
-
+  if (foundD < 0) return null;
+  // 回溯：逐 d 从终态反推每步的 snake/移动方向，收集公共行配对
+  const pairs: Array<[number, number]> = [];
+  let x = N;
+  let y = M;
+  for (let d = foundD; d > 0; d--) {
+    const vp = trace[d]; // 轮前快照 = d-1 轮终态（与正向判定同源）
+    const k = x - y;
+    let prevK: number;
+    if (k === -d || (k !== d && vp[k - 1 + MAX] < vp[k + 1 + MAX])) {
+      prevK = k + 1;
+    } else {
+      prevK = k - 1;
+    }
+    const prevX = vp[prevK + MAX];
+    const prevY = prevX - prevK;
+    // snake 体：从 (prevX, prevY) 沿对角线到 (x, y) 的公共行
+    while (x > prevX && y > prevY) {
+      x--; y--;
+      pairs.unshift([aLo + x, bLo + y]);
+    }
+    x = prevX; y = prevY;
+  }
+  // d=0 的 snake（全等域——前缀快路径后不会出现，防御性收集）
+  while (x > 0 && y > 0) {
+    x--; y--;
+    pairs.unshift([aLo + x, bLo + y]);
+  }
   return pairs;
 }
 

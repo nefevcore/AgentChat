@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import {
   detectLineEnding,
   normalizeToLF,
+  repairDuplicatedCr,
   restoreLineEndings,
   restoreLineEndingsPreserving,
   stripBom,
@@ -37,6 +38,8 @@ export interface EditBatchResult {
   diffRemoved: number;
   /** 编辑落点核验回显（readback）：编辑区前后各 ~3 行，带行号（read 同款格式） */
   readback?: string;
+  /** 读入时修复的 CR 双写行尾损伤处数（\r\r\n → \r\n；0/无损伤省略——2026-11-19 画像 Ⓑ） */
+  repairedCr?: number;
 }
 
 /**
@@ -60,11 +63,34 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
     const buffer = await fs.readFile(filePath);
     const rawContent = buffer.toString('utf-8'); // 保留原始（含 BOM/行尾），混合换行按行恢复用
     const content = stripBom(rawContent);
-    const lineEnding = detectLineEnding(content);
-    const normalized = normalizeToLF(content);
+    // 存量 CR 双写损伤修复（\r{2,}\n → \r\n）：既往事故的行尾损伤会让后续
+    // 所有标准 CRLF old_string 失配——读入即修，一次损伤不再放大成连环失败
+    // （2026-11-19 画像 Ⓑ 实锤：一次行尾损伤放大成 27 次失配）
+    const { fixed: repairedContent, count: repairedCr } = repairDuplicatedCr(content);
+    const lineEnding = detectLineEnding(repairedContent);
+    const normalized = normalizeToLF(repairedContent);
 
-    // 2. 文本匹配编辑
-    const r = applyEditsToNormalizedContent(normalized, batch.textEdits, filePath);
+    // 2. 文本匹配编辑（old/new 先入 LF 匹配空间——CR 双写源头治理：
+    // 模型从 read 输出复制的文本常带 CRLF 行尾，原样混入会让精确匹配失配、
+    // new_string 的 \r\n 经写回行尾恢复再叠一层 \r 产出 \r\r\n 双写）
+    const textEdits: ReplaceEdit[] = batch.textEdits.map((e) => ({
+      oldText: normalizeToLF(e.oldText),
+      newText: normalizeToLF(e.newText),
+    }));
+    let r: ReturnType<typeof applyEditsToNormalizedContent>;
+    try {
+      r = applyEditsToNormalizedContent(normalized, textEdits, filePath);
+    } catch (err: unknown) {
+      // 失配诊断增强（画像 Ⓑ.2）：附文件与 old_string 的行尾形态统计——
+      // 一行诊断顶十次盲试（old_string 行尾问题 vs 内容问题立判）
+      if (err instanceof Error && err.message.includes('未找到 old_string')) {
+        const olds = textEdits.map((e) => e.oldText).join('\n');
+        throw new Error(
+          `${err.message}\n行尾诊断：文件 ${describeLineEndings(normalized)}；old_string ${describeLineEndings(olds)}（edit 已自动把 CRLF 归一化为 LF 匹配，行尾不是失配原因——内容已变，须 read 重新对齐）`,
+        );
+      }
+      throw err;
+    }
     const currentContent = r.newContent;
     const editPositions = r.editPositions;
 
@@ -84,12 +110,14 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
         ? generateDiffString(normalized, currentContent)
         : generateIncrementalDiff(normalized, currentContent, editPositions);
 
-    // 5. 写回（混合换行按行保留行尾）
+    // 5. 写回（混合换行按行保留行尾；修复后的原文为基准——行文本不含 CR 尾巴）
     const finalContent =
       lineEnding === 'mixed'
-        ? restoreLineEndingsPreserving(rawContent, currentContent)
+        ? restoreLineEndingsPreserving(repairedContent, currentContent)
         : restoreLineEndings(currentContent, lineEnding);
-    await fs.writeFile(filePath, finalContent, 'utf-8');
+    // 写回终检：任何路径产出的 CR 双写形态在此归一（防御性保险，零成本）
+    const { fixed: safeContent } = repairDuplicatedCr(finalContent);
+    await fs.writeFile(filePath, safeContent, 'utf-8');
 
     // 6. readback 回显（P2）：编辑落点核验用，行号格式与 read 工具一致
     const readback =
@@ -100,8 +128,24 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
     // fuzzy 统计（按实际生效的匹配级别：0=精确，1=归一化模糊）
     const fuzzyMatches = r.matchLevels.filter((lv) => lv >= 1).length;
 
-    return { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved, readback };
+    return {
+      diff,
+      firstChangedLine,
+      fuzzyMatches,
+      diffAdded,
+      diffRemoved,
+      readback,
+      ...(repairedCr > 0 ? { repairedCr } : {}),
+    };
   });
+}
+
+/** 行尾形态统计（失配诊断用）：CRLF / 纯 LF / 孤立 CR 各计数量 */
+function describeLineEndings(s: string): string {
+  const crlf = (s.match(/\r\n/g) ?? []).length;
+  const loneCr = (s.match(/\r(?!\n)/g) ?? []).length;
+  const lf = (s.match(/(?<!\r)\n/g) ?? []).length;
+  return `CRLF=${crlf} LF=${lf} 孤立CR=${loneCr}`;
 }
 
 /** readback 渲染：编辑区前后各 ~3 行，`行号 文本`（与 read 工具输出同格式） */

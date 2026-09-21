@@ -18,6 +18,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, normalize, resolve, extname } from 'node:path';
+import { gzip, brotliCompress, constants as zlibConstants } from 'node:zlib';
+import { promisify } from 'node:util';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Service, type Context } from '@agentchat/cordis';
 import {
@@ -97,6 +99,31 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.map': 'application/json',
 };
+
+// ── 静态资源压缩（br/gzip 协商 + 结果缓存）──
+// 背景（前端性能分析 2026-01）：serveStatic 此前 readFile → end 裸传原始
+// 字节，1.57MB 的 markdown chunk（gzip 519KB）全量过线。Node http 不会
+// 自动压缩，传输层必须自己做——这是首屏最大的单项浪费。
+const gzipAsync = promisify(gzip);
+const brotliAsync = promisify(brotliCompress);
+
+/** 可压缩扩展名（文本类；字体/图片已高熵，压缩无益反耗 CPU） */
+const COMPRESSIBLE_EXTS = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg', '.map', '.txt', '.md']);
+/** 低于此体积不压缩（头开销 + CPU 不值） */
+const MIN_COMPRESS_BYTES = 1024;
+/** 压缩结果缓存条目上限（静态资源集稳定；超限整体清空——最简且无泄漏） */
+const COMPRESS_CACHE_MAX = 64;
+/** brotli 质量：assets 为一次性压缩（结果缓存复用），5 是速度/比率折中 */
+const BROTLI_QUALITY = 5;
+
+interface CompressedEntry {
+  mtimeMs: number;
+  size: number;
+  gzip?: Buffer;
+  br?: Buffer;
+}
+
+const compressCache = new Map<string, CompressedEntry>();
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
@@ -330,7 +357,7 @@ export class WebServerService extends Service {
         return;
       }
       if ((req.method === 'GET' || req.method === 'HEAD') && this.staticDir) {
-        await this.serveStatic(path, res, req.method === 'HEAD');
+        await this.serveStatic(path, res, req.method === 'HEAD', req.headers['accept-encoding'] ?? '');
         return;
       }
       this.replyJson(res, 404, { error: `no route: ${req.method} ${path}` });
@@ -439,7 +466,49 @@ export class WebServerService extends Service {
     return parts;
   }
 
-  private async serveStatic(path: string, res: ServerResponse, head = false): Promise<void> {
+  /**
+   * Accept-Encoding 协商 + 压缩（结果按 mtime/size 缓存复用）。
+   * 返回原始字节（类型不可压缩 / 客户端不支持 / 压缩失败）或压缩后字节。
+   * 异步 zlib：压缩不阻塞事件循环（首个请求付一次代价，其后命中缓存）。
+   */
+  private async negotiateEncoding(
+    full: string,
+    data: Buffer,
+    mtimeMs: number,
+    acceptEncoding: string,
+  ): Promise<{ body: Buffer; encoding: string | null }> {
+    if (!COMPRESSIBLE_EXTS.has(extname(full)) || data.length < MIN_COMPRESS_BYTES) {
+      return { body: data, encoding: null };
+    }
+    const ae = acceptEncoding.toLowerCase();
+    const wantBr = /\bbr\b/.test(ae);
+    const wantGzip = /\bgzip\b/.test(ae);
+    if (!wantBr && !wantGzip) return { body: data, encoding: null };
+
+    let entry = compressCache.get(full);
+    if (!entry || entry.mtimeMs !== mtimeMs || entry.size !== data.length) {
+      // 文件变更（dev 重建 / dist 覆盖）→ 旧压缩结果失效
+      if (compressCache.size >= COMPRESS_CACHE_MAX) compressCache.clear();
+      entry = { mtimeMs, size: data.length };
+      compressCache.set(full, entry);
+    }
+    try {
+      if (wantBr) {
+        if (!entry.br) {
+          entry.br = await brotliAsync(data, {
+            params: { [zlibConstants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY },
+          });
+        }
+        return { body: entry.br, encoding: 'br' };
+      }
+      if (!entry.gzip) entry.gzip = await gzipAsync(data, { level: 6 });
+      return { body: entry.gzip, encoding: 'gzip' };
+    } catch {
+      return { body: data, encoding: null }; // 压缩失败不阻断请求：按原始字节下行
+    }
+  }
+
+  private async serveStatic(path: string, res: ServerResponse, head = false, acceptEncoding = ''): Promise<void> {
     const root = resolve(this.staticDir!);
     const rel = decodeURIComponent(path).replace(/^\/+/, '');
     let full = normalize(join(root, rel));
@@ -455,15 +524,25 @@ export class WebServerService extends Service {
       ? 'public, max-age=31536000, immutable'
       : 'no-cache';
     try {
-      const s = await stat(full);
-      if (s.isDirectory()) full = join(full, 'index.html');
+      let s = await stat(full);
+      if (s.isDirectory()) {
+        full = join(full, 'index.html');
+        s = await stat(full); // 目录索引：以真实文件 mtime 参与压缩缓存判定
+      }
       const data = await readFile(full);
-      res.writeHead(200, {
-        'content-type': CONTENT_TYPES[extname(full)] ?? 'application/octet-stream',
+      const { body, encoding } = await this.negotiateEncoding(full, data, s.mtimeMs, acceptEncoding);
+      const ext = extname(full);
+      const headers: Record<string, string | number> = {
+        'content-type': CONTENT_TYPES[ext] ?? 'application/octet-stream',
         'cache-control': cacheControl,
-        'content-length': data.length,
-      });
-      res.end(head ? undefined : data);
+        'content-length': body.length,
+      };
+      // 可压缩类型恒声明变体维度：同一 URL 对不同 Accept-Encoding 会返回
+      // 不同字节，缺 Vary 时中间缓存会把 br 结果当 identity 复用
+      if (COMPRESSIBLE_EXTS.has(ext)) headers['vary'] = 'accept-encoding';
+      if (encoding) headers['content-encoding'] = encoding;
+      res.writeHead(200, headers);
+      res.end(head ? undefined : body);
     } catch {
       // API 路径不落 SPA fallback（2026-08-30：级联降级期 /api/* 路由不在，
       // 回退 index.html → 客户端 JSON 解析报 "Unexpected token '<'"——

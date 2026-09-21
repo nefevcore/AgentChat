@@ -9,7 +9,7 @@
 // 设计要点：
 //   · 循环是能力调用（ctx.agentLoop.run），不是事件接收方；
 //   · 边界事件（before-run/before-step waterfall + after-run/after-step
-//     emit）见 events.ts —— 拦截与通知分离；
+//     emit + run-idle 自然停点拦截）见 events.ts —— 拦截与通知分离；
 //   · 工具执行走 ctx.tools.execute，自动获得 tool/before-execute
 //     拦截链 —— 循环不重新实现工具拦截。
 // ============================================================
@@ -129,6 +129,12 @@ export interface LoopStepRecord {
    * 前端历史回放据此恢复「已思考 · XmYs」耗时（与直播同源定义）。
    */
   reasoningMs?: number;
+  /**
+   * 本步 API 调用耗时（毫秒；源自 llm 的 LlmChatResult.elapsedMs——
+   * 请求发起→流末的纯流时间，不含工具执行与编排）。落盘透传，
+   * run 级经 LoopRunUsage.elapsedMs 累加，速率 = total 累加 token / 累加耗时。
+   */
+  elapsedMs?: number;
   usage?: LlmUsage;
   finish?: string;
   /**
@@ -205,6 +211,12 @@ export interface LoopRunUsage {
   cacheMiss?: number;
   /** ReAct 步数（有 usage 供给的步计数） */
   steps: number;
+  /**
+   * 累加轨：全部步 API 流时间之和（毫秒；步耗时见 LoopStepRecord.elapsedMs）
+   * ——token/秒速率的分母。只含 LLM API 流时间：工具执行、loop 编排、
+   * 重试退避均不计入（速率评估只关心 API 本身）。
+   */
+  elapsedMs?: number;
 }
 
 export interface LoopRunResult {

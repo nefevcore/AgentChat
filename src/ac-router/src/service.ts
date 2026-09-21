@@ -24,8 +24,7 @@ import { splitModelRef } from 'ac-llm';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
 import { pairKey } from 'ac-agent-loop';
-import { capabilitySetOf, conversationFormOf, effectiveToolMode, filterLlmParams, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
-import type { ConversationForm } from 'ac-agents';
+import { capabilitySetOf, effectiveToolMode, filterLlmParams, formDeniedBy, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 
 /** 路由入站消息（string 糖衣 → { role:'user', content }） */
@@ -199,7 +198,10 @@ export class RouterService extends Service {
     //     include 显式点名也不可绕过（resolveToolNames 对 include 原样
     //     透传，仅过滤 universe 挡不住）；纯可见面裁剪，执行面走既有门禁。
     const caps = capabilitySetOf(this.ctx, call.agentId);
-    const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+    // 注入方式分流（injection 轴）：mode 工具不进常规工具面（tc-programmatic
+    // 档经 narrowToolsByMode 从注册面直接合成——与 tags 无关）
+    const allDefs = this.ctx.tools.list();
+    const visibleTools = allDefs.filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
     const allToolNames = visibleTools.map((t) => t.name);
     // 解析传 defs（tag 引用展开：include/exclude 条目 'tag:<tag>' 按
     // requiredTags 展开为工具名——工具集增删自动跟随）；空展开告警
@@ -216,37 +218,34 @@ export class RouterService extends Service {
         this.ctx.logger.warn(`[router] tools 点名 '${name}' 不在当前可见工具面（不存在/不可见/已改名，如平台拆分 bash→pwsh），该条目落空——Agent ${call.agentId ?? '无身份'}`);
       },
     ) ?? allToolNames;
-    const form = this.conversationForm(call.conversationId);
-    const formAllowed = (name: string): boolean => {
-      if (form === null) return true;
+    // 交互面（requiresInteraction 轴，formDeniedBy 单源）：self 会话
+    // （无人值守机制 run）排除等待用户应答的工具
+    const tools = resolved.filter((name) => {
       const def = this.ctx.tools.get(name);
-      return def === undefined || !(def.excludeForms ?? []).includes(form);
-    };
-    const tools = resolved.filter(formAllowed);
-    // 工具调用模式（2026-09-17 统一重构 + 优化裁决：tc-* 纯模式词——
-    // 与提权档位同构的形态选择，非授权门槛；run_code 授权词 = infra）：
+      return def === undefined || !formDeniedBy(this.ctx, def, call.conversationId);
+    });
+    // 工具调用模式（tc-* 纯模式词——与提权档位同构的形态选择，非授权
+    // 门槛；2026-12 injection 轴重构：run_code 等模式工具经 injection:'mode'
+    // 声明，不挂 requiredTags、不进常规工具面）：
     //   · 生效档 = 会话覆盖（conv-settings toolMode，无键 = 跟随）??
     //     toolModeOf(agent)（tags 单源判定，缺省 tc-base）；
-    //   · tc-programmatic → LLM 面收窄为 ['run_code']（SDK 投影块由
-    //     ac-run-code prompt.ts 按 run 级 request.tools 自然注入）——
-    //     前端选「程序化」= 临时程序化档（等同临时分配，无需预配标签）；
+    //   · tc-programmatic → LLM 面合成 mode 工具集（与 tags 无关，行在装
+    //     即合成；SDK 投影块由 ac-run-code prompt.ts 按 run 级 request.tools
+    //     自然注入）——前端选「程序化」= 临时程序化档；
     //   · tc-none → LLM 工具面清空（纯聊天）；
-    //   · tc-base → 不收窄（逐个直调）。
-    // tc-programmatic 但 run_code 不在生效面（Agent 无 infra 或 run-code
-    // 行未装）→ warn 并忽略该档（惰性回落 tags 档，不拦截 run；与
-    // include 点名落空同款可观测语义）。键面同 elevation 口径：全形态
-    // 会话生效（含 singles sid）。
-    // 工具调用模式收窄（单源 effectiveToolMode/narrowToolsByMode——与
-    // system-prompt 干跑/agents/tool-defs 估算面共用，防估算随会话开关漂移）
+    //   · tc-base → 常规工具面（mode 工具不在其中）。
+    // 键面同 elevation 口径：全形态会话生效（含 singles sid）。
+    // 收窄单源 effectiveToolMode/narrowToolsByMode——与 system-prompt
+    // 干跑/agents/tool-defs 估算面共用，防估算随会话开关漂移
     const mode = effectiveToolMode(agent, call.conversationId, {
       convSettings: this.ctx.get('convSettings', false) as
         | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
         | undefined,
     });
-    const llmTools = narrowToolsByMode(tools, mode);
-    if (mode === 'tc-programmatic' && !tools.includes('run_code')) {
+    const llmTools = narrowToolsByMode(tools, allDefs, mode);
+    if (mode === 'tc-programmatic' && llmTools.length === 0) {
       this.ctx.logger.warn(
-        '[router] 工具调用模式为 tc-programmatic 但 run_code 不在生效工具面（Agent %C 无 infra 标签或 run-code 行未装），该档忽略——按常规工具面执行',
+        '[router] 工具调用模式为 tc-programmatic 但无 injection:mode 工具（run-code 行未装），LLM 工具面为空——形同 tc-none，不回落常规工具面',
         call.agentId,
       );
     }
@@ -302,15 +301,6 @@ export class RouterService extends Service {
     const llm = this.ctx.get('llm', false) as { providers(): string[] } | undefined;
     if (llm && !llm.providers().includes(split.provider)) return { model: ref };
     return split;
-  }
-
-  /**
-   * 会话形态（工具形态面的判定输入，见 ToolDefinition.excludeForms）：
-   * conversationFormOf 单源（ac-agents——'single' singles 命中 / 'self'
-   * 对角线自会话 a~a）。router 转发语义不变：纯查询零会话状态。
-   */
-  private conversationForm(conversationId: string): ConversationForm | null {
-    return conversationFormOf(this.ctx, conversationId);
   }
 
   /**

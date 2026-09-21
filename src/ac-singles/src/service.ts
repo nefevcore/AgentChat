@@ -457,10 +457,17 @@ export class SinglesService extends Service {
     return session.hasPending(sessionId);
   }
 
-  /** 最近活动时间戳（ms；无消息 = undefined）——列表排序锚点 */
+  /**
+   * 最近活动时间戳（ms；无消息 = undefined）——列表排序锚点。
+   * statMeta 直取 mtime（零文件读）——与 stats().updatedAt 同源同值
+   * （stats 三条路径的 updatedAt 恒 = stat.mtimeMs）。冷启动 list()/listActive()
+   * 对全部会话逐个取活动时间：走 stats 会把 162 MiB 消息文件整读（实测
+   * 307 会话 ~1.2s 只为排序）；mtime 是纯文件系统元数据，读成本近零，
+   * 窗口计数留给真需要它的消费面（runs/snapshot 展开段）去付。
+   */
   lastActivity(sessionId: string): number | undefined {
     const session = this.ctx.get('session');
-    return session?.stats(sessionId)?.updatedAt;
+    return session?.statMeta(sessionId)?.mtimeMs;
   }
 
   // ---- CRUD ----
@@ -472,8 +479,8 @@ export class SinglesService extends Service {
 
   /**
    * 全部会话（含 archived；按最近会话时间降序——lastActivity 优先，
-   * 无消息回落 createdAt）。装饰排序：活动时间每会话取一次（stats
-   * 缓存未热时整读消息文件，比较器内反复取 = O(n log n) 次文件读）。
+   * 无消息回落 createdAt）。装饰排序：活动时间每会话取一次（lastActivity
+   * 走 statMeta mtime 零文件读；比较器内反复取 = O(n log n) 次 stat）。
    */
   private sortedByActivity(): SingleSessionMeta[] {
     if (!fs.existsSync(this.singlesDir)) return [];
@@ -612,6 +619,66 @@ export class SinglesService extends Service {
     }
     this.ctx.emit('singles/updated', record, 'updated');
     return record;
+  }
+
+  /**
+   * 会话分支（独立会话内新增分支）：以 anchorMessageId 消息（含）为终点
+   * 复制出一个新会话——元数据（Agent/模型覆盖/工作区）继承，消息流经
+   * session 域服务方法拷贝（compact keep 一次性落盘；越权红线：本服务不
+   * 触碰会话文件）。
+   * 行为语义：
+   *   · 读取走 ctx.session.records()（权威读口：flush 在途队列 + journal
+   *     恢复 + partial/补行合并投影——新会话自完整，无需 partials 回放）；
+   *   · 锚点 = 行 message_id（收束行/注入行均有；不透明）；未命中抛错；
+   *   · 落盘走 ctx.session.compact(keep)（原子 tmp+rename，不用逐行 append
+   *     ——行数级拷贝太慢且非原子；keep 行已是稳定终态，无 B1 窗口顾虑
+   *     〔目标文件本不存在〕）；
+   *   · partial 检查点行（run 进行中）如实拷贝——records() 已做读侧合并，
+   *     带 partial 标记的行仅出现在未收束 run 语义里，切片场景罕见且无害；
+   *   · 新行 seq 重新从 0 连续（compact keep 语义——continueSeq 由承接的
+   *     write 路径按文件续号，寻址不依赖 seq）；
+   *   · 源会话只读不受影响；标题继承源标题（已具名会话），未命名会话
+   *     （LLM 标题尚未生成/空白）不预置标题（新会话首跑触发自动命名）。
+   * @returns 新会话元数据
+   */
+  async fork(sessionId: string, anchorMessageId: string): Promise<SingleSessionMeta> {
+    const source = this.readRecord(sessionId);
+    if (!source) throw new Error(`独立会话 "${sessionId}" 不存在`);
+    const session = this.ctx.get('session');
+    if (!session) throw new Error('session 服务未装载（会话分支不可用）');
+    const records = await session.records(sessionId);
+    let end = records.length - 1;
+    if (anchorMessageId !== '') {
+      end = records.findIndex((r) => r.message_id === anchorMessageId);
+      if (end === -1) throw new Error(`消息 "${anchorMessageId}" 不在会话 "${sessionId}" 中（分支锚点失效）`);
+    }
+    const keep = records.slice(0, end + 1).map((r) => {
+      const copy = { ...r };
+      delete copy.partial;
+      delete copy.echoSeq;
+      return copy;
+    });
+    // create 会先 purgeEmpty 清理遗留空白会话——源会话有消息不受影响。
+    // 标题：源已具名 → 剥旧「（分支）」后缀再追加（分支的分支不叠名，
+    // 不会出现「xx（分支）（分支）」）；未命名不预置（新会话首跑自动命名）
+    const title = source.title
+      ? `${source.title.replace(/（分支）+$/, '')}（分支）`
+      : undefined;
+    const forked = this.create({
+      agentId: source.agentId,
+      ...(source.model ? { model: source.model } : {}),
+      ...(title ? { title } : {}),
+      ...(source.workspaceId ? { workspaceId: source.workspaceId } : {}),
+    });
+    if (keep.length > 0) await session.compact(forked.id, { keep });
+    this.ctx.logger.info(
+      '[singles] 会话分支 %C… → %C…（%C 条消息，锚点=%C）',
+      sessionId.slice(0, 8),
+      forked.id.slice(0, 8),
+      String(keep.length),
+      anchorMessageId === '' ? '末尾' : anchorMessageId.slice(0, 10),
+    );
+    return forked;
   }
 
   /** 归档（软删）：状态置 archived，消息流保留（可从数据目录找回） */

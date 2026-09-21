@@ -78,9 +78,6 @@ export function apply(ctx: Context) {
     name: 'system_restart',
     description: '重启后端进程。改了框架/内核文件、环境变量或依赖后使用；普通源码改动用 reload_modules。',
     requiredTags: ['admin'],
-    // 形态轴（2026-12 裁决）：宿主级管理动作不随独立会话投放——router
-    // 物化生效工具集时裁剪（include 不可绕过），系统管理指引同随门控
-    excludeForms: ['single'],
     parameters: {
       type: 'object',
       properties: { reason: { type: 'string', description: '重启原因（记入日志）' } },

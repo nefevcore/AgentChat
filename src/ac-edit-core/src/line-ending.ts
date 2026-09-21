@@ -63,6 +63,23 @@ export function parseRawLines(raw: string): RawLine[] {
 }
 
 /**
+ * 修复 CR 双写行尾损伤（\r{2,}\n → \r\n）。
+ *
+ * 2026-11-19 画像 Ⓑ 实锤形态：带 CRLF 的 new_string 混入 LF 匹配空间后，
+ * 写回行尾恢复再叠一层 \r 产出 \r\r\n；后续 normalizeToLF 把 \r\r\n 拆成
+ * 空行（\n\n），一次损伤放大成连环失配。读入即修（executor）+ 写回终检
+ * （防御性）双向堵截。
+ */
+export function repairDuplicatedCr(content: string): { fixed: string; count: number } {
+  let count = 0;
+  const fixed = content.replace(/\r{2,}\n/g, () => {
+    count += 1;
+    return '\r\n';
+  });
+  return { fixed, count };
+}
+
+/**
  * 按行保留原始行尾：newContent（LF 归一化后）的每一行，
  * 若与原始某行文本一致则恢复其原始行尾；新插入行使用文件主导行尾。
  *

@@ -27,7 +27,7 @@ import {
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveTierOf } from 'ac-agents';
+import { effectiveTierOf, widenToolsForGating } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
@@ -152,7 +152,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
 
   // ---- @ 路径引用指引（read 的 owner 行条件注入；见 FILE_MENTION_GUIDE）----
   ctx.on('loop/before-run', (call, next) => {
-    const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
+    // PTC 门控面（widenToolsForGating 单源）：程序化 run 的 request.tools
+    // 已收窄成 ['run_code']——按能力面展开判「read 在场」，否则 @ 引用
+    // 约定整段丢失（模型能 tools.read 却不识 @ 语法）
+    const names = new Set(widenToolsForGating(ctx, call.request.agent, call.request.conversationId, call.request.tools));
     if (names.has('read')) {
       call.request = {
         ...call.request,

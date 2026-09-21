@@ -153,7 +153,13 @@ export const extension: ExtensionMeta = {
 //    observe/manipulate/inject 是 browser 动作分层（不从 requiredTags
 //    可推导——工具级地板只有 ['web','observe']，其余由本行
 //    before-execute 监听器按动作判定）。双源合并：web/observe 的工具
-//    清单由注册面采集补全。──
+//    清单由注册面采集补全。
+//    抉择组（2026-12）：三词挂 exclusive:'browser-tier'——UI 聚合为
+//    下拉单选（含「都不选」）；落词规则保证同组至多一词 + 高层连带
+//    observe 地板（requiredTags AND）。浏览器门禁（tier=max 逐动作
+//    判定）不消费抉择元数据——落词一致即语义一致。组无缺省词
+// （exclusiveNone）：全关的后果 = browser 工具整体不可见——
+//    exclusiveOffDesc 说明（UI 关闭态旁注 + 弹层关闭项描述）。──
 export const tagDeclarations: TagDeclaration[] = [
   {
     tag: 'web',
@@ -164,27 +170,33 @@ export const tagDeclarations: TagDeclaration[] = [
   },
   {
     tag: 'observe',
-    description: '浏览器观察层（只读族：open/content/html/screenshot/close）',
+    description: '观察：只读族（open/content/html/screenshot/close）',
     tools: ['browser'],
     group: 'Web 与浏览器',
     order: 1,
     tier: true,
+    exclusive: 'browser-tier',
+    exclusiveOffDesc: '停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响',
   },
   {
     tag: 'manipulate',
-    description: '浏览器交互层（click/type/press；含 observe 全部能力）',
+    description: '交互：click/type/press（含 observe 全部能力）',
     tools: ['browser'],
     group: 'Web 与浏览器',
     order: 2,
     tier: true,
+    exclusive: 'browser-tier',
+    exclusiveOffDesc: '停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响',
   },
   {
     tag: 'inject',
-    description: '浏览器注入层（eval 执行任意 JS；含 observe+manipulate 全部能力）',
+    description: '注入：eval 执行任意 JS（含 observe+manipulate 全部能力）',
     tools: ['browser'],
     group: 'Web 与浏览器',
     order: 3,
     tier: true,
+    exclusive: 'browser-tier',
+    exclusiveOffDesc: '停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响',
   },
 ];
 

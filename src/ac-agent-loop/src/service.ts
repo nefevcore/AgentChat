@@ -23,6 +23,8 @@
 //   · loop/before-step（waterfall）—— 改写本步消息
 //   · loop/step-started（emit）—— step 开始通知（before-step 通过后）
 //   · loop/after-step（emit）—— 步级订阅
+//   · loop/run-idle（waterfall，2026-02）—— 自然停点拦截：领域行可注入
+//     材料续走同 run（ask_questions 答案等待）；全体空手 → 收束照旧
 // 工具执行走 ctx.tools.execute → 自动获得 tool/before-execute
 // 拦截链（veto/改写）与 tool/after-execute 通知 —— 循环不重新实现拦截。
 // 中断（ADR-2 最小方案）：request.signal 在 step 边界检查 →
@@ -90,7 +92,11 @@ async function mapLimit<T, R>(
  *   promptAccumulated/totalAccumulated/completion/cache → 累加（展示总用量）；
  *   steps → 每次供给 +1（react_steps）。
  */
-function mergeUsage(acc: LoopRunUsage | undefined, usage: LlmUsage): LoopRunUsage {
+function mergeUsage(
+  acc: LoopRunUsage | undefined,
+  usage: LlmUsage,
+  elapsedMs: number | undefined,
+): LoopRunUsage {
   if (!acc) {
     return {
       prompt: usage.prompt,
@@ -101,6 +107,7 @@ function mergeUsage(acc: LoopRunUsage | undefined, usage: LlmUsage): LoopRunUsag
       ...(usage.cacheHit != null ? { cacheHit: usage.cacheHit } : {}),
       ...(usage.cacheMiss != null ? { cacheMiss: usage.cacheMiss } : {}),
       steps: 1,
+      ...(elapsedMs !== undefined ? { elapsedMs } : {}),
     };
   }
   const out: LoopRunUsage = {
@@ -109,6 +116,7 @@ function mergeUsage(acc: LoopRunUsage | undefined, usage: LlmUsage): LoopRunUsag
     completion: acc.completion + usage.completion,
     promptAccumulated: acc.promptAccumulated + usage.prompt,
     steps: acc.steps + 1,
+    ...(elapsedMs !== undefined ? { elapsedMs: (acc.elapsedMs ?? 0) + elapsedMs } : {}),
   };
   if (usage.total != null) {
     out.total = usage.total; // 覆盖轨
@@ -191,13 +199,23 @@ export function normalizeToolSpecs(
 /**
  * steer 队列（run 生灭）：
  *   · items——待注入消息 + 投递元数据
+ *   · durable——run 级驻留注入（2026-11 裁决：技能正文等长效材料）：进
+ *     数组一次、后续步自然继承（前缀稳定——KV 全命中；取代旧「每步
+ *     before-step 重现」形态——那会在每次请求尾部重算整块正文）。
+ *     与 items 同点消费（步边界 splice），但不参与 steer 的丢弃/sealed
+ *     语义（长效材料不是投递消息——迟到注入仍可入队，消费点在下一步）。
  *   · sealed——收束判定已过：不再接受新注入（迟到的 steer 返回 false，
  *     ac-conversation 优雅回落 next-run：消息作为下一条独立 run 的入站，
  *     入账一次、不丢不重——D3 修复的核心）
  */
 interface SteerQueue {
+
   items: Array<{ message: LlmMessage; sender?: string; source?: string }>;
+
+  durable: LlmMessage[];
+
   sealed: boolean;
+
 }
 
 export class AgentLoopService extends Service {
@@ -243,7 +261,7 @@ export class AgentLoopService extends Service {
     if (address === undefined) {
       return this.beforeRunChain(call, () => this.execute(call.request, undefined));
     }
-    const queue: SteerQueue = { items: [], sealed: false };
+    const queue: SteerQueue = { items: [], durable: [], sealed: false };
     this.steerQueues.set(address, queue);
     const promise = this.beforeRunChain(call, () => this.execute(call.request, queue));
     return promise.finally(() => {
@@ -278,6 +296,21 @@ export class AgentLoopService extends Service {
     return true;
   }
 
+  /**
+   * run 级驻留注入（2026-11 裁决）：技能正文等长效材料进工作数组一次、
+   * 后续步继承（前缀稳定 KV 全命中）。与 steer 的差异：不参与 sealed
+   * 丢弃语义（run 收束后到达 = 无消费点，静默不入——调用方自持持久化
+   * 通道，如 ac-skill 的 context 行落账）。
+   * @param handle run 地址（= runAddress(agent, conversationId)）
+   * @returns false = 该地址无活跃 run（正文持久性由调用方自己的落账承担）
+   */
+  injectDurable(handle: string, message: LlmMessage): boolean {
+    const queue = this.steerQueues.get(handle);
+    if (!queue) return false;
+    queue.durable.push(message);
+    return true;
+  }
+
   private async execute(
     request: LoopRunRequest,
     steerQueue: SteerQueue | undefined,
@@ -302,7 +335,11 @@ export class AgentLoopService extends Service {
     let interruptReason: LoopInterruptReason | undefined;
 
     try {
-      for (let index = 0; index < maxSteps; index++) {
+      // 预算计数（2026-02 idle 续走改造）：budget 只数模型自主步；idle 注入的
+      // 续走步不占预算（外部输入的接续，不是自主推理延长——见 events.ts
+      // run-idle 契约注）。index 恒自然递增（步序唯一——settlement 折叠键）。
+      let budget = 0;
+      for (let index = 0; ; index++) {
         // step 边界中断检查（含首步之前）：已中止 → 保留已完成步收尾
         if (request.signal?.aborted) {
           finish = 'interrupted';
@@ -310,37 +347,53 @@ export class AgentLoopService extends Service {
           interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
           break;
         }
-        // 消费 steer 注入（下一步生效；before-step 可继续改写）
+        // 消费 steer 注入（下一步生效；before-step 可继续改写）。
+        // run 级驻留注入不在此消费——step() 内 before-step 后本步即取
+        // （bade5362 实测：边界消费晚一步可见，模型困惑正文是否在场）
         const steering = steerQueue?.items.splice(0);
         if (steering && steering.length > 0) messages.push(...steering.map((s) => s.message));
-
-        const step = await this.step(request, index, messages, specs);
+        const step = await this.step(request, index, messages, specs, steerQueue);
         steps.push(step);
-        if (step.usage) usage = mergeUsage(usage, step.usage);
+        if (step.usage) usage = mergeUsage(usage, step.usage, step.elapsedMs);
 
-        // 自然收束条件：无工具调用且无待消费 steer（末轮 steer 不丢失）
+        // 自然收束条件：无工具调用且无待消费 steer（末轮 steer 不丢失）。
+        // 自然停点拦截（2026-02 ask 挂起重构）：break 之前交给 loop/run-idle
+        // waterfall——领域行（ask_questions 的答案等待）可注入材料续走同 run；
+        // 全体空手 → 照旧 break。续走步不占 maxSteps（外部输入的接续，见
+        // events.ts run-idle 契约注）。
         const pendingSteer = steerQueue !== undefined && steerQueue.items.length > 0;
-        if (step.toolCalls.length === 0 && !pendingSteer) break;
-        if (index === maxSteps - 1) {
+        if (step.toolCalls.length === 0 && !pendingSteer) {
+          const idleCall: LoopRunCall = { request };
+          const injected = await this.ctx.waterfall('loop/run-idle', idleCall, async () => [] as LlmMessage[]);
+          // 挂起中被中止（监听器自查 signal 空手返回）→ interrupted 收束，
+          // 不把中止后的注入材料交给模型
+          if (request.signal?.aborted) {
+            finish = 'interrupted';
+            const text = abortText(request.signal);
+            interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
+            break;
+          }
+          if (injected.length === 0) break;
+          // 尾部注入（2026-09-21 修正，session f5adb5d9 实测暴露：头部 splice
+          // 使三次 LLM 调用 cacheHit 恒 5888、miss 30→425——system 后已缓存
+          // 前缀整体后移；且答案在位置上先于用户原始消息，模型时序感知被
+          // 扰乱）。自然停步的 assistant 终文本先补进工作数组（此前仅带
+          // tool_calls 的步入数组——续走时停步文本缺席，run 内序与回放序
+          // 分叉），注入材料尾部追加其后：run 内消息序与 settlement 回放
+          // 序一致，跨 run 前缀可继承。契约注释见 events.ts
+          messages.push(this.assistantOf(step));
+          messages.push(...injected);
+          continue; // 续走步不占预算（budget 不加；index 自然递增保步序唯一）
+        }
+        budget++;
+        if (budget >= maxSteps) {
           // 预算耗尽：模型还想继续（带工具调用）→ max-steps；
           // 已给出终文本但 steer 仍待消费 → stop（steer 留给下一 run，
           // 由 ac-conversation 的会话上下文视图延续）
           if (step.toolCalls.length > 0) finish = 'max-steps';
           break;
         }
-        messages.push({
-          role: 'assistant',
-          content: step.text,
-          ...(step.toolCalls.length > 0
-            ? {
-                tool_calls: step.toolCalls.map((tc) => ({
-                  id: tc.id,
-                  type: 'function' as const,
-                  function: { name: tc.name, arguments: tc.arguments },
-                })),
-              }
-            : {}),
-        });
+        messages.push(this.assistantOf(step));
         // 工具执行（M11）：执行身份随 call 装配（agentId/conversationId/
         // toolCallId + signal 透传）；同一步并发执行（mapLimit 5，对齐 src），
         // 结果按 tool_calls 序回填。elevation（access-tier §七）：机制分支
@@ -433,8 +486,16 @@ export class AgentLoopService extends Service {
     const hit = final.usage.cacheHit ?? 0;
     const miss = final.usage.cacheMiss ?? 0;
     const cacheRate = hit + miss > 0 ? `${((hit / (hit + miss)) * 100).toFixed(1)}%` : '-';
+    // API 速率（token/秒，输出口径）：completion ÷ API 流时间累加（elapsedMs
+    // 口径见 dispatch 注释——工具执行/编排不计入）。不用 total：prompt 随
+    // 上下文单调膨胀，Σtotal/Σms 持续虚高（反映上下文膨胀而非吞吐）。
+    // 无计时数据的旧链路 = '-'。
+    const apiMs = final.usage.elapsedMs;
+    const tps = apiMs
+      ? (final.usage.completion / apiMs * 1000).toFixed(1) + 't/s'
+      : '-';
     this.ctx.logger.info(
-      '[loop] run 收束 agent=%C conv=%C finish=%C steps=%C elapsed=%Cms in=%C out=%C total=%C cache=%C(hit=%C/miss=%C)',
+      '[loop] run 收束 agent=%C conv=%C finish=%C steps=%C elapsed=%Cms in=%C out=%C total=%C cache=%C(hit=%C/miss=%C) tps=%C',
       request.agent ?? '(直连)',
       request.conversationId ?? request.agent ?? '-',
       final.finish,
@@ -446,15 +507,40 @@ export class AgentLoopService extends Service {
       cacheRate,
       String(hit),
       String(miss),
+      tps,
     );
+  }
+
+  /** 步 → assistant wire 消息（tool_calls 原样映射；idle 续走补停步文本复用） */
+  private assistantOf(step: LoopStepRecord): LlmMessage {
+    return {
+      role: 'assistant',
+      content: step.text,
+      ...(step.toolCalls.length > 0
+        ? {
+            tool_calls: step.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: { name: tc.name, arguments: tc.arguments },
+            })),
+          }
+        : {}),
+    };
   }
 
   /** 单步：before-step waterfall（可改写本步消息）→ llm.chat → transform-step → after-step emit */
   private async step(
+
     request: LoopRunRequest,
+
     index: number,
+
     messages: LlmMessage[],
+
     specs: LlmToolSpec[] | undefined,
+
+    steerQueue: SteerQueue | undefined,
+
   ): Promise<LoopStepRecord> {
     // conversationId 随步载体出生（2026-11 /name 手势注入需要会话键解析
     // singles 工作区技能——M25 §3.1 同款"真实需要出生"原则）
@@ -467,7 +553,29 @@ export class AgentLoopService extends Service {
       source: request.source,
     };
     const record = await this.ctx.waterfall('loop/before-step', stepCall, async () => {
+
+      // 【本步消费 run 级驻留注入（bade5362 实测反馈修复）】before-step 住户
+
+      // （如 ac-skill injectDurable 入队）刚跑完——队内如有驻留材料，立刻进
+
+      // 本步消息与工作数组（旧实现只入队、等下一边界消费 = 晚一步可见，
+
+      // 实测模型在下一步 reasoning 里困惑「正文到底在不在」并浪费一次核查）。
+
+      // 双写：stepCall.messages（本步请求）+ messages（工作数组——后续步继承）。
+
+      const pendingDurable = steerQueue !== undefined ? steerQueue.durable.splice(0) : undefined;
+
+      if (pendingDurable !== undefined && pendingDurable.length > 0) {
+
+        stepCall.messages = [...stepCall.messages, ...pendingDurable];
+
+        messages.push(...pendingDurable);
+
+      }
+
       // step 开始通知（before-step 通过后、llm.chat 前；载荷 = 实际送入模型的消息）
+
       this.ctx.emit('loop/step-started', request.agent, index, stepCall.messages, envelope);
       const res = await this.ctx.llm.chat({
         ...(request.provider ? { provider: request.provider } : {}),
@@ -495,6 +603,7 @@ export class AgentLoopService extends Service {
         toolResults: [] as LoopStepRecord['toolResults'],
         ...(res.textBeforeTools !== undefined ? { textBeforeTools: res.textBeforeTools } : {}),
         ...(res.reasoningMs !== undefined ? { reasoningMs: res.reasoningMs } : {}),
+        ...(res.elapsedMs !== undefined ? { elapsedMs: res.elapsedMs } : {}),
         ...(res.usage ? { usage: res.usage } : {}),
         ...(res.finish ? { finish: res.finish } : {}),
       } satisfies LoopStepRecord;

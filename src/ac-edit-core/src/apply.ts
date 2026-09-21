@@ -64,10 +64,12 @@ export function applyEditsToNormalizedContent(
     const matchResult: FuzzyMatchResult = fuzzyFindText(normalizedContent, edit.oldText);
 
     if (!matchResult.found) {
+      const hint = nearestLineHint(normalizedContent, edit.oldText);
       throw new Error(
         `在 "${filePath}" 中未找到 old_string（精确与归一化匹配均未命中）。` +
           `\n未找到的文本："""\n${edit.oldText.slice(0, 300)}"""` +
           (edit.oldText.length > 300 ? '\n...（已截断）' : '') +
+          (hint !== '' ? `\n${hint}` : '') +
           `\n恢复建议：用 read 重新读取该文件当前内容，从输出原样复制目标段落（连续编辑同一文件时，上一次编辑的产物 ≠ 记忆中的文本，old_string 必须重新 read 获取）。`,
       );
     }
@@ -149,4 +151,43 @@ export function applyEditsToNormalizedContent(
     editPositions,
     matchLevels: matches.map((m) => m.matchLevel),
   };
+}
+
+/** 单行预览（诊断信息用；超长截断） */
+function clipLine(line: string): string {
+  return line.length > 100 ? `${line.slice(0, 100)}…` : line;
+}
+
+/**
+ * 失配定位线索（2026-11-19 画像 Ⓑ.3 / 09-20 ③号）：old_string 的行在文件里
+ * 找全等行（首 5 行候选）→「old_string 第 N 行与文件第 M 行一致，失配在附近
+ * 其他行」；找不到全等再按归一化包含找最接近行。一行线索顶十次盲试。
+ */
+function nearestLineHint(content: string, oldText: string): string {
+  const lines = content.split('\n');
+  const needles = oldText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length >= 6)
+    .slice(0, 5);
+  if (needles.length === 0) return '';
+  // ① 全等行：old_string 某行与文件某行一致 → 失配在附近其他行
+  for (let n = 0; n < needles.length; n++) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() === needles[n]) {
+        return `定位线索：old_string 第 ${n + 1} 行与文件第 ${i + 1} 行内容一致（${clipLine(needles[n])}）——失配在附近其他行，read 该区域比对差异`;
+      }
+    }
+  }
+  // ② 归一化包含：最接近的实际行（缩进/空白/Unicode 差异形态）
+  for (const needle of needles) {
+    const key = normalizeForFuzzyMatch(needle, false).slice(0, 40);
+    if (key.length < 6) continue;
+    for (let i = 0; i < lines.length; i++) {
+      if (normalizeForFuzzyMatch(lines[i], false).includes(key)) {
+        return `定位线索：文件第 ${i + 1} 行最接近（${clipLine(lines[i])}）——与目标行存在细微差异，read 该区域比对`;
+      }
+    }
+  }
+  return '';
 }

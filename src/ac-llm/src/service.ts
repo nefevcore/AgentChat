@@ -345,6 +345,7 @@ export class LlmService extends Service {
       ...(calls.length ? { toolCalls: calls } : {}),
       ...(calls.length && text ? { textBeforeTools: textBeforeTools ?? false } : {}),
       ...(reasoningMs !== undefined ? { reasoningMs } : {}),
+      ...(call.elapsedMs !== undefined ? { elapsedMs: call.elapsedMs } : {}),
       ...(finish ? { finish } : {}),
       ...(usage ? { usage } : {}),
     };
@@ -372,21 +373,29 @@ export class LlmService extends Service {
     const { meta: _meta, ...providerInput } = input;
     const instance = this.instance(provider);
     const { retries, backoffMs } = this.transientRetry;
+    // API 计时（token/秒速率统计源）：每次尝试单独计时（发起 → 该尝试
+    // 正常收尾/抛错），elapsedAcc 累加各尝试——重试间的退避等待
+    // （abortableSleep）不计入。成功收尾时回填 call.elapsedMs（chat()
+    // 聚合读取；失败抛错路径无结果对象可挂，不回填）。
+    let elapsedAcc = 0;
     for (let attempt = 0; ; attempt++) {
       // delivered = 已向下游产出过 chunk。置位先于 yield：即便首块
       // 投递时消费方抛错（throw-in），也已过可重试点
       let delivered = false;
+      const attemptStart = Date.now();
       try {
         for await (const chunk of instance.stream(providerInput)) {
           delivered = true;
           yield chunk;
         }
+        call.elapsedMs = elapsedAcc + (Date.now() - attemptStart);
         return;
       } catch (err) {
         if (delivered || attempt >= retries || !isTransientNetworkError(err)) {
           this.ctx.emit('llm/chat-error', input, err);
           throw err;
         }
+        elapsedAcc += Date.now() - attemptStart; // 失败尝试的 API 耗时保留
         const wait = backoffMs[Math.min(attempt, backoffMs.length - 1)];
         this.ctx.logger.warn(
           '[llm] 瞬时网络错误（%C），%Cms 后重试 %C/%C',

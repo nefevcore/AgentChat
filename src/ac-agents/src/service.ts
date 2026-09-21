@@ -237,17 +237,17 @@ export function effectiveTierOf(
 }
 
 /**
- * 工具调用模式（2026-09-17 统一重构：tc-* 标签轴——与提权档位 access-tier
- * 同构的第三条轴）：AgentConfig.tags 新增词汇 tc-none / tc-programmatic；
- * 缺省（无任一模式词）= tc-base。模式词经 toolModeOf 单源判定，router
- * / ac-subagent 按「会话覆盖（conv-settings toolMode）?? toolModeOf(agent)」
- * 收窄 LLM 工具面：tc-programmatic ⇒ ['run_code']、tc-none ⇒ 空面纯聊天、
- * tc-base ⇒ 不收窄（逐个直调）。
+ * 工具调用模式（tc-* 标签轴——与提权档位 access-tier 同构的第三条轴）：
+ * AgentConfig.tags 新增词汇 tc-none / tc-programmatic；缺省（无任一
+ * 模式词）= tc-base。模式词经 toolModeOf 单源判定，router / ac-subagent
+ * 按「会话覆盖（conv-settings toolMode）?? toolModeOf(agent)」收窄 LLM
+ * 工具面：tc-programmatic ⇒ mode 工具集（injection:'mode' 声明的工具，
+ * 与 tags 无关）、tc-none ⇒ 空面纯聊天、tc-base ⇒ 常规工具面。
  *
- * 与档位词的差别：tc-programmatic 是唯一进 requiredTags 的非能力词
- * （run_code 挂它——标签即授权：含该词 ⇒ run_code 可见 + 程序化档；
- * code-exec 标签已随之移除）。tc-none / tc-base 与档位词同款不进 requiredTags
- * （tag-registry assert 白名单外的非能力词禁入）。
+ * 与档位词同款：tc-* 全部是纯模式词，不进任何 requiredTags（tag-registry
+ * assert 白名单外的非能力词禁入）。mode 工具的注入通道见 ToolDefinition.
+ * injection（2026-12 注入轴重构：run_code 挂 injection:'mode'，不挂
+ * requiredTags、不进常规工具面——早先「授权词 = infra」语义随之退役）。
  */
 export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
 
@@ -290,20 +290,95 @@ export function effectiveToolMode(
 }
 
 /**
- * 工具调用模式收窄（router dispatch 语义的单源平移——行为原样）：
- *   · tc-programmatic → ['run_code']（工具面含它时；不含则惰性忽略该档
- *     ——warn 归调用方，本函数返回原面）；
+ * 工具调用模式收窄（形态轴合成，injection:'mode' 工具的注入点）：
+ *   · tc-programmatic → mode 工具集（defs 中 injection==='mode' 的工具，
+ *     与 tags 无关——行在装即合成）；无 mode 工具（对应行未装）= 空面
+ *     （warn 归调用方——形同 tc-none，不回落常规面：程序化档悄悄变
+ *     常规档是语义突变）；
  *   · tc-none → []；
- *   · tc-base → 原面。
+ *   · tc-base → 原面（mode 工具不进常规工具面——router/估算面在能力面
+ *     过滤时按 injection 分流排除，本函数的原面里天然无 mode 工具）。
+ * 入参 defs = 注册面全量（只读 injection 标记）；tools = 已过能力面/
+ * include/形态面的名字清单——mode 工具不经 tools 过滤（它们不在常规面），
+ * 直接从 defs 合成。
  * 消费方：router dispatch（真实 run）+ system-prompt 干跑 /
  * agents/tool-defs（估算面——与真实 run 同口径的修复点）。
  */
-export function narrowToolsByMode(tools: string[], mode: ToolMode): string[] {
+export function narrowToolsByMode(
+  tools: string[],
+  defs: ReadonlyArray<{ name: string; injection?: 'capability' | 'mode' }>,
+  mode: ToolMode,
+): string[] {
   if (mode === 'tc-programmatic') {
-    return tools.includes('run_code') ? tools.filter((name) => name === 'run_code') : tools;
+    return defs.filter((d) => d.injection === 'mode').map((d) => d.name);
   }
   if (mode === 'tc-none') return [];
   return tools;
+}
+
+/**
+ * 请求面是否恰为 mode 工具集（程序化互斥形态判定——run_code SDK 投影
+ * 注入的既有口径，2026-12 提升为单源）：request.tools 与注册面
+ * injection:'mode' 工具集互为子集且非空。系统提示各门控行
+ * （system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
+ * collab-tools @名称）在 PTC 模式下请求面已被 router 收窄成 ['run_code']，
+ * 若按请求面判「工具在场」会误伤全部基线段——本函数是「这是程序化
+ * run 吗」的判别入口。
+ */
+export function isModeToolFace(
+  requested: ReadonlyArray<string> | undefined,
+  modeToolNames: ReadonlyArray<string>,
+): boolean {
+  if (requested === undefined || modeToolNames.length === 0) return false;
+  if (requested.length === 0) return false;
+  const mode = new Set(modeToolNames);
+  const req = new Set(requested);
+  if (req.size !== requested.length) return false; // 重复 = 非合成面
+  return requested.every((n) => mode.has(n)) && modeToolNames.every((n) => req.has(n));
+}
+
+/**
+ * 门控用工具名合成（请求面 → 能力面展开，2026-12 PTC 基线段丢失修复）：
+ * 系统提示门控行按「工具能力在场」注入指引，但 PTC 模式下 request.tools
+ * 已收窄为 ['run_code']——直读会让模型明明能经 tools.read 调 read 却
+ * 学不到对应基线（@/# 引用约定、宿主环境、产出物引用等）。本函数在
+ * 程序化 run（isModeToolFace 判定）时把门控依据换成能力面直取的展开
+ * 面（capabilitySetOf ∩ toolAllowedFor，形态面终滤——与 run_code 投影
+ * 源同口径，跳过 include/exclude 的 LLM 直调面收窄）；常规面照旧原样
+ * 返回请求面。消费方只做「有没有某工具」的成员判定，不消费执行面
+ * 语义——门控宽度 fail-safe（声明了没授权的工具顶多多教一段指引）。
+ */
+export function widenToolsForGating(
+  ctx: Pick<Context, 'get'>,
+  agentId: string | undefined,
+  conversationId: string | undefined,
+  requested: ReadonlyArray<string> | undefined,
+): string[] {
+  // ctx.get 走 root-traced 无限制解析（受限调用方纪律：消费方插件行不
+  // inject tools 也能取；缺席 = 空注册面）
+  const tools = ctx.get('tools', false) as
+    | { list(): Array<{ name: string; injection?: 'capability' | 'mode'; requiredTags?: string[]; requiresInteraction?: boolean }> }
+    | undefined;
+  const all = tools ? tools.list() : [];
+  const modeToolNames = all.filter((d) => d.injection === 'mode').map((d) => d.name);
+  if (!isModeToolFace(requested, modeToolNames)) {
+    // 常规面：request.tools ?? 注册面全量（原门控口径不变）
+    return requested !== undefined ? [...requested] : all.map((t) => t.name);
+  }
+  // 程序化 run：能力面直取（与 run_code 投影源同链：caps ∩ tags 门禁，
+  // mode 工具自身与 requiresInteraction 终滤一起排除——门控只关心能力）
+  const agents = ctx.get('agents', false) as
+    | { get(id: string): AgentConfig | undefined }
+    | undefined;
+  const caps = new Set<string>(['base']);
+  if (agentId !== undefined) {
+    caps.add(`agent:${agentId}`);
+    for (const t of agents?.get(agentId)?.tags ?? []) caps.add(t);
+  }
+  return all
+    .filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps))
+    .filter((t) => !formDeniedBy(ctx, t, conversationId))
+    .map((t) => t.name);
 }
 
 /**
@@ -342,42 +417,42 @@ export function toolAllowedFor(
 }
 
 /**
- * 会话形态词（工具形态轴 ToolDefinition.excludeForms 的判定输入）：
- * 'single' 独立会话（singles 注册表命中）/ 'self' 自会话（对角线桶
- * a~a——机制 run 落点）。conversationFormOf 单源判定，router /
- * list_tools / run_code 形态面共用。
+ * 会话形态词（工具交互轴 ToolDefinition.requiresInteraction 的判定输入）：
+ * 'self' 自会话（对角线桶 a~a——机制 run 落点，无人值守）。conversationFormOf
+ * 单源判定，router / list_tools / run_code 交互面共用。
+ * （2026-12 语义收窄：'single' 独立会话词退役——excludeForms 轴整体
+ * 撤销，工具交互性改经 requiresInteraction 布尔声明，self 会话自动排除。）
  */
-export type ConversationForm = 'single' | 'self';
+export type ConversationForm = 'self';
 
 /**
- * conversationId → 会话形态（形态轴单源，2026-12 'single' / 2026-02
- * 'self'）：singles 可选能力命中 = 'single'；对角线对桶（恰两段且相等
- * ——Agent id 禁 `~`（assertAgentId），词法判定构造性可靠）= 'self'；
- * 其余 = null（无形态约束）。纯查询零会话状态。
+ * conversationId → 会话形态（交互轴单源，2026-02 'self'）：对角线对桶
+ * （恰两段且相等——Agent id 禁 `~`（assertAgentId），词法判定构造性
+ * 可靠）= 'self'；其余 = null（有用户参与的会话）。纯查询零会话状态。
  */
 export function conversationFormOf(
   ctx: Pick<Context, 'get'>,
   conversationId: string | undefined,
 ): ConversationForm | null {
   if (!conversationId) return null;
-  const singles = ctx.get('singles', false) as { get(sid: string): unknown } | undefined;
-  if (singles && singles.get(conversationId)) return 'single';
   const parts = conversationId.split('~');
   return parts.length === 2 && parts[0] !== '' && parts[0] === parts[1] ? 'self' : null;
 }
 
 /**
- * 工具是否被会话形态裁剪（excludeForms 命中判定——list_tools /
- * run_code 等复制点与 router formAllowed 同口径的方便入口；router
- * 先解析 include/exclude 再终滤，故本函数只做单工具判定）。
+ * 工具是否被会话交互性裁剪（requiresInteraction 命中判定——list_tools /
+ * run_code 等复制点与 router 同口径的方便入口；router 先解析
+ * include/exclude 再终滤，故本函数只做单工具判定）：
+ * requiresInteraction && self 会话（无人值守）→ 裁剪（等待用户应答的
+ * 工具在机制 run 里永无回音）。
  */
 export function formDeniedBy(
   ctx: Pick<Context, 'get'>,
-  def: { excludeForms?: string[] },
+  def: { requiresInteraction?: boolean },
   conversationId: string | undefined,
 ): boolean {
-  const form = conversationFormOf(ctx, conversationId);
-  return form !== null && (def.excludeForms ?? []).includes(form);
+  if (def.requiresInteraction !== true) return false;
+  return conversationFormOf(ctx, conversationId) === 'self';
 }
 
 /** llmParams 透传白名单（防覆盖 model/messages/tools 等保留键） */

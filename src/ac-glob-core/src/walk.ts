@@ -15,8 +15,17 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-/** 遍历时跳过的目录名（VCS 元数据 + 依赖 + Python 缓存；与 DSH 口径一致 + node_modules 实用豁免） */
-export const SKIP_DIRS = new Set(['.git', '.svn', '.hg', '.bzr', '.jj', '.sl', 'node_modules', '__pycache__']);
+/**
+ * 遍历时跳过的目录名（缺省口径）。分层：
+ * - SKIP_BASE —— VCS 元数据 + 依赖 + Python 缓存（DSH rg --files 口径 + node_modules 实用豁免），
+ *   与用户意图无关，任何工具面都不该扫；
+ * - SKIP_DIRS —— 在 SKIP_BASE 之上叠加**构建产物/发布副本**目录名（dist/release/node 产物：
+ *   09-20 grep 画像 §③——无 path 概念搜索的 60+ 文件命中里近半落在 dist/desktop/release
+ *   等生成物，真实源码另在 src/ 下，产物命中是纯噪声且吃掉结果预算）。缺省跳过；
+ *   调用方可用 walkOptions.skipDirs 整表覆盖（如明确要搜产物时传 SKIP_BASE 的稳定引用）。
+ */
+export const SKIP_BASE = new Set(['.git', '.svn', '.hg', '.bzr', '.jj', '.sl', 'node_modules', '__pycache__']);
+export const SKIP_DIRS = new Set([...SKIP_BASE, 'dist', 'release', 'out', 'build', 'coverage', '.nyc_output', '.vite', '.cache']);
 
 /** 单次扫描的文件数硬顶（防病态工作区；超出置 capped） */
 export const MAX_SCAN_FILES = 20000;
@@ -34,6 +43,9 @@ export interface WalkOptions {
   base?: string;
   /** 敏感路径过滤（缺省全放行；ac-fs-search 注入沙箱黑名单同口径判定） */
   isDenied?: (abs: string) => boolean;
+  /** 遍历时跳过的目录名整表覆盖（缺省 SKIP_DIRS——含构建产物目录；明确要搜
+   * 产物/发布副本时传 SKIP_BASE 的稳定引用，或自定集合） */
+  skipDirs?: Set<string>;
   /** 目录剪枝（缺省不剪；返回 true = 整个子树不进入——rel 与 entries 同基准。
    * 调用方由 glob 模式字面量前缀推导：被剪目录不可能含匹配文件） */
   pruneDir?: (name: string, rel: string) => boolean;
@@ -47,12 +59,19 @@ export function toPosix(p: string): string {
 /**
  * 递归收集 rootAbs 下全部常规文件（跳过 SKIP_DIRS/黑名单；有界）。
  * rel 为相对 base 的 posix 路径（缺省相对 rootAbs；基准外回退相对 rootAbs）。
+ * skippedRoots = 根层被 skipDirs 跳过的目录段（供调用方在结果 note 里告知——
+ * 搜索者若确需搜产物，知道自己被跳过了什么；深层重复段不重复收集）。
  */
-export function walkFiles(rootAbs: string, options: WalkOptions = {}): { entries: WalkEntry[]; capped: boolean } {
+export function walkFiles(
+  rootAbs: string,
+  options: WalkOptions = {},
+): { entries: WalkEntry[]; capped: boolean; skippedRoots: string[] } {
   const base = options.base ?? rootAbs;
+  const skipDirs = options.skipDirs ?? SKIP_DIRS;
   let rootRel = toPosix(path.relative(base, rootAbs));
   if (rootRel.startsWith('..') || path.isAbsolute(rootRel)) rootRel = ''; // root 在基准外：rel 退化为相对 root 自身
   const entries: WalkEntry[] = [];
+  const skippedRoots: string[] = [];
   let capped = false;
 
   const visit = (dirAbs: string, dirRel: string): void => {
@@ -75,7 +94,10 @@ export function walkFiles(rootAbs: string, options: WalkOptions = {}): { entries
       const abs = path.join(dirAbs, ent.name);
       const rel = dirRel ? `${dirRel}/${ent.name}` : ent.name;
       if (ent.isDirectory()) {
-        if (SKIP_DIRS.has(ent.name)) continue;
+        if (skipDirs.has(ent.name)) {
+          if (dirRel === rootRel) skippedRoots.push(rel); // 只记根层段（深层是已知目录的内部结构）
+          continue;
+        }
         if (options.pruneDir?.(ent.name, rel)) continue; // 模式推导剪枝：子树无匹配可能
         visit(abs, rel);
       } else if (ent.isFile()) {
@@ -87,5 +109,5 @@ export function walkFiles(rootAbs: string, options: WalkOptions = {}): { entries
   };
 
   visit(rootAbs, rootRel);
-  return { entries, capped };
+  return { entries, capped, skippedRoots };
 }

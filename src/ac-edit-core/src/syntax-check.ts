@@ -111,12 +111,14 @@ function stripJsonComments(text: string): string {
 /**
  * 栈项：'(' | '[' | '{' —— 普通括号；'T' —— 模板字面量内部；
  * 'P' —— 模板 ${ 占位符表达式（其内的 } 闭合占位符而非普通花括号）。
+ * 栈元素带开启下标（{ ch, pos }）——报错时换算成「第 N 行第 C 列 + 行预览」，
+ * 裸字符下标（如「位置 124732」）对人与模型均不可读。
  */
 type StackEntry = '(' | '[' | '{' | 'T' | 'P';
 
-/** 配平扫描：返回错误描述（null = 配平） */
+/** 配平扫描：返回带「行号 + 行预览」定位的错误描述（null = 配平） */
 function pairedScan(content: string): string | null {
-  const stack: StackEntry[] = [];
+  const stack: Array<{ ch: StackEntry; pos: number }> = [];
   let inTemplate = false; // 当前在模板内部（只认 ` ${ \）
   let prev = ''; // 上一个有意义字符（正则/除号判定）
 
@@ -130,14 +132,14 @@ function pairedScan(content: string): string | null {
         continue;
       }
       if (c === '`') {
-        if (stack.pop() !== 'T') return '模板字面量闭合错配';
+        if (stack.pop()?.ch !== 'T') return `${locate(content, i)}：模板字面量闭合错配`;
         inTemplate = false;
         prev = '`';
         i++;
         continue;
       }
       if (c === '$' && content[i + 1] === '{') {
-        stack.push('P'); // 占位符表达式按代码扫描
+        stack.push({ ch: 'P', pos: i }); // 占位符表达式按代码扫描
         inTemplate = false;
         prev = '{';
         i += 2;
@@ -164,7 +166,7 @@ function pairedScan(content: string): string | null {
       continue;
     }
     if (c === '`') {
-      stack.push('T');
+      stack.push({ ch: 'T', pos: i });
       inTemplate = true;
       i++;
       continue;
@@ -176,24 +178,24 @@ function pairedScan(content: string): string | null {
     }
 
     if (c === '(' || c === '[' || c === '{') {
-      stack.push(c);
+      stack.push({ ch: c, pos: i });
     } else if (c === ')' || c === ']') {
       const top = stack.pop();
-      if (top !== (c === ')' ? '(' : '[')) {
+      if (!top || top.ch !== (c === ')' ? '(' : '[')) {
         return top === undefined
-          ? `位置 ${i}：'${c}' 无对应开括号`
-          : `'${c}' 与 '${top}' 不配对`;
+          ? `${locate(content, i)}：'${c}' 无对应开括号`
+          : `${locate(content, i)}：'${c}' 与 ${describeStackTop(top.ch)} 不配对`;
       }
     } else if (c === '}') {
       const top = stack.pop();
-      if (top === 'P') {
+      if (top?.ch === 'P') {
         inTemplate = true; // 占位符结束 → 回模板内部
-      } else if (top === '{') {
+      } else if (top?.ch === '{') {
         // 正常闭合
       } else if (top === undefined) {
-        return `位置 ${i}：'}' 无对应开括号`;
+        return `${locate(content, i)}：'}' 无对应开括号`;
       } else {
-        return `'}' 与 '${top}' 不配对`;
+        return `${locate(content, i)}：'}' 与 ${describeStackTop(top.ch)} 不配对`;
       }
     }
 
@@ -203,9 +205,36 @@ function pairedScan(content: string): string | null {
 
   if (stack.length > 0) {
     const top = stack[stack.length - 1];
-    return top === 'T' ? '模板字面量未闭合' : `未闭合的 '${top}'`;
+    return top.ch === 'T'
+      ? `${locate(content, top.pos)}：模板字面量未闭合`
+      : `${locate(content, top.pos)}：${describeStackTop(top.ch)} 未闭合（其后直至文件结尾未见配对闭括号）`;
   }
   return null;
+}
+
+/** 栈记号进报错文案的人话形态（'T'/'P' 是内部记号，不能裸进消息） */
+function describeStackTop(ch: StackEntry): string {
+  if (ch === 'T') return '模板字面量 `';
+  if (ch === 'P') return '模板占位符 ${';
+  return `'${ch}'`;
+}
+
+/** 字符下标 → 「第 N 行第 C 列（该行内容预览）」；行号与 read 工具同口径（1 起） */
+function locate(content: string, pos: number): string {
+  let line = 1;
+  let lineStart = 0;
+  for (let j = 0; j < pos && j < content.length; j++) {
+    if (content[j] === '\n') {
+      line++;
+      lineStart = j + 1;
+    }
+  }
+  let lineEnd = content.indexOf('\n', lineStart);
+  if (lineEnd === -1) lineEnd = content.length;
+  const text = content.slice(lineStart, lineEnd).trim();
+  const preview = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  const at = `第 ${line} 行第 ${pos - lineStart + 1} 列`;
+  return preview ? `${at}（${preview}）` : at;
 }
 
 /** 正则判定启发式：前一有意义字符是操作数结尾（标识符/右括号/引号）→ 除号 */
@@ -259,6 +288,8 @@ function pairedCheck(before: string, after: string): SyntaxCheckResult | null {
   if (err === null) return null;
   if (pairedScan(before) !== null) return null; // 编辑前已损坏：放行修复编辑
   return {
-    reason: `括号配平预检失败：${err}。old_string 可能匹配错位，文件保持原状未写入。`,
+    reason:
+      `括号配平预检失败：${err}。` +
+      `行号按编辑后内容计（未写盘，现盘文件保持原状）；old_string 可能匹配错位。`,
   };
 }

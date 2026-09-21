@@ -89,6 +89,7 @@ export const BUILTIN_AGENT_IDS: readonly string[] = [
   'admin',
   '__standard__',
   '__dsh_minimal__',
+  '__creator__', // 创造模式（ac-agent-presets-builtin，2026-12 插件开发预设）
   // ac-sap-adt/preset 子行注入的 ABAP 开发模式
   '__abap_dev__',
   // __programmatic__ 已随开关化退役（2026-09-17 research §十：程序化 =

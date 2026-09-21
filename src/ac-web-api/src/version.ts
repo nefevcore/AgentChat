@@ -14,8 +14,13 @@ import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 
-/** 发布通道（GitHub Releases；与 desktop 自动更新链同源） */
+/** 兜底源（GitHub Releases——下载面不可达时的第二意见；桌面安装包
+ *  已不上传 Releases〔desktop.yml --publish never〕，manifest 为主源） */
 export const GITHUB_REPO = 'nefevcore/AgentChat';
+
+/** 自托管下载面（2026-09 分发自托管裁决 remote-client-relay-plan §4.6：
+ *  桌面安装包发布地，manifest.json = 版本清单数据源） */
+export const DOWNLOAD_BASE = 'http://47.110.63.135';
 
 export interface ProjectVersion {
   /** 项目根目录（package.json 所在；git 自更新/changelog 都以它为锚） */
@@ -124,37 +129,68 @@ export function resetReleaseCache(): void {
   releaseCache = null;
 }
 
-/**
- * 最新 release 检查：成功入缓存（TTL 5min）；任何失败（网络/超时/非 2xx/
- * 形状不符）→ null 且不缓存——调用方以 checkFailed 显式呈现，不垫假数据。
- */
-export async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetch): Promise<ReleaseInfo | null> {
-  if (releaseCache && Date.now() - releaseCache.at < RELEASE_CACHE_TTL_MS) return releaseCache.info;
+/** 下载面 manifest.json 形状（gen-manifest.mjs 产出：releases 按版本降序） */
+interface DownloadManifest {
+  updated?: unknown;
+  releases?: Array<{ version?: unknown; date?: unknown }>;
+}
+
+/** 带超时的 JSON GET（任何失败 → null；不缓存由调用方语义决定） */
+async function fetchJson(fetcher: typeof fetch, url: string, headers: Record<string, string> = {}): Promise<unknown> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RELEASE_FETCH_TIMEOUT_MS);
     try {
-      const res = await fetcher(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-        headers: { accept: 'application/vnd.github+json', 'user-agent': 'AgentChat' },
-        signal: controller.signal,
-      });
+      const res = await fetcher(url, { headers: { 'user-agent': 'AgentChat', ...headers }, signal: controller.signal });
       if (!res.ok) return null;
-      const data = await res.json() as { tag_name?: unknown; html_url?: unknown; published_at?: unknown };
-      const version = typeof data.tag_name === 'string' ? data.tag_name.replace(/^v/, '') : '';
-      if (!version) return null;
-      const info: ReleaseInfo = {
-        version,
-        url: typeof data.html_url === 'string' && data.html_url !== '' ? data.html_url : `https://github.com/${GITHUB_REPO}/releases/latest`,
-        publishedAt: typeof data.published_at === 'string' ? data.published_at : '',
-      };
-      releaseCache = { info, at: Date.now() };
-      return info;
+      return await res.json();
     } finally {
       clearTimeout(timer);
     }
   } catch {
     return null;
   }
+}
+
+/** 主源：自托管下载面 manifest（国内直连；releases[0] 即最新） */
+async function latestFromManifest(fetcher: typeof fetch): Promise<ReleaseInfo | null> {
+  const data = await fetchJson(fetcher, `${DOWNLOAD_BASE}/manifest.json`) as DownloadManifest | null;
+  if (!data || !Array.isArray(data.releases) || data.releases.length === 0) return null;
+  const top = data.releases[0];
+  if (typeof top?.version !== 'string' || top.version === '') return null;
+  return {
+    version: top.version,
+    url: `${DOWNLOAD_BASE}/`,
+    publishedAt: typeof top.date === 'string' ? top.date : (typeof data.updated === 'string' ? data.updated : ''),
+  };
+}
+
+/** 兜底源：GitHub Releases API */
+async function latestFromGitHub(fetcher: typeof fetch): Promise<ReleaseInfo | null> {
+  const data = await fetchJson(fetcher, `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+    accept: 'application/vnd.github+json',
+  }) as { tag_name?: unknown; html_url?: unknown; published_at?: unknown } | null;
+  if (!data) return null;
+  const version = typeof data.tag_name === 'string' ? data.tag_name.replace(/^v/, '') : '';
+  if (!version) return null;
+  return {
+    version,
+    url: typeof data.html_url === 'string' && data.html_url !== '' ? data.html_url : `https://github.com/${GITHUB_REPO}/releases/latest`,
+    publishedAt: typeof data.published_at === 'string' ? data.published_at : '',
+  };
+}
+
+/**
+ * 最新版本检查（双源）：主源 = 自托管下载面 manifest，失败降级 GitHub
+ * Releases API 兜底。任一成功入缓存（TTL 5min）；全部失败（网络/超时/
+ * 非 2xx/形状不符）→ null 且不缓存——调用方以 checkFailed 显式呈现，
+ * 不垫假数据。
+ */
+export async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetch): Promise<ReleaseInfo | null> {
+  if (releaseCache && Date.now() - releaseCache.at < RELEASE_CACHE_TTL_MS) return releaseCache.info;
+  const info = (await latestFromManifest(fetcher)) ?? (await latestFromGitHub(fetcher));
+  if (info) releaseCache = { info, at: Date.now() };
+  return info;
 }
 
 /** 三段语义化版本比较（a>b → 1；相等 → 0；a<b → -1） */

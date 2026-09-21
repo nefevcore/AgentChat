@@ -21,7 +21,11 @@ export interface GroupConfig {
   /** 群 id（= 会话桶 conversationId） */
   id: string;
   name: string;
-  /** 参与者 Agent id 列表（'user' 是保留发送端点，不入成员表） */
+  /**
+   * 参与者 Agent id 列表（'user' 是保留发送端点，不入成员表——但恒在群
+   * 内：完整参与面〔展示/注入用〕走 membersWithUser，members 保持纯
+   * Agent 语义〔send 触发目标、属主校验等〕）。
+   */
   members: string[];
   description?: string;
   /**

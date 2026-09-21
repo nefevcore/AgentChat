@@ -52,18 +52,26 @@ export interface ToolDefinition {
    */
   needPermission?: boolean;
   /**
-   * 会话形态排除（形态轴，2026-12）：本工具不投放的会话形态词表。
-   * 已知词：'single'（独立会话——用户与单 Agent 的专注对话）、'self'
-   * （自会话——对角线桶 a~a，timer/goal-round/job-wakeup 等机制 run 的
-   * 落点；无人值守，等用户应答的工具在那里永无回音）。router 物化生效
-   * 工具集时按 conversationId 命中的形态裁剪（先于 include/exclude
-   * 解析——include 不可绕过，同能力轴语义）；list_tools 同口径。
-   * 纯可见面裁剪：LLM 不见 schema、指引不注入；执行面不额外拦（幻觉
-   * 调用仍走 requiredTags 等既有门禁）。
-   * 例：system_restart（宿主级管理动作）声明 excludeForms:['single']；
-   * ask_questions（等用户应答）声明 excludeForms:['self']。
+   * 工具注入方式（形态轴入口，与能力轴 requiredTags 正交）：
+   *   · 'capability'（缺省）——能力轴门禁：requiredTags 解锁可见性，
+   *     经 toolAllowedFor 过滤进常规工具面。全部常规工具的行为，零改动。
+   *   · 'mode'——工具调用模式合成：不进常规工具面（与 tags 无关）；
+   *     tc-programmatic 档时 LLM 面收窄为全部 mode 工具（行在装即合成，
+   *     无需任何标签）。声明 mode 的工具 requiredTags 必须为空（启动
+   *     断言——两轴双门语义混乱）；mode 工具应为编排壳/入口型（直接
+   *     副作用的工具禁用此通道，安全边界仍由子调用门禁裁决）。
+   * 先例：run_code（injection:'mode'——程序化档的合成入口）。
    */
-  excludeForms?: string[];
+  injection?: 'capability' | 'mode';
+  /**
+   * 交互性声明（interaction 轴）：true = 本工具执行中会挂起等待用户
+   * 应答（ask_questions / 审批类）。self 会话（对角线桶 a~a——机制 run
+   * 落点，无人值守）自动排除：等用户回音的操作在那里永无应答。
+   * 判定收进 formDeniedBy 单源（ac-agents），无需逐工具配置。
+   * 纯可见面裁剪：LLM 不见 schema；执行面不额外拦（幻觉调用仍走
+   * requiredTags 等既有门禁）。与 injection 正交。
+   */
+  requiresInteraction?: boolean;
   execute(args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> | ToolResult;
 }
 

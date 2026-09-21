@@ -340,7 +340,9 @@ export class AgentAdminService extends Service {
     // tools**，loop 缺省语义"全部已注册"绕过能力面：无 sap-adt 标签的
     // Agent 预览也被注入 <sap-adt-tools> 规约（owner 行判据回落全目录）。
     const caps = capabilitySetOf(this.ctx, agentId);
-    const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+    // mode 工具不进常规面（与 router 同口径）；narrow 用全量 defs（mode 标记）
+    const allDefs = this.ctx.tools.list();
+    const visibleTools = allDefs.filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
     const resolvedNames = resolveToolNames(config.tools, visibleTools) ?? visibleTools.map((t) => t.name);
     // 工具调用模式收窄（与 router dispatch 同源单源函数）：会话覆盖 ??
     // toolModeOf(agent)——干跑工具面 = 真实 run 的 LLM 可见面，下游装配
@@ -350,7 +352,7 @@ export class AgentAdminService extends Service {
         | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
         | undefined,
     });
-    const toolNames = narrowToolsByMode(resolvedNames, mode);
+    const toolNames = narrowToolsByMode(resolvedNames, allDefs, mode);
     const request: LoopRunRequest = {
       agent: agentId,
       model,
@@ -435,6 +437,9 @@ export class AgentAdminService extends Service {
     // AgentConfig.model 恒裸模型 id（与 router 边界拆分同语义；provider
     // 显式字段优先于引用左段，两处同给时引用左段胜出 = 覆盖意图明确）
     let nextProvider = typeof provider === 'string' ? provider : undefined;
+    // provider null/'' = 显式清除（「默认」= 跟随模型池默认连接）——存 null
+    // 覆盖落盘（deepMerge 缺键删不掉），消费侧 falsy 不传、投递边界回落
+    let clearProvider = provider === null || provider === '';
     let nextModel: string | undefined;
     if (model !== undefined) {
       if (model === null || model === '') {
@@ -455,6 +460,7 @@ export class AgentAdminService extends Service {
       normalized.model = null;
     }
     if (nextProvider) normalized.provider = nextProvider;
+    else if (clearProvider) normalized.provider = null; // 「默认」= 清 provider 覆盖（同 model 语义）
     // tags 写口：完全以调用方传入为准（2026-09-16 终态裁决：不补齐、
     // 不改写——此前「新建且未传 tags 静默补基础族」的缺省已移除。
     // 静默注入的教训：管理员核对配置时看到的是写口世界（有 collab），

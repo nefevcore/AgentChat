@@ -87,11 +87,14 @@ export interface LlmPoolEntry {
 }
 
 /** 模型能力元数据（models 数组对象形态；vision = 探测确认收图，
- *  hidden = 前端下拉隐藏显示——路由不受影响，纯 UI 呈现语义） */
+ *  hidden = 前端下拉隐藏显示——路由不受影响，纯 UI 呈现语义；
+ *  manual = 手工新增条目——/models 发现刷新时保留〔端点不暴露清单
+ *  只能手工加的场景〕，仅参与合并语义，不进门控/签名） */
 export interface PoolModelEntry {
   model: string;
   vision?: true;
   hidden?: true;
+  manual?: true;
 }
 
 /**
@@ -107,11 +110,12 @@ export function normalizePoolModels(raw: unknown): PoolModelEntry[] {
     let entry: PoolModelEntry | undefined;
     if (typeof m === 'string' && m) entry = { model: m };
     else if (m !== null && typeof m === 'object' && typeof (m as { model?: unknown }).model === 'string' && (m as { model: string }).model) {
-      const o = m as { model: string; vision?: unknown; hidden?: unknown };
+      const o = m as { model: string; vision?: unknown; hidden?: unknown; manual?: unknown };
       entry = {
         model: o.model,
         ...(o.vision === true ? { vision: true } : {}),
         ...(o.hidden === true ? { hidden: true } : {}),
+        ...(o.manual === true ? { manual: true } : {}),
       };
     }
     if (entry === undefined || seen.has(entry.model)) continue;
