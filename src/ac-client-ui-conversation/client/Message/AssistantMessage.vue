@@ -5,6 +5,7 @@ import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { Avatar, Icon } from '@agentchat/webui-kit';
+import { fmtElapsed } from '../feed.ts';
 import type { ChatMessage } from '../types.ts';
 
 const props = withDefaults(defineProps<{
@@ -18,6 +19,8 @@ const props = withDefaults(defineProps<{
     /** 去气泡壳模式：链内中间口述等场景——正文退化为纯文本流（无底色/
         边框/阴影/内边距），仅保留 markdown 渲染与流式能力 */
     flat?: boolean;
+    /** 分支按钮可见性（single 形态 + 收束行有服务端锚点时宿主传入 true） */
+    showFork?: boolean;
     /** 发送者头像 URL */
     senderAvatar?: string | null;
     /** 发送者显示名称 */
@@ -35,6 +38,8 @@ const emit = defineEmits<{
     regenerate: [];
     /** 删除此消息 */
     deleteMessage: [];
+    /** 会话分支：以此消息（含）为终点复制出新会话 */
+    fork: [];
 }>();
 
 const { render, renderPlain } = useMarkdown();
@@ -217,6 +222,30 @@ watch(showThinking, (expanded) => {
 // 跨步重建/组件重挂载不丢失）；无计时信息（历史/中断）→ 仅「已思考」。
 const isThinkingLive = computed(() => props.isStreaming && hasThinking.value);
 
+// ── 思考中实时耗时（2026-12 计时反馈）：「思考中 · 12s」每秒跳动 ──
+// 起点复用直播相位源（feed 的 StreamState.reasoningStartAt 派生入口）——
+// 组件无直接访问；此处用消息落位时刻近似（onThinkingStart 建占位/首片
+// 到达即挂 thinking），误差 ≤1 个 tick 且收束时被后端 reasoningMs 覆盖。
+const thinkNow = ref(Date.now());
+let thinkTimer: ReturnType<typeof setInterval> | null = null;
+watch(isThinkingLive, (live) => {
+  if (live && !thinkTimer) {
+    thinkTimer = setInterval(() => { thinkNow.value = Date.now(); }, 1000);
+  } else if (!live && thinkTimer) {
+    clearInterval(thinkTimer);
+    thinkTimer = null;
+  }
+}, { immediate: true });
+/** 思考中已耗时（秒；不足 1s 显示空——与「已思考」1s 门槛一致） */
+const thinkingElapsedSec = computed(() => {
+  if (!isThinkingLive.value) return 0;
+  // 起点同源（feed 首个 reasoning 片到达时驻留；与收束 label/后端
+  // reasoningMs 同源定义）——缺省回落消息落位时刻（历史/重放兜底）
+  const t0 = props.message.reasoningStartAt ?? props.message.timestamp;
+  const sec = Math.floor((thinkNow.value - t0) / 1000);
+  return sec >= 1 ? sec : 0;
+});
+
 /** 折叠态预览文本：单行化后截断——思考中看最新尾部（随流式输出不断
  *  更新），已思考看前置部分文本 */
 const THINKING_PREVIEW_CHARS = 80;
@@ -232,7 +261,11 @@ const thinkingPreview = computed(() => {
 
 const thinkingLabel = computed(() => {
     if (isThinkingLive.value) {
-        return thinkingPreview.value ? `思考中 · ${thinkingPreview.value}` : '思考中';
+        // 思考中带实时秒数（每秒跳动；无预览文本时也单独可见）：
+        // 「思考中 · 12s」/「思考中 · 12s · …最新预览」
+        const sec = thinkingElapsedSec.value;
+        const head = sec > 0 ? `思考中 · ${fmtElapsed(sec)}` : '思考中';
+        return thinkingPreview.value ? `${head} · ${thinkingPreview.value}` : head;
     }
     const head = props.message.label?.trim() || '已思考';
     return thinkingPreview.value ? `${head} · ${thinkingPreview.value}` : head;
@@ -319,6 +352,7 @@ function copyMessageContent() {
 
 onBeforeUnmount(() => {
     if (copyTimer) clearTimeout(copyTimer);
+    if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null; }
     if (thinkFollowRaf) { cancelAnimationFrame(thinkFollowRaf); thinkFollowRaf = 0; }
 });
 </script>
@@ -387,6 +421,22 @@ onBeforeUnmount(() => {
                             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
                     </button>
+                    <!-- 操作序：非破坏（复制/分支）→ 改写（重新推理）→ 破坏（删除）收尾 -->
+                    <button
+                        v-if="showFork"
+                        class="msg-action-btn"
+                        :disabled="isStreaming"
+                        @click="emit('fork')"
+                        title="从此处新建分支会话"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="6" cy="6" r="3"/>
+                            <circle cx="6" cy="18" r="3"/>
+                            <circle cx="18" cy="6" r="3"/>
+                            <path d="M18 9a9 9 0 0 1-9 9"/>
+                            <path d="M6 9v6"/>
+                        </svg>
+                    </button>
                     <button
                         v-if="showActions"
                         class="msg-action-btn"
@@ -424,6 +474,8 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     width: 100%;
+    /* chain-body 的 flex item：允许收缩（长内容不撑破容器宽） */
+    min-width: 0;
 }
 
 .message-assistant {
@@ -631,10 +683,11 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     min-height: calc(12px * 1.7 + 12px);
-    /* 限高滚动：超长思考收进固定视口（流式随输出自动吸底，见 script），
-       不再把消息流撑出数屏。原 justify-content: center 在滚动容器中会把
-       溢出内容两端裁掉（无法滚到顶部），故移除 */
-    max-height: 260px;
+    /* 限高滚动：超长思考收进固定视口（--card-viewport-max 统一令牌——
+       与各工具卡同高，流式随输出自动吸底见 script），不再把消息流撑出
+       数屏。原 justify-content: center 在滚动容器中会把溢出内容两端
+       裁掉（无法滚到顶部），故移除 */
+    max-height: var(--card-viewport-max);
     overflow-y: auto;
     overscroll-behavior: contain;
     /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */

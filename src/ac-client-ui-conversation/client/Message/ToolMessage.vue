@@ -1,10 +1,11 @@
 <!-- ToolMessage.vue -->
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import type { ChatMessage } from '../types.ts';
 import { useToolResult } from '../useToolResult.ts';
 import { toolDisplayLabel, toolDiffStat } from 'ac-client-ui-tool/client/toolLabel.ts';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
+import { resolveToolLabelAction } from 'ac-client-ui-tool/client/toolResultViews.ts';
 import { Icon } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
@@ -32,6 +33,14 @@ const writeFilePath = computed(() => {
 const isWriteTool = computed(() => {
   const name = props.message.toolName || props.message.name;
   return name === 'write' && !!writeFilePath.value;
+});
+
+/** web_search：Label 点击直达搜索侧边栏（write 直达 preview 同款交互）。
+ *  仅在有可展示结果时接管（结果未回/失败走默认展开体）；结果数据取
+ *  resultData（参数+结果合并面——与卡内摘要行同源）。 */
+const isSearchTool = computed(() => {
+  const name = props.message.toolName || props.message.name;
+  return name === 'web_search' && Array.isArray(resultData.value.results) && (resultData.value.results as unknown[]).length > 0;
 });
 
 // 注意：不能用 `toRef(props.message, 'content')` —— 它只捕获初始 message 对象。
@@ -81,8 +90,8 @@ const diffStat = computed(() => toolDiffStat(props.message.content));
 
 /** 行首图标：默认工具图标，hover 换折叠方向箭头（点哪行都知道能展开/收起） */
 const rowIcon = computed(() => {
-    // write 卡点击直达预览、无展开体 → hover 不换折叠箭头（保持工具图标）
-    if (rowHover.value && !isWriteTool.value) return isExpanded.value ? 'chevron-up' : 'chevron-down';
+    // write/web_search 卡点击直达对应面板、无展开体 → hover 不换折叠箭头（保持工具图标）
+    if (rowHover.value && !isWriteTool.value && !isSearchTool.value) return isExpanded.value ? 'chevron-up' : 'chevron-down';
     return iconName.value;
 });
 
@@ -123,11 +132,58 @@ function handleLabelClick() {
     ui.openPreview(writeFilePath.value, props.message.agent_id || '', props.conversationId || '');
     return;
   }
+  // 域行直达动作（web_search 直达搜索侧边栏等）：经 tool-card:result-view
+  // 席位 def 的 onLabelClick 钩子（2026-12 R7 相位整改——base 不 import
+  // domain 行；窄屏 helper 返 false → 走默认展开；行卸载 → def 消失 →
+  // 回落展开，可摘除性保持）。
+  if (isSearchTool.value) {
+    const action = resolveToolLabelAction(props.message.toolName || props.message.name);
+    if (action?.(resultData.value as Record<string, unknown>)) return;
+  }
   toggleExpand();
 }
 function toggleExpand() {
     isExpanded.value = !isExpanded.value;
 }
+
+// ── 纯文本兜底输出限高滚动 + 流式吸底 ──
+// 超长纯文本结果收进固定视口（--card-viewport-max 统一令牌，与思考卡
+// 及各工具卡同高，样式见 .tool-output），不再把消息流撑出数屏。流式
+// 输出增长时：
+// 用户停在底部附近 → 直接吸底看最新输出（思考卡跟随的轻量版——工具
+// 输出整块到达而非逐 token 流，无需缓动引擎）；用户上滚阅读 → 不打扰。
+const outputEl = ref<HTMLElement | null>(null);
+
+/** 用户停在底部附近（scroll 事件回读；吸底跟随的意图门槛） */
+const outputAtBottom = ref(true);
+const OUTPUT_BOTTOM_EPS = 16;
+
+function syncOutputScrollState() {
+    const el = outputEl.value;
+    if (!el) return;
+    outputAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < OUTPUT_BOTTOM_EPS;
+}
+
+// 流式增量到达：底部附近 → 吸底跟随（rAF 等限高容器高度就位）
+watch(() => props.message.content, () => {
+    requestAnimationFrame(() => {
+        const el = outputEl.value;
+        if (!el || !outputAtBottom.value) return;
+        el.scrollTop = el.scrollHeight;
+    });
+});
+
+// 展开初始化（nextTick 等 v-show 完成 display 切换）：历史结果停在顶部；
+// 流式中展开 → 吸底直接看最新输出（与思考卡同款）
+watch(isExpanded, (expanded) => {
+    if (!expanded) return;
+    nextTick(() => {
+        const el = outputEl.value;
+        if (!el) return;
+        if (isRunning.value) el.scrollTop = el.scrollHeight;
+        syncOutputScrollState();
+    });
+});
 </script>
 
 <template>
@@ -163,6 +219,12 @@ function toggleExpand() {
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
                 </span>
+                <!-- web_search 工具：点击侧边栏查看图标 -->
+                <span v-if="isSearchTool" class="tool-label-hint" title="点击在侧边栏查看搜索结果">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                  </svg>
+                </span>
             </div>
 
             <!-- 内容体 -->
@@ -194,7 +256,7 @@ function toggleExpand() {
                             :agent-id="message.agent_id"
                             :conversation-id="conversationId"
                         />
-                        <pre v-else class="tool-output"><code>{{ message.content }}</code></pre>
+                        <pre v-else ref="outputEl" class="tool-output" @scroll="syncOutputScrollState"><code>{{ message.content }}</code></pre>
                     </template>
                 </template>
 
@@ -212,7 +274,7 @@ function toggleExpand() {
                 </template>
 
                 <!-- 非 JSON 原始文本（未知工具） -->
-                <pre v-else-if="hasContent" class="tool-output"><code>{{ message.content }}</code></pre>
+                <pre v-else-if="hasContent" ref="outputEl" class="tool-output" @scroll="syncOutputScrollState"><code>{{ message.content }}</code></pre>
 
                 <div v-else-if="isRunning" class="tool-loading">
                     <span class="loading-text">正在执行...</span>
@@ -228,6 +290,9 @@ function toggleExpand() {
     display: flex;
     flex-direction: column;
     width: 100%;
+    /* chain-body 的 flex item：允许收缩（长内容不撑破容器宽——
+       subcall 卡三层缩进可用宽最窄，最先暴露右侧裁剪） */
+    min-width: 0;
 }
 
 .message-tool {
@@ -236,8 +301,12 @@ function toggleExpand() {
 
 /* run_code 子调用平铺卡（方向 B）：缩进 + 左侧竖线——视觉归属 run_code
    程序卡（不进其折叠体，紧跟其后独立成卡）。与 chain-body 同款竖线
-   （1px / margin 7 / padding 14——对齐 chain-icon 中心的既有节奏） */
-.tool-subcall {
+   （1px / margin 7 / padding 14——对齐 chain-icon 中心的既有节奏）。
+   width: auto 覆盖 .message-item 的 width:100%：显式宽 + margin-left
+   总占位 = 父宽 + 7px，右缘恒被 messages-container 裁 7px（F12 实证）；
+   auto 让 margin 吃进宽度——缩进视觉不变，右缘对齐父容器 */
+.message-item.tool-subcall {
+    width: auto;
     margin-left: 7px;
     padding-left: 14px;
     border-left: 1px solid var(--color-border-secondary);
@@ -245,6 +314,7 @@ function toggleExpand() {
 
 .tool-section {
     width: 100%;
+    min-width: 0;
 }
 
 .tool-label {
@@ -344,6 +414,14 @@ function toggleExpand() {
     flex-direction: column;
     justify-content: center;
     min-height: calc(12px * 1.7 + 12px);
+    min-width: 0;
+}
+
+/* 各专用结果卡根（本组件 scoped 命中子组件根元素）：同样允许收缩——
+   卡内长内容（代码最长行 / 长命令）交由卡自己的横向滚动区承接，
+   不再把卡撑出容器宽被 messages-container 裁掉 */
+.tool-body > * {
+    min-width: 0;
 }
 
 .tool-output {
@@ -356,12 +434,28 @@ function toggleExpand() {
     font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
     color: var(--color-text-secondary);
     background: transparent;
+    /* 限高滚动：超长纯文本结果收进固定视口（--card-viewport-max 统一
+       令牌——与思考卡及各工具卡同高），不再把消息流撑出数屏；流式输出
+       增长时底部附近自动吸底（见 script） */
+    max-height: var(--card-viewport-max);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-secondary) transparent;
 }
 
 .tool-output code {
     font-family: inherit;
     color: inherit;
 }
+
+/* 细滚动条（与思考卡同款） */
+.tool-output::-webkit-scrollbar { width: 5px; }
+.tool-output::-webkit-scrollbar-track { background: transparent; }
+.tool-output::-webkit-scrollbar-thumb { background: var(--color-border-secondary); border-radius: 3px; }
+.tool-output::-webkit-scrollbar-thumb:hover { background: var(--color-border-primary); }
 
 .tool-loading {
     display: flex;

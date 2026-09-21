@@ -107,6 +107,20 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       if (r.steps && r.steps.length > 0) {
         // reasoning 单份存储（2026-09-20 终版）读侧：正源 = steps[].reasoning
         // 直读；存量行级 reasoning_content（迁移前旧数据）挂首步保底
+        // 行 id 基（2026-12 反馈 #3 后续）：步行（journal 活投影）message_id
+        // 恒空——多行 steps 展开若都用 message_id-s{i} 会合成相同的 "-s0"，
+        // mergeHistoryPage 按 persistedMsgId 去重把第二条起全部吞掉（运行中
+        // 刷新「回放只到 journal-inject，后续 step 丢失」根因）。run 键在场
+        // 即参与合成（行内 i 已保证步间唯一，run 键保证跨行唯一）；无 run
+        // 的定稿行保持旧形（message_id 非空恒唯一）。
+        // 行 id 基（2026-12 分支锚点修复）：步行 message_id = **收束行真实
+        // message_id**（同 run 步行同锚）——服务端按 message_id 定位的操作
+        //（singles/fork、session/truncate）才能命中；此前合成的 `<base>-s{i}`
+        // 在后端不存在，分支/截断锚点失效。渲染 key 去重改用下行合成 sid。
+        const ridBase = r.message_id
+          || (typeof (r as { run?: unknown }).run === 'string' && (r as { run?: string }).run
+            ? `p-${(r as { run?: string }).run}-${r.timestamp}`
+            : `p-${r.timestamp}`);
         const legacyRc = r.reasoning_content || '';
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
@@ -141,7 +155,11 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             agent_id: agentId,
             name: r.name,
-            message_id: `${r.message_id}-s${i}`,
+            // 真实收束行 id（服务端锚点）+ 合成 sid（渲染 key 去重——
+            // mergeHistoryPage 仍按 persistedMsgId 去重，同锚步行第二条起
+            // 靠本字段保 Vue key 唯一）
+            message_id: r.message_id ?? `${ridBase}-s${i}`,
+            ...(r.message_id ? { sid: `${ridBase}-s${i}` } : {}),
             timestamp: stepTs,
           });
           for (const tc of (s.toolCalls ?? []).filter((tc) => tc.id || tc.name)) {

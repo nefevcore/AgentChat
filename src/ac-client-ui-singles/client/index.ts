@@ -17,6 +17,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
+import { loadComposePrefs } from 'ac-client-ui-conversation/client/composePrefs.ts';
 import { defineAsyncComponent, ref, computed, type ComputedRef, type Ref } from 'vue';
 
 // single 视角组件（异步：node 环境消费本模块〔portb-e2e〕不求值 .vue
@@ -98,6 +99,21 @@ export async function updateSingle(
     ...(payload.model !== undefined ? { model: payload.model } : {}),
     ...(payload.title !== undefined ? { title: payload.title } : {}),
     ...(payload.workspaceId !== undefined ? { workspaceId: payload.workspaceId } : {}),
+  });
+  seen(opts.track, r.single);
+  return { session: r.single as SingleSession };
+}
+
+/** 会话分支：复制 anchorMessageId 消息（含）之前的历史为新会话；锚点缺省 = 到最新一条 */
+export async function forkSingle(
+  id: string,
+  anchorMessageId: string | undefined,
+  rpc: Pick<RpcClientFace, 'call'>,
+  opts: SinglesTrackOpts = {},
+): Promise<{ session: SingleSession }> {
+  const r = await rpc.call<{ single?: SingleSession }>('singles/fork', {
+    id,
+    ...(anchorMessageId ? { anchorMessageId } : {}),
   });
   seen(opts.track, r.single);
   return { session: r.single as SingleSession };
@@ -218,6 +234,42 @@ export class SingleBoardService extends Service {
   }
 
   /**
+   * 启动进入 single 会话（首启体验：开箱即会话页）。三级回落：
+   *   ① lastContext 有 single 记录 → 恢复上次选中（restoreLastSingle 原语义）；
+   *   ② 无任何上下文记录（首次启动）→ 选中最近活跃的独立会话；
+   *   ③ 列表为空 → 快速创建空白会话并进入（reuse 防堆积——已有空白
+   *      会话时复用不新建）。
+   * lastContext 有 agent/group 记录（上次不在独立会话）→ 不动，沿用户
+   * 上次所在的上下文恢复。
+   */
+  async openDefaultSingle(): Promise<string | null> {
+    const restored = this.restoreLastSingle();
+    if (restored) return restored;
+    if (loadLastContext()) return null; // 上次在 agent/group：尊重既有恢复链
+    const recent = [...this.activeSingles.value].sort((a, b) =>
+      Date.parse(b.lastActivity ?? b.updatedAt) - Date.parse(a.lastActivity ?? a.updatedAt))[0];
+    if (recent) {
+      this.selectSingle(recent.id);
+      return recent.id;
+    }
+    // 有上次组合偏好（Agent/模型）→ 带参创建（与 SessionList 新建按钮
+    // 同语义：偏好随创建透传，失效由后端校验抛错→此处回退纯空会话）
+    const prefs = loadComposePrefs();
+    const carry = {
+      ...(prefs?.agentId ? { agentId: prefs.agentId } : {}),
+      ...(prefs?.model ? { model: prefs.model } : {}),
+    };
+    try {
+      const created = ('agentId' in carry || 'model' in carry)
+        ? await this.create(carry).catch(() => this.createQuick())
+        : await this.createQuick();
+      return created?.id ?? null;
+    } catch {
+      return null; // rpc 不可用（离线桩等）——静默回落，不阻塞启动
+    }
+  }
+
+  /**
    * 更新会话设置（输入栏内联调整：换 Agent（''=清空待选；已有消息时后端 409 禁改）/
    * 换模型覆盖（null=清除）/ 挂工作区（''=移入未分组））。
    * 换 Agent 时同步刷新会话上下文（feed 消息身份映射 + 后续投递目标）。
@@ -235,6 +287,23 @@ export class SingleBoardService extends Service {
       }
     }
     return d.session ?? null;
+  }
+
+  /**
+   * 会话分支：复制 anchorMessageId 消息（含）之前的历史为新会话并立即
+   * 进入。元数据（Agent/模型/工作区/标题）由后端继承；空锚点 = 全量
+   * 复制。失败返回 null（调用方自行提示，分支按钮层已挡无效锚点）。
+   */
+  async fork(sessionId: string, anchorMessageId?: string): Promise<SingleSession | null> {
+    try {
+      const d = await forkSingle(sessionId, anchorMessageId, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
+      await this.refresh();
+      if (d.session) this.selectSingle(d.session.id);
+      return d.session ?? null;
+    } catch (err: unknown) {
+      console.warn('[SingleBoard] 会话分支失败:', (err as { message?: string })?.message ?? String(err));
+      return null;
+    }
   }
 
   /** 归档（软删）：若正打开则先退出 */

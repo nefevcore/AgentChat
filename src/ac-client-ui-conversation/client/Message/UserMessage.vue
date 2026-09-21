@@ -9,12 +9,16 @@ const props = defineProps<{
     message: ChatMessage;
     senderAvatar?: string | null;
     senderName?: string;
+    /** 分支按钮可见性（single 形态 + 行有服务端锚点时宿主传入 true） */
+    showFork?: boolean;
 }>();
 
 const emit = defineEmits<{
     edit: [msgId: string, newContent: string];
     /** 预览附件（点击文件名） */
     previewFile: [filePath: string];
+    /** 会话分支：以此消息（含）为终点复制出新会话 */
+    fork: [];
 }>();
 
 const editing = ref(false);
@@ -149,6 +153,21 @@ function copyContent() {
                     </svg>
                     <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+                <!-- 操作序：非破坏（复制/分支）→ 改写（修改）收尾（与 assistant 侧同原则） -->
+                <button
+                    v-if="showFork"
+                    class="user-msg-btn"
+                    @click="emit('fork')"
+                    title="从此处新建分支会话"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="6" cy="6" r="3"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <circle cx="18" cy="6" r="3"/>
+                        <path d="M18 9a9 9 0 0 1-9 9"/>
+                        <path d="M6 9v6"/>
                     </svg>
                 </button>
                 <button

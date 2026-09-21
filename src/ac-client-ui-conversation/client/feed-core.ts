@@ -20,7 +20,7 @@ import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory, fetchPairHistory, toHistoryMessages } from './historyApi.ts';
 import {
   routeDialog, isUserConversation, streamOf, parseArgs, stringifyToolResult, errText,
-  historyPage, historyServed, chatPresence,
+  historyPage, historyServed, chatPresence, extractPartialJsonString,
   type StreamState,
 } from './chatOps.ts';
 import { loadUnreadSnapshot, saveUnreadSnapshot } from './unreadStore.ts';
@@ -79,6 +79,19 @@ interface DialogFeed {
   lastMessage: { role: string; content: string; agentId: string; ts: number } | null;
   unread: number;
   streaming: boolean;
+  /**
+   * 本 run 计时状态（2026-12 计时反馈；run 级——每轮 run 独立，重置于
+   * run-started。多轮会话不得从会话首条消息起算）：
+   *   runStartAt         前端起点（run-started 帧到达时刻；过渡期计时源，
+   *                      step-started 建占位时转驻消息）
+   *   runAnchorMs        权威锚（截至最近步收束的整轮耗时；首步 = 前端
+   *                      计时定格，后续步 = 前锚 + 相邻两步 step.ts 差分——
+   *                      纯后端时钟域，客户端时钟偏差在差分中抵消）
+   *   runAnchorBackendTs 锚对应的后端步收束时刻（step.ts；区间差分基准）
+   */
+  runStartAt?: number;
+  runAnchorMs?: number;
+  runAnchorBackendTs?: number;
 }
 
 function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): DialogFeed {
@@ -417,8 +430,11 @@ export function createFeedCore(
   /** run 收束 → 延迟重拉首屏（500ms 让收束行 flush 落盘；期间新 run 开跑也
    *  无害——合并自带 live-wins 对齐）。矩阵 pair（不含 viewer）走
    *  loadPairHistory（对桶两端寻址），直答/single 走常规 loadHistory。 */
-  function scheduleSettlementReload(dialogId: DialogId, conversationId: string | undefined) {
-    if (!_settlementReload.delete(dialogId)) return;
+  // gated=false（after-run 收束路径）：无条件重拉——一直开着的会话直播行
+  // 未经历过历史合并，不重拉就永远换不成权威收束行（persistedMsgId 缺失
+  // → 分支/编辑/删除按钮要刷新页面才出现，2026-12 分支功能反馈）。
+  function scheduleSettlementReload(dialogId: DialogId, conversationId: string | undefined, gated = true) {
+    if (gated && !_settlementReload.delete(dialogId)) return;
     setTimeout(() => {
       const { kind, key } = parseDialogId(dialogId);
       if (kind === 'group') return;
@@ -478,6 +494,16 @@ export function createFeedCore(
         const dialogId = session ? singleDialog(session) : directDialog(to);
         const d = dialogs.value[dialogId];
         if (d && d.status === 'loading') d.status = 'ready';
+        // 首屏失败重试一次（2026-12 反馈 #3）：静默 ready + 空会话 = 刷新后
+        // 「没回放前面 steps」的主要形态（run 进行中 journal 回放全依赖此
+        // 请求）。重试复用同 reqId（stale 守卫天然放行）；再失败维持静默
+        // ——切会话/收束 settlement 会再拉。
+        if (srcOffset === 0) {
+          setTimeout(() => {
+            const dd = dialogs.value[dialogId];
+            if (dd && dd.status !== 'loading') requestHistoryPage(to, session, 0, reqId);
+          }, 800);
+        }
       });
   }
 
@@ -551,15 +577,69 @@ export function createFeedCore(
         }
         streamingTail = d.rawMessages.slice(lastUserIdx + 1);
         const liveIds = new Set(streamingTail.map(m => m.tool_call_id).filter((x): x is string => !!x));
+        // 重连竞态对齐（2026-09-21 前端反馈 #4）：断线重连后 run 仍在途时，
+        // 历史首屏带回的 journal 步行（完整步）与直播流式占位（同一步的部分
+        // 内容）并存——同一步渲染两张思考卡/正文卡（「思考→正文→思考(重复)
+        // →正文(重复)」）。tool_call_id 对齐覆盖不到纯文本步/思考步；这里按
+        // 内容前缀对齐：历史 agent 行的 thinking+content 与占位重叠（互为前缀）
+        // → 丢弃历史行，直播载体续流（与 mergeResumeSnapshot「长度取胜不回卷」
+        // 同语义——journal 全量与直播部分谁长谁留下是不对的：直播占位才是流式
+        // 载体，后续 delta 只认它；历史行的完整内容在收束 settlement 重拉时
+        // 以权威形态回来）。
+        const liveAgents = streamingTail.filter(m => m.role === 'agent' && m.isStreaming);
         msgs = msgs.filter(m => {
           if (m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id)) return false;
           if (m.role === 'agent' && Array.isArray(m.toolCalls)
             && (m.toolCalls as any[]).some(tc => tc?.id && liveIds.has(tc.id))) return false;
+          if (m.role === 'agent' && liveAgents.length > 0) {
+            const histThinking = m.thinking ?? m.reasoning_content ?? '';
+            const histBody = `${histThinking}\u0000${m.content ?? ''}`;
+            const hit = histBody ? liveAgents.find(live => {
+              const liveBody = `${live.thinking ?? live.reasoning_content ?? ''}\u0000${live.content ?? ''}`;
+              return liveBody.startsWith(histBody) || histBody.startsWith(liveBody);
+            }) : undefined;
+            if (hit) {
+              // 长度取胜回写：journal 全量比直播占位长（断线丢帧）时把完整内容
+              // 搬进占位——占位是唯一流式载体（后续 delta 只认它），历史行丢弃
+              // 后其内容必须在此保全，否则本步只剩部分内容。
+              if (histBody.length > `${hit.thinking ?? hit.reasoning_content ?? ''}\u0000${hit.content ?? ''}`.length) {
+                hit.thinking = histThinking || hit.thinking;
+                hit.reasoning_content = histThinking || hit.reasoning_content;
+                if ((m.content ?? '').length > (hit.content ?? '').length) hit.content = m.content ?? '';
+              }
+              return false;
+            }
+          }
           return true;
         });
       }
     }
     if (liveRunInFlight) _settlementReload.add(dialogId); // 收束后重拉（收束行是权威）
+    // 首屏未落盘 viewer 消息保护（2026-12 反馈 #1：新会话发送后切走再切回，
+    // 用户消息丢失）：本地已上屏的 viewer 气泡若 incoming 中无同内容行
+    // （后端 record+flushBestEffort 异步——首次 flush 前 records() 读不到），
+    // 整体替换会把它吃掉，直到收束 settlement 重拉才回来——中途整段缺失。
+    // 保护范围 = streamingTail 锚点（最后一条 viewer 消息）本身：run 进行中
+    // 它必然是本 run 的触发消息；run 空闲时（切回快于落盘的窗口）同样以
+    // 内容比对为准。比对规格与 showOwnEcho/mergeResumeSnapshot 一致：
+    // splitAttachmentLines 剥 [附件] 行后的正文。
+    if (isFirstPage) {
+      let anchor: ChatMessage | null = null;
+      for (let i = d.rawMessages.length - 1; i >= 0; i--) {
+        if (d.rawMessages[i].agent_id === VIEWER_ID.value) { anchor = d.rawMessages[i]; break; }
+      }
+      if (anchor) {
+        const anchorText = splitAttachmentLines(String(anchor.content ?? '')).content;
+        const inIncoming = msgs.some(m =>
+          m.agent_id === VIEWER_ID.value
+          && splitAttachmentLines(String(m.content ?? '')).content === anchorText);
+        if (!inIncoming) {
+          const copy = { ...anchor };
+          (copy as any).persistedMsgId = undefined; // 本地行无服务端 id：防与后续历史行去重互吞
+          msgs = [...msgs, copy]; // 尾部（run 进行中其后再接 streamingTail；空闲即列表末尾）
+        }
+      }
+    }
     const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage, VIEWER_ID.value);
     const nextRaw = isFirstPage
       ? (streamingTail.length > 0 && !deduped.some(m => m.isStreaming) ? [...deduped, ...streamingTail] : deduped)
@@ -698,7 +778,12 @@ export function createFeedCore(
     const msgs = d.rawMessages;
     const last = msgs[msgs.length - 1];
     if (!(last && last.role === 'agent' && last.isStreaming && !last.content && !(last.thinking || last.reasoning_content))) {
-      msgs.push(newAssistant(agentKeyOf(id)));
+      const asst = newAssistant(agentKeyOf(id));
+      // run 前端起点转驻消息（run-started 已设分区态；占位 timestamp 被
+      // 校准差分复用为「轮首」——用 runStartAt 而非建占位时刻，吸收
+      // run-started → step-started 的投递间隔）
+      asst.runStartAt = d.runStartAt;
+      msgs.push(asst);
     }
     bump(id);
   }
@@ -783,6 +868,17 @@ export function createFeedCore(
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
     if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
+    // 步级 API 计时/补全 token（after-step 透传）：链头速率（Σcompletion/Σms）
+    // 的逐步数据源——随消息驻留分区 rawMessages，跨步重建不丢
+    if (typeof data.apiMs === 'number' && data.apiMs >= 0) asst.apiMs = data.apiMs;
+    if (typeof data.apiCompletion === 'number' && data.apiCompletion >= 0) asst.apiCompletion = data.apiCompletion;
+    // 链栏耗时校准对（after-step 透传；见 types.ts ChatMessage.runCalibMs 注释）：
+    // 后端权威的「截至本步收束」整轮耗时锚（step.ts − 轮首消息时刻）。
+    // 每步收束覆盖——前端计时在其上续跑（显示 = runCalibMs + now − runCalibAt）
+    if (typeof data.runCalibMs === 'number' && data.runCalibMs >= 0) {
+      asst.runCalibMs = data.runCalibMs;
+      asst.runCalibAt = Date.now();
+    }
     // bump 目标 = 事件所属 Agent（bumpAgent 固定打给"当前激活 Agent"，
     // 后台 Agent 流式完成时会把别人的回复写进激活项的列表预览/排序）。
     // 仅 viewer 参与会话：agent 对/自会话（矩阵格）不进 agent⇋viewer 名册
@@ -960,12 +1056,53 @@ export function createFeedCore(
     bump(id);
   }
   /**
+   * run_code 子调用开始占位（2026-12 反馈 #2）：tool/started（before-execute
+   * 放行后 emit）到达即建 running 平铺卡——此前终值到达才建卡（onSubcallEnd
+   * 直接终态），串行链阻塞（approval 等待/长工具/checkpoint veto）时后续
+   * 子调用无卡无状态，视觉即「堆积在 run_code 卡下不动」。占位语义与
+   * onSubcallEnd 完全同构（同 tool_call_id upsert——先到建立、后到填值，
+   * 帧丢失/乱序不双卡）；running=true → ToolMessage 行首旋转环。
+   */
+  function onSubcallStart(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments?: unknown }) {
+    const d = ensureById(id);
+    const msgs = d.rawMessages;
+    // 载体定位与 onSubcallEnd 同序：当前流式 agent 步优先（run_code 执行期
+    // 步已收口——lastStreaming 为空时回退最后一条带 toolCalls 的 agent 消息
+    // = 宿主 run_code 调用所在的步）
+    const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find((m: any) => m.role === 'agent' && m.toolCalls?.length) ?? null;
+    if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
+    const tc = toolCallsOf(asst);
+    const existing = tc.find((x: any) => x.id === data.tool_call_id);
+    if (existing) {
+      // 已在场（started 重放 / end 先到）：仅补 running 标记，不覆盖已有 result
+      existing.running = existing.result === undefined || existing.result === '' ? true : existing.running;
+      if (data.arguments !== undefined && (!existing.arguments || (typeof existing.arguments === 'object' && Object.keys(existing.arguments as object).length === 0))) {
+        existing.arguments = data.arguments;
+      }
+    } else {
+      tc.push({ id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: '', subcall: true, running: true, startTime: Date.now() });
+    }
+    const row = msgs.find((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id);
+    if (row) {
+      if (row.isStreaming !== true && !row.content) row.isStreaming = true; // 终值未到才回 running（重放防回卷）
+    } else {
+      msgs.push({
+        id: 'tool-' + data.tool_call_id, role: 'tool', content: '',
+        name: data.tool_name, toolName: data.tool_name,
+        tool_call_id: data.tool_call_id, arguments: data.arguments ?? {},
+        subcall: true, isStreaming: true, timestamp: Date.now(),
+      } as any);
+    }
+    bump(id);
+  }
+  /**
    * run_code 子调用平铺落卡（2026-09-17 方向 B）：程序内调用的结果到达
    * 即建独立 tool 消息（subcall 标记）+ 追加进当前流式 agent 步的
    * toolCalls（fileEdits 等追踪层扫 toolCalls 收录——diff 追踪修复）。
    * 与 onToolEnd 的差别：无占位可匹配（toolCallId 无模型侧 id），恒建
    * 新条目；直接终态（run_code 桥接逐个 await 子调用——结果到达即完成，
-   * 无独立 running 窗口）。
+   * 无独立 running 窗口）。onSubcallStart 占位在场时（2026-12 #2）原地
+   * 填终值关停——同 tool_call_id upsert，帧乱序不双卡。
    */
   function onSubcallEnd(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments: unknown; result: string }) {
     const d = ensureById(id);
@@ -973,18 +1110,28 @@ export function createFeedCore(
     const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find((m: any) => m.role === 'agent' && m.toolCalls?.length) ?? null;
     if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
     const tc = toolCallsOf(asst);
-    if (!tc.some((x: any) => x.id === data.tool_call_id)) {
+    const existingTc = tc.find((x: any) => x.id === data.tool_call_id);
+    if (existingTc) {
+      // 占位在场（tool/started 先到）：原地填终值
+      existingTc.result = data.result;
+      existingTc.running = false;
+      if (data.arguments !== undefined) existingTc.arguments = data.arguments;
+    } else if (!tc.some((x: any) => x.id === data.tool_call_id)) {
       const entry: any = { id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: data.result, subcall: true, running: false, startTime: Date.now() };
       tc.push(entry);
     }
-    if (!msgs.some((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id)) {
-      const row: any = {
+    const row = msgs.find((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id);
+    if (row) {
+      row.content = data.result ?? '';
+      row.arguments = data.arguments ?? row.arguments;
+      row.isStreaming = false; // 占位在场：关停 running（最短转圈不适用——占位本身即长等待信号）
+    } else {
+      msgs.push({
         id: 'tool-' + data.tool_call_id, role: 'tool', content: data.result ?? '',
         name: data.tool_name, toolName: data.tool_name,
         tool_call_id: data.tool_call_id, arguments: data.arguments ?? {},
         subcall: true, isStreaming: false, timestamp: Date.now(),
-      };
-      msgs.push(row);
+      } as any);
     }
     bump(id);
   }
@@ -1273,6 +1420,10 @@ export function createFeedCore(
         asst.reasoning_content = d.thinking || undefined;
         asst.content = d.content || '';
         asst.label = d.label || undefined;
+        // run 起点兜底（刷新恢复：无 run-started 帧；快照步 ts = 本 run
+        // 已知最早后端时刻，比 Date.now()（=恢复时刻）更接近真实起点）
+        const firstStepTs = steps.length > 0 ? steps[0].ts : undefined;
+        asst.runStartAt = firstStepTs ?? Date.now();
         msgs.push(asst);
       }
     }
@@ -1365,12 +1516,19 @@ export function createFeedCore(
       attachmentFilesOf(m.attachments),
     );
     return {
-      id: m.message_id ?? uid('hist'),
+      // id 优先 sid（多步轮步行合成 key——同轮步行共享收束行 message_id，
+      // Vue key 须唯一；sid 仅渲染去重用，服务端锚点恒走 persistedMsgId）
+      id: m.sid ?? m.message_id ?? uid('hist'),
       role: m.role, content: split.content,
       agent_id: m.agent_id, toolCalls: m.tool_calls, tool_call_id: m.tool_call_id, name: m.name, toolName: m.name, label: m.label,
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       // 步内相位序透传（历史 steps 展开；直播自判值随收束重拉对齐）
       ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
+      // 步级 API 计时/补全 token 透传（链头速率数据源，见 types.ts apiMs 注释）
+      ...(typeof m.apiMs === 'number' ? { apiMs: m.apiMs } : {}),
+      ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),
+      // 服务端锚点：多步轮步行 = 收束行真实 message_id（同轮同锚——fork/
+      // truncate 按整轮命中；2026-12 分支锚点修复，此前合成 `-s{i}` 后端不存在）
       persistedMsgId: m.message_id,
       source: m.source,
       // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
@@ -1609,6 +1767,11 @@ export function createFeedCore(
           d.streaming = true;
           bump(keys.dialogId);
         }
+        // 本 run 计时状态重置（每轮 run 独立计时——严禁沿用上一轮锚；
+        // run-started 先于首步 step-started/首个 delta 到达）
+        d.runStartAt = Date.now();
+        d.runAnchorMs = undefined;
+        d.runAnchorBackendTs = undefined;
         return;
       }
       case 'loop/step-started': {
@@ -1635,6 +1798,12 @@ export function createFeedCore(
             st.reasoningStartAt = Date.now();
             // 思考消息 label 由组件按思考相位派生（思考中/已思考），不再写占位 label
             onThinkingStart(keys.dialogId, {}, isForActiveAgent(keys));
+            // 起点驻留消息（2026-12 计时反馈）：「思考中 · Xs」实时计时与收束
+            // label 共用同源起点——组件重挂载/跨步重建不丢，收束不倒跳
+            const liveAsst = lastStreaming(ensureById(keys.dialogId).rawMessages, 'agent');
+            if (liveAsst && liveAsst.reasoningStartAt === undefined) {
+              liveAsst.reasoningStartAt = st.reasoningStartAt;
+            }
           }
           onThinkingUpdate(keys.dialogId, { delta: reasoning });
         }
@@ -1675,6 +1844,31 @@ export function createFeedCore(
             }
             const acc = st.tools.get(idx);
             if (acc && typeof tc?.argumentsDelta === 'string') acc.buf += tc.argumentsDelta;
+            // run_code 参数草稿（2026-09-21 前端反馈 #1）：code 字段可达数 KB，
+            // 参数流式全程（数十秒）占位卡只有裸 spinner——粗提取已生成部分
+            // 同步进 prep 条目与占位行，程序卡边生成边可见。终值由 delta-end
+            // 的全量 arguments 覆盖。
+            if (acc && acc.name === 'run_code') {
+              const draft = extractPartialJsonString(acc.buf, 'code');
+              if (draft !== undefined) {
+                const d = dialogs.value[keys.dialogId];
+                const msgs2 = d?.rawMessages;
+                if (msgs2) {
+                  const asst2 = lastStreaming(msgs2, 'agent');
+                  const tcs2 = asst2 ? toolCallsOf(asst2) : [];
+                  const prep2 = tcs2.find((x: any) => x.preparing && x.name === 'run_code');
+                  if (prep2) {
+                    const prevLen = typeof (prep2.arguments as any)?.code === 'string' ? (prep2.arguments as any).code.length : 0;
+                    if (draft.length > prevLen) {
+                      prep2.arguments = { ...(prep2.arguments as object ?? {}), code: draft };
+                      const row2 = [...msgs2].reverse().find((m: any) => m.role === 'tool' && m.tool_call_id === prep2.id);
+                      if (row2) row2.arguments = prep2.arguments;
+                      bump(keys.dialogId);
+                    }
+                  }
+                }
+              }
+            }
           }
         }
         return;
@@ -1707,6 +1901,25 @@ export function createFeedCore(
         const keys = routeDialog(agent, call?.conversationId);
         if (!keys || typeof call?.toolCallId !== 'string' || !isForCurrentUser(keys)) return;
         onToolUpdate(keys.dialogId, { tool_call_id: call.toolCallId, delta: String(chunk ?? '') });
+        return;
+      }
+      case 'tool/started': {
+        // 工具开始执行（before-execute 放行后 emit；2026-12 反馈 #2）：
+        // run_code 子调用据此建 running 占位卡——终值前串行链阻塞可见。
+        // 模型直调工具有模型侧占位（preparing/真 id 升级链），不在此建卡
+        // （防与 onToolStart 双卡）；非 subcall 帧忽略。
+        const [call] = args as [any];
+        const agent = frameAgentId(call?.agentId);
+        if (!isUserConversation(agent, call?.conversationId)) return;
+        const keys = routeDialog(agent, call?.conversationId);
+        if (!keys || typeof call?.toolCallId !== 'string' || !call.toolCallId) return;
+        if (call?.runCodeSubcall === true) {
+          onSubcallStart(keys.dialogId, {
+            tool_call_id: call.toolCallId,
+            tool_name: typeof call?.name === 'string' ? call.name : '',
+            arguments: call?.args,
+          });
+        }
         return;
       }
       case 'tool/after-execute': {
@@ -1753,12 +1966,55 @@ export function createFeedCore(
         // 步终值：message.end（全量替换语义）+ step.end（关闭占位；
         // toolCalls 透传 = run 是否继续的判定依据——见 onStepEnd）
         if (isForCurrentUser(keys)) {
-          onMessageEnd(keys.dialogId, { content: String(step?.text ?? ''), reasoning: String(step?.reasoning ?? '') });
+          // 链栏耗时校准（2026-12 计时反馈）：每轮 run 独立计时，锚推进 =
+          // 前锚 + 相邻两步 step.ts 差分（后端时钟域——客户端/服务器时钟
+          // 偏差在差分中抵消；首步无前锚 → 前端计时定格，帧传播延迟在首
+          // 校准即被吸收）。锚驻分区 run 级状态（run-started 重置），随步
+          // 驻留消息（跨组件重挂载/切走切回不丢）
+          const dCal = dialogs.value[keys.dialogId];
+          let calibMs: number | undefined;
+          if (typeof step?.ts === 'number' && dCal) {
+            const prevTs = dCal.runAnchorBackendTs;
+            if (prevTs !== undefined) {
+              calibMs = (dCal.runAnchorMs ?? 0) + Math.max(0, step.ts - prevTs);
+            } else {
+              const t0 = dCal.runStartAt ?? lastStreaming(dCal.rawMessages, 'agent')?.runStartAt;
+              calibMs = t0 !== undefined ? Math.max(0, Date.now() - t0) : undefined;
+            }
+            if (calibMs !== undefined) {
+              dCal.runAnchorMs = calibMs;
+              dCal.runAnchorBackendTs = step.ts;
+            }
+          }
+          onMessageEnd(keys.dialogId, {
+            content: String(step?.text ?? ''), reasoning: String(step?.reasoning ?? ''),
+            // 思考耗时（后端权威 reasoningMs——与直播 closeThinking 同源定义）：
+            // 覆盖前端推定的「已思考 · XmYs」label，消除流式帧延迟误差
+            ...(typeof step?.reasoningMs === 'number' && step.reasoningMs >= 1000
+              ? { label: `已思考 · ${fmtElapsed(step.reasoningMs / 1000)}` }
+              : {}),
+            // 步级 API 计时（loop 步记录 elapsedMs = dispatch 纯流时间）+
+            // 步补全 token（usage.completion——输出口径，见 types.ts 注释）
+            ...(typeof step?.elapsedMs === 'number' && step.elapsedMs >= 0 ? { apiMs: step.elapsedMs } : {}),
+            ...(typeof step?.usage?.completion === 'number' && step.usage.completion >= 0 ? { apiCompletion: step.usage.completion } : {}),
+            ...(calibMs !== undefined ? { runCalibMs: calibMs } : {}),
+          });
         }
         onStepEnd(keys.dialogId, { interrupted: false, toolCalls: step?.toolCalls }, isForActiveAgent(keys));
         // 步终值时刻：仅活跃 Agent 的 run 置位（TokenGauge 等派生数据重取
         // 驱动——工具步在工具执行前到达，长工具运行中仪表即可刷新占用）
         if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }
+        // run_code 子调用对账（2026-12 反馈 #2）：步收口时存在无终值的
+        // subcall 卡（WS 抖动丢 after-execute / 串行链长阻塞）→ 经
+        // settlement 重拉补偿（journal/subcalls 投影已含真实结果）。
+        // 节流：每分区同 run 至多一次——重拉合并自带 live-wins 对齐，
+        // 后续步不再重复触发。
+        const dSub = dialogs.value[keys.dialogId];
+        if (dSub && dSub.streaming) {
+          const hasOpenSubcall = dSub.rawMessages.some((m: any) =>
+            m.role === 'tool' && m.subcall === true && (m.isStreaming || !m.content));
+          if (hasOpenSubcall) _settlementReload.add(keys.dialogId);
+        }
         return;
       }
       case 'loop/after-run': {
@@ -1780,9 +2036,25 @@ export function createFeedCore(
         }
         const active = isForActiveAgent(keys);
         onChatEnd(keys.dialogId, { content: finish === 'stop' ? String(result?.text ?? '') : '' }, active);
-        // run 进行中做过历史合并的分区：收束后重拉首屏（权威收束行替换
-        // partial 检查点行与直播行，补 persistedMsgId 供编辑/删除定位）
-        scheduleSettlementReload(keys.dialogId, request?.conversationId);
+        // 收束后无条件重拉首屏（gated=false）：权威收束行替换 partial 检查点行
+        // 与直播行，补 persistedMsgId 供分支/编辑/删除定位——不止覆盖「run 中
+        // 做过历史合并」的分区（一直开着的会话同样需要换权威行）
+        scheduleSettlementReload(keys.dialogId, request?.conversationId, false);
+        return;
+      }
+      case 'session/context-injected': {
+        // 流式运行期 context 注入可见性（2026-09-21 反馈 #3）：技能注入等
+        // context 行落账即通知——渲染为事件分隔行（与刷新后的 context 行
+        // 同渲染位）。正文不广播（瘦身纪律）——文案 = label 直出，与刷新后
+        // toHistoryMessages 的 r.label ?? r.content 同源同形（2026-12 前端
+        // 反馈：此前 skill 行再拼「已注入技能上下文：」前缀，落账 label 本身
+        // 已是完整文案，流式与刷新文本不一致）；label 缺席回落摘要词。
+        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown } | undefined];
+        if (!conversationId) return;
+        const source = typeof meta?.source === 'string' ? meta.source : '';
+        const label = typeof meta?.label === 'string' && meta.label ? meta.label : '';
+        const text = label || (source === 'skill' ? '已注入技能上下文' : '已注入上下文');
+        showEventNotice(frameAgentId(agentId), conversationId, text);
         return;
       }
       case 'system/restarting': {

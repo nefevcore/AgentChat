@@ -2,7 +2,7 @@
 <!-- 右 = settingsAgentId 的消息；左 = 其他 -->
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onBeforeUnmount } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { VIEWER_ID } from '../viewer.ts';
@@ -22,6 +22,9 @@ const props = defineProps<{
   /** 所在会话键（M32 文件预览工作区推导——single = 会话 id；透传到
    *  previewFile payload，服务端按挂载工作区定位相对路径引用） */
   conversationId?: string;
+  /** 分支能力接线（single 形态传 true——按钮实际可见性还需 final 行有
+   *  服务端锚点 persistedMsgId，见 showFork computed） */
+  canFork?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -29,6 +32,9 @@ const emit = defineEmits<{
   deleteMessage: [msgId: string];
   edit: [msgId: string, newContent: string];
   previewFile: [payload: { filePath: string; agentId?: string; conversationId?: string }];
+  /** 会话分支：以此消息（含）为终点复制出新独立会话（载荷 = 服务端锚点
+   *  message_id——final.id 多步轮下是合成 sid，不能当锚点用） */
+  forkFromMessage: [anchorId: string];
 }>();
 
 const roster = useRosterCore();
@@ -36,6 +42,11 @@ const ui = useUiStore();
 
 const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
 const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
+
+/** 分支按钮门控：single 形态接线（宿主传 canFork）且 final 行有服务端
+ *  锚点（persistedMsgId——收束行/历史行才有；直播行/本地行不可分支，
+ *  按钮不渲染——分支以落盘消息为终点，在途内容无权威边界） */
+const showFork = computed(() => props.canFork === true && !!finalMsg.value?.persistedMsgId);
 
 /** 纯文本轮（无链）渲染消息：收束后 = final；loop 中 final 悬置（强生命
  *  周期）→ 渲染流式尾步消息（step 即消息本体，位置与收束后一致） */
@@ -67,6 +78,42 @@ const hasChain = computed(() => visibleSteps.value.length > 0);
 
 const stepCount = computed(() => meaningfulSteps.value.length);
 
+// ── 链栏实时耗时（2026-12 计时反馈：前端计时 + 后端耗时覆盖续计）──
+// 校准对取轮内任一步上的 runCalibMs/runCalibAt（派生时校准对挂在对应步的
+// assistant 上；取「最新」——runCalibAt 最大者）。流式中每秒跳动（interval
+// 驱动 nowTick → chainLabel 重算）；非流式（历史回放）不计时，返回 null
+// 由 chainLabel 回落时间戳推导——历史步的 timestamp 间隔即权威值。
+const nowTick = ref(0);
+let liveTimer: ReturnType<typeof setInterval> | null = null;
+function ensureLiveTimer() {
+  if (liveTimer) return;
+  liveTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000);
+}
+function stopLiveTimer() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+const liveElapsedMs = computed<number | null>(() => {
+  void nowTick.value; // 依赖：每秒触发重算
+  if (!isStreaming.value) { stopLiveTimer(); return null; }
+  ensureLiveTimer();
+  let best: { ms: number; at: number } | null = null;
+  for (const s of props.turn.steps) {
+    const a = s.assistant as any;
+    if (typeof a?.runCalibMs === 'number' && typeof a?.runCalibAt === 'number'
+      && (!best || a.runCalibAt > best.at)) {
+      best = { ms: a.runCalibMs, at: a.runCalibAt };
+    }
+  }
+  if (best) return best.ms + Math.max(0, nowTick.value || Date.now()) - best.at;
+  // 无校准锚：本 run 前端起点起纯前端计时（run-started 驻留；首个
+  // after-step 校准到达前的过渡期）。多轮会话不串轮——严禁用轮首步
+  // 时间戳/会话首条消息冒充（会把轮间间隔算进当前 run）
+  const t0 = props.turn.steps[0]?.assistant?.runStartAt
+    ?? props.turn.steps[0]?.assistant?.timestamp ?? 0;
+  return t0 ? Math.max(0, (nowTick.value || Date.now()) - t0) : null;
+});
+onBeforeUnmount(stopLiveTimer);
+
 const chainLabel = computed(() => {
   // 摘要按真实步骤口径（meaningfulSteps）：隐藏模式链体不渲染，但 header
   // 摘要仍须呈现真实步数/耗时（visibleSteps 在隐藏模式下为空）
@@ -76,18 +123,39 @@ const chainLabel = computed(() => {
   const last = steps[cnt - 1];
   const firstTs = first?.assistant?.timestamp ?? first?.tools?.[0]?.timestamp ?? 0;
   const lastTs = last?.assistant?.timestamp ?? last?.tools?.at(-1)?.timestamp ?? 0;
-  let elapsed = firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
+  // 耗时（2026-12 计时反馈）：流式期 = 校准锚 + 前端续计（每秒跳动）；
+  // 无锚（首步未收束）回退时间戳推导。校准锚 = 后端 after-step 的
+  // step.ts 权威收束时刻（见 types.ts ChatMessage.runCalibMs）——每步覆盖，
+  // 吸收帧传播延迟；尾段（工具执行/步间静默/末步流式）前端在锚上续跑
+  const calib = liveElapsedMs.value;
+  let elapsed = calib !== null
+    ? Math.round(calib / 1000)
+    : firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
   // 时间戳推导为 0 时，从各 step 的 label（如 "已思考（用时 12 秒）"）中累加
-  if (elapsed === 0 && cnt > 0) {
+  if (elapsed === 0 && cnt > 0 && calib === null) {
     for (const s of steps) {
       const m = ((s.assistant as any).label || '').match(/用时\s*([\d.]+)\s*秒/);
       if (m) elapsed += parseFloat(m[1]);
     }
   }
+  // API 速率（输出口径：Σ步 completion / Σ步 API 流时间；after-step 逐步
+  // 累计——run 未收束即实时可见）。不用 total：prompt 随上下文单调膨胀，
+  // Σtotal/Σms 会持续虚高（反映上下文膨胀而非吞吐）；completion 是每步
+  // 纯净新增，比率稳定收敛。分母 = dispatch 纯流时间（不含工具执行/编排）；
+  // 旧数据无计时 → 段落省略
+  let apiMs = 0;
+  let apiCompletion = 0;
+  for (const s of steps) {
+    if (typeof s.assistant.apiMs === 'number' && typeof s.assistant.apiCompletion === 'number') {
+      apiMs += s.assistant.apiMs;
+      apiCompletion += s.assistant.apiCompletion;
+    }
+  }
   // 形态（段间统一以「·」连接——与思考行/工具卡同款构造）：
-  // 思考过程 · X 步 · 用时 99h59m59s（耗时未知时省略末段）
+  // 思考过程 · X 步 · 用时 99h59m59s · 速率 12.3 t/s（各段按数据在场省略）
   const parts = [`思考过程 · ${cnt} 步`];
   if (elapsed > 0) parts.push(`用时 ${fmtElapsed(elapsed)}`);
+  if (apiMs > 0) parts.push(`速率 ${(apiCompletion / (apiMs / 1000)).toFixed(1)} t/s`);
   return parts.join(' · ');
 });
 
@@ -178,7 +246,9 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
         <UserMessage
           :message="finalMsg"
           :sender-avatar="senderAvatar" :sender-name="senderName"
+          :show-fork="showFork"
           @edit="canEdit ? (id: any, c: any) => emit('edit', id, c) : undefined"
+          @fork="finalMsg?.persistedMsgId ? emit('forkFromMessage', finalMsg.persistedMsgId) : undefined"
           @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
         />
       </div>
@@ -187,9 +257,11 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
           :message="plainMsg" :is-streaming="finalIsStreaming"
           :sender-avatar="continuation ? null : senderAvatar" :sender-name="continuation ? undefined : senderName"
           :show-actions="showActions"
+          :show-fork="showFork"
           @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
           @regenerate="finalMsg && canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
           @delete-message="finalMsg && canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
+          @fork="finalMsg?.persistedMsgId ? emit('forkFromMessage', finalMsg.persistedMsgId) : undefined"
         />
       </div>
     </template>
@@ -266,9 +338,11 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
               v-else
               :message="finalMsg" :is-streaming="finalIsStreaming"
               :show-actions="showActions"
+              :show-fork="showFork"
               @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
               @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
               @delete-message="canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
+              @fork="finalMsg?.persistedMsgId ? emit('forkFromMessage', finalMsg.persistedMsgId) : undefined"
             />
           </div>
         </div>
@@ -296,9 +370,11 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             v-else
             :message="finalMsg" :is-streaming="finalIsStreaming"
             :show-actions="showActions"
+            :show-fork="showFork"
             @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
             @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
             @delete-message="canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
+            @fork="finalMsg?.persistedMsgId ? emit('forkFromMessage', finalMsg.persistedMsgId) : undefined"
           />
         </div>
       </div>
@@ -312,6 +388,13 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
    压缩时（视口不变，@media 断点不触发）占比平滑放大；内容宽 ≤440px 时
    完全填满（与手机视口窄形态行为统一）。 */
 .turn-item { display: flex; flex-direction: column; gap: 8px; max-width: min(100%, max(70%, 440px)); }
+/* 屏外轮次跳过布局与绘制（历史长会话首屏成本主项：整页 markdown/高亮
+   结果一次性进 DOM layout+paint）。contain-intrinsic-size 给占位尺寸，
+   滚动条不跳动；`auto` 关键字记住上次实测尺寸，回滚无重复估算。 */
+.turn-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
 .turn-bubble { width: 100%; }
@@ -410,6 +493,10 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 
 .chain-body {
   display: flex; flex-direction: column; gap: 10px;
+  /* flex item 收缩许可：链内卡（尤其 subcall 三层缩进后可用宽最窄）
+     的长内容（代码最长行等 min-content）不再把链撑出容器宽被裁，
+     横向滚动收进各卡自己的滚动区 */
+  min-width: 0;
   border-left: 1px solid var(--color-border-secondary);
   margin-left: 7px; /* 对齐 chain-icon（14px）中心 */
   padding: 0 0 0 14px;

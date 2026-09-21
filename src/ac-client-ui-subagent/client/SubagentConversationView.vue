@@ -128,11 +128,9 @@ function refresh() { void loadInitial(); }
 
 <template>
   <div class="sub-chat">
-    <!-- 头部：返回 + 子信息 + 状态徽章 + 刷新 -->
+    <!-- 头部：子信息 + 状态徽章 + 刷新（返回按钮已退役——主区切换只由
+         显式导航驱动：点会话进会话、点矩阵快照进矩阵，互不干扰） -->
     <div class="chat-header">
-      <button class="back-btn" title="返回" @click="ui.closeSubagentView()">
-        <Icon name="arrow-left" :size="20" />
-      </button>
       <div class="header-info">
         <div class="pair-title">
           <div class="pair-avatars">
@@ -187,12 +185,6 @@ function refresh() { void loadInitial(); }
   border-bottom: 1px solid var(--color-border-secondary);
   flex-shrink: 0;
 }
-.back-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border: none; border-radius: var(--radius-md);
-  background: none; color: var(--color-text-secondary); cursor: pointer;
-}
-.back-btn:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
 .header-info { flex: 1; min-width: 0; }
 .pair-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .pair-avatars { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }

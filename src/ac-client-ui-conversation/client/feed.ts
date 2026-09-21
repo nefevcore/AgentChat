@@ -112,10 +112,15 @@ export function mergeHistoryPage(
   viewerId = 'user',
 ): { merged: ChatMessage[]; userCount: number } {
   const raw = isFirstPage ? incoming : [...incoming, ...existing];
+  // 去重键 = persistedMsgId + id 双键（2026-12 步行锚点修复）：多步轮步行
+  // 共享收束行 message_id（同锚）但 id（sid）各异——单键去重会把同轮第二条
+  // 起的步行全部吞掉；双键下「锚+渲染 id 都相同」才判重（历史行与直播行
+  // 重复投递的场景两者皆同，去重语义不回归）。
   const seen = new Set<string>();
   const merged = raw.filter((m) => {
-    if (m.persistedMsgId && seen.has(m.persistedMsgId)) return false;
-    if (m.persistedMsgId) seen.add(m.persistedMsgId);
+    const key = m.persistedMsgId ? `${m.persistedMsgId}|${m.id}` : '';
+    if (key && seen.has(key)) return false;
+    if (key) seen.add(key);
     return true;
   });
   const userCount = incoming.filter((m) => m.agent_id === viewerId).length;
@@ -131,6 +136,16 @@ interface FeedAgentMsg {
   content: string;
   ts: number;
   label?: string;
+  /** 步级 API 计时/补全 token（after-step 透传）——链头速率数据源 */
+  apiMs?: number;
+  apiCompletion?: number;
+  /** 链栏耗时校准对（直播 after-step 写入；见 types.ts ChatMessage 同名注释） */
+  runCalibMs?: number;
+  runCalibAt?: number;
+  /** 思考相位起点（直播驻留；见 types.ts ChatMessage 同名注释） */
+  reasoningStartAt?: number;
+  /** 本 run 前端起点（run-started 驻留；链栏过渡期计时源） */
+  runStartAt?: number;
   /** 步内相位序（直播自判/历史透传）：true = 正文先于工具调用分片到达 */
   textBeforeTools?: boolean;
   /** 流式中（用于派生 turns 保留 isStreaming，驱动流式渲染与思考相位判定） */
@@ -138,6 +153,9 @@ interface FeedAgentMsg {
   /** 原始消息 id：final 沿用之（此前合成 `final-<ts>` → edit/regenerate/delete
    *  按 id 查找 rawMessages 永远 -1，操作按钮静默失效） */
   id?: string;
+  /** 服务端消息锚点（历史/收束行才有；final 沿用——分支按钮等按行定位
+   *  的操作据此门控，直播行/本地行无权威边界不显示） */
+  persistedMsgId?: string;
   /** 用户附件（final 渲染附件 chips 用；派生时丢失会导致附件不显示） */
   files?: any[];
   agent_id?: string;
@@ -158,6 +176,11 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
       id: `step-${ts}-${i}`, role: 'agent', content: t.content || '',
       label: t.label || '', thinking: t.thinking, reasoning_content: t.thinking,
       ...(t.textBeforeTools !== undefined ? { textBeforeTools: t.textBeforeTools } : {}),
+      ...(t.apiMs !== undefined ? { apiMs: t.apiMs } : {}),
+      ...(t.apiCompletion !== undefined ? { apiCompletion: t.apiCompletion } : {}),
+      ...(t.runCalibMs !== undefined && t.runCalibAt !== undefined ? { runCalibMs: t.runCalibMs, runCalibAt: t.runCalibAt } : {}),
+      ...(t.reasoningStartAt !== undefined ? { reasoningStartAt: t.reasoningStartAt } : {}),
+      ...(t.runStartAt !== undefined ? { runStartAt: t.runStartAt } : {}),
       toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
       isStreaming: stepStreaming && i === msgs.length - 1, timestamp: ts,
     };
@@ -200,6 +223,7 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
     content: src.content || '',
     reasoning_content: '', thinking: '',
     files: src.files, agent_id: src.agent_id,
+    ...(src.persistedMsgId !== undefined ? { persistedMsgId: src.persistedMsgId } : {}),
     isStreaming: false,
     timestamp: src.ts || Date.now(),
   } as ChatMessage;
@@ -300,6 +324,15 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         thinking: msg.reasoning_content || msg.thinking || '',
         label: (msg as any).label || '',
         ...(msg.textBeforeTools !== undefined ? { textBeforeTools: msg.textBeforeTools } : {}),
+        ...(typeof (msg as any).apiMs === 'number' ? { apiMs: (msg as any).apiMs } : {}),
+        ...(typeof (msg as any).apiCompletion === 'number' ? { apiCompletion: (msg as any).apiCompletion } : {}),
+        // 链栏耗时校准对透传（直播 after-step 写入；驻留最后一条 agent 消息——
+        // 校准对象征「截至最近步收束的整轮耗时」，随步推进更新到最后消息上）
+        ...(typeof (msg as any).runCalibMs === 'number' && typeof (msg as any).runCalibAt === 'number'
+          ? { runCalibMs: (msg as any).runCalibMs, runCalibAt: (msg as any).runCalibAt }
+          : {}),
+        ...(typeof (msg as any).reasoningStartAt === 'number' ? { reasoningStartAt: (msg as any).reasoningStartAt } : {}),
+        ...(typeof (msg as any).runStartAt === 'number' ? { runStartAt: (msg as any).runStartAt } : {}),
         // 幻影调用（id/name 双空——provider 空冲洗片的聚合残片）不进派生
         tool_calls: (msg.toolCalls || []).filter((tc: any) => tc.id || tc.name || tc.function?.name).map((tc: any) => ({
           id: tc.id, name: tc.name || tc.function?.name || '',
@@ -310,8 +343,10 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         content: msg.content || '',
         ts,
         isStreaming: msg.isStreaming,
-        // 透传原始 id/附件/身份：final 沿用（edit/regenerate/delete 按 id 命中、附件渲染）
+        // 透传原始 id/附件/身份/锚点：final 沿用（edit/regenerate/delete 按 id 命中、
+        // 附件渲染、分支按钮按 persistedMsgId 门控）
         id: msg.id,
+        persistedMsgId: msg.persistedMsgId,
         files: msg.files,
         agent_id: msg.agent_id,
       });
@@ -346,7 +381,7 @@ function toolCallsSig(tcs: any[] | undefined | null): string {
 function msgSig(m: ChatMessage): string {
   // textBeforeTools 必入签名：undefined→true 是零长度变化（直播自判在首
   // delta 到达时刻翻转），漏掉会让增量派生误判"无变化"复用旧序 turns
-  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}|${m.textBeforeTools === true ? 1 : 0}`;
+  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}|${m.textBeforeTools === true ? 1 : 0}|${m.runCalibMs ?? 0}|${m.runCalibAt ?? 0}`;
 }
 
 /** 增量 Turn 构建的缓存状态 */
@@ -550,6 +585,9 @@ export function pairMessageToChatMessage(m: {
   /** 步内相位序（历史 steps 展开透传）：true = 正文先于工具调用 */
   textBeforeTools?: boolean;
   label?: string;
+  /** 步级 API 计时/补全 token（历史 steps 展开透传）——链头速率数据源 */
+  apiMs?: number;
+  apiCompletion?: number;
   message_id?: string;
   timestamp?: string;
   attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
@@ -575,6 +613,8 @@ export function pairMessageToChatMessage(m: {
     label: m.label,
     reasoning_content: (m.reasoning_content ?? '') || undefined,
     ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
+    ...(m.apiMs !== undefined ? { apiMs: m.apiMs } : {}),
+    ...(m.apiCompletion !== undefined ? { apiCompletion: m.apiCompletion } : {}),
     tool_call_id: m.tool_call_id,
     toolCalls: m.tool_calls as any,
     timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),

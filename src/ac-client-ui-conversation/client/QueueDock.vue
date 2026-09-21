@@ -1,7 +1,8 @@
 <!-- QueueDock.vue —— next-turn 排队 dock（composer 上方；DSH QueueDock 姿势）
   纯展示组件：队列数据/插话/删除动作由父级（QueueDockHost 持 useQueuedMessages
   单一事实源）经 props 注入。展示规则（DSH 对齐）：队空隐藏；单条直渲染该
-  行；两条及以上默认收起为表头（标题 + 计数摘要），点击展开完整列表
+  行（行首补 lead 图标——无表头形态的卡族锚点，对齐 TodoPanel/GoalBar）；
+  两条及以上默认收起为表头（标题 + 计数摘要），点击展开完整列表
   （180px 上限滚动；队列清空后下次出现恢复收起）。
   外壳与密度对齐 dock 卡族规范（TodoPanel/GoalBar/InteractionBar）：
   radius-lg 扁平卡 · bg-secondary · margin 0 10px 6px（6px 下距 = dock 列
@@ -59,6 +60,8 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
         :class="{ multi: items.length > 1 }"
       >
         <div v-for="q in items" :key="q.id" class="queue-row">
+          <!-- 单条形态无表头：行首补 lead 图标对齐 dock 卡族锚点（多条时表头已带） -->
+          <span v-if="items.length === 1" class="queue-lead" aria-hidden="true"><Icon name="clock" :size="14" /></span>
           <span class="queue-preview" :title="q.preview">{{ q.preview || '（空消息）' }}</span>
           <span class="queue-actions">
             <button

@@ -19,12 +19,13 @@ import { parkDraft, takeDraft } from './draftParking.ts';
 import { ensurePasteName } from './clipboardFile.ts';
 import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
-import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, buildSessionMentionCandidates, type MentionTrigger } from './mention.ts';
+import { detectMention, replaceMentionToken, mentionMatches, formatFileMention, buildSessionMentionCandidates, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { loadComposePrefs, saveComposePrefs, type ComposeEffort, type ComposeElevation } from './composePrefs.ts';
 
 import { persistToolMode } from './toolModeInherit.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
+import PromptEditor from './PromptEditor.vue';
 
 const props = defineProps<{
   /** 禁用输入 */
@@ -465,9 +466,9 @@ const ELEV_OPTIONS: Array<{
   detail: string;
   title: string;
 }> = [
-  { value: '', label: '默认', icon: 'shield', detail: '', title: '按 Agent 自有档位（tags）执行——需要权限时弹出审批卡询问' },
-  { value: 'sandbox-access', label: '沙箱访问', icon: 'shield-check', detail: '白名单内自由', title: '后续消息驱动的 run 至少按 sandbox-access 执行：工作区白名单内自由写、bash 软边界内自由；越界视同基础档。持续生效直到改回；Agent 自有档位更高时按自有档位执行（只升不降）' },
-  { value: 'full-access', label: '完全访问', icon: 'shield-check', detail: '不受限', title: '后续消息驱动的 run 按 full-access 执行：跳过路径复检与命令扫描（系统域黑名单仍生效）。持续生效直到改回；持久授权请改 Agent 配置 tags；自有档位更高时按自有档位执行' },
+  { value: '', label: '默认权限', icon: 'shield', detail: '', title: '按 Agent 自有档位（tags）执行——需要权限时弹出审批卡询问' },
+  { value: 'sandbox-access', label: '沙箱访问', icon: 'shield-half', detail: '白名单内自由', title: '后续消息驱动的 run 至少按 sandbox-access 执行：工作区白名单内自由写、bash 软边界内自由；越界视同基础档。持续生效直到改回；Agent 自有档位更高时按自有档位执行（只升不降）' },
+  { value: 'full-access', label: '完全访问', icon: 'shield-off', detail: '不受限', title: '后续消息驱动的 run 按 full-access 执行：跳过路径复检与命令扫描（系统域黑名单仍生效）。持续生效直到改回；持久授权请改 Agent 配置 tags；自有档位更高时按自有档位执行' },
 ];
 
 function selectElevation(v: '' | 'sandbox-access' | 'full-access') {
@@ -511,16 +512,16 @@ function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
 const TOOL_MODE_OPTIONS = computed<Array<{ value: '' | 'tc-base' | 'tc-programmatic' | 'tc-none'; label: string; icon: string; detail: string; title: string; disabled?: boolean }>>(() => [
   {
     value: '',
-    label: '默认',
-    icon: 'wrench',
+    label: '默认工具调用',
+    icon: 'settings-2',
     detail: agentToolModeLabel.value,
     title: `按 Agent tags 决定的模式执行（当前：${agentToolModeLabel.value}）——程序化持久生效请给 Agent 配 tc-programmatic 标签`,
   },
-  { value: 'tc-base', label: '标准', icon: 'wrench', detail: '逐个调用', title: '本会话覆盖为标准档：模型逐个调用工具（每个工具独立 schema，直接直调）——压制 Agent 的 tc-programmatic/tc-none 标签档' },
+  { value: 'tc-base', label: '标准工具调用', icon: 'mouse-pointer-click', detail: '逐个调用', title: '本会话覆盖为标准档：模型逐个调用工具（每个工具独立 schema，直接直调）——压制 Agent 的 tc-programmatic/tc-none 标签档' },
   programmaticAvailable.value
-    ? { value: 'tc-programmatic', label: '程序化', icon: 'braces', detail: 'run_code 编排', title: '本会话覆盖为程序化档：工具面收窄为 run_code 单入口——模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文（大幅降低 token 消耗）。run 间隙生效' }
-    : { value: 'tc-programmatic', label: '程序化', icon: 'braces', detail: '需 infra 标签', title: '当前 Agent（含预设）未授予 infra 能力标签（run_code 不可见）——程序化对其惰性（勾选不生效，后端 warn 并回落）。请到 Agent 设置添加该标签，或换用已授权的 Agent', disabled: true },
-  { value: 'tc-none', label: '无工具', icon: 'message-square', detail: '纯聊天', title: '本会话覆盖为无工具档：移除 LLM 工具面（纯聊天——模型只输出文本，不调用任何工具）' },
+    ? { value: 'tc-programmatic', label: '程序化工具调用', icon: 'braces', detail: 'run_code 编排', title: '本会话覆盖为程序化档：工具面收窄为 run_code 单入口——模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文（大幅降低 token 消耗）。run 间隙生效' }
+    : { value: 'tc-programmatic', label: '程序化工具调用', icon: 'braces', detail: '需 infra 标签', title: '当前 Agent（含预设）未授予 infra 能力标签（run_code 不可见）——程序化对其惰性（勾选不生效，后端 warn 并回落）。请到 Agent 设置添加该标签，或换用已授权的 Agent', disabled: true },
+  { value: 'tc-none', label: '无工具调用', icon: 'message-circle', detail: '纯聊天', title: '本会话覆盖为无工具档：移除 LLM 工具面（纯聊天——模型只输出文本，不调用任何工具）' },
 ]);
 
 /** Agent tags 档显示词（跟随态的实际生效档） */
@@ -616,12 +617,11 @@ const modelTitle = computed(() => {
     : '模型：Agent 原配置';
 });
 const effortLabel = computed(() => EFFORT_OPTIONS.find(o => o.value === reasoningEffort.value)?.label ?? '思考·关');
-/** 工具调用模式按钮显示（'braces' 图标 = 程序卡象形同源）：覆盖态直名，
- *  跟随态显 Agent tags 档 */
-const toolModeLabel = computed(() => {
-  if (toolMode.value === '') return `默认·${agentToolModeLabel.value}`;
+/** 工具调用模式按钮显示：图标+文案直接取当前档选项（跟随态 = 默认工具调用，
+ *  实际生效档见 title 与菜单项 detail——Agent tags 档） */
+const toolModeBtn = computed(() => {
   const opt = TOOL_MODE_OPTIONS.value.find(o => o.value === toolMode.value);
-  return opt?.label ?? '默认';
+  return { icon: opt?.icon ?? 'wrench', label: opt?.label ?? '默认工具调用' };
 });
 const toolModeTitle = computed(() => {
   if (toolMode.value === 'tc-programmatic' && !programmaticAvailable.value) {
@@ -639,11 +639,11 @@ const elevTitle = computed(() => {
   return `已武装 ${armed}：后续消息均按此执行（持续生效直到改回；不低于 Agent 自有档位——只升不降）`;
 });
 
-/** 提权按钮显示：默认"权限"；武装态显主动摘要（警示色由类承担） */
-const elevBtnLabel = computed(() => {
-  if (elevation.value === 'full-access') return '提权·完全';
-  if (elevation.value === 'sandbox-access') return '提权·沙箱';
-  return '权限';
+/** 提权按钮显示：直取档位名（图标随档分化）；警示色由类承担 */
+const elevBtn = computed(() => {
+  if (elevation.value === 'full-access') return { icon: 'shield-off', label: '完全访问' };
+  if (elevation.value === 'sandbox-access') return { icon: 'shield-half', label: '沙箱访问' };
+  return { icon: 'shield', label: '默认权限' };
 });
 
 function onDocClick() {
@@ -664,6 +664,24 @@ const busyPlaceholder = computed(() => {
   }
   return '运行中——Enter 排队发送，Cmd/Ctrl+Enter 立即插话';
 });
+
+/** 输入区 placeholder 单源（双编辑面共用；textarea 面经 :placeholder 直取） */
+const placeholderText = computed(() =>
+  presetRetired.value ? '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式'
+    : (store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…'
+      : (busySend.value ? busyPlaceholder.value : (props.placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)'))));
+
+/** 粘贴适配（PromptEditor.onPasteFiles 契约：返回 true = 已消费抑制默认
+ *  插入；纯文本粘贴不拦截——PM schema 归一，富文本自动降级为纯文本） */
+function onPaste(e: ClipboardEvent): boolean {
+  const files = Array.from(e.clipboardData?.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((f): f is File => f !== null);
+  if (files.length === 0) return false;
+  void uploadAndAttach(files);
+  return true;
+}
 
 onMounted(() => {
   document.addEventListener('click', onDocClick);
@@ -768,6 +786,9 @@ function onKeydown(e: KeyboardEvent) {
       return;
     }
   }
+  // IME 组合期的 Enter = 确认候选/原样提交（如输入无候选的 'ceu_tsex' 后回车）——
+  // 不是发送意图：不拦截，让 IME 消费（拦截会让 v-model 错过组合文本，发送丢失输入）
+  if (e.isComposing) return;
   if (e.key !== 'Enter' || e.shiftKey) return;
   e.preventDefault();
   // Cmd/Ctrl+Enter（DSH busy 手势对）：忙态 = 另一种行为——有草稿 = 插话
@@ -786,7 +807,24 @@ function onKeydown(e: KeyboardEvent) {
 
 // ---- 快捷输入（/ 命令与技能、@ 引用文件/Agent/会话） ----
 
-const textareaEl = ref<HTMLTextAreaElement | null>(null);
+// ── 编辑面（PromptEditor——tiptap 单层渲染，2026-09-21 转正）──────
+// 旧 textarea+overlay 双层面已退役（同度量镜像的两条排版管线存在引擎级
+// 错位，只能逼近无法归零；归档见 Note/AgentChat/backups/2026-09-21-
+// chatinput-overlay-retired/）。编辑器本体与 token 药丸渲染同 DOM——
+// 错位在结构上不可能；文本模型 = 纯文本段落，getText 口径与旧 v-model
+// 逐字节一致（send/草稿/mention 数据面零变化）。
+const promptFaceRef = ref<InstanceType<typeof PromptEditor> | null>(null);
+
+/** 编辑面统一门面：mention 检测/替换/光标操作经此，与组件实例解耦 */
+const promptFace = {
+  isReady: computed(() => promptFaceRef.value !== null),
+  caret: () => promptFaceRef.value?.caret() ?? 0,
+  domValue: () => promptFaceRef.value?.getText() ?? '',
+  focus: () => promptFaceRef.value?.focus(),
+  setCaret: (pos: number) => promptFaceRef.value?.setCaret(pos),
+  replaceRange: (start: number, end: number, insert: string) =>
+    promptFaceRef.value?.replaceRange(start, end, insert),
+};
 /** 当前活跃触发态（null = 弹层关闭）；随输入/光标移动重算 */
 const mention = ref<MentionTrigger | null>(null);
 /** 键盘 active 条目（跨分组扁平序；hover 同步到这里） */
@@ -800,17 +838,13 @@ function closeMention(): void {
 /** 输入/点击/方向键后重算触发态（v-model 已同步 inputText；caret 从元素读）。
  *  IME 组合输入期（选字）跳过重算——中间态拼音不参与触发判定。 */
 function updateMention(e?: Event): void {
-  if ((e as KeyboardEvent | undefined)?.isComposing) {
-    // 组合期伴随 input 事件——同步镜像（compositionupdate 缺席的浏览器兜底）
-    syncCompositionMirror();
-    return;
-  }
-  const el = textareaEl.value;
-  if (!el || props.disabled) {
+  // IME 组合输入期（选字）跳过重算——PromptEditor 组合期不派发 activity
+  if ((e as KeyboardEvent | undefined)?.isComposing) return;
+  if (!promptFace.isReady.value || props.disabled) {
     closeMention();
     return;
   }
-  mention.value = detectMention(inputText.value, el.selectionStart ?? 0);
+  mention.value = detectMention(inputText.value, promptFace.caret());
   if (mention.value) ensureMentionData(mention.value.kind);
 }
 
@@ -1014,33 +1048,32 @@ watch(flatMentionItems, (items) => {
  */
 function applyMentionItem(item: MentionItem, via: 'primary' | 'insert' = 'primary'): void {
   const trig = mention.value;
-  const el = textareaEl.value;
   if (item.nav !== undefined && via === 'primary') {
     void navigateFiles(item.nav);
     return; // 弹层保持（浏览中）
   }
   closeMention();
   if (item.command) {
-    // 命令不落文本：先摘除 /token 再执行
-    if (trig && el) {
-      const caret = el.selectionStart ?? inputText.value.length;
-      inputText.value = replaceMentionToken(inputText.value, trig.start, caret, '');
+    // 命令不论文本面：先摘除 /token 再执行
+    if (trig && promptFace.isReady.value) {
+      inputText.value = replaceMentionToken(inputText.value, trig.start, promptFace.caret(), '');
     }
     runMentionCommand(item.command);
     return;
   }
   if (item.insert !== undefined && trig) {
-    const caret = el?.selectionStart ?? inputText.value.length;
     const insert = item.insert;
-    inputText.value = replaceMentionToken(inputText.value, trig.start, caret, insert);
-    void nextTick(() => {
-      const el2 = textareaEl.value;
-      if (!el2) return;
-      el2.focus();
-      const pos = trig.start + insert.length;
-      el2.setSelectionRange(pos, pos);
-      updateMention();
-    });
+    if (promptFace.isReady.value) {
+      inputText.value = replaceMentionToken(inputText.value, trig.start, promptFace.caret(), insert);
+      void nextTick(() => {
+        promptFace.focus();
+        promptFace.setCaret(trig.start + insert.length);
+        // Tab（via=insert）不重检测：所有 insert 均带尾随空格，重检测结果
+        // 本就是 null；但 tiptap 面程序性写回的 dispatch 回声时序不定，
+        // 显式关层（Enter 已在 applyMentionItem 头部 closeMention 覆盖）。
+        if (via === 'primary') updateMention();
+      });
+    }
   }
 }
 
@@ -1058,58 +1091,12 @@ function runMentionCommand(cmd: NonNullable<MentionItem['command']>): void {
   }
 }
 
-// 清空草稿（切会话/发送后）即关弹层；程序性改值后校准高亮层滚动
+// 清空草稿（切会话/发送后）即关弹层
 watch(inputText, (v) => {
   if (v === '') closeMention();
-  void nextTick(syncHighlightScroll);
 });
 
-// ---- 快捷输入语义化渲染（overlay 高亮层）----
-// textarea 文字透明 + 下层同字体度量 div 渲染彩色 token 芯片；光标/IME/
-// 粘贴/选区全保持原生。IME 组合期切换为文字单层渲染（textarea 可见 +
-// 高亮层文字隐藏，防两层亚像素错位重影；token 底色药丸保留）；滚动同步
-// （长草稿换行滚动时两层不错位）。
-const hlEl = ref<HTMLElement | null>(null);
-const isComposing = ref(false);
-/** 组合期实时镜像（textarea DOM value——含 IME 组合预览）。v-model 在组合
- *  期刻意不同步（Vue 语义），若高亮层仍渲染旧 inputText：组合期上层文字
- *  临时恢复可见，插入点之后的文本被预览推向右侧，与下层旧位置文本重影
- *  互遮（文本中间打字遮盖反馈）。组合中随 composition 事件镜像实时值，
- *  两层逐字符同内容对齐。 */
-const compositionMirror = ref('');
-/** 高亮渲染源：组合期 = DOM 实时值（与上层可见文本同内容）；常态 = v-model 值 */
-const highlightText = computed(() => (isComposing.value ? compositionMirror.value : inputText.value));
-const highlightSegments = computed(() => buildHighlightSegments(highlightText.value));
 
-/** 镜像同步：读 textarea 实时 DOM 值（组合期 v-model 值未含预览） */
-function syncCompositionMirror(): void {
-  compositionMirror.value = textareaEl.value?.value ?? inputText.value;
-}
-
-function onCompositionStart(): void {
-  isComposing.value = true;
-  syncCompositionMirror();
-}
-function onCompositionUpdate(): void {
-  syncCompositionMirror();
-}
-function onCompositionEnd(): void {
-  isComposing.value = false;
-  compositionMirror.value = '';
-  updateMention();
-}
-
-/** 滚动同步：高亮层跟随 textarea 滚动偏移（长草稿内部滚动时两层不错位）。
- *  覆盖两类触发：用户滚动（scroll 事件直调）与程序性改值（发送清空/
- *  草稿恢复/mention 插入——textarea 可能自动滚到光标处但不派发 scroll，
- *  watch inputText 经 nextTick 手动校准）。 */
-function syncHighlightScroll(): void {
-  const ta = textareaEl.value;
-  const hl = hlEl.value;
-  if (!ta || !hl) return;
-  hl.scrollTop = ta.scrollTop;
-  hl.scrollLeft = ta.scrollLeft;
-}
 
 // ---- 附件上传（文件选择器与剪贴板粘贴共用） ----
 
@@ -1169,21 +1156,6 @@ function triggerFileUpload() {
     void uploadAndAttach(Array.from(files));
   };
   input.click();
-}
-
-/**
- * 剪贴板粘贴（Ctrl+V）：含文件项（截图位图 / 复制的文件）即拦截上传挂
- * 附件；纯文本粘贴不拦截（走默认插入行为）。多文件逐个上传，与文件
- * 选择器同一状态栏/移除交互。
- */
-function onPaste(e: ClipboardEvent) {
-  const files = Array.from(e.clipboardData?.items ?? [])
-    .filter((item) => item.kind === 'file')
-    .map((item) => item.getAsFile())
-    .filter((f): f is File => f !== null);
-  if (files.length === 0) return;
-  e.preventDefault();
-  void uploadAndAttach(files);
 }
 
 function removeFile(index: number) {
@@ -1353,32 +1325,17 @@ function onThumbError(i: number) {
       @navigate="(path: string) => void navigateFiles(path)"
     />
 
-    <!-- 输入区（语义化渲染：下层高亮层 + 透明文字 textarea 同度量叠放） -->
-    <div class="ta-wrap" :class="{ composing: isComposing }">
-      <div ref="hlEl" class="ta-highlight" aria-hidden="true">
-        <template v-for="(seg, i) in highlightSegments" :key="i">
-          <span v-if="seg.kind" class="tok" :class="`tok-${seg.kind}`">{{ seg.text }}</span>
-          <span v-else>{{ seg.text }}</span>
-        </template>
-      </div>
-      <textarea
-        ref="textareaEl"
-        v-model="inputText"
-        :placeholder="presetRetired ? '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式' : (store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…' : (busySend ? busyPlaceholder : (placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)')))"
-        :disabled="inputDisabled"
-        @keydown="onKeydown"
-        @input="updateMention"
-        @keyup="updateMention"
-        @click="updateMention"
-        @select="updateMention"
-        @paste="onPaste"
-        @scroll="syncHighlightScroll"
-        @compositionstart="onCompositionStart"
-        @compositionupdate="onCompositionUpdate"
-        @compositionend="onCompositionEnd"
-        rows="3"
-      />
-    </div>
+    <!-- 输入区：PromptEditor（tiptap 单层渲染——文字与 token 药丸同 DOM，
+         错位在结构上不可能；键盘协议/文件粘贴/mention 活动经 props 委托） -->
+    <PromptEditor
+      ref="promptFaceRef"
+      v-model="inputText"
+      :placeholder="placeholderText"
+      :disabled="inputDisabled"
+      :on-keydown="onKeydown"
+      :on-paste-files="onPaste"
+      :on-activity="updateMention"
+    />
 
     <!-- 底部工具栏：模型（模型+思考）- 工具模式 - 权限 ⋯ 附件 - 发送
          （身份组退役 2026-12：开场身份在 fresh 顶行设定，开始会话后
@@ -1487,8 +1444,8 @@ function onThumbError(i: number) {
             @click.stop="toggleToolModeMenu"
             :title="toolModeTitle"
           >
-            <Icon name="braces" :size="15" />
-            <span class="select-text">{{ toolModeLabel }}</span>
+            <Icon :name="toolModeBtn.icon" :size="15" />
+            <span class="select-text">{{ toolModeBtn.label }}</span>
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: toolModeMenuOpen }" />
           </button>
           <Transition name="menu-fade">
@@ -1522,8 +1479,8 @@ function onThumbError(i: number) {
             @click.stop="toggleElevMenu"
             title="快捷提权（权限档位）"
           >
-            <Icon :name="elevation ? 'shield-check' : 'shield'" :size="15" />
-            <span class="select-text">{{ elevBtnLabel }}</span>
+            <Icon :name="elevBtn.icon" :size="15" />
+            <span class="select-text">{{ elevBtn.label }}</span>
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
           </button>
           <Transition name="menu-fade">
@@ -1574,6 +1531,7 @@ function onThumbError(i: number) {
 </template>
 
 <style scoped>
+/* 输入区样式在 PromptEditor 内（scoped + :deep）；此处仅卡片骨架 */
 .chat-input {
   display: flex;
   flex-direction: column;
@@ -1676,112 +1634,6 @@ function onThumbError(i: number) {
 .file-chip-remove:hover {
   opacity: 1;
 }
-
-/* ---- 输入区（overlay 语义化渲染：.ta-wrap 内两层同字体度量叠放，
-        下层芯片 + 上层透明文字 textarea；光标/IME/选区全原生）---- */
-.ta-wrap {
-  position: relative;
-  /* 与 textarea 同高（恰好 3 整行 = 63px）——高亮层 inset:0 铺满本层 */
-  min-height: 63px;
-}
-
-/* 下层高亮层：与 textarea 完全同度量（字号/行高/换行/padding） */
-.ta-highlight {
-  position: absolute;
-  inset: 0;
-  border: none;
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 1.5;
-  /* 与 textarea 完全同度量（字号/行高/换行/padding）；表单控件不继承
-     body 的 optimizeLegibility——显式 auto 与 textarea 渲染模式对齐
-     （kerning/连字策略不同会改变字符步进 → 软折行点分歧） */
-  text-rendering: auto;
-  padding: 0 2px;
-  box-sizing: border-box;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  overflow: hidden;
-  color: var(--color-text-primary);
-  pointer-events: none;
-  z-index: 0;
-}
-
-textarea {
-  position: relative;
-  /* block 化：inline-block 基线对齐会在控件下方撑出 ~7px 行框下沉
-     （63px 控件 → 容器 70px），高亮层 inset:0 跟随容器变高 → 滚动到底
-     时 scrollTop 钳制值不同（63 vs 56），最后两行错位。block 消除基线
-     支撑，容器精确 = 3 整行。 */
-  display: block;
-  z-index: 1;
-  width: 100%;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  /* 文字透明：只见下层芯片与自身光标（选中区背景仍可见） */
-  color: transparent;
-  caret-color: var(--color-text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  resize: none;
-  outline: none;
-  line-height: 1.5;
-  /* 表单控件 UA 默认渲染模式即 auto——显式声明与高亮层对齐（body 的
-     optimizeLegibility 不进控件；两层 kerning 策略不同会错位） */
-  text-rendering: auto;
-  /* 总高 = 恰好 3 整行（整数行数，杜绝"三行半"式截断观感）：行高
-     1.5 × 14px × 3 = 63px。竖向内衬归零——原 4px×2 衬垫令总高 71px ≈
-     3.38 行；行上下呼吸由卡片内衬（12px）承担。em 跟随字号，改字号仍保持整行 */
-  height: calc(1.5em * 3);
-  box-sizing: border-box;
-  padding: 0 2px;
-  /* 长草稿内部滚动：隐藏滚动条（滚动能力保留——滚轮/光标跟随照常滚）。
-   *  经典滚动条（Windows Chrome 常驻 ~17px）会占内容宽度：textarea 实际
-   *  换行变窄、高亮层（overflow hidden 无滚动条）仍按全宽换行 → 两层换行
-   *  点错位，token 药丸与透明文字错开（编辑正常、显示错位的根因）。隐藏
-   *  后两层度量一致，滚动偏移经 scroll 事件同步高亮层。 */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-textarea::-webkit-scrollbar {
-  display: none;
-}
-
-/* IME 组合期：组合预览随 color 透明会不可见——临时恢复文字可见。
- * 文字单层渲染：高亮层文字同时隐藏——div 与 textarea 的文字光栅化存在
- * 亚像素级差异，两层同内容文字同时可见即重影。token 仅保留底色药丸
- * （textarea 文字叠于其上 = 荧光笔标记观感），组合结束恢复双层分工 */
-.ta-wrap.composing textarea { color: var(--color-text-primary); }
-.ta-wrap.composing .ta-highlight,
-.ta-wrap.composing .ta-highlight .tok { color: transparent; }
-
-textarea::placeholder {
-  color: var(--color-text-muted);
-}
-
-textarea:focus {
-  outline: none;
-}
-
-/* 语义 token 芯片（纯视觉——textarea 值保持字面文本，复制/发送零变化）。
- * 度量零偏差：不加粗、无水平 padding（任何水平占位都会把芯片后文推向
- * 右侧，与上层透明文字层错位——组合期文字可见时即重影遮盖）。芯片感
- * 由颜色 + 底色承担，圆角保留。 */
-.tok {
-  border-radius: var(--radius-sm);
-  padding: 1px 0;
-  font-weight: inherit;
-}
-.tok-skill   { color: #7c5cff; background: color-mix(in srgb, #7c5cff 12%, transparent); }
-.tok-file    { color: #2f7ff6; background: color-mix(in srgb, #2f7ff6 12%, transparent); }
-.tok-agent   { color: #18a058; background: color-mix(in srgb, #18a058 12%, transparent); }
-.tok-session { color: #d97706; background: color-mix(in srgb, #d97706 12%, transparent); }
-html.dark .tok-skill   { color: #a38bff; background: color-mix(in srgb, #a38bff 14%, transparent); }
-html.dark .tok-file    { color: #6aa6ff; background: color-mix(in srgb, #6aa6ff 14%, transparent); }
-html.dark .tok-agent   { color: #4cc98a; background: color-mix(in srgb, #4cc98a 14%, transparent); }
-html.dark .tok-session { color: #f0a24a; background: color-mix(in srgb, #f0a24a 14%, transparent); }
 
 /* ---- 新会话开场顶行（fresh，输入卡外独立行）：工作区 | 预设模式
      （开场身份设定——开始会话即固化）。靠左，但与限宽居中的输入卡

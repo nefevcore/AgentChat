@@ -48,13 +48,12 @@ function pairViewState(): { a: string; b: string } | null {
   }
 }
 
-/** 运行矩阵主区视图激活判定（让位协议随 owning 行——壳零域知识）：
- *  开关开 && 非 pair 只读视角（pair 激活期矩阵让位，closePairView 返回
- *  即回归）。防御式同 pairViewState（pinia 未装配 = 不激活）。 */
+/** 矩阵快照主区视图激活判定（壳零域知识——状态随 owning 行）：
+ *  只看开关（单一事实源——显式导航互斥下 pair/subagent 视角进入即收矩阵，
+ *  开关不再反向受视角影响）。防御式同 pairViewState（pinia 未装配 = 不激活）。 */
 function trackingActive(): boolean {
   try {
-    const ui = useUiStore();
-    return ui.trackingViewVisible && !ui.pairView;
+    return useUiStore().trackingViewVisible;
   } catch {
     return false;
   }
@@ -83,16 +82,6 @@ export interface RunsPairSession {
   windows?: WindowCounts;
 }
 
-export interface RunsGroupSession {
-  key: string;
-  groupId: string;
-  messageCount: number;
-  lastActivity: number;
-  bytes: number;
-  /** 热力时间窗计数（无面 → 缺省；见 RunsPairSession.windows） */
-  windows?: WindowCounts;
-}
-
 export interface RunsSingleSession {
   key: string;
   id: string;
@@ -112,18 +101,10 @@ export interface RunsRunningEntry {
   source?: { kind?: string; form?: string; summary?: string };
 }
 
-export interface RunsGroupArchive {
-  groupId: string;
-  agentId: string;
-  lastActivity: number;
-}
-
 export interface RunsSnapshot {
   generatedAt: string;
   members: RunsMember[];
   pairs: RunsPairSession[];
-  groups: RunsGroupSession[];
-  groupArchives: RunsGroupArchive[];
   singles: RunsSingleSession[];
   running: RunsRunningEntry[];
   coverage: { matrixSessions: number; pairSessions: number; groupSessions: number; singleSessions: number; runningTotal: number; runningSingles: number; unknownMembers: string[] };
@@ -161,11 +142,9 @@ export interface RosterAgentView {
  * 一规则进 pairs——user 只是端点之一，无 user 特判。
  */
 export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): RunsSnapshot {
-  const convOf = new Map((s.conversations ?? []).map((c) => [c.conversationId, c]));
   const agentMembers = agents.map((a) => ({ id: a.id, name: a.name ?? a.description ?? a.id, kind: 'agent' as const }));
-  const groupMembers = (s.groups ?? []).map((g) => ({ id: g.groupId, name: g.name, kind: 'group' as const }));
   const agentIds = new Set(agentMembers.map((m) => m.id));
-  const groupIds = new Set(groupMembers.map((m) => m.id));
+  const groupIds = new Set((s.groups ?? []).map((g) => g.groupId));
   const hasUser = agentMembers.some((m) => m.id === 'user');
   // 会话桶分类（M19）：对桶 'a~b'（两端都是注册端点）→ pairs；群 gid /
   // 独立会话 sid 不进 pairs（群走 groups、singles 维持矩阵外独立降级）
@@ -192,25 +171,14 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
   return {
     generatedAt: new Date().toISOString(),
     members: [
-      // agents 已含 user（显示名如实）则直接用；否则合成占位（虚拟端点）
+      // agents 已含 user（显示名如实）则直接用；否则合成占位（虚拟端点）。
+      // 群/system 不入轴（2026-12 收窄）：快照管线无群参与证据供数
+      //（groupArchives 恒空、agent×群格从不点亮）、system 无对桶——
+      // 两轴 = Agent 端点（含 user），矩阵只覆盖真实会话对。
       ...(hasUser ? [] : [{ id: 'user', name: 'user', kind: 'virtual' as const }]),
       ...agentMembers,
-      ...groupMembers,
-      { id: 'system', name: 'system', kind: 'system' },
     ],
     pairs,
-    groups: (s.groups ?? []).map((g) => {
-      const conv = convOf.get(g.groupId);
-      return {
-        key: `group~${g.groupId}`,
-        groupId: g.groupId,
-        messageCount: conv?.messageCount ?? 0,
-        lastActivity: conv?.updatedAt ?? 0,
-        bytes: conv?.size ?? 0,
-        ...(conv?.windows ? { windows: conv.windows } : {}),
-      };
-    }),
-    groupArchives: [],
     singles: [],
     running: (s.running ?? []).map((r) => {
       // 分类（M19）：群 gid → group~gid；对桶 'a~b'（含 user~agent 与
@@ -235,7 +203,7 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
     coverage: {
       matrixSessions: pairs.length,
       pairSessions: pairs.length,
-      groupSessions: (s.groups ?? []).length,
+      groupSessions: 0, // 群不入矩阵（2026-12 收窄）——恒 0，面板文案不区分
       singleSessions: 0,
       runningTotal: (s.running ?? []).length,
       runningSingles: 0,
@@ -465,10 +433,10 @@ export const runviewClientPlugin = clientPlugin({
     //    矩阵/pair 让位回聊天。只在选中（非空变化）时收起：清空选择回到
     //    talk 视角不打断矩阵浏览；同值重选与 toggle 反选不触发。列表与
     //    运行面板的导航入口（AgentList/SessionList/RunTrackingPanel）已
-    //    各自显式 closeTrackingView() 收起，本 watch 是快路径兜底。
-    //    三元组经根 runtime 上下文可选探测（本件 fiber 未 inject
-    //    groups/singles——自身 ctx 属性访问会抛，M28 P0.2 事故同款；
-    //    root ctx 经 ?. 探测 = 缺席 undefined 不抛）。 ──
+    //    各自显式收起（closeTrackingView/openPairView 单点互斥），本
+    //    watch 是快路径兜底。三元组经根 runtime 上下文可选探测（本件
+    //    fiber 未 inject groups/singles——自身 ctx 属性访问会抛，M28
+    //    P0.2 事故同款；root ctx 经 ?. 探测 = 缺席 undefined 不抛）。 ──
     ctx.effect(() => {
       const stop = watch(
         () => {
@@ -483,9 +451,7 @@ export const runviewClientPlugin = clientPlugin({
           const selected = cur.some((v, i) => v && v !== prev[i]);
           if (!selected) return;
           try {
-            const ui = useUiStore();
-            ui.closeTrackingView();
-            ui.closePairView(); // pair 只读视角让位给真实选中上下文
+            useUiStore().exitOverlays(); // 收矩阵 + 清 pair（进入会话的完整意图）
           } catch { /* pinia 未装配（裸 boot 测试）——静默 */ }
         },
       );

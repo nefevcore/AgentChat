@@ -129,6 +129,49 @@ export function streamOf(streams: Map<string, StreamState>, dialogId: string): S
   return st;
 }
 
+/**
+ * 参数流式粗提取（2026-09-21 前端反馈 #1）：从半截 arguments JSON 文本里
+ * 尽力截取指定字符串字段的已生成部分。模型写 run_code 的 code 参数可达
+ * 数 KB，参数阶段全程（数十秒）卡片只有裸 spinner——粗提取让代码面板
+ * 边生成边可见。JSON 未闭合，靠「"field"\s*:\s*"」锚点 + 反向扫描未转义
+ * 引号截断；失败（字段未开始/形态意外）返回 undefined 不抛。
+ * 转义还原：常见 \n \\ \" \t 还原为字面字符（渲染层显示近似终态）。
+ */
+export function extractPartialJsonString(buf: string, field: string): string | undefined {
+  const key = `"${field}"`;
+  const keyAt = buf.indexOf(key);
+  if (keyAt < 0) return undefined;
+  let i = buf.indexOf('"', keyAt + key.length);
+  // 跳过键与冒号后的空白，找到开引号
+  while (i >= 0) {
+    const between = buf.slice(keyAt + key.length, i);
+    if (/^\s*:\s*$/.test(between)) break;
+    i = buf.indexOf('"', i + 1);
+  }
+  if (i < 0) return undefined;
+  i += 1; // 进字符串体
+  let out = '';
+  while (i < buf.length) {
+    const ch = buf[i];
+    if (ch === '\\') {
+      const next = buf[i + 1];
+      if (next === 'n') out += '\n';
+      else if (next === 't') out += '\t';
+      else if (next === 'r') out += '\r';
+      else if (next === '"') out += '"';
+      else if (next === '\\') out += '\\';
+      else if (next === undefined) return out; // 尾部孤立反斜杠
+      else out += ch + (next ?? '');
+      i += 2;
+      continue;
+    }
+    if (ch === '"') return out; // 闭合引号（字段完整）
+    out += ch;
+    i += 1;
+  }
+  return out; // 未闭合 = 已生成部分
+}
+
 /** delta-end 解析参数（JSON 失败降级空对象——卡片少显示参数不崩） */
 export function parseArgs(buf: string): Record<string, unknown> {
   try {

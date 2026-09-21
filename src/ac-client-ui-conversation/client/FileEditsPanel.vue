@@ -33,7 +33,8 @@ import { openLocalFile } from 'ac-client-ui-workspace/client/fileApi.ts';
 import { parseDialogId } from './feed.ts';
 import { useFeedStore } from './feedStore.ts';
 import {
-  fileEditsFull, fileEditsWithSnapshots, diffOfStep, editStepsOf, diffOfContent,
+  extractFileEdits, replayFiles, applySnapshots, applyDiskFinals, diffOfSummary,
+  diffOfStep, editStepsOf, diffOfContent,
   type FileEditSummary, type FileDiffResult, type FileEditStep,
   type FileEditEvent, type RemoteSnapshot, type DiskContents,
 } from './fileEdits.ts';
@@ -42,8 +43,20 @@ const feed = useFeedStore();
 const ctx = useClientContext();
 const rpc = ctx?.rpc ?? null;
 
-/** 活跃对话的原始消息（reactive 锚——流式/历史合并自动重算） */
-const rawMessages = computed(() => feed.activeDialog?.rawMessages ?? []);
+/** 活跃对话的原始消息（reactive 锚——流式/历史合并自动重算）。
+ * 防抖视图（2026-12 性能整改）：analysisCore 管线随每条流式消息重算，
+ * 尾沿 250ms 合并——流式 chunk 高频到达时面板不逐条重放。 */
+const rawMessagesLive = computed(() => feed.activeDialog?.rawMessages ?? []);
+const rawMessages = ref(rawMessagesLive.value);
+let rawDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(rawMessagesLive, (msgs) => {
+  if (rawDebounceTimer) clearTimeout(rawDebounceTimer);
+  rawDebounceTimer = setTimeout(() => {
+    rawDebounceTimer = null;
+    rawMessages.value = msgs;
+  }, 250);
+}, { immediate: true });
+onBeforeUnmount(() => { if (rawDebounceTimer) clearTimeout(rawDebounceTimer); });
 const kind = computed(() => feed.activeDialog?.kind ?? null);
 
 /**
@@ -104,7 +117,12 @@ async function loadDiskForPartials(): Promise<void> {
   const partialPaths = [...analysisOf().files.values()]
     .filter((s) => s.partial && /^([a-zA-Z]:[\\/]|\/)/.test(s.path)) // 绝对路径形态
     .map((s) => s.path.replace(/\\/g, '/'));
-  if (partialPaths.length === 0) { diskContents.value = {}; return; }
+  if (partialPaths.length === 0) {
+    // 已空不再赋值：流式期 refreshSnapshots 频率上升（after-execute 逐工具
+    // 触发），无谓的 {} 替换会让 analysisCore 连环失效重算
+    if (Object.keys(diskContents.value).length > 0) diskContents.value = {};
+    return;
+  }
   try {
     const r = await rpc.call<{ contents?: DiskContents }>('fileSnapshots/read-current', { paths: partialPaths });
     diskContents.value = r?.contents ?? {};
@@ -113,23 +131,64 @@ async function loadDiskForPartials(): Promise<void> {
   }
 }
 
-/** 无快照拉取依赖的中间分析（loadDiskForPartials 判定 partial 用） */
+/** 无快照拉取依赖的中间分析（loadDiskForPartials 判定 partial 用）——
+ * 复用轻核心 computed（与主分析同代际，无重复管线） */
 function analysisOf() {
-  return fileEditsWithSnapshots(rawMessages.value, snapshots.value);
+  return analysisCore.value;
 }
 
 watch(conversationId, () => void refreshSnapshots(), { immediate: true });
-// run 收束刷新（编辑落盘后新快照生效）——loop/after-run 事件带会话键
-const offRun = rpc?.onEvent((type: string, args: unknown[]) => {
-  if (type !== 'loop/after-run') return;
-  const [request] = args as Array<{ conversationId?: string } | undefined>;
-  if (request?.conversationId && request.conversationId === conversationId.value) {
+// 收束/落盘刷新：run 收束（loop/after-run）+ 写工具执行完毕
+//（tool/after-execute——流式过程中刷新，快照首见落盘即生效，不等 run
+// 收束；2026-12 前端反馈：编辑存量文件时面板陈旧提示「无法重建内容」
+// 直到刷新页面——刷新时机粒度过粗所致）。事件均带会话键，异会话跳过。
+const offEvents = rpc?.onEvent((type: string, args: unknown[]) => {
+  if (type === 'loop/after-run') {
+    const [request] = args as Array<{ conversationId?: string } | undefined>;
+    if (request?.conversationId && request.conversationId === conversationId.value) {
+      void refreshSnapshots();
+    }
+    return;
+  }
+  if (type === 'tool/after-execute') {
+    const [call] = args as Array<{ name?: string; conversationId?: string } | undefined>;
+    if (call?.conversationId !== conversationId.value) return;
+    const tool = typeof call.name === 'string' ? call.name : '';
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'str_replace_editor') return;
     void refreshSnapshots();
   }
 }) ?? (() => undefined);
-onBeforeUnmount(() => offRun());
+onBeforeUnmount(() => offEvents());
 
-const analysis = computed(() => fileEditsFull(rawMessages.value, snapshots.value, diskContents.value));
+/**
+ * 分析拆分（2026-12 性能整改）：原单 computed fileEditsFull 每次重算都对
+ * 【全部文件】eager 生成 diff（fileEditsFull 尾段 map diffOfSummary），
+ * 但 UI 只看展开卡。现拆两段：
+ *   events+files = 轻管线（提取/重放/快照/磁盘兜底——流式期间可承受）
+ *   diffs        = 惰性（依赖 expanded，仅展开卡生成 diffOfSummary）
+ * 语义对齐 fileEditsFull——只是 diff 从「全量预生成」变「按需」。
+ */
+const analysisCore = computed(() => {
+  const events = extractFileEdits(rawMessages.value);
+  let files = applySnapshots(replayFiles(events), events, snapshots.value);
+  files = applyDiskFinals(files, events, diskContents.value);
+  return { events, files };
+});
+const analysis = computed(() => ({
+  events: analysisCore.value.events,
+  files: analysisCore.value.files,
+  diffs: lazyDiffs.value,
+}));
+/** 展开卡的 diff（未展开文件不在数组——与原全量 diffs 数组的消费差异
+ *  由 diffOf 兜底语义吸收：find 不到 → comparable:false 回退对象） */
+const lazyDiffs = computed(() => {
+  const out: FileDiffResult[] = [];
+  for (const path of expanded.value) {
+    const s = analysisCore.value.files.get(path);
+    if (s) out.push(diffOfSummary(s));
+  }
+  return out;
+});
 
 /** 文件清单（最近编辑在前；无编辑 = 空态） */
 const files = computed(() =>
@@ -139,12 +198,24 @@ const files = computed(() =>
 /** 统计条 */
 const totalEdits = computed(() => analysis.value.events.filter((e) => e.ok).length);
 const totalFiles = computed(() => files.value.length);
-/** 卡片统计（工具报告缺失 +0/-0 时以重放初版↔终版 LCS 回填——新建文件可见 +N） */
+/** 卡片统计（工具报告缺失 +0/-0 时以重放初版↔终版 LCS 回填——新建文件可见 +N）。
+ * 记忆化（2026-12 性能整改）：LCS 回填只在 analysis 代际变化时算一次——
+ * 原实现每次渲染每卡片重算（模板/statOf 直调），多文件多版本时是卡顿源之一。 */
+const statByPath = computed(() => {
+  const m = new Map<string, { added: number; removed: number }>();
+  for (const s of analysis.value.files.values()) {
+    let stat = { added: s.added, removed: s.removed };
+    if ((s.added > 0 || s.removed > 0) || s.finalContent === null) { /* 工具报告值直用 */ }
+    else {
+      const base = s.partial ? s.partialBase : s.baseContent;
+      if (base !== null) stat = countLineChanges(base, s.finalContent);
+    }
+    m.set(s.path, stat);
+  }
+  return m;
+});
 function statOf(s: FileEditSummary): { added: number; removed: number } {
-  if ((s.added > 0 || s.removed > 0) || s.finalContent === null) return { added: s.added, removed: s.removed };
-  const base = s.partial ? s.partialBase : s.baseContent;
-  if (base === null) return { added: s.added, removed: s.removed };
-  return countLineChanges(base, s.finalContent);
+  return statByPath.value.get(s.path) ?? { added: s.added, removed: s.removed };
 }
 const totalAdded = computed(() => files.value.reduce((n, f) => n + statOf(f).added, 0));
 const totalRemoved = computed(() => files.value.reduce((n, f) => n + statOf(f).removed, 0));
@@ -222,13 +293,25 @@ function selectViewByOption(s: FileEditSummary, option: string) {
   setView(s.path, idx >= 0 ? idx : '');
 }
 
-/** 当前视图 diff：总览 = diffOf 既有；单次 = diffOfStep；当前内容 = 全文 + 行 */
+/** 当前视图 diff：总览 = diffOf 既有；单次 = diffOfStep；当前内容 = 全文 + 行。
+ * 记忆化（2026-12 性能整改）：原实现为模板直调函数——每次渲染每卡重算
+ *（模板内被引用两处：统计行 + parseDiff），展开多卡时 diff 生成被放大。
+ * 现 per-analysis 代际 × viewSel 代际记忆化：展开卡只算一次，重渲染查表。 */
+const viewDiffByPath = computed(() => {
+  const m = new Map<string, FileDiffResult>();
+  for (const s of analysis.value.files.values()) {
+    const v = effectiveView(s);
+    if (v === 'content') m.set(s.path, diffOfContent(s));
+    else if (v === '') m.set(s.path, diffOf(analysis.value.diffs, s));
+    else {
+      const step = stepsOf(s)[v];
+      m.set(s.path, step ? diffOfStep(step) : diffOf(analysis.value.diffs, s));
+    }
+  }
+  return m;
+});
 function viewDiff(s: FileEditSummary): FileDiffResult {
-  const v = effectiveView(s);
-  if (v === 'content') return diffOfContent(s);
-  if (v === '') return diffOf(analysis.value.diffs, s);
-  const step = stepsOf(s)[v];
-  return step ? diffOfStep(step) : diffOf(analysis.value.diffs, s);
+  return viewDiffByPath.value.get(s.path) ?? diffOf(analysis.value.diffs, s);
 }
 
 /** 时间线行点击 = 查看该次编辑（失败/越界回落总览） */
@@ -252,16 +335,24 @@ function stepOptionLabel(st: FileEditStep): string {
   return `#${st.index + 1} ${timeOf(st.event.timestamp)} ${a} +${st.added}/-${st.removed}`;
 }
 
-/** diff 行解析（generateDiffString 输出：'- 12 内容' / '+ 12 内容' / '  12 内容' / '...'） */
+/** diff 行解析（generateDiffString 输出：'- 12 内容' / '+ 12 内容' / '  12 内容' / '...'）。
+ * 记忆化（2026-12 性能整改）：per-path 行数组随视图代际算一次——原模板直调
+ * 每次 v-for 重渲染都 split+map（截断提示行还引用第二次）数千行 × 每卡。 */
 interface DiffLine { kind: 'add' | 'del' | 'ctx' | 'sep'; text: string }
-function parseDiff(diff: FileDiffResult): DiffLine[] {
-  if (!diff.comparable) return [];
-  return diff.diff.split('\n').map((line) => {
-    if (line === '...') return { kind: 'sep', text: line };
-    if (line.startsWith('+ ')) return { kind: 'add', text: line };
-    if (line.startsWith('- ')) return { kind: 'del', text: line };
-    return { kind: 'ctx', text: line };
-  });
+const diffLinesByPath = computed(() => {
+  const m = new Map<string, DiffLine[]>();
+  for (const [path, d] of viewDiffByPath.value) {
+    m.set(path, d.comparable ? d.diff.split('\n').map((line) => {
+      if (line === '...') return { kind: 'sep' as const, text: line };
+      if (line.startsWith('+ ')) return { kind: 'add' as const, text: line };
+      if (line.startsWith('- ')) return { kind: 'del' as const, text: line };
+      return { kind: 'ctx' as const, text: line };
+    }) : []);
+  }
+  return m;
+});
+function parseDiffOf(path: string): DiffLine[] {
+  return diffLinesByPath.value.get(path) ?? [];
 }
 
 /** 动作中文标签 */
@@ -283,12 +374,21 @@ function timeOf(ts: number): string {
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
 }
+/** callId → 单步统计索引（per-analysis 记忆化——时间线每行 O(1) 查步，
+ * 原为每行 stepsOf().find() 线性扫：多版本文件的卡内二次方） */
+const stepStatByCallId = computed(() => {
+  const m = new Map<string, { added: number; removed: number }>();
+  for (const s of analysis.value.files.values()) {
+    for (const st of stepsOf(s)) m.set(st.event.callId, { added: st.added, removed: st.removed });
+  }
+  return m;
+});
 function eventLine(ev: FileEditEvent, s?: FileEditSummary): string {
   const base = ACTION_LABEL[ev.action] ?? ev.action;
   if (!ev.ok) return `${base}（失败）`;
   // 选中同一编辑时与单次 diff 所见一致（LCS 真实变更）；不可回放
   // 文件/失败步回落工具报告口径
-  const step = s ? stepsOf(s).find((st) => st.event.callId === ev.callId) : undefined;
+  const step = stepStatByCallId.value.get(ev.callId);
   const added = step ? step.added : ev.added;
   const removed = step ? step.removed : ev.removed;
   const hasStat = added !== undefined || removed !== undefined;
@@ -428,12 +528,18 @@ async function openLocally(s: FileEditSummary) {
               </select>
             </div>
             <div class="fe-diff">
+              <!-- 渲染行截断（性能护栏）：超大 diff（数千行——「当前内容」视图或大改写）
+                   只渲染首 400 行；容器本有 max-height 滚动，剩余行以计数提示代替，
+                   避免一次性挂载数千 DOM 节点卡死渲染线程 -->
               <div
-                v-for="(line, i) in parseDiff(viewDiff(s))"
+                v-for="(line, i) in parseDiffOf(s.path).slice(0, 400)"
                 :key="i"
                 class="fe-diff-line"
                 :class="'fe-' + line.kind"
               ><span class="fe-diff-text">{{ line.text }}</span></div>
+              <div v-if="parseDiffOf(s.path).length > 400" class="fe-diff-line ctx">
+                <span class="fe-diff-text">… 仅渲染前 400 行（共 {{ parseDiffOf(s.path).length }} 行）——完整内容请本地打开</span>
+              </div>
             </div>
           </template>
           <!-- 不可比对：仅统计 -->
@@ -588,7 +694,7 @@ export default { name: 'FileEditsPanel' };
 /* 成功行可点击（查看该次编辑）：hover 底色 + active 选中态（左侧主色条） */
 .fe-ev:not(.fail) { cursor: pointer; border-radius: var(--radius-sm); padding: 1px 4px; margin: 0 -4px; }
 .fe-ev:not(.fail):hover { background: var(--color-bg-hover, rgba(0,0,0,0.04)); }
-.fe-ev.active { background: rgba(99,102,241,0.08); box-shadow: inset 2px 0 0 var(--primary, #6366f1); }
+.fe-ev.active { background: var(--color-primary-light); }
 .fe-ev-time { color: var(--color-text-tertiary); font-family: 'SF Mono', 'Cascadia Code', monospace; flex-shrink: 0; }
 .fe-ev-action { color: var(--color-text-secondary); }
 .fe-ev.fail .fe-ev-action { color: #ef4444; text-decoration: line-through; }

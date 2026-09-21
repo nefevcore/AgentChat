@@ -2,7 +2,8 @@
 //
 // 布局对齐会话列表（SessionList）的工作区树形态，自上而下：
 //   1. 标题栏（文本「运行跟踪」）+ 移动端关闭
-//   2. 运行矩阵（树内叶节点入口，点击打开/关闭主区运行矩阵）
+//   2. 矩阵快照（树内叶节点入口，点击打开/关闭主区矩阵快照；纯快照展示，
+//      无运行数徽标——运行态常驻入口 = 活动栏按钮徽章 + 「运行中」节点）
 //   3. 运行中（树节点）→ 运行中会话叶节点（点击进入对应会话 = 主区由侧边栏
 //      选择驱动；viewer 参与的 1v1 → 直答聊天，Agent↔Agent/自会话 → pair
 //      只读视角——矩阵格子同款入口，运行中流式实时可见）
@@ -241,13 +242,12 @@ function jumpTarget(r: RunsRunningEntry): JumpTarget | null {
   return null;
 }
 
-/** 点击运行中会话 → 主区切换到该会话（选择驱动主区；矩阵视图随之让位）。
+/** 点击运行中会话 → 主区切换到该会话（显式导航互斥：进入即收矩阵）。
  *  agent 分支 = 导航语义：不 toggle（selectAgent 同 id 反选成空会让主区毫无
  *  变化），并补齐矩阵 cell 同款导航仪式（清未读 + 加载历史 + 订阅流式——
  *  此前面板跳转只切选中不加载，跳到从未打开过的 Agent 是空白会话）。
- *  pair 分支（Agent↔Agent/自会话）= 矩阵格子同款（openCell 不关矩阵的
- *  姿势）：pair 视角 order 10 覆盖主区，矩阵开着则让位、closePairView
- *  返回即回矩阵；未开则覆盖聊天，返回回退到此前选中上下文。 */
+ *  pair 分支（Agent↔Agent/自会话）= 矩阵格子同款：openPairView 单点
+ *  互斥（收矩阵 + 清 subagent 视角），无返回联动。 */
 async function jumpTo(r: RunsRunningEntry) {
   const t = jumpTarget(r);
   if (!t) return;
@@ -277,9 +277,8 @@ async function jumpTo(r: RunsRunningEntry) {
     const a = roster.agents.value.find(x => x.id === t.id);
     if (a?.hasActiveSession) chatStore.subscribeAgent(t.id);
   }
-  // 显式收起矩阵/pair 覆盖层：同值重选（跳到当前已在看的会话）时选中三元组
-  // 不变，App 的选中 watch（只认非空变化）不会触发
-  ui.closeTrackingView(); // 连带清 pairView
+  // 进入会话：收矩阵 + 清视角（同值重选时选中三元组不变，让位 watch 不触发）
+  ui.exitOverlays();
   closeDrawer();
 }
 
@@ -343,14 +342,14 @@ vueWatch(allJobs, () => { void refreshSubHistory(); });
 
     <!-- 2~4. 树列表 -->
     <div class="tree-scroll">
-      <!-- 2. 运行矩阵：叶节点形态的矩阵入口（点击打开/关闭主区运行矩阵；
-           叶行非分组节点 → 无展开 chevron/x，保留图标/名称/运行数徽标） -->
+      <!-- 2. 矩阵快照：叶节点形态的矩阵入口（点击打开/关闭主区矩阵快照；
+           叶行非分组节点 → 无展开 chevron/x。纯快照展示——无运行数徽标
+           （运行态常驻入口 = 辅助活动栏按钮徽章 + 面板「运行中」节点） -->
       <div class="tree-leaf overview-leaf" :class="{ active: ui.trackingViewVisible }"
-        :title="`运行矩阵：会话对 ${coverage?.pairSessions ?? 0} · 群 ${coverage?.groupSessions ?? 0} · 矩阵外独立 ${coverage?.singleSessions ?? 0}（点击${ui.trackingViewVisible ? '关闭' : '打开'}）`"
+        :title="`矩阵快照：会话对 ${coverage?.pairSessions ?? 0} · 群 ${coverage?.groupSessions ?? 0} · 矩阵外独立 ${coverage?.singleSessions ?? 0}（点击${ui.trackingViewVisible ? '关闭' : '打开'}）`"
         @click="toggleMatrix">
         <span class="node-icon kind-overview"><Icon name="grid-3x3" :size="14" /></span>
-        <span class="leaf-name">运行矩阵</span>
-        <span v-if="running.length > 0" class="node-badge">{{ running.length }}</span>
+        <span class="leaf-name">矩阵快照</span>
       </div>
 
       <!-- 3. 运行中 -->

@@ -15,8 +15,11 @@
 // 全量内容一致（无增量）时不触发，避免静止期反复全量渲染。
 // ============================================================
 
-import { ref, onBeforeUnmount } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import { splitStreamingContent } from './streamingMarkdown.ts';
+
+import { hljsLanguageVersion, hljsLastRegistered } from 'ac-client-ui-renderer/client/hljs-languages.ts';
+import { katexVersion } from 'ac-client-ui-renderer/client/markdownMath.ts';
 
 /** 流式 delta 静止多久后把待提交尾部并入渲染（ms） */
 const IDLE_COMMIT_MS = 600;
@@ -92,6 +95,27 @@ export function useChunkedMarkdown(renderFn: (content: string) => string) {
     clearIdleTimer();
     renderNow(content, false);
   }
+
+  // 冷门语言异步注册完成 → 已提交 HTML 里的代码块需重新高亮（补齐）。
+  // 相关性闸：仅当本内容可能含该语言时才重渲染——一次注册不得触发
+  // 页内全部消息的全量 markdown 重跑（历史页动辄数十条）。
+  watch(hljsLanguageVersion, () => {
+    if (!latestContent) return;
+    const names = hljsLastRegistered.value;
+    const relevant = names.length === 0
+      || names.some((n) => latestContent.includes('```' + n) || latestContent.includes('language-' + n));
+    if (!relevant) return;
+    committed = ''; // 清缓存：强制走重渲染路径（内容未变也要重跑）
+    renderNow(latestContent, latestStreaming);
+  });
+
+  // 数学引擎懒装配完成 → 已提交 HTML 里的公式需重新渲染（仅含 $ 的内容
+  // 重跑；无公式消息零成本）。
+  watch(katexVersion, () => {
+    if (!latestContent || !latestContent.includes('$')) return;
+    committed = '';
+    renderNow(latestContent, latestStreaming);
+  });
 
   onBeforeUnmount(() => {
     if (frame) cancelAnimationFrame(frame);

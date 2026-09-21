@@ -1,17 +1,18 @@
-// AgentChat — Agent 运行跟踪（主区视图：由侧边栏「运行」面板的「运行矩阵」入口打开）
+// AgentChat — 矩阵快照（主区视图：由侧边栏「运行」面板的「矩阵快照」入口打开）
 //
 // 头部：标题（文本）+ 日期范围筛选 + 快照时间。矩阵：
-//   · 轴集合 = Agent 清单 ∪ 群组清单 ∪ system ∪ 会话残留端点；轴标签用头像；
+//   · 轴集合 = Agent 清单 ∪ user（群/system 不入轴——2026-12 收窄：快照
+//     无法覆盖群参与证据与 system 触发，两轴只含真实会话端点）；轴标签用头像；
 //   · 会话无方向 → 下三角 + 对角线为主（上三角有会话数据同样可交互）；自会话落对角线；
 //   · 着色 = 选中日期范围内的消息量做对数归一化浓度（直观看出范围内 Agent 间活跃程度）；
-//     群参与证据格（无数值）= 证据浅色；
 //     运行态展示已退役（2026-12 简化）：矩阵只认落盘快照——正在发生的
 //     运行看运行面板（「运行中会话」节点，事件驱动 + 时长实时走表）。
 //   · hover：十字聚焦分级 —— hover 格主高亮（放大+强描边+提亮），十字行列次高亮，
 //     其余区域置灰；美化 tooltip（两端点、关系、范围内/总量）；
-//   · 点击格子 → 主区切到该会话：群格子→群聊；viewer 参与的 pair→直接对话（显式
-//     加载 direct 历史，修复从矩阵进入时空白会话的 bug）；其余→ConversationView
-//     readonly 形态（会话对只读视角：双方左气泡，返回回矩阵）。
+//   · 点击格子 → 主区切到该会话（显式导航互斥：进入即收矩阵）：viewer
+//     参与的 pair→直接对话（显式加载 direct 历史，修复从矩阵进入时空白
+//     会话的 bug）；其余→ConversationView readonly 形态（会话对只读视角：
+//     双方左气泡，视角由矩阵快照入口拥有）。
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
@@ -22,14 +23,13 @@ import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type {
-  RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, WindowCounts,
+  RunsSnapshot, RunsMember, RunsPairSession, WindowCounts,
 } from './index.ts';
 import { formatFileSize, formatRelativeTime } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
 const roster = useRosterCore();
-const groupSvc = useClientContext()?.groups;
-const groups = computed(() => groupSvc?.groups.value ?? []);
+const groupSvc = useClientContext()?.groups; // deselectGroup（进 1v1 前清群选中）
 const singlesBoard = useClientContext()?.singleBoard;
 const ui = useUiStore();
 // runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
@@ -59,9 +59,7 @@ const range = ref<RangeId>('d7');
 const rangeLabel = computed(() => ranges.find(r => r.id === range.value)?.label ?? '');
 
 /** 快照是否携带窗口计数（旧后端无 windows 字段 → 浓度回退按总量，矩阵不至全白） */
-const hasWindows = computed(() =>
-  (snapshot.value?.pairs ?? []).some(p => p.windows)
-  || (snapshot.value?.groups ?? []).some(g => g.windows));
+const hasWindows = computed(() => (snapshot.value?.pairs ?? []).some(p => p.windows));
 
 /** 旧后端（无 windows）→ 强制「全部」并禁用范围按钮（避免显示与数据不符的活跃范围） */
 watch(hasWindows, (ok) => { if (!ok) range.value = 'all'; }, { immediate: true });
@@ -83,11 +81,13 @@ const RANGE_CAP: Record<RangeId, number> = { h1: 30, d1: 100, d3: 300, d7: 600, 
 
 const KIND_RANK: Record<RunsMember['kind'], number> = { agent: 0, virtual: 1, group: 3, system: 4, unknown: 5, preset: 2 };
 
-/** 轴成员：预设不占轴（其会话为 single~，矩阵外）；按类别分组 + 组内 AgentID
- *  字典序（与目录扫描/名册返回序无关——两轴同源同序，行列对角线稳定） */
+/** 轴成员：预设不占轴（其会话为 single~，矩阵外）；群/system 不入轴
+ *  （2026-12 收窄——快照无群参与证据/system 对桶供数，入轴只有空行列）。
+ *  按类别分组 + 组内 AgentID 字典序（与目录扫描/名册返回序无关——
+ *  两轴同源同序，行列对角线稳定） */
 const axis = computed<RunsMember[]>(() =>
   [...(snapshot.value?.members ?? [])]
-    .filter(m => m.kind !== 'preset')
+    .filter(m => m.kind !== 'preset' && m.kind !== 'group' && m.kind !== 'system')
     .sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.id.localeCompare(b.id, undefined, { numeric: true })));
 
 const memberById = computed(() => new Map((snapshot.value?.members ?? []).map(m => [m.id, m])));
@@ -97,15 +97,11 @@ interface MatrixCell {
   row: RunsMember;
   col: RunsMember;
   pair?: RunsPairSession;
-  group?: RunsGroupSession;
-  archive?: RunsGroupArchive;
   /** 总消息数（tooltip 展示） */
   messageCount: number;
   lastActivity: number;
   /** 选中日期范围内的消息量（浓度数据源；0 = 范围内无活动） */
   value: number;
-  /** 群参与证据格（无消息数值，仅有归档/运行证据 → 固定证据色） */
-  evidence: boolean;
 }
 
 const pairMap = computed(() => {
@@ -113,55 +109,17 @@ const pairMap = computed(() => {
   for (const p of snapshot.value?.pairs ?? []) m.set(cellKey(p.a, p.b), p);
   return m;
 });
-const groupMap = computed(() => new Map((snapshot.value?.groups ?? []).map(g => [g.groupId, g])));
-const archiveMap = computed(() => {
-  const m = new Map<string, RunsGroupArchive>();
-  for (const a of snapshot.value?.groupArchives ?? []) m.set(`${a.groupId}|${a.agentId}`, a);
-  return m;
-});
 
 function cellKey(a: string, b: string): string { return [a, b].sort().join('|'); }
 
 function cellOf(row: RunsMember, col: RunsMember): MatrixCell | null {
-  const key = cellKey(row.id, col.id);
-
-  if (row.kind === 'group' || col.kind === 'group') {
-    const gid = row.kind === 'group' ? row.id : col.id;
-    const other = row.kind === 'group' ? col : row;
-    if (other.kind === 'group' || other.kind === 'system') return null; // 群×群 / 群×system：无会话语义
-    if (row.id === col.id) {
-      // 群对角线 = 群本体（范围窗口计数）
-      const group = groupMap.value.get(gid);
-      if (!group) return null;
-      return {
-        row, col, group,
-        messageCount: group.messageCount,
-        lastActivity: group.lastActivity,
-        value: windowValue(group),
-        evidence: false,
-      };
-    }
-    // agent×群：参与证据 = 周归档 / 旧格式群会话键（群本体全员共享，不作个人证据）
-    const archive = archiveMap.value.get(`${gid}|${other.id}`);
-    const legacyPair = pairMap.value.get(key);
-    if (!archive && !legacyPair) return null;
-    return {
-      row, col, archive, ...(legacyPair ? { pair: legacyPair } : {}),
-      messageCount: legacyPair?.messageCount ?? 0,
-      lastActivity: Math.max(archive?.lastActivity ?? 0, legacyPair?.lastActivity ?? 0),
-      value: legacyPair ? windowValue(legacyPair) : 0,
-      evidence: !legacyPair && !!archive,
-    };
-  }
-
-  const pair = pairMap.value.get(key);
+  const pair = pairMap.value.get(cellKey(row.id, col.id));
   if (!pair) return null;
   return {
     row, col, pair,
     messageCount: pair.messageCount,
     lastActivity: pair.lastActivity,
     value: windowValue(pair),
-    evidence: false,
   };
 }
 
@@ -183,8 +141,7 @@ const matrixRows = computed<RowView[]>(() => axis.value.map((row, i) => ({
 })));
 
 /**
- * 浓度分档：范围内消息量 v 封顶 CAP 后 log(1+v)/log(1+CAP) 归一 5 档；
- * 证据格（无数值）固定浅证据色；v=0 无色。
+ * 浓度分档：范围内消息量 v 封顶 CAP 后 log(1+v)/log(1+CAP) 归一 5 档；v=0 无色。
  */
 function densityClass(cell: MatrixCell | null): string {
   if (!cell) return 'heat-none';
@@ -198,7 +155,7 @@ function densityClass(cell: MatrixCell | null): string {
     if (t <= 0.8) return 'c4';
     return 'c5';
   }
-  return cell.evidence ? 'heat-evidence' : 'heat-none';
+  return 'heat-none';
 }
 
 /** 档位阈值（由固定 CAP 反解 v = (1+CAP)^t − 1 取整；仅依赖 range → 切范围才算） */
@@ -221,9 +178,7 @@ function memberAvatar(m: RunsMember): string | null {
   return null;
 }
 function headIcon(m: RunsMember): string {
-  if (m.kind === 'group') return 'users';
-  if (m.kind === 'system') return 'zap';
-  return 'alert-circle';
+  return 'alert-circle'; // unknown 端点兜底图标（轴已收窄，群/system 不入轴）
 }
 
 // ── hover 十字高亮 + tooltip ──
@@ -301,12 +256,7 @@ const tipStyle = computed(() => {
 });
 
 function relationLabel(row: RunsMember, col: RunsMember): string {
-  if (row.id === col.id) return row.kind === 'group' ? '群本体（全员共享功能历史）' : '自会话';
-  if (row.kind === 'group' || col.kind === 'group') {
-    const gid = row.kind === 'group' ? row.id : col.id;
-    const other = row.kind === 'group' ? col.id : row.id;
-    return `群参与：${memberName(other)} @ ${memberName(gid)}`;
-  }
+  if (row.id === col.id) return '自会话';
   return '1v1 会话';
 }
 
@@ -314,17 +264,6 @@ function relationLabel(row: RunsMember, col: RunsMember): string {
 function openCell(mr: RowView, v: CellView) {
   if (!v.cell) return;
   const { row, col } = v.cell;
-
-  // 群相关格子 → 群聊视图
-  if (row.kind === 'group' || col.kind === 'group') {
-    const gid = row.kind === 'group' ? row.id : col.id;
-    roster.activeAgentId.value = '';
-    singlesBoard?.deselectSingle();
-    if (!groups.value.some(g => g.group_id === gid)) void groupSvc?.init();
-    groupSvc?.selectGroup(gid);
-    ui.closeTrackingView();
-    return;
-  }
 
   // viewer 参与的 pair → 直接对话（右气泡 = 用户侧）。
   // 矩阵入口没有经过列表中转，必须显式加载 direct 历史 + 清未读 + 订阅流式
@@ -340,12 +279,12 @@ function openCell(mr: RowView, v: CellView) {
     chatStore.loadHistory(viewer, other);
     const a = roster.agents.value.find(x => x.id === other);
     if (a?.hasActiveSession) chatStore.subscribeAgent(other);
-    ui.closeTrackingView();
+    ui.exitOverlays();
     return;
   }
 
   // 其余（Agent↔Agent / 自会话 / ↔system）→ pair 只读视角（双方左气泡）。
-  // 不关矩阵视图：返回按钮回到矩阵，避免回到无选中的空白聊天区
+  // openPairView 单点互斥：进入即收矩阵（显式导航，无返回联动）
   ui.openPairView(row.id, col.id);
 }
 
@@ -429,7 +368,6 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
               <i class="swatch c1"></i><i class="swatch c2"></i><i class="swatch c3"></i><i class="swatch c4"></i><i class="swatch c5"></i>
               活跃度（{{ rangeLabel }}）：{{ thresholdLabel }} 条
             </span>
-            <span class="lg"><i class="swatch heat-evidence"></i>群参与</span>
             <span class="lg note">点击格子进入会话（上/下三角均可）</span>
           </div>
           <button class="coverage-toggle" @click="coverageOpen = !coverageOpen">
@@ -438,7 +376,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           </button>
           <div v-if="coverageOpen" class="coverage">
             <div v-if="coverage" class="coverage-body">
-              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个 + 群会话 {{ coverage.groupSessions }} 个；轴集合 = Agent 清单 ∪ 群组清单 ∪ system（无主触发）。agent×群格子仅在有参与证据（周归档 / 旧格式会话键）时点亮——并非所有群成员都实际参与过群聊；群消息按人比例归属为后续增量。</p>
+              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个。轴集合 = Agent 清单 ∪ user（2026-12 收窄：群聊与 system 不入矩阵——快照管线无群参与证据供数，群×Agent 格无从点亮；system 无对桶会话。群聊活动看 Agent 列表与运行面板）。</p>
               <p v-if="coverage.singleSessions > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />矩阵之外：独立会话（single~）{{ coverage.singleSessions }} 个 —— 它们没有两两端点（用户 ↔ 会话引用的 Agent，上下文按会话隔离），结构上无法落入两两格子；其中 {{ coverage.runningSingles }} 个正在运行，请看「运行中会话」。</p>
               <p v-else>独立会话（single~）：0 个 —— 当前全部会话均已入矩阵。</p>
               <p v-if="coverage.unknownMembers.length > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />残留端点：{{ coverage.unknownMembers.join('、') }} —— 出现在会话键但已无对应 Agent/群组（已删除等），以「未知端点」入轴保留数据。</p>
@@ -473,9 +411,6 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           </div>
           <div v-if="tip.v.cell.lastActivity > 0" class="tip-row">
             <span class="tip-k">活跃</span><span class="tip-v">{{ formatRelativeTime(tip.v.cell.lastActivity) }}</span>
-          </div>
-          <div v-if="tip.v.cell.archive" class="tip-row">
-            <span class="tip-k">证据</span><span class="tip-v">周归档（参与过群会话）</span>
           </div>
         </template>
         <div v-else class="tip-empty">无会话记录</div>
@@ -568,9 +503,6 @@ html.dark .row-head{background:#11151d}
 .c3{background:color-mix(in srgb,var(--color-primary,#6366f1) 20%,transparent)}
 .c4{background:color-mix(in srgb,var(--color-primary,#6366f1) 30%,transparent)}
 .c5{background:color-mix(in srgb,var(--color-primary,#6366f1) 42%,transparent)}
-/* 群参与证据格（无消息数值）：中性浅绿与浓度区分 */
-.heat-evidence{background:color-mix(in srgb,#10b981 16%,transparent)}
-
 /* ── 图例 + 覆盖面 ── */
 .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;font-size:11px;color:var(--color-text-tertiary,#a8abb2)}
 .lg{display:inline-flex;align-items:center;gap:4px}

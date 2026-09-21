@@ -267,7 +267,7 @@ function selectSingle(sessionId: string) {
   roster.activeAgentId.value = '';
   emit('deselectGroup');
   singlesBoard?.selectSingle(sessionId);
-  ui.closeTrackingView(); // 连带清 pairView（幂等）
+  ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
   closeDrawer();
 }
 

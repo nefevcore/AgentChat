@@ -19,7 +19,7 @@ import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions, pickApproval } from './chatOps.ts';
 import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
-import { loadComposePrefs } from './composePrefs.ts';
+import { loadComposePrefs } from './composePrefs.ts';
 import { settleToolMode } from './toolModeInherit.ts';
 import type { FeedView } from './feed-core.ts';
 
@@ -90,15 +90,35 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     feed.clearActiveSingle();
   }
 
-  /** conversation/stats → resume 快照（运行中命中=最小 active 快照[前端兜底合并]；空闲 active:false） */
+  /**
+   * conversation/stats → resume 恢复（刷新/切回时的运行中会话）。
+   * 命中 running → 先拉一次 session/history（journal 活投影已带回全部
+   * 已完成步——2026-12 反馈 #3：此前合成 steps:[] 空壳快照，历史 RPC 慢/
+   * 失败时界面 = 空会话 + 转圈，「没回放前面 steps」）。历史响应经
+   * feed.onHistory 常规管线（journal 步行展开 + resume 快照补合），失败
+   * 回落最小空壳快照（保底：至少点亮流式占位与忙态）。空闲 → active:false。
+   */
   async function subscribeResume(agentId: string, session?: string): Promise<void> {
     try {
       const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }> }>('conversation/stats');
       const hit = (stats.running ?? []).find((r) =>
         r.agentId === agentId && (session ? r.conversationId === session : r.conversationId === bucketKey(VIEWER_ID.value, agentId)));
-      feed.handleResume(hit
-        ? { active: true, agentId, ...(session ? { session } : {}), phase: 'message', content: '', thinking: '', label: '', toolCallId: '', toolName: '', steps: [], userMessages: [] }
-        : { active: false, agentId, ...(session ? { session } : {}) });
+      if (!hit) {
+        feed.handleResume({ active: false, agentId, ...(session ? { session } : {}) });
+        return;
+      }
+      // 真实数据源：feed.loadHistory（session/history + subcalls 投影 +
+      // onHistory 路由 + journal 步行展开 + resume 快照补合——与切会话
+      // 完全同管线，2026-12 反馈 #3：此前只有空壳快照，历史 RPC 慢/失败
+      // 时界面 = 空会话 + 转圈）。到达序两种都正确：先快照后历史 →
+      // onSessionResume 挂起、onHistory 首屏后补合；先历史后快照 → 直接合并。
+      const dialogId = session ? singleDialog(session) : directDialog(agentId);
+      feed.loadHistory(dialogId, VIEWER_ID.value, agentId, session);
+      feed.handleResume({
+        active: true, agentId, ...(session ? { session } : {}),
+        phase: 'message', content: '', thinking: '', label: '', toolCallId: '', toolName: '',
+        steps: [], userMessages: [],
+      });
     } catch { /* stats 失败静默（刷新恢复是尽力而为） */ }
   }
 
@@ -498,8 +518,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理/编辑重发。
    *  提权取当前组合偏好（composePrefs 是"持续武装"语义单一事实源——
    *  ChatInput 的 elevation ref 与之同步；regenerate/edit 不该丢武装态）。 */
-  function _sendRaw(ctx: ChatContext, content: string, deepThink: boolean, files: import('./types.ts').FileAttachment[]) {
-    void deepThink;
+  function _sendRaw(ctx: ChatContext, content: string, files: import('./types.ts').FileAttachment[]) {
     const elev = loadComposePrefs()?.elevation;
     turnInProgress.value = true;
     void deliver(ctx, ctx.agentId, content, files, uid('send'), undefined,
@@ -538,7 +557,18 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     }).catch(() => undefined);
   }
 
-  /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
+  /**
+   * 重新推理（2026-12 架构对齐重写）：删除该 assistant 回复及其触发消息，
+   * 保留更早历史，重发原消息（含附件）。
+   *   · 持久层：单次 session/truncate（服务端原子重写——段行/注入行/
+   *     injected 行同 run 成组被清，M17-C 语义；此前逐条 delete-message
+   *     且 kind==='pair' 恒真导致 single 会话删错对桶键、pair 会话删不掉
+   *     段行——刷新后旧回复复活）；
+   *   · 前端：feed.truncateAfter(userIdx) 对齐（旧行手动 setRaw 保留 idx
+   *     之后消息，与新回复错位交叠）；
+   *   · 无 persistedMsgId（直播行/本地行）→ 只动前端（历史权威态以
+   *     settlement 重拉为准）。
+   */
   function regenerateMessage(msgId: string) {
     if (turnInProgress.value) return;
     const ctx = resolveContext();
@@ -551,22 +581,25 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     if (idx === -1) return;
     const oldMsg = msgs[idx];
 
-    // 找到前方最近的 user 消息
+    // 找到前方最近的 viewer 消息（触发本次回复的 user 行；单源 VIEWER_ID）
     let userIdx = -1;
     for (let i = idx - 1; i >= 0; i--) {
-      if (msgs[i].agent_id === 'user') { userIdx = i; break; }
+      if (msgs[i].agent_id === VIEWER_ID.value) { userIdx = i; break; }
     }
     if (userIdx === -1) return;
     const userMsg = msgs[userIdx];
 
-    // 持久化删除旧的 assistant 和 user 消息
-    for (const m of [oldMsg, userMsg]) {
-      if (m.persistedMsgId && ctx.kind === 'pair') {
-        void rpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, target), messageId: m.persistedMsgId }).catch(() => undefined);
-      }
+    // 持久层截断：从触发消息（含）起清（服务端按 run 键成组清理段行/注入行）
+    const conversationId = ctx.kind === 'single' && ctx.sessionId
+      ? ctx.sessionId
+      : bucketKey(VIEWER_ID.value, target);
+    if (userMsg.persistedMsgId) {
+      void rpc.call('session/truncate', { conversationId, messageId: userMsg.persistedMsgId })
+        .catch((err: unknown) => logger.warn('[ChatStore] 重新推理截断失败', err));
     }
+    void oldMsg; // 锚点即用户触发行，assistant 收束行随截断清除
 
-    // 删除旧的 user 和 assistant（含中间 tool）消息，补一条新的 user 气泡
+    // 前端对齐：清触发消息起的本地行，补新 user 气泡（重发附件渲染）
     const newUserMsg: ChatMessage = {
       id: uid('user'),
       role: 'agent',
@@ -575,17 +608,17 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       files: userMsg.files,
       agent_id: VIEWER_ID.value,
     };
-    feed.setRaw(dialogId, [
-      ...msgs.slice(0, userIdx),
-      ...msgs.slice(idx + 1),
-      newUserMsg,
-    ]);
+    feed.setRaw(dialogId, [...msgs.slice(0, userIdx), newUserMsg]);
     if (ctx.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, userMsg.content);
 
-    _sendRaw(ctx, userMsg.content, true, userMsg.files ?? []);
+    _sendRaw(ctx, userMsg.content, userMsg.files ?? []);
   }
 
-  /** 删除消息：仅删除指定气泡（assistant/user），同时持久化 */
+  /**
+   * 删除消息（2026-12 架构对齐）：仅删除指定气泡（assistant/user），持久层
+   * 按会话形态算键（single = sid——此前 kind==='pair' 恒真，single 删错
+   * viewer 对桶键，等于永远删不到）。
+   */
   function deleteMessage(msgId: string) {
     if (turnInProgress.value) return;
     const ctx = resolveContext();
@@ -594,14 +627,25 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     const msg = feed.getRaw(dialogId).find(m => m.id === msgId);
     if (!msg) return;
 
-    // 持久化删除（如果有 persistedMsgId；single v1 不支持消息级删除）
-    if (msg.persistedMsgId && ctx.kind === 'pair') {
-      void rpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), messageId: msg.persistedMsgId }).catch(() => undefined);
+    // 持久化删除（有锚点才可删；无锚点 = 直播行/本地行，只动前端）
+    if (msg.persistedMsgId) {
+      const conversationId = ctx.kind === 'single' && ctx.sessionId
+        ? ctx.sessionId
+        : bucketKey(VIEWER_ID.value, ctx.agentId);
+      void rpc.call('session/delete-message', { conversationId, messageId: msg.persistedMsgId })
+        .catch((err: unknown) => logger.warn('[ChatStore] 删除消息失败', err));
     }
     feed.removeMessage(dialogId, msgId);
   }
 
-  /** 修改用户消息：更新内容，删除该消息之后的所有后续消息，重新发送 */
+  /**
+   * 修改用户消息（2026-12 架构对齐重写）：更新内容，删除该消息及其后全部
+   * 记录，重发（含原附件——此前附件被丢弃，图片消息编辑后 chips 消失）。
+   *   · 持久层：单次 session/truncate（M17-C 语义——编辑 = 删其后重发；
+   *     此前逐条 delete-message 是 N 次原子重写，且 single 会话因
+   *     kind==='pair' 恒真完全跳过持久层）；
+   *   · 前端：replaceMessage + truncateAfter（与此前同形）。
+   */
   function editMessage(msgId: string, newContent: string) {
     if (turnInProgress.value) return;
     const ctx = resolveContext();
@@ -611,21 +655,22 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
 
     const idx = msgs.findIndex(m => m.id === msgId);
     if (idx === -1) return;
+    const msg = msgs[idx];
 
-    // 收集需要持久化删除的消息（被编辑的消息本身 + 后续消息）
-    if (ctx.kind === 'pair') {
-      const toDelete = msgs.slice(idx)
-        .filter(m => m.persistedMsgId)
-        .map(m => m.persistedMsgId!);
-      for (const mid of toDelete) {
-        void rpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), messageId: mid }).catch(() => undefined);
-      }
+    // 持久层截断：该消息（含）起清（服务端原子，段行/注入行成组清理）
+    const conversationId = ctx.kind === 'single' && ctx.sessionId
+      ? ctx.sessionId
+      : bucketKey(VIEWER_ID.value, ctx.agentId);
+    if (msg.persistedMsgId) {
+      void rpc.call('session/truncate', { conversationId, messageId: msg.persistedMsgId })
+        .catch((err: unknown) => logger.warn('[ChatStore] 编辑截断失败', err));
     }
 
     feed.replaceMessage(dialogId, msgId, { content: newContent });
     feed.truncateAfter(dialogId, idx);
 
-    _sendRaw(ctx, newContent, true, []);
+    // 原附件随重发保留（编辑只改文本；附件编辑 = 删了重传的产品语义）
+    _sendRaw(ctx, newContent, msg.files ?? []);
   }
 
   function loadHistory(from: string, to: string, session?: string) {

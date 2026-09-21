@@ -96,6 +96,39 @@ export interface ChatMessage {
   textBeforeTools?: boolean;
   /** 思考标签（后端推送，含耗时信息） */
   label?: string;
+  /**
+   * 思考相位起点（epoch ms；直播首个 reasoning 片到达时驻留消息——与
+   * StreamState.reasoningStartAt 同源）：「思考中 · Xs」实时计时与收束
+   * label（前端 closeThinking / 后端 reasoningMs）共用同一起点，收束时
+   * 计时不倒跳。历史回放无此键（有落盘的 reasoningMs 定格 label）。
+   */
+  reasoningStartAt?: number;
+  /**
+   * 本 run 前端起点（epoch ms；loop/run-started 帧到达时驻留分区，
+   * step-started 建占位时转驻消息）：链栏前端计时的过渡期起点
+   * （首个 after-step 校准锚到达前）。多轮会话中每轮 run 独立计时——
+   * 不得用会话首条消息/turn 首步时刻冒充（跨 run 并轮/定时触发场景
+   * 会把轮间间隔算进去）。历史回放无此键。
+   */
+  runStartAt?: number;
+  /**
+   * 本步 API 流时间（ms；after-step 透传——dispatch 层计时，不含工具/
+   * 编排）。与 apiCompletion 成对出现，链头速率（Σcompletion/Σms——
+   * 输出口径：prompt 随上下文单调膨胀会令 total 比率持续虚高）逐步累计。
+   */
+  apiMs?: number;
+  /** 本步补全输出 token（usage.completion） */
+  apiCompletion?: number;
+  /**
+   * 链栏耗时校准对（直播 run 期间，after-step 逐步写入）：后端权威的
+   * 「截至最近步收束」耗时锚（ms）+ 该锚到达本机的时刻（epoch ms）。
+   * 显示 = anchorMs + (now - anchorAt)——前端在 backend 耗时基础上
+   * 重新计时，下步收束再次覆盖（逐步收敛于真实值，消除前端计时随
+   * 流式帧延迟漂移）。驻留消息分区，跨步重建不丢；run 收束后不再变化
+   * （定格末次校准值，最终以收束重拉的权威行为准）。
+   */
+  runCalibMs?: number;
+  runCalibAt?: number;
   isStreaming?: boolean;
   status?: 'running' | 'success' | 'error';
   isError?: boolean;

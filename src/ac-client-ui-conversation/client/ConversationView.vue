@@ -380,6 +380,16 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
   }
 }
 
+// ── 会话分支（single 形态专用）：气泡分支按钮 → singleBoard.fork。
+// 锚点 = 落盘行 message_id（persistedMsgId；TurnDisplayItem 已挡本地/直播
+// 行——分支以落盘消息为终点，在途内容无权威边界）。分支成功即切进新会话
+//（selectSingle → single watch 加载历史 + 滚底）；失败静默（服务方法已 warn）。
+const clientCtx = useClientContext();
+async function forkFromMessage(msgId: string) {
+  if (!isSingle.value || !props.single || chatStore.contextBusy) return;
+  await clientCtx?.get('singleBoard')?.fork(props.single.id, msgId);
+}
+
 // ════════════ 历史装载 watches（四形态）════════════
 
 /** pair：切换格子（或首挂）→ 加载该会话对历史 + 滚底（自 PairDialogView 并入） */
@@ -472,12 +482,9 @@ watch(() => chatStore.loadingHistory, (loading) => {
 
 <template>
   <div v-if="dialogId" class="chat-view">
-    <!-- ═══ 头部（pair 形态：返回 + 双端点；其余：标题 + 动作区）═══ -->
+    <!-- ═══ 头部（pair 形态：双端点；其余：标题 + 动作区）═══ -->
     <div class="chat-header">
       <template v-if="isPair">
-        <button class="back-btn" title="返回会话" @click="ui.closePairView()">
-          <Icon name="arrow-left" :size="20" />
-        </button>
         <div class="header-info">
           <div class="pair-title">
             <div class="pair-avatars">
@@ -588,10 +595,12 @@ watch(() => chatStore.loadingHistory, (loading) => {
           :show-actions="showTurnActions"
           :settings-agent-id="settingsAgentId"
           :conversation-id="jobsConversationId ?? undefined"
+          :can-fork="isSingle"
           @preview-file="handlePreviewFile"
           @regenerate="chatStore.regenerateMessage"
           @delete-message="chatStore.deleteMessage"
           @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
+          @fork-from-message="forkFromMessage"
         />
 
         <!-- 任务 dock 列（composer 上方；群视角隐藏——多成员无单一归属桶；
@@ -722,13 +731,9 @@ watch(() => chatStore.loadingHistory, (loading) => {
 
 .connection-status { text-align: center; padding: 6px; font-size: 12px; color: var(--color-warning); background: var(--color-bg-surface); flex-shrink: 0; }
 
-/* ── pair 头部（返回按钮 + 双端点标题——自 PairDialogView 并入）── */
-.back-btn {
-  display: flex; align-items: center; justify-content: center;
-  background: none; border: none; cursor: pointer;
-  color: var(--color-text-secondary); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
-}
-.back-btn:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+/* ── pair 头部（双端点标题——自 PairDialogView 并入；返回按钮已退役：
+   主区切换只由显式导航驱动，pair 视角由矩阵快照/面板入口进入，离开即
+   点击其他入口，无跨页返回联动）── */
 .pair-title{display:flex;align-items:center;gap:10px;min-width:0}
 .pair-avatars{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .pair-x{display:inline-flex;align-items:center;color:var(--color-text-tertiary,#a8abb2)}

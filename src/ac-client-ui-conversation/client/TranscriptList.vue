@@ -7,7 +7,7 @@
   空态 gate：无消息 && 首载未回（firstLoadPending）→ 加载占位而非「开始
   对话」——首开有历史的会话不再被误导成空白新会话。 -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { formatRelativeTime } from './format.ts';
 import { useChatShell } from './useChatShell.ts';
 import type { DisplayItem } from './types.ts';
@@ -34,6 +34,8 @@ const props = defineProps<{
   settingsAgentId: string;
   /** 所在会话键（M32 文件预览工作区推导；透传 TurnDisplayItem） */
   conversationId?: string;
+  /** 分支能力接线（single 形态传 true；透传 TurnDisplayItem.canFork） */
+  canFork?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +43,7 @@ const emit = defineEmits<{
   (e: 'regenerate', msgId: string): void;
   (e: 'delete-message', msgId: string): void;
   (e: 'edit', msgId: string, newContent: string): void;
+  (e: 'fork-from-message', msgId: string): void;
 }>();
 
 const messagesContainer = ref<HTMLElement>();
@@ -54,6 +57,73 @@ const shell = useChatShell({
 const isUserScrolledUp = computed(() => shell.isUserScrolledUp.value);
 
 /** 宿主面：发送后滚底 / 切换会话重置闭包态 / 历史前插滚动补偿取容器 */
+// ── 首载分帧挂载 ──
+// 背景（前端性能分析 2026-01）：历史首载时页内全部 thinking/正文/工具输出
+// 在同一次 Vue flush 里同步跑 markdown-it + highlight.js（基准实测重页
+// ~60ms 主线程阻塞）。此处先只挂尾部窗口，更旧的条目在后续帧逐批补挂：
+//   · 补挂后按「用户是否在底部」二选一补偿——贴底态重贴底（视口静止，
+//     内容在上方生长不可见）；上翻态保持距顶偏移（不跳）。
+//   · 用户一上翻即全量补挂——缺内容比多阻塞更糟，既有语义优先。
+// 只对「首载 / 切换会话」生效：流式追加与续拉前插不回退窗口（renderFrom
+// 归零后不再置位），其余路径的运行时成本与改造前一致。
+const INITIAL_WINDOW = 24;
+const REFILL_BATCH = 24;
+
+/** 渲染窗口起始索引（0 = 全量已挂） */
+const renderFrom = ref(0);
+let refillTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearRefill() {
+  if (refillTimer !== null) {
+    clearTimeout(refillTimer);
+    refillTimer = null;
+  }
+}
+
+/** 逐批补挂（批次之间让出主线程；补齐即停） */
+function scheduleRefill() {
+  if (refillTimer !== null || renderFrom.value === 0) return;
+  refillTimer = setTimeout(() => {
+    refillTimer = null;
+    if (renderFrom.value === 0) return;
+    const box = messagesContainer.value;
+    const keepBottom = !shell.isUserScrolledUp.value;
+    const prevHeight = box?.scrollHeight ?? 0;
+    const prevTop = box?.scrollTop ?? 0;
+    renderFrom.value = Math.max(0, renderFrom.value - REFILL_BATCH);
+    void nextTick(() => {
+      const el = messagesContainer.value;
+      if (el) {
+        el.scrollTop = keepBottom
+          ? el.scrollHeight - el.clientHeight          // 贴底：视口静止
+          : prevTop + (el.scrollHeight - prevHeight);  // 上翻：保持距顶偏移
+      }
+      scheduleRefill();
+    });
+  }, 16);
+}
+
+watch(
+  [() => props.conversationId, () => props.items.length],
+  ([cid, len], [prevCid, prevLen]) => {
+    const switched = cid !== prevCid && prevCid !== undefined;
+    const firstLoad = (prevLen ?? 0) === 0 && len > 0;
+    if (!switched && !firstLoad) return;
+    clearRefill();
+    renderFrom.value = len > INITIAL_WINDOW ? len - INITIAL_WINDOW : 0;
+    if (renderFrom.value > 0) scheduleRefill();
+  },
+);
+
+// 用户上翻：立即全量补挂（渲染剩余条目，回到改造前语义）
+watch(() => shell.isUserScrolledUp.value, (up) => {
+  if (!up || renderFrom.value === 0) return;
+  clearRefill();
+  renderFrom.value = 0;
+});
+
+onBeforeUnmount(clearRefill);
+
 defineExpose({
   scrollToBottom: () => shell.scrollToBottom(),
   reset: () => shell.reset(),
@@ -86,6 +156,8 @@ defineExpose({
         </div>
 
         <template v-for="(item, idx) in items" :key="item.key ?? `${item.type}-${idx}`">
+          <!-- 首载分帧：窗口外的（更旧）条目在后续帧补挂 -->
+          <template v-if="idx >= renderFrom">
           <div v-if="item.type === 'time-separator'" class="time-separator">
             <span class="time-separator-text">{{ item.timeText }}</span>
           </div>
@@ -104,11 +176,14 @@ defineExpose({
             :show-actions="showActions"
             :continuation="item.continuation"
             :conversation-id="conversationId"
+            :can-fork="canFork"
             @regenerate="emit('regenerate', $event)"
             @delete-message="emit('delete-message', $event)"
             @edit="(msgId: any, newContent: any) => emit('edit', msgId, newContent)"
             @preview-file="emit('preview-file', $event)"
+            @fork-from-message="emit('fork-from-message', $event)"
           />
+          </template>
         </template>
       </div>
     </div>

@@ -78,7 +78,7 @@ export const subagentClientPlugin = clientPlugin({
           const selected = cur.some((v, i) => v && v !== prev[i]);
           if (!selected) return;
           try {
-            useUiStore().closeSubagentView();
+            useUiStore().exitOverlays(); // 收矩阵 + 清视角（进入会话的完整意图）
           } catch { /* pinia 未装配（裸 boot 测试）——静默 */ }
         },
       );

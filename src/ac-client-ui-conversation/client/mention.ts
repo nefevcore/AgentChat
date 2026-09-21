@@ -146,25 +146,6 @@ export function tokenizeMentionHighlights(text: string): HighlightToken[] {
   return tokens;
 }
 
-/** overlay 渲染段：token 段带 kind，其余为纯文本段 */
-export interface HighlightSegment {
-  text: string;
-  kind?: HighlightKind;
-}
-
-/** 文本 → 交替的纯文本/token 段（渲染层逐段 <span>，不经 v-html） */
-export function buildHighlightSegments(text: string): HighlightSegment[] {
-  const segments: HighlightSegment[] = [];
-  let cursor = 0;
-  for (const token of tokenizeMentionHighlights(text)) {
-    if (token.start > cursor) segments.push({ text: text.slice(cursor, token.start) });
-    segments.push({ text: text.slice(token.start, token.end), kind: token.kind });
-    cursor = token.end;
-  }
-  if (cursor < text.length) segments.push({ text: text.slice(cursor) });
-  return segments;
-}
-
 // ============================================================
 // # 历史会话引用候选（hashGroups 数据面）：过滤 + 排序 + 截断纯函数。
 // 排序必须发生在截断前——singles 快照只在元数据事件（singles/updated）

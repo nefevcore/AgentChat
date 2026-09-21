@@ -130,6 +130,19 @@ function actionOf(tool: string, args: Record<string, unknown>): FileEditAction {
  */
 export function extractFileEdits(messages: ChatMessage[]): FileEditEvent[] {
   const out: FileEditEvent[] = [];
+  // 直播形态结果查找索引（callId → role:'tool' 消息）：原逐调用 messages.find
+  // 为 O(M×C)——长会话（面板自动拉全历史）数千消息时平方级，一次遍历建表消解。
+  // 同 callId 多条 tool 消息取【最后】一条（与 find 首条语义的差异仅在异常消息流，
+  // 正常流 callId 唯一——以最后落账为准与直播落点语义一致）。
+  let toolMsgOf: Map<string, ChatMessage> | null = null;
+  const lazyToolIndex = (): Map<string, ChatMessage> => {
+    if (toolMsgOf) return toolMsgOf;
+    toolMsgOf = new Map();
+    for (const msg of messages) {
+      if (msg.role === 'tool' && typeof msg.tool_call_id === 'string') toolMsgOf.set(msg.tool_call_id, msg);
+    }
+    return toolMsgOf;
+  };
   for (const m of messages) {
     if (m.role !== 'agent' || !Array.isArray(m.toolCalls)) continue;
     for (const tc of m.toolCalls as unknown as Array<Record<string, unknown>>) {
@@ -142,9 +155,7 @@ export function extractFileEdits(messages: ChatMessage[]): FileEditEvent[] {
       if (!path) continue;
       // 结果：同消息 toolCalls[].result（历史）→ role:'tool' 消息（直播）
       const callId = typeof tc.id === 'string' ? tc.id : '';
-      const toolMsg = callId
-        ? messages.find((x) => x.role === 'tool' && x.tool_call_id === callId)
-        : undefined;
+      const toolMsg = callId ? lazyToolIndex().get(callId) : undefined;
       const result = looseResultOf(toolMsg, tc) ?? {};
       const ok = result.ok !== false && result.error === undefined;
       out.push({
@@ -406,7 +417,7 @@ export function versionPointsOf(
   const base = summary.partial ? summary.partialBase : summary.baseContent;
   const final = summary.finalContent;
   if (base === null || final === null) return [];
-  const okEvents = events.filter((e) => e.path === summary.path && e.ok);
+  const okEvents = events.filter((e) => e.path === summary.path && e.ok); // 单文件单次调用——线性可接受
   const points: FileVersionPoint[] = [];
   let cur = base;
   for (const ev of okEvents) {
@@ -458,13 +469,27 @@ export interface FileEditStep {
  * 某次编辑」即选定一步，面板展示该步 before→after 的单次 diff。
  * 返回数组时间序（索引 = 版次 - 1：index 0 = 第一次编辑后）。
  */
+/**
+ * per-events 数组的 steps 记忆化（WeakMap 锚定 events 引用）：fileEditsFull
+ * 每次 analysis 产出新 events 数组——引用即「这一代分析」的身份；UI 侧每卡片
+ * 每渲染重复调 stepsOf（时间线行、下拉、单步 diff 各一次）时命中同一缓存，
+ * 全链重放 + 逐版 countLineChanges 只算一次。events 被丢弃（新一代 analysis）
+ * 后条目自动回收——无需失效管理。
+ */
+const stepsCache = new WeakMap<FileEditEvent[], Map<string, FileEditStep[]>>();
+
 export function editStepsOf(summary: FileEditSummary, events: FileEditEvent[]): FileEditStep[] {
+  let byPath = stepsCache.get(events);
+  if (!byPath) { byPath = new Map(); stepsCache.set(events, byPath); }
+  const hit = byPath.get(summary.path);
+  if (hit) return hit;
   const base = summary.partial ? summary.partialBase : summary.baseContent;
-  if (base === null) return [];
-  return versionPointsOf(summary, events).map((p, index) => {
+  const steps: FileEditStep[] = base === null ? [] : versionPointsOf(summary, events).map((p, index) => {
     const stat = countLineChanges(p.before, p.content);
     return { index, event: p.event, before: p.before, after: p.content, added: stat.added, removed: stat.removed };
   });
+  byPath.set(summary.path, steps);
+  return steps;
 }
 
 /** 单步 diff（before → after；与 diffOfSummary 同输出形态） */
@@ -506,6 +531,18 @@ export interface RemoteSnapshot {
   capturedAt: number;
 }
 
+/** per-path 成功事件分组（时间序保持——分组按事件序插入） */
+function groupOkEventsByPath(events: FileEditEvent[]): Map<string, FileEditEvent[]> {
+  const m = new Map<string, FileEditEvent[]>();
+  for (const e of events) {
+    if (!e.ok) continue;
+    let arr = m.get(e.path);
+    if (!arr) { arr = []; m.set(e.path, arr); }
+    arr.push(e);
+  }
+  return m;
+}
+
 /** 自基底重放单文件成功事件链（快照/磁盘兜底共用）：返回终版与失配计数 */
 function replayFrom(base: string, evs: FileEditEvent[]): { final: string; mismatches: number } {
   let cur = base;
@@ -543,19 +580,23 @@ export function applySnapshots(
   snapshots: RemoteSnapshot[],
 ): Map<string, FileEditSummary> {
   if (snapshots.length === 0) return summaries;
+  // per-path 成功事件分组（一次 O(E)——原每文件 events.filter 为 O(E×F)）
+  const okEvsByPath = groupOkEventsByPath(events);
   const out = new Map<string, FileEditSummary>();
   for (const [path, s] of summaries) {
     if (!s.partial) { out.set(path, s); continue; }
     const snap = matchSnapshot(path, snapshots);
     if (!snap) { out.set(path, s); continue; }
     if (snap.content === null) {
-      // 首见时不存在 = 会话内新建——base ''，重放整链（insert 打头等）
-      const r = replayFrom('', events.filter((e) => e.path === path && e.ok));
-      out.set(path, { ...s, partial: false, partialBase: null, baseContent: '', finalContent: r.final });
+      // 首见时不存在 = 会话内新建——base ''，重放整链（insert 打头等）。
+      // created: true——「新建」徽章语义在快照证据下成立（无快照时 replayFiles
+      // 无法断言 insert 打头即新建，保守不给）
+      const r = replayFrom('', okEvsByPath.get(path) ?? []);
+      out.set(path, { ...s, created: true, partial: false, partialBase: null, baseContent: '', finalContent: r.final });
       continue;
     }
     // 快照底重放：快照内容 + 本会话全部编辑事件（从首条起）
-    const r = replayFrom(snap.content, events.filter((e) => e.path === path && e.ok));
+    const r = replayFrom(snap.content, okEvsByPath.get(path) ?? []);
     out.set(path, {
       ...s,
       partial: false,
@@ -650,13 +691,14 @@ export function applyDiskFinals(
   disk: DiskContents,
 ): Map<string, FileEditSummary> {
   if (Object.keys(disk).length === 0) return summaries;
+  const okEvsByPath = groupOkEventsByPath(events); // 同 applySnapshots——O(E) 分组替代 O(E×F) 逐文件过滤
   const out = new Map<string, FileEditSummary>();
   for (const [path, s] of summaries) {
     if (!s.partial) { out.set(path, s); continue; }
     const diskContent = lookupDisk(path, disk);
     if (diskContent === undefined || diskContent === null) { out.set(path, s); continue; } // 未请求/文件不存在——不兜底
     // 逆序回退该文件全部成功编辑
-    const evs = events.filter((e) => e.path === path && e.ok);
+    const evs = okEvsByPath.get(path) ?? [];
     let cur: string | null = diskContent;
     let stoppedAtWrite = false;
     let mismatches = s.mismatches;
