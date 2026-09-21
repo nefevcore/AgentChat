@@ -9,7 +9,7 @@
 // 职责边界（containment 非 boundary）：
 //   · eval 程序体（可擦除 TS 先经 stripTypeScriptTypes 擦除）；
 //   · tools proxy：属性访问 → postMessage invoke → 等 result；
-//   · 资源约束：computeMs/maxWallMs/maxOutputBytes（超限即中止）；
+//   · 资源约束：maxWallMs/maxOutputBytes（墙钟唯一时间防线 + 输出体积；2026-09-23 compute 轴退役）；
 //   · log 收集：程序内 log(...) 按序收集——无 return 值时合成返回值；
 //   · 中止：主线程 abort 消息 → AbortController → 微任务边界检查。
 // 全部工具执行都在主线程（ctx.tools.execute），本文件零 cordis 面。
@@ -18,6 +18,7 @@ import { parentPort } from 'node:worker_threads';
 // stripTypeScriptTypes：Node ≥22.13 原生（engines ≥22.18 满足）；@types/node
 // 20 类型层缺失——运行时具名导入 + 类型侧声明合并补齐（strip-only 模式）。
 import * as nodeModule from 'node:module';
+import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerInvoke, WorkerToMain, RunSummary } from './protocol.ts';
 
 declare module 'node:module' {
@@ -82,12 +83,28 @@ function serializeValue(value: unknown, maxBytes: number): { ok: true; text: str
   return { ok: true, text: enforceOutputBudget(text, maxBytes), ...(note !== undefined ? { note } : {}) };
 }
 
-/** 输出预算执行：超限中段截断（保头 60% / 尾 20%），标注原始长度（return 值与 log 合成文本共用） */
+/** UTF-8 字节偏移 → 字符索引（偏移落在多字节码点内部时左移到码点起始，不撕裂字符） */
+function byteOffsetToIndex(text: string, byteOffset: number): number {
+  if (byteOffset <= 0) return 0;
+  const total = Buffer.byteLength(text, 'utf8');
+  if (byteOffset >= total) return text.length;
+  const buf = Buffer.from(text, 'utf8');
+  let i = byteOffset;
+  while (i > 0 && i < buf.length && (buf[i] & 0xc0) === 0x80) i--;
+  return buf.slice(0, i).toString('utf8').length;
+}
+
+/** 输出预算执行：超限中段截断（保头 60% / 尾 20%），标注原始长度（return 值与 log 合成文本共用）。
+ *  预算按字节判定，切割偏移同为字节——经 byteOffsetToIndex 换算成字符索引再 slice。
+ *  实测复盘：旧实现把 head/tail 字节数直接当字符索引用，CJK 文本（3B/字符）实际
+ *  保留 3x 预算字节——10000B 预算对两万汉字返回约 24000B，预算形同虚设；纯 ASCII
+ *  下两口径等价，行为不变。 */
 function enforceOutputBudget(text: string, maxBytes: number): string {
-  if (maxBytes > 0 && Buffer.byteLength(text, 'utf8') > maxBytes) {
-    const head = Math.floor(maxBytes * 0.6);
-    const tail = Math.floor(maxBytes * 0.2);
-    return `${text.slice(0, head)}…[输出超预算截断：原始 ${Buffer.byteLength(text, 'utf8')} 字节 > ${maxBytes}]…${text.slice(-tail)}`;
+  const totalBytes = Buffer.byteLength(text, 'utf8');
+  if (maxBytes > 0 && totalBytes > maxBytes) {
+    const headIdx = byteOffsetToIndex(text, Math.floor(maxBytes * 0.6));
+    const tailIdx = byteOffsetToIndex(text, totalBytes - Math.floor(maxBytes * 0.2));
+    return `${text.slice(0, headIdx)}…[输出超预算截断：原始 ${totalBytes} 字节 > ${maxBytes}]…${text.slice(tailIdx)}`;
   }
   return text;
 }
@@ -96,7 +113,7 @@ async function main(): Promise<void> {
   // 先声明 ready（引导握手：主线程收到 online 即发 init——不互相等待，
   // 防死锁），init 到达后挂 invoke/result/abort 处理器
   const init = await new Promise<Extract<MainToWorker, { type: 'init' }>>((resolve) => {
-    send({ type: 'ready' });
+    send({ type: 'ready', protocolVersion: PROTOCOL_VERSION });
     const onInit = (m: MainToWorker) => {
       if (m.type === 'init') {
         port!.off('message', onInit);
@@ -160,9 +177,74 @@ async function main(): Promise<void> {
   // 自包含」）；③ 求值闭包只有 tools/lib（无 require/import 面）；④ 注册表
   // 容量上限（源码总量 64KB + 条目 32——防注册表无限膨胀）。
   const libRegistry = new Map<string, string>();
+  // 本程序内 define 成功的库名（P1：失败收束时宿主据此提示注册已丢弃）
+  const definedInRun = new Set<string>();
   if (init.libSource !== undefined) {
     for (const [name, src] of Object.entries(init.libSource)) libRegistry.set(name, src);
   }
+  /**
+   * 类型擦除失败的修复提示（转义税治理——run-code-hardening-backlog 立项②）：
+   * 头号失败形态 = 模板串跨行文本（内嵌反引号/未转义 ${ ——09-20 画像 §②
+   * 占失败 2/3，11-19 三次实证升回该修项）。源码特征对上给针对性正解，
+   * 否则只给不可擦除语法通用指引。
+   */
+  function hintSyntaxRecovery(code: string): string {
+    const hints: string[] = [];
+    if (code.includes('`')) {
+      hints.push("模板串内嵌反引号须转义（`用 \\`pwsh\\` 执行`）或改用单/双引号串");
+      hints.push("多行文本优先 ['行1', '行2'].join('\\n') 拼接，避免模板串跨行");
+    }
+    if (code.includes('$' + '{')) hints.push("模板串内 ${ 会按插值表达式解析——要输出字面 ${ 写 \\${");
+    const lead = hints.length > 0 ? `——常见嫌疑：${hints.join('；')}` : '';
+    return `${lead}。enum/命名空间/参数属性不可擦除——改普通常量/对象/显式赋值`;
+  }
+
+  /** define 收到的 value 类型简述（错误信息用） */
+  function describeLibValue(value: unknown): string {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return `数组（${value.length} 项）`;
+    if (typeof value === 'object') return '对象';
+    return `${typeof value} "${String(value).slice(0, 40)}"`;
+  }
+
+  // 调用期发现引用悬空的坏条目（立项③-C：done.libRotted 带出——主线程从
+  // 会话级注册表剔除，下 run 起不再注入）
+  const libRottedNames = new Set<string>();
+
+  /**
+   * 函数形态库值的包裹层（立项③-B）：把裸 ReferenceError 改写为指向
+   * define 闭包陷阱的可读错误，并记名（不管程序是否捕获异常，rot 事实
+   * 已发生——done 统一带出）。仅函数形态包裹；同步函数保持同步（Promise
+   * 结果挂 .catch 装饰，不改原函数的 sync/async 语义），length/name 透传。
+   */
+  function wrapCallable(name: string, value: unknown): unknown {
+    if (typeof value !== 'function') return value;
+    const rewrite = (err: unknown): unknown => {
+      if (err instanceof ReferenceError) {
+        libRottedNames.add(name);
+        return new Error(
+          `lib.${name} 调用报 ReferenceError（${err.message}）——该库注册时引用了外围变量（fn.toString() 只带走源码，不带闭包环境），跨程序调用必炸。` +
+          `修复：外部值经参数进入或内联为常量后重新 define 同名覆盖；本条目已记入待剔除清单。`,
+        );
+      }
+      return err;
+    };
+    const wrapper = function (...args: unknown[]): unknown {
+      try {
+        const out = (value as (...a: unknown[]) => unknown)(...args);
+        if (out instanceof Promise) return out.catch((err: unknown) => { throw rewrite(err); });
+        return out;
+      } catch (err: unknown) {
+        throw rewrite(err);
+      }
+    };
+    try {
+      Object.defineProperty(wrapper, 'name', { value: (value as { name?: string }).name ?? name, configurable: true });
+      Object.defineProperty(wrapper, 'length', { value: (value as { length?: number }).length ?? 0, configurable: true });
+    } catch { /* 透传失败不致命——包装语义优先 */ }
+    return wrapper;
+  }
+
   /** 单条库源码 → 值（函数直接求值；程序体形态包裹后求值取 return） */
   function evalLibSource(name: string, src: string): unknown {
     checkAbort();
@@ -173,38 +255,69 @@ async function main(): Promise<void> {
     const isFnForm = /^\s*(async\s+)?(function\b|\(|[\w$]+\s*=>)/.test(src);
     let js: string;
     try {
-      // 函数形态：裸源码 strip（类型标注在参数/返回位）；程序体形态：先包裹
-      // 再 strip（顶层 return 在 module 语境非法——与主程序同坑，见上方包裹注释）
+      // 函数形态：括号包裹后 strip（表达式语境化）。裸 strip 对匿名 function
+      // 报 "Expected ident"（strip 只认语句位的函数声明——实测 9eaf3f03 复盘
+      // ①：匿名 fn 串与 fn.toString() 带类型的函数直传均炸，具名/箭头侥幸过），
+      // 包裹后匿名/具名/箭头/带类型一律成立；程序体形态：先包裹再 strip
+      //（顶层 return 在 module 语境非法——与主程序同坑，见上方包裹注释）
       js = isFnForm
-        ? stripTypeScriptTypes(src, { mode: 'strip' })
+        ? stripTypeScriptTypes(`(${src})`, { mode: 'strip' })
         : stripTypeScriptTypes(`(function(){\n${src}\n})()`, { mode: 'strip' });
     } catch (err: unknown) {
-      throw new Error(`lib.${name} 类型擦除失败（限可擦除 TS 语法）：${err instanceof Error ? err.message : String(err)}`);
+      // 程序体形态含 await 是高頻误用（9eaf3f03 复盘：sync 包裹里 await 解析必炸）——给针对性正解
+      const awaitHint = !isFnForm && /\bawait\b/.test(src)
+        ? '——常见嫌疑：程序体形态按同步求值不能含 await，要调 tools 请改 async 函数形态（具名函数或箭头函数源码）'
+        : '';
+      throw new Error(`lib.${name} 类型擦除失败（限可擦除 TS 语法）：${err instanceof Error ? err.message : String(err)}${awaitHint}${hintSyntaxRecovery(src)}`);
     }
     try {
       if (isFnForm) {
-        // 函数源码：直接 Function 求值（箭头函数同样成立）
+        // 函数源码：直接 Function 求值（箭头函数同样成立）。返回值经
+        // wrapCallable 包裹（立项③-B）：调用期 ReferenceError → 可读错误
+        // （指向 define 闭包陷阱）+ 记入 libRotted（done 带出，主线程剔除）
         const make = new Function('tools', `"use strict"; return (${js});`) as (t: typeof tools) => unknown;
-        return make(tools);
+        return wrapCallable(name, make(tools));
       }
       // 程序体形态：包裹求值取 return（同步执行——库不应发起工具调用）
       const make = new Function('tools', `"use strict"; return ${js};`) as (t: typeof tools) => unknown;
       return make(tools);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`lib.${name} 求值失败：${msg}——库必须自包含（外部值经参数或内联常量进入）`);
+      const awaitHint = /await/.test(msg) ? '——await 仅 async 函数形态可用（具名/箭头函数源码须带 async）' : '';
+      throw new Error(`lib.${name} 求值失败：${msg}${awaitHint}——库必须自包含（外部值经参数或内联常量进入）`);
     }
   }
-  const lib = {
-    /** 查看当前可用的库（名 → 已求值对象）——无参调用返回全部 */
+  // 保留名（Proxy 不代理到注册表）：define/resolve 防被已注册库名遮蔽；
+  // then/catch/finally 防被当 Promise 探测（await lib 误入注册表查询）。
+  const LIB_RESERVED = new Set([
+    'define', 'resolve', 'then', 'catch', 'finally',
+    'toJSON', 'valueOf', 'toString', 'constructor',
+  ]);
+  const libMethods = {
+    /**
+     * 取用库：resolve('名') 返回求值本体（使用路径）；无参 = 清单（立项③-A，
+     * 2026-12 裁决：未指定执行函数则不予任何执行）——纯静态摘要，不执行
+     * 任何库源码（旧形态全量求值有两宗罪：查看行为带执行副作用；单条
+     * 坏库炸整次列举）。逐条 try/catch 隔离，摘要失败给 error 占位不炸整表。
+     */
     resolve: (name?: string): unknown => {
       if (name === undefined) {
         const all: Record<string, unknown> = {};
-        for (const n of libRegistry.keys()) all[n] = evalLibSource(n, libRegistry.get(n)!);
+        for (const [n, src] of libRegistry.entries()) {
+          try {
+            all[n] = {
+              kind: /^\s*(async\s+)?(function\b|\(|[\w$]+\s*=>)/.test(src) ? 'function' : 'program',
+              size: src.length,
+              preview: src.length > 120 ? src.slice(0, 120) + '…' : src,
+            };
+          } catch {
+            all[n] = { error: 'lib.' + n + ' 摘要生成失败' };
+          }
+        }
         return all;
       }
       const src = libRegistry.get(name);
-      if (src === undefined) throw new Error(`lib.${name} 未注册（可用：${[...libRegistry.keys()].join('、') || '无'}）`);
+      if (src === undefined) throw new Error('lib.' + name + ' 未注册（可用：' + ([...libRegistry.keys()].join('、') || '无') + '）');
       return evalLibSource(name, src);
     },
     /**
@@ -220,22 +333,61 @@ async function main(): Promise<void> {
       let src: string;
       if (typeof value === 'function') src = value.toString();
       else if (typeof value === 'string' && value.trim() !== '') src = value;
-      else throw new Error('lib.define 第二参数须为函数或含 return 的程序体字符串');
+      else
+        throw new Error(
+          `lib.define 第二参数须为函数或含 return 的程序体字符串（收到 ${describeLibValue(value)}）。` +
+            (typeof value === 'object' && value !== null
+              ? '对象/数组无法跨程序传递——注册读取/加工逻辑的函数（数据经参数进入、调用时现算），或把纯计算逻辑写成源码字符串；正确示例：lib.define("pick", "(obj, keys) => keys.map(k => obj[k]).join(\\" | \\")")'
+              : typeof value === 'string'
+                ? '空字符串不是有效源码——写函数源码或含 return 的程序体字符串'
+                : '正确示例：lib.define("pick", "(obj, keys) => keys.map(k => obj[k]).join(\\" | \\")")'),
+        );
       const banned = findBannedModuleSyntax(src);
       if (banned !== undefined) {
-        throw new Error(`lib.${name} 源码被拒：${banned.replace('程序体不允许', '库源码不允许')}`);
+        // define 失败 = 本程序收束 + 注册表不回写（tool.ts 失败回滚语义），后续 resolve 全部落空
+        throw new Error(`lib.${name} 源码被拒：${banned.replace('程序体不允许', '库源码不允许')}——本程序将失败收束，本程序内 define 的库全部不生效；先修好源码再定义`);
       }
       // 试求值自检（定义期发现自由变量，而非使用期）
       evalLibSource(name, src);
+      // 自由变量词法告警（2026-11-19 lib DX 增强：防呆不拒绝）。函数体内的
+      // 外围引用试求值抓不到（只造函数不执行体）——词法扫描在 define 期露头：
+      // 注册/resolve/同程序直调原函数都成功（闭包活着），唯独跨程序 resolve
+      // 后调用炸 ReferenceError——「测试时好、复用时炸」的静默陷阱。
+      let warning: string | undefined;
+      const freeVars = scanFreeVariables(src);
+      if (freeVars.length > 0) {
+        warning =
+          'lib.' + name + ' 引用了外围变量 ' + freeVars.join('、') +
+          '——跨程序复用时这些变量不存在（fn.toString() 只带走源码，不带闭包环境），调用将报 ReferenceError。' +
+          '修复：外部值经参数进入（第二参数写 (n, LIMIT) => … 把外围值收为参数）或内联为常量。';
+      }
       // 容量闸：源码总量 64KB / 条目 32
       const prev = libRegistry.get(name);
       const total = [...libRegistry.entries()].reduce((n, [k, v]) => n + (k === name ? 0 : v.length), 0) + src.length;
       if (total > 64 * 1024) throw new Error(`lib 注册表超容量（总量 ${total}B > 64KB）——lib 存小型工具函数而非数据本体：请把「读取+加工」逻辑包成函数（数据经参数传入、调用时现算），或精简/复用已有库`);
       if (libRegistry.size >= 32 && prev === undefined) throw new Error('lib 条目数超限（32）');
       libRegistry.set(name, src);
-      return { ok: true, registered: name, sizeBytes: src.length };
+      definedInRun.add(name);
+      return { ok: true, registered: name, sizeBytes: src.length, ...(warning !== undefined ? { warning } : {}) };
     },
   };
+
+  // 直调糖（lib DX 增强）：lib.已注册名 与 lib.resolve('名') 同通道同结果
+  const lib = new Proxy(libMethods, {
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'string' && !LIB_RESERVED.has(prop)) {
+        const src = libRegistry.get(prop);
+        if (src !== undefined) return evalLibSource(prop, src);
+        if (prop !== 'inspect' && prop !== 'nodejs.util.inspect.custom') {
+          throw new Error(
+            'lib.' + prop + ' 未注册（可用：' + ([...libRegistry.keys()].join('、') || '无') +
+            '）。注册：lib.define(\'' + prop + '\', fn)；取用：lib.resolve(\'' + prop + '\') 或直调 lib.' + prop + '(...)',
+          );
+        }
+      }
+      return Reflect.get(target, prop);
+    },
+  }) as typeof libMethods;
 
   // ── log：输出收集通道（复合返回协议）──
   // 程序内 log(...) 按序收集；return 有值 → valueVia='return'（return 优先）；
@@ -279,7 +431,7 @@ async function main(): Promise<void> {
     // 在 module 语境非法——先包裹即合法）
     js = stripTypeScriptTypes(`(async () => {\n${raw}\n})()`, { mode: 'strip' });
   } catch (err: unknown) {
-    send({ type: 'done', ok: false, error: `程序体类型擦除失败（限可擦除 TS 语法）：${err instanceof Error ? err.message : String(err)}`, summary: finishSummary(summary, wallStart) });
+    send({ type: 'done', ok: false, error: `程序体类型擦除失败（限可擦除 TS 语法）：${err instanceof Error ? err.message : String(err)}${hintSyntaxRecovery(raw)}`, summary: finishSummary(summary, wallStart) });
     return;
   }
 
@@ -289,8 +441,8 @@ async function main(): Promise<void> {
     const fn = new Function('tools', 'lib', 'log', `return ${js};`) as (t: typeof tools, l: typeof lib, g: typeof log) => Promise<unknown>;
     const value = await fn(tools, lib, log);
     checkAbort();
-    if (value !== undefined) {
-      // return 有值 → return 优先（复合协议上半）
+    if (value !== undefined && value !== null) {
+      // return 有值（null 视为无值——走 log 回退）→ return 优先（复合协议上半）
       const ser = serializeValue(value, init.maxOutputBytes);
       // 降级说明并入 value（字段名 __serializeNote——模型可见但不破坏数据主体）
       result = ser.ok
@@ -314,14 +466,120 @@ async function main(): Promise<void> {
   }
   // lib 注册表快照随 done 带出（主线程 run 间持有；空表省略——旧协议兼容）
   const libExports = libRegistry.size > 0 ? Object.fromEntries(libRegistry) : undefined;
+  // 本程序 define 的库名（P1 失败提示数据源；失败收束也如实带出）
+  const libDefined = definedInRun.size > 0 ? [...definedInRun] : undefined;
+  // 调用期引用悬空的坏条目（立项③-C：主线程从会话级注册表剔除——剔除
+  // 的是存量坏条目，与「失败 run 不回写」的回滚语义正交）
+  const libRotted = libRottedNames.size > 0 ? [...libRottedNames] : undefined;
   // 失败/中止且程序已有 log → 末 5 条随行（诊断线索；成功路径不带）
   const logsTail = !result.ok && logs.length > 0 ? logs.slice(-5) : undefined;
-  send({ type: 'done', ...result, summary: finishSummary(summary, wallStart), ...(libExports !== undefined ? { libExports } : {}), ...(logsTail !== undefined ? { logsTail } : {}) });
+  send({ type: 'done', ...result, summary: finishSummary(summary, wallStart), ...(libExports !== undefined ? { libExports } : {}), ...(libDefined !== undefined ? { libDefined } : {}), ...(libRotted !== undefined ? { libRotted } : {}), ...(logsTail !== undefined ? { logsTail } : {}) });
 }
 
 function finishSummary(summary: RunSummary, wallStart: number): RunSummary {
   summary.wallMs = Date.now() - wallStart;
   return summary;
+}
+
+// ── 自由变量扫描（lib.define 防呆告警，非安全边界）──
+
+/** 词法白名单：JS/Node 常用全局 + 保留字——都不算自由变量 */
+const LEXER_GLOBALS = new Set([
+  // JS 内置
+  'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Promise', 'Date',
+  'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol', 'Error', 'TypeError', 'RangeError',
+  'SyntaxError', 'RegExp', 'BigInt', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder',
+  'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent',
+  'structuredClone', 'console', 'globalThis', 'Infinity', 'NaN', 'undefined',
+  // Node 运行时（worker 内在场）
+  'process', 'Buffer', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+  // 闭包内置参数（库内可调工具）
+  'tools', 'lib', 'log', 'arguments', 'this',
+]);
+const LEXER_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue',
+  'return', 'try', 'catch', 'finally', 'throw', 'new', 'typeof', 'instanceof', 'in', 'of',
+  'delete', 'void', 'await', 'yield', 'async', 'function', 'class', 'const', 'let', 'var',
+  'extends', 'super', 'import', 'export', 'true', 'false', 'null', 'as', 'satisfies',
+  'keyof', 'readonly', 'type', 'interface', 'enum', 'namespace', 'declare',
+]);
+
+/**
+ * 词法级自由变量扫描（近似——告警用，非精确作用域分析）。
+ *
+ * 动机（2026-11-19 追记 Ⓐ 延伸实测）：lib.define('trap', (s) => s.slice(0, LIMIT))
+ * 注册成功（试求值只造函数不执行体）、resolve 成功（返回可调用函数）、同程序直调
+ * 原函数也成功（闭包活着）——唯独跨程序 resolve 后调用炸 ReferenceError。
+ * 「测试时好、复用时炸」的完美静默陷阱，define 期就该露头。
+ *
+ * 近似策略（漏报可接受、误报尽量压）：剥字符串/模板/注释 → 收集声明名
+ * （const/let/var/function/class）+ 参数名（所有「(...) =>」与「function (...)」
+ * 的括号段标识符，含默认值/解构成员——误入参数集是漏报方向）→ 收集剩余裸
+ * 标识符引用（跳过属性访问 .x / ?.x 与对象字面量 key x:）→ 差集即自由变量。
+ */
+function scanFreeVariables(src: string): string[] {
+  // 1. 剥离字符串/模板/注释内容（等长空格——保留结构，与 findBannedModuleSyntax 同思路）
+  let stripped = '';
+  for (let i = 0; i < src.length; ) {
+    const rest = src.slice(i);
+    if (rest.startsWith('//')) {
+      const nl = src.indexOf('\n', i);
+      const end = nl === -1 ? src.length : nl;
+      stripped += ' '.repeat(end - i);
+      i = end;
+      continue;
+    }
+    if (rest.startsWith('/*')) {
+      const close = src.indexOf('*/', i + 2);
+      const end = close === -1 ? src.length : close + 2;
+      stripped += ' '.repeat(end - i);
+      i = end;
+      continue;
+    }
+    const quote = rest[0];
+    if (quote === '"' || quote === "'" || quote === '`') {
+      let j = i + 1;
+      while (j < src.length) {
+        if (src[j] === '\\') { j += 2; continue; }
+        if (src[j] === quote) { j += 1; break; }
+        j += 1;
+      }
+      stripped += ' '.repeat(j - i);
+      i = j;
+      continue;
+    }
+    stripped += src[i];
+    i += 1;
+  }
+  // 2. 声明名 + 参数名收集（近似并集）
+  const bound = new Set<string>();
+  for (const m of stripped.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)) bound.add(m[1]!);
+  // 参数列表：(...) => 与 function (...)（[^()] 不含嵌套，内层括号自成参数段）
+  for (const m of stripped.matchAll(/\(([^()]*)\)\s*=>/g)) {
+    for (const p of m[1]!.matchAll(/[A-Za-z_$][\w$]*/g)) bound.add(p[0]);
+  }
+  for (const m of stripped.matchAll(/\bfunction\s*[\w$]*\s*\(([^)]*)\)/g)) {
+    for (const p of m[1]!.matchAll(/[A-Za-z_$][\w$]*/g)) bound.add(p[0]);
+  }
+  // 单参无括号箭头：x => ...
+  for (const m of stripped.matchAll(/(^|[^\w$.])\s*([A-Za-z_$][\w$]*)\s*=>/g)) bound.add(m[2]!);
+  // catch (e)
+  for (const m of stripped.matchAll(/\bcatch\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) bound.add(m[1]!);
+  // 3. 引用收集：跳过属性访问（.x / ?.x）与对象字面量 key（x:）
+  const free = new Set<string>();
+  const identRe = /[A-Za-z_$][\w$]*/g;
+  let m: RegExpExecArray | null;
+  while ((m = identRe.exec(stripped)) !== null) {
+    const name = m[0];
+    const before = stripped.slice(Math.max(0, m.index - 2), m.index);
+    const after = stripped.slice(m.index + name.length).match(/^\s*:/);
+    if (/[.?]$/.test(before) && before !== ' ?.') continue; // .x / ?.x（无空格形态）
+    if (/\.\s*$/.test(before) || /\?\.$/.test(before)) continue;
+    if (after) continue; // 对象字面量 key（漏报方向：三元分支中段也误跳——可容忍）
+    if (LEXER_KEYWORDS.has(name) || LEXER_GLOBALS.has(name) || bound.has(name)) continue;
+    free.add(name);
+  }
+  return [...free].slice(0, 5);
 }
 
 /**

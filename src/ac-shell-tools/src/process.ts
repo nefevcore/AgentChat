@@ -107,6 +107,22 @@ export function buildErrorMessage(command: string, output: string, exitCode: num
   return '';
 }
 
+/**
+ * 判定失败输出是否为「命令未跑起来/语法层失败」（invocation-error）：
+ * PowerShell ParserError / command not found 形态 / 终端语法拒绝。
+ * 其余非零退出（测试红灯、断言失败、grep 无命中）= command-feedback
+ * ——命令语义输出，不是工具链路错误（2026-11-19 画像 Ⓐ）。
+ */
+export function looksLikeInvocationError(cleanOutput: string): boolean {
+  const low = cleanOutput.toLowerCase();
+  if (/parsererror|incompleteinput|missingclosing|unexpectedtoken/.test(low)) return true;
+  // 命令不存在形态（本地化变体）：英文 / cmd 中文 / PowerShell 中文
+  // （"术语 'x' 不会被识别为"——中文 PS 实测形态，2026-11-19 画像 Ⓐ）
+  if (/command not found|is not recognized|不是内部或外部命令|无法将.*识别为|不会被识别为/.test(low)) return true;
+  if (/terminator.*missing|missing.*terminator/.test(low)) return true;
+  return false;
+}
+
 function extractMissingCommand(output: string, command: string): string {
   const patterns = [
     /无法将["“']?([^"“'”]+?)["”']?项识别为/,

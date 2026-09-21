@@ -6,6 +6,15 @@
 // ctx.tools.execute 走全安全面；worker 只做资源约束与控制流。
 // ============================================================
 
+/**
+ * 引导协议版本（立项①防退化护栏的时效性闸）：主线程与 worker 就绪握手
+ * 时互认。语义 =「worker 源码生成的快照与主线程协议代码的兼容代次」——
+ * 协议消息形状（init/ready/done/invoke/result/abort 字段）有增删改时递增。
+ * 旧快照 protocolVersion < 当前 → 拒用并告警（宁可重试坏 dev 也让错误
+ * 可见，防陈旧快照跑新协议消息出错）。
+ */
+export const PROTOCOL_VERSION = 2;
+
 /** 主线程 → worker：启动载荷（worker 就绪后第一条消息） */
 export interface WorkerInit {
   type: 'init';
@@ -13,9 +22,7 @@ export interface WorkerInit {
   runId: string;
   /** 可擦除 TS 程序体 */
   code: string;
-  /** 预算：子调用累计执行耗时上限毫秒（0 = 不限） */
-  computeMs: number;
-  /** 预算：墙钟上限毫秒（含审批等待；0 = 不限） */
+  /** 预算：墙钟上限毫秒（durable 冻结期不计；0 = 不限）。2026-09-23 收敛：compute 轴退役，墙钟唯一时间防线 */
   maxWallMs: number;
   /** 预算：返回值序列化字节上限（0 = 不限） */
   maxOutputBytes: number;
@@ -47,6 +54,12 @@ export type MainToWorker = WorkerInit | WorkerInvokeResult | WorkerAbort;
 /** worker → 主线程：就绪 */
 export interface WorkerReady {
   type: 'ready';
+  /**
+   * 引导协议版本（立项①：快照回退的时效性闸——dev worker 源码演进后
+   * 版本递增，旧快照与之错配即拒用并告警，防陈旧快照与主线程协议错配）。
+   * 兼容：缺省视为 v1（v1 期产物/测试桩不发该字段也不至于全废）。
+   */
+  protocolVersion?: number;
 }
 
 /** worker → 主线程：子调用请求（结构化克隆传值） */
@@ -63,7 +76,7 @@ export interface WorkerDone {
   ok: boolean;
   /** return 值（序列化 + 截断后） */
   value?: unknown;
-  /** value 来源（复合返回协议）：'return' = 程序 return 值；'logs' = 无 return 值时 log 收集合成的文本 */
+  /** value 来源（复合返回协议）：'return' = 程序 return 值（null 视为无值）；'logs' = 无 return 值（undefined/null）时 log 收集合成的文本 */
   valueVia?: 'return' | 'logs';
   /** 错误（编译/执行/预算/中止） */
   error?: string;
@@ -73,12 +86,21 @@ export interface WorkerDone {
   logsTail?: string[];
   /** 执行摘要（子调用计数/耗时/被拒清单） */
   summary: RunSummary;
+  /** 本程序内 lib.define 成功注册的库名（失败收束时也带——宿主据此提示注册丢弃） */
+  libDefined?: string[];
   /**
    * 本轮程序的 lib 导出（lib 扩展）：程序经 lib.define 注册的全部条目
    * （含此前已注册的存量——注册表整体快照，主线程全量覆写）。结构化
    * 克隆可序列化（源码文本）。
    */
   libExports?: Record<string, string>;
+  /**
+   * 调用期发现引用悬空的坏条目（立项③：evalLibSource 包裹层在库函数
+   * 调用爆 ReferenceError 时记名——主线程据 libRotted 从会话级注册表剔除，
+   * 下 run 起不再注入；与「失败 run 不回写」正交：剔除的是存量坏条目，
+   * 本程序新 define 的回滚语义不变）。
+   */
+  libRotted?: string[];
 }
 
 export type WorkerToMain = WorkerReady | WorkerInvoke | WorkerDone;

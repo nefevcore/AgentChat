@@ -10,17 +10,16 @@
 //   · SDK 投影声明（buildSdkProjection——字典序稳定，工具集不变则
 //     字节不变，KV cache 前缀友好）；
 //   · 程序书写纪律（DEFAULT_GUIDANCE 基线）。
-// 注入条件（2026-09-17 续修）：仅程序化调用——互斥形态（LLM 生效面
-// 单 schema 仅 run_code：会话开关开 router 收窄，或 Agent include 收窄，
-// 两者同构）。并存形态（run_code 与传统工具同列）不注入：传统工具
-// schema 已在请求面可直读，SDK 块对多数 run 是纯 token 开销，模型偶用
-// run_code 时按请求面 schema 写程序即可。每次注入前按 request 现算
-// 生效面（与 run_code 工具体同源 resolveEffectiveTools——不缓存，防
-// 装卸窗口漂移）。
+// 注入条件（2026-12 注入轴重构）：请求面恰等于注册面 mode 工具集
+// （injection:'mode'——router 程序化档合成；与 narrowToolsByMode 同源）
+// 即注入。并存形态已随注入轴退役（mode 工具不进常规面，请求面不含
+// 它们）。每次注入前按 request 现算生效面（与 run_code 工具体同源
+// resolveEffectiveTools——不缓存，防装卸窗口漂移）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { LoopRunCall } from 'ac-agent-loop';
 import { buildSdkProjection, DEFAULT_GUIDANCE } from 'ac-run-code-core';
+import { isModeToolFace } from 'ac-agents';
 import { resolveEffectiveTools } from './tool.ts';
 
 /** 注入块首行标记（幂等判定 + UI 可识别） */
@@ -30,8 +29,8 @@ const MARKER = '# run_code 工具 SDK（程序化模式）';
 const INTRO = [
   '本会话为程序化模式：一切工具操作经 run_code 编写 TypeScript 程序完成（限可擦除语法，',
   '不允许 import）——下方 tools.* 是本模式唯一的工具 API（循环/条件/并行进代码，最终结论经 ',
-  'return 或 log 回上下文——无 return 值时 log 各行按序合成返回，按任务形态自选）。',
-  '跨程序复用的函数经 lib.define 注册（同会话后续程序 lib.resolve 取用；lib 存小型工具函数，勿存大结果数据——大数据传递 = 把读取/加工逻辑包成 lib 函数，调用时现算）。工具 API 类型签名：',
+  'return 或 log 回上下文——无 return 值〔含 return null / undefined〕时 log 各行按序合成返回，按任务形态自选）。',
+  '跨程序复用的函数经 lib.define 注册（同会话后续程序 lib.resolve 取用）。工具 API 类型签名：',
 ].join('');
 
 /**
@@ -55,25 +54,25 @@ function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
   const request = call.request;
   // LLM 面判定（run 级请求面优先）：request.tools 是 router 合成后的
   // 终值——含程序化开关收窄（开关化后收窄不落在 Agent 配置里，Agent
-  // tools 复算看不见开关，2026-09-17 research §十）；缺省（直调
-  // agentLoop）= 复算面全量（loop 语义同口径）。复算面作交集护栏
-  //（请求面带入不可见工具时丢弃——与 loop 工具执行门禁同向）。
-  const llmFace = resolveEffectiveTools(ctx, request.agent, request.conversationId, 'llm');
-  const requested = Array.isArray(request.tools) ? new Set(request.tools) : null;
-  const llmNames = llmFace
-    .map((d) => d.name)
-    .filter((name) => requested === null || requested.has(name));
+  // tools 复算看不见开关，2026-09 research §十）。判定单源化（2026-12
+  // PTC 基线段修复）：isModeToolFace 与 fs-tools/session-query 等门控
+  // 行同源——「请求面恰等于注册面 mode 工具集」一处定义。
+  const modeToolNames = ctx.tools.list().filter((d) => d.injection === 'mode').map((d) => d.name);
+  const requested = Array.isArray(request.tools) ? request.tools : null;
+  const isModeFace = requested !== null && isModeToolFace(requested, modeToolNames);
   // 程序化调用 = 互斥形态：LLM 面单 schema（仅 run_code）。并存形态
   //（run_code 与传统工具同列）不注入——传统工具 schema 已在请求面可
   // 直读，SDK 块省 token；run_code 不在面（Agent 无 tc-programmatic
   // 标签）同样不注入。
-  const programmaticOnly = llmNames.length === 1 && llmNames[0] === 'run_code';
-  if (!programmaticOnly) return undefined;
+  if (!isModeFace) return undefined;
   // 投影源（scope='projection'——能力面直取，不受 include/exclude/开关
   // 收窄；互斥形态的投影要涵盖全部已授权工具，否则程序里除了 run_code
   // 什么都调不了）
   const projectionFace = resolveEffectiveTools(ctx, request.agent, request.conversationId, 'projection');
-  const projection = buildSdkProjection(projectionFace);
+  // guidance='' —— 代码块内不嵌纪律注释：块后已有一份纯文本（下方
+  // DEFAULT_GUIDANCE），块内再嵌一份是纯重复（~5K 字符/请求，2026-12
+  // 裁决）。代码块保持纯粹的 API 类型签名参考。
+  const projection = buildSdkProjection(projectionFace, { guidance: '' });
   return [
     MARKER,
     '',

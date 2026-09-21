@@ -1,15 +1,13 @@
 // ============================================================
 // ac-run-code/src/index.ts —— run_code 工具行（程序化模式 PTC 内核）
 //
-// 单工具 run_code（requiredTags ['infra']——基础设施族授权：与提问/
-// 待办/计算同族的标准能力面，标准预设与多数 Agent 天然可见（2026-09-17
-// 优化裁决：tc-* 回归纯模式词——「程序化」是会话/Agent 的形态选择而非
-// 授权门槛；前端选程序化 = 临时程序化档，无需预配标签）。档位随父
-// Agent，子调用逐个走全安全面，故本工具不挂 needPermission：粗信任由
-// 子调用细信任实现，裁决 #2）。
+// 单工具 run_code（injection:'mode'——模式合成入口，2026-12 injection
+// 轴重构：不挂 requiredTags、不进常规工具面；tc-programmatic 档经
+// narrowToolsByMode 从注册面直接合成，与 tags 无关、行在装即生效）。
+// 档位随父 Agent，子调用逐个走全安全面，故本工具不挂 needPermission：
+// 粗信任由子调用细信任实现，裁决 #2。
 //
-// 激活形态（2026-09-17 统一重构：tc-* 标签轴——工具调用模式与提权
-// 档位同构；code-exec 已移除，tc-programmatic 即唯一授权词）：
+// 激活形态（tc-* 标签轴——工具调用模式与提权档位同构；均纯模式词）：
 //   · 并存（tc-base）：Agent 无模式词 → run_code 与传统工具共存
 //     （模型按请求面 schema 偶用；SDK 投影块不注入）；
 //   · 程序化（tc-programmatic）：Agent tags 或会话覆盖（conv-settings
@@ -22,7 +20,7 @@ import { executeRunCode, type RunCodeRowOptions } from './tool.ts';
 import { registerProjectionInjection } from './prompt.ts';
 
 export type { RunCodeRowOptions } from './tool.ts';
-export { resolveEffectiveTools, resolveWorkerEntry } from './tool.ts';
+export { resolveEffectiveTools, resolveWorkerEntry, __runCodeTestHooks } from './tool.ts';
 
 export const name = 'ac-run-code';
 
@@ -31,12 +29,11 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'run-code',
   label: '程序化执行',
-  description: 'run_code 工具（程序化模式 PTC 内核）：模型写一段可擦除 TS 程序编排成批工具调用，只有最终返回值回上下文——大幅降低 token 消耗。子调用逐个走 ctx.tools.execute（能力轴/档位/黑名单/扫描/脱敏全自动生效）；worker 只做资源约束（computeMs/maxWallMs/maxOutputBytes）。需 infra 能力标签（标准能力面；程序化 = 会话工具调用模式选择，无需预配标签）',
+  description: 'run_code 工具（程序化模式 PTC 内核）：模型写一段可擦除 TS 程序编排成批工具调用，只有最终返回值回上下文——大幅降低 token 消耗。子调用逐个走 ctx.tools.execute（能力轴/档位/黑名单/扫描/脱敏全自动生效）；worker 只做资源约束（maxWallMs/maxOutputBytes——2026-09-23 compute 轴退役，墙钟唯一时间防线，宿主单源不进参数表）。需 infra 能力标签（标准能力面；程序化 = 会话工具调用模式选择，无需预配标签）',
   automatic: true,
   fields: [
-    { name: 'defaultComputeMs', type: 'number', min: 0, step: 1000, default: 120_000, description: '子调用累计执行耗时预算毫秒（缺省 120000；0 = 不限）——程序可传 compute_ms 覆盖' },
-    { name: 'defaultMaxWallMs', type: 'number', min: 0, step: 1000, default: 600_000, description: '墙钟预算毫秒（含审批等待；缺省 600000；0 = 不限）——超限中止程序' },
-    { name: 'defaultMaxOutputBytes', type: 'number', min: 0, step: 1024, default: 65_536, description: '返回值序列化字节上限（缺省 64KB；0 = 不限）——超出中段截断并标注' },
+    { name: 'defaultMaxWallMs', type: 'number', min: 0, step: 1000, default: 720_000, description: '墙钟预算毫秒（缺省 720000 = 实战自然完成 MAX×3；durable 用户应答等待冻结豁免；0 = 不限）——超限中止程序。宿主侧单源防线，程序参数不可见不可改' },
+    { name: 'defaultMaxOutputBytes', type: 'number', min: 0, step: 1024, default: 32_768, description: '返回值序列化字节上限（缺省 32KB；0 = 不限）——超出中段截断并标注' },
   ],
 };
 
@@ -51,20 +48,18 @@ export function apply(ctx: Context, options: RunCodeRowOptions = {}) {
   registerProjectionInjection(ctx);
   ctx.tools.register({
     name: 'run_code',
-    requiredTags: ['infra'],
+    injection: 'mode',
     description:
       '以代码编排成批工具调用，大幅降低 token 消耗：写一段 TypeScript 程序（限可擦除语法），经 tools.<name>(args) 组合多步操作，控制流（循环/条件/并行）进代码，最终结论经 return 或 log 回上下文'
-      + '（return 末端一次合成 / log 沿途收集——无 return 值时 log 各行按序合成返回，按任务形态自选）。'
-      + '跨程序复用的函数经 lib.define(名, 函数) 注册（须自包含；存小型函数而非大结果数据——大数据跨程序传递 = 把读取/加工逻辑包成 lib 函数调用时现算），后续程序 lib.resolve(名) 取用（同会话有效）。'
+      + '（return 末端一次合成 / log 沿途收集——无 return 值〔含 return null / undefined〕时 log 各行按序合成返回，按任务形态自选）。'
+      + '跨程序复用的函数经 lib.define(名, 函数) 注册（须自包含；存小型函数而非大结果数据——大数据跨程序传递 = 把读取/加工逻辑包成 lib 函数调用时现算），后续程序 lib.resolve(名) 取用（同会话有效；resolve() 无参返回纯静态清单摘要，不执行任何库）。'
       + '确定性多步编排用本工具；探索性研究用 subagent。调用时带 description 参数写明本次程序意图（工具卡 Label）。只读工具可 Promise.all 并行；写路径（write/edit/str_replace_editor）与命令（pwsh/bash）自动按提交序串行。预算超限或中止时程序按 interrupted 收束。',
     parameters: {
       type: 'object',
       properties: {
         description: { type: 'string', description: '本次程序的一句话意图（做什么/要什么结论）——工具卡 Label 用；程序内不必重复书写' },
-        code: { type: 'string', description: '可擦除 TS 程序体（类型标注可用；enum/命名空间/参数属性不可用；不允许 import）——tools.<name>(args) 调用工具，最终结论经 return 或 log("…") 给出（无 return 值时 log 各行按序合成返回）' },
-        compute_ms: { type: 'number', minimum: 0, description: '子调用累计执行耗时预算毫秒（缺省随行配置 120000；0 = 不限）' },
-        max_wall_ms: { type: 'number', minimum: 0, description: '墙钟预算毫秒（含审批等待；缺省 600000；0 = 不限）' },
-        max_output_bytes: { type: 'number', minimum: 0, description: '返回值序列化字节上限（缺省 64KB；0 = 不限）' },
+        code: { type: 'string', description: '可擦除 TS 程序体（类型标注可用；enum/命名空间/参数属性不可用；不允许 import；模板串内嵌反引号须转义，多行文本优先引号串数组 join 拼接）——tools.<name>(args) 调用工具，最终结论经 return 或 log("…") 给出（无 return 值〔含 return null / undefined〕时 log 各行按序合成返回）' },
+        max_output_bytes: { type: 'number', minimum: 0, description: '返回值序列化字节上限（缺省 32KB；0 = 不限）' },
       },
       required: ['code'],
     },

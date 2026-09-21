@@ -6,7 +6,7 @@
 // （子调用一律 ctx.tools.execute——能力轴/档位/黑名单/扫描/脱敏/
 // 事件面全自动生效）→ 摘要步记录（裁决 #1：程序体全文不回上下文）。
 //
-// 预算冻结：本 run 子调用挂起 durable-interaction（ask_questions /
+// 预算冻结（2026-02 ask 挂起重构后，子调用挂起源主要是 approval；ask_questions 已即返）：本 run 子调用挂起 durable-interaction（
 // approval——均以 correlationId=子调用 toolCallId 落盘）期间，墙钟看门狗
 // 暂停、子调用计费剔除冻结区间——预算约束机器时间，人的应答时间不是
 // 机器时间（「审批等待不计 compute」口径的执行化）。
@@ -17,13 +17,18 @@
 //   回退  = 两处都不存在 → 报可诊断错误（eval 自举留异常部署）
 // ============================================================
 import { Worker } from 'node:worker_threads';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+const requireShim = createRequire(import.meta.url);
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { formDeniedBy, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { buildSdkProjection } from 'ac-run-code-core';
+import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
 
 /**
@@ -51,20 +56,21 @@ function serialWordlists(): { write: Set<string>; command: Set<string> } {
 }
 const SERIAL_LISTS = serialWordlists();
 
-/** 预算缺省（行 config 可覆盖；computeMs 只计子调用执行耗时——审批等待除外） */
+/** 预算缺省（行 config 可覆盖）。墙钟是唯一时间防线（宿主侧单源——不进参数表，Agent 不可见/不可改） */
 export interface RunCodeRowOptions {
-  defaultComputeMs?: number;
   defaultMaxWallMs?: number;
   defaultMaxOutputBytes?: number;
 }
 
 /**
+ * 墙钟缺省 720s（2026-09-23 收敛定标）：8145 条实战记录自然完成 MAX≈4min
+ * （240s），3x≈12min 取整。覆盖长命令等待与正当编排；durable 挂起（人的
+ * 应答）冻结豁免不受影响。
  * 输出预算缺省 32KB（实测复盘 a7828839：编辑工作流需经 return 回传待改
  * 文件全文——12.8KB 常态贴近 16KB 旧上限，中大型文件会中段截断；模型已
- * 自适应 offset/limit 分段读，预算再紧会切断「读全文→编辑」正当路径。
- * 4cd1a90d 那批的 64KB→16KB 收紧误伤面大于收益，回调折中 32KB）。
+ * 自适应 offset/limit 分段读，预算再紧会切断「读全文→编辑」正当路径）。
  */
-const DEFAULTS = { computeMs: 120_000, maxWallMs: 600_000, maxOutputBytes: 32 * 1024 };
+const DEFAULTS = { maxWallMs: 720_000, maxOutputBytes: 32 * 1024 };
 
 /** trace 上限（超出截断计 traceTruncated——卡片列表可视上限，防长循环程序撑爆步记录） */
 const TRACE_LIMIT = 50;
@@ -169,11 +175,12 @@ export function resolveEffectiveTools(
     caps.add(`agent:${agentId}`);
     for (const t of agent?.tags ?? []) caps.add(t);
   }
-  const visible = ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+  const visible = ctx.tools.list().filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
   if (scope === 'projection') {
     // 投影源：能力面全量（授权真理）——不经 include/exclude 收窄，
-    // 但 run_code 自身排除（递归防护在投影层）
-    return visible.filter((d) => d.name !== 'run_code' && !formDenied(ctx, d, conversationId));
+    // mode 工具（run_code 等）排除（递归防护在投影层：程序内再造程序
+    // 无意义且套计费）；requiresInteraction 工具随交互面终滤
+    return visible.filter((d) => !formDenied(ctx, d, conversationId));
   }
   const resolved = resolveToolNames(
     agent?.tools,
@@ -199,13 +206,93 @@ function formDenied(ctx: Context, def: ToolDefinition, conversationId: string | 
   return formDeniedBy(ctx, def, conversationId);
 }
 
+/**
+ * ── worker 引导快照缓存（立项①防退化护栏）──
+ *
+ * 回退目标不依赖发布 bundle（dev 检出形态不存在）——改为「上次成功引导
+ * 的 worker 源码快照」：每次 run 顺利收到 done（= worker 机制完整存活的
+ * 证据），把 spawn 时读到的 dev worker.ts 源码经 stripTypeScriptTypes 擦除
+ * 后缓存。双层：进程内存（本会话最新鲜）+ tmpdir 磁盘（跨重启；hash-gated
+ * 写入，内容未变不重复写盘）。dev 会话里 run_code 高频使用，事故场景
+ * （会话中途改坏 worker.ts）进程内早有成功引导记录——快照几乎总是新鲜。
+ *
+ * 时效性闸 = 协议版本：快照文件名含 PROTOCOL_VERSION，ready 握手互认——
+ * 版本错配即拒用该快照并告警（宁可重试坏 dev 也让错误可见）。
+ */
+/** 进程内最新快照（擦除后 JS 源码；null = 本进程尚无成功引导） */
+let lastGoodWorkerJs: string | null = null;
+
+/** 快照磁盘目录（tmpdir 下按进程用户隔离——OS 周期清理可接受：重启后丢
+ * 快照 = 回到「无护栏」基线，不劣于现状） */
+function workerSnapshotDir(): string {
+  return joinPath(tmpdir(), 'agentchat-run-code-worker-cache');
+}
+
+/** entry 绝对路径 → 稳定短名（快照文件名；含协议版本——版本闸的一半） */
+function workerSnapshotFile(entry: string): string {
+  const h = createHash('sha256').update(entry).digest('hex').slice(0, 16);
+  return joinPath(workerSnapshotDir(), `v${PROTOCOL_VERSION}-${h}.mjs`);
+}
+
+/** 极简 path.join（免 node:path 依赖形态——本文件既有 import 面窄） */
+function joinPath(a: string, b: string): string {
+  const aEnds = a.endsWith('/') || a.endsWith('\\');
+  return aEnds ? a + b : a + '/' + b;
+}
+
+/**
+ * 成功引导后刷新快照（strip 校验 + 长度上限——防把坏源码/篡改内容写进
+ * 缓存）。hash-gated：读盘比较，内容未变不重复写（省 tmpdir 写放大）。
+ */
+function refreshWorkerSnapshot(devEntry: string, source: string): void {
+  let js: string;
+  try {
+    js = stripWorkerTypes(source);
+  } catch {
+    return; // 擦除失败不缓存（此时 worker 明明跑成了——文件刚被改；保守跳过）
+  }
+  lastGoodWorkerJs = js;
+  const file = workerSnapshotFile(devEntry);
+  try {
+    mkdirSync(workerSnapshotDir(), { recursive: true });
+    try {
+      if (readFileSync(file, 'utf8') === js) return; // 内容未变——不重写
+    } catch { /* 无既有文件 */ }
+    writeFileSync(file, js, 'utf8');
+  } catch {
+    // tmpdir 不可写等——内存快照仍有效（本进程内回退不受影响）
+  }
+}
+
+/**
+ * 主线程侧 strip（快照缓存用——与 worker 侧同 API 同 mode）。主线程无
+ * worker 环境的 @types/node 缺声明问题：any 一次性桥接。
+ */
+function stripWorkerTypes(source: string): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = (requireShim('node:module') as any);
+  return m.stripTypeScriptTypes(source, { mode: 'strip' }) as string;
+}
+
+/** 读磁盘快照（无/坏/版本不符 → undefined） */
+function readWorkerSnapshot(devEntry: string): string | undefined {
+  try {
+    return readFileSync(workerSnapshotFile(devEntry), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** URL → 本地路径（剥 ?v= 查询后缀——vitest/transformer 下 import.meta.url 可能带） */
+function stripQuery_(u: URL): string {
+  return fileURLToPath(new URL(u.pathname, 'file://'));
+}
+
 /** worker 引导 URL 解析（dev ./worker.ts → bundle ./worker.mjs → undefined） */
 export function resolveWorkerEntry(): string | undefined {
-  // vitest/transformer 下 import.meta.url 可能带 ?v= 查询后缀——剥掉再判存在
-  const stripQuery = (u: URL): string => fileURLToPath(new URL(u.pathname, 'file://'));
-  const here = stripQuery(new URL('./worker.ts', import.meta.url));
+  const here = stripQuery_(new URL('./worker.ts', import.meta.url));
   if (existsSync(here)) return here;
-  const bundled = stripQuery(new URL('./worker.mjs', import.meta.url));
+  const bundled = stripQuery_(new URL('./worker.mjs', import.meta.url));
   if (existsSync(bundled)) return bundled;
   return undefined;
 }
@@ -220,21 +307,16 @@ export async function executeRunCode(
   const code = typeof args.code === 'string' ? args.code : '';
   if (!code.trim()) return { ok: false, error: '缺少 code 参数（可擦除 TS 程序体）' };
   const num = (v: unknown, fb: number): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fb);
-  const computeMs = num(args.compute_ms, options.defaultComputeMs ?? DEFAULTS.computeMs);
-  const maxWallMs = num(args.max_wall_ms, options.defaultMaxWallMs ?? DEFAULTS.maxWallMs);
+  // 墙钟唯一化（2026-09-23 收敛）：compute 预算全套退役（等待型子调用烧
+  // compute 的整类问题随轴消失）；墙钟为唯一防线——宿主侧单源，不进参数表
+  // （Agent 不可见/不可改——防线不能被防守对象拆除）。数值基准：8145 条
+  // 实战记录自然完成 MAX≈4min，3x≈12min 取整 720s。
+  const maxWallMs = options.defaultMaxWallMs ?? DEFAULTS.maxWallMs;
   const maxOutputBytes = num(args.max_output_bytes, options.defaultMaxOutputBytes ?? DEFAULTS.maxOutputBytes);
 
-  // 投影源 = 生效工具集（每次调用现算——不跨 run 缓存，坑 #4）。
-  // 注：投影的模型可见面是 loop/before-run 注入的 system 块（见
-  // injectProjection——每次 run 同源现算）；工具体内不再计算（发送即
-  // 丢弃的形态已在 2026-09-17 实测复盘修正）。
-  const effective = resolveEffectiveTools(ctx, call.agentId, call.conversationId);
-
-  // worker 引导（双入口 + 探测）
-  const entry = resolveWorkerEntry();
-  if (entry === undefined) {
-    return { ok: false, error: 'run_code worker 引导文件缺失（dev ./worker.ts 或 bundle ./worker.mjs 均不存在）——部署形态不完整' };
-  }
+  // 投影说明：模型可见面是 loop/before-run 注入的 system 块（见
+  // prompt.ts——每次 run 同源现算）；工具体内不算投影（发送即丢弃
+  // 的形态已在 2026-09-17 实测复盘修正）。
 
   const runId = call.toolCallId ?? `run-${Date.now().toString(36)}`;
   // lib 注入：会话级注册表快照（非空才注入——省协议体积）
@@ -247,58 +329,168 @@ export async function executeRunCode(
   const execArgv = process.execArgv.includes('--no-warnings')
     ? process.execArgv
     : [...process.execArgv, '--no-warnings'];
-  const worker = new Worker(entry, { execArgv });
+
+  // —— worker 引导链（立项①防退化护栏）——
+  // 候选序：dev worker.ts → 内存快照 → 磁盘快照。快速路径：spawn 前对 dev
+  // 源码试擦除，语法坏直接跳过 dev 候选（省一次 spawn 周期；strip 通过仍
+  // 可能运行期坏——握手检测兜底）。失败传递：候选在 ready 之前 error /
+  // 非零 exit / exit(0) / 握手超时 → terminate 换下一候选；全部失败 →
+  // 可诊断错误（指明恢复动作）。检测边界：仅 workerReady=false 阶段判死——
+  // 程序自身错误不触发降级（dev 行为不被护栏遮蔽）。
+  const devEntry = stripQuery_(new URL('./worker.ts', import.meta.url));
+  const devExists = existsSync(devEntry);
+  let devSource: string | undefined;
+  if (devExists) {
+    try {
+      devSource = readFileSync(devEntry, 'utf8');
+    } catch { /* 读失败（权限/竞态）——当坏态处理，走快照 */ }
+  }
+  let devSyntacticallyOk = false;
+  if (devSource !== undefined) {
+    try {
+      stripWorkerTypes(devSource);
+      devSyntacticallyOk = true;
+    } catch { /* strip 失败 = 语法坏——跳过 dev 候选 */ }
+  }
+  const memSnapshot = lastGoodWorkerJs;
+  const diskSnapshot = devEntry !== '' ? readWorkerSnapshot(devEntry) : undefined;
+  // 握手超时（毫秒）：正常 worker 引导 <1s；10s 覆盖慢盘/冷启动且远小于
+  // maxWallMs 缺省（超时只是换候选，不占程序预算——boot 阶段 wallStart
+  // 尚未起算，语义干净）。
+  const BOOT_HANDSHAKE_MS = 10_000;
+  /** spawn 单候选并握手探测：ready（版本匹配）→ 成功；error/exit/超时/版本错配 → fail */
+  const bootCandidate = (kind: string, entryPath: string): Promise<{ worker: Worker } | { fail: string }> =>
+    new Promise((resolveBoot) => {
+      let settled = false;
+      const finish = (r: { worker: Worker } | { fail: string }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        worker.off('message', onReady);
+        worker.off('error', onErr);
+        worker.off('exit', onExit);
+        resolveBoot(r);
+      };
+      let worker: Worker;
+      try {
+        worker = new Worker(entryPath, { execArgv });
+      } catch (err: unknown) {
+        resolveBoot({ fail: `候选 ${kind} 构造失败：${err instanceof Error ? err.message : String(err)}` });
+        return;
+      }
+      if (typeof worker.unref === 'function') worker.unref();
+      const timer = setTimeout(() => {
+        void worker.terminate();
+        finish({ fail: `候选 ${kind} 引导握手超时（${BOOT_HANDSHAKE_MS}ms 无 ready）` });
+      }, BOOT_HANDSHAKE_MS);
+      if (typeof timer.unref === 'function') timer.unref();
+      const onReady = (m: unknown): void => {
+        if (typeof m === 'object' && m !== null && (m as { type?: string }).type === 'ready') {
+          const v = (m as { protocolVersion?: number }).protocolVersion ?? 1;
+          if (v !== PROTOCOL_VERSION) {
+            void worker.terminate();
+            finish({ fail: `候选 ${kind} 协议版本错配（ready v${v} ≠ 当前 v${PROTOCOL_VERSION}）——快照过期，拒用` });
+            return;
+          }
+          finish({ worker });
+          return;
+        }
+      };
+      const onErr = (err: Error): void => {
+        finish({ fail: `候选 ${kind} 引导错误：${err.message}` });
+      };
+      const onExit = (c: number): void => {
+        finish({ fail: `候选 ${kind} 引导期退出（code=${c}）` });
+      };
+      worker.on('message', onReady);
+      worker.on('error', onErr);
+      worker.on('exit', onExit);
+    });
+  /** 内存快照落盘到临时文件再 spawn（ESM 静态 import 需真文件路径） */
+  const spawnMemSnapshot = (js: string): Promise<{ worker: Worker } | { fail: string }> => {
+    const file = joinPath(workerSnapshotDir(), `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.mjs`);
+    try {
+      mkdirSync(workerSnapshotDir(), { recursive: true });
+      writeFileSync(file, js, 'utf8');
+    } catch (err: unknown) {
+      return Promise.resolve({ fail: `内存快照落盘失败：${err instanceof Error ? err.message : String(err)}` });
+    }
+    return bootCandidate('snapshot:mem', file);
+  };
+  const attempts: Array<{ kind: string; start: () => Promise<{ worker: Worker; bootedFrom: string } | { fail: string }> }> = [];
+  if (devExists && devSyntacticallyOk) {
+    attempts.push({
+      kind: 'dev',
+      start: () => bootCandidate('dev', devEntry).then((r) => ('worker' in r ? { worker: r.worker, bootedFrom: 'dev' } : r)),
+    });
+  } else if (devExists) {
+    ctx.logger.warn(`[run_code] dev worker.ts 语法预检失败（strip 不通过）——跳过 dev 候选直接走快照回退。恢复：修好 ${devEntry} 后重试`);
+  }
+  if (memSnapshot !== null && memSnapshot !== undefined) {
+    attempts.push({
+      kind: 'snapshot:mem',
+      start: () => spawnMemSnapshot(memSnapshot).then((r) => ('worker' in r ? { worker: r.worker, bootedFrom: 'mem-snapshot' } : r)),
+    });
+  }
+  if (diskSnapshot !== undefined) {
+    const file = workerSnapshotFile(devEntry);
+    attempts.push({
+      kind: 'snapshot:disk',
+      start: () => bootCandidate('snapshot:disk', file).then((r) => ('worker' in r ? { worker: r.worker, bootedFrom: file } : r)),
+    });
+  }
+  if (attempts.length === 0) {
+    return {
+      ok: false,
+      error: 'run_code worker 引导文件缺失（dev ./worker.ts 或 bundle ./worker.mjs 均不存在，且无引导快照）——部署形态不完整',
+    };
+  }
+  let boot: { worker: Worker; bootedFrom: string } | undefined;
+  let bootError: string | undefined;
+  let bootDegradedNotice: string | undefined;
+  for (const attempt of attempts) {
+    const outcome = await attempt.start();
+    if ('fail' in outcome) {
+      bootError = outcome.fail;
+      ctx.logger.warn(`[run_code] worker 引导候选 ${attempt.kind} 失败：${outcome.fail}`);
+      continue;
+    }
+    boot = outcome;
+    // 降级路径（非 dev 候选中选）→ 结果告警透出（验收形态：工具面不停摆 + 模型可见降级事实）
+    if (outcome.bootedFrom !== 'dev') {
+      bootDegradedNotice = `dev worker 引导失败（${bootError ?? '未知错误'}），已降级至${outcome.bootedFrom === 'mem-snapshot' ? '进程内' : '磁盘'}快照回退——快照可能落后当前 worker.ts（协议版本 v${PROTOCOL_VERSION}）；修复 dev 文件后自动恢复`;
+    }
+    break;
+  }
+  if (boot === undefined) {
+    const recovery = devExists
+      ? `恢复：检查/修复 ${devEntry}（git checkout 该文件或手动修复语法）后重试`
+      : '恢复：确认部署形态（dev 检出应有 src/ac-run-code/src/worker.ts；bundle 应有 worker.mjs）';
+    return { ok: false, error: `worker 引导失败（候选耗尽：${attempts.map((a) => a.kind).join(' → ')}）——${bootError ?? '未知错误'}。${recovery}` };
+  }
+  const worker = boot.worker;
   if (typeof worker.unref === 'function') worker.unref();
   // 中止控制器（compute 预算 / 墙钟看门狗 / 用户 signal 共用——一处
   // abort 全链生效：子调用 signal + worker abort 消息）。run 级先行创建：
   // 修复旧惰性 bug——旧代码 invoke 时刻 abortCtl 未创建时子调用拿到
-  // undefined signal，在飞等待型工具（ask_questions）永远收不到中止，
+  // undefined signal，在飞等待型工具（如 approval 挂起）永远收不到中止，
   // 弹窗悬空 pending（write-ahead 兜底也只剩 late-reply 一条路）。
   const abortCtl = new AbortController();
   const wallStart = Date.now();
   let workerReady = false;
 
   // —— 预算冻结（软依赖 durableInteraction；缺席 = 行为同旧版）——
-  // 冻结区间（毫秒墙钟）：本 run 挂起 durable 交互（ask_questions /
-  // approval）的等待期。区间内的墙钟不计 maxWallMs（看门狗暂停）、
-  // 不计入子调用 compute 计费。区间由 opened/replied/closed 三事件对账
-  // （圈定键 = correlationId 前缀 `runId#`——桥接层拼子调用 toolCallId
-  // 的既有约定，ask-questions 与 approval 的 open 均按它落盘）。
+  // 冻结区间（毫秒墙钟）：本 run 挂起 durable 交互的等待期（2026-02 ask 挂起
+  // 重构后主要源 = approval；ask_questions 已即返）。区间内墙钟不计
+  // maxWallMs（看门狗暂停）、不进子调用计费。区间由 opened/replied/closed
+  // 三事件对账（圈定键 = correlationId 前缀 runId#——桥接层拼子调用
+  // toolCallId 的既有约定，挂起工具的 open 均按它落盘）。
+  // 2026-09-23 收敛：冻结唯一豁免源 = 人（durable）。等待他方 Agent
+  //（send_agent wait 等）不再冻结——墙钟 720s 直罩（被杀不丢数据：迟到
+  // 回复经薄通知注入回投，见 collab-tools）；compute 轴整体退役。
   const pauseSpans: Array<{ from: number; to: number }> = [];
   let pauseFrom = 0;
-  const pausedBetween = (from: number, to: number): number => {
-    let sum = 0;
-    for (const s of pauseSpans) sum += Math.max(0, Math.min(s.to, to) - Math.max(s.from, from));
-    if (pauseFrom !== 0) sum += Math.max(0, to - Math.max(pauseFrom, from));
-    return sum;
-  };
-  const wallElapsedNow = (): number => Date.now() - wallStart - pausedBetween(wallStart, Date.now());
-  let wallTimer: ReturnType<typeof setTimeout> | undefined;
-  /** 机器墙钟预算耗尽（超时回调 + 解冻补算共用出口） */
-  const wallExhausted = (): void => {
-    abortCtl.abort();
-    worker.postMessage({ type: 'abort', reason: `墙钟预算耗尽（maxWallMs=${maxWallMs}ms）` } satisfies MainToWorker);
-    setTimeout(() => void worker.terminate(), 5_000).unref?.();
-  };
-  /** 挂看门狗（剩余 = 预算 - 机器墙钟；冻结中不挂，解冻时重挂） */
-  const armWallTimer = (): void => {
-    if (wallTimer !== undefined) {
-      clearTimeout(wallTimer);
-      wallTimer = undefined;
-    }
-    if (maxWallMs <= 0 || pauseFrom !== 0) return;
-    const remain = maxWallMs - wallElapsedNow();
-    if (remain <= 0) {
-      wallExhausted();
-      return;
-    }
-    wallTimer = setTimeout(() => {
-      wallTimer = undefined;
-      if (pauseFrom !== 0 || !workerReady) return; // 竞态：冻结已发生由解冻重挂；worker 未就绪由 error/exit 兜底
-      wallExhausted();
-    }, remain);
-    if (typeof wallTimer.unref === 'function') wallTimer.unref();
-  };
+  const frozen = (): boolean => pauseFrom !== 0;
   const enterFreeze = (): void => {
     if (pauseFrom !== 0) return;
     pauseFrom = Date.now();
@@ -313,6 +505,47 @@ export async function executeRunCode(
     pauseFrom = 0;
     armWallTimer();
   };
+  const pausedBetween = (from: number, to: number): number => {
+    let sum = 0;
+    for (const s of pauseSpans) sum += Math.max(0, Math.min(s.to, to) - Math.max(s.from, from));
+    if (pauseFrom !== 0) sum += Math.max(0, to - Math.max(pauseFrom, from));
+    return sum;
+  };
+  const wallElapsedNow = (): number => Date.now() - wallStart - pausedBetween(wallStart, Date.now());
+  let wallTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 墙钟预算耗尽（超时回调 + 解冻补算共用出口） */
+  const wallExhausted = (): void => {
+    abortCtl.abort();
+    worker.postMessage({ type: 'abort', reason: `墙钟预算耗尽（maxWallMs=${maxWallMs}ms）` } satisfies MainToWorker);
+    setTimeout(() => void worker.terminate(), 5_000).unref?.();
+  };
+  /** 挂看门狗（剩余 = 预算 - 机器墙钟；冻结中不挂，解冻时重挂） */
+  const armWallTimer = (): void => {
+    if (wallTimer !== undefined) {
+      clearTimeout(wallTimer);
+      wallTimer = undefined;
+    }
+    if (maxWallMs <= 0 || frozen()) return;
+    const remain = maxWallMs - wallElapsedNow();
+    if (remain <= 0) {
+      wallExhausted();
+      return;
+    }
+    wallTimer = setTimeout(() => {
+      wallTimer = undefined;
+      if (frozen() || !workerReady) return; // 竞态：冻结已发生由解冻重挂；worker 未就绪由 error/exit 兜底
+      wallExhausted();
+    }, remain);
+    if (typeof wallTimer.unref === 'function') wallTimer.unref();
+  };
+  // const enterFreeze = (): void => {
+  //   durableHeld = true;
+  //   recomputeFreeze();
+  // };
+  // const exitFreeze = (): void => {
+  //   durableHeld = false;
+  //   recomputeFreeze();
+  // };
   // 订阅对账：opened 增冻结 / 全部终态解冻（refresh 幂等——事件只是触发重查）
   const disposeFreeze: Array<() => void> = [];
   const di = ctx.get('durableInteraction', false) as
@@ -331,7 +564,7 @@ export async function executeRunCode(
         (ctx.on as unknown as (name: string, listener: () => void, options?: { description?: string }) => () => void)(
           evt,
           refresh,
-          { description: 'run_code 预算冻结对账（ask_questions/approval 等待期不计预算）' },
+          { description: 'run_code 预算冻结对账（durable 交互挂起期不计预算，如 approval）' },
         ),
       );
     }
@@ -339,20 +572,10 @@ export async function executeRunCode(
   }
 
   // —— 主线程桥接：子调用 → ctx.tools.execute（全安全面）——
-  let computeUsed = 0;
-  let mainAborted = false;
+  let computeUsed = 0; // 统计展示用（compute 预算 2026-09-23 退役——墙钟唯一防线）
   const summary: RunSummary = { calls: 0, ok: 0, failed: 0, computeMs: 0, wallMs: 0, denied: [], serialized: [], trace: [] };
   let traceTruncated = 0;
   let serialChain: Promise<void> = Promise.resolve();
-
-  /** compute 预算强制执行：子调用完成后累计超限即发 abort（worker 下一边界收束） */
-  function enforceComputeBudget(): void {
-    if (!mainAborted && computeMs > 0 && computeUsed > computeMs) {
-      mainAborted = true;
-      abortCtl.abort();
-      worker.postMessage({ type: 'abort', reason: `子调用累计执行耗时超预算（computeMs=${computeMs}ms，已用 ${computeUsed}ms）` } satisfies MainToWorker);
-    }
-  }
 
   const invoke = (name: string, invokeArgs: Record<string, unknown>, seq: number): Promise<void> => {
     const isSerial = SERIAL_LISTS.write.has(name) || SERIAL_LISTS.command.has(name);
@@ -365,10 +588,9 @@ export async function executeRunCode(
           if (settled) return;
           settled = true;
           const dur = Date.now() - t0;
-          // computeMs 只累计子调用执行耗时（含排队）：以墙钟近似，但剔除
-          // 预算冻结区间（ask_questions/approval 的用户应答等待——dur 的
-          // 其余部分含排队与执行，仍是保守近似）。旧口径「审批等待高估
-          // compute、保守可接受」已由冻结机制执行化修正。
+          // computeMs 仅统计展示（2026-09-23 收敛：不再作预算处决——墙钟唯一
+          // 防线）；仍剔除冻结区间（durable 用户应答等待），卡片数值保持
+          // 「机器时间」口径。
           computeUsed += Math.max(0, dur - pausedBetween(t0, Date.now()));
           summary.calls++;
           if (r.ok) summary.ok++;
@@ -391,7 +613,6 @@ export async function executeRunCode(
             traceTruncated++;
           }
           worker.postMessage({ type: 'result', seq, ok: r.ok, ...(r.output !== undefined ? { output: r.output } : {}), ...(r.error ? { error: r.error } : {}) } satisfies MainToWorker);
-          enforceComputeBudget();
           resolve();
         };
         void ctx.tools
@@ -423,19 +644,27 @@ export async function executeRunCode(
   // 只有 programHash，排查需按哈希回捞全文）
   ctx.logger.debug('[run_code] 程序体（%s）：\n%s', hashText(code), code);
   const done = await new Promise<WorkerDone>((resolveDone, rejectDone) => {
+    // 引导链改造：ready 消息已被 bootCandidate 握手探针消费——主流程挂
+    // 监听后立即补发 init（不再等 ready）。sendInit 幂等（防御性保留 ready
+    // 分支：未来若改回不消费 ready 的引导形态，双路径均成立）。
+    let initSent = false;
+    const sendInit = (): void => {
+      if (initSent) return;
+      initSent = true;
+      worker.postMessage({
+        type: 'init',
+        runId,
+        code,
+        maxWallMs,
+        maxOutputBytes,
+        ...(libSource !== undefined ? { libSource } : {}),
+      } satisfies MainToWorker);
+      workerReady = true;
+      armWallTimer(); // boot 竞态补挂：看门狗若在 ready 前空转（回调空返回），此处按剩余重挂
+    };
     worker.on('message', (m: WorkerToMain) => {
       if (m.type === 'ready') {
-        worker.postMessage({
-          type: 'init',
-          runId,
-          code,
-          computeMs,
-          maxWallMs,
-          maxOutputBytes,
-          ...(libSource !== undefined ? { libSource } : {}),
-        } satisfies MainToWorker);
-        workerReady = true;
-        armWallTimer(); // boot 竞态补挂：看门狗若在 ready 前空转（回调空返回），此处按剩余重挂
+        sendInit();
         return;
       }
       if (m.type === 'invoke') {
@@ -456,6 +685,7 @@ export async function executeRunCode(
     // 主线程侧看门狗：机器墙钟预算（用户应答等待经预算冻结豁免）——
     // worker 自身无 timer 面
     armWallTimer();
+    sendInit(); // bootCandidate 已消费 ready——此处直接补发 init（幂等，见 sendInit 注释）
     call.signal?.addEventListener('abort', () => {
       if (wallTimer !== undefined) {
         clearTimeout(wallTimer);
@@ -463,12 +693,19 @@ export async function executeRunCode(
       }
       abortCtl.abort();
       worker.postMessage({ type: 'abort', reason: '用户中止' } satisfies MainToWorker);
+      // 物理处决（2026-09-23）：postMessage 只对协作型程序生效（postMessage
+      // 边界检查点）；纯计算死循环无边界——terminate 是唯一可达手段（实测
+      // ~18ms 即时）。宽限 1s：让协作型 worker 先自收束发 done(interrupted)
+      // （保留步记录与 interrupt 载荷——测试锁定的语义）；死循环不会发 done，
+      // 1s 后 terminate 兜底。
+      setTimeout(() => void worker.terminate(), 1_000).unref?.();
     }, { once: true });
   }).finally(() => {
     void worker.terminate();
     for (const d of disposeFreeze) d();
-    exitFreeze(); // 冻结区间收口（悬空交互不阻塞——run 已结束，wallTimer 无人在等）
-  });
+    exitFreeze(); // durable 源收口（悬空交互不阻塞——run 已结束，wallTimer 无人在等）
+    }
+  );
 
   summary.computeMs = computeUsed;
   summary.wallMs = Date.now() - wallStart;
@@ -479,6 +716,22 @@ export async function executeRunCode(
   if (done.ok && done.libExports !== undefined) {
     libStore.clear();
     for (const [name, src] of Object.entries(done.libExports)) libStore.set(name, src);
+  }
+  // 引用悬空坏条目剔除（立项③-C）：调用期爆 ReferenceError 的条目从会话级
+  // store 剔除——下 run 起不再注入（与「失败不回写」正交：即使本 run 失败，
+  // 坏条目也该剔——它们已经证明不可用）。
+  const libRottedNotice =
+    done.libRotted !== undefined && done.libRotted.length > 0
+      ? `。lib 坏条目已剔除：${done.libRotted.join('、')}（调用期引用悬空——如需保留请修复源码后重新 define 同名覆盖）`
+      : '';
+  if (done.libRotted !== undefined) {
+    for (const name of done.libRotted) libStore.delete(name);
+  }
+  // 引导快照刷新（立项①）：收到结构化 done = worker 机制完整存活的证据——
+  // dev 源码可用时刷新快照（本次 spawn 读到的源码；boot 用快照跑的 run 不
+  // 刷新——dev 坏着呢，刷新会把坏源码写进缓存）。
+  if (devSource !== undefined && boot.bootedFrom === 'dev') {
+    refreshWorkerSnapshot(devEntry, devSource);
   }
   // 程序体哈希（步记录入摘要——裁决 #1）
   const programHash = hashText(code);
@@ -491,6 +744,8 @@ export async function executeRunCode(
       ...(traceTruncated > 0 ? { traceTruncated } : {}),
     },
     programHash,
+    ...(bootDegradedNotice !== undefined ? { bootDegraded: bootDegradedNotice } : {}),
+    ...(done.libRotted !== undefined && done.libRotted.length > 0 ? { libRotted: done.libRotted } : {}),
     ...(done.value !== undefined ? { value: done.value } : {}),
     ...(done.valueVia !== undefined ? { valueVia: done.valueVia } : {}),
     ...(done.logsTail !== undefined ? { logsTail: done.logsTail } : {}),
@@ -499,7 +754,12 @@ export async function executeRunCode(
     return { ok: false, error: done.error ?? '程序中止', interrupt: { type: 'run-code-interrupted', reason: done.error ?? '程序中止' }, output };
   }
   if (!done.ok) {
-    return { ok: false, error: done.error ?? '程序执行失败', output };
+    // P1（9eaf3f03 复盘 ③④）：失败全量回滚是设计语义（注册表只反映成功程序），
+    // 但须显式提示丢弃事实——否则模型以为注册仍在，后续 resolve 连环落空（实测一次程序失败连丢 patchFile/readSeg 两库）
+    const dropped = done.libDefined !== undefined && done.libDefined.length > 0
+      ? `。本程序 lib.define 的 ${done.libDefined.join('、')} 已随失败丢弃（注册表只保留成功程序的状态）——重新使用须在下次程序重新 define`
+      : '';
+    return { ok: false, error: (done.error ?? '程序执行失败') + dropped + libRottedNotice, output };
   }
   return { ok: true, output };
 }
@@ -513,3 +773,33 @@ function hashText(text: string): string {
   }
   return (h >>> 0).toString(16).padStart(8, '0');
 }
+
+// ── 测试钩子（仅集成测试消费——生产代码不引用）──
+// 事故场景无法直接复现（不能真改 worker.ts——会污染工作区），以钩子注入
+// 形态验证引导链：种快照/坏 store 条目/重置进程内状态。
+export const __runCodeTestHooks = {
+  /** 覆写进程内快照（null = 清空） */
+  setMemSnapshot(js: string | null): void {
+    lastGoodWorkerJs = js;
+  },
+  /** 种磁盘快照（写 tmpdir 快照文件——返回路径） */
+  seedDiskSnapshot(entry: string, js: string): string {
+    const file = workerSnapshotFile(entry);
+    mkdirSync(workerSnapshotDir(), { recursive: true });
+    writeFileSync(file, js, 'utf8');
+    return file;
+  },
+  /** 读进程内快照现状 */
+  getMemSnapshot(): string | null {
+    return lastGoodWorkerJs;
+  },
+  /** 直接注入会话级 lib store（坏条目形态验证） */
+  seedLibStore(agentId: string | undefined, conversationId: string | undefined, entries: Record<string, string>): void {
+    const store = libStoreOf(agentId, conversationId);
+    for (const [name, src] of Object.entries(entries)) store.set(name, src);
+  },
+  /** 读会话级 lib store 键集 */
+  libStoreKeys(agentId: string | undefined, conversationId: string | undefined): string[] {
+    return [...libStoreOf(agentId, conversationId).keys()];
+  },
+};

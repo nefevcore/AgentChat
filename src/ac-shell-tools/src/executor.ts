@@ -16,7 +16,7 @@ import type { ToolResult } from 'ac-tools';
 import { bashCommandViolation, hostKillViolation, type SandboxResolver } from 'ac-sandbox-core';
 import { effectiveTierOf } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
-import { buildErrorMessage, isProcessAlive, killProcessTree, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
+import { buildErrorMessage, isProcessAlive, killProcessTree, looksLikeInvocationError, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
 import type { ShellSpec } from './shells.ts';
 
 /** 后台任务临时日志前缀（>1 小时清理） */
@@ -222,6 +222,8 @@ export function executeShellCommand(
   return new Promise<ToolResult>((resolve) => {
     let output = '';
     let timedOut = false;
+    /** 调用方 signal 中止（区别于超时/正常退出——收束语义同超时：ok:false） */
+    let aborted = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
     let killWatchdog: ReturnType<typeof setInterval> | undefined;
@@ -285,7 +287,10 @@ export function executeShellCommand(
         killWithConfirm();
       }, effectiveTimeout);
     }
-    const onAbort = () => killWithConfirm();
+    const onAbort = () => {
+      aborted = true; // signal 中止 ≠ 命令反馈：非零退出是被杀所致，非命令语义
+      killWithConfirm();
+    };
     call.signal?.addEventListener('abort', onAbort, { once: true });
 
     /** exit 后限时等 close；宽限过 = 管道被活后代持有 → 销毁读端强制收束 */
@@ -328,6 +333,16 @@ export function executeShellCommand(
         });
         return;
       }
+      if (aborted) {
+        // signal 中止：进程被调用方主动杀掉（run 中断/会话切换）——不是命令
+        // 语义输出也不是链路错误，但工具面必须 ok:false（调用方发起的中止已生效）
+        settle({
+          ok: false,
+          error: '命令被调用方中止（AbortSignal）。输出已部分收集。',
+          output: { command, cwd: dir, aborted: true, output: output || '(无输出)' },
+        });
+        return;
+      }
       const exitCode = typeof code === 'number' ? code : null;
       const success = exitCode === 0;
       // ANSI 清理放汇总处而非 onProgress 流式片：转义序列可能跨 chunk 撕裂
@@ -344,6 +359,43 @@ export function executeShellCommand(
           `实际执行的是 Unix→PowerShell 翻译产物（可能偏离原命令语义）：${translatedCommand}。若怀疑翻译有误，可直接改写为 PowerShell 原生命令重试。`,
         ].filter(Boolean).join(' ');
       }
+      // 反馈型/错误型分类（2026-11-19 画像 Ⓐ）：exit≠0 有两类——
+      //   · command-feedback = 命令按预期运行并报告了非零退出（测试红灯、
+      //     grep 无命中、断言失败等）：命令的语义输出，不是工具链路错误；
+      //   · invocation-error = 命令没跑起来/语法层失败（ParserError、
+      //     command not found 等）：工具链路错误，ok:false + error。
+      // 旧形态把两类混算成 error——统计失真（vitest 红灯占 82 失败的过半）
+      // 且模型易误判为工具故障而绕路。分类不改变输出可见性（output 全量
+      // 保留），只改变 ok/error 语义面。
+      const isInvocationError = !success && looksLikeInvocationError(clean);
+      const classification = success
+        ? undefined
+        : isInvocationError
+          ? ('invocation-error' as const)
+          : ('command-feedback' as const);
+      if (!success && !isInvocationError) {
+        // 反馈型：无 error 字段——命令已忠实执行并返回结果，退出码在
+        // exit_code 字段；引导文案（如有）随 note 送达不冒充错误
+        const parts = [
+          guidance,
+          `命令退出码 ${exitCode}（command-feedback：命令按预期运行后的非零退出——如测试红灯/断言失败/无命中，属命令语义输出而非工具错误；输出已在 output 字段）`,
+        ].filter(Boolean);
+        settle({
+          ok: true,
+          output: {
+            command,
+            ...(translatedCommand ? { translated_command: translatedCommand } : {}),
+            cwd: dir,
+            output: displayed.text || '(无输出)',
+            exit_code: exitCode,
+            failure_class: 'command-feedback',
+            ...(parts.length > 0 ? { note: parts.join(' ') } : {}),
+            truncated: displayed.truncated,
+            total_bytes: totalBytes,
+          },
+        });
+        return;
+      }
       settle({
         ok: success,
         output: {
@@ -352,10 +404,11 @@ export function executeShellCommand(
           cwd: dir,
           output: displayed.text || '(无输出)',
           exit_code: exitCode,
+          ...(classification !== undefined ? { failure_class: classification } : {}),
           truncated: displayed.truncated,
           total_bytes: totalBytes,
         },
-        ...(success ? {} : { error: guidance || `命令退出码 ${exitCode}` }),
+        ...(success ? {} : { error: guidance || `命令未正常启动或语法失败（invocation-error，退出码 ${exitCode}）` }),
       });
     };
 
