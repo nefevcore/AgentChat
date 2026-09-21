@@ -14,7 +14,9 @@ plugin-logger-console 控制台输出）。
 
 纯库清单 / 布局 / 装配与运行时分层。历史决策、裁决点与踩坑档案住 `src/docs/`
 
-（见[设计档案索引](#设计档案索引)；收官过程文档冻结于 `src/docs/archive/` 与
+（见[设计档案索引](#设计档案索引)；注释时间标记（YYYY-MM = 批次代号非日历月）
+
+读写规范见 `docs/epoch-marking-convention.md`；收官过程文档冻结于 `src/docs/archive/` 与
 
 仓库外归档根 `Dev\Note\AgentChat\docs-stale-2026-12\`）；开发姿势与新增能力域
 
@@ -61,7 +63,10 @@ pnpm dev:supervised   # supervisor.mjs 宿主监护（42/78/0 协议 + 退避熔
 pnpm dev:demo         # 演示 boot（include patches 启用 hmr + 热重载）
 pnpm chat             # 对话 REPL（真实 provider 手测；CHAT_MODEL/CHAT_AGENT 可调）
 pnpm typecheck        # tsc --noEmit（src 全轨；webui 走 webui:typecheck）
-pnpm test             # vitest run（全仓）
+pnpm test             # 全量测试（scripts/run-tests.mjs all；CI/发布门用，~45s）
+pnpm test:unit        # 快循环：仅非集成件（~21s，日常改动后跑这个）
+pnpm test:integration # 仅集成件（限流 8 路；追 flake / 验重活路径时跑）
+pnpm test:watch       # 快循环 watch 模式
 pnpm smoke            # tsx 冒烟（程序化树）
 pnpm webui            # WebUI dev server（vite 3831 → proxy 3830）
 pnpm webui:build      # WebUI 生产构建（→ src/webui/dist，boot 后 127.0.0.1:3830）
@@ -69,6 +74,19 @@ pnpm webui:typecheck  # 前端 vue-tsc
 ```
 
 > `preview:*` 前缀脚本保留为兼容别名（preview:boot ≡ dev 等）。
+
+### 测试分档约定
+
+测试文件按**成本**分两类，靠文件名区分（无需登记清单，新用例作者自行归类）：
+
+- `*.test.ts` —— 纯逻辑用例（亚秒级，占多数）。默认档位。
+- `*.integration.test.ts` —— 真起子进程 / HTTP 服务器 / 整树 boot 的用例。
+  单独成档是因为它们既是**时长大头**（实测 37 个文件占 79% 执行时长），
+  又是**争用源**（并发过高会互相挤占：子进程冷启动被拖过就绪窗口等），
+  需要限流跑。
+
+定向跑单个包/文件用路径过滤（不必进包目录，包内 `vitest run` 会因
+include 模式相对根解析而找不到用例）：`npx vitest run src/ac-session`。
 
 ## 端到端链路
 
@@ -182,23 +200,38 @@ logger.warn 告警——不静默。「**tags 即工具面**」的准确边界�
 模式词 `tc-none` / `tc-programmatic`（AgentConfig.tags 词汇；缺省 = tc-base），
 `toolModeOf(agent)` 单源判定（ac-agents——对标 tierOf）；生效档 = 会话覆盖
 （conv-settings `toolMode`，三值全暴露，无键 = 跟随）?? toolModeOf(agent)。
-tc-programmatic ⇒ router 收窄 LLM 面为 `['run_code']`（投影源从能力面直取
+tc-programmatic ⇒ LLM 面合成 mode 工具集（投影源从能力面直取
 `resolveEffectiveTools(…, 'projection')` 跳过 include 收窄）；tc-none ⇒ LLM
-工具面清空（纯聊天）；tc-base ⇒ 不收窄（run_code 与传统工具同列，不注入
-投影块——传统工具 schema 已在请求面可直读，SDK 块省 token）。
-**run_code 授权 = infra 能力族；tc-* 为纯模式词**（2026-09-17 优化裁决：
-程序化是形态选择非授权门槛——run_code requiredTags 挂 infra，标准预设
-与多数 Agent 天然可见；前端选「程序化」= 会话覆盖临时程序化档，等同
-临时分配，无需预配标签。Agent tags 配 tc-programmatic 仍是有效默认档
-——向后兼容）。覆盖 tc-programmatic 但 Agent 无 infra 时惰性（router
-warn 回落 tags 档）。收窄判定单源 `effectiveToolMode` + `narrowToolsByMode`
+工具面清空（纯聊天）；tc-base ⇒ 常规工具面（mode 工具不在其中）。
+**injection 注入轴（2026-12 重构）**：`ToolDefinition.injection`——
+`'capability'`（缺省，能力轴门禁）| `'mode'`（模式合成：不挂
+requiredTags、不进常规工具面，tc-programmatic 档经 narrowToolsByMode
+从注册面直接合成，与 tags 无关、行在装即生效）。先例 run_code——
+「授权词 = infra」旧语义随之退役。tc-programmatic 但无 mode 工具
+（run-code 行未装）⇒ 空面 + warn（形同 tc-none，不回落常规面——语义
+突变防护）。收窄判定单源 `effectiveToolMode` + `narrowToolsByMode`
 （ac-agents——2026-12 估算失真修复）：router dispatch 与估算面
 （agents/system-prompt 干跑、agents/tool-defs 的 conversationId 形态）
 共用，Token 仪表固定开销估算随会话开关同口径收窄（程序化会话注入
-SDK 投影块、仅 run_code schema）。无用户参与的 Agent 会话（机制唤醒/子 Agent 派生）按 tags 档
+SDK 投影块、仅 run_code schema）。**PTC 门控面单源（2026-12 基线段
+丢失修复）**：`isModeToolFace`（请求面恰等于 mode 工具集判定——
+run_code 投影注入条件单源化）+ `widenToolsForGating`（系统提示门控
+行的「工具在场」依据在程序化 run 换成能力面展开——PTC 下
+request.tools 已收窄成 ['run_code']，直读会误伤指引块/宿主环境行/
+@ 与 # 引用约定全部基线段；消费方：system-prompt/fs-tools/
+session-query/collab-tools 的 owner 行）。无用户参与的 Agent 会话（机制唤醒/子 Agent 派生）按 tags 档
 执行（子 Agent 继承父 tags——STRIPPED_TAGS 不剥模式词；传播语义同
 router）。UI = 输入框工具栏「工具调用模式」下拉（跟随 Agent/标准/程序化/
 无工具，选择即写 conv-settings；无 tc-programmatic 标签时程序化项禁选）。
+**抉择组（2026-12 标签配置语义）**：tag-registry 目录条目挂 `exclusive` 元数据
+（同组互斥）——access-tier（base/sandbox/full-access，base-access 显式进目录）、
+tool-mode（tc-none/tc-base/tc-programmatic）、browser-tier（observe/manipulate/
+inject，ac-web-tools 声明）。Agent 配置 UI（AgentPane）把组内 tag 合一为「启停胶囊 +
+换档弹层」（TagChoice 组件：左半启停开关、右半 chevron 弹层换档）：落词规则
+（ac-client-ui-agents/client/tagExclusive.ts 单源）保证同组至多一词——exclusiveNone 缺省词
+（base-access/tc-base）选它/停用均不落词（缺席即语义，wire 形态不变）；
+browser-tier 选高层词连带写齐全部低层词（requiredTags AND 地板）。判定面（tierOf/toolModeOf/browser 层级门禁）不消费抉择元数据——落词
+一致即语义等价，纯展示/配置层升级。
 「新会话跟随上次选择」（composePrefs.toolMode + toolModeInherit 登记，
 2026-09-17 恢复）：ChatInput 挂载回读时，目标会话无显式 toolMode 键 →
 回放偏好并写该会话（覆盖必须落存储才生效）；'' 跟随态无需写；Agent
@@ -207,8 +240,8 @@ router）。UI = 输入框工具栏「工具调用模式」下拉（跟随 Agent
 会话前端防御性禁止续聊（输入框禁用 + 迁移提示，历史只读保留）。ac-run-code
 工具行 + SDK 投影纯库 ac-run-code-core：模型写一段可擦除 TS 程序经
 `tools.<name>(args)` 编排成批工具调用，最终结论经复合返回协议回上下文
-（return 有值 → value=valueVia'return'；无值有 log → 按序合成；失败/中止
-附 logsTail）。步记录 = 摘要 + trace 子调用时间线 + programHash，程序体
+（return 有值 → value=valueVia'return'〔null 视为无值〕；无值有 log →
+按序合成 valueVia'logs'；失败/中止附 logsTail）。步记录 = 摘要 + trace 子调用时间线 + programHash，程序体
 全文入 host 日志。**投影注入**
 （loop/before-run 主档）：仅程序化调用（互斥形态——LLM 生效面单
 
@@ -250,10 +283,28 @@ ctx.group.send(gid, from, content)
 ```
 
 **会话历史**（ac-session，"事件积累 + 回放"模式）：订阅 `router/*` +
+
 `conversation/steered` 按 conversationId 分桶入账（中性行：真实发言 =
+
 `role:'agent'` + `agent_id`，机制触发 = `role:'event'`，错误收束 = `role:'error'`
+
 一等行）→ writer 队列落盘；`history(conv, {viewer})` 按读者投影回放。
+
 ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文件派生字节等价）。
+
+run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入行/直调补行
+
+按消费点真序落台账（messages.jsonl 在 run 期间静默——单一写面）；run 收束
+
+（全终态）→ settlement 同步入队（切段物化：注入行是切分点，
+
+`[user, 段行(steps), 注入行, 段行(steps), ..., run-settled]`）+ 异步 durable 与 journal
+
+剔除（收束即清）——提升批成员统一携带 run 键〔组存在性 = settled 判定，无单点锚〕；收束行已退役（切分形态终文本在尾段末步，无切分 = 整 run 单行直落），注入行 timestamp 还原 journal 落行时刻；崩溃窗口/孤儿 run 由 recoverJournal 惰性幂等收口
+
+（records()/run-started 触发）。subcalls.jsonl 是子调用永久档案（UI 回放
+
+数据源，不清理——与 journal 生命周期相反）。
 
 ## 契约归属（谁 emit 谁声明）
 
@@ -272,14 +323,14 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | 域（ctx 键） | 域类型（owning 包） | 事件目录 |
 |---|---|---|
 | llm | `ac-llm/src/contract.ts`（+ `refs.ts`：name@model 拆分纯函数） | `ac-llm/src/events.ts`（llm/*，含 delta-* 流式细分） |
-| tools | `ac-tools/src/contract.ts`（执行身份 + requiredTags 能力轴 + needPermission 权限轴 + excludeForms 形态轴〔single/self，判定单源 conversationFormOf——ac-agents〕 + elevation 机制提权） | `ac-tools/src/events.ts`（tool/*） |
+| tools | `ac-tools/src/contract.ts`（执行身份 + requiredTags 能力轴 + needPermission 权限轴 + injection 注入轴〔capability/mode〕 + requiresInteraction 交互轴〔self 会话排除，判定单源 conversationFormOf——ac-agents〕 + elevation 机制提权） | `ac-tools/src/events.ts`（tool/*） |
 | agentLoop | `ac-agent-loop/src/contract.ts`（transform-step/run seam） | `ac-agent-loop/src/events.ts`（loop/*，三档装配链） |
 | agents | `ac-agents/src/service.ts`（AgentConfig + settingsOf/displayNameOf + tierOf 档位单源） | `ac-agents/src/events.ts`（agents/updated） |
 | router | `ac-router/src/service.ts`（RouterInbound 信封） | `ac-router/src/events.ts`（router/*） |
 | conversation | `ac-conversation/src/contract.ts` | `ac-conversation/src/events.ts`（conversation/*） |
 | session | `ac-session/src/index.ts`（append/records/history/compact/setShelf） | —（积累订阅 router/* + conversation/steered） |
 | group | `ac-group/src/contract.ts` + `view.ts`（`<msg>` 包装） | `ac-group/src/events.ts`（group/*） |
-| singles | `ac-singles/src/contract.ts`（引用 + 覆盖模型） | `ac-singles/src/events.ts`（singles/updated） |
+| singles | `ac-singles/src/contract.ts`（引用 + 覆盖模型；fork 会话分支——消息切片经 session 服务方法拷贝） | `ac-singles/src/events.ts`（singles/updated） |
 | convSettings | `ac-conv-settings/src/contract.ts`（会话级模型覆盖） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
 | memory | `ac-memory/src/index.ts` | — |
 | config | `ac-config/src/service.ts` | `ac-config/src/events.ts`（config/*） |
@@ -301,7 +352,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | pluginRegistry | `ac-plugin-registry/src/service.ts` | 同文件（plugin/before-load(W) + installed·reloaded·catalog-changed(E)） |
 | eventPolicy | `ac-event-policy/src/service.ts`（停用键/清扫/行聚合） | —（治理 seam = internal/listener bail，非公开事件） |
 | agentAdmin | `ac-agent-admin/src/service.ts`（AdminUpdateResult） | — |
-| skills | `ac-skill/src/index.ts`（三源技能发现） | — |
+| skills | `ac-skill/src/index.ts`（三源技能发现 + 注入三通道：手势 before-run 判定落账 / run_code 子调用登记+收束落账 / 直调 steps 回放） | — |
 | mcp | `ac-mcp/src/index.ts`（全局服务器注册，懒建连） | — |
 | goals | `ac-goal/src/index.ts`（会话桶目标 + goal-round 驱动） | — |
 | todos | `ac-todo/src/index.ts`（会话桶工作清单） | — |
@@ -328,10 +379,10 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf——只收会成运行时环/反向依赖的最小词汇） |
 | `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离） |
 | `ac-config-merge` | deepMerge/computeDiff 差异配置 |
-| `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检/readback 回显/增量 diff/行尾保留/文件突变队列 |
+| `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检（配平失败报错带「第 N 行第 C 列 + 行预览」定位）/readback 回显/增量 diff/行尾保留（old/new 自动 LF 归一化匹配 + CR 双写损伤修复——2026-11-19 画像 Ⓑ）/失配定位线索（最接近行 + 行尾统计）/文件突变队列 |
 | `ac-sandbox-core` | createSandboxResolver/bash 命令扫描/输出脱敏/agentSpaceRoots（读写侧基准分叉并根） |
 | `ac-text-budget` | token 估算/代理对安全截断 |
-| `ac-glob-core` | glob→RegExp + 有界 walk |
+| `ac-glob-core` | glob→RegExp + 有界 walk（SKIP_BASE/SKIP_DIRS 分层缺省——产物目录缺省跳过，skipDirs 整表覆盖 + skippedRoots 透出） |
 | `ac-web-search-core` | 搜索 provider 特型（tavily/deepseek 在册） |
 | `ac-archive-core` | 归档阈值/尾部截断（不拆工具对）/二次归档去重分割 |
 | `ac-timer-core` | 间隔解析/目标时间/5 模式标签/节假日（农历+调休）/时区 ISO/hint 模板 |
@@ -396,10 +447,11 @@ src/
 ├── ac-agent-presets/        预设模式目录（ctx.agentPresets）：注册中心——数据行
 │                            注入预设定义（register 即归属）→ ctx.agents 物化 +
 │                            默认池模型解析（config/changed 热更）；skip-if-present
-├── ac-agent-presets-builtin/ 内置预设模式数据行：__standard__/__dsh_minimal__
-│                            （标准/极简）注入预设目录——插件注入自有模式走
-│                            同一注册面；无记忆语义 = 预设软停用 memory/skill/
-│                            datetime 等行
+├── ac-agent-presets-builtin/ 内置预设模式数据行：__standard__/__dsh_minimal__/
+│                            __creator__（标准/极简/创造）注入预设目录——插件注入
+│                            自有模式走同一注册面；无记忆语义 = 预设软停用
+│                            memory/skill/datetime 等行（创造模式例外保留 skill——
+│                            用户技能照常加载；插件开发指南经 system 提示词内置）
 ├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json +
 │                            机制 entries（timer/skills 等唯一写口）+ 文档实体
 │                            （AGENTS.md 等）；getAgent 读边界归一（旧 hooks→settings）
@@ -439,9 +491,9 @@ src/
 │ ── 工具基建与安全 ─────────────────────────────────────────────
 ├── ac-tools/                工具注册中心（ctx.tools）：fiber 归属注册
 │                            （listWithOwner 目录视图）+ waterfall 拦截链 +
-│                            requiredTags 能力门禁 + excludeForms 形态轴
-│                            （single 独立会话 / self 自会话 a~a；router 按
-│                            conversationId 命中形态裁剪生效集——判定单源
+│                            requiredTags 能力门禁 + injection 注入轴
+│                            （capability 常规 / mode 模式合成——不进常规面）+
+│                            requiresInteraction 交互轴（self 自会话 a~a 排除，
 │                            conversationFormOf〔ac-agents〕，list_tools/
 │                            run_code 投影同口径）
 ├── ac-jobs/                 后台任务注册中心（ctx.jobs）：owner 分桶 + 并发上限 +
@@ -465,7 +517,7 @@ src/
 ├── ac-ask-questions/        ask_questions 工具行：批量提问等待决策（kind='ask_questions'
 │                            认领者；选项归一化防模型不守 schema）+ late-reply 唤醒
 │                            （run 已死作答回投 + backfillToolResult 补记）；
-│                            excludeForms:['self']——自会话桶（机制 run）无人
+│                            requiresInteraction:true——自会话桶（机制 run）无人
 │                            应答，不投放
 ├── ac-mcp/                  MCP 行（ctx.mcp）：全局服务器注册（懒建连）+ 工具发现
 │                            注册进 ctx.tools（撞名 `${server}__${name}` 前缀）；
@@ -475,7 +527,8 @@ src/
 │                            §9.1——只过双黑名单）/write（突变队列串行；tierOf
 │                            感知基线）/edit + @<路径> 引用约定
 ├── ac-fs-search/            检索：glob（mtime 排序/上限 100）+ grep（正则/include
-│                            过滤/二进制跳过/上限 250）；结果集过滤双黑名单
+│                            过滤/二进制跳过/上限 250/fixed 字面量直通/近邻目录
+│                            建议）；结果集过滤双黑名单；walk 缺省跳构建产物目录
 ├── ac-str-replace-editor/   四合一编辑器：view/create/str_replace/insert（写经突变
 │                            队列；requiredTags ['fs_minimal']）
 ├── ac-shell-tools/          命令执行（平台拆分 2026-09-16）：pwsh（Windows；
@@ -515,8 +568,8 @@ src/
 ├── ac-dev-tools/            开发辅助：read_logs（环形缓冲）/reload/reload_modules
 │                            （语义化中断）
 ├── ac-restart/              system_restart 工具（中断上报 + after-run 宿主半边：
-│                            优雅关闭 → exit 42 → supervisor 重拉；
-│                            excludeForms ['single']——独立会话不投放）
+│                            优雅关闭 → exit 42 → supervisor 重拉；正常工具
+│                            无会话形态限制）
 ├── ac-session-query/        会话查询门面：grep_history/read_history（复用
 │                            ctx.session.history()）+ #<标题>(<会话id>) 引用约定
 │ ── 评测域 ─────────────────────────────────────────────────────
@@ -538,7 +591,8 @@ src/
 │                            {viewer}) 投影回放 + records/append/compact/setShelf +
 │                            steps[] 步记录持久化 + 工具前 fail-closed checkpoint
 ├── ac-usage/                用量统计（ctx.usage）：after-run 双轨记账（覆盖 = 当次
-│                            上下文/累加 = 总用量 + cache + steps）→ 多维查询
+│                            上下文/累加 = 总用量 + cache + steps + elapsedMs API
+│                            计时〔token/s 速率分母，不含工具/编排〕）→ 多维查询
 │                            （byAgent/byModel/byDay/byDayModel/byConversation/byPair）
 │                            + 日 jsonl 审计流水 + boot 回读重建
 ├── ac-archive/              归档编排（ctx.archive）：after-run 阈值检测 → 同桶整理
@@ -771,10 +825,11 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
 | 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
 | 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-12 计划，P0 已随 subagents/history 落地） |
-| 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） |
+| 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） · `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次：重度开发/journal 泛化/机制验证——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） |
 | 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `remote-client-relay-plan.md`（本地多端远程接入，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md`（打磨残留条目 + 边界备忘） |
 | 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单——已实施） |
 | 标签系统 | `tag-system-report.md`（词表/机制/归属/守则全貌）· `tags-include-semantics-report.md`（× tools.include 语义裁决） |
+| 工程规范 | `epoch-marking-convention.md`（**注释 YYYY-MM 时间标记规范**——标记 = 特性批次代号而非日历月：计划纪元沿计划批次、即兴改动用真实当月；存量超前标记保持原样勿顺手统一） |
 
 > **归档根**（2026-12 起）：收官里程碑终稿（M7-M25 计划、m15/m16/m17 对账套件、
 > WebUI 适配器系列、程序化模式三件套、T0/精简审计、src→preview 映射图）已移至

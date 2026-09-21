@@ -64,7 +64,7 @@ agentchat            # 启动，WebUI 默认在 http://localhost:3830
 
 ### 桌面版（无需 Node.js，普通用户推荐）
 
-从 [GitHub Releases](https://github.com/nefevcore/AgentChat/releases) 下载安装包：Windows `AgentChat-Setup-x.y.z.exe`（一键安装）、Linux AppImage、macOS `AgentChat-x.y.z-arm64.dmg` / `-x64.dmg`（按芯片选择，Apple Silicon 选 arm64）。桌面版自带完整运行时（Electron + Node ≥20），插件目录清单随包内置（`plugin-catalog.json`）；数据根固定在用户数据目录（Windows `%APPDATA%\AgentChat`、Linux `~/.config/AgentChat`、macOS `~/Library/Application Support/AgentChat`），首次启动自动初始化，LLM 凭据在 WebUI「全局设置」配置。**关闭窗口 = 最小化到托盘**（Agent 社区的定时任务与自主对话持续运行），托盘菜单「退出」才真正停止；应用自动检查更新（electron-updater，源即 Releases）。**macOS 未签名分发**：首次打开需在 Finder 中右键 →「打开」（或系统设置中允许），此后正常启动；自动更新仅提醒、需手动下载新版 dmg 覆盖安装。
+从 [下载页](http://47.110.63.135/) 获取安装包：Windows `AgentChat Setup x.y.z.exe`（安装向导）、Linux AppImage、macOS `AgentChat-x.y.z-arm64.dmg` / `.dmg`（按芯片选择，Apple Silicon 选 arm64）。桌面版自带完整运行时（Electron + Node ≥20），插件目录清单随包内置（`plugin-catalog.json`）；数据根固定在用户数据目录（Windows `%APPDATA%\AgentChat`、Linux `~/.config/AgentChat`、macOS `~/Library/Application Support/AgentChat`），首次启动自动初始化，LLM 凭据在 WebUI「全局设置」配置。**关闭窗口 = 最小化到托盘**（Agent 社区的定时任务与自主对话持续运行），托盘菜单「退出」才真正停止；应用启动后自动检查更新（对比下载页版本清单，有新版提醒并跳转下载页，手动下载覆盖安装——数据不受影响）。**macOS 未签名分发**：首次打开需在 Finder 中右键 →「打开」（或系统设置中允许），此后正常启动。
 
 ### 从源码运行（新轨道）
 

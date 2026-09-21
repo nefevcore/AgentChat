@@ -185,3 +185,100 @@ label 条（收起态；source 定样式：error 红 / event 中性 / 其他按 
 - subagent 会话桶内的注入同 run_code 通道（会话隔离天然覆盖，无额外改动）。
 - source 供给侧细分（timer/job/goal-round 真语义标注）不预铺——消费者出生再扩。
 - 跨 run 同名技能重复落账的去重由「历史 context 行在场跳过」规则覆盖（§1）。
+
+## 10. partials 泛化为 run journal（2026-11 裁决：变体乙退役）
+
+变体乙（写侧 run 切分）实测反复出错的根因：给 append-only 文件强加「中途
+保序」语义——关闭行/新 run 键/offset 切片/pendingCalls 继承全是为此服务的
+簿记，任何一处时序缝隙都是丢行/错位。裁决：**写侧只如实按序记，保序收敛
+到收束时刻**：
+
+- **partials.jsonl = run journal（瞬态台账）**：步行（journal-step，全步落盘
+  ——含纯文本步，行序 = 模型消息数组实际序）/ 注入行（journal-inject，按
+  消费点落——steer stash 消费点、技能 context recordContext 内部路由）/
+  直调补行（tool-result）。**收束即清**（与 subcalls.jsonl 的永久档案分工
+  相反——subcalls 是 UI 回放数据源非冗余）。
+- **messages.jsonl = 定稿流**：run 期间静默（单一写面——只剩 run 前入站行
+  与 run 后 settlement 批）；run 收束（**全终态含 error/interrupted**）→
+  settlement。
+- **settlement 两阶段**：① 同步入队（reply-completed 事件段内构造提升批——
+  行序锚定，收束行先于后续入站消息；数据源 = 盘上行 + 在途 pending 合并读）
+  + 异步 durable flush；② journal 剔除（按行身份 type|run|seq / tool_call_id）。
+  崩溃窗口（①后②前）由 recoverJournal 惰性幂等收口（records()/run-started
+  触发：有收束行 → 直接剔除；孤儿 run → 投影为中断收束行再剔除——
+  本进程 activeRuns 在册的 run 排除，防误判正在收尾的 run）。
+- **切段规则（KV 友好）**：注入行是切分点——`[段行(steps), 注入行, 段行
+  (steps), ..., 收束行(终文本)]` 自然序物化；无注入 = 整 run 单收束行
+  （steps 以 result 为权威源——stepsFromRunResult；result 无步的中断/孤儿
+  用 journal 步行回退）。段行不带 run 键（吸收对账锚 = 收束行唯一携带，
+  多段行共享键会污染 settled 判定）。
+- **records() 活投影保留**：未收束 run 的 journal 行在读侧重现（步行 →
+  partial 行、注入行 → injected 普通/context 行）——ask_questions 等待期
+  刷新不丢思维链的既有语义不变。
+- **退役清单**：splitRunAt / splitRunWithContext / inheritPendingCalls /
+  offset 切片 / buffered 全量步缓冲 / pendingCalls 补行跨键归属 /
+  recordContext 的 split 参数（服务内路由 run 活跃判定——ac-skill 调用面
+  传参保留兼容）/ 「中断不盖章」原则（全终态 settle，思维链经 settlement
+  物化为段行而非依赖部分行永久残留）。
+- **读侧**：absorbedRuns 吸收排除 injected 行（注入行是独立会话事实，永不
+  被吸收/去重）；稳态零合并逻辑（journal 收束即清——run/echoSeq 吸收与
+  echoSeq 归位仅剩存量文件兼容价值）。
+- injectSubcalls 宿主定位按 toolCallId 前缀（byHost 索引）——切段后宿主步
+  落在哪个段行就注入哪个段行，零改动。
+
+## 11. 收束行退役 + 全行 run 键（2026-11 二次裁决，真实数据复盘）
+
+真实会话复现两个耦合缺陷：① 注入行 timestamp 是 settlement 铸造时刻
+（非用户发言时刻），前端步级 ts 稳定排序把终稿步排到用户追问之前
+（错序）；② 切分形态终文本双份（尾段末步 content = 收束行 text 同文）。
+复盘追问「收束行还有何用」——四个职责（吸收锚/终文本载体/settled 判定
+锚/无 journal 整行落账）中只剩对账锚是真需求，且它有更优承载：
+
+- **全行 run 键**：journal 路径的提升批成员（段行/注入行/run-settled
+  判别行）统一携带 run 键——run 键 = 「本行产生于该 run 周期」（普适
+  归属维度）。settled 判定与读侧 absorbedRuns 均按【同 run 非 partial 行
+  存在性】判定——无单点锚，compact 重写后组员（普通 role 行）天然存活。
+  **纪律：run 外行（入站/群 post/直落收束）不硬造 run**——journal 无
+  对应行的假 settled 会污染恢复对账。
+- **收束行退役**（journal 路径）：切分形态不再落独立收束行——终文本在
+  尾段末步（双份消除）；无切分形态保留整 run 单行直落（steps+text，
+  与泛化前同形）。
+- **run-settled 判别行**：提升批尾的轻量提交标记（type:run-settled +
+  run + seq）——显式原子提交点 + 批截断诊断信号；恢复判定不单点依赖
+  它。旧版本读到安全忽略（前向兼容）。stats/tail/countWindowMessages
+  计数面排除（无 role 行）。
+- **注入行 ts 修复**：journal-inject 行落 journal 时快照注入时刻
+  （ts: Date.now()），settlement 提升行还原为 timestamp——前端排序归位
+  （错序根因修复）。
+- 段行携带 run 键后 absorbedRuns「收束行唯一携带」特判删除（组语义）。
+- 历史已落盘数据（含收束行形态）读侧兼容不变。
+
+## 12. 技能注入 run 级驻留（2026-11 三次裁决：每步重现退役）
+
+journal 副本复盘引出：模型每步都看到技能正文（用户观察到「Agent 表示
+收到」），而 journal 只落一次——两层口径分裂。深挖后发现旧注释
+「每步重现字节稳定，KV 前缀不击穿」的论证是**错的**：
+
+- KV 是严格前缀匹配。旧形态注入体在每次请求【尾部】（前缀分叉点
+  之后），下一步请求无法命中——等于**每步重算整块正文**。实测
+  （10ddd223 会话）：11KB 技能 ≈ 5K tokens，注入后每步 cacheMiss
+  恒多 ~5K（步 3-8 连续 6 步 ≈ 3 万 tokens 浪费）。
+- 裁决：**injectDurable（loop 服务新通道）**——SteerQueue 增 durable
+  槽，与 steer 同点消费（步边界 splice 进 execute 工作数组一次），
+  后续步自然继承：注入点进前缀，后续步【全量命中】；prompt 里正文
+  只有一份（「每步收到提醒」的模型行为噪音同步消失）。不参与
+  steer 的 sealed 丢弃语义（run 收束后到达 = 无消费点静默不入，
+  持久性由调用方 context 行落账承担）。
+- ac-skill before-step 改造：指纹变化（新技能/首次）→ injectDurable
+  入队 + context 行落账；指纹未变（后续步）→ 不注入（数组已有）。
+  旧 call.messages 每步 append 形态删除。
+- 时序语义（bade5362 实测修正）：初版实现「before-step 入队 → 下一
+  边界消费」= 注入体晚一步可见，模型在步 N+1 的 reasoning 里困惑
+  「正文到底在不在」并浪费一次核查推理——**代价不可接受**。修正：
+  step() 内 before-step waterfall 返回后【本步立即消费】（双写
+  stepCall.messages + 工作数组）——load 发生在步 N 工具内 →
+  before-step(N+1) 入队 → 步 N+1 llm 即见（与旧形态可见时序一致，
+  且为驻留语义）。execute 边界不再消费 durable。
+- 测试基建坑（记录）：mock provider 的 captured.push(input) 存引用，
+  工作数组步间 push 会污染早前快照——断言步序形态须在 llm 调用时
+  深拷贝（本会话 [1,1,1] 假象即此）。

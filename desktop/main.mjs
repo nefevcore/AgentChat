@@ -123,6 +123,25 @@ function tailText() {
   return logTail.slice(-30).join('\n');
 }
 
+// ---- 进程级兜底（P2）：壳主进程的异步错误此前零防护——listen EACCES 一类
+// 错误经 EventEmitter throw 上炸 uncaughtException，Electron 默认弹
+// "A JavaScript error occurred in the main process" 后整壳退出。
+// 兜底策略 = 先留现场（落盘 backend.log + 尾队）再默认退出：壳职责薄
+// （spawn/窗口/托盘），吞异常续跑有状态损坏风险，关键失败路径已有 fatal()。
+process.on('uncaughtException', (err) => {
+  log(`[desktop] uncaughtException: ${err && err.stack ? err.stack : String(err)}`);
+  dialog.showErrorBox(
+    'AgentChat 出错退出',
+    `主进程发生未捕获异常：\n\n${err instanceof Error ? err.stack ?? err.message : String(err)}\n\n完整日志：${backendLogPath}`,
+  );
+  quitting = true;
+  killBackendTree();
+  app.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  log(`[desktop] unhandledRejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+});
+
 // ------------------------------------------------------------
 // 后端生命周期
 // ------------------------------------------------------------
@@ -311,19 +330,46 @@ function createTray() {
 }
 
 // ------------------------------------------------------------
-// 自动更新（fail-soft：发布在公开仓库 Releases，匿名可检查）
+// 更新提醒（2026-09 分发自托管裁决 remote-client-relay-plan §4.6：
+//   桌面安装包不再上 GitHub Releases——electron-updater feed 失效退役，
+//   改 ~30 行 manifest 检查：下载面 manifest.json 比版本，有新版仅提醒
+//   「前往下载」打开下载主页，三平台同构（macOS 本就只提醒，行为不变）。
+//   sha256 校验在下载页侧（文件完整性以哈希为准）；静默自动升级
+//   （NSIS /S + sha256）留作后续可选。fail-soft：检查失败静默跳过。）
 // ------------------------------------------------------------
+const DOWNLOAD_BASE = 'http://47.110.63.135';
+
 async function checkForUpdates() {
   if (!app.isPackaged) return;
   try {
-    const { autoUpdater } = await import('electron-updater');
-    // macOS 未签名分发：Squirrel.Mac 只接受已签名更新包——预下载也装不上，
-    // 关掉 autoDownload 只做更新提醒（win/linux 照旧自动下载静默安装）。
-    autoUpdater.autoDownload = process.platform !== 'darwin';
-    await autoUpdater.checkForUpdatesAndNotify();
-    log('[desktop] 自动更新检查完成');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    let manifest;
+    try {
+      const res = await fetch(`${DOWNLOAD_BASE}/manifest.json`, { signal: controller.signal });
+      if (!res.ok) return;
+      manifest = await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+    const latest = Array.isArray(manifest?.releases) && manifest.releases[0]?.version;
+    if (typeof latest !== 'string' || latest === '') return;
+    const current = app.getVersion();
+    const cmp = (a, b) => {
+      const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+      for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; }
+      return 0;
+    };
+    if (cmp(latest, current) <= 0) return;
+    log(`[desktop] 发现新版本 ${latest}（当前 ${current}）`);
+    const n = new Notification({
+      title: `AgentChat ${latest} 可用`,
+      body: '点击前往下载页获取新版本安装包。',
+    });
+    n.on('click', () => { shell.openExternal(DOWNLOAD_BASE); });
+    n.show();
   } catch (err) {
-    log(`[desktop] 自动更新检查失败（忽略）: ${err instanceof Error ? err.message : String(err)}`);
+    log(`[desktop] 更新检查失败（忽略）: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -395,50 +441,86 @@ async function setStorageRoot(newRoot, { migrate }) {
   return { ok: true, restarting: true };
 }
 
-function startBridge(port) {
-  bridgeServer = http.createServer((req, res) => {
-    const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
-    if (url.pathname === '/desktop-bridge/storage' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(storageInfo()));
-      return;
-    }
-    if (url.pathname === '/desktop-bridge/storage/pick' && req.method === 'POST') {
-      dialog.showOpenDialog(mainWindow ?? undefined, { properties: ['openDirectory', 'createDirectory'] })
-        .then((r) => {
-          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ canceled: r.canceled, path: r.filePaths?.[0] ?? null }));
-        })
-        .catch((e) => {
-          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ error: String(e) }));
-        });
-      return;
-    }
-    if (url.pathname === '/desktop-bridge/storage/set' && req.method === 'POST') {
-      let body = '';
-      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
-      req.on('end', async () => {
-        try {
-          const { path: newRoot, migrate } = JSON.parse(body || '{}');
-          if (typeof newRoot !== 'string' || !newRoot.trim()) throw new Error('缺少 path');
-          const out = await setStorageRoot(newRoot, { migrate: migrate === true });
-          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify(out));
-          // 给前端 1.5s 收响应，然后整壳重启（后端+窗口全部重来）
-          setTimeout(() => { quitting = true; killBackendTree(); app.relaunch(); app.exit(0); }, 1500);
-        } catch (e) {
-          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }));
-        }
+// 桥 CORS：桥口与页面口不同源（3831 vs 3830），页面 fetch 桥是跨源请求——
+// 无 CORS 头则浏览器直接拦死（probe 失败 → 存储节永远隐藏，即便端口没被占）。
+// 仅放行回环 Origin（与 ac-web-server checkRequestOrigin 同口径：局域网/外网一律拒）。
+function isLoopbackOrigin(origin) {
+  const h = origin.replace(/^https?:..(.)/i, '$1').replace(/:[0-9]+$/, '').toLowerCase();
+  return h === 'localhost' || h === '[::1]' || h.startsWith('127.');
+}
+
+function bridgeCors(req, res) {
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && isLoopbackOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+}
+
+function bridgeHandler(req, res, port) {
+  const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+  bridgeCors(req, res);
+  if (req.method === 'OPTIONS') { // CORS 预检（简单请求本不需要，防御性应答）
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  if (url.pathname === '/desktop-bridge/storage' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(storageInfo()));
+    return;
+  }
+  if (url.pathname === '/desktop-bridge/storage/pick' && req.method === 'POST') {
+    dialog.showOpenDialog(mainWindow ?? undefined, { properties: ['openDirectory', 'createDirectory'] })
+      .then((r) => {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ canceled: r.canceled, path: r.filePaths?.[0] ?? null }));
+      })
+      .catch((e) => {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: String(e) }));
       });
-      return;
-    }
-    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ error: 'not found' }));
-  });
-  bridgeServer.listen(port, '127.0.0.1', () => {
-    log(`[desktop] 存储管理桥：http://127.0.0.1:${port}/desktop-bridge/`);
+    return;
+  }
+  if (url.pathname === '/desktop-bridge/storage/set' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const { path: newRoot, migrate } = JSON.parse(body || '{}');
+        if (typeof newRoot !== 'string' || !newRoot.trim()) throw new Error('缺少 path');
+        const out = await setStorageRoot(newRoot, { migrate: migrate === true });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(out));
+        // 给前端 1.5s 收响应，然后整壳重启（后端+窗口全部重来）
+        setTimeout(() => { quitting = true; killBackendTree(); app.relaunch(); app.exit(0); }, 1500);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+      }
+    });
+    return;
+  }
+  res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ error: 'not found' }));
+}
+
+/** resolve(实际监听口) / reject(listen 错误——EACCES/EADDRINUSE 等经 error 事件异步抵达) */
+function startBridge(port) {
+  return new Promise((resolve, reject) => {
+    const srv = http.createServer((req, res) => bridgeHandler(req, res, port));
+    srv.once('error', (e) => {
+      bridgeServer = null;
+      reject(e);
+    });
+    srv.listen(port, '127.0.0.1', () => {
+      bridgeServer = srv;
+      log(`[desktop] 存储管理桥：http://127.0.0.1:${port}/desktop-bridge/`);
+      resolve(port);
+    });
   });
 }
 
@@ -464,9 +546,16 @@ async function start() {
 
   const port = await pickPort();
   spawnBackend(port);
-  // 存储管理桥：pickedPort+1（WebUI 从 location.port+1 推导；被占时桥退化为
-  // 不可用——设置面板 fetch 失败即隐藏该节，非致命）
-  try { startBridge(port + 1); } catch { log('[desktop] 存储管理桥端口被占，设置面板存储节不可用'); }
+  // 存储管理桥：候选序列 pickedPort+1 → +4（WebUI 同序列探测）。listen 错误
+  // （EACCES=Hyper-V/WinNAT 排除区、EADDRINUSE=被占）经 error 事件异步抵达，
+  // 由 startBridge 的 Promise 化捕获——全部候选失败则桥退化不可用（设置面板
+  // fetch 失败即隐藏该节，非致命，绝不上炸主进程）。
+  for (const cand of [port + 1, port + 2, port + 3, port + 4]) {
+    try { await startBridge(cand); break; }
+    catch (e) {
+      log(`[desktop] 桥候选口 ${cand} 不可用（${e.code ?? ''} ${e.message}），试下一个`);
+    }
+  }
 
   if (!await waitForReady(port)) {
     fatal(`后端 ${READY_TIMEOUT_MS / 1000} 秒内未就绪（http://127.0.0.1:${port}/）。\n\n日志尾部：\n${tailText()}`);
@@ -495,3 +584,13 @@ if (!gotLock) {
     killBackendTree();
   });
 }
+
+// ---- 测试面导出（desktop-bridge.test.ts 驱动；Electron 主进程入口不受影响） ----
+export { startBridge };
+async function __testCloseBridge() {
+  const srv = bridgeServer;
+  bridgeServer = null;
+  if (!srv) return;
+  await new Promise((resolve) => srv.close(() => resolve()));
+}
+export { __testCloseBridge };

@@ -1,7 +1,6 @@
 ---
 name: agentchat-plugin-dev
-description: 开发 AgentChat 插件（src/ 轨道的 ac-* 出厂薄行与 Agent 自开发动态插件）：工具行、LLM provider 行、策略/拦截行、订阅者行、预设 Agent 行——inject 已有服务、注册贡献、订阅或拦截事件。
-whenToUse: 在 src/ 下新建或修改一个消费已有能力域的出厂插件行，或为 Agent 编写运行时自安装的动态插件（manifest + 入口）时使用。若要新增能力域服务、修改事件目录或注册中心本身，改用 agentchat-framework-dev 技能。
+description: 开发 AgentChat 插件（src/ 出厂薄行 ac-* 与 Agent 自开发动态插件）：工具行、LLM provider 行、策略/拦截行、订阅者行、预设 Agent 行——inject 已有服务、注册贡献、订阅或拦截事件。新增能力域、改事件目录或注册中心本身时改用 agentchat-framework-dev。
 ---
 
 # AgentChat 插件开发
@@ -25,6 +24,7 @@ whenToUse: 在 src/ 下新建或修改一个消费已有能力域的出厂插件
 | 全域能力地图（契约归属总表 + 端到端链路 + 装载态） | `src/README.md` |
 | 事件目录（能订阅/拦截什么；谁 emit 谁声明，住在 owning 包） | `src/ac-<domain>/src/events.ts`（20+ 域，README 总表逐域列路径） |
 | 域类型（参数/载体/结果形状） | `src/ac-<domain>/src/contract.ts`；AgentConfig 在 `src/ac-agents/src/service.ts` |
+| 标签词表与守则（requiredTags / 档位词 / tag: 引用） | `src/docs/tag-system-report.md` |
 | 工具行最小范例 | `src/ac-hello/src/index.ts` |
 | 拦截/注入行范例（before-run waterfall） | `src/ac-persona/src/index.ts` |
 | 事件订阅服务范例（emit 积累 + 回放） | `src/ac-session/src/index.ts` |
@@ -67,16 +67,29 @@ export function apply(ctx: Context) {
   收敛为 `{ ok: false, error }`，不必自己 try/catch。
 - `interrupt` 是语义化中断通道（宿主级行为如 reload/restart/插件装卸经它
   上报，loop 收束后宿主执行）。
-- `requiredTags: string[]` 能力轴（AND 语义，对照调用方 Agent 的 `tags`
-  单源）——缺标签的工具对调用方**不可见**（不只执行时 veto）。已知标签：
-  base/dev/shell/admin/delegation/web（+observe/manipulate/inject）/
-  fs_minimal/sap-adt。
+- `requiredTags: string[]` 能力轴（AND 语义，调用方能力集 = capabilitySetOf
+  合成 {base} ∪ {agent:<id>} ∪ AgentConfig.tags——单源 ac-agents）——缺标签的
+  工具对调用方**不可见**（不只执行时 veto）。能力词表：fs/fs_minimal/shell/
+  web（+observe/manipulate/inject 动作分层）/collab/infra/delegation/dev/
+  admin/sap-adt——事实源 `src/docs/tag-system-report.md`；档位词 full-access/
+  sandbox-access 永不进 requiredTags。不声明 = 默认开放（base 锚点——覆盖
+  动态插件未声明面）：出厂工具禁止不声明，生态作者请自觉挂标签。
+  抉择组（2026-12）：observe/manipulate/inject、档位词、tc-* 模式词在
+  tag-registry 目录挂 `exclusive` 元数据（同组互斥）——Agent 配置 UI 聚合为
+  下拉单选（落词保证同组至多一词）；判定面（tierOf/toolModeOf/browser
+  层级门禁）不消费该元数据，行为不变。行声明同组互斥词时照常
+  `tagDeclarations` 挂 `exclusive: '<组名>'`（见 ac-web-tools 先例）。
 - `needPermission: true` 权限轴（access-tier 双轴门禁）：敏感动作的档位门
-  ——base 档有人桶可询问提权（人批准 = 单次按 full 执行）、无人桶拒绝；
+  ——base 档有人桶可询问提权（批准两档：仅本次 = 单次按 full 执行；本轮
+  全部 scope='run' = run 内后续免询问，after-run 清除）、无人桶拒绝；
   full 档跳过。文件写/命令执行/非 LLM 出口通道（web_search/browser）声明它。
-- `excludeForms: string[]` 会话形态排除（如 `'single'`）：router 物化生效
-  工具集时裁剪——纯可见面（LLM 不见 schema），include 不可绕过，执行面
-  不额外拦。
+- `excludeForms: string[]` 会话形态排除（`'single'` 独立会话 / `'self'`
+  自会话——判定单源 conversationFormOf）：router 物化生效工具集时裁剪
+  ——纯可见面（LLM 不见 schema），include 不可绕过，执行面不额外拦。
+- 程序化模式 `run_code`（requiredTags `['infra']`）：会话开关 tc-programmatic
+  时 LLM 工具面收窄为单工具——模型写可擦除 TS 程序经 SDK 编排成批工具调用
+  （并发纪律：写路径/命令串行、其余并行；子调用全安全面）。形态与安全细节
+  见 README「工具调用模式」节。
 - 重名注册直接抛错——别想着覆盖。
 - 工具需要流式进度时用 `call.onProgress(chunk)`（服务端转 emit
   `tool/progress`，不必自己发事件）。
@@ -186,12 +199,16 @@ export function apply(ctx: Context) {
 ```
 
 `AgentConfig` 全字段见 `ac-agents/src/service.ts`（owning 包）。要点：
-`tools` 可为白名单或 `{include?, exclude?}`；`tags` 是档位单源（full-access >
-sandbox-access > 缺省 base，tierOf 判定）兼 requiredTags 词表；`settings[具名]`
-键 = 稳定单元名（行名 / 动态插件 manifest.name），值 = 插件自定配置——行组合
-决定装哪些插件，settings 决定已装插件在该 Agent 上的行为，核心配置不为扩展
-插件设专属字段。运行期动态注册时留存返回的 disposer 手动撤；插件行内注册
-则永远不用碰它。
+`tools` 可为白名单或 `{include?, exclude?}`，条目支持 `'tag:<tag>'` 引用
+（resolveToolNames 展开为 requiredTags 含该标签的全部工具名——**点名不解锁**，
+能力面仍由 `tags` 裁决；展开为空/字面名落空经 router warn 告警，不静默）。
+心智模型：**tags = 钥匙圈**（解锁工具可见性），**include = 围栏**（收窄唯一
+手段）；`tags` 兼作档位单源（full-access > sandbox-access > 缺省 base，tierOf
+判定）与 tc-* 模式词宿主（tc-programmatic/tc-none，缺省 tc-base——会话可经
+conv-settings toolMode 覆盖）；`settings[具名]`键 = 稳定单元名（行名 / 动态
+插件 manifest.name），值 = 插件自定配置——行组合决定装哪些插件，settings
+决定已装插件在该 Agent 上的行为，核心配置不为扩展插件设专属字段。运行期
+动态注册时留存返回的 disposer 手动撤；插件行内注册则永远不用碰它。
 
 ## per-Agent 配置与门控（现状 API）
 
@@ -297,7 +314,9 @@ sandbox-access > 缺省 base，tierOf 判定）兼 requiredTags 词表；`settin
      `{ name (= 行名，settings 键锚点), label, description, fields[],
      listeners: [{ event, role, description }] }`。扩展目录随行声明自动
      生长，不改消费方。
-6. 验证：`pnpm typecheck && pnpm test`；端到端冒烟 `pnpm smoke` / `pnpm dev`。
+6. 验证：`pnpm typecheck && pnpm test:unit`（日常快循环；集成件
+   `*.integration.test.ts` 走 `pnpm test`）+ 依赖门禁 `pnpm check:deps`；
+   端到端冒烟 `pnpm smoke` / `pnpm dev`。
 
 ## 测试模式（照 ac-llm/tests/router.test.ts）
 
@@ -332,3 +351,5 @@ sandbox-access > 缺省 base，tierOf 判定）兼 requiredTags 词表；`settin
 - 为 OpenAI 兼容平台手写协议/provider 薄行——配置 `llmProviders` 连接即可。
 - 动态插件撞保留字（内置注册名常量表）、不改 version 反复重装、自授 tags
   或注册他人 Agent。
+- 出厂工具不声明 requiredTags（默认开放 = 游离 tags 门禁外）——挂到已有
+  能力族优先，确属新域才建新词（对照 tag-system-report §七）。

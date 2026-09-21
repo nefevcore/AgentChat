@@ -6,6 +6,95 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Changed（grep 默认返回收敛——默认内联 50 条 + limit 参数 + total 恒报命中总数）
+- **默认页 250 → 50**（`ac-fs-search/src/index.ts`）：宽模式+宽路径的高频形态（画像 §④：单次 1413 命中）默认即触发截断，token 开销大——默认收敛为 50 条，需要更多时显式传参。`GREP_DEFAULT_LIMIT = 50`，`GREP_MAX_MATCHES = 250` 保留为 limit 上限；扫描硬顶 2000 不变。
+- **新增 `limit` 参数**（number，[1, 250]，缺省 50）：内联展示条数可调——上限即旧默认值，原全量行为经 `limit: 250` 完整保留。运行时钳制：越界/NaN 回落（≥1 取 floor、上限 250、非法回落默认），参数 schema 同步声明范围。
+- **total 语义恒定**：`total` 恒为命中总数（不受 limit 影响，硬顶截断时仍如实），`shown` 为实际内联数（新增进 description 文档）——命中规模信息不因默认页收敛而丢失。
+- **截断 note 指引更新**：超限提示新增「可传 limit 提高展示数（最大 250）」动作，与收窄 path/拆分 pattern 并列。
+- **测试**（`ac-fs-search/tests/fs-search.test.ts` +3）：默认 50 截断且 total=80/note 含指引；limit 250 全量内联无截断 note；limit 越界钳制（999→250、0→回落默认）。套件 16 全绿；typecheck / check:deps 0 错。
+
+### Changed（版本检查对齐自托管下载面——electron-updater 退役，2026-09 分发自托管裁决落地）
+- **版本检查双源化**（`ac-web-api/src/version.ts`）：主源改为自托管下载面 `http://47.110.63.135/manifest.json`（国内直连，releases[0] 即最新），失败降级 GitHub Releases API 兜底；任一成功入 TTL 缓存，双败 `checkFailed` 不垫假数据（原语义不变）。`DOWNLOAD_BASE` 常量导出；`system/version-check` 与 simulate 通道的 `latestUrl` 对齐下载主页（旧值 GitHub Releases——桌面安装包已不上传该处，链接失效）。
+- **桌面壳退役 electron-updater**（`desktop/main.mjs`）：CI 已改 `--publish never` 后 feed 指向的 GitHub Releases 永远拿不到新版本——换 ~30 行 manifest 检查：拉下载面 manifest 比版本，有新版发系统通知（点击打开下载页），三平台同构提醒制（macOS 行为不变）；fail-soft。`desktop/package.json` 删 `electron-updater` 依赖与 `publish` 配置。
+- **文案对齐**：VersionDialog 桌面模式「应用内自动更新」假文案换「下载页获取安装包覆盖安装」；「查看 Release」按钮换中性「获取安装包」（latestUrl 随源而变）。README 桌面版下载段改指下载页。
+- **测试**：version.test.ts fetchLatestRelease 用例扩双源（manifest 主源命中不打 GitHub / 兜底 / 双败 / 形状坏走兜底）；集成测试 simulate latestUrl 断言改下载主页。version 8 + port-b 37 + 集成 version 段 4 全绿；typecheck / webui:typecheck / check:deps 0 错。
+
+### Changed（输入框工具栏文案与象形——提权/工具调用模式按钮）
+- **提权按钮**：不再显示「提权·完全/提权·沙箱」合成词，按钮文案直接取当前档位名（默认权限/沙箱访问/完全访问——与菜单项 Label 同源对称）；三档象形分化——`shield`（默认）/`shield-half`（沙箱访问：半盾=白名单内半开放）/`shield-off`（完全访问：无盾=不受限），按钮图标随档切换。`shield-half`/`shield-off` 入驻 webui-kit icons（lucide）。
+- **工具调用模式按钮**：四档 Label 补全语义——默认工具调用/标准工具调用/程序化工具调用/无工具调用（按钮与菜单同源）；图标按调用方式分化——`settings-2`（默认：跟随 Agent 配置）/`mouse-pointer-click`（标准：逐个直调）/`braces`（程序化：run_code 代码编排，保留）/`message-circle`（无工具：纯对话），按钮图标跟随当前档。`settings-2` 入驻 webui-kit icons（lucide）。旧 `wrench`/`message-square` 引用退役（`message-square` 图标本就未注册，兜底图标误用一并修正）。
+
+### Changed（输入框编辑器转正 tiptap——旧 textarea+overlay 双层面退役）
+- **PromptEditor 单层渲染转正**：输入区改 tiptap v3（ProseMirror 纯文本段落 schema），文字与 token 药丸（/技能 @文件/Agent #会话）同 DOM 渲染——旧「透明文字 textarea + 同度量 div 遮罩」双层面的错位根因（编辑控件与 DOM 布局两条排版管线的引擎级差异：kerning/断行点/亚像素取整）在结构上不可能发生。数据面零变化：`getText('\n')` 与旧 v-model 字符串逐字节一致（send/草稿驻留/mention 数据模型不动）；token 检测单源 `mention.ts tokenizeMentionHighlights` 原函数喂 PM Decoration。
+- **键盘/IME/粘贴语义保持**：Enter 发送/忙态排队/Cmd+Ctrl 插话等键盘协议经 props 委托回 ChatInput；IME 组合原生处理（组合期不派发 activity——等价旧组合门）；文件粘贴拦截挂附件、纯文本粘贴经 schema 归一（富文本自动降级纯文本）；高度固定 3 整行（63px）+ 内滚 + 隐藏滚动条（与旧 textarea 面同策略）。
+- **程序性写入门**（`withoutActivityEcho`）：外部改值（发送清空/草稿恢复/mention 替换）与光标操作期间的 dispatch 回声不触发 mention 重检测——Tab 插入 token 后弹层稳定关闭。
+- **退役面**：`.ta-wrap`/`.ta-highlight`/透明文字 textarea/组合镜像（compositionMirror）/滚动同步（syncHighlightScroll）/highlightSegments CSS+JS 约 220 行删除；`mention.ts` 的 `buildHighlightSegments`/`HighlightSegment`（旧 overlay 分段器）删除；localStorage `chatinput:editor` 开关退役（tiptap 为唯一编辑面）。旧实现备份：Note/AgentChat/backups/2026-09-21-chatinput-overlay-retired/（转正前 ChatInput.vue 全文 + 本次 diff）。
+- **依赖**：ac-client-ui-conversation 增 @tiptap/core/pm/vue-3 + extension-document/text/paragraph（3.31.3，MIT，静态进 ConversationView chunk：336.76 kB / gzip 106.58 kB）。
+
+### Added（run_code worker 防退化护栏——引导链 + 快照回退，backlog 立项①）
+- **引导链三级候选**：dev `worker.ts` → 进程内快照 → tmpdir 磁盘快照（裁决：不做 git HEAD 第四候选——非所有用户装 git；bundle 仅发布形态存在，dev 检出下不依赖）。候选在 ready 握手前 error/非零 exit/exit(0)/10s 握手超时/协议版本错配 → terminate 换下一候选；全部耗尽 → 可诊断错误（附恢复指引）。检测边界仅限 `workerReady=false` 阶段——程序自身错误不触发降级，dev 行为不被护栏遮蔽。
+- **快速路径**：spawn 前对 dev 源码做 strip 试擦除，语法坏直接跳过 dev 候选（省一次 spawn 周期）；strip 通过仍可能运行期坏，握手检测兜底。
+- **引导快照**：run 顺利收到 done（= worker 机制完整存活证据）即把本次 spawn 读到的 dev 源码擦除后缓存（内存 + tmpdir 磁盘 hash-gated 写入；裁决：tmpdir 可接受——重启丢失只是回到无护栏基线）。时效性闸 = `PROTOCOL_VERSION`（protocol.ts 新常量，ready 消息携带互认）——版本错配拒用快照并告警，防陈旧快照与主线程协议错配。
+- **降级可见**：走了快照回退的 run 在 output 顶层附 `bootDegraded` 告警（dev worker 引导失败原因 + 快照可能落后提示 + 修复后自动恢复）；ready 消息被握手探针消费的竞态经 sendInit 幂等补发修正。
+- **测试钩子** `__runCodeTestHooks`（setMemSnapshot/seedDiskSnapshot/seedLibStore/libStoreKeys）——事故场景不能真改 worker.ts，以注入形态验证。
+- **测试**：run-code 集成 +3（成功 run 刷新快照 / 正常路径零降级告警 / 快照落盘多候选共存不干扰）。dev 坏态全链路验收（手动改坏 worker.ts → 自动降级）留手动清单。run-code 域 81/81 + typecheck 全仓 0 错。
+
+### Changed（run_code lib 注册表自愈——无参清单纯静态化 + 坏条目自动剔除，backlog 立项③）
+- **`lib.resolve()` 无参 → 纯静态清单摘要**（裁决 #2：未指定执行函数则不予任何执行）：`{ 名: { kind, size, preview } }`，不执行任何库源码——旧形态全量求值有执行副作用 + 单条坏库炸整次列举两宗罪。具名 `resolve('名')` 仍返回求值本体（使用路径不变）。SDK 投影（DEFAULT_GUIDANCE）与工具描述文案同步。
+- **坏条目调用期自愈**：函数形态库值经包裹层——调用爆 ReferenceError 时改写为可读错误（指向 define 闭包陷阱 + 修复指引，`fn.toString()` 不携带闭包环境），并记入 `libRotted` 随 done 带出；主线程从会话级注册表剔除，下 run 起不再注入。try/catch 吞掉异常不遮蔽剔除事实；与「失败 run 不回写」正交（剔除的是存量坏条目，本程序新 define 的回滚语义不变）。`name`/`length` 透传，sync 函数保持同步（Promise 结果挂 .catch 装饰）。
+- **行为变更说明**：无参 resolve 旧语义（全量求值对象）的既有测试断言已随语义更新；模型侧引导文案已同步。
+- **测试**：run-code 集成 +5（无参摘要形态 / 清单纯静态 vs 具名求值对照 / 坏库可读错误+rot 剔除 / 被吞掉的 ReferenceError 也剔除 / 好库零干扰回归）。
+### Fixed（edit 括号配平预检报错定位具体化——字符偏移 → 行号 + 行预览）
+- 配平失败原因中的裸字符下标（如「位置 124732」——编辑后内容的偏移量，对人与模型均不可读）换算为「第 N 行第 C 列（该行内容预览）」，行号口径与 read 工具一致；未闭合类错误（栈残留）原先不带任何位置，现指向未闭合开括号/反引号所在行。报错明示坐标按编辑后（被拒绝、未写盘）内容计，避免按现盘文件行号对不上。栈内部记号 'T'/'P' 进文案时转为人话（模板字面量 / 模板占位符）。
+- 测试：edit-core +2（多余闭括号指向出错行 / 未闭合开括号指向开启行，均断言文件原状）。
+
+### Added（grep 工具画像治理——09-20 会话画像 §①③④⑤ 四项框架侧优化）
+- **grep `fixed: true` 字面量直通（画像 §①——88% 失败单类消灭）**：09-20 会话画像中 grep 失败 25 次里 22 次为同一形态——函数调用式当正则（`close(`、`this.journalStep(` 等括号/点未转义的 "Unterminated group"）。新增 `fixed` 参数：pattern 按原样文本匹配（自动转义全部正则元字符），不做正则解释。参数面经注册表同源投影自动透出 run_code SDK 与顶层工具面（零投影层改动）。既有「转义建议」提示保留为双保险，0 命中分支的提示语同步升级为直接给出 `fixed: true` 等价形式。
+- **walk 缺省跳过构建产物目录（画像 §③——产物命中污染）**：`ac-glob-core` SKIP_DIRS 分层化——`SKIP_BASE`（VCS/依赖/缓存，与用户意图无关）+ `SKIP_DIRS`（叠构建产物 dist/release/out/build/coverage/.vite/.cache 等）。缺省跳过；`walkOptions.skipDirs` 整表覆盖（明确要搜产物时传 `SKIP_BASE` 稳定引用）；`walkFiles` 返回 `skippedRoots`（根层被跳过段），glob/grep 结果 note 透出「已跳过构建产物/依赖目录——确需搜产物时 path 直接指向该目录」。动机：画像中无 path 概念搜索的 60+ 文件命中近半落在 dist/desktop/release 等生成物（`durable-interaction` 267 命中/60 文件），真实源码另在 src/ 下，产物命中纯噪声且吃掉 250 内联预算。
+- **grep/glob 路径不存在 → 近邻目录建议（画像 §⑤——猜名失误）**：error 附「最近邻目录（是否想搜）」（父目录兄弟中编辑距离 ≤2 的目录名，如 `src/ac-skills` → `src/ac-skill`）。保守设计：只建议同层目录、不自动改写；path 不支持通配（`src/ac-plugin*`）的失误也被覆盖。
+- **宽结果 note 增强（画像 §④）**：超过内联上限的提示补充命中文件数与具体收窄指引（收窄 path 到具体包/目录，或拆分交替分支 pattern）——画像中 `inject|注入` 单次 1413 命中/62 文件的形态，提示语直接指向两类收窄手段。
+- **测试**：glob-core +2（SKIP 分层断言/skipDirs 覆盖）、fs-search +4（fixed 直通 + 字符类交叉验证/近邻建议命中与无近邻不提示/产物默认跳过 + note 透出 + path 直指产物目录仍可搜）。glob-core 11/11 + fs-search 13/13 + typecheck + check:deps 全绿。
+### Fixed（run_code 模板串转义税治理——SDK 投影引导 + 擦除失败修复提示，backlog 立项②）
+- **SDK 投影纪律行（方向二）**：`DEFAULT_GUIDANCE` 新增「字符串书写纪律」——模板串内嵌反引号是头号擦除失败源（09-20 画像 §② 占失败 2/3，11-19 三次实证升回该修项）：内嵌反引号须转义（`用 \`pwsh\` 执行`）或改用单/双引号串；多行文本优先 ['行1', '行2'].join('\n') 拼接；模板串内字面 ${ 写 \${。run_code 工具体 code 参数描述同步收编（并存形态下的唯一引导面）。
+- **擦除失败修复提示（方向一轻量版）**：worker 程序体与 lib 源码的类型擦除失败不再裸报 parse error——按源码特征附针对性正解（源码含反引号 → 转义示例 + join 拼接建议；含 ${ → 字面量转义指引；无命中保留 enum/命名空间/参数属性通用指引）。
+- **测试**：projection +1（纪律文本断言）；run-code 集成 +2（坏形报错带修复提示 + 转义正解可执行自证）。正解自证用例自身踩了「JS 单引号串中 \` 反斜杠被吃」的转义坑（修正为 \\ 后通过）——转义税现场再实证。run-code 集成 50/50 + projection 9/9 + smoke 通过；typecheck 对 run-code 系零错误（ac-session 两处既有错误属另条在途工作流）。
+### Changed（ask_questions 挂起重构——loop/run-idle 自然停点拦截，src/docs/ask-questions-suspension-plan.md）
+- **工具体退化为发起体**：ask_questions 的 execute 不再内部阻塞等待（原 ~150 行四重等待：replied 事件 + 150ms 轮询 + deadline + signal）——校验归一 → durableInteraction.open（write-ahead 不变）→ session.recordContext(source:'durable-interaction')（run 活跃时落 partials.jsonl journal 注入行，消费点真序提升）→ 即返 `{status:'awaiting_user', interaction_id, questions, notice}`。等待脱离工具执行环境，归系统持有。
+- **loop/run-idle（新事件，waterfall/@scope run）**：run 自然停点（无工具调用且 steer 已消费尽）先不收束，领域行可注入材料续走**同 run**（消息数组连续，KV 前缀稳定）。注入位置 = messages 头部（紧邻 system——跨续走前堆栈形态唯一稳定安全位）；续走步不占 maxSteps 预算（budget 计数与步序 index 分离——修复初版 index-- 导致的步序重复、settlement 折叠吞步）；挂起中 abort → interrupted 收束。无监听器时行为与旧版逐字节一致（恒等性测试锁定）。
+- **ac-ask-questions idle 监听器**：登记表（id → agent+conversationId）对账本 run 打开的交互——挂起等 replied/closed（+轮询双保险+deadline 自查 close('timeout')），答案经 answerNotice 注入 user 语义位消息续走；超时注入「未响应」通知由模型自行决断。登记表同时在 abort/收尾时清账——late-reply 据此精确判定「run 已死」（替代旧 listRunning 探测）。
+- **late-reply 精确化（裁决 #4）**：run 死后作答回投仍走 deliver(sender:'event')，但移除 backfillToolResult 补记——新形态 partial 步行 result=awaiting 标记（非 null），stepsComplete 门天然满足，无需补记。活续走与崩溃恢复产出相同会话转录形状（ask 步 + context 答案行）。
+- **ac-run-code 语义（裁决 #2）**：run_code 内调用 ask_questions 即返 awaiting——程序体无法在本 run 拿到答案做分支（接受），notice 文本引导收尾；预算冻结的 ask 分支退役（冻结机制保留给 approval 等挂起交互，budget-freeze 测试改用通用挂起探针验证机制本身）。
+- approval 不动（裁决 #3：门禁判定语义，保持挂起形态）。
+- 测试：loop +6（run-idle 专项）/ ask-questions 重写 16 + 全链路 4（loop+di+ask 同装配：挂起-作答-同 run 续走/中断/超时/session 缺席降级）/ budget-freeze 重写 5 / singles-refresh 全链路适配（收束行折叠形态断言）。事件目录锁定清单 +loop/run-idle。
+
+### Added（lib DX 增强——直调糖 + 自由变量告警，2026-11-19 会话实证驱动）
+- **直调糖**：lib 的属性访问改 Proxy 代理——`lib.已注册名(...)` 与 `lib.resolve('名')(...)` 同通道同结果。Agent 误把 lib 当 tools 用（`lib.add({a,b})` 形态——会话实测确认的高频误用）不再裸炸 `TypeError: lib.add is not a function`：正确调用直接成功，未注册名给带注册指引的错误。保留名集合（define/resolve/then/catch/finally/toJSON/valueOf/toString/constructor）穿透不误炸（防 Promise 探测与 JSON.stringify 误入注册表）。
+- **自由变量告警**：`lib.define` 期词法扫描函数体内的自由变量（非参数/非局部声明/非白名单全局）——`lib.define('trap', (s) => s.slice(0, LIMIT))` 这类闭包捕获形态在注册时即返回 warning（`fn.toString()` 只带走源码不带闭包环境，跨程序调用必炸 ReferenceError，而注册/resolve/同程序直调全成功——「测试时好、复用时炸」的静默陷阱在 define 期露头）。告警不拒绝（词法近似，误报可容忍）；SDK 投影同步双形态教学。
+- 测试 +5：直调糖等价性 / 闭包捕获告警 / 自包含零误伤 / 保留名穿透 / 未注册指引。run-code 66/66 全绿。
+
+### Fixed（run_code 工具链 DX 五连修——2026-11-19 使用画像 Ⓐ/Ⓑ/Ⓒ + 09-20 追记）
+- **edit 行尾归一化 + CR 双写治理（画像 Ⓑ，一级痛点：28% 失配率根因）**：① old_string/new_string 进匹配空间前自动 LF 归一化——模型从 read 复制的文本带 CRLF 不再失配，new_string 的 `\r\n` 不再被写回行尾恢复叠加产出 `\r\r\n`（一次行尾损伤放大成 27 次连环失配的链条在源头切断）；② 读入时修复存量 `\r{2,}\n` 损伤（`repairDuplicatedCr`，结果 `repairedCr` 处数回显）+ 写回终检双向堵截；③ 失配错误附定位线索（old_string 某行与文件第 M 行全等 → 失配在附近其他行；或最接近实际行）与行尾统计诊断——一行线索顶十次盲试。
+- **pwsh/bash 结果分类（画像 Ⓐ：统计口径失真 + 模型误判风险）**：退出码非 0 拆两类——`failure_class: "command-feedback"`（命令按预期运行后的非零退出：测试红灯/断言失败/grep 无命中——ok=true，输出与退出码保留在 output，引导语随 note 送达）与 `failure_class: "invocation-error"`（命令未跑起来/语法失败：ParserError/command not found 含中文 PowerShell 本地化形态——ok=false + error）。vitest 红灯反馈环不再计入工具失败统计；SDK 投影同步教学（不要因非零退出码误判链路故障绕路重试）。
+- **grep 转义建议（画像 Ⓒ）**：pattern 编译失败或 0 命中且含未转义正则元字符（`async records(` 类函数名直接当 pattern 形态）→ 附转义后的建议 pattern，一条信息修复全部同类失配。
+- **lib.define 即时诊断（09-20 追记 Ⓐ）**：value 为对象/数组/数字等非源码形态时当场抛带正确示例的指引（对象无法跨程序传递——注册读取/加工逻辑的函数），不再静默错值到 resolve/调用点才炸。
+- **load_skill 注入型语义显式化（09-20 追记 Ⓑ）**：工具 description 标注「返回值只有回执（status:"injected"），正文不进返回值——程序内判定成功看 status，不要把返回值当数据处理」。
+- 测试：edit-core +6（CR 双写回归）、shell-foreground +3（分类语义）、fs-search +2（转义建议）、run-code +2（define 诊断）；typecheck 全绿 + 单测 1872 通过（webui port-b 1 例为工作区既有日期敏感失败，与本轮无关）。
+
+### Added（标签配置抉择组——分组内 tag 合一为下拉单选）
+- **目录元数据**：`TagDeclaration` / `TagCatalogEntry` 新增 `exclusive`（抉择组名，同组互斥）与 `exclusiveNone`（组内「都不选」缺省词——进目录但不落词，缺席即语义）。三组挂载：access-tier（base-access **显式进目录**补全分组 / sandbox-access / full-access）、tool-mode（tc-none / tc-base / tc-programmatic）、browser-tier（observe / manipulate / inject，ac-web-tools 声明）。
+- **前端**：AgentPane 分组区混合渲染——抉择组聚合为「启停胶囊 + 换档弹层」（新组件 `TagChoice.vue`：左半启停开关——on 亮色显当前档、off 幽灵态显缺省档；点击停用回组缺省/启用恢复上次选择或首档；右半 chevron 弹层换档——两行选项、check 选中态、document 点外关闭、单开原则，对标 ChatInput dd-menu 交互模式；组内普通词如 web 照常徽章）。落词单源 `ac-client-ui-agents/client/tagExclusive.ts`：同组至多一词、exclusiveNone 缺省词不写入 tags（wire 形态不变）、tier 族选高层连带写齐全部低层词（browser 组选 manipulate/inject 连带 observe——requiredTags AND 地板）。目录不可用（行未装配）时回落既有徽章形态，行为不变。
+- **判定面零改动**：tierOf / toolModeOf / browser 层级门禁（tier=max）全部基于「tags 含某词」原语，不消费 exclusive 元数据——落词一致即语义等价。存量 tags 多词并存的手工编辑旧态反解为 items 序最高词（展示层宽容）。
+- **标签短名化**（后续打磨）：描述已足够承载语义，名称收短——label 表三组抉择词/browser 层级词/能力族全部收 2-6 字短名（如 沙箱档/完全访问/程序化/无工具/观察/交互/注入/历史回放）；展示名取值链 = label 表 → description 冒号前段（目录约定首段即短名）→ tag 本名，后端 RESERVED/web-tools 声明的 description 首段同步收短（弹层首行/胶囊启用态文案单源）；普通徽章与回落徽章去掉 tag 本名前缀（只显短名，全信息在 tooltip）。
+- **关闭态描述**（后续补强）：无缺省词的组（如 browser-tier）关闭态只显「关闭」二字，组意义与全关后果无处表达——新增 `exclusiveOffDesc` 声明字段（合组一致，声明方提供）。呈现：关闭态胶囊置灰已表达状态，文案直接写描述（无缺省词组 = offDesc，如 browser-tier 的「停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响」；有缺省词组 = 缺省词自身 description，目录单源）；弹层顶部补「关闭（都不选）」选项（原本只在左半启停，弹层无入口）。
+- **点外关闭**（后续修复）：TagChoice 弹层原 document click 监听在设置面板壳内失效——壳层 `sp-panel @click.stop`（SettingsPanel.vue）拦截了冒泡，事件到不了 document（ChatInput 在主视图无此壳层，同款写法恰好能用）。改捕获阶段 `pointerdown` 监听 + `rootEl.contains(target)` 容器判定——捕获从 document 往下走，任何祖先的 `@click.stop` 都拦不住（弹层外点关闭的结构性修法）。新增 `tag-choice.test.ts`（6 例：开合/落词/点外关闭，含「祖先 @click.stop 不阻断关闭」回归用例）。
+- **测试**：新增 `tag-exclusive.test.ts`（9 例：聚合/反解/落词规则）与 `tag-choice.test.ts`（6 例：胶囊交互）；tag-registry 测试补 base-access 进目录与 exclusive 透传断言。typecheck 全绿（根 tsc + webui vue-tsc）+ 单测 1843 通过。
+
+### Fixed（桌面壳桥端口三重失效——listen EACCES 整壳崩溃事故）
+- **现象**：部分 Windows 用户启动桌面端弹 "A JavaScript error occurred in the main process: listen EACCES 127.0.0.1:3831" 后整壳退出。根因三重叠加：① 桥端口（后端口+1）从不探测验证——Windows Hyper-V/WinNAT 动态排除区可覆盖任意高位口（3830 落块外而 3831 恰落块内即触发）；② `startBridge` 用同步 try/catch 包异步 `listen()`——EACCES 经 error 事件抛出，catch 永远捕不到（虚假防御）；③ 桥 server 无 error 监听 + Electron 主进程无 uncaughtException 兜底 → 默认弹窗整壳崩溃。
+- **P0（修虚假防御）**：`startBridge` Promise 化（resolve 实际监听口 / reject listen 错误）+ `srv.once('error')`；编排层 catch 后降级日志——桥起不来 = 设置面板存储节隐藏，其余功能不受影响（真正兑现原注释的"非致命"承诺）。
+- **P1（端口防御链）**：桥候选序列 `pickedPort+1 → +4` 逐个试绑（壳层），前端 `bridge.ts` 同序列探测（首个探活成功者胜出并缓存基址）——排除区命中/被占/随机口落保留块边缘等"端口对"耦合故障全部消除。顺带补齐桥 CORS：桥口与页面口不同源，无 CORS 头则浏览器拦死跨源 fetch（此前端口没被占面板也看不见）；仅放行回环 Origin（与 ac-web-server checkRequestOrigin 同口径）。
+- **P2（纵深兜底）**：main.mjs 加 `uncaughtException`（留现场落盘 backend.log + 显式错误框 + 杀后端树后退出）与 `unhandledRejection`（落盘不退出）——下一次任何路径的异步异常不再裸弹 Electron 默认框。
+- **测试**：新增 `ac-client-ui-desktop-storage/tests/desktop-bridge.test.ts`（5 例：EADDRINUSE reject / 成功 resolve+CORS 应答 / 非回环 Origin 拒绝 / 候选序列顺延）；vitest.config.ts 增 electron alias → `desktop/tests-support/electron-shim.mjs`（测试态垫片，生产打包不经 vitest）。桥测试 5/5 + webui/web-server 定向 490 例 + 根 typecheck 全绿。
+
 ## [0.8.10] - 2026-09-18
 
 ### Fixed（忙态投递测试断言时序——settleToolMode 异步化后同步断言扑空）

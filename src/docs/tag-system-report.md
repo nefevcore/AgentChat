@@ -15,19 +15,19 @@
 | `web` | web_search | ac-web-tools | 有手工声明（分组元数据） |
 | `web` + `observe` | browser | ac-web-tools | observe 是动作分层族（见 §1.3） |
 | `collab` | send_agent / send_group / list_agents / list_groups / read_agent_info / update_agent_profile | ac-collab-tools | 多 Agent 协作族；**list_tools 不在此**（单 Agent 也要自省 → infra） |
-| `infra` | ask_questions / goal / todo / timer / math / hello / load_skill / read_history / grep_history / list_tools | 各所属行 | 会话基础设施（2026-09-16 新建） |
+| `infra` | ask_questions / goal / todo / timer / math / hello / load_skill / read_history / grep_history / list_tools | 各所属行 | 会话基础设施（2026-09-16 新建；run_code 已移出——2026-12 注入轴重构，改 injection:'mode' 不挂标签） |
 | `delegation` | subagent | ac-subagent | 任务委派；子 Agent 派生身份**剥除此词**（防递归 spawn） |
 | `dev` | read_logs / reload / reload_modules | ac-dev-tools | 开发调试面 |
 | `admin` | system_restart / register_plugin / unregister_plugin / install_plugin | ac-restart / ac-plugin-registry | 宿主级管理动作；子 Agent 派生身份**剥除**（防越权） |
 | `sap-adt` | adt_*（32 个） | ac-sap-adt | 领域插件先例 |
 
-### 1.2 档位标签（access-tier——reserved，**永不进 requiredTags**）
+### 1.2 档位标签（access-tier——reserved，**永不进 requiredTags**；抉择组 `exclusive:'access-tier'`）
 
 | 标签 | 语义 | 判定 |
 |---|---|---|
 | `full-access` | 不受沙箱限制（人工授予的信任） | tierOf：tags 含即生效（full 优先） |
 | `sandbox-access` | 工作区白名单内自由 | 同上 |
-| （缺省）`base-access` | base 档：写类工具需审批/白名单 | 无任一档位词即 base |
+| `base-access`（exclusiveNone） | base 档：写类工具需审批/白名单（**2026-12 进目录**——抉择下拉需显式缺省项；落词不写，缺席即语义） | 无任一档位词即 base |
 
 档位词与能力词**正交**：能力词管"能看见什么工具"，档位词管"工具执行时的权限高度"。混用被启动期断言拦截（§五.4）。
 
@@ -35,7 +35,7 @@
 
 | 标签 | 声明方 | 形态 |
 |---|---|---|
-| `observe` / `manipulate` / `inject` | ac-web-tools | browser 动作分层（tier:true 层级族：低 ⊂ 高）；browser 工具的 requiredTags 是 `['web','observe']`，分层靠 before-execute 按 action 判定——声明只提供目录展示与配置语义 |
+| `observe` / `manipulate` / `inject` | ac-web-tools | browser 动作分层（tier:true 层级族：低 ⊂ 高；抉择组 `exclusive:'browser-tier'`——UI 下拉单选，选高层连带写齐低层）；browser 工具的 requiredTags 是 `['web','observe']`，分层靠 before-execute 按 action 判定——声明只提供目录展示与配置语义 |
 
 ### 1.4 退役与保留词
 
@@ -98,6 +98,7 @@
 |---|---|---|
 | 标准模式 `__standard__` | fs / collab / infra / shell / web / delegation | —（全量可见面） |
 | 极简模式 `__dsh_minimal__` | fs / shell / infra / fs_minimal | include: str_replace_editor + tag:shell |
+| 创造模式 `__creator__` | fs / infra / shell / web / delegation / dev / admin | —（标准同构 + dev 调试面 + admin 插件装卸；skill 面保留，开发指南经 system 提示词内置） |
 | ABAP 开发 `__abap_dev__`（sap-adt-preset 子行） | sap-adt / shell / web | — |
 
 ## 七、防漂移守则（新改动 checklist）
@@ -111,6 +112,7 @@
 - [ ] 命名：小写单词（连字符罕用），不得 `agent:` 前缀，不得与档位词/已有词撞名（查 tag-registry catalog）
 - [ ] 出厂族词 → 预注册进 RESERVED（带面向用户的短描述）；需要分组/层级展示 → tagDeclarations（tier:true 仅用于"低 ⊂ 高"分层族）
 - [ ] 有工具消费 requiredTags、无消费纯领域词才走声明——双源对同一词合法（描述取声明、工具清单取并集，browser 先例）
+- [ ] 同组互斥词（如动作分层三选一）→ 声明挂 exclusive: '<组名>'（UI 聚合为下拉单选）；组的缺省项挂 exclusiveNone: true（进目录但不落词——缺席即语义）。判定函数不得消费 exclusive 元数据（落词规则保证一致态，2026-12 抉择组升级）
 - [ ] 涉及存量授权面 → 优先"用户手工改 + 落空告警兜底"（基础族自动补齐迁移已按此裁决移除，勿"顺手恢复"）；确需读边界归一（改名类）参照 conductor→delegation 范式
 
 **改标签语义 / 改名**：
@@ -137,6 +139,9 @@
 | access-tier（2026-12 规划） | 档位标签 full/sandbox 入 tags；双轴门禁定型 |
 | 2026-09 早 | fs_minimal 建立（str_replace_editor 移出默认面）；tag-registry P1（词表显式化 + 断言）；tag: 引用（resolveToolNames）；browser 动作分层声明（tagDeclarations 先例） |
 | 2026-09-16 | **全量标签化**：fs/collab/infra 三族补齐、base 退役（目录侧）、平台拆分 pwsh/bash、子 Agent 派生注册身份、tag:shell 占位解析、空展开告警 + 字面名落空告警、README 出厂限定语（详见 tags-include-semantics-report.md §四与本批提交）。同日终态裁决：**基础族自动补齐迁移（normalizeUniversalTags + 一次性标记）整体移除**——tags 完全以用户/预设配置为准，仅留 agent-admin 新建缺省与语义存档注释 |
+| 2026-12 | **抉择组（exclusive）**：目录条目挂互斥元数据——access-tier（base-access 显式进目录）/ tool-mode（tc-*，2026-09-17 标签轴）/ browser-tier（声明组）三组在 Agent 配置 UI 合一为下拉单选；落词单源 ac-client-ui-agents/client/tagExclusive.ts（同组至多一词、exclusiveNone 不落词、tier 族连带写齐低层）；判定面零改动 |
+| 2026-12 | **创造模式 `__creator__`**（插件开发预设，ac-agent-presets-builtin）：标准同构 + dev + admin（插件装卸三件套）；无新词——dev/admin 均为既有词复用；skill 面保留（差异化）；ABAP 开发 order 3→4 顺延 |
+| 2026-12 | **注入轴（injection）重构**：run_code 摘 requiredTags 改 `injection:'mode'`——不进常规工具面（与 tags 无关），tc-programmatic 档经 narrowToolsByMode 从注册面直接合成；「授权词 = infra」语义退役。同批：excludeForms 轴整体撤销（实施偏差），交互性改 `requiresInteraction` 布尔（self 会话自动排除，formDeniedBy 单源）；system_restart 撤 single 限制（正常工具）。启动断言扩：mode 工具禁挂 requiredTags |
 | 待办 | 程序化模式 `__programmatic__` 预设（含新标签 `code-exec`——首个后标签化时代新建词，按 §七守则走预注册） |
 
 ## 九、快速定位索引
@@ -148,6 +153,7 @@
 | 能力判定/展开纯函数 | `src/ac-agents/src/service.ts`（capabilitySetOf / toolAllowedFor / tierOf / resolveToolNames / UNIVERSAL_TAGS——基础族常量，agent-admin 新建缺省消费） |
 | 执行门禁（权限轴/黑名单/扫描） | `src/ac-security/src/index.ts` |
 | 目录 RPC（tags/catalog） | `src/ac-tag-registry/src/service.ts` catalog() |
+| 抉择组落词（exclusive UI 语义） | `src/ac-client-ui-agents/client/tagExclusive.ts`（聚合/反解/落词单源）+ `TagChoice.vue` 启停胶囊（左半启停/右半换档弹层）+ `AgentPane.vue` 分组区 |
 | 落空告警接线 | `src/ac-router/src/service.ts`（信封装配处） |
 | 预设占位解析 | `src/ac-agent-presets/src/index.ts`（tag:shell → 平台字面名） |
 | 归一消费点 | `src/ac-agent-store/src/service.ts` getAgent（conductor/hooks 两条；基础族补齐已移除） |

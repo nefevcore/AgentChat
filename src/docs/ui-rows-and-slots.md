@@ -227,7 +227,7 @@ settings 树（SettingsPanel 内，非 root 子树）：
    （编辑编排/数据面随域，壳只管选举与全局保存）。左树数据化：贡献
    meta.section（选举键）/ meta.label（叶词条）+ 顶层 order（叶序轴）
    ——左树平铺叶自席位条目派生（sectionTree.ts），行装卸叶/节同步
-   退场；默认选中守卫回落偏好叶 llmPools 否则首叶〕
+   退场；默认选中守卫回落偏好叶 agents 否则首叶〕
    ├─ agents(10)        → AgentSettingsHost（label「Agent 设置」）[ui-agents]
    ├─ llmPools(20)      → LlmPoolsHost → PoolManager（label「模型管理」）[ui-llm-pool]
    ├─ searchPools(30)   → SearchPoolsHost → SearchPoolManager（label「搜索引擎」）[ui-search-pool]

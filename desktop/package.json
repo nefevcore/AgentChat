@@ -12,9 +12,6 @@
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir"
   },
-  "dependencies": {
-    "electron-updater": "^6.6.2"
-  },
   "devDependencies": {
     "electron": "^39.2.0",
     "electron-builder": "^26.0.12"
@@ -37,14 +34,6 @@
         "from": "../dist",
         "to": "agentchat",
         "filter": ["**/*"]
-      }
-    ],
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "nefevcore",
-        "repo": "AgentChat",
-        "releaseType": "release"
       }
     ],
     "win": {

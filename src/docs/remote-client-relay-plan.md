@@ -402,12 +402,15 @@ git raw（HTTPS）取 manifest（可信），安装包从服务器取（快）�
 3. **主页**：服务器静态 `index.html` fetch manifest.json 渲染版本列表
    （平台/版本/大小/sha256 折叠展示），顶部显示剩余下载配额
    （fetch download-gate `/api/quota`）——零服务端渲染，仍是静态面；
-4. **桌面自动更新改造**（牵连点）：`desktop/main.mjs` 的
+4. **桌面自动更新改造**（牵连点，✅ 2026-09-21 已落地）：`desktop/main.mjs` 的
    electron-updater feed 指向 GitHub Releases，安装包搬走后失效——
-   退役 electron-updater，改为 ~30 行 manifest 检查（git raw 取
-   manifest → 比版本 → 提示「前往下载」打开主页），三平台同构
-   （macOS 本就只提醒不自动装，行为不变）；安卓 App 同构
+   已退役 electron-updater，改为 ~30 行 manifest 检查（直接取下载面
+   manifest → 比版本 → 提示「前往下载」打开主页；裁决放宽：不经 git raw
+   中转——检查走 HTTP manifest 本身，完整性校验在安装包下载页侧 sha256），
+   三平台同构（macOS 本就只提醒不自动装，行为不变）；安卓 App 同构
    （§4.4 已定）。静默自动升级（NSIS `/S`）留作后续可选。
+   同批落地：WebUI `system/version-check` 双源化（下载面 manifest 主源 +
+   GitHub 兜底，`ac-web-api/src/version.ts`）。
 
 **选型**（实测依据：Win 安装包 92MB、webui dist 3.9MB、安卓 APK
 预估 ~30MB——全家福 ~150MB/版本）：

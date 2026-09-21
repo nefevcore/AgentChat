@@ -1,7 +1,6 @@
 ---
 name: agentchat-framework-dev
-description: 开发 AgentChat 框架本身（src/ 轨道）：新增或修改能力域服务、契约与事件目录、注册中心、组合根。面向"造插槽"的人——决定什么成为 Service、什么成为事件、什么留在纯库。
-whenToUse: 任务涉及修改 src/ 下的能力域服务、契约与事件目录（ac-llm/ac-tools/ac-agent-loop/ac-conversation/ac-router/ac-agents/ac-session/ac-plugin-registry 等）、注册中心实现、cordis.yml 与 ac-app 组合根、vendor 基座（cordis/loader/include），或新增一个能力域时使用。若只是写一个消费已有服务/事件的插件行，改用 agentchat-plugin-dev 技能。
+description: 开发 AgentChat 框架本身（src/ 轨道）：新增或修改能力域服务、契约与事件目录、注册中心、组合根（cordis.yml/ac-app/vendor 基座）——决定什么成为 Service、什么成为事件、什么留在纯库。只写消费已有能力的插件行时改用 agentchat-plugin-dev。
 ---
 
 # AgentChat 框架开发（src/ 轨道）
@@ -27,7 +26,7 @@ Cordis 是**用于构建框架的框架**。AgentChat 框架的开发不是"写�
 | 注册中心范例（fiber 归属 + 懒实例化 / waterfall 执行链） | `src/ac-llm/src/service.ts`、`src/ac-tools/src/service.ts` |
 | 纯库范例（零 cordis 依赖） | `src/ac-openai-completions/src/index.ts` |
 | 组合根 | `src/cordis.yml`（行集与 `src/ac-app/src/index.ts` TREE 保持一致）；boot 入口 `src/ac-app/src/boot.ts` |
-| 设计档案（历史决策与裁决存档） | `src/docs/`（session-design、llm-provider-model-plan、m23~m25/m30 计划、security-access-tier-plan 等；已收官里程碑冻结于 docs/archive/） |
+| 设计档案（历史决策与裁决存档） | `src/docs/`（session-design、llm-provider-model-plan、security-access-tier-plan、tag-system-report、m30-slot-semantics-refinement-plan 等；收官过程文档冻结于 docs/archive/ 与仓库外归档根 docs-stale-2026-12——被取代的裁决不是待办，勿"顺手恢复"） |
 
 改对应域前先查 `src/docs/` 的设计档案——多数"新"能力已有踩坑沉淀与显式
 裁决点（含显式接受的缩水，勿"顺手恢复"）。
@@ -35,7 +34,8 @@ Cordis 是**用于构建框架的框架**。AgentChat 框架的开发不是"写�
 ## 链路速览（完整形见 README「端到端链路」）
 
 ```
-conversation.deliver（会话状态机：串行化门 + inbox 双队列 + MAX_AUTO_WAKES 防自激）
+conversation.deliver（会话状态机：串行化门 + inbox 双队列〔steer / next-turn 链跑〕
+  + MAX_AUTO_WAKES 防自激 + 待投持久化——崩溃/42 重启不丢）
   → router.send（纯转发，零会话状态）：waterfall 'router/before-deliver'（投递
     边界决策 seam）→ emit 'router/message-received'
   → agentLoop.run：三档装配链（before-run-first → before-run 主档 → before-run-last，
@@ -52,8 +52,15 @@ conversation.deliver（会话状态机：串行化门 + inbox 双队列 + MAX_AU
   独立会话 = sid）；sender = 端点 id；source = 'user'|'agent'|'event'。一切
   会话态按 conversationId 寻址。
 - 工具执行面（ac-session fail-closed checkpoint + ac-security 双轴门禁/脱敏/
-  唆使防御）、可视化层（web-server → ws-bridge → web-api → webui）的完整
-  装配见 README 对应节。
+  唆使防御 + elevation 穿线〔deliver → router → LoopRunRequest → ToolCall，
+  只升不降〕）、工具调用模式（tc-* 会话开关——conv-settings toolMode 覆盖 ??
+  toolModeOf(agent)，tc-programmatic ⇒ LLM 工具面收窄为 run_code 单工具）、
+  可视化层（web-server → ws-bridge → web-api → webui）的完整装配见 README 对应节。
+- 抉择组（2026-12 标签配置语义）：目录条目挂 `exclusive` 元数据（access-tier
+  / tool-mode 预注册组 + browser-tier 声明组）——Agent 配置 UI 把同组 tag
+  合一为下拉单选（含 exclusiveNone 缺省词——选它不落词，缺席即语义）。
+  纯前端落词规则（ac-client-ui-agents/client/tagExclusive.ts 单源）；判定面
+  （tierOf/toolModeOf/browser 层级门禁）全部基于「tags 含某词」原语，不动。
 - `AgentConfig.settings[具名]` 管 per-Agent 行为（见 plugin-dev 技能）；核心
   AgentConfig / LoopRunRequest 不为任何扩展插件设专属字段，扩展插件经事件按
   `request.agent` 查询配置。
@@ -63,7 +70,10 @@ conversation.deliver（会话状态机：串行化门 + inbox 双队列 + MAX_AU
 UI/Web 对接 = "事件订阅 + RPC 面"，核心域零 UI 知识：ac-web-server 传输
 基座（HTTP 路由 + WS 广播 + RPC 显式注册）→ ac-ws-bridge 把 emit 面
 （`router/*`、`loop/*`、`llm/delta-*` 等）桥接成 WS 帧 → ac-web-api 薄
-编排行注册业务 RPC → webui/ 前端。桥接/编排行不 inject 核心服务内部态。
+编排行注册业务 RPC → webui/ 薄壳 + ac-client-ui-* 前端行全族（浏览器
+ClientContext——类型身份不 augment 服务端 Context，防 TS2717 撞型；
+SlotRegistry 席位贡献 + boot graph 随行下发，行卸载级联收缩；与服务端
+经 RPC 契约面耦合，双向可独立摘除）。桥接/编排行不 inject 核心服务内部态。
 
 ## 五个设计决策（改框架前必须过一遍）
 
@@ -162,7 +172,8 @@ declare module '@agentchat/cordis' {
   group/singles/convSettings/memory/config/credentials/agentStore/
   agentPresets/subagents/jobs/browser/durableInteraction/timers/archive/
   usage/backup/workspace/webServer/webui/pluginRegistry/eventPolicy/
-  agentAdmin/skills/mcp/goals/todos/bench）。
+  agentAdmin/skills/mcp/goals/todos/bench）；另有浏览器侧 ClientContext 服务
+  （slots/objects，owning = ac-client-runtime）——不占服务端命名空间。
 - 包内 index.ts 是薄行：`export function apply(ctx) { ctx.plugin(XxxService) }`，
   再 re-export 服务类型。
 
@@ -207,7 +218,9 @@ declare module '@agentchat/cordis' {
    respectsEnabled?}`）——扩展目录随行声明自动生长，不改消费方。
 6. 测试：`ac-<domain>/tests/*.test.ts` 覆盖注册/回收/拦截/重名；事件目录
    进 event-catalog 静态检查（@mode/@scope/emit 末参）。
-7. 验证：`pnpm typecheck && pnpm test`，冒烟 `pnpm smoke`。
+7. 验证：`pnpm typecheck && pnpm test:unit`（日常快循环；整量/集成
+   `pnpm test`——集成件按 `*.integration.test.ts` 命名分档）+ 依赖门禁
+   `pnpm check:deps`；冒烟 `pnpm smoke`；动 webui 另跑 `pnpm webui:typecheck`。
 8. 更新 `src/README.md` 的契约归属总表与布局图。
 
 ## 兼容性红线（Node 原生 TS strip-only 加载器）
@@ -253,3 +266,5 @@ declare module '@agentchat/cordis' {
   `transform-*` waterfall；策略拦截落 `before-*`。
 - 新增事件不判作用域（run/host 编码门控可用性）；emit 事件末参出现函数。
 - 抢用 `internal/listener` bail seam（仅 ac-event-policy 策略行可用）。
+- 自建能力集合成/工具可见性判定——单源 capabilitySetOf/toolAllowedFor
+  （ac-agents），ac-security 执行复检与之同构，改一处必同步另一处。

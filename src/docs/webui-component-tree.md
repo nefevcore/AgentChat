@@ -326,7 +326,7 @@ SettingsOverlayHost [settings]               ⤷ overlay 席位（§2 ⑤；绑�
    │  条目派生〔sectionTree.ts deriveSectionLeaves：meta.section 选举键 /
    │  meta.label 词条 + 顶层 order 叶序轴〕。slots/changed 版本计数响应
    │  ——行装卸 → 叶与节同步即时出现/消失〔整枝退场〕；默认选中守卫
-   │  回落偏好叶 llmPools 否则首叶）
+   │  回落偏好叶 agents 否则首叶）
    │  ├─ agents(10) / llmPools(20) / searchPools(30) /
    │  │  pluginLibrary(40) / sys.timer(50)
    │  │                                      出厂五叶 = 五枚域行贡献
