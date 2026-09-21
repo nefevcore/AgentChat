@@ -13,10 +13,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Migration } from 'ac-migration-core';
 
-/** 单会话目录迁移：按 opts 分类剥离主文件行 → 目标文件追加；role 改写内联 */
+/** 单会话目录迁移：按 pass 分类剥离主文件行 → 目标文件追加；role 改写内联。
+ *  pass = 迁移标识（每次迁移单选一种改写——walkSessions 逐迁移调用） */
 function migrateSessionDir(
   dir: string,
-  opts: { roleV2: boolean; partialsSplit: boolean },
+  pass: 'role-v2-subcall-split' | 'partials-split',
 ): { roleRewrites: number; subcallMoved: number; partMoved: number } {
   const mainFile = path.join(dir, 'messages.jsonl');
   if (!fs.existsSync(mainFile)) return { roleRewrites: 0, subcallMoved: 0, partMoved: 0 };
@@ -42,13 +43,13 @@ function migrateSessionDir(
       }
       // M-partials-split（v2）：partial 步行 + 直调补行 → partials.jsonl
       // ——主文件零死重，补行是关闭行终值覆盖源，如实保留
-      if (opts.partialsSplit && (r.partial === true || r.type === 'tool-result')) {
+      if (pass === 'partials-split' && (r.partial === true || r.type === 'tool-result')) {
         partMoved++;
         parted.push(line);
         continue;
       }
       // M-role-v2（v1）：event/error → context + source（label 不补——UI 按缺省回落）
-      if (opts.roleV2 && (r.role === 'event' || r.role === 'error')) {
+      if (pass === 'role-v2-subcall-split' && (r.role === 'event' || r.role === 'error')) {
         const source = typeof r.source === 'string' ? r.source : (r.role as string);
         roleRewrites++;
         kept.push(JSON.stringify({ ...r, role: 'context', source }));
@@ -62,10 +63,16 @@ function migrateSessionDir(
   if (roleRewrites === 0 && subcallMoved === 0 && partMoved === 0) {
     return { roleRewrites, subcallMoved, partMoved };
   }
-  // 原子写主文件；目标文件追加（不存在则创建）
+  // 原子写主文件；目标文件追加（不存在则创建）。
+  // 迁移是形态改写而非新数据：rename 后恢复原 mtime——前端会话列表的
+  // lastActivity 取 messages.jsonl 的 mtime（ac-singles preview ←
+  // ac-session stats().updatedAt），不恢复则升级当次全量会话的时间戳
+  // 被重置为迁移时刻，列表全部落「今天」桶（2026-12）。atime 一并还原。
+  const prevStat = fs.statSync(mainFile);
   const tmp = mainFile + '.tmp';
   fs.writeFileSync(tmp, kept.join('\n'), 'utf-8');
   fs.renameSync(tmp, mainFile);
+  fs.utimesSync(mainFile, prevStat.atime, prevStat.mtime);
   if (moved.length > 0) {
     fs.appendFileSync(path.join(dir, 'subcalls.jsonl'), moved.join('\n') + '\n', 'utf-8');
   }
@@ -75,8 +82,8 @@ function migrateSessionDir(
   return { roleRewrites, subcallMoved, partMoved };
 }
 
-/** 目录树遍历（sessions/ 下全部 messages.jsonl） */
-function walkSessions(dataRoot: string, opts: { roleV2: boolean; partialsSplit: boolean }): { roleRewrites: number; subcallMoved: number; partMoved: number } {
+/** 目录树遍历（sessions/ 下全部 messages.jsonl）；pass 透传 migrateSessionDir */
+function walkSessions(dataRoot: string, pass: 'role-v2-subcall-split' | 'partials-split'): { roleRewrites: number; subcallMoved: number; partMoved: number } {
   const sessionsRoot = path.join(dataRoot, 'sessions');
   const total = { roleRewrites: 0, subcallMoved: 0, partMoved: 0 };
   if (!fs.existsSync(sessionsRoot)) return total;
@@ -85,7 +92,7 @@ function walkSessions(dataRoot: string, opts: { roleV2: boolean; partialsSplit: 
       if (entry.isDirectory()) {
         walk(path.join(d, entry.name));
       } else if (entry.name === 'messages.jsonl') {
-        const r = migrateSessionDir(path.dirname(path.join(d, entry.name)), opts);
+        const r = migrateSessionDir(path.dirname(path.join(d, entry.name)), pass);
         total.roleRewrites += r.roleRewrites;
         total.subcallMoved += r.subcallMoved;
         total.partMoved += r.partMoved;
@@ -103,7 +110,7 @@ export const SESSION_MIGRATIONS: Migration[] = [
     id: 'role-v2-subcall-split',
     description: '存储词汇 v2（event/error → context+source）+ subcall 行剥离主文件',
     apply(dataRoot: string): void {
-      const total = walkSessions(dataRoot, { roleV2: true, partialsSplit: false });
+      const total = walkSessions(dataRoot, 'role-v2-subcall-split');
       console.log(`[migration] role-v2 改写 ${total.roleRewrites} 行；subcall 剥离 ${total.subcallMoved} 行`);
     },
   },
@@ -112,7 +119,7 @@ export const SESSION_MIGRATIONS: Migration[] = [
     id: 'partials-split',
     description: 'partial 步行 + 直调补行摘出主文件 → partials.jsonl（三文件：messages=定稿流 / partials=中间态+覆盖源 / subcalls=子调用档案）',
     apply(dataRoot: string): void {
-      const total = walkSessions(dataRoot, { roleV2: false, partialsSplit: true });
+      const total = walkSessions(dataRoot, 'partials-split');
       console.log(`[migration] partials 摘除 ${total.partMoved} 行`);
     },
   },

@@ -60,7 +60,7 @@ export function readDataVersion(dataRoot: string): number {
     }
   }
   // 无 meta：.initialized 在场 = 旧数据（v0）；全新数据根也按 v0（无迁移可跳）
-  return fs.existsSync(path.join(dataRoot, LEGACY_INITIALIZED)) ? 0 : 0;
+  return 0;
 }
 
 /** 原子写版本标记（临时文件 + rename） */
