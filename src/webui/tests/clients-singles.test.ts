@@ -100,4 +100,80 @@ describe('S3-1b · singles 域行 client（域投影 + ctx.singleBoard 服务面
     expect(stub.seen.filter(([m]) => m === 'singles/list').length).toBe(before + 1);
     await fiber.dispose();
   });
+
+  // ── 启动进入 single 会话（openDefaultSingle 三级回落）──
+
+  it('首启无上下文记录 + 已有会话 → 选中最近活跃会话（lastActivity 最新者优先）', async () => {
+    localStorage.clear(); // 首启语义：无 lastContext / primaryPanel 记录
+    const boot = await bootDomainRuntime();
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    board.singles.value = [
+      { id: 'old', status: 'active', agentId: '', title: '旧', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never,
+      { id: 'recent', status: 'active', agentId: '', title: '新', createdAt: '2026-02-01T00:00:00Z', updatedAt: '2026-02-01T00:00:00Z', lastActivity: '2026-03-01T00:00:00Z' } as never,
+    ];
+    const entered = await board.openDefaultSingle();
+    expect(entered).toBe('recent');
+    expect(board.activeSingleId.value).toBe('recent');
+    await fiber.dispose();
+  });
+
+  it('首启无上下文记录 + 列表为空 → 快速创建空白会话并进入（reuse 通道）', async () => {
+    localStorage.clear();
+    const stub = makeRpcStub();
+    // 有状态桩（对齐真实后端：create 入册，list 回显——create() 内 refresh
+    // 后 selectSingle 依赖列表含新会话）
+    const store: Array<Record<string, unknown>> = [];
+    stub.impl.call = async (method: string, params?: unknown) => {
+      stub.seen.push([method, params]);
+      if (method === 'singles/create') {
+        const single = { id: 'fresh', status: 'active', agentId: '', createdAt: '2026-04-01T00:00:00Z', updatedAt: '2026-04-01T00:00:00Z' };
+        store.push(single);
+        return { single };
+      }
+      if (method === 'singles/list') return { singles: store };
+      return {};
+    };
+    const boot = await bootWebuiRuntime(stub.impl);
+    await boot.ctx.plugin(rosterClientPlugin);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    await board.refresh();
+    const entered = await board.openDefaultSingle();
+    expect(stub.seen.some(([m, p]) => m === 'singles/create' && (p as { reuse?: boolean })?.reuse === true)).toBe(true);
+    expect(entered).toBe('fresh');
+    expect(board.activeSingleId.value).toBe('fresh');
+    await fiber.dispose();
+  });
+
+  it('上次在独立会话（lastContext single 记录）→ 原恢复语义（openDefaultSingle 复用 restoreLastSingle）', async () => {
+    localStorage.clear();
+    localStorage.setItem('agentchat.lastContext', JSON.stringify({ kind: 'single', id: 'keep' }));
+    const boot = await bootDomainRuntime();
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    board.singles.value = [
+      { id: 'keep', status: 'active', agentId: '', title: 'K', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never,
+      { id: 'newer', status: 'active', agentId: '', title: 'N', createdAt: '2026-05-01T00:00:00Z', updatedAt: '2026-05-01T00:00:00Z' } as never,
+    ];
+    const entered = await board.openDefaultSingle();
+    expect(entered).toBe('keep'); // 恢复优先于「最近活跃」
+    expect(board.activeSingleId.value).toBe('keep');
+    await fiber.dispose();
+  });
+
+  it('上次在 Agent/群（lastContext 非 single 记录）→ 不抢上下文（尊重既有恢复链）', async () => {
+    localStorage.clear();
+    localStorage.setItem('agentchat.lastContext', JSON.stringify({ kind: 'agent', id: 'alpha' }));
+    const boot = await bootDomainRuntime();
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    board.singles.value = [
+      { id: 's1', status: 'active', agentId: '', title: 'A', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never,
+    ];
+    const entered = await board.openDefaultSingle();
+    expect(entered).toBeNull();
+    expect(board.activeSingleId.value).toBe('');
+    await fiber.dispose();
+  });
 });

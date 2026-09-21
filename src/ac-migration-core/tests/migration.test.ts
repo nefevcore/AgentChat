@@ -6,7 +6,7 @@
 // · SESSION_MIGRATIONS：role v2 改写 + subcall 剥离（同 pass）+ 坏行保留
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, utimesSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readDataVersion, runMigrations, writeDataVersion, type Migration } from '../src/index.ts';
@@ -118,6 +118,30 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     expect(runMigrations(root, SESSION_MIGRATIONS)).toEqual([]);
     // 无 sessions 目录：安全 no-op
     expect(runMigrations(join(root, 'nonexistent' + 'x'), []).length === 0).toBe(true);
+  });
+
+  it('重写主文件保持 mtime——升级不重置会话列表时间轴；幂等 no-op 不触碰文件', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'a~user');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ type: 'session-header', version: 1 }),
+      JSON.stringify({ role: 'event', source: 'event', content: 'x', agent_id: 'a', message_id: 'm1', timestamp: 't', seq: 1 }),
+    ].join('\n'), 'utf-8');
+    // 把 mtime/atime 拨回过去（UT Hong Kong 2000-01-01）——模拟深史会话
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(join(dir, 'messages.jsonl'), old, old);
+
+    const done = runMigrations(root, SESSION_MIGRATIONS);
+    expect(done.length).toBeGreaterThan(0);
+    // 内容确实改写了（role v2 生效）
+    expect(readFileSync(join(dir, 'messages.jsonl'), 'utf-8')).toContain('"role":"context"');
+    // mtime 仍为 2000-01-01（秒级精度断言，容文件系统亚秒抖动）
+    const st = statSync(join(dir, 'messages.jsonl'));
+    expect(Math.floor(st.mtimeMs / 1000)).toBe(Math.floor(old.getTime() / 1000));
+
+    // 幂等 no-op：无改写的文件不触碰（无重写即无 mtime 变更；此处验证重跑零迁移）
+    expect(runMigrations(root, SESSION_MIGRATIONS)).toEqual([]);
   });
 
   it('分步（live 已 v1 的根）：只应用 v2 partials-split——v1 行为不动', () => {

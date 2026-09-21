@@ -176,48 +176,37 @@ describe('ac-router', () => {
     expect(overlayTools).not.toContain('str_replace_editor');
   });
 
-  it('工具可见面 ∩ 会话形态面（2026-12）：excludeForms 声明的工具不进独立会话（include 不可绕过）；对桶照常', async () => {
+  it('正常工具无形态限制（2026-12 注入轴重构）：system_restart 不再排除独立会话——常规工具在 single 对桶照常可见', async () => {
     const { ctx } = await boot('回复');
     ctx.tools.register({
       name: 'system_restart',
       description: 'd',
       requiredTags: ['admin'],
-      excludeForms: ['single'],
       execute: () => ({ ok: true }),
     });
     void new SinglesStubService(ctx, { sids: ['sid-1'] });
     ctx.agents.register({ id: 'boss', model: 'mock-1', tags: ['admin'] });
 
-    // 独立会话（sid 命中）：admin Agent 也拿不到 system_restart（LLM
-    // 工具清单不含——schema 不投放）
+    // 独立会话（sid 命中）：admin Agent 照常可见（excludeForms 已随
+    // 注入轴重构撤销——管理动作不限会话形态）
     await ctx.router.send('boss', 'q', { conversationId: 'sid-1' });
     const singleTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
-    expect(singleTools).not.toContain('system_restart');
+    expect(singleTools).toContain('system_restart');
 
     // 对桶（1v1 缺省键）：照常可见（admin Agent 的既有能力面）
     await ctx.router.send('boss', 'q');
     const pairTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
     expect(pairTools).toContain('system_restart');
 
-    // include 显式点名也不可绕过（形态面先于 include/exclude 解析——
-    // 同能力轴语义）
-    ctx.agents.register({
-      id: 'pinner',
-      model: 'mock-1',
-      tags: ['admin'],
-      tools: { include: ['system_restart'] },
-    });
-    await ctx.router.send('pinner', 'q', { conversationId: 'sid-1' });
-    const pinnedTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
-    expect(pinnedTools).not.toContain('system_restart');
+
   });
 
-  it('工具可见面 ∩ 会话形态面（self，2026-02）：excludeForms:[\'self\'] 的工具不进自会话（对角线 a~a）；1v1 对桶照常', async () => {
+  it('工具可见面 ∩ 交互面（self）：requiresInteraction 的工具不进自会话（对角线 a~a，无人值守）；1v1 对桶照常', async () => {
     const { ctx } = await boot('回复');
     ctx.tools.register({
       name: 'ask_questions',
       description: '向用户提问',
-      excludeForms: ['self'],
+      requiresInteraction: true,
       execute: () => ({ ok: true }),
     });
     ctx.agents.register({ id: 'bot', model: 'mock-1' });
@@ -254,13 +243,13 @@ describe('ac-router 工具调用模式收窄（2026-09-17 tc-* 标签轴统一�
     }
   }
 
-  it('tc-programmatic（会话覆盖）→ LLM 工具面收窄为 [run_code]（全形态会话——singles sid 同生效）', async () => {
+  it('tc-programmatic（会话覆盖）→ LLM 工具面合成 mode 工具（全形态会话——singles sid 同生效）', async () => {
     const { ctx } = await boot('回复');
-    // run_code 替身探针（requiredTags infra——与真行同门禁形态）
+    // run_code 替身探针（injection mode——与真行同注入形态，不挂标签）
     ctx.tools.register({
       name: 'run_code',
       description: 'd',
-      requiredTags: ['infra'],
+      injection: 'mode',
       execute: () => ({ ok: true }),
     });
     ctx.tools.register({ name: 'plain-tool', description: 'd', execute: () => ({ ok: true }) });
@@ -268,10 +257,10 @@ describe('ac-router 工具调用模式收窄（2026-09-17 tc-* 标签轴统一�
     void new ConvSettingsStubService(ctx, { settings: { 'user~coder': { toolMode: 'tc-base' } } }); // sid-9 无键 = 跟随 tags
 
     // 1v1 对桶：覆盖 tc-base 压回标准档（Agent tags = tc-programmatic，
-    // 覆盖优先）→ 传统工具 + run_code 并存
+    // 覆盖优先）→ 常规工具面（mode 工具不进常规面——run_code 不见）
     await ctx.router.send('coder', 'q', { conversationId: 'user~coder' });
     const overridden = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
-    expect(overridden).toContain('run_code');
+    expect(overridden).not.toContain('run_code');
     expect(overridden).toContain('plain-tool');
 
     // 无键 = 跟随 tags（tc-programmatic）→ 收窄为仅 run_code
@@ -297,16 +286,10 @@ describe('ac-router 工具调用模式收窄（2026-09-17 tc-* 标签轴统一�
     expect((captured.at(-1)!.tools ?? []).map((t) => t.function.name)).toContain('plain-tool');
   });
 
-  it('覆盖 tc-programmatic 但 run_code 不在生效面（Agent 无 infra）→ warn 并忽略该档（惰性，不拦截 run）', async () => {
+  it('覆盖 tc-programmatic 但无 mode 工具（run-code 行未装）→ 空面 + warn（形同 tc-none，不回落常规面——语义突变防护）', async () => {
     const { ctx } = await boot('回复');
-    ctx.tools.register({
-      name: 'run_code',
-      description: 'd',
-      requiredTags: ['infra'],
-      execute: () => ({ ok: true }),
-    });
     ctx.tools.register({ name: 'plain-tool', description: 'd', execute: () => ({ ok: true }) });
-    ctx.agents.register({ id: 'plain', model: 'mock-1' }); // 无 infra
+    ctx.agents.register({ id: 'plain', model: 'mock-1' });
     void new ConvSettingsStubService(ctx, { settings: { 'user~plain': { toolMode: 'tc-programmatic' } } });
 
     const warnings: string[] = [];
@@ -319,9 +302,8 @@ describe('ac-router 工具调用模式收窄（2026-09-17 tc-* 标签轴统一�
     const run = await ctx.router.send('plain', 'q', { conversationId: 'user~plain' });
     expect(run.finish).toBe('stop'); // 不拦截 run
     const tools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
-    expect(tools).toContain('plain-tool'); // 常规工具面照常
-    expect(tools).not.toContain('run_code'); // run_code 本就不可见（能力面）
-    expect(warnings.some((w) => w.includes('tc-programmatic') && w.includes('run_code'))).toBe(true);
+    expect(tools).toEqual([]); // 空面（形同 tc-none——程序化档悄悄变常规档是语义突变）
+    expect(warnings.some((w) => w.includes('tc-programmatic') && w.includes('mode'))).toBe(true);
   });
 
   it('conv-settings 行缺席 → 无覆盖语义（面缺省忽略，零开销直通；tags 档照常生效）', async () => {

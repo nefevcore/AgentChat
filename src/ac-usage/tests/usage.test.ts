@@ -93,6 +93,7 @@ describe('ac-usage 双轨记账', () => {
     expect(a.cacheMiss).toBe(8);
     expect(a.lastCacheHit).toBe(6); // 覆盖轨（末 run 缓存命中——不随 run 累加）
     expect(a.lastCacheMiss).toBe(4);
+    expect(a.elapsedMs).toBeGreaterThanOrEqual(0); // API 计时累加轨（速率分母）
 
     const m = ctx.usage.byModel()['mock-1'];
     expect(m.runs).toBe(2);
@@ -106,6 +107,7 @@ describe('ac-usage 双轨记账', () => {
     const totals = ctx.usage.totals();
     expect(totals.runs).toBe(2);
     expect(totals.prompt).toBe(20);
+    expect(totals.elapsedMs).toBeGreaterThanOrEqual(0);
 
     // 审计流水：<root>/usage/usage-<date>.jsonl，两行
     const files = ctx.usage.auditFiles();

@@ -9,7 +9,7 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "devDependencies": {
     "vitest": "^4.1.10"

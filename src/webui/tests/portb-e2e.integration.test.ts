@@ -277,10 +277,13 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
     // ---- P3①：思维链持久化——agent 回复行落账带 reasoning_content（直答对桶；
     //      M21/D13 中性格式：role:'agent' + agent_id） ----
-    const hist = await wireRpc.call<{ records?: Array<{ role: string; content: string; reasoning_content?: string; source?: string }> }>('session/history', { conversationId: 'helper~user' });
+    const hist = await wireRpc.call<{ records?: Array<{ role: string; content: string; reasoning_content?: string; steps?: Array<{ reasoning?: string }>; source?: string }> }>('session/history', { conversationId: 'helper~user' });
     const asstRow = (hist.records ?? []).find((r) => r.role === 'agent' && r.content === '工具结果已处理');
     expect(asstRow).toBeDefined();
-    expect(asstRow!.reasoning_content ?? '').toContain('先想想');
+    // reasoning 单份存储（2026-09-20 终版）：正源 = steps[].reasoning——
+    // 行级 reasoning_content 不落盘（session.integration.test 同款裁决锚）
+    expect(asstRow!.reasoning_content).toBeUndefined();
+    expect((asstRow!.steps ?? []).some((s) => (s.reasoning ?? '').includes('先想想'))).toBe(true);
 
     // ---- P3②：event 触发消息落 role:'event' + source（UI 渲染事件分隔符）。
     //      M19/D2：机制触发 = 目标自身 + 自会话桶 helper~helper ----

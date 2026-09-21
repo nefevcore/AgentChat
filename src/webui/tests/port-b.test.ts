@@ -28,17 +28,22 @@ import { fetchSingles, createSingle, updateSingle, archiveSingle, deleteSingle }
 import { fetchRuns, interruptRun, toRunsSnapshot, convKeyToId } from 'ac-client-ui-runview/client';
 import { chatPresence } from 'ac-client-ui-conversation/client/chatOps.ts';
 
+// 测试日期相对当天生成（防日期敏感腐烂：days=30 滚动窗口恒覆盖 DAY_OLD/DAY_NEW）
+const dayOffset = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+const DAY_OLD = dayOffset(-20); // 窗口内旧记录日（早于 DAY_NEW，距 30 天截断线余量 10 天）
+const DAY_NEW = dayOffset(-1);  // 最新记录日
+
 const USAGE: PUsageResult = {
   byAgent: { helper: { prompt: 10, completion: 5, total: 15, runs: 2, steps: 3, cacheHit: 4 } },
   byModel: { 'glm-5.3': { prompt: 10, completion: 5, total: 15, runs: 2 } },
   byDay: [
-    { date: '2026-08-20', prompt: 4, completion: 2, total: 6, runs: 1 },
-    { date: '2026-08-23', prompt: 10, completion: 5, total: 15, runs: 2, lastContextPrompt: 8 },
+    { date: DAY_OLD, prompt: 4, completion: 2, total: 6, runs: 1 },
+    { date: DAY_NEW, prompt: 10, completion: 5, total: 15, runs: 2, lastContextPrompt: 8 },
   ],
   byDayModel: [
-    { date: '2026-08-20', model: 'glm-5.3', prompt: 4, completion: 2, total: 6, runs: 1 },
-    { date: '2026-08-23', model: 'glm-5.3', prompt: 7, completion: 3, total: 10, runs: 1 },
-    { date: '2026-08-23', model: 'deepseek-v4-flash', prompt: 3, completion: 2, total: 5, runs: 1 },
+    { date: DAY_OLD, model: 'glm-5.3', prompt: 4, completion: 2, total: 6, runs: 1 },
+    { date: DAY_NEW, model: 'glm-5.3', prompt: 7, completion: 3, total: 10, runs: 1 },
+    { date: DAY_NEW, model: 'deepseek-v4-flash', prompt: 3, completion: 2, total: 5, runs: 1 },
   ],
   byConversation: { helper: { prompt: 10, completion: 5, total: 15, runs: 2 }, 'g~x': { prompt: 99, completion: 0, total: 99, runs: 9 } },
   totals: { prompt: 10, completion: 5, total: 15, runs: 2, steps: 3, cacheHit: 4, lastContextPrompt: 8 },
@@ -50,7 +55,7 @@ describe('Port B：api/usage（usage/tokens 直连）', () => {
     expect(s.overall).toMatchObject({ total_prompt_tokens: 10, total_completion_tokens: 5, total_react_steps: 3, total_cache_hit: 4, total_records: 2, last_step_prompt_tokens: 8 });
     expect(s.by_agent[0]).toMatchObject({ agent: 'helper', total_tokens: 15, record_count: 2 });
     expect(s.by_day).toHaveLength(2);
-    expect(s.by_day[1]).toMatchObject({ date: '2026-08-23', last_step_prompt_tokens: 8 });
+    expect(s.by_day[1]).toMatchObject({ date: DAY_NEW, last_step_prompt_tokens: 8 });
     // 旧后端（无 byPair）：byConversation 推导——helper 是名册 agent → user 弦；
     // g~x（对键）与 'sid-9'（未知名/群）跳过防错挂
     const agentIds = new Set(['helper', 'user']);
@@ -70,19 +75,19 @@ describe('Port B：api/usage（usage/tokens 直连）', () => {
     ]);
     // byDayModel → by_day_llm（「按模型」堆叠图数据源；旧后端缺失 → 空数组非 undefined）
     expect(s.by_day_llm).toEqual([
-      { date: '2026-08-20', llm: 'glm-5.3', total_prompt_tokens: 4, total_completion_tokens: 2, total_tokens: 6 },
-      { date: '2026-08-23', llm: 'glm-5.3', total_prompt_tokens: 7, total_completion_tokens: 3, total_tokens: 10 },
-      { date: '2026-08-23', llm: 'deepseek-v4-flash', total_prompt_tokens: 3, total_completion_tokens: 2, total_tokens: 5 },
+      { date: DAY_OLD, llm: 'glm-5.3', total_prompt_tokens: 4, total_completion_tokens: 2, total_tokens: 6 },
+      { date: DAY_NEW, llm: 'glm-5.3', total_prompt_tokens: 7, total_completion_tokens: 3, total_tokens: 10 },
+      { date: DAY_NEW, llm: 'deepseek-v4-flash', total_prompt_tokens: 3, total_completion_tokens: 2, total_tokens: 5 },
     ]);
     expect(toUsageSummary({ ...USAGE, byDayModel: undefined }).by_day_llm).toEqual([]);
-    expect(s.range).toEqual({ from: '2026-08-20', to: '2026-08-23' });
+    expect(s.range).toEqual({ from: DAY_OLD, to: DAY_NEW });
   });
 
   it('日期范围过滤：by_day 行过滤 + overall 重算', () => {
     const base = toUsageSummary(USAGE);
-    const filtered = filterUsageRange(base, { from: '2026-08-21', to: '2026-08-31' });
-    expect(filtered.by_day.map((d) => d.date)).toEqual(['2026-08-23']);
-    expect(filtered.by_day_llm?.map((d) => `${d.date}|${d.llm}`).sort()).toEqual(['2026-08-23|deepseek-v4-flash', '2026-08-23|glm-5.3']);
+    const filtered = filterUsageRange(base, { from: dayOffset(-2), to: dayOffset(0) });
+    expect(filtered.by_day.map((d) => d.date)).toEqual([DAY_NEW]);
+    expect(filtered.by_day_llm?.map((d) => `${d.date}|${d.llm}`).sort()).toEqual([`${DAY_NEW}|deepseek-v4-flash`, `${DAY_NEW}|glm-5.3`]);
     expect(filtered.overall.total_prompt_tokens).toBe(10);
     expect(filtered.overall.total_records).toBe(2);
     const unfiltered = filterUsageRange(base, {});
@@ -99,7 +104,7 @@ describe('Port B：api/usage（usage/tokens 直连）', () => {
       },
     });
     expect(calls.map((c) => c.method).sort()).toEqual(['agents/list', 'usage/tokens']);
-    expect(summary.by_day).toHaveLength(2); // days=30 覆盖全部测试日期
+    expect(summary.by_day).toHaveLength(2); // days=30 窗口恒含 DAY_OLD(-20d)/DAY_NEW(-1d)
     expect(summary.by_agent[0]).toMatchObject({ agent: 'helper' });
     // agents/list reject → 容忍（summary 照常，仅 fallback 判别降级）
     const summary2 = await fetchUsageTokens({}, {
@@ -263,6 +268,13 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     await rosterApi.saveAgentConfig('helper', { config: { llm: { model: '' } } }, def.rpc);
     const defPatch = def.calls.find((c) => c.method === 'agents/update-config')!.params!.patch as Record<string, unknown>;
     expect(defPatch.model).toBeNull();
+    // provider '' = 「默认」（跟随模型池默认连接）→ 显式 null 清除覆盖
+    const prov = recorder({
+      'agents/update-config': { config: {}, changed: [] },
+    });
+    await rosterApi.saveAgentConfig('helper', { config: { llm: { provider: '' } } }, prov.rpc);
+    const provPatch = prov.calls.find((c) => c.method === 'agents/update-config')!.params!.patch as Record<string, unknown>;
+    expect(provPatch.provider).toBeNull();
   });
 
   it('getAssembly/saveAssembly：preview 形状直连（无适配层）；保存 = 单次 update + 回读（无 read-modify-write）', async () => {
@@ -749,11 +761,12 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     // 后端按记录时间戳统计的热窗原样透传（矩阵范围按钮数据源）
     expect(s.pairs[0]).toMatchObject({ key: 'chat~helper~user', a: 'helper', b: 'user', messageCount: 5 });
     expect(s.pairs[0].windows).toEqual({ h1: 1, d1: 2, d3: 3, d7: 4, d30: 5 });
-    expect((s.groups[0] as Record<string, unknown>).windows).toBeUndefined(); // 旧后端缺失 → 不伪造
     // M19 对桶统一：user~agent 直答 / a~b 委托 / a~a 自会话同规进 pairs；
     // singles（无 ~）不进
     expect(s.pairs.map((p) => p.key)).toEqual(['chat~helper~user', 'chat~a1~helper', 'chat~a1~a1']);
-    expect(s.members.map((m) => m.id)).toEqual(['helper', 'a1', 'user', 'g1', 'system']);
+    // 2026-12 轴收窄：群/system 不入 members（快照无群证据供数、system
+    // 无对桶）——轴 = Agent 端点（含 user）
+    expect(s.members.map((m) => m.id)).toEqual(['helper', 'a1', 'user']);
     expect(s.running[0]).toMatchObject({ convKey: 'chat~helper~user', kind: 'chat' });
     expect(s.running[1]).toMatchObject({ convKey: 'group~g1~a1', kind: 'group' });
     expect(s.running[2]).toMatchObject({ convKey: 'single~s9', kind: 'single' });
@@ -776,7 +789,7 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     });
     const r = await fetchRuns(rpc);
     expect(calls.map((c) => c.method).sort()).toEqual(['agents/list', 'runs/snapshot']);
-    expect(r.snapshot.members.map((m) => m.id)).toEqual(['user', 'system']);
+    expect(r.snapshot.members.map((m) => m.id)).toEqual(['user']); // user 占位 + 无 system（轴收窄）
     expect(r.unchanged).toBe(false);
   });
 

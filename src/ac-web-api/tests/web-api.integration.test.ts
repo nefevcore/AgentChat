@@ -68,9 +68,15 @@ class StubConversationService extends Service {
     return this.nextOutcome;
   }
 
+  runningList: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }> = [];
+
   abort(agentId: string, conversationId?: string): number {
     this.aborted.push({ agentId, conversationId });
     return 1;
+  }
+
+  listRunning() {
+    return this.runningList;
   }
 
   stats(): { running: never[]; queued: Record<string, never> } {
@@ -370,6 +376,28 @@ describe('ac-web-api conversation 面', () => {
 
     const stats = await rpc(ws, 'conversation/stats', 'r3');
     expect(stats.result).toEqual({ running: [], queued: {} });
+  });
+
+  it('runs/interrupt：按桶键中止匹配 run（群聚合 run 的 agentId ≠ 端点也能命中；无匹配 → 0）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 群会话聚合 run：agentId = gid（非端点 id）——旧实现 abort(conversationId)
+    // 把桶键塞进 agentId 位恒不命中，按钮无效；修复后按注册表匹配逐 run 中止
+    h.conversation.runningList = [
+      { agentId: 'gid-1', conversationId: 'gid-1', handle: 'gid-1.gid-1', startedAt: 1 },
+      { agentId: 'a2', conversationId: 'gid-1', handle: 'a2.gid-1', startedAt: 2 },
+      { agentId: 'a3', conversationId: 'other', handle: 'a3.other', startedAt: 3 },
+    ];
+    const stop = await rpc(ws, 'runs/interrupt', 'r1', { conversationId: 'gid-1' });
+    expect(stop.result).toEqual({ aborted: 2 });
+    expect(h.conversation.aborted).toEqual([
+      { agentId: 'gid-1', conversationId: 'gid-1' },
+      { agentId: 'a2', conversationId: 'gid-1' },
+    ]);
+
+    const miss = await rpc(ws, 'runs/interrupt', 'r2', { conversationId: 'nobody' });
+    expect(miss.result).toEqual({ aborted: 0 });
+    expect(h.conversation.aborted).toHaveLength(2);
   });
 
   it('queue 面：queue/queue-remove/queue-steer 转发（会话键与 deliver 同口径）', async () => {
@@ -748,14 +776,16 @@ describe('ac-web-api group / usage / interaction 面', () => {
     expect(ids).toContain('user'); // virtual 仍在名册（会话端点可见）
     expect(ids).not.toContain('__standard__'); // 预设不进名册（src 过滤语义）
     expect(ids).not.toContain('__dsh_minimal__');
+    expect(ids).not.toContain('__creator__');
     expect(ids).not.toContain('__programmatic__');
 
     const cat = await rpc(ws, 'agents/presets', 'r2');
     const presets = (cat.result as { presets: Array<{ id: string; name: string; label: string; default: boolean }> }).presets;
-    // 程序化模式已随 ac-run-code 走（preset 子行不在本 boot 面）——两预设
-    expect(presets.map((p) => p.id)).toEqual(['__standard__', '__dsh_minimal__']);
+    // 程序化模式已随 ac-run-code 走（preset 子行不在本 boot 面）——三预设
+    expect(presets.map((p) => p.id)).toEqual(['__standard__', '__dsh_minimal__', '__creator__']);
     expect(presets[0]).toMatchObject({ name: '标准模式', label: '标准模式', default: true });
     expect(presets[1]).toMatchObject({ label: '极简模式', default: false });
+    expect(presets[2]).toMatchObject({ label: '创造模式', default: false });
   });
 
   it('interaction/list + reply（真 DurableInteractionService）', async () => {
@@ -830,6 +860,43 @@ describe('ac-web-api M18-G singles 面', () => {
     // delete（硬删：元数据 + 消息经 session.clear）
     const deleted = await rpc(ws, 'singles/delete', 'r8', { id: sid });
     expect(deleted.result).toEqual({ deleted: true });
+  });
+
+  it('singles/fork：锚点消息切片复制出新会话（元数据继承 + 消息切片）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.agents.register({ id: 'fa', model: 'mock-1' });
+
+    const created = await rpc(ws, 'singles/create', 'f1', { agentId: 'fa', title: '源' });
+    const sid = (created.result as { single: { id: string } }).single.id;
+    // 两条消息入账（session 域 owning 写口——append 即落盘）
+    await h.session.append(sid, 'user', { role: 'user', content: '第一问' });
+    const anchorId = await h.session.append(sid, 'fa', { role: 'assistant', content: '第一答' });
+    await h.session.append(sid, 'user', { role: 'user', content: '第二问' });
+
+    const forked = await rpc(ws, 'singles/fork', 'f2', { id: sid, anchorMessageId: anchorId });
+    expect(forked.ok).toBe(true);
+    const fork = (forked.result as { single: { id: string; agentId: string; title?: string } }).single;
+    expect(fork.id).not.toBe(sid);
+    expect(fork.agentId).toBe('fa');
+    // 已具名源 → 剥旧后缀追加「（分支）」（分支的分支不叠名——singles 服务语义）
+    expect(fork.title).toBe('源（分支）');
+
+    const hist = await rpc(ws, 'session/history', 'f3', { conversationId: fork.id });
+    const recs = (hist.result as { records: Array<{ content: string }> }).records;
+    expect(recs.map((r) => r.content)).toEqual(['第一问', '第一答']);
+  });
+
+  it('singles/fork：锚点未命中 → rpc error', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.agents.register({ id: 'fa', model: 'mock-1' });
+    const created = await rpc(ws, 'singles/create', 'f1', { agentId: 'fa' });
+    const sid = (created.result as { single: { id: string } }).single.id;
+    await h.session.append(sid, 'user', { role: 'user', content: '问' });
+    const bad = await rpc(ws, 'singles/fork', 'f2', { id: sid, anchorMessageId: 'ghost' });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain('不在会话');
   });
 
   it('conversation/deliver：model 覆盖参数透传（singles 引用语义）', async () => {
@@ -914,13 +981,14 @@ describe('ac-web-api conv-settings 面', () => {
     const ws = await connect(h.port);
     h.agents.register({ id: 'coder', model: 'm', tags: ['infra'] });
     h.ctx.tools.register({ name: 't1', execute: () => ({ ok: true }) });
-    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), requiredTags: ['infra'] });
+    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), injection: 'mode' }); // 2026-12 注入轴：mode 替身
     h.ctx.tools.register({ name: 't2', execute: () => ({ ok: true }) });
 
     // 基线：无 conversationId = viewer 直答对桶键（pairKey('user', agent)）
     // ——与 systemPromptPreview 干跑同口径；该键无覆盖 = 跟随 tags（tc-base）
     const base = await rpc(ws, 'agents/tool-defs', 'r1', { agentId: 'coder' });
-    expect((base.result as { names: string[] }).names.sort()).toEqual(['run_code', 't1', 't2']);
+    // tc-base 常规工具面（mode 工具不进——注入轴）
+    expect((base.result as { names: string[] }).names.sort()).toEqual(['t1', 't2']);
 
     // 缺省键的模式覆盖同样生效（直答会话在输入栏选了程序化 → 估算面收窄）
     // ——缺省派生键 = pairKey('user', agent)（排序连接：coder~user）
@@ -943,10 +1011,10 @@ describe('ac-web-api conv-settings 面', () => {
     expect((none.result as { names: string[] }).names).toEqual([]);
     expect((none.result as { defs: unknown[] }).defs).toEqual([]);
 
-    // 删键回落跟随（Agent tags 无模式词 = tc-base 不收窄）
+    // 删键回落跟随（Agent tags 无模式词 = tc-base 常规工具面——mode 工具不进）
     h.ctx.convSettings.set(conv, { toolMode: null });
     const follow = await rpc(ws, 'agents/tool-defs', 'r4', { agentId: 'coder', conversationId: conv });
-    expect((follow.result as { names: string[] }).names.sort()).toEqual(['run_code', 't1', 't2']);
+    expect((follow.result as { names: string[] }).names.sort()).toEqual(['t1', 't2']);
   });
 });
 
@@ -1150,6 +1218,29 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     // 写回合并：m-a/m-b 标志保留、m-z（已下架）移除、m-c（新增）裸名
     const pool = h.config.get<Record<string, { models?: unknown[] }>>('llmProviders');
     expect(pool?.mockprov?.models).toEqual([{ model: 'm-a', vision: true }, { model: 'm-b', hidden: true }, 'm-c']);
+  });
+
+  it('llm/models 刷新：manual 手工条目保留（端点不暴露清单只能手工加——发现刷新不冲掉）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.llm.register(
+      'mockprov',
+      () => ({
+        stream: async function* () {},
+        listModels: async () => ['m-a'],
+      }),
+      { models: [] },
+    );
+    // 既有缓存：发现条目 m-a + 手工条目 my-model（端点 /models 不返回它）
+    h.config.set('llmProviders', {
+      mockprov: { base_url: 'https://x.example/v1', models: ['m-a', { model: 'my-model', manual: true }] },
+    });
+    const r = await rpc(ws, 'llm/models', 'r1', { name: 'mockprov', refresh: true });
+    expect(r.ok).toBe(true);
+    // 响应 models 仅为发现清单（手工条目不在 /models 返回内），但缓存写回保留
+    expect(r.result).toMatchObject({ models: ['m-a'] });
+    const pool = h.config.get<Record<string, { models?: unknown[] }>>('llmProviders');
+    expect(pool?.mockprov?.models).toEqual(['m-a', { model: 'my-model', manual: true }]);
   });
 
   it('llm/probe-vision：三态判定 + 注册/免注册双路径 + 参数校验', async () => {
@@ -1464,7 +1555,7 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     expect(sim.latest).not.toBe(sim.current);
     const [cMajor, cMinor, cPatch] = sim.current.split('.').map(Number);
     expect(sim.latest).toBe(`${cMajor}.${cMinor}.${(cPatch || 0) + 1}`);
-    expect(sim.latestUrl).toContain('github.com');
+    expect(sim.latestUrl).toBe('http://47.110.63.135/'); // 自托管下载主页（2026-09 分发自托管）
     // 离线（fetch 全灭）→ checkFailed=true、latest=null——不是"已是最新"的假阴性
     resetReleaseCache();
     const origFetch = globalThis.fetch;

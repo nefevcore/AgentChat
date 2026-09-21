@@ -9,14 +9,16 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-session": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
     "ac-dev-tools": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-restart": "workspace:*",

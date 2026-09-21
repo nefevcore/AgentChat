@@ -203,6 +203,28 @@ describe('ac-agent-admin CRUD', () => {
     expect((set.result as { config: Record<string, unknown> }).config.model).toBe('glm-5.3');
   });
 
+  it('update-config provider 置空/null：显式清除（存 null——「默认」跟随模型池默认连接）；未携带键保留', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    await rpc(ws, 'agents/create', 'r1', { config: { id: 'bot4', model: 'm1', provider: 'glm' } });
+
+    // '' / null = 清除 provider 覆盖（Agent 面「默认」选项）
+    const clear = await rpc(ws, 'agents/update-config', 'r2', { agentId: 'bot4', patch: { provider: '' } });
+    expect(clear.ok).toBe(true);
+    const cleared = (clear.result as { config: Record<string, unknown>; changed: string[] }).config;
+    expect(cleared.provider).toBeNull();
+    expect(cleared.model).toBe('m1'); // model 不随 provider 清除而动
+    expect((clear.result as { changed: string[] }).changed).toContain('provider');
+
+    // 不触 provider 的补丁不清除
+    const keep = await rpc(ws, 'agents/update-config', 'r3', { agentId: 'bot4', patch: { description: 'd' } });
+    expect((keep.result as { config: Record<string, unknown> }).config.provider).toBeNull();
+
+    // 重设 provider → 覆盖 null 恢复
+    const reset = await rpc(ws, 'agents/update-config', 'r4', { agentId: 'bot4', patch: { provider: 'glm' } });
+    expect((reset.result as { config: Record<string, unknown> }).config.provider).toBe('glm');
+  });
+
   it('白名单外键拒绝（GLOBAL_ONLY preview 形态）；缺 id 拒绝', async () => {
     const h = await boot();
     const ws = await connect(h.port);
@@ -389,7 +411,7 @@ describe('ac-agent-admin 文档 / 预览', () => {
     const ws = await connect(h.port);
     await rpc(ws, 'agents/create', 'r1', { config: { id: 'coder', model: 'm', tags: ['infra'] } });
     h.ctx.tools.register({ name: 't1', execute: () => ({ ok: true }) });
-    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), requiredTags: ['infra'] });
+    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), injection: 'mode' }); // 2026-12 注入轴：mode 替身
     h.ctx.tools.register({ name: 't2', execute: () => ({ ok: true }) });
     // 干跑工具面观察器（主档瀑布——记录送进装配链的 request.tools）
     const seen: Array<string[] | undefined> = [];
@@ -398,9 +420,10 @@ describe('ac-agent-admin 文档 / 预览', () => {
       return next();
     });
 
-    // 基线（无会话键）：tags 无模式词 = tc-base 不收窄——生效集全量
+    // 基线（无会话键）：tags 无模式词 = tc-base 常规工具面——mode 工具
+    // 不在（injection 轴：不进常规面）
     await rpc(ws, 'agents/system-prompt', 'r2', { agentId: 'coder' });
-    expect(seen.at(-1)?.sort()).toEqual(['run_code', 't1', 't2']);
+    expect(seen.at(-1)?.sort()).toEqual(['t1', 't2']);
 
     // 会话覆盖 tc-programmatic → 干跑面 = LLM 真实可见面（仅 run_code）
     // ——下游装配（ac-run-code SDK 投影注入 / system-prompt 指引块门控）

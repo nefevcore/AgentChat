@@ -1,0 +1,817 @@
+{
+  "src/ac-agent-loop/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-agent-presets/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-app/src/boot-yml-main.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-app/src/chat.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-app/src/m7-rpc-check.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-app/src/smoke-run-code.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-app/tests/patch-layer.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-archive/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-ask-questions/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-bench/src/cli.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-bench/src/eval.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-client-runtime/src/isolated-runtime.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-slots/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-client-ui-agents/client/AgentList.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-client-ui-agents/client/AgentListPane.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-agents/client/AgentPane.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 5
+    }
+  },
+  "src/ac-client-ui-agents/client/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 5
+    }
+  },
+  "src/ac-client-ui-agents/client/rosterAccess.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-agents/client/rosterApi.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-agents/client/useAgentSettings.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 10
+    }
+  },
+  "src/ac-client-ui-browser/client/ToolResult/ToolResultBrowser.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/ChatInput.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 10
+    }
+  },
+  "src/ac-client-ui-conversation/client/ConversationView.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 5
+    }
+  },
+  "src/ac-client-ui-conversation/client/FileEditsPanel.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-conversation/client/InteractionBar.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 9
+    }
+  },
+  "src/ac-client-ui-conversation/client/Message/AssistantMessage.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-conversation/client/Message/TurnDisplayItem.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 13
+    }
+  },
+  "src/ac-client-ui-conversation/client/Message/UserMessage.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/SystemPromptModal.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/SystemPromptPanel.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 9
+    }
+  },
+  "src/ac-client-ui-conversation/client/TranscriptList.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/chat-core.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 6
+    }
+  },
+  "src/ac-client-ui-conversation/client/chatOps.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-conversation/client/composePrefs.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/feed-core.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 58
+    }
+  },
+  "src/ac-client-ui-conversation/client/feed.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 10
+    }
+  },
+  "src/ac-client-ui-conversation/client/feedStore.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/fileEdits.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-conversation/client/mention.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 11
+    }
+  },
+  "src/ac-client-ui-conversation/client/unreadStore.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/useTurnDisplayItems.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-goal/client/useGoalTracking.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-group/client/CreateGroupDialog.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-group/client/GroupDrawer.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-group/client/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-layout/client/AuxSidebarHost.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-layout/client/PrimarySidebarHost.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-layout/client/activityBarActions.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-llm-pool/client/LlmPoolsHost.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-llm-pool/client/PoolManager.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 7
+    }
+  },
+  "src/ac-client-ui-plugin-registry/client/ExtToolsPane.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 11
+    }
+  },
+  "src/ac-client-ui-plugin-registry/client/ExtensionSettingsModal.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-plugin-registry/client/PluginLibraryHost.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-plugin-registry/client/PluginLibraryPane.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 7
+    }
+  },
+  "src/ac-client-ui-plugin-registry/client/StagingReviewModal.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-plugin-registry/client/pluginApi.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 29
+    }
+  },
+  "src/ac-client-ui-renderer/client/SlotOutlet.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-renderer/client/hljs-languages.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-renderer/client/useMarkdown.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-run-code/client/ToolResult/ToolResultRunCode.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-run-code/tests/run-code-plain-string-value.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-runview/client/RunTracking.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-runview/client/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 16
+    }
+  },
+  "src/ac-client-ui-search-pool/client/SearchPoolManager.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-client-ui-search-pool/client/SearchPoolsHost.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-settings/client/api.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 7
+    }
+  },
+  "src/ac-client-ui-settings/client/components/SettingsPanel.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-settings/client/rpcDefault.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-client-ui-settings/client/schema.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-settings/client/slotCatalog.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-settings/client/useSettings.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-singles/client/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 5
+    }
+  },
+  "src/ac-client-ui-subagent/client/SubagentConversationView.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-subagent/client/ToolResult/ToolResultSubagent.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-subagent/client/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-client-ui-theme/client/themeStore.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-timer/client/GlobalTimerHost.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-todo/client/TodoDockCard.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-tool/client/toolLabel.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-usage/client/TokenUsage.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 15
+    }
+  },
+  "src/ac-client-ui-usage/client/rpcDefault.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-usage/client/usageApi.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 14
+    }
+  },
+  "src/ac-client-ui-web/client/ToolResult/ToolResultWeb.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-web/client/searchTabs.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-workspace/client/WorkspaceTree.vue": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-client-ui-workspace/client/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-workspace/client/previewTabs.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-client-ui-workspace/client/workspaceTreePrefs.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-client-ui-workspace/client/workspaceTreeStore.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 7
+    }
+  },
+  "src/ac-client-ui-workspace/tests/workspace-tree-prefs.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-conv-settings/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-conversation/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-credentials/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-durable-interaction/src/store.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-durable-interaction/src/types.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-edit-core/src/syntax-check.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-event-policy/src/aggregate.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 6
+    }
+  },
+  "src/ac-event-policy/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-event-policy/tests/policy.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-fs-search/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-fs-tools/tests/fs-tools.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-goal/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 11
+    }
+  },
+  "src/ac-group/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 5
+    }
+  },
+  "src/ac-llm-pool/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-mcp-core/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-mcp/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-memory/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-openai-completions/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 9
+    }
+  },
+  "src/ac-plugin-core/src/catalog-manifest.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-plugin-core/src/contracts.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-plugin-core/src/load-health.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-plugin-core/src/store.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 10
+    }
+  },
+  "src/ac-plugin-market/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-plugin-registry/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-plugin-registry/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 9
+    }
+  },
+  "src/ac-relay-server/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-relay-server/src/main.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-relay-server/tests/download-gate.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-router/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-run-code-core/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-run-code/src/tool.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 6
+    }
+  },
+  "src/ac-run-code/src/worker.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-sandbox-core/src/paths.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-sap-adt/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-security/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-session/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 8
+    }
+  },
+  "src/ac-session/tests/insert-split.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-session/tests/session.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-shell-tools/src/executor.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-shell-tools/src/process.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-shell-tools/src/unix-translate.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-shell-tools/tests/shell-sandbox-quota.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-singles/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 8
+    }
+  },
+  "src/ac-skill-core/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-skill/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-str-replace-editor/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-subagent/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 15
+    }
+  },
+  "src/ac-subagent/tests/subagent.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-timer-core/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-timer/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-timer/tests/timers.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-todo/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 8
+    }
+  },
+  "src/ac-usage/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-web-api/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 31
+    }
+  },
+  "src/ac-web-api/tests/web-api.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-web-search-core/src/deepseek.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-web-server/src/service.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "src/ac-web-tools/src/browser.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "src/ac-web-tools/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 7
+    }
+  },
+  "src/ac-webui-extensions/src/slotCatalog.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-workspace/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/ac-workspace/tests/native-dialog.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-ws-bridge/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 9
+    }
+  },
+  "src/ac-ws-bridge/tests/ws-bridge.integration.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/ac-ws-protocol/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/scripts/migrate-hooks-to-settings.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/scripts/migrate-llm-pool-v2.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/scripts/migrate-session-neutral.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/webui/src/core/extensions/host.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/webui/src/core/extensions/p5.5-policy.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/webui/src/main.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/webui/src/runtime/bootGraph.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "src/webui/src/runtime/slots-demo.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  }
+}

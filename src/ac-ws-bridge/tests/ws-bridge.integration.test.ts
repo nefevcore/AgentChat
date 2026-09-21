@@ -82,6 +82,21 @@ describe('ac-ws-bridge 桥接', () => {
     expect(await waitFor('job/settled')).toMatchObject({ args: [{ id: 'j1' }] });
   });
 
+  it('session/context-injected 直转（流式运行期技能注入可见性——2026-09-21 反馈 #3）', async () => {
+    const { ctx, port } = await boot();
+    const ws = await connect(port);
+    ws.on('message', (raw) => {
+      const frame = parseFrame(raw.toString());
+      if (frame && frame.type !== WS_READY) frames.push(frame);
+    });
+
+    ctx.emit('session/context-injected', 'alpha~user', 'alpha', { source: 'skill', label: 'agentchat-framework-dev' });
+
+    expect(await waitFor('session/context-injected')).toEqual({
+      args: ['alpha~user', 'alpha', { source: 'skill', label: 'agentchat-framework-dev' }],
+    });
+  });
+
   it('后台过滤：source=event 的【自会话桶 a~a】run 的 step/delta/tool 不广播；边界事件仍广播', async () => {
     const { ctx, port } = await boot();
     const ws = await connect(port);

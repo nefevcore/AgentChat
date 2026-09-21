@@ -137,7 +137,7 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
     expect(def.rail!.badge!()).toBe(0);
     // 快照 running 2 条 → 徽章 2（引用稳定性无关——badge 每渲染帧求值）
     ctx.runs.snapshot.value = {
-      generatedAt: 't', members: [], pairs: [], groups: [], groupArchives: [], singles: [],
+      generatedAt: 't', members: [], pairs: [], singles: [],
       running: [
         { convKey: 'chat~a~b', kind: 'chat', agentId: 'a', startedAt: 1 },
         { convKey: 'single~s1', kind: 'single', agentId: 'x', startedAt: 2 },

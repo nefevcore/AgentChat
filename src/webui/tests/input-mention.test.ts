@@ -7,7 +7,6 @@ import {
   replaceMentionToken,
   mentionMatches,
   tokenizeMentionHighlights,
-  buildHighlightSegments,
   formatFileMention,
   buildSessionMentionCandidates,
   sessionActivityOf,
@@ -93,7 +92,7 @@ describe('mentionMatches', () => {
   });
 });
 
-describe('tokenizeMentionHighlights / buildHighlightSegments（overlay 语义化渲染）', () => {
+describe('tokenizeMentionHighlights（overlay 语义化渲染）', () => {
   it('四类 token 各自命中并给出精确区间', () => {
     // '对比 @C:\\a\\b.md 和 @张三 的 /pdf-export 与 #周报(sid-1)，看 https://x.com'
     const text = '对比 @C:\\a\\b.md 和 @张三 的 /pdf-export 与 #周报(sid-1)，看 https://x.com';
@@ -135,15 +134,6 @@ describe('tokenizeMentionHighlights / buildHighlightSegments（overlay 语义化
     expect(tokenizeMentionHighlights('@张三 ')[0]?.kind).toBe('agent');
   });
 
-  it('segments 交替纯文本/token 段并拼回原文', () => {
-    const text = '用 /pdf-export 处理 @C:\\a.md';
-    const segments = buildHighlightSegments(text);
-    expect(segments.map((s) => s.kind ?? 'plain')).toEqual(['plain', 'skill', 'plain', 'file']);
-    expect(segments.map((s) => s.text).join('')).toBe(text);
-    // 无 token 文本 → 单纯文本段
-    expect(buildHighlightSegments('普通文本')).toEqual([{ text: '普通文本' }]);
-    expect(buildHighlightSegments('')).toEqual([]);
-  });
 });
 
 describe('formatFileMention（文件引用插入格式——与 [引用约定] 同语法）', () => {

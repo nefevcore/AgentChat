@@ -124,11 +124,18 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     const header = JSON.parse(rawLines[0]);
     expect(header).toMatchObject({ type: 'session-header', version: 1 });
     expect(typeof header.createdAt).toBe('string');
-    const lines = rawLines.slice(1).map((l) => JSON.parse(l));
+    // settled 判别行（2026-11 收束行退役）：每 journal run 一条，无 role——
+
+    // 消息行断言前滤除；在场性单独验（两轮 run 各一条）
+
+    const lines = rawLines.slice(1).map((l) => JSON.parse(l)).filter((l) => l.role !== undefined);
+
+    expect(rawLines.filter((l) => l.includes('"type":"run-settled"'))).toHaveLength(2);
+
     expect(lines).toHaveLength(4);
     expect(lines.every((l) => l.role === 'agent')).toBe(true);
     expect(lines.map((l) => l.agent_id)).toEqual(['user', 'a', 'user', 'a']);
-    expect(lines.map((l) => l.seq)).toEqual([1, 2, 3, 4]); // 单调 seq（D8）
+    expect(lines.map((l) => l.seq)).toEqual([1, 2, 4, 5]); // 单调（settled 判别行占 3/6——D8 seq 全行单调）
     expect(lines.every((l) => typeof l.message_id === 'string' && l.message_id.startsWith('msg-'))).toBe(true);
     expect(lines.every((l) => typeof l.timestamp === 'string')).toBe(true);
     // stats 行计数排除头行（F4 门）
@@ -406,9 +413,9 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     await ctx.router.send('a', '第二句');
     expect((ctx as any).session).toBeUndefined();
     expect(captured).toHaveLength(2); // router 投递照常
-    // 卸载时队列已排空（第一轮已 durable；头行 + 2 数据行）
+    // 卸载时队列已排空（第一轮已 durable；头行 + 2 数据行 + 1 settled 判别行）
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
-    expect(fs.readFileSync(file, 'utf-8').trim().split('\n')).toHaveLength(3);
+    expect(fs.readFileSync(file, 'utf-8').trim().split('\n')).toHaveLength(4);
   });
 
   it('conversationId 路径校验：分隔/遍历字符拒绝（C1 emit 隔离下不炸发射方）', async () => {
@@ -633,6 +640,34 @@ describe('ac-session 上架（shelving）+ 热力窗口', () => {
     expect(() => ctx.session.setShelf('sid-2', '../evil')).toThrow(/非法/);
   });
 
+  it('setShelf 幂等快路径：同架重放零写（.shelves.json 不被重写），失守落全路径', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.session.setShelf('sid-f', 'singles/ungrouped');
+    expect(ctx.session.shelfOf('sid-f')).toBe('singles/ungrouped');
+    const idxFile = path.join(root, 'sessions', '.shelves.json');
+    // 读 mtime（内容级「未写」）；Windows 上连续写可能同 tick——等待跨毫秒再测
+    const m0 = fs.statSync(idxFile).mtimeMs;
+    await new Promise((r) => setTimeout(r, 5));
+    ctx.session.setShelf('sid-f', 'singles/ungrouped'); // 同架重放：快路径零写
+    ctx.session.setShelf('sid-f', 'singles/ungrouped');
+    expect(fs.statSync(idxFile).mtimeMs).toBe(m0);
+    // 失守 ①：目录被外部挪走（索引在、目录不在）→ 全路径自愈回架上
+    const shelfDir = path.join(root, 'sessions', 'singles', 'ungrouped', 'sid-f');
+    fs.rmSync(shelfDir, { recursive: true, force: true });
+    ctx.session.setShelf('sid-f', 'singles/ungrouped');
+    expect(fs.existsSync(shelfDir)).toBe(true); // 补建目录
+    expect(ctx.session.shelfOf('sid-f')).toBe('singles/ungrouped');
+    // 失守 ②：shelf 根标记被删 → 快路径不放行（落全路径补标记）
+    fs.rmSync(path.join(root, 'sessions', 'singles', '.shelf'));
+    ctx.session.setShelf('sid-f', 'singles/ungrouped');
+    expect(fs.existsSync(path.join(root, 'sessions', 'singles', '.shelf'))).toBe(true);
+    // 换架语义不变（回归）：走全路径迁移
+    ctx.session.setShelf('sid-f', 'singles/ws-9');
+    expect(fs.existsSync(path.join(root, 'sessions', 'singles', 'ws-9', 'sid-f'))).toBe(true);
+    expect(ctx.session.shelfOf('sid-f')).toBe('singles/ws-9');
+  });
+
   it('stats：热力窗口按记录时间戳统计（h1/d30），mtime 缓存', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
@@ -741,9 +776,12 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     const replay = await ctx.session.history('a~user', { viewer: 'a' });
     expect(replay).toEqual([{ role: 'user', content: '帮我决定', name: 'user' }]);
     // 原始文件确实落盘（tool/before-execute checkpoint 同款 flush 语义）
-    // partials 摘除（2026-09-20）：partial 步行落 partials.jsonl，主文件零死重
+
+    // journal 泛化（2026-11）：步行落 partials.jsonl 为 journal-step 判别行
+
     const file = path.join(root, 'sessions', 'a~user', 'partials.jsonl');
-    expect(fs.readFileSync(file, 'utf-8')).toContain('"partial":true');
+
+    expect(fs.readFileSync(file, 'utf-8')).toContain('"type":"journal-step"');
     // stats/tail 排除部分行：消息计数 1（仅入站行），名册预览不入中间步
     expect(ctx.session.stats('a~user')!.messageCount).toBe(1);
     expect(ctx.session.tail('a~user')).toMatchObject({ role: 'agent', content: '帮我决定', agent_id: 'user' });
@@ -832,9 +870,15 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
       usage: { prompt: 1, completion: 0, promptAccumulated: 1, steps: 0 },
     } as never, 'a~user', 'user', 'user');
     const afterError = await ctx.session.records('a~user');
-    console.log('AFTER_ERR:', JSON.stringify(afterError.map((r) => ({ role: r.role, partial: r.partial === true, run: r.run, ts: r.timestamp }))));
+
+    // journal 泛化（2026-11）：错误收束走 settlement——步行物化为段行（steps
+
+    // 携带思维链——会话事实保留）+ error 行（不再依赖 partial 行永久残留）
+
     expect(afterError).toHaveLength(3);
-    expect(afterError[1]!.partial).toBe(true);
+
+    expect(afterError[1]!.steps![0]).toMatchObject({ reasoning: '需要先问用户' });
+
     expect(afterError[2]).toMatchObject({ role: 'context', source: 'error', content: 'LLM HTTP 500' });
   });
 
@@ -852,8 +896,14 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
       usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 1 },
     } as never, 'a~user', 'user', 'user');
     const plain = await ctx.session.records('a~user');
+
     expect(plain).toHaveLength(2);
-    expect(plain.every((r) => r.partial === undefined && r.run === undefined)).toBe(true);
+
+    // journal 泛化（2026-11）：纯文本 run 也走 settlement——收束行带 run 键
+
+    //（journal 吸收锚，UI/回放无感）；partial 行不再产生
+
+    expect(plain.every((r) => r.partial === undefined)).toBe(true);
     // 机制 run：meta[archive-review] → 部分行门控
     ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', source: 'event', meta: { [ARCHIVE_REVIEW_META]: true } } as never);
     ctx.emit('loop/after-step', 'a', {

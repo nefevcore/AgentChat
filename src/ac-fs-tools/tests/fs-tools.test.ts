@@ -469,4 +469,42 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const fallback = await runWithTools(undefined);
     expect(fallback).toContain('[引用约定]');
   });
+
+  it('@ 路径引用约定 PTC：request.tools 收窄为 [run_code] 时按能力面判 read 在场（2026-12 基线段丢失修复）', async () => {
+    const root = tmpRoot();
+    // 装配：tools + agents（注册带 fs 标签的 Agent）+ run_code mode 工具 + fs 行
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [(await import('ac-agents')).AgentsService, undefined],
+      [fsToolsRow, { workdir: root }],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    ctx.agents.register({ id: 'prog', model: 'm', tags: ['fs'] });
+    fibers.push(await ctx.plugin({
+      name: 'fake-run-code-row',
+      inject: ['tools'],
+      apply(c: Context) {
+        c.tools.register({ name: 'run_code', injection: 'mode' as const, description: 'x', execute: () => ({ ok: true }) });
+      },
+    } as any));
+    booted.push({ ctx, fibers });
+
+    // PTC run：请求面 = 恰好 [run_code]（router 收窄后的终值形态）
+    const call = { request: { agent: 'prog', tools: ['run_code'], messages: [] as unknown[] } };
+    await ctx.waterfall('loop/before-run', call as never, async () => ({ finish: 'stop' }) as never);
+    // 修复前：names 只有 run_code → read 不在场 → @ 约定丢失
+    expect((call.request as { system?: string }).system).toContain('[引用约定]');
+    expect((call.request as { system?: string }).system).toContain('@<路径>');
+    // 对照：无 fs 标签的 Agent（能力面无 read）→ 不注入
+    ctx.agents.register({ id: 'nofs', model: 'm' });
+    const call2 = { request: { agent: 'nofs', tools: ['run_code'], messages: [] as unknown[] } };
+    await ctx.waterfall('loop/before-run', call2 as never, async () => ({ finish: 'stop' }) as never);
+    expect((call2.request as { system?: string }).system).toBeUndefined();
+  });
 });

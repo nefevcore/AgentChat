@@ -28,6 +28,8 @@ function resolveRepoRoot() {
 const REPO_ROOT = resolveRepoRoot();
 const TEST_ROOT = join(REPO_ROOT, 'workspace', 'test');
 
+// ac-ask-questions 的 ASK_WAIT_WINDOW_MS 注释）。
+
 // 环境渗漏防线（2026-09-10 事故）：开发 shell 为 `pnpm dev` 导出的
 // AGENTCHAT_DATA_ROOT 会渗入测试进程——bootTree 只显式隔离部分持久化行
 // （session/group/…），其余行按 `root ?? env ?? './data'` 回落链解析，

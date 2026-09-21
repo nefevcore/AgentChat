@@ -9,7 +9,7 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "chinese-lunar": "^0.1.4"

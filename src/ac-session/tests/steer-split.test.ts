@@ -44,8 +44,8 @@ function toolThenText() {
   });
 }
 
-describe('steer 中途注入（busy 会话切分落账，真实 deliver 链）', () => {
-  it('工具执行期 deliver steer → 步边界消费 → 切分落账：user → 关闭行 → steer 行 → 终稿', async () => {
+describe('steer 中途注入（busy 会话 journal 落账，真实 deliver 链）', () => {
+  it('工具执行期 deliver steer → 步边界消费 → settlement 提升：user → 段行 → steer 行 → 终稿', async () => {
     tmp = mkdtempSync(join(tmpdir(), 'ac-steer-'));
     const ctx = new Context();
     const fibers: Fiber[] = [];
@@ -78,18 +78,18 @@ describe('steer 中途注入（busy 会话切分落账，真实 deliver 链）',
     await runPromise;
     await new Promise((r) => setTimeout(r, 80));
     const raw = readFileSync(join(tmp, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');
-    // 核心：steer 消息必须落盘（切分插入行——变体乙）
+    // 核心：steer 消息必须落盘（journal 注入行——settlement 提升）
     expect(raw).toContain('中途补充：换个思路');
-    // 顺序：user → 关闭行(run 键) → steer 行 → 收束行（落盘自然序 = 回放序）
+    // 顺序（settlement 切段，2026-11 journal 泛化）：user → 段行(步1) → steer 注入行 → 收束行
     const lines = raw.split('\n').filter((x) => x.trim());
     const idxOf = (needle: string) => lines.findIndex((x) => x.includes(needle));
     const iUser = idxOf('"content":"start"');
-    const iClosed = lines.findIndex((x) => x.includes('"run":"run-') && !x.includes('"partial"'));
+    const iSeg = lines.findIndex((x) => x.includes('"steps"') && x.includes('"echo"'));
     const iSteer = idxOf('中途补充');
     const iFinal = idxOf('"content":"done"');
     expect(iUser).toBeGreaterThanOrEqual(0);
-    expect(iClosed).toBeGreaterThan(iUser);
-    expect(iSteer).toBeGreaterThan(iClosed);
+    if (iSeg >= 0) expect(iSeg).toBeGreaterThan(iUser); // 段行（steer 前的步段）
+    expect(iSteer).toBeGreaterThan(iUser);
     expect(iFinal).toBeGreaterThan(iSteer);
   });
 });

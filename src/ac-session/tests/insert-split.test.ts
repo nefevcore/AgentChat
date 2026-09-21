@@ -98,36 +98,33 @@ describe('插入切分（变体乙：run 中插入 → 关闭行 + 插入行 + �
     await new Promise((resolve) => setTimeout(resolve, 50)); // flush 窗口
     const raw = readFileSync(join(tmp, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');
     const rows = raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as Record<string, unknown>);
-    // 形态断言（按 seq 序）：
-    // 1 header + 2 user 消息 + 3 关闭行（partial 吸收后的 steps:[step1]）+ 4 context + 5 收束行（steps 只含 step2）
+    // 形态断言（按 seq 序，settlement 切段——2026-11 journal 泛化）：
+    // header + user 行 + 段行(steps:[step1]) + context 注入行 + 收束行
     const stepsOf = (r: Record<string, unknown>) => (Array.isArray(r.steps) ? (r.steps as Array<{ toolCalls?: Array<{ name?: string }> }>) : []);
-    const closed = rows.find((r) => stepsOf(r).length > 0 && stepsOf(r)[0]?.toolCalls?.[0]?.name === 'load_skill' && r.partial !== true);
-    expect(closed).toBeDefined(); // 关闭行携带 step1（load_skill 调用对，真实结果）
+    const segRow = rows.find((r) => stepsOf(r).length > 0 && stepsOf(r)[0]?.toolCalls?.[0]?.name === 'load_skill' && r.partial !== true);
+    expect(segRow).toBeDefined(); // 段行携带 step1（load_skill 调用对，真实结果——settlement 时补行已并入）
     const ctxRow = rows.find((r) => r.role === 'context' && r.source === 'skill');
     expect(ctxRow).toBeDefined();
-    // 顺序：关闭行 seq < context seq < 收束行 seq
+    // 顺序：段行 seq < 注入行 seq < 收束行 seq（journal 真序物化）
     const seq = (r: Record<string, unknown>) => r.seq as number;
-    const finalRow = rows.filter((r) => r.role === 'agent' && r.steps !== undefined && r.partial !== true).at(-1);
+    const finalRow = rows.filter((r) => r.role === 'agent' && r.run !== undefined).at(-1);
     expect(finalRow).toBeDefined();
-    expect(seq(closed!)).toBeLessThan(seq(ctxRow!));
+    expect(seq(segRow!)).toBeLessThan(seq(ctxRow!));
     expect(seq(ctxRow!)).toBeLessThan(seq(finalRow!));
-    // 收束行不含 load_skill 步（已被关闭行吸收）
-    const finalSteps = (finalRow!.steps as Array<{ toolCalls?: Array<{ name: string }> }>);
-    expect(finalSteps.every((s) => !(s.toolCalls ?? []).some((tc) => tc.name === 'load_skill'))).toBe(true);
-    // 【核心验收】关闭行 result 经 partials 补行覆盖为真实终值（读侧 records()）：
-    // raw 文件中关闭行 result:null 恒存在（摘除档案如实保留），覆盖发生在读取投影
-    let partDbg = '(缺失)';
-    try { partDbg = readFileSync(join(tmp, 'sessions', 'a~user', 'partials.jsonl'), 'utf-8'); } catch { partDbg = '(不存在)'; }
-    console.log('PARTIALS rows=' + partDbg.split('\n').filter((x) => x.trim()).length + ' supplement=' + partDbg.includes('tool-result') + ' loadSkill=' + partDbg.includes('load_skill') + ' first120=' + partDbg.replace(/[\r\n]+/g, '||').substring(0, 200));
-    const recs = await ctx.session.records('a~user');
-    console.log('RECS:', recs.map((r) => (r.role ?? '?') + ':run=' + (r.run ?? '-') + ':partial=' + String(r.partial === true) + ':results=' + JSON.stringify((r.steps ?? []).flatMap((s) => (s.toolCalls ?? []).map((tc) => tc.name + '=' + JSON.stringify(tc.result).slice(0, 40))))).join(' || '));
-    const closedRec = recs.find((r) => r.run !== undefined && r.partial !== true && (r.steps ?? []).some((s) => (s.toolCalls ?? []).some((tc) => tc.name === 'load_skill' && tc.result !== null && tc.result !== undefined)));
-    expect(closedRec).toBeDefined(); // 关闭行的 load_skill 调用已带真实结果
-    // partials.jsonl 存在且含补行（终值档案）；主文件无 partial/补行（零死重）
+    // 段行的 load_skill 已带真实终值（settlement 在工具全部完成后物化——无 result:null 悬空）
+    const segTc = stepsOf(segRow!)[0]?.toolCalls?.[0] as { result?: unknown } | undefined;
+    expect(segTc?.result).toMatchObject({ ok: true, output: { name: 'pdf-export', status: 'injected' } });
+
+    // 收束行退役（2026-11 裁决）：切分形态不落独立收束行——终文本在尾段末步；
+    // settled 判别行在场（提交标记），段行携带 run 键（组存在性判定锚）
+    expect(rows.some((r) => r.role === 'agent' && r.run !== undefined && !Array.isArray(r.steps) && (r.content ?? '') === '' && r.injected !== true)).toBe(false);
+    expect(raw).toContain('"type":"run-settled"');
+    expect(rows.filter((r) => r.role === 'agent' && Array.isArray(r.steps)).every((r) => typeof r.run === 'string')).toBe(true);
+    // partials.jsonl 收束即清（journal 泛化——run 结束后无残留）；主文件零 partial/补行
+    const partPath = join(tmp, 'sessions', 'a~user', 'partials.jsonl');
     let partRaw = '(不存在)';
-    try { partRaw = readFileSync(join(tmp, 'sessions', 'a~user', 'partials.jsonl'), 'utf-8'); } catch { partRaw = '(缺失)'; }
-    console.log('PARTIALS:', partRaw.split('\n').filter((x) => x.trim()).length, '行; 含补行:', partRaw.includes('tool-result'));
-    expect(partRaw).toContain('"type":"tool-result"');
+    try { partRaw = readFileSync(partPath, 'utf-8'); } catch { /* 已清 = 语义正确 */ }
+    expect(partRaw.replace(/[\r\n]+/g, '').replace(/^\{"type":"session-header".*\}$/, '')).toBe(''); // 空（仅头行或不存在）
     expect(raw).not.toContain('"partial":true');
     expect(raw).not.toContain('"type":"tool-result"');
   });

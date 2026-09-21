@@ -11,7 +11,7 @@
     "./client/*": "./client/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "agentchat": {
     "plugin": true,
@@ -27,7 +27,6 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
-    "highlight.js": "^11.11.1",
     "pinia": "^2.1.7",
     "vue": "^3.4.0"
   },

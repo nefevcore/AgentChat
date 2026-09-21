@@ -9,7 +9,7 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "node ../../scripts/run-tests.mjs .",
     "build": "esbuild src/main.ts --bundle --platform=node --format=esm --outfile=dist/relay.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" && esbuild src/download-gate.ts --bundle --platform=node --format=esm --outfile=dist/download-gate.mjs",
     "start": "node dist/relay.mjs"
   },

@@ -40,6 +40,10 @@
 //     跟踪」按钮移除（辅助活动栏 rail 为唯一桌面入口），04 景拍摄
 //     路径改点 aux rail「运行跟踪」——面板形态由主侧边栏内嵌变
 //     aux 侧栏展开（右侧分屏），04 各主题基线随路径变化重建。
+//   · 设置默认节改选「Agent 设置」（2026-12）：SettingsPanel 默认选中
+//     与守卫回落偏好叶 llmPools → agents（用户反馈：打开全局设置最常
+//     管理的是 Agent）——06 设置景默认页由「模型管理」变「Agent 设置」
+//     （左树高亮叶 + 右区列表），各主题基线重建。
 //
 // 环境：与 portb-e2e 同款「bootTree + 真 WS」——in-process 服务器托管
 // src/webui/dist（测试前自动重建，保证 dist 与 src 同步），Playwright
@@ -191,7 +195,7 @@ async function captureSet(context: import('playwright').BrowserContext, theme: '
   // ④ 运行清单面板（aux rail「运行跟踪」按钮——2026-12 入口冗余清理后
   //    主活动栏 tracking 按钮移除，辅助活动栏 rail 为唯一桌面入口）
   await page.click('.aux-activity-bar [title="运行跟踪"]');
-  await page.waitForSelector('text=运行矩阵', { timeout: 10_000 });
+  await page.waitForSelector('text=矩阵快照', { timeout: 10_000 });
   await shot(page, `${theme}-04-runs-panel`);
 
   // ⑤ 运行矩阵（主区全幅）；快照时间固定文案（几何不变）

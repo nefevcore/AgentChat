@@ -61,6 +61,7 @@ const lsState: Record<string, string> = {};
 };
 
 import type { BootedTree } from '../../ac-app/src/index.ts';
+
 const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
 setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
 const { bootTree } = await import('../../ac-app/src/index.ts');
@@ -76,22 +77,21 @@ function askQuestionsRow() {
         stream: async function* (input: Record<string, unknown>) {
           inputs.push(JSON.parse(JSON.stringify(input)));
           const msgs = (input.messages as Array<{ role?: string; content?: string }>) ?? [];
-          const asked = msgs.some((m) => m.role === 'tool' && String(m.content ?? '').includes('interaction_id'));
+          const answered = msgs.some((m) => m.role === 'user' && String(m.content ?? '').includes('已收到用户回答'));
           const hasAssistant = msgs.some((m) => m.role === 'assistant');
           if (!hasAssistant) {
             // 首步：调 ask_questions（run 挂起等待用户回答）
             yield { delta: '', toolCalls: [{ index: 0, id: 'askq-1', name: 'ask_questions' }] };
             yield { delta: '', toolCalls: [{ index: 0, argumentsDelta: JSON.stringify({ questions: [{ question: '选 A 还是 B？', options: ['A', 'B'] }] }) }] };
             yield { delta: '', finish: 'tool_calls' };
-          } else if (!asked) {
-            // 尚无工具结果：等待（不发 finish，等下一轮——实际由工具阻塞驱动，
-            // 这里在 asked 前不会到达：tool 消息回来后才续步）
-            yield { delta: '还没收到回答' };
+          } else if (!answered) {
+            // awaiting 已回但答案未注入（2026-02 挂起重构）：收尾说明，
+            // 自然停 → loop/run-idle 挂起等用户
+            yield { delta: '请你选一下' };
             yield { delta: '', finish: 'stop', usage: { prompt: 10, completion: 2 } };
           } else {
-            // 工具结果已回（answers 在 tool 行 content 里）：收束
-            const toolMsg = msgs.find((m) => m.role === 'tool' && String(m.content ?? '').includes('interaction_id'));
-            yield { delta: `已收到回答：${String(toolMsg?.content ?? '').slice(0, 120)}` };
+            // 答案注入消息在场（作答后 idle 续走）：收束
+            yield { delta: '已收到回答' };
             yield { delta: '', finish: 'stop', usage: { prompt: 10, completion: 2 } };
           }
         },
@@ -202,18 +202,27 @@ describe('Single 会话 ask_questions 刷新恢复（全链路）', () => {
     // ---- ④ 作答 → 后端 run 唤醒续跑收束 ----
     chat2.respondInteraction(['A']);
     await waitUntil(() => !chat2.contextBusy, 30_000, 'run 续跑收束（contextBusy 回落）');
-    // run 收束：LLM 收到了含 answers 的 tool 行，最终回复可见
+    // run 收束：续走步的 LLM 输入包含答案注入消息（2026-02 挂起重构：
+    // ask_questions 即返 awaiting，答案经 loop/run-idle 注入 user 语义位消息）
     await waitUntil(
       () => inputs.some((i) =>
         (i.messages as Array<{ role?: string; content?: string }> | undefined)
-          ?.some((m) => m.role === 'tool' && String(m.content ?? '').includes('"answers"'))),
+          ?.some((m) => m.role === 'user' && String(m.content ?? '').includes('已收到用户回答'))),
       15_000,
-      'LLM 输入包含 answers 工具结果',
+      'LLM 输入包含 answers 注入消息',
     );
     // 历史收束：回答后的最终 assistant 文本落盘
     const hist = await wireRpc.call<{ records?: Array<{ role?: string; agent_id?: string; content?: string }> }>(
       'session/history', { conversationId: session.id });
-    expect((hist.records ?? []).some((r) => r.agent_id === 'helper' && String(r.content ?? '').includes('已收到回答'))).toBe(true);
+    const okHist = (hist.records ?? []).some((r) => {
+      if (r.agent_id !== 'helper') return false;
+      if (String(r.content ?? '').includes('已收到回答')) return true;
+      // 收束行折叠形态：终文本在 steps[]（流式分段时 content 为尾段，旧 run
+      // 折叠步在 steps——两处都算会话事实）
+      const steps = (r as any).steps as Array<{ content?: string }> | undefined;
+      return Array.isArray(steps) && steps.some((st) => String(st.content ?? '').includes('已收到回答'));
+    });
+    expect(okHist).toBe(true);
   });
 
   it('空会话（未选 Agent → __standard__ 默认预设）同场景：刷新后作答入口恢复', { timeout: 90_000 }, async () => {

@@ -15,6 +15,7 @@ import {
   withFileMutationQueue,
   applyEditBatch,
   detectLineEnding,
+  repairDuplicatedCr,
   restoreLineEndingsPreserving,
   stripBom,
 } from '../src/index.ts';
@@ -254,6 +255,60 @@ describe('applyEditBatch 统一管线', () => {
 // P0 匹配语义收口（事故回归：docs/edit-tool-incident-report.md）
 // ============================================================
 
+// ============================================================
+// 2026-11-19 画像 Ⓑ：行尾归一化 + CR 双写治理回归
+// ============================================================
+
+describe('Ⓑ：行尾归一化与 CR 双写治理（2026-11-19 画像）', () => {
+  it('源头治理：带 CRLF 的 old_string/new_string 自动归一化 LF 匹配——不再产出 \r\r\n', async () => {
+    // CRLF 文件；模型从 read 复制的 old/new 带 \r\n（read 输出含行尾）
+    const file = tmpFile('const a = 1;\r\nconst b = 2;\r\n');
+    await applyEditBatch(file, {
+      textEdits: [{ oldText: 'const a = 1;\r\nconst b = 2;', newText: 'const x = 9;\r\nconst y = 8;' }],
+    });
+    const after = fs.readFileSync(file, 'utf-8');
+    expect(after).not.toContain('\r\r\n'); // 关键断言：无 CR 双写
+    expect(after).toContain('const x = 9;');
+    expect(after).toContain('const y = 8;');
+  });
+
+  it('写回行尾保持 CRLF（归一化匹配不破坏文件行尾风格）', async () => {
+    const file = tmpFile('alpha\r\nbeta\r\n');
+    await applyEditBatch(file, { textEdits: [{ oldText: 'beta', newText: 'BETA' }] });
+    expect(fs.readFileSync(file, 'utf-8')).toBe('alpha\r\nBETA\r\n');
+  });
+
+  it('存量损伤修复：读入时 \r\r\n → \r\n（一次行尾损伤不再放大成连环失配）', async () => {
+    // 文件带既往事故的 CR 双写损伤
+    const file = tmpFile('line1\r\r\nline2\r\r\n');
+    const r = await applyEditBatch(file, { textEdits: [{ oldText: 'line2', newText: 'LINE2' }] });
+    expect(r.repairedCr).toBe(2); // 修复处数回显
+    const after = fs.readFileSync(file, 'utf-8');
+    expect(after).not.toContain('\r\r\n');
+    expect(after).toBe('line1\r\nLINE2\r\n');
+  });
+
+  it('LF 文件保持 LF（双向不误伤）', async () => {
+    const file = tmpFile('one\ntwo\n');
+    await applyEditBatch(file, { textEdits: [{ oldText: 'two', newText: 'TWO' }] });
+    expect(fs.readFileSync(file, 'utf-8')).toBe('one\nTWO\n');
+  });
+
+  it('失配诊断：未命中错误含行尾统计与定位线索', async () => {
+    const file = tmpFile('const target = 1;\nother = 2;\n');
+    await expect(
+      applyEditBatch(file, { textEdits: [{ oldText: 'const target = 1;\nwrong next = 3;', newText: 'X' }] }),
+    ).rejects.toThrow(/行尾诊断|定位线索/);
+  });
+
+  it('repairDuplicatedCr 纯函数：\r{2,}\n 归一 + 计数', () => {
+    expect(repairDuplicatedCr('a\r\r\nb\r\nc')).toEqual({ fixed: 'a\r\nb\r\nc', count: 1 });
+    expect(repairDuplicatedCr('a\r\r\r\nb')).toEqual({ fixed: 'a\r\nb', count: 1 });
+    expect(repairDuplicatedCr('a\r\nb')).toEqual({ fixed: 'a\r\nb', count: 0 });
+    expect(repairDuplicatedCr('a\rb')).toEqual({ fixed: 'a\rb', count: 0 }); // 孤立 CR 不动
+  });
+});
+
 describe('P0：模糊匹配护栏', () => {
   it('Level 2（trim 行首空白）命中 → 拒绝编辑、文件不变', async () => {
     const file = tmpFile('line1\nindented code\nline3\n');
@@ -320,6 +375,27 @@ describe('P1：写回前语法预检', () => {
       }),
     ).rejects.toThrow(/配平预检失败/);
     expect(fs.readFileSync(file, 'utf-8')).toBe('interface T {\n  /** doc */\n  x?: number;\n}\n');
+  });
+
+  it('.ts 配平报错带行号定位：多余闭括号 → 指向出错行', async () => {
+    const file = tmpFile('const a = 1;\nconst b = 2;\nfoo();\n', 'a.ts');
+    await expect(
+      applyEditBatch(file, {
+        textEdits: [{ oldText: 'foo();', newText: 'foo());' }],
+      }),
+    ).rejects.toThrow(/第 3 行.*无对应开括号/);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('const a = 1;\nconst b = 2;\nfoo();\n'); // 原状
+  });
+
+  it('.ts 配平报错带行号定位：未闭合开括号 → 指向开启行', async () => {
+    const file = tmpFile('function f() {\n  return 1;\n}\nconst g = 2;\n', 'a.ts');
+    await expect(
+      applyEditBatch(file, {
+        // 吞掉 f 的闭括号 → '{' 未闭合，定位应指向第 1 行的开括号
+        textEdits: [{ oldText: '}\nconst', newText: 'const' }],
+      }),
+    ).rejects.toThrow(/第 1 行.*未闭合/);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('function f() {\n  return 1;\n}\nconst g = 2;\n'); // 原状
   });
 
   it('.ts 正常编辑（括号完好的代码含字符串/注释/模板/正则）→ 预检放行', async () => {

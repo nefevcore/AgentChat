@@ -771,6 +771,88 @@ describe('/name 手势与注入通道（词汇 v2：before-run 判定 + context 
     expect(captured.some((input) => input.messages.some((m) => String(m.content).includes('skill_content name="triage"')))).toBe(false);
   });
 
+  it('run_code 子调用通道：run 内注入一次即销账（多步不重注、脏键不进渲染）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
+    const { ctx } = await bootSkillWithSession();
+    const single = ctx.singles.create({ title: '子调用会话' });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    // echo 工具体内 await 子调用 load_skill（真实 run_code 形态：程序 await 子调用后工具体才返回；
+    // after-execute 在工具结果前同步完成 → 登记先于下一步 before-step）
+    ctx.tools.register({
+      name: 'echo',
+      description: '回显',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      execute: async (args, call) => {
+        await ctx.tools.execute({
+          name: 'load_skill',
+          args: { name: 'pdf-export' },
+          agentId: call.agentId,
+          conversationId: call.conversationId,
+          runCodeSubcall: true,
+        } as never);
+        return { ok: true, output: String(args.text ?? '') };
+      },
+    });
+    // 三步脚本：echo / echo / 文本收束 —— 步 1 注入一次，步 2、3 不再重注
+    let n = 0;
+    const { ctx: _c } = { ctx }; // lint 占位（避免误用 _c）
+    const scripted = () => ({
+      stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+        captured.push({ ...input, messages: input.messages.map((m) => ({ ...m })) });
+        if (n++ < 2) {
+          yield { delta: '', toolCalls: [{ index: 0, id: 'c' + n, name: 'echo', argumentsDelta: '' }] };
+          yield { delta: '', finish: 'tool_calls' as const };
+        } else {
+          yield { delta: 'ok' };
+          yield { delta: '', finish: 'stop' as const, usage: { prompt: 1, completion: 1 } };
+        }
+      },
+    });
+    // 覆盖 provider（bootSkillWithSession 用 scriptedProvider）——注册新名 provider
+    ctx.llm.register('mock3', scripted, { models: ['mock-3'] });
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-3',
+      messages: [{ role: 'user', content: 'load then think' }],
+      conversationId: single.id,
+    });
+    // 三步各自送入模型的消息（run 级驻留，2026-11 裁决）：load 发生在步 1
+    // 工具执行中 → before-step 时刻 injectDurable 入队 → 步 2 边界 splice 进
+    // 工作数组 → 步 2/3 继承（前缀稳定 KV 全命中——每步恰 1 条，无堆积；
+    // 旧「每步尾部重现」形态已退役：尾部字节稳定但每步重算正文）
+    const snapshots = captured.map((input) => input.messages.map((m) => ({ role: m.role, content: m.content })));
+    const counts = snapshots.map(
+      (msgs) => msgs.filter((m) => String(m.content).startsWith('<system-reminder>以下技能已加载')).length,
+    );
+    console.log('DBG counts', JSON.stringify(counts), 'msgs2', JSON.stringify(snapshots.map((m) => m.map((x) => String(x.content).slice(0, 30)))));
+        expect(counts).toEqual([0, 1, 1]);
+    // 注入体正文恰含一份技能（脏键不进渲染）
+    const inj = captured[1].messages.find((m) => String(m.content).startsWith('<system-reminder>以下技能已加载'));
+    expect(String(inj?.content).match(/<skill_content name="pdf-export">/g)?.length).toBe(1);
+    expect(String(inj?.content)).not.toContain('__recorded__');
+    // 落账恰一行；label 无脏键
+    const recs = await ctx.session.records(single.id);
+    const skillRows = recs.filter((r) => r.role === 'context' && r.source === 'skill');
+    expect(skillRows.length).toBe(1);
+    expect(String(skillRows[0]?.label ?? '')).not.toContain('__recorded__');
+    expect(String(skillRows[0]?.content ?? '')).not.toContain('__recorded__');
+    // 第二个 run 再 load 同一技能（跨 run 在场）：不再登记、不再落新行
+    n = 0;
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-3',
+      messages: [{ role: 'user', content: 'load again' }],
+      conversationId: single.id,
+    });
+    const recs2 = await ctx.session.records(single.id);
+    expect(recs2.filter((r) => r.role === 'context' && r.source === 'skill').length).toBe(1);
+    // 新 run 消息里无新注入体（历史行在场即不重注）
+    expect(captured.every((input) => input.messages.filter((m) => String(m.content).startsWith('<system-reminder>以下技能已加载')).length <= 1)).toBe(true);
+  });
+
   it('run_code 子调用通道：直调 load_skill 不瞬态注入（steps 回放承担）', async () => {
     makeRoot();
     writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');

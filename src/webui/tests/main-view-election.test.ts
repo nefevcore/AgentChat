@@ -6,9 +6,10 @@
 // 锁三条语义：
 //   ① 选举：active × order 多选一——真实 runview 行的 tracking 条目
 //      （order 50）激活期间覆盖 chat 兜底（order 100 恒真）；
-//   ② 让位协议随 owning 行：pair 激活 → tracking 失去资格 → chat 回归
-//      （closePairView → 矩阵回归）；行卸载 → 条目消失 → chat 直显
-//      （席位占用门控内在于选举——壳不残废）；
+//   ② 显式导航互斥（2026-12 返回按钮退役后）：openPairView 进会话即收
+//      矩阵（开关单一事实源，tracking 谓词只看开关）；openTrackingView
+//      进矩阵即清 pair——两方向互斥，无跨页返回联动；行卸载 → 条目
+//      消失 → chat 直显（席位占用门控内在于选举——壳不残废）；
 //   ③ keepAlive 生命周期策略：chat（keepAlive）曾当选即常驻 v-show
 //      （DOM 驻留——输家 display:none 不卸载）；volatile 条目仅当选
 //      期间挂载（离列即卸载）；缺陷 def（active 抛错）只失去选举资格。
@@ -52,10 +53,16 @@ describe('主区视图选举 · 真实域行条目', () => {
     ui.trackingViewVisible = true;
     expect(activeMainView()?.id).toBe('tracking');
 
-    // pair 只读视角激活 → 矩阵让位（让位协议随 owning 行 active()）
-    ui.pairView = { a: 'x', b: 'y' };
+    // 显式导航互斥（2026-12 返回按钮退役）：openPairView 进会话即收矩阵
+    // ——开关单一事实源，tracking 谓词只看开关（悬挂 pair 不再影响矩阵态）
+    ui.openPairView('x', 'y');
+    expect(ui.pairView).toEqual({ a: 'x', b: 'y' });
+    expect(ui.trackingViewVisible).toBe(false);
     expect(activeMainView()?.id).toBe('chat');
-    ui.pairView = null;
+
+    // 反向：openTrackingView 进矩阵即清 pair——两方向互斥
+    ui.openTrackingView();
+    expect(ui.pairView).toBeNull();
     expect(activeMainView()?.id).toBe('tracking');
 
     // 行卸载 → 条目消失 → chat 直显（席位占用门控内在于选举）

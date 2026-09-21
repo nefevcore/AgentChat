@@ -82,8 +82,9 @@ describe('ac-agent-loop 循环', () => {
     expect(result.finish).toBe('stop');
     expect(result.steps).toHaveLength(1);
     expect(result.text).toBe('你好');
-    // 双轨 usage：单步时覆盖轨 = 累加轨（M12 契约）
-    expect(result.usage).toEqual({ prompt: 1, completion: 1, promptAccumulated: 1, steps: 1 });
+    // 双轨 usage：单步时覆盖轨 = 累加轨（M12 契约）；elapsedMs（API 计时）为正
+    expect(result.usage).toMatchObject({ prompt: 1, completion: 1, promptAccumulated: 1, steps: 1 });
+    expect(result.usage.elapsedMs).toBeGreaterThanOrEqual(0);
   });
 
   it('M21/D4 工具字典序：schema 序与注册顺序无关（装卸/时序解耦）', async () => {
@@ -148,7 +149,7 @@ describe('ac-agent-loop 循环', () => {
     const { ctx } = await boot([s1, s2]);
     ctx.tools.register({ name: 'echo', execute: () => ({ ok: true }) });
     const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q') });
-    expect(result.usage).toEqual({
+    expect(result.usage).toMatchObject({
       prompt: 20, // 覆盖轨：末步上下文
       completion: 5, // 累加轨
       total: 25, // 覆盖轨
@@ -158,6 +159,8 @@ describe('ac-agent-loop 循环', () => {
       cacheMiss: 20,
       steps: 2,
     });
+    // elapsedMs（API 计时）累加轨：两步均为正 → 大于单步
+    expect(result.usage.elapsedMs).toBeGreaterThanOrEqual(0);
   });
 
   it('工具清单进入 LLM 请求（ToolDefinition → LlmToolSpec）', async () => {

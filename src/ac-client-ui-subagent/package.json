@@ -4,9 +4,23 @@
   "private": true,
   "type": "module",
   "description": "subagent 域前端行（M28 P2 §2.2 镜像表 + subagent-session-view-plan）：subagent 工具卡（action 分发清单卡）+ 子 Agent 会话只读视角（main:perspective 贡献，运行跟踪面板点击进入——历史回放复用 conversation 渲染内核）；与后端行双向可独立摘除",
-  "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
-  "scripts": { "test": "vitest run" },
-  "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
@@ -18,6 +32,12 @@
     "ac-client-ui-theme": "workspace:*",
     "vue": "^3.4.0"
   },
-  "devDependencies": { "ac-extension-core": "workspace:*", "ac-webui": "workspace:*", "vitest": "^4.1.10" },
-  "keywords": ["agentchat"]
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

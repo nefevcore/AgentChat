@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AgentChat 内置预设模式数据行（标准/极简模式注入 ac-agent-presets 目录；程序化模式已随 ac-run-code 走——preset.ts 子行，独立插件拆分 2026-09-17）",
+  "description": "AgentChat 内置预设模式数据行（标准/极简/创造模式注入 ac-agent-presets 目录；创造模式 = 插件开发面 dev+admin；程序化模式已随 ac-run-code 走——preset.ts 子行，独立插件拆分 2026-09-17）",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*"

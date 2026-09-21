@@ -139,6 +139,7 @@ describe('事件目录锁定（M25 P1）', () => {
       'loop/before-run-first',
       'loop/before-run-last',
       'loop/before-step',
+      'loop/run-idle',
       'loop/run-started',
       'loop/step-started',
       'loop/steer-dropped',
@@ -150,6 +151,7 @@ describe('事件目录锁定（M25 P1）', () => {
       'tool/after-execute',
       'tool/before-execute',
       'tool/progress',
+      'tool/started',
       'tool/transform-result',
     ].sort());
   });

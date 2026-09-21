@@ -274,6 +274,7 @@ describe('模型能力元数据（models 宽容双形态 + vision 并集门控�
       { model: 'b', vision: true },
       { model: 'c', hidden: true },
       { model: 'd', vision: 'yes' },   // 非布尔 true → 忽略该标志
+      { model: 'e-manual', manual: true }, // 手工条目标志（发现刷新保留语义）
       { model: '' },                    // 空名丢弃
       42, null, 'x',                    // 非法项丢弃
       'a',                              // 重复（首个胜）
@@ -282,6 +283,7 @@ describe('模型能力元数据（models 宽容双形态 + vision 并集门控�
       { model: 'b', vision: true },
       { model: 'c', hidden: true },
       { model: 'd' },
+      { model: 'e-manual', manual: true },
       { model: 'x' },
     ]);
     expect(normalizePoolModels(undefined)).toEqual([]);

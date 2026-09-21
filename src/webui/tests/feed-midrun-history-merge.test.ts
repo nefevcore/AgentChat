@@ -151,4 +151,72 @@ describe('run 进行中历史合并：live-wins（工具卡不重复、不永久
     expect(z1).toHaveLength(1);
     expect(z1[0].content).toContain('a.ts');
   });
+
+  it('断线重连（2026-09-21 反馈 #4）：journal 步行与直播占位同内容 → 不重复成两张思考/正文卡', async () => {
+    const feed = cores.feed;
+    const id = directDialog(A);
+
+    // 步1 直播：思考 + 正文完整渗出（断线前 run 仍在途——步1 已完成但步2 未开）
+    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
+    feed.ingestFrame('loop/step-started', [A, 0, [], env]);
+    feed.ingestFrame('llm/delta', delta({ reasoning: '思考一' }));
+    feed.ingestFrame('llm/delta', delta({ delta: '正文一' }));
+    feed.ingestFrame('llm/delta-end', META);
+    feed.ingestFrame('loop/after-step', [A, { text: '正文一', reasoning: '思考一' }, env]);
+
+    // 重连：onOpen 清理（streaming 关、占位 isStreaming 关）+ loadHistory。
+    // 历史带回步1 的 journal 步行（完整步）；同时步2 已开始（step-started
+    // 在断线窗口丢失后由后续帧重建直播占位）。
+    feed.loadHistory(id, 'user', A);
+    expect(rpcCalls[0].method).toBe('session/history');
+    rpcCalls[0].resolve({
+      records: [
+        { message_id: 'm1', role: 'user', agent_id: 'user', content: '问', timestamp: new Date().toISOString() },
+        partialRecord('m2', { content: '正文一', reasoning: '思考一', toolCalls: [] }),
+      ],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // 步2 直播占位已建（重连后新 step-started）——与 journal 步1 不同步、无重叠，应共存
+    feed.ingestFrame('loop/step-started', [A, 1, [], env]);
+    feed.ingestFrame('llm/delta', delta({ reasoning: '思考二' }));
+
+    const turns = feed.getTurns(id).value;
+    const steps = turns.at(-1)?.steps ?? [];
+    // 两个步、内容各归各位——步1（journal）与步2（直播）不串不重
+    expect(steps).toHaveLength(2);
+    expect(steps[0].assistant.content).toBe('正文一');
+    expect(steps[1].assistant.reasoning_content).toBe('思考二');
+  });
+
+  it('重连竞态：journal 步行（完整）与同一步直播占位（部分）并存 → 单步视图 + 内容保全', async () => {
+    const feed = cores.feed;
+    const id = directDialog(A);
+
+    // 步1 直播渗出（思考全量 + 正文前缀「正文一」——delta 只到一半）
+    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
+    feed.ingestFrame('loop/step-started', [A, 0, [], env]);
+    feed.ingestFrame('llm/delta', delta({ reasoning: '思考一' }));
+    feed.ingestFrame('llm/delta', delta({ delta: '正文一' }));
+
+    // 重连 + loadHistory：journal 步行带回【完整步】（正文全量「正文一二三」）
+    feed.loadHistory(id, 'user', A);
+    rpcCalls[0].resolve({
+      records: [
+        { message_id: 'm1', role: 'user', agent_id: 'user', content: '问', timestamp: new Date().toISOString() },
+        partialRecord('m2', { content: '正文一二三', reasoning: '思考一', toolCalls: [] }),
+      ],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const turns = feed.getTurns(id).value;
+    const steps = turns.at(-1)?.steps ?? [];
+    // 同一步只渲染一张卡（重复根因：journal 行与直播占位并存 → 两张思考/正文卡）
+    expect(steps).toHaveLength(1);
+    // 长度取胜：journal 全量（断线期间步已完成落盘）搬进流式载体——内容不丢
+    expect(steps[0].assistant.content).toBe('正文一二三');
+    expect(steps[0].assistant.reasoning_content).toBe('思考一');
+  });
 });

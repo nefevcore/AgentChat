@@ -56,32 +56,68 @@ describe('version 纯助手', () => {
     if (content !== '') expect(content).toMatch(/^#\s/m);
   });
 
-  it('fetchLatestRelease：成功入缓存（TTL 内不重发）；失败 null 不缓存', async () => {
+  it('fetchLatestRelease：manifest 主源成功入缓存（TTL 内不重发，不打 GitHub）', async () => {
     resetReleaseCache();
     let hits = 0;
-    const okFetch = (async () => {
+    const okFetch = (async (url: any) => {
       hits += 1;
+      if (String(url).includes('manifest.json')) {
+        return new Response(
+          JSON.stringify({ updated: '2026-09-18T10:07:33Z', releases: [
+            { version: '9.9.9', date: '2026-09-18', files: [] },
+            { version: '9.8.0', date: '2026-09-01', files: [] },
+          ] }),
+          { status: 200 },
+        );
+      }
+      throw new Error('GitHub 不应被打到（manifest 主源已命中）');
+    }) as typeof fetch;
+    const a = await fetchLatestRelease(okFetch);
+    expect(a).toMatchObject({ version: '9.9.9', url: 'http://47.110.63.135/', publishedAt: '2026-09-18' });
+    // 缓存命中：第二次不再打接口
+    const b = await fetchLatestRelease(okFetch);
+    expect(hits).toBe(1);
+    expect(b).toEqual(a);
+    resetReleaseCache();
+  });
+
+  it('fetchLatestRelease：manifest 不可达 → GitHub 兜底；双败 → null 不缓存', async () => {
+    resetReleaseCache();
+    const githubOkFetch = (async (url: any) => {
+      if (String(url).includes('manifest.json')) return new Response('not found', { status: 404 });
       return new Response(
         JSON.stringify({ tag_name: 'v9.9.9', html_url: 'https://github.com/nefevcore/AgentChat/releases/tag/v9.9.9', published_at: '2026-01-01T00:00:00Z' }),
         { status: 200 },
       );
     }) as typeof fetch;
-    const a = await fetchLatestRelease(okFetch);
+    // 兜底命中：GitHub 形状原样透出
+    const a = await fetchLatestRelease(githubOkFetch);
     expect(a).toMatchObject({ version: '9.9.9', url: 'https://github.com/nefevcore/AgentChat/releases/tag/v9.9.9' });
-    // 缓存命中：第二次不再打接口
-    const b = await fetchLatestRelease(okFetch);
-    expect(hits).toBe(1);
-    expect(b).toEqual(a);
-    // 失败：null 且不缓存 → 下次成功仍能取到
+    // 双败：null 且不缓存 → 下次成功仍能取到
     resetReleaseCache();
+    let hits = 0;
     const failFetch = (async () => {
       hits += 1;
       throw new Error('offline');
     }) as typeof fetch;
     expect(await fetchLatestRelease(failFetch)).toBeNull();
-    const c = await fetchLatestRelease(okFetch);
-    expect(hits).toBe(3);
+    const c = await fetchLatestRelease(githubOkFetch);
+    expect(hits).toBe(2); // 双源各打一次
     expect(c?.version).toBe('9.9.9');
+    resetReleaseCache();
+  });
+
+  it('fetchLatestRelease：manifest 形状坏（releases 空/无版本）→ 不认，走兜底', async () => {
+    resetReleaseCache();
+    const badManifestFetch = (async (url: any) => {
+      if (String(url).includes('manifest.json')) {
+        return new Response(JSON.stringify({ releases: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ tag_name: 'v9.9.9' }), { status: 200 });
+    }) as typeof fetch;
+    const a = await fetchLatestRelease(badManifestFetch);
+    expect(a?.version).toBe('9.9.9');
+    expect(a?.url).toContain('github.com');
     resetReleaseCache();
   });
 

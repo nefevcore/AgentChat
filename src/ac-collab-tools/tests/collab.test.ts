@@ -153,7 +153,7 @@ describe('资料面工具', () => {
     expect(output.tools.every((t) => t.name === 'list_tools')).toBe(true);
   });
 
-  it('list_tools：会话形态面同口径（2026-12）——excludeForms 工具不进独立会话清单；对桶照常', async () => {
+  it('list_tools：正常工具无形态限制（2026-12 注入轴重构）——常规工具进独立会话清单照常', async () => {
     const { ctx } = await boot();
     // 直构 singles stub（形态识别面——get 命中即独立会话）
     class SinglesStub extends Service {
@@ -173,27 +173,26 @@ describe('资料面工具', () => {
       name: 'system_restart',
       description: '重启',
       requiredTags: ['admin'],
-      excludeForms: ['single'],
       execute: () => ({ ok: true }),
     });
     ctx.agents.register({ id: 'boss', model: 'mock-1', tags: ['admin'] });
 
-    // 独立会话：与 router 信封同口径——excludeForms 工具不在生效集
+    // 独立会话：与 router 信封同口径——常规工具照常（excludeForms 已撤销）
     const single = await call(ctx, 'list_tools', {}, 'boss', 'sid-1');
     const singleTools = (single.output as { tools: Array<{ name: string }> }).tools;
-    expect(singleTools.some((t) => t.name === 'system_restart')).toBe(false);
+    expect(singleTools.some((t) => t.name === 'system_restart')).toBe(true);
     // 对桶（1v1）：照常可见
     const pair = await call(ctx, 'list_tools', {}, 'boss', 'boss~user');
     const pairTools = (pair.output as { tools: Array<{ name: string }> }).tools;
     expect(pairTools.some((t) => t.name === 'system_restart')).toBe(true);
   });
 
-  it('list_tools：会话形态面 self 同口径（2026-02）——excludeForms:[\'self\'] 工具不进自会话清单；1v1 对桶照常', async () => {
+  it('list_tools：交互面 self 同口径——requiresInteraction 工具不进自会话清单；1v1 对桶照常', async () => {
     const { ctx } = await boot();
     ctx.tools.register({
       name: 'ask_questions',
       description: '向用户提问',
-      excludeForms: ['self'],
+      requiresInteraction: true,
       execute: () => ({ ok: true }),
     });
     ctx.agents.register({ id: 'bot', model: 'mock-1' });
@@ -234,6 +233,119 @@ describe('send_agent（经 conversation 状态机）', () => {
     const output = r.output as { reply: string; finish: string };
     expect(output.reply).toMatch(/^回复\d+$/);
     expect(output.finish).toBe('stop');
+  });
+  it('wait=true 超时语法糖：限时返回引导说明，不中断对端 run；迟到通知回投调用会话而非委托桶（2026-12 修复）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ storeRoot: root, withGroup: false });
+    const sessionFiber = ctx.plugin(sessionRow as any, { root });
+    await sessionFiber;
+    booted[booted.length - 1].fibers.push(sessionFiber);
+    // 慢 provider：150ms 后才回——超过 timeout_ms=50
+    ctx.llm.register('mock-slow', () => ({
+      stream: async function* (_input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+        await new Promise((r) => setTimeout(r, 150));
+        yield { delta: 'slow-reply', finish: 'stop', usage: { prompt: 1, completion: 1 } } satisfies LlmStreamChunk;
+      },
+    }), { models: ['mock-slow-1'] });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.agents.register({ id: 'b', model: 'mock-slow-1' });
+    const t0 = Date.now();
+    const r = await ctx.tools.execute({
+      name: 'send_agent',
+      args: { to: 'b', message: '帮我看下', wait: true, timeout_ms: 50 },
+      agentId: 'a',
+      conversationId: 'a~user',
+    });
+    const elapsed = Date.now() - t0;
+    // 超时引导即返（不等待对端 150ms 完成）
+    expect(r.ok).toBe(true);
+    const output = r.output as { wait: boolean; timed_out?: boolean; message?: string };
+    expect(output.timed_out).toBe(true);
+    expect(output.message ?? '').toMatch(/未受影响/);
+    expect(elapsed).toBeLessThan(150);
+    // 对端 run 不受中断：稍后完整收束（回复落对桶 a~b——迟到通知经 deliver 注入）
+    await new Promise((r2) => setTimeout(r2, 250));
+    const read = (id: string) => {
+      const f = join(root, 'sessions', id, 'messages.jsonl');
+      return fs.existsSync(f) ? fs.readFileSync(f, 'utf-8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+    };
+    const deleg = read('a~b');
+    const caller = read('a~user');
+    // 委托桶：只有委托消息 + 对端回复——迟到通知绝不混入双方对话流（回归锁）
+    expect(deleg.some((l) => l.content === '帮我看下')).toBe(true);
+    expect(deleg.some((l) => l.content?.includes('等待超时后'))).toBe(false);
+    // 调用会话（发起地）：迟到通知回投唤醒 a（source='event' 机制信封
+    // ——session 入账 role:'context'+source:'event' 系统事件行，无 agent_id）
+    const noticed = caller.filter((l) => typeof l.content === 'string' && l.content.includes('等待超时后'));
+    expect(noticed.length).toBe(1);
+    expect(noticed[0].role).toBe('context');
+    expect(noticed[0].source).toBe('event');
+  });
+  it('wait=true 超时后对端 error 收束 → 失败通知唤醒发起方（不空等，2026-09-23 修补）', async () => {
+    const { ctx } = await boot();
+    // 捕获 a 的唤醒输入（mock provider 形态——scriptedProvider 不暴露 input，自建）
+    const seen: string[] = [];
+    ctx.llm.register('mock-cap', () => ({
+      stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+        seen.push(String(input.messages?.at(-1)?.content ?? ''));
+        yield { delta: 'ok', finish: 'stop', usage: { prompt: 1, completion: 1 } } satisfies LlmStreamChunk;
+      },
+    }), { models: ['mock-cap-1'] });
+    // 对端 b：150ms 后 error 收束（慢 + 失败）
+    ctx.llm.register('mock-err', () => ({
+      stream: async function* (): AsyncIterable<LlmStreamChunk> {
+        await new Promise((r) => setTimeout(r, 150));
+        throw new Error('boom-err');
+      },
+    }), { models: ['mock-err-1'] });
+    ctx.agents.register({ id: 'a', model: 'mock-cap-1' });
+    ctx.agents.register({ id: 'b', model: 'mock-err-1' });
+    const r = await ctx.tools.execute({
+      name: 'send_agent',
+      args: { to: 'b', message: '帮我看下', wait: true, timeout_ms: 50 },
+      agentId: 'a',
+    });
+    expect(r.ok).toBe(true);
+    expect((r.output as { timed_out?: boolean }).timed_out).toBe(true);
+    // 等迟到通知：b error 收束（150ms）→ notifyLateReply → a 唤醒 run
+    await new Promise((r2) => setTimeout(r2, 500));
+    const woken = seen.find((s) => s.includes('执行失败'));
+    expect(woken).toBeDefined();
+    expect(woken).toMatch(/boom-err/);
+  });
+
+  it('event 信封向 pair 桶投递：只唤醒 deliver 目标，对端零推理（唤醒单源回归锁）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ storeRoot: root, withGroup: false });
+    const sessionFiber = ctx.plugin(sessionRow as any, { root });
+    await sessionFiber;
+    booted[booted.length - 1].fibers.push(sessionFiber);
+    // provider 调用流水（per-model 计数——谁被唤醒谁留下调用记录；a/b 各一 model）
+    const callsByModel = new Map<string, number>();
+    ctx.llm.register('mock-wake', () => ({
+      stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+        callsByModel.set(input.model, (callsByModel.get(input.model) ?? 0) + 1);
+        yield { delta: 'ack', finish: 'stop', usage: { prompt: 1, completion: 1 } } satisfies LlmStreamChunk;
+      },
+    }), { models: ['mock-wake-a1', 'mock-wake-b1'] });
+    ctx.agents.register({ id: 'a', model: 'mock-wake-a1' });
+    ctx.agents.register({ id: 'b', model: 'mock-wake-b1' });
+
+    // 盲点场景：event 通知投进 pair 桶（agent⇄agent，双方都不是用户）——
+    // deliver(agentId='a') 只应唤醒 a；b 作为桶的另一端不因桶入账而开跑
+    const outcome = await ctx.conversation.deliver('a', '[系统通知] 迟到回复已就绪', {
+      sender: 'a',
+      source: 'event',
+      conversationId: 'a~b',
+    });
+    expect(outcome.kind).toBe('run');
+    await new Promise((r) => setTimeout(r, 80)); // 收束缓冲
+    expect(callsByModel.get('mock-wake-a1') ?? 0).toBe(1);
+    expect(callsByModel.has('mock-wake-b1')).toBe(false); // 对端零推理
+    // 桶入账：通知行确实落 a~b（被唤醒方 a 上下文可见），但入账 ≠ 唤醒
+    const f = join(root, 'sessions', 'a~b', 'messages.jsonl');
+    const lines = fs.existsSync(f) ? fs.readFileSync(f, 'utf-8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+    expect(lines.some((l) => l.content === '[系统通知] 迟到回复已就绪')).toBe(true);
   });
 
   it('未注册目标 / 缺执行身份 → 报错', async () => {
@@ -440,6 +552,19 @@ describe('群协作（可选 ctx.group）', () => {
     expect((ra.output as { count: number }).count).toBe(1);
     const rb = await call(ctx, 'list_groups', {}, 'b');
     expect((rb.output as { count: number }).count).toBe(2);
+  });
+
+  it('list_groups：members 含隐式成员 user + 显示名对照（展示面完整参与面）', async () => {
+    const { ctx } = await boot();
+    ctx.agents.register({ id: 'a', model: 'mock-1', name: '甲' });
+    ctx.agents.register({ id: 'b', model: 'mock-1' });
+    ctx.group.create({ id: 'team', name: '项目组', members: ['a', 'b'] });
+    const r = await call(ctx, 'list_groups', {}, 'a');
+    const members = (r.output as { groups: Array<{ members: Array<{ id: string; name?: string }> }> }).groups[0].members;
+    // user 隐式成员首位；有显示名的成员带 name，无名的仅 id
+    expect(members.map((m) => m.id)).toEqual(['user', 'a', 'b']);
+    expect(members.find((m) => m.id === 'a')?.name).toBe('甲');
+    expect(members.find((m) => m.id === 'b')?.name).toBeUndefined();
   });
 
   it('群行未装 → 明确报错（可选能力降级）', async () => {

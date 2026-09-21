@@ -1,6 +1,6 @@
 // ============================================================
 // ac-run-code 测试：工具体端到端（真 worker + 真 cordis Context）
-// · run_code 注册（infra 标签 + 注册面——2026-09-17 优化：授权随能力族）
+// · run_code 注册（injection:'mode'——2026-12 注入轴：不挂标签，模式合成）
 // · 基本执行：程序 return → 步记录摘要形态（programHash/value）
 // · tools.* 子调用走 ctx.tools.execute（真工具可见）
 // · 并发纪律：写路径按提交序串行（时序断言）
@@ -22,10 +22,12 @@ const booted: { ctx: Context; fibers: Fiber[] }[] = [];
 interface BootOpts {
   /** 注册进 ctx.tools 的探针工具（默认 echo） */
   probeTools?: boolean;
-  /** 预注册 Agent（tags 决定 run_code 可见性） */
+  /** 预注册 Agent（tags 决定常规工具可见面——run_code 为 mode 工具与 tags 无关） */
   agentTags?: string[];
   /** 带 mock llm provider（投影注入测试用——走到 llm/before-chat） */
   withLlm?: boolean;
+  /** 墙钟上限（行配置——2026-09-23 墙钟唯一化后预算的唯一入口） */
+  wallMs?: number;
 }
 
 async function boot(opts: BootOpts = {}) {
@@ -71,7 +73,7 @@ async function boot(opts: BootOpts = {}) {
     for (const row of rows) fibers.push(await ctx.plugin(row as any));
     fibers.push(await ctx.plugin(loopRow as any));
   }
-  fibers.push(await ctx.plugin(runCodeRow as any));
+  fibers.push(await ctx.plugin(runCodeRow as any, opts.wallMs !== undefined ? { defaultMaxWallMs: opts.wallMs } : {}));
   const entry = { ctx, fibers };
   booted.push(entry);
   return entry;
@@ -106,15 +108,16 @@ function fibersSlow(ctx: Context): void {
 }
 
 describe('ac-run-code：注册与投影', () => {
-  it('run_code 注册（requiredTags infra——2026-09-17 优化裁决：授权随能力族，程序化是形态选择）；infra Agent 可见、无标签 Agent 不可见', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
-    expect(ctx.tools.get('run_code')?.requiredTags).toEqual(['infra']);
+  it('run_code 注册（injection mode——2026-12 注入轴：不挂 requiredTags、不进常规工具面）；任何 Agent 可执行（直调）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs'] });
+    expect(ctx.tools.get('run_code')?.injection).toBe('mode');
+    expect(ctx.tools.get('run_code')?.requiredTags).toBeUndefined();
     const r = await call(ctx, 'return 1 + 1;');
     expect(r.ok).toBe(true);
     expect((r.output as { value: number }).value).toBe(2);
   });
 
-  it('无 infra 标签 → run_code 不在可见面（resolveEffectiveTools 空投影仍可跑纯计算）', async () => {
+  it('无任何标签 → 空投影仍可跑纯计算（run_code 与 tags 无关——mode 通道）', async () => {
     const { ctx } = await boot({ agentTags: [] });
     // 工具仍注册（注册面），但投影空——纯计算程序照常（无需工具）
     const r = await call(ctx, 'return "ok";');
@@ -248,6 +251,20 @@ describe('ac-run-code：子调用桥接', () => {
     const r = await call(ctx, `enum E { A }\nreturn E.A;`);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/类型擦除|可擦除/);
+  });
+  it('模板串内嵌反引号 → 擦除失败错误带修复提示（转义税治理）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'const s = `用 `pwsh` 执行`;\nreturn s;');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/类型擦除/);
+    expect(r.error).toMatch(/反引号|join/);
+  });
+
+  it('转义反引号后同形程序可执行（正解自证）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'const s = `用 \\`pwsh\\` 执行`;\nreturn s;');
+    expect(r.ok).toBe(true);
+    expect((r.output as { value: string }).value).toBe('用 `pwsh` 执行');
   });
 
   it('子调用抛错收敛：程序捕获后可继续', async () => {
@@ -399,16 +416,16 @@ describe('ac-run-code：预算与中止', () => {
     expect(JSON.stringify(v)).toMatch(/Circular/);
   });
 
-  it('compute_ms 预算耗尽 → 中止（interrupt 语义）', async () => {
-    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+  it('墙钟预算耗尽 → 中止（interrupt 语义——2026-09-23 compute 退役后唯一预算口径）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'], wallMs: 50 });
     fibersSlow(ctx);
-    // 每次 30ms：2 次即 60ms > compute_ms=50——第 2 次完成后主线程发 abort
+    // 每次 30ms：2 次即 60ms > 墙钟 50ms——看门狗到期杀程序
     const r = await call(ctx, `
       for (let i = 0; i < 50; i++) {
         await tools.slow({});
       }
       return 'never';
-    `, { compute_ms: 50 });
+    `, {});
     expect(r.ok).toBe(false);
     expect((r as { interrupt?: unknown }).interrupt).toBeDefined();
   }, 20000);
@@ -434,13 +451,13 @@ describe('ac-run-code：预算与中止', () => {
 });
 
 describe('ac-run-code：lib 临时库（会话级复用）', () => {
-  it('define → 同程序内可用；resolve 全量清单可见', async () => {
+  it('define → 同程序内可用；resolve() 清单为纯静态摘要（立项③-A 语义）', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       lib.define('clip', (s: string, n = 80) => (s.length > n ? s.slice(0, n) + '…' : s));
-      const all = lib.resolve() as Record<string, unknown>;
+      const all = lib.resolve() as Record<string, { kind: string; preview: string }>;
       const clip = lib.resolve('clip') as (s: string) => string;
-      return { ok: typeof all.clip === 'function', clipped: clip('abcdef', 3) };
+      return { ok: all.clip.kind === 'function' && all.clip.preview.includes('slice'), clipped: clip('abcdef', 3) };
     `);
     expect(r.ok).toBe(true);
     expect((r.output as { value: { ok: boolean; clipped: string } }).value).toEqual({ ok: true, clipped: 'abc…' });
@@ -528,6 +545,147 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
     expect((r.output as { value: string }).value).toMatch(/nope 未注册/);
   });
 
+  it('Ⓐ（2026-11-19 追记）define 传对象 → 即时指引（数据本体无法跨程序注册）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      try {
+        lib.define('badobj', { a: 1, b: [2, 3] });
+        return 'unexpected-registered';
+      } catch (e) { return String(e); }
+    `);
+    expect(r.ok, "run fail: " + (r.error ?? "")).toBe(true);
+    const v = String((r.output as { value: string }).value);
+    expect(v).toMatch(/对象/);
+    expect(v).toMatch(/正确示例|源码字符串/);
+  });
+
+  it('（9eaf3f03 复盘 ①）匿名函数源码串：函数表达式形态 strip 成立——不再 Expected ident', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      lib.define('patch', \"async function (fp, os, ns) { return { fp, os, ns }; }\");
+      const patch = lib.resolve('patch') as (fp: string, os: string, ns: string) => Promise<{ fp: string; os: string; ns: string }>;
+      return { called: await patch('a', 'b', 'c') };
+    `);
+    expect(r.ok, 'run fail: ' + (r.error ?? '')).toBe(true);
+    expect((r.output as { value: { called: { fp: string } } }).value.called).toEqual({ fp: 'a', os: 'b', ns: 'c' });
+  });
+
+  it('（9eaf3f03 复盘 ②）resolve 单名返回本体：直接调用成立、解构 undefined 为反模式', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      lib.define('add', (a: number, b: number) => a + b);
+      const direct = lib.resolve('add') as (a: number, b: number) => number;
+      const destructure = { ...({} as Record<string, never>) };
+      return { via: direct(2, 3), isFn: typeof direct === 'function' };
+    `);
+    expect(r.ok, 'run fail: ' + (r.error ?? '')).toBe(true);
+    const v = r.output as { value: { via: number; isFn: boolean } };
+    expect(v.value).toEqual({ via: 5, isFn: true });
+  });
+
+  it('（9eaf3f03 复盘 ③④）失败收束报错附本程序 define 丢弃清单', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r1 = await ctx.tools.execute({
+      name: 'run_code',
+      args: { code: `lib.define('patchFile', () => 1);\nlib.define('readSeg', () => 2);\nthrow new Error('boom');` },
+      agentId: 'tester', conversationId: 'conv-lib-drop', toolCallId: 'tc-drop-1',
+    });
+    expect(r1.ok).toBe(false);
+    expect(r1.error).toMatch(/patchFile、readSeg 已随失败丢弃/);
+    // 注册表确认不残留（回滚语义保持）
+    const r2 = await ctx.tools.execute({
+      name: 'run_code',
+      args: { code: `try { lib.resolve('patchFile'); return 'unexpected'; } catch (e) { return String(e); }` },
+      agentId: 'tester', conversationId: 'conv-lib-drop', toolCallId: 'tc-drop-2',
+    });
+    expect(r2.ok).toBe(true);
+    expect((r2.output as { value: string }).value).toMatch(/patchFile 未注册/);
+  });
+
+  it('（9eaf3f03 复盘）程序体形态含 await：报错附针对性指引（async 函数形态正解）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      try { lib.define('bad', "const r = await tools.read({ file_path: 'x' }); return 1;"); return 'unexpected'; }
+      catch (e) { return String(e); }
+    `);
+    expect(r.ok).toBe(true);
+    expect((r.output as { value: string }).value).toMatch(/async 函数形态/);
+  });
+
+  it('lib DX 增强（2026-11-19）：直调糖——lib.<名> 与 resolve 同通道同结果', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      lib.define('add', (a, b) => a + b);
+      const viaDirect = lib.add(1, 2);
+      const viaResolve = lib.resolve('add')(1, 2);
+      return { viaDirect, viaResolve };
+    `);
+    expect(r.ok, "run fail: " + (r.error ?? "")).toBe(true);
+    const v = r.output as { value: { viaDirect: number; viaResolve: number } };
+    expect(v.value.viaDirect).toBe(3);
+    expect(v.value.viaResolve).toBe(3);
+  });
+
+  it('lib DX 增强：函数体引用外围变量 → define 返回 warning（防「测试时好、复用时炸」陷阱）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      const OUTER_LIMIT = 3;  // 外围变量——fn.toString() 带不走闭包环境
+      const reg = lib.define('trap', (s) => s.slice(0, OUTER_LIMIT));
+      return { warned: reg.warning ?? 'none' };
+    `);
+    expect(r.ok).toBe(true);
+    const v = String((r.output as { value: { warned: string } }).value.warned);
+    expect(v).toMatch(/OUTER_LIMIT/);
+    expect(v).toMatch(/ReferenceError/);
+  });
+
+  it('lib DX 增强：自包含函数定义零告警（告警不误伤正常路径）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      const reg = lib.define('clean', (s) => '[' + s + ']');
+      return { warned: reg.warning ?? 'none' };
+    `);
+    expect(r.ok).toBe(true);
+    expect((r.output as { value: { warned: string } }).value.warned).toBe('none');
+  });
+
+  it('lib DX 增强：保留名穿透（then/define/resolve 不入注册表查询）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      const thenUndefined = lib.then === undefined;
+      const defineIsFn = typeof lib.define === 'function';
+      return { thenUndefined, defineIsFn };
+    `);
+    expect(r.ok).toBe(true);
+    const v = (r.output as { value: { thenUndefined: boolean; defineIsFn: boolean } }).value;
+    expect(v.thenUndefined).toBe(true);   // Promise 探测不误炸
+    expect(v.defineIsFn).toBe(true);      // 方法面照常
+  });
+
+  it('lib DX 增强：未注册名直调 → 带指引的错误（不再裸 TypeError）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      try { lib.nope(1); return 'unexpected'; } catch (e) { return String(e); }
+    `);
+    expect(r.ok).toBe(true);
+    const v = String((r.output as { value: string }).value);
+    expect(v).toMatch(/nope 未注册/);
+    expect(v).toMatch(/lib\.define|resolve/); // 指引在场
+  });
+
+  it('Ⓐ（2026-11-19 追记）define 传数字 → 即时指引', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      try {
+        lib.define('badnum', 42);
+        return 'unexpected-registered';
+      } catch (e) { return String(e); }
+    `);
+    expect(r.ok).toBe(true);
+    const v = String((r.output as { value: string }).value);
+    expect(v).toMatch(/number|正确示例/);
+  });
+
   it('失败程序不回写注册表：define 后抛错 → 库不残留（下次 resolve 报未注册）', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r1 = await ctx.tools.execute({
@@ -612,13 +770,29 @@ describe('ac-run-code：复合返回协议（return / log）', () => {
     expect(out.logsTail).toBeUndefined();
   });
 
-  it('无 return 值有 log → valueVia=logs，各行按序合成', async () => {
+  it('无 return 值（隐式 undefined）有 log → valueVia=logs，各行按序合成', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, "log('第一条：a=1');\nlog('第二条：b=2');");
     expect(r.ok).toBe(true);
     const out = r.output as { value: string; valueVia: string };
     expect(out.valueVia).toBe('logs');
     expect(out.value).toBe('第一条：a=1\n第二条：b=2');
+  });
+
+  it('return null → 视为无值，log 各行按序合成（valueVia=logs）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "log('via-log');\nreturn null;");
+    expect(r.ok).toBe(true);
+    const out = r.output as { value: string; valueVia: string };
+    expect(out.valueVia).toBe('logs');
+    expect(out.value).toBe('via-log');
+  });
+
+  it('return null 无 log → ok 无 value（同 undefined 旧协议兼容）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'return null;');
+    expect(r.ok).toBe(true);
+    expect((r.output as { value?: unknown }).value).toBeUndefined();
   });
 
   it('无 return 无 log → ok 无 value（旧协议兼容）', async () => {
@@ -660,3 +834,118 @@ describe('ac-run-code：复合返回协议（return / log）', () => {
     expect(out.value).toContain('丢弃 3 条');
   });
 });
+
+// ============================================================
+// 立项①③验收（run-code-hardening-backlog）：worker 防退化护栏 + lib 注册表自愈
+// ============================================================
+describe('ac-run-code：立项① 引导护栏（快照回退基建）', () => {
+  it('成功 run 刷新进程内快照（下次 run 引导链有回退目标）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    runCodeRow.__runCodeTestHooks.setMemSnapshot(null);
+    const r = await call(ctx, 'return 1 + 1;');
+    expect(r.ok, r.error ?? '').toBe(true);
+    const snap = runCodeRow.__runCodeTestHooks.getMemSnapshot();
+    expect(snap).not.toBeNull();
+    expect(String(snap)).toContain('worker_threads'); // 是 worker 源码的擦除产物
+  });
+
+  it('正常路径零降级告警（bootDegraded 缺席——护栏不误伤）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'return "ok";');
+    expect(r.ok).toBe(true);
+    expect((r.output as { bootDegraded?: string }).bootDegraded).toBeUndefined();
+  });
+
+  it('快照落盘可读（磁盘快照层），再次 run 正常（多候选共存不冲突）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r1 = await call(ctx, 'return 2;');
+    expect(r1.ok).toBe(true);
+    // 快照已随首次成功 run 落盘（tmpdir）；再跑一次确认 dev 候选优先、行为不变
+    const r2 = await call(ctx, 'const a = await tools.echo({ text: "snap" });\nreturn a.output?.echoed;');
+    expect(r2.ok).toBe(true);
+    expect((r2.output as { value: unknown }).value).toBe('snap');
+  });
+});
+
+describe('ac-run-code：立项③ lib 注册表自愈', () => {
+  it('resolve() 无参 → 纯静态清单摘要（kind/size/preview，不执行库源码）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, [
+      "lib.define('add', (a, b) => a + b);",
+      "lib.define('cfg', 'return { n: 42 };');",
+      "const list = lib.resolve() as Record<string, { kind: string; size: number; preview: string }>;",
+      "return { addKind: list.add.kind, cfgKind: list.cfg.kind, addPreview: list.add.preview, cfgSize: list.cfg.size };",
+    ].join('\n'));
+    expect(r.ok, r.error ?? '').toBe(true);
+    const v = (r.output as { value: Record<string, unknown> }).value;
+    expect(v.addKind).toBe('function');
+    expect(v.cfgKind).toBe('program');
+    expect(String(v.addPreview)).toContain('a + b');
+    expect(Number(v.cfgSize)).toBeGreaterThan(10);
+  });
+
+  it('resolve() 无参不执行程序体库（清单摘要 ≠ 求值对象——纯静态）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, [
+      "lib.define('cfg', 'return { n: 42 };');",
+      "// 程序体形态：resolve('cfg') 求值得对象（执行）；resolve() 清单只给 {kind:'program'} 摘要",
+      "const list = lib.resolve() as Record<string, { kind: string; preview: string }>;",
+      "const body = lib.resolve('cfg') as { n: number };",
+      "return { listIsSummary: typeof (list.cfg as unknown) === 'object' && list.cfg.kind === 'program' && !('n' in list.cfg), bodyRan: body.n };",
+    ].join('\n'));
+    expect(r.ok, r.error ?? '').toBe(true);
+    const v = (r.output as { value: Record<string, unknown> }).value;
+    expect(v.listIsSummary).toBe(true); // 清单是摘要而非求值结果（无 n 字段）
+    expect(v.bodyRan).toBe(42); // 具名 resolve 仍求值（使用路径不变）
+  });
+
+  it('坏库调用期 ReferenceError → 可读错误（指向 define 闭包陷阱）+ rot 剔除', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    // 直接种坏条目进会话级 store（模拟历史遗留），本 run 注入后调用
+    runCodeRow.__runCodeTestHooks.seedLibStore('tester', 'conv-test', {
+      badLib: '(s) => s.slice(0, MISSING_LIMIT)',
+    });
+    const r = await call(ctx, [
+      "const bad = lib.resolve('badLib') as (s: string) => string;",
+      "try { bad('x'); return 'unexpected'; }",
+      "catch (e) { return String(e); }",
+    ].join('\n'));
+    expect(r.ok).toBe(true);
+    const v = String((r.output as { value: unknown }).value);
+    expect(v).toContain('ReferenceError');
+    expect(v).toContain('badLib');
+    expect(v).toContain('fn.toString()'); // 可读指引而非裸错
+    // rot 剔除：store 里 badLib 已删
+    expect(runCodeRow.__runCodeTestHooks.libStoreKeys('tester', 'conv-test')).not.toContain('badLib');
+  });
+
+  it('被吞掉的 ReferenceError 也触发剔除（try/catch 不遮蔽 rot 事实）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    runCodeRow.__runCodeTestHooks.seedLibStore('tester', 'conv-test', {
+      silentBad: '(n) => n * OUTER_FACTOR',
+    });
+    const r = await call(ctx, [
+      "const f = lib.resolve('silentBad') as (n: number) => number;",
+      "try { f(1); } catch { /* 吞掉 */ }",
+      "return 'done';",
+    ].join('\n'));
+    expect(r.ok).toBe(true);
+    expect((r.output as { libRotted?: string[] }).libRotted).toEqual(['silentBad']);
+    expect(runCodeRow.__runCodeTestHooks.libStoreKeys('tester', 'conv-test')).not.toContain('silentBad');
+  });
+
+  it('好库零干扰（回归）：正常 define/resolve/调用不受包裹层影响', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, [
+      "lib.define('good', (x: number) => x * 2);",
+      "const g = lib.resolve('good') as (x: number) => number;",
+      "return { direct: lib.good(5), resolved: g(6) };",
+    ].join('\n'));
+    expect(r.ok, r.error ?? '').toBe(true);
+    const v = (r.output as { value: Record<string, number> }).value;
+    expect(v.direct).toBe(10);
+    expect(v.resolved).toBe(12);
+    expect((r.output as { libRotted?: string[] }).libRotted).toBeUndefined();
+  });
+});
+

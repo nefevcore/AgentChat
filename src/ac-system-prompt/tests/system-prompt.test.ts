@@ -191,7 +191,7 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
     expect(content).not.toContain('## 指引');
   });
 
-  it('独立会话形态（singles 注册表命中）：协作工具在场也不注入术语约定/协作/主动安排/系统管理条目；其余条目照常；非 singles 会话键不受影响', async () => {
+  it('独立会话形态（singles 注册表命中）：协作工具在场也不注入术语约定/协作/主动安排条目（系统管理随工具在场注入——2026-12 注入轴撤形态裁剪）；其余条目照常', async () => {
     const { ctx } = await boot();
     void new SinglesStubService(ctx, { sids: ['sid-1'] });
     const tools = [
@@ -199,8 +199,8 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
       'read', 'write', 'edit', 'bash', 'subagent', 'timer', 'system_restart',
     ];
     // 独立会话（sid 命中）：多 Agent 会话知识 + 主动安排（timer——后台
-    // 任务反馈已覆盖）+ 系统管理（system_restart——工具随形态面裁剪，
-    // 双保险）不注入——工具在场只是不教
+    // 任务反馈已覆盖，指引裁剪保留）不注入；系统管理随工具在场注入
+    // （2026-12 注入轴：system_restart 不再排除独立会话）
     await ctx.agentLoop.run({
       model: 'mock-1',
       tools,
@@ -214,7 +214,7 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
     expect(content).not.toContain('多Agent协作');
     expect(content).not.toContain('群聊协作');
     expect(content).not.toContain('主动安排');
-    expect(content).not.toContain('系统管理');
+    expect(content).toContain('系统管理'); // 工具在场即教（形态裁剪已撤）
     // 其余条目照常（工具门控不动——文件/命令/后台/子任务仍注入）
     expect(content).toContain('文件操作');
     expect(content).toContain('命令执行');
@@ -332,14 +332,13 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
     expect(guidelineBlock(['read', 'write'])).toBe(`## 指引\n1. ${E_FILE_NOEDIT}\n2. ${E_OUT}`);
   });
 
-  it('独立会话形态（single=true）：协作条目不注入，其余条目与顺序照常（工具门控不动）；术语约定块同步不注入', () => {
-    // 全量工具集在独立会话形态下：条目 5/6（多Agent协作/群聊协作）、
-    // 主动安排（timer——独立会话有后台任务反馈即可）与系统管理
-    // （system_restart——工具已随形态面裁剪出工具集，2026-12 裁决）
-    // 缺席，编号自然收敛；并行子任务（subagent = 任务并行化）不属于
-    // 多 Agent 会话知识，照常注入
+  it('独立会话形态（single=true）：协作/主动安排条目不注入，系统管理随工具在场（2026-12 注入轴撤形态裁剪）；术语约定块同步不注入', () => {
+    // 全量工具集在独立会话形态下：条目 5/6（多Agent协作/群聊协作）与
+    // 主动安排（timer——独立会话有后台任务反馈即可）缺席，编号自然
+    // 收敛；系统管理随 system_restart 在场注入（2026-12 注入轴：工具
+    // 无形态裁剪，指引随在场而教）；并行子任务照常
     expect(guidelineBlock(FULL_TOOLS, true)).toBe(
-      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_ASK}\n6. ${E_SUB}\n7. ${E_TRACK}`,
+      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_ASK}\n6. ${E_SUB}\n7. ${E_RESTART}\n8. ${E_TRACK}`,
     );
     // 术语约定块（Agent 生态词汇——协作工具操作任意 Agent）同步不注入
     const blocks = systemPromptRow.assembleBlocks({ toolNames: FULL_TOOLS, single: true });
@@ -499,8 +498,11 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     });
     const content = blocks.join('\n\n');
     expect(content).toContain('[当前群聊] 项目组（team）');
-    expect(content).toContain('[群聊成员] g1、g2');
+    // user 隐式成员首位并入（展示面与发言面一致——<msg from="user"> 会出现）
+    expect(content).toContain('[群聊成员] user、g1、g2');
     expect(content).toContain('[群聊简介] 协作群');
+    // 称呼约定：明示用显示名指代成员，抵消 id 指代习惯
+    expect(content).toContain('不要用成员 id 指代');
     // M26 行为对齐：群场景不渲染 1v1 对话对象行——群内 sender 逐消息
     // 变化（上一条发言者 ≠ 对话对象），渲染会诱导模型把群聊当 1v1
     expect(content).not.toContain('[当前对话对象]');

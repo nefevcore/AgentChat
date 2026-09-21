@@ -11,7 +11,7 @@
     "./client/*": "./client/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "agentchat": {
     "plugin": true,
@@ -24,6 +24,12 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-document": "^3.31.3",
+    "@tiptap/extension-paragraph": "^3.31.3",
+    "@tiptap/extension-text": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/vue-3": "^3.31.3",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
@@ -40,6 +46,7 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "jsdom": "^25.0.0",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },

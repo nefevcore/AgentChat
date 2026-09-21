@@ -4,9 +4,23 @@
   "private": true,
   "type": "module",
   "description": "browser 域工具卡前端行（M28 P2 §2.2 镜像表）：browser → ToolResultBrowser（多动作 tab / steps 批量；截图预览经 workspaceFile）；卸本行 → 卡片回落文本渲染，与后端行双向可独立摘除",
-  "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
-  "scripts": { "test": "vitest run" },
-  "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
@@ -14,6 +28,12 @@
     "ac-client-ui-workspace": "workspace:*",
     "vue": "^3.4.0"
   },
-  "devDependencies": { "ac-extension-core": "workspace:*", "ac-webui": "workspace:*", "vitest": "^4.1.10" },
-  "keywords": ["agentchat"]
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

@@ -9,7 +9,7 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

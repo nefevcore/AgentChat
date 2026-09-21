@@ -12,7 +12,7 @@
     "files"
   ],
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",

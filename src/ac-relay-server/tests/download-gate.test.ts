@@ -37,10 +37,16 @@ describe('download-gate 配额门', () => {
       // cwd 会握住目录句柄，全局 setup 的 rmSync(workspace/test) 即 EPERM
       cwd: tmpdir(),
     });
-    // 等就绪
-    for (let i = 0; i < 40; i++) {
-      try { await get('/healthz'); break; } catch { await new Promise((r) => setTimeout(r, 250)); }
+    // 等就绪：子进程是 npx + tsx 冷启动（首次转换源码），全量并行下实测
+    // 可被拖过 10s——原 40×250ms 窗口在重载下偶发耗尽，表现为后续用例
+    // 集体 ECONNREFUSED（单独跑恒绿，属就绪预算不足而非被测行为错误）。
+    // 放宽到 30s，并在耗尽时显式报错（不再让下游用例以连接拒绝的形态
+    // 掩盖真因）。
+    let ready = false;
+    for (let i = 0; i < 120; i++) {
+      try { await get('/healthz'); ready = true; break; } catch { await new Promise((r) => setTimeout(r, 250)); }
     }
+    if (!ready) throw new Error('download-gate 子进程 30s 内未就绪（npx tsx 冷启动失败或端口被占）');
   }, 30_000);
 
   afterAll(async () => {

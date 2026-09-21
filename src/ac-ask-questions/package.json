@@ -9,7 +9,7 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
@@ -17,7 +17,9 @@
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-llm": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

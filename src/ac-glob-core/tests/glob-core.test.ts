@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { globToRegExp, literalDirPrefix, normalizeGlobPattern, walkFiles, toPosix, SKIP_DIRS } from '../src/index.ts';
+import { globToRegExp, literalDirPrefix, normalizeGlobPattern, walkFiles, toPosix, SKIP_DIRS, SKIP_BASE } from '../src/index.ts';
 
 const tmps: string[] = [];
 function tree(): string {
@@ -81,6 +81,24 @@ describe('walkFiles', () => {
     expect(r2.entries.map((e) => e.rel)).not.toContain('d.tsx');
     // base 在 root 外 → rel 相对 root 自身
     expect(r1.entries.length).toBeGreaterThan(0);
+  });
+
+  it('SKIP_DIRS 含构建产物目录；SKIP_BASE 不含（分层缺省口径）', () => {
+    expect(SKIP_DIRS.has('dist')).toBe(true);
+    expect(SKIP_DIRS.has('release')).toBe(true);
+    expect(SKIP_BASE.has('dist')).toBe(false);
+    expect(SKIP_BASE.has('node_modules')).toBe(true); // 基础层与用户意图无关
+  });
+
+  it('skipDirs 整表覆盖：缺省跳过 dist；传 SKIP_BASE 时 dist 进入结果', () => {
+    const root = tree();
+    fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'dist', 'bundle.js'), 'built');
+    const def = walkFiles(root).entries.map((e) => e.rel);
+    expect(def).not.toContain('dist/bundle.js'); // 缺省 SKIP_DIRS：产物跳过
+    const withSkipBase = walkFiles(root, { skipDirs: SKIP_BASE }).entries.map((e) => e.rel);
+    expect(withSkipBase).toContain('dist/bundle.js'); // 覆盖为基础层：产物可搜
+    expect(withSkipBase).not.toContain('node_modules/x/y.js'); // 基础层仍拦依赖
   });
 
   it('toPosix：平台分隔归一', () => {

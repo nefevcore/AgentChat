@@ -79,6 +79,12 @@ describe('buildSdkProjection', () => {
     const out = buildSdkProjection([READ]);
     expect(out).toContain(DEFAULT_GUIDANCE.split('\n')[0]);
   });
+  it('guidance 含字符串书写纪律（模板串转义教学——backlog 立项②）', () => {
+    const out = buildSdkProjection([READ]);
+    expect(out).toContain('内嵌反引号是头号错误源');
+    expect(out).toContain("['行1', '行2'].join('\\n')");
+    expect(out).toContain('\\${');
+  });
 
   it('空集与空名防御', () => {
     expect(buildSdkProjection([])).toContain('declare const tools: {');

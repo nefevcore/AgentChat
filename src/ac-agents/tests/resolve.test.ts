@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index.ts';
-import { resolveToolNames, filterLlmParams, effectiveToolMode, narrowToolsByMode } from '../src/index.ts';
+import { resolveToolNames, filterLlmParams, effectiveToolMode, narrowToolsByMode, isModeToolFace, widenToolsForGating } from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -42,11 +42,64 @@ describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——
     expect(effectiveToolMode({ id: 'x', model: 'm', tags: ['tc-none', 'tc-programmatic'] }, undefined)).toBe('tc-none');
   });
 
-  it('narrowToolsByMode：tc-programmatic → 仅 run_code（面内含它）；不含则原面（惰性）', () => {
-    expect(narrowToolsByMode(['read', 'run_code', 'bash'], 'tc-programmatic')).toEqual(['run_code']);
-    expect(narrowToolsByMode(['read', 'bash'], 'tc-programmatic')).toEqual(['read', 'bash']); // run_code 不在面 → 忽略该档
-    expect(narrowToolsByMode(['read', 'run_code'], 'tc-none')).toEqual([]);
-    expect(narrowToolsByMode(['read', 'bash'], 'tc-base')).toEqual(['read', 'bash']);
+  it('narrowToolsByMode：tc-programmatic → mode 工具集（从 defs 合成，与 tags/常规面无关）；无 mode 工具 = 空面（不回落）；tc-none → 空；tc-base → 原面', () => {
+    const defs = [
+      { name: 'read' },
+      { name: 'bash' },
+      { name: 'run_code', injection: 'mode' as const },
+    ];
+    // mode 工具从 defs 合成——tools 面里有没有它无关（它不进常规面）
+    expect(narrowToolsByMode(['read', 'bash'], defs, 'tc-programmatic')).toEqual(['run_code']);
+    // 无 mode 工具（行未装）= 空面（形同 tc-none，不回落常规面——语义突变防护）
+    expect(narrowToolsByMode(['read', 'bash'], [{ name: 'read' }], 'tc-programmatic')).toEqual([]);
+    expect(narrowToolsByMode(['read', 'run_code'], defs, 'tc-none')).toEqual([]);
+    expect(narrowToolsByMode(['read', 'bash'], defs, 'tc-base')).toEqual(['read', 'bash']);
+  });
+});
+
+describe('PTC 门控面单源（isModeToolFace / widenToolsForGating——2026-12 基线段丢失修复）', () => {
+  it('isModeToolFace：请求面恰等于 mode 工具集（互为子集且非空、无重复）才成立', () => {
+    expect(isModeToolFace(['run_code'], ['run_code'])).toBe(true);
+    // 请求面含常规工具（并存形态）→ 非程序化 run
+    expect(isModeToolFace(['run_code', 'read'], ['run_code'])).toBe(false);
+    // 注册面有多个 mode 工具时须全对齐
+    expect(isModeToolFace(['run_code'], ['run_code', 'other_mode'])).toBe(false);
+    expect(isModeToolFace(['run_code', 'other_mode'], ['run_code', 'other_mode'])).toBe(true);
+    // 空/缺省/重复 → 不成立
+    expect(isModeToolFace(undefined, ['run_code'])).toBe(false);
+    expect(isModeToolFace([], ['run_code'])).toBe(false);
+    expect(isModeToolFace(['run_code', 'run_code'], ['run_code'])).toBe(false);
+    expect(isModeToolFace(['run_code'], [])).toBe(false);
+  });
+
+  it('widenToolsForGating：PTC run 按能力面展开（含 tags 门禁与 requiresInteraction 终滤）；常规面原样', async () => {
+    const ctx = await boot();
+    ctx.agents.register({ id: 'prog', model: 'm', tags: ['fs', 'infra'] });
+    // 最小桩：ac-agents 不硬依赖 tools 服务，手造 list 面 + agents 转发
+    const fakeTools = {
+      list: () => [
+        { name: 'read', requiredTags: ['fs'] },
+        { name: 'write', requiredTags: ['fs'] },
+        { name: 'ask_questions', requiredTags: ['infra'], requiresInteraction: true },
+        { name: 'run_code', injection: 'mode' as const },
+      ],
+    };
+    const faceOf = (conversationId: string) => ({ get: (key: string) => (key === 'tools' ? fakeTools : key === 'agents' ? { get: (id: string) => ctx.agents.get(id) } : undefined) } as never);
+    // PTC run：能力面展开（fs 标签解锁 read/write；mode 工具与交互终滤各就位）
+    const widened = widenToolsForGating(faceOf('user~prog'), 'prog', 'user~prog', ['run_code']);
+    expect(widened).toContain('read');
+    expect(widened).toContain('write');
+    expect(widened).not.toContain('run_code'); // mode 工具自身不进门控面
+    expect(widened).toContain('ask_questions'); // 非自会话不裁剪
+    // 未注册 Agent → 能力面只剩 base 解锁（fakeTools 里无 base 工具 → 空）
+    const anon = widenToolsForGating(faceOf('user~anon'), 'anon', 'user~anon', ['run_code']);
+    expect(anon).toEqual([]);
+    // requiresInteraction 终滤：self 会话（机制 run）裁剪
+    const selfFace = widenToolsForGating(faceOf('prog~prog'), 'prog', 'prog~prog', ['run_code']);
+    expect(selfFace).not.toContain('ask_questions');
+    // 常规面：request.tools 原样返回（含 run_code 混排的并存形态）
+    const normal = widenToolsForGating(faceOf('user~prog'), 'prog', 'user~prog', ['read', 'run_code']);
+    expect(normal).toEqual(['read', 'run_code']);
   });
 });
 

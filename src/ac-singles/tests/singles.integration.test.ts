@@ -177,6 +177,46 @@ describe('ac-singles：CRUD 与不变量', () => {
     expect(ctx.singles.update(s.id, { model: 'mock-1' }).model).toBe('mock-1');
   });
 
+  it('fork：以锚点消息为终点复制出新会话（元数据继承 + 消息切片 + 源不动）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const s = ctx.singles.create({ agentId: 'a', title: '源会话', model: 'mock-1' });
+    // 三轮消息（user 入站 + agent 回复）
+    await ctx.router.send('a', '第一问', { conversationId: s.id });
+    await ctx.router.send('a', '第二问', { conversationId: s.id });
+    await ctx.router.send('a', '第三问', { conversationId: s.id });
+    const records = await ctx.session.records(s.id);
+    expect(records.length).toBeGreaterThanOrEqual(6);
+    // 锚点 = 第一问对应的 agent 回复（第 2 行）
+    const anchor = records.find((r) => r.role === 'agent' && r.agent_id === 'a')!;
+    const forked = await ctx.singles.fork(s.id, anchor.message_id);
+    expect(forked.id).not.toBe(s.id);
+    expect(forked.agentId).toBe('a');
+    expect(forked.title).toBe('源会话（分支）'); // 已具名源 → 剥旧后缀追加（分支的分支不叠名）
+    expect(forked.model).toBe('mock-1');
+    const forkRecords = await ctx.session.records(forked.id);
+    expect(forkRecords.length).toBe(2); // user 第一问 + agent 首答（含锚点行）
+    expect(forkRecords.map((r) => r.content)).toEqual(records.slice(0, 2).map((r) => r.content));
+    // 源会话不受影响
+    expect((await ctx.session.records(s.id)).length).toBe(records.length);
+    expect(ctx.singles.get(s.id)?.status).toBe('active');
+    // 空锚点 = 全量复制
+    const full = await ctx.singles.fork(s.id, '');
+    expect((await ctx.session.records(full.id)).length).toBe(records.length);
+    // 分支的分支：剥旧后缀再追加，不叠名
+    const refork = await ctx.singles.fork(forked.id, '');
+    expect(refork.title).toBe('源会话（分支）');
+  });
+
+  it('fork：锚点未命中抛错；不存在会话抛错', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const s = ctx.singles.create({ agentId: 'a' });
+    await ctx.router.send('a', '你好', { conversationId: s.id });
+    await expect(ctx.singles.fork(s.id, 'no-such-message')).rejects.toThrow(/不在会话/);
+    await expect(ctx.singles.fork('ghost-session', '')).rejects.toThrow(/不存在/);
+  });
+
   it('归档（软删）保留消息；硬删清元数据 + 消息（session.clear）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);

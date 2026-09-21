@@ -86,6 +86,19 @@ describe('ac-tag-registry 目录', () => {
     expect(byTag.get('tc-base')).toMatchObject({ category: 'tool-mode', reserved: true });
     // base 从目录退役（无门禁语义——一切工具已挂具体标签）
     expect(byTag.get('base')).toBeUndefined();
+    // 抉择组（2026-12 标签配置语义升级）：档位/模式两组显式缺省词
+    // （base-access 进目录——下拉需要；tc-base 既有）+ exclusive 元数据
+    expect(byTag.get('base-access')).toMatchObject({
+      category: 'access-tier',
+      reserved: true,
+      exclusive: 'access-tier',
+      exclusiveNone: true,
+    });
+    expect(byTag.get('sandbox-access')?.exclusive).toBe('access-tier');
+    expect(byTag.get('full-access')?.exclusive).toBe('access-tier');
+    expect(byTag.get('tc-none')).toMatchObject({ exclusive: 'tool-mode' });
+    expect(byTag.get('tc-base')).toMatchObject({ exclusive: 'tool-mode', exclusiveNone: true });
+    expect(byTag.get('tc-programmatic')?.exclusive).toBe('tool-mode');
   });
 
   it('采集：工具注册 → tag 目录出现消费工具（AND 组合也如实呈现）', async () => {
@@ -158,14 +171,14 @@ describe('ac-tag-registry 手工声明（A1 注册制）', () => {
       declRow: {
         name: 'fake-browser-row',
         tagDeclarations: [
-          { tag: 'observe', description: '只读族', tools: ['browser'], group: 'Web 与浏览器', order: 1, tier: true },
-          { tag: 'manipulate', description: '交互族', tools: ['browser'], group: 'Web 与浏览器', order: 2, tier: true },
+          { tag: 'observe', description: '只读族', tools: ['browser'], group: 'Web 与浏览器', order: 1, tier: true, exclusive: 'browser-tier', exclusiveOffDesc: '停用后 browser 工具不可见' },
+          { tag: 'manipulate', description: '交互族', tools: ['browser'], group: 'Web 与浏览器', order: 2, tier: true, exclusive: 'browser-tier', exclusiveOffDesc: '停用后 browser 工具不可见' },
         ],
       },
     });
     const byTag = new Map(ctx.tagRegistry.catalog().map((t) => [t.tag, t]));
-    expect(byTag.get('observe')).toMatchObject({ declaredBy: 'fake-browser-row', order: 1, tier: true });
-    expect(byTag.get('manipulate')).toMatchObject({ order: 2 });
+    expect(byTag.get('observe')).toMatchObject({ declaredBy: 'fake-browser-row', order: 1, tier: true, exclusive: 'browser-tier', exclusiveOffDesc: '停用后 browser 工具不可见' });
+    expect(byTag.get('manipulate')).toMatchObject({ order: 2, exclusive: 'browser-tier' });
     // 独立分组：group 字段透出（UI 据此聚合成组）
     expect(byTag.get('observe')).toMatchObject({ group: 'Web 与浏览器' });
     // 双源合并：注册面采集的工具并入声明条目（观察浏览器三词的 browser 工具）

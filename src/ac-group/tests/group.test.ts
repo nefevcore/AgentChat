@@ -146,6 +146,15 @@ describe('ac-group 成员表', () => {
       'deleted:g',
     ]);
   });
+
+  it('membersWithUser：完整参与面含隐式成员 user；members 保持纯 Agent 语义', async () => {
+    const { ctx } = await boot(gatedLlm());
+    ctx.group.create({ id: 'g', name: '群', members: ['a', 'b'] });
+    // user 永不入册但恒在参与面首位；已含（防御路径）不重复
+    expect(ctx.group.membersWithUser('g')).toEqual(['user', 'a', 'b']);
+    expect(ctx.group.get('g')?.members).toEqual(['a', 'b']);
+    expect(ctx.group.membersWithUser('nope')).toEqual([]);
+  });
 });
 
 describe('ac-group 内容通道（单通道 v3）', () => {

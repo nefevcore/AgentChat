@@ -1,5 +1,5 @@
 // ============================================================
-// ac-agent-presets-builtin 测试：内置模式数据行（标准/极简）注入预设
+// ac-agent-presets-builtin 测试：内置模式数据行（标准/极简/创造）注入预设
 // 目录 + 物化形状（原 ac-agent-presets 内置清单断言迁移）· 行卸载回收
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 describe('ac-agent-presets-builtin：内置模式注入', () => {
-  it('标准/极简物化进 ctx.agents（preset 标志 + 无记忆软停用 settings + dsh-minimal 工具白名单）', async () => {
+  it('标准/极简/创造物化进 ctx.agents（preset 标志 + 无记忆软停用 settings + dsh-minimal 工具白名单）', async () => {
     const { ctx } = await boot();
     const std = ctx.agents.get('__standard__');
     expect(std?.preset).toBe(true);
@@ -59,9 +59,28 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     expect(minimal?.tags).toEqual(['fs', 'shell', 'infra', 'fs_minimal']);
     expect((minimal?.settings as Record<string, { enabled?: boolean }>)['system-prompt']).toEqual({ enabled: false });
 
+    // 创造模式：插件开发面——dev（read_logs/reload）+ admin（装卸三件套）
+    // 加进钥匙圈；开发指南经 system 提示词内置（框架开发技能住 .dsh/skills
+    // 开发侧目录不进用户技能面——load_skill 指路不可依赖），skill 软停用
+    const creator = ctx.agents.get('__creator__');
+    expect(creator?.preset).toBe(true);
+    expect(creator?.name).toBe('创造模式');
+    expect(creator?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin']);
+    // memory/datetime 停；skill 不停（差异化：用户自己的技能照常加载，
+    // 开发引导另经 system 内置——互补不冲突）
+    const creatorSettings = creator?.settings as Record<string, { enabled?: boolean }>;
+    expect(creatorSettings.memory).toEqual({ enabled: false });
+    expect(creatorSettings.datetime).toEqual({ enabled: false });
+    expect(creatorSettings.skill).toBeUndefined();
+    // system 提示词内置插件开发指南（三件套分工 + manifest 必填项锚点）
+    expect(creator?.system).toContain('# AgentChat 插件开发指南');
+    expect(creator?.system).toContain('register_plugin');
+    expect(creator?.system).toContain('install_plugin');
+    expect(creator?.system).toContain('manifest 必填项');
+
     // 目录服务：list/defaultPreset（meta.default 优先）——程序化模式已随
-    // ac-run-code 走（preset.ts 子行，独立插件拆分 2026-09-17），本行两预设
-    expect(ctx.agentPresets.list().map((d) => d.agent.id)).toEqual(['__standard__', '__dsh_minimal__']);
+    // ac-run-code 走（preset.ts 子行，独立插件拆分 2026-09-17），本行三预设
+    expect(ctx.agentPresets.list().map((d) => d.agent.id)).toEqual(['__standard__', '__dsh_minimal__', '__creator__']);
     expect(ctx.agentPresets.defaultPreset()?.agent.id).toBe('__standard__');
   });
 
@@ -73,6 +92,7 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     expect(ctx.agentPresets.list()).toEqual([]); // 目录清空（仅本行注入）
     expect(ctx.agents.has('__standard__')).toBe(false);
     expect(ctx.agents.has('__dsh_minimal__')).toBe(false);
+    expect(ctx.agents.has('__creator__')).toBe(false);
     expect(ctx.agents.has('plain')).toBe(true);
   });
 });
