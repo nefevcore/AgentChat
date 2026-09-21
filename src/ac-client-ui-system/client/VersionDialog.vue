@@ -111,7 +111,7 @@ async function doUpdate() {
             <!-- 状态提示 -->
             <div v-if="hasUpdate && desktopMode" class="version-status update">
               <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
-              新版本可用！桌面版由应用内自动更新（后台下载，重开应用生效），也可从 Release 页手动下载。
+              新版本可用！请从下载页获取新版本安装包（前往下载覆盖安装，数据不受影响）。
             </div>
             <div v-else-if="hasUpdate" class="version-status update">
               <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
@@ -126,13 +126,13 @@ async function doUpdate() {
               已是最新版本。
             </div>
 
-            <!-- 更新操作（桌面装配不渲染 git 自更新——更新归 electron-updater） -->
+            <!-- 更新操作（桌面装配不渲染 git 自更新——更新走下载页安装包） -->
             <div v-if="hasUpdate && !desktopMode" class="version-actions">
               <button class="version-btn primary" :disabled="updating" @click="doUpdate">{{ updating ? '更新中…' : '立即更新' }}</button>
-              <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">查看 Release</a>
+              <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">获取安装包</a>
             </div>
             <div v-else-if="hasUpdate && latestUrl" class="version-actions">
-              <a :href="latestUrl" target="_blank" class="version-btn secondary">查看 Release</a>
+              <a :href="latestUrl" target="_blank" class="version-btn secondary">获取安装包</a>
             </div>
             <div v-if="updateMsg" class="version-update-msg">{{ updateMsg }}</div>
 

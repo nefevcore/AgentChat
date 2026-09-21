@@ -66,11 +66,15 @@ const SHOW_THINKING_KEY = 'agentchat.showThinking';
 /** 列表槽位页面：agents = Agent/群组列表，sessions = 会话列表，tracking = 运行跟踪（清单面板） */
 type ListPanelId = 'agents' | 'sessions' | 'tracking';
 
+/** 缺省面板：sessions（独立会话）——首次启动无记录时默认进入独立会话页
+ *  （2026-12 首启体验：开箱即会话页；已写过偏好的用户不受影响）。 */
+const DEFAULT_PRIMARY_PANEL: ListPanelId = 'sessions';
+
 function loadPrimaryPanel(): ListPanelId {
   try {
     const v = localStorage.getItem(PRIMARY_PANEL_KEY);
-    return v === 'sessions' || v === 'tracking' ? v : 'agents';
-  } catch { return 'agents'; }
+    return v === 'sessions' || v === 'tracking' ? v : v === 'agents' ? v : DEFAULT_PRIMARY_PANEL;
+  } catch { return DEFAULT_PRIMARY_PANEL; }
 }
 
 function loadShowThinking(): boolean {
@@ -119,8 +123,9 @@ export const useUiStore = defineStore('ui', () => {
   const showThinking = ref(loadShowThinking());
   // ── 主区「运行矩阵」视图（大画布）：由清单面板入口打开；选中 Agent/群/会话时让位回聊天 ──
   const trackingViewVisible = ref(false);
-  // ── 主区「Agent 会话对」只读视角（pair）：矩阵格子点击进入，两端点都非 viewer ──
-  //    注册在 talk 之前的视角（App.vue），active 期间覆盖聊天视角；关闭/选中别处即回退
+  // ── 主区「Agent 会话对」只读视角（pair）：矩阵格子/面板运行中行点击进入，
+  //    两端点都非 viewer。注册在 talk 之前的视角，active 期间覆盖聊天视角；
+  //    进入即收矩阵（openPairView 单点互斥），选中别处让位（exitOverlays）──
   const pairView = ref<{ a: string; b: string } | null>(null);
   // ── 主区「子 Agent 会话」只读视角（subagent）：运行跟踪面板子Agent 行点击
   //    进入（subagent-session-view-plan R7）——与 pair 同款让位协议：选中
@@ -209,8 +214,14 @@ export const useUiStore = defineStore('ui', () => {
     if (isNarrow()) drawerVisible.value = true;
   }
 
-  /** 主区「运行矩阵」视图：由运行清单面板入口打开（大画布需主区宽度） */
-  function openTrackingView() { trackingViewVisible.value = true; }
+  /** 主区「矩阵快照」视图：由运行面板「矩阵快照」入口打开（大画布需
+   *  主区宽度）。显式导航互斥：进矩阵清 pair/subagent 视角（会话态与
+   *  矩阵态不叠——视角由进入路径拥有，非当选即静默） */
+  function openTrackingView() {
+    pairView.value = null;
+    subagentView.value = null;
+    trackingViewVisible.value = true;
+  }
   /** 运行跟踪 aux 选区入口（A5：活动栏 tracking 按钮宽屏直达侧栏——
    *  通用意图 panel='tracking'；RunTrackingSidebarHost 消费展开） */
   function auxOpenTracking() {
@@ -222,23 +233,34 @@ export const useUiStore = defineStore('ui', () => {
   function openTimers() {
     sendAuxIntent('timers');
   }
-  /** 关闭矩阵视图：连带关闭 pair 只读视角（避免悬挂的 pair 独占主区） */
+  /** 关闭矩阵视图（不连带清视角——各 open* 单点互斥，见下） */
   function closeTrackingView() {
     trackingViewVisible.value = false;
-    pairView.value = null;
   }
 
-  /** 主区「Agent 会话对」只读视角（矩阵格子进入）：a/b 为两端点 id（排序与否均可）。
-   *  进入时不关矩阵视图 —— 返回（closePairView）即回到矩阵，而非空白聊天区 */
+  /** 进入会话的完整导航意图（列表/矩阵/面板入口统一）：收矩阵 + 清
+   *  pair/subagent 视角。覆盖同值重选边界——选中三元组不变时让位
+   *  watch 不触发，须显式收口全部覆盖层（返回按钮已退役，无其他
+   *  退出路径）。 */
+  function exitOverlays() {
+    trackingViewVisible.value = false;
+    pairView.value = null;
+    subagentView.value = null;
+  }
+
+  /** 主区「Agent 会话对」只读视角（矩阵格子/面板运行中行进入）：a/b 为
+   *  两端点 id（排序与否均可）。显式导航互斥：进入会话即收起矩阵——
+   *  不做「返回回矩阵」联动（返回按钮已退役）。 */
   function openPairView(a: string, b: string) {
     subagentView.value = null; // 反向互斥（subagent 视角让位给 pair）
+    trackingViewVisible.value = false; // 进会话收矩阵（显式导航互斥）
     pairView.value = { a, b };
   }
   function closePairView() { pairView.value = null; }
 
   /** 主区「子 Agent 会话」只读视角（运行跟踪面板子Agent 行进入）：
-   *  与 pairView 互斥；面板入口时矩阵可能开着——一并收起（矩阵是浏览态，
-   *  子会话是聚焦态）。关闭即回到此前选中上下文（选中三元组未变）。 */
+   *  与 pairView 互斥；显式导航互斥同 pair——进会话收矩阵（无返回联动）。
+   *  关闭即回到此前选中上下文（选中三元组未变）。 */
   function openSubagentView(subId: string, name?: string, parentId?: string) {
     pairView.value = null;
     trackingViewVisible.value = false;
@@ -453,7 +475,7 @@ export const useUiStore = defineStore('ui', () => {
     previewIntentFallback, previewIntentConversationId,
     // 动作
     isNarrow, togglePrimary, openPrimaryPanel, openTrackingView, closeTrackingView, auxOpenTracking, openTimers,
-    openPairView, closePairView, openSubagentView, closeSubagentView,
+    openPairView, closePairView, openSubagentView, closeSubagentView, exitOverlays,
     toggleDrawer, closeDrawer, toggleAux, openAux, selectAuxPanel,
     openAgentSettings, openGlobalSettings, closeSettings,
     openTokenUsage, closeTokenUsage, openSystemPrompt, closeSystemPrompt,

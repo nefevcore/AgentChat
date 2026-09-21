@@ -2,7 +2,7 @@
 // ABAP language definition for highlight.js
 // ============================================================
 
-import hljs from 'highlight.js';
+import { hljs } from './hljs-languages';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const abapLang: any = function (hljs: any) {

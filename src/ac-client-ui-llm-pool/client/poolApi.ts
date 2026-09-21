@@ -66,15 +66,17 @@ export async function probeLlmVision(
 //    归位：模型发现/池条目 models 归一化是池域词汇，Agent 面与池管理面
 //    共消费；原 fetchAgentModels 更名 fetchPoolModels） ──
 
-/** 模型能力元数据条目（与后端 PoolModelEntry 同形） */
+/** 模型能力元数据条目（与后端 PoolModelEntry 同形）；manual = 手工新增
+ *  （端点不暴露 /models 清单时手工加的模型 id——发现刷新不冲掉） */
 export interface PoolModelMeta {
   model: string;
   vision?: true;
   hidden?: true;
+  manual?: true;
 }
 
 /** 池条目 models 宽容归一（读侧唯一解析点）：裸名 string / 对象
- *  {model, vision?, hidden?} 双形态 → 统一对象形态。 */
+ *  {model, vision?, hidden?, manual?} 双形态 → 统一对象形态。 */
 export function poolModelEntries(raw: unknown): PoolModelMeta[] {
   if (!Array.isArray(raw)) return [];
   const out: PoolModelMeta[] = [];
@@ -83,8 +85,8 @@ export function poolModelEntries(raw: unknown): PoolModelMeta[] {
     let e: PoolModelMeta | undefined;
     if (typeof m === 'string' && m) e = { model: m };
     else if (m !== null && typeof m === 'object' && typeof (m as { model?: unknown }).model === 'string' && (m as { model: string }).model) {
-      const o = m as { model: string; vision?: unknown; hidden?: unknown };
-      e = { model: o.model, ...(o.vision === true ? { vision: true } : {}), ...(o.hidden === true ? { hidden: true } : {}) };
+      const o = m as { model: string; vision?: unknown; hidden?: unknown; manual?: unknown };
+      e = { model: o.model, ...(o.vision === true ? { vision: true } : {}), ...(o.hidden === true ? { hidden: true } : {}), ...(o.manual === true ? { manual: true } : {}) };
     }
     if (!e || seen.has(e.model)) continue;
     seen.add(e.model);

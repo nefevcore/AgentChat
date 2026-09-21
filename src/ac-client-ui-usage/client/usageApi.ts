@@ -21,6 +21,8 @@ interface PUsageAggregate {
   lastContextPrompt?: number;
   cacheHit?: number;
   cacheMiss?: number;
+  /** API 流时间合计（ms；速率分母，旧后端/旧流水无） */
+  elapsedMs?: number;
 }
 
 export interface PUsageResult {
@@ -58,6 +60,8 @@ export interface UsageSummary {
     total_cache_hit_count: number;
     total_cache_miss_count: number;
     total_records: number;
+    /** API 流时间合计（ms；token/s 速率分母。0 = 旧数据无计时，速率不显示） */
+    total_elapsed_ms?: number;
     last_step_prompt_tokens?: number;
     last_step_total_tokens?: number;
   };
@@ -82,6 +86,7 @@ export interface UsageSummary {
     record_count: number;
     total_cache_hit?: number;
     total_cache_miss?: number;
+    total_elapsed_ms?: number;
     last_step_prompt_tokens?: number;
     last_step_total_tokens?: number;
   }>;
@@ -103,6 +108,7 @@ function aggRow(a: PUsageAggregate | undefined) {
     total_cache_miss_count: 0,
     record_count: a?.runs ?? 0,
     last_used: '',
+    total_elapsed_ms: a?.elapsedMs ?? 0,
   };
 }
 
@@ -177,6 +183,7 @@ export function filterUsageRange(summary: UsageSummary, params: UsageRangeParams
       total_completion_tokens: sum((d) => d.total_completion_tokens),
       total_tokens: sum((d) => d.total_tokens),
       total_records: sum((d) => d.record_count),
+      total_elapsed_ms: sum((d) => d.total_elapsed_ms ?? 0),
     },
   };
 }

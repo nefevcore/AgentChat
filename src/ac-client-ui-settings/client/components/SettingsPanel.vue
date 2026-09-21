@@ -23,7 +23,7 @@ const clientCtx = useClientContext();
 const ui = useUiStore();
 
 // ── 状态 ──
-const selectedNode = ref('llmPools');
+const selectedNode = ref('agents');
 const saving = ref(false);
 const restarting = ref(false);
 const errorText = computed(() => settings.error.value);
@@ -52,11 +52,11 @@ const tree = computed<TreeNode[]>(() => [
 ]);
 
 // 默认选中守卫：选中叶不在场（行卸载 / 初始默认缺席）→ 回落偏好叶
-// （llmPools——壳 UX 偏好常量，非域知识）否则首叶；深链
+// （agents——壳 UX 偏好常量，非域知识）否则首叶；深链
 // initialSection/initialAgentId 经 visible watch 置位，叶在场时不被覆盖
 watch(tree, (nodes) => {
   if (nodes.some(n => n.id === selectedNode.value)) return;
-  selectedNode.value = nodes.find(n => n.id === 'llmPools')?.id ?? nodes[0]?.id ?? '';
+  selectedNode.value = nodes.find(n => n.id === 'agents')?.id ?? nodes[0]?.id ?? '';
 }, { immediate: true });
 
 /** 当前选中的插件全局设置页签（若 selectedNode 命中 ui-tab:*） */

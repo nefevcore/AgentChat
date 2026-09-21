@@ -397,8 +397,9 @@ const metaItems = computed(() => {
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
 }
 
-/* Markdown 模式（skill_read） */
+/* Markdown 模式（skill_read）：横向滚动兜底（表格等 nowrap 元素不撑破卡宽） */
 .code-body-md {
+  overflow-x: auto;
   padding: 16px 18px;
   font-size: 12px;
   line-height: 1.7;

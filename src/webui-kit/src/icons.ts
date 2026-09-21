@@ -41,6 +41,7 @@ import IconGlobe from '~icons/lucide/globe';
 import IconCheck from '~icons/lucide/check';
 import IconPlay from '~icons/lucide/play';
 import IconGripVertical from '~icons/lucide/grip-vertical';
+import IconSettings2 from '~icons/lucide/settings-2';
 import IconX from '~icons/lucide/x';
 import IconMenu from '~icons/lucide/menu';
 import IconSun from '~icons/lucide/sun';
@@ -103,6 +104,8 @@ import IconType from '~icons/lucide/type';
 // 安全/提权象形（ChatInput 快捷提权按钮等）
 import IconShield from '~icons/lucide/shield';
 import IconShieldCheck from '~icons/lucide/shield-check';
+import IconShieldHalf from '~icons/lucide/shield-half';
+import IconShieldOff from '~icons/lucide/shield-off';
 // 自动换行象形（文件预览代码视图 wrap 开关）
 import IconWrapText from '~icons/lucide/wrap-text';
 // 用量统计象形（aux usage 选区 rail 按钮）
@@ -159,6 +162,7 @@ export const iconMap: Record<string, Component> = {
   check: IconCheck,
   play: IconPlay,
   'grip-vertical': IconGripVertical,
+  'settings-2': IconSettings2,
   x: IconX,
   menu: IconMenu,
   sun: IconSun,
@@ -221,6 +225,8 @@ export const iconMap: Record<string, Component> = {
   // 安全/提权象形（ChatInput 快捷提权按钮等）
   shield: IconShield,
   'shield-check': IconShieldCheck,
+  'shield-half': IconShieldHalf,
+  'shield-off': IconShieldOff,
   // 自动换行象形（文件预览代码视图 wrap 开关）
   'wrap-text': IconWrapText,
   // 用量统计象形（aux usage 选区 rail 按钮）

@@ -94,7 +94,9 @@ export async function saveAgentConfig(
   const llm = (bodyCfg.llm ?? {}) as Record<string, any>;
   const patch: Record<string, unknown> = {};
   if (bodyCfg.name !== undefined) patch.name = bodyCfg.name;
-  if (llm.provider !== undefined) patch.provider = llm.provider || undefined;
+  // provider '' = 「默认」（跟随模型池默认连接）——显式 null 清除覆盖
+  //（与 model 同款语义：deepMerge 缺键删不掉，null 落存 + 投递侧回落）
+  if (llm.provider !== undefined) patch.provider = llm.provider || null;
   // model ''/null = 显式清除（「默认」= 按全局设置的默认模型处理）——
   // 服务端 deepMerge 以 null 覆盖落存，投递侧回落默认池连接
   if (llm.model !== undefined) patch.model = llm.model || null;
@@ -209,6 +211,12 @@ export interface TagCatalogItem {
   order?: number;
   /** 分层族标记（低 ⊂ 高：勾选高层含低层全部能力） */
   tier?: boolean;
+  /** 抉择组名（同组互斥——本组聚合为下拉单选；详见 tagExclusive.ts） */
+  exclusive?: string;
+  /** 抉择组「都不选」词（落词不写 tags，缺席即语义——如 base-access/tc-base） */
+  exclusiveNone?: boolean;
+  /** 抉择组「全关」后果说明（无缺省词的组——UI 关闭态旁注/弹层关闭项描述） */
+  exclusiveOffDesc?: string;
 }
 
 /** 拉取能力标签目录（行未装配 → rpc error，调用方回退本地徽章表） */

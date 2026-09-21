@@ -66,7 +66,7 @@ const STATUS_LABELS: Record<string, string> = {
 .todo-card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--color-text-primary); }
 .todo-card-summary { font-weight: 400; color: var(--color-text-tertiary); }
 .todo-card-pending { font-style: italic; color: var(--color-text-tertiary); font-weight: 400; }
-.todo-card-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; max-height: 200px; overflow-y: auto; }
+.todo-card-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; max-height: var(--card-viewport-max); overflow-y: auto; }
 .todo-card-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--color-text-secondary); line-height: 18px; }
 .todo-card-item[data-status='completed'] .todo-card-content { color: var(--color-text-tertiary); text-decoration: line-through; }
 .todo-card-glyph { display: grid; place-items: center; flex: none; }

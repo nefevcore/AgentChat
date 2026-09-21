@@ -26,6 +26,11 @@
   --space-5: 20px;
   --space-6: 24px;
 
+  /* 会话卡片内容视口统一限高：思考/工具纯文本/终端/代码/diff/run_code/
+     todo 等长内容滚动区同此基准（跨卡同屏高度一致）；小窗随视口收缩，
+     大屏封顶 340px */
+  --card-viewport-max: clamp(200px, 40vh, 340px);
+
   --font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
     "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", SFMono, Consolas,

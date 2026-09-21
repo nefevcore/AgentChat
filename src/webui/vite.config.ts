@@ -87,10 +87,13 @@ export default defineConfig({
         'ui-plugin-iframe': path.resolve(rootDir, 'ui-plugin-iframe.html'),
       },
       output: {
-        // 拆分 vendor chunk：框架/渲染/编辑相关独立成块，长缓存 + 并行加载
+        // 拆分 vendor chunk：框架独立成块（长缓存 + 并行加载）。
+        // katex / markdown-it-texmath / 冷门 hljs 语言刻意【不列入】——
+        // 它们在源码里走动态 import，rollup 自动拆为独立块；一旦写进本表
+        // 就会被强制并入静态块，按需加载随之失效（见 useMarkdown/hljs-languages）。
         manualChunks: {
           vue: ['vue', 'pinia'],
-          markdown: ['markdown-it', 'markdown-it-texmath', 'katex', 'highlight.js'],
+          markdown: ['markdown-it'],
         },
       },
     },

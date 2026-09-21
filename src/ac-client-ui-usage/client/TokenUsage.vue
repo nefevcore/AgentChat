@@ -82,6 +82,8 @@ interface UsageSummary {
     total_cache_hit_count: number;
     total_cache_miss_count: number;
     total_records: number;
+    /** API 流时间合计（ms；token/s 速率分母。0 = 旧数据无计时，速率不显示） */
+    total_elapsed_ms?: number;
     /** 各 run 末步输入合计（上下文处理量口径；归档/容量判断参照） */
     last_step_prompt_tokens?: number;
     /** 各 run 末步 total 合计 */
@@ -164,6 +166,17 @@ const cacheHitVal = computed(() => data.value?.overall.total_cache_hit ?? 0);
 const cachePct = computed(() => {
   if (totalInput.value === 0) return 0;
   return (cacheHitVal.value / totalInput.value) * 100;
+});
+// API 速率（token/秒，输出口径）：总补全 token ÷ API 流时间合计。不用
+// total：prompt 随上下文单调膨胀，Σtotal/Σms 会持续虚高（反映上下文
+// 膨胀而非吞吐）；completion 是每步纯净新增，比率稳定收敛。分母 = 纯
+// LLM API 流时间（工具执行/编排/重试退避不计入）。旧数据无计时（0ms）
+// → null 不显示。
+const apiTps = computed(() => {
+  const ms = data.value?.overall.total_elapsed_ms ?? 0;
+  if (ms <= 0) return null;
+  const tokens = data.value?.overall.total_completion_tokens ?? 0;
+  return tokens / (ms / 1000);
 });
 
 function formatNumber(n: number): string {
@@ -970,6 +983,7 @@ onUnmounted(() => { destroyChart(); });
             <span class="tup-stat"><em>输出</em><strong>{{ formatNumber(data.overall.total_completion_tokens) }}</strong></span>
             <span class="tup-stat"><em>请求</em><strong>{{ formatNumber(data.overall.total_records) }}</strong></span>
             <span class="tup-stat"><em>步数</em><strong>{{ formatNumber(data.overall.total_react_steps) }}</strong></span>
+            <span v-if="apiTps !== null" class="tup-stat" title="API 输出速率：补全 token ÷ API 流时间（不含工具执行/编排耗时；不含 prompt——上下文膨胀会虚高）"><em>速率</em><strong>{{ apiTps.toFixed(1) }} t/s</strong></span>
           </div>
 
           <!-- 图表区（复用 modal 态两页签内容） -->
@@ -1062,6 +1076,7 @@ onUnmounted(() => { destroyChart(); });
                 <span>总输出 {{ formatNumber(data.overall.total_completion_tokens) }}</span>
                 <span>总步数 {{ data.overall.total_react_steps }}</span>
                 <span>请求 {{ data.overall.total_records }}</span>
+                <span v-if="apiTps !== null" title="API 输出速率：补全 token ÷ API 流时间（不含工具执行/编排耗时；不含 prompt——上下文膨胀会虚高）">速率 {{ apiTps.toFixed(1) }} t/s</span>
               </div>
             </div>
 

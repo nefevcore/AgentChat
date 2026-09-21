@@ -10,7 +10,7 @@
 // ============================================================
 import { ref, computed, watch, getCurrentInstance } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
-import hljs from 'highlight.js';
+import { hljs, ensureHljsLanguage, hljsLanguageVersion } from 'ac-client-ui-renderer/client/hljs-languages.ts';
 import { fetchWorkspaceFile, type ReadContext } from './workspaceFile.ts';
 
 interface FileData {
@@ -240,6 +240,8 @@ export function useFilePreviewContent(
   const highlightedCode = computed(() => {
     if (!fileData.value || fileData.value.binary || isHtml.value || isImage.value) return '';
     const lang = ext.value;
+    void hljsLanguageVersion.value; // 响应式依赖：冷门语言补齐后重算高亮
+    if (lang) void ensureHljsLanguage(lang);
     if (lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(fileData.value.content, { language: lang }).value;

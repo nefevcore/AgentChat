@@ -17,7 +17,7 @@ export interface VersionInfo {
   latestUrl?: string | null;
   /** 检查失败（网络不可达/限流）——UI 显示"无法确认"而非"已是最新" */
   checkFailed?: boolean;
-  /** 桌面壳装配（Electron）：更新归 electron-updater，UI 换桌面文案 */
+  /** 桌面壳装配（Electron）：更新走下载页安装包（壳层 manifest 提醒），UI 换桌面文案 */
   desktop?: boolean;
 }
 

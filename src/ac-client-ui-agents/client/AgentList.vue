@@ -179,10 +179,10 @@ function selectAgent(id: string) {
   // 历史加载由 ConversationView 的 activeAgentId watch 统一负责（与 single 模式对齐）
   const a = roster.agents.value.find(a => a.id === id);
   if (a?.hasActiveSession) chatStore.subscribeAgent(id);
-  ui.closeTrackingView(); // 连带清 pairView（幂等）
+  ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
   closeDrawer();
 }
-function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeDrawer(); }
+function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.exitOverlays(); closeDrawer(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 

@@ -30,20 +30,32 @@ const themeSvc = clientCtx?.theme;
 const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID.value) ?? null);
 const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID.value) || 'User');
 
-// ── 未读聚合徽章（Agent 列表按钮）──
-// single 会话激活时主侧边栏 Agent 名册不可见，Agent 发来的私信只在
-// 名册行上有数字徽章——活动栏「Agent 列表」按钮同步展示未读总数，
-// 避免消息被忽略。数据与名册行徽章同源（feed 分区 unread 聚合），
-// 进入对应会话即清除（clearUnread/setActiveGroup 等多路径联动）。
-// 口径 = 全分区求和（direct 对桶 + single 独立会话 + group 群聊）：
-// 名册只列 Agent/群（single 无行入口），漏加会少报总数。
+// ── 未读聚合徽章（Agent 列表 / 会话列表按钮）──
+// 数据与名册行徽章同源（feed 分区 unread 聚合），进入对应会话即清除
+// （clearUnread/setActiveGroup/setActiveSingle 等多路径联动）。
+// 口径按按钮归属面板分列（修复：此前 Agent 列表徽章全分区求和，single
+// 会话的机制通知——后台任务完成回投〔JOB 返回〕/timer 定点等——也计入，
+// 而名册只列 Agent/群没有 single 行，徽章亮起却无处落点）：
+//   · Agent 列表 = direct 对桶 + group 群聊（名册行口径，行行可寻——
+//     single 会话激活时名册不可见，Agent 私信仍经此按钮提示不漏）；
+//   · 会话列表   = single 独立会话（SessionList 是其归属面板与唯一提示位）。
 const feedStore = useFeedStore();
 const agentsUnreadTotal = computed(() => {
   let n = 0;
-  for (const d of Object.values(feedStore.dialogs)) n += d.unread;
+  for (const [id, d] of Object.entries(feedStore.dialogs)) {
+    if (!id.startsWith('single:')) n += d.unread;
+  }
   return n;
 });
 const agentsUnreadLabel = computed(() => agentsUnreadTotal.value > 99 ? '99+' : String(agentsUnreadTotal.value));
+const singlesUnreadTotal = computed(() => {
+  let n = 0;
+  for (const [id, d] of Object.entries(feedStore.dialogs)) {
+    if (id.startsWith('single:')) n += d.unread;
+  }
+  return n;
+});
+const singlesUnreadLabel = computed(() => singlesUnreadTotal.value > 99 ? '99+' : String(singlesUnreadTotal.value));
 
 // activity-bar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
 const sortedActivityBarActions = useActivityBarActions(clientCtx);
@@ -133,8 +145,8 @@ onUnmounted(() => {
       <Avatar :src="currentAvatar" :name="currentAgentName" :size="30" />
     </button>
 
-    <!-- Agent 列表（活动栏第一位：Agent + 群组名册）；徽章 = 未读聚合
-         （私信 + 群聊 + single 会话；single 会话时名册不可见，此按钮是唯一的未读提示位） -->
+    <!-- Agent 列表（活动栏第一位：Agent + 群组名册）；徽章 = 名册行口径未读聚合
+         （direct 私信 + 群聊；single 会话时名册不可见，Agent 私信仍经此按钮提示） -->
     <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'agents' }" @click="emit('openPrimaryPanel', 'agents')" title="Agent 列表">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -142,9 +154,11 @@ onUnmounted(() => {
       <span v-if="agentsUnreadTotal > 0" class="unread-badge">{{ agentsUnreadLabel }}</span>
     </button>
 
-    <!-- 会话列表（独立会话页，与 Agent 列表同级） -->
+    <!-- 会话列表（独立会话页，与 Agent 列表同级）；徽章 = single 分区未读聚合
+         （single 无名册行，SessionList 是其归属面板——本按钮为唯一未读提示位） -->
     <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'sessions' }" @click="emit('openPrimaryPanel', 'sessions')" title="会话列表">
       <Icon name="message-circle" :size="22" />
+      <span v-if="singlesUnreadTotal > 0" class="unread-badge">{{ singlesUnreadLabel }}</span>
     </button>
 
     <!-- 运行跟踪入口已迁辅助活动栏（aux 'tracking' 选区 rail 按钮，A5）——

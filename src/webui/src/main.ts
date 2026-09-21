@@ -13,8 +13,9 @@
 
 import './assets/main.css';
 import './assets/markdown.css';
-import 'katex/dist/katex.min.css';
-import 'markdown-it-texmath/css/texmath.css';
+// KaTeX / texmath 样式不再静态引入：随 useMarkdown 的数学懒路径在首个含
+// 公式的消息出现时才注入（无公式的会话省下样式解析与字体声明；字体本身
+// 一向按需取用）。
 // L0 设计令牌（星群 × 工坊 双主题）—— UI 库地基
 import '@agentchat/webui-kit/tokens.css';
 // L0.5 公共行（A 语言扁平行——清单卡收敛底座，C8）

@@ -74,9 +74,9 @@ const title = '模型管理（Provider 连接）';
 const llmTemplates = LLM_PROVIDER_TEMPLATES;
 
 /** 编辑中连接的模型发现缓存（列表 detail 同款来源）——能力元数据对象
- *  形态（{model, vision?, hidden?}）：vision = 探测确认收图（勾选位），
- *  hidden = 前端下拉隐藏（勾选位）。draft 优先于池条目（读取后
- *  未保存的探测/隐藏位不丢失）。
+ *  形态（{model, vision?, hidden?, manual?}）：vision = 探测确认收图
+ *  （勾选位），hidden = 前端下拉隐藏（勾选位），manual = 手工新增
+ *  （可删位）。draft 优先于池条目（读取后未保存的探测/隐藏位不丢失）。
  *  【倒序显示】模型命名版本随时间走高（glm-4.6v > glm-4.5v），按名
  *  降序 ≈ 新模型靠前；「缺省取第一个」同款口径（readModelList）。 */
 const draftModels = computed<PoolModelMeta[]>(() => {
@@ -157,7 +157,7 @@ async function readModelList() {
         ...list,
       ])].map((model) => {
         const prev = poolModelEntries(props.pools[name]?.models).find((e) => e.model === model);
-        return prev && (prev.vision === true || prev.hidden === true) ? prev : model;
+        return prev && (prev.vision === true || prev.hidden === true || prev.manual === true) ? prev : model;
       });
       const pool = { ...props.pools };
       pool[name] = { ...((pool[name] as Record<string, unknown>) ?? {}), models: merged };
@@ -165,12 +165,16 @@ async function readModelList() {
       props.onSaved?.();
     }
     if (!list.length) throw new Error('未获取到模型列表');
-    // 清单入 draft：继承池条目已有 flags（探测/隐藏位跨读取不丢）
+    // 清单入 draft：继承池条目已有 flags（探测/隐藏/手工位跨读取不丢）；
+    // 手工条目不在发现清单内 → 追加保留（重读不冲掉手工新增）
     const prevEntries = poolModelEntries(props.pools[name]?.models);
-    draft.value.models = list.map((model) => {
+    const discovered = list.map((model) => {
       const prev = prevEntries.find((e) => e.model === model);
-      return prev && (prev.vision === true || prev.hidden === true) ? prev : { model };
+      return prev && (prev.vision === true || prev.hidden === true || prev.manual === true) ? prev : { model };
     });
+    const manualDraft = poolModelEntries(draft.value.models).filter((e) => e.manual === true);
+    const seen = new Set(discovered.map((e) => e.model));
+    draft.value.models = [...discovered, ...manualDraft.filter((e) => !seen.has(e.model))];
     if (!draft.value.defaultModel || !list.includes(String(draft.value.defaultModel))) {
       // 缺省取列表显示序第一个 = 倒序口径的最新模型（与 draftModels 一致）
       draft.value.defaultModel = [...list].sort((a, b) => b.localeCompare(a))[0];
@@ -186,13 +190,36 @@ async function readModelList() {
   }
 }
 
+/** 手工新增模型（端点不暴露 /models 清单时手工补模型 id）：归一去重后
+ *  追加 manual 条目（发现刷新不冲掉）；首个手工条目可兼作默认模型。 */
+const manualModelInput = ref('');
+function addManualModel(): void {
+  const id = manualModelInput.value.trim();
+  if (!id) return;
+  manualModelInput.value = '';
+  const current = poolModelEntries(draft.value.models);
+  if (current.some((e) => e.model === id)) return; // 已在清单（发现/手工）——不重复
+  draft.value.models = [...current, { model: id, manual: true }];
+  if (!draft.value.defaultModel) draft.value.defaultModel = id;
+}
+
+/** 删除模型条目（当前仅手工条目提供删除位——发现条目重读即回） */
+function removeModelEntry(model: string): void {
+  const current = poolModelEntries(draft.value.models);
+  draft.value.models = current.filter((e) => e.model !== model);
+  if (draft.value.defaultModel === model) {
+    const next = current.find((e) => e.model !== model && e.hidden !== true);
+    draft.value.defaultModel = next ? next.model : '';
+  }
+}
+
 /** chip 开关：前端下拉隐藏（hidden = 纯 UI 呈现语义——路由与已选该模型
  *  的会话不受影响；保存时随对象形态落盘） */
 function toggleModelHidden(model: string): void {
   const current = poolModelEntries(draft.value.models);
   draft.value.models = current.map((e) =>
     e.model === model
-      ? (e.hidden === true ? { model: e.model, ...(e.vision === true ? { vision: true } : {}) } : { ...e, hidden: true })
+      ? (e.hidden === true ? { model: e.model, ...(e.vision === true ? { vision: true } : {}), ...(e.manual === true ? { manual: true } : {}) } : { ...e, hidden: true })
       : e,
   );
 }
@@ -215,7 +242,7 @@ async function probeVisionFor(
       const verdict = results[e.model];
       if (verdict === true) return { ...e, vision: true };
       // 探测明确否定 → 摘除旧 vision 位（模型换代/清单刷新后纠偏）
-      if (verdict === false && e.vision === true) return { model: e.model, ...(e.hidden === true ? { hidden: true } : {}) };
+      if (verdict === false && e.vision === true) return { model: e.model, ...(e.hidden === true ? { hidden: true } : {}), ...(e.manual === true ? { manual: true } : {}) };
       return e;
     });
   } catch {
@@ -231,7 +258,7 @@ function toggleModelVision(model: string): void {
   const current = poolModelEntries(draft.value.models);
   draft.value.models = current.map((e) =>
     e.model === model
-      ? (e.vision === true ? { model: e.model, ...(e.hidden === true ? { hidden: true } : {}) } : { ...e, vision: true })
+      ? (e.vision === true ? { model: e.model, ...(e.hidden === true ? { hidden: true } : {}), ...(e.manual === true ? { manual: true } : {}) } : { ...e, vision: true })
       : e,
   );
 }
@@ -263,10 +290,10 @@ function saveEntry() {
   void template;
   // 模型清单随条目落盘（保存即完整可用；改名同样跟随）——宽容双
   // 形态归一后写最小形态：无 flags = 裸 string（兼容旧格式/省空间），
-  // 有 vision/hidden = 对象（能力元数据：探测结果 + 列表内手动勾选）
+  // 有 vision/hidden/manual = 对象（能力元数据 + 手工条目标记）
   const normalized = poolModelEntries(models);
   if (normalized.length > 0) {
-    entry.models = normalized.map((e) => (e.vision === true || e.hidden === true ? e : e.model));
+    entry.models = normalized.map((e) => (e.vision === true || e.hidden === true || e.manual === true ? e : e.model));
   }
   // 清理空值（v-model.number 空值会返回 ""，导致 API 400）。
   // 例外：api_key 的空串有语义（= 删除凭据），必须传到后端。
@@ -411,23 +438,17 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
           </div>
         </div>
         <!-- 模型清单（llm 连接专属）：填 Key 自动读取（免注册 base_url+Key
-             直调）；读取后自动逐模型探测视觉能力；列表控件 = 每行模型 +
-             视觉/隐藏两个勾选位；点击模型名设为默认模型 -->
+             直调）；读取后自动逐模型探测视觉能力；列表控件 = 每行模型名 +
+             行内徽章（视觉/隐藏/手工）+ 删除位（手工条目）；点击模型名设为
+             默认模型。下方输入行支持手工新增（端点不暴露 /models 时补 id） -->
         <div class="pool-field">
           <div class="pool-field-label">模型清单</div>
-          <div class="pool-field-desc">填入 API Key 后自动读取{{ visionProbing ? '（正在逐模型探测视觉能力…）' : '（读取时逐模型探测视觉能力）' }}；「视觉」勾选 = 支持图片输入（探测自动勾，可手动改）；「隐藏」勾选 = 从前端下拉隐藏；点击模型名设为默认</div>
+          <div class="pool-field-desc">填入 API Key 后自动读取{{ visionProbing ? '（正在逐模型探测视觉能力…）' : '（读取时逐模型探测视觉能力）' }}；「视觉」= 支持图片输入（探测自动标，可手动改）；「隐藏」= 从前端下拉隐藏；点击模型名设为默认；API 不暴露模型清单时可在下方手工新增</div>
           <div class="pool-field-control">
             <button class="pool-add" :disabled="modelsLoading" @click="readModelList">{{ modelsLoading ? '读取中…' : draftModels.length ? '重新读取' : '读取模型' }}</button>
             <span v-if="modelsError" class="pool-error">{{ modelsError }}</span>
           </div>
           <div v-if="draftModels.length" class="pool-model-list">
-            <div class="pool-model-row pool-model-head">
-              <span class="pool-model-name">模型</span>
-              <span class="pool-model-flags">
-                <span class="pool-model-flag-label">视觉</span>
-                <span class="pool-model-flag-label">隐藏</span>
-              </span>
-            </div>
             <div
               v-for="m in draftModels"
               :key="m.model"
@@ -441,22 +462,40 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
                 @click="draft.defaultModel = m.model"
               >{{ m.model }}</button>
               <span class="pool-model-flags">
-                <label class="pool-model-flag" :title="m.vision === true ? '支持图片输入（附件图片会真正发给模型）' : '未标记视觉——附件图片仅作文件路径文本附带'">
-                  <input
-                    type="checkbox"
-                    :checked="m.vision === true"
-                    @change="toggleModelVision(m.model)"
-                  />
-                </label>
-                <label class="pool-model-flag" :title="m.hidden === true ? '已隐藏：前端模型下拉不显示（路由与已选会话不受影响）' : '勾选后从前端模型下拉隐藏'">
-                  <input
-                    type="checkbox"
-                    :checked="m.hidden === true"
-                    @change="toggleModelHidden(m.model)"
-                  />
-                </label>
+                <span v-if="m.manual === true" class="pool-model-badge is-manual" title="手工新增的模型（发现刷新不会冲掉）">手工</span>
+                <button
+                  type="button"
+                  class="pool-model-badge"
+                  :class="{ on: m.vision === true }"
+                  :title="m.vision === true ? '支持图片输入（附件图片会真正发给模型）——点击取消' : '未标记视觉——附件图片仅作文件路径文本附带；点击标记为支持图片'"
+                  @click="toggleModelVision(m.model)"
+                >视觉</button>
+                <button
+                  type="button"
+                  class="pool-model-badge"
+                  :class="{ on: m.hidden === true }"
+                  :title="m.hidden === true ? '已隐藏：前端模型下拉不显示（路由与已选会话不受影响）——点击恢复显示' : '从前端模型下拉隐藏（路由不受影响）'"
+                  @click="toggleModelHidden(m.model)"
+                >隐藏</button>
+                <button
+                  v-if="m.manual === true"
+                  type="button"
+                  class="pool-model-del"
+                  title="删除手工条目"
+                  @click="removeModelEntry(m.model)"
+                ><Icon name="x" :size="10" /></button>
               </span>
             </div>
+          </div>
+          <div class="pool-model-add">
+            <input
+              v-model="manualModelInput"
+              type="text"
+              class="pool-input"
+              placeholder="手工新增模型 id（回车添加——端点不暴露清单时用）"
+              @keyup.enter="addManualModel"
+            />
+            <button type="button" class="pool-add" @click="addManualModel">添加</button>
           </div>
         </div>
         <div v-if="error" class="pool-error">{{ error }}</div>
@@ -521,7 +560,8 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
 .pool-field-desc { font-size: 11px; color: var(--text-3); }
 .pool-field-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 
-/* 模型清单列表控件：每行 = 模型名（点击设默认）+ 视觉/隐藏勾选位 */
+/* 模型清单列表控件：每行 = 模型名（点击设默认）+ 行内徽章（视觉/隐藏/
+   手工/删除位）——列表化呈现（原表格列头 + 裸勾选框退役） */
 .pool-model-list {
   display: flex; flex-direction: column;
   margin-top: 4px; max-height: 260px; overflow-y: auto;
@@ -533,10 +573,7 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
   border-bottom: 1px solid var(--line);
 }
 .pool-model-row:last-child { border-bottom: none; }
-.pool-model-head {
-  position: sticky; top: 0; background: var(--bg-hover, rgba(0,0,0,0.03));
-  color: var(--text-3); font-size: 11px; padding: 3px 10px;
-}
+.pool-model-row:hover { background: var(--bg-hover); }
 .pool-model-name {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-family: var(--font-mono, monospace); color: var(--text-2);
@@ -555,9 +592,37 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
 .pool-model-row.is-hidden .pool-model-name {
   text-decoration: line-through; opacity: 0.55;
 }
-.pool-model-flags { display: inline-flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.pool-model-flag-label { width: 14px; text-align: center; }
-.pool-model-flag { display: inline-flex; align-items: center; cursor: pointer; }
-.pool-model-flag input { margin: 0; cursor: pointer; accent-color: var(--primary, #4f46e5); }
+.pool-model-flags { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.pool-model-badge {
+  padding: 1px 8px; border-radius: var(--r-full);
+  border: 1px solid color-mix(in srgb, var(--text-3) 25%, transparent);
+  background: transparent; color: var(--text-3);
+  font-size: 10px; line-height: 1.5; cursor: pointer;
+  transition: all var(--dur-fast);
+}
+.pool-model-badge:hover {
+  border-color: color-mix(in srgb, var(--text-3) 45%, transparent);
+  color: var(--text-2);
+}
+.pool-model-badge.on {
+  background: color-mix(in srgb, var(--primary, #4f46e5) 10%, transparent);
+  border-color: color-mix(in srgb, var(--primary, #4f46e5) 35%, transparent);
+  color: color-mix(in srgb, var(--primary, #4f46e5) 80%, var(--text-1));
+}
+.pool-model-badge.is-manual {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  color: var(--warn); cursor: default;
+}
+.pool-model-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-3); cursor: pointer;
+}
+.pool-model-del:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+/* 手工新增行 */
+.pool-model-add { display: flex; gap: 6px; margin-top: 6px; }
+.pool-model-add .pool-input { flex: 1; }
+.pool-model-add .pool-add { flex-shrink: 0; }
 .pool-error { color: var(--err); font-size: 12px; }
 </style>

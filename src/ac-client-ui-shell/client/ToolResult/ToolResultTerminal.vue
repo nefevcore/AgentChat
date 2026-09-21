@@ -50,7 +50,7 @@ watch([stdout, stderr, () => props.loading], async () => {
   <div class="tool-result-terminal">
     <!-- 单卡片终端：IN / --- / OUT 以文本标记区分输入与输出 -->
     <div class="term-card">
-      <ScrollableViewport ref="viewportRef" max-height="50vh" class="term-scroll" @scroll="onScroll">
+      <ScrollableViewport ref="viewportRef" class="term-scroll" @scroll="onScroll">
         <!-- IN：输入命令 -->
         <div v-if="hasCommand" class="term-row term-in">
           <span class="term-mark term-mark-in">IN:</span>

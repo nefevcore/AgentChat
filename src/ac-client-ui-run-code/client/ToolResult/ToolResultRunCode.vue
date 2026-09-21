@@ -150,16 +150,19 @@ async function copyCode() {
           <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
         </button>
       </div>
-      <ScrollableViewport max-height="40vh" class="rc-viewport">
+      <ScrollableViewport class="rc-viewport">
         <div class="rc-code-body" v-html="renderedCode" />
       </ScrollableViewport>
     </div>
 
     <!-- 执行中（无摘要返回时）：琥珀旋转环——2026-12 全前端"忙"指示统一
-         （tool-spin-ring 同款；类名复用以进 prefers-reduced-motion 豁免清单） -->
+         （tool-spin-ring 同款；类名复用以进 prefers-reduced-motion 豁免清单）。
+         参数流式阶段（code 尚未到场——prep 占位 arguments 空，升级点在 delta-end）
+         明示「程序体生成中」——此前该窗口只显示裸 spinner，观感即「代码面板被
+         隐藏」（2026-09-21 前端反馈 #1）。 -->
     <div v-if="loading || (!summary && !errorText)" class="rc-running">
       <span class="tool-spin-ring rc-spin" aria-hidden="true"></span>
-      <span class="rc-running-text">程序执行中…（中间调用不回上下文，仅 return 值返回）</span>
+      <span class="rc-running-text">{{ code ? '程序执行中…（中间调用不回上下文，仅 return 值返回）' : '程序体生成中…（模型正在写代码/参数）' }}</span>
     </div>
 
     <!-- ============ ② 工具调用时间线（本卡核心段） ============ -->
@@ -222,10 +225,10 @@ async function copyCode() {
           {{ valueExpanded ? '收起' : `展开全部（${valueText.length} 字符）` }}
         </button>
       </div>
-      <ScrollableViewport v-if="valueIsPlain" max-height="30vh" class="rc-viewport">
+      <ScrollableViewport v-if="valueIsPlain" class="rc-viewport">
         <pre class="rc-value-text"><code>{{ valueBody }}</code></pre>
       </ScrollableViewport>
-      <ScrollableViewport v-else max-height="30vh" class="rc-viewport">
+      <ScrollableViewport v-else class="rc-viewport">
         <div class="rc-value-body" v-html="renderedValue" />
       </ScrollableViewport>
     </div>
@@ -288,6 +291,15 @@ async function copyCode() {
 }
 .rc-copy-btn:hover { color: var(--color-text-primary); background: var(--color-bg-hover, rgba(148, 163, 184, 0.12)); }
 .rc-copy-btn.copied { color: #4ade80; }
+
+/* 代码/值区横向滚动：markdown.css 的 pre overflow-x 规则不命中本上下文
+   （全挂 .markdown-body 前缀），pre 默认 nowrap——卡根 .rc-section
+   overflow:hidden 会硬裁长行；此处给滚动区（同 ToolResultCode 的
+   .code-area-wrapper / ToolResultEdit 的 .edit-diff-body 同款处置） */
+.rc-code-body,
+.rc-value-body {
+  overflow-x: auto;
+}
 
 /* 嵌套代码块按卡内规格覆盖（markdown.css 的 .md-code-block 系列全挂
    .markdown-body 前缀——工具卡在 .tool-body 内不命中；同处置见

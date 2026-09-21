@@ -78,7 +78,12 @@ function getMemberName(agentId: string): string {
 
 const filteredParticipants = computed(() => {
   const q = memberSearchQuery.value.toLowerCase().trim();
-  const ps = group.value?.participants ?? [];
+  // 完整参与面：user（viewer）是隐式成员——后端 members 不入册，展示面
+  // 首位并入，与「我能在这里说话」的事实一致
+  const ps = (() => {
+    const list = group.value?.participants ?? [];
+    return list.includes(VIEWER_ID.value) ? list : [VIEWER_ID.value, ...list];
+  })();
   if (!q) return ps;
   return ps.filter(p => p.toLowerCase().includes(q));
 });

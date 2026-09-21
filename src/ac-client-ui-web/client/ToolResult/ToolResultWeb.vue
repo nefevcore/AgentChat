@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
+import { useWebSearchTabsStore, openSearchPanel } from '../searchTabs.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
+const searchTabs = useWebSearchTabsStore();
+
 // ---- Search mode fields ----
-const query = computed(() => String(props.data.query || ''));
-const answer = computed(() => String(props.data.answer || ''));
-const responseTime = computed(() => Number(props.data.response_time ?? 0));
-const usage = computed(() => props.data.usage as { credits?: number } | null);
+// 正常形读 data；截断恢复形（历史 subcall 补行）回落 partialOutput
+const query = computed(() => String(props.data.query || partialOutput.value?.query || ''));
+const answer = computed(() => String(props.data.answer || partialOutput.value?.answer || ''));
+const responseTime = computed(() => Number(props.data.response_time ?? partialOutput.value?.response_time ?? 0));
 
 interface SearchResultItem {
   title: string;
@@ -18,6 +21,10 @@ interface SearchResultItem {
   raw_content?: string | null;
 }
 const searchResults = computed<SearchResultItem[]>(() => {
+  if (truncatedHead.value) {
+    // 截断恢复形：字段宽松化（title/url/content/score 可缺）——展示几条算几条
+    return partialResults.value as unknown as SearchResultItem[];
+  }
   return (props.data.results as SearchResultItem[]) || [];
 });
 
@@ -29,7 +36,73 @@ const size = computed(() => String(props.data.size || ''));
 const truncated = computed(() => Boolean(props.data.truncated));
 const textExtracted = computed(() => props.data.text_extracted !== false);
 
-const isSearch = computed(() => 'results' in props.data && searchResults.value.length > 0);
+// ---- 历史截断形兼容（subcall 补行 2KB 截断 → {__truncated,bytes,head}）----
+// run_code 子调用的完整结果只由收束行 steps 携带；历史面的补行被截断时
+// web_search 卡拿不到 results 数组。head 是完整 JSON 的前缀——截断点必在
+// results 数组内部：按 "}" 界重切成合法 JSON 前缀（partial 数组），能恢复
+// 出几条结果就显示几条（标记「部分结果」），N 条结果永远好过空卡。
+const truncatedHead = computed<string>(() => {
+  const t = props.data as { __truncated?: boolean; head?: string };
+  if (t?.__truncated !== true || typeof t.head !== 'string') return '';
+  return t.head;
+});
+
+/** head 前缀 → 可解析的部分 output（无 results 数组到达 = null）。
+ *  逐元素扫描（字符串转义感知）：从 "results":[ 起逐个提取完整 {} 元素，
+ *  截断点落在元素内即丢弃该元素——任意截断位置都安全。 */
+const partialOutput = computed<Record<string, unknown> | null>(() => {
+  const head = truncatedHead.value;
+  if (!head) return null;
+  const outIdx = head.indexOf('"output":');
+  if (outIdx === -1) return null;
+  const body = head.slice(outIdx + '"output":'.length);
+  if (!body.startsWith('{')) return null;
+  const rIdx = body.indexOf('"results":[');
+  if (rIdx === -1) return null; // 截断在 results 数组之前——无从恢复
+  const out: Record<string, unknown> = { results: [] as unknown[] };
+  // results 前的字段（provider/query/answer）：完整引号闭合的才取
+  const pre = body.slice(0, rIdx);
+  for (const key of ['provider', 'query', 'answer']) {
+    const m = pre.match(new RegExp('"' + key + '"' + String.fromCharCode(92) + 's*:' + String.fromCharCode(92) + 's*"([^"' + String.fromCharCode(92, 92) + ']*(?:' + String.fromCharCode(92, 92) + '.[^"' + String.fromCharCode(92, 92) + ']*)*)"'));
+    if (m) out[key] = m[1];
+  }
+  // 逐元素扫描
+  let i = rIdx + '"results":['.length;
+  const results: unknown[] = [];
+  while (i < body.length) {
+    while (i < body.length && (body[i] === ',' || body[i] === ' ' || body[i] === '\n')) i++;
+    if (i >= body.length || body[i] === ']' || body[i] !== '{') break;
+    let depth = 0, j = i, inStr = false;
+    for (; j < body.length; j++) {
+      const ch = body[j];
+      if (inStr) {
+        if (ch === '\\') { j++; continue; }
+        if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+    }
+    if (depth !== 0 || j >= body.length) break; // 截断在元素内——丢弃
+    try { results.push(JSON.parse(body.slice(i, j + 1))); } catch { break; }
+    i = j + 1;
+  }
+  out.results = results;
+  return out;
+});
+
+
+/** 截断恢复出的部分结果条数（0 = 恢复失败） */
+const partialResults = computed(() => {
+  const out = partialOutput.value;
+  return Array.isArray(out?.results) ? (out!.results as Array<{ title?: string; url?: string; content?: string; score?: number }>) : [];
+});
+
+const isSearch = computed(() => {
+  if (truncatedHead.value) return partialResults.value.length > 0; // 截断形按恢复结果判
+  return 'results' in props.data && searchResults.value.length > 0;
+});
 const isFetch = computed(() => !isSearch.value && (!!url.value || !!textContent.value));
 const isBinary = computed(() => isFetch.value && props.data.text_extracted === false);
 
@@ -44,6 +117,30 @@ const expandedResults = ref<Record<number, boolean>>({});
 function toggleResult(idx: number) {
   expandedResults.value[idx] = !expandedResults.value[idx];
 }
+
+// ---- 搜索结果 → 辅助侧边栏（write 直达 preview 同款交互）----
+// 宽屏：卡片行点击 = openSearchPanel（共享 helper——同 query 复用刷新 +
+// 显式选区 + 舒适宽 + 展开）；窄屏（≤768 抽屉形态）：保持原地展开。
+const resultCount = computed(() => searchResults.value.length);
+function openInSidebar() {
+  if (!isSearch.value) return;
+  if (!openSearchPanel({
+    query: query.value,
+    provider: String(props.data.provider || '') || undefined,
+    answer: answer.value || null,
+    response_time: responseTime.value || undefined,
+    credits_used: (props.data.credits_used ?? null) as number | null,
+    results: searchResults.value,
+  })) {
+    inlineExpanded.value = !inlineExpanded.value; // 窄屏兜底：原地展开
+  }
+}
+
+/** 窄屏原地展开态（宽屏走侧栏——卡片行即终点，同 write Label 语义） */
+const inlineExpanded = ref(false);
+
+/** 摘要行悬浮提示 */
+const rowTitle = computed(() => `在侧边栏查看 "${query.value}" 的搜索结果（${resultCount.value} 条）`);
 
 /** 仅放行 http(s) 链接：搜索结果 URL 来自外部网络（不可信），javascript:/data:
  *  协议写入 :href 会在点击时执行任意脚本（XSS）。 */
@@ -82,57 +179,60 @@ const displayContentType = computed(() => {
 
 <template>
   <div class="tool-result-web">
-    <!-- ============ 搜索结果 ============ -->
+    <!-- ============ 搜索结果（点击 → 辅助侧边栏展开；窄屏原地展开） ============ -->
     <template v-if="isSearch">
-      <!-- 搜索摘要 -->
-      <div class="web-search-header">
-        <div class="web-search-hint">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-            class="web-hint-icon">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-          </svg>
-          <span>搜索 "<strong>{{ query }}</strong>"</span>
-          <span class="web-search-meta">
-            <span v-if="responseTime">{{ responseTime.toFixed(2) }}s</span>
-            <span v-if="searchResults.length">{{ searchResults.length }} 条结果</span>
-            <span v-if="usage?.credits != null">{{ usage.credits }} 积分</span>
-          </span>
-        </div>
+      <!-- 可点击摘要行（write Label 直达 preview 同款：行即终点） -->
+      <div class="web-search-row" :title="rowTitle" @click="openInSidebar">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          class="web-hint-icon">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+        </svg>
+        <span class="web-search-row-query">"{{ query }}"</span>
+        <span class="web-search-meta">
+          <span v-if="resultCount">{{ resultCount }} 条结果</span>
+          <span v-if="truncatedHead" class="web-search-partial" title="历史记录中该结果被截断——仅显示可恢复的部分结果">部分结果</span>
+          <span v-if="responseTime">{{ responseTime.toFixed(2) }}s</span>
+        </span>
+        <svg class="web-search-row-arrow" :class="{ open: inlineExpanded }" width="12" height="12" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
       </div>
 
-      <!-- AI 生成的答案摘要 -->
-      <div v-if="answer" class="web-search-answer">
-        <div class="web-answer-label"><Icon name="file-text" :size="12" class="web-answer-icon" />AI 摘要</div>
-        <div class="web-answer-text">{{ answer }}</div>
-      </div>
+      <!-- 窄屏原地体（宽屏不渲染——详情在侧栏面板） -->
+      <template v-if="inlineExpanded">
+        <div v-if="answer" class="web-search-answer">
+          <div class="web-answer-label"><Icon name="file-text" :size="12" class="web-answer-icon" />AI 摘要</div>
+          <div class="web-answer-text">{{ answer }}</div>
+        </div>
 
-      <!-- 搜索结果列表 -->
-      <div class="web-search-results">
-        <div
-          v-for="(r, idx) in searchResults"
-          :key="idx"
-          class="web-search-item"
-        >
-          <a :href="safeUrl(r.url)" target="_blank" rel="noopener" class="web-search-title">
-            {{ r.title }}
-          </a>
-          <div class="web-search-url">{{ r.url }}</div>
-          <div class="web-search-content" :class="{ expanded: expandedResults[idx] }">
-            {{ r.content }}
-          </div>
-          <div class="web-search-footer">
-            <span v-if="typeof r.score === 'number'" class="web-search-score">相关性: {{ r.score.toFixed(4) }}</span>
-            <button
-              v-if="r.content && r.content.length > 200"
-              class="web-expand-btn"
-              @click="toggleResult(idx)"
-            >
-              {{ expandedResults[idx] ? '收起' : '展开' }}
-            </button>
+        <div class="web-search-results">
+          <div
+            v-for="(r, idx) in searchResults"
+            :key="idx"
+            class="web-search-item"
+          >
+            <a :href="safeUrl(r.url)" target="_blank" rel="noopener" class="web-search-title">
+              {{ r.title }}
+            </a>
+            <div class="web-search-url">{{ r.url }}</div>
+            <div class="web-search-content" :class="{ expanded: expandedResults[idx] }">
+              {{ r.content }}
+            </div>
+            <div class="web-search-footer">
+              <span v-if="typeof r.score === 'number'" class="web-search-score">相关性: {{ r.score.toFixed(4) }}</span>
+              <button
+                v-if="r.content && r.content.length > 200"
+                class="web-expand-btn"
+                @click="toggleResult(idx)"
+              >
+                {{ expandedResults[idx] ? '收起' : '展开' }}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </template>
     </template>
 
     <!-- ============ 网页抓取 ============ -->
@@ -183,17 +283,37 @@ const displayContentType = computed(() => {
 .tool-result-web { padding: 4px 0; }
 
 /* ---- Search mode ---- */
-.web-search-header { margin-bottom: 10px; }
-.web-search-hint {
+/* 可点击摘要行：hover 强调可点（同 write-link 交互语言）；宽屏点击 →
+   侧栏面板，窄屏点击 → 原地展开（箭头随 inlineExpanded 翻转） */
+.web-search-row {
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--color-text-secondary);
-  flex-wrap: wrap;
+  cursor: pointer; flex-wrap: wrap;
+  padding: 2px 0;
+  border-radius: 4px;
+}
+.web-search-row:hover { color: var(--color-text-primary); }
+.web-search-row-query {
+  font-weight: 600; color: var(--color-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 260px;
 }
 .web-hint-icon { flex-shrink: 0; color: var(--color-text-tertiary); }
+.web-search-row:hover .web-hint-icon { color: var(--color-link); }
+.web-search-row-arrow {
+  flex-shrink: 0; margin-left: auto; color: var(--color-text-tertiary);
+  transition: transform 0.15s;
+}
+.web-search-row-arrow.open { transform: rotate(90deg); }
 .web-search-meta {
   display: flex; gap: 8px;
   font-size: 11px; color: var(--color-text-tertiary);
 }
+.web-search-partial {
+  color: var(--color-warning, #d4a72c);
+}
+.web-search-answer { margin-top: 8px; margin-bottom: 0; }
+.web-search-results { margin-top: 8px; }
 
 .web-search-answer {
   background: var(--color-bg-surface);

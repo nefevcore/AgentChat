@@ -4,11 +4,10 @@
 // ============================================================
 
 import MarkdownIt from 'markdown-it';
-import texmath from 'markdown-it-texmath';
-import katex from 'katex';
-import hljs from 'highlight.js';
+import { hljs, ensureHljsLanguage, hljsLanguageVersion } from './hljs-languages';
 import { v4 as uuidv4 } from 'uuid';
 import { registerAbapLanguage } from './abap-hljs';
+import { katexVersion } from './markdownMath';
 import { logger } from './logger';
 
 // 注册 ABAP 语言高亮
@@ -197,6 +196,13 @@ function createBaseInstance(): MarkdownIt {
         linkify: true,
         breaks: true,
         highlight(str: string, lang: string): string {
+
+            // 未注册语言异步拉取（本次回落转义纯文本；注册完成后
+
+            // hljsLanguageVersion 递增 → 消费方重渲染补齐高亮）
+
+            if (lang) void ensureHljsLanguage(lang);
+
             if (lang && hljs.getLanguage(lang)) {
                 try {
                     return hljs.highlight(str, { language: lang }).value;
@@ -250,20 +256,56 @@ function createBaseInstance(): MarkdownIt {
     return md;
 }
 
-/** 完整渲染实例（含 KaTeX 数学公式） */
+/** 完整渲染实例（基础配置；KaTeX 数学规则由 ensureKatex 首次遇公式时装配） */
 function getMarkdownInstance(): MarkdownIt {
     if (mdInstance) return mdInstance;
     mdInstance = createBaseInstance();
-    mdInstance.use(texmath, {
-        engine: katex,
-        delimiters: 'dollars',
-        katexOptions: {
-            throwOnError: false,
-            errorColor: '#cc0000',
-            strict: 'ignore',
-        },
-    });
     return mdInstance;
+}
+
+// KaTeX 就绪版本号：本体住 markdownMath.ts（无 DOM 依赖），此处转出——
+// 既有消费面（组件/分块渲染）的导入路径保持不变。
+export { katexVersion };
+
+/** 数学分隔符特征（$…$ / $$…$$）：命中才值得拉取 KaTeX */
+const MATH_HINT = /\$\$?[^\n$]+\$\$?/;
+
+let katexReady = false;
+let katexLoading: Promise<void> | null = null;
+
+/**
+ * 按需装配 KaTeX 数学渲染（首次遇到公式时调用，幂等）。
+ * 变更前 katex + markdown-it-texmath 是静态 import：无公式的会话也要付
+ * ~270KB(min) 的下载/解析/执行成本，且随渲染管线一起落在首屏。此处移到
+ * 懒路径，连带两份样式表（katex.min.css 声明字体引用）一并懒注入。
+ */
+export function ensureKatex(): Promise<void> {
+    if (katexReady) return Promise.resolve();
+    if (!katexLoading) {
+        katexLoading = Promise.all([
+            import('katex'),
+            import('markdown-it-texmath'),
+            import('katex/dist/katex.min.css'),
+            import('markdown-it-texmath/css/texmath.css'),
+        ])
+            .then(([katexMod, texmathMod]) => {
+                const engine = (katexMod as { default?: unknown }).default ?? katexMod;
+                const texmath = (texmathMod as { default?: unknown }).default ?? texmathMod;
+                getMarkdownInstance().use(texmath as never, {
+                    engine,
+                    delimiters: 'dollars',
+                    katexOptions: {
+                        throwOnError: false,
+                        errorColor: '#cc0000',
+                        strict: 'ignore',
+                    },
+                } as never);
+                katexReady = true;
+                katexVersion.value++;
+            })
+            .catch(() => undefined); // 装配失败：公式回落原文（不影响其余渲染）
+    }
+    return katexLoading;
 }
 
 /** 轻量渲染实例（不含数学公式，用于思考内容等性能敏感场景） */
@@ -284,6 +326,10 @@ const KNOWN_EXTS = [
     'scala', 'c', 'cpp', 'cxx', 'h', 'hpp', 'cs', 'bat', 'cmd', 'log', 'csv',
     'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico',
 ];
+
+/** 扩展名前哨（廉价且严格宽松于 FILE_PATH_PATTERN：后者要求以 KNOWN_EXTS
+ *  成员结尾，故真匹配必先通过本测试）。无 g 标志——test 不带 lastIndex 副作用。 */
+const EXT_HINT = new RegExp(`\\.(?:${KNOWN_EXTS.join('|')})\\b`, 'i');
 
 const FILE_PATH_PATTERN = (() => {
     const extGroup = KNOWN_EXTS.join('|');
@@ -358,6 +404,13 @@ function escapeAttr(value: string): string {
  * 使用占位符保护已有 HTML 标签，然后对纯文本进行路径替换。
  */
 function linkifyFilePaths(html: string): string {
+
+    // 廉价前哨：无任何已知扩展名特征的内容（长代码块/纯散文消息的常见
+
+    // 形态）整体跳过下方四步正则（含两个大交替表）。
+
+    if (!EXT_HINT.test(html)) return html;
+
     // Step 1: 保护已有的 HTML 标签（<a>, <code>, <pre>, <img> 等），替换为占位符
     // code 在列——行内代码是字面语义，内容不参与 Step 2 的路径检测；
     // 整段恰为路径的 code 由 Step 4 升级为可点击链接（单一效果）
@@ -413,6 +466,13 @@ export function useMarkdown() {
     const mdPlain = getMarkdownPlainInstance();
 
     function render(content: string): string {
+
+
+
+        void hljsLanguageVersion.value; // 响应式依赖：语言补齐后消费方自动重算
+
+        void katexVersion.value;        // 同上：数学引擎就绪后重算
+
         if (!content) return '';
         const trimmed = content.trimEnd();
         if (!trimmed) return '';
@@ -420,7 +480,9 @@ export function useMarkdown() {
             // 1. 预处理：解析 <file> 标签 → 占位符
             const { text: afterTags, tags: fileTags } = parseFileTags(trimmed);
 
-            // 2. Markdown 渲染
+            // 2. Markdown 渲染（首次遇公式懒装配 KaTeX：本次回落原文，
+            //    引擎就绪后 katexVersion 递增 → 消费方重渲染补齐公式）
+            if (MATH_HINT.test(afterTags)) void ensureKatex();
             const rendered = md.render(afterTags).trimEnd();
 
             // 3. 后处理：还原占位符 → HTML + 正则兜底文件路径
@@ -434,6 +496,9 @@ export function useMarkdown() {
 
     /** 轻量渲染（不含 KaTeX 数学公式），用于思考内容等性能敏感场景 */
     function renderPlain(content: string): string {
+
+        void hljsLanguageVersion.value; // 响应式依赖：语言补齐后消费方自动重算
+
         if (!content) return '';
         const trimmed = content.trimEnd();
         if (!trimmed) return '';

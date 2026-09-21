@@ -40,8 +40,10 @@ const domainPanel = computed<SlotEntry | null>(() => {
 
 onMounted(() => {
   groupSvc?.init(); // group 域件未装载 → 跳过（群消费面消失，可摘除性）
-  // 刷新恢复：上次在独立会话 → 拉完列表后恢复选中（历史由 ConversationView 的 single watch 加载）
-  void singlesBoard?.refresh().then(() => { singlesBoard?.restoreLastSingle(); });
+  // 启动进入 single 会话：拉完列表后由域策略定落点（恢复上次选中 /
+  // 首启无记录 → 最近会话或新建空白会话；历史由 ConversationView 的
+  // single watch 加载）
+  void singlesBoard?.refresh().then(() => { void singlesBoard?.openDefaultSingle(); });
 });
 </script>
 
