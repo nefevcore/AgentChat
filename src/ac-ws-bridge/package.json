@@ -30,6 +30,7 @@
     "ac-plugin-registry": "workspace:*",
     "ac-restart": "workspace:*",
     "ac-router": "workspace:*",
+    "ac-subagent": "workspace:*",
     "ac-tools": "workspace:*",
     "ac-web-server": "workspace:*",
     "ac-webui": "workspace:*",

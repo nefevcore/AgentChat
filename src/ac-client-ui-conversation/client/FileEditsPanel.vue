@@ -10,7 +10,9 @@
 // / 当前内容（终版全文直读）/ 单次编辑 #N（事件 + 说明 + ±N）。选中后
 // diff 区切换为对应视角（单次 = 该步 before→after；当前内容 = 全文
 // +行——新建文件 diff 基底缺失时的内容可见面）；时间线行点击直达该
-// 次编辑（双向联动——下拉与时间线是同一选择面的两个入口）。
+// 次编辑（双向联动——下拉与时间线是同一选择面的两个入口）。下拉旁
+// 「上一版本 / 下一版本」icon 钮沿同一序列（总览→#1..#N→当前内容）
+// 快速步进——省去点开下拉再选择的繁琐路径。
 //
 // 会话上下文（同 TasksPanel）：1v1 / single 直连；群聊视角支持
 //（多 Agent 编辑事件均带 agent_id——逐条署名）。bash 等间接写
@@ -293,6 +295,31 @@ function selectViewByOption(s: FileEditSummary, option: string) {
   setView(s.path, idx >= 0 ? idx : '');
 }
 
+/** 视图序列（线性化——上一/下一版本按钮的游标面）：[总览, 编辑
+ * #1..#N, 当前内容（若有）]，与下拉选项同序同员。 */
+function viewSeq(s: FileEditSummary): Array<number | 'content' | ''> {
+  const seq: Array<number | 'content' | ''> = [''];
+  const steps = stepsOf(s);
+  for (let i = 0; i < steps.length; i++) seq.push(i);
+  if (s.finalContent !== null) seq.push('content');
+  return seq;
+}
+
+/** 当前视图在序列中的游标（不在序列中——如选中步越界被 effectiveView
+ * 回落前——安全回落总览位 0） */
+function viewCursor(s: FileEditSummary): number {
+  const idx = viewSeq(s).indexOf(effectiveView(s));
+  return idx >= 0 ? idx : 0;
+}
+
+/** 上一/下一版本（边界钳制不动；点击即写入选中态——下拉/时间线联动同步） */
+function stepView(s: FileEditSummary, dir: -1 | 1): void {
+  const seq = viewSeq(s);
+  const next = viewCursor(s) + dir;
+  if (next < 0 || next >= seq.length) return;
+  setView(s.path, seq[next]);
+}
+
 /** 当前视图 diff：总览 = diffOf 既有；单次 = diffOfStep；当前内容 = 全文 + 行。
  * 记忆化（2026-12 性能整改）：原实现为模板直调函数——每次渲染每卡重算
  *（模板内被引用两处：统计行 + parseDiff），展开多卡时 diff 生成被放大。
@@ -512,7 +539,7 @@ async function openLocally(s: FileEditSummary) {
               <span class="fe-view-label">{{ viewLabel(s) }}</span>
               <span class="fe-diff-stat">+{{ viewDiff(s).added }} / -{{ viewDiff(s).removed }}</span>
             </div>
-            <!-- 视图选择（当前内容 / 编辑次数 > 1 才有逐次视角） -->
+            <!-- 视图选择（当前内容 / 编辑次数 > 1 才有逐次视角）+ 上一/下一版本快切 -->
             <div v-if="s.finalContent !== null || stepsOf(s).length > 1" class="fe-view-row">
               <span class="fe-view-caption">查看</span>
               <select
@@ -526,6 +553,18 @@ async function openLocally(s: FileEditSummary) {
                   {{ stepOptionLabel(st) }}
                 </option>
               </select>
+              <span class="fe-view-nav">
+                <Tooltip text="上一版本" placement="top">
+                  <button class="fe-view-nav-btn" :disabled="viewCursor(s) === 0" @click="stepView(s, -1)">
+                    <Icon name="chevron-left" :size="13" />
+                  </button>
+                </Tooltip>
+                <Tooltip text="下一版本" placement="top">
+                  <button class="fe-view-nav-btn" :disabled="viewCursor(s) >= viewSeq(s).length - 1" @click="stepView(s, 1)">
+                    <Icon name="chevron-right" :size="13" />
+                  </button>
+                </Tooltip>
+              </span>
             </div>
             <div class="fe-diff">
               <!-- 渲染行截断（性能护栏）：超大 diff（数千行——「当前内容」视图或大改写）
@@ -674,6 +713,28 @@ export default { name: 'FileEditsPanel' };
 }
 .fe-view-select:focus { outline: none; border-color: var(--primary, #6366f1); }
 .fe-view-select:hover { border-color: var(--color-border-secondary, #d1d5db); }
+/* 上一/下一版本快切（与 fe-open-local 同形态的透明 icon 钮；边界 disabled 置灰） */
+.fe-view-nav { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.fe-view-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.fe-view-nav-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover, rgba(0,0,0,0.06));
+  color: var(--color-text-primary);
+}
+.fe-view-nav-btn:disabled { opacity: 0.35; cursor: default; }
 .fe-diff {
   border: 1px solid var(--color-border-light, #e5e7eb); border-radius: var(--radius-md);
   background: var(--color-code-bg, #1e1e2e); overflow-x: auto; max-height: 360px; overflow-y: auto;

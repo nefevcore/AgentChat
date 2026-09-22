@@ -179,6 +179,16 @@ export function jobStatusLabel(s: WireJob['status']): string {
   return map[s];
 }
 
+/** 子Agent displayStatus → 中文标签（SubagentRunSummary 词汇：done/error/
+ *  timeout/stopped/idle + running——跨重启历史行（subagents/list）与工具卡
+ *  徽章共用；映射对齐 ToolResultSubagent 旧词表，色类仍由组件 st-<词> 自取 */
+export function subStatusLabel(s: string): string {
+  const map: Record<string, string> = {
+    running: '运行中', done: '完成', error: '异常', timeout: '超时', stopped: '已停止', idle: '空闲', deleted: '已删除',
+  };
+  return map[s] ?? s;
+}
+
 /** 状态 → 图标名（lucide；色类由组件按 `st-<status>` 自取） */
 export function jobStatusIcon(s: WireJob['status']): string {
   const map: Record<WireJob['status'], string> = {

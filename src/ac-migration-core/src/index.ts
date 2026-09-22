@@ -23,10 +23,7 @@ import * as path from 'node:path';
 import { createBackup } from 'ac-backup-core';
 
 /** 版本标记文件（数据根下） */
-export const META_FILE = 'meta.json';
-
-/** 旧初始化标记（首启版本推断源；v0 语义） */
-export const LEGACY_INITIALIZED = '.initialized';
+const META_FILE = 'meta.json';
 
 /** 迁移体：数据根路径入参的纯函数（幂等：重复应用无副作用） */
 export interface Migration {
@@ -81,10 +78,22 @@ export function runMigrations(dataRoot: string, migrations: Migration[]): Migrat
   const sorted = [...migrations].sort((a, b) => a.version - b.version);
   const current = readDataVersion(dataRoot);
   const pending = sorted.filter((m) => m.version > current);
-  if (pending.length === 0) return [];
-  // 迁移前强制快照（红线：不可跳过；ac-backup-core 直调）
-  const backupDir = path.join(dataRoot, 'backups');
-  const snapshot = createBackup({ sourceDir: dataRoot, backupDir, force: true });
+  if (pending.length === 0) {
+    // 未来版本告警（降级运行检测）：dataVersion 超出本程序已知最大迁移
+    // 版本 = 数据根被更新版本写过（或 meta 异常）。不拒启动（降级运行
+    // 常见且读侧宽容），但必须留下明确痕迹——静默零迁移 + 旧词法读写
+    // 新格式是无声的数据劣化路径。
+    if (sorted.length > 0 && current > sorted[sorted.length - 1].version && current >= 0) {
+      console.warn(`[migration] 数据版本 ${current} 高于本程序支持的最高迁移版本 ${sorted[sorted.length - 1].version}——数据根可能来自更新版本，本程序按旧词法读写（读侧宽容，新格式字段将被忽略）`);
+    }
+    return [];
+  }
+  // 迁移前强制快照（红线：不可跳过；ac-backup-core 直调）。
+  // 专用子目录 backups/migrations/：与常规备份轮转隔离——常规目录仅保留
+  // 最近 4 份，迁移若持续失败反复重启，第 5 次起「迁移前完好快照」会被
+  // 轮转删除（恰是崩溃恢复的最后防线）。专用目录不参与轮转，永久保留。
+  const backupDir = path.join(dataRoot, 'backups', 'migrations');
+  const snapshot = createBackup({ sourceDir: dataRoot, backupDir, force: true, keep: Number.POSITIVE_INFINITY });
   console.log(`[migration] 迁移前快照: ${snapshot.file}（${Math.round(snapshot.size / 1024)}KB）`);
   const applied: Array<{ id: string; at: string }> = [];
   for (const m of pending) {

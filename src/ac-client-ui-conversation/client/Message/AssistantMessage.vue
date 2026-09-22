@@ -377,7 +377,6 @@ onBeforeUnmount(() => {
                 <div v-if="hasThinking && thinkingVisible" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
                     <div
                         class="think-content-label"
-                        :class="{ 'is-expanded': isThinkingExpanded() }"
                         @click="toggleThinking()"
                         @mouseenter="rowHover = true"
                         @mouseleave="rowHover = false"
@@ -627,23 +626,6 @@ onBeforeUnmount(() => {
     color: var(--color-text-primary);
 }
 
-/* 仅展开态：label 吸附会话可视区顶（chain-header 同款）——渐隐底色常驻，
-   卷入 label 下缘的思考内容经此渐变带柔化淡出（macOS 式纯色渐变遮罩，
-   无需 JS 判定吸附态）。底部 8px 遮蔽余量带（padding 撑高 + 负 margin
-   抵消，不占布局）盖过正文首行——刚卷入的内容先经渐隐带淡出，而非在
-   label 下缘被硬切；未吸附（常态）时余量带覆于正文上方，仅渐变尾端
-   （alpha ≤25% 的 page 色）薄扫 ~2px，视觉不可辨。 */
-.think-content-label.is-expanded {
-    position: sticky;
-    /* 吸附位叠加偏移变量：链内思考卡由 chain-body 提供 chain-header 吸顶
-       实底遮挡高（label 行盒 19.2 + 上下 padding 2×2 + 渐隐带 8 ≈ 30px），
-       使两者吸顶时错层不互覆；独立思考卡无链栏 → 变量缺省 0，吸附位不变 */
-    top: calc(var(--space-md) * -1 + var(--think-label-stack, 0px));
-    z-index: 5;
-    padding-bottom: 8px;
-    margin-bottom: -8px;
-    background: linear-gradient(to bottom, var(--color-bg-page) calc(100% - 8px), transparent);
-}
 
 /* label 单行截断：折叠态携带思考预览文本时，超宽部分尾部省略 */
 .think-label-text {

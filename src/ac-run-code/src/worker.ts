@@ -245,6 +245,11 @@ async function main(): Promise<void> {
     return wrapper;
   }
 
+  /** 库源码形态判定（函数形 vs 程序体）：求值分支与 resolve() 摘要单源 */
+  function isFnFormSrc(src: string): boolean {
+    return /^\s*(async\s+)?(function\b|\(|[\w$]+\s*=>)/.test(src);
+  }
+
   /** 单条库源码 → 值（函数直接求值；程序体形态包裹后求值取 return） */
   function evalLibSource(name: string, src: string): unknown {
     checkAbort();
@@ -252,7 +257,7 @@ async function main(): Promise<void> {
     if (banned !== undefined) {
       throw new Error(`lib.${name} 源码被拒：${banned.replace('程序体不允许', '库源码不允许')}`);
     }
-    const isFnForm = /^\s*(async\s+)?(function\b|\(|[\w$]+\s*=>)/.test(src);
+    const isFnForm = isFnFormSrc(src);
     let js: string;
     try {
       // 函数形态：括号包裹后 strip（表达式语境化）。裸 strip 对匿名 function
@@ -306,7 +311,7 @@ async function main(): Promise<void> {
         for (const [n, src] of libRegistry.entries()) {
           try {
             all[n] = {
-              kind: /^\s*(async\s+)?(function\b|\(|[\w$]+\s*=>)/.test(src) ? 'function' : 'program',
+              kind: isFnFormSrc(src) ? 'function' : 'program',
               size: src.length,
               preview: src.length > 120 ? src.slice(0, 120) + '…' : src,
             };

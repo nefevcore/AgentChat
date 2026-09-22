@@ -95,7 +95,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     ].join('\n'), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split']);
+    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir']);
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     // 改写：event/error → context+source
     expect(raw).toContain('"role":"context"');
@@ -160,7 +160,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 1, applied: [{ id: 'role-v2-subcall-split', at: 't' }] }), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['partials-split']); // 只 v2
+    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir']); // 只 v2+v3（v1 已应用）
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     expect(raw).not.toContain('"partial":true');
     expect(raw).not.toContain('"type":"tool-result"');
@@ -169,6 +169,77 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     const partRaw = readFileSync(join(dir, 'partials.jsonl'), 'utf-8');
     expect(partRaw).toContain('"partial":true');
     expect(partRaw).toContain('"tool_call_id":"c1"');
-    expect(readDataVersion(root)).toBe(2);
+    expect(readDataVersion(root)).toBe(3);
   });
 });
+
+
+describe('SESSION_MIGRATIONS（崩溃窗口回归——2026-09-22 迁移链审查修复锁定）', () => {
+  it('剥离行 append 先于主文件改写：模拟「目标已落、主文件未改」崩溃残留 → 重跑不丢行不重複', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'a~user');
+    mkdirSync(dir, { recursive: true });
+    const subLine = JSON.stringify({ type: 'tool-result', subcall: true, run: 'r1', tool_call_id: 'c#1', result: { ok: true }, seq: 4 });
+    // 崩溃残留形态：v2 pass 的 append 已落 subcalls.jsonl，但主文件尚未改写
+    //（rename 前崩溃）——重启重跑走同一 pass
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ type: 'session-header', version: 1 }),
+      JSON.stringify({ role: 'agent', content: 'hi', agent_id: 'a', message_id: 'm1', timestamp: 't', seq: 1 }),
+      subLine,
+    ].join('\n'), 'utf-8');
+    writeFileSync(join(dir, 'subcalls.jsonl'), subLine + '\n', 'utf-8');
+
+    const done = runMigrations(root, SESSION_MIGRATIONS);
+    expect(done.length).toBeGreaterThan(0);
+    // 主文件改写完成（剥离生效）
+    const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
+    expect(raw).not.toContain('"subcall":true');
+    // 目标文件不重複（同身份去重——injectSubcalls 不去重，重複 = 双卡）
+    const sub = readFileSync(join(dir, 'subcalls.jsonl'), 'utf-8');
+    expect(sub.split('\n').filter((l) => l.includes('"tool_call_id":"c#1"')).length).toBe(1);
+  });
+
+  it('目标文件无换行尾行（半写残留）→ append 补行不拼行', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'a~user');
+    mkdirSync(dir, { recursive: true });
+    const partLine = JSON.stringify({ type: 'tool-result', run: 'r1', tool_call_id: 'c2', result: { ok: true }, seq: 6 });
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ type: 'session-header', version: 1 }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'm2', timestamp: 't', seq: 5, partial: true, run: 'r1', steps: [] }),
+      partLine,
+    ].join('\n'), 'utf-8');
+    // 半写残留：partials.jsonl 尾行无换行（上次 append 中途崩溃）
+    const halfLine = JSON.stringify({ type: 'tool-result', run: 'r0', tool_call_id: 'c1', result: { ok: true }, seq: 3 });
+    writeFileSync(join(dir, 'partials.jsonl'), halfLine, 'utf-8'); // 无尾换行
+
+    runMigrations(root, SESSION_MIGRATIONS);
+    const part = readFileSync(join(dir, 'partials.jsonl'), 'utf-8');
+    // 旧行完整、新行独立成行（拼行 = 双行俱损）：旧 1 行 + 新 2 行
+    //（partial 步行 + c2 补行——主文件里的 partial:true 与 tool-result 都迁入）
+    expect(part).toContain('"tool_call_id":"c1"');
+    expect(part.split('\n').filter((l) => l.trim()).length).toBe(3);
+    for (const line of part.split('\n')) {
+      if (!line.trim()) continue;
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+  });
+
+  it('subagents v3 残留（dir 已迁移但旧单文件在）→ 收尾删除；messagesPath 不再读旧文件', async () => {
+    const root = makeRoot();
+    const subs = join(root, 'subagents');
+    mkdirSync(subs, { recursive: true });
+    const body = [JSON.stringify({ role: 'user', content: 'q', agent_id: 'p', message_id: 'm1', ts: 1 })].join('\n') + '\n';
+    writeFileSync(join(subs, 'sub_x.jsonl'), body, 'utf-8');
+    // 残留形态：copy→rename 已完成、rm 前崩溃
+    mkdirSync(join(subs, 'sub_x'), { recursive: true });
+    writeFileSync(join(subs, 'sub_x', 'messages.jsonl'), body, 'utf-8');
+
+    const done = runMigrations(root, SESSION_MIGRATIONS);
+    expect(done.map((m) => m.id)).toContain('subagents-dir');
+    // 旧单文件被收尾删除（messagesPath 回退不再命中）
+    expect(existsSync(join(subs, 'sub_x.jsonl'))).toBe(false);
+    expect(readFileSync(join(subs, 'sub_x', 'messages.jsonl'), 'utf-8')).toBe(body);
+  });
+});
+

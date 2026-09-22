@@ -123,7 +123,7 @@ export function createFeedCore(
 ) {
   const persistUnread = options.persistUnread === true;
   // ── State ──
-  const dialogs = ref<Record<DialogId, DialogFeed>>({});
+  const dialogs = ref<Partial<Record<DialogId, DialogFeed>>>({});
   /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算 */
   const _version = ref<Record<DialogId, number>>({});
 
@@ -149,7 +149,7 @@ export function createFeedCore(
     if (!persistUnread) return;
     const counts: Partial<Record<DialogId, number>> = {};
     for (const [id, d] of Object.entries(dialogs.value)) {
-      if (d.unread > 0 && isViewerDialog(id as DialogId)) counts[id as DialogId] = d.unread;
+      if (d && d.unread > 0 && isViewerDialog(id as DialogId)) counts[id as DialogId] = d.unread;
     }
     saveUnreadSnapshot(counts);
   }
@@ -410,7 +410,7 @@ export function createFeedCore(
   const unreadAgents = computed<Set<string>>(() => {
     const s = new Set<string>();
     for (const [id, d] of Object.entries(dialogs.value)) {
-      if (d.unread > 0) {
+      if (d && d.unread > 0) {
         const { kind, key } = parseDialogId(id as DialogId);
         if (kind === 'pair' && pairHasViewer(key)) s.add(pairPartnerOf(key));
       }
@@ -587,7 +587,34 @@ export function createFeedCore(
         // 载体，后续 delta 只认它；历史行的完整内容在收束 settlement 重拉时
         // 以权威形态回来）。
         const liveAgents = streamingTail.filter(m => m.role === 'agent' && m.isStreaming);
+        // event 行对齐（injectionId 贯通）：直播 event 行（context-injected 帧
+        // 上屏）带服务端锚 persistedMsgId，与历史活投影行/提升行同 message_id——
+        // 精确 id 命中即丢弃历史行（mergeHistoryPage 双键去重之外的前置防线，
+        // 防 streamingTail 拼接绕过合并路径）。存量兜底：无锚直播行（旧后端
+        // 帧）与无锚历史行（旧 journal 投影，message_id 恒空）按内容配额多重
+        // 集抵扣——只删无锚行且按直播行数封顶，带锚定稿行（跨轮同文通知）
+        // 永不误删；配额耗尽即保留（宁重不丢）。
+        const liveEventIds = new Set(streamingTail
+          .filter(m => m.role === 'event' && m.persistedMsgId)
+          .map(m => m.persistedMsgId as string));
+        const legacyEventQuota = new Map<string, number>();
+        for (const m of streamingTail) {
+          if (m.role === 'event' && !m.persistedMsgId) {
+            const k = String(m.content);
+            legacyEventQuota.set(k, (legacyEventQuota.get(k) ?? 0) + 1);
+          }
+        }
         msgs = msgs.filter(m => {
+          if (m.role === 'event') {
+            // 新链路：同锚即同一份注入事实——直播行是流式载体，历史行丢弃
+            if (m.persistedMsgId && liveEventIds.has(m.persistedMsgId)) return false;
+            // 存量兜底：无锚投影行按内容抵扣（等量），带锚行不入场
+            if (!m.persistedMsgId) {
+              const k = String(m.content);
+              const q = legacyEventQuota.get(k) ?? 0;
+              if (q > 0) { legacyEventQuota.set(k, q - 1); return false; }
+            }
+          }
           if (m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id)) return false;
           if (m.role === 'agent' && Array.isArray(m.toolCalls)
             && (m.toolCalls as any[]).some(tc => tc?.id && liveIds.has(tc.id))) return false;
@@ -1720,14 +1747,18 @@ export function createFeedCore(
   /** 机制通知上屏（source='event' 入站——message-received 空闲路径与
    *  steered 忙路径共用）：系统事件行（分隔符渲染），与落盘 role:'event' /
    *  刷新历史同形。群分区同样不进（内容源 = post 行；群历史无 event 行）。 */
-  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string): void {
+  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string): void {
     const keys = routeDialog(agent, conversationId, agent);
     if (!keys) return;
     const dialogId = keys.dialogId;
     if (parseDialogId(dialogId).kind === 'group') return; // 群分区唯一内容源 = post 行
     const d = ensureById(dialogId);
     d.rawMessages.push({
-      id: uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
+      // 注入身份键（injectionId）贯通：直播行带服务端锚点——与刷新后的
+      // 活投影行/提升行同 message_id，mergeHistoryPage 双键去重直接生效
+      //（运行中切换会话回视的重复 context 行根修）；缺席（旧后端）回落本地 id
+      id: anchor ?? uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
+      ...(anchor !== undefined ? { persistedMsgId: anchor } : {}),
     });
     touch(dialogId, 'system', content, Date.now());
     bump(dialogId);
@@ -2049,12 +2080,15 @@ export function createFeedCore(
         // toHistoryMessages 的 r.label ?? r.content 同源同形（2026-12 前端
         // 反馈：此前 skill 行再拼「已注入技能上下文：」前缀，落账 label 本身
         // 已是完整文案，流式与刷新文本不一致）；label 缺席回落摘要词。
-        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown } | undefined];
+        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown; injectionId?: unknown } | undefined];
         if (!conversationId) return;
         const source = typeof meta?.source === 'string' ? meta.source : '';
         const label = typeof meta?.label === 'string' && meta.label ? meta.label : '';
         const text = label || (source === 'skill' ? '已注入技能上下文' : '已注入上下文');
-        showEventNotice(frameAgentId(agentId), conversationId, text);
+        // injectionId（注入身份键）：直播行带锚——与刷新后的活投影行/提升行
+        // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
+        const anchor = typeof meta?.injectionId === 'string' && meta.injectionId ? meta.injectionId : undefined;
+        showEventNotice(frameAgentId(agentId), conversationId, text, anchor);
         return;
       }
       case 'system/restarting': {
@@ -2091,16 +2125,12 @@ export function createFeedCore(
         // M19 统一路由：说话人 = sender 端点 id。viewer 自己的发送（本地
         // 已上屏）跳过；其余（Agent→viewer 私信 / agent⇄agent 委托入站）
         // 按对桶路由进对应 pair 分区实时显示 + 未读。
-        // source 全链一致性（2026-09-02 复评）：source='event'（机制通知，
-        // 空闲路径）与 steered 忙路径/落盘 role:'event'/刷新历史同形——
-        // 系统事件行（分隔符渲染），不显示成 sender 的普通消息。
+        // source='event'（机制通知，空闲路径）上屏已退役：通知面统一后由
+        // ac-session 在事件行落账时发 session/context-injected（带注入身份
+        // 锚 injectionId——直播行与刷新行同锚去重）；此处再渲染会双份。
         const [agentId, message, conversationId, sender, source] = args as
           [string, any, string, string?, string?, ...unknown[]];
-        if (source === 'event') {
-          const content = String(message?.content ?? '');
-          if (content) showEventNotice(frameAgentId(agentId), conversationId, content);
-          return;
-        }
+        if (source === 'event') return;
         const from =
           typeof sender === 'string' && sender
             ? sender
@@ -2114,8 +2144,9 @@ export function createFeedCore(
         // 会话忙时注入活跃 run 的消息（busy 发送 / 机制通知的 steer 通道）
         // ——不经 router/message-received（busy 时无该帧），需在此上屏：
         //  · viewer 自己的发送（busy 排队）本地已上屏 → 跳过；
-        //  · source='event'（如后台任务完成通知）→ 系统事件行（与空闲
-        //    路径/落盘/刷新同形）——此前该通道完全无人处理，通知静默丢失；
+        //  · source='event'（如后台任务完成通知）上屏已退役：通知面统一后
+        //    由 ac-session 在事件行落账/stash 时发 session/context-injected
+        //    （带注入身份锚）；此处再渲染会双份。
         //  · 其余（agent⇄agent 注入）与 message-received 同款 agent 行。
         const [agentId, message, conversationId, , sender, source] = args as
           [string, any, string, string, string?, string?, ...unknown[]];
@@ -2123,10 +2154,7 @@ export function createFeedCore(
         if (from === VIEWER_ID.value) return;
         const content = String(message?.content ?? '');
         if (!content) return;
-        if (source === 'event') {
-          showEventNotice(frameAgentId(agentId), conversationId, content);
-          return;
-        }
+        if (source === 'event') return;
         showInbound(frameAgentId(agentId), message, conversationId, from);
         return;
       }
@@ -2152,6 +2180,7 @@ export function createFeedCore(
       // 重连 = 直播帧断供：延迟关闭全部作废（计时器到点查表扑空）
       _spinHold.clear();
       for (const d of Object.values(dialogs.value)) {
+        if (!d) continue;
         if (d.status === 'loading') d.status = 'ready';
         if (d.streaming) {
           d.streaming = false;

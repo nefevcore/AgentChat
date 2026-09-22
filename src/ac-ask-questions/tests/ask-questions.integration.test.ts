@@ -374,10 +374,11 @@ describe('late-reply 唤醒（run 已死时的作答回投——登记表缺席�
     expect(deliveries[0]!.message).toContain('A');
   });
 
-  it('登记表在场（本 run 等待中）→ 不回投（idle 监听器事件半边自取，防双消费）', async () => {
+  it('登记表在场且 agentLoop 行未装（组合可选：无 steer 通道）→ 回落 late-reply deliver', async () => {
     const deliveries: Array<{ agentId: string; message: string; options: Record<string, unknown> }> = [];
     const ctx = await bootWithConversation(deliveries);
-    // 发起体路径写入登记表（agentId 在场 = 同 run 等待中）
+    // 发起体路径写入登记表（agentId 在场）；本装配无 loop/agentLoop 行——
+    // 挂起不存在，忙步 steer 通道缺席 → 回落 deliver 回投（答案不丢）
     await exec(ctx, {
       name: 'ask_questions',
       args: { questions: [{ question: 'q', options: ['x'] }] },
@@ -387,7 +388,8 @@ describe('late-reply 唤醒（run 已死时的作答回投——登记表缺席�
     const open = ctx.durableInteraction.listOpen({ key: 'sid-live' })[0];
     ctx.durableInteraction.reply(open.id, { answers: ['B'] });
     await new Promise((r) => setTimeout(r, 50));
-    expect(deliveries).toHaveLength(0);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]!.options).toMatchObject({ sender: 'helper', source: 'event', conversationId: 'sid-live' });
   });
 
   it('approval 等其他 kind 不回投（各有等待方）', async () => {

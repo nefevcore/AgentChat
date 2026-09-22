@@ -157,7 +157,7 @@ async function latestFromManifest(fetcher: typeof fetch): Promise<ReleaseInfo | 
   const data = await fetchJson(fetcher, `${DOWNLOAD_BASE}/manifest.json`) as DownloadManifest | null;
   if (!data || !Array.isArray(data.releases) || data.releases.length === 0) return null;
   const top = data.releases[0];
-  if (typeof top?.version !== 'string' || top.version === '') return null;
+  if (typeof top.version !== 'string' || top.version === '') return null;
   return {
     version: top.version,
     url: `${DOWNLOAD_BASE}/`,

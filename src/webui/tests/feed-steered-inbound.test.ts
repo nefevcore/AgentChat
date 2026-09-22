@@ -7,7 +7,10 @@
 // 忽略 source）又是不带 event 语义的普通 agent 行，刷新后也不显。
 //
 // 修复后不变量：
-//   · source='event' 的 steer 注入 → 系统事件行（分隔符渲染）上屏；
+//   · source='event' 的机制通知上屏已退役（2026-12 通知面统一）：上屏帧
+//     由 ac-session 在事件行落账/stash 时发 session/context-injected（带
+//     注入身份锚 injectionId——直播行与刷新行同锚去重）；steered/message-
+//     received 帧再渲染会双份——两帧的 event 分支删除，本文件钉住不回归；
 //   · viewer 自己的 busy 发送（steer 注入回显）→ 跳过（本地已上屏）；
 //   · 其他 agent 的注入 → 与 message-received 同款 agent 行。
 // ============================================================
@@ -38,28 +41,29 @@ describe('conversation/steered 帧上屏（busy 通道消息不再静默丢失�
     cores.roster.activeAgentId.value = A;
   });
 
-  it('source=event 的机制通知（会话忙 → steer 注入）→ 系统事件行上屏当前会话', () => {
+  it('source=event 的 steer 帧 → 不再上屏（通知面统一：context-injected 帧承担，此处渲染会双份）', () => {
     const feed = cores.feed;
     // args = (agentId, message, conversationId, handle, sender, source, meta)
     feed.ingestFrame('conversation/steered', [
       A, { role: 'user', content: NOTICE }, `${A}~user`, `${A}~user~${A}`, A, 'event',
     ]);
-    const raw = feed.getRaw(directDialog(A));
-    expect(raw).toHaveLength(1);
-    expect(raw[0]).toMatchObject({ role: 'event', content: NOTICE, agent_id: 'system' });
-    // 当前会话正在查看 → 不计未读
-    expect(feed.getDialog(directDialog(A))!.unread).toBe(0);
+    expect(feed.getRaw(directDialog(A))).toHaveLength(0);
   });
 
-  it('source=event 的机制通知（会话空闲 → message-received）→ 同款系统事件行（忙/闲直播同形）', () => {
+  it('source=event 的 message-received 帧 → 不再上屏（同款退役）；上屏行由 context-injected 帧落地且带锚', () => {
     const feed = cores.feed;
     // args = (agentId, message, conversationId, sender, source)
     feed.ingestFrame('router/message-received', [
       A, { role: 'user', content: NOTICE }, `${A}~user`, A, 'event',
     ]);
+    expect(feed.getRaw(directDialog(A))).toHaveLength(0);
+    // 新通知面：session/context-injected（后端 session 在事件行落账时发）——
+    // 直播行带注入身份锚（与刷新后的活投影/提升行同 message_id 去重）
+    feed.ingestFrame('session/context-injected', [`${A}~user`, A, { source: 'event', injectionId: 'ctx-t1', label: NOTICE }]);
     const raw = feed.getRaw(directDialog(A));
     expect(raw).toHaveLength(1);
     expect(raw[0]).toMatchObject({ role: 'event', content: NOTICE, agent_id: 'system' });
+    expect(raw[0].persistedMsgId).toBe('ctx-t1');
   });
 
   it('source=user/agent 的普通入站不受影响（仍渲染 sender 消息行）', () => {

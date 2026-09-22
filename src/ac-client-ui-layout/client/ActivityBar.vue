@@ -43,7 +43,7 @@ const feedStore = useFeedStore();
 const agentsUnreadTotal = computed(() => {
   let n = 0;
   for (const [id, d] of Object.entries(feedStore.dialogs)) {
-    if (!id.startsWith('single:')) n += d.unread;
+    if (d && !id.startsWith('single:')) n += d.unread;
   }
   return n;
 });
@@ -51,7 +51,7 @@ const agentsUnreadLabel = computed(() => agentsUnreadTotal.value > 99 ? '99+' : 
 const singlesUnreadTotal = computed(() => {
   let n = 0;
   for (const [id, d] of Object.entries(feedStore.dialogs)) {
-    if (id.startsWith('single:')) n += d.unread;
+    if (d && id.startsWith('single:')) n += d.unread;
   }
   return n;
 });

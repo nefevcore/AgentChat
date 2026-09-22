@@ -79,12 +79,15 @@ export function truncateMiddle(text: string, maxLen: number): { text: string; tr
   return { text: head + marker + tail, truncated: true };
 }
 
+/** 命令不存在形态（本地化变体表）：错误归因与 invocation-error 判定共用一份口径 */
+const MISSING_COMMAND_RE = /command not found|is not recognized|不是内部或外部命令|无法将.*识别为|不会被识别为/;
+
 /** 根据错误输出生成引导性修复说明（尽力而为；无明确归因时返回空串）——输入先清 ANSI 防彩色输出干扰模式匹配 */
 export function buildErrorMessage(command: string, output: string, exitCode: number | null): string {
   const out = stripAnsi(output || '');
   const low = out.toLowerCase();
 
-  if (/command not found|is not recognized|不是内部或外部命令|无法将.*识别为/.test(low)) {
+  if (MISSING_COMMAND_RE.test(low)) {
     const missing = extractMissingCommand(out, command);
     if (missing.toLowerCase() === 'utf8') {
       return 'PowerShell 中请使用 [System.Text.Encoding]::UTF8（不是裸 UTF8），例如：[Console]::OutputEncoding = [System.Text.Encoding]::UTF8。';
@@ -116,9 +119,9 @@ export function buildErrorMessage(command: string, output: string, exitCode: num
 export function looksLikeInvocationError(cleanOutput: string): boolean {
   const low = cleanOutput.toLowerCase();
   if (/parsererror|incompleteinput|missingclosing|unexpectedtoken/.test(low)) return true;
-  // 命令不存在形态（本地化变体）：英文 / cmd 中文 / PowerShell 中文
-  // （"术语 'x' 不会被识别为"——中文 PS 实测形态，2026-11-19 画像 Ⓐ）
-  if (/command not found|is not recognized|不是内部或外部命令|无法将.*识别为|不会被识别为/.test(low)) return true;
+  // 命令不存在形态：MISSING_COMMAND_RE 单源（变体表含中文 PS 实测形态
+  // "术语 'x' 不会被识别为"——2026-11-19 画像 Ⓐ）
+  if (MISSING_COMMAND_RE.test(low)) return true;
   if (/terminator.*missing|missing.*terminator/.test(low)) return true;
   return false;
 }

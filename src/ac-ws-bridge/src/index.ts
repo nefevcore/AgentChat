@@ -37,6 +37,7 @@ import type {} from 'ac-plugin-registry';
 import type {} from 'ac-webui';
 import type {} from 'ac-archive';
 import type {} from 'ac-agents';
+import type {} from 'ac-subagent';
 import type {} from 'ac-restart';
 
 export const name = 'ac-ws-bridge';
@@ -261,6 +262,9 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   fwd('agents/updated', (config, change) => forward('agents/updated', config, change));
   // ============ M18-G：独立会话元数据变更（前端 singles 列表刷新） ============
   fwd('singles/updated', (meta, action) => forward('singles/updated', meta, action));
+  // 子 Agent 变更（2026-12 持久化清单主源化：前端子Agent 清单/徽章刷新——
+  // 对齐 singles/updated 取值链）
+  fwd('subagents/updated', (info, action) => forward('subagents/updated', info, action));
 
   // ============ M13：插件域 / Web UI 域 ============
   fwd('plugin/installed', (summary) => forward('plugin/installed', summary));

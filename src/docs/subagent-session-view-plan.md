@@ -3,6 +3,43 @@
 > 2026-12 制定。需求两条：①「运行跟踪」面板点击 subagent 调用行 → 主区展示该子
 > Agent 会话；②子 Agent 落盘完整消息（思维链/工具调用与结果），支撑展示。
 > 本计划是一次完整现状勘探的产物——所有锚点（函数名/行为/行号）经源码核对。
+## 后记：三文件化落盘（2026-12，sessions 域 journal 裁决对齐）
+
+sessions 域三文件拆分（messages/partials/subcalls，skill-injection-and-storage-vocab
+§7/§10/§11）后，subagents 域单文件 <subId>.jsonl 的「收束一次性落盘」形态成为
+仅存的例外——本计划 R2 的裁决（不做 partial）在单文件时代成立，但与 sessions 域
+的 run journal 语义分叉：run 进行中无中间态（崩溃丢思维链）、run_code 子调用无档
+案（子 Agent 开 programmatic 时子调用卡片永久消失）。对齐改造（service.ts 全面
+三文件化）：
+
+- **目录形态**：<root>/subagents/<subId>/（messages / partials / subcalls），
+  与 sessions 同构；迁移 v3 subagents-dir（单文件 rename 入目录，读侧另有回退）。
+- **run journal（partials.jsonl）**：loop/after-step 步行（result:null）/
+  journal-inject（steer 消费点，ts 快照）/ tool-result 直调补行——事件订阅
+  按 agent=<subId> 寻址（runLogKey 语义在子会话 = agent 单轴）。
+- **settlement（executeRun 收束）**：journal 切段物化提升进 messages（注入行 =
+  切分点，段行全带 run 键；无切分 = 整 run 单行 + run 键，与三文件化前同形）+
+  partials 剔除；run-settled 判别行做原子提交标记。
+- **subcalls.jsonl**：runCodeSubcall=true 的补行分流（UI 回放面，永不清理）。
+- **崩溃恢复**：ensureMessages 触达时 recoverJournal（孤儿 run 投影为中断段行，
+  补行并入 result；幂等）。
+- **错误/中断收束一等化**：journal 物化使 run 做过的推理是会话事实（对齐 §10
+  「全终态 settle」）；错误行 role=user + source=error（词汇 v2）。
+- 展示面零改动：SubagentMessageLine 全形兼容（新增 run/injected/source 键可选，
+  toHistoryMessages 照常消费）；subagents/history RPC 不动。
+
+### 实测两连修（2026-12，会话 9dbcd3be）
+
+1. **程序化传播失效**：injection 轴重构后 run_code 是 mode 工具（不进常规
+   能力面），旧守卫 allowed.includes('run_code') 恒 false → 子 Agent 静默
+   全量传统面。修复 = effectiveToolMode/narrowToolsByMode 单源化（与 router
+   同口径）+ 常规面过滤补 injection 分流。
+2. **沙箱数据根分叉**：子 run 无会话键（账本归 subagents 域——runLogKey
+   契约），sandboxWorkdir fallback preset→数据根 ≠ 父会话工作区。修复 =
+   spawn 快照工作区根进 SubagentRecord.workdir（持久化）→ 派生身份
+   settings.security.workdir（沙箱链显式档）。request.conversationId 透传
+   方案被否：会污染 ac-session 父账本簿记、usage 对账与前端 feed 分区
+   （routeDialog 按 sid 命中——子步流串台父视图）。
 
 ## 零、前置：本轮行为更新对方案的影响（2026-12 工作树改动）
 

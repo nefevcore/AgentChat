@@ -5,12 +5,17 @@
 //   · tool-card:result-view keyed seat——subagent → ToolResultSubagent
 //     （action 分发清单卡；M28 P2 §2.2 镜像表）；
 //   · main:perspective 视角 subagent(9)——运行跟踪面板子Agent 行点击进入
-//     的只读会话视角（SubagentConversationView；R7 让位协议随本行）。
-// 行卸载 → def 消失 → 工具卡回落默认文本渲染 / 视角失去选举资格。
+//     的只读会话视角（SubagentConversationView；R7 让位协议随本行）；
+//   · ctx.subagentBoard 域投影（board.ts：subagents/list RPC +
+//     subagents/updated 帧驱动——子Agent 持久化清单主源，运行跟踪面板
+//     子Agent 区消费，对齐 singles 取值链）。
+// 行卸载 → def 消失 → 工具卡回落默认文本渲染 / 视角失去选举资格 /
+// 域投影消失（消费面空态）。
 // ============================================================
 import { clientPlugin, clientRuntime, type ClientContext } from 'ac-client-runtime';
 import { defineAsyncComponent, watch } from 'vue';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import { SubagentBoardService } from './board.ts';
 
 // 卡片组件（异步：node 环境消费本模块不求值 .vue 视图链）
 const ToolResultSubagent = defineAsyncComponent(() => import('./ToolResult/ToolResultSubagent.vue'));
@@ -30,8 +35,10 @@ function subagentViewState(): { subId: string; name?: string; parentId?: string 
 /** subagent 域前端行 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const subagentClientPlugin = clientPlugin({
   name: 'ac-client-ui-subagent.client',
-  inject: ['slots'],
-  apply(ctx: ClientContext) {
+  inject: ['rpc', 'slots'],
+  async apply(ctx: ClientContext) {
+    // 域投影（board.ts——ctx.subagentBoard：子Agent 持久化清单主源）
+    await ctx.plugin(SubagentBoardService);
     // ── 工具卡贡献（M28 P2 原面） ──
     ctx.slots.inject('tool-card:result-view', () =>
       ctx.slots.register('tool-card:result-view', {

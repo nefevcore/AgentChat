@@ -48,7 +48,7 @@ function serialWordlists(): { write: Set<string>; command: Set<string> } {
       WRITE_PATH_TOOLS: Set<string>;
       COMMAND_TOOLS: Set<string>;
     };
-    if (security?.WRITE_PATH_TOOLS instanceof Set && security?.COMMAND_TOOLS instanceof Set) {
+    if (security.WRITE_PATH_TOOLS instanceof Set && security.COMMAND_TOOLS instanceof Set) {
       return { write: security.WRITE_PATH_TOOLS, command: security.COMMAND_TOOLS };
     }
   } catch { /* ac-security 未装配——回落内置 */ }
@@ -125,7 +125,7 @@ function subcallBrief(name: string, args: Record<string, unknown>, result: ToolR
   // 结果面：标量摘要字段（存在才拼）
   const out = result?.output;
   const resultPick = (): string => {
-    if (out === null || typeof out !== 'object' || out === undefined) {
+    if (out === null || out === undefined || typeof out !== 'object') {
       return typeof out === 'string' ? clip(out, 30) : '';
     }
     const o = out as Record<string, unknown>;
@@ -288,15 +288,6 @@ function stripQuery_(u: URL): string {
   return fileURLToPath(new URL(u.pathname, 'file://'));
 }
 
-/** worker 引导 URL 解析（dev ./worker.ts → bundle ./worker.mjs → undefined） */
-export function resolveWorkerEntry(): string | undefined {
-  const here = stripQuery_(new URL('./worker.ts', import.meta.url));
-  if (existsSync(here)) return here;
-  const bundled = stripQuery_(new URL('./worker.mjs', import.meta.url));
-  if (existsSync(bundled)) return bundled;
-  return undefined;
-}
-
 /** 工具体入口（ac-run-code/src/index.ts 注册进 ctx.tools） */
 export async function executeRunCode(
   ctx: Context,
@@ -307,10 +298,8 @@ export async function executeRunCode(
   const code = typeof args.code === 'string' ? args.code : '';
   if (!code.trim()) return { ok: false, error: '缺少 code 参数（可擦除 TS 程序体）' };
   const num = (v: unknown, fb: number): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fb);
-  // 墙钟唯一化（2026-09-23 收敛）：compute 预算全套退役（等待型子调用烧
-  // compute 的整类问题随轴消失）；墙钟为唯一防线——宿主侧单源，不进参数表
-  // （Agent 不可见/不可改——防线不能被防守对象拆除）。数值基准：8145 条
-  // 实战记录自然完成 MAX≈4min，3x≈12min 取整 720s。
+  // 墙钟唯一化（2026-09-23 收敛）：compute 预算全套退役；墙钟为唯一防线
+  // ——宿主侧单源，不进参数表（Agent 不可见/不可改）。定标依据见 DEFAULTS。
   const maxWallMs = options.defaultMaxWallMs ?? DEFAULTS.maxWallMs;
   const maxOutputBytes = num(args.max_output_bytes, options.defaultMaxOutputBytes ?? DEFAULTS.maxOutputBytes);
 
@@ -426,7 +415,7 @@ export async function executeRunCode(
   } else if (devExists) {
     ctx.logger.warn(`[run_code] dev worker.ts 语法预检失败（strip 不通过）——跳过 dev 候选直接走快照回退。恢复：修好 ${devEntry} 后重试`);
   }
-  if (memSnapshot !== null && memSnapshot !== undefined) {
+  if (memSnapshot !== null) {
     attempts.push({
       kind: 'snapshot:mem',
       start: () => spawnMemSnapshot(memSnapshot).then((r) => ('worker' in r ? { worker: r.worker, bootedFrom: 'mem-snapshot' } : r)),
@@ -517,7 +506,7 @@ export async function executeRunCode(
   const wallExhausted = (): void => {
     abortCtl.abort();
     worker.postMessage({ type: 'abort', reason: `墙钟预算耗尽（maxWallMs=${maxWallMs}ms）` } satisfies MainToWorker);
-    setTimeout(() => void worker.terminate(), 5_000).unref?.();
+    setTimeout(() => void worker.terminate(), 5_000).unref();
   };
   /** 挂看门狗（剩余 = 预算 - 机器墙钟；冻结中不挂，解冻时重挂） */
   const armWallTimer = (): void => {
@@ -538,14 +527,6 @@ export async function executeRunCode(
     }, remain);
     if (typeof wallTimer.unref === 'function') wallTimer.unref();
   };
-  // const enterFreeze = (): void => {
-  //   durableHeld = true;
-  //   recomputeFreeze();
-  // };
-  // const exitFreeze = (): void => {
-  //   durableHeld = false;
-  //   recomputeFreeze();
-  // };
   // 订阅对账：opened 增冻结 / 全部终态解冻（refresh 幂等——事件只是触发重查）
   const disposeFreeze: Array<() => void> = [];
   const di = ctx.get('durableInteraction', false) as
@@ -671,9 +652,8 @@ export async function executeRunCode(
         void invoke(m.name, m.args, m.seq);
         return;
       }
-      if (m.type === 'done') {
-        resolveDone(m);
-      }
+      // 前两支已返回，此处 m 穷举至 done（WorkerToMain 三员联合）
+      resolveDone(m);
     });
     worker.on('error', (err) => {
       rejectDone(err);
@@ -686,7 +666,10 @@ export async function executeRunCode(
     // worker 自身无 timer 面
     armWallTimer();
     sendInit(); // bootCandidate 已消费 ready——此处直接补发 init（幂等，见 sendInit 注释）
-    call.signal?.addEventListener('abort', () => {
+    // 用户中止监听：先判后听（竞态守卫）——signal 在监听注册前已 abort
+    //（worker boot 慢/并行负载下常见）时 addEventListener 永不触发，中止
+    // 静默丢失、程序跑完返回成功。已 aborted 直接当场走同一处置路径。
+    const onUserAbort = (): void => {
       if (wallTimer !== undefined) {
         clearTimeout(wallTimer);
         wallTimer = undefined;
@@ -698,8 +681,10 @@ export async function executeRunCode(
       // ~18ms 即时）。宽限 1s：让协作型 worker 先自收束发 done(interrupted)
       // （保留步记录与 interrupt 载荷——测试锁定的语义）；死循环不会发 done，
       // 1s 后 terminate 兜底。
-      setTimeout(() => void worker.terminate(), 1_000).unref?.();
-    }, { once: true });
+      setTimeout(() => void worker.terminate(), 1_000).unref();
+    };
+    if (call.signal?.aborted) onUserAbort();
+    else call.signal?.addEventListener('abort', onUserAbort, { once: true });
   }).finally(() => {
     void worker.terminate();
     for (const d of disposeFreeze) d();

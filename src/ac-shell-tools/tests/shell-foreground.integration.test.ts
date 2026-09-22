@@ -62,6 +62,35 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     expect(chunks.join('')).toContain('hello-shell');
   });
 
+  it('前台执行分轨输出（2026-12 对齐 Agent 直觉）：stdout/stderr 字段 + 合流 output 保留', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const cmd =
+      process.platform === 'win32'
+        ? 'Write-Output to-out; [Console]::Error.WriteLine("to-err")'
+        : 'echo to-out; echo to-err >&2';
+    const r = await exec(ctx, { name: CMD_TOOL, args: { command: cmd } });
+    expect(r.ok).toBe(true);
+    // 分轨字段：各归各流
+    expect(String(r.output.stdout)).toContain('to-out');
+    expect(String(r.output.stdout)).not.toContain('to-err');
+    expect(String(r.output.stderr)).toContain('to-err');
+    expect(String(r.output.stderr)).not.toContain('to-out');
+    // 合流 output 兼容锚保留（两段都在）
+    expect(String(r.output.output)).toContain('to-out');
+    expect(String(r.output.output)).toContain('to-err');
+  });
+
+  it('静默流分轨为空串（字段恒提供，Agent 无需猜测缺席语义）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, { name: CMD_TOOL, args: { command: 'echo quiet-ok' } });
+    expect(r.ok).toBe(true);
+    expect(String(r.output.stdout)).toContain('quiet-ok');
+    expect(r.output.stderr).toBe('');
+    expect(r.output.stdout).toBeTypeOf('string');
+  });
+
   it('非零退出（无错误形态输出）= command-feedback：ok=true + failure_class + 退出码保留', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);

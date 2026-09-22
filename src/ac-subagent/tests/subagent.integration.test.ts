@@ -152,14 +152,16 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
 
     const booted0 = await boot();
 
-    void new ConvSettingsStub(booted0.ctx, { settings });    // run_code 探针（与真行同门禁形态——requiredTags infra，2026-09-17 优化：授权随能力族）
-    booted0.ctx.tools.register({
-      name: 'run_code',
-      requiredTags: ['infra'],
+    void new ConvSettingsStub(booted0.ctx, { settings });
+    // run_code 探针（2026-12 injection 轴形态：mode 工具不挂 requiredTags、
+    // 不进常规能力面——收窄经 narrowToolsByMode 从 defs 合成 mode 集）
+    booted0.ctx.tools.register({
+      name: 'run_code',
+      injection: 'mode',
       description: 'd',
       execute: () => ({ ok: true }),
     });
-    booted0.ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'infra'] });
+    booted0.ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
     return booted0;
   }
 
@@ -177,7 +179,7 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['run_code']);
   });
 
-  it('spawn.tools 显式点名优先于开关传播（点名的工具面不被收窄）', async () => {
+  it('spawn.tools 点名 + tc-programmatic：LLM 面仍收窄为 mode 集（与 router 同口径；点名工具经 run_code 投影可用）', async () => {
     const { ctx } = await bootWithSwitch({ 'conv-prog': { toolMode: 'tc-programmatic' } });
 
     ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
@@ -192,13 +194,16 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     });
     expect(r.ok).toBe(true);
     const input = captured.at(-1)!;
-    expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['plain_tool']);
+    // 2026-12 二次修正：收窄对点名面同样生效（此前点名即跳过程序化传播
+    // ——第三次实测复现 run_code 缺失）。点名工具不丢：仍在能力面，
+    // run_code 投影（scope='projection' 能力面直取）涵盖它们
+    expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['run_code']);
   });
 
-  it('会话覆盖 tc-base 压回标准档 → 并存形态：run_code 与传统工具同列', async () => {
-    // 父 chief tags = ['delegation', 'infra']（bootWithSwitch 配）——
-    // 会话覆盖 tc-base 压回标准档：子 Agent 工具面不收窄（run_code 与
-    // 传统工具同列；tc-base 覆盖 = 跟随态被压制的显式形态）
+  it('会话覆盖 tc-base 压回标准档 → 常规工具面（mode 工具不混入）', async () => {
+    // 2026-12 injection 轴后「并存形态」退役：run_code 挂 injection:'mode'
+    // 恒不进常规面——tc-base 压回 = 纯常规工具（与 tc-programmatic 的
+    // mode 集互斥；会话覆盖 = 跟随态被压制的显式形态）
     const { ctx } = await bootWithSwitch({ 'conv-plain': { toolMode: 'tc-base' } });
     ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
     const r = await exec(ctx, {
@@ -209,27 +214,100 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     });
     expect(r.ok).toBe(true);
     const names = (captured.at(-1)!.tools ?? []).map((t: any) => t.function.name);
-    expect(names).toContain('run_code');
     expect(names).toContain('plain_tool');
+    expect(names).not.toContain('run_code');
   });
 
-  it('父无 tc-programmatic → run_code 不在能力面，传播忽略（惰性同口径）', async () => {
-    const { ctx } = await bootWithSwitch({ 'conv-prog': { toolMode: 'tc-programmatic' } });
+  it('tc-base（无覆盖无模式词）→ mode 工具不进常规面：子 Agent 面 = 常规工具', async () => {
+    const { ctx } = await bootWithSwitch({});
 
-    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation'] }); // 剥 tc-programmatic
     ctx.tools.register({ name: 'plain_tool', description: 'd', execute: () => ({ ok: true }) });
     const r = await exec(ctx, {
       name: 'subagent',
-      args: { action: 'spawn', task: '无授权任务', wait_time: 30 },
+      args: { action: 'spawn', task: '常规任务', wait_time: 30 },
       agentId: 'chief',
-      conversationId: 'conv-prog',
     });
     expect(r.ok).toBe(true);
     const names = (captured.at(-1)!.tools ?? []).map((t: any) => t.function.name);
+    // injection 轴重构后 mode 工具（run_code）不进常规能力面——tc-base 子
+    // Agent 只见常规工具；tc-programmatic 才从 defs 合成 mode 集
     expect(names).not.toContain('run_code');
     expect(names).toContain('plain_tool');
   });
 });
+
+
+// ============================================================
+// 沙箱基准继承（2026-12 数据根一致修复——子 Agent 与父会话同根）
+// ============================================================
+describe('ac-subagent：spawn 沙箱基准快照（数据根一致）', () => {
+  /** workspace 域 stub：会话挂载工作区 → conversationWorkspaceRoot；无 → null */
+  function makeWorkspaceStub(ctx: Context, convRoots: Record<string, string>) {
+    class WorkspaceStub extends Service {
+      constructor(c: Context) {
+        super(c, 'workspace');
+      }
+      conversationWorkspaceRoot(conversationId: string | undefined): string | null {
+        if (!conversationId) return null;
+        return convRoots[conversationId] ?? null;
+      }
+      sandboxWorkdir(agentId: string | undefined): string | undefined {
+        // 真实优先序缩影：会话工作区（本 stub 无键）> settings 显式 workdir
+        //（agents 经闭包引用——Service 基类 this.ctx 的 fiber 解析在裸实例
+        // 化形态下不可靠，测试 stub 不依赖它）
+        if (!agentId) return undefined;
+        const agent = ctx.agents.get(agentId);
+        const security = (agent?.settings as Record<string, unknown> | undefined)?.security as Record<string, unknown> | undefined;
+        const wd = security?.workdir;
+        return typeof wd === 'string' && wd ? wd : undefined;
+      }
+    }
+    void new WorkspaceStub(ctx);
+  }
+
+  it('会话挂载工作区 → spawn 快照进派生身份 settings.security.workdir（子 Agent 与父会话同根）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-ws-'));
+    const wsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-ws-mount-'));
+    const { ctx } = await boot({ root });
+    makeWorkspaceStub(ctx, { 'conv-ws': wsPath });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '工作区任务', wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-ws',
+    });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    // 注册表快照落盘（跨重启仍生效）
+    const registry = JSON.parse(fs.readFileSync(path.join(root, 'subagents', 'index.json'), 'utf-8'));
+    const rec = registry.subs.find((s: any) => s.id === id);
+    expect(rec.workdir).toBe(wsPath);
+    // 派生身份：sandboxWorkdir 显式档命中（会话键缺席也能解析到工作区）
+    const agent = ctx.agents.get(id)!;
+    expect((agent.settings as any).security.workdir).toBe(wsPath);
+    const workspace = ctx.get('workspace') as any;
+    expect(workspace.sandboxWorkdir(id, undefined)).toBe(wsPath);
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(wsPath, { recursive: true, force: true });
+  });
+
+  it('无会话工作区（未挂载/无会话键）→ workdir 缺席：沙箱链回落旧行为（preset→数据根）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-nows-'));
+    const { ctx } = await boot({ root });
+    makeWorkspaceStub(ctx, {}); // 无挂载
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '无工作区任务', wait_time: 30 },
+      agentId: 'chief', // 无 conversationId
+    });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    const agent = ctx.agents.get(id)!;
+    expect((agent.settings as any)?.security?.workdir).toBeUndefined();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
 
 describe('ac-subagent：spawn / await / 身份', () => {
   it('父 Agent 未声明 model → 默认池连接回落；无池也无 model → fail-closed 拒绝', async () => {
@@ -316,7 +394,7 @@ describe('ac-subagent：spawn / await / 身份', () => {
     expect(input.temperature).toBe(0.2);
   });
 
-  it('spawn 阻塞等待：拿到结果；受控工具集进 LLM 请求；独立上下文（首条任务框架）', async () => {
+  it('spawn 阻塞等待：拿到结果；受控工具集进 LLM 请求；独立上下文（首条裸文本）', async () => {
     const { ctx } = await boot();
     expect(ctx.tools.get('subagent')?.requiredTags).toEqual(['delegation']);
     ctx.tools.register({ name: 'calculator', execute: () => ({ ok: true }) });
@@ -324,7 +402,7 @@ describe('ac-subagent：spawn / await / 身份', () => {
     ctx.on('loop/run-started', (req) => runReqs.push(req));
     const r = await exec(ctx, {
       name: 'subagent',
-      args: { action: 'spawn', task: '调研 X 并总结', tools: ['calculator'], context: '背景信息', wait_time: 30 },
+      args: { action: 'spawn', task: '调研 X 并总结', tools: ['calculator'], wait_time: 30 },
       agentId: 'chief',
     });
     expect(r.ok).toBe(true);
@@ -332,10 +410,11 @@ describe('ac-subagent：spawn / await / 身份', () => {
     expect(String(r.output.result)).toContain('子任务结论:');
     expect(captured).toHaveLength(1);
     const input = captured[0];
-    // 独立上下文：首条消息 = 任务框架（不背父会话），带上下文与受控工具集
+    // 独立上下文：首条消息 = 任务原文（不背父会话；frameTask/context 参数
+    // 均已退役——无角色框架无尾拼）
     expect(String(input.messages[0].content)).toContain('调研 X 并总结');
-    expect(String(input.messages[0].content)).toContain('背景信息');
-    expect(String(input.messages[0].content)).toContain('[子任务]');
+    expect(String(input.messages[0].content)).not.toContain('[子任务]');
+    expect(String(input.messages[0].content)).not.toContain('[上下文]');
     expect(input.tools?.map((t) => t.function.name)).toEqual(['calculator']);
     // 身份：子 Agent 以自身合成 id 直连（不冒父身份——门禁 fail-closed 防递归）
     expect(runReqs[0].agent).toMatch(/^sub_/);
@@ -343,7 +422,7 @@ describe('ac-subagent：spawn / await / 身份', () => {
     expect(runReqs[0].conversationId).toBeUndefined();
   });
 
-  it('无 task spawn → idle；send 首条 → 任务框架包装启动', async () => {
+  it('无 task spawn → idle；send 首条 → 裸文本启动（无框架包装）', async () => {
     const { ctx } = await boot();
     const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', name: '调研员' }, agentId: 'chief' });
     expect(r.ok).toBe(true);
@@ -356,7 +435,7 @@ describe('ac-subagent：spawn / await / 身份', () => {
     });
     expect(s.ok).toBe(true);
     expect(s.output.status).toBe('done');
-    expect(String(captured[0].messages[0].content)).toContain('[子任务]');
+    expect(String(captured[0].messages[0].content)).toBe('先摸底情况'); // 裸文本（frameTask 退役）
     // send 无 task 的 spawn 记录任务摘要
     const l = await exec(ctx, { name: 'subagent', args: { action: 'list' }, agentId: 'chief' });
     expect(l.output.subagents[0].task).toContain('先摸底');
@@ -398,12 +477,13 @@ describe('ac-subagent：send 多轮语义', () => {
     expect(s.output.status).toBe('done');
     expect(s.output.delivered).toBe('started');
     expect(String(s.output.result)).toContain('子任务结论:');
-    // 第二轮请求 = 首轮 user（框架）+ assistant 回复 + 新 user 消息
+    // 第二轮请求 = 首轮 user + assistant 回复（expandSteps 展开——纯文本步
+    // 单 assistant 行，含工具步则有配对 tool 行）+ 新 user 消息
     expect(captured).toHaveLength(2);
     const second = captured[1].messages.map((m) => `${m.role}:${String(m.content).slice(0, 40)}`);
     expect(second[0]).toContain('第一轮任务');
     expect(second[1]).toContain('子任务结论');
-    expect(second[2]).toBe('user:补充：只要结论要点');
+    expect(second.at(-1)).toBe('user:补充：只要结论要点');
   });
 
   it('steer：注入活跃 run 的下一步（delivered=steered；消息进入该 run 后续请求）', async () => {
@@ -651,8 +731,8 @@ describe('ac-subagent：落盘与重启恢复', () => {
     const registry = JSON.parse(fs.readFileSync(path.join(root, 'subagents', 'index.json'), 'utf-8'));
     expect(registry.subs).toHaveLength(1);
     expect(registry.subs[0]).toMatchObject({ id, name: '档案员', status: 'idle', runs: 1 });
-    const lines = fs.readFileSync(path.join(root, 'subagents', `${id}.jsonl`), 'utf-8').trim().split('\n');
-    expect(lines).toHaveLength(2); // user（框架）+ agent（收束回复）
+    const lines = fs.readFileSync(path.join(root, 'subagents', id, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(3); // user（框架）+ agent（收束回复）+ run-settled 判别行
     const userLine = JSON.parse(lines[0]);
     const agentLine = JSON.parse(lines[1]);
     expect(userLine.role).toBe('user');
@@ -758,12 +838,15 @@ describe('ac-subagent：落盘完整消息（subagent-session-view-plan R1/R2/R6
       agentId: 'chief',
     });
     const id = r.output.subagent_id as string;
-    const lines = fs.readFileSync(path.join(root, 'subagents', `${id}.jsonl`), 'utf-8').trim().split('\n');
-    expect(lines).toHaveLength(2);
+    const lines = fs.readFileSync(path.join(root, 'subagents', id, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(3); // user + agent（settlement 单行形）+ run-settled
     const agentLine = JSON.parse(lines[1]);
     expect(agentLine.role).toBe('agent');
     expect(agentLine.agent_id).toBe(id);
+    expect(typeof agentLine.run).toBe('string'); // run 键（三文件化对账锚）
     expect(agentLine.steps).toHaveLength(2);
+    // journal 收束即清：partials.jsonl 不存在（工具步步行已被 settlement 提升）
+    expect(fs.existsSync(path.join(root, 'subagents', id, 'partials.jsonl'))).toBe(false);
     // 工具步：reasoning + toolCalls（result = ToolResult 终值）
     expect(agentLine.steps[0].reasoning).toBe('先查一下');
     expect(agentLine.steps[0].toolCalls).toHaveLength(1);
@@ -830,24 +913,28 @@ describe('ac-subagent：落盘完整消息（subagent-session-view-plan R1/R2/R6
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('interrupted 收束无终文本 → 不落 agent 行（R8 口径）；回放不含 steps（上下文不变量）', async () => {
+  it('回放轨迹展开：agent 行 steps 进上下文（expandSteps——与主会话同口径）；纯文本步无 tool 轮次', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-noline-'));
     const { ctx } = await boot({ root });
     const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '普通任务', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
     const id = r.output.subagent_id as string;
     const id2 = (await exec(ctx, { name: 'subagent', args: { action: 'spawn', name: '乙', task: '任务乙', wait_time: 30 }, agentId: 'chief' })).output.subagent_id as string;
     void id2;
-    // 无工具纯 mock run：收束 text 非空 → 落 agent 行（对照）
-    const lines = fs.readFileSync(path.join(root, 'subagents', `${id}.jsonl`), 'utf-8').trim().split('\n');
-    expect(lines).toHaveLength(2);
+    // 无工具纯 mock run：收束 text 非空 → 落 agent 行（对照；三文件化：+ run-settled 判别行）
+    const lines = fs.readFileSync(path.join(root, 'subagents', id, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(3);
     const agentLine = JSON.parse(lines[1]);
     // mock provider 一步终文本：steps=[单步无 toolCalls]——按实际形状锁定
     expect(Array.isArray(agentLine.steps)).toBe(true);
     expect(agentLine.steps[0].toolCalls).toBeUndefined();
     expect(agentLine.steps[0].content).toContain('子任务结论');
-    // 回放口径：history() 只产 user/assistant 纯文本对
+    // 回放口径（2026-12 多轮失忆修复）：agent 行携带 steps → expandSteps
+    // 轨迹展开进上下文（纯文本步 = assistant 行；带工具步 = assistant +
+    // 配对 tool 行）；本例单步无 toolCalls → 无 tool role，assistant 含结论
     const replay = await ctx.subagents.history(id);
-    expect(replay.every((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')).toBe(true);
+    expect(replay[0]).toMatchObject({ role: 'user' });
+    expect(replay.some((m) => m.role === 'assistant' && String(m.content).includes('子任务结论'))).toBe(true);
+    expect(replay.every((m) => m.role !== 'tool')).toBe(true);
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
@@ -1074,3 +1161,423 @@ describe('ac-subagent：output.action 显式标注（前端卡分发单源）', 
     expect(d.output.action).toBe('delete');
   });
 });
+
+
+// ============================================================
+// 三文件化落盘（2026-12，对齐 ac-session run journal 裁决）
+// ============================================================
+describe('ac-subagent：三文件落盘（messages / partials / subcalls）', () => {
+  /** 带 run_code 形态子调用的 provider：第 1 步调 math 工具，第 2 步终文本 */
+  function makeSubcallProvider() {
+    return {
+      name: 'subcall-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        let round = 0;
+        c.llm.register(
+          'subcall-mock',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              round += 1;
+              if (round % 2 === 1) {
+                yield { delta: '', reasoning: '先算' };
+                yield {
+                  delta: '',
+                  toolCalls: [{ index: 0, id: `tc-${round}`, name: 'math' }, { index: 0, argumentsDelta: '{"expression":"1+1"}' }],
+                };
+                yield { delta: '', finish: 'tool-calls', usage: { prompt: 2, completion: 1 } };
+              } else {
+                yield { delta: '结论：等于二' };
+                yield { delta: '', finish: 'stop', usage: { prompt: 3, completion: 2 } };
+              }
+            },
+          }),
+          { models: ['subcall-1'] },
+        );
+      },
+    };
+  }
+
+  it('run_code 子调用（runCodeSubcall）落 subcalls.jsonl 永久档案；直调补行落 partials 且收束即清', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-3file-'));
+    const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+    // math 工具在 run 内直调；sub_math 带 runCodeSubcall 标记模拟 run_code 子调用
+    ctx.tools.register({
+      name: 'math', description: 'd',
+      parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+      async execute() { return { ok: true, output: 2 }; },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '算一下', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const dir = path.join(root, 'subagents', id);
+    // 三文件形态：messages 定稿流在场
+    const msgs = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    expect(msgs.length).toBeGreaterThanOrEqual(3); // user + agent + run-settled
+    expect(msgs.at(-1)).toContain('"type":"run-settled"');
+    // partials 收束即清（无注入 run → 整行直落形态）
+    const partialsExists = fs.existsSync(path.join(dir, 'partials.jsonl'));
+    expect(partialsExists).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('journal 崩溃恢复：partials 残留步行 → 触达时物化为段行进 messages（durable）并清 journal', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-recover-'));
+    const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+    ctx.tools.register({
+      name: 'math', description: 'd',
+      parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+      async execute() { return { ok: true, output: 2 }; },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '会崩溃的', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const dir = path.join(root, 'subagents', id);
+    // 人工构造崩溃现场：messages 只有 user 行 + partials 残留一个孤儿 run 的步行
+    const msgLines = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    const userLine = msgLines.find((l) => l.includes('"role":"user"'))!;
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), userLine + '\n', 'utf-8');
+    const orphanStep = { content: '推理到一半', reasoning: '思路', toolCalls: [{ id: 'tc-orphan', name: 'math', arguments: '{}', result: null }] };
+    fs.writeFileSync(path.join(dir, 'partials.jsonl'), [
+      JSON.stringify({ type: 'journal-step', run: 'run-orphan-1', step: orphanStep, seq: 1 }),
+      // 直调补行：崩溃前工具已执行、终值已落——恢复时并入步行（终值覆盖源）
+      JSON.stringify({ type: 'tool-result', run: 'run-orphan-1', tool_call_id: 'tc-orphan', result: { ok: true, output: 2 }, seq: 2 }),
+    ].join('\n') + '\n', 'utf-8');
+    // 触达（send 触发 ensureMessages → recoverJournal）
+    const s = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '继续', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    // 恢复产物：孤儿步行已物化为段行（agent + steps + run 键）+ journal 清空
+    const recovered = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    const segLine = recovered.find((l) => l.includes('run-orphan-1') && l.includes('"steps"'));
+    expect(segLine).toBeDefined();
+    const seg = JSON.parse(segLine!);
+    // 补行并入：步行 result:null ← 补行终值（keyed by tool_call_id）
+    expect(seg.steps[0].toolCalls[0].result).toMatchObject({ ok: true, output: 2 });
+    expect(fs.existsSync(path.join(dir, 'partials.jsonl'))).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('steer 切段：注入消息消费点真序物化（段行 + injected 提升行交错，注入行 ts 还原）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-steer-seg-'));
+    const gates = [newGate(), newGate(), newGate()];
+    const { ctx } = await boot({ root, provider: makeGatedProvider(gates), model: 'gated-1' });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '慢任务', wait_time: 0 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    gates[0].release(); // 首轮 run 开始
+    await until(() => captured.length >= 1);
+    // run 活跃期 steer：注入消息（会进入下一消费点）
+    const st = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '补充指示', mode: 'steer' }, agentId: 'chief' });
+    expect(st.output.delivered).toBe('steered');
+    gates[1].release();
+    gates[2].release();
+    await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    const dir = path.join(root, 'subagents', id);
+    const msgs = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    // 切分形态：injected 提升行在场（journal-inject → messages），带 run 键
+    const injected = msgs.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((p) => p?.injected === true);
+    expect(injected.length).toBeGreaterThanOrEqual(1);
+    expect(injected[0].role).toBe('user');
+    expect(typeof injected[0].run).toBe('string');
+    // journal 已清
+    expect(fs.existsSync(path.join(dir, 'partials.jsonl'))).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('subcalls 档案投影：run_code 子调用按宿主前缀挂载进 steps[].toolCalls（subcall:true 平铺）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-subproj-'));
+    const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+    ctx.tools.register({
+      name: 'math', description: 'd',
+      parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+      async execute() { return { ok: true, output: 2 }; },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '算一下', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const dir = path.join(root, 'subagents', id);
+    // 找宿主 run_code 调用 id（settlement 后 steps 里 math 步的 toolCall id）
+    const msgs = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    const agentLine = msgs.map((l) => JSON.parse(l)).find((p) => p.role === 'agent' && p.steps);
+    const hostId = agentLine.steps.flatMap((s: any) => s.toolCalls ?? []).find((tc: any) => tc.name === 'math').id;
+    // 手工构造 subcall 档案（run_code 程序内子调用形态：<hostId>#<seq>）
+    fs.appendFileSync(path.join(dir, 'subcalls.jsonl'), [
+      JSON.stringify({ type: 'tool-result', run: agentLine.run, tool_call_id: hostId + '#1', result: { ok: true, output: 7 }, subcall: true, name: 'grep', arguments: '{"pattern":"x"}', seq: 1 }),
+      JSON.stringify({ type: 'tool-result', run: agentLine.run, tool_call_id: hostId + '#2', result: { ok: true, output: 8 }, subcall: true, name: 'read', arguments: '{"file_path":"a.ts"}', seq: 2 }),
+      // 孤儿档案（宿主不存在）→ 静默丢弃
+      JSON.stringify({ type: 'tool-result', run: agentLine.run, tool_call_id: 'ghost#1', result: { ok: true }, subcall: true, name: 'x', seq: 3 }),
+    ].join('\n') + '\n', 'utf-8');
+    const recs = ctx.subagents.historyRecords(id);
+    const agentRec = recs.find((p) => p.role === 'agent' && p.steps)!;
+    const tcs = agentRec.steps!.flatMap((s) => s.toolCalls ?? []);
+    const mathIdx = tcs.findIndex((tc) => tc.name === 'math' && tc.subcall !== true);
+    expect(mathIdx).toBeGreaterThanOrEqual(0);
+    // 紧随宿主平铺注入，seq 升序
+    expect(tcs[mathIdx + 1]).toMatchObject({ name: 'grep', subcall: true, arguments: '{"pattern":"x"}' });
+    expect(tcs[mathIdx + 2]).toMatchObject({ name: 'read', subcall: true });
+    expect(tcs.filter((tc) => tc.id === 'ghost#1')).toHaveLength(0);
+    // 盘上行未被变异（重读幂等）：再读一次不重复注入
+    const recs2 = ctx.subagents.historyRecords(id);
+    const tcs2 = recs2.find((p) => p.role === 'agent' && p.steps)!.steps!.flatMap((s) => s.toolCalls ?? []);
+    expect(tcs2.filter((tc) => tc.subcall === true)).toHaveLength(2);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('跨 run 轨迹复放（2026-12 多轮失忆修复）：第二轮上下文含第一轮工具轨迹（assistant+tool 对），不再只剩终文本', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-replay-'));
+    const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+    ctx.tools.register({
+      name: 'math', description: 'd',
+      parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+      async execute() { return { ok: true, output: 2 }; },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '算一下', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    // 第二轮（sync）：捕获第二轮 LLM 请求
+    const before = captured.length;
+    const s = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '再算一次', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    expect(captured.length).toBeGreaterThan(before);
+    const second = captured[before].messages;
+    // 第一轮轨迹完整复放：user 任务 → assistant(含 tool_calls) → tool(结果) → assistant(终文本) → user 新消息
+    const roles = second.map((m) => m.role);
+    expect(roles[0]).toBe('user');
+    const toolIdx = roles.indexOf('tool');
+    expect(toolIdx).toBeGreaterThan(0);
+    expect(roles[toolIdx - 1]).toBe('assistant');
+    const toolMsg = second[toolIdx] as { tool_call_id?: string };
+    expect(typeof toolMsg.tool_call_id).toBe('string');
+    expect(String((second[toolIdx] as { content?: unknown }).content)).toContain('"ok":true');
+    // 终文本 + 新 user 消息在场（首请求以新任务收尾）
+    const lastUser = roles.lastIndexOf('user');
+    expect(lastUser).toBeGreaterThan(toolIdx);
+    expect(String(second[lastUser].content)).toContain('再算一次');
+    expect(second.some((m) => m.role === 'assistant' && String(m.content).includes('结论：等于二'))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('重启后轨迹复放同口径（ensureMessages 展开盘上 agent 行 steps）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-replay2-'));
+    { const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+      ctx.tools.register({
+        name: 'math', description: 'd',
+        parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+        async execute() { return { ok: true, output: 2 }; },
+      });
+      const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '算一下', tools: ['math'], wait_time: 30 }, agentId: 'chief' });
+      void r;
+    }
+    // 第二宿主（同 root）：盘上 messages 重派生
+    const second = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+    const reg = JSON.parse(fs.readFileSync(path.join(root, 'subagents', 'index.json'), 'utf-8')) as { subs: Array<{ id: string }> };
+    const id = reg.subs[0].id;
+    const replay = await second.ctx.subagents.history(id);
+    const roles = replay.map((m) => m.role);
+    expect(roles).toContain('tool');
+    expect(replay.some((m) => m.role === 'assistant' && String(m.content).includes('结论：等于二'))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('journal 活投影：run 进行中 partials 台账 → historyRecords 尾部可见 partial 段行（补行终值覆盖 result:null）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-live-'));
+    const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
+    ctx.tools.register({
+      name: 'math', description: 'd',
+      parameters: { type: 'object', properties: { expression: { type: 'string' } } },
+      async execute() { return { ok: true, output: 2 }; },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '算一下', tools: ['math'] }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const dir = path.join(root, 'subagents', id);
+    // run 已收束（wait_time 缺省 0——异步 spawn）：手工构造「进行中」现场：
+    // 清掉 messages 尾部 agent 段行与 settled 行，partials 重建步行+补行
+    const msgLines = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8').trim().split('\n');
+    const userLine = msgLines.find((l) => l.includes('"role":"user"'))!;
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), userLine + '\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, 'partials.jsonl'), [
+      JSON.stringify({ type: 'journal-step', run: 'run-live-1', seq: 1, step: { content: '先算', toolCalls: [{ id: 'tc-live', name: 'math', arguments: '{"expression":"1+1"}', result: null }] } }),
+      JSON.stringify({ type: 'tool-result', run: 'run-live-1', tool_call_id: 'tc-live', result: { ok: true, output: 2 }, seq: 2 }),
+    ].join('\n') + '\n', 'utf-8');
+    const recs = ctx.subagents.historyRecords(id);
+    const liveSeg = recs.find((p) => p.partial === true);
+    expect(liveSeg).toBeDefined();
+    expect(liveSeg!.steps![0].toolCalls![0].result).toEqual({ ok: true, output: 2 }); // 补行覆盖
+    // 已收束 run 的 journal 行不投影（messages 有同 run 非 partial 行 = settled）
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('旧单文件（<subId>.jsonl）读侧回退兼容：历史会话在迁移前照常可读', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-legacy-'));
+    const { ctx } = await boot({ root });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', name: '旧档', task: '旧任务', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    // 把目录形态改回旧单文件形态（模拟未迁移数据）
+    const dir = path.join(root, 'subagents', id);
+    const body = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8')
+      .split('\n').filter((l) => l.trim() && !l.includes('"type":"run-settled"')).join('\n') + '\n';
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.writeFileSync(path.join(root, 'subagents', `${id}.jsonl`), body, 'utf-8');
+    // 读侧：historyRecords 走回退路径照常返回
+    const recs = ctx.subagents.historyRecords(id);
+    expect(recs.length).toBe(2); // user + agent（判别行被滤）
+    // 续聊照常（run 写入新目录形态——回退只影响读源）
+    const s = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '继续', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+// 迁移（v3 subagents-dir）：ac-migration-core 测试面覆盖（此处验形态幂等）
+describe('subagents 目录化迁移（SESSION_MIGRATIONS v3）', () => {
+  it('单文件 → <subId>/messages.jsonl；目录形态已存在 = 幂等跳过', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-mig-'));
+    fs.mkdirSync(path.join(root, 'subagents'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'subagents', 'sub_1_abc.jsonl'), '{"role":"user","content":"旧"}\n', 'utf-8');
+    const { SESSION_MIGRATIONS } = await import('../../ac-session/src/migrations.ts');
+    const v3 = SESSION_MIGRATIONS.find((m) => m.id === 'subagents-dir')!;
+    v3.apply(root);
+    expect(fs.existsSync(path.join(root, 'subagents', 'sub_1_abc', 'messages.jsonl'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'subagents', 'sub_1_abc.jsonl'))).toBe(false);
+    // 幂等：重跑无副作用
+    v3.apply(root);
+    expect(fs.existsSync(path.join(root, 'subagents', 'sub_1_abc', 'messages.jsonl'))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+// ============================================================
+// spawn system 显式固化（2026-12 人格防污染）
+// ============================================================
+describe('ac-subagent：spawn system 固化', () => {
+  class ConvSettingsStub2 extends Service {
+    private readonly store = new Map<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }>();
+    constructor(c: Context, options: { settings?: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }> } = {}) {
+      super(c, 'convSettings');
+      for (const [k, v] of Object.entries(options.settings ?? {})) this.store.set(k, v);
+    }
+    get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } {
+      return this.store.get(conversationId) ?? {};
+    }
+  }
+
+  it('spawn(system) 固化进注册表；run 请求 system 用显式值（覆盖父人设）；重启后仍生效', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-sys-'));
+    const first = await boot({ root });
+    first.ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation'], system: '父的人设：说话简洁' });
+    const r = await exec(first.ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '调研任务', system: '你是资深代码审查员，只报告确定的问题', wait_time: 30 },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    // system 以消息形态进 messages[0]（loop 装配：request.system → 首条 system 消息）
+    const sys = String(captured.at(-1)!.messages[0]?.content ?? '');
+    expect(sys).toContain('资深代码审查员');
+    expect(sys).not.toContain('父的人设');
+    const registry = JSON.parse(fs.readFileSync(path.join(root, 'subagents', 'index.json'), 'utf-8'));
+    expect(registry.subs.find((s: any) => s.id === id).system).toContain('资深代码审查员');
+    const second = await boot({ root });
+    const s = await exec(second.ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '继续', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    expect(String(captured.at(-1)!.messages[0]?.content ?? '')).toContain('资深代码审查员');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('spawn(system) + tc-programmatic：显式 system 与 mode 工具面收窄共存（投影由 run-code 行尾拼，正交）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-sysptc-'));
+    const { ctx } = await boot({ root });
+    void new ConvSettingsStub2(ctx, { settings: { 'conv-ptc': { toolMode: 'tc-programmatic' } } });
+    ctx.tools.register({ name: 'run_code', injection: 'mode', description: 'd', execute: () => ({ ok: true }) });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '程序化调研', system: '你是数据分析助手', wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-ptc',
+    });
+    expect(r.ok).toBe(true);
+    const input = captured.at(-1)!;
+    expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['run_code']);
+    expect(String(input.messages[0]?.content ?? '')).toContain('数据分析助手');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  // ── subagents/updated 事件（2026-12 持久化清单主源化：spawn/started/
+  //    settled 全链通知——前端域投影帧驱动刷新的数据源） ──
+  it('subagents/updated：spawn → started → settled 事件序列（displayStatus 投影随行）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-evt-'));
+    const { ctx } = await boot({ root });
+    const seen: Array<{ id: string; action: string; displayStatus: string }> = [];
+    ctx.on('subagents/updated', (info, action) => {
+      seen.push({ id: info.id, action, displayStatus: info.displayStatus });
+    });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '事件链调研', wait_time: 30 },
+      agentId: 'chief',
+    });
+    expect(r.ok).toBe(true);
+    const id = r.output.subagent_id as string;
+    await until(() => seen.some((s) => s.action === 'settled' && s.id === id));
+    const seq = seen.filter((s) => s.id === id).map((s) => s.action);
+    expect(seq).toContain('spawned');
+    expect(seq).toContain('started');
+    expect(seq.indexOf('started')).toBeGreaterThan(seq.indexOf('spawned'));
+    expect(seq.indexOf('settled')).toBeGreaterThan(seq.indexOf('started'));
+    // 载荷 = list 投影口径（displayStatus 随收束回落 lastRun 终态）
+    const settled = seen.find((s) => s.id === id && s.action === 'settled')!;
+    expect(settled.displayStatus).toBe('done');
+    // delete 恒发 removed（删除前快照）
+    const removed: string[] = [];
+    ctx.on('subagents/updated', (info, action) => {
+      if (action === 'removed') removed.push(info.id);
+    });
+    await exec(ctx, { name: 'subagent', args: { action: 'delete', subagent_id: id }, agentId: 'chief' });
+    expect(removed).toContain(id);
+    // 墓碑投影：缺省 list 不可见；includeDeleted 可见且 deleted=true（展示面
+    // 已删除历史入口——会话文件保留、history 仍可读）
+    const svc = ctx.get('subagents') as unknown as { list(opts?: { includeDeleted?: boolean }): { subs: Array<{ id: string; deleted: boolean }> } };
+    expect(svc.list().subs.some((s) => s.id === id)).toBe(false);
+    const withTomb = svc.list({ includeDeleted: true }).subs.find((s) => s.id === id);
+    expect(withTomb?.deleted).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('error 收束行 = context 形态（与主会话 D12/F7 同口径：UI 错误分隔符 + 不进子上下文回放）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-errline-'));
+    let fail = true;
+    const flakyProvider = {
+      name: 'flaky-llm',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register('flaky-1', () => ({
+          stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+            captured.push(input);
+            if (fail) throw new Error('模型炸了');
+            yield { delta: '恢复后的回复' };
+            yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+          },
+        }), { models: ['flaky-1'] });
+      },
+    };
+    const { ctx } = await boot({ root, provider: flakyProvider, model: 'flaky-1' });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '会失败的', wait_time: 30 }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    const dir = path.join(root, 'subagents', id);
+    const msgs = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8');
+    // 收束行 role:'context' + source:'error'（UI toHistoryMessages 错误分隔符消费口径）
+    expect(msgs).toContain('"source":"error"');
+    const errLine = msgs.trim().split('\n').find((l) => l.includes('"source":"error"'))!;
+    const parsed = JSON.parse(errLine);
+    expect(parsed.role).toBe('context');
+    expect(parsed.content).toContain('模型炸了');
+    // 回放口径：error 行不进子上下文——恢复后再 send，下一 run 的 LLM 入参不含错误文本
+    fail = false;
+    captured.length = 0;
+    const s = await exec(ctx, { name: 'subagent', args: { action: 'send', subagent_id: id, message: '再试一次', mode: 'sync' }, agentId: 'chief' });
+    expect(s.ok).toBe(true);
+    const nextInput = captured.at(-1)!;
+    const replayText = JSON.stringify(nextInput.messages);
+    expect(replayText).not.toContain('模型炸了');
+    expect(replayText).toContain('再试一次');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+

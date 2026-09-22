@@ -131,7 +131,7 @@
   },
   "src/ac-client-ui-conversation/client/Message/TurnDisplayItem.vue": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 13
+      "count": 14
     }
   },
   "src/ac-client-ui-conversation/client/Message/UserMessage.vue": {
@@ -171,7 +171,7 @@
   },
   "src/ac-client-ui-conversation/client/feed-core.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 58
+      "count": 21
     }
   },
   "src/ac-client-ui-conversation/client/feed.ts": {
@@ -599,11 +599,6 @@
       "count": 1
     }
   },
-  "src/ac-run-code/src/tool.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 6
-    }
-  },
   "src/ac-run-code/src/worker.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 4
@@ -681,7 +676,7 @@
   },
   "src/ac-subagent/src/service.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 15
+      "count": 2
     }
   },
   "src/ac-subagent/tests/subagent.integration.test.ts": {

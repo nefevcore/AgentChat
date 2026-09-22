@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ask_questions 工具行：向用户批量提问等待决策（write-ahead + 事件等待 + late-reply 唤醒），基于 ac-durable-interaction 核（kind='ask_questions'）",
+  "description": "ask_questions 工具行：向用户批量提问等待决策（write-ahead + 忙步 steer 即时注入/挂起 idle 注入/late-reply 唤醒三态分流），基于 ac-durable-interaction 核（kind='ask_questions'）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
     "ac-durable-interaction": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-loop": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "vitest": "^4.1.10"

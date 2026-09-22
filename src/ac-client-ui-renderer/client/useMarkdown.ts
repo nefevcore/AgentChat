@@ -279,7 +279,7 @@ let katexLoading: Promise<void> | null = null;
  * ~270KB(min) 的下载/解析/执行成本，且随渲染管线一起落在首屏。此处移到
  * 懒路径，连带两份样式表（katex.min.css 声明字体引用）一并懒注入。
  */
-export function ensureKatex(): Promise<void> {
+function ensureKatex(): Promise<void> {
     if (katexReady) return Promise.resolve();
     if (!katexLoading) {
         katexLoading = Promise.all([

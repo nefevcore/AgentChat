@@ -818,16 +818,15 @@ describe('/name 手势与注入通道（词汇 v2：before-run 判定 + context 
       messages: [{ role: 'user', content: 'load then think' }],
       conversationId: single.id,
     });
-    // 三步各自送入模型的消息（run 级驻留，2026-11 裁决）：load 发生在步 1
-    // 工具执行中 → before-step 时刻 injectDurable 入队 → 步 2 边界 splice 进
-    // 工作数组 → 步 2/3 继承（前缀稳定 KV 全命中——每步恰 1 条，无堆积；
-    // 旧「每步尾部重现」形态已退役：尾部字节稳定但每步重算正文）
-    const snapshots = captured.map((input) => input.messages.map((m) => ({ role: m.role, content: m.content })));
-    const counts = snapshots.map(
-      (msgs) => msgs.filter((m) => String(m.content).startsWith('<system-reminder>以下技能已加载')).length,
-    );
-    console.log('DBG counts', JSON.stringify(counts), 'msgs2', JSON.stringify(snapshots.map((m) => m.map((x) => String(x.content).slice(0, 30)))));
-        expect(counts).toEqual([0, 1, 1]);
+    // 三步各自送入模型的消息（run 级驻留，2026-11 裁决）：load 发生在步 1
+    // 工具执行中 → before-step 时刻 injectDurable 入队 → 步 2 边界 splice 进
+    // 工作数组 → 步 2/3 继承（前缀稳定 KV 全命中——每步恰 1 条，无堆积；
+    // 旧「每步尾部重现」形态已退役：尾部字节稳定但每步重算正文）
+    const snapshots = captured.map((input) => input.messages.map((m) => ({ role: m.role, content: m.content })));
+    const counts = snapshots.map(
+      (msgs) => msgs.filter((m) => String(m.content).startsWith('<system-reminder>以下技能已加载')).length,
+    );
+    expect(counts).toEqual([0, 1, 1]);
     // 注入体正文恰含一份技能（脏键不进渲染）
     const inj = captured[1].messages.find((m) => String(m.content).startsWith('<system-reminder>以下技能已加载'));
     expect(String(inj?.content).match(/<skill_content name="pdf-export">/g)?.length).toBe(1);

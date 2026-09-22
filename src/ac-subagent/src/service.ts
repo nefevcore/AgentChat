@@ -16,25 +16,36 @@
 //         动作）：工具可见面与执行门禁同源收敛，不再依赖"未注册
 //         fail-closed"（档位继承下 full 父的子 Agent 此前能看到全部
 //         已注册工具）；
-//       - 信封装配（subagent 直连 loop 不经 router）：system/llmParams
-//         每 run 现读父配置（热更生效）、tools 按派生身份能力集终滤
-//         （点名也不可越过门禁）；settings 浅拷贝随父（快照）——
-//         零会话污染语义保留：父会话与 ac-session 不受任何影响。
-//   · 上下文：会话消息 = user/assistant 对（任务框架 + 逐轮追加）；
-//     run 内部 tool 轮次不跨 run 复放（run 结果文本即轮结论）。
+//       - 信封装配（subagent 直连 loop 不经 router）：system 优先
+//         rec.system（spawn 显式固化——人格防污染，2026-12），缺省每 run
+//         现读父人设；llmParams 每 run 现读父配置（热更生效）、tools 按
+//         派生身份能力集终滤（点名也不可越过门禁）；settings 浅拷贝随父
+//         （快照，显式 system 时剥 persona）——零会话污染语义保留：父
+//         会话与 ac-session 不受任何影响。
+//   · 上下文：会话消息 = user/assistant 对（首条裸文本 + 逐轮追加——
+//     frameTask 已退役 2026-12，角色语义由 spawn system 参数承担）；
+//     agent 行携带 steps 时按 expandSteps 轨迹展开复放（与主会话
+//     replayTrajectory 同口径——探查型/中断 run 无终文本也不失忆）。
 //   · 每 run 登记 job（kind=subagent；owner=父；完成通知回投发起会话）。
 //
-// 落盘（owning：本服务；对齐 ac-conversation 待投持久化范式）：
-//   <root>/subagents/index.json   注册表（原子写；含墓碑条目）
-//   <root>/subagents/<subId>.jsonl 会话消息行 SubagentMessageLine——
-//     user 行（任务消息，agent_id=父）+ agent 行（收束回复，携带全量
-//     steps[]：reasoning/toolCalls+results/textBeforeTools/reasoningMs/ts，
-//     SessionRecord 中性格式兼容形——前端 toHistoryMessages 整链复用；
-//     subagent-session-view-plan.md R1/R2：收束一次性落盘，不做 partial）。
-//     旧行 {role:'assistant', content, ts} 宽容读取（回放/展示两读侧兼容）。
+// 落盘（owning：本服务；三文件形态对齐 ac-session 2026-11 run journal
+// 裁决——skill-injection-and-storage-vocab §10/§11 同款语义）：
+//   <root>/subagents/index.json          注册表（原子写；含墓碑条目）
+//   <root>/subagents/<subId>/
+//     messages.jsonl  定稿流（run 期间静默——单一写面）：user 行（任务
+//       消息/steer 注入提升，agent_id=父）+ agent 段行（steps，run 键）
+//       + context error 行 + run-settled 判别行。全行 run 键（收束对账）。
+//     partials.jsonl   run journal（瞬态台账，收束即清）：journal-step
+//       步行（result:null，行序=模型消息数组实际序）/ journal-inject
+//       注入行（steer 消费点落，ts 快照）/ tool-result 直调补行（终值
+//       覆盖源）。崩溃窗口由 recoverJournal 惰性幂等收口。
+//     subcalls.jsonl   run_code 子调用永久档案（UI 回放面，不清理——
+//       与 journal 生命周期相反）。
+//   迁移 v3：<subId>.jsonl 单文件 → <subId>/messages.jsonl（读侧回退兼容）。
+//   旧行 {role:'assistant', content, ts} 宽容读取（回放/展示两读侧兼容）。
 //   root = 行配置 root ?? AGENTCHAT_DATA_ROOT；未设 = 纯内存（测试兼容）。
 //   启动装载：注册表 running → idle（run 随宿主死亡，崩溃恢复）；消息
-//   懒装载（list 不读消息，send/await 触达时才读）。
+//   懒装载（list 不读消息，send/await 触达时才读；journal 恢复同点触发）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -45,12 +56,14 @@ import type { ToolResult } from 'ac-tools';
 import type { JobOutcome } from 'ac-jobs';
 import { splitModelRef } from 'ac-llm';
 import { defaultPoolConnection } from 'ac-llm-pool';
+import { expandSteps } from 'ac-session';
 import {
   capabilitySetOf,
   effectiveTierOf,
+  effectiveToolMode,
   filterLlmParams,
+  narrowToolsByMode,
   toolAllowedFor,
-  toolModeOf,
   type AgentConfig,
 } from 'ac-agents';
 
@@ -85,9 +98,22 @@ export interface SubagentRecord {
   /** 已执行 run 数 */
   runs: number;
   toolNames?: string[];
-  maxSteps: number;
   timeoutMs: number;
   lastRun?: SubagentRunSummary;
+  /**
+   * 沙箱基准快照（2026-12 数据根一致修复）：spawn 时父会话挂载的工作区根
+   * （无会话工作区 = 缺省）。子 Agent run 无会话键（账本归 subagents 域），
+   * 沙箱链 fallback preset→数据根——快照进派生身份 settings.security.workdir
+   * 后，工具基准/security 复检/提示词展示与父会话同根。持久化（跨重启仍生效）。
+   */
+  workdir?: string;
+  /**
+   * 显式 system prompt（2026-12 人格防污染裁决）：spawn 传入即固化（跨
+   * run/跨重启）——executeRun 装配优先于父人设；同时派生身份的 persona
+   * settings 清空（显式人设 = 完全接管人格语义，不与父的 persona 块叠加）。
+   * 缺省 = 继承 parent.system（与 tags/settings 继承同族）。
+   */
+  system?: string;
 }
 
 /** list/get 投影 */
@@ -96,12 +122,14 @@ export interface SubagentInfo {
   parentId: string;
   name: string;
   status: SubagentStatus;
-  /** 徽章口径：running | lastRun.status | idle */
+  /** 徽章口径：running | lastRun.status | idle（deleted=true 时消费方应展示「已删除」） */
   displayStatus: string;
   task: string;
   runs: number;
   createdAt: number;
   updatedAt: number;
+  /** 墓碑标记（list includeDeleted 时可见——会话文件保留、history 可读） */
+  deleted: boolean;
   lastRun?: SubagentRunSummary;
 }
 
@@ -117,9 +145,9 @@ export interface SubagentSpawnOptions {
   name?: string;
   /** 首条任务消息（给出即启动首轮 run） */
   task?: string;
-  context?: string;
+  /** 显式 system prompt（固化进 SubagentRecord——覆盖父人设，见 record.system 注释） */
+  system?: string;
   toolNames?: string[];
-  maxSteps?: number;
   /** 每轮 run 超时毫秒（0 = 不设看门狗；缺省 0 = 不限——研究型任务常为长任务） */
   timeoutMs?: number;
   /** 发起会话键（job 完成通知回投目标） */
@@ -145,6 +173,8 @@ export interface SubagentListOptions {
   /** 只列指定父名下的子 Agent（缺省 = 全部） */
   parentId?: string;
   runningOnly?: boolean;
+  /** 含墓碑条目（缺省隐藏——展示面用它保留已删除历史入口；会话文件可读） */
+  includeDeleted?: boolean;
   limit?: number;
 }
 
@@ -164,7 +194,6 @@ export interface SubagentSendResult {
 /** inbox 条目（待投消息；token = sync 等待方寻址键） */
 interface InboxItem {
   text: string;
-  context?: string;
   conversationId?: string;
   /** 发起 run 的档位（父 run 的 call.elevation 留痕——子 run 继承用；§7.3） */
   elevation?: 'sandbox-access' | 'full-access';
@@ -185,6 +214,21 @@ interface SubEntry {
   waiters: Map<string, (s: SubagentRunSummary) => void>;
   /** 当前 run 收束回调（awaitSettled 挂载） */
   currentSettlers: Array<(s: SubagentRunSummary) => void>;
+  /** 活跃 run 簿记（三文件化 2026-12）：journal 门控 + 步行补行路由锚。
+   * 单 run 串行（runLoop consuming 门）→ 同 entry 至多一个活跃 run。 */
+  activeRun?: {
+    /** run 关联键（段行/补行/journal 行同键成组） */
+    run: string;
+    /** 本 run 已落 journal 行（步行/注入/补行任一）——settlement 分流依据 */
+    journaled: boolean;
+    /** steer 注入缓冲（消息对象 → ts 快照）：step-started 消费点对账 */
+    stashed: Map<object, number>;
+    /** journal 行序号（partials.jsonl 内单调，进程内分配） */
+    seq: number;
+    /** 直调补行内存台账（盘上落行后 push——readJournal 兜底源；subcall
+     * 路由记忆在行本体 subcall:true 键上，不需要旁挂 kind） */
+    pendingSups: Array<{ line: string; identity: string }>;
+  };
 }
 
 interface RegistryFile {
@@ -193,14 +237,15 @@ interface RegistryFile {
 }
 
 /**
- * 会话消息行（jsonl 落盘形；subagent-session-view-plan.md R1）：
- * SessionRecord 中性格式兼容——agent 行携带全量 steps[]（收束一次性落盘，
- * R2），前端 toHistoryMessages 整链复用（工具卡/思维链/步级时序）。
+ * 会话消息行（messages.jsonl 落盘形；subagent-session-view-plan.md R1 +
+ * 三文件化 2026-12）：SessionRecord 中性格式兼容——agent 段行携带
+ * steps[]，前端 toHistoryMessages 整链复用（工具卡/思维链/步级时序）。
  * 旧行 {role:'assistant', content, ts:number} 共存：两读侧宽容归一。
  */
 export interface SubagentMessageLine {
-  /** 新行：user（任务消息）/ agent（子回复）；旧行 assistant 读侧归一为 agent */
-  role: 'user' | 'agent' | 'assistant';
+  /** 新行：user（任务消息）/ agent（子回复）/ context（error 收束行）；旧行 assistant 读侧归一为 agent */
+  role: 'user' | 'agent' | 'assistant' | 'context';
+  /** user 行/agent 段行正文；context error 行 = 错误文本；段行可空串 */
   content: string;
   /** epoch ms（旧行字段；新行仍写——展示投影缺 timestamp 时兜底换算） */
   ts?: number;
@@ -211,6 +256,18 @@ export interface SubagentMessageLine {
   agent_id?: string;
   /** agent 行末步思维链（无 steps 时的折叠栏兜底） */
   reasoning?: string;
+  /** 错误收束行（run 键在场）：role='context' + source='error' + content=错误文本 */
+  source?: 'error';
+  /** steer 提升行：true = 注入消息（消费点真序还原的时序标记） */
+  injected?: boolean;
+  /** run 键（三文件化 2026-12）：段行/注入提升行/错误行携带 = 产生于该 run
+   * 周期；recoverJournal 的 settled 判定锚（同 run 非 partial 行存在性）。
+   * 旧单文件行无此键（回退兼容路径照常读）。 */
+  run?: string;
+  /** 活投影行（展示口径专用，historyRecords 的 journal 活投影产物）：true =
+   * run 进行中从 partials.jsonl 台账投影的临时行——settlement 提升后由定稿
+   * 段行取代。不落盘；上下文回放（ensureMessages）不读 partial 行。 */
+  partial?: boolean;
   /** agent 行：全量步记录（LoopStepRecord → SessionStepRecord 投影） */
   steps?: Array<{
     content: string;
@@ -225,8 +282,87 @@ export interface SubagentMessageLine {
       arguments: string;
       /** 工具体返回的 ToolResult（对象原样 JSON 往返；收束时终值全在） */
       result: unknown;
+      /** run_code 子调用标记（subcalls 投影注入的条目）：平铺卡缩进样式 */
+      subcall?: boolean;
     }>;
   }>;
+}
+
+/** journal 步行行（partials.jsonl；result:null——终值由补行/settlement 携带） */
+interface JournalStepLine {
+  type: 'journal-step';
+  run: string;
+  step: NonNullable<SubagentMessageLine['steps']>[number];
+  agentId?: string;
+  /** 行序号（partials.jsonl 内单调；settlement 切段排序键） */
+  seq: number;
+}
+
+/** journal 注入行（partials.jsonl；steer 消费点落，ts 快照供提升还原） */
+interface JournalInjectLine {
+  type: 'journal-inject';
+  run: string;
+  message: { role: 'user'; content: string };
+  agentId?: string;
+  /** 注入时刻快照（epoch ms）——提升行 timestamp 由此还原（防错序） */
+  ts?: number;
+  seq: number;
+}
+
+/** 直调补行（partials.jsonl）：工具终值——步行 result:null 的覆盖源 */
+interface ToolResultLine {
+  type: 'tool-result';
+  run: string;
+  tool_call_id: string;
+  result: unknown;
+  seq: number;
+}
+
+/** run_code 子调用补行（subcalls.jsonl）：UI 回放面档案（不清理） */
+interface SubcallLine {
+  type: 'tool-result';
+  run: string;
+  tool_call_id: string;
+  result: unknown;
+  subcall: true;
+  name?: string;
+  arguments?: string;
+  seq: number;
+}
+
+/** settled 判别行（messages.jsonl 提升批尾的原子提交标记） */
+interface RunSettledLine {
+  type: 'run-settled';
+  run: string;
+  seq?: number;
+}
+
+/** journal 行身份（rewritePartials 剔除对账的行键；无法解析 = 保留） */
+function journalIdentity(line: string): string | undefined {
+  try {
+    const p = JSON.parse(line) as { type?: unknown; run?: unknown; seq?: unknown; tool_call_id?: unknown };
+    if (typeof p.run !== 'string' || !p.run) return undefined;
+    if ((p.type === 'journal-step' || p.type === 'journal-inject') && typeof p.seq === 'number') {
+      return `${p.type}|${p.run}|${p.seq}`;
+    }
+    if (p.type === 'tool-result' && typeof p.tool_call_id === 'string' && p.tool_call_id) {
+      return `tool-result|${p.run}|${p.tool_call_id}`;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** journal 行身份键合成（journalIdentity 的写侧孪生——四处模板并源，
+ * 对齐 ac-session journalIdentityOf 先例：两份不同步 = 剔除漏行/重影） */
+function journalIdentityOf(type: 'journal-step' | 'journal-inject' | 'tool-result', run: string, key: number | string): string {
+  return type + '|' + run + '|' + String(key);
+}
+
+/** run-settled 前缀判定（避免全量 parse） */
+function isRunSettledLine(line: string): boolean {
+  return line.trimStart().startsWith('{"type":"run-settled"');
 }
 
 /** 生成消息唯一 ID（对齐 ac-session genMessageId 形态） */
@@ -234,34 +370,40 @@ function genMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 生成 run 关联键（段行/补行对账用；对齐 ac-session genRunId 形态） */
+function genRunId(): string {
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /**
- * LoopStepRecord → 落盘步记录（tools 下标一一对应是 LoopStepRecord 契约；
- * 收束时 toolResults 终值全在——无 partial/补行需求，R2）。
+ * LoopStepRecord → 落盘步记录（两口径共用，resultOf 区分）：
+ * · journal 步行（partials.jsonl）：result 恒 null——落盘先于执行是设计，
+ *   终值由补行携带〔中断恢复源〕或 settlement 携带〔正常收束，权威源〕；
+ *   行序 = 模型消息数组实际序（注入行按消费点插在步行之间）；
+ * · settlement 段行：tools 下标一一对应是 LoopStepRecord 契约，收束时
+ *   toolResults 终值全在（权威源；loop 保证对应，防御性兜底 null——
+ *   与 ac-session 部分行同口径，前端占位卡可识别）。
  */
-function toStepRecord(step: LoopStepRecord): NonNullable<SubagentMessageLine['steps']>[number] {
+function toStepRecord(step: LoopStepRecord, resultOf: (i: number) => unknown = () => null): NonNullable<SubagentMessageLine['steps']>[number] {
   return {
-    content: step.text ?? '',
+    content: step.text,
     ...(step.reasoning ? { reasoning: step.reasoning } : {}),
     ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
     ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}),
     ...(step.ts !== undefined ? { ts: step.ts } : {}),
-    ...((step.toolCalls ?? []).length > 0
+    ...(step.toolCalls.length > 0
       ? {
           toolCalls: step.toolCalls.map((tc, i) => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
-            // loop 保证 toolCalls/toolResults 一一对应；防御性兜底 null
-            //（与 ac-session 部分行同口径——前端占位卡可识别）
-            result: step.toolResults?.[i] ?? null,
+            result: resultOf(i),
           })),
         }
       : {}),
   };
 }
 
-/** 缺省步数上限 */
-const DEFAULT_MAX_STEPS = 15;
 /** list 缺省/上限条数 */
 const LIST_DEFAULT_LIMIT = 20;
 const LIST_MAX_LIMIT = 100;
@@ -270,14 +412,28 @@ const STRIPPED_TAGS = ['delegation', 'admin'];
 
 /** subagent 工具已知参数名（未知参数 = 工具拿错的最强信号，入口报警） */
 const KNOWN_ARG_KEYS = new Set([
-  'action', 'task', 'name', 'tools', 'context', 'subagent_id',
-  'message', 'mode', 'max_steps', 'timeout_s', 'wait_time',
+  'action', 'task', 'name', 'tools', 'system', 'subagent_id',
+  'message', 'mode', 'timeout_s', 'wait_time',
   'query', 'running_only', 'limit',
 ]);
 
-/** 派生身份合成（父身份编辑）：preset 隐藏 + tags 剥 delegation/admin */
+/** 派生身份合成（父身份编辑）：preset 隐藏 + tags 剥 delegation/admin；
+ * workdir 快照（2026-12 数据根一致修复）注入 settings.security.workdir
+ * （sandboxWorkdir 显式档——子 Agent run 无会话键，靠快照与父会话同根） */
 function deriveAgentConfig(rec: SubagentRecord, parent: AgentConfig): AgentConfig {
   const tags = (parent.tags ?? []).filter((t) => !STRIPPED_TAGS.includes(t));
+  const settings = { ...(parent.settings ?? {}) } as Record<string, unknown>;
+  if (rec.workdir !== undefined) {
+    const security = { ...((settings.security as Record<string, unknown> | undefined) ?? {}) };
+    security.workdir = rec.workdir;
+    settings.security = security;
+  }
+  if (rec.system !== undefined) {
+    // 显式人设 = 完全接管人格语义：清空继承的 persona 配置——否则
+    // ac-persona 的 before-run 前置块（settingsOf(subId,'persona') 命中
+    // 父的人设文件/文本）会与显式 system 叠加出双重人格
+    delete settings.persona;
+  }
   return {
     id: rec.id,
     preset: true, // 名册/协作/管理面不可见；工作区根口径（与未注册时代同回落）
@@ -285,23 +441,11 @@ function deriveAgentConfig(rec: SubagentRecord, parent: AgentConfig): AgentConfi
     description: `子 Agent（父：${rec.parentId}）：${rec.task || rec.name}`,
     // system/llmParams/tools/maxSteps 不进派生条目——executeRun 每 run 现读父配置
     ...(tags.length > 0 ? { tags } : {}),
-    ...(parent.settings ? { settings: { ...parent.settings } } : {}),
+    ...(Object.keys(settings).length > 0 ? { settings } : {}),
   };
 }
 
-/**
- * 首条消息框架（独立上下文，不背父 Agent 历史）。首条 = 任务定位 +
- * 多轮约定；后续 send 为普通 user 消息。
- */
-function frameTask(task: string, context?: string): string {
-  const parts = [`[子任务] 请作为独立子 Agent 完成以下任务。`, ``, `任务：${task}`];
-  if (context?.trim()) parts.push(``, `[上下文]`, context.trim());
-  parts.push(
-    ``,
-    `要求：独立思考并执行。本子 Agent 会话支持多轮：父 Agent 可能继续发送补充指示或追问，收到后基于已有进展继续执行并答复；每轮结束时给出明确的当前结论。`,
-  );
-  return parts.join('\n');
-}
+
 
 /** id 文件名安全（生成端恒安全；装载端防御） */
 function safeId(id: string): boolean {
@@ -336,8 +480,6 @@ export class SubagentsService extends Service {
   private entries = new Map<string, SubEntry>();
   /** 持久化目录（undefined = 纯内存态） */
   private readonly storeDir: string | undefined;
-  /** 已建目录 memo（append 前置 mkdir 摊销） */
-  private ensuredDir = false;
   /** waiter/inbox token 序号（进程内单调） */
   private seq = 0;
 
@@ -346,7 +488,77 @@ export class SubagentsService extends Service {
     const root = options.root ?? process.env.AGENTCHAT_DATA_ROOT;
     this.storeDir = root !== undefined ? path.resolve(root, 'subagents') : undefined;
     this.loadRegistry();
+    this.registerLoopHooks();
     this.registerTool();
+  }
+
+  /**
+   * loop 事件订阅（三文件化 2026-12）：子 run 身份 = agent:<subId>、
+   * conversationId 缺席——按 agent 寻址路由到本服务的 journal 通道。
+   * 与 ac-session 同款事件面（after-step 步行 / after-execute 补行 /
+   * step-started 注入消费点），本服务内自管 settlement（executeRun 收束）。
+   */
+  private registerLoopHooks(): void {
+    // 步行落 journal（工具步 result:null；纯文本步同款——行序即真序）
+    this.ctx.on('loop/after-step', (agent: string | undefined, step: LoopStepRecord) => {
+      if (agent === undefined) return;
+      const entry = this.entries.get(agent);
+      if (entry?.activeRun === undefined) return; // 非本服务活跃 run（宿主 run 等）
+      entry.activeRun.journaled = true;
+      this.appendJournalLine(entry, { type: 'journal-step', run: entry.activeRun.run, step: toStepRecord(step), agentId: agent, seq: entry.activeRun.seq++ });
+    }, { description: 'subagent journal 步行（run 中间态——settlement 切段数据源）' });
+    // 直调/subcall 补行（终值覆盖源；subcall → subcalls.jsonl 永久档案）
+    this.ctx.on('tool/after-execute', (call: { agentId?: string; toolCallId?: string; name?: string; runCodeSubcall?: boolean; args?: unknown }, result: unknown) => {
+      if (call.agentId === undefined) return;
+      const entry = this.entries.get(call.agentId);
+      const active = entry?.activeRun;
+      if (entry === undefined || active === undefined) return; // 宿主 run 补行归 ac-session
+      if (typeof call.toolCallId !== 'string' || !call.toolCallId) return; // 幻影调用无对账锚
+      const isSubcall = call.runCodeSubcall === true;
+      const line: ToolResultLine | SubcallLine = {
+        type: 'tool-result',
+        run: active.run,
+        tool_call_id: call.toolCallId,
+        result,
+        ...(isSubcall
+          ? { subcall: true as const, ...(call.name !== undefined ? { name: call.name } : {}), ...(call.args !== undefined ? { arguments: JSON.stringify(call.args) } : {}) }
+          : {}),
+        seq: active.seq++,
+      };
+      active.pendingSups.push({ line: JSON.stringify(line), identity: journalIdentityOf('tool-result', active.run, call.toolCallId) });
+      this.appendJournalLine(entry, line);
+    }, { description: 'subagent 工具结果补记（步行 result:null 的终值覆盖源 + subcalls 档案）' });
+    // steer 注入消费点（step-started 时消息数组已含注入——按对象身份对账）
+    this.ctx.on('loop/step-started', (agent: string | undefined, _index: number, messages: unknown) => {
+      if (agent === undefined) return;
+      const entry = this.entries.get(agent);
+      const active = entry?.activeRun;
+      if (entry === undefined || active === undefined) return;
+      const msgs = Array.isArray(messages) ? (messages as unknown[]) : [];
+      for (const m of msgs) {
+        const ts = active.stashed.get(m as object);
+        if (ts === undefined) continue;
+        active.stashed.delete(m as object);
+        const content = (m as { content?: unknown }).content;
+        if (typeof content !== 'string') continue;
+        active.journaled = true;
+        this.appendJournalLine(entry, { type: 'journal-inject', run: active.run, message: { role: 'user', content }, agentId: entry.record.parentId, ts, seq: active.seq++ });
+      }
+    }, { description: 'subagent steer 注入消费点落 journal（消费真序）' });
+    // 收束时未消费的注入：直接落 messages（run 外行——不硬造 run 键）
+    this.ctx.on('loop/steer-dropped', (agent: string | undefined, _conversationId: string | undefined, _handle: string, dropped: Array<{ message: unknown }>) => {
+      if (agent === undefined) return;
+      const entry = this.entries.get(agent);
+      if (entry === undefined) return;
+      for (const d of dropped) {
+        const ts = entry.activeRun?.stashed.get(d.message as object);
+        if (ts === undefined) continue;
+        if (entry.activeRun) entry.activeRun.stashed.delete(d.message as object);
+        const content = (d.message as { content?: unknown }).content;
+        if (typeof content !== 'string') continue;
+        this.appendMessage(entry.record.id, { role: 'user', content, agent_id: entry.record.parentId });
+      }
+    }, { description: 'subagent steer 收束竞态兜底（未消费注入不丢）' });
   }
 
   /** 卸载：中止全部活跃 run（尽力而为，收束异步完成）；等待方立即释放 */
@@ -379,14 +591,36 @@ export class SubagentsService extends Service {
   // 公共面（工具行转发；亦可被宿主进程内直调）
   // ============================================================
 
+  /**
+   * spawn 时沙箱基准快照（2026-12 数据根一致修复）：优先序与
+   * sandboxWorkdir 会话感知链对齐——① 父会话挂载的工作区根
+   * （conversationWorkspaceRoot；spawn 无会话键 = 跳过）② 父 settings
+   * 显式 workdir（settingsOf 合成）。两者皆缺省 = undefined（沙箱链回
+   * preset→数据根，与旧行为一致——父本就在数据根语境时零变化）。
+   */
+  private spawnWorkdirOf(opts: SubagentSpawnOptions): string | undefined {
+    const workspace = this.ctx.get('workspace', false) as
+      | { conversationWorkspaceRoot(conversationId: string | undefined): string | null; sandboxWorkdir(agentId: string | undefined, conversationId?: string): string | undefined }
+      | undefined;
+    if (opts.conversationId !== undefined) {
+      const wsRoot = workspace?.conversationWorkspaceRoot(opts.conversationId);
+      if (wsRoot) return wsRoot;
+    }
+    // 父显式 workdir / preset 数据根口径——与 sandboxWorkdir(父, 会话键)
+    // 的 fallback 同源（复用其判定，不在此重复实现优先序细节）
+    return workspace?.sandboxWorkdir(opts.parentId, opts.conversationId);
+  }
+
   /** 创建子 Agent；task 给出即投递首条消息并启动 run */
   spawn(opts: SubagentSpawnOptions): SubagentSpawnResult {
-    // fail-fast（保持旧语义）：父不存在/无模型在创建口报错
+    // fail-fast（保持旧语义）：父不存在/无模型在创建口报错（两道守卫同
+    // 文案——resolveModel 内含父检查，此处保 parent 非空供派生身份使用）
     const parent = this.ctx.agents.get(opts.parentId);
     if (!parent) {
       throw new Error(`父 Agent "${opts.parentId}" 未注册（subagent 需要父的 model 配置）`);
     }
     this.resolveModel(opts.parentId);
+    const spawnWorkdir = this.spawnWorkdirOf(opts);
     const id = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const now = Date.now();
     const record: SubagentRecord = {
@@ -399,13 +633,19 @@ export class SubagentsService extends Service {
       createdAt: now,
       updatedAt: now,
       runs: 0,
-      maxSteps: opts.maxSteps && opts.maxSteps > 0 ? opts.maxSteps : DEFAULT_MAX_STEPS,
       // 显式 >= 0 合法（0 = 不设看门狗）；未传/负数/NaN = 缺省不限（长任务友好）
       timeoutMs: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0 ? opts.timeoutMs : 0,
       ...(opts.toolNames && opts.toolNames.length > 0 ? { toolNames: opts.toolNames } : {}),
+      // 沙箱基准快照（2026-12 数据根一致修复）：父会话挂载的工作区根——
+      // 子 Agent run 无会话键，沙箱链 fallback preset→数据根会与父会话
+      // 执行环境分叉；快照进派生身份后 fs/shell/安全复检同根
+      ...(spawnWorkdir ? { workdir: spawnWorkdir } : {}),
+      // 显式 system 固化（2026-12 人格防污染）：空串归一为缺席（不落空键）
+      ...(opts.system?.trim() ? { system: opts.system } : {}),
     };
     this.records.set(id, record);
     this.persistRegistry();
+    this.ctx.emit('subagents/updated', this.infoOf(record), 'spawned');
     // 派生身份注册（父身份编辑：preset 隐藏 + 剥 delegation/admin）
     this.ctx.agents.register(deriveAgentConfig(record, parent));
     const entry = this.hydrate(record);
@@ -415,7 +655,6 @@ export class SubagentsService extends Service {
       // 内部按 sync 投递取首轮收束 promise（供 spawn wait_time 阻塞语义）；
       // 对外仍是异步启动——settled 不 await 即忽略
       settled = this.deliver(entry, task, 'sync', {
-        ...(opts.context ? { context: opts.context } : {}),
         ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
         ...(opts.elevation ? { elevation: opts.elevation } : {}),
       }).settled;
@@ -463,7 +702,9 @@ export class SubagentsService extends Service {
     const record = this.records.get(id);
     if (!record || record.deleted) return false;
     const entry = this.hydrate(record);
-    return this.stopRun(entry, 'stop');
+    const stopped = this.stopRun(entry);
+    if (stopped) this.ctx.emit('subagents/updated', this.infoOf(record), 'stopped');
+    return stopped;
   }
 
   /** 打墓碑：终止活跃 run（若有）+ list 不再可见；会话文件保留 */
@@ -481,7 +722,7 @@ export class SubagentsService extends Service {
     const entry = this.entries.get(id);
     if (entry) {
       entry.inbox = [];
-      this.stopRun(entry, 'stop');
+      this.stopRun(entry);
       this.releaseWaiters(entry, {
         status: 'stopped',
         finish: 'deleted',
@@ -492,14 +733,16 @@ export class SubagentsService extends Service {
       // runLoop 在当前 run 收束后见 deleted 自行退出并回收 entry
     }
     this.persistRegistry();
+    this.ctx.emit('subagents/updated', this.infoOf(record), 'removed');
     return true;
   }
 
-  /** 查询（含历史；墓碑不可见）。活跃在前，其余按 updatedAt 降序 */
+  /** 查询（含历史；墓碑缺省不可见——includeDeleted 携带，会话历史仍可读）。
+   *  活跃在前，其余按 updatedAt 降序 */
   list(opts: SubagentListOptions = {}): { activeCount: number; total: number; subs: SubagentInfo[] } {
     const query = opts.query?.trim().toLowerCase();
     const infos = [...this.records.values()]
-      .filter((r) => !r.deleted)
+      .filter((r) => (opts.includeDeleted ? true : !r.deleted))
       .filter((r) => (opts.parentId !== undefined ? r.parentId === opts.parentId : true))
       .map((r) => this.infoOf(r))
       .filter((info) => {
@@ -527,7 +770,10 @@ export class SubagentsService extends Service {
     return this.infoOf(record);
   }
 
-  /** 会话消息（上下文回放口径：user/assistant 对——steps 不进子上下文） */
+  /**
+   * 会话消息（上下文回放口径：user/assistant 对——agent 行携带 steps 时
+   * 按 expandSteps 轨迹展开，与主会话 replayTrajectory 同口径）。
+   */
   async history(id: string): Promise<LlmMessage[]> {
     const record = this.requireRecord(id);
     const entry = this.hydrate(record);
@@ -536,8 +782,20 @@ export class SubagentsService extends Service {
 
   /**
    * 会话消息（展示口径，R6：墓碑可读——remove 只打墓碑、会话文件保留的
-   * 既有语义本就隐含可回看）。读 jsonl 全量行宽容解析（损坏行跳过），
-   * agent 行携带 steps[] 原样返回；文件不存在 = 空数组（空会话/纯内存态）。
+   * 既有语义本就隐含可回看）：读 jsonl 全量行宽容解析（损坏行跳过；文件
+   * 不存在 = 空数组）+ subcalls
+   * 投影注入（2026-12 前端反馈 #2）。投影 = ac-session records() 同款语义：
+   * subcalls.jsonl 档案行按 tool_call_id 前缀（'<hostCallId>#<seq>' 形态）定位
+   * 宿主 run_code 调用，紧随其后平铺注入 steps[].toolCalls（subcall:true——
+   * 前端缩进卡样式 + 完整参数/结果）。排序键 = 行 seq（程序提交序）；宿主
+   * 缺席（孤儿档案）静默丢弃——无卡片可挂。
+   *
+   * journal 活投影（2026-12 对齐普通会话）：run 进行中（partials.jsonl 台账
+   * 在场、messages 尚无段行）时，步行/注入行按真序投影为行尾 agent 段行
+   * （partial:true——前端同 toHistoryMessages 步展开管线）+ injected user
+   * 行；直调补行（tool-result 终值）覆盖步行 result:null。已收束 run 的
+   * journal 行（崩溃残留——recoverJournal 收口前窗口）不投影：messages
+   * 定稿流是权威。
    */
   historyRecords(id: string): SubagentMessageLine[] {
     const record = this.records.get(id);
@@ -549,22 +807,181 @@ export class SubagentsService extends Service {
       return []; // 无文件 = 空会话
     }
     const out: SubagentMessageLine[] = [];
+    const settledRuns = new Set<string>();
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line) as SubagentMessageLine;
         if (
-          parsed &&
           typeof parsed.content === 'string' &&
           (parsed.role === 'user' || parsed.role === 'agent' || parsed.role === 'assistant')
         ) {
           out.push(parsed);
+          // settled 判定锚：同 run 非 partial 行存在 = 定稿已提升（对齐
+          // recoverJournal 的组员存在性判定——injected 行是独立会话事实，
+          // 不算收束锚）
+          if (parsed.run !== undefined && parsed.partial !== true && parsed.injected !== true) {
+            settledRuns.add(parsed.run);
+          }
         }
       } catch {
         /* 损坏行跳过 */
       }
     }
+    // journal 活投影（未收束 run——run 进行中/中断未恢复）：步行 → partial
+    // agent 段行；注入行 → injected user 行；补行 → result 覆盖。行序 =
+    // journal 文件序（真序），整体接在定稿流尾部（run 进行中 = 时序最新）。
+    const live = this.readJournalLive(id, settledRuns);
+    if (live.length > 0) out.push(...live);
+    return this.injectSubcalls(out, this.readSubcallLines(id));
+  }
+
+  /**
+   * partials.jsonl → 未收束 run 的活投影行（展示口径）。补行终值就地覆盖
+   * 步行 result:null（同 ac-session supplements 语义）；subcall 档案行不
+   * 在此文件（subcalls.jsonl——由 injectSubcalls 平面挂载），天然不混入。
+   */
+  private readJournalLive(id: string, settledRuns: Set<string>): SubagentMessageLine[] {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(this.partialsPath(id), 'utf-8');
+    } catch {
+      return []; // 无文件 = 无在途 run
+    }
+    // 直调补行（run|tool_call_id → 终值）——步行 result:null 覆盖源
+    const sups = new Map<string, unknown>();
+    const journalLines: Array<{ run: string; seq: number; line: unknown }> = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const p = JSON.parse(line) as { type?: string; run?: unknown; seq?: unknown; tool_call_id?: unknown };
+        if (typeof p.run !== 'string' || !p.run) continue;
+        if (p.type === 'tool-result' && typeof p.tool_call_id === 'string' && p.tool_call_id) {
+          sups.set(`${p.run}|${p.tool_call_id}`, (p as { result?: unknown }).result);
+          continue;
+        }
+        if ((p.type === 'journal-step' || p.type === 'journal-inject') && typeof p.seq === 'number') {
+          if (settledRuns.has(p.run)) continue; // 已收束：定稿流权威
+          journalLines.push({ run: p.run, seq: p.seq, line: p });
+        }
+      } catch { /* 损坏行忽略 */ }
+    }
+    if (journalLines.length === 0) return [];
+    journalLines.sort((a, b) => a.seq - b.seq);
+    const out: SubagentMessageLine[] = [];
+    // 步行按 run 连续聚合为段行（与 settlement 切段同形——注入行是切分点）
+    let segSteps: NonNullable<SubagentMessageLine['steps']> = [];
+    let segRun: string | undefined;
+    const flushSeg = () => {
+      if (segSteps.length === 0) return;
+      // 补行覆盖：result:null ← 终值（在途 run 的工具结果如实可见）
+      for (const s of segSteps) {
+        for (const tc of s.toolCalls ?? []) {
+          if (tc.result === null || tc.result === undefined) {
+            const hit = sups.get(`${segRun}|${tc.id}`);
+            if (hit !== undefined) tc.result = hit;
+          }
+        }
+      }
+      out.push({
+        role: 'agent',
+        content: '',
+        agent_id: id,
+        run: segRun,
+        partial: true,
+        steps: segSteps,
+        // 步内真实 ts 推导 timestamp（步级排序锚——前端 ridBase 合成与
+        // stepTs 回落均消费；缺 ts 的存量步回落读取时刻）
+        timestamp: new Date(segSteps.find((s) => typeof s.ts === 'number' && s.ts > 0)?.ts ?? Date.now()).toISOString(),
+      });
+      segSteps = [];
+    };
+    for (const item of journalLines) {
+      const p = item.line as { type: string; run: string; step?: NonNullable<SubagentMessageLine['steps']>[number]; message?: { content: string }; agentId?: string; ts?: number };
+      if (p.type === 'journal-step' && p.step !== undefined) {
+        if (segRun !== undefined && segRun !== p.run) flushSeg();
+        segRun = p.run;
+        segSteps.push(p.step);
+        continue;
+      }
+      // journal-inject：切段 + injected user 行（提升形态与 settlement 一致）
+      flushSeg();
+      const ts = p.ts ?? Date.now();
+      out.push({
+        role: 'user',
+        content: p.message?.content ?? '',
+        agent_id: p.agentId ?? '',
+        injected: true,
+        run: p.run,
+        ts,
+        timestamp: new Date(ts).toISOString(),
+      });
+    }
+    flushSeg();
     return out;
+  }
+
+  /** subcalls.jsonl 档案行读取（宽容解析；无文件 = 空表） */
+  private readSubcallLines(id: string): SubcallLine[] {
+    const out: SubcallLine[] = [];
+    try {
+      const raw = fs.readFileSync(this.subcallsPath(id), 'utf-8');
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const p = JSON.parse(line) as Partial<SubcallLine>;
+          if (p.subcall === true && typeof p.run === 'string' && typeof p.tool_call_id === 'string' && p.tool_call_id) {
+            out.push(p as SubcallLine);
+          }
+        } catch { /* 损坏行忽略 */ }
+      }
+    } catch { /* 无文件 = 空表 */ }
+    return out;
+  }
+
+  /**
+   * subcall 档案 → steps[].toolCalls 平铺注入（宿主定位 = tool_call_id 首 #
+   * 前缀，ac-session injectSubcalls 同款）。浅拷贝注入（盘上行对象不被
+   * 变异——重读幂等）；run 进行中档案（宿主步行在 partials、段行未物化）
+   * 无宿主可挂即静默跳过，settlement 后自然挂载。
+   */
+  private injectSubcalls(records: SubagentMessageLine[], subcallLines: SubcallLine[]): SubagentMessageLine[] {
+    if (subcallLines.length === 0) return records;
+    // 宿主 id 索引（O(N+M)；前缀 = run_code 调用的 toolCallId）
+    const byHost = new Map<string, SubcallLine[]>();
+    for (const k of subcallLines) {
+      const hash = k.tool_call_id.indexOf('#');
+      if (hash <= 0) continue;
+      const host = k.tool_call_id.slice(0, hash);
+      const bucket = byHost.get(host);
+      if (bucket) bucket.push(k);
+      else byHost.set(host, [k]);
+    }
+    const injected = records.map((r) => ({
+      ...r,
+      ...(r.steps !== undefined ? { steps: r.steps.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: [...s.toolCalls] } : {}) })) } : {}),
+    }));
+    for (const r of injected) {
+      if (r.steps === undefined) continue;
+      for (const s of r.steps) {
+        if (!s.toolCalls) continue;
+        for (let i = 0; i < s.toolCalls.length; i++) {
+          const kids = byHost.get(s.toolCalls[i]!.id);
+          if (kids === undefined || kids.length === 0) continue;
+          // 排序键 = 行 seq（程序提交序；存量行回退 0 稳定序）
+          kids.sort((a, b) => a.seq - b.seq);
+          s.toolCalls.splice(i + 1, 0, ...kids.map((k) => ({
+            id: k.tool_call_id,
+            name: k.name ?? '(unknown)',
+            arguments: k.arguments ?? '{}',
+            result: k.result,
+            subcall: true as const,
+          })));
+          i += kids.length;
+        }
+      }
+    }
+    return injected;
   }
 
   // ============================================================
@@ -575,14 +992,18 @@ export class SubagentsService extends Service {
     entry: SubEntry,
     text: string,
     mode: SubagentSendMode,
-    extra: { context?: string; conversationId?: string; elevation?: 'sandbox-access' | 'full-access' } = {},
+    extra: { conversationId?: string; elevation?: 'sandbox-access' | 'full-access' } = {},
   ): { delivered: 'started' | 'steered' | 'queued'; settled?: Promise<SubagentRunSummary> } {
     const busy = entry.controller !== undefined;
     if (mode === 'steer' && busy) {
       // steer 地址 = subId（runAddress：conversationId 缺省 → 地址即 agent）
-      if (this.ctx.agentLoop.steer(entry.record.id, { role: 'user', content: text })) {
-        // 注入消息 = 会话事实：立即入档（活跃 run 的回复行收束时追加）
-        this.commitUserLine(entry, text);
+      // 三文件化 2026-12：注入消息改 stash（消费点对账落 journal）——消息对象
+      // 只构造一次：loop.steer 入队的正是它，step-started 消费点按对象身份
+      // 命中 stashed → journal-inject（消费真序）；收束未消费 → steer-dropped
+      // 兜底直落 messages（run 外行不硬造 run）。
+      const injectMsg: LlmMessage = { role: 'user', content: text };
+      if (this.ctx.agentLoop.steer(entry.record.id, injectMsg)) {
+        entry.activeRun?.stashed.set(injectMsg, Date.now());
         return { delivered: 'steered' };
       }
       // 收束窗口已关 → 回落排队（消息不丢，与 ac-conversation D3 同姿势）
@@ -590,7 +1011,6 @@ export class SubagentsService extends Service {
     const token = `w${++this.seq}`;
     entry.inbox.push({
       text,
-      ...(extra.context ? { context: extra.context } : {}),
       ...(extra.conversationId ? { conversationId: extra.conversationId } : {}),
       ...(extra.elevation ? { elevation: extra.elevation } : {}),
       token,
@@ -619,7 +1039,7 @@ export class SubagentsService extends Service {
   private async runLoop(entry: SubEntry): Promise<void> {
     entry.consuming = true;
     try {
-      while (true) {
+      for (;;) {
         if (entry.record.deleted) break;
         const next = entry.inbox.shift();
         if (next === undefined) break;
@@ -654,6 +1074,7 @@ export class SubagentsService extends Service {
     rec.status = 'running';
     rec.updatedAt = startedAt;
     this.persistRegistry();
+    this.ctx.emit('subagents/updated', this.infoOf(rec), 'started');
 
     // job 登记回调句柄：先声明后使用——settle 闭包会被早期失败路径
     // （模型解析失败等，先于 jobs.start）调用，声明滞后即 TDZ ReferenceError
@@ -662,11 +1083,13 @@ export class SubagentsService extends Service {
     const settle = (s: SubagentRunSummary): SubagentRunSummary => {
       entry.controller = undefined;
       entry.abortReason = undefined;
+      entry.activeRun = undefined; // 闭簿（settlement 已在调用前完成——见收束段）
       rec.status = 'idle';
       rec.runs++;
       rec.lastRun = s;
       rec.updatedAt = Date.now();
       this.persistRegistry();
+      this.ctx.emit('subagents/updated', this.infoOf(rec), 'settled');
       if (item.token !== undefined) {
         const w = entry.waiters.get(item.token);
         if (w) {
@@ -681,10 +1104,17 @@ export class SubagentsService extends Service {
       return s;
     };
 
-    // 上下文装载 + 首条消息框架
+    // journal 簿记开簿（三文件化 2026-12）：步行/注入/补行事件监听据此路由。
+    // 此处置位覆盖全部后续路径（模型解析失败也在簿记之后——空 journal +
+    // settlement 无物化对象，行为与旧整行直落一致）。
+    const run = genRunId();
+    entry.activeRun = { run, journaled: false, stashed: new Map(), seq: 1, pendingSups: [] };
+
+    // 上下文装载 + 首条消息（frameTask 已退役 2026-12：任务原文直传；
+    // context 参数同批退役——背景材料写进 task 或 send 追加，表达力等价）
     const messages = await this.ensureMessages(entry);
     const first = messages.length === 0;
-    const content = first ? frameTask(item.text, item.context) : item.text;
+    const content = item.text;
     if (first && !rec.task) {
       rec.task = item.text.slice(0, 80);
       this.persistRegistry();
@@ -694,19 +1124,20 @@ export class SubagentsService extends Service {
 
     // 模型解析（每 run 现解析——父配置热更生效）
     let model: string;
+    const failRun = (err: unknown): SubagentRunSummary => settle({
+      status: 'error',
+      finish: 'error',
+      error: err instanceof Error ? err.message : String(err),
+      startedAt,
+      finishedAt: Date.now(),
+    });
     let provider: string | undefined;
     try {
       const resolved = this.resolveModel(rec.parentId);
       model = resolved.model;
       provider = resolved.provider;
     } catch (err: unknown) {
-      return settle({
-        status: 'error',
-        finish: 'error',
-        error: err instanceof Error ? err.message : String(err),
-        startedAt,
-        finishedAt: Date.now(),
-      });
+      return failRun(err);
     }
 
     // job 登记（每 run 一条；失败不阻塞执行——与旧 spawn 同姿势）
@@ -719,7 +1150,7 @@ export class SubagentsService extends Service {
         meta: { subagentId: rec.id, name: rec.name, parentId: rec.parentId },
         run: () => ({
           cancel: () => {
-            this.stopRun(entry, 'stop');
+            this.stopRun(entry);
           },
           done: new Promise<JobOutcome>((resolveJob) => {
             jobDone = resolveJob;
@@ -762,25 +1193,30 @@ export class SubagentsService extends Service {
       // requiredTags 工具对子 Agent 不可见不可执行）；system/llmParams
       // 现读父配置（热更生效）。
       const caps = capabilitySetOf(this.ctx, rec.id);
-      const allowed = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps)).map((t) => t.name);
+      const allDefs = this.ctx.tools.list();
+      // 常规能力面（对齐 router：injection 分流——mode 工具不进常规面，
+      // tc-programmatic 时经 narrowToolsByMode 从 defs 合成）
+      const allowed = allDefs.filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps)).map((t) => t.name);
       let names = rec.toolNames && rec.toolNames.length > 0 ? rec.toolNames.filter((n) => allowed.includes(n)) : allowed;
-      // 工具调用模式传播（2026-09-17 统一重构 + 优化裁决：tc-* 纯模式词
-      // ——run_code 授权词 = infra，程序化是形态选择非授权门槛）：子
-      // Agent 未显式点名 tools（spawn.tools 优先）时，生效档 = 发起会话
-      // 覆盖（conv-settings toolMode）?? toolModeOf(父)——tc-programmatic
-      // ⇒ 收窄 ['run_code']、tc-none ⇒ 空面、tc-base ⇒ 不动。投影注入由
-      // ac-run-code prompt.ts 按 run 级 request.tools 自然生效。run_code
-      // 不在能力面（父无 infra）时忽略该档（与 router 惰性同口径）。
-      if (!rec.toolNames || rec.toolNames.length === 0) {
-        const convSettings = this.ctx.get('convSettings', false) as
-          | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
-          | undefined;
-        const parentMode = toolModeOf(parent);
-        const mode = (item.conversationId ? convSettings?.get(item.conversationId).toolMode : undefined) ?? parentMode;
-        if (mode === 'tc-programmatic' && allowed.includes('run_code')) {
-          names = ['run_code'];
-        } else if (mode === 'tc-none') {
-          names = [];
+      // 工具调用模式传播（2026-12 injection 轴重构后单源化；同日二次修正：
+      // 收窄不再限定「未点名」——与 router 真实 run 同口径，mode 对任何面
+      // 生效）：生效档 = 发起会话覆盖（conv-settings toolMode）??
+      // toolModeOf(父)——tc-programmatic ⇒ LLM 面合成 mode 工具集
+      // （injection:'mode'，与 tags/点名无关——**点名工具不丢失**：仍在
+      // 能力面，经 run_code 投影〔scope='projection' 能力面直取〕程序内
+      // tools.<name>() 可调，门禁逐调用复检）；tc-none ⇒ 空面；tc-base ⇒
+      // 点名面/能力面（spawn.tools 只在该档收窄面）。判定/收窄用 ac-agents
+      // 单源（effectiveToolMode/narrowToolsByMode）。投影注入由 ac-run-code
+      // prompt.ts 按 run 级 request.tools 自然生效。
+      {
+        const mode = effectiveToolMode(parent, item.conversationId, {
+          convSettings: this.ctx.get('convSettings', false) as
+            | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+            | undefined,
+        });
+        names = narrowToolsByMode(names, allDefs, mode);
+        if (mode === 'tc-programmatic' && names.length === 0) {
+          this.ctx.logger.warn('[subagent] 工具调用模式为 tc-programmatic 但无 injection:mode 工具（run-code 行未装），子 Agent 工具面为空——形同 tc-none，不回落常规工具面');
         }
       }
       const llmParams = filterLlmParams(parent?.llmParams);
@@ -793,30 +1229,47 @@ export class SubagentsService extends Service {
         messages: [...messages],
         // 空集照传（loop 收敛为无工具）——缺省会回落全量已注册，绕过门禁
         tools: names,
-        maxSteps: rec.maxSteps,
-        ...(parent?.system ? { system: parent.system } : {}),
+        // system 装配（2026-12 人格防污染）：显式固化（rec.system）优先——
+        // 完全接管人格语义；缺省继承父人设（与 tags/settings 继承同族）
+        ...(rec.system !== undefined ? { system: rec.system } : parent?.system ? { system: parent.system } : {}),
         ...(Object.keys(llmParams).length > 0 ? { llmParams } : {}),
         ...(parentTier !== 'base-access' ? { elevation: parentTier } : {}),
         signal: controller.signal,
       });
     } catch (err: unknown) {
       clearTimeout(timer);
-      return settle({
-        status: 'error',
-        finish: 'error',
-        error: err instanceof Error ? err.message : String(err),
-        startedAt,
-        finishedAt: Date.now(),
-      });
+      return failRun(err);
     }
     clearTimeout(timer);
 
-    // 回复行（非空才入档——中断/空回复不留半行，与 ac-session 同口径）。
-    // R1/R2：agent 行携带全量 steps[]（收束一次性落盘）——思维链/工具卡/
-    // 步级时序进展示面；ensureMessages 回放口径不变（steps 不进子上下文）。
-    if (result.text) {
-      const steps = result.steps.map(toStepRecord);
-      messages.push({ role: 'assistant', content: result.text });
+    // settlement（三文件化 2026-12，对齐 ac-session 2026-11 泛化裁决）：
+    // 有 journal（步行/注入/补行任一）→ 切段物化提升进 messages + journal
+    // 剔除（含错误/中断收束——run 做过的推理是会话事实）；无 journal 的 run
+    //（一步即溃/纯文本空转）照旧整行直落（与三文件化前零变化）。
+    // 内存消息数组同步追加（与 ensureMessages 展开口径一致——跨 run 轨迹
+    // 复放，探查型/中断 run 不失忆）：有步 = expandSteps 展开（末步 content
+    // 即终文本，与主会话 replayTrajectory 单源同形）；无步纯文本 = 终文本行。
+    {
+      const steps = result.steps.map((s) => toStepRecord(s, (i) => s.toolResults[i] ?? null));
+      if (steps.length > 0) messages.push(...expandSteps(steps));
+      else if (result.text) messages.push({ role: 'assistant', content: result.text });
+    }
+    const active = entry.activeRun!;
+    if (active.journaled) {
+      this.settleRun(entry, active, result, run);
+    } else if (result.finish === 'error') {
+      // 无 journal 的错误收束（一步即溃）也要落 error 行：失败是会话事实，
+      // 静默 = 用户只见 run 无响应（形态与 settleRun 内 error 分支一致：
+      // role:'context' + source:'error'——主会话 D12/F7 同口径）
+      this.appendMessage(rec.id, {
+        role: 'context',
+        content: String(result.error ?? '循环失败'),
+        agent_id: rec.id,
+        source: 'error',
+        run,
+      });
+    } else if (result.text) {
+      const steps = result.steps.map((s) => toStepRecord(s, (i) => s.toolResults[i] ?? null));
       this.appendMessage(rec.id, {
         role: 'agent',
         content: result.text,
@@ -845,7 +1298,290 @@ export class SubagentsService extends Service {
     });
   }
 
-  private stopRun(entry: SubEntry, reason: 'stop' | 'timeout'): boolean {
+  // ============================================================
+  // settlement（run 收束物化，三文件化 2026-12）
+  // ============================================================
+
+  /**
+   * settlement 主流程：journal（盘上行 + 内存 pendingSups）按真序切段 →
+   * 提升进 messages.jsonl（含 run-settled 判别行）→ partials 剔除。
+   * subcalls 行不剔除（永久档案）。数据源合并读（ac-session readJournalRun
+   * 同款语义）：崩溃场景本方法不走（recoverJournal 收口），运行时盘上
+   * 行优先、内存 pendingSups 只补 append 失败窗口的缺口（readJournal
+   * 身份去重；同键重放幂等）。
+   */
+  private settleRun(entry: SubEntry, active: NonNullable<SubEntry['activeRun']>, result: LoopRunResult, run: string): void {
+    if (this.storeDir === undefined) return; // 纯内存态：无中间态可物化（内存 messages 数组已追加）
+    const id = entry.record.id;
+    const { stepLines, injectLines, sups } = this.readJournal(id, run);
+    if (stepLines.length === 0 && injectLines.length === 0 && sups.length === 0) return; // 空 journal：无物化对象（防御）
+    // 补行并入（keyed by tool_call_id；同键新行在后覆盖——重放幂等）
+    const supMap = new Map<string, unknown>();
+    for (const s of sups) supMap.set(s.tool_call_id, s.result);
+    const steps = stepLines.map((x) => x.step);
+    for (const sl of steps) {
+      for (const tc of sl.toolCalls ?? []) {
+        const hit = supMap.get(tc.id);
+        if (hit !== undefined) tc.result = hit;
+      }
+    }
+    // 权威覆盖：收束 result 终值（journal 步行与收束行同源；防御差异以收束为准）
+    const allSteps = result.steps.map((s) => toStepRecord(s, (i) => s.toolResults[i] ?? null));
+    if (allSteps.length === steps.length) {
+      for (let i = 0; i < steps.length; i++) {
+        for (let k = 0; k < (steps[i].toolCalls ?? []).length; k++) {
+          const tc = steps[i].toolCalls![k]!;
+          const auth = allSteps[i].toolCalls?.[k];
+          if (auth) tc.result = auth.result;
+        }
+      }
+    }
+    // 切段：注入行 = 切分点。全行带 run 键（对账锚——同 run 非 partial 行存在性）
+    const mergedSeq = [
+      ...stepLines.map((s) => ({ kind: 'step' as const, seq: s.seq, step: s.step })),
+      ...injectLines.map((j) => ({ kind: 'inject' as const, seq: j.seq, line: j })),
+    ].sort((a, b) => a.seq - b.seq);
+    const segs: Array<NonNullable<SubagentMessageLine['steps']>> = [];
+    const injects: JournalInjectLine[] = [];
+    let seg: NonNullable<SubagentMessageLine['steps']> = [];
+    for (const item of mergedSeq) {
+      if (item.kind === 'step') { seg.push(item.step); continue; }
+      segs.push(seg); seg = [];
+      injects.push(item.line);
+    }
+    segs.push(seg); // 尾段
+    const hasSegments = injects.length > 0;
+    const batch: Array<() => void> = [];
+    const pushSeg = (stepsSeg: NonNullable<SubagentMessageLine['steps']>) => {
+      if (stepsSeg.length === 0) return;
+      batch.push(() => this.appendMessage(id, {
+        role: 'agent',
+        content: stepsSeg.at(-1)?.content ?? '',
+        agent_id: entry.record.id,
+        steps: stepsSeg,
+        run,
+      }));
+    };
+    if (hasSegments) {
+      // 切分形态：段行 + 注入提升行交错；终文本在尾段末步（收束行退役——不重复落）
+      for (let i = 0; i < injects.length; i++) {
+        pushSeg(segs[i]!);
+        const j = injects[i]!;
+        const ts = j.ts ?? Date.now();
+        batch.push(() => this.appendMessage(id, {
+          role: 'user',
+          content: j.message.content,
+          agent_id: j.agentId ?? entry.record.parentId,
+          injected: true,
+          run,
+          ts,
+        }));
+      }
+      pushSeg(segs.at(-1)!);
+    } else if (result.finish === 'error') {
+      // 错误收束：尾段步物化 + context error 行（run 做过的推理是会话事实）。
+      // role:'context'（主会话 D12/F7 同口径）：UI 错误分隔符（toHistoryMessages
+      // 只认 context+source:error）+ 回放不进子上下文（下方 user 轮过滤）。
+      // 存量 role:'user'+source:'error' 行读侧照常兼容（historyApi 200 行分支
+      // 不命中时落普通 user 渲染，行为同旧）。
+      pushSeg(segs[0]!);
+      batch.push(() => this.appendMessage(id, {
+        role: 'context',
+        content: String(result.error ?? '循环失败'),
+        agent_id: entry.record.id,
+        source: 'error',
+        run,
+      }));
+    } else {
+      // 无切分：整 run 单行直落（终文本 + 全部 steps；与三文件化前同形 + run 键）
+      const text = result.text;
+      batch.push(() => this.appendMessage(id, {
+        role: 'agent',
+        content: text,
+        agent_id: entry.record.id,
+        ...(steps.length > 0 ? { steps } : {}),
+        ...(steps.length > 0 && steps.at(-1)?.reasoning ? { reasoning: steps.at(-1)!.reasoning } : {}),
+        run,
+      }));
+    }
+    for (const fn of batch) fn();
+    // settled 判别行（提升批尾——原子提交标记 + 恢复判定诊断信号）
+    try {
+      const file = this.messagesPath(id);
+      fs.appendFileSync(file, JSON.stringify({ type: 'run-settled', run, seq: this.nextMsgSeq(file) } satisfies RunSettledLine) + '\n', 'utf-8');
+    } catch { /* 判别行失败不阻塞——恢复判定按组员存在性 */ }
+    // journal 剔除（按行身份；subcalls 永久档案不在此文件，天然不受影响）
+    this.rewritePartials(id, new Set([
+      ...stepLines.map((s) => journalIdentityOf('journal-step', run, s.seq)),
+      ...injectLines.map((j) => journalIdentityOf('journal-inject', run, j.seq)),
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- as-cast 后判别键比较是运行时判别（盘上 JSON 往返行 subcall 键可缺席）
+      ...sups.filter((s) => (s as SubcallLine).subcall !== true).map((s) => journalIdentityOf('tool-result', run, s.tool_call_id)),
+    ]));
+  }
+
+  /** journal 读取（盘上 partials + subcalls + 内存 pendingSups 合并；身份去重——盘上优先，内存行仅补盘上缺口〔append 失败窗口〕） */
+  private readJournal(id: string, run: string): { stepLines: JournalStepLine[]; injectLines: JournalInjectLine[]; sups: Array<ToolResultLine | SubcallLine> } {
+    const stepLines: JournalStepLine[] = [];
+    const injectLines: JournalInjectLine[] = [];
+    const sups: Array<ToolResultLine | SubcallLine> = [];
+    const seen = new Set<string>();
+    const collect = (raw: string) => {
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const p = JSON.parse(line) as Record<string, unknown>;
+          if (p.run !== run) continue;
+          const ident = journalIdentity(line);
+          if (ident !== undefined) {
+            if (seen.has(ident)) continue;
+            seen.add(ident);
+          }
+          if (p.type === 'journal-step') stepLines.push(p as unknown as JournalStepLine);
+          else if (p.type === 'journal-inject') injectLines.push(p as unknown as JournalInjectLine);
+          else if (p.type === 'tool-result') sups.push(p as unknown as ToolResultLine | SubcallLine);
+        } catch { /* 损坏行忽略 */ }
+      }
+    };
+    if (this.storeDir !== undefined) {
+      for (const f of [this.partialsPath(id), this.subcallsPath(id)]) {
+        try { collect(fs.readFileSync(f, 'utf-8')); } catch { /* 无文件 = 空 */ }
+      }
+    }
+    // 内存 pendingSups 后入（同身份覆盖语义由 readJournal 的 seen 去重天然实现：盘上旧行被跳过）
+    for (const p of this.entries.get(id)?.activeRun?.pendingSups ?? []) {
+      try {
+        const parsed = JSON.parse(p.line) as ToolResultLine | SubcallLine;
+        if (!seen.has(p.identity)) { seen.add(p.identity); sups.push(parsed); }
+      } catch { /* 忽略 */ }
+    }
+    return { stepLines, injectLines, sups };
+  }
+
+  /** partials.jsonl 剔除已提升 run 的行（按行身份；全空 = 删文件） */
+  private rewritePartials(id: string, identities: Set<string>): void {
+    if (this.storeDir === undefined) return;
+    const file = this.partialsPath(id);
+    if (!fs.existsSync(file)) return;
+    const lines = fs.readFileSync(file, 'utf-8').split('\n');
+    const kept: string[] = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const ident = journalIdentity(line);
+      if (ident !== undefined && identities.has(ident)) continue;
+      kept.push(line);
+    }
+    if (kept.length === 0) { try { fs.rmSync(file); } catch { /* 并发删无害 */ } return; }
+    if (kept.length === lines.filter((x) => x.trim()).length) return; // 无剔除（幂等）
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, kept.join('\n') + '\n', 'utf-8');
+    fs.renameSync(tmp, file);
+  }
+
+  /**
+   * journal 恢复（崩溃窗口收口，惰性触发——ensureMessages 触达时）：
+   * partials 有行但 messages 无对应 run 组员（进程死亡）→ 投影为中断收束
+   * 段行提升进 messages（durable 定稿）→ 剔除 journal。幂等：重放提升批
+   * 行身份一致（run 键锚定），已 settled 的 run 直接剔除。
+   */
+  private recoverJournal(entry: SubEntry): void {
+    if (this.storeDir === undefined) return;
+    const id = entry.record.id;
+    const partFile = this.partialsPath(id);
+    let raw: string;
+    try {
+      raw = fs.readFileSync(partFile, 'utf-8');
+    } catch {
+      return; // 无 journal = 无崩溃窗口
+    }
+    if (!raw.trim()) { try { fs.rmSync(partFile); } catch { /* 忽略 */ } return; }
+    // messages 已 settled 的 run 键集（同 run 非 partial 行存在性——无单点锚）
+    const settled = new Set<string>();
+    try {
+      for (const line of fs.readFileSync(this.messagesPath(id), 'utf-8').split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const p = JSON.parse(line) as { run?: unknown; role?: unknown; type?: unknown };
+          if (typeof p.run === 'string' && p.run && p.type !== 'run-settled') settled.add(p.run);
+        } catch { /* 忽略 */ }
+      }
+    } catch { /* 无 messages 文件 = 全部未 settled */ }
+    // 按 run 分组 journal 行
+    const runs = new Map<string, { stepLines: JournalStepLine[]; injectLines: JournalInjectLine[]; sups: Array<ToolResultLine | SubcallLine> }>();
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const p = JSON.parse(line) as Record<string, unknown>;
+        if (typeof p.run !== 'string' || !p.run) continue;
+        let bucket = runs.get(p.run);
+        if (!bucket) { bucket = { stepLines: [], injectLines: [], sups: [] }; runs.set(p.run, bucket); }
+        if (p.type === 'journal-step') bucket.stepLines.push(p as unknown as JournalStepLine);
+        else if (p.type === 'journal-inject') bucket.injectLines.push(p as unknown as JournalInjectLine);
+        else if (p.type === 'tool-result' && p.subcall !== true) bucket.sups.push(p as unknown as ToolResultLine);
+      } catch { /* 损坏行忽略 */ }
+    }
+    if (runs.size === 0) { try { fs.rmSync(partFile); } catch { /* 忽略 */ } return; }
+    const identities = new Set<string>();
+    for (const [run, bucket] of runs) {
+      if (settled.has(run)) {
+        // 提升 批已 durable（append 后 clear 前崩溃）→ 直接剔除（幂等）
+        for (const s of bucket.stepLines) identities.add(journalIdentityOf('journal-step', run, s.seq));
+        for (const j of bucket.injectLines) identities.add(journalIdentityOf('journal-inject', run, j.seq));
+        for (const s of bucket.sups) identities.add(journalIdentityOf('tool-result', run, s.tool_call_id));
+        continue;
+      }
+      // 孤儿 run（进程死亡时未收束）→ 投影为中断收束段行
+      const supMap = new Map<string, unknown>();
+      for (const s of bucket.sups) supMap.set(s.tool_call_id, s.result);
+      const merged = [
+        ...bucket.stepLines.map((s) => ({ kind: 'step' as const, seq: s.seq, step: s.step })),
+        ...bucket.injectLines.map((j) => ({ kind: 'inject' as const, seq: j.seq, line: j })),
+      ].sort((a, b) => a.seq - b.seq);
+      const segs: Array<NonNullable<SubagentMessageLine['steps']>> = [];
+      const injects: JournalInjectLine[] = [];
+      let seg: NonNullable<SubagentMessageLine['steps']> = [];
+      for (const item of merged) {
+        if (item.kind === 'step') { seg.push(item.step); continue; }
+        segs.push(seg); seg = [];
+        injects.push(item.line);
+      }
+      segs.push(seg);
+      for (let i = 0; i < injects.length; i++) {
+        if (segs[i] && segs[i].length > 0) {
+          for (const st of segs[i]!) for (const tc of st.toolCalls ?? []) { const hit = supMap.get(tc.id); if (hit !== undefined) tc.result = hit; }
+          this.appendMessage(id, { role: 'agent', content: segs[i]!.at(-1)?.content ?? '', agent_id: id, steps: segs[i]!, run });
+        }
+        const j = injects[i]!;
+        this.appendMessage(id, { role: 'user', content: j.message.content, agent_id: j.agentId ?? entry.record.parentId, injected: true, run, ts: j.ts ?? Date.now() });
+      }
+      const tail = segs.at(-1)!;
+      if (tail.length > 0) {
+        for (const st of tail) for (const tc of st.toolCalls ?? []) { const hit = supMap.get(tc.id); if (hit !== undefined) tc.result = hit; }
+        this.appendMessage(id, { role: 'agent', content: tail.at(-1)?.content ?? '', agent_id: id, steps: tail, run });
+      }
+      for (const s of bucket.stepLines) identities.add(journalIdentityOf('journal-step', run, s.seq));
+      for (const j of bucket.injectLines) identities.add(journalIdentityOf('journal-inject', run, j.seq));
+      for (const s of bucket.sups) identities.add(journalIdentityOf('tool-result', run, s.tool_call_id));
+    }
+    this.rewritePartials(id, identities);
+  }
+
+  /** messages.jsonl 行序号（判别行 seq 用；末行续起） */
+  private nextMsgSeq(file: string): number {
+    try {
+      const lines = fs.readFileSync(file, 'utf-8').trim().split('\n');
+      const last = lines.at(-1);
+      if (last) {
+        const p = JSON.parse(last) as { seq?: unknown };
+        if (typeof p.seq === 'number') return p.seq + 1;
+      }
+    } catch { /* 无文件/解析失败 = 1 */ }
+    return 1;
+  }
+
+  /** reason 字面量赋值会让 TS 流分析把 abortReason narrow 成单值，致 1285
+   * 的 timeout 比较被误判恒 false（看门狗 1173 的异步写点流分析不可见）——
+   * 参数形式保住联合类型，勿内联字面量 */
+  private stopRun(entry: SubEntry, reason: 'stop' | 'timeout' = 'stop'): boolean {
     if (entry.controller === undefined) return false;
     entry.abortReason = reason;
     entry.controller.abort();
@@ -922,7 +1658,7 @@ export class SubagentsService extends Service {
     return entry;
   }
 
-  private infoOf(rec: SubagentRecord): SubagentInfo {
+  infoOf(rec: SubagentRecord): SubagentInfo {
     const running = this.entries.get(rec.id)?.controller !== undefined || rec.status === 'running';
     return {
       id: rec.id,
@@ -934,6 +1670,7 @@ export class SubagentsService extends Service {
       runs: rec.runs,
       createdAt: rec.createdAt,
       updatedAt: rec.updatedAt,
+      deleted: rec.deleted,
       ...(rec.lastRun ? { lastRun: rec.lastRun } : {}),
     };
   }
@@ -942,8 +1679,40 @@ export class SubagentsService extends Service {
     return path.join(this.storeDir!, 'index.json');
   }
 
+  /** 会话目录（三文件化 2026-12：<root>/subagents/<subId>/） */
+  private subDir(id: string): string {
+    return path.join(this.storeDir!, id);
+  }
+
+  /** 定稿流（messages.jsonl；迁移 v3 前的旧单文件 = <subId>.jsonl 回退） */
   private messagesPath(id: string): string {
-    return path.join(this.storeDir!, `${id}.jsonl`);
+    return fs.existsSync(path.join(this.storeDir!, `${id}.jsonl`))
+      ? path.join(this.storeDir!, `${id}.jsonl`)
+      : path.join(this.subDir(id), 'messages.jsonl');
+  }
+
+  /** run journal（partials.jsonl；旧单文件会话无此文件——空 journal 语义） */
+  private partialsPath(id: string): string {
+    return path.join(this.subDir(id), 'partials.jsonl');
+  }
+
+  /** 子调用档案（subcalls.jsonl；永久保留——与 journal 生命周期相反） */
+  private subcallsPath(id: string): string {
+    return path.join(this.subDir(id), 'subcalls.jsonl');
+  }
+
+  /** journal 行追加（步行/注入/补行统一入口；按行 kind 分流目标文件） */
+  private appendJournalLine(entry: SubEntry, line: JournalStepLine | JournalInjectLine | ToolResultLine | SubcallLine): void {
+    if (this.storeDir === undefined) return; // 纯内存态：journal 只服务 settlement（内存态无中间态可恢复）
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上：判别键的运行时判别
+      const isSub = (line as SubcallLine).subcall === true;
+      const file = isSub ? this.subcallsPath(entry.record.id) : this.partialsPath(entry.record.id);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, JSON.stringify(line) + '\n', 'utf-8');
+    } catch (err: unknown) {
+      this.ctx.logger.warn(`[subagent] journal 落盘失败（${entry.record.id}）: ${String(err)}`);
+    }
   }
 
   /** 启动装载：注册表全量入内存；running → idle（崩溃恢复） */
@@ -958,7 +1727,8 @@ export class SubagentsService extends Service {
     let dirty = false;
     try {
       const parsed = JSON.parse(raw) as RegistryFile;
-      for (const rec of parsed?.subs ?? []) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 盘上 JSON 宽容读（旧注册表可缺 subs/有坏行）
+      for (const rec of parsed.subs ?? []) {
         if (!rec || typeof rec.id !== 'string' || !safeId(rec.id)) continue;
         if (rec.deleted !== true && rec.status === 'running') {
           rec.status = 'idle'; // run 随宿主死亡
@@ -992,19 +1762,30 @@ export class SubagentsService extends Service {
     if (entry.messages !== undefined) return entry.messages;
     const lines: LlmMessage[] = [];
     if (this.storeDir !== undefined) {
+      // journal 恢复（惰性触发——触达即收口崩溃窗口）+ 活投影读取
+      this.recoverJournal(entry);
       try {
         const raw = fs.readFileSync(this.messagesPath(entry.record.id), 'utf-8');
         for (const line of raw.split('\n')) {
-          if (!line.trim()) continue;
+          if (!line.trim() || isRunSettledLine(line)) continue;
           try {
             const parsed = JSON.parse(line) as SubagentMessageLine;
-            if (parsed && typeof parsed.content === 'string') {
-              // 回放口径归一：agent/assistant → assistant；steps 不进子
-              // 上下文（工具轮次不跨 run 复放——上下文语义与落盘格式
-              // 演进前完全一致）
+            if (typeof parsed.content === 'string') {
+              // 回放口径归一：agent/assistant → assistant；context 行不进
+              // 子上下文（错误/材料行是会话展示事实，非对话轮；error 收束行
+              // 2026-12 起写 context，存量 user+source:error 行仍走 user 回放，
+              // 行为同旧）。agent 行携带 steps 时按 expandSteps 轨迹展开
+              // （2026-12 多轮失忆修复：与主会话 replayTrajectory 同口径——
+              // 探查型/中断 run 无终文本也不丢推理与工具结果对；result:null
+              // 悬空调用由 expandSteps 合成配对 tool 行，openai 系不拒单）。
+              // 旧无 steps 行照旧只回放 content。
               if (parsed.role === 'user') lines.push({ role: 'user', content: parsed.content });
               else if (parsed.role === 'agent' || parsed.role === 'assistant') {
-                lines.push({ role: 'assistant', content: parsed.content });
+                if (parsed.steps !== undefined && parsed.steps.length > 0) {
+                  lines.push(...expandSteps(parsed.steps));
+                } else if (parsed.content) {
+                  lines.push({ role: 'assistant', content: parsed.content });
+                }
               }
             }
           } catch {
@@ -1023,30 +1804,23 @@ export class SubagentsService extends Service {
    * 会话行追加（SubagentMessageLine 全形；尽力而为，失败不阻塞）。
    * message_id/timestamp 此处铸造（对齐 ac-session：落盘前固化）。
    */
-  private appendMessage(id: string, line: Omit<SubagentMessageLine, 'message_id' | 'ts' | 'timestamp'>): void {
+  private appendMessage(id: string, line: Omit<SubagentMessageLine, 'message_id' | 'ts' | 'timestamp'> & { ts?: number }): void {
     if (this.storeDir === undefined) return;
     try {
-      if (!this.ensuredDir) {
-        fs.mkdirSync(this.storeDir, { recursive: true });
-        this.ensuredDir = true;
-      }
-      const ts = Date.now();
+      const dir = this.subDir(id);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const ts = line.ts ?? Date.now();
+      const { ts: _ts, ...rest } = line;
       const full: SubagentMessageLine = {
         message_id: genMessageId(),
         ts,
         timestamp: new Date(ts).toISOString(),
-        ...line,
+        ...rest,
       };
       fs.appendFileSync(this.messagesPath(id), `${JSON.stringify(full)}\n`, 'utf-8');
     } catch (err: unknown) {
       this.ctx.logger.warn(`[subagent] 会话落盘失败（${id}/${line.role}）: ${String(err)}`);
     }
-  }
-
-  /** steer 注入的消息即时入档（内存 + 磁盘；活跃 run 回复行收束时追加） */
-  private commitUserLine(entry: SubEntry, text: string): void {
-    entry.messages?.push({ role: 'user', content: text });
-    this.appendMessage(entry.record.id, { role: 'user', content: text, agent_id: entry.record.parentId });
   }
 
   // ============================================================
@@ -1065,7 +1839,7 @@ export class SubagentsService extends Service {
     const id = String(args.subagent_id ?? '');
     if (!id) {
       if (args.action === 'send' || args.action === 'await' || args.action === 'stop' || args.action === 'delete') {
-        const owned = this.list({ parentId })?.total ?? this.list().total;
+        const owned = this.list({ parentId }).total;
         if (owned === 0) {
           return {
             ok: false,
@@ -1120,8 +1894,9 @@ export class SubagentsService extends Service {
       name: 'subagent',
       description:
         '派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话，不接触任何接收方）。'
-        + 'spawn 创建并可选启动首条任务；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（list 不再可见）。'
-        + '注意：本工具管理的是"你私有的子 Agent 看板"，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。',
+        + 'spawn 创建并可选启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（list 不再可见）。'
+        + '注意：本工具管理的是"你私有的子 Agent 看板"，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。'
+        + '长输出指引：预期产出长文本（报告/清单/多文件分析等）时，在输出约束里要求子 Agent 把完整产出写入文件（给明确路径），回复只报路径与要点摘要——长回复走回传通道会撞输出体积预算被截断（头尾保留、中段丢失）；需要细节时再 read 该文件（可分页无损读取）。',
       requiredTags: ['delegation'],
       parameters: {
         type: 'object',
@@ -1134,16 +1909,19 @@ export class SubagentsService extends Service {
           task: {
             type: 'string',
             description:
-              '[spawn] 首条任务消息，需完整自包含（子 Agent 看不到你的会话）——把内容完整写进本参数，不要"请转交以下内容："式截断。省略则仅创建不启动，之后用 send 发首条',
+              '[spawn] 首条任务消息，需完整自包含（子 Agent 看不到你的会话）——把内容完整写进本参数，不要"请转交以下内容："式截断。任务的角色定位/专业视角/输出约束放 system 参数（固化人设，勿混进 task）。长文本产出类任务的输出约束建议写明：完整结果写入指定文件、回复只给路径+要点（长回复会被截断）。省略则仅创建不启动，之后用 send 发首条',
           },
           name: { type: 'string', description: '[spawn] 子 Agent 名称' },
           tools: {
             type: 'array',
             items: { type: 'string' },
             description:
-              '[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤）。缺省不传 = 继承你的工具面（若你的会话开了程序化开关，子 Agent 同样收窄为 run_code 单入口）；传空数组 [] = 纯推理子 Agent：没有任何工具、不能读写文件/联网/发消息，只能基于任务文本推理',
+              '[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤）。缺省不传 = 继承你的工具面。程序化模式随会话传播（与点名无关）：程序化档下子 Agent 的 LLM 面恒为 run_code 单入口，点名的工具不丢失——它们进 run_code SDK 投影，程序内 tools.<name>() 照常可调；tc-base 档下点名集才直接成为 LLM 面。传空数组 [] = 纯推理子 Agent（tc-base 档下无任何工具；程序化档被 mode 集覆盖）',
           },
-          context: { type: 'string', description: '[spawn] 首条任务的附加上下文' },
+          system: {
+            type: 'string',
+            description: '[spawn] 子 Agent 的 system prompt（人设/行为约束）。传入即固化（跨轮/跨重启）并完全接管人格语义——不继承父 Agent 的人设与 persona 配置；缺省 = 继承父。框架块（系统环境/工具指引）与程序化模式的 SDK 投影仍会自动追加，无需手写',
+          },
           subagent_id: {
             type: 'string',
             description: '[send/await/stop/delete] 目标子 Agent ID（spawn 返回的 subagent_id，可 list 查询；勿凭记忆复写）',
@@ -1158,7 +1936,6 @@ export class SubagentsService extends Service {
             description:
               '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）',
           },
-          max_steps: { type: 'number', description: '[spawn] 每轮步数上限（默认 15）', minimum: 1 },
           timeout_s: { type: 'number', description: '[spawn] 每轮 run 超时秒数（0 = 缺省不限——研究型任务常为长任务；正值 = 超时强制终止）', minimum: 0 },
           wait_time: {
             type: 'number',
@@ -1217,9 +1994,8 @@ export class SubagentsService extends Service {
               parentId,
               ...(args.name ? { name: String(args.name) } : {}),
               ...(task ? { task } : {}),
-              ...(args.context ? { context: String(args.context) } : {}),
+              ...(typeof args.system === 'string' && args.system.trim() ? { system: args.system } : {}),
               ...(Array.isArray(args.tools) ? { toolNames: args.tools.map((s: unknown) => String(s)) } : {}),
-              ...(Number(args.max_steps) > 0 ? { maxSteps: Number(args.max_steps) } : {}),
               ...(Number(args.timeout_s) >= 0 ? { timeoutMs: Math.round(Number(args.timeout_s) * 1000) } : {}),
               ...(call.conversationId ? { conversationId: call.conversationId } : {}),
               ...(call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? { elevation: call.elevation } : {}),

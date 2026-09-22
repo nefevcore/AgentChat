@@ -20,7 +20,7 @@ import { executeRunCode, type RunCodeRowOptions } from './tool.ts';
 import { registerProjectionInjection } from './prompt.ts';
 
 export type { RunCodeRowOptions } from './tool.ts';
-export { resolveEffectiveTools, resolveWorkerEntry, __runCodeTestHooks } from './tool.ts';
+export { resolveEffectiveTools, __runCodeTestHooks } from './tool.ts';
 
 export const name = 'ac-run-code';
 

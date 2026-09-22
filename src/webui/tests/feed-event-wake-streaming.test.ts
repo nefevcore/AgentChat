@@ -53,8 +53,10 @@ describe('机制唤醒（source=event）落在用户可见会话：流式照常'
 
   it('late-reply 回投 run（single，sender=Agent）：delta 流式 ingest，正文逐步可见', () => {
     const feed = cores.feed;
-    // 回执（系统事件行——经 router/message-received，source=event 路径）
-    feed.ingestFrame('router/message-received', [A, { content: NOTICE }, SID, A, 'event']);
+    // 回执（系统事件行——通知面统一后经 session/context-injected 上屏：后端
+    // session 在事件行落账时发帧，带注入身份锚；router/message-received 的
+    // event 分支已退役，此处不再经它上屏）
+    feed.ingestFrame('session/context-injected', [SID, A, { source: 'event', injectionId: 'ctx-lr-1', label: NOTICE }]);
     // 新 run：信封 sender=A（Agent 自身）、source='event'（late-reply 回投）
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: SID, sender: A, source: 'event' }]);
     feed.ingestFrame('loop/step-started', [A, 0, [], { conversationId: SID, sender: A, source: 'event' }]);

@@ -9,18 +9,19 @@
 //      只读视角——矩阵格子同款入口，运行中流式实时可见）
 //   4. 后台任务（树节点）→ bash 后台等任务清单：运行中（时长 + 终止）
 //      + 最近终态（DSH job_list 同款；stores/jobs 事件驱动刷新）
-//   5. 子Agent 调用（树节点）→ subagent 委派清单（kind=subagent 任务：
-//      运行中 + 最近终态含结果预览——meta.name/parentId/output）。
-//      点击行 → 主区子 Agent 会话只读视角（ui.openSubagentView——
-//      subagent-session-view-plan §3.5；jobBoard 运行态 ∪ subagents/list
-//      跨重启历史合并，by subId 去重、运行态以 jobBoard 为准）
+//   5. 子Agent 调用（树节点）→ subagent 委派清单（ctx.subagentBoard 域
+//      投影——持久化注册表主源：subagents/list RPC + subagents/updated 帧
+//      驱动，跨重启完整，对齐 singles 取值链）。运行中行（displayStatus=
+//      running）带 stop；其余按 updatedAt 取最近一段。点击行 → 主区子
+//      Agent 会话只读视角（ui.openSubagentView——subagent-session-view-plan
+//      §3.5）。
 //
 // 数据：运行/会话树与主区矩阵视图共用 runview 域投影（ctx.runs 单一轮询）；
-// 任务清单走 jobs 域投影（ctx.jobBoard：job/started · job/settled 帧驱动，无轮询）；
-// 跨重启历史走 subagents/list RPC（onMounted + job/settled 时低频重拉，R5）。
+// 后台任务清单走 jobs 域投影（ctx.jobBoard：job/started · job/settled 帧驱动，无轮询）；
+// 子Agent 清单走 subagent 域投影（ctx.subagentBoard：subagents/updated 帧驱动，无轮询）。
 
 <script setup lang="ts">
-import { computed, ref, onMounted, inject, watch as vueWatch } from 'vue';
+import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -32,6 +33,9 @@ import { starColor } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import { interruptRun, sourceLabel } from './index.ts';
 import type { RunsRunningEntry } from './index.ts';
+// ctx.subagentBoard 类型身份（声明合并 type-only——运行时零依赖；本面板
+// 子Agent 区数据源，2026-12 持久化清单主源化）
+import type {} from 'ac-client-ui-subagent/client/board.ts';
 import RunDuration from './RunDuration.vue';
 import {
   jobIsSubagent,
@@ -39,7 +43,7 @@ import {
   jobStatusLabel as statusLabel,
   jobStatusIcon as statusIcon,
   splitJobs,
-  subagentMeta,
+  subStatusLabel,
   type WireJob,
 } from 'ac-client-ui-jobs/client';
 
@@ -51,6 +55,10 @@ const runSvc = useClientContext()?.runs;
 // jobs 域投影（M27 S2）：跨域消费走客户端服务面（ctx.jobBoard）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
 const jobBoard = useClientContext()?.jobBoard;
+// subagent 域投影（2026-12 持久化清单主源化）：子Agent 区数据源——
+// subagents/list RPC + subagents/updated 帧驱动（对齐 singles 取值链；
+// jobBoard 不再作子Agent 清单源）
+const subBoard = useClientContext()?.subagentBoard;
 // group 域投影（M27 S2）：群会话跳转入口用（ctx.groups）
 const groupSvc = useClientContext()?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
@@ -69,7 +77,8 @@ const running = computed<RunsRunningEntry[]>(() =>
   [...(snapshot.value?.running ?? [])].sort((a, b) => a.startedAt - b.startedAt));
 const coverage = computed(() => snapshot.value?.coverage);
 
-// ── 后台任务/子Agent 调用清单（ctx.jobBoard 域投影：job/started·settled 帧驱动）──
+// ── 后台任务清单（ctx.jobBoard 域投影：job/started·settled 帧驱动——
+//    子Agent 调用已迁 subagentBoard 主源，本区只渲染 bash 后台任务）──
 /** 最近终态展示上限（服务端登记全保留，这里只展示最近一段） */
 const RECENT_SETTLED_CAP = 10;
 
@@ -77,58 +86,42 @@ const allJobs = computed<WireJob[]>(() => jobBoard?.jobs.value ?? []);
 const killingIds = computed<Set<string>>(() => jobBoard?.killing.value ?? EMPTY_SET);
 const jobsSplit = computed(() => splitJobs(allJobs.value));
 const bgRunning = computed(() => jobsSplit.value.running.filter((j) => !jobIsSubagent(j)));
-const subRunning = computed(() => jobsSplit.value.running.filter(jobIsSubagent));
 const bgSettledAll = computed(() => jobsSplit.value.settled.filter((j) => !jobIsSubagent(j)));
-const subSettledAll = computed(() => jobsSplit.value.settled.filter(jobIsSubagent));
 const bgSettled = computed(() => bgSettledAll.value.slice(0, RECENT_SETTLED_CAP));
-const subSettled = computed(() => subSettledAll.value.slice(0, RECENT_SETTLED_CAP));
 
-// ── 跨重启历史清单（R5：jobBoard 重启即空——subagents/list RPC 补齐入口）──
-interface SubHistoryEntry {
-  subId: string;
-  name?: string;
-  parentId?: string;
-  task: string;
-  /** 徽章词汇：running | done | error | timeout | stopped | idle */
-  displayStatus: string;
-  updatedAt: number;
-}
-
-const subHistory = ref<SubHistoryEntry[] | null>(null);
-
-async function refreshSubHistory(): Promise<void> {
-  if (!rpc) return;
-  try {
-    const r = await rpc.call<{ subs?: Array<Record<string, unknown>> }>('subagents/list', { limit: 100 });
-    subHistory.value = (r.subs ?? []).map((s) => ({
-      subId: String(s.id ?? ''),
-      ...(typeof s.name === 'string' ? { name: s.name } : {}),
-      ...(typeof s.parentId === 'string' ? { parentId: s.parentId } : {}),
-      task: typeof s.task === 'string' ? s.task : '',
-      displayStatus: String(s.displayStatus ?? 'idle'),
-      updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : 0,
-    }));
-  } catch {
-    subHistory.value = null; // 行未装/RPC 失败 → 静默（清单退回纯 jobBoard 面）
-  }
-}
-
-/** 历史-only 条目（jobBoard 已覆盖的 subId 不重复出现） */
-const subHistoryOnly = computed<SubHistoryEntry[]>(() => {
-  const known = new Set(
-    [...subRunning.value, ...subSettledAll.value]
-      .map((j) => subagentMeta(j).subagentId)
-      .filter((id): id is string => !!id),
-  );
-  return (subHistory.value ?? [])
-    .filter((s) => !known.has(s.subId))
+// ── 子Agent 调用清单（ctx.subagentBoard 域投影——持久化注册表主源：
+//    subagents/list RPC + subagents/updated 帧驱动刷新，跨重启完整；
+//    对齐 singles 取值链，2026-12 起 jobBoard 不再作子Agent 清单源）──
+/** 运行中条目（displayStatus=running；实时时长 + stop。墓碑防御性排除——
+ *  remove 会先停 run，正常流不会出现 deleted+running） */
+const subRunning = computed(() =>
+  (subBoard?.subs.value ?? []).filter((s) => s.displayStatus === 'running' && !s.deleted),
+);
+/** 其余条目（done/error/timeout/stopped/idle/deleted——墓碑行保留入口，
+ *  会话文件可读、点击仍可看历史；按 updatedAt 降序取最近一段） */
+const subSettled = computed(() =>
+  (subBoard?.subs.value ?? [])
+    .filter((s) => s.displayStatus !== 'running' || s.deleted)
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, RECENT_SETTLED_CAP);
-});
+    .slice(0, RECENT_SETTLED_CAP),
+);
+/** 子Agent 总数（「仅显示最近」截断提示用） */
+const subTotal = computed(() => subBoard?.subs.value?.length ?? 0);
+const stoppingSubs = computed<Set<string>>(() => subBoard?.stopping.value ?? EMPTY_SET);
 
-/** 子Agent 历史-only 徽章样式（displayStatus → 色类，词汇对齐 ToolResultSubagent） */
-function subHistoryClass(s: string): string {
-  return `st-${s}`;
+/** 停止子 Agent 当前推理（subagents/stop RPC；实体保留可续聊） */
+function doStopSub(id: string): void {
+  void subBoard?.stop(id);
+}
+
+/** 子Agent 徽章词汇（deleted 墓碑优先；余同 displayStatus） */
+function subBadgeWord(s: { displayStatus: string; deleted: boolean }): string {
+  return s.deleted ? 'deleted' : s.displayStatus;
+}
+
+/** 子Agent 徽章色类（词 → st-<词>；文案经 subStatusLabel 单源） */
+function subStatusClass(word: string): string {
+  return 'st-' + word;
 }
 
 /** 点击子Agent 行（jobBoard 运行/终态 + 历史-only）→ 主区只读会话视角 */
@@ -159,18 +152,13 @@ function jobTitle(j: WireJob): string {
   return lines.join('\n');
 }
 
-/** 子Agent 行 tooltip：名称/父 + 任务 + 终态/结果预览 */
-function subTitle(j: WireJob): string {
-  const m = subagentMeta(j);
+/** 子Agent 行 tooltip：名称/父 + 任务 + 终态徽章 */
+function subTitle(s: { name?: string; parentId?: string; task: string; displayStatus: string; runs: number; deleted: boolean }): string {
   const lines = [
-    `${m.name ?? '子任务'} · 父 ${memberName(m.parentId ?? j.ownerAgentId ?? '')}`,
-    `任务：${j.label}`,
+    `${s.name ?? '子 Agent'} · 父 ${memberName(s.parentId ?? '')}`,
+    `任务：${s.task || '（无任务摘要）'}`,
+    `${subStatusLabel(s.deleted ? 'deleted' : s.displayStatus)} · 已跑 ${s.runs} 轮`,
   ];
-  if (j.status !== 'running' && j.status !== 'stopping') {
-    lines.push(`${statusLabel(j.status)}${j.detail ? `：${j.detail}` : ''}`);
-    const preview = jobOutputPreview(j);
-    if (preview) lines.push(`结果：${preview}`);
-  }
   return lines.join('\n');
 }
 
@@ -319,12 +307,10 @@ onMounted(() => {
   // single 会话标题数据源（会话列表未开过时此处兜底拉取；后续
   // singles/updated 帧驱动刷新——自动标题生成后即时上屏）
   if (!(singlesBoard?.loaded.value ?? false)) void singlesBoard?.refresh();
-  // 跨重启子Agent 历史（R5）：首拉 + job 清单变化时重拉（settled 后注册表
-  // runs/lastRun 已更新——低频，事件驱动非轮询）
-  void refreshSubHistory();
+  // 子Agent 清单主源（subagentBoard：首拉 + subagents/updated 帧驱动
+  // 刷新——域件未装载 → 静默跳过，空态渲染）
+  subBoard?.ensureStarted();
 });
-
-vueWatch(allJobs, () => { void refreshSubHistory(); });
 </script>
 
 <template>
@@ -401,8 +387,10 @@ vueWatch(allJobs, () => { void refreshSubHistory(); });
         </div>
       </div>
 
-      <!-- 5. 子Agent 调用（kind=subagent；运行中 + 最近终态含结果预览 +
-           跨重启历史-only。行点击 → 主区子 Agent 会话只读视角） -->
+      <!-- 5. 子Agent 调用（ctx.subagentBoard 域投影——持久化注册表主源：
+           跨重启完整，subagents/updated 帧驱动刷新。运行中行 = displayStatus
+           running（stop 按钮 + 实时时长）；其余按 updatedAt 取最近一段。
+           行点击 → 主区子 Agent 会话只读视角） -->
       <div class="tree-node" @click="toggleNode('subs')">
         <span class="node-icon"><Icon :name="collapsed.has('subs') ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
         <span class="node-icon kind-sub"><Icon name="bot" :size="14" /></span>
@@ -410,34 +398,26 @@ vueWatch(allJobs, () => { void refreshSubHistory(); });
         <span v-if="subRunning.length > 0" class="node-badge">{{ subRunning.length }}</span>
       </div>
       <div v-if="!collapsed.has('subs')" class="node-children">
-        <div v-if="subRunning.length + subSettledAll.length + subHistoryOnly.length === 0" class="tree-leaf stat dim-leaf">暂无子 Agent 调用</div>
-        <div v-for="j in subRunning" :key="j.id" class="tree-leaf jumpable"
-          :title="`${subTitle(j)}\n点击查看会话`"
-          @click="openSubagent(subagentMeta(j).subagentId, subagentMeta(j).name, subagentMeta(j).parentId)">
-          <div class="leaf-avatar"><StarAvatar :src="memberAvatar(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :name="memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :size="15" :color="colorOf(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" fallback-icon="bot" :running="true" /></div>
-          <span class="leaf-name">{{ subagentMeta(j).name ?? '子任务' }}<span class="dim"> · {{ memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '') }}</span></span>
-          <span class="leaf-dur"><RunDuration :started-at="j.startedAt" /></span>
-          <button class="leaf-stop" :disabled="killingIds.has(j.id)" title="请求终止（abort 子 Agent）" @click.stop="doKill(j.id)">
+        <div v-if="subTotal === 0" class="tree-leaf stat dim-leaf">暂无子 Agent 调用</div>
+        <div v-for="s in subRunning" :key="s.subId" class="tree-leaf jumpable"
+          :title="`${subTitle(s)}\n点击查看会话`"
+          @click="openSubagent(s.subId, s.name, s.parentId)">
+          <div class="leaf-avatar"><StarAvatar :src="memberAvatar(s.parentId ?? '')" :name="memberName(s.parentId ?? '')" :size="15" :color="colorOf(s.parentId ?? '')" fallback-icon="bot" :running="true" /></div>
+          <span class="leaf-name">{{ s.name ?? '子 Agent' }}<span class="dim"> · {{ memberName(s.parentId ?? '') }}</span></span>
+          <span class="leaf-dur">运行中</span>
+          <button class="leaf-stop" :disabled="stoppingSubs.has(s.subId)" title="请求终止（abort 子 Agent）" @click.stop="doStopSub(s.subId)">
             <Icon name="stop" :size="10" />
           </button>
         </div>
-        <div v-for="j in subSettled" :key="j.id" class="tree-leaf jumpable"
-          :title="`${subTitle(j)}\n点击查看会话`"
-          @click="openSubagent(subagentMeta(j).subagentId, subagentMeta(j).name, subagentMeta(j).parentId)">
-          <div class="leaf-avatar"><StarAvatar :src="memberAvatar(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :name="memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :size="15" :color="colorOf(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" fallback-icon="bot" /></div>
-          <span class="leaf-name dim">{{ subagentMeta(j).name ?? '子任务' }}<span class="dim"> · {{ memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '') }}</span></span>
-          <span class="leaf-status" :class="statusClass(j.status)">{{ statusLabel(j.status) }}</span>
-        </div>
-        <!-- 跨重启历史-only（jobBoard 无此条目——重启前创建/收束的子 Agent） -->
-        <div v-for="s in subHistoryOnly" :key="s.subId" class="tree-leaf jumpable"
-          :title="`${s.name ?? '子 Agent'} · 父 ${memberName(s.parentId ?? '')}\n任务：${s.task}\n点击查看会话`"
+        <div v-for="s in subSettled" :key="s.subId" class="tree-leaf jumpable"
+          :title="`${subTitle(s)}\n点击查看会话`"
           @click="openSubagent(s.subId, s.name, s.parentId)">
           <div class="leaf-avatar"><StarAvatar :src="memberAvatar(s.parentId ?? '')" :name="memberName(s.parentId ?? '')" :size="15" :color="colorOf(s.parentId ?? '')" fallback-icon="bot" /></div>
           <span class="leaf-name dim">{{ s.name ?? '子 Agent' }}<span class="dim"> · {{ memberName(s.parentId ?? '') }}</span></span>
-          <span class="leaf-status" :class="subHistoryClass(s.displayStatus)">{{ s.displayStatus }}</span>
+          <span class="leaf-status" :class="subStatusClass(subBadgeWord(s))">{{ subStatusLabel(subBadgeWord(s)) }}</span>
         </div>
-        <div v-if="subSettledAll.length > subSettled.length" class="tree-leaf stat dim-leaf">
-          仅显示最近 {{ subSettled.length }} 条（终态共 {{ subSettledAll.length }} 条）
+        <div v-if="subTotal > subSettled.length" class="tree-leaf stat dim-leaf">
+          仅显示最近 {{ subSettled.length }} 条（共 {{ subTotal }} 个子 Agent）
         </div>
       </div>
     </div>
@@ -508,6 +488,7 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 .st-timeout{color:#f59e0b}
 .st-stopped{color:var(--color-text-muted,#999)}
 .st-idle{color:var(--color-text-tertiary,#a8abb2)}
+.st-deleted{color:var(--color-text-muted,#999);text-decoration:line-through}
 
 /* 中断按钮：hover 浮现 */
 .leaf-stop{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:var(--radius-sm);background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}

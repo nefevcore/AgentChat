@@ -26,7 +26,8 @@ import {
 import { pairMessageToChatMessage, buildTurns } from 'ac-client-ui-conversation/client/feed.ts';
 import { useTurnDisplayItems } from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
 import TranscriptList from 'ac-client-ui-conversation/client/TranscriptList.vue';
-import { jobIsRunning, subagentMeta, type WireJob } from 'ac-client-ui-jobs/client';
+import { jobIsRunning, jobStatusLabel, subagentMeta, type WireJob } from 'ac-client-ui-jobs/client';
+import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type { Turn } from 'ac-client-ui-conversation/client/types.ts';
 
 const props = defineProps<{
@@ -40,6 +41,11 @@ const themeStore = useThemeStore();
 const roster = useRosterCore();
 const rpc = useClientContext()?.rpc ?? null;
 const jobBoard = useClientContext()?.jobBoard;
+
+// 左右分侧基准 = 观看者（群形态同款）：子会话里父（user）与子（agent）
+// 都是"对方"——全部居左 + 头像/名字标注；此前传 subId 使子回复居右，
+// 与「运行跟踪 → 点开子会话」的群聊式阅读预期不符
+const viewerId = VIEWER_ID;
 
 // ── 状态徽章（jobBoard 运行态权威；缺席回落 props 名单外的 unknown） ──
 const job = computed<WireJob | undefined>(() =>
@@ -147,7 +153,7 @@ function refresh() { void loadInitial(); }
       </div>
       <div class="header-actions">
         <span v-if="isRunning" class="st-badge st-running"><Icon name="zap" :size="11" /> 运行中</span>
-        <span v-else-if="job" class="st-badge st-idle">{{ job.status }}</span>
+        <span v-else-if="job" class="st-badge st-idle">{{ jobStatusLabel(job.status) }}</span>
         <button class="refresh-btn" title="刷新（重拉历史）" :disabled="loading" @click="refresh">
           <Icon :name="loading ? 'loader' : 'refresh-cw'" :size="15" :class="{ spin: loading }" />
         </button>
@@ -167,7 +173,7 @@ function refresh() { void loadInitial(); }
         :first-load-pending="loading && records.length === 0"
         empty-text="该子 Agent 暂无会话记录"
         :show-actions="false"
-        :settings-agent-id="props.subId"
+        :settings-agent-id="viewerId"
       />
     </div>
   </div>

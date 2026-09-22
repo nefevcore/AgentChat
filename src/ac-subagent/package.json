@@ -18,7 +18,8 @@
     "ac-jobs": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-llm": "workspace:*",
-    "ac-llm-pool": "workspace:*"
+    "ac-llm-pool": "workspace:*",
+    "ac-session": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",

@@ -254,7 +254,7 @@ const E_AGENTS = '多Agent协作：先 list_agents 找对象，再 send_agent �
 const E_GROUP = '群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。';
 const E_TIMER = '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。';
 const E_ASK = '不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作，先 ask_questions 征求确认，不要擅自替用户决定。';
-const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。';
+const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；任务需要专业角色定位（如代码审查员/数据分析助手）或输出约束时给 system 参数（固化人设，跨轮生效），任务本身写 task；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。';
 const E_RESTART = '系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。';
 const E_TRACK = '目标与待办：承担跨会话的长期任务时，用 goal(action="create") 登记目标——登记后宿主自动逐轮推进直至完成/受阻；多步工作先写 todo(action="write") 清单，随做随更新状态（开工标 in_progress、完成即标）；达成即 goal(action="update", status="completed") 收口，确认无法推进则 status="blocked" 并给 blocked_reason。';
 

@@ -121,14 +121,12 @@ describe('文件编辑面板直播链（真实后端树）', () => {
     expect(send.ok).toBe(true);
     await new Promise((r) => setTimeout(r, 2500));
     const afterExec = frames.filter((f) => f.type === 'tool/after-execute');
-    console.log('[e2e] after-execute 帧数:', afterExec.length, JSON.stringify(afterExec.map((f) => ({ name: f.data?.args?.[0]?.name, cid: f.data?.args?.[0]?.conversationId }))));
     expect(afterExec.length).toBeGreaterThan(0);
     const editFrame = afterExec.find((f) => f.data?.args?.[0]?.name === 'edit');
     expect(editFrame).toBeTruthy();
     expect(editFrame!.data.args[0].conversationId).toBe('helper~user'); // 帧携带会话键
     // 快照落盘验证：fileSnapshots/list RPC
     const snap = await rpc(ws, 'fileSnapshots/list', 'r2', { conversationId: 'helper~user' });
-    console.log('[e2e] snapshots:', JSON.stringify(snap.result?.snapshots?.map((s: any) => ({ absPath: s.absPath, existed: s.content !== null }))));
     expect(snap.ok).toBe(true);
     expect(snap.result?.snapshots?.length).toBeGreaterThan(0);
     expect(snap.result.snapshots[0].absPath.split('\\').join('/')).toContain('proj/src/a.ts');

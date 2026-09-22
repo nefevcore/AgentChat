@@ -337,7 +337,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | credentials | `ac-credentials/src/service.ts` | — |
 | agentStore | `ac-agent-store/src/service.ts`（+ 文档实体 saveDoc/readDoc） | — |
 | agentPresets | `ac-agent-presets/src/index.ts`（预设模式注册中心：register/list/defaultPreset + 物化语义） | — |
-| subagents | `ac-subagent/src/service.ts`（持久多轮实体） | — |
+| subagents | `ac-subagent/src/service.ts`（持久多轮实体） | `ac-subagent/src/events.ts`（subagents/updated——spawn/started/settled/stopped/removed 统一通知，前端子Agent 清单帧驱动刷新，2026-12 持久化清单主源化） |
 | jobs | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled） |
 | browser | `ac-web-tools/src/browser.ts`（守护进程命令配置） | — |
 | durableInteraction | `ac-durable-interaction/src/types.ts` + `store.ts` | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}；核领域无关——ask_questions 工具住 ac-ask-questions，approval 语义住 ac-security） |
@@ -505,11 +505,15 @@ src/
 │                            禁）+ bash 扫描 + 输出脱敏 + 唆使防御注入
 ├── ac-subagent/             子 Agent（ctx.subagents）：持久多轮实体（spawn/send
 │                            [async·sync·steer·next-run 四投递语义]/await/list/stop/
-│                            delete）；落盘 <root>/subagents/ 跨重启续聊；每 run job
-│                            登记（usage 记账落 subId 名下）；会话行 = SessionRecord
-│                            中性格式兼容形（agent 行带全量 steps[]——收束一次性
-│                            落盘；historyRecords 展示投影墓碑可读；回放口径不变
-│                            ——steps 不进子上下文，subagent-session-view-plan）
+│                            delete）；落盘 <root>/subagents/<subId>/ 三文件（2026-12
+│                            对齐 sessions 域 run journal 裁决：messages=定稿流+run
+│                            键 / partials=journal 收束即清+崩溃恢复 / subcalls=
+│                            run_code 子调用档案）跨重启续聊；跨 run 上下文轨迹
+│                            复放（expandSteps——探查型 run 不失忆）+ 展示面
+│                            journal 活投影（运行中 partials 可见）；每 run job 登记（usage
+│                            记账落 subId 名下）；会话行 = SessionRecord 中性格式
+│                            兼容形（settlement 切段物化；historyRecords 展示投影
+│                            墓碑可读；回放口径不变——steps 不进子上下文）
 ├── ac-durable-interaction/  持久化暂停点核（ctx.durableInteraction）：write-ahead 状态机
 │                            （open/reply/close 幂等，领域无关）+ 一周保留期
 │                            sweep（终态过期清理 + 多代行折叠；pending 永不清；写口后
@@ -625,8 +629,9 @@ src/
 ├── ac-web-api/              WS RPC 业务方法注册薄编排行：conversation/session/
 │                            agents/group/singles/usage/timer/backup/config/llm/
 │                            plugin/events/system 全套 + jobs/list·kill（运行
-│                            跟踪清单）+ subagents/list·history（子Agent 会话
-│                            展示：注册表清单跨重启 + 消息全形读，墓碑可读）
+│                            跟踪清单）+ subagents/list·stop·history（子Agent
+│                            面：注册表清单跨重启 + 停止推理 + 消息全形读，
+│                            墓碑可读）
 │                            + 扩展目录聚合（collectExtensionCatalog）
 ├── ac-agent-admin/          Agent 管理面（ctx.agentAdmin + 写侧 RPC）：CRUD（白名单
 │                            fail-closed + deepMerge 补丁 + 变更报告）+ 装配视图

@@ -1,14 +1,16 @@
 // ============================================================
 // ac-ask-questions/src/index.ts —— ask_questions 工具行（挂起形态）
 //
-// 2026-02 挂起重构（src/docs/ask-questions-suspension-plan.md）：
+// 2026-02 挂起重构（src/docs/ask-questions-suspension-plan.md）+ 2026-12 steer 对齐：
 // 工具体不再等待——execute 是发起体（校验归一 → open 落盘 → context 行
-// → 即时返回 awaiting 标记），等待由系统持有：
-//   · loop/run-idle 监听器（本行注册）：run 自然停点挂起等 replied，
-//     答案注入同 run 续走（消息数组连续，KV 前缀稳定）；
-//   · 崩溃恢复（late-reply）：run 死后作答 → deliver 唤醒新 run，
-//     答案纯 context 行（裁决 #4：不走 backfillToolResult）。
-// 活续走与崩溃恢复产出相同的会话转录形状（ask 步 + context 答案行）。
+// → 即时返回 awaiting 标记），等待由系统持有，答案注入按 run 状态三态分流：
+//   · 忙步中作答 → replied 监听器 steer 步边界即时注入（对齐用户插话语义，
+//     2026-12：不再干等自然停点——立案现场 run 连续 39 分钟不停步）；
+//   · 挂起中作答（自然停点 idle await）→ loop/run-idle 监听器事件半边注入，
+//     同 run 续走（消息数组连续，KV 前缀稳定）；
+//   · run 死后作答（late-reply）→ deliver 唤醒新 run，答案纯 context 行
+//     （裁决 #4：不走 backfillToolResult）。
+// 三路产出相同的会话转录形状（ask 步 + context 答案行）。
 //
 // 历史（2026-09-17 自 ac-durable-interaction 拆出的核/行分离不变）：
 // 核（open/reply/close 状态机 + 三事件）被 ac-security（approval）、
@@ -23,12 +25,25 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { DurableInteraction } from 'ac-durable-interaction';
+import { runAddress } from 'ac-agent-loop';
 
 /** 挂起等待的轮询双保险间隔（replied 事件之外——store 可能被外部进程回复） */
 const WAIT_POLL_MS = 150;
 
-/** 本 run 未消费交互登记表：id → {agent, conversationId}（idle 监听器对账粒度） */
+/**
+ * 本 run 未消费交互登记表：id → {agent, conversationId}。
+ * 写入 = 发起体（execute）；清除 = 消费点（idle observe / replied steer 注入）。
+ * replied 监听器按在场与否分流：在场 = run 活着（再按 suspending 分挂起/忙步），
+ * 缺席 = run 已死（late-reply 回投）。
+ */
 const openByRun = new Map<string, { agent: string; conversationId: string }>();
+
+/**
+ * 挂起中交互集合（idle 监听器 await 期间写入，resolve 时清除）：replied
+ * 事件到达时在场 = idle 半边会自取注入 → replied 监听器不双投（登记表在场
+ * 判定 run 活着，但注入归 idle——本集合是三态分流的第二态键）。
+ */
+const suspending = new Set<string>();
 
 export const name = 'ac-ask-questions';
 
@@ -59,6 +74,15 @@ interface ConversationLike {
  */
 interface SessionLike {
   recordContext(conversationId: string, agentId: string, content: string, extra: { source: string; label?: string }): string;
+}
+
+/**
+ * agentLoop 可选能力面（窄类型，软依赖）：steer 步边界注入——忙态作答的
+ * 即时通道（2026-12 steer 对齐）。行未装 = 注入通道缺席，replied 监听器
+ * 回落 late-reply deliver。
+ */
+interface AgentLoopLike {
+  steer(handle: string, message: { role: 'user'; content: string }, meta?: { sender?: string; source?: string }): boolean;
 }
 
 /** 单项答案格式化：多选数组 → 「A、B」；null → (跳过) */
@@ -98,31 +122,88 @@ function askNotice(qs: Array<{ question: string; options: string[]; multi?: true
 export function apply(ctx: Context) {
   const service = ctx.durableInteraction;
 
-  // ---- late-reply 唤醒：answered 且原 run 已死 → 回投答案（重开 run 闭环） ----
+  // ---- 忙态作答即时注入（2026-12 steer 对齐）：replied 且 run 仍活着且在忙 ----
+  // 答案对齐用户 steer 插话语义——步边界即时注入活跃 run，不再干等自然停点
+  // （立案现场 f08798fb：答案 8.7 秒到达，run 连续 39 分钟不停步，答案直到
+  // 终报告后的首个自然停点才消费）。三态分流（replied 事件单点）：
+  //   · 登记表在场 = run 活着：
+  //       - 挂起中（idle await）→ 不打扰——idle 监听器事件半边自取注入（本
+  //         run 消息数组连续，transcript 与 steer 注入同形）；
+  //       - 忙步中 → 清登记 + agentLoop.steer 步边界注入 + recordContext 落账
+  //         （与 idle 注入同正文/同 source/同 label——转录形状两路一致）；
+  //   · 登记表缺席 = run 已死（收束后清账 / 崩溃重启）→ late-reply deliver
+  //     回投重开新 run（原路径不变）。
+  // steer 落空（收束竞态/D3 封口后）→ 回落 late-reply deliver（消息不丢，
+  // 一次入账）。会话行未装（组合可选）→ 只落记录，登记照清（作答已终态）。
   ctx.on('durable-interaction/replied', async (record) => {
     if (record.kind !== 'ask_questions') return; // approval 等其他交互各有等待方
     const owner = record.owner;
     const convKey = record.key;
     if (!owner || !convKey) return; // 旧记录缺执行身份——无处回投
-    // 精确判定（2026-02 挂起重构）：登记表在场 = idle 监听器还挂着（同 run 等待
-    // 中）→ 不打扰（监听器自身的事件半边会拿到答案并注入续走）。登记表缺席 =
-    // run 已死（正常收束后清账 / 进程崩溃从未清账——重启后登记表为空）→ 回投。
-    if (openByRun.has(record.id)) return;
-    const conversation = ctx.get('conversation', false) as ConversationLike | undefined;
-    if (!conversation) return; // 会话行未装——作答只落记录（组合可选）
-    // 提权继承走会话水位（2026-09-12 终版设计：ac-conversation deliver 边界
-    // 对 source='event' 且未显式带档位时自动继承 conv-settings 水位）——
-    // payload.elevation 留痕仅作诊断，不单独透传（防双路径漂移）。
-    void conversation
-      .deliver(owner, answerNotice(record), {
-        sender: owner,
-        source: 'event',
-        conversationId: convKey,
-      })
-      .catch((err: unknown) => {
-        ctx.logger.warn(`[ask-questions] late-reply 唤醒 ${owner}（${convKey}）失败: ${String(err)}`);
-      });
-  }, { description: 'late-reply 唤醒：run 已死时的作答回投（sender:event 信封；纯 context 行，不 backfill）' });
+    const entry = openByRun.get(record.id);
+    if (entry === undefined) {
+      // run 已死 → late-reply 回投（重开 run 闭环）
+      const conversation = ctx.get('conversation', false) as ConversationLike | undefined;
+      if (!conversation) return; // 会话行未装——作答只落记录（组合可选）
+      // 提权继承走会话水位（2026-09-12 终版设计：ac-conversation deliver 边界
+      // 对 source='event' 且未显式带档位时自动继承 conv-settings 水位）——
+      // payload.elevation 留痕仅作诊断，不单独透传（防双路径漂移）。
+      void conversation
+        .deliver(owner, answerNotice(record), {
+          sender: owner,
+          source: 'event',
+          conversationId: convKey,
+        })
+        .catch((err: unknown) => {
+          ctx.logger.warn(`[ask-questions] late-reply 唤醒 ${owner}（${convKey}）失败: ${String(err)}`);
+        });
+      return;
+    }
+    // run 活着：挂起等待中（idle 监听器 await）→ 它的事件半边自取，不双投
+    if (suspending.has(record.id)) return;
+    // 忙步中：清登记 + steer 即时注入（idle 监听器不再等它——want 集里缺席
+    // 就是不缺，无需提前对账）+ context 行落账（transcript 形状与 idle 注入
+    // 一致：同正文/同 source/同 label；run 活跃时落 journal 注入行，消费点
+    // 真序由 settlement 提升）
+    openByRun.delete(record.id);
+    const handle = runAddress(entry.agent, entry.conversationId);
+    const agentLoop = ctx.get('agentLoop', false) as AgentLoopLike | undefined;
+    const steered =
+      handle !== undefined &&
+      agentLoop !== undefined &&
+      agentLoop.steer(handle, { role: 'user', content: answerNotice(record) }, { sender: owner, source: 'event' });
+    if (!steered) {
+      // 收束竞态（steer 封口后作答）：登记已清 → late-reply deliver 回落。
+      // D3 语义：消息入账一次不丢不重——deliver 的 next-run 等待与入账由
+      // ac-conversation 承担，本行只负责发起回投。
+      const conversation = ctx.get('conversation', false) as ConversationLike | undefined;
+      if (conversation) {
+        void conversation
+          .deliver(owner, answerNotice(record), {
+            sender: owner,
+            source: 'event',
+            conversationId: convKey,
+          })
+          .catch((err: unknown) => {
+            ctx.logger.warn(`[ask-questions] steer 落空回落 late-reply ${owner}（${convKey}）失败: ${String(err)}`);
+          });
+      }
+      return;
+    }
+    // steer 注入成功：context 行落账（与 idle 注入同形状——刷新/回放时答案
+    // 在转录在场，跨 run 语义不丢）
+    const session = ctx.get('session', false) as SessionLike | undefined;
+    if (session) {
+      try {
+        session.recordContext(entry.conversationId, entry.agent, answerNotice(record), {
+          source: 'durable-interaction',
+          label: '已收到用户回答',
+        });
+      } catch (err) {
+        ctx.logger.warn(`[ask-questions] 答案 context 行落账失败（${record.id}）: ${String(err)}`);
+      }
+    }
+  }, { description: '作答注入：忙步 steer 即时注入 / 挂起留给 idle 半边 / run 已死 late-reply 回投' });
 
   // ---- loop/run-idle 监听器：自然停点挂起等待本 run 未消费的 ask 交互 ----
   // 只认本 run 打开的交互（发起体写入登记表）；等待 = replied/closed 事件 +
@@ -136,9 +217,12 @@ export function apply(ctx: Context) {
       ([, v]) => v.agent === agent && v.conversationId === conversationId,
     );
     if (mine.length === 0) return rest;
-    // 挂起：等待全部本 run 交互终态（并行 ask 场景），signal abort 空手返回
+    // 挂起：等待全部本 run 交互终态（并行 ask 场景），signal abort 空手返回。
+    // suspending 集合标记「idle 半边正在等」——期间作答由本监听器事件半边
+    // 消费（replied 监听器看到在场即不打扰，防 steer 双投）
     const settled = await new Promise<Array<{ record: DurableInteraction; outcome: 'answered' | 'closed' }>>((resolve) => {
       const want = new Set(mine.map(([id]) => id));
+      for (const id of want) suspending.add(id);
       const out: Array<{ record: DurableInteraction; outcome: 'answered' | 'closed' }> = [];
       let done = false;
       const finish = () => {
@@ -148,13 +232,18 @@ export function apply(ctx: Context) {
         disposeListener();
         disposeClosed();
         call.request.signal?.removeEventListener('abort', onAbort);
-        // abort 空手收尾：剩余登记清账——run 即将收束，之后作答走 late-reply
-        for (const id of want) openByRun.delete(id);
+        // 收尾清账：suspending 全清 + 剩余登记清账（run 即将收束/继续，
+        // 之后作答走 late-reply / steer 路径）
+        for (const id of want) {
+          suspending.delete(id);
+          openByRun.delete(id);
+        }
         resolve(out);
       };
       const observe = (record: DurableInteraction) => {
         if (!want.has(record.id)) return;
         openByRun.delete(record.id); // 消费对账：late-reply 不会再回投
+        suspending.delete(record.id); // 已由本半边消费——replied 监听器不再需要
         out.push({ record, outcome: record.state === 'answered' ? 'answered' : 'closed' });
         want.delete(record.id);
         if (want.size === 0) finish();

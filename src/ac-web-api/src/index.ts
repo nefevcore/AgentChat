@@ -1148,7 +1148,7 @@ export function apply(ctx: Context) {
   web.registerRpc('fileSnapshots/list', (params) => {
     const p = obj(params);
     const svc = ctx.get('fileSnapshots', false) as
-      | { list(conversationId: string): Array<{ absPath: string; content: string | null; capturedAt: number }> }
+      | { list(conversationId: string): Array<{ absPath: string; content: string | null; skipped?: string; capturedAt: number }> }
       | undefined;
     if (!svc) return { snapshots: [] };
     return { snapshots: svc.list(reqStr(p, 'conversationId')) };
@@ -1157,6 +1157,7 @@ export function apply(ctx: Context) {
   // 磁盘终版批量读取（文件编辑面板「无快照存量文件」的重建数据源：
   // 终版 = 磁盘现内容，初版自终版逆向回退编辑事件。本地单机宿主——
   // webui 用户即本机用户，与 Agent 写面同权）。
+  // 与快照准入同闸（maxBytes/文本判定在服务侧——本面只管传形）。
   web.registerRpc('fileSnapshots/read-current', (params) => {
     const p = obj(params);
     const svc = ctx.get('fileSnapshots', false) as
@@ -1370,26 +1371,31 @@ export function apply(ctx: Context) {
   function requireSubagents() {
     const subagents = ctx.get('subagents', false) as
       | {
-          list(opts?: { query?: string; runningOnly?: boolean; limit?: number }): {
+          list(opts?: { query?: string; runningOnly?: boolean; includeDeleted?: boolean; limit?: number }): {
             activeCount: number;
             total: number;
             subs: Array<Record<string, unknown>>;
           };
           get(id: string): Record<string, unknown> | undefined;
           historyRecords(id: string): unknown[];
+          /** 停止当前推理（true = 确有活跃 run 被停；实体保留） */
+          stop(id: string): boolean;
         }
       | undefined;
     if (!subagents) throw new Error('subagents 服务未装载（ac-subagent 行未装配，子Agent 会话面不可用）');
     return subagents;
   }
 
-  // 注册表清单（跨重启；运行跟踪面板历史区数据源——jobBoard 重启即空，
-  // 这里补齐跨重启入口，R5）。limit 缺省 50/上限 100（对齐服务面 LIST 上限）。
+  // 注册表清单（跨重启；运行跟踪面板子Agent 区数据源——持久化清单主源，
+  // 2026-12）。limit 缺省 50/上限 100（对齐服务面 LIST 上限）。
+  // include_deleted：含墓碑条目（面板展示已删除历史入口——会话文件保留、
+  // subagents/history 可读）。
   web.registerRpc('subagents/list', (params) => {
     const p = obj(params);
     const r = requireSubagents().list({
       ...(optStr(p.query) !== undefined ? { query: optStr(p.query) } : {}),
       ...(p.running_only === true ? { runningOnly: true } : {}),
+      ...(p.include_deleted === true ? { includeDeleted: true } : {}),
       ...(optPageNum(p.limit) !== undefined ? { limit: Math.min(optPageNum(p.limit)!, 100) } : {}),
     });
     return { activeCount: r.activeCount, total: r.total, subs: r.subs };
@@ -1414,6 +1420,13 @@ export function apply(ctx: Context) {
       total: all.length,
       ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
     };
+  });
+
+  // 停止指定子 Agent 的当前推理（运行跟踪面板子Agent 行 stop 按钮——
+  // 原 jobs/kill 通道（jobId 寻址）的 subId 寻址替代面；实体保留可续聊）
+  web.registerRpc('subagents/stop', (params) => {
+    const p = obj(params);
+    return { stopped: requireSubagents().stop(reqStr(p, 'id')) === true };
   });
 
   // 会话 Token 仪表（会话头）：messageCount 来自会话文件；contextTokens =

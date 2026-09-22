@@ -8,18 +8,20 @@
 import { computed, ref } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import { subStatusLabel } from 'ac-client-ui-jobs/client';
 import { inferKind } from './inferKind.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
-// 状态徽章映射（delivered 之外的 run 状态词表）
+// 状态徽章映射（delivered 之外的 run 状态词表）——文案经 subStatusLabel
+// 单源（与运行跟踪面板跨重启历史行同词），本地只保留色类
 const STATUS_META: Record<string, { label: string; cls: string }> = {
-  running:  { label: '运行中', cls: 'st-running' },
-  idle:     { label: '空闲',   cls: 'st-killed' },
-  done:     { label: '完成',   cls: 'st-done' },
-  error:    { label: '异常',   cls: 'st-error' },
-  timeout:  { label: '超时',   cls: 'st-timeout' },
-  stopped:  { label: '已停止', cls: 'st-killed' },
+  running:  { label: subStatusLabel('running'), cls: 'st-running' },
+  idle:     { label: subStatusLabel('idle'),    cls: 'st-killed' },
+  done:     { label: subStatusLabel('done'),    cls: 'st-done' },
+  error:    { label: subStatusLabel('error'),   cls: 'st-error' },
+  timeout:  { label: subStatusLabel('timeout'), cls: 'st-timeout' },
+  stopped:  { label: subStatusLabel('stopped'), cls: 'st-killed' },
 };
 
 // send 投递回执徽章（next-run 忙时排队与 queued 同观感）

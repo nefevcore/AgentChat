@@ -17,7 +17,11 @@
  * - 文件粘贴委托 onPasteFiles（返回 true 抑制默认插入）；文本粘贴走
  *   pasteText 归一（text/html 优先：块边界/<br> 保换行、<a> 还原 URL、
  *   <pre> 原样），按 \n 分段插入——不交给 PM 默认解析（空段/链接会失真）；
+ *   内部回贴（data-pm-slice 开口标记）走段融合语义（replaceSelection
+ *   原生融合开放段——段内局部剪切回贴不再裂段）；
  * - IME：PM 原生组合处理；组合期 onActivity 静默（等价原 isComposing 门）。
+ * - 复制出口：clipboardTextSerializer 定制 text/plain = getText('\n')
+ *   口径（PM 默认块分隔 "\n\n" 会把换行复制成空行）。
  *
  */
 import { computed, watch } from 'vue';
@@ -30,10 +34,11 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin } from '@tiptap/pm/state';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import { splitBlock } from '@tiptap/pm/commands';
+import { Slice, Fragment } from '@tiptap/pm/model';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorView } from '@tiptap/pm/view';
 import { tokenizeMentionHighlights } from './mention.ts';
-import { normalizePasteText } from './pasteText.ts';
+import { clipboardText, normalizePasteText, pmSliceDepth } from './pasteText.ts';
 import { ChatUndoRedo, clearChatHistory } from './undoRedo.ts';
 
 const props = defineProps<{
@@ -81,6 +86,9 @@ const editor = useEditor({
   editable: !props.disabled,
   editorProps: {
     attributes: { class: 'pe-editor', 'aria-label': '消息输入框' },
+    // 复制/剪切/拖拽的 text/plain 出口：单换行口径（PM 默认 "\n\n"
+    // 富文本段距会把输入框的换行复制成空行——复制出去再粘回换行翻倍）
+    clipboardTextSerializer: (slice) => clipboardText(slice.content),
     handleKeyDown(_view: EditorView, event: KeyboardEvent): boolean {
       if (props.disabled) return false;
       props.onKeydown?.(event);
@@ -101,6 +109,19 @@ const editor = useEditor({
       // PM 默认解析会吞空段换行、丢 <a> 的 href，故不委托默认
       const data = event.clipboardData;
       const html = data?.getData('text/html');
+      // 内部回贴判定：html 带 PM 开口标记（data-pm-slice）。text/plain 是
+      // 本编辑器序列化出口（clipboardTextSerializer 单换行、空格原样）——
+      // 直取零失真；html 只作来源与开口深度判定
+      const depth = html ? pmSliceDepth(html) : null;
+      if (depth) {
+        const inner = data?.getData('text/plain') ?? '';
+        if (inner) {
+          insertPastedSlice(inner, depth); // 段融合（开放端与宿主段无缝拼接）
+          event.preventDefault();
+          return true;
+        }
+      }
+      // 外部源：text/html 优先（富文本），归一后整段块插入
       const text = html && html.includes('<')
         ? normalizePasteText(html)
         : (data?.getData('text/plain') ?? '');
@@ -168,6 +189,24 @@ function insertTextAsParagraphs(text: string): void {
   ed.chain().focus().insertContentAt(ed.state.selection.from, parts).run();
 }
 
+/** 内部回贴（data-pm-slice 开口标记）：replaceSelection 走 PM 原生段融
+ *  合——首/末开放段与落点宿主段无缝拼接（段内局部“剪切→回贴”零裂段），
+ *  中间段完整落段。开口深度 clamp 到 0/1（schema 最深 = doc 下段落）。 */
+function insertPastedSlice(text: string, depth: { openStart: number; openEnd: number }): void {
+  const ed = editor.value;
+  if (!ed) return;
+  const paras = text.split('\n').map(line =>
+    line === '' ? { type: 'paragraph' } : { type: 'paragraph', content: [{ type: 'text', text: line }] },
+  );
+  const nodes = paras.map(p => ed.state.schema.nodeFromJSON(p));
+  // 依开口深度打开首/末段边界：open=1 时首末段与宿主段融合（replaceSelection
+  // 原生语义——段内局部剪切回贴零裂段），open=0 时闭合（该端按整段落段）
+  const open = (d: number) => Math.min(d, 1);
+  ed.view.dispatch(ed.state.tr.replaceSelection(
+    new Slice(Fragment.fromArray(nodes), open(depth.openStart), open(depth.openEnd)),
+  ));
+}
+
 /** 纯文本 → PM HTML（段落化；<>& 转义防解析） */
 function textToHtml(text: string): string {
   if (text === '') return '<p></p>';
@@ -227,12 +266,7 @@ function focus(): void {
   editor.value?.commands.focus();
 }
 
-/** 全文字面（getText 口径；ChatInput 组合镜像兜底消费） */
-function getText(): string {
-  return editor.value?.getText({ blockSeparator: '\n' }) ?? '';
-}
-
-defineExpose({ focus, caret, replaceRange, setCaret, getText });
+defineExpose({ focus, caret, replaceRange, setCaret });
 </script>
 
 <template>

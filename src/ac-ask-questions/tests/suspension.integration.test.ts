@@ -202,6 +202,73 @@ describe('ask_questions 挂起全链路（loop/run-idle 同 run 续走）', () =
     expect(result.finish).toBe('interrupted');
   });
 
+  it('忙步中作答 → steer 步边界即时注入（2026-12 对齐：不等自然停点）', async () => {
+    // 立案现场复现：模型 ask 后继续忙步（长工具链），期间作答——答案经
+    // agentLoop.steer 注入下一步的模型输入，而非等首个自然停点
+    const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'ask_questions', JSON.stringify({
+      questions: [{ question: '选哪个？', options: ['A', 'B'] }],
+    })) };
+    // s2 = 收尾步（触发挂起前）：挂起在收尾步的自然停点；但本用例在收尾步
+    // LLM 流期间就作答——此时 run 未停（busy step），走 steer 通道
+    const s2: Script = { calls: [], chunks: () => textChunks('我先把不依赖答案的事做完') };
+    const s3: Script = { calls: [], chunks: () => textChunks('收到答案，继续') };
+    const contexts: Array<{ conversationId: string; agentId: string; content: string; source: string }> = [];
+    const { ctx } = await boot([s1, s2, s3], { contexts });
+    const running = ctx.agentLoop.run({
+      model: 'mock-1',
+      agent: 'bot',
+      conversationId: 'conv-busy',
+      messages: [{ role: 'user', content: '帮我选' }],
+    });
+    // 等 ask 落盘（execute 返回 awaiting，模型收尾步开始流式）
+    await new Promise((r) => setTimeout(r, 150));
+    const open = ctx.durableInteraction.listOpen({ key: 'conv-busy' })[0];
+    expect(open).toBeTruthy();
+    // 忙步中作答（run 未到自然停点——steer 通道）
+    ctx.durableInteraction.reply(open.id, { answers: ['A'] });
+    const result = await running;
+    expect(result.finish).toBe('stop');
+    // 同 run 收束（无新 run）：终文本来自答案后的续走步
+    expect(result.text).toBe('收到答案，继续');
+    // 答案进了模型输入（steer 注入——下一步可见）
+    const seen = s3.calls.map((input) => input.messages.map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n')).join('\n');
+    expect(seen).toContain('已收到用户回答');
+    expect(seen).toContain('A');
+    // 答案 context 行落账（steer 路径与 idle 路径同形状）
+    const answerRow = contexts.find((c) => c.content.includes('已收到用户回答'));
+    expect(answerRow).toMatchObject({ conversationId: 'conv-busy', agentId: 'bot', source: 'durable-interaction' });
+  });
+
+  it('挂起中作答 → idle 半边自取注入，无 deliver 双投（suspending 在场）', async () => {
+    const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'ask_questions', JSON.stringify({
+      questions: [{ question: '选哪个？', options: ['A', 'B'] }],
+    })) };
+    const s2: Script = { calls: [], chunks: () => textChunks('等你回复') };
+    const s3: Script = { calls: [], chunks: () => textChunks('好，按 A 执行') };
+    const deliveries: Array<Record<string, unknown>> = [];
+    const contexts: Array<{ conversationId: string; agentId: string; content: string; source: string }> = [];
+    const { ctx } = await boot([s1, s2, s3], { deliveries, contexts });
+    const running = ctx.agentLoop.run({
+      model: 'mock-1',
+      agent: 'bot',
+      conversationId: 'conv-susp',
+      messages: [{ role: 'user', content: '帮我选' }],
+    });
+    // 等到挂起态（收尾步完成，idle await 中——suspending 集合在场）
+    await new Promise((r) => setTimeout(r, 150));
+    const open = ctx.durableInteraction.listOpen({ key: 'conv-susp' })[0];
+    expect(open).toBeTruthy();
+    ctx.durableInteraction.reply(open.id, { answers: ['A'] });
+    const result = await running;
+    // idle 半边注入续走，无 late-reply deliver（deliveries 空）
+    expect(result.finish).toBe('stop');
+    expect(result.text).toBe('好，按 A 执行');
+    expect(deliveries).toHaveLength(0);
+    // 注入来自 idle 路径：答案行在场
+    const answerRow = contexts.find((c) => c.content.includes('已收到用户回答'));
+    expect(answerRow).toBeTruthy();
+  });
+
   it('session 缺席：ask 步照常（context 行降级），idle 挂起不发生——模型收尾后正常收束', async () => {
     const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'ask_questions', JSON.stringify({
       questions: [{ question: 'q', options: ['x'] }],

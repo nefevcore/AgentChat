@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { SnapshotStore } from '../src/store.ts';
+import { SnapshotStore, SNAPSHOT_MAX_BYTES, looksLikeText } from '../src/store.ts';
 
 let dir: string;
 let store: SnapshotStore;
@@ -97,5 +97,88 @@ describe('SnapshotStore —— 键编码安全', () => {
     store.ensure('会话一', target);
     const snap = store.get('会话一', target)!;
     expect(snap.content).toBe('中文内容\n');
+  });
+});
+
+describe('SnapshotStore —— 准入双闸（文本判定 + 大小上限）', () => {
+  it('二进制文件（NUL/控制符打头）不复制内容：skipped=not-text，幂等', () => {
+    const target = path.join(dir, 'blob.bin');
+    fs.writeFileSync(target, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x41]));
+    expect(store.ensure('conv~1', target)).toBe(true);
+    const snap = store.get('conv~1', target)!;
+    expect(snap.skipped).toBe('not-text');
+    expect(snap.content).toBe(null);
+    expect(fs.existsSync(snap.snapshotFile)).toBe(false); // 零内容文件落盘
+    // 二进制文件改写后再 ensure——no-op（首见已发生）
+    fs.writeFileSync(target, Buffer.from([0x09, 0x09]));
+    expect(store.ensure('conv~1', target)).toBe(false);
+    expect(store.get('conv~1', target)!.skipped).toBe('not-text');
+  });
+
+  it('utf-8 替换符残留（解码失败）判非文本', () => {
+    const target = path.join(dir, 'bad-utf8.dat');
+    fs.writeFileSync(target, Buffer.from([0xff, 0xfe, 0xfd, 0x41, 0x42]));
+    store.ensure('conv~1', target);
+    expect(store.get('conv~1', target)!.skipped).toBe('not-text');
+  });
+
+  it('文本文件前 8 KiB 内无控制符 → 正常快照（控制符在尾部不影响）', () => {
+    const target = path.join(dir, 'text-with-tail.bin');
+    // 前段纯文本 + 远超嗅探窗的控制符
+    const content = 'x'.repeat(8192 * 2) + String.fromCharCode(0x01);
+    fs.writeFileSync(target, content, 'utf-8');
+    store.ensure('conv~1', target);
+    const snap = store.get('conv~1', target)!;
+    expect(snap.skipped).toBeUndefined();
+    expect(snap.content).toBe(content);
+  });
+
+  it('超上限文件：skipped=too-large，零全文读（statSync 预检）', () => {
+    const small = new SnapshotStore({ root: path.join(dir, 'snaps-small'), maxBytes: 16 });
+    const target = path.join(dir, 'big.json');
+    fs.writeFileSync(target, 'x'.repeat(64), 'utf-8');
+    expect(small.ensure('conv~1', target)).toBe(true);
+    const snap = small.get('conv~1', target)!;
+    expect(snap.skipped).toBe('too-large');
+    expect(snap.content).toBe(null);
+    expect(fs.existsSync(snap.snapshotFile)).toBe(false);
+  });
+
+  it('maxBytes=0 关闭上限：大文件照常全量快照', () => {
+    const unbounded = new SnapshotStore({ root: path.join(dir, 'snaps-unbounded'), maxBytes: 0 });
+    const target = path.join(dir, 'huge.log');
+    const content = 'y'.repeat(4096);
+    fs.writeFileSync(target, content, 'utf-8');
+    unbounded.ensure('conv~1', target);
+    expect(unbounded.get('conv~1', target)!.content).toBe(content);
+  });
+
+  it('list 含跳过快照（可观测）；缺省上限 = 2 MiB', () => {
+    expect(SNAPSHOT_MAX_BYTES).toBe(2 * 1024 * 1024);
+    const dir2 = path.join(dir, 'sub2');
+    fs.mkdirSync(dir2, { recursive: true });
+    fs.writeFileSync(path.join(dir2, 'a.bin'), Buffer.from([0x00]));
+    fs.writeFileSync(path.join(dir2, 'b.md'), 'ok\n', 'utf-8');
+    store.ensure('conv~l', path.join(dir2, 'a.bin'));
+    store.ensure('conv~l', path.join(dir2, 'b.md'));
+    const list = store.list('conv~l');
+    expect(list).toHaveLength(2);
+    expect(list.find((s) => s.absPath.endsWith('a.bin'))!.skipped).toBe('not-text');
+    expect(list.find((s) => s.absPath.endsWith('b.md'))!.content).toBe('ok\n');
+  });
+
+  it('looksLikeText 单元：空串/多行文本/制表符 = 文本；NUL·替换符 = 非文本', () => {
+    expect(looksLikeText('')).toBe(true);
+    expect(looksLikeText('line1\nline2\r\n\ttab')).toBe(true);
+    expect(looksLikeText('a\u0000b')).toBe(false);
+    expect(looksLikeText('a\uFFFDb')).toBe(false);
+  });
+
+  it('新建文件（首见不存在）无 skipped 字段——与跳过语义可区分', () => {
+    const target = path.join(dir, 'fresh-new.ts');
+    store.ensure('conv~1', target);
+    const snap = store.get('conv~1', target)!;
+    expect(snap.skipped).toBeUndefined();
+    expect(snap.content).toBe(null);
   });
 });

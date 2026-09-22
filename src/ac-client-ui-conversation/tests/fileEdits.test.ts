@@ -252,6 +252,17 @@ describe('applySnapshots / fileEditsWithSnapshots —— 方案 C 快照补全',
     expect(d.removed).toBe(1);
   });
 
+  it('skipped 快照（超上限/非文本）不接管断链：保持 partial（≠误判新建）', () => {
+    const msgs: ChatMessage[] = [
+      histMsg('m1', [{ id: 'c1', name: 'edit', args: { file_path: 'big.log', old_string: 'a', new_string: 'b' }, result: okEdit('big.log', 1, 1) }], 1000),
+    ];
+    // 服务端准入闸跳过：content=null + skipped（与「新建」的 null 可区分）
+    const snaps = [{ absPath: '/ws/big.log', content: null, skipped: 'too-large' as const, capturedAt: 999 }];
+    const { files } = fileEditsWithSnapshots(msgs, snaps);
+    expect(files.get('big.log')!.partial).toBe(true); // 不接管——回落磁盘兜底/方案 A
+    expect(files.get('big.log')!.baseContent).toBe(null); // 不误置 base=''
+  });
+
   it('快照 content=null（首见不存在）= 会话内新建：base="" 全量 diff', () => {
     const msgs: ChatMessage[] = [
       histMsg('m1', [{ id: 'c1', name: 'str_replace_editor', args: { command: 'insert', path: 'n.md', new_str: 'x', insert_line: 0 }, result: okEdit('n.md', 1, 0) }], 1000),

@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-client-ui-subagent": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },

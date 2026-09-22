@@ -15,6 +15,7 @@
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
+    "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-fs-tools": "workspace:*",
     "ac-str-replace-editor": "workspace:*",

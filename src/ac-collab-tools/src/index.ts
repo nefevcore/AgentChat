@@ -264,7 +264,7 @@ export function apply(ctx: Context) {
             // a⇄b 双方对话流、用户侧发起会话收不到。
             const wakeKey = call.conversationId ?? pairKey(from, from);
             void outcomeP.then((late) => {
-              if (late === null || late === undefined || late.kind !== 'run') return;
+              if (late.kind !== 'run') return;
               // 正常收束 → 指路通知；error 收束 → 失败通知（发起方不再空等，
               // 委托未达成的事实要送达——error 文本随通知，对桶另有完整记录）
               if (late.result.finish === 'error') {

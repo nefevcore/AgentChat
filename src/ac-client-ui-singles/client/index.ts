@@ -105,7 +105,7 @@ export async function updateSingle(
 }
 
 /** 会话分支：复制 anchorMessageId 消息（含）之前的历史为新会话；锚点缺省 = 到最新一条 */
-export async function forkSingle(
+async function forkSingle(
   id: string,
   anchorMessageId: string | undefined,
   rpc: Pick<RpcClientFace, 'call'>,
@@ -177,10 +177,10 @@ export class SingleBoardService extends Service {
   async refresh(): Promise<void> {
     try {
       const d = await fetchSingles(this.own.rpc, { track: (id, removed) => this.track(id, removed) });
-      this.singles.value = d.singles ?? [];
+      this.singles.value = d.singles;
       this.loaded.value = true;
     } catch (err: unknown) {
-      console.warn('[SingleBoard] 拉取独立会话列表失败:', (err as { message?: string })?.message ?? String(err));
+      console.warn('[SingleBoard] 拉取独立会话列表失败:', (err as { message?: string }).message ?? String(err));
     }
   }
 
@@ -301,7 +301,7 @@ export class SingleBoardService extends Service {
       if (d.session) this.selectSingle(d.session.id);
       return d.session ?? null;
     } catch (err: unknown) {
-      console.warn('[SingleBoard] 会话分支失败:', (err as { message?: string })?.message ?? String(err));
+      console.warn('[SingleBoard] 会话分支失败:', (err as { message?: string }).message ?? String(err));
       return null;
     }
   }

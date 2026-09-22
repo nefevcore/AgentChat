@@ -819,7 +819,6 @@ const promptFaceRef = ref<InstanceType<typeof PromptEditor> | null>(null);
 const promptFace = {
   isReady: computed(() => promptFaceRef.value !== null),
   caret: () => promptFaceRef.value?.caret() ?? 0,
-  domValue: () => promptFaceRef.value?.getText() ?? '',
   focus: () => promptFaceRef.value?.focus(),
   setCaret: (pos: number) => promptFaceRef.value?.setCaret(pos),
   replaceRange: (start: number, end: number, insert: string) =>

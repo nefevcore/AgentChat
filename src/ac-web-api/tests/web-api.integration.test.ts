@@ -116,12 +116,14 @@ class StubSubagentsService extends Service {
 
   private readonly root: string;
 
-  list(opts: { runningOnly?: boolean } = {}): { activeCount: number; total: number; subs: Array<Record<string, unknown>> } {
-    const subs = [
-      { id: 'sub_1', parentId: 'a1', name: '调研员', status: 'idle', displayStatus: 'done', task: '查资料', runs: 1, createdAt: 1, updatedAt: 2 },
-      { id: 'sub_2', parentId: 'a1', name: '写作员', status: 'running', displayStatus: 'running', task: '写总结', runs: 0, createdAt: 1, updatedAt: 2 },
+  list(opts: { runningOnly?: boolean; includeDeleted?: boolean } = {}): { activeCount: number; total: number; subs: Array<Record<string, unknown>> } {
+    const all = [
+      { id: 'sub_1', parentId: 'a1', name: '调研员', status: 'idle', displayStatus: 'done', task: '查资料', runs: 1, createdAt: 1, updatedAt: 2, deleted: false },
+      { id: 'sub_2', parentId: 'a1', name: '写作员', status: 'running', displayStatus: 'running', task: '写总结', runs: 0, createdAt: 1, updatedAt: 2, deleted: false },
+      { id: 'sub_9', parentId: 'a1', name: '旧调研', status: 'idle', displayStatus: 'done', task: '早期任务', runs: 3, createdAt: 1, updatedAt: 1, deleted: true },
     ];
-    const filtered = opts.runningOnly ? subs.filter((s) => s.status === 'running') : subs;
+    let filtered = opts.includeDeleted ? all : all.filter((s) => !s.deleted);
+    if (opts.runningOnly) filtered = filtered.filter((s) => s.status === 'running');
     return { activeCount: filtered.filter((s) => s.status === 'running').length, total: filtered.length, subs: filtered };
   }
 
@@ -137,6 +139,10 @@ class StubSubagentsService extends Service {
     } catch {
       return [];
     }
+  }
+
+  stop(id: string): boolean {
+    return this.list().subs.some((s) => s.id === id && s.status === 'running');
   }
 }
 
@@ -1934,12 +1940,18 @@ describe('ac-web-api subagents 面（子Agent 会话展示）', () => {
     ];
     writeFileSync(join(h.root, 'subagents', 'sub_1.jsonl'), `${lines.join('\n')}\n`, 'utf-8');
 
-    // list：全量 + running_only
+    // list：全量 + running_only（缺省不含墓碑）
     const all = await rpc(ws, 'subagents/list', 'l1');
     expect((all.result as { total: number }).total).toBe(2);
     const running = await rpc(ws, 'subagents/list', 'l2', { running_only: true });
     expect((running.result as { total: number }).total).toBe(1);
     expect((running.result as { subs: Array<{ id: string }> }).subs[0].id).toBe('sub_2');
+    // include_deleted：墓碑条目携带（deleted 标记——展示面「已删除」历史入口）
+    const withDeleted = await rpc(ws, 'subagents/list', 'l2b', { include_deleted: true });
+    const wd = withDeleted.result as { total: number; subs: Array<{ id: string; deleted: boolean }> };
+    expect(wd.total).toBe(3);
+    expect(wd.subs.find((s) => s.id === 'sub_9')?.deleted).toBe(true);
+    expect(wd.subs.find((s) => s.id === 'sub_1')?.deleted).toBe(false);
 
     // history：全量（无 limit）→ records 原样（steps 含 ToolResult）
     const full = await rpc(ws, 'subagents/history', 'h1', { id: 'sub_1' });
@@ -1969,6 +1981,13 @@ describe('ac-web-api subagents 面（子Agent 会话展示）', () => {
     expect((empty.result as { records: unknown[] }).records).toEqual([]);
     const bad = await rpc(ws, 'subagents/history', 'h5', {});
     expect(bad.ok).toBe(false);
+
+    // stop：running 条目 true / 非运行条目 false（运行跟踪面板子Agent 行
+    // stop 按钮的 subId 寻址面）
+    const st1 = await rpc(ws, 'subagents/stop', 'st1', { id: 'sub_2' });
+    expect((st1.result as { stopped: boolean }).stopped).toBe(true);
+    const st2 = await rpc(ws, 'subagents/stop', 'st2', { id: 'sub_1' });
+    expect((st2.result as { stopped: boolean }).stopped).toBe(false);
   });
 });
 

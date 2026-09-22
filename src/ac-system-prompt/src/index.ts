@@ -269,7 +269,7 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   //    倾向一轮铺开多个 subagent，结果收集与纠偏成本陡增——少量试探、
   //    看清进展再补派）
   if (names.has('subagent')) {
-    add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
+    add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；任务需要专业角色定位（如代码审查员/数据分析助手）或输出约束时给 system 参数（固化人设，跨轮生效），任务本身写 task；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
   }
 
   // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界；指引随
@@ -300,10 +300,10 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
  */
 function hostEnvLine(shellTool: 'pwsh' | 'bash' | undefined): string | undefined {
   if (shellTool === 'pwsh') {
-    return '[宿主环境] 命令实际由 PowerShell 执行；简单 Unix 命令（ls/cat/grep/head/tail 等）会自动翻译为等价写法（结果里的 translated_command 字段是实际执行的命令），复杂或不确定的命令直接写 PowerShell 原生语法（Get-ChildItem / Select-String / Get-Content 等）最可靠。命令工具（pwsh）只做文件工具办不到的事（组合命令、进程、环境）。路径分隔符用 \\ 或 / 均可。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
+    return '[宿主环境] 命令实际由 PowerShell 执行；简单 Unix 命令（ls/cat/grep/head/tail 等）会自动翻译为等价写法（结果里的 translated_command 字段是实际执行的命令），复杂或不确定的命令直接写 PowerShell 原生语法（Get-ChildItem / Select-String / Get-Content 等）最可靠。结果分轨汇报：output 为两流按时序的合流，stdout / stderr 为各自流的分轨视图（空流为空串）。命令工具（pwsh）只做文件工具办不到的事（组合命令、进程、环境）。路径分隔符用 \\ 或 / 均可。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
   }
   if (shellTool === 'bash') {
-    return '[宿主环境] 命令实际由 bash 执行。命令工具（bash）只做文件工具办不到的事（组合命令、进程、环境）。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
+    return '[宿主环境] 命令实际由 bash 执行。结果分轨汇报：output 为两流按时序的合流，stdout / stderr 为各自流的分轨视图（空流为空串）。命令工具（bash）只做文件工具办不到的事（组合命令、进程、环境）。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
   }
   return undefined;
 }

@@ -82,7 +82,7 @@ describe('插入切分（变体乙：run 中插入 → 关闭行 + 插入行 + �
         const session = ctx.get('session') as { recordContext(cid: string, aid: string, content: string, extra: { source: string; label?: string; split?: boolean }): string } | undefined;
         if (session && !loaded) return { ok: true, output: {} };
         if (session) {
-          session.recordContext('a~user', 'a', '<skill_content name="pdf-export"># 正文</skill_content>', { source: 'skill', label: '已加载技能 pdf-export', split: true });
+          session.recordContext('a~user', 'a', '<skill_content name="pdf-export"># 正文</skill_content>', { source: 'skill', label: '已加载技能 pdf-export' });
         }
         return { ok: true, output: { name: 'pdf-export', status: 'injected' } };
       },
@@ -112,7 +112,7 @@ describe('插入切分（变体乙：run 中插入 → 关闭行 + 插入行 + �
     expect(seq(segRow!)).toBeLessThan(seq(ctxRow!));
     expect(seq(ctxRow!)).toBeLessThan(seq(finalRow!));
     // 段行的 load_skill 已带真实终值（settlement 在工具全部完成后物化——无 result:null 悬空）
-    const segTc = stepsOf(segRow!)[0]?.toolCalls?.[0] as { result?: unknown } | undefined;
+    const segTc = stepsOf(segRow!)[0]?.toolCalls?.[0] as { result?: unknown } | undefined;
     expect(segTc?.result).toMatchObject({ ok: true, output: { name: 'pdf-export', status: 'injected' } });
 
     // 收束行退役（2026-11 裁决）：切分形态不落独立收束行——终文本在尾段末步；

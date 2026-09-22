@@ -526,8 +526,15 @@ export function diffOfContent(s: FileEditSummary): FileDiffResult {
 /** 服务端快照条目（RPC fileSnapshots/list 形状） */
 export interface RemoteSnapshot {
   absPath: string;
-  /** 首见时磁盘内容；null = 首见时不存在（会话内新建） */
+  /**
+   * 首见时磁盘内容；null = 无内容快照。区分：skipped 在场 = 存在但
+   * 未快照（超上限 too-large / 非文本 not-text——服务端准入闸跳过，
+   * 保持 partial 回落磁盘兜底/方案 A）；skipped 缺席 = 会话内新建
+   * （首见时文件不存在）。
+   */
   content: string | null;
+  /** 服务端快照准入跳过原因（在场 = 该文件无内容快照可用） */
+  skipped?: 'too-large' | 'not-text';
   capturedAt: number;
 }
 
@@ -572,6 +579,8 @@ function replayFrom(base: string, evs: FileEditEvent[]): { final: string; mismat
  *   · 无匹配快照 → 原样（方案 A 行为不变）。
  * 路径匹配：工具参数路径多为相对路径（相对沙箱工作区），快照是绝对
  * 路径——按「相等 / 后缀段匹配」对齐（rel 'a.ts' ↔ abs '.../files/x/a.ts'）。
+ * 跳过快照（skipped 在场——服务端准入闸：超上限/非文本）不接管断链——
+ * 保持 partial（content=null ≠ 新建），由磁盘兜底/方案 A 处理。
  * 返回新 Map（不改原 summaries——纯函数）。
  */
 export function applySnapshots(
@@ -586,7 +595,7 @@ export function applySnapshots(
   for (const [path, s] of summaries) {
     if (!s.partial) { out.set(path, s); continue; }
     const snap = matchSnapshot(path, snapshots);
-    if (!snap) { out.set(path, s); continue; }
+    if (!snap || snap.skipped) { out.set(path, s); continue; }
     if (snap.content === null) {
       // 首见时不存在 = 会话内新建——base ''，重放整链（insert 打头等）。
       // created: true——「新建」徽章语义在快照证据下成立（无快照时 replayFiles

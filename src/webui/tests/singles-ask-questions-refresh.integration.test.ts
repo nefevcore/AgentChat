@@ -336,6 +336,14 @@ describe('Single 会话 ask_questions 刷新恢复（全链路）', () => {
     setActivePinia(createPinia());
     const chat2 = useChatStore();
     await c2.singleBoard.refresh();
+    // 后端重启后 singles 注册表从磁盘重扫——并行负载下扫描可能在首个
+    // refresh 响应后才完成（列表缺行）。restoreLastSingle 落空会误清
+    // lastContext（副作用），不能轮询 restore 本身——轮询刷新至列表
+    // 到位（refresh 的 inFlight 合并防重入），再 restore 一次并断言。
+    await waitUntil(() => {
+      void c2.singleBoard.refresh();
+      return c2.singleBoard.singles.value.some((s) => s.id === session.id);
+    }, 15_000, '重启后：singles 列表到位');
     expect(c2.singleBoard.restoreLastSingle()).toBe(session.id);
     // jsonl 持久化：重启后 pending 恢复（修复前 memory 后端——全丢，此断言红）
     await waitUntil(() => !!chat2.interaction, 15_000, '重启后：pending 提问持久恢复');

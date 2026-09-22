@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as configRow from 'ac-config';
 import * as fsToolsRow from 'ac-fs-tools';
 import * as sreRow from 'ac-str-replace-editor';
 import * as snapshotsRow from 'ac-file-snapshots';
@@ -31,12 +32,13 @@ function tmpRoot(): string {
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
-async function boot(root: string, snapRoot: string) {
+async function boot(root: string, snapRoot: string, snapOpts: Record<string, unknown> = {}) {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<[unknown, unknown]> = [
     [toolsRow, undefined],
-    [snapshotsRow, { root: snapRoot }],
+    [configRow, { root }], // settings 层热更测试用（config.json 落临时根）
+    [snapshotsRow, { root: snapRoot, ...snapOpts }],
     [fsToolsRow, { workdir: root }],
     [sreRow, { workdir: root }],
   ];
@@ -150,6 +152,83 @@ describe('方案 C 挂点 —— 工具写路径 × 快照服务', () => {
     expect(svc.list('conv~z')).toHaveLength(1);
     svc.dropConversation('conv~z');
     expect(svc.list('conv~z')).toHaveLength(0);
+  });
+
+  it('准入双闸：二进制/超限文件编辑照常成功，快照只落 skipped 标记', async () => {
+    const root = tmpRoot();
+    // maxBytes=16：小文本可入，超限被拒
+    const { ctx } = await boot(root, path.join(root, 'snaps'), { maxBytes: 16 });
+    const svc = ctx.fileSnapshots as FileSnapshotsService;
+    const bin = path.join(root, 'blob.bin');
+    fs.writeFileSync(bin, Buffer.from([0x00, 0x01, 0x02]));
+    const big = path.join(root, 'big.log');
+    fs.writeFileSync(big, 'z'.repeat(26) + 'UNIQUE-MARK' + 'z'.repeat(28), 'utf-8'); // 64 B，标记唯一
+
+    // 二进制文件 edit 成功（写路径不受快照准入影响）+ skipped=not-text
+    const r1 = await exec(ctx, {
+      name: 'edit',
+      args: { file_path: 'blob.bin', old_string: '', new_string: 'A' },
+      conversationId: 'conv~g',
+    });
+    expect(r1.ok).toBe(true);
+    expect(svc.get('conv~g', bin)!.skipped).toBe('not-text');
+
+    // 超限文本 edit 成功 + skipped=too-large
+    const r2 = await exec(ctx, {
+      name: 'edit',
+      args: { file_path: 'big.log', old_string: 'UNIQUE-MARK', new_string: 'REPLACED!' },
+      conversationId: 'conv~g',
+    });
+    expect(r2.ok).toBe(true);
+    expect(svc.get('conv~g', big)!.skipped).toBe('too-large');
+
+    // 小文本文件照常全量快照（对照组）
+    fs.writeFileSync(path.join(root, 's.txt'), 'tiny\n', 'utf-8');
+    await exec(ctx, {
+      name: 'edit',
+      args: { file_path: 's.txt', old_string: 'tiny', new_string: 'TINY' },
+      conversationId: 'conv~g',
+    });
+    expect(svc.get('conv~g', path.join(root, 's.txt'))!.content).toBe('tiny\n');
+  });
+
+  it('settings.fileSnapshots.maxBytes 全局层：构造吸收 + config/changed 热更 + 非法值保持现状', async () => {
+    const root = tmpRoot();
+    const snapRoot = path.join(root, 'snaps');
+    const { ctx, fibers } = await boot(root, snapRoot);
+    const svc = ctx.fileSnapshots as FileSnapshotsService;
+    const cfg = ctx.get('config') as { set(key: string, value: unknown): void; get<T>(key: string): T | undefined };
+
+    // 行配置缺省（无 maxBytes）——settings 层写入 64：构造后热更生效
+    const target = path.join(root, 'hot.log');
+    fs.writeFileSync(target, 'x'.repeat(128), 'utf-8');
+    cfg.set('settings.fileSnapshots', { maxBytes: 64 });
+    // config.set 内部 emit config/changed → applySettings 已吸收
+    expect(svc.get('conv~h', target)).toBeUndefined(); // 尚未首见
+    svc.ensure('conv~h', target);
+    expect(svc.get('conv~h', target)!.skipped).toBe('too-large'); // 热更后 64B 上限生效
+
+    // 调大 → 同一会话另一文件恢复全量快照
+    cfg.set('settings.fileSnapshots', { maxBytes: 4096 });
+    const target2 = path.join(root, 'hot2.log');
+    fs.writeFileSync(target2, 'y'.repeat(128), 'utf-8');
+    svc.ensure('conv~h', target2);
+    expect(svc.get('conv~h', target2)!.content).toBe('y'.repeat(128));
+
+    // 非法值（负数）——保持现状（4096 不变）
+    cfg.set('settings.fileSnapshots', { maxBytes: -1 });
+    const target3 = path.join(root, 'hot3.log');
+    fs.writeFileSync(target3, 'z'.repeat(300), 'utf-8');
+    svc.ensure('conv~h', target3);
+    expect(svc.get('conv~h', target3)!.content).toBe('z'.repeat(300)); // 仍按 4096 快照
+
+    // 0 = 关闭上限
+    cfg.set('settings.fileSnapshots', { maxBytes: 0 });
+    const target4 = path.join(root, 'hot4.log');
+    fs.writeFileSync(target4, 'w'.repeat(99999), 'utf-8');
+    svc.ensure('conv~h', target4);
+    expect(svc.get('conv~h', target4)!.content).toBe('w'.repeat(99999));
+    void fibers;
   });
 
   it('快照行缺席：工具照常工作（软依赖不阻断）', async () => {

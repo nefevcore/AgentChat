@@ -42,6 +42,7 @@ export const DEFAULT_GUIDANCE = [
   '- 语法限可擦除 TS（类型标注/接口可用，enum/命名空间/参数属性不可用）；',
   '- 预算耗尽或中止时程序按 interrupted 收束，已完成的子调用如实计数；',
   '- 字符串书写纪律（防擦除失败——模板串内嵌反引号是头号错误源）：反引号须转义（`用 \\`pwsh\\` 执行`）或改用单/双引号串；多行文本优先 [\'行1\', \'行2\'].join(\'\\n\') 拼接；模板串内字面 ${ 写 \\${。',
+  '- 大文件改写纪律（防 read 截断 → write 回写半文）：read 大文件可能截断（size/total_lines 远超所读行数时警惕），把读到的片段当全文 write 回去会静默毁文件——同一文件禁用「read 全文 → 内存拼改 → write 整写」链路；改用 edit（old_string 精确替换，不触碰未读区段）或 pwsh 原生读改写，写前核对 total_lines 与预期一致。',
   '临时库（lib）：',
   '- 注册：lib.define(\'名\', 函数或源码串)——本程序起生效，同会话后续程序可用；源码串推荐具名 async function 名(...) {...} 或箭头 fn => …（匿名 function 表达式串不可用），程序体字符串按同步求值（可含 return 取预计算值，不能含 await——要调 tools 用 async 函数形态）；value 须为源码字符串或函数（对象/数组等数据本体无法注册——跨程序经序列化传递），resolve 取到的是调用即执行的结果，不是缓存数据。',
   '- 取用：const clip = lib.resolve(\'clip\') 返回库本体直接调用，或直调糖 lib.clip(...)（两形态等价——Proxy 代理已注册名到同一求值通道）；对单名结果解构得 undefined 是头号误用；lib.resolve() 无参返回清单摘要 { 名: { kind, size, preview } }（纯静态不执行任何库源码——查看有什么库用，用哪个库还是 resolve(名) 取本体）。最小示例：lib.define(\'clip\', (s, n = 80) => (s.length > n ? s.slice(0, n) + \'…\' : s)) 注册 → const clip = lib.resolve(\'clip\') 取用。',

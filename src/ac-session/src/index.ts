@@ -160,25 +160,17 @@ export interface SessionRecord {
    *  同毫秒 timestamp 歧义免疫）。主文件行不带本字段 */
   echoSeq?: number;
   /**
-
    * run 关联键（部分行与其收束行/段行同值；读侧吸收对账用）。settlement
-
    * 切段（2026-11 泛化）后同 run 可有多条段行——注入行切分点两侧各一段。
-
    */
 
   run?: string;
 
   /**
-
    * journal 提升行标记（2026-11 partials 泛化）：true = 本行原是 run
-
    * journal（partials.jsonl）里的注入行，settlement 时提升进 messages——
-
    * 行为与直接落账完全一致，本标记仅供读侧合并把 journal 行排除在
-
    * 吸收对账外（注入行永不被吸收/去重）。
-
    */
 
   injected?: boolean;
@@ -247,17 +239,11 @@ function isToolResultLine(line: string): boolean {
 }
 
 /**
-
  * journal 步行落盘行（type 判别行，同 session-header 机制）：run journal
-
  * （partials.jsonl）的原子事件——每个已完成步一行（工具步/纯文本步同款，
-
  * 2026-11 泛化：全步落盘使行序 = 模型消息数组实际序，注入行按真序插在
-
  * 步行之间）。旧版本读到本行 → parseRecordLine 无 role 词拒绝 → 安全忽略
-
  * （前向兼容）。settlement 按 run 键收集本类行切段物化到 messages.jsonl。
-
  */
 
 interface JournalStepLine {
@@ -272,7 +258,6 @@ interface JournalStepLine {
   step: SessionStepRecord;
 
   /** 步的发言 Agent 端点（读侧活投影 agent_id 数据源——对桶键排序不定，
-
    * 不能从 conversationId 推导；写入侧 after-step 的 agent 参数直存） */
 
   agentId?: string;
@@ -282,10 +267,8 @@ interface JournalStepLine {
 }
 
 /**
-
  * journal 注入行（type 判别行）：注入消息按消费点落 journal——行序位置 =
  * 该消息进入模型消息数组的位置（settlement 时提升为普通行落 messages）。
-
  */
 
 interface JournalInjectLine {
@@ -310,6 +293,14 @@ interface JournalInjectLine {
    */
   ts?: number;
   seq?: number;
+  /**
+   * 注入身份键（recordContext 铸造一次，全生命周期共享）：journal 落行 →
+   * context-injected 事件帧 → journal 活投影行 message_id → settlement
+   * 提升行 message_id 四形态同键——前端按 persistedMsgId 精确去重（直播
+   * 行与刷新行锚点一致，取代内容启发式）。前缀 ctx- 与消息 id 区分。
+   * 缺席 = 存量行（兼容读取，投影回落无锚旧行为）。
+   */
+  injectionId?: string;
 }
 
 /** journal 步行前缀判定（避免全量 JSON.parse） */
@@ -327,17 +318,17 @@ function isJournalInjectLine(line: string): boolean {
 }
 
 /**
-
  * journal 行身份（rewriteJournal 剔除与崩溃恢复对账的行键）：步行/注入行
-
  * = type|run|seq（seq 在文件内单调——建队续号，重放重写后身份不变）；
-
  * 直调补行 = type|run|tool_call_id（result 无 id——同调用重补覆盖语义）。
-
  * 无法解析 → undefined（rewriteJournal 保留该行——宁重不丢）。
-
  */
 
+/** journal 行身份键（type|run|key 三段）：写侧构造与读侧解析共用同一格式——
+ * 三处副本（enqueueSettlement / recoverJournal / journalIdentity）必须同步，故并源。 */
+function journalIdentityOf(type: 'journal-step' | 'journal-inject' | 'tool-result', run: string, key: number | string): string {
+  return `${type}|${run}|${key}`;
+}
 function journalIdentity(line: string): string | undefined {
   try {
     const p = JSON.parse(line) as { type?: unknown; run?: unknown; seq?: unknown; tool_call_id?: unknown };
@@ -345,12 +336,12 @@ function journalIdentity(line: string): string | undefined {
     if (typeof p.run !== 'string' || !p.run) return undefined;
 
     if ((p.type === 'journal-step' || p.type === 'journal-inject') && typeof p.seq === 'number') {
-      return `${p.type}|${p.run}|${p.seq}`;
+      return journalIdentityOf(p.type, p.run, p.seq);
 
     }
 
     if (p.type === 'tool-result' && typeof p.tool_call_id === 'string' && p.tool_call_id) {
-      return `tool-result|${p.run}|${p.tool_call_id}`;
+      return journalIdentityOf('tool-result', p.run, p.tool_call_id);
 
     }
 
@@ -547,17 +538,21 @@ function genMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 生成 context 注入身份键（recordContext 单点铸造：journal 行/事件帧/
+ *  活投影行/提升行四形态共享——同键即同一份注入事实，前端按 persistedMsgId
+ *  精确去重）。ctx- 前缀与消息 id（msg-）词形区分。 */
+function genInjectionId(): string {
+  return `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /** 生成 run 关联键（部分行 ↔ 收束行对账用） */
 function genRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /** run 簿记键：loop 事件载荷的 (agent, conversationId) 原样拼接——同一 run
-
  *  的 run-started/after-step/reply-completed 携带相同二元组，无需 runAddress
-
  *  规范化词汇（本服务不依赖 ac-agent-loop 寻址面）。任一缺席 = 无会话归属
-
  *  （直连 subagent 等）→ undefined（不簿记、不落 journal）。 */
 
 function runLogKey(agent: string | undefined, conversationId: string | undefined): string | undefined {
@@ -879,19 +874,15 @@ export class SessionService extends Service {
    * （串行会话门保证同会话不并发；残留项在进程死亡时随内存消失，无害）。
    */
   /** steer 消费前 stash（消息对象 → 投递信息）：步边界消费时切分落账 */
-  private steerStash = new WeakMap<object, { conversationId: string; agentId?: string; message: LlmMessage; source?: string; sender?: string; meta?: Record<string, unknown> }>();
+  private steerStash = new WeakMap<object, { conversationId: string; agentId?: string; message: LlmMessage; source?: string; sender?: string; meta?: Record<string, unknown>; injectionId?: string }>();
   /** stash 会话索引（conversationId → 消息对象集）：after-run 兜底扫描用
    *  （WeakMap 无法按会话遍历；条目随消费/drop/兜底摘除） */
   private steerStashByConv = new Map<string, Set<object>>();
 
   /**
-
    * settlement per-conv 链（2026-11 泛化）：同会话的 settlement 串行执行
-
    *（recoverJournal 与 settleRun 都重写 partials——互斥防竞态）。值恒为
-
    * 已捕获的 Promise（链永不 reject）。
-
    */
 
   private settleChain = new Map<string, Promise<void>>();
@@ -905,42 +896,22 @@ export class SessionService extends Service {
     archiveReview: boolean;
 
     /**
-
      * （泛化前 wrotePartial——收束行盖章依据。）run 收束行带 run 键的条件
-
      * 收窄为：journal 里有本 run 的行（步/注入/补行任一）。纯文本 run 的
-
      * journal 只有纯文本步行——若无注入也无直调补行，收束行无 run 键、无
-
      * 吸收对象，落盘形态与泛化前零变化（无步骤行无 runStamp）。
-
      */
 
     wrotePartial: boolean;
 
     /**
-
      * 本 run journal 是否落过注入行（journalRuns 语义，2026-11 泛化）：
-
      * true = settlement 需要切段物化（存在注入切分点）。全 run 记账（不
-
      * 再按工具步门控——journal 全步落盘，行序即真序）。
-
      */
 
     journaled: boolean;
 
-    /**
-
-     * 本 run journal 的注入行数（injected counter）：settlement 剔除
-
-     * journal 时需要知道注入行行数（它们与步行不同类——提升后从 journal
-
-     * 剔除）。步/补行按 run 键剔除，注入行按本计数在头部段行前重放。
-
-     */
-
-    injectCount: number;
 
     /**
      * 上下文观测基线（2026-09-20 断网事故复盘）：run-started 异步采样的
@@ -979,13 +950,17 @@ export class SessionService extends Service {
       // 前崩溃同样悬空），pending 滞留内存 = UI 读文件不可见、非优雅退出即
       // 丢。fire-and-forget 不阻塞 emit 链（既有 flushBestEffort 语义）。
       if (source === 'event') {
-        this.record(conversationId, agentId, message, { roleOverride: 'context', source: 'event' });
+        const injectId = genInjectionId();
+        this.record(conversationId, agentId, message, { roleOverride: 'context', source: 'event', messageId: injectId });
         this.flushBestEffort(conversationId, '入站事件行');
+        // 通知面统一：上屏帧改由本行发（与 recordContext 同形）；前端
+        // router/message-received 帧不再渲染 event 行
+        this.ctx.emit('session/context-injected', conversationId, agentId, { source: 'event', injectionId: injectId, label: typeof message.content === 'string' ? message.content : '' });
         return;
       }
       this.record(conversationId, sender ?? 'user', message);
       this.flushBestEffort(conversationId, '入站消息');
-    }, { description: '入站消息入账 + 即时落盘（对桶 + name 说话人）' });
+    }, { description: '入站消息入账 + 即时落盘（机制通知 → 事件行 + context-injected 帧；普通 → 说话人 agent 行）' });
     this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, source, meta) => {
       // journal 语义（2026-11 泛化）：会话忙（有活跃 run）时 stash，步边界
       // 消费点统一落 journal 注入行（partials.jsonl，位置 = 进入消息数组的
@@ -995,8 +970,18 @@ export class SessionService extends Service {
       if (busyKey !== undefined && this.activeRuns.has(busyKey)) {
         // agentId 存【目标 Agent】（steered 首参——消费点 runLogKey 锚），
         // sender 仅入账归属（提升行归属说话人 = sender——steer 语义，非桶主）
-        //——此前误存 sender 导致消费点查不到 activeRuns 而静默丢行
-        this.steerStash.set(message, { conversationId, agentId, message, source, meta, sender });
+        //——此前误存 sender 导致消费点查不到 activeRuns 而静默丢行。
+        // 机制通知（source='event'）注入 id 随 stash 走（消费点落 journal 时
+        // 携带 + 此时已补发过事件帧，不再重发）
+        const stashId = source === 'event' ? genInjectionId() : undefined;
+        this.steerStash.set(message, { conversationId, agentId, message, source, meta, sender, ...(stashId !== undefined ? { injectionId: stashId } : {}) });
+        if (stashId !== undefined) {
+          // 通知面统一（单一通知源）：机制通知的上屏帧由本行补发（载荷与
+          // recordContext 同形——label = 通知正文）；前端 router/steered 帧
+          // 不再渲染 event 行，重复 context 行从通知层根除。
+          const text = typeof message.content === 'string' ? message.content : '';
+          this.ctx.emit('session/context-injected', conversationId, agentId, { source: 'event', injectionId: stashId, label: text });
+        }
         let bag = this.steerStashByConv.get(conversationId);
         if (!bag) {
           bag = new Set();
@@ -1016,13 +1001,17 @@ export class SessionService extends Service {
       //（2026-09-02 反馈：通知静默丢失）。同一通知空闲/忙两条入账路径
       // 自此同形。
       if (source === 'event') {
-        this.record(conversationId, agentId, message, { roleOverride: 'context', source: 'event' });
+        const injectId = genInjectionId();
+        this.record(conversationId, agentId, message, { roleOverride: 'context', source: 'event', messageId: injectId });
         this.flushBestEffort(conversationId, '入站事件行');
+        // 通知面统一：上屏帧改由本行发（与 recordContext 同形）；前端
+        // router/steered 帧不再渲染 event 行
+        this.ctx.emit('session/context-injected', conversationId, agentId, { source: 'event', injectionId: injectId, label: typeof message.content === 'string' ? message.content : '' });
         return;
       }
       this.record(conversationId, sender ?? agentId, message);
       this.flushBestEffort(conversationId, '入站消息');
-    }, { description: 'steer 消息入账 + 即时落盘（机制通知 → 事件行；普通注入 → 说话人 agent 行）' });
+    }, { description: 'steer 消息入账 + 即时落盘（机制通知 → 事件行 + context-injected 帧；普通注入 → 说话人 agent 行）' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       this.onReplyCompleted(agentId, text, result, conversationId, meta);
     }, { description: '回复入账 + checkpoint 定向 flush' });
@@ -1076,7 +1065,6 @@ export class SessionService extends Service {
         archiveReview: isArchiveReviewRun(request.meta),
         wrotePartial: false,
         journaled: false,
-        injectCount: 0,
 
       });
 
@@ -1167,9 +1155,14 @@ export class SessionService extends Service {
         if (info === undefined) continue;
         this.steerStash.delete(d.message as object);
         this.steerStashByConv.get(conversationId)?.delete(d.message as object);
-        // 未消费 → 直接落盘（无切分：run 已收束，位置 = 收束行后）
+        // 机制标记/群 hint 的 steer 不入账（与步边界消费点、after-run 兜底
+        // 同款门控——机制通知非会话事实，落账会绕过群桶/机制 run 的隔离口径）
+        if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
+        // 未消费 → 直接落盘（无切分：run 已收束，位置 = 收束行后）。机制
+        // 通知带 stash 注入 id（帧已在 stash 时发过——同锚落账，刷新后与
+        // 直播行去重；不重发帧）
         if (info.source === 'event') {
-          this.record(conversationId, agent ?? conversationId, info.message, { roleOverride: 'context', source: 'event' });
+          this.record(conversationId, agent ?? conversationId, info.message, { roleOverride: 'context', source: 'event', ...(info.injectionId !== undefined ? { messageId: info.injectionId } : {}) });
         } else {
           this.record(conversationId, info.agentId ?? 'user', info.message);
         }
@@ -1183,11 +1176,11 @@ export class SessionService extends Service {
 
       const msgs = Array.isArray(messages) ? (messages as Array<{ role?: string }>) : [];
 
-      const stashed = msgs.map((m, i) => ({ m, i })).filter(({ m }) => this.steerStash.has(m as object));
+      const stashed = msgs.filter((m) => this.steerStash.has(m as object));
 
       if (stashed.length === 0) return;
 
-      for (const { m, i } of stashed) {
+      for (const m of stashed) {
         const info = this.steerStash.get(m as object)!;
 
         this.steerStash.delete(m as object);
@@ -1210,17 +1203,11 @@ export class SessionService extends Service {
 
         state.journaled = true;
 
-        state.injectCount++;
 
-        const at = i - msgs.reduce((acc, mm, ii) => (ii < i && this.steerStash.has(mm as object) ? acc + 1 : acc), 0);
-
-        void at; // 消费点循环按数组序迭代——journal 尾部追加即真序
-
+        // 注入位置不显式传递：消费点循环按数组序迭代——journal 尾部追加即真序
         this.journalInjectAt(conversationId, state.run, info);
 
       }
-
-      void index;
     }, { description: '步边界 steer 消费点：journal 注入行落账（真序）' });
     // after-run 兜底（2026-09-20 丢失修复二道网）：run 收束时同会话 stash
     // 仍有残留（消费匹配断链 / 事件时序缝隙等漏路径）——全部落盘。宁可
@@ -1240,7 +1227,7 @@ export class SessionService extends Service {
         bag.delete(obj);
         if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
         if (info.source === 'event') {
-          this.record(cid, request.agent ?? cid, info.message, { roleOverride: 'context', source: 'event' });
+          this.record(cid, request.agent ?? cid, info.message, { roleOverride: 'context', source: 'event', ...(info.injectionId !== undefined ? { messageId: info.injectionId } : {}) });
         } else {
           this.record(cid, info.agentId ?? 'user', info.message);
         }
@@ -1315,15 +1302,10 @@ export class SessionService extends Service {
   }
 
   /**
-
    * journal 步行落账（2026-11 partials 泛化）：每个已完成步一行（工具步/
-
    * 纯文本步同款——全步落盘使行序 = 模型消息数组实际序，注入行按真序
-
    * 插在步行之间）。工具步 result 恒 null：终值由 tool/after-execute 补行
-
    * 携带（副作用前 durable 语义不变——journal 行在工具执行前已落队）。
-
    */
 
   private journalStep(conversationId: string, run: string, step: SessionStepRecord, agentId?: string): void {
@@ -1343,44 +1325,12 @@ export class SessionService extends Service {
   }
 
   /**
-
-   * journal 注入行落账：注入消息按消费点落 journal（位置 = 进入模型消息
-
-   * 数组的真实位置——LLM 流期间到达的 steer 实际在步 N 之后进队）。
-
-   * settlement 提升为普通行（agent/context 形态，与直接落账一致）。
-
-   */
-
-  private journalInject(conversationId: string, run: string, message: LlmMessage, agentId: string, kind?: 'event'): void {
-    const queue = this.queueOf(conversationId, 'partials');
-
-    const line: JournalInjectLine = {
-      type: 'journal-inject',
-      run,
-      message,
-      agentId,
-      ...(kind === 'event' ? { kind: 'event' } : {}),
-      ts: Date.now(),
-      seq: queue.nextSeq++,
-
-    };
-
-    queue.pending.push(JSON.stringify(line));
-
-  }
-
-  /**
-
    * journal 注入行落账（消费点通道）：steer 消费点携带消息数组内位置，
-
    * 同一消费点多条注入按数组序迭代（stashed 按数组序）——journal 尾部
-
    * 追加即保真序。context 通道（recordContext）不带位置，直接尾部追加。
-
    */
 
-  private journalInjectAt(conversationId: string, run: string, info: { message: LlmMessage; source?: string; sender?: string }): void {
+  private journalInjectAt(conversationId: string, run: string, info: { message: LlmMessage; source?: string; sender?: string; injectionId?: string }): void {
     const queue = this.queueOf(conversationId, 'partials');
 
     const line: JournalInjectLine = {
@@ -1389,6 +1339,7 @@ export class SessionService extends Service {
       message: info.message,
       agentId: info.sender ?? 'user',
       ...(info.source === 'event' ? { kind: 'event' } : {}),
+      ...(info.injectionId !== undefined ? { injectionId: info.injectionId } : {}),
       ts: Date.now(),
       seq: queue.nextSeq++,
 
@@ -1422,7 +1373,7 @@ export class SessionService extends Service {
    * message_id 一致，rewriteJournal 剔除行身份一致，重试无副作用。
    * 写路径独占（per-conv 链互斥；journal 只在本方法与 drain 顺序写）。
    */
-  private rewriteJournal(conversationId: string, run: string, identities: Set<string>): void {
+  private rewriteJournal(conversationId: string, identities: Set<string>): void {
     const file = this.dataFile(conversationId, 'partials');
     if (!fs.existsSync(file)) return;
     const lines = fs.readFileSync(file, 'utf-8').split('\n');
@@ -1436,7 +1387,7 @@ export class SessionService extends Service {
     if (kept.length === lines.filter((x) => x.trim()).length) return; // 无剔除（幂等安全）
     if (kept.length === 0) fs.rmSync(file);
     else {
-      const tmp = file + '.tmp';
+      const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
       fs.writeFileSync(tmp, kept.join('\n') + '\n', 'utf-8');
       fs.renameSync(tmp, file);
     }
@@ -1512,14 +1463,14 @@ export class SessionService extends Service {
    * 不落终稿（journal 步行如实保留 → 段行物化，UI 恢复思维链）。
    * per-conv 链互斥（settleChain）：防同会话并发 settlement 重写竞态。
    */
-  private async settleRun(conversationId: string, agentId: string, result: LoopRunResult, state: { run: string; journaled: boolean; wrotePartial: boolean }, finalText?: string): Promise<void> {
+  private async settleRun(conversationId: string, agentId: string, result: LoopRunResult, state: { run: string }, finalText?: string): Promise<void> {
     const identities = this.enqueueSettlement(conversationId, agentId, result, state, finalText);
 
     if (identities === null) return;
 
     const prev = this.settleChain.get(conversationId) ?? Promise.resolve();
 
-    const next = prev.then(() => this.settleTail(conversationId, state.run, identities)).catch((err: unknown) => {
+    const next = prev.then(() => this.settleTail(conversationId, identities)).catch((err: unknown) => {
       this.ctx.logger.warn(`[session] settlement 失败（${conversationId}）: ${String(err)}`);
 
     });
@@ -1531,18 +1482,13 @@ export class SessionService extends Service {
   }
 
   /**
-
    * settlement 同步入队段（reply-completed 同步调用——messages 行序 = 会话
-
    * 事实序：收束行/段行/注入行必须先于其后到达的入站消息入队；flush 可
-
    * 异步）。构造提升批并入队，返回 journal 剔除身份集（null = 空 journal 无
-
    * 物化对象）。数据源 = 盘上行 + 在途 pending（readJournalRun 合并读）。
-
    */
 
-  private enqueueSettlement(conversationId: string, agentId: string, result: LoopRunResult, state: { run: string; journaled: boolean; wrotePartial: boolean }, finalText?: string): Set<string> | null {
+  private enqueueSettlement(conversationId: string, agentId: string, result: LoopRunResult, state: { run: string }, finalText?: string): Set<string> | null {
     const { stepLines, injectLines, sups } = this.readJournalRun(conversationId, state.run);
     if (stepLines.length === 0 && injectLines.length === 0 && sups.length === 0) return null; // 空 journal：无物化对象（纯文本 run 未记 journal）
     // 补行并入：result:null ← 终值（keyed by tool_call_id；旧补行在前新在后——重放幂等）
@@ -1604,9 +1550,14 @@ export class SessionService extends Service {
       // 注入进入消息数组的真实时刻，非 settlement 铸造时刻）：前端步级
       // ts 稳定排序据此归位，注入行不再与终稿步竞速（错序根因修复）
 
-      const injectExtra = { injected: true, run: state.run } as { injected: boolean; run: string; timestamp?: string };
+      const injectExtra = { injected: true, run: state.run } as { injected: boolean; run: string; timestamp?: string; messageId?: string };
 
       if (j.ts !== undefined) injectExtra.timestamp = new Date(j.ts).toISOString();
+
+      // 提升行 id 复用注入 id（injectionId 贯通第四形态）：不再新铸——与
+      // 事件帧直播行/活投影行同锚，前端按 persistedMsgId 去重恒等生效。
+      // 缺席（存量 journal 行）走 solids 缺省铸造，行为同旧。
+      if (j.injectionId !== undefined) injectExtra.messageId = j.injectionId;
 
       batch.push(() => j.contextSource !== undefined
         ? this.record(conversationId, j.agentId, j.message, { roleOverride: 'context', source: j.contextSource, ...(j.label !== undefined ? { label: j.label } : {}), ...injectExtra })
@@ -1647,8 +1598,6 @@ export class SessionService extends Service {
 
         pushSeg(seg);
 
-        void text;
-
       }
 
     }
@@ -1667,30 +1616,26 @@ export class SessionService extends Service {
 
     const identities = new Set<string>();
 
-    for (const s of stepLines) identities.add(`journal-step|${state.run}|${s.seq ?? 0}`);
+    for (const s of stepLines) identities.add(journalIdentityOf('journal-step', state.run, s.seq ?? 0));
 
-    for (const j of injectLines) identities.add(`journal-inject|${state.run}|${j.seq ?? 0}`);
+    for (const j of injectLines) identities.add(journalIdentityOf('journal-inject', state.run, j.seq ?? 0));
 
-    for (const s of sups) identities.add(`tool-result|${state.run}|${s.tool_call_id}`);
+    for (const s of sups) identities.add(journalIdentityOf('tool-result', state.run, s.tool_call_id));
 
     return identities;
 
   }
 
   /**
-
    * settlement 异步收尾（settleChain 串行）：① journal flush（identity 对账的
-
    * 盘上基础）+ messages durable flush；② journal 剔除。崩溃窗口（①后②前）
-
    * 由 recoverJournal 幂等收口。
-
    */
 
-  private async settleTail(conversationId: string, run: string, identities: Set<string>): Promise<void> {
+  private async settleTail(conversationId: string, identities: Set<string>): Promise<void> {
     await this.flush(conversationId);
 
-    this.rewriteJournal(conversationId, run, identities);
+    this.rewriteJournal(conversationId, identities);
 
   }
 
@@ -1733,8 +1678,11 @@ export class SessionService extends Service {
       for (const line of fs.readFileSync(msgFile, 'utf-8').split('\n')) {
         if (!line.trim() || isHeaderLine(line) || isToolResultLine(line)) continue;
         try {
-          const mr = JSON.parse(line) as { run?: unknown };
-          if (typeof mr.run === 'string' && mr.run) settled.add(mr.run);
+          const mr = JSON.parse(line) as { run?: unknown; partial?: unknown };
+          // partial 回声行不算 settled（守卫与 records() 读侧同口径）：
+          // 中断 run 的在途回声若计入，recover 会误判已收束——只剔 journal
+          // 行、不物化段行，思维链/工具结果凭空消失。
+          if (typeof mr.run === 'string' && mr.run && mr.partial !== true) settled.add(mr.run);
         } catch { /* 忽略 */ }
       }
     }
@@ -1753,16 +1701,16 @@ export class SessionService extends Service {
       if (activeRunIds.has(run)) continue;
       if (settled.has(run)) {
         // 崩溃窗口（append 后 clear 前）：直接剔除
-        for (const s of bucket.stepLines) identities.add(`journal-step|${run}|${s.seq ?? 0}`);
-        for (const j of bucket.injectLines) identities.add(`journal-inject|${run}|${j.seq ?? 0}`);
-        for (const s of bucket.sups) identities.add(`tool-result|${run}|${s.tool_call_id}`);
+        for (const s of bucket.stepLines) identities.add(journalIdentityOf('journal-step', run, s.seq ?? 0));
+        for (const j of bucket.injectLines) identities.add(journalIdentityOf('journal-inject', run, j.seq ?? 0));
+        for (const s of bucket.sups) identities.add(journalIdentityOf('tool-result', run, s.tool_call_id));
         continue;
       }
       // 孤儿 run：投影为中断收束行（段行物化——与 settleRun 同形）
       const interrupted: LoopRunResult = { steps: [], text: '', finish: 'interrupted', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 } };
-      await this.settleRun(conversationId, agentId, interrupted, { run, journaled: true, wrotePartial: bucket.stepLines.length > 0 });
+      await this.settleRun(conversationId, agentId, interrupted, { run });
     }
-    if (identities.size > 0) this.rewriteJournal(conversationId, '', identities);
+    if (identities.size > 0) this.rewriteJournal(conversationId, identities);
   }
 
   /** 回复入账（D13 中性：role:'agent' + agent_id=回复 Agent；错误收束 role:'error'；steps/reasoning 随行落盘） */
@@ -1790,24 +1738,11 @@ export class SessionService extends Service {
     //（空转/一步即溃）照旧整行直落（落盘形态与泛化前零变化）。
 
     if (active?.journaled === true) {
-      // 同步入队（messages 行序锚定——收束行/段行/注入行先于后续入站消息）
-      // + 异步 durable flush 与 journal 剔除（settleChain 串行）
-
-      const ids = this.enqueueSettlement(conversationId, agentId, result, active, text);
-
-      if (ids !== null) {
-        const prev = this.settleChain.get(conversationId) ?? Promise.resolve();
-
-        const next = prev.then(() => this.settleTail(conversationId, active.run, ids)).catch((err: unknown) => {
-          this.ctx.logger.warn(`[session] settlement 失败（${conversationId}）: ${String(err)}`);
-
-        });
-
-        this.settleChain.set(conversationId, next.catch(() => {}));
-
-        void next;
-
-      }
+      // 同步入队（messages 行序锚定）+ 异步 durable flush 与 journal 剔除
+      //（settleChain 串行，settleRun 内管道并源处——此处 fire-and-forget，
+      // 不阻塞收束回调）
+      void this.settleRun(conversationId, agentId, result, active, text);
+      return;
 
       return;
 
@@ -1880,65 +1815,48 @@ export class SessionService extends Service {
     conversationId: string,
     agentId: string,
     content: string,
-    extra: { source: string; label?: string; split?: boolean },
-
+    extra: { source: string; label?: string },
   ): string {
+    // 注入身份键单点铸造（一次落账一份事实）：journal 行/事件帧/活投影行/
+    // 提升行四形态共享——前端直播行与刷新行同锚去重。
+    const injectionId = genInjectionId();
     // run 活跃 → journal 注入行（context 形态提升由 settlement 完成）。
     // source/label 随行携带（提升时还原 label 条）
-
     const jkey = runLogKey(agentId, conversationId);
-
     const active = jkey !== undefined ? this.activeRuns.get(jkey) : undefined;
-
     if (active !== undefined) {
       active.journaled = true;
-
-      active.injectCount++;
-
-      this.journalContext(conversationId, active.run, agentId, content, extra);
-
+      this.journalContext(conversationId, active.run, agentId, content, extra, injectionId);
       this.flushBestEffort(conversationId, 'journal context 行');
-
-      this.ctx.emit('session/context-injected', conversationId, agentId, { source: extra.source, ...(extra.label !== undefined ? { label: extra.label } : {}) });
-
-      return ''; // journal 行无 message_id（提升时新铸）
-
+      this.ctx.emit('session/context-injected', conversationId, agentId, { source: extra.source, injectionId, ...(extra.label !== undefined ? { label: extra.label } : {}) });
+      return injectionId;
     }
-
-    void extra.split; // 退役参数（兼容签名保留）
-
     const id = this.record(conversationId, agentId, { role: 'user', content }, {
       roleOverride: 'context',
       source: extra.source,
+      messageId: injectionId,
       ...(extra.label !== undefined ? { label: extra.label } : {}),
-
     });
-
     this.flushBestEffort(conversationId, 'context 行');
-
-    this.ctx.emit('session/context-injected', conversationId, agentId, { source: extra.source, ...(extra.label !== undefined ? { label: extra.label } : {}) });
-
+    this.ctx.emit('session/context-injected', conversationId, agentId, { source: extra.source, injectionId, ...(extra.label !== undefined ? { label: extra.label } : {}) });
     return id;
-
   }
 
   /** journal context 注入行（recordContext 的 run 活跃路径）：source/label
-
-   *  存入 JournalInjectLine 附带槽（提升时还原）。 */
-
-  private journalContext(conversationId: string, run: string, agentId: string, content: string, extra: { source: string; label?: string }): void {
+   *  存入 JournalInjectLine 附带槽（提升时还原）；injectionId 随行携带
+   *  （活投影/settlement 提升复用同锚）。 */
+  private journalContext(conversationId: string, run: string, agentId: string, content: string, extra: { source: string; label?: string }, injectionId: string): void {
     const queue = this.queueOf(conversationId, 'partials');
-
     const line: JournalInjectLine & { contextSource?: string; label?: string } = {
       type: 'journal-inject',
       run,
       message: { role: 'user', content },
       agentId,
       contextSource: extra.source,
+      injectionId,
       ...(extra.label !== undefined ? { label: extra.label } : {}),
       ts: Date.now(),
       seq: queue.nextSeq++,
-
     };
 
     queue.pending.push(JSON.stringify(line));
@@ -1980,6 +1898,10 @@ export class SessionService extends Service {
       injected?: boolean;
       /** 行时刻覆盖（journal 提升行携带——注入时刻还原；缺省用固化时刻） */
       timestamp?: string;
+      /** 行 id 覆盖（context 注入行专用——injectionId 单点铸造后随形态贯通：
+       *  journal 提升行复用注入 id 而非新铸，直播行（事件帧）与刷新行
+       *  （投影/提升）同锚去重。缺省走 solids 幂等铸造，行为不变。 */
+      messageId?: string;
       /** 落盘目标（2026-09-20 partials 摘除）：partial 行落 partials.jsonl；
        *  缺省 messages。补行走独立构造不经本口 */
       target?: 'messages' | 'partials';
@@ -2002,7 +1924,9 @@ export class SessionService extends Service {
       role: extra.roleOverride ?? 'agent',
       content: message.content,
       agent_id: agentId,
-      message_id: solid.message_id,
+      // 行 id 覆盖（context 注入行）：injectionId 贯通——提升行与投影行/
+      // 事件帧同锚；幂等固化不受影响（solids 仍按对象缓存）
+      message_id: extra.messageId ?? solid.message_id,
       // journal 提升行的时刻还原（2026-11）：extra.timestamp 优先——注入行携带
       // journal 落行时的真实注入时刻（错序修复：settlement 铸造时刻会使前端
       // 步级 ts 排序把注入行排到终稿步之后）。消息对象幂等固化不受影响
@@ -2644,7 +2568,7 @@ export class SessionService extends Service {
           journalLive.sort((a, b) => a.seq - b.seq);
           for (const jl of journalLive) {
             try {
-              const jp = JSON.parse(jl.line) as { type?: string; run?: string; step?: SessionStepRecord; message?: LlmMessage; agentId?: string; kind?: string; contextSource?: string; label?: string; };
+              const jp = JSON.parse(jl.line) as { type?: string; run?: string; step?: SessionStepRecord; message?: LlmMessage; agentId?: string; kind?: string; contextSource?: string; label?: string; injectionId?: string; };
               if (typeof jp.run !== 'string' || !jp.run || settledRuns.has(jp.run)) continue; // 已收束（崩溃残留——recover 负责）
               if (jp.type === 'journal-step' && jp.step !== undefined) {
                 // 步行 → partial 行（泛化前同形；reasoning 顶层冗余一份——历史 UI 折叠栏直读）。
@@ -2677,9 +2601,12 @@ export class SessionService extends Service {
                 // 快照（settlement 提升同款语义）；缺 ts 存量行回落读取时刻。
                 const injTs = (jp as { ts?: unknown }).ts;
                 const injectTsNum = typeof injTs === 'number' && injTs > 0 ? injTs : Date.now();
+                // message_id = injectionId（注入身份键贯通）：投影行与事件帧
+                // 直播行/提升行同锚——前端 persistedMsgId 去重直接生效。缺席
+                //（存量 journal 行）回落空串，行为同旧。
                 partMsgs.push({ run: jp.run, line: JSON.stringify({
                   ...rec, content: jp.message.content ?? '',
-                  agent_id: jp.agentId ?? 'user', message_id: '', timestamp: new Date(injectTsNum).toISOString(),
+                  agent_id: jp.agentId ?? 'user', message_id: jp.injectionId ?? '', timestamp: new Date(injectTsNum).toISOString(),
                   ...(jp.message.attachments !== undefined && (jp.message.attachments as unknown[]).length > 0 ? { attachments: jp.message.attachments } : {}),
                   injected: true, run: jp.run,
                 }) });

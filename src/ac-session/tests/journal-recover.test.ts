@@ -118,11 +118,26 @@ describe('journal 恢复（崩溃窗口 + 孤儿投影——幂等收口）', ()
     expect(recs).toHaveLength(2);
     expect(recs[1]).toMatchObject({ role: 'agent', content: '' });
     expect(recs[1]!.steps![0]).toMatchObject({ reasoning: '孤儿思考' });
-    expect(typeof recs[1]!.run).toBe('string');
-    // journal 清空（剔除后仅头行或文件删除）
-    const partText = existsSync(join(dir(), 'partials.jsonl'))
-      ? readFileSync(join(dir(), 'partials.jsonl'), 'utf-8')
-      : '';
-    expect(partText).not.toContain('run-orphan');
+  });
+
+  it('partial 回声行不算 settled：中断 run 的 journal 步照常物化（守卫与 records() 读侧同口径）', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'ac-partial-echo-'));
+    const ctx = await boot();
+    mkdirSync(dir(), { recursive: true });
+    // 中断现场：messages 只有 run 的 partial 回声行（收束行永不落），journal 留有步行
+    writeFileSync(join(dir(), 'messages.jsonl'), [
+      '{"type":"session-header","version":1,"createdAt":"2026-11-01T00:00:00.000Z"}',
+      '{"role":"agent","content":"问","agent_id":"user","message_id":"m1","timestamp":"2026-11-01T00:00:01.000Z","seq":1}',
+      '{"role":"agent","content":"","agent_id":"a","message_id":"m2","timestamp":"2026-11-01T00:00:02.000Z","seq":2,"partial":true,"run":"run-p"}',
+    ].join('\n') + '\n', 'utf-8');
+    writeFileSync(join(dir(), 'partials.jsonl'), [
+      '{"type":"session-header","version":1,"createdAt":"2026-11-01T00:00:00.000Z"}',
+      '{"type":"journal-step","run":"run-p","step":{"content":"","reasoning":"中断前的思考","toolCalls":[]},"seq":1}',
+    ].join('\n') + '\n', 'utf-8');
+    const recs = await ctx.session.records('a~user');
+    // partial 回声行不算 settled → journal 步物化为中断收束行（不误剔除）
+    expect(recs).toHaveLength(2);
+    expect(recs[1]).toMatchObject({ role: 'agent', content: '' });
+    expect(recs[1]!.steps![0]).toMatchObject({ reasoning: '中断前的思考' });
   });
 });

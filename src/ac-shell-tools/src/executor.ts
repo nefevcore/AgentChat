@@ -220,7 +220,10 @@ export function executeShellCommand(
   // ---- 前台执行（流式输出 + 超时 + signal 中止）----
   cleanupOldLogs();
   return new Promise<ToolResult>((resolve) => {
-    let output = '';
+    // 分轨收集（stdout/stderr 输出字段对齐 Agent 直觉，2026-12）：两流各自
+    // 累积 + 合流 output（时序交错价值）三本账；finish 各自清理/截断/汇报
+    let stdoutRaw = '';
+    let stderrRaw = '';
     let timedOut = false;
     /** 调用方 signal 中止（区别于超时/正常退出——收束语义同超时：ok:false） */
     let aborted = false;
@@ -251,19 +254,28 @@ export function executeShellCommand(
       shell: false,
     });
 
-    const onData = (data: Buffer) => {
-      // C1：本回调在子进程 stdout/stderr 流里执行——任何抛错都是
-      // uncaughtException（无外层帧兜底）；进度链失败只丢该片流式
+    // C1：data 回调在子进程 stdout/stderr 流里执行——任何抛错都是
+    // uncaughtException（无外层帧兜底）；进度链失败只丢该片流式
+    const onStdout = (data: Buffer) => {
       try {
         const chunk = data.toString('utf-8');
-        output += chunk;
+        stdoutRaw += chunk;
         call.onProgress?.(chunk);
       } catch (err: unknown) {
-        output += `\n[stream error] ${err instanceof Error ? err.message : String(err)}\n`;
+        stdoutRaw += `\n[stream error] ${err instanceof Error ? err.message : String(err)}\n`;
       }
     };
-    child.stdout?.on('data', onData);
-    child.stderr?.on('data', onData);
+    const onStderr = (data: Buffer) => {
+      try {
+        const chunk = data.toString('utf-8');
+        stderrRaw += chunk;
+        call.onProgress?.(chunk);
+      } catch (err: unknown) {
+        stderrRaw += `\n[stream error] ${err instanceof Error ? err.message : String(err)}\n`;
+      }
+    };
+    child.stdout?.on('data', onStdout);
+    child.stderr?.on('data', onStderr);
 
     if (stdin != null && child.stdin) {
       child.stdin.write(stdin);
@@ -339,17 +351,32 @@ export function executeShellCommand(
         settle({
           ok: false,
           error: '命令被调用方中止（AbortSignal）。输出已部分收集。',
-          output: { command, cwd: dir, aborted: true, output: output || '(无输出)' },
+          output: {
+            command,
+            cwd: dir,
+            aborted: true,
+            output: stdoutRaw + stderrRaw || '(无输出)',
+            stdout: stripAnsi(stdoutRaw),
+            stderr: stripAnsi(stderrRaw),
+          },
         });
         return;
       }
       const exitCode = typeof code === 'number' ? code : null;
       const success = exitCode === 0;
+      // 合流账本：旧 output 字段（时序交错）与错误归因（buildErrorMessage /
+      // looksLikeInvocationError 吃全量输出）的语义不变量
+      const combined = stdoutRaw + stderrRaw;
       // ANSI 清理放汇总处而非 onProgress 流式片：转义序列可能跨 chunk 撕裂
-      const clean = stripAnsi(output);
-      const totalBytes = Buffer.byteLength(output, 'utf-8');
+      const clean = stripAnsi(combined);
+      const totalBytes = Buffer.byteLength(combined, 'utf-8');
       const displayed = truncateMiddle(clean, limits.outputMaxLen);
-      let guidance = success ? '' : buildErrorMessage(command, output, exitCode);
+      // 分轨输出（stdout/stderr 字段，2026-12 对齐 Agent 直觉）：与合流同口径
+      // 清理与截断，两流各享全额预算——双流大输出时信息量优于合流互挤
+      const stdoutView = truncateMiddle(stripAnsi(stdoutRaw), limits.outputMaxLen);
+      const stderrView = truncateMiddle(stripAnsi(stderrRaw), limits.outputMaxLen);
+      const truncated = displayed.truncated || stdoutView.truncated || stderrView.truncated;
+      let guidance = success ? '' : buildErrorMessage(command, combined, exitCode);
       // 报错归因对齐（2026-09-16 审查）：译文失败时 Agent 面对的是
       // "写了 A、执行了 B、报错指向 A"的错位反馈回路。失败且命令被
       // 翻译过 → error 显式附译文与提示，让归因落回真实执行物。
@@ -387,10 +414,12 @@ export function executeShellCommand(
             ...(translatedCommand ? { translated_command: translatedCommand } : {}),
             cwd: dir,
             output: displayed.text || '(无输出)',
+            stdout: stdoutView.text,
+            stderr: stderrView.text,
             exit_code: exitCode,
             failure_class: 'command-feedback',
             ...(parts.length > 0 ? { note: parts.join(' ') } : {}),
-            truncated: displayed.truncated,
+            truncated,
             total_bytes: totalBytes,
           },
         });
@@ -403,9 +432,11 @@ export function executeShellCommand(
           ...(translatedCommand ? { translated_command: translatedCommand } : {}),
           cwd: dir,
           output: displayed.text || '(无输出)',
+          stdout: stdoutView.text,
+          stderr: stderrView.text,
           exit_code: exitCode,
           ...(classification !== undefined ? { failure_class: classification } : {}),
-          truncated: displayed.truncated,
+          truncated,
           total_bytes: totalBytes,
         },
         ...(success ? {} : { error: guidance || `命令未正常启动或语法失败（invocation-error，退出码 ${exitCode}）` }),

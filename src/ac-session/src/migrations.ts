@@ -63,7 +63,42 @@ function migrateSessionDir(
   if (roleRewrites === 0 && subcallMoved === 0 && partMoved === 0) {
     return { roleRewrites, subcallMoved, partMoved };
   }
-  // 原子写主文件；目标文件追加（不存在则创建）。
+  // 追加目标文件（不存在则创建）——必须先于主文件改写：若先改写主文件
+  // 再 append，append 前崩溃/抛错（盘满等）后重启，主文件已无被剥离行、
+  // 三计数归零触发早退，行将永久丢失（版本锚在 apply 成功后才落）。
+  // 幂等保障：append 前按行身份（JSON 的 tool_call_id/run+seq，损坏行按
+  // 原文）剔除已有行——崩溃重跑不再产生重复行（injectSubcalls 投影与
+  // journal 读侧对重复 subcall 行均不去重，重复 = 双卡/重影）。
+  // 尾行防护：目标文件存在无换行尾行（上次崩溃窗口残留）时先补 \n，
+  // 否则 append 会与之拼行双损（对齐运行期 repairTail 语义）。
+  const lineIdentity = (raw: string): string => {
+    try {
+      const p = JSON.parse(raw) as { tool_call_id?: unknown; run?: unknown; seq?: unknown; type?: unknown; result?: unknown };
+      if (typeof p.tool_call_id === 'string' && p.tool_call_id) return 'tc:' + p.tool_call_id + ':' + String(p.result === undefined ? '' : JSON.stringify(p.result));
+      if (typeof p.run === 'string' && p.run && typeof p.seq === 'number') return `${String(p.type)}:${p.run}:${p.seq}`;
+      return raw;
+    } catch {
+      return raw;
+    }
+  };
+  const appendLines = (file: string, lines: string[]): void => {
+    const p = path.join(dir, file);
+    let prev = '';
+    try {
+      prev = fs.readFileSync(p, 'utf-8');
+    } catch { /* 无文件 = 全新追加 */ }
+    const have = new Set<string>();
+    for (const raw of prev.split('\n')) {
+      if (raw.trim()) have.add(lineIdentity(raw));
+    }
+    const fresh = lines.filter((l) => !have.has(lineIdentity(l)));
+    if (fresh.length === 0) return;
+    const prefix = prev.length > 0 && !prev.endsWith('\n') ? '\n' : '';
+    fs.appendFileSync(p, prefix + fresh.join('\n') + '\n', 'utf-8');
+  };
+  if (moved.length > 0) appendLines('subcalls.jsonl', moved);
+  if (parted.length > 0) appendLines('partials.jsonl', parted);
+  // 原子写主文件（在后）。
   // 迁移是形态改写而非新数据：rename 后恢复原 mtime——前端会话列表的
   // lastActivity 取 messages.jsonl 的 mtime（ac-singles preview ←
   // ac-session stats().updatedAt），不恢复则升级当次全量会话的时间戳
@@ -73,12 +108,6 @@ function migrateSessionDir(
   fs.writeFileSync(tmp, kept.join('\n'), 'utf-8');
   fs.renameSync(tmp, mainFile);
   fs.utimesSync(mainFile, prevStat.atime, prevStat.mtime);
-  if (moved.length > 0) {
-    fs.appendFileSync(path.join(dir, 'subcalls.jsonl'), moved.join('\n') + '\n', 'utf-8');
-  }
-  if (parted.length > 0) {
-    fs.appendFileSync(path.join(dir, 'partials.jsonl'), parted.join('\n') + '\n', 'utf-8');
-  }
   return { roleRewrites, subcallMoved, partMoved };
 }
 
@@ -103,6 +132,39 @@ function walkSessions(dataRoot: string, pass: 'role-v2-subcall-split' | 'partial
   return total;
 }
 
+/** subagents 域迁移（v3，2026-12 三文件化）：<subId>.jsonl 单文件 →
+ *  <subId>/messages.jsonl 目录形态（服务读侧另有旧单文件回退兼容，迁移是
+ *  形态归一非数据改写——行内容逐字节保留，rename 语义）。
+ *  幂等：目录形态已存在 = 跳过；单文件不存在 = 无事可做。 */
+function migrateSubagentsDir(dataRoot: string): { moved: number } {
+  const subsRoot = path.join(dataRoot, 'subagents');
+  let moved = 0;
+  if (!fs.existsSync(subsRoot)) return { moved };
+  for (const entry of fs.readdirSync(subsRoot, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+    const id = entry.name.slice(0, -'.jsonl'.length);
+    // 非 subId 形态文件不动；点号段名（'..' 等病态路径词）同拦
+    if (!/^[A-Za-z0-9_.-]+$/.test(id) || id === '.' || id === '..') continue;
+    const src = path.join(subsRoot, entry.name);
+    const dir = path.join(subsRoot, id);
+    const migrated = path.join(dir, 'messages.jsonl');
+    if (fs.existsSync(migrated)) {
+      // messages.jsonl 在场 = 拷贝早已完成（copy→rename 原子），旧单文件是
+      // rename 后 rm 前崩溃的残留——不删则 messagesPath 读侧恒优先旧文件，
+      // dir 内定稿流被永久弃用（双份漂移）。删除收尾（幂等）。
+      fs.rmSync(src, { force: true });
+      continue;
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, 'messages.jsonl.tmp');
+    fs.copyFileSync(src, tmp);
+    fs.renameSync(tmp, migrated);
+    fs.rmSync(src);
+    moved++;
+  }
+  return { moved };
+}
+
 /** 会话数据迁移集（升序应用；见文件头注释） */
 export const SESSION_MIGRATIONS: Migration[] = [
   {
@@ -121,6 +183,15 @@ export const SESSION_MIGRATIONS: Migration[] = [
     apply(dataRoot: string): void {
       const total = walkSessions(dataRoot, 'partials-split');
       console.log(`[migration] partials 摘除 ${total.partMoved} 行`);
+    },
+  },
+  {
+    version: 3,
+    id: 'subagents-dir',
+    description: 'subagents 单文件会话目录化（<subId>.jsonl → <subId>/messages.jsonl，三文件形态对齐 sessions 域）',
+    apply(dataRoot: string): void {
+      const { moved } = migrateSubagentsDir(dataRoot);
+      console.log(`[migration] subagents 目录化 ${moved} 个会话`);
     },
   },
 ];

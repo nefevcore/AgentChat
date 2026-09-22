@@ -16,13 +16,17 @@ declare module '@agentchat/cordis' {
      * 均发）。载荷刻意不带正文（技能正文可达数 KB~数十 KB，广播面瘦身与
      * llm/delta 的 input 瘦身同纪律）；前端渲染为事件分隔行（label 可见），
      * 正文在刷新后的 context 行 / journal 提升行在场。
+     * injectionId（注入身份键）：recordContext 铸造，journal 行/活投影行/
+     * 提升行同锚——前端直播行据此带 persistedMsgId，与刷新行精确去重
+     * （运行中切换会话回视的重复 context 行根修）。旧后端帧缺席该字段，
+     * 前端回落本地 id（行为同旧）。
      * @mode broadcast
      * @scope session
      */
     'session/context-injected'(
       conversationId: string,
       agentId: string,
-      meta: { source: string; label?: string },
+      meta: { source: string; injectionId?: string; label?: string },
     ): void;
   }
 }

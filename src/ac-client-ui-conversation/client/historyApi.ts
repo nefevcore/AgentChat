@@ -117,10 +117,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         // message_id**（同 run 步行同锚）——服务端按 message_id 定位的操作
         //（singles/fork、session/truncate）才能命中；此前合成的 `<base>-s{i}`
         // 在后端不存在，分支/截断锚点失效。渲染 key 去重改用下行合成 sid。
-        const ridBase = r.message_id
-          || (typeof (r as { run?: unknown }).run === 'string' && (r as { run?: string }).run
-            ? `p-${(r as { run?: string }).run}-${r.timestamp}`
-            : `p-${r.timestamp}`);
+        const ridBase = r.message_id;
         const legacyRc = r.reasoning_content || '';
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
@@ -158,7 +155,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             // 真实收束行 id（服务端锚点）+ 合成 sid（渲染 key 去重——
             // mergeHistoryPage 仍按 persistedMsgId 去重，同锚步行第二条起
             // 靠本字段保 Vue key 唯一）
-            message_id: r.message_id ?? `${ridBase}-s${i}`,
+            message_id: r.message_id,
             ...(r.message_id ? { sid: `${ridBase}-s${i}` } : {}),
             timestamp: stepTs,
           });

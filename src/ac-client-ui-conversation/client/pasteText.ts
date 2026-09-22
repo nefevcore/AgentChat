@@ -11,8 +11,10 @@
 //   · <a> 还原 href（锚文本与 href 等价时保原文；mailto: 剥前缀）；
 //   · <pre> 的行逐字保留（缩进/连续空格不折叠——与普通行的空白归一隔离）；
 //   · 块间游离的纯空白文本节点（HTML 缩进排版）不产生空行。
-// 依赖 DOMParser（浏览器与 jsdom 均有），无框架依赖。
+// 依赖 DOMParser（浏览器与 jsdom 均有）；clipboardText（文件尾，复制序列化
+// 出口）另依赖 @tiptap/pm/model —— 仅类型，无运行时框架依赖。
 // ============================================================
+import type { Fragment } from '@tiptap/pm/model';
 
 /** 块级元素集（一个块 = 至少一行；PRE 另行单独处理） */
 const BLOCK_TAGS = new Set([
@@ -107,6 +109,7 @@ function inlineChildren(el: Element): string {
 /**
  * 归一剪贴板文本：HTML 字符串 → 纯文本（编辑器 getText('\n') 口径）；
  * 非 HTML 输入原样直通。首尾空行去除，中间空行保留（不压缩换行）。
+ * 仅用于外部源（内部回贴走 text/plain 直取——本编辑器口径零失真）。
  */
 export function normalizePasteText(html: string): string {
   if (!html.includes('<')) return html;
@@ -116,4 +119,30 @@ export function normalizePasteText(html: string): string {
   while (lines.length > 0 && lines[0].text === '') lines.shift();
   while (lines.length > 0 && lines[lines.length - 1].text === '') lines.pop();
   return lines.map(l => l.text).join('\n');
+}
+
+// ============================================================
+// 复制序列化 —— 剪贴板 text/plain 出口（与粘贴归一互逆）
+// ============================================================
+
+/** 选区 Slice 内容 → 剪贴板纯文本：段落间恰一个换行（与编辑器
+ *  getText('\n') 同构）。PM 默认 clipboardTextSerializer 用 "\n\n"
+ *  块分隔（富文本段距语义），而输入框文档模型 = 纯文本段落
+ *  （Shift+Enter = 一个换行）——默认口径会把输入框里的换行复制成
+ *  空行，复制出去再粘回来换行翻倍。空段仍产空行（视觉与数据一致）。 */
+export function clipboardText(content: Fragment): string {
+  return content.textBetween(0, content.size, '\n');
+}
+
+/** 粘贴 HTML 根的 PM 开口深度（data-pm-slice="openStart openEnd ..."）。
+ *  部分/整段选区从 PM 复制出来时首末段是开放段（open=1），外部源无此
+ *  标记（null）。内部回贴据此走段融合语义，外部源走整段块插入。 */
+export function pmSliceDepth(html: string): { openStart: number; openEnd: number } | null {
+  if (!html.includes('data-pm-slice')) return null;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const el of Array.from(doc.body.children)) {
+    const m = /^\s*(\d+)\s+(\d+)(?:\s|$)/.exec(el.getAttribute('data-pm-slice') ?? '');
+    if (m) return { openStart: Number(m[1]), openEnd: Number(m[2]) };
+  }
+  return null;
 }

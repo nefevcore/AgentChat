@@ -1145,6 +1145,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-durable-interaction:
         specifier: workspace:*
         version: link:../ac-durable-interaction
@@ -1152,9 +1155,6 @@ importers:
         specifier: workspace:*
         version: link:../ac-tools
     devDependencies:
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -1737,6 +1737,9 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      ac-client-ui-subagent:
+        specifier: workspace:*
+        version: link:../ac-client-ui-subagent
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2448,6 +2451,9 @@ importers:
         specifier: workspace:*
         version: link:../vendor/cordis
     devDependencies:
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -3458,6 +3464,9 @@ importers:
       ac-llm-pool:
         specifier: workspace:*
         version: link:../ac-llm-pool
+      ac-session:
+        specifier: workspace:*
+        version: link:../ac-session
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -3988,6 +3997,9 @@ importers:
       ac-router:
         specifier: workspace:*
         version: link:../ac-router
+      ac-subagent:
+        specifier: workspace:*
+        version: link:../ac-subagent
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools

@@ -121,8 +121,8 @@ export function ensureHljsLanguage(lang: string): Promise<void> {
     .catch(() => undefined); // 拉取失败保持未注册（渲染回落纯文本）
 }
 
-/** 同步注册高频语言（幂等；模块首次导入时执行一次） */
-export function initHljsLanguages(): void {
+// 同步注册高频语言（幂等；模块首次导入时执行一次）
+(() => {
   if (hljs.getLanguage('typescript')) return; // 已初始化（HMR/多入口/测试重复导入）
   hljs.registerLanguage('typescript', typescript);
   hljs.registerLanguage('javascript', javascript);
@@ -137,8 +137,6 @@ export function initHljsLanguages(): void {
   hljs.registerLanguage('diff', diff);
   hljs.registerLanguage('ini', ini);
   hljs.registerLanguage('plaintext', plaintext);
-}
-
-initHljsLanguages();
+})();
 
 export { hljs };

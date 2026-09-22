@@ -17,6 +17,7 @@ import {
   jobStatusLabel,
   jobStatusIcon,
   jobsForConversation,
+  subStatusLabel,
   subagentMeta,
   fetchJobs,
   killJob,
@@ -72,6 +73,12 @@ describe('判定与预览', () => {
     const statuses: WireJob['status'][] = ['running', 'stopping', 'completed', 'failed', 'killed'];
     expect(statuses.map(jobStatusLabel)).toEqual(['运行中', '停止中', '完成', '失败', '已终止']);
     expect(statuses.map(jobStatusIcon)).toEqual(['zap', 'clock', 'check-circle', 'alert-circle', 'ban']);
+  });
+
+  it('subStatusLabel：displayStatus 六词 + deleted 墓碑全覆盖 + 未知词透传（面板历史行与工具卡共用）', () => {
+    const words = ['running', 'done', 'error', 'timeout', 'stopped', 'idle', 'deleted'];
+    expect(words.map(subStatusLabel)).toEqual(['运行中', '完成', '异常', '超时', '已停止', '空闲', '已删除']);
+    expect(subStatusLabel('weird')).toBe('weird'); // 未知词原样透传（不吞新状态）
   });
 
   it('jobOutputPreview：meta.output 优先 → detail 兜底 → 截断加省略号', () => {
