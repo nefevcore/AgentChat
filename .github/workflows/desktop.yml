@@ -77,7 +77,12 @@ jobs:
             echo "::warning::未配置 secrets——跳过上传"
             exit 0
           fi
-          VER="${GITHUB_REF_NAME#v}"
+          # tag push：ref 名去 v 前缀（v0.8.11 → 0.8.11）；workflow_dispatch：读 desktop/package.json 版本
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(node -p "require('./desktop/package.json').version")"
+          fi
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
@@ -102,7 +107,12 @@ jobs:
             echo "::warning::未配置 SERVER_HOST/SSH_PRIVATE_KEY secrets——跳过上传"
             exit 0
           fi
-          VER="${GITHUB_REF_NAME#v}"
+          # tag push：ref 名去 v 前缀；workflow_dispatch：读 desktop/package.json 版本（避免 VER=main 误传目录）
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(node -p "require('./desktop/package.json').version")"
+          fi
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
