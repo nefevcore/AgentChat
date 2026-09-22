@@ -222,6 +222,13 @@ function formDenied(ctx: Context, def: ToolDefinition, conversationId: string | 
 /** 进程内最新快照（擦除后 JS 源码；null = 本进程尚无成功引导） */
 let lastGoodWorkerJs: string | null = null;
 
+/** worker 候选入口点（单点收敛——测试钩子可覆写以模拟部署形态：
+ * dev 检出（worker.ts 在场）/ bundle（仅 worker.mjs）/ 残缺形态） */
+let workerDevEntryFn: () => string = () => stripQuery_(new URL('./worker.ts', import.meta.url));
+let workerBundleEntryFn: () => string = () => stripQuery_(new URL('./worker.mjs', import.meta.url));
+function workerDevEntry(): string { return workerDevEntryFn(); }
+function workerBundleEntry(): string { return workerBundleEntryFn(); }
+
 /** 快照磁盘目录（tmpdir 下按进程用户隔离——OS 周期清理可接受：重启后丢
  * 快照 = 回到「无护栏」基线，不劣于现状） */
 function workerSnapshotDir(): string {
@@ -326,7 +333,7 @@ export async function executeRunCode(
   // 非零 exit / exit(0) / 握手超时 → terminate 换下一候选；全部失败 →
   // 可诊断错误（指明恢复动作）。检测边界：仅 workerReady=false 阶段判死——
   // 程序自身错误不触发降级（dev 行为不被护栏遮蔽）。
-  const devEntry = stripQuery_(new URL('./worker.ts', import.meta.url));
+  const devEntry = workerDevEntry();
   const devExists = existsSync(devEntry);
   let devSource: string | undefined;
   if (devExists) {
@@ -415,6 +422,18 @@ export async function executeRunCode(
   } else if (devExists) {
     ctx.logger.warn(`[run_code] dev worker.ts 语法预检失败（strip 不通过）——跳过 dev 候选直接走快照回退。恢复：修好 ${devEntry} 后重试`);
   }
+  // bundle 候选（发布形态正源：dist/worker.mjs 与 agentchat.mjs 同目录——
+  // build-bundle 第二入口产物。1391f7a1 多候选链重写时误删，2026-09-22
+  // 线上 0.8.11 实测回归：bundle 形态首次运行无快照 → attempts 空 →
+  // 「部署形态不完整」假报错。候选序语义：bundle 是产物非源码，dev 在场
+  // 时优先（真源码可改），bundle 次之，快照垫底。)
+  const bundleEntry = workerBundleEntry();
+  if (existsSync(bundleEntry)) {
+    attempts.push({
+      kind: 'bundle',
+      start: () => bootCandidate('bundle', bundleEntry).then((r) => ('worker' in r ? { worker: r.worker, bootedFrom: 'bundle' } : r)),
+    });
+  }
   if (memSnapshot !== null) {
     attempts.push({
       kind: 'snapshot:mem',
@@ -445,8 +464,9 @@ export async function executeRunCode(
       continue;
     }
     boot = outcome;
-    // 降级路径（非 dev 候选中选）→ 结果告警透出（验收形态：工具面不停摆 + 模型可见降级事实）
-    if (outcome.bootedFrom !== 'dev') {
+    // 降级路径（快照候选中选）→ 结果告警透出（验收形态：工具面不停摆 + 模型可见降级事实）；
+    // bundle 中选是发布形态正常路径（无 dev 源码可降），不告警
+    if (outcome.bootedFrom !== 'dev' && outcome.bootedFrom !== 'bundle') {
       bootDegradedNotice = `dev worker 引导失败（${bootError ?? '未知错误'}），已降级至${outcome.bootedFrom === 'mem-snapshot' ? '进程内' : '磁盘'}快照回退——快照可能落后当前 worker.ts（协议版本 v${PROTOCOL_VERSION}）；修复 dev 文件后自动恢复`;
     }
     break;
@@ -777,6 +797,14 @@ export const __runCodeTestHooks = {
   /** 读进程内快照现状 */
   getMemSnapshot(): string | null {
     return lastGoodWorkerJs;
+  },
+  /** 覆写 worker 候选入口点（模拟部署形态；restore 还原——返回还原函数） */
+  overrideWorkerEntries(dev: () => string, bundle: () => string): () => void {
+    const prevDev = workerDevEntryFn;
+    const prevBundle = workerBundleEntryFn;
+    workerDevEntryFn = dev;
+    workerBundleEntryFn = bundle;
+    return () => { workerDevEntryFn = prevDev; workerBundleEntryFn = prevBundle; };
   },
   /** 直接注入会话级 lib store（坏条目形态验证） */
   seedLibStore(agentId: string | undefined, conversationId: string | undefined, entries: Record<string, string>): void {

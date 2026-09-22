@@ -6,7 +6,13 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
-## [0.8.11] - 2026-09-22
+## [0.8.12] - 2026-09-22
+### Fixed（run_code bundle 形态回归——worker.mjs 候选在引导链重写中丢失，0.8.11 实测）
+- **现象**：桌面/发布形态（dist bundle）下程序化模式 run_code 全挂——「worker 引导文件缺失（dev ./worker.ts 或 bundle ./worker.mjs 均不存在，且无引导快照）——部署形态不完整」。与旧版本安装无关，是 0.8.11 自身回归。
+- **根因**：1391f7a1 把 worker 引导从「单点 workerUrl()（dev → bundle → undefined）」重写为多候选链（dev → 内存快照 → 磁盘快照）时，bundle 候选探测被误删——报错文案还保留着误导排查。发布形态无 worker.ts 也无历史快照 → attempts 空 → 假报错「部署形态不完整」。
+- **修复**（`ac-run-code/src/tool.ts`）：候选链补回 bundle 候选（dev 之后、快照之前——bundle 是产物非源码，dev 在场时优先；`stripQuery_(new URL('./worker.mjs', import.meta.url))` 存在性探测，对齐 v0.8.10 语义）。bundle 中选是发布形态正常路径，不触发降级告警（bootDegraded 判定排除 bundle）。
+- **测试**：入口点收敛为可覆写函数 + `__runCodeTestHooks.overrideWorkerEntries`（模拟部署形态：dev 缺席/bundle 在场）；新增 bundle 形态回归锁用例（esbuild 自包含产物作 bundle 夹具——与 build-bundle 第二入口同构；dev 快照夹具不可用：strip 产物仍含相对 import，落 tmpdir 即断）——63 全绿；typecheck 通过。
+
 ### Changed（ask_questions 忙态作答即时注入——对齐 steer 插话语义，2026-12）
 - **动机（立案 f08798fb）**：ask 挂起重构后答案注入绑定在首个自然停点——模型 ask 后继续忙步（长工具链）时，用户秒答也要等到模型给出终报告后的停点才被消费（现场：答案 8.7s 到达、run 连续 39 分钟不停步、答案压到 03:54 才注入，观感即「run 结束后才收到回答」）。用户 steer 插话能在步边界即时注入，ask 答案不能——不对称。
 - **三态分流**（`ac-ask-questions/src/index.ts` replied 监听器单点裁决）：① run 活着且忙步中 → 清登记 + `agentLoop.steer` 步边界即时注入 + `recordContext` 落账（与 idle 注入同正文/同 source/同 label——三路转录形状一致）；② run 活着且挂起中（自然停点 idle await，新增 `suspending` 集合标记）→ 不打扰，idle 监听器事件半边自取（防双投）；③ run 已死 → late-reply deliver 回投重开新 run（原路径不变）。steer 落空（收束竞态/D3 封口后）→ 回落 late-reply deliver，消息一次入账不丢。

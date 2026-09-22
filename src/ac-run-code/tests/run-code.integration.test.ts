@@ -9,6 +9,7 @@
 // · 复合返回协议：return 优先 / log 回退合成 / 失败附 logsTail
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+import { fileURLToPath } from 'node:url';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as agentsRow from 'ac-agents';
@@ -864,6 +865,37 @@ describe('ac-run-code：立项① 引导护栏（快照回退基建）', () => {
     const r2 = await call(ctx, 'const a = await tools.echo({ text: "snap" });\nreturn a.output?.echoed;');
     expect(r2.ok).toBe(true);
     expect((r2.output as { value: unknown }).value).toBe('snap');
+  });
+
+  it('bundle 形态（无 worker.ts，仅 worker.mjs）→ bundle 候选中选、零降级告警（0.8.11 回归锁）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    // 模拟发布形态：dev 入口缺席、bundle 入口在场。bundle 引导文件 = esbuild
+    // 自包含产物（与 build-bundle 第二入口同构——依赖内联，任意目录可引导；
+    // dev 快照夹具不可用：strip 产物仍含相对 import './protocol.ts'，落 tmpdir 即断）。
+    const { build } = await import('esbuild');
+    const bundleJsFile = runCodeRow.__runCodeTestHooks.seedDiskSnapshot(
+      'bundle-fixture',
+      await build({
+        entryPoints: [fileURLToPath(new URL('../src/worker.ts', import.meta.url))],
+        bundle: true,
+        format: 'esm',
+        platform: 'node',
+        write: false,
+        logLevel: 'silent',
+      }).then((res) => res.outputFiles[0].text),
+    );
+    const restore = runCodeRow.__runCodeTestHooks.overrideWorkerEntries(
+      () => 'Z:/nonexistent/worker.ts', // dev 缺席（发布形态）
+      () => bundleJsFile, // bundle 在场
+    );
+    try {
+      const r = await call(ctx, 'return "from-bundle";');
+      expect(r.ok, r.error ?? '').toBe(true);
+      expect((r.output as { value: unknown }).value).toBe('from-bundle');
+      expect((r.output as { bootDegraded?: string }).bootDegraded).toBeUndefined(); // bundle 中选 ≠ 降级
+    } finally {
+      restore();
+    }
   });
 });
 
