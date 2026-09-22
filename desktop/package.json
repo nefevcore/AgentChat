@@ -36,6 +36,10 @@
         "filter": ["**/*"]
       }
     ],
+    "publish": {
+      "provider": "generic",
+      "url": "http://47.110.63.135/downloads/"
+    },
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] }
