@@ -25,7 +25,7 @@ describe('P5.5 生产 CSP 审计', () => {
     const csp = cspOf(html!);
     expect(csp).toContain("script-src 'self'");
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
-    expect(csp).toContain("connect-src 'self' ws: wss:");
+    expect(csp).toContain("connect-src 'self' http://127.0.0.1:* ws: wss:");
     expect(csp).toContain("object-src 'none'");
     // 生产入口不能引用外站脚本（插件 entry 是 self /ui-plugin/*）
     const remoteScripts = [...html!.matchAll(/<script[^>]+src="(https?:)?\/\/[^"]+"/g)];

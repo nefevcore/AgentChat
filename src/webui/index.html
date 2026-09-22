@@ -4,9 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- P5.5 生产 CSP 审计：只允许 self + 内联样式 + 插件 entry 的 self 静态资源；禁止 remote script -->
+  <!-- connect-src 放行回环 127.0.0.1:*：桌面壳存储桥（pickedPort+1..+4）与页面跨端口，
+       无此项则 CSP 先于 CORS 拦死桥探活 → 存储管理节静默降级隐藏（2026-09-22 修复） -->
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* ws: wss:; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
   />
   <title>AgentChat</title>
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />

@@ -442,7 +442,10 @@ async function setStorageRoot(newRoot, { migrate }) {
 }
 
 // 桥 CORS：桥口与页面口不同源（3831 vs 3830），页面 fetch 桥是跨源请求——
-// 无 CORS 头则浏览器直接拦死（probe 失败 → 存储节永远隐藏，即便端口没被占）。
+// 拦截有两层：① CSP connect-src（src/webui/index.html 已放行 http://127.0.0.1:*，
+// 覆盖 pickedPort+1..+4 候选序列——2026-09-22 修复：此前只有 'self'，CSP 先于
+// CORS 拦死桥探活 → 存储管理节静默降级隐藏）；② 本处 CORS 头，无则浏览器拦死
+// （probe 失败 → 存储节永远隐藏，即便端口没被占）。
 // 仅放行回环 Origin（与 ac-web-server checkRequestOrigin 同口径：局域网/外网一律拒）。
 function isLoopbackOrigin(origin) {
   const h = origin.replace(/^https?:..(.)/i, '$1').replace(/:[0-9]+$/, '').toLowerCase();
