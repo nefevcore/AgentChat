@@ -6,6 +6,106 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.11] - 2026-09-22
+### Changed（ask_questions 忙态作答即时注入——对齐 steer 插话语义，2026-12）
+- **动机（立案 f08798fb）**：ask 挂起重构后答案注入绑定在首个自然停点——模型 ask 后继续忙步（长工具链）时，用户秒答也要等到模型给出终报告后的停点才被消费（现场：答案 8.7s 到达、run 连续 39 分钟不停步、答案压到 03:54 才注入，观感即「run 结束后才收到回答」）。用户 steer 插话能在步边界即时注入，ask 答案不能——不对称。
+- **三态分流**（`ac-ask-questions/src/index.ts` replied 监听器单点裁决）：① run 活着且忙步中 → 清登记 + `agentLoop.steer` 步边界即时注入 + `recordContext` 落账（与 idle 注入同正文/同 source/同 label——三路转录形状一致）；② run 活着且挂起中（自然停点 idle await，新增 `suspending` 集合标记）→ 不打扰，idle 监听器事件半边自取（防双投）；③ run 已死 → late-reply deliver 回投重开新 run（原路径不变）。steer 落空（收束竞态/D3 封口后）→ 回落 late-reply deliver，消息一次入账不丢。
+- **依赖移位**：`ac-agent-loop` 从 devDependencies → dependencies（`runAddress` 成为运行时依赖）；check:deps 通过。
+- **测试**：suspension 集成 +2 例（忙步中作答 → steer 注入续走 + 答案行落账同形状；挂起中作答 → idle 自取无 deliver 双投）；ask-questions 集成 1 例语义反转（登记表在场但 agentLoop 行未装——组合可选回落 deliver）；webui singles 全链路（挂起恢复/late-reply/并发）+ session + run-code budget-freeze 回归全绿；typecheck / lint / check:deps 通过。
+### Changed（子Agent 清单含墓碑——已删除条目保留历史入口，2026-12）
+- **动机**：subagent delete 只打墓碑（会话文件保留、history 可读），但清单面（运行跟踪子Agent 区）不展示墓碑——删除后入口消失，历史无处点进。
+- **服务面**（`ac-subagent/src/service.ts`）：`SubagentInfo` 增 `deleted` 投影；`SubagentListOptions.includeDeleted`（缺省隐藏，语义不变）；list 过滤按 opts 放开。
+- **RPC**（`ac-web-api`）：`subagents/list` 增 `include_deleted` 参数透传。
+- **前端**（`ac-client-ui-subagent/client/board.ts`）：`SubBoardEntry.deleted` 投影；fetchSubagents 默认 `include_deleted: true`（面板要看历史）。面板（`RunTrackingPanel.vue`）：墓碑行徽章「已删除」（暗灰删除线，`subStatusLabel` 增 deleted 词）；行点击照常进只读视角（history 墓碑可读）；running 行防御性排除墓碑。
+- **测试**：subagent 集成补墓碑可见性断言（缺省隐藏/includeDeleted 可见 + deleted 投影）；web-api 集成补 include_deleted 用例；前端 board 测试断言请求参数与墓碑投影；jobs 词表用例补 deleted 词。
+### Changed（subagent 跨 run 上下文轨迹复放 + 展示面 journal 活投影 + spawn max_steps 入参退役，2026-12）
+- **动机（多轮失忆修复）**：subagent 跨 run 上下文只回放 agent 行终文本——探查型 run（重工具轻文本，终文本空、全部事实在 steps 工具轨迹里）收束后，下一 run 的 LLM 请求零痕迹（实测：审查任务 run1 30 步探查，run2 模型如实回答「0 次探查、0 条可引证据」，被迫从头重查）。与主会话 2026-09-05 修复的 singles 多轮失忆同病，ac-subagent 的独立回放路径未对齐。
+- **轨迹复放**（`ac-subagent/src/service.ts`）：① 内存快路径——executeRun 收束时 `result.steps` 经 `expandSteps` 展开追加（assistant(tool_calls) + 配对 tool 行；末步 content 即终文本，与主会话 replayTrajectory 单源同形）；② 磁盘回放路径——`ensureMessages` 对携带 steps 的 agent 行同样展开（重启后口径一致）；悬空调用（result:null）由 expandSteps 合成配对 tool 行（openai 系不拒单）。无 steps 旧行照旧只回放 content。`expandSteps` 复用 ac-session 导出单源（运行时依赖入 package.json）。
+- **展示面 journal 活投影**（对齐普通会话 records()）：`historyRecords` 读 partials.jsonl 在途台账——run 进行中/中断未恢复时步行按 run 聚合为尾段行（`partial:true`，不落盘、不进上下文回放），注入行提升为 injected user 行，直调补行终值覆盖步行 result:null；已收束 run 的 journal 行（崩溃残留窗口）不投影（messages 定稿流权威）。前端 toHistoryMessages 管线零改动（steps 按步展开 + ridBase run 键合成天然兼容）；subcalls.jsonl 档案投影原有（宿主前缀平铺）。运行中点开子会话即可看到实时进度（此前只有收束后内容）。
+- **spawn max_steps 退役**：`SubagentRecord.maxSteps`/`SubagentSpawnOptions.maxSteps`/工具参数 `max_steps` 全链移除——agent 极易误设小值（实测 3~15 步）导致探查/审查任务半途 max-steps 收束。步数防线回归 agentLoop 服务端缺省（200 软无限——失控防线语义不变，只是不再暴露给派生方）。存量注册表条目残留 maxSteps 键读侧宽容（loadRegistry 不校验未知键）；此后 spawn 传 max_steps 命中未知参数护栏（报错指路）。
+- **测试**：subagent 集成 +3 例（跨 run 轨迹复放〔assistant+tool 对进第二轮上下文〕/重启后同口径/journal 活投影〔partials → partial 段行 + 补行覆盖〕）+ 1 例口径反转（「回放不含 steps」→「回放轨迹展开」）——51 全绿；typecheck / check:deps / web-api·collab-tools 集成（98）通过。
+
+### Changed（运行跟踪「子Agent 调用」清单主源化——对齐独立会话取值链，2026-12 实测反馈）
+- **动机**：subagent 已持久化（注册表 + 会话落盘跨重启），但面板子Agent 清单仍以进程内 jobBoard（job/started·settled）为主源、subagents/list RPC 作跨重启补丁（watch(allJobs) 低频重拉 + subId 去重合并）——两套数据源拼合、重启后运行历史断档。独立会话（singles）早已是「域事件 → WS 帧 → 域投影」的单源取值链，子Agent 对齐之。
+- **域事件**（`ac-subagent/src/events.ts` 新建，owning 包声明合并）：`subagents/updated`（emit · host）——spawn/run 起跑/run 收束/stop/delete 五变更点统一通知，载荷 = list 投影口径 SubagentInfo（displayStatus/runs/lastRun 齐备）。service.ts 对应 emit；index.ts 契约出口补 events type 行；event-catalog 静态测试登记。
+- **WS 帧**（`ac-ws-bridge`）：subagents/updated 转发（对齐 singles/updated；type-only import + devDeps）。
+- **RPC**（`ac-web-api`）：新增 `subagents/stop`（subId 寻址停止当前推理，实体保留可续聊）——面板子Agent 行 stop 按钮从 jobs/kill（jobId 寻址）迁移的替代面。
+- **前端域投影**（`ac-client-ui-subagent/client/board.ts` 新建）：`SubagentBoardService` → `ctx.subagentBoard`（subs/stopping + refresh/stop/ensureStarted；subagents/updated 帧驱动刷新，无轮询）——JobBoardService 同款形态，随 subagent 前端行装载。
+- **面板消费**（`RunTrackingPanel.vue`）：子Agent 区整体改走 subBoard 投影——运行中行（displayStatus=running）带 stop（subagents/stop）+ 运行徽章；其余行按 updatedAt 取最近 10 条（跨重启完整，无「jobBoard ∪ 历史」合并与去重）；后台任务区不变（jobBoard 仍管 bash 后台）。jobs 包的 subStatusLabel 词表继续服务徽章文案（done→完成 等六词）。
+- **测试**：subagent 集成补 subagents/updated 事件序列用例（spawned→started→settled 时序 + displayStatus 投影 + removed）；web-api 集成补 subagents/stop 用例（running true / 非运行 false）；前端新建 clients-subagent-board.test.ts（fetch/stop 纯函数 + 帧驱动刷新 + 可摘除性 D19）。
+### Changed（file-snapshots 上限可配置——settings 全局层 + config/changed 热更，2026-12）
+- **动机**：2 MiB 缺省上限对部分场景（超大日志/数据文本的 diff 审阅）偏保守——按先例（ac-mcp settings 层 + `config/changed` 热更对账）开放为用户可调项，免重启生效。
+- **三层配置**：行 config `maxBytes`（cordis.yml/装配表）→ 全局默认层 `settings.fileSnapshots.maxBytes`（config.json；设置弹窗「插件配置·文件快照」改）→ 缺省 `SNAPSHOT_MAX_BYTES` = 2 MiB。值域 ≥ 0（0 = 关闭上限）；非法值 warn 保持现状。只影响后续首见快照——已落快照（含 skipped 标记）是首见事实，不追溯。
+- **声明即注册**：行自述 `extension.fields` 补 `maxBytes`（type number / min 0 / step 1 MiB / default 引用实现常量单源）——A1 注册制目录聚合，设置弹窗按声明渲染数字控件（常显缺省行 + 恢复缺省）；`SnapshotStore.maxBytes` 加 setter（热更对账写入，只影响后续 ensure/readCurrent）。
+- **测试**：集成 +1 例四段（构造吸收→config/changed 热更→调大恢复→非法保持→0 关闭）——22 全绿；typecheck / webui:typecheck / check:deps 通过。
+
+### Changed（file-snapshots 快照准入收敛——仅文本文件 + 单文件 2 MiB 上限，2026-12）
+- **背景**：快照面此前对首见文件无条件全量复制——大文件（构建产物/数据文件/转储）同步复制阻塞写路径、磁盘翻倍、`fileSnapshots/list` RPC 全量回传爆量；二进制文件按 utf-8 读出的内容本就损坏，进了 diff 重建也是废数据。
+- **准入双闸**（`ac-file-snapshots/src/store.ts` 纯库）：`ensure` 先 `statSync` 预检——单文件 > maxBytes（缺省 `SNAPSHOT_MAX_BYTES` = 2 MiB，可配 `maxBytes <= 0` 关闭）→ 只落 `skipped:'too-large'` 标记（零全文读）；≤ 上限再读内容做文本嗅探（前 8 KiB 无 NUL/控制符/utf-8 替换符——与 `ac-workspace.readFile` 的 binary 判定同式 + 替换符加固），二进制 → `skipped:'not-text'`。跳过快照不落内容文件（meta 是唯一事实源；旧版空内容文件仍兼容读取）。上限基准：源码/配置/文档 99.9% < 512 KiB，package-lock 级最大常规文本 ~2 MiB；对齐仓内先例（workspace 预览 4 MiB / session tail 8 MiB / grep 预过滤 1 MiB）。
+- **语义显式化**：`FileSnapshot.skipped?: 'too-large'|'not-text'` 与「首见不存在 = 新建（content:null，无 skipped）」严格区分——前端 `applySnapshots` 把 `content===null` 解释为会话内新建，跳过快照若复用 null 会把大文件误标为新建。`ac-web-api` 的 `fileSnapshots/list` RPC 回传 skipped 字段；前端跳过快照不接管 partial 断链（回落磁盘兜底/方案 A）。
+- **read-current 同闸**：`FileSnapshotsService.readCurrent`（磁盘终版兜底数据源）加同款 statSync 预检 + 文本嗅探——超限/二进制返回 null，跳过兜底而非读出损坏数据。
+- **测试**：纯库准入 8 例（二进制/替换符/嗅探窗外控制符/超限零全文读/maxBytes=0 关闭/list 含跳过/looksLikeText 单元/新建无 skipped）+ 前端跳过语义 1 例（skipped ≠ 误判新建，保持 partial）；原 7+5 例全绿（共 21 + 前端 31）；e2e 面板链路、live-refresh、check:deps、双 typecheck 通过。
+
+
+### Fixed（运行跟踪「子Agent 调用」状态徽章中英混排——跨重启历史行英文直出，2026-12 实测反馈）
+- **现象**：子Agent 清单同一树里两类行两套语言——jobBoard 终态行显示中文（完成/失败/已终止），跨重启历史-only 行（`subagents/list` 的 displayStatus）却直出英文（done/error/timeout/stopped/idle）——「完成」与「done」并排混排。
+- **修复**：`ac-client-ui-jobs/client` 新增 `subStatusLabel`（displayStatus → 中文标签，映射对齐 ToolResultSubagent 旧词表，未知词透传）作单一事实源，三处消费方统一接入：运行跟踪面板历史行徽章改渲染 `subStatusLabel(s.displayStatus)`；子会话视角头部徽章（`SubagentConversationView.vue`）从 `job.status` 英文直出改 `jobStatusLabel` 中文；subagent 工具卡 `STATUS_META` 标签改引同一函数（本地只留色类）。
+- **测试**：`webui/tests/jobs.test.ts` 补 subStatusLabel 六词全覆盖 + 未知词透传用例。
+### Fixed（subagent 程序化传播二次修正——点名面同样收窄，对齐 router 口径，2026-12 三次实测勘误）
+- **勘误**：上一轮把「spawn.tools 点名后子 Agent 不用 run_code」定性为模型选择/设计行为——**错误**。router 真实链的 narrowToolsByMode 对任何 tools 入参（点名/全量）无条件收窄：tc-programmatic 下 LLM 面恒为 mode 集；点名工具不丢失——仍在能力面，经 run_code 投影（scope='projection' 能力面直取）程序内 tools.<name>() 照常可调。工具面与程序化模式并非互斥：**程序化继承 = 对工具面自动合成 run_code 单入口，点名工具下沉为程序内子调用**。
+- **根因**（`ac-subagent/src/service.ts`）：收窄被「未点名」守卫包裹——点名即跳过程序化传播。修正：收窄移出守卫，mode 对任何面生效（tc-base 档点名集仍直接成为 LLM 面；tc-programmatic 档点名面被 mode 集替换）。
+- **tools 参数描述同步**：撤销「点名 = 改选传统工具面」误导，改为「程序化模式随会话传播（与点名无关）：程序化档下 LLM 面恒为 run_code 单入口，点名工具进 SDK 投影程序内可调」。
+- **测试**：点名 + tc-programmatic 用例改锁新语义（LLM 面 = [run_code]）——47 全绿；typecheck / test:unit 1964 过。
+
+### Changed（subagent 工具描述引导补强——system 参数可发现性 + tools 语义显式化，2026-12 第三次实测反馈）
+- **问题 1（system 引导缺失）**：工具顶层 description 与 task 参数描述均未引导 system 参数的使用——小任务语境下 LLM 不会主动翻参数表。三处补强（`ac-subagent/src/service.ts` + `ac-system-prompt/src/index.ts` §9 并行子任务段）：顶层 description 加「任务角色定位/专业人设/输出约束 → system 参数」；task 描述加「角色定位/输出约束放 system 参数（固化人设，勿混进 task）」；系统提示词指引段加同款引导（含示例：代码审查员/数据分析助手）。程序化模式下 SDK 投影按注册面 schema 现算——描述更新自动进投影。
+- **问题 2（run_code 未用的定性）**：实测复盘 = 模型选择而非链路故障——主 Agent 在 run_code 程序内 spawn 时显式点名了 tools:[glob,read,grep,hello,list_tools]（工具链路测试任务的合理选择），spawn.tools 优先于程序化传播（既有设计裁决：点名即显式选择）。tools 参数描述已强化：「一旦点名 = 显式改选传统工具面（程序化继承失效，点名集生效）；缺省不传 = 保持同形态协作（默认推荐）」。
+- **测试**：system-prompt 基线断言同步（E_SUB 常量）——34 全过；全仓 test:unit 1964 过。
+
+### Fixed（输入框局部选区“剪切→回贴”裂段——内部回贴段融合，2026-12 实测二修）
+- **根因**（`ac-client-ui-conversation/client/PromptEditor.vue`）：部分选区从 PM 复制出的 HTML 首末段是开放段（带 `data-pm-slice="1 1 …"` 开口标记），而粘贴插入路径 `insertTextAsParagraphs` 无视开口一律按闭合整段块插入——段内局部“剪切→原地粘贴”会把宿主段裂成三段（前后冒出换行）；HTML 归一的行 trim 还会吃掉选区边缘空格。
+- **修复**：`pasteText.ts` 新增 `pmSliceDepth`（解析粘贴 HTML 根的 PM 开口深度）；`PromptEditor.handlePaste` 分流——内部源（html 带 `data-pm-slice`）直取 `text/plain`（本编辑器 `clipboardTextSerializer` 出口，单换行、空格原样、零失真）经 `replaceSelection` 段融合插入（开放端与宿主段无缝拼接，PM 原生语义）；外部源（无标记）维持原整段块插入 + HTML 归一不变。
+- **测试**（`ac-client-ui-conversation/tests/prompt-paste-slice.test.ts`）：段内中部（含边缘空格）/跨段/含空段/到文档尾的「剪切→原地回贴」往返不变（getText 复原原文）、纯单段子串不裂段、`pmSliceDepth` 各形态解析——7 用例全绿；套件 110 全过，typecheck / webui:typecheck / test:unit 1964 全绿。
+
+### Changed（spawn context 参数退役——表达力由 task + send(message) 完全覆盖，2026-12）
+- **参数面收敛**（`ac-subagent/src/service.ts`）：移除 spawn 的 context 参数（schema / SubagentSpawnOptions / InboxItem / deliver extra / 首条尾拼逻辑全链删除）。frameTask 退役后 context 只剩「task 尾拼第二段文本」语义——模型侧无差异，背景材料写进 task 或 spawn 后 send(message) 追加等价；人设归 system。旧调用传 context 命中「未知参数」护栏（指路提示，内容不静默丢失）。存量子 Agent 不受影响（context 只参与首条消息构造，spawn 时已落盘）。
+
+### Changed（subagent 人格防污染——frameTask 退役 + spawn system 显式固化，2026-12）
+- **frameTask 移除**（`ac-subagent/src/service.ts`）：首条任务消息 = 裸文本原文（无「[子任务] 请作为独立子 Agent…」角色框架与「要求」段）；spawn 的 context 参数保留、尾拼 `[上下文]` 段进首条消息。角色定位语义改由 system 参数显式承担，消除框架与父人设的双重人格噪音。
+- **spawn(system) 显式固化**：`SubagentSpawnOptions.system` / `SubagentRecord.system`（持久化，跨轮跨重启）；executeRun 装配优先序 = rec.system（显式）> parent.system（继承，缺省不变）。显式在场时派生身份 settings 剥 persona（完全接管人格语义——不与父的 persona 块叠加出双重人格）。工具 schema 加 system 参数（描述注明框架块与 SDK 投影仍自动追加）。
+- **程序化模式 SDK 投影**：run_code 投影块经 loop/before-run 按 request.system 尾拼——子 Agent 无论 system 来源（显式/继承/缺省）投影均正确挂载；tc-programmatic 子 run 收窄面（mode 工具集）与显式 system 正交共存（测试锁定）。
+- **测试**：spawn(system) 固化/覆盖父人设/重启生效 + tc-programmatic 共存 + frameTask 退役断言（裸文本/无 [子任务] 标记）——套件 47 全绿；test:unit 1957 过。
+
+### Fixed（输入框复制换行翻倍——PromptEditor 复制序列化口径，2026-12 实测反馈）
+- **根因**（`ac-client-ui-conversation/client/PromptEditor.vue`）：输入框文档模型 = 纯文本段落（Shift+Enter = 恰一个换行），但 PM 默认剪贴板序列化用 `"\n\n"` 块分隔（富文本段距语义）——从输入框复制出的文本每个换行都变空行，复制出去再粘回换行翻倍。
+- **修复**：`pasteText.ts` 新增 `clipboardText`（选区 Slice → 纯文本，`getText('\n')` 同构口径：段间单换行、空段 = 空行），PromptEditor 经 `editorProps.clipboardTextSerializer` 注册——copy/cut/拖拽的 text/plain 同一出口全覆盖（粘贴路径此前已单换行归一，现复制/粘贴互逆）。
+- **测试**（`ac-client-ui-conversation/tests/prompt-copy.test.ts`）：注册后单换行保持/空行保持（经 `EditorView.serializeForClipboard` 真实复制管线）、未注册默认 `\n\n` 翻倍对照、纯函数与 getText 口径一致——4 用例全绿；套件 103 全过，typecheck / webui:typecheck / test:unit 1957 全绿。
+
+### Changed（frameTask 多轮约定句移除——用户实测观察，2026-12）
+- **首条任务框架瘦身**（`ac-subagent/src/service.ts` frameTask）：移除「本子 Agent 会话支持多轮……每轮结束时给出明确的当前结论」整句——一次性 spawn（主流用法）下「等待父的补充指示」式结尾是噪音（实测 jess 形态）；保留「[子任务]/任务/[上下文]/要求：独立思考并执行」骨架。send 续聊的增量语义若实测回升「重做任务」问题，按条件态文案回归（不预告、只约束收到时行为）。
+
+### Fixed（子 Agent 会话视角前端两修——群形态分侧 + subcalls 投影挂载，2026-12 实测反馈）
+- **双侧居左（群形态）**（`ac-client-ui-subagent/client/SubagentConversationView.vue`）：分侧基准 settingsAgentId 从 subId 改传 VIEWER_ID——子会话里父（user 行）与子（agent 行）都是"对方"，全部居左 + 头像/名字标注（群聊同款阅读形态）；此前子回复居右，与「运行跟踪 → 点开子会话」的预期不符。
+- **subcalls 投影挂载**（`ac-subagent/src/service.ts` historyRecords）：子 Agent 的 run_code 子调用档案此前只落 subcalls.jsonl 不进展示面（子会话视角的 run_code 卡片下永远没有 subcall 平铺卡）。修复：historyRecords 读后合并 subcalls.jsonl 档案，按 tool_call_id 前缀（宿主 run_code 调用 id）定位、紧随其后平铺注入 steps[].toolCalls（subcall:true——与 ac-session records() 投影同款语义/同款排序键）；浅拷贝注入保重读幂等；孤儿档案静默丢弃。前端 toHistoryMessages 的 subcall 透传链现成（零前端改动自然渲染缩进卡）。
+- **测试**：subcall 档案投影（宿主挂载/seq 排序/孤儿丢弃/重读幂等）——套件 45 全绿；typecheck / webui:typecheck / test:unit 1953 全过。
+
+### Fixed（subagent 实测两连修——程序化传播失效 + 沙箱数据根分叉，2026-12 实测 9dbcd3be）
+- **程序化模式传播失效**（`ac-subagent/src/service.ts` executeRun）：2026-12 injection 轴重构后 run_code 挂 `injection:'mode'` 不再进常规能力面，旧实现的 `allowed.includes('run_code')` 守卫恒 false——tc-programmatic 会话 spawn 的子 Agent 静默拿到全量传统工具面（实测复现：主会话程序化档、子 Agent 却用 glob/grep 直查数据根）。修复：收窄判定/合成换 ac-agents 单源 `effectiveToolMode` + `narrowToolsByMode`（与 router 真实 run 同口径）；常规能力面过滤补 `injection !== 'mode'` 分流（对齐 router）；mode 集为空时 warn 不回落（同 router 语义）。
+- **子 Agent 沙箱数据根分叉**：子 Agent run 无会话键（账本归 subagents 域——runLogKey 契约），沙箱链 `sandboxWorkdir(子id, undefined)` fallback preset→数据根，而父会话挂载工作区的 Agent 基准是工作区 path——glob/grep/文件读写全体锚错目录（实测：子 Agent 在数据根里 `grep src` 零命中）。修复：spawn 时快照父会话工作区根进 `SubagentRecord.workdir`（持久化——优先序对齐 sandboxWorkdir：会话挂载工作区 > 父显式/沙箱基准），`deriveAgentConfig` 注入派生身份 `settings.security.workdir`——fs/shell/安全复检/提示词展示与父会话同根；无挂载/无会话键行为零变化。
+- **测试**（`ac-subagent/tests/subagent.integration.test.ts`）：tc-programmatic 收窄（mode 形态 stub）/tc-base 常规面（mode 工具不混入）/spawn 快照进注册表与派生身份/无挂载回落——44 全绿；typecheck / test:unit 1953 / check:deps 0 错。
+
+### Changed（subagents 域三文件落盘——sessions 域 run journal 裁决对齐，2026-12）
+- **目录形态**（`ac-subagent/src/service.ts`）：会话存储 `<subId>.jsonl` 单文件 → `<subId>/` 目录三文件（messages=定稿流 / partials=run journal / subcalls=子调用档案），与 sessions 域同构；迁移 v3 `subagents-dir`（单文件 rename 入目录，幂等；读侧另有旧单文件回退兼容，迁移前后均可读）。
+- **run journal**：`loop/after-step` 步行（result:null——终值由补行/settlement 携带）+ `journal-inject`（steer 消费点落行，ts 快照）+ `tool-result` 直调补行；事件订阅按 agent=<subId> 寻址。run 进行中的中间态从此可恢复（原「收束一次性落盘」形态崩溃丢思维链）。
+- **settlement**（executeRun 收束）：journal 切段物化提升进 messages（注入行=切分点；段行/注入提升行全带 run 键；无切分 = 整 run 单行 + run 键——与三文件化前同形）+ partials 剔除 + run-settled 判别行（原子提交标记）。错误/中断收束一等化：run 做过的推理物化为段行（会话事实）。
+- **subcalls.jsonl**：`runCodeSubcall=true` 补行分流永久档案（子 Agent 开 programmatic 时子调用卡片不再随收束消失——UI 回放面）。
+- **崩溃恢复**：ensureMessages 触达时 recoverJournal 惰性收口（孤儿 run 投影为中断段行、补行并入终值；幂等）。
+- **展示面零改动**：SubagentMessageLine 兼容扩展（新增 run/injected/source 可选键），toHistoryMessages / subagents/history RPC / 前端组件全不动。
+- **测试**（`ac-subagent/tests/subagent.integration.test.ts` +5 用例 / `ac-migration-core/tests/migration.test.ts` 断言 v3）：三文件形态 + partials 收束即清 / 崩溃恢复物化 / steer 切段提升行 / 旧单文件回退 / 迁移幂等。套件 42 全绿；全仓 1953 过；typecheck / check:deps 0 错。
+
+### Changed（子代理缺省步数上限 15 → 200——软无限：正常审查/研究任务不可达，仅作失控防线）
+- **`DEFAULT_MAX_STEPS` 15 → 200**（`ac-subagent/src/service.ts`）：子代理主用途为审查/研究型长任务，原 15 步缺省对长任务近乎必然触顶强制收束。缺省放宽至 200 = 软无限——正常任务到不了，仅拦截失控循环。工具 schema 描述同步。
+
 ### Changed（grep 默认返回收敛——默认内联 50 条 + limit 参数 + total 恒报命中总数）
 - **默认页 250 → 50**（`ac-fs-search/src/index.ts`）：宽模式+宽路径的高频形态（画像 §④：单次 1413 命中）默认即触发截断，token 开销大——默认收敛为 50 条，需要更多时显式传参。`GREP_DEFAULT_LIMIT = 50`，`GREP_MAX_MATCHES = 250` 保留为 limit 上限；扫描硬顶 2000 不变。
 - **新增 `limit` 参数**（number，[1, 250]，缺省 50）：内联展示条数可调——上限即旧默认值，原全量行为经 `limit: 250` 完整保留。运行时钳制：越界/NaN 回落（≥1 取 floor、上限 250、非法回落默认），参数 schema 同步声明范围。
