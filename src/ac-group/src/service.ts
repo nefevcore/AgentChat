@@ -40,9 +40,9 @@
 //     （按 gid 一次，内存缓存；无 session 行 = 纯内存态——测试兼容）；
 //   · 轮转：分段写 groups/<gid>/archive/history_N.jsonl + 机械摘要
 //     summary_N.md（编排归本服务），本体重建经 session.compact
-//     （owning 写口）；视图失效走 conversation.markStale（D11：本体每有
-//     新发言，成员视图 stale → 下次 run 由 send 的 per-member 新种子
-//     重派生——视角单源 = 本体，不再有第二事实源）；
+//     （owning 写口）；成员上下文 = 每 run 从本体 per-member 派生
+//     （conversation 无条件重派生，2026-11 视图增量层退役——视角
+//     单源 = 本体，不再有第二事实源）；
 //   · per-Agent 视角文件不采纳（S1/S3）：成员"视角桶"
 //     （sessions/<gid>~<member>）是 src 时代形态——preview 以内存视图
 //     + historyFor 种子承担，不落文件（写放大 + 第二事实源）。
@@ -634,7 +634,7 @@ export class GroupService extends Service {
       keep.filter((r) => r.role === 'agent').map((r) => toGroupMessage(groupId, r)),
     );
     this.windows.delete(groupId); // 轮转 = 显式 replace：派生窗随之重置
-    this.markViewsStale(groupId);
+    // 成员视图无需失效标记：conversation 每 run 无条件重派生（2026-11 视图增量层退役）
     this.rotating.delete(groupId);
     this.clearRotationPending(groupId);
     this.syncRotationScan();
@@ -824,7 +824,6 @@ export class GroupService extends Service {
       kept.filter((r) => r.role === 'agent').map((r) => toGroupMessage(groupId, r)),
     );
     this.windows.delete(groupId);
-    this.markViewsStale(groupId);
   }
 
   /**
@@ -957,11 +956,6 @@ export class GroupService extends Service {
     }
   }
 
-  /** 成员视图失效（D11：本体增长/轮转 → conversation 视图 stale，下次 run 重派生）。
-   *  防御式调用：conversation 为硬依赖，但 markStale 是 D11 新面（测试桩/最小组合可能未实现） */
-  private markViewsStale(groupId: string): void {
-    (this.ctx.conversation as { markStale?(id: string): void } | undefined)?.markStale?.(groupId);
-  }
 
   /** 最新轮转摘要（无归档 → undefined；historyFor 头部注入用） */
   private latestArchiveSummary(groupId: string): string | undefined {
@@ -1173,8 +1167,7 @@ export class GroupService extends Service {
    * 'user' 始终允许发言（无需入成员表）；Agent 发送者须是成员。
    * D11：持久态经 session.append 落本体（sessions/groups/<gid>/，中性行
    * role:'agent' + agent_id=说话人；行 id 返回对齐 GroupFeed 锚点）；
-   * 无 session 行 = 纯内存。post 后成员视图 stale（conversation.markStale
-   * ——下次 run 由 send 的 per-member 新种子重派生，视角单源 = 本体）。
+   * 无 session 行 = 纯内存。成员上下文每 run 从本体重派生（视角单源 = 本体）。
    */
   async post(
     groupId: string,
@@ -1212,9 +1205,7 @@ export class GroupService extends Service {
     const log = this.logs.get(groupId)!;
     log.push(message);
     await this.maybeRotate(groupId);
-    // 本体增长 → 成员视图失准（D11 per-member 单源派生；与 archive/completed
-    // 联动同款 stale-惰性——在途 run 的信封快照不受影响）
-    this.markViewsStale(groupId);
+    // 本体增长无需视图失效标记：conversation 每 run 无条件重派生（D11 语义由构造保持）
     this.ctx.emit('group/message-posted', groupId, message);
     return message;
   }

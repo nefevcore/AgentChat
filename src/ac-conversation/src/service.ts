@@ -1,10 +1,18 @@
 // ============================================================
 // ac-conversation/src/service.ts —— 会话状态机服务（cordis Service）
 //
-// KV Cache effect（M21/D9 声明纪律）: Append-only —— 会话上下文视图 =
-// 文件事件的按读者增量投影（与 history(conv,{viewer}) 重派生字节等价，
-// S3）：每 run 信封 = 此前视图 + 纯追加后缀。显式失效：stale 重派生
-// （archive/completed 归档联动 / D7）= invalidate-from-head（低频）。
+// KV Cache effect（声明纪律）: 派生确定性 —— 会话上下文 = 每 run 经
+// session.history(conv,{viewer}) 从会话文件重派生（与重启后首跑同一
+// 投影，S3 由构造保证）。文件只追加 → 派生结果单调追加（KV 前缀稳定，
+// S4 不受损）；归档/轮转 = 显式 replace（S5，重派生自然反映）。
+//
+// 视图增量层已退役（2026-11 根因消除）：此前视图由三个事件处理器增量
+// 投影（message-received/steered/reply-completed）+ stale 补丁维护，
+// 手写投影必须永远追平文件投影——2026-09-05（终稿 vs 轨迹）与
+// 2026-09-23（error 收束丢轨迹，断网续聊失忆）两起同构漂移证明该
+// 结构性双事实源不可维护。现 views 仅持有「最近一次派生快照」：
+// startRun 每 run 无条件重派生（链跑轮间亦然——群 blindspot 语义由
+// 构造保持）；无 session 行的测试组合回落上次快照（seed 即唯一事实）。
 //
 // 本包是会话状态机域的 owning package（ADR-1）：src router 的有状态
 // 调度全部移入此处，ac-router 保持"纯转发、零会话状态"。
@@ -17,19 +25,13 @@
 //     队列条目带稳定 id；queue()/removeQueued()/steerQueued() 构成
 //     排队 UI 数据面（DSH queue/严格 steering 姿势），每次变更广播
 //     conversation/queue-changed 权威快照
-//   · 会话上下文视图 = **文件事件的按读者派生投影**（M21 步骤 2/D2）：
-//     订阅 router/message-received / router/reply-completed /
-//     conversation/steered，把每个文件事件（说话人 = sender / 回复
-//     Agent，即存储行的 agent_id）经 session 域唯一投影函数 projectRecord
-//     按 `agent_id === viewer ? assistant : user` 投影进**该桶全部 handle**
-//     的视图——行形态与 history(conv,{viewer}) 文件派生逐字节一致（S3）；
-//     轨迹回放（replayTrajectory 开）的读者，其自有回复行按步展开
-//     （stepsFromRunResult + expandSteps，与文件回放同形状——2026-09-05
-//     singles 多轮失忆修复：进程内多轮与重启后回放的上下文深度一致）。
-//     进程内视图只是增量缓存，重启/stale = 重派生（同一函数，golden
-//     对拍）。归档联动（D7）：archive/completed → 该桶全部 handle
-//     stale → 下次 startRun 重派生（stale-惰性，天然避开在途 run 竞态）。
-//     机制标记 run（整理，M20）不投影。
+//   · 会话上下文 = **每 run 从会话文件重派生**（S1 字面化）：startRun
+//     经 contextFor 调 session.history(conv,{viewer})——records() 读侧
+//     自带 flush 排空 + settleChain 等待 + journal 活投影，派生永远看到
+//     已入账的完整事实（含 error/中断收束的 steps 段行——2026-09-23
+//     事故的根因消除）。群桶经可选 group 服务的 historyFor 专用投影；
+//     调用方显式种子（options.history）优先。无 session 行的最小测试
+//     组合回落上次派生快照（不构成第二事实源：seed 即唯一事实源）。
 //
 // M15 待投持久化（src pending-resume 的最小闭环）：行配置 root 给定
 // 即启用——next-turn 队列入队即落盘（<root>/conversation/pending-
@@ -45,13 +47,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { runAddress, pairKey, isArchiveReviewRun } from 'ac-agent-loop';
-import { isGroupHint } from 'ac-core-utils';
-import { projectRecord, stepsFromRunResult, expandSteps } from 'ac-session';
 import { TIER_RANK, tierOf, type AgentConfig } from 'ac-agents';
 import { securityNoticeText, wrapWithSecurityNotice } from 'ac-sandbox-core';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
-import type {} from 'ac-archive'; // archive/* 事件目录（type-only）
 import type {
   ConversationDeliverOptions,
   ConversationLane,
@@ -161,16 +160,14 @@ function assertHandleSafe(handle: string): boolean {
   return /^[^/\\]+$/.test(handle) && !handle.includes('..');
 }
 
-/** 会话上下文视图（M21/D2 派生投影缓存）：文件事件按读者投影的增量积累 */
+/** 会话上下文视图：最近一次派生快照（startRun 每 run 无条件重派生覆盖） */
 interface ContextView {
-  /** 归属会话桶（投影目标筛选：该桶全部 handle 都收到每个文件事件） */
+  /** 归属会话桶（派生目标） */
   conversationId: string;
   /** 读者端点 = 本 handle 的 Agent（视角变换基准，§2.4） */
   viewer: string;
-  /** 投影行 {role, content, name}——与 history(conv,{viewer}) 派生逐字节一致 */
+  /** 派生行——来自 seed / group.historyFor / session.history（S3 单源） */
   messages: LlmMessage[];
-  /** 显式 replace（归档重建）后标记：下次 startRun 从文件重派生（D7） */
-  stale: boolean;
 }
 
 /** 行配置（透传 ConversationService 构造；index 再导出） */
@@ -186,7 +183,7 @@ export class ConversationService extends Service {
   /** handle → next-turn 队列（跨 run 存活） */
   private turns = new Map<string, QueuedTurn[]>();
 
-  /** handle → 会话上下文视图（文件事件的按读者派生投影缓存；stale = 待重派生） */
+  /** handle → 会话上下文视图（最近派生快照；每 run 重派生覆盖——无增量维护） */
   private views = new Map<string, ContextView>();
 
   /** 待投持久化目录（undefined = 内存态，测试/演示兼容） */
@@ -200,136 +197,8 @@ export class ConversationService extends Service {
       persistRoot !== undefined ? path.resolve(persistRoot, 'conversation') : undefined;
     if (this.pendingDir !== undefined) this.replayPending();
 
-    // ---- 视图投影通道（M21 步骤 2：文件事件 → 按读者增量投影）----
-    // 视图 = 文件事件的派生缓存（S1/S3）：行由 session 域唯一投影函数
-    // projectRecord 产出——与 history(conv,{viewer}) 重派生逐字节一致；
-    // 投影目标 = 该桶全部 handle 的视图（说话人/回复 Agent 即存储行
-    // agent_id，与 ac-session 入账同词汇同顺序）。
-    const project = (
-      conversationId: string,
-      speaker: string,
-      content: string,
-      role: 'agent' | 'event' | 'error',
-      attachments?: LlmMessage['attachments'],
-    ) => {
-      for (const view of this.views.values()) {
-        if (view.conversationId !== conversationId || view.stale) continue;
-        // hint 视点过滤（与 session.history() 回放同口径）：event 行只进
-        // 目标读者的视图——共享对桶 a⇋b 里发给 b 的"你请求的…"类第二人称
-        // hint 不进对端 a 的上下文；agent/error 行读者无关照旧。
-        if (role === 'event' && view.viewer !== speaker) continue;
-        view.messages.push(
-          projectRecord(
-            {
-              role,
-              content,
-              message_id: '',
-              timestamp: '',
-              agent_id: speaker,
-              ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-            },
-            view.viewer,
-            conversationId,
-          ),
-        );
-      }
-    };
-    this.ctx.on('router/message-received', (agentId, message, conversationId, sender, source, meta) => {
-      if (isArchiveReviewRun(meta)) return; // 机制 run 不进视图（M20）
-      if (isGroupHint(meta)) return; // 群 hint 触发不进视图（事实行在群本体；M21/F6①）
-      if (source === 'event') {
-        // 机制触发行：agent_id = 目标自身（§2.3，与 ac-session 入账同构）
-        project(conversationId, agentId, message.content, 'event');
-        return;
-      }
-      project(conversationId, sender ?? 'user', message.content, 'agent', message.attachments);
-    }, { description: '入站消息并入上下文视图' });
-    this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, source, meta) => {
-      if (isArchiveReviewRun(meta)) return;
-      if (isGroupHint(meta)) return; // 群 hint 的 busy 注入不进视图（同上）
-      // 机制通知（source='event'，如后台任务完成/插件回执回触）与 ac-session
-      // 入账同构：event 行 + 目标视点（此前按 sender 投影成 agent 行——
-      // 目标 Agent 视角里"你请求的…"变成了自己的话）
-      if (source === 'event') {
-        project(conversationId, agentId, message.content, 'event');
-        return;
-      }
-      project(conversationId, sender ?? agentId, message.content, 'agent', message.attachments);
-    }, { description: 'steer 消息并入上下文视图（机制通知 → 事件行 + 目标视点）' });
-    this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
-      if (isArchiveReviewRun(meta)) return;
-      // 群桶 run 终稿不进成员视图（M26 行为对齐）：群内容唯一口 = 群本体
-      // post 行（send_group 才是发言）——终稿入视图会让"直接输出文本"
-      // 事实性地广播进群，契约的沉默权/输出语义被机制反转。
-      if (isGroupHint(meta)) return;
-      // 错误收束（D12）：error 行语义位 = user（§2.4）；与 ac-session 落盘同构
-      if (result.finish === 'error') {
-        project(conversationId, agentId, String(result.error ?? '循环失败'), 'error');
-        return;
-      }
-      // 轨迹感知投影（2026-09-05 singles 多轮失忆修复）：进程内视图此前
-      // 只投终稿文本，而 history() 文件重派生在 replayTrajectory 开（缺省）
-      // 时展开 viewer 自有回复行的完整工具轨迹——同一会话进程内第 2 轮
-      // 的上下文比重启后第 1 轮还少（模型知道"做过什么"却看不到探索
-      // 过程与文件内容，表现为"多轮没记忆"）。对齐：开启轨迹回放的读者，
-      // 其自有回复按 stepsFromRunResult + expandSteps 展开进视图（与
-      // 落盘行/文件回放同形状同字节——单一事实源导出，防两处漂移）；
-      // 其余读者（他人回复 / 对话级回放）维持终稿行投影。
-      const steps = stepsFromRunResult(result);
-      if (!text && steps.length === 0) return; // 中断/空回复不入账（同 ac-session）
-      const session = this.ctx.get('session', false) as
-        | { replayTrajectoryOf?(viewer: string): boolean }
-        | undefined;
-      for (const view of this.views.values()) {
-        if (view.conversationId !== conversationId || view.stale) continue;
-        if (
-          steps.length > 0 &&
-          view.viewer === agentId &&
-          session?.replayTrajectoryOf?.(view.viewer) === true
-        ) {
-          view.messages.push(...expandSteps(steps));
-          continue;
-        }
-        if (!text) continue; // 空 content 步行（对话级读者视角）不入视图——与 history() 跳过空行同构
-        view.messages.push(
-          projectRecord(
-            { role: 'agent', content: text, message_id: '', timestamp: '', agent_id: agentId },
-            view.viewer,
-            conversationId,
-          ),
-        );
-      }
-    }, { description: '回复并入上下文视图（轨迹回放读者按步展开）' });
-    // 归档联动（D7）：compact 重写消息流后旧视图失准——标记该桶全部
-    // handle stale，下次 startRun 从文件重派生（stale-惰性：在途 run 的
-    // 信封快照不受影响，天然避开竞态；归档后视图收缩、上下文回落 keep 预算内）
-    this.ctx.on('archive/completed', (payload) => {
-      for (const view of this.views.values()) {
-        if (view.conversationId === payload.conversationId) view.stale = true;
-      }
-    }, { description: '归档完成后重建上下文视图' });
-    // journal 折叠漂移守卫（P2）：journal 模式的自会话视图增量投影只追加
-    // 新行（无折叠能力）——视图存活越久，与文件重派生（session.history
-    // 带折叠）形状差越大。机制触发轮收束后把 journal 桶视图标 stale：
-    // 下次 startRun 从 history() 重派生（折叠生效），进程内与重启后形状
-    // 等价（字节一致是 S1/S3 视图契约）。收束即标 = run 进行中零开销，
-    // 代价是每轮一次文件重读（journal 桶本就高频小轮，重读是毫秒级）。
-    this.ctx.on('loop/after-run', (request) => {
-      if (request.source !== 'event') return; // 仅机制触发轮（自会话主体）
-      const viewer = request.agent;
-      if (viewer === undefined) return;
-      const conv = request.conversationId;
-      if (conv !== `${viewer}~${viewer}`) return; // 仅对角线自会话桶
-      const session = this.ctx.get('session', false) as
-        | { eventReplayOf?(viewer: string): 'full' | 'journal' }
-        | undefined;
-      if (session?.eventReplayOf?.(viewer) !== 'journal') return;
-      for (const view of this.views.values()) {
-        if (view.conversationId === conv) view.stale = true;
-      }
-    }, { description: 'journal 模式自会话视图重派生（折叠保真）' });
-    // D3 残余观测：before-run veto 窗口内被吞的注入（消息已入账/进视图，
-    // 下一条自然 run 可见——自愈）。只告警不重投（重投经
+    // D3 残余观测：before-run veto 窗口内被吞的注入（消息已入账，
+    // 下一条自然 run 重派生时可见——自愈）。只告警不重投（重投经
     // router/message-received 二次入账）；收束判定后的迟到注入由
     // steer() 封口拒绝、本事件不出现。
     this.ctx.on('loop/steer-dropped', (agent, conversationId, handle, dropped) => {
@@ -644,18 +513,6 @@ export class ConversationService extends Service {
     }));
   }
 
-  /**
-   * 标记某会话的全部视图 stale（D11：群本体每有新发言时调用——成员视图
-   * 是按读者的派生缓存，本体增长即失准；下次 startRun 由投递方携带的新
-   * 种子重派生[send 的 per-member historyFor]，语义与 archive/completed
-   * 联动一致[§4.2 stale-惰性，天然避开在途 run 竞态]）。
-   */
-  markStale(conversationId: string): void {
-    for (const view of this.views.values()) {
-      if (view.conversationId === conversationId) view.stale = true;
-    }
-  }
-
   /** 诊断快照：运行中会话 + 各 handle 的 next-turn 积压 */
   stats(): { running: ConversationRunInfo[]; queued: Record<string, number> } {
     const queued: Record<string, number> = {};
@@ -772,11 +629,10 @@ export class ConversationService extends Service {
       ...(options.meta ? { meta: options.meta } : {}),
     };
     this.runs.set(handle, entry); // 同步注册：deliver 同步前缀内即完成（竞态安全）
-    // 视图派生化（M21 步骤 2/D2+F1）：取/建该 handle 的按读者投影视图
-    // （stale = 从文件重派生；无视图时以 session.history(conv,{viewer})
-    // 播种——重启/直答/独立会话路径上下文不再为空）。机制标记 run
-    // （归档整理，M20）自身的事件被投影通道 meta 判定跳过，视图零污染。
-    // 链跑轮间可因 stale 重派生被替换（见循环顶部）——let 持有。
+    // 上下文重派生（2026-11 视图增量层退役）：每 run 从会话文件（或调用
+    // 方种子 / 群 historyFor）重新派生——S3 由构造保证（进程内 ≡ 重启后）。
+    // 机制标记 run（归档整理，M20）不进文件（meta 判定在 ac-session 入账
+    // 侧），重派生天然零污染。
     let view = await this.contextFor(handle, conversationId, agentId, options.history);
     let message = firstMessage;
     let sender = options.sender ?? DEFAULT_SENDER;
@@ -794,21 +650,19 @@ export class ConversationService extends Service {
     const groupBucket = group !== undefined && group.get(conversationId) !== undefined;
 
     try {
+      let firstTurn = true;
       while (true) {
-        // 轮间重派生（2026-09-13 事故修复）：steer/链跑把 run 拉长到
-        // 分钟级，而视图快照只在 startRun 拍一次——群本体增长（markStale）
-        // 只在"下次 startRun"生效，busy 成员在 run 延伸中看不到自己
-        // 刚 send_group 的发言（误判"没发出去"而重发）。链跑轮间检查
-        // stale：重派生后再拍信封快照。首轮视图刚在 startRun 顶部派生
-        // 过（fresh），此检查天然零开销；非 stale 轮零重算。
-        // 在途 run 的信封快照不受影响（S3 语义保持——每轮快照仍为
-        // "本条之前"的稳定拷贝，轮内不再变）。
-        if (view.stale) view = await this.contextFor(handle, conversationId, agentId, undefined);
-        // run 信封快照：事件投影会并发追加视图（本条入站/同桶对端事件），
-        // 信封须稳定——取"本条之前"的拷贝，router 会把本条追加到信封末尾。
-        // 入站/回复行由 router 事件投影进视图（S1：视图 = 文件事件派生，
-        // startRun 手工 push 退役）；错误收束同样经事件按 error→user 语义
-        // 位投影（§2.4）。
+        // 轮间重派生（2026-11 视图增量层退役后由构造保证）：链跑轮间
+        // 无条件从文件重派生——busy 成员在 run 延伸中能看到自己刚
+        // send_group 的发言（2026-09-13 群 blindspot 修复语义保持），
+        // 且无需任何 stale 标记。首轮视图已在 startRun 顶部派生（调用方
+        // 种子优先），此处跳过。在途 run 的信封快照不受影响（S3
+        // 语义保持——每轮快照仍为"本条之前"的稳定拷贝，轮内不再变）。
+        if (!firstTurn) view = await this.contextFor(handle, conversationId, agentId, undefined);
+        firstTurn = false;
+        // run 信封快照：取"本条之前"的拷贝，router 会把本条追加到信封
+        // 末尾。上下文已是文件派生单源（error/中断收束的 steps 段行、
+        // journal 活投影均由 records() 读侧并入）。
         const history = [...view.messages];
         // 投递失败（如未知 Agent）无需回滚：require 先于 message-received
         // emit（无事件无行）；emit 之后的失败（缺 model 等）行已入文件，
@@ -864,19 +718,18 @@ export class ConversationService extends Service {
   }
 
   /**
-   * 取/建会话上下文视图（M21/D2 派生化）：
-   *   · 无视图/stale → 重派生：调用方显式种子（群 historyFor 等专用投影）
-   *     优先；否则 session.history(conv, {viewer}) 文件派生（唯一回放边界，
-   *     F1 修复——直答/独立会话重启后首跑不再空上下文）；
-   *   · session 行未装载（测试/最小组合）→ 显式种子/空兜底；
-   *   · 已有视图 → 沿用（增量投影维护，不再重复播种）。
-   *
-   * 群桶感知（2026-09-13 事故修复）：群本体只收 post 事实行（hint/
-   * 终稿/steer 均不入账，M26），而 session.history 的角色投影不含
-   * <msg> 包装/相邻 peer 合并——形状与 historyFor 派生漂移。群桶
-   * stale 重派生时优先经可选 group 服务取 historyFor 专用投影
-   * （seed 未给时），保持「群成员上下文 = 本体 per-member 视角派生」
-   * 单源。链跑轮间重派生（见 startRun）无种子可携带，依赖此路径。
+   * 重派生会话上下文视图（每 run 调用——视图增量层退役后无沿用路径）：
+   *   · 调用方显式种子（群 send 的 per-member historyFor）优先；
+   *   · 群桶 → 可选 group 服务的 historyFor 专用投影（<msg> 包装/
+   *     peer 合并/own=assistant——session.history 角色投影不含这些，
+   *     形状单源归群侧）；2026-09-13 群 blindspot 修复语义由「轮间
+   *     无条件重派生」构造保持；
+   *   · 其余 → session.history(conv, {viewer}) 文件派生（唯一回放边界，
+   *     F1——直答/独立会话重启后首跑上下文连续；records() 读侧自带
+   *     flush 排空 + settleChain 等待 + journal 活投影，error/中断
+   *     收束的 steps 段行完整可见——2026-09-23 事故根因消除）；
+   *   · session 行未装载（最小测试组合）→ 沿用上次快照（无则空）：
+   *     seed 即唯一事实源，不构成第二事实源。
    */
   private async contextFor(
     handle: string,
@@ -884,9 +737,7 @@ export class ConversationService extends Service {
     viewer: string,
     seed: LlmMessage[] | undefined,
   ): Promise<ContextView> {
-    const existing = this.views.get(handle);
-    if (existing && !existing.stale) return existing;
-    let messages: LlmMessage[];
+    let messages: LlmMessage[] | undefined;
     if (seed && seed.length > 0) {
       messages = [...seed];
     } else {
@@ -904,10 +755,17 @@ export class ConversationService extends Service {
         const session = this.ctx.get('session', false) as
           | { history(id: string, options?: { viewer?: string }): Promise<LlmMessage[]> }
           | undefined;
-        messages = session ? await session.history(conversationId, { viewer }) : [];
+        if (session !== undefined) {
+          messages = await session.history(conversationId, { viewer });
+        }
       }
     }
-    const view: ContextView = { conversationId, viewer, messages, stale: false };
+    // 无派生源（无 seed/无群/无 session 行）：沿用上次快照（最小测试组合）
+    if (messages === undefined) {
+      const existing = this.views.get(handle);
+      messages = existing ? [...existing.messages] : [];
+    }
+    const view: ContextView = { conversationId, viewer, messages };
     this.views.set(handle, view);
     return view;
   }

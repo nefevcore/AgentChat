@@ -95,7 +95,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     ].join('\n'), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir']);
+    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir', 'partial-rematerialize-purge']);
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     // 改写：event/error → context+source
     expect(raw).toContain('"role":"context"');
@@ -160,7 +160,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 1, applied: [{ id: 'role-v2-subcall-split', at: 't' }] }), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir']); // 只 v2+v3（v1 已应用）
+    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir', 'partial-rematerialize-purge']); // 只 v2+v3+v4（v1 已应用）
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     expect(raw).not.toContain('"partial":true');
     expect(raw).not.toContain('"type":"tool-result"');
@@ -169,7 +169,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     const partRaw = readFileSync(join(dir, 'partials.jsonl'), 'utf-8');
     expect(partRaw).toContain('"partial":true');
     expect(partRaw).toContain('"tool_call_id":"c1"');
-    expect(readDataVersion(root)).toBe(3);
+    expect(readDataVersion(root)).toBe(4);
   });
 });
 

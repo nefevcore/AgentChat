@@ -290,7 +290,8 @@ ctx.group.send(gid, from, content)
 
 一等行）→ writer 队列落盘；`history(conv, {viewer})` 按读者投影回放。
 
-ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文件派生字节等价）。
+ac-conversation 的上下文 = 每 run 经 history 从文件重派生（2026-11 视图
+增量层退役——增量投影两次漂移后退役，S3 由构造保证）。
 
 run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入行/直调补行
 
@@ -347,6 +348,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | backup | `ac-backup/src/index.ts` | — |
 | workspace | `ac-workspace/src/index.ts`（agentWorkdir/sandboxWorkdir 唯一事实源 + pickFolder 原生选择·纯模块 native-dialog.ts） | — |
 | webServer | `ac-web-server/src/contract.ts`（RouteCall/RpcHandler/RpcCaller） | `ac-web-server/src/events.ts`（ws/ack + ws/connection-*） |
+| remoteLink | `ac-remote-link/src/contract.ts`（RemoteDevice/PairingSession/RemoteLinkStatus；Noise 纯库 `ac-noise-core`——XK/KK 握手 + AEAD 帧，M1） | `ac-remote-link/src/events.ts`（remote/device-paired · device-revoked · device-online · device-offline） |
 | webui | `ac-webui/src/service.ts` | 同文件（webui/extensions-changed） |
 | （退役）uiExtensions | ~~`ac-webui-extensions/src/service.ts`~~ M30 D7 退役：生产链路零消费（第三方 UI 走 manifest.ui → webui.addEntry → 浏览器 SlotRegistry）；词汇表 slotCatalog 留包转纯库 | — |
 | pluginRegistry | `ac-plugin-registry/src/service.ts` | 同文件（plugin/before-load(W) + installed·reloaded·catalog-changed(E)） |
@@ -536,10 +538,12 @@ src/
 ├── ac-str-replace-editor/   四合一编辑器：view/create/str_replace/insert（写经突变
 │                            队列；requiredTags ['fs_minimal']）
 ├── ac-shell-tools/          命令执行（平台拆分 2026-09-16）：pwsh（Windows；
-│                            Unix→PS fail-closed 翻译 + UTF-8 前缀 + bash 兼容
-│                            别名）/ bash（Unix 纯透传）+ job 管理。前台超时/
-│                            流式 onProgress + 后台 job 登记（requiredTags
-│                            ['shell']；needPermission——档位门）
+│                            Unix→PS fail-closed 翻译 + UTF-8 前缀）/ bash
+│                            （Unix 纯透传）+ job 管理。前台流式 onProgress +
+│                            超时处置 timeoutAction（handoff 缺省：超时自动转
+│                            后台 job 继续执行不杀进程；kill = 树杀旧行为；
+│                            settings.shell-tools 分层）+ 后台 job 登记
+│                            （requiredTags ['shell']；needPermission——档位门）
 ├── ac-run-code/             程序化模式 PTC 内核（2026-09-17 P0）：run_code
 │                            工具行（requiredTags ['code-exec']）——模型写
 │                            可擦除 TS 程序编排成批工具调用；主线程桥接
@@ -626,6 +630,13 @@ src/
 ├── ac-ws-bridge/            WS 事件桥接订阅行：emit 面（router/*/loop/*/llm/delta-*
 │                            等）→ WS 帧（type=事件名直转）；后台会话过滤；群 hint
 │                            帧不广播（群内容唯一源 = group/message-posted）
+├── ac-remote-link/          远程链路核心端行（ctx.remoteLink，M1）：出站 relay + Noise
+│                            E2E 壳 + 设备注册表（known_devices.json）+ 配对状态机
+│                            （二维码/SAS）+ scopes 闸门 + deliver 恒剥 elevation
+├── ac-noise-core/           Noise 协议纯库（零 cordis 依赖）：XK/KK 握手状态机 +
+│                            ChaCha20-Poly1305 帧封装 + SAS 派生（纯 node:crypto）
+├── ac-client-ui-remote/     远程设备设置节前端行（P1）：设备列表/吊销 + 配对
+│                            向导（二维码 URI + SAS 比对）——remote/* RPC 消费
 ├── ac-web-api/              WS RPC 业务方法注册薄编排行：conversation/session/
 │                            agents/group/singles/usage/timer/backup/config/llm/
 │                            plugin/events/system 全套 + jobs/list·kill（运行

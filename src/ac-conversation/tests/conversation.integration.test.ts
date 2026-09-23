@@ -3,6 +3,9 @@
 // 链跑 / MAX_AUTO_WAKES / abort / 群键隔离
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
@@ -10,6 +13,7 @@ import * as groupRow from 'ac-group';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
+import * as sessionRow from 'ac-session';
 import * as toolsRow from 'ac-tools';
 import * as conversationRow from '../src/index';
 import * as convSettingsRow from 'ac-conv-settings';
@@ -67,8 +71,13 @@ function gatedLlm(script: ('text' | 'tool')[] = []) {
 }
 
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
+const tmpRoots: string[] = [];
 
 async function boot(llmRowLike: object) {
+  // session 行 + fs 真目录 root（2026-11 视图增量层退役）：上下文每 run
+  // 从会话文件重派生——跨轮上下文断言依赖 session 行入账（生产组合形态）
+  const root = mkdtempSync(join(tmpdir(), 'ac-conv-int-'));
+  tmpRoots.push(root);
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows = [
@@ -78,10 +87,11 @@ async function boot(llmRowLike: object) {
     loopRow,
     agentsRow,
     routerRow,
+    sessionRow,
     conversationRow,
   ];
   for (const row of rows) {
-    const fiber = ctx.plugin(row);
+    const fiber = ctx.plugin(row, (row as any) === sessionRow ? { root } : undefined);
     await fiber;
     fibers.push(fiber);
   }
@@ -91,9 +101,6 @@ async function boot(llmRowLike: object) {
 
 /** 带 conv-settings 行的 boot（会话提权水位测试用——临时目录根） */
 async function bootWithConvSettings(llmRowLike: object) {
-  const { mkdtempSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
   const root = mkdtempSync(join(tmpdir(), 'ac-conv-elev-'));
   const ctx = new Context();
   const fibers: Fiber[] = [];
@@ -104,6 +111,7 @@ async function bootWithConvSettings(llmRowLike: object) {
     loopRow,
     agentsRow,
     routerRow,
+    sessionRow,
     convSettingsRow,
     conversationRow,
   ] as Array<{ apply(ctx: Context): unknown } & object>;
@@ -116,8 +124,10 @@ async function bootWithConvSettings(llmRowLike: object) {
   return { ctx, fibers, root };
 }
 
-/** 带群行的 boot（M26 群桶预算语义测试用） */
+/** 带群行的 boot（M26 群桶预算语义测试用）——含 session 行（fs 真目录 root） */
 async function bootWithGroup(llmRowLike: object) {
+  const root = mkdtempSync(join(tmpdir(), 'ac-conv-grp-'));
+  tmpRoots.push(root);
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows = [
@@ -127,11 +137,12 @@ async function bootWithGroup(llmRowLike: object) {
     loopRow,
     agentsRow,
     routerRow,
+    sessionRow,
     conversationRow,
     groupRow,
   ];
   for (const row of rows) {
-    const fiber = ctx.plugin(row);
+    const fiber = ctx.plugin(row, (row as any) === sessionRow ? { root } : undefined);
     await fiber;
     fibers.push(fiber);
   }
@@ -149,6 +160,7 @@ afterEach(async () => {
       if (fiber.uid !== null) await fiber.dispose();
     }
   }
+  for (const root of tmpRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe('ac-conversation 串行化门 + steer placement', () => {
@@ -180,12 +192,14 @@ describe('ac-conversation 串行化门 + steer placement', () => {
     }
     expect(m.contents(1)).toContain('第二条');
 
-    // 会话视图顺序验证：第三个 run 的 history = 消息1、消息2、回复
+    // 会话视图顺序验证：第三个 run 的 history = 消息1、steer 前步文本、
+    // 消息2、终稿（文件派生全形状——中间步是模型实际产出，2026-11 视图
+    // 增量层退役后与重启后回放字节一致）
     const p3 = ctx.conversation.deliver('a', '第三条');
     await m.waitForCall(3);
     m.release();
     await p3;
-    expect(m.contents(2)).toEqual(['第一条', '第二条', '回复2', '第三条']);
+    expect(m.contents(2)).toEqual(['第一条', '回复1', '第二条', '回复2', '第三条']);
   });
 
   it('busy：lane next-turn → 入队；当前 run 结束后自动链跑', async () => {
@@ -472,14 +486,16 @@ describe('abort 与中断（ADR-2）', () => {
     expect(ctx.conversation.isBusy('a')).toBe(false);
     expect(ctx.conversation.stats().queued).toEqual({ 'a~user~a': 1 }); // 队列保留待自然唤醒
 
-    // 中断后新投递照常（上下文含被打断的消息）
+    // 中断后新投递照常（上下文含被打断的消息 + 已完成步——中断 run 的
+    // 探索轨迹是会话事实，文件派生完整可见〔2026-11 视图增量层退役〕：
+    // assistant 空 text 步携带 tool_calls、tool 结果行如实回放）
     const p2 = ctx.conversation.deliver('a', '重新开始');
     await m.waitForCall(2);
     m.release();
     await m.waitForCall(3); // p2 的 run 结束 → 自然唤醒消费留队的"链跑不应发生"
     m.release();
     await p2;
-    expect(m.contents(1)).toEqual(['会被打断', '重新开始']);
+    expect(m.contents(1)).toEqual(['会被打断', '', '{"ok":true}', '重新开始']);
     expect(m.contents(2)).toContain('链跑不应发生'); // 中断只停当次链，队列不丢
     expect(ctx.conversation.stats().queued).toEqual({});
   });
