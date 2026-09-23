@@ -61,6 +61,12 @@ export interface ExecLimits {
   defaultTimeout: number;
   maxTimeout: number;
   outputMaxLen: number;
+  /**
+   * 超时处置（2026-12）：'kill'（缺省，树杀 + timed_out 报告）或
+   * 'handoff'（不杀——前台结果让位，命令移交后台 job 继续跑，
+   * 累积输出与 job_id 随结果返回）。
+   */
+  timeoutAction: 'kill' | 'handoff';
 }
 
 /** 执行体依赖注入（工具行闭包持有，见 index.ts） */
@@ -296,7 +302,13 @@ export function executeShellCommand(
     if (effectiveTimeout > 0) {
       timer = setTimeout(() => {
         timedOut = true;
-        killWithConfirm();
+        // handoff 模式（2026-12）：不杀——后台登记 + 输出改道日志文件，
+        // 累积输出与 job_id 随前台结果一并返回（模型可继续 job 工具接力）
+        if (limits.timeoutAction === 'handoff') {
+          handoffToJob();
+        } else {
+          killWithConfirm();
+        }
       }, effectiveTimeout);
     }
     const onAbort = () => {
@@ -312,6 +324,69 @@ export function executeShellCommand(
         child.stderr?.destroy();
         finish(exitCode);
       }, CLOSE_FALLBACK_MS);
+    };
+
+    /** 超时 handoff 产物（job 登记结果——timedOut 结果分支引用） */
+    let handoff: { jobId: string; logFile: string; pid: number } | undefined;
+
+    /**
+     * 超时降级 handoff（2026-12）：命令超时但 timeoutAction='handoff'——
+     * 不杀进程：前台输出泵改道日志文件（不能销毁读端——管道断裂会让
+     * 子进程后续写入吃 EPIPE 而死，违背"继续跑"语义）+ 后台登记 job，
+     * 随即以前台结果收束（命令移交后台，输出快照 + job_id 随结果返回）。
+     * handoff 失败（磁盘/登记异常）回退 kill 语义。
+     */
+    const handoffToJob = (): void => {
+      try {
+        const logFile = bashTempLogPath();
+        const log = fs.createWriteStream(logFile, { flags: 'a' });
+        // 已累积输出落日志（前台账本此后停更——快照已随结果带走）
+        log.write(stdoutRaw + stderrRaw);
+        // 改道：摘前台 handler，新 chunk 泵进日志文件（前台 Promise 闭包
+        // 持有监听器直至子进程退出，输出零丢失；fd 随 close 收口）
+        child.stdout?.removeListener('data', onStdout);
+        child.stderr?.removeListener('data', onStderr);
+        const pump = (d: Buffer) => {
+          try {
+            log.write(d);
+          } catch {
+            /* 写失败丢弃该 chunk（日志尽力而为） */
+          }
+        };
+        child.stdout?.on('data', pump);
+        child.stderr?.on('data', pump);
+        child.on('close', () => log.end());
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+          fallbackTimer = undefined;
+        }
+        const intent = typeof args.description === 'string' ? args.description.trim() : '';
+        const jobId = deps.jobs.start({
+          kind: deps.family,
+          label: intent || command,
+          ...(call.agentId !== undefined ? { ownerAgentId: call.agentId } : {}),
+          ...(call.conversationId ? { conversationId: call.conversationId } : {}),
+          meta: { pid: child.pid, command, cwd: dir, logFile },
+          run: () => {
+            const done = new Promise<import('ac-jobs').JobOutcome>((resolve) => {
+              child.on('close', (code, signal) => {
+                resolve(
+                  signal !== null
+                    ? { status: 'killed', detail: `signal: ${signal}` }
+                    : { status: 'completed', detail: `exit code: ${code ?? 0}` },
+                );
+              });
+            });
+            return { cancel: () => killProcessTree(child.pid!), done };
+          },
+        });
+        handoff = { jobId, logFile, pid: child.pid! };
+        // 立即收束前台（timedOut 分支读 handoff 组装结果）；子进程后续
+        // 生命周期归 job（完成时 job/settled 通知）
+        finish(child.exitCode);
+      } catch {
+        killWithConfirm();
+      }
     };
 
     /** 树杀 + 存活确认看门狗：kill 后轮询，宽限过仍活 = kill 没生效 → 强制收束 */
@@ -338,11 +413,34 @@ export function executeShellCommand(
 
     const finish = (code: number | null) => {
       if (timedOut) {
-        settle({
-          ok: false,
-          error: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`,
-          output: { command, cwd: dir, timed_out: true },
-        });
+        if (limits.timeoutAction === 'handoff') {
+          // handoff：命令仍活——把已累积输出做全预算快照随结果返回；完整体
+          // 恒在日志文件（前台期间已 + 前台后增量），job 工具接力查看
+          const clean = stripAnsi(stdoutRaw + stderrRaw);
+          const snap = truncateMiddle(clean, limits.outputMaxLen);
+          settle({
+            ok: false,
+            error: `命令超时（${effectiveTimeout}ms），已自动转后台继续执行（任务 ${handoff?.jobId ?? '未登记'}）——日志：${handoff?.logFile ?? '(日志文件不可用)'}。用 job 工具管理（list/logs/kill）；需要前台完整结果时，增大 timeout 参数或显式 background 执行。`,
+            output: {
+              command,
+              ...(translatedCommand ? { translated_command: translatedCommand } : {}),
+              cwd: dir,
+              timed_out: true,
+              timeout_action: 'handoff',
+              output: snap.text || '(无输出)',
+              stdout: truncateMiddle(stripAnsi(stdoutRaw), limits.outputMaxLen).text,
+              stderr: truncateMiddle(stripAnsi(stderrRaw), limits.outputMaxLen).text,
+              total_bytes: Buffer.byteLength(stdoutRaw + stderrRaw, 'utf-8'),
+              ...(handoff ? { job_id: handoff.jobId, log_file: handoff.logFile, pid: handoff.pid } : {}),
+            },
+          });
+        } else {
+          settle({
+            ok: false,
+            error: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`,
+            output: { command, cwd: dir, timed_out: true },
+          });
+        }
         return;
       }
       if (aborted) {

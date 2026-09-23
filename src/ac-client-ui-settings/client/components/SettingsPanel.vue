@@ -305,14 +305,15 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
   border: 1px solid transparent;
   transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-/* P7：与插件库左导航（.pl-navitem）同规格——hover --bg-hover；active
-   --text-1 + 字重 500 + 底色/边框强调（原 primary 着色偏浅且与全局
-   菜单不一致） */
+/* 选中态对齐会话/Agent 列表（.list-item.active）：--role-selected-bg
+   主色系底 + 透明边框 + 无阴影（原 --bg-surface+--line-strong 描边
+   规格与独立会话侧边栏选中态不一致）；hover 维持 --bg-hover */
 .sp-tree-leaf:hover { background: var(--bg-hover); color: var(--text-1); }
 .sp-tree-leaf.active {
-  background: var(--bg-surface);
+  background: var(--role-selected-bg);
   color: var(--text-1); font-weight: 500;
-  border-color: var(--line-strong);
+  border-color: transparent;
+  box-shadow: none;
 }
 .sp-root-leaf { padding-left: 10px; }
 

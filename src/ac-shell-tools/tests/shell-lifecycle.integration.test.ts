@@ -6,9 +6,9 @@ import { describe, it, expect } from 'vitest';
 import { CMD_TOOL, SLEEP_30, exec, tmpRoot, boot } from './helpers.ts';
 
 describe(`ac-shell-tools ${CMD_TOOL} 生命周期`, () => {
-  it('超时：kill 进程树 + timed_out 报告', async () => {
+  it('超时：kill 进程树 + timed_out 报告（timeoutAction=kill 旧行为回归）', async () => {
     const root = tmpRoot();
-    const { ctx } = await boot(root);
+    const { ctx } = await boot(root, { timeoutAction: 'kill' });
     const r = await exec(ctx, {
       name: CMD_TOOL,
       args: { command: SLEEP_30, timeout: 2000 },

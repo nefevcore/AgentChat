@@ -150,9 +150,10 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
     ctx.agents.register({
       id: 'short-max',
       model: 'mock-1',
-      settings: { 'shell-tools': { maxTimeout: 1500 } },
+      settings: { 'shell-tools': { maxTimeout: 1500, timeoutAction: 'kill' } },
     });
     // 传 60s 超时 → 被 per-Agent maxTimeout=1500 clamp → 1.5s 即超时
+    // （timeoutAction=kill：clamp 用例钉树杀旧行为，handoff 见专项件）
     const r = await exec(ctx, {
       name: CMD_TOOL,
       agentId: 'short-max',
@@ -182,11 +183,19 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
   it('kill 存活确认看门狗（永挂补丁）：树杀后轮询确认进程死亡——超时收束不被 kill 失败拖挂', async () => {
     const root = tmpRoot();
     const { ctx } = await bootQuota(root);
+    // timeoutAction=kill：本用例钉树杀路径（看门狗收束）；handoff 见专项件
+    ctx.agents.register({
+      id: 'wd-kill',
+      model: 'mock-1',
+      settings: { 'shell-tools': { timeoutAction: 'kill' } },
+    });
     const r = await exec(ctx, {
       name: CMD_TOOL,
+      agentId: 'wd-kill',
       args: { command: SLEEP_30, timeout: 1500 },
     });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/超时（1500ms）/);
+    expect(r.output.job_id).toBeUndefined();
   }, 20000);
 });

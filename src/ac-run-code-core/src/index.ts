@@ -51,7 +51,7 @@ export const DEFAULT_GUIDANCE = [
   '- 典型场景：同一对象会被多个程序反复读/改（如大文件源码多次取用）——注册 readXxx()/patchXxx(args) 一类函数，省去每程序重写取数与加工步骤；跨程序只需传递键名/参数等小值。',
   '结果语义：',
   '- pwsh/bash 退出码非 0 ≠ 工具错误：output.failure_class 区分两类——command-feedback（命令按预期运行后的非零退出：测试红灯/断言失败/grep 无命中——输出在 output 字段，ok=true）与 invocation-error（命令未跑起来/语法失败——ok=false + error）。判断测试结果看 exit_code 与 output，不要因非零退出码误判链路故障绕路重试；',
-  '- load_skill 是注入型工具：返回值只有 name/scope/baseDir/status 回执，正文不进返回值（由注入机制随后进入上下文）——程序内判定成功看 status==="injected"，不要把返回值当数据处理；',
+  '- 前台命令超时 ≠ 命令死亡：超时处置缺省 handoff——命令自动转后台 job 继续执行（结果带 timeout_action:handoff + job_id/log_file + 已收集输出快照），用 job 工具（logs/kill）接力跟进即可，不要原样重跑长命令；确需前台完整结果时增大 timeout 参数；',  '- load_skill 是注入型工具：返回值只有 name/scope/baseDir/status 回执，正文不进返回值（由注入机制随后进入上下文）——程序内判定成功看 status==="injected"，不要把返回值当数据处理；',
 ].join('\n');
 
 /** JSON Schema 单值 → 可擦除 TS 类型标注（宽松：不强校验 additionalProperties） */

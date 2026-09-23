@@ -33,6 +33,12 @@ export interface ShellToolsRowOptions extends SandboxResolverOptions {
   maxTimeout?: number;
   /** 命令输出最大保留字符数（缺省 50000；settings['shell-tools'] 分层覆盖） */
   outputMaxLen?: number;
+  /**
+   * 超时处置（缺省 'handoff'）：'handoff' = 超时自动转后台 job 继续执行
+   * （前台返回已收集输出 + job_id，不杀进程）；'kill' = 旧行为（树杀 +
+   * timed_out 报告）。settings['shell-tools'] 分层覆盖。
+   */
+  timeoutAction?: 'kill' | 'handoff';
 }
 
 /** settings['shell-tools'] 配置形状（全局默认层 ∪ Agent 差异层；行 options = 基线） */
@@ -40,9 +46,13 @@ export interface ShellToolsSettings {
   defaultTimeout?: number;
   maxTimeout?: number;
   outputMaxLen?: number;
+  timeoutAction?: 'kill' | 'handoff';
 }
 
 export const name = 'ac-shell-tools';
+
+/** 超时处置缺省（'handoff'——声明与实现单源） */
+export const DEFAULT_TIMEOUT_ACTION: 'kill' | 'handoff' = 'handoff';
 
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
 //    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
@@ -56,6 +66,7 @@ export const extension: ExtensionMeta = {
     { name: 'defaultTimeout', type: 'number', min: 0, step: 1000, default: 30_000, description: '命令缺省超时毫秒（未传 timeout 时；0 = 不限）——差异层覆盖后本 Agent 长任务免逐次传参' },
     { name: 'maxTimeout', type: 'number', min: 0, step: 1000, default: 120_000, description: '命令超时上限毫秒（timeout 参数按本 Agent 生效值 clamp；0 = 不设上限）。defaultTimeout 收敛不超过它（两者同为 0 时即全不限）' },
     { name: 'outputMaxLen', type: 'number', min: 0, step: 1000, default: 50_000, description: '单次命令输出最大保留字符数（超出中段截断并标注）' },
+    { name: 'timeoutAction', type: 'string', enum: ['handoff', 'kill'], default: DEFAULT_TIMEOUT_ACTION, description: '超时处置：handoff = 超时自动转后台 job 继续执行（前台返回已收集输出 + job_id，不杀进程；推荐）；kill = 树杀 + timed_out 报告（旧行为）' },
   ],
 };
 
@@ -68,7 +79,7 @@ const COMMAND_TOOL_PARAMETERS = {
     command: { type: 'string', description: '要执行的命令' },
     description: { type: 'string', description: '命令作用的一句话说明' },
     workdir: { type: 'string', description: '工作目录（默认沙箱工作目录）' },
-    timeout: { type: 'number', description: '超时毫秒（0 = 不限；缺省与上限随本 Agent 的 shell-tools 配置生效，超上限自动截断）。background=true 时本参数不适用（后台任务不限时）', minimum: 0 },
+    timeout: { type: 'number', description: '超时毫秒（0 = 不限；缺省与上限随本 Agent 的 shell-tools 配置生效，超上限自动截断；超时处置缺省转后台继续执行）。background=true 时本参数不适用（后台任务不限时）', minimum: 0 },
     background: { type: 'boolean', description: '后台执行，立即返回 job_id（用 job 工具管理）' },
   },
   required: ['command'],
@@ -83,7 +94,8 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   const defaultTimeout = options.defaultTimeout ?? 30_000;
   const maxTimeout = options.maxTimeout ?? 120_000;
   const outputMaxLen = options.outputMaxLen ?? 50_000;
-  const baseLimits: ExecLimits = { defaultTimeout, maxTimeout, outputMaxLen };
+  const timeoutAction = options.timeoutAction ?? DEFAULT_TIMEOUT_ACTION;
+  const baseLimits: ExecLimits = { defaultTimeout, maxTimeout, outputMaxLen, timeoutAction };
 
   /**
    * 执行期生效限额（settings['shell-tools'] 分层：行 config 基线 →
@@ -104,10 +116,12 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     const num = (v: unknown, fb: number): number => (typeof v === 'number' && v > 0 ? v : fb);
     const max = num0(s.maxTimeout, maxTimeout);
     const def = num0(s.defaultTimeout, defaultTimeout);
+    const action = s.timeoutAction === 'kill' || s.timeoutAction === 'handoff' ? s.timeoutAction : timeoutAction;
     return {
       defaultTimeout: max > 0 ? Math.min(def, max) : def,
       maxTimeout: max,
       outputMaxLen: num(s.outputMaxLen, outputMaxLen),
+      timeoutAction: action,
     };
   }
 

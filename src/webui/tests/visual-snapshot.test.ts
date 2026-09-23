@@ -44,6 +44,11 @@
 //     与守卫回落偏好叶 llmPools → agents（用户反馈：打开全局设置最常
 //     管理的是 Agent）——06 设置景默认页由「模型管理」变「Agent 设置」
 //     （左树高亮叶 + 右区列表），各主题基线重建。
+//   · 设置左树选中态对齐会话列表（2026-12）：.sp-tree-leaf.active 从
+//     --bg-surface+--line-strong 描边改 --role-selected-bg 主色系底 +
+//     透明边框 + 无阴影（与独立会话/Agent 列表选中态一致——用户反馈）
+//     ——06-09 设置景（06 直接可见；07-09 背景含设置景）左树高亮叶
+//     像素变化，各主题基线重建。
 //
 // 环境：与 portb-e2e 同款「bootTree + 真 WS」——in-process 服务器托管
 // src/webui/dist（测试前自动重建，保证 dist 与 src 同步），Playwright
