@@ -2629,8 +2629,33 @@ export class SessionService extends Service {
               }
             } catch { /* 忽略 */ }
           }
+          // 双源去重（2026-09-23 思考重复卡修复·读侧防御）：messages.jsonl
+          // 已有的 partial 行（历史物化残留——rewriteMessages 曾把投影行写回
+          // 主文件）与 partials.jsonl 原行同读会重复投出（同一 run 的思考卡
+          // 两张，刷新不消失）。按行身份（run + message_id；无 id 旧行按
+          // run + reasoning_content 前缀）跳过已物化行——正源以主文件在场的
+          // 物化行为准（数据修复迁移负责最终清除，此层是纵深防御）。
+          const mainPartialIds = new Set<string>();
+          for (const ml of lines) {
+            if (!ml.trim() || isHeaderLine(ml) || isToolResultLine(ml)) continue;
+            try {
+              const mr = JSON.parse(ml) as { run?: unknown; partial?: unknown; message_id?: unknown; reasoning_content?: unknown };
+              if (mr.partial !== true || typeof mr.run !== 'string' || !mr.run) continue;
+              if (typeof mr.message_id === 'string' && mr.message_id) mainPartialIds.add(`${mr.run}|${mr.message_id}`);
+              else if (typeof mr.reasoning_content === 'string' && mr.reasoning_content) mainPartialIds.add(`${mr.run}|rc:${mr.reasoning_content.slice(0, 80)}`);
+            } catch { /* 忽略 */ }
+          }
           const merged: string[] = [];
           let consumed = new Set<number>();
+          const partIdentity = (raw: string): string | null => {
+            try {
+              const pr = JSON.parse(raw) as { run?: unknown; message_id?: unknown; reasoning_content?: unknown };
+              if (typeof pr.run !== 'string' || !pr.run) return null;
+              if (typeof pr.message_id === 'string' && pr.message_id) return `${pr.run}|${pr.message_id}`;
+              if (typeof pr.reasoning_content === 'string' && pr.reasoning_content) return `${pr.run}|rc:${pr.reasoning_content.slice(0, 80)}`;
+              return null;
+            } catch { return null; }
+          };
           for (let li = 0; li < lines.length; li++) {
             const ml = lines[li];
             let isAnchor = false;
@@ -2644,10 +2669,13 @@ export class SessionService extends Service {
               // 该锚行前插入同 run 的 partial 行（保持 partials 文件内相对序）
               const mr = JSON.parse(ml) as { run: string };
               for (let pi = 0; pi < partMsgs.length; pi++) {
-                if (!consumed.has(pi) && partMsgs[pi].run === mr.run) {
+                const pid = partIdentity(partMsgs[pi].line);
+                if (!consumed.has(pi) && partMsgs[pi].run === mr.run
+                  && !(pid !== null && mainPartialIds.has(pid))) {
                   merged.push(partMsgs[pi].line);
-                  consumed.add(pi);
                 }
+                // 已物化（双源重复）也标记消费——不再参与尾部归位
+                if (!consumed.has(pi) && partMsgs[pi].run === mr.run) consumed.add(pi);
               }
             }
             merged.push(ml);
@@ -2657,6 +2685,8 @@ export class SessionService extends Service {
           // timestamp 歧义免疫。无 echoSeq（异常行）→ 尾部）
           for (let pi = 0; pi < partMsgs.length; pi++) {
             if (consumed.has(pi)) continue;
+            const pidTail = partIdentity(partMsgs[pi].line);
+            if (pidTail !== null && mainPartialIds.has(pidTail)) continue; // 已物化：跳过（双源去重）
             let echo = 0;
             try {
               const pe = JSON.parse(partMsgs[pi].line) as { echoSeq?: unknown };
@@ -2968,16 +2998,24 @@ export class SessionService extends Service {
    * 覆盖：先 durable 又被抹掉且零日志。现重写前重读当前文件，把
    * `seq > sinceSeq` 的行并入 rows 尾部（无 seq 的旧行不并入——删除
    * 语义优先于窗口语义）。
+   *
+   * partial 行物化防御（2026-09-23 思考重复卡修复）：rows 来自
+   * records() 投影——其中 partial 行（journal 活投影物化 + partials
+   * 插回的未收束 run 中间态）是读侧虚拟视图，不是会话事实；正源在
+   * partials.jsonl。曾随 keep 集物化进 messages.jsonl，此后读侧双源
+   * 同读恒出两份 → UI 同一思考内容两张卡（刷新不消失）。重写即过滤
+   * partial===true 的行（含 B1 窗口并入的——新到 partial 同为投影）。
    */
   private rewriteMessages(file: string, rows: SessionRecord[], sinceSeq?: number): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    let finalRows = rows;
+    let finalRows = rows.filter((r) => r.partial !== true);
     if (sinceSeq !== undefined && fs.existsSync(file)) {
       const window: SessionRecord[] = [];
       for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
         if (!line.trim() || isHeaderLine(line)) continue;
         try {
           const parsed = JSON.parse(line) as Partial<SessionRecord>;
+          if (parsed.partial === true) continue; // 物化防御（见上）——窗口行同滤
           if (typeof parsed.seq === 'number' && parsed.seq > sinceSeq) {
             window.push(parsed as SessionRecord);
           }

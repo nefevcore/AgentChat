@@ -194,4 +194,13 @@ export const SESSION_MIGRATIONS: Migration[] = [
       console.log(`[migration] subagents 目录化 ${moved} 个会话`);
     },
   },
+  {
+    version: 4,
+    id: 'partial-rematerialize-purge',
+    description: '清除主文件被物化的 partial 行（归档重写曾把读侧投影写回 messages.jsonl——与 partials.jsonl 原行双源同读致 UI 思考重复卡；重跑 partials-split 语义，幂等）',
+    apply(dataRoot: string): void {
+      const total = walkSessions(dataRoot, 'partials-split');
+      console.log(`[migration] partial 物化残留清除 ${total.partMoved} 行`);
+    },
+  },
 ];
