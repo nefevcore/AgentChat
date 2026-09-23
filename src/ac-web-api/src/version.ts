@@ -129,10 +129,10 @@ export function resetReleaseCache(): void {
   releaseCache = null;
 }
 
-/** 下载面 manifest.json 形状（gen-manifest.mjs 产出：releases 按版本降序） */
+/** 下载面 manifest.json 形状（gen-manifest.mjs 产出：releases 按版本降序；无 per-release date——2026-09 移除） */
 interface DownloadManifest {
   updated?: unknown;
-  releases?: Array<{ version?: unknown; date?: unknown }>;
+  releases?: Array<{ version?: unknown }>;
 }
 
 /** 带超时的 JSON GET（任何失败 → null；不缓存由调用方语义决定） */
@@ -161,7 +161,9 @@ async function latestFromManifest(fetcher: typeof fetch): Promise<ReleaseInfo | 
   return {
     version: top.version,
     url: `${DOWNLOAD_BASE}/`,
-    publishedAt: typeof top.date === 'string' ? top.date : (typeof data.updated === 'string' ? data.updated : ''),
+    // manifest 已无 per-release date（gen-manifest 2026-09 移除——重算刷日期失真）；
+    // publishedAt 回落 manifest.updated（最后重算时刻，近似值，UI 不展示）
+    publishedAt: typeof data.updated === 'string' ? data.updated : '',
   };
 }
 

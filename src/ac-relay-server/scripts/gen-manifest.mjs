@@ -46,7 +46,9 @@ for (const v of versions.sort((a, b) => a.localeCompare(b, undefined, { numeric:
         url: `/${v}/${f}`,
       };
     });
-  if (files.length > 0) releases.push({ version: v, date: new Date().toISOString().slice(0, 10), files });
+  // 无 per-release date：manifest 每次重算都会刷新日期——无法反映真实发布日期
+  // 且无消费方（UI 不展示），字段整体移除（2026-09-23 裁决）。
+  if (files.length > 0) releases.push({ version: v, files });
 }
 
 const manifest = { updated: new Date().toISOString(), releases };

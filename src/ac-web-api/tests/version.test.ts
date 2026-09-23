@@ -64,8 +64,8 @@ describe('version 纯助手', () => {
       if (String(url).includes('manifest.json')) {
         return new Response(
           JSON.stringify({ updated: '2026-09-18T10:07:33Z', releases: [
-            { version: '9.9.9', date: '2026-09-18', files: [] },
-            { version: '9.8.0', date: '2026-09-01', files: [] },
+            { version: '9.9.9', files: [] },
+            { version: '9.8.0', files: [] },
           ] }),
           { status: 200 },
         );
@@ -73,7 +73,7 @@ describe('version 纯助手', () => {
       throw new Error('GitHub 不应被打到（manifest 主源已命中）');
     }) as typeof fetch;
     const a = await fetchLatestRelease(okFetch);
-    expect(a).toMatchObject({ version: '9.9.9', url: 'http://47.110.63.135/', publishedAt: '2026-09-18' });
+    expect(a).toMatchObject({ version: '9.9.9', url: 'http://47.110.63.135/', publishedAt: '2026-09-18T10:07:33Z' });
     // 缓存命中：第二次不再打接口
     const b = await fetchLatestRelease(okFetch);
     expect(hits).toBe(1);
