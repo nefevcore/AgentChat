@@ -6,6 +6,39 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.13] - 2026-09-23
+### Fixed（思考重复卡——partial 行物化进主文件，双源同读出两张卡）
+- **现象**：UI 同一思考内容两张卡，刷新不消失。
+- **根因**：归档重写（rewriteMessages）曾把读侧投影行（partial=true）随 keep 集写回 messages.jsonl，此后与 partials.jsonl 原行双源同读恒出两份。
+- **修复**（`ac-session`）：migration v4 清历史残留（重跑 partials-split 语义，幂等）；rewriteMessages 重写即滤 partial 行 + 窗口并入同滤（不再产生新残留）；读侧 merge 双源去重（run+message_id，纵深防御）。
+
+### Fixed（文件版本点分段链——外部写后重放失配即断链，后续版本静默丢失）
+- **现象**：文件编辑版本下拉与时间线对不上，git checkout / shell 改写后部分版本消失。
+- **根因**：外部写让后续 edit 的 old_str 在重放内容中找不到，旧实现在失配点 break——分叉后的全部版本点静默丢失。
+- **修复**（`ac-client-ui-conversation/fileEdits`）：失配点 = 段边界，以磁盘终态逆向回退至失配步为新段基底重启重放（已知事件全部获得版本点，段边界如实标注「外部修改后」）；终版对账收窄到末段。附带：卡片可全部收起不被强制弹回 + 对话切换清收起态 + 头部关闭按钮。
+
+### Fixed（上下文视图增量层退役——error 收束续聊轨迹丢失的根因消除）
+- **现象**：run 以 error 收束（网络中断）后同进程续聊，上下文丢失该 run 全部 steps 轨迹（实测第二 run prompt 5.8k vs 首轮 57.8k）。
+- **修复**（`ac-conversation`）：删除事件驱动增量投影与 stale 补丁（第二事实源），contextFor 无条件从文件重派生（seed → 群 historyFor → session.history）；链跑轮间亦重派生。回归测试锁 error 收束续聊轨迹完整。
+
+### Fixed（桌面 CSP connect-src 拦死存储桥探活）
+- 桌面壳 CSP connect-src 未放行存储桥回环地址，探活恒败 → 存储管理节静默降级隐藏。放行后设置页存储管理节恢复。
+
+### Fixed（下载面 manifest 移除 per-release 日期）
+- gen-manifest 每次重算都会把所有版本 date 刷成当天，无法反映真实发布日期；UI 不展示该字段——整体移除（`ac-relay-server/scripts/gen-manifest.mjs` + `ac-web-api` 消费端同步）。
+
+### Added（远程链路 M1+P1——Noise E2E + 设备配对 + scopes 闸门 + 管理面）
+- **ac-noise-core**：Noise 协议 E2E 加密纯库；**ac-remote-link**：宿主侧行（设备注册表、配对、SAS 确认、scopes 闸门、relayUrl 三层配置热更，行配置缺省不开——relayUrl 空即静默待机）；**ac-client-ui-remote**：settings 设备管理节。
+- **web-server**：进程内 callRpc——远程 rpc/call 与 WS 帧同一条 handleRpc 处理链；**relay-server**：HTTP 面 /healthz + 明文 ws 改走 node:http（https server 对明文握手只会挂起到超时）。
+- loopback 全链路复现脚本三件 + M1 实施/交接文档；全链路本地实跑验证（配对、SAS、加密 RPC、重连）。
+
+### Added（singles 自动标题两段式 + 会话重命名）
+- 自动标题改两段式：run-started 暂存 → 首个 after-step 结合 Agent 首步思考生成（工具轮里用户消息常常只是「继续」，Agent 的首步理解更贴会话实质）；after-run 兜底截断回落。手改名稳居（有 title 即不再触发）。
+- 新增重命名入口：列表行铅笔按钮 + 会话头更多菜单。
+
+### Added（shell 前台命令超时自动转后台 job——handoff）
+- 超时处置新增 handoff 并为缺省：超时命令自动转后台 job 继续执行，前台返回已收集输出 + job_id，job 工具接力跟进——长命令不再因前台超时被误杀或需要原样重跑。timeoutAction 行选项 + settings 分层覆盖。
+
 ## [0.8.12] - 2026-09-22
 ### Fixed（run_code bundle 形态回归——worker.mjs 候选在引导链重写中丢失，0.8.11 实测）
 - **现象**：桌面/发布形态（dist bundle）下程序化模式 run_code 全挂——「worker 引导文件缺失（dev ./worker.ts 或 bundle ./worker.mjs 均不存在，且无引导快照）——部署形态不完整」。与旧版本安装无关，是 0.8.11 自身回归。
