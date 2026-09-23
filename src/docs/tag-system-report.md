@@ -15,7 +15,8 @@
 | `web` | web_search | ac-web-tools | 有手工声明（分组元数据） |
 | `web` + `observe` | browser | ac-web-tools | observe 是动作分层族（见 §1.3） |
 | `collab` | send_agent / send_group / list_agents / list_groups / read_agent_info / update_agent_profile | ac-collab-tools | 多 Agent 协作族；**list_tools 不在此**（单 Agent 也要自省 → infra） |
-| `infra` | ask_questions / goal / todo / timer / math / hello / load_skill / read_history / grep_history / list_tools | 各所属行 | 会话基础设施（2026-09-16 新建；run_code 已移出——2026-12 注入轴重构，改 injection:'mode' 不挂标签） |
+| `infra` | ask_questions / goal / todo / timer / math / hello / load_skill / list_tools | 各所属行 | 会话基础设施（2026-09-16 新建；run_code 已移出——2026-12 注入轴重构，改 injection:'mode' 不挂标签；read_history / grep_history 已独立为 `history` 词） |
+| `history` | read_history / grep_history | ac-session-query | 会话历史回放（检索 + 分页读取）；2026-09-16 全量标签化时与 infra 分立成词，早于本表的补齐 |
 | `delegation` | subagent | ac-subagent | 任务委派；子 Agent 派生身份**剥除此词**（防递归 spawn） |
 | `dev` | read_logs / reload / reload_modules | ac-dev-tools | 开发调试面 |
 | `admin` | system_restart / register_plugin / unregister_plugin / install_plugin | ac-restart / ac-plugin-registry | 宿主级管理动作；子 Agent 派生身份**剥除**（防越权） |

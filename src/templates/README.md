@@ -25,5 +25,5 @@ install_plugin 缺省约定位置），替换 `PLACEHOLDER-AGENTID` 为你的 Ag
   回执列出消费方。
 
 安装闭环（H1）：install_plugin → 本轮收束后宿主执行 → 回执落账当前会话 →
-`sender:'event'` 回触你的自会话 → 直接开始测试。失败回执附下一步动作
+`source:'event'` 回触你的自会话 → 直接开始测试。失败回执附下一步动作
 （bump version / 修复重装），闭环无人值守。

@@ -22,7 +22,7 @@ Cordis 是**用于构建框架的框架**。AgentChat 框架的开发不是"写�
 | 内容 | 文件 |
 |---|---|
 | **全域能力地图（事实源：契约归属总表 + 纯库清单 + 端到端链路 + 工具执行面 + 布局 + 装载态四层）** | `src/README.md` |
-| 各域契约与事件目录 | `src/ac-<domain>/src/{contract,events}.ts`（llm/tools/agent-loop/router/conversation 等，README 总表逐域列路径） |
+| 各域契约与事件目录 | `src/ac-<domain>/src/{contract,events}.ts`（llm/tools/agent-loop/router/conversation/subagent/singles 等——单一类型小域可直接进 service.ts，README 总表逐域列路径） |
 | 注册中心范例（fiber 归属 + 懒实例化 / waterfall 执行链） | `src/ac-llm/src/service.ts`、`src/ac-tools/src/service.ts` |
 | 纯库范例（零 cordis 依赖） | `src/ac-openai-completions/src/index.ts` |
 | 组合根 | `src/cordis.yml`（行集与 `src/ac-app/src/index.ts` TREE 保持一致）；boot 入口 `src/ac-app/src/boot.ts` |
@@ -123,7 +123,8 @@ SlotRegistry 席位贡献 + boot graph 随行下发，行卸载级联收缩；�
 - **`@scope run | host`**——判定式 = "**这次分发发生在谁的执行里**"：答得出
   唯一 Agent 的为 run 域（loop/*、tool/*、router/*、llm/*、
   conversation/steered），答不出的为 host 域（config/changed、plugin/*、
-  ws/*、job/settled、agents/updated、group/*、singles/updated…）。**载荷带
+  ws/*、job/settled、agents/updated、group/*、singles/updated、
+  subagents/updated…）。**载荷带
   agentId ≠ run 域**。run 域才有 agentOf 读取器——per-Agent 门控可用性由
   作用域结构性编码（agentGate 签名强制传 agentOf，无身份事件编译期不可门控）。
 - **emit 事件末参永不为函数**（agentGate 末参函数判定的前提；event-catalog
@@ -173,7 +174,9 @@ declare module '@agentchat/cordis' {
   agentPresets/subagents/jobs/browser/durableInteraction/timers/archive/
   usage/backup/workspace/webServer/webui/pluginRegistry/eventPolicy/
   agentAdmin/skills/mcp/goals/todos/bench）；另有浏览器侧 ClientContext 服务
-  （slots/objects，owning = ac-client-runtime）——不占服务端命名空间。
+  （slots/objects，owning = ac-client-runtime；域投影板 jobs/subagentBoard/
+  singles 等，owning = 各 ac-client-ui-* 行——不占服务端命名空间，D22
+  查重纪律：与已占服务名避让加 Board 后缀）。
 - 包内 index.ts 是薄行：`export function apply(ctx) { ctx.plugin(XxxService) }`，
   再 re-export 服务类型。
 
@@ -218,9 +221,10 @@ declare module '@agentchat/cordis' {
    respectsEnabled?}`）——扩展目录随行声明自动生长，不改消费方。
 6. 测试：`ac-<domain>/tests/*.test.ts` 覆盖注册/回收/拦截/重名；事件目录
    进 event-catalog 静态检查（@mode/@scope/emit 末参）。
-7. 验证：`pnpm typecheck && pnpm test:unit`（日常快循环；整量/集成
-   `pnpm test`——集成件按 `*.integration.test.ts` 命名分档）+ 依赖门禁
-   `pnpm check:deps`；冒烟 `pnpm smoke`；动 webui 另跑 `pnpm webui:typecheck`。
+7. 验证：`pnpm typecheck && pnpm lint && pnpm test:unit`（日常快循环；
+   整量/集成 `pnpm test`——集成件按 `*.integration.test.ts` 命名分档）
+   + 依赖门禁 `pnpm check:deps`；冒烟 `pnpm smoke`；动 webui 另跑
+   `pnpm webui:typecheck`。
 8. 更新 `src/README.md` 的契约归属总表与布局图。
 
 ## 兼容性红线（Node 原生 TS strip-only 加载器）
