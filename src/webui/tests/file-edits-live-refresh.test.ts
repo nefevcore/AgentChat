@@ -92,6 +92,42 @@ describe('文件编辑面板直播刷新链', () => {
     app.unmount();
   });
 
+  it('交互：卡片可全部收起（不被强制弹回）+ 头部关闭按钮收起面板', async () => {
+    const rpc = makeRpcStub();
+    rpc.impl.call = async <T,>(method: string): Promise<T> => {
+      if (method === 'fileSnapshots/list') return { snapshots: [] } as unknown as T;
+      if (method === 'fileSnapshots/read-current') return { contents: {} } as unknown as T;
+      return {} as T;
+    };
+    const { ctx } = await bootWebuiRuntime(rpc.impl);
+    ctx.sessions.init();
+    useRosterCore().activeAgentId.value = 'news';
+    const feed = useFeedStore();
+    const app = await mountPanel(ctx);
+    emitEditRun(rpc, 'news~user', 'news', 'src/a.ts', 'run-1#1');
+    await new Promise((r) => setTimeout(r, 600));
+    const found = panelInstance();
+    expect(found).toBeTruthy();
+    // 初始默认：首卡展开
+    expect(found.setupState.expanded.size).toBe(1);
+    // 用户收起全部卡片
+    found.setupState.toggle([...found.setupState.expanded][0]);
+    expect(found.setupState.expanded.size).toBe(0);
+    // 流式刷新周期后（files 重算触发 watch）不再被强制弹回
+    emitEditRun(rpc, 'news~user', 'news', 'src/b.ts', 'run-1#2');
+    await new Promise((r) => setTimeout(r, 600));
+    expect(found.setupState.expanded.size).toBe(0); // 收起态保持
+    // 头部关闭按钮：点击 → aux 区域收起
+    const ui = (await import('ac-client-ui-layout/client/uiStore.ts')).useUiStore();
+    ui.auxVisible = true;
+    const closeBtn = document.querySelector('.fe-close') as HTMLButtonElement | null;
+    expect(closeBtn).toBeTruthy(); // 按钮在头部渲染
+    closeBtn!.click();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ui.auxVisible).toBe(false); // 面板收起
+    app.unmount();
+  });
+
   it('single 会话（报障现场形态）：生产时序（首拉快照缺席，编辑后落盘）→ partial 消除', async () => {
     const sid = 'd0587524-bceb-468a-92d3-ee107702e69c';
     const snaps = [{ absPath: 'C:/proj/src/webui-kit/src/icons.ts', content: 'icon-a\n', capturedAt: 1 }];

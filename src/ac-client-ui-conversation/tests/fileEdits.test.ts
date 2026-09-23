@@ -482,6 +482,91 @@ describe('versionPointsOf / editStepsOf / diffOfStep —— 逐次回放（查�
     expect(editStepsOf(s, events)).toHaveLength(3); // 但无步
   });
 
+  it('分段链（方案 B）：中段外部写（git checkout）抹编辑后重做——全部事件获得版本点，段边界如实分段', () => {
+    // 复现 2026-09 service.ts 事故：存量文件 5 次 edit → pwsh 损坏 →
+    // git checkout 还原（第一批编辑被抹）→ 同批 edit 重做 + 6 次推进。
+    // 事件流只知 16 次 edit；磁盘终态 = 第二批链重放结果。
+    // 整行唯一串（防子串假命中——old 必须整段找不到才算失配）
+    const events: FileEditEvent[] = [
+      { callId: '1', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 1, oldStr: 'lineA', newStr: 'LINEA' },
+      { callId: '2', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 2, oldStr: 'lineB', newStr: 'LINEB' },
+      // —— 外部写：git checkout 还原（事件流不可见，lineA 的修改被抹）——
+      { callId: '3', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 3, oldStr: 'lineB', newStr: 'LINEB' }, // 重做 #2
+      { callId: '4', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 4, oldStr: 'lineC', newStr: 'LINEC' },
+    ];
+    // 原始文件（会话开始前——git HEAD）
+    const head = 'lineA\nlineB\nlineC\n';
+    // 磁盘终态：checkout 还原后 + #3 + #4（lineA 保持原样）
+    const disk = 'lineA\nLINEB\nLINEC\n';
+    // 方案 A 重放：edit 打头 partial → 磁盘兜底逆推初版
+    const base = replayFiles(events);
+    const s0 = base.get('f.ts')!;
+    expect(s0.partial).toBe(true);
+    const files = applyDiskFinals(base, events, { '/w/f.ts': disk });
+    const s = files.get('f.ts')!;
+    // 磁盘兜底逆推：disk 回退 #4（LINEC→lineC）回退 #3（LINEB→lineB）
+    // 回退 #2 失配（LINEB 不在链上——git checkout 抹了）→ 初版锚定 head
+    expect(s.baseContent).toBe(head);
+    // ── 分段链验收（核心）：4 个事件全部获得版本点 ──
+    const steps = editStepsOf(s, events);
+    expect(steps).toHaveLength(4); // 旧实现此处 = 2（#3 起失配截断）
+    // 段结构：#1 #2 在段 0（基于逆推初版）；#3 #4 在段 1（外部写后）
+    expect(steps.map((st) => st.segment)).toEqual([0, 0, 1, 1]);
+    expect(steps.map((st) => st.segmentStep)).toEqual([0, 1, 0, 1]);
+    // 段 0 内容推演：head + #1 + #2（此形态后被外部写覆盖）
+    expect(steps[1].after).toBe('LINEA\nLINEB\nlineC\n');
+    // 段 1 = 逆向锚定基底（= head——git checkout 还原点）+ 重做链
+    expect(steps[2].before).toBe(head);
+    expect(steps[2].after).toBe('lineA\nLINEB\nlineC\n');
+    // 末段终版对账：末点 content = 磁盘终态
+    expect(steps[3].after).toBe(disk);
+    // 步 diff 可信（段内连续）：#3 的 before→after 只含 lineB→LINEB
+    const d3 = diffOfStep(steps[2]);
+    expect(d3.diff).toContain('- 2 lineB');
+    expect(d3.diff).toContain('+ 2 LINEB');
+    // 步统计：每步 1 行变更
+    expect(steps[3].added).toBe(1);
+    expect(steps[3].removed).toBe(1);
+  });
+
+  it('分段链：锚定回退失败（终版无法确认失配事件已应用）→ 如实截断在失配点，不污染前段', () => {
+    // #5 的 old 在重放内容中找不到（前步产物漂移），而终版（重放终态）
+    // 也不含 #5 的 newStr——无法确认 #5 真被应用过 → 锚定失败 → 截断。
+    // write 打头链完整（不走磁盘兜底）场景的外部写盲区如实暴露。
+    const events: FileEditEvent[] = [
+      { callId: '1', tool: 'write', action: 'overwrite', path: 'f.ts', ok: true, agentId: '', timestamp: 1, fullContent: 'v1\n' },
+      { callId: '2', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 2, oldStr: 'v1', newStr: 'v2' },
+      { callId: '3', tool: 'write', action: 'overwrite', path: 'f.ts', ok: true, agentId: '', timestamp: 3, fullContent: 'FULL\n' },
+      { callId: '4', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 4, oldStr: 'FULL', newStr: 'EDITED' },
+      // —— 外部写盲区：#4 产物被外部还原，#5 基于还原形态——重放无法感知
+      { callId: '5', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 5, oldStr: 'FULL', newStr: 'AGAIN' },
+    ];
+    const files = replayFiles(events);
+    const s = files.get('f.ts')!;
+    expect(s.partial).toBe(false); // write 打头——链完整（外部写对重放不可见）
+    const steps = editStepsOf(s, events);
+    // #1–#4 正常重放；#5 失配且不可锚定（final 'EDITED\n' 不含 'AGAIN'）→ 截断
+    expect(steps.map((st) => st.event.callId)).toEqual(['1', '2', '3', '4']);
+    expect(steps.every((st) => st.segment === 0)).toBe(true);
+  });
+
+  it('分段链：末段单步不复写（单步 after = 该步编辑本身）', () => {
+    // 磁盘兜底单步链：逆推初版 a → 重放 a→b → 单步 after = b（终版
+    // 对账只在末段多步时收口——单步内容 = 该步写入，非磁盘替换）
+    const events: FileEditEvent[] = [
+      { callId: '1', tool: 'edit', action: 'edit', path: 'f.ts', ok: true, agentId: '', timestamp: 1, oldStr: 'a', newStr: 'b' },
+    ];
+    const base = replayFiles(events);
+    const files = applyDiskFinals(base, events, { '/w/f.ts': 'b\n' });
+    const s = files.get('f.ts')!;
+    const steps = editStepsOf(s, events);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].before).toBe('a\n'); // 逆推初版
+    expect(steps[0].after).toBe('b\n'); // 步内容 = 该步编辑
+    expect(steps[0].segment).toBe(0);
+    expect(steps[0].segmentStep).toBe(0);
+  });
+
   it('步统计 = LCS 真实变更（old/new 含未变上下文行时，工具报告偏大——以所见为准）', () => {
     // 场景：edit 的 old/new 各带一行未变上下文（保证唯一性的惯用写法）——
     // 工具按编辑区域报 +8/-3，实际只变了 5 行（+5/-0）

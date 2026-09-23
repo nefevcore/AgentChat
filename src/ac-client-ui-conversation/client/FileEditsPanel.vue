@@ -32,6 +32,7 @@ import { Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { countLineChanges } from 'ac-edit-core/src/diff.ts';
 import { openLocalFile } from 'ac-client-ui-workspace/client/fileApi.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { parseDialogId } from './feed.ts';
 import { useFeedStore } from './feedStore.ts';
 import {
@@ -42,6 +43,7 @@ import {
 } from './fileEdits.ts';
 
 const feed = useFeedStore();
+const ui = useUiStore();
 const ctx = useClientContext();
 const rpc = ctx?.rpc ?? null;
 
@@ -232,8 +234,14 @@ const hasShellCalls = computed(() =>
 
 /** 展开态（per-path；默认第一个文件展开） */
 const expanded = ref<Set<string>>(new Set());
-watch(files, (list) => {
-  if (expanded.value.size === 0 && list.length > 0) {
+// 对话切换：展开态重置（新会话从默认形态起——旧路径条目不残留）
+watch(() => feed.activeDialogId, () => { expanded.value = new Set(); });
+// 默认展开首卡：仅在「无文件 → 有文件」跃迁时给默认形态（面板首开 /
+// 对话切换后首条编辑落卡）。原条件 expanded.size===0 会在用户收起全部
+// 卡片后随流式刷新（files 高频重算）反复强制弹回首卡——「无法手工
+// 收起」的根因（2026-09 前端反馈；默认展开只是初始形态，非硬约束）。
+watch(files, (list, old) => {
+  if ((old?.length ?? 0) === 0 && list.length > 0) {
     expanded.value = new Set([list[0].path]);
   }
 }, { immediate: true });
@@ -347,19 +355,74 @@ function jumpToStep(s: FileEditSummary, ev: FileEditEvent) {
   setView(s.path, idx >= 0 ? idx : '');
 }
 
-/** 视图标签：总览固定「初版 → 终版」；当前内容「文件当前内容」；单次「编辑 #N」 */
+// ── 分段链展示辅助（方案 B）：下拉分组 / 时间线段边界 / 不可回放计数 ──
+
+/** 下拉分组：段 0 无标签；后续段「⟂ 外部修改后」（optgroup） */
+function stepGroupsOf(s: FileEditSummary): Array<{ label: string; steps: FileEditStep[] }> {
+  const groups: Array<{ label: string; steps: FileEditStep[] }> = [];
+  for (const st of stepsOf(s)) {
+    if (st.segmentStep === 0 && groups.length > 0) {
+      groups.push({ label: '⟂ 外部修改后', steps: [st] });
+    } else if (groups.length > 0) {
+      groups[groups.length - 1].steps.push(st);
+    } else {
+      groups.push({ label: '', steps: [st] });
+    }
+  }
+  return groups;
+}
+
+/** callId → 段序（per-analysis 记忆化——时间线行判定段边界） */
+const segmentByCallId = computed(() => {
+  const m = new Map<string, number>();
+  for (const f of analysis.value.files.values()) {
+    for (const st of stepsOf(f)) m.set(st.event.callId, st.segment);
+  }
+  return m;
+});
+
+/** 时间线行（事件 + 段边界分隔交替；失败事件沿用前段序） */
+type TimelineRow = { kind: 'event'; ev: FileEditEvent } | { kind: 'boundary' };
+function timelineRowsOf(s: FileEditSummary): TimelineRow[] {
+  const segOf = segmentByCallId.value;
+  const rows: TimelineRow[] = [];
+  let lastSeg = 0;
+  for (const ev of s.events) {
+    const seg = segOf.get(ev.callId);
+    if (seg !== undefined && seg > lastSeg && rows.length > 0) {
+      rows.push({ kind: 'boundary' });
+    }
+    if (seg !== undefined) lastSeg = seg;
+    rows.push({ kind: 'event', ev });
+  }
+  return rows;
+}
+
+/** 不可回放计数：成功事件数 - 版本点数（mismatches 为重放层失配——取大者展示） */
+function unreplayableOf(s: FileEditSummary): number {
+  const okCount = s.events.filter((e) => e.ok).length;
+  return Math.max(s.mismatches, okCount - stepsOf(s).length);
+}
+
+/** 视图标签：总览固定「初版 → 终版」；当前内容「文件当前内容」；单次「编辑 #N」
+ *（段首步附注外部修改——分段链：失配点之后以磁盘终态锚定新段基底） */
 function viewLabel(s: FileEditSummary): string {
   const v = effectiveView(s);
   if (v === 'content') return '文件当前内容';
-  return v === '' ? '初版 → 终版' : `编辑 #${v + 1}`;
+  if (v === '') return '初版 → 终版';
+  const base = `编辑 #${v + 1}`;
+  // 段首步（segment>0 且 segmentStep===0）= 外部修改后首步——附注
+  const st = stepsOf(s).at(v);
+  return st !== undefined && st.segment > 0 && st.segmentStep === 0 ? `${base}（外部修改后）` : base;
 }
 
 /** 下拉项文字：单次编辑 = #N + 时间 + 动作 + 真实行变更（LCS——
  *  与单次 diff 所见一致；工具报告口径在 old/new 含未变上下文时
- *  会偏大，不采用） */
+ *  会偏大，不采用）。段首步前缀 ⟂ = 其前发生过事件流外的外部修改 */
 function stepOptionLabel(st: FileEditStep): string {
   const a = ACTION_LABEL[st.event.action] ?? st.event.action;
-  return `#${st.index + 1} ${timeOf(st.event.timestamp)} ${a} +${st.added}/-${st.removed}`;
+  const mark = st.segment > 0 && st.segmentStep === 0 ? '⟂ ' : '';
+  return `${mark}#${st.index + 1} ${timeOf(st.event.timestamp)} ${a} +${st.added}/-${st.removed}`;
 }
 
 /** diff 行解析（generateDiffString 输出：'- 12 内容' / '+ 12 内容' / '  12 内容' / '...'）。
@@ -475,6 +538,13 @@ async function openLocally(s: FileEditSummary) {
         <template v-else-if="totalFiles > 0">{{ totalFiles }} 个文件 · {{ totalEdits }} 次编辑 · +{{ totalAdded }}/-{{ totalRemoved }}</template>
         <template v-else>当前会话</template>
       </span>
+      <!-- 关闭面板（区域级收起；keepAlive 选区——重开恢复滚动位置）。
+           与 FilePreviewPanel 头部关闭钮同语义：ui.auxVisible=false -->
+      <Tooltip text="关闭面板" placement="bottom">
+        <button class="fe-close" @click="ui.auxVisible = false">
+          <Icon name="x" :size="14" />
+        </button>
+      </Tooltip>
     </div>
 
     <div class="fe-body">
@@ -531,7 +601,7 @@ async function openLocally(s: FileEditSummary) {
             <template v-if="s.finalContent !== null">此文件在会话开始前已存在——diff 自会话内首次全量写入起算</template>
             <template v-else>此文件在会话开始前已存在，会话内无全量写入——无法重建内容，仅展示编辑统计</template>
           </div>
-          <div v-if="s.mismatches > 0" class="fe-partial-note warn">有 {{ s.mismatches }} 条编辑无法在重放中定位（外部修改或消息流残缺）——终版可能与实际有偏差</div>
+          <div v-if="unreplayableOf(s) > 0" class="fe-partial-note warn">有 {{ unreplayableOf(s) }} 条编辑无法在重放中定位或回放（外部修改或消息流残缺）——终版可能与实际有偏差</div>
 
           <!-- diff 视图（可比对 / 当前内容视图）：视图下拉 = 总览 / 当前内容 / 某次编辑 -->
           <template v-if="diffOf(analysis.diffs, s).comparable || s.finalContent !== null">
@@ -549,9 +619,18 @@ async function openLocally(s: FileEditSummary) {
               >
                 <option value="">初版 → 终版</option>
                 <option value="content">当前内容</option>
-                <option v-for="st in stepsOf(s)" :key="st.event.callId" :value="st.event.callId">
-                  {{ stepOptionLabel(st) }}
-                </option>
+                <!-- 分段链：外部修改后的段独立分组（⟂ 标记其前发生过
+                     事件流外的写——git checkout / shell 改写等） -->
+                <template v-for="(grp, gi) in stepGroupsOf(s)" :key="gi">
+                  <optgroup v-if="grp.label" :label="grp.label">
+                    <option v-for="st in grp.steps" :key="st.event.callId" :value="st.event.callId">
+                      {{ stepOptionLabel(st) }}
+                    </option>
+                  </optgroup>
+                  <option v-for="st in grp.steps" v-else :key="st.event.callId" :value="st.event.callId">
+                    {{ stepOptionLabel(st) }}
+                  </option>
+                </template>
               </select>
               <span class="fe-view-nav">
                 <Tooltip text="上一版本" placement="top">
@@ -584,23 +663,28 @@ async function openLocally(s: FileEditSummary) {
           <!-- 不可比对：仅统计 -->
           <div v-else class="fe-no-diff">无法生成 diff（见上方说明）</div>
 
-          <!-- 编辑时间线（成功行可点击 = 查看该次编辑；与视图下拉联动） -->
+          <!-- 编辑时间线（成功行可点击 = 查看该次编辑；与视图下拉联动）。
+               分段链：外部修改边界插 ⟂ 分隔行——编辑史如实分段 -->
           <div class="fe-timeline">
-            <div
-              v-for="ev in s.events"
-              :key="ev.callId"
-              class="fe-ev"
-              :class="{ fail: !ev.ok, active: viewOptionOf(s) !== '' && viewOptionOf(s) === ev.callId }"
-              role="button"
-              tabindex="0"
-              @click="jumpToStep(s, ev)"
-              @keydown.enter.prevent="jumpToStep(s, ev)"
-            >
-              <span class="fe-ev-time">{{ timeOf(ev.timestamp) }}</span>
-              <span class="fe-ev-action">{{ eventLine(ev, s) }}</span>
-              <span class="fe-ev-agent" :title="ev.agentId">{{ ev.agentId }}</span>
-              <Icon v-if="ev.ok" name="file-diff" :size="12" class="fe-ev-go" />
-            </div>
+            <template v-for="(row, ri) in timelineRowsOf(s)" :key="ri">
+              <div v-if="row.kind === 'boundary'" class="fe-ev-boundary" title="此处发生过事件流之外的外部修改（git checkout / shell 改写等）——分段回放">
+                ⟂ 外部修改
+              </div>
+              <div
+                v-else
+                class="fe-ev"
+                :class="{ fail: !row.ev.ok, active: viewOptionOf(s) !== '' && viewOptionOf(s) === row.ev.callId }"
+                role="button"
+                tabindex="0"
+                @click="jumpToStep(s, row.ev)"
+                @keydown.enter.prevent="jumpToStep(s, row.ev)"
+              >
+                <span class="fe-ev-time">{{ timeOf(row.ev.timestamp) }}</span>
+                <span class="fe-ev-action">{{ eventLine(row.ev, s) }}</span>
+                <span class="fe-ev-agent" :title="row.ev.agentId">{{ row.ev.agentId }}</span>
+                <Icon v-if="row.ev.ok" name="file-diff" :size="12" class="fe-ev-go" />
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -634,6 +718,23 @@ export default { name: 'FileEditsPanel' };
 }
 .fe-title { font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .fe-ctx { font-size: 11px; color: var(--color-text-tertiary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 头部关闭钮（与 fe-open-local 同形态的透明 icon 钮——fe-ctx flex:1 推到最右） */
+.fe-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 22px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.fe-close:hover { background: var(--color-bg-hover, rgba(0,0,0,0.06)); color: var(--color-text-primary); }
 
 .fe-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
@@ -751,6 +852,16 @@ export default { name: 'FileEditsPanel' };
 .fe-no-diff { font-size: 11px; color: var(--color-text-tertiary); padding: 8px 4px; }
 
 .fe-timeline { display: flex; flex-direction: column; gap: 3px; }
+/* 分段链边界分隔行：⟂ 外部修改（虚线分隔 + 弱化着色） */
+.fe-ev-boundary {
+  font-size: 10px;
+  color: #b45309;
+  background: rgba(230, 168, 23, 0.07);
+  border-top: 1px dashed rgba(230, 168, 23, 0.45);
+  padding: 2px 4px;
+  margin: 1px -4px 0;
+  user-select: none;
+}
 .fe-ev { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 /* 成功行可点击（查看该次编辑）：hover 底色 + active 选中态（左侧主色条） */
 .fe-ev:not(.fail) { cursor: pointer; border-radius: var(--radius-sm); padding: 1px 4px; margin: 0 -4px; }

@@ -17,7 +17,9 @@
 //      点起算」；
 //   4. versionPointsOf / editStepsOf —— 逐次回放：版本点序列（每
 //      次成功编辑后的全文形态）+ 可回放步枚举（初版↔终版之间的
-//      单次编辑视角——UI 下拉选择查看某次编辑用）；
+//      单次编辑视角——UI 下拉选择查看某次编辑用）。分段链：外部
+//      写造成失配时以磁盘终态逆向锚定新段基底重启重放——已知
+//      事件全部获得版本点，段边界 = 外部修改痕迹（如实展示）；
 //   5. contentOfSummary / diffOfContent —— 当前内容视图：终版全文
 //      直读（+ 行渲染）。新建文件等 diff 基底缺失场景的内容可见面。
 //
@@ -394,18 +396,36 @@ export interface FileVersionPoint {
   content: string;
   /** 编辑前全文（前一版点 content；首版点 = 初版 base） */
   before: string;
+  /**
+   * 段序（0 起，时间序单调不减）：外部写（git checkout / shell 改写）
+   * 造成重放链分叉时，失配点之后的事件以新段基底重启。同段内步进
+   * 连续可信；跨段边界 = 其间发生过事件流之外的外部修改。
+   */
+  segment: number;
 }
 
 /**
- * 单文件版本点序列（初版 → 终版逐次回放）。
+ * 单文件版本点序列（初版 → 终版逐次回放，分段链）。
  *
  * 序列语义 = replayFiles 的步进版：初版 = summary 的 diff 基底
  * （created 文件 = 会话首版；快照/磁盘兜底 = 各自接管后的 base），
  * 之后每条成功编辑推进一版。与顶层 diff 同口径——partials /
  * mismatch / 终版兜底语义先在 summary 层收口，这里只做纯步进。
  *
- * 终版点修正：最后一版 content 用 summary.finalContent（兜底场景
- * 磁盘现内容才是可信终版——重放链可能停在失配点）。
+ * 分段（方案 B，2026-09 事故分析）：事件流之外的外部写（git
+ * checkout / shell 改写 / 消息流残缺）会让后续 edit 的 old_str 在
+ * 重放内容中找不到——旧实现在此 break，分叉后的全部版本静默丢失
+ * （下拉框与时间线对不上的根因）。现改为：失配点 = 段边界，
+ * 以「磁盘终态逆向回退至失配步」的形态作为新段基底重启重放；
+ * 段基底是近似（外部写本身不可重建——有快照时由快照层在上游
+ * 接管消除失配），段首步如实可信。循环至事件耗尽——已知事件
+ * 全部获得版本点。
+ *
+ * 终版点对账（防御）：末段多步链以 finalContent 收口末点（兜底
+ * 场景磁盘现内容才是可信终版）；单步链不复写——步内容 = 该步
+ * 写入本身（复写会把单步视图变成 base→磁盘而非该步编辑）。
+ * 对账范围收窄到末段（旧实现跨全链收口——分叉文件的单步 diff
+ * 会被静默污染成跨时间线比对）。
  *
  * 不可回放（partial 且无 partialBase、或初/终版缺失）= 空数组——
  * UI 降级为仅统计展示（与顶层 diff.comparable 同判据）。
@@ -420,7 +440,10 @@ export function versionPointsOf(
   const okEvents = events.filter((e) => e.path === summary.path && e.ok); // 单文件单次调用——线性可接受
   const points: FileVersionPoint[] = [];
   let cur = base;
-  for (const ev of okEvents) {
+  let segment = 0;
+  let i = 0;
+  while (i < okEvents.length) {
+    const ev = okEvents[i];
     let next: string | null = null;
     if (ev.action === 'create' || ev.action === 'overwrite') {
       next = ev.fullContent ?? '';
@@ -429,21 +452,61 @@ export function versionPointsOf(
         ? applyInsert(cur, ev)
         : applyReplace(cur, ev);
       if ('mismatch' in r) {
-        // 失配步不可信：截断到失配前（与顶层重放口径一致——不计
-        // 入演进）。断链文件通常已有快照/磁盘兜底接管，此分支
-        // 只是防御。
-        break;
+        // 失配 = 段边界：先尝试磁盘终态逆向锚定新段基底（回退
+        // ev..末事件的 new→old——这些事件正是产生磁盘现状的链）。
+        // 回退失败（更早的外部写 / 无磁盘兜底）或新段基底仍无法
+        // 应用当前事件 = 不可回放边界，如实截断。
+        const anchor = diskAnchorOf(final, okEvents, i);
+        if (anchor === null || !canApply(anchor, ev)) break;
+        cur = anchor;
+        segment += 1;
+        continue; // 以新基底重试当前事件
       }
       next = r.next;
     }
-    points.push({ event: ev, content: next, before: cur });
+    points.push({ event: ev, content: next, before: cur, segment });
     cur = next;
+    i += 1;
   }
-  // 终版对账（防御）：多步链中途失配截断时以 finalContent 收口末点；
-  // 单步链不复写——步内容 = 该步写入本身（磁盘兜底改写 final 时可能
-  // 含会话外改动，复写会把单步视图变成 base→磁盘而非该步编辑）。
-  if (points.length > 1) points[points.length - 1].content = final;
+  // 末段终版对账（防御——见函数头注释；跨段收口会污染单步 diff）
+  const lastSeg = points.length > 0 ? points[points.length - 1].segment : -1;
+  const lastSegSteps = points.filter((p) => p.segment === lastSeg).length;
+  if (lastSegSteps > 1) points[points.length - 1].content = final;
   return points;
+}
+
+/**
+ * 磁盘终态逆向锚定：从 final 起，将 events[from..end] 逐条逆向回退
+ * （edit 逆 = new→old 替换；write/create 逆 = 断链不可回推 → null）。
+ * 返回 from 步执行前的基底形态；回退链断裂 = null（不可锚定）。
+ */
+function diskAnchorOf(final: string, events: FileEditEvent[], from: number): string | null {
+  let cur = final;
+  for (let i = events.length - 1; i >= from; i--) {
+    const ev = events[i];
+    if (ev.action === 'create' || ev.action === 'overwrite') return null; // write 前版不可知
+    if (ev.action === 'insert') {
+      const r = uninsert(cur, ev);
+      if ('mismatch' in r) return null;
+      cur = r.next;
+    } else {
+      const r = applyReplace(cur, { ...ev, oldStr: ev.newStr ?? '', newStr: ev.oldStr ?? '' });
+      if ('mismatch' in r) return null;
+      cur = r.next;
+    }
+  }
+  return cur;
+}
+
+/** 事件在基底上可应用（edit/replace：old 命中；insert：行界内；write：恒真） */
+function canApply(base: string, ev: FileEditEvent): boolean {
+  if (ev.action === 'create' || ev.action === 'overwrite') return true;
+  if (ev.action === 'insert') {
+    const r = applyInsert(base, ev);
+    return !('mismatch' in r);
+  }
+  const r = applyReplace(base, ev);
+  return !('mismatch' in r);
 }
 
 /** 单次编辑视角：事件与前后全文形态 */
@@ -462,6 +525,14 @@ export interface FileEditStep {
    */
   added: number;
   removed: number;
+  /** 段序（0 起——同 versionPointsOf.segment；跨段边界 = 外部修改） */
+  segment: number;
+  /**
+   * 段内步序（0 起）：段首步（segmentStep===0 且 segment>0）=
+   * 外部修改后首步——before 是近似基底（逆向锚定），UI 段边界
+   * 提示「此间发生过外部修改」。
+   */
+  segmentStep: number;
 }
 
 /**
@@ -484,9 +555,17 @@ export function editStepsOf(summary: FileEditSummary, events: FileEditEvent[]): 
   const hit = byPath.get(summary.path);
   if (hit) return hit;
   const base = summary.partial ? summary.partialBase : summary.baseContent;
+  // 段内步序计数（分段链——segment 边界处重置）
+  const segFirstIdx = new Map<number, number>();
   const steps: FileEditStep[] = base === null ? [] : versionPointsOf(summary, events).map((p, index) => {
     const stat = countLineChanges(p.before, p.content);
-    return { index, event: p.event, before: p.before, after: p.content, added: stat.added, removed: stat.removed };
+    const first = segFirstIdx.get(p.segment) ?? index;
+    segFirstIdx.set(p.segment, first);
+    return {
+      index, event: p.event, before: p.before, after: p.content,
+      added: stat.added, removed: stat.removed,
+      segment: p.segment, segmentStep: index - first,
+    };
   });
   byPath.set(summary.path, steps);
   return steps;
