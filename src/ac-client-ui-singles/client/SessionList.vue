@@ -78,6 +78,37 @@ async function confirmDelete() {
   }
 }
 
+// ── 重命名会话（title 覆盖；自动标题有 title 即不再触发，手改名稳居）──
+// 初值 = 显示标题的原始形态：已具名取 title，未具名（自动标题未出）取
+// 空串——不预填合成名（「Agent · 日期」只是显示回落，不是会话数据）。
+const renameSessionTarget = ref<{ id: string; title: string } | null>(null);
+const renameSessionValue = ref('');
+const renameSessionBusy = ref(false);
+const renameSessionError = ref('');
+
+function startRenameSession(s: { id: string; title: string }) {
+  const raw = singlesBoard?.singles.value.find(x => x.id === s.id);
+  renameSessionTarget.value = { id: s.id, title: s.title };
+  renameSessionValue.value = raw?.title ?? '';
+  renameSessionError.value = '';
+}
+
+async function confirmRenameSession() {
+  if (!renameSessionTarget.value || renameSessionBusy.value) return;
+  const title = renameSessionValue.value.trim();
+  if (!title) { renameSessionError.value = '标题不能为空'; return; }
+  renameSessionBusy.value = true;
+  renameSessionError.value = '';
+  try {
+    await singlesBoard?.updateSession(renameSessionTarget.value.id, { title });
+    renameSessionTarget.value = null;
+  } catch (err: any) {
+    renameSessionError.value = `重命名失败: ${err?.message ?? String(err)}`;
+  } finally {
+    renameSessionBusy.value = false;
+  }
+}
+
 interface SessionItem {
   id: string;
   title: string;
@@ -498,6 +529,7 @@ onUnmounted(() => {
            <div class="item-name">{{ item.title }}</div>
            <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
          </div>
+         <button class="item-delete" title="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
          <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
          </button>
@@ -565,6 +597,7 @@ onUnmounted(() => {
                   <div class="item-info">
                     <div class="item-name">{{ item.title }}</div>
                   </div>
+                  <button class="item-delete" title="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
                   <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
                   </button>
@@ -588,6 +621,22 @@ onUnmounted(() => {
     </div>
 
     <!-- 删除会话确认弹窗 -->
+    <!-- 重命名会话弹窗 -->
+    <Modal :visible="!!renameSessionTarget" :width="380" @close="renameSessionTarget = null">
+      <div class="ws-dialog">
+        <h4>重命名会话</h4>
+        <div class="ws-form-group">
+          <label>标题</label>
+          <input v-model="renameSessionValue" type="text" placeholder="会话标题" maxlength="60" @keyup.enter="confirmRenameSession" />
+        </div>
+        <div v-if="renameSessionError" class="del-error">{{ renameSessionError }}</div>
+        <div class="del-actions">
+          <button class="del-cancel" :disabled="renameSessionBusy" @click="renameSessionTarget = null">取消</button>
+          <button class="ws-save-btn" :disabled="renameSessionBusy" @click="confirmRenameSession">{{ renameSessionBusy ? '保存中…' : '保存' }}</button>
+        </div>
+      </div>
+    </Modal>
+
     <Modal :visible="!!deleteTarget" :width="380" @close="deleteTarget = null">
       <div class="del-dialog">
         <h4>删除会话</h4>

@@ -458,8 +458,10 @@ src/
 │                            机制 entries（timer/skills 等唯一写口）+ 文档实体
 │                            （AGENTS.md 等）；getAgent 读边界归一（旧 hooks→settings）
 ├── ac-singles/              独立会话元数据（ctx.singles）：会话 = 引用 + 覆盖而非
-│                            拷贝；自动标题（after-run LLM 一句话）；[system+tool
-│                            schema] 前缀快照（修订键锚定，漂移对拍告警）
+│                            拷贝；自动标题（run-started 暂存 → 首步 after-step
+│                            结合 Agent 思考生成，after-run 兜底；update(title)
+│                            手改覆盖）；[system+tool schema] 前缀快照（修订键
+│                            锚定，漂移对拍告警）
 ├── ac-conv-settings/        会话级覆盖域（ctx.convSettings）：按 conversationId 的
 │                            模型覆盖（name@model）；deliver 边界单点生效
 ├── ac-group/                群拓扑（ctx.group）：成员表 + 单通道内容流（post = 群

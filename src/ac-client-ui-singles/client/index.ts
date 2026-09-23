@@ -52,6 +52,8 @@ export interface SingleCreatePayload {
 export interface SingleUpdatePayload {
   agentId?: string;
   model?: string | Record<string, unknown> | null;
+  /** 重命名会话（trim 后非空才落；手改标题永不覆盖——幂等守卫认 session.json 有 title） */
+  title?: string;
   workspaceId?: string;
 }
 
@@ -271,7 +273,7 @@ export class SingleBoardService extends Service {
 
   /**
    * 更新会话设置（输入栏内联调整：换 Agent（''=清空待选；已有消息时后端 409 禁改）/
-   * 换模型覆盖（null=清除）/ 挂工作区（''=移入未分组））。
+   * 换模型覆盖（null=清除）/ 挂工作区（''=移入未分组）/ 重命名（title））。
    * 换 Agent 时同步刷新会话上下文（feed 消息身份映射 + 后续投递目标）。
    */
   async updateSession(sessionId: string, payload: SingleUpdatePayload): Promise<SingleSession | null> {

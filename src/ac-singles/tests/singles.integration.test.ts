@@ -379,11 +379,15 @@ describe('ac-singles：在途 run 会话不是空白（首 run 进行中被别�
   });
 });
 
-describe('ac-singles：自动标题（loop/run-started → LLM → singles/updated）', () => {
+describe('ac-singles：自动标题（run-started 暂存 → 首步 after-step 结合思考 → LLM → singles/updated）', () => {
   const LONG_FIRST_MSG = '这是一段超过二十四个字符的首条用户消息用于验证标题生成的回落与LLM路径区分';
-  /** run-started 载荷（标题生成挂点）：request 全量，无 result */
+  /** run-started 载荷（标题暂存挂点）：request 全量，无 result */
   const REQ = (sid: string, extra: Record<string, unknown> = {}) =>
     ({ agent: 'a', model: 'mock-1', conversationId: sid, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }], ...extra }) as never;
+  /** after-step 载荷（标题生成挂点）：agent, step, envelope 三参 */
+  const emitStep = (c: { emit: (ev: string, ...args: unknown[]) => void }, sid: string, step: Record<string, unknown> = {}) => {
+    c.emit('loop/after-step', 'a', { index: 0, text: '', reasoning: '', toolCalls: [], toolResults: [], ...step }, { conversationId: sid, sender: 'user', source: 'user' });
+  };
 
   async function waitFor(cond: () => boolean, ms = 2000): Promise<boolean> {
     const deadline = Date.now() + ms;
@@ -394,15 +398,76 @@ describe('ac-singles：自动标题（loop/run-started → LLM → singles/updat
     return cond();
   }
 
-  it('run 开始即生成标题 + singles/updated（前端即时刷新源；不等 run 收束）', async () => {
+  it('首个 after-step 后生成标题 + singles/updated（run-started 只暂存不生成）', async () => {
     const { ctx } = await boot(tmpRoot());
     const s = ctx.singles.create({ agentId: 'a' });
     const actions: string[] = [];
     ctx.on('singles/updated', (_meta, action) => actions.push(action));
     ctx.emit('loop/run-started', REQ(s.id));
+    // 暂存期不生成：给 fire-and-forget 一个窗口证明没有 LLM 调用
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ctx.singles.get(s.id)?.title).toBeUndefined();
+    emitStep(ctx, s.id);
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(ctx.singles.get(s.id)?.title).toBe('ok'); // mock provider 固定回复 'ok'
     expect(actions).toContain('updated');
+  });
+
+  it('标题结合 Agent 首步思考（reasoning 优先于正文进提示词）', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const seenPrompts: string[] = [];
+    const rows: unknown[] = [
+      llmRow,
+      {
+        name: 'mock-provider-prompt-inspect',
+        inject: ['llm'],
+        apply(c: Context) {
+          c.llm.register(
+            'mock',
+            () => ({
+              stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+                const msg = (input.messages as Array<{ content: string }>)[0]?.content ?? '';
+                if (msg.includes('为这段对话生成')) seenPrompts.push(msg);
+                yield { delta: 'ok' };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              },
+            }),
+            { models: ['mock-1'] },
+          );
+        },
+      },
+      singlesRow,
+    ];
+    for (const row of rows) {
+      const fiber =
+        (row as { name?: string }).name === 'ac-singles'
+          ? ctx.plugin(row as any, { root })
+          : ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+
+    const s = ctx.singles.create({ agentId: 'a' });
+    ctx.emit('loop/run-started', REQ(s.id));
+    emitStep(ctx, s.id, { reasoning: '用户在问数据库迁移方案，我需要先看 schema', text: '我先看一下当前结构。' });
+    expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
+    expect(seenPrompts.length).toBe(1);
+    // reasoning 进提示词（优先）；正文不进（两者都有时取思考）
+    expect(seenPrompts[0]).toContain('数据库迁移方案');
+    expect(seenPrompts[0]).not.toContain('我先看一下当前结构');
+  });
+
+  it('run 夭折（无 after-step）→ after-run 兜底：暂存材料仍出标题（LLM 可用即走 LLM）', async () => {
+    const { ctx } = await boot(tmpRoot());
+    const s = ctx.singles.create({ agentId: 'a' });
+    ctx.emit('loop/run-started', REQ(s.id));
+    // 无 after-step 直接收束（run 夭折/无步完成形态）
+    ctx.emit('loop/after-run', REQ(s.id) as never, { steps: [], text: '', finish: 'error', error: 'boom', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 } });
+    expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
+    expect(ctx.singles.get(s.id)?.title).toBe('ok'); // 兜底 fireTitle 同样走 LLM（截断回落仅在 LLM 失败时）
   });
 
   it('标题请求携带思考禁用参数（思考型模型 64 token 预算被 reasoning 独占 → text 恒空的根因修复）', async () => {
@@ -443,6 +508,7 @@ describe('ac-singles：自动标题（loop/run-started → LLM → singles/updat
 
     const s = ctx.singles.create({ agentId: 'a' });
     ctx.emit('loop/run-started', REQ(s.id));
+    emitStep(ctx, s.id);
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(seenInputs.length).toBe(1);
     // 双词汇禁用思考：GLM thinking:{type:'disabled'} + DeepSeek/OpenAI reasoning_effort:'none'
@@ -492,6 +558,7 @@ describe('ac-singles：自动标题（loop/run-started → LLM → singles/updat
 
     const s = ctx.singles.create({ agentId: 'a' });
     ctx.emit('loop/run-started', REQ(s.id));
+    emitStep(ctx, s.id);
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(calls.length).toBe(2); // 指误重试恰好两次调用
     expect('thinking' in calls[1]).toBe(false); // 重试为裸参数
@@ -533,20 +600,23 @@ describe('ac-singles：自动标题（loop/run-started → LLM → singles/updat
 
     const s = ctx.singles.create({ agentId: 'a' });
     ctx.emit('loop/run-started', REQ(s.id));
+    emitStep(ctx, s.id);
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     const title = ctx.singles.get(s.id)?.title ?? '';
     expect(title.endsWith('…')).toBe(true);
     expect(title.length).toBeLessThanOrEqual(25); // 24 字 + 省略号
   });
 
-  it('幂等与门控：已有标题不覆盖 / 机制 run（archive-review）不生成 / 非独立会话桶不触发', async () => {
+  it('幂等与门控：已有标题不覆盖 / 机制 run（archive-review）不暂存不生成 / 非独立会话桶不触发', async () => {
     const { ctx } = await boot(tmpRoot());
     // 已有标题：不覆盖
     const s1 = ctx.singles.create({ agentId: 'a', title: '手改标题' });
     ctx.emit('loop/run-started', REQ(s1.id));
+    emitStep(ctx, s1.id);
     // 归档整理 run（机制自会话）：不是用户对话，不生成
     const s2 = ctx.singles.create({ agentId: 'a' });
     ctx.emit('loop/run-started', REQ(s2.id, { meta: { 'archive-review': true } }));
+    emitStep(ctx, s2.id);
     // 非 singles 会话桶（1v1 = agent id）：不在 singles 目录，不触发
     ctx.emit('loop/run-started', REQ('a'));
     await new Promise((r) => setTimeout(r, 150));
@@ -554,10 +624,11 @@ describe('ac-singles：自动标题（loop/run-started → LLM → singles/updat
     expect(ctx.singles.get(s2.id)?.title).toBeUndefined();
   });
 
-  it('语义变化：run 即使注定 error/interrupted 也已得名（标题概括用户意图，不依赖回答质量）', async () => {
+  it('语义变化：run 即使注定 error/interrupted 也已得名（after-run 兜底路径直接覆盖）', async () => {
     const { ctx } = await boot(tmpRoot());
     const s = ctx.singles.create({ agentId: 'a' });
     ctx.emit('loop/run-started', REQ(s.id));
+    ctx.emit('loop/after-run', REQ(s.id) as never, { steps: [], text: '', finish: 'interrupted', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 } });
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(ctx.singles.get(s.id)?.title).toBe('ok');
   });

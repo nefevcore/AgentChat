@@ -25,7 +25,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun, normalizeToolSpecs } from 'ac-agent-loop';
 import { resolvePersonaText } from 'ac-persona';
 import { splitModelRef } from 'ac-llm';
-import type { LoopRunRequest } from 'ac-agent-loop';
+import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 import type { SingleSessionMeta, SinglesCreateInput, SinglesUpdateInput } from './contract.ts';
 
 export interface SinglesRowOptions {
@@ -36,11 +36,14 @@ export interface SinglesRowOptions {
 /** 标题长度上限（字符） */
 const TITLE_MAX_LEN = 24;
 
-/** 标题生成提示词（src singles-title 同款语义：短、无引号、无解释） */
-const TITLE_PROMPT = (userText: string): string =>
-  `根据下面的用户消息，为这段对话生成一个简短的中文标题（不超过${TITLE_MAX_LEN}字）。\n`
+/** 标题生成提示词（结合 Agent 首步思考/正文——概括「对话在谈什么」） */
+const TITLE_PROMPT = (userText: string, agentFirstOutput?: string): string =>
+  `根据下面的对话材料，为这段对话生成一个简短的中文标题（不超过${TITLE_MAX_LEN}字）。\n`
   + `要求：直接输出标题本身；不要引号、句号、解释或前后缀；概括意图而非复述原文。\n\n`
-  + `用户消息：\n${userText.slice(0, 600)}`;
+  + `用户消息：\n${userText.slice(0, 600)}`
+  + (agentFirstOutput
+    ? `\n\nAgent 的初步思考/回应（理解参考）：\n${agentFirstOutput.slice(0, 600)}`
+    : '');
 
 /** 清洗模型输出：去引号/换行/首尾空白，超长截断 */
 function cleanTitle(raw: string): string {
@@ -74,8 +77,11 @@ export class SinglesService extends Service {
   private readonly singlesDir: string;
   /** 上架同步只跑一次（首次触及任意方法；幂等，重复跑无副作用） */
   private shelvesSynced = false;
-  /** 标题生成中守卫（同会话并发 after-run 只触发一次） */
+  /** 标题生成中守卫（同会话并发 after-step/after-run 只触发一次） */
   private titleInFlight = new Set<string>();
+  /** 待命名 run 暂存（sid → 路由终值 + 首条用户消息；after-step 取账生成，
+   *  after-run 兜底清账——run-started 挂账 / 首步收束即用） */
+  private pendingTitle = new Map<string, { model: string; provider?: string; userText: string }>();
   /** 前缀快照在途处置（sid → 本次 run：capture 首拍/失效重拍 | verify 键未变核验终态） */
   private prefixPending = new Map<string, { kind: 'capture' | 'verify'; revision: string; toolsHash: string }>();
 
@@ -84,29 +90,41 @@ export class SinglesService extends Service {
     this.singlesDir = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'singles');
 
     // ---- 自动标题（src singles.auto-title 的 preview 形态）----
-    // run 开始即生成标题（loop/run-started）：无标题会话在消息刚投递、
-    // 首步 LLM 之前就得名——用户无需等 run 收束（长工具轮尤其受益），
-    // 列表即时有可辨识条目。LLM 一句话概括（fire-and-forget，不阻塞
-    // 主对话流，与首步并发），失败回落首条消息截断。
+    // 两段式：run-started 暂存「待命名 run」（路由终值 model/provider +
+    // 首条用户消息，此刻最全）→ after-step（首个完成的步）结合 Agent
+    // 首步思考/正文生成——标题概括的是「这轮对话在谈什么」，Agent 的
+    // 首步理解比用户原始输入更准（工具轮里用户消息常常只是「继续」）。
+    // fire-and-forget，不阻塞主对话流；失败回落首条消息截断。
     // 幂等守卫 = session.json 尚无 title（生成一次后永不再触发）；经
     // update() 写入 → singles/updated 事件 → 前端列表即时刷新。
-    // 挂 run-started 而非 after-run/after-step 的依据：request 全载荷
-    // 可用（model/provider/messages 装配终值——after-step 载荷只有
-    // step 输出，得自己拼路由）；首条用户消息此刻就在 request.messages
-    // 里（run 进行中读 ac-session 有「在途未落盘」窗口，见 isEmpty
-    // 注释），且每 run 只发一次（after-step 每步重复，需防重）。
-    // error/interrupted 的 run 也生成（原 after-run 方案不生成）——
-    // 标题概括用户意图，不依赖回答质量；中断的会话有标题反而更合理。
+    // 挂首步 after-step 而非 run-started 直出的权衡：多等首步 LLM 完成
+    // （纯直答即首步；长工具轮也只在首个工具步后），换来标题贴合会话
+    // 实质。after-step 每步重复发——pendingTitle 只在生成前挂账，fire
+    // 即清（titleInFlight 防同会话并发）。
+    // after-run 兜底：run 中途夭折（error/interrupted/首步异常）时 pending
+    // 仍在账上——用暂存的首条用户消息走截断回落，会话不留无名列。
+    // 机制 run（archive-review）不触发；非 singles 桶读不到记录自然短路。
     // C1：fire-and-forget 必须自带 catch——update() 落盘（Windows AV 锁/
     // 盘满可抛）发生在装饰性路径上，不得放大为宿主 unhandledRejection。
     this.ctx.on('loop/run-started', (request) => {
-      void this.maybeGenerateTitle(request).catch((err: unknown) => {
+      this.stagePendingTitle(request);
+    }, { description: '独立会话命名暂存（run-started）' });
+    this.ctx.on('loop/after-step', (agent, step, envelope) => {
+      void this.generateStagedTitle(envelope?.conversationId, step).catch((err: unknown) => {
         this.ctx.logger.error(
           '[singles] 标题生成失败（忽略）: %C',
           err instanceof Error ? err.message : String(err),
         );
       });
-    }, { description: '独立会话开跑即命名' });
+    }, { description: '独立会话首步后命名' });
+    this.ctx.on('loop/after-run', (request) => {
+      void this.flushPendingTitle(request.conversationId).catch((err: unknown) => {
+        this.ctx.logger.error(
+          '[singles] 标题兜底生成失败（忽略）: %C',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    }, { description: '独立会话命名兜底（after-run）' });
 
     // ---- system+tools 前缀快照（M21 步骤 4 / D5，§5.2）----
     // 独立会话是最自包含形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域
@@ -270,12 +288,16 @@ export class SinglesService extends Service {
     return this.readSnapshot(sessionId);
   }
 
-  /** run-started 钩子：独立会话 + 无标题 + 非机制 run → 生成标题 */
-  private async maybeGenerateTitle(request: LoopRunRequest): Promise<void> {
+  /**
+   * run-started 钩子：暂存待命名 run（路由终值 + 首条用户消息）。
+   * 只挂账不生成——标题在首个 after-step（结合 Agent 首步产出）时才
+   * 触发；run 收束（after-run）若账仍滞留（run 夭折/无步完成）则兜底
+   * 清账（截断回落）。已有标题/机制 run/非 singles 桶在此即短路。
+   */
+  private stagePendingTitle(request: LoopRunRequest): void {
     const sid = request.conversationId;
-    if (!sid || this.titleInFlight.has(sid)) return;
-    // 归档整理 run（机制自会话）：不是用户对话——生成标题会赶在会话
-    // status 翻 archived 之前，为一具将死会话命名且可能复活 lastActivity
+    if (!sid || this.titleInFlight.has(sid) || this.pendingTitle.has(sid)) return;
+    // 归档整理 run（机制自会话）：不是用户对话——不暂存不生成
     if (isArchiveReviewRun(request.meta)) return;
     const record = this.readRecord(sid);
     if (!record || record.status !== 'active' || record.title) return;
@@ -289,19 +311,50 @@ export class SinglesService extends Service {
         !m.content.startsWith('[当前时间] '),
     );
     if (!firstUser) return;
+    this.pendingTitle.set(sid, {
+      model: request.model,
+      ...(request.provider ? { provider: request.provider } : {}),
+      userText: firstUser.content,
+    });
+  }
 
+  /** after-step 钩子：首个完成的步 → 结合 Agent 思考/正文生成标题 */
+  private async generateStagedTitle(sid: string | undefined, step: LoopStepRecord): Promise<void> {
+    if (!sid || this.titleInFlight.has(sid)) return;
+    const staged = this.pendingTitle.get(sid);
+    if (!staged) return; // 非待命名 run（已命名会话/机制 run/非 singles 桶）
+    // Agent 首步理解（标题概括的素材）：reasoning 优先——思考内容是对
+    // 任务的理解与规划，比正文更贴「这轮对话在谈什么」；无思考模型
+    // 用正文。工具步常见正文为空（只有 toolCalls），首步有思考即可用。
+    const agentFirstOutput = step.reasoning?.trim() || step.text.trim() || undefined;
+    await this.fireTitle(sid, staged, agentFirstOutput);
+  }
+
+  /** after-run 兜底：run 收束账上仍有 pending（run 夭折/无步完成）→ 截断回落 */
+  private async flushPendingTitle(sid: string | undefined): Promise<void> {
+    if (!sid || this.titleInFlight.has(sid)) return;
+    const staged = this.pendingTitle.get(sid);
+    if (staged) await this.fireTitle(sid, staged, undefined);
+  }
+
+  /**
+   * 标题生成主体（after-step 与 after-run 兜底共用）：清账 → LLM 一句话
+   * 概括（可结合 Agent 首步产出）→ 失败回落首条消息截断。
+   */
+  private async fireTitle(sid: string, staged: { model: string; provider?: string; userText: string }, agentFirstOutput?: string): Promise<void> {
+    this.pendingTitle.delete(sid);
     this.titleInFlight.add(sid);
     try {
-      const userText = firstUser.content;
+      const userText = staged.userText;
       let title = '';
       const llm = this.ctx.get('llm', false) as
         | { chat(input: Record<string, unknown>): Promise<{ text: string }> }
         | undefined;
       if (llm) {
         const baseInput = {
-          model: request.model,
-          ...(request.provider ? { provider: request.provider } : {}),
-          messages: [{ role: 'user', content: TITLE_PROMPT(userText) }],
+          model: staged.model,
+          ...(staged.provider ? { provider: staged.provider } : {}),
+          messages: [{ role: 'user', content: TITLE_PROMPT(userText, agentFirstOutput) }],
           max_tokens: 64,
         };
         // 思考型模型（GLM/DeepSeek 等）默认先出 reasoning 再出正文——
@@ -355,7 +408,6 @@ export class SinglesService extends Service {
       this.titleInFlight.delete(sid);
     }
   }
-
   /**
    * 会话上架：消息目录归入 sessions/singles/<workspaceId|ungrouped>/<sid>/。
    * 经 ac-session 的 setShelf owning 写口（本服务不触碰会话文件）。

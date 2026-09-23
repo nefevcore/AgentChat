@@ -38,6 +38,36 @@ const title = computed(() => {
   return s.title || `${name} · 独立会话`;
 });
 
+// ── 重命名会话（title 覆盖；自动标题有 title 即不再触发，手改名稳居）──
+const renameOpen = ref(false);
+const renameValue = ref('');
+const renameError = ref('');
+const renaming = ref(false);
+
+function askRename() {
+  showMoreMenu.value = false;
+  renameValue.value = single.value?.title ?? '';
+  renameError.value = '';
+  renameOpen.value = true;
+}
+
+async function confirmRename() {
+  const s = single.value;
+  if (!s || renaming.value) return;
+  const title = renameValue.value.trim();
+  if (!title) { renameError.value = '标题不能为空'; return; }
+  renaming.value = true;
+  renameError.value = '';
+  try {
+    await singlesBoard?.updateSession(s.id, { title });
+    renameOpen.value = false;
+  } catch (err: any) {
+    renameError.value = `重命名失败: ${err.message}`;
+  } finally {
+    renaming.value = false;
+  }
+}
+
 // ── 更多菜单（归档独立会话）──
 const showMoreMenu = ref(false);
 function toggleMoreMenu() {
@@ -83,6 +113,10 @@ async function confirmArchive() {
       </button>
       <Transition name="dropdown">
         <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
+          <button class="dropdown-item" @click="askRename">
+            <Icon name="pencil" :size="14" />
+            重命名会话
+          </button>
           <button class="dropdown-item danger" @click="askArchive">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
             归档独立会话
@@ -90,6 +124,21 @@ async function confirmArchive() {
         </div>
       </Transition>
     </div>
+
+    <!-- 重命名会话对话框 -->
+    <Modal :visible="renameOpen" :width="380" @close="renameOpen = false">
+      <div class="rename-dialog">
+        <h4>重命名会话</h4>
+        <div class="rename-field">
+          <input v-model="renameValue" type="text" placeholder="会话标题" maxlength="60" @keyup.enter="confirmRename" />
+        </div>
+        <div v-if="renameError" class="delete-error">{{ renameError }}</div>
+        <div class="dialog-actions">
+          <button class="btn-cancel" @click="renameOpen = false" :disabled="renaming">取消</button>
+          <button class="btn-rename" @click="confirmRename" :disabled="renaming">{{ renaming ? '保存中…' : '保存' }}</button>
+        </div>
+      </div>
+    </Modal>
 
     <!-- 归档确认对话框（随件内迁——状态自理） -->
     <Modal :visible="archiveOpen" :width="380" @close="archiveOpen = false">
@@ -147,4 +196,12 @@ async function confirmArchive() {
 .btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: #e74c3c; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
 .btn-delete:hover { background: #c0392b; }
 .btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }
+/* 重命名会话对话框（与归档对话框同款布局） */
+.rename-dialog { padding: 28px 24px 20px; }
+.rename-dialog h4 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); text-align: center; }
+.rename-field input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 13px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
+.rename-field input:focus { border-color: var(--color-primary, #4f6ef7); }
+.btn-rename { padding: 8px 20px; border: none; border-radius: 6px; background: var(--color-primary, #4f6ef7); color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-rename:hover { filter: brightness(1.08); }
+.btn-rename:disabled { opacity: 0.6; cursor: default; }
 </style>
