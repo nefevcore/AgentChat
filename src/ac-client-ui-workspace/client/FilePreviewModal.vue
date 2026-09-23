@@ -13,6 +13,7 @@ import {
 } from './filePreviewContent.ts';
 import { useModeMenu } from './useModeMenu.ts';
 import { openLocalFile } from './fileApi.ts';
+import OfficeView from './OfficeView.vue';
 import { useClientContext } from 'ac-client-runtime';
 
 const props = defineProps<{
@@ -30,8 +31,8 @@ const emit = defineEmits<{
 
 // 内容逻辑（共用 composable；visible 作为 enabled 门——关闭期间不发请求）
 const {
-  loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown,
-  imageSrc, highlightedCode, renderedMarkdown, codeLines, sizeDisplay, reload,
+  loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown, isOffice,
+  imageSrc, officeSrc, highlightedCode, previewHtml, previewMarkdownDoc, codeLines, sizeDisplay, reload,
 } = useFilePreviewContent(
   () => props.filePath,
   () => ({ agentId: props.fallbackAgentId ?? '', conversationId: props.conversationId ?? '' }),
@@ -250,21 +251,37 @@ onBeforeUnmount(() => {
             <button class="fp-error-retry" @click="reload">重试</button>
           </div>
 
-          <!-- HTML 预览（sandbox 仅 allow-scripts：去掉 allow-same-origin，防止恶意 HTML 触达父页面 DOM/存储） -->
+          <!-- HTML 预览（sandbox 仅 allow-scripts：去掉 allow-same-origin，防止恶意 HTML 触达父页面
+               DOM/存储；previewHtml = 相对引用改 raw 直链 + base target 注入，srcdoc 原文无法定位） -->
           <iframe
             v-else-if="viewKind === 'html' && fileData"
             class="fp-iframe"
-            :srcdoc="fileData.content"
+            :srcdoc="previewHtml"
             sandbox="allow-scripts"
           ></iframe>
 
-          <!-- 图片预览 -->
+          <!-- Office 文档预览（@vue-office 前端渲染：docx/xlsx/pptx 家族） -->
+          <OfficeView
+            v-else-if="viewKind === 'office' && officeSrc"
+            :name="fileName"
+            :src="officeSrc"
+          />
+
+          <!-- 图片预览（v-else-if 链：html/office 之后、markdown 之前——Office
+               改动曾整段替换掉本分支，此处补回；imageSrc 为空（非图片/无载荷）
+               时不渲染，链继续向后兜底） -->
           <div v-else-if="viewKind === 'image' && imageSrc" class="fp-image-wrap">
             <img :src="imageSrc" :alt="fileName" class="fp-image" />
           </div>
 
-          <!-- Markdown 预览 -->
-          <div v-else-if="viewKind === 'markdown' && fileData" class="fp-markdown markdown-body" v-html="renderedMarkdown"></div>
+          <!-- Markdown 预览（沙箱 iframe：raw HTML 放行受信渲染 + 相对图片 raw 直链——
+               不进应用 DOM，与 HTML 预览同一安全基线） -->
+          <iframe
+            v-else-if="viewKind === 'markdown' && fileData"
+            class="fp-iframe fp-iframe-markdown"
+            :srcdoc="previewMarkdownDoc"
+            sandbox="allow-scripts"
+          ></iframe>
 
           <!-- 代码 / 纯文本 -->
           <div v-else-if="fileData && !fileData.binary" class="fp-code-wrap">
@@ -518,11 +535,6 @@ onBeforeUnmount(() => {
   max-height: 70vh;
   object-fit: contain;
   border-radius: var(--radius-sm);
-}
-
-/* Markdown */
-.fp-markdown {
-  padding: 20px 24px;
 }
 
 /* 代码 */

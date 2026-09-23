@@ -3,6 +3,9 @@ packages:
   - 'src/vendor/*'
   - 'desktop'
 allowBuilds:
+  '@vue-office/docx': true
+  '@vue-office/excel': true
+  '@vue-office/pptx': true
   electron: true
   electron-winstaller: true
   esbuild: true

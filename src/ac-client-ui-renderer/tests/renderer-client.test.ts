@@ -26,6 +26,33 @@ describe('M27.2 · ac-client-ui-renderer client 半边（服务面 + markdown �
     expect(String(html)).toContain('<');
   });
 
+  it('代码块复制按钮：渲染方 document 级委托——点击即复制 pre code 文本', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    // 裸容器（无任何组件级监听）= 文件预览/工具卡等 v-html 消费面的形态：
+    // 按钮可用性完全依赖渲染管线的 document 级委托
+    const container = document.createElement('div');
+    container.innerHTML = render('```ts\nconst a = 1;\n```');
+    document.body.appendChild(container);
+    // jsdom 无 navigator.clipboard——stub 后验证委托链路（writeText + 按钮态翻转）
+    const written: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: (t: string) => { written.push(t); return Promise.resolve(); } },
+      configurable: true,
+    });
+    try {
+      const btn = container.querySelector('.md-code-block-btn') as HTMLElement;
+      btn.click();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(written).toEqual(['const a = 1;\n']);
+      expect(btn.classList.contains('copied')).toBe(true);
+      expect(btn.querySelector('.md-code-block-btn-text')?.textContent).toBe('已复制');
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+      document.body.removeChild(container);
+    }
+  });
+
   it('文件路径识别：正斜杠/反斜杠/盘符/混形皆可点（linkifyFilePaths）', async () => {
     const { useMarkdown } = await import('../client/useMarkdown.ts');
     const { render } = useMarkdown();

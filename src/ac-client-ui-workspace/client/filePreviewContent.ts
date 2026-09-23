@@ -12,6 +12,7 @@ import { ref, computed, watch, getCurrentInstance } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { hljs, ensureHljsLanguage, hljsLanguageVersion } from 'ac-client-ui-renderer/client/hljs-languages.ts';
 import { fetchWorkspaceFile, type ReadContext } from './workspaceFile.ts';
+import { preparePreviewHtml, rewriteHtmlRefs, dirOf, markdownPreviewDoc } from './htmlPreviewRefs.ts';
 
 interface FileData {
   path: string;
@@ -26,11 +27,11 @@ interface FileData {
 // 视图模式（下拉框格式选择）：能力检查 + 分派（纯函数，可单测）
 // ============================================================
 
-/** 视图模式：'auto' 按扩展名自动分派；其余为用户显式选择的渲染格式 */
-export type PreviewViewMode = 'auto' | 'markdown' | 'code' | 'text' | 'image' | 'html';
+/** 视图模式：'auto' 演示扩展名自动分派；其余为用户显式选择的渲染格式 */
+export type PreviewViewMode = 'auto' | 'markdown' | 'code' | 'text' | 'image' | 'html' | 'office';
 
 /** 实际渲染分支（viewMode 解析结果——auto 落到具体格式） */
-export type PreviewViewKind = 'markdown' | 'code' | 'text' | 'image' | 'html';
+export type PreviewViewKind = 'markdown' | 'code' | 'text' | 'image' | 'html' | 'office';
 
 /** 高亮语言表（扩展名 → hljs 语言）：非表内扩展名按纯文本渲染 */
 const HIGHLIGHT_LANGS = new Set([
@@ -45,6 +46,11 @@ const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico']);
 
 /** 纯文本展示扩展名（无高亮价值：日志/普通文本/逗号分隔数据等） */
 const TEXT_EXTS = new Set(['txt', 'log', 'csv', 'env']);
+
+/** Office 文档扩展名（@vue-office 渲染：docx/xlsx/pptx 纯前端解析；
+ *  doc/xls/ppt 属 97-2003 复合二进制格式，解析器不支持——不进此表，
+ *  维持未知二进制兜底（十六进制/下载/本地打开） */
+const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xlsm', 'pptx']);
 
 /** 文件名（含扩展名）提取 */
 function baseNameOf(p: string): string {
@@ -69,11 +75,12 @@ export function previewModeOptions(path: string): PreviewViewMode[] {
   const ext = extOf(path);
   // 已知二进制扩展名（图片除外）与无扩展名：auto 分支兜底渲染，无可切
   // 格式（svg 在 IMAGE_EXTS 内不会走到这里）
-  if (!ext || (!IMAGE_EXTS.has(ext) && !HIGHLIGHT_LANGS.has(ext) && !TEXT_EXTS.has(ext))) {
+  if (!ext || (!IMAGE_EXTS.has(ext) && !HIGHLIGHT_LANGS.has(ext) && !TEXT_EXTS.has(ext) && !OFFICE_EXTS.has(ext))) {
     return [];
   }
   const opts: PreviewViewMode[] = ['auto'];
-  if (ext === 'md') opts.push('markdown', 'code', 'text');
+  if (OFFICE_EXTS.has(ext)) opts.push('office');
+  else if (ext === 'md') opts.push('markdown', 'code', 'text');
   else if (ext === 'html' || ext === 'htm') opts.push('html', 'code', 'text');
   else if (IMAGE_EXTS.has(ext)) opts.push('image', ...(ext === 'svg' ? ['code' as PreviewViewMode] : [])); // svg 文本格式可看源码；位图 binary 无文本视图
   else if (HIGHLIGHT_LANGS.has(ext)) opts.push('code', 'text');
@@ -89,6 +96,7 @@ export const PREVIEW_MODE_LABELS: Record<PreviewViewMode, string> = {
   text: '纯文本',
   image: '图片',
   html: '网页',
+  office: 'Office',
 };
 
 /**
@@ -105,14 +113,16 @@ export function resolveViewKind(
   const ext = extOf(path);
   // auto 结果（扩展名 → 自然格式）
   let auto: PreviewViewKind;
-  if (ext === 'md') auto = 'markdown';
+  if (OFFICE_EXTS.has(ext)) auto = 'office';
+  else if (ext === 'md') auto = 'markdown';
   else if (ext === 'html' || ext === 'htm') auto = 'html';
   else if (IMAGE_EXTS.has(ext)) auto = 'image';
   else if (HIGHLIGHT_LANGS.has(ext)) auto = 'code';
   else auto = 'text';
   if (viewMode === 'auto') return auto;
-  // binary 网关：非图片二进制只允许 text（十六进制兜底视图）
-  if (binary && viewMode !== 'image') return auto === 'image' ? 'image' : 'text';
+  // binary 网关：非图片二进制只允许 text（十六进制兜底视图）；office 文件
+  // 例外——其二进制载荷正是渲染源（@vue-office 吃 base64），office 即自然格式
+  if (binary && viewMode !== 'image' && viewMode !== 'office') return auto === 'image' ? 'image' : auto === 'office' ? 'office' : 'text';
   // 合法性检查：选项集外的显式模式回落 auto（防脏数据/竞态）
   return previewModeOptions(path).includes(viewMode) ? viewMode : auto;
 }
@@ -174,7 +184,7 @@ export function useFilePreviewContent(
   context: () => ReadContext,
   enabled: () => boolean,
 ) {
-  const { render } = useMarkdown();
+  const { renderTrusted } = useMarkdown();
 
   const loading = ref(false);
   const error = ref('');
@@ -192,6 +202,9 @@ export function useFilePreviewContent(
 
   // 是否为 HTML 文件
   const isHtml = computed(() => ['html', 'htm'].includes(ext.value));
+
+  // 是否为 Office 文档（@vue-office 前端渲染域：docx/xlsx/pptx 家族）
+  const isOffice = computed(() => OFFICE_EXTS.has(ext.value));
 
   // 是否为图片
   const isImage = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext.value));
@@ -211,6 +224,7 @@ export function useFilePreviewContent(
       md: 'Markdown', sql: 'SQL', sh: 'Bash', bash: 'Bash', ps1: 'PowerShell',
       abap: 'ABAP', vue: 'Vue', svelte: 'Svelte', txt: 'Text', log: 'Log',
       ini: 'INI', cfg: 'Config', env: 'Env', bat: 'Batch', cmd: 'Batch',
+      docx: 'Word', xlsx: 'Excel', xlsm: 'Excel', pptx: 'PowerPoint',
     };
     return map[ext.value] || ext.value.toUpperCase() || 'Text';
   });
@@ -236,6 +250,14 @@ export function useFilePreviewContent(
     return '';
   });
 
+  // Office 文档渲染源（@vue-office 三组件直接吃 base64 字符串；
+  // 未知扩展名/非 base64 载荷不出源——模板分支不渲染）
+  const officeSrc = computed(() => {
+    const d = fileData.value;
+    if (!d || !d.base64) return '';
+    return d.content;
+  });
+
   // 代码高亮
   const highlightedCode = computed(() => {
     if (!fileData.value || fileData.value.binary || isHtml.value || isImage.value) return '';
@@ -259,10 +281,28 @@ export function useFilePreviewContent(
   // 模板串）——行尾闭合栈上开标签、行首重开，颜色在行边界无损延续。
   const highlightedLines = computed<string[]>(() => splitHighlightedHtml(highlightedCode.value));
 
-  // Markdown 渲染
-  const renderedMarkdown = computed(() => {
-    if (!fileData.value || !isMarkdown.value) return '';
-    return render(fileData.value.content);
+  // HTML 预览内容：srcdoc 文档无自身 URL，相对路径按宿主页解析必 404
+  //——改写相对引用为 raw 直链（按文件所在目录拼 + 读面上下文透传）、
+  // 注入 base target（详见 htmlPreviewRefs.ts）。基准取回显 path
+  //（displayPath：数据根命中 = 请求形，工作区推导 = 绝对路径），
+  // 缺席回落请求路径。
+  const previewHtml = computed(() => {
+    const d = fileData.value;
+    if (!d || !isHtml.value) return '';
+    return preparePreviewHtml(d.content, d.path || path.value, context());
+  });
+
+  // Markdown 预览文档（沙箱 iframe srcdoc 用）：受信渲染（raw HTML 放行
+  //——README 常带 <div align>/<img>/<details>，聊天实例会转义成字面文本）
+  // + 相对引用改 raw 直链（与 HTML 预览同款）+ 内嵌调色板文档壳（iframe
+  // 内无应用主题变量，亮暗随系统偏好）。文档整体进 sandbox iframe——
+  // 不可信内容不进应用 DOM，与 HTML 预览同一安全基线。
+  const previewMarkdownDoc = computed(() => {
+    const d = fileData.value;
+    if (!d || !isMarkdown.value) return '';
+    void hljsLanguageVersion.value; // 响应式依赖：冷门语言补齐后重算
+    const body = rewriteHtmlRefs(renderTrusted(d.content), dirOf(d.path || path.value), context());
+    return markdownPreviewDoc(body);
   });
 
   // 行号（尾部空行滤除：源码常以 \n 结束，split 产生的末位空串不是真实行——
@@ -339,8 +379,8 @@ export function useFilePreviewContent(
 
   return {
     loading, error, fileData,
-    ext, fileName, isHtml, isImage, isMarkdown, langLabel,
-    imageSrc, highlightedCode, highlightedLines, renderedMarkdown, codeLines, sizeDisplay,
-    reload: loadFile, invalidate,
+    ext, fileName, isHtml, isImage, isMarkdown, isOffice, langLabel,
+    imageSrc, officeSrc, highlightedCode, highlightedLines, previewHtml, previewMarkdownDoc,
+    codeLines, sizeDisplay, reload: loadFile, invalidate,
   };
 }

@@ -18,6 +18,7 @@ import {
 } from './filePreviewContent.ts';
 import { useModeMenu } from './useModeMenu.ts';
 import { openLocalFile } from './fileApi.ts';
+import OfficeView from './OfficeView.vue';
 import { useClientContext } from 'ac-client-runtime';
 
 const props = defineProps<{
@@ -40,8 +41,8 @@ const props = defineProps<{
 }>();
 
 const {
-  loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown,
-  imageSrc, highlightedLines, renderedMarkdown, codeLines, sizeDisplay, invalidate, reload,
+  loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown, isOffice,
+  imageSrc, officeSrc, highlightedLines, previewHtml, previewMarkdownDoc, codeLines, sizeDisplay, invalidate, reload,
 } = useFilePreviewContent(
   () => props.path,
   () => ({ agentId: props.fallbackAgentId, conversationId: props.conversationId }),
@@ -254,20 +255,38 @@ onBeforeUnmount(() => {
         <button class="fpt-error-retry" @click="reload">重试</button>
       </div>
 
-      <!-- HTML 预览（sandbox 仅 allow-scripts——同 Modal 安全基线） -->
+      <!-- HTML 预览（sandbox 仅 allow-scripts——同 Modal 安全基线；previewHtml = 相对引用
+           改 raw 直链 + base target 注入，srcdoc 原文无法定位） -->
       <iframe
         v-else-if="viewKind === 'html' && fileData"
         class="fpt-iframe"
-        :srcdoc="fileData.content"
+        :srcdoc="previewHtml"
         sandbox="allow-scripts"
       ></iframe>
 
+      <!-- Office 文档预览（@vue-office 前端渲染：docx/xlsx/pptx 家族；
+           组件内按扩展名选解析器 + 懒加载，失败走组件内错误态） -->
+      <OfficeView
+        v-else-if="viewKind === 'office' && officeSrc"
+        :name="fileName"
+        :src="officeSrc"
+      />
+
+      <!-- 图片预览（v-else-if 链：html/office 之后、markdown 之前——Office
+           改动曾整段替换掉本分支，此处补回；imageSrc 为空（非图片/无载荷）
+           时不渲染，链继续向后兜底） -->
       <div v-else-if="viewKind === 'image' && imageSrc" class="fpt-image-wrap">
         <img :src="imageSrc" :alt="fileName" class="fpt-image" />
       </div>
 
-      <!-- Markdown 渲染 -->
-      <div v-else-if="viewKind === 'markdown' && fileData" class="fpt-markdown markdown-body" v-html="renderedMarkdown"></div>
+      <!-- Markdown 预览（沙箱 iframe：raw HTML 放行受信渲染 + 相对图片 raw 直链——
+           不进应用 DOM，与 HTML 预览同一安全基线） -->
+      <iframe
+        v-else-if="viewKind === 'markdown' && fileData"
+        class="fpt-iframe fpt-iframe-markdown"
+        :srcdoc="previewMarkdownDoc"
+        sandbox="allow-scripts"
+      ></iframe>
 
       <!-- 代码视图（代码高亮 / 纯文本共用行式布局；text 模式无高亮、
            无衬线渲染）——每行 = [行号][代码] 同格（wrap 态折行行高
@@ -491,9 +510,6 @@ onBeforeUnmount(() => {
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-sm);
-}
-.fpt-markdown {
-  padding: 14px 16px;
 }
 /* ── 代码视图（行式布局）：每行 = [行号][代码] 同格 ──
    wrap 态：行内折行，行高随折行数增长——行号钉在行首恒对齐；

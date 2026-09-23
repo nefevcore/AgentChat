@@ -110,6 +110,39 @@ window.addEventListener('theme-changed', ((e: CustomEvent) => {
   applyTheme(e.detail.theme === 'dark');
 }) as EventListener);
 
+// ---- 代码块复制按钮：document 级事件委托 ----
+// 复制按钮由 fence 渲染规则注入 v-html（模板上无法挂 @click），消费方
+// 又众多（聊天消息/文件预览/工具卡/版本对话框……）——在渲染方统一委托
+// 处理：任何以 v-html 渲染本管线输出的容器，复制按钮即点即用；消费方
+// 不各自挂监听（重复挂载会双触发 writeText）。
+document.addEventListener('click', (e: Event) => {
+  const copyBtn = (e.target as HTMLElement).closest(
+    '.md-code-block-btn[data-action="copy"]',
+  ) as HTMLElement | null;
+  if (!copyBtn) return;
+
+  const block = copyBtn.closest('.md-code-block');
+  const codeEl = block?.querySelector('pre code');
+  if (!codeEl) return;
+
+  const text = codeEl.textContent || '';
+  navigator.clipboard.writeText(text).then(() => {
+    copyBtn.classList.add('copied');
+    const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
+    if (textSpan) textSpan.textContent = '已复制';
+    setTimeout(() => {
+      copyBtn.classList.remove('copied');
+      if (textSpan) textSpan.textContent = '复制';
+    }, 2000);
+  }).catch(() => {
+    const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
+    if (textSpan) textSpan.textContent = '失败';
+    setTimeout(() => {
+      if (textSpan) textSpan.textContent = '复制';
+    }, 1500);
+  });
+});
+
 // ---- YAML frontmatter（文档首部 --- 围合的元数据块）----
 // 背景：markdown-it 无 frontmatter 概念，首行 --- 落入 hr/setext 规则——
 //   `---\nname: x\n---` 渲染成 hr + h2(name: x) + hr，元数据被错误
@@ -189,10 +222,12 @@ function renderFrontmatterBlock(yamlText: string): string {
 let mdInstance: MarkdownIt | null = null;
 let mdPlainInstance: MarkdownIt | null = null;
 
-/** 创建共享的 markdown-it 基础配置 + 自定义规则 */
-function createBaseInstance(): MarkdownIt {
+/** 创建共享的 markdown-it 基础配置 + 自定义规则
+ *  trusted：放行 raw HTML（文件预览 Markdown 视图——渲染进沙箱 iframe，
+ *  不进应用 DOM，安全由消费方容器承担；聊天实例恒 false） */
+function createBaseInstance(trusted = false): MarkdownIt {
     const md = new MarkdownIt({
-        html: false,
+        html: trusted,
         linkify: true,
         breaks: true,
         highlight(str: string, lang: string): string {
@@ -313,6 +348,19 @@ function getMarkdownPlainInstance(): MarkdownIt {
     if (mdPlainInstance) return mdPlainInstance;
     mdPlainInstance = createBaseInstance();
     return mdPlainInstance;
+}
+
+// ---- 受信渲染实例（文件预览 Markdown 视图专用）----
+// raw HTML 放行（html:true）——README 等 Markdown 文档常带 <div align>/
+// <img>/<details> 原生标签，聊天实例（html:false）会转义成字面文本。
+// 惰性创建：与另两实例同款懒初始化。KaTeX 不在受信实例装配（预览场景
+// 罕见公式，避免动态 import 管线分叉）。
+let mdTrustedInstance: MarkdownIt | null = null;
+
+function getMarkdownTrustedInstance(): MarkdownIt {
+    if (mdTrustedInstance) return mdTrustedInstance;
+    mdTrustedInstance = createBaseInstance(true);
+    return mdTrustedInstance;
 }
 
 // ---- 文件路径检测 ----
@@ -464,6 +512,7 @@ function linkifyFilePaths(html: string): string {
 export function useMarkdown() {
     const md = getMarkdownInstance();
     const mdPlain = getMarkdownPlainInstance();
+    const mdTrusted = getMarkdownTrustedInstance();
 
     function render(content: string): string {
 
@@ -518,5 +567,22 @@ export function useMarkdown() {
         }
     }
 
-    return { render, renderPlain };
+    /** 受信渲染（raw HTML 放行）——文件预览 Markdown 视图专用；输出须
+     *  渲染进沙箱 iframe（不进应用 DOM——不可信文件内容） */
+    function renderTrusted(content: string): string {
+        if (!content) return '';
+        const trimmed = content.trimEnd();
+        if (!trimmed) return '';
+        try {
+            const { text: afterTags, tags: fileTags } = parseFileTags(trimmed);
+            const rendered = mdTrusted.render(afterTags).trimEnd();
+            const withTags = restoreTags(rendered, fileTags);
+            return linkifyFilePaths(withTags);
+        } catch (error) {
+            logger.error('Markdown 渲染失败:', error);
+            return mdTrusted.utils.escapeHtml(content);
+        }
+    }
+
+    return { render, renderPlain, renderTrusted };
 }
