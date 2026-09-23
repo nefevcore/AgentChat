@@ -385,6 +385,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
       'plugin-gates', 'plugin-market', 'plugin-registry',
       'preset-builtin', // 内置预设模式数据行（标准/极简注入预设目录）
+      'remote-link', // M1 远程链路（noise E2E + 配对 + scopes 闸门）
       'restart', 'router',
       'run-code', // 程序化模式 PTC 内核（run_code 工具行，2026-09-17 P0；
                    // 开关化后预设子行 run-code-preset 已随 research §十 退役——
@@ -405,6 +406,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-layout', // M27.2-2：基础件出包之七（应用壳——基础七件收官）
       'ui-llm-pool', // M28 P2：settings 退化行（Provider 连接池管理节）
       'ui-plugin-registry', // M28 P2：settings 退化行（插件库四件）
+      'ui-remote', // P1 远程设备前端行（settings:section 设备管理节）
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-run-code', // run_code 程序卡（ac-run-code 镜像：程序体 + 子调用摘要 + 返回值）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族

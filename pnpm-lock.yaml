@@ -286,6 +286,9 @@ importers:
       ac-client-ui-plugin-registry:
         specifier: workspace:*
         version: link:src/ac-client-ui-plugin-registry
+      ac-client-ui-remote:
+        specifier: workspace:*
+        version: link:src/ac-client-ui-remote
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:src/ac-client-ui-renderer
@@ -427,6 +430,9 @@ importers:
       ac-memory-core:
         specifier: workspace:*
         version: link:src/ac-memory-core
+      ac-noise-core:
+        specifier: workspace:*
+        version: link:src/ac-noise-core
       ac-persona:
         specifier: workspace:*
         version: link:src/ac-persona
@@ -442,6 +448,9 @@ importers:
       ac-plugin-registry:
         specifier: workspace:*
         version: link:src/ac-plugin-registry
+      ac-remote-link:
+        specifier: workspace:*
+        version: link:src/ac-remote-link
       ac-restart:
         specifier: workspace:*
         version: link:src/ac-restart
@@ -857,6 +866,9 @@ importers:
       ac-client-ui-plugin-registry:
         specifier: workspace:*
         version: link:../ac-client-ui-plugin-registry
+      ac-client-ui-remote:
+        specifier: workspace:*
+        version: link:../ac-client-ui-remote
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
@@ -992,6 +1004,9 @@ importers:
       ac-plugin-registry:
         specifier: workspace:*
         version: link:../ac-plugin-registry
+      ac-remote-link:
+        specifier: workspace:*
+        version: link:../ac-remote-link
       ac-restart:
         specifier: workspace:*
         version: link:../ac-restart
@@ -1623,6 +1638,31 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-client-ui-remote:
+    dependencies:
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../ac-client-ui-settings
+    devDependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2851,6 +2891,12 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  src/ac-noise-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   src/ac-openai-completions:
     devDependencies:
       vitest:
@@ -3024,6 +3070,28 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.24.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-remote-link:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      '@agentchat/schemastery':
+        specifier: workspace:*
+        version: link:../vendor/schemastery
+      ac-noise-core:
+        specifier: workspace:*
+        version: link:../ac-noise-core
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   src/ac-restart:
     dependencies:

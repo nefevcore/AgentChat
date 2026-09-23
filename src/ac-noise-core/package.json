@@ -1,0 +1,16 @@
+{
+  "name": "ac-noise-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Noise XK/KK 握手状态机 + AEAD 帧封装纯库（零 cordis 依赖，纯 node:crypto）——remote-client-relay-plan §4.2 的 M1 实现",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

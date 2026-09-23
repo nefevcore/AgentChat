@@ -3,7 +3,8 @@
 //   RELAY_PORT      监听端口（缺省 8443）
 //   RELAY_TLS_CERT  / RELAY_TLS_KEY   自签证书路径（设了即开 TLS）
 //   RELAY_HOST      绑定地址（缺省 0.0.0.0）
-import { createServer } from 'node:https';
+import { createServer as createHttpsServer } from 'node:https';
+import { createServer as createHttpServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { RelayCore, type RelayConn } from './index.ts';
@@ -16,7 +17,7 @@ const cert = process.env.RELAY_TLS_CERT;
 const key = process.env.RELAY_TLS_KEY;
 
 const httpServer = cert && key
-  ? createServer({
+  ? createHttpsServer({
       cert: readFileSync(cert),
       key: readFileSync(key),
       // 安全基线（sec-scan 2026-09-16）：仅前向保密套件（ECDHE）——禁静态 RSA
@@ -32,7 +33,18 @@ const httpServer = cert && key
       ].join(':'),
       honorCipherOrder: true,
     })
-  : createServer({}); // 无证书 = 明文 ws（本机回环测试用；生产必配 TLS）
+  : createHttpServer({}); // 无证书 = 明文 ws——必须走 node:http（https server 对明文握手只会挂起到超时：本地 loopback 全链路验证的踩坑存档）
+
+// HTTP 面最小实现（上游方案 §4.3）：healthz 存活探测（无信息量：恒 200）。
+// 同时兜住非 upgrade 的 HTTP 请求——无 handler 时 node http 会挂起连接
+// （socket hang up 的来源），WS upgrade 本身不受影响。
+httpServer.on('request', (req, res) => {
+  if (req.url === '/healthz') {
+    res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+    return;
+  }
+  res.writeHead(404).end();
+});
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: 1024 * 1024 });
 

@@ -1,0 +1,30 @@
+{
+  "name": "ac-client-ui-remote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "远程设备设置节前端行：设备列表/吊销 + 配对（二维码/SAS）——remote-link P1",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-settings": "workspace:*"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ],
+  "devDependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

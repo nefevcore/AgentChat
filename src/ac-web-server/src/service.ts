@@ -666,6 +666,17 @@ export class WebServerService extends Service {
   }
 
   /**
+   * 进程内 RPC 调用（M1 remote-link 用：远程设备的 rpc/call 经 scopes 闸门
+   * 后由此进入本地注册面——与 WS 帧到达同一条 handleRpc 处理链，无第
+   * 二实现）。未注册 method 抛 unknown-method（与 WS 同口径）。
+   */
+  async callRpc(method: string, params?: unknown): Promise<unknown> {
+    const handler = this.rpcTable.get(method);
+    if (!handler) throw new Error(`unknown method: ${method}`);
+    return handler(params, { requestId: '', connId: '', ack: () => {} });
+  }
+
+  /**
    * 投递回执：向来源连接（缺省广播）发 ws/ack 帧 + emit ws/ack 事件。
    * deduped 由传输层内置判定；busy/parked 由投递方按 conversation
    * outcome（steered/queued/timeout）上报。

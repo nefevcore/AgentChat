@@ -289,6 +289,15 @@
 # 预构建 dist 进 ac-webui 静态目录，见 docs/m7-webui-plan.md） ----
 - id: web-api
   name: 'ac-web-api'
+# ---- M1 远程链路（remote-client-relay-plan §4.4：出站 relay + Noise E2E +
+# 设备注册表 + 配对 + scopes 闸门；行配置缺省不开——relayUrl 空即静默待机） ----
+- id: remote-link
+  name: 'ac-remote-link'
+- id: ui-remote
+  name: 'ac-client-ui-remote'
+# P1 远程设备前端行（settings:section 贡献：配对二维码/SAS/吊销）
+# - id: ui-remote
+#   name: 'ac-client-ui-remote'
 - id: agent-admin
   name: 'ac-agent-admin'
 - id: hmr

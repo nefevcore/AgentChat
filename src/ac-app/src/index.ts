@@ -60,6 +60,7 @@ import * as todoRow from 'ac-todo';
 import * as toolsRow from 'ac-tools';
 import * as usageRow from 'ac-usage';
 import * as webApiRow from 'ac-web-api';
+import * as remoteLinkRow from 'ac-remote-link';
 import * as webServerRow from 'ac-web-server';
 import * as webToolsRow from 'ac-web-tools';
 import * as sapAdtRow from 'ac-sap-adt';
@@ -99,6 +100,7 @@ import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
 import * as uiDesktopStorageRow from 'ac-client-ui-desktop-storage';
 import * as uiSearchPoolRow from 'ac-client-ui-search-pool';
 import * as uiPluginRegistryRow from 'ac-client-ui-plugin-registry';
+import * as uiRemoteRow from 'ac-client-ui-remote';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -238,6 +240,8 @@ export const TREE: TreeRow[] = [
   { id: 'job-wakeup', plugin: jobWakeupRow },
   // ---- M7 WebUI 接线（RPC 业务方法注册；行序仅是装配一览） ----
   { id: 'web-api', plugin: webApiRow },
+  { id: 'remote-link', plugin: remoteLinkRow },
+  { id: 'ui-remote', plugin: uiRemoteRow },
   { id: 'agent-admin', plugin: agentAdminRow },
 ];
 

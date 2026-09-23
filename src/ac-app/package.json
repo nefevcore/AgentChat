@@ -104,6 +104,8 @@
     "ac-todo": "workspace:*",
     "ac-tools": "workspace:*",
     "ac-usage": "workspace:*",
+    "ac-client-ui-remote": "workspace:*",
+    "ac-remote-link": "workspace:*",
     "ac-web-api": "workspace:*",
     "ac-web-server": "workspace:*",
     "ac-web-tools": "workspace:*",
