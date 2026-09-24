@@ -57,9 +57,13 @@ jobs:
       - name: 构建发布 bundle（dist/）
         run: pnpm build:bundle
 
-      - name: 打包桌面安装包（不上传 Releases）
+      # 产物上传走 GitHub Releases draft（2026-09-24 提速裁决）：runner → Releases
+      # 走 GitHub 内网秒传；下载服务器在收尾 job 反向拉取（服务器 → GitHub 方向
+      # 带宽好）——取代此前三腿 scp 直推（境外 → 境内 ~5Mbps，600MB 传 16 分钟/腿，
+      # 三腿累计 40+ 分钟）。draft 不公开，下载面仍指向自托管（分发裁决不变）。
+      - name: 打包桌面安装包（上传 Releases draft——中转提速）
         working-directory: desktop
-        run: npx electron-builder ${{ matrix.targets }} --publish never
+        run: npx electron-builder ${{ matrix.targets }} --publish always
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -89,63 +93,9 @@ jobs:
           path: sha-baseline/SHA256SUMS
           if-no-files-found: error
 
-      - name: 上传安装包到下载服务器
-        if: matrix.os != 'windows-latest'   # windows 腿产物形态不同，单独一步
-        shell: bash
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
-            echo "::warning::未配置 secrets——跳过上传"
-            exit 0
-          fi
-          # tag push：ref 名去 v 前缀（v0.8.11 → 0.8.11）；workflow_dispatch：读 desktop/package.json 版本
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            VER="${GITHUB_REF_NAME#v}"
-          else
-            VER="$(node -p "require('./desktop/package.json').version")"
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
-          # linux: AppImage；macos: dmg + zip（electron-builder 输出在 desktop/release）
-          shopt -s nullglob
-          for f in desktop/release/*.AppImage desktop/release/*.dmg desktop/release/*.zip; do
-            scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/$VER/"
-          done
+      # （scp 直推已退役——见「打包桌面安装包」步骤注释；服务器拉取在 manifest job）
 
-      - name: 上传安装包到下载服务器（windows 腿）
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
-            echo "::warning::未配置 SERVER_HOST/SSH_PRIVATE_KEY secrets——跳过上传"
-            exit 0
-          fi
-          # tag push：ref 名去 v 前缀；workflow_dispatch：读 desktop/package.json 版本（避免 VER=main 误传目录）
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            VER="${GITHUB_REF_NAME#v}"
-          else
-            VER="$(node -p "require('./desktop/package.json').version")"
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/downloads/$VER"
-          for f in desktop/release/*.exe; do
-            scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/$VER/"
-          done
+      # （windows 腿 scp 同上退役）
 
   # ---- 收尾：三腿产物齐后重算 manifest（消除并发写冲突）----
   manifest:
@@ -164,6 +114,60 @@ jobs:
           pattern: sha-baseline-*
           path: sha-baseline
           merge-multiple: true
+      # ---- 服务器从 Releases draft 拉取产物（2026-09-24 提速裁决）----
+      # 方向反转：服务器 → GitHub（境内 → 境外，带宽好）取代三腿 scp 直推。
+      # draft 不公开：服务器侧带 GH_TOKEN 走 assets API 拉取；token 经 SSH 环境
+      # 变量注入，只在会话内存中用完即弃（不落盘）。拉完删除 draft release
+      #（GitHub 不留安装包——分发裁决不变，服务器是唯一正本）。
+      - name: 服务器拉取 Releases draft 产物 + 清理中转
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          GH_REPO_CTX: ${{ github.repository }}
+          GH_JOB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过拉取"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(node -p "require('./desktop/package.json').version")"
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # 服务器侧拉取脚本（heredoc 全程经 SSH stdin，不落服务器盘）
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" \
+            VER="$VER" GH_REPO="$GH_REPO_CTX" GH_TOKEN_JOB="$GH_JOB_TOKEN" bash -s <<'PULL'
+          set -euo pipefail
+          DEST="/var/www/agentchat/downloads/$VER"
+          mkdir -p "$DEST"
+          # 找本 tag 的 draft release（electron-builder 以 tag 名建 draft）
+          TAG="v$VER"
+          REL_ID=$(curl -sS -H "Authorization: token $GH_TOKEN_JOB" \
+            "https://api.github.com/repos/$GH_REPO/releases" \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const rs=JSON.parse(d);const r=rs.find(x=>x.draft&&x.tag_name===process.argv[1]);console.log(r?r.id:"")})' "$TAG")
+          if [ -z "$REL_ID" ]; then echo "PULL-ERR: draft release $TAG 未找到"; exit 1; fi
+          ASSETS=$(curl -sS -H "Authorization: token $GH_TOKEN_JOB" \
+            "https://api.github.com/repos/$GH_REPO/releases/$REL_ID/assets")
+          COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).filter(a=>!/blockmap$/.test(a.name)).length)})')
+          echo "[pull] draft $TAG：$COUNT 个产物 → $DEST"
+          echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(!/blockmap$/.test(a.name))console.log(a.browser_download_url+"\t"+a.name)}})' \
+            | while IFS=$'\t' read -r URL NAME; do
+                echo "[pull] $NAME"
+                curl -sSL -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME" "$URL"
+              done
+          # 中转清理：删 draft release（GitHub 不留安装包）
+          curl -sS -X DELETE -H "Authorization: token $GH_TOKEN_JOB" \
+            "https://api.github.com/repos/$GH_REPO/releases/$REL_ID" \
+            && echo "[pull] draft release 已清理（GitHub 不留安装包）"
+          PULL
       - name: 读回校验（服务器字节 vs CI 基准，防发布异常安装包）
         shell: bash
         env:

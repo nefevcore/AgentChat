@@ -36,10 +36,13 @@
         "filter": ["**/*"]
       }
     ],
-    "publish": {
-      "provider": "generic",
-      "url": "http://47.110.63.135/downloads/"
-    },
+    "publish": [
+      {
+        "provider": "github",
+        "draft": true,
+        "releaseType": "draft"
+      }
+    ],
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] }
