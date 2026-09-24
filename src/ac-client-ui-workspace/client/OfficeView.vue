@@ -9,6 +9,7 @@
   @error → 错误面板（本地打开兜底提示）。 -->
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount, defineAsyncComponent } from 'vue';
+import { loadOfficeComponent } from './officeVendor.ts';
 
 const props = defineProps<{
   /** 文件名（扩展名选组件 + alt 兜底） */
@@ -17,10 +18,13 @@ const props = defineProps<{
   src: string;
 }>();
 
-// 懒加载（首次渲染才拉对应解析器——不进主 bundle）
-const VueOfficeDocx = defineAsyncComponent(() => import('@vue-office/docx'));
-const VueOfficeExcel = defineAsyncComponent(() => import('@vue-office/excel'));
-const VueOfficePptx = defineAsyncComponent(() => import('@vue-office/pptx'));
+// 懒加载（首次渲染才拉对应解析器——不进主 bundle）。
+// 三包 UMD 产物不进 vite 构建图（省每次 build 约 2/3 时间的 parse+minify），
+// 由 sync-office-vendor 直拷 public/vendor/ + officeVendor.ts 注入 <script>
+// 读全局（构建提速方案见 client/officeVendor.ts 头注）。
+const VueOfficeDocx = defineAsyncComponent(() => loadOfficeComponent('docx'));
+const VueOfficeExcel = defineAsyncComponent(() => loadOfficeComponent('excel'));
+const VueOfficePptx = defineAsyncComponent(() => loadOfficeComponent('pptx'));
 
 // 样式随行（excel 的 x-spreadsheet 画布必需；docx/pptx 无独立 css 文件
 //——vite 对不存在文件的动态 import 在 build 期直接失败，按包分守卫）

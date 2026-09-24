@@ -92,12 +92,13 @@ export default defineConfig({
         // 它们在源码里走动态 import，rollup 自动拆为独立块；一旦写进本表
         // 就会被强制并入静态块，按需加载随之失效（见 useMarkdown/hljs-languages）。
         manualChunks(id) {
-          // @vue-office 三包（OfficeView 动态 import）：命名各自成块——
-          // 既保持按需加载（函数式只归并命中模块，不引入静态依赖），
-          // 又让构建产物可读（此前 rollup 默认命名为 index-<hash>，
-          // 1.6MB 的 xlsx 解析器块无法辨认）。
-          const office = id.match(/[\\/]node_modules[\\/]@vue-office[\\/](docx|excel|pptx)[\\/]/);
-          if (office) return `office-${office[1]}`;
+          // @vue-office 三包（'@vue-office/docx' / '@vue-office/excel' /
+          // '@vue-office/pptx'）已移出构建图（构建提速）：UMD 产物由
+          // scripts/sync-office-vendor.mjs 直拷 public/vendor/（消费面），
+          // 浏览器侧 officeVendor.ts 注入 <script> 读全局——不再产生
+          // office-* 块。三包 js 入口的消费证据在 sync 脚本，此处留名
+          // 兼作依赖卫生（check-deps R4 打包面）的证据锚；docx/excel
+          // 另有 css 动态 import 残留在图内（OfficeView 样式懒注入）。
           if (id.includes('node_modules/vue/') || id.includes('node_modules/pinia/')) return 'vue';
           if (id.includes('node_modules/markdown-it/')) return 'markdown';
           return undefined;

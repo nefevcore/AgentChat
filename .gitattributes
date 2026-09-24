@@ -1,0 +1,3 @@
+# vendor 二进制产物（UMD 直拷自 node_modules，sync-office-vendor 按 MD5 比对）
+# ——禁止 EOL 归一化：git 的 LF→CRLF 工作区转换会让幂等校验恒不命中
+src/webui/public/vendor/*.js -text
