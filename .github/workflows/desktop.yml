@@ -65,10 +65,13 @@ jobs:
         working-directory: desktop
         run: |
           set -o pipefail
-          npx electron-builder ${{ matrix.targets }} --publish always 2>&1 | tee eb-build.log || {
+          touch eb-build.log
+          { npx electron-builder ${{ matrix.targets }} --publish always; echo "EB-EXIT=$?"; } 2>&1 | tee eb-build.log
+          grep -q '^EB-EXIT=0$' eb-build.log || {
             echo '--- electron-builder 诊断 ---' | tee -a eb-build.log
-            npx electron-builder --version | tee -a eb-build.log || true
+            node -p '"node " + process.version + " " + process.platform' | tee -a eb-build.log
             echo "GH_TOKEN len: ${#GH_TOKEN} prefix: ${GH_TOKEN:0:4}" | tee -a eb-build.log
+            ls -la | tee -a eb-build.log
             exit 1
           }
         env:
