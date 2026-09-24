@@ -198,12 +198,21 @@ jobs:
               "https://api.github.com/repos/$GH_REPO/releases/$REL_ID/assets")
             COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).filter(a=>!/blockmap$/.test(a.name)).length)})')
             echo "[pull] draft $TAG：$COUNT 个产物 → $DEST"
-            echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(!/blockmap$/.test(a.name))console.log(a.browser_download_url+"\t"+a.name)}})' \
-              | while IFS=$'\t' read -r URL NAME; do
+            # 增量拉取（用户指正：整段重拉会再触发 QoS 断流）——清单附 API digest（sha256），
+            # 服务器侧对已存在文件算 sha 比对，一致即跳过；只补真正缺失/损坏的文件。
+            # 下载走 .part + sha 终验后原子改名（残骸 .part 不污染下载面）。
+            echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(/blockmap$/.test(a.name))continue;console.log([a.browser_download_url,a.name,(a.digest||"").replace(/^sha256:/,"")].join("\t"))}})' \
+              | while IFS=$'\t' read -r URL NAME SHA; do
+                  if [ -n "$SHA" ] && [ -f "$DEST/$NAME" ] && [ "$(sha256sum "$DEST/$NAME" | awk '{print $1}')" = "$SHA" ]; then
+                    echo "[pull] $NAME 已完整（sha 一致），跳过"
+                    continue
+                  fi
                   echo "[pull] $NAME"
-                  rm -f "$DEST/$NAME"
                   curl -sSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 25 \
-                    -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME" "$URL" || { echo "[pull] $NAME 失败"; return 1; }
+                    -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME.part" "$URL" \
+                    && { [ -z "$SHA" ] || [ "$(sha256sum "$DEST/$NAME.part" | awk '{print $1}')" = "$SHA" ]; } \
+                    && mv "$DEST/$NAME.part" "$DEST/$NAME" \
+                    || { echo "[pull] $NAME 失败/校验不符"; rm -f "$DEST/$NAME.part"; return 1; }
                 done
           }
           for ATTEMPT in 1 2 3; do
