@@ -9,6 +9,8 @@
 //   pnpm release:preflight          # 快档：按 CI 同序五步（用现有 node_modules）
 //   pnpm release:preflight --clean  # 干净档：删全部 node_modules → 全新安装 → 五步
 //                                  #（约多 2-4 分钟；发布前建议至少跑一次）
+//   pnpm release:preflight --wsl    # Linux 真环境档：WSL Ubuntu 里跑 install/check:deps/
+//                                  # build:frontend（大小写敏感等平台边界问题的唯一拦截面）
 // 五步与 .github/workflows/publish.yml 完全同序：
 //   install(--frozen-lockfile) → check:deps → build:frontend → test → build:bundle
 // npm publish / electron-builder / 上传等发布动作不预检（有副作用）。
@@ -19,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CLEAN = process.argv.includes('--clean');
+const WSL = process.argv.includes('--wsl');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const pm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -50,11 +53,23 @@ if (CLEAN) {
   console.log(`[preflight] 已清 ${dirs.length} 个 node_modules`);
 }
 
-run('1/5 安装依赖（frozen，与 CI 同参）', pm, ['install', '--frozen-lockfile']);
-run('2/5 依赖卫生检查', pm, ['check:deps']);
-run('3/5 构建前端', pm, ['build:frontend']);
-run('4/5 全量测试', pm, ['test']);
-run('5/5 构建发布 bundle', pm, ['build:bundle']);
+if (WSL) {
+  // Linux 真环境档（WSL Ubuntu）：平台边界问题（大小写敏感/路径语义/)
+  // 只有真 Linux 能暴露——v0.8.14 的 uplot 大小写三连败就是 Windows 不敏感
+  // 掩盖的（本地怎么跑都绿）。用法：先备好 WSL 侧工作副本（见下方提示）。
+  const wslRepo = process.env.WSL_REPO || '~/ci-sim';
+  console.log(`[preflight] WSL 档：在 Ubuntu-24.04 的 ${wslRepo} 跑 Linux 验证`);
+  console.log('[preflight] 提示：WSL 侧副本需先同步（git pull / rsync），本档不自动同步');
+  run('WSL 1/3 安装依赖（frozen）', 'wsl', ['-d', 'Ubuntu-24.04', '--', 'bash', '-c', `cd ${wslRepo} && pnpm install --frozen-lockfile`]);
+  run('WSL 2/3 依赖卫生检查', 'wsl', ['-d', 'Ubuntu-24.04', '--', 'bash', '-c', `cd ${wslRepo} && pnpm check:deps`]);
+  run('WSL 3/3 构建前端（大小写敏感真验证）', 'wsl', ['-d', 'Ubuntu-24.04', '--', 'bash', '-c', `cd ${wslRepo} && pnpm build:frontend`]);
+} else {
+  run('1/5 安装依赖（frozen，与 CI 同参）', pm, ['install', '--frozen-lockfile']);
+  run('2/5 依赖卫生检查', pm, ['check:deps']);
+  run('3/5 构建前端', pm, ['build:frontend']);
+  run('4/5 全量测试', pm, ['test']);
+  run('5/5 构建发布 bundle', pm, ['build:bundle']);
+}
 
 console.log('\n[preflight] ✓ 全部通过——CI 的构建/测试面已本地验证，可以推 tag 了');
 console.log('[preflight] 注：npm publish / 桌面打包（electron-builder）/ 三平台差异面不在预检范围');

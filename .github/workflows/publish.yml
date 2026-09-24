@@ -76,7 +76,10 @@ jobs:
       # npm ≥ 11.5 才支持 trusted publishing（OIDC）。node 自带 npm 版本随小版本波动
       #（24.21 自带 10.9.9 → E401；0.8.13 时 24.2x 自带 11.x 恰好过）——显式升级钉死
       - name: 升级 npm ≥ 11.5（OIDC trusted publishing 最低要求）
-        run: npm install -g npm@11
+        run: |
+          npm install -g npm@11
+          hash -r
+          npm --version
       - name: 发布到 npm（OIDC，无需 token）
         run: |
           set -o pipefail

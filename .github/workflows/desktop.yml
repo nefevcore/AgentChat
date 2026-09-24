@@ -63,9 +63,23 @@ jobs:
       # 三腿累计 40+ 分钟）。draft 不公开，下载面仍指向自托管（分发裁决不变）。
       - name: 打包桌面安装包（上传 Releases draft——中转提速）
         working-directory: desktop
-        run: npx electron-builder ${{ matrix.targets }} --publish always
+        run: |
+          set -o pipefail
+          npx electron-builder ${{ matrix.targets }} --publish always 2>&1 | tee eb-build.log || {
+            echo '--- electron-builder 诊断 ---' | tee -a eb-build.log
+            npx electron-builder --version | tee -a eb-build.log || true
+            echo "GH_TOKEN len: ${#GH_TOKEN} prefix: ${GH_TOKEN:0:4}" | tee -a eb-build.log
+            exit 1
+          }
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: 上传打包诊断（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eb-diagnostic-${{ matrix.os }}
+          path: desktop/eb-build.log
+          if-no-files-found: ignore
 
       # ---- 三腿各传各的产物（文件名不冲突）；manifest 重算在收尾 job ----
       # ---- 发布闸基准（2026-09 用户反馈安装包损坏）：上传前算 CI 侧
