@@ -59,8 +59,14 @@
   需要构建根（webui）自己的 node_modules 有真链接。（修复：8ab26d54 改 peer 供给
   模式：ac-client-ui-usage 声明 peerDependencies + devDependencies，webui 作宿主
   dependencies 供给——R4 经 peerProvisions 白名单放行，解析链有真实链接。）
-- **教训**：两败同源——**本地 node_modules 的历史残留会掩盖干净安装才暴露的问题**。
-  发版前本地验证必须包含「干净安装」一档（见 §4 预检清单）。
+- **第三败：postinstall 档位切换失效**。`sync-office-vendor` 原依赖
+  `@vue-office/*` 的 postinstall 把 `lib/index.js` 切到 vue3 档——但其 postinstall
+  在包内 `require('vue')`，pnpm 严格隔离下 vue 不可达 → 只 warn 不切；本地
+  node_modules 是历史升级来的（某次安装恰好切过档）所以校验恒过，CI 干净
+  安装必失败。（修复：43406bfd，sync 直取 `lib/v3/index.js`，不再依赖 postinstall。）
+- **教训**：三败同源——**本地 node_modules 的历史残留会掩盖干净安装才暴露的问题**。
+  发版前本地验证必须包含「干净安装」一档（见 §4 预检清单）；消费第三方包的
+  postinstall 副作用前，先问一句「干净安装下它还成立吗」。
 
 ### 2.6 推送通道被 TLS 指纹定向拦截（v0.8.14 发版全程——最耗时的非 CI 问题）
 - **现象**：`git push` 到 GitHub 的 HTTPS 持续 `Connection was reset`，跨小时段、
