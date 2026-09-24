@@ -221,10 +221,10 @@ jobs:
             [ "$ATTEMPT" = 3 ] && { echo "[pull] 3 次尝试均失败"; exit 28; }
             echo "[pull] 120s 后重试（等断流冷却）……"; sleep 120
           done
-          # 中转清理：删 draft release（GitHub 不留安装包）
-          curl -sS -X DELETE -H "Authorization: token $GH_TOKEN_JOB" \
-            "https://api.github.com/repos/$GH_REPO/releases/$REL_ID" \
-            && echo "[pull] draft release 已清理（GitHub 不留安装包）"
+          # draft 保留不删（2026-09-25 裁决）：删除曾引发跨 run 竞态——上一轮 manifest 删 draft
+          # 时，下一轮 macOS 腿（打包耗时数分钟）正持有旧 release id 上传 → 404 三连败。
+          # draft 不公开、不占下载面，留作 GitHub 侧冷备（服务器磁盘故障时的正本兜底）。
+          echo "[pull] draft release 保留（GitHub 侧冷备，不删除）"
           PULL
       - name: 读回校验（服务器字节 vs CI 基准，防发布异常安装包）
         shell: bash
