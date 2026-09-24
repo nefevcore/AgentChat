@@ -62,7 +62,29 @@
 - **教训**：两败同源——**本地 node_modules 的历史残留会掩盖干净安装才暴露的问题**。
   发版前本地验证必须包含「干净安装」一档（见 §4 预检清单）。
 
-### 2.6 隐性返工（v0.8.12——首发绿但内容有问题）
+### 2.6 推送通道被 TLS 指纹定向拦截（v0.8.14 发版全程——最耗时的非 CI 问题）
+- **现象**：`git push` 到 GitHub 的 HTTPS 持续 `Connection was reset`，跨小时段、
+  与代理开关无关；期间两次偶然成功是撞上拦截器的概率空窗（第二次成功后紧接
+  的 push 又立刻失败——每次 git 命令新建 TLS 连接，单连接存活率低）。
+- **定位过程（排除法）**：
+  1. DNS 解析正常（20.205.243.166，与 hosts 无关）；
+  2. git 换 schannel 后端同样 5s 被 reset；12 连发 67s 全灭——**不是随机抖动，
+     是定向拦截**；
+  3. **决定性对照**：Node 的 TLS 栈对同一 IP 同一端口 10/10 全通（435ms~6s），
+     curl 偶尔 200——同样的目标，只是 ClientHello 指纹不同，一个死一个活。
+     典型的 GFW 主动探测特征：按 TLS 指纹识别 git 流量并按比例 reset；
+  4. SSH 协议走 ssh.github.com:443 完全畅通（1s 完成认证协商）——非 IP 封锁，
+     只是 HTTPS 的 git 指纹被盯上。
+- **解法（本次实战验证）**：本地 HTTP→HTTPS 中继——git 以明文 HTTP 连
+  `127.0.0.1:34567`，中继用 Node 的 TLS 栈握 GitHub 的手（认证头中继侧经
+  `git credential fill` 读取注入）。1.2s 建链，推送一次成功。
+- **备选通道**（按优先级）：① SSH（`ssh.github.com:443`，需 GitHub 账号加
+  公钥——一次性动作，长期最稳）；② 中继（零配置，脚本即用）；③ 代理节点
+  （本次订阅节点全废，不可依赖）。
+- **教训**：push 反复 reset 时，先用**不同 TLS 栈对照测试**（curl/Node/浏览器）
+  区分「网络不通」与「指纹拦截」——两者解法完全不同，误判会浪费大量时间。
+
+### 2.7 隐性返工（v0.8.12——首发绿但内容有问题）
 - 首发 CI 双绿，但 0.8.11 的 run_code bundle 回归正是 0.8.12 修的——即 0.8.11
   发出去的版本带着已知严重缺陷；0.8.13 上线后桌面更新面又发现 electron-updater
   残留问题（feed 指向 GitHub Releases 永远拿不到新版本）。
@@ -106,6 +128,15 @@ pnpm build:bundle                   # 发布 bundle（bundle 形态差异面）
 
 tag 后观察：publish 与 desktop 双工作流齐绿才对外宣布版本；desktop 的
 manifest 收尾 job（sha256 校验 + gen-manifest）过了才算下载面就绪。
+
+推送通道受阻时（push 持续 reset）：先做不同 TLS 栈对照测试定位是否指纹拦截
+（见 §2.6）；确认后直接走中继或 SSH 通道，不要在原通路反复重试浪费时间：
+
+```powershell
+node .dsh/tmp/git-relay.cjs 34567          # 或把脚本挪到 scripts/ 固化
+git push http://127.0.0.1:34567/nefevcore/AgentChat.git main
+git push http://127.0.0.1:34567/nefevcore/AgentChat.git -f vX.Y.Z
+```
 
 ## 五、后续可做（未立项，仅记录）
 
