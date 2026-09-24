@@ -74,4 +74,18 @@ jobs:
         run: pnpm build:bundle
 
       - name: 发布到 npm（OIDC，无需 token）
-        run: npm publish
+        run: |
+          set -o pipefail
+          npm publish 2>&1 | tee npm-publish.log || {
+            echo '--- npm 诊断 ---' | tee -a npm-publish.log
+            npm whoami 2>&1 | tee -a npm-publish.log || true
+            node -p 'process.version' | tee -a npm-publish.log
+            exit 1
+          }
+      - name: 上传 npm 发布诊断（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-publish-diagnostic
+          path: npm-publish.log
+          if-no-files-found: ignore
