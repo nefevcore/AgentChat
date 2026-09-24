@@ -29,10 +29,12 @@ jobs:
 
       - uses: pnpm/action-setup@v4 # 版本取自 package.json 的 packageManager
 
+      # 注意：trusted publishing（OIDC）下【不能】设 registry-url——setup-node 会写
+      # .npmrc 的 _authToken 引用（NODE_AUTH_TOKEN 未设 = 空 token），npm 走 legacy
+      # 认证路径 → E401（v0.8.14 publish 失败根因之一）。
       - uses: actions/setup-node@v4
         with:
-          node-version: 24 # 自带 npm ≥ 11.5（trusted publishing 最低要求）
-          registry-url: https://registry.npmjs.org
+          node-version: 24
           cache: pnpm
 
       - name: 安装依赖

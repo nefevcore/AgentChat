@@ -39,7 +39,7 @@
     "publish": [
       {
         "provider": "github",
-        "draft": true
+        "releaseType": "draft"
       }
     ],
     "win": {
