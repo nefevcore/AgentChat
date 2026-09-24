@@ -6,6 +6,37 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+---
+
+## [0.8.14] - 2026-09-24
+
+### Added（run 身份贯通——runId/stepId 全链发证，流式帧按键路由）
+- **诊断**（`src/docs/feed-identity-overhaul-plan.md`）：渲染重复卡片 / subcall 挂靠异常 / 流式性能三类问题的共同根源 = 各层用位置/名字/内容前缀互相猜测身份。本批按该方案实施根治：run 级事件的稳定身份贯穿全链。
+- `ac-agent-loop`：`run()` 入口缺省铸造 `runId` 塞回 request（调用方自带则沿用）；步收束盖 `stepId`（= runId:index）——run-started/after-run 载荷、步级 envelope、llm 流式 meta、ToolCall 全系携带同一值。
+- `ac-llm`：`LlmStreamMeta` 增 runId/stepId（dispatch 剥离，不进 provider 请求体）。
+- `ac-session`：`SessionStepRecord` 落盘透传 stepId；run 键优先取 loop 的 runId（跨层对账零翻译）；run_code 子调用补行优先记 `call.runId`——前端宿主定位零前缀扫描。
+- `ac-run-code`：内部变量 runId 改名 execId（消歧义）；子调用 ToolCall 透传宿主 runId。
+- 前端 feed：直播行 stepId 驻留载体 + carrier 索引——delta 帧 O(1) 直达步载体；历史合并同键互认（按键配对取代内容前缀猜测）。
+- `ac-singles`：readRecord mtime 元数据读缓存（379 会话 list 从 ~19ms/250ms+ 降到 stat 级）。
+- 测试：identity-throughput（键控链路）+ regress-phase-window（相位窗口回退）。
+
+### Fixed（大会话切换卡顿终修——DOM 构建主体）
+- **根因**（1.28MB/470 步/923 工具卡会话实测，逐层排查：服务端 records ~50ms / WS 传输 ~50-90ms / 数据管线 ~10ms / **DOM 构建 ~1s+ 主体**）：三层漏网——① turn 层窗口化无效（470 步装在 8 个 run、全会话仅 ~20 turn，INITIAL_WINDOW=24 盖住全部）；② 重挂路径窗口化不触发（watch 无 immediate → 全量单帧挂载）；③ 链折叠只是视觉隐藏（chain-body v-show 照样全量构建 + markdown 渲染——「每次切换都卡」的真正主体）。
+- `TranscriptList.vue`：watch immediate（重挂即窗口化）+ fullyMounted 实例级记忆（同实例切回零重建）；首载只挂尾部 24 turn 不自动补挂；用户上翻分帧补挂（16ms 让出主线程）。
+- `TurnDisplayItem.vue`：chain-body v-show → v-if——折叠 = 不构建，展开才付费（流式轮恒展开不受影响）。
+- scroll-clamp：内容高度变化帧的方向判定豁免——scrollHeight 塌缩被钳制的 scroll 事件不得误判为用户上翻（否则自动跟随被杀 + 视口钉在中部）。
+- viewer-anchor-order：首屏合并的未落盘 viewer 消息保护拷贝按时间戳插入（修「首条 user 消息跑到最后」错位）。
+- singles 前端（`ac-client-ui-singles`）：`singles/updated` 帧增量合并（mergeUpdate 零 RPC，全量 refresh 只留重连兜底）；create/update/fork/archive 直接用 RPC 返回值激活——拆断「点新建 → 卡 → 进入」串行链。
+
+### Changed（webui 构建提速——@vue-office 三包 UMD 移出 vite 构建图）
+- @vue-office/{docx,excel,pptx} 是 UMD 单文件产物（excel 1.6MB、pptx 1.3MB，已 minified），进构建图后每次 build 重新 parse+minify 占约 2/3 时间——**webui build 33s → 11s**。
+- `scripts/sync-office-vendor.mjs`：三包 lib/index.js 直拷 `src/webui/public/vendor/`（幂等 MD5 比对；校验 lib 与 lib/v3 一致防 postinstall vue 档切换被绕过）；挂载 webui / webui:build 前置。
+- `officeVendor.ts`：浏览器侧动态注入 <script> 读全局（UMD 全局名 vue-office-{docx,excel,pptx}），OfficeView 三处懒加载改走该面；`.gitattributes` 禁 vendor 产物 EOL 归一化。
+
+### Changed（杂项）
+- useMarkdown：所有实例的 markdown 链接统一补 target=_blank + noopener——SPA 内整页跳转丢会话状态。
+- logo.svg：深空渐变底 + 星点装饰（根 + webui public 双处）。
+
 ### Changed（ConversationView 拆分精简——conversation-view-split-plan）
 - `ac-client-ui-conversation`：762 行/38KB 的四形态会话内核拆为纯组合壳（258 行）+ 四个内聚模块，对外契约（文件路径 / props / expose / RPC / slot 席位）零变化，四个跨包消费方（conversation/group/runview/singles 的 async 引用）零改动：
 - `useConversationIdentity.ts`：四形态判定/对话寻址/头部目标/标题徽标/席位与 dock 键的纯 computed 族（含 single 空 agentId = 默认预设兜底、排队座位键 agentId 兜底两条踩坑注释随迁）；
