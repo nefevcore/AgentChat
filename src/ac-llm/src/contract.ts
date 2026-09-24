@@ -95,6 +95,14 @@ export interface LlmStreamMeta {
   conversationId?: string;
   sender?: string;
   source?: string;
+  /**
+   * run/step 身份键（2026-12 身份贯通）：loop 装配——runId 与 loop/run-started
+   * 载荷同值；stepId = `${runId}:${index}（与本步 after-step 的
+   * LoopStepRecord.stepId 同值）。delta-* 帧据此把增量按键路由到目标步
+   * 载体（取代位置扫描）。dispatch 时与同族键一并剥离——不进 provider 请求体。
+   */
+  runId?: string;
+  stepId?: string;
 }
 
 export interface LlmChatInput {

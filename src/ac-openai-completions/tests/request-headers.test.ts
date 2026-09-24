@@ -34,7 +34,7 @@ describe('OpenAICompletions per-request headers', () => {
     const { seen, fake } = captureFetch();
     const c = new OpenAICompletions({ baseUrl: 'https://gw/v1', fetchImpl: fake });
     await c.chat({ model: 'm', messages: [{ role: 'user', content: '1' }], headers: { 'x-session': 's' } });
-    expect(seen[0].body.headers).toBeUndefined();
+    expect((seen[0].body as Record<string, unknown>).headers).toBeUndefined();
     expect(JSON.stringify(seen[0].body)).not.toContain('x-session');
   });
 

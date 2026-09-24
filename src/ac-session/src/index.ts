@@ -473,6 +473,12 @@ export interface SessionStepRecord {
   content: string;
   reasoning?: string;
   /**
+   * 步身份键（2026-12 身份贯通）：= `${runId}:${index}（源自 loop 的
+   * LoopStepRecord.stepId）。前端历史展开时透传——直播行与 journal 行
+   * 按键控对齐（取代内容前缀猜测）。旧行无此键 → 前端回落启发式。
+   */
+  stepId?: string;
+  /**
    * 步内相位序标记（源自 loop 步记录的 textBeforeTools，llm 聚合时记录）：
    * true = 本步正文先于工具调用分片到达。落盘于此并在前端历史展开时
    * 透传——思考过程卡片的步内渲染序（思考恒前；正文/工具卡相对序）。
@@ -1061,7 +1067,10 @@ export class SessionService extends Service {
 
       }
       this.activeRuns.set(key, {
-        run: genRunId(),
+        // run 键优先取 loop 的 runId（2026-12 身份贯通：与步级 stepId 前缀、
+        // 流式帧 meta.runId 同源——跨层对账零翻译）；缺席（理论不至：loop
+        // run() 入口恒铸造）回落本地铸造
+        run: request.runId ?? genRunId(),
         archiveReview: isArchiveReviewRun(request.meta),
         wrotePartial: false,
         journaled: false,
@@ -1101,6 +1110,7 @@ export class SessionService extends Service {
       const stepRecord: SessionStepRecord = {
         content: step.text ?? '',
         ...(step.reasoning ? { reasoning: step.reasoning } : {}),
+        ...(step.stepId !== undefined ? { stepId: step.stepId } : {}),
         ...(step.ts !== undefined ? { ts: step.ts } : {}),
         ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
         ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}),
@@ -1259,12 +1269,16 @@ export class SessionService extends Service {
       // 直调补行 → partials.jsonl（不进主文件——partial/补行同属 run 中间态，
       // 关闭行〔切分〕的终值覆盖源，如实保留不清理；主文件零死重）
       const queue = this.queueOf(conversationId, isSubcall ? 'subcalls' : 'partials');
+      // 补行 run 键：settlement 单 run 键（2026-11 泛化——切段行共享
+      // run 键，补行按 run|tool_call_id 对账到步行，无跨键归属问题）。
+      // 2026-12 身份贯通：run_code 子调用优先记 call.runId（loop 发证）——
+      // 与宿主 run_code 步的 stepId 前缀同源，前端宿主定位零前缀扫描
+      const hostRun = call.runCodeSubcall === true && typeof call.runId === 'string' && call.runId
+        ? call.runId
+        : state.run;
       const line: ToolResultLine = {
         type: 'tool-result',
-        // 补行 run 键：settlement 单 run 键（2026-11 泛化——切段行共享
-        // run 键，补行按 run|tool_call_id 对账到步行，无跨键归属问题）
-
-        run: state.run,
+        run: hostRun,
         tool_call_id: call.toolCallId,
         // 如实记录（2026-09-20 双文件改造）：工具终值原样落盘——截断已废
         // 除（见 capSubcallResult 删除注释）。subcall 行落独立 subcalls.jsonl

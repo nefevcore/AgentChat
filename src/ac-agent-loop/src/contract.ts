@@ -24,6 +24,14 @@ import type { ToolInterrupt, ToolResult } from 'ac-tools';
 export type LoopSource = 'user' | 'agent' | 'event';
 
 export interface LoopRunRequest {
+  /**
+   * run 身份键（2026-12 身份贯通）：run 级事件的稳定身份——run-started/
+   * after-run 载荷、step 级 envelope、llm 流式 meta、ToolCall 全系携带同一值。
+   * 调用方可自带（幂等续跑对账等场景）；缺省由 loop 在 run() 入口铸造并
+   * 塞回 request。前端据此把流式帧键控路由到目标载体，取代位置/名字/
+   * 内容前缀猜测（重复卡片/挂靠异常的根治面）。
+   */
+  runId?: string;
   /** 发起方标识（Agent id 等；事件过滤/诊断用，可空；扩展插件经它查 AgentConfig.settings） */
   agent?: string;
   model: string;
@@ -110,6 +118,12 @@ export interface LoopRunCall {
 export interface LoopStepRecord {
   /** 步序（0 起） */
   index: number;
+  /**
+   * 步身份键（2026-12 身份贯通）：= `${runId}:${index}（loop 在步收束时
+   * 盖章）。llm 流式 meta 的 stepId 与之同值——前端 delta 帧按键直达步
+   * 载体；journal 落盘透传（SessionStepRecord.stepId），历史合并键控对齐。
+   */
+  stepId?: string;
   text: string;
   reasoning?: string;
   /** 本步模型产出的工具调用 */

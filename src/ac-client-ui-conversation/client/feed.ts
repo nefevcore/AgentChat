@@ -396,6 +396,22 @@ export interface TurnsMemo {
 }
 
 /**
+ * turn 内容签名（身份复用判定用）：分组身份 + 各步身位 + final 身位。
+ * 前缀消息签名不变 ⇒ 由它们产出的 turn 内容签名不变（buildTurns 是消息
+ * 序的确定函数）——签名相同即安全复用旧 Turn 对象身份。
+ */
+function turnContentSig(t: Turn): string {
+  let s = t.agent_id;
+  for (const st of t.steps) {
+    const a = st.assistant as any;
+    s += `|s:${a.id ?? ''}:${(a.content ?? '').length}:${(a.thinking ?? '').length}:${st.tools.length}`;
+  }
+  const f = t.final;
+  s += `|f:${f ? `${(f as any).id ?? ''}:${((f as any).content ?? '').length}` : '-'}`;
+  return s;
+}
+
+/**
  * 增量 Turn 构建。
  *
  * 流式更新只改写最后一条消息（content/thinking/toolCalls/label/isStreaming 原地追加），
@@ -405,10 +421,13 @@ export interface TurnsMemo {
  *
  * 判定规则（O(n) 指针/签名比较，常数极小，远低于 markdown/DOM 开销）：
  * - streaming 标志或签名完全相同 → 零重建，整体复用；
- * - 仅最后一条消息签名变化 → 前缀 turn 复用身份，只重建最后一个 turn；
- * - 其余任何变化（结构性增删 / 多条消息变化 / 前缀消息被替换）→ 全量重建。
- *   注意：结构性变更（removeMessage/replaceMessage/setRaw/mergeHistory 等）会
- *   由 feed store 显式失效 memo，这里仍是纯函数兜底。
+ * - 仅最后一条消息签名变化 → 前缀 turn 复用身份，只替换最后一个 turn；
+ * - 多条消息变化（步边界：旧步关闭 + 新步占位；2026-12 性能补强）→
+ *   全量计算 buildTurns 后按 turn 内容签名前缀复用旧对象身份——
+ *   未变化轮次的组件 props 身份稳定，不触发重渲染（此前步边界一步
+ *   一全量重建 = 多步 run「越跑越卡」的来源）；
+ * - 其余任何变化（结构性增删/替换）→ 全量。结构性变更由 feed store
+ *   显式失效 memo，这里仍是纯函数兜底。
  *
  * 纯函数：输入 prev 状态 + 消息数组 + run 级流式态，输出新状态（含可复用的 turns）。
  */
@@ -433,6 +452,23 @@ export function buildTurnsIncremental(prev: TurnsMemo | null, msgs: ChatMessage[
         sigs,
         streaming,
       };
+    }
+    // 多条消息变化（步边界常态）：前缀 turn 按内容签名复用身份——
+    // 签名相同的轮次沿用旧对象（Vue props 身份不变 → 组件跳过重渲染）
+    if (full.length >= prev.turns.length && prev.turns.length > 0) {
+      let reuseUntil = 0;
+      const prevSigs = prev.turns.map(turnContentSig);
+      while (reuseUntil < prev.turns.length && reuseUntil < full.length
+        && turnContentSig(full[reuseUntil]) === prevSigs[reuseUntil]) {
+        reuseUntil++;
+      }
+      if (reuseUntil > 0) {
+        return {
+          turns: [...prev.turns.slice(0, reuseUntil), ...full.slice(reuseUntil)],
+          sigs,
+          streaming,
+        };
+      }
     }
     // 分组结构变化（罕见）→ 全量
     return { turns: full, sigs, streaming };

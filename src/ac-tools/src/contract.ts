@@ -96,6 +96,14 @@ export interface ToolCall {
    */
   toolCallId?: string;
   /**
+   * 执行身份（2026-12 身份贯通）：所属 run 的身份键——与 loop/run-started
+   * 载荷的 runId 同值（loop 装配；run_code 桥接子调用继承宿主 runId）。
+   * tool/started·after-execute·progress 帧据此按键定位所属 run/步载体——
+   * run_code 子调用的宿主归属从「tool_call_id 前缀提示」升格为判据。
+   * 身份由调用方装配，工具行与安全行只读取。
+   */
+  runId?: string;
+  /**
    * 中止信号（M11）：长任务工具体应尊重（bash 杀进程 / 浏览器停止加载）。
    * loop 把 request.signal 透传到这里；直接调用方可自带。
    */

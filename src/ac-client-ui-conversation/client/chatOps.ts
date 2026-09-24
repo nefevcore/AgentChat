@@ -16,6 +16,7 @@
 
 import type { DialogId } from './feed.ts';
 import { directDialog, singleDialog, groupDialog, pairDialog } from './feed.ts';
+import type { ChatMessage } from './types.ts';
 
 // ---- 存在集合（原 adapterState 的收编新家） ----
 
@@ -115,15 +116,23 @@ export interface StreamState {
   /**
    * 参数流式阶段已建 preparing 占位的 index 集合（2026-12 反馈：模型生成
    * 工具参数的数秒里前端完全静默——首个分片到达即建占位卡填补）。delta-end
-   * 时与 streams 一同丢弃；重复分片/冲洗片靠它去重，防止同调用两张卡。
+   * 时显式清空（StreamState 寿命已延至 run 收束——见 feed-core delta-end）；重复分片/冲洗片靠它去重，防止同调用两张卡。
    */
   preps: Set<number>;
+  /**
+   * 步身份键 → 该步的流式载体消息（2026-12 身份贯通）：step-started /
+   * 首 delta 到达时登记，本步 delta 帧经 meta.stepId O(1) 直达——取代
+   * lastStreaming 位置扫描。旧后端帧无 stepId 时索引空置，回落启发式。
+   */
+  carrier: Map<string, ChatMessage>;
+  /** 相位标志所属步的 stepId（onStepStart 换步即重置——见 feed-core） */
+  phaseStepId?: string;
 }
 
 export function streamOf(streams: Map<string, StreamState>, dialogId: string): StreamState {
   let st = streams.get(dialogId);
   if (!st) {
-    st = { sawReasoning: false, reasoningClosed: false, sawToolCall: false, sawText: false, tools: new Map(), preps: new Set() };
+    st = { sawReasoning: false, reasoningClosed: false, sawToolCall: false, sawText: false, tools: new Map(), preps: new Set(), carrier: new Map() };
     streams.set(dialogId, st);
   }
   return st;

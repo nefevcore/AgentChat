@@ -587,6 +587,23 @@ export function createFeedCore(
         // 载体，后续 delta 只认它；历史行的完整内容在收束 settlement 重拉时
         // 以权威形态回来）。
         const liveAgents = streamingTail.filter(m => m.role === 'agent' && m.isStreaming);
+        // 长度取胜回写（键控/前缀两路共用）：journal 全量比直播占位长（断线
+        // 丢帧）时把完整内容搬进占位——占位是唯一流式载体（后续 delta 只认
+        // 它），历史行丢弃后其内容必须在此保全，否则本步只剩部分内容。
+        const absorbLongerInto = (hit: ChatMessage, hist: ChatMessage) => {
+          const histThinking = hist.thinking ?? hist.reasoning_content ?? '';
+          if (histThinking.length > (hit.thinking ?? hit.reasoning_content ?? '').length) {
+            hit.thinking = histThinking || hit.thinking;
+            hit.reasoning_content = histThinking || hit.reasoning_content;
+          }
+          if ((hist.content ?? '').length > (hit.content ?? '').length) hit.content = hist.content ?? '';
+        };
+        // 身份贯通：直播行 stepId → 消息映射（journal 同步行按键互认；含已
+        // 收口步——run 进行中已完成步的直播载体同样带驻留键）
+        const liveStepIds = new Map<string, ChatMessage>();
+        for (const m of streamingTail) {
+          if (m.role === 'agent' && typeof m.stepId === 'string' && m.stepId) liveStepIds.set(m.stepId, m);
+        }
         // event 行对齐（injectionId 贯通）：直播 event 行（context-injected 帧
         // 上屏）带服务端锚 persistedMsgId，与历史活投影行/提升行同 message_id——
         // 精确 id 命中即丢弃历史行（mergeHistoryPage 双键去重之外的前置防线，
@@ -618,6 +635,14 @@ export function createFeedCore(
           if (m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id)) return false;
           if (m.role === 'agent' && Array.isArray(m.toolCalls)
             && (m.toolCalls as any[]).some(tc => tc?.id && liveIds.has(tc.id))) return false;
+          // 身份贯通快路径（2026-12）：历史行带 stepId 且直播行同键在场 →
+          // 同一步的 journal 投影，直播载体续流——直接丢弃历史行（长度取胜
+          // 回写 absorbLongerInto 保全）。命中后不再进内容前缀互验（同键已
+          // 判定同一事实，前缀比对反而可能因部分内容误判 miss）。
+          if (m.role === 'agent' && m.stepId && liveStepIds.has(m.stepId)) {
+            absorbLongerInto(liveStepIds.get(m.stepId)!, m);
+            return false;
+          }
           if (m.role === 'agent' && liveAgents.length > 0) {
             const histThinking = m.thinking ?? m.reasoning_content ?? '';
             const histBody = `${histThinking}\u0000${m.content ?? ''}`;
@@ -626,14 +651,7 @@ export function createFeedCore(
               return liveBody.startsWith(histBody) || histBody.startsWith(liveBody);
             }) : undefined;
             if (hit) {
-              // 长度取胜回写：journal 全量比直播占位长（断线丢帧）时把完整内容
-              // 搬进占位——占位是唯一流式载体（后续 delta 只认它），历史行丢弃
-              // 后其内容必须在此保全，否则本步只剩部分内容。
-              if (histBody.length > `${hit.thinking ?? hit.reasoning_content ?? ''}\u0000${hit.content ?? ''}`.length) {
-                hit.thinking = histThinking || hit.thinking;
-                hit.reasoning_content = histThinking || hit.reasoning_content;
-                if ((m.content ?? '').length > (hit.content ?? '').length) hit.content = m.content ?? '';
-              }
+              absorbLongerInto(hit, m);
               return false;
             }
           }
@@ -663,7 +681,19 @@ export function createFeedCore(
         if (!inIncoming) {
           const copy = { ...anchor };
           (copy as any).persistedMsgId = undefined; // 本地行无服务端 id：防与后续历史行去重互吞
-          msgs = [...msgs, copy]; // 尾部（run 进行中其后再接 streamingTail；空闲即列表末尾）
+          // 按 timestamp 插入正确位置（2026-12 首条消息错位修复）：run 进行中
+          // 保护拷贝其后接 streamingTail，尾部即正确；run 空闲时（streamingTail
+          // 空、后端 flush 延迟窗口的首屏合并）incoming 里可能已有更晚的行
+          //（agent 收束行已落盘而 viewer 行 flush 未完成）——无条件追加尾部
+          // 会把「首条 user 消息」渲染到会话末尾。找首条晚于 anchor 的消息
+          // 插到其前；都更早（anchor 最新）→ 尾部。
+          const anchorTs = (anchor as any).timestamp ?? 0;
+          let insertAt = msgs.length;
+          for (let i = 0; i < msgs.length; i++) {
+            const ts = (msgs[i] as any).timestamp ?? 0;
+            if (ts > anchorTs) { insertAt = i; break; }
+          }
+          msgs = [...msgs.slice(0, insertAt), copy, ...msgs.slice(insertAt)];
         }
       }
     }
@@ -795,7 +825,10 @@ export function createFeedCore(
   // 生命周期开/关事件若按"当前查看的 Agent"门控，用户在运行中途切换会话后
   // 谓词结果改变，stepEnd/chatEnd 被跳过 → 分区 streaming 永远为 true
   // （表现为列表头像光环不熄灭）。
-  function onStepStart(id: DialogId | null, active: boolean) {
+  /** 身份贯通：run/step 身份键对（事件 meta / carrier 索引的公共形状；缺键 = 旧后端帧） */
+  type StepKeys = { runId?: string; stepId?: string };
+
+  function onStepStart(id: DialogId | null, active: boolean, stepKeys?: StepKeys) {
     if (!id) return;
     if (active) markActive();
     const d = ensureById(id);
@@ -804,24 +837,53 @@ export function createFeedCore(
     // 空占位叠加即"测/测试双气泡"问题的另一入口
     const msgs = d.rawMessages;
     const last = msgs[msgs.length - 1];
-    if (!(last && last.role === 'agent' && last.isStreaming && !last.content && !(last.thinking || last.reasoning_content))) {
-      const asst = newAssistant(agentKeyOf(id));
+    let asst: ChatMessage;
+    if (last && last.role === 'agent' && last.isStreaming && !last.content && !(last.thinking || last.reasoning_content)) {
+      asst = last; // 复用既有空占位（重放）
+    } else {
+      asst = newAssistant(agentKeyOf(id));
       // run 前端起点转驻消息（run-started 已设分区态；占位 timestamp 被
       // 校准差分复用为「轮首」——用 runStartAt 而非建占位时刻，吸收
       // run-started → step-started 的投递间隔）
       asst.runStartAt = d.runStartAt;
       msgs.push(asst);
     }
+    // 身份贯通：stepId 驻留载体 + carrier 索引登记（后续 delta 帧 O(1) 直达
+    // ——取代 lastStreaming 位置扫描）。同一 run 的多步各自独立条目；重放
+    //（同 stepId 已登记）保持原对象不换。
+    if (stepKeys?.stepId) {
+      asst.stepId = stepKeys.stepId;
+      const st = streamOf(streams, id);
+      // 相位标志按步重置：StreamState 寿命已延至 run 收束（delta-end 不再
+      // 丢弃——carrier 要活到步收束），sawReasoning/sawText/sawToolCall 若
+      // 不在此清零，第二步起思考计时起点与 textBeforeTools 自判全部失效
+      //（改造前每步全新 state 天然重置；同 stepId 重放不重置——相位沿用）
+      if (st.phaseStepId !== stepKeys.stepId) {
+        st.phaseStepId = stepKeys.stepId;
+        st.sawReasoning = false;
+        st.reasoningClosed = false;
+        st.sawText = false;
+        st.sawToolCall = false;
+        st.reasoningStartAt = 0;
+      }
+      st.carrier.set(stepKeys.stepId, asst);
+    }
     bump(id);
   }
-  function onStepEnd(id: DialogId | null, data: any, active: boolean) {
+  function onStepEnd(id: DialogId | null, data: any, active: boolean, stepKeys?: StepKeys) {
     if (!id) return;
     const d = ensureById(id);
     // 步终值 = 全量替换语义：最短转圈的延迟关闭须先强制收口，
     // 否则 onMessageEnd 的步终正文与本步工具卡关停不同帧
     flushSpinHolds(id);
     const msgs = d.rawMessages;
-    const asst = lastStreaming(msgs, 'agent'); if (asst) asst.isStreaming = false;
+    // 身份贯通：优先按本步 stepId 定位载体（收束的就是发出它的那一步）；
+    // miss 回落 lastStreaming（旧后端帧）。步收束即从 carrier 索引摘除
+    // ——后续帧（下一步）不再命中本条
+    const st = streams.get(id);
+    const asst = (stepKeys?.stepId && st?.carrier?.get(stepKeys.stepId)) || lastStreaming(msgs, 'agent');
+    if (asst) asst.isStreaming = false;
+    if (stepKeys?.stepId && st?.carrier) st.carrier.delete(stepKeys.stepId);
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
     }
@@ -835,34 +897,59 @@ export function createFeedCore(
     if (data.interrupted) onInterrupted(id, active);
     if (active) scheduleDone(msgs);
   }
-  function onThinkingStart(id: DialogId | null, data: any, active = true) {
+  /** 身份贯通：流式帧 meta → stepKeys（缺键返回 undefined——回落启发式路径） */
+  function stepKeysOf(m: any): StepKeys | undefined {
+    const sid = typeof m?.stepId === 'string' && m.stepId ? m.stepId : '';
+    if (!sid) return undefined;
+    const rid = typeof m?.runId === 'string' && m.runId ? m.runId : undefined;
+    return { runId: rid, stepId: sid };
+  }
+  /** 身份贯通：按键取步载体——命中 O(1)；miss（step-started 丢失/旧后端帧）
+   *  回落 lastStreaming 并把键补登记（后续帧恢复快路径）。 */
+  function carrierOf(id: DialogId, st: StreamState | undefined, stepId: string | undefined): ChatMessage | null {
+    const msgs = dialogs.value[id]?.rawMessages;
+    if (!msgs) return null;
+    if (stepId && st?.carrier) {
+      const hit = st.carrier.get(stepId);
+      if (hit) return hit;
+    }
+    const fallback = lastStreaming(msgs, 'agent');
+    if (fallback && stepId && st) {
+      // 补登记：step-started 帧晚到/丢失时，首个 delta 把现有流式载体认作
+      // 本步载体（与旧路径同判定面），后续帧走快路径
+      if (!fallback.stepId) fallback.stepId = stepId;
+      st.carrier.set(stepId, fallback);
+    }
+    return fallback;
+  }
+
+  function onThinkingStart(id: DialogId | null, data: any, active = true, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
     // 全局 turnInProgress 只由当前查看会话的事件点亮（全局忙态指示：停止
     // 按钮/输入手势等；思维链折叠已不随流式收束翻转，与该信号无关）
     if (active) markActive();
     const msgs = ensureById(id).rawMessages;
-    let asst = lastStreaming(msgs, 'agent');
+    let asst = carrierOf(id, st, stepKeys?.stepId);
     if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
       // 双 thinking.start（重连重放）：先关闭旧占位再开新占位——旧占位残留
       // isStreaming=true 会让派生 step 恒流式（思考消息恒「思考中」、dots 不灭）
       asst.isStreaming = false;
       asst = newAssistant(agentKeyOf(id));
       msgs.push(asst);
+      if (stepKeys?.stepId && st) st.carrier.set(stepKeys.stepId, asst);
     }
     if (asst && data.label) asst.label = data.label;
     bump(id);
   }
-  function onThinkingUpdate(id: DialogId | null, data: any) {
+  function onThinkingUpdate(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
-    const msgs = ensureById(id).rawMessages;
-    const asst = lastStreaming(msgs, 'agent');
+    const asst = carrierOf(id, st, stepKeys?.stepId);
     if (asst) { const dd = data.delta ?? ''; asst.thinking = (asst.thinking ?? '') + dd; asst.reasoning_content = (asst.reasoning_content ?? '') + dd; }
     bump(id);
   }
-  function onThinkingEnd(id: DialogId | null, data: any) {
+  function onThinkingEnd(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
-    const msgs = ensureById(id).rawMessages;
-    const asst = lastStreaming(msgs, 'agent');
+    const asst = carrierOf(id, st, stepKeys?.stepId);
     if (asst) asst.label = data.label || undefined;
     bump(id);
   }
@@ -871,26 +958,29 @@ export function createFeedCore(
    *  跨步重建/组件重挂载不丢失；无起点（WS 重连重放等）或不足 1s → 清空
    *  label（组件回落「已思考」）。收束时机 = 首个非 reasoning 片（正文/
    *  工具调用）或 delta-end。 */
-  function closeThinking(id: DialogId | null, st: StreamState) {
+  function closeThinking(id: DialogId | null, st: StreamState, stepKeys?: StepKeys) {
     st.reasoningClosed = true;
     const startAt = st.reasoningStartAt;
     st.reasoningStartAt = 0;
     const elapsedMs = startAt ? Date.now() - startAt : 0;
     onThinkingEnd(id, {
       label: elapsedMs >= 1000 ? `已思考 · ${fmtElapsed(elapsedMs / 1000)}` : undefined,
-    });
+    }, st, stepKeys);
   }
-  function onMessageUpdate(id: DialogId | null, data: any) {
+  function onMessageUpdate(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
-    const msgs = ensureById(id).rawMessages;
-    const asst = lastStreaming(msgs, 'agent'); if (asst) asst.content += data.delta ?? '';
+    const asst = carrierOf(id, st, stepKeys?.stepId);
+    if (asst) asst.content += data.delta ?? '';
     bump(id);
   }
-  function onMessageEnd(id: DialogId | null, data: any) {
+  function onMessageEnd(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
-    const msgs = ensureById(id).rawMessages;
-    const asst = lastStreaming(msgs, 'agent');
+    // carrierOf 内置 lastStreaming 回落与补登记——无需二次兜底
+    const asst = carrierOf(id, st, stepKeys?.stepId);
     if (!asst) return;
+    // 身份贯通驻留：步终值把 stepId 盖到载体上——settlement 重拉时
+    // 历史行（steps[].stepId 展开）与本条直播行按键互认（mergeHistory 键控）
+    if (stepKeys?.stepId) asst.stepId = stepKeys.stepId;
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
@@ -1082,6 +1172,28 @@ export function createFeedCore(
     }
     bump(id);
   }
+  /** 身份贯通：按 runId 找宿主步载体——stepId 前缀 = runId 的消息（直播
+   *  行驻留键）；run_code 执行期宿主步已收口（isStreaming=false），不能走
+   *  lastStreaming。miss（旧后端帧无 runId）回落调用方给的启发式。 */
+  function hostByRunId(id: DialogId, runId: string | undefined, msgs: ChatMessage[]): ChatMessage | null {
+    if (!runId) return subcallHostFallback(msgs);
+    // 尾向扫描命中前缀即宿主步（runId 全局唯一——多 run 不会同键）
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'agent' && typeof m.stepId === 'string' && m.stepId.startsWith(runId + ':')) return m;
+    }
+    return subcallHostFallback(msgs);
+  }
+
+  /** subcall 宿主启发式回落（runId 缺席/未命中时）：当前流式 agent 步优先——
+   *  run_code 执行期步已收口（lastStreaming 为空），回退最后一条带 toolCalls
+   *  的 agent 消息 = 宿主 run_code 调用所在的步。 */
+  function subcallHostFallback(msgs: ChatMessage[]): ChatMessage | null {
+    return lastStreaming(msgs, 'agent')
+      ?? [...msgs].reverse().find((m: any) => m.role === 'agent' && m.toolCalls?.length)
+      ?? null;
+  }
+
   /**
    * run_code 子调用开始占位（2026-12 反馈 #2）：tool/started（before-execute
    * 放行后 emit）到达即建 running 平铺卡——此前终值到达才建卡（onSubcallEnd
@@ -1090,13 +1202,11 @@ export function createFeedCore(
    * onSubcallEnd 完全同构（同 tool_call_id upsert——先到建立、后到填值，
    * 帧丢失/乱序不双卡）；running=true → ToolMessage 行首旋转环。
    */
-  function onSubcallStart(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments?: unknown }) {
+  function onSubcallStart(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments?: unknown; runId?: string }) {
     const d = ensureById(id);
     const msgs = d.rawMessages;
-    // 载体定位与 onSubcallEnd 同序：当前流式 agent 步优先（run_code 执行期
-    // 步已收口——lastStreaming 为空时回退最后一条带 toolCalls 的 agent 消息
-    // = 宿主 run_code 调用所在的步）
-    const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find((m: any) => m.role === 'agent' && m.toolCalls?.length) ?? null;
+    // 载体定位：runId 精确匹配宿主步；miss 回落启发式
+    const asst = hostByRunId(id, data.runId, msgs);
     if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
     const tc = toolCallsOf(asst);
     const existing = tc.find((x: any) => x.id === data.tool_call_id);
@@ -1131,10 +1241,11 @@ export function createFeedCore(
    * 无独立 running 窗口）。onSubcallStart 占位在场时（2026-12 #2）原地
    * 填终值关停——同 tool_call_id upsert，帧乱序不双卡。
    */
-  function onSubcallEnd(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments: unknown; result: string }) {
+  function onSubcallEnd(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments: unknown; result: string; runId?: string }) {
     const d = ensureById(id);
     const msgs = d.rawMessages;
-    const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find((m: any) => m.role === 'agent' && m.toolCalls?.length) ?? null;
+    // 身份贯通：runId 精确匹配宿主步（与 onSubcallStart 同源）；miss 回落启发式
+    const asst = hostByRunId(id, data.runId, msgs);
     if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
     const tc = toolCallsOf(asst);
     const existingTc = tc.find((x: any) => x.id === data.tool_call_id);
@@ -1182,7 +1293,7 @@ export function createFeedCore(
         if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
       }
     }
-    const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find(m => m.role === 'agent' && m.toolCalls?.length) ?? null;
+    const asst = subcallHostFallback(msgs);
     const tc = toolCallsOf(asst).find((x: any) => x.id === data.tool_call_id);
     if (tc) { tc.running = false; tc.result = data.result ?? ''; }
     // 最短转圈：数据已落（content/result 上面即写），视觉关停延至占位建立
@@ -1551,6 +1662,8 @@ export function createFeedCore(
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       // 步内相位序透传（历史 steps 展开；直播自判值随收束重拉对齐）
       ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
+      // 身份键透传（2026-12 身份贯通）：历史行与直播行按键控对齐
+      ...(typeof m.stepId === 'string' && m.stepId ? { stepId: m.stepId } : {}),
       // 步级 API 计时/补全 token 透传（链头速率数据源，见 types.ts apiMs 注释）
       ...(typeof m.apiMs === 'number' ? { apiMs: m.apiMs } : {}),
       ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),
@@ -1806,10 +1919,13 @@ export function createFeedCore(
         return;
       }
       case 'loop/step-started': {
-        const [agent, , , envelope] = args as [string | undefined, number, unknown, { conversationId?: string; sender?: string; source?: string } | undefined];
+        const [agent, , , envelope] = args as [string | undefined, number, unknown, { runId?: string; stepId?: string; conversationId?: string; sender?: string; source?: string } | undefined];
         if (!isUserConversation(frameAgentId(agent), envelope?.conversationId)) return;
         const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender, envelope?.source);
-        if (keys) { noteStreamAgent(keys); onStepStart(keys.dialogId, isForActiveAgent(keys)); }
+        if (keys) {
+          noteStreamAgent(keys);
+          onStepStart(keys.dialogId, isForActiveAgent(keys), stepKeysOf(envelope));
+        }
         return;
       }
       case 'llm/delta': {
@@ -1821,6 +1937,11 @@ export function createFeedCore(
         if (!keys || !isForCurrentUser(keys)) return;
         noteStreamAgent(keys);
         const st = streamOf(streams, keys.dialogId);
+        // 身份贯通：stepId/runId 提取（旧后端帧缺席 → undefined，回落启发式）
+        const stepKeys = stepKeysOf({
+          runId: meta?.runId ?? input?.meta?.runId,
+          stepId: meta?.stepId ?? input?.meta?.stepId,
+        });
         const reasoning = typeof chunk?.reasoning === 'string' ? chunk.reasoning : '';
         if (reasoning) {
           if (!st.sawReasoning) {
@@ -1828,19 +1949,19 @@ export function createFeedCore(
             // 思考相位起点：收束时定格「已思考 · XmYs」用
             st.reasoningStartAt = Date.now();
             // 思考消息 label 由组件按思考相位派生（思考中/已思考），不再写占位 label
-            onThinkingStart(keys.dialogId, {}, isForActiveAgent(keys));
+            onThinkingStart(keys.dialogId, {}, isForActiveAgent(keys), st, stepKeys);
             // 起点驻留消息（2026-12 计时反馈）：「思考中 · Xs」实时计时与收束
             // label 共用同源起点——组件重挂载/跨步重建不丢，收束不倒跳
-            const liveAsst = lastStreaming(ensureById(keys.dialogId).rawMessages, 'agent');
+            const liveAsst = carrierOf(keys.dialogId, st, stepKeys?.stepId);
             if (liveAsst && liveAsst.reasoningStartAt === undefined) {
               liveAsst.reasoningStartAt = st.reasoningStartAt;
             }
           }
-          onThinkingUpdate(keys.dialogId, { delta: reasoning });
+          onThinkingUpdate(keys.dialogId, { delta: reasoning }, st, stepKeys);
         }
         const delta = typeof chunk?.delta === 'string' ? chunk.delta : '';
         if (delta) {
-          if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
+          if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st, stepKeys);
           // 步内相位序自判（textBeforeTools 的直播源）：首个正文 delta 到达
           // 时本步尚未见过工具分片 → 正文先行，标记到载体（思考过程卡片的
           // 步内渲染序依据；工具先行步不标，保持缺省序）。仅首次判定——
@@ -1848,16 +1969,16 @@ export function createFeedCore(
           if (!st.sawText) {
             st.sawText = true;
             if (!st.sawToolCall) {
-              const asst = lastStreaming(ensureById(keys.dialogId).rawMessages, 'agent');
+              const asst = carrierOf(keys.dialogId, st, stepKeys?.stepId);
               if (asst) asst.textBeforeTools = true;
             }
           }
-          onMessageUpdate(keys.dialogId, { delta });
+          onMessageUpdate(keys.dialogId, { delta }, st, stepKeys);
         }
         if (Array.isArray(chunk?.toolCalls)) {
           st.sawToolCall = true;
           // 工具调用分片到场 = 模型离开思考相位（reasoning → tool_calls）
-          if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
+          if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st, stepKeys);
           for (const tc of chunk.toolCalls) {
             const idx = typeof tc?.index === 'number' ? tc.index : 0;
             // 参数流式阶段即建 preparing 占位卡（2026-12 反馈：此前只累积，
@@ -1882,10 +2003,9 @@ export function createFeedCore(
             if (acc && acc.name === 'run_code') {
               const draft = extractPartialJsonString(acc.buf, 'code');
               if (draft !== undefined) {
-                const d = dialogs.value[keys.dialogId];
-                const msgs2 = d?.rawMessages;
+                const msgs2 = dialogs.value[keys.dialogId]?.rawMessages;
                 if (msgs2) {
-                  const asst2 = lastStreaming(msgs2, 'agent');
+                  const asst2 = carrierOf(keys.dialogId, st, stepKeys?.stepId);
                   const tcs2 = asst2 ? toolCallsOf(asst2) : [];
                   const prep2 = tcs2.find((x: any) => x.preparing && x.name === 'run_code');
                   if (prep2) {
@@ -1912,17 +2032,21 @@ export function createFeedCore(
         const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys) return;
         noteStreamAgent(keys);
-        const st = streams.get(keys.dialogId);
-        streams.delete(keys.dialogId);
-        if (!st) return;
+        const st = streamOf(streams, keys.dialogId);
+        // 身份贯通寿命修正：StreamState 不再随 delta-end 丢弃——carrier 索引
+        // 要活到步收束（after-step 按 stepId 定位载体收束 + 摘除索引）与
+        // run 收束（工具事件经 call.runId 归宿）。参数累积态照旧清空。
+        const toolAccs = [...st.tools.entries()].sort((x, y) => x[0] - y[0]);
+        st.tools.clear();
+        st.preps.clear();
         // 工具参数完成 → tool_execution.start 语义（升级 preparing 占位为真 id）
-        for (const [, acc] of [...st.tools.entries()].sort((x, y) => x[0] - y[0])) {
+        for (const [, acc] of toolAccs) {
           onToolStart(keys.dialogId, {
             tool_call_id: acc.id, tool_name: acc.name,
             arguments: parseArgs(acc.buf), label: acc.name,
           });
         }
-        if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
+        if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st, stepKeysOf(meta ?? input?.meta));
         return;
       }
       case 'tool/progress': {
@@ -1949,6 +2073,7 @@ export function createFeedCore(
             tool_call_id: call.toolCallId,
             tool_name: typeof call?.name === 'string' ? call.name : '',
             arguments: call?.args,
+            ...(typeof call?.runId === 'string' && call.runId ? { runId: call.runId } : {}),
           });
         }
         return;
@@ -1972,6 +2097,7 @@ export function createFeedCore(
             tool_name: typeof call?.name === 'string' ? call.name : '',
             arguments: call?.args,
             result: stringifyToolResult(result, error),
+            ...(typeof call?.runId === 'string' && call.runId ? { runId: call.runId } : {}),
           });
           return;
         }
@@ -1989,11 +2115,13 @@ export function createFeedCore(
         return;
       }
       case 'loop/after-step': {
-        const [agent, step, envelope] = args as [string | undefined, any, { conversationId?: string; sender?: string; source?: string } | undefined];
+        const [agent, step, envelope] = args as [string | undefined, any, { runId?: string; stepId?: string; conversationId?: string; sender?: string; source?: string } | undefined];
         if (!isUserConversation(frameAgentId(agent), envelope?.conversationId)) return;
         const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender, envelope?.source);
         if (!keys) return;
         noteStreamAgent(keys);
+        // 身份贯通：步终值按键定位（step.stepId = loop 盖章，与 delta meta 同源）
+        const stKeys = stepKeysOf({ runId: envelope?.runId, stepId: step?.stepId ?? envelope?.stepId });
         // 步终值：message.end（全量替换语义）+ step.end（关闭占位；
         // toolCalls 透传 = run 是否继续的判定依据——见 onStepEnd）
         if (isForCurrentUser(keys)) {
@@ -2029,9 +2157,9 @@ export function createFeedCore(
             ...(typeof step?.elapsedMs === 'number' && step.elapsedMs >= 0 ? { apiMs: step.elapsedMs } : {}),
             ...(typeof step?.usage?.completion === 'number' && step.usage.completion >= 0 ? { apiCompletion: step.usage.completion } : {}),
             ...(calibMs !== undefined ? { runCalibMs: calibMs } : {}),
-          });
+          }, streams.get(keys.dialogId), stKeys);
         }
-        onStepEnd(keys.dialogId, { interrupted: false, toolCalls: step?.toolCalls }, isForActiveAgent(keys));
+        onStepEnd(keys.dialogId, { interrupted: false, toolCalls: step?.toolCalls }, isForActiveAgent(keys), stKeys);
         // 步终值时刻：仅活跃 Agent 的 run 置位（TokenGauge 等派生数据重取
         // 驱动——工具步在工具执行前到达，长工具运行中仪表即可刷新占用）
         if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }

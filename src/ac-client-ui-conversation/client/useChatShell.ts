@@ -44,6 +44,8 @@ function snapDistance(el: HTMLElement): number {
 export function useChatShell(opts: ChatShellOptions) {
   const isUserScrolledUp = ref(false);
   let lastScrollTop = 0;
+  /** 上次 scroll 事件的 scrollHeight（内容塌缩检测——见 onScroll 豁免） */
+  let lastScrollHeight = 0;
   let scrollScheduled = false;
 
   // ── 程序滚动对账：最近一次「已记账」的 scrollTop ──
@@ -107,6 +109,14 @@ export function useChatShell(opts: ChatShellOptions) {
     const now = performance.now();
     const cur = el.scrollTop;
     const target = el.scrollHeight - el.clientHeight;
+
+    // 内容塌缩帧豁免（同 onScroll：重建/合并期的高度塌缩不是用户滚动；
+    // target 随 scrollHeight 变化，此处只更新基线继续跟随，不判上翻。
+    // 只豁免塌缩——流式增长帧须保留上翻察觉）
+    if (el.scrollHeight < lastScrollHeight) {
+      lastScrollHeight = el.scrollHeight;
+      expectedScrollTop = cur; // 重新对账（避免旧 max 基线误伤后续帧）
+    }
 
     // 用户上滚察觉（低于记账基线超容差，且并非贴最大值的收缩钳制）
     if (cur < expectedScrollTop - USER_DELTA_EPS && cur < target - USER_DELTA_EPS) {
@@ -193,6 +203,7 @@ export function useChatShell(opts: ChatShellOptions) {
   function reset() {
     isUserScrolledUp.value = false;
     lastScrollTop = 0;
+    lastScrollHeight = 0; // 高度基线同步重置（新会话首帧必然「高度变化」→ 豁免方向判定）
     expectedScrollTop = NaN;
     stopFollow();
   }
@@ -210,6 +221,20 @@ export function useChatShell(opts: ChatShellOptions) {
         isUserScrolledUp.value = false;
       }
       lastScrollTop = scrollTop;
+      lastScrollHeight = scrollHeight;
+      return;
+    }
+
+    // 内容塌缩帧豁免（2026-12 切换停中修复）：历史合并/组件树重建
+    // （首屏替换、窗口化重挂）会令 scrollHeight 塌缩再回升，浏览器随之
+    // 钳制 scrollTop——这不是用户滚动。此帧只对账基线，不做方向判定
+    //（否则钳制被误判上翻 → 杀自动跟随 + 触发上翻分帧 → 视口钉在会话中部）。
+    // 只豁免塌缩（scrollHeight 变小）：流式增长帧是常态，若一并豁免，
+    // 增长期的用户上滚会被吞（自动跟随把视口反复拉回底部）。
+    if (scrollHeight < lastScrollHeight) {
+      lastScrollTop = scrollTop;
+      lastScrollHeight = scrollHeight;
+      expectedScrollTop = scrollTop;
       return;
     }
 
@@ -226,6 +251,7 @@ export function useChatShell(opts: ChatShellOptions) {
       isUserScrolledUp.value = false;
     }
     lastScrollTop = scrollTop;
+    lastScrollHeight = scrollHeight;
     expectedScrollTop = scrollTop; // 用户滚动也记账，作为引擎帧级判定基线
 
     if (scrollTop <= 50) {

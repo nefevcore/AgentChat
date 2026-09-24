@@ -72,6 +72,12 @@ export interface ChatMessage {
   id: string;
   role: 'agent' | 'user' | 'tool' | 'event' | 'error';
   content: string;
+  /**
+   * 步身份键（2026-12 身份贯通）：直播行由流式帧 meta 驻留、历史行由
+   * steps[].stepId 展开透传——两表示同键 = 同一事实。历史合并与 subcall
+   * 宿主定位按键配对（取代位置/内容前缀猜测）；旧行无键回落启发式路径。
+   */
+  stepId?: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
   /** 消息来源 Agent ID */

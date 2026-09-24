@@ -253,6 +253,12 @@ export class AgentLoopService extends Service {
    * 拦截器 veto（不调 next）时直接返回拦截器提供的 LoopRunResult。
    */
   run(request: LoopRunRequest): Promise<LoopRunResult> {
+    // run 身份键（2026-12 身份贯通）：缺省铸造并塞回 request——此后
+    // run-started/after-run 载荷、步级 envelope、llm 流式 meta、ToolCall
+    // 全系携带同一值（before-run 档可读到；调用方自带则原样沿用）
+    if (request.runId === undefined) {
+      request.runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
     const call: LoopRunCall = { request };
     // steer 注册先于 before-run（同步）：run 受理即可被注入；
     // veto / 异常路径经 finally 回收。同地址并发 run 由 ac-conversation
@@ -407,6 +413,7 @@ export class AgentLoopService extends Service {
             ...(request.conversationId !== undefined
               ? { conversationId: request.conversationId }
               : {}),
+            ...(request.runId !== undefined ? { runId: request.runId } : {}),
             ...(tc.id !== undefined ? { toolCallId: tc.id } : {}),
             ...(request.signal ? { signal: request.signal } : {}),
             ...(request.elevation ? { elevation: request.elevation } : {}),
@@ -546,8 +553,12 @@ export class AgentLoopService extends Service {
     // singles 工作区技能——M25 §3.1 同款"真实需要出生"原则）
     const stepCall: LoopStepCall = { agent: request.agent, messages, conversationId: request.conversationId };
     // 信封子集（M13 载荷增强）：step/delta 级事件与 llm 调用共用，
-    // WS 桥接按它过滤后台会话（source='event' 的流式输出不广播）
+    // WS 桥接按它过滤后台会话（source='event' 的流式输出不广播）。
+    // runId/stepId（2026-12 身份贯通）：前端 delta 帧按键直达步载体
+    const stepId = `${request.runId}:${index}`;
     const envelope = {
+      runId: request.runId,
+      stepId,
       conversationId: request.conversationId,
       sender: request.sender,
       source: request.source,
@@ -593,10 +604,16 @@ export class AgentLoopService extends Service {
           conversationId: request.conversationId,
           sender: request.sender,
           source: request.source,
+          // 身份贯通：delta-* 帧按键路由（dispatch 剥离，不进 provider body）
+          runId: request.runId,
+          stepId,
         },
       });
       return {
         index,
+        // 步身份键（身份贯通）：与 envelope.stepId 同值——after-step 事件
+        // 与 journal 落盘（SessionStepRecord.stepId）透传
+        stepId,
         text: res.text,
         ...(res.reasoning ? { reasoning: res.reasoning } : {}),
         toolCalls: res.toolCalls ?? [],

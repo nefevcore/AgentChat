@@ -48,6 +48,12 @@ export interface PSessionRecord {
 interface PSessionStep {
   content?: string;
   reasoning?: string;
+  /**
+   * 步身份键（2026-12 身份贯通）：= `${runId}:${index}——与直播流式帧
+   * meta.stepId 同源。历史行带此键时，前端历史合并按键控对齐（直播行与
+   * journal 行同键 = 同一步，不靠内容前缀猜测）；旧行无键回落启发式。
+   */
+  stepId?: string;
   /** 步完成时刻（epoch ms；落盘步级时序锚——收束行展开时恢复中途插行的渲染序） */
   ts?: number;
   /** 步内相位序（落盘透传）：true = 本步正文先于工具调用——步内卡片渲染序 */
@@ -139,6 +145,9 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             content: s.content || '',
             thinking: stepThinking || undefined,
             reasoning_content: stepThinking || undefined,
+            // 步身份键透传（身份贯通）：直播 delta 帧 meta.stepId 与此同值——
+            // 历史合并按键配对（mergeHistory 键控快路径）
+            ...(typeof s.stepId === 'string' && s.stepId ? { stepId: s.stepId } : {}),
             // 思考耗时（与直播 closeThinking 同款构造）：<1s 不写（秒级以下
             // 不显示是既有产品约定）——组件回落「已思考」
             ...(s.reasoningMs !== undefined && s.reasoningMs >= 1000

@@ -133,3 +133,33 @@ interface DialogFeed { runs: Map<runId, RunState>; /* … */ }
 - 前端换地基是最大工作量（feed-core ~2200 行的主体重写），双轨期可控；
 - 群聊/矩阵只读视角的事件路由仍按 agent/conversationId，不受影响；
 - 旧 journal 无 runId：读侧缺键回落现有启发式（保留为 legacy 路径，只读旧数据用）。
+
+## 附录：大会话切换卡顿的最终根因（2026-12 实修记录）
+
+会话示例：messages.jsonl 1.28MB / 20 行原始记录，其中 8 个巨型收束行（run）
+折叠 470 个 step + 923 张工具卡（subcalls 注入后）。逐层排查结论：
+
+| 层 | 实测 | 结论 |
+|---|---|---|
+| 服务端 records()（parse + injectSubcalls + 序列化） | ~50ms | 非瓶颈 |
+| WS 传输 3.2MB + 前端 parse | ~50-90ms | 次要 |
+| 数据管线 toHistoryMessages + buildTurns | ~10ms | 非瓶颈 |
+| **DOM 构建：470 步 + 923 工具卡 + markdown 渲染** | **~1s+** | **主体** |
+
+三层漏网（依次修复）：
+1. **turn 层窗口化无效**：470 步装在 8 个 run 里、全会话仅 ~20 个 turn——
+   INITIAL_WINDOW=24 个 turn 盖住全部，「窗口化」毫无裁剪；重量在 step 层。
+2. **重挂路径窗口化不触发**：TranscriptList 重挂（视角切换）时 items 已就位
+   （分区缓存命中），watch 无 immediate → renderFrom 保持 0 → 全量单帧挂载。
+3. **链折叠只是视觉隐藏**：历史轮默认 isExpanded=false，但 chain-body 用
+   v-show——470 步组件树 + 923 工具卡照样全量构建（display:none），markdown
+   照渲染。**这是「每次切换都卡」的真正主体。**
+
+终修（TranscriptList.vue + TurnDisplayItem.vue）：
+- watch immediate（重挂即窗口化）+ fullyMounted 实例级记忆（<script setup> 内、每实例一份——同实例切换短路）；
+- 首载只挂尾部 24 turn，不自动补挂；用户上翻分帧补挂；
+- **chain-body v-show → v-if**：折叠 = 不构建；展开才付费（流式轮恒展开不受影响）。
+
+遗留（后续可选）：
+- 用户展开巨型轮（470 步）时单帧构建 ~500ms——可做展开分帧；
+- 服务端收束行按步分页（首屏只带尾部 N 步，载荷从 3.2MB 降至百 KB 级）。

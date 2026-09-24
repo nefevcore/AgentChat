@@ -446,21 +446,52 @@ export class SinglesService extends Service {
     return path.join(this.singlesDir, sessionId, 'session.json');
   }
 
+  /**
+   * 元数据读缓存（2026-12 卡顿优化）：mtime 命中零文件读。list()/purgeEmpty/
+   * stagePendingTitle 等全走本面——379 会话规模下每次全量 list 的元数据
+   * 读取从 ~19ms（热）/ 250ms+（冷）降到 stat 级（~8ms 热）。写侧
+   * （writeRecord）主动刷新、删除（purge）弃条目；外部手改文件由 mtime
+   * 失配自然兜底（下次读重读）。缓存条目 = null 表示「存在但损坏/读
+   * 失败」——不缓存「不存在」（stat 探空必然先于缓存判断，缓存无收益）。
+   */
+  private recordCache = new Map<string, { mtimeMs: number; record: SingleSessionMeta | null }>();
+
   private readRecord(sessionId: string): SingleSessionMeta | null {
+    const file = this.fileOf(sessionId);
+    let stat: fs.Stats;
     try {
-      const raw = JSON.parse(fs.readFileSync(this.fileOf(sessionId), 'utf-8'));
-      if (typeof raw?.id !== 'string' || typeof raw?.agentId !== 'string') return null;
-      return raw as SingleSessionMeta;
+      stat = fs.statSync(file);
     } catch {
-      return null; // 不存在/损坏
+      return null; // 不存在：不缓存（stat 探空无收益——见上方注释）
+    }
+    const cached = this.recordCache.get(file);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.record;
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      if (typeof raw?.id !== 'string' || typeof raw?.agentId !== 'string') {
+        this.recordCache.set(file, { mtimeMs: stat.mtimeMs, record: null });
+        return null; // 损坏
+      }
+      const record = raw as SingleSessionMeta;
+      this.recordCache.set(file, { mtimeMs: stat.mtimeMs, record });
+      return record;
+    } catch {
+      this.recordCache.set(file, { mtimeMs: stat.mtimeMs, record: null });
+      return null; // 读失败当次按损坏处理（mtime 已变，下次重试）
     }
   }
 
   private writeRecord(record: SingleSessionMeta): void {
     fs.mkdirSync(path.dirname(this.fileOf(record.id)), { recursive: true });
-    const tmp = `${this.fileOf(record.id)}.tmp`;
+    const file = this.fileOf(record.id);
+    const tmp = `${file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(record, null, 2), 'utf-8');
-    fs.renameSync(tmp, this.fileOf(record.id));
+    fs.renameSync(tmp, file);
+    // 写后主动刷新缓存（写路径自己知道终值——省下一次读；mtime 取实际值，
+    // statSync 失败（竞态删除等极端）则弃缓存条目由下次读重建）
+    try {
+      this.recordCache.set(file, { mtimeMs: fs.statSync(file).mtimeMs, record });
+    } catch { /* 竞态：交由 mtime 失配兜底 */ }
   }
 
   // ---- 跨域校验（读取走服务方法；可选能力 ctx.get 非 strict 摘行不拖垮） ----
@@ -749,6 +780,8 @@ export class SinglesService extends Service {
     const record = this.readRecord(sessionId);
     if (!record) throw new Error(`独立会话 "${sessionId}" 不存在`);
     fs.rmSync(path.dirname(this.fileOf(sessionId)), { recursive: true, force: true });
+    // 目录已删：弃缓存条目（下次 readRecord stat 探空自然回 null）
+    this.recordCache.delete(this.fileOf(sessionId));
     const session = this.ctx.get('session');
     session?.clear(sessionId);
     this.ctx.emit('singles/updated', record, 'removed');

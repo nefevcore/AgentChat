@@ -314,7 +314,7 @@ export async function executeRunCode(
   // prompt.ts——每次 run 同源现算）；工具体内不算投影（发送即丢弃
   // 的形态已在 2026-09-17 实测复盘修正）。
 
-  const runId = call.toolCallId ?? `run-${Date.now().toString(36)}`;
+  const execId = call.toolCallId ?? `run-${Date.now().toString(36)}`;
   // lib 注入：会话级注册表快照（非空才注入——省协议体积）
   const libStore = libStoreOf(call.agentId, call.conversationId);
   const libSource = libStore.size > 0 ? Object.fromEntries(libStore) : undefined;
@@ -492,7 +492,7 @@ export async function executeRunCode(
   // 冻结区间（毫秒墙钟）：本 run 挂起 durable 交互的等待期（2026-02 ask 挂起
   // 重构后主要源 = approval；ask_questions 已即返）。区间内墙钟不计
   // maxWallMs（看门狗暂停）、不进子调用计费。区间由 opened/replied/closed
-  // 三事件对账（圈定键 = correlationId 前缀 runId#——桥接层拼子调用
+  // 三事件对账（圈定键 = correlationId 前缀 execId#——桥接层拼子调用
   // toolCallId 的既有约定，挂起工具的 open 均按它落盘）。
   // 2026-09-23 收敛：冻结唯一豁免源 = 人（durable）。等待他方 Agent
   //（send_agent wait 等）不再冻结——墙钟 720s 直罩（被杀不丢数据：迟到
@@ -553,7 +553,7 @@ export async function executeRunCode(
     | { listOpen(): Array<{ correlationId?: string }> }
     | undefined;
   if (di !== undefined) {
-    const prefix = `${runId}#`;
+    const prefix = `${execId}#`;
     const ours = (rec: { correlationId?: string }): boolean =>
       typeof rec.correlationId === 'string' && rec.correlationId.startsWith(prefix);
     const refresh = (): void => {
@@ -622,12 +622,15 @@ export async function executeRunCode(
             args: invokeArgs,
             ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
             ...(call.conversationId !== undefined ? { conversationId: call.conversationId } : {}),
-            toolCallId: `${runId}#${seq}`,
+            toolCallId: `${execId}#${seq}`,
+            // 宿主 run 身份键（2026-12 身份贯通）：loop 给宿主 run_code 调用
+            // 装配的 runId 原样继承——tool/started·after-execute 帧据此把
+            // 子调用按键归属到宿主 run 的步载体（前缀匹配升格为判据）
+            ...(call.runId !== undefined ? { runId: call.runId } : {}),
             signal: abortCtl.signal,
             ...(call.elevation ? { elevation: call.elevation } : {}),
             // 子调用标记（实测复盘 #B）：ToolCall 开放词汇面——UI/审计
-            // 据此区分「run_code 程序内子调用」与「模型直接调用」（tool_call_id
-            // 形如 <runId>#<seq> 是提示不是判据——显式标记才可编程消费）
+            // 据此区分「run_code 程序内子调用」与「模型直接调用」
             runCodeSubcall: true,
           })
           .then(done, (err: unknown) => done({ ok: false, error: err instanceof Error ? err.message : String(err) }));
@@ -654,7 +657,7 @@ export async function executeRunCode(
       initSent = true;
       worker.postMessage({
         type: 'init',
-        runId,
+        runId: execId,
         code,
         maxWallMs,
         maxOutputBytes,
