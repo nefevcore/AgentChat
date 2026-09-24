@@ -50,10 +50,13 @@ jobs:
           pnpm build:frontend 2>&1 | tee build-frontend.log || {
             echo '--- 环境/路径诊断 ---' | tee -a build-frontend.log
             node -p '"node " + process.version + " / " + process.platform' | tee -a build-frontend.log
-            ls -la node_modules/@vue-office 2>&1 | tee -a build-frontend.log
-            ls src/ac-client-ui-workspace/node_modules/@vue-office 2>&1 | tee -a build-frontend.log
-            find node_modules/.pnpm -maxdepth 1 -name '@vue-office*' 2>&1 | tee -a build-frontend.log
-            ls src/webui/public/vendor 2>&1 | tee -a build-frontend.log
+            { ls -la node_modules/@vue-office
+              ls src/ac-client-ui-workspace/node_modules/@vue-office
+              ls src/ac-client-ui-usage/node_modules/ | grep -E 'uplot|d3' 
+              ls src/webui/node_modules/ | grep uplot
+              find node_modules/.pnpm -maxdepth 1 -name '@vue-office*' -o -maxdepth 1 -name 'uplot*'
+              ls src/webui/public/vendor
+            } >> build-frontend.log 2>&1 || true
             exit 1
           }
       - name: 上传构建诊断（仅失败时）

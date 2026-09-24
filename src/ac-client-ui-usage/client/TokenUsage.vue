@@ -3,7 +3,9 @@ import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import uPlot from 'uplot';
-import 'uplot/dist/uplot.min.css';
+// 大小写敏感修正（v0.8.14 CI 三连败根因）：包内真实文件名是 uPlot.min.css
+//（大写 P）——Windows/macOS 文件系统大小写不敏感故本地恒绿，Linux CI 解析必挂。
+import 'uplot/dist/uPlot.min.css';
 import type { Series } from 'uplot';
 import { chord, ribbon } from 'd3-chord';
 import { Modal } from '@agentchat/webui-kit';
