@@ -198,7 +198,10 @@ jobs:
           echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(!/blockmap$/.test(a.name))console.log(a.browser_download_url+"\t"+a.name)}})' \
             | while IFS=$'\t' read -r URL NAME; do
                 echo "[pull] $NAME"
-                curl -sSL -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME" "$URL"
+                # 断点续传 + 全类错误重试（境内→境外瞬时抖动韧性；残骸先清防 -C 续到错误体）
+                rm -f "$DEST/$NAME"
+                curl -sSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 30 \
+                  -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME" "$URL" || { echo "[pull] $NAME 重试后仍失败"; exit 28; }
               done
           # 中转清理：删 draft release（GitHub 不留安装包）
           curl -sS -X DELETE -H "Authorization: token $GH_TOKEN_JOB" \
