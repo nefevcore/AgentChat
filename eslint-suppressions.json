@@ -114,11 +114,6 @@
       "count": 3
     }
   },
-  "src/ac-client-ui-conversation/client/useConversationHistory.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 2
-    }
-  },
   "src/ac-client-ui-conversation/client/FileEditsPanel.vue": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 4
@@ -152,11 +147,6 @@
   "src/ac-client-ui-conversation/client/SystemPromptPanel.vue": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 9
-    }
-  },
-  "src/ac-client-ui-conversation/client/TranscriptList.vue": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
     }
   },
   "src/ac-client-ui-conversation/client/chat-core.ts": {
@@ -202,6 +192,11 @@
   "src/ac-client-ui-conversation/client/unreadStore.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
+    }
+  },
+  "src/ac-client-ui-conversation/client/useConversationHistory.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
     }
   },
   "src/ac-client-ui-conversation/client/useTurnDisplayItems.ts": {
@@ -361,7 +356,7 @@
   },
   "src/ac-client-ui-singles/client/index.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 5
+      "count": 1
     }
   },
   "src/ac-client-ui-subagent/client/SubagentConversationView.vue": {
@@ -401,7 +396,7 @@
   },
   "src/ac-client-ui-usage/client/TokenUsage.vue": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 15
+      "count": 11
     }
   },
   "src/ac-client-ui-usage/client/rpcDefault.ts": {

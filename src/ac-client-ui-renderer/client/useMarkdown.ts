@@ -250,6 +250,20 @@ function createBaseInstance(trusted = false): MarkdownIt {
     // 禁用模糊链接匹配，避免将 "TODO.md" 等文件名误识别为链接（.md 是摩尔多瓦 ccTLD）
     md.linkify.set({ fuzzyLink: false });
 
+    // 链接统一新开页：应用是 SPA，markdown 链接整页跳转会丢失会话状态——
+    // 所有实例（聊天/思考/文件预览）的 <a> 一律补 target=_blank + noopener
+    const defaultLinkOpen = md.renderer.rules.link_open
+        ?? ((tokens: any[], idx: number, options: any, env: any, self: any) =>
+            self.renderToken(tokens, idx, options));
+    md.renderer.rules.link_open = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+        const token = tokens[idx];
+        if (!token.attrGet('target')) {
+            token.attrSet('target', '_blank');
+            token.attrSet('rel', 'noopener noreferrer');
+        }
+        return defaultLinkOpen(tokens, idx, options, env, self);
+    };
+
     // 自定义表格渲染 —— 包裹滚动容器
     md.renderer.rules.table_open = () => '<div class="md-table-wrapper"><table>';
     md.renderer.rules.table_close = () => '</table></div>';
