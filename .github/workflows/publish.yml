@@ -98,3 +98,19 @@ jobs:
           name: npm-publish-diagnostic
           path: npm-publish.log
           if-no-files-found: ignore
+      - name: 失败日志转存服务器（匿名可读）
+        if: failure()
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then exit 0; fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/ci-logs/$GITHUB_RUN_ID"
+          scp -i ~/.ssh/deploy_key npm-publish.log "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/ci-logs/$GITHUB_RUN_ID/publish-npm.log" || true
