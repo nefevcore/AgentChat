@@ -71,19 +71,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/sha-baseline
-          : > /tmp/sha-baseline/SHA256SUMS
+          # 写 workspace 相对路径（sha-baseline/）：/tmp 在 windows 腿有 git-bash（映射
+          # %TEMP%）与 upload-artifact node 进程（当 C:\tmp）的路径语义分裂——v0.8.14
+          # 首发 windows 腿 artifact 找不到文件的根因。
+          mkdir -p sha-baseline
+          : > sha-baseline/SHA256SUMS
           shopt -s nullglob
           for f in desktop/release/*.exe desktop/release/*.dmg desktop/release/*.zip desktop/release/*.AppImage; do
             case "$f" in *.blockmap) continue ;; esac
             # basename 规范化：windows 腿 git-bash 下路径分隔符差异不影响 $(basename)
-            echo "$(sha256sum "$f" | awk '{print \$1}')  $(basename "$f")" >> /tmp/sha-baseline/SHA256SUMS
+            echo "$(sha256sum "$f" | awk '{print \$1}')  $(basename "$f")" >> sha-baseline/SHA256SUMS
           done
-          cat /tmp/sha-baseline/SHA256SUMS
+          cat sha-baseline/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: sha-baseline-${{ matrix.os }}
-          path: /tmp/sha-baseline/SHA256SUMS
+          path: sha-baseline/SHA256SUMS
           if-no-files-found: error
 
       - name: 上传安装包到下载服务器
@@ -159,7 +162,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: sha-baseline-*
-          path: /tmp/sha-baseline
+          path: sha-baseline
           merge-multiple: true
       - name: 读回校验（服务器字节 vs CI 基准，防发布异常安装包）
         shell: bash
@@ -173,7 +176,7 @@ jobs:
             echo "::warning::未配置 secrets——跳过校验"
             exit 0
           fi
-          BASELINE=/tmp/sha-baseline/SHA256SUMS
+          BASELINE=sha-baseline/SHA256SUMS
           if [ ! -s "$BASELINE" ]; then
             echo "::error::CI 侧 sha256 基准缺失（三腿 artifact 未齐）"
             exit 1
