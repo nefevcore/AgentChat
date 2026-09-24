@@ -228,5 +228,8 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads"
-          echo "manifest 已重算（三腿产物齐全）"
+          # gen-manifest 顺带同步最新脚本（--keep 3：保留最近 3 版，更旧版本目录退役——
+          # 小磁盘防膨胀；每版约 600MB，3 版 ≈ 1.8GB 上限）
+          scp -i ~/.ssh/deploy_key src/ac-relay-server/scripts/gen-manifest.mjs "${SERVER_USER:-deploy}@$SERVER_HOST:/opt/agentchat-relay/gen-manifest.mjs"
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads --keep 3"
+          echo "manifest 已重算（三腿产物齐全，旧版本已按 --keep 3 退役）"
