@@ -187,22 +187,31 @@ jobs:
           mkdir -p "$DEST"
           # 找本 tag 的 draft release（electron-builder 以 tag 名建 draft）
           TAG="v$VER"
-          REL_ID=$(curl -sS -H "Authorization: token $GH_TOKEN_JOB" \
-            "https://api.github.com/repos/$GH_REPO/releases" \
-            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const rs=JSON.parse(d);const r=rs.find(x=>x.draft&&x.tag_name===process.argv[1]);console.log(r?r.id:"")})' "$TAG")
-          if [ -z "$REL_ID" ]; then echo "PULL-ERR: draft release $TAG 未找到"; exit 1; fi
-          ASSETS=$(curl -sS -H "Authorization: token $GH_TOKEN_JOB" \
-            "https://api.github.com/repos/$GH_REPO/releases/$REL_ID/assets")
-          COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).filter(a=>!/blockmap$/.test(a.name)).length)})')
-          echo "[pull] draft $TAG：$COUNT 个产物 → $DEST"
-          echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(!/blockmap$/.test(a.name))console.log(a.browser_download_url+"\t"+a.name)}})' \
-            | while IFS=$'\t' read -r URL NAME; do
-                echo "[pull] $NAME"
-                # 断点续传 + 全类错误重试（境内→境外瞬时抖动韧性；残骸先清防 -C 续到错误体）
-                rm -f "$DEST/$NAME"
-                curl -sSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 30 \
-                  -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME" "$URL" || { echo "[pull] $NAME 重试后仍失败"; exit 28; }
-              done
+          # 大流量拉取会触发境内→境外间歇断流（QoS 冷却数分钟）——单文件重试不够，
+          # 整段拉取套 3 次尝试（间隔 120s 等冷却），函数体先行定义
+          pull_assets() {
+            REL_ID=$(curl -sS --connect-timeout 20 -H "Authorization: token $GH_TOKEN_JOB" \
+              "https://api.github.com/repos/$GH_REPO/releases" \
+              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const rs=JSON.parse(d);const r=rs.find(x=>x.draft&&x.tag_name===process.argv[1]);console.log(r?r.id:"")}catch{console.log("")}})' "$TAG")
+            if [ -z "$REL_ID" ]; then echo "[pull] draft release $TAG 未找到"; return 1; fi
+            ASSETS=$(curl -sS --connect-timeout 20 -H "Authorization: token $GH_TOKEN_JOB" \
+              "https://api.github.com/repos/$GH_REPO/releases/$REL_ID/assets")
+            COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).filter(a=>!/blockmap$/.test(a.name)).length)})')
+            echo "[pull] draft $TAG：$COUNT 个产物 → $DEST"
+            echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(!/blockmap$/.test(a.name))console.log(a.browser_download_url+"\t"+a.name)}})' \
+              | while IFS=$'\t' read -r URL NAME; do
+                  echo "[pull] $NAME"
+                  rm -f "$DEST/$NAME"
+                  curl -sSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 25 \
+                    -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME" "$URL" || { echo "[pull] $NAME 失败"; return 1; }
+                done
+          }
+          for ATTEMPT in 1 2 3; do
+            echo "[pull] === 第 $ATTEMPT 次尝试 ==="
+            if pull_assets; then break; fi
+            [ "$ATTEMPT" = 3 ] && { echo "[pull] 3 次尝试均失败"; exit 28; }
+            echo "[pull] 120s 后重试（等断流冷却）……"; sleep 120
+          done
           # 中转清理：删 draft release（GitHub 不留安装包）
           curl -sS -X DELETE -H "Authorization: token $GH_TOKEN_JOB" \
             "https://api.github.com/repos/$GH_REPO/releases/$REL_ID" \
