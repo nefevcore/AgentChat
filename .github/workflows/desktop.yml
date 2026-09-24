@@ -63,6 +63,7 @@ jobs:
       # 三腿累计 40+ 分钟）。draft 不公开，下载面仍指向自托管（分发裁决不变）。
       - name: 打包桌面安装包（上传 Releases draft——中转提速）
         working-directory: desktop
+        shell: bash   # 必须：多行 bash 脚本（windows 缺省 pwsh——第八~十一轮 windows 腿连挂的根因：set -o pipefail 被 PS 解析）
         run: |
           set -o pipefail
           touch eb-build.log
