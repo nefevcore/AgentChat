@@ -18,7 +18,9 @@
 //      包目录可能只读，且双写者冲突的本源就是同数据根）；
 //   4. 进程级兜底（unhandledRejection/uncaughtException 记日志不退出）；
 //   5. 装载失败 = 配置/组合错误（不自愈）→ 退出码 EXIT_CONFIG(78)；
-//   6. boot 末事件治理清扫（eventPolicy.sweep）。
+//   6. boot 末事件治理清扫（eventPolicy.sweep）；
+//   7. 版本升级数据迁移（runMigrations + SESSION_MIGRATIONS：锁后、任何
+//      行装载/首写前——顺序敏感红线，见 ac-migration-core 文件头）。
 //
 // dist 形态差异（有意为之）：
 //   · hmr 行不在 TREE（loader 专属，dist 无热重载）；
@@ -30,6 +32,10 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { readPatchFile, type PatchFileEntry } from 'ac-plugin-core';
 import { acquireRuntimeLock, runtimeLockPath, EXIT_CONFIG } from 'ac-supervisor-core';
+// 迁移面（静态 import：bundle 打包进 agentchat.mjs——发布包无 node_modules，
+// 装载前阶段无可动态解析的文件系统态；与 boot.ts 动态 import 的差异是有意的）
+import { runMigrations } from 'ac-migration-core';
+import { SESSION_MIGRATIONS } from 'ac-session/src/migrations.ts';
 import { bootTree, TREE, type BootedTree } from './index.ts';
 
 /** dist 静态产物目录：bundle 形态 = 本文件所在目录（<pkg>/dist） */
@@ -68,6 +74,8 @@ export interface BootDistOptions {
 export interface BootedDist extends BootedTree {
   /** 行偏好层应用明细（boot 日志/测试断言用） */
   skippedRows: string[];
+  /** 本次 boot 实际应用的数据迁移 id（空 = 无需迁移；测试断言用） */
+  appliedMigrations: string[];
   /** 释放单实例锁（进程 exit 钩子同款；测试显式清理用） */
   unlock?: () => void;
 }
@@ -105,6 +113,15 @@ export async function bootDist(options: BootDistOptions = {}): Promise<BootedDis
     }
   }
 
+  // ---- 版本升级数据迁移（语义同 boot.ts：锁后、装载前——顺序敏感红线，
+  //      见 ac-migration-core 文件头；meta.json dataVersion 标记 + 迁移前
+  //      强制快照（backups/migrations/，不参与轮转）+ 按序应用 + 断点续跑。
+  //      失败 = 抛错（main 转 EXIT_CONFIG）——绝不带半迁移数据跑 ----
+  const applied = runMigrations(dataRoot, SESSION_MIGRATIONS);
+  if (applied.length > 0) {
+    console.log(`[boot] 数据迁移完成: ${applied.map((m) => m.id).join(', ')}`);
+  }
+
   // ---- 行偏好层（fail-soft；首期 {id, disabled}——loader 路径经 include
   //      patches 等价实现） ----
   const read = readPatchFile(dataRoot);
@@ -140,7 +157,7 @@ export async function bootDist(options: BootDistOptions = {}): Promise<BootedDis
     if (removed > 0) console.log(`[boot] 事件治理清扫：移除 ${removed} 条已停用监听器`);
   }
 
-  return { ...tree, skippedRows, unlock };
+  return { ...tree, skippedRows, appliedMigrations: applied.map((m) => m.id), unlock };
 }
 
 /** 脚本直跑入口（bundle 的 main）：进程兜底 + 装载失败转 EXIT_CONFIG */

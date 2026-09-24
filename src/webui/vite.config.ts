@@ -91,9 +91,16 @@ export default defineConfig({
         // katex / markdown-it-texmath / 冷门 hljs 语言刻意【不列入】——
         // 它们在源码里走动态 import，rollup 自动拆为独立块；一旦写进本表
         // 就会被强制并入静态块，按需加载随之失效（见 useMarkdown/hljs-languages）。
-        manualChunks: {
-          vue: ['vue', 'pinia'],
-          markdown: ['markdown-it'],
+        manualChunks(id) {
+          // @vue-office 三包（OfficeView 动态 import）：命名各自成块——
+          // 既保持按需加载（函数式只归并命中模块，不引入静态依赖），
+          // 又让构建产物可读（此前 rollup 默认命名为 index-<hash>，
+          // 1.6MB 的 xlsx 解析器块无法辨认）。
+          const office = id.match(/[\\/]node_modules[\\/]@vue-office[\\/](docx|excel|pptx)[\\/]/);
+          if (office) return `office-${office[1]}`;
+          if (id.includes('node_modules/vue/') || id.includes('node_modules/pinia/')) return 'vue';
+          if (id.includes('node_modules/markdown-it/')) return 'markdown';
+          return undefined;
         },
       },
     },

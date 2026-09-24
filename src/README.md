@@ -406,7 +406,8 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 src/
 │ ── 组合根与进程层 ──────────────────────────────────────────────
 ├── ac-app/                  组合根：TREE/bootTree（程序化）与 ecosystem.ts/cordis.yml
-│                            （配置驱动）双路径；boot.ts = 官方启动入口
+│                            （配置驱动）双路径；boot.ts = 官方启动入口；bootstrap.ts =
+│                            dist 发布入口（桌面/npm 形态，含数据迁移）
 ├── cordis.yml               配置驱动装配文件（行集与 ac-app TREE 保持一致）
 ├── supervisor.mjs           宿主监护进程：spawn worker + 42/78/0 协议 + 退避熔断 +
 │                            .runtime 单写者锁（进程层脚本，不经组合根）
@@ -756,6 +757,7 @@ src/
 | 路径 | 入口 | 说明 |
 |---|---|---|
 | **官方（生产）** | `pnpm dev` | boot.ts 内联官方 bin.js 的 16 行（Context → Loader → include 读 `./cordis.yml`；装载前读 `<数据根>/cordis.patch.yml` 行偏好层注入 patches——不存在/损坏 warn + 空数组 fail-soft） |
+| **发布（npm/桌面）** | `ac-app/src/bootstrap.ts` → dist bundle | bootDist：TREE 静态行表 + 生产 web-server config；语义与 boot.ts 对齐（数据根锚定 / 单实例锁〔锚定数据根〕/ 行偏好层 / **版本升级数据迁移**〔锁后装载前，runMigrations + SESSION_MIGRATIONS〕/ EXIT_CONFIG / 事件清扫） |
 | 测试/演示辅助 | `ac-app/src/ecosystem.ts` 的 `bootFromConfig()` | 官方路径之外的 initial 物化 / include patches / 独立测试 yml（vitest 用） |
 
 ### 装载态四层
@@ -840,7 +842,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 |---|---|
 | 总览 | `architecture-diagram.html`（架构图可视化） |
 | 会话与 LLM 域 | `session-design.md`（域深设计事实源）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
-| WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
+| WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `conversation-view-split-plan.md`（ConversationView 拆分精简方案——2026-12 立项待实施）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
 | 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
 | 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-12 计划，P0 已随 subagents/history 落地） |
 | 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） · `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次：重度开发/journal 泛化/机制验证——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） |

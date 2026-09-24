@@ -271,10 +271,11 @@ const thinkingLabel = computed(() => {
     return thinkingPreview.value ? `${head} · ${thinkingPreview.value}` : head;
 });
 
-// 代码块复制按钮事件委托
+// markdown 内容事件委托（文件路径链接点击——代码块复制按钮已收编至
+// 渲染管线的 document 级委托，见 useMarkdown.ts）
 const messageRoot = ref<HTMLElement | null>(null);
 
-function handleCodeBlockClick(e: Event) {
+function handleMarkdownClick(e: Event) {
     const target = e.target as HTMLElement;
 
     // 文件路径链接点击（正则匹配的路径 + <file> 标签）
@@ -286,41 +287,15 @@ function handleCodeBlockClick(e: Event) {
             e.preventDefault();
             e.stopPropagation();
             emit('previewFile', path);
-            return;
         }
     }
-
-    // "复制" 按钮
-    const copyBtn = target.closest('.md-code-block-btn[data-action="copy"]') as HTMLElement | null;
-    if (!copyBtn) return;
-
-    const block = copyBtn.closest('.md-code-block');
-    const codeEl = block?.querySelector('pre code');
-    if (!codeEl) return;
-
-    const text = codeEl.textContent || '';
-    navigator.clipboard.writeText(text).then(() => {
-        copyBtn.classList.add('copied');
-        const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
-        if (textSpan) textSpan.textContent = '已复制';
-        setTimeout(() => {
-            copyBtn.classList.remove('copied');
-            if (textSpan) textSpan.textContent = '复制';
-        }, 2000);
-    }).catch(() => {
-        const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
-        if (textSpan) textSpan.textContent = '失败';
-        setTimeout(() => {
-            if (textSpan) textSpan.textContent = '复制';
-        }, 1500);
-    });
 }
 
 watch(messageRoot, (el, oldEl) => {
     // 根节点随 v-if 显隐（空消息不渲染）：元素可能在挂载之后才出现/消失
     // （如 final 气泡先空后出正文），不能只在 onMounted 一次性绑定
-    if (oldEl) oldEl.removeEventListener('click', handleCodeBlockClick);
-    if (el) el.addEventListener('click', handleCodeBlockClick);
+    if (oldEl) oldEl.removeEventListener('click', handleMarkdownClick);
+    if (el) el.addEventListener('click', handleMarkdownClick);
 });
 
 // 是否渲染根节点。多步轮次中"仅工具调用、无思考无正文"的 step（以及仅以

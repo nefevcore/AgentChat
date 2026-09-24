@@ -9,9 +9,11 @@
 //   · 纯文本直通：无标签输入原样返回；
 //   · <pre> 代码块：换行与缩进逐字保留；
 //   · 块边界 → 换行：<p>/<div>/<li> 等块级元素间生成换行。
+//   · 收尾归一 trimPastedText：整段首尾空白去除（纯文本源主路径 +
+//     <pre> 首尾兜底；中间空行/缩进保留）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { normalizePasteText } from '../client/pasteText.ts';
+import { normalizePasteText, trimPastedText } from '../client/pasteText.ts';
 
 describe('normalizePasteText', () => {
   it('纯文本直通：无标签输入原样返回', () => {
@@ -72,5 +74,21 @@ describe('normalizePasteText', () => {
   it('脚本/样式/模板不产生文本', () => {
     const html = '<p>正文</p><script>evil()</script><style>p{}</style>';
     expect(normalizePasteText(html)).toBe('正文');
+  });
+
+  it('收尾归一：纯文本源首尾空白（空格/换行/制表/全角空格）去除，中间保留', () => {
+    expect(trimPastedText('  \n\t第一行\n\n  第二行  \n\n')).toBe('第一行\n\n  第二行');
+    expect(trimPastedText('\u3000\u00a0x\u3000')).toBe('x');
+    expect(trimPastedText('正文')).toBe('正文');
+  });
+
+  it('收尾归一：纯空白/空串 → 空串（粘贴侧吞掉，不插入空段）', () => {
+    expect(trimPastedText('   \n\t ')).toBe('');
+    expect(trimPastedText('')).toBe('');
+  });
+
+  it('收尾归一链路：<pre> 首尾空白兜底去除，中间缩进逐字保留', () => {
+    const html = '<pre>\n  code line\n    indented\n</pre>';
+    expect(trimPastedText(normalizePasteText(html))).toBe('code line\n    indented');
   });
 });

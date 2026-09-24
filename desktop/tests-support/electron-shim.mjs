@@ -25,6 +25,11 @@ const dialog = {
   showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
 };
 const nativeImage = { createFromPath: () => ({ resize: () => ({}) }) };
-const shell = { openExternal: async () => undefined };
+const shell = {
+  openExternal: async () => undefined,
+  // 更新面（desktop-update.test.ts）：openPath = dmg 挂载；showItemInFolder = 文件管理器定位
+  openPath: async () => '',
+  showItemInFolder: () => undefined,
+};
 export { app, BrowserWindow, Tray, Menu, Notification, dialog, nativeImage, shell };
 export default { app, BrowserWindow, Tray, Menu, Notification, dialog, nativeImage, shell };

@@ -111,7 +111,12 @@
   },
   "src/ac-client-ui-conversation/client/ConversationView.vue": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 5
+      "count": 3
+    }
+  },
+  "src/ac-client-ui-conversation/client/useConversationHistory.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
     }
   },
   "src/ac-client-ui-conversation/client/FileEditsPanel.vue": {

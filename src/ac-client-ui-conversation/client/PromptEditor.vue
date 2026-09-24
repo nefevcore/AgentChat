@@ -16,7 +16,8 @@
  *   原样复用；preventDefault 后 PM 跳过默认插入）；
  * - 文件粘贴委托 onPasteFiles（返回 true 抑制默认插入）；文本粘贴走
  *   pasteText 归一（text/html 优先：块边界/<br> 保换行、<a> 还原 URL、
- *   <pre> 原样），按 \n 分段插入——不交给 PM 默认解析（空段/链接会失真）；
+ *   <pre> 原样）+ trimPastedText 收尾归一（去整段首尾空白），按 \n
+ *   分段插入——不交给 PM 默认解析（空段/链接会失真）；
  *   内部回贴（data-pm-slice 开口标记）走段融合语义（replaceSelection
  *   原生融合开放段——段内局部剪切回贴不再裂段）；
  * - IME：PM 原生组合处理；组合期 onActivity 静默（等价原 isComposing 门）。
@@ -38,7 +39,7 @@ import { Slice, Fragment } from '@tiptap/pm/model';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorView } from '@tiptap/pm/view';
 import { tokenizeMentionHighlights } from './mention.ts';
-import { clipboardText, normalizePasteText, pmSliceDepth } from './pasteText.ts';
+import { clipboardText, normalizePasteText, pmSliceDepth, trimPastedText } from './pasteText.ts';
 import { ChatUndoRedo, clearChatHistory } from './undoRedo.ts';
 
 const props = defineProps<{
@@ -121,12 +122,16 @@ const editor = useEditor({
           return true;
         }
       }
-      // 外部源：text/html 优先（富文本），归一后整段块插入
-      const text = html && html.includes('<')
+      // 外部源：text/html 优先（富文本），归一后段融合插入（开放切片，
+      // 不劈宿主段——textarea 语义）；收尾统一 trimPastedText 去首尾
+      // 空白——纯文本源无归一管线、富文本源 <pre> 首尾免行级 trim，
+      // 均由此兜底；纯空白粘贴吞掉（不插入空段）
+      const raw = html && html.includes('<')
         ? normalizePasteText(html)
         : (data?.getData('text/plain') ?? '');
-      if (!text) return false;
-      insertTextAsParagraphs(text);
+      if (!raw) return false;
+      const text = trimPastedText(raw);
+      if (text) insertTextAsParagraphs(text);
       event.preventDefault();
       return true;
     },
@@ -179,14 +184,14 @@ const isEmpty = computed(() => editor.value?.isEmpty ?? true);
 
 /** 粘贴文本按段插入：\n 分段 → 每段一个 Paragraph（空行 = 空段，
  *  与 textToHtml 同构——空段 <p><br></p> 由 PM 空段自表达，
- *  getText('\n') 还原时换行数守恒）。 */
+ *  getText('\n') 还原时换行数守恒）。开放切片（openStart/openEnd=1）
+ * 插入：首/末段与光标宿主段融合（textarea 语义——段中粘贴 "hello"
+ * 得 "abchellodef" 而非劈段 "abc\nhello\ndef"）；replaceSelection 同时
+ * 消化选区替换语义。 */
 function insertTextAsParagraphs(text: string): void {
   const ed = editor.value;
   if (!ed) return;
-  const parts = text.split('\n').map(line =>
-    line === '' ? { type: 'paragraph' } : { type: 'paragraph', content: [{ type: 'text', text: line }] },
-  );
-  ed.chain().focus().insertContentAt(ed.state.selection.from, parts).run();
+  insertPastedSlice(text, { openStart: 1, openEnd: 1 });
 }
 
 /** 内部回贴（data-pm-slice 开口标记）：replaceSelection 走 PM 原生段融

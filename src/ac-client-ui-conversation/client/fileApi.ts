@@ -23,9 +23,10 @@ export function browseDirs(path: string, opts: { files?: boolean } | undefined, 
   return rawBrowseDirs(path, opts, rpc);
 }
 
-/** 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成） */
-export async function uploadFile(formData: FormData, agentId?: string): Promise<UploadResult> {
-  const body = await rawUploadFile(formData, agentId);
+/** 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成。
+ *  会话键透传：agentId 缺席时后端经 singles 推导承载 Agent） */
+export async function uploadFile(formData: FormData, agentId?: string, conversationId?: string): Promise<UploadResult> {
+  const body = await rawUploadFile(formData, agentId, conversationId);
   if (typeof body.path === 'string') {
     if (body.hash) chatPresence.uploadPaths.set(body.hash, body.path);
     if (body.storedName) chatPresence.uploadPaths.set(body.storedName, body.path);

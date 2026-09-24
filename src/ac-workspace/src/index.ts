@@ -526,16 +526,25 @@ export class WorkspaceService extends Service {
    * 【内容寻址】storedName = 内容哈希（不再含时间戳）——同内容同名，
    * 已存在即跳过写入：重复粘贴/跨刷新/多标签页上传天然幂等，磁盘零
    * 重复（前端 contentHash12 去重之外的服务端兜底，owning 域单点）。
+   * 【会话感知】conversationId 在场且 agentId 缺席时，从 singles 会话
+   * 推导承载 Agent（sid → agentId）：常规 Agent 桶目录经
+   * ensureAgentWorkdir（专用空间唯一事实源——显式 settings['security'].
+   * workdir 分叉时仍落 files/<id> 保引用形态）；预设/虚拟无专用空间，
+   * 直建 files/<id>/_tmp（read 基准 = 数据根，files/ 前缀引用天然可达）；
+   * 未推导出 owner（非独立会话/行未装）→ shared（原行为）。
    */
-  saveUpload(agentId: string | undefined, originalName: string, data: Buffer): {
+  saveUpload(agentId: string | undefined, originalName: string, data: Buffer, conversationId?: string): {
     hash: string;
     storedName: string;
     originalName: string;
     size: number;
     path: string;
   } {
-    const bucket = agentId ? agentId : 'shared';
-    const dir = path.resolve(this.root, 'files', bucket, '_tmp');
+    const owner = agentId ?? this.uploadBucketAgent(conversationId);
+    const bucket = owner ?? 'shared';
+    const dir = owner !== undefined && !this.isPresetLike(owner)
+      ? path.join(this.ensureAgentWorkdir(owner), '_tmp')
+      : path.resolve(this.root, 'files', bucket, '_tmp');
     fs.mkdirSync(dir, { recursive: true });
     const hash = createHash('sha1').update(data).digest('hex').slice(0, 12);
     const ext = path.extname(originalName).slice(0, 16).replace(/[^.\w-]/g, '');
@@ -549,6 +558,28 @@ export class WorkspaceService extends Service {
       size: data.length,
       path: `files/${bucket}/_tmp/${storedName}`,
     };
+  }
+
+  /** 上传桶 Agent 的预设形态判定（预设/虚拟 → 不走专用空间事实源） */
+  private isPresetLike(agentId: string): boolean {
+    const agent = this.ctx.agents.get(agentId);
+    return !agent || agent.preset === true || agent.virtual === true;
+  }
+
+  /**
+   * 会话承载 Agent 推导（saveUpload 单源）：singles sid → agentId；
+   * 非独立会话/行未装/未登记 → undefined。与会话身份口径
+   * （single.agentId || defaultPresetId）不同：预设 Agent 无专用空间，
+   * 推导层不回退默认预设——落 shared 桶（预设的 read 基准 = 数据根，
+   * files/shared 引用天然可达，专用空间反而不可达）。
+   */
+  private uploadBucketAgent(conversationId: string | undefined): string | undefined {
+    if (!conversationId) return undefined;
+    const singles = this.ctx.get('singles') as
+      | { get(sid: string): { agentId?: string } | null }
+      | undefined;
+    const sid = singles?.get(conversationId)?.agentId;
+    return typeof sid === 'string' && sid ? sid : undefined;
   }
 
   // ---- 工作区登记（<root>/workspaces.json；owning 持久化） ----

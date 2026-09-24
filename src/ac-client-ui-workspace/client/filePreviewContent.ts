@@ -250,12 +250,18 @@ export function useFilePreviewContent(
     return '';
   });
 
-  // Office 文档渲染源（@vue-office 三组件直接吃 base64 字符串；
-  // 未知扩展名/非 base64 载荷不出源——模板分支不渲染）
+  // Office 文档渲染源：raw 直链 URL（@vue-office 三组件的 string src
+  // 一律按 URL 取数〔excel 侧 XHR、docx 侧 fetch——base64 串会被当 URL
+  // 请求〕，故传链不传 base64 载荷；组件经同源 raw 端点拉字节流，天然
+  // 命中 HTTP 缓存。displayPath = 数据根命中回显的请求形路径）。
   const officeSrc = computed(() => {
     const d = fileData.value;
-    if (!d || !d.base64) return '';
-    return d.content;
+    if (!d) return '';
+    const parts = ['path=' + encodeURIComponent(d.path || path.value)];
+    const ctx = context();
+    if (ctx.agentId) parts.push('agentId=' + encodeURIComponent(ctx.agentId));
+    if (ctx.conversationId) parts.push('conversationId=' + encodeURIComponent(ctx.conversationId));
+    return '/api/workspace/raw?' + parts.join('&');
   });
 
   // 代码高亮

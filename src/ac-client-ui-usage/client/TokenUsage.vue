@@ -2,14 +2,13 @@
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
-import type { ChartConfiguration, ScriptableContext, TooltipModel } from 'chart.js';
+import uPlot from 'uplot';
+import 'uplot/dist/uplot.min.css';
+import type { Series } from 'uplot';
 import { chord, ribbon } from 'd3-chord';
 import { Modal } from '@agentchat/webui-kit';
 import { Button } from '@agentchat/webui-kit';
 import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
-
-Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title);
 
 const props = defineProps<{
   visible: boolean;
@@ -237,14 +236,18 @@ onUnmounted(() => {
 });
 
 // ── 按日期柱状图 ──
-const chartCanvas = ref<HTMLCanvasElement | null>(null);
+const chartCanvas = ref<HTMLDivElement | null>(null);
 // ── 按模型柱状图（panel 双图第二张）──
-const modelChartCanvas = ref<HTMLCanvasElement | null>(null);
+const modelChartCanvas = ref<HTMLDivElement | null>(null);
 const modelChartTip = ref<HTMLDivElement | null>(null);
-let chartInstance: Chart | null = null;
-let modelChartInstance: Chart | null = null;
+let chartInstance: uPlot | null = null;
+let modelChartInstance: uPlot | null = null;
+let chartRaf = 0;
+let modelChartRaf = 0;
 
 function destroyChart() {
+  if (chartRaf) { cancelAnimationFrame(chartRaf); chartRaf = 0; }
+  if (modelChartRaf) { cancelAnimationFrame(modelChartRaf); modelChartRaf = 0; }
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
   if (modelChartInstance) { modelChartInstance.destroy(); modelChartInstance = null; }
   hideChartTip();
@@ -268,28 +271,18 @@ function normalizeModelName(llm: string): string {
   return idx >= 0 ? llm.slice(idx + 1) : llm;
 }
 
-/** 柱体圆角（仅柱顶）：只有堆叠实际顶段圆上两角，底部落轴保持直角——经典仪表盘柱形观感；
- *  scriptable 逐柱计算，顶段数值为 0 时圆角顺延到其下方首个可见段 */
-const BAR_CORNER_R = 6;
-function stackBarRadius(ctx: ScriptableContext<'bar'>) {
-  const dss = ctx.chart.data.datasets;
-  const di = ctx.dataIndex;
-  const val = (i: number) => Number((dss[i]?.data as number[] | undefined)?.[di] ?? 0);
-  const isTop = dss.every((_, i) => i <= ctx.datasetIndex || val(i) <= 0);
-  return {
-    topLeft: isTop ? BAR_CORNER_R : 0,
-    topRight: isTop ? BAR_CORNER_R : 0,
-    bottomLeft: 0,
-    bottomRight: 0,
-  };
+/** 堆叠柱状图序列（label 自上而下 = 视觉堆叠顺序，与 uplot 数组顺序一致；
+ *  uplot drawOrder 自底向上绘制，数组顺序即绘制顺序，最后一项画在最顶） */
+interface BarSeries {
+  label: string;
+  data: number[];
+  color: string;
 }
-const BAR_STYLE = { borderRadius: stackBarRadius, borderSkipped: false } as const;
 
-/** 堆叠柱状图数据集类型 */
-type BarDatasets = ChartConfiguration<'bar'>['data']['datasets'];
-
-/** 堆叠柱状图数据集（按统计方式；panel 双图各持固定 mode——spend/model） */
-function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageViewMode = usageViewMode.value): BarDatasets {
+/** 堆叠柱状图数据集（按统计方式；panel 双图各持固定 mode——spend/model）
+ *  返回顺序 = 视觉自上而下（缓存类：缓存 → 未缓存 → 输出；模型类：id 升序、「其他」垫底）
+ *  uplot 绘制自底向上：序列数组直接用此顺序即可让首项出现在堆顶 */
+function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageViewMode = usageViewMode.value): BarSeries[] {
   if (mode === 'model') {
     // 透视 by_day_llm → 每模型一个序列（归一化合并同名模型，按区间总量降序，超出合并「其他」）
     const rows = data.value?.by_day_llm ?? [];
@@ -304,28 +297,26 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
     const rankedByTotal = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([llm]) => llm);
     const rest = rankedByTotal.slice(MAX_MODEL_SERIES);
     const named = rankedByTotal.slice(0, MAX_MODEL_SERIES).sort((a, b) => a.localeCompare(b));
-    // datasets 自底向上堆叠 → 数组顺序 = 自上而下（id 升序）的逆序；「其他」非模型 id，固定堆底
-    const datasets = [...named].reverse().map(llm => ({
+    // 序列顺序 = 视觉自上而下（id 升序），「其他」非模型 id，固定堆底（末位）
+    const series: BarSeries[] = named.map(llm => ({
       label: llm,
       data: days.map(d => cell.get(`${d.date}|${llm}`) ?? 0),
-      backgroundColor: paletteColor(llm),
-      ...BAR_STYLE,
+      color: paletteColor(llm),
     }));
     if (rest.length > 0) {
-      datasets.unshift({
+      series.push({
         label: `其他（${rest.length} 个模型）`,
         data: days.map(d => rest.reduce((s, llm) => s + (cell.get(`${d.date}|${llm}`) ?? 0), 0)),
-        backgroundColor: isDark ? '#8b93a7' : '#9ca3af',
-        ...BAR_STYLE,
+        color: isDark ? '#8b93a7' : '#9ca3af',
       });
     }
-    return datasets;
+    return series;
   }
-  // 按消耗：自上而下 缓存 → 未缓存 → 输出（datasets 自底向上堆叠，数组顺序为其逆序）
+  // 按消耗：自上而下 缓存 → 未缓存 → 输出
   return [
-    { label: '输出', data: days.map(d => d.total_completion_tokens), backgroundColor: isDark ? '#a78bfa' : '#8b5cf6', ...BAR_STYLE },
-    { label: '未缓存', data: days.map(d => d.total_cache_miss ?? 0), backgroundColor: isDark ? '#818cf8' : '#6366f1', ...BAR_STYLE },
-    { label: '缓存', data: days.map(d => d.total_cache_hit ?? 0), backgroundColor: isDark ? '#34d399' : '#10b981', ...BAR_STYLE },
+    { label: '缓存', data: days.map(d => d.total_cache_hit ?? 0), color: isDark ? '#34d399' : '#10b981' },
+    { label: '未缓存', data: days.map(d => d.total_cache_miss ?? 0), color: isDark ? '#818cf8' : '#6366f1' },
+    { label: '输出', data: days.map(d => d.total_completion_tokens), color: isDark ? '#a78bfa' : '#8b5cf6' },
   ];
 }
 
@@ -335,12 +326,6 @@ const chartTip = ref<HTMLDivElement | null>(null);
 function hideChartTip(): void {
   const t = chartTip.value;
   if (t) t.style.display = 'none';
-}
-
-/** dataset 背景色（取首色；类型上可能是数组） */
-function bgOf(ds: { backgroundColor?: unknown }): string {
-  const c = ds.backgroundColor;
-  return (Array.isArray(c) ? c[0] : c) as string;
 }
 
 function renderChart() {
@@ -354,90 +339,174 @@ function renderChart() {
 
   // 主图：modal = 当前统计方式 / panel = 总用量（spend 固定）
   if (chartCanvas.value) {
-    chartInstance = makeBarChart(chartCanvas.value, days, isDark, isPanel.value ? 'spend' : usageViewMode.value, renderChartTip);
+    chartInstance = makeBarChart(chartCanvas.value, days, isDark, isPanel.value ? 'spend' : usageViewMode.value, (i) => renderChartTipAt(chartTip.value, i));
   }
-  // panel 双图第二张：按模型（model 固定；modal 形态无此 canvas 自然跳过）
+  // panel 双图第二张：按模型（model 固定；modal 形态无此 div 自然跳过）
   if (modelChartCanvas.value) {
-    modelChartInstance = makeBarChart(modelChartCanvas.value, days, isDark, 'model', (args) => renderChartTipAt(modelChartTip.value, args));
+    modelChartInstance = makeBarChart(modelChartCanvas.value, days, isDark, 'model', (i) => renderChartTipAt(modelChartTip.value, i));
   }
 }
 
-/** 单张堆叠柱状图构造（双图共用配置；tooltip 定位到各自容器） */
+/** 单张堆叠柱状图构造（uplot；双图共用配置；tooltip 定位到各自容器）。
+ *  堆叠技巧：序列数据用累计和，绘制顺序 = 视觉自上而下（数组正序）——
+ *  后画的底段累计更高、盖住先画的顶段下沿，只露出自身增量；类目轴用
+ *  x 值 0..n-1 + values 定制刻度标签。 */
 function makeBarChart(
-  canvas: HTMLCanvasElement,
+  host: HTMLDivElement,
   days: DailyUsage[],
   isDark: boolean,
   mode: UsageViewMode,
-  tip: (args: { chart: Chart; tooltip: TooltipModel<'bar'> }) => void,
-): Chart {
+  tip: (idx: number) => void,
+): uPlot {
   const textColor = isDark ? '#bdc3c7' : '#7f8c8d';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-  return new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels: days.map(d => d.date.slice(5)),
-      datasets: buildChartDatasets(days, isDark, mode),
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false }, // 图例移除，颜色含义经悬停 tooltip 呈现
-        tooltip: { enabled: false, external: tip },
+  // 序列顺序 = 视觉自上而下（顶段在前）；累计和沿视觉向下累加
+  const series = buildChartDatasets(days, isDark, mode);
+  const labels = days.map(d => d.date.slice(5));
+  const n = days.length;
+  const xs = Array.from({ length: n }, (_, i) => i);
+  const cum: number[][] = [];
+  let acc = Array.from({ length: n }, () => 0);
+  for (const s of series) {
+    acc = acc.map((a, i) => a + s.data[i]);
+    cum.push([...acc]);
+  }
+  // 柱宽（类目单位；band=1 留 30% 间隙）
+  const barSpan = n > 1 ? 0.7 : 0.5;
+  // 柱状路径绘制器（npm uplot 未随包发布 bars 插件，8 行自绘：
+  //  每个类目画一支到自身累计值的矩形；返回 fill 路径即可）
+  const barPaths: Series.PathBuilder = (u, seriesIdx, idx0, idx1) => {
+    const plot = u.bbox; // 绘图区（CSS 像素）
+    const bar = plot.width / n * barSpan;
+    const p = new Path2D();
+    for (let i = Math.max(0, idx0); i <= Math.min(n - 1, idx1); i++) {
+      const xv = u.data[0][i];
+      const yv = u.data[seriesIdx][i];
+      if (yv == null) continue;
+      const cx = u.valToPos(xv, 'x', true);
+      const y0 = u.valToPos(0, u.series[seriesIdx].scale!, true);
+      const y1 = u.valToPos(yv, u.series[seriesIdx].scale!, true);
+      const x0 = Math.round(cx - bar / 2), x1 = Math.round(cx + bar / 2);
+      p.rect(x0, y1, x1 - x0, y0 - y1);
+    }
+    return { stroke: null, fill: p, clip: null, bands: null, gaps: undefined, width: 0, flags: 0 };
+  };
+  const u = new uPlot(
+    {
+      width: Math.max(1, Math.floor(host.clientWidth)),
+      height: Math.max(1, Math.floor(host.clientHeight)),
+      padding: [8, 0, 0, 0],
+      series: [
+        {
+          value: (_u, v) => (v == null ? '--' : labels[Math.round(v)] ?? ''),
+        },
+        ...series.map(s => ({
+          label: s.label,
+          stroke: 'transparent',
+          fill: s.color,
+          spanGaps: true,
+          points: { show: false },
+          // 柱形绘制器（堆叠：数据为累计和，先画顶段后画底段覆盖）
+          paths: barPaths,
+        })),
+      ],
+      axes: [
+        {
+          values: (_u: uPlot, vals: Array<number | null>) => vals.map(v => v == null ? '' : labels[Math.round(v)] ?? ''),
+          font: '11px system-ui, sans-serif',
+          stroke: textColor,
+          gap: 0,
+          size: 30,
+          grid: { show: false },
+          ticks: { show: false },
+        },
+        {
+          font: '11px system-ui, sans-serif',
+          stroke: textColor,
+          grid: { stroke: gridColor, width: 1 / devicePixelRatio },
+          ticks: { show: false },
+          values: (_u: uPlot, vals: Array<number | null>) => vals.map(v => v == null ? '' : formatNumber(v)),
+        },
+      ],
+      legend: { show: false },
+      cursor: {
+        // 悬停显示同列所有段的 tooltip（等价 chart.js mode:'index'）
+        dataIdx: (_u: uPlot, seriesIdx: number, hoveredIdx: number) => hoveredIdx,
+        drag: { setScale: false, x: false, y: false },
       },
-      scales: {
-        // 竖向网格线移除，仅保留横向刻度线
-        x: { stacked: true, ticks: { color: textColor, maxRotation: 45, font: { size: 11 } }, grid: { display: false } },
-        y: { stacked: true, ticks: { color: textColor, callback: (v) => formatNumber(v as number) }, grid: { color: gridColor } },
+      scales: { x: { range: (_u: uPlot, min: number, max: number) => [min - 0.5, max + 0.5] } },
+      hooks: {
+        setCursor: [
+          (u2: uPlot) => {
+            const idx = u2.cursor.idx;
+            if (idx == null) { hideChartTip(); if (modelChartTip.value) modelChartTip.value.style.display = 'none'; }
+            else tip(idx);
+          },
+        ],
+        setScale: [
+          (u2: uPlot) => {
+            const idx = u2.cursor.idx;
+            if (idx != null) tip(idx);
+          },
+        ],
       },
     },
+    [xs, ...cum],
+    host,
+  );
+  // tooltip 数据源：原始段值矩阵（label/color/val；series 数组顺序 = 视觉自上而下）
+  (u as uPlot & { rawSeries?: BarSeries[] }).rawSeries = series;
+  // resize 适配：容器尺寸变化时同步 uplot（chart.js responsive 等价）
+  const ro = new ResizeObserver(() => {
+    u.setSize({ width: Math.max(1, host.clientWidth), height: Math.max(1, host.clientHeight) });
   });
+  ro.observe(host);
+  const origDestroy = u.destroy.bind(u);
+  u.destroy = () => { ro.disconnect(); origDestroy(); };
+  return u;
 }
 
 /** tooltip 渲染到指定容器（双图各持一个 tip 元素；逻辑与 modal 单图同源） */
-
 function renderChartTipAt(
   tipEl: HTMLDivElement | null,
-  args: { chart: Chart; tooltip: TooltipModel<'bar'> },
+  idx: number,
 ): void {
-  const t = args.tooltip;
   if (!tipEl) return;
-  if (!t.opacity) { tipEl.style.display = 'none'; return; }
-  // 自上而下（顶段在前，与视觉堆叠一致）+ 过滤零值段（模型视图跨天缺失时保持简洁）
-  const items = (t.dataPoints ?? [])
-    .filter(it => (it.parsed?.y ?? 0) > 0)
-    .sort((a, b) => b.datasetIndex - a.datasetIndex);
+  const u = chartInstance ?? modelChartInstance;
+  const days = data.value?.by_day ?? [];
+  const day = days[idx];
+  if (!u || !day) { tipEl.style.display = 'none'; return; }
+  // rawSeries 数组顺序 = 视觉自上而下（顶段在前）+ 过滤零值段（模型视图跨天缺失时保持简洁）
+  const raw = (u as uPlot & { rawSeries?: BarSeries[] }).rawSeries ?? [];
+  const items: Array<{ label: string; color: string; val: number }> = [];
+  for (const s of raw) {
+    const v = s.data[idx] ?? 0;
+    if (v > 0) items.push({ label: s.label, color: s.color, val: v });
+  }
   if (items.length === 0) { tipEl.style.display = 'none'; return; }
-  const total = items.reduce((s, it) => s + (it.parsed?.y ?? 0), 0);
+  const total = items.reduce((s, it) => s + it.val, 0);
 
-  const rows = items.map(it => {
-    const label = it.dataset.label ?? '';
-    return `<div class="ct-row">${dot(bgOf(it.dataset))}<span class="ct-label">${escHtml(label)}</span>` +
-      `<span class="ct-val">${formatNumber(it.parsed.y as number)}</span></div>`;
-  }).join('');
+  const rows = items.map(it =>
+    `<div class="ct-row">${dot(it.color)}<span class="ct-label">${escHtml(it.label)}</span>` +
+    `<span class="ct-val">${formatNumber(it.val)}</span></div>`).join('');
   tipEl.innerHTML =
-    `<div class="tt-title">${escHtml(t.title?.[0] ?? '')}</div>${rows}` +
+    `<div class="tt-title">${escHtml(day.date.slice(5))}</div>${rows}` +
     `<div class="ct-foot"><span>合计</span><span class="ct-val">${formatNumber(total)}</span></div>`;
 
-  // 定位：caretX/Y（相对画布）→ 包装容器坐标；越界翻转 + 钳制
-  const canvas = args.chart.canvas;
+  // 定位：光标位置（uplot left/top 像素）→ 包装容器坐标；越界翻转 + 钳制
   const wrap = tipEl.parentElement;
-  if (!canvas || !wrap) return;
-  const cRect = canvas.getBoundingClientRect();
+  if (!wrap) return;
   const wRect = wrap.getBoundingClientRect();
+  const cRect = u.over.getBoundingClientRect();
   tipEl.style.display = 'block';
-  const px = t.caretX + (cRect.left - wRect.left);
-  const py = t.caretY + (cRect.top - wRect.top);
+  const px = (u.cursor.left ?? 0) + (cRect.left - wRect.left);
+  const py = (u.cursor.top ?? 0) + (cRect.top - wRect.top);
   let x = px + 14;
   let y = py + 14;
   if (x + tipEl.offsetWidth > wRect.width - 6) x = px - tipEl.offsetWidth - 14;
   if (y + tipEl.offsetHeight > wRect.height - 6) y = py - tipEl.offsetHeight - 14;
   tipEl.style.left = `${Math.max(4, x)}px`;
   tipEl.style.top = `${Math.max(4, y)}px`;
-}
-
-function renderChartTip(args: { chart: Chart; tooltip: TooltipModel<'bar'> }): void {
-  renderChartTipAt(chartTip.value, args);
 }
 
 // ===== Token 云图（气泡图）：气泡面积 ∝ √total_tokens，一眼看出最活跃 Agent =====
@@ -1008,14 +1077,14 @@ onUnmounted(() => { destroyChart(); });
               <div class="tup-chart-block">
                 <div class="tup-chart-title" title="自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）">总用量 <i>缓存 / 未缓存 / 输出</i></div>
                 <div class="chart-wrapper">
-                  <canvas ref="chartCanvas"/>
+                  <div ref="chartCanvas" class="uplot-host"></div>
                   <div ref="chartTip" class="chart-tip"></div>
                 </div>
               </div>
               <div class="tup-chart-block">
                 <div class="tup-chart-title" title="自上而下按模型 ID 排序（其他垫底）">按模型 <i>各模型 Token 占比</i></div>
                 <div class="chart-wrapper">
-                  <canvas ref="modelChartCanvas"/>
+                  <div ref="modelChartCanvas" class="uplot-host"></div>
                   <div ref="modelChartTip" class="chart-tip"></div>
                 </div>
               </div>
@@ -1122,7 +1191,7 @@ onUnmounted(() => { destroyChart(); });
             <span class="chart-hint">{{ usageViewMode === 'spend' ? '自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）' : '自上而下按模型 ID 排序（其他垫底）' }}</span>
           </div>
           <div class="chart-wrapper">
-            <canvas ref="chartCanvas"/>
+            <div ref="chartCanvas" class="uplot-host"></div>
             <!-- external HTML tooltip（renderChartTip 注入内容；数值列右对齐） -->
             <div ref="chartTip" class="chart-tip"></div>
           </div>
@@ -1403,6 +1472,17 @@ onUnmounted(() => { destroyChart(); });
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 .chart-wrapper { flex: 1; min-height: 0; position: relative; }
+
+/* uplot 宿主：占满 wrapper；隐藏默认 tooltip/十字线（自绘 external HTML tooltip） */
+.uplot-host { position: absolute; inset: 0; }
+.uplot-host :deep(.u-cursor-x),
+.uplot-host :deep(.u-cursor-y) { display: none; }
+.uplot-host :deep(.u-select) { display: none; }
+/* x 轴日期标签：密集时斜排（等价 chart.js maxRotation 45） */
+.uplot-host :deep(.u-x .u-valu) {
+  transform-origin: top center;
+  white-space: nowrap;
+}
 
 /* 柱状图 external HTML tooltip：与弦图 cloud-tip 同风格卡片；两列布局，数值列右对齐 */
 .chart-tip {

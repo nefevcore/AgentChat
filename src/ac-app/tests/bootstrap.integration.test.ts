@@ -6,7 +6,7 @@
 // 语义对齐锚点 = boot.ts（Loader 路径）与 tree.test.ts（bootTree）。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bootDist, parsePortArg, type BootedDist } from '../src/bootstrap';
@@ -94,5 +94,73 @@ describe('bootDist（dist 直调 boot）', () => {
     const second = await boot(rootB); // 异根不冲突
     expect(second.ctx.tools.has('hello')).toBe(true);
     first.unlock?.();
+  });
+});
+
+describe('bootDist 版本升级数据迁移（对齐 boot.ts；桌面/npm 形态此前漏接的缺口）', () => {
+  /** v0 老形态会话数据：主文件内联 event 角色 + subcall 行（v1 迁移目标） */
+  function v0Root(): string {
+    const root = freshRoot();
+    const dir = join(root, 'sessions', 'a~user');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'messages.jsonl'),
+      [
+        JSON.stringify({ type: 'session-header', version: 1 }),
+        JSON.stringify({ role: 'agent', content: 'hi', agent_id: 'user', message_id: 'm1', timestamp: 't', seq: 1 }),
+        JSON.stringify({ role: 'event', source: 'event', content: '任务完成', agent_id: 'a', message_id: 'm2', timestamp: 't', seq: 2 }),
+        JSON.stringify({ type: 'tool-result', subcall: true, run: 'r1', tool_call_id: 'c#1', result: { ok: true }, seq: 3 }),
+      ].join('\n'),
+      'utf-8',
+    );
+    return root;
+  }
+
+  it('v0 老数据 boot：迁移按序应用（快照 + 版本推进 + 主文件改写）', async () => {
+    const root = v0Root();
+    const tree = await boot(root);
+    expect(tree.appliedMigrations).toEqual([
+      'role-v2-subcall-split',
+      'partials-split',
+      'subagents-dir',
+      'partial-rematerialize-purge',
+      'legacy-journal-purge',
+    ]);
+    // 版本标记推进 + 审计面
+    const meta = JSON.parse(readFileSync(join(root, 'meta.json'), 'utf-8')) as { dataVersion: number };
+    expect(meta.dataVersion).toBe(5);
+    // 迁移前强制快照留档（backups/migrations/ 不参与轮转）
+    expect(existsSync(join(root, 'backups', 'migrations'))).toBe(true);
+    // 主文件改写到位：role v2 + subcall 剥离
+    const raw = readFileSync(join(root, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');
+    expect(raw).toContain('"role":"context"');
+    expect(raw).not.toContain('"subcall":true');
+  });
+
+  it('已是当前版本：零迁移，appliedMigrations = []', async () => {
+    const root = v0Root();
+    writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 5 }), 'utf-8');
+    const tree = await boot(root);
+    expect(tree.appliedMigrations).toEqual([]);
+    const raw = readFileSync(join(root, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');
+    expect(raw).toContain('"subcall":true'); // 未迁移，原样保留
+  });
+
+  it('迁移失败 = 拒绝启动（半迁移数据不可用；快照已留档 backups/migrations/）', async () => {
+    // 让迁移必然失败：主文件旁放置同名 .tmp 目录——migrateSessionDir 的
+    // 原子写 writeFileSync(tmp) 撞 EISDIR 抛错 → bootDist 整体拒绝
+    //（boot 未完成，无行激活）。try/catch 而非 rejects：后者失败时会序列化
+    // resolve 出的 BootedDist（含 cordis ctx），撞 inject 守卫报 PrettyFormat 错。
+    const root = v0Root();
+    mkdirSync(join(root, 'sessions', 'a~user', 'messages.jsonl.tmp'), { recursive: true });
+    let thrown: unknown;
+    try {
+      await boot(root);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    // 迁移前强制快照先行留档（失败恢复的最后防线）
+    expect(existsSync(join(root, 'backups', 'migrations'))).toBe(true);
   });
 });

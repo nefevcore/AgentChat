@@ -25,11 +25,11 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
-    "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
-    "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",
+    "uplot": "^1.6.32",
     "vue": "^3.4.0"
   },
   "devDependencies": {

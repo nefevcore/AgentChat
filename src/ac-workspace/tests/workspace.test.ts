@@ -139,6 +139,53 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     expect(b.path).not.toBe(a1.path);
     expect(fs.readdirSync(dir).filter((f) => f.endsWith('.png'))).toHaveLength(2);
   });
+
+  it('saveUpload 会话感知：agentId 缺席 + 独立会话 sid → 推导承载 Agent 桶（经 ensureAgentWorkdir）', async () => {
+    const root = tmpRoot();
+    // stub singles：sid → agentId（与 bootWithSingles 同款结构面，多暴露 agentId）
+    const h = await boot(root);
+    const { Service } = await import('@agentchat/cordis');
+    class SinglesStub extends Service {
+      constructor(c: any) {
+        super(c, 'singles');
+      }
+      get(sid: string): { workspaceId?: string; agentId?: string } | null {
+        return sid === 'sid-neko' ? { agentId: 'neko' } : null;
+      }
+    }
+    void new SinglesStub(h.ctx as any);
+    // 常规 Agent（非预设）：桶 = 专用空间 files/neko（ensureAgentWorkdir 事实源）
+    const up = h.ctx.workspace.saveUpload(undefined, 'x.png', PNG, 'sid-neko');
+    expect(up.path).toBe('files/neko/_tmp/' + up.storedName);
+    expect(fs.existsSync(path.join(root, 'files', 'neko', '_tmp', up.storedName))).toBe(true);
+    // 显式 agentId 仍最优先（不因 conversationId 分流）
+    const direct = h.ctx.workspace.saveUpload('admin', 'x.png', PNG, 'sid-neko');
+    expect(direct.path).toBe('files/admin/_tmp/' + direct.storedName);
+    // 非独立会话 / 未登记承载 Agent → shared 兜底（原行为）
+    const fallback = h.ctx.workspace.saveUpload(undefined, 'x.png', PNG, 'sid-none');
+    expect(fallback.path).toBe('files/shared/_tmp/' + fallback.storedName);
+  });
+
+  it('saveUpload 会话感知：预设承载 Agent → 直建 files/<id>/_tmp（无专用空间，read 基准 = 数据根）', async () => {
+    const root = tmpRoot();
+    const h = await boot(root);
+    const { Service } = await import('@agentchat/cordis');
+    class SinglesStub extends Service {
+      constructor(c: any) {
+        super(c, 'singles');
+      }
+      get(sid: string): { workspaceId?: string; agentId?: string } | null {
+        return sid === 'sid-preset' ? { agentId: 'researcher' } : null;
+      }
+    }
+    void new SinglesStub(h.ctx as any);
+    // 预设 Agent 不在 agents 注册表（isPresetLike）→ 不走专用空间事实源，
+    // 直建 files/researcher/_tmp（桶随会话承载 Agent 分桶；预设 read 基准 =
+    // 数据根，files/ 前缀引用相对根可达）
+    const up = h.ctx.workspace.saveUpload(undefined, 'y.png', PNG, 'sid-preset');
+    expect(up.path).toBe('files/researcher/_tmp/' + up.storedName);
+    expect(fs.existsSync(path.join(root, 'files', 'researcher', '_tmp', up.storedName))).toBe(true);
+  });
 });
 
 describe('ac-workspace 读面工作区推导（M32：Agent 回复相对路径按基准定位）', () => {

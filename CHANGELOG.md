@@ -6,6 +6,30 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Changed（ConversationView 拆分精简——conversation-view-split-plan）
+- `ac-client-ui-conversation`：762 行/38KB 的四形态会话内核拆为纯组合壳（258 行）+ 四个内聚模块，对外契约（文件路径 / props / expose / RPC / slot 席位）零变化，四个跨包消费方（conversation/group/runview/singles 的 async 引用）零改动：
+- `useConversationIdentity.ts`：四形态判定/对话寻址/头部目标/标题徽标/席位与 dock 键的纯 computed 族（含 single 空 agentId = 默认预设兜底、排队座位键 agentId 兜底两条踩坑注释随迁）；
+- `useConversationHistory.ts`：三条 load-more 路径 + 全部装载 watch（immediate 三连/取消守卫/8s 超时/群聊无限递归防护等踩坑注释逐字随迁）；TranscriptList expose 面改经 `TranscriptListHandle` 结构化接口声明（.ts 不导 .vue）；
+- `useGroupSend.ts`：群发 RPC + 发送锁（10s 兜底解锁 + 卸载清理）；
+- `header/ConversationHeader.vue`：头部模板与样式整块平迁（pair 双端点头/思维链开关/`conversation:header-widget` 席位/归档·忙碌反馈 chip 悬挂锚），store/inject 就地取；
+- 验证：`pnpm webui:typecheck`（vue-tsc）全绿、`pnpm test:unit` 283 文件/2087 用例与拆前基线一致、lint suppression 按文件随迁对账（ConversationView 5 条 → 主文件 3 + history 2）；方案与裁决记录：`src/docs/conversation-view-split-plan.md`。
+
+### Fixed（macOS arm64 安装包「已损坏」——未签名 bundle 被 Gatekeeper 拦截）
+- **现象**：Apple Silicon 用户安装 `AgentChat-0.8.13-arm64.dmg` 报「已损坏，无法打开」；同机装 `AgentChat-0.8.13.dmg`（x64）却可运行。
+- **根因**：`desktop/package.json` 的 `mac.identity` 设为 `null`——electron-builder 的 `handleNullIdentity()` 对此**完全跳过签名**（`out/mac/MacTargetHelper.js`，日志 `skipped macOS code signing`），并非退化为 ad-hoc。实测两个 dmg/zip 内 `.app` 均无 `_CodeSignature`（整 bundle 未密封）。arm64 原生执行强制要求有效签名 → 隔离标记（下载所得必带）+ 未密封 → 系统弹「已损坏」（是 Gatekeeper 拦截语，**非文件字节损坏**）；x64 走 Rosetta 2 转译，对 bundle 签名宽容，故同一包能跑；源码自打包产物无隔离标记（没经过下载），故也能跑。
+- **修复**：`mac.identity` 改为 `"-"`（ad-hoc 签名，零证书成本）——密封整个 bundle 后降级为常规「未验证开发者」提示，右键「打开」即可（与文档既有指引一致）。hardenedRuntime 缺省 true，electron-builder 自带 entitlements 模板已含 `disable-library-validation`，无需额外配置。彻底免右键需 Developer ID 证书 + 公证（未做）。
+- 排查结论：服务器上 0.8.13 全部 6 个产物 sha256 与 manifest 逐一吻合，**排除发布/传输损坏**。
+
+### Added（桌面壳更新面：静默预下载 + 应用内一键安装）
+- **壳层静默预下载**（`desktop/main.mjs`）：启动 15s 首查 + 每 4h 复查下载面 manifest，有新版即后台下载安装包（流式单遍 sha256 + size 双校验，异常包绝不进就绪态），下载完成不提醒；暂存区在缺省数据根 `updates/`（断点半包启动时清理；下载器状态机 idle/downloading/ready/failed 可恢复）。新桥路由：`GET /desktop-bridge/update`（状态/进度）、`POST …/update/download`（手动触发，幂等）、`POST …/update/install`（拉起暂存安装包后整壳退场；win=NSIS 向导 / mac=dmg 挂载 / linux=文件管理器定位）。
+- **前端版本面板一键安装**（`ac-client-ui-system`）：桌面形态探测壳更新桥——就绪显「安装 vX.Y.Z」（点击后壳退场拉起安装器，向导自动带出原安装目录）、下载中显进度百分比、失败可重试；桥不可达或 manifest 无本平台包时回落「前往下载页」外链（行为同旧版）。
+- **CI 发布闸**（`desktop.yml`）：三腿构建后产出 CI 侧 sha256 基准 artifact；manifest 收尾 job 读回服务器已上传字节逐文件比对，不一致即 fail——gen-manifest 不执行，**损坏安装包进不了 manifest/下载面**（用户反馈安装包损坏的发布侧防线；客户端下载侧 sha256 校验为第二道闸）。
+- **下载韧性**（断点续传 + 自动重试）：安装包下载改为全程写 `<file>.part`、校验通过才原子改名——任何时刻进程被杀都不会留下「看似就绪实则半包」的文件；传输中断/字节不齐保留 `.part` 并带 `Range: bytes=<已有>-` 续传（sha256 无状态可恢复，续传时把已有前缀重新并入累计哈希），最多 3 次指数退避重试；**哈希不符则丢弃 `.part` 重下**（坏前缀不可续传）。实测下载面支持 Range（`accept-ranges: bytes`，206 Partial Content），断网续传不白下已得字节。
+- 测试：`desktop-update.test.ts`（挑包评分/版本比较/下载校验链/异常包 failed 态/install 路由未就绪 400/**断流续传（含 200 回退分支）/哈希不符不续传/重试上限/.part 原子性**）。
+
+### Changed（存储管理节 UI 对齐项目标准风格）
+- `ac-client-ui-desktop-storage` 设置节从手写样式迁移至 webui-kit 令牌体系与标准组件（样板 RemoteDevices.vue）：硬编码色值/`--tx2`/`--bg2` 回落全部换成 `--text-*/--line/--bg-*/--primary/--r-*/--space-*` 令牌（双主题自适应）；手搓按钮/确认弹层换成 `Button`/`Modal` 组件；错误提示统一 error-banner 模式（`StatusDot` + `--err` 色彩混合底）；容量格式化复用 kit `formatFileSize`；移除节内重复 `<h3>` 标题（设置面板左树叶已显示节名，全库设置节中唯此一处自带标题）；「自定义」徽章与警示条改令牌化配色。
+
 ## [0.8.13] - 2026-09-23
 ### Fixed（思考重复卡——partial 行物化进主文件，双源同读出两张卡）
 - **现象**：UI 同一思考内容两张卡，刷新不消失。

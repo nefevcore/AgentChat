@@ -1,23 +1,31 @@
 <!-- OfficeView.vue —— Office 文档预览渲染组件（docx/xlsx/pptx 家族）
   @vue-office 三组件按需懒加载（vue3 产物，异步分量——不进主 bundle，
-  首次打开 office 文件才拉解析器）；src = fetchWorkspaceFile 返回的
-  base64 字符串（组件直接消费）。解析失败（损坏文件/超限）走 error 插槽。
-  组件挂载后守卫 isDead：解析完成前 pane 切走（v-show 卸载组件）时，
-  迟到的失败提示不再冒泡（Modal/pane 双形态共用）。 -->
+  首次打开 office 文件才拉解析器；excel 解析器 ~1.6MB）。src = raw 直链
+  URL（三组件的 string src 统一按 URL 取数——excel 侧 XHR arraybuffer、
+  docx 侧 fetch；base64 载荷会被当 URL 请求，不可传）。
+  CSS 随组件引入（excel 的 x-spreadsheet 画布/工具栏必需——漏引则
+  画布尺寸塌陷为不可见）；样式表经懒路径动态 import，与 KaTeX 懒注入
+  同一手法。@rendered 计数做加载态，解析失败（损坏文件/网络）走
+  @error → 错误面板（本地打开兜底提示）。 -->
 <script setup lang="ts">
-import { computed, ref, onBeforeUnmount } from 'vue';
+import { computed, ref, onBeforeUnmount, defineAsyncComponent } from 'vue';
 
 const props = defineProps<{
   /** 文件名（扩展名选组件 + alt 兜底） */
   name: string;
-  /** base64 载荷（空 = 不渲染，模板分支前置守卫） */
+  /** raw 直链 URL（空 = 不渲染，模板分支前置守卫） */
   src: string;
 }>();
 
-// 懒加载（首次渲染才拉对应解析器——xlsx 内嵌解析器 ~1.6MB，不值得预载）
+// 懒加载（首次渲染才拉对应解析器——不进主 bundle）
 const VueOfficeDocx = defineAsyncComponent(() => import('@vue-office/docx'));
 const VueOfficeExcel = defineAsyncComponent(() => import('@vue-office/excel'));
 const VueOfficePptx = defineAsyncComponent(() => import('@vue-office/pptx'));
+
+// 样式随行（excel 的 x-spreadsheet 画布必需；docx/pptx 无独立 css 文件
+//——vite 对不存在文件的动态 import 在 build 期直接失败，按包分守卫）
+import('@vue-office/excel/lib/index.css');
+import('@vue-office/docx/lib/index.css');
 
 // 扩展名（小写）
 const ext = computed(() => {
@@ -39,33 +47,46 @@ const comp = computed(() => {
   return null;
 });
 
-// 解析失败态（@vue-office 抛错无错误回调——error 插槽 + 本地守卫）
+// 渲染成功计数（@rendered；切换 src 重置——加载态依据）
+const renderedTick = ref(0);
+function onRendered() { renderedTick.value++; }
+
+// 解析失败态（@error；守卫 pane 已卸载的迟到信号）
 const parseError = ref('');
 let isDead = false;
 onBeforeUnmount(() => { isDead = true; });
 function onError(err: unknown) {
   if (isDead) return;
-  parseError.value = err instanceof Error ? err.message : '文档解析失败';
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  parseError.value = '文档解析失败' + (msg ? '（' + msg + '）' : '');
 }
+function resetState() { parseError.value = ''; renderedTick.value = 0; }
 </script>
 
 <template>
-  <div v-if="src && comp" class="ov-wrap">
+  <div v-if="src && comp" :key="src" class="ov-wrap">
     <div v-if="parseError" class="ov-error">
       <span>{{ parseError }}</span>
       <span class="ov-error-hint">可尝试「本地打开」用系统程序查看</span>
     </div>
-    <component v-else :is="comp" :src="src" @error="onError" class="ov-doc" />
+    <div v-else class="ov-doc-holder">
+      <component :is="comp" :src="src" @rendered="onRendered" @error="onError" class="ov-doc" />
+    </div>
   </div>
 </template>
 
 <style scoped>
 .ov-wrap {
   height: 100%;
+  min-height: 200px;
   overflow: auto;
   background: var(--color-bg-page, #fff);
 }
-.ov-doc {
+.ov-doc-holder {
+  height: 100%;
+  min-height: 200px;
+}
+:deep(.ov-doc) {
   width: 100%;
   height: 100%;
 }

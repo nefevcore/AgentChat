@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from './systemApi.ts';
+import {
+  fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate,
+  fetchDesktopUpdateStatus, triggerDesktopUpdateDownload, installDesktopUpdate,
+} from './systemApi.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ visible: boolean }>();
@@ -25,6 +28,49 @@ const changelog = ref('');
 const updating = ref(false);
 const updateMsg = ref('');
 
+// ---- 桌面更新桥（壳层静默预下载面）----
+const desktopUpdate = ref<import('./systemApi.ts').DesktopUpdateStatus | null>(null);
+let updatePollTimer: ReturnType<typeof setInterval> | null = null;
+const installing = ref(false);
+
+function fmtSize(n: number | null | undefined): string {
+  if (!n || n <= 0) return '';
+  return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
+}
+
+async function pollDesktopUpdate(): Promise<void> {
+  const st = await fetchDesktopUpdateStatus();
+  desktopUpdate.value = st;
+  // 有新版但还没起流（检查间隙/自动下载失败）→ 手动补触发，幂等
+  if (st && st.latest && st.current !== st.latest && st.status === 'idle') {
+    await triggerDesktopUpdateDownload();
+  }
+}
+
+const downloadPct = computed(() => {
+  const st = desktopUpdate.value;
+  if (!st || st.status !== 'downloading' || !st.total) return null;
+  return Math.min(100, Math.round((st.received / st.total) * 100));
+});
+
+/** 桥状态可用且支持本平台 = 走本地安装；否则回落外链（旧版行为） */
+const localInstallable = computed(() => {
+  const st = desktopUpdate.value;
+  return !!st && st.supported !== false && ['idle', 'downloading', 'ready', 'failed'].includes(st.status);
+});
+
+async function doInstall(): Promise<void> {
+  installing.value = true;
+  const r = await installDesktopUpdate();
+  if (!r.ok) {
+    updateMsg.value = `安装启动失败：${r.error ?? '未知错误'}`;
+    installing.value = false;
+    return;
+  }
+  updateMsg.value = '正在启动安装程序…（应用将退出，安装向导会自动带出原安装目录，数据不受影响）';
+  // 壳退场后本页 WS 断开属预期——不置回 installing，避免按钮闪烁
+}
+
 const renderedChangelog = computed(() => renderMd(changelog.value));
 
 async function fetchVersion() {
@@ -46,6 +92,8 @@ async function fetchVersion() {
       const cd = await fetchChangelog(rpc);
       changelog.value = cd.content || '';
     } catch { /* changelog 非关键 */ }
+    // 桌面形态：探壳层更新桥（非桌面/桥不可达 = null，静默降级）
+    if (desktopMode.value) await pollDesktopUpdate();
   } catch (err: any) {
     error.value = err.message || '获取版本信息失败';
   } finally {
@@ -54,8 +102,17 @@ async function fetchVersion() {
 }
 
 watch(() => props.visible, (v) => {
-  if (v) { current.value = ''; fetchVersion(); }
+  if (v) {
+    current.value = '';
+    fetchVersion();
+    // 下载进度轮询（2s——壳层流式进度只有主动拉取面；关闭即停）
+    updatePollTimer = setInterval(() => { pollDesktopUpdate().catch(() => undefined); }, 2000);
+  } else if (updatePollTimer) {
+    clearInterval(updatePollTimer);
+    updatePollTimer = null;
+  }
 });
+onBeforeUnmount(() => { if (updatePollTimer) clearInterval(updatePollTimer); });
 
 async function doUpdate() {
   updating.value = true;
@@ -108,8 +165,23 @@ async function doUpdate() {
               </div>
             </div>
 
-            <!-- 状态提示 -->
-            <div v-if="hasUpdate && desktopMode" class="version-status update">
+            <!-- 状态提示（桌面：优先本地安装面；桥不可达回落下载页指引） -->
+            <div v-if="hasUpdate && desktopMode && localInstallable" class="version-status update">
+              <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
+              <template v-if="desktopUpdate?.status === 'ready'">
+                新版安装包已就绪（{{ fmtSize(desktopUpdate.size) }}，校验通过）——点击安装，向导会自动带出原安装目录，数据不受影响。
+              </template>
+              <template v-else-if="desktopUpdate?.status === 'downloading'">
+                正在后台下载新版本安装包{{ downloadPct !== null ? `（${downloadPct}%）` : '' }}，下载完成后即可一键安装。
+              </template>
+              <template v-else-if="desktopUpdate?.status === 'failed'">
+                安装包下载失败（{{ desktopUpdate.error || '网络错误' }}），可重试或前往下载页手动获取。
+              </template>
+              <template v-else>
+                正在检查新版本安装包……
+              </template>
+            </div>
+            <div v-else-if="hasUpdate && desktopMode" class="version-status update">
               <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
               新版本可用！请从下载页获取新版本安装包（前往下载覆盖安装，数据不受影响）。
             </div>
@@ -130,6 +202,25 @@ async function doUpdate() {
             <div v-if="hasUpdate && !desktopMode" class="version-actions">
               <button class="version-btn primary" :disabled="updating" @click="doUpdate">{{ updating ? '更新中…' : '立即更新' }}</button>
               <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">获取安装包</a>
+            </div>
+            <div v-else-if="hasUpdate && desktopMode && localInstallable" class="version-actions">
+              <button
+                v-if="desktopUpdate?.status === 'ready'"
+                class="version-btn primary"
+                :disabled="installing"
+                @click="doInstall"
+              >{{ installing ? '启动中…' : `安装 v${desktopUpdate.version ?? latest}` }}</button>
+              <button
+                v-else-if="desktopUpdate?.status === 'downloading'"
+                class="version-btn secondary"
+                disabled
+              >下载中 {{ downloadPct !== null ? `${downloadPct}%` : '' }}</button>
+              <button
+                v-else-if="desktopUpdate?.status === 'failed'"
+                class="version-btn primary"
+                @click="pollDesktopUpdate().then(() => triggerDesktopUpdateDownload())"
+              >重试下载</button>
+              <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">前往下载页</a>
             </div>
             <div v-else-if="hasUpdate && latestUrl" class="version-actions">
               <a :href="latestUrl" target="_blank" class="version-btn secondary">获取安装包</a>
@@ -244,6 +335,7 @@ async function doUpdate() {
 .version-btn.primary:hover { opacity: 0.9; }
 .version-btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .version-btn.secondary:hover { background: var(--color-bg-surface, #f5f5f5); }
+.version-btn.secondary:disabled { opacity: 0.7; cursor: default; }
 
 .version-update-msg {
   text-align: center; padding: 8px;

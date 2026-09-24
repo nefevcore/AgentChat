@@ -7,6 +7,11 @@
 //     + 主文件 subcall 行剥离 → subcalls.jsonl（同 pass 每文件读一次写一次）
 //   · v2 M-partials-split：主文件 partial 步行 + 直调补行 → partials.jsonl
 //    （三文件裁决——主文件纯定稿流，partials 是关闭行终值覆盖源档案）
+//   v5 M-legacy-journal-purge：partials.jsonl 内旧形态（无 type 字段的
+//    partial 步行）按「run 已定稿」判定剔除——v2 拆分（运行时同步改写侧）
+//    到 journal 泛化（清理面只认新形态 type 行）之间的夹缝窗口写入的行，
+//    settlement/recoverJournal 的行身份解析（journalIdentity）一律 undefined
+//    （宁重不丢 → 永久保留），读侧却仍按 run 活投出——死数据无限累积。
 // v1 已在 live 根应用过（2026-09-19）——partials 拆分按新版本号追加，不回改 v1。
 // ============================================================
 import * as fs from 'node:fs';
@@ -165,6 +170,57 @@ function migrateSubagentsDir(dataRoot: string): { moved: number } {
   return { moved };
 }
 
+/** v5：单会话 partials.jsonl 旧形态清理——已定稿 run 的无 type 行剔除。
+ *  判据与运行时 recoverJournal 的 settled 同口径：messages 中存在该 run 的
+ *  非 partial 定稿行（段行/收束行/注入提升行）即视为已定稿；不同处在于
+ *  recoverJournal 需锚 run-settled（泛化后写入），此处覆盖泛化前定稿的历史
+ *  run（其收束行无锚）。未收束 run 的旧形态行保留——中断恢复源（读侧
+ *  records() 仍按 run 活投出，非死数据）。新形态行（journal-step/-inject/
+ *  tool-result）一律不动——归 settlement/recoverJournal 生命周期管辖。 */
+function purgeLegacyJournal(dir: string): { purged: number; kept: number } {
+  const partFile = path.join(dir, 'partials.jsonl');
+  const mainFile = path.join(dir, 'messages.jsonl');
+  if (!fs.existsSync(partFile)) return { purged: 0, kept: 0 };
+  const raw = fs.readFileSync(partFile, 'utf-8');
+  if (!raw.trim()) {
+    fs.rmSync(partFile);
+    return { purged: 0, kept: 0 };
+  }
+  // 定稿 run 集：messages 内非 partial、非 run-settled、携带 run 的行
+  const settled = new Set<string>();
+  if (fs.existsSync(mainFile)) {
+    for (const line of fs.readFileSync(mainFile, 'utf-8').split('\n')) {
+      if (!line.trim() || line.trimStart().startsWith('{"type":"run-settled"')) continue;
+      try {
+        const r = JSON.parse(line) as { run?: unknown; partial?: unknown };
+        if (typeof r.run === 'string' && r.run && r.partial !== true) settled.add(r.run);
+      } catch { /* 坏行忽略 */ }
+    }
+  }
+  let purged = 0;
+  let kept = 0;
+  const keptLines: string[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let drop = false;
+    try {
+      const r = JSON.parse(line) as { type?: unknown; run?: unknown };
+      // 旧形态（无 type）+ 已定稿 run → 死数据剔除；其余保留
+      if (r.type === undefined && typeof r.run === 'string' && settled.has(r.run)) drop = true;
+    } catch { /* 坏行保留 */ }
+    if (drop) purged++;
+    else { kept++; keptLines.push(line); }
+  }
+  if (purged === 0) return { purged, kept };
+  if (kept === 0) fs.rmSync(partFile);
+  else {
+    const tmp = partFile + '.purge.tmp';
+    fs.writeFileSync(tmp, keptLines.join('\n') + '\n', 'utf-8');
+    fs.renameSync(tmp, partFile);
+  }
+  return { purged, kept };
+}
+
 /** 会话数据迁移集（升序应用；见文件头注释） */
 export const SESSION_MIGRATIONS: Migration[] = [
   {
@@ -201,6 +257,31 @@ export const SESSION_MIGRATIONS: Migration[] = [
     apply(dataRoot: string): void {
       const total = walkSessions(dataRoot, 'partials-split');
       console.log(`[migration] partial 物化残留清除 ${total.partMoved} 行`);
+    },
+  },
+  {
+    version: 5,
+    id: 'legacy-journal-purge',
+    description: '清除 partials.jsonl 内已定稿 run 的旧形态（无 type 字段）partial 步行——v2 拆分与 journal 泛化夹缝窗口的死数据（清理面只认新形态，旧行永久保留且读侧仍投出）',
+    apply(dataRoot: string): void {
+      const sessionsRoot = path.join(dataRoot, 'sessions');
+      let purged = 0;
+      let kept = 0;
+      let files = 0;
+      if (!fs.existsSync(sessionsRoot)) return;
+      const walk = (d: string): void => {
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+          if (entry.isDirectory()) walk(path.join(d, entry.name));
+          else if (entry.name === 'partials.jsonl') {
+            const r = purgeLegacyJournal(path.dirname(path.join(d, entry.name)));
+            purged += r.purged;
+            kept += r.kept;
+            if (r.purged > 0 || r.kept > 0) files++;
+          }
+        }
+      };
+      walk(sessionsRoot);
+      console.log(`[migration] 旧形态 journal 清理：剔除 ${purged} 行，保留 ${kept} 行（未定稿 run 中断恢复源），涉及 ${files} 个会话`);
     },
   },
 ];

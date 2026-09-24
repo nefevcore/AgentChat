@@ -519,7 +519,7 @@ const TOOL_MODE_OPTIONS = computed<Array<{ value: '' | 'tc-base' | 'tc-programma
   },
   { value: 'tc-base', label: '标准工具调用', icon: 'mouse-pointer-click', detail: '逐个调用', title: '本会话覆盖为标准档：模型逐个调用工具（每个工具独立 schema，直接直调）——压制 Agent 的 tc-programmatic/tc-none 标签档' },
   programmaticAvailable.value
-    ? { value: 'tc-programmatic', label: '程序化工具调用', icon: 'braces', detail: 'run_code 编排', title: '本会话覆盖为程序化档：工具面收窄为 run_code 单入口——模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文（大幅降低 token 消耗）。run 间隙生效' }
+    ? { value: 'tc-programmatic', label: '程序化工具调用', icon: 'braces', detail: '代码编排，省 token', title: '本会话覆盖为程序化档：工具面收窄为 run_code 单入口——模型写一段 TypeScript 程序经 tools.* API 编排成批工具调用，只有最终返回值回上下文（大幅降低 token 消耗）。run 间隙生效' }
     : { value: 'tc-programmatic', label: '程序化工具调用', icon: 'braces', detail: '需 infra 标签', title: '当前 Agent（含预设）未授予 infra 能力标签（run_code 不可见）——程序化对其惰性（勾选不生效，后端 warn 并回落）。请到 Agent 设置添加该标签，或换用已授权的 Agent', disabled: true },
   { value: 'tc-none', label: '无工具调用', icon: 'message-circle', detail: '纯聊天', title: '本会话覆盖为无工具档：移除 LLM 工具面（纯聊天——模型只输出文本，不调用任何工具）' },
 ]);
@@ -1101,9 +1101,10 @@ watch(inputText, (v) => {
 
 /**
  * 上传并挂附件（文件选择器 / 剪贴板粘贴共用）。上传目标在进入循环前
- * 固定：循环 await 期间用户切换 Agent 的话，后续文件会以 curAgent
- * 漂移后的值上传（附件落到错误 Agent 的目录）。无扩展名的剪贴板文件
- * 按 MIME 补名（ensurePasteName——图片识别/物化依赖扩展名）。
+ * 固定（循环 await 期间用户切目标不漂移）：single = 会话承载 Agent；
+ * 1v1/群 = 激活 Agent。无扩展名的剪贴板文件按 MIME 补名
+ * （ensurePasteName——图片识别/物化依赖扩展名）。无激活 Agent 时
+ * agentId 置空，后端经 conversationId（single sid）推导承载 Agent。
  * 【内容寻址去重】上传前算 sha1-12（与服务端同算法）：当前 compose 已
  * 挂同内容 → 跳过（不重复 chip）；本会话曾上传过（chatPresence.
  * uploadPaths 登记）→ 复用路径零上传零落盘。
@@ -1111,7 +1112,12 @@ watch(inputText, (v) => {
 async function uploadAndAttach(rawFiles: File[]): Promise<void> {
   if (rawFiles.length === 0) return;
   uploading.value = true;
-  const curAgent = roster.activeAgentId.value;
+  // 上传桶键（进循环前固定）：single = 会话承载 Agent ?? 后端按 sid 推导；
+  // 其余形态 = 激活 Agent（缺席交后端 shared/推导兜底）
+  const curAgent = props.single
+    ? (props.single.agentId || undefined)
+    : (roster.activeAgentId.value || undefined);
+  const curConv = props.single?.id;
   for (const raw of rawFiles) {
     try {
       // 去重（内容哈希——与服务端 saveUpload 同算法，命中登记即复用）
@@ -1129,7 +1135,7 @@ async function uploadAndAttach(rawFiles: File[]): Promise<void> {
       }
       const formData = new FormData();
       formData.append('file', ensurePasteName(raw));
-      const data = await uploadFile(formData, curAgent);
+      const data = await uploadFile(formData, curAgent, curConv);
       attachedFiles.value.push({
         hash: data.hash ?? hash,
         // 显示名优先原始名（粘贴补名/用户文件名），storedName 哈希名只作

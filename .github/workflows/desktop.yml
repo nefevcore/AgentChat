@@ -64,6 +64,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       # ---- 三腿各传各的产物（文件名不冲突）；manifest 重算在收尾 job ----
+      # ---- 发布闸基准（2026-09 用户反馈安装包损坏）：上传前算 CI 侧
+      # sha256 清单进 artifact——manifest job 读回服务器字节比对，不一致
+      # = 发布 fail，异常包绝不进 manifest/下载面。
+      - name: 计算产物 sha256 清单（CI 侧基准）
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sha-baseline
+          : > /tmp/sha-baseline/SHA256SUMS
+          shopt -s nullglob
+          for f in desktop/release/*.exe desktop/release/*.dmg desktop/release/*.zip desktop/release/*.AppImage; do
+            case "$f" in *.blockmap) continue ;; esac
+            # basename 规范化：windows 腿 git-bash 下路径分隔符差异不影响 $(basename)
+            echo "$(sha256sum "$f" | awk '{print \$1}')  $(basename "$f")" >> /tmp/sha-baseline/SHA256SUMS
+          done
+          cat /tmp/sha-baseline/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sha-baseline-${{ matrix.os }}
+          path: /tmp/sha-baseline/SHA256SUMS
+          if-no-files-found: error
+
       - name: 上传安装包到下载服务器
         if: matrix.os != 'windows-latest'   # windows 腿产物形态不同，单独一步
         shell: bash
@@ -128,6 +150,65 @@ jobs:
     if: always() && !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      # ---- 发布闸（2026-09 用户反馈安装包损坏）：拉三腿 CI 侧 sha256 基准，
+      # 与服务器上已上传字节逐文件比对——不一致 = 本 job fail，gen-manifest
+      # 不执行，异常包绝不进 manifest/下载面（scp 传输损坏/磁盘坏块/并发
+      # 写串包在此拦下）。客户端侧另有第二道闸（壳层下载后 sha256 校验）。
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sha-baseline-*
+          path: /tmp/sha-baseline
+          merge-multiple: true
+      - name: 读回校验（服务器字节 vs CI 基准，防发布异常安装包）
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过校验"
+            exit 0
+          fi
+          BASELINE=/tmp/sha-baseline/SHA256SUMS
+          if [ ! -s "$BASELINE" ]; then
+            echo "::error::CI 侧 sha256 基准缺失（三腿 artifact 未齐）"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(node -p "require('./desktop/package.json').version")"
+          fi
+          REMOTE_DIR="/var/www/agentchat/downloads/$VER"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # 远端整目录哈希清单一次取回（免逐文件 ssh 往返）
+          REMOTE_SUMS="$(ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "cd '$REMOTE_DIR' && sha256sum * 2>/dev/null" || true)
+          if [ -z "$REMOTE_SUMS" ]; then
+            echo "::error::服务器 $REMOTE_DIR 无任何产物——上传步骤异常"
+            exit 1
+          fi
+          FAIL=0
+          while read -r sha name; do
+            [ -n "$sha" ] || continue
+            REMOTE_SHA="$(printf '%s\n' "$REMOTE_SUMS" | awk -v n="$name" '$2 == n {print \$1; exit}')"
+            if [ -z "$REMOTE_SHA" ]; then
+              echo "::error::$name 服务器上缺失（读回清单无此文件）"
+              FAIL=1
+            elif [ "$REMOTE_SHA" != "$sha" ]; then
+              echo "::error::$name 哈希不符：CI=$sha 服务器=$REMOTE_SHA——疑似上传损坏，已阻断发布"
+              FAIL=1
+            else
+              echo "✓ $name 校验通过"
+            fi
+          done < "$BASELINE"
+          exit $FAIL
       - name: 重算 manifest（服务器侧扫描）
         shell: bash
         env:

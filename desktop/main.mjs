@@ -25,9 +25,11 @@
 // ============================================================
 import { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, shell } from 'electron';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
+import { Readable } from 'node:stream';
 import * as path from 'node:path';
 
 const DEFAULT_PORT = 3830;
@@ -330,47 +332,340 @@ function createTray() {
 }
 
 // ------------------------------------------------------------
-// 更新提醒（2026-09 分发自托管裁决 remote-client-relay-plan §4.6：
-//   桌面安装包不再上 GitHub Releases——electron-updater feed 失效退役，
-//   改 ~30 行 manifest 检查：下载面 manifest.json 比版本，有新版仅提醒
-//   「前往下载」打开下载主页，三平台同构（macOS 本就只提醒，行为不变）。
-//   sha256 校验在下载页侧（文件完整性以哈希为准）；静默自动升级
-//   （NSIS /S + sha256）留作后续可选。fail-soft：检查失败静默跳过。）
+// 更新面（2026-09 用户裁决：不做静默安装；静默预下载免打扰）：
+//   启动 15s 首查 + 每 4h 复查下载面 manifest.json——有新版即后台静默
+//   下载安装包（size + sha256 双校验，哈希以 gen-manifest 为准），下载
+//   完成不提醒；用户打开版本面板时经桥看到就绪态，点「安装」才拉起
+//   安装程序——win = NSIS 向导（覆盖安装自动带出原目录：NSIS 自读
+//   HKCU InstallLocation 预填 $INSTDIR，非壳层职责）；mac = 挂载 dmg；
+//   linux = 文件管理器定位 AppImage 手动替换。桥不可达或 manifest 无
+//   本平台包 → 前端回落下载页外链（同旧版行为）。fail-soft：检查/
+//   下载失败静默留痕，绝不打断使用。
 // ------------------------------------------------------------
 const DOWNLOAD_BASE = 'http://47.110.63.135';
+
+// 暂存区：缺省数据根下 updates/（数据根可被用户迁移，更新暂存属应用
+// 自管区，锚在恒在的缺省目录——与日志目录同策略）。
+const updatesDir = path.join(defaultDataRoot, 'updates');
+const updateStateFile = path.join(updatesDir, 'update.json');
+
+let lastManifest = null;      // 最近一次成功拉取的 manifest（状态面/手动下载复用）
+let dlInFlight = false;       // 下载互斥（定时复查与手动触发并发防护）
+let dlProgress = null;        // {version, fileName, received, total}——内存进度，GET 即时读
+let installLaunched = false;  // 安装只发一次（面板重复点击防护）
+let installLauncherOverride = null; // 测试注入（替代真实拉起）
+
+function cmpVersion(a, b) {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; }
+  return 0;
+}
+
+async function fetchUpdateManifest() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${DOWNLOAD_BASE}/manifest.json`, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 本机安装包挑选（manifest releases[0] → platform/arch/扩展名评分最高者；
+ *  纯函数（platform/arch 参数化），测试直驱）。blockmap = 增量更新残料，排除。 */
+function pickUpdateAsset(manifest, platform = process.platform, arch = process.arch) {
+  const releases = manifest && Array.isArray(manifest.releases) ? manifest.releases : [];
+  if (releases.length === 0 || !releases[0]) return null;
+  const rel = releases[0];
+  const plat = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : 'linux';
+  const ar = arch === 'arm64' ? 'arm64' : 'x64';
+  const EXT_SCORE = {
+    windows: { '.exe': 3, '.msi': 2 },
+    macos: { '.dmg': 3, '.zip': 2 },
+    linux: { '.appimage': 3, '.deb': 2, '.rpm': 2 },
+  };
+  let best = null;
+  let bestScore = -1;
+  for (const f of Array.isArray(rel.files) ? rel.files : []) {
+    if (!f || f.platform !== plat || typeof f.url !== 'string') continue;
+    if (/blockmap$/i.test(String(f.name ?? ''))) continue;
+    const ext = path.extname(String(f.name ?? '')).toLowerCase();
+    const score = (f.arch === ar ? 4 : f.arch === 'all' ? 2 : 0) + ((EXT_SCORE[plat] ?? {})[ext] ?? 0);
+    if (score > bestScore) { best = f; bestScore = score; }
+  }
+  return best ? { ...best, version: typeof rel.version === 'string' ? rel.version : '' } : null;
+}
+
+function readUpdateState() {
+  try {
+    const st = JSON.parse(fs.readFileSync(updateStateFile, 'utf8'));
+    return st && typeof st === 'object' ? st : null;
+  } catch {
+    return null; // 无状态文件/损坏 = 未下载
+  }
+}
+
+function writeUpdateState(st) {
+  try {
+    fs.mkdirSync(updatesDir, { recursive: true });
+    fs.writeFileSync(updateStateFile, JSON.stringify(st, null, 2), 'utf8');
+  } catch (e) {
+    log(`[desktop] 更新状态写入失败（忽略）: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+function sha256File(p) {
+  return new Promise((resolve, reject) => {
+    const h = createHash('sha256');
+    const s = fs.createReadStream(p);
+    s.on('error', reject);
+    s.on('data', (c) => h.update(c));
+    s.on('end', () => resolve(h.digest('hex')));
+  });
+}
+
+/** 清理暂存区非保留文件（旧版本包/断点半包；update.json 除外） */
+async function cleanupUpdateFiles(keep) {
+  try {
+    for (const ent of await fs.promises.readdir(updatesDir)) {
+      if (ent === 'update.json') continue;
+      // 保留在途 .part：跨重启续传（断点字节不再白下）
+      if (typeof keep === 'string' && keep && (ent === keep || ent === `${keep}.part`)) continue;
+      await fs.promises.rm(path.join(updatesDir, ent), { force: true, recursive: true });
+    }
+  } catch { /* 目录不存在 = 无可清理 */ }
+}
+
+const DL_MAX_ATTEMPTS = 3;
+const DL_RETRY_BASE_MS = 1500;
+let dlRetryDelayMs = DL_RETRY_BASE_MS; // 测试注入 0（免真实等待）
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 已有 .part 字节数（不存在 = 0） */
+async function partBytes(partPath) {
+  try { return (await fs.promises.stat(partPath)).size; } catch { return 0; }
+}
+
+/**
+ * 单次传输：从 .part 已有字节处续传（HTTP Range）→ { sha256, received, resumed }。
+ * 传输中断（网络抖动/服务器提前断流）抛错给调用方，.part 保留供下次续传
+ * ——这是「重试不再白下 90MB」的关键：sha256 无状态可恢复，续传时把已有
+ * 前缀重新并入累计哈希即可得到全量摘要。
+ */
+async function transferToPart(partPath, expectedSize, url) {
+  let received = await partBytes(partPath);
+  // 残留字节超过标称大小 = 异常残料（旧版本包/中断错位），丢弃重来
+  if (expectedSize !== null && received > expectedSize) {
+    await fs.promises.rm(partPath, { force: true });
+    received = 0;
+  }
+  const hash = createHash('sha256');
+  if (received > 0) {
+    if (expectedSize !== null && received === expectedSize) {
+      // 字节已齐（上次卡在校验/改名阶段）——复核哈希即可，不重复下载
+      const h = await new Promise((resolve, reject) => {
+        const rs = fs.createReadStream(partPath);
+        rs.on('error', reject);
+        rs.on('data', (c) => { hash.update(c); });
+        rs.on('end', () => resolve(hash));
+      });
+      return { sha256: h.digest('hex'), received, resumed: true };
+    }
+    await new Promise((resolve, reject) => {
+      const rs = fs.createReadStream(partPath);
+      rs.on('error', reject);
+      rs.on('data', (c) => { hash.update(c); });
+      rs.on('end', resolve);
+    });
+  }
+  const res = await fetch(url, received > 0 ? { headers: { range: `bytes=${received}-` } } : {});
+  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`);
+  if (!res.body) throw new Error('下载失败：响应无实体');
+  if (received > 0 && res.status !== 206) {
+    // 服务器忽略 Range（下载面未开断点续传）→ 从头写，语义仍正确
+    log('[desktop] 服务器未响应 206（不支持断点续传），从头下载');
+    await fs.promises.rm(partPath, { force: true });
+    received = 0;
+  }
+  if (dlProgress) dlProgress.received = received;
+  const out = fs.createWriteStream(partPath, { flags: received > 0 ? 'a' : 'w' });
+  let written = received;
+  try {
+    // fetch body 是 Web ReadableStream——转 Node 流（单遍流式哈希，92MB 不驻内存）
+    for await (const chunk of Readable.fromWeb(res.body)) {
+      hash.update(chunk);
+      written += chunk.length;
+      if (dlProgress) dlProgress.received = written;
+      if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
+    }
+    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
+  } catch (err) {
+    out.destroy();
+    throw err;
+  }
+  return { sha256: hash.digest('hex'), received: written, resumed: received > 0 };
+}
+
+/**
+ * 静默下载 + 双校验（size + sha256）。
+ * 韧性（2026-09 用户裁决追加）：断点续传 + 指数退避重试——传输中断/不完整
+ * 保留 .part 续传，哈希不符（字节损坏）丢弃 .part 重下（坏前缀不可续传）。
+ * 原子性：全程写 <file>.part，校验通过才 rename 为正式名——任何时刻进程被
+ * 杀都不会留下「看似就绪实则半包」的文件。
+ */
+async function downloadInstallerAsync(asset) {
+  const fileName = path.basename(String(asset.name ?? `agentchat-${asset.platform}-${asset.arch}`));
+  const dest = path.join(updatesDir, fileName);
+  const partPath = `${dest}.part`;
+  const expectedSize = typeof asset.size === 'number' ? asset.size : null;
+  const expectedSha = typeof asset.sha256 === 'string' ? asset.sha256.toLowerCase() : null;
+  const url = new URL(asset.url, `${DOWNLOAD_BASE}/`).href;
+  dlInFlight = true;
+  dlProgress = { version: asset.version, fileName, received: 0, total: expectedSize ?? 0 };
+  try {
+    await fs.promises.mkdir(updatesDir, { recursive: true });
+    writeUpdateState({
+      version: asset.version, fileName,
+      size: expectedSize, sha256: expectedSha,
+      status: 'downloading', startedAt: new Date().toISOString(),
+    });
+    let lastErr = null;
+    let delay = dlRetryDelayMs;
+    for (let attempt = 1; attempt <= DL_MAX_ATTEMPTS; attempt++) {
+      try {
+        const { sha256, received } = await transferToPart(partPath, expectedSize, url);
+        if (expectedSize !== null && received !== expectedSize) {
+          const e = new Error(`传输不完整（${received}/${expectedSize} 字节），将续传`);
+          e.incomplete = true;
+          throw e;
+        }
+        if (expectedSha && sha256 !== expectedSha) {
+          const e = new Error('sha256 校验失败（字节损坏）');
+          e.corrupt = true;
+          throw e;
+        }
+        // 通过：原子落位（Windows rename 不覆盖既有项，先清）
+        await fs.promises.rm(dest, { force: true });
+        await fs.promises.rename(partPath, dest);
+        if (process.platform === 'linux' && /\.appimage$/i.test(dest)) {
+          fs.chmodSync(dest, 0o755); // AppImage 可执行（linux 形态手动替换用）
+        }
+        writeUpdateState({
+          version: asset.version, fileName,
+          size: expectedSize, sha256: expectedSha,
+          status: 'ready', downloadedAt: new Date().toISOString(),
+        });
+        log(`[desktop] 新版安装包就绪：${fileName}（${(received / 1048576).toFixed(1)} MB，sha256 通过${attempt > 1 ? `，第 ${attempt} 次尝试` : ''}）`);
+        await cleanupUpdateFiles(fileName);
+        return;
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        // 坏字节不可续传（会把损坏前缀带进最终哈希），丢弃重下
+        if (err && err.corrupt) {
+          await fs.promises.rm(partPath, { force: true }).catch(() => undefined);
+          if (dlProgress) dlProgress.received = 0;
+        }
+        if (attempt < DL_MAX_ATTEMPTS) {
+          log(`[desktop] 下载尝试 ${attempt}/${DL_MAX_ATTEMPTS} 失败（${msg}），${Math.round(delay)}ms 后重试`);
+          await sleep(delay);
+          delay *= 2;
+        }
+      }
+    }
+    throw lastErr ?? new Error('下载失败');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log(`[desktop] 安装包下载失败（已试 ${DL_MAX_ATTEMPTS} 次）：${msg}`);
+    // 半包留在 .part：下次检查/手动重试可继续续传；正式名不会有半成品
+    const prev = readUpdateState();
+    writeUpdateState({ ...(prev ?? {}), version: asset.version, fileName, status: 'failed', error: msg, failedAt: new Date().toISOString() });
+  } finally {
+    dlInFlight = false;
+    dlProgress = null;
+  }
+}
 
 async function checkForUpdates() {
   if (!app.isPackaged) return;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    let manifest;
-    try {
-      const res = await fetch(`${DOWNLOAD_BASE}/manifest.json`, { signal: controller.signal });
-      if (!res.ok) return;
-      manifest = await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
-    const latest = Array.isArray(manifest?.releases) && manifest.releases[0]?.version;
+    const manifest = await fetchUpdateManifest();
+    if (!manifest) return;
+    lastManifest = manifest;
+    const latest = Array.isArray(manifest.releases) && manifest.releases[0]?.version;
     if (typeof latest !== 'string' || latest === '') return;
     const current = app.getVersion();
-    const cmp = (a, b) => {
-      const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-      for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; }
-      return 0;
-    };
-    if (cmp(latest, current) <= 0) return;
-    log(`[desktop] 发现新版本 ${latest}（当前 ${current}）`);
-    const n = new Notification({
-      title: `AgentChat ${latest} 可用`,
-      body: '点击前往下载页获取新版本安装包。',
-    });
-    n.on('click', () => { shell.openExternal(DOWNLOAD_BASE); });
-    n.show();
+    if (cmpVersion(latest, current) <= 0) return;
+    log(`[desktop] 发现新版本 ${latest}（当前 ${current}）——后台静默预下载`);
+    const asset = pickUpdateAsset(manifest);
+    if (!asset) { log('[desktop] manifest 无本平台安装包，跳过预下载'); return; }
+    if (dlInFlight) return;
+    const st = readUpdateState();
+    if (st?.status === 'ready' && st.version === latest
+        && fs.existsSync(path.join(updatesDir, String(st.fileName ?? '')))) return; // 已就绪
+    downloadInstallerAsync(asset).catch(() => undefined); // 内部自捕，fail-soft
   } catch (err) {
     log(`[desktop] 更新检查失败（忽略）: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+function safeAppVersion() {
+  try { return app.getVersion(); } catch { return '0.0.0'; }
+}
+
+/** 桥状态面（GET /desktop-bridge/update 的 JSON 体） */
+function updateStatusJson() {
+  const latest = Array.isArray(lastManifest?.releases) && lastManifest.releases[0]?.version;
+  const st = readUpdateState();
+  const out = {
+    current: safeAppVersion(),
+    latest: typeof latest === 'string' ? latest : null,
+    latestUrl: `${DOWNLOAD_BASE}/`,
+    supported: typeof latest === 'string' ? pickUpdateAsset(lastManifest) !== null : null,
+    status: 'idle', version: null, fileName: null, size: null,
+    received: 0, total: 0, error: null,
+  };
+  if (dlProgress) {
+    Object.assign(out, { status: 'downloading', version: dlProgress.version, fileName: dlProgress.fileName, received: dlProgress.received, total: dlProgress.total, size: dlProgress.total });
+    return out;
+  }
+  if (!st) return out;
+  out.version = st.version ?? null;
+  out.fileName = st.fileName ?? null;
+  out.size = st.size ?? null;
+  out.error = st.error ?? null;
+  if (st.status === 'failed') out.status = 'failed';
+  else if (st.status === 'ready' && typeof st.fileName === 'string' && fs.existsSync(path.join(updatesDir, st.fileName))) {
+    // 就绪但已被更新版本取代 → 视作待重下（检查器会拉新版并清旧包）
+    out.status = out.latest && cmpVersion(out.latest, String(st.version ?? '0.0.0')) > 0 ? 'idle' : 'ready';
+  }
+  return out;
+}
+
+/** 拉起安装程序并整壳退场（win=安装向导覆盖原目录；mac=挂载 dmg；
+ *  linux=定位文件手动替换）。拉起异常仍退场——用户可手动运行暂存包。 */
+async function launchInstaller(file) {
+  if (installLauncherOverride) { await installLauncherOverride(file); return; }
+  log(`[desktop] 拉起安装程序：${file}`);
+  try {
+    if (process.platform === 'win32') {
+      spawn(file, [], { detached: true, stdio: 'ignore' }).unref();
+    } else if (process.platform === 'darwin') {
+      await shell.openPath(file);
+    } else {
+      shell.showItemInFolder(file);
+    }
+  } catch (err) {
+    log(`[desktop] 安装程序拉起异常（仍退场）: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  quitting = true;
+  killBackendTree();
+  setTimeout(() => app.exit(0), 500).unref();
 }
 
 // ------------------------------------------------------------
@@ -507,6 +802,54 @@ function bridgeHandler(req, res, port) {
     });
     return;
   }
+  // ---- 更新面（前端版本面板：状态查询 / 手动触发下载 / 拉起安装）----
+  if (url.pathname === '/desktop-bridge/update' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(updateStatusJson()));
+    return;
+  }
+  if (url.pathname === '/desktop-bridge/update/download' && req.method === 'POST') {
+    // 手动触发（面板打开且已在检查中）：仍需拉一次 manifest 拿最新条目；
+    // 下载中幂等返回（不重复起流）。
+    (async () => {
+      try {
+        if (dlInFlight) { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end('{"started":false,"reason":"in-flight"}'); return; }
+        let manifest = lastManifest;
+        try { manifest = await fetchUpdateManifest(); if (manifest) lastManifest = manifest; } catch { /* 离线兜底用上次 */ }
+        const asset = manifest ? pickUpdateAsset(manifest) : null;
+        if (!asset) { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end('{"started":false,"reason":"no-asset"}'); return; }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ started: true, version: asset.version }));
+        downloadInstallerAsync(asset).catch(() => undefined);
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: String(e) }));
+      }
+    })();
+    return;
+  }
+  if (url.pathname === '/desktop-bridge/update/install' && req.method === 'POST') {
+    const st = readUpdateState();
+    const body = JSON.stringify({
+      ok: false,
+      error: st?.status === 'ready' ? '' : '安装包未就绪',
+    });
+    if (st?.status !== 'ready' || typeof st.fileName !== 'string'
+        || !fs.existsSync(path.join(updatesDir, st.fileName))) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(body);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end('{"ok":true}');
+    if (!installLaunched) {
+      installLaunched = true;
+      launchInstaller(path.join(updatesDir, st.fileName)).catch((e) => {
+        log(`[desktop] 安装拉起失败: ${e instanceof Error ? e.message : String(e)}`);
+      });
+    }
+    return;
+  }
   res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify({ error: 'not found' }));
 }
@@ -568,7 +911,11 @@ async function start() {
 
   createWindow(`http://127.0.0.1:${port}/`);
   createTray();
+  // 更新面：先清暂存区断点残料（半包/无状态包），再定时静默检查
+  // （15s 首查 + 4h 复查——长驻形态不漏发版；下载完成不提醒，面板见）。
+  cleanupUpdateFiles(readUpdateState()?.fileName ?? null).catch(() => undefined);
   setTimeout(checkForUpdates, 15_000).unref();
+  setInterval(checkForUpdates, 4 * 60 * 60 * 1000).unref();
 }
 
 // ---- 单实例锁（壳层先拦；后端数据根文件锁兜底） ----
@@ -588,8 +935,15 @@ if (!gotLock) {
   });
 }
 
-// ---- 测试面导出（desktop-bridge.test.ts 驱动；Electron 主进程入口不受影响） ----
+// ---- 测试面导出（desktop-bridge.test.ts / desktop-update.test.ts 驱动；Electron 主进程入口不受影响） ----
 export { startBridge };
+export { pickUpdateAsset, readUpdateState, updateStatusJson, cmpVersion, downloadInstallerAsync };
+export { updatesDir as __testUpdatesDir };
+/** 测试注入口：替代真实安装器拉起（避免测试态真起进程/弹挂载） */
+export function __testSetInstallLauncher(fn) { installLauncherOverride = fn; }
+/** 测试注入口：重试退避延时（0 = 用例免等待） */
+export function __testSetRetryDelay(ms) { dlRetryDelayMs = ms; }
+export { transferToPart, partBytes };
 async function __testCloseBridge() {
   const srv = bridgeServer;
   bridgeServer = null;

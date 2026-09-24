@@ -23,6 +23,11 @@ import { extname } from 'node:path';
 import * as fs from 'node:fs';
 import { OpenAICompletions } from 'ac-openai-completions';
 import { registerCredentialsInjection } from './credentials.ts';
+import {
+  resolveSessionHeader,
+  registerSessionAffinityInjection,
+  type SessionHeaderSpec,
+} from './session-affinity.ts';
 import type {} from 'ac-llm'; // ctx.llm 服务类型增强（type-only，无运行时依赖）
 import type {} from 'ac-config'; // ctx.config 服务类型增强（type-only）
 
@@ -41,6 +46,7 @@ export const inject = ['llm', 'config'];
 // 凭据注入（llm/before-chat → pool:<provider> apiKey；2026-09-05 自
 // ac-credentials 迁入——纯函数与订阅装配详见 ./credentials.ts）
 export { resolveLlmApiKey } from './credentials.ts';
+export { resolveSessionHeader, sessionHeaderValue } from './session-affinity.ts';
 
 /** 池条目 v2 形状（连接定义；model 键为旧别名条目容错读取） */
 export interface LlmPoolEntry {
@@ -79,6 +85,14 @@ export interface LlmPoolEntry {
    * （其余静默丢弃——normalizePoolHeaders 唯一解析点）。
    */
   headers?: Record<string, string>;
+  /**
+   * 会话亲和头（2026-09 连通性复查）：部分托管网关要求每会话稳定的
+   * session 头（如 opencode.ai 的 x-opencode-session，缺发即 400
+   * MissingSessionID）。缺省 = 按内置事实清单自动匹配 base_url；
+   * { name: '<头名>' } 显式指定；false 强制关闭。头值始终按会话
+   * 确定性派生（详见 ./session-affinity.ts）。
+   */
+  sessionHeader?: SessionHeaderSpec;
   /** 全局默认连接标记（ac-agent-presets / ac-agent-admin 消费） */
   default?: boolean;
   /** 旧别名条目残留（provider+model 形态；迁移后消失） */
@@ -153,6 +167,8 @@ interface Desired {
   api: 'completions' | 'responses';
   /** 自定义请求头（string 值项过滤后透传；空对象按未配置） */
   headers?: Record<string, string>;
+  /** 会话亲和头名（resolveSessionHeader 解析产物；undefined = 不注入） */
+  sessionHeader?: string;
 }
 
 /** 期望注册集：有 base_url 的连接条目（其余跳过并上报） */
@@ -180,7 +196,9 @@ export function desiredProviders(
     const timeoutMs =
       typeof timeoutRaw === 'number' && Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : undefined;
     const headers = normalizePoolHeaders(entry.headers);
+    const sessionHeader = resolveSessionHeader(entry.base_url, entry.sessionHeader);
     desired.set(name, {
+      ...(sessionHeader ? { sessionHeader } : {}),
       baseUrl: entry.base_url,
       defaultModel:
         typeof entry.defaultModel === 'string' && entry.defaultModel
@@ -205,7 +223,7 @@ export function desiredProviders(
  *  modelMeta 随附，探测标志/隐藏位变更即热更重挂；timeout_ms/headers/
  *  api 同批进签名（D3/D4）——连接参数与接口格式变更即重挂） */
 function signatureOf(d: Desired): string {
-  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.api]);
+  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.api, d.sessionHeader ?? null]);
 }
 
 /**
@@ -333,6 +351,11 @@ export function apply(ctx: Context) {
   // 订阅/回收；credentials 行未装载 = 不注入（可选能力）
   registerCredentialsInjection(ctx);
 
+  // 会话亲和头注入（llm/before-chat → preset 网关按会话派生稳定头）：
+  // headerOf 查当前期望集（sync 维护 name → sessionHeader，热更跟随）
+  const sessionHeaders = new Map<string, string>();
+  registerSessionAffinityInjection(ctx, (provider) => sessionHeaders.get(provider));
+
   const registerOne = (name: string, d: Desired): (() => unknown) => {
     // 视觉门控统一：显式 visionModels（前缀/通配）∪ 探测标志的
     // models[].vision ——适配层零改动，两来源同一语义
@@ -388,6 +411,7 @@ export function apply(ctx: Context) {
       disposers.get(name)?.();
       disposers.delete(name);
       signatures.delete(name);
+      sessionHeaders.delete(name);
     }
     // 挂：新增或重挂
     for (const [name, d] of desired) {
@@ -395,6 +419,7 @@ export function apply(ctx: Context) {
       try {
         disposers.set(name, registerOne(name, d));
         signatures.set(name, signatureOf(d));
+        if (d.sessionHeader) sessionHeaders.set(name, d.sessionHeader);
       } catch (err) {
         if (boot) throw err; // boot 期 fail-loud（fiber FAILED 可诊断）
         ctx.logger.error(

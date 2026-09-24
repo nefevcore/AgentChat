@@ -367,9 +367,9 @@ export class LlmService extends Service {
     const input = call.input; // 读取时机在拦截之后：改写生效
     const provider = this.resolveProvider(input);
     // meta 是本域透传键（事件载荷增强用），剥离后才进 provider——请求体
-    // 永不携带。provider 保留（路由状态，适配层可观测归属连接——router
-    // name@model 拆分契约）；其剥离在协议库序列化边界（ac-openai-
-    // completions 与 api_key 同纪律：OpenAI 对未知顶层字段严格 400）
+    // 永不携带。provider/headers 保留（路由状态可观测归属连接 / 会话亲和
+    // 头透传）；其剥离在协议库序列化边界（ac-openai-completions 与
+    // api_key 同纪律：OpenAI 对未知顶层字段严格 400）
     const { meta: _meta, ...providerInput } = input;
     const instance = this.instance(provider);
     const { retries, backoffMs } = this.transientRetry;

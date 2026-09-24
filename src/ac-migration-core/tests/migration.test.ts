@@ -95,7 +95,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     ].join('\n'), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir', 'partial-rematerialize-purge']);
+    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir', 'partial-rematerialize-purge', 'legacy-journal-purge']);
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     // 改写：event/error → context+source
     expect(raw).toContain('"role":"context"');
@@ -160,7 +160,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 1, applied: [{ id: 'role-v2-subcall-split', at: 't' }] }), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir', 'partial-rematerialize-purge']); // 只 v2+v3+v4（v1 已应用）
+    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir', 'partial-rematerialize-purge', 'legacy-journal-purge']); // 只 v2..v5（v1 已应用）
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     expect(raw).not.toContain('"partial":true');
     expect(raw).not.toContain('"type":"tool-result"');
@@ -169,7 +169,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     const partRaw = readFileSync(join(dir, 'partials.jsonl'), 'utf-8');
     expect(partRaw).toContain('"partial":true');
     expect(partRaw).toContain('"tool_call_id":"c1"');
-    expect(readDataVersion(root)).toBe(4);
+    expect(readDataVersion(root)).toBe(5);
   });
 });
 
@@ -240,6 +240,74 @@ describe('SESSION_MIGRATIONS（崩溃窗口回归——2026-09-22 迁移链审�
     // 旧单文件被收尾删除（messagesPath 回退不再命中）
     expect(existsSync(join(subs, 'sub_x.jsonl'))).toBe(false);
     expect(readFileSync(join(subs, 'sub_x', 'messages.jsonl'), 'utf-8')).toBe(body);
+  });
+});
+
+describe('SESSION_MIGRATIONS v5（legacy-journal-purge）', () => {
+  it('已定稿 run 的旧形态行剔除；未定稿 run 保留；新形态行一律不动', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'a~user');
+    mkdirSync(dir, { recursive: true });
+    // messages：run-1 已定稿（收束行）；run-2 未定稿（无任何非 partial 行）
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ role: 'user', content: 'q', agent_id: 'user', message_id: 'm0', timestamp: 't', seq: 1 }),
+      JSON.stringify({ role: 'agent', content: 'done', agent_id: 'a', message_id: 'm1', timestamp: 't', seq: 3, run: 'run-1' }),
+      JSON.stringify({ type: 'run-settled', run: 'run-1', seq: 4 }),
+    ].join('\n'), 'utf-8');
+    // partials：run-1 旧形态×2（死数据，应剔）；run-2 旧形态×1（中断恢复源，保留）；
+    // run-1 新形态 journal-step（settlement 生命周期管辖，不动）
+    writeFileSync(join(dir, 'partials.jsonl'), [
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p1', timestamp: 't', seq: 2, run: 'run-1', partial: true, steps: [] }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p2', timestamp: 't', seq: 3, run: 'run-1', partial: true, steps: [] }),
+      JSON.stringify({ type: 'journal-step', run: 'run-1', seq: 1, step: {} }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p3', timestamp: 't', seq: 4, run: 'run-2', partial: true, steps: [] }),
+    ].join('\n'), 'utf-8');
+
+    const done = runMigrations(root, SESSION_MIGRATIONS);
+    expect(done.map((m) => m.id)).toContain('legacy-journal-purge');
+    const partLines = readFileSync(join(dir, 'partials.jsonl'), 'utf-8').split('\n').filter((l) => l.trim());
+    // run-1 旧形态 2 行被剔；run-2 旧形态与新形态 journal-step 保留
+    expect(partLines).toHaveLength(2);
+    expect(partLines.some((l) => l.includes('"p3"'))).toBe(true);
+    expect(partLines.some((l) => l.includes('"journal-step"'))).toBe(true);
+    expect(partLines.some((l) => l.includes('"p1"') || l.includes('"p2"'))).toBe(false);
+  });
+
+  it('清空则删文件（runset 全定稿且全旧形态）；幂等重跑无变化', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'b~user');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ role: 'user', content: 'q', agent_id: 'user', message_id: 'm0', timestamp: 't', seq: 1 }),
+      JSON.stringify({ role: 'agent', content: 'done', agent_id: 'a', message_id: 'm1', timestamp: 't', seq: 3, run: 'run-1' }),
+    ].join('\n'), 'utf-8');
+    writeFileSync(join(dir, 'partials.jsonl'), [
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p1', timestamp: 't', seq: 2, run: 'run-1', partial: true, steps: [] }),
+    ].join('\n'), 'utf-8');
+
+    const done = runMigrations(root, SESSION_MIGRATIONS);
+    expect(done.map((m) => m.id)).toContain('legacy-journal-purge');
+    expect(existsSync(join(dir, 'partials.jsonl'))).toBe(false);
+    // 幂等：重跑无 pending 迁移、无文件重建
+    expect(runMigrations(root, SESSION_MIGRATIONS)).toEqual([]);
+    expect(existsSync(join(dir, 'partials.jsonl'))).toBe(false);
+  });
+
+  it('无 run 的纯 partial 行（异常行）保留——宁重不丢', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'c~user');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ role: 'user', content: 'q', agent_id: 'user', message_id: 'm0', timestamp: 't', seq: 1 }),
+    ].join('\n'), 'utf-8');
+    writeFileSync(join(dir, 'partials.jsonl'), [
+      JSON.stringify({ role: 'agent', content: 'x', agent_id: 'a', message_id: 'p1', timestamp: 't', seq: 2, partial: true, steps: [] }),
+      'BROKEN LINE {{{',
+    ].join('\n'), 'utf-8');
+
+    runMigrations(root, SESSION_MIGRATIONS);
+    const partLines = readFileSync(join(dir, 'partials.jsonl'), 'utf-8').split('\n').filter((l) => l.trim());
+    expect(partLines).toHaveLength(2); // 全保留
   });
 });
 

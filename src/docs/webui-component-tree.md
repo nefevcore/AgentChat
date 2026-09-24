@@ -516,7 +516,8 @@ StarCard / PulseTrace（L2 组合件，当前无行组件消费——预留原�
 | 主侧边栏壳 | `PrimarySidebarHost.vue` | ac-client-ui-layout |
 | aux 区域宿主 + 辅助活动栏 | `AuxSidebarHost.vue` + `AuxActivityBar.vue`（+ `auxSidebarViews.ts`） | ac-client-ui-layout |
 | 布局/面板状态 | `uiStore.ts` | ac-client-ui-layout |
-| 会话内核（四形态） | `ConversationView.vue` | ac-client-ui-conversation |
+| 会话内核（四形态） | `ConversationView.vue`（纯组合壳：`useConversationIdentity.ts` 身份派生 / `useConversationHistory.ts` 历史装载 / `useGroupSend.ts` 群发——2026-12 conversation-view-split-plan 拆分） | ac-client-ui-conversation |
+| 会话头部 | `header/ConversationHeader.vue`（pair 双端点/思维链开关/席位/反馈 chip 悬挂锚——自 ConversationView 拆出） | ac-client-ui-conversation |
 | 消息区共享组件 | `TranscriptList.vue`（+ `useTurnDisplayItems.ts`） | ac-client-ui-conversation |
 | 头部席位贡献 | `header/TokenGauge.vue`、`ConversationJobsChip.vue`、`AgentHeaderActions.vue`、`SingleHeaderActions.vue` | conversation / jobs / agents / singles |
 | 消息/工具卡 | `TurnDisplayItem.vue / ToolMessage.vue` | ac-client-ui-conversation |

@@ -69,3 +69,77 @@ export async function runVersionUpdate(rpc: FullRpc): Promise<{ status?: string;
   // install+build 分钟级：60s 缺省超时不够，拉长到 10min
   return rpc.call<{ status?: string; message?: string; steps?: string[] }>('system/version-update', {}, undefined, 600_000);
 }
+
+// ------------------------------------------------------------
+// 桌面更新桥客户端（127.0.0.1:<p+1..p+4>/desktop-bridge/update）——
+// 壳层静默预下载面（下载完成不提醒，面板打开时轮询状态）：ready 时
+// 「立即安装」经桥拉起暂存安装包（win=NSIS 覆盖安装向导，自动带出
+// 原安装目录）。桥不可达/manifest 无本平台包 = null，前端回落外链。
+// 探测序列与 ac-client-ui-desktop-storage/client/bridge.ts 同构。
+// ------------------------------------------------------------
+
+export interface DesktopUpdateStatus {
+  /** 当前/最新版本（壳层 manifest 检查结果；latest=null = 尚未查到） */
+  current: string;
+  latest: string | null;
+  latestUrl: string;
+  /** manifest 是否有本平台安装包（false = 前端回落下载页外链） */
+  supported: boolean | null;
+  /** idle | downloading | ready | failed */
+  status: 'idle' | 'downloading' | 'ready' | 'failed';
+  version: string | null;
+  fileName: string | null;
+  size: number | null;
+  /** 下载进度（status=downloading 时有效） */
+  received: number;
+  total: number;
+  /** 最近一次失败原因（status=failed 时展示） */
+  error: string | null;
+}
+
+function updateBridgeCandidates(): string[] {
+  const p = Number(location.port || (location.protocol === 'https:' ? 443 : 80));
+  return [1, 2, 3, 4].map((d) => `http://127.0.0.1:${p + d}`);
+}
+
+let cachedUpdateBase: string | null = null;
+
+/** 探测壳更新桥（不抛错：非桌面形态/桥不可达 → null） */
+export async function fetchDesktopUpdateStatus(): Promise<DesktopUpdateStatus | null> {
+  const bases = cachedUpdateBase ? [cachedUpdateBase] : updateBridgeCandidates();
+  for (const base of bases) {
+    try {
+      const r = await fetch(`${base}/desktop-bridge/update`, { signal: AbortSignal.timeout(1500) });
+      if (!r.ok) continue;
+      cachedUpdateBase = base;
+      return (await r.json()) as DesktopUpdateStatus;
+    } catch {
+      cachedUpdateBase = null; // 桥口可能随壳重启漂移，候选序列重探
+    }
+  }
+  return null;
+}
+
+/** 手动触发壳层下载（面板打开时仍在检查/未自动起流的场景；幂等） */
+export async function triggerDesktopUpdateDownload(): Promise<boolean> {
+  if (!cachedUpdateBase) return false;
+  try {
+    const r = await fetch(`${cachedUpdateBase}/desktop-bridge/update/download`, { method: 'POST' });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 拉起暂存安装包（壳层随后退场；本页 WS 断开属预期） */
+export async function installDesktopUpdate(): Promise<{ ok: boolean; error?: string }> {
+  if (!cachedUpdateBase) return { ok: false, error: '更新桥不可用' };
+  try {
+    const r = await fetch(`${cachedUpdateBase}/desktop-bridge/update/install`, { method: 'POST' });
+    if (r.ok) return { ok: true };
+    const j = (await r.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: j.error ?? '安装包未就绪' };
+  } catch {
+    return { ok: false, error: '网络错误' };
+  }
+}

@@ -121,6 +121,16 @@ export function normalizePasteText(html: string): string {
   return lines.map(l => l.text).join('\n');
 }
 
+/**
+ * 粘贴文本整段收尾归一：去除首尾空白（空格/换行/制表/全角空格等），
+ * 中间内容原样保留（空行/缩进不动）。normalizePasteText 的行级 trim
+ * 与首尾空行去除不作用于 pre 行，纯文本源（text/plain 直取）更无
+ * 归一管线——外部源收尾由本函数统一兜底。
+ */
+export function trimPastedText(text: string): string {
+  return text.trim();
+}
+
 // ============================================================
 // 复制序列化 —— 剪贴板 text/plain 出口（与粘贴归一互逆）
 // ============================================================

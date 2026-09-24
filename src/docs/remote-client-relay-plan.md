@@ -408,9 +408,22 @@ git raw（HTTPS）取 manifest（可信），安装包从服务器取（快）�
    manifest → 比版本 → 提示「前往下载」打开主页；裁决放宽：不经 git raw
    中转——检查走 HTTP manifest 本身，完整性校验在安装包下载页侧 sha256），
    三平台同构（macOS 本就只提醒不自动装，行为不变）；安卓 App 同构
-   （§4.4 已定）。静默自动升级（NSIS `/S`）留作后续可选。
+   （§4.4 已定）。
    同批落地：WebUI `system/version-check` 双源化（下载面 manifest 主源 +
    GitHub 兜底，`ac-web-api/src/version.ts`）。
+   **2026-09 演进（用户裁决：不做静默安装；静默预下载免打扰）**：壳层
+   后台自动下载新版安装包（sha256+size 双校验），完成不提醒；版本面板
+   「立即安装」经壳桥拉起暂存安装包（win=NSIS 向导——覆盖安装自动带出
+   HKCU InstallLocation 记的原目录）。NSIS `/S` 全静默安装仍不启用。
+   发布侧同批加闸（用户反馈安装包损坏）：desktop.yml 三腿上传后 sha256
+   读回校验，不一致 fail——异常包进不了 manifest。
+   **2026-09 下载韧性**：壳层下载器改 `<file>.part` + 原子改名 + HTTP Range
+   断点续传 + 3 次指数退避重试（哈希不符则丢弃重下，坏前缀不续传）。实测
+   下载面 accept-ranges: bytes（206 Partial Content）——续传链路有效。
+   **2026-09 macOS 签名修复**：`mac.identity` = null 曾使 electron-builder
+   完全跳过签名（handleNullIdentity），未密封 bundle 在 Apple Silicon 原生
+   执行被判「已损坏」（x64 走 Rosetta 宽容故不复现）——改 `"-"` ad-hoc 签名，
+   降级为常规「未验证开发者」右键打开。公证（Developer ID）仍未做。
 
 **选型**（实测依据：Win 安装包 92MB、webui dist 3.9MB、安卓 APK
 预估 ~30MB——全家福 ~150MB/版本）：

@@ -103,8 +103,10 @@ export interface UploadResult {
   path?: string;
 }
 
-/** 上传（multipart；响应指纹回传消费方——chatPresence 路径登记归会话域） */
-export async function uploadFile(formData: FormData, agentId?: string): Promise<UploadResult> {
+/** 上传（multipart；响应指纹回传消费方——chatPresence 路径登记归会话域）。
+ *  agentId 缺席时后端可经 conversationId 从独立会话推导承载 Agent。 */
+export async function uploadFile(formData: FormData, agentId?: string, conversationId?: string): Promise<UploadResult> {
   if (agentId && agentId !== 'user') formData.append('agentId', agentId);
+  if (conversationId) formData.append('conversationId', conversationId);
   return jsonFetch<UploadResult>('/api/upload', { method: 'POST', body: formData });
 }

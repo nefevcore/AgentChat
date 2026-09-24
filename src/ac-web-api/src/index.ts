@@ -2505,13 +2505,16 @@ export function apply(ctx: Context) {
     }
   });
 
-  // 附件上传（multipart：file + 可选 agentId → files/<agentId>/_tmp/）
+  // 附件上传（multipart：file + 可选 agentId/conversationId → files/<agentId>/_tmp/；
+  // conversationId = 独立会话上传的桶推导键——agentId 缺席时经 singles 推导
+  // 承载 Agent（前端独立会话无激活 1v1 Agent，此前恒落 shared）
   web.route('POST', '/api/upload', (call) => {
     const body = call.body as MultipartBody | undefined;
     if (!body?.files?.file) return web.replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
     const agentId = body.fields.agentId || undefined;
+    const conversationId = body.fields.conversationId || undefined;
     try {
-      web.replyJson(call.res, 200, ctx.workspace.saveUpload(agentId, body.files.file.filename, body.files.file.data));
+      web.replyJson(call.res, 200, ctx.workspace.saveUpload(agentId, body.files.file.filename, body.files.file.data, conversationId));
     } catch (err) {
       web.replyJson(call.res, 500, { error: err instanceof Error ? err.message : String(err) });
     }

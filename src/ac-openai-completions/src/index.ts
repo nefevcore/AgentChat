@@ -146,6 +146,12 @@ export interface CompletionsRequest {
    * 全量 400 的根因即本键漏进 completions 请求体。
    */
   provider?: string;
+  /**
+   * 单次调用自定义请求头（上层按会话/网关注入，如 x-opencode-session）：
+   * 并入本条请求，同名覆盖构造默认（this.headers）与内置
+   * content-type/authorization。传输层键——序列化请求体前剥离，绝不进 body。
+   */
+  headers?: Record<string, string>;
   /** 其余参数（temperature/max_tokens/tools/...）原样透传 */
   [key: string]: unknown;
 }
@@ -204,9 +210,10 @@ export class OpenAICompletions {
     const model = params.model ?? this.defaultModel;
     if (!model) throw new Error('model 未指定（params.model 或构造参数 defaultModel）');
 
-    // api_key / provider 是传输层键（单次覆盖构造默认 / ac-llm 路由键）：
-    // 剥离后才进 body——provider 漏进请求体会被 OpenAI 严格校验 400 拒收
-    const { signal, api_key, provider: _provider, ...bodyParams } = params;
+    // api_key / provider / headers 是传输层键（单次覆盖构造默认 / ac-llm
+    // 路由键 / 单次自定义头）：剥离后才进 body——provider 漏进请求体会被
+    // OpenAI 严格校验 400 拒收
+    const { signal, api_key, provider: _provider, headers: extraHeaders, ...bodyParams } = params;
     const authKey = api_key || this.apiKey;
     // attachments 是传输层键（同 api_key 纪律）：构造请求体前物化/剥离
     const messages = await this.materializeMessages(model, params.messages, signal);
@@ -244,6 +251,7 @@ export class OpenAICompletions {
           'content-type': 'application/json',
           ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
           ...this.headers,
+          ...extraHeaders,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -409,13 +417,14 @@ export class OpenAICompletions {
    * api_key 为传输层键（单次覆盖构造默认，同 stream 语义）；返回模型 id
    * 清单（字典序——确定性缓存写入）。响应形状 { data: [{ id }] }；
    * 缺 data 数组 → 抛错（非 OpenAI 兼容面可诊断）。
-   */  async listModels(params: { api_key?: string; signal?: AbortSignal } = {}): Promise<string[]> {
+   */  async listModels(params: { api_key?: string; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<string[]> {
     if (this.closed) throw new Error('OpenAICompletions 已 close');
     const authKey = params.api_key || this.apiKey;
     const response = await this.fetchImpl(`${this.baseUrl}/models`, {
       headers: {
         ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
         ...this.headers,
+        ...params.headers,
       },
       ...(params.signal ? { signal: params.signal } : {}),
     });
@@ -444,7 +453,7 @@ export class OpenAICompletions {
    */
   async probeVision(
     model: string,
-    params: { api_key?: string; signal?: AbortSignal } = {},
+    params: { api_key?: string; headers?: Record<string, string>; signal?: AbortSignal } = {},
   ): Promise<boolean | undefined> {
     if (this.closed) throw new Error('OpenAICompletions 已 close');
     const authKey = params.api_key || this.apiKey;
@@ -485,6 +494,7 @@ export class OpenAICompletions {
           'content-type': 'application/json',
           ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
           ...this.headers,
+          ...params.headers,
         },
         body: JSON.stringify(body),
         ...(params.signal ? { signal: params.signal } : {}),

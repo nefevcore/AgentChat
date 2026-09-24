@@ -119,6 +119,13 @@ export interface LlmChatInput {
    * provider（ac-openai-completions）序列化请求体前剥离，绝不进 body。
    */
   api_key?: string;
+  /**
+   * 单次调用自定义请求头（ac-llm-pool 会话亲和注入等上层来源）：
+   * 协议适配层并入传输头、同名覆盖构造默认——与 api_key 同为传输层键，
+   * 序列化请求体前剥离，绝不进 body。值映射仅 string（normalize 同
+   * llmProviders.headers 纪律）。
+   */
+  headers?: Record<string, string>;
   /** 其余参数（response_format/...）原样透传给 provider */
   [key: string]: unknown;
 }

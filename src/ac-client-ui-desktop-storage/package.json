@@ -10,6 +10,7 @@
     "./client/*": "./client/*"
   },
   "dependencies": {
+    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*"
   },
   "devDependencies": {
