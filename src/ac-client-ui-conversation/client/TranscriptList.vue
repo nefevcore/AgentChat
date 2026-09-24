@@ -56,16 +56,15 @@ const shell = useChatShell({
 });
 const isUserScrolledUp = computed(() => shell.isUserScrolledUp.value);
 
-/** 宿主面：发送后滚底 / 切换会话重置闭包态 / 历史前插滚动补偿取容器 */
-// ── 首载分帧挂载 ──
-// 背景（前端性能分析 2026-01）：历史首载时页内全部 thinking/正文/工具输出
-// 在同一次 Vue flush 里同步跑 markdown-it + highlight.js（基准实测重页
-// ~60ms 主线程阻塞）。此处先只挂尾部窗口，更旧的条目在后续帧逐批补挂：
-//   · 补挂后按「用户是否在底部」二选一补偿——贴底态重贴底（视口静止，
-//     内容在上方生长不可见）；上翻态保持距顶偏移（不跳）。
-//   · 用户一上翻即全量补挂——缺内容比多阻塞更糟，既有语义优先。
-// 只对「首载 / 切换会话」生效：流式追加与续拉前插不回退窗口（renderFrom
-// 归零后不再置位），其余路径的运行时成本与改造前一致。
+// ── 窗口化挂载（2026-01 首载分帧引入；2026-12 收口为「首载窗口 + 上翻分帧」）──
+// 背景：历史首载时页内全部 thinking/正文/工具输出在同一次 Vue flush 里同步跑
+// markdown-it + highlight.js（基准实测重页 ~60ms 主线程阻塞；大会话 800+ 条
+// 单帧挂载 = 秒级卡顿）。现行语义：
+//   · 切入/首载只挂尾部 INITIAL_WINDOW 条（最新消息在视口内）；
+//   · 更旧条目仅当用户上翻时分帧补挂（REFILL_BATCH × 16ms 让出主线程）；
+//   · 补挂按「用户是否在底部」二选一补偿——贴底态重贴底（视口静止）；
+//     上翻态保持距顶偏移（不跳）。
+// 流式追加与续拉前插不回退窗口（renderFrom 归零后不再置位）。
 const INITIAL_WINDOW = 24;
 const REFILL_BATCH = 24;
 
@@ -80,7 +79,12 @@ function clearRefill() {
   }
 }
 
-/** 逐批补挂（批次之间让出主线程；补齐即停） */
+/** 分帧补挂进行中（重入短路判据：进行中的分帧说明本会话尚未完整挂载） */
+function refilling(): boolean {
+  return refillTimer !== null;
+}
+
+/** 逐批补挂（批次之间让出主线程；补齐即停；归零登记见 renderFrom watch） */
 function scheduleRefill() {
   if (refillTimer !== null || renderFrom.value === 0) return;
   refillTimer = setTimeout(() => {
@@ -103,23 +107,50 @@ function scheduleRefill() {
   }, 16);
 }
 
+// fullyMounted = 本组件实例内「已完整挂载过」的会话键记忆：同实例切回
+//（single→single，DOM 还在）命中即不重置 renderFrom——已挂组件树零重建。
+// 组件重挂（视角切换 talk↔single）后记忆随实例消亡——重挂恒窗口化是
+// 有意为之（旧 DOM 已销毁，全量重建没有意义；「切回即全量恢复」曾按
+// 模块级记忆实现过，方向反了——窗口化才是切换的预期成本）。
+const fullyMounted = new Set<string>();
+const currentCid = computed(() => props.conversationId);
+// watch immediate 覆盖重挂路径（视角切换后分区缓存已就位、items 挂载即
+// 全量）：首调 prevCid undefined → switched=false 走 firstLoad 窗口化——
+// 此前无 immediate 时 mount 首触发不跑，renderFrom 保持 0 = 单帧全量挂载。
 watch(
   [() => props.conversationId, () => props.items.length],
   ([cid, len], [prevCid, prevLen]) => {
     const switched = cid !== prevCid && prevCid !== undefined;
     const firstLoad = (prevLen ?? 0) === 0 && len > 0;
     if (!switched && !firstLoad) return;
+    // 重入短路（仅同实例切换）：已完整挂载过且窗口未越界 → 不重置
+    // renderFrom（已挂组件树零重建）。越界守卫：上个会话是大列表时窗口
+    // 起点可能已超本会话条数——不拦会一条不渲染且无人再调度补挂。
+    // 重挂场景（immediate 首调 prevCid undefined）不走短路——恒窗口化。
+    if (switched && typeof cid === 'string' && fullyMounted.has(cid) && !refilling()
+      && renderFrom.value < len) {
+      return;
+    }
     clearRefill();
+    // 首载窗口化：只挂尾部 INITIAL_WINDOW 条，不自动逐批补挂（自动补挂
+    // 的逐批强制 layout 是切换卡顿主体）；用户上翻时才分帧补挂。
     renderFrom.value = len > INITIAL_WINDOW ? len - INITIAL_WINDOW : 0;
-    if (renderFrom.value > 0) scheduleRefill();
+    if (renderFrom.value === 0 && typeof cid === 'string') fullyMounted.add(cid); // 小列表天然全量
   },
+  { immediate: true },
+);
+// 补挂归零（用户上翻分帧补完）→ 登记当前会话为已完整挂载
+watch(
+  () => renderFrom.value,
+  (from) => { if (from === 0 && currentCid.value) fullyMounted.add(currentCid.value); },
 );
 
-// 用户上翻：立即全量补挂（渲染剩余条目，回到改造前语义）
+// 用户上翻：分帧补挂剩余条目（旧语义「立即全量」在大会话 = 一次性渲染
+// 千余组件的长任务；复用 16ms 分帧让出主线程，滚动保持跟手）
 watch(() => shell.isUserScrolledUp.value, (up) => {
   if (!up || renderFrom.value === 0) return;
   clearRefill();
-  renderFrom.value = 0;
+  scheduleRefill();
 });
 
 onBeforeUnmount(clearRefill);

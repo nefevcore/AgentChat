@@ -292,7 +292,11 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             <span class="chain-label" :title="chainLabel">{{ chainLabel }}</span>
       </div>
 
-      <div v-show="isExpanded" class="chain-body">
+      <!-- v-if（2026-12 大会话切换卡顿终修）：历史轮默认折叠，此前 v-show
+           仍全量构建链体组件树（大会话 470 步/923 工具卡 + markdown 渲染
+           只是 display:none 藏着——切换卡 1-2s 的真正主体）。折叠 = 不构建，
+           用户展开才付费；流式轮 isExpanded 恒 true，直播路径无变化。 -->
+      <div v-if="isExpanded" class="chain-body">
         <template v-for="(step, sIdx) in visibleSteps" :key="stepKey(step, sIdx)">
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }"

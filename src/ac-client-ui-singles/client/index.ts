@@ -159,9 +159,10 @@ export class SingleBoardService extends Service {
     super(ctx, 'singleBoard');
     this.own = ctx as ClientContext;
     void options;
-    // wire singles/updated（自动标题生成/设置变更）→ 刷新列表（标题即时上屏）
-    this.own.fiber.effect(() => this.own.rpc.onEvent((type) => {
-      if (type === 'singles/updated') void this.refresh();
+    // wire singles/updated → 增量合并（mergeUpdate，零 RPC；全量 refresh 只留
+    // 重连兜底与显式调用方）
+    this.own.fiber.effect(() => this.own.rpc.onEvent((type, args) => {
+      if (type === 'singles/updated') this.mergeUpdate(args[0] as SingleSession | undefined, args[1] as 'created' | 'updated' | 'archived' | 'removed' | undefined);
     }), 'singleBoard.wire');
     // 重连即刷：断连期间 singles/updated 帧丢失（新建/改名/归档不可见）
     // ——WS 恢复后补拉一次（feed-core/runview 同款恢复位；onOpen 可选
@@ -186,6 +187,43 @@ export class SingleBoardService extends Service {
     }
   }
 
+  /**
+   * 增量合并 singles/updated 帧（2026-12 卡顿优化）：
+   * 载荷 = 变更后终值 + 类别——本地 upsert，零 RPC。
+   *   · created/updated/archived → 原地替换或插入（保持列表的最近活动序——
+   *     新条目插到最前；lastActivity 帧不带，沿用旧条目值，created 无值
+   *     回落 createdAt 语义与 list 装配一致）；
+   *   · removed → 摘除；
+   *   · 列表未装载（冷启动首帧先于 fetch 到达）→ 忽略（首次 refresh 会
+   *     带上全量真值，避免在空列表上合并出残缺快照）。
+   * presence 同步（track）随合并执行——与 fetchSingles 的 seen 钩子同面。
+   */
+  private mergeUpdate(meta: SingleSession | undefined, action: 'created' | 'updated' | 'archived' | 'removed' | undefined, opts: { local?: boolean } = {}): void {
+    if (!meta?.id || !action) return;
+    // 未装载不合并（首次全量负责）——仅对外部帧：本端 RPC 返回值是权威数据
+    //（create 在冷启动路径 makeClient 等场景 board 尚未 fetch，列表合并仍须生效）
+    if (!opts.local && !this.loaded.value) return;
+    this.track(meta.id, action === 'removed');
+    const list = this.singles.value;
+    const idx = list.findIndex((s) => s.id === meta.id);
+    if (action === 'removed') {
+      if (idx >= 0) this.singles.value = list.filter((s) => s.id !== meta.id);
+      return;
+    }
+    // 保留旧条目的 lastActivity（帧载荷不带——标题/归档不改消息文件，旧值仍准）
+    const merged: SingleSession = idx >= 0
+      ? { ...meta, ...(list[idx].lastActivity ? { lastActivity: list[idx].lastActivity } : {}) }
+      : meta;
+    if (idx >= 0) {
+      const next = [...list];
+      next[idx] = merged;
+      this.singles.value = next;
+    } else {
+      // created（或别端新建）：插到最前（列表按最近活动降序——新会话居首）
+      this.singles.value = [merged, ...list];
+    }
+  }
+
   /** 快速创建空会话（P4：无 Agent；已有空会话时复用，避免堆积空白条目） */
   async createQuick(): Promise<SingleSession | null> {
     return this.create({ reuse: true });
@@ -194,8 +232,11 @@ export class SingleBoardService extends Service {
   /** 创建并立即进入会话 */
   async create(payload: SingleCreatePayload): Promise<SingleSession> {
     const d = await createSingle(payload, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
-    await this.refresh();
-    if (d.session) this.selectSingle(d.session.id);
+    // 2026-12 卡顿优化：不再全量 refresh 后经列表 find 激活——created 帧的
+    // 增量合并会更新列表，激活直接用 RPC 返回值（省一次 379 会话全量扫描
+    // + 等待；此前「点新建 → 卡 → 进入」的串行链在此拆断）
+    this.mergeUpdate(d.session, 'created', { local: true });
+    this.selectSingleBy(d.session);
     return d.session;
   }
 
@@ -208,12 +249,17 @@ export class SingleBoardService extends Service {
   selectSingle(sessionId: string): void {
     const session = this.singles.value.find(s => s.id === sessionId);
     if (!session || session.status === 'archived') return;
+    this.selectSingleBy(session);
+  }
+
+  /** 按会话对象直接激活（列表点击传 find 结果；create 传 RPC 返回值——不等列表刷新） */
+  private selectSingleBy(session: SingleSession): void {
     this.own.sessions.chat.setSingleContext(
-      sessionId,
+      session.id,
       session.agentId || this.own.roster.defaultPresetId.value,
       typeof session.model === 'string' && session.model ? session.model : undefined,
     );
-    saveLastContext({ kind: 'single', id: sessionId });
+    saveLastContext({ kind: 'single', id: session.id });
   }
 
   /** 回到 pair 会话（不清列表数据） */
@@ -278,17 +324,14 @@ export class SingleBoardService extends Service {
    */
   async updateSession(sessionId: string, payload: SingleUpdatePayload): Promise<SingleSession | null> {
     const d = await updateSingle(sessionId, payload, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
-    await this.refresh();
-    // 活跃会话换 Agent/模型 → 重建上下文（agentId 影响消息身份与投递目标，
-    // ''=默认预设；model 覆盖随投递信封透传——refresh 后取服务端回显值）
+    // 帧增量合并（updated 帧同值到达时幂等）；上下文重建直接用服务端回显值
+    // ——不再全量 refresh 后 find（2026-12 卡顿优化，同 create）
+    this.mergeUpdate(d.session, 'updated', { local: true });
     if ((payload.agentId !== undefined || payload.model !== undefined) && this.activeSingleId.value === sessionId) {
-      const fresh = this.singles.value.find(s => s.id === sessionId);
-      if (fresh) {
-        const model = typeof fresh.model === 'string' && fresh.model ? fresh.model : undefined;
-        this.own.sessions.chat.setSingleContext(sessionId, fresh.agentId || this.own.roster.defaultPresetId.value, model);
-      }
+      const model = typeof d.session.model === 'string' && d.session.model ? d.session.model : undefined;
+      this.own.sessions.chat.setSingleContext(sessionId, d.session.agentId || this.own.roster.defaultPresetId.value, model);
     }
-    return d.session ?? null;
+    return d.session;
   }
 
   /**
@@ -299,9 +342,10 @@ export class SingleBoardService extends Service {
   async fork(sessionId: string, anchorMessageId?: string): Promise<SingleSession | null> {
     try {
       const d = await forkSingle(sessionId, anchorMessageId, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
-      await this.refresh();
-      if (d.session) this.selectSingle(d.session.id);
-      return d.session ?? null;
+      // 增量合并 + 返回值直激活（created 帧会带同值再合并一次——幂等无害）
+      this.mergeUpdate(d.session, 'created', { local: true });
+      this.selectSingleBy(d.session);
+      return d.session;
     } catch (err: unknown) {
       console.warn('[SingleBoard] 会话分支失败:', (err as { message?: string }).message ?? String(err));
       return null;
@@ -310,16 +354,18 @@ export class SingleBoardService extends Service {
 
   /** 归档（软删）：若正打开则先退出 */
   async archive(sessionId: string): Promise<void> {
-    await archiveSingle(sessionId, this.own.rpc);
+    const d = await archiveSingle(sessionId, this.own.rpc);
     if (this.activeSingleId.value === sessionId) this.deselectSingle();
-    await this.refresh();
+    // 增量合并（archived 帧同值幂等）——服务端回显 status 终值
+    this.mergeUpdate(d.session, 'archived', { local: true });
   }
 
   /** 删除（硬删：元数据+消息）：若正打开则先退出 */
   async remove(sessionId: string): Promise<void> {
     await deleteSingle(sessionId, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
     if (this.activeSingleId.value === sessionId) this.deselectSingle();
-    await this.refresh();
+    // 本地摘除（removed 帧同值幂等）——立即从列表消失
+    this.mergeUpdate({ id: sessionId } as SingleSession, 'removed', { local: true });
   }
 
   /** Agent 名（列表展示用；经 agents 名册解析（含预设目录）；空 = 默认预设） */

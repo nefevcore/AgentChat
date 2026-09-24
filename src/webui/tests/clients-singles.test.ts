@@ -176,4 +176,85 @@ describe('S3-1b · singles 域行 client（域投影 + ctx.singleBoard 服务面
     expect(board.activeSingleId.value).toBe('');
     await fiber.dispose();
   });
+
+  // ── 增量合并（2026-12 卡顿优化：singles/updated 帧本地 upsert，零 refresh）──
+
+  it('created 帧 → 新条目插到列表最前；零 RPC（不触发 singles/list）', async () => {
+    localStorage.clear();
+    const stub = makeRpcStub();
+    const boot = await bootWebuiRuntime(stub.impl);
+    await boot.ctx.plugin(rosterClientPlugin);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    board.singles.value = [
+      { id: 's1', status: 'active', agentId: '', title: 'A', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never,
+    ];
+    board.loaded.value = true; // 已装载（冷启动首帧忽略语义）
+    const listCallsBefore = stub.seen.filter(([m]) => m === 'singles/list').length;
+    stub.emit('singles/updated',
+      { id: 's2', status: 'active', agentId: '', title: 'B', createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' },
+      'created');
+    expect(board.singles.value.map((s) => s.id)).toEqual(['s2', 's1']);
+    expect(stub.seen.filter(([m]) => m === 'singles/list').length).toBe(listCallsBefore); // 零 refresh
+    await fiber.dispose();
+  });
+
+  it('updated 帧（标题生成）→ 原地替换且保留 lastActivity；removed 帧 → 摘除', async () => {
+    localStorage.clear();
+    const stub = makeRpcStub();
+    const boot = await bootWebuiRuntime(stub.impl);
+    await boot.ctx.plugin(rosterClientPlugin);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    board.singles.value = [
+      { id: 's1', status: 'active', agentId: '', title: '旧标题', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', lastActivity: '2026-03-01T00:00:00Z' } as never,
+      { id: 's2', status: 'active', agentId: '', title: 'B', createdAt: '2026-02-01T00:00:00Z', updatedAt: '2026-02-01T00:00:00Z' } as never,
+    ];
+    board.loaded.value = true;
+    stub.emit('singles/updated',
+      { id: 's1', status: 'active', agentId: '', title: '自动生成的新标题', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-06-02T00:00:00Z' },
+      'updated');
+    const s1 = board.singles.value.find((s) => s.id === 's1') as { title?: string; lastActivity?: string };
+    expect(s1.title).toBe('自动生成的新标题');
+    expect(s1.lastActivity).toBe('2026-03-01T00:00:00Z'); // 帧不带——沿用旧值
+    stub.emit('singles/updated',
+      { id: 's2', status: 'active', agentId: '', title: 'B', createdAt: '2026-02-01T00:00:00Z', updatedAt: '2026-02-01T00:00:00Z' },
+      'removed');
+    expect(board.singles.value.map((s) => s.id)).toEqual(['s1']);
+    await fiber.dispose();
+  });
+
+  it('archived 帧 → status 终值合并，activeSingles 视图即时消失', async () => {
+    localStorage.clear();
+    const stub = makeRpcStub();
+    const boot = await bootWebuiRuntime(stub.impl);
+    await boot.ctx.plugin(rosterClientPlugin);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    board.singles.value = [
+      { id: 's1', status: 'active', agentId: '', title: 'A', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never,
+    ];
+    board.loaded.value = true;
+    stub.emit('singles/updated',
+      { id: 's1', status: 'archived', agentId: '', title: 'A', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-06-03T00:00:00Z' },
+      'archived');
+    expect(board.singles.value[0].status).toBe('archived'); // 全量列表保留（可查归档）
+    expect(board.activeSingles.value).toEqual([]); // 视图过滤即时生效
+    await fiber.dispose();
+  });
+
+  it('未装载（冷启动首帧先于首次 fetch）→ 忽略（避免空列表上合并残缺快照）', async () => {
+    localStorage.clear();
+    const stub = makeRpcStub();
+    const boot = await bootWebuiRuntime(stub.impl);
+    await boot.ctx.plugin(rosterClientPlugin);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    const board = boot.ctx.singleBoard;
+    expect(board.loaded.value).toBe(false);
+    stub.emit('singles/updated',
+      { id: 'sX', status: 'active', agentId: '', title: 'X', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+      'created');
+    expect(board.singles.value).toEqual([]); // 未装载不合并
+    await fiber.dispose();
+  });
 });
