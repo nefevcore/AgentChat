@@ -34,6 +34,7 @@ All notable changes to AgentChat are documented in this file.
 - `officeVendor.ts`：浏览器侧动态注入 <script> 读全局（UMD 全局名 vue-office-{docx,excel,pptx}），OfficeView 三处懒加载改走该面；`.gitattributes` 禁 vendor 产物 EOL 归一化。
 
 ### Changed（杂项）
+- CI 依赖卫生：清 ac-webui-app 冗余 uplot 声明（消费方已迁 ac-client-ui-usage，R4 拦截 0.8.14 首发 CI）。
 - useMarkdown：所有实例的 markdown 链接统一补 target=_blank + noopener——SPA 内整页跳转丢会话状态。
 - logo.svg：深空渐变底 + 星点装饰（根 + webui public 双处）。
 
