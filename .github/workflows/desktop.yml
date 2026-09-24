@@ -190,30 +190,32 @@ jobs:
           # 大流量拉取会触发境内→境外间歇断流（QoS 冷却数分钟）——单文件重试不够，
           # 整段拉取套 3 次尝试（间隔 120s 等冷却），函数体先行定义
           pull_assets() {
-            REL_ID=$(curl -sS --connect-timeout 20 -H "Authorization: token $GH_TOKEN_JOB" \
-              "https://api.github.com/repos/$GH_REPO/releases" \
-              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const rs=JSON.parse(d);const r=rs.find(x=>x.draft&&x.tag_name===process.argv[1]);console.log(r?r.id:"")}catch{console.log("")}})' "$TAG")
-            if [ -z "$REL_ID" ]; then echo "[pull] draft release $TAG 未找到"; return 1; fi
+            # 三腿并发 getOrCreate draft 各建各的（第十六轮实证：单 draft 只含 4 资产）——
+            # 聚合该 tag 下全部 draft 的资产（同名去重），跨 release 拉齐三腿产物。
             ASSETS=$(curl -sS --connect-timeout 20 -H "Authorization: token $GH_TOKEN_JOB" \
-              "https://api.github.com/repos/$GH_REPO/releases/$REL_ID/assets")
-            COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).filter(a=>!/blockmap$/.test(a.name)).length)})')
-            echo "[pull] draft $TAG：$COUNT 个产物 → $DEST"
-            # 增量拉取（用户指正：整段重拉会再触发 QoS 断流）——清单附 API digest（sha256），
-            # 服务器侧对已存在文件算 sha 比对，一致即跳过；只补真正缺失/损坏的文件。
-            # 下载走 .part + sha 终验后原子改名（残骸 .part 不污染下载面）。
+              "https://api.github.com/repos/$GH_REPO/releases?per_page=50" \
+              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const rs=JSON.parse(d).filter(x=>x.draft&&x.tag_name===process.argv[1]);const byName=new Map();for(const r of rs)for(const a of r.assets)byName.set(a.name,a);console.log(JSON.stringify([...byName.values()].filter(a=>!/blockmap$/.test(a.name))))})' "$TAG")
+            COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).length)})')
+            if [ "$COUNT" -lt 5 ]; then echo "[pull] 聚合后仅 $COUNT 个资产（三腿未齐，manifest 需要至少 5：exe/dmg×2/zip×2/AppImage）"; return 1; fi
+            echo "[pull] draft $TAG 聚合：$COUNT 个产物 → $DEST"
+            # 单批次一致性（2026-09-25 复盘修正：跨 run 增量是伪命题——每轮构建字节不同，
+            # 旧文件 sha 永不匹配新 digest，跳过形同虚设还留下新旧混排目录）。拉取前清空
+            # 目标目录，一次拉齐本 run 的全部资产。
+            # 限速 3MB/s：连续高速大流量触发 QoS 断流（~550MB 阈值），降速让总量匀速通过。
+            # .part + sha 终验原子改名（digest 缺席时跳过比对），整段重试×3 兜底。
+            rm -rf "$DEST".pulling && mkdir -p "$DEST".pulling
             echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(/blockmap$/.test(a.name))continue;console.log([a.browser_download_url,a.name,(a.digest||"").replace(/^sha256:/,"")].join("\t"))}})' \
               | while IFS=$'\t' read -r URL NAME SHA; do
-                  if [ -n "$SHA" ] && [ -f "$DEST/$NAME" ] && [ "$(sha256sum "$DEST/$NAME" | awk '{print $1}')" = "$SHA" ]; then
-                    echo "[pull] $NAME 已完整（sha 一致），跳过"
-                    continue
-                  fi
                   echo "[pull] $NAME"
-                  curl -sSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 25 \
-                    -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST/$NAME.part" "$URL" \
-                    && { [ -z "$SHA" ] || [ "$(sha256sum "$DEST/$NAME.part" | awk '{print $1}')" = "$SHA" ]; } \
-                    && mv "$DEST/$NAME.part" "$DEST/$NAME" \
-                    || { echo "[pull] $NAME 失败/校验不符"; rm -f "$DEST/$NAME.part"; return 1; }
+                  curl -sSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 25 --limit-rate 3M \
+                    -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST".pulling/"$NAME.part" "$URL" \
+                    && { [ -z "$SHA" ] || [ "$(sha256sum "$DEST".pulling/"$NAME.part" | awk '{print $1}')" = "$SHA" ]; } \
+                    && mv "$DEST".pulling/"$NAME.part" "$DEST".pulling/"$NAME" \
+                    || { echo "[pull] $NAME 失败/校验不符"; rm -f "$DEST".pulling/"$NAME.part"; return 1; }
                 done
+            # 全部拉齐且校验通过 → 原子换入（旧目录先挪走再替换，任一时刻下载面目录完整）
+            rm -rf "$DEST".old && [ -d "$DEST" ] && mv "$DEST" "$DEST".old || true
+            mv "$DEST".pulling "$DEST" && rm -rf "$DEST".old
           }
           for ATTEMPT in 1 2 3; do
             echo "[pull] === 第 $ATTEMPT 次尝试 ==="
