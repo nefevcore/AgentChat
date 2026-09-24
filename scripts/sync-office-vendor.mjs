@@ -30,12 +30,15 @@ async function sync() {
   await mkdir(vendorDir, { recursive: true });
   for (const kind of KINDS) {
     const pkgDir = path.dirname(require_.resolve(`@vue-office/${kind}/package.json`));
-    const lib = path.join(pkgDir, 'lib', 'index.js');
+    // 直取 lib/v3/（vue3 档——本项目唯一消费档）。不依赖包的 postinstall 档位
+    // 切换：其 postinstall 在包内 require('vue')，pnpm 严格隔离下 vue 不可达
+    //（本地历史安装恰好切过档所以曾经过；CI 干净安装必失败——v0.8.14 publish
+    //  首发「构建前端」红的根因）。v3 缺失 = 包结构异常，如实报错。
     const v3 = path.join(pkgDir, 'lib', 'v3', 'index.js');
-    const [libBuf, v3Buf] = await Promise.all([readFile(lib), readFile(v3).catch(() => null)]);
-    if (!v3Buf || md5(libBuf) !== md5(v3Buf)) {
+    const libBuf = await readFile(v3).catch(() => null);
+    if (!libBuf) {
       throw new Error(
-        `@vue-office/${kind} 的 lib/index.js 与 lib/v3/index.js 不一致——postinstall 的 vue3 档切换可能被绕过（跳版本安装/缓存残留）。请重跑 pnpm install 后再同步。`,
+        `@vue-office/${kind} 缺 lib/v3/index.js（包结构异常，请检查安装）`,
       );
     }
     const dest = path.join(vendorDir, `vue-office-${kind}.js`);
