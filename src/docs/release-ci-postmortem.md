@@ -118,19 +118,18 @@
 
 ## 四、发版预检清单（本次整理的行动项）
 
-发 tag 前在本地依次跑（全部绿再推）：
+发 tag 前跑预检脚本（CI 同序五步：install --frozen-lockfile → check:deps →
+build:frontend → test → build:bundle）：
 
 ```powershell
-pnpm install --no-frozen-lockfile   # 或 --frozen-lockfile 验证 lockfile 一致性
-pnpm check:deps                     # R1-R7 依赖卫生（R4 是惯犯）
-pnpm typecheck                      # tsc --noEmit
-pnpm test:unit                      # 全量单元测试
-pnpm build:frontend                 # webui 构建（跨包解析在此暴露）
-pnpm build:bundle                   # 发布 bundle（bundle 形态差异面）
+pnpm release:preflight          # 快档：用现有 node_modules（日常提交前）
+pnpm release:preflight --clean  # 干净档：删全部 node_modules 全新安装再跑
+                                #（发版前至少一次——三连败全是本地残留掩盖的）
 ```
 
-干净安装档（怀疑本地残留掩盖问题时）：删除 `node_modules` 与各包
-`node_modules` 后从 lockfile 全新安装再跑上列检查。
+脚本：`scripts/release-preflight.mjs`。任一步失败本地即拦下，不浪费 CI 轮次。
+覆盖外的事项：typecheck / lint 建议日常各自跑；npm publish、桌面三平台打包、
+上传/manifest 收尾有副作用，不在预检范围（只能 CI 或手动）。
 
 tag 后观察：publish 与 desktop 双工作流齐绿才对外宣布版本；desktop 的
 manifest 收尾 job（sha256 校验 + gen-manifest）过了才算下载面就绪。

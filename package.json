@@ -44,6 +44,7 @@
     "test:integration": "node scripts/run-tests.mjs integration",
     "test:watch": "node scripts/run-tests.mjs watch",
     "check:deps": "node scripts/check-deps.mjs",
+    "release:preflight": "node scripts/release-preflight.mjs",
     "build": "pnpm -r build",
     "preview:boot": "pnpm dev",
     "preview:supervised": "pnpm dev:supervised",
