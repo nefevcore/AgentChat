@@ -29,13 +29,16 @@
     "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
     "d3-chord": "^3.0.1",
-    "uplot": "^1.6.32",
     "vue": "^3.4.0"
+  },
+  "peerDependencies": {
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@types/d3-chord": "^3.0.6",
     "ac-extension-core": "workspace:*",
     "ac-webui": "workspace:*",
+    "uplot": "^1.6.32",
     "vitest": "^4.1.10"
   },
   "keywords": [
