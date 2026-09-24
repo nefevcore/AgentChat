@@ -24,6 +24,16 @@ describe('markdownPreviewDoc', () => {
     expect(doc).toContain('<div class="markdown-body"><p>hi</p></div>');
   });
 
+  it('代码块 banner 样式 + 沙箱内复制脚本随文档注入（2026-09-24 修复：预览面 header 样式丢失 + 复制失效）', () => {
+    const doc = markdownPreviewDoc('<p>hi</p>');
+    // banner/按钮全套样式（此前仅存应用侧样式表，srcdoc 文档拿不到）
+    expect(doc).toContain('.md-code-block-banner{');
+    expect(doc).toContain('.md-code-block-btn.copied');
+    // 沙箱内自治复制脚本（父页事件委托进不了 iframe——sandbox 无 allow-same-origin）
+    expect(doc).toContain('.md-code-block-btn[data-action=copy]');
+    expect(doc).toContain('execCommand');
+  });
+
   it('空正文 → 空串（组件分支回落 loading/空态）', () => {
     expect(markdownPreviewDoc('')).toBe('');
   });

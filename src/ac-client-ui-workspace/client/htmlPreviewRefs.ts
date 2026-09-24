@@ -131,10 +131,65 @@ const MD_DOC_STYLES = [
   'img{max-width:100%}table{border-collapse:collapse;margin:10px 0}th,td{border:1px solid var(--color-border-secondary);padding:6px 12px}th{background:var(--color-bg-surface)}',
   'hr{border:none;border-top:1px solid var(--color-border-light);margin:16px 0}',
   'ul,ol{padding-left:24px;margin:7px 0}',
+  // ---- 代码块（md-code-block——markdown.css 同源复刻；banner 样式在此前
+  // 仅存应用侧样式表，srcdoc 文档拿不到 → 预览面 header 样式丢失。
+  // token 对齐调色板（--radius-* 无对应项，按 10px/6px 直值）） ----
+  '.md-code-block{margin:12px 0;border-radius:10px;background:var(--color-code-bg);border:1px solid var(--color-code-border);overflow:hidden;min-width:0;max-width:100%}',
+  '.md-code-block-banner{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:30px;background:var(--color-code-bg);border-bottom:1px solid var(--color-border-secondary);-webkit-user-select:none;user-select:none}',
+  '.md-code-block-lang{font-size:11px;font-weight:500;color:var(--color-text-muted);text-transform:lowercase;letter-spacing:.3px}',
+  '.md-code-block-actions{display:flex;align-items:center;gap:2px}',
+  '.md-code-block-btn{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;font-size:12px;font-weight:500;color:var(--color-text-muted);background:transparent;border:none;border-radius:6px;cursor:pointer;opacity:0;transition:opacity .15s,color .15s,background .15s;line-height:1;font-family:inherit}',
+  '.md-code-block:hover .md-code-block-btn,.md-code-block-btn:focus-visible{opacity:1}',
+  '@media (hover:none){.md-code-block-btn{opacity:.6}}',
+  '.md-code-block-btn:hover{color:var(--color-text-primary);background:var(--color-bg-subtle)}',
+  '.md-code-block-btn:active{transform:scale(.95)}',
+  '.md-code-block-btn.copied{opacity:1;color:#22c55e}',
+  '.md-code-block-btn-icon{display:inline-flex;align-items:center}',
+  '.md-code-block-btn-text{white-space:nowrap}',
+  '.md-code-block-btn.copied .md-code-block-btn-icon-copy{display:none}',
+  '.md-code-block-btn.copied .md-code-block-btn-icon-check{display:inline-flex !important}',
+  '.md-code-block pre{margin:0;border-radius:0;border:none;padding:12px 16px;background:var(--color-code-bg);overflow-x:auto;max-width:100%}',
+  '.md-code-block pre code{background:transparent;padding:0;font-size:13px;line-height:1.6;white-space:pre;color:inherit}',
+].join('\n');
+
+/** 沙箱内复制脚本（静态字符串，无用户内容——srcdoc 注入零注入面）。
+ * 点击委托：banner 按钮 → 就近取代码文本 → navigator.clipboard 优先
+ *（sandbox=allow-scripts 下可能被拒）→ execCommand 兜底 → copied 态
+ * 切换（与父页 useMarkdown 的委托复制同视觉）。 */
+const MD_COPY_SCRIPT = [
+  '<script>',
+  'document.addEventListener("click", function (e) {',
+  '  var btn = e.target && e.target.closest ? e.target.closest(".md-code-block-btn[data-action=copy]") : null;',
+  '  if (!btn) return;',
+  '  var block = btn.closest(".md-code-block");',
+  '  var code = block && block.querySelector("pre code");',
+  '  if (!code) return;',
+  '  var text = code.textContent || "";',
+  '  var done = function () {',
+  '    btn.classList.add("copied");',
+  '    var t = btn.querySelector(".md-code-block-btn-text");',
+  '    if (t) t.textContent = "已复制";',
+  '    setTimeout(function () {',
+  '      btn.classList.remove("copied");',
+  '      if (t) t.textContent = "复制";',
+  '    }, 1600);',
+  '  };',
+  '  if (navigator.clipboard && navigator.clipboard.writeText) {',
+  '    navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text) && done(); });',
+  '  } else { fallbackCopy(text) && done(); }',
+  '  function fallbackCopy (s) {',
+  '    var ta = document.createElement("textarea");',
+  '    ta.value = s; ta.style.position = "fixed"; ta.style.opacity = "0";',
+  '    document.body.appendChild(ta); ta.select();',
+  '    try { return document.execCommand("copy"); } finally { ta.remove(); }',
+  '  }',
+  '});',
+  '</scr' + 'ipt>',
 ].join('\n');
 
 /** Markdown 预览完整文档：内嵌亮/暗调色板（随系统偏好）+ base target
- * （链接外开）+ 受信渲染正文。bodyHtml 由消费方先行完成相对引用改写。 */
+ * （链接外开）+ 受信渲染正文 + 代码块 banner 样式与沙箱内复制脚本。
+ * bodyHtml 由消费方先行完成相对引用改写。 */
 export function markdownPreviewDoc(bodyHtml: string): string {
   if (!bodyHtml) return '';
   return '<!doctype html><html><head><meta charset="utf-8">'
@@ -142,5 +197,6 @@ export function markdownPreviewDoc(bodyHtml: string): string {
     + '<style>:root{' + MD_PALETTE_LIGHT + '}'
     + ' @media (prefers-color-scheme:dark){:root{' + MD_PALETTE_DARK + '}}'
     + MD_DOC_STYLES + '</style>'
-    + '</head><body><div class="markdown-body">' + bodyHtml + '</div></body></html>';
+    + '</head><body><div class="markdown-body">' + bodyHtml + '</div>'
+    + MD_COPY_SCRIPT + '</body></html>';
 }
