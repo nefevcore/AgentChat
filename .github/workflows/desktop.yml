@@ -61,22 +61,19 @@ jobs:
       # 走 GitHub 内网秒传；下载服务器在收尾 job 反向拉取（服务器 → GitHub 方向
       # 带宽好）——取代此前三腿 scp 直推（境外 → 境内 ~5Mbps，600MB 传 16 分钟/腿，
       # 三腿累计 40+ 分钟）。draft 不公开，下载面仍指向自托管（分发裁决不变）。
-      - name: 打包桌面安装包（上传 Releases draft——中转提速）
+      - name: 打包桌面安装包（--publish never——产物走下方 staging 直推）
         working-directory: desktop
-        shell: bash   # 必须：多行 bash 脚本（windows 缺省 pwsh——第八~十一轮 windows 腿连挂的根因：set -o pipefail 被 PS 解析）
+        shell: bash   # 必须：多行 bash 脚本（windows 缺省 pwsh——set -o pipefail 会被 PS 解析崩溃）
         run: |
           set -o pipefail
           touch eb-build.log
-          { npx electron-builder ${{ matrix.targets }} --publish always; echo "EB-EXIT=$?"; } 2>&1 | tee eb-build.log
+          { npx electron-builder ${{ matrix.targets }} --publish never; echo "EB-EXIT=$?"; } 2>&1 | tee eb-build.log
           grep -q '^EB-EXIT=0$' eb-build.log || {
             echo '--- electron-builder 诊断 ---' | tee -a eb-build.log
             node -p '"node " + process.version + " " + process.platform' | tee -a eb-build.log
-            echo "GH_TOKEN len: ${#GH_TOKEN} prefix: ${GH_TOKEN:0:4}" | tee -a eb-build.log
             ls -la | tee -a eb-build.log
             exit 1
           }
-        env:
-          GH_TOKEN: ${{ github.token }}
       - name: 上传打包诊断（仅失败时）
         if: failure()
         uses: actions/upload-artifact@v4
@@ -130,7 +127,65 @@ jobs:
           path: sha-baseline/SHA256SUMS
           if-no-files-found: error
 
-      # （scp 直推已退役——见「打包桌面安装包」步骤注释；服务器拉取在 manifest job）
+      # ---- 三腿并行直推 staging（2026-09-25 恢复：draft 中转链退役）----
+      # staging = /var/www/agentchat/staging/<ver>/（不进 nginx 下载面），manifest job
+      # 校验齐后服务器本地原子换入 downloads——任一时刻下载面目录完整。
+      - name: 上传安装包到 staging（linux/macos 腿）
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过上传"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(node -p "require('./desktop/package.json').version")"
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/staging/$VER"
+          shopt -s nullglob
+          for f in desktop/release/*.AppImage desktop/release/*.dmg desktop/release/*.zip; do
+            echo "[push] $(basename "$f")"
+            scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/staging/$VER/"
+          done
+      - name: 上传安装包到 staging（windows 腿）
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过上传"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(node -p "require('./desktop/package.json').version")"
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/staging/$VER"
+          for f in desktop/release/*.exe; do
+            echo "[push] $(basename "$f")"
+            scp -i ~/.ssh/deploy_key "$f" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/staging/$VER/"
+          done
+
 
       # （windows 腿 scp 同上退役）
 
@@ -156,18 +211,19 @@ jobs:
       # draft 不公开：服务器侧带 GH_TOKEN 走 assets API 拉取；token 经 SSH 环境
       # 变量注入，只在会话内存中用完即弃（不落盘）。拉完删除 draft release
       #（GitHub 不留安装包——分发裁决不变，服务器是唯一正本）。
-      - name: 服务器拉取 Releases draft 产物 + 清理中转
+      # ---- staging → downloads 服务器本地换入（draft 链退役后的收尾）----
+      # 三腿已把产物 scp 到 /var/www/agentchat/staging/<ver>/；此处校验文件数后
+      # 原子换入 downloads（旧目录挪 .old 再替换），任一时刻下载面目录完整。
+      - name: staging 换入 downloads（服务器本地原子换入）
         shell: bash
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          GH_REPO_CTX: ${{ github.repository }}
-          GH_JOB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
-            echo "::warning::未配置 secrets——跳过拉取"
+            echo "::warning::未配置 secrets——跳过换入"
             exit 0
           fi
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
@@ -179,60 +235,18 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          # 服务器侧拉取脚本（heredoc 全程经 SSH stdin，不落服务器盘）
-          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" \
-            VER="$VER" GH_REPO="$GH_REPO_CTX" GH_TOKEN_JOB="$GH_JOB_TOKEN" bash -s <<'PULL'
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" VER="$VER" bash -s <<'SWAP'
           set -euo pipefail
+          STG="/var/www/agentchat/staging/$VER"
           DEST="/var/www/agentchat/downloads/$VER"
-          mkdir -p "$DEST"
-          # 找本 tag 的 draft release（electron-builder 以 tag 名建 draft）
-          TAG="v$VER"
-          # 大流量拉取会触发境内→境外间歇断流（QoS 冷却数分钟）——单文件重试不够，
-          # 整段拉取套 3 次尝试（间隔 120s 等冷却），函数体先行定义
-          pull_assets() {
-            # 三腿并发 getOrCreate draft 各建各的（第十六轮实证：单 draft 只含 4 资产）——
-            # 聚合该 tag 下全部 draft 的资产（同名去重），跨 release 拉齐三腿产物。
-            ASSETS=$(curl -sS --connect-timeout 20 -H "Authorization: token $GH_TOKEN_JOB" \
-              "https://api.github.com/repos/$GH_REPO/releases?per_page=50" \
-              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const rs=JSON.parse(d).filter(x=>x.draft&&x.tag_name===process.argv[1]);const byName=new Map();for(const r of rs)for(const a of r.assets)byName.set(a.name,a);console.log(JSON.stringify([...byName.values()].filter(a=>!/blockmap$/.test(a.name))))})' "$TAG")
-            COUNT=$(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{console.log(JSON.parse(d).length)})')
-            if [ "$COUNT" -lt 5 ]; then echo "[pull] 聚合后仅 $COUNT 个资产（三腿未齐，manifest 需要至少 5：exe/dmg×2/zip×2/AppImage）"; return 1; fi
-            echo "[pull] draft $TAG 聚合：$COUNT 个产物 → $DEST"
-            # 单批次一致性（2026-09-25 复盘修正：跨 run 增量是伪命题——每轮构建字节不同，
-            # 旧文件 sha 永不匹配新 digest，跳过形同虚设还留下新旧混排目录）。拉取前清空
-            # 目标目录，一次拉齐本 run 的全部资产。
-            # 限速 3MB/s：连续高速大流量触发 QoS 断流（~550MB 阈值），降速让总量匀速通过。
-            # .part + sha 终验原子改名（digest 缺席时跳过比对），整段重试×3 兜底。
-            rm -rf "$DEST".pulling && mkdir -p "$DEST".pulling
-            # while 用 process substitution（不用管道）：管道循环体在子 shell 里，
-            # 失败分支的 return 1 只退出子 shell、函数继续走换入段——第十七轮实证：
-            # 拉取全败但「成功」换入空目录，7 文件旧目录被顶掉。
-            while IFS=$'\t' read -r URL NAME SHA; do
-                  echo "[pull] $NAME"
-                  curl -sSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 25 --limit-rate 3M \
-                    -H "Authorization: token $GH_TOKEN_JOB" -o "$DEST".pulling/"$NAME.part" "$URL" \
-                    && { [ -z "$SHA" ] || [ "$(sha256sum "$DEST".pulling/"$NAME.part" | awk '{print $1}')" = "$SHA" ]; } \
-                    && mv "$DEST".pulling/"$NAME.part" "$DEST".pulling/"$NAME" \
-                  || { echo "[pull] $NAME 失败/校验不符"; rm -f "$DEST".pulling/"$NAME.part"; return 1; }
-            done < <(echo "$ASSETS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const a of JSON.parse(d)){if(/blockmap$/.test(a.name))continue;console.log([a.browser_download_url,a.name,(a.digest||"").replace(/^sha256:/,"")].join("\t"))}})')
-            # 换入防御：拉齐数必须等于清单数（空/残缺目录绝不上位）
-            GOT=$(ls -1 "$DEST".pulling | wc -l)
-            [ "$GOT" -eq "$COUNT" ] || { echo "[pull] .pulling 仅 $GOT/$COUNT，拒绝换入"; return 1; }
-            # 全部拉齐且校验通过 → 原子换入（旧目录先挪走再替换，任一时刻下载面目录完整）
-            rm -rf "$DEST".old && { [ -d "$DEST" ] && mv "$DEST" "$DEST".old || true; }
-            mv "$DEST".pulling "$DEST" && rm -rf "$DEST".old
-          }
-          for ATTEMPT in 1 2 3; do
-            echo "[pull] === 第 $ATTEMPT 次尝试 ==="
-            if pull_assets; then break; fi
-            [ "$ATTEMPT" = 3 ] && { echo "[pull] 3 次尝试均失败"; exit 28; }
-            echo "[pull] 120s 后重试（等断流冷却）……"; sleep 120
-          done
-          # draft 保留不删（2026-09-25 裁决）：删除曾引发跨 run 竞态——上一轮 manifest 删 draft
-          # 时，下一轮 macOS 腿（打包耗时数分钟）正持有旧 release id 上传 → 404 三连败。
-          # draft 不公开、不占下载面，留作 GitHub 侧冷备（服务器磁盘故障时的正本兜底）。
-          echo "[pull] draft release 保留（GitHub 侧冷备，不删除）"
-          PULL
+          GOT=$(ls -1 "$STG" 2>/dev/null | wc -l)
+          [ "$GOT" -ge 5 ] || { echo "[swap] staging 仅 $GOT 个文件（三腿未齐）"; exit 1; }
+          rm -rf "$DEST".old
+          [ -d "$DEST" ] && mv "$DEST" "$DEST".old || true
+          mv "$STG" "$DEST"
+          rm -rf "$DEST".old
+          echo "[swap] $VER 换入完成（$GOT 个产物）"
+          SWAP
       - name: 读回校验（服务器字节 vs CI 基准，防发布异常安装包）
         shell: bash
         env:
