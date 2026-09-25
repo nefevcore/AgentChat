@@ -247,7 +247,7 @@ jobs:
           rm -rf "$DEST".old
           echo "[swap] $VER 换入完成（$GOT 个产物）"
           SWAP
-            - name: 读回校验（含清单转储诊断）
+      - name: 读回校验（含清单转储诊断）
         shell: bash
         run: |
           set -euo pipefail
