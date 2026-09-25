@@ -1,5 +1,8 @@
 # 发布 CI 问题复盘（release-ci-postmortem）
 
+> 0.8.14 发版（23 轮 CI）的完整实操录见续篇：release-ci-postmortem-0814.md
+> （传输架构三段演变 + 全部翻车点速查表 + 固化工具清单）。
+
 > 2026-09-24 整理。统计口径：GitHub Actions 工作流 publish.yml（npm 发版）
 > 与 desktop.yml（桌面安装包三腿构建 + 自托管分发），v0.8.0 起共 12 个版本、
 > 20 次 publish run、17 次 desktop run。**没有一次发版是首发 tag 直接全绿的**。
