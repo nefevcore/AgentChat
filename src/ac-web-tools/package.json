@@ -13,11 +13,13 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-cdp-core": "workspace:*",
     "ac-web-search-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-agents": "workspace:*",
     "ac-config": "workspace:*",
+    "ac-conv-settings": "workspace:*",
     "ac-credentials": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tag-registry": "workspace:*",

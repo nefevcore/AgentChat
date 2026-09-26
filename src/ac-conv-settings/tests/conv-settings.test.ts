@@ -33,6 +33,54 @@ afterEach(async () => {
   for (const dir of tmps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
+describe('ac-conv-settings 注册制扩展键（生态行贡献会话覆盖键的正路）', () => {
+  it('registerKey：枚举键写入/回读/删键全链；撞名 fail-loud；未注册键静默清', async () => {
+    const root = tmpRoot();
+    const ctx = await boot(root);
+    // 生态行注册（模拟插件行 apply 里的注册）
+    ctx.convSettings.registerKey({ key: 'pluginMode', enum: ['pm-a', 'pm-b'], description: '某插件模式' });
+    const next = ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' });
+    expect(next).toMatchObject({ pluginMode: 'pm-a' });
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'conv-settings', 'user~helper.json'), 'utf-8'))).toMatchObject({ pluginMode: 'pm-a' });
+    // 非法枚举 → 清除
+    expect(ctx.convSettings.set('user~helper', { pluginMode: 'pm-x' })).toEqual({});
+    // null 删键
+    ctx.convSettings.set('user~helper', { pluginMode: 'pm-b' });
+    expect(ctx.convSettings.set('user~helper', { pluginMode: null })).toEqual({});
+    // 撞名 fail-loud
+    expect(() => ctx.convSettings.registerKey({ key: 'toolMode', enum: ['x'] })).toThrow(/已注册/);
+    // 未注册键静默清（RPC 泛透传后的兜底）
+    expect(ctx.convSettings.set('user~helper', { unknownKey: 'v' })).toEqual({});
+    // 键目录
+    expect(ctx.convSettings.listKeys().some((k) => k.key === 'pluginMode')).toBe(true);
+  });
+
+  it('注册即归属：注册方卸载 → 键回收（新值不进；存量值宽松可读）', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fiber = ctx.plugin(convSettingsRow as any, { root });
+    await fiber;
+    booted.push({ ctx, fiber });
+    // 模拟生态行：独立 fiber 里注册键
+    const pluginFiber = ctx.plugin({
+      name: 'test-plugin-row',
+      inject: ['convSettings'],
+      apply(c: Context) {
+        (c as unknown as { convSettings: { registerKey(def: { key: string; enum: string[] }): void } }).convSettings
+          .registerKey({ key: 'pluginMode', enum: ['pm-a'] });
+      },
+    } as any);
+    await pluginFiber;
+    ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' });
+    expect(ctx.convSettings.get('user~helper')).toMatchObject({ pluginMode: 'pm-a' });
+    // 卸载生态行 → 键回收：新写入不进
+    await pluginFiber.dispose();
+    expect(ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' })).toEqual({});
+    // 存量落盘值宽松可读（消费方不炸；重 boot 后同样宽松）
+    expect(ctx.convSettings.get('user~helper')).toEqual({}); // 枚举回收后回读校验也清——见 readSettings 注释
+  });
+});
+
 describe('ac-conv-settings', () => {
   it('get/set/clear：键级覆盖（null=删键）、文件名即 conversationId、原子写', async () => {
     const root = tmpRoot();

@@ -94,7 +94,7 @@ async function boot(): Promise<{ ctx: Context; plugins: PluginRegistryService; r
   new JobsService(ctx);
   new BackupService(ctx, { root });
   const plugins = new PluginRegistryService(ctx, { root });
-  new WorkspaceService(ctx, { root, browserDaemon: false });
+  new WorkspaceService(ctx, { root });
   new SinglesService(ctx, { root });
   new AgentPresetsService(ctx);
   // timers 行（web-api 行 inject 'timers'——静态依赖须先就位）

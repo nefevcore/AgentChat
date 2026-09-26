@@ -26,7 +26,7 @@ const requireShim = createRequire(import.meta.url);
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { formDeniedBy, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { formDeniedBy, resolveToolNames, sessionCapsOf, toolAllowedFor } from 'ac-agents';
 import { buildSdkProjection } from 'ac-run-code-core';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
@@ -166,15 +166,13 @@ export function resolveEffectiveTools(
   conversationId: string | undefined,
   scope: 'llm' | 'projection' = 'llm',
 ): ToolDefinition[] {
-  // agents 为可选能力（ctx.get 非 strict）；capabilitySetOf 需 agents 面
-  // ——本工具行 inject 只声明 tools，按受限调用方纪律手工合成能力集
+  // agents 为可选能力（ctx.get 非 strict）；sessionCapsOf 内部软依赖 agents/
+  // convSettings 面（缺面回退 base）——受限调用方纪律经软依赖合成，且含
+  // 会话授权注入（conv-settings grants——2026-09-26 可见性断层同款修复：
+  // 投影面与 router/tool-defs/list_tools 同口径，实验档授权进 SDK 投影块）
   const agents = ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
   const agent = agentId === undefined ? undefined : agents?.get(agentId);
-  const caps = new Set<string>(['base']);
-  if (agentId !== undefined) {
-    caps.add(`agent:${agentId}`);
-    for (const t of agent?.tags ?? []) caps.add(t);
-  }
+  const caps = sessionCapsOf(ctx, agentId, conversationId);
   const visible = ctx.tools.list().filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
   if (scope === 'projection') {
     // 投影源：能力面全量（授权真理）——不经 include/exclude 收窄，

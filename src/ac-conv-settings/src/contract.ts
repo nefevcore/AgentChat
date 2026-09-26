@@ -29,6 +29,12 @@
  * （patch 泛型为 string | null | undefined——键级覆盖语义统一），非法值
  * （含 null/''）= 删键。持久形态为枚举字符串。
  */
+/**
+ * 键域（2026-09-26 注册制裁决）：内置键（下方接口）+ 生态扩展键
+ * （ctx.convSettings.registerKey——插件贡献会话覆盖键的正路；值域
+ * 枚举校验与内置键同一管线，RPC 边界泛透传零改动穿通）。扩展键值
+ * 不在本接口（编译期类型面）——经 get() 的 Record 尾巴透出。
+ */
 export interface ConvSettings {
   /** 会话级模型覆盖：`name@model` 引用或裸模型名（清除 = 删键） */
   model?: string;
@@ -46,4 +52,16 @@ export interface ConvSettings {
    * elevation 口径：全形态会话（含 singles sid——model 才分流 singles）。
    */
   toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none';
+  /**
+   * 浏览器能力会话级覆盖（2026-10 CDP 化收尾——输入框「实验性 → 浏览器」
+   * 档位钮）：值域 'observe' | 'manipulate' | 'inject' | 'disabled'。
+   * 无键 = 跟随 Agent tags（browser-tier 抉择组）；有值则覆盖层级判定
+   * （observe ⊂ manipulate ⊂ inject 单源序不变，disabled = 本会话 browser
+   * 工具整体不可用）。消费方 = ac-web-tools 的 tool/before-execute 分层
+   * 门禁（能力集合成后覆盖——比 tags 优先，同会话即刻生效）。键面同
+   * toolMode 口径：全形态会话（含 singles sid——独立会话接入的通路）。
+   */
+  browserTier?: 'observe' | 'manipulate' | 'inject' | 'disabled';
+  /** 生态扩展键（registerKey 注册的键以 string 值透出——索引签名尾巴） */
+  [extensionKey: string]: string | undefined;
 }

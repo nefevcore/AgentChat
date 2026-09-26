@@ -76,7 +76,7 @@ async function boot(): Promise<{ ctx: Context; port: number }> {
   new JobsService(ctx);
   new BackupService(ctx, { root });
   new PluginRegistryService(ctx, { root });
-  new WorkspaceService(ctx, { root, browserDaemon: false });
+  new WorkspaceService(ctx, { root });
   new SinglesService(ctx, { root });
   new AgentPresetsService(ctx);
   await ctx.plugin(builtinRow as unknown as { apply(ctx: Context): unknown });

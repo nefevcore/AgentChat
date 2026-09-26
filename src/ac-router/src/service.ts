@@ -24,7 +24,7 @@ import { splitModelRef } from 'ac-llm';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
 import { pairKey } from 'ac-agent-loop';
-import { capabilitySetOf, effectiveToolMode, filterLlmParams, formDeniedBy, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { sessionCapsOf, effectiveToolMode, filterLlmParams, formDeniedBy, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 
 /** 路由入站消息（string 糖衣 → { role:'user', content }） */
@@ -191,13 +191,13 @@ export class RouterService extends Service {
     //   · 能力面（2026-09-02 反馈 #1）：requiredTags 缺标签的工具不出现在
     //     Agent 的工具清单——此前只在执行时 veto，LLM 仍能看到并调用
     //     （浪费一轮 + 上报为"工具异常"）。能力集合成与 ac-security
-    //     执行门禁同款单源（capabilitySetOf）。
+    //     执行门禁同款单源（capabilitySetOf + 会话授权注入 = sessionCapsOf）。
     //   · 形态面（2026-12 裁决）：工具声明 excludeForms（ToolDefinition
     //     形态轴，如 system_restart 不进独立会话——宿主级管理动作不随
     //     用户级会话投放；list_tools 同口径）。形态面在解析后**终滤**：
     //     include 显式点名也不可绕过（resolveToolNames 对 include 原样
     //     透传，仅过滤 universe 挡不住）；纯可见面裁剪，执行面走既有门禁。
-    const caps = capabilitySetOf(this.ctx, call.agentId);
+    const caps = sessionCapsOf(this.ctx, call.agentId, call.conversationId);
     // 注入方式分流（injection 轴）：mode 工具不进常规工具面（tc-programmatic
     // 档经 narrowToolsByMode 从注册面直接合成——与 tags 无关）
     const allDefs = this.ctx.tools.list();

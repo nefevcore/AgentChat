@@ -122,6 +122,16 @@ import IconBraces from '~icons/lucide/braces';
 // 运行矩阵象形（RunTrackingPanel 运行矩阵入口）：九宫格 = N×N 会话热力
 // 矩阵的本体象形，与 rail「运行跟踪」的 activity（心电图=监控）拉开区分
 import IconGrid3x3 from '~icons/lucide/grid-3x3';
+// 实验性菜单/browser 工具卡象形（ChatInput 实验性按钮/ToolResultBrowser 动作元信息）
+import IconFlaskConical from '~icons/lucide/flask-conical';
+import IconPuzzle from '~icons/lucide/puzzle';
+import IconCircleDot from '~icons/lucide/circle-dot';
+import IconEye from '~icons/lucide/eye';
+import IconList from '~icons/lucide/list';
+import IconMousePointer2 from '~icons/lucide/mouse-pointer-2';
+import IconArrowDown from '~icons/lucide/arrow-down';
+import IconAppWindow from '~icons/lucide/app-window';
+import IconCircle from '~icons/lucide/circle';
 
 import IconThinkingIcon from './ThinkingIcon.vue';
 import IconThoughtIcon from './ThoughtIcon.vue';
@@ -239,6 +249,16 @@ export const iconMap: Record<string, Component> = {
   braces: IconBraces,
   // 运行矩阵象形（RunTrackingPanel 运行矩阵入口）
   'grid-3x3': IconGrid3x3,
+  // 实验性菜单/browser 工具卡象形（ChatInput 实验性按钮/ToolResultBrowser）
+  'flask-conical': IconFlaskConical,
+  puzzle: IconPuzzle,
+  'circle-dot': IconCircleDot,
+  eye: IconEye,
+  list: IconList,
+  'mouse-pointer-2': IconMousePointer2,
+  'arrow-down': IconArrowDown,
+  'app-window': IconAppWindow,
+  circle: IconCircle,
   // 自绘专属象形（ThinkingIcon/ThoughtIcon.vue）——折叠行图标位默认显示：
   // 'chain' = 思维链脑电波（TurnDisplayItem 链栏）；'thought' = 思考涟漪
   // （AssistantMessage 思考行）。hover 时由 chevron-up/down 接管图标位。

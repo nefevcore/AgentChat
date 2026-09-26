@@ -70,7 +70,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
-import { capabilitySetOf, displayNameOf, effectiveToolMode, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { sessionCapsOf, displayNameOf, effectiveToolMode, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import { OpenAICompletions } from 'ac-openai-completions';
 import { normalizePoolModels, type PoolModelEntry } from 'ac-llm-pool';
@@ -866,7 +866,7 @@ export function apply(ctx: Context) {
     const config = ctx.agents.require(agentId);
     // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁（requiredTags）
     // 先过滤，再按 AgentConfig.tools 解析 include/exclude
-    const caps = capabilitySetOf(ctx, agentId);
+    const caps = sessionCapsOf(ctx, agentId, conversationId); // 会话授权注入（实验档 grants）
     // mode 工具不进常规面（与 router 同口径）；narrow 用全量 defs（mode 标记）
     const allDefs = ctx.tools.list();
     const visible = allDefs.filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
@@ -1058,8 +1058,8 @@ export function apply(ctx: Context) {
   function requireConvSettings() {
     const convSettings = ctx.get('convSettings', false) as
       | {
-          get(conversationId: string): { model?: string; toolMode?: string };
-          set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): { model?: string; toolMode?: string };
+          get(conversationId: string): Record<string, unknown>;
+          set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): Record<string, unknown>;
         }
       | undefined;
     if (!convSettings) throw new Error('convSettings 服务未装载（会话设置面不可用）');
@@ -1071,17 +1071,29 @@ export function apply(ctx: Context) {
     settings: requireConvSettings().get(reqStr(obj(params), 'conversationId')),
   }));
 
-  // set：patch.model = 'name@model' | 裸名 | null（null/'' = 清除覆盖）；
-  // patch.toolMode = 'tc-base' | 'tc-programmatic' | 'tc-none' | null（工具
-  // 调用模式覆盖，tc-* 标签轴；非法值 = 清除——服务面枚举校验）
+  // 键目录（2026-09-26 注册制收尾：前端目录驱动渲染的数据源——实验性菜单
+  // 的选项组不再前端写死。group 过滤：只给 UI 组的键；软依赖未装回空目录）
+  web.registerRpc('conv-settings/keys', () => {
+    const convSettings = ctx.get('convSettings', false) as
+      | { listKeys(): Array<{ key: string; enum?: string[]; description?: string; group?: string; label?: string; order?: number; options?: Record<string, string> }> }
+      | undefined;
+    return { keys: (convSettings?.listKeys() ?? []).filter((k) => k.group === 'experimental') };
+  });
+
+  // set：**泛透传**（2026-09-26 browserTier 事故裁决：RPC 边界曾手抄键清单
+  // 只透传认识的键——与服务面白名单双源走散，新键静默丢弃）。键域知识
+  // 单源住 conv-settings 服务面（逐键枚举校验，未知键静默清除不落盘）；
+  // 本边界只守形状：patch = plain object、值 = string | null（wire 值域）。
+  // 新键（后续任意域的会话覆盖）零 RPC 改动自动穿通。
   web.registerRpc('conv-settings/set', (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
-    const patch = obj(p.patch);
-    const settings = requireConvSettings().set(conversationId, {
-      model: patch.model === null || patch.model === undefined ? null : String(patch.model),
-      ...(patch.toolMode !== undefined ? { toolMode: patch.toolMode === null ? null : String(patch.toolMode) } : {}),
-    });
+    const raw = obj(p.patch);
+    const patch: Record<string, string | null> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (v === null || typeof v === 'string') patch[k] = v; // 非法类型丢弃（枚举兜底在服务面）
+    }
+    const settings = requireConvSettings().set(conversationId, patch);
     return { conversationId, settings };
   });
 

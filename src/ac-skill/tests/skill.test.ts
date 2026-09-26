@@ -128,7 +128,7 @@ async function bootSkillWithSession() {
     {
       name: 'workspace-row',
       apply(c: Context) {
-        void c.plugin(workspaceRow, { root: tmp, browserDaemon: false });
+        void c.plugin(workspaceRow, { root: tmp });
       },
     },
     {
@@ -537,7 +537,7 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
       {
         name: 'workspace-row',
         apply(c: Context) {
-          void c.plugin(workspaceRow, { root: tmp, browserDaemon: false });
+          void c.plugin(workspaceRow, { root: tmp });
         },
       },
       {

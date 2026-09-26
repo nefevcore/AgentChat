@@ -597,7 +597,7 @@ describe('ac-agent-admin 文档 / 预览', () => {
     await ctx.plugin({
       name: 'workspace-row',
       apply(c: Context) {
-        void c.plugin(workspaceRow, { root, browserDaemon: false });
+        void c.plugin(workspaceRow, { root });
       },
     });
     await ctx.plugin({

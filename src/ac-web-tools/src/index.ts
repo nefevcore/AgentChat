@@ -8,7 +8,8 @@
 //   · per-Agent 调优走 settings['web-tools']（provider/baseURL/model/
 //     defaultResults 等——地图 §3.4 命名空间配置 → settings[具名]；
 //     M24 A1 经 settingsOf 合成全局默认层）
-//   · browser 是 ctx.browser Service（独立守护进程 + 请求队列）
+//   · browser 是 ctx.browser Service（CDP 直连——ac-cdp-core 纯库；
+//     2026-10 起 Python daemon 退役，见 src/docs/browser-cdp-plan.md）
 //
 // browser 能力门禁（web + 权限分层复合标签）：
 //   · 工具级地板 requiredTags ['web','observe']——通用门禁（ac-security 行
@@ -21,6 +22,7 @@
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only，无运行时依赖）
 import { BrowserService, type BrowserRowOptions } from './browser.ts';
+import { sessionCapsOf } from 'ac-agents';
 import {
   PROVIDER_REGISTRY,
   type ProviderConfig,
@@ -78,14 +80,23 @@ function positiveInt(v: unknown): number | undefined {
 }
 
 // ---- browser 动作分层（能力门禁用） ----
-/** 动作 → 权限层级：observe(1) 只读族 ⊂ manipulate(2) 交互族 ⊂ inject(3) JS 注入 */
+/** 动作 → 权限层级：observe(1) 只读族 ⊂ manipulate(2) 交互族 ⊂ inject(3) JS 注入。
+ *  CDP 化新动作归层（browser-cdp-plan §6）：诊断是观测不是注入——不提层。 */
 const ACTION_TIER: Record<string, number> = {
   open: 1,
-  content: 1,
-  html: 1,
+  read: 1,
+  elements: 1,
+  content: 1, // 退役别名（read 同义，保留一个版本期）
+  html: 1, // 退役别名（并入 read debug——保留兼容期）
+  scroll: 1,
+  wait: 1,
+  logs: 1,
+  response_body: 1,
+  tabs: 1,
   screenshot: 1,
   close: 1,
   click: 2,
+  hover: 2,
   type: 2,
   press: 2,
   eval: 3,
@@ -351,8 +362,22 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
   ctx.on('tool/before-execute', (execution, next) => {
     const call = execution.call;
     if (call.name !== 'browser') return next();
+    // 会话级实验覆盖（conv-settings browserTier——输入框「实验性 → 浏览器」
+    // 档位钮）：比 tags 优先，disabled = 本会话整体禁用；无键 = 跟随 tags
+    const convSettings = ctx.get('convSettings', false) as
+      | { get(conversationId: string): { browserTier?: 'observe' | 'manipulate' | 'inject' | 'disabled' } | undefined }
+      | undefined;
+    const sessionTier = call.conversationId !== undefined
+      ? convSettings?.get(call.conversationId)?.browserTier
+      : undefined;
+    if (sessionTier === 'disabled') {
+      return {
+        ok: false as const,
+        error: 'browser 工具已被本会话禁用（输入框「实验性 → 浏览器」档位）——如需使用请切换档位为跟随或对应层级。',
+      };
+    }
     const agents = ctx.get('agents') as AgentsGateFace | undefined;
-    if (!agents) return next(); // 无 agents 服务：无标签面，恒放行（agentGate 同款）
+    if (!agents) return next(); // 无 agents 服务：无标签面，恒放行（agentGate 同款；disabled 已在上方拦）
 
     const args = (call.args ?? {}) as { action?: unknown; steps?: unknown };
     const stepActions = Array.isArray(args.steps)
@@ -364,10 +389,11 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     const need = actions.reduce((max, a) => Math.max(max, ACTION_TIER[a] ?? 0), 0);
     if (need <= 0) return next();
 
-    const agent = call.agentId !== undefined ? agents.get(call.agentId) : undefined;
-    const caps = new Set<string>(['base', ...(agent?.tags ?? [])]);
-    if (call.agentId !== undefined) caps.add(`agent:${call.agentId}`);
-
+    // 能力集单源（sessionCapsOf——grants 注入后 caps 天然含会话 tier 标签；
+    // 与 router/security/run-code 投影同源）：tier = max(caps 命中的层级标签)。
+    // 「无 tags Agent + 会话授权」与「Agent 自有 tags」在此合一，手工 Math.max
+    // 补偿退役——授权语义 = grants 并集，天然只升不降。
+    const caps = sessionCapsOf(ctx, call.agentId, call.conversationId);
     let tier = 0;
     if (caps.has('observe')) tier = 1;
     if (caps.has('manipulate')) tier = 2;
@@ -378,7 +404,8 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
       error:
         `browser 动作需要 ${TIER_TAG[need]} 层级或更高（observe ⊂ manipulate ⊂ inject），` +
         `当前调用方（${call.agentId ?? '无身份'}）持有${tier > 0 ? ` ${TIER_TAG[tier]} ` : '无'}层级。` +
-        `如需授权请在 Agent 配置 tags 添加 ${TIER_TAG[need]}（工具级另需 web+observe 标签）。`,
+        `如需授权请在 Agent 配置 tags 添加 ${TIER_TAG[need]}（工具级另需 web+observe 标签），` +
+        `或在输入框「实验性 → 浏览器」档位临时授权本会话。`,
     };
   }, { description: 'browser 动作分层门禁（observe/manipulate/inject 层级判定）' });
 
@@ -390,19 +417,28 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     // 即外泄面）——无人审时需要档位门
     needPermission: true,
     description:
-      '操作浏览器：open 打开页面、click 点击、type 输入、press 按键、content 提取文本、screenshot 截图、html 取源码、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。需要 web+observe 能力标签；交互动作（click/type/press）另需 manipulate 层级，eval 另需 inject 层级。',
+      '操作浏览器（CDP 直连）：open 打开页面（带 error 概览）、elements 取可交互元素索引（[n] 编号）、click 按 ref 点击、read 抽取正文、scroll 滚动、wait 等待、logs 查控制台/网络日志、response_body 取响应体、tabs 列标签页、type 输入、press 按键、hover 悬停、screenshot 截图、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。需要 web+observe 能力标签；交互动作（click/type/press/hover）另需 manipulate 层级，eval 另需 inject 层级。',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['open', 'click', 'type', 'press', 'content', 'screenshot', 'html', 'eval', 'close'],
+          enum: ['open', 'read', 'elements', 'click', 'hover', 'type', 'press', 'scroll', 'wait', 'screenshot', 'logs', 'response_body', 'tabs', 'content', 'html', 'eval', 'close'],
           description: '要执行的动作',
         },
         url: { type: 'string', description: '[open] 目标 URL' },
-        selector: { type: 'string', description: '[click/type] CSS 选择器' },
-        text: { type: 'string', description: '[type] 输入文本' },
+        ref: { type: 'number', description: '[click/hover/type] elements 返回的元素编号' },
+        selector: { type: 'string', description: '[click/type] CSS 选择器（ref 优先）' },
+        text: { type: 'string', description: '[type] 输入文本；[wait] 等待出现的文本' },
         key: { type: 'string', description: '[press] 按键名，如 Enter' },
+        direction: { type: 'string', enum: ['up', 'down'], description: '[scroll] 方向（默认 down）' },
+        amount: { type: 'number', description: '[scroll] 像素（默认 600）' },
+        ms: { type: 'number', description: '[wait] 等待毫秒（默认 1000，上限 30000）' },
+        maxLen: { type: 'number', description: '[read/response_body] 截断长度' },
+        since: { type: 'number', description: '[logs] marker 之后（open/elements 结果携带 marker）' },
+        kind: { type: 'string', enum: ['all', 'console', 'network', 'error'], description: '[logs] 日志类别（默认 all）' },
+        level: { type: 'string', enum: ['verbose', 'info', 'warning', 'error'], description: '[logs] console 最低级别（默认不过滤）' },
+        requestId: { type: 'string', description: '[response_body] 请求 ID（logs network 条目）' },
         name: { type: 'string', description: '[screenshot] 截图文件名' },
         js: { type: 'string', description: '[eval] JS 代码' },
         steps: {
@@ -413,6 +449,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
             properties: {
               action: { type: 'string', description: '动作' },
               url: { type: 'string', description: '目标 URL' },
+              ref: { type: 'number', description: '元素编号' },
               selector: { type: 'string', description: 'CSS 选择器' },
               text: { type: 'string', description: '输入文本' },
               key: { type: 'string', description: '按键名' },
@@ -430,7 +467,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     async execute(args) {
       const buildCmd = (step: Record<string, unknown>): Record<string, unknown> => {
         const cmd: Record<string, unknown> = { action: step.action };
-        for (const k of ['url', 'selector', 'text', 'key', 'name', 'js'] as const) {
+        for (const k of ['url', 'ref', 'selector', 'text', 'key', 'direction', 'amount', 'ms', 'maxLen', 'since', 'kind', 'level', 'requestId', 'name', 'js'] as const) {
           if (step[k] !== undefined) cmd[k] = step[k];
         }
         return cmd;
@@ -441,18 +478,11 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
       const runOne = async (step: Record<string, unknown>, index: number, repeat: number) => {
         const action = String(step.action);
         const cmd = buildCmd(step);
-        const raw = await browser.send(cmd);
-        let parsed: Record<string, unknown>;
-        try {
-          parsed = JSON.parse(raw) as Record<string, unknown>;
-        } catch {
-          parsed = { status: 'ok', raw };
+        const res = await browser.run(action, cmd);
+        if (!res.ok) {
+          throw new Error(String(res.error || 'browser action failed: ' + action));
         }
-        if (parsed.status === 'error') {
-          throw new Error(String(parsed.message || `browser action failed: ${action}`));
-        }
-        if (cmd.action === 'close') browser.kill();
-        return { step: index + 1, action, repeat, params: step, result: parsed };
+        return { step: index + 1, action, repeat, params: step, result: res.output ?? {} };
       };
 
       try {

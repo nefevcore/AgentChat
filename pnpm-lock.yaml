@@ -247,6 +247,9 @@ importers:
       ac-bench:
         specifier: workspace:*
         version: link:src/ac-bench
+      ac-cdp-core:
+        specifier: workspace:*
+        version: link:src/ac-cdp-core
       ac-client-runtime:
         specifier: workspace:*
         version: link:src/ac-client-runtime
@@ -1230,6 +1233,19 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-cdp-core:
+    dependencies:
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.3
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -3936,6 +3952,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-cdp-core:
+        specifier: workspace:*
+        version: link:../ac-cdp-core
       ac-web-search-core:
         specifier: workspace:*
         version: link:../ac-web-search-core
@@ -3946,6 +3965,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../ac-conv-settings
       ac-credentials:
         specifier: workspace:*
         version: link:../ac-credentials

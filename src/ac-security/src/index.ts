@@ -27,7 +27,7 @@
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import { TIER_RANK, effectiveTierOf, tierOf } from 'ac-agents';
+import { TIER_RANK, effectiveTierOf, sessionCapsOf, tierOf } from 'ac-agents';
 import {
   agentSpaceRoots,
   bashCommandViolation,
@@ -417,9 +417,9 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     //    有身份时合成（L2：防合成 agent:undefined）。
     const def = ctx.tools.get(call.name);
     if (def?.requiredTags && def.requiredTags.length > 0) {
-      const agent = call.agentId !== undefined ? ctx.agents.get(call.agentId) : undefined;
-      const caps = new Set<string>(['base', ...(agent?.tags ?? [])]);
-      if (call.agentId !== undefined) caps.add(`agent:${call.agentId}`);
+      // 会话授权注入（2026-09-26：conv-settings grants——实验档授权需同时过
+      // 可见面与执行门；与 sessionCapsOf 单源同构）
+      const caps = sessionCapsOf(ctx, call.agentId, call.conversationId);
       const missing = def.requiredTags.filter((r) => !caps.has(r));
       if (missing.length > 0) {
         return {

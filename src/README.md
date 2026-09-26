@@ -332,7 +332,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | session | `ac-session/src/index.ts`（append/records/history/compact/setShelf） | —（积累订阅 router/* + conversation/steered） |
 | group | `ac-group/src/contract.ts` + `view.ts`（`<msg>` 包装） | `ac-group/src/events.ts`（group/*） |
 | singles | `ac-singles/src/contract.ts`（引用 + 覆盖模型；fork 会话分支——消息切片经 session 服务方法拷贝） | `ac-singles/src/events.ts`（singles/updated） |
-| convSettings | `ac-conv-settings/src/contract.ts`（会话级模型覆盖） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
+| convSettings | `ac-conv-settings/src/contract.ts`（会话级覆盖域：model/elevation/toolMode/browserTier 内置键 + `registerKey` 注册制扩展键〔键域单源 isValid 校验；KeyDef grants = 值→等效能力标签，经 ac-agents `sessionCapsOf` 注入工具可见面〕） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
 | memory | `ac-memory/src/index.ts` | — |
 | config | `ac-config/src/service.ts` | `ac-config/src/events.ts`（config/*） |
 | credentials | `ac-credentials/src/service.ts` | — |
@@ -340,7 +340,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | agentPresets | `ac-agent-presets/src/index.ts`（预设模式注册中心：register/list/defaultPreset + 物化语义） | — |
 | subagents | `ac-subagent/src/service.ts`（持久多轮实体） | `ac-subagent/src/events.ts`（subagents/updated——spawn/started/settled/stopped/removed 统一通知，前端子Agent 清单帧驱动刷新，2026-12 持久化清单主源化） |
 | jobs | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled） |
-| browser | `ac-web-tools/src/browser.ts`（守护进程命令配置） | — |
+| browser | `ac-web-tools/src/browser.ts`（CDP 直连执行层——纯库 `ac-cdp-core`：ws 客户端/拉起/感知/诊断；2026-10 起 Python daemon 退役） | — |
 | durableInteraction | `ac-durable-interaction/src/types.ts` + `store.ts` | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}；核领域无关——ask_questions 工具住 ac-ask-questions，approval 语义住 ac-security） |
 | timers | `ac-timer/src/service.ts`（TimerRowOptions；条目级 activeHours 活动窗口 + gate 预检门——静默判定前置调度层，LLM 零 token 跳过；条目级 conversationId 会话键回投——提醒发往用户设提醒的会话，2026-12） | — |
 | archive | `ac-archive/src/service.ts` | `ac-archive/src/events.ts`（archive/completed） |
@@ -464,7 +464,9 @@ src/
 │                            手改覆盖）；[system+tool schema] 前缀快照（修订键
 │                            锚定，漂移对拍告警）
 ├── ac-conv-settings/        会话级覆盖域（ctx.convSettings）：按 conversationId 的
-│                            模型覆盖（name@model）；deliver 边界单点生效
+│                            模型/提权/工具模式/浏览器档覆盖（内置键）+
+│                            registerKey 注册制扩展键（键域枚举单源 + grants
+│                            能力等效声明）；deliver 边界单点生效
 ├── ac-group/                群拓扑（ctx.group）：成员表 + 单通道内容流（post = 群
 │                            本体唯一入账口）+ GroupFeed 锚点增量 + historyFor
 │                            viewer 投影 + 群聊行为契约注入 + 记忆属主共享注入 + 轮转
@@ -560,9 +562,13 @@ src/
 │                            零 cordis 依赖）
 ├── ac-math/                 数学：纯表达式解析求值（白名单常量/函数 + BigInt 混算 +
 │                            资源护栏；无 node:vm）
+├── ac-cdp-core/              CDP 直连纯库（零 cordis）：ws 客户端（id 配对/flat
+│                            session/单命令超时）+ 浏览器拉起（探测链/端口 0/
+│                            DevToolsActivePort/树杀）+ 页面会话（诊断环形缓冲）
+│                            + 感知（元素索引/正文抽取）——browser 工具执行层
 ├── ac-web-tools/            网络：web_search（requiredTags ['web']，needPermission
-│                            ——非 LLM 出口通道 D2）+ browser 守护
-│                            进程（ctx.browser：请求队列/dispose 杀进程；
+│                            ——非 LLM 出口通道 D2）+ browser（ctx.browser：CDP
+│                            直连会话，dispose 树杀 Chrome；动作级互斥锁；
 │                            observe⊂manipulate⊂inject 动作分层门禁）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
@@ -618,7 +624,7 @@ src/
 │                            机制任务直调服务（archive-all/backup-all）
 ├── ac-backup/               数据备份（ctx.backup）：run（force/间隔检查）+ list——
 │                            zip 全量（含归档）+ 轮转保留 4 份
-├── ac-workspace/            工作区（ctx.workspace）：目录布局 + browser 守护脚本分发
+├── ac-workspace/            工作区（ctx.workspace）：目录布局
 │                            + 默认 user(virtual)/admin Agent + agentWorkdir/
 │                            sandboxWorkdir/sandboxAllowedPaths/
 │                            conversationWorkspaceRoot 唯一事实源（singles 挂载

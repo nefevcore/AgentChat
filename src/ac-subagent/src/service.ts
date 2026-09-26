@@ -58,7 +58,7 @@ import { splitModelRef } from 'ac-llm';
 import { defaultPoolConnection } from 'ac-llm-pool';
 import { expandSteps } from 'ac-session';
 import {
-  capabilitySetOf,
+  sessionCapsOf,
   effectiveTierOf,
   effectiveToolMode,
   filterLlmParams,
@@ -1191,8 +1191,11 @@ export class SubagentsService extends Service {
       // 唯一装配点）：工具可见面 = 点名集/全量 ∩ 派生身份能力集——
       // spawn.tools 点名也不可越过门禁（subagent/system_restart 等
       // requiredTags 工具对子 Agent 不可见不可执行）；system/llmParams
-      // 现读父配置（热更生效）。
-      const caps = capabilitySetOf(this.ctx, rec.id);
+      // 现读父配置（热更生效）。能力集走 sessionCapsOf（会话授权注入
+      // ——2026-09-26 可见性断层同款第六决定点：此前会话 grants 到不了
+      // 子 Agent 装配面。loop 步载体出生即带 conversationId，可见面与
+      // ac-security 执行门禁同口径）。
+      const caps = sessionCapsOf(this.ctx, rec.id, item.conversationId);
       const allDefs = this.ctx.tools.list();
       // 常规能力面（对齐 router：injection 分流——mode 工具不进常规面，
       // tc-programmatic 时经 narrowToolsByMode 从 defs 合成）

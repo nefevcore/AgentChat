@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from './chatStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
@@ -76,6 +76,13 @@ const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevati
  *  （toolModeInherit）已随重构退役——持久程序化 = 给 Agent 配
  *  tc-programmatic 标签。退役预设防御见 presetRetired。 */
 const toolMode = ref<'' | 'tc-base' | 'tc-programmatic' | 'tc-none'>('');
+/** 浏览器能力档（2026-10 CDP 化收尾——「实验性 → 浏览器」档位钮）：'' =
+ *  跟随 Agent tags（browser-tier 抉择组，全关 = browser 不可见）；
+ *  'observe'|'manipulate'|'inject' = 会话级临时授权（只升不降）；
+ *  'disabled' = 本会话禁用 browser 工具。选择即写会话 conv-settings
+ *  （browserTier 键——web-tools 分层门禁消费，全形态会话含 singles
+ *  sid 生效——独立会话接入浏览器能力的通路）。 */
+const browserTier = ref<'' | 'observe' | 'manipulate' | 'inject' | 'disabled'>('');
 const attachedFiles = ref<FileAttachment[]>([]);
 const uploading = ref(false);
 
@@ -84,6 +91,9 @@ const agentMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
 const elevMenuOpen = ref(false);
 const toolModeMenuOpen = ref(false);
+const experimentalMenuOpen = ref(false);
+/** 实验性菜单下钻面板（root = 实验项入口列表；键名 = 该键档位二级——browserTier 内置 + 注册扩展键） */
+const experimentalPanel = ref<string>('root');
 /** 组合菜单下钻面板（root = 一级设置项列表；点某项下钻二级选项） */
 const agentPanel = ref<'root' | 'ws' | 'agent'>('root');
 const modelPanel = ref<'root' | 'model' | 'effort'>('root');
@@ -231,11 +241,12 @@ onUnmounted(() => {
 });
 
 /** 单开原则：任一下拉打开时关闭其余 */
-function closeMenus(except?: 'agent' | 'model' | 'elev' | 'toolmode') {
+function closeMenus(except?: 'agent' | 'model' | 'elev' | 'toolmode' | 'experimental') {
   if (except !== 'agent') { agentMenuOpen.value = false; agentPanel.value = 'root'; }
   if (except !== 'model') { modelMenuOpen.value = false; modelPanel.value = 'root'; }
   if (except !== 'elev') elevMenuOpen.value = false;
   if (except !== 'toolmode') toolModeMenuOpen.value = false;
+  if (except !== 'experimental') { experimentalMenuOpen.value = false; experimentalPanel.value = 'root'; }
 }
 
 /** fresh 顶行菜单开合（工作区/预设直开对应二级；单开原则经 closeMenus） */
@@ -287,6 +298,13 @@ function toggleToolModeMenu() {
   const next = !toolModeMenuOpen.value;
   closeMenus('toolmode');
   toolModeMenuOpen.value = next;
+}
+function toggleExperimentalMenu() {
+  const next = !experimentalMenuOpen.value;
+  closeMenus('experimental');
+  experimentalMenuOpen.value = next;
+  experimentalPanel.value = 'root'; // 重开回一级
+  if (next) void loadExperimentalKeys(); // 打开即拉目录（首开兜底）
 }
 
 /** 选择 Agent：即时 PATCH（''=清空待选；空会话发送前必须选；已有消息锁定禁选）。
@@ -506,6 +524,123 @@ function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
       if (toolMode.value === v) toolMode.value = prev; // 失败回滚
     });
 }
+
+// ── 浏览器能力档（2026-10「实验性 → 浏览器」——会话键复用 toolModeConvKey：
+//    single = sid / 1v1 = pairKey，与后端 conv-settings 同口径）──
+
+/** 选择浏览器档位：即时生效——写会话 conv-settings.browserTier；
+ *  '' = 删键回跟随态（Agent tags browser-tier 抉择组）。 */
+function selectBrowserTier(v: '' | 'observe' | 'manipulate' | 'inject' | 'disabled') {
+  if (browserTier.value === v) return;
+  const prev = browserTier.value;
+  browserTier.value = v;
+  saveComposePrefs({ browserTier: v }); // 新会话跟随上次选择（挂载回放并落该会话）
+  const conversationId = toolModeConvKey.value;
+  if (!conversationId || !rpc) return;
+  void rpc.call('conv-settings/set', { conversationId, patch: { browserTier: v === '' ? null : v } })
+    .then(() => {
+      store.setConvBrowserTier(v); // bump 快照：browser 进/出工具面 → Token 估算固定开销重取
+    })
+    .catch((err: any) => {
+      console.error('[ChatInput] 浏览器档位写入失败:', err?.message);
+      if (browserTier.value === v) browserTier.value = prev; // 失败回滚
+    });
+}
+
+/** Agent tags 的 browser 档（跟随态实际生效档显示——observe ⊂ manipulate
+ *  ⊂ inject 单源序；无 browser 标签 = browser 工具不可见〔地板 requiredTags
+ *  含 web+observe〕）。 */
+const agentBrowserTier = computed<'' | 'observe' | 'manipulate' | 'inject'>(() => {
+  const targetId = props.single
+    ? (selAgent.value || roster.defaultPresetId.value)
+    : (roster.activeAgentId.value || roster.defaultPresetId.value);
+  const tags = roster.agents.value.find(a => a.id === targetId)?.tags
+    ?? roster.presets.value.find(p => p.id === targetId)?.tags;
+  if (!tags) return '';
+  if (tags.includes('inject')) return 'inject';
+  if (tags.includes('manipulate')) return 'manipulate';
+  if (tags.includes('observe')) return 'observe';
+  return '';
+});
+const agentBrowserTierLabel = computed(() =>
+  agentBrowserTier.value ? ({ observe: 'observe', manipulate: 'manipulate', inject: 'inject' } as const)[agentBrowserTier.value] : '不可用（未授权）');
+
+const BROWSER_TIER_OPTIONS: Array<{ value: '' | 'observe' | 'manipulate' | 'inject' | 'disabled'; label: string; icon: string; detail: string; title: string }> = [
+  { value: '', label: '默认浏览器档', icon: 'globe', detail: '', title: '按 Agent tags 决定的档位执行（observe ⊂ manipulate ⊂ inject）——持久授权请到 Agent 配置的 browser-tier 抉择组' },
+  { value: 'observe', label: '只读浏览', icon: 'eye', detail: 'open/read/logs', title: '本会话临时授权 observe 层：打开页面、读正文/元素索引、查日志、截图——不点击不输入（只升不降，高于 Agent 自有档时生效）' },
+  { value: 'manipulate', label: '交互操作', icon: 'mouse-pointer-click', detail: '可点击/输入', title: '本会话临时授权 manipulate 层：observe 全部 + 点击/输入/按键/滚动（只升不降）' },
+  { value: 'inject', label: 'JS 注入', icon: 'zap', detail: '含 eval', title: '本会话临时授权 inject 层：manipulate 全部 + eval 执行任意 JS——最高档，慎用' },
+  { value: 'disabled', label: '禁用浏览器', icon: 'ban', detail: '本会话不可用', title: '本会话整体禁用 browser 工具（Agent 有标签也拦）——防误用/省 token' },
+];
+const browserTierBtn = computed(() => {
+  const opt = BROWSER_TIER_OPTIONS.find(o => o.value === browserTier.value);
+  return { icon: opt?.icon ?? 'flask-conical', label: opt?.label ?? '默认浏览器档' };
+});
+
+/** 实验性键目录（conv-settings/keys——服务面注册制目录驱动；前端不再
+ * 写死选项组。browserTier 也在目录里（BUILTIN_KEYS group:'experimental'）。
+ * 插件 registerKey 注册的新实验键自动出现在一级菜单。） */
+interface ExpKeyDef { key: string; enum?: string[]; description?: string; label?: string; order?: number; options?: Record<string, string> }
+const experimentalKeys = ref<ExpKeyDef[]>([]);
+const experimentalLoaded = ref(false);
+async function loadExperimentalKeys(): Promise<void> {
+  if (experimentalLoaded.value || !rpc) return;
+  try {
+    const r = await rpc.call<{ keys?: ExpKeyDef[] }>('conv-settings/keys', {});
+    experimentalKeys.value = [...(r.keys ?? [])].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+  } catch { experimentalKeys.value = []; }
+  experimentalLoaded.value = true; // 失败也放行——重开菜单即重试（rpc 暂时性失败不空到刷新）
+}
+
+/** 扩展实验键当前值（browserTier 之外的注册键——泛读泛写） */
+const extKeyValues = reactive<Record<string, string>>({});
+function extKeyOf(key: string): ExpKeyDef | undefined {
+  return experimentalKeys.value.find(k => k.key === key);
+}
+/** 选择扩展键值：泛写 conv-settings（null = 删键回跟随态）；本地即时回显 */
+function selectExtKey(key: string, value: string) {
+  const prev = extKeyValues[key];
+  extKeyValues[key] = value;
+  const conversationId = toolModeConvKey.value;
+  if (!conversationId || !rpc) return;
+  void rpc.call('conv-settings/set', { conversationId, patch: { [key]: value || null } })
+    .catch((err: any) => {
+      console.error(`[ChatInput] 实验键 ${key} 写入失败:`, err?.message);
+      extKeyValues[key] = prev; // 失败回滚（键此前不存在时回 undefined = 视同未覆盖）
+    });
+}
+
+/** 挂载/会话切换：回读会话实验键（browserTier 内置 + 注册扩展键）+ 拉目录；
+ *  browserTier 无显式键时回放偏好并落该会话（新会话继承上次选择——
+ *  toolMode 同款继承语义；'' 偏好 = 跟随态不落盘）。 */
+watch(toolModeConvKey, async (conversationId) => {
+  await loadExperimentalKeys(); // 先汇合目录——扩展键值回填依赖 experimentalKeys 就位
+  if (!conversationId || !rpc) { browserTier.value = ''; return; }
+  try {
+    const r = await rpc.call<{ settings?: Record<string, string> }>('conv-settings/get', { conversationId });
+    if (conversationId !== toolModeConvKey.value) return; // 快速连切：迟到响应不覆盖
+    const stored = r.settings?.browserTier as typeof browserTier.value | undefined;
+    if (stored !== undefined) {
+      browserTier.value = stored;
+      store.setConvBrowserTier(stored); // 会话切换回读同步快照（同 toolMode 口径）
+    } else {
+      // 无显式键：回放偏好（缺记录/'' = 跟随态，不动存储）
+      const pref = loadComposePrefs()?.browserTier ?? '';
+      browserTier.value = pref;
+      if (pref !== '') {
+        void rpc.call('conv-settings/set', { conversationId, patch: { browserTier: pref } })
+          .catch((err: unknown) => {
+            console.warn('[ChatInput] 浏览器档继承写失败:', (err as { message?: string }).message ?? String(err));
+          });
+      }
+    }
+    for (const k of experimentalKeys.value) {
+      if (k.key !== 'browserTier') extKeyValues[k.key] = r.settings?.[k.key] ?? '';
+    }
+  } catch {
+    browserTier.value = ''; // 行未装/面不可用 → 跟随态
+  }
+}, { immediate: true });
 
 /** 工具调用模式档位词表（跟随项 detail 按 Agent tags 档分流显示；程序化
  *  覆盖项在 Agent 无 tc-programmatic 标签时禁选） */
@@ -1438,6 +1573,40 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
+        <!-- 权限（快捷提权）：独立按钮（2026-12 拆分；工具栏序：模型 → 提权 →
+             工具模式 → 实验性）。单项菜单直开档位列表（无下钻）：选择即
+             武装/解除，菜单保持开；武装态警示色常显 -->
+        <div v-if="!isGroupCtx" class="dd">
+          <button
+            type="button"
+            class="select-btn"
+            :class="{ open: elevMenuOpen, armed: !!elevation, 'armed-full': elevation === 'full-access' }"
+            @click.stop="toggleElevMenu"
+            title="快捷提权（权限档位）"
+          >
+            <Icon :name="elevBtn.icon" :size="15" />
+            <span class="select-text">{{ elevBtn.label }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="elevMenuOpen" class="dd-menu" @click.stop>
+              <button
+                v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
+                class="dd-option dd-option--2line" :class="{ selected: elevation === opt.value }"
+                :title="opt.title"
+                @click="selectElevation(opt.value)"
+              >
+                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="dd-option-body">
+                  <span class="dd-option-name">{{ opt.label }}</span>
+                  <span class="dd-option-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
+                </span>
+                <Icon v-if="elevation === opt.value" name="check" :size="15" class="dd-option-check" />
+              </button>
+            </div>
+          </Transition>
+        </div>
+
         <!-- 工具调用模式（独立按钮）：与提权分立——程序化调用模式需要
              用户先单独熟悉。单项菜单直开档位列表（无下钻）：选择即写
              会话 conv-settings，菜单保持开可连续调整 -->
@@ -1473,36 +1642,94 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
-        <!-- 权限（快捷提权）：与工具模式分立的独立按钮（2026-12 拆分）。
-             单项菜单直开档位列表（无下钻）：选择即武装/解除，菜单保持开；
-             武装态警示色常显 -->
+        <!-- 实验性功能（两级菜单）：一级 = 实验项入口列表（当前仅「浏览器
+             使用」，后续实验能力各占一项）；二级 = 该项档位列表（浏览器 =
+             conv-settings.browserTier，选择即写会话，菜单保持开可连续调整）。
+             disabled 态警示色常显（与提权武装同款语言） -->
         <div v-if="!isGroupCtx" class="dd">
           <button
             type="button"
             class="select-btn"
-            :class="{ open: elevMenuOpen, armed: !!elevation, 'armed-full': elevation === 'full-access' }"
-            @click.stop="toggleElevMenu"
-            title="快捷提权（权限档位）"
+            :class="{ open: experimentalMenuOpen, 'browser-armed': browserTier === 'observe' || browserTier === 'manipulate' || browserTier === 'inject', 'browser-disabled': browserTier === 'disabled' }"
+            @click.stop="toggleExperimentalMenu"
+            title="实验性功能（提前预留扩展位——当前：浏览器使用）"
           >
-            <Icon :name="elevBtn.icon" :size="15" />
-            <span class="select-text">{{ elevBtn.label }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
+            <Icon name="flask-conical" :size="15" />
+            <span class="select-text">实验性{{ browserTier === 'disabled' ? '·浏览器已禁用' : '' }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: experimentalMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="elevMenuOpen" class="dd-menu" @click.stop>
-              <button
-                v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
-                class="dd-option dd-option--2line" :class="{ selected: elevation === opt.value }"
-                :title="opt.title"
-                @click="selectElevation(opt.value)"
-              >
-                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
-                <span class="dd-option-body">
-                  <span class="dd-option-name">{{ opt.label }}</span>
-                  <span class="dd-option-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
-                </span>
-                <Icon v-if="elevation === opt.value" name="check" :size="15" class="dd-option-check" />
-              </button>
+            <div v-if="experimentalMenuOpen" class="dd-menu" @click.stop>
+              <!-- 一级：实验项入口（目录驱动——browserTier 内置 + 注册扩展键） -->
+              <template v-if="experimentalPanel === 'root'">
+                <button type="button" class="dd-option dd-option--2line" @click="experimentalPanel = 'browserTier'">
+                  <span class="dd-option-icon"><Icon name="globe" :size="16" /></span>
+                  <span class="dd-option-body">
+                    <span class="dd-option-name">浏览器使用</span>
+                    <span class="dd-option-desc">{{ browserTier === '' ? ('会话档位：' + agentBrowserTierLabel) : ('已覆盖：' + browserTierBtn.label) }}</span>
+                  </span>
+                  <Icon name="chevron-right" :size="15" class="dd-option-check" />
+                </button>
+                <button
+                  v-for="k in experimentalKeys.filter(x => x.key !== 'browserTier')" :key="k.key" type="button"
+                  class="dd-option dd-option--2line" @click="experimentalPanel = k.key"
+                >
+                  <span class="dd-option-icon"><Icon name="puzzle" :size="16" /></span>
+                  <span class="dd-option-body">
+                    <span class="dd-option-name">{{ k.label || k.key }}</span>
+                    <span class="dd-option-desc">{{ extKeyValues[k.key] ? ('已覆盖：' + (k.options?.[extKeyValues[k.key]] || extKeyValues[k.key])) : (k.description || '未覆盖——点击配置') }}</span>
+                  </span>
+                  <Icon name="chevron-right" :size="15" class="dd-option-check" />
+                </button>
+              </template>
+              <!-- 二级：browserTier（返回 + 五档；detail 联动 Agent tags） -->
+              <template v-else-if="experimentalPanel === 'browserTier'">
+                <button type="button" class="dd-option dd-back" @click="experimentalPanel = 'root'" title="返回">
+                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="dd-option-name">浏览器使用</span>
+                </button>
+                <div class="dd-divider"></div>
+                <button
+                  v-for="opt in BROWSER_TIER_OPTIONS" :key="String(opt.value)" type="button"
+                  class="dd-option dd-option--2line" :class="{ selected: browserTier === opt.value }"
+                  :title="opt.title"
+                  @click="selectBrowserTier(opt.value)"
+                >
+                  <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
+                  <span class="dd-option-body">
+                    <span class="dd-option-name">{{ opt.label }}</span>
+                    <span class="dd-option-desc" :class="{ 'is-warn': opt.value === 'disabled' }">{{ opt.value === '' ? agentBrowserTierLabel : opt.detail }}</span>
+                  </span>
+                  <Icon v-if="browserTier === opt.value" name="check" :size="15" class="dd-option-check" />
+                </button>
+              </template>
+              <!-- 二级：注册扩展键（通用形态——返回 + 跟随项 + enum 档位） -->
+              <template v-else-if="extKeyOf(experimentalPanel)">
+                <button type="button" class="dd-option dd-back" @click="experimentalPanel = 'root'" title="返回">
+                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="dd-option-name">{{ extKeyOf(experimentalPanel)?.label || experimentalPanel }}</span>
+                </button>
+                <div class="dd-divider"></div>
+                <button type="button" class="dd-option dd-option--2line" :class="{ selected: !extKeyValues[experimentalPanel] }" @click="selectExtKey(experimentalPanel, '')">
+                  <span class="dd-option-icon"><Icon name="settings-2" :size="16" /></span>
+                  <span class="dd-option-body">
+                    <span class="dd-option-name">默认（跟随）</span>
+                    <span class="dd-option-desc">{{ extKeyOf(experimentalPanel)?.description || '清除本会话覆盖' }}</span>
+                  </span>
+                  <Icon v-if="!extKeyValues[experimentalPanel]" name="check" :size="15" class="dd-option-check" />
+                </button>
+                <button
+                  v-for="v in extKeyOf(experimentalPanel)?.enum || []" :key="v" type="button"
+                  class="dd-option dd-option--2line" :class="{ selected: extKeyValues[experimentalPanel] === v }"
+                  @click="selectExtKey(experimentalPanel, v)"
+                >
+                  <span class="dd-option-icon"><Icon name="circle-dot" :size="16" /></span>
+                  <span class="dd-option-body">
+                    <span class="dd-option-name">{{ extKeyOf(experimentalPanel)?.options?.[v] || v }}</span>
+                  </span>
+                  <Icon v-if="extKeyValues[experimentalPanel] === v" name="check" :size="15" class="dd-option-check" />
+                </button>
+              </template>
             </div>
           </Transition>
         </div>
@@ -1705,6 +1932,10 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .select-btn.armed { color: var(--color-warning, #e67e22); font-weight: 600; }
 .select-btn.armed:hover { color: var(--color-warning, #e67e22); background: color-mix(in srgb, var(--color-warning, #e67e22) 10%, transparent); }
 .select-btn.armed-full { color: var(--color-error, #e5484d); }
+/* 浏览器档态（实验性 → 浏览器）：授权 = 强调色（可用），禁用 = 灰暗（不可用） */
+.select-btn.browser-armed { color: var(--color-link, #3b82f6); font-weight: 600; }
+.select-btn.browser-disabled { color: var(--color-text-tertiary); text-decoration: line-through; }
+.select-btn.browser-disabled .select-text { text-decoration: line-through; }
 .select-btn.armed-full:hover { color: var(--color-error, #e5484d); background: color-mix(in srgb, var(--color-error, #e5484d) 10%, transparent); }
 
 /* 程序化模式激活态（工具使用模式 = 程序化）：主色微亮——模式在场的持续提示 */

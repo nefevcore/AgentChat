@@ -32,8 +32,17 @@ const relPath = computed(() => String(props.data.relPath || ''));
 const evalResult = computed(() => (props.data.result != null ? String(props.data.result) : ''));
 const htmlLength = computed(() => Number(props.data.html_length ?? 0));
 
-const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'ok'>(() => {
+const elements = computed<string[]>(() => Array.isArray(props.data.elements) ? (props.data.elements as string[]) : []);
+const consoleLogs = computed<Array<{ seq: number; level?: string; text: string }>>(() => Array.isArray(props.data.console) ? (props.data.console as Array<{ seq: number; level?: string; text: string }>) : []);
+const netLogs = computed<Array<{ seq: number; method?: string; url: string; status?: number; state?: string; error?: string }>>(() => Array.isArray(props.data.network) ? (props.data.network as Array<{ seq: number; method?: string; url: string; status?: number; state?: string; error?: string }>) : []);
+const tabsList = computed<Array<{ index: number; title: string; url: string; active?: boolean }>>(() => Array.isArray(props.data.tabs) ? (props.data.tabs as Array<{ index: number; title: string; url: string; active?: boolean }>) : []);
+const logTab = ref<'console' | 'network'>('console');
+
+const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'elements' | 'logs' | 'tabs' | 'ok'>(() => {
   if (relPath.value || file.value) return 'screenshot';
+  if (elements.value.length > 0) return 'elements';
+  if (consoleLogs.value.length > 0 || netLogs.value.length > 0) return 'logs';
+  if (tabsList.value.length > 0) return 'tabs';
   if (url.value || text.value) return 'page';
   if (evalResult.value) return 'eval';
   if (htmlLength.value > 0) return 'html';
@@ -43,9 +52,17 @@ const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'ok'>(() =
 // ── action 元信息（icon = lucide 图标名，经 ui/Icon 渲染——不用符号文本） ──
 const ACTION_META: Partial<Record<string, { icon: string; label: string; color: string }>> = {
   open: { icon: 'external-link', label: '打开', color: '#3b82f6' },
+  read: { icon: 'book-open', label: '读正文', color: '#22c55e' },
+  elements: { icon: 'list', label: '元素索引', color: '#0ea5e9' },
   click: { icon: 'mouse-pointer-click', label: '点击', color: '#8b5cf6' },
+  hover: { icon: 'mouse-pointer-2', label: '悬停', color: '#8b5cf6' },
   type: { icon: 'keyboard', label: '输入', color: '#06b6d4' },
   press: { icon: 'corner-down-left', label: '按键', color: '#06b6d4' },
+  scroll: { icon: 'arrow-down', label: '滚动', color: '#94a3b8' },
+  wait: { icon: 'clock', label: '等待', color: '#94a3b8' },
+  logs: { icon: 'scroll-text', label: '日志', color: '#f59e0b' },
+  response_body: { icon: 'file-json', label: '响应体', color: '#f97316' },
+  tabs: { icon: 'app-window', label: '标签页', color: '#64748b' },
   content: { icon: 'file-text', label: '提取内容', color: '#22c55e' },
   screenshot: { icon: 'image', label: '截图', color: '#f59e0b' },
   html: { icon: 'globe', label: 'HTML', color: '#f97316' },
@@ -73,7 +90,8 @@ function stepSummary(item: any): string {
     case 'screenshot':
       return r.relPath || r.file || p.name || '';
     case 'click':
-      return p.selector ? `选择器: ${p.selector}` : 'OK';
+    case 'hover':
+      return p.ref ? `ref #${p.ref}` : (p.selector ? `选择器: ${p.selector}` : 'OK');
     case 'type':
       return `${p.selector || ''}${p.text ? ` → "${String(p.text).slice(0, 50)}"` : ''}`;
     case 'press':
@@ -82,6 +100,20 @@ function stepSummary(item: any): string {
       return String(r.result ?? '').slice(0, 200);
     case 'html':
       return r.html_length != null ? `${r.html_length} 字符` : 'OK';
+    case 'read':
+      return (r.text || '').slice(0, 200) + ((r.text || '').length > 200 ? '…' : '');
+    case 'elements':
+      return r.count != null ? `${r.count} 个可交互元素` : 'OK';
+    case 'logs':
+      return `${(r.console || []).length} 条日志 / ${(r.network || []).length} 个请求`;
+    case 'tabs':
+      return `${(r.tabs || []).length} 个标签页`;
+    case 'scroll':
+      return r.scrollY != null ? `scrollY ${r.scrollY}` : 'OK';
+    case 'wait':
+      return r.found === true ? `等到文本「${p.text}」` : (p.ms ? `${p.ms}ms` : 'OK');
+    case 'response_body':
+      return (r.body || '').slice(0, 120);
     case 'close':
       return '';
     default:
@@ -93,13 +125,23 @@ function stepSummary(item: any): string {
 function stepDetail(item: any): string {
   const r = item.result || {};
   if (isStepErr(item)) return String(item.message || r.message || '');
-  if (item.action === 'content' && r.text) return r.text;
+  if ((item.action === 'content' || item.action === 'read') && r.text) return r.text;
+  if (item.action === 'elements' && Array.isArray(r.elements)) return r.elements.join('\n');
+  if (item.action === 'logs') {
+    const c = (r.console || []).map((e: any) => `[${e.level}] ${e.text}`).join('\n');
+    const n = (r.network || []).map((e: any) => `[${e.state}] ${e.method || ''} ${e.url}${e.error ? ` — ${e.error}` : ''}`).join('\n');
+    return [c, n].filter(Boolean).join('\n');
+  }
+  if (item.action === 'response_body' && r.body) return r.body;
   return JSON.stringify(r, null, 2);
 }
 
 function hasDetail(item: any): boolean {
-  if (item.action === 'content') return !!(item.result?.text && String(item.result.text).length > 200);
+  if (item.action === 'content' || item.action === 'read') return !!(item.result?.text && String(item.result.text).length > 200);
   if (item.action === 'eval') return !!(item.result?.result && String(item.result.result).length > 80);
+  if (item.action === 'elements') return (item.result?.elements || []).length > 0;
+  if (item.action === 'logs') return !!((item.result?.console || []).length || (item.result?.network || []).length);
+  if (item.action === 'response_body') return !!item.result?.body;
   return false;
 }
 
@@ -212,6 +254,43 @@ const displayUrl = computed(() => {
       <button v-else class="brw-expand-btn" @click="loadScreenshot">
         {{ screenshotLoading ? '加载中...' : '预览截图' }}
       </button>
+    </div>
+
+    <!-- ════════ 单动作：元素索引 ════════ -->
+    <div v-else-if="singleType === 'elements'" class="brw-elements">
+      <span class="brw-badge"><Icon name="list" :size="11" class="brw-badge-icon" />可交互元素 × {{ elements.length }}</span>
+      <pre class="brw-text brw-text-expanded"><code>{{ elements.join('\n') }}</code></pre>
+    </div>
+
+    <!-- ════════ 单动作：日志（console/network 分栏）════════ -->
+    <div v-else-if="singleType === 'logs'" class="brw-logs">
+      <div class="brw-logs-tabs">
+        <button class="brw-log-tab" :class="{ active: logTab === 'console' }" @click="logTab = 'console'">控制台 {{ consoleLogs.length }}</button>
+        <button class="brw-log-tab" :class="{ active: logTab === 'network' }" @click="logTab = 'network'">网络 {{ netLogs.length }}</button>
+      </div>
+      <div v-if="logTab === 'console'" class="brw-log-list">
+        <div v-for="e in consoleLogs" :key="e.seq" class="brw-log-row" :class="'lv-' + (e.level || 'info')">
+          <span class="brw-log-level">{{ e.level || 'info' }}</span>
+          <span class="brw-log-text">{{ e.text }}</span>
+        </div>
+        <div v-if="!consoleLogs.length" class="brw-empty-hint">无控制台日志</div>
+      </div>
+      <div v-else class="brw-log-list">
+        <div v-for="e in netLogs" :key="e.seq" class="brw-log-row" :class="e.state === 'failed' ? 'lv-error' : 'lv-info'">
+          <span class="brw-log-status" :class="{ err: e.state === 'failed' || (e.status && e.status >= 400) }">{{ e.status ?? (e.state === 'failed' ? '✕' : '…') }}</span>
+          <span class="brw-log-text">{{ (e.method || 'GET') + ' ' + e.url }}<template v-if="e.error"> — {{ e.error }}</template></span>
+        </div>
+        <div v-if="!netLogs.length" class="brw-empty-hint">无网络请求</div>
+      </div>
+    </div>
+
+    <!-- ════════ 单动作：标签页 ════════ -->
+    <div v-else-if="singleType === 'tabs'" class="brw-tabs">
+      <div v-for="t in tabsList" :key="t.index" class="brw-tab-row" :class="{ active: t.active }">
+        <Icon :name="t.active ? 'circle-dot' : 'circle'" :size="11" />
+        <span class="brw-tab-title">{{ t.title || '(无标题)' }}</span>
+        <span class="brw-tab-url">{{ t.url }}</span>
+      </div>
     </div>
 
     <!-- ════════ 单动作：页面内容 ════════ -->
@@ -337,6 +416,30 @@ const displayUrl = computed(() => {
 }
 .brw-text-expanded { max-height: none; }
 .brw-text code { font-family: inherit; color: inherit; }
+
+/* ── 单动作：元素索引/日志/标签页 ── */
+.brw-elements { display: flex; flex-direction: column; gap: 6px; }
+.brw-logs { display: flex; flex-direction: column; gap: 6px; }
+.brw-logs-tabs { display: flex; gap: 4px; }
+.brw-log-tab {
+  background: none; border: 1px solid var(--color-border-light, #e5e7eb); border-radius: 6px;
+  color: var(--color-text-tertiary); font-size: 11px; padding: 2px 10px; cursor: pointer;
+}
+.brw-log-tab.active { color: var(--color-link, #3b82f6); border-color: var(--color-link, #3b82f6); }
+.brw-log-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow: auto; }
+.brw-log-row { display: flex; gap: 6px; font-size: 11px; align-items: baseline; }
+.brw-log-level, .brw-log-status { flex-shrink: 0; font-family: monospace; color: var(--color-text-tertiary); min-width: 34px; }
+.brw-log-row.lv-error .brw-log-level, .brw-log-row.lv-error .brw-log-status { color: #ef4444; }
+.brw-log-row.lv-warning .brw-log-level { color: #d97706; }
+.brw-log-status.err { color: #ef4444; font-weight: 700; }
+.brw-log-text { color: var(--color-text-secondary); word-break: break-all; }
+.brw-empty-hint { font-size: 11px; color: var(--color-text-tertiary); padding: 4px 0; }
+.brw-tabs { display: flex; flex-direction: column; gap: 4px; }
+.brw-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-secondary); padding: 2px 0; }
+.brw-tab-row.active .brw-tab-title { color: var(--color-text-primary); font-weight: 600; }
+.brw-tab-row svg { flex-shrink: 0; color: var(--color-text-tertiary); }
+.brw-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.brw-tab-url { font-size: 11px; color: var(--color-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 单动作：其他 ── */
 .brw-badge {

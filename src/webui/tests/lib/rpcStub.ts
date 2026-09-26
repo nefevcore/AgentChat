@@ -26,6 +26,10 @@ export function makeRpcStub(): RpcStubCalls {
     impl: {
       async call<T>(method: string, params?: unknown): Promise<T> {
         calls.push([method, params]);
+        // 空态语义返回空对象——但 runs/snapshot 消费方（runview 行）按
+        // PRunsSnapshot 契约直取三数组（s.running.map 等，无 ?? 兜底），
+        // 缺字段会 TypeError。按方法补契约形：snapshot 回空三数组。
+        if (method === 'runs/snapshot') return { conversations: [], running: [], groups: [] } as T;
         return {} as T;
       },
       onEvent(h: (type: string, args: unknown[]) => void): () => void {

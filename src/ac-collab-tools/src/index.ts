@@ -33,7 +33,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { capabilitySetOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
+import { sessionCapsOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 import type {} from 'ac-subagent'; // ctx.subagents 可选能力类型（type-only）
@@ -473,7 +473,7 @@ export function apply(ctx: Context) {
       // （requiredTags 缺标签不可见）+ mode 工具排除（injection 轴——
       // 不进常规面）+ 交互面（requiresInteraction——self 会话排除，
       // formDeniedBy 单源）先过滤，再按 AgentConfig.tools 解析
-      const caps = capabilitySetOf(ctx, call.agentId);
+      const caps = sessionCapsOf(ctx, call.agentId, call.conversationId); // 会话授权注入（同 router 口径）
       const all = ctx.tools.list().filter(
         (t) => t.injection !== 'mode' && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, call.conversationId),
       );

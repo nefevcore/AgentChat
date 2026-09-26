@@ -278,11 +278,8 @@ describe('ac-workspace 初始化', () => {
   it('首启：目录布局 + browser 脚本分发 + user/admin 物化 + 首启消息入会话流', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root, { admin: { model: 'glm-5.3' } });
-    // 目录 + 脚本分发
+    // 目录布局（browser daemon 已退役——CDP 直连，2026-10）
     expect(fs.existsSync(path.join(root, 'files', 'shared', 'scripts'))).toBe(true);
-    const daemon = path.join(root, 'files', 'shared', 'scripts', 'browser_daemon.py');
-    expect(fs.existsSync(daemon)).toBe(true);
-    expect(fs.statSync(daemon).size).toBeGreaterThan(0);
     // user = virtual 数据；admin = 配置数据
     expect(ctx.agents.get('user')).toMatchObject({ id: 'user', virtual: true });
     expect(ctx.agents.get('admin')).toMatchObject({ id: 'admin', model: 'glm-5.3' });

@@ -138,17 +138,24 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
   /** conv-settings stub（ctx.convSettings 可选能力——Service 形态注册进 ctx，
    * ctx.get('convSettings', false) 才可见；裸类实例挂属性不进服务表） */
   class ConvSettingsStub extends Service {
-    private readonly store = new Map<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }>();
-    constructor(ctx: Context, options: { settings?: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }> } = {}) {
+    private readonly store = new Map<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none'; browserTier?: string }>();
+    constructor(ctx: Context, options: { settings?: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none'; browserTier?: string }> } = {}) {
       super(ctx, 'convSettings');
       for (const [k, v] of Object.entries(options.settings ?? {})) this.store.set(k, v);
     }
-    get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } {
+    get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none'; browserTier?: string } {
       return this.store.get(conversationId) ?? {};
+    }
+    /** 键目录（sessionCapsOf 的 grants 注入面——browserTier 与内置键同构缩影） */
+    listKeys(): Array<{ key: string; grants?: Record<string, string[]> }> {
+      return [{
+        key: 'browserTier',
+        grants: { observe: ['web', 'observe'], manipulate: ['web', 'observe', 'manipulate'], inject: ['web', 'observe', 'manipulate', 'inject'] },
+      }];
     }
   }
 
-  async function bootWithSwitch(settings: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' }>) {
+  async function bootWithSwitch(settings: Record<string, { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none'; browserTier?: string }>) {
 
     const booted0 = await boot();
 
@@ -233,6 +240,33 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     // Agent 只见常规工具；tc-programmatic 才从 defs 合成 mode 集
     expect(names).not.toContain('run_code');
     expect(names).toContain('plain_tool');
+  });
+
+  it('会话授权注入（grants）：无 tags 派生身份 + 会话 browserTier=observe → browser 进子 Agent 工具面', async () => {
+    // 第六决定点回归（2026-09-26 可见性断层同构漏网）：子 Agent 装配点
+    // 此前用无会话注入的 capabilitySetOf——父会话 browserTier 授权进不了
+    // 派生身份的工具面（无 tags → requiredTags ['web','observe'] 滤掉）。
+    // 修后与 router/执行门禁同口径：会话键授权 → grants 标签并入 → 可见。
+    const { ctx } = await bootWithSwitch({ 'conv-web': { browserTier: 'observe' } });
+    ctx.tools.register({ name: 'browser', description: 'd', requiredTags: ['web', 'observe'], execute: () => ({ ok: true }) });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '浏览子任务', wait_time: 30 },
+      agentId: 'chief',
+      conversationId: 'conv-web',
+    });
+    expect(r.ok).toBe(true);
+    const names = (captured.at(-1)!.tools ?? []).map((t: any) => t.function.name);
+    expect(names).toContain('browser');
+    // 无键会话（conv-plain 同 describe 前例反之）：无 tags 面不见 browser
+    const r2 = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '无授权任务', wait_time: 30 },
+      agentId: 'chief',
+    });
+    expect(r2.ok).toBe(true);
+    const names2 = (captured.at(-1)!.tools ?? []).map((t: any) => t.function.name);
+    expect(names2).not.toContain('browser');
   });
 });
 

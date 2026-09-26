@@ -402,6 +402,43 @@ export function capabilitySetOf(
 }
 
 /**
+ * 会话维度的有效能力集（capabilitySetOf + 会话覆盖授权注入）。
+ * 2026-09-26 browserTier 可见性事故：会话实验档（conv-settings 注册键的
+ * grants 声明）此前只作用于 web-tools 动作门禁——无 tags 的 Agent 在
+ * 工具可见面就看不到 browser，会话授权到不了执行层。此包装在【可见性
+ * 合成点】统一注入：settings 覆盖值 → 键定义 grants 标签并入 caps。
+ * 受限调用方兼容：agents/convSettings 均经 ctx.get(name, false) 软取
+ * （受限 ctx 上直接属性访问会抛 without-inject——run_code 等工具行
+ * 场景）；面缺席 = 退化为 base 集（与 capabilitySetOf 等价或更窄）。
+ * LLM 工具面的决定点（router execute / agents tool-defs / list_tools /
+ * run_code 投影 / ac-security 执行门禁 / subagent 装配）统一换用本函数。
+ */
+export function sessionCapsOf(
+  ctx: { get?: (name: string, strict?: boolean) => unknown },
+  agentId: string | undefined,
+  conversationId: string | undefined,
+): Set<string> {
+  const softGet = (name: string): unknown =>
+    typeof ctx.get === 'function' ? ctx.get(name, false) : undefined;
+  // base + agent:<id> + tags（与 capabilitySetOf 同源合成——agents 面软取，
+  // 受限 ctx 兼容）
+  const agents = softGet('agents') as Context['agents'] | undefined;
+  const caps = agentId === undefined || !agents
+    ? new Set<string>(['base'])
+    : capabilitySetOf({ agents }, agentId);
+  if (conversationId === undefined) return caps;
+  const convSettings = softGet('convSettings') as
+    | { get(conversationId: string): Record<string, string>; listKeys?: () => Array<{ key: string; grants?: Record<string, string[]> }> }
+    | undefined;
+  if (!convSettings || typeof convSettings.listKeys !== 'function') return caps;
+  const settings = convSettings.get(conversationId);
+  for (const def of convSettings.listKeys()) {
+    for (const tag of def.grants?.[settings[def.key]] ?? []) caps.add(tag);
+  }
+  return caps;
+}
+
+/**
  * 工具定义对能力集的可见性判定（requiredTags AND；无 requiredTags 恒可见）。
  * 2026-09-16 全量标签化：无 requiredTags 显式等价为 ['base'] 门禁（caps
  * 恒含 base，行为不变）——契约从"默认开放"改写为"base 解锁"，幽灵标签

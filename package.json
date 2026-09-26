@@ -121,6 +121,7 @@
     "ac-client-ui-usage": "workspace:*",
     "ac-client-ui-web": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
+    "ac-cdp-core": "workspace:*",
     "ac-collab-tools": "workspace:*",
     "ac-config": "workspace:*",
     "ac-config-merge": "workspace:*",

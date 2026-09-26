@@ -342,6 +342,13 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     convToolMode.value = v;
   }
 
+  /** 当前会话的浏览器档覆盖（''=跟随；ChatInput 写口成功后 bump——browser
+   *  进/出工具面 → Token 估算固定开销重取，同 convToolMode 口径）。 */
+  const convBrowserTier = ref<'' | 'observe' | 'manipulate' | 'inject' | 'disabled'>('');
+  function setConvBrowserTier(v: '' | 'observe' | 'manipulate' | 'inject' | 'disabled') {
+    convBrowserTier.value = v;
+  }
+
   // ── Actions ──
 
   /** 发送后流式态看门狗：后端重启/事件丢失时无 stepStart/stepEnd/chatEnd，
@@ -992,6 +999,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     toolDefsLoading, toolDefs,
     // 会话工具调用模式快照（ChatInput 写口 bump；预览/估算面 watch 重取）
     convToolMode, setConvToolMode,
+    convBrowserTier, setConvBrowserTier,
     // Actions
     sendMessage, interruptGeneration, regenerateMessage, deleteMessage, editMessage,
     appendOwnSteered,

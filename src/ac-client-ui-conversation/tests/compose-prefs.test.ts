@@ -33,6 +33,21 @@ describe('composePrefs：上次会话选择持久化', () => {
     expect(prefs.loadComposePrefs()).toBeNull();
   });
 
+  it('browserTier 键（实验性浏览器档）：合法枚举记录/回放；非法值忽略；\'\' 跟随态合法（2026-09-26 持久化补齐）', () => {
+    storage.clear();
+    prefs.saveComposePrefs({ browserTier: 'inject' });
+    expect(prefs.loadComposePrefs()?.browserTier).toBe('inject');
+    // 键级合并：不覆盖其他键
+    prefs.saveComposePrefs({ effort: 'high' });
+    expect(prefs.loadComposePrefs()).toMatchObject({ browserTier: 'inject', effort: 'high' });
+    // 明确选回跟随态：'' 合法并覆盖旧值（新会话不继承）
+    prefs.saveComposePrefs({ browserTier: '' });
+    expect(prefs.loadComposePrefs()?.browserTier).toBe('');
+    // 损坏值（直接写 storage）→ load 忽略
+    storage.setItem('agentchat.composePrefs', JSON.stringify({ browserTier: 'super-user' }));
+    expect(prefs.loadComposePrefs()?.browserTier).toBeUndefined();
+  });
+
   it('save 键级合并写：逐项写回互不覆盖，load 全量带回', () => {
     storage.clear();
     prefs.saveComposePrefs({ agentId: 'helper', effort: 'low' });

@@ -187,7 +187,7 @@ async function boot(options?: { jobs?: boolean; subagents?: boolean }): Promise<
   const backup = new BackupService(ctx, { root });
   const plugins = new PluginRegistryService(ctx, { root });
   // workspace（M17-E 文件面；构造默认 user + files 目录布局）
-  const workspace = new WorkspaceService(ctx, { root, browserDaemon: false });
+  const workspace = new WorkspaceService(ctx, { root });
   void workspace;
   // singles（M18-G 独立会话元数据；可选能力行）
   const singles = new SinglesService(ctx, { root });
@@ -956,6 +956,54 @@ describe('ac-web-api conv-settings 面', () => {
 
     const cleared = await rpc(ws, 'conv-settings/set', 'r4', { conversationId: conv, patch: { model: null } });
     expect(cleared.result).toMatchObject({ settings: {} });
+  });
+
+  it('browserTier 键全链穿透：RPC set → 服务落盘 → get 回读（2026-09-26 事故回归：RPC 边界曾只透传 model/toolMode，browserTier 被静默丢弃）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const conv = 'user~browser-test';
+    const set = await rpc(ws, 'conv-settings/set', 'r1', {
+      conversationId: conv,
+      patch: { browserTier: 'manipulate' },
+    });
+    expect(set.ok).toBe(true);
+    expect(set.result).toMatchObject({ settings: { browserTier: 'manipulate' } });
+    // 服务面直读（门禁消费同一事实源）
+    expect(h.ctx.convSettings.get(conv).browserTier).toBe('manipulate');
+    // get RPC 回读一致
+    const back = await rpc(ws, 'conv-settings/get', 'r2', { conversationId: conv });
+    expect(back.result).toMatchObject({ settings: { browserTier: 'manipulate' } });
+    // null = 删键（回跟随态）
+    const cleared = await rpc(ws, 'conv-settings/set', 'r3', { conversationId: conv, patch: { browserTier: null } });
+    expect(cleared.result).toMatchObject({ settings: {} });
+  });
+
+  it('键目录 RPC（conv-settings/keys）：只出 UI 组键（experimental）——前端目录驱动渲染的数据源', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const r = await rpc(ws, 'conv-settings/keys', 'r1', {});
+    expect(r.ok).toBe(true);
+    const keys = (r.result as { keys?: Array<{ key: string; group?: string; options?: Record<string, string> }> }).keys ?? [];
+    const hasBrowser = keys.some((k: { key: string; options?: Record<string, string> }) => k.key === 'browserTier' && k.options?.observe === '只读浏览');
+    expect(hasBrowser).toBe(true);
+    expect(keys.every((k: { group?: string }) => k.group === 'experimental')).toBe(true); // model/toolMode 等纯消费面键不出
+  });
+
+  it('泛透传边界：未知键穿通到服务面被静默清除（键域单源住 owning——RPC 不再手抄键清单）；合法键零改动穿通', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const conv = 'user~generic-passthrough';
+    // 未知键（未来某插件的模式键）：RPC 不拦，服务面枚举校验清除——不落盘、不报错
+    const r1 = await rpc(ws, 'conv-settings/set', 'r1', { conversationId: conv, patch: { someFutureKey: 'v1' } });
+    expect(r1.ok).toBe(true);
+    expect(r1.result).toMatchObject({ settings: {} });
+    // 合法键与新键同批：只留合法的
+    const r2 = await rpc(ws, 'conv-settings/set', 'r2', { conversationId: conv, patch: { someFutureKey: 'v1', toolMode: 'tc-none' } });
+    expect(r2.result).toMatchObject({ settings: { toolMode: 'tc-none' } });
+    // 形状守卫仍在：非 string/null 值（数字/对象）在边界丢弃
+    const r3 = await rpc(ws, 'conv-settings/set', 'r3', { conversationId: conv, patch: { toolMode: 42, model: { deep: true } } });
+    expect(r3.result).toMatchObject({ settings: { toolMode: 'tc-none' } }); // 原值未动
+    expect(h.ctx.convSettings.get(conv)).toMatchObject({ toolMode: 'tc-none' });
   });
 
   it('deliver 合并点：入参缺省 → conv-settings 存储补投；显式入参优先；singles 会话跳过', async () => {

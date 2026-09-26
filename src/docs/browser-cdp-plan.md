@@ -1,7 +1,11 @@
 # browser 工具原生 CDP 化方案（browser-cdp-plan）
 
-> 状态：设计稿（待评审）。目标版本：M1–M3 分期落地。
+> 状态：已实施（M1–M3 于 2026-10 一次落地：ac-cdp-core 纯库 + browser.ts v2
+> + 17 action 目录；daemon 已退役。M4 弹窗策略/下载管理/登录态/隔离/stealth
+> 另立档案——本文件转为历史裁决存档）。
 > 关联档案：src/README.md §3.4（web-tools）、ac-security access-tier、tag-registry 抉择组。
+> 2026-10 开源对照调研（playwright-mcp / browser-use / puppeteer / stagehand / chrome-remote-interface）
+> 的结论已吸收进正文对应节，行内标注来源项目。
 
 ## 0. 一句话
 
@@ -42,17 +46,33 @@
 - 不做登录态持久 profile（贴吧登录浏览等场景 M4 再议；M1 每次启动全新 ephemeral profile）。
 - 不做反爬军备（stealth 修补仅基础项：真实 UA、禁 AutomationControlled 特征）。
 - 不做跨浏览器（Firefox/Safari 不支持 CDP；跨浏览器需求出现时评估 BiDi）。
-- 不引入 browser-use/Playwright 等运行时依赖。
+- 不引入 browser-use/Playwright 等运行时依赖；也不引 chrome-remote-interface——
+  其形态（id 配对 + sessionId 路由 + ready/disconnect）与 client.ts 设计同构，照抄形状即可。
+- 不用 Fetch 拦截域（暂停/改写/伪造请求）：每个 paused request 必须被
+  continueRequest/fulfillRequest/failRequest 之一 resolve，漏一个页面就挂起——
+  复杂度与收益不成比例，确有需求另立档案。
+- 不做内嵌 LLM 的 act/extract（stagehand/browser-use 式）：本框架 LLM 即编排者，
+  工具面保持哑索引 + 显式 action。
 
 ## 3. 架构分层
 
 ```
 ac-cdp-core（新，纯库，零 cordis 依赖，对标 ac-openai-completions 形态）
   client.ts     CDP 客户端：ws 连接、命令 id 配对（可并发）、事件多路分发、
-               flat session 路由（sessionId 维度）、单命令超时、世代计数
+               flat session 路由（sessionId 维度）、单命令超时、世代计数；
+               setAutoAttach(waitForDebuggerOnStart) attach 到新 target 后必须
+               调 Runtime.runIfWaitingForDebugger 放行——漏调则该 target 永久挂起
   launch.ts     浏览器发现与拉起：Chrome→Edge→PATH chromium 探测链；
-               remote-debugging-port 随机端口；user-data-dir 指向
-               workspace 数据根 browser-profile/；/json/version 探活握手
+               --remote-debugging-port=0 由 OS 分配端口（自选随机端口有竞态：
+               Windows 残留进程占端口是高频事故），轮询 user-data-dir 下
+               DevToolsActivePort 文件取真实端口（puppeteer 手法）；
+               user-data-dir 必为自定义目录（Chrome 136 起默认目录静默忽略
+               调试端口开关，见 §6）；/json/version 探活握手，超时 fail-loud；
+               dispose 树杀（Windows taskkill /T /F 语义，Node kill 不杀树），
+               boot 遇 profile 锁按记录 pid 回收僵尸进程；session 建立时
+               Emulation 一致性初始化：setUserAgentOverride（带 UA-CH）、
+               setTimezoneOverride、setLocaleOverride、setDeviceMetricsOverride
+               固定 viewport——光改 UA 字符串会造成指纹自相矛盾
   perceive.ts   感知层：DOMSnapshot.captureSnapshot(computedStyles+DOMRects)
                → 交互性过滤（tag/role/样式启发）→ 可见性（z 序/面积）→
                稳定 ref 编号 → 序列化（[n]<tag role name> 截断形式）
@@ -81,13 +101,13 @@ M1–M3 不新增 browser/* 领域事件（诊断数据经工具结果回流；U
 |---|---|---|
 | 打开页面 | Target.createTarget + Page.navigate；Page.loadEventFired | domcontentloaded 后即返回，networkidle 不等待（8s 软上限探测沿现状） |
 | 正文抽取 | DOMSnapshot.captureSnapshot | 文档树 + 布局，绕过 innerText 对 shadow DOM/虚拟列表的短板 |
-| 元素索引 | DOMSnapshot.captureSnapshot(includeDOMRects) + Accessibility.getFullAXTree 融合 | ref 编号稳定策略：文档序 + backendNodeId 缓存复用 |
+| 元素索引 | DOMSnapshot.captureSnapshot(includeDOMRects) + Accessibility.getFullAXTree 融合 | ref 编号稳定策略：文档序 + backendNodeId 缓存复用；失稳处置见 §10 |
 | 点击 | 坐标来自 DOMRects → Input.dispatchMouseEvent（合成 trusted 事件） | JS click 为降级路径（覆盖不到的 shadow 节点） |
 | 输入 | Input.insertText + dispatchKeyEvent | 比现状 fill 更接近真实输入（触发完整事件链） |
 | 网络观测 | Network.enable + requestWillBeSent/responseReceived/loadingFailed | 环形缓冲默认只记 method/url/status/type/耗时——不记 header（防 cookie/token 入 LLM 上下文） |
-| 响应体 | Network.getResponseBody | 按需、显式 action 取，observe 层 |
+| 响应体 | Network.getResponseBody | 按需、显式 action 取，observe 层；协议硬约束：仅可在该 requestId 的 loadingFinished 之后调用（快速 XHR 竞态必报 -32000），缓冲记请求生命周期，取体失败 fail-soft 带原因（未完成/无 body/已逐出/导航清空） |
 | 控制台 | Runtime.consoleAPICalled + exceptionThrown；Log.entryAdded | Log.entryAdded 是 CORS/网络层错误的来源，必须订阅 |
-| 弹窗/新页 | Target.setAutoAttach(waitForDebuggerOnStart) + Page.javascriptDialogOpening | M1 只自动 dismiss dialog；新 target M2 处理 |
+| 弹窗/新页 | Target.setAutoAttach(waitForDebuggerOnStart) + Page.javascriptDialogOpening | attach 后必调 Runtime.runIfWaitingForDebugger（见 §3 client.ts）；M1 只自动 dismiss dialog；新 target M2 处理 |
 | 截图 | Page.captureScreenshot(fullPage) | 沿现状落 screenshots/ 目录 |
 
 ## 5. 工具面 action 目录（LLM 可见）
@@ -99,11 +119,11 @@ observe 层（tier 1）：
 | open | url, waitMs? | url/title + 摘要（正文前 N 字）+ error 概览（console error 数 + 失败请求数） | G1/G2 |
 | read | maxLen? | 正文 markdown 化抽取（正文密度启发，去导航/广告壳） | G1 |
 | elements | include?（interactive/all） | 可交互元素索引：[n] tag name（ref 编号，截断约 100 条/4KB） | G1 |
-| click | ref（或 selector 降级） | 点击后 url/title 变化摘要 | G1/G2 |
+| click | ref（或 selector 降级） | 点击后 url/title 变化摘要 + 新快照增量（变更类 action 自动带回新状态，省一次 elements 往返——playwright-mcp 惯例） | G1/G2 |
 | scroll | direction, amount? | 新视口摘要（elements 增量可选） | G1（懒加载榜单） |
 | wait | ms / text? | 等待条件满足 | G1/G2 |
 | screenshot | name? | 文件路径 | 沿现状 |
-| logs | since?, kind?(console/network/error) | 环形缓冲按 marker 取，容量截断 | G2 核心 |
+| logs | since?, kind?(console/network/error), level? | 环形缓冲按 marker 取，容量截断；level 过滤严重级别（playwright-mcp --console-level 同款） | G2 核心 |
 | response_body | requestId | 指定请求响应体（截断） | G2（查 XHR 返回） |
 | close | — | 关浏览器回收 | 沿现状 |
 
@@ -130,9 +150,16 @@ inject 层（tier 3，含全部）：
   click/type/press/hover → manipulate。诊断不提层——它是观测不是注入。
 - 网络日志红线：默认不采集请求头/cookie/authorization；response_body 显式按需——
   经 ac-security 脱敏管线后再入 LLM 上下文（与 web_search 同通道纪律）。
-- Chrome 启动参数：remote-debugging-port 绑 127.0.0.1 随机端口（永不 0.0.0.0）、
-  no-sandbox 沿现状、disable-blink-features=AutomationControlled、真实 UA。
+- Chrome 启动参数：remote-debugging-port 绑 127.0.0.1、端口值 0 由 OS 分配（永不
+  0.0.0.0、永不自选随机端口——竞态）、no-sandbox 沿现状、--headless=new（old headless
+  已从 Chrome 移除）、disable-blink-features=AutomationControlled、真实 UA。
   profile 目录 = workspace 数据根下 browser-profile/（ephemeral：boot 时清空，close/dispose 后删除）。
+- Chrome 136+ 硬性不变量：默认 user-data-dir 上 Chrome 静默忽略调试端口开关（反
+  infostealer 措施，无任何报错）——自定义 --user-data-dir 不是可选项，而是端口能
+  开启的前提；boot 握手超时按此排查，fail-loud 不重试掩盖。
+- CDP ws endpoint 无认证：绑 127.0.0.1 挡得住远程、挡不住本机其他进程——ephemeral
+  短生命周期正是把暴露窗口压到最小的手段，勿引入常驻 profile 削弱它；ws URL
+  （/devtools/browser/<uuid>）实质 bearer token，禁止写入日志与错误消息。
 - eval 沿 inject 层 + fail-closed；ws 断线/浏览器崩溃 → 世代计数 + 拒绝式收束（C4 教训全保留）。
 
 ## 7. 生命周期
@@ -147,7 +174,7 @@ inject 层（tier 3，含全部）：
 ## 8. 测试策略
 
 - 单测：fake CDP server（本地 ws + 最小协议实现——/json/version、命令回显、
-  可注入事件流）覆盖 client 配对/超时/世代/会话路由；perceive 用快照夹具（
+  可注入事件流）覆盖 client 配对/超时/世代/会话路由/attach 放行；perceive 用快照夹具（
   captureSnapshot JSON 样本）锁序列化输出；diagnose 环形缓冲/marker 语义。
 - 集成（*.integration.test.ts，有真实浏览器才跑）：open/click/logs 对本地
   fixture 页（自建 mini 站点：按钮/表单/失败 XHR/console 输出全覆盖 G2 场景）。
@@ -157,7 +184,7 @@ inject 层（tier 3，含全部）：
 
 | 期 | 内容 | 规模估算 | 出口判据 |
 |---|---|---|---|
-| M1 执行层 | ac-cdp-core client+launch；browser.ts v2；现有 action 全集平移（click 暂保持 selector）；fake CDP 测试 | 约 1–1.5 周 | 全部现役动作在真实站点通过；Python daemon 不再被默认调用 |
+| M1 执行层 | ac-cdp-core client+launch（DevToolsActivePort 轮询、树杀、Emulation 初始化、attach 放行）；browser.ts v2；现有 action 全集平移（click 暂保持 selector）；fake CDP 测试 | 约 1–1.5 周 | 全部现役动作在真实站点通过；Python daemon 不再被默认调用 |
 | M2 感知层 | perceive（elements 索引 + read 抽取）+ click-by-ref + scroll/wait；tabs 最小集（list/select/new/close） | 约 1–1.5 周 | 热搜榜单类站点：open→elements→click(ref) 链路 10 步内无 selector |
 | M3 诊断层 | diagnose 环形缓冲 + logs/response_body + open 摘要带 error 概览 + UI 日志卡 | 约 1 周 | 本地 fixture 站：console error/失败 XHR/CORS 全被捕获且可按 marker 取回 |
 | M4（选） | 弹窗 watchdog 自动策略、下载管理、登录态持久 profile、per-conversation 隔离、stealth 强化 | 另立档案 | — |
@@ -171,10 +198,14 @@ inject 层（tier 3，含全部）：
 |---|---|
 | CDP 协议漂移（experimental 命令随版本消失） | 只用 stable 域（DOMSnapshot 已转正多年）；boot 时 /json/protocol 特性探测，缺能力降级 + 日志 |
 | 热搜/贴吧反爬拦 headless | Input 合成 trusted 事件 + 真实 UA + AutomationControlled 禁用；仍被拦的站点列入已知限制，M4 stealth |
-| 元素 ref 失稳（SPA 重渲染后编号漂移） | backendNodeId 缓存 + 世代失效标记；click 时校验目标仍存在，失稳返回新索引让 LLM 重选 |
+| 元素 ref 失稳（SPA 重渲染后编号漂移） | backendNodeId 缓存 + 世代失效标记；click 时先级联重解析（EXACT hash → STABLE hash〔滤动态 class〕→ XPATH → AX_NAME → 属性，browser-use 手法），全败才返回新索引让 LLM 重选 |
 | 网络日志刷爆上下文 | 环形缓冲 + 默认摘要（计数/首尾条目）+ 显式 logs 才给明细 + 条目截断 |
 | ws 断线/Chrome 崩溃竞态 | 世代计数（沿用）+ 拒绝式收束 + 自动重启语义（下次调用重新 boot） |
 | 多会话并发互相踩页面 | M1 互斥锁（导航原子性）；M4 per-conversation session |
+| Chrome 136+ 默认目录静默忽略调试端口 | 自定义 user-data-dir 硬性不变量（§6）+ boot 握手 fail-loud |
+| 僵尸浏览器进程锁 profile（Windows 常见隐藏 msedge.exe） | dispose 树杀 + boot 遇锁按记录 pid 回收，回收失败 fail-loud |
+| attach 后未放行 → 页面假死 | attach 处理器无条件先调 Runtime.runIfWaitingForDebugger 再走业务分支（§3） |
+| getResponseBody 竞态 -32000 | 仅 loadingFinished 后可取（§4）；失败 fail-soft 带原因 |
 
 ## 11. 框架 checklist 对照
 
@@ -183,4 +214,4 @@ inject 层（tier 3，含全部）：
 - [x] M1–M3 不新增 domain/* 事件 → 无事件目录工作；M4 若做 UI 实时观察再立 browser/* 目录（@mode/@scope 全标注）
 - [x] 持久化红线：截图与 profile 都在 workspace 数据根，无跨域写
 - [x] 验证命令：pnpm typecheck && pnpm lint && pnpm test:unit && pnpm check:deps；动 webui 跑 pnpm webui:typecheck
-- [ ] 落地时更新 src/README.md §3.4 与布局图（M1 收尾项）
+- [x] 落地时更新 src/README.md §3.4 与布局图（M1 收尾项）——2026-10 已更新

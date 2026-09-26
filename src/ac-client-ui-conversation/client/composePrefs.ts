@@ -32,6 +32,8 @@ export type ComposeEffort = '' | 'low' | 'high' | 'max';
 export type ComposeElevation = '' | 'sandbox-access' | 'full-access';
 /** 工具调用模式（tc-* 模式词汇；''=跟随 Agent tags 档） */
 export type ComposeToolMode = '' | 'tc-base' | 'tc-programmatic' | 'tc-none';
+/** 浏览器档（实验性钮词汇；''=跟随 Agent tags browser-tier 抉择组） */
+export type ComposeBrowserTier = '' | 'observe' | 'manipulate' | 'inject' | 'disabled';
 
 /** 输入栏组合偏好（wire 形 = 持久形态；逐键可选） */
 export interface ComposePrefs {
@@ -47,6 +49,8 @@ export interface ComposePrefs {
    *  无显式键时回放并写入该会话——选择要落 conv-settings 才生效，见
    *  toolModeInherit.ts） */
   toolMode?: ComposeToolMode;
+  /** 上次浏览器档（''=跟随；新会话挂载回放并落该会话 conv-settings） */
+  browserTier?: ComposeBrowserTier;
 }
 
 /** 结构化 localStorage 面（jsdom/node 环境缺省 undefined——既有 try/catch 兜底） */
@@ -61,6 +65,7 @@ const KEY = 'agentchat.composePrefs';
 const EFFORTS = new Set<ComposeEffort>(['', 'low', 'high', 'max']);
 const ELEVATIONS = new Set<ComposeElevation>(['', 'sandbox-access', 'full-access']);
 const TOOL_MODES = new Set<ComposeToolMode>(['', 'tc-base', 'tc-programmatic', 'tc-none']);
+const BROWSER_TIERS = new Set<ComposeBrowserTier>(['', 'observe', 'manipulate', 'inject', 'disabled']);
 
 /** 读取组合偏好（无记录/损坏 → null：全部走各控件缺省值。
  *  agentId/model 的 '' 是合法记录值（明确选回默认）——带出供消费方
@@ -80,6 +85,7 @@ export function loadComposePrefs(): ComposePrefs | null {
     if (typeof v.effort === 'string' && EFFORTS.has(v.effort as ComposeEffort)) out.effort = v.effort as ComposeEffort;
     if (typeof v.elevation === 'string' && ELEVATIONS.has(v.elevation as ComposeElevation)) out.elevation = v.elevation as ComposeElevation;
     if (typeof v.toolMode === 'string' && TOOL_MODES.has(v.toolMode as ComposeToolMode)) out.toolMode = v.toolMode as ComposeToolMode;
+    if (typeof v.browserTier === 'string' && BROWSER_TIERS.has(v.browserTier as ComposeBrowserTier)) out.browserTier = v.browserTier as ComposeBrowserTier;
     return Object.keys(out).length > 0 ? out : null;
   } catch {
     return null; // 损坏/不可用：无偏好回放
@@ -106,6 +112,9 @@ export function saveComposePrefs(patch: ComposePrefs): void {
           break;
         case 'toolMode':
           if (typeof value === 'string' && TOOL_MODES.has(value as ComposeToolMode)) next.toolMode = value as ComposeToolMode;
+          break;
+        case 'browserTier':
+          if (typeof value === 'string' && BROWSER_TIERS.has(value as ComposeBrowserTier)) next.browserTier = value as ComposeBrowserTier;
           break;
         default:
           break; // 未知键忽略（wire 宽容）

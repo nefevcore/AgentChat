@@ -1,0 +1,24 @@
+{
+  "name": "ac-cdp-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome DevTools Protocol 直连纯库（ws 客户端/命令配对、浏览器发现与拉起、页面会话、感知索引、诊断环形缓冲）——零 cordis 依赖，不是插件行：browser owning 仍住 ac-web-tools",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

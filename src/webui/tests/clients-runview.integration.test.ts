@@ -23,6 +23,7 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
           call<T>(_method: string, _params?: unknown): Promise<T> {
             return Promise.reject(new Error('stub offline'));
           },
+          onEvent(_h: (type: string, args: unknown[]) => void): () => void { return () => {}; },
         });
       },
     });
@@ -56,6 +57,7 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
           call<T>(_method: string, _params?: unknown): Promise<T> {
             return Promise.reject(new Error('stub offline'));
           },
+          onEvent(_h: (type: string, args: unknown[]) => void): () => void { return () => {}; },
         });
       },
     });
@@ -83,6 +85,7 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
           call<T>(_method: string, _params?: unknown): Promise<T> {
             return Promise.reject(new Error('stub offline'));
           },
+          onEvent(_h: (type: string, args: unknown[]) => void): () => void { return () => {}; },
         });
       },
     });

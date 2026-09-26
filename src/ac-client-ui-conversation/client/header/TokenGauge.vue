@@ -101,35 +101,41 @@ watch(() => props.data.single?.id, () => { fetchTokenBaseline(true); tokenPanelO
 watch(() => chatStore.lastStepEndAt, () => { fetchTokenBaseline(); });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
 watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
-
+// 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
 const TOKEN_STATUS_LABEL: Record<SessionTokens['status'], string> = {
   low: '正常', moderate: '偏高', high: '接近上限', critical: '临界',
 };
+/** 重拉固定开销构成（系统提示/工具定义——打开面板/装配面变化时：人格/
+ *  记忆/生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid
+ *  装配）；single/direct 传会话键——后端按会话模式/浏览器档收窄生效集
+ * （程序化会话仅 run_code），估算与真实 run 的 LLM 可见面同口径 */
+function refetchOverhead() {
+  if (!props.data.agentId) return;
+  const convId = props.data.form === 'group'
+    ? props.data.conversationId
+    : props.data.single?.id ?? undefined;
+  // direct 不传 convId（后端按 viewer 对桶键推导——requestSystemPrompt 同口径）
+  if (convId) {
+    chatStore.requestSystemPrompt(props.data.agentId, { conversationId: convId });
+    chatStore.requestToolDefs(props.data.agentId, { conversationId: convId });
+  } else {
+    chatStore.requestSystemPrompt(props.data.agentId);
+    chatStore.requestToolDefs(props.data.agentId);
+  }
+}
 function toggleTokenPanel() {
   tokenPanelOpen.value = !tokenPanelOpen.value;
   if (tokenPanelOpen.value) {
-    // 懒加载固定开销构成（系统提示/工具定义——每次打开重取：人格/记忆/
-    // 生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid 装配）；
-    // single/direct 传会话键——后端按会话工具调用模式收窄生效集（程序化
-    // 会话仅 run_code），估算与真实 run 的 LLM 可见面同口径
-    if (props.data.agentId) {
-      const convId = props.data.form === 'group'
-        ? props.data.conversationId
-        : props.data.single?.id ?? undefined;
-      // 群形态带 gid（记忆桶/群共享记忆按 gid 装配）；single 传 sid；direct
-      // 不传（后端按 viewer 对桶键推导——requestSystemPrompt 同口径）
-      if (convId) {
-        chatStore.requestSystemPrompt(props.data.agentId, { conversationId: convId });
-        chatStore.requestToolDefs(props.data.agentId, { conversationId: convId });
-      } else {
-        chatStore.requestSystemPrompt(props.data.agentId);
-        chatStore.requestToolDefs(props.data.agentId);
-      }
-    }
+    refetchOverhead();
     // 点击外部关闭（gauge 点击带 .stop 不触达 document）
     setTimeout(() => document.addEventListener('click', closeTokenPanel, { once: true }), 0);
   }
 }
+// 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
+// 已变（工具 schema/SDK 投影块进/出）；面板开着则立即重拉固定开销构成
+watch(() => [chatStore.convToolMode, chatStore.convBrowserTier] as const, () => {
+  if (tokenPanelOpen.value) refetchOverhead();
+});
 function closeTokenPanel() { tokenPanelOpen.value = false; }
 
 // ── 固定开销（≈ 展示口径：与后端 ac-text-budget 同款字符估算）──

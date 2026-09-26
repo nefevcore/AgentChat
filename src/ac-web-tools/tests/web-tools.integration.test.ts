@@ -1,5 +1,9 @@
 // ============================================================
-// ac-web-tools：web_search（fetch 桩）+ browser（假守护进程）
+// ac-web-tools：web_search（fetch 桩）+ browser（fake CDP endpoint）
+//
+// browser 侧：RowOptions.cdpEndpoint 注入 FakeCdpServer（src/
+// ac-cdp-core/tests/fake-cdp.ts 复用）——旧「假守护进程」手法同构
+// 平移（2026-10 CDP 化，src/docs/browser-cdp-plan.md §8）。
 // ============================================================
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -8,44 +12,60 @@ import * as agentsRow from 'ac-agents';
 import * as configRow from 'ac-config';
 import * as credentialsRow from 'ac-credentials';
 import * as webRow from '../src/index.ts';
-import { resolveDaemonScriptArg } from '../src/browser.ts';
+import * as convSettingsRow from 'ac-conv-settings';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { FakeCdpServer } from 'ac-cdp-core/src/fake-cdp.ts';
 type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
 async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
   return (await ctx.tools.execute(call as never)) as ExecRes;
 }
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
+const servers: FakeCdpServer[] = [];
 
-/** 假守护进程：ready 握手 + 回显 ok 应答 */
-const FAKE_DAEMON = `
-process.stdout.write(JSON.stringify({status:'ready'}) + '\\n');
-const rl = require('readline').createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  try {
-    const cmd = JSON.parse(line);
-    process.stdout.write(JSON.stringify({ status: 'ok', action: cmd.action, echo: cmd }) + '\\n');
-  } catch {}
-});
-`;
+/** 编程好的 fake CDP：target/session 建链 + navigate/evaluate 应答 */
+function newFakeCdp(): FakeCdpServer {
+  const s = new FakeCdpServer();
+  s.handlers.set('Target.createTarget', () => ({ targetId: 't-1' }));
+  s.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sess-1' }));
+  s.handlers.set('Page.navigate', () => {
+    setTimeout(() => s.emit('Page.loadEventFired', {}, 'sess-1'), 10);
+    return { frameId: 'f-1' };
+  });
+  s.handlers.set('Runtime.evaluate', (p: Record<string, unknown>) => {
+    const expr = String(p.expression);
+    const v = expr.includes('location.href') ? 'https://example.com/'
+      : expr.includes('document.title') ? 'Example'
+      : expr.includes('scrollY') ? 600
+      : expr.includes('scrollHeight') ? 3000
+      : expr.includes("querySelector") ? null
+      : 2; // eval 1+1
+    return { result: { value: v } };
+  });
+  servers.push(s);
+  return s;
+}
 
 async function boot(options: Record<string, unknown> = {}) {
+  const server = newFakeCdp();
+  const port = await server.listen();
   const ctx = new Context();
   const fibers: Fiber[] = [];
   for (const [plugin, config] of [
     [toolsRow, undefined],
-    [webRow, { command: ['node', '-e', FAKE_DAEMON], timeoutMs: 5000, ...options }],
+    [webRow, { cdpEndpoint: `ws://127.0.0.1:${port}/devtools/browser/abc`, timeoutMs: 5000, idleTimeoutMs: 0, ...options }],
   ] as Array<[unknown, unknown]>) {
     const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
     await fiber;
     fibers.push(fiber);
   }
-  // 嵌套 Service fiber（BrowserService）就绪可能落后于行 fiber——轮询等服务面可用
   for (let i = 0; i < 1000; i++) {
     if ((ctx as any).tools && (ctx as any).browser) break;
     await new Promise((r) => setTimeout(r, 1));
   }
   booted.push({ ctx, fibers });
-  return { ctx, fibers };
+  return { ctx, fibers, server };
 }
 
 afterEach(async () => {
@@ -55,24 +75,7 @@ afterEach(async () => {
       if (fiber.uid !== null) await fiber.dispose();
     }
   }
-});
-
-describe('resolveDaemonScriptArg（相对脚本路径按 workspace 数据根解析；返回值为去可执行文件的 argv）', () => {
-  it('相对 .py 路径 → 拼数据根；绝对路径/无 root/无 .py 参数原样', () => {
-    // 绝对路径形态按平台取（'C:/x' 仅 win32 是绝对路径；posix 等价物 '/x'）
-    const absScript = process.platform === 'win32' ? 'C:/abs/daemon.py' : '/abs/daemon.py';
-    const root = process.platform === 'win32' ? 'C:\\data\\home' : '/data/home';
-    const args = resolveDaemonScriptArg(['python', 'files/shared/scripts/browser_daemon.py'], root);
-    expect(args).toHaveLength(1);
-    expect(args[0]).toMatch(/browser_daemon\.py$/);
-    expect(args[0]!.startsWith(root)).toBe(true);
-    // 绝对路径原样
-    expect(resolveDaemonScriptArg(['python', absScript], root)).toEqual([absScript]);
-    // root 缺省原样（调用方自行保证可解析）
-    expect(resolveDaemonScriptArg(['python', 'files/x.py'], undefined)).toEqual(['files/x.py']);
-    // 无 .py 参数的显式 command（测试注入）原样
-    expect(resolveDaemonScriptArg(['node', '-e', 'code'], root)).toEqual(['-e', 'code']);
-  });
+  for (const s of servers.splice(0)) await s.close();
 });
 
 describe('ac-web-tools web_search', () => {
@@ -92,13 +95,15 @@ describe('ac-web-tools web_search', () => {
 
   it('搜索引擎池接线：config.searchProviders default 条目供缺省 provider/参数/key（全局设置页控制）', async () => {
     // 带 config + credentials 行（池读 config.get；池 key 走 searchpool:<名> 全局凭据）
+    const server = newFakeCdp();
+    const port = await server.listen();
     const ctx = new Context();
     const fibers: Fiber[] = [];
     for (const [plugin, config] of [
       [configRow, undefined],
       [credentialsRow, undefined],
       [toolsRow, undefined],
-      [webRow, { command: ['node', '-e', FAKE_DAEMON], timeoutMs: 5000 }],
+      [webRow, { cdpEndpoint: `ws://127.0.0.1:${port}/devtools/browser/abc`, timeoutMs: 5000, idleTimeoutMs: 0 }],
     ] as Array<[unknown, unknown]>) {
       const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
       await fiber;
@@ -111,7 +116,7 @@ describe('ac-web-tools web_search', () => {
     booted.push({ ctx, fibers });
 
     ctx.config.set('searchProviders', { main: { provider: 'tavily', default: true, defaultResults: 3 } });
-    ctx.credentials.setGlobal('searchpool:main', 'tvly-pool');
+    ctx.credentials.setGlobal('searchpool:main', '***');
     const calls: Array<{ url: string; init: RequestInit }> = [];
     vi.stubGlobal(
       'fetch',
@@ -127,7 +132,7 @@ describe('ac-web-tools web_search', () => {
     expect(r.ok).toBe(true);
     expect(r.output.provider).toBe('tavily');
     expect(calls[0].url).toBe('https://api.tavily.com/search');
-    expect((calls[0].init.headers as Record<string, string>)['Authorization']).toBe('Bearer tvly-pool');
+    expect((calls[0].init.headers as Record<string, string>)['Authorization']).toBe('Bearer ***');
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({ query: 'hello', max_results: 3 });
   });
 
@@ -156,7 +161,7 @@ describe('ac-web-tools web_search', () => {
     const r = await exec(ctx, {
       name: 'web_search',
       args: { query: 'hello', max_results: 2 },
-      onProgress: (c: string) => progress.push(c),
+      onProgress: (c: string) => progress.push(c) as unknown as void,
     });
     expect(r.ok).toBe(true);
     expect(r.output.provider).toBe('tavily');
@@ -185,20 +190,104 @@ describe('ac-web-tools web_search', () => {
   });
 });
 
-describe('ac-web-tools browser（ctx.browser 守护进程）', () => {
-  it('send：ready 握手 + 命令应答；请求队列串行', async () => {
+describe('ac-web-tools browser（CDP 直连——fake endpoint）', () => {
+  it('open：导航 + href/title 回读 + marker 携带', async () => {
+    const { ctx, server } = await boot();
+    const r = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://example.com' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.url).toBe('https://example.com/');
+    expect(r.output.title).toBe('Example');
+    expect(typeof r.output.marker).toBe('number');
+    // 命令走 flat session
+    const nav = server.calls.find((c: { method: string }) => c.method === 'Page.navigate');
+    expect(nav?.sessionId).toBe('sess-1');
+  });
+
+  it('open 自动补协议：无 scheme → https://', async () => {
     const { ctx } = await boot();
-    expect(ctx.browser.running).toBe(false);
-    const r1 = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://example.com' } });
+    const r = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'example.com' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.url).toBe('https://example.com/');
+  });
+
+  it('eval：结果 JSON 序列化截断', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'browser', args: { action: 'eval', js: '1+1' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.result).toBe('2');
+  });
+
+  it('logs：诊断缓冲经 marker 取（console error + 失败请求）', async () => {
+    const { ctx, server } = await boot();
+    await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' } });
+    server.emit('Runtime.consoleAPICalled', { type: 'error', args: [{ value: 'boom' }] }, 'sess-1');
+    server.emit('Network.requestWillBeSent', { requestId: 'r9', request: { method: 'GET', url: 'https://a/x' }, type: 'XHR' }, 'sess-1');
+    server.emit('Network.loadingFailed', { requestId: 'r9', errorText: 'net::ERR_FAILED' }, 'sess-1');
+    await new Promise((r) => setTimeout(r, 50));
+    const r1 = await exec(ctx, { name: 'browser', args: { action: 'logs', kind: 'error' } });
     expect(r1.ok).toBe(true);
-    expect(ctx.browser.running).toBe(true);
-    // 并发命令经队列逐条应答
-    const [a, b] = await Promise.all([
-      ctx.browser.send({ action: 'content' }),
-      ctx.browser.send({ action: 'html' }),
-    ]);
-    expect(JSON.parse(a)).toMatchObject({ status: 'ok', action: 'content' });
-    expect(JSON.parse(b)).toMatchObject({ status: 'ok', action: 'html' });
+    expect(r1.output.console).toHaveLength(1);
+    expect(r1.output.console[0].text).toBe('boom');
+    expect(r1.output.network[0].error).toBe('net::ERR_FAILED');
+    // marker 语义：since = 当前 marker 后无新条目
+    const marker = r1.output.marker as number;
+    const r2 = await exec(ctx, { name: 'browser', args: { action: 'logs', kind: 'error', since: marker } });
+    expect(r2.output.console).toHaveLength(0);
+  });
+
+  it('response_body：pending 拒绝（loadingFinished 硬门槛）', async () => {
+    const { ctx, server } = await boot();
+    await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' } });
+    server.emit('Network.requestWillBeSent', { requestId: 'r1', request: { method: 'GET', url: 'https://a' } }, 'sess-1');
+    await new Promise((r) => setTimeout(r, 30));
+    const r1 = await exec(ctx, { name: 'browser', args: { action: 'response_body', requestId: 'r1' } });
+    expect(r1.ok).toBe(false);
+    expect(r1.error).toContain('尚未完成');
+  });
+
+  it('tabs：page 清单 + active 标记', async () => {
+    const { ctx, server } = await boot();
+    server.handlers.set('Target.getTargets', () => ({
+      targetInfos: [
+        { targetId: 't-1', type: 'page', title: 'Example', url: 'https://example.com/' },
+        { targetId: 't-2', type: 'page', title: 'Other', url: 'https://other/' },
+        { targetId: 't-3', type: 'background_page', title: 'bg', url: 'chrome://bg' },
+      ],
+    }));
+    const r = await exec(ctx, { name: 'browser', args: { action: 'tabs' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.tabs).toHaveLength(2);
+    expect(r.output.tabs[0]).toMatchObject({ active: true, title: 'Example' });
+  });
+
+  it('close 动作：会话关闭（再调用重新 boot）', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'browser', args: { action: 'close' } });
+    expect(r.ok).toBe(true);
+    expect(ctx.browser.running).toBe(false);
+    // 重新 boot（fake endpoint 恒在）
+    const r2 = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' } });
+    expect(r2.ok).toBe(true);
+  });
+
+  it('boot 失败拒绝式收束：endpoint 不可达 → 可读错误（C4 语义保留）', async () => {
+    // 动态取一个「已关闭」的端口（127.0.0.1 高位端口稳定拒绝，避免 9 端口平台差异）
+    const probe = new FakeCdpServer();
+    const deadPort = await probe.listen();
+    await probe.close();
+    const ctx = new Context();
+    const fiber0 = ctx.plugin(toolsRow as any);
+    const fiber = ctx.plugin(webRow as any, { cdpEndpoint: `ws://127.0.0.1:${deadPort}/devtools/browser/abc`, bootTimeoutMs: 1000, timeoutMs: 2000, idleTimeoutMs: 0 });
+    await fiber0; await fiber;
+    const fibers = [fiber0, fiber];
+    for (let i = 0; i < 1000; i++) {
+      if ((ctx as any).tools && (ctx as any).browser) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    booted.push({ ctx, fibers });
+    const r = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' } });
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/连接|超时|失败/);
   });
 
   it('steps 批量 + continue_on_error', async () => {
@@ -208,7 +297,7 @@ describe('ac-web-tools browser（ctx.browser 守护进程）', () => {
       args: {
         steps: [
           { action: 'open', url: 'https://a' },
-          { action: 'click', selector: '#x', repeat: 2, delay_ms: 5 },
+          { action: 'press', key: 'Enter', repeat: 2, delay_ms: 5 },
         ],
       },
     });
@@ -216,83 +305,27 @@ describe('ac-web-tools browser（ctx.browser 守护进程）', () => {
     expect(r.output.count).toBe(3);
   });
 
-  it('close 动作关闭守护进程；dispose 杀进程', async () => {
+  it('dispose：服务随行卸载注销（树杀/dispose 骨架保留）', async () => {
     const { ctx, fibers } = await boot();
     await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' } });
     expect(ctx.browser.running).toBe(true);
-    const r = await exec(ctx, { name: 'browser', args: { action: 'close' } });
-    expect(r.ok).toBe(true);
-    expect(ctx.browser.running).toBe(false);
-    // 重启再由 dispose 杀进程 + 注销服务
-    await ctx.browser.send({ action: 'open' });
     await fibers[1].dispose();
     await new Promise((res) => setTimeout(res, 200));
-    expect((ctx as any).browser).toBeUndefined(); // 服务随行卸载注销
-  });
-
-  // ---- C4（2026-08-31 审计）：boot 挂死 / FIFO 错位 / 失败当成功 ----
-
-  it('C4 回归：daemon 永不 ready → boot 超时拒绝式收束（不永久挂死）', async () => {
-    const { ctx } = await boot({
-      command: ['node', '-e', 'setInterval(() => {}, 60000);'], // 活着但不握手
-      bootTimeoutMs: 300,
-      timeoutMs: 5000,
-    });
-    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow(/握手超时/);
-    expect(ctx.browser.running).toBe(false);
-  });
-
-  it('C4 回归：spawn 失败 → send 可读错误（失败当成功 + EPIPE 不再）', async () => {
-    const { ctx } = await boot({ command: ['no-such-daemon-bin-xyz', '--flag'] });
-    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow(/启动失败/);
-    // 失败已收束：状态清干净，再次调用是重新 boot 而非对死 stdin 写
-    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow();
-  });
-
-  it('C4 回归：daemon 启动即退出 → send 拒绝（不再 resolve 假成功）', async () => {
-    const { ctx } = await boot({ command: ['node', '-e', 'process.exit(3);'] });
-    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow(/即退出/);
-  });
-
-  it('C4 回归：单命令超时 → kill 重置对齐（无错位 resolve；可重启恢复）', async () => {
-    const { ctx } = await boot({
-      command: ['node', '-e', `
-        process.stdout.write(JSON.stringify({status:'ready'}) + '\\n');
-        const rl = require('readline').createInterface({ input: process.stdin });
-        let stuck = false;
-        rl.on('line', (line) => {
-          const cmd = JSON.parse(line);
-          if (cmd.__slow) { stuck = true; return; } // 卡死命令：串行协议下后续命令全部悬置
-          if (stuck) return;
-          process.stdout.write(JSON.stringify({ status: 'ok', action: cmd.action }) + '\\n');
-        });
-      `],
-      timeoutMs: 400,
-    });
-    const [t1, t2] = await Promise.allSettled([
-      ctx.browser.send({ action: 'stuck', __slow: true }),
-      ctx.browser.send({ action: 'queued' }),
-    ]);
-    expect(t1.status).toBe('rejected');
-    expect((t1 as PromiseRejectedResult).reason.message).toMatch(/browser timeout/);
-    // 排队中的第二条一并失败（对齐重置）——而非晚到的错位应答
-    expect(t2.status).toBe('rejected');
-    expect(ctx.browser.running).toBe(false);
-    // 重置后：下次调用重新 boot，命令-应答对齐恢复
-    const ok = await ctx.browser.send({ action: 'open' });
-    expect(JSON.parse(ok)).toMatchObject({ status: 'ok', action: 'open' });
+    expect((ctx as any).browser).toBeUndefined();
   });
 });
 
 describe('ac-web-tools browser 分层门禁（web + observe/manipulate/inject）', () => {
   /** 带 agents 行的 boot（分层门禁需要标签注册表面；无 agents 恒放行） */
   async function bootWithAgents() {
+    const server = newFakeCdp();
+    const port = await server.listen();
     const ctx = new Context();
     const fibers: Fiber[] = [];
     for (const [plugin, config] of [
       [toolsRow, undefined],
       [agentsRow, undefined],
-      [webRow, { command: ['node', '-e', FAKE_DAEMON], timeoutMs: 5000 }],
+      [webRow, { cdpEndpoint: `ws://127.0.0.1:${port}/devtools/browser/abc`, timeoutMs: 5000, idleTimeoutMs: 0 }],
     ] as Array<[unknown, unknown]>) {
       const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
       await fiber;
@@ -306,12 +339,14 @@ describe('ac-web-tools browser 分层门禁（web + observe/manipulate/inject）
     return { ctx, fibers };
   }
 
-  it('observe 层级：open/content 放行；click 需 manipulate、eval 需 inject（错误指名层级）', async () => {
+  it('observe 层级：open/read/logs 放行；click 需 manipulate、eval 需 inject（错误指名层级）', async () => {
     const { ctx } = await bootWithAgents();
     ctx.agents.register({ id: 'surfer', model: 'm', tags: ['web', 'observe'] });
     const open = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' }, agentId: 'surfer' });
     expect(open.ok).toBe(true);
-    const click = await exec(ctx, { name: 'browser', args: { action: 'click', selector: '#x' }, agentId: 'surfer' });
+    const logs = await exec(ctx, { name: 'browser', args: { action: 'logs' }, agentId: 'surfer' });
+    expect(logs.ok).toBe(true);
+    const click = await exec(ctx, { name: 'browser', args: { action: 'click', ref: 1 }, agentId: 'surfer' });
     expect(click.ok).toBe(false);
     expect(click.error).toContain('manipulate');
     const ev = await exec(ctx, { name: 'browser', args: { action: 'eval', js: '1' }, agentId: 'surfer' });
@@ -334,7 +369,7 @@ describe('ac-web-tools browser 分层门禁（web + observe/manipulate/inject）
   it('层级嵌套：manipulate 可 click 不可 eval；inject 全放行', async () => {
     const { ctx } = await bootWithAgents();
     ctx.agents.register({ id: 'actor', model: 'm', tags: ['web', 'manipulate'] });
-    const click = await exec(ctx, { name: 'browser', args: { action: 'click', selector: '#x' }, agentId: 'actor' });
+    const click = await exec(ctx, { name: 'browser', args: { action: 'press', key: 'Enter' }, agentId: 'actor' });
     expect(click.ok).toBe(true);
     const ev = await exec(ctx, { name: 'browser', args: { action: 'eval', js: '1' }, agentId: 'actor' });
     expect(ev.ok).toBe(false);
@@ -345,7 +380,7 @@ describe('ac-web-tools browser 分层门禁（web + observe/manipulate/inject）
 
   it('无身份（agents 在场）：门禁适用（tier 0 全拦）', async () => {
     const { ctx } = await bootWithAgents();
-    const anon = await exec(ctx, { name: 'browser', args: { action: 'content' } });
+    const anon = await exec(ctx, { name: 'browser', args: { action: 'read' } });
     expect(anon.ok).toBe(false);
     expect(anon.error).toContain('observe');
   });
@@ -353,7 +388,76 @@ describe('ac-web-tools browser 分层门禁（web + observe/manipulate/inject）
   it('能力集同源：capabilities 覆盖层已删除——存量值不再计入层级（回归锁定）', async () => {
     const { ctx } = await bootWithAgents();
     ctx.agents.register({ id: 'legacy', model: 'm', settings: { security: { capabilities: ['manipulate'] } } });
-    const click = await exec(ctx, { name: 'browser', args: { action: 'click', selector: '#x' }, agentId: 'legacy' });
+    const click = await exec(ctx, { name: 'browser', args: { action: 'press', key: 'Enter' }, agentId: 'legacy' });
     expect(click.ok).toBe(false); // 能力授权单源 = tags（access-tier §9.4）
+  });
+
+  // ---- 会话级浏览器档（conv-settings browserTier——「实验性 → 浏览器」钮）----
+
+  /** 带 agents + conv-settings 行的 boot（会话覆盖消费面） */
+  async function bootWithConvSettings() {
+    const server = newFakeCdp();
+    const port = await server.listen();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    for (const [plugin, config] of [
+      [toolsRow, undefined],
+      [agentsRow, undefined],
+      [convSettingsRow, { root: path.join(os.tmpdir(), `ac-cs-${Date.now().toString(36)}`) }],
+      [webRow, { cdpEndpoint: `ws://127.0.0.1:${port}/devtools/browser/abc`, timeoutMs: 5000, idleTimeoutMs: 0 }],
+    ] as Array<[unknown, unknown]>) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    for (let i = 0; i < 1000; i++) {
+      if ((ctx as any).tools && (ctx as any).browser && (ctx as any).agents && (ctx as any).convSettings) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('browserTier 会话覆盖：observe Agent 会话提权 manipulate → click 放行', async () => {
+    const { ctx } = await bootWithConvSettings();
+    ctx.agents.register({ id: 'reader', model: 'm', tags: ['web', 'observe'] });
+    // 基线：tags 档 click 被拦
+    const before = await exec(ctx, { name: 'browser', args: { action: 'press', key: 'Enter' }, agentId: 'reader', conversationId: 'user~reader' });
+    expect(before.ok).toBe(false);
+    // 会话覆盖 manipulate → 同一会话放行
+    ctx.convSettings.set('user~reader', { browserTier: 'manipulate' });
+    const after = await exec(ctx, { name: 'browser', args: { action: 'press', key: 'Enter' }, agentId: 'reader', conversationId: 'user~reader' });
+    expect(after.ok).toBe(true);
+    // 其他会话不受影响（无覆盖回落 tags）
+    ctx.agents.register({ id: 'reader2', model: 'm', tags: ['web', 'observe'] });
+    const other = await exec(ctx, { name: 'browser', args: { action: 'press', key: 'Enter' }, agentId: 'reader2', conversationId: 'user~reader2' });
+    expect(other.ok).toBe(false);
+  });
+
+  it('browserTier 可见性通路：无 tags Agent + 会话授权 → browser 进 LLM 工具面（sessionCapsOf 注入 grants）', async () => {
+    const { ctx } = await bootWithConvSettings();
+    // 无任何 tags 的 Agent（默认预设形态）——browser requiredTags ['web','observe'] 原不可见
+    ctx.agents.register({ id: 'plain', model: 'm', tags: [] });
+    // 无会话授权：工具面无 browser
+    const toolsFace = (convId?: string) =>
+      ctx.tools.list().filter((t) => {
+        const { sessionCapsOf, toolAllowedFor } = require('ac-agents') as typeof import('ac-agents');
+        return t.injection !== 'mode' && toolAllowedFor(t, sessionCapsOf(ctx, 'plain', convId));
+      }).map((t) => t.name);
+    expect(toolsFace('user~plain')).not.toContain('browser');
+    // 会话授权 observe → browser 可见（等效注入 web+observe）
+    ctx.convSettings.set('user~plain', { browserTier: 'observe' });
+    expect(toolsFace('user~plain')).toContain('browser');
+    // 其他会话不受影响
+    expect(toolsFace('user~other')).not.toContain('browser');
+  });
+
+  it('browserTier=disabled：inject Agent 也被拦（会话级禁用优先于一切）', async () => {
+    const { ctx } = await bootWithConvSettings();
+    ctx.agents.register({ id: 'pwner', model: 'm', tags: ['web', 'inject'] });
+    ctx.convSettings.set('user~pwner', { browserTier: 'disabled' });
+    const r = await exec(ctx, { name: 'browser', args: { action: 'open', url: 'https://a' }, agentId: 'pwner', conversationId: 'user~pwner' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('已被本会话禁用');
   });
 });

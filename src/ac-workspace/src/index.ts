@@ -39,8 +39,6 @@ export interface WorkspaceRowOptions {
   admin?: WorkspaceAdminOptions;
   /** 首启自我介绍（缺省内置文案；空串 = 关闭） */
   intro?: string;
-  /** browser 守护脚本分发（缺省开启；false = 关闭） */
-  browserDaemon?: boolean;
 }
 
 /** 默认首启消息（src 艾吉文案适配 preview 形态） */
@@ -52,8 +50,6 @@ const DEFAULT_INTRO =
   '3. 配置完成后回来找我，我会带新 Agent 跟你打招呼。\n' +
   '期待与你一起把工作区经营得热闹起来！';
 
-/** 包内 browser 守护脚本（分发源） */
-const BROWSER_DAEMON_SRC = fileURLToPath(new URL('../files/browser_daemon.py', import.meta.url));
 
 export class WorkspaceService extends Service {
   /**
@@ -87,8 +83,6 @@ export class WorkspaceService extends Service {
     fs.mkdirSync(this.root, { recursive: true });
     fs.mkdirSync(path.join(this.root, 'files', 'shared', 'scripts'), { recursive: true });
 
-    // 2) browser 守护脚本分发（M11 缺口：ac-web-tools scriptPath 指向此处）
-    if (options.browserDaemon !== false) this.distributeBrowserDaemon();
 
     // 3) 默认 user（virtual）+ admin（可选）= 数据 register
     this.ensureUser();
@@ -129,17 +123,6 @@ export class WorkspaceService extends Service {
     );
   }
 
-  /** browser 守护脚本分发（存在即跳过；源缺失告警不阻塞） */
-  private distributeBrowserDaemon(): void {
-    const dest = path.join(this.root, 'files', 'shared', 'scripts', 'browser_daemon.py');
-    if (fs.existsSync(dest)) return;
-    try {
-      fs.copyFileSync(BROWSER_DAEMON_SRC, dest);
-      this.ctx.logger.info('[workspace] 已分发 browser 守护脚本: %C', dest);
-    } catch {
-      this.ctx.logger.warn('[workspace] browser 守护脚本分发失败（源缺失或不可读）');
-    }
-  }
 
   /** 默认 user（virtual）：store 持久化 + 注册表物化 */
   private ensureUser(): void {
