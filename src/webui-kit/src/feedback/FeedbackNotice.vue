@@ -1,4 +1,4 @@
-<!-- FeedbackNotice.vue —— 语义反馈条（tone 状态 → 图标/配色派生）
+<!-- webui-kit/src/feedback/FeedbackNotice.vue —— 语义反馈条（tone 状态 → 图标/配色派生）
   语义控件化：文案只承载文本，成功/失败/提示由 tone 表达（替代文案内嵌
   emoji 前缀的旧形态——形态与文本解耦，主题/读屏/复用三受益）。
     · ok    成功终态（check-circle，success 色）
@@ -9,7 +9,7 @@
   （空间受限的角落提示）。定位（absolute 等）由调用方 class 叠加。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import Icon from './Icon.vue';
+import Icon from '../base/Icon.vue';
 
 const props = withDefaults(defineProps<{
   /** 反馈文案（空 = 不渲染；外层 v-if 亦可） */

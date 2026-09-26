@@ -1,5 +1,5 @@
 <!--
-  ui/Avatar.vue —— 基础头像（图片 / 图标回退 / 首字回退）
+  webui-kit/src/base/Avatar.vue —— 基础头像（图片 / 图标回退 / 首字回退）
   shape: circle（星群风格，默认）/ square
   fallbackIcon: 无图（或图挂）时渲染的图标名（见 ui/icons.ts）——小尺寸下
   首字不可读，用图标做默认头像（如 bot）；未提供则回退首字。

@@ -1,5 +1,5 @@
 <!--
-  ui/Tooltip.vue —— 轻量提示（CSS hover）
+  webui-kit/src/base/Tooltip.vue —— 轻量提示（CSS hover）
   用法：<Tooltip text="发送"> <Icon name="send" /> </Tooltip>
 -->
 <script setup lang="ts">

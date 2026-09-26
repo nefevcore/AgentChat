@@ -1,5 +1,5 @@
 <!-- ============================================================
-     ui/RingProgress.vue —— 环形进度条（SVG 圆环）
+     webui-kit/src/base/RingProgress.vue —— 环形进度条（SVG 圆环）
      进度弧自 12 点方向顺时针增长；中心内容经默认插槽注入（如百分比文字）。
      颜色 tone 复用 Token 仪表盘语义色（low/moderate/high/critical），
      空值 = 主题主色。

@@ -1,7 +1,7 @@
 /* ============================================================
-   ui/tokens.css —— L0 设计令牌（Design Tokens）
+   webui-kit/src/base/tokens.css —— L0 设计令牌（Design Tokens）
    星群 × 工坊 · 双主题：深空 Nebula（默认）/ 晨曦 Aurora
-   设计规范：docs/webui-design-system.md §3-§6
+   风格规范与逐组件对照表：.dsh/skills/webui-kit-style/SKILL.md（§ 令牌）
 
    约定：
    - 所有 UI 库组件只引用本文件的变量，禁止硬编码色值

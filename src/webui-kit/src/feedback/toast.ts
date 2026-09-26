@@ -1,5 +1,5 @@
 // ============================================================
-// toast.ts —— 全局 Toast 命令式原语（模块级单例栈）
+// webui-kit/src/feedback/toast.ts —— 全局 Toast 命令式原语（模块级单例栈）
 //
 // 定位（webui-slot-tree ⑥ global 候选 global:toast 的原语半件）：
 //   全 UI 唯一瞬时反馈通道。此前各面板自制十几套「ref + setTimeout

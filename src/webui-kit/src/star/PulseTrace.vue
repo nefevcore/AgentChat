@@ -1,5 +1,5 @@
 <!--
-  ui/PulseTrace.vue —— 思维链脉冲轨迹（折叠容器）
+  webui-kit/src/star/PulseTrace.vue —— 思维链脉冲轨迹（折叠容器）
   工坊语言：渐变脉冲线 + 流光（streaming）+ 星色。
   用法：
   <PulseTrace title="思考过程" meta="共 3 步 · 12s" :color="starColor" :streaming="running">

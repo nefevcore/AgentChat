@@ -1,5 +1,5 @@
 <!--
-  ui/StatusDot.vue —— 状态灯（工坊语言）
+  webui-kit/src/base/StatusDot.vue —— 状态灯（工坊语言）
   status: thinking（琥珀·呼吸）/ running（靛蓝·呼吸）/ idle / ok（绿）/ err（红）/ offline（灰）
   原则：状态必须文字+颜色双重表达（红绿色盲友好），本组件仅视觉点。
 -->

@@ -1,5 +1,5 @@
 <!--
-  ui/Button.vue —— 基础按钮（令牌驱动，双主题自适应）
+  webui-kit/src/base/Button.vue —— 基础按钮（令牌驱动，双主题自适应）
   variant: primary（渐变发光）/ soft（浅色底）/ ghost（透明）/ danger
   size: sm / md
 -->

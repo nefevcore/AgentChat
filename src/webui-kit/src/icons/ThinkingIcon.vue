@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// ui/ThinkingIcon.vue —— AgentChat 专属「思维链」图标
+// webui-kit/src/icons/ThinkingIcon.vue —— AgentChat 专属「思维链」图标
 //
 // 设计：脑电波式波浪折线 + 节点链（避开对称 V 形的"箭头"观感）：
 //       · 波浪折线 = 思维活动 / 思考过程（脑电波隐喻）

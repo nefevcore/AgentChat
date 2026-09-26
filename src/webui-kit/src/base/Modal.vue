@@ -1,5 +1,5 @@
 <!--
-  ui/Modal.vue —— 基础弹窗（Teleport + 遮罩 + ESC 关闭）
+  webui-kit/src/base/Modal.vue —— 基础弹窗（Teleport + 遮罩 + ESC 关闭）
   用法：<Modal :visible="show" title="标题" @close="show = false">...</Modal>
 -->
 <script setup lang="ts">

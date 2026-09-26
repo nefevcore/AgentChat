@@ -1,4 +1,4 @@
-<!-- ToastHost.vue —— 全局 Toast 栈渲染半件（AppFrame 挂载一次）
+<!-- webui-kit/src/feedback/ToastHost.vue —— 全局 Toast 栈渲染半件（AppFrame 挂载一次）
   消费 toast.ts 单例栈：右下角浮层栈。图标/配色按 tone 派生（与
   FeedbackNotice 同轴：ok=check-circle/success · error=alert-circle/
   error · info=info/弱化 · busy=loader-circle 旋转/primary）。hover
@@ -7,7 +7,7 @@
   全局反馈须对任何面板可见，但不与全屏预览/菜单抢顶层。 -->
 <script setup lang="ts">
 import { toasts, dismissToast, pauseToast, resumeToast } from './toast.ts';
-import Icon from './Icon.vue';
+import Icon from '../base/Icon.vue';
 
 const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', busy: 'loader-circle' } as const;
 </script>

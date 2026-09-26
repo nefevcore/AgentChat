@@ -1,5 +1,5 @@
 <!--
-  ui/StarAvatar.vue —— 扁平头像（中性化；保留身份色首字底色，无光晕/呼吸）
+  webui-kit/src/star/StarAvatar.vue —— 扁平头像（中性化；保留身份色首字底色，无光晕/呼吸）
   用法：<StarAvatar :src="avatar" :name="name" :color="idColor" fallback-icon="bot" />
 
   running=true 时在头像外圈显示「不断流转的有色线条」光环（Agent 正在回复）：
@@ -16,7 +16,7 @@ let gidSeed = 0;
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import Avatar from './Avatar.vue';
+import Avatar from '../base/Avatar.vue';
 
 const props = withDefaults(defineProps<{
   src?: string | null;

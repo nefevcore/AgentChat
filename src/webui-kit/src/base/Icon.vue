@@ -1,11 +1,11 @@
 <!--
-  ui/Icon.vue —— 统一图标组件
+  webui-kit/src/base/Icon.vue —— 统一图标组件
   用法：<Icon name="send" :size="16" />
   图标名见 ui/icons.ts；未注册自动兜底为 info。
 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import { resolveIcon } from './icons';
+import { resolveIcon } from '../icons/icons.ts';
 
 const props = withDefaults(defineProps<{
   name: string;

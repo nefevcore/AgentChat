@@ -1,5 +1,5 @@
 <!--
-  ui/StarCard.vue —— 星卡（会话列表项容器）
+  webui-kit/src/star/StarCard.vue —— 星卡（会话列表项容器）
   选中态：星色描边 + 微光；用法包任意内容。
   <StarCard :selected="active" :color="starColor"> ... </StarCard>
 -->
