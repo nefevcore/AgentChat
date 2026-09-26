@@ -301,6 +301,14 @@ SQLite/seek 后端与投影检查点缓存（单机个人规模无查询压力�
 `runAddress(agent, conversationId)`：同一会话同一 Agent 至多一个 run；
 忙时 steer 注入 / next-run 等闲 / next-turn 链跑（MAX_AUTO_WAKES=3 防自激）。
 
+> **timer 会话维度增量（2026-12）**：条目带 `conversationId`（timer
+> 工具 set 时从执行身份 `call.conversationId` 烘焙）时，触发回投该会话
+> 桶（独立会话 sid / 对桶 / 群 id 皆可），`sender='user'`——与用户直答
+> 同键（memoryBucketOf 把 sid 桶记忆锚到 pairKey(agent,'user') 对桶，
+> 入账/投递键一致）。缺省保持 D2 原语义（自会话对角线，sender=目标
+> 自身）。目标会话消亡（独立会话归档/移除、群解散）→ 跳过本轮不计数
+> （fire 慢通道，activeHours 同款形态）。
+
 ### 4.2 上下文视图 = 按读者的派生投影【设计，M21 步骤 2；**2026-11 增量层退役**】
 
 > **退役裁决（2026-09-23 事故根因消除）**：本节原设计的事件驱动增量

@@ -452,6 +452,25 @@ export class TimersService extends Service {
       const tz = this.tzOf(owner);
       const holidays = this.holidaysOf(owner);
       const nextMs = () => (entry.time ? msUntilTime(entry.time, new Date(), tz) : null);
+      // 慢通道跳过（消亡/窗口外/gate 拦截）后的重排延迟：日历重算目标时刻，
+      // delay/random 回整周期（不计数 = 周期完整重来）
+      const nextCycleDelay = () =>
+        isCalendar(entry.mode)
+          ? nextMs()
+          : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax);
+      // 目标会话消亡门控（2026-12 会话维度定时）：条目带着已不存在的会话键
+      // 回投，deliver 会把提醒写进无人消费的孤儿桶（sessions/<sid>/ 文件
+      // 复活）。独立会话归档/移除、群解散是持久事实——与 activeHours 同款
+      // 慢通道形态：跳过本轮不计数，重排下一周期（会话可能重建/恢复）。
+      if (!this.conversationAlive(entry)) {
+        this.ctx.logger.info(
+          '[timers] "%C" 目标会话 %C 已不存在（独立会话归档/移除或群解散），跳过本轮',
+          key,
+          entry.conversationId ?? '',
+        );
+        if (stillArmed()) scheduleNext(nextCycleDelay());
+        return;
+      }
       // 日历门控：workday/holiday 非目标日 → 不触发不计数，重排下一窗口
       if (entry.mode === 'workday' && !holidays.isWorkday()) {
         if (stillArmed()) scheduleNext(nextMs());
@@ -475,13 +494,7 @@ export class TimersService extends Service {
           key,
           entry.activeHours,
         );
-        if (stillArmed()) {
-          scheduleNext(
-            isCalendar(entry.mode)
-              ? nextMs()
-              : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax),
-          );
-        }
+        if (stillArmed()) scheduleNext(nextCycleDelay());
         return;
       }
 
@@ -489,13 +502,7 @@ export class TimersService extends Service {
       // 预检启动失败/超时 = fail-open（不挡正常触发）。静默判定前置到
       // 唤醒 LLM 之前——"quiet" 判定不再消耗任何 token。
       if (entry.gate && !(await this.runGate(key, owner, entry.gate))) {
-        if (stillArmed()) {
-          scheduleNext(
-            isCalendar(entry.mode)
-              ? nextMs()
-              : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax),
-          );
-        }
+        if (stillArmed()) scheduleNext(nextCycleDelay());
         return;
       }
 
@@ -646,6 +653,34 @@ export class TimersService extends Service {
     });
   }
 
+  /**
+   * 条目 conversationId 的目标会话是否仍活跃（2026-12 会话维度定时）。
+   * 键形判据（对桶模型的键词汇）：含 '~' = 对桶（pairKey/对角线，无
+   * 生命周期语义）→ 恒存活；无 '~' = 独立会话 sid（uuid）或群 id →
+   * singles 注册表（active 且未归档/移除）/ group 拓扑。服务未装 =
+   * 无法证死 → 放行（fail-open，软依赖不挡触发）。
+   */
+  private conversationAlive(entry: TimerEntry): boolean {
+    const cid = entry.conversationId;
+    if (!cid || cid.includes('~') || entry.task !== undefined) return true;
+    const singles = this.ctx.get('singles', false) as
+      | { get(id: string): { status?: string } | null | undefined }
+      | undefined;
+    if (singles) {
+      const single = singles.get(cid);
+      if (single != null) return single.status !== 'archived';
+    }
+    const group = this.ctx.get('group', false) as
+      | { get(id: string): unknown }
+      | undefined;
+    if (group && group.get(cid) !== undefined) return true;
+    // 注册表均未装 = 无法证死 → 放行（fail-open；宿主出厂恒装两行，
+    // 判死路径只在注册表可查时生效）
+    if (!singles && !group) return true;
+    // 查过注册表而不命中：已删除的 sid/已解散群——判定消亡
+    return false;
+  }
+
   private async fireEntry(owner: string, entry: TimerEntry, key = `${owner}/${entry.id}`): Promise<void> {
     try {
       // 机制任务：直调服务方法，不过 LLM（规约 3）
@@ -696,15 +731,23 @@ export class TimersService extends Service {
           : [owner];
       for (const target of targets) {
         if (!this.ctx.agents.has(target)) continue;
-        // M19/D2：定时触发（个人自触发与全局条目同规）归 Agent 自会话桶
-        // pairKey(target, target)（对角线）——sender = 目标自身（自会话
-        // 语义），source='event'（机制触发）。与用户直答对桶
-        // pairKey(viewer, target) 分离，定时自唤醒消息不混进用户对话流。
-        const convId = `${target}~${target}`;
+        // 会话键优先序（2026-12 会话维度定时）：
+        //   1) entry.conversationId——用户设提醒时所在会话（timer 工具
+        //      从执行身份烘焙）。sender='user'：投递目标 Agent = 该会话
+        //      引用的 Agent（memoryBucketOf 据此把记忆锚到
+        //      pairKey(target,'user') 对桶——与用户直答同键，提醒接上
+        //      用户视线内的会话语境；sender='event'/target 会使 sid 桶
+        //      锚到永远空的对角线桶）。
+        //   2) M19/D2 原语义：自会话桶 pairKey(target, target)（对角线）
+        //      ——sender = 目标自身（自会话语义），source='event'。
+        //      与用户直答对桶 pairKey(viewer, target) 分离，定时自唤醒
+        //      消息不混进用户对话流。
+        const convId = entry.conversationId ?? `${target}~${target}`;
+        const sender = entry.conversationId ? 'user' : target;
         const history = await this.seedHistory(convId, target);
         void conversation
           .deliver(target, hint, {
-            sender: target,
+            sender,
             source: 'event',
             conversationId: convId,
             ...(history ? { history } : {}),

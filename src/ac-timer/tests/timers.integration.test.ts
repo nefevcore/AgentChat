@@ -30,8 +30,8 @@ function tmpRoot(): string {
 }
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
-/** router/message-received 捕获（[content, conversationId]） */
-const received: Array<{ content: string; conversationId: string }> = [];
+/** router/message-received 捕获（[content, conversationId, sender]） */
+const received: Array<{ content: string; conversationId: string; sender: string }> = [];
 
 /** 机制任务 mock：ctx.archive */
 let archiveCalls = 0;
@@ -46,9 +46,23 @@ class FakeArchiveService extends Service {
   }
 }
 
+/** 独立会话注册表 mock：ctx.singles（sid → status；null = 未注册） */
+const fakeSingles = new Map<string, { status: string } | null>();
+
+class FakeSinglesService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'singles');
+  }
+  get(id: string): { status?: string } | null {
+    const hit = fakeSingles.get(id);
+    return hit === undefined ? null : hit;
+  }
+}
+
 async function boot(root: string, config: Record<string, unknown> = {}) {
   received.length = 0;
   archiveCalls = 0;
+  fakeSingles.clear();
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows = [
@@ -78,6 +92,7 @@ async function boot(root: string, config: Record<string, unknown> = {}) {
     routerRow,
     conversationRow,
     FakeArchiveService as unknown as Record<string, unknown>,
+    FakeSinglesService as unknown as Record<string, unknown>,
     timersRow,
   ];
   const configs: Record<string, unknown> = {
@@ -97,8 +112,8 @@ async function boot(root: string, config: Record<string, unknown> = {}) {
     await new Promise((r) => setTimeout(r, 1));
   }
   ctx.agents.register({ id: 'a', model: 'mock-1' });
-  ctx.on('router/message-received', (_agentId, message, conversationId) => {
-    received.push({ content: message.content, conversationId });
+  ctx.on('router/message-received', (_agentId, message, conversationId, sender) => {
+    received.push({ content: message.content, conversationId, sender: sender ?? '' });
   });
   booted.push({ ctx, fibers });
   return { ctx, fibers };
@@ -360,4 +375,44 @@ describe('ac-timer 排程与触发', () => {
     const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8'));
     expect(state['a/cal1']?.executedCount).toBe(5);
   }, 15_000);
+
+  it('会话维度条目（conversationId=独立会话 sid）→ 提醒回投该会话桶（sender=user）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    fakeSingles.set('sid-1', { status: 'active' }); // 注册表命中：独立会话存续
+    ctx.timers.save('a', [
+      { id: 's1', enabled: true, mode: 'delay', delay: '30ms', hint: '回投独立会话', conversationId: 'sid-1' },
+    ]);
+    await until(() => received.length > 0);
+    expect(received[0].conversationId).toBe('sid-1'); // 回投用户设提醒的会话
+    expect(received[0].sender).toBe('user'); // 用户直答语义（记忆/入账同键）
+  });
+
+  it('对桶键（含 ~）恒投递：conversationId=user~a → 回投该对桶', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.timers.save('a', [
+      { id: 'p1', enabled: true, mode: 'delay', delay: '30ms', hint: '回投对桶', conversationId: 'user~a' },
+    ]);
+    await until(() => received.length > 0);
+    expect(received[0].conversationId).toBe('user~a');
+    expect(received[0].sender).toBe('user');
+  });
+
+  it('目标会话消亡（sid 已从注册表移除/归档）→ 跳过本轮不计数', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 未注册（已删除的 sid）与 archived 各一
+    ctx.timers.save('a', [
+      { id: 'd1', enabled: true, mode: 'delay', delay: '30ms', hint: '孤儿', conversationId: 'ghost-sid', repeatCount: 1 },
+      { id: 'd2', enabled: true, mode: 'delay', delay: '30ms', hint: '已归档', conversationId: 'sid-old', repeatCount: 1 },
+    ]);
+    fakeSingles.set('sid-old', { status: 'archived' });
+    await new Promise((r) => setTimeout(r, 500));
+    expect(received.filter((x) => x.content === '孤儿' || x.content === '已归档')).toHaveLength(0); // 不投递
+    const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8'));
+    expect(state['a/d1']?.executedCount ?? 0).toBe(0); // 不计数
+    expect(state['a/d2']?.executedCount ?? 0).toBe(0);
+    expect(ctx.timers.entries('a')).toHaveLength(2); // 条目仍在册：重排下一周期（未触发不归档）
+  });
 });

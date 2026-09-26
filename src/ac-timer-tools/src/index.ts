@@ -4,7 +4,10 @@
 // src svc/timer/src/tool.ts 平移（M15 对账补齐：服务链路 M12 已就绪、
 // LLM 工具面此前缺失——用户无法通过对话创建/管理定时任务）。
 // 形态差异：src 经 ToolContext.timer 注入 → preview inject ['timers']；
-// owner 从 config.agent_id 烘焙 → call.agentId 执行身份（M11）。
+// owner 从 config.agent_id 烘焙 → call.agentId 执行身份（M11）；
+// 会话键从执行身份烘焙（2026-12 会话维度定时）：set 时把
+// call.conversationId 存进条目——用户在哪个会话设的提醒就回哪个会话
+//（独立会话/对桶/群皆可），缺省回落 Agent 自会话（M19/D2 原语义）。
 // 单一 timer 工具 + action 枚举（src 合并语义原样：同一对象的生命
 // 周期操作拆三工具徒增 LLM 心智负担）。
 // ============================================================
@@ -44,7 +47,7 @@ export function apply(ctx: Context) {
     name: 'timer',
     requiredTags: ['infra'],
     description:
-      '管理定时任务：set 创建/修改、list 查看、disable 禁用。模式：delay 固定间隔 / random 随机间隔 / time 每天定点 / workday 工作日 / holiday 节假日；repeat_count=0 永久重复，N 次后自动归档。',
+      '管理定时任务：set 创建/修改、list 查看、disable 禁用。模式：delay 固定间隔 / random 随机间隔 / time 每天定点 / workday 工作日 / holiday 节假日；repeat_count=0 永久重复，N 次后自动归档。提醒默认发到当前会话（用户在哪里设置的就在哪里收到）。',
     parameters: {
       type: 'object',
       properties: {
@@ -57,7 +60,7 @@ export function apply(ctx: Context) {
         time: { type: 'string', description: '[set] 触发时刻（如 08:00 或 2026-07-27 14:30）' },
         repeat_count: { type: 'number', description: '[set] 重复次数（0 = 永久）', minimum: 0 },
         hint: { type: 'string', description: '[set] 触发时发给 Agent 的提示' },
-        target: { type: 'string', description: '[set] 发送目标（逗号分隔；per-Agent 条目仅本人，忽略此参数）' },
+        target: { type: 'string', description: '[set] 发送目标（逗号分隔 agent id，仅全局条目有效；per-Agent 条目触发回当前会话，忽略此参数）' },
         active_hours: { type: 'string', description: '[set] 活动窗口（HH:mm-HH:mm，如 06:30-23:30；跨午夜写 22:00-06:00）——窗口外的到点触发不唤醒 Agent（调度层静默，零 token）' },
         gate: { type: 'string', description: '[set] 预检门命令——触发前先执行，退出码非 0 则跳过本轮（不唤醒不计数）；命令失败/超时不拦截（fail-open）。适合把静默判定前置到唤醒之前' },
       },
@@ -83,6 +86,7 @@ export function apply(ctx: Context) {
               mode: e.mode,
               label: entryLabel(e),
               hint: e.hint,
+              ...(e.conversationId ? { conversation: e.conversationId } : {}),
             })),
           },
         };
@@ -122,6 +126,9 @@ export function apply(ctx: Context) {
           mode,
           ...(Number.isFinite(repeatRaw) && repeatRaw > 0 ? { repeatCount: Math.floor(repeatRaw) } : {}),
           hint,
+          // 会话键烘焙（2026-12）：用户设提醒时所在会话——触发时提醒回投
+          // 本会话；缺省（无会话上下文，如自会话机制 run）回落自会话桶。
+          ...(call.conversationId ? { conversationId: call.conversationId } : {}),
           ...(typeof args.target === 'string' && args.target.trim() ? { target: args.target.trim() } : {}),
           ...(typeof args.active_hours === 'string' && args.active_hours.trim() ? { activeHours: args.active_hours.trim() } : {}),
           ...(typeof args.gate === 'string' && args.gate.trim() ? { gate: args.gate.trim() } : {}),

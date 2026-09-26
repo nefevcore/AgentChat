@@ -138,4 +138,30 @@ describe('ac-timer-tools：timer 工具三 action', () => {
     expect(r.ok).toBe(false);
     expect(r.error).toContain('执行身份');
   });
+
+  it('set 烘焙会话键（call.conversationId → entry.conversationId）；list 带回；无会话上下文缺省', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 独立会话 sid：工具执行身份带 sid → 条目存 sid
+    const set1 = await ctx.tools.execute({
+      name: 'timer',
+      args: { action: 'set', id: 's1', mode: 'delay', delay: '1h', hint: '回独立会话' },
+      agentId: 'a',
+      conversationId: 'sid-abc',
+    });
+    expect(set1.ok).toBe(true);
+    expect(ctx.timers.entries('a')[0].conversationId).toBe('sid-abc');
+
+    const list = await ctx.tools.execute({ name: 'timer', args: { action: 'list' }, agentId: 'a', conversationId: 'sid-abc' });
+    const entries = (list.output as { entries: Array<{ id: string; conversation?: string }> }).entries;
+    expect(entries[0].conversation).toBe('sid-abc');
+
+    // 无会话上下文（宿主直调）→ 不带 conversationId（触发回落自会话桶）
+    await ctx.tools.execute({
+      name: 'timer',
+      args: { action: 'set', id: 'n1', mode: 'delay', delay: '1h', hint: '自会话' },
+      agentId: 'a',
+    });
+    expect(ctx.timers.entries('a').find((e) => e.id === 'n1')?.conversationId).toBeUndefined();
+  });
 });

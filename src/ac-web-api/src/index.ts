@@ -309,6 +309,9 @@ function validateTimerEntries(raw: unknown): TimerEntry[] {
     }
     if (typeof e.hint !== 'string') throw new Error(`entries[${i}].hint 须为字符串`);
     if (e.enabled !== undefined && typeof e.enabled !== 'boolean') throw new Error(`entries[${i}].enabled 须为 boolean`);
+    if (e.conversationId !== undefined && (typeof e.conversationId !== 'string' || !e.conversationId)) {
+      throw new Error(`entries[${i}].conversationId 须为非空字符串`);
+    }
     return e as unknown as TimerEntry;
   });
 }

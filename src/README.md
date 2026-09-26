@@ -342,7 +342,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | jobs | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled） |
 | browser | `ac-web-tools/src/browser.ts`（守护进程命令配置） | — |
 | durableInteraction | `ac-durable-interaction/src/types.ts` + `store.ts` | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}；核领域无关——ask_questions 工具住 ac-ask-questions，approval 语义住 ac-security） |
-| timers | `ac-timer/src/service.ts`（TimerRowOptions；条目级 activeHours 活动窗口 + gate 预检门——静默判定前置调度层，LLM 零 token 跳过） | — |
+| timers | `ac-timer/src/service.ts`（TimerRowOptions；条目级 activeHours 活动窗口 + gate 预检门——静默判定前置调度层，LLM 零 token 跳过；条目级 conversationId 会话键回投——提醒发往用户设提醒的会话，2026-12） | — |
 | archive | `ac-archive/src/service.ts` | `ac-archive/src/events.ts`（archive/completed） |
 | usage | `ac-usage/src/index.ts`（双轨聚合桶 + bySelfSession 自会话成本观测） | — |
 | backup | `ac-backup/src/index.ts` | — |
@@ -591,7 +591,8 @@ src/
 │                            单轮适配器先行（v1/v3 双数据形态宽容解析）；
 │                            CLI = pnpm bench（缺省脚本化冒烟零 LLM）
 ├── ac-timer-tools/          定时任务工具：timer set/list/disable（映射 ctx.timers；
-│                            owner=执行身份）
+│                            owner=执行身份；会话键烘焙——条目存
+│                            call.conversationId，提醒回当前会话）
 │ ── 持久化与服务编排 ───────────────────────────────────────────
 ├── ac-config/               全局配置（ctx.config）：<root>/config.json 原子读写 +
 │                            热重载 + config/changed
@@ -611,7 +612,9 @@ src/
 │                            硬闸/超时 abort/步级观测三道防线）→ 分段 + compact 重建
 ├── ac-timer/                定时任务（ctx.timers）：5 模式调度（time/delay/random/
 │                            workday/holiday）+ 限定次/永久 + 停机补偿 + 懒心跳；
-│                            触发 = deliver(source:'event') 落 Agent 自会话桶；
+│                            触发 = deliver(source:'event')——条目带
+│                            conversationId 回投该会话（sender:user），缺省落
+│                            Agent 自会话桶；目标会话消亡跳过本轮不计数；
 │                            机制任务直调服务（archive-all/backup-all）
 ├── ac-backup/               数据备份（ctx.backup）：run（force/间隔检查）+ list——
 │                            zip 全量（含归档）+ 轮转保留 4 份
