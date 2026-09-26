@@ -377,7 +377,7 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
           try {
             const agentId = (call as { agentId?: string }).agentId;
             const conversationId = (call as { conversationId?: string }).conversationId;
-            const value = await tool.execute((args ?? {}) as Record<string, unknown>, execOf(call.signal, agentId, conversationId));
+            const value = await tool.execute(args as Record<string, unknown>, execOf(call.signal, agentId, conversationId));
             return { ok: true, output: deepCompact(value) };
           } catch (err: unknown) {
             return { ok: false, error: err instanceof Error ? err.message : String(err) };

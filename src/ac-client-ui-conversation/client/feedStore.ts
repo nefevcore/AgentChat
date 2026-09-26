@@ -25,6 +25,7 @@ export const offlineRpc: RpcClientFace = {
 
 export const useFeedStore = defineStore('feed', () => {
   // ctx.sessions 契约面（SessionsClientFace）→ 富类型 cast（实现即 FeedCore）
-  return (clientRuntime()?.sessions?.feed as FeedCore | undefined)
+  const sessions = clientRuntime()?.sessions as { feed?: FeedCore } | undefined;
+  return (sessions?.feed as FeedCore | undefined)
     ?? createFeedCore(offlineRpc);
 });

@@ -69,8 +69,8 @@ const {
 
 const reasoningText = computed(() => props.message.reasoning_content || props.message.thinking || '');
 
-watch(() => props.message.content, (v) => updateContentRender(v ?? '', !!props.isStreaming), { immediate: true });
-watch(reasoningText, (v) => updateReasoningRender(v ?? '', !!props.isStreaming), { immediate: true });
+watch(() => props.message.content, (v) => updateContentRender(v, !!props.isStreaming), { immediate: true });
+watch(reasoningText, (v) => updateReasoningRender(v, !!props.isStreaming), { immediate: true });
 // 流式结束 → 立即全量渲染一次，保证最终输出与完整渲染完全一致
 watch(() => props.isStreaming, (v) => {
   if (!v) {

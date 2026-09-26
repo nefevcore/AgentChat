@@ -253,7 +253,7 @@ export function isPathUnder(
  * 8.3（DOCUME~1 原样返回），身份比对会失配。 */
 function realpathQuiet(p: string): string | undefined {
   try {
-    return (fs.realpathSync.native ?? fs.realpathSync)(p);
+    return fs.realpathSync.native(p);
   } catch {
     return undefined;
   }

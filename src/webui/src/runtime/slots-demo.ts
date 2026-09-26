@@ -125,7 +125,7 @@ export async function assembleSlotsDemo(ctx: ClientContext): Promise<VueSlotRend
         id: 'demo-greeter.btn-late',
         component: DemoPluginButton,
         order: 120,
-        props: (data) => ({ label: `插件尾钮 (order 120, where=${String((data as { where?: string })?.where ?? '?')})` }),
+        props: (data) => ({ label: `插件尾钮 (order 120, where=${String((data as { where?: string }).where ?? '?')})` }),
       });
       c.slots.register('demo:toolbar', { id: 'demo-greeter.unload', component: DemoUnloadButton, order: 200 });
       c.slots.register('demo:status', { id: 'demo-greeter.status', component: DemoStatusLine, props: { source: 'demo-greeter 插件' } });

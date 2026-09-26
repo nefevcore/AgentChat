@@ -43,7 +43,8 @@ onMounted(() => {
   // 启动进入 single 会话：拉完列表后由域策略定落点（恢复上次选中 /
   // 首启无记录 → 最近会话或新建空白会话；历史由 ConversationView 的
   // single watch 加载）
-  void singlesBoard?.refresh().then(() => { void singlesBoard?.openDefaultSingle(); });
+  const board = singlesBoard;
+  if (board) void board.refresh().then(() => { void board.openDefaultSingle(); });
 });
 </script>
 

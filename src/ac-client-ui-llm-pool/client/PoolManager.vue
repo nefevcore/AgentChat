@@ -81,7 +81,7 @@ const llmTemplates = LLM_PROVIDER_TEMPLATES;
  *  降序 ≈ 新模型靠前；「缺省取第一个」同款口径（readModelList）。 */
 const draftModels = computed<PoolModelMeta[]>(() => {
   const name = (draft.value.poolName || editingName.value || '').trim();
-  const fromEntry = poolModelEntries(props.pools[name]?.models);
+  const fromEntry = poolModelEntries(entryOf(name)?.models);
   const own = poolModelEntries(draft.value.models);
   // draft 中同名条目胜（探测刷新/隐藏切换后的最新态）
   const byModel = new Map(fromEntry.map((e) => [e.model, e]));
@@ -153,21 +153,21 @@ async function readModelList() {
       // 注册路径服务端回写缓存（后端已按新清单合并保留 flags）——池状态
       // 并入 models 再落盘（防旧状态覆盖；此处同样按归一合并保 flags）
       const merged = [...new Set([
-        ...poolModelEntries(props.pools[name]?.models).map((e) => e.model),
+        ...poolModelEntries(entryOf(name)?.models).map((e) => e.model),
         ...list,
       ])].map((model) => {
-        const prev = poolModelEntries(props.pools[name]?.models).find((e) => e.model === model);
+        const prev = poolModelEntries(entryOf(name)?.models).find((e) => e.model === model);
         return prev && (prev.vision === true || prev.hidden === true || prev.manual === true) ? prev : model;
       });
       const pool = { ...props.pools };
-      pool[name] = { ...((pool[name] as Record<string, unknown>) ?? {}), models: merged };
+      pool[name] = { ...((entryOf(name) ?? {}) as Record<string, unknown>), models: merged };
       emit('update:pools', pool);
       props.onSaved?.();
     }
     if (!list.length) throw new Error('未获取到模型列表');
     // 清单入 draft：继承池条目已有 flags（探测/隐藏/手工位跨读取不丢）；
     // 手工条目不在发现清单内 → 追加保留（重读不冲掉手工新增）
-    const prevEntries = poolModelEntries(props.pools[name]?.models);
+    const prevEntries = poolModelEntries(entryOf(name)?.models);
     const discovered = list.map((model) => {
       const prev = prevEntries.find((e) => e.model === model);
       return prev && (prev.vision === true || prev.hidden === true || prev.manual === true) ? prev : { model };
@@ -309,7 +309,7 @@ function saveEntry() {
   if (existingKeys.length === 0 || (existingKeys.length === 1 && existingKeys[0] === name)) {
     entry.default = true;
     for (const k of existingKeys) {
-      if (k !== name && pool[k]?.default) delete pool[k].default;
+      if (k !== name && pool[k].default) delete pool[k].default;
     }
   }
   pool[name] = entry;
@@ -353,7 +353,7 @@ async function removeEntry(name: string) {
 function setDefault(name: string) {
   const pool: Record<string, PoolEntry> = {};
   for (const [k, v] of Object.entries(props.pools)) {
-    if (!k.startsWith('$') && v && typeof v === 'object') pool[k] = { ...v, default: k === name };
+    if (!k.startsWith('$') && typeof v === 'object') pool[k] = { ...v, default: k === name };
     else pool[k] = v;
   }
   emit('update:pools', pool);
@@ -376,6 +376,8 @@ function detailOf(name: string, entry: PoolEntry): string {
 }
 
 const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): void }>();
+/** 池条目取用（键缺席 = undefined：新建中未保存条目等场景） */
+const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 </script>
 
 <template>

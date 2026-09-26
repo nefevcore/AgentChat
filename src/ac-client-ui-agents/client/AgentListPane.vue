@@ -56,13 +56,13 @@ function openCreate() {
   showCreate.value = true;
   if (providerStats.value.length === 0) {
     void Promise.all([
-      fetchLlmProviders(defaultRpc).then((r) => r.stats ?? []).catch(() => []),
-      fetchPools(defaultRpc).then((r) => r.llmProviders ?? {}).catch(() => ({})),
+      fetchLlmProviders(defaultRpc).then((r) => r.stats).catch(() => []),
+      fetchPools(defaultRpc).then((r) => r.llmProviders).catch(() => ({})),
     ]).then(([stats, pools]) => {
       providerStats.value = stats;
       const cache: Record<string, string[]> = {};
       for (const [name, entry] of Object.entries(pools as Record<string, { models?: unknown }>)) {
-        if (name.startsWith('$') || !Array.isArray(entry?.models)) continue;
+        if (name.startsWith('$') || !Array.isArray(entry.models)) continue;
         cache[name] = entry.models.filter((m): m is string => typeof m === 'string');
       }
       poolModels.value = cache;
@@ -117,7 +117,7 @@ const avatarFailed = ref(new Set<string>());
 watch(
   () => props.agents.map(a => [a.id, a.avatar ?? ''] as const),
   (list, old) => {
-    const prev = new Map(old ?? []);
+    const prev = new Map(old);
     for (const [id, avatar] of list) {
       if (prev.get(id) !== avatar) avatarFailed.value.delete(id);
     }

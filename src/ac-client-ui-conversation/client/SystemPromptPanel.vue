@@ -28,20 +28,21 @@ const chatStore = useChatStore();
 const agentId = computed(() => {
   const sid = singlesBoard?.activeSingleId.value;
   if (sid) {
-    const meta = singlesBoard?.singles.value.find((s) => s.id === sid);
+    const meta = singlesBoard.singles.value.find((s) => s.id === sid);
     return meta?.agentId || roster.defaultPresetId.value;
   }
-  const gid = ctx?.groups?.activeGroupId.value;
+  const groups = ctx?.groups as { activeGroupId: { value: string }; groups: { value: Array<{ group_id: string; memory_owner?: string; participants: string[] }> } } | undefined;
+  const gid = groups?.activeGroupId.value;
   if (gid) {
-    const g = ctx?.groups?.groups.value.find((r) => r.group_id === gid);
+    const g = groups.groups.value.find((r) => r.group_id === gid);
     return g?.memory_owner || g?.participants[0] || null;
   }
   return roster.activeAgentId.value || null;
 });
 /** 群视角会话键（gid——按群成员视角装配：记忆桶/群共享记忆按 gid 解析） */
 const groupConversationId = computed(() => {
-  const gid = ctx?.groups?.activeGroupId.value;
-  return gid || null;
+  const groups = ctx?.groups as { activeGroupId: { value: string } } | undefined;
+  return groups?.activeGroupId.value || null;
 });
 /** 标题（实时解析——不依赖按钮快照 systemPromptAgentName）；群视角
  *  标注（群主视角） */
@@ -51,7 +52,7 @@ const agentName = computed(() => {
   const name = roster.getAgentName(id) || id;
   return groupConversationId.value ? `${name}（群主视角）` : name;
 });
-const inGroupView = computed(() => !agentId.value && !!ctx?.groups?.activeGroupId.value);
+const inGroupView = computed(() => !agentId.value && !!(ctx?.groups as { activeGroupId: { value: string } } | undefined)?.activeGroupId.value);
 
 /** 按当前视角发起请求（群带 gid） */
 function requestForView() {
@@ -79,14 +80,14 @@ watch(() => [ui.auxPanel, ui.auxVisible, agentId.value, groupConversationId.valu
 
 /** 目标切换（会话切换）→ 内容清空重取（旧 Agent 的 prompt 不残留） */
 watch(() => [agentId.value, groupConversationId.value] as const, ([id, gid], old) => {
-  if ((id !== old?.[0] || gid !== old?.[1]) && id) {
+  if ((id !== old[0] || gid !== old[1]) && id) {
     chatStore.clearSystemPrompt();
     requestForView();
   }
 });
 
 function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
+  if (window.isSecureContext) {
     navigator.clipboard.writeText(text).then(() => {
       chatStore.copyFeedback = true;
       setTimeout(() => { chatStore.copyFeedback = false; }, 2000);

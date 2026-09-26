@@ -32,7 +32,7 @@ watch(() => chatStore.convToolMode, () => {
 });
 
 function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
+  if (window.isSecureContext) {
     navigator.clipboard.writeText(text).then(() => {
       chatStore.copyFeedback = true;
       setTimeout(() => { chatStore.copyFeedback = false; }, 2000);

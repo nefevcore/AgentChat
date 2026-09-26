@@ -133,13 +133,12 @@ export class DurableInteractionCorruptionError extends Error {
 
 /** 深拷贝 + JSON 无损校验 */
 export function cloneJson(value: JsonValue, field: string): JsonValue {
-  let text: string | undefined;
+  let text: string;
   try {
     text = JSON.stringify(value);
   } catch {
     throw new DurableInteractionSerializationError(field);
   }
-  if (text === undefined) throw new DurableInteractionSerializationError(field);
   try {
     return JSON.parse(text) as JsonValue;
   } catch {

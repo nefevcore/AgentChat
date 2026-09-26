@@ -326,7 +326,7 @@ async function loadGlobalSettings(): Promise<void> {
 /** 卡片可软停用判定（数据驱动：扩展目录 fields 声明 enabled 才有此门控） */
 function softGateOf(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): ExtensionEntry | undefined {
   if (!b.ext) return undefined;
-  const names = (b.ext.fields ?? []).map((f) => (typeof f === 'string' ? f : f?.name));
+  const names = (b.ext.fields ?? []).map((f) => (typeof f === 'string' ? f : f.name));
   return names.includes('enabled') ? b.ext : undefined;
 }
 function softDisabled(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): boolean {
@@ -358,8 +358,8 @@ async function toggleSoftDisable(b: { row: CatalogBuiltinRow; ext?: ExtensionEnt
     await setGlobalSetting(ns, next);
     globalSettings.value = { ...globalSettings.value, [ns]: next };
     flash(on
-      ? `已启用「${ext.label ?? b.row.name}」行为——立即生效（config/changed 热更）`
-      : `已软停用「${ext.label ?? b.row.name}」——立即生效；行仍装载，Agent 差异层可覆盖`);
+      ? `已启用「${ext.label}」行为——立即生效（config/changed 热更）`
+      : `已软停用「${ext.label}」——立即生效；行仍装载，Agent 差异层可覆盖`);
     emit('refresh');
   } catch (e: any) {
     error.value = `写入行为门控失败: ${e.message}`;
@@ -519,11 +519,11 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
   );
   return Object.entries(defs).map(([name, def]) => ({
     name,
-    type: typeof def?.type === 'string' ? def.type : '?',
+    type: typeof def.type === 'string' ? def.type : '?',
     required: req.has(name),
-    default: def?.default === undefined ? undefined : JSON.stringify(def.default),
-    description: typeof def?.description === 'string' ? def.description : undefined,
-    enumVals: Array.isArray(def?.enum) ? (def.enum as unknown[]).map(String) : undefined,
+    default: def.default === undefined ? undefined : JSON.stringify(def.default),
+    description: typeof def.description === 'string' ? def.description : undefined,
+    enumVals: Array.isArray(def.enum) ? (def.enum as unknown[]).map(String) : undefined,
   }));
 });
 

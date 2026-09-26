@@ -35,7 +35,7 @@ import { rowClientLoaders } from 'virtual:row-clients';
 interface RowClientGraphEntry {
   name: string;
   entry: string;
-  platform: 'web';
+  platform: string;
   phase?: 'base' | 'domain';
 }
 

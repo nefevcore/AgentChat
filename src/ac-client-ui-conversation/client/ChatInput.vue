@@ -62,12 +62,12 @@ const inputText = ref('');
 /** 上次组合偏好（agentId/model 在新建会话处消费；effort/elevation 在此回放） */
 const lastPrefs = loadComposePrefs();
 /** 思考强度：回放上次选择（缺省 high；''=关闭思考；P4：取代独立"深度思考" toggle） */
-const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort as ComposeEffort) ?? 'high');
+const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort ?? 'high') as ComposeEffort);
 /** 快捷提权（access-tier §七 / webui 按钮）：武装后续消息的执行档位。
  *  持续生效——保持武装直到手动改回（武装态警示色常显）；不随发送复位
  *  （2026-09 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
  *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
-const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation as ComposeElevation) ?? '');
+const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation ?? '') as ComposeElevation);
 /** 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构——
  *  Agent tags 定默认档、conv-settings.toolMode 会话覆盖）：'' = 跟随
  *  Agent（tags 档，缺省 tc-base）；'tc-base' | 'tc-programmatic' |
@@ -131,7 +131,7 @@ const inputDisabled = computed(() => props.disabled || presetRetired.value);
 async function loadPools() {
   // 已有可选模型即短路；空态保持重取（新配置连接后下次打开即出现）
   if (poolsLoaded.value && modelGroups.value.length > 0) return;
-  const poolsR = await fetchPools(rpc ?? offlineRpc).then((r) => r.llmProviders ?? {}).catch(() => ({}));
+  const poolsR = await fetchPools(rpc ?? offlineRpc).then((r) => r.llmProviders).catch(() => ({}));
   llmPools.value = poolsR as Record<string, Record<string, unknown>>;
   poolsLoaded.value = true;
 }
@@ -146,7 +146,7 @@ const discoveryAttempted = new Set<string>();
 function ensureDiscovered(): void {
   for (const [name, entry] of Object.entries(llmPools.value)) {
     if (name.startsWith('$') || discoveryAttempted.has(name)) continue;
-    const cached = (entry as { models?: unknown })?.models;
+    const cached = (entry as { models?: unknown }).models;
     if (Array.isArray(cached) && cached.length > 0) continue;
     discoveryAttempted.add(name);
     if (!rpc) return;
@@ -157,7 +157,7 @@ function ensureDiscovered(): void {
         // 本地联动（服务端已回写 config 缓存——下次 fetchPools 自然带出）
         llmPools.value = {
           ...llmPools.value,
-          [name]: { ...(llmPools.value[name] as Record<string, unknown> ?? {}), models: r.models },
+          [name]: { ...((llmPools.value[name] ?? {}) as Record<string, unknown>), models: r.models },
         };
       })
       .catch(() => undefined); // 未配置/网络不通：静默——不可选项
@@ -434,7 +434,7 @@ watch(toolModeConvKey, async (conversationId) => {
     store.setConvToolMode(pref);
     const writing = rpc.call('conv-settings/set', { conversationId, patch: { toolMode: pref } })
       .catch((err: unknown) => {
-        console.warn('[ChatInput] 工具调用模式继承写失败:', (err as { message?: string })?.message ?? String(err));
+        console.warn('[ChatInput] 工具调用模式继承写失败:', (err as { message?: string }).message ?? String(err));
       });
     persistToolMode(conversationId, writing);
   } catch {
@@ -586,7 +586,7 @@ const routeTargetHasModel = computed(() => {
   const at = model.indexOf('@');
   const providerName = at > 0 && at < model.length - 1
     ? model.slice(0, at)
-    : (target?.provider
+    : (target.provider
         ? target.provider
         : Object.keys(llmPools.value).find((n) => !n.startsWith('$') && cachedModelsOf(n).includes(model)));
   if (!providerName) return false;
@@ -601,7 +601,7 @@ const noModels = computed(() => {
   if (routeTargetHasModel.value) return false;
   // 有显式连接默认模型（defaultModel）→ 默认预设可物化 → 可发
   return !Object.entries(llmPools.value).some(
-    ([name, entry]) => !name.startsWith('$') && typeof (entry as { defaultModel?: unknown })?.defaultModel === 'string' && (entry as { defaultModel?: string }).defaultModel,
+    ([name, entry]) => !name.startsWith('$') && typeof (entry as { defaultModel?: unknown }).defaultModel === 'string' && (entry as { defaultModel?: string }).defaultModel,
   );
 });
 
@@ -971,7 +971,7 @@ const atGroups = computed<MentionGroup[]>(() => {
   if (fb && !fb.error) {
     // 目录行双出口：主操作 = 进入（nav），次操作 = 引用（insert，经
     // formatFileMention 目录形态——尾斜杠；Agent 侧 read 目录即列表）
-    const dirItems: MentionItem[] = (fb.dirs ?? [])
+    const dirItems: MentionItem[] = fb.dirs
       .map((d): MentionItem | null => {
         const token = formatFileMention({ path: d.path, kind: 'directory' });
         if (token === null) return null;
@@ -1122,7 +1122,7 @@ async function uploadAndAttach(rawFiles: File[]): Promise<void> {
     try {
       // 去重（内容哈希——与服务端 saveUpload 同算法，命中登记即复用）
       const hash = await contentHash12(raw);
-      if (attachedFiles.value.some((f) => f && f.hash === hash)) continue; // 已挂同内容
+      if (attachedFiles.value.some((f) => f.hash === hash)) continue; // 已挂同内容
       const knownPath = chatPresence.uploadPaths.get(hash);
       if (knownPath) {
         attachedFiles.value.push({

@@ -148,8 +148,8 @@ function onEvent(type: string, handler: (data: unknown) => void): Disposer {
   }
   set.add(handler);
   return () => {
-    set?.delete(handler);
-    if (set && set.size === 0) {
+    set.delete(handler);
+    if (set.size === 0) {
       eventHandlers.delete(type);
       postToParent({ source: 'agentchat-ui-plugin-iframe', plugin: pluginName, kind: 'unsubscribe', type });
     }

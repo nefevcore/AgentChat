@@ -112,7 +112,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
       ]);
       if (llmR.status === 'fulfilled') llmSchemas.value = llmR.value;
       if (poolR.status === 'fulfilled') pools.value = poolR.value;
-      if (agentsR.status === 'fulfilled') agents.value = agentsR.value.agents ?? [];
+      if (agentsR.status === 'fulfilled') agents.value = agentsR.value.agents;
       const failed = [llmR, poolR, agentsR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
       if (failed.length > 0) {
         error.value = `部分元数据加载失败（${failed.length}/3 项）：${failed.map(f => f.reason?.message ?? String(f.reason)).join('; ')}`;
@@ -143,7 +143,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
     try {
       const t = await timerApi.getAgentTimers(id, defaultRpc);
       if (seq !== agentLoadSeq) return;
-      agentTimers.value = t.entries ?? [];
+      agentTimers.value = t.entries;
       agentTimersSaved.value = JSON.stringify(agentTimers.value);
     } catch { /* ignore */ }
     try {
@@ -157,12 +157,12 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
   }
 
   function applyAgentViews(data: AgentConfigViews): void {
-    agentRaw.value = normalizeLegacyTags(data.raw ?? {});
-    agentEffective.value = normalizeLegacyTags(data.effective ?? data.raw ?? {});
-    sysContent.value = data.sysContent ?? '';
-    sysEnabled.value = (data.sysContent ?? '').trim().length > 0;
-    agentContent.value = data.agentContent ?? '';
-    agentEnabled.value = (data.agentContent ?? '').trim().length > 0;
+    agentRaw.value = normalizeLegacyTags(data.raw);
+    agentEffective.value = normalizeLegacyTags(data.effective);
+    sysContent.value = data.sysContent;
+    sysEnabled.value = data.sysContent.trim().length > 0;
+    agentContent.value = data.agentContent;
+    agentEnabled.value = data.agentContent.trim().length > 0;
     agentSaved.value = agentStateKey();
   }
 
@@ -297,7 +297,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
       const data = await timerApi.saveAgentTimers(targetId, entries, defaultRpc);
       if (targetId !== agentId.value) return true; // 已切走：成功但不回写他人状态
       if (JSON.stringify(agentTimers.value) === sentSnapshot) {
-        agentTimers.value = data.entries ?? [];
+        agentTimers.value = data.entries;
       }
       agentTimersSaved.value = JSON.stringify(agentTimers.value);
       return true;

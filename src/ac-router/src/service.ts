@@ -212,10 +212,10 @@ export class RouterService extends Service {
       agent.tools,
       visibleTools,
       (tag) => {
-        this.ctx.logger.warn(`[router] tools 引用 'tag:${tag}' 展开为空（标签不存在或无工具声明它），相关条目已静默落空——Agent ${call.agentId ?? '无身份'}`);
+        this.ctx.logger.warn(`[router] tools 引用 'tag:${tag}' 展开为空（标签不存在或无工具声明它），相关条目已静默落空——Agent ${call.agentId}`);
       },
       (name) => {
-        this.ctx.logger.warn(`[router] tools 点名 '${name}' 不在当前可见工具面（不存在/不可见/已改名，如平台拆分 bash→pwsh），该条目落空——Agent ${call.agentId ?? '无身份'}`);
+        this.ctx.logger.warn(`[router] tools 点名 '${name}' 不在当前可见工具面（不存在/不可见/已改名，如平台拆分 bash→pwsh），该条目落空——Agent ${call.agentId}`);
       },
     ) ?? allToolNames;
     // 交互面（requiresInteraction 轴，formDeniedBy 单源）：self 会话
@@ -271,7 +271,7 @@ export class RouterService extends Service {
       model: resolvedModel,
       ...(provider ? { provider } : {}),
       ...(agent.system ? { system: agent.system } : {}),
-      ...(llmTools ? { tools: llmTools } : {}),
+      tools: llmTools,
       // 步数上限：run 级覆盖（M20 归档整理硬闸①）> Agent 原配置
       ...((options.maxSteps ?? agent.maxSteps) != null ? { maxSteps: options.maxSteps ?? agent.maxSteps } : {}),
       ...(Object.keys(llmParams).length > 0 ? { llmParams } : {}),

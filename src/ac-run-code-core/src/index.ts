@@ -137,7 +137,7 @@ export function buildSdkProjection(
   const exclude = new Set(options.exclude ?? ['run_code']);
   const guidance = options.guidance ?? DEFAULT_GUIDANCE;
   const sorted = defs
-    .filter((d) => d && typeof d.name === 'string' && d.name !== '' && !exclude.has(d.name))
+    .filter((d) => typeof d.name === 'string' && d.name !== '' && !exclude.has(d.name))
     .slice()
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const body = sorted.map(projectTool).join('\n');

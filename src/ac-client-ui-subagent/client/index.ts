@@ -74,7 +74,10 @@ export const subagentClientPlugin = clientPlugin({
     ctx.effect(() => {
       const stop = watch(
         () => {
-          const rt = clientRuntime();
+          // 域行运行时可缺席（根 runtime 可选探测——augment 必填仅表「装载后」）
+          const rt = clientRuntime() as
+            | { roster?: { core: { activeAgentId: { value: string } } }; groups?: { activeGroupId: { value: string } }; singleBoard?: { activeSingleId: { value: string } } }
+            | undefined;
           return [
             rt?.roster?.core.activeAgentId.value ?? '',
             rt?.groups?.activeGroupId.value ?? '',

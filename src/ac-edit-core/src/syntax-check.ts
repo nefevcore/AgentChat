@@ -70,7 +70,7 @@ function stripJsonComments(text: string): string {
   let inString = false;
   while (i < text.length) {
     const c = text[i];
-    const next = text[i + 1];
+    const next = text.at(i + 1);
     if (inString) {
       out += c;
       if (c === '\\') {

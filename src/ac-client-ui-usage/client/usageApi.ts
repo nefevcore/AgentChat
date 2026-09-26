@@ -118,8 +118,8 @@ function aggRow(a: PUsageAggregate | undefined) {
  *  （1v1 会话键 = agentId → user↔agent 弦；含 '~' 与未知名跳过——
  *  旧推导曾把群 gid / singles sid 误挂成弦端）。 */
 export function toUsageSummary(u: PUsageResult, agentIds: Set<string> = new Set()): UsageSummary {
-  const byAgent = Object.entries(u.byAgent ?? {}).map(([agent, a]) => ({ agent, ...aggRow(a) }));
-  const byDay = (u.byDay ?? []).map((d) => ({
+  const byAgent = Object.entries(u.byAgent).map(([agent, a]) => ({ agent, ...aggRow(a) }));
+  const byDay = u.byDay.map((d) => ({
     date: d.date,
     ...aggRow(d),
     last_step_prompt_tokens: d.lastContextPrompt ?? 0,
@@ -129,31 +129,31 @@ export function toUsageSummary(u: PUsageResult, agentIds: Set<string> = new Set(
     byPair = u.byPair.map((p) => ({
       a: p.a,
       b: p.b,
-      total_tokens: p.total ?? (p.prompt ?? 0) + (p.completion ?? 0),
+      total_tokens: p.total ?? p.prompt + p.completion,
       record_count: p.runs ?? 0,
     }));
   } else {
     byPair = [];
-    for (const [conv, a] of Object.entries(u.byConversation ?? {})) {
-      if (!a || (a.total ?? a.prompt) <= 0) continue;
+    for (const [conv, a] of Object.entries(u.byConversation)) {
+      if ((a.total ?? a.prompt) <= 0) continue;
       if (conv.includes('~')) continue; // 委托对键：旧后端未分类，跳过（防错挂）
       if (agentIds.size > 0 && !agentIds.has(conv)) continue; // 群/singles/未知名
-      byPair.push({ a: 'user', b: conv, total_tokens: a.total ?? (a.prompt ?? 0) + (a.completion ?? 0), record_count: a.runs ?? 0 });
+      byPair.push({ a: 'user', b: conv, total_tokens: a.total ?? a.prompt + a.completion, record_count: a.runs ?? 0 });
     }
   }
   const dates = byDay.map((d) => d.date).sort();
   const byDayLlm = (u.byDayModel ?? []).map((r) => ({
     date: r.date,
     llm: r.model,
-    total_prompt_tokens: r.prompt ?? 0,
-    total_completion_tokens: r.completion ?? 0,
-    total_tokens: r.total ?? (r.prompt ?? 0) + (r.completion ?? 0),
+    total_prompt_tokens: r.prompt,
+    total_completion_tokens: r.completion,
+    total_tokens: r.total ?? r.prompt + r.completion,
   }));
   return {
     overall: {
       ...aggRow(u.totals),
-      total_records: u.totals?.runs ?? 0,
-      last_step_prompt_tokens: u.totals?.lastContextPrompt ?? 0,
+      total_records: u.totals.runs ?? 0,
+      last_step_prompt_tokens: u.totals.lastContextPrompt ?? 0,
     },
     by_agent: byAgent,
     by_day: byDay,

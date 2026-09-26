@@ -135,7 +135,7 @@ function msUntilLocal(timeStr: string, now: Date): number | null {
     return ms > 0 ? ms : null;
   }
 
-  const weekdayNames: Record<string, number> = {
+  const weekdayNames: Partial<Record<string, number>> = {
     sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
     '周日': 0, '周一': 1, '周二': 2, '周三': 3, '周四': 4, '周五': 5, '周六': 6,
   };
@@ -169,7 +169,7 @@ export function isFullDatetime(timeStr: string): boolean {
   return /^\d{4}-\d{2}-\d{2}/.test(timeStr.trim());
 }
 
-const WEEKDAY_CN: Record<string, string> = {
+const WEEKDAY_CN: Partial<Record<string, string>> = {
   sun: '周日', mon: '周一', tue: '周二', wed: '周三', thu: '周四', fri: '周五', sat: '周六',
 };
 
@@ -242,7 +242,7 @@ interface ZonedParts {
   wd: number;
 }
 
-const WEEKDAY_SHORT: Record<string, number> = {
+const WEEKDAY_SHORT: Partial<Record<string, number>> = {
   Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
 };
 
@@ -258,7 +258,7 @@ function zonedParts(date: Date, tz: string): ZonedParts {
   return {
     y: Number(get('year')), m: Number(get('month')), d: Number(get('day')),
     h: Number(get('hour')) % 24, mi: Number(get('minute')), s: Number(get('second')),
-    wd: wd ?? NaN,
+    wd: wd as number | undefined ?? NaN,
   };
 }
 

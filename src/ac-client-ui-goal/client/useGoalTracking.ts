@@ -53,7 +53,7 @@ export function useGoalTracking(
     if (!c) return;
     if (type === 'tool/after-execute') {
       const [call] = args as Array<{ name?: string; conversationId?: string } | undefined>;
-      if (call?.name === 'goal' && call?.conversationId === c) {
+      if (call?.name === 'goal' && call.conversationId === c) {
         void refresh();
       }
       return;

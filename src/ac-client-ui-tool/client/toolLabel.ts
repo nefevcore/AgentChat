@@ -174,7 +174,7 @@ export function toolDiffStat(content: unknown): DiffStat | null {
   } catch {
     return null;
   }
-  if (obj === null || typeof obj !== 'object') return null;
+  if (typeof obj !== 'object' || (obj as unknown) === null) return null;
   // 三形归一（与 useToolResult.parseToolResult 同语义）：剥 {ok, output} 信封
   if (typeof obj.ok === 'boolean') {
     if (!obj.ok) return null;
@@ -215,7 +215,7 @@ export function toolDisplayLabel(name: string | undefined, label: string | undef
   if (label && label !== toolName) return label;
   if (!toolName) return label || '工具调用';
   // T9：卡行词条（meta.def.label）优先——注册表 election 先于静态回落表
-  const base = resolveToolDisplayMeta(toolName)?.label ?? TOOL_FRIENDLY_NAMES[toolName] ?? toolName;
+  const base = resolveToolDisplayMeta(toolName)?.label ?? (TOOL_FRIENDLY_NAMES[toolName] ?? toolName);
   // 参数摘要上限 80 字符；超限截断并以「…」收尾（此前裸切 60 字符，
   // 用户无法察觉还有更多内容——"Label 被裁剪"观感的直接来源）
   const MAX_DETAIL_CHARS = 80;

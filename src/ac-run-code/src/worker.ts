@@ -63,7 +63,7 @@ function serializeValue(value: unknown, maxBytes: number): { ok: true; text: str
   let text: string;
   let note: string | undefined;
   try {
-    text = JSON.stringify(value, null, 0) ?? 'null';
+    text = JSON.stringify(value, null, 0);
   } catch {
     // 降级序列化：占位替换不可序列化值
     const seen = new WeakSet<object>();
@@ -76,7 +76,7 @@ function serializeValue(value: unknown, maxBytes: number): { ok: true; text: str
         seen.add(v);
       }
       return v;
-    }, 0) ?? 'null';
+    }, 0);
     // 注意：说明走独立 note 字段——text 必须保持纯 JSON（下游 JSON.parse 消费）
     note = 'return 值含不可序列化字段（循环引用/BigInt/函数等，已降级标注）——建议 return 纯数据对象';
   }
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       if (typeof prop !== 'string') throw new Error(`tools 只接受字符串方法名（收到 ${String(prop)}）`);
       if (prop === 'run_code') throw new Error('递归防护：run_code 程序内不能再调用 run_code（投影已排除）');
       checkAbort();
-      return (args: Record<string, unknown>) => invokeTool(prop, args ?? {});
+      return (args: Record<string, unknown>) => invokeTool(prop, args);
     },
   });
 
@@ -412,7 +412,7 @@ async function main(): Promise<void> {
       .map((a) => {
         if (typeof a === 'string') return a;
         try {
-          return JSON.stringify(a) ?? String(a);
+          return JSON.stringify(a);
         } catch {
           return String(a);
         }

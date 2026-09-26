@@ -60,15 +60,15 @@ export function escapeXml(str: string): string {
 export function parseSkillFrontmatter(content: string, dirName: string): SkillManifest | null {
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!fmMatch) return null;
-  const fm = fmMatch[1] ?? '';
+  const fm = fmMatch[1];
 
   const nameMatch = fm.match(/^name:\s*(.+)$/m);
-  const name = nameMatch ? (nameMatch[1] ?? '').trim().replace(/^["']|["']$/g, '') : dirName;
+  const name = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : dirName;
 
   let description = '';
   const descMatch = fm.match(/^description:\s*\|\s*\n([\s\S]*?)(?=^[a-zA-Z])/m);
   if (descMatch) {
-    description = (descMatch[1] ?? '')
+    description = descMatch[1]
       .split('\n')
       .map((line) => line.replace(/^\s{2,}/, '').trimEnd())
       .filter(Boolean)
@@ -76,7 +76,7 @@ export function parseSkillFrontmatter(content: string, dirName: string): SkillMa
   } else {
     const descSingle = fm.match(/^description:\s*(.+)$/m);
     if (descSingle) {
-      description = (descSingle[1] ?? '').trim().replace(/^["']|["']$/g, '');
+      description = descSingle[1].trim().replace(/^["']|["']$/g, '');
     }
   }
 

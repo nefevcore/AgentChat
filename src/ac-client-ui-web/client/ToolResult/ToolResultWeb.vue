@@ -25,7 +25,7 @@ const searchResults = computed<SearchResultItem[]>(() => {
     // 截断恢复形：字段宽松化（title/url/content/score 可缺）——展示几条算几条
     return partialResults.value as unknown as SearchResultItem[];
   }
-  return (props.data.results as SearchResultItem[]) || [];
+  return props.data.results as SearchResultItem[];
 });
 
 // ---- Fetch mode fields ----
@@ -43,7 +43,7 @@ const textExtracted = computed(() => props.data.text_extracted !== false);
 // 出几条结果就显示几条（标记「部分结果」），N 条结果永远好过空卡。
 const truncatedHead = computed<string>(() => {
   const t = props.data as { __truncated?: boolean; head?: string };
-  if (t?.__truncated !== true || typeof t.head !== 'string') return '';
+  if (t.__truncated !== true || typeof t.head !== 'string') return '';
   return t.head;
 });
 

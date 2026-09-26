@@ -88,7 +88,7 @@ describe('熔断生命周期（F4/G9）', () => {
       modules.set('crasher', {}); // 缺 apply
       const r = await registry.installFromDir(dir, 'agent-x');
       expect(r.status).toBe('installed');
-      expect(readLoadHealth(root).failures.crasher.count).toBe(1);
+      expect(readLoadHealth(root).failures.crasher!.count).toBe(1);
     }
     // 两次 bump version 重装（每次清零后又计 1——重装可重试）
     for (const version of ['1.0.1', '1.0.2']) {
@@ -98,7 +98,7 @@ describe('熔断生命周期（F4/G9）', () => {
       modules.set('crasher', {});
       const r = await registry.installFromDir(dir, 'agent-x');
       expect(r.status).toBe('installed');
-      expect(readLoadHealth(root).failures.crasher.count).toBe(1); // install 清零后重计
+      expect(readLoadHealth(root).failures.crasher!.count).toBe(1); // install 清零后重计
     }
     // 同版本（1.0.2）幂等重装不触发装载 → 计数不变（G8）
     {
@@ -108,7 +108,7 @@ describe('熔断生命周期（F4/G9）', () => {
       const again = await registry.installFromDir(dir, 'agent-x');
       expect(again.status).toBe('installed');
       if (again.status === 'installed') expect(again.idempotent).toBe(true);
-      expect(readLoadHealth(root).failures.crasher.count).toBe(1);
+      expect(readLoadHealth(root).failures.crasher!.count).toBe(1);
     }
     // 手动堆满计数：两次 boot loadInstalled 失败（每次 +1）→ 达 3 熔断
     {
@@ -116,7 +116,7 @@ describe('熔断生命周期（F4/G9）', () => {
       const { registry } = await boot(root, { modules });
       modules.set('crasher', {}); // 首扫装载失败 → 计 2
       await registry.loadInstalled();
-      expect(readLoadHealth(root).failures.crasher.count).toBe(2);
+      expect(readLoadHealth(root).failures.crasher!.count).toBe(2);
       expect(readLoadHealth(root).disabled.crasher).toBeUndefined();
     }
     {
@@ -159,7 +159,7 @@ describe('熔断生命周期（F4/G9）', () => {
     const dir = await installOne(root, 'flaky', '1.0.0');
     modules.set('flaky', {});
     await registry.installFromDir(dir, 'agent-x'); // 失败计 1
-    expect(readLoadHealth(root).failures.flaky.count).toBe(1);
+    expect(readLoadHealth(root).failures.flaky!.count).toBe(1);
 
     // 同版本重装（hash 不一致拒绝）→ 换 1.1.0 且模块修好 → 成功清零
     const dir2 = await installOne(root, 'flaky', '1.1.0');

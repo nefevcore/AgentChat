@@ -181,7 +181,7 @@ export class ArchiveService extends Service {
       if (!this.pending.has(envelope.conversationId)) return;
       const chars = messages.reduce((n, m) => {
         const c = m.content;
-        return n + (typeof c === 'string' ? c.length : JSON.stringify(c ?? '').length);
+        return n + (typeof c === 'string' ? c.length : JSON.stringify(c).length);
       }, 0);
       this.ctx.logger.info(
         '[archive] 整理步进 agent=%C conv=%C step=%C/%C 上下文≈%C 字符',

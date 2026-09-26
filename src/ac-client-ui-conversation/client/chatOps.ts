@@ -163,14 +163,14 @@ export function extractPartialJsonString(buf: string, field: string): string | u
   while (i < buf.length) {
     const ch = buf[i];
     if (ch === '\\') {
-      const next = buf[i + 1];
+      const next = buf.at(i + 1);
       if (next === 'n') out += '\n';
       else if (next === 't') out += '\t';
       else if (next === 'r') out += '\r';
       else if (next === '"') out += '"';
       else if (next === '\\') out += '\\';
       else if (next === undefined) return out; // 尾部孤立反斜杠
-      else out += ch + (next ?? '');
+      else out += ch + next;
       i += 2;
       continue;
     }
@@ -214,7 +214,7 @@ export function historyServed(session: string | undefined, to: string, count: nu
 export function toToolDefs(defs: Array<{ name: string; description: string; parameters: Record<string, unknown> }>): Array<Record<string, unknown>> {
   return defs.map((d) => ({
     type: 'function',
-    function: { name: d.name, description: d.description, parameters: d.parameters ?? { type: 'object', properties: {} } },
+    function: { name: d.name, description: d.description, parameters: d.parameters },
   }));
 }
 
@@ -291,7 +291,7 @@ function optionTextOf(v: unknown): string {
     if (label && desc) return `${label} —— ${desc}`;
     if (label || desc) return label || desc;
     // 映射形兜底：无 label/text/description 键的对象，取首个键为选项文本
-    const firstKey = Object.keys(o)[0];
+    const firstKey = Object.keys(o).at(0);
     return firstKey !== undefined ? firstKey.trim() : '';
   }
   return '';

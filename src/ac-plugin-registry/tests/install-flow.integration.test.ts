@@ -181,7 +181,7 @@ describe('installFromDir 三态结果与幂等（E6/F6、G8）', () => {
     expect(ctx.pluginRegistry.listInstalled().map((r) => r.manifest.name)).toContain('broken');
     // install 期失败同源立即计数（与 loadInstalled 同源）
     const { readLoadHealth } = await import('ac-plugin-core');
-    expect(readLoadHealth(root).failures.broken.count).toBe(1);
+    expect(readLoadHealth(root).failures.broken!.count).toBe(1);
     expect(ctx.pluginRegistry.listFailed()).toEqual([
       { name: 'broken', error: expect.stringContaining('apply') },
     ]);

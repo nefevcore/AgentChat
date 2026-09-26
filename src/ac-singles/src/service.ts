@@ -228,7 +228,7 @@ export class SinglesService extends Service {
     const sid = request.conversationId ?? '';
     const workspaceRoot =
       sid && this.get(sid)?.workspaceId
-        ? this.ctx.get('workspace')?.listWorkspaces?.().find((w) => w.id === this.get(sid)!.workspaceId)?.path ?? null
+        ? this.ctx.get('workspace')?.listWorkspaces().find((w) => w.id === this.get(sid)!.workspaceId)?.path ?? null
         : null;
     const skillsView = (this.ctx.get('skills', false) as
       | { listForAgent(agentId: string, conversationId?: string): unknown }
@@ -263,7 +263,7 @@ export class SinglesService extends Service {
   private readSnapshot(sessionId: string): PrefixSnapshot | undefined {
     try {
       const raw = JSON.parse(fs.readFileSync(this.snapshotFile(sessionId), 'utf-8')) as Partial<PrefixSnapshot>;
-      if (typeof raw?.revision === 'string' && typeof raw?.system === 'string' && typeof raw?.toolsHash === 'string') {
+      if (typeof raw.revision === 'string' && typeof raw.system === 'string' && typeof raw.toolsHash === 'string') {
         return { revision: raw.revision, system: raw.system, toolsHash: raw.toolsHash, capturedAt: raw.capturedAt ?? '' };
       }
       return undefined;
@@ -371,14 +371,14 @@ export class SinglesService extends Service {
             thinking: { type: 'disabled' },
             reasoning_effort: 'none',
           });
-          title = cleanTitle(resp.text ?? '');
+          title = cleanTitle(resp.text);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           if (/thinking|reasoning_effort/i.test(msg)) {
             // 未知参数指误：裸参数重试一次（非思考模型——无禁用必要）
             try {
               const resp = await llm.chat(baseInput);
-              title = cleanTitle(resp.text ?? '');
+              title = cleanTitle(resp.text);
             } catch (retryErr: unknown) {
               this.ctx.logger.warn(
                 '[singles] LLM 标题生成失败（回落截断标题）: %C',
@@ -647,7 +647,7 @@ export class SinglesService extends Service {
     };
     this.writeRecord(record);
     // 新会话即上架（消息目录从 sessions/singles/<ws>/<sid>/ 起步）
-    this.ctx.get('session')?.setShelf?.(record.id, this.shelfOf(record));
+    this.ctx.get('session')?.setShelf(record.id, this.shelfOf(record));
     this.ctx.emit('singles/updated', record, 'created');
     return record;
   }
@@ -698,7 +698,7 @@ export class SinglesService extends Service {
     this.writeRecord(record);
     // 换组即换架（消息目录随工作区迁移；寻址不变）
     if (input.workspaceId !== undefined) {
-      this.ctx.get('session')?.setShelf?.(record.id, this.shelfOf(record));
+      this.ctx.get('session')?.setShelf(record.id, this.shelfOf(record));
     }
     this.ctx.emit('singles/updated', record, 'updated');
     return record;

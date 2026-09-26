@@ -724,7 +724,7 @@ export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
     const calls = s.toolCalls ?? [];
     out.push({
       role: 'assistant',
-      content: s.content ?? '',
+      content: s.content,
       ...(calls.length > 0
         ? {
             tool_calls: calls.map((tc) => ({
@@ -1119,7 +1119,7 @@ export class SessionService extends Service {
 
       state.journaled = true;
       const stepRecord: SessionStepRecord = {
-        content: step.text ?? '',
+        content: step.text,
         ...(step.reasoning ? { reasoning: step.reasoning } : {}),
         ...(step.stepId !== undefined ? { stepId: step.stepId } : {}),
         ...(step.ts !== undefined ? { ts: step.ts } : {}),
@@ -1127,7 +1127,7 @@ export class SessionService extends Service {
         ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}),
         ...(step.elapsedMs !== undefined ? { elapsedMs: step.elapsedMs } : {}),
         ...(step.usage !== undefined ? { usage: step.usage } : {}),
-        ...(step.toolCalls && step.toolCalls.length > 0
+        ...(step.toolCalls.length > 0
           ? {
               toolCalls: step.toolCalls.map((tc) => ({
                 id: tc.id,
@@ -1302,7 +1302,7 @@ export class SessionService extends Service {
               // 子调用参数随行落盘（2026-09-17 方向 B）：run_code 程序内
               // 调用不在模型 toolCalls 面——参数只在此处可得，records()
               // subcalls 投影据此复原完整工具卡（含文件编辑 diff 追踪）
-              ...(call.name !== undefined ? { name: call.name } : {}),
+              ...(call.name ? { name: call.name } : {}),
               ...(call.args !== undefined ? { arguments: JSON.stringify(call.args) } : {}),
             }
           : {}),
@@ -1603,7 +1603,7 @@ export class SessionService extends Service {
       batch.push(() => this.record(conversationId, agentId, { role: 'user', content: String(result.error ?? '循环失败') }, { roleOverride: 'context', source: 'error', run: state.run }));
 
     } else {
-      const text = finalText ?? result.text ?? '';
+      const text = finalText ?? result.text;
 
       if (!hasSegments) {
         // 无切分：全部步随收束行（与泛化前整行落账同形——steps 以 result
@@ -2368,7 +2368,7 @@ export class SessionService extends Service {
         && options.viewer !== undefined
         && r.agent_id === options.viewer
         && (r.steps ?? []).length > 0;
-      if (r.role === 'agent' && !(r.content ?? '').trim() && !replaySteps) continue;
+      if (r.role === 'agent' && !r.content.trim() && !replaySteps) continue;
       // hint 视点过滤（2026-09-02 询问补齐）：event 行带投递目标（agent_id）
       // ——只喂给目标读者。role:'agent' 行按 viewer 换位投影（自己的话
       // assistant / 对方 user），event 行此前读者无关：共享对桶 a⇋b 里发给
@@ -2607,7 +2607,7 @@ export class SessionService extends Service {
                 // 携带）；缺 ts 的存量行回落读取时刻（行为同旧）。
                 const stepTsNum = typeof jp.step.ts === 'number' && jp.step.ts > 0 ? jp.step.ts : Date.now();
                 partMsgs.push({ run: jp.run, line: JSON.stringify({
-                  role: 'agent', content: jp.step.content ?? '',
+                  role: 'agent', content: jp.step.content,
                   agent_id: typeof jp.agentId === 'string' && jp.agentId ? jp.agentId : conversationId.split('~')[0] ?? conversationId,
                   message_id: '', timestamp: new Date(stepTsNum).toISOString(),
                   ...(jp.step.reasoning ? { reasoning_content: jp.step.reasoning } : {}),
@@ -2630,7 +2630,7 @@ export class SessionService extends Service {
                 // 直播行/提升行同锚——前端 persistedMsgId 去重直接生效。缺席
                 //（存量 journal 行）回落空串，行为同旧。
                 partMsgs.push({ run: jp.run, line: JSON.stringify({
-                  ...rec, content: jp.message.content ?? '',
+                  ...rec, content: jp.message.content,
                   agent_id: jp.agentId ?? 'user', message_id: jp.injectionId ?? '', timestamp: new Date(injectTsNum).toISOString(),
                   ...(jp.message.attachments !== undefined && (jp.message.attachments as unknown[]).length > 0 ? { attachments: jp.message.attachments } : {}),
                   injected: true, run: jp.run,

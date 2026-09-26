@@ -25,7 +25,7 @@ async function saveNow(): Promise<void> {
   try {
     await saveLlmPoolDomain(settings.pools.value.llmProviders as Record<string, unknown>, defaultRpc);
   } catch (e) {
-    error.value = `模型管理保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
+    error.value = `模型管理保存失败: ${(e as { message?: string }).message ?? String(e)}`;
   }
 }
 

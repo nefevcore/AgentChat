@@ -62,7 +62,7 @@ export class EventPolicyService extends Service {
       function (this: Context, name: string | symbol, _listener: unknown) {
         if (typeof name !== 'string') return; // symbol 事件不治理
         if (name.startsWith('internal/')) return; // 自锁守卫：internal/* 恒放行
-        const owner = this.fiber?.name ?? '(anonymous)';
+        const owner = this.fiber.name;
         if (service.isDisabled(owner, name)) {
           // 替代注册：对任何真值生效（vendor bail isBailed）——幂等
           return () => true;
@@ -154,7 +154,7 @@ export class EventPolicyService extends Service {
       if (!Array.isArray(hooks)) continue;
       for (let i = hooks.length - 1; i >= 0; i--) {
         const hook = hooks[i];
-        if (!hook?.ctx) continue;
+        if (!hook.ctx) continue;
         const owner = hook.ctx.fiber?.name ?? '(anonymous)';
         if (this.isDisabled(owner, name)) {
           hooks.splice(i, 1);

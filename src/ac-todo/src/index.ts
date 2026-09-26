@@ -44,7 +44,7 @@ export interface TodoBucket {
 /** agentStore entry 'todo' 的持久形态（单 entry 存该 Agent 全部桶） */
 export interface TodoStore {
   version: 1;
-  buckets: Record<string, TodoBucket>;
+  buckets: Partial<Record<string, TodoBucket>>;
 }
 
 /** agentStore entry key（param-case；机制数据归 agent-store 唯一写口） */
@@ -70,12 +70,12 @@ export class TodosService extends Service {
   // ============================================================
 
   private loadStore(agentId: string): TodoStore {
-    const stored = this.ctx.agentStore.readEntry<TodoStore>(agentId, TODO_ENTRY_KEY);
-    if (stored === undefined || stored === null || typeof stored !== 'object'
-      || stored.buckets === undefined || typeof stored.buckets !== 'object') {
+    const stored: unknown = this.ctx.agentStore.readEntry<TodoStore>(agentId, TODO_ENTRY_KEY);
+    if (typeof stored !== 'object' || stored === null || !('buckets' in stored)
+      || typeof (stored as TodoStore).buckets !== 'object') {
       return { version: 1, buckets: {} };
     }
-    return stored;
+    return stored as TodoStore;
   }
 
   private saveStore(agentId: string, store: TodoStore): void {
@@ -110,7 +110,9 @@ export class TodosService extends Service {
   /** 全部桶视图（诊断） */
   listBuckets(agentId: string): Array<{ key: string; bucket: TodoBucket }> {
     const store = this.loadStore(agentId);
-    return Object.entries(store.buckets).map(([key, bucket]) => ({ key, bucket }));
+    return Object.entries(store.buckets)
+      .filter((e): e is [string, TodoBucket] => e[1] !== undefined)
+      .map(([key, bucket]) => ({ key, bucket }));
   }
 
   /**
@@ -133,7 +135,7 @@ export class TodosService extends Service {
       if (item.status !== undefined && !isTodoStatus(item.status)) {
         throw new Error(`todos[${i}].status "${String(item.status)}" 非法（pending/in_progress/completed 之一）`);
       }
-      return { content, status: (item.status as TodoStatus) ?? 'pending' };
+      return { content, status: item.status !== undefined ? (item.status as TodoStatus) : 'pending' };
     });
     const store = this.loadStore(agentId);
     store.buckets[key] = { items: normalized, updatedAt: new Date().toISOString() };

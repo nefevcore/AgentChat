@@ -67,7 +67,7 @@ export function useConversationHistory(opts: {
     isLoadingMore.value = false;
 
     // 内容仍不足一屏且还有更多 → 继续续拉
-    if (dialogId.value === dialogAtStart && chatStore.hasMoreHistory && container.scrollHeight <= container.clientHeight) {
+    if (dialogId.value === dialogAtStart && Boolean(chatStore.hasMoreHistory) && container.scrollHeight <= container.clientHeight) {
       await nextTick();
       void triggerLoadMore();
     }
@@ -146,10 +146,10 @@ export function useConversationHistory(opts: {
   watch(() => [props.a, props.b], async ([a, b], _old, onCleanup) => {
     if (!a || !b) return;
     transcript.value?.reset(); // 清掉滚动外壳闭包残留
-    let cancelled = false;
-    onCleanup(() => { cancelled = true; });
+    const state = { cancelled: false };
+    onCleanup(() => { state.cancelled = true; });
     await feed.loadPairHistory(pairDialog(a, b), a, b);
-    if (cancelled) return;
+    if (state.cancelled) return;
     nextTick(() => transcript.value?.scrollToBottom());
   }, { immediate: true });
 

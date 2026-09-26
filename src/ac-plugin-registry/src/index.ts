@@ -234,7 +234,7 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
           const receipt = `[plugin] register_plugin 已装载 ${outcome.name}（会话级，重启即失）。工具已注册进全局注册表，可直接调用测试。测试通过后用 install_plugin 永久安装（记得 bump version）。`;
           receiptAndRetrigger(request, receipt, `[plugin] 你请求的插件 "${outcome.name}" 已完成会话级装载（重启即失）。请立即开始测试它的工具；通过后用 install_plugin 定型驻留。`);
         }
-        ctx.logger.info(`[pluginRegistry] register_plugin ${outcome.status === 'rejected' ? '失败' : '完成'}: ${outcome.name ?? dir}`);
+        ctx.logger.info(`[pluginRegistry] register_plugin ${outcome.status === 'rejected' ? '失败' : '完成'}: ${outcome.name}`);
       })
       .catch((err: unknown) => {
         // 装载管道异常（manifest 读取竞态等）：回执+回触驱动修复循环，杜绝 unhandledRejection

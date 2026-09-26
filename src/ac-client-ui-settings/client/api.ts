@@ -38,8 +38,8 @@ export function saveGlobalConfig(config: Record<string, any>, rpc: Rpc = wireRpc
 export function getPools(rpc: Rpc = wireRpc): Promise<PoolData> {
   // preview 无专用池端点：config/get 白名单域（llmProviders/searchProviders 键）
   return rpc.call<{ config: Record<string, any> }>('config/get').then((r) => ({
-    llmProviders: (r.config?.llmProviders ?? r.config?.llm ?? {}) as PoolData['llmProviders'],
-    searchProviders: (r.config?.searchProviders ?? {}) as PoolData['searchProviders'],
+    llmProviders: (r.config.llmProviders ?? r.config.llm ?? {}) as PoolData['llmProviders'],
+    searchProviders: (r.config.searchProviders ?? {}) as PoolData['searchProviders'],
   }));
 }
 
@@ -237,7 +237,7 @@ export async function getEventPolicy(rpc: Rpc = wireRpc): Promise<{ disabled: st
   const r = await rpc
     .call<{ disabled?: string[]; live?: string[] }>('events/policy-list')
     .catch(() => ({}) as { disabled?: string[]; live?: string[] });
-  return { disabled: r?.disabled ?? [], live: r?.live ?? [] };
+  return { disabled: r.disabled ?? [], live: r.live ?? [] };
 }
 
 /** 写一条治理键（events/policy-set；返回更新后的停用集与影响提示） */
@@ -247,7 +247,7 @@ export async function setEventPolicy(
   rpc: Rpc = wireRpc,
 ): Promise<{ disabledList: string[]; note?: string }> {
   const r = await rpc.call<{ disabledList?: string[]; note?: string }>('events/policy-set', { key, disabled });
-  return { disabledList: r?.disabledList ?? [], ...(r?.note ? { note: r.note } : {}) };
+  return { disabledList: r.disabledList ?? [], ...(r.note ? { note: r.note } : {}) };
 }
 
 // ── 杀手锏兜底（preview 无原生文件对话框：显式失败，SettingField 走手输路径） ──

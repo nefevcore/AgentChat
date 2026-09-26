@@ -181,10 +181,10 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
       ...(t.runCalibMs !== undefined && t.runCalibAt !== undefined ? { runCalibMs: t.runCalibMs, runCalibAt: t.runCalibAt } : {}),
       ...(t.reasoningStartAt !== undefined ? { reasoningStartAt: t.reasoningStartAt } : {}),
       ...(t.runStartAt !== undefined ? { runStartAt: t.runStartAt } : {}),
-      toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
+      toolCalls: t.tool_calls.map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
       isStreaming: stepStreaming && i === msgs.length - 1, timestamp: ts,
     };
-    const tools: ChatMessage[] = (t.tool_calls || []).map((tc: any) => ({
+    const tools: ChatMessage[] = t.tool_calls.map((tc: any) => ({
       id: `tool-${tc.id}`, role: 'tool', content: tc.result || '',
       name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || '',
       // 携带工具参数：让 ToolMessage 在"结果返回前"即可按参数渲染专用卡片
@@ -302,12 +302,12 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       if (empty) continue;
       const senderId = msg.agent_id || '';
       const ts = msg.timestamp || Date.now();
-      const lastTurn = cur?.turns[cur.turns.length - 1];
+      const lastTurn = cur?.turns.at(-1);
       const gapTooLong = !!cur && !!lastTurn && (ts - lastTurn.ts) > MERGE_GAP_MS;
       // 无思考无工具的纯正文消息（如 send_agent 投递）：若当前轮已有完整正文，
       // 单独成轮 —— 否则它会把上一条正经回复吞进思维链折叠栏（正文被折叠）。
       const isPlainBody = !!msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
-      const prevComplete = !!lastTurn && !!lastTurn.content && !(lastTurn.tool_calls?.length);
+      const prevComplete = !!lastTurn && !!lastTurn.content && !lastTurn.tool_calls.length;
       const plainAfterComplete = isPlainBody && prevComplete;
       // 平文中段插行：同 sender 后续还有消息 → 独立成轮（拆轮保位，不被
       // 折叠链吞掉）；其后的下一条同 sender 消息另起一轮（afterSolo）——
@@ -381,7 +381,7 @@ function toolCallsSig(tcs: any[] | undefined | null): string {
 function msgSig(m: ChatMessage): string {
   // textBeforeTools 必入签名：undefined→true 是零长度变化（直播自判在首
   // delta 到达时刻翻转），漏掉会让增量派生误判"无变化"复用旧序 turns
-  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}|${m.textBeforeTools === true ? 1 : 0}|${m.runCalibMs ?? 0}|${m.runCalibAt ?? 0}`;
+  return `${m.id}|${m.role}|${m.content.length}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}|${m.textBeforeTools === true ? 1 : 0}|${m.runCalibMs ?? 0}|${m.runCalibAt ?? 0}`;
 }
 
 /** 增量 Turn 构建的缓存状态 */
@@ -434,7 +434,7 @@ function turnContentSig(t: Turn): string {
 export function buildTurnsIncremental(prev: TurnsMemo | null, msgs: ChatMessage[], streaming = false): TurnsMemo {
   const sigs = msgs.map(msgSig);
   const stateSame = !!prev && prev.streaming === streaming;
-  if (stateSame && prev && prev.sigs.length === sigs.length) {
+  if (stateSame && prev.sigs.length === sigs.length) {
     let same = true;
     let onlyLast = true;
     for (let i = 0; i < sigs.length; i++) {
@@ -497,7 +497,7 @@ export function attachmentFilesOf(
 ): import('./types.ts').FileAttachment[] | undefined {
   if (!Array.isArray(atts) || atts.length === 0) return undefined;
   const files = atts
-    .filter((a) => a && typeof a.ref === 'string' && a.ref)
+    .filter((a) => typeof a.ref === 'string' && a.ref)
     .map((a) => ({
       hash: '',
       filename: a.filename ?? a.ref ?? '附件',
@@ -520,7 +520,7 @@ const UNREGISTERED_SUFFIX = '（已上传，路径未记录）';
  *  覆盖（attachments 旁挂，text=ref）、workspace 上传路径（files/ 前缀）、
  *  或路径未登记降级形——三者皆否即用户正文，原样保留。 */
 function isAttachmentRef(ref: string, files: FileAttachment[] | undefined): boolean {
-  if (files?.some((f) => f && f.text === ref)) return true;
+  if (files?.some((f) => f.text === ref)) return true;
   return ref.startsWith('files/') || ref.endsWith(UNREGISTERED_SUFFIX);
 }
 
@@ -555,7 +555,7 @@ export function splitAttachmentLines(
   if (refs.length === 0) return { content, ...(files?.length ? { files } : {}) };
   const used = new Set<FileAttachment>();
   const merged: FileAttachment[] = refs.map((ref) => {
-    const hit = files?.find((f) => f && f.text === ref && !used.has(f));
+    const hit = files?.find((f) => f.text === ref && !used.has(f));
     if (hit) { used.add(hit); return hit; }
     const unregistered = ref.endsWith(UNREGISTERED_SUFFIX);
     return {
@@ -565,7 +565,7 @@ export function splitAttachmentLines(
       ...(unregistered ? {} : { text: ref }),
     };
   });
-  for (const f of files ?? []) if (f && !used.has(f)) merged.push(f);
+  for (const f of files ?? []) if (!used.has(f)) merged.push(f);
   return { content: lines.join('\n'), files: merged };
 }
 

@@ -30,7 +30,7 @@ export function useTurnDisplayItems(turns: ComputedRef<Turn[]>): ComputedRef<Dis
       // 轮首时间戳：恒取 steps[0]（final 仅在 event/error 等无步轮上兜底）。
       // 顺序不能反——final 在流式期为 null、收束物化后 = 末条有正文消息
       // （其 ts 是末步而非轮首），先取 final 会让 key 在收束瞬间变化。
-      const ts = t.steps[0]?.assistant.timestamp ?? t.final?.timestamp ?? i;
+      const ts = t.steps.at(0)?.assistant.timestamp ?? t.final?.timestamp ?? i;
       // 稳定 key：agent + 轮首时间戳。刻意不含 final 长度与 steps 数：两者
       // 在收束物化（final 0→N）/新增 LLM 步骤（steps +1）时变化 → key 变
       // → 整轮重挂载 → 用户手动展开的链栏/工具卡/思考卡全部弹回默认折叠
@@ -44,7 +44,7 @@ export function useTurnDisplayItems(turns: ComputedRef<Turn[]>): ComputedRef<Dis
       }
       // error 消息 → 红色错误分隔符
       if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
-        items.push({ type: 'error', timeText: t.final.content, timestamp: t.final.timestamp, key: `error-${ts}-${t.final?.content?.length ?? 0}` });
+        items.push({ type: 'error', timeText: t.final.content, timestamp: t.final.timestamp, key: `error-${ts}-${t.final.content.length}` });
         continue;
       }
       items.push({ type: 'turn' as const, turn: t, key: stableKey });

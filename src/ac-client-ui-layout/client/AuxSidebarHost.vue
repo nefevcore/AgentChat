@@ -59,8 +59,8 @@ const rendered = computed<Array<{ def: AuxSidebarPanelDef; visible: boolean }>>(
   const out: Array<{ def: AuxSidebarPanelDef; visible: boolean }> = [];
   for (const def of auxSidebarPanelDefs()) {
     if (def.keepAlive) {
-      if (everWon.has(def.id)) out.push({ def, visible: expanded && w?.id === def.id });
-    } else if (expanded && w?.id === def.id) {
+      if (everWon.has(def.id)) out.push({ def, visible: expanded && w.id === def.id });
+    } else if (expanded && w.id === def.id) {
       out.push({ def, visible: true });
     }
   }

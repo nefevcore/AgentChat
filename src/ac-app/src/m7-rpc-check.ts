@@ -12,7 +12,7 @@ function call(method: string, params?: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
     pending.set(requestId, resolve);
     ws.send(JSON.stringify({ type: 'rpc/call', data: { method, requestId, params } }));
-    setTimeout(() => reject(new Error(`rpc ${method} 超时`)), 8000).unref?.();
+    setTimeout(() => reject(new Error(`rpc ${method} 超时`)), 8000).unref();
   });
 }
 

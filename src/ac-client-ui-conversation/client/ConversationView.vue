@@ -94,7 +94,7 @@ const queuedItems = computed(() => queued.value?.items.value ?? []);
 async function steerAllQueued() {
   if (!chatStore.contextBusy || !queued.value) return;
   for (;;) {
-    const first = queued.value.items.value[0];
+    const first = queued.value.items.value.at(0);
     if (!first) break;
     const outcome = await queued.value.steer(first.id);
     if (outcome !== 'steered') break; // 窗口已关/条目失效：停止（不报失败）
@@ -129,7 +129,7 @@ const streamingTailLen = computed(() => {
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
     if (m.role === 'agent' && m.isStreaming) {
-      return (m.content?.length ?? 0) + (m.reasoning_content?.length ?? 0) + (m.thinking?.length ?? 0);
+      return m.content.length + (m.reasoning_content?.length ?? 0) + (m.thinking?.length ?? 0);
     }
   }
   return 0;

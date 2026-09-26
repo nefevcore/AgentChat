@@ -41,25 +41,27 @@ function entryOf(fiber: Fiber): EntryLike | undefined {
 export function rowOfFiber(ctx: Context, fiber: Fiber): string | undefined {
   const loader = ctx.get('loader', false);
   if (loader) {
-    // 官方 boot：最近 entry 即归属行（含行内子 fiber 继承的 entry）
-    let cursor: Fiber | undefined = fiber;
-    while (cursor) {
+    // 官方 boot：最近 entry 即归属行（含行内子 fiber 继承的 entry）。
+    // 上行链恒在（vendor：Fiber.parent 与 Context.fiber 必填），root 处
+    // parent.fiber 自指——以自指判终止。
+    let cursor: Fiber = fiber;
+    for (;;) {
       const entry = entryOf(cursor);
       if (entry) return entry.options?.name ?? entry.id;
-      const parent: Fiber | undefined = cursor.parent?.fiber;
-      if (parent === undefined || parent === cursor) break; // root 自指 → 终止
+      const parent: Fiber = cursor.parent.fiber;
+      if (parent === cursor) break; // root 自指 → 终止
       cursor = parent;
     }
     return undefined;
   }
   // 程序化组合：root fiber 的直接子 fiber = 顶层行（runtime 名即行名）
-  let cursor: Fiber | undefined = fiber;
-  while (cursor) {
-    const parentFiber: Fiber | undefined = cursor.parent?.fiber;
-    if (parentFiber === undefined) break;
+  let cursor: Fiber = fiber;
+  for (;;) {
+    const parentFiber: Fiber = cursor.parent.fiber;
     if (parentFiber === ctx.root.fiber || parentFiber.uid === 0) {
       return cursor.runtime?.name ?? cursor.name;
     }
+    if (parentFiber === cursor) break; // root 自指 → 终止
     cursor = parentFiber;
   }
   return undefined;

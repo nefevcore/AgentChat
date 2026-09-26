@@ -215,7 +215,7 @@ const jsonRaw = ref<Record<string, string>>({});
 const jsonErr = ref<Record<string, string>>({});
 const jsonInvalid = computed(() => Object.values(jsonErr.value).some((x) => x !== ''));
 function jsonTextOf(f: NormField): string {
-  if (jsonRaw.value[f.name] !== undefined) return jsonRaw.value[f.name];
+  if (f.name in jsonRaw.value) return jsonRaw.value[f.name];
   const v = draft.value[f.name];
   if (v === undefined || v === null || v === '') return '';
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
@@ -247,7 +247,7 @@ watch(
     if (mode === 'global') {
       try {
         const all = await api.getGlobalSettings();
-        const v = all?.[entry.configNs ?? entry.name];
+        const v = all[entry.configNs ?? entry.name];
         draft.value = v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {};
       } catch (e: any) {
         error.value = `读取全局默认层失败: ${e.message}`;

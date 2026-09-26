@@ -339,7 +339,7 @@ export class UsageService extends Service {
   byPair(): UsagePairAggregate[] {
     const agents = this.ctx.get('agents');
     const group = this.ctx.get('group');
-    const groupIds = new Set(group?.list()?.map((g) => g.id) ?? []);
+    const groupIds = new Set(group?.list().map((g) => g.id) ?? []);
     const merged = new Map<string, UsagePairAggregate>();
     for (const { agent, conversationId, usage } of this.byAgentConvMap.values()) {
       let a: string | undefined;

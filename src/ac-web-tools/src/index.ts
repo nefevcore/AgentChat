@@ -302,9 +302,9 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
         const poolResults = positiveInt(poolSettings.defaultResults);
         const params: SearchParams = {
           query: String(args.query ?? ''),
-          search_depth: (args.search_depth as SearchParams['search_depth']) ?? webSettings.defaultDepth ?? poolDepth ?? options.defaultDepth ?? DEFAULT_SEARCH_DEPTH,
-          max_results: (args.max_results as number) ?? webSettings.defaultResults ?? poolResults ?? options.defaultResults ?? DEFAULT_MAX_RESULTS,
-          topic: (args.topic as SearchParams['topic']) ?? webSettings.defaultTopic ?? poolTopic ?? options.defaultTopic ?? DEFAULT_TOPIC,
+          search_depth: (args.search_depth ?? webSettings.defaultDepth ?? poolDepth ?? options.defaultDepth ?? DEFAULT_SEARCH_DEPTH) as SearchParams['search_depth'],
+          max_results: positiveInt(args.max_results ?? webSettings.defaultResults ?? poolResults ?? options.defaultResults ?? DEFAULT_MAX_RESULTS),
+          topic: (args.topic ?? webSettings.defaultTopic ?? poolTopic ?? options.defaultTopic ?? DEFAULT_TOPIC) as SearchParams['topic'],
         };
         if (Array.isArray(args.include_domains) && args.include_domains.length > 0) {
           params.include_domains = args.include_domains as string[];
@@ -448,7 +448,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
         } catch {
           parsed = { status: 'ok', raw };
         }
-        if (parsed && parsed.status === 'error') {
+        if (parsed.status === 'error') {
           throw new Error(String(parsed.message || `browser action failed: ${action}`));
         }
         if (cmd.action === 'close') browser.kill();
@@ -488,7 +488,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
 
         // 单动作模式
         const result = await runOne(args as Record<string, unknown>, 0, 0);
-        return { ok: true, output: result.result ?? result };
+        return { ok: true, output: result.result };
       } catch (err: unknown) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }

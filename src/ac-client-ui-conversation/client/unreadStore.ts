@@ -52,8 +52,9 @@ export function loadUnreadSnapshot(): Partial<Record<DialogId, number>> | null {
   try {
     const raw = store?.getItem(KEY);
     if (!raw) return null;
-    const v = JSON.parse(raw) as Record<string, unknown>;
-    if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const v = parsed as Record<string, unknown>;
     const out: Partial<Record<DialogId, number>> = {};
     for (const [k, n] of Object.entries(v)) {
       if (!isDialogId(k)) continue;

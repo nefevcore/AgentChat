@@ -98,7 +98,7 @@ function answerNotice(record: DurableInteraction): string {
   const answer = record.answer as { answers?: Array<string | string[] | null> } | null;
   const answers = Array.isArray(answer?.answers) ? answer!.answers! : [];
   const lines = qs.map((q, i) => {
-    const label = q?.question ? `「${q.question}」` : `第 ${i + 1} 题`;
+    const label = q.question ? `「${q.question}」` : `第 ${i + 1} 题`;
     return `- ${label}: ${formatAnswer(answers[i])}`;
   });
   return `[系统通知] 你此前发起的提问（interaction ${record.id}）已收到用户回答：\n${lines.join('\n')}\n请基于以上回答继续之前的任务。`;

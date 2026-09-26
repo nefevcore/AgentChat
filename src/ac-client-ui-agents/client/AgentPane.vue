@@ -149,7 +149,8 @@ const llmProvider = computed(() => {
 /** 字段表：任意 provider 共用一份（连接字段已收敛；按名取不到时回落首表） */
 const llmFields = computed<FieldMeta[]>(() => {
   const schemas = props.llmSchemas;
-  return toFields(schemas[llmProvider.value] ?? schemas[Object.keys(schemas)[0] ?? ''] ?? []);
+  const first = Object.keys(schemas).at(0);
+  return toFields(schemas[llmProvider.value] ?? (first !== undefined ? schemas[first] : []));
 });
 const llmFiltered = computed(() => filterFields(llmFields.value, llmRaw.value, ''));
 
@@ -211,7 +212,7 @@ async function ensureLlmModels(): Promise<void> {
   llmModelsAutoTried.add(provider);
   try {
     const data = await fetchPoolModels(provider, true, defaultRpc);
-    if (data.models?.length) {
+    if (data.models.length) {
       llmModelOptions.value = data.models;
       llmModelsError.value = '';
       // 本地注册面同步（发现缓存已回写 config → 热更重挂，下次拉取自然带出）
@@ -330,7 +331,7 @@ const effortOptions = computed(() => {
 const globalDefaultModel = computed<{ provider: string; model: string } | null>(() => {
   const entries = Object.entries(props.pools.llmProviders)
     .filter(([n, v]) => !n.startsWith('$') && v && typeof v === 'object');
-  const hit = entries.find(([, v]) => (v as Record<string, unknown>).default === true) ?? entries[0];
+  const hit = entries.find(([, v]) => (v as Record<string, unknown>).default === true) ?? entries.at(0);
   if (!hit) return null;
   const e = hit[1] as Record<string, unknown>;
   const m = typeof e.defaultModel === 'string' && e.defaultModel ? e.defaultModel
@@ -356,7 +357,7 @@ const llmEffectiveSummary = computed(() => {
 /** 工具 requires 可能用到的标签 → 中文说明（base 已退役——全量标签化
  *  2026-09-16：一切出厂工具挂具体标签，隐式基础层不再呈现）。
  *  目录（tags/catalog RPC）可用时仅作 label 兜底；行未装配时是唯一徽章来源 */
-const TOOL_TAG_LABELS: Record<string, string> = {
+const TOOL_TAG_LABELS: Partial<Record<string, string>> = {
   fs: '文件读写',
   collab: '多 Agent 协作',
   infra: '会话基础设施',

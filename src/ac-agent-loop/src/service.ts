@@ -414,7 +414,7 @@ export class AgentLoopService extends Service {
               ? { conversationId: request.conversationId }
               : {}),
             ...(request.runId !== undefined ? { runId: request.runId } : {}),
-            ...(tc.id !== undefined ? { toolCallId: tc.id } : {}),
+            ...(tc.id ? { toolCallId: tc.id } : {}),
             ...(request.signal ? { signal: request.signal } : {}),
             ...(request.elevation ? { elevation: request.elevation } : {}),
           }),

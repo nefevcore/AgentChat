@@ -57,5 +57,5 @@ export const COMPONENT_CLASS_SLOTS: UISlotId[] = [
 /** 声明清单中的高危席位（安装确认面徽章数据源——服务端单源
  *  ac-plugin-core HIGH_RISK_UI_SLOTS 的前端镜像） */
 export function highRiskOf(slots: string[] | undefined): string[] {
-  return (slots ?? []).filter((s) => LEGACY_SLOT_CATALOG[s as UISlotId]?.highRisk === true);
+  return (slots ?? []).filter((s) => LEGACY_SLOT_CATALOG[s as UISlotId].highRisk === true);
 }

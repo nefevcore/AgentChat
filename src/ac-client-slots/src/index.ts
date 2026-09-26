@@ -266,7 +266,7 @@ export class SlotCore {
 
   /** 声明席位（写入声明账本）。重复声明后者替换前者；既有贡献保留（仅换形状）。 */
   declare(decl: SlotDecl): void {
-    if (typeof decl?.key !== 'string' || decl.key.length === 0) {
+    if (typeof decl.key !== 'string' || decl.key.length === 0) {
       throw new SlotCoreError('INVALID_DEF', `slot 声明缺少非空 key：${JSON.stringify(decl)}`);
     }
     if (decl.kind !== undefined && !['single', 'list', 'chain'].includes(decl.kind)) {
@@ -317,7 +317,7 @@ export class SlotCore {
         `slot "${key}" 未声明——装载校验 fail-closed（M27 D1）：先经 declare() 进声明账本，再注册贡献`,
       );
     }
-    if (typeof entry?.id !== 'string' || entry.id.length === 0) {
+    if (typeof entry.id !== 'string' || entry.id.length === 0) {
       throw new SlotCoreError('INVALID_DEF', `slot "${key}" 的贡献缺少非空 id：${JSON.stringify(entry)}`);
     }
     if (!decl.data && (entry.component === undefined || entry.component === null)) {
@@ -486,7 +486,7 @@ export class SlotStoreAxis {
     let inst = this.instances.get(key);
     if (!inst) {
       const produced = factory(handle);
-      const dispose = typeof (produced as { dispose?: unknown })?.dispose === 'function'
+      const dispose = typeof (produced as { dispose?: unknown } | undefined)?.dispose === 'function'
         ? (produced as { dispose: () => void }).dispose.bind(produced)
         : undefined;
       inst = { value: produced, refs: 0, dispose };

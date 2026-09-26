@@ -118,11 +118,13 @@ export function readRegistry(root: string): PluginRegistryDoc {
   const file = path.join(pluginsRoot(root), REGISTRY_FILE);
   if (!fs.existsSync(file)) return { version: 1, plugins: {} };
   try {
-    const doc = JSON.parse(fs.readFileSync(file, 'utf-8')) as PluginRegistryDoc;
-    if (doc.version !== 1 || doc.plugins === null || typeof doc.plugins !== 'object') {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (typeof parsed !== 'object' || parsed === null
+      || !('version' in parsed) || !('plugins' in parsed)
+      || typeof (parsed as PluginRegistryDoc).plugins !== 'object') {
       throw new Error('registry 格式不受支持');
     }
-    return doc;
+    return parsed as PluginRegistryDoc;
   } catch (err: unknown) {
     throw new Error(`读取插件库 registry 失败: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -410,7 +412,9 @@ export function approveStaging(root: string, id: string, grants?: unknown): Prom
 /** 插件库已安装清单（C2 fail-soft：registry 损坏按空清单，坏文件已转存） */
 export function listInstalled(root: string): InstalledPluginRecord[] {
   const { doc } = readRegistryFailSoft(root);
-  return Object.values(doc.plugins).sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+  return Object.values(doc.plugins)
+    .filter((r): r is InstalledPluginRecord => r !== undefined)
+    .sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
 }
 
 /**

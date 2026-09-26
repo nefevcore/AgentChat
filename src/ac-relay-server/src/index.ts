@@ -157,8 +157,11 @@ export class RelayCore {
       const len = raw.length;
       if (len > this.limits.maxFrameBytes) { conn.close(); return; }
       let msg: RelayClientMessage;
-      try { msg = JSON.parse(raw) as RelayClientMessage; } catch { conn.close(); return; }
-      if (msg == null || typeof msg !== 'object' || typeof msg.op !== 'string') { conn.close(); return; }
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed !== 'object' || parsed === null || typeof (parsed as RelayClientMessage).op !== 'string') { conn.close(); return; }
+        msg = parsed as RelayClientMessage;
+      } catch { conn.close(); return; }
 
       switch (msg.op) {
         case 'ping':

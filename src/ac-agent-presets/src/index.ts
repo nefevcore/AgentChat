@@ -161,7 +161,7 @@ export class AgentPresetsService extends Service {
   /** 默认预设（meta.default 优先，缺省 order 最小/首个；无预设 → null） */
   defaultPreset(): AgentPresetDefinition | null {
     const all = this.list();
-    return all.find((d) => d.meta.default) ?? all[0] ?? null;
+    return all.find((d) => d.meta.default) ?? all.at(0) ?? null;
   }
 }
 

@@ -158,15 +158,15 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
       : input;
   fwd('llm/chat-error', (input, error) => forward('llm/chat-error', input, error));
   fwd('llm/delta-start', (input, meta) => {
-    if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
+    if (hiddenOf(meta?.agent ?? input.meta?.agent, meta?.conversationId ?? input.meta?.conversationId, meta?.source ?? input.meta?.source)) return;
     forward('llm/delta-start', wireLlmInput(input), meta);
   });
   fwd('llm/delta', (input, chunk, meta) => {
-    if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
+    if (hiddenOf(meta?.agent ?? input.meta?.agent, meta?.conversationId ?? input.meta?.conversationId, meta?.source ?? input.meta?.source)) return;
     forward('llm/delta', wireLlmInput(input), chunk, meta);
   });
   fwd('llm/delta-end', (input, meta) => {
-    if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
+    if (hiddenOf(meta?.agent ?? input.meta?.agent, meta?.conversationId ?? input.meta?.conversationId, meta?.source ?? input.meta?.source)) return;
     forward('llm/delta-end', wireLlmInput(input), meta);
   });
 

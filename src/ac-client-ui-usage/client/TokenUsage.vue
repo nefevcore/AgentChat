@@ -196,7 +196,7 @@ async function loadData() {
     const summary = await fetchUsageTokens(currentRangeParams()) as UsageSummary;
     if (seq !== loadSeq) return;
     data.value = summary;
-    appliedRange.value = summary?.range ?? null;
+    appliedRange.value = summary.range ?? null;
     lastUpdated.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch (err: any) {
     if (seq !== loadSeq) return;
@@ -400,7 +400,7 @@ function makeBarChart(
       padding: [8, 0, 0, 0],
       series: [
         {
-          value: (_u, v) => (v == null ? '--' : labels[Math.round(v)] ?? ''),
+          value: (_u, v) => (v as number | null) == null ? '--' : (labels.at(Math.round(v as number)) ?? ''),
         },
         ...series.map(s => ({
           label: s.label,
@@ -476,7 +476,7 @@ function renderChartTipAt(
   if (!tipEl) return;
   const u = chartInstance ?? modelChartInstance;
   const days = data.value?.by_day ?? [];
-  const day = days[idx];
+  const day = days.at(idx);
   if (!u || !day) { tipEl.style.display = 'none'; return; }
   // rawSeries 数组顺序 = 视觉自上而下（顶段在前）+ 过滤零值段（模型视图跨天缺失时保持简洁）
   const raw = (u as uPlot & { rawSeries?: BarSeries[] }).rawSeries ?? [];
@@ -584,7 +584,7 @@ const isKnownCp = (id: string) => id === 'user' || (knownChordIds.value?.has(id)
 /** 弦图可用 1v1 流量对：self / 群聊 / 预设 / 名册外端点排除；user 视 includeUserSelf 而定 */
 const chordPairs = computed<PairUsage[]>(() => {
   if (!data.value) return [];
-  return (data.value.by_pair ?? []).filter(p =>
+  return data.value.by_pair.filter(p =>
     p.a !== p.b
     && !isGroupCp(p.a) && !isGroupCp(p.b)
     && !isPresetCp(p.a) && !isPresetCp(p.b)
@@ -629,8 +629,8 @@ function renderCloud() {
   // SVG 元素重建（弹窗重开/重渲染）或明暗主题切换时必须重新渲染配色。
   // 预设目录/名册指纹参与守卫：两者迟到（首开与 fetch 竞态）时剔除集变化 → 重绘
   // （id 排序后 join——名册按活跃度排序，直接 join 会因排序抖动频繁失效）
-  const cloudKey = `${includeUserSelf.value}|${themeStore.theme}|${[...roster.presets.value.map(p => p.id)].sort().join(',')}|${[...roster.agents.value.map(a => a.id)].sort().join(',')}|${data.value.by_agent.length}|${data.value.by_pair?.length ?? 0}|` +
-    `${JSON.stringify(data.value.by_agent.map(a => a.total_tokens))}|${JSON.stringify(data.value.by_pair?.map(p => [p.a, p.b, p.total_tokens]) ?? [])}`;
+  const cloudKey = `${includeUserSelf.value}|${themeStore.theme}|${[...roster.presets.value.map(p => p.id)].sort().join(',')}|${[...roster.agents.value.map(a => a.id)].sort().join(',')}|${data.value.by_agent.length}|${data.value.by_pair.length}|` +
+    `${JSON.stringify(data.value.by_agent.map(a => a.total_tokens))}|${JSON.stringify(data.value.by_pair.map(p => [p.a, p.b, p.total_tokens]))}`;
   if (svg === lastCloudSvg && cloudKey === lastCloudKey) return;
   lastCloudSvg = svg;
   lastCloudKey = cloudKey;
@@ -655,7 +655,7 @@ function renderCloud() {
   // 「其他」的兜底索引（otherIdx = 末位真实节点），画出错误的连线。
   // 弧段配额按矩阵行和重算，伪节点 total_tokens 仅用于展示兜底。
   // 预设对/名册外对（user↔标准模式等）不计入伪节点流量（整体剔除）。
-  const userPairFlow = (data.value.by_pair ?? [])
+  const userPairFlow = data.value.by_pair
     .filter(p => p.a !== p.b && (p.a === 'user' || p.b === 'user') && !isPresetCp(p.a) && !isPresetCp(p.b) && isKnownCp(p.a) && isKnownCp(p.b))
     .reduce((s, p) => s + p.total_tokens, 0);
   // 弦图统计口径（两类剔除）：①预设 Agent（标准/极简模式等）是用户单会话
@@ -943,7 +943,7 @@ function bindCloudHover(svg: SVGSVGElement): void {
   if (flag.__tcBound) return;
   flag.__tcBound = true;
   svg.addEventListener('pointerover', (ev) => {
-    const target = (ev.target as Element | null)?.closest?.('.tc-chord, .tc-arc') as SVGElement | null;
+    const target = (ev.target as Element | null)?.closest('.tc-chord, .tc-arc') as SVGElement | null;
     if (!target) { clearCloudHover(); return; } // 移入空白区即取消高亮
     const na = target.getAttribute('data-na');
     if (na !== null) {
@@ -995,7 +995,7 @@ watch([() => roster.presets.value, () => roster.agents.value], async () => {
 // 明暗主题切换 → 弦图配色 / 柱状图配色与 tooltip 需重算
 watch(() => themeStore.theme, async () => {
   if (activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
-  else if (activeTab.value === 'daily') { await nextTick(); renderChart(); }
+  else { await nextTick(); renderChart(); }
 });
 onUnmounted(() => { destroyChart(); });
 </script>

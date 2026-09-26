@@ -103,6 +103,7 @@ import type { JobSnapshot } from 'ac-jobs';
 import type {} from 'ac-session';
 import type {} from 'ac-agents';
 import type {} from 'ac-group';
+import type { AgentPresetDefinition } from 'ac-agent-presets';
 import type {} from 'ac-usage';
 import type {} from 'ac-durable-interaction';
 import type {} from 'ac-tools';
@@ -579,7 +580,7 @@ function agentOfPair(conversationId: string, has: (id: string) => boolean): stri
 
 /** vendor hook 行形状（_hooks 私有读取的只读视景元素） */
 type HookRow = { ctx?: { fiber?: { name?: string } }; prepend?: boolean; global?: boolean; description?: string };
-type HooksTable = Record<string, HookRow[]>;
+type HooksTable = Partial<Record<string, Array<HookRow | null>>>;
 
 /**
  * vendor 事件表只读视景（events/listeners · events/descriptions 两处共用；
@@ -598,7 +599,7 @@ function hooksTableOf(ctx: Context): HooksTable {
   for (const [name, hooks] of Object.entries(hooksTableOf(ctx))) {
     if (typeof name !== 'string' || name.startsWith('internal/')) continue;
     const listeners = (hooks ?? [])
-      .filter((h) => h?.ctx)
+      .filter((h): h is HookRow => h?.ctx !== undefined)
       .map((h) => ({
         owner: h.ctx!.fiber?.name ?? '(anonymous)',
         prepend: h.prepend === true,
@@ -832,15 +833,13 @@ export function apply(ctx: Context) {
   // 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；可选能力行——
   // 语义见 session/archive 处权威注释）。
   web.registerRpc('agents/presets', () => {
-    const presets = ctx.get('agentPresets', false) as
-      | { list(): Array<{ meta: { label: string; description?: string; default?: boolean } ; agent: { id: string; name?: string; description?: string; tags?: string[] } }> }
-      | undefined;
+    const presets = ctx.get('agentPresets', false) as { list(): AgentPresetDefinition[] } | undefined;
     if (!presets) throw new Error('agentPresets 服务未装载（预设目录不可用）');
     return {
       presets: presets.list().map((d) => ({
         id: d.agent.id,
-        // 显示名：name（预设物化即带）→ meta.label 兜底 → id
-        name: displayNameOf(d.agent) ?? d.meta.label ?? d.agent.id,
+        // 显示名：name（预设物化即带）→ meta.label 兜底（label 必填，链到此必有值）
+        name: displayNameOf(d.agent) ?? d.meta.label,
         label: d.meta.label,
         description: d.meta.description ?? '',
         default: d.meta.default === true,
@@ -1453,12 +1452,12 @@ export function apply(ctx: Context) {
     //   窗口的派生源），预算分母 = 群主的 archive settings。
     const group = ctx.group.get(conversationId);
     if (group !== undefined) {
-      const viewer = group.memoryOwner ?? group.members[0] ?? '';
+      const viewer = group.memoryOwner ?? group.members[0];
       const msgs = await ctx.group.historyFor(conversationId, viewer);
       let promptTokens = 0;
       for (const m of msgs) {
         promptTokens += estimateTokens(
-          typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+          m.content,
         );
       }
       const archiveSettings = ctx.agents.settingsOf(viewer, 'archive') as
@@ -1474,7 +1473,8 @@ export function apply(ctx: Context) {
       const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
       const estimatedMsgsRemaining =
         avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0;
-      const usageAgg = ctx.usage.byConversation()[conversationId];
+      const { lastCacheHit: lastHit, lastCacheMiss: lastMiss, cacheHit: hit, cacheMiss: miss, lastContextPrompt: lastRunPrompt } =
+        ctx.usage.byConversation()[conversationId] ?? { lastCacheHit: 0, lastCacheMiss: 0, cacheHit: 0, cacheMiss: 0, lastContextPrompt: 0 };
       return {
         conversationId,
         messageCount,
@@ -1485,13 +1485,7 @@ export function apply(ctx: Context) {
         estimatedMsgsRemaining,
         status: usagePercent < 50 ? 'low' : usagePercent < 75 ? 'moderate' : usagePercent < 90 ? 'high' : 'critical',
         agentId: viewer,
-        cache: {
-          lastHit: usageAgg?.lastCacheHit ?? 0,
-          lastMiss: usageAgg?.lastCacheMiss ?? 0,
-          hit: usageAgg?.cacheHit ?? 0,
-          miss: usageAgg?.cacheMiss ?? 0,
-          lastRunPrompt: usageAgg?.lastContextPrompt ?? 0,
-        },
+        cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
       };
     }
     // single 会话（conversationId = sid，无 ~ 段）：承载 Agent 优先调用方显式
@@ -1540,7 +1534,8 @@ export function apply(ctx: Context) {
     // 轨（多步 run 为各步合计），hit/miss = 会话累计；lastRunPrompt = 末次
     // run 实际输入（计费口径对照——含系统提示/工具等固定开销，估算口径
     // 的 contextTokens 不含）。整理 run 不记账（M20），不污染本面。
-    const usageAgg = ctx.usage.byConversation()[conversationId];
+    const { lastCacheHit: lastHit, lastCacheMiss: lastMiss, cacheHit: hit, cacheMiss: miss, lastContextPrompt: lastRunPrompt } =
+      ctx.usage.byConversation()[conversationId] ?? { lastCacheHit: 0, lastCacheMiss: 0, cacheHit: 0, cacheMiss: 0, lastContextPrompt: 0 };
     return {
       conversationId,
       messageCount,
@@ -1550,13 +1545,7 @@ export function apply(ctx: Context) {
       usagePercent,
       estimatedMsgsRemaining,
       status,
-      cache: {
-        lastHit: usageAgg?.lastCacheHit ?? 0,
-        lastMiss: usageAgg?.lastCacheMiss ?? 0,
-        hit: usageAgg?.cacheHit ?? 0,
-        miss: usageAgg?.cacheMiss ?? 0,
-        lastRunPrompt: usageAgg?.lastContextPrompt ?? 0,
-      },
+      cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
     };
   });
 
@@ -2144,7 +2133,7 @@ export function apply(ctx: Context) {
       const deps = direct.get(runtime.name) ?? new Set<string>();
       for (const fiber of runtime.fibers) {
         if (fiber.uid === null) continue;
-        for (const key of Object.keys(fiber.inject ?? {})) {
+        for (const key of Object.keys(fiber.inject)) {
           if (key !== runtime.name) deps.add(key);
         }
       }
@@ -2158,7 +2147,7 @@ export function apply(ctx: Context) {
       if (reflectStore !== undefined) {
         for (const key of Reflect.ownKeys(reflectStore)) {
           const impl = (reflectStore as Record<symbol, ReflectImpl>)[key as symbol];
-          if (!impl || typeof impl !== 'object') continue;
+          if (typeof impl !== 'object') continue;
           if (impl.name && !serviceOwner.has(impl.name)) {
             serviceOwner.set(impl.name, impl.fiber?.runtime?.name ?? '(root)');
           }
@@ -2322,7 +2311,7 @@ export function apply(ctx: Context) {
       // stale = 良性 no-op：注册不存在了）
       live: keys.filter((k) => {
         const [owner, event] = k.split('::');
-        return owner !== undefined && event !== undefined && policy.isDisabled(owner, event);
+        return policy.isDisabled(owner, event);
       }),
     };
   });
@@ -2510,7 +2499,7 @@ export function apply(ctx: Context) {
   // 承载 Agent（前端独立会话无激活 1v1 Agent，此前恒落 shared）
   web.route('POST', '/api/upload', (call) => {
     const body = call.body as MultipartBody | undefined;
-    if (!body?.files?.file) return web.replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
+    if (!body?.files.file) return web.replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
     const agentId = body.fields.agentId || undefined;
     const conversationId = body.fields.conversationId || undefined;
     try {
@@ -2550,7 +2539,7 @@ export function apply(ctx: Context) {
   // Agent 头像（multipart 上传 / 删除 / 静态读取；存 agentStore 目录）
   web.route('POST', '/api/agents/:agentId/avatar', (call) => {
     const body = call.body as MultipartBody | undefined;
-    if (!body?.files?.file) return web.replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
+    if (!body?.files.file) return web.replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
     try {
       ctx.agentStore.saveAvatar(call.params.agentId, body.files.file.data, extname(body.files.file.filename));
       web.replyJson(call.res, 200, { success: true });

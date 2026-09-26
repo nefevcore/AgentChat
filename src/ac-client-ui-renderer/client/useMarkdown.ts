@@ -179,7 +179,8 @@ export function parseFrontmatterEntries(yamlText: string): Array<{ key: string; 
         if (!line || line.startsWith('#')) continue;
         const m = /^([A-Za-z_$][\w$@.\-]*)[ \t]*:(?:[ \t]+(.*))?$/.exec(line);
         if (!m) continue;
-        entries.push({ key: m[1], value: unquoteFrontmatterValue((m[2] ?? '').trim()) });
+        const raw2 = m[2] as string | undefined;
+        entries.push({ key: m[1], value: unquoteFrontmatterValue((raw2 ?? '').trim()) });
     }
     return entries;
 }

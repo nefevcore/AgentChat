@@ -92,6 +92,6 @@ export function parseRpcCall(frame: WsFrame): RpcCallPayload | null {
   if (frame.type !== RPC_CALL) return null;
   const data = frame.data as Partial<RpcCallPayload> | undefined;
   if (typeof data?.method !== 'string' || data.method === '') return null;
-  if (typeof data?.requestId !== 'string' || data.requestId === '') return null;
+  if (typeof data.requestId !== 'string' || data.requestId === '') return null;
   return { method: data.method, requestId: data.requestId, params: data.params };
 }

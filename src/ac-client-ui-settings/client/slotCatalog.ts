@@ -46,12 +46,7 @@ export function assertDeclarableSlot(descriptor: { name: string; slots?: UISlotI
       `[ui-ext] 插件 "${descriptor.name}" 未在 manifest.ui.slots 中声明 "${slot}"，拒绝注册`,
     );
   }
-  const mapping: LegacySlotMapping | undefined = LEGACY_SLOT_CATALOG[slot];
-  if (!mapping) {
-    throw new Error(
-      `[ui-ext] 插件 "${descriptor.name}" 声明的 "${slot}" 不在公开子集（可声明：${publicLegacySlots().join('/') || '当前无公开席位'}；目录见 slot-tree §6 收编表）`,
-    );
-  }
+  const mapping: LegacySlotMapping = LEGACY_SLOT_CATALOG[slot];
   if (mapping.standing) return; // 常设通道：授权照旧（不进 slot 注册表）
   const ctx = clientRuntime();
   const decl = mapping.seatKey ? ctx?.slots.declOf(mapping.seatKey) : undefined;

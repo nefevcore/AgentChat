@@ -105,7 +105,7 @@ async function refreshSnapshots(): Promise<void> {
   if (!cid || !rpc) { snapshots.value = []; diskContents.value = {}; return; }
   try {
     const r = await rpc.call<{ snapshots?: RemoteSnapshot[] }>('fileSnapshots/list', { conversationId: cid });
-    snapshots.value = Array.isArray(r?.snapshots) ? r.snapshots : [];
+    snapshots.value = Array.isArray(r.snapshots) ? r.snapshots : [];
   } catch {
     snapshots.value = []; // RPC 缺席（行未装）= 回落方案 A
   }
@@ -129,7 +129,7 @@ async function loadDiskForPartials(): Promise<void> {
   }
   try {
     const r = await rpc.call<{ contents?: DiskContents }>('fileSnapshots/read-current', { paths: partialPaths });
-    diskContents.value = r?.contents ?? {};
+    diskContents.value = r.contents ?? {};
   } catch {
     diskContents.value = {};
   }
@@ -228,7 +228,7 @@ const totalRemoved = computed(() => files.value.reduce((n, f) => n + statOf(f).r
 const hasShellCalls = computed(() =>
   rawMessages.value.some((m) =>
     m.role === 'agent' && Array.isArray(m.toolCalls) &&
-    (m.toolCalls as Array<{ name?: string }>).some((tc) => tc?.name === 'bash'),
+    (m.toolCalls as Array<{ name?: string }>).some((tc) => tc.name === 'bash'),
   ),
 );
 
@@ -339,7 +339,7 @@ const viewDiffByPath = computed(() => {
     if (v === 'content') m.set(s.path, diffOfContent(s));
     else if (v === '') m.set(s.path, diffOf(analysis.value.diffs, s));
     else {
-      const step = stepsOf(s)[v];
+      const step = stepsOf(s).at(Number(v));
       m.set(s.path, step ? diffOfStep(step) : diffOf(analysis.value.diffs, s));
     }
   }

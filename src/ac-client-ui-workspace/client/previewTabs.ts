@@ -77,7 +77,7 @@ export const usePreviewTabsStore = defineStore('previewTabs', () => {
     if (idx === -1) return;
     tabs.value.splice(idx, 1);
     if (activeKey.value === key) {
-      const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null; // 右邻优先
+      const next = tabs.value.at(idx) ?? tabs.value.at(idx - 1) ?? null; // 右邻优先
       if (next) activeKey.value = next.key;
       else {
         activeKey.value = '';

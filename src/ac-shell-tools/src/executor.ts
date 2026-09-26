@@ -544,7 +544,7 @@ export function executeShellCommand(
     child.on('close', (code) => finish(code));
     child.on('exit', (code) => armCloseFallback(code));
     child.on('error', (err) => {
-      settle({ ok: false, error: err?.message ?? String(err), output: { command, cwd: dir } });
+      settle({ ok: false, error: err.message, output: { command, cwd: dir } });
     });
   });
 }

@@ -39,7 +39,7 @@ describe('PROVIDER_REGISTRY', () => {
   it('每键是可调用工厂，产出带 id/label/方法 的 provider 实例', () => {
     for (const [name, factory] of Object.entries(PROVIDER_REGISTRY)) {
       expect(factory).toBeTypeOf('function');
-      const p = factory();
+      const p = factory!();
       expect(p.id).toBe(name);
       expect(p.label.length).toBeGreaterThan(0);
       expect(p.description.length).toBeGreaterThan(0);

@@ -376,7 +376,7 @@ export class WorkspaceService extends Service {
       const convRoot = this.conversationWorkspaceRoot(context.conversationId);
       if (convRoot) {
         const wsName = this.listWorkspaces().find((w) => w.path === convRoot)?.name
-          ?? path.basename(convRoot) ?? '';
+          ?? path.basename(convRoot);
         return { dir: convRoot, label: wsName };
       }
       // Agent 级基准（显式 settings.workdir > 专用空间 files/<id>；预设/
@@ -482,12 +482,12 @@ export class WorkspaceService extends Service {
     }
     if (dataCandidate !== undefined) {
       // if (isDeniedPath(this.httpDeny, dataCandidate)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
-      let st: fs.Stats;
+      let st: fs.Stats | undefined;
       try {
         st = fs.statSync(dataCandidate);
       } catch (err) {
         if (!hasCtx) throw err; // 无 context：不存在照抛（原行为）
-        st = undefined as unknown as fs.Stats; // 不存在 → 继续基准推导
+        st = undefined; // 不存在 → 继续基准推导
       }
       if (st?.isFile()) return { file: dataCandidate, displayPath: p };
     }

@@ -94,7 +94,7 @@ interface TimerLayerSettings {
 const isDeferred = (mode: TimerEntry['mode']) => mode === 'delay' || mode === 'random';
 const isCalendar = (mode: TimerEntry['mode']) => mode === 'time' || mode === 'workday' || mode === 'holiday';
 const repeatOf = (entry: TimerEntry) =>
-  entry.repeatCount !== undefined && entry.repeatCount !== null && entry.repeatCount > 0
+  entry.repeatCount !== undefined && entry.repeatCount > 0
     ? entry.repeatCount
     : -1;
 
@@ -199,7 +199,7 @@ export class TimersService extends Service {
     // 1) agent-store 条目（ADR-5：目录读取唯一合法通道）
     for (const agentId of this.ctx.agentStore.agentIds()) {
       const stored = this.ctx.agentStore.readEntry<TimerStoreEntry>(agentId, 'timer');
-      const enabled = stored?.entries?.filter((e) => e.enabled !== false) ?? [];
+      const enabled = stored?.entries.filter((e) => e.enabled !== false) ?? [];
       if (enabled.length > 0) this.entriesByAgent.set(agentId, enabled);
     }
 
@@ -658,7 +658,7 @@ export class TimersService extends Service {
           }
           const report = await archive.archiveAll();
           this.ctx.logger.info('[timers] 批量归档（archive-all）：%C', JSON.stringify(report));
-        } else if (entry.task === 'backup-all') {
+        } else {
           const backup = this.ctx.get('backup') as { run(opts?: { force?: boolean }): Promise<unknown> } | undefined;
           if (!backup) {
             this.ctx.logger.warn('[timers] backup-all：ac-backup 未装载，跳过');

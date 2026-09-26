@@ -58,6 +58,7 @@ import {
   type PluginStagingRecord,
   type StagingFileContent,
   type StagingFileInfo,
+  type InstalledPluginRecord,
 } from 'ac-plugin-core';
 import type { WebUiService } from 'ac-webui';
 
@@ -227,7 +228,8 @@ export class PluginRegistryService extends Service {
   /** 熔断跳过记录（G9：进 disabled 集后 loadInstalled 跳过 → failed[] 不再重算） */
   private loadSkipped = new Map<string, PluginSkipInfo>();
   /** gates 就绪屏障（G5：首扫延迟到 gates 行挂上 before-load 监听） */
-  private gatesNotified = false;
+  private gatesState = { notified: false };
+  private gatesReady(): boolean { return this.gatesState.notified; }
   private gatesResolve: (() => void) | undefined;
 
   constructor(ctx: Context, options: PluginRegistryRowOptions = {}) {
@@ -259,20 +261,20 @@ export class PluginRegistryService extends Service {
    * 可能空转——行组合决定安全策略的既有语义）。
    */
   notifyGatesReady(): void {
-    this.gatesNotified = true;
+    this.gatesState.notified = true;
     this.gatesResolve?.();
     this.gatesResolve = undefined;
   }
 
   /** 首扫屏障：等 gates 就绪（已就绪立即过；超时告警继续） */
   private async awaitGates(): Promise<void> {
-    if (this.gatesNotified) return;
+    if (this.gatesReady()) return;
     const ready = new Promise<void>((resolve) => {
       this.gatesResolve = resolve;
     });
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, this.gatesTimeoutMs));
     await Promise.race([ready, timeout]);
-    if (!this.gatesNotified) {
+    if (!this.gatesReady()) {
       this.ctx.logger.warn(
         `[pluginRegistry] plugin-gates 行 ${this.gatesTimeoutMs}ms 内未就绪（或未装载）——首扫继续，权限/契约 gate 面可能空转`,
       );
@@ -875,7 +877,9 @@ export class PluginRegistryService extends Service {
         `[pluginRegistry] registry.json 损坏（${corrupt.message}）——${corrupt.backup ? `已转存 ${corrupt.backup}，` : '转存失败（原文件未动），'}本次按空插件库处理：不装载任何已装插件；手工修复 .corrupt 后恢复`,
       );
     }
-    const installed = Object.values(doc.plugins).sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+    const installed = Object.values(doc.plugins)
+      .filter((r): r is InstalledPluginRecord => r !== undefined)
+      .sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
     for (const record of installed) {
       const name = record.manifest.name;
       if (this.loaded.has(name) || this.loadingNames.has(name)) continue;
@@ -1095,7 +1099,7 @@ export class PluginRegistryService extends Service {
       };
     }
     const plugin = mod as PluginModule;
-    if (!plugin || typeof plugin.apply !== 'function') {
+    if (typeof plugin.apply !== 'function') {
       return { status: 'rejected', name: manifest.name, error: `插件模块缺少 apply(ctx, config)（${entry}）` };
     }
     if (typeof plugin.name === 'string' && plugin.name !== manifest.name) {
@@ -1341,7 +1345,7 @@ export class PluginRegistryService extends Service {
         }
       })();
     }, WATCH_INTERVAL_MS);
-    timer.unref?.();
+    timer.unref();
     record.watcher = timer;
   }
 

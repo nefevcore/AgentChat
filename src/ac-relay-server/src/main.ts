@@ -71,7 +71,7 @@ wss.on('connection', (ws: WebSocket, req) => {
 });
 
 const sweeper = setInterval(() => core.sweep(), 60_000);
-sweeper.unref?.();
+sweeper.unref();
 
 httpServer.listen(port, host, () => {
   console.log(`[relay] listening on ${host}:${port} tls=${Boolean(cert && key)} rooms=0`);

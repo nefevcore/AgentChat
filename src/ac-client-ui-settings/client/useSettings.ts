@@ -49,7 +49,7 @@ export function useSettings() {
       if (searchR.status === 'fulfilled') searchSchemas.value = searchR.value;
       if (nsR.status === 'fulfilled') {
         const d = nsR.value;
-        nsSchemas.value = d.namespaces ?? {};
+        nsSchemas.value = d.namespaces;
         // 兼容旧结构：{ extensions, tools }
         if (d.tools && typeof d.tools === 'object') {
           for (const [k, v] of Object.entries(d.tools)) if (!(k in nsSchemas.value)) nsSchemas.value[`tool.${k}`] = v as any[];
@@ -70,7 +70,7 @@ export function useSettings() {
   async function loadGlobal(): Promise<void> {
     try {
       const data = await api.getGlobalConfig();
-      globalConfig.value = data.config ?? {};
+      globalConfig.value = data.config;
       globalSaved.value = snapshot(globalConfig.value);
     } catch (e: any) {
       error.value = `加载全局配置失败: ${e.message}`;

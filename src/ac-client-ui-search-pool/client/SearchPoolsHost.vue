@@ -23,7 +23,7 @@ async function saveNow(): Promise<void> {
   try {
     await saveSearchPoolDomain(settings.pools.value.searchProviders as Record<string, unknown>, defaultRpc);
   } catch (e) {
-    error.value = `搜索引擎保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
+    error.value = `搜索引擎保存失败: ${(e as { message?: string }).message ?? String(e)}`;
   }
 }
 

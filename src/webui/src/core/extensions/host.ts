@@ -32,7 +32,7 @@ function extensionUrl(descriptor: UIExtensionDescriptor): string {
 
 /** 注入插件声明的前端 CSS（若有）；卸载时按 name 移除。 */
 function injectStyles(descriptor: UIExtensionDescriptor): void {
-  for (const href of descriptor.styles ?? []) {
+  for (const href of descriptor.styles) {
     if (!href) continue;
     const link = document.createElement('link');
     link.rel = 'stylesheet';

@@ -34,7 +34,7 @@ function isImageAttachment(f: { filename?: string; text?: string }): boolean {
 }
 
 function thumbSrc(f: { text?: string }): string | undefined {
-    return f?.text ? filePreviewUrl(f.text) : undefined;
+    return f.text ? filePreviewUrl(f.text) : undefined;
 }
 
 function onThumbError(key: string) {

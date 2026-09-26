@@ -95,8 +95,8 @@ function formatFileView(displayPath: string, content: string, viewRange?: number
   let finalLine: number;
   let header = `以下是 ${displayPath} 的内容（共 ${allLines.length} 行，带行号）`;
   if (viewRange !== undefined) {
-    const [start, end] = viewRange;
-    if (viewRange.length !== 2 || start === undefined || end === undefined || !viewRange.every(Number.isInteger)) {
+    const [start, end] = viewRange as number[];
+    if (viewRange.length !== 2 || !Number.isInteger(start) || !Number.isInteger(end)) {
       throw new Error('无效的 view_range：应为两个整数组成的数组，如 [11, 12] 或 [11, -1]');
     }
     initialLine = start;

@@ -1278,11 +1278,14 @@ export class SubagentsService extends Service {
         ...(steps.length > 0 && steps.at(-1)?.reasoning ? { reasoning: steps.at(-1)!.reasoning } : {}),
       });
     }
+    // abortReason 经 setTimeout 闭包写入（超时看门狗）——控制流不可见，
+    // 读取经 helper 免窄化
+    const reasonOf = (): SubEntry['abortReason'] => entry.abortReason;
     const status: SubagentRunStatus =
       result.finish === 'error'
         ? 'error'
         : result.finish === 'interrupted'
-          ? entry.abortReason === 'timeout'
+          ? reasonOf() === 'timeout'
             ? 'timeout'
             : 'stopped'
           : 'done'; // stop/max-steps/veto：有终文本即完成口径（旧语义）
@@ -1727,9 +1730,11 @@ export class SubagentsService extends Service {
     let dirty = false;
     try {
       const parsed = JSON.parse(raw) as RegistryFile;
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 盘上 JSON 宽容读（旧注册表可缺 subs/有坏行）
-      for (const rec of parsed.subs ?? []) {
-        if (!rec || typeof rec.id !== 'string' || !safeId(rec.id)) continue;
+      // 盘上 JSON 宽容读（旧注册表可缺 subs/有坏行）——显式宽化类型承载防御
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- parsed.subs 盘上可能缺席
+      const subs: Array<SubagentRecord | null | undefined> = parsed.subs ?? [];
+      for (const rec of subs) {
+        if (rec == null || typeof rec.id !== 'string' || !safeId(rec.id)) continue;
         if (rec.deleted !== true && rec.status === 'running') {
           rec.status = 'idle'; // run 随宿主死亡
           dirty = true;

@@ -70,7 +70,7 @@ export default defineComponent({
       const flagged = decl?.elect === true || decl?.data === true;
       if (flagged && import.meta.env.DEV) {
         console.warn(
-          `[SlotOutlet] 席位 "${props.name}" 是${decl?.elect ? 'keyed 选举席（elect）' : '数据席位（data）'}——由宿主解析面消费，SlotOutlet 渲染恒空（M30 D1/D2）`,
+          `[SlotOutlet] 席位 "${props.name}" 是${decl.elect ? 'keyed 选举席（elect）' : '数据席位（data）'}——由宿主解析面消费，SlotOutlet 渲染恒空（M30 D1/D2）`,
         );
       }
       return flagged;

@@ -31,10 +31,10 @@ export function useActivityBarActions(ctx: ClientContext | undefined): ComputedR
   return computed(() => {
     if (!ctx) return [];
     void ctx.slots.version(SLOT_ACTIVITY_BAR_ACTIONS); // 依赖锚（key 级细粒度失效轴）
-    return (ctx.slots.entries(SLOT_ACTIVITY_BAR_ACTIONS) ?? [])
+    return ctx.slots.entries(SLOT_ACTIVITY_BAR_ACTIONS)
       .map((e) => ({
         ...(e.meta?.def as ActivityBarActionDef),
-        order: e.order ?? (e.meta?.def as { order?: number })?.order ?? 100,
+        order: e.order ?? (e.meta?.def as { order?: number }).order ?? 100,
       }))
       .filter((d) => typeof d.id === 'string')
       .sort((a, b) => a.order - b.order);

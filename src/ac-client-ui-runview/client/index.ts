@@ -144,11 +144,11 @@ export interface RosterAgentView {
 export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): RunsSnapshot {
   const agentMembers = agents.map((a) => ({ id: a.id, name: a.name ?? a.description ?? a.id, kind: 'agent' as const }));
   const agentIds = new Set(agentMembers.map((m) => m.id));
-  const groupIds = new Set((s.groups ?? []).map((g) => g.groupId));
+  const groupIds = new Set(s.groups.map((g) => g.groupId));
   const hasUser = agentMembers.some((m) => m.id === 'user');
   // 会话桶分类（M19）：对桶 'a~b'（两端都是注册端点）→ pairs；群 gid /
   // 独立会话 sid 不进 pairs（群走 groups、singles 维持矩阵外独立降级）
-  const pairs = (s.conversations ?? [])
+  const pairs = s.conversations
     .filter((c) => {
       if (groupIds.has(c.conversationId)) return false;
       if (!c.conversationId.includes('~')) return false;
@@ -180,7 +180,7 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
     ],
     pairs,
     singles: [],
-    running: (s.running ?? []).map((r) => {
+    running: s.running.map((r) => {
       // 分类（M19）：群 gid → group~gid；对桶 'a~b'（含 user~agent 与
       // a~a）→ chat~<桶名>；其余（独立会话 sid）→ single~sid
       const conv = r.conversationId;
@@ -205,7 +205,7 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
       pairSessions: pairs.length,
       groupSessions: 0, // 群不入矩阵（2026-12 收窄）——恒 0，面板文案不区分
       singleSessions: 0,
-      runningTotal: (s.running ?? []).length,
+      runningTotal: s.running.length,
       runningSingles: 0,
       unknownMembers: [],
     },
@@ -265,9 +265,9 @@ export class RunsClientService extends Service {
     this.ctx.fiber.effect(() => {
       // 单 handler 判事件名集合（每帧只过一次——三个订阅各挂一个会让每帧
       // 被判三遍）；onEvent 可选（测试桩可能缺省）——缺席退化纯兜底轮询
-      const off = this.own.rpc.onEvent?.((type) => {
+      const off = this.own.rpc.onEvent((type) => {
         if (triggerEvents.includes(type)) scheduleEventRefresh();
-      }) ?? (() => {});
+      });
       // 重连即刷：断连期间丢失的帧由 onOpen 补齐（feed-core 同款恢复位）
       const offOpen = this.own.rpc.onOpen?.(() => scheduleEventRefresh()) ?? (() => {});
       // 前台化即刷：兜底 tick 的相位不随可见性变化——切回后下一 tick
@@ -317,7 +317,7 @@ export class RunsClientService extends Service {
       }
       this.snapshot.value = r.snapshot;
     } catch (err: unknown) {
-      this.loadError.value = (err as { message?: string })?.message ?? String(err);
+      this.loadError.value = (err as { message?: string }).message ?? String(err);
     } finally {
       this.inFlight = false;
       this.loading.value = false;
@@ -407,7 +407,7 @@ export const runviewClientPlugin = clientPlugin({
     // fiber 卸载随 RunsClientService 定时器一并回收。经根 runtime 解析
     //（runs 由本行子 fiber 提供，本 fiber 未 inject——直访会抛；同下方
     // 让位 watch 的 clientRuntime() 姿势，裸 boot 测试 = undefined 静默跳过）。
-    clientRuntime()?.runs?.ensurePolling();
+    (clientRuntime()?.runs as { ensurePolling: () => void } | undefined)?.ensurePolling();
     // 运行矩阵主区视图（main 席位 keyed 选举贡献——2026-11 主区语义
     // 纯化：原 main:tracking 专座收编为 main 选举条目）：active 谓词
     // 自带让位协议（见 trackingActive）；volatile（缺省）——离开即卸载，
@@ -440,7 +440,10 @@ export const runviewClientPlugin = clientPlugin({
     ctx.effect(() => {
       const stop = watch(
         () => {
-          const rt = clientRuntime();
+          // 域行运行时可缺席（根 runtime 可选探测——augment 必填仅表「装载后」）
+          const rt = clientRuntime() as
+            | { roster?: { core: { activeAgentId: { value: string } } }; groups?: { activeGroupId: { value: string } }; singleBoard?: { activeSingleId: { value: string } } }
+            | undefined;
           return [
             rt?.roster?.core.activeAgentId.value ?? '',
             rt?.groups?.activeGroupId.value ?? '',
@@ -491,7 +494,7 @@ export const runviewClientPlugin = clientPlugin({
               // 更新；0 = 不渲染。轮询随本行装载启动〔见 apply 首〕，
               // 收起面板不丢徽章数据源。runs 经根 runtime 解析——本 fiber
               // 未 inject，闭包直访 ctx.runs 会抛，被壳安全求值吞掉）。
-              badge: () => clientRuntime()?.runs?.snapshot.value?.running.length ?? 0,
+              badge: () => (clientRuntime()?.runs as { snapshot: { value: { running: unknown[] } | null } } | undefined)?.snapshot.value?.running.length ?? 0,
             },
           } satisfies AuxSidebarPanelDef,
         },
@@ -563,14 +566,14 @@ export async function fetchRuns(
   digest?: string,
 ): Promise<{ snapshot: RunsSnapshot; unchanged: boolean; digest?: string }> {
   const raw = await rpc.call<PRunsSnapshotResult>('runs/snapshot', digest ? { digest } : undefined);
-  if (raw?.unchanged && digest) return { snapshot: null as never, unchanged: true, digest };
+  if (raw.unchanged && digest) return { snapshot: null as never, unchanged: true, digest };
   const agentsR = await rpc.call<{ agents?: RosterAgentView[] }>('agents/list');
-  return { snapshot: toRunsSnapshot(raw ?? {}, agentsR.agents ?? []), unchanged: false, digest: raw?.digest };
+  return { snapshot: toRunsSnapshot(raw, agentsR.agents ?? []), unchanged: false, digest: raw.digest };
 }
 
 /** run 来源 → 中文标签（矩阵格/清单行共用——两视图逐字同款，并源单份） */
 export function sourceLabel(r: RunsRunningEntry): string {
-  const map: Record<string, string> = {
+  const map: Partial<Record<string, string>> = {
     user: '用户', agent: 'Agent', system: '系统', timer: '定时',
     group: '群聊', subagent: '子代理', continue: '续推', restart: '重启', archive: '归档',
   };

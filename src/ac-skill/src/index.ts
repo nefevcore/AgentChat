@@ -140,7 +140,7 @@ function scanSkillGestures(message: { role?: string; content?: unknown }): strin
   for (const text of texts) {
     for (const match of text.matchAll(SKILL_GESTURE)) {
       const name = match[2];
-      if (name !== undefined && !names.includes(name)) names.push(name);
+      if (!names.includes(name)) names.push(name);
     }
   }
   return names;

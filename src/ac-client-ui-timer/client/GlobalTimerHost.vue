@@ -80,8 +80,8 @@ function saveTask() {
   const isSpecial = gTaskType.value !== 'custom';
   const task: GlobalTask = {
     time,
-    hint: isSpecial ? gTaskType.value : (gTaskDraft.value.hint?.trim() || undefined),
-    targets: gTaskTargetsText.value.split(/[\n,，]/).map(s => s.trim()).filter(Boolean) || undefined,
+    hint: isSpecial ? gTaskType.value : ((gTaskDraft.value.hint ?? '').trim() || undefined),
+    targets: (() => { const t = gTaskTargetsText.value.split(/[\n,，]/).map(s => s.trim()).filter(Boolean); return t.length > 0 ? t : undefined; })(),
   };
   const tasks = settings.globalConfig.value.timer.tasks as GlobalTask[];
   if (gTaskEditIdx.value !== null) tasks[gTaskEditIdx.value] = task;

@@ -108,8 +108,8 @@ const liveElapsedMs = computed<number | null>(() => {
   // 无校准锚：本 run 前端起点起纯前端计时（run-started 驻留；首个
   // after-step 校准到达前的过渡期）。多轮会话不串轮——严禁用轮首步
   // 时间戳/会话首条消息冒充（会把轮间间隔算进当前 run）
-  const t0 = props.turn.steps[0]?.assistant?.runStartAt
-    ?? props.turn.steps[0]?.assistant?.timestamp ?? 0;
+  const t0 = props.turn.steps.at(0)?.assistant.runStartAt
+    ?? props.turn.steps.at(0)?.assistant.timestamp ?? 0;
   return t0 ? Math.max(0, (nowTick.value || Date.now()) - t0) : null;
 });
 onBeforeUnmount(stopLiveTimer);
@@ -119,10 +119,10 @@ const chainLabel = computed(() => {
   // 摘要仍须呈现真实步数/耗时（visibleSteps 在隐藏模式下为空）
   const steps = meaningfulSteps.value;
   const cnt = steps.length;
-  const first = steps[0];
-  const last = steps[cnt - 1];
-  const firstTs = first?.assistant?.timestamp ?? first?.tools?.[0]?.timestamp ?? 0;
-  const lastTs = last?.assistant?.timestamp ?? last?.tools?.at(-1)?.timestamp ?? 0;
+  const first = steps.at(0);
+  const last = steps.at(cnt - 1);
+  const firstTs = first?.assistant.timestamp ?? first?.tools.at(0)?.timestamp ?? 0;
+  const lastTs = last?.assistant.timestamp ?? last?.tools.at(-1)?.timestamp ?? 0;
   // 耗时（2026-12 计时反馈）：流式期 = 校准锚 + 前端续计（每秒跳动）；
   // 无锚（首步未收束）回退时间戳推导。校准锚 = 后端 after-step 的
   // step.ts 权威收束时刻（见 types.ts ChatMessage.runCalibMs）——每步覆盖，
@@ -209,7 +209,7 @@ function isThinkingStreamingNow(sIdx: number) {
   // （思考消息 label 转「已思考 · XmYs」、思考计时定格——工具执行窗口
   // 不再被误标为思考中）
   const a = visibleSteps.value[sIdx].assistant;
-  return !a.content?.trim() && !a.toolCalls?.length;
+  return !a.content.trim() && !a.toolCalls?.length;
 }
 function toggleExpand() { isExpanded.value = !isExpanded.value; }
 

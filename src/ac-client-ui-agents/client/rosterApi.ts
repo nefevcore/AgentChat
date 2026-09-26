@@ -32,7 +32,7 @@ const LLM_SAMPLING_KEYS = [
  *  ref 回显只按 provider 名匹配；无匹配 → undefined） */
 function llmPoolRefOf(pools: Record<string, any>, provider: unknown): string | undefined {
   if (typeof provider !== 'string' || !provider) return undefined;
-  const entry = pools?.[provider];
+  const entry = pools[provider];
   return entry && typeof entry === 'object' ? provider : undefined;
 }
 
@@ -90,7 +90,7 @@ export async function saveAgentConfig(
   payload: { config: Record<string, any>; sysContent?: string; agentContent?: string },
   rpc: Rpc,
 ): Promise<{ success?: boolean; error?: string }> {
-  const bodyCfg = payload.config ?? {};
+  const bodyCfg = payload.config;
   const llm = (bodyCfg.llm ?? {}) as Record<string, any>;
   const patch: Record<string, unknown> = {};
   if (bodyCfg.name !== undefined) patch.name = bodyCfg.name;

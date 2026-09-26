@@ -108,7 +108,7 @@ async function main() {
     log.info(
       'hmr reload: ok=%C reloaded=%C probe %C → %C',
       String(outcome.ok),
-      String(outcome.reloaded?.length ?? 0),
+      String(outcome.reloaded.length),
       String(probe1.output),
       String(probe2.output),
     );

@@ -68,7 +68,7 @@ watch(hasWindows, (ok) => { if (!ok) range.value = 'all'; }, { immediate: true }
 function windowValue(s: { messageCount: number; windows?: WindowCounts }): number {
   if (range.value === 'all') return s.messageCount;
   if (!s.windows) return s.messageCount;
-  return s.windows[range.value] ?? 0;
+  return s.windows[range.value];
 }
 
 /**
@@ -240,8 +240,8 @@ const track = computed(() => {
 const tip = computed(() => {
   const h = hover.value;
   if (!h) return null;
-  const mr = matrixRows.value[h.ri];
-  const v = mr?.cells[h.ci];
+  const mr = matrixRows.value.at(h.ri);
+  const v = mr?.cells.at(h.ci);
   if (!mr || !v) return null;
   return { mr, v };
 });

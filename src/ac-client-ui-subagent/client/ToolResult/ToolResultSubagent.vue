@@ -15,7 +15,7 @@ const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>(
 
 // 状态徽章映射（delivered 之外的 run 状态词表）——文案经 subStatusLabel
 // 单源（与运行跟踪面板跨重启历史行同词），本地只保留色类
-const STATUS_META: Record<string, { label: string; cls: string }> = {
+const STATUS_META: Partial<Record<string, { label: string; cls: string }>> = {
   running:  { label: subStatusLabel('running'), cls: 'st-running' },
   idle:     { label: subStatusLabel('idle'),    cls: 'st-killed' },
   done:     { label: subStatusLabel('done'),    cls: 'st-done' },
@@ -25,7 +25,7 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 };
 
 // send 投递回执徽章（next-run 忙时排队与 queued 同观感）
-const DELIVERED_META: Record<string, { label: string; cls: string }> = {
+const DELIVERED_META: Partial<Record<string, { label: string; cls: string }>> = {
   started: { label: '已开跑', cls: 'st-running' },
   steered: { label: '已注入', cls: 'st-done' },
   queued:  { label: '已排队', cls: 'st-timeout' },
@@ -33,12 +33,12 @@ const DELIVERED_META: Record<string, { label: string; cls: string }> = {
 
 function statusMeta(status: unknown) {
   const key = String(status ?? '');
-  return STATUS_META[key] || { label: key || '未知', cls: 'st-unknown' };
+  return STATUS_META[key] ?? { label: key || '未知', cls: 'st-unknown' };
 }
 
 function deliveredMeta(delivered: unknown) {
   const key = String(delivered ?? '');
-  return DELIVERED_META[key] || { label: key || '未知', cls: 'st-unknown' };
+  return DELIVERED_META[key] ?? { label: key || '未知', cls: 'st-unknown' };
 }
 
 // 格式化耗时

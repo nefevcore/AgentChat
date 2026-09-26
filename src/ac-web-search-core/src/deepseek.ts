@@ -103,7 +103,7 @@ export function extractAnswer(textBlocks: string[]): string | null {
   let answer: string | null = null;
   if (marks.length > 0) {
     const last = marks[marks.length - 1];
-    let rest = all.slice((last.index ?? 0) + last[0].length);
+    let rest = all.slice(last.index + last[0].length);
     const cut = rest.search(/^SOURCE:/m);
     if (cut >= 0) rest = rest.slice(0, cut);
     answer = rest.trim() || null;
@@ -241,7 +241,7 @@ export function createDeepSeekProvider(): SearchProvider {
 
       const data = (await response.json()) as { content?: AnthropicBlock[] };
       const sources = mapAnthropicResponse(data, maxResults);
-      const textBlocks = (data?.content ?? [])
+      const textBlocks = (data.content ?? [])
         .filter((b) => b.type === 'text' && typeof b.text === 'string')
         .map((b) => b.text as string);
       const answer = extractAnswer(textBlocks);

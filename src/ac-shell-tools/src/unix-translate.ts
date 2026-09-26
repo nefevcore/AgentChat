@@ -247,7 +247,7 @@ function translateGrep(rest: string): string | null {
     }
     break;
   }
-  const pattern = operands[i];
+  const pattern = operands.at(i);
   const files = operands.slice(i + 1);
   if (pattern === undefined) return null;
   const flags = collectFlags(flagArgs.filter((a) => !a.startsWith('--')), GREP_KNOWN);
@@ -391,7 +391,7 @@ function translateFind(rest: string): string | null {
       path = unquote(a);
       continue;
     }
-    if (a === '-name' && args[i + 1] !== undefined) {
+    if (a === '-name' && args.at(i + 1) !== undefined) {
       name = unquote(args[i + 1]);
       i++;
       continue;

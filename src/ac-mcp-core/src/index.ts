@@ -275,7 +275,7 @@ export class SdkConnection implements McpConnection {
     this.transport = null;
     const client = this.client;
     this.client = null;
-    void Promise.resolve(client?.close?.()).catch(() => {});
+    void Promise.resolve(client?.close()).catch(() => {});
     this.insecureAgent?.close();
     this.insecureAgent = null;
   }

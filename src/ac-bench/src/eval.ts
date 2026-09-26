@@ -23,7 +23,7 @@ function skipWs(c: Cursor): void {
 /** 解析一个值：字符串/数字/布尔/None/列表/字典；失败返回 undefined（不抛） */
 function parseValue(c: Cursor): unknown {
   skipWs(c);
-  const ch = c.text[c.pos];
+  const ch = c.text.at(c.pos);
   if (ch === undefined) return undefined;
   // 字符串（单/双引号，支持反斜杠转义）
   if (ch === "'" || ch === '"') {
@@ -33,7 +33,7 @@ function parseValue(c: Cursor): unknown {
     while (c.pos < c.text.length) {
       const k = c.text[c.pos];
       if (k === '\\') {
-        const next = c.text[c.pos + 1];
+        const next = c.text.at(c.pos + 1);
         if (next === undefined) return undefined;
         out += next === 'n' ? '\n' : next === 't' ? '\t' : next;
         c.pos += 2;
@@ -296,7 +296,7 @@ export function compareCalls(expected: BenchCallSpec[], actual: BenchActualCall[
   // 定位失配明细（诊断与判定同口径 some()：2026-09-11 simple_370 误报根因——
   // 旧诊断只对比每键首个可接受值，把实际通过的键报成失配）
   const details = expected.map((spec, i) => {
-    const act = actual[i];
+    const act = actual.at(i);
     if (!act) return `${spec.name} 缺失`;
     if (act.name !== spec.name) return `第 ${i + 1} 个调用名不符：期望 ${spec.name}，实际 ${act.name}`;
     const argsSpec = spec.argsSpec ?? {};

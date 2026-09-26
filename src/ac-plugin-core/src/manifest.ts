@@ -81,7 +81,7 @@ export interface InstalledPluginRecord {
 
 export interface PluginRegistryDoc {
   version: 1;
-  plugins: Record<string, InstalledPluginRecord>;
+  plugins: Partial<Record<string, InstalledPluginRecord>>;
 }
 
 export interface PluginStagingRecord {

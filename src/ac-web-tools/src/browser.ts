@@ -135,19 +135,19 @@ export class BrowserService extends Service {
       const bootTimer = setTimeout(() => {
         fail(new Error(`browser daemon ready 握手超时（${this.bootTimeoutMs}ms）——已终止守护进程，下次调用重新启动`));
       }, this.bootTimeoutMs);
-      bootTimer.unref?.();
-      daemon.stdout?.on('data', (chunk: Buffer) => {
+      bootTimer.unref();
+      daemon.stdout.on('data', (chunk: Buffer) => {
         this.onStdout(chunk, () => {
           clearTimeout(bootTimer);
           done();
         });
       });
-      daemon.stderr?.on('data', (chunk: Buffer) => {
+      daemon.stderr.on('data', (chunk: Buffer) => {
         this.ctx.logger.warn(`[browser:stderr] ${chunk.toString('utf-8').trim()}`);
       });
       // EPIPE 等写侧错误：daemon 死亡由 exit/error 统一处置（无 listener
       // 的 stream 'error' 会 uncaught）
-      daemon.stdin?.on('error', () => undefined);
+      daemon.stdin.on('error', () => undefined);
       daemon.on('exit', (code, signal) => {
         if (gen !== this.generation) return; // 旧世代的退出：不影响新 daemon
         this.daemon = null;

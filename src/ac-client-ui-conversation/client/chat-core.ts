@@ -290,7 +290,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       const before = new Set(pendingApprovals.value.map((it) => it.interaction_id));
       const r = await rpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
       const snapshot = (r.interactions ?? [])
-        .filter((it) => it && it.kind === 'approval')
+        .filter((it) => it.kind === 'approval')
         .map((it) => pickApproval(it))
         .filter((s): s is import('./chatOps.ts').ApprovalUiState => !!s);
       const inFlightAdds = pendingApprovals.value.filter((it) =>
@@ -312,7 +312,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       const before = new Set(pendingInteractions.value.map((it) => it.interaction_id));
       const r = await rpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
       const snapshot = (r.interactions ?? [])
-        .filter((it) => it && it.kind === 'ask_questions')
+        .filter((it) => it.kind === 'ask_questions')
         .map((it) => pickAskQuestions(it))
         .filter((s): s is import('./chatOps.ts').AskQuestionsUiState => !!s);
       const inFlightAdds = pendingInteractions.value.filter((it) =>
@@ -436,7 +436,6 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   function composeContent(content: string, files: import('./types.ts').FileAttachment[] | undefined): string {
     if (!files?.length) return content;
     const lines = files.map((f) => {
-      if (!f) return '';
       const path = chatPresence.uploadPaths.get(f.hash) ?? chatPresence.uploadPaths.get(f.filename);
       return path ? `[附件] ${path}` : `[附件] ${f.filename}（已上传，路径未记录）`;
     });
@@ -456,12 +455,11 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     if (!files?.length) return undefined;
     const out: Array<{ kind: 'image'; ref: string; filename?: string }> = [];
     for (const f of files) {
-      if (!f) continue;
       if (out.length >= 50) {
         logger.warn('[ChatStore] 图片附件超出 50 上限，多余部分仅作文件路径文本附带', { count: files.length });
         break;
       }
-      const name = f.filename ?? '';
+      const name = f.filename;
       const path = chatPresence.uploadPaths.get(f.hash) ?? chatPresence.uploadPaths.get(f.filename) ?? (f.text || '');
       if (!isImageRef(name, path)) continue;
       if (!path) continue;
@@ -959,7 +957,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       return;
     }
     if (type === 'group/created' || type === 'group/deleted') {
-      const id = type === 'group/created' ? String((args[0] as Record<string, unknown>)?.id ?? '') : String(args[0] ?? '');
+      const id = type === 'group/created' ? String((args[0] as Record<string, unknown>).id ?? '') : String(args[0] ?? '');
       if (id) {
         if (type === 'group/created') chatPresence.knownGroups.add(id);
         else chatPresence.knownGroups.delete(id);

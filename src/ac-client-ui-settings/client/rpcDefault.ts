@@ -20,12 +20,12 @@ export const defaultRpc: RpcClientFace = {
     return rpc.call<T>(method, params, requestId, timeoutMs);
   },
   onEvent(handler: (type: string, args: unknown[]) => void): () => void {
-    return clientRuntime()?.rpc?.onEvent(handler) ?? (() => undefined);
+    return clientRuntime()?.rpc.onEvent(handler) ?? (() => undefined);
   },
   onOpen(handler: () => void): () => void {
-    return clientRuntime()?.rpc?.onOpen?.(handler) ?? (() => undefined);
+    return clientRuntime()?.rpc.onOpen?.(handler) ?? (() => undefined);
   },
   onClose(handler: () => void): () => void {
-    return clientRuntime()?.rpc?.onClose?.(handler) ?? (() => undefined);
+    return clientRuntime()?.rpc.onClose?.(handler) ?? (() => undefined);
   },
 };

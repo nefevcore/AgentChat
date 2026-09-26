@@ -56,7 +56,7 @@ const tree = computed<TreeNode[]>(() => [
 // initialSection/initialAgentId 经 visible watch 置位，叶在场时不被覆盖
 watch(tree, (nodes) => {
   if (nodes.some(n => n.id === selectedNode.value)) return;
-  selectedNode.value = nodes.find(n => n.id === 'agents')?.id ?? nodes[0]?.id ?? '';
+  selectedNode.value = nodes.find(n => n.id === 'agents')?.id ?? nodes.at(0)?.id ?? '';
 }, { immediate: true });
 
 /** 当前选中的插件全局设置页签（若 selectedNode 命中 ui-tab:*） */

@@ -61,7 +61,7 @@ const pendingDirs = new Set<string>();
 
 export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
   /** 各树基准状态（key = `${agentId}/${conversationId}` 归一形；'' = 全局） */
-  const trees = ref<Record<string, TreeContextState>>({});
+  const trees = ref<Partial<Record<string, TreeContextState>>>({});
   /** 当前树基准 key（由 WorkspaceTree 宿主组件按活跃会话写入） */
   const currentKey = ref('');
 

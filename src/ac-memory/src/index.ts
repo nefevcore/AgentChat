@@ -161,7 +161,6 @@ export class MemoryService extends Service {
     sender: string | undefined,
   ): { anchor: string; key: string } | undefined {
     const fallback = conversationId ?? agentId;
-    if (fallback === undefined) return undefined;
     if (conversationId !== undefined) {
       const singles = this.ctx.get('singles', false) as
         | { get(id: string): unknown }

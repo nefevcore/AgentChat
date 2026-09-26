@@ -343,8 +343,9 @@ export class OpenAICompletions {
       const { attachments: _attachments, ...rest } = m;
       const atts = (Array.isArray(_attachments) ? _attachments : []).filter(
         (a) =>
-          a &&
-          (a.kind === 'image' || a.kind === 'video' || a.kind === 'file') &&
+          ((a as { kind: string }).kind === 'image'
+            || (a as { kind: string }).kind === 'video'
+            || (a as { kind: string }).kind === 'file') &&
           typeof a.ref === 'string' &&
           a.ref !== '',
       );
@@ -433,9 +434,9 @@ export class OpenAICompletions {
       throw new Error(`LLM HTTP ${response.status}: ${text.slice(0, 500)}`);
     }
     const json = (await response.json()) as { data?: unknown };
-    if (!Array.isArray(json?.data)) throw new Error('LLM /models 响应缺少 data 数组（非 OpenAI 兼容端点）');
+    if (!Array.isArray(json.data)) throw new Error('LLM /models 响应缺少 data 数组（非 OpenAI 兼容端点）');
     return json.data
-      .map((m) => String((m as { id?: unknown })?.id ?? ''))
+      .map((m) => String((m as { id?: unknown }).id ?? ''))
       .filter(Boolean)
       .sort();
   }
@@ -566,7 +567,7 @@ export async function* sseDataEvents(body: ReadableStream<Uint8Array>): AsyncGen
   const decoder = new TextDecoder();
   let buffer = '';
   try {
-    while (true) {
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
@@ -648,9 +649,9 @@ export function toResponsesInput(messages: CompletionsMessage[]): Array<Record<s
     for (const tc of calls as Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>) {
       out.push({
         type: 'function_call',
-        call_id: String(tc?.id ?? ''),
-        name: String(tc?.function?.name ?? ''),
-        arguments: String(tc?.function?.arguments ?? ''),
+        call_id: String(tc.id ?? ''),
+        name: String(tc.function?.name ?? ''),
+        arguments: String(tc.function?.arguments ?? ''),
       });
     }
   }
@@ -665,7 +666,7 @@ export function toResponsesTools(tools: unknown): unknown[] | undefined {
       type?: string;
       function?: { name?: string; description?: string; parameters?: Record<string, unknown> };
     };
-    if (spec?.type === 'function' && spec.function && typeof spec.function.name === 'string') {
+    if (spec.type === 'function' && spec.function && typeof spec.function.name === 'string') {
       return {
         type: 'function',
         name: spec.function.name,

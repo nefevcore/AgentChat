@@ -48,7 +48,7 @@ export function loadExpanded(key: string): Set<string> {
     const raw = store?.getItem(KEY);
     if (!raw) return new Set();
     const v = JSON.parse(raw) as Record<string, unknown>;
-    const ctx = v?.contexts;
+    const ctx = v.contexts;
     if (ctx === null || typeof ctx !== 'object' || Array.isArray(ctx)) return new Set();
     const arr = (ctx as Record<string, unknown>)[key];
     if (!Array.isArray(arr)) return new Set();
@@ -69,7 +69,7 @@ function hookPagehide() {
   if (pagehideHooked) return;
   pagehideHooked = true;
   try {
-    globalThis.addEventListener?.('pagehide', () => flushExpanded());
+    globalThis.addEventListener('pagehide', () => flushExpanded());
   } catch { /* 无事件面（node）——无冲刷兜底 */ }
 }
 
@@ -117,7 +117,7 @@ function loadAll(): WorkspaceTreePrefs {
     const raw = store?.getItem(KEY);
     if (!raw) return emptyPrefs();
     const v = JSON.parse(raw) as Record<string, unknown>;
-    const ctx = v?.contexts;
+    const ctx = v.contexts;
     if (ctx === null || typeof ctx !== 'object' || Array.isArray(ctx)) return emptyPrefs();
     const out: Record<string, string[]> = {};
     for (const [k, arr] of Object.entries(ctx)) {

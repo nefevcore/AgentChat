@@ -55,8 +55,9 @@ export class ConvSettingsService extends Service {
 
   private readSettings(conversationId: string): ConvSettings {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.fileOf(conversationId), 'utf-8')) as Partial<ConvSettings>;
-      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
+      const parsed: unknown = JSON.parse(fs.readFileSync(this.fileOf(conversationId), 'utf-8'));
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+      const raw = parsed as Partial<ConvSettings>;
       const out: ConvSettings = {};
       if (typeof raw.model === 'string' && raw.model) out.model = raw.model;
       if (raw.elevation === 'sandbox-access' || raw.elevation === 'full-access') out.elevation = raw.elevation;

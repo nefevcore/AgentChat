@@ -132,7 +132,7 @@ export function manifestBuiltinCatalog(
       ...(entry.version ? { version: entry.version } : {}),
       ...(entry.description ? { description: entry.description } : {}),
       assembled: row.active === true,
-      fibers: row.fibers ?? 0,
+      fibers: row.fibers,
       ...(entryId ? { entryId } : {}),
     };
   });

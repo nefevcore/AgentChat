@@ -25,7 +25,8 @@ const VERSION_PARSE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 function parseVersion(input: string): ParsedVersion {
   const m = VERSION_PARSE_RE.exec(input.trim());
   if (!m) throw new Error(`版本号非法: "${input}"（期望 major.minor.patch[-pre]）`);
-  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), prerelease: m[4] ?? null };
+  const pre = m[4] as string | undefined;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), prerelease: pre === undefined ? null : pre };
 }
 
 function compareVersions(a: ParsedVersion, b: ParsedVersion): number {

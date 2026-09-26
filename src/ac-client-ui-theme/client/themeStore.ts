@@ -12,7 +12,9 @@ import { clientRuntime } from 'ac-client-runtime';
 import { ThemeCore } from './index.ts';
 
 export const useThemeStore = defineStore('theme', () => {
-  const core = clientRuntime()?.theme?.core ?? new ThemeCore();
+  // theme 域行运行时可缺席——augment 必填仅表「装载后」
+  const theme = clientRuntime()?.theme as { core: ThemeCore } | undefined;
+  const core = theme?.core ?? new ThemeCore();
 
   return {
     theme: core.theme,

@@ -44,7 +44,7 @@ console.log('输入消息对话；Ctrl-C（或 EOF）退出。\n');
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 try {
-  while (true) {
+  for (;;) {
     const line = (await rl.question('you> ')).trim();
     if (!line) continue;
     process.stdout.write(`${AGENT}> `);

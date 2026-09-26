@@ -240,7 +240,7 @@ export class ConversationService extends Service {
           if (!line.trim()) continue;
           try {
             const parsed = JSON.parse(line) as PendingLine;
-            if (parsed && parsed.message && typeof parsed.message.role === 'string') {
+            if (typeof parsed.message.role === 'string') {
               queue.push({
                 id: typeof parsed.id === 'string' && parsed.id ? parsed.id : nextQueuedId(),
                 message: parsed.message,
@@ -651,7 +651,7 @@ export class ConversationService extends Service {
 
     try {
       let firstTurn = true;
-      while (true) {
+      for (;;) {
         // 轮间重派生（2026-11 视图增量层退役后由构造保证）：链跑轮间
         // 无条件从文件重派生——busy 成员在 run 延伸中能看到自己刚
         // send_group 的发言（2026-09-13 群 blindspot 修复语义保持），

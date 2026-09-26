@@ -80,7 +80,7 @@ export interface GoalBucket {
 /** agentStore entry 'goal' 的持久形态（单 entry 存该 Agent 全部桶） */
 export interface GoalStore {
   version: 1;
-  buckets: Record<string, GoalBucket>;
+  buckets: Partial<Record<string, GoalBucket>>;
 }
 
 /** 快照（get 输出；只读副本） */
@@ -268,12 +268,12 @@ export class GoalsService extends Service {
   // ============================================================
 
   private loadStore(agentId: string): GoalStore {
-    const stored = this.ctx.agentStore.readEntry<GoalStore>(agentId, GOAL_ENTRY_KEY);
-    if (stored === undefined || stored === null || typeof stored !== 'object'
-      || stored.buckets === undefined || typeof stored.buckets !== 'object') {
+    const stored: unknown = this.ctx.agentStore.readEntry<GoalStore>(agentId, GOAL_ENTRY_KEY);
+    if (typeof stored !== 'object' || stored === null || !('buckets' in stored)
+      || typeof (stored as GoalStore).buckets !== 'object') {
       return { version: 1, buckets: {} };
     }
-    return stored;
+    return stored as GoalStore;
   }
 
   private saveStore(agentId: string, store: GoalStore): void {
@@ -326,7 +326,9 @@ export class GoalsService extends Service {
   /** 全部桶视图（诊断） */
   list(agentId: string): Array<{ key: string; bucket: GoalBucket }> {
     const store = this.loadStore(agentId);
-    return Object.entries(store.buckets).map(([key, bucket]) => ({ key, bucket }));
+    return Object.entries(store.buckets)
+      .filter((e): e is [string, GoalBucket] => e[1] !== undefined)
+      .map(([key, bucket]) => ({ key, bucket }));
   }
 
   // ============================================================

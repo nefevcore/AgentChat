@@ -52,7 +52,7 @@ async function boot(): Promise<void> {
   // 用户可见线索）。仅提示一次（多组件并发失败只弹一条）。
   let chunkErrorNotified = false;
   window.addEventListener('error', (ev) => {
-    const msg = ev.message ?? '';
+    const msg = ev.message;
     if (!chunkErrorNotified && /dynamically imported module|Importing a module script failed/.test(msg)) {
       chunkErrorNotified = true;
       // 原生 confirm：不依赖任何可能同样加载失败的组件库

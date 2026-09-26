@@ -165,9 +165,9 @@ export class CredentialsService extends Service {
       return {}; // 不存在 = 空档
     }
     try {
-      const parsed = JSON.parse(raw) as Store;
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('非对象');
-      return parsed;
+      const parsedObj: unknown = JSON.parse(raw);
+      if (typeof parsedObj !== 'object' || parsedObj === null || Array.isArray(parsedObj)) throw new Error('非对象');
+      return parsedObj as Store;
     } catch (err) {
       const backup = `${this.file}.corrupt`;
       try {

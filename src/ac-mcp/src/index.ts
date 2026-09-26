@@ -177,7 +177,7 @@ export class McpService extends Service {
       // 注册即归属：随当前 tracer fiber（mcp 行/调用方）回收；
       // disposer 同时记入服务器条目（手动移除/重发现时定向回收）
       const disposer = toolsService.register(this.buildToolDef(entry, connection, tool, finalName));
-      entry.disposers.push(() => disposer?.());
+      entry.disposers.push(() => disposer());
       entry.toolNames.push(finalName);
       this.toolServers.set(finalName, entry.def.name);
     }
@@ -261,7 +261,7 @@ export class McpService extends Service {
       | undefined;
     if (!config) return;
     const layer = config.get<Record<string, unknown>>('settings.mcp');
-    if (layer !== undefined && (!layer || typeof layer !== 'object' || Array.isArray(layer))) {
+    if (layer !== undefined && (typeof layer !== 'object' || Array.isArray(layer))) {
       this.ctx.logger.warn('[mcp] settings.mcp 形状非法（保持现状）');
       return;
     }

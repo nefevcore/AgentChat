@@ -34,7 +34,7 @@ export function detectMention(text: string, caret: number): MentionTrigger | nul
   // 从光标向左找触发符：越过查询词允许的字符才可能命中
   let i = caret - 1;
   while (i >= 0) {
-    const ch = text[i];
+    const ch = text.at(i);
     if (ch === undefined) return null;
     if (ch === '/' || ch === '@' || ch === '#') break;
     // 查询词内不允许空白（空格 = 用户已离开快捷输入）
@@ -44,7 +44,7 @@ export function detectMention(text: string, caret: number): MentionTrigger | nul
   if (i < 0) return null;
   const trigger = text[i];
   // token 必须结束于光标处：光标后还有续词字符 = 光标停在 token 中间，不触发
-  const after = text[caret];
+  const after = text.at(caret);
   if (after !== undefined && !/\s/.test(after)) return null;
   const before = i > 0 ? text[i - 1] : '';
   // 行首或前一字符是空白才触发（https://、a/b、a@b 不触发）
@@ -118,14 +118,14 @@ function cutAtCjkPunct(body: string): string {
 export function tokenizeMentionHighlights(text: string): HighlightToken[] {
   const tokens: HighlightToken[] = [];
   for (const m of text.matchAll(SKILL_TOKEN_RE)) {
-    const lead = (m[1] ?? '').length;
-    const start = (m.index ?? 0) + lead;
-    tokens.push({ start, end: start + (m[2] ?? '').length, kind: 'skill' });
+    const lead = m[1].length;
+    const start = m.index + lead;
+    tokens.push({ start, end: start + m[2].length, kind: 'skill' });
   }
   for (const m of text.matchAll(AT_TOKEN_RE)) {
-    const lead = (m[1] ?? '').length;
-    const start = (m.index ?? 0) + lead;
-    const matched = m[2] ?? '';
+    const lead = m[1].length;
+    const start = m.index + lead;
+    const matched = m[2];
     // 引号形态原样（显式引用）；裸形态在首个中文标点截断
     const raw = matched.startsWith('@"')
       ? matched
@@ -136,9 +136,9 @@ export function tokenizeMentionHighlights(text: string): HighlightToken[] {
     tokens.push({ start, end: start + raw.length, kind });
   }
   for (const m of text.matchAll(HASH_TOKEN_RE)) {
-    const lead = (m[1] ?? '').length;
-    const start = (m.index ?? 0) + lead;
-    const raw = `#${cutAtCjkPunct((m[2] ?? '').slice(1))}`;
+    const lead = m[1].length;
+    const start = m.index + lead;
+    const raw = `#${cutAtCjkPunct(m[2].slice(1))}`;
     if (raw.length < 2) continue;
     tokens.push({ start, end: start + raw.length, kind: 'session' });
   }

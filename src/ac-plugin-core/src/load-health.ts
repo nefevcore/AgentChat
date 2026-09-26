@@ -35,8 +35,8 @@ interface LoadDisabledRecord {
 
 interface LoadHealthDoc {
   version: 1;
-  failures: Record<string, LoadFailureRecord>;
-  disabled: Record<string, LoadDisabledRecord>;
+  failures: Partial<Record<string, LoadFailureRecord>>;
+  disabled: Partial<Record<string, LoadDisabledRecord>>;
 }
 
 function healthFile(root: string): string {

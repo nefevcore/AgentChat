@@ -86,7 +86,7 @@ export function parseNum(val: any): any {
 
 /** ratio 显示格式化 */
 export function formatRatio(val: number | undefined, display?: string): string {
-  if (val === undefined || val === null) return '';
+  if (val === undefined) return '';
   if (display === 'percent') return Math.round(val * 100) + '%';
   return String(val);
 }
@@ -140,7 +140,7 @@ export function sanitizeGlobalConfig(raw: Record<string, any>): Record<string, a
 
 /** 池中 default:true 的条目名（无则 null；$ 前缀内部键忽略） */
 function defaultPoolEntryName(pools: Record<string, any>): string | null {
-  const entries = Object.entries(pools ?? {}).filter(([k]) => !k.startsWith('$'));
+  const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
   return entries.find(([, v]) => v && (v as any).default)?.[0] ?? null;
 }
 

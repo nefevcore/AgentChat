@@ -596,7 +596,7 @@ export function createFeedCore(
             hit.thinking = histThinking || hit.thinking;
             hit.reasoning_content = histThinking || hit.reasoning_content;
           }
-          if ((hist.content ?? '').length > (hit.content ?? '').length) hit.content = hist.content ?? '';
+          if (hist.content.length > hit.content.length) hit.content = hist.content;
         };
         // 身份贯通：直播行 stepId → 消息映射（journal 同步行按键互认；含已
         // 收口步——run 进行中已完成步的直播载体同样带驻留键）
@@ -645,9 +645,9 @@ export function createFeedCore(
           }
           if (m.role === 'agent' && liveAgents.length > 0) {
             const histThinking = m.thinking ?? m.reasoning_content ?? '';
-            const histBody = `${histThinking}\u0000${m.content ?? ''}`;
+            const histBody = `${histThinking}\u0000${m.content}`;
             const hit = histBody ? liveAgents.find(live => {
-              const liveBody = `${live.thinking ?? live.reasoning_content ?? ''}\u0000${live.content ?? ''}`;
+              const liveBody = `${live.thinking ?? live.reasoning_content ?? ''}\u0000${live.content}`;
               return liveBody.startsWith(histBody) || histBody.startsWith(liveBody);
             }) : undefined;
             if (hit) {
@@ -674,10 +674,10 @@ export function createFeedCore(
         if (d.rawMessages[i].agent_id === VIEWER_ID.value) { anchor = d.rawMessages[i]; break; }
       }
       if (anchor) {
-        const anchorText = splitAttachmentLines(String(anchor.content ?? '')).content;
+        const anchorText = splitAttachmentLines(anchor.content).content;
         const inIncoming = msgs.some(m =>
           m.agent_id === VIEWER_ID.value
-          && splitAttachmentLines(String(m.content ?? '')).content === anchorText);
+          && splitAttachmentLines(m.content).content === anchorText);
         if (!inIncoming) {
           const copy = { ...anchor };
           (copy as any).persistedMsgId = undefined; // 本地行无服务端 id：防与后续历史行去重互吞
@@ -713,7 +713,7 @@ export function createFeedCore(
 
   /** 对外单值：当前活跃 dialog 的加载态（兼容旧接口） */
   const loadingHistory = computed(() => activeDialog.value?.status === 'loading');
-  const hasMoreHistory = computed(() => activeDialog.value?.hasMore ?? false);
+  const hasMoreHistory = computed<boolean>(() => activeDialog.value?.hasMore ?? false);
 
   // ── 群组历史（REST /api/groups/:id/history，分页：最新 50 + 上翻更早）──
   async function loadGroupHistory(dialogId: DialogId, groupId: string) {
@@ -724,7 +724,7 @@ export function createFeedCore(
     const preLen = d.rawMessages.length;
     try {
       const data = await fetchGroupHistory(groupId, 0, 50, rpc);
-      const msgs = (data.messages ?? []).map(groupMessageToChatMessage);
+      const msgs = data.messages.map(groupMessageToChatMessage);
       const liveTail = d.rawMessages.slice(preLen);
       d.rawMessages = liveTail.length > 0 ? [...msgs, ...liveTail] : msgs;
       d.offset = msgs.length;
@@ -745,7 +745,7 @@ export function createFeedCore(
     if (!d || d.status === 'loading' || !d.hasMore) return null;
     try {
       const data = await fetchGroupHistory(groupId, d.offset, 50, rpc);
-      const older = (data.messages ?? []).map(groupMessageToChatMessage);
+      const older = data.messages.map(groupMessageToChatMessage);
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
         d.offset += older.length;
@@ -767,7 +767,7 @@ export function createFeedCore(
     d.status = 'loading';
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc);
-      const msgs = (data.messages ?? []).map(m => pairMessageToChatMessage(m, a));
+      const msgs = data.messages.map(m => pairMessageToChatMessage(m, a));
       d.rawMessages = msgs;
       d.offset = msgs.length;
       d.hasMore = msgs.length >= PAIR_HISTORY_PAGE_SIZE;
@@ -785,7 +785,7 @@ export function createFeedCore(
     if (!d || d.status === 'loading' || !d.hasMore) return null;
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc);
-      const older = (data.messages ?? []).map(m => pairMessageToChatMessage(m, a));
+      const older = data.messages.map(m => pairMessageToChatMessage(m, a));
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
         d.offset += older.length;
@@ -836,7 +836,7 @@ export function createFeedCore(
     // 重复 step.start（WS 重连重放/事件重发）不再追加第二个空占位——
     // 空占位叠加即"测/测试双气泡"问题的另一入口
     const msgs = d.rawMessages;
-    const last = msgs[msgs.length - 1];
+    const last = msgs.at(-1);
     let asst: ChatMessage;
     if (last && last.role === 'agent' && last.isStreaming && !last.content && !(last.thinking || last.reasoning_content)) {
       asst = last; // 复用既有空占位（重放）
@@ -881,7 +881,7 @@ export function createFeedCore(
     // miss 回落 lastStreaming（旧后端帧）。步收束即从 carrier 索引摘除
     // ——后续帧（下一步）不再命中本条
     const st = streams.get(id);
-    const asst = (stepKeys?.stepId && st?.carrier?.get(stepKeys.stepId)) || lastStreaming(msgs, 'agent');
+    const asst = (stepKeys?.stepId && st?.carrier.get(stepKeys.stepId)) || lastStreaming(msgs, 'agent');
     if (asst) asst.isStreaming = false;
     if (stepKeys?.stepId && st?.carrier) st.carrier.delete(stepKeys.stepId);
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -1024,7 +1024,7 @@ export function createFeedCore(
         const m = msgs[i];
         if (m.role === 'agent' && m.isStreaming) {
           m.isStreaming = false;
-          if (!m.content?.trim()) m.content = '(生成失败)';
+          if (!m.content.trim()) m.content = '(生成失败)';
         }
       }
       closeAllStreaming(msgs);
@@ -1260,12 +1260,12 @@ export function createFeedCore(
     }
     const row = msgs.find((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id);
     if (row) {
-      row.content = data.result ?? '';
+      row.content = data.result;
       row.arguments = data.arguments ?? row.arguments;
       row.isStreaming = false; // 占位在场：关停 running（最短转圈不适用——占位本身即长等待信号）
     } else {
       msgs.push({
-        id: 'tool-' + data.tool_call_id, role: 'tool', content: data.result ?? '',
+        id: 'tool-' + data.tool_call_id, role: 'tool', content: data.result,
         name: data.tool_name, toolName: data.tool_name,
         tool_call_id: data.tool_call_id, arguments: data.arguments ?? {},
         subcall: true, isStreaming: false, timestamp: Date.now(),
@@ -1345,7 +1345,7 @@ export function createFeedCore(
       const m = msgs[i];
       if (m.role === 'agent' && m.isStreaming) {
         m.isStreaming = false;
-        if (!m.content?.trim()) m.content = '\u23F8\uFE0F (已被中断)';
+        if (!m.content.trim()) m.content = '\u23F8\uFE0F (已被中断)';
       }
     }
     closeAllStreaming(msgs);
@@ -1805,7 +1805,7 @@ export function createFeedCore(
     );
     const already = (dialogs.value[dialogId]?.rawMessages ?? []).some((m) =>
       m.agent_id === VIEWER_ID.value
-      && splitAttachmentLines(String(m.content ?? '')).content === split.content);
+      && splitAttachmentLines(m.content).content === split.content);
     if (!takeQueuedSend(dialogId, split.content) && already) return;
     append(dialogId, {
       id: uid('user'), role: 'agent', content: split.content,
@@ -1833,7 +1833,7 @@ export function createFeedCore(
     // 「<msg …>…</msg>\n[当前时间]」幽灵消息，刷新即消失——与落盘历史
     // 无对应；服务端桥接面已同口径过滤，此处为前端兜底）
     if (parseDialogId(keys.dialogId).kind === 'group') return;
-    const payload = String(message?.content ?? '');
+    const payload = String(message.content);
     const dialogId = keys.dialogId;
     if (from === VIEWER_ID.value) {
       showOwnEcho(dialogId, message, payload);
@@ -2011,7 +2011,7 @@ export function createFeedCore(
                   if (prep2) {
                     const prevLen = typeof (prep2.arguments as any)?.code === 'string' ? (prep2.arguments as any).code.length : 0;
                     if (draft.length > prevLen) {
-                      prep2.arguments = { ...(prep2.arguments as object ?? {}), code: draft };
+                      prep2.arguments = { ...(prep2.arguments as object), code: draft };
                       const row2 = [...msgs2].reverse().find((m: any) => m.role === 'tool' && m.tool_call_id === prep2.id);
                       if (row2) row2.arguments = prep2.arguments;
                       bump(keys.dialogId);
@@ -2055,7 +2055,7 @@ export function createFeedCore(
         if (!isUserConversation(agent, call?.conversationId)) return;
         const keys = routeDialog(agent, call?.conversationId);
         if (!keys || typeof call?.toolCallId !== 'string' || !isForCurrentUser(keys)) return;
-        onToolUpdate(keys.dialogId, { tool_call_id: call.toolCallId, delta: String(chunk ?? '') });
+        onToolUpdate(keys.dialogId, { tool_call_id: call.toolCallId, delta: String(chunk) });
         return;
       }
       case 'tool/started': {

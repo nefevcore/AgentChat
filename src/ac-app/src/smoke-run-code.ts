@@ -156,7 +156,7 @@ async function main() {
   check('目录清单 count = 3（a.txt/b.txt/sub）', out2?.value?.dirCount === 3, JSON.stringify(out2?.value));
   check('glob 命中 3 个 .txt（含子目录）', out2?.value?.globTotal === 3, JSON.stringify(out2?.value));
   check('并行 read 3 份内容齐', out2?.value?.contents?.length === 3 && out2.value.contents.every((c) => c.includes('hello-probe')), JSON.stringify(out2?.value?.contents));
-  check('摘要子调用计数 = 5（1 read + 1 glob + 3 read）', out2?.summary?.calls === 5 && out2?.summary?.ok === 5, JSON.stringify(out2?.summary));
+  check('摘要子调用计数 = 5（1 read + 1 glob + 3 read）', out2?.summary !== undefined && out2.summary.calls === 5 && out2.summary.ok === 5, JSON.stringify(out2?.summary));
 
   // ---- 5) 递归防护 ----
   console.log('[5] 递归防护：程序内 tools.run_code 不可达');
@@ -189,10 +189,10 @@ async function main() {
   check('开关收窄：LLM 工具面 = 仅 run_code', (chatInputs[0]?.tools ?? []).map((t) => t.function.name).join(',') === 'run_code', JSON.stringify((chatInputs[0]?.tools ?? []).map((t) => t.function.name)));
   check('system 注入 SDK 投影块（#A1）', (system?.content ?? '').includes('# run_code 工具 SDK') && (system?.content ?? '').includes('declare const tools'), (system?.content ?? '').slice(0, 120));
   check('互斥形态注入（开关开——程序化调用，基线纪律引导）', (system?.content ?? '').includes('本会话为程序化模式'));
-  check('SDK 声明排除 run_code 自身', !/run_code\s*\(/.test(system?.content ?? ''));
-  const tr = run.steps[0]?.toolResults?.[0] as { output?: { value?: unknown } } | undefined;
+  check('SDK 声明排除 run_code 自身', system !== undefined && !/run_code\s*\(/.test(system.content));
+  const tr = run.steps.at(0)?.toolResults.at(0) as { output?: { value?: unknown } } | undefined;
   check('run_code 步结果 value = 42', tr?.output?.value === 42, JSON.stringify(tr?.output));
-  check('二轮文本收束', (run.text ?? '').includes('程序化模式链路验证完成'), run.text);
+  check('二轮文本收束', run.text.includes('程序化模式链路验证完成'), run.text);
 
   // ---- 收尾 ----
   for (const fiber of [...fibers.values()].reverse()) {

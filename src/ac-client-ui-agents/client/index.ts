@@ -155,10 +155,10 @@ export async function fetchAgents(rpc: Pick<RpcClientFace, 'call'>): Promise<{ a
       .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number; last?: { role: string; text: string; ts: string; name?: string } }> }>('runs/snapshot')
       // digest 短路轻载荷（unchanged=true，runview 轮询请求带的）无
       // conversations → catch 之外按缺省空处理，名册静默降级旧形态
-      .then((r) => (r && typeof r === 'object' && !(r as { unchanged?: boolean }).unchanged ? r : undefined))
+      .then((r) => (!(r as { unchanged?: boolean }).unchanged ? r : undefined))
       .catch(() => undefined),
   ]);
-  return toAgentList(agentsR.agents ?? [], statsR.running ?? [], snapR?.conversations ?? []);
+  return toAgentList(agentsR.agents, statsR.running, snapR?.conversations ?? []);
 }
 
 export async function fetchAgentPresets(rpc: Pick<RpcClientFace, 'call'>): Promise<{ presets: AgentPresetInfo[] }> {
@@ -261,13 +261,13 @@ export class RosterCore {
     if (!this.rpc) return;
     try {
       const d = await fetchAgentPresets(this.rpc);
-      this.presets.value = d.presets ?? [];
+      this.presets.value = d.presets;
     } catch { /* 预设目录拉取失败：保持空（Session 下拉退化为普通 Agent 列表） */ }
   }
 
   /** 默认预设（空 Agent 会话的路由目标；未拉到时回退 __standard__） */
   readonly defaultPreset: ComputedRef<AgentPresetInfo | null> = computed(() =>
-    this.presets.value.find(p => p.default) ?? this.presets.value[0] ?? null,
+    this.presets.value.find(p => p.default) ?? this.presets.value.at(0) ?? null,
   );
   readonly defaultPresetId: ComputedRef<string> = computed(() => this.defaultPreset.value?.id ?? '__standard__');
 

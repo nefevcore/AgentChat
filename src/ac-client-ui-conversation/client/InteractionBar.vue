@@ -44,8 +44,8 @@ const isLast = computed(() => index.value >= questions.value.length - 1);
 const isMulti = computed(() => questions.value[index.value]?.multi === true);
 /** 当前题已答（选中至少一项或非空自定义） */
 const answered = computed(() => {
-  const d = drafts.value[index.value];
-  return !!d && ((d.selected?.length ?? 0) > 0 || d.custom.trim() !== '');
+  const d = drafts.value.at(index.value);
+  return !!d && (d.selected.length > 0 || d.custom.trim() !== '');
 });
 
 /** 超时自动关闭：后端超时后选项残留会"点了没反应" */
@@ -77,7 +77,7 @@ onUnmounted(() => { if (timeoutTimer) clearTimeout(timeoutTimer); });
 /** 点选项：单选 = 覆盖选中并翻页（即选即走）；多选 = 增删勾选（停留本题）。
  *  两种都清自定义与跳过态（互斥）。 */
 function choose(option: string) {
-  const d = drafts.value[index.value];
+  const d = drafts.value.at(index.value);
   if (!d) return;
   if (isMulti.value) {
     d.selected = d.selected.includes(option)
@@ -96,7 +96,7 @@ function choose(option: string) {
  *  受控写回（原 v-model 直写 drafts[index]!.custom——挂载竞态下 drafts 空
  *  数组会读 undefined.custom 崩溃；改 :value + 事件写回，空草稿安全回落）。 */
 function onCustomInput(e: Event) {
-  const d = drafts.value[index.value];
+  const d = drafts.value.at(index.value);
   if (!d) return;
   d.custom = (e.target as HTMLInputElement).value;
   d.skipped = false;
@@ -122,7 +122,7 @@ function continueFlow() {
 
 /** 跳过当前题（提交 null）；非末题翻页，末题直接交卷 */
 function skipQuestion() {
-  const d = drafts.value[index.value];
+  const d = drafts.value.at(index.value);
   if (d) {
     d.selected = [];
     d.custom = '';
@@ -141,14 +141,14 @@ function skipQuestion() {
  *  数组（保持选项顺序），单选题为单个字符串。有漏答题跳回并提示。 */
 function submitAll() {
   const qs = questions.value;
-  const missing = drafts.value.findIndex((d) => !(d.selected?.length ?? 0) && !d.custom.trim() && !d.skipped);
+  const missing = drafts.value.findIndex((d) => !d.selected.length && !d.custom.trim() && !d.skipped);
   if (missing >= 0) {
     index.value = missing;
     feedback.value = '请先完成这道问题。';
     return;
   }
   const answers = qs.map((q, i) => {
-    const d = drafts.value[i];
+    const d = drafts.value.at(i);
     if (!d) return null;
     const custom = d.custom.trim();
     if (custom) return custom;

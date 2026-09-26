@@ -295,7 +295,7 @@ export class SingleBoardService extends Service {
     if (restored) return restored;
     if (loadLastContext()) return null; // 上次在 agent/group：尊重既有恢复链
     const recent = [...this.activeSingles.value].sort((a, b) =>
-      Date.parse(b.lastActivity ?? b.updatedAt) - Date.parse(a.lastActivity ?? a.updatedAt))[0];
+      Date.parse(b.lastActivity ?? b.updatedAt) - Date.parse(a.lastActivity ?? a.updatedAt)).at(0);
     if (recent) {
       this.selectSingle(recent.id);
       return recent.id;

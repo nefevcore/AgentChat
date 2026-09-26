@@ -73,7 +73,7 @@ export async function fetchGroups(rpc: Pick<RpcClientFace, 'call'>): Promise<{ g
     rpc
       .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number }> }>('runs/snapshot')
       // digest 短路轻载荷（unchanged=true）无 conversations → 按空降级（同 catch 语义）
-      .then((r) => (r && typeof r === 'object' && !(r as { unchanged?: boolean }).unchanged ? r : undefined))
+      .then((r) => (!(r as { unchanged?: boolean }).unchanged ? r : undefined))
       .catch(() => undefined),
   ]);
   const convOf = new Map((snapR?.conversations ?? []).map((c) => [c.conversationId, c]));
@@ -113,7 +113,7 @@ export class GroupsClientService extends Service {
   async fetchGroups(): Promise<void> {
     try {
       const data = await fetchGroups(this.own.rpc);
-      this.groups.value = data.groups ?? [];
+      this.groups.value = data.groups;
       // presence 登记（feed 帧路由的群会话键判别——经会话服务协调面）
       this.own.sessions.setKnownGroups(this.groups.value.map((g) => g.group_id));
     } catch { /* ignore */ }

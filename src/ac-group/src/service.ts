@@ -398,7 +398,7 @@ export class GroupService extends Service {
       const gid = entry.name;
       try {
         const raw = JSON.parse(fs.readFileSync(this.configPath(gid), 'utf-8')) as GroupConfig;
-        if (raw && typeof raw.id === 'string' && Array.isArray(raw.members)) {
+        if (typeof raw.id === 'string' && Array.isArray(raw.members)) {
           this.groups.set(gid, raw);
         }
       } catch {
@@ -518,7 +518,7 @@ export class GroupService extends Service {
       return;
     }
     this.writeMechanicalSummary(groupId, index, archived); // 回退产物（整理成功会被覆写）
-    const firstKept = kept[0];
+    const firstKept = kept.at(0);
     const pending: RotationPending = {
       owner,
       requestedAt: new Date().toISOString(),
@@ -791,7 +791,7 @@ export class GroupService extends Service {
     archived: Array<{ content: string; timestamp?: string; agent_id?: string }>,
   ): void {
     const items = archived
-      .filter((r) => (r.content ?? '').trim())
+      .filter((r) => r.content.trim())
       .slice(-60)
       .map((r) => {
         const ts = (r.timestamp || '').slice(0, 16).replace('T', ' ');
@@ -853,7 +853,7 @@ export class GroupService extends Service {
     // 遍历会在超预算时丢掉最新物料，恰留下与尾部不衔接的最旧段。
     for (let i = archived.length - 1; i >= 0; i--) {
       const r = archived[i];
-      if (!(r.content ?? '').trim()) continue;
+      if (!r.content.trim()) continue;
       const ts = (r.timestamp || '').slice(0, 16).replace('T', ' ');
       const text = r.content.length > 300 ? `${r.content.slice(0, 300)}…` : r.content;
       const line = `- [${ts}] ${r.agent_id ?? 'user'}: ${text.replace(/\n/g, ' ')}`;
@@ -1327,7 +1327,7 @@ export class GroupService extends Service {
       const text = isPeer
         ? wrapGroupMsg({ from: m.from, displayName: displayNameOf(this.ctx.agents.get(m.from)), groupName, content: m.content })
         : m.content;
-      const last = merged[merged.length - 1];
+      const last = merged.at(-1);
       if (isPeer && last && last.from !== viewer) {
         last.text = `${last.text}\n${text}`; // 相邻 peer 发言合成一条（<msg> 标签区分发言人）
         if (m.attachments && m.attachments.length > 0) {

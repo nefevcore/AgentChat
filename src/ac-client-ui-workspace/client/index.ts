@@ -114,10 +114,10 @@ export class WorkspaceBoardService extends Service {
   async refresh(): Promise<void> {
     try {
       const d = await fetchWorkspaces();
-      this.workspaces.value = d.workspaces ?? [];
+      this.workspaces.value = d.workspaces;
       this.loaded.value = true;
     } catch (err: unknown) {
-      console.warn('[WorkspaceBoard] 拉取用户工作区失败:', (err as { message?: string })?.message ?? String(err));
+      console.warn('[WorkspaceBoard] 拉取用户工作区失败:', (err as { message?: string }).message ?? String(err));
     }
   }
 

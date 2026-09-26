@@ -44,7 +44,7 @@ function parseArgs(argv: string[]): Args {
       continue;
     }
     const key = a.slice(2);
-    const next = argv[i + 1];
+    const next = argv.at(i + 1);
     if (next !== undefined && !next.startsWith('--')) {
       values.set(key, [...(values.get(key) ?? []), next]);
       i++;

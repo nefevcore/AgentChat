@@ -41,7 +41,7 @@ const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'ok'>(() =
 });
 
 // ── action 元信息（icon = lucide 图标名，经 ui/Icon 渲染——不用符号文本） ──
-const ACTION_META: Record<string, { icon: string; label: string; color: string }> = {
+const ACTION_META: Partial<Record<string, { icon: string; label: string; color: string }>> = {
   open: { icon: 'external-link', label: '打开', color: '#3b82f6' },
   click: { icon: 'mouse-pointer-click', label: '点击', color: '#8b5cf6' },
   type: { icon: 'keyboard', label: '输入', color: '#06b6d4' },
@@ -53,7 +53,7 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
   close: { icon: 'x', label: '关闭', color: '#6b7280' },
 };
 function actionMeta(action: string) {
-  return ACTION_META[action] || { icon: 'wrench', label: action, color: '#6b7280' };
+  return ACTION_META[action] ?? { icon: 'wrench', label: action, color: '#6b7280' };
 }
 
 function isStepErr(item: any): boolean {

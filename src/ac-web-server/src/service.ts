@@ -345,7 +345,7 @@ export class WebServerService extends Service {
         const body = await this.readBody(req, res);
         if (res.writableEnded) return; // 读体失败已应答
         const call: RouteCall = {
-          method: (req.method as HttpMethod) ?? 'GET',
+          method: (req.method ?? 'GET') as HttpMethod,
           path,
           query: url.searchParams,
           params: hit.params,
@@ -739,7 +739,7 @@ export class WebServerService extends Service {
         }
       }
     }, this.options.heartbeatMs);
-    this.heartbeatTimer.unref?.();
+    this.heartbeatTimer.unref();
   }
 
   /** 停服：断开 WS + 关 HTTP（2s 超时兜底——活跃连接会挂起 close 回调） */
@@ -756,7 +756,7 @@ export class WebServerService extends Service {
     this.connections.clear();
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => resolve(), 2000);
-      timer.unref?.();
+      timer.unref();
       this.wss.close(() => {
         this.server.close(() => {
           clearTimeout(timer);

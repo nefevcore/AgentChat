@@ -39,10 +39,11 @@ const SEARCH_FIELDS: FieldMeta[] = [
 ];
 
 /** 搜索池内各 provider 观测到的额外字段（基线之外，类型按值推断） */
-function inferExtraFields(pools: Record<string, PoolEntry>): Map<string, FieldMeta[]> {
+function inferExtraFields(pools: Partial<Record<string, PoolEntry>>): Map<string, FieldMeta[]> {
   const byProvider = new Map<string, Map<string, FieldMeta>>();
   const baseKeys = new Set(SEARCH_FIELDS.map((f) => f.key));
   for (const entry of Object.values(pools)) {
+    if (entry === undefined) continue;
     const provider = typeof entry.provider === 'string' && entry.provider ? entry.provider : '';
     if (!provider) continue;
     const fields = byProvider.get(provider) ?? new Map<string, FieldMeta>();
@@ -66,7 +67,7 @@ const effectiveSchemas = computed<Record<string, any[]>>(() => {
   const extra = inferExtraFields(props.pools);
   const providers = new Set([...Object.keys(props.schemas), ...extra.keys()]);
   for (const p of providers) {
-    if (out[p] && out[p].length > 0) continue;
+    if (out[p].length) continue;
     out[p] = [...SEARCH_FIELDS, ...(extra.get(p) ?? [])];
   }
   return out;
@@ -103,7 +104,7 @@ function cancelEdit() {
 function applyDefaults(entry: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = { ...entry };
   const schema = effectiveSchemas.value[out.provider];
-  if (schema) {
+  {
     for (const f of toFields(schema)) {
       if (f.default !== undefined && out[f.key] === undefined) out[f.key] = f.default;
     }
@@ -141,7 +142,7 @@ function saveEntry() {
   if (existingKeys.length === 0 || (existingKeys.length === 1 && existingKeys[0] === name)) {
     entry.default = true;
     for (const k of existingKeys) {
-      if (k !== name && pool[k]?.default) delete pool[k].default;
+      if (k !== name && pool[k].default) delete pool[k].default;
     }
   }
   pool[name] = entry;
@@ -164,7 +165,7 @@ function removeEntry(name: string) {
 function setDefault(name: string) {
   const pool: Record<string, PoolEntry> = {};
   for (const [k, v] of Object.entries(props.pools)) {
-    if (!k.startsWith('$') && v && typeof v === 'object') pool[k] = { ...v, default: k === name };
+    if (!k.startsWith('$') && typeof v === 'object') pool[k] = { ...v, default: k === name };
     else pool[k] = v;
   }
   emit('update:pools', pool);

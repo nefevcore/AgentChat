@@ -29,7 +29,7 @@ import type { SearchProviderFactory } from './types.ts';
 
 /** provider 注册表（工厂表；行侧按名取用）。2026-10 收敛：tavily/deepseek
  *  两个经实证 provider——serpapi/brave/duckduckgo 个体工厂仍导出但不在表 */
-export const PROVIDER_REGISTRY: Record<string, SearchProviderFactory> = {
+export const PROVIDER_REGISTRY: Partial<Record<string, SearchProviderFactory>> = {
   tavily: createTavilyProvider,
   deepseek: createDeepSeekProvider,
 };

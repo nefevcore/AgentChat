@@ -341,10 +341,11 @@ export class JsonlDurableInteractionStore implements DurableInteractionStore {
   }
 
   private validate(record: DurableInteraction): void {
-    if (typeof record?.id !== 'string' || record.id.length === 0) {
+    if (typeof record.id !== 'string' || record.id.length === 0) {
       throw new DurableInteractionCorruptionError(`durable-interaction 文件包含非法记录 id: ${this.file}`);
     }
-    if (record.state !== 'pending' && record.state !== 'answered' && record.state !== 'closed') {
+    const state: unknown = record.state;
+    if (state !== 'pending' && state !== 'answered' && state !== 'closed') {
       throw new DurableInteractionCorruptionError(`durable-interaction 文件包含非法状态: ${String(record.state)}`);
     }
   }

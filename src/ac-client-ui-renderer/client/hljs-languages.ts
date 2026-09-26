@@ -40,7 +40,7 @@ import plaintext from 'highlight.js/lib/languages/plaintext';
 // key = hljs 语言名；value = 动态 import 工厂（vite 拆为独立 chunk）。
 // 刻意收窄：不收录 190+ 全集，只保留工程/脚本中实际会出现的。缺失
 // 语言走 hljs 原生「未注册」路径（转义纯文本），行为与全量版一致。
-const DYNAMIC_LANGUAGES: Record<string, () => Promise<unknown>> = {
+const DYNAMIC_LANGUAGES: Partial<Record<string, () => Promise<unknown>>> = {
   rust: () => import('highlight.js/lib/languages/rust'),
   go: () => import('highlight.js/lib/languages/go'),
   java: () => import('highlight.js/lib/languages/java'),

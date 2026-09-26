@@ -511,6 +511,12 @@ declare module '@agentchat/cordis' {
  *
  * 单一事实源：订阅侧（index.ts 的 apply 订阅这些事件）与闸门侧
  * （broadcastEvent 再判一次）都读它——两处各写一份必然走散。
+ *
+ * 纪律：只收 emit 面。waterfall 事件（loop/transform-* 等）禁入——
+ * 本表的订阅姿势是纯观察（不调 next），挂在 waterfall 上等于静默
+ * veto 下游默认行为（transform-step/run 返 undefined → run 首步即
+ * 炸、收束日志读 final.usage 抛错——2026-09-26 事故）。远程端需要
+ * 的终值已由 after-step / after-run 携带。
  */
 export const REMOTE_DOWNLINK_EVENTS: readonly string[] = [
   'router/message-received',
@@ -518,8 +524,6 @@ export const REMOTE_DOWNLINK_EVENTS: readonly string[] = [
   'loop/run-started',
   'loop/step-started',
   'loop/after-step',
-  'loop/transform-step',
-  'loop/transform-run',
   'loop/after-run',
   'llm/delta-start',
   'llm/delta',

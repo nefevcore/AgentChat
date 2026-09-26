@@ -97,7 +97,7 @@ async function fetchPage(pageOffset: number): Promise<PSessionRecord[]> {
     hasMore.value = r.hasMore === true;
     return r.records ?? [];
   } catch (err: unknown) {
-    loadError.value = (err as { message?: string })?.message ?? String(err);
+    loadError.value = (err as { message?: string }).message ?? String(err);
     return [];
   } finally {
     loading.value = false;

@@ -787,10 +787,10 @@ export function applyDiskFinals(
     if (diskContent === undefined || diskContent === null) { out.set(path, s); continue; } // 未请求/文件不存在——不兜底
     // 逆序回退该文件全部成功编辑
     const evs = okEvsByPath.get(path) ?? [];
-    let cur: string | null = diskContent;
+    let cur: string = diskContent;
     let stoppedAtWrite = false;
     let mismatches = s.mismatches;
-    for (let i = evs.length - 1; i >= 0 && cur !== null; i--) {
+    for (let i = evs.length - 1; i >= 0; i--) {
       const ev = evs[i];
       if (ev.action === 'create' || ev.action === 'overwrite') {
         // 全量写入的逆 = 前版不可知——回推停点（初版 = 该 write 前一刻
@@ -812,7 +812,7 @@ export function applyDiskFinals(
       ...s,
       partial: false,
       partialBase: null,
-      baseContent: cur ?? '',
+      baseContent: cur,
       finalContent: diskContent,
       mismatches,
       // 停点标记（UI 提示「初版自首次全量写入/失配点起回推」；干净

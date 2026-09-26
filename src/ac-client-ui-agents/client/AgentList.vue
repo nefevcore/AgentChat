@@ -73,13 +73,13 @@ async function openAddDialog() {
   showAddDialog.value = true; selProvider.value = ''; selModel.value = '';
   if (providerStats.value.length === 0 && rpc) {
     const [statsR, poolsR] = await Promise.all([
-      fetchLlmProviders(rpc).then((r) => r.stats ?? []).catch(() => []),
-      fetchPools(rpc).then((r) => r.llmProviders ?? {}).catch(() => ({})),
+      fetchLlmProviders(rpc).then((r) => r.stats).catch(() => []),
+      fetchPools(rpc).then((r) => r.llmProviders).catch(() => ({})),
     ]);
     providerStats.value = statsR;
     const cache: Record<string, string[]> = {};
     for (const [name, entry] of Object.entries(poolsR as Record<string, { models?: unknown }>)) {
-      if (name.startsWith('$') || !Array.isArray(entry?.models)) continue;
+      if (name.startsWith('$') || !Array.isArray(entry.models)) continue;
       cache[name] = entry.models.filter((m): m is string => typeof m === 'string');
     }
     poolModels.value = cache;

@@ -21,5 +21,7 @@ let fallbackCore: RosterCore | null = null;
 
 /** 名册核心取用：runtime 在场 → ctx.roster.core；缺席 → 模块级回落单例 */
 export function useRosterCore(): RosterCore {
-  return clientRuntime()?.roster?.core ?? (fallbackCore ??= new RosterCore());
+  // roster 域行运行时可缺席（跨行探测——augment 类型必填仅表「装载后」语义）
+  const roster = clientRuntime()?.roster as { core: RosterCore } | undefined;
+  return roster?.core ?? (fallbackCore ??= new RosterCore());
 }

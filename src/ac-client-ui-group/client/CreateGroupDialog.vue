@@ -29,7 +29,7 @@ onMounted(async () => {
   if (!rpc) { loadError.value = 'RPC 不可用'; return; }
   try {
     const data = await fetchAgents(rpc);
-    agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== VIEWER_ID.value);
+    agents.value = data.agents.filter((a: AgentInfo) => a.id !== VIEWER_ID.value);
   } catch (err: any) {
     // 静默失败会让"选择参与者"列表永久空白且无解释
     loadError.value = `Agent 列表加载失败：${err?.message || err}`;

@@ -127,7 +127,7 @@ function requiredLiterals(pattern: string): string[] {
       continue;
     }
     if (ch === '\\') {
-      const next = pattern[i + 1];
+      const next = pattern.at(i + 1);
       if (next === undefined) break; // 尾悬反斜杠：交给 new RegExp 报错
       if (/[a-zA-Z]/.test(next)) {
         flush(false); // \d \w \b \n 等：类/断言，非字面量

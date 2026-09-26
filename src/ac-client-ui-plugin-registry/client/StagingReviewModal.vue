@@ -57,7 +57,7 @@ async function loadTree(id: string) {
   try {
     const data = await api.getStagingTree(id, rpc!);
     if (seq !== loadSeq) return;
-    files.value = data.files ?? [];
+    files.value = data.files;
     if (files.value.length > 0) await openFile(files.value[0].path);
   } catch (e: any) {
     if (seq !== loadSeq) return;

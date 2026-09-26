@@ -614,7 +614,7 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     if (security.enabled === false) return next(); // 软停用（与拦截面一致）
 
     const redact = makeSecretRedactor(secretsOf(ctx, options));
-    if (payload.result && typeof payload.result === 'object' && 'output' in payload.result) {
+    if (typeof payload.result === 'object' && 'output' in payload.result) {
       const output = (payload.result as { output?: unknown }).output;
       if (output !== undefined) {
         (payload.result as { output?: unknown }).output = redactSecretValue(output, redact);

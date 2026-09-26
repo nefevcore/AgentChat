@@ -37,7 +37,7 @@ async function refresh(): Promise<void> {
   const t = await fetchTodos(rpc, a, c);
   // 拉取期间会话已切换 → 丢弃过期结果（防串台）
   if (agentId.value !== a || conversationId.value !== c) return;
-  todos.value = t === undefined || t === null ? undefined : t;
+  todos.value = t === null ? undefined : t;
 }
 
 watch([agentId, conversationId], () => void refresh(), { immediate: true });
@@ -47,7 +47,7 @@ const off = rpc.onEvent((type, args) => {
   if (!c) return;
   if (type === 'tool/after-execute') {
     const [call] = args as Array<{ name?: string; conversationId?: string } | undefined>;
-    if (call?.name === 'todo' && call?.conversationId === c) void refresh();
+    if (call?.name === 'todo' && call.conversationId === c) void refresh();
     return;
   }
   if (type === 'loop/after-run') {

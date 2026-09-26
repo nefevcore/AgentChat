@@ -32,7 +32,7 @@ function stripComments(css: string): string {
   let comment = false;
   while (i < css.length) {
     const ch = css[i];
-    const next = css[i + 1];
+    const next = css.at(i + 1);
     if (comment) {
       if (ch === '*' && next === '/') {
         comment = false;

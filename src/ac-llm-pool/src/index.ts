@@ -231,7 +231,7 @@ function signatureOf(d: Desired): string {
  * file 块支持文档子集同口径——本地小表防跨行 import 实现面的反模式）。
  * 图片 → image_url 块；文档（pdf/txt/...）→ file 块 file_data。
  */
-const MEDIA_MIME: Record<string, string> = {
+const MEDIA_MIME: Partial<Record<string, string>> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -319,7 +319,7 @@ export function defaultPoolConnection(
   const entries = Object.entries(pool).filter(
     ([k, v]) => !k.startsWith('$') && v !== null && typeof v === 'object' && !Array.isArray(v),
   ) as Array<[string, LlmPoolEntry]>;
-  const def = entries.find(([, v]) => v.default === true) ?? entries[0];
+  const def = entries.find(([, v]) => v.default === true) ?? entries.at(0);
   if (!def) return undefined;
   const [name, entry] = def;
   const model =

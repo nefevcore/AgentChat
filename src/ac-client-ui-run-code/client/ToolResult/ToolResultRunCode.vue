@@ -91,7 +91,7 @@ const valueText = computed(() => {
   if (typeof value.value === 'string') return value.value;
   // BigInt 等不可 JSON 化的值会让 stringify 抛错（整个卡崩）——回落字符串形态
   try {
-    return JSON.stringify(value.value, null, 2) ?? 'null';
+    return JSON.stringify(value.value, null, 2);
   } catch {
     return String(value.value);
   }

@@ -107,9 +107,11 @@ const ownerCandidates = computed(() =>
 
 /** 名称/简介任一变更即脏（仅改简介也可保存——曾因禁用条件只看名称，
  *  简介改动后保存钮恒禁用，改了也存不进） */
-const infoDirty = computed(() =>
-  editingName.value.trim() !== group.value?.name
-  || editingDescription.value !== (group.value?.description ?? ''));
+const infoDirty = computed(() => {
+  const g = group.value;
+  return editingName.value.trim() !== (g?.name ?? '')
+    || editingDescription.value !== (g?.description ?? '');
+});
 
 /** 挂载（或切换群组）时初始化编辑字段——此前初始化函数从未被调用，
  *  名称输入框永远为空、保存按钮恒禁用。（aux 选区当选即挂载——

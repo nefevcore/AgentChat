@@ -44,9 +44,9 @@ async function loadAll(): Promise<void> {
   if (cur !== seq) return;
   if (catR.status === 'fulfilled') catalog.value = catR.value;
   if (libR.status === 'fulfilled') library.value = libR.value;
-  if (sessionR.status === 'fulfilled') sessionPlugins.value = sessionR.value.plugins ?? [];
+  if (sessionR.status === 'fulfilled') sessionPlugins.value = sessionR.value.plugins;
   if (permR.status === 'fulfilled') permissions.value = permR.value;
-  if (eventsR.status === 'fulfilled') eventChains.value = eventsR.value.events ?? [];
+  if (eventsR.status === 'fulfilled') eventChains.value = eventsR.value.events;
   if (catalogR.status === 'fulfilled') {
     catalogData.value = catalogR.value;
     catalogError.value = '';
@@ -55,8 +55,8 @@ async function loadAll(): Promise<void> {
     catalogError.value = catalogR.reason instanceof Error ? catalogR.reason.message : String(catalogR.reason);
   }
   if (descR.status === 'fulfilled') {
-    eventDescriptions.value = descR.value.descriptions ?? [];
-    eventChainsByEvent.value = descR.value.chains ?? {};
+    eventDescriptions.value = descR.value.descriptions;
+    eventChainsByEvent.value = descR.value.chains;
   }
   if (policyR.status === 'fulfilled') eventPolicy.value = policyR.value;
 }

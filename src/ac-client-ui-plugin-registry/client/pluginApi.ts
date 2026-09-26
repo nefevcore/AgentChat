@@ -55,9 +55,9 @@ export async function getCatalog(rpc: Rpc): Promise<PluginCatalog> {
   //  origin==='dynamic'（M23 F11）在这里不进目录——动态行在「Agent 开发行」
   //  区单独呈现，plugins 合成由下方 loaded/installed 源覆盖。
   for (const r of rowsR.rows ?? []) {
-    const name = String(r?.name ?? '');
+    const name = String(r.name ?? '');
     if (!name || name === '(anonymous)') continue;
-    if (r?.origin === 'internal' || r?.origin === 'dynamic') continue;
+    if (r.origin === 'internal' || r.origin === 'dynamic') continue;
     const description = typeof r.description === 'string' && r.description
       ? r.description
       : 'cordis.yml 装配行（行组合制内置能力）';
@@ -115,16 +115,16 @@ export async function getCatalog(rpc: Rpc): Promise<PluginCatalog> {
   return {
     plugins: [...byName.values()],
     rows: (rowsR.rows ?? []).map((r) => ({
-      name: String(r?.name ?? ''),
-      fibers: Number(r?.fibers ?? 0),
-      active: r?.active === true,
+      name: String(r.name ?? ''),
+      fibers: Number(r.fibers ?? 0),
+      active: r.active === true,
       // origin 三值直传（M23 F11：'dynamic' = Agent 开发行；缺省/未知 → package）
-      origin: (r?.origin === 'internal' || r?.origin === 'dynamic' ? r.origin : 'package') as PluginCatalog['rows'][number]['origin'],
-      ...(typeof r?.description === 'string' && r.description ? { description: r.description } : {}),
-      ...(typeof r?.version === 'string' && r.version ? { version: r.version } : {}),
-      ...(typeof r?.owner === 'string' && r.owner ? { owner: r.owner } : {}),
+      origin: (r.origin === 'internal' || r.origin === 'dynamic' ? r.origin : 'package') as PluginCatalog['rows'][number]['origin'],
+      ...(typeof r.description === 'string' && r.description ? { description: r.description } : {}),
+      ...(typeof r.version === 'string' && r.version ? { version: r.version } : {}),
+      ...(typeof r.owner === 'string' && r.owner ? { owner: r.owner } : {}),
       // yml/include 树行 id（M24 P4：行偏好层开关锚点）
-      ...(typeof r?.entryId === 'string' && r.entryId ? { entryId: r.entryId } : {}),
+      ...(typeof r.entryId === 'string' && r.entryId ? { entryId: r.entryId } : {}),
     })),
     extensions: (extR.extensions ?? []) as PluginCatalog['extensions'],
     tools: (toolsR.tools ?? []).map((t) => ({
@@ -351,7 +351,7 @@ export async function getStagingTree(id: string, rpc: Rpc): Promise<{ files: Sta
 /** ⑥ 暂存文件内容（人审只读） */
 export async function getStagingFile(id: string, path: string, rpc: Rpc): Promise<StagingFileContent> {
   const r = await rpc.call<{ content?: string }>('plugin/staging-file', { id, path });
-  return { path, content: String(r?.content ?? '') };
+  return { path, content: String(r.content ?? '') };
 }
 
 // ── ⑩ 反依赖图（M25 P3：停用承重行级联警告 + 保护行标记） ──
@@ -366,7 +366,7 @@ export async function getDepGraph(
   const r = await rpc
     .call<{ rows?: Array<{ name: string; deps: string[]; rowDeps: string[]; dependents: string[]; protected: boolean }>; note?: string }>('plugin/dep-graph')
     .catch(() => ({}) as { rows?: never[]; note?: string });
-  return { rows: r?.rows ?? [], ...(r?.note ? { note: r.note } : {}) };
+  return { rows: r.rows ?? [], ...(r.note ? { note: r.note } : {}) };
 }
 
 // ── ⑦ 行偏好层 cordis.patch.yml（M23 P3-lite：plugin/patch-list / patch-set） ──
@@ -375,9 +375,9 @@ export async function getDepGraph(
 export async function getPatchList(rpc: Rpc): Promise<{ patches: PluginPatchEntry[]; file: string; warnings: string[] }> {
   const r = await rpc.call<{ patches?: PluginPatchEntry[]; file?: string; warnings?: string[] }>('plugin/patch-list');
   return {
-    patches: Array.isArray(r?.patches) ? r.patches : [],
-    file: typeof r?.file === 'string' ? r.file : '',
-    warnings: Array.isArray(r?.warnings) ? r.warnings : [],
+    patches: Array.isArray(r.patches) ? r.patches : [],
+    file: typeof r.file === 'string' ? r.file : '',
+    warnings: Array.isArray(r.warnings) ? r.warnings : [],
   };
 }
 
@@ -393,11 +393,11 @@ export async function setPluginPatch(
   rpc: Rpc,
 ): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PluginPatchEntry[] }> {
   const r = await rpc.call<{ state?: string; restartRequired?: boolean; patches?: PluginPatchEntry[] }>('plugin/patch-set', { id, disabled });
-  const state = r?.state === 'hot' || r?.state === 'no-include-row' ? r.state : 'written';
+  const state = r.state === 'hot' || r.state === 'no-include-row' ? r.state : 'written';
   return {
     state,
-    ...(r?.restartRequired === true ? { restartRequired: true } : {}),
-    patches: Array.isArray(r?.patches) ? r.patches : [],
+    ...(r.restartRequired === true ? { restartRequired: true } : {}),
+    patches: Array.isArray(r.patches) ? r.patches : [],
   };
 }
 
@@ -412,11 +412,11 @@ export async function resetPluginPatches(
   rpc: Rpc,
 ): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PluginPatchEntry[] }> {
   const r = await rpc.call<{ state?: string; restartRequired?: boolean; patches?: PluginPatchEntry[] }>('plugin/patch-reset', { mode });
-  const state = r?.state === 'hot' || r?.state === 'no-include-row' ? r.state : 'written';
+  const state = r.state === 'hot' || r.state === 'no-include-row' ? r.state : 'written';
   return {
     state,
-    ...(r?.restartRequired === true ? { restartRequired: true } : {}),
-    patches: Array.isArray(r?.patches) ? r.patches : [],
+    ...(r.restartRequired === true ? { restartRequired: true } : {}),
+    patches: Array.isArray(r.patches) ? r.patches : [],
   };
 }
 
@@ -425,7 +425,7 @@ export async function resetPluginPatches(
 /** 事件执行链（按事件名排序；listeners 数组序 = waterfall 执行序；owner = 裸 fiber 名） */
 export async function getEventListeners(rpc: Rpc): Promise<{ events: EventChainEntry[] }> {
   const r = await rpc.call<{ events?: EventChainEntry[] }>('events/listeners');
-  return { events: Array.isArray(r?.events) ? r.events : [] };
+  return { events: Array.isArray(r.events) ? r.events : [] };
 }
 
 // ── ⑨ 事件描述声明（M25 P2） ──
@@ -438,7 +438,7 @@ export async function getEventDescriptions(
     .call<{ descriptions?: EventDescriptionEntry[]; chains?: Record<string, EventChainEntry['listeners']> }>('events/descriptions')
     .catch(() => ({}) as { descriptions?: EventDescriptionEntry[]; chains?: Record<string, EventChainEntry['listeners']> });
   return {
-    descriptions: Array.isArray(r?.descriptions) ? r.descriptions : [],
-    chains: r?.chains ?? {},
+    descriptions: Array.isArray(r.descriptions) ? r.descriptions : [],
+    chains: r.chains ?? {},
   };
 }

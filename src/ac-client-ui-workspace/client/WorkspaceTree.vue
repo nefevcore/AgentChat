@@ -22,7 +22,7 @@ const store = useWorkspaceTreeStore();
 // ── 树基准定位：活跃会话上下文（single > agent pair > group > 全局）──
 // 与 runview 主区让位 watch 同款探测姿势（root runtime 可选探测——本件
 // fiber 未 inject roster/singleBoard，自身 ctx 属性访问会抛）。
-const contextAgentId = computed(() => ctx?.roster?.core.activeAgentId.value ?? '');
+const contextAgentId = computed(() => (ctx?.roster as { core: { activeAgentId: { value: string } } } | undefined)?.core.activeAgentId.value ?? '');
 const contextConversationId = computed(() => ctx?.get('singleBoard')?.activeSingleId.value ?? '');
 
 // 首次挂载即定位当前基准（无活跃上下文 = 全局数据根树）

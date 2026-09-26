@@ -113,7 +113,7 @@ export function apply(ctx: Context, options: MarketRowOptions = {}) {
       }>(`${npmRegistry}/-/v1/search?text=${text}&size=${limit}`);
       const names = (data.objects ?? []).map((o) => o.package.name);
       // 周下载量批量补全（失败容忍——结果照常返回）
-      let downloads: Record<string, number> = {};
+      let downloads: Partial<Record<string, number>> = {};
       if (names.length > 0) {
         try {
           const dl = await doFetch('https://api.npmjs.org/downloads/point/last-week/bulk', {

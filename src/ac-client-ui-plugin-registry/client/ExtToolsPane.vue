@@ -61,12 +61,12 @@ async function loadVocabulary(): Promise<void> {
   ]);
   if (seq !== loadSeq) return;
   if (catR.status === 'fulfilled') {
-    extensions.value = catR.value.extensions ?? [];
-    plugins.value = catR.value.plugins ?? [];
+    extensions.value = catR.value.extensions;
+    plugins.value = catR.value.plugins;
   }
   if (permR.status === 'fulfilled') permissions.value = permR.value;
-  if (eventsR.status === 'fulfilled') eventChains.value = eventsR.value.events ?? [];
-  if (descR.status === 'fulfilled') eventDescriptions.value = descR.value.descriptions ?? [];
+  if (eventsR.status === 'fulfilled') eventChains.value = eventsR.value.events;
+  if (descR.status === 'fulfilled') eventDescriptions.value = descR.value.descriptions;
 }
 const offWire = rpc?.onEvent((type: string) => {
   if (type === 'plugin/installed' || type === 'plugin/catalog-changed' || type === 'plugin/reloaded') void loadVocabulary();
@@ -144,7 +144,7 @@ function extHasParams(e: ExtensionEntry): boolean {
 }
 /** 行是否声明 enabled 门控（respectsEnabled 契约面；基础设施行 per-Agent 不可关，不开面） */
 function extHasEnabled(e: ExtensionEntry): boolean {
-  return e.automatic !== true && (e.fields ?? []).some((f) => (typeof f === 'string' ? f === 'enabled' : f?.name === 'enabled'));
+  return e.automatic !== true && (e.fields ?? []).some((f) => (typeof f === 'string' ? f === 'enabled' : f.name === 'enabled'));
 }
 /** 软停用态：差异层 enabled === false → 停用；缺省/true = 启用（继承默认） */
 function extEnabled(e: ExtensionEntry): boolean {
@@ -164,7 +164,7 @@ const visibleExts = computed(() => {
   return onlyConfigurable.value ? list.filter((e) => extHasParams(e)) : list;
 });
 function extConfigOf(name: string): Record<string, unknown> {
-  const cfg = props.decl?.settings?.[name];
+  const cfg = props.decl?.settings[name];
   return cfg && typeof cfg === 'object' && !Array.isArray(cfg)
     ? { ...(cfg as Record<string, unknown>) }
     : {};
@@ -197,7 +197,7 @@ function listenerDesc(l: { owner: string; description?: string }, event: string)
 }
 /** facet 子键读取（agentGate 同语义：settings[name][facet].enabled ?? enabled） */
 function facetDisabledForAgent(ext: ExtensionEntry, facet: string | undefined): boolean {
-  const cfg = props.decl?.settings?.[ext.name];
+  const cfg = props.decl?.settings[ext.name];
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return false;
   const c = cfg as Record<string, unknown>;
   if (facet !== undefined) {
@@ -420,11 +420,11 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
   );
   return Object.entries(defs).map(([name, def]) => ({
     name,
-    type: typeof def?.type === 'string' ? def.type : '?',
+    type: typeof def.type === 'string' ? def.type : '?',
     required: req.has(name),
-    default: def?.default === undefined ? undefined : JSON.stringify(def.default),
-    description: typeof def?.description === 'string' ? def.description : undefined,
-    enumVals: Array.isArray(def?.enum) ? (def.enum as unknown[]).map(String) : undefined,
+    default: def.default === undefined ? undefined : JSON.stringify(def.default),
+    description: typeof def.description === 'string' ? def.description : undefined,
+    enumVals: Array.isArray(def.enum) ? (def.enum as unknown[]).map(String) : undefined,
   }));
 });
 </script>

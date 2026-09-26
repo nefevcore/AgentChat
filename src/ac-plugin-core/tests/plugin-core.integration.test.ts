@@ -338,7 +338,7 @@ describe('熔断存档 .load-health.json（F4/G9）', () => {
     expect('reason' in final).toBe(true);
     expect(isLoadDisabled(root, 'crasher')).toBe(true);
     const doc = readLoadHealth(root);
-    expect(doc.disabled.crasher.reason).toBe('boom final');
+    expect(doc.disabled.crasher!.reason).toBe('boom final');
     await clearLoadHealth(root, 'crasher');
     expect(isLoadDisabled(root, 'crasher')).toBe(false);
     expect(readLoadHealth(root).failures.crasher).toBeUndefined();
