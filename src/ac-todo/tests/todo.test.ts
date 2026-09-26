@@ -132,6 +132,23 @@ describe('ac-todo 工具面（write/read 整表全量重写）', () => {
     expect(String(noId.error)).toContain('执行身份');
   });
 
+  it('action 缺省推定：带 todos = write，无 todos = read（程序化直传漏 action 不再报错）', async () => {
+    const { ctx } = await boot();
+    const call = { agentId: 'a', conversationId: 'a~user' };
+
+    // 带 todos 无 action → write
+    const w = await ctx.tools.execute({
+      name: 'todo', args: { todos: [{ content: '直传清单' }] }, ...call,
+    });
+    expect(w.ok).toBe(true);
+    expect(ctx.todos.list('a', 'a~user')).toEqual([{ content: '直传清单', status: 'pending' }]);
+
+    // 无 action 无 todos → read
+    const r = await ctx.tools.execute({ name: 'todo', args: {}, ...call });
+    expect(r.ok).toBe(true);
+    expect((r.output as { count: number }).count).toBe(1);
+  });
+
   it('桶隔离：同 Agent 的会话桶与自会话桶互不串扰', async () => {
     const { ctx } = await boot();
     await ctx.tools.execute({

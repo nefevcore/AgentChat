@@ -20,7 +20,9 @@
 //
 // 工具面（repo 惯例：单工具 + action 枚举）：
 //   todo(action=write/read) —— write 携带整表（todos 数组，空表 = 清单
-//   清空），read 查看当前清单。
+//   清空），read 查看当前清单。action 缺省按携带面推定：带 todos =
+//   write（程序化直传漏 action 是实测高频失误——execute 层兜底，
+//   schema required 拦不住不走 schema 门的调用）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
@@ -180,11 +182,11 @@ export function apply(ctx: Context) {
     name: 'todo',
     requiredTags: ['infra'],
     description:
-      '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空）、read 查看。条目 = { content, status: pending|in_progress|completed（缺省 pending）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
+      '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed（缺省 pending）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['write', 'read'], description: '操作' },
+        action: { type: 'string', enum: ['write', 'read'], description: '操作（缺省按携带面推定：带 todos = write、其余 = read）' },
         todos: {
           type: 'array',
           description: '[write] 整表（全量替换；上限 50 条）',
@@ -198,13 +200,14 @@ export function apply(ctx: Context) {
           },
         },
       },
-      required: ['action'],
+      required: [],
     },
     execute(args, call): ToolResult {
       const agentId = call.agentId;
       if (agentId === undefined) return err('缺少执行身份（agentId）——todo 需在 Agent run 内调用');
       const key = call.conversationId ?? agentId;
-      const action = String(args.action ?? '');
+      // action 缺省推定：带 todos 即 write（语义无歧义），否则 read
+      const action = args.action === undefined && args.todos !== undefined ? 'write' : String(args.action ?? 'read');
 
       // ---- read ----
       if (action === 'read') {

@@ -6,6 +6,18 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（grep/glob 同步 IO 冻结宿主事件循环）
+- 根因：fs-search/glob-core 全链同步 IO（readdirSync/readFileSync/readSync）在主线程执行，宽搜索（实测仓库根 1.1 万文件/550MB）把事件循环压成 82s 连续同步块——web-server/ws-bridge 同循环，界面全程无响应。
+- `ac-glob-core`：walkFiles 异步化（fs.promises 逐目录让出）；`ac-fs-search`：glob/grep/searchFile/suggestSiblingDir 全部同步 IO 转 async。遍历序/结果集/界顶语义不变；实测 maxEventLoopGap 82s→21ms，大目录墙钟 82s→31s（线程池重叠 IO）。
+
+### Fixed（shell timeout clamp 透明化）
+- 根因：传入 timeout 被 maxTimeout 截断时无任何标注——「反复调大 timeout 无效」盲调循环（周样本 19/32 次）。
+- `ac-shell-tools`：截断发生时 error 文案与 `timeout_clamped` 字段（requested/effective/max）显式标注；timeout 参数 description 补毫秒单位与缺省/上限说明；`ac-run-code-core` SDK 指引同步（长任务优先 background 显式后台）。
+
+### Changed（todo 工具 action 缺省推定）
+- 根因：实测近一周 todo 调用失败样本全部源于同一形态——程序化模式 `tools.todo({ todos })` 直传漏 `action`（不走 schema 门，required 拦不住）被「未知 action」拒绝；携带 todos 的语义无歧义（必为 write），直拒无增益。
+- `ac-todo`：execute 层 action 缺省按携带面推定——带 `todos` = write、其余 = read；schema `action` 移出 required，工具 description 同步缺省语义。
+
 ---
 
 ## [0.8.14] - 2026-09-24
