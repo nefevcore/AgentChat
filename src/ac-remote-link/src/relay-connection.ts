@@ -25,6 +25,9 @@ import {
 } from 'ac-noise-core';
 import type { RemoteDevice, RemoteScope } from './device-registry.ts';
 
+/** 应用层保活间隔（relay 心跳超时 60s——留足余量） */
+const KEEPALIVE_MS = 25_000;
+
 /** relay 控制帧（本模块只关心这四种） */
 type RelayFrame =
   | { op: 'joined' }
@@ -79,6 +82,8 @@ export class RelayConnection {
   onPayload: ((payload: LinkPayload) => void) | null = null;
   onClose: ((reason: string) => void) | null = null;
   onError: ((message: string) => void) | null = null;
+  /** 状态观察口（诊断用；不影响协议行为） */
+  onState: ((note: string) => void) | null = null;
 
   private readonly identity: StaticIdentity;
 
@@ -101,10 +106,13 @@ export class RelayConnection {
     this.ws = ws;
     ws.on('message', (raw) => this.handleWire(raw.toString()));
     ws.on('close', () => {
+      this.stopKeepalive();
       this.state = 'closed';
       this.onClose?.('ws closed');
     });
     ws.on('error', (err) => this.onError?.(err.message));
+    // 握手期就要保活（半开连接 60s 会被 relay 判死——真机扫码耗时必超）
+    this.startKeepalive();
 
     // join
     this.state = 'joined';
@@ -117,7 +125,10 @@ export class RelayConnection {
 
     // 握手（核心端 = responder；消息由 handleWire 驱动）
     this.state = 'handshaking';
+    // 诊断锚点：真机排障时这两行能区分「房间没进」「对端没发」「发了没收到」
+    this.onState?.(`joined ${opts.roomId}，等待首条握手消息`);
     const firstMsg = await this.expectHandshakeMessage(opts.timeoutMs ?? 15000);
+    this.onState?.(`收到首条握手消息 ${firstMsg.length}B`);
     // 先以「未知对端」读第一条：XK m1 = [e]（无 s）——KK m1 = [e, es]，es 需要已知 rs。
     // 我们不知道对端是谁：先试 KK 注册表匹配（读出 rs 再定），实现上先按 XK 读——
     // 若 m1 长度 > 32 则可能是 KK？不可靠。正确做法：两条消息的第一条都以「盲读 e」开始，
@@ -142,9 +153,11 @@ export class RelayConnection {
       hs = new NoiseHandshake('XK', 'responder', this.identity);
       const m1 = firstMsg;
       hs.readMessage(m1);
+      this.onState?.('XK m1 已解析，发送 m2');
       const m2 = hs.writeMessage();
       this.sendHandshake(m2);
       const m3 = await this.expectHandshakeMessage(opts.timeoutMs ?? 15000);
+      this.onState?.(`收到 XK m3 ${m3.length}B`);
       const deviceInfoRaw = hs.readMessage(m3);
       const info = JSON.parse(deviceInfoRaw.toString('utf8')) as { name: string; pubkey: string };
       const pair = hs.split();
@@ -188,10 +201,40 @@ export class RelayConnection {
 
   /** 主动关闭 */
   close(reason = 'manual'): void {
+    this.stopKeepalive();
     this.state = 'closed';
     try { this.ws?.close(); } catch { /* best effort */ }
     this.ws = null;
     this.transport = null;
+  }
+
+  /**
+   * 应用层保活（连接自身负责，配对/在线一视同仁）。
+   *
+   * 为什么必须在这里而不是服务层：relay 的活跃判定**只认应用层帧**
+   * （ac-relay-server 的 touch 只被 ping/join/frame 触发），60s 未见即
+   * destroyRoom。而配对期双方都在等对方，谁都不发业务帧——房间会被判死。
+   * 服务层的 ensureHeartbeat 只在 connections.size > 0 时启动，配对期的连接
+   * 尚未入表，恰好是盲区。真机表现：用户从「点添加设备」到「扫码完成」
+   * 超过 60 秒（打开 App、授权相机、对准二维码）即 room-unavailable——
+   * 必现，且 M3.1 的 loopback 客户端（拿码后毫秒级 join）测不出来。
+   */
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(() => {
+      try { this.ping(); } catch { /* 断链由 close 事件收束 */ }
+    }, KEEPALIVE_MS);
+    // Node 定时器不应阻止进程退出（pnpm dev 自退纪律）
+    this.keepaliveTimer.unref();
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
   }
 
   // ---- 内部 ----

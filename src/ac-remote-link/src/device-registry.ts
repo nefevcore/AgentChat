@@ -84,6 +84,25 @@ export class DeviceRegistry {
     this.persist();
   }
 
+  /**
+   * 配对落库（同公钥 upsert）。
+   *
+   * 同一设备重复配对（重装 App 后重扫、二维码过期重试）**必须替换原条目**：
+   * makeId 提供 id 生成。追加而非替换会留下多条同公钥记录，
+   * 而 KK 重连房间按 deviceId 派生——两端各取一条即房间错位、连接永远建不起来
+   * （M3.2 实测：7 条同公钥记录使桥的上游在配对后数分钟内静默失效）。
+   *
+   * 保留原 id：设备身份在核心端是 (id, pubkey) 对，换 id 会让已配对设备的
+   * 派生命名空间漂移（手机端缓存的是旧 id）。
+   */
+  upsertByPubkey(device: Omit<RemoteDevice, 'id'>, makeId: () => string): RemoteDevice {
+    const existing = this.getByPubkey(device.pubkey);
+    const id = existing?.id ?? makeId();
+    this.devices.set(id, { ...device, id });
+    this.persist();
+    return { ...device, id };
+  }
+
   /** 吊销 = 删除条目（下次握手直接失败） */
   revoke(id: string): RemoteDevice | undefined {
     const d = this.devices.get(id);

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://capacitorjs.com/schema.json",
+  "appId": "com.agentchat.mobile",
+  "appName": "AgentChat",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": ["127.0.0.1"]
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false }
+  }
+}

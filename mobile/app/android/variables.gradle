@@ -1,0 +1,27 @@
+ext {
+    // minSdk 28（Android 9）：**ChaCha20-Poly1305 的 API 门槛**。
+    // Noise 的 AEAD 原语自 API 28 起可用；低于 28 时握手必崩。
+    //
+    // 注：X25519 本身不是瓶颈——真机实测（Android 14 模拟器）显示
+    // KeyFactory/KeyAgreement/KeyPairGenerator 的注册名都是 **XDH**，
+    // "X25519" 完全未注册（桌面 JDK 17 反之）。Noise.kt 的 X25519Platform
+    // 做多名字探测以同时覆盖 JDK 与 Android（详见 X25519Probe.kt）。
+    //
+    // 覆盖面权衡：Android 9（2018）以上覆盖绝大多数在用设备。
+    minSdkVersion = 28
+    compileSdkVersion = 34
+    targetSdkVersion = 34
+    androidxActivityVersion = '1.8.0'
+    androidxAppCompatVersion = '1.6.1'
+    androidxCoordinatorLayoutVersion = '1.2.0'
+    androidxCoreVersion = '1.12.0'
+    // 生物识别（M3.4「锁」行：解锁才连 relay）
+    androidxBiometricVersion = '1.1.0'
+    androidxFragmentVersion = '1.6.2'
+    coreSplashScreenVersion = '1.0.1'
+    androidxWebkitVersion = '1.9.0'
+    junitVersion = '4.13.2'
+    androidxJunitVersion = '1.1.5'
+    androidxEspressoCoreVersion = '3.5.1'
+    cordovaAndroidVersion = '10.1.1'
+}

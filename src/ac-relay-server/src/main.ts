@@ -7,7 +7,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { createServer as createHttpServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { RelayCore, type RelayConn } from './index.ts';
+import { DEFAULT_LIMITS, RelayCore, type RelayConn } from './index.ts';
 
 const core = new RelayCore();
 
@@ -46,7 +46,13 @@ httpServer.on('request', (req, res) => {
   res.writeHead(404).end();
 });
 
-const wss = new WebSocketServer({ server: httpServer, maxPayload: 1024 * 1024 });
+// ws 层载荷上限留余量：超限判定归位到应用层（RelayCore 的 maxFrameBytes → 统一 close），
+// 两者相等时超限帧在 ws 层即 error——**未挂 error handler 会冒泡崩掉整个中继进程**
+// （M3.2 实测：单条 >1MB 帧使 relay status 1009 WS_ERR_UNSUPPORTED_MESSAGE_LENGTH 退出）。
+const wss = new WebSocketServer({
+  server: httpServer,
+  maxPayload: DEFAULT_LIMITS.maxFrameBytes + 64 * 1024,
+});
 
 wss.on('connection', (ws: WebSocket, req) => {
   const ip = req.socket.remoteAddress ?? 'unknown';
@@ -58,6 +64,9 @@ wss.on('connection', (ws: WebSocket, req) => {
     onMessage: (h) => ws.on('message', (d) => h(d.toString())),
     onClose: (h) => ws.on('close', h),
   };
+  // 传输层错误（超限帧/协议错/写失败）→ 只关该连接；中继是公共入口，
+  // 单连接异常绝不允许带走进程（同款纪律见 web-server 的 wss error sink）
+  ws.on('error', () => ws.terminate());
   if (!core.accept(conn)) ws.close(1013, 'try-again-later');
 });
 

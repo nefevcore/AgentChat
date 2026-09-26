@@ -69,7 +69,11 @@ export interface RelayLimits {
 export const DEFAULT_LIMITS: RelayLimits = {
   maxConnPerIp: 5,
   maxRooms: 10_000,
-  maxFrameBytes: 1024 * 1024,
+  // 单帧上限：初值 1MB 对远程链路的正当载荷过紧——webui 的会话历史/运行快照类
+  // RPC 应答（+ Noise 封装开销）轻易破 1MB，超限即被 relay 关连接（M3.2 实测：
+  // 桥的上游在一两分钟后静默失效）。防滥用主力是速率桶与房间日流量上限（均不变）；
+  // 本项只防单帧 OOM，放宽到 8MB。真正解法（分片）见 M3.4 待办。
+  maxFrameBytes: 8 * 1024 * 1024,
   frameBucket: { burst: 60, ratePerSec: 30 },
   joinBucket: { burst: 5, ratePerSec: 10 / 60 }, // 10/min
   roomDailyBytes: 1024 * 1024 * 1024,            // 1 GiB/天

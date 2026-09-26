@@ -1,0 +1,297 @@
+// ============================================================
+// LoopbackBridge —— 原生到 WebView 的回环桥（M3.2 核心）
+//
+// 形态（remote-client-relay-plan §4.4「传输」行）：WebView 只见 loopback 明文，
+// 与本地开发完全同构。因此桥必须与 ac-web-server 同构：
+//   · **同口** HTTP（静态 webui dist）+ WS（/ws）——webui 用
+//     `${location.protocol}//${location.host}/ws` 同源推导连接地址（零改动前提）；
+//   · 连接建立即下发 ws/ready { protocol:1, connId, serverStartedAt }；
+//   · WebView → 上行：rpc/call { method, requestId, params }（加密过 relay 到核心端）；
+//   · 核心端 → 下行：rpc/result 与事件帧原样推给 WebView。
+//
+// 纪律（照 remote-link 服务端 handleDevicePayload）：只转发入站 rpc/call，
+// 其余类型忽略——出站语义的帧不应入站。
+//
+// 书写坑（Kotlin 专属，踩过一次）：**块注释可嵌套**——KDoc/块注释里出现
+// 通配路径字面量（斜杠 + 星号）会开启嵌套注释，需多一个收尾符，否则整文件
+// 报「Unclosed comment」且报错行指向无关位置。行注释（双斜杠）里无此问题。
+// ============================================================
+package agentchat.noise
+
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.defaultForFile
+import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.call
+import io.ktor.server.request.httpMethod
+import io.ktor.server.request.path
+import io.ktor.server.request.receiveStream
+import io.ktor.server.request.uri
+import io.ktor.server.application.install
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.ApplicationEngine
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.delete
+import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
+import io.ktor.server.routing.post
+import io.ktor.server.routing.put
+import io.ktor.server.routing.routing
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.CloseReason
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import io.ktor.websocket.send
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+
+/** 上行通道（真实实现 = RelayClient；测试可注入假实现） */
+interface Upstream {
+    fun send(payloadJson: String)
+    var onPayload: ((String) -> Unit)?
+}
+
+/**
+ * 回环桥：同口 HTTP 静态资源 + WS 业务面。
+ *
+ * @param staticDir webui dist 目录（缺失时仅 WS 面可用——测试态）
+ */
+class LoopbackBridge(
+    private val upstream: Upstream,
+    private val staticDir: File? = null,
+    private val host: String = "127.0.0.1",
+    port: Int = 0,
+) {
+    private val configuredPort = port
+    private val gson = Gson()
+    private val connSeq = AtomicInteger()
+    private val sockets = ConcurrentHashMap<String, io.ktor.websocket.WebSocketSession>()
+    private val serverStartedAt = System.currentTimeMillis()
+    private var engine: ApplicationEngine? = null
+    private var actualPort = 0
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /** 下行/上行观察口（测试与日志；不影响转发） */
+    var onDownlink: ((String) -> Unit)? = null
+    var onUplink: ((String) -> Unit)? = null
+
+    /** 桥自身发起的 RPC 应答等待表（requestId 前缀 bridge- 区分 WebView 的调用） */
+    private val pendingRpc = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
+    private val rpcSeq = AtomicInteger()
+
+    /** 启动桥，返回实际监听端口（port=0 时由系统分配） */
+    fun start(awaitMs: Long = 10_000): Int {
+        upstream.onPayload = { json -> handleDownlink(json) }
+        val e = embeddedServer(CIO, host = host, port = configuredPort) {
+            install(WebSockets)
+            routing {
+                webSocket("/ws") {
+                    val connId = "c" + connSeq.incrementAndGet()
+                    sockets[connId] = this
+                    send(Frame.Text(readyFrame(connId)))
+                    try {
+                        incoming.consumeEach { frame ->
+                            if (frame is Frame.Text) handleUplink(frame.readText())
+                        }
+                    } finally {
+                        sockets.remove(connId)
+                    }
+                }
+                // ---- 核心端 HTTP 面：通用转发（M3.4）----
+                // WebView 只见 loopback，而 webui 除 RPC 面外还依赖 /api/* 同源 HTTP
+                // 端点。**不逐端点 bridge**——那要一直追着 webui 的新端点跑（M3.2 的
+                // boot-graph、M3.3 的 extensions/workspace 已是同一模式两次）。
+                // 这里把任何 /api/* 原样投给核心端自身 web-server，桥不理解端点语义。
+                get("/api/{...}") { call.proxyApiSafely() }
+                post("/api/{...}") { call.proxyApiSafely() }
+                put("/api/{...}") { call.proxyApiSafely() }
+                patch("/api/{...}") { call.proxyApiSafely() }
+                delete("/api/{...}") { call.proxyApiSafely() }
+                get("/{...}") {
+                    val sub = call.request.path().trimStart('/')
+                    call.serveStatic(sub)
+                }
+                get("/") { call.serveStatic("index.html") }
+            }
+        }
+        engine = e
+        e.start(wait = false)
+        // port=0 时实际端口要经 resolvedConnectors 取（environment.connectors 恒为配置值）
+        val deadline = System.currentTimeMillis() + awaitMs
+        while (System.currentTimeMillis() < deadline) {
+            val p = runCatching {
+                kotlinx.coroutines.runBlocking { e.resolvedConnectors().first().port }
+            }.getOrNull() ?: 0
+            if (p > 0) { actualPort = p; return p }
+            Thread.sleep(50)
+        }
+        throw RelayClientException("loopback bridge: 监听超时")
+    }
+
+    fun stop() {
+        scope.cancel()
+        engine?.stop(500, 1000)
+    }
+
+    val port: Int get() = actualPort
+    val clientCount: Int get() = sockets.size
+
+    /**
+     * 下行分流：桥自身 RPC 的应答（rpc/result 且 requestId 命中等待表）由桥内部消费，
+     * 其余（WebView 的 RPC 应答、事件帧）一律广播给 WebView。
+     */
+    private fun handleDownlink(json: String) {
+        onDownlink?.invoke(json)
+        val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
+        if (obj?.get("type")?.asString == "rpc/result") {
+            val data = obj.getAsJsonObject("data")
+            val rid = data?.get("requestId")?.asString
+            if (rid != null) {
+                val waiter = pendingRpc.remove(rid)
+                if (waiter != null) { waiter.complete(data); return }
+            }
+        }
+        broadcast(json)
+    }
+
+    /** 下行广播（核心端载荷原样推给全部 WebView 连接） */
+    fun broadcast(json: String) {
+        for (session in sockets.values) {
+            scope.launch {
+                runCatching { session.send(Frame.Text(json)) }
+            }
+        }
+    }
+
+    /** 经加密链路调核心端 RPC（桥自身使用；解包 ok/result，失败抛错） */
+    suspend fun callUpstream(method: String, params: JsonObject? = null, timeoutMs: Long = 15000): JsonObject {
+        val rid = "bridge-" + rpcSeq.incrementAndGet() + "-" + System.nanoTime() % 100000
+        val d = CompletableDeferred<JsonObject>()
+        pendingRpc[rid] = d
+        val frame = JsonObject().apply {
+            addProperty("type", "rpc/call")
+            add("data", JsonObject().apply {
+                addProperty("method", method)
+                addProperty("requestId", rid)
+                params?.let { add("params", it) }
+            })
+        }
+        upstream.send(gson.toJson(frame))
+        return try {
+            val data = withTimeout(timeoutMs) { d.await() }
+            if (data.get("ok")?.asBoolean == true) {
+                (data.get("result")?.takeIf { it.isJsonObject })?.asJsonObject ?: JsonObject()
+            } else {
+                throw RelayClientException("upstream rpc " + method + ": " +
+                    (data.get("error")?.asString ?: "unknown"))
+            }
+        } finally {
+            pendingRpc.remove(rid)
+        }
+    }
+
+    /**
+     * /api/ 任意子路径的通用转发：方法 / 路径（含 query）/ Content-Type / body 字节原样上行，
+     * 核心端响应的状态码 / Content-Type / 字节原样下行。
+     *
+     * 读写分流到不同档位：GET → http/read（read 档）；其余 → http/write（files 档，
+     * 须显式开启）——读权限不该能写。
+     *
+     * 上游失败一律显式 JSON + 502，**绝不回落 index.html**（回落 HTML 会让前端解析出
+     * undefined 而非可控错误，掩盖真实缺口——M3.2 实测教训）。
+     */
+    private suspend fun ApplicationCall.proxyApiSafely() {
+        try {
+            proxyToUpstream()
+        } catch (t: Throwable) {
+            // Ktor 的未捕获异常默认是**空体 500**（且 SLF4J 被静音时零输出）——
+            // 现场排查等于瞎猜。这里一律转成带原因的 JSON（M3.4 实测教训）。
+            println("[bridge] 代理异常: " + t)
+            respondText(
+                gson.toJson(mapOf("error" to ("remote bridge handler: " + t))),
+                ContentType.Application.Json,
+                HttpStatusCode.InternalServerError,
+            )
+        }
+    }
+
+    private suspend fun ApplicationCall.proxyToUpstream() {
+        val method = request.httpMethod.value.uppercase()
+        val isRead = method == "GET"
+        val body = if (isRead) ByteArray(0) else receiveStream().readBytes()
+        val params = JsonObject().apply {
+            addProperty("method", method)
+            addProperty("path", request.uri)
+            request.headers[HttpHeaders.ContentType]?.let { addProperty("contentType", it) }
+            if (body.isNotEmpty()) addProperty("bodyB64", b64u(body))
+        }
+        // 诊断口：本模块同时被 JVM 轨（测试/CLI）与 Android 轨编译，不能用 android.util.Log
+        // （android 子包被 JVM 轨排除）。println 两端都可达（Android 侧进 logcat 的 System.out）。
+        println("[bridge] 代理 → " + method + " " + request.uri + " (body " + body.size + "B)")
+        val outcome = runCatching { callUpstream(if (isRead) "http/read" else "http/write", params) }
+        println("[bridge] 代理 ← " + (outcome.getOrNull()?.get("status")?.asInt ?: -1) +
+            (outcome.exceptionOrNull()?.let { " 失败: " + it.message } ?: ""))
+        outcome.fold(
+            onSuccess = { o ->
+                val status = o.get("status")?.asInt ?: 200
+                val bytes = o.get("bodyB64")?.asString?.let { unb64u(it) } ?: ByteArray(0)
+                respondBytes(bytes, contentTypeOf(o.get("contentType")?.asString), HttpStatusCode.fromValue(status))
+            },
+            onFailure = { err ->
+                respondText(
+                    gson.toJson(mapOf("error" to ("remote bridge: " + (err.message ?: "upstream failed")))),
+                    ContentType.Application.Json,
+                    HttpStatusCode.BadGateway,
+                )
+            },
+        )
+    }
+
+    /** 上游 Content-Type 解析（异常字面量回落 octet-stream，不因它废掉整次转发） */
+    private fun contentTypeOf(raw: String?): ContentType =
+        raw?.let { runCatching { ContentType.parse(it) }.getOrNull() } ?: ContentType.Application.OctetStream
+
+    private fun handleUplink(text: String) {
+        val obj = runCatching { gson.fromJson(text, JsonObject::class.java) }.getOrNull() ?: return
+        if (obj.get("type")?.asString != "rpc/call") return // 出站语义帧不入站
+        onUplink?.invoke(text)
+        upstream.send(text)
+    }
+
+    /** ws/ready 帧（与 ac-web-server 同字面） */
+    private fun readyFrame(connId: String): String {
+        val o = JsonObject()
+        o.addProperty("type", "ws/ready")
+        o.add("data", gson.toJsonTree(mapOf(
+            "protocol" to 1, "connId" to connId, "serverStartedAt" to serverStartedAt)))
+        return gson.toJson(o)
+    }
+
+    /** 静态资源（SPA fallback：未命中文件回落 index.html） */
+    private suspend fun io.ktor.server.application.ApplicationCall.serveStatic(sub: String) {
+        val root = staticDir ?: return respondText("no static dir", status = HttpStatusCode.NotFound)
+        val clean = sub.substringBefore('?').replace("..", "")
+        val candidate = File(root, clean).takeIf { it.canonicalPath.startsWith(root.canonicalPath) }
+        val target = when {
+            candidate != null && candidate.isFile -> candidate
+            else -> File(root, "index.html").takeIf { it.isFile }
+        } ?: return respondText("not found", status = HttpStatusCode.NotFound)
+        val bytes = target.readBytes()
+        respondBytes(bytes, ContentType.defaultForFile(target))
+    }
+}

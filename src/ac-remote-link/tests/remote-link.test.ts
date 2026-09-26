@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { Context } from '@agentchat/cordis';
 import { RemoteLinkService } from '../src/service.ts';
 import { DeviceRegistry } from '../src/device-registry.ts';
+import { apply } from '../src/index.ts';
 
 let tmpRoot: string;
 let ctx: Context;
@@ -97,9 +98,49 @@ describe('注册表持久化', () => {
 });
 
 describe('事件下行白名单', () => {
-  it('allowlist 外不单播、白名单内不抛错', async () => {
+  it('白名单内单播到在线设备、白名单外不发', async () => {
     await boot();
-    expect(() => svc.broadcastEvent('llm/delta', [{ delta: 'x' }])).not.toThrow();
-    expect(() => svc.broadcastEvent('config/changed', [{}])).not.toThrow();
+    const got: unknown[] = [];
+    svc.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
+    svc.broadcastEvent('llm/delta', [{ delta: 'x' }]);
+    expect(got).toHaveLength(1);
+    expect((got[0] as { type: string }).type).toBe('llm/delta');
+    // 载荷统一 { args }——桥与 WebView 都不必理解各事件签名
+    expect((got[0] as { data: { args: unknown[] } }).data.args).toEqual([{ delta: 'x' }]);
+    // 白名单外（配置变更/管理类）不下发远程
+    svc.broadcastEvent('config/changed', [{}]);
+    expect(got).toHaveLength(1);
+  });
+
+  it('单个连接失败不影响其余（断链设备不至于拖垮下行）', async () => {
+    await boot();
+    const ok: unknown[] = [];
+    svc.testInjectConnection('bad', { sendPayload: () => { throw new Error('boom'); } } as never);
+    svc.testInjectConnection('good', { sendPayload: (p: unknown) => ok.push(p) } as never);
+    expect(() => svc.broadcastEvent('tool/started', [{ id: 't' }])).not.toThrow();
+    expect(ok).toHaveLength(1);
+  });
+});
+
+describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方）', () => {
+  it('apply 后 emit 白名单事件 → 单播到在线设备', async () => {
+    const ctx = new Context();
+    ctx.provide('webServer', {
+      registerRpc: () => {},
+      callRpc: async () => ({}),
+      ready: async () => 0,
+    });
+    apply(ctx, { root: tmpRoot, relayUrl: 'wss://fake.relay', autoReconnect: false } as never);
+    const got: unknown[] = [];
+    ctx.remoteLink.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
+
+    // emit 的签名由事件目录推断；这里只关心「有没有转发」，载荷形状无所谓
+    (ctx.emit as (...a: unknown[]) => void)('llm/delta', {}, {}, {});
+    expect(got).toHaveLength(1);
+    expect((got[0] as { type: string }).type).toBe('llm/delta');
+
+    // 非白名单事件即使被 emit 也不下行
+    (ctx.emit as (...a: unknown[]) => void)('config/changed', '/x');
+    expect(got).toHaveLength(1);
   });
 });

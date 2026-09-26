@@ -54,6 +54,15 @@ workspace/
 # 桌面构建产物（NSIS unpacked 副本）
 /desktop/release/
 
+# mobile 轨本地工具链（Gradle 发行包/缓存——M3.1 起下载，不入库）
+/mobile/.dsh-gradle/
+/mobile/.dsh-gradle-home/
+# mobile 构建产物（sync-webui / cap sync 再生，不入库）
+/mobile/app/www/
+/mobile/app/android/app/src/main/assets/public/
+# Android 本机 SDK 路径（每台机器不同）
+/mobile/app/android/local.properties
+
 # 测试中断残留（view-derivation 测试在 tests/ 内建临时目录，afterEach 清理外的中断残留）
 src/ac-conversation/tests/.tmp-view-*/
 

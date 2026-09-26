@@ -40,6 +40,11 @@ export function apply(ctx: Context) {
     call.res.end(JSON.stringify({ clients: webui.listBootGraph() }));
   });
 
+  // 同一数据的 RPC 面（M3.2）：远程客户端（安卓 App 的 WebView）只见 loopback，
+  // 拿不到核心端 HTTP——经加密 RPC 通道取行清单（ac-remote-link scopes read 档放行）。
+  // 注册即归属：行摘除 → RPC 随之消失。
+  ctx.webServer.registerRpc('ui/boot-graph', () => ({ clients: webui.listBootGraph() }));
+
   ctx.webServer.route('GET', '/ui-plugin/:name/*', async (call) => {
     await webui.serveUiAsset(call.params.name, call.params['*'], (status, body, type) => {
       call.res.writeHead(status, { 'content-type': type });

@@ -25,6 +25,8 @@ export default [
       '**/node_modules/**',
       '**/*.mjs',
       'desktop/**',
+      // mobile 轨（安卓壳）：Kotlin/Gradle + 构建产物，无类型感知 lint 面
+      'mobile/**',
       'dist/**',
       '.tmp/**',
       'workspace/**',

@@ -16,7 +16,8 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import z from '@agentchat/schemastery';
-import { RemoteLinkService } from './service.ts';
+import { RemoteLinkService, REMOTE_DOWNLINK_EVENTS } from './service.ts';
+import { proxyToSelf, type HttpBridgeParams } from './http-bridge.ts';
 
 export const name = 'ac-remote-link';
 export const inject = ['webServer'];
@@ -66,6 +67,16 @@ function reqStr(source: Record<string, unknown>, key: string): string {
 function optBool(source: Record<string, unknown>, key: string): boolean | undefined {
   const v = source[key];
   return typeof v === 'boolean' ? v : undefined;
+}
+
+/** HTTP 转发的参数窄化（缺省 GET；path 必填——其余由 http-bridge 校验） */
+function httpParams(p: Record<string, unknown>): HttpBridgeParams {
+  return {
+    method: typeof p.method === 'string' ? p.method : undefined,
+    path: reqStr(p, 'path'),
+    contentType: typeof p.contentType === 'string' ? p.contentType : undefined,
+    bodyB64: typeof p.bodyB64 === 'string' ? p.bodyB64 : undefined,
+  };
 }
 
 export function apply(ctx: Context, options: Record<string, unknown> = {}) {
@@ -120,6 +131,31 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
     remote().disconnect();
     return { ok: true };
   });
+
+  // ---- 宿主 HTTP 面转发（M3.4）----
+  // 远程 WebView 的 /api/* 请求经此投回核心端自身 web-server（通用转发，非逐端点
+  // bridge——后者会持续追着 webui 新增端点跑）。读写拆成两个 method，直接复用
+  // 现有 scopes 闸门：http/read 属 read 档；http/write 属 files 档（读权限不该能写）。
+  web.registerRpc('http/read', async (params) => {
+    const p = httpParams(obj(params));
+    if ((p.method ?? 'GET').toUpperCase() !== 'GET') {
+      throw new Error('remote http: http/read 只接受 GET');
+    }
+    return proxyToSelf(await web.ready(), p);
+  });
+
+  web.registerRpc('http/write', async (params) =>
+    proxyToSelf(await web.ready(), httpParams(obj(params))));
+
+  // ---- 事件下行（会话流 → 远程设备）----
+  // 与 ws-bridge 同款姿势：ctx.on(emit 面) → 服务单播。白名单是单一事实源
+  // （service.ts 的 REMOTE_DOWNLINK_EVENTS）——订阅与闸门读同一份，不走散。
+  // 载荷统一 { args }（与前端帧同构，桥与 WebView 都不必理解各事件签名）。
+  for (const event of REMOTE_DOWNLINK_EVENTS) {
+    ctx.on(event as never, ((...args: unknown[]) => {
+      remote().broadcastEvent(event, args);
+    }) as never, { description: `远程下行：${event} → 在线设备（Noise 加密帧）` });
+  }
 }
 
 // ---- 契约出口（消费方 import type {} 即得服务类型 + remote/* 事件增强）----

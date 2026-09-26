@@ -1,0 +1,100 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace "com.agentchat.mobile"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.agentchat.mobile"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // 与版本派生规则一致（每段 ×1000 累乘）：1.0.0 → 1000000。
+        // 两者同规则可避免「清单显式 versionCode」与「客户端派生」对不上。
+        versionCode 1000000
+        versionName "1.0.0"
+        // 构建时间标识：adb install -r 未真正替换时可一眼看出（M3.3 实测踩坑）
+        buildConfigField "String", "BUILD_TAG", "\"${System.currentTimeMillis()}\""
+        // 版本清单地址（M3.5：信任锚 = git raw HTTPS；缺省指向本地下载面便于验证）。
+        // 生产构建用 -PupdateManifestUrl=... 覆盖。清单可信性靠 HTTPS + 落地前 sha256 校验，
+        // 故它**不必**与下载面同源（方案 §4.6「版本清单与信任锚分离」）。
+        def manifestUrl = project.findProperty('updateManifestUrl') ?: 'http://127.0.0.1:18080/downloads/manifest.json'
+        buildConfigField "String", "UPDATE_MANIFEST_URL", "\"" + manifestUrl + "\""
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    // 传输半边以源码形式编入（方案 §2.4：transport 是独立可测模块，JVM 侧测试不变）
+    sourceSets {
+        main {
+            // 传输半边（Noise/relay/回环桥/android 子包）+ 本模块 Kotlin 源
+            java.srcDirs += ['../../../transport/src/main/kotlin', 'src/main/kotlin']
+        }
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    // BuildConfig.BUILD_TAG（构建时间戳）——AGP 8 起默认不生成 BuildConfig，
+    // 必须显式开启。它的作用是让「设备上跑的到底是哪次构建」可被一眼确认
+    // （adb install -r 不替换 APK 会让人对着新源码排旧代码的 bug）。
+    buildFeatures {
+        buildConfig = true
+    }
+    // 构建标识开关（真机排障用：确认设备上跑的是哪次构建）
+    buildFeatures { buildConfig = true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // 生物识别门（M3.4「锁」行）：解锁才连 relay——丢机缓解纵深
+    implementation "androidx.biometric:biometric:$androidxBiometricVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+
+    // ---- 传输半边依赖（与 mobile/transport 的 JVM 构建同版本）----
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'io.ktor:ktor-server-core:2.3.12'
+    implementation 'io.ktor:ktor-server-cio:2.3.12'
+    implementation 'io.ktor:ktor-server-websockets:2.3.12'
+    implementation 'org.slf4j:slf4j-nop:2.0.13'
+
+    // MainActivity 的 lifecycleScope（等桥就绪）
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

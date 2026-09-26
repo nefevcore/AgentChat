@@ -265,6 +265,15 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   // 子 Agent 变更（2026-12 持久化清单主源化：前端子Agent 清单/徽章刷新——
   // 对齐 singles/updated 取值链）
   fwd('subagents/updated', (info, action) => forward('subagents/updated', info, action));
+  // ============ 远程设备面（M3.4 尾巴：实时刷新替代 2s 轮询） ============
+  // 设备页此前靠 RemoteDevices.vue 每 2s 轮询 remote/devices；四条事件上线后
+  // onEvent 驱动刷新（轮询降频为兜底）。载荷即事件原参——前端无需再拉一次。
+  fwd('remote/device-paired', (device) => forward('remote/device-paired', device));
+  fwd('remote/device-revoked', (deviceId, device) =>
+    forward('remote/device-revoked', deviceId, device));
+  fwd('remote/device-online', (deviceId) => forward('remote/device-online', deviceId));
+  fwd('remote/device-offline', (deviceId, reason) =>
+    forward('remote/device-offline', deviceId, reason));
 
   // ============ M13：插件域 / Web UI 域 ============
   fwd('plugin/installed', (summary) => forward('plugin/installed', summary));

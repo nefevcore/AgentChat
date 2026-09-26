@@ -1,0 +1,5 @@
+# 独立 workspace 根：阻断向上查找仓库根的 pnpm-workspace.yaml。
+# mobile/ 是不进 src/ cordis 轨的独立轨道（安卓壳），依赖与仓库根互不牵连。
+packages:
+  - '.'
+

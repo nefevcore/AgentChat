@@ -37,8 +37,9 @@ const RECONNECT_MAX_MS = 60000;
 const PAIRING_TTL_MS = 5 * 60 * 1000;
 
 /**
- * RPC 方法档位表（M1 收敛版：read 档 = 纯查询面；chat 档 = read + 投递面）。
- * files/admin 档位 M1 白名单为空（显式禁用，防误开——上游方案 §4.4）。
+ * RPC 方法档位表（read 档 = 纯查询面；chat 档 = 投递面）。
+ * files 档 = HTTP 写面（M3.4 起，仍须显式开启）；admin 档白名单为空
+ * （显式禁用，防误开——上游方案 §4.4）。
  */
 const SCOPE_ALLOWED_METHODS: Record<RemoteScope, string[]> = {
   read: [
@@ -48,13 +49,20 @@ const SCOPE_ALLOWED_METHODS: Record<RemoteScope, string[]> = {
     'session/history', 'session/tokens', 'singles/list', 'singles/update', 'singles/fork',
     'subagents/list', 'subagents/history', 'fileSnapshots/list', 'fileSnapshots/read-current',
     'system/version-check', 'interaction/list',
+    // 远程 WebView 启动必需：行 client 半边装载图（低敏感——仅行名与平台；
+    // 无它则手机端 webui 装配第④步拿不到清单 → 白屏，M3.2 实测）
+    'ui/boot-graph',
+    // 宿主 HTTP 面（仅 GET：webui 的 /api/ui/*、/api/workspace/*、/api/workspaces
+    // 读面）——写面另属 files 档（见下）
+    'http/read',
   ],
   chat: [
     'conversation/deliver', 'conversation/interrupt', 'conversation/queue',
     'conversation/queue-remove', 'conversation/queue-steer',
     'group/send', 'interaction/reply', 'runs/interrupt',
   ],
-  files: [],
+  // 显式开启才有：HTTP 写面（上传、工作区增删改）+ 未来的文件工具
+  files: ['http/write'],
   admin: [],
 };
 
@@ -231,6 +239,8 @@ export class RemoteLinkService extends Service {
 
   private async runPairingConnection(roomId: string): Promise<void> {
     const conn = new RelayConnection(this.identity);
+    conn.onState = (note) => this.ctx.logger.info(`[remote-link] pairing ${roomId}: ${note}`);
+    conn.onError = (msg) => this.ctx.logger.warn(`[remote-link] pairing ${roomId} 链路错误: ${msg}`);
     try {
       const outcome = await conn.connectAndHandshake(
         { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined },
@@ -253,19 +263,32 @@ export class RemoteLinkService extends Service {
           return accept;
         },
       );
-      // 配对成功：注册设备 + 转入在线
-      const deviceId = 'dev-' + crypto.randomBytes(6).toString('base64url');
-      const device: RemoteDevice = {
-        id: deviceId,
-        name: outcome.device.name,
-        pubkey: outcome.device.pubkey,
-        scopes: [...this.options.defaultScopes],
-        pairedAt: Date.now(),
-        lastSeenAt: Date.now(),
-      };
-      this.registry.add(device);
+      // 配对成功：注册设备（同公钥 upsert——重复配对必须替换，见 upsertByPubkey 注释）+ 转入在线
+      const device = this.registry.upsertByPubkey(
+        {
+          name: outcome.device.name,
+          pubkey: outcome.device.pubkey,
+          scopes: [...this.options.defaultScopes],
+          pairedAt: Date.now(),
+          lastSeenAt: Date.now(),
+        },
+        () => 'dev-' + crypto.randomBytes(6).toString('base64url'),
+      );
+      const deviceId = device.id;
       this.ctx.emit('remote/device-paired', device);
       this.adoptConnection(deviceId, conn, outcome.transport);
+      // 告知手机自身 deviceId 与权限档。
+      // 为什么必须下发：KK 重连房间号 = SHA256(core_pub‖deviceId‖device_pub)，
+      // 而 deviceId 是**本端分配**的（dev-<rand>）——手机侧无从自行得知。
+      // 缺这条信令时，手机在断线后算不出房间号，重连永久失败（M3.3 真机前的
+      // 协议缺口；M3.1 的 loopback 客户端靠直连本地 RPC 查注册表绕过了它，
+      // 真机没有这个通道）。scopes 一并下发供 UI 展示与权限提示。
+      try {
+        conn.sendPayload({ type: 'remote/paired', data: { deviceId, scopes: device.scopes } });
+        this.ctx.logger.info(`[remote-link] 已向 ${deviceId} 下发 deviceId 信令`);
+      } catch (err) {
+        this.ctx.logger.warn(`[remote-link] deviceId 信令下发失败: ${err instanceof Error ? err.message : err}`);
+      }
       if (this.pairing) this.pairing.state = 'done';
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
@@ -456,7 +479,7 @@ export class RemoteLinkService extends Service {
    * M1 白名单：会话流核心事件（llm/delta-*、loop/*、router/*、tool/*）。
    */
   broadcastEvent(type: string, args: unknown[]): void {
-    if (!EVENT_ALLOWLIST.has(type)) return;
+    if (!REMOTE_DOWNLINK_EVENTS.includes(type)) return;
     const frame: LinkPayload = { type, data: { args } };
     for (const conn of this.connections.values()) {
       try {
@@ -483,8 +506,13 @@ declare module '@agentchat/cordis' {
   }
 }
 
-/** M1 下行事件白名单（照 ws-bridge 桥接面收敛——不新增词汇） */
-const EVENT_ALLOWLIST = new Set([
+/**
+ * 下行事件白名单（照 ws-bridge 桥接面收敛——不新增词汇）。
+ *
+ * 单一事实源：订阅侧（index.ts 的 apply 订阅这些事件）与闸门侧
+ * （broadcastEvent 再判一次）都读它——两处各写一份必然走散。
+ */
+export const REMOTE_DOWNLINK_EVENTS: readonly string[] = [
   'router/message-received',
   'router/reply-completed',
   'loop/run-started',
@@ -499,4 +527,4 @@ const EVENT_ALLOWLIST = new Set([
   'tool/started',
   'tool/progress',
   'tool/after-execute',
-]);
+];
