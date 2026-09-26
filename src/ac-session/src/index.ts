@@ -69,6 +69,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { acquireDataRootLock } from './data-root-lock.ts';
 import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun, type LoopRunResult, type LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 import { isGroupHint, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（解 session⇄group 环；2026-09-05 边界评估）
@@ -930,7 +931,17 @@ export class SessionService extends Service {
 
   constructor(ctx: Context, options: SessionRowOptions = {}) {
     super(ctx, 'session');
-    this.sessionsDir = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'sessions');
+    const dataRoot = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
+    // 数据根独占锁（2026-09-25 并发写事故）：活进程持锁 → 构造抛错 fail-loud
+    //（agent 拉起的测试 host 继承同一 AGENTCHAT_DATA_ROOT 曾把会话文件写成
+    // 双段 seq + 重复收束行）。卸载时逆序 disposer：先删锁登记，后 flushAll
+    // 尽力排空（flush 失败不阻断卸载——durable 语义由 fsync 已保证大半）。
+    const release = acquireDataRootLock(dataRoot);
+    this.ctx.fiber.effect(() => () => {
+      release();
+      void this.flushAll().catch(() => { /* 卸载路径尽力而为 */ });
+    }, 'session.data-root-lock');
+    this.sessionsDir = path.join(dataRoot, 'sessions');
     this.shelfFile = path.join(this.sessionsDir, '.shelves.json');
     this.loadShelfIndex();
 
