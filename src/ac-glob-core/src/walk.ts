@@ -11,8 +11,12 @@
 //   · 目录项按名称排序（确定序，跨平台结果稳定）；符号链接不跟随（防环）
 //   · mtime 遍历期不逐文件 stat（惰性：调用方对命中条目按需补 stat——
 //     glob 排序只 stat 匹配集，省掉全量 stat 开销；grep 不需要 mtime）
+// 异步化（2026-12 事件循环冻结事故）：同步 readdirSync 会把整棵树的 IO 压成
+//   一段连续同步块（实测仓库根 82s，宿主 HTTP/WS 全程无响应）——改 fs.promises
+//   逐目录让出事件循环（每目录边界一次 await；遍历序/结果集/界顶语义不变）。
 // ============================================================
-import * as fs from 'node:fs';
+import type { Dirent } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 
 /**
@@ -62,10 +66,10 @@ export function toPosix(p: string): string {
  * skippedRoots = 根层被 skipDirs 跳过的目录段（供调用方在结果 note 里告知——
  * 搜索者若确需搜产物，知道自己被跳过了什么；深层重复段不重复收集）。
  */
-export function walkFiles(
+export async function walkFiles(
   rootAbs: string,
   options: WalkOptions = {},
-): { entries: WalkEntry[]; capped: boolean; skippedRoots: string[] } {
+): Promise<{ entries: WalkEntry[]; capped: boolean; skippedRoots: string[] }> {
   const base = options.base ?? rootAbs;
   const skipDirs = options.skipDirs ?? SKIP_DIRS;
   let rootRel = toPosix(path.relative(base, rootAbs));
@@ -74,14 +78,14 @@ export function walkFiles(
   const skippedRoots: string[] = [];
   let capped = false;
 
-  const visit = (dirAbs: string, dirRel: string): void => {
+  const visit = async (dirAbs: string, dirRel: string): Promise<void> => {
     if (entries.length >= MAX_SCAN_FILES) {
       capped = true;
       return;
     }
-    let dirents: fs.Dirent[];
+    let dirents: Dirent[];
     try {
-      dirents = fs.readdirSync(dirAbs, { withFileTypes: true });
+      dirents = await readdir(dirAbs, { withFileTypes: true });
     } catch {
       return; // 无权限/竞争删除：静默跳过该目录
     }
@@ -99,7 +103,7 @@ export function walkFiles(
           continue;
         }
         if (options.pruneDir?.(ent.name, rel)) continue; // 模式推导剪枝：子树无匹配可能
-        visit(abs, rel);
+        await visit(abs, rel);
       } else if (ent.isFile()) {
         if (options.isDenied?.(abs)) continue;
         entries.push({ abs, rel });
@@ -108,6 +112,6 @@ export function walkFiles(
     }
   };
 
-  visit(rootAbs, rootRel);
+  await visit(rootAbs, rootRel);
   return { entries, capped, skippedRoots };
 }

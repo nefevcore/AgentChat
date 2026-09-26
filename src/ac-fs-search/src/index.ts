@@ -13,6 +13,7 @@
 // 目录扫描——deny 目录前缀判定覆盖子树）。
 // ============================================================
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
@@ -215,12 +216,12 @@ function previewOf(line: string): string {
  * 在 path 父目录的兄弟目录里找近邻：首段编辑距离 ≤2（ac-skills→ac-skill 距离 1）。
  * 无近邻返回 undefined。保守设计：只建议同层目录（不递归、不建议文件），建议而非自动改写。
  */
-function suggestSiblingDir(targetInput: string, targetAbs: string): string | undefined {
+async function suggestSiblingDir(targetInput: string, targetAbs: string): Promise<string | undefined> {
   // 拆出最深一段：父目录存在才找兄弟（父也不存在 → 无从建议）
   const parentAbs = path.dirname(targetAbs);
   let parentStat: fs.Stats;
   try {
-    parentStat = fs.statSync(parentAbs);
+    parentStat = await fsp.stat(parentAbs);
   } catch {
     return undefined;
   }
@@ -229,7 +230,7 @@ function suggestSiblingDir(targetInput: string, targetAbs: string): string | und
   if (!last) return undefined;
   let siblings: fs.Dirent[];
   try {
-    siblings = fs.readdirSync(parentAbs, { withFileTypes: true });
+    siblings = await fsp.readdir(parentAbs, { withFileTypes: true });
   } catch {
     return undefined;
   }
@@ -275,17 +276,18 @@ function suggestSiblingDir(targetInput: string, targetAbs: string): string | und
  * 文件含 \r\n 时预览带 \r——与整缓冲路径一致）。多行标志（m）不参与
  * 预筛（$ 按整缓冲语义，预筛按全文口径保守成立）。
  * budget = 收集上限（调用方剩余硬顶额度），返回实际收集数。
+ * 异步逐块读（同步 IO 会把大扫描压成主线程连续同步块——见 walk.ts 头注）。
  */
-function searchFile(
+async function searchFile(
   abs: string,
   regex: RegExp,
   sink: LineMatch[],
   literals: readonly string[],
   budget: number,
-): number {
+): Promise<number> {
   let size = 0;
   try {
-    size = fs.statSync(abs).size;
+    size = (await fsp.stat(abs)).size;
   } catch {
     return 0;
   }
@@ -294,7 +296,7 @@ function searchFile(
     // 小文件：单次整读；探测窗/预筛/逐行全在缓冲上（无二次 IO）
     let buf: Buffer;
     try {
-      buf = fs.readFileSync(abs);
+      buf = await fsp.readFile(abs);
     } catch {
       return 0;
     }
@@ -319,7 +321,7 @@ function searchFile(
   // budget 用尽即停（行级粒度）。
   let collected = 0;
   try {
-    const fd = fs.openSync(abs, 'r');
+    const handle = await fsp.open(abs, 'r');
     try {
       const decoder = new StringDecoder('utf-8');
       const chunk = Buffer.allocUnsafe(GREP_CHUNK_BYTES);
@@ -337,7 +339,7 @@ function searchFile(
         return true;
       };
       for (;;) {
-        const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+        const { bytesRead: n } = await handle.read(chunk, 0, chunk.length, null);
         if (n <= 0) break;
         const data = chunk.subarray(0, n);
         if (!sniffed) {
@@ -368,7 +370,7 @@ function searchFile(
       const tail = pending + decoder.end(); // 末块残余 + 不完整多字节序列
       scanLine(tail); // 尾行（可能空——与 split('\n') 的末元素口径一致）
     } finally {
-      fs.closeSync(fd);
+      await handle.close();
     }
   } catch {
     return collected; // 读取中断：保留已收集
@@ -468,7 +470,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       }
       let stat: fs.Stats;
       try {
-        stat = fs.statSync(rootAbs);
+        stat = await fsp.stat(rootAbs);
       } catch {
         return { ok: false, error: `路径不存在: ${rootInput}` };
       }
@@ -499,7 +501,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
               return d < litDirs.length && name !== litDirs[d];
             };
 
-      const { entries, capped, skippedRoots } = walkFiles(rootAbs, {
+      const { entries, capped, skippedRoots } = await walkFiles(rootAbs, {
         base: sandbox.workdir,
         isDenied,
         ...(pruneDir !== undefined ? { pruneDir } : {}),
@@ -511,7 +513,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       // （stat 次数 = 匹配数而非总文件数；竞争删除留空按 0 排序）
       for (const m of matched) {
         try {
-          m.mtimeMs = fs.statSync(m.abs).mtimeMs;
+          m.mtimeMs = (await fsp.stat(m.abs)).mtimeMs;
         } catch {
           /* 竞争删除：留空 */
         }
@@ -612,11 +614,11 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       }
       let stat: fs.Stats;
       try {
-        stat = fs.statSync(targetAbs);
+        stat = await fsp.stat(targetAbs);
       } catch {
         // 近邻目录建议（画像 §⑤：猜模块名失误 src/ac-skills→src/ac-skill）——
         // 一条信息修复，避免下一轮盲试；path 不支持通配（src/ac-plugin*）同理被覆盖
-        const near = suggestSiblingDir(targetInput, targetAbs);
+        const near = await suggestSiblingDir(targetInput, targetAbs);
         return {
           ok: false,
           error:
@@ -638,7 +640,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
           },
         ];
       } else if (stat.isDirectory()) {
-        const walked = walkFiles(targetAbs, {
+        const walked = await walkFiles(targetAbs, {
           base: sandbox.workdir,
           isDenied,
         });
@@ -662,7 +664,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
           break; // 硬顶已达：停止扫后续文件
         }
         const sink: LineMatch[] = [];
-        const n = searchFile(entry.abs, regex, sink, literals, GREP_HARD_CAP - total);
+        const n = await searchFile(entry.abs, regex, sink, literals, GREP_HARD_CAP - total);
         if (n === 0) continue;
         total += n;
         groups.push({ path: entry.rel, matches: sink });

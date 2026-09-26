@@ -59,10 +59,10 @@ describe('glob → RegExp', () => {
 });
 
 describe('walkFiles', () => {
-  it('递归收集常规文件；跳过 SKIP_DIRS；隐藏文件包含；名称排序', () => {
+  it('递归收集常规文件；跳过 SKIP_DIRS；隐藏文件包含；名称排序', async () => {
     const root = tree();
     fs.writeFileSync(path.join(root, '.hidden'), 'h');
-    const { entries, capped } = walkFiles(root);
+    const { entries, capped } = await walkFiles(root);
     expect(capped).toBe(false);
     const rels = entries.map((e) => e.rel);
     expect(rels).toContain('.hidden');
@@ -72,12 +72,12 @@ describe('walkFiles', () => {
     expect(SKIP_DIRS.has('node_modules')).toBe(true);
   });
 
-  it('base 相对化 rel；isDenied 过滤；基准外回退', () => {
+  it('base 相对化 rel；isDenied 过滤；基准外回退', async () => {
     const root = tree();
     const sub = path.join(root, 'src');
-    const r1 = walkFiles(sub, { base: root });
+    const r1 = await walkFiles(sub, { base: root });
     expect(r1.entries.map((e) => e.rel)).toContain('src/deep/d.tsx');
-    const r2 = walkFiles(sub, { isDenied: (abs) => abs.endsWith('d.tsx') });
+    const r2 = await walkFiles(sub, { isDenied: (abs) => abs.endsWith('d.tsx') });
     expect(r2.entries.map((e) => e.rel)).not.toContain('d.tsx');
     // base 在 root 外 → rel 相对 root 自身
     expect(r1.entries.length).toBeGreaterThan(0);
@@ -90,13 +90,13 @@ describe('walkFiles', () => {
     expect(SKIP_BASE.has('node_modules')).toBe(true); // 基础层与用户意图无关
   });
 
-  it('skipDirs 整表覆盖：缺省跳过 dist；传 SKIP_BASE 时 dist 进入结果', () => {
+  it('skipDirs 整表覆盖：缺省跳过 dist；传 SKIP_BASE 时 dist 进入结果', async () => {
     const root = tree();
     fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
     fs.writeFileSync(path.join(root, 'dist', 'bundle.js'), 'built');
-    const def = walkFiles(root).entries.map((e) => e.rel);
+    const def = (await walkFiles(root)).entries.map((e) => e.rel);
     expect(def).not.toContain('dist/bundle.js'); // 缺省 SKIP_DIRS：产物跳过
-    const withSkipBase = walkFiles(root, { skipDirs: SKIP_BASE }).entries.map((e) => e.rel);
+    const withSkipBase = (await walkFiles(root, { skipDirs: SKIP_BASE })).entries.map((e) => e.rel);
     expect(withSkipBase).toContain('dist/bundle.js'); // 覆盖为基础层：产物可搜
     expect(withSkipBase).not.toContain('node_modules/x/y.js'); // 基础层仍拦依赖
   });
@@ -114,12 +114,12 @@ describe('walkFiles', () => {
     expect(literalDirPrefix('src/*/x.ts')).toEqual(['src']);
   });
 
-  it('pruneDir：返回 true 的目录子树不进入（fs-search glob 剪枝的库侧行为）', () => {
+  it('pruneDir：返回 true 的目录子树不进入（fs-search glob 剪枝的库侧行为）', async () => {
     const root = tree();
     fs.mkdirSync(path.join(root, 'other'), { recursive: true }); // 应被剪的旁支目录
     fs.writeFileSync(path.join(root, 'other', 'z.ts'), '6');
     const lit = literalDirPrefix('src/**/*.ts')!; // ['src']
-    const pruned = walkFiles(root, {
+    const pruned = await walkFiles(root, {
       pruneDir: (name, rel) => {
         const d = rel.lastIndexOf('/') + 1;
         return d < lit.length && name !== lit[d];
