@@ -108,5 +108,5 @@ src/data/
 /config.json
 /credentials.json
 src/webui/tests/__screenshots__/*.diff.png
-# agent 会话临时产物（验证脚本落盘/下载缓存）
-/.dsh/tmp/
+# agent 工作区整体不入库（技能/会话产物均为本机态）
+/.dsh/
