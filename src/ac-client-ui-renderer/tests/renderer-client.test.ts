@@ -102,8 +102,8 @@ whenToUse: 任务涉及修改 src/ 下的插件行
 ---
 
 正文段落`);
-    expect(html).toContain('md-frontmatter');
-    expect(html).toContain('md-frontmatter-key');
+    expect(html).toContain('<table class="md-frontmatter">');
+    expect(html).toContain('<td class="md-frontmatter-key">');
     expect(html).toContain('agentchat-plugin-dev');
     // 值内特殊字符转义（frontmatter 内容不可信）
     expect(html).toContain('&lt;服务&gt;');

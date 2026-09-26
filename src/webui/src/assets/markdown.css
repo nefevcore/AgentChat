@@ -445,27 +445,31 @@
 
 /* ===================================================================
    YAML frontmatter（文档首部 --- 围合的元数据块）
-   键值网格：键列等宽小字（muted），值列正文色可换行；
+   元数据表（table 两栏）：键列等宽小字（muted），值列正文色可换行；
    轻卡片形态与代码块同族（"气泡是唯一的框"的例外之一）。
    =================================================================== */
-.markdown-body .md-frontmatter {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: 5px 16px;
+.markdown-body table.md-frontmatter {
     margin: 12px 0;
-    padding: 10px 14px;
     border-radius: var(--radius-md);
     background: var(--color-bg-subtle);
     border: 1px solid var(--color-border-secondary);
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 0.93em;
     line-height: 1.6;
     min-width: 0;
+}
+.markdown-body .md-frontmatter td {
+    padding: 6px 14px;
+    border: none;
+    vertical-align: top;
 }
 .markdown-body .md-frontmatter-key {
     font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
     font-size: 0.88em;
     color: var(--color-text-muted);
     white-space: nowrap;
+    width: 1%;
 }
 .markdown-body .md-frontmatter-value {
     color: var(--color-text-primary);

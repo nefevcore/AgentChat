@@ -209,13 +209,13 @@ function frontmatterBlockRule(state: any, startLine: number, _endLine: number, s
     return true;
 }
 
-/** 渲染 frontmatter 为键值网格（CSS grid 两栏：键列自适应对齐，值列可换行） */
+/** 渲染 frontmatter 为元数据表（table 两栏：键列自适应对齐，值列可换行） */
 function renderFrontmatterBlock(yamlText: string): string {
     const rows = parseFrontmatterEntries(yamlText).map(({ key, value }) =>
-        `<span class="md-frontmatter-key">${escapeFrontmatterText(key)}</span>` +
-        `<span class="md-frontmatter-value">${escapeFrontmatterText(value)}</span>`,
+        `<tr><td class="md-frontmatter-key">${escapeFrontmatterText(key)}</td>` +
+        `<td class="md-frontmatter-value">${escapeFrontmatterText(value)}</td></tr>`,
     );
-    return `<div class="md-frontmatter">${rows.join('')}</div>`;
+    return `<table class="md-frontmatter"><tbody>${rows.join('')}</tbody></table>`;
 }
 
 // ---- 创建实例工厂 ----
