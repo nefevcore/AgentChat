@@ -97,8 +97,16 @@ class WireRpcClient {
     const Ctor = socketFactory ?? WebSocket;
     const ws = new Ctor(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
     this.ws = ws;
+    // 连接回调归属守卫（2026-12 前端流式叠词根因）：本 socket 被顶替
+    //（visibilitychange 即时重连 / 在途 rpc.call 抢先建连）后，其迟到的
+    // 生命周期回调仍会无条件改写单例状态——onclose 擦掉新连接引用并
+    // scheduleReconnect 再建一条 → 双连接并行，服务端广播双投递，feed 的
+    // delta += 执行两次即逐字叠词。非当前连接（ws !== this.ws）的回调
+    // 一律忽略——新连接的生命周期归新连接。
+    const isCurrent = () => this.ws === ws;
     this.connecting = new Promise<WebSocket>((resolve, reject) => {
       ws.onopen = () => {
+        if (!isCurrent()) return; // 被顶替连接的迟到 open：不 flush 队列/不点火 hooks
         this.connecting = null;
         this.reconnectDelay = RECONNECT_BASE_MS;
         const q = this.queue;
@@ -108,11 +116,13 @@ class WireRpcClient {
         resolve(ws);
       };
       ws.onerror = () => {
+        if (!isCurrent()) return;
         this.connecting = null;
         reject(new Error('WS 连接失败'));
       };
     });
     ws.onmessage = (ev: MessageEvent) => {
+      if (!isCurrent()) return; // 被顶替连接的迟到帧：不分发（防双投递）
       let frame: { type?: unknown; data?: unknown };
       try {
         frame = JSON.parse(String(ev.data)) as { type?: unknown; data?: unknown };
@@ -151,6 +161,7 @@ class WireRpcClient {
       }
     };
     ws.onclose = () => {
+      if (!isCurrent()) return; // 迟到 close 只回收自己：不擦新连接引用、不再排重连
       this.ws = null;
       this.connecting = null;
       this.failAll(new Error('WS 连接已断开'));
