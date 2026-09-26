@@ -160,7 +160,8 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
       args: { command: SLEEP_30, timeout: 60_000 },
     });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/超时（1500ms）/);
+    // clamp 透明化：截断发生时文案显式标注（防盲调大参数）
+    expect(r.error).toMatch(/超时（1500ms，传入 60000ms 已按上限 1500ms 截断/);
   }, 20000);
 
   it('timeout=0 显式不限：无计时器——挂起命令不被缺省 30s 收束（依赖 signal 收束）', async () => {

@@ -101,4 +101,22 @@ describe(`ac-shell-tools ${CMD_TOOL} 超时 handoff`, () => {
     expect(typeof r.output.job_id).toBe('string');
     await killAndWait(ctx, r.output.job_id);
   }, 20000);
+
+  it('clamp 透明化：传入超 maxTimeout 被截断时——error 文案与 timeout_clamped 字段显式标注（否则会盲调大参数）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await bootRows([
+      [toolsRow, undefined],
+      [jobsRow, undefined],
+      [agentsRow, undefined],
+      [shellRow, { workdir: root, maxTimeout: 3000 }],
+    ]);
+    const r = await exec(ctx, {
+      name: CMD_TOOL,
+      args: { command: SLEEP_30, timeout: 60000 },
+    });
+    expect(r.output.timeout_action).toBe('handoff');
+    expect(r.error).toMatch(/超时（3000ms，传入 60000ms 已按上限 3000ms 截断/);
+    expect(r.output.timeout_clamped).toEqual({ requested: 60000, effective: 3000, max: 3000 });
+    await killAndWait(ctx, r.output.job_id);
+  }, 20000);
 });

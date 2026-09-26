@@ -248,6 +248,11 @@ export function executeShellCommand(
             ? Math.min(timeout, limits.maxTimeout)
             : timeout
           : limits.defaultTimeout;
+    // clamp 透明化（2026-09-26 handoff 复盘）：传入值被 maxTimeout 截断时在超时
+    // 结果里显式标注——防「反复调大 timeout 无效」的盲调循环（周样本 19/32 次）
+    const clamped =
+      typeof timeout === 'number' && timeout > 0 &&
+      limits.maxTimeout > 0 && timeout > limits.maxTimeout;
 
     const child: ChildProcess = spawn(spec.shell, [...spec.args, commandToRun], {
       cwd: dir,
@@ -420,13 +425,14 @@ export function executeShellCommand(
           const snap = truncateMiddle(clean, limits.outputMaxLen);
           settle({
             ok: false,
-            error: `命令超时（${effectiveTimeout}ms），已自动转后台继续执行（任务 ${handoff?.jobId ?? '未登记'}）——日志：${handoff?.logFile ?? '(日志文件不可用)'}。用 job 工具管理（list/logs/kill）；需要前台完整结果时，增大 timeout 参数或显式 background 执行。`,
+            error: `命令超时（${effectiveTimeout}ms${clamped ? `，传入 ${timeout}ms 已按上限 ${limits.maxTimeout}ms 截断——增大 timeout 无效，需调大本 Agent 的 maxTimeout 配置` : ''}），已自动转后台继续执行（任务 ${handoff?.jobId ?? '未登记'}）——日志：${handoff?.logFile ?? '(日志文件不可用)'}。用 job 工具管理（list/logs/kill）；需要前台完整结果时，增大 timeout 参数或显式 background 执行。`,
             output: {
               command,
               ...(translatedCommand ? { translated_command: translatedCommand } : {}),
               cwd: dir,
               timed_out: true,
               timeout_action: 'handoff',
+              ...(clamped ? { timeout_clamped: { requested: timeout, effective: effectiveTimeout, max: limits.maxTimeout } } : {}),
               output: snap.text || '(无输出)',
               stdout: truncateMiddle(stripAnsi(stdoutRaw), limits.outputMaxLen).text,
               stderr: truncateMiddle(stripAnsi(stderrRaw), limits.outputMaxLen).text,
@@ -437,8 +443,8 @@ export function executeShellCommand(
         } else {
           settle({
             ok: false,
-            error: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`,
-            output: { command, cwd: dir, timed_out: true },
+            error: `命令超时（${effectiveTimeout}ms${clamped ? `，传入 ${timeout}ms 已按上限 ${limits.maxTimeout}ms 截断——增大 timeout 无效，需调大本 Agent 的 maxTimeout 配置` : ''}）。建议增大 timeout 参数或改用 background 后台执行。`,
+            output: { command, cwd: dir, timed_out: true, ...(clamped ? { timeout_clamped: { requested: timeout, effective: effectiveTimeout, max: limits.maxTimeout } } : {}) },
           });
         }
         return;

@@ -79,7 +79,7 @@ const COMMAND_TOOL_PARAMETERS = {
     command: { type: 'string', description: '要执行的命令' },
     description: { type: 'string', description: '命令作用的一句话说明' },
     workdir: { type: 'string', description: '工作目录（默认沙箱工作目录）' },
-    timeout: { type: 'number', description: '超时毫秒（0 = 不限；缺省与上限随本 Agent 的 shell-tools 配置生效，超上限自动截断；超时处置缺省转后台继续执行）。background=true 时本参数不适用（后台任务不限时）', minimum: 0 },
+    timeout: { type: 'number', description: '超时毫秒数（单位毫秒：300000 = 5 分钟；30 是 30 毫秒不是 30 秒。0 = 不限；缺省 30000、上限默认 120000，随本 Agent 的 shell-tools 配置生效，超上限自动截断；超时处置缺省转后台继续执行）。background=true 时本参数不适用（后台任务不限时）', minimum: 0 },
     background: { type: 'boolean', description: '后台执行，立即返回 job_id（用 job 工具管理）' },
   },
   required: ['command'],
