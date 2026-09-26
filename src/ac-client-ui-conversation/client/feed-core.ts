@@ -1671,6 +1671,8 @@ export function createFeedCore(
       // truncate 按整轮命中；2026-12 分支锚点修复，此前合成 `-s{i}` 后端不存在）
       persistedMsgId: m.message_id,
       source: m.source,
+      // 注入行透传（2026-12 注入卡）：展开体数据源（toHistoryMessages 携带）
+      ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
       // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
       ...(split.files ? { files: split.files } : {}),
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
@@ -1860,7 +1862,7 @@ export function createFeedCore(
   /** 机制通知上屏（source='event' 入站——message-received 空闲路径与
    *  steered 忙路径共用）：系统事件行（分隔符渲染），与落盘 role:'event' /
    *  刷新历史同形。群分区同样不进（内容源 = post 行；群历史无 event 行）。 */
-  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string): void {
+  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string, injectSource?: string): void {
     const keys = routeDialog(agent, conversationId, agent);
     if (!keys) return;
     const dialogId = keys.dialogId;
@@ -1872,6 +1874,9 @@ export function createFeedCore(
       //（运行中切换会话回视的重复 context 行根修）；缺席（旧后端）回落本地 id
       id: anchor ?? uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
       ...(anchor !== undefined ? { persistedMsgId: anchor } : {}),
+      // 注入型行（source 非机制词）挂 source meta（2026-12 注入卡）：
+      // useTurnDisplayItems 读 kind 判卡片化 + 挂轮
+      ...(injectSource !== undefined ? { source: { kind: injectSource, summary: '' } as never } : {}),
     });
     touch(dialogId, 'system', content, Date.now());
     bump(dialogId);
@@ -2216,7 +2221,9 @@ export function createFeedCore(
         // injectionId（注入身份键）：直播行带锚——与刷新后的活投影行/提升行
         // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
         const anchor = typeof meta?.injectionId === 'string' && meta.injectionId ? meta.injectionId : undefined;
-        showEventNotice(frameAgentId(agentId), conversationId, text, anchor);
+        // 注入型行（source 非机制词）带 source 挂直播行（2026-12 注入卡）：
+        // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——settlement 重拉补）
+        showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined);
         return;
       }
       case 'system/restarting': {

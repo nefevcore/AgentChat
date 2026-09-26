@@ -216,9 +216,20 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       continue;
     }
     // 词汇 v2：context 行（source:event 机制行 / source:skill 技能注入）与
-    // 存量 event 行同渲染位（分隔符；label 条组件二期）——正文在场可查，
-    // UI 不因新词汇断渲染
-    out.push({ role: 'event', content: r.label ?? r.content, agent_id: r.agent_id ?? r.name ?? 'system', message_id: r.message_id, timestamp: r.timestamp, ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}) });
+    // 存量 event 行同渲染位（分隔符）；注入型行（source:skill 等，UI 决策词
+    // 非 event/error）另行卡片化（2026-12 注入卡——原 label 条二期裁决落地）：
+    // 注入体原文（r.content，<system-reminder>…）随行透传 contextContent，
+    // 卡片展开体渲染之（展示期正文不再丢弃）；label 缺席按正文头行回落。
+    const isInjectionRow = r.source !== undefined && r.source !== 'event' && r.source !== 'error';
+    out.push({
+      role: 'event',
+      content: r.label ?? r.content,
+      agent_id: r.agent_id ?? r.name ?? 'system',
+      message_id: r.message_id,
+      timestamp: r.timestamp,
+      ...(isInjectionRow ? { contextContent: r.content } : {}),
+      ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}),
+    });
   }
   // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻/
   // 不可解析时刻保持输入序——旧行为兼容）

@@ -12,6 +12,7 @@ import { formatRelativeTime } from './format.ts';
 import { useChatShell } from './useChatShell.ts';
 import type { DisplayItem } from './types.ts';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
+import ContextInjectCard from './Message/ContextInjectCard.vue';
 
 const props = defineProps<{
   /** 渲染管线产物（useTurnDisplayItems） */
@@ -200,6 +201,9 @@ defineExpose({
             <span v-if="item.timestamp && item.showTime !== false" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
             <span class="error-separator-text">{{ item.timeText }}</span>
           </div>
+          <!-- 注入卡独立降级位（前后皆无 agent 轮可挂——会话仅机制行/失败
+               run 收尾）：与挂轮卡同组件，占独立一行 -->
+          <ContextInjectCard v-else-if="item.type === 'inject' && item.inject" :card="item.inject" />
           <TurnDisplayItem
             v-else
             :turn="item.turn!"

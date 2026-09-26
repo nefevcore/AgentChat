@@ -9,7 +9,7 @@
 // 设计文档：docs/feed-architecture.md
 // ============================================================
 
-import type { ChatMessage, FileAttachment, Turn, TurnStep } from './types.ts';
+import type { ChatMessage, FileAttachment, InjectCard, Turn, TurnStep } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 
 // ── Dialog 标识 ──
@@ -164,6 +164,28 @@ interface FeedAgentMsg {
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
 const MERGE_GAP_MS = 10 * 60 * 1000;
 
+/** 注入型 event 行判定（2026-12 注入卡）：source.kind 非机制词
+ *  （event/error 的 UI 决策词）= 注入材料行（skill 等）——不拆轮，
+ *  原位挂进当前在场轮。机制行（timer 触发等）与无 source 行维持
+ *  event 分隔符通道。kind 收窄 string 再比：toHistoryMessages 把存储
+ *  source 决策词原样塞进 source.kind，运行时值域宽于 MessageSourceKind
+ *  枚举（仅收窄比较，不改数据）。 */
+function isInjectEvent(m: ChatMessage): boolean {
+  const kind = m.source?.kind as string | undefined;
+  return !!kind && kind !== 'event' && kind !== 'error';
+}
+
+/** 注入 event 消息 → 注入卡（afterStep 由调用方按挂靠时刻补） */
+function toInjectCard(m: ChatMessage): InjectCard {
+  return {
+    label: m.content || m.source?.summary || '',
+    ...(m.contextContent !== undefined ? { content: m.contextContent } : {}),
+    ...(m.source?.kind !== undefined ? { kind: m.source.kind as string } : {}),
+    ts: m.timestamp,
+    key: `inj-${m.id}`,
+  };
+}
+
 /**
  * 将 AgentMsg 数组转换为 TurnStep[] + final ChatMessage（原 _agentMsgsToSteps）。
  * 纯函数：输入不可变，输出全新对象。
@@ -256,15 +278,24 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
 
   // live：run 级流式态只作用于「末尾轮」——中段 flush 的轮次被后续消息
   // 关闭、按定义已完成（否则 run 中的历史轮会被误标流式）
+  // curInjects：流式中挂进 cur 的注入卡（flush 时刻随产物携带——
+  // cur 的 Turn 对象由 buildTurnFromAgentMsgs 新建，无法原位追加）
+  let curInjects: InjectCard[] = [];
   const flush = (live = false) => {
     if (cur?.turns.length) {
-      allTurns.push(buildTurnFromAgentMsgs([...cur.turns], live, cur.agent_id));
+      const t = buildTurnFromAgentMsgs([...cur.turns], live, cur.agent_id);
+      if (curInjects.length) t.injects = curInjects;
+      allTurns.push(t);
+      curInjects = [];
       cur = null;
     }
   };
 
   /** 上一条 agent/user 消息是否为"中段插行平文"（其后的同 sender 消息须另起一轮——插行才独立成轮） */
   let afterSolo = false;
+  // 暂存注入卡（cur 为空 / viewer 轮在场时挂下一 agent 轮头部；
+  // 收尾仍积压 = 无 agent 轮 → 由 useTurnDisplayItems 降级独立卡）
+  const pendingInjects: InjectCard[] = [];
 
   for (let k = 0; k < msgs.length; k++) {
     const msg = msgs[k];
@@ -272,6 +303,23 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
     // 兼容历史 API 归一化后的旧 trigger：user + source.legacyRole==='trigger'。
     const isEventMsg = msg.role === 'event'
       || (msg.role === 'user' && (msg.source as any)?.legacyRole === 'trigger');
+    // 注入型 event（source.kind 非机制词）：不 flush 不拆轮——原位挂进
+    // 当前在场轮（afterStep = 已积步数，run 中途注入落在两步之间还原
+    // 落盘序；此前走 event 分隔符通道会把同一 run 拆成两个「思考过程」
+    // 轮——折叠态割裂的根因）。cur 为空 / viewer 轮 → 暂存挂下一轮头部。
+    if (isEventMsg && isInjectEvent(msg)) {
+      // cur 在场（注入时刻有进行中/已收束的 agent 轮）→ 原位挂入：
+      // afterStep = 已积步数（消息序 = ts 序——历史路径 toHistoryMessages
+      // 已稳定排序；直播路径 append 尾部即当前轮），挂靠时刻即落盘位
+      if (cur && cur.agent_id !== VIEWER_ID.value) {
+        curInjects.push({ ...toInjectCard(msg), afterStep: cur.turns.length });
+      } else {
+        // cur 为空 / viewer 轮在场（pre-run 手势注入落在用户消息后）→
+        // 暂存挂下一 agent 轮头部
+        pendingInjects.push(toInjectCard(msg));
+      }
+      continue;
+    }
     if (isEventMsg) {
       flush();
       const ts = msg.timestamp || Date.now();
@@ -318,6 +366,11 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete || solo || afterSolo) {
         flush();
         cur = { agent_id: senderId, turns: [] };
+        // 暂存注入卡落地：本轮即其服务对象（注入行在本轮之前落账——
+        // pre-run 手势注入 / 前一轮结束后的收束注入），挂头部 afterStep=0
+        if (pendingInjects.length && senderId !== VIEWER_ID.value) {
+          curInjects = pendingInjects.splice(0).map((c) => ({ ...c, afterStep: 0 }));
+        }
       }
       afterSolo = solo;
       cur.turns.push({
@@ -361,6 +414,11 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   // thinking token 未到时（空占位被跳过），末尾轮仍是用户轮——不得悬置
   // 用户消息的 final（否则用户气泡误走 assistant 分支）
   flush(streaming && !!cur && cur.agent_id !== VIEWER_ID.value);
+  // 无轮可挂的注入卡（前后皆非 agent 轮）：合成 system 空轮承载——
+  // useTurnDisplayItems 转独立降级卡 item
+  if (pendingInjects.length) {
+    allTurns.push({ agent_id: 'system', steps: [], final: null, injects: pendingInjects });
+  }
   return allTurns;
 }
 
@@ -408,6 +466,9 @@ function turnContentSig(t: Turn): string {
   }
   const f = t.final;
   s += `|f:${f ? `${(f as any).id ?? ''}:${((f as any).content ?? '').length}` : '-'}`;
+  // injects 必入签名：注入卡后到/afterStep 变化时防前缀复用漏判（复用旧
+  // Turn 对象 = 注入卡丢失）
+  s += `|i:${(t.injects ?? []).map((c) => `${c.key}:${c.afterStep ?? 0}`).join(',')}`;
   return s;
 }
 
@@ -627,6 +688,9 @@ export function pairMessageToChatMessage(m: {
   message_id?: string;
   timestamp?: string;
   attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
+  /** 注入行透传（2026-12 注入卡；见返回对象注释） */
+  source?: unknown;
+  contextContent?: string;
 }, fallbackAgentId: string): ChatMessage {
   const id = `pair-${m.message_id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`}`;
   const role = (m.role === 'tool' ? 'tool'
@@ -647,6 +711,11 @@ export function pairMessageToChatMessage(m: {
     agent_id: m.agent_id ?? fallbackAgentId,
     name: m.name,
     label: m.label,
+    // 注入行透传（2026-12 注入卡）：source 供挂轮判定、contextContent 供
+    // 展开体（toHistoryMessages 对注入型行携带）——与 historyMsgToChatMessage
+    // 同款词汇
+    ...(m.source !== undefined ? { source: m.source } : {}),
+    ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
     reasoning_content: (m.reasoning_content ?? '') || undefined,
     ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
     ...(m.apiMs !== undefined ? { apiMs: m.apiMs } : {}),

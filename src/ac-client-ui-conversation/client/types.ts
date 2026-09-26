@@ -24,11 +24,35 @@ export interface Turn {
   steps: TurnStep[];
   /** 最终纯文本回复（无 toolCalls 的 assistant），可为 null */
   final: ChatMessage | null;
+  /**
+   * 挂靠注入卡（2026-12 注入卡·数据层归位）：buildTurns 中注入型
+   * context 行不拆轮，原位挂进当前在场轮（afterStep = 挂靠时刻步数
+   * ——run 中途注入落在两步之间，还原落盘序）；cur 为空/viewer 轮时
+   * 暂存挂下一 agent 轮头部。渲染在思考过程折叠链内（TurnDisplayItem
+   * 步循环按 afterStep 插卡）。
+   */
+  injects?: InjectCard[];
+}
+
+/**
+ * 注入卡数据（Turn.injects 携带；独立降级卡 item 同形）：
+ * label = 落账行 UI 文案（如「已加载技能 demo」）；content = 注入体原文
+ * （缺席 = 直播行，仅收起态可看）；kind = 存储 source 决策词（降级位
+ * 重建 event turn 用）；afterStep = 链内插入位（挂靠时刻所在轮已积步数
+ * ——渲染时插在该步之后；0/缺省 = 链头，= steps.length = 链尾）。
+ */
+export interface InjectCard {
+  label: string;
+  content?: string;
+  kind?: string;
+  ts?: number;
+  afterStep?: number;
+  key: string;
 }
 
 /** ChatView 的渲染单元 */
 export interface DisplayItem {
-  type: 'turn' | 'time-separator' | 'event' | 'error';
+  type: 'turn' | 'time-separator' | 'event' | 'error' | 'inject';
   turn?: Turn;
   timeText?: string;
   /** 事件/错误分隔符自身的毫秒时间戳，用于在分隔符内显示时间 */
@@ -42,6 +66,8 @@ export interface DisplayItem {
   /** 稳定渲染 key（内容标识而非数组下标）：历史前插时下标全量平移会导致
    *  整个消息列表重建（展开态/卡片内部状态丢失、长会话上翻闪烁卡顿） */
   key?: string;
+  /** （inject 独立降级卡）注入卡数据（前后皆无 agent 轮可挂时占位） */
+  inject?: InjectCard;
 }
 
 /**
@@ -102,6 +128,13 @@ export interface ChatMessage {
   textBeforeTools?: boolean;
   /** 思考标签（后端推送，含耗时信息） */
   label?: string;
+  /**
+   * 注入正文（context 注入行专用——2026-12 注入卡）：role:'event' 行的
+   * content 是 label 文案；注入体原文（<system-reminder>…）放本字段随行
+   * 透传，卡片展开体渲染之。历史行由 toHistoryMessages 展开携带；直播
+   * 行缺席（帧不广播正文——瘦身纪律），settlement 重拉权威行后在场。
+   */
+  contextContent?: string;
   /**
    * 思考相位起点（epoch ms；直播首个 reasoning 片到达时驻留消息——与
    * StreamState.reasoningStartAt 同源）：「思考中 · Xs」实时计时与收束

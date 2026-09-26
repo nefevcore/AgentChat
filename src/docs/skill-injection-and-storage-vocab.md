@@ -72,11 +72,30 @@ v2 三轴正交：
 教训（写入词汇表纪律）：新词汇必须带着消费者出生。source v1 是「先造字段后找
 用途」的反例；v2 的 source/label 自带 UI 决策与文案职责。
 
-## 3. UI 形态（裁决 #3）
+## 3. UI 形态（裁决 #3；2026-12 注入卡落地修订）
 
-label 条（收起态；source 定样式：error 红 / event 中性 / 其他按 label 文案）+
-点击展开正文（固定高度容器 max-height ~40vh + overflow-y 滚动）。透明度保留：
-用户看得见 Agent 加载了什么。无 label 行按 source 缺省文案回落。
+原裁决：label 条（收起态）+ 点击展开正文（max-height ~40vh + 滚动）。
+中间态（v2 落地时缩水）：渲染为 event 分隔行——正文在前端即丢弃，不可展开。
+
+2026-12 注入卡修订（挂轮形态）：
+
+- 注入型 context 行（source 非机制词 event/error，如 skill）渲染为工具卡
+  样式注入卡（ContextInjectCard.vue）——label 收起行 + 展开体（注入体
+  原文纯文本，`--card-viewport-max` 统一限高令牌 ≈ 40vh 裁决落位）；
+- **挂轮不占位（数据层归位，流式反馈修订）**：注入卡在 buildTurns 中
+  挂进**注入时刻在场的 agent 轮**（`Turn.injects`，`afterStep` = 已积步
+  数——mid-run 注入原位落在两步之间还原落盘序；cur 为空 / viewer 轮 →
+  暂存挂下一 agent 轮头部；无轮可挂 → system 空轮降级承载，渲染层转
+  独立卡 item）。**为什么不走渲染层缝合**：注入行此前走 event 分隔符通道
+  会在 buildTurns 被 flush 拆轮——同一个 run 拆成两个「思考过程」轮，
+  折叠态割裂（2026-12 流式实测反馈）；数据层不拆轮则流式/刷新一致、
+  折叠态天然联动，Subagent 视图等经共享管线自动继承，无 user 会话
+  同样成立。`turnContentSig` 覆盖 injects（注入卡后到防增量复用漏判）；
+- 机制行（source:event）与错误行（source:error）维持原分隔符 / 红条通道
+  不变；
+- 正文贯通：toHistoryMessages 对注入型行携带 contextContent（展示期不再
+  丢弃）；直播帧维持不广播正文（瘦身纪律），settlement 重拉权威行补——
+  窗口期注入卡仅收起态（不可展开）。
 
 ## 4. 版本升级数据迁移机制（裁决 #4）
 

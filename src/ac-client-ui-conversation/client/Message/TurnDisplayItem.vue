@@ -9,10 +9,11 @@ import { VIEWER_ID } from '../viewer.ts';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
+import ContextInjectCard from './ContextInjectCard.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
 import { fmtElapsed } from '../feed.ts';
 import { Avatar, Icon, ThinkingIcon } from '@agentchat/webui-kit';
-import type { Turn, ChatMessage } from '../types.ts';
+import type { InjectCard, Turn, ChatMessage } from '../types.ts';
 
 const props = defineProps<{
   turn: Turn; settingsAgentId: string; showActions?: boolean;
@@ -213,6 +214,19 @@ function isThinkingStreamingNow(sIdx: number) {
 }
 function toggleExpand() { isExpanded.value = !isExpanded.value; }
 
+// 挂靠注入卡（turn.injects——buildTurns 数据层归位）：按 afterStep 分组——
+// 渲染时插在步循环 {afterStep} 步之后（缺省 0 = 链头；= steps.length = 链尾）
+const injectsByStep = computed(() => {
+  const groups = new Map<number, InjectCard[]>();
+  for (const c of props.turn.injects ?? []) {
+    const at = Math.min(c.afterStep ?? 0, visibleSteps.value.length);
+    const list = groups.get(at) ?? [];
+    list.push(c);
+    groups.set(at, list);
+  }
+  return groups;
+});
+
 /**
  * 步内正文/工具卡的相对渲染序（2026-09-12 顺序反馈）：
  * textBeforeTools = true（正文分片先于工具调用到达——模型先口述再调
@@ -297,6 +311,8 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
            只是 display:none 藏着——切换卡 1-2s 的真正主体）。折叠 = 不构建，
            用户展开才付费；流式轮 isExpanded 恒 true，直播路径无变化。 -->
       <div v-if="isExpanded" class="chain-body">
+        <!-- 挂靠注入卡（afterStep=0 组）：链体展开才构建（与步链同款付费策略） -->
+        <ContextInjectCard v-for="c in injectsByStep.get(0)" :key="c.key" :card="c" />
         <template v-for="(step, sIdx) in visibleSteps" :key="stepKey(step, sIdx)">
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }"
@@ -330,6 +346,9 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
               />
             </div>
           </template>
+          <!-- 挂靠注入卡（afterStep={sIdx+1} 组）：注入时刻落在该步之后的
+               mid-run 注入——原位还原落盘序 -->
+          <ContextInjectCard v-for="c in injectsByStep.get(sIdx + 1)" :key="c.key" :card="c" />
         </template>
       </div>
 

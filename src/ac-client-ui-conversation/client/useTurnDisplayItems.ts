@@ -6,7 +6,9 @@
 //      前插时全量平移，用作 key 会整列表重建（展开态/卡片内部态全丢）；
 //      final 悬置期长度恒 0（流式期 key 稳定不逐 token 变化），收束
 //      物化时 key 一次变化——整轮重挂载恰逢链栏折叠时刻。
-//   ② event / error 消息 → 特殊分隔符（非轮次渲染）。
+//   ② event / error 消息 → 特殊分隔符（非轮次渲染）；注入卡挂靠在
+//      Turn.injects（buildTurns 数据层归位，2026-12 注入卡）——本层
+//      仅消费：system 空轮（无 agent 轮可挂的降级承载）→ 独立卡 item。
 //   ③ run 中插播 event 观感优化（纯展示层不改派生）：同 agent 轮次
 //      序列仅被 event 打断时——event 紧凑内联弱化切断感，其后延续轮
 //      不再重复头像/名称（一个 run 读作连续块）。
@@ -45,6 +47,14 @@ export function useTurnDisplayItems(turns: ComputedRef<Turn[]>): ComputedRef<Dis
       // error 消息 → 红色错误分隔符
       if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
         items.push({ type: 'error', timeText: t.final.content, timestamp: t.final.timestamp, key: `error-${ts}-${t.final.content.length}` });
+        continue;
+      }
+      // system 空轮 + injects（buildTurns 降级承载：前后皆无 agent 轮可挂
+      // 的注入卡）→ 独立降级卡 item（逐卡占位，同 ContextInjectCard 渲染）
+      if (t.agent_id === 'system' && t.steps.length === 0 && !t.final && t.injects?.length) {
+        for (const card of t.injects) {
+          items.push({ type: 'inject', inject: card, key: card.key });
+        }
         continue;
       }
       items.push({ type: 'turn' as const, turn: t, key: stableKey });
