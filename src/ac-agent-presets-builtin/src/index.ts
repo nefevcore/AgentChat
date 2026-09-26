@@ -96,8 +96,8 @@ const CREATOR: AgentPresetDefinition = {
     //     一致（不载——单会话开发流不需要）。
     tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin'],
     // 技能面保留（与标准/极简差异化）：用户自己的技能（全局/专属）照常
-    // 加载——插件开发引导不依赖技能注入（框架开发技能 agentchat-plugin-dev
-    // 等住 .dsh/skills 开发侧目录，不进用户技能面），已内置下方 system
+    // 加载——插件开发引导不依赖技能注入（框架开发技能 agentchat-dev
+    // 住 .dsh/skills 开发侧目录，不进用户技能面），已内置下方 system
     // 提示词；两者互补不冲突。memory/datetime 软停用同族（会话即隔离，
     // 不跨会话积累）。
     settings: {

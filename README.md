@@ -194,8 +194,8 @@ src/
 
 ## 🧩 插件开发
 
-- **写一个插件**（工具行 / LLM 适配 / 拦截行 / 预设 Agent / 前端行）：看 `.dsh/skills/agentchat-plugin-dev` 技能与 `templates/` 模板骨架。Agent 自己也能用 `install_plugin` 开发并安装插件（暂存人审后生效）。
-- **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-framework-dev`。
+- **写一个插件**（工具行 / LLM 适配 / 拦截行 / 预设 Agent / 前端行）：看 `.dsh/skills/agentchat-dev` 技能与 `templates/` 模板骨架。Agent 自己也能用 `install_plugin` 开发并安装插件（暂存人审后生效）。
+- **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-dev`。
 
 ---
 

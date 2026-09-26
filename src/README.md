@@ -20,7 +20,7 @@ plugin-logger-console 控制台输出）。
 
 仓库外归档根 `Dev\Note\AgentChat\docs-stale-2026-12\`）；开发姿势与新增能力域
 
-checklist 住 `.dsh/skills/agentchat-framework-dev`。
+checklist 住 `.dsh/skills/agentchat-dev`。
 
 ## 心法
 
@@ -711,10 +711,12 @@ src/
 │                              P0-2：席位在场即注册/缺席即等待/塌缩或
 │                              卸载即回收）
 ├── webui-kit/                **@agentchat/webui-kit 设计原语库**（M27 S4/D0
-│                            基建三包之三）：tokens/row/badge 三 css + Icon/
-│                            Button/Avatar/Modal 基础原语 + StatusDot/Tooltip/
-│                            RingProgress 工具组件 + StarAvatar/StarCard/
-│                            PulseTrace 组合件 + 思维链图标族（纯库不进行）
+│                            基建三包之三；src 分层 base/feedback/star/icons/）：
+│                            tokens/row/badge 三 css + Icon/Button/Avatar/Modal
+│                            基础原语 + StatusDot/Tooltip/RingProgress 工具组件 +
+│                            FeedbackNotice/toast 反馈族 + StarAvatar/StarCard/
+│                            PulseTrace 组合件 + 思维链图标族（纯库不进行；
+│                            风格规范与组件对照表 .dsh/skills/agentchat-dev/references/webui-style.md）
 ├── webui/                    前端薄壳（Vue；M27.2-2 终态）：main.ts =
 │                            装配序列（createClient → install(vueRenderer) →
 │                            rpc 宿主面 → 封印 → applyBootGraph('base'→
@@ -778,7 +780,7 @@ src/
 | `<数据根>/plugins/<agentId>/<name>/` | 用户手工开发扫描面（devScan） | 宿主 UI 装载 / stage → 人审 approve |
 | `<数据根>/plugins/<name>/` | 已安装态（install/approve 的落位） | boot 扫描自动恢复 |
 
-模板骨架与规约：`templates/`；开发姿势见 `.dsh/skills/agentchat-plugin-dev`。
+模板骨架与规约：`templates/`；开发姿势见 `.dsh/skills/agentchat-dev`。
 
 ### 数据根约定
 

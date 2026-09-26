@@ -26,6 +26,6 @@
 ## 维护规则
 
 1. **文档只描述当前代码**。旧轨文档一律归档到仓库外归档根，不在仓库内留存过时副本。
-2. 新架构文档落笔前先读 `src/README.md` 与 `.dsh/skills/`（agentchat-framework-dev / agentchat-plugin-dev），以当前代码为准。
+2. 新架构文档落笔前先读 `src/README.md` 与 `.dsh/skills/`（agentchat-dev），以当前代码为准。
 3. **轨道内设计文档直接落 `src/docs/` 并在 `src/README.md` 设计档案索引登记**；本目录不放轨道内文档（2026-11 归整：`ui-descriptive-text-inventory.md`、`event-graphs.html` 已迁 `src/docs/`；2026-12 归整：28 份收官过程文档移归档根 `docs-stale-2026-12\`）。
 4. 收官判据：计划/评审/交接/对账类文档，其实施已完成且验收全绿 → 整文件移归档根对应批次目录，索引同步更新；域深设计与现行事实源**永不归档**，随代码演进维护。
