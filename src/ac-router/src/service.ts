@@ -192,7 +192,7 @@ export class RouterService extends Service {
     //     Agent 的工具清单——此前只在执行时 veto，LLM 仍能看到并调用
     //     （浪费一轮 + 上报为"工具异常"）。能力集合成与 ac-security
     //     执行门禁同款单源（capabilitySetOf + 会话授权注入 = sessionCapsOf）。
-    //   · 形态面（2026-12 裁决）：工具声明 excludeForms（ToolDefinition
+    //   · 形态面（2026-09-13 裁决）：工具声明 excludeForms（ToolDefinition
     //     形态轴，如 system_restart 不进独立会话——宿主级管理动作不随
     //     用户级会话投放；list_tools 同口径）。形态面在解析后**终滤**：
     //     include 显式点名也不可绕过（resolveToolNames 对 include 原样
@@ -225,7 +225,7 @@ export class RouterService extends Service {
       return def === undefined || !formDeniedBy(this.ctx, def, call.conversationId);
     });
     // 工具调用模式（tc-* 纯模式词——与提权档位同构的形态选择，非授权
-    // 门槛；2026-12 injection 轴重构：run_code 等模式工具经 injection:'mode'
+    // 门槛；2026-09-21 injection 轴重构：run_code 等模式工具经 injection:'mode'
     // 声明，不挂 requiredTags、不进常规工具面）：
     //   · 生效档 = 会话覆盖（conv-settings toolMode，无键 = 跟随）??
     //     toolModeOf(agent)（tags 单源判定，缺省 tc-base）；

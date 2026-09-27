@@ -23,7 +23,7 @@
 //   · loop/before-step（waterfall）—— 改写本步消息
 //   · loop/step-started（emit）—— step 开始通知（before-step 通过后）
 //   · loop/after-step（emit）—— 步级订阅
-//   · loop/run-idle（waterfall，2026-02）—— 自然停点拦截：领域行可注入
+//   · loop/run-idle（waterfall，2026-02-00）—— 自然停点拦截：领域行可注入
 //     材料续走同 run（ask_questions 答案等待）；全体空手 → 收束照旧
 // 工具执行走 ctx.tools.execute → 自动获得 tool/before-execute
 // 拦截链（veto/改写）与 tool/after-execute 通知 —— 循环不重新实现拦截。
@@ -31,6 +31,7 @@
 //   finish='interrupted' + interruptReason。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
+import { sessionCapsOf, toolAllowedFor } from 'ac-agents';
 import { describeError } from 'ac-error-core';
 import type { LlmMessage, LlmToolCall, LlmToolSpec, LlmUsage } from 'ac-llm';
 import type {
@@ -199,7 +200,7 @@ export function normalizeToolSpecs(
 /**
  * steer 队列（run 生灭）：
  *   · items——待注入消息 + 投递元数据
- *   · durable——run 级驻留注入（2026-11 裁决：技能正文等长效材料）：进
+ *   · durable——run 级驻留注入（2026-09-21 裁决：技能正文等长效材料）：进
  *     数组一次、后续步自然继承（前缀稳定——KV 全命中；取代旧「每步
  *     before-step 重现」形态——那会在每次请求尾部重算整块正文）。
  *     与 items 同点消费（步边界 splice），但不参与 steer 的丢弃/sealed
@@ -253,7 +254,7 @@ export class AgentLoopService extends Service {
    * 拦截器 veto（不调 next）时直接返回拦截器提供的 LoopRunResult。
    */
   run(request: LoopRunRequest): Promise<LoopRunResult> {
-    // run 身份键（2026-12 身份贯通）：缺省铸造并塞回 request——此后
+    // run 身份键（2026-09-24 身份贯通）：缺省铸造并塞回 request——此后
     // run-started/after-run 载荷、步级 envelope、llm 流式 meta、ToolCall
     // 全系携带同一值（before-run 档可读到；调用方自带则原样沿用）
     if (request.runId === undefined) {
@@ -303,7 +304,7 @@ export class AgentLoopService extends Service {
   }
 
   /**
-   * run 级驻留注入（2026-11 裁决）：技能正文等长效材料进工作数组一次、
+   * run 级驻留注入（2026-09-21 裁决）：技能正文等长效材料进工作数组一次、
    * 后续步继承（前缀稳定 KV 全命中）。与 steer 的差异：不参与 sealed
    * 丢弃语义（run 收束后到达 = 无消费点，静默不入——调用方自持持久化
    * 通道，如 ac-skill 的 context 行落账）。
@@ -336,12 +337,22 @@ export class AgentLoopService extends Service {
       ...request.messages,
     ];
     const specs = this.toolSpecs(request);
+    // 请求面硬闸基线（cr-5）：run 开始时刻的注册面快照——run 期间动态
+    // 注册的工具（插件安装中途启用等）不在其中，差集即「动态进面」放行集。
+    // 闸门能力面判据用的 caps 同 router 口径（sessionCapsOf：会话授权注入
+    // 含实验档 grants）——闸门只拦「本 Agent 能力面内的收窄越面」，不越权
+    // 替安全行执法能力面外的调用。
+    const baselineFace = new Set(this.ctx.tools.list().map((t) => t.name));
+    const caps = sessionCapsOf(this.ctx, request.agent, request.conversationId);
+    // 动态进面（run 期间新注册工具）：每步现算注册面 − 基线——插件安装等
+    // 中途启用即自动进放行集，无需预知
+    const dynamicFace = () => new Set(this.ctx.tools.list().map((t) => t.name).filter((n) => !baselineFace.has(n)));
     let finish: LoopRunResult['finish'] = 'stop';
     let error: string | undefined;
     let interruptReason: LoopInterruptReason | undefined;
 
     try {
-      // 预算计数（2026-02 idle 续走改造）：budget 只数模型自主步；idle 注入的
+      // 预算计数（2026-02-00 idle 续走改造）：budget 只数模型自主步；idle 注入的
       // 续走步不占预算（外部输入的接续，不是自主推理延长——见 events.ts
       // run-idle 契约注）。index 恒自然递增（步序唯一——settlement 折叠键）。
       let budget = 0;
@@ -363,7 +374,7 @@ export class AgentLoopService extends Service {
         if (step.usage) usage = mergeUsage(usage, step.usage, step.elapsedMs);
 
         // 自然收束条件：无工具调用且无待消费 steer（末轮 steer 不丢失）。
-        // 自然停点拦截（2026-02 ask 挂起重构）：break 之前交给 loop/run-idle
+        // 自然停点拦截（2026-02-00 ask 挂起重构）：break 之前交给 loop/run-idle
         // waterfall——领域行（ask_questions 的答案等待）可注入材料续走同 run；
         // 全体空手 → 照旧 break。续走步不占 maxSteps（外部输入的接续，见
         // events.ts run-idle 契约注）。
@@ -405,20 +416,49 @@ export class AgentLoopService extends Service {
         // 结果按 tool_calls 序回填。elevation（access-tier §七）：机制分支
         // 临时提权随每步装配（档位矩阵 effectiveTier = call.elevation ??
         // tierOf(agentId)——安全行与工具行只读取）
-        const toolResults = await mapLimit(step.toolCalls, 5, (tc) =>
-          this.ctx.tools.execute({
-            name: tc.name,
-            args: parseArgs(tc),
-            ...(request.agent !== undefined ? { agentId: request.agent } : {}),
-            ...(request.conversationId !== undefined
-              ? { conversationId: request.conversationId }
-              : {}),
-            ...(request.runId !== undefined ? { runId: request.runId } : {}),
-            ...(tc.id ? { toolCallId: tc.id } : {}),
-            ...(request.signal ? { signal: request.signal } : {}),
-            ...(request.elevation ? { elevation: request.elevation } : {}),
-          }),
-        );
+        // 请求面硬闸（cr-5，editor~user 事故根因修复）：LLM 发出的工具名不在
+        // request.tools 内 = 越面调用（DeepSeek 等推理端不校验 tool_calls 函数名，
+        // 长历史浸泡下模型会模仿历史直调模式点名面外工具）。不执行、不 veto——
+        // 回填带引导的纠错结果（面内可用工具 + 程序化模式正确入口），模型下一
+        // 步自然回落。放行面 = 请求面 ∪ 动态进面（run 期间新注册的工具——插件
+        // 安装中途启用等合法自进面，如 install_plugin 装好后即可调）；
+        // request.tools 未定义（全注册面语义）不判定，零行为变化。
+        const face = Array.isArray(request.tools) ? new Set(request.tools) : undefined;
+        const toolResults = await mapLimit(step.toolCalls, 5, (tc) => {
+          // 越面判定（能力面语义）：不在请求面 && 在本 Agent 能力面内 = 收窄越面
+          // （幻觉直调主力形态——历史浸泡出的常规工具对本 Agent 全是能力面内，
+          // 收窄后越面点名）→ 拦截。放行三支：请求面内；不在能力面（admin 自举
+          // 工具对低权 Agent 本就不可见，interrupt/审批链路是既有语义——闸门
+          // 不越权替安全行执法）；run 期间动态进面（插件安装中途启用）。
+          const offFace = face !== undefined && !face.has(tc.name)
+            && !dynamicFace().has(tc.name)
+            && toolAllowedFor(this.ctx.tools.get(tc.name), caps);
+          if (face === undefined || !offFace) {
+            return this.ctx.tools.execute({
+              name: tc.name,
+              args: parseArgs(tc),
+              ...(request.agent !== undefined ? { agentId: request.agent } : {}),
+              ...(request.conversationId !== undefined
+                ? { conversationId: request.conversationId }
+                : {}),
+              ...(request.runId !== undefined ? { runId: request.runId } : {}),
+              ...(tc.id ? { toolCallId: tc.id } : {}),
+              ...(request.signal ? { signal: request.signal } : {}),
+              ...(request.elevation ? { elevation: request.elevation } : {}),
+            });
+          }
+          this.ctx.logger.warn(
+            '[loop] 越面工具调用已拦截（cr-5 请求面硬闸）run=%C step=%C 拦截=%C——面内工具=%C',
+            request.runId ?? '(none)',
+            String(index),
+            tc.name,
+            request.tools!.join(','),
+          );
+          return Promise.resolve({
+            ok: false,
+            error: `工具 ${tc.name} 不在本 run 工具面，调用未执行。本 run 可用工具：${request.tools!.join(',')}。${face.has('run_code') ? '本会话为程序化模式：请改用 run_code 编排调用（tools.<name> 子调用形态）。' : '请改用面内工具完成任务。'}`,
+          });
+        });
         for (let i = 0; i < step.toolCalls.length; i++) {
           step.toolResults.push(toolResults[i]);
           messages.push({
@@ -549,12 +589,12 @@ export class AgentLoopService extends Service {
     steerQueue: SteerQueue | undefined,
 
   ): Promise<LoopStepRecord> {
-    // conversationId 随步载体出生（2026-11 /name 手势注入需要会话键解析
+    // conversationId 随步载体出生（2026-09-05 /name 手势注入需要会话键解析
     // singles 工作区技能——M25 §3.1 同款"真实需要出生"原则）
     const stepCall: LoopStepCall = { agent: request.agent, messages, conversationId: request.conversationId };
     // 信封子集（M13 载荷增强）：step/delta 级事件与 llm 调用共用，
     // WS 桥接按它过滤后台会话（source='event' 的流式输出不广播）。
-    // runId/stepId（2026-12 身份贯通）：前端 delta 帧按键直达步载体
+    // runId/stepId（2026-09-24 身份贯通）：前端 delta 帧按键直达步载体
     const stepId = `${request.runId}:${index}`;
     const envelope = {
       runId: request.runId,

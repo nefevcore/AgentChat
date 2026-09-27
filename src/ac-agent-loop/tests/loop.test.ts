@@ -227,6 +227,34 @@ describe('ac-agent-loop 循环', () => {
     expect(result.error).toBe('LLM HTTP 502: {"error":"upstream"} ← readv ECONNRESET');
   });
 
+  it('请求面硬闸（cr-5）：LLM 点名 request.tools 面外工具 → 不执行、回填引导纠错（DeepSeek 越面幻觉直调防线）', async () => {
+    // 事故形态：请求面只有 run_code（程序化收窄），模型模仿长历史直调模式
+    // 点名 memory_grep/glob——provider 不校验函数名，loop 必须硬闸。
+    const { ctx } = await boot([
+      { calls: [], chunks: () => toolCallChunks('c1', 'memory_grep', '{"pattern":"x"}') },
+      { calls: [], chunks: () => textChunks('已改用 run_code') },
+    ]);
+    let executed = 0;
+    ctx.tools.register({ name: 'memory_grep', execute: () => { executed++; return { ok: true, output: '不应执行' }; } });
+    ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }) });
+    const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q'), tools: ['run_code'] });
+    expect(executed).toBe(0); // 面外工具绝不被执行
+    const denied = result.steps[0].toolResults[0] as { ok: boolean; error: string };
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toContain('不在本 run 工具面');
+    expect(denied.error).toContain('run_code'); // 引导面内正确入口
+    expect(result.steps[1].text).toBe('已改用 run_code'); // 模型收到纠错后续步（run 正常收束）
+  });
+
+  it('请求面硬闸：request.tools 未定义（全注册面语义）→ 不判定，工具照常执行', async () => {
+    const { ctx } = await boot([
+      { calls: [], chunks: () => toolCallChunks('c1', 'echo', '{}') },
+      { calls: [], chunks: () => textChunks('完成') },
+    ]);
+    ctx.tools.register({ name: 'echo', execute: () => ({ ok: true, output: '已执行' }) });
+    const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q') });
+    expect(result.steps[0].toolResults[0]).toEqual({ ok: true, output: '已执行' });
+  });
   it('C3 回归：request.signal 透传到 llm.chat 入参（中断直达传输层）', async () => {
     const s1: Script = { calls: [], chunks: () => textChunks('ok') };
     const { ctx } = await boot([s1]);

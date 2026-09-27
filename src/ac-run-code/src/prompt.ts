@@ -10,7 +10,7 @@
 //   · SDK 投影声明（buildSdkProjection——字典序稳定，工具集不变则
 //     字节不变，KV cache 前缀友好）；
 //   · 程序书写纪律（DEFAULT_GUIDANCE 基线）。
-// 注入条件（2026-12 注入轴重构）：请求面恰等于注册面 mode 工具集
+// 注入条件（2026-09-21 注入轴重构）：请求面恰等于注册面 mode 工具集
 // （injection:'mode'——router 程序化档合成；与 narrowToolsByMode 同源）
 // 即注入。并存形态已随注入轴退役（mode 工具不进常规面，请求面不含
 // 它们）。每次注入前按 request 现算生效面（与 run_code 工具体同源
@@ -54,7 +54,7 @@ function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
   const request = call.request;
   // LLM 面判定（run 级请求面优先）：request.tools 是 router 合成后的
   // 终值——含程序化开关收窄（开关化后收窄不落在 Agent 配置里，Agent
-  // tools 复算看不见开关，2026-09 research §十）。判定单源化（2026-12
+  // tools 复算看不见开关，2026-09-21 research §十）。判定单源化（2026-09-21
   // PTC 基线段修复）：isModeToolFace 与 fs-tools/session-query 等门控
   // 行同源——「请求面恰等于注册面 mode 工具集」一处定义。
   const modeToolNames = ctx.tools.list().filter((d) => d.injection === 'mode').map((d) => d.name);
@@ -70,7 +70,7 @@ function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
   // 什么都调不了）
   const projectionFace = resolveEffectiveTools(ctx, request.agent, request.conversationId, 'projection');
   // guidance='' —— 代码块内不嵌纪律注释：块后已有一份纯文本（下方
-  // DEFAULT_GUIDANCE），块内再嵌一份是纯重复（~5K 字符/请求，2026-12
+  // DEFAULT_GUIDANCE），块内再嵌一份是纯重复（~5K 字符/请求，2026-09-21
   // 裁决）。代码块保持纯粹的 API 类型签名参考。
   const projection = buildSdkProjection(projectionFace, { guidance: '' });
   return [

@@ -1,0 +1,21 @@
+# 变更登记目录（CR log）
+
+> 一切变更（含日常 bugfix）动手前**先在此追加一行**，再动代码。
+> 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
+
+## 登记格式
+
+```
+【cr-序号 yyyy-mm-dd 一句话描述】
+```
+
+- cr 号为正整数、单调递增、永不复用（不固定位数，前导零禁止）；日期 = 登记当日真实日期。
+- 描述一句话说清改了什么；细节写对应设计文档或 CHANGELOG，目录行保持一行。
+- 一次会话内的一组关联小改可合并为一条 CR。
+
+## 目录
+
+- 【cr-1 2026-09-27 日期语义重定义：批次代号退役、存量月份标记 blame 分层还原为真实日期（史前/不可考 → `-00`）、外部归档目录改名、规约重写并建立 CR 登记】
+- 【cr-2 2026-09-27 cr 号位数约定修订：三位改「正整数单调递增、不固定位数、前导零禁止」】
+- 【cr-3 2026-09-27 CR 目录自 epoch-marking-convention.md §三迁出为独立文件 cr-log.md】
+- 【cr-4 2026-09-27 记忆时间线与群聊转录流重构：记忆桶寻址改 Agent 人格单时间线（timeline.md + checkpoint/delta 注入协议 + memory_write/memory_grep 工具）+ 群聊派生视图改成员私有转录流；memoryOwner 全链与派生窗全族退役（计划 src/docs/memory-timeline-plan.md）；追加裁决：迁移前置检查 infra 等价授予——有存量记忆的 infra Agent 自动补 memory 标签（一次性，预设豁免）；条目 log 形态前缀 [date] 由工具铸造 + [tags] 段为正文通道（tags 参数移除）；memory_write 增 date 参数（事实发生日回填）；迁移提示词改指路形态（不内嵌旧桶，Agent 自读 ./memory 整理）】- 【cr-5 2026-09-27 PTC 程序化失效事故：根因 = DeepSeek 越面结构化幻觉直调（推理端不校验 tool_calls 函数名，editor~user 750K 经典直调历史浸泡下模型无视 run_code 单 schema 请求面、模仿历史直调面外工具；执行面无请求面闸门致全部放行——llm-req/resp 两侧探针实锤）。修复 = loop 请求面硬闸：request.tools 已定义时面外调用不执行、回填「面内可用工具 + 程序化正确入口」引导纠错（模型 ReAct 自愈回落 run_code）；request.tools 未定义不判定。诊断探针六处全部移除，闸门落 src/ac-agent-loop/service.ts 执行点（原探针③位置），单测锁定】

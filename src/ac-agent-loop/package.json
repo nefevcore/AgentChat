@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ReAct 循环：inject [llm, tools]，run 能力调用 + before-run/before-step（waterfall）+ after-run/after-step（emit）边界事件；错误收束经 describeError 展开 cause 链",
+  "description": "ReAct 循环：inject [llm, tools]，run 能力调用 + before-run/before-step（waterfall）+ after-run/after-step（emit）边界事件；错误收束经 describeError 展开 cause 链；工具执行带请求面硬闸（cr-5——能力面判据，拦「能力面内的收窄越面」幻觉直调）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-error-core": "workspace:*"
   },
   "devDependencies": {
