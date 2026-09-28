@@ -28,17 +28,6 @@ export interface GroupConfig {
    */
   members: string[];
   description?: string;
-  /**
-   * 记忆属主（2026-10 群记忆收敛）：群的记忆/概要统一管理 Agent（须为
-   * 成员；undefined = 现状——每成员各自 files/<id>/memory/<gid>.md +
-   * 轮转机械摘要）。设定后：
-   *   · 注入（ac-memory）：全员群 run 共享注入属主那份
-   *     files/<owner>/memory/<gid>.md（单写多读——属主经 fs 工具维护）；
-   *   · 轮转（本服务）：达阈值先给属主跑一次 [群归档整理] run（写语义
-   *     概要 + 重写群记忆），机械摘要降为回退产物。
-   * 属主退群自动解除（leave）。
-   */
-  memoryOwner?: string;
   createdAt: number;
 }
 

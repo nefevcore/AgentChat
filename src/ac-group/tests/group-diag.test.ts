@@ -96,7 +96,7 @@ afterEach(async () => {
 });
 
 describe('独立 run 间视图复用诊断（2026-09-13）', () => {
-  it('nana 发言后 peer 再发言：nana 第二个独立 run 的种子应含 own 发言（historyFor 派生）', async () => {
+  it('nana 发言后 peer 再发言：nana 第二个独立 run 的上下文应含 own 发言（cr-4：own 投影行已入成员流）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.group.create({ id: 'g', name: '测试群', members: ['nana', 'peer'] });

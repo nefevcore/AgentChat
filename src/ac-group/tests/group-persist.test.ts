@@ -127,7 +127,7 @@ describe('ac-group 持久化（D11 存储统一）', () => {
     expect(recs.map((r) => r.from)).toEqual(['user', 'a']);
   });
 
-  it('重启（二次 boot）恢复：成员表 + 本体水合 + GroupFeed 锚点续接', async () => {
+  it('重启（二次 boot）恢复：成员表 + 本体水合 + 成员流扇出续接', async () => {
     const root = tmpRoot();
     {
       const { ctx } = await boot(root);
@@ -143,12 +143,12 @@ describe('ac-group 持久化（D11 存储统一）', () => {
       const g = ctx.group.get('g');
       expect(g?.name).toBe('新客厅');
       expect(g?.members).toEqual(['a', 'b']);
-      // 本体水合：锚点在第二条
-      const anchor = await ctx.group.currentAnchor('g');
-      expect(anchor.index).toBe(1);
-      const page = await ctx.group.readSince('g', { index: 0 }, { viewer: 'b' });
-      expect(page.messageIds).toHaveLength(1);
-      expect(page.injected).toContain('<msg from="a"'); // a 的消息对 b 是 peer（包装）
+      // 本体水合：records 照常
+      const recs = await ctx.group.records('g', 50);
+      expect(recs.map((r) => r.from)).toEqual(['user', 'a']);
+      // 成员流（cr-4）持久存活：a 的流含 own 投影（assistant）
+      const ha = await ctx.session.history('g~a', { viewer: 'a' });
+      expect(ha.some((m) => m.role === 'assistant' && String(m.content) === '早')).toBe(true);
     }
   });
 
@@ -178,39 +178,29 @@ describe('ac-group 持久化（D11 存储统一）', () => {
     const lines = fs.readFileSync(bucket, 'utf-8').trim().split('\n');
     expect(JSON.parse(lines[0])).toMatchObject({ type: 'session-header' });
     expect(lines.length - 1).toBeLessThan(8);
-    // historyFor 头部注入轮转摘要
-    const history = await ctx.group.historyFor('big', 'a');
-    expect(history[0].content).toContain('归档摘要');
   });
 
-  it('historyFor：peer 包装 / own 原文 / 相邻 peer 合并；send 投递携带 per-member history 种子', async () => {
+  it('成员流扇出（cr-4）：own=assistant 原文 / peer=user 包装；send 触发成员 run', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
     await ctx.group.post('g', 'user', '第一条');
-    await ctx.group.post('g', 'user', '第二条'); // 相邻 peer → 合并
-    await ctx.group.post('g', 'a', '我说过的话'); // own（分隔合并组）
-    await ctx.group.post('g', 'b', '我说两句'); // peer
+    await ctx.group.post('g', 'user', '第二条');
+    await ctx.group.post('g', 'a', '我说过的话'); // own
+    await ctx.group.post('g', 'b', '我说两句'); // 对 a 是 peer
 
-    const forA = await ctx.group.historyFor('g', 'a');
-    // a 视角：[user×2 合并] + [own 原文] + [b 包装] = 3 条
-    expect(forA).toHaveLength(3);
-    expect(forA[0].content).toContain('<msg from="user"');
-    expect(forA[0].content).toContain('第一条');
-    expect(forA[0].content).toContain('第二条');
-    expect(forA[1].content.startsWith('我说过的话')).toBe(true); // own 原文
-    expect(forA[2].content).toContain('<msg from="b"');
-    // M26 角色投影：own = assistant（自己的发言——assistant 示范密度，
-    // 防"直接输出文本"漂移）；peer = user（入站视角）
-    expect(forA[0].role).toBe('user');
-    expect(forA[1].role).toBe('assistant');
-    expect(forA[2].role).toBe('user');
+    const forA = await ctx.session.history('g~a', { viewer: 'a' });
+    expect(forA.at(-3)!.role).toBe('user'); // user 投影 ×2（各自独立行——成员流不合并）
+    expect(forA.at(-2)!.role).toBe('assistant'); // own
+    expect(String(forA.at(-2)!.content)).toBe('我说过的话');
+    expect(String(forA.at(-1)!.content)).toContain('<msg from="b"'); // peer 包装
+
     // b 自己视角：own 原文（assistant）
-    const forB = await ctx.group.historyFor('g', 'b');
-    expect(forB.at(-1)!.content.startsWith('我说两句')).toBe(true);
+    const forB = await ctx.session.history('g~b', { viewer: 'b' });
+    expect(String(forB.at(-1)!.content)).toBe('我说两句');
     expect(forB.at(-1)!.role).toBe('assistant');
 
-    // send：idle 成员的新 run 携带 history 种子（conversation 首跑播种）
+    // send：成员被触发（hint 只唤醒，投影行已入流）
     const received: string[] = [];
     ctx.on('router/message-received', (_agentId, m) => received.push(m.content));
     const sent = await ctx.group.send('g', 'user', '新消息', { settle: true });
@@ -221,7 +211,8 @@ describe('ac-group 持久化（D11 存储统一）', () => {
   it('无 root 且无 session 行 = 纯内存（现有语义不变）', async () => {
     const { ctx } = await boot();
     ctx.group.create({ id: 'mem', name: '内存群', members: ['a'] });
-    await ctx.group.post('mem', 'user', 'hi');
-    expect(await ctx.group.historyFor('mem', 'a')).toHaveLength(1);
+    const r = await ctx.group.post('mem', 'user', 'hi');
+    expect(r.content).toBe('hi');
+    expect((await ctx.group.records('mem')).some((x) => x.content === 'hi')).toBe(true);
   });
 });

@@ -151,7 +151,7 @@ describe('busy 成员自己发言盲区修复（2026-09-13 事故回归）', () 
     const queued = await ctx.conversation.deliver('nana', 'peer 的新话题', {
       sender: 'peer',
       source: 'agent',
-      conversationId: 'g',
+      conversationId: 'g~nana', // cr-4 成员流键（busy/链跑都在 nana 的流门上）
       lane: 'next-turn',
     });
     expect(queued.kind).toBe('queued');

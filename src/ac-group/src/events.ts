@@ -54,14 +54,6 @@ declare module '@agentchat/cordis' {
     'group/member-removed'(groupId: string, agentId: string, group: GroupConfig): void;
 
     /**
-     * 记忆属主变更（载荷 owner 为终值——undefined = 解除；group 为变更后
-     * 终值）。属主退群触发的自动解除同发本事件。UI/审计订阅方消费。
-     * @mode emit
-     * @scope host
-     */
-    'group/memory-owner-set'(groupId: string, owner: string | undefined, group: GroupConfig): void;
-
-    /**
      * 群消息已入流（内容通道唯一事实源的写入通知；投递触发在 post 之后、
      * 由 send 编排——本事件不区分是否触发投递）。UI 实时展示 / store 落盘订阅。
      * N2 双语境：用户经 RPC 发言 = 宿主上下文；Agent 群内回帖经 conversation

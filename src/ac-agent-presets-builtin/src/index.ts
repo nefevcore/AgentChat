@@ -28,7 +28,7 @@ const STANDARD: AgentPresetDefinition = {
     // 工具门禁随行标签——全量标签化（2026-09-16）后 tags 即工具面：
     //   · fs 文件族 / infra 会话基础设施
     //   · shell 命令执行（A3 起，dev→shell 拆分）
-    //   · web 网络（纯搜索，无权限面）；delegation 任务委派（2026-12 授权）
+    //   · web 网络（纯搜索，无权限面）；delegation 任务委派（2026-09-16 授权）
     //   · （run_code 可见性授权词 = infra（非"infra 族工具"）——
     //     2026-09-17 优化裁决：tc-* 回归纯模式词，预设/Agent 无需预配；
     //     「程序化」由会话工具调用模式下拉按需选择，等同临时程序化档）
@@ -36,6 +36,9 @@ const STANDARD: AgentPresetDefinition = {
     // 不含 collab（协作族）与 history（会话回放族，2026-09-17 自 infra
     // 拆出）——单会话通用对话不需要跨 Agent 协作与历史回放（2026-09-17
     // 精简裁决；# 会话引用经指引走文件工具分析）
+    // 不含 memory 标签（cr-17 记忆工具面收口）：预设无人格、单例物化，
+    // 注入软停用而工具面预授予 = 「可见但永不回来」的半可用语义；收口 =
+    // memory_write/grep 不可见（要记忆走人格 Agent，注入闸/工具闸独立）。
     tags: ['fs', 'infra', 'shell', 'web', 'delegation'],
     // src allowlist（persona/system-prompt/session/security/usage）不含
     // memory/skill/datetime——软停用对齐（无记忆语义）
@@ -93,7 +96,7 @@ const CREATOR: AgentPresetDefinition = {
     //   · admin（register_plugin/install_plugin/unregister_plugin——动态
     //     插件装卸三件套；免审 = 仅 admin Agent 自开发自安装，M15 对账后
     //     admin 边界）。注意 collab 协作族与 history 回放族与标准模式口径
-    //     一致（不载——单会话开发流不需要）。
+    //     一致（不载——单会话开发流不需要）；memory 标签同 cr-17 收口。
     tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin'],
     // 技能面保留（与标准/极简差异化）：用户自己的技能（全局/专属）照常
     // 加载——插件开发引导不依赖技能注入（框架开发技能 agentchat-dev

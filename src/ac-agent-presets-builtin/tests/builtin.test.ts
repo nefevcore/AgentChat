@@ -44,6 +44,7 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     // 精简——collab 协作族与 history 会话回放族出局，单会话通用对话不载。
     // run_code 随 infra 族（2026-09-17 优化裁决：tc-* 纯模式词——程序化
     // 是会话形态选择，无需预配标签）
+    // memory 出局（cr-17 记忆工具面收口）：注入软停用 + 工具面无标签，双闸全关
     expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation']);
 
     // 无 config 行 → 模型留空（router 层报"缺少 model"；会话级模型覆盖可用）
@@ -51,7 +52,7 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
 
     const minimal = ctx.agents.get('__dsh_minimal__');
     expect(minimal?.preset).toBe(true);
-    // str_replace_editor 挂 fs_minimal 门禁（2026-09 移出默认工具面）——
+    // str_replace_editor 挂 fs_minimal 门禁（2026-09-15 移出默认工具面）——
     // 本预设显式授权。预设数据用 'tag:shell' 占位（平台无关），物化层
     // 解析为当平台字面名（Windows pwsh / Unix bash，2026-09-16 工具拆分）
     const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';

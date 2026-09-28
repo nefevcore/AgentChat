@@ -19,13 +19,13 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'group',
   label: '群聊',
-  description: '群聊服务（ctx.group）：成员表 + 群投递 + 群聊行为契约（决策点注入）+ 群记忆属主（group/* 事件）',
+  description: '群聊服务（ctx.group）：成员表 + 成员私有转录流（post 扇出投影）+ 群投递（hint 只唤醒）+ 群聊行为契约（决策点注入）+ 本体机械轮转',
   automatic: true,
   fields: [
     { name: 'contractText', type: 'text', default: '', description: '群聊行为契约文本（怎么回/直接输出无效/沉默权/不刷屏）——注入在每个群 run 的"回/不回"决策点（历史尾部、触发消息之前；系统提示词位置会注意力稀释失效）。留空使用内置正典。自定义文案建议按 Agent 分组 A/B 观察沉默率与回复质量' },
   ],
   listeners: [
-    { event: 'loop/before-run', role: '群聊行为契约注入', description: '群桶 run 启动前把契约插到历史尾部、触发消息之前（沉默权/不刷屏/send_group 语义——两次真实事故沉淀的实测文案）' },
+    { event: 'loop/before-run', role: '群聊行为契约注入', description: '群会话 run（本体键或成员流键）启动前把契约插到历史尾部、触发消息之前（沉默权/不刷屏/send_group 语义——两次真实事故沉淀的实测文案）' },
   ],
 };
 

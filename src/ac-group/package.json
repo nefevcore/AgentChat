@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "群拓扑（ctx.group）：成员表 + 群消息流（单通道 v3：本体是唯一内容通道）+ GroupFeed 锚点增量 + 投递经 ac-conversation（busy=steer / idle=新 run）。前端半边 = ac-client-ui-group 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
+  "description": "群拓扑（ctx.group）：成员表 + 本体 post（唯一发言事实源）+ 成员私有转录流扇出（cr-4：sessions/<gid>~<member>/ 投影行）+ 群投递（hint 只唤醒，成员流键）+ 行为契约注入（M26）+ 本体机械轮转。前端半边 = ac-client-ui-group 独立 UI 行",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -19,7 +19,6 @@
     "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
-    "@agentchat/cordis-timer": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",

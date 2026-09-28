@@ -10,6 +10,7 @@ import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as toolsRow from 'ac-tools';
+import * as sessionRow from 'ac-session';
 import * as groupRow from '../src/index';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -68,6 +69,7 @@ async function boot(m: ReturnType<typeof gatedLlm>) {
     agentsRow,
     routerRow,
     conversationRow,
+    sessionRow,
     groupRow,
   ];
   for (const row of rows) {
@@ -195,8 +197,8 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     const { ctx } = await boot(m);
     ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
 
-    // a 在【群会话】里忙（handle=g~a；与 1v1 handle=a 是两扇独立的门）
-    const pa = ctx.conversation.deliver('a', 'a 在忙群内旧事', { conversationId: 'g' });
+    // a 在【群成员流会话】里忙（conversationId=g~a；与 1v1 handle=a 是两扇独立的门）
+    const pa = ctx.conversation.deliver('a', 'a 在忙群内旧事', { conversationId: 'g~a' });
     await m.waitForCall(1);
 
     const sending = ctx.group.send('g', 'user', '群通知', { settle: true });
@@ -239,8 +241,8 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     m.release();
     await sending;
     expect(String(m.contents(0).at(-1))).toContain('<msg from="c" name="小七" group="露台">我上线啦</msg>');
-    // 回放层同款显示名（peer 包装）
-    const history = await ctx.group.historyFor('g3', 'a');
+    // 成员流投影行同款显示名（cr-4：post 扇出的 peer 包装）
+    const history = await ctx.session.history('g3~a', { viewer: 'a' });
     expect(history.some((h) => String(h.content).includes('name="小七"'))).toBe(true);
   });
 
@@ -308,48 +310,59 @@ describe('群聊行为契约（M26 决策点注入）', () => {
   });
 });
 
-describe('GroupFeed（锚点增量）', () => {
-  it('currentAnchor + readSince：锚点后增量、peer 包装 / own 原文、无锚点空页、最新锚点空页、index 回退', async () => {
+describe('成员私有转录流（cr-4：post 扇出投影）', () => {
+  it('post 扇出：own=assistant 原文 / peer=user <msg> 包装 + 时间行；群本体零双录', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    ctx.group.create({ id: 'fanout', name: '客厅', members: ['a', 'b'] });
+    await ctx.group.post('fanout', 'a', '我说的话');
+    await ctx.group.post('fanout', 'user', '用户的话');
+
+    // a 的成员流：own（a）= assistant 原文；user = peer 包装
+    const ha = await ctx.session.history('fanout~a', { viewer: 'a' });
+    expect(String(ha[0].content)).toBe('我说的话');
+    expect(ha[0].role).toBe('assistant');
+    expect(String(ha[1].content)).toContain('<msg from="user"');
+    expect(String(ha[1].content)).toContain('用户的话');
+    expect(ha[1].role).toBe('user');
+
+    // b 的成员流：a/user 全是 peer 包装
+    const hb = await ctx.session.history('fanout~b', { viewer: 'b' });
+    expect(String(hb[0].content)).toContain('<msg from="a"');
+    expect(hb[0].role).toBe('user');
+
+    // 群本体（shelf 桶）零双录：本体行数 = post 数（无成员流投影行混入）
+    const body = await ctx.session.records('fanout');
+    expect(body.filter((r) => r.role === 'agent')).toHaveLength(2);
+  });
+
+  it('沉默权（M26）：run 终稿落成员流（私有转录），不进群本体', async () => {
     const m = gatedLlm();
     const { ctx } = await boot(m);
     ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
-    const r1 = await ctx.group.post('g', 'a', '第一条');
-    const r2 = await ctx.group.post('g', 'user', '第二条');
-    await ctx.group.post('g', 'b', '第三条');
+    const sending = ctx.group.send('g', 'user', '大家好', { settle: true });
+    await m.waitForCall(1);
+    m.release();
+    await sending;
+    // a 的成员流有 run 转录（终稿行）
+    const recordsA = await ctx.session.records('g~a');
+    expect(recordsA.some((r) => r.role === 'agent' && r.content.includes('回复'))).toBe(true);
+    // 群本体只有 post 行（无 run 终稿/步级行）
+    const body = await ctx.session.records('g');
+    expect(body.filter((r) => r.role === 'agent' && r.content.includes('回复'))).toHaveLength(0);
+  });
 
-    // 当前流尾锚点
-    const tail = await ctx.group.currentAnchor('g');
-    expect(tail.messageId).toBeDefined();
-    expect(tail.index).toBe(2);
+  it('撞形防线：群 id 撞已注册 Agent → 拒；Agent id 撞群 → 拒（双向卡位）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    expect(() => ctx.group.create({ id: 'a', name: '伪装', members: ['b'] })).toThrow(/同名/);
+    ctx.group.create({ id: 'gx', name: '群', members: ['a'] });
+    expect(() => ctx.agents.register({ id: 'gx', model: 'mock-1' })).toThrow(/同名/);
+  });
 
-    // 锚点 = 第一条 → 增量 = 第二、三条（viewer=a：a 的 own=第一条不在增量；user/b 是 peer → 包装）
-    const page = await ctx.group.readSince('g', { messageId: r1.id }, { viewer: 'a' });
-    expect(page.messageIds).toEqual([r2.id, expect.any(String)]);
-    expect(page.injected).toContain('<msg from="user"');
-    expect(page.injected).toContain('第二条');
-    expect(page.injected).toContain('<msg from="b"');
-    expect(page.anchor.index).toBe(2);
-
-    // viewer=b：own（第三条）不包装，peer 包装
-    const own = await ctx.group.readSince('g', { messageId: r2.id }, { viewer: 'b' });
-    expect(own.injected.startsWith('第三条')).toBe(true); // own 原文，无 <msg> 前缀
-
-    // 无锚点 → 空增量（防双注）
-    const noAnchor = await ctx.group.readSince('g', undefined, { viewer: 'a' });
-    expect(noAnchor.injected).toBe('');
-    expect(noAnchor.messageIds).toEqual([]);
-    expect(noAnchor.anchor.index).toBe(2); // 空页 = 当前流尾
-
-    // 锚点 = 最新 → 空增量
-    const latest = await ctx.group.readSince('g', tail, { viewer: 'a' });
-    expect(latest.injected).toBe('');
-
-    // index 回退（无 messageId 的锚点）
-    const byIndex = await ctx.group.readSince('g', { index: 0 }, { viewer: 'a' });
-    expect(byIndex.messageIds).toHaveLength(2);
-
-    // 空群 → index -1
-    ctx.group.create({ id: 'empty', name: '空', members: ['a'] });
-    expect(await ctx.group.currentAnchor('empty')).toEqual({ index: -1 });
+  it('群 id 禁 ~（规约防线①）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    expect(() => ctx.group.create({ id: 'g~x', name: '坏', members: ['a'] })).toThrow(/非法/);
   });
 });

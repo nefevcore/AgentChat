@@ -1,62 +1,47 @@
 // ============================================================
 // ac-group/src/service.ts —— 群服务（cordis Service）
 //
-// KV Cache effect（M21/D9 声明纪律）: Prefix-stable —— 派生窗钉住
-// （D6）：窗口头派生一次后不动，本体新事件增量吸收——派生间字节只做
-// 尾部追加。显式失效：本体轮转 / 超阈值重派生 = invalidate-from-head
-// （一次显式 replace，低频）。
+// 【cr-4 成员私有转录流】（memory-timeline-plan §四，推翻 D11 S1/S3
+// 与派生视图路线）：成员上下文不再每 run 从本体派生——post 扇出
+// viewer 投影行进成员私有流（sessions/<gid>~<member>/），成员 run 走
+// 标准 session 机制（journal/settlement/步级转录/崩溃恢复/回放/压缩
+// 全套）。派生窗全族（windowOf/deriveWindow/tailScan D6）、相邻 peer
+// 合并、historyFor 派生视图退役（historyFor 降级为入群种子）。
+//
+// KV Cache effect: Prefix-stable by construction——成员流只做尾部
+// 追加（扇出投影 + run 转录），无就地变异、无重派生。
 //
 // 本包是群域的 owning package：群配置/群消息域类型（./contract.ts）、
 // `<msg>` 视图包装（./view.ts）、group/* 事件目录（./events.ts）。
 //
-// 职责（单通道 v3，对齐 src GroupManager + GroupService）：
-//   · 成员表：create/delete/join/leave/rename + setDescription + setMemoryOwner（事件通知 group/*）
-//   · 内容通道：post 入流（唯一事实源）+ group/message-posted 事件
-//   · GroupFeed：readSince(锚点)/currentAnchor —— busy 参与者的增量注入
-//   · 投递：send = post + 逐参与者 ctx.conversation.deliver
-//     （conversationId=群 id → handle=gid~member 每参与者独立门；
-//     busy=steer、idle=新 run；fire-and-forget，受理即返回）
-//   · 群聊行为契约（M26 行为对齐）：GROUP_CONTRACT_TEXT 经 loop/before-run
-//     注入每个群 run 的"回/不回"决策点（历史尾部、触发消息之前）——
-//     沉默权/不刷屏/send_group 语义；实测教训：放系统提示词会因长上下文
-//     注意力稀释失效（src 轨 08-03 空转 / 08-09 回声链雪崩两次事故沉淀）
-//   · 轮转（2026-10 群记忆收敛）：达阈值分流——配了记忆属主走
-//     [群归档整理] run（属主写语义概要 + 重写全员共享的群记忆，
-//     ARCHIVE_REVIEW_META 三处不落盘 + maxSteps 硬闸 + 超时兜底机械
-//     回退）；无属主维持机械摘要轮转。
+// 职责：
+//   · 成员表：create/delete/join/leave/rename + setDescription（事件
+//     通知 group/*）；双向名册校验（群 id 撞 Agent id 拒——撞形防线）
+//   · 内容通道：post 入本体（唯一发言事实源）+ 成员流扇出 +
+//     group/message-posted 事件
+//   · 投递：send = post + 逐成员 conversation.deliver（成员流键
+//     gid~member；hint 只唤醒不携消息——投影行已入账；fire-and-forget）
+//   · 群聊行为契约（M26）：GROUP_CONTRACT_TEXT 经 loop/before-run 注入
+//     决策点（判定键含成员流键——isGroupConversation）
+//   · 本体轮转：达阈值机械轮转（archive/ 分段 + 摘要；属主整理随
+//     memoryOwner 全链退役——群共享记忆概念消失，cr-4）
 //
-// 【D11 存储统一（M21 落地）】群本体**迁入 sessions 树**，消息流归
-// ac-session 单 owning（规约 1）：
-//   · 本体 = sessions/groups/<gid>/messages.jsonl（经 session.setShelf
-//     上架；中性行：一切真实发言 role:'agent' + agent_id=说话人端点——
-//     用户 post 与成员 send_group 发言同词表——post 是唯一入账口）；
-//   · post → session.append（唯一写口，行 id 返回对齐 GroupFeed 锚点）；
-//     群本体只收真实发言（post 唯一口）——成员 run 的终稿/步级部分行/
-//     工具补行不入本体（M26：send_group 才是发言，直接输出无人可见——
-//     契约明示；ac-session 按 group hint meta / groups shelf 跳过）；
-//   · 退役 groups/<gid>/messages.jsonl（旧双事实源的病灶，F6②）；
-//     groups/<gid>/ 保留成员表 group.json + 轮转分段 archive/（本域）；
-//   · 本体读取（historyFor/GroupFeed/records）→ session.records 懒水合
-//     （按 gid 一次，内存缓存；无 session 行 = 纯内存态——测试兼容）；
-//   · 轮转：分段写 groups/<gid>/archive/history_N.jsonl + 机械摘要
-//     summary_N.md（编排归本服务），本体重建经 session.compact
-//     （owning 写口）；成员上下文 = 每 run 从本体 per-member 派生
-//     （conversation 无条件重派生，2026-11 视图增量层退役——视角
-//     单源 = 本体，不再有第二事实源）；
-//   · per-Agent 视角文件不采纳（S1/S3）：成员"视角桶"
-//     （sessions/<gid>~<member>）是 src 时代形态——preview 以内存视图
-//     + historyFor 种子承担，不落文件（写放大 + 第二事实源）。
+// 【D11 存储统一（保留部分）】本体 = sessions/groups/<gid>/
+// messages.jsonl（shelf 上架，post 唯一入账口——群本体只收真实发言；
+// 成员 run 转录不落本体，落成员流）。成员流 = sessions/<gid>~<member>/
+// （cr-4 新增，标准 session 桶——无 shelf，settlement 全套照常）。
 //
-// M15 持久化（行配置 root 给定即启用成员表/轮转域；缺省纯内存）：
+// M15 持久化（行配置 root 给定即启用；缺省纯内存）：
 //   <root>/groups/<gid>/group.json   成员表（原子写）
 //   <root>/groups/<gid>/archive/     轮转分段 history_N.jsonl + summary_N.md
 //   <root>/sessions/groups/<gid>/    本体（ac-session 域，shelf 上架）
+//   <root>/sessions/<gid>~<member>/  成员私有转录流（cr-4）
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
-import { ARCHIVE_REVIEW_META, isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-agent-loop';
 import { GROUP_HINT_META, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（原住本包/ac-session，解 session⇄group 环；2026-09-05 边界评估）
 import { displayNameOf } from 'ac-agents'; // 端点显示名单源解析（连带 ctx.agents 类型增强）
 import type { LlmMessage } from 'ac-llm';
@@ -80,22 +65,6 @@ export interface GroupRowOptions {
   archiveTokens?: number;
   /** 轮转后本体保留尾部 token 预算（缺省 30_000） */
   keepTokens?: number;
-  /** 群历史回放加载预算（缺省 30_000） */
-  loadLimitTokens?: number;
-  /**
-   * 派生窗重派生阈值（M21/D6·D5；缺省 max(100_000, loadLimitTokens×2)
-   * ——loadLimitTokens > 50k 时随之上浮）
-   */
-  rederiveTokens?: number;
-  /**
-   * 属主整理 run 步数硬上限（闸①，M20 教训——失控整理是唯一现实 OOM
-   * 路径；缺省 128）
-   */
-  reviewMaxSteps?: number;
-  /** 属主整理 run 超时兜底（缺省 10 分钟；超时 = abort + 机械摘要回退强制轮转） */
-  reviewTimeoutMs?: number;
-  /** 残留 pending 扫描间隔（缺省 5 分钟；有 pending 才拉起周期扫描） */
-  reviewScanIntervalMs?: number;
 }
 
 /**
@@ -158,6 +127,15 @@ function mintMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * 成员私有转录流键（cr-4）：sessions/<gid>~<member>/——runAddress 同形
+ * （member 恒最右，右起解析无歧义；gid 禁 ~ 使拆分唯一）。撞形防线：
+ * 群 id 禁 ~（规约）+ 双向名册校验（create/register 双卡）+ 一致性测试。
+ */
+export function memberStreamKey(groupId: string, member: string): string {
+  return `${groupId}~${member}`;
+}
+
 // GROUP_HINT_META / isGroupHint 已下沉 ac-core-utils（跨行协议纯函数）：
 // session/conversation/ws-bridge 消费、本行生产，随本包导出会与 D11 存储
 // 方向相逆成环——见 ac-core-utils 包头。
@@ -172,22 +150,6 @@ function mintMessageId(): string {
  */
 export const GROUP_CONTRACT_TEXT =
   '收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默，请注意不要刷屏。';
-
-/** 属主整理轮转 pending 标记（磁盘形态；崩溃残留由超时扫描兜底） */
-interface RotationPending {
-  /** 记忆属主（整理 run 目标 + 概要读取基准） */
-  owner: string;
-  requestedAt: string;
-  /** 本次归档段号（summary_N.md 覆写目标） */
-  index: number;
-  /** 保留尾部首行 seq（收尾重算 keep 的锚；B1 窗口） */
-  keepFromSeq?: number;
-  /** 快照基线（compact baselineSeq——整理期间新到消息并入） */
-  baselineSeq: number | undefined;
-}
-
-/** 整理 run 摘要物料的 token 预算（输入有界化——M20 教训，防全量起步） */
-const REVIEW_DIGEST_TOKENS = 50_000;
 
 /** 触发通知的时间行（对齐 src tail 形态） */
 function timeLine(): string {
@@ -232,26 +194,6 @@ export class GroupService extends Service {
   private readonly archiveTokens: number;
   /** 轮转后本体保留尾部 token 预算（缺省 30k） */
   private readonly keepTokens: number;
-  /** 群历史回放加载预算（token；缺省 30k，src groupLoadLimitTokens） */
-  private readonly loadLimitTokens: number;
-  /**
-   * 派生窗重派生阈值（M21/D6·D5：≈0.8×保守模型窗，缺省 100k token）：
-   * 窗口累计超阈 → 整体重算一次（显式 replace）。窗口钉住使派生间
-   * 字节只做尾部追加（滑窗消除）。
-   */
-  private readonly rederiveTokens: number;
-  /** 派生窗状态（gid → 钉住的窗口头 + 增量吸收水位；轮转/删群时重置） */
-  private windows = new Map<string, { start: number; absorbed: number; tokens: number }>();
-  /** 进行中的属主整理轮转（内存幂等闸；收尾/兜底时清） */
-  private rotating = new Set<string>();
-  /** 超时兜底扫描句柄（有 pending 才存在——空闲零定时器，boot 自退） */
-  private scanDispose?: () => void;
-  /** 闸①：属主整理 run 步数硬上限（M20 教训） */
-  private readonly reviewMaxSteps: number;
-  /** 属主整理 run 超时兜底 */
-  private readonly reviewTimeoutMs: number;
-  /** 残留 pending 扫描间隔 */
-  private readonly reviewScanIntervalMs: number;
 
   constructor(ctx: Context, options: GroupRowOptions = {}) {
     super(ctx, 'group');
@@ -261,35 +203,17 @@ export class GroupService extends Service {
     this.storeRoot = persistRoot !== undefined ? path.resolve(persistRoot, 'groups') : undefined;
     this.archiveTokens = options.archiveTokens ?? 500_000;
     this.keepTokens = options.keepTokens ?? 30_000;
-    this.loadLimitTokens = options.loadLimitTokens ?? 30_000;
-    this.rederiveTokens = options.rederiveTokens ?? Math.max(100_000, this.loadLimitTokens * 2);
-    this.reviewMaxSteps = options.reviewMaxSteps ?? 128;
-    this.reviewTimeoutMs = options.reviewTimeoutMs ?? 10 * 60_000;
-    this.reviewScanIntervalMs = options.reviewScanIntervalMs ?? 5 * 60_000;
     if (this.storeRoot !== undefined) this.loadFromDisk();
-
-    // ---- 属主整理 run 完成收尾（事件驱动；识别群桶的 archive-review
-    // run——1v1 归档桶含 ~ 不在 groups 名册，天然不误触） ----
-    this.ctx.on('loop/after-run', (request, result) => {
-      if (!isArchiveReviewRun(request.meta)) return;
-      const gid = request.conversationId;
-      if (gid === undefined || !this.groups.has(gid)) return;
-      if (request.agent === undefined) return;
-      void this.completeRotation(gid, request.agent, result).catch((err: unknown) => {
-        this.ctx.logger.error(`[group] 属主整理收尾失败（${gid}）: ${String(err)}`);
-      });
-    }, { description: '群轮转属主整理收尾（概要落盘 + compact 重建）' });
-
-    // ---- 超时兜底（启动即扫一次；周期扫描懒拉起——见 syncRotationScan） ----
-    void this.scanRotationPending();
 
     // ---- 群聊行为契约注入（M26 行为对齐；决策点 = 历史尾部、触发消息之前）----
     // 每 run 注入一次（busy steer 不重复携带——run 上下文已有一份）；
-    // 只改写本次 run 的消息副本，不落盘；机制 run（归档整理）与非群桶
-    // （1v1/独立会话）不注入。per-Agent 文案覆盖见 contractFor。
+    // 只改写本次 run 的消息副本，不落盘；机制 run（归档整理）与非群会话
+    // 不注入。判定键（cr-4 成员转录流）：conversationId ∈ 群名册 **或**
+    // gid~member 形（成员流 run——handle 解析 gid 后命中名册）。
+    // per-Agent 文案覆盖见 contractFor。
     this.ctx.on('loop/before-run', (call, next) => {
       const request = call.request;
-      if (request.conversationId === undefined || !this.groups.has(request.conversationId)) {
+      if (request.conversationId === undefined || !this.isGroupConversation(request.conversationId)) {
         return next();
       }
       if (isArchiveReviewRun(request.meta)) return next();
@@ -308,6 +232,18 @@ export class GroupService extends Service {
       };
       return next();
     }, { description: '群聊行为契约注入（决策点：历史尾部、触发消息之前；沉默权/不刷屏/send_group 语义）' });
+  }
+
+  /**
+   * 群会话判定（cr-4 成员转录流）：conversationId = 群本体键（群名册）或
+   * 成员流键 gid~member（runAddress 右起解析——member 恒最右，gid 取
+   * 末段左侧全部——gid 禁 ~ 使拆分无歧义）。
+   */
+  isGroupConversation(conversationId: string): boolean {
+    if (this.groups.has(conversationId)) return true;
+    const t = conversationId.indexOf('~');
+    if (t <= 0) return false;
+    return this.groups.has(conversationId.slice(0, t));
   }
 
   /**
@@ -436,36 +372,29 @@ export class GroupService extends Service {
     const totalTokens = log.reduce((acc, m) => acc + estimateTokens(m.content), 0);
     if (totalTokens <= this.archiveTokens) return;
 
-    const owner = this.groups.get(groupId)?.memoryOwner;
-    if (owner) {
-      // 整理进行中：跳过（收尾后的下次增长再评估——防机械轮转与在途
-      // 整理双写竞态）
-      if (this.rotating.has(groupId)) return;
-      // 漏斗与消息链路解耦（fire-and-forget，对齐 ac-archive requestArchive）：
-      // deliver 是深链（placement next-run 等空闲 + await 整个 run 收尾），
-      // await 会把跨阈值的那条消息（web-api 群 RPC / send_group 工具）阻塞
-      // 分钟级——属主自己触发时（工具在其群桶 run 内执行）deliver 等空闲与
-      // 工具等返回互锁至超时。收尾本就事件驱动（loop/after-run →
-      // completeRotation），投递失败即行机械回退（rotateWithReview 内 catch），
-      // 等空闲超时由 scanRotationPending 兜底——detach 语义等价且不阻塞
-      // post 的 group/message-posted 事件与逐成员 hint 投递。
-      // rotating 门在 rotateWithReview 同步前缀内即登记，并发 post 不会双跑。
-      void this.rotateWithReview(groupId, owner).catch((err: unknown) => {
-        this.ctx.logger.error(`[group] 属主整理轮转异常（${groupId}/${owner}）: ${String(err)}`);
-        this.rotating.delete(groupId);
-        this.syncRotationScan();
-      });
-      return;
-    }
     await this.rotateMechanical(groupId);
   }
 
+  /** 尾部预算扫描（保留窗共用式）：从尾往前累计 token 至预算 ×1.5
+   *  （src 容差语义——允许末条略超预算换完整语义单元），返回纳入的
+   *  最早下标与累计 token。 */
+  private tailScan(contents: string[], budget: number): { start: number; tokens: number } {
+    let acc = 0;
+    let start = contents.length;
+    for (let i = contents.length - 1; i >= 0; i--) {
+      const t = estimateTokens(contents[i]);
+      if (acc + t > budget * 1.5 && acc > 0) break;
+      acc += t;
+      start = i;
+    }
+    return { start, tokens: acc };
+  }
+
   /**
-   * 机械轮转（原 maybeArchiveBody 主体；无属主群的现状路径 + 属主整理的
-   * 回退产物）：旧消息入 groups/<gid>/archive/history_N.jsonl + 机械摘要
-   * summary_N.md（时间/发送人/截断正文，尾部 60 条）+ 本体经
-   * session.compact 重建保留尾部 keepTokens（×1.5 容差；owning 写口）。
-   * 分段行 = SessionRecord 原文（steps/reasoning 随行保留——审计不降级）。
+   * 机械轮转（原 maybeArchiveBody 主体）：旧消息入 groups/<gid>/archive/
+   * history_N.jsonl + 机械摘要 summary_N.md（时间/发送人/截断正文，尾部
+   * 60 条）+ 本体经 session.compact 重建保留尾部 keepTokens（×1.5 容差；
+   * owning 写口）。分段行 = SessionRecord 原文（steps/reasoning 随行保留）。
    */
   private async rotateMechanical(groupId: string): Promise<void> {
     const session = this.sessionBackend();
@@ -486,278 +415,6 @@ export class GroupService extends Service {
       String(index),
       String(kept.length),
     );
-  }
-
-  /**
-   * 属主整理轮转（2026-10 群记忆收敛）：写归档段 + 机械摘要（回退产物）
-   * → pending 标记 → 给属主投递 [群归档整理] run（source:'event' 同桶
-   * 串行化门 + ARCHIVE_REVIEW_META 三处不落盘 + maxSteps 硬闸；种子 =
-   * 旧概要 + 本段机械摘要全文——输入有界化，不重蹈 M20 全量起步）→
-   * 完成由 loop/after-run 事件驱动收尾（completeRotation），超时由
-   * scanRotationPending 兜底（abort + 机械摘要回退强制轮转）。
-   */
-  private async rotateWithReview(groupId: string, owner: string): Promise<void> {
-    const session = this.sessionBackend();
-    if (!session) return;
-    this.rotating.add(groupId);
-    this.syncRotationScan();
-    const records = await session.records(groupId);
-    const { start: splitIdx } = this.tailScan(records.map((r) => r.content), this.keepTokens);
-    if (splitIdx <= 0) {
-      // 保留预算已覆盖全部（理论不达）：无段可整，静默出闸
-      this.rotating.delete(groupId);
-      this.syncRotationScan();
-      return;
-    }
-    const archived = records.slice(0, splitIdx);
-    const kept = records.slice(splitIdx);
-    const index = this.writeArchiveSegment(groupId, archived);
-    if (index === undefined) {
-      this.rotating.delete(groupId);
-      this.syncRotationScan();
-      return;
-    }
-    this.writeMechanicalSummary(groupId, index, archived); // 回退产物（整理成功会被覆写）
-    const firstKept = kept.at(0);
-    const pending: RotationPending = {
-      owner,
-      requestedAt: new Date().toISOString(),
-      index,
-      keepFromSeq: typeof firstKept?.seq === 'number' ? firstKept.seq : undefined,
-      baselineSeq: maxSeqOf(records),
-    };
-    this.writeRotationPending(groupId, pending);
-    const group = this.groups.get(groupId);
-    const history = this.reviewSeed(groupId, owner, archived, index);
-    const prompt = this.reviewPrompt(group ?? { id: groupId, name: groupId, members: [], createdAt: 0 }, owner, archived.length);
-    this.ctx.logger.info(
-      '[group] 属主整理轮转 %C（owner=%C，%C 条 → history_%C，整理 run 投递）',
-      groupId,
-      owner,
-      String(archived.length),
-      String(index),
-    );
-    // M12 铁律 2：deliver 是深链服务，经 ctx.get 取 root-traced 引用
-    const conversation = this.ctx.get('conversation') as {
-      deliver(
-        agentId: string,
-        inbound: { role: 'user'; content: string },
-        options: ConversationDeliverOptions,
-      ): Promise<ConversationOutcome>;
-    };
-    let outcome: ConversationOutcome;
-    try {
-      outcome = await conversation.deliver(
-        owner,
-        { role: 'user', content: prompt },
-        {
-          conversationId: groupId, // 同桶：与群消息 run 共串行化门
-          sender: owner, // 机制触发 = 目标自身
-          source: 'event',
-          placement: 'next-run',
-          meta: { [ARCHIVE_REVIEW_META]: true }, // 三处不落盘（session/usage/上下文视图）
-          elevation: 'sandbox-access', // 机制分支临时提权（access-tier §7.3）：整理写入有界（anchorOutput 锚定 Agent 专用空间）；群桶恒无人——档位已覆盖，永不触发询问
-          maxSteps: this.reviewMaxSteps, // 闸①：失控防线步数硬上限
-          history, // 整理种子（旧概要 + 本段摘要物料）
-          timeoutMs: this.reviewTimeoutMs, // 等空闲上限 = 兜底超时
-        },
-      );
-    } catch (err: unknown) {
-      // 投递失败（未知 Agent/构造异常）→ 无 run 无 after-run，立即机械回退
-      this.ctx.logger.warn(`[group] 属主整理 run 投递失败（${owner}/${groupId}）: ${String(err)}`);
-      await this.forceRotation(groupId, pending).catch(() => undefined);
-      return;
-    }
-    if (outcome.kind === 'timeout') {
-      this.ctx.logger.warn(
-        `[group] 属主整理 run 等待空闲超时（${owner}/${groupId}）——交由 pending 兜底机械回退`,
-      );
-    }
-    // 正常路径收尾在 loop/after-run（completeRotation）；queued/steered 的
-    // run 迟早收束，同走事件收尾；超时漏斗由 scanRotationPending 兜底。
-  }
-
-  /**
-   * 属主整理收尾（loop/after-run 事件驱动）：run 正常收束（finish='stop'）
-   * → 优先读属主亲写概要（须本次请求之后更新，mtime 语义对齐 1v1 归档
-   * D4）覆写 summary_N.md；失败/缺文件/未更新 → 保留机械摘要（回退）。
-   * 随后 compact 重建本体（B1：baselineSeq 窗口并入整理期间新到消息）、
-   * 内存 log/派生窗重置、成员视图 stale、清标记。
-   */
-  private async completeRotation(groupId: string, owner: string, result: LoopRunResult): Promise<void> {
-    const pending = this.readRotationPending(groupId);
-    if (pending === undefined || pending.owner !== owner) return; // 非本次漏斗（如已被兜底清理）
-    this.ctx.logger.info(
-      '[group] 属主整理收束 conv=%C owner=%C finish=%C steps=%C',
-      groupId,
-      owner,
-      result.finish,
-      String(result.steps.length),
-    );
-    if (result.finish === 'stop') {
-      const summary = this.ownerSummaryOf(groupId, owner, pending, result.text);
-      if (summary !== undefined) {
-        const file = path.join(this.groupDir(groupId), 'archive', `summary_${pending.index}.md`);
-        try {
-          fs.writeFileSync(file, summary.endsWith('\n') ? summary : `${summary}\n`, 'utf-8');
-          this.ctx.logger.info(`[group] 属主语义概要已落盘（${groupId}/summary_${pending.index}.md）`);
-        } catch (err: unknown) {
-          this.ctx.logger.warn(`[group] 语义概要落盘失败（保留机械摘要）: ${String(err)}`);
-        }
-      }
-    }
-    await this.forceRotation(groupId, pending);
-  }
-
-  /**
-   * 强制轮转收口（整理收尾 / 投递失败 / 超时兜底共用）：按 pending 的
-   * keepFromSeq 重算保留尾部（整理期间新到消息自然并入），compact 重建
-   * 本体 + 内存态重置 + 清标记。
-   */
-  private async forceRotation(groupId: string, pending: RotationPending): Promise<void> {
-    const session = this.sessionBackend();
-    if (!session) return;
-    await this.ensureLog(groupId); // shelf 注册 + 本体水合（崩溃残留路径首次触达）
-    const records = await session.records(groupId);
-    const keep =
-      pending.keepFromSeq !== undefined
-        ? records.filter((r) => (r.seq ?? 0) >= pending.keepFromSeq!)
-        : records; // 无锚（理论不达）= 全保留，交给下次轮转
-    if (keep.length === records.length && records.length > 0 && pending.keepFromSeq !== undefined) {
-      // 锚点行已被删（B1 边界）：按尾部预算重扫
-      const { start } = this.tailScan(records.map((r) => r.content), this.keepTokens);
-      keep.splice(0, start);
-    }
-    await session.compact(groupId, { keep, baselineSeq: pending.baselineSeq });
-    this.logs.set(
-      groupId,
-      keep.filter((r) => r.role === 'agent').map((r) => toGroupMessage(groupId, r)),
-    );
-    this.windows.delete(groupId); // 轮转 = 显式 replace：派生窗随之重置
-    // 成员视图无需失效标记：conversation 每 run 无条件重派生（2026-11 视图增量层退役）
-    this.rotating.delete(groupId);
-    this.clearRotationPending(groupId);
-    this.syncRotationScan();
-  }
-
-  /** 属主亲写概要（D4 同款 mtime 判新；缺/旧/空 → 回退 undefined 用机械摘要或回复文本） */
-  private ownerSummaryOf(
-    groupId: string,
-    owner: string,
-    pending: RotationPending,
-    fallbackText: string,
-  ): string | undefined {
-    const requestedAt = Date.parse(pending.requestedAt);
-    const file = this.ownerSummaryFile(owner, groupId);
-    try {
-      if (fs.existsSync(file)) {
-        const stat = fs.statSync(file);
-        if (!Number.isNaN(requestedAt) && stat.mtimeMs >= requestedAt) {
-          const text = fs.readFileSync(file, 'utf-8').trim();
-          if (text) return this.clipSummary(text);
-          this.ctx.logger.info(`[group] 属主亲写概要为空（${file}），回退整理回复文本`);
-        } else {
-          this.ctx.logger.info('[group] 概要文件早于本次整理请求（未由属主更新），回退整理回复文本');
-        }
-      }
-    } catch {
-      /* 读失败走回退 */
-    }
-    return fallbackText.trim() || undefined;
-  }
-
-  /**
-   * 属主亲写概要落点（服务端读侧，绝对路径；与 anchorOutput 提示词同锚）：
-   * workspace.agentWorkdir 唯一事实源；未装 workspace 行回落
-   * <数据根>/files/<owner>/（storeRoot 的父目录即数据根）。
-   */
-  private ownerSummaryFile(owner: string, groupId: string): string {
-    const ws = this.ctx.get('workspace') as { agentWorkdir(id: string): string } | undefined;
-    const base =
-      ws !== undefined
-        ? ws.agentWorkdir(owner)
-        : this.storeRoot !== undefined
-          ? path.join(path.dirname(this.storeRoot), 'files', owner)
-          : path.join(process.cwd(), 'files', owner);
-    return path.join(base, 'summary', `${groupId}.md`);
-  }
-
-  /** 概要截断到预算字数（防属主写超长文件顶爆成员上下文） */
-  private clipSummary(text: string): string {
-    const budget = this.summaryBudgetChars();
-    if (text.length <= budget) return text;
-    this.ctx.logger.warn(`[group] 概要超预算（${text.length} > ${budget} 字），截断`);
-    return `${text.slice(0, budget)}\n\n（已达字数上限截断）`;
-  }
-
-  /** 概要字数预算（≈4‰ 轮转阈值；下限 400 防小阈值配置挤成零头） */
-  private summaryBudgetChars(): number {
-    return Math.max(400, Math.ceil(this.archiveTokens * 0.004));
-  }
-
-  /**
-   * 超时兜底（崩溃残留/挂死 pending；M20 闸②语义）：扫各群 archive/
-   * .pending.json 超时 → abort 属主在途整理 run → 机械摘要回退强制轮转。
-   * 未超时的可能是进行中/排队等待——绝不能误清理。
-   */
-  private async scanRotationPending(): Promise<void> {
-    if (this.storeRoot === undefined) return;
-    let dirs: fs.Dirent[];
-    try {
-      dirs = fs.readdirSync(this.storeRoot, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const d of dirs) {
-      if (!d.isDirectory()) continue;
-      const gid = d.name;
-      if (!this.groups.has(gid)) continue;
-      const pending = this.readRotationPending(gid);
-      if (pending === undefined) continue;
-      const requestedAt = Date.parse(pending.requestedAt || '0');
-      if (Number.isNaN(requestedAt) || Date.now() - requestedAt <= this.reviewTimeoutMs) continue;
-      this.ctx.logger.warn(
-        `[group] 属主整理超时（> ${Math.round(this.reviewTimeoutMs / 60000)} 分钟），中止并机械回退 ${gid}`,
-      );
-      const conversation = this.ctx.get('conversation') as
-        | { abort(agentId: string, conversationId?: string): number }
-        | undefined;
-      conversation?.abort(pending.owner, gid);
-      await this.forceRotation(gid, pending).catch(() => undefined);
-    }
-    this.syncRotationScan();
-  }
-
-  /** 懒扫描（有 pending 才有周期定时器——空闲零定时器，boot 自退）。
-   *  定时器 = 官方 cordis-timer（可选能力：经 ctx.get 取服务实例调
-   *  interval——mixin 访问器 ctx.interval 需 inject 声明，服务方法面
-   *  免声明；行未装时降级为仅构造扫描/下次轮转触发时收敛） */
-  private syncRotationScan(): void {
-    const timer = this.ctx.get('timer', false) as
-      | { interval(fn: () => void, ms: number): () => void }
-      | undefined;
-    const need = this.needRotationScan();
-    if (need && !this.scanDispose && timer !== undefined) {
-      this.scanDispose = timer.interval(() => void this.scanRotationPending(), this.reviewScanIntervalMs);
-    } else if (!need && this.scanDispose) {
-      this.scanDispose();
-      this.scanDispose = undefined;
-    }
-  }
-
-  /** 是否存在轮转 pending（内存进行中 + 盘上残留） */
-  private needRotationScan(): boolean {
-    if (this.rotating.size > 0 || this.storeRoot === undefined) return this.rotating.size > 0;
-    try {
-      for (const d of fs.readdirSync(this.storeRoot, { withFileTypes: true })) {
-        if (d.isDirectory() && fs.existsSync(path.join(this.storeRoot!, d.name, 'archive', '.pending.json'))) {
-          return true;
-        }
-      }
-    } catch {
-      /* 根目录不存在 */
-    }
-    return false;
   }
 
   /** 归档分段落盘（返回段号；失败 undefined） */
@@ -823,163 +480,20 @@ export class GroupService extends Service {
       groupId,
       kept.filter((r) => r.role === 'agent').map((r) => toGroupMessage(groupId, r)),
     );
-    this.windows.delete(groupId);
   }
 
-  /**
-   * 属主整理 run 种子（输入有界化——不重蹈 M20 全量起步）：旧概要（上一
-   * 段语义/机械摘要）+ 本段机械摘要全文（条目级 token 预算，超出丢最旧
-   * 并注明）。返回 user 视角消息（conversation.deliver history 种子）。
-   */
-  private reviewSeed(
-    groupId: string,
-    _owner: string,
-    archived: Array<{ content: string; timestamp?: string; agent_id?: string }>,
-    index: number,
-  ): LlmMessage[] {
-    const parts: string[] = [];
-    if (index > 1) {
-      const prev = this.readArchiveSummaryFile(groupId, index - 1);
-      if (prev !== undefined) {
-        parts.push(`（本群更早的概要——新概要应与之衔接、合并为一条连贯叙事）\n${prev}`);
-      }
-    }
-    const lines: string[] = [];
-    let used = 0;
-    let dropped = 0;
-    const budget = REVIEW_DIGEST_TOKENS;
-    // 新→旧装载（预算尽即止丢更旧条目）：概要的价值点在与保留尾部的
-    // 衔接——对照 writeMechanicalSummary 的 .slice(-60) 同口径。旧→新
-    // 遍历会在超预算时丢掉最新物料，恰留下与尾部不衔接的最旧段。
-    for (let i = archived.length - 1; i >= 0; i--) {
-      const r = archived[i];
-      if (!r.content.trim()) continue;
-      const ts = (r.timestamp || '').slice(0, 16).replace('T', ' ');
-      const text = r.content.length > 300 ? `${r.content.slice(0, 300)}…` : r.content;
-      const line = `- [${ts}] ${r.agent_id ?? 'user'}: ${text.replace(/\n/g, ' ')}`;
-      const t = estimateTokens(line);
-      if (used + t > budget && lines.length > 0) {
-        dropped++;
-        continue; // 预算尽：更旧条目略过
-      }
-      used += t;
-      lines.unshift(line); // 展示保持时间正序（旧→新）
-    }
-    parts.push(
-      `（本段将归档的群消息摘要物料${dropped > 0 ? `（更早 ${dropped} 条已按预算略）` : ''}）\n${lines.join('\n')}`,
-    );
-    return [{ role: 'user', content: parts.join('\n\n') }];
-  }
-
-  /** 读指定段摘要文件（无/空 → undefined） */
-  private readArchiveSummaryFile(groupId: string, index: number): string | undefined {
-    try {
-      const text = fs.readFileSync(
-        path.join(this.groupDir(groupId), 'archive', `summary_${index}.md`),
-        'utf-8',
-      ).trim();
-      return text || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * 属主整理提示词（对齐 1v1 归档整理 hint 哲学：Agent 亲自整理 + 会话键
-   * 显式表迹 + 路径锚定专用空间；群变体——属主为全群整理，概要注入全体
-   * 成员、记忆为全员共享单份）。
-   */
-  private reviewPrompt(group: GroupConfig, owner: string, count: number): string {
-    const summaryRel = this.anchorOutput(owner, `summary/${group.id}.md`);
-    const memoryRel = this.anchorOutput(owner, `memory/${group.id}.md`);
-    const budget = this.summaryBudgetChars();
-    return [
-      `[群归档整理] 你是群「${group.name}」（键 ${group.id}）的记忆管理 Agent。群聊已达归档阈值，${count} 条早期消息即将移出会话流。请基于系统消息中的摘要物料完成以下整理：`,
-      `1. 【生成群概要】把本段群聊（与已有概要衔接）的关键决策、重要结论、各成员观点与待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入 ${summaryRel}（整文件即概要，重写覆盖；该概要将注入全体成员的后续上下文）。若无法使用 write 工具，直接把概要作为回复返回。`,
-      `2. 【整理群记忆】重写本群（键 ${group.id}）的长期记忆文件 ${memoryRel}（不要只追加）：合并重复信息、压缩冗长表述、删除已过时或已被替代的记忆，只保留仍有效且重要的内容——用 write 工具整文件重写提交（系统提示 <memory> 块即注入自该文件，本群全体成员共享这一份记忆；重写即时生效，文件不存在则新建）。`,
-      `整理是机制任务：不要发起群聊、不要等待成员回复；完成后简短确认即可，系统会自动完成归档。`,
-    ].join('\n');
-  }
-
-  /**
-   * 整理输出物路径锚定（写侧对齐读侧，与 ac-archive.anchorReviewPath 同源）：
-   * 沙箱基准与 Agent 专用空间一致（常规/预设）给相对路径；显式
-   * settings['security'].workdir 分叉时给专用空间绝对路径（沙箱已并根——
-   * agentSpaceRoots）。未装 workspace 行 → 相对路径（既有约定）。
-   */
-  private anchorOutput(agentId: string, rel: string): string {
-    const ws = this.ctx.get('workspace') as
-      | { agentRelPath(id: string, relPath: string): string }
-      | undefined;
-    return ws ? ws.agentRelPath(agentId, rel) : rel;
-  }
-
-  /** 轮转 pending 标记路径（groups/<gid>/archive/.pending.json） */
-  private rotationPendingPath(groupId: string): string {
-    return path.join(this.groupDir(groupId), 'archive', '.pending.json');
-  }
-
-  private writeRotationPending(groupId: string, pending: RotationPending): void {
-    try {
-      const file = this.rotationPendingPath(groupId);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(pending), 'utf-8');
-      fs.renameSync(tmp, file);
-    } catch (err: unknown) {
-      this.ctx.logger.warn(`[group] pending 标记写入失败（${groupId}）: ${String(err)}`);
-    }
-  }
-
-  private readRotationPending(groupId: string): RotationPending | undefined {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.rotationPendingPath(groupId), 'utf-8')) as Partial<RotationPending>;
-      if (typeof raw.owner !== 'string' || !raw.owner || typeof raw.index !== 'number') return undefined;
-      return {
-        owner: raw.owner,
-        requestedAt: typeof raw.requestedAt === 'string' ? raw.requestedAt : '',
-        index: raw.index,
-        keepFromSeq: typeof raw.keepFromSeq === 'number' ? raw.keepFromSeq : undefined,
-        baselineSeq: typeof raw.baselineSeq === 'number' ? raw.baselineSeq : undefined,
-      };
-    } catch {
-      return undefined;
-    }
-  }
-
-  private clearRotationPending(groupId: string): void {
-    try {
-      const file = this.rotationPendingPath(groupId);
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-    } catch {
-      /* ignore */
-    }
-  }
-
-
-  /** 最新轮转摘要（无归档 → undefined；historyFor 头部注入用） */
-  private latestArchiveSummary(groupId: string): string | undefined {
-    if (this.storeRoot === undefined) return undefined;
-    try {
-      const dir = path.join(this.groupDir(groupId), 'archive');
-      const files = fs
-        .readdirSync(dir)
-        .filter((f) => /^summary_\d+\.md$/.test(f))
-        .sort((a, b) => Number((b.match(/\d+/) ?? ['0'])[0]) - Number((a.match(/\d+/) ?? ['0'])[0]));
-      if (files.length === 0) return undefined;
-      const text = fs.readFileSync(path.join(dir, files[0]), 'utf-8').trim();
-      return text || undefined;
-    } catch {
-      return undefined;
-    }
-  }
 
   // ============================================================
   // 成员表生命周期
   // ============================================================
 
-  /** 创建群（成员须全部已注册为 Agent；id 禁 ~/路径字符——M19 与对键命名空间隔离；生成侧约定 g- 前缀） */
-  create(def: { id: string; name: string; members: string[]; description?: string; memoryOwner?: string }): GroupConfig {
+  /**
+   * 创建群（成员须全部已注册为 Agent；id 禁 ~/路径字符——M19 与对键
+   * 命名空间隔离；生成侧约定 g- 前缀）。**双向名册校验**（cr-4 撞形
+   * 防线②）：群 id 撞已注册 Agent id → 拒（gid~member 会与 1v1 对键
+   * 争用同一会话桶）；反向卡位在 agents.register。
+   */
+  create(def: { id: string; name: string; members: string[]; description?: string }): GroupConfig {
     if (
       !def.id ||
       def.id.includes('~') ||
@@ -991,11 +505,11 @@ export class GroupService extends Service {
       throw new Error(`群 id "${def.id}" 非法（非空，禁 ~ / 路径分隔 / .. / 空白——对键桶模型隔离）`);
     }
     if (this.groups.has(def.id)) throw new Error(`群 "${def.id}" 已存在`);
+    if (this.ctx.agents.has(def.id)) {
+      throw new Error(`群 id "${def.id}" 与已注册 Agent 同名（成员流键 gid~member 会与 1v1 对桶撞形）`);
+    }
     for (const m of def.members) {
       if (!this.ctx.agents.has(m)) throw new Error(`成员 "${m}" 未注册为 Agent`);
-    }
-    if (def.memoryOwner !== undefined && !def.members.includes(def.memoryOwner)) {
-      throw new Error(`记忆属主 "${def.memoryOwner}" 不是群成员`);
     }
     const group: GroupConfig = {
       id: def.id,
@@ -1003,7 +517,6 @@ export class GroupService extends Service {
       members: [...def.members],
       createdAt: Date.now(),
       ...(def.description !== undefined ? { description: def.description } : {}),
-      ...(def.memoryOwner !== undefined ? { memoryOwner: def.memoryOwner } : {}),
     };
     this.groups.set(group.id, group);
     this.persistConfig(group);
@@ -1018,12 +531,15 @@ export class GroupService extends Service {
     this.groups.delete(groupId);
     this.logs.delete(groupId);
     this.logReady.delete(groupId);
-    this.windows.delete(groupId);
-    this.rotating.delete(groupId);
     try {
       this.sessionBackend()?.clear(groupId); // 本体桶（sessions/groups/<gid>/）
     } catch (err: unknown) {
       this.ctx.logger.warn(`[group] 本体桶清理失败（${groupId}）: ${String(err)}`);
+    }
+    for (const m of group.members) {
+      try {
+        this.sessionBackend()?.clear(memberStreamKey(groupId, m)); // 成员私有流一并清理
+      } catch { /* 尽力而为 */ }
     }
     if (this.storeRoot !== undefined) {
       try {
@@ -1047,8 +563,7 @@ export class GroupService extends Service {
   }
 
   /**
-   * 设定/清空群简介（undefined = 清空——删键回未设置；与 setMemoryOwner
-   * 的解除语义同口径）。返回变更后终值。
+   * 设定/清空群简介（undefined = 清空——删键回未设置）。返回变更后终值。
    */
   setDescription(groupId: string, description: string | undefined): boolean {
     const group = this.groups.get(groupId);
@@ -1060,55 +575,58 @@ export class GroupService extends Service {
     return true;
   }
 
-  /**
-   * 设定/解除记忆属主（agentId 须为成员；undefined = 解除回现状——每
-   * 成员各自记忆 + 机械摘要轮转）。返回变更后终值。
-   */
-  setMemoryOwner(groupId: string, agentId: string | undefined): GroupConfig {
-    const group = this.groups.get(groupId);
-    if (!group) throw new Error(`群 "${groupId}" 不存在`);
-    if (agentId === undefined) {
-      if (group.memoryOwner === undefined) return group; // 幂等
-      delete group.memoryOwner;
-    } else {
-      if (!this.ctx.agents.has(agentId)) throw new Error(`属主 "${agentId}" 未注册为 Agent`);
-      if (!group.members.includes(agentId)) throw new Error(`属主 "${agentId}" 不是群 "${groupId}" 的成员`);
-      if (group.memoryOwner === agentId) return group; // 幂等
-      group.memoryOwner = agentId;
-    }
-    this.persistConfig(group);
-    this.ctx.emit('group/memory-owner-set', groupId, group.memoryOwner, group);
-    return group;
-  }
 
-  /** 加入（agentId 须已注册；已在群中 = 幂等 true） */
+  /**
+   * 加入（agentId 须已注册；已在群中 = 幂等 true）。新成员成员流从零
+   * 开始——一次性种子（本体尾部投影，与入群时点之后的扇出衔接）。
+   */
   join(groupId: string, agentId: string): boolean {
     const group = this.groups.get(groupId);
     if (!group || !this.ctx.agents.has(agentId)) return false;
     if (group.members.includes(agentId)) return true;
     group.members.push(agentId);
     this.persistConfig(group);
+    void this.seedMemberStream(group, agentId).catch((err: unknown) => {
+      this.ctx.logger.warn(`[group] 入群种子失败（${groupId}/${agentId}）: ${String(err)}`);
+    });
     this.ctx.emit('group/member-added', groupId, agentId, group);
     return true;
   }
 
-  /** 离开；群清空时自动删除；记忆属主退群 → 自动解除（管理权悬空不如显式回退） */
+  /**
+   * 入群种子（晚加入成员的成员流引导）：本体尾部消息投影进新成员流
+   * （数量有界——本体轮转已保证尾部体量；归档摘要头并入首行）。
+   */
+  private async seedMemberStream(group: GroupConfig, member: string): Promise<void> {
+    const session = this.sessionBackend();
+    if (!session) return;
+    const groupId = group.id;
+    await this.ensureLog(groupId);
+    const log = this.logs.get(groupId) ?? [];
+    const archiveSummary = this.latestArchiveSummary(groupId);
+    if (archiveSummary !== undefined) {
+      await session.append(memberStreamKey(groupId, member), member, {
+        role: 'user',
+        content: `（本群更早的消息已归档，以下为归档摘要，供了解背景）\n${archiveSummary}`,
+      });
+    }
+    for (const m of log) {
+      await session.append(memberStreamKey(groupId, member), m.from, this.projectFor(member, group, m));
+    }
+  }
+
+  /** 离开；群清空时自动删除 */
   leave(groupId: string, agentId: string): boolean {
     const group = this.groups.get(groupId);
     if (!group) return false;
     const idx = group.members.indexOf(agentId);
     if (idx === -1) return false;
     group.members.splice(idx, 1);
-    let ownerCleared = false;
-    if (group.memoryOwner === agentId) {
-      delete group.memoryOwner;
-      ownerCleared = true;
-    }
     this.persistConfig(group);
+    try {
+      this.sessionBackend()?.clear(memberStreamKey(groupId, agentId)); // 成员私有流一并清理
+    } catch { /* 尽力而为 */ }
     this.ctx.emit('group/member-removed', groupId, agentId, group);
-    if (ownerCleared) {
-      this.ctx.emit('group/memory-owner-set', groupId, undefined, group);
-    }
     if (group.members.length === 0) this.delete(groupId); // 自动删除（再发 deleted 事件）
     return true;
   }
@@ -1147,9 +665,26 @@ export class GroupService extends Service {
   /**
    * 本体消息原始记录（M7 WebUI 群历史渲染；规约 1：跨服务读取走服务
    * 方法）。倒序 limit/正序 offset 分页（对齐 src getGroupHistory 形态）；
-   * 缺省最近 50 条。轮转入 archive 的旧段不在其中（historyFor 才带摘要）。
+   * 缺省最近 50 条。轮转入 archive 的旧段不在其中。
    * D11：事实源 = sessions/groups/<gid>/（首次触达懒水合，此后内存缓存）。
    */
+
+  /** 最新轮转摘要（无归档 → undefined；入群种子头部用） */
+  private latestArchiveSummary(groupId: string): string | undefined {
+    if (this.storeRoot === undefined) return undefined;
+    try {
+      const dir = path.join(this.groupDir(groupId), 'archive');
+      const files = fs
+        .readdirSync(dir)
+        .filter((f) => /^summary_\d+\.md$/.test(f))
+        .sort((a, b) => Number((b.match(/\d+/) ?? ['0'])[0]) - Number((a.match(/\d+/) ?? ['0'])[0]));
+      if (files.length === 0) return undefined;
+      const text = fs.readFileSync(path.join(dir, files[0]), 'utf-8').trim();
+      return text || undefined;
+    } catch {
+      return undefined;
+    }
+  }
   async records(groupId: string, limit = 50, offset = 0): Promise<GroupMessageRecord[]> {
     await this.ensureLog(groupId);
     const log = this.logs.get(groupId) ?? [];
@@ -1204,10 +739,48 @@ export class GroupService extends Service {
     };
     const log = this.logs.get(groupId)!;
     log.push(message);
+    // 成员流扇出（cr-4 转录流）：逐成员私有流（sessions/<gid>~<member>/）
+    // 追加 viewer 投影行——自己的发言 assistant 原文、他人 user + <msg>
+    // 包装（投影行即入账行：该消息在成员流中的唯一入账形态）。写放大 =
+    // 每条 post × N 成员 × 数百字节，人速频率可忽略。
+    if (session) {
+      for (const member of group.members) {
+        try {
+          const bucket = memberStreamKey(groupId, member);
+          await session.append(bucket, from, this.projectFor(member, group, message));
+        } catch (err: unknown) {
+          this.ctx.logger.warn(`[group] 成员流扇出失败（${groupId}/${member}）: ${String(err)}`);
+        }
+      }
+    }
     await this.maybeRotate(groupId);
-    // 本体增长无需视图失效标记：conversation 每 run 无条件重派生（D11 语义由构造保持）
     this.ctx.emit('group/message-posted', groupId, message);
     return message;
+  }
+
+  /**
+   * post 消息在指定成员流中的投影（viewer 视角）：自己的发言 assistant
+   * 原文（"我说过的话"——assistant 示范密度，M26 resolveApiRole 语义）；
+   * 他人 user + <msg> 包装（含显示名）+ 时间行。
+   */
+  private projectFor(member: string, group: GroupConfig, message: GroupMessageRecord): { role: 'user' | 'assistant'; content: string; attachments?: GroupMessageRecord['attachments'] } {
+    if (message.from === member) {
+      return {
+        role: 'assistant',
+        content: message.content,
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+      };
+    }
+    return {
+      role: 'user',
+      content: `${wrapGroupMsg({
+        from: message.from,
+        displayName: displayNameOf(this.ctx.agents.get(message.from)),
+        groupName: group.name,
+        content: message.content,
+      })}\n\n${timeLine()}`,
+      ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+    };
   }
 
   /**
@@ -1230,20 +803,13 @@ export class GroupService extends Service {
     // M19：sender = 说话人端点 id（viewer 虚拟端点也是端点之一）；
     // source = 拓扑类（虚拟端点 = 'user'，Agent 成员 = 'agent'）。
     const source = this.ctx.agents.get(from)?.virtual ? ('user' as const) : ('agent' as const);
-    // M21/F2+D6：per-member 派生种子在 post **之前**计算——种子不含本条
-    // （本条经 hint 进信封末尾恰好一次；旧实现 post 后算种子致首轮双份）
-    const histories = new Map<string, LlmMessage[]>();
-    if (this.sessionBackend() !== undefined) {
-      for (const member of targets) {
-        histories.set(member, await this.historyFor(groupId, member));
-      }
-    }
     const message = await this.post(groupId, from, content, options.attachments);
     // hint = <msg> 包装（含显示名）+ 时间行（M26：不带契约——契约经
-    // loop/before-run 注入决策点，busy steer 免重复携带）
+    // loop/before-run 注入决策点，busy steer 免重复携带）。
+    // cr-4：deliver 只唤醒不携消息——投影行已由 post 扇出入成员流
+    // （session 对 GROUP_HINT_META 跳过入账，成员流不产生第二份触发行），
+    // handle/conversationId = 成员流键 gid~member（run 与回放都在私有流上）。
     const hint = `${wrapGroupMsg({ from, displayName: displayNameOf(this.ctx.agents.get(from)), groupName: group.name, content })}\n\n${timeLine()}`;
-    // M4 群聊图片：hint 信封携带附件引用（首个 run 即可见；本体行已由
-    // post 落盘，session 对 GROUP_HINT_META 跳过入账——不双录）
     const hintMessage: LlmMessage = {
       role: 'user',
       content: hint,
@@ -1255,21 +821,16 @@ export class GroupService extends Service {
     // 不 await 单个投递：trigger 语义（idle 参与者的 run 在后台进行）。
     // deliver 的同步前缀（busy 决策/门注册）在本次循环内即完成——
     // send 返回时各参与者已受理（steered 或 run 已开门）。
-    // M21/F2：播种视角 per-member——各自 viewer 派生（修"非首成员以他人
-    // 视角播种"）；M21/F6①：hint 投递带 GROUP_HINT_META（事实行已由 post
-    // 入本体，session 不重复入账）。
     const deliveries = new Map<string, Promise<ConversationOutcome>>();
     for (const member of targets) {
-      const history = histories.get(member);
       deliveries.set(
         member,
         this.ctx.conversation.deliver(member, hintMessage, {
           sender: from,
           source,
-          conversationId: groupId,
+          conversationId: memberStreamKey(groupId, member),
           meta: { [GROUP_HINT_META]: true },
           ...(options.placement ? { placement: options.placement } : {}),
-          ...(history !== undefined ? { history } : {}),
         }),
       );
     }
@@ -1290,191 +851,6 @@ export class GroupService extends Service {
     return result;
   }
 
-  // ============================================================
-  // 群历史回放（src loadGroupHistory 语义原样；M15 持久化配套）
-  // ============================================================
-
-  /**
-   * 群历史回放（viewer 视角）：peer 消息 <msg> 包装（含显示名；与
-   * trigger hint/readSince 同一构造点）、own 消息投 **assistant 角色**
-   * 原文（M26 行为对齐——src resolveApiRole 语义：自己的历史发言是
-   * "我说过的话"，全 user 化会让上下文丢失 assistant 示范密度，模型
-   * 漂移向"直接输出文本"而非调用 send_group——08-03 空转事故根因）；
-   * 相邻 peer 纯发言合并（连续 user 稀释注意力、多占 token 的 src 教训）；
-   * 轮转摘要注入为头部。
-   * 内存态群（无持久化）回放内存流。返回消息（群历史经种子进入上下文，
-   * 供 conversation.deliver 的 history 种子）。
-   *
-   * M21/D6（滑窗消除，§6.3）：截断窗**钉住**——派生一次后窗口头不动，
-   * 本体新事件增量吸收（token 只增）；超重派生阈值（≈0.8×保守模型窗，
-   * M21 D5）才整体重算一次（显式 replace、低频）。旧实现"每次回放从尾
-   * 重算"使窗口头随本体增长前滑 ⇒ 每次派生的历史首条都在变 ⇒ 前缀整体
-   * 重建（三形态中唯一结构性永不命中）——钉住后派生间只做尾部追加。
-   * D11：事实源 = sessions 本体（懒水合；纯内存群回放内存流）。
-   */
-  async historyFor(groupId: string, viewer: string): Promise<LlmMessage[]> {
-    const group = this.groups.get(groupId);
-    const groupName = group?.name ?? groupId;
-    await this.ensureLog(groupId);
-    const log = this.logs.get(groupId) ?? [];
-    const win = this.windowOf(groupId, log);
-
-    // 视角包装 + 相邻 peer 纯发言合并（窗口内）；附件引用随行携带
-    //（peer 合并行 = 合并内全部附件按序并集；own 行携带自身附件）
-    const merged: Array<{ from: string; text: string; attachments: GroupMessageRecord['attachments'] }> = [];
-    for (const m of log.slice(win.start)) {
-      const isPeer = m.from !== viewer;
-      const text = isPeer
-        ? wrapGroupMsg({ from: m.from, displayName: displayNameOf(this.ctx.agents.get(m.from)), groupName, content: m.content })
-        : m.content;
-      const last = merged.at(-1);
-      if (isPeer && last && last.from !== viewer) {
-        last.text = `${last.text}\n${text}`; // 相邻 peer 发言合成一条（<msg> 标签区分发言人）
-        if (m.attachments && m.attachments.length > 0) {
-          last.attachments = [...(last.attachments ?? []), ...m.attachments];
-        }
-      } else {
-        merged.push({ from: m.from, text, attachments: m.attachments });
-      }
-    }
-
-    // 轮转摘要头（有归档时始终在场——早期消息的长期记忆入口）
-    const summary = this.latestArchiveSummary(groupId);
-    const head =
-      summary !== undefined
-        ? [`（本群更早的消息已归档，以下为归档摘要，供了解背景）\n${summary}`]
-        : [];
-    return [
-      ...head.map((content) => ({ role: 'user' as const, content })),
-      ...merged.map((m) => ({
-        // M26：own = assistant（自己的发言）；peer = user（入站视角）
-        role: m.from === viewer ? ('assistant' as const) : ('user' as const),
-        content: m.text,
-        ...(m.attachments && m.attachments.length > 0 ? { attachments: m.attachments } : {}),
-      })),
-    ];
-  }
-
-  // ============================================================
-  // 派生窗（M21/D6：窗口钉住 + 增量吸收 + 阈值显式重派生）
-  // ============================================================
-
-  /**
-   * 取/吸收派生窗：无窗 → 按尾部预算派生一次（start 钉住）；有窗 →
-   * 增量吸收本体新事件（窗口头不动——派生间字节只做尾部追加）；累计
-   * token 超重派生阈值 → 整体重算（一次显式 replace）。
-   */
-  private windowOf(groupId: string, log: GroupMessageRecord[]): { start: number; absorbed: number; tokens: number } {
-    let win = this.windows.get(groupId);
-    if (!win) {
-      win = this.deriveWindow(log);
-      this.windows.set(groupId, win);
-      return win;
-    }
-    for (let i = win.absorbed; i < log.length; i++) {
-      win.tokens += estimateTokens(log[i].content);
-    }
-    win.absorbed = log.length;
-    if (win.tokens > this.rederiveTokens) {
-      this.ctx.logger.info(
-        '[group] 成员视图超阈值重派生 %C（%C token > %C，一次显式 replace）',
-        groupId,
-        String(win.tokens),
-        String(this.rederiveTokens),
-      );
-      win = this.deriveWindow(log);
-      this.windows.set(groupId, win);
-    }
-    return win;
-  }
-
-  /** 尾部预算扫描（maybeRotate 保留窗与派生窗共用同式）：从尾往前累计
-   *  token 至预算 ×1.5（src 容差语义——允许末条略超预算换完整语义单元），
-   *  返回纳入的最早下标与累计 token。 */
-  private tailScan(contents: string[], budget: number): { start: number; tokens: number } {
-    let acc = 0;
-    let start = contents.length;
-    for (let i = contents.length - 1; i >= 0; i--) {
-      const t = estimateTokens(contents[i]);
-      if (acc + t > budget * 1.5 && acc > 0) break;
-      acc += t;
-      start = i;
-    }
-    return { start, tokens: acc };
-  }
-
-  /** 尾部预算派生（start 钉住——此后只增不减） */
-  private deriveWindow(log: GroupMessageRecord[]): { start: number; absorbed: number; tokens: number } {
-    const { start, tokens } = this.tailScan(log.map((m) => m.content), this.loadLimitTokens);
-    return { start, absorbed: log.length, tokens };
-  }
-
-  // ============================================================
-  // GroupFeed（锚点增量；busy 参与者的免重复注入通道）
-  // ============================================================
-
-  /**
-   * 锚点之后的增量（own 消息原文、peer 消息 <msg> 包装——与
-   * historyFor 回放层一致）。无锚点 → 空增量（防双注：idle run 的全量
-   * 上下文另行组装，readSince 只服务"run 进行中的增量追赶"）。
-   */
-  async readSince(
-    groupId: string,
-    anchor: GroupFeedAnchor | undefined,
-    opts?: { viewer?: string },
-  ): Promise<GroupFeedPage> {
-    await this.ensureLog(groupId);
-    const log = this.logs.get(groupId) ?? [];
-    const tail = this.tailAnchor(log);
-    if (anchor === undefined) return { injected: '', messageIds: [], anchor: tail };
-
-    const start = this.locateAnchorIndex(log, anchor) + 1;
-    const slice = log.slice(start);
-    if (slice.length === 0) return { injected: '', messageIds: [], anchor: tail };
-
-    const group = this.groups.get(groupId);
-    const groupName = group?.name ?? groupId;
-    const viewer = opts?.viewer;
-    const lines: string[] = [];
-    for (const m of slice) {
-      // own 消息不包装（与 historyFor 行为一致）：自己说过的话以原文回显
-      lines.push(
-        viewer !== undefined && m.from === viewer
-          ? m.content
-          : wrapGroupMsg({
-              from: m.from,
-              displayName: displayNameOf(this.ctx.agents.get(m.from)),
-              groupName,
-              content: m.content,
-            }),
-      );
-    }
-    return {
-      injected: lines.join('\n'),
-      messageIds: slice.map((m) => m.id),
-      anchor: { messageId: slice[slice.length - 1].id, index: log.indexOf(slice[slice.length - 1]) },
-    };
-  }
-
-  /** 当前流尾锚点（最新一条 message id + 序号；空流 = index -1） */
-  async currentAnchor(groupId: string): Promise<GroupFeedAnchor> {
-    await this.ensureLog(groupId);
-    return this.tailAnchor(this.logs.get(groupId) ?? []);
-  }
-
-  private tailAnchor(log: GroupMessageRecord[]): GroupFeedAnchor {
-    const last = log.at(-1);
-    return last === undefined ? { index: -1 } : { messageId: last.id, index: log.length - 1 };
-  }
-
-  /** 锚点定位：messageId 优先；缺失/被修剪时回退 index；都无 → -1 */
-  private locateAnchorIndex(log: GroupMessageRecord[], anchor: GroupFeedAnchor): number {
-    if (anchor.messageId !== undefined) {
-      const i = log.findIndex((m) => m.id === anchor.messageId);
-      if (i !== -1) return i;
-    }
-    return anchor.index ?? -1;
-  }
 }
 
 declare module '@agentchat/cordis' {
