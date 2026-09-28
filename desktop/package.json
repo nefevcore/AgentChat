@@ -51,6 +51,7 @@
       "icon": "build/icon.png"
     },
       "nsis": {
+      "include": "build/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
