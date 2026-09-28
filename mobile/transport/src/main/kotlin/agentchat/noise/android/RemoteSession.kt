@@ -41,6 +41,22 @@ import java.security.MessageDigest
 
 private const val TAG = "AgentChatRemote"
 
+/**
+ * KK 重连（发起方）的单轮尝试次数与重试间隔。
+ *
+ * 为什么需要重试：relay 只转发实时帧，m1 早于对端进房即丢失（见
+ * RelayClient.KK_HANDSHAKE_TIMEOUT_MS 的根因说明）。单次尝试会与对端的退避
+ * 相位错开而永久错过；短超时 + 快速重试让本端在对方的等待窗内多次"撞门"。
+ *
+ * 节奏取值受 relay join 频控约束：ac-relay-server DEFAULT_LIMITS.joinBucket
+ * = burst 5 / 每分钟 10 次（per IP），**每次重试都是一次新 join**。
+ * 故 3s 握手超时 + 4s 间隔 ≈ 7.1s/轮 ≈ 8.5 次/分钟，留有余量不触顶
+ * （早期实测用 1s 级重试会烧穿 bucket → relay 回 room-unavailable）。
+ * 10 轮 ≈ 71s，覆盖对端最长 60s 退避窗。
+ */
+private const val KK_RECONNECT_ATTEMPTS = 10
+private const val KK_RETRY_DELAY_MS = 4_000L
+
 /** 链路状态（UI 直接投影） */
 enum class LinkPhase { IDLE, CONNECTING, AWAIT_CONFIRM, ONLINE, ERROR }
 
@@ -192,18 +208,35 @@ class RemoteSession(
      */
     private suspend fun tryReconnect(corePub: String, deviceId: String, relayUrl: String): Boolean {
         _state.value = _state.value.copy(phase = LinkPhase.CONNECTING)
-        val rc = RelayClient()
-        rc.onPayload = { json -> dispatch(json) }
+        val room = deriveRoom(unb64u(corePub), deviceId, b64u(identity.publicKey))
+        // 发起方短超时重试（根因见 KK_RECONNECT_ATTEMPTS 常量说明）。
+        // 每轮用**全新实例**：onClose 只在握手成功后才订阅——否则失败轮的自我关闭
+        // 会误触发 startReconnectLoop，与外层退避循环并发抢链。
+        var connected: RelayClient? = null
+        for (attempt in 1..KK_RECONNECT_ATTEMPTS) {
+            val candidate = RelayClient()
+            candidate.onPayload = { json -> dispatch(json) }
+            val outcome = runCatching { candidate.reconnect(relayUrl, room, unb64u(corePub), identity) }
+            if (outcome.isSuccess) {
+                connected = candidate
+                if (attempt > 1) Log.i(TAG, "KK 重连第 " + attempt + " 轮成功")
+                break
+            }
+            candidate.close()
+            if (attempt < KK_RECONNECT_ATTEMPTS) {
+                Log.w(TAG, "KK 重连第 " + attempt + "/" + KK_RECONNECT_ATTEMPTS + " 轮未成（room=" + room + "），重试")
+                delay(KK_RETRY_DELAY_MS)
+            }
+        }
+        val rc = connected
+        if (rc == null) {
+            Log.w(TAG, "KK 重连未成功（room=" + room + "，" + KK_RECONNECT_ATTEMPTS + " 轮均超时），等待退避重试")
+            return false
+        }
         rc.onClose = { reason ->
             Log.w(TAG, "链路关闭: " + reason)
             // 非用户主动断开 → 进入重连循环（切后台的 stop() 会把 manualStop 置位）
             if (!manualStop) startReconnectLoop(corePub, deviceId, relayUrl)
-        }
-        val room = deriveRoom(unb64u(corePub), deviceId, b64u(identity.publicKey))
-        val ok = runCatching { rc.reconnect(relayUrl, room, unb64u(corePub), identity) }.isSuccess
-        if (!ok) {
-            Log.w(TAG, "KK 重连未成功（room=" + room + "），等待退避重试")
-            return false
         }
         // 换链前排掉旧链（旧 KK 帧序号必然错位，留着只会污染）
         relay?.close()

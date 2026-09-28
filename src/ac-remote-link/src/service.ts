@@ -110,6 +110,14 @@ export class RemoteLinkService extends Service {
       description: 'remote-link relayUrl 热更（settings.remoteLink 全局层）',
     });
     this.applySettings();
+    // 启动即连（有 relay 且有已配对设备时）：KK 的发起方在手机端，其 m1 只在
+    // 「本端已在房」时才可达（relay 只转发实时帧）——核心端不先进房，手机重试
+    // 再多也握不上手（M3 真机实录：设备 10 轮重试全部落空，relay 日志全程
+    // 单连接）。connect() 内部对每设备跑 runDeviceConnection，失败由
+    // kkRetries/scheduleReconnect 兜底，此处 fire-and-forget 即可。
+    if (this.options.relayUrl && this.registry.list().length > 0) {
+      void this.connect().catch(() => { /* 启动期 relay 不可达：scheduleReconnect 接管 */ });
+    }
   }
 
   /**

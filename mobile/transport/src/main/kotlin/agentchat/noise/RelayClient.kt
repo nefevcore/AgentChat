@@ -42,6 +42,18 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
         /** relay 应用层心跳超时 60s——取 25s 留足余量（含链路抖动） */
         const val HEARTBEAT_INTERVAL_MS = 25_000L
 
+        /**
+         * KK 单次尝试的 m2 等待窗。
+         *
+         * **短超时是刻意的**：relay 只转发实时帧，m1 若早于对端进房即被丢弃
+         * （双方进房时序不定——M3 真机实录：RELAY_DEBUG 显示设备 join 即发 m1 时
+         * 宿主尚未进房，帧无 peer 可投 → 双方各自超时 → 退避错开反复错过）。
+         * 单次长等待只会让两端各自退避到上限；正确解法是发起方**短超时 + 整链
+         * 重试**（每次新 dial、新握手、新临时密钥）——对齐 scripts/remote-loopback-client.ts
+         * reconnect() 的既有裁决，本端 M3.1 移植时漏了该重试层。
+         */
+        const val KK_HANDSHAKE_TIMEOUT_MS = 3_000L
+
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             // 协议层 ping（TCP 保活）——注意：relay 的活跃判定只看应用层 ping 帧，
             // 此项不能替代 startHeartbeat（M3.2 实测）
@@ -182,17 +194,24 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
         return sasFromHandshakeHash(pair.handshakeHash)
     }
 
-    /** KK 重连（发起方）。 */
+    /**
+     * KK 重连（发起方）——**一次**尝试：dial + join + 发 m1 + 等 m2。
+     *
+     * 等待窗由 handshakeTimeoutMs 决定（缺省 KK_HANDSHAKE_TIMEOUT_MS，短超时见该常量）。
+     * 失败即抛错，**重试由调用方负责**（RemoteSession.tryReconnect 逐轮全新建链）——
+     * 本函数只保证"一轮尝试干净"，这样调用方可以自由决定节奏与次数。
+     */
     suspend fun reconnect(
         relayUrl: String,
         roomId: String,
         corePub: ByteArray,
         identity: StaticIdentity,
+        handshakeTimeoutMs: Long = KK_HANDSHAKE_TIMEOUT_MS,
     ) {
         dialAndJoin(relayUrl, roomId)
         val hs = NoiseHandshake(NoisePattern.KK, NoiseRole.INITIATOR, identity, corePub)
         sendHandshake(hs.writeMessage())
-        hs.readMessage(nextHandshake())
+        hs.readMessage(nextHandshake(handshakeTimeoutMs))
         transport = hs.split()
         replayEarlyFrames()
     }
