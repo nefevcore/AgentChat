@@ -127,16 +127,6 @@ internal object X25519Platform {
     val keyPairAlgorithm: String? by lazy { firstWorking { java.security.KeyPairGenerator.getInstance(it) } }
     val keyFactoryAlgorithm: String? by lazy { firstWorking { java.security.KeyFactory.getInstance(it) } }
     val keyAgreementAlgorithm: String? by lazy { firstWorking { javax.crypto.KeyAgreement.getInstance(it) } }
-
-    /** 无可用的 X25519 实现时抛错，附完整探测报告（省一轮真机排障往返） */
-    fun require(): Triple<String, String, String> {
-        val kf = keyFactoryAlgorithm
-        val ka = keyAgreementAlgorithm
-        if (kf == null || ka == null) {
-            throw NoiseException("noise: 本平台无 X25519 实现\n" + probeX25519Support())
-        }
-        return Triple(keyPairAlgorithm ?: kf, kf, ka)
-    }
 }
 
 /**
@@ -144,8 +134,8 @@ internal object X25519Platform {
  *
  * 两条路径等价产出（测试用 RFC 7748 向量锚定公钥派生正确性）：
  *   1. 平台有 KeyPairGenerator → 直接生成；
- *   2. 没有（Android API 28–32）→ 随机私钥 + basepoint DH 求公钥
- *      （pub = X25519(priv, 9)），复用已验证的 dh() 原语，不自写密码学。
+ *   2. 没有（真机 Android API ≤ 32 全系缺席）→ 随机私钥 + basepoint DH 求公钥
+ *      （pub = X25519(priv, 9)），dh() 内部落 X25519Pure 纯实现，不自写未验证密码学。
  */
 fun generateStaticIdentity(random: SecureRandom = SecureRandom()): StaticIdentity {
     val alg = X25519Platform.keyPairAlgorithm
@@ -168,14 +158,24 @@ fun generateStaticIdentity(random: SecureRandom = SecureRandom()): StaticIdentit
     return StaticIdentity(dh(priv, X25519_BASEPOINT), priv)
 }
 
-/** DH(priv, pub) —— RFC 7748；全零输出（低阶点）抛错（spec §7.1） */
+/**
+ * DH(priv, pub) —— RFC 7748；全零输出（低阶点）抛错（spec §7.1）。
+ *
+ * 两条等价路径：平台 JCA（API 33+ Conscrypt / JDK——硬件加速）优先；
+ * 探测不到（真机 Android API ≤ 32 实况：三算法名全无，BC 裁剪版亦无 XDH）
+ * 落 X25519Pure 纯实现（M3 真机验证 §1.3 闪退修复）。向量测试锚定两路径一致。
+ */
 fun dh(priv: ByteArray, pub: ByteArray): ByteArray {
-    val (_, kfAlg, kaAlg) = X25519Platform.require()
-    val kf = KeyFactory.getInstance(kfAlg)
-    val agreement = javax.crypto.KeyAgreement.getInstance(kaAlg)
-    agreement.init(kf.generatePrivate(PKCS8EncodedKeySpec(X25519_PKCS8_PREFIX + clampScalar(priv))))
-    agreement.doPhase(kf.generatePublic(X509EncodedKeySpec(X25519_X509_PREFIX + pub)), true)
-    val out = agreement.generateSecret()
+    val out = X25519Platform.keyAgreementAlgorithm?.let { kaAlg ->
+        runCatching {
+            val kfAlg = X25519Platform.keyFactoryAlgorithm ?: throw NoiseException("noise: 平台 KeyFactory 缺席")
+            val kf = KeyFactory.getInstance(kfAlg)
+            val agreement = javax.crypto.KeyAgreement.getInstance(kaAlg)
+            agreement.init(kf.generatePrivate(PKCS8EncodedKeySpec(X25519_PKCS8_PREFIX + clampScalar(priv))))
+            agreement.doPhase(kf.generatePublic(X509EncodedKeySpec(X25519_X509_PREFIX + pub)), true)
+            agreement.generateSecret()
+        }.getOrNull()
+    } ?: x25519ScalarMult(priv, pub)
     if (out.size == DH_LEN && out.all { it == 0.toByte() }) {
         throw NoiseException("noise: DH all-zero output (low-order point)")
     }
