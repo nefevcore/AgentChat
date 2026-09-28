@@ -68,6 +68,14 @@ describe('splitAttachmentLines 基本剥离', () => {
     expect(split.content).toBe('发你了');
     expect(split.files).toEqual([{ hash: '', filename: '报告.pdf（已上传，路径未记录）', filesize: 0 }]);
   });
+
+  it('绝对路径引用（cr-30 上传主形态）：剥离 + basename 双分隔符（Windows \\）', () => {
+    const win = splitAttachmentLines('看图\n[附件] C:\\Users\\me\\AgentChat\\workspace\\home\\files\\user\\_tmp\\abc.png');
+    expect(win.content).toBe('看图');
+    expect(win.files).toEqual([{ hash: '', filename: 'abc.png', filesize: 0, text: 'C:\\Users\\me\\AgentChat\\workspace\\home\\files\\user\\_tmp\\abc.png' }]);
+    const posix = splitAttachmentLines('看图\n[附件] /home/me/agentchat/files/user/_tmp/abc.png');
+    expect(posix.files?.[0].filename).toBe('abc.png');
+  });
 });
 
 describe('splitAttachmentLines 安全门（防误吞用户正文）', () => {

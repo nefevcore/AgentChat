@@ -411,6 +411,9 @@ importers:
       ac-hello:
         specifier: workspace:*
         version: link:src/ac-hello
+      ac-issue-tools:
+        specifier: workspace:*
+        version: link:src/ac-issue-tools
       ac-job-wakeup:
         specifier: workspace:*
         version: link:src/ac-job-wakeup
@@ -976,6 +979,9 @@ importers:
       ac-hello:
         specifier: workspace:*
         version: link:../ac-hello
+      ac-issue-tools:
+        specifier: workspace:*
+        version: link:../ac-issue-tools
       ac-job-wakeup:
         specifier: workspace:*
         version: link:../ac-job-wakeup
@@ -2697,6 +2703,28 @@ importers:
         specifier: workspace:*
         version: link:../vendor/cordis
     devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-issue-tools:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+    devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-credentials:
+        specifier: workspace:*
+        version: link:../ac-credentials
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core

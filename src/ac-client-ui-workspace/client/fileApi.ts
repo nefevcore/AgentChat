@@ -101,6 +101,8 @@ export interface UploadResult {
   originalName?: string;
   size?: number;
   path?: string;
+  /** 落点绝对路径（cr-30：LLM/UI 引用主形态——read 工具跨锚点可达） */
+  absPath?: string;
 }
 
 /** 上传（multipart；响应指纹回传消费方——chatPresence 路径登记归会话域）。

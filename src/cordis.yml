@@ -109,6 +109,11 @@
   name: 'ac-math'
 - id: web-tools
   name: 'ac-web-tools'
+# ---- ISSUE 反馈工具行（submit_issue：GitHub/Gitee 创建 ISSUE——用户经
+# Agent 直达 Git 的反馈通道；requiredTags ['web'] + needPermission；令牌
+# 三源链 = 行直配 → 凭据库（github/gitee）→ env GITHUB_TOKEN/GITEE_TOKEN） ----
+- id: issue-tools
+  name: 'ac-issue-tools'
 # ---- SAP ABAP ADT 工具面（46 个 adt_* 工具；引擎 = npm abap-adt 的
 # host-neutral 入口；工具需 sap-adt 能力标签——Agent tags 显式授予才
 # 可见；demo 目的地（进程内 mock）默认可用；配置走行 config <

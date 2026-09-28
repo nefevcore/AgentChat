@@ -1,0 +1,30 @@
+{
+  "name": "ac-issue-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ISSUE 反馈工具行：submit_issue（GitHub/Gitee 创建 ISSUE；requiredTags [web] + needPermission；令牌三源链 = 行直配 → 凭据库 → 环境变量）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-credentials": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

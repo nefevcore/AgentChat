@@ -575,6 +575,12 @@ src/
 │                            ——非 LLM 出口通道 D2）+ browser（ctx.browser：CDP
 │                            直连会话，dispose 树杀 Chrome；动作级互斥锁；
 │                            observe⊂manipulate⊂inject 动作分层门禁）
+├── ac-issue-tools/          ISSUE 反馈：submit_issue（GitHub/Gitee 创建 ISSUE，
+│                            返回链接与编号——用户经 Agent 直达 Git 的反馈通道；
+│                            requiredTags ['web'] + needPermission 出口档位门；
+│                            目的地链 args→settings→行配置→缺省本仓库；令牌
+│                            三源链行直配→凭据库 github/gitee→env；apiBase
+│                            覆盖可接 Gitea 等 GitHub 兼容自建台）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+
@@ -863,7 +869,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | 记忆/转录流 | `memory-timeline-plan.md`（cr-4 设计与裁决，已实施）· `memory-timeline-handover.md`（**施工交接**——实施汇总/验证状态/生产迁移实况/下会话工作清单） |
 | 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-09-18 计划，P0 已随 subagents/history 落地） |
 | 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） · `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次：重度开发/journal 泛化/机制验证——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） |
-| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `remote-client-relay-plan.md`（本地多端远程接入，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md`（打磨残留条目 + 边界备忘） |
+| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `harness-bridge-plan.md`（本地 CLI harness 桥接——方案 B 工具+委托子代理，待实施）· `remote-client-relay-plan.md`（本地多端远程接入，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md`（打磨残留条目 + 边界备忘） |
 | 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单——已实施） |
 | 标签系统 | `tag-system-report.md`（词表/机制/归属/守则全貌）· `tags-include-semantics-report.md`（× tools.include 语义裁决） |
 | 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；存量 `YYYY-MM-00` 为历史批次标记只读不写）· `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增） |

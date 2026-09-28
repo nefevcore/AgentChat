@@ -257,13 +257,14 @@ const E_ASK = '不可逆操作前询问：删除、覆盖、花钱、对外发�
 const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；任务需要专业角色定位（如代码审查员/数据分析助手）或输出约束时给 system 参数（固化人设，跨轮生效），任务本身写 task；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。';
 const E_RESTART = '系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。';
 const E_TRACK = '目标与待办：承担跨会话的长期任务时，用 goal(action="create") 登记目标——登记后宿主自动逐轮推进直至完成/受阻；多步工作先写 todo(action="write") 清单，随做随更新状态（开工标 in_progress、完成即标）；达成即 goal(action="update", status="completed") 收口，确认无法推进则 status="blocked" 并给 blocked_reason。';
+const E_ISSUE = '问题反馈：发现系统层面的问题（平台自身的 bug、异常行为、体验缺陷）时，主动用 submit_issue 提交到官方仓库帮助改进，不必等用户指示；告知用户已上报及链接。仅报系统层面的问题——用户工作内容自身的毛病（代码 bug、方案缺陷等）直接向用户反馈即可，不上报。ISSUE 是公开的：正文只写问题现象与复现信息，不含密钥、凭据、私人数据等敏感内容。';
 
 /** 全量 dev 工具集（三档基线③） */
 const FULL_TOOLS = [
   'read', 'write', 'edit', 'glob', 'grep', 'bash', 'job',
   'ask_questions', 'subagent', 'timer', 'system_restart',
   'list_agents', 'send_agent', 'list_groups', 'send_group',
-  'goal', 'todo',
+  'goal', 'todo', 'submit_issue',
 ];
 
 /** 取装配产物中的指引块（无则空串；single = 独立会话形态） */
@@ -310,14 +311,15 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
     expect(env).toContain('AgentChat 后端本身');
   });
 
-  it('基线③ 全量 dev 工具集 → 11 条全出，顺序与编号锁定', () => {
+  it('基线③ 全量 dev 工具集 → 12 条全出，顺序与编号锁定', () => {
     expect(guidelineBlock(FULL_TOOLS)).toBe(
-      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_AGENTS}\n6. ${E_GROUP}\n7. ${E_TIMER}\n8. ${E_ASK}\n9. ${E_SUB}\n10. ${E_RESTART}\n11. ${E_TRACK}`,
+      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_AGENTS}\n6. ${E_GROUP}\n7. ${E_TIMER}\n8. ${E_ASK}\n9. ${E_SUB}\n10. ${E_RESTART}\n11. ${E_TRACK}\n12. ${E_ISSUE}`,
     );
   });
 
   it('条目级门控：单工具只出对应条目；全不匹配则整块消失', () => {
     expect(guidelineBlock(['timer'])).toBe(`## 指引\n1. ${E_TIMER}`);
+    expect(guidelineBlock(['submit_issue'])).toBe(`## 指引\n1. ${E_ISSUE}`);
     expect(guidelineBlock(['system_restart'])).toBe(`## 指引\n1. ${E_RESTART}`);
     expect(guidelineBlock(['ask_questions'])).toBe(`## 指引\n1. ${E_ASK}`);
     expect(guidelineBlock(['subagent'])).toBe(`## 指引\n1. ${E_SUB}`);
@@ -338,7 +340,7 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
     // 收敛；系统管理随 system_restart 在场注入（2026-09-21 注入轴：工具
     // 无形态裁剪，指引随在场而教）；并行子任务照常
     expect(guidelineBlock(FULL_TOOLS, true)).toBe(
-      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_ASK}\n6. ${E_SUB}\n7. ${E_RESTART}\n8. ${E_TRACK}`,
+      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_ASK}\n6. ${E_SUB}\n7. ${E_RESTART}\n8. ${E_TRACK}\n9. ${E_ISSUE}`,
     );
     // 术语约定块（Agent 生态词汇——协作工具操作任意 Agent）同步不注入
     const blocks = systemPromptRow.assembleBlocks({ toolNames: FULL_TOOLS, single: true });

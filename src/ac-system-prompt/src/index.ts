@@ -284,6 +284,14 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
     add('目标与待办：承担跨会话的长期任务时，用 goal(action="create") 登记目标——登记后宿主自动逐轮推进直至完成/受阻；多步工作先写 todo(action="write") 清单，随做随更新状态（开工标 in_progress、完成即标）；达成即 goal(action="update", status="completed") 收口，确认无法推进则 status="blocked" 并给 blocked_reason。');
   }
 
+  // 12. 问题反馈（cr-33：用户一般不关心提 issue——"主动上报系统层面问题"
+  //     是工具描述不载的行为决策；submit_issue 在场（web 标签）才教，
+  //     边界 = 系统层面问题才报（用户工作内容的问题不报）+ 敏感内容
+  //     不进公开 ISSUE）
+  if (names.has('submit_issue')) {
+    add('问题反馈：发现系统层面的问题（平台自身的 bug、异常行为、体验缺陷）时，主动用 submit_issue 提交到官方仓库帮助改进，不必等用户指示；告知用户已上报及链接。仅报系统层面的问题——用户工作内容自身的毛病（代码 bug、方案缺陷等）直接向用户反馈即可，不上报。ISSUE 是公开的：正文只写问题现象与复现信息，不含密钥、凭据、私人数据等敏感内容。');
+  }
+
   if (list.length === 0) return '';
   return `## 指引\n${list.map((g, i) => `${i + 1}. ${g}`).join('\n')}`;
 }

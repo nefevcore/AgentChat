@@ -34,6 +34,7 @@ import * as fileSnapshotsRow from 'ac-file-snapshots';
 import * as goalRow from 'ac-goal';
 import * as groupRow from 'ac-group';
 import * as helloRow from 'ac-hello';
+import * as issueToolsRow from 'ac-issue-tools';
 import * as jobsRow from 'ac-jobs';
 import * as jobWakeupRow from 'ac-job-wakeup';
 import * as llmRow from 'ac-llm';
@@ -163,6 +164,8 @@ export const TREE: TreeRow[] = [
   { id: 'run-code', plugin: runCodeRow },
   { id: 'math', plugin: mathRow },
   { id: 'web-tools', plugin: webToolsRow },
+  // ISSUE 反馈（submit_issue：GitHub/Gitee 创建 ISSUE；行集与 cordis.yml 同步）
+  { id: 'issue-tools', plugin: issueToolsRow },
   // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
   { id: 'sap-adt', plugin: sapAdtRow },
   // ABAP 开发模式预设子行（工具面与预设面独立装配；对象行显式带自述
