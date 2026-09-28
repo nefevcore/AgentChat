@@ -34,8 +34,8 @@ const props = defineProps<{
 const chatStore = useChatStore();
 const ui = useUiStore();
 const roster = useRosterCore();
-/** 注入壳提供的移动端抽屉开合方法 */
-const toggleDrawer = inject<() => void>('toggleDrawer', () => {});
+/** 窄屏导航（cr-35）：push 会话页态——汉堡退役，按钮变返回（closeMobileMain） */
+const closeMobileMain = inject<() => void>('closeMobileMain', () => {});
 
 /** pair 端点展示信息（system 端点特殊标签；头像/名称经名册解析） */
 function endpointOf(id: string) {
@@ -53,6 +53,10 @@ const epB = computed(() => endpointOf(props.b || ''));
 <template>
   <div class="chat-header">
     <template v-if="isPair">
+      <!-- 窄屏返回（cr-39：只读会话也是 push 页——必须可返回） -->
+      <button class="hamburger-btn back-btn" @click="closeMobileMain" title="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+      </button>
       <div class="header-info">
         <div class="pair-title">
           <div class="pair-avatars">
@@ -63,19 +67,20 @@ const epB = computed(() => endpointOf(props.b || ''));
             <span v-else class="ep-ic"><Icon name="zap" :size="13" /></span>
           </div>
           <span class="agent-label">{{ epA.name }} × {{ epB.name }}</span>
-          <span class="pair-sub">只读 · 双方视角</span>
+          <span class="pair-sub">只读</span>
         </div>
       </div>
     </template>
 
     <template v-else>
-      <button v-if="!isGroup" class="hamburger-btn" @click="toggleDrawer" title="菜单">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+      <button class="hamburger-btn back-btn" @click="closeMobileMain" title="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
       </button>
       <div class="header-info">
         <span class="agent-label">{{ title }}</span>
-        <!-- 预设徽标（single 开场固化后的身份回显——工具栏不再放预设入口） -->
-        <span v-if="presetChipLabel" class="preset-chip" title="会话预设（开场时选定，发首条消息后锁定）">
+        <!-- 预设徽章（single 开场固化后的身份回显——工具栏不再放预设入口）；
+             flex-shrink:0 = 徽章恒完整，长标题走 agent-label 截断 -->
+        <span v-if="presetChipLabel" class="preset-chip" style="flex-shrink: 0" title="会话预设（开场时选定，发首条消息后锁定）">
           <Icon name="sparkles" :size="11" />
           {{ presetChipLabel }}
         </span>
@@ -150,13 +155,19 @@ const epB = computed(() => endpointOf(props.b || ''));
   background: var(--color-bg-page); flex-shrink: 0;
   backdrop-filter: blur(8px); z-index: 100;
 }
-.header-info { flex: 1; min-width: 0; }
+.header-info {
+  /* 单行（cr-40）：标题 + 预设徽章一行排布——块级默认宽度会令子项换行
+     成上下两行（窄屏溢出上方、与右侧按钮重叠的根因）；baseline 对齐
+     令徽章与标题文字基线一致。 */
+  display: flex; align-items: baseline; gap: 6px;
+  flex: 1; min-width: 0;
+}
 /* 单行截断：主区被辅栏/主栏压缩时长标题（+ 头部 widget 挤压）不得换行
    撑破 48px 头部；pair 形态双端点名同理（.pair-title 已 min-width:0） */
 .agent-label { font-size: 15px; font-weight: 600; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 汉堡菜单按钮：默认隐藏，窄屏显示 */
-.hamburger-btn {
+/* 返回按钮（cr-35：原汉堡退役——push 会话页的返回）：默认隐藏，窄屏显示 */
+.hamburger-btn, .back-btn {
   display: none; background: none; border: none; cursor: pointer;
   color: var(--color-text-secondary); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
 }

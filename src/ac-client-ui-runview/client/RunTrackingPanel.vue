@@ -47,7 +47,8 @@ import {
   type WireJob,
 } from 'ac-client-ui-jobs/client';
 
-const closeDrawer = inject<() => void>('closeDrawer', () => {});
+// 窄屏导航（cr-35）：跳转目标 = push 页（宽屏 no-op）
+const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
 // runs/runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
@@ -129,7 +130,6 @@ function openSubagent(subId: string | undefined, name?: string, parentId?: strin
   if (!subId) return;
   traceSwitch('open-subagent', subId.slice(-8));
   ui.openSubagentView(subId, name, parentId);
-  closeDrawer();
 }
 
 /** 任务状态 → 色类（st-<status>；图标/文案共享 api/jobs 词汇） */
@@ -242,7 +242,6 @@ async function jumpTo(r: RunsRunningEntry) {
   if (t.kind === 'pair') {
     traceSwitch('click-panel', `pair:${t.a.slice(-8)}|${t.b.slice(-8)}`);
     ui.openPairView(t.a, t.b);
-    closeDrawer();
     return;
   }
   traceSwitch('click-panel', `${t.kind}:${t.kind === 'single' ? t.id.slice(-8) : t.id}`);
@@ -267,7 +266,7 @@ async function jumpTo(r: RunsRunningEntry) {
   }
   // 进入会话：收矩阵 + 清视角（同值重选时选中三元组不变，让位 watch 不触发）
   ui.exitOverlays();
-  closeDrawer();
+  pushMainIfNarrow(); // 窄屏：push 会话页（cr-35）
 }
 
 const interrupting = ref(new Set<string>());
@@ -318,11 +317,6 @@ onMounted(() => {
     <!-- 1. 标题栏（文本） -->
     <div class="panel-toolbar">
       <span class="toolbar-label">运行跟踪</span>
-      <div class="toolbar-actions">
-        <button class="mobile-close-btn" @click="closeDrawer" title="关闭菜单">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-        </button>
-      </div>
     </div>
     <div v-if="loadError" class="load-error">快照拉取失败：{{ loadError }}</div>
 
@@ -496,9 +490,4 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 .leaf-stop:hover:not(:disabled){background:rgba(231,76,60,.1)}
 .leaf-stop:disabled{opacity:.4;cursor:wait}
 
-@media(max-width:768px){
-  .runs-panel{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}
-  .runs-panel.drawer-visible{transform:translateX(0);visibility:visible}
-  .mobile-close-btn{display:flex;align-items:center;justify-content:center}
-}
 </style>

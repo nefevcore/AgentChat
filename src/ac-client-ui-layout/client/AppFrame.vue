@@ -21,7 +21,7 @@
 //   · overlay         —— 全局弹窗（域行/基础件贡献）
 // 外部贡献（未出现）经同轴 order 与宿主内置项合并（D16-①）。
 // ============================================================
-import { ref, provide } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, provide } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import ResizeHandle from './ResizeHandle.vue';
 import MainViewHost from './MainViewHost.vue';
@@ -30,6 +30,8 @@ import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { ToastHost } from '@agentchat/webui-kit';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import MobileTabBar from './MobileTabBar.vue';
+import { registerBackHandler } from './historyFlag.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
 const clientCtx = useClientContext();
@@ -43,25 +45,56 @@ const ui = useUiStore();
 provide('settingsAgentId', ref(VIEWER_ID.value));
 /** Agent 设置入口（聊天页/侧边栏调用，打开设置面板并定位到该 Agent） */
 provide('openAgentSettings', (agentId: string) => ui.openAgentSettings(agentId));
-provide('toggleDrawer', () => ui.toggleDrawer());
-provide('closeDrawer', () => ui.closeDrawer());
+provide('pushMainIfNarrow', () => ui.pushMainIfNarrow());
+provide('closeMobileMain', () => ui.closeMobileMain());
+
+// ── 窄屏 root/push 导航（cr-35）：narrow 单源 + Android 返回键消费链 ──
+const narrow = computed(() => ui.narrow);
+
+/** 返回键消费判定（逐层：sheet 在前——MobileTabBar moreOpen 是组件本地态，
+ *  经 provide/inject 通道上提消费；push 页次之；root 页未消费 = 退后台） */
+const backConsumers = new Set<() => boolean>();
+provide('registerBackConsumer', (fn: () => boolean) => {
+  backConsumers.add(fn);
+  return () => { backConsumers.delete(fn); };
+});
+
+const offBack = registerBackHandler(() => {
+  // 0) 设置面板（z1000 全屏表单流——比 sheet 更顶层的 overlay）
+  if (ui.globalSettingsVisible) { ui.closeSettings(); return { handled: true, via: 'settings' }; }
+  // 1) 最顶层覆盖（more sheet / aux 全屏 sheet）：注册消费者逐层询问
+  //    （后注册者在上层——倒序遍历；任一消费即止）
+  for (const fn of [...backConsumers].reverse()) {
+    if (fn()) return { handled: true, via: 'overlay' };
+  }
+  // 2) push 会话页：关之
+  if (ui.mobileMainOpen) { ui.closeMobileMain(); return { handled: true, via: 'mobile-main' }; }
+  // 3) root 层：未消费（壳执行默认 = moveTaskToBack 退后台）
+  return { handled: false, via: 'root' };
+});
+onBeforeUnmount(() => offBack());
 </script>
 
 <template>
   <div class="app-layout">
-    <!-- 移动端遮罩 -->
-    <Transition name="drawer-overlay">
-      <div v-if="ui.drawerVisible" class="drawer-overlay" @click="ui.closeDrawer" />
-    </Transition>
 
     <!-- ① 活动栏（seat: activity-bar——VSCode Activity Bar 同款；出厂贡献
-         = 壳件出厂贡献 ActivityBarHost；2026-09-11 语义定整：原 sidebar 改名） -->
-    <SlotOutlet name="activity-bar" />
+         = 壳件出厂贡献 ActivityBarHost；2026-09-11 语义定整：原 sidebar 改名）。
+         窄屏不渲染（cr-35：底部 tab 栏接管导航） -->
+    <SlotOutlet v-if="!narrow" name="activity-bar" />
 
     <!-- ② 主侧边栏（seat: primary-sidebar——VSCode Primary Side Bar 同款；
          出厂贡献 = 壳件三面板壳——agents/sessions/tracking 三选一，
          只换主侧边栏，不动主面板；2026-09-11 语义定整：原 list-panel 改名） -->
-    <div v-if="ui.primaryVisible" class="primary-sidebar-wrapper" :class="{ 'drawer-visible': ui.drawerVisible }" :style="{ width: ui.primaryWidth + 'px' }">
+    <!-- 窄屏 root 层（cr-35）：列表页整页 + 底部 tab 栏——抽屉/把手退役 -->
+    <div v-if="narrow" class="mobile-root">
+      <div class="mobile-root-body">
+        <SlotOutlet name="primary-sidebar" />
+      </div>
+      <MobileTabBar />
+    </div>
+
+    <div v-else-if="ui.primaryVisible" class="primary-sidebar-wrapper" :style="{ width: ui.primaryWidth + 'px' }">
       <SlotOutlet name="primary-sidebar" />
       <ResizeHandle kind="primary" />
     </div>
@@ -74,7 +107,13 @@ provide('closeDrawer', () => ui.closeDrawer());
            keepAlive 生命周期策略见 MainViewHost：chat = 文档流保活
            （草稿/滚动/流式态不因主区视图切换丢失），volatile 条目随选
            举挂卸（离开即卸载，后台零轮询） -->
-    <div class="main-area">
+    <!-- 窄屏 push 层（cr-35）：会话页整页覆盖（transform 滑入——keepAlive 的
+         chat DOM 隐藏期间流式帧继续上屏，回来即最新帧） -->
+    <div v-if="narrow" class="mobile-main" :class="{ open: ui.mobileMainOpen }">
+      <MainViewHost />
+    </div>
+
+    <div v-else class="main-area">
       <MainViewHost />
     </div>
 
@@ -84,6 +123,7 @@ provide('closeDrawer', () => ui.closeDrawer());
            （AuxActivityBar——右侧的活动栏同构布局列，DOM 末位 = 最右列）
             全在 AuxSidebarHost + 域行条目 def——壳零域知识；选区缺席
            （行卸载）→ 区域整体消失 -->
+    <!-- ④ 辅助侧边栏（窄屏 cr-36：区域宿主内部换全屏 Sheet 排布——选区注册面零改动） -->
     <AuxSidebarHost />
 
     <!-- 全局覆盖层（seat: overlay）—— 全部弹窗 = 域行/基础件贡献
@@ -110,25 +150,21 @@ provide('closeDrawer', () => ui.closeDrawer());
   display: flex; flex-shrink: 0; overflow: hidden;
 }
 
-.drawer-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 110;
+/* ── 窄屏 root/push 双层（cr-35；抽屉态已全链退役）── */
+.mobile-root {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column;
+  background: var(--bg-base);
+  padding-top: var(--safe-top, 0px);
 }
-.drawer-overlay-enter-active, .drawer-overlay-leave-active { transition: opacity 0.2s; }
-.drawer-overlay-enter-from, .drawer-overlay-leave-to { opacity: 0; }
-
-@media (max-width: 768px) {
-  .primary-sidebar-wrapper {
-    position: fixed; left: 0; top: 0; bottom: 0;
-    z-index: 120; /* 盖住 ChatView header(z-100) 与 overlay(z-110)：移动端抽屉置顶 */
-  }
-  /* 收起时：无阴影 + 点击穿透（避免透明占位拦截活动栏图标列） */
-  .primary-sidebar-wrapper:not(.drawer-visible) {
-    pointer-events: none;
-  }
-  /* 阴影仅在侧边栏展开时显示，收起时避免边缘残留 */
-  .primary-sidebar-wrapper.drawer-visible {
-    box-shadow: 2px 0 12px rgba(0,0,0,0.15);
-    pointer-events: auto;
-  }
+.mobile-root-body { flex: 1; min-height: 0; display: flex; }
+.mobile-main {
+  position: absolute; inset: 0; z-index: 30;
+  transform: translateX(100%);
+  transition: transform 0.2s var(--ease-out, ease-out);
+  background: var(--bg-base);
+  display: flex;
+  padding-top: var(--safe-top, 0px); /* 状态栏避让（cr-40：会话头被遮的次因） */
 }
+.mobile-main.open { transform: translateX(0); }
 </style>

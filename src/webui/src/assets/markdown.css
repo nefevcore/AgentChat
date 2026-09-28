@@ -122,7 +122,7 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--color-text-primary) 38%, transparent);
+    background: rgba(var(--color-text-primary-rgb), 0.38);
 }
 
 .markdown-body ol {
@@ -144,7 +144,7 @@
     top: 0;
     font-variant-numeric: tabular-nums;
     /* 数字要可读：不透明度略高于点符 */
-    color: color-mix(in srgb, var(--color-text-primary) 55%, transparent);
+    color: rgba(var(--color-text-primary-rgb), 0.55);
 }
 
 .markdown-body ul,
@@ -167,7 +167,7 @@
     margin-bottom: 0;
 }
 .markdown-body li::marker {
-    color: color-mix(in srgb, var(--color-text-primary) 55%, transparent);
+    color: rgba(var(--color-text-primary-rgb), 0.55);
 }
 .markdown-body ul ul,
 .markdown-body ol ol,
@@ -179,7 +179,7 @@
 /* 嵌套内层列表：点符改空心，与外层区分 */
 .markdown-body ul ul > li::before {
     background: transparent;
-    border: 1.5px solid color-mix(in srgb, var(--color-text-primary) 38%, transparent);
+    border: 1.5px solid rgba(var(--color-text-primary-rgb), 0.38);
     width: 4px;
     height: 4px;
 }

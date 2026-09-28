@@ -17,6 +17,7 @@ let gidSeed = 0;
 <script setup lang="ts">
 import { computed } from 'vue';
 import Avatar from '../base/Avatar.vue';
+import { hexTriplet } from '../starColor.ts';
 
 const props = withDefaults(defineProps<{
   src?: string | null;
@@ -52,7 +53,7 @@ const gradId = `star-run-grad-${++gidSeed}`;
 </script>
 
 <template>
-  <span class="ui-star" :class="{ running }" :style="color ? { '--sc': color } : undefined">
+  <span class="ui-star" :class="{ running }" :style="color ? { '--sc': color, '--sc-rgb': hexTriplet(color) } : undefined">
     <!-- 运行光环：absolute 外溢，不占布局；仅环体有颜色，不遮头像内容 -->
     <svg v-if="running" class="run-ring" :width="ringSize" :height="ringSize" viewBox="0 0 100 100" aria-hidden="true">
       <defs>
@@ -85,7 +86,7 @@ const gradId = `star-run-grad-${++gidSeed}`;
 /* plain-fallback（纯 icon 占位）不走 tinted 圆盘——排除之，让 Avatar 内的
  * 透明底 + 中性色规则（低特异性）得以生效；否则本条 :deep 恒覆盖之 */
 .ui-star :deep(.ui-avatar-fallback:not(.ui-avatar-fallback--plain)) {
-  background: color-mix(in srgb, var(--sc, var(--primary)) 14%, transparent);
+  background: rgba(var(--sc-rgb, var(--primary-rgb)), 0.14);
   color: var(--sc, var(--primary));
 }
 

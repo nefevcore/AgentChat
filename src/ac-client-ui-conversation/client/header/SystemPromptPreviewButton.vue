@@ -13,7 +13,6 @@
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
-import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useChatStore } from '../chatStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
@@ -31,7 +30,6 @@ const props = defineProps<{
 
 const chatStore = useChatStore();
 const ui = useUiStore();
-const roster = useRosterCore();
 
 const agentId = toRef(() => props.data.agentId);
 const conversationId = toRef(() => props.data.conversationId);
@@ -39,15 +37,6 @@ const conversationId = toRef(() => props.data.conversationId);
 /** 形态 gate：direct/single/群（群 = 群主视角预览；pair 只读无入口） */
 const applicable = computed(() =>
   (props.data.form === 'direct' || props.data.form === 'single' || props.data.form === 'group') && !!agentId.value);
-
-/** 弹窗标题快照（getAgentName 含预设目录解析——与内核 activeAgentName 同源）；
- *  群形态标注视角（群主 xxx） */
-const agentName = computed(() => {
-  const id = agentId.value;
-  if (!id) return '';
-  const name = roster.getAgentName(id) || id;
-  return props.data.form === 'group' ? `${name}（群主视角）` : name;
-});
 
 /** 打开 System Prompt 预览（overlay 贡献——开关态住 ui store；内容请求经 chatStore） */
 function openPreview() {
@@ -59,7 +48,7 @@ function openPreview() {
       chatStore.requestSystemPrompt(agentId.value);
     }
   }
-  ui.openSystemPrompt(agentName.value);
+  ui.openSystemPrompt();
 }
 </script>
 

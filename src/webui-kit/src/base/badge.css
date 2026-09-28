@@ -21,29 +21,33 @@
 }
 
 /* ── 语义色调（状态徽章） ── */
-.ui-badge.ok   { color: var(--ok);      background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.ui-badge.err  { color: var(--err);     background: color-mix(in srgb, var(--err) 10%, transparent); }
-.ui-badge.warn { color: var(--warn);    background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.ui-badge.info { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ui-badge.ok   { color: var(--ok);      background: rgba(var(--ok-rgb), 0.12); }
+.ui-badge.err  { color: var(--err);     background: rgba(var(--err-rgb), 0.1); }
+.ui-badge.warn { color: var(--warn);    background: rgba(var(--warn-rgb), 0.12); }
+.ui-badge.info { color: var(--primary); background: rgba(var(--primary-rgb), 0.1); }
 .ui-badge.dim  { color: var(--text-3);  background: var(--bg-hover); }
 
 /* ── 标签徽章（能力标签——本色轻染 + 细描边，hue 由 tt-* 设定） ── */
 .ui-badge.tag {
+  /* 注意：此处**不得**声明 --tag-hue-rgb 缺省值——本规则特异性 (0,2,0) 高于
+     .tt-* 色相类 (0,1,0)，一旦声明就把色相类的三元组压掉（底色/描边错用灰）。
+     缺省回落走使用处的 var(--tag-hue-rgb, var(--text-3-rgb))。 */
+  color: var(--tag-hue, var(--text-3)); /* 回退（无 color-mix 的运行时）：本色 */
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 75%, var(--text-1));
-  background: color-mix(in srgb, var(--tag-hue, var(--text-3)) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 18%, transparent);
+  background: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.08);
+  border-color: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.18);
 }
 /* 缺失态：中性幽灵 + 虚线（行级警示归状态徽章琥珀——不在标签上重复用红，
    2026-09-03 前的原设计意图保留） */
 .ui-badge.tag.miss {
-  background: color-mix(in srgb, var(--text-3) 5%, transparent);
+  background: rgba(var(--text-3-rgb), 0.05);
   border-style: dashed;
-  border-color: color-mix(in srgb, var(--text-3) 26%, transparent);
+  border-color: rgba(var(--text-3-rgb), 0.26);
   color: var(--text-3);
 }
 
 /* ── 可配置徽章（⚙ 参数面标记——icon 用 Icon 组件渲染，不用符号文本） ── */
-.ui-badge.cfg { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ui-badge.cfg { color: var(--primary); background: rgba(var(--primary-rgb), 0.1); }
 
 /* ── 类型徽记（配置弹窗字段名旁） ── */
 .ui-badge.kind {
@@ -51,13 +55,15 @@
   color: var(--text-3); background: transparent; border-color: var(--line);
 }
 
-/* ── 能力标签色相（tt-* 只设 --tag-hue；两处工具清单共用） ── */
-.tt-base { --tag-hue: var(--primary); }
-.tt-admin { --tag-hue: #dc2626; }
-.tt-dev { --tag-hue: #059669; }
-.tt-shell { --tag-hue: #b45309; }
-.tt-delegation { --tag-hue: #7c3aed; }
-.tt-web { --tag-hue: #2563eb; }
-.tt-observe { --tag-hue: #0d9488; }
-.tt-manipulate { --tag-hue: #ea580c; }
-.tt-inject { --tag-hue: #be123c; }
+/* ── 能力标签色相（tt-* 设 --tag-hue 与伴随三元组 --tag-hue-rgb；
+   cr-38：tint 走 rgba(var(--tag-hue-rgb), α)——WebView 92 无 color-mix。
+   两处工具清单共用；新增色相类须两值同加） ── */
+.tt-base { --tag-hue: var(--primary); --tag-hue-rgb: var(--primary-rgb); }
+.tt-admin { --tag-hue: #dc2626; --tag-hue-rgb: 220, 38, 38; }
+.tt-dev { --tag-hue: #059669; --tag-hue-rgb: 5, 150, 105; }
+.tt-shell { --tag-hue: #b45309; --tag-hue-rgb: 180, 83, 9; }
+.tt-delegation { --tag-hue: #7c3aed; --tag-hue-rgb: 124, 58, 237; }
+.tt-web { --tag-hue: #2563eb; --tag-hue-rgb: 37, 99, 235; }
+.tt-observe { --tag-hue: #0d9488; --tag-hue-rgb: 13, 148, 136; }
+.tt-manipulate { --tag-hue: #ea580c; --tag-hue-rgb: 234, 88, 12; }
+.tt-inject { --tag-hue: #be123c; --tag-hue-rgb: 190, 18, 60; }

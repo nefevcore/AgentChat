@@ -123,7 +123,7 @@ async function onConfirm() {
 .card { background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-3) var(--space-4); }
 
 /* 错误横幅：role-active 语义（错误细节由文案承载） */
-.error-banner { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--err); background: color-mix(in srgb, var(--err) 8%, transparent); border: 1px solid color-mix(in srgb, var(--err) 25%, transparent); border-radius: var(--r-sm); padding: 6px 10px; }
+.error-banner { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--err); background: rgba(var(--err-rgb), 0.08); border: 1px solid rgba(var(--err-rgb), 0.25); border-radius: var(--r-sm); padding: 6px 10px; }
 
 /* 状态卡行 */
 .stat-row { display: flex; align-items: center; gap: var(--space-2); padding: 3px 0; min-height: 30px; }
@@ -131,13 +131,13 @@ async function onConfirm() {
 .k { color: var(--text-3); min-width: 72px; font-size: 12px; flex: none; }
 .v { font-size: 13px; font-variant-numeric: tabular-nums; }
 .mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-hover); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
-.custom-badge { font-size: 10px; color: var(--primary); border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; flex: none; }
+.custom-badge { font-size: 10px; color: var(--primary); border: 1px solid rgba(var(--primary-rgb), 0.4); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; flex: none; }
 .breakdown { margin-top: var(--space-1); border-top: 1px dashed var(--line); padding-top: var(--space-1); }
 
 /* 迁移编排 */
 .picked { margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2); }
 .migrate-opt { font-size: 12px; color: var(--text-2); display: flex; gap: var(--space-2); align-items: flex-start; }
-.warn { font-size: 12px; color: var(--text-3); border-left: 2px solid color-mix(in srgb, var(--warn) 45%, transparent); padding-left: 10px; }
+.warn { font-size: 12px; color: var(--text-3); border-left: 2px solid rgba(var(--warn-rgb), 0.45); padding-left: 10px; }
 .warn p { margin: 2px 0; }
 .actions { display: flex; justify-content: flex-end; }
 

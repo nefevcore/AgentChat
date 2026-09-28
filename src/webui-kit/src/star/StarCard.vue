@@ -4,18 +4,27 @@
   <StarCard :selected="active" :color="starColor"> ... </StarCard>
 -->
 <script setup lang="ts">
-withDefaults(defineProps<{
+import { computed } from 'vue';
+import { hexTriplet } from '../starColor.ts';
+
+const props = withDefaults(defineProps<{
   selected?: boolean;
   /** 星色（hex/CSS 色） */
   color?: string;
 }>(), { selected: false });
+
+/** 身份色 + 其 RGB 伴随（cr-38：tint 走 rgba(var(--sc-rgb), α) 回退形态） */
+const starVars = computed(() => ({
+  '--sc': props.color || 'var(--primary)',
+  '--sc-rgb': props.color ? hexTriplet(props.color) : 'var(--primary-rgb)',
+}));
 </script>
 
 <template>
   <div
     class="ui-star-card"
     :class="{ selected }"
-    :style="{ '--sc': color || 'var(--primary)' }"
+    :style="starVars"
   >
     <slot />
   </div>
@@ -30,6 +39,6 @@ withDefaults(defineProps<{
 .ui-star-card:hover { background: var(--bg-hover); }
 .ui-star-card.selected {
   background: var(--bg-surface);
-  border-color: color-mix(in srgb, var(--sc) 40%, transparent);
+  border-color: rgba(var(--sc-rgb), 0.4);
 }
 </style>

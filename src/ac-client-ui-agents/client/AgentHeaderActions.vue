@@ -141,7 +141,7 @@ async function confirmDelete() {
 .dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none; color: var(--text-1, var(--color-text-primary)); font-size: 13px; cursor: pointer; text-align: left; }
 .dropdown-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
 .dropdown-item.danger { color: var(--err, #e74c3c); }
-.dropdown-item.danger:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+.dropdown-item.danger:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>

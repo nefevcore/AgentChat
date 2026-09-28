@@ -314,6 +314,13 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   min-height: 63px;
 }
 
+/* 窄屏 2 行（cr-40）：63px = 恰好 3 整行——手机上占屏比过高；42px = 2 行
+   （1.5 × 14px × 2），输入体验仍在（内容超出内滚） */
+@media (max-width: 768px) {
+  .pe-wrap { min-height: 42px; }
+  .pe-wrap :deep(.pe-editor) { min-height: 42px; max-height: 42px; }
+}
+
 .pe-wrap :deep(.pe-editor) {
   outline: none;
   font-size: 14px;
@@ -357,12 +364,12 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   padding: 1px 0;
   font-weight: inherit;
 }
-.pe-wrap :deep(.pe-tok-skill)   { color: #7c5cff; background: color-mix(in srgb, #7c5cff 12%, transparent); }
-.pe-wrap :deep(.pe-tok-file)    { color: #2f7ff6; background: color-mix(in srgb, #2f7ff6 12%, transparent); }
-.pe-wrap :deep(.pe-tok-agent)   { color: #18a058; background: color-mix(in srgb, #18a058 12%, transparent); }
-.pe-wrap :deep(.pe-tok-session) { color: #d97706; background: color-mix(in srgb, #d97706 12%, transparent); }
-html.dark .pe-wrap :deep(.pe-tok-skill)   { color: #a38bff; background: color-mix(in srgb, #a38bff 14%, transparent); }
-html.dark .pe-wrap :deep(.pe-tok-file)    { color: #6aa6ff; background: color-mix(in srgb, #6aa6ff 14%, transparent); }
-html.dark .pe-wrap :deep(.pe-tok-agent)   { color: #4cc98a; background: color-mix(in srgb, #4cc98a 14%, transparent); }
-html.dark .pe-wrap :deep(.pe-tok-session) { color: #f0a24a; background: color-mix(in srgb, #f0a24a 14%, transparent); }
+.pe-wrap :deep(.pe-tok-skill)   { color: #7c5cff; background: rgba(124, 92, 255, 0.12); }
+.pe-wrap :deep(.pe-tok-file)    { color: #2f7ff6; background: rgba(47, 127, 246, 0.12); }
+.pe-wrap :deep(.pe-tok-agent)   { color: #18a058; background: rgba(24, 160, 88, 0.12); }
+.pe-wrap :deep(.pe-tok-session) { color: #d97706; background: rgba(217, 119, 6, 0.12); }
+html.dark .pe-wrap :deep(.pe-tok-skill)   { color: #a38bff; background: rgba(163, 139, 255, 0.14); }
+html.dark .pe-wrap :deep(.pe-tok-file)    { color: #6aa6ff; background: rgba(106, 166, 255, 0.14); }
+html.dark .pe-wrap :deep(.pe-tok-agent)   { color: #4cc98a; background: rgba(76, 201, 138, 0.14); }
+html.dark .pe-wrap :deep(.pe-tok-session) { color: #f0a24a; background: rgba(240, 162, 74, 0.14); }
 </style>

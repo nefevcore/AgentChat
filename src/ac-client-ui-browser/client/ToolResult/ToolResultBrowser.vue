@@ -338,7 +338,7 @@ const displayUrl = computed(() => {
 .brw-error {
   color: var(--color-error, #e74c3c); font-size: 12px; margin: 2px 0 6px;
   white-space: pre-wrap; word-break: break-word;
-  background: color-mix(in srgb, var(--color-error, #e74c3c) 10%, transparent); border-radius: 6px; padding: 6px 10px;
+  background: rgba(var(--color-error-rgb, 231, 76, 60), 0.1); border-radius: 6px; padding: 6px 10px;
 }
 
 .brw-steps { display: flex; flex-direction: column; gap: 4px; }

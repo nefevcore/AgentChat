@@ -800,11 +800,21 @@ const busyPlaceholder = computed(() => {
   return '运行中——Enter 排队发送，Cmd/Ctrl+Enter 立即插话';
 });
 
-/** 输入区 placeholder 单源（双编辑面共用；textarea 面经 :placeholder 直取） */
-const placeholderText = computed(() =>
-  presetRetired.value ? '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式'
-    : (store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…'
-      : (busySend.value ? busyPlaceholder.value : (props.placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)'))));
+/** 输入区 placeholder 单源（双编辑面共用；textarea 面经 :placeholder 直取）。
+ *  窄屏置短（cr-39）：桌面默认提示含 Enter/Shift+Enter///@/# 等键盘与命令
+ *  词汇——触屏无键盘快捷键、命令语法是桌面工作流；忙态手势提示同理
+ *  （Cmd/Ctrl+Enter 在手机上不存在）。保留功能性提示（归档进行中——
+ *  它说明的是 Agent 状态而非操作方式）。 */
+const placeholderText = computed(() => {
+  if (presetRetired.value) {
+    return uiStore.narrow ? '预设已退役——请新建会话' : '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式';
+  }
+  if (store.archivePending) return '当前 Agent 正在归档整理记忆，稍后处理您的回复…';
+  // 窄屏彻底置空（cr-40 二轮）：无自定义占位 = 不显示——现代输入框无需
+  // 『输入消息…』教学；功能性提示（归档/预设退役）仍保留
+  if (uiStore.narrow) return props.placeholder || '';
+  return busySend.value ? busyPlaceholder.value : (props.placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)');
+});
 
 /** 粘贴适配（PromptEditor.onPasteFiles 契约：返回 true = 已消费抑制默认
  *  插入；纯文本粘贴不拦截——PM schema 归一，富文本自动降级为纯文本） */
@@ -1277,7 +1287,8 @@ async function uploadAndAttach(rawFiles: File[]): Promise<void> {
         // 兜底——hash 字段 + uploadPaths 登记保证路径合成不受显示名影响
         filename: data.originalName || data.storedName || 'file',
         filesize: data.size ?? 0,
-        text: data.path,
+        // 绝对路径主形态（cr-30：read 工具跨锚点可达）；旧后端降级相对 path
+        text: data.absPath ?? data.path,
       });
     } catch (err: any) {
       console.error('[ChatInput] Upload failed:', err);
@@ -1902,6 +1913,14 @@ function onThumbError(i: number) {
   flex-shrink: 0;
 }
 
+/* 窄屏纯图标（cr-39）：select-text 隐藏——六个下拉钮（模型/思考/提权/工具
+   模式/实验性/工作区/Agent）只留图标+chevron；完整名与语义在点开的菜单里。
+   长名按钮（实验性·浏览器已禁用/未配置模型）同时收掉 padding。 */
+@media (max-width: 768px) {
+  .select-btn .select-text { display: none; }
+  .select-btn { padding: 0 6px; }
+}
+
 /* 下拉按钮通用（Agent / 模型 / 思考强度：同一视觉密度） */
 .select-btn {
   display: inline-flex;
@@ -1930,17 +1949,17 @@ html.dark .select-btn.open { background: #1a1f2c; }
 /* 快捷提权武装态（持续生效直到改回）：警示色常显——防"忘记已武装"；
  * full 档用危险色（不受限的执行档，视觉重量最高） */
 .select-btn.armed { color: var(--color-warning, #e67e22); font-weight: 600; }
-.select-btn.armed:hover { color: var(--color-warning, #e67e22); background: color-mix(in srgb, var(--color-warning, #e67e22) 10%, transparent); }
+.select-btn.armed:hover { color: var(--color-warning, #e67e22); background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.1); }
 .select-btn.armed-full { color: var(--color-error, #e5484d); }
 /* 浏览器档态（实验性 → 浏览器）：授权 = 强调色（可用），禁用 = 灰暗（不可用） */
 .select-btn.browser-armed { color: var(--color-link, #3b82f6); font-weight: 600; }
 .select-btn.browser-disabled { color: var(--color-text-tertiary); text-decoration: line-through; }
 .select-btn.browser-disabled .select-text { text-decoration: line-through; }
-.select-btn.armed-full:hover { color: var(--color-error, #e5484d); background: color-mix(in srgb, var(--color-error, #e5484d) 10%, transparent); }
+.select-btn.armed-full:hover { color: var(--color-error, #e5484d); background: rgba(var(--color-error-rgb, 229, 72, 77), 0.1); }
 
 /* 程序化模式激活态（工具使用模式 = 程序化）：主色微亮——模式在场的持续提示 */
 .select-btn.prog { color: var(--color-primary, #4f46e5); font-weight: 600; }
-.select-btn.prog:hover { color: var(--color-primary, #4f46e5); background: color-mix(in srgb, var(--color-primary, #4f46e5) 10%, transparent); }
+.select-btn.prog:hover { color: var(--color-primary, #4f46e5); background: rgba(var(--color-primary-rgb, 79, 70, 229), 0.1); }
 /* 档位不可选（Agent 无 tc-programmatic 标签——覆盖惰性对齐） */
 .dd-option.is-disabled { opacity: .55; cursor: not-allowed; }
 .dd-option.is-disabled:hover { background: none; }
@@ -1951,8 +1970,8 @@ html.dark .select-btn.open { background: #1a1f2c; }
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--color-warning, #e67e22) 45%, transparent);
-  background: color-mix(in srgb, var(--color-warning, #e67e22) 8%, transparent);
+  border: 1px solid rgba(var(--color-warning-rgb, 230, 126, 34), 0.45);
+  background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.08);
   border-radius: var(--radius-md);
   color: var(--color-warning, #e67e22);
   font-size: 12px;
@@ -1961,7 +1980,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 
 /* 未配置任何模型警示态（默认模型发不出去——防用户误以为可直接会话） */
 .select-btn.warn { color: var(--color-warning, #e67e22); }
-.select-btn.warn:hover { color: var(--color-warning, #e67e22); background: color-mix(in srgb, var(--color-warning, #e67e22) 10%, transparent); }
+.select-btn.warn:hover { color: var(--color-warning, #e67e22); background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.1); }
 .dd-option.warn .dd-option-name { color: var(--color-warning, #e67e22); }
 .dd-option-detail.is-warn { color: var(--color-warning, #e67e22); }
 .dd-warn-icon { vertical-align: -2px; margin-right: 3px; color: var(--color-warning, #e67e22); }
@@ -2145,11 +2164,11 @@ html.dark .select-btn.open { background: #1a1f2c; }
   animation: pulse-stop 1.5s ease-in-out infinite;
 }
 
-.send-btn.stopping:hover { background: color-mix(in srgb, var(--color-error) 85%, #000); color: #fff; }
+.send-btn.stopping:hover { background: var(--color-error); /* 回退（cr-38）：本色（混黑为加深一档的 hover 微调） */ background: color-mix(in srgb, var(--color-error) 85%, #000); color: #fff; }
 
 @keyframes pulse-stop {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-error) 35%, transparent); }
-  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-error) 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-error-rgb), 0.35); }
+  50% { box-shadow: 0 0 0 6px transparent; }
 }
 
 .uploading-spinner {

@@ -7,7 +7,8 @@
   </PulseTrace>
 -->
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { hexTriplet } from '../starColor.ts';
 
 const props = withDefaults(defineProps<{
   title?: string;
@@ -21,10 +22,16 @@ const props = withDefaults(defineProps<{
 }>(), { title: '思考过程', streaming: false, open: false });
 
 const isOpen = ref(props.open);
+
+/** 星色 + 其 RGB 伴随（cr-38：tint 走 rgba(var(--tc-rgb), α) 回退形态） */
+const starVars = computed(() => ({
+  '--tc': props.color || 'var(--primary)',
+  '--tc-rgb': props.color ? hexTriplet(props.color) : 'var(--primary-rgb)',
+}));
 </script>
 
 <template>
-  <div class="ui-pulse" :style="{ '--tc': color || 'var(--primary)' }">
+  <div class="ui-pulse" :style="starVars">
     <div class="ui-pulse-head" :class="{ open: isOpen }" @click="isOpen = !isOpen">
       <span class="ui-pulse-dot" />
       <span class="ui-pulse-title">{{ title }}</span>
@@ -48,7 +55,7 @@ const isOpen = ref(props.open);
 .ui-pulse-title { flex-shrink: 0; }
 .ui-pulse-line {
   flex: 1; height: 3px; border-radius: var(--r-full); overflow: hidden;
-  background: color-mix(in srgb, var(--tc) 18%, transparent); position: relative;
+  background: rgba(var(--tc-rgb), 0.18); position: relative;
 }
 .ui-pulse-line.streaming::after {
   content: ""; position: absolute; inset: 0; width: 40%;

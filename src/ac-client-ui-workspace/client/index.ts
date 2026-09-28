@@ -7,8 +7,9 @@
 // 后缀与 jobBoard/singleBoard 同族，D22 查重）。域投影：用户工作区
 // 清单 + CRUD 管理写面。数据面 = 宿主 REST 端点（/api/workspaces——
 // 浏览器原生 fetch 同源直连，无 RPC/事件帧依赖）。
-// M28 P1 域资产归位（行完整）：fileApi/EntryPickerModal/FilePreviewModal/
-// WorkspaceTree(/Node)/workspaceFile 随域迁入；文件预览以 overlay 席位
+// M28 P1 域资产归位（行完整）：fileApi/EntryPickerModal/WorkspaceTree(/Node)/
+// workspaceFile 随域迁入（FilePreviewModal 随 cr-36 窄屏 Modal 退役删除）；
+// 文件预览以 overlay 席位
 // 贡献落位、工作区树以 aside 席位选区条目落位（2026-09-11 构造对齐·层级
 // 修正：aux-sidebar 席位 = 辅助侧边栏（第四区域本身），工作区 = 众多选区之一——rail 收起
 // 态把手资产随条目 def 住本行，壳零域知识）。

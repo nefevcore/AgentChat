@@ -33,22 +33,22 @@ describe('P1 · preview 选区注册（workspace 行）', () => {
     expect(ids('aux-sidebar')).not.toContain('webui-domain-workspace.preview');
   });
 
-  it('意图通道：openPreview（宽屏）→ previewIntent++；窄屏 → previewVisible 直开', async () => {
+  it('意图通道：openPreview → previewIntent++（宽窄同路径，cr-36 收编）', async () => {
     const ui = useUiStore();
-    // jsdom 缺省 1024px（>768 → 宽屏分支）
     ui.openPreview('docs/x.md', 'agent-1');
     expect(ui.auxIntent).toBe(1); // 通用意图 seq（panel='preview'）
     expect(ui.auxIntentPanel).toBe('preview');
     expect(ui.previewIntentFallback).toBe('agent-1');
-    expect(ui.previewVisible).toBe(false); // 宽屏不开 Modal
-    // 窄屏：直接操纵 innerWidth（jsdom 可写）
-    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 375 });
+    expect(ui.previewFilePath).toBe('docs/x.md');
+    // 窄屏同路径（cr-36）：不再直开 Modal——同一意图通道递增（呈现由
+    // AuxSidebarHost 全屏 Sheet 承担）
+    ui.narrow = true;
     try {
       ui.openPreview('docs/y.md');
-      expect(ui.previewVisible).toBe(true); // Modal 形态
-      expect(ui.auxIntent).toBe(1); // 意图不变
+      expect(ui.auxIntent).toBe(2); // 意图递增（同一通道）
+      expect(ui.previewFilePath).toBe('docs/y.md');
     } finally {
-      Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1024 });
+      ui.narrow = false;
     }
   });
 });

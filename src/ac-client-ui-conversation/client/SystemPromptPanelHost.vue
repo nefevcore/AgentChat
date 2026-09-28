@@ -23,5 +23,5 @@ watch(() => ui.auxIntent, (seq) => {
 </script>
 
 <template>
-  <SystemPromptPanel :style="{ width: ui.auxWidth + 'px' }" />
+  <SystemPromptPanel :style="ui.auxPaneStyle" />
 </template>

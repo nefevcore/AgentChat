@@ -72,14 +72,14 @@ const icon = computed(() => TONE_ICON[props.tone]);
 
 .as-chip.is-ok {
   color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-success) 25%, transparent);
+  background: rgba(var(--color-success-rgb), 0.08);
+  border: 1px solid rgba(var(--color-success-rgb), 0.25);
 }
 
 .as-chip.is-error {
   color: var(--color-error);
-  background: color-mix(in srgb, var(--color-error) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-error) 25%, transparent);
+  background: rgba(var(--color-error-rgb), 0.08);
+  border: 1px solid rgba(var(--color-error-rgb), 0.25);
 }
 
 .as-chip.is-info {
@@ -90,8 +90,8 @@ const icon = computed(() => TONE_ICON[props.tone]);
 
 .as-chip.is-busy {
   color: var(--color-primary, #6366f1);
-  background: color-mix(in srgb, var(--color-primary, #6366f1) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary, #6366f1) 25%, transparent);
+  background: rgba(var(--color-primary-rgb, 99, 102, 241), 0.08);
+  border: 1px solid rgba(var(--color-primary-rgb, 99, 102, 241), 0.25);
 }
 
 @keyframes feedback-notice-spin { to { transform: rotate(360deg); } }

@@ -918,8 +918,8 @@ async function removeAvatar() {
 .tag-badge {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 3px 10px; border-radius: var(--r-full); font-size: 11px; cursor: pointer;
-  background: color-mix(in srgb, var(--text-3) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--text-3) 14%, transparent);
+  background: rgba(var(--text-3-rgb), 0.06);
+  border: 1px solid rgba(var(--text-3-rgb), 0.14);
   color: var(--text-3);
   transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
@@ -930,24 +930,25 @@ async function removeAvatar() {
   max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tag-badge .tag-badge-label {
-  padding-left: 7px; border-left: 1px solid color-mix(in srgb, var(--text-3) 18%, transparent);
+  padding-left: 7px; border-left: 1px solid rgba(var(--text-3-rgb), 0.18);
   max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tag-badge.on .tag-badge-label { border-left-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 22%, transparent); }
+.tag-badge.on .tag-badge-label { border-left-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.22); }
 .tag-badge:hover {
-  background: color-mix(in srgb, var(--text-3) 11%, transparent);
-  border-color: color-mix(in srgb, var(--text-3) 22%, transparent);
+  background: rgba(var(--text-3-rgb), 0.11);
+  border-color: rgba(var(--text-3-rgb), 0.22);
   color: var(--text-2);
 }
 .tag-badge.on {
-  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 20%, transparent);
+  background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.08);
+  border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.2);
+  color: var(--tag-hue, var(--primary)); /* 回退（cr-38） */
   color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1));
   font-weight: 500;
 }
 .tag-badge.on:hover {
-  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 14%, transparent);
-  border-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 28%, transparent);
+  background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.14);
+  border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.28);
 }
 /* 标签色相表（与 AgentListPane 徽章同源；base 已退役） */
 .tb-fs { --tag-hue: var(--primary); }
@@ -981,14 +982,15 @@ async function removeAvatar() {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 14px; height: 14px; margin-left: 5px; padding: 0 3px;
   border-radius: var(--r-full); font-size: 9px; line-height: 1;
-  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 16%, transparent);
+  background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.16);
+  color: var(--tag-hue, var(--primary)); /* 回退（cr-38） */
   color: color-mix(in srgb, var(--tag-hue, var(--primary)) 70%, var(--text-1));
 }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-full);
-  background: color-mix(in srgb, var(--text-2) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--text-2) 15%, transparent);
+  background: rgba(var(--text-2-rgb), 0.07);
+  border: 1px solid rgba(var(--text-2-rgb), 0.15);
   font-size: 11px; color: var(--text-1);
 }
 .tag-chip-x { border: none; background: none; cursor: pointer; color: var(--text-2); padding: 0 2px; display: inline-flex; align-items: center; }
@@ -1003,7 +1005,7 @@ async function removeAvatar() {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
   font-size: 12px; color: var(--text-2);
   padding: 4px 10px; background: var(--primary-light, rgba(99,102,241,.08));
-  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
   border-radius: var(--r-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .llm-effective .llm-effective-src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1024,7 +1026,7 @@ async function removeAvatar() {
   margin-left: 6px; padding: 0 7px; border-radius: var(--r-full);
   font-size: 10px; font-weight: 400; line-height: 1.6; vertical-align: 1px;
 }
-.llm-source.is-override { color: var(--primary); background: var(--primary-light); border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent); }
+.llm-source.is-override { color: var(--primary); background: var(--primary-light); border: 1px solid rgba(var(--primary-rgb), 0.4); }
 .llm-source.is-inherit { color: var(--text-3); background: var(--bg-hover); }
 .llm-fields { display: flex; flex-direction: column; gap: 2px; }
 .llm-item { padding: 8px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; border-left: 3px solid transparent; }
@@ -1040,14 +1042,14 @@ async function removeAvatar() {
 /* 旧契约迁移横幅（P2） */
 .ext-legacy-banner {
   padding: 8px 12px; border-radius: var(--r-md);
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid rgba(var(--warn-rgb), 0.45);
+  background: rgba(var(--warn-rgb), 0.1);
   color: var(--warn); font-size: 12px; line-height: 1.5;
 }
 .ext-legacy-banner.error {
   color: var(--err);
-  border-color: color-mix(in srgb, var(--err) 45%, transparent);
-  background: color-mix(in srgb, var(--err) 10%, transparent);
+  border-color: rgba(var(--err-rgb), 0.45);
+  background: rgba(var(--err-rgb), 0.1);
 }
 
 /* 插件 Agent 页签（settings-tab:agent） */

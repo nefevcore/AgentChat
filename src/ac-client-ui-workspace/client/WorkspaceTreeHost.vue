@@ -19,7 +19,7 @@ function onPreviewFile(path: string, agentId: string, conversationId: string) {
 
 <template>
   <WorkspaceTree
-    :style="{ width: ui.auxWidth + 'px' }"
+    :style="ui.auxPaneStyle"
     @preview-file="onPreviewFile"
     @close="ui.auxVisible = false"
   />

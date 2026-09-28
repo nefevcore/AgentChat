@@ -7,6 +7,21 @@
   font-weight: normal;
 }
 
+/* ── 触屏基线（cr-37 Phase③）：桌面 hover 语义在触屏上的三个缺口 ──
+   ① 点击高亮块（Android WebView 默认灰闪）——透明化，交互反馈由组件自身
+      hover/active 态承担；
+   ② 双击缩放的 ~300ms 点击延迟与误触缩放——touch-action: manipulation 让
+      触摸立即派发 click（pan/pinch 滚动缩放保留，不影响编辑器与滚动容器）；
+   ③ 滚动链外溢（页面级橡皮筋/下拉刷新拖影）——遏制在根；卡片与面板内
+      滚动区仍各自声明 overscroll-behavior: contain（既有约定不变）。 */
+html {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+body {
+  overscroll-behavior: none;
+}
+
 body {
   min-height: 100vh;
   background: var(--color-bg-page);

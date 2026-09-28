@@ -17,6 +17,6 @@ const ui = useUiStore();
 
 <template>
   <FilePreviewPanel
-    :style="{ width: ui.auxWidth + 'px' }"
+    :style="ui.auxPaneStyle"
   />
 </template>

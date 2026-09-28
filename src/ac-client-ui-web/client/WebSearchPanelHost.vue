@@ -14,5 +14,5 @@ const ui = useUiStore();
 </script>
 
 <template>
-  <WebSearchPanel :style="{ width: ui.auxWidth + 'px' }" />
+  <WebSearchPanel :style="ui.auxPaneStyle" />
 </template>

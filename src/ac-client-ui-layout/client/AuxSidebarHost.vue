@@ -18,9 +18,16 @@
 // 生命周期：选区缺省 volatile（区域收起即卸载——树体轻无保活诉求；
 // keepAlive 旗标留作未来重选区扩展位）。多根平铺（零包裹 D23-A）：
 // ResizeHandle + 面板列 + 辅助活动栏列 = app-layout 行的三个 flex 子项。
+//
+// 窄屏形态（cr-36 Phase②）：右侧栏在手机上无立足之地，改**全屏 Sheet**
+// 承载当选选区面板（webui-kit Sheet 原语——同一选区注册面零改动，只换
+// 壳的排布）；辅助活动栏不渲染（入口归 MobileMoreSheet「面板」区，该区
+// 列 auxSidebarRailDefs 全量），返回键/关闭钮收起。宽度由 ui.auxPaneStyle
+// 单源给（窄屏 100%）——此前选区宿主自绑 ui.auxWidth 会在全屏里撑破。
 // ============================================================
-import { computed, onBeforeUnmount, reactive, watchEffect } from 'vue';
+import { computed, inject, onBeforeUnmount, reactive, watchEffect } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
+import { Sheet } from '@agentchat/webui-kit';
 import ResizeHandle from './ResizeHandle.vue';
 import AuxActivityBar from './AuxActivityBar.vue';
 import { useUiStore } from './uiStore.ts';
@@ -31,6 +38,23 @@ import {
 
 const ctx = useClientContext();
 const ui = useUiStore();
+
+/** 窄屏（单源 ui.narrow——响应式）*/ 
+const isNarrow = computed(() => ui.narrow);
+/** Sheet 标题（选区 rail 文案单源；无 rail 回落 id） */
+const sheetTitle = computed(() => winner.value?.rail?.title ?? winner.value?.id ?? '');
+
+// 返回键消费（cr-36）：窄屏全屏 Sheet 开着时消费返回（关 Sheet，不退后台；
+// 未开 = 不消费，交壳判定 push 页/root 层）
+const registerBack = inject<((fn: () => boolean) => () => void) | null>('registerBackConsumer', null);
+let offBack: (() => void) | null = null;
+if (registerBack) {
+  offBack = registerBack(() => {
+    if (isNarrow.value && ui.auxVisible) { ui.closeAux(); return true; }
+    return false;
+  });
+}
+onBeforeUnmount(() => offBack?.());
 
 // ── 席位版本订阅（key 级细粒度失效轴——同 MainViewHost 机制）：
 //    行装载/卸载 → 'slots/changed'(aux-sidebar) → 版本计数 → 当选举区重算 ──
@@ -82,34 +106,57 @@ function togglePanel(def: AuxSidebarPanelDef) {
     ui.toggleAux(); // 二次点击收起
     return;
   }
-  def.rail?.activate?.(); // 域侧把 active() 置真（如 group 的 drawerOpen）
-  ui.selectAuxPanel(def.id); // 显式选区置位（跨域切换让位：优先于谓词选举）
-  ui.applyAuxPanelWidth(def.id); // 按目标选区形态重整宽度
-  ui.openAux();
+  ui.openAuxPanel(def); // 域侧激活 + 显式置位 + 宽度重整 + 展开（语义单点）
 }
 </script>
 
 <template>
-  <!-- 展开态：分屏把手 + 当当选区面板（多根平铺——选区自带宽度样式/关闭按钮） -->
-  <template v-if="winner && ui.auxVisible">
-    <ResizeHandle kind="aux" />
+  <!-- ── 窄屏（cr-36）：全屏 Sheet 形态 ──
+       keepAlive：Sheet 隐藏不卸载——选区 keepAlive 语义（曾当选即常驻）
+       在开关之间保持（定时任务等编辑中状态不丢）。 -->
+  <Sheet
+    v-if="isNarrow"
+    :visible="!!winner && ui.auxVisible"
+    :title="sheetTitle"
+    full
+    keep-alive
+    :z-index="150"
+    @close="ui.closeAux()"
+  >
+    <div v-for="r in rendered" :key="r.def.id" v-show="r.visible" class="aux-sheet-pane">
+      <component :is="r.def.component" v-bind="safeAuxSidebarPanelProps(r.def)" />
+    </div>
+  </Sheet>
+
+  <!-- ── 宽屏：原形态（分屏把手 + 面板列 + 辅助活动栏列）── -->
+  <template v-else>
+    <!-- 展开态：分屏把手 + 当当选区面板（多根平铺——选区自带宽度样式/关闭按钮） -->
+    <template v-if="winner && ui.auxVisible">
+      <ResizeHandle kind="aux" />
+    </template>
+    <div v-for="r in rendered" :key="r.def.id" v-show="r.visible" class="aux-pane">
+      <component :is="r.def.component" v-bind="safeAuxSidebarPanelProps(r.def)" />
+    </div>
+    <!-- 辅助活动栏（app-layout 行最右列——常规布局列，零覆盖）：各选区
+         同级按钮；点非当选区展开 / 当选且展开时二次点击收起 -->
+    <AuxActivityBar
+      v-if="railDefs.length > 0"
+      :defs="railDefs"
+      :active-id="activeRailId"
+      @toggle="togglePanel"
+    />
   </template>
-  <div v-for="r in rendered" :key="r.def.id" v-show="r.visible" class="aux-pane">
-    <component :is="r.def.component" v-bind="safeAuxSidebarPanelProps(r.def)" />
-  </div>
-  <!-- 辅助活动栏（app-layout 行最右列——常规布局列，零覆盖）：各选区
-       同级按钮；点非当选区展开 / 当选且展开时二次点击收起 -->
-  <AuxActivityBar
-    v-if="railDefs.length > 0"
-    :defs="railDefs"
-    :active-id="activeRailId"
-    @toggle="togglePanel"
-  />
 </template>
 
 <style scoped>
 /* pane：选区统一布局层（flex 收敛——选区自带宽度样式） */
 .aux-pane {
   display: flex; flex-shrink: 0; min-width: 0; height: 100%; overflow: hidden;
+}
+
+/* 窄屏全屏 Sheet 内的选区容器（宽高都由 Sheet 给满——选区面板自带滚动区） */
+.aux-sheet-pane {
+  display: flex; flex-direction: column;
+  width: 100%; min-width: 0; height: 100%; overflow: hidden;
 }
 </style>

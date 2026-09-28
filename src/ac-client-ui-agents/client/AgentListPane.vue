@@ -270,15 +270,18 @@ function tagHint(t: string): string {
    （无专属色系的自定义标签回落中性灰）——与 AgentPane 能力徽章同源 */
 .agent-pool-tag {
   padding: 2px 9px; border-radius: var(--r-full);
-  background: color-mix(in srgb, var(--tag-hue, var(--text-3)) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tag-hue, var(--text-3)) 16%, transparent);
+  background: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.07);
+  border: 1px solid rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.16);
+  /* 回退（cr-38：无 color-mix 的运行时取本色，支持者取混色）——标签文字色 */
+  color: var(--tag-hue, var(--text-3));
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 72%, var(--text-1));
   font-size: 11px; line-height: 1.5; cursor: default;
   transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
 .agent-pool-tag:hover {
-  background: color-mix(in srgb, var(--tag-hue, var(--text-3)) 12%, transparent);
-  border-color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 24%, transparent);
+  background: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.12);
+  border-color: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.24);
+  color: var(--tag-hue, var(--text-3)); /* 回退（cr-38） */
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 85%, var(--text-1));
 }
 /* 标签色相表（与 AgentPane tb-* 同源；base/agent 已退役） */
@@ -300,7 +303,7 @@ function tagHint(t: string): string {
 }
 .agent-pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .agent-pool-btn.danger { color: var(--err); }
-.agent-pool-btn.danger:hover { background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); }
+.agent-pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
 .agent-pool-btn.danger { color: var(--err); border-color: rgba(231,76,60,.4); }
 .agent-pool-btn.danger:hover { background: rgba(231,76,60,.08); }
 

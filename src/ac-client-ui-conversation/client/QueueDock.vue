@@ -189,7 +189,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
 /* 立即发送（插话）：运行中着警示色——"着急"的主操作位（原输入框按钮移此） */
 .queue-act.steer:not(:disabled) { color: var(--color-warning, #e67e22); }
 .queue-act.steer:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-warning, #e67e22) 12%, transparent);
+  background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.12);
   color: var(--color-warning, #e67e22);
 }
 </style>

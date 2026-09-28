@@ -448,7 +448,7 @@ html.dark .range-btn.active{background:#1e2530}
 /* 十字底色带：整行/整列铺色（hover 高亮的载体），铺在格子图层之下 ——
  * 只在 gap 与透明格（heat-none）上可见，有浓度色的格子覆盖其上；
  * 色带贯通行头下方/列头右侧，十字以"底色通道"呈现，不触碰任何格子颜色。 */
-.cross-track{position:absolute;z-index:0;pointer-events:none;border-radius:8px;background:color-mix(in srgb,var(--color-primary,#6366f1) 10%,transparent)}
+.cross-track{position:absolute;z-index:0;pointer-events:none;border-radius:8px;background:rgba(var(--color-primary-rgb, 99, 102, 241), 0.1)}
 .cross-row{left:0;right:0}
 .cross-col{top:0;bottom:0}
 /* 交汇处（hover 格所在）：横纵带叠加自然加深，无需额外处理 */
@@ -462,12 +462,12 @@ html.dark .corner{background:#11151d}
 /* 列头：头像（sticky 顶；十字高亮） */
 .col-head{position:sticky;top:0;z-index:2;width:var(--cell);height:48px;display:flex;align-items:center;justify-content:center;background:var(--color-bg-page,#fff);border-radius:10px;transition:background var(--transition-fast)}
 html.dark .col-head{background:#11151d}
-.col-head.hl{background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
+.col-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-38）：页面底即本元素底色，α 混合等效 */;background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
 
 /* 行头：头像 + 名称（sticky 左；十字高亮） */
 .row-head{position:sticky;left:0;z-index:1;height:var(--cell);display:flex;align-items:center;gap:8px;padding:0 10px 0 4px;background:var(--color-bg-page,#fff);min-width:0;border-radius:10px;transition:background var(--transition-fast)}
 html.dark .row-head{background:#11151d}
-.row-head.hl{background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
+.row-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-38） */;background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
 .row-head-name{font-size:12px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .head-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;flex-shrink:0}
@@ -480,7 +480,7 @@ html.dark .row-head{background:#11151d}
 /* hover 格：仅细主色描边指示（不放大、不加光晕、不改颜色 —— 避免拥挤与遮色） */
 .cell:hover{box-shadow:inset 0 0 0 2px var(--color-primary,#6366f1)}
 .cell:active{box-shadow:inset 0 0 0 2.5px var(--color-primary,#6366f1)}
-.cell.hl{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--color-primary,#6366f1) 25%,rgba(127,127,127,.1))}
+.cell.hl{box-shadow:inset 0 0 0 1px rgba(var(--color-primary-rgb, 99, 102, 241),.3) /* 回退（cr-38） */;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--color-primary,#6366f1) 25%,rgba(127,127,127,.1))}
 .cell.hl.mirror-data{opacity:.85}
 /* 上三角镜像：无数据 = 斜纹占位（不可点）；有数据 = 弱化浓度（可点进入同一会话） */
 .cell.mirror{cursor:default;opacity:.45}
@@ -498,11 +498,11 @@ html.dark .row-head{background:#11151d}
 
 /* ── 浓度色阶：范围内消息量对数归一化（c1 最浅 → c5）── */
 .heat-none{background:transparent}
-.c1{background:color-mix(in srgb,var(--color-primary,#6366f1) 6%,transparent)}
-.c2{background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,transparent)}
-.c3{background:color-mix(in srgb,var(--color-primary,#6366f1) 20%,transparent)}
-.c4{background:color-mix(in srgb,var(--color-primary,#6366f1) 30%,transparent)}
-.c5{background:color-mix(in srgb,var(--color-primary,#6366f1) 42%,transparent)}
+.c1{background:rgba(var(--color-primary-rgb, 99, 102, 241), 0.06)}
+.c2{background:rgba(var(--color-primary-rgb, 99, 102, 241), 0.12)}
+.c3{background:rgba(var(--color-primary-rgb, 99, 102, 241), 0.2)}
+.c4{background:rgba(var(--color-primary-rgb, 99, 102, 241), 0.3)}
+.c5{background:rgba(var(--color-primary-rgb, 99, 102, 241), 0.42)}
 /* ── 图例 + 覆盖面 ── */
 .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;font-size:11px;color:var(--color-text-tertiary,#a8abb2)}
 .lg{display:inline-flex;align-items:center;gap:4px}

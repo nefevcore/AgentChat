@@ -19,5 +19,5 @@ watch(() => ui.auxIntent, (seq) => {
 </script>
 
 <template>
-  <TimersPanel :style="{ width: ui.auxWidth + 'px' }" />
+  <TimersPanel :style="ui.auxPaneStyle" />
 </template>

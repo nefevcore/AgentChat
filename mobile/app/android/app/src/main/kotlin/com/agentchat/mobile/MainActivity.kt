@@ -71,6 +71,20 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    /**
+     * Android 返回键（cr-35 Phase①）：先问 WebView UI 是否消费——
+     * 会话页 push 态/全屏覆盖层开着时由 webui 关闭之（栈式导航），
+     * 未消费才退后台（moveTaskToBack——不 finish，链路不断）。
+     * 配对面板期（WebView 未加载）直接退后台。
+     */
+    override fun onBackPressed() {
+        val webView = bridge?.webView
+        if (webView == null) { moveTaskToBack(true); return }
+        webView.evaluateJavascript("(window.__agentchatBack && window.__agentchatBack().handled) === true") { handled ->
+            if (handled != "true") moveTaskToBack(true)
+        }
+    }
+
     /** 系统扫到 agentchat://pair 再次唤起（应用已在栈中） */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

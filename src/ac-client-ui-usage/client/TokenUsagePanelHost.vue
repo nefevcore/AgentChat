@@ -17,7 +17,7 @@ const ui = useUiStore();
 
 <template>
   <TokenUsage
-    :style="{ width: ui.auxWidth + 'px' }"
+    :style="ui.auxPaneStyle"
     variant="panel"
     :visible="true"
   />

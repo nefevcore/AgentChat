@@ -64,10 +64,12 @@ describe('aux 超宽让位（拖过视口 30% 收主栏）', () => {
   it('窄屏（≤768）不适用让位', () => {
     Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 700 });
     const ui = useUiStore();
+    ui.narrow = true; // cr-35：narrow 单源（maxAux 数学仍读 innerWidth=700）
     dragAux(ui, -200); // 280 → 480 = maxAux（700 屏静态上限）
     expect(ui.auxWidth).toBe(480);
     expect(ui.primaryVisible).toBe(true); // 不收起
     expect(ui.primaryYielded).toBe(false);
+    ui.narrow = false;
   });
 
   it('上限 = 视口 70%（1280 屏主区保底钳到 872）', () => {

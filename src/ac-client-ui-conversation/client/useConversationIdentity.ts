@@ -89,8 +89,9 @@ export function useConversationIdentity(props: ConversationViewProps) {
   const title = computed(() => {
     if (props.single) {
       if (!props.single.agentId) return props.single.title || '新会话';
-      return props.single.title
-        || `${activeAgentName.value || props.single.agentId} · 独立会话`;
+      // 无自定义标题 = 承载 Agent 名（cr-39：去掉「 · 独立会话」后缀——
+      // 桌面宽屏可容纳，窄屏溢出；身份徽标 preset-chip 已表达"独立"语义）
+      return props.single.title || activeAgentName.value || props.single.agentId;
     }
     if (props.group) return props.group.name;
     return roster.activeAgentId.value ? activeAgentName.value : '选择一个 Agent 开始对话';

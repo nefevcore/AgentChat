@@ -54,6 +54,5 @@ onMounted(() => {
   <component
     :is="domainPanel?.component"
     v-if="domainPanel"
-    :class="{ 'drawer-visible': ui.drawerVisible }"
   />
 </template>

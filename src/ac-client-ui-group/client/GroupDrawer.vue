@@ -43,6 +43,7 @@ const saving = ref(false);
 function closePanel() {
   groupSvc?.closeDrawer();
   if (ui.auxVisible) ui.toggleAux();
+  // 窄屏 aux 已隐藏（cr-35）——本调用主要服务宽屏；窄屏回 root 由返回键/返回钮承担
 }
 
 // ── 删除编排（确认弹窗 + RPC + onGroupDeleted）──
@@ -176,7 +177,7 @@ async function saveGroupInfo() {
 </script>
 
 <template>
-  <div v-if="group" class="drawer-panel" :style="{ width: ui.auxWidth + 'px' }" @click.stop>
+  <div v-if="group" class="drawer-panel" :style="ui.auxPaneStyle" @click.stop>
       <div class="drawer-head">
         <span class="drawer-head-title">群聊信息</span>
         <button class="drawer-close-btn" title="收起面板" @click="closePanel">

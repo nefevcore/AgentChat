@@ -16,7 +16,7 @@
 //    T6/T8 tier 0）。名册消费面经 roster 取用口（ac-client-ui-agents
 //    rosterAccess——M28 §4.2 agentsStore 门面退役）。
 // M28 P1 域资产归位迁出：groupApi/skillsApi/goalApi/useGoalTracking/
-// GoalBar/rosterApi/fileApi/EntryPickerModal/FilePreviewModal（随域行
+// GoalBar/rosterApi/fileApi/EntryPickerModal（随域行
 // 走——group/skill/goal/agents/workspace）。
 //
 // 可摘除性：本件是 base 地基件——卸载即 boot graph base 行集变更

@@ -16,6 +16,7 @@ export { default as Icon } from './base/Icon.vue';
 export { default as Button } from './base/Button.vue';
 export { default as Avatar } from './base/Avatar.vue';
 export { default as Modal } from './base/Modal.vue';
+export { default as Sheet } from './base/Sheet.vue';
 export { default as RingProgress } from './base/RingProgress.vue';
 export { default as StatusDot } from './base/StatusDot.vue';
 export { default as Tooltip } from './base/Tooltip.vue';

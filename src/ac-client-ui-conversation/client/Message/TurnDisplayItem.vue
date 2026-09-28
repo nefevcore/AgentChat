@@ -411,6 +411,13 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
    压缩时（视口不变，@media 断点不触发）占比平滑放大；内容宽 ≤440px 时
    完全填满（与手机视口窄形态行为统一）。 */
 .turn-item { display: flex; flex-direction: column; gap: 8px; max-width: min(100%, max(70%, 440px)); }
+
+/* 窄屏行宽放宽（cr-43）：行容器含头像列（32 + gap 10 = 42px），70% 上限下
+   文本列被压到 ~209px（375 屏），另一侧却空 ~108px——「未考虑另一侧头像
+   宽度」。88% + 两侧各 6% 呼吸边：文本列 ≈274px，对话密度正常。 */
+@media (max-width: 768px) {
+  .turn-item { max-width: 88%; }
+}
 /* 屏外轮次跳过布局与绘制（历史长会话首屏成本主项：整页 markdown/高亮
    结果一次性进 DOM layout+paint）。contain-intrinsic-size 给占位尺寸，
    滚动条不跳动；`auto` 关键字记住上次实测尺寸，回滚无重复估算。 */

@@ -12,7 +12,7 @@
 // 订阅）+ 手动刷新钮（WS 断线兜底）。P0 纯历史回放——live 流式见计划 §七 P1。
 // 上翻分页：limit/offset 从尾部往回取（RPC 形状对齐 session/history）。
 // ============================================================
-import { computed, ref, watch, nextTick } from 'vue';
+import { computed, inject, ref, watch, nextTick } from 'vue';
 import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { useClientContext, clientRuntime } from 'ac-client-runtime';
@@ -41,6 +41,8 @@ const themeStore = useThemeStore();
 const roster = useRosterCore();
 const rpc = useClientContext()?.rpc ?? null;
 const jobBoard = useClientContext()?.jobBoard;
+/** 窄屏导航（cr-39）：只读子会话也是 push 页——返回 = closeSubagentView */
+const closeMobileMain = inject<() => void>('closeMobileMain', () => {});
 
 // 左右分侧基准 = 观看者（群形态同款）：子会话里父（user）与子（agent）
 // 都是"对方"——全部居左 + 头像/名字标注；此前传 subId 使子回复居右，
@@ -134,9 +136,12 @@ function refresh() { void loadInitial(); }
 
 <template>
   <div class="sub-chat">
-    <!-- 头部：子信息 + 状态徽章 + 刷新（返回按钮已退役——主区切换只由
-         显式导航驱动：点会话进会话、点矩阵快照进矩阵，互不干扰） -->
+    <!-- 头部：子信息 + 状态徽章 + 刷新。窄屏返回钮（cr-39：只读子会话是
+         push 页——桌面导航语义不变，移动端返回 = 退出只读视角） -->
     <div class="chat-header">
+      <button class="back-btn" @click="closeMobileMain" title="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+      </button>
       <div class="header-info">
         <div class="pair-title">
           <div class="pair-avatars">
@@ -192,11 +197,25 @@ function refresh() { void loadInitial(); }
   flex-shrink: 0;
 }
 .header-info { flex: 1; min-width: 0; }
+/* 窄屏返回（cr-39；cr-41 补显示块——初版只写了隐藏无 @media，按钮恒不可见） */
+.back-btn {
+  display: none; background: none; border: none; cursor: pointer;
+  color: var(--color-text-secondary); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  .back-btn { display: flex; align-items: center; justify-content: center; }
+}
 .pair-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-label { font-size: 14px; font-weight: 600; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pair-avatars { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
 .pair-x { color: var(--color-text-muted); display: flex; }
 .agent-label { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
 .pair-sub { font-size: 11px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 窄屏（cr-39）：副行信息退场——标题与状态徽章优先，长 id/父链在窄屏是噪音 */
+@media (max-width: 768px) {
+  .pair-sub { display: none; }
+  .chat-header { padding: 0 8px; }
+}
 .sub-id {
   font-family: 'SF Mono', Consolas, monospace; font-size: 10px;
   color: var(--color-primary, #6366f1); background: var(--color-primary-light, rgba(79, 70, 229, 0.08));

@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-workspace/client/workspaceFile.ts —— workspace 文件
-// REST 读取小件（M28 P1 自 tool 随域迁入：FilePreviewModal 本地消费 +
+// REST 读取小件（M28 P1 自 tool 随域迁入：文件预览面板消费 +
 // tool 卡跨包消费〔P2 卡行拆分后收口〕）
 //
 // /api/workspace/file 端点的浏览器原生 fetch 同源直连；webui 侧

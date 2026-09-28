@@ -183,7 +183,7 @@ defineExpose({ startAddTask });
 .g-timer-btn { padding: 3px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; }
 .g-timer-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .g-timer-btn.danger { color: var(--err); }
-.g-timer-btn.danger:hover { background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); }
+.g-timer-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
 .g-timer-btn:disabled { opacity: .4; cursor: not-allowed; }
 .g-timer-btn:disabled:hover { background: transparent; color: var(--err); }
 .g-timer-empty { text-align: center; padding: 16px; color: var(--text-3); font-size: 12px; }

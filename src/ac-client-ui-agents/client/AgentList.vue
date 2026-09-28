@@ -39,7 +39,8 @@ function isAgentRunning(id: string): boolean { return feedStore.getDialog(direct
  * 可靠判断「群聊正在回复」的。因此群头像不做 running 判断，正式回复经
  * send_group → group.message 事件落进群组对话即可。 */
 
-const closeDrawer = inject<() => void>('closeDrawer', () => {});
+// 窄屏导航（cr-35）：选中即 push 会话页（宽屏 no-op——布局不动）
+const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
 const emit = defineEmits<{
   (e: 'selectGroup', groupId: string): void;
@@ -180,9 +181,9 @@ function selectAgent(id: string) {
   const a = roster.agents.value.find(a => a.id === id);
   if (a?.hasActiveSession) chatStore.subscribeAgent(id);
   ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
-  closeDrawer();
+  pushMainIfNarrow(); // 窄屏：push 会话页（cr-35）
 }
-function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.exitOverlays(); closeDrawer(); }
+function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.exitOverlays(); pushMainIfNarrow(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 
@@ -218,7 +219,6 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       <div class="search-box"><svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg><input v-model="searchQuery" type="text" class="search-input" placeholder="搜索 Agent / 群组..." /></div>
       <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
 
-      <button class="mobile-close-btn" @click="closeDrawer" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
     </div>
     <div ref="listScrollRef" class="list-scroll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
@@ -301,5 +301,4 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .btn-save:hover{background:var(--color-primary-hover,#4f46e5)}
 .modal-enter-active,.modal-leave-active{transition:opacity .15s ease}
 .modal-enter-from,.modal-leave-to{opacity:0}
-@media(max-width:768px){.agent-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.agent-list.drawer-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
 </style>

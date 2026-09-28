@@ -479,8 +479,8 @@ async function save(): Promise<void> {
 .esm-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .esm-note {
   font-size: 11.5px; color: var(--warn); padding: 7px 10px; border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  background: rgba(var(--warn-rgb), 0.08);
+  border: 1px solid rgba(var(--warn-rgb), 0.35);
 }
 .esm-desc { font-size: 12px; color: var(--text-3); }
 .esm-section {

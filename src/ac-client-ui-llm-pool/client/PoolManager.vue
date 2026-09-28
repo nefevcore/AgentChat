@@ -565,7 +565,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 }
 .pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pool-btn.danger { color: var(--err); }
-.pool-btn.danger:hover { background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); }
+.pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
 .pool-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .pool-set-default {
   padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
@@ -621,23 +621,24 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 .pool-model-flags { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .pool-model-badge {
   padding: 1px 8px; border-radius: var(--r-full);
-  border: 1px solid color-mix(in srgb, var(--text-3) 25%, transparent);
+  border: 1px solid rgba(var(--text-3-rgb), 0.25);
   background: transparent; color: var(--text-3);
   font-size: 10px; line-height: 1.5; cursor: pointer;
   transition: all var(--dur-fast);
 }
 .pool-model-badge:hover {
-  border-color: color-mix(in srgb, var(--text-3) 45%, transparent);
+  border-color: rgba(var(--text-3-rgb), 0.45);
   color: var(--text-2);
 }
 .pool-model-badge.on {
-  background: color-mix(in srgb, var(--primary, #4f46e5) 10%, transparent);
-  border-color: color-mix(in srgb, var(--primary, #4f46e5) 35%, transparent);
+  background: rgba(var(--primary-rgb, 79, 70, 229), 0.1);
+  border-color: rgba(var(--primary-rgb, 79, 70, 229), 0.35);
+  color: var(--primary, #4f46e5); /* 回退（cr-38） */
   color: color-mix(in srgb, var(--primary, #4f46e5) 80%, var(--text-1));
 }
 .pool-model-badge.is-manual {
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: rgba(var(--warn-rgb), 0.12);
+  border-color: rgba(var(--warn-rgb), 0.4);
   color: var(--warn); cursor: default;
 }
 .pool-model-del {
@@ -645,7 +646,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
   width: 18px; height: 18px; border: none; border-radius: var(--r-sm);
   background: transparent; color: var(--text-3); cursor: pointer;
 }
-.pool-model-del:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+.pool-model-del:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
 /* 手工新增行 */
 .pool-model-add { display: flex; gap: 6px; margin-top: 6px; }
 .pool-model-add .pool-input { flex: 1; }

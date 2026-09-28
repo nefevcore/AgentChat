@@ -6,7 +6,8 @@
 // 程序化模式（tc-* 会话覆盖）改变 system prompt 装配面（SDK 投影块
 // 注入/指引块收窄）。后端干跑已按会话模式收窄（admin 侧）；本测试锁
 // 前端链路：ChatInput 写口成功 → chatStore.convToolMode bump →
-// 常驻 aux 面板（keepAlive——边聊边看场景）与打开中的 modal 即时重取。
+// 常驻 aux 面板（keepAlive——边聊边看场景）即时重取。
+// （cr-36：窄屏 Modal 形态退役——SystemPromptModal 删除，仅锁 aux 面板面）
 // chatStore 面 mock（项目惯例，参照 interaction-mount-crash.test.ts；
 // 注意组件用相对说明符 './chatStore.ts' 导入——mock 路径须与之一致）。
 // ============================================================
@@ -17,16 +18,14 @@ import { describe, it, expect, vi } from 'vitest';
 //      计数器断言重取发生）----
 const state = vi.hoisted(() => ({
   convToolMode: { value: '' as string }, // 占位（真 ref 于工厂内换装）
-  promptOpen: { value: false },
   requests: 0,
-  refs: null as null | { convToolMode: { value: string }; promptOpen: { value: boolean } },
+  refs: null as null | { convToolMode: { value: string } },
 }));
 vi.mock('vue', async (importOriginal) => {
   const vue = await importOriginal<Record<string, unknown>>();
   const { ref } = vue as { ref: <T>(v: T) => { value: T } };
   state.refs = {
     convToolMode: ref(''),
-    promptOpen: ref(false),
   };
   return vue;
 });
@@ -42,13 +41,9 @@ vi.mock('ac-client-ui-conversation/client/chatStore.ts', () => ({
     copyFeedback: false,
   }),
 }));
-// uiStore 面 mock（modal 的 visible 判定 + panel 的当选判定）
+// uiStore 面 mock（panel 的当选判定与意图消费面）
 vi.mock('ac-client-ui-layout/client/uiStore.ts', () => ({
   useUiStore: () => ({
-    get systemPromptOpen() { return state.refs!.promptOpen.value; },
-    systemPromptAgentName: 'helper',
-    openSystemPrompt: () => { state.refs!.promptOpen.value = true; },
-    closeSystemPrompt: () => { state.refs!.promptOpen.value = false; },
     auxPanel: '',
     auxVisible: false,
     auxIntent: 0,
@@ -72,7 +67,6 @@ vi.mock('ac-client-ui-agents/client/rosterAccess.ts', () => ({
 import { createApp, h, nextTick } from 'vue';
 import { createPinia } from 'pinia';
 import SystemPromptPanel from 'ac-client-ui-conversation/client/SystemPromptPanel.vue';
-import SystemPromptModal from 'ac-client-ui-conversation/client/SystemPromptModal.vue';
 
 async function flush(n = 8): Promise<void> {
   for (let i = 0; i < n; i++) await nextTick();
@@ -99,30 +93,6 @@ describe('System Prompt 预览随模式切换重取', () => {
     state.refs!.convToolMode.value = 'tc-programmatic'; // ChatInput 写口成功后的 bump
     await flush();
     expect(state.requests).toBe(1); // 重取发生——新模式装配面（SDK 投影块）
-    unmount();
-  });
-
-  it('modal：打开中 bump → 重取；关闭后 bump 不触发', async () => {
-    state.requests = 0;
-    state.refs!.convToolMode.value = '';
-    state.refs!.promptOpen.value = false;
-    const unmount = await mount(SystemPromptModal);
-    expect(state.requests).toBe(0); // 关闭态不请求
-    // 打开弹窗（ui.openSystemPrompt 的职责等价）
-    state.refs!.promptOpen.value = true;
-    await flush();
-    // 关闭态 bump：不重取（open=false 时 watch 守卫拦截）
-    state.refs!.promptOpen.value = false;
-    await flush();
-    state.refs!.convToolMode.value = 'tc-none';
-    await flush();
-    expect(state.requests).toBe(0);
-    // 重新打开 + bump：重取
-    state.refs!.promptOpen.value = true;
-    await flush();
-    state.refs!.convToolMode.value = 'tc-base';
-    await flush();
-    expect(state.requests).toBe(1);
     unmount();
   });
 });

@@ -32,6 +32,13 @@ const assetsDir = join(dist, 'assets');
 const SHIM = 'legacy-runtime.js';
 const BASELINE_WEBVIEW = 92;
 
+/** CSS 面 color-mix() 声明数上限（cr-38 棘轮，只减不增——同 dep-cycles.yml 纪律）
+ *  基线 WebView 92 不解析 color-mix（Chrome 111+）：可静态表达者一律改写为
+ *  rgba(var(--x-rgb), α)（tokens.css 三元组，语义等价）；无法表达者（动态内联色 /
+ *  currentColor / 与非透明色混色）保留 color-mix 但必须在同属性前置静态回退声明。
+ *  消化一处即下调本数；新写 color-mix 未经此路径 = 红。 */
+const CSS_COLOR_MIX_CAP = 12;
+
 if (!existsSync(indexPath)) {
   console.error(`[webview-baseline] 缺少 ${indexPath}——先跑 pnpm webui:build`);
   process.exit(1);
@@ -123,6 +130,27 @@ if (existsSync(assetsDir)) {
         );
       }
     }
+  }
+
+  // ---- 判据④：CSS 面——color-mix()（Chrome 111）基线不解析（cr-38） ----
+  // 静态可表达者改写为 rgba(var(--x-rgb), α)；无法表达者保留但须有静态回退。
+  // 棘轮：只减不增（消化一处即下调 CSS_COLOR_MIX_CAP）。
+  const cssFiles = readdirSync(assetsDir).filter((f) => f.endsWith('.css'));
+  let cmTotal = 0;
+  for (const f of cssFiles) {
+    cmTotal += (readFileSync(join(assetsDir, f), 'utf8').match(/color-mix\(/g) || []).length;
+  }
+  if (cmTotal > CSS_COLOR_MIX_CAP) {
+    fail.push(
+      `超基线 CSS color-mix()（Chrome 111+）产物出现 ${cmTotal} 处，上限 ${CSS_COLOR_MIX_CAP}——` +
+        '静态可表达者改写 rgba(var(--x-rgb), α)（三元组令牌住 tokens.css）；' +
+        '确无三元组可用者须在**同属性**前置一条静态回退声明（渐进增强），再上调本上限',
+    );
+  } else if (cmTotal < CSS_COLOR_MIX_CAP) {
+    console.log(
+      `[webview-baseline] CSS color-mix 已降到 ${cmTotal} 处（上限仍记 ${CSS_COLOR_MIX_CAP}）——` +
+        '按棘轮纪律请下调 CSS_COLOR_MIX_CAP',
+    );
   }
 } else {
   fail.push(`缺少 ${assetsDir}——产物结构异常`);

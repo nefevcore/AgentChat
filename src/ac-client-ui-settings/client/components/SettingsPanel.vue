@@ -24,6 +24,8 @@ const ui = useUiStore();
 
 // ── 状态 ──
 const selectedNode = ref('agents');
+/** 窄屏节下拉开合（cr-43：横滚胶囊 tab 不好用——长清单滚不出全貌；改头部下拉） */
+const navOpen = ref(false);
 const saving = ref(false);
 const restarting = ref(false);
 const errorText = computed(() => settings.error.value);
@@ -78,6 +80,7 @@ const globalPluginTabProps = computed<Record<string, unknown>>(() => {
 const currentTitle = computed(() => tree.value.find(n => n.id === selectedNode.value)?.label ?? '');
 
 function selectNode(id: string) {
+  navOpen.value = false; // 窄屏下拉：选择即收（cr-43）
   // 节切换守护：正在编辑的 Agent 有未保存编辑时先确认——节宿主卸载即
   // resetAgent（「已放弃」的编辑不复活），不拦会静默丢失（与关闭守护同款）
   if (id !== selectedNode.value && ui.agentEditorDirty) {
@@ -195,10 +198,26 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
         <div class="sp-header">
           <span class="sp-accent"></span>
           <h3 class="sp-title">设置</h3>
-          <span v-if="currentTitle" class="sp-subtitle">{{ currentTitle }}</span>
+          <!-- 窄屏节选择器（cr-43：替代横滚胶囊 tab——10+ 节横向滚不出全貌、
+               宽度未满；下拉展开全节竖列，所见即全部） -->
+          <button v-if="currentTitle" class="sp-nav-toggle" @click="navOpen = !navOpen">
+            <span class="sp-nav-current">{{ currentTitle }}</span>
+            <Icon name="chevron-down" :size="14" class="sp-nav-chev" :class="{ open: navOpen }" />
+          </button>
           <span v-if="isDirty || ui.agentEditorDirty" class="sp-dirty-badge"><StatusDot status="thinking" :size="7" /> 未保存</span>
           <button class="sp-close" @click="requestClose()" title="关闭"><Icon name="x" :size="15" /></button>
         </div>
+
+        <!-- 窄屏节下拉面板（全节竖列；选择即收） -->
+        <Transition name="sp-nav">
+          <div v-if="navOpen" class="sp-nav-drop">
+            <button
+              v-for="node in tree" :key="node.id"
+              class="sp-nav-item" :class="{ active: selectedNode === node.id }"
+              @click="selectNode(node.id)"
+            >{{ node.label }}</button>
+          </div>
+        </Transition>
 
         <div class="sp-body">
           <!-- 左侧树（2026-09-11 左树数据化：平铺叶自 settings:section 席位派生 +
@@ -272,12 +291,16 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 <style scoped>
 /* ── Shell ── */
 .sp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+
 .sp-panel {
   width: 82vw; max-width: 1100px; height: 82vh; max-height: 88vh;
   background: var(--bg-raised); border: 1px solid var(--line);
   border-radius: var(--r-lg); box-shadow: var(--shadow-panel);
   display: flex; flex-direction: column; overflow: hidden;
 }
+
+/* 窄屏形态规则统一住文件末尾（cr-43 顺序纪律——媒体查询不提升特异性，
+   覆盖块必须在被覆盖的基础规则之后；本文件已两次栽在顺序上）。见尾部。 */
 
 .sp-header { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .sp-accent { width: 4px; height: 14px; border-radius: 2px; background: var(--primary); flex-shrink: 0; }
@@ -286,6 +309,49 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 .sp-dirty-badge { font-size: 10px; color: var(--warn); margin-left: 4px; display: inline-flex; align-items: center; gap: 4px; }
 .sp-close { margin-left: auto; background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 4px; line-height: 1; display: inline-flex; align-items: center; }
 .sp-close:hover { color: var(--text-1); }
+
+/* ── 窄屏节下拉（cr-43）── */
+/* 桌面隐藏节选择器（桌面用左侧树导航） */
+.sp-nav-toggle { display: none; }
+.sp-nav-current { font-size: 14px; font-weight: 600; color: var(--text-1); }
+.sp-nav-chev { color: var(--text-3); transition: transform var(--dur-fast); }
+.sp-nav-chev.open { transform: rotate(180deg); }
+.sp-nav-drop {
+  display: none; /* 窄屏 @media 内改 flex */
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+  max-height: 45dvh; overflow-y: auto;
+  padding: 4px 8px;
+}
+.sp-nav-item {
+  text-align: left; padding: 10px 14px; border: 0; border-radius: var(--r-md);
+  background: none; color: var(--text-2); font-size: 14px; cursor: pointer;
+}
+.sp-nav-item.active { background: var(--role-selected-bg); color: var(--text-1); font-weight: 500; }
+/* 窄屏 toggle/drop 显示规则并入文件末尾统一媒体块（cr-43 顺序纪律） */
+.sp-nav-enter-active, .sp-nav-leave-active { transition: opacity var(--dur-fast), transform var(--dur-fast); }
+.sp-nav-enter-from, .sp-nav-leave-to { opacity: 0; transform: translateY(-6px); }
+
+/* ── 窄屏全屏 + 头部下拉形态（cr-39/42/43）——置于全部基础规则之后（顺序即生效）。 */
+@media (max-width: 768px) {
+  .sp-overlay { align-items: stretch; padding: 0; }
+  .sp-panel {
+    width: 100vw; max-width: none; height: 100dvh; max-height: none;
+    border-radius: 0; border: 0;
+    padding-top: var(--safe-top, 0px);
+  }
+  .sp-body { flex-direction: column; }
+  .sp-tree { display: none; }
+  .sp-subtitle { display: none; }
+  .sp-title { display: none; }
+  .sp-accent { display: none; }
+  .sp-header { padding: 8px 12px; }
+  .sp-nav-toggle {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: none; border: none; cursor: pointer; padding: 2px 4px;
+  }
+  .sp-nav-drop { display: flex; }
+}
 
 /* 注意：ChatView 非 scoped 的 .sp-body { padding:16px 20px } 会泄漏全局，
    这里显式 padding:0 覆盖（scoped 特异性更高） */
@@ -316,6 +382,8 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
   box-shadow: none;
 }
 .sp-root-leaf { padding-left: 10px; }
+
+/* cr-39 横滚胶囊叶样式已随 cr-43 下拉形态退役（树窄屏整体隐藏） */
 
 /* ── 右侧内容 ── */
 .sp-main { flex: 1; overflow-y: auto; }

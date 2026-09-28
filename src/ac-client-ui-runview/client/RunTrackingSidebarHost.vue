@@ -24,5 +24,5 @@ watch(() => ui.auxIntent, (seq) => {
 </script>
 
 <template>
-  <RunTrackingPanel :style="{ width: ui.auxWidth + 'px' }" />
+  <RunTrackingPanel :style="ui.auxPaneStyle" />
 </template>

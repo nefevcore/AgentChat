@@ -57,7 +57,8 @@ function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' 
 /** 会话是否正在运行（其 single 对话处于流式运行中 → 头像显示流转光环） */
 function isSessionRunning(id: string): boolean { return feedStore.getDialog(singleDialog(id))?.streaming ?? false; }
 
-const closeDrawer = inject<() => void>('closeDrawer', () => {});
+// 窄屏导航（cr-35）：选中即 push 会话页（宽屏 no-op）
+const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
 // ── 删除会话确认（硬删：元数据+消息，不可恢复）──
 const deleteTarget = ref<{ id: string; title: string } | null>(null);
@@ -299,7 +300,7 @@ function selectSingle(sessionId: string) {
   emit('deselectGroup');
   singlesBoard?.selectSingle(sessionId);
   ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
-  closeDrawer();
+  pushMainIfNarrow(); // 窄屏：push 会话页（cr-35）
 }
 
 // ── 新增工作区（弹窗：系统原生文件夹选择 → 名称确认）──
@@ -510,9 +511,7 @@ onUnmounted(() => {
         <button class="ws-add-btn" @click="openWsDialog" title="新增工作区（登记一个文件夹白名单区域）">
           <Icon name="folder-plus" :size="16" />
         </button>
-        <button class="mobile-close-btn" @click="closeDrawer" title="关闭菜单">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-        </button>
+        <!-- mobile-close-btn 已删（cr-35：抽屉退役——root 页整页形态） -->
       </div>
     </div>
 
@@ -785,7 +784,7 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-menu-item svg{flex-shrink:0;color:var(--color-text-tertiary,#a8abb2)}
 .ws-menu-danger{color:var(--err,#e74c3c)}
 .ws-menu-danger svg{color:var(--err,#e74c3c)}
-.ws-menu-danger:hover{background:color-mix(in srgb,var(--err,#e74c3c) 12%,transparent)}
+.ws-menu-danger:hover{background:rgba(var(--err-rgb, 231, 76, 60), 0.12)}
 .menu-fade-enter-active,.menu-fade-leave-active{transition:opacity .12s ease,transform .12s ease}
 .menu-fade-enter-from,.menu-fade-leave-to{opacity:0;transform:translateY(-4px)}
 
@@ -857,5 +856,4 @@ html.dark .bucket-count{background:rgba(255,255,255,.07)}
 .ws-save-btn:hover:not(:disabled){background:var(--color-primary-hover,#4f46e5)}
 .ws-save-btn:disabled{opacity:.6;cursor:not-allowed}
 
-@media(max-width:768px){.session-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.session-list.drawer-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
 </style>

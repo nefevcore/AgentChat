@@ -31,6 +31,11 @@
      大屏封顶 340px */
   --card-viewport-max: clamp(200px, 40vh, 340px);
 
+  /* 移动端安全区（cr-35）：tab 栏/输入卡贴手势条避让；viewport-fit=cover
+     生效前提下 env() 有值，否则 0px 兜底（桌面恒 0）。Phase③ 全面启用。 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
   --font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
     "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", SFMono, Consolas,
@@ -73,6 +78,18 @@ html.dark {
   --ok: #10b981;
   --warn: #f59e0b;
   --err: #e74c3c;
+
+  /* ── RGB 三元组（cr-38：color-mix 的等价回退）──
+     color-mix(in srgb, C N%, transparent) 语义 = C 以 N% 不透明度着色；
+     WebView 92（< Chrome 111）不认识 color-mix，故 tint 一律写
+     rgba(var(--x-rgb), N)——与上方色值逐位同步，改色必须同改（有测试锁）。 */
+  --primary-rgb: 129, 140, 248;
+  --text-1-rgb: 236, 240, 241;
+  --text-2-rgb: 189, 195, 199;
+  --text-3-rgb: 127, 140, 141;
+  --ok-rgb: 16, 185, 129;
+  --warn-rgb: 245, 158, 11;
+  --err-rgb: 231, 76, 60;
 
   --code-bg: #2d2d2d;
   --code-text: #d6deeb;
@@ -132,6 +149,15 @@ html.light {
   --ok: #10b981;
   --warn: #f59e0b;
   --err: #e74c3c;
+
+  /* RGB 三元组（cr-38：语义色与暗色同值；主色/文本/底随主题变） */
+  --primary-rgb: 99, 102, 241;
+  --text-1-rgb: 44, 62, 80;
+  --text-2-rgb: 127, 140, 141;
+  --text-3-rgb: 168, 171, 178;
+  --ok-rgb: 16, 185, 129;
+  --warn-rgb: 245, 158, 11;
+  --err-rgb: 231, 76, 60;
 
   --code-bg: #ffffff;
   --code-text: #2c3e50;
@@ -193,6 +219,14 @@ html.dark, html.light {
   --color-primary-hover: var(--primary-strong);
   --color-primary-light: var(--primary-light);
   --color-secondary: var(--accent);
+
+  /* 遗留名的三元组（cr-38：业务面 color-mix 回退用——与上方同源）。
+     只列实际被引用的名（零冗余：测试③ 反向锁住死条目）。 */
+  --color-primary-rgb: var(--primary-rgb);
+  --color-text-primary-rgb: var(--text-1-rgb);
+  --color-success-rgb: var(--ok-rgb);
+  --color-warning-rgb: var(--warn-rgb);
+  --color-error-rgb: var(--err-rgb);
 
   --color-text-primary: var(--text-1);
   --color-text-secondary: var(--text-2);

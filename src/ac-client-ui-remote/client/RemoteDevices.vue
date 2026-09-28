@@ -269,7 +269,7 @@ onUnmounted(() => {
 .card { background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-3) var(--space-4); }
 
 /* 错误横幅：role-active 语义（琥珀警示，非红——错误细节由文案承载） */
-.error-banner { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--err); background: color-mix(in srgb, var(--err) 8%, transparent); border: 1px solid color-mix(in srgb, var(--err) 25%, transparent); border-radius: var(--r-sm); padding: 6px 10px; }
+.error-banner { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--err); background: rgba(var(--err-rgb), 0.08); border: 1px solid rgba(var(--err-rgb), 0.25); border-radius: var(--r-sm); padding: 6px 10px; }
 
 /* 状态卡行 */
 .stat-row { display: flex; align-items: center; gap: var(--space-2); padding: 3px 0; min-height: 30px; }
@@ -307,7 +307,7 @@ onUnmounted(() => {
 .device-row:first-of-type { border-top: none; }
 .dev-info { flex: 1; min-width: 0; }
 .dev-name { font-size: 13px; color: var(--text-1); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.dev-badge { font-size: 10px; color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; }
+.dev-badge { font-size: 10px; color: var(--ok); border: 1px solid rgba(var(--ok-rgb), 0.4); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; }
 .dev-scope { font-size: 10px; color: var(--text-3); background: var(--bg-hover); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; }
 .dev-meta { color: var(--text-3); font-size: 11px; margin-top: 2px; }
 </style>

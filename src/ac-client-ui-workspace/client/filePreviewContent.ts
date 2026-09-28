@@ -1,7 +1,7 @@
 // ============================================================
 // client/filePreviewContent.ts —— 文件预览内容逻辑 composable
-//（P1 aux 预览选区：自 FilePreviewModal 抽出共用——Modal（移动端
-//  全屏形态）与多 tab 面板 pane 双消费，单一逻辑源）
+//（P1 aux 预览选区：自 FilePreviewModal 抽出共用，单一逻辑源；cr-36 起
+//  Modal 形态退役——仅多 tab 面板 pane 消费，窄屏由 AuxSidebarHost Sheet 承载）
 //
 // 职责：按 filePath 自取数（候选路径 fallback files/<agentId>/）+
 //   类型分派（HTML/图片/Markdown/代码）+ 高亮/渲染计算。

@@ -30,6 +30,19 @@ function hashAgentId(id: string): number {
   return h % STAR_PALETTE.length;
 }
 
+/**
+ * hex → "r, g, b" 三元组（cr-38：tint 回退用——rgba(var(--x-rgb), α)）。
+ * 星色是运行时注入的内联 --sc/--tc，无法由 CSS 侧派生三元组，故由组件
+ * 同时注入伴随变量；非 hex 输入（如已传 var(--primary)）回落主色三元组。
+ */
+export function hexTriplet(color?: string | null): string {
+  const m = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(color ?? '');
+  if (!m) return 'var(--primary-rgb)';
+  let h = m[1]!;
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
+}
+
 /** 获取 Agent 星色（按主题） */
 export function starColor(agentId: string, theme: ThemeMode): string {
   if (!agentId || agentId === 'user') return theme === 'aurora' ? USER_STAR.aurora : USER_STAR.nebula;

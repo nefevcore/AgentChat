@@ -1243,17 +1243,17 @@ const SOURCE_LABELS: Record<string, string> = {
   background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer;
 }
 .pl-refresh:hover { background: var(--bg-hover); color: var(--text-1); }
-.pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); font-size: 12px; flex-shrink: 0; }
+.pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: rgba(var(--err-rgb), 0.1); color: var(--err); font-size: 12px; flex-shrink: 0; }
 /* 批量还原行（最小集 / 出厂）——「插件目录」页签 */
 .pl-reset-row { display: flex; gap: 8px; }
 .pl-safemode {
   padding: 8px 12px; border-radius: var(--r-md); font-size: 12px; line-height: 1.5;
   color: var(--warn);
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid rgba(var(--warn-rgb), 0.45);
+  background: rgba(var(--warn-rgb), 0.1);
   flex-shrink: 0;
 }
-.pl-warn { padding: 5px 10px; border-radius: var(--r-sm); font-size: 11px; color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); word-break: break-all; }
+.pl-warn { padding: 5px 10px; border-radius: var(--r-sm); font-size: 11px; color: var(--warn); background: rgba(var(--warn-rgb), 0.08); word-break: break-all; }
 
 /* 目录布局：左导航固定 + 右面板独立滚动 */
 .pl-catalog { flex: 1; min-height: 0; display: flex; gap: 14px; align-items: stretch; }
@@ -1343,9 +1343,9 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 .pl-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .pl-btn.danger { color: var(--err); }
-.pl-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 10%, transparent); }
-.pl-btn.primary { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
-.pl-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.pl-btn.danger:hover:not(:disabled) { background: rgba(var(--err-rgb), 0.1); }
+.pl-btn.primary { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.45); }
+.pl-btn.primary:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
 .pl-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── 工具详情弹窗（结构化头部 + 参数表） ── */
@@ -1464,8 +1464,8 @@ const SOURCE_LABELS: Record<string, string> = {
 .mkt-input:focus { border-color: var(--primary); }
 .mkt-warn {
   font-size: 12px; color: var(--text-2); line-height: 1.75; padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border: 1px solid rgba(var(--warn-rgb), 0.4);
+  background: rgba(var(--warn-rgb), 0.08);
   border-radius: var(--r-md);
 }
 .mkt-warn code { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); }

@@ -30,7 +30,7 @@
 /* 选中/默认态（StarCard.selected 同 recipe；晚于 hover 声明 → 悬停不冲掉标记） */
 .ui-row.is-selected {
   background: var(--bg-surface);
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  border-color: rgba(var(--primary-rgb), 0.45);
 }
 /* 基础设施/automatic 行：静默虚线描边 */
 .ui-row.is-auto { border-color: var(--line); border-style: dashed; }
@@ -42,7 +42,7 @@
 .ui-switch input { display: none; }
 .ui-switch-track {
   display: inline-block; width: 34px; height: 18px; border-radius: 999px; position: relative;
-  background: color-mix(in srgb, var(--err) 55%, transparent);
+  background: rgba(var(--err-rgb), 0.55);
   transition: background .15s ease;
 }
 .ui-switch-dot {
@@ -50,10 +50,10 @@
   background: #fff; transition: left .15s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
 }
-.ui-switch input:checked + .ui-switch-track { background: color-mix(in srgb, var(--ok) 60%, transparent); }
+.ui-switch input:checked + .ui-switch-track { background: rgba(var(--ok-rgb), 0.6); }
 .ui-switch input:checked + .ui-switch-track .ui-switch-dot { left: 18px; }
 .ui-switch input:disabled + .ui-switch-track { opacity: .5; cursor: wait; }
 /* gated：已列入清单但能力标签不足（Agent 装配工具区）——开关仍表达"开"
    意图（include 语义，可关 = 写 exclude），但不显示绿色：琥珀 = 门禁未过，
    调用会被安全行拦截。 */
-.ui-switch.gated input:checked + .ui-switch-track { background: color-mix(in srgb, var(--warn) 60%, transparent); }
+.ui-switch.gated input:checked + .ui-switch-track { background: rgba(var(--warn-rgb), 0.6); }

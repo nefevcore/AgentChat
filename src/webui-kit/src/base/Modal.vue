@@ -60,6 +60,21 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
   max-width: 92vw; max-height: 86vh;
   display: flex; flex-direction: column;
 }
+
+/* 窄屏全屏（cr-40）：桌面居中弹窗在手机上是局促的小窗——改全屏页形态；
+   全部 overlay 席位贡献（用量/版本/建群/Agent 新建/工作区表单/插件配置/
+   EntryPicker…）一改全改。宽度 min() 防宽度型内联样式（width: 440px 等
+   数字传参）在窄屏溢出。 */
+@media (max-width: 768px) {
+  .ui-modal { align-items: stretch; }
+  .ui-modal-panel {
+    width: 100vw; min-width: 100vw; max-width: 100vw;
+    height: 100dvh; max-height: 100dvh;
+    border-radius: 0; border: 0; box-shadow: none;
+    padding-top: var(--safe-top, 0px);
+  }
+  .ui-modal-body { padding-bottom: calc(0px + var(--safe-bottom, 0px)); }
+}
 .ui-modal-head { display: flex; align-items: center; gap: 8px; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .ui-modal-title { font-size: 14px; font-weight: 600; flex: 1; }
 .ui-modal-head-extra { display: inline-flex; align-items: center; margin-right: 8px; font-size: 12px; color: var(--text-3); }

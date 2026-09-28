@@ -175,17 +175,17 @@ function chooseOff() {
 .tc-dd { position: relative; display: inline-flex; }
 .tc-pill {
   display: inline-flex; align-items: stretch; border-radius: var(--r-full);
-  border: 1px solid color-mix(in srgb, var(--text-3) 14%, transparent);
-  background: color-mix(in srgb, var(--text-3) 6%, transparent);
+  border: 1px solid rgba(var(--text-3-rgb), 0.14);
+  background: rgba(var(--text-3-rgb), 0.06);
   overflow: hidden;
   transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 .tc-pill.on {
-  border-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 20%, transparent);
-  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 8%, transparent);
+  border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.2);
+  background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.08);
 }
-.tc-pill.on:hover { background: color-mix(in srgb, var(--tag-hue, var(--primary)) 12%, transparent); }
-.tc-pill:not(.on):hover { background: color-mix(in srgb, var(--text-3) 11%, transparent); }
+.tc-pill.on:hover { background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.12); }
+.tc-pill:not(.on):hover { background: rgba(var(--text-3-rgb), 0.11); }
 /* 左半：启停 */
 .tc-toggle {
   display: inline-flex; align-items: center; gap: 6px;
@@ -211,29 +211,29 @@ function chooseOff() {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-left: 7px;
-  border-left: 1px solid color-mix(in srgb, var(--text-3) 18%, transparent);
+  border-left: 1px solid rgba(var(--text-3-rgb), 0.18);
 }
-.tc-pill.on .tc-label { border-left-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 22%, transparent); }
-.tc-pill.on .tc-toggle { color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1)); font-weight: 500; }
+.tc-pill.on .tc-label { border-left-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.22); }
+.tc-pill.on .tc-toggle { color: var(--tag-hue, var(--primary)); /* 回退（cr-38） */ color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1)); font-weight: 500; }
 .tc-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+  background: rgba(var(--text-3-rgb), 0.45);
   transition: background var(--dur-fast), box-shadow var(--dur-fast);
 }
 .tc-pill.on .tc-dot {
   background: var(--tag-hue, var(--primary));
-  box-shadow: 0 0 5px color-mix(in srgb, var(--tag-hue, var(--primary)) 60%, transparent);
+  box-shadow: 0 0 5px rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.6);
 }
 /* 右半：换档弹层触发 */
 .tc-trigger {
   display: inline-flex; align-items: center;
   padding: 3px 6px; border: none; background: none; cursor: pointer;
   color: var(--text-3);
-  border-left: 1px solid color-mix(in srgb, var(--text-3) 14%, transparent);
+  border-left: 1px solid rgba(var(--text-3-rgb), 0.14);
   transition: color var(--dur-fast), border-color var(--dur-fast);
 }
 .tc-trigger:hover { color: var(--text-1); }
-.tc-pill.on .tc-trigger { border-left-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 20%, transparent); }
+.tc-pill.on .tc-trigger { border-left-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.2); }
 .tc-chevron { transition: transform .15s ease; }
 .tc-chevron.open { transform: rotate(180deg); }
 /* 弹层（对标 ChatInput dd-menu 视觉，向下弹出——分组区在页面上方） */

@@ -20,5 +20,5 @@ watch(() => ui.auxIntent, (seq) => {
 </script>
 
 <template>
-  <FileEditsPanel :style="{ width: ui.auxWidth + 'px' }" />
+  <FileEditsPanel :style="ui.auxPaneStyle" />
 </template>

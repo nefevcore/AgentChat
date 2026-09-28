@@ -6,8 +6,8 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
 import { Avatar, Icon, toastBusy, toastOk, toastError } from '@agentchat/webui-kit';
-import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useActivityBarActions, type ActivityBarActionDef } from './activityBarActions.ts';
+import { useUnreadBadges } from 'ac-client-ui-conversation/client/useUnreadBadges.ts';
 import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
 
 const emit = defineEmits<{
@@ -31,31 +31,9 @@ const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID.value) ?? 
 const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID.value) || 'User');
 
 // ── 未读聚合徽章（Agent 列表 / 会话列表按钮）──
-// 数据与名册行徽章同源（feed 分区 unread 聚合），进入对应会话即清除
-// （clearUnread/setActiveGroup/setActiveSingle 等多路径联动）。
-// 口径按按钮归属面板分列（修复：此前 Agent 列表徽章全分区求和，single
-// 会话的机制通知——后台任务完成回投〔JOB 返回〕/timer 定点等——也计入，
-// 而名册只列 Agent/群没有 single 行，徽章亮起却无处落点）：
-//   · Agent 列表 = direct 对桶 + group 群聊（名册行口径，行行可寻——
-//     single 会话激活时名册不可见，Agent 私信仍经此按钮提示不漏）；
-//   · 会话列表   = single 独立会话（SessionList 是其归属面板与唯一提示位）。
-const feedStore = useFeedStore();
-const agentsUnreadTotal = computed(() => {
-  let n = 0;
-  for (const [id, d] of Object.entries(feedStore.dialogs)) {
-    if (d && !id.startsWith('single:')) n += d.unread;
-  }
-  return n;
-});
-const agentsUnreadLabel = computed(() => agentsUnreadTotal.value > 99 ? '99+' : String(agentsUnreadTotal.value));
-const singlesUnreadTotal = computed(() => {
-  let n = 0;
-  for (const [id, d] of Object.entries(feedStore.dialogs)) {
-    if (d && id.startsWith('single:')) n += d.unread;
-  }
-  return n;
-});
-const singlesUnreadLabel = computed(() => singlesUnreadTotal.value > 99 ? '99+' : String(singlesUnreadTotal.value));
+// 口径与实现迁 layout 共享模块 useUnreadBadges（cr-35：MobileTabBar 同源消费，
+// 不复制实现）；口径注释见该模块头注。
+const { agentsUnreadTotal, singlesUnreadTotal, agentsUnreadLabel, singlesUnreadLabel } = useUnreadBadges();
 
 // activity-bar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
 const sortedActivityBarActions = useActivityBarActions(clientCtx);

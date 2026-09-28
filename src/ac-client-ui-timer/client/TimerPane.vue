@@ -229,7 +229,7 @@ export default { name: 'TimerPane' };
 .timer-btn { padding: 3px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; }
 .timer-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .timer-btn.danger { color: var(--err); }
-.timer-btn.danger:hover { background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); }
+.timer-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
 .timer-empty { padding: 20px; text-align: center; color: var(--text-3); font-size: 13px; }
 .timer-save-btn {
   padding: 5px 14px; border-radius: var(--r-md); font-size: 12px; font-weight: 500; cursor: pointer;
@@ -260,7 +260,7 @@ export default { name: 'TimerPane' };
   background: var(--bg-surface); cursor: pointer; text-align: left;
   transition: border-color var(--dur-fast), background var(--dur-fast);
 }
-.tp-mode:hover { border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
+.tp-mode:hover { border-color: rgba(var(--primary-rgb), 0.45); }
 .tp-mode.active { border-color: var(--primary); background: var(--primary-light); }
 .tp-mode-label { font-size: 12px; font-weight: 500; color: var(--text-1); }
 .tp-mode.active .tp-mode-label { color: var(--primary); }

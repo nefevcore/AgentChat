@@ -156,6 +156,6 @@ watch(() => props.visible, (v) => { if (v) void loadRoots(); }, { immediate: tru
 .entry-file:hover .entry-name { color: var(--primary); }
 .entry-path { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entry-status { font-size: 12px; color: var(--text-3); padding: 8px 4px; }
-.entry-error { font-size: 12px; color: var(--err); padding: 6px 8px; background: color-mix(in srgb, var(--err) 8%, transparent); border-radius: var(--r-sm); }
+.entry-error { font-size: 12px; color: var(--err); padding: 6px 8px; background: rgba(var(--err-rgb), 0.08); border-radius: var(--r-sm); }
 .entry-foot-hint { font-size: 11px; color: var(--text-3); align-self: center; }
 </style>
