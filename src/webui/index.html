@@ -15,6 +15,11 @@
 </head>
 <body>
   <div id="app"></div>
+  <!-- 最低运行环境垫片（基线 = WebView 92）：必须是 classic 且不带 async/defer
+       ——classic 解析到即执行，module 恒 deferred，故必然先于应用代码（位置无关）。
+       CSP script-src 'self' 只放行外部脚本，不得改内联。
+       基线声明见 public/legacy-runtime.js 文件头，构建期由 check-webview-baseline.mjs 守门 -->
+  <script src="/legacy-runtime.js"></script>
   <!-- preview 同源迁移：入口经 preview-main（先装 adapter 防腐层再挂 src UI，见 src/adapter/） -->
   <script type="module" src="/src/preview-main.ts"></script>
 </body>

@@ -59,6 +59,12 @@ function rowClientsPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [vue(), Icons({ compiler: 'vue3' }), rowClientsPlugin()],
+  // esbuild 对 class static block **不降级、只警告**（target 只管到能降的那些），
+  // 故须显式声明「目标环境不支持」——esbuild 才把它转成类定义后的 IIFE 形式。
+  // 来源实据：vendor/cordis 的静态初始化块，产物里原样残留 → 真机
+  // WebView 92 报 `SyntaxError: Unexpected token '{'`（M3 真机验证第二轮实录）。
+  // 语法面守门在 scripts/check-webview-baseline.mjs（与运行时 API 面互补）。
+  esbuild: { supported: { 'class-static-blocks': false } },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -80,6 +86,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // 运行基线：Chrome / WebView 92（真机红米 K20 实测 92.0.4515.131）。
+    // esbuild 只降**语法**、不补**运行时 API**——产物里的超基线 API 在旧 WebView 上
+    // 以「xxx is not a function」炸掉装配（M3 真机验证 §1.1 实录：cordis 打包进的
+    // Object.hasOwn → 白屏）。运行时缺口由 public/legacy-runtime.js 垫片补齐，
+    // 构建期由 scripts/check-webview-baseline.mjs 守门——三处同一份基线，改须同步。
+    target: 'chrome92',
     rollupOptions: {
       input: {
         main: path.resolve(rootDir, 'index.html'),
