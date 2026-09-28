@@ -49,6 +49,9 @@ class MainActivity : BridgeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // WebView CDP 调试口（debug 构建）——真机 UI 自动化/现场排障用：
+        // chrome://inspect → agentchat WebView。仅 debug 生效，不进 release。
+        if (BuildConfig.DEBUG) android.webkit.WebView.setWebContentsDebuggingEnabled(true)
         val store = PairingStore(this)
         val deepLink = intent?.data?.toString()
         // 更新检查与配对状态无关：**任何**启动形态下都该知道有没有新版（M3.5）
@@ -86,6 +89,9 @@ class MainActivity : BridgeActivity() {
      * 比「锁没开」更糟，故降级是显式的、可见的。
      */
     private fun gateAndLoad() {
+        // debug 构建跳过生物锁（M3 真机自动化验证：无人在场时反复冷启/重连不被
+        // 指纹门挡住；release 构建不受影响，A/B 开关语义全部保留）
+        if (BuildConfig.DEBUG) { startAndLoad(); return }
         BiometricGate.request(
             this,
             "解锁 AgentChat",

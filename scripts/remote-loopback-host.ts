@@ -10,9 +10,10 @@ const RELAY = process.env.LOOPBACK_RELAY ?? 'ws://127.0.0.1:18443';
 
 // 端口 env 可覆盖（本机 3839 落 Windows 动态端口排除段 3831-3930 时换 LOOPBACK_PORT）
 const PORT = Number(process.env.LOOPBACK_PORT ?? 3839);
+const AUTO_RECONNECT = process.env.LOOPBACK_AUTO_RECONNECT === '1';
 const { ctx } = await bootTree({
   'web-server': { port: PORT, heartbeatMs: 0 },
-  'remote-link': { relayUrl: RELAY, autoReconnect: false, root: '.dsh/tmp/loopback-data', defaultScopes: ['read', 'chat'] },
+  'remote-link': { relayUrl: RELAY, autoReconnect: AUTO_RECONNECT, root: '.dsh/tmp/loopback-data', defaultScopes: ['read', 'chat'] },
 });
 
 // KK 排查观察口：remote-link 生命周期事件

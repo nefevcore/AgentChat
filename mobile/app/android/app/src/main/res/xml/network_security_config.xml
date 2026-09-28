@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  明文策略：**只对 loopback 放行**（回环桥 http://127.0.0.1:<port> + 本地联调
-  的 ws://127.0.0.1:18443）。生产 relay 是 wss://（TLS），不需要明文。
+  明文策略：**只对 loopback 与本地联调网段放行**（回环桥 http://127.0.0.1:<port>
+  + 本地 relay ws://127.0.0.1:18443 / 局域网直连 ws://192.168.1.6:18443——
+  adb reverse 通道长时不稳，真机验证 M3 §1.4 实测约 25s 后下行即断（清单
+  §4.2 预言成真），改走 PC 局域网 IP 直连）。生产 relay 是 wss://（TLS），
+  不需要明文。
 
-  为什么必须有这个文件：Android 9（API 28）起默认禁明文；而本 App 的两种
-  正当用途都是 loopback 明文——回环桥（WebView 只见明文，与本地开发同构）
-  与经 adb reverse 的本地 relay。不放行则 OkHttp 连 ws://127.0.0.1 直接失败，
-  且失败发生在原生层、日志里只剩一句笼统的连接错误。
+  为什么必须有这个文件：Android 9（API 28）起默认禁明文；而本 App 的正当
+  用途是 loopback/本地明文——回环桥（WebView 只见明文，与本地开发同构）
+  与本地 relay。不放行则 OkHttp 连 ws://127.0.0.1 直接失败，且失败发生在
+  原生层、日志里只剩一句笼统的连接错误。
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -17,5 +20,6 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">192.168.1.6</domain>
     </domain-config>
 </network-security-config>

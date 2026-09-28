@@ -9,7 +9,17 @@ import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { DEFAULT_LIMITS, RelayCore, type RelayConn } from './index.ts';
 
-const core = new RelayCore();
+// 测试形态放宽口：本地联调（adb reverse 出口同 IP = 127.0.0.1，设备重试期连接堆积
+// 会撞 maxConnPerIp=5 被断——生产不受影响，缺省值不变）
+const limits = {
+  ...DEFAULT_LIMITS,
+  maxConnPerIp: Number(process.env.RELAY_MAX_CONN_PER_IP ?? DEFAULT_LIMITS.maxConnPerIp),
+  joinBucket: {
+    burst: Number(process.env.RELAY_JOIN_BURST ?? DEFAULT_LIMITS.joinBucket.burst),
+    ratePerSec: Number(process.env.RELAY_JOIN_RATE ?? DEFAULT_LIMITS.joinBucket.ratePerSec),
+  },
+};
+const core = new RelayCore(limits);
 
 const port = Number(process.env.RELAY_PORT ?? 8443);
 const host = process.env.RELAY_HOST ?? '0.0.0.0';
@@ -54,14 +64,30 @@ const wss = new WebSocketServer({
   maxPayload: DEFAULT_LIMITS.maxFrameBytes + 64 * 1024,
 });
 
+// 诊断日志（RELAY_DEBUG=1）：哑中继刻意不打日志，排障时是盲区。
+// 本口只在联调开启，输出连接生命周期（join/close/ping 时序）。
+const DEBUG = process.env.RELAY_DEBUG === '1';
+let connSeq = 0;
+
 wss.on('connection', (ws: WebSocket, req) => {
   const ip = req.socket.remoteAddress ?? 'unknown';
+  const cid = ++connSeq;
+  if (DEBUG) console.log(`[relay:dbg] #${cid} connection from ${ip} (total=${wss.clients.size})`);
+  ws.on('close', (code, reason) => { if (DEBUG) console.log(`[relay:dbg] #${cid} closed code=${code} reason=${reason.toString()}`); });
   const conn: RelayConn = {
     ip,
     send: (s) => { if (ws.readyState === ws.OPEN) ws.send(s); },
     close: () => ws.close(),
     terminate: () => ws.terminate(),
-    onMessage: (h) => ws.on('message', (d) => h(d.toString())),
+    onMessage: (h) => ws.on('message', (d) => {
+      if (DEBUG) {
+        const s = d.toString();
+        let op = '?';
+        try { op = (JSON.parse(s) as { op?: string }).op ?? '?'; } catch { /* 非 JSON */ }
+        if (op !== 'ping') console.log(`[relay:dbg] #${cid} <- ${op} (${s.length}B)`);
+      }
+      h(d.toString());
+    }),
     onClose: (h) => ws.on('close', h),
   };
   // 传输层错误（超限帧/协议错/写失败）→ 只关该连接；中继是公共入口，
