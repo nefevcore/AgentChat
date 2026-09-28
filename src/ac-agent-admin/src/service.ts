@@ -300,7 +300,7 @@ export class AgentAdminService extends Service {
    * 记忆注入与对话信息块按真实直答会话的键装配。裸 agentId 会让记忆回落
    * memory/<agentId>.md 死键——2026-09-05 前端预览实录）。
    *
-   * 工具面与 router 同口径（2026-12 估算失真修复）：生效档 = 会话覆盖
+   * 工具面与 router 同口径（2026-09-18 估算失真修复）：生效档 = 会话覆盖
    * （conv-settings toolMode）?? toolModeOf(agent)，干跑 request.tools 按
    * narrowToolsByMode 收窄——程序化会话注入 run_code SDK 投影块（真值
    * 反而更大）、tc-none/收窄档不注入文件/命令类指引块（此前全量面 →

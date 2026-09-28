@@ -2,7 +2,7 @@
 // ============================================================
 // webui/tests/clients-subagent-board.test.ts —— subagent 域投影验收
 //
-// 2026-12 持久化清单主源化（对齐 singles 取值链）：
+// 2026-09-22 持久化清单主源化（对齐 singles 取值链）：
 //   · fetchSubagents：subs 投影/非数组归一/RPC 失败 null（面静默空态）
 //   · stopSubagent：透传 id；失败静默 false（下轮帧对账）
 //   · ctx.subagentBoard 服务面：装载/reactive/帧驱动刷新/可摘除性（D19）

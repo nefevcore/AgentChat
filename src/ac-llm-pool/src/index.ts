@@ -86,7 +86,7 @@ export interface LlmPoolEntry {
    */
   headers?: Record<string, string>;
   /**
-   * 会话亲和头（2026-09 连通性复查）：部分托管网关要求每会话稳定的
+   * 会话亲和头（2026-09-24 连通性复查）：部分托管网关要求每会话稳定的
    * session 头（如 opencode.ai 的 x-opencode-session，缺发即 400
    * MissingSessionID）。缺省 = 按内置事实清单自动匹配 base_url；
    * { name: '<头名>' } 显式指定；false 强制关闭。头值始终按会话

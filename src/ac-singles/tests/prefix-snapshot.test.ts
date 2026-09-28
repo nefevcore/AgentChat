@@ -182,7 +182,7 @@ describe('singles 前缀快照（M21 步骤 4）', () => {
     expect(ctx.singles.prefixSnapshotOf(single.id)?.revision).toBe(after.revision);
   });
 
-  it('记忆进修订键（memoryBucketOf 注入同口径）：对桶记忆外写 → 快照失效重拍 + <memory> 注入', async () => {
+  it('记忆退出修订键（cr-4 时间线）：记忆写入不改变 system 字节——修订键稳定', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register(AGENT);
@@ -190,15 +190,15 @@ describe('singles 前缀快照（M21 步骤 4）', () => {
     await ctx.conversation.deliver('a', '第一句', { conversationId: single.id, sender: 'user' });
     const snapFile = path.join(root, 'singles', single.id, 'prefix-snapshot.json');
     const before = JSON.parse(fs.readFileSync(snapFile, 'utf-8')) as { revision: string; system: string };
-    // 首轮 system 已含自描述记忆块：singles 重定向对用户对桶 + file 头
-    expect(before.system).toContain('<memory file="memory/a~user.md">');
-    // Agent 经 fs 工具外写对用户记忆（不经 ctx.memory——注入直读文件）
-    fs.mkdirSync(path.join(root, 'files', 'a', 'memory'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'files', 'a', 'memory', 'a~user.md'), '用户喜欢简短回复', 'utf-8');
+    // 静态指引在场（字节恒定块）；记忆内容不在 system（走 context 行协议）
+    expect(before.system).not.toContain('<memory file=');
+    // 时间线追加新条目（记忆面写入）
+    ctx.memory.write('a', { content: '用户喜欢简短回复', origin: single.id });
     await ctx.conversation.deliver('a', '第二句', { conversationId: single.id, sender: 'user' });
     const after = JSON.parse(fs.readFileSync(snapFile, 'utf-8')) as { revision: string; system: string };
-    expect(after.revision).not.toBe(before.revision); // 记忆变化 → 显式失效重拍
-    expect(after.system).toContain('用户喜欢简短回复');
+    expect(after.revision).toBe(before.revision); // 记忆不进修订键——稳定
+    expect(after.system).toBe(before.system); // system 字节不变
+    expect(after.system).not.toContain('用户喜欢简短回复');
   });
 
   it('非 singles 会话不受影响：datetime 仍走 system（§4.4 原状）', async () => {

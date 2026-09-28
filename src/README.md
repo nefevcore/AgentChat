@@ -14,11 +14,11 @@ plugin-logger-console 控制台输出）。
 
 纯库清单 / 布局 / 装配与运行时分层。历史决策、裁决点与踩坑档案住 `src/docs/`
 
-（见[设计档案索引](#设计档案索引)；注释时间标记（YYYY-MM = 批次代号非日历月）
+（见[设计档案索引](#设计档案索引)；注释日期标记（YYYY-MM-DD = 真实日历日）
 
-读写规范见 `docs/epoch-marking-convention.md`；收官过程文档冻结于 `src/docs/archive/` 与
+读写规范与变更登记（CR 目录）见 `docs/epoch-marking-convention.md`；收官过程文档冻结于 `src/docs/archive/` 与
 
-仓库外归档根 `Dev\Note\AgentChat\docs-stale-2026-12\`）；开发姿势与新增能力域
+仓库外归档根 `Dev\Note\AgentChat\docs-stale-2026-09-18\`）；开发姿势与新增能力域
 
 checklist 住 `.dsh/skills/agentchat-dev`。
 
@@ -108,7 +108,8 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
   │    │   （主档）→ 'loop/before-run-last'（尾档）——同一载体贯穿，任一档
   │    │   veto 即无 run；三档封顶（waterfall 无优先度，故拆三事件）。
   │    │   主档住户：ac-persona <persona> 块 / ac-system-prompt 静态块
-  │    │   （系统环境→术语约定→指引，条目级工具门控）/ ac-memory <memory> 块 /
+  │    │   （系统环境→术语约定→指引，条目级工具门控）/ ac-memory 静态指引块
+  │    │   （<memory-guide> 字节恒定——记忆内容走 context 行协议，cr-4）/
   │    │   [引用约定] 三条（ac-fs-tools @路径 · ac-session-query #会话 ·
   │    │   ac-collab-tools @名称；owner 行条件安装）/ ac-skill
   │    │   <available_skills>（收敛式插入：锚定 [引用约定] 词形恒居其前——
@@ -203,17 +204,17 @@ logger.warn 告警——不静默。「**tags 即工具面**」的准确边界�
 tc-programmatic ⇒ LLM 面合成 mode 工具集（投影源从能力面直取
 `resolveEffectiveTools(…, 'projection')` 跳过 include 收窄）；tc-none ⇒ LLM
 工具面清空（纯聊天）；tc-base ⇒ 常规工具面（mode 工具不在其中）。
-**injection 注入轴（2026-12 重构）**：`ToolDefinition.injection`——
+**injection 注入轴（2026-09-21 重构）**：`ToolDefinition.injection`——
 `'capability'`（缺省，能力轴门禁）| `'mode'`（模式合成：不挂
 requiredTags、不进常规工具面，tc-programmatic 档经 narrowToolsByMode
 从注册面直接合成，与 tags 无关、行在装即生效）。先例 run_code——
 「授权词 = infra」旧语义随之退役。tc-programmatic 但无 mode 工具
 （run-code 行未装）⇒ 空面 + warn（形同 tc-none，不回落常规面——语义
 突变防护）。收窄判定单源 `effectiveToolMode` + `narrowToolsByMode`
-（ac-agents——2026-12 估算失真修复）：router dispatch 与估算面
+（ac-agents——2026-09-18 估算失真修复）：router dispatch 与估算面
 （agents/system-prompt 干跑、agents/tool-defs 的 conversationId 形态）
 共用，Token 仪表固定开销估算随会话开关同口径收窄（程序化会话注入
-SDK 投影块、仅 run_code schema）。**PTC 门控面单源（2026-12 基线段
+SDK 投影块、仅 run_code schema）。**PTC 门控面单源（2026-09-21 基线段
 丢失修复）**：`isModeToolFace`（请求面恰等于 mode 工具集判定——
 run_code 投影注入条件单源化）+ `widenToolsForGating`（系统提示门控
 行的「工具在场」依据在程序化 run 换成能力面展开——PTC 下
@@ -223,7 +224,7 @@ session-query/collab-tools 的 owner 行）。无用户参与的 Agent 会话（
 执行（子 Agent 继承父 tags——STRIPPED_TAGS 不剥模式词；传播语义同
 router）。UI = 输入框工具栏「工具调用模式」下拉（跟随 Agent/标准/程序化/
 无工具，选择即写 conv-settings；无 tc-programmatic 标签时程序化项禁选）。
-**抉择组（2026-12 标签配置语义）**：tag-registry 目录条目挂 `exclusive` 元数据
+**抉择组（2026-09-21 标签配置语义）**：tag-registry 目录条目挂 `exclusive` 元数据
 （同组互斥）——access-tier（base/sandbox/full-access，base-access 显式进目录）、
 tool-mode（tc-none/tc-base/tc-programmatic）、browser-tier（observe/manipulate/
 inject，ac-web-tools 声明）。Agent 配置 UI（AgentPane）把组内 tag 合一为「启停胶囊 +
@@ -273,13 +274,13 @@ bundle——bundle 形态走 build-bundle.mjs 第二入口产物 `dist/worker.mj
 
 ```
 ctx.group.send(gid, from, content)
-  = post 入流（群本体唯一入账口 + group/message-posted 事件；本体落盘
-    sessions/groups/<gid>/messages.jsonl，超阈值轮转——配属主走整理 run 亲写概要，
-    无属主走机械摘要）
-  → 逐参与者 conversation.deliver(member, <msg>包装+时间, {sender: from,
-    conversationId: gid, history: historyFor(gid, member)}——viewer 视角投影
-    [own=assistant 保示范密度 / peer=user 包装] 作首跑种子）
-  + GroupFeed：readSince(锚点)/currentAnchor（busy 参与者免重复增量）
+  = post 入流（群本体唯一发言事实源 + group/message-posted 事件；本体落盘
+    sessions/groups/<gid>/messages.jsonl，超阈值机械轮转）
+  + post 扇出（cr-4 成员私有转录流）：逐成员 sessions/<gid>~<member>/ 追加
+    viewer 投影行（own=assistant 原文保示范密度 / peer=user <msg> 包装+时间）
+  → 逐成员 conversation.deliver(member, <msg>包装+时间, {sender: from,
+    conversationId: gid~member}——hint 只唤醒不携消息：投影行已入成员流，
+    run/回放/压缩全套走标准 session 机制，沉默权保真——转录流私有)
 ```
 
 **会话历史**（ac-session，"事件积累 + 回放"模式）：订阅 `router/*` +
@@ -290,10 +291,10 @@ ctx.group.send(gid, from, content)
 
 一等行）→ writer 队列落盘；`history(conv, {viewer})` 按读者投影回放。
 
-ac-conversation 的上下文 = 每 run 经 history 从文件重派生（2026-11 视图
+ac-conversation 的上下文 = 每 run 经 history 从文件重派生（2026-09-23 视图
 增量层退役——增量投影两次漂移后退役，S3 由构造保证）。
 
-run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入行/直调补行
+run 周期走 **journal（partials.jsonl，2026-09-21 泛化）**：步行/注入行/直调补行
 
 按消费点真序落台账（messages.jsonl 在 run 期间静默——单一写面）；run 收束
 
@@ -338,11 +339,11 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | credentials | `ac-credentials/src/service.ts` | — |
 | agentStore | `ac-agent-store/src/service.ts`（+ 文档实体 saveDoc/readDoc） | — |
 | agentPresets | `ac-agent-presets/src/index.ts`（预设模式注册中心：register/list/defaultPreset + 物化语义） | — |
-| subagents | `ac-subagent/src/service.ts`（持久多轮实体） | `ac-subagent/src/events.ts`（subagents/updated——spawn/started/settled/stopped/removed 统一通知，前端子Agent 清单帧驱动刷新，2026-12 持久化清单主源化） |
+| subagents | `ac-subagent/src/service.ts`（持久多轮实体） | `ac-subagent/src/events.ts`（subagents/updated——spawn/started/settled/stopped/removed 统一通知，前端子Agent 清单帧驱动刷新，2026-09-22 持久化清单主源化） |
 | jobs | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled） |
-| browser | `ac-web-tools/src/browser.ts`（CDP 直连执行层——纯库 `ac-cdp-core`：ws 客户端/拉起/感知/诊断；2026-10 起 Python daemon 退役） | — |
+| browser | `ac-web-tools/src/browser.ts`（CDP 直连执行层——纯库 `ac-cdp-core`：ws 客户端/拉起/感知/诊断；2026-09-26 起 Python daemon 退役） | — |
 | durableInteraction | `ac-durable-interaction/src/types.ts` + `store.ts` | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}；核领域无关——ask_questions 工具住 ac-ask-questions，approval 语义住 ac-security） |
-| timers | `ac-timer/src/service.ts`（TimerRowOptions；条目级 activeHours 活动窗口 + gate 预检门——静默判定前置调度层，LLM 零 token 跳过；条目级 conversationId 会话键回投——提醒发往用户设提醒的会话，2026-12） | — |
+| timers | `ac-timer/src/service.ts`（TimerRowOptions；条目级 activeHours 活动窗口 + gate 预检门——静默判定前置调度层，LLM 零 token 跳过；条目级 conversationId 会话键回投——提醒发往用户设提醒的会话，2026-09-26） | — |
 | archive | `ac-archive/src/service.ts` | `ac-archive/src/events.ts`（archive/completed） |
 | usage | `ac-usage/src/index.ts`（双轨聚合桶 + bySelfSession 自会话成本观测） | — |
 | backup | `ac-backup/src/index.ts` | — |
@@ -351,7 +352,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | remoteLink | `ac-remote-link/src/contract.ts`（RemoteDevice/PairingSession/RemoteLinkStatus；Noise 纯库 `ac-noise-core`——XK/KK 握手 + AEAD 帧，M1） | `ac-remote-link/src/events.ts`（remote/device-paired · device-revoked · device-online · device-offline） |
 | webui | `ac-webui/src/service.ts` | 同文件（webui/extensions-changed） |
 | （退役）uiExtensions | ~~`ac-webui-extensions/src/service.ts`~~ M30 D7 退役：生产链路零消费（第三方 UI 走 manifest.ui → webui.addEntry → 浏览器 SlotRegistry）；词汇表 slotCatalog 留包转纯库 | — |
-| pluginRegistry | `ac-plugin-registry/src/service.ts` | 同文件（plugin/before-load(W) + installed·reloaded·catalog-changed(E)） |
+| pluginRegistry | `ac-plugin-registry/src/service.ts` | 同文件（plugin/before-load(W) + plugin/updated(E)——cr-20 三事件并源：installed·reloaded·catalog-changed → updated 单流） |
 | eventPolicy | `ac-event-policy/src/service.ts`（停用键/清扫/行聚合） | —（治理 seam = internal/listener bail，非公开事件） |
 | agentAdmin | `ac-agent-admin/src/service.ts`（AdminUpdateResult） | — |
 | skills | `ac-skill/src/index.ts`（三源技能发现 + 注入三通道：手势 before-run 判定落账 / run_code 子调用登记+收束落账 / 直调 steps 回放） | — |
@@ -394,7 +395,7 @@ run 周期走 **journal（partials.jsonl，2026-11 泛化）**：步行/注入�
 | `ac-supervisor-core` | 42/78/0 退出码协议 + 退避熔断纯函数 + .runtime 单写者锁 |
 | `ac-skill-core` | SKILL.md frontmatter 解析/发现/`<available_skills>` 渲染/白名单过滤 |
 | `ac-mcp-core` | MCP 客户端（官方 SDK 包装，HTTP/stdio 双传输；describeError 自 ac-error-core re-export） |
-| `ac-memory-core` | 记忆注入 token 预算截断（尾部近期保留 + 截断标记） |
+| `ac-memory-core` | 记忆时间线渲染/解析纯库（条目头铸造/容错解析、快照确定性渲染〔整数条截断 + 溢出注记〕、grep 过滤轴、delta 渲染） |
 | `ac-gate-core` | agentGate 门控：waterfall 停用机械 next()/emit 停用跳过/facet 子键覆盖回落行为级 |
 | `ac-error-core` | describeError（cause 链展开单行诊断）+ isTransientNetworkError（瞬时网络故障判定） |
 | `ac-extension-core` | ExtensionMeta 契约（可配置行入口自述 `export const extension`） |
@@ -453,8 +454,9 @@ src/
 ├── ac-agent-presets-builtin/ 内置预设模式数据行：__standard__/__dsh_minimal__/
 │                            __creator__（标准/极简/创造）注入预设目录——插件注入
 │                            自有模式走同一注册面；无记忆语义 = 预设软停用
-│                            memory/skill/datetime 等行（创造模式例外保留 skill——
-│                            用户技能照常加载；插件开发指南经 system 提示词内置）
+│                            memory/skill/datetime 等行 + memory 标签不授予
+│                            （cr-17 工具面收口；创造模式例外保留 skill——用户
+│                            技能照常加载；插件开发指南经 system 提示词内置）
 ├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json +
 │                            机制 entries（timer/skills 等唯一写口）+ 文档实体
 │                            （AGENTS.md 等）；getAgent 读边界归一（旧 hooks→settings）
@@ -467,9 +469,10 @@ src/
 │                            模型/提权/工具模式/浏览器档覆盖（内置键）+
 │                            registerKey 注册制扩展键（键域枚举单源 + grants
 │                            能力等效声明）；deliver 边界单点生效
-├── ac-group/                群拓扑（ctx.group）：成员表 + 单通道内容流（post = 群
-│                            本体唯一入账口）+ GroupFeed 锚点增量 + historyFor
-│                            viewer 投影 + 群聊行为契约注入 + 记忆属主共享注入 + 轮转
+├── ac-group/                群拓扑（ctx.group）：成员表 + 群本体（post = 唯一发言
+│                            事实源）+ 成员私有转录流扇出（cr-4：sessions/<gid>~
+│                            <member>/ 投影行——run/settlement/回放全套标准机制）+
+│                            群聊行为契约注入（本体键与成员流键）+ 机械轮转
 │ ── 系统提示装配行（loop/before-run* 落点，见端到端链路）─────────
 ├── ac-persona/              人设注入：<persona> 块（file 优先 text 回退；裸名走
 │                            agentStore 文档、路径走文件系统）
@@ -477,9 +480,11 @@ src/
 │                            ——条目级工具门控；独立会话形态不注入多 Agent 协作/
 │                            主动安排/系统管理条目）落主档 + 对话信息块落尾档（prepend
 │                            居前）；override 全量覆盖静态块
-├── ac-memory/               长期记忆（ctx.memory）：键 = 对键/群 id（singles 重定向
-│                            对用户对桶）；文件 = files/<agentId>/memory/<会话键>.md，
-│                            LLM 经 fs 工具亲自维护；token 预算截断注入
+├── ac-memory/               记忆时间线（ctx.memory）：Agent 人格单文件 timeline.md
+│                            （宿主铸造条目头 + append-only write/entries/grep 三口）+
+│                            memory_write/memory_grep 工具（memory 标签）+ checkpoint/
+│                            delta 流式注入（before-start seam 直落 context 行——KV
+│                            零失效）；system 侧只剩恒定静态指引
 ├── ac-datetime/             日期注入：singles 走日快照行（主档）；其余会话 system
 │                            尾部仅日期行（尾档绝对收尾）——KV 前缀跨轮稳定
 ├── ac-skill/                技能目录（ctx.skills）：全局/本 Agent 专属/会话工作区
@@ -512,7 +517,7 @@ src/
 │                            禁）+ bash 扫描 + 输出脱敏 + 唆使防御注入
 ├── ac-subagent/             子 Agent（ctx.subagents）：持久多轮实体（spawn/send
 │                            [async·sync·steer·next-run 四投递语义]/await/list/stop/
-│                            delete）；落盘 <root>/subagents/<subId>/ 三文件（2026-12
+│                            delete）；落盘 <root>/subagents/<subId>/ 三文件（2026-09-22
 │                            对齐 sessions 域 run journal 裁决：messages=定稿流+run
 │                            键 / partials=journal 收束即清+崩溃恢复 / subcalls=
 │                            run_code 子调用档案）跨重启续聊；跨 run 上下文轨迹
@@ -692,8 +697,8 @@ src/
 │                              运行跟踪面板点击进入——历史回放复用
 │                              conversation 渲染内核，session-view-plan〕）
 │                              + **settings 退化三行**
-│                              （M28 P2：llm-pool 连接池〔2026-11 收窄
-│                              llm 单节〕+ search-pool 搜索引擎池〔2026-11
+│                              （M28 P2：llm-pool 连接池〔2026-09-11 收窄
+│                              llm 单节〕+ search-pool 搜索引擎池〔2026-09-11
 │                              拆行〕+ plugin-registry 插件库四件——
 │                              settings 壳经 settings:section 选举席消费）+
 │                              **基础七件**（M27.2-2 出包，phase:'base'
@@ -853,18 +858,19 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 |---|---|
 | 总览 | `architecture-diagram.html`（架构图可视化） |
 | 会话与 LLM 域 | `session-design.md`（域深设计事实源）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
-| WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `conversation-view-split-plan.md`（ConversationView 拆分精简方案——2026-12 立项待实施）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
+| WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `conversation-view-split-plan.md`（ConversationView 拆分精简方案——2026-09-24 立项待实施）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
 | 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
-| 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-12 计划，P0 已随 subagents/history 落地） |
+| 记忆/转录流 | `memory-timeline-plan.md`（cr-4 设计与裁决，已实施）· `memory-timeline-handover.md`（**施工交接**——实施汇总/验证状态/生产迁移实况/下会话工作清单） |
+| 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-09-18 计划，P0 已随 subagents/history 落地） |
 | 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） · `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次：重度开发/journal 泛化/机制验证——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） |
 | 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `remote-client-relay-plan.md`（本地多端远程接入，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md`（打磨残留条目 + 边界备忘） |
 | 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单——已实施） |
 | 标签系统 | `tag-system-report.md`（词表/机制/归属/守则全貌）· `tags-include-semantics-report.md`（× tools.include 语义裁决） |
-| 工程规范 | `epoch-marking-convention.md`（**注释 YYYY-MM 时间标记规范**——标记 = 特性批次代号而非日历月：计划纪元沿计划批次、即兴改动用真实当月；存量超前标记保持原样勿顺手统一） |
+| 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；存量 `YYYY-MM-00` 为历史批次标记只读不写）· `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增） |
 
-> **归档根**（2026-12 起）：收官里程碑终稿（M7-M25 计划、m15/m16/m17 对账套件、
+> **归档根**（2026-09-18 起）：收官里程碑终稿（M7-M25 计划、m15/m16/m17 对账套件、
 > WebUI 适配器系列、程序化模式三件套、T0/精简审计、src→preview 映射图）已移至
-> `C:\Users\xiaofeng\Documents\Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`；
+> `C:\Users\xiaofeng\Documents\Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`；
 > 更早批次见 `docs-pre-refactor-2026-09\` / `docs-stale-2026-09\`。需要历史决策
 > 上下文时按文件名检索归档根。
 
@@ -882,7 +888,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M12 | 服务编排：usage 双轨 · archive 整理漏斗 · timer · workspace · backup |
 | M13 | 宿主与可视化：web-server · ws-bridge · webui/slot · 插件域 · supervisor |
 | M14 | 扩展补全：datetime · skill · mcp · memory · collab-tools · persona 文件装载 |
-| M15 | 对账收官（六轴对照 + 补齐 13 项；过程档案已归档 `docs-stale-2026-12\src-docs\m15-reconciliation.md`） |
+| M15 | 对账收官（六轴对照 + 补齐 13 项；过程档案已归档 `docs-stale-2026-09-18\src-docs\m15-reconciliation.md`） |
 | M16-M18 | WebUI 原生重写 → UI 对账补齐 → 布局风格对齐（M16 后经同源迁移回滚，分支 archive/webui-native-m16 留档） |
 | M19 | user 去特殊化——全对键桶模型（pairKey 对桶 + sender/source 分离） |
 | M20 | 归档分支回归——会话内整理 run + 失控防线（maxSteps 128 硬闸） |
@@ -898,4 +904,4 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M30 | 席位语义收口——elect/data 词汇轴扶正 + 壳宿主条目化统一 + conversation:dock-widget 改名 + 服务端 uiExtensions 退役（D3 useSeatOccupancy 原语随主区/aux 选举化失去消费方，同批除役；`docs/m30-slot-semantics-refinement-plan.md`） |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |
-| 2026-12 增量 | subagent 双改：run 超时缺省 300s → 不限（研究型长任务；timeout_s 正值仍可设看门狗）；run 身份未注册合成 → 派生注册（父身份编辑：preset 隐藏 + tags 剥 delegation/admin；信封装配补 system/llmParams/能力面终滤；update_agent_profile 拦 preset 自助改档） |
+| 2026-09-18 增量 | subagent 双改：run 超时缺省 300s → 不限（研究型长任务；timeout_s 正值仍可设看门狗）；run 身份未注册合成 → 派生注册（父身份编辑：preset 隐藏 + tags 剥 delegation/admin；信封装配补 system/llmParams/能力面终滤；update_agent_profile 拦 preset 自助改档） |

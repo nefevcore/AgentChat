@@ -1,4 +1,4 @@
-// 多步轮步行锚点（2026-12 分支锚点修复回归）：带 steps 的收束行展开后，
+// 多步轮步行锚点（2026-09-21 分支锚点修复回归）：带 steps 的收束行展开后，
 // 每步 message_id = 收束行真实 id（服务端锚——fork/truncate 命中），sid 承担
 // 渲染 key 唯一；mergeHistoryPage 双键去重不吞同锚步行。
 import { describe, it, expect } from 'vitest';

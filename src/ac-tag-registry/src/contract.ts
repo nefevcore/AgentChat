@@ -39,7 +39,7 @@ export interface TagDeclaration {
    */
   tier?: boolean;
   /**
-   * 抉择组（2026-12 标签配置语义升级）：同组标签互斥——Agent 配置时
+   * 抉择组（2026-09-21 标签配置语义升级）：同组标签互斥——Agent 配置时
    * UI 把整组聚合成一个下拉（选一项而非逐个勾选）。目录侧只做元数据
    * 标注（不进任何判定：tierOf / toolModeOf / browser 层级门禁全部
    * 基于「tags 含某词」原语，与抉择组正交——UI 落词规则负责一致态：

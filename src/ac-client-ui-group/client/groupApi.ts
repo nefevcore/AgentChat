@@ -1,7 +1,7 @@
 // ============================================================
 // ac-client-ui-group/client/groupApi.ts —— 群写侧数据面
 //（M28 P1 域资产归位：自 conversation 随域迁入——群改名/简介/成员
-// 差量/删除/记忆属主；消费方 = GroupDrawer（aux 选区面板）本地 import
+// 差量/删除；消费方 = GroupDrawer（aux 选区面板）本地 import
 // + CreateGroupDialog 本地；原 webui api/groups 门面已退役〔M28 §4.2〕）
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
@@ -47,19 +47,5 @@ export async function updateGroup(
 
 export async function deleteGroup(groupId: string, rpc: Rpc): Promise<{ success?: boolean; error?: string }> {
   await rpc.call('group/delete', { groupId });
-  return { success: true };
-}
-
-/**
- * 群主（记忆属主）设定/解除（agentId 空 = 解除——后端 optStr 把空串归一
- * undefined；属主须为已注册 Agent 且群成员，退群自动解除。设定后全体
- * 成员共享注入属主那份群记忆，轮转升级为属主 LLM 整理）
- */
-export async function setGroupMemoryOwner(
-  groupId: string,
-  agentId: string,
-  rpc: Rpc,
-): Promise<{ success?: boolean; error?: string }> {
-  await rpc.call('group/set-memory-owner', { groupId, ...(agentId ? { memoryOwner: agentId } : {}) });
   return { success: true };
 }

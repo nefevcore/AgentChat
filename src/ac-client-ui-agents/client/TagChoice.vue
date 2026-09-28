@@ -1,5 +1,5 @@
 <!--
-  TagChoice.vue —— 抉择组胶囊（2026-12 标签配置语义升级：分组内 tag
+  TagChoice.vue —— 抉择组胶囊（2026-09-21 标签配置语义升级：分组内 tag
   合一为「启停胶囊 + 换档弹层」）
 
   形态：三段胶囊 [tag-name | tag-label | 下拉]——左段 raw 词名（mono；

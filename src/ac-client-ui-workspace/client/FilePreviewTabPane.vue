@@ -42,7 +42,7 @@ const props = defineProps<{
 
 const {
   loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown, isOffice,
-  imageSrc, officeSrc, highlightedLines, previewHtml, previewMarkdownDoc, codeLines, sizeDisplay, invalidate, reload,
+  imageSrc, officeSrc, highlightedLines, previewHtml, previewMarkdownDoc, codeLines, sizeDisplay, displayPath, invalidate, reload,
 } = useFilePreviewContent(
   () => props.path,
   () => ({ agentId: props.fallbackAgentId, conversationId: props.conversationId }),
@@ -77,8 +77,6 @@ const wrapApplies = computed(() => viewKind.value === 'code' || viewKind.value =
 /** 是否展示代码视图（源码模式强制；或 auto 态的普通代码文件） */
 const showCodeView = computed(() => !!fileData.value && !fileData.value.binary
   && (viewKind.value === 'code' || viewKind.value === 'text'));
-
-const fullPath = computed(() => props.path);
 
 // 复制内容（tab 级动作，状态随 pane）
 const copyState = ref<'idle' | 'copied' | 'error'>('idle');
@@ -137,7 +135,7 @@ onBeforeUnmount(() => {
     <!-- pane 头部：文件名 + 语言 + 大小 + 动作 -->
     <div class="fpt-head">
       <div class="fpt-head-info">
-        <span class="fpt-name" :title="fullPath">{{ fileName }}</span>
+        <span class="fpt-name" :title="displayPath">{{ fileName }}</span>
         <span class="fpt-lang">{{ langLabel }}</span>
         <span v-if="sizeDisplay" class="fpt-size">{{ sizeDisplay }}</span>
       </div>
@@ -301,9 +299,9 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- 底部路径 -->
+    <!-- 底部路径（实际命中路径——工作区推导命中时为绝对路径） -->
     <div class="fpt-foot">
-      <span class="fpt-path">{{ fullPath }}</span>
+      <span class="fpt-path">{{ displayPath }}</span>
     </div>
   </div>
 </template>
@@ -491,6 +489,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .fpt-iframe {
+  display: block; /* inline 基线空隙（~7px descender）会撑出 body 溢出——双滚动条根源之一 */
   width: 100%;
   height: 100%;
   min-height: 300px;
@@ -513,10 +512,12 @@ onBeforeUnmount(() => {
 }
 /* ── 代码视图（行式布局）：每行 = [行号][代码] 同格 ──
    wrap 态：行内折行，行高随折行数增长——行号钉在行首恒对齐；
-   nowrap 态：行 white-space:pre 不折，容器横向滚动（行号列
-   sticky 跟随视口左缘——长行滚动时行号可见） */
+   nowrap 态：行 white-space:pre 不折，fpt-body 横向滚动（行号列
+   sticky 跟随视口左缘——长行滚动时行号可见）。
+   滚动收归 fpt-body 单容器：本层无高度约束，overflow:auto 会与
+   body 嵌套出双滚动条（纵滚两根 + 横滚条挂在内容底部随滚出视口） */
 .fpt-code-wrap {
-  overflow: auto;
+  overflow: visible;
   padding: 10px 0;
   /* 字族/字号与聊天代码块（markdown.css .md-code-block）对齐 */
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;

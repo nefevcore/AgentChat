@@ -28,7 +28,7 @@ const saving = ref(false);
 const restarting = ref(false);
 const errorText = computed(() => settings.error.value);
 
-// ── 树（2026-11 左树数据化）：域行叶自 settings:section 席位条目派生
+// ── 树（2026-09-11 左树数据化）：域行叶自 settings:section 席位条目派生
 //    （贡献 meta.section/meta.label + 顶层 order，见 sectionTree.ts），
 //    动态全局插件页签（settings-tab:global）order 升序追加其后 ──
 type TreeNode = { id: string; label: string };
@@ -87,7 +87,7 @@ function selectNode(id: string) {
   selectedNode.value = id;
 }
 
-// ── 域行大件节选举席（M28 P2 + 2026-11 左树数据化）：settings:section
+// ── 域行大件节选举席（M28 P2 + 2026-09-11 左树数据化）：settings:section
 //    贡献携带 meta.section 与 selectedNode 匹配（模型管理 ← ui-llm-pool、
 //    搜索引擎 ← ui-search-pool 等）；左树叶与节选举同源（sectionEntries
 //    共用版本轴，D14）——域行装卸时节与叶同步即时出现/消失；无贡献 =
@@ -97,7 +97,7 @@ const domainSection = computed<SlotEntry | null>(
 );
 
 // （M28 P2：池更新/默认同步/定向落盘编排随 PoolManager 迁
-//  ac-client-ui-llm-pool——LlmPoolsHost 自理（搜索引擎节 2026-11
+//  ac-client-ui-llm-pool——LlmPoolsHost 自理（搜索引擎节 2026-09-11
 //  再拆 ui-search-pool——SearchPoolsHost 随行走）；
 //  Agent 设置节迁 ui-agents（AgentSettingsHost 自理列表/编辑双态））
 
@@ -201,7 +201,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
         </div>
 
         <div class="sp-body">
-          <!-- 左侧树（2026-11 左树数据化：平铺叶自 settings:section 席位派生 +
+          <!-- 左侧树（2026-09-11 左树数据化：平铺叶自 settings:section 席位派生 +
                settings-tab:global 动态页签追加——行卸载叶同步退场） -->
           <div class="sp-tree">
             <div

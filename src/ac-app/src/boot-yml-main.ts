@@ -8,11 +8,15 @@
 // 其余行不受影响）。演示：cordis.yml 驱动装配 + logger 控制台输出 +
 // ctx.timeout（plugin-timer）+ 配置热刷新（include.refresh）+ 端到端链路 +
 // HMR 模块热重载（真实模块行 + reloadFiles）。
+// 数据根：无条件锚定 <repo>/workspace/test（同 smoke.ts 语义：演示链路
+// 的 helper~user 会话与 agents 物化绝不落真实数据根——cr-7；不读外部
+// AGENTCHAT_DATA_ROOT，防宿主 env 渗漏劫持到真实根）。
 // ============================================================
+import * as fs from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Context } from '@agentchat/cordis';
 import { ModuleLoader } from '@agentchat/cordis-loader';
 import type {} from './index.ts'; // TREE 全行 → 各域服务/事件类型增强（type-only）
@@ -59,6 +63,16 @@ function fixtureSource(version: string): string {
     '',
   ].join('\n');
 }
+
+// 数据根锚定（模块顶层，先于一切行装载）：清理 + 锚定 workspace/test。
+// 路径护栏同 vitest global-setup / smoke.ts。
+const demoRoot = resolve(fileURLToPath(new URL('../../../', import.meta.url)), 'workspace', 'test');
+if (!demoRoot.endsWith(join('workspace', 'test'))) {
+  throw new Error(`演示数据根路径异常，拒绝清理: ${demoRoot}`);
+}
+process.env.AGENTCHAT_DATA_ROOT = demoRoot;
+fs.rmSync(demoRoot, { recursive: true, force: true });
+fs.mkdirSync(demoRoot, { recursive: true });
 
 async function main() {
   const hasInternals = !!ModuleLoader.fromInternal();

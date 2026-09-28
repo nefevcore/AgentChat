@@ -7,7 +7,7 @@
 //     卡片（meta.def 形状对齐 ToolResultViewDef 解析契约：
 //     { match, component, priority }）；
 //   · conversation:dock-widget list seat（id 'goal'，order 50——dock 序
-//     重排 2026-09：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)）
+//     重排 2026-09-13：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)）
 //     ——composer 上方长期目标条。
 // 后端行（ac-goal）不在场 → goal/get RPC 失败 → fetch null → dock 条
 // 静默隐藏（三态空态语义）。

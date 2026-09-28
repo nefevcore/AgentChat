@@ -320,7 +320,8 @@ describe('ac-archive 先整理后归档', () => {
     const prompt = review.messages.map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
     expect(prompt).toContain('会话键 a~user');
     expect(prompt).toContain('summary/a~user.md');
-    expect(prompt).toContain('memory/a~user.md');
+    // 记忆条目已退役（cr-4 时间线 append-only）——提示词不再含 memory/ 指令
+    expect(prompt).not.toContain('memory/a~user.md');
   });
 
   it('写侧对齐读侧：显式 workdir 分叉基准 → 提示词给专用空间绝对路径，整理产物落读侧基准', async () => {
@@ -396,11 +397,10 @@ describe('ac-archive 先整理后归档', () => {
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     await ctx.router.send('a', '话'.repeat(100));
     await until(() => ctx.archive.segments('a~user').length > 0);
-    // 提示词锚定专用空间：memory/summary 都给 agentWorkdir 绝对路径
+    // 提示词锚定专用空间：summary 给 agentWorkdir 绝对路径
     //（分叉前是相对路径，Agent 会写进挂载目录——读侧永远看不到）
     const review = captured.find(isReviewInput)!;
     const prompt = review.messages.map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
-    expect(prompt).toContain(path.join(root, 'files', 'a', 'memory', 'a~user.md'));
     expect(prompt).toContain(path.join(root, 'files', 'a', 'summary', 'a~user.md'));
     // Agent 亲写文件（专用空间内）被服务端读取作概要——非回复文本
     const summary = fs.readFileSync(path.join(root, 'sessions', 'a~user', 'summary.md'), 'utf-8');

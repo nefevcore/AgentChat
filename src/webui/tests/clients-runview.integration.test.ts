@@ -116,11 +116,11 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
     const fiber = await ctx.plugin(runviewClientPlugin);
     const mainIds = () => ctx.slots.entries('main').map((e) => e.id);
     expect(mainIds()).toContain('webui-domain-runview.matrix');
-    // 选举序（2026-11 主区语义纯化）：tracking(50) 居 chat 兜底(100) 之前——
+    // 选举序（2026-09-11 主区语义纯化）：tracking(50) 居 chat 兜底(100) 之前——
     // 激活期间覆盖 chat 的语义锚（原 main:tracking 专座收编为 main 选举条目）
     expect(mainIds().indexOf('webui-domain-runview.matrix')).toBeLessThan(mainIds().indexOf('webui-base-layout.perspective-host'));
     // 选举席（非外层 primary-sidebar outlet——防与壳叠加渲染；条目 id
-    // 2026-11 随 sidebar 行归并改前缀 webui-base-layout）
+    // 2026-09-11 随 sidebar 行归并改前缀 webui-base-layout）
     expect(ctx.slots.entries('primary-sidebar').map((e) => e.id)).toEqual(['webui-base-layout.primary-sidebar']);
     const panel = ctx.slots.entries('primary-sidebar:domain').find((e) => e.meta?.panel === 'tracking');
     expect(panel?.id).toBe('webui-domain-runview.panel');

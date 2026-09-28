@@ -149,7 +149,7 @@ export interface SandboxWorkdirSource {
   /**
    * 沙箱基准推导。conversationId 随工具执行身份透传：会话挂载工作区
    * （singles）已分配时基准指向工作区根（会话级意图 > Agent 级配置，
-   * 2026-12 裁决——相对路径/bash cwd 锚工作区，而非并白名单）；缺省/
+   * 2026-09-13 裁决——相对路径/bash cwd 锚工作区，而非并白名单）；缺省/
    * 未挂 = Agent 级基准（显式 settings workdir > 专用空间）。
    */
   sandboxWorkdir(id?: string, conversationId?: string): string | undefined;
@@ -161,7 +161,7 @@ export interface SandboxWorkdirSource {
    */
   sandboxAllowedPaths?(id?: string, conversationId?: string): string[];
   /**
-   * Agent 专用空间面（写侧对齐读侧，2026-10 裁决）：ac-memory 注入 /
+   * Agent 专用空间面（写侧对齐读侧，2026-09-05 裁决）：ac-memory 注入 /
    * ac-archive 概要读取 / ac-skill 专属技能等读侧服务都锚
    * workspace.agentWorkdir——显式 settings['security'].workdir 使沙箱
    * 基准与其分叉时，专用空间经 agentSpaceRoots 自动并入允许根（Agent
@@ -171,7 +171,7 @@ export interface SandboxWorkdirSource {
 }
 
 /**
- * 写侧对齐读侧——Agent 专用空间自动并根（2026-10 裁决）：
+ * 写侧对齐读侧——Agent 专用空间自动并根（2026-09-05 裁决）：
  * 读侧服务（ac-memory 注入 / ac-archive 概要 / ac-skill 专属技能）锚定
  * agentWorkdir，而 fs 工具相对路径按沙箱基准（sandboxWorkdir）解析——
  * 显式 settings['security'].workdir 使两者分叉时，hint 相对路径会写错
@@ -263,7 +263,7 @@ function realpathQuiet(p: string): string | undefined {
  * 词法 + 身份双通道包含判定（单一事实源：resolve 白名单与 bash 扫描共用，
  * 两处判定永不漂移）。
  *
- * 身份回退的动机（2026-11 反馈）：词法前缀匹配在 win32 上对同一文件的
+ * 身份回退的动机（2026-09-05 反馈）：词法前缀匹配在 win32 上对同一文件的
  * 别名词形全部失配——大小写变体（C:\USERS\… 与 C:\Users\… 同文件）、
  * 8.3 短名（DOCUME~1）、junction/符号链接路径。相对路径不含根前缀恒过、
  * 绝对路径却因拼写被拦，表现为「绝对路径访问自己工作区也被拒（连读都

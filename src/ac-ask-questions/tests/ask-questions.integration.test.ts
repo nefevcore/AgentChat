@@ -2,7 +2,7 @@
 // ac-ask-questions：ask_questions 工具（发起体 + loop/run-idle 挂起等待）
 // + late-reply 唤醒（run 死后纯 context 行回投）
 //
-// 2026-02 挂起重构：execute 即返 awaiting 标记；等待语义 =
+// 2026-02-00 挂起重构：execute 即返 awaiting 标记；等待语义 =
 //   · loop/run-idle 监听器（同 run 续走——本文件 mock loop 不真跑，
 //     经「工具层登记 + 事件对账」间接断言）
 //   · late-reply（run 死后 deliver 回投——登记表缺席判定）
@@ -314,7 +314,7 @@ describe('ask_questions 发起体（write-ahead + 即返 awaiting + context 行�
     expect((open2!.payload as { elevation?: string }).elevation).toBeUndefined();
   });
 
-  it('deadline 已移除（2026-12）：open 不带 deadline——等待无超时，直到用户回答', async () => {
+  it('deadline 已移除（2026-09-21）：open 不带 deadline——等待无超时，直到用户回答', async () => {
     const { ctx } = await boot({ backend: 'memory' });
     await exec(ctx, {
       name: 'ask_questions',

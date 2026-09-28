@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// client/AuxSidebarHost.vue —— aux-sidebar 区域宿主（2026-11 区域构造对齐·层级
+// client/AuxSidebarHost.vue —— aux-sidebar 区域宿主（2026-09-11 区域构造对齐·层级
 // 修正：aux-sidebar 席位 = 辅助侧边栏（第四区域本身）——与 ActivityBarHost/
 // MainViewHost 同构，壳的每个区域 = 一个席位，宿主只是解析渲染面）
 //

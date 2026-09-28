@@ -62,7 +62,7 @@ async function loadAll(): Promise<void> {
 }
 
 const offWire = rpc?.onEvent((type: string) => {
-  if (type === 'plugin/installed' || type === 'plugin/catalog-changed' || type === 'plugin/reloaded') void loadAll();
+  if (type === 'plugin/updated') void loadAll();
 });
 onMounted(() => { void loadAll(); });
 onUnmounted(() => offWire?.());

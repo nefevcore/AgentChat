@@ -80,7 +80,7 @@ interface DialogFeed {
   unread: number;
   streaming: boolean;
   /**
-   * 本 run 计时状态（2026-12 计时反馈；run 级——每轮 run 独立，重置于
+   * 本 run 计时状态（2026-09-21 计时反馈；run 级——每轮 run 独立，重置于
    * run-started。多轮会话不得从会话首条消息起算）：
    *   runStartAt         前端起点（run-started 帧到达时刻；过渡期计时源，
    *                      step-started 建占位时转驻消息）
@@ -432,7 +432,7 @@ export function createFeedCore(
    *  loadPairHistory（对桶两端寻址），直答/single 走常规 loadHistory。 */
   // gated=false（after-run 收束路径）：无条件重拉——一直开着的会话直播行
   // 未经历过历史合并，不重拉就永远换不成权威收束行（persistedMsgId 缺失
-  // → 分支/编辑/删除按钮要刷新页面才出现，2026-12 分支功能反馈）。
+  // → 分支/编辑/删除按钮要刷新页面才出现，2026-09-21 分支功能反馈）。
   function scheduleSettlementReload(dialogId: DialogId, conversationId: string | undefined, gated = true) {
     if (gated && !_settlementReload.delete(dialogId)) return;
     setTimeout(() => {
@@ -485,7 +485,7 @@ export function createFeedCore(
           // 口径，精确）。透传给 mergeHistory 优先于页内 viewer 消息数
           // 启发式——single 机制驱动会话（timer/goal/子 Agent 接力）尾部
           // 整页可无 viewer 消息，启发式误判「没有更早历史」→ 上翻续拉
-          // 被 hasMore 守卫挡死（2026-09 反馈：single 只见尾部消息）。
+          // 被 hasMore 守卫挡死（2026-09-15 反馈：single 只见尾部消息）。
           ...(typeof r.hasMore === 'boolean' ? { serverHasMore: r.hasMore } : {}),
         });
       })
@@ -494,7 +494,7 @@ export function createFeedCore(
         const dialogId = session ? singleDialog(session) : directDialog(to);
         const d = dialogs.value[dialogId];
         if (d && d.status === 'loading') d.status = 'ready';
-        // 首屏失败重试一次（2026-12 反馈 #3）：静默 ready + 空会话 = 刷新后
+        // 首屏失败重试一次（2026-09-21 反馈 #3）：静默 ready + 空会话 = 刷新后
         // 「没回放前面 steps」的主要形态（run 进行中 journal 回放全依赖此
         // 请求）。重试复用同 reqId（stale 守卫天然放行）；再失败维持静默
         // ——切会话/收束 settlement 会再拉。
@@ -635,7 +635,7 @@ export function createFeedCore(
           if (m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id)) return false;
           if (m.role === 'agent' && Array.isArray(m.toolCalls)
             && (m.toolCalls as any[]).some(tc => tc?.id && liveIds.has(tc.id))) return false;
-          // 身份贯通快路径（2026-12）：历史行带 stepId 且直播行同键在场 →
+          // 身份贯通快路径（2026-09-24）：历史行带 stepId 且直播行同键在场 →
           // 同一步的 journal 投影，直播载体续流——直接丢弃历史行（长度取胜
           // 回写 absorbLongerInto 保全）。命中后不再进内容前缀互验（同键已
           // 判定同一事实，前缀比对反而可能因部分内容误判 miss）。
@@ -660,7 +660,7 @@ export function createFeedCore(
       }
     }
     if (liveRunInFlight) _settlementReload.add(dialogId); // 收束后重拉（收束行是权威）
-    // 首屏未落盘 viewer 消息保护（2026-12 反馈 #1：新会话发送后切走再切回，
+    // 首屏未落盘 viewer 消息保护（2026-09-21 反馈 #1：新会话发送后切走再切回，
     // 用户消息丢失）：本地已上屏的 viewer 气泡若 incoming 中无同内容行
     // （后端 record+flushBestEffort 异步——首次 flush 前 records() 读不到），
     // 整体替换会把它吃掉，直到收束 settlement 重拉才回来——中途整段缺失。
@@ -681,7 +681,7 @@ export function createFeedCore(
         if (!inIncoming) {
           const copy = { ...anchor };
           (copy as any).persistedMsgId = undefined; // 本地行无服务端 id：防与后续历史行去重互吞
-          // 按 timestamp 插入正确位置（2026-12 首条消息错位修复）：run 进行中
+          // 按 timestamp 插入正确位置（2026-09-24 首条消息错位修复）：run 进行中
           // 保护拷贝其后接 streamingTail，尾部即正确；run 空闲时（streamingTail
           // 空、后端 flush 延迟窗口的首屏合并）incoming 里可能已有更晚的行
           //（agent 收束行已落盘而 viewer 行 flush 未完成）——无条件追加尾部
@@ -1035,7 +1035,7 @@ export function createFeedCore(
       isStreaming: false, timestamp: Date.now(),
     });
   }
-  // ── 工具占位（preparing）与最短转圈（2026-12 反馈修复）──
+  // ── 工具占位（preparing）与最短转圈（2026-09-13 反馈修复）──
   //
   // 反馈现象：「前端不存在工具消息的 running 等待状态，只有工具执行完才
   // 出现」。链路核对结论：running 态机制上存在，但可见窗口极窄——
@@ -1195,7 +1195,7 @@ export function createFeedCore(
   }
 
   /**
-   * run_code 子调用开始占位（2026-12 反馈 #2）：tool/started（before-execute
+   * run_code 子调用开始占位（2026-09-21 反馈 #2）：tool/started（before-execute
    * 放行后 emit）到达即建 running 平铺卡——此前终值到达才建卡（onSubcallEnd
    * 直接终态），串行链阻塞（approval 等待/长工具/checkpoint veto）时后续
    * 子调用无卡无状态，视觉即「堆积在 run_code 卡下不动」。占位语义与
@@ -1238,7 +1238,7 @@ export function createFeedCore(
    * toolCalls（fileEdits 等追踪层扫 toolCalls 收录——diff 追踪修复）。
    * 与 onToolEnd 的差别：无占位可匹配（toolCallId 无模型侧 id），恒建
    * 新条目；直接终态（run_code 桥接逐个 await 子调用——结果到达即完成，
-   * 无独立 running 窗口）。onSubcallStart 占位在场时（2026-12 #2）原地
+   * 无独立 running 窗口）。onSubcallStart 占位在场时（2026-09-21 #2）原地
    * 填终值关停——同 tool_call_id upsert，帧乱序不双卡。
    */
   function onSubcallEnd(id: DialogId, data: { tool_call_id: string; tool_name: string; arguments: unknown; result: string; runId?: string }) {
@@ -1662,16 +1662,16 @@ export function createFeedCore(
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       // 步内相位序透传（历史 steps 展开；直播自判值随收束重拉对齐）
       ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
-      // 身份键透传（2026-12 身份贯通）：历史行与直播行按键控对齐
+      // 身份键透传（2026-09-24 身份贯通）：历史行与直播行按键控对齐
       ...(typeof m.stepId === 'string' && m.stepId ? { stepId: m.stepId } : {}),
       // 步级 API 计时/补全 token 透传（链头速率数据源，见 types.ts apiMs 注释）
       ...(typeof m.apiMs === 'number' ? { apiMs: m.apiMs } : {}),
       ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),
       // 服务端锚点：多步轮步行 = 收束行真实 message_id（同轮同锚——fork/
-      // truncate 按整轮命中；2026-12 分支锚点修复，此前合成 `-s{i}` 后端不存在）
+      // truncate 按整轮命中；2026-09-21 分支锚点修复，此前合成 `-s{i}` 后端不存在）
       persistedMsgId: m.message_id,
       source: m.source,
-      // 注入行透传（2026-12 注入卡）：展开体数据源（toHistoryMessages 携带）
+      // 注入行透传（2026-09-26 注入卡）：展开体数据源（toHistoryMessages 携带）
       ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
       // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
       ...(split.files ? { files: split.files } : {}),
@@ -1874,7 +1874,7 @@ export function createFeedCore(
       //（运行中切换会话回视的重复 context 行根修）；缺席（旧后端）回落本地 id
       id: anchor ?? uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
       ...(anchor !== undefined ? { persistedMsgId: anchor } : {}),
-      // 注入型行（source 非机制词）挂 source meta（2026-12 注入卡）：
+      // 注入型行（source 非机制词）挂 source meta（2026-09-26 注入卡）：
       // useTurnDisplayItems 读 kind 判卡片化 + 挂轮
       ...(injectSource !== undefined ? { source: { kind: injectSource, summary: '' } as never } : {}),
     });
@@ -1955,7 +1955,7 @@ export function createFeedCore(
             st.reasoningStartAt = Date.now();
             // 思考消息 label 由组件按思考相位派生（思考中/已思考），不再写占位 label
             onThinkingStart(keys.dialogId, {}, isForActiveAgent(keys), st, stepKeys);
-            // 起点驻留消息（2026-12 计时反馈）：「思考中 · Xs」实时计时与收束
+            // 起点驻留消息（2026-09-21 计时反馈）：「思考中 · Xs」实时计时与收束
             // label 共用同源起点——组件重挂载/跨步重建不丢，收束不倒跳
             const liveAsst = carrierOf(keys.dialogId, st, stepKeys?.stepId);
             if (liveAsst && liveAsst.reasoningStartAt === undefined) {
@@ -1986,7 +1986,7 @@ export function createFeedCore(
           if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st, stepKeys);
           for (const tc of chunk.toolCalls) {
             const idx = typeof tc?.index === 'number' ? tc.index : 0;
-            // 参数流式阶段即建 preparing 占位卡（2026-12 反馈：此前只累积，
+            // 参数流式阶段即建 preparing 占位卡（2026-09-13 反馈：此前只累积，
             // 模型打参数的数秒里界面纯静默）。按 index 去重（st.preps）；
             // 幻影分片（id/name 空）不建卡。
             if (typeof tc?.id === 'string' && tc.id && typeof tc?.name === 'string' && tc.name) {
@@ -2064,7 +2064,7 @@ export function createFeedCore(
         return;
       }
       case 'tool/started': {
-        // 工具开始执行（before-execute 放行后 emit；2026-12 反馈 #2）：
+        // 工具开始执行（before-execute 放行后 emit；2026-09-21 反馈 #2）：
         // run_code 子调用据此建 running 占位卡——终值前串行链阻塞可见。
         // 模型直调工具有模型侧占位（preparing/真 id 升级链），不在此建卡
         // （防与 onToolStart 双卡）；非 subcall 帧忽略。
@@ -2130,7 +2130,7 @@ export function createFeedCore(
         // 步终值：message.end（全量替换语义）+ step.end（关闭占位；
         // toolCalls 透传 = run 是否继续的判定依据——见 onStepEnd）
         if (isForCurrentUser(keys)) {
-          // 链栏耗时校准（2026-12 计时反馈）：每轮 run 独立计时，锚推进 =
+          // 链栏耗时校准（2026-09-21 计时反馈）：每轮 run 独立计时，锚推进 =
           // 前锚 + 相邻两步 step.ts 差分（后端时钟域——客户端/服务器时钟
           // 偏差在差分中抵消；首步无前锚 → 前端计时定格，帧传播延迟在首
           // 校准即被吸收）。锚驻分区 run 级状态（run-started 重置），随步
@@ -2168,7 +2168,7 @@ export function createFeedCore(
         // 步终值时刻：仅活跃 Agent 的 run 置位（TokenGauge 等派生数据重取
         // 驱动——工具步在工具执行前到达，长工具运行中仪表即可刷新占用）
         if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }
-        // run_code 子调用对账（2026-12 反馈 #2）：步收口时存在无终值的
+        // run_code 子调用对账（2026-09-21 反馈 #2）：步收口时存在无终值的
         // subcall 卡（WS 抖动丢 after-execute / 串行链长阻塞）→ 经
         // settlement 重拉补偿（journal/subcalls 投影已含真实结果）。
         // 节流：每分区同 run 至多一次——重拉合并自带 live-wins 对齐，
@@ -2210,7 +2210,7 @@ export function createFeedCore(
         // 流式运行期 context 注入可见性（2026-09-21 反馈 #3）：技能注入等
         // context 行落账即通知——渲染为事件分隔行（与刷新后的 context 行
         // 同渲染位）。正文不广播（瘦身纪律）——文案 = label 直出，与刷新后
-        // toHistoryMessages 的 r.label ?? r.content 同源同形（2026-12 前端
+        // toHistoryMessages 的 r.label ?? r.content 同源同形（2026-09-21 前端
         // 反馈：此前 skill 行再拼「已注入技能上下文：」前缀，落账 label 本身
         // 已是完整文案，流式与刷新文本不一致）；label 缺席回落摘要词。
         const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown; injectionId?: unknown } | undefined];
@@ -2221,7 +2221,7 @@ export function createFeedCore(
         // injectionId（注入身份键）：直播行带锚——与刷新后的活投影行/提升行
         // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
         const anchor = typeof meta?.injectionId === 'string' && meta.injectionId ? meta.injectionId : undefined;
-        // 注入型行（source 非机制词）带 source 挂直播行（2026-12 注入卡）：
+        // 注入型行（source 非机制词）带 source 挂直播行（2026-09-26 注入卡）：
         // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——settlement 重拉补）
         showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined);
         return;

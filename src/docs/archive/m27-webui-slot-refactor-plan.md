@@ -1,6 +1,6 @@
 # M27 · WebUI 纯 Slot 重构计划（root 即 slot）
 
-> **【存档 2026-11 · M30 收官后整理】** M27 全阶段（S0-S4 + M27.1 拆包 +
+> **【存档 2026-09-11 · M30 收官后整理】** M27 全阶段（S0-S4 + M27.1 拆包 +
 > M27.2 基础七件出包）已实施收官——收口实录见同目录 `m27-handoff.md`。
 > 本文状态栏停留在 S1.5 时点快照，后续阶段实施记录在 handoff 与
 > M28 计划 §10。文中**已被后续里程碑取代的裁决原样保留**（历史决策
@@ -13,7 +13,7 @@
 
 | 项 | 说明 |
 |---|---|
-| 状态 | **实施中**。**S0 已实施**（2026-11）：基建三包之二落地——`src/ac-client-slots`（SlotCore 纯核，14 单测）+ `src/ac-client-runtime`（ClientContext 类型身份/SlotRegistry/对象层骨架/useContext/wrapComponent，14 单测含 D22 查重锁定）+ webui `runtime/vueRenderer.ts`·`slotRender.ts`、`components/SlotOutlet.vue`·`SlotOutletItem.ts`（12 单测）+ `?slots-demo` demo 页（含 mount 级 jsdom 测试）；验收全绿（typecheck×2 / 全量 1427 测试 / check:deps / webui:build 出独立 slots-demo chunk）。开工前 DSH 复查：本机 0.1.2-rc.1 为 bundled 安装无源可读，并包动机（循环依赖/行政成本）不适用本仓，两包拆分维持。**S1 已实施**（2026-11）：D23-B 视觉基线先行（22 张 × 零像素纪律，独立提交）→ main.ts 装配序列（①-⑥）+ App.vue→`clients/base/layout.ts`（AppFrame 占 root + 四 seat + main:perspective + sidebar:plugin-actions，DOM/样式原样迁入）+ slots.ts 三件挂载点与三注册表声明面改经 SlotRegistry（D13 六别名双轨，hostLedger 声明账本）+ D18 门控三件套（bail/fields/redirectTo）+ D14 渲染基准 + 「卸载 layout → root 空且可诊断」验收测试；全量 1443 测试绿 + 视觉 diff 全绿（零像素差异）。**S1.5 已实施**（2026-11）：SlotMap 类型化（hostLedger/layout 各自 declare module 注入已实施声明集 + ownerProps 挂靠 slot-tree §5 横切契约：z-index 配额/移动端继承/四态回落/命令式通道/状态词汇宿主固定）+ cell/priority 选举（single shadow：tier[出厂恒胜]→priority→order→seq；chain=priority 消费序；list=order 轴不变）+ store 座位实例轴（SlotStoreAxis：acquireStore/release/dropScope——引用计数/会话死即清含持久化态）+ inject 面（声明存活期效应）+ onEntryError 监督与 abdicate 退位（EntryErrorBoundary 捕获→退位→次位接任）；D3 两代语义按裁决演进（封印后动态注册从「拒绝」升级为「tier 选举恒低优」，两代差异测试显式记录）；验收门全绿（五项单测 + 朴素语义锁定 + 全量 1463 测试 + 视觉 diff 零像素）。其余阶段开工前按里程碑惯例可再细化 |
+| 状态 | **实施中**。**S0 已实施**（2026-09-07）：基建三包之二落地——`src/ac-client-slots`（SlotCore 纯核，14 单测）+ `src/ac-client-runtime`（ClientContext 类型身份/SlotRegistry/对象层骨架/useContext/wrapComponent，14 单测含 D22 查重锁定）+ webui `runtime/vueRenderer.ts`·`slotRender.ts`、`components/SlotOutlet.vue`·`SlotOutletItem.ts`（12 单测）+ `?slots-demo` demo 页（含 mount 级 jsdom 测试）；验收全绿（typecheck×2 / 全量 1427 测试 / check:deps / webui:build 出独立 slots-demo chunk）。开工前 DSH 复查：本机 0.1.2-rc.1 为 bundled 安装无源可读，并包动机（循环依赖/行政成本）不适用本仓，两包拆分维持。**S1 已实施**（2026-09-07）：D23-B 视觉基线先行（22 张 × 零像素纪律，独立提交）→ main.ts 装配序列（①-⑥）+ App.vue→`clients/base/layout.ts`（AppFrame 占 root + 四 seat + main:perspective + sidebar:plugin-actions，DOM/样式原样迁入）+ slots.ts 三件挂载点与三注册表声明面改经 SlotRegistry（D13 六别名双轨，hostLedger 声明账本）+ D18 门控三件套（bail/fields/redirectTo）+ D14 渲染基准 + 「卸载 layout → root 空且可诊断」验收测试；全量 1443 测试绿 + 视觉 diff 全绿（零像素差异）。**S1.5 已实施**（2026-09-07）：SlotMap 类型化（hostLedger/layout 各自 declare module 注入已实施声明集 + ownerProps 挂靠 slot-tree §5 横切契约：z-index 配额/移动端继承/四态回落/命令式通道/状态词汇宿主固定）+ cell/priority 选举（single shadow：tier[出厂恒胜]→priority→order→seq；chain=priority 消费序；list=order 轴不变）+ store 座位实例轴（SlotStoreAxis：acquireStore/release/dropScope——引用计数/会话死即清含持久化态）+ inject 面（声明存活期效应）+ onEntryError 监督与 abdicate 退位（EntryErrorBoundary 捕获→退位→次位接任）；D3 两代语义按裁决演进（封印后动态注册从「拒绝」升级为「tier 选举恒低优」，两代差异测试显式记录）；验收门全绿（五项单测 + 朴素语义锁定 + 全量 1463 测试 + 视觉 diff 零像素）。其余阶段开工前按里程碑惯例可再细化 |
 | 版本 | v2.3——补视觉零回归双保险（D23：DOM/CSS 不变性纪律 + Playwright 视觉快照基线先行）。v2.2——按二次评审（review2 §6）修订：新增 D22（客户端 Context 类型身份与查重）、D13 补第三方声明开口策略、runview 域落点点名（D12/D19/S3）、owner props 契约挂靠 slot-tree §5 横切约定（D2/S1.5/S2）与四项精度修正。v2.1——v2 内容的版式重排与主题分组；决策编号（D0–D23）、阶段划分（S0–S4）与全部事实、裁决不变。v2 系按复核报告 §7 修订清单全量改写（要点见 §6） |
 
 **输入与依据**：
@@ -194,7 +194,7 @@ Outlet 语义**。
 
 #### D19 · 包形态裁决（贯穿性决策，复核报告 §3.1 的落实）
 
-> **⚠ D19 修订（2026-11，用户改裁——S3/S4 实施后复核）**：功能与 UI
+> **⚠ D19 修订（2026-09-07，用户改裁——S3/S4 实施后复核）**：功能与 UI
 > 应为**两个独立插件包**——域 UI 自 `client/` 双半边形态改裁为
 > **独立 client-ui 行包**（`ac-client-ui-<域>`，cordis.yml/TREE 新增
 > 行；后端行与 UI 行各自可独立摘除）。上文「不建 ac-client-ui-*
@@ -209,7 +209,7 @@ Outlet 语义**。
 > 一并改名 `ac-client-ui-runview` 对齐）。实施交接见
 > `m27-handoff.md`（M27.1/M27.2 段）。
 >
-> **✅ 已实施（2026-11，M27.1/M27.2 双线收口）**：M27.1 六域拆包 +
+> **✅ 已实施（2026-09-08，M27.1/M27.2 双线收口）**：M27.1 六域拆包 +
 > runview 改名（todo `8f40e6a` → jobs → workspace → singles →
 > group → agents → runview `362aa66`，七提交——后端行全部回归纯
 > 后端，client/ 双半边形态消亡；双向摘除用例随行包 tests +
@@ -576,7 +576,7 @@ SlotCore / SlotRegistry 升级到 D2 终态形状，逐项带单测：
 
 ### S2 · 域插件化（in-bundle，红线立起来）
 
-**jobs 域试点已实施**（2026-11）：`clients/jobs.ts` 域插件（JobBoardService =
+**jobs 域试点已实施**（2026-09-07）：`clients/jobs.ts` 域插件（JobBoardService =
 「域投影 + ctx 服务面」形态首验：域 fiber 自订 job/* 帧 + RPC 拉取 + reactive
 投影 + ctx.jobBoard 服务名避让服务端 'jobs' 占名；stores/jobs.ts 退役——域投影
 不挂全局 pinia）+ 双消费面切换（RunTrackingPanel / ConversationJobsChip）+
@@ -588,14 +588,14 @@ inject" → root 崩溃退位白屏；回归锚入 slot-outlet.test）。验收�
 + 视觉 diff 零像素 + typecheck×2 + check:deps 全绿。其余域（todo/goal/usage/
 timer/skill + groups/singles/runs + feed/chat 巨石 + D9 三注册表收编）待续。
 
-**runview 域已实施**（2026-11）：`clients/runview.ts`（RunsClientService =
+**runview 域已实施**（2026-09-07）：`clients/runview.ts`（RunsClientService =
 ctx.runs——服务名无碰撞直用域词；3s 快照轮询 + 1s 秒针随域 fiber 卸载回收；
 内容签名短路保引用——矩阵零重算防御原样继承）；stores/runs.ts 退役；
 双消费面切换（RunTrackingPanel / RunTracking）；可摘除性 + 定时器零泄漏
 测试（clients-runview.test）。验收：全量 1472 测试 + 视觉 diff 零像素 +
 typecheck×2 + check:deps 全绿。
 
-**group 域已实施**（2026-11）：`clients/groups.ts`（GroupsClientService =
+**group 域已实施**（2026-09-07）：`clients/groups.ts`（GroupsClientService =
 ctx.groups——服务名 'groups' 与服务端 'group' 单数占名无碰撞；群列表/
 活跃群/创建弹窗投影 + group/* 七事件帧订阅随域 fiber 回收 + 选中协调
 [清 Agent 选中/feed 活跃对话/lastContext]——过渡期经 pinia store 协调，
@@ -606,7 +606,7 @@ feed/chat 收尾时改服务面互调）；stores/groups.ts 退役；四消费�
 agents 目录 rename/config 写入竞态——EPERM/丢行 flake 的根因修复，
 全量 ×2 + webui ×4 连跑全绿）。
 
-**singles 域已实施**（2026-11）：`clients/singles.ts`（SingleBoardService =
+**singles 域已实施**（2026-09-07）：`clients/singles.ts`（SingleBoardService =
 ctx.singleBoard——'singles' 服务端占名避让（Board 后缀与 jobBoard 同族）；
 独立会话列表/激活态投影[activeSingleId 派生自 feed 活跃分区] + singles/
 updated 帧订阅随域 fiber 回收 + 会话上下文协调[setSingleContext/
@@ -618,7 +618,7 @@ ChatInput/RunTracking/RunTrackingPanel）+ 三个直接驱动 store 的既有测
 （吸收 GPU/字体光栅化亚像素抖动——偶发 1-2px 抗锯齿舍入差、重跑即消；
 结构性变化仍全量计数）。
 
-**workspace 域已实施**（2026-11）：`clients/workspaces.ts`
+**workspace 域已实施**（2026-09-07）：`clients/workspaces.ts`
 （WorkspaceBoardService = ctx.workspaceBoard——'workspace' 单数占名避让；
 用户工作区清单 + CRUD 管理写面）；stores/workspaces.ts 退役；双消费面
 切换（SessionList 会话树根 / ChatInput 工作区挂载下拉）；clients-
@@ -626,7 +626,7 @@ workspaces.test 可摘除性。S2 单域小 store 批次（jobs/groups/singles/
 runs/workspaces）全部完成；余量：agents 读面对象层（ctx.roster）→
 todo/goal/usage/timer/skill 域 → feed/chat 巨石收尾 → D9 三注册表收编。
 
-**roster 域 + 层 2 身份面已实施**（2026-11）：`clients/roster.ts`
+**roster 域 + 层 2 身份面已实施**（2026-09-07）：`clients/roster.ts`
 （RosterCore 纯 reactive 核心 + RosterService 壳 = ctx.roster——服务名
 'roster' 与服务端占名无碰撞；名册/预设/选择 + 显示名/头像解析 + 名册
 刷新/活跃提升/头像同步写面）；stores/agents.ts 改为**双模门面**（D13
@@ -635,7 +635,7 @@ pinia 实例独立 Core——feed/archive 状态机测试族 15+ 文件零改动
 消费面组件暂经门面（零 churn），feed/chat 收尾时门面退役全量切
 ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除性。
 
-**theme 基础件 + D9 三注册表收编已实施**（2026-11）：
+**theme 基础件 + D9 三注册表收编已实施**（2026-09-07）：
 - `clients/base/theme.ts`（ThemeCore 纯核心 + ctx.theme 服务面——toggle/
   html class/localStorage/theme-changed 事件原样，sync flush 确定性）+
   stores/theme.ts 双模门面（roster 同款）；装配序 theme 先于 layout；
@@ -652,7 +652,7 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
 - 验收：全量 1492 测试 ×2 连跑 + 视觉 diff 零像素 + typecheck×2 +
   check:deps。基础七件已装配四件（layout/theme/tool/conversation）。
 
-**feed/chat 巨石收口已实施**（2026-11，§0.3 归属表收尾）：
+**feed/chat 巨石收口已实施**（2026-09-07，§0.3 归属表收尾）：
 - `clients/base/feed-core.ts`（74KB）+ `chat-core.ts`（38KB）：defineStore
   闭包体【脚本化原样抽取】（零行为变更；chat 仅三处机械适配——feed 依赖
   参数化 / storeToRefs→toRefs / Init 尾块提取为幂等 init()）；
@@ -695,7 +695,7 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
 
 ### S3 · 拆包与装载统一（D19 形态）
 
-**P0 纵切片已实施**（2026-11，boot graph 机制 + runview 首例全链）：
+**P0 纵切片已实施**（2026-09-07，boot graph 机制 + runview 首例全链）：
 - **ac-webui boot graph 面**：WebUiService 增 declareClient（行 apply
   声明 client 半边；disposer 经 ctx.effect 挂行 fiber——卸载即级联
   回收）+ listBootGraph + `GET /api/ui/boot-graph` 路由；
@@ -724,7 +724,7 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
   （D21）。jobs/groups/singles/workspaces/roster 域行 client/ 迁移（同
   ac-todo 模式）。
 
-**S3-1a 已实施**（2026-11，ac-todo 行包双半边首例——计划验收点名域）：
+**S3-1a 已实施**（2026-09-07，ac-todo 行包双半边首例——计划验收点名域）：
 - `src/ac-todo/client/`：ToolResultTodo（tool-card:result-view 出厂贡献
   id 'todo'，BUILTIN 表摘除）+ TodoPanel/TodoDockCard（新席位
   **tracking:dock-widget** ——slot-tree chat:composer-docks 收编首例；
@@ -744,7 +744,7 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
 - webui tsconfig include 扩 `../ac-*/client/**`（行 client .vue 全量
   vue-tsc 覆盖；根 tsc 走 client/shims.vue.d.ts 垫片）。
 
-**S3-2/S3-3 已实施**（2026-11，bridge D8 收窄 + D13 公开子集校验）：
+**S3-2/S3-3 已实施**（2026-09-07，bridge D8 收窄 + D13 公开子集校验）：
 - **D8**：bridge 组件类六项纯转发确认（数据面经三解析面 = SlotRegistry；
   ws-event/global-style 常设通道维持）；AppFrame 内置四视角出厂批次改
   slots 直注册（对齐 tool 基础件形态）——旧注册面唯一入口 = bridge；
@@ -759,7 +759,7 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
   **安装确认面明示**（评审载荷 uiHighRiskSlots + 插件库「高危席位」
   徽章）；拒绝用例齐（plugin-core 安装期 + webui bridge 席位级）。
 
-**S3-1b 已实施**（2026-11，五域行 client 半边收口——jobs/groups/
+**S3-1b 已实施**（2026-09-07，五域行 client 半边收口——jobs/groups/
 singles/workspaces/roster 全部迁出 in-bundle）：
 - **ac-jobs/client**（ctx.jobBoard）+ **ac-group/client**（ctx.groups）+
   **ac-singles/client**（ctx.singleBoard）+ **ac-workspace/client**
@@ -802,7 +802,7 @@ singles/workspaces/roster 全部迁出 in-bundle）：
 
 ### S4 · 薄壳收口
 
-**S4 进度**（2026-11，部分实施）：
+**S4 进度**（2026-09-07，部分实施）：
 - **基础七件物理落点定案（S4 复核裁决）：维持 webui 内 `clients/base/`
   常驻，不建 `ac-client-app` 单包**。理由：①行 client 对基础件的一切
   依赖已契约化（SessionsClientFace/RpcClientFace/SlotMap 归
@@ -812,7 +812,7 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   收益倒挂；③D11「随 webui 分发的默认插件集合」语义即 Koishi
   client 库包内 app/ 的对应物——slot 轨道 shadow/替换能力已经
   S1-S3 验证；
-  > **⚠ 本定案已被推翻（2026-11，用户改裁——M27.1 收口后）**：
+  > **⚠ 本定案已被推翻（2026-09-07，用户改裁——M27.1 收口后）**：
   > 前端相关插件一律 `ac-client-ui-*` 独立包（即使无后端行）——
   > 基础七件出包为 `ac-client-ui-{layout,theme,tool,conversation,
   > renderer,sidebar,settings}` 行族（ownership §3.2 形态复活），
@@ -821,7 +821,7 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   > 资产出包；boot graph phase='base' 分批装载与封印时序见交接
   > §3.2）——交接与节奏见 `m27-handoff.md`。
   >
-  > **✅ 已实施（2026-11，M27.2 收口）**：第一步三件拆件
+  > **✅ 已实施（2026-09-08，M27.2 收口）**：第一步三件拆件
   > （renderer/sidebar/settings webui 内插件化 + hostLedger 退役
   > `abb7b09`——四席位转正，视觉门零像素 diff）与第二步逐件出包
   > 全部完成：theme `8820ae3`（装载器 phase 感知改造——
@@ -849,7 +849,7 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   （S1 基准）+ desktop 构建冒烟（本轮 electron-builder 构件下载
   网络超时×2——环境阻塞待复跑）。
 
-**S4 收口完成**（2026-11，续 session）：
+**S4 收口完成**（2026-09-07，续 session）：
 - **`@agentchat/webui-kit` 独立包已抽取**：ui/* 18 件（14 组件 +
   tokens/row/badge css + icons + index）→ `src/webui-kit`
   （纯库不进行；css 具名出口）；webui 38 处导入面全量改写；根
@@ -878,7 +878,7 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   12s 存活无崩溃，手动收束）。
 
 **M27 收口**：S0-S4 全阶段实施完毕（见各阶段标注）；**M27.1/M27.2
-改裁两线亦已收口（2026-11，见 D19/S4 修订段「已实施」标注）**——
+改裁两线亦已收口（2026-09-08，见 D19/S4 修订段「已实施」标注）**——
 前端插件全族 `ac-client-ui-*` 独立包（六域 + runview + 基础七件，
 cordis.yml/TREE 十三行），webui 终态 = 薄壳（main.ts 装配序列 +
 runtime 胶水 + core/extensions bridge + api/门面层 + shims + 构建入口

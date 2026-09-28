@@ -6,7 +6,7 @@
 //   · mode 'agent'（Agent「插件配置」· 插件卡片）：差异层——写
 //     agents/update-config（assembly 契约），文案"只存差异项，空 = 继承
 //     全局默认"；生效 = settingsOf 合成。
-// 启停不在此弹窗（2026-10 双实例统一移除 enabled 分区——两处卡片行尾
+// 启停不在此弹窗（2026-09-03 双实例统一移除 enabled 分区——两处卡片行尾
 // 各有软停用开关，弹窗勾选与之重复）：软停用 = 卡片行尾开关
 // （settings.enabled 行为门控）；强制停用 = 插件库「插件目录」页签
 // （cordis.patch.yml）。已存的 enabled 值不受影响（draft 为全量快照，

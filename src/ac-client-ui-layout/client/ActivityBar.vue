@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// ActivityBar.vue —— 活动栏（2026-11 命名对齐区域席 activity-bar；原 Sidebar 随 sidebar 行归并壳件）
+// ActivityBar.vue —— 活动栏（2026-09-11 命名对齐区域席 activity-bar；原 Sidebar 随 sidebar 行归并壳件）
 // 跨件消费走客户端服务面（原 pinia 门面改直连）：roster（ctx.roster——
 // ui-agents 行提供）+ theme（ctx.theme——本族基础件）；viewer 端点 id
 // 单源住 ac-client-runtime（M29 P1-1 收敛）。

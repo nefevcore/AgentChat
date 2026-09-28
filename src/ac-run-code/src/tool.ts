@@ -6,7 +6,7 @@
 // （子调用一律 ctx.tools.execute——能力轴/档位/黑名单/扫描/脱敏/
 // 事件面全自动生效）→ 摘要步记录（裁决 #1：程序体全文不回上下文）。
 //
-// 预算冻结（2026-02 ask 挂起重构后，子调用挂起源主要是 approval；ask_questions 已即返）：本 run 子调用挂起 durable-interaction（
+// 预算冻结（2026-02-00 ask 挂起重构后，子调用挂起源主要是 approval；ask_questions 已即返）：本 run 子调用挂起 durable-interaction（
 // approval——均以 correlationId=子调用 toolCallId 落盘）期间，墙钟看门狗
 // 暂停、子调用计费剔除冻结区间——预算约束机器时间，人的应答时间不是
 // 机器时间（「审批等待不计 compute」口径的执行化）。
@@ -66,11 +66,11 @@ export interface RunCodeRowOptions {
  * 墙钟缺省 720s（2026-09-23 收敛定标）：8145 条实战记录自然完成 MAX≈4min
  * （240s），3x≈12min 取整。覆盖长命令等待与正当编排；durable 挂起（人的
  * 应答）冻结豁免不受影响。
- * 输出预算缺省 32KB（实测复盘 a7828839：编辑工作流需经 return 回传待改
- * 文件全文——12.8KB 常态贴近 16KB 旧上限，中大型文件会中段截断；模型已
- * 自适应 offset/limit 分段读，预算再紧会切断「读全文→编辑」正当路径）。
+ * 输出预算缺省 64KB（cr-10 全量复盘定标：489 会话 19008 次调用，截断 0.5% 且
+ * 100% 走 return 通道，超限 p50≈45.8K——64K 档消除 71% 事件；正常返回 93%<16K，
+ * 提额不伤常态。16→32 前史见复盘 a7828839：编辑工作流需 return 待改文件全文）。
  */
-const DEFAULTS = { maxWallMs: 720_000, maxOutputBytes: 32 * 1024 };
+const DEFAULTS = { maxWallMs: 720_000, maxOutputBytes: 64 * 1024 };
 
 /** trace 上限（超出截断计 traceTruncated——卡片列表可视上限，防长循环程序撑爆步记录） */
 const TRACE_LIMIT = 50;
@@ -487,7 +487,7 @@ export async function executeRunCode(
   let workerReady = false;
 
   // —— 预算冻结（软依赖 durableInteraction；缺席 = 行为同旧版）——
-  // 冻结区间（毫秒墙钟）：本 run 挂起 durable 交互的等待期（2026-02 ask 挂起
+  // 冻结区间（毫秒墙钟）：本 run 挂起 durable 交互的等待期（2026-02-00 ask 挂起
   // 重构后主要源 = approval；ask_questions 已即返）。区间内墙钟不计
   // maxWallMs（看门狗暂停）、不进子调用计费。区间由 opened/replied/closed
   // 三事件对账（圈定键 = correlationId 前缀 execId#——桥接层拼子调用
@@ -621,7 +621,7 @@ export async function executeRunCode(
             ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
             ...(call.conversationId !== undefined ? { conversationId: call.conversationId } : {}),
             toolCallId: `${execId}#${seq}`,
-            // 宿主 run 身份键（2026-12 身份贯通）：loop 给宿主 run_code 调用
+            // 宿主 run 身份键（2026-09-24 身份贯通）：loop 给宿主 run_code 调用
             // 装配的 runId 原样继承——tool/started·after-execute 帧据此把
             // 子调用按键归属到宿主 run 的步载体（前缀匹配升格为判据）
             ...(call.runId !== undefined ? { runId: call.runId } : {}),

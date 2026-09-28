@@ -62,7 +62,7 @@ export interface ExecLimits {
   maxTimeout: number;
   outputMaxLen: number;
   /**
-   * 超时处置（2026-12）：'kill'（缺省，树杀 + timed_out 报告）或
+   * 超时处置（2026-09-23）：'kill'（缺省，树杀 + timed_out 报告）或
    * 'handoff'（不杀——前台结果让位，命令移交后台 job 继续跑，
    * 累积输出与 job_id 随结果返回）。
    */
@@ -226,7 +226,7 @@ export function executeShellCommand(
   // ---- 前台执行（流式输出 + 超时 + signal 中止）----
   cleanupOldLogs();
   return new Promise<ToolResult>((resolve) => {
-    // 分轨收集（stdout/stderr 输出字段对齐 Agent 直觉，2026-12）：两流各自
+    // 分轨收集（stdout/stderr 输出字段对齐 Agent 直觉，2026-09-22）：两流各自
     // 累积 + 合流 output（时序交错价值）三本账；finish 各自清理/截断/汇报
     let stdoutRaw = '';
     let stderrRaw = '';
@@ -307,7 +307,7 @@ export function executeShellCommand(
     if (effectiveTimeout > 0) {
       timer = setTimeout(() => {
         timedOut = true;
-        // handoff 模式（2026-12）：不杀——后台登记 + 输出改道日志文件，
+        // handoff 模式（2026-09-23）：不杀——后台登记 + 输出改道日志文件，
         // 累积输出与 job_id 随前台结果一并返回（模型可继续 job 工具接力）
         if (limits.timeoutAction === 'handoff') {
           handoffToJob();
@@ -335,7 +335,7 @@ export function executeShellCommand(
     let handoff: { jobId: string; logFile: string; pid: number } | undefined;
 
     /**
-     * 超时降级 handoff（2026-12）：命令超时但 timeoutAction='handoff'——
+     * 超时降级 handoff（2026-09-23）：命令超时但 timeoutAction='handoff'——
      * 不杀进程：前台输出泵改道日志文件（不能销毁读端——管道断裂会让
      * 子进程后续写入吃 EPIPE 而死，违背"继续跑"语义）+ 后台登记 job，
      * 随即以前台结果收束（命令移交后台，输出快照 + job_id 随结果返回）。
@@ -475,7 +475,7 @@ export function executeShellCommand(
       const clean = stripAnsi(combined);
       const totalBytes = Buffer.byteLength(combined, 'utf-8');
       const displayed = truncateMiddle(clean, limits.outputMaxLen);
-      // 分轨输出（stdout/stderr 字段，2026-12 对齐 Agent 直觉）：与合流同口径
+      // 分轨输出（stdout/stderr 字段，2026-09-22 对齐 Agent 直觉）：与合流同口径
       // 清理与截断，两流各享全额预算——双流大输出时信息量优于合流互挤
       const stdoutView = truncateMiddle(stripAnsi(stdoutRaw), limits.outputMaxLen);
       const stderrView = truncateMiddle(stripAnsi(stderrRaw), limits.outputMaxLen);

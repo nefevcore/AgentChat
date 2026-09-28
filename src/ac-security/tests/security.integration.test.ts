@@ -398,7 +398,7 @@ describe('ac-security 询问提权流（§六：base + 有人桶）', () => {
     expect(r2.ok).toBe(false);
   });
 
-  it('run 级批准（scope=run）→ 本轮后续免询问；after-run 清除；跨会话隔离（2026-12 功能增强）', async () => {
+  it('run 级批准（scope=run）→ 本轮后续免询问；after-run 清除；跨会话隔离（2026-09-17 功能增强）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     registerTierAgents(ctx);

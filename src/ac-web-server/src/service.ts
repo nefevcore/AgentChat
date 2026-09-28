@@ -101,7 +101,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 // ── 静态资源压缩（br/gzip 协商 + 结果缓存）──
-// 背景（前端性能分析 2026-01）：serveStatic 此前 readFile → end 裸传原始
+// 背景（前端性能分析 2026-01-00）：serveStatic 此前 readFile → end 裸传原始
 // 字节，1.57MB 的 markdown chunk（gzip 519KB）全量过线。Node http 不会
 // 自动压缩，传输层必须自己做——这是首屏最大的单项浪费。
 const gzipAsync = promisify(gzip);

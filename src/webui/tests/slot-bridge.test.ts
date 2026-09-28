@@ -112,7 +112,7 @@ describe('D13 别名账本（owning 基础件声明——M27.2-1 hostLedger 代�
 
   it('布局区域 seat（含三预留）+ root 由 layout 基础件声明；root 出厂占据', async () => {
     const { ctx } = await bootWebuiRuntime();
-    // 2026-11 语义定整：sidebar→activity-bar、list-panel→primary-sidebar、
+    // 2026-09-11 语义定整：sidebar→activity-bar、list-panel→primary-sidebar、
     // aside→aux-sidebar（VSCode 布局同款词汇）+ menu-bar/bottom-panel/
     // status-bar 三预留席（declare 占名，无 outlet）
     for (const key of ['activity-bar', 'primary-sidebar', 'main', 'aux-sidebar', 'menu-bar', 'bottom-panel', 'status-bar', 'overlay', 'root']) {

@@ -189,7 +189,7 @@ function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.cont
 const adding = ref(false);
 /** 新建缺省标签（创建面显式预选——替代写口静默注入，2026-09-16：
  *  后端不再越权代填 tags，基础族预选在创建对话框可见可改） */
-const NEW_AGENT_DEFAULT_TAGS = ['fs', 'collab', 'infra'] as const;
+const NEW_AGENT_DEFAULT_TAGS = ['fs', 'collab', 'infra', 'memory'] as const;
 async function createAgent() {
   if (adding.value) return; // 双击守卫：重复提交会创建两个 Agent
   adding.value = true;

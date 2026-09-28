@@ -63,7 +63,7 @@ export class WorkspaceService extends Service {
   readonly isFirstRun: boolean;
   /** 已懒建的 Agent 专用空间（ensureAgentWorkdir 幂等缓存） */
   private ensuredDirs = new Set<string>();
-  // 【2026-12 裁决：HTTP 面敏感遮蔽已停用（注释保留，可一键恢复）】
+  // 【2026-09-13 裁决：HTTP 面敏感遮蔽已停用（注释保留，可一键恢复）】
   // AgentChat 是本地单用户应用，前端面（树/预览/raw 直链）读到的就是本机
   // 用户本人已可读的文件——工作区树不再对 .env/*.pem/id_rsa/凭据库等
   // 特殊项目隐藏，泄露后果由用户自担。停用面仅限本 HTTP 面；Agent 工具
@@ -247,9 +247,9 @@ export class WorkspaceService extends Service {
    * settings 级允许根并出面（allowedPaths 端到端，工具行基线消费）：
    * settings['security'].allowedPaths（settingsOf 合成——全局默认层 ∪
    * Agent 差异层，数组整体替换语义；相对条目由解析器按 workdir 解析）
-   * ∪ **会话挂载工作区根**（2026-11：singles 会话挂了工作区 = 会话级
+   * ∪ **会话挂载工作区根**（2026-09-05：singles 会话挂了工作区 = 会话级
    * 授予——Agent 对工作区目录可读写，与 settings 授予同面并入；会话
-   * 资产语义，无执行身份也生效；deny 黑名单仍优先于允许根。2026-12
+   * 资产语义，无执行身份也生效；deny 黑名单仍优先于允许根。2026-09-13
    * 起会话工作区同时升为沙箱基准（sandboxWorkdir 最优先），本并面在
    * 标准链路里冗余保留——workspace 部分实现（mock/旧形态）基准不含
    * 会话语义时授予仍成立，不依赖调用方接线）。
@@ -279,7 +279,7 @@ export class WorkspaceService extends Service {
    * 形态/未挂工作区/行未装 = null）。会话工作区"挂载即基准/授予"的唯一
    * 事实源——四个消费面同源不漂移：
    *   · 沙箱基准（sandboxWorkdir 最优先——bash cwd / 相对路径锚 / 提示词
-   *     [工作目录] 随之指向工作区根，2026-12 裁决）；
+   *     [工作目录] 随之指向工作区根，2026-09-13 裁决）；
    *   · 沙箱允许根（sandboxAllowedPaths 并入 → 文件/命令工具行基线
    *     + ac-security 复检，ToolCall.conversationId 透传解析）；
    *   · 技能目录发现（ac-skill 工作区技能组）；
@@ -306,7 +306,7 @@ export class WorkspaceService extends Service {
    * <root>/files 上移到数据根——树可见 files/（Agent 专用空间）/ agents/
    *（Agent 数据）/ usage/ 等全域。dotfile 过滤仅作用于数据根基准（控制
    * 面噪音）；外挂工作区/Agent 专用空间如实列出（含 .dsh/.git 等项目
-   * 目录）。敏感遮蔽已停用：2026-12 裁决——本地单用户应用，特殊项目
+   * 目录）。敏感遮蔽已停用：2026-09-13 裁决——本地单用户应用，特殊项目
    * 不再对树隐藏）。
    * 树基准（M33 前端反馈 #1：工作区面板随会话上下文定位）：context 在场
    * 时与 sandboxWorkdir 同源优先序——会话挂载工作区 > Agent 级基准
@@ -337,7 +337,7 @@ export class WorkspaceService extends Service {
       if (e.isDirectory()) {
         children.push({ name: e.name, type: 'dir' });
       } else if (e.isFile()) {
-        // if (isDeniedPath(this.httpDeny, path.join(dir, e.name))) continue; // 敏感遮蔽（2026-12 裁决停用）
+        // if (isDeniedPath(this.httpDeny, path.join(dir, e.name))) continue; // 敏感遮蔽（2026-09-13 裁决停用）
         // 文件大小不入树（前端反馈：意义不大）——同除 statSync 每文件
         // 一次的开销；预览头部需要尺寸时由读面（readFile）自带
         children.push({ name: e.name, type: 'file' });
@@ -381,7 +381,7 @@ export class WorkspaceService extends Service {
    * 读文件内容（相对数据根；文本直读，二进制 base64）。大小上限（缺省
    * 4 MiB）超限抛错。`files/<bucket>/...`（saveUpload 返回形）天然直通
    * ——files 是数据根子目录，全链路引用无需前缀改写。敏感遮蔽已停用
-   * （2026-12 裁决，见类头注释）。
+   * （2026-09-13 裁决，见类头注释）。
    *
    * context（M32 文件预览工作区推导）：数据根快路径未命中时，按
    * Agent/会话工作区基准推导相对引用（Agent 在工作区内作业时回复常写
@@ -402,7 +402,7 @@ export class WorkspaceService extends Service {
     size: number;
   } {
     const { file, displayPath } = this.locateReadable(relPath, context);
-    // if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
+    // if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可预览'); // 2026-09-13 裁决停用
     const stat = fs.statSync(file); // 不存在/目录 → 抛错（调用方转 404）
     if (!stat.isFile()) throw new Error('目标不是文件');
     if (stat.size > maxBytes) throw new Error(`文件超过 ${Math.floor(maxBytes / 1024 / 1024)} MiB 预览上限`);
@@ -431,7 +431,7 @@ export class WorkspaceService extends Service {
     context?: { agentId?: string; conversationId?: string },
   ): string {
     const { file } = this.locateReadable(relPath, context);
-    // if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可访问'); // 2026-12 裁决停用
+    // if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可访问'); // 2026-09-13 裁决停用
     const stat = fs.statSync(file);
     if (!stat.isFile()) throw new Error('目标不是文件');
     return file;
@@ -464,7 +464,7 @@ export class WorkspaceService extends Service {
       dataCandidate = undefined; // 根外绝对路径：交由基准包含判定
     }
     if (dataCandidate !== undefined) {
-      // if (isDeniedPath(this.httpDeny, dataCandidate)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
+      // if (isDeniedPath(this.httpDeny, dataCandidate)) throw new Error('敏感文件，不可预览'); // 2026-09-13 裁决停用
       let st: fs.Stats | undefined;
       try {
         st = fs.statSync(dataCandidate);
@@ -479,7 +479,7 @@ export class WorkspaceService extends Service {
     for (const base of this.readBases(context)) {
       const cand = path.resolve(base, p);
       if (!createRootsContainment([base])(cand)) continue; // ../ 逃逸 / 基准外绝对路径
-      // if (isDeniedPath(this.httpDeny, cand)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
+      // if (isDeniedPath(this.httpDeny, cand)) throw new Error('敏感文件，不可预览'); // 2026-09-13 裁决停用
       let st: fs.Stats;
       try {
         st = fs.statSync(cand);

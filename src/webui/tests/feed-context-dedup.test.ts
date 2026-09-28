@@ -1,7 +1,7 @@
 // ============================================================
 // feed-context-dedup.test.ts —— 运行中切回：context 注入行不重复
 //
-// 背景 bug（2026-12 前端反馈）：agent 经 run_code 调 load_skill 后，
+// 背景 bug（2026-09-22 前端反馈）：agent 经 run_code 调 load_skill 后，
 // session/context-injected 帧上屏一条直播 event 行（无锚）；切换会话
 // 再返回时历史首屏带回 journal 活投影 context 行（message_id 空）——
 // 两行都无有效去重键，live-wins 对齐只覆盖 tool/agent 行，双双存活

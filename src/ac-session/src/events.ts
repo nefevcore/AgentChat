@@ -20,8 +20,10 @@ declare module '@agentchat/cordis' {
      * 提升行同锚——前端直播行据此带 persistedMsgId，与刷新行精确去重
      * （运行中切换会话回视的重复 context 行根修）。旧后端帧缺席该字段，
      * 前端回落本地 id（行为同旧）。
-     * @mode broadcast
-     * @scope session
+     * 分发 = ctx.emit（cr-19 订正：原标 broadcast 不在 DispatchMode 五值；
+     * scope 按判定式归 run——emit 点在投递链回调与工具 run 内）。
+     * @mode emit
+     * @scope run
      */
     'session/context-injected'(
       conversationId: string,

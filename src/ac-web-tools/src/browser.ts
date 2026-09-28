@@ -1,7 +1,7 @@
 // ============================================================
 // ac-web-tools/src/browser.ts —— 浏览器 Service（ctx.browser）v2
 //
-// 2026-10 CDP 直连改造（src/docs/browser-cdp-plan.md）：
+// 2026-09-26 CDP 直连改造（src/docs/browser-cdp-plan.md）：
 //   · 执行层从「Python + playwright 守护进程」换成 Node 原生 CDP
 //     （ac-cdp-core 纯库）——协议实现可单测可 typecheck，桌面
 //     分发零 Python 依赖（Windows 宿主必装 Edge = Chromium）
@@ -388,8 +388,11 @@ export class BrowserService extends Service {
         return this.runUnlocked('read', { maxLen: args.maxLen ?? 5000 });
       }
       case 'eval': {
+        // 结果保留 JSON 类型（数字/布尔/对象直出，不再字符串化——2026-10-09
+        // 复盘：双重 stringify 迫使消费方手工 Number() 解包）。function/Promise
+        // 误用在 evalExpr 层报可读错误（RemoteObject type/subtype 信号）
         const r = await p.evalExpr(str('js'), false);
-        return { ok: true, output: { result: String(JSON.stringify(r.value)).slice(0, 2000) } };
+        return { ok: true, output: { result: r.value } };
       }
       case 'close': {
         this.shutdown();

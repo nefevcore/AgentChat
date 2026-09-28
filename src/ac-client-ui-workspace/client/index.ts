@@ -9,7 +9,7 @@
 // 浏览器原生 fetch 同源直连，无 RPC/事件帧依赖）。
 // M28 P1 域资产归位（行完整）：fileApi/EntryPickerModal/FilePreviewModal/
 // WorkspaceTree(/Node)/workspaceFile 随域迁入；文件预览以 overlay 席位
-// 贡献落位、工作区树以 aside 席位选区条目落位（2026-11 构造对齐·层级
+// 贡献落位、工作区树以 aside 席位选区条目落位（2026-09-11 构造对齐·层级
 // 修正：aux-sidebar 席位 = 辅助侧边栏（第四区域本身），工作区 = 众多选区之一——rail 收起
 // 态把手资产随条目 def 住本行，壳零域知识）。
 // 可摘除性（双向）：卸本行 → ctx.workspaceBoard 不可解析 + overlay/
@@ -157,7 +157,7 @@ export const workspaceClientPlugin = clientPlugin({
       component: FilePreviewHost,
       order: 90,
     });
-    // 工作区选区（aside 席位 keyed 选举条目——2026-11 构造对齐·层级
+    // 工作区选区（aside 席位 keyed 选举条目——2026-09-11 构造对齐·层级
     // 修正：aside 席位 = 第四区域本身，工作区 = 众多选区之一）：def
     // id 'workspace' + 自带辅助活动栏按钮资产（icon/标题——域行供，
     // 壳零域文案知识；icon = folder-tree：工作区 = 目录树面板的象形，

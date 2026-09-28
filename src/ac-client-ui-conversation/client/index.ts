@@ -164,7 +164,7 @@ export const conversationClientPlugin = clientPlugin({
       key: 'conversation:dock-widget',
       kind: 'list',
       scope: 'session',
-      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；dock 序重排 2026-09：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办行动卡置顶；store 座位实例轴 scope=session）',
+      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；dock 序重排 2026-09-13：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办行动卡置顶；store 座位实例轴 scope=session）',
       ownerProps: {
         // 刷新时机契约（slot-tree §… dock 候选注记）：贡献卡自理数据——
         // 会话切换 + tool/after-execute · loop/after-run 事件模式
@@ -208,7 +208,7 @@ export const conversationClientPlugin = clientPlugin({
     // queue/ask dock 出厂贡献（M28 §4.2 注记 0b：原视图内联渲染
     // 迁 conversation:dock-widget 贡献——排队 per-conversation 核心态上
     // store 座位实例轴〔entry.store 工厂 × scopeKey=conversationId〕，
-    // ConversationView/QueueDockHost 同轴同实例；dock 序重排（2026-09：
+    // ConversationView/QueueDockHost 同轴同实例；dock 序重排（2026-09-13：
     // 决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办
     // 行动卡置顶，环境追踪卡下沉；todo/goal 域行 order 同批改）
     ctx.slots.register('conversation:dock-widget', {

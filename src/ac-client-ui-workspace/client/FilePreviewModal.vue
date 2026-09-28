@@ -32,7 +32,7 @@ const emit = defineEmits<{
 // 内容逻辑（共用 composable；visible 作为 enabled 门——关闭期间不发请求）
 const {
   loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown, isOffice,
-  imageSrc, officeSrc, highlightedCode, previewHtml, previewMarkdownDoc, codeLines, sizeDisplay, reload,
+  imageSrc, officeSrc, highlightedCode, previewHtml, previewMarkdownDoc, codeLines, sizeDisplay, displayPath, reload,
 } = useFilePreviewContent(
   () => props.filePath,
   () => ({ agentId: props.fallbackAgentId ?? '', conversationId: props.conversationId ?? '' }),
@@ -297,9 +297,9 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- 底部 -->
+        <!-- 底部路径（实际命中路径——工作区推导命中时为绝对路径） -->
         <div class="fp-footer">
-          <span class="fp-path">{{ filePath }}</span>
+          <span class="fp-path">{{ displayPath }}</span>
         </div>
       </div>
     </div>
@@ -513,8 +513,9 @@ onBeforeUnmount(() => {
   color: var(--color-text-primary, #e0e0e0);
 }
 
-/* iframe */
+/* iframe（display:block 消 inline 基线空隙——同 TabPane 的 .fpt-iframe） */
 .fp-iframe {
+  display: block;
   width: 100%;
   height: 70vh;
   border: none;
@@ -537,9 +538,10 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-sm);
 }
 
-/* 代码 */
+/* 代码（滚动收归 fp-body 单容器——本层无高度约束，overflow:auto
+   会与 body 嵌套出双滚动条；同 TabPane 的 fpt-code-wrap 修法） */
 .fp-code-wrap {
-  overflow: auto;
+  overflow: visible;
 }
 .fp-code-container {
   display: flex;

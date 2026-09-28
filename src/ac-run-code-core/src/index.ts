@@ -127,7 +127,7 @@ function projectTool(def: ProjectedToolDef): string {
  * 程序内不能再 spawn run_code 程序）。
  *
  * guidance 传空串 '' = 不嵌注释（系统提示注入方的纪律经代码块外的
- * 纯文本走一份——块内双份是纯重复，2026-12 裁决）；undefined = 内置
+ * 纯文本走一份——块内双份是纯重复，2026-09-21 裁决）；undefined = 内置
  * DEFAULT_GUIDANCE。两形态输出都字节确定（KV cache 前缀不变量保持）。
  */
 export function buildSdkProjection(

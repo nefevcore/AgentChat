@@ -301,7 +301,7 @@ async function main(): Promise<void> {
   const libMethods = {
     /**
      * 取用库：resolve('名') 返回求值本体（使用路径）；无参 = 清单（立项③-A，
-     * 2026-12 裁决：未指定执行函数则不予任何执行）——纯静态摘要，不执行
+     * 2026-09-21 裁决：未指定执行函数则不予任何执行）——纯静态摘要，不执行
      * 任何库源码（旧形态全量求值有两宗罪：查看行为带执行副作用；单条
      * 坏库炸整次列举）。逐条 try/catch 隔离，摘要失败给 error 占位不炸整表。
      */
@@ -463,10 +463,15 @@ async function main(): Promise<void> {
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    // 失败时程序已有 log → 尾行并进 error（模型读的是 error 字段——
+    // logsTail 只进宿主轨迹不进 LLM 面，2026-10-09 复盘：崩溃现场恰恰
+    // 最需要已收集的诊断线索）
+    const tail = logs.length > 0 ? logs.slice(-3) : [];
+    const withTail = tail.length > 0 ? `${msg}\n〔程序内 log（末 ${tail.length} 条）〕\n${tail.join('\n')}` : msg;
     if (aborted || /程序已中止/.test(msg)) {
-      result = { ok: false, interrupted: true, error: msg };
+      result = { ok: false, interrupted: true, error: withTail };
     } else {
-      result = { ok: false, error: msg };
+      result = { ok: false, error: withTail };
     }
   }
   // lib 注册表快照随 done 带出（主线程 run 间持有；空表省略——旧协议兼容）

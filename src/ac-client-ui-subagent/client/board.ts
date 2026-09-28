@@ -1,7 +1,7 @@
 // ============================================================
 // ac-client-ui-subagent/client/board.ts —— 子 Agent 域投影（board 半边）
 //
-// 子Agent 持久化清单主源（2026-12：对齐 singles 取值链——注册表面
+// 子Agent 持久化清单主源（2026-09-22：对齐 singles 取值链——注册表面
 // subagents/list RPC + subagents/updated 帧驱动刷新，跨重启完整；
 // jobBoard（进程内 job 注册中心）不再是子Agent 清单源——运行徽章/停
 // 止按钮同链可用：displayStatus running + subagents/stop RPC）。

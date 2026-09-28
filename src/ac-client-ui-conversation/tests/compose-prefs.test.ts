@@ -67,7 +67,7 @@ describe('composePrefs：上次会话选择持久化', () => {
     expect(prefs.loadComposePrefs()).toEqual({ effort: '', elevation: '' });
   });
 
-  it('agentId/model 的 "" 同为合法记录值：明确选回默认覆盖旧记录（2026-09 修复——选回默认后新会话跟随，不残留旧模式）', () => {
+  it('agentId/model 的 "" 同为合法记录值：明确选回默认覆盖旧记录（2026-09-15 修复——选回默认后新会话跟随，不残留旧模式）', () => {
     storage.clear();
     prefs.saveComposePrefs({ agentId: '__abap_dev__', model: 'glm@glm-5.3' });
     // 会话里明确选回默认预设/默认模型（下拉第一项）

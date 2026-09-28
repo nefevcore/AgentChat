@@ -303,7 +303,7 @@ export class PluginRegistryService extends Service {
     options: { uiIsolatedDefault?: boolean } = {},
   ): Promise<PluginStagingRecord> {
     const record = await stagePlugin(this.root, sourceDir, owner, source, options);
-    this.ctx.emit('plugin/catalog-changed', { kind: 'staging' });
+    this.ctx.emit('plugin/updated', { name: record.manifest.name }, 'staging');
     return record;
   }
 
@@ -340,7 +340,7 @@ export class PluginRegistryService extends Service {
       owner,
       error: 'staging rejected（暂存被拒绝，目录与记录已清除）',
     }).catch(() => undefined);
-    this.ctx.emit('plugin/catalog-changed', { kind: 'staging' });
+    this.ctx.emit('plugin/updated', { name }, 'staging');
     return result;
   }
 
@@ -666,8 +666,8 @@ export class PluginRegistryService extends Service {
   /**
    * 安装收尾（approve 与 installFromDir 共用单源）：清熔断（F4——install
    * 强制清"修复后永远装不上"死锁）→ 立即装载 → 审计流水（G7）→
-   * plugin/installed + plugin/catalog-changed 双通知。装载失败不影响
-   * 安装（已入 registry.json，下次重启扫描恢复）。
+   * plugin/updated 通知。装载失败不影响安装（已入 registry.json，
+   * 下次重启扫描恢复）。
    */
   private async finalizeInstall(
     result: ApproveResult,
@@ -694,14 +694,7 @@ export class PluginRegistryService extends Service {
       ...(load.status === 'rejected' ? { error: load.error } : {}),
       ...(result.replaced ? { backupDir: result.replaced.backupDir } : {}),
     });
-    this.ctx.emit('plugin/installed', {
-      name: result.name,
-      version: result.version,
-      dir: result.installedDir,
-      permissions: result.permissions,
-      ...(result.source ? { source: result.source } : {}),
-    });
-    this.ctx.emit('plugin/catalog-changed', { kind: 'installed' });
+    this.ctx.emit('plugin/updated', { name: result.name }, 'installed');
     return load;
   }
 
@@ -837,7 +830,7 @@ export class PluginRegistryService extends Service {
       ...(result.backupDir ? { backupDir: result.backupDir } : {}),
       ...(consumers.length > 0 ? { outcome: `consumers: ${consumers.join(', ')}` } : {}),
     });
-    this.ctx.emit('plugin/catalog-changed', { kind: 'installed' });
+    this.ctx.emit('plugin/updated', { name }, 'uninstalled');
     return { ...result, ...(consumers.length > 0 ? { consumers } : {}) };
   }
 
@@ -1139,11 +1132,11 @@ export class PluginRegistryService extends Service {
         try {
           const restored = await this.activate(old.module, old.manifest);
           this.mountRecord(old, restored);
-          this.ctx.emit('plugin/reloaded', {
-            name: old.name,
-            status: 'failed',
-            error: `新版本激活失败，已回滚旧版本: ${err instanceof Error ? err.message : String(err)}`,
-          });
+          this.ctx.emit(
+            'plugin/updated',
+            { name: old.name, error: '新版本激活失败，已回滚旧版本: ' + (err instanceof Error ? err.message : String(err)) },
+            'reloaded',
+          );
           return {
             status: 'restored',
             name: manifest.name,
@@ -1151,11 +1144,11 @@ export class PluginRegistryService extends Service {
             fiberUid: restored.uid,
           };
         } catch (restoreErr: unknown) {
-          this.ctx.emit('plugin/reloaded', {
-            name: old.name,
-            status: 'failed',
-            error: `新版本激活失败且旧版本回滚失败: ${restoreErr instanceof Error ? restoreErr.message : String(restoreErr)}`,
-          });
+          this.ctx.emit(
+            'plugin/updated',
+            { name: old.name, error: '新版本激活失败且旧版本回滚失败: ' + (restoreErr instanceof Error ? restoreErr.message : String(restoreErr)) },
+            'reloaded',
+          );
           return { status: 'rejected', name: manifest.name, error: `激活失败且旧版本回滚失败: ${err instanceof Error ? err.message : String(err)}；restore: ${restoreErr instanceof Error ? restoreErr.message : String(restoreErr)}` };
         }
       }
@@ -1179,9 +1172,9 @@ export class PluginRegistryService extends Service {
     this.reconcileProvides(record, toolsBefore, providersBefore);
 
     if (old) {
-      this.ctx.emit('plugin/reloaded', { name: manifest.name, status: 'replaced' });
+      this.ctx.emit('plugin/updated', { name: manifest.name }, 'reloaded');
     } else {
-      this.ctx.emit('plugin/catalog-changed', { kind: call.sessionOnly ? 'session' : 'installed' });
+      this.ctx.emit('plugin/updated', { name: manifest.name }, call.sessionOnly ? 'session' : 'loaded');
     }
     return { status: old ? 'replaced' : 'loaded', name: manifest.name, entry, fiberUid: fiber.uid };
   }
@@ -1250,7 +1243,7 @@ export class PluginRegistryService extends Service {
     const record = this.loaded.get(name);
     if (!record) return false;
     await this.disposeRecord(record);
-    this.ctx.emit('plugin/catalog-changed', { kind: record.sessionOnly ? 'session' : 'installed' });
+    this.ctx.emit('plugin/updated', { name }, record.sessionOnly ? 'session' : 'uninstalled');
     return true;
   }
 
@@ -1348,11 +1341,11 @@ export class PluginRegistryService extends Service {
           if (outcome.status === 'rejected') throw new Error(outcome.error);
           this.ctx.logger.info(`插件 "${record.name}" 源码变化，已自动重载`);
         } catch (err: unknown) {
-          this.ctx.emit('plugin/reloaded', {
-            name: record.name,
-            status: 'failed',
-            error: err instanceof Error ? err.message : String(err),
-          });
+          this.ctx.emit(
+            'plugin/updated',
+            { name: record.name, error: err instanceof Error ? err.message : String(err) },
+            'reloaded',
+          );
           this.ctx.logger.warn(`插件 "${record.name}" 自动重载失败（保留旧版本）: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
           record.reloading = false;
@@ -1392,38 +1385,20 @@ declare module '@agentchat/cordis' {
     ): Promise<PluginLoadOutcome>;
 
     /**
-     * 插件已安装（approve 完成文件域安装 + 装载后发出）。
+     * 插件域统一变更通知（cr-20 合并：原 installed / reloaded /
+     * catalog-changed 三事件订阅面完全重合——后端仅 ws-bridge 转发、
+     * 前端消费方一律忽略载荷 refetch，按 singles/subagents 的 updated
+     * 先例并源）。载荷刻意最小：触发方与名（前端 refetch 数据面，
+     * 安装明细在审计流水 G7）。
      * @mode emit
      * @scope host
-     * 载荷 = manifest 摘要（name/version/dir/permissions/source）。
-     * 谁该订阅：WS 广播（前端刷新插件库）、审计。
+     * action：installed 安装 · uninstalled 卸载 · staging 暂存增删 ·
+     * session 会话级装卸 · loaded 首次装载 · reloaded 重载（watch 自动 /
+     * 同名替换 / 回滚恢复——失败也在内，error 附因）。
      */
-    'plugin/installed'(summary: {
-      name: string;
-      version: string;
-      dir: string;
-      permissions: PluginPermission[];
-      source?: PluginSource;
-    }): void;
-
-    /**
-     * 插件重载结果通知（watch 自动重载 / 同名替换 / 回滚恢复）。
-     * @mode emit
-     * @scope host
-     * status：loaded 首次 · replaced 替换 · restored 回滚恢复 · failed 失败（error 附因）。
-     */
-    'plugin/reloaded'(info: {
-      name: string;
-      status: 'loaded' | 'replaced' | 'restored' | 'failed';
-      error?: string;
-    }): void;
-
-    /**
-     * 插件库目录变化（staging 暂存增删 / installed 安装卸载 / session 会话级装卸）。
-     * @mode emit
-     * @scope host
-     * 前端插件管理页刷新的订阅面。
-     */
-    'plugin/catalog-changed'(payload: { kind: 'installed' | 'staging' | 'session' }): void;
+    'plugin/updated'(
+      payload: { name: string; error?: string },
+      action: 'installed' | 'uninstalled' | 'staging' | 'session' | 'loaded' | 'reloaded',
+    ): void;
   }
 }

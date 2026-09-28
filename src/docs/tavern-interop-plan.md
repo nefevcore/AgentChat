@@ -27,7 +27,7 @@
    `<world_book>` 块（constant 恒注入 + 主/副关键字 selective 逻辑 +
    token 预算 + per-Agent settings 管控）。
 4. **Agent 自维护**：per-Agent 书落 Agent 专用空间，fs 工具（read/write/
-   edit）直接可达——对齐 2026-09 memory「fs 工具直写」收敛裁决。
+   edit）直接可达——对齐 2026-09-05 memory「fs 工具直写」收敛裁决。
 
 ### 1.2 非目标（显式不做，首期）
 

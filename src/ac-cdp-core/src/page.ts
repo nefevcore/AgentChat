@@ -272,7 +272,11 @@ export class CdpPage {
     return { url: String(href ?? url), title: String(title ?? '') };
   }
 
-  /** 表达式求值（returnByValue；undefined 结果返回 null） */
+  /**
+   * 表达式求值（returnByValue；undefined 结果返回 null）。
+   * function 结果带可读报错（IIFE 漏写调用括号的高频笔误——
+   * returnByValue 下序列化为 {} 静默丢失，2026-10-09 复盘决断）。
+   */
   async evalExpr(expression: string, awaitPromise = false): Promise<{ value: unknown }> {
     const r = await this.send<{ result: CdpRemoteObject; exceptionDetails?: { text?: string; exception?: { description?: string } } }>(
       'Runtime.evaluate',
@@ -283,6 +287,12 @@ export class CdpPage {
       throw new Error(d.exception?.description ?? d.text ?? 'evaluate 失败');
     }
     const ro = r.result;
+    if (ro.type === 'function') {
+      throw new Error('eval 返回了 function 本体而非调用结果——疑似 IIFE 漏写调用括号：`(() => { ... })` 应为 `(() => { ... })()`（末尾缺 ()）');
+    }
+    if (ro.subtype === 'promise') {
+      throw new Error('eval 返回了未等待的 Promise——请改为同步取值，或用 (async () => { ... })() 形态并在内部 await 后返回结果（本工具不等待 Promise，序列化会变 {} 静默丢失）');
+    }
     if (ro.unserializableValue !== undefined) {
       return { value: Number.isNaN(Number(ro.unserializableValue)) ? ro.unserializableValue : Number(ro.unserializableValue) };
     }

@@ -1,6 +1,6 @@
 // ============================================================
 // ac-run-code 测试：工具体端到端（真 worker + 真 cordis Context）
-// · run_code 注册（injection:'mode'——2026-12 注入轴：不挂标签，模式合成）
+// · run_code 注册（injection:'mode'——2026-09-21 注入轴：不挂标签，模式合成）
 // · 基本执行：程序 return → 步记录摘要形态（programHash/value）
 // · tools.* 子调用走 ctx.tools.execute（真工具可见）
 // · 并发纪律：写路径按提交序串行（时序断言）
@@ -109,7 +109,7 @@ function fibersSlow(ctx: Context): void {
 }
 
 describe('ac-run-code：注册与投影', () => {
-  it('run_code 注册（injection mode——2026-12 注入轴：不挂 requiredTags、不进常规工具面）；任何 Agent 可执行（直调）', async () => {
+  it('run_code 注册（injection mode——2026-09-21 注入轴：不挂 requiredTags、不进常规工具面）；任何 Agent 可执行（直调）', async () => {
     const { ctx } = await boot({ agentTags: ['fs'] });
     expect(ctx.tools.get('run_code')?.injection).toBe('mode');
     expect(ctx.tools.get('run_code')?.requiredTags).toBeUndefined();
@@ -811,7 +811,7 @@ describe('ac-run-code：复合返回协议（return / log）', () => {
     expect(out.value).toContain('{"ok":1,"list":["a"]}');
   });
 
-  it('失败程序：logsTail = 末 5 条（诊断线索，value 缺席）', async () => {
+  it('失败程序：error 并入末 3 条 log（LLM 面可见），logsTail = 末 5 条，value 缺席', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const code = [
       "log('step1 ok');",
@@ -821,8 +821,18 @@ describe('ac-run-code：复合返回协议（return / log）', () => {
     ].join('\n');
     const r = await call(ctx, code);
     expect(r.ok).toBe(false);
+    // cr-9：失败时 log 尾行并进 error（模型读 error 字段——崩溃现场需要已收集线索）
+    expect(r.error).toContain('boom');
+    expect(r.error).toContain('step1 ok');
     expect((r.output as { logsTail?: string[] }).logsTail).toEqual(['step1 ok', 'step2 ok', 'step3 ok']);
     expect((r.output as { value?: unknown }).value).toBeUndefined();
+  });
+
+  it('失败程序无 log：error 不拼空尾（原样消息）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "throw new Error('pure-fail');");
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('pure-fail');
   });
 
   it('log 条目超限（>500）：丢弃计数标注在合成值尾部', async () => {

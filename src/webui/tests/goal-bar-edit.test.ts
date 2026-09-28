@@ -2,7 +2,7 @@
 // ============================================================
 // webui/tests/goal-bar-edit.test.ts —— GoalBar 直编面交互验收
 //
-// 2026-10 goal dock 卡编辑/暂停/删除：
+// 2026-09-13 goal dock 卡编辑/暂停/删除：
 //   · 写面 props 齐（agentId/conversationId/rpc）→ hover 操作区渲染；
 //     缺任一 → 只读形态（无操作钮）
 //   · 暂停/恢复 → goal/update(status)；编辑弹窗保存 → patch 提交

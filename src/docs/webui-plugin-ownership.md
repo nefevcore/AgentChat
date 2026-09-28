@@ -101,11 +101,11 @@ Vue 上——不换栈，只换组织方式。
 
 ### 3.1 webui/ 终态保留（瘦身为运行时级）
 
-> **实施对齐标注（M27 S4，2026-11）**：本表已按现状落地——运行时/slot 纯核
+> **实施对齐标注（M27 S4，2026-09-07）**：本表已按现状落地——运行时/slot 纯核
 > = `src/ac-client-runtime` / `src/ac-client-slots`（基建三包，D0）；
 > 模块装配 = boot graph 机制（ac-webui declareClient + webui
 > runtime/bootGraph.ts 热通道 + vite rowClientsPlugin 模块块）；设计原语
-> = `src/webui-kit`（`@agentchat/webui-kit`，2026-11 抽取）；连接层/
+> = `src/webui-kit`（`@agentchat/webui-kit`，2026-09-07 抽取）；连接层/
 > 构建入口留 webui 薄壳 ✓；i18n/HMR 维持可选后置。§3.2 建议包名
 > （ac-client-ui-*）已被 m27 D19 改裁：基础七件常驻 webui
 > `clients/base/`（S4 复核定案，不建独立包）；§3.3 配对表的「域 UI
@@ -130,7 +130,7 @@ Vue 上——不换栈，只换组织方式。
 | ac-client-ui-conversation | ConversationView 四形态内核、TranscriptList、feed/chat stores、TurnDisplayItem、Assistant/UserMessage、useChatShell、useMarkdown | ui-conversation |
 | ac-client-ui-renderer | markdown 管线、气泡/分隔条通用渲染 | ui-renderer |
 | ac-client-ui-tool | ToolMessage 外壳 + 按工具名 keyed 的 presentation slot 面 | ui-tool |
-| ~~ac-client-ui-sidebar~~（2026-11 归并 ui-layout：Sidebar 动作区/更多菜单、三面板**壳**、uiStore——M28 P2 三面板域行贡献化后即为骨架性资产） | Sidebar 动作区/更多菜单、三面板**壳** | ~~ui-sidebar~~ |
+| ~~ac-client-ui-sidebar~~（2026-09-11 归并 ui-layout：Sidebar 动作区/更多菜单、三面板**壳**、uiStore——M28 P2 三面板域行贡献化后即为骨架性资产） | Sidebar 动作区/更多菜单、三面板**壳** | ~~ui-sidebar~~ |
 | ac-client-ui-theme | theme store + 双主题 | ui-theme |
 | ac-client-ui-settings | SettingsPanel 壳+左树+保存编排、SettingField/NsFieldList/ExtensionSettingsModal | ui-settings（再拆 general/models/plugins 子包可后置） |
 

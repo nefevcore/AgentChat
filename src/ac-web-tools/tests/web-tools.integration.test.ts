@@ -3,7 +3,7 @@
 //
 // browser 侧：RowOptions.cdpEndpoint 注入 FakeCdpServer（src/
 // ac-cdp-core/tests/fake-cdp.ts 复用）——旧「假守护进程」手法同构
-// 平移（2026-10 CDP 化，src/docs/browser-cdp-plan.md §8）。
+// 平移（2026-09-26 CDP 化，src/docs/browser-cdp-plan.md §8）。
 // ============================================================
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -86,7 +86,7 @@ describe('ac-web-tools web_search', () => {
     expect(r.error).toContain('tavily');
   });
 
-  it('无 key（行/凭据/env 全空）→ validateConfig 报可读错误（缺省 deepseek，2026-10）', async () => {
+  it('无 key（行/凭据/env 全空）→ validateConfig 报可读错误（缺省 deepseek，2026-09-03）', async () => {
     const { ctx } = await boot(); // 无池无行配置 → 内置缺省 deepseek
     const r = await exec(ctx, { name: 'web_search', args: { query: 'x' } });
     expect(r.ok).toBe(false);
@@ -210,11 +210,33 @@ describe('ac-web-tools browser（CDP 直连——fake endpoint）', () => {
     expect(r.output.url).toBe('https://example.com/');
   });
 
-  it('eval：结果 JSON 序列化截断', async () => {
-    const { ctx } = await boot();
+  it('eval：结果保留 JSON 类型（数字/布尔/对象直出，不再字符串化）', async () => {
+    const { ctx, server } = await boot();
     const r = await exec(ctx, { name: 'browser', args: { action: 'eval', js: '1+1' } });
     expect(r.ok).toBe(true);
-    expect(r.output.result).toBe('2');
+    expect(r.output.result).toBe(2);
+    expect(typeof r.output.result).toBe('number');
+    // fake evaluate 对未知表达式回数字 2——布尔/对象路径同一 returnByValue 通道
+    const r2 = await exec(ctx, { name: 'browser', args: { action: 'eval', js: '({a: 1})' } });
+    expect(r2.output.result).toBe(2);
+    void server;
+  });
+
+  it('eval 返回 function（IIFE 漏写调用括号）→ 可读报错指路（cr-9）', async () => {
+    const { ctx, server } = await boot();
+    server.handlers.set('Runtime.evaluate', () => ({ result: { type: 'function', className: 'Function', description: 'function () { [native code] }' } }));
+    const r = await exec(ctx, { name: 'browser', args: { action: 'eval', js: '(() => { return 1; })' } });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('漏写调用括号');
+  });
+
+  it('eval 返回未等待 Promise → 可读报错（cr-9）', async () => {
+    const { ctx, server } = await boot();
+    // CDP 信号在 RemoteObject.subtype='promise'（thenable 探测不可靠——ws JSON 序列化丢函数键）
+    server.handlers.set('Runtime.evaluate', () => ({ result: { type: 'object', subtype: 'promise', className: 'Promise' } }));
+    const r = await exec(ctx, { name: 'browser', args: { action: 'eval', js: 'fetch("/").then(r => r.text())' } });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('未等待的 Promise');
   });
 
   it('logs：诊断缓冲经 marker 取（console error + 失败请求）', async () => {

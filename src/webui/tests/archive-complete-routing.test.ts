@@ -1,7 +1,7 @@
 // ============================================================
 // archive-complete-routing.test.ts —— 归档完成帧按会话路由回归
 //
-// 背景 bug（2026-09 复核发现）：compressSession 放开独立会话（single）
+// 背景 bug（2026-09-05 复核发现）：compressSession 放开独立会话（single）
 // 后，完成处理 onSessionArchived 仍按 activeAgent() 对齐——single 视图
 // activeAgentId 恒空（SessionList.selectSingle 清空），载荷 agentId ≠ ''
 // 恒早退：

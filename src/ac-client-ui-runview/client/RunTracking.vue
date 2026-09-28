@@ -1,11 +1,11 @@
 // AgentChat — 矩阵快照（主区视图：由侧边栏「运行」面板的「矩阵快照」入口打开）
 //
 // 头部：标题（文本）+ 日期范围筛选 + 快照时间。矩阵：
-//   · 轴集合 = Agent 清单 ∪ user（群/system 不入轴——2026-12 收窄：快照
+//   · 轴集合 = Agent 清单 ∪ user（群/system 不入轴——2026-09-21 收窄：快照
 //     无法覆盖群参与证据与 system 触发，两轴只含真实会话端点）；轴标签用头像；
 //   · 会话无方向 → 下三角 + 对角线为主（上三角有会话数据同样可交互）；自会话落对角线；
 //   · 着色 = 选中日期范围内的消息量做对数归一化浓度（直观看出范围内 Agent 间活跃程度）；
-//     运行态展示已退役（2026-12 简化）：矩阵只认落盘快照——正在发生的
+//     运行态展示已退役（2026-09-18 简化）：矩阵只认落盘快照——正在发生的
 //     运行看运行面板（「运行中会话」节点，事件驱动 + 时长实时走表）。
 //   · hover：十字聚焦分级 —— hover 格主高亮（放大+强描边+提亮），十字行列次高亮，
 //     其余区域置灰；美化 tooltip（两端点、关系、范围内/总量）；
@@ -82,7 +82,7 @@ const RANGE_CAP: Record<RangeId, number> = { h1: 30, d1: 100, d3: 300, d7: 600, 
 const KIND_RANK: Record<RunsMember['kind'], number> = { agent: 0, virtual: 1, group: 3, system: 4, unknown: 5, preset: 2 };
 
 /** 轴成员：预设不占轴（其会话为 single~，矩阵外）；群/system 不入轴
- *  （2026-12 收窄——快照无群参与证据/system 对桶供数，入轴只有空行列）。
+ *  （2026-09-21 收窄——快照无群参与证据/system 对桶供数，入轴只有空行列）。
  *  按类别分组 + 组内 AgentID 字典序（与目录扫描/名册返回序无关——
  *  两轴同源同序，行列对角线稳定） */
 const axis = computed<RunsMember[]>(() =>
@@ -376,7 +376,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           </button>
           <div v-if="coverageOpen" class="coverage">
             <div v-if="coverage" class="coverage-body">
-              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个。轴集合 = Agent 清单 ∪ user（2026-12 收窄：群聊与 system 不入矩阵——快照管线无群参与证据供数，群×Agent 格无从点亮；system 无对桶会话。群聊活动看 Agent 列表与运行面板）。</p>
+              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个。轴集合 = Agent 清单 ∪ user（2026-09-21 收窄：群聊与 system 不入矩阵——快照管线无群参与证据供数，群×Agent 格无从点亮；system 无对桶会话。群聊活动看 Agent 列表与运行面板）。</p>
               <p v-if="coverage.singleSessions > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />矩阵之外：独立会话（single~）{{ coverage.singleSessions }} 个 —— 它们没有两两端点（用户 ↔ 会话引用的 Agent，上下文按会话隔离），结构上无法落入两两格子；其中 {{ coverage.runningSingles }} 个正在运行，请看「运行中会话」。</p>
               <p v-else>独立会话（single~）：0 个 —— 当前全部会话均已入矩阵。</p>
               <p v-if="coverage.unknownMembers.length > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />残留端点：{{ coverage.unknownMembers.join('、') }} —— 出现在会话键但已无对应 Agent/群组（已删除等），以「未知端点」入轴保留数据。</p>

@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-agents/client/tagExclusive.ts —— 抉择组语义
-// （2026-12 标签配置语义升级：分组内 tag 合一为下拉单选）
+// （2026-09-21 标签配置语义升级：分组内 tag 合一为下拉单选）
 //
 // 目录条目挂 exclusive 元数据（同组互斥）：access-tier（base-access/
 // sandbox-access/full-access）、tool-mode（tc-none/tc-base/

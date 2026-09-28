@@ -483,7 +483,7 @@ describe('versionPointsOf / editStepsOf / diffOfStep —— 逐次回放（查�
   });
 
   it('分段链（方案 B）：中段外部写（git checkout）抹编辑后重做——全部事件获得版本点，段边界如实分段', () => {
-    // 复现 2026-09 service.ts 事故：存量文件 5 次 edit → pwsh 损坏 →
+    // 复现 2026-09-23 service.ts 事故：存量文件 5 次 edit → pwsh 损坏 →
     // git checkout 还原（第一批编辑被抹）→ 同批 edit 重做 + 6 次推进。
     // 事件流只知 16 次 edit；磁盘终态 = 第二批链重放结果。
     // 整行唯一串（防子串假命中——old 必须整段找不到才算失配）

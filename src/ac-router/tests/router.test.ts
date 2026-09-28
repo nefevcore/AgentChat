@@ -176,7 +176,7 @@ describe('ac-router', () => {
     expect(overlayTools).not.toContain('str_replace_editor');
   });
 
-  it('正常工具无形态限制（2026-12 注入轴重构）：system_restart 不再排除独立会话——常规工具在 single 对桶照常可见', async () => {
+  it('正常工具无形态限制（2026-09-21 注入轴重构）：system_restart 不再排除独立会话——常规工具在 single 对桶照常可见', async () => {
     const { ctx } = await boot('回复');
     ctx.tools.register({
       name: 'system_restart',

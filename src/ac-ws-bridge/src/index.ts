@@ -171,7 +171,7 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   });
 
   // ============ 工具执行通知（无 sender 载荷 → run 登记表判定） ============
-  // 开始通知（2026-12 前端反馈 #2）：run_code 子调用平铺卡此前无 running
+  // 开始通知（2026-09-21 前端反馈 #2）：run_code 子调用平铺卡此前无 running
   // 生命周期（终值到达才建卡）——串行链阻塞（approval 等待/长工具）时后续
   // 子调用无终值即无卡，「堆积在 run_code 卡下不动」。tool/started 是
   // ac-tools 在 before-execute waterfall 放行后 emit 的通知型事件（emit
@@ -243,9 +243,6 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
     forward('group/member-added', groupId, agentId, group));
   fwd('group/member-removed', (groupId, agentId, group) =>
     forward('group/member-removed', groupId, agentId, group));
-  // 群主（记忆属主）变更：owner = string | undefined（undefined = 解除）
-  fwd('group/memory-owner-set', (groupId, owner, group) =>
-    forward('group/memory-owner-set', groupId, owner, group));
   fwd('group/message-posted', (groupId, message) =>
     forward('group/message-posted', groupId, message));
 
@@ -262,7 +259,7 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   fwd('agents/updated', (config, change) => forward('agents/updated', config, change));
   // ============ M18-G：独立会话元数据变更（前端 singles 列表刷新） ============
   fwd('singles/updated', (meta, action) => forward('singles/updated', meta, action));
-  // 子 Agent 变更（2026-12 持久化清单主源化：前端子Agent 清单/徽章刷新——
+  // 子 Agent 变更（2026-09-22 持久化清单主源化：前端子Agent 清单/徽章刷新——
   // 对齐 singles/updated 取值链）
   fwd('subagents/updated', (info, action) => forward('subagents/updated', info, action));
   // ============ 远程设备面（M3.4 尾巴：实时刷新替代 2s 轮询） ============
@@ -276,9 +273,9 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
     forward('remote/device-offline', deviceId, reason));
 
   // ============ M13：插件域 / Web UI 域 ============
-  fwd('plugin/installed', (summary) => forward('plugin/installed', summary));
-  fwd('plugin/reloaded', (info) => forward('plugin/reloaded', info));
-  fwd('plugin/catalog-changed', (payload) => forward('plugin/catalog-changed', payload));
+  // cr-20：installed/reloaded/catalog-changed 三事件并 plugin/updated（订阅面
+  // 完全重合，消费方一律 refetch——载荷最小形 {name, error?} + action）
+  fwd('plugin/updated', (payload, action) => forward('plugin/updated', payload, action));
   fwd('webui/extensions-changed', (payload) => forward('webui/extensions-changed', payload));
   // M27 S3：boot graph 变更（行装载/卸载——前端装载器 debounce 重拉 diff）
   fwd('webui/boot-graph-changed', (name) => forward('webui/boot-graph-changed', name));

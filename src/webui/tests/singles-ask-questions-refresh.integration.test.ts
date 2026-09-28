@@ -85,7 +85,7 @@ function askQuestionsRow() {
             yield { delta: '', toolCalls: [{ index: 0, argumentsDelta: JSON.stringify({ questions: [{ question: '选 A 还是 B？', options: ['A', 'B'] }] }) }] };
             yield { delta: '', finish: 'tool_calls' };
           } else if (!answered) {
-            // awaiting 已回但答案未注入（2026-02 挂起重构）：收尾说明，
+            // awaiting 已回但答案未注入（2026-02-00 挂起重构）：收尾说明，
             // 自然停 → loop/run-idle 挂起等用户
             yield { delta: '请你选一下' };
             yield { delta: '', finish: 'stop', usage: { prompt: 10, completion: 2 } };
@@ -202,7 +202,7 @@ describe('Single 会话 ask_questions 刷新恢复（全链路）', () => {
     // ---- ④ 作答 → 后端 run 唤醒续跑收束 ----
     chat2.respondInteraction(['A']);
     await waitUntil(() => !chat2.contextBusy, 30_000, 'run 续跑收束（contextBusy 回落）');
-    // run 收束：续走步的 LLM 输入包含答案注入消息（2026-02 挂起重构：
+    // run 收束：续走步的 LLM 输入包含答案注入消息（2026-02-00 挂起重构：
     // ask_questions 即返 awaiting，答案经 loop/run-idle 注入 user 语义位消息）
     await waitUntil(
       () => inputs.some((i) =>

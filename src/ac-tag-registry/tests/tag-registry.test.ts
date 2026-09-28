@@ -86,7 +86,7 @@ describe('ac-tag-registry 目录', () => {
     expect(byTag.get('tc-base')).toMatchObject({ category: 'tool-mode', reserved: true });
     // base 从目录退役（无门禁语义——一切工具已挂具体标签）
     expect(byTag.get('base')).toBeUndefined();
-    // 抉择组（2026-12 标签配置语义升级）：档位/模式两组显式缺省词
+    // 抉择组（2026-09-21 标签配置语义升级）：档位/模式两组显式缺省词
     // （base-access 进目录——下拉需要；tc-base 既有）+ exclusive 元数据
     expect(byTag.get('base-access')).toMatchObject({
       category: 'access-tier',

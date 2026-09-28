@@ -1,5 +1,5 @@
 // ============================================================
-// client/uiStore.ts —— 布局与面板状态（2026-11 自 ac-client-ui-sidebar 行归并壳件——布局状态归位壳件）
+// client/uiStore.ts —— 布局与面板状态（2026-09-11 自 ac-client-ui-sidebar 行归并壳件——布局状态归位壳件）
 //（原 webui stores/ui.ts 原样迁入——M27.2-2 随 sidebar 件出包；
 // webui stores/ui 门面 re-export 维持旧路径〔同一 pinia id =
 // 同一 store 实例〕）
@@ -51,7 +51,7 @@ function auxYieldAt(): number {
 }
 
 /** 列表页签持久化键（agents / sessions / tracking；刷新后保持上次所在列表页） */
-const PRIMARY_PANEL_KEY = 'agentchat.primaryPanel'; // 2026-11 键名随主侧边栏改名（旧键 agentchat.listPanel 弃用——面板选中一次性回落默认）
+const PRIMARY_PANEL_KEY = 'agentchat.primaryPanel'; // 2026-09-11 键名随主侧边栏改名（旧键 agentchat.listPanel 弃用——面板选中一次性回落默认）
 
 /** aux 选区持久化键（选区 id；刷新后恢复上次选区。展开状态不持久化——
  *  刷新后收起是保守选择（监视面板一键重开），避免「刷新后突然被占半屏」） */
@@ -67,7 +67,7 @@ const SHOW_THINKING_KEY = 'agentchat.showThinking';
 type ListPanelId = 'agents' | 'sessions' | 'tracking';
 
 /** 缺省面板：sessions（独立会话）——首次启动无记录时默认进入独立会话页
- *  （2026-12 首启体验：开箱即会话页；已写过偏好的用户不受影响）。 */
+ *  （2026-09-21 首启体验：开箱即会话页；已写过偏好的用户不受影响）。 */
 const DEFAULT_PRIMARY_PANEL: ListPanelId = 'sessions';
 
 function loadPrimaryPanel(): ListPanelId {

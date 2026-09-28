@@ -107,7 +107,7 @@ function migrateSessionDir(
   // 迁移是形态改写而非新数据：rename 后恢复原 mtime——前端会话列表的
   // lastActivity 取 messages.jsonl 的 mtime（ac-singles preview ←
   // ac-session stats().updatedAt），不恢复则升级当次全量会话的时间戳
-  // 被重置为迁移时刻，列表全部落「今天」桶（2026-12）。atime 一并还原。
+  // 被重置为迁移时刻，列表全部落「今天」桶（2026-09-21）。atime 一并还原。
   const prevStat = fs.statSync(mainFile);
   const tmp = mainFile + '.tmp';
   fs.writeFileSync(tmp, kept.join('\n'), 'utf-8');
@@ -137,7 +137,7 @@ function walkSessions(dataRoot: string, pass: 'role-v2-subcall-split' | 'partial
   return total;
 }
 
-/** subagents 域迁移（v3，2026-12 三文件化）：<subId>.jsonl 单文件 →
+/** subagents 域迁移（v3，2026-09-22 三文件化）：<subId>.jsonl 单文件 →
  *  <subId>/messages.jsonl 目录形态（服务读侧另有旧单文件回退兼容，迁移是
  *  形态归一非数据改写——行内容逐字节保留，rename 语义）。
  *  幂等：目录形态已存在 = 跳过；单文件不存在 = 无事可做。 */

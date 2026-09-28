@@ -4,7 +4,7 @@
 //
 // M28 P2 §5.2：域插件 owning = ac-client-ui-llm-pool/client——
 // settings:section 选举席贡献 + 双向摘除。
-// 2026-11 左树数据化 + 行拆分：贡献携带 meta.label + 顶层 order——
+// 2026-09-11 左树数据化 + 行拆分：贡献携带 meta.label + 顶层 order——
 // 左树叶与节同源派生，卸载叶/节同步退场（D19 整枝退场）；搜索引擎节
 // 已拆往 ac-client-ui-search-pool（见 clients-search-pool.test.ts），
 // 本行收窄为 llmPools 单节。

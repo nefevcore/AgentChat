@@ -81,7 +81,7 @@ export interface AgentConfig {
    * 能力标签（src tags 平移；Port B P6）：工具 requires 门禁的判定词表
    * （ac-tools 注册的 requires + ac-security 等门禁行消费），UI 侧驱动
    * 徽章与工具启停（canAddTool）。'base' 为内建基础标签（UI 恒视作具备）。
-   * 2026-12（access-tier §四）新增档位词汇：'full-access' /
+   * 2026-09-13（access-tier §四）新增档位词汇：'full-access' /
    * 'sandbox-access'（缺省 = base-access）——tierOf 单源判定，驱动权限轴
    * 门禁（needPermission 工具的档位矩阵）；档位标签不进任何工具的
    * requiredTags（AND 语义天然不误匹配）。
@@ -246,7 +246,7 @@ export function effectiveTierOf(
  *
  * 与档位词同款：tc-* 全部是纯模式词，不进任何 requiredTags（tag-registry
  * assert 白名单外的非能力词禁入）。mode 工具的注入通道见 ToolDefinition.
- * injection（2026-12 注入轴重构：run_code 挂 injection:'mode'，不挂
+ * injection（2026-09-21 注入轴重构：run_code 挂 injection:'mode'，不挂
  * requiredTags、不进常规工具面——早先「授权词 = infra」语义随之退役）。
  */
 export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
@@ -271,7 +271,7 @@ export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
 
 /**
  * 生效工具调用模式：会话覆盖（conv-settings toolMode）?? toolModeOf(agent)。
- * 单源合成（2026-12 估算失真修复）：router / system-prompt 干跑 /
+ * 单源合成（2026-09-18 估算失真修复）：router / system-prompt 干跑 /
  * agents/tool-defs 估算面三处共用——「LLM 面按模式收窄」的判定输入
  * 必须与真实 run 同口径，否则估算（工具 schema 数 + 系统提示词门控块
  * + run_code SDK 投影块）随会话开关漂移。
@@ -318,7 +318,7 @@ export function narrowToolsByMode(
 
 /**
  * 请求面是否恰为 mode 工具集（程序化互斥形态判定——run_code SDK 投影
- * 注入的既有口径，2026-12 提升为单源）：request.tools 与注册面
+ * 注入的既有口径，2026-09-21 提升为单源）：request.tools 与注册面
  * injection:'mode' 工具集互为子集且非空。系统提示各门控行
  * （system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
  * collab-tools @名称）在 PTC 模式下请求面已被 router 收窄成 ['run_code']，
@@ -338,7 +338,7 @@ export function isModeToolFace(
 }
 
 /**
- * 门控用工具名合成（请求面 → 能力面展开，2026-12 PTC 基线段丢失修复）：
+ * 门控用工具名合成（请求面 → 能力面展开，2026-09-21 PTC 基线段丢失修复）：
  * 系统提示门控行按「工具能力在场」注入指引，但 PTC 模式下 request.tools
  * 已收窄为 ['run_code']——直读会让模型明明能经 tools.read 调 read 却
  * 学不到对应基线（@/# 引用约定、宿主环境、产出物引用等）。本函数在
@@ -457,13 +457,13 @@ export function toolAllowedFor(
  * 会话形态词（工具交互轴 ToolDefinition.requiresInteraction 的判定输入）：
  * 'self' 自会话（对角线桶 a~a——机制 run 落点，无人值守）。conversationFormOf
  * 单源判定，router / list_tools / run_code 交互面共用。
- * （2026-12 语义收窄：'single' 独立会话词退役——excludeForms 轴整体
+ * （2026-09-21 语义收窄：'single' 独立会话词退役——excludeForms 轴整体
  * 撤销，工具交互性改经 requiresInteraction 布尔声明，self 会话自动排除。）
  */
 export type ConversationForm = 'self';
 
 /**
- * conversationId → 会话形态（交互轴单源，2026-02 'self'）：对角线对桶
+ * conversationId → 会话形态（交互轴单源，2026-02-00 'self'）：对角线对桶
  * （恰两段且相等——Agent id 禁 `~`（assertAgentId），词法判定构造性
  * 可靠）= 'self'；其余 = null（有用户参与的会话）。纯查询零会话状态。
  */
@@ -508,7 +508,7 @@ export const LLM_SAMPLING_KEYS = new Set([
 
 /**
  * 过滤 llmParams 为白名单采样键（未知键丢弃——防协议注入）。
- * 归一（推理档位统一，2026-10「Agent 面模型设置简化」）：
+ * 归一（推理档位统一，2026-09-03「Agent 面模型设置简化」）：
  *   · `null`/`''` 值剔除——update-config 的 deepMerge 删除语义落到本键、
  *     及旧自由文本字段存下的空串（显式清除/未设置不透传给协议体）；
  *   · `reasoning_effort: 'none'` → `thinking: {type:'disabled'}`——OpenAI
@@ -564,6 +564,13 @@ export class AgentsService extends Service {
   register(config: AgentConfig) {
     if (!config.id) throw new Error('Agent 注册缺少 id');
     assertAgentId(config.id);
+    // 双向名册校验（cr-4 撞形防线②反向卡位）：Agent id 撞已存在群 id →
+    // 拒（gid~member 成员流键会与 1v1 对桶争用同一会话桶）。group 为可选
+    // 能力——未装载时无群可撞。
+    const group = this.ctx.get('group', false) as { get(id: string): unknown } | undefined;
+    if (group !== undefined && group.get(config.id) !== undefined) {
+      throw new Error(`Agent id "${config.id}" 与已存在群同名（成员流键 gid~member 会与 1v1 对桶撞形——先删群或换 id）`);
+    }
     return this.ctx.fiber.effect(() => {
       this.configs.set(config.id, config);
       return () => {

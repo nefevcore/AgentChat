@@ -34,8 +34,11 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'read_agent_info', 'update_agent_profile',
   // ac-dev-tools / ac-restart
   'read_logs', 'reload', 'reload_modules', 'system_restart',
-  // ac-session-query（memory_append/memory_rewrite 已移除——记忆面收敛为 fs 工具，2026-09）
+  // ac-session-query
   'grep_history', 'read_history',
+  // ac-memory（memory timeline 重构 cr-4：工具回归——时间线结构化条目
+  // 需宿主铸造头，fs 裸写无法承载；旧裁决〔2026-09-03 收敛为 fs 工具〕推翻）
+  'memory_write', 'memory_grep',
   // ac-subagent / ac-durable-interaction / ac-timer-tools
   'subagent', 'ask_questions', 'timer',
   // ac-run-code（程序化模式 PTC：tc-programmatic 标签门禁——标签即模式）
@@ -89,7 +92,7 @@ export const BUILTIN_AGENT_IDS: readonly string[] = [
   'admin',
   '__standard__',
   '__dsh_minimal__',
-  '__creator__', // 创造模式（ac-agent-presets-builtin，2026-12 插件开发预设）
+  '__creator__', // 创造模式（ac-agent-presets-builtin，2026-09-21 插件开发预设）
   // ac-sap-adt/preset 子行注入的 ABAP 开发模式
   '__abap_dev__',
   // __programmatic__ 已随开关化退役（2026-09-17 research §十：程序化 =

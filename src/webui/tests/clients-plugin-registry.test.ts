@@ -2,7 +2,7 @@
 // ============================================================
 // webui/tests/clients-plugin-registry.test.ts —— plugin-registry 域行
 // client 半边验收（M28 P2 §5.2：settings:section 贡献 + 双向摘除；
-// 2026-11 左树数据化：叶随贡献退场 + label/order 断言）
+// 2026-09-11 左树数据化：叶随贡献退场 + label/order 断言）
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { bootWebuiRuntime } from './lib/webuiBoot';

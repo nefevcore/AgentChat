@@ -1,4 +1,4 @@
-// buildTurns final 派生透传 persistedMsgId（分支按钮门控回归——2026-12 分支功能）：
+// buildTurns final 派生透传 persistedMsgId（分支按钮门控回归——2026-09-21 分支功能）：
 // 历史/收束行的 final 必须携带服务端锚点，否则按行定位的操作（分支）永远不可见。
 import { describe, it, expect } from 'vitest';
 import { buildTurns } from 'ac-client-ui-conversation/client/feed.ts';

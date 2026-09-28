@@ -1,5 +1,5 @@
 // ============================================================
-// journal 恢复（2026-11 partials 泛化）：崩溃窗口 + 孤儿 run 投影
+// journal 恢复（2026-09-21 partials 泛化）：崩溃窗口 + 孤儿 run 投影
 //
 // settlement 两阶段（提升批 durable → journal 剔除）之间的崩溃窗口、
 // 以及进程死亡留下的孤儿 journal，由 recoverJournal 惰性幂等收口。

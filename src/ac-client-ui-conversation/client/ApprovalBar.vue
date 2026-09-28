@@ -2,7 +2,7 @@
   base 档 Agent 在有人会话里调用 needPermission=true 工具（write/bash/web_search…）
   时，ac-security 经 durableInteraction 开出 kind='approval' 审批卡。审批卡全文
   展示工具 + 参数 + 档位说明（防审批疲劳的 UX 责任在本卡）：
-  · 批准（2026-12 两档）：「通过（本次）」= 本次调用按 full-access 执行（单次
+  · 批准（2026-09-17 两档）：「通过（本次）」= 本次调用按 full-access 执行（单次
     有效，不持久化）；下拉可改选「通过（本轮全部）」= 本轮 run 内后续
     needPermission 调用免再询问，run 收束自动失效（内存授权，不持久化）；
     持久授权走 agentAdmin 改 tags 升档；
@@ -51,7 +51,7 @@ watch(approval, (val) => {
 });
 onUnmounted(() => { if (timeoutTimer) clearTimeout(timeoutTimer); });
 
-/** 批准范围（2026-12 功能增强）：'call' 仅本次（缺省）| 'run' 本轮全部 */
+/** 批准范围（2026-09-17 功能增强）：'call' 仅本次（缺省）| 'run' 本轮全部 */
 const approveScope = ref<'call' | 'run'>('call');
 
 function decide(approved: boolean, scope: 'call' | 'run' = 'call') {

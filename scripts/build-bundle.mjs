@@ -129,7 +129,7 @@ for (const row of ymlRows) {
 const manifest = `${JSON.stringify({ builtin, rows }, null, 2)}\n`;
 writeFileSync(path.join(dist, 'plugin-catalog.json'), manifest, 'utf8');
 
-// ── 版本自述 + changelog（更新面锚点，2026-09 更新功能修复批）──
+// ── 版本自述 + changelog（更新面锚点，2026-09-05 更新功能修复批）──
 // dist/version.json：桌面装配（resources/agentchat/）附近没有 package.json
 // 可走查，版本以 bundle 随身清单为准（ac-web-api version.ts 优先读它）；
 // dist/CHANGELOG.md：WebUI「检查更新」弹窗的更新日志源（缺失则弹窗隐藏该节）。

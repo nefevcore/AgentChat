@@ -1,7 +1,7 @@
 <!-- ContextInjectCard.vue -->
 <script setup lang="ts">
 // ============================================================
-// 注入卡（2026-12 注入卡）：context 注入行（source:skill 等）的工具卡
+// 注入卡（2026-09-26 注入卡）：context 注入行（source:skill 等）的工具卡
 // 样式渲染——label 收起行 + 展开体（注入体原文纯文本，限高滚动）。
 // 落实 skill-injection-and-storage-vocab 裁决 #3 的 label 条形态
 // （原「二期」欠账）。结构对齐 ToolMessage 卡（图标位 14px + 单行

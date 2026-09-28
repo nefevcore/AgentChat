@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-layout/client/mainViews.ts —— 主区视图选举解析面
-//（2026-11 主区语义纯化：main 席位 keyed 选举多选一）
+//（2026-09-11 主区语义纯化：main 席位 keyed 选举多选一）
 //
 // 「main-area ⤷ 会话/运行矩阵/其他 多选一」：主区视图 = { active 判定 +
 // 渲染组件 + props + keepAlive 生命周期旗标 }，与 main:perspective

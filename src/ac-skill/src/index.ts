@@ -17,7 +17,7 @@
 //     回落 <数据根>/files/<agentId>/ 约定）。只对该 Agent 注入与加载，
 //     不受全局 whitelist 约束——"Agent 私有技能"的承载面，补全
 //     per-Agent 自身技能的诉求。
-//   · 会话工作区技能（2026-11）：singles 会话挂载工作区后，扫描工作区
+//   · 会话工作区技能（2026-09-05）：singles 会话挂载工作区后，扫描工作区
 //     根下的业界约定技能目录（.claude/skills、.github/skills、skills、
 //     .agents/skills、.dsh/skills——discoverWorkspaceSkills）——Claude Code /
 //     GitHub Copilot 等维护的项目技能直接被会话复用。随会话挂载的
@@ -28,7 +28,7 @@
 //     不再依赖 read 路径猜测；全局、本 Agent 专属与会话工作区均可按名加载。
 //   · /name 手势去重（每消息至多服务一次）：账本按循环工作数组身份
 //     翻页，新 run（会话层浅拷贝新数组）重新服务。
-//   · run_code 子调用驻留注入（2026-11 裁决）：详述见 before-step handler。
+//   · run_code 子调用驻留注入（2026-09-22 裁决）：详述见 before-step handler。
 //
 // 懒扫描：首次消费（list/注入）才读目录并缓存；refresh() 重扫
 // （技能目录增删后调用，webui/管理面的刷新口）。本 Agent 专属技能
@@ -380,7 +380,7 @@ export class SkillsService extends Service {
 
         this.recordSkillContext(call.agent, call.conversationId, [content], `已加载技能 ${names.join('、')}`);
 
-        // 【run 级驻留注入（2026-11 裁决）】指纹变化（新技能/首次）→ 注入体
+        // 【run 级驻留注入（2026-09-21 裁决）】指纹变化（新技能/首次）→ 注入体
 
         // 经 injectDurable 进 execute 工作数组一次，后续步自然继承。旧形态
 

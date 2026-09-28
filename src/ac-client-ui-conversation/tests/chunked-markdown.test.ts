@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-conversation/tests/chunked-markdown.test.ts
-// useChunkedMarkdown 分块渲染 + idle-commit（2026-12 反馈修正：
+// useChunkedMarkdown 分块渲染 + idle-commit（2026-09-13 反馈修正：
 // ask_questions 挂起窗口原始 markdown 纯文本残留）
 //
 // node 环境：rAF 以 16ms setTimeout 垫片、vitest fake timers 驱动。

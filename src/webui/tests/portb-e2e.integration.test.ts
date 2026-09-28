@@ -116,6 +116,10 @@ beforeAll(async () => {
     usage: { root: dataRoot },
     credentials: { root: dataRoot },
     config: { root: dataRoot },
+    // cr-4 后 memory.write 落点 = workspace.agentWorkdir；预设 Agent
+    // （preset）的 workdir 回落数据根本身——不隔离则 timeline.md 直写
+    // 真实数据根（数据根隔离红线）
+    workspace: { root: dataRoot },
   });
   const scripted = scriptedRow();
   seenInputs = scripted.seenInputs;
@@ -238,10 +242,10 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     //      agentId 空 → defaultPresetId；预设无记忆 settings；模型经会话级覆盖补齐） ----
     const { session: blank } = await createSingle({ reuse: false }, wireRpc);
     await singlesBoard.updateSession(blank.id, { model: 'mock-1' }); // 预设模型解析依赖池配置——会话级覆盖补齐
-    // 预设无记忆语义：给该会话桶写记忆（__standard__ 视角——记忆归 Agent
-    // 本人，键 = sid）→ __standard__（settings.memory.enabled=false）的
-    // system prompt 不含 <memory> 块（软停用生效的真链路锁定）
-    tree.ctx.memory.set('__standard__', blank.id, '用户偏好：简短回复');
+    // 预设无记忆语义（cr-4 后形态）：给 __standard__ 时间线写一条 →
+    // enabled=false 软停用 = system 不注入 <memory-guide> 静态指引 +
+    // 时间线内容不注入（真链路锁定）
+    tree.ctx.memory.write('__standard__', { content: '[偏好] 用户偏好：简短回复', origin: blank.id });
     await singlesBoard.refresh();
     singlesBoard.selectSingle(blank.id);
     expect(blank.agentId).toBe('');
@@ -257,9 +261,11 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const blankMsgs = chat.messages;
     expect(blankMsgs.some(m => m.agent_id === 'user' && m.content === '默认预设路由')).toBe(true);
     expect(blankMsgs.some(m => m.agent_id === '__standard__' && String(m.content).trim() !== '')).toBe(true);
-    // 无记忆：__standard__ 的 run 未注入 <memory> 块（记忆已写入该会话桶）
-    const stdInput = seenInputs.slice(inputBefore)[0] as { messages?: Array<{ content?: string }> } | undefined;
-    expect(stdInput?.messages?.[0]?.content ?? '').not.toContain('<memory>');
+    // 无记忆：__standard__ 的 run 未注入 <memory-guide>（时间线已写入该
+    // Agent，软停用下静态指引与内容注入双缺席）
+    const stdInput = seenInputs.slice(inputBefore)[0] as { messages?: Array<{ content?: string }>; system?: string } | undefined;
+    expect(stdInput?.system ?? '').not.toContain('<memory-guide>');
+    expect((stdInput?.messages ?? []).map((m) => m.content ?? '').join('')).not.toContain('用户偏好：简短回复');
     singlesBoard.deselectSingle();
   });
 
@@ -273,7 +279,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     expect(sp.systemPrompt ?? '').toContain('## 对话信息');
     // 预览键 = 直答对桶（pairKey(viewer, agent)）：记忆块 file 头与真实
     // 直答会话同键（裸 agentId 回落死键的回归锚——2026-09-05 前端实录）
-    expect(sp.systemPrompt ?? '').toContain('<memory file="memory/helper~user.md">');
+    expect(sp.systemPrompt ?? '').toContain('<memory-guide>');
 
     // ---- P3①：思维链持久化——agent 回复行落账带 reasoning_content（直答对桶；
     //      M21/D13 中性格式：role:'agent' + agent_id） ----
@@ -374,7 +380,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
     // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 全可见（D4①；M25 P2 增
     // plugin-gates；2026-08-30 C6 补基础设施行；goal/todo 任务追踪行随行
-    // 声明；2026-09-04 增 shell-tools per-Agent 限额面；2026-10 A1 注册制
+    // 声明；2026-09-04 增 shell-tools per-Agent 限额面；2026-09-19 A1 注册制
     // 全行铺开——全部行包自述 export const extension，目录随行集全量生长）----
     const cat = await pluginApi.getCatalog(pluginRpc);
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
@@ -410,7 +416,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-run-code', // run_code 程序卡（ac-run-code 镜像：程序体 + 子调用摘要 + 返回值）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
-      'ui-search-pool', // 2026-11 行拆分：搜索引擎池自 ui-llm-pool 拆出
+      'ui-search-pool', // 2026-09-19 行拆分：搜索引擎池自 ui-llm-pool 拆出
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）
       'ui-shell', // M28 P2：工具卡行（bash 终端卡）
       // M27.2-2：基础件出包之四（活动栏 + uiStore + 三面板壳）
@@ -427,7 +433,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'web-api', 'web-server', 'web-tools', 'webui', 'workspace', 'ws-bridge',
     ]);
     // 落点：security 四落点（门禁+脱敏+唆使防御注入——access-tier §八；
-    // loop/after-run = run 级审批授权清除，2026-12 功能增强）；
+    // loop/after-run = run 级审批授权清除，2026-09-19 功能增强）；
     // web-tools 工具行（能力供给）
     expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result', 'loop/before-run', 'loop/after-run']);
     expect(cat.extensions.find((e) => e.name === 'web-tools')).toMatchObject({ automatic: true, targets: [] });
@@ -437,7 +443,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     expect(personaFields.map((f: string | { name: string }) => (typeof f === 'string' ? f : f.name))).toEqual(['text', 'file', 'enabled']);
     expect(personaFields.every((f: string | { description?: string }) => typeof f === 'string' || typeof f.description === 'string')).toBe(true);
     expect(cat.extensions.find((e) => e.name === 'persona')?.configNs).toBe('persona');
-    // web-tools 2026-10 起无可配置项（fields 移除 → 无 configNs/配置弹窗）：
+    // web-tools 2026-09-19 起无可配置项（fields 移除 → 无 configNs/配置弹窗）：
     // web_search 缺省 provider/参数由全局设置「搜索引擎」页（searchProviders 池）控制
     expect(cat.extensions.find((e) => e.name === 'web-tools')?.configNs).toBeUndefined();
     // mcp 可配置面（settings.mcp 分层：清单文件 file + enabled 门控）：

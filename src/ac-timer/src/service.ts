@@ -100,7 +100,7 @@ const repeatOf = (entry: TimerEntry) =>
 
 /**
  * 日历重排地板：触发后计算出的下次延迟小于该值 → 跳过本周期（推到
- * 再下一个）。修复 2026-09 双投递：墙上时钟比真实慢数秒（Windows 渐进
+ * 再下一个）。修复 2026-09-17 双投递：墙上时钟比真实慢数秒（Windows 渐进
  * 校时常态）时，setTimeout 到点回调读 Date.now() 仍略早于目标时刻，
  * msUntilTime 返回 2~5s 小正值 → 同一天重排再触发一次（自会话出现
  * "计划前数秒 + 整点"两条相同 event）。日历条目（time/workday/holiday）
@@ -387,7 +387,7 @@ export class TimersService extends Service {
       return;
     }
 
-    // 重启防重（2026-09 双投递根因：旧进程投递在途被硬杀，记账未落盘；
+    // 重启防重（2026-09-17 双投递根因：旧进程投递在途被硬杀，记账未落盘；
     // 新进程 boot → arm 算出"距目标 2~5s"再排程 → 整点二次投递。
     // 证据：executedCount 与天数一致（每天恰 +1）但 event 双条）。
     // 守卫：日历条目、有触发史（lastTriggeredAt）、本刻距目标 < 10s——
@@ -458,7 +458,7 @@ export class TimersService extends Service {
         isCalendar(entry.mode)
           ? nextMs()
           : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax);
-      // 目标会话消亡门控（2026-12 会话维度定时）：条目带着已不存在的会话键
+      // 目标会话消亡门控（2026-09-26 会话维度定时）：条目带着已不存在的会话键
       // 回投，deliver 会把提醒写进无人消费的孤儿桶（sessions/<sid>/ 文件
       // 复活）。独立会话归档/移除、群解散是持久事实——与 activeHours 同款
       // 慢通道形态：跳过本轮不计数，重排下一周期（会话可能重建/恢复）。
@@ -539,7 +539,7 @@ export class TimersService extends Service {
       if (!stillArmed()) return;
       // 重排：日历重算目标时刻；delay/random 用 nextDelay。
       // 日历地板（CALENDAR_RESCHEDULE_FLOOR_MS）：触发后算出的下次延迟
-      // 小于地板 → 推到再下一周期。修复 2026-09 双投递（睡眠唤醒/渐进
+      // 小于地板 → 推到再下一周期。修复 2026-09-17 双投递（睡眠唤醒/渐进
       // 校时使墙上时钟落后单调时钟数秒~数分钟）：setTimeout 单调时钟
       // 准点回调时 Date.now() 仍早于目标时刻 → msUntilTime 返回 2~5s
       // 小正值 → 同一天重排再触发（自会话出现"计划前数秒 + 整点"两条
@@ -654,7 +654,7 @@ export class TimersService extends Service {
   }
 
   /**
-   * 条目 conversationId 的目标会话是否仍活跃（2026-12 会话维度定时）。
+   * 条目 conversationId 的目标会话是否仍活跃（2026-09-26 会话维度定时）。
    * 键形判据（对桶模型的键词汇）：含 '~' = 对桶（pairKey/对角线，无
    * 生命周期语义）→ 恒存活；无 '~' = 独立会话 sid（uuid）或群 id →
    * singles 注册表（active 且未归档/移除）/ group 拓扑。服务未装 =
@@ -731,13 +731,13 @@ export class TimersService extends Service {
           : [owner];
       for (const target of targets) {
         if (!this.ctx.agents.has(target)) continue;
-        // 会话键优先序（2026-12 会话维度定时）：
+        // 会话键优先序（2026-09-26 会话维度定时）：
         //   1) entry.conversationId——用户设提醒时所在会话（timer 工具
         //      从执行身份烘焙）。sender='user'：投递目标 Agent = 该会话
-        //      引用的 Agent（memoryBucketOf 据此把记忆锚到
-        //      pairKey(target,'user') 对桶——与用户直答同键，提醒接上
-        //      用户视线内的会话语境；sender='event'/target 会使 sid 桶
-        //      锚到永远空的对角线桶）。
+        //      引用的 Agent（提醒落用户视线内的会话桶，接上语境；
+        //      sender='event'/target 会使提醒落对角线自会话桶，
+        //      脱离用户视线）。（旧 memoryBucketOf 锚桶依据已随 cr-4
+        //      记忆时间线退役——记忆归人格时间线，不再按桶锚定。）
         //   2) M19/D2 原语义：自会话桶 pairKey(target, target)（对角线）
         //      ——sender = 目标自身（自会话语义），source='event'。
         //      与用户直答对桶 pairKey(viewer, target) 分离，定时自唤醒

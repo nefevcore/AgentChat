@@ -54,7 +54,7 @@ async function boot(): Promise<Harness> {
   const agents = new AgentsService(ctx);
   const tools = new ToolsService(ctx);
   void tools;
-  // conv-settings（2026-12 估算失真修复测试）：system-prompt 干跑按
+  // conv-settings（2026-09-18 估算失真修复测试）：system-prompt 干跑按
   // 「会话覆盖 ?? Agent tags」收窄工具面——ctx.get('convSettings') 读面
   const convSettings = new ConvSettingsService(ctx, { root });
   void convSettings;
@@ -406,12 +406,12 @@ describe('ac-agent-admin 文档 / 预览', () => {
     expect(started).toEqual([]); // 干跑不发 run 事件
   });
 
-  it('system-prompt 干跑工具面按会话模式收窄（2026-12 估算失真修复）：request.tools = router 真实 run 同口径', async () => {
+  it('system-prompt 干跑工具面按会话模式收窄（2026-09-18 估算失真修复）：request.tools = router 真实 run 同口径', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     await rpc(ws, 'agents/create', 'r1', { config: { id: 'coder', model: 'm', tags: ['infra'] } });
     h.ctx.tools.register({ name: 't1', execute: () => ({ ok: true }) });
-    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), injection: 'mode' }); // 2026-12 注入轴：mode 替身
+    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), injection: 'mode' }); // 2026-09-21 注入轴：mode 替身
     h.ctx.tools.register({ name: 't2', execute: () => ({ ok: true }) });
     // 干跑工具面观察器（主档瀑布——记录送进装配链的 request.tools）
     const seen: Array<string[] | undefined> = [];

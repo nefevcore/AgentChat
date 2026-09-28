@@ -188,7 +188,7 @@ export class SingleBoardService extends Service {
   }
 
   /**
-   * 增量合并 singles/updated 帧（2026-12 卡顿优化）：
+   * 增量合并 singles/updated 帧（2026-09-24 卡顿优化）：
    * 载荷 = 变更后终值 + 类别——本地 upsert，零 RPC。
    *   · created/updated/archived → 原地替换或插入（保持列表的最近活动序——
    *     新条目插到最前；lastActivity 帧不带，沿用旧条目值，created 无值
@@ -232,7 +232,7 @@ export class SingleBoardService extends Service {
   /** 创建并立即进入会话 */
   async create(payload: SingleCreatePayload): Promise<SingleSession> {
     const d = await createSingle(payload, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
-    // 2026-12 卡顿优化：不再全量 refresh 后经列表 find 激活——created 帧的
+    // 2026-09-24 卡顿优化：不再全量 refresh 后经列表 find 激活——created 帧的
     // 增量合并会更新列表，激活直接用 RPC 返回值（省一次 379 会话全量扫描
     // + 等待；此前「点新建 → 卡 → 进入」的串行链在此拆断）
     this.mergeUpdate(d.session, 'created', { local: true });
@@ -325,7 +325,7 @@ export class SingleBoardService extends Service {
   async updateSession(sessionId: string, payload: SingleUpdatePayload): Promise<SingleSession | null> {
     const d = await updateSingle(sessionId, payload, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
     // 帧增量合并（updated 帧同值到达时幂等）；上下文重建直接用服务端回显值
-    // ——不再全量 refresh 后 find（2026-12 卡顿优化，同 create）
+    // ——不再全量 refresh 后 find（2026-09-24 卡顿优化，同 create）
     this.mergeUpdate(d.session, 'updated', { local: true });
     if ((payload.agentId !== undefined || payload.model !== undefined) && this.activeSingleId.value === sessionId) {
       const model = typeof d.session.model === 'string' && d.session.model ? d.session.model : undefined;

@@ -112,7 +112,7 @@ export function mergeHistoryPage(
   viewerId = 'user',
 ): { merged: ChatMessage[]; userCount: number } {
   const raw = isFirstPage ? incoming : [...incoming, ...existing];
-  // 去重键 = persistedMsgId + id 双键（2026-12 步行锚点修复）：多步轮步行
+  // 去重键 = persistedMsgId + id 双键（2026-09-21 步行锚点修复）：多步轮步行
   // 共享收束行 message_id（同锚）但 id（sid）各异——单键去重会把同轮第二条
   // 起的步行全部吞掉；双键下「锚+渲染 id 都相同」才判重（历史行与直播行
   // 重复投递的场景两者皆同，去重语义不回归）。
@@ -164,7 +164,7 @@ interface FeedAgentMsg {
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
 const MERGE_GAP_MS = 10 * 60 * 1000;
 
-/** 注入型 event 行判定（2026-12 注入卡）：source.kind 非机制词
+/** 注入型 event 行判定（2026-09-26 注入卡）：source.kind 非机制词
  *  （event/error 的 UI 决策词）= 注入材料行（skill 等）——不拆轮，
  *  原位挂进当前在场轮。机制行（timer 触发等）与无 source 行维持
  *  event 分隔符通道。kind 收窄 string 再比：toHistoryMessages 把存储
@@ -483,7 +483,7 @@ function turnContentSig(t: Turn): string {
  * 判定规则（O(n) 指针/签名比较，常数极小，远低于 markdown/DOM 开销）：
  * - streaming 标志或签名完全相同 → 零重建，整体复用；
  * - 仅最后一条消息签名变化 → 前缀 turn 复用身份，只替换最后一个 turn；
- * - 多条消息变化（步边界：旧步关闭 + 新步占位；2026-12 性能补强）→
+ * - 多条消息变化（步边界：旧步关闭 + 新步占位；2026-09-24 性能补强）→
  *   全量计算 buildTurns 后按 turn 内容签名前缀复用旧对象身份——
  *   未变化轮次的组件 props 身份稳定，不触发重渲染（此前步边界一步
  *   一全量重建 = 多步 run「越跑越卡」的来源）；
@@ -688,7 +688,7 @@ export function pairMessageToChatMessage(m: {
   message_id?: string;
   timestamp?: string;
   attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
-  /** 注入行透传（2026-12 注入卡；见返回对象注释） */
+  /** 注入行透传（2026-09-26 注入卡；见返回对象注释） */
   source?: unknown;
   contextContent?: string;
 }, fallbackAgentId: string): ChatMessage {
@@ -711,7 +711,7 @@ export function pairMessageToChatMessage(m: {
     agent_id: m.agent_id ?? fallbackAgentId,
     name: m.name,
     label: m.label,
-    // 注入行透传（2026-12 注入卡）：source 供挂轮判定、contextContent 供
+    // 注入行透传（2026-09-26 注入卡）：source 供挂轮判定、contextContent 供
     // 展开体（toHistoryMessages 对注入型行携带）——与 historyMsgToChatMessage
     // 同款词汇
     ...(m.source !== undefined ? { source: m.source } : {}),

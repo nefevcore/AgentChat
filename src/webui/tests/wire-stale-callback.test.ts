@@ -2,7 +2,7 @@
 // ============================================================
 // webui/tests/wire-stale-callback.test.ts —— 连接回调归属守卫验收
 //
-// 2026-12 前端流式叠词反馈根因：WireRpcClient 的连接生命周期回调
+// 2026-09-26 前端流式叠词反馈根因：WireRpcClient 的连接生命周期回调
 // （onopen/onerror/onclose/onmessage）不校验发起方 socket 是否仍是
 // 当前 this.ws——旧连接被顶替后，其迟到回调仍无条件改写共享单例态。
 // 复现链：A 断网（onclose 在事件队列排队中）→ visibilitychange/rpc.call

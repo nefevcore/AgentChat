@@ -1,6 +1,6 @@
 // ============================================================
 // ac-openai-completions：per-request headers 传输层键（单次覆盖构造
-// 默认、同名覆盖、序列化前剥离不进 body）——2026-09 会话亲和头支持
+// 默认、同名覆盖、序列化前剥离不进 body）——2026-09-24 会话亲和头支持
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { OpenAICompletions } from '../src/index.ts';

@@ -29,7 +29,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 describe('PROVIDER_REGISTRY', () => {
-  it('2026-10 收敛：恰好含 tavily/deepseek 两个键（serpapi/brave/duckduckgo 不在表）', () => {
+  it('2026-09-06 收敛：恰好含 tavily/deepseek 两个键（serpapi/brave/duckduckgo 不在表）', () => {
     expect(Object.keys(PROVIDER_REGISTRY).sort()).toEqual(['deepseek', 'tavily']);
     expect(PROVIDER_REGISTRY).not.toHaveProperty('serpapi');
     expect(PROVIDER_REGISTRY).not.toHaveProperty('brave');

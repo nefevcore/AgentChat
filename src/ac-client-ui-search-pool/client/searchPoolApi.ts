@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-search-pool/client/searchPoolApi.ts —— 搜索池
-// 数据面写侧（2026-11 自 ui-llm-pool poolApi 拆分迁入——原
+// 数据面写侧（2026-09-11 自 ui-llm-pool poolApi 拆分迁入——原
 // savePoolDomain 联合域收窄：模型池写面留 ui-llm-pool，本包只管
 // searchProviders 域，避免 domain→domain 小件引用）
 //

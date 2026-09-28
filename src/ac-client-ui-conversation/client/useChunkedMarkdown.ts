@@ -7,7 +7,7 @@
 //   - 同一帧内多次 update 只渲染一次（rAF 合并）。
 // 流式结束时调用 flush() 全量渲染一次，保证最终输出正确。
 //
-// idle-commit（2026-12 反馈修正）：流式态下 delta 断流 ≥ IDLE_COMMIT_MS
+// idle-commit（2026-09-13 反馈修正）：流式态下 delta 断流 ≥ IDLE_COMMIT_MS
 // 且存在待提交尾部时，把全部内容整体提交渲染——ask_questions 等工具
 // 挂起窗口 d.streaming 恒真（run 级信号覆盖工具执行期），末段文本会
 // 一直停在转义纯文本态直到 run 收束，等待时长 = 用户阅读作答时长；

@@ -282,7 +282,7 @@ watch(
   },
 );
 
-/** 保存守门（cr-29）：编辑已存条目时，Key 掩码被清成空串（= 删凭据）
+/** 保存守门（cr-21）：编辑已存条目时，Key 掩码被清成空串（= 删凭据）
  *  或 base_url 将被清空（含误触提供方下拉换模板——连接将整体失效）
  *  都是高破坏动作——先弹确认，用户取消则不保存。 */
 async function guardDestructiveSave(entry: Record<string, any>, oldEntry: PoolEntry | undefined): Promise<boolean> {

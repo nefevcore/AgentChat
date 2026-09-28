@@ -2,7 +2,7 @@
 // ac-client-ui-desktop-storage/tests/desktop-update.test.ts
 // —— 桌面壳更新面回归（静默预下载 + sha256/size 双校验 + 桥路由）
 //
-// 需求背景（2026-09 用户裁决：不做静默安装；静默预下载免打扰）：
+// 需求背景（2026-09-24 用户裁决：不做静默安装；静默预下载免打扰）：
 //   · 壳层发现新版即后台下载安装包（哈希/大小双校验），完成不提醒；
 //   · 版本面板经桥见就绪态，点「安装」才拉起安装器（win=NSIS 向导，
 //     覆盖安装自动带出 HKCU InstallLocation 记的原目录——NSIS 模板
@@ -214,7 +214,7 @@ describe('下载链路（downloadInstallerAsync → 校验 → 状态面 → ins
     await main.downloadInstallerAsync(asset);
     const st = main.updateStatusJson();
     expect(st.status).toBe('failed');
-    // 语义（2026-09 续传改造）：字节数与 manifest 不符视为「传输不完整」，
+    // 语义（2026-09-24 续传改造）：字节数与 manifest 不符视为「传输不完整」，
     // 走断点续传重试；重试用尽仍未补齐 → failed（绝不以半包进 ready）。
     expect(String(st.error)).toContain('传输不完整');
   });

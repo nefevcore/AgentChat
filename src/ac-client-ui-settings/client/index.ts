@@ -24,7 +24,7 @@ declare module 'ac-client-slots' {
     /** Agent 编辑页页签（★settings-tab:agent 别名；base props = agentId/raw/effective/emit） */
     'agent-pane:tab': { kind: 'list'; props: { agentId?: string } };
     /**
-     * 设置节选举席（M28 P2 + 2026-11 左树数据化）
+     * 设置节选举席（M28 P2 + 2026-09-11 左树数据化）
      *
      * 贡献 meta 契约：{ section: 选举键（selectedNode 匹配）,
      * label: 左树叶词条 } + 顶层 order（叶序轴，升序稳定）。左树叶与
@@ -63,7 +63,7 @@ export const settingsClientPlugin = clientPlugin({
       description: 'Agent 编辑页页签（agent-pane:tab = settings-tab:agent 别名，D13）',
       ownerProps: { noExtraTogglePath: true },
     });
-    // 设置节选举席（M28 P2 + 2026-11 左树数据化）：域行大件节贡献登记处
+    // 设置节选举席（M28 P2 + 2026-09-11 左树数据化）：域行大件节贡献登记处
     // ——SettingsPanel 按 selectedNode 对 meta.section 选举渲染（不经
     // settings:main-view outlet，防叠加；M30 D1），左树平铺叶自贡献
     // meta.label/order 派生（sectionTree.ts）——一节一叶同源，行卸载
@@ -72,7 +72,7 @@ export const settingsClientPlugin = clientPlugin({
       key: 'settings:section',
       kind: 'list',
       elect: true,
-      description: '设置节选举席（SettingsPanel 按 selectedNode × meta.section 选举渲染；左树叶自贡献 meta.label + 顶层 order 派生——一节一叶同源，行装卸叶/节同步退场；M28 P2 / M30 D1 / 2026-11 左树数据化）',
+      description: '设置节选举席（SettingsPanel 按 selectedNode × meta.section 选举渲染；左树叶自贡献 meta.label + 顶层 order 派生——一节一叶同源，行装卸叶/节同步退场；M28 P2 / M30 D1 / 2026-09-11 左树数据化）',
       ownerProps: { noExtraTogglePath: true },
     });
     // 设置面板出厂贡献（overlay 席位——原 AppFrame 内联内容）

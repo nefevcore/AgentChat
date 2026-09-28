@@ -31,10 +31,10 @@
 //     conversationPartner?, override? }——override 完全替换静态块
 //     （src SYSTEM.md 覆盖语义；对话信息块仍追加）；布尔项缺省 true。
 //
-// 形态门控（2026-12）：独立会话（singles）= 用户与单 Agent 的专注对话
+// 形态门控（2026-09-13）：独立会话（singles）= 用户与单 Agent 的专注对话
 // ——多 Agent 会话知识（术语约定块 + 多Agent协作/群聊协作指引条目）不
 // 注入；主动安排（timer）与系统管理（system_restart）条目同受形态门控
-// （前者：独立会话有后台任务反馈即可；后者：2026-12 注入轴重构起工具
+// （前者：独立会话有后台任务反馈即可；后者：2026-09-21 注入轴重构起工具
 // 面无形态裁剪——system_restart 不再排除独立会话，指引只随在场不教）。
 // ============================================================
 import * as path from 'node:path';
@@ -254,7 +254,7 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   // ── 行为策略类 ──
   // 7. 主动安排（旧轨回归：audit 明判框架级行为策略——"自主性"是
   //    工具描述不载的行为决策；形态门控：独立会话不注入——后台任务
-  //    反馈已覆盖"记住等通知"模式，2026-12 裁决；工具面不裁剪）
+  //    反馈已覆盖"记住等通知"模式，2026-09-13 裁决；工具面不裁剪）
   if (!single && names.has('timer')) {
     add('主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。');
   }
@@ -265,7 +265,7 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   }
 
   // 9. 并行子任务（多轮会话：派发克制/续用优先/mode 决策/止损与清理；边界：
-  //    依赖后续输出的任务不适合派出。派发克制 = 2026-12 追加：实测 Agent
+  //    依赖后续输出的任务不适合派出。派发克制 = 2026-09-15 追加：实测 Agent
   //    倾向一轮铺开多个 subagent，结果收集与纠偏成本陡增——少量试探、
   //    看清进展再补派）
   if (names.has('subagent')) {
@@ -273,7 +273,7 @@ function buildGuidelinesBlock(toolNames: string[], single = false): string {
   }
 
   // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界；指引随
-  //     工具在场而教——2026-12 注入轴重构起 system_restart 不限独立会话）
+  //     工具在场而教——2026-09-21 注入轴重构起 system_restart 不限独立会话）
   if (names.has('system_restart')) {
     add('系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。');
   }
@@ -323,7 +323,7 @@ function buildEnvBlock(
   // 工作目录：恒完整路径展示（不给相对形态——模型无需换算基准）。
   // 相对输入（security.workdir）经 path.resolve 具体化，锚点 process.cwd()
   // 与沙箱真实解析同源（ac-sandbox-core createSandboxResolver 同款）。
-  // 基准优先级：会话挂载工作区（singles，2026-12 裁决——工作目录指向
+  // 基准优先级：会话挂载工作区（singles，2026-09-13 裁决——工作目录指向
   // 工作区根，与沙箱基准 sandboxWorkdir 同源）> 显式 security.workdir >
   // Agent 专用空间 files/<id> > 工作区根 > process.cwd()（'./' 兜底即
   // 沙箱缺省基准）。
@@ -487,7 +487,7 @@ export function apply(ctx: Context) {
     // 有效工具名（门控依据）：request.tools 白名单 ?? 全部已注册工具；
     // 程序化 run（请求面恰为 mode 工具集）换成能力面展开——PTC 下
     // request.tools 已收窄成 ['run_code']，直读会误伤全部按「工具在场」
-    // 门控的指引/环境行（2026-12 PTC 基线段丢失修复，widenToolsForGating
+    // 门控的指引/环境行（2026-09-21 PTC 基线段丢失修复，widenToolsForGating
     // 单源——内部 ctx.get root-traced 解析，tools 行缺席 = 回落请求面）。
     const toolNames = widenToolsForGating(ctx, request.agent, request.conversationId, request.tools);
 

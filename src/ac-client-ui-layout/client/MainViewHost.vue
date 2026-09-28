@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// client/MainViewHost.vue —— 主区视图选举宿主（2026-11 主区语义纯化）
+// client/MainViewHost.vue —— 主区视图选举宿主（2026-09-11 主区语义纯化）
 //
 // main 席位 = keyed 选举席（多选一）：会话（视角容器 PerspectiveHost）/
 // 运行矩阵（RunTracking）/未来其他主区视图同轴竞争——active 谓词 ×

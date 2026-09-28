@@ -155,7 +155,7 @@ async function copyCode() {
       </ScrollableViewport>
     </div>
 
-    <!-- 执行中（无摘要返回时）：琥珀旋转环——2026-12 全前端"忙"指示统一
+    <!-- 执行中（无摘要返回时）：琥珀旋转环——2026-09-18 全前端"忙"指示统一
          （tool-spin-ring 同款；类名复用以进 prefers-reduced-motion 豁免清单）。
          参数流式阶段（code 尚未到场——prep 占位 arguments 空，升级点在 delta-end）
          明示「程序体生成中」——此前该窗口只显示裸 spinner，观感即「代码面板被

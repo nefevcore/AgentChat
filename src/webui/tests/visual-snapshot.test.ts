@@ -5,46 +5,46 @@
 // 顺序是本保险成立的前提。此后各阶段验收：快照 diff 全绿才过
 // （白名单 = 计划内有意行为改进；白名单外任何像素差异即回归）
 // 白名单登记（计划内有为变更，随基线重建并记录）：
-//   · S3（2026-11）：插件目录/配置页出现 `runview` 行（ac-client-runview
+//   · S3（2026-09-07）：插件目录/配置页出现 `runview` 行（ac-client-runview
 //     client-only 行入册——扩展目录随行集生长的既定语义；M27.1 该行
 //     改名 ui-runview）；07/08 两景。
-//   · S3-1a（2026-11）：插件目录/配置页事件树出现
+//   · S3-1a（2026-09-07）：插件目录/配置页事件树出现
 //     `webui/boot-graph-changed` 事件行（ac-webui boot graph 变更通知 +
 //     ws-bridge 转发监听入链——热通道既定语义）；07/08 两景，23px 级。
-//   · M27.1（2026-11）：插件目录/配置页出现 `ui-<域>` 行（六域前端行
+//   · M27.1（2026-09-07）：插件目录/配置页出现 `ui-<域>` 行（六域前端行
 //     ac-client-ui-* 逐域入册：todo/jobs/workspace/singles/groups/agents，
 //     收尾 runview 改名 ui-runview——D19 改裁：前端插件一律
 //     ac-client-ui-* 包，扩展目录随行集生长的既定语义）；07/08 两景，
 //     每域一次基线重建。
-//   · M27.2（2026-11）：插件目录/配置页出现 `ui-theme` 行（基础七件
+//   · M27.2（2026-09-08）：插件目录/配置页出现 `ui-theme` 行（基础七件
 //     出包首件，phase:'base'——逐件出包进行中）；07/08 两景。
-//   · 工作区语义归位（2026-11）：main:workspace → workspace 席位自
+//   · 工作区语义归位（2026-09-11）：main:workspace → workspace 席位自
 //     chat-area 内嵌上提为第四层区域（与 sidebar/list-panel/main 同级）
 //     ——工作区把手/树为区域级显隐，不再随 chat-area 让位：运行矩阵
 //     视图右缘出现 rail 把手（36×40px @ x1243..1279/y112..151），
 //     05 矩阵景 + 06-09 设置景（背景 = 矩阵视图）可见；其余各景几何
 //     不变（rail 锚点自 main-area 改 app-layout，收起时右缘同位）。
-//   · sidebar 行归并 layout（2026-11）：插件目录/配置页的 `ui-sidebar`
+//   · sidebar 行归并 layout（2026-09-11）：插件目录/配置页的 `ui-sidebar`
 //     行消失（ac-client-ui-sidebar 并入 ui-layout——行集随归并收缩的
 //     既定语义）；07/08 两景。
-//   · tasks 侧栏选区移除（2026-09）：辅助活动栏「任务 · 目标」按钮
+//   · tasks 侧栏选区移除（2026-09-13）：辅助活动栏「任务 · 目标」按钮
 //     消失（aux-sidebar tasks 选区整体退役——主区 dock 已直观展示，
 //     侧栏纵览冗余）；各景右缘辅助活动栏少一按钮位。
-//   · 圆角 token 单源统一（2026-12）：--r-* 对齐三档语义 6/10/14
+//   · 圆角 token 单源统一（2026-09-13）：--r-* 对齐三档语义 6/10/14
 //     （webui-kit/tokens.css 单源；main.css --radius-* 改别名消费）——
 //     此前无层别名层把 --radius-* 压回 4/8/12，6/10/14 实未生效。
 //     全站控件/容器圆角随 token 升档（按钮 4→6、卡片 8→10、气泡
 //     12→14 感观差异），本轮触及组件的散落硬编码圆角（3/4/5/8px）
 //     归位 token；全部景基线重建。
-//   · tracking 入口统一后测试适配（2026-12）：主活动栏「Agent 运行
+//   · tracking 入口统一后测试适配（2026-09-13）：主活动栏「Agent 运行
 //     跟踪」按钮移除（辅助活动栏 rail 为唯一桌面入口），04 景拍摄
 //     路径改点 aux rail「运行跟踪」——面板形态由主侧边栏内嵌变
 //     aux 侧栏展开（右侧分屏），04 各主题基线随路径变化重建。
-//   · 设置默认节改选「Agent 设置」（2026-12）：SettingsPanel 默认选中
+//   · 设置默认节改选「Agent 设置」（2026-09-21）：SettingsPanel 默认选中
 //     与守卫回落偏好叶 llmPools → agents（用户反馈：打开全局设置最常
 //     管理的是 Agent）——06 设置景默认页由「模型管理」变「Agent 设置」
 //     （左树高亮叶 + 右区列表），各主题基线重建。
-//   · 设置左树选中态对齐会话列表（2026-12）：.sp-tree-leaf.active 从
+//   · 设置左树选中态对齐会话列表（2026-09-23）：.sp-tree-leaf.active 从
 //     --bg-surface+--line-strong 描边改 --role-selected-bg 主色系底 +
 //     透明边框 + 无阴影（与独立会话/Agent 列表选中态一致——用户反馈）
 //     ——06-09 设置景（06 直接可见；07-09 背景含设置景）左树高亮叶
@@ -197,7 +197,7 @@ async function captureSet(context: import('playwright').BrowserContext, theme: '
   await page.waitForTimeout(300);
   await shot(page, `${theme}-03-sessions`);
 
-  // ④ 运行清单面板（aux rail「运行跟踪」按钮——2026-12 入口冗余清理后
+  // ④ 运行清单面板（aux rail「运行跟踪」按钮——2026-09-13 入口冗余清理后
   //    主活动栏 tracking 按钮移除，辅助活动栏 rail 为唯一桌面入口）
   await page.click('.aux-activity-bar [title="运行跟踪"]');
   await page.waitForSelector('text=矩阵快照', { timeout: 10_000 });

@@ -90,7 +90,7 @@ describe('视图派生化（M21 步骤 2）', () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     // 字节等价不变量在**对话级路径**上锁定（replayTrajectory=off 读者：
-    // 增量视图只投最终文本）；轨迹展开（2026-10 起缺省开）读者的等价性
+    // 增量视图只投最终文本）；轨迹展开（2026-09-06 起缺省开）读者的等价性
     // 由下方"轨迹回放开"用例单独锁定（2026-09-05 修复：视图对 replay 开
     // 的读者按步展开，两态均与 history(conv,{viewer}) 字节一致）。
     ctx.agents.register({ id: 'a', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
@@ -142,7 +142,7 @@ describe('视图派生化（M21 步骤 2）', () => {
         return { ok: true, output: '轨迹工具结果' };
       },
     });
-    // replayTrajectory 缺省开（2026-10 质量优先翻转）——不设 settings
+    // replayTrajectory 缺省开（2026-09-06 质量优先翻转）——不设 settings
     ctx.agents.register({ id: 'a', model: 'traj-1' });
     await ctx.conversation.deliver('a', '带工具的问题');
     // 第二轮：信封应携带第一轮的完整轨迹（assistant tool_calls + tool 结果行 + 终稿）

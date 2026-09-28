@@ -53,7 +53,7 @@ export interface ConvSettings {
    */
   toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none';
   /**
-   * 浏览器能力会话级覆盖（2026-10 CDP 化收尾——输入框「实验性 → 浏览器」
+   * 浏览器能力会话级覆盖（2026-09-26 CDP 化收尾——输入框「实验性 → 浏览器」
    * 档位钮）：值域 'observe' | 'manipulate' | 'inject' | 'disabled'。
    * 无键 = 跟随 Agent tags（browser-tier 抉择组）；有值则覆盖层级判定
    * （observe ⊂ manipulate ⊂ inject 单源序不变，disabled = 本会话 browser

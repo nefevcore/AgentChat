@@ -1,6 +1,6 @@
 // ============================================================
-// 轨迹回放开关（M21/D14，§2.5；2026-08-30 P2 收口；2026-10 缺省翻转）：
-// 布尔两态——true（缺省，2026-10 起质量优先）= viewer 自己的回复行
+// 轨迹回放开关（M21/D14，§2.5；2026-08-30 P2 收口；2026-09-03 缺省翻转）：
+// 布尔两态——true（缺省，2026-09-03 起质量优先）= viewer 自己的回复行
 // steps[] 全量展开（run 内消息序复现）；false = 对话级。读取 =
 // settingsOf 合成（全局默认层 settings.session ∪ Agent 差异层）+
 // 存量 config 键双读过渡（显式布尔受尊重，两处皆无才走新缺省 true）。
@@ -55,7 +55,7 @@ afterEach(async () => {
 });
 
 describe('轨迹回放开关（D14）', () => {
-  it('两态 golden：缺省展开（2026-10 翻转）→ 关闭后对话级；peer 视角不展开', async () => {
+  it('两态 golden：缺省展开（2026-09-03 翻转）→ 关闭后对话级；peer 视角不展开', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'a', model: 'none' });

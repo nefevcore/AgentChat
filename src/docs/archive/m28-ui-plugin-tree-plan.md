@@ -1,6 +1,6 @@
 # M28 UI 插件树拆分计划 — 域资产归位 + 宿主退化（插件树 = slot 树）
 
-> **【存档 2026-11 · M30 收官后整理】** M28 全部落地（§10 进度表为终态
+> **【存档 2026-09-11 · M30 收官后整理】** M28 全部落地（§10 进度表为终态
 > 实录）。席位/行现状以 `../ui-rows-and-slots.md` 为准；文中
 > `tracking:dock-widget` 已于 M30 D5 改名 `conversation:dock-widget`、
 > hostLedger 相关表述为 M27.2-1 前快照。
@@ -9,7 +9,7 @@
 > 五件一体同日落地：agentsStore 切 roster 取用口 + store 座位实例轴 +
 > queue/ask dock 出厂贡献化 + stores/{feed,chat} 双模对子退役 + api/
 > 门面层退役）；T7 = 保守案（注记 0）**。
-> 前置 = M27 全量收口（2026-11——见
+> 前置 = M27 全量收口（2026-09-08——见
 > `m27-handoff.md` 进度快照 + `m27-webui-slot-refactor-plan.md` D19/S4
 > 修订段「已实施」标注）。本文收编 `m27-handoff.md` §4 后置项，并按
 > 「宿主退化为 slot 提供者、一切视觉内容成为贡献行叶子」的思路展开为

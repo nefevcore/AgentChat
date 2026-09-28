@@ -810,7 +810,7 @@ const SOURCE_LABELS: Record<string, string> = {
         <div class="plugin-info">
           <div class="plugin-title-row">
             <!-- 主名 = 人类可读 label（普通用户视角；无 label 的行回落包名），
-                 包名弱化为次级 mono 标识（开发者锚点）——2026-11 后续反馈反转
+                 包名弱化为次级 mono 标识（开发者锚点）——2026-09-05 后续反馈反转
                  旧「包名主位」裁决：普通用户不在意包名 -->
             <span class="plugin-name">{{ row.label ?? row.pkgName }}</span>
             <span v-if="row.label && row.label !== row.pkgName" class="plugin-alias" :title="`装配行包名：${row.pkgName}`">{{ row.pkgName }}</span>
@@ -1319,7 +1319,7 @@ const SOURCE_LABELS: Record<string, string> = {
   border: 1px solid var(--line);
 }
 /* 技术包名（label 主名旁的次级标识）：mono 小字淡色——普通用户不在意，
-   开发者仍可锚点定位（反转旧「包名主位」裁决，2026-11 后续反馈） */
+   开发者仍可锚点定位（反转旧「包名主位」裁决，2026-09-05 后续反馈） */
 .plugin-alias { font-size: 10.5px; font-weight: 400; color: var(--text-3); font-family: var(--font-mono); }
 /* 徽章家族（状态/⚙ 可配置/能力标签）已统一迁 ui/badge.css .ui-badge——
    组件 scoped 不再自建（防两份漂移） */

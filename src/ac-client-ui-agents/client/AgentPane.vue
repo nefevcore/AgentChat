@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ============================================================
 // AgentPane.vue —— Agent 配置（tabs：基本信息 / 模型 / 定时任务 / 插件配置）
-// 「插件配置」（原「装配」，2026-10 与插件库页签统一命名）：扩展行为/差异层
+// 「插件配置」（原「装配」，2026-09-03 与插件库页签统一命名）：扩展行为/差异层
 // + 工具意图——与插件库「插件配置」同词汇（软停用 per-Agent 覆盖）；
 // 沙箱白名单（settings.security.allowedPaths）的配置入口也在此
 // （security 扩展卡片——原「安全」页签已收口并入）。
@@ -17,7 +17,7 @@ import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
 import TagChoice from './TagChoice.vue';
 // 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）；
-// 模型发现/池模型归一化经 ui-llm-pool（2026-11 语义归位：池域词汇，
+// 模型发现/池模型归一化经 ui-llm-pool（2026-09-11 语义归位：池域词汇，
 // Agent 面消费 = domain→domain 契约词汇边，白名单显式裁决）
 import { fetchPoolModels, poolModelEntries } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { uploadAvatar, deleteAvatar, fetchLlmProviders, type LlmProviderStat } from './index.ts';
@@ -372,7 +372,7 @@ const TOOL_TAG_LABELS: Partial<Record<string, string>> = {
   inject: '注入',
   fs_minimal: '极简文件面',
   // 档位标签（access-tier §四：tierOf 单源判定，缺省 = base-access——
-  // 驱动 needPermission 工具的权限轴门；base-access 2026-12 进目录——
+  // 驱动 needPermission 工具的权限轴门；base-access 2026-09-21 进目录——
   // 抉择组下拉需要显式缺省项）。label = 短名，语义细节在目录
   // description（胶囊关闭态文案/弹层二行/tooltip 单源）
   'base-access': '基础档',
@@ -406,7 +406,7 @@ async function refreshTagCatalog(): Promise<void> {
 }
 refreshTagCatalog();
 
-// ── 抉择组（2026-12 标签配置语义升级）：exclusive 同名词聚合为下拉
+// ── 抉择组（2026-09-21 标签配置语义升级）：exclusive 同名词聚合为下拉
 // 单选——access-tier（base/sandbox/full-access）/ tool-mode（tc-none/
 // tc-base/tc-programmatic）/ browser-tier（observe/manipulate/inject）。
 // 目录组内条目分流：抉择词进下拉、普通词照常徽章。判定面（tierOf /

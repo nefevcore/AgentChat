@@ -49,7 +49,7 @@ interface PSessionStep {
   content?: string;
   reasoning?: string;
   /**
-   * 步身份键（2026-12 身份贯通）：= `${runId}:${index}——与直播流式帧
+   * 步身份键（2026-09-24 身份贯通）：= `${runId}:${index}——与直播流式帧
    * meta.stepId 同源。历史行带此键时，前端历史合并按键控对齐（直播行与
    * journal 行同键 = 同一步，不靠内容前缀猜测）；旧行无键回落启发式。
    */
@@ -113,13 +113,13 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       if (r.steps && r.steps.length > 0) {
         // reasoning 单份存储（2026-09-20 终版）读侧：正源 = steps[].reasoning
         // 直读；存量行级 reasoning_content（迁移前旧数据）挂首步保底
-        // 行 id 基（2026-12 反馈 #3 后续）：步行（journal 活投影）message_id
+        // 行 id 基（2026-09-21 反馈 #3 后续）：步行（journal 活投影）message_id
         // 恒空——多行 steps 展开若都用 message_id-s{i} 会合成相同的 "-s0"，
         // mergeHistoryPage 按 persistedMsgId 去重把第二条起全部吞掉（运行中
         // 刷新「回放只到 journal-inject，后续 step 丢失」根因）。run 键在场
         // 即参与合成（行内 i 已保证步间唯一，run 键保证跨行唯一）；无 run
         // 的定稿行保持旧形（message_id 非空恒唯一）。
-        // 行 id 基（2026-12 分支锚点修复）：步行 message_id = **收束行真实
+        // 行 id 基（2026-09-21 分支锚点修复）：步行 message_id = **收束行真实
         // message_id**（同 run 步行同锚）——服务端按 message_id 定位的操作
         //（singles/fork、session/truncate）才能命中；此前合成的 `<base>-s{i}`
         // 在后端不存在，分支/截断锚点失效。渲染 key 去重改用下行合成 sid。
@@ -217,7 +217,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     }
     // 词汇 v2：context 行（source:event 机制行 / source:skill 技能注入）与
     // 存量 event 行同渲染位（分隔符）；注入型行（source:skill 等，UI 决策词
-    // 非 event/error）另行卡片化（2026-12 注入卡——原 label 条二期裁决落地）：
+    // 非 event/error）另行卡片化（2026-09-26 注入卡——原 label 条二期裁决落地）：
     // 注入体原文（r.content，<system-reminder>…）随行透传 contextContent，
     // 卡片展开体渲染之（展示期正文不再丢弃）；label 缺席按正文头行回落。
     const isInjectionRow = r.source !== undefined && r.source !== 'event' && r.source !== 'error';

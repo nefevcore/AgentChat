@@ -177,7 +177,7 @@ describe('S3-1b · singles 域行 client（域投影 + ctx.singleBoard 服务面
     await fiber.dispose();
   });
 
-  // ── 增量合并（2026-12 卡顿优化：singles/updated 帧本地 upsert，零 refresh）──
+  // ── 增量合并（2026-09-24 卡顿优化：singles/updated 帧本地 upsert，零 refresh）──
 
   it('created 帧 → 新条目插到列表最前；零 RPC（不触发 singles/list）', async () => {
     localStorage.clear();

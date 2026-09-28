@@ -17,7 +17,7 @@
 
 两个已确认的缺口：
 1. ~~**小缺口**：池条目未透出协议层的 `headers` 与 `timeoutMs`~~
-   **已落地（2026-10）**：`LlmPoolEntry` 增 `timeout_ms`（无进展超时，
+   **已落地（2026-09-05）**：`LlmPoolEntry` 增 `timeout_ms`（无进展超时，
    正有限数才生效）与 `headers`（网关自定义头，`normalizePoolHeaders`
    唯一解析点）可选字段，工厂透传 + 进内容签名热更重挂；同批把协议层
    超时从"总时长一刀切"改为无进展语义（原先 180s 总时长会错杀活跃长
@@ -78,7 +78,7 @@ PoolManager 弹窗"提供方"下拉增协议维度（内置提供方自带协议
 |---|---|---|
 | D1 | 协议库命名与归属 | `ac-<proto>-completions` 纯库 ×N（对齐 openai 先例）；不合并成单包多协议（单包会重新引入"协议住在框架里"的耦合） |
 | D2 | reasoning/toolCalls 分片映射深度 | 各协议原生能力差异大（Anthropic thinking 块、Gemini functionDeclarations）——首期只保 delta/text/finish/usage 映射，推理/工具分片按协议逐个补 |
-| D3 | headers / timeoutMs 小缺口是否同批 | ~~倾向同批~~ **已落地（2026-10，超前于本备忘的主体部分）**：`LlmPoolEntry` 可选字段 + 工厂透传 + 内容签名（见 §一 批注） |
+| D3 | headers / timeoutMs 小缺口是否同批 | ~~倾向同批~~ **已落地（2026-09-05，超前于本备忘的主体部分）**：`LlmPoolEntry` 可选字段 + 工厂透传 + 内容签名（见 §一 批注） |
 | D4 | 协议字段校验 | 未知 protocol → 注册时 fail-loud（对齐"缺 base_url 跳过+warn"风格，但协议错是硬错不是残留） |
 | D5 | 保留字表 | `BUILTIN_LLM_PROVIDER_NAMES` 维持现状；协议名（openai-compat/anthropic/…）建议另设小表防池条目协议名与未来内置提供方撞语义 |
 

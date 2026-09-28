@@ -2,7 +2,7 @@
 // ac-client-ui-desktop-storage/tests/desktop-bridge.test.ts
 // —— 桥端口防御链回归（P0/P1：listen EACCES 不炸壳 + 候选序列顺延）
 //
-// 背景（2026-09 桌面端用户事故）：桥 listen 3831 报 EACCES（Windows
+// 背景（2026-09-21 桌面端用户事故）：桥 listen 3831 报 EACCES（Windows
 // Hyper-V/WinNAT 动态排除区可覆盖任意高位口），原实现两重失效——
 //   1. startBridge 用同步 try/catch 包异步 listen：EACCES 经 error 事件
 //      抛出，catch 永远捕不到（虚假防御）；

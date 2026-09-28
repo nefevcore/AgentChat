@@ -80,7 +80,7 @@ describe('steer 中途注入（busy 会话 journal 落账，真实 deliver 链�
     const raw = readFileSync(join(tmp, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');
     // 核心：steer 消息必须落盘（journal 注入行——settlement 提升）
     expect(raw).toContain('中途补充：换个思路');
-    // 顺序（settlement 切段，2026-11 journal 泛化）：user → 段行(步1) → steer 注入行 → 收束行
+    // 顺序（settlement 切段，2026-09-21 journal 泛化）：user → 段行(步1) → steer 注入行 → 收束行
     const lines = raw.split('\n').filter((x) => x.trim());
     const idxOf = (needle: string) => lines.findIndex((x) => x.includes(needle));
     const iUser = idxOf('"content":"start"');

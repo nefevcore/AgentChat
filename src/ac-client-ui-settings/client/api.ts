@@ -139,7 +139,7 @@ export async function getLlmSchemas(): Promise<Record<string, any[]>> {
   return table;
 }
 
-// ── 搜索 provider 内置字段表（2026-10 收敛：仅 tavily/deepseek——与
+// ── 搜索 provider 内置字段表（2026-09-08 收敛：仅 tavily/deepseek——与
 // ac-web-search-core PROVIDER_REGISTRY 同口径；未实测的三家不保证能用，
 // 注册表与池页下拉一并摘除）──
 // 此前 getSearchSchemas 恒返回空表：PoolManager 的 providerOptions 为空、

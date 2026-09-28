@@ -1,7 +1,7 @@
 // ============================================================
 // ac-client-ui-goal/client/goalApi.ts —— goal 前端数据面
 //（M28 P1 §4.1 原案：自 conversation 随域迁入——useGoalTracking 数据源；
-// 2026-10 增写面：dock 卡直编目标）
+// 2026-09-13 增写面：dock 卡直编目标）
 //
 // goal/get RPC 直连（桶键 = conversationId：1v1 对键 / singles sid）。
 // 写面 goal/update · goal/delete 同服务直编（写口与 Agent goal 工具同一

@@ -1,6 +1,6 @@
 # ConversationView 拆分精简方案（conversation-view-split-plan）
 
-> 2026-12 立项 · 状态：**已实施**（同日四动作一次落地，验证与收口清单见 §七）。拆分对象 `ac-client-ui-conversation/client/ConversationView.vue`（762 行 → 258 行组合壳）。
+> 2026-09-24 立项 · 状态：**已实施**（同日四动作一次落地，验证与收口清单见 §七）。拆分对象 `ac-client-ui-conversation/client/ConversationView.vue`（762 行 → 258 行组合壳）。
 
 ## 一、背景与现状
 
@@ -78,7 +78,7 @@ template 主体（header 收敛为一个标签 + 四 props）、残余样式 ~25
 
 ## 三、消费方契约与兼容保障（为什么不影响项目使用）
 
-以 2026-12 grep 事实为准：
+以 2026-09-24 grep 事实为准：
 
 1. **外部引用面闭环**：引 `ConversationView.vue` 的消费方共 4 处，全部
    `defineAsyncComponent` 按文件路径引用——`ac-client-ui-conversation/client/index.ts`、
@@ -156,7 +156,7 @@ single fresh 开场居中 → 首条消息后回底部布局、断连条出现/�
 - [x] `eslint-suppressions.json` 条目随迁对账（ConversationView 5 条 → 主文件 3 + useConversationHistory 2；lint 全局存量死条目债务系拆前既有，未顺手清理他处）
 - [x] CHANGELOG 条目（Unreleased · Changed）
 
-**实施结果（2026-12）**：四动作一次落地——主文件 762 → 258 行（-66%）；
+**实施结果（2026-09-24）**：四动作一次落地——主文件 762 → 258 行（-66%）；
 identity 130 行 / history 222 行 / groupSend 54 行 / ConversationHeader 223 行。
 验证：vue-tsc（webui:typecheck）全绿；test:unit 283 文件 / 2087 用例与基线一致；
 typecheck 无新增错误（存量 ac-openai-completions 1 错与 lint 死条目债务均系拆前既有）。

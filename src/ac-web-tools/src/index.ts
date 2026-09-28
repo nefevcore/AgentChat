@@ -9,7 +9,7 @@
 //     defaultResults 等——地图 §3.4 命名空间配置 → settings[具名]；
 //     M24 A1 经 settingsOf 合成全局默认层）
 //   · browser 是 ctx.browser Service（CDP 直连——ac-cdp-core 纯库；
-//     2026-10 起 Python daemon 退役，见 src/docs/browser-cdp-plan.md）
+//     2026-09-26 起 Python daemon 退役，见 src/docs/browser-cdp-plan.md）
 //
 // browser 能力门禁（web + 权限分层复合标签）：
 //   · 工具级地板 requiredTags ['web','observe']——通用门禁（ac-security 行
@@ -45,7 +45,7 @@ export interface WebToolsRowOptions extends BrowserRowOptions {
   rawContentMaxLen?: number;
 }
 
-// ── 缺省常量（实现兜底——2026-10 收敛：provider 只保留经实证的
+// ── 缺省常量（实现兜底——2026-09-03 收敛：provider 只保留经实证的
 //    tavily/deepseek，缺省 deepseek；缺省源 = 全局「搜索引擎」池页） ──
 const DEFAULT_PROVIDER = 'deepseek';
 const DEFAULT_SEARCH_DEPTH = 'advanced';
@@ -127,7 +127,7 @@ function nonEmptyStr(v: unknown): string | undefined {
 
 /**
  * 缺省搜索池条目（全局设置「搜索引擎」页 = config.searchProviders）：
- * default:true 的条目。2026-10 起 web_search 的缺省 provider/参数由此
+ * default:true 的条目。2026-09-03 起 web_search 的缺省 provider/参数由此
  * 控制（本行可配置项已移除）。软依赖 config（M12 铁律 2：ctx.get——
  * 组合缺行不炸搜索，回落内置缺省）。
  */
@@ -147,7 +147,7 @@ function defaultSearchPool(ctx: Context): { name: string; entry: Record<string, 
 export const name = 'ac-web-tools';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
 //    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
-//    2026-10 起无可配置项（fields 移除）：web_search 缺省 provider/参数由全局
+//    2026-09-03 起无可配置项（fields 移除）：web_search 缺省 provider/参数由全局
 //    设置「搜索引擎」页（config.searchProviders 池）控制；browser 参数走
 //    行配置。存量 settings['web-tools'] 键仍被读取（兼容，UI 不再暴露）。
 import type { ExtensionMeta } from 'ac-extension-core';
@@ -165,7 +165,7 @@ export const extension: ExtensionMeta = {
 //    可推导——工具级地板只有 ['web','observe']，其余由本行
 //    before-execute 监听器按动作判定）。双源合并：web/observe 的工具
 //    清单由注册面采集补全。
-//    抉择组（2026-12）：三词挂 exclusive:'browser-tier'——UI 聚合为
+//    抉择组（2026-09-21）：三词挂 exclusive:'browser-tier'——UI 聚合为
 //    下拉单选（含「都不选」）；落词规则保证同组至多一词 + 高层连带
 //    observe 地板（requiredTags AND）。浏览器门禁（tier=max 逐动作
 //    判定）不消费抉择元数据——落词一致即语义一致。组无缺省词
@@ -244,7 +244,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     async execute(args, call) {
       try {
         // per-Agent settings['web-tools'] 合成（M11 执行身份查 AgentConfig；
-        // M24 A1 settingsOf——2026-10 起 UI 不再暴露，存量键兼容读取）
+        // M24 A1 settingsOf——2026-09-03 起 UI 不再暴露，存量键兼容读取）
         let webSettings: WebToolsSettings = {};
         if (call.agentId !== undefined) {
           const h = ctx.get('agents')?.settingsOf(call.agentId, 'web-tools');
@@ -417,7 +417,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     // 即外泄面）——无人审时需要档位门
     needPermission: true,
     description:
-      '操作浏览器（CDP 直连）：open 打开页面（带 error 概览）、elements 取可交互元素索引（[n] 编号）、click 按 ref 点击、read 抽取正文、scroll 滚动、wait 等待、logs 查控制台/网络日志、response_body 取响应体、tabs 列标签页、type 输入、press 按键、hover 悬停、screenshot 截图、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。需要 web+observe 能力标签；交互动作（click/type/press/hover）另需 manipulate 层级，eval 另需 inject 层级。',
+      '操作浏览器（CDP 直连）：open 打开页面、elements 取可交互元素索引（[n] 编号）、click 按 ref 点击、read 抽取正文、scroll 滚动、wait 等待、logs 查控制台/网络日志、response_body 取响应体、tabs 列标签页、type 输入、press 按键、hover 悬停、screenshot 截图、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。需要 web+observe 能力标签；交互动作（click/type/press/hover）另需 manipulate 层级，eval 另需 inject 层级。各动作返回字段：open→{url,title,consoleErrors,failedRequests,marker}；read→{url,title,text,length}；elements→{count,elements,marker}；eval→{result}（result 保留 JS 原生 JSON 类型：数字/布尔/对象直出；返回未调用的函数或未等待的 Promise 会报可读错误）；screenshot→{file,relPath}；wait→{found,text} 或 {waited}；close→{closed}。',
     parameters: {
       type: 'object',
       properties: {

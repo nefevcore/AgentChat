@@ -1,5 +1,5 @@
 /* ============================================================
-   webui-kit/src/base/badge.css —— 徽章语言（2026-10 统一裁决）
+   webui-kit/src/base/badge.css —— 徽章语言（2026-09-26 统一裁决）
    三族一底（inline-flex · mono 10px · 胶囊 · nowrap）：
    - 状态徽章：.ui-badge + 语义色调修饰（ok/err/warn/info/dim）——
      插件卡片六态、装配/停用标记、市场来源等
@@ -34,7 +34,7 @@
   border-color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 18%, transparent);
 }
 /* 缺失态：中性幽灵 + 虚线（行级警示归状态徽章琥珀——不在标签上重复用红，
-   2026-10 前的原设计意图保留） */
+   2026-09-03 前的原设计意图保留） */
 .ui-badge.tag.miss {
   background: color-mix(in srgb, var(--text-3) 5%, transparent);
   border-style: dashed;

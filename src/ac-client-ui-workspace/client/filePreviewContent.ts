@@ -287,6 +287,10 @@ export function useFilePreviewContent(
   // 模板串）——行尾闭合栈上开标签、行首重开，颜色在行边界无损延续。
   const highlightedLines = computed<string[]>(() => splitHighlightedHtml(highlightedCode.value));
 
+  // 实际命中路径（服务端回显 displayPath：数据根命中 = 请求形，工作区
+  // 推导 = 绝对路径）——预览底部展示文件实际位置；取数前回落请求路径
+  const displayPath = computed(() => fileData.value?.path || path.value);
+
   // HTML 预览内容：srcdoc 文档无自身 URL，相对路径按宿主页解析必 404
   //——改写相对引用为 raw 直链（按文件所在目录拼 + 读面上下文透传）、
   // 注入 base target（详见 htmlPreviewRefs.ts）。基准取回显 path
@@ -385,7 +389,7 @@ export function useFilePreviewContent(
 
   return {
     loading, error, fileData,
-    ext, fileName, isHtml, isImage, isMarkdown, isOffice, langLabel,
+    ext, fileName, isHtml, isImage, isMarkdown, isOffice, langLabel, displayPath,
     imageSrc, officeSrc, highlightedCode, highlightedLines, previewHtml, previewMarkdownDoc,
     codeLines, sizeDisplay, reload: loadFile, invalidate,
   };

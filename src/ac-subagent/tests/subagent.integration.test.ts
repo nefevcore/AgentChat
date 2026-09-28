@@ -160,7 +160,7 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     const booted0 = await boot();
 
     void new ConvSettingsStub(booted0.ctx, { settings });
-    // run_code 探针（2026-12 injection 轴形态：mode 工具不挂 requiredTags、
+    // run_code 探针（2026-09-22 injection 轴形态：mode 工具不挂 requiredTags、
     // 不进常规能力面——收窄经 narrowToolsByMode 从 defs 合成 mode 集）
     booted0.ctx.tools.register({
       name: 'run_code',
@@ -201,14 +201,14 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
     });
     expect(r.ok).toBe(true);
     const input = captured.at(-1)!;
-    // 2026-12 二次修正：收窄对点名面同样生效（此前点名即跳过程序化传播
+    // 2026-09-22 二次修正：收窄对点名面同样生效（此前点名即跳过程序化传播
     // ——第三次实测复现 run_code 缺失）。点名工具不丢：仍在能力面，
     // run_code 投影（scope='projection' 能力面直取）涵盖它们
     expect((input.tools ?? []).map((t: any) => t.function.name)).toEqual(['run_code']);
   });
 
   it('会话覆盖 tc-base 压回标准档 → 常规工具面（mode 工具不混入）', async () => {
-    // 2026-12 injection 轴后「并存形态」退役：run_code 挂 injection:'mode'
+    // 2026-09-22 injection 轴后「并存形态」退役：run_code 挂 injection:'mode'
     // 恒不进常规面——tc-base 压回 = 纯常规工具（与 tc-programmatic 的
     // mode 集互斥；会话覆盖 = 跟随态被压制的显式形态）
     const { ctx } = await bootWithSwitch({ 'conv-plain': { toolMode: 'tc-base' } });
@@ -272,7 +272,7 @@ describe('ac-subagent：程序化开关传播（2026-09-17 裁决——转换随
 
 
 // ============================================================
-// 沙箱基准继承（2026-12 数据根一致修复——子 Agent 与父会话同根）
+// 沙箱基准继承（2026-09-22 数据根一致修复——子 Agent 与父会话同根）
 // ============================================================
 describe('ac-subagent：spawn 沙箱基准快照（数据根一致）', () => {
   /** workspace 域 stub：会话挂载工作区 → conversationWorkspaceRoot；无 → null */
@@ -962,7 +962,7 @@ describe('ac-subagent：落盘完整消息（subagent-session-view-plan R1/R2/R6
     expect(Array.isArray(agentLine.steps)).toBe(true);
     expect(agentLine.steps[0].toolCalls).toBeUndefined();
     expect(agentLine.steps[0].content).toContain('子任务结论');
-    // 回放口径（2026-12 多轮失忆修复）：agent 行携带 steps → expandSteps
+    // 回放口径（2026-09-22 多轮失忆修复）：agent 行携带 steps → expandSteps
     // 轨迹展开进上下文（纯文本步 = assistant 行；带工具步 = assistant +
     // 配对 tool 行）；本例单步无 toolCalls → 无 tool role，assistant 含结论
     const replay = await ctx.subagents.history(id);
@@ -1198,7 +1198,7 @@ describe('ac-subagent：output.action 显式标注（前端卡分发单源）', 
 
 
 // ============================================================
-// 三文件化落盘（2026-12，对齐 ac-session run journal 裁决）
+// 三文件化落盘（2026-09-22，对齐 ac-session run journal 裁决）
 // ============================================================
 describe('ac-subagent：三文件落盘（messages / partials / subcalls）', () => {
   /** 带 run_code 形态子调用的 provider：第 1 步调 math 工具，第 2 步终文本 */
@@ -1354,7 +1354,7 @@ describe('ac-subagent：三文件落盘（messages / partials / subcalls）', ()
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('跨 run 轨迹复放（2026-12 多轮失忆修复）：第二轮上下文含第一轮工具轨迹（assistant+tool 对），不再只剩终文本', async () => {
+  it('跨 run 轨迹复放（2026-09-22 多轮失忆修复）：第二轮上下文含第一轮工具轨迹（assistant+tool 对），不再只剩终文本', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-replay-'));
     const { ctx } = await boot({ root, provider: makeSubcallProvider(), model: 'subcall-1' });
     ctx.tools.register({
@@ -1476,7 +1476,7 @@ describe('subagents 目录化迁移（SESSION_MIGRATIONS v3）', () => {
   });
 });
 // ============================================================
-// spawn system 显式固化（2026-12 人格防污染）
+// spawn system 显式固化（2026-09-22 人格防污染）
 // ============================================================
 describe('ac-subagent：spawn system 固化', () => {
   class ConvSettingsStub2 extends Service {
@@ -1532,7 +1532,7 @@ describe('ac-subagent：spawn system 固化', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  // ── subagents/updated 事件（2026-12 持久化清单主源化：spawn/started/
+  // ── subagents/updated 事件（2026-09-22 持久化清单主源化：spawn/started/
   //    settled 全链通知——前端域投影帧驱动刷新的数据源） ──
   it('subagents/updated：spawn → started → settled 事件序列（displayStatus 投影随行）', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-evt-'));

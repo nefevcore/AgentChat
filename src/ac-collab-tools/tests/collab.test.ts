@@ -153,7 +153,7 @@ describe('资料面工具', () => {
     expect(output.tools.every((t) => t.name === 'list_tools')).toBe(true);
   });
 
-  it('list_tools：正常工具无形态限制（2026-12 注入轴重构）——常规工具进独立会话清单照常', async () => {
+  it('list_tools：正常工具无形态限制（2026-09-21 注入轴重构）——常规工具进独立会话清单照常', async () => {
     const { ctx } = await boot();
     // 直构 singles stub（形态识别面——get 命中即独立会话）
     class SinglesStub extends Service {
@@ -209,7 +209,7 @@ describe('资料面工具', () => {
 });
 
 describe('send_agent（经 conversation 状态机）', () => {
-  it('wait=false 空闲直达：回复文本随结果直返（2026-12 修复：不再丢弃 reply 撒谎"会作为新消息送达"）', async () => {
+  it('wait=false 空闲直达：回复文本随结果直返（2026-09-17 修复：不再丢弃 reply 撒谎"会作为新消息送达"）', async () => {
     const { ctx } = await boot();
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     ctx.agents.register({ id: 'b', model: 'mock-1' });
@@ -234,7 +234,7 @@ describe('send_agent（经 conversation 状态机）', () => {
     expect(output.reply).toMatch(/^回复\d+$/);
     expect(output.finish).toBe('stop');
   });
-  it('wait=true 超时语法糖：限时返回引导说明，不中断对端 run；迟到通知回投调用会话而非委托桶（2026-12 修复）', async () => {
+  it('wait=true 超时语法糖：限时返回引导说明，不中断对端 run；迟到通知回投调用会话而非委托桶（2026-09-21 修复）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot({ storeRoot: root, withGroup: false });
     const sessionFiber = ctx.plugin(sessionRow as any, { root });
@@ -466,7 +466,7 @@ describe('send_agent（子 Agent 直投分支）', () => {
     expect(String(r.error)).toContain('未注册');
   });
 
-  // ---- 子 Agent 发信身份归一（2026-12 修复：注入到正确的会话）----
+  // ---- 子 Agent 发信身份归一（2026-09-17 修复：注入到正确的会话）----
   it('子 Agent send_agent(普通 Agent)：对桶归一到父（pairKey(parent, b)，非幽灵 sub~b 桶）+ 回复直返', async () => {
     const { ctx } = await bootWithSubagent({ withSession: true });
     ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });

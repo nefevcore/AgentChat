@@ -1,7 +1,7 @@
 // ============================================================
 // feed-refresh-replay-steps.test.ts —— 运行中刷新：journal 步行回放
 //
-// 场景（2026-12 反馈 #3 后续）：run 进行中刷新页面——历史首屏带回
+// 场景（2026-09-21 反馈 #3 后续）：run 进行中刷新页面——历史首屏带回
 // journal-inject 行与 journal 步行（partial），resume 快照合入后续续流。
 // 症状：回放只到 journal-inject，后续 step 不出现。
 // 本文件钉住：步行（partial 行，带 steps[]）在历史首屏合并后必须渲染，

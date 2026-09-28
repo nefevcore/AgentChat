@@ -5,7 +5,7 @@ import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore, offlineRpc } from './feedStore.ts';
 import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
-// 池模型归一化经 ui-llm-pool（2026-11 语义归位：池域词汇——模型菜单
+// 池模型归一化经 ui-llm-pool（2026-09-11 语义归位：池域词汇——模型菜单
 // 消费；base→domain 契约词汇边，白名单显式裁决）
 import { poolModelEntries, visibleModelNames } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { VIEWER_ID } from './viewer.ts';
@@ -65,7 +65,7 @@ const lastPrefs = loadComposePrefs();
 const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort ?? 'high') as ComposeEffort);
 /** 快捷提权（access-tier §七 / webui 按钮）：武装后续消息的执行档位。
  *  持续生效——保持武装直到手动改回（武装态警示色常显）；不随发送复位
- *  （2026-09 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
+ *  （2026-09-13 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
  *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
 const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation ?? '') as ComposeElevation);
 /** 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构——
@@ -76,7 +76,7 @@ const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevati
  *  （toolModeInherit）已随重构退役——持久程序化 = 给 Agent 配
  *  tc-programmatic 标签。退役预设防御见 presetRetired。 */
 const toolMode = ref<'' | 'tc-base' | 'tc-programmatic' | 'tc-none'>('');
-/** 浏览器能力档（2026-10 CDP 化收尾——「实验性 → 浏览器」档位钮）：'' =
+/** 浏览器能力档（2026-09-26 CDP 化收尾——「实验性 → 浏览器」档位钮）：'' =
  *  跟随 Agent tags（browser-tier 抉择组，全关 = browser 不可见）；
  *  'observe'|'manipulate'|'inject' = 会话级临时授权（只升不降）；
  *  'disabled' = 本会话禁用 browser 工具。选择即写会话 conv-settings
@@ -97,7 +97,7 @@ const experimentalPanel = ref<string>('root');
 /** 组合菜单下钻面板（root = 一级设置项列表；点某项下钻二级选项） */
 const agentPanel = ref<'root' | 'ws' | 'agent'>('root');
 const modelPanel = ref<'root' | 'model' | 'effort'>('root');
-/* 执行组拆分（2026-12：提权与工具调用模式分立两钮——组合菜单项过多，
+/* 执行组拆分（2026-09-18：提权与工具调用模式分立两钮——组合菜单项过多，
  * 且「程序化调用模式」需要用户先单独熟悉）。单项菜单直开选项列表
  * （无下钻）：打开即档位，选择即生效，菜单保持开可连续调整。 */
 /** 模型选项源：池连接（models 发现缓存）——连接池 = 唯一事实源
@@ -175,7 +175,7 @@ function ensureDiscovered(): void {
 }
 
 /** 会话元数据 → 本地选择态（PATCH 刷新后校准）。会话内切换工作区/
- *  Agent/模型不再清空输入草稿——草稿跟随会话而非路由配置（2026-09
+ *  Agent/模型不再清空输入草稿——草稿跟随会话而非路由配置（2026-09-11
  *  体验修复：切模型/工作区丢半截输入）。 */
 function syncDraft() {
   selWorkspace.value = props.single?.workspaceId ?? '';
@@ -279,7 +279,7 @@ function selectWorkspace(id: string) {
   });
 }
 
-// toggleAgentMenu 退役（2026-12 身份组收口）：常规工具栏不再放身份入口，
+// toggleAgentMenu 退役（2026-09-18 身份组收口）：常规工具栏不再放身份入口，
 // fresh 顶行经 openFreshMenu 开合（单开原则同走 closeMenus）。
 function toggleModelMenu() {
   const next = !modelMenuOpen.value;
@@ -516,7 +516,7 @@ function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
     .then(() => {
       // 写入成功 → bump 会话模式快照：system-prompt 预览（aux 侧栏常驻
       // 面板）/ Token 估算面 watch 得知装配面已变，重取反映 SDK 投影块
-      // 注入/工具 schema 收窄（2026-12 预览失真修复）。
+      // 注入/工具 schema 收窄（2026-09-18 预览失真修复）。
       store.setConvToolMode(v);
     })
     .catch((err: any) => {
@@ -525,7 +525,7 @@ function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
     });
 }
 
-// ── 浏览器能力档（2026-10「实验性 → 浏览器」——会话键复用 toolModeConvKey：
+// ── 浏览器能力档（2026-09-26「实验性 → 浏览器」——会话键复用 toolModeConvKey：
 //    single = sid / 1v1 = pairKey，与后端 conv-settings 同口径）──
 
 /** 选择浏览器档位：即时生效——写会话 conv-settings.browserTier；
@@ -1478,7 +1478,7 @@ function onThumbError(i: number) {
     />
 
     <!-- 底部工具栏：模型（模型+思考）- 工具模式 - 权限 ⋯ 附件 - 发送
-         （身份组退役 2026-12：开场身份在 fresh 顶行设定，开始会话后
+         （身份组退役 2026-09-18：开场身份在 fresh 顶行设定，开始会话后
          预设固化到会话头、工作区不可再改——工具栏不再放身份入口） -->
     <div class="input-toolbar">
       <div class="toolbar-left">
@@ -1573,7 +1573,7 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
-        <!-- 权限（快捷提权）：独立按钮（2026-12 拆分；工具栏序：模型 → 提权 →
+        <!-- 权限（快捷提权）：独立按钮（2026-09-26 拆分；工具栏序：模型 → 提权 →
              工具模式 → 实验性）。单项菜单直开档位列表（无下钻）：选择即
              武装/解除，菜单保持开；武装态警示色常显 -->
         <div v-if="!isGroupCtx" class="dd">

@@ -1,7 +1,7 @@
 // ============================================================
 // feed-load-more.test.ts —— direct/single 上翻续拉分页回归
 //
-// 背景（2026-10 反馈：上翻无法加载历史，一直显示"加载历史消息中…"）：
+// 背景（2026-09-13 反馈：上翻无法加载历史，一直显示"加载历史消息中…"）：
 // M19 对桶键统一后 direct 分区键 = pair:alpha|user（对桶键），而
 // loadMoreHistory 曾把 parsed.key 当裸 agentId 直传——conversationId 被
 // 叠成 bucketKey(viewer, alpha|user) = alpha|user~user，响应路由
@@ -125,7 +125,7 @@ describe('上翻续拉分页（direct 对桶 / single）', () => {
   });
 
   it('single：机制驱动会话（页内 0 条 viewer 消息）服务端 hasMore 回显优先——上翻不被误判挡死', async () => {
-    // 2026-09 反馈：性能优化后 single 只加载尾部消息，上翻无法加载更多。
+    // 2026-09-15 反馈：性能优化后 single 只加载尾部消息，上翻无法加载更多。
     // 根因：hasMore 用「页内 viewer 消息数 ≥5」启发式判定——机制驱动会话
     //（timer/goal/子 Agent 接力）尾部整页可无 viewer 消息 → 误判 false →
     // 上翻 triggerLoadMore 被 !hasMore 守卫挡死。服务端 M16 分页早已回显

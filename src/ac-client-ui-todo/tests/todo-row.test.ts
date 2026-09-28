@@ -137,7 +137,7 @@ describe('M27.1 · ac-client-ui-todo client 半边（出场贡献 + 可摘除性
     const card = ctx.slots.entries('tool-card:result-view').find((e) => e.id === 'todo');
     expect(card).toBeDefined();
     expect((card!.meta?.def as { match?: string }).match).toBe('todo');
-    // dock 卡：list seat 贡献（order 40 = dock 序重排 2026-09：任务居排队后、目标前）
+    // dock 卡：list seat 贡献（order 40 = dock 序重排 2026-09-13：任务居排队后、目标前）
     const dock = ctx.slots.entries('conversation:dock-widget').find((e) => e.id === 'todo');
     expect(dock).toBeDefined();
     expect(dock!.order).toBe(40);

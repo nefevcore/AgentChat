@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-llm-pool/client/index.ts —— llm-pool 域前端行 client
-// 半边（M28 P2 §5.2：PoolManager 随域成行；2026-11 行拆分：搜索引擎
+// 半边（M28 P2 §5.2：PoolManager 随域成行；2026-09-11 行拆分：搜索引擎
 // 节拆往 ac-client-ui-search-pool——本行收窄为 llm 连接池单节，严格
 // 镜像 ac-llm-pool 后端行的 llmProviders 面）
 //

@@ -12,7 +12,7 @@
 //   · AppFrame = 原 App.vue 骨架（DOM/样式零改动，D23 视觉基线锁零
 //     回归）——overlay 件（文件预览/建群/用量/版本）与主区件（视角
 //     容器/运行矩阵/工作区树）随件走。main = keyed 选举「主区视图」
-//     多选一（MainViewHost 解析——2026-11 主区语义纯化，壳零域知识：
+//     多选一（MainViewHost 解析——2026-09-11 主区语义纯化，壳零域知识：
 //     让位协议随各条目 active() 住 owning 行）。
 // 卸载本件 = root 席位消亡 → 渲染面给出可诊断报错，宿主不残废。
 // ============================================================
@@ -24,12 +24,12 @@ import { clientPlugin } from 'ac-client-runtime';
 import type { MainViewDef } from './mainViews.ts';
 
 // SlotMap 类型化声明（S1.5-1）：layout 基础件拥有的席位词表。
-// 页面骨架词汇（2026-11 语义定整——VSCode 布局同款语义）：
+// 页面骨架词汇（2026-09-11 语义定整——VSCode 布局同款语义）：
 //   [menu-bar 顶部菜单栏·预留]
 //   [activity-bar 活动栏][primary-sidebar 主侧边栏][main 主面板][aux-sidebar 辅助侧边栏]
 //   [bottom-panel 底部面板·预留][status-bar 底部状态栏·预留]
 //   overlay = 全局覆盖层（非布局区域）
-// 2026-11 归并：ac-client-ui-sidebar 行并入本件（出生史：v0.6.2 L4
+// 2026-09-11 归并：ac-client-ui-sidebar 行并入本件（出生史：v0.6.2 L4
 // 全量切 src 时自 monolith clients/base/sidebar.ts 原样升包——M28 P2
 // 三面板域行贡献化后即退化为「左栏两壳 + uiStore」的骨架性资产，
 // 归位壳件；活动栏/主侧边栏宿主 + 布局状态 store 随件迁入）。
@@ -37,27 +37,27 @@ declare module 'ac-client-slots' {
   interface SlotMap {
     /** 应用根席位（出厂占用，D3） */
     root: { kind: 'single' };
-    /** 活动栏席位（原 sidebar——2026-11 语义定整：VSCode Activity Bar 同款） */
+    /** 活动栏席位（原 sidebar——2026-09-11 语义定整：VSCode Activity Bar 同款） */
     'activity-bar': { kind: 'list' };
-    /** 主侧边栏席位（原 list-panel——2026-11 语义定整：VSCode Primary Side Bar 同款） */
+    /** 主侧边栏席位（原 list-panel——2026-09-11 语义定整：VSCode Primary Side Bar 同款） */
     'primary-sidebar': { kind: 'list' };
     /** 主侧边栏域面板选举席（原 list-panel:domain——随区域席改名；PrimarySidebarHost 内选举——贡献携带 meta.panel 键；M28 P0-3；M30 D1 elect 扶正） */
     'primary-sidebar:domain': { kind: 'list'; elect: true };
-    /** 主面板席位（keyed 选举多选一——MainViewHost 解析：chat=视角容器兜底 / tracking=运行矩阵 / …；2026-11 主区语义纯化，原 main:tracking 专座收编） */
+    /** 主面板席位（keyed 选举多选一——MainViewHost 解析：chat=视角容器兜底 / tracking=运行矩阵 / …；2026-09-11 主区语义纯化，原 main:tracking 专座收编） */
     main: { kind: 'list'; elect: true };
-    /** 辅助侧边栏席位（原 aside——2026-11 语义定整：keyed 选举「选区」多选一，AuxSidebarHost 解析；工作区是众多选区之一，NULL 扩展位与各选区同级） */
+    /** 辅助侧边栏席位（原 aside——2026-09-11 语义定整：keyed 选举「选区」多选一，AuxSidebarHost 解析；工作区是众多选区之一，NULL 扩展位与各选区同级） */
     'aux-sidebar': { kind: 'list'; elect: true };
     /** 全局覆盖层席位 */
     overlay: { kind: 'list' };
-    /** 顶部菜单栏席位（2026-11 预留——骨架词汇定整；无 outlet，实现时壳重构顶部布局） */
+    /** 顶部菜单栏席位（2026-09-11 预留——骨架词汇定整；无 outlet，实现时壳重构顶部布局） */
     'menu-bar': { kind: 'list' };
-    /** 底部面板席位（2026-11 预留——VSCode Panel 同款；无 outlet，实现时壳重构底部布局） */
+    /** 底部面板席位（2026-09-11 预留——VSCode Panel 同款；无 outlet，实现时壳重构底部布局） */
     'bottom-panel': { kind: 'list' };
-    /** 底部状态栏席位（2026-11 预留——VSCode Status Bar 同款；无 outlet，实现时壳重构底部布局） */
+    /** 底部状态栏席位（2026-09-11 预留——VSCode Status Bar 同款；无 outlet，实现时壳重构底部布局） */
     'status-bar': { kind: 'list' };
     /** 视角专座（★perspective 别名，D13；keyed 选举——PerspectiveHost 解析，M30 D1） */
     'main:perspective': { kind: 'list'; elect: true };
-    /** 活动栏插件动作位（★sidebar-action 别名，D13；数据席位——宿主渲染按钮，M30 D2。第一段 = 宿主件 ActivityBar 组件〔D5——2026-11 组件与席键同步改名；第三方 manifest 词汇 = 旧轨 sidebar-action，经 slotCatalog 归一不变〕） */
+    /** 活动栏插件动作位（★sidebar-action 别名，D13；数据席位——宿主渲染按钮，M30 D2。第一段 = 宿主件 ActivityBar 组件〔D5——2026-09-11 组件与席键同步改名；第三方 manifest 词汇 = 旧轨 sidebar-action，经 slotCatalog 归一不变〕） */
     'activity-bar:plugin-actions': { kind: 'list'; data: true };
   }
 }
@@ -76,7 +76,7 @@ export const layoutClientPlugin = clientPlugin({
     });
     ctx.slots.register('root', { id: 'webui-base-layout.app-frame', component: AppFrame, order: 0 });
 
-    // ── 布局区域 seat（§0.2 视图树即 slot 树；2026-11 语义定整命名）──
+    // ── 布局区域 seat（§0.2 视图树即 slot 树；2026-09-11 语义定整命名）──
     ctx.slots.declare({
       key: 'activity-bar',
       kind: 'list',
@@ -98,7 +98,7 @@ export const layoutClientPlugin = clientPlugin({
         rowNavigation: 'host-owned',
       },
     });
-    // 主区视图席位（2026-11 主区语义纯化：keyed 选举多选一——原
+    // 主区视图席位（2026-09-11 主区语义纯化：keyed 选举多选一——原
     // 「main 容器 + main:tracking 专座 + 壳内让位协议」收编为单一选举
     // 轴）：条目 = 主区视图 def（active 谓词 × order 选举，MainViewHost
     // 解析；keepAlive 旗标定生命周期——chat 文档流保活 / 其余 volatile）。
@@ -110,7 +110,7 @@ export const layoutClientPlugin = clientPlugin({
       elect: true,
       description: '主面板席位（keyed 选举多选一——MainViewHost 按 active × order 选举：chat=视角容器兜底(100) / tracking=运行矩阵(50) / …；keepAlive 条目文档流保活，volatile 条目随选举挂卸）',
     });
-    // 辅助侧边栏席位（2026-11 语义定整·层级修正：席位 = 第四区域本身
+    // 辅助侧边栏席位（2026-09-11 语义定整·层级修正：席位 = 第四区域本身
     // ——VSCode Auxiliary Side Bar 同款；「工作区」= 众多选区之一，NULL
     // 扩展位与各选区同级）：条目 = 选区 def（active × order 选举，
     // AuxSidebarHost 解析；rail 收起态把手资产随条目声明——域行供，壳零域
@@ -124,7 +124,7 @@ export const layoutClientPlugin = clientPlugin({
       description: '辅助侧边栏席位（VSCode Auxiliary Side Bar 同款——keyed 选举「选区」多选一：workspace=工作区树 / …；AuxSidebarHost 按 active × order 选举，rail 收起态资产随条目声明；选区缺席 → 区域整体消失）',
       ownerProps: { mobileBehavior: 'workspace-overlay' },
     });
-    // ── 骨架预留席（2026-11 语义定整：页面骨架词汇补全——declare 占名
+    // ── 骨架预留席（2026-09-11 语义定整：页面骨架词汇补全——declare 占名
     //    即预留〔fail-closed 注册面就绪〕；无 outlet/无布局行——实现时
     //    壳重构顶部/底部布局后开口，贡献面按届时裁决）──
     ctx.slots.declare({
@@ -173,10 +173,10 @@ export const layoutClientPlugin = clientPlugin({
       kind: 'list',
       data: true,
       public: true,
-      description: '活动栏插件动作位（activity-bar:plugin-actions = sidebar-action 别名，D13；数据席位——ActivityBarHost 渲染按钮、贡献供 meta.def，M30 D2；2026-11 席键随区域席/宿主件同步改名，第三方 manifest 旧轨词汇经 slotCatalog 归一不变）',
+      description: '活动栏插件动作位（activity-bar:plugin-actions = sidebar-action 别名，D13；数据席位——ActivityBarHost 渲染按钮、贡献供 meta.def，M30 D2；2026-09-11 席键随区域席/宿主件同步改名，第三方 manifest 旧轨词汇经 slotCatalog 归一不变）',
     });
 
-    // ── main 席位宿主条目（M30 D4 条目化 + 2026-11 主区语义纯化）：
+    // ── main 席位宿主条目（M30 D4 条目化 + 2026-09-11 主区语义纯化）：
     //    chat = 恒真兜底主区视图（order 100——覆盖类视图居前赢选举），
     //    组件仍是 PerspectiveHost（视角容器——内部经 main:perspective
     //    选举会话视角 pair/talk/group/single）。keepAlive = true：文档流
@@ -197,7 +197,7 @@ export const layoutClientPlugin = clientPlugin({
       },
     });
 
-    // ── 左侧导航区宿主贡献（2026-11 归并自 ac-client-ui-sidebar 行——
+    // ── 左侧导航区宿主贡献（2026-09-11 归并自 ac-client-ui-sidebar 行——
     //    注册置于全部 declare 之后〔fail-closed：原行在 layout 之后装载
     //    天然满足时序，归并后须显式后置〕）：活动栏 + 主侧边栏两壳随
     //    壳件走，域内容（agents/sessions/tracking 面板）仍是各域行的

@@ -341,7 +341,7 @@ describe('ac-timer 排程与触发', () => {
     expect(ctx.timers.entries('a')).toHaveLength(0);
   });
 
-  it('重启防重：arm 时距目标 <10s 且有触发史 → 跳过本周期不重复投递（2026-09 双投递修复）', async () => {
+  it('重启防重：arm 时距目标 <10s 且有触发史 → 跳过本周期不重复投递（2026-09-17 双投递修复）', async () => {
     const root = tmpRoot();
     // 构造事故现场：旧进程在整点前 4s 已投递（event 入账）后被硬杀——
     // state.json 里 lastTriggeredAt 停在昨天（记账未落盘的近似），条目

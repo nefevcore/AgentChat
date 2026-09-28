@@ -16,7 +16,7 @@
 //      （UI 行 client/ 子路径 = 设计入口，M29 裁决豁免）
 //   R4 无用声明：@agentchat/* 与 ac-* 声明后全包（src + tests + client）
 //      零 import（值或类型）视为冗余；npm 依赖同判（dependencies 面
-//      ——2026-11 补扫：消费证据 = 源码裸名 import〔静态 from / 动态
+//      ——2026-09-11 补扫：消费证据 = 源码裸名 import〔静态 from / 动态
 //      import() / require，值与类型同计〕、vite.config.* 打包面引用
 //      〔manualChunks 分组等〕、.vue 生产文件对 vue 的 SFC 隐式消费、
 //      @iconify-json/* 的 unplugin-icons 约定消费、工作区依赖的
@@ -26,11 +26,11 @@
 //      【运行时值导入】构建包级图，Tarjan SCC 检环——环 = 构建期硬失败
 //      （type-only 互相引用是弱依赖，不构成环）。.ts 边进图，.vue 边
 //      不进（bundler 层 .vue 环由 R7 相位守卫按 base→domain 方向覆盖）
-//   R6 行包图跨域边（M29 改守；2026-11 扩权 .ts/.vue 同权重）：原守
+//   R6 行包图跨域边（M29 改守；2026-09-11 扩权 .ts/.vue 同权重）：原守
 //      webui/src/clients 目录已随 M28 退役（幽灵规则）；改为守行包图——
 //      domain 行生产文件（.ts 与 .vue）的运行时值导入不得指向其他
 //      domain 行（域间运行时耦合只允许经 base 服务面/席位贡献）。
-//      2026-11 前仅守 .ts 边，.vue 媒介数据面 import 落盲区
+//      2026-09-11 前仅守 .ts 边，.vue 媒介数据面 import 落盲区
 //      （PoolManager→rosterApi 实证）；扩权后 .vue 组件/数据面跨域边
 //      一律显式入册 scripts/dep-cycles.yml（基线一次性扩充裁决）
 //   R7 相位守卫（M29 新增）：base 行不得静态运行时依赖 domain 行
@@ -236,7 +236,7 @@ for (const [, { pkgDir, pkg }] of workspace) {
     }
   }
 
-  // R4 无用声明（npm dependencies 面——2026-11 补扫，实证：settings
+  // R4 无用声明（npm dependencies 面——2026-09-11 补扫，实证：settings
   // 声明 pinia 零 import 漏网）。消费证据四白名单见文件头 R4 注记。
   const npmDeps = [...deps].filter((d) => !d.startsWith('@agentchat/') && !d.startsWith('ac-'));
   if (npmDeps.length > 0) {
@@ -368,12 +368,12 @@ function loadDepWhitelist() {
 }
 
 // ============================================================
-// R6 行包图跨域边 + R7 相位守卫（M29 P0-1；R6 2026-11 扩权）
+// R6 行包图跨域边 + R7 相位守卫（M29 P0-1；R6 2026-09-11 扩权）
 //
 // 相位表 = agentchat.client.phase（'base' | 'domain'）。生产文件 =
 // client/ + src/（排除 tests）。R7：base→domain 运行时边（.ts/.vue
 // 同权重）；R6：domain→domain 跨行运行时边（.ts/.vue 同权重——
-// 2026-11 扩权，消 .vue 媒介盲区）。两者均需白名单裁决。
+// 2026-09-11 扩权，消 .vue 媒介盲区）。两者均需白名单裁决。
 // ============================================================
 let whitelistRemaining = 0;
 {
@@ -411,7 +411,7 @@ let whitelistRemaining = 0;
   };
 
   const r7 = collect((from, to) => from === 'base' && to === 'domain'); // 相位违例（T4）
-  const r6 = collect((from, to) => from === 'domain' && to === 'domain'); // 跨域边（.ts/.vue 同权重——2026-11 扩权）
+  const r6 = collect((from, to) => from === 'domain' && to === 'domain'); // 跨域边（.ts/.vue 同权重——2026-09-11 扩权）
 
   const used = new Set();
   const report = (found, label) => {

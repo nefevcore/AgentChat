@@ -191,7 +191,7 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
     expect(content).not.toContain('## 指引');
   });
 
-  it('独立会话形态（singles 注册表命中）：协作工具在场也不注入术语约定/协作/主动安排条目（系统管理随工具在场注入——2026-12 注入轴撤形态裁剪）；其余条目照常', async () => {
+  it('独立会话形态（singles 注册表命中）：协作工具在场也不注入术语约定/协作/主动安排条目（系统管理随工具在场注入——2026-09-21 注入轴撤形态裁剪）；其余条目照常', async () => {
     const { ctx } = await boot();
     void new SinglesStubService(ctx, { sids: ['sid-1'] });
     const tools = [
@@ -200,7 +200,7 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
     ];
     // 独立会话（sid 命中）：多 Agent 会话知识 + 主动安排（timer——后台
     // 任务反馈已覆盖，指引裁剪保留）不注入；系统管理随工具在场注入
-    // （2026-12 注入轴：system_restart 不再排除独立会话）
+    // （2026-09-21 注入轴：system_restart 不再排除独立会话）
     await ctx.agentLoop.run({
       model: 'mock-1',
       tools,
@@ -332,10 +332,10 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
     expect(guidelineBlock(['read', 'write'])).toBe(`## 指引\n1. ${E_FILE_NOEDIT}\n2. ${E_OUT}`);
   });
 
-  it('独立会话形态（single=true）：协作/主动安排条目不注入，系统管理随工具在场（2026-12 注入轴撤形态裁剪）；术语约定块同步不注入', () => {
+  it('独立会话形态（single=true）：协作/主动安排条目不注入，系统管理随工具在场（2026-09-21 注入轴撤形态裁剪）；术语约定块同步不注入', () => {
     // 全量工具集在独立会话形态下：条目 5/6（多Agent协作/群聊协作）与
     // 主动安排（timer——独立会话有后台任务反馈即可）缺席，编号自然
-    // 收敛；系统管理随 system_restart 在场注入（2026-12 注入轴：工具
+    // 收敛；系统管理随 system_restart 在场注入（2026-09-21 注入轴：工具
     // 无形态裁剪，指引随在场而教）；并行子任务照常
     expect(guidelineBlock(FULL_TOOLS, true)).toBe(
       `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_ASK}\n6. ${E_SUB}\n7. ${E_RESTART}\n8. ${E_TRACK}`,

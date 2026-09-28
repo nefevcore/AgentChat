@@ -120,7 +120,7 @@ function onProviderChange(newProvider: string) {
   if (name !== undefined) draft.value.poolName = name;
 }
 
-/** 保存守门（cr-29）：编辑已存条目时 Key 掩码被清空（= 删凭据）先确认 */
+/** 保存守门（cr-21）：编辑已存条目时 Key 掩码被清空（= 删凭据）先确认 */
 async function guardKeyCleared(entry: Record<string, any>, oldEntry: PoolEntry | undefined): Promise<boolean> {
   if (!oldEntry) return true;
   const keyCleared = oldEntry.api_key === '••••••••' && (entry.api_key === '' || entry.api_key === undefined);
@@ -194,7 +194,7 @@ function detailOf(name: string, entry: PoolEntry): string {
 }
 
 const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): void }>();
-/** 清空凭据守门确认（cr-29——llm 池同款语义） */
+/** 清空凭据守门确认（cr-21——llm 池同款语义） */
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 </script>
 
@@ -257,7 +257,7 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
       </template>
     </Modal>
 
-    <!-- 清空凭据守门（cr-29） -->
+    <!-- 清空凭据守门（cr-21） -->
     <ConfirmDialog ref="confirmRef" />
   </div>
 </template>

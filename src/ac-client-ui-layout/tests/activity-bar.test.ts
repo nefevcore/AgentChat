@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-layout/tests/activity-bar.test.ts —— 活动栏
-// 两壳随件资产验收（2026-11 自 ac-client-ui-sidebar 行归并壳件）
+// 两壳随件资产验收（2026-09-11 自 ac-client-ui-sidebar 行归并壳件）
 //
 // 原 sidebar 行的宿主半边（ui-sidebar boot graph 声明/卸载级联）随行
 // 消亡——归并后由 ui-layout 行承担（见 layout-row.test.ts）；此处保留

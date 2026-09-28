@@ -67,14 +67,14 @@
 - ✅ M1 传输层：契约 + 纯库物化/剥离 + 池接线 + 单测（body 形状断言）。
 - ✅ M2 入口与落盘：deliver 校验透传 + session 落盘/回放/视图透传 + webui
   发送引用与刷新恢复。
-- ✅ M3 UI/体验（2026-10 第二批）：
+- ✅ M3 UI/体验（2026-09-03 第二批）：
   - 附件上限三道闸——webui 发送侧截断告警（50）→ deliver 入口校验拒收
     （50）→ 适配层溢出降级行（50，`[其余 N 个附件未发送…]`）；
   - UserMessage 图片附件缩略图（`/api/file` 直链 + 加载失败回退文件 chip，
     点击预览大图）；刷新恢复的 chips 同样享受缩略图；
   - PoolManager 连接面板「视觉模型」字段（逗号分隔编辑 → `visionModels`
     数组落盘，支持前缀与 `*`；列表 detail 显示 `视觉 ×N`）。
-- ✅ M4 扩展（2026-10 第二批）：
+- ✅ M4 扩展（2026-09-03 第二批）：
   - workspace 物化 **LRU 缓存**（键 = ref，新鲜度 = stat[mtimeMs+size]，
     命中续期、超 24 条逐最旧、文件覆写即失效重物化——同图跨轮回放免
     重复读盘+编码）；MIME 表扩至文档（pdf/txt/md/json(xl)/csv/doc(x)/
@@ -88,7 +88,7 @@
     peer 合并行附件并集回放 + webui 群输入附件（composeContent/
     imageAttachmentsOf 与直答路径单源复用）+ 群直播帧/历史行 chips 恢复
     （attachmentFilesOf 统一映射）。
-- ✅ 模型能力元数据（2026-10 第三批，探测驱动）：
+- ✅ 模型能力元数据（2026-09-03 第三批，探测驱动）：
   - **视觉探测**：`OpenAICompletions.probeVision`（纯库）——逐模型发
     1×1 PNG 非流式最小请求（max_tokens=1），按 HTTP 状态**三态**判定：
     2xx=true / 400=false（含"仅 URL"模型——对本管线 base64 物化路径

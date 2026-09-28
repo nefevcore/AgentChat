@@ -1,4 +1,4 @@
-// chat-core 消息操作回归（2026-12 架构对齐重写）：regenerate/edit/delete
+// chat-core 消息操作回归（2026-09-21 架构对齐重写）：regenerate/edit/delete
 // 三函数的会话键按形态分流（single = sid / pair = 对桶键）、持久层走
 // truncate（单次原子）、附件随重发保留。
 import { describe, it, expect, vi } from 'vitest';

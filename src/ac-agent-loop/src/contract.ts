@@ -25,7 +25,7 @@ export type LoopSource = 'user' | 'agent' | 'event';
 
 export interface LoopRunRequest {
   /**
-   * run 身份键（2026-12 身份贯通）：run 级事件的稳定身份——run-started/
+   * run 身份键（2026-09-24 身份贯通）：run 级事件的稳定身份——run-started/
    * after-run 载荷、step 级 envelope、llm 流式 meta、ToolCall 全系携带同一值。
    * 调用方可自带（幂等续跑对账等场景）；缺省由 loop 在 run() 入口铸造并
    * 塞回 request。前端据此把流式帧键控路由到目标载体，取代位置/名字/
@@ -119,7 +119,7 @@ export interface LoopStepRecord {
   /** 步序（0 起） */
   index: number;
   /**
-   * 步身份键（2026-12 身份贯通）：= `${runId}:${index}（loop 在步收束时
+   * 步身份键（2026-09-24 身份贯通）：= `${runId}:${index}（loop 在步收束时
    * 盖章）。llm 流式 meta 的 stepId 与之同值——前端 delta 帧按键直达步
    * 载体；journal 落盘透传（SessionStepRecord.stepId），历史合并键控对齐。
    */
@@ -170,7 +170,7 @@ export interface LoopStepCall {
   agent: string | undefined;
   messages: LlmMessage[];
   /**
-   * 会话键（2026-11 出生）：run 信封正典透传——步级注入类监听器
+   * 会话键（2026-09-05 出生）：run 信封正典透传——步级注入类监听器
    * （ac-skill /name 手势）解析会话上下文（singles 工作区技能）用；
    * 宿主直调 = undefined。
    */

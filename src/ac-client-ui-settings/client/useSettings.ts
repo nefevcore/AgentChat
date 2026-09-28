@@ -22,7 +22,7 @@ export function useSettings() {
   /** 命名空间 schema：key = 完整配置键（如 'tool.bash'） */
   const nsSchemas = ref<Record<string, any[]>>({});
   const pools = ref<PoolData>({ llmProviders: {}, searchProviders: {} });
-  /** 池元数据是否成功加载（cr-29 空池防覆盖守门判据：getPools 失败时 pools
+  /** 池元数据是否成功加载（cr-21 空池防覆盖守门判据：getPools 失败时 pools
    *  停留初始 {}——此时整域保存〔config/set llmProviders/searchProviders〕
    *  会清光后端现有连接，Host.saveNow 须拒绝） */
   const poolsLoaded = ref(false);

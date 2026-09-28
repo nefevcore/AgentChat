@@ -179,7 +179,7 @@ describe('ask_questions 挂起全链路（loop/run-idle 同 run 续走）', () =
     expect(deliveries).toHaveLength(1);
   });
 
-  it('timeout 路径已随 deadline_ms 移除（2026-12）：等待无超时——未作答时挂起由调用方 signal 收口（idle 挂起不自行超时）', async () => {
+  it('timeout 路径已随 deadline_ms 移除（2026-09-21）：等待无超时——未作答时挂起由调用方 signal 收口（idle 挂起不自行超时）', async () => {
     const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'ask_questions', JSON.stringify({
       questions: [{ question: 'q', options: ['x'] }],
     })) };
@@ -202,7 +202,7 @@ describe('ask_questions 挂起全链路（loop/run-idle 同 run 续走）', () =
     expect(result.finish).toBe('interrupted');
   });
 
-  it('忙步中作答 → steer 步边界即时注入（2026-12 对齐：不等自然停点）', async () => {
+  it('忙步中作答 → steer 步边界即时注入（2026-09-22 对齐：不等自然停点）', async () => {
     // 立案现场复现：模型 ask 后继续忙步（长工具链），期间作答——答案经
     // agentLoop.steer 注入下一步的模型输入，而非等首个自然停点
     const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'ask_questions', JSON.stringify({

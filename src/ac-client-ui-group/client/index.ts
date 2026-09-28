@@ -39,8 +39,6 @@ export interface GroupInfo {
   participants: string[];
   created_at: number;
   description?: string;
-  /** 群主（记忆属主）agent id；未设置 = undefined（成员各自记忆） */
-  memory_owner?: string;
   /** 最近活动时间戳（P4：runs/snapshot 群会话桶 updatedAt 合成；实时侧 WS bump 覆盖） */
   lastActivity?: number;
 }
@@ -51,8 +49,6 @@ interface PGroupConfig {
   members: string[];
   description?: string;
   createdAt?: number;
-  /** 群主（记忆属主）——group/list 直转 GroupConfig.memoryOwner */
-  memoryOwner?: string;
 }
 
 function toGroupInfo(g: PGroupConfig): GroupInfo {
@@ -62,7 +58,6 @@ function toGroupInfo(g: PGroupConfig): GroupInfo {
     participants: g.members,
     created_at: g.createdAt ?? 0,
     ...(g.description !== undefined ? { description: g.description } : {}),
-    ...(g.memoryOwner !== undefined ? { memory_owner: g.memoryOwner } : {}),
   };
 }
 
@@ -175,8 +170,7 @@ export class GroupsClientService extends Service {
     this.own.fiber.effect(() => this.own.rpc.onEvent((type, args) => {
       if (type === 'group/created' || type === 'group/deleted'
         || type === 'group/renamed' || type === 'group/description-set'
-        || type === 'group/member-added' || type === 'group/member-removed'
-        || type === 'group/memory-owner-set') { // 群主变更（他端设置/属主退群自动解除）同步列表
+        || type === 'group/member-added' || type === 'group/member-removed') {
         void this.fetchGroups();
         return;
       }

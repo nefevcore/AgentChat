@@ -63,13 +63,13 @@ export function useConversationIdentity(props: ConversationViewProps) {
    *  selectSingle 同款补 defaultPresetId；空串会令后端把 sid 当 viewer 估算） */
   const singleAgentId = computed(() =>
     props.single ? (props.single.agentId || roster.defaultPresetId.value) : null);
-  /** 群主（记忆属主）——群形态的头部目标 Agent：Token 仪表/系统提示词预览
-   *  以群主视角分析（未配群主回落首成员；无成员 = null 不出仪表） */
+  /** 群代表读者——群形态的头部目标 Agent（cr-4：记忆归人格，群主概念
+   *  退役；仪表/预览以首成员为代表性视角，无成员 = null 不出仪表） */
   const groupOwnerAgentId = computed(() => {
     if (!props.group) return null;
-    return props.group.memory_owner || props.group.participants[0] || null;
+    return props.group.participants[0] || null;
   });
-  /** 头部目标 Agent（single 场景 = 会话承载 Agent；群 = 群主；否则当前激活 Agent） */
+  /** 头部目标 Agent（single 场景 = 会话承载 Agent；群 = 代表成员；否则当前激活 Agent） */
   const headerAgentId = computed(() =>
     singleAgentId.value ?? (isGroup.value ? groupOwnerAgentId.value : roster.activeAgentId.value));
 
@@ -107,8 +107,8 @@ export function useConversationIdentity(props: ConversationViewProps) {
   });
 
   /** 头部席位 owner 上下文（D16-③：贡献按 form 自取自gate）——群形态
-   *  agentId = 群主（memoryOwner 回落首成员），conversationId = gid：
-   *  Token 仪表/系统提示词预览按群主视角请求（session/tokens 群分支 +
+   *  agentId = 代表成员（首成员），conversationId = gid：
+   *  Token 仪表/系统提示词预览按代表读者视角请求（session/tokens 群分支 +
    *  agents/system-prompt 带 conversationId） */
   const headerWidgetData = computed<HeaderWidgetOwnerData>(() => ({
     form: (isPair.value ? 'pair' : props.single ? 'single' : props.group ? 'group' : 'direct'),

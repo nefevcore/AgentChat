@@ -5,7 +5,7 @@
 // M27.1：域插件 owning = ac-client-ui-workspace/client（D19 改裁——
 // 前端行独立包；数据面 = 宿主 REST 端点，无 rpc/帧依赖）。
 // M28 P1 行完整：文件预览（overlay）+ 工作区（aside 席位选区——
-// 第四层右侧区域，2026-11 构造对齐·层级修正：aside 席位 = 区域本身，
+// 第四层右侧区域，2026-09-11 构造对齐·层级修正：aside 席位 = 区域本身，
 // 工作区 = 众多选区之一）席位贡献随行——卸载即消失（可摘除性）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
@@ -39,7 +39,7 @@ describe('M28 P1 · workspace 域行席位贡献（行完整：预览 + 树随�
     const fiber = await ctx.plugin(workspaceClientPlugin);
     expect(ids('overlay')).toContain('webui-domain-workspace.file-preview');
     expect(ids('aux-sidebar')).toContain('webui-domain-workspace.tree');
-    // 2026-11 构造对齐·层级修正：aside 席位 = 第四区域本身——工作区 =
+    // 2026-09-11 构造对齐·层级修正：aside 席位 = 第四区域本身——工作区 =
     // 众多选区之一（def id 'workspace'）；条目 def 携带 active 谓词 +
     // 辅助活动栏按钮资产（域行供，壳零域文案知识；icon = folder-tree
     // 目录树象形——会话区重构二轮换下 panel-right 面板开关隐喻）

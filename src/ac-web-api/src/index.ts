@@ -253,7 +253,7 @@ const POOL_CRED_PREFIX: Record<string, string> = {
  * 提取池条目 api_key 进凭据库并从 payload 剥离（就地变异深拷贝值）。
  * 返回剥离后的同形状值（可直接进 config.set）。
  *
- * 改名迁移（cr-29）：条目以掩码回传（= 保持凭据不变）但 pool:<名> 下
+ * 改名迁移（cr-21）：条目以掩码回传（= 保持凭据不变）但 pool:<名> 下
  * 无凭据、且池中消失的旧名有凭据 → 搬迁 pool:<旧> → pool:<新>。
  * 匹配规则 = 同字段同值（base_url/models 等连接指纹）：掩码语义下条目
  * 内容未变，仅名字换了；找不到指纹匹配则不迁移（fail-safe，凭据留守

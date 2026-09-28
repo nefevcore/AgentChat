@@ -10,7 +10,7 @@
 //     并入，消息渲染链经 TranscriptList/useTurnDisplayItems 单源共享）
 //   · 皆空 → direct 会话（激活 Agent 对桶）
 //
-// conversation-view-split-plan（2026-12 拆分精简）后本视图 = 纯组合壳，
+// conversation-view-split-plan（2026-09-24 拆分精简）后本视图 = 纯组合壳，
 // 细节各归其位（方案：src/docs/conversation-view-split-plan.md）：
 //   · useConversationIdentity —— 四形态判定/对话寻址/头部目标/标题徽标/
 //     席位与 dock 键的纯 computed 族
@@ -114,7 +114,7 @@ const { onTopThreshold, topLoading, firstLoadPending } = useConversationHistory(
 const turns = computed<Turn[]>(() => (dialogId.value ? feed.getTurns(dialogId.value).value : []));
 const turnDisplayItems = useTurnDisplayItems(turns);
 
-/* ── 新会话开场（2026-12 布局重设计）──
+/* ── 新会话开场（2026-09-18 布局重设计）──
  * single 空会话：输入框区域整体居中呈现（工作区选择 | 预设模式选择
  * 置于输入卡上方）。首条消息后回到常规底部布局。direct/群/pair 无此面。
  * 空判定与 ChatInput.sessionLocked 同源口径：无 lastActivity 且 feed

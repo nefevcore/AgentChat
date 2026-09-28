@@ -1,5 +1,5 @@
 // ============================================================
-// regress-phase-window.test.ts —— 寿命修正回归（2026-12 精简审查发现）
+// regress-phase-window.test.ts —— 寿命修正回归（2026-09-24 精简审查发现）
 // A) StreamState 相位标志（sawReasoning/sawText/sawToolCall）跨步泄漏：
 //    delta-end 不再丢弃 StreamState 后，第二步的思考计时与 textBeforeTools
 //    自判失效（改造前每步全新 state）。

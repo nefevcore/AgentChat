@@ -11,7 +11,7 @@
 //     卡片（meta.def 形状对齐 webui ToolResultViewDef 解析契约：
 //     { match, component, priority }）；
 //   · conversation:dock-widget list seat（id 'todo'，order 40——dock 序
-//     重排 2026-09：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)）
+//     重排 2026-09-13：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)）
 //     ——composer 上方任务清单 dock 卡。
 //
 // 后端行（ac-todo）不在场 → todo/get RPC 失败 → fetchTodos null →

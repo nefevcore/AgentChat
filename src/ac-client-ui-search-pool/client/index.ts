@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-search-pool/client/index.ts —— search-pool 域
-// 前端行 client 半边（2026-11 自 ui-llm-pool 拆分）
+// 前端行 client 半边（2026-09-11 自 ui-llm-pool 拆分）
 //
 // 贡献面：settings:section 选举席（meta.section = 'searchPools' +
 // meta.label 叶词条 + 顶层 order 叶序——壳按席位条目派生左树叶）。

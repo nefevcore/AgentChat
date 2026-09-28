@@ -5,7 +5,7 @@
 // 再过几秒才渲染"与"切换完成后才出现加载中"。本工具在每个关键
 // 节点打印毫秒级时间戳，用于定位卡顿段。
 //
-// owning = ac-client-runtime（2026-11 自 conversation 下沉共享纯库：
+// owning = ac-client-runtime（2026-09-11 自 conversation 下沉共享纯库：
 // 事件链横切 conversation/agents/runview/singles 四行——active-id 等
 // 节点住在名册/视图各侧，单源住 runtime 消 .ts 层跨行环，VIEWER_ID
 // 同款姿势；conversation/client/switchTrace.ts 薄门面维持旧深路径）。

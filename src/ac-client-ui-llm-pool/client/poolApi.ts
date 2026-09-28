@@ -1,9 +1,9 @@
 // ============================================================
 // ac-client-ui-llm-pool/client/poolApi.ts —— Provider 池数据面
 //（M29 P1-3d 自 settings/api.ts 归域迁入——T3「数据面跟域走」：
-// 视图已随行（PoolManager/Host），数据面随视图归位。2026-11 行拆分：
+// 视图已随行（PoolManager/Host），数据面随视图归位。2026-09-11 行拆分：
 // 原 savePoolDomain 联合域收窄为 llmProviders——searchProviders 写面
-// 拆往 ac-client-ui-search-pool/searchPoolApi。2026-11 语义归位：
+// 拆往 ac-client-ui-search-pool/searchPoolApi。2026-09-11 语义归位：
 // 模型发现/池模型归一化面自 ui-agents/rosterApi 迁入——原 M29 P1-3b
 // 按「名义消费者」误归 agent 面，实为池域词汇〔llm/models RPC +
 // llmProviders 发现缓存〕；消费方换源后依赖方向正置为
@@ -62,7 +62,7 @@ export async function probeLlmVision(
   return { results: r.results ?? {} };
 }
 
-// ── 池模型元数据与发现面（2026-11 自 ui-agents/rosterApi 迁入——语义
+// ── 池模型元数据与发现面（2026-09-11 自 ui-agents/rosterApi 迁入——语义
 //    归位：模型发现/池条目 models 归一化是池域词汇，Agent 面与池管理面
 //    共消费；原 fetchAgentModels 更名 fetchPoolModels） ──
 

@@ -5,7 +5,7 @@
 // LLM 工具面此前缺失——用户无法通过对话创建/管理定时任务）。
 // 形态差异：src 经 ToolContext.timer 注入 → preview inject ['timers']；
 // owner 从 config.agent_id 烘焙 → call.agentId 执行身份（M11）；
-// 会话键从执行身份烘焙（2026-12 会话维度定时）：set 时把
+// 会话键从执行身份烘焙（2026-09-26 会话维度定时）：set 时把
 // call.conversationId 存进条目——用户在哪个会话设的提醒就回哪个会话
 //（独立会话/对桶/群皆可），缺省回落 Agent 自会话（M19/D2 原语义）。
 // 单一 timer 工具 + action 枚举（src 合并语义原样：同一对象的生命
@@ -126,7 +126,7 @@ export function apply(ctx: Context) {
           mode,
           ...(Number.isFinite(repeatRaw) && repeatRaw > 0 ? { repeatCount: Math.floor(repeatRaw) } : {}),
           hint,
-          // 会话键烘焙（2026-12）：用户设提醒时所在会话——触发时提醒回投
+          // 会话键烘焙（2026-09-26）：用户设提醒时所在会话——触发时提醒回投
           // 本会话；缺省（无会话上下文，如自会话机制 run）回落自会话桶。
           ...(call.conversationId ? { conversationId: call.conversationId } : {}),
           ...(typeof args.target === 'string' && args.target.trim() ? { target: args.target.trim() } : {}),

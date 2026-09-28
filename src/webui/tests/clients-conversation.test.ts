@@ -118,7 +118,7 @@ describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）
     expect(ids()).toContain('queue');
     expect(ids()).toContain('interaction');
     expect(ids()).toContain('approval'); // 提权审批 dock 卡（access-tier §六消费面）
-    // dock 序重排（2026-09）：决策(10)/审批(20)/排队(30) 居任务(40)/
+    // dock 序重排（2026-09-13）：决策(10)/审批(20)/排队(30) 居任务(40)/
     // 目标(50) 位前——待办行动卡置顶，环境追踪卡下沉
     const orders = Object.fromEntries(ctx.slots.entries('conversation:dock-widget').map((e) => [e.id, e.order]));
     expect(orders['queue']).toBe(30);

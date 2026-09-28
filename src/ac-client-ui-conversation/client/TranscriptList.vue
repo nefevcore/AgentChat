@@ -57,7 +57,7 @@ const shell = useChatShell({
 });
 const isUserScrolledUp = computed(() => shell.isUserScrolledUp.value);
 
-// ── 窗口化挂载（2026-01 首载分帧引入；2026-12 收口为「首载窗口 + 上翻分帧」）──
+// ── 窗口化挂载（2026-01-00 首载分帧引入；2026-09-24 收口为「首载窗口 + 上翻分帧」）──
 // 背景：历史首载时页内全部 thinking/正文/工具输出在同一次 Vue flush 里同步跑
 // markdown-it + highlight.js（基准实测重页 ~60ms 主线程阻塞；大会话 800+ 条
 // 单帧挂载 = 秒级卡顿）。现行语义：

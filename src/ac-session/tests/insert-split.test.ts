@@ -98,7 +98,7 @@ describe('插入切分（变体乙：run 中插入 → 关闭行 + 插入行 + �
     await new Promise((resolve) => setTimeout(resolve, 50)); // flush 窗口
     const raw = readFileSync(join(tmp, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');
     const rows = raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as Record<string, unknown>);
-    // 形态断言（按 seq 序，settlement 切段——2026-11 journal 泛化）：
+    // 形态断言（按 seq 序，settlement 切段——2026-09-22 journal 泛化）：
     // header + user 行 + 段行(steps:[step1]) + context 注入行 + 收束行
     const stepsOf = (r: Record<string, unknown>) => (Array.isArray(r.steps) ? (r.steps as Array<{ toolCalls?: Array<{ name?: string }> }>) : []);
     const segRow = rows.find((r) => stepsOf(r).length > 0 && stepsOf(r)[0]?.toolCalls?.[0]?.name === 'load_skill' && r.partial !== true);
@@ -115,7 +115,7 @@ describe('插入切分（变体乙：run 中插入 → 关闭行 + 插入行 + �
     const segTc = stepsOf(segRow!)[0]?.toolCalls?.[0] as { result?: unknown } | undefined;
     expect(segTc?.result).toMatchObject({ ok: true, output: { name: 'pdf-export', status: 'injected' } });
 
-    // 收束行退役（2026-11 裁决）：切分形态不落独立收束行——终文本在尾段末步；
+    // 收束行退役（2026-09-21 裁决）：切分形态不落独立收束行——终文本在尾段末步；
     // settled 判别行在场（提交标记），段行携带 run 键（组存在性判定锚）
     expect(rows.some((r) => r.role === 'agent' && r.run !== undefined && !Array.isArray(r.steps) && (r.content ?? '') === '' && r.injected !== true)).toBe(false);
     expect(raw).toContain('"type":"run-settled"');

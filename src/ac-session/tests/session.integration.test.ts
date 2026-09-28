@@ -105,7 +105,7 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
   it('send 两轮：history 自动携带前轮；消息流落盘（jsonl 中性行含 agent_id/message_id/timestamp）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    // 本用例聚焦持久化/投影：显式关轨迹回放（2026-10 起缺省开——差异层钉死 off 保 golden）
+    // 本用例聚焦持久化/投影：显式关轨迹回放（2026-09-03 起缺省开——差异层钉死 off 保 golden）
     ctx.agents.register({ id: 'a', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     await ctx.router.send('a', '第一句');
     await ctx.router.send('a', '第二句', { history: await ctx.session.history('a~user', { viewer: 'a' }) });
@@ -124,7 +124,7 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     const header = JSON.parse(rawLines[0]);
     expect(header).toMatchObject({ type: 'session-header', version: 1 });
     expect(typeof header.createdAt).toBe('string');
-    // settled 判别行（2026-11 收束行退役）：每 journal run 一条，无 role——
+    // settled 判别行（2026-09-21 收束行退役）：每 journal run 一条，无 role——
 
     // 消息行断言前滤除；在场性单独验（两轮 run 各一条）
 
@@ -777,7 +777,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(replay).toEqual([{ role: 'user', content: '帮我决定', name: 'user' }]);
     // 原始文件确实落盘（tool/before-execute checkpoint 同款 flush 语义）
 
-    // journal 泛化（2026-11）：步行落 partials.jsonl 为 journal-step 判别行
+    // journal 泛化（2026-09-21）：步行落 partials.jsonl 为 journal-step 判别行
 
     const file = path.join(root, 'sessions', 'a~user', 'partials.jsonl');
 
@@ -871,7 +871,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     } as never, 'a~user', 'user', 'user');
     const afterError = await ctx.session.records('a~user');
 
-    // journal 泛化（2026-11）：错误收束走 settlement——步行物化为段行（steps
+    // journal 泛化（2026-09-21）：错误收束走 settlement——步行物化为段行（steps
 
     // 携带思维链——会话事实保留）+ error 行（不再依赖 partial 行永久残留）
 
@@ -899,7 +899,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
 
     expect(plain).toHaveLength(2);
 
-    // journal 泛化（2026-11）：纯文本 run 也走 settlement——收束行带 run 键
+    // journal 泛化（2026-09-21）：纯文本 run 也走 settlement——收束行带 run 键
 
     //（journal 吸收锚，UI/回放无感）；partial 行不再产生
 

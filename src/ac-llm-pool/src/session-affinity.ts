@@ -1,7 +1,7 @@
 // ============================================================
 // ac-llm-pool/src/session-affinity.ts —— 会话亲和头注入（llm/before-chat 订阅）
 //
-// 背景（2026-09 连通性复查）：部分托管推理网关要求每会话稳定的
+// 背景（2026-09-24 连通性复查）：部分托管推理网关要求每会话稳定的
 // session 头用于粘性路由/prompt cache（OpenCode Go 2026-09-05 起
 // 缺 x-opencode-session 即 400 MissingSessionID）。普通用户不会手配
 // llmProviders.<名>.headers——本模块把确认过的事实清单内置为 preset，

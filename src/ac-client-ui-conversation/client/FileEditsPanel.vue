@@ -48,7 +48,7 @@ const ctx = useClientContext();
 const rpc = ctx?.rpc ?? null;
 
 /** 活跃对话的原始消息（reactive 锚——流式/历史合并自动重算）。
- * 防抖视图（2026-12 性能整改）：analysisCore 管线随每条流式消息重算，
+ * 防抖视图（2026-09-21 性能整改）：analysisCore 管线随每条流式消息重算，
  * 尾沿 250ms 合并——流式 chunk 高频到达时面板不逐条重放。 */
 const rawMessagesLive = computed(() => feed.activeDialog?.rawMessages ?? []);
 const rawMessages = ref(rawMessagesLive.value);
@@ -144,7 +144,7 @@ function analysisOf() {
 watch(conversationId, () => void refreshSnapshots(), { immediate: true });
 // 收束/落盘刷新：run 收束（loop/after-run）+ 写工具执行完毕
 //（tool/after-execute——流式过程中刷新，快照首见落盘即生效，不等 run
-// 收束；2026-12 前端反馈：编辑存量文件时面板陈旧提示「无法重建内容」
+// 收束；2026-09-21 前端反馈：编辑存量文件时面板陈旧提示「无法重建内容」
 // 直到刷新页面——刷新时机粒度过粗所致）。事件均带会话键，异会话跳过。
 const offEvents = rpc?.onEvent((type: string, args: unknown[]) => {
   if (type === 'loop/after-run') {
@@ -165,7 +165,7 @@ const offEvents = rpc?.onEvent((type: string, args: unknown[]) => {
 onBeforeUnmount(() => offEvents());
 
 /**
- * 分析拆分（2026-12 性能整改）：原单 computed fileEditsFull 每次重算都对
+ * 分析拆分（2026-09-21 性能整改）：原单 computed fileEditsFull 每次重算都对
  * 【全部文件】eager 生成 diff（fileEditsFull 尾段 map diffOfSummary），
  * 但 UI 只看展开卡。现拆两段：
  *   events+files = 轻管线（提取/重放/快照/磁盘兜底——流式期间可承受）
@@ -203,7 +203,7 @@ const files = computed(() =>
 const totalEdits = computed(() => analysis.value.events.filter((e) => e.ok).length);
 const totalFiles = computed(() => files.value.length);
 /** 卡片统计（工具报告缺失 +0/-0 时以重放初版↔终版 LCS 回填——新建文件可见 +N）。
- * 记忆化（2026-12 性能整改）：LCS 回填只在 analysis 代际变化时算一次——
+ * 记忆化（2026-09-21 性能整改）：LCS 回填只在 analysis 代际变化时算一次——
  * 原实现每次渲染每卡片重算（模板/statOf 直调），多文件多版本时是卡顿源之一。 */
 const statByPath = computed(() => {
   const m = new Map<string, { added: number; removed: number }>();
@@ -239,7 +239,7 @@ watch(() => feed.activeDialogId, () => { expanded.value = new Set(); });
 // 默认展开首卡：仅在「无文件 → 有文件」跃迁时给默认形态（面板首开 /
 // 对话切换后首条编辑落卡）。原条件 expanded.size===0 会在用户收起全部
 // 卡片后随流式刷新（files 高频重算）反复强制弹回首卡——「无法手工
-// 收起」的根因（2026-09 前端反馈；默认展开只是初始形态，非硬约束）。
+// 收起」的根因（2026-09-23 前端反馈；默认展开只是初始形态，非硬约束）。
 watch(files, (list, old) => {
   if ((old?.length ?? 0) === 0 && list.length > 0) {
     expanded.value = new Set([list[0].path]);
@@ -329,7 +329,7 @@ function stepView(s: FileEditSummary, dir: -1 | 1): void {
 }
 
 /** 当前视图 diff：总览 = diffOf 既有；单次 = diffOfStep；当前内容 = 全文 + 行。
- * 记忆化（2026-12 性能整改）：原实现为模板直调函数——每次渲染每卡重算
+ * 记忆化（2026-09-21 性能整改）：原实现为模板直调函数——每次渲染每卡重算
  *（模板内被引用两处：统计行 + parseDiff），展开多卡时 diff 生成被放大。
  * 现 per-analysis 代际 × viewSel 代际记忆化：展开卡只算一次，重渲染查表。 */
 const viewDiffByPath = computed(() => {
@@ -426,7 +426,7 @@ function stepOptionLabel(st: FileEditStep): string {
 }
 
 /** diff 行解析（generateDiffString 输出：'- 12 内容' / '+ 12 内容' / '  12 内容' / '...'）。
- * 记忆化（2026-12 性能整改）：per-path 行数组随视图代际算一次——原模板直调
+ * 记忆化（2026-09-21 性能整改）：per-path 行数组随视图代际算一次——原模板直调
  * 每次 v-for 重渲染都 split+map（截断提示行还引用第二次）数千行 × 每卡。 */
 interface DiffLine { kind: 'add' | 'del' | 'ctx' | 'sep'; text: string }
 const diffLinesByPath = computed(() => {

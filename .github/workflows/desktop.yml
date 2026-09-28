@@ -3,7 +3,7 @@
 # 触发：推送 v* 标签（与 publish.yml 的 npm 发布同标签并行、互不依赖）。
 # 产物：Windows nsis 安装包（AgentChat-Setup-x.y.z.exe）+ Linux AppImage
 #       + macOS dmg/zip（arm64 + x64 双架构，未签名——Gatekeeper 首启需右键打开）。
-#       2026-09 分发自托管裁决（remote-client-relay-plan §4.6）：不再上传
+#       2026-09-15 分发自托管裁决（remote-client-relay-plan §4.6）：不再上传
 #       GitHub Releases——windows 腿 rsync 安装包到下载服务器（secrets：
 #       SERVER_HOST/SERVER_USER/SSH_PRIVATE_KEY），服务器侧 gen-manifest
 #       生成 manifest.json，后续版本拉回 git 双写（git = sha256 信任锚）。
@@ -102,7 +102,7 @@ jobs:
           echo "日志已转存：http://$SERVER_HOST/ci-logs/$GITHUB_RUN_ID/${{ matrix.os }}.log"
 
       # ---- 三腿各传各的产物（文件名不冲突）；manifest 重算在收尾 job ----
-      # ---- 发布闸基准（2026-09 用户反馈安装包损坏）：上传前算 CI 侧
+      # ---- 发布闸基准（2026-09-24 用户反馈安装包损坏）：上传前算 CI 侧
       # sha256 清单进 artifact——manifest job 读回服务器字节比对，不一致
       # = 发布 fail，异常包绝不进 manifest/下载面。
       - name: 计算产物 sha256 清单（CI 侧基准）
@@ -197,7 +197,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---- 发布闸（2026-09 用户反馈安装包损坏）：拉三腿 CI 侧 sha256 基准，
+      # ---- 发布闸（2026-09-25 用户反馈安装包损坏）：拉三腿 CI 侧 sha256 基准，
       # 与服务器上已上传字节逐文件比对——不一致 = 本 job fail，gen-manifest
       # 不执行，异常包绝不进 manifest/下载面（scp 传输损坏/磁盘坏块/并发
       # 写串包在此拦下）。客户端侧另有第二道闸（壳层下载后 sha256 校验）。

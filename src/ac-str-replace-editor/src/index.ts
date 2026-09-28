@@ -10,7 +10,7 @@
 // 修 src 已知缺口（地图 §3.4）：写操作经 ac-edit-core 突变队列串行化
 // （同文件并行编辑交错风险收敛——与 read/write/edit 共享同一把锁）。
 //
-// 能力门禁（2026-09 裁决）：requiredTags ['fs_minimal']——移出默认工具
+// 能力门禁（2026-09-03 裁决）：requiredTags ['fs_minimal']——移出默认工具
 // 面（与 read/write/edit 功能重叠，DSH 兼容定位）；仅显式声明该标签的
 // Agent 可用（如 __dsh_minimal__ 极简预设）。缺标签调用被 ac-security
 // 能力门禁 veto（include 不可绕过）。

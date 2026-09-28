@@ -67,7 +67,7 @@ const AGENT_MENTION_GUIDE =
 const WAIT_TIMEOUT_MS = 60_000;
 
 /**
- * 迟到回复薄通知（2026-09-23 send_agent 收敛；2026-12 修复回投目标）：
+ * 迟到回复薄通知（2026-09-23 send_agent 收敛；2026-09-21 修复回投目标）：
  * wait 超时后对端 run 跑完时，经 deliver（sender=owner、source=event
  * ——会话水位提权继承/MAX_AUTO_WAKES 防自激全走既有机制）唤醒发起方。
  * 回投目标 = 调用会话（call.conversationId——工具在哪个会话里执行，通知
@@ -144,7 +144,7 @@ export function apply(ctx: Context) {
         if (!message.trim()) return err('缺少 message 参数');
         if (!ctx.agents.has(to)) return err(`Agent "${to}" 未注册`);
 
-        // ---- 子 Agent 发信身份归一（2026-12 修复）----
+        // ---- 子 Agent 发信身份归一（2026-09-17 修复）----
         // 执行身份 = sub_*（子 Agent 自己在 send_agent）时：对桶
         // pairKey(sub, to) 会造出"子 ⇄ 对端"幽灵会话——用户视角该对话
         // 不可见（UI 会话列表按父口径），回复也进不了子的任务收件箱
@@ -300,7 +300,7 @@ export function apply(ctx: Context) {
           // 忙态/排队等 outcome（steered/queued/timeout）——落入下方通用返回
         }
         const outcome = await outcomeP;
-        // wait=false 空闲直达（2026-12 修复）：deliver 在对端空闲时本就
+        // wait=false 空闲直达（2026-09-17 修复）：deliver 在对端空闲时本就
         // await 其完整 run 并随 outcome 携带回复——此前被丢弃并对调用方
         // 撒谎"回复会作为新消息送达"。子 Agent（sub_*）场景这是唯一回
         // 收通道（其上下文源是任务收件箱，非 session 对桶——对桶里 b 的
@@ -632,7 +632,7 @@ export function apply(ctx: Context) {
           changed.push('settings');
         }
 
-        // persona：写 Agent 目录 AGENTS.md（文档唯一写口；2026-11 对齐生态
+        // persona：写 Agent 目录 AGENTS.md（文档唯一写口；2026-09-16 对齐生态
         // 事实标准 AGENTS.md——ac-persona 装载侧读 AGENTS.md 优先、AGENT.md
         // 存量回退，旧名文档不遮蔽新写内容）+ 挂载人设装载
         if (fields.persona !== undefined) {

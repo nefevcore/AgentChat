@@ -97,7 +97,7 @@ class WireRpcClient {
     const Ctor = socketFactory ?? WebSocket;
     const ws = new Ctor(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
     this.ws = ws;
-    // 连接回调归属守卫（2026-12 前端流式叠词根因）：本 socket 被顶替
+    // 连接回调归属守卫（2026-09-26 前端流式叠词根因）：本 socket 被顶替
     //（visibilitychange 即时重连 / 在途 rpc.call 抢先建连）后，其迟到的
     // 生命周期回调仍会无条件改写单例状态——onclose 擦掉新连接引用并
     // scheduleReconnect 再建一条 → 双连接并行，服务端广播双投递，feed 的

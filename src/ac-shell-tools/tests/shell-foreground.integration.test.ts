@@ -62,7 +62,7 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     expect(chunks.join('')).toContain('hello-shell');
   });
 
-  it('前台执行分轨输出（2026-12 对齐 Agent 直觉）：stdout/stderr 字段 + 合流 output 保留', async () => {
+  it('前台执行分轨输出（2026-09-22 对齐 Agent 直觉）：stdout/stderr 字段 + 合流 output 保留', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const cmd =

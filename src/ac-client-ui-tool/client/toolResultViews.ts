@@ -34,7 +34,7 @@ export interface ToolResultViewDef {
   label?: string;
   /** 卡片图标名（M28 P3/T9：同 label——lucide 名，toolIcon 解析面先查） */
   icon?: string;
-  /** Label 点击直达动作（M28 P3 后补；2026-12 R7 相位整改）：返回 true =
+  /** Label 点击直达动作（M28 P3 后补；2026-09-21 R7 相位整改）：返回 true =
    *  拦截默认展开（动作已消化）。域行动作住域行 def（如 web_search 直达
    *  搜索侧边栏），base 消费面只调钩子不 import 域行——行卸载 → def
    *  消失 → 回落默认展开（可摘除性保持）。 */
@@ -119,7 +119,7 @@ export function resolveToolResultView(toolName?: string): Component | null {
  * 响应式：读 version 依赖锚，行装卸后消费 computed 自动重解析。
  */
 /**
- * 解析工具名 → Label 点击直达动作（onLabelClick；2026-12 R7 相位整改）。
+ * 解析工具名 → Label 点击直达动作（onLabelClick；2026-09-21 R7 相位整改）。
  * 匹配链与 resolveToolDisplayMeta 同源（精确名 → 正则族 → 未命中 null
  * ——调用方回落默认展开）。响应式同读 version 依赖锚。
  */

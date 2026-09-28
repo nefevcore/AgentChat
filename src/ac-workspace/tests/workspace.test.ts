@@ -81,7 +81,7 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     fs.mkdirSync(path.join(root, 'agents', 'bot'), { recursive: true });
     fs.writeFileSync(path.join(root, 'agents', 'bot', 'config.json'), '{}');
     expect(ctx.workspace.readFile('agents/bot/config.json').content).toBe('{}');
-    // 敏感遮蔽已停用（2026-12 裁决：本地单用户应用，泄露后果用户自担）：
+    // 敏感遮蔽已停用（2026-09-13 裁决：本地单用户应用，泄露后果用户自担）：
     // 控制面文件树可见、读口可读（恢复遮蔽时还原为 toThrow(/敏感文件/)）
     fs.writeFileSync(path.join(root, 'config.json'), '{"llmProviders":{}}');
     fs.writeFileSync(path.join(root, 'credentials.json'), '{"vault":{}}');
@@ -264,7 +264,7 @@ describe('ac-workspace 读面工作区推导（M32：Agent 回复相对路径按
     fs.writeFileSync(path.join(root, 'files', 'neko', '.env'), 'SECRET=1');
     // ../ 逃逸（基准外）：不命中（不抛越界——静默跳过候选）
     expect(() => ctx.workspace.readFile('../outside.txt', undefined, { agentId: 'neko' })).toThrow(/不存在/);
-    // 敏感遮蔽已停用（2026-12 裁决）：.env 在基准内存在 → 直接可读
+    // 敏感遮蔽已停用（2026-09-13 裁决）：.env 在基准内存在 → 直接可读
     expect(ctx.workspace.readFile('.env', undefined, { agentId: 'neko' }).content).toBe('SECRET=1');
     // 根外绝对路径（数据根外）：不落任何基准 → 404
     const alien = path.join(os.tmpdir(), `ac-ws-alien-${Date.now().toString(36)}.txt`);
@@ -278,7 +278,7 @@ describe('ac-workspace 初始化', () => {
   it('首启：目录布局 + browser 脚本分发 + user/admin 物化 + 首启消息入会话流', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root, { admin: { model: 'glm-5.3' } });
-    // 目录布局（browser daemon 已退役——CDP 直连，2026-10）
+    // 目录布局（browser daemon 已退役——CDP 直连，2026-09-26）
     expect(fs.existsSync(path.join(root, 'files', 'shared', 'scripts'))).toBe(true);
     // user = virtual 数据；admin = 配置数据
     expect(ctx.agents.get('user')).toMatchObject({ id: 'user', virtual: true });

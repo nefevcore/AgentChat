@@ -24,7 +24,7 @@ const props = defineProps<{
     form?: 'direct' | 'group' | 'single' | 'pair';
     /** 头部目标 Agent（direct = 激活 Agent；single = 会话承载 Agent；群 = 群主） */
     agentId?: string | null;
-    /** 会话键（群 = gid——预览按群成员视角装配：记忆桶/群共享记忆按 gid 解析） */
+    /** 会话键（群 = gid——预览按群成员视角装配：cr-4 记忆归人格时间线） */
     conversationId?: string | null;
   };
 }>();

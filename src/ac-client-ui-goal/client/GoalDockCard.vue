@@ -2,7 +2,7 @@
   M28 P1：原 TaskDock 宿主内置 GoalBar（order 20）迁入本行贡献形态。
   数据自理（useGoalTracking 事件化刷新：会话切换 + tool/after-execute ·
   loop/after-run 帧）；无目标（null/undefined）不渲染（三态契约）。
-  2026-10 直编面：rpc 面经 useGoalTracking 同源透传 GoalBar（写走
+  2026-09-13 直编面：rpc 面经 useGoalTracking 同源透传 GoalBar（写走
   goal/update · goal/delete RPC）；编辑落定 changed → refresh 对账
   （直编不经 Agent 工具，tool/after-execute 帧不触发——写后主动拉）。 -->
 <script setup lang="ts">

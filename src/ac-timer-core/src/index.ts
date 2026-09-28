@@ -41,7 +41,7 @@ export interface TimerEntry {
    */
   target?: string;
   /**
-   * 触发回投会话键（2026-12 会话维度定时）：定时唤醒发往本会话桶而非
+   * 触发回投会话键（2026-09-26 会话维度定时）：定时唤醒发往本会话桶而非
    * Agent 自会话对角线——独立会话（sid）/ 对桶（pairKey）/ 群 id 皆可。
    * timer 工具 set 时从执行身份（call.conversationId）自动烘焙：用户在
    * 哪个会话设的提醒就回哪个会话（提醒留在用户视线内，不自造无人消费

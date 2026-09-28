@@ -1,5 +1,5 @@
 // ============================================================
-// feed-elapsed-calib.test.ts —— 链栏耗时校准链路验证（2026-12 计时反馈）
+// feed-elapsed-calib.test.ts —— 链栏耗时校准链路验证（2026-09-21 计时反馈）
 // 前端计时 + 后端耗时覆盖续计：after-step 写入 runCalibMs/runCalibAt 驻留
 // 消息 → buildTurns 汇入 turn.steps[].assistant → chainLabel 消费。
 // 覆盖纯函数面（透传不丢）；帧驱动写入面由 after-step 处理逻辑保障。

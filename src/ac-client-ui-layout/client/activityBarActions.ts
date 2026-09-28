@@ -1,8 +1,8 @@
 // ============================================================
-// client/activityBarActions.ts —— 活动栏插件动作位解析（2026-11 自 ac-client-ui-sidebar 行归并壳件）
+// client/activityBarActions.ts —— 活动栏插件动作位解析（2026-09-11 自 ac-client-ui-sidebar 行归并壳件）
 // 解析面（M27.2-2 随 sidebar 件迁入）
 //
-// activity-bar:plugin-actions 席位（★sidebar-action 别名，D13——2026-11 席位键随区域席语义定整改名；第三方 manifest 词汇 = 旧轨 sidebar-action，经 slotCatalog 归一不变）entries →
+// activity-bar:plugin-actions 席位（★sidebar-action 别名，D13——2026-09-11 席位键随区域席语义定整改名；第三方 manifest 词汇 = 旧轨 sidebar-action，经 slotCatalog 归一不变）entries →
 // def 视图（meta.def 原样携带；注册面 = webui bridge
 // registerActivityBarAction / ctx.slots.register——本模块只读解析）。
 // ctx 参数化 composable（包内无全局 runtime 单例——版本计数经

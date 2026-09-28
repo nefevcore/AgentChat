@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-search-pool —— search-pool 域前端行
-//（2026-11 自 ui-llm-pool 拆分：模型池与搜索池是两个对象——
+//（2026-09-11 自 ui-llm-pool 拆分：模型池与搜索池是两个对象——
 //  llm 连接管理留 ui-llm-pool 严格镜像 ac-llm-pool；搜索池
 //  自成一等行。后端无专属池服务：searchProviders 是 config.json
 //  池表键，消费方 = ac-web-tools〔web_search 读 default:true
@@ -25,7 +25,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-search-pool',
   label: '搜索引擎池（前端）',
-  description: 'search-pool 域前端行（2026-11 自 ui-llm-pool 拆分）：搜索引擎池管理（settings:section 选举席贡献 searchPools 节）；后端消费方 = ac-web-tools，无专属后端池服务',
+  description: 'search-pool 域前端行（2026-09-11 自 ui-llm-pool 拆分）：搜索引擎池管理（settings:section 选举席贡献 searchPools 节）；后端消费方 = ac-web-tools，无专属后端池服务',
   automatic: true,
 };
 

@@ -81,12 +81,32 @@ const HighlightPlugin = Extension.create({
   },
 });
 
+/** 组合期被 onUpdate 门拦下的 emit 待补发标记（compositionend 后定稿补发，见 onUpdate 注释） */
+let composeEmitPending = false;
+
 const editor = useEditor({
   content: textToHtml(props.modelValue),
   extensions: [Document, Paragraph, Text, ChatUndoRedo, HighlightPlugin],
   editable: !props.disabled,
   editorProps: {
     attributes: { class: 'pe-editor', 'aria-label': '消息输入框' },
+    // compositionend 补发被组合门拦下的定稿：本监听先于 PM 内置 compositionend
+    // 处理跑（tiptap handleDOMEvents 前置），PM 的 pending-flush 定稿（一跳微任务）
+    // 会先于我们的两跳检查完成且清掉 pending——常规序列不重复 emit；丢文本序列
+    // （定稿早于 compositionend 已上账）则在此补发。返回 false 不拦截默认处理。
+    handleDOMEvents: {
+      compositionend: () => {
+        Promise.resolve().then(() => Promise.resolve().then(() => {
+          if (!composeEmitPending) return;
+          composeEmitPending = false;
+          const ed = editor.value;
+          if (!ed || ed.isDestroyed) return;
+          emit('update:modelValue', ed.getText({ blockSeparator: '\n' }));
+          if (!programmatic) props.onActivity?.();
+        }));
+        return false;
+      },
+    },
     // 复制/剪切/拖拽的 text/plain 出口：单换行口径（PM 默认 "\n\n"
     // 富文本段距会把输入框的换行复制成空行——复制出去再粘回换行翻倍）
     clipboardTextSerializer: (slice) => clipboardText(slice.content),
@@ -137,7 +157,12 @@ const editor = useEditor({
     },
   },
   onUpdate({ editor: ed }) {
-    if (ed.view.composing) return; // IME 组合期不 emit（等价原 v-model 组合门）
+    // IME 组合期不 emit（等价原 v-model 组合门），但标记 pending——短组合
+    // （…… 直出标点类）定稿事务可在 compositionend 前被 MutationObserver flush
+    // dispatch（composing 仍 true），若不补发，v-model 永久滞留旧值：界面有字、
+    // 数据层为空，发送按钮灰死（2026-09-21 …… 发不出根因）
+    if (ed.view.composing) { composeEmitPending = true; return; }
+    composeEmitPending = false;
     emit('update:modelValue', ed.getText({ blockSeparator: '\n' }));
     if (!programmatic) props.onActivity?.();
   },

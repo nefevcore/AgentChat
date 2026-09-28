@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// ExtToolsPane.vue —— Agent「插件配置」页（原「装配」页，2026-10 改名与
+// ExtToolsPane.vue —— Agent「插件配置」页（原「装配」页，2026-09-03 改名与
 // 插件库页签统一；M22 P2 重构；M24 P4 目录同构；
 // 2026-08-30 完全对齐插件库页——卡片解剖/左导航/事件树/工具参数表全部
 // 复用 PluginLibraryPane 的形态与 .ui-row 公共底座；P11 收窄：
@@ -69,7 +69,7 @@ async function loadVocabulary(): Promise<void> {
   if (descR.status === 'fulfilled') eventDescriptions.value = descR.value.descriptions;
 }
 const offWire = rpc?.onEvent((type: string) => {
-  if (type === 'plugin/installed' || type === 'plugin/catalog-changed' || type === 'plugin/reloaded') void loadVocabulary();
+  if (type === 'plugin/updated') void loadVocabulary();
 });
 onMounted(() => { void loadVocabulary(); });
 onUnmounted(() => offWire?.());
@@ -476,7 +476,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
               <div class="plugin-title-row">
                 <!-- 主名 = 人类可读 label（普通用户视角；无 label 的行回落包名），
                      包名弱化为次级 mono 标识（settings 键仍进 tooltip）——与插件库
-                     「插件目录/插件配置」清单同款（2026-11 后续反馈反转旧裁决） -->
+                     「插件目录/插件配置」清单同款（2026-09-05 后续反馈反转旧裁决） -->
                 <span class="plugin-name">{{ e.label ?? e.row }}</span>
                 <span v-if="e.label && e.label !== e.row" class="plugin-alias" :title="`装配行包名：${e.row}（AgentConfig.settings 键：${e.name}）`">{{ e.row }}</span>
                 <span v-if="extHasParams(e)" class="ui-badge cfg" title="带参数面（点击卡片配置差异层）"><Icon name="settings" :size="10" />可配置</span>

@@ -2,7 +2,7 @@
   单行条带：目标图标 + 阶段标签（进行中/已暂停/受阻——受阻与自动暂停
   带原因 tooltip）+ 目标文本（ellipsis 截断）+ goal-round 轮次进度
   （第 N/M 轮）。无目标（null/undefined）不渲染。
-  2026-10 直编面：hover 操作区（暂停/恢复切换 · 编辑 · 删除）——写经
+  2026-09-13 直编面：hover 操作区（暂停/恢复切换 · 编辑 · 删除）——写经
   goalApi（goal/update · goal/delete RPC，与 Agent goal 工具同一写口）；
   落定后 emit changed（GoalDockCard → useGoalTracking.refresh 对账），
   rpc error 行内呈现（服务未装载/失败不静默吞写操作）。 -->

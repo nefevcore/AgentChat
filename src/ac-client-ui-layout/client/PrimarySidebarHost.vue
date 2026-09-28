@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ============================================================
 // client/PrimarySidebarHost.vue —— 主侧边栏三面板壳
-//（2026-11 命名对齐区域席 primary-sidebar；前身 ListPanelsHost，
+//（2026-09-11 命名对齐区域席 primary-sidebar；前身 ListPanelsHost，
 // M28 P2 退化终态：零内联面板）
 //
 // 三面板全部 = 域行 primary-sidebar:domain 选举席贡献：agents ←

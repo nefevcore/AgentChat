@@ -19,10 +19,10 @@ import * as rosterApi from 'ac-client-ui-agents/client/rosterApi.ts';
 import * as timerApi from 'ac-client-ui-timer/client/timerApi.ts';
 import { fetchAgents, createAgent, fetchLlmProviders, toAgentList, fetchAgentPresets } from 'ac-client-ui-agents/client';
 import { fetchPools, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
-// 2026-11 语义归位：模型发现/池模型归一化迁 ui-llm-pool（fetchPoolModels）
+// 2026-09-11 语义归位：模型发现/池模型归一化迁 ui-llm-pool（fetchPoolModels）
 import { fetchPoolModels } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { fetchGroups } from 'ac-client-ui-group/client';
-import { createGroup, updateGroup, deleteGroup, setGroupMemoryOwner } from 'ac-client-ui-group/client/groupApi.ts';
+import { createGroup, updateGroup, deleteGroup } from 'ac-client-ui-group/client/groupApi.ts';
 import { fetchGroupHistory, fetchPairHistory } from 'ac-client-ui-conversation/client/historyApi.ts';
 import { fetchSingles, createSingle, updateSingle, archiveSingle, deleteSingle } from 'ac-client-ui-singles/client';
 import { fetchRuns, interruptRun, toRunsSnapshot, convKeyToId } from 'ac-client-ui-runview/client';
@@ -432,7 +432,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     // 新增模型条目带出 provider 默认模型（LLM_PROVIDER_DEFAULTS 同源）
     const glmModel = (llmSchema.glm ?? []).find((f: { key: string }) => f.key === 'model');
     expect((glmModel as { default?: unknown } | undefined)?.default).toBe('glm-5.3');
-    // 搜索 schema = 双 provider 内置表（2026-10 收敛 tavily/deepseek——
+    // 搜索 schema = 双 provider 内置表（2026-09-03 收敛 tavily/deepseek——
     // 与 ac-web-search-core PROVIDER_REGISTRY 同口径；池页下拉同源）；
     // deepseek 配置项只剩 api_key（端点/模型/次数走 provider 内置缺省，
     // 调优字段 deepseek 不消费）
@@ -527,7 +527,7 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
 
   it('fetchPoolModels / fetchLlmProviders / fetchPools / fetchSessionTokens / fetchAgentPresets：RPC 方法名与形状锁定', async () => {
     // 模型发现（P3 真 /models 代理）：方法名 + name/refresh 参数
-    //（2026-11 自 rosterApi/fetchAgentModels 迁 ui-llm-pool 更名 fetchPoolModels）
+    //（2026-09-11 自 rosterApi/fetchAgentModels 迁 ui-llm-pool 更名 fetchPoolModels）
     const { rpc: modelsRpc, calls: modelsCalls } = rec({ 'llm/models': { name: 'glm', models: ['a', 'b'] } });
     const models = await fetchPoolModels('glm', true, modelsRpc);
     expect(models.models).toEqual(['a', 'b']);
@@ -567,24 +567,6 @@ describe('Port B：api/groups（群名册，第三梯）', () => {
     const { rpc } = rec({ 'group/list': { groups: [{ id: 'g1', name: '群', members: ['a', 'b'], createdAt: 5 }] } });
     const r = await fetchGroups(rpc);
     expect(r.groups[0]).toEqual({ group_id: 'g1', name: '群', participants: ['a', 'b'], created_at: 5 });
-  });
-
-  it('群主（记忆属主）：memoryOwner 透传 memory_owner + set-memory-owner 设定/解除参数形（空 agentId = 不带字段）', async () => {
-    // 透传：后端 GroupConfig.memoryOwner → 前端 memory_owner（未设置 = 无键）
-    const { rpc } = rec({ 'group/list': { groups: [
-      { id: 'g1', name: '群', members: ['a', 'b'], createdAt: 5, memoryOwner: 'a' },
-      { id: 'g2', name: '群二', members: ['a'], createdAt: 6 },
-    ] } });
-    const r = await fetchGroups(rpc);
-    expect(r.groups[0].memory_owner).toBe('a');
-    expect(r.groups[1].memory_owner).toBeUndefined();
-    // 设定：带 memoryOwner；解除（agentId 空）：不带字段——后端 optStr 空→undefined
-    const set = rec({ 'group/set-memory-owner': { group: { id: 'g1', memoryOwner: 'b' } } });
-    await setGroupMemoryOwner('g1', 'b', set.rpc);
-    expect(set.calls).toEqual([{ method: 'group/set-memory-owner', params: { groupId: 'g1', memoryOwner: 'b' } }]);
-    const clear = rec({ 'group/set-memory-owner': { group: { id: 'g1' } } });
-    await setGroupMemoryOwner('g1', '', clear.rpc);
-    expect(clear.calls).toEqual([{ method: 'group/set-memory-owner', params: { groupId: 'g1' } }]);
   });
 
   it('createGroup：group/create → {group:{group_id}}（创建后选中硬依赖）', async () => {
@@ -764,7 +746,7 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     // M19 对桶统一：user~agent 直答 / a~b 委托 / a~a 自会话同规进 pairs；
     // singles（无 ~）不进
     expect(s.pairs.map((p) => p.key)).toEqual(['chat~helper~user', 'chat~a1~helper', 'chat~a1~a1']);
-    // 2026-12 轴收窄：群/system 不入 members（快照无群证据供数、system
+    // 2026-09-21 轴收窄：群/system 不入 members（快照无群证据供数、system
     // 无对桶）——轴 = Agent 端点（含 user）
     expect(s.members.map((m) => m.id)).toEqual(['helper', 'a1', 'user']);
     expect(s.running[0]).toMatchObject({ convKey: 'chat~helper~user', kind: 'chat' });

@@ -28,7 +28,7 @@
 //     flushAll）后才放行工具执行；落盘失败则 veto（工具执行前入站消息
 //     与 journal 必已 durable）
 //
-// 【run journal（2026-11 partials 泛化）】partials.jsonl = run 周期台账：
+// 【run journal（2026-09-21 partials 泛化）】partials.jsonl = run 周期台账：
 // 步行（journal-step）/ 注入行（journal-inject——用户 steer/事件/技能
 // context 按消费点真序落）/ 直调补行（tool-result）。行序 = 模型消息数组
 // 实际序。run 收束（reply-completed，全终态）→ settlement 两阶段物化：
@@ -162,13 +162,13 @@ export interface SessionRecord {
   echoSeq?: number;
   /**
    * run 关联键（部分行与其收束行/段行同值；读侧吸收对账用）。settlement
-   * 切段（2026-11 泛化）后同 run 可有多条段行——注入行切分点两侧各一段。
+   * 切段（2026-09-21 泛化）后同 run 可有多条段行——注入行切分点两侧各一段。
    */
 
   run?: string;
 
   /**
-   * journal 提升行标记（2026-11 partials 泛化）：true = 本行原是 run
+   * journal 提升行标记（2026-09-21 partials 泛化）：true = 本行原是 run
    * journal（partials.jsonl）里的注入行，settlement 时提升进 messages——
    * 行为与直接落账完全一致，本标记仅供读侧合并把 journal 行排除在
    * 吸收对账外（注入行永不被吸收/去重）。
@@ -242,7 +242,7 @@ function isToolResultLine(line: string): boolean {
 /**
  * journal 步行落盘行（type 判别行，同 session-header 机制）：run journal
  * （partials.jsonl）的原子事件——每个已完成步一行（工具步/纯文本步同款，
- * 2026-11 泛化：全步落盘使行序 = 模型消息数组实际序，注入行按真序插在
+ * 2026-09-21 泛化：全步落盘使行序 = 模型消息数组实际序，注入行按真序插在
  * 步行之间）。旧版本读到本行 → parseRecordLine 无 role 词拒绝 → 安全忽略
  * （前向兼容）。settlement 按 run 键收集本类行切段物化到 messages.jsonl。
  */
@@ -357,7 +357,7 @@ function journalIdentity(line: string): string | undefined {
 
 /** run_code 子调用 id（`<runId>#<seq>`）的 seq 数字段（无 # 后缀 → 0） */
 /**
- * run-settled 判别行（messages.jsonl 内的原子提交点，2026-11 收束行退役）：
+ * run-settled 判别行（messages.jsonl 内的原子提交点，2026-09-21 收束行退役）：
  * settlement 提升批的成员——在场 = 本批完整落盘。恢复判定不单点依赖它
  *（同 run 非 partial 行存在性即可判定 settled——段行是普通 role 行，
  * compact 重写后仍存活）；它是显式提交标记 + 批截断时的诊断信号。
@@ -474,7 +474,7 @@ export interface SessionStepRecord {
   content: string;
   reasoning?: string;
   /**
-   * 步身份键（2026-12 身份贯通）：= `${runId}:${index}（源自 loop 的
+   * 步身份键（2026-09-24 身份贯通）：= `${runId}:${index}（源自 loop 的
    * LoopStepRecord.stepId）。前端历史展开时透传——直播行与 journal 行
    * 按键控对齐（取代内容前缀猜测）。旧行无此键 → 前端回落启发式。
    */
@@ -887,7 +887,7 @@ export class SessionService extends Service {
   private steerStashByConv = new Map<string, Set<object>>();
 
   /**
-   * settlement per-conv 链（2026-11 泛化）：同会话的 settlement 串行执行
+   * settlement per-conv 链（2026-09-21 泛化）：同会话的 settlement 串行执行
    *（recoverJournal 与 settleRun 都重写 partials——互斥防竞态）。值恒为
    * 已捕获的 Promise（链永不 reject）。
    */
@@ -912,7 +912,7 @@ export class SessionService extends Service {
     wrotePartial: boolean;
 
     /**
-     * 本 run journal 是否落过注入行（journalRuns 语义，2026-11 泛化）：
+     * 本 run journal 是否落过注入行（journalRuns 语义，2026-09-21 泛化）：
      * true = settlement 需要切段物化（存在注入切分点）。全 run 记账（不
      * 再按工具步门控——journal 全步落盘，行序即真序）。
      */
@@ -979,7 +979,7 @@ export class SessionService extends Service {
       this.flushBestEffort(conversationId, '入站消息');
     }, { description: '入站消息入账 + 即时落盘（机制通知 → 事件行 + context-injected 帧；普通 → 说话人 agent 行）' });
     this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, source, meta) => {
-      // journal 语义（2026-11 泛化）：会话忙（有活跃 run）时 stash，步边界
+      // journal 语义（2026-09-21 泛化）：会话忙（有活跃 run）时 stash，步边界
       // 消费点统一落 journal 注入行（partials.jsonl，位置 = 进入消息数组的
       // 真实位置）——修复投递时落盘比 LLM 实际消费提前一步的错位；空闲
       // 路径照旧直落（下方原逻辑）。
@@ -1051,7 +1051,7 @@ export class SessionService extends Service {
         };
       }
     }, { description: 'fail-closed checkpoint：定向 flush 后放行' });
-    // ---- journal 步行（partials 泛化，2026-11）----
+    // ---- journal 步行（partials 泛化，2026-09-21）----
     // run 进行中每个已完成步落一行 journal（工具步/纯文本步同款——全步
     // 落盘使行序 = 模型消息数组实际序）。工具阻塞等待（ask_questions 等
     // 用户决策）或进程中断时，刷新后的历史首屏可恢复此前的思维链与工具
@@ -1063,7 +1063,7 @@ export class SessionService extends Service {
 
       if (key === undefined) return;
 
-      // 惰性恢复（2026-11 泛化）：上一进程的崩溃窗口/孤儿 journal 在新 run
+      // 惰性恢复（2026-09-21 泛化）：上一进程的崩溃窗口/孤儿 journal 在新 run
       // 开始前收口（幂等；先排空本会话在途 settlement 链——防误判孤儿）
 
       if (request.conversationId !== undefined) {
@@ -1078,7 +1078,7 @@ export class SessionService extends Service {
 
       }
       this.activeRuns.set(key, {
-        // run 键优先取 loop 的 runId（2026-12 身份贯通：与步级 stepId 前缀、
+        // run 键优先取 loop 的 runId（2026-09-24 身份贯通：与步级 stepId 前缀、
         // 流式帧 meta.runId 同源——跨层对账零翻译）；缺席（理论不至：loop
         // run() 入口恒铸造）回落本地铸造
         run: request.runId ?? genRunId(),
@@ -1112,7 +1112,7 @@ export class SessionService extends Service {
 
       if (this.isGroupBucket(conversationId)) return;
 
-      // journal 全步落盘（2026-11 泛化）：工具步/纯文本步同款——行序即
+      // journal 全步落盘（2026-09-21 泛化）：工具步/纯文本步同款——行序即
       // 真序，注入行按消费点插在步行之间；settlement 切段物化的数据源。
 
       state.wrotePartial = true;
@@ -1212,7 +1212,7 @@ export class SessionService extends Service {
 
         if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
 
-        // journal 注入行（2026-11 泛化）：消息进入数组的真实位置落 journal
+        // journal 注入行（2026-09-21 泛化）：消息进入数组的真实位置落 journal
         //（settlement 时按真序提升切分）；位置兜底 = 消息数组序——比
         // journal 尾部精确（同步多注入时仍保消费点真序）。
 
@@ -1280,9 +1280,9 @@ export class SessionService extends Service {
       // 直调补行 → partials.jsonl（不进主文件——partial/补行同属 run 中间态，
       // 关闭行〔切分〕的终值覆盖源，如实保留不清理；主文件零死重）
       const queue = this.queueOf(conversationId, isSubcall ? 'subcalls' : 'partials');
-      // 补行 run 键：settlement 单 run 键（2026-11 泛化——切段行共享
+      // 补行 run 键：settlement 单 run 键（2026-09-24 泛化——切段行共享
       // run 键，补行按 run|tool_call_id 对账到步行，无跨键归属问题）。
-      // 2026-12 身份贯通：run_code 子调用优先记 call.runId（loop 发证）——
+      // 2026-09-24 身份贯通：run_code 子调用优先记 call.runId（loop 发证）——
       // 与宿主 run_code 步的 stepId 前缀同源，前端宿主定位零前缀扫描
       const hostRun = call.runCodeSubcall === true && typeof call.runId === 'string' && call.runId
         ? call.runId
@@ -1327,7 +1327,7 @@ export class SessionService extends Service {
   }
 
   /**
-   * journal 步行落账（2026-11 partials 泛化）：每个已完成步一行（工具步/
+   * journal 步行落账（2026-09-21 partials 泛化）：每个已完成步一行（工具步/
    * 纯文本步同款——全步落盘使行序 = 模型消息数组实际序，注入行按真序
    * 插在步行之间）。工具步 result 恒 null：终值由 tool/after-execute 补行
    * 携带（副作用前 durable 语义不变——journal 行在工具执行前已落队）。
@@ -1392,7 +1392,7 @@ export class SessionService extends Service {
   }
 
   /**
-   * journal 重写（settlement 第二阶段，2026-11 partials 泛化）：剔除已提升
+   * journal 重写（settlement 第二阶段，2026-09-21 partials 泛化）：剔除已提升
    * run 的全部行（步行/注入行/直调补行，按行身份）。崩溃窗口（messages 批
    * 已 durable、本重写未发生）由 recoverJournal 幂等收口——重放提升批
    * message_id 一致，rewriteJournal 剔除行身份一致，重试无副作用。
@@ -1477,7 +1477,7 @@ export class SessionService extends Service {
   }
 
   /**
-   * settlement（run 收束物化，2026-11 partials 泛化）：journal（partials.jsonl）
+   * settlement（run 收束物化，2026-09-21 partials 泛化）：journal（partials.jsonl）
    * 的 run 台账 → messages.jsonl 定稿流。两阶段：
    *   ① flushMessages 兜底 + 提升批入队 + flush（durable）；
    *   ② rewriteJournal 剔除已提升行（崩溃窗口由 recoverJournal 幂等收口）。
@@ -1538,7 +1538,7 @@ export class SessionService extends Service {
       }
     }
     // 提升批构造：按 journal 真序切段——注入行即切分点。全行带 run 键
-    //（2026-11 收束行退役裁决）：段行/注入行/settled 行同键成组——run 键
+    //（2026-09-21 收束行退役裁决）：段行/注入行/settled 行同键成组——run 键
     // = 「本行产生于该 run 周期」（普适归属维度，非输出归属）；recoverJournal
     // 的 settled 判定与读侧 absorbedRuns 均按【同 run 非 partial 行存在性】
     // 判定，无单点锚（compact 重写后组员仍是普通 role 行，锚天然存活）。
@@ -1617,7 +1617,7 @@ export class SessionService extends Service {
         batch.push(() => this.record(conversationId, agentId, { role: 'user', content: text }, { ...(finalSteps.length > 0 ? { steps: finalSteps } : {}), run: state.run }));
 
       } else {
-        // 收束行退役（2026-11 裁决）：切分形态终文本已在尾段末步——不再
+        // 收束行退役（2026-09-21 裁决）：切分形态终文本已在尾段末步——不再
         // 重复落收束行（终文本双份 = 前端错序放大器）；对账锚由全行 run 键
         // 承担（段行/注入行/settled 行同键成组）
 
@@ -1695,7 +1695,7 @@ export class SessionService extends Service {
     if (runs.size === 0) { fs.rmSync(partFile); return; }
     // messages 收束行 run 键集（判定提升批是否已 durable）
     const msgFile = this.dataFile(conversationId, 'messages');
-    // settled 判定（2026-11 全行 run 键裁决）：同 run 的非 partial 行在场即
+    // settled 判定（2026-09-21 全行 run 键裁决）：同 run 的非 partial 行在场即
     // settled——段行/注入行/settled 判别行任一成活即组存在（无单点锚；
     // compact 重写后组员仍是普通 role 行，判定天然存活）
     const settled = new Set<string>();
@@ -1751,12 +1751,13 @@ export class SessionService extends Service {
     const active = runKey !== undefined ? this.activeRuns.get(runKey) : undefined;
     if (runKey !== undefined) this.activeRuns.delete(runKey);
     if (isArchiveReviewRun(meta)) return; // 机制标记 run 的回复不入账（M20）
-    // 群桶 run 终稿不入群本体（M26 行为对齐）：群内容唯一口 = 群本体
+    // 群本体桶 run 终稿不入账（M26 行为对齐）：群内容唯一口 = 群本体
     // post 行（send_group 工具/用户投递）——run 终稿不是群发言（契约
-    // 明示"直接输出文本不会发送到群聊"）。判定双保险：hint 投递标记
-    // （群 run 恒携带）+ groups shelf（D11 上架的群桶，覆盖非 hint 路径）。
-    if (isGroupHint(meta) || this.isGroupBucket(conversationId)) return;
-    // settlement 分流（2026-11 partials 泛化）：本 run 有 journal（步/注入/
+    // 明示"直接输出文本不会发送到群聊"）。判定 = groups shelf（D11 上架
+    // 的群本体桶）。成员转录流桶（gid~member，cr-4）不在群 shelf——run
+    // 终稿/步级/journal 全套 settlement 转录照常入账（成员私有回放材料）。
+    if (this.isGroupBucket(conversationId)) return;
+    // settlement 分流（2026-09-21 partials 泛化）：本 run 有 journal（步/注入/
     // 补行任一）→ settlement 物化（切段 + 提升 + 清理，含错误/中断收束——
     // journal 步行如实物化为段行，run 做过的推理是会话事实，UI 刷新后仍
     // 可见，不再依赖「部分行永久残留 + 读侧活投影」）；无 journal 的 run
@@ -1828,7 +1829,7 @@ export class SessionService extends Service {
 
    * 保证流式与刷新显示同形（缺席时流式仅能显示摘要词，事件帧不带正文）。
 
-   * run 活跃（journal 语义，2026-11 泛化）：注入体落 run journal
+   * run 活跃（journal 语义，2026-09-21 泛化）：注入体落 run journal
 
    * （partials.jsonl）——settlement 按消费点真序提升为 context 行；run
 
@@ -1952,7 +1953,7 @@ export class SessionService extends Service {
       // 行 id 覆盖（context 注入行）：injectionId 贯通——提升行与投影行/
       // 事件帧同锚；幂等固化不受影响（solids 仍按对象缓存）
       message_id: extra.messageId ?? solid.message_id,
-      // journal 提升行的时刻还原（2026-11）：extra.timestamp 优先——注入行携带
+      // journal 提升行的时刻还原（2026-09-21）：extra.timestamp 优先——注入行携带
       // journal 落行时的真实注入时刻（错序修复：settlement 铸造时刻会使前端
       // 步级 ts 排序把注入行排到终稿步之后）。消息对象幂等固化不受影响
       //（solids 仍按对象缓存；提升行是判别行数据驱动，无重复入队路径）。
@@ -2419,7 +2420,7 @@ export class SessionService extends Service {
    * 轨迹回放开关读取（P2 收口）：settingsOf(viewer, 'session') 合成层
    * 的 replayTrajectory 显式值优先；未配置回落存量 config 键
    * `session.replayTrajectory`（M21 时代全局域——双读过渡，显式布尔
-   * 受尊重）；两处皆无 = 缺省 true（2026-10 缺省翻转：质量优先——
+   * 受尊重）；两处皆无 = 缺省 true（2026-09-03 缺省翻转：质量优先——
    * 原缺省 false 是成本优先取舍，见 replay-trajectory.test 头注）。
    * 公开读取口：ac-conversation 的视图投影同口径消费（进程内视图与
    * 文件重派生字节等价的前提——两处判定必须同源）。
@@ -2493,7 +2494,7 @@ export class SessionService extends Service {
     // 直接复用已解析记录（run 收束 3 连读降为 1 读）。返回浅拷贝数组，
     // 元素对象共享（调用方只读；supplements 覆盖幂等）。缺失/失准 =
     // stat 兜底重读，行为与无缓存完全一致。
-    // journal 恢复（2026-11 泛化）：崩溃窗口（messages append 后 clear 前）
+    // journal 恢复（2026-09-21 泛化）：崩溃窗口（messages append 后 clear 前）
     // 与孤儿 run（进程死亡）在此惰性收口——幂等，恢复后才走缓存/读取。
     // 先排空在途 settlement（刚收尾 run 的提升批可能还在队列——不排空
     // 会把「正在 settle」误判为孤儿，双重物化）。
@@ -2539,7 +2540,7 @@ export class SessionService extends Service {
         // 先分层：partial 消息行（带 run）与补行（type:tool-result）
         const partMsgs: Array<{ run: string; line: string }> = [];
         const partSups: string[] = [];
-        // journal 活投影（2026-11 泛化）：未收束 run 的 journal 行在 records()
+        // journal 活投影（2026-09-21 泛化）：未收束 run 的 journal 行在 records()
         // 可见——步行投影为 partial 行（ask_questions 等待期刷新不丢思维链，
         // 同泛化前部分行语义）、注入行投影为普通行（injected——中途注入在
         // 刷新视图当场可见）。已收束 run 的 journal 行不应在场（settlement 已
@@ -2600,7 +2601,7 @@ export class SessionService extends Service {
                 // agent_id 优先行内 agentId（2026-09-21 前端反馈 #2）：对桶键字典序
                 // 不定，split('~')[0] 可能是 viewer（'user~xiaofeng' 形恒错——agent
                 // 步被前端渲染成 viewer 气泡、steps 链断裂）。存量无 agentId 行回落旧推导。
-                // timestamp 用步内真实 ts（2026-12 反馈 #3 后续）：此前恒"读取
+                // timestamp 用步内真实 ts（2026-09-21 反馈 #3 后续）：此前恒"读取
                 // 时刻"——同 run 多步行同毫秒读出时前端合成行 id（run+timestamp
                 // 双因子）会撞，mergeHistoryPage 按 persistedMsgId 去重互吞（
                 // 运行中刷新后续 step 丢失）。步 ts 在场即用（journalStep 落账
@@ -2619,7 +2620,7 @@ export class SessionService extends Service {
                   : jp.kind === 'event'
                     ? { role: 'context', source: 'event' }
                     : { role: 'agent' };
-                // 注入时刻还原（与步行同款修复，2026-12 顺序反馈）：此前恒
+                // 注入时刻还原（与步行同款修复，2026-09-21 顺序反馈）：此前恒
                 // "读取时刻"——刷新时注入行 timestamp 恒最新，前端按 ts 稳定
                 // 排序后注入行被排到队尾（[step1, step2, inject, step3] 显示成
                 // [step1, step2, step3, inject]）。ts 是落 journal 时的注入时刻
@@ -2984,7 +2985,7 @@ export class SessionService extends Service {
     const records = await this.records(conversationId);
     // 反查落点（2026-09-20 断网复盘扩面）：部分行（run 未收束——absorbedRuns
     // 未吸收）**与错误收束段行**（非 partial、带 run 键——错误/中断 run 的
-    // settlement 物化产物，2026-11 泛化起错误 run 的思维链也物化为段行）里
+    // settlement 物化产物，2026-09-21 泛化起错误 run 的思维链也物化为段行）里
     // id 匹配且结果仍悬空的调用——沿用读侧既有 supplements 覆盖键
     //（run|tool_call_id）。补行后 records() 覆盖 result，段行与部分行同权受益。
     let run: string | undefined;

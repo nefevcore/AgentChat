@@ -26,7 +26,7 @@ function close() {
 
 /** 弹窗开着时会话模式被切换（ChatInput 写口 bump）→ 重取：程序化档
  *  注入 SDK 投影块、收窄档换指引块——所见即当前模式的真实装配
- *  （2026-12 预览失真修复；模式切换仅在 run 间隙生效，无竞态）。 */
+ *  （2026-09-18 预览失真修复；模式切换仅在 run 间隙生效，无竞态）。 */
 watch(() => chatStore.convToolMode, () => {
   if (visible.value) chatStore.requestSystemPrompt();
 });

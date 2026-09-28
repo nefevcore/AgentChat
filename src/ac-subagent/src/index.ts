@@ -4,7 +4,7 @@
 // 服务与工具注册在 ./service.ts（SubagentsService：多轮状态机 +
 // 落盘 + subagent 工具）。本文件只做装配与出口。
 //
-// 2026-10 重构（一次性委派 → 持久多轮实体）：
+// 2026-09-05 重构（一次性委派 → 持久多轮实体）：
 //   · spawn 创建（可带首条任务消息并启动 run）/ send 多轮续聊
 //     （async/sync/steer/next-run 四投递语义）/ await 收结果 /
 //     list 查询（含历史）/ stop 停推理 / delete 打墓碑。

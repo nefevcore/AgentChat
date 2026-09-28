@@ -2,7 +2,7 @@
 // inferKind.ts —— subagent 工具 output → 卡片 kind 判定（纯函数）
 //
 // 单源判定逻辑，卡片组件与测试共用。两级：
-//   ① 显式 action 键（后端 2026-01 起每条 output 必带）——精确分发；
+//   ① 显式 action 键（后端 2026-01-00 起每条 output 必带）——精确分发；
 //   ② 历史记录结构猜（无 action 键的旧 output 回落）——修复两处
 //     旧误判：await idle 态落 spawn 兜底、sync send 带结果落 await。
 // kill 分支已删（后端 enum 无 kill，action=kill 走 ok:false 纯文本）。

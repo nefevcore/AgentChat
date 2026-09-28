@@ -11,7 +11,7 @@
 //     src AGENT.md 语义）、text 回退（内联）；enabled=false 软停用
 //   file 解析：裸文件名（如 'AGENTS.md'）→ ctx.agentStore 的 Agent 文档
 //   （可选能力：agentStore 未装则跳过该路径）；带分隔符路径 → 相对
-//   cwd 的文件系统路径。persona 文档双名同义（2026-11 对齐生态事实
+//   cwd 的文件系统路径。persona 文档双名同义（2026-09-16 对齐生态事实
 //   标准 AGENTS.md）：读时 AGENTS.md 优先、AGENT.md（存量名）回退，
 //   写口归一写 AGENTS.md。读取后剥离 YAML frontmatter（src tryLoadFile
 //   同规则）。均无 → 不注入。
@@ -53,7 +53,7 @@ function readFsFile(file: string): string | null {
 }
 
 /**
- * persona 裸文档名候选（双名同义，2026-11 对齐生态事实标准）：
+ * persona 裸文档名候选（双名同义，2026-09-16 对齐生态事实标准）：
  * AGENTS.md 优先、AGENT.md（存量名）回退——不论配置写哪个名，读序一致
  * （写口归一写 AGENTS.md，读序保证保存后新名即时生效、旧名不遮蔽）。
  * 其他裸名（如 'SYSTEM.md'）原样单候选。

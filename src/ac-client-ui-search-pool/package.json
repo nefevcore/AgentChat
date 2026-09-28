@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "search-pool 域前端行（2026-11 自 ui-llm-pool 拆分——搜索池与模型池两对象各行）：搜索引擎池管理（SearchPoolManager）经 settings:section 选举席贡献（searchPools 节）；池更新/默认同步/定向落盘编排在域 Host 内（经 settings 共享 store useSettings——domain→base）；后端消费方 = ac-web-tools（web_search 读 config.searchProviders 取缺省 provider/key），无专属后端池服务——双向可独立摘除",
+  "description": "search-pool 域前端行（2026-09-11 自 ui-llm-pool 拆分——搜索池与模型池两对象各行）：搜索引擎池管理（SearchPoolManager）经 settings:section 选举席贡献（searchPools 节）；池更新/默认同步/定向落盘编排在域 Host 内（经 settings 共享 store useSettings——domain→base）；后端消费方 = ac-web-tools（web_search 读 config.searchProviders 取缺省 provider/key），无专属后端池服务——双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

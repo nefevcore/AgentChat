@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // ============================================================
 // webui/tests/system-prompt-preview-refresh.test.ts —— System Prompt
-// 预览随会话工具调用模式切换重取（2026-12 预览失真修复）
+// 预览随会话工具调用模式切换重取（2026-09-18 预览失真修复）
 //
 // 程序化模式（tc-* 会话覆盖）改变 system prompt 装配面（SDK 投影块
 // 注入/指引块收窄）。后端干跑已按会话模式收窄（admin 侧）；本测试锁

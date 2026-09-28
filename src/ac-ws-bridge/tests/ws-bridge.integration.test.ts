@@ -67,16 +67,11 @@ describe('ac-ws-bridge 桥接', () => {
     });
 
     ctx.emit('group/message-posted', 'g1', { id: 'm1', groupId: 'g1', from: 'alice', content: 'hi', at: 1 } as never);
-    ctx.emit('group/memory-owner-set', 'g1', 'a', { id: 'g1', members: ['a', 'b'], memoryOwner: 'a' } as never);
     ctx.emit('config/changed', '/x');
     ctx.emit('job/settled', { id: 'j1', status: 'ok' } as never);
 
     expect(await waitFor('group/message-posted')).toMatchObject({
       args: ['g1', { from: 'alice', content: 'hi' }],
-    });
-    // 群主变更直转（owner 末态 + 整群配置；前端刷新群列表用）
-    expect(await waitFor('group/memory-owner-set')).toEqual({
-      args: ['g1', 'a', { id: 'g1', members: ['a', 'b'], memoryOwner: 'a' }],
     });
     expect(await waitFor('config/changed')).toEqual({ args: ['/x'] });
     expect(await waitFor('job/settled')).toMatchObject({ args: [{ id: 'j1' }] });

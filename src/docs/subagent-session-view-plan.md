@@ -1,9 +1,9 @@
 # subagent 会话展示（运行跟踪点击 → 主区子 Agent 会话）实施计划
 
-> 2026-12 制定。需求两条：①「运行跟踪」面板点击 subagent 调用行 → 主区展示该子
+> 2026-09-17 制定。需求两条：①「运行跟踪」面板点击 subagent 调用行 → 主区展示该子
 > Agent 会话；②子 Agent 落盘完整消息（思维链/工具调用与结果），支撑展示。
 > 本计划是一次完整现状勘探的产物——所有锚点（函数名/行为/行号）经源码核对。
-## 后记：三文件化落盘（2026-12，sessions 域 journal 裁决对齐）
+## 后记：三文件化落盘（2026-09-22，sessions 域 journal 裁决对齐）
 
 sessions 域三文件拆分（messages/partials/subcalls，skill-injection-and-storage-vocab
 §7/§10/§11）后，subagents 域单文件 <subId>.jsonl 的「收束一次性落盘」形态成为
@@ -28,7 +28,7 @@ sessions 域三文件拆分（messages/partials/subcalls，skill-injection-and-s
 - 展示面零改动：SubagentMessageLine 全形兼容（新增 run/injected/source 键可选，
   toHistoryMessages 照常消费）；subagents/history RPC 不动。
 
-### 实测两连修（2026-12，会话 9dbcd3be）
+### 实测两连修（2026-09-22，会话 9dbcd3be）
 
 1. **程序化传播失效**：injection 轴重构后 run_code 是 mode 工具（不进常规
    能力面），旧守卫 allowed.includes('run_code') 恒 false → 子 Agent 静默
@@ -41,7 +41,7 @@ sessions 域三文件拆分（messages/partials/subcalls，skill-injection-and-s
    方案被否：会污染 ac-session 父账本簿记、usage 对账与前端 feed 分区
    （routeDialog 按 sid 命中——子步流串台父视图）。
 
-## 零、前置：本轮行为更新对方案的影响（2026-12 工作树改动）
+## 零、前置：本轮行为更新对方案的影响（2026-09-17 工作树改动）
 
 工作树含一批未提交改动（send_agent 修复 + run_code P0），与本方案直接相关的判定：
 

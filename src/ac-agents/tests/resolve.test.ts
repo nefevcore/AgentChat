@@ -57,7 +57,7 @@ describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——
   });
 });
 
-describe('PTC 门控面单源（isModeToolFace / widenToolsForGating——2026-12 基线段丢失修复）', () => {
+describe('PTC 门控面单源（isModeToolFace / widenToolsForGating——2026-09-21 基线段丢失修复）', () => {
   it('isModeToolFace：请求面恰等于 mode 工具集（互为子集且非空、无重复）才成立', () => {
     expect(isModeToolFace(['run_code'], ['run_code'])).toBe(true);
     // 请求面含常规工具（并存形态）→ 非程序化 run

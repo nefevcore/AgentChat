@@ -133,7 +133,7 @@ function handleLabelClick() {
     return;
   }
   // 域行直达动作（web_search 直达搜索侧边栏等）：经 tool-card:result-view
-  // 席位 def 的 onLabelClick 钩子（2026-12 R7 相位整改——base 不 import
+  // 席位 def 的 onLabelClick 钩子（2026-09-21 R7 相位整改——base 不 import
   // domain 行；窄屏 helper 返 false → 走默认展开；行卸载 → def 消失 →
   // 回落展开，可摘除性保持）。
   if (isSearchTool.value) {
@@ -198,7 +198,7 @@ watch(isExpanded, (expanded) => {
                 @mouseenter="rowHover = true"
                 @mouseleave="rowHover = false"
             >
-                <!-- 行首图标位：运行中且非 hover → 琥珀旋转环（2026-12 统一
+                <!-- 行首图标位：运行中且非 hover → 琥珀旋转环（2026-09-13 统一
                      选型：全前端"忙"指示同色同款——工具卡/思考卡/链栏一致）；
                      hover 显示折叠箭头（交互优先） -->
                 <span v-if="isRunning && !rowHover" class="tool-spin-ring" aria-hidden="true"></span>
@@ -390,7 +390,7 @@ watch(isExpanded, (expanded) => {
 /* 行首图标切换（工具图标 ⇄ 折叠箭头 ⇄ 运行中旋转环）：无位移的淡入淡出 */
 .tool-label-icon { transition: opacity 0.12s ease; }
 
-/* 运行中旋转环（2026-12 选型样式 2，后统一为琥珀）：替换行首工具图标位。
+/* 运行中旋转环（2026-09-13 选型样式 2，后统一为琥珀）：替换行首工具图标位。
  * 琥珀与思考卡（think-spin-ring）/链栏（chain-spin-ring）同色同款——
  * 全前端"忙"指示统一（用户选型），环径与图标位（14px）同尺寸不跳动。 */
 .tool-spin-ring {

@@ -120,6 +120,7 @@
 - **A4. 生产 bundle 目录演进**：生产形态内置组为空（既定缩水），由 market + 声明判据接管。
 - **A5. dep-graph 软依赖盲区**：`ctx.get` 依赖不在图内（已文档化；补齐需静态分析，代价高收益低）。
 - **A6. ac-web-api 静态 inject 瘦身**（17 项）：级联易碎的根源；已有急救行缓解，「RPC 面这么容易挂」本身可改——非核心 inject 改 `ctx.get` 软依赖（RPC 失败容忍）或拆面。改动面大，需单独立项。
+- **A7. group 配置簇事件并源（缓行）**：group/created·deleted·renamed·description-set·member-added·member-removed 六事件订阅面完全重合（后端仅 ws-bridge；载荷已统一携带 GroupConfig 终值），与 plugin/updated（cr-20）、singles/subagents 的 updated 形同构，可并为 group/updated(group, action)。缓行理由：前端按 type 分两个刷新作用域（列表态 vs 详情态——ac-client-ui-conversation 与 ac-client-ui-group 的 onEvent 各自筛 type），合并需前端改按 action 分流，收益低于 plugin 簇（无三重条件复制债）。触发条件：第三处同形态域出现，或前端群视图重构时顺手并源。
 
 ## 四、边界备忘（勿顺手恢复）
 

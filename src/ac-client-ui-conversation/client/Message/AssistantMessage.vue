@@ -222,7 +222,7 @@ watch(showThinking, (expanded) => {
 // 跨步重建/组件重挂载不丢失）；无计时信息（历史/中断）→ 仅「已思考」。
 const isThinkingLive = computed(() => props.isStreaming && hasThinking.value);
 
-// ── 思考中实时耗时（2026-12 计时反馈）：「思考中 · 12s」每秒跳动 ──
+// ── 思考中实时耗时（2026-09-21 计时反馈）：「思考中 · 12s」每秒跳动 ──
 // 起点复用直播相位源（feed 的 StreamState.reasoningStartAt 派生入口）——
 // 组件无直接访问；此处用消息落位时刻近似（onThinkingStart 建占位/首片
 // 到达即挂 thinking），误差 ≤1 个 tick 且收束时被后端 reasoningMs 覆盖。
@@ -356,7 +356,7 @@ onBeforeUnmount(() => {
                         @mouseenter="rowHover = true"
                         @mouseleave="rowHover = false"
                     >
-                        <!-- 图标位：思考中且非 hover → 琥珀旋转环（2026-12 全前端
+                        <!-- 图标位：思考中且非 hover → 琥珀旋转环（2026-09-13 全前端
                              统一选型：工具卡/思考卡/链栏同色同款"忙"指示）；
                              hover 显示折叠箭头（交互优先） -->
                         <span v-if="isThinkingLive && !rowHover" class="think-spin-ring" aria-hidden="true"></span>
@@ -619,7 +619,7 @@ onBeforeUnmount(() => {
     transition: opacity 0.12s ease;
 }
 
-/* 思考中旋转环（2026-12 全前端统一选型）：琥珀——与工具卡
+/* 思考中旋转环（2026-09-13 全前端统一选型）：琥珀——与工具卡
  * （tool-spin-ring）/链栏（chain-spin-ring）同色同款"忙"指示。 */
 .think-spin-ring {
     width: 13px;

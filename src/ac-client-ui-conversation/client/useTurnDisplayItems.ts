@@ -7,7 +7,7 @@
 //      final 悬置期长度恒 0（流式期 key 稳定不逐 token 变化），收束
 //      物化时 key 一次变化——整轮重挂载恰逢链栏折叠时刻。
 //   ② event / error 消息 → 特殊分隔符（非轮次渲染）；注入卡挂靠在
-//      Turn.injects（buildTurns 数据层归位，2026-12 注入卡）——本层
+//      Turn.injects（buildTurns 数据层归位，2026-09-26 注入卡）——本层
 //      仅消费：system 空轮（无 agent 轮可挂的降级承载）→ 独立卡 item。
 //   ③ run 中插播 event 观感优化（纯展示层不改派生）：同 agent 轮次
 //      序列仅被 event 打断时——event 紧凑内联弱化切断感，其后延续轮

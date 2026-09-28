@@ -18,7 +18,7 @@ const execAsync = promisify(exec);
  *  已不上传 Releases〔desktop.yml --publish never〕，manifest 为主源） */
 export const GITHUB_REPO = 'nefevcore/AgentChat';
 
-/** 自托管下载面（2026-09 分发自托管裁决 remote-client-relay-plan §4.6：
+/** 自托管下载面（2026-09-21 分发自托管裁决 remote-client-relay-plan §4.6：
  *  桌面安装包发布地，manifest.json = 版本清单数据源） */
 export const DOWNLOAD_BASE = 'http://47.110.63.135';
 
@@ -129,7 +129,7 @@ export function resetReleaseCache(): void {
   releaseCache = null;
 }
 
-/** 下载面 manifest.json 形状（gen-manifest.mjs 产出：releases 按版本降序；无 per-release date——2026-09 移除） */
+/** 下载面 manifest.json 形状（gen-manifest.mjs 产出：releases 按版本降序；无 per-release date——2026-09-23 移除） */
 interface DownloadManifest {
   updated?: unknown;
   releases?: Array<{ version?: unknown }>;
@@ -161,7 +161,7 @@ async function latestFromManifest(fetcher: typeof fetch): Promise<ReleaseInfo | 
   return {
     version: top.version,
     url: `${DOWNLOAD_BASE}/`,
-    // manifest 已无 per-release date（gen-manifest 2026-09 移除——重算刷日期失真）；
+    // manifest 已无 per-release date（gen-manifest 2026-09-23 移除——重算刷日期失真）；
     // publishedAt 回落 manifest.updated（最后重算时刻，近似值，UI 不展示）
     publishedAt: typeof data.updated === 'string' ? data.updated : '',
   };

@@ -1,10 +1,10 @@
 # browser 工具原生 CDP 化方案（browser-cdp-plan）
 
-> 状态：已实施（M1–M3 于 2026-10 一次落地：ac-cdp-core 纯库 + browser.ts v2
+> 状态：已实施（M1–M3 于 2026-09-26 一次落地：ac-cdp-core 纯库 + browser.ts v2
 > + 17 action 目录；daemon 已退役。M4 弹窗策略/下载管理/登录态/隔离/stealth
 > 另立档案——本文件转为历史裁决存档）。
 > 关联档案：src/README.md §3.4（web-tools）、ac-security access-tier、tag-registry 抉择组。
-> 2026-10 开源对照调研（playwright-mcp / browser-use / puppeteer / stagehand / chrome-remote-interface）
+> 2026-09-26 开源对照调研（playwright-mcp / browser-use / puppeteer / stagehand / chrome-remote-interface）
 > 的结论已吸收进正文对应节，行内标注来源项目。
 
 ## 0. 一句话
@@ -214,4 +214,4 @@ inject 层（tier 3，含全部）：
 - [x] M1–M3 不新增 domain/* 事件 → 无事件目录工作；M4 若做 UI 实时观察再立 browser/* 目录（@mode/@scope 全标注）
 - [x] 持久化红线：截图与 profile 都在 workspace 数据根，无跨域写
 - [x] 验证命令：pnpm typecheck && pnpm lint && pnpm test:unit && pnpm check:deps；动 webui 跑 pnpm webui:typecheck
-- [x] 落地时更新 src/README.md §3.4 与布局图（M1 收尾项）——2026-10 已更新
+- [x] 落地时更新 src/README.md §3.4 与布局图（M1 收尾项）——2026-09-26 已更新

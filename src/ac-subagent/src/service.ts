@@ -1,7 +1,7 @@
 // ============================================================
 // ac-subagent/src/service.ts —— 子 Agent 服务（cordis Service）
 //
-// 多轮会话模型（2026-10 重构：一次性委派 → 持久多轮实体）：
+// 多轮会话模型（2026-09-05 重构：一次性委派 → 持久多轮实体）：
 //   · 子 Agent = 持久实体（注册表落盘 + 会话消息落盘），跨重启可续聊；
 //     spawn 创建（可带首条任务消息并启动 run），send 多轮续聊，
 //     await 收结果，list 查询（含历史），stop 停推理（保留实体），
@@ -17,18 +17,18 @@
 //         fail-closed"（档位继承下 full 父的子 Agent 此前能看到全部
 //         已注册工具）；
 //       - 信封装配（subagent 直连 loop 不经 router）：system 优先
-//         rec.system（spawn 显式固化——人格防污染，2026-12），缺省每 run
+//         rec.system（spawn 显式固化——人格防污染，2026-09-22），缺省每 run
 //         现读父人设；llmParams 每 run 现读父配置（热更生效）、tools 按
 //         派生身份能力集终滤（点名也不可越过门禁）；settings 浅拷贝随父
 //         （快照，显式 system 时剥 persona）——零会话污染语义保留：父
 //         会话与 ac-session 不受任何影响。
 //   · 上下文：会话消息 = user/assistant 对（首条裸文本 + 逐轮追加——
-//     frameTask 已退役 2026-12，角色语义由 spawn system 参数承担）；
+//     frameTask 已退役 2026-09-22，角色语义由 spawn system 参数承担）；
 //     agent 行携带 steps 时按 expandSteps 轨迹展开复放（与主会话
 //     replayTrajectory 同口径——探查型/中断 run 无终文本也不失忆）。
 //   · 每 run 登记 job（kind=subagent；owner=父；完成通知回投发起会话）。
 //
-// 落盘（owning：本服务；三文件形态对齐 ac-session 2026-11 run journal
+// 落盘（owning：本服务；三文件形态对齐 ac-session 2026-09-22 run journal
 // 裁决——skill-injection-and-storage-vocab §10/§11 同款语义）：
 //   <root>/subagents/index.json          注册表（原子写；含墓碑条目）
 //   <root>/subagents/<subId>/
@@ -101,14 +101,14 @@ export interface SubagentRecord {
   timeoutMs: number;
   lastRun?: SubagentRunSummary;
   /**
-   * 沙箱基准快照（2026-12 数据根一致修复）：spawn 时父会话挂载的工作区根
+   * 沙箱基准快照（2026-09-22 数据根一致修复）：spawn 时父会话挂载的工作区根
    * （无会话工作区 = 缺省）。子 Agent run 无会话键（账本归 subagents 域），
    * 沙箱链 fallback preset→数据根——快照进派生身份 settings.security.workdir
    * 后，工具基准/security 复检/提示词展示与父会话同根。持久化（跨重启仍生效）。
    */
   workdir?: string;
   /**
-   * 显式 system prompt（2026-12 人格防污染裁决）：spawn 传入即固化（跨
+   * 显式 system prompt（2026-09-22 人格防污染裁决）：spawn 传入即固化（跨
    * run/跨重启）——executeRun 装配优先于父人设；同时派生身份的 persona
    * settings 清空（显式人设 = 完全接管人格语义，不与父的 persona 块叠加）。
    * 缺省 = 继承 parent.system（与 tags/settings 继承同族）。
@@ -214,7 +214,7 @@ interface SubEntry {
   waiters: Map<string, (s: SubagentRunSummary) => void>;
   /** 当前 run 收束回调（awaitSettled 挂载） */
   currentSettlers: Array<(s: SubagentRunSummary) => void>;
-  /** 活跃 run 簿记（三文件化 2026-12）：journal 门控 + 步行补行路由锚。
+  /** 活跃 run 簿记（三文件化 2026-09-22）：journal 门控 + 步行补行路由锚。
    * 单 run 串行（runLoop consuming 门）→ 同 entry 至多一个活跃 run。 */
   activeRun?: {
     /** run 关联键（段行/补行/journal 行同键成组） */
@@ -238,7 +238,7 @@ interface RegistryFile {
 
 /**
  * 会话消息行（messages.jsonl 落盘形；subagent-session-view-plan.md R1 +
- * 三文件化 2026-12）：SessionRecord 中性格式兼容——agent 段行携带
+ * 三文件化 2026-09-22）：SessionRecord 中性格式兼容——agent 段行携带
  * steps[]，前端 toHistoryMessages 整链复用（工具卡/思维链/步级时序）。
  * 旧行 {role:'assistant', content, ts:number} 共存：两读侧宽容归一。
  */
@@ -260,7 +260,7 @@ export interface SubagentMessageLine {
   source?: 'error';
   /** steer 提升行：true = 注入消息（消费点真序还原的时序标记） */
   injected?: boolean;
-  /** run 键（三文件化 2026-12）：段行/注入提升行/错误行携带 = 产生于该 run
+  /** run 键（三文件化 2026-09-22）：段行/注入提升行/错误行携带 = 产生于该 run
    * 周期；recoverJournal 的 settled 判定锚（同 run 非 partial 行存在性）。
    * 旧单文件行无此键（回退兼容路径照常读）。 */
   run?: string;
@@ -418,7 +418,7 @@ const KNOWN_ARG_KEYS = new Set([
 ]);
 
 /** 派生身份合成（父身份编辑）：preset 隐藏 + tags 剥 delegation/admin；
- * workdir 快照（2026-12 数据根一致修复）注入 settings.security.workdir
+ * workdir 快照（2026-09-22 数据根一致修复）注入 settings.security.workdir
  * （sandboxWorkdir 显式档——子 Agent run 无会话键，靠快照与父会话同根） */
 function deriveAgentConfig(rec: SubagentRecord, parent: AgentConfig): AgentConfig {
   const tags = (parent.tags ?? []).filter((t) => !STRIPPED_TAGS.includes(t));
@@ -493,7 +493,7 @@ export class SubagentsService extends Service {
   }
 
   /**
-   * loop 事件订阅（三文件化 2026-12）：子 run 身份 = agent:<subId>、
+   * loop 事件订阅（三文件化 2026-09-22）：子 run 身份 = agent:<subId>、
    * conversationId 缺席——按 agent 寻址路由到本服务的 journal 通道。
    * 与 ac-session 同款事件面（after-step 步行 / after-execute 补行 /
    * step-started 注入消费点），本服务内自管 settlement（executeRun 收束）。
@@ -592,7 +592,7 @@ export class SubagentsService extends Service {
   // ============================================================
 
   /**
-   * spawn 时沙箱基准快照（2026-12 数据根一致修复）：优先序与
+   * spawn 时沙箱基准快照（2026-09-22 数据根一致修复）：优先序与
    * sandboxWorkdir 会话感知链对齐——① 父会话挂载的工作区根
    * （conversationWorkspaceRoot；spawn 无会话键 = 跳过）② 父 settings
    * 显式 workdir（settingsOf 合成）。两者皆缺省 = undefined（沙箱链回
@@ -636,11 +636,11 @@ export class SubagentsService extends Service {
       // 显式 >= 0 合法（0 = 不设看门狗）；未传/负数/NaN = 缺省不限（长任务友好）
       timeoutMs: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0 ? opts.timeoutMs : 0,
       ...(opts.toolNames && opts.toolNames.length > 0 ? { toolNames: opts.toolNames } : {}),
-      // 沙箱基准快照（2026-12 数据根一致修复）：父会话挂载的工作区根——
+      // 沙箱基准快照（2026-09-22 数据根一致修复）：父会话挂载的工作区根——
       // 子 Agent run 无会话键，沙箱链 fallback preset→数据根会与父会话
       // 执行环境分叉；快照进派生身份后 fs/shell/安全复检同根
       ...(spawnWorkdir ? { workdir: spawnWorkdir } : {}),
-      // 显式 system 固化（2026-12 人格防污染）：空串归一为缺席（不落空键）
+      // 显式 system 固化（2026-09-22 人格防污染）：空串归一为缺席（不落空键）
       ...(opts.system?.trim() ? { system: opts.system } : {}),
     };
     this.records.set(id, record);
@@ -784,13 +784,13 @@ export class SubagentsService extends Service {
    * 会话消息（展示口径，R6：墓碑可读——remove 只打墓碑、会话文件保留的
    * 既有语义本就隐含可回看）：读 jsonl 全量行宽容解析（损坏行跳过；文件
    * 不存在 = 空数组）+ subcalls
-   * 投影注入（2026-12 前端反馈 #2）。投影 = ac-session records() 同款语义：
+   * 投影注入（2026-09-22 前端反馈 #2）。投影 = ac-session records() 同款语义：
    * subcalls.jsonl 档案行按 tool_call_id 前缀（'<hostCallId>#<seq>' 形态）定位
    * 宿主 run_code 调用，紧随其后平铺注入 steps[].toolCalls（subcall:true——
    * 前端缩进卡样式 + 完整参数/结果）。排序键 = 行 seq（程序提交序）；宿主
    * 缺席（孤儿档案）静默丢弃——无卡片可挂。
    *
-   * journal 活投影（2026-12 对齐普通会话）：run 进行中（partials.jsonl 台账
+   * journal 活投影（2026-09-22 对齐普通会话）：run 进行中（partials.jsonl 台账
    * 在场、messages 尚无段行）时，步行/注入行按真序投影为行尾 agent 段行
    * （partial:true——前端同 toHistoryMessages 步展开管线）+ injected user
    * 行；直调补行（tool-result 终值）覆盖步行 result:null。已收束 run 的
@@ -997,7 +997,7 @@ export class SubagentsService extends Service {
     const busy = entry.controller !== undefined;
     if (mode === 'steer' && busy) {
       // steer 地址 = subId（runAddress：conversationId 缺省 → 地址即 agent）
-      // 三文件化 2026-12：注入消息改 stash（消费点对账落 journal）——消息对象
+      // 三文件化 2026-09-22：注入消息改 stash（消费点对账落 journal）——消息对象
       // 只构造一次：loop.steer 入队的正是它，step-started 消费点按对象身份
       // 命中 stashed → journal-inject（消费真序）；收束未消费 → steer-dropped
       // 兜底直落 messages（run 外行不硬造 run）。
@@ -1104,13 +1104,13 @@ export class SubagentsService extends Service {
       return s;
     };
 
-    // journal 簿记开簿（三文件化 2026-12）：步行/注入/补行事件监听据此路由。
+    // journal 簿记开簿（三文件化 2026-09-22）：步行/注入/补行事件监听据此路由。
     // 此处置位覆盖全部后续路径（模型解析失败也在簿记之后——空 journal +
     // settlement 无物化对象，行为与旧整行直落一致）。
     const run = genRunId();
     entry.activeRun = { run, journaled: false, stashed: new Map(), seq: 1, pendingSups: [] };
 
-    // 上下文装载 + 首条消息（frameTask 已退役 2026-12：任务原文直传；
+    // 上下文装载 + 首条消息（frameTask 已退役 2026-09-22：任务原文直传；
     // context 参数同批退役——背景材料写进 task 或 send 追加，表达力等价）
     const messages = await this.ensureMessages(entry);
     const first = messages.length === 0;
@@ -1201,7 +1201,7 @@ export class SubagentsService extends Service {
       // tc-programmatic 时经 narrowToolsByMode 从 defs 合成）
       const allowed = allDefs.filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps)).map((t) => t.name);
       let names = rec.toolNames && rec.toolNames.length > 0 ? rec.toolNames.filter((n) => allowed.includes(n)) : allowed;
-      // 工具调用模式传播（2026-12 injection 轴重构后单源化；同日二次修正：
+      // 工具调用模式传播（2026-09-22 injection 轴重构后单源化；同日二次修正：
       // 收窄不再限定「未点名」——与 router 真实 run 同口径，mode 对任何面
       // 生效）：生效档 = 发起会话覆盖（conv-settings toolMode）??
       // toolModeOf(父)——tc-programmatic ⇒ LLM 面合成 mode 工具集
@@ -1232,7 +1232,7 @@ export class SubagentsService extends Service {
         messages: [...messages],
         // 空集照传（loop 收敛为无工具）——缺省会回落全量已注册，绕过门禁
         tools: names,
-        // system 装配（2026-12 人格防污染）：显式固化（rec.system）优先——
+        // system 装配（2026-09-22 人格防污染）：显式固化（rec.system）优先——
         // 完全接管人格语义；缺省继承父人设（与 tags/settings 继承同族）
         ...(rec.system !== undefined ? { system: rec.system } : parent?.system ? { system: parent.system } : {}),
         ...(Object.keys(llmParams).length > 0 ? { llmParams } : {}),
@@ -1245,7 +1245,7 @@ export class SubagentsService extends Service {
     }
     clearTimeout(timer);
 
-    // settlement（三文件化 2026-12，对齐 ac-session 2026-11 泛化裁决）：
+    // settlement（三文件化 2026-09-22，对齐 ac-session 2026-09-22 泛化裁决）：
     // 有 journal（步行/注入/补行任一）→ 切段物化提升进 messages + journal
     // 剔除（含错误/中断收束——run 做过的推理是会话事实）；无 journal 的 run
     //（一步即溃/纯文本空转）照旧整行直落（与三文件化前零变化）。
@@ -1305,7 +1305,7 @@ export class SubagentsService extends Service {
   }
 
   // ============================================================
-  // settlement（run 收束物化，三文件化 2026-12）
+  // settlement（run 收束物化，三文件化 2026-09-22）
   // ============================================================
 
   /**
@@ -1685,7 +1685,7 @@ export class SubagentsService extends Service {
     return path.join(this.storeDir!, 'index.json');
   }
 
-  /** 会话目录（三文件化 2026-12：<root>/subagents/<subId>/） */
+  /** 会话目录（三文件化 2026-09-22：<root>/subagents/<subId>/） */
   private subDir(id: string): string {
     return path.join(this.storeDir!, id);
   }
@@ -1781,9 +1781,9 @@ export class SubagentsService extends Service {
             if (typeof parsed.content === 'string') {
               // 回放口径归一：agent/assistant → assistant；context 行不进
               // 子上下文（错误/材料行是会话展示事实，非对话轮；error 收束行
-              // 2026-12 起写 context，存量 user+source:error 行仍走 user 回放，
+              // 2026-09-22 起写 context，存量 user+source:error 行仍走 user 回放，
               // 行为同旧）。agent 行携带 steps 时按 expandSteps 轨迹展开
-              // （2026-12 多轮失忆修复：与主会话 replayTrajectory 同口径——
+              // （2026-09-22 多轮失忆修复：与主会话 replayTrajectory 同口径——
               // 探查型/中断 run 无终文本也不丢推理与工具结果对；result:null
               // 悬空调用由 expandSteps 合成配对 tool 行，openai 系不拒单）。
               // 旧无 steps 行照旧只回放 content。

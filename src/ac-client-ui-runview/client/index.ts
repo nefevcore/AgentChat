@@ -172,7 +172,7 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
     generatedAt: new Date().toISOString(),
     members: [
       // agents 已含 user（显示名如实）则直接用；否则合成占位（虚拟端点）。
-      // 群/system 不入轴（2026-12 收窄）：快照管线无群参与证据供数
+      // 群/system 不入轴（2026-09-21 收窄）：快照管线无群参与证据供数
       //（groupArchives 恒空、agent×群格从不点亮）、system 无对桶——
       // 两轴 = Agent 端点（含 user），矩阵只覆盖真实会话对。
       ...(hasUser ? [] : [{ id: 'user', name: 'user', kind: 'virtual' as const }]),
@@ -203,7 +203,7 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
     coverage: {
       matrixSessions: pairs.length,
       pairSessions: pairs.length,
-      groupSessions: 0, // 群不入矩阵（2026-12 收窄）——恒 0，面板文案不区分
+      groupSessions: 0, // 群不入矩阵（2026-09-21 收窄）——恒 0，面板文案不区分
       singleSessions: 0,
       runningTotal: s.running.length,
       runningSingles: 0,
@@ -408,7 +408,7 @@ export const runviewClientPlugin = clientPlugin({
     //（runs 由本行子 fiber 提供，本 fiber 未 inject——直访会抛；同下方
     // 让位 watch 的 clientRuntime() 姿势，裸 boot 测试 = undefined 静默跳过）。
     (clientRuntime()?.runs as { ensurePolling: () => void } | undefined)?.ensurePolling();
-    // 运行矩阵主区视图（main 席位 keyed 选举贡献——2026-11 主区语义
+    // 运行矩阵主区视图（main 席位 keyed 选举贡献——2026-09-11 主区语义
     // 纯化：原 main:tracking 专座收编为 main 选举条目）：active 谓词
     // 自带让位协议（见 trackingActive）；volatile（缺省）——离开即卸载，
     // runs 轮询随卸载停。「矩阵行缺席 → 条目不在 → 兜底 chat 直显」
@@ -428,7 +428,7 @@ export const runviewClientPlugin = clientPlugin({
       }),
     );
 
-    // ── 主区让位兜底 watch（2026-11 自 AppFrame 迁入——owning 行自理，
+    // ── 主区让位兜底 watch（2026-09-11 自 AppFrame 迁入——owning 行自理，
     //    壳零域知识）：选中 Agent/群/独立会话（来自任何列表面板）→
     //    矩阵/pair 让位回聊天。只在选中（非空变化）时收起：清空选择回到
     //    talk 视角不打断矩阵浏览；同值重选与 toggle 反选不触发。列表与

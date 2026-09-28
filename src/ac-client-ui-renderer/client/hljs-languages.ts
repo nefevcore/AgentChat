@@ -1,7 +1,7 @@
 // ============================================================
 // client/hljs-languages.ts —— highlight.js 按需注册中心
 //
-// 背景（前端性能分析 2026-01）：useMarkdown 曾 `import hljs from
+// 背景（前端性能分析 2026-01-00）：useMarkdown 曾 `import hljs from
 // 'highlight.js'`（全量 ~190 语言）——渲染管线随之膨胀到 1570KB /
 // gzip 519KB 的 markdown chunk，且该 chunk 因 AssistantMessage 静态
 // 导入而落在首屏关键路径。LLM 输出与文件预览的语言分布高度集中：

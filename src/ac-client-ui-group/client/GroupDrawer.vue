@@ -17,7 +17,7 @@ import { ref, computed, watch } from 'vue';
 import type { GroupInfo } from './index.ts';
 import { VIEWER_ID } from 'ac-client-runtime';
 import { useClientContext } from 'ac-client-runtime';
-import { updateGroup, setGroupMemoryOwner, deleteGroup } from './groupApi.ts';
+import { updateGroup, deleteGroup } from './groupApi.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { Avatar, Modal, Icon } from '@agentchat/webui-kit';
@@ -38,10 +38,6 @@ const memberSearchQuery = ref('');
 const renameError = ref('');
 const renameSaved = ref(false);
 const saving = ref(false);
-// 群主（记忆属主）选择——'' = 未设置（解除）
-const ownerSelection = ref('');
-const ownerError = ref('');
-const ownerSaving = ref(false);
 
 /** 关闭面板（面板内关闭钮/移动端覆盖态）：域态收起 + 区域折叠 */
 function closePanel() {
@@ -94,16 +90,41 @@ const memberItems = computed(() =>
     name: getMemberName(id),
     avatar: getMemberAvatar(id) ?? null,
     isViewer: id === VIEWER_ID.value,
-    isOwner: id === group.value?.memory_owner,
+    // 成员私有转录流可查看（cr-4：run 推理/工具/终稿的回放材料；viewer 成员行不显示——user 端点无成员流）
+    canViewStream: id !== VIEWER_ID.value,
   }))
 );
 
-/** 群主候选 = 群成员中的 Agent（viewer 不是注册 Agent，不能任属主） */
-const ownerCandidates = computed(() =>
-  (group.value?.participants ?? [])
-    .filter(p => p !== VIEWER_ID.value)
-    .map(id => ({ id, name: getMemberName(id) }))
-);
+// ── 成员转录流查看（cr-4：会话视图入口——session/history 标准桶 gid~member）──
+const streamOpen = ref(false);
+const streamMember = ref('');
+const streamMemberName = ref('');
+const streamRows = ref<Array<{ role: string; content: string }>>([]);
+const streamLoading = ref(false);
+const streamError = ref('');
+
+async function openMemberStream(memberId: string, name: string) {
+  if (!rpc || !group.value) return;
+  streamMember.value = memberId;
+  streamMemberName.value = name;
+  streamOpen.value = true;
+  streamLoading.value = true;
+  streamError.value = '';
+  streamRows.value = [];
+  try {
+    const r = await rpc.call<{ messages?: Array<{ role: string; content: string | null }> }>('session/history', {
+      conversationId: `${group.value.group_id}~${memberId}`,
+      viewer: memberId,
+    });
+    streamRows.value = (r.messages ?? [])
+      .filter((m) => typeof m.content === 'string' && m.content)
+      .map((m) => ({ role: m.role, content: String(m.content) }));
+  } catch (err: any) {
+    streamError.value = `读取失败: ${err.message}`;
+  } finally {
+    streamLoading.value = false;
+  }
+}
 
 /** 名称/简介任一变更即脏（仅改简介也可保存——曾因禁用条件只看名称，
  *  简介改动后保存钮恒禁用，改了也存不进） */
@@ -122,39 +143,7 @@ watch(() => group.value?.group_id, () => {
   editingDescription.value = group.value.description ?? '';
   memberSearchQuery.value = '';
   renameError.value = '';
-  ownerSelection.value = group.value.memory_owner ?? '';
-  ownerError.value = '';
 }, { immediate: true });
-
-// 外部变更（他端设置/属主退群自动解除 → memory-owner-set 事件 → fetchGroups
-// 换新对象）：跟写选择框；保存进行中不覆盖（本地正在等 RPC 回程）
-watch(() => group.value?.memory_owner, (v) => {
-  if (ownerSaving.value) return;
-  ownerSelection.value = v ?? '';
-  ownerError.value = '';
-});
-
-/** 群主设定/解除——即时生效（无独立保存钮），失败回退选择框 */
-async function applyOwnerChange() {
-  const next = ownerSelection.value;
-  const current = group.value?.memory_owner ?? '';
-  if (next === current) return;
-  ownerSaving.value = true;
-  ownerError.value = '';
-  if (!rpc || !group.value) { ownerError.value = 'RPC 不可用'; ownerSaving.value = false; ownerSelection.value = current; return; }
-  try {
-    await setGroupMemoryOwner(group.value.group_id, next, rpc);
-    // 本地回写（即时反馈）+ 列表刷新保持一致（与 saveGroupInfo 同款）
-    if (next) group.value.memory_owner = next;
-    else delete group.value.memory_owner;
-    void groupSvc?.fetchGroups();
-  } catch (err: any) {
-    ownerError.value = `设置失败: ${err.message}`;
-    ownerSelection.value = current; // 回退到现值
-  } finally {
-    ownerSaving.value = false;
-  }
-}
 
 async function saveGroupInfo() {
   if (saving.value || !editingName.value.trim() || !group.value) return;
@@ -205,23 +194,12 @@ async function saveGroupInfo() {
             <div class="member-avatar-wrap">
               <Avatar :src="m.avatar" :name="m.name" :size="40" shape="circle" />
               <span v-if="m.isViewer" class="member-me">我</span>
-              <span v-else-if="m.isOwner" class="member-owner" title="群主（记忆属主）">群主</span>
             </div>
             <span class="member-name" :title="m.name">{{ m.name }}</span>
+            <button v-if="m.canViewStream" class="member-stream-btn" title="查看该成员的私有会话流（推理/工具/发言回放）" @click.stop="openMemberStream(m.id, m.name)">会话</button>
           </div>
           <div v-if="memberItems.length === 0" class="drawer-empty">未找到匹配的成员</div>
         </div>
-      </div>
-
-      <!-- 群主紧随成员区：成员格里已有「群主」徽标，设置放近处便于对照查看 -->
-      <div class="drawer-section">
-        <div class="drawer-section-title">群主（记忆属主）</div>
-        <select v-model="ownerSelection" class="drawer-owner-select" :disabled="ownerSaving" @change="applyOwnerChange">
-          <option value="">未设置（成员各自维护记忆）</option>
-          <option v-for="c in ownerCandidates" :key="c.id" :value="c.id">{{ c.name }}</option>
-        </select>
-        <p class="drawer-owner-hint">群主即记忆属主：统一管理群记忆与归档概要，全体成员共享注入；须为群成员，退群自动解除</p>
-        <div v-if="ownerError" class="drawer-error">{{ ownerError }}</div>
       </div>
 
       <!-- 名称 + 简介合并为一节共用保存钮：简介区曾只有孤立 textarea、无任何保存
@@ -257,6 +235,26 @@ async function saveGroupInfo() {
           <div class="dialog-actions">
             <button class="btn-cancel" @click="deleteOpen = false" :disabled="deleting">取消</button>
             <button class="btn-delete" @click="confirmDeleteGroup" :disabled="deleting">{{ deleting ? '删除中…' : '确认删除' }}</button>
+          </div>
+        </div>
+      </Modal>
+
+      <!-- ═══ 成员私有转录流查看（cr-4：run 推理/工具/终稿回放——session/history 标准桶）═══ -->
+      <Modal :visible="streamOpen" :width="560" @close="streamOpen = false">
+        <div class="stream-dialog">
+          <h4>{{ streamMemberName }} 的群会话流</h4>
+          <p class="stream-hint">该成员在本群的私有上下文（推理/工具调用/发言回放）——其他成员不可见</p>
+          <div v-if="streamLoading" class="stream-loading">读取中…</div>
+          <div v-else-if="streamError" class="drawer-error">{{ streamError }}</div>
+          <div v-else-if="streamRows.length === 0" class="stream-loading">（暂无记录）</div>
+          <div v-else class="stream-list">
+            <div v-for="(row, i) in streamRows" :key="i" class="stream-row" :class="'sr-' + row.role">
+              <span class="stream-role">{{ row.role }}</span>
+              <span class="stream-content">{{ row.content }}</span>
+            </div>
+          </div>
+          <div class="dialog-actions" style="margin-top: 14px;">
+            <button class="btn-cancel" @click="streamOpen = false">关闭</button>
           </div>
         </div>
       </Modal>
@@ -298,8 +296,9 @@ async function saveGroupInfo() {
 .drawer-member-item:hover { background: var(--color-bg-hover, rgba(0,0,0,0.04)); }
 .member-avatar-wrap { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; line-height: 0; }
 .member-me { position: absolute; right: -5px; bottom: -3px; font-size: 9px; font-weight: 600; color: #fff; line-height: 14px; padding: 0 4px; border-radius: var(--r-full, 999px); background: var(--color-primary, #6366f1); border: 1.5px solid var(--color-bg-surface); }
-.member-owner { position: absolute; left: -5px; top: -3px; font-size: 9px; font-weight: 600; color: #fff; line-height: 14px; padding: 0 4px; border-radius: var(--r-full, 999px); background: #f59e0b; border: 1.5px solid var(--color-bg-surface); }
 .member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; max-width: 100%; margin-top: 2px; }
+.member-stream-btn { padding: 1px 6px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 10px; background: none; color: var(--color-text-tertiary); cursor: pointer; }
+.member-stream-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 .drawer-name-row { display: flex; gap: 6px; }
 .drawer-name-input { flex: 1; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 13px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
@@ -310,10 +309,17 @@ async function saveGroupInfo() {
 .drawer-desc-input { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; resize: vertical; font-family: inherit; line-height: 1.5; min-height: 52px; }
 .drawer-desc-input:focus { border-color: var(--color-primary); }
 .drawer-error { font-size: 11px; color: #e74c3c; margin-top: 4px; }
-.drawer-owner-select { width: 100%; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; cursor: pointer; }
-.drawer-owner-select:focus { border-color: var(--color-primary); }
-.drawer-owner-select:disabled { opacity: 0.5; cursor: default; }
-.drawer-owner-hint { font-size: 11px; color: var(--color-text-tertiary); margin: 6px 0 0; line-height: 1.5; }
+/* 成员转录流查看弹层（cr-4） */
+.stream-dialog { padding: 20px 18px 16px; }
+.stream-dialog h4 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.stream-hint { margin: 0 0 10px; font-size: 11px; color: var(--color-text-tertiary); }
+.stream-loading { padding: 20px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
+.stream-list { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.stream-row { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; }
+.stream-role { flex-shrink: 0; width: 56px; text-align: right; color: var(--color-text-tertiary); font-size: 10px; padding-top: 2px; }
+.sr-assistant .stream-role { color: var(--color-primary); }
+.sr-system .stream-role { color: #f59e0b; }
+.stream-content { flex: 1; white-space: pre-wrap; word-break: break-word; color: var(--color-text-primary); }
 .drawer-section-bottom { border-bottom: none; display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
 .drawer-leave-btn, .drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; text-align: left; }
 .drawer-delete-btn { background: none; color: #e74c3c; }

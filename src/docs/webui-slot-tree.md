@@ -1,8 +1,8 @@
 # WebUI 插槽化调研 · Slot 树（v1；**实施状态标注见下**）
 
-> **已实施声明集对照（M27 S0-S4，2026-11 更新）**：本树的落地形态 =
+> **已实施声明集对照（M27 S0-S4，2026-09-07 更新）**：本树的落地形态 =
 > `declare module 'ac-client-slots'` SlotMap 类型化声明 + 运行时账本。
-> **2026-11 骨架语义定整后的现态词表**（VSCode 布局同款——读侧事实源
+> **2026-09-11 骨架语义定整后的现态词表**（VSCode 布局同款——读侧事实源
 > 见 `ui-rows-and-slots.md` §2，组件侧见 `webui-component-tree.md`）：
 > root + activity-bar（原 sidebar）/ primary-sidebar（原 list-panel）/
 > main（升 keyed 选举：chat/tracking）/ aux-sidebar（原 aside，keyed
@@ -88,7 +88,7 @@ toolResultViews / perspectives 已承担），slot 树主打**填充/装饰/覆�
 
 ## 3. 布局骨架（树的地基）
 
-**现态（2026-11 骨架语义定整后——VSCode 布局同款词汇）**：AppFrame
+**现态（2026-09-11 骨架语义定整后——VSCode 布局同款词汇）**：AppFrame
 （root 席位）四区域 + 覆盖层 + 三预留席，面板开关集中在 uiStore
 （ac-client-ui-layout/client/uiStore.ts）：
 
@@ -104,7 +104,7 @@ toolResultViews / perspectives 已承担），slot 树主打**填充/装饰/覆�
 ```
 
 **调研时点原貌**（App.vue 三层 + 覆盖层，矩阵让位协议与工作区分屏
-内嵌壳内——后被 2026-11 主区/区域构造对齐收编为选举轴）：
+内嵌壳内——后被 2026-09-11 主区/区域构造对齐收编为选举轴）：
 
 ```
 [① Sidebar 活动栏 48px] [② 列表槽位面板 260px± 三选一] [③ 主区]
@@ -261,7 +261,7 @@ app ······································
 │  │  │  ├─ tracking:dock-widget      【填】核心候选：dock 卡列追加（ComposerDock 宿主 + Todo/Goal/QueueDock/
 │  │  │  │   InteractionBar 为首批内置贡献者；三态契约 undefined=不可用静默/
 │  │  │  │   null|[]=不渲染；refresh 钩子对齐 tool/after-execute·loop/after-run 模式）
-│  │  │  │   【已实施 2026-11 M27 S3-1a：席位由 conversation 基础件声明；
+│  │  │  │   【已实施 2026-09-07 M27 S3-1a：席位由 conversation 基础件声明；
 │  │  │  │     todo 卡 = ac-todo 行 client 出厂贡献（order 10）、goal 条 =
 │  │  │  │     宿主内置（order 20）——席位宿主（零包裹 + 6px 底距下放各卡，
 │  │  │  │     现名 ComposerDock）；QueueDock(30)/InteractionBar(40) 亦已迁入】

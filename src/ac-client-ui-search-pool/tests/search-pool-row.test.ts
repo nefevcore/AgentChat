@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-search-pool/tests/search-pool-row.test.ts —— 前端行
-// 宿主半边验收（2026-11 自 ui-llm-pool 拆分成行：boot graph 声明 +
+// 宿主半边验收（2026-09-11 自 ui-llm-pool 拆分成行：boot graph 声明 +
 // 卸载级联回收；settings:section 贡献见 webui/tests/clients-search-pool）
 // ============================================================
 import { describe, it, expect } from 'vitest';
@@ -12,7 +12,7 @@ async function loadRow(ctx: Context): Promise<Fiber> {
   return plug(row, undefined);
 }
 
-describe('2026-11 · ac-client-ui-search-pool 宿主半边（boot graph 声明）', () => {
+describe('2026-09-11 · ac-client-ui-search-pool 宿主半边（boot graph 声明）', () => {
   it('行装载 → boot graph 含 ui-search-pool（phase=domain，entry 绝对路径）；卸载 → 级联回收 + 变更帧', async () => {
     const ctx = new Context();
     const { WebUiService } = await import('ac-webui/src/service.ts');

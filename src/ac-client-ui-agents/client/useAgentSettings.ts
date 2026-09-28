@@ -355,8 +355,8 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
       if (cfg?.id && cfg.id === agentId.value) void refreshAssembly(cfg.id);
       return;
     }
-    if (type === 'plugin/installed' || type === 'plugin/catalog-changed' || type === 'plugin/reloaded') {
-      // 插件目录变化会改变工具/钩子烘焙：当前 Agent 装配视图刷新
+    if (type === 'plugin/updated') {
+      // 插件域变化会改变工具/钩子烘焙：当前 Agent 装配视图刷新
       if (agentId.value) void refreshAssembly(agentId.value);
     }
   });

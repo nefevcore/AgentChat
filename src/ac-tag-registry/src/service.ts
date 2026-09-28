@@ -14,7 +14,7 @@
 //   · 分类：reserved（base/档位）≠ tool-required（被工具门禁消费）≠
 //     owner（agent:<id> 私有工具标签，等 owner 自行声明）≠ unknown
 //     （拼错/外部词——UI 警示）。
-//   · 抉择组（2026-12）：access-tier / tool-mode 预注册组与 browser
+//   · 抉择组（2026-09-21）：access-tier / tool-mode 预注册组与 browser
 //     声明组挂 exclusive 元数据——UI 聚合为下拉单选（落词由 UI 规则
 //     保证同组至多一词；判定面不受影响）。
 //
@@ -277,7 +277,7 @@ export class TagRegistryService extends Service {
    * 断言（档位/模式/注入纪律的机制化）：① 非能力词（档位 + 全部 tc-*
    * 模式词）被任何 requiredTags 引用即抛错——tc-* 是纯模式词（2026-09-17
    * 裁决；「程序化」是形态选择非授权门槛）。② injection:'mode' 工具
-   * 挂 requiredTags 即抛错（2026-12 injection 轴：mode 通道与能力轴
+   * 挂 requiredTags 即抛错（2026-09-21 injection 轴：mode 通道与能力轴
    * 无关，双门语义混乱）。启动期检查（boot 后调用一次；测试/宿主可
    * 随时复查）。
    */

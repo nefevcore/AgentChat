@@ -412,7 +412,7 @@ export interface FileVersionPoint {
  * 之后每条成功编辑推进一版。与顶层 diff 同口径——partials /
  * mismatch / 终版兜底语义先在 summary 层收口，这里只做纯步进。
  *
- * 分段（方案 B，2026-09 事故分析）：事件流之外的外部写（git
+ * 分段（方案 B，2026-09-23 事故分析）：事件流之外的外部写（git
  * checkout / shell 改写 / 消息流残缺）会让后续 edit 的 old_str 在
  * 重放内容中找不到——旧实现在此 break，分叉后的全部版本静默丢失
  * （下拉框与时间线对不上的根因）。现改为：失配点 = 段边界，

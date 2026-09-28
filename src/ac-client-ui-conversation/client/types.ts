@@ -25,7 +25,7 @@ export interface Turn {
   /** 最终纯文本回复（无 toolCalls 的 assistant），可为 null */
   final: ChatMessage | null;
   /**
-   * 挂靠注入卡（2026-12 注入卡·数据层归位）：buildTurns 中注入型
+   * 挂靠注入卡（2026-09-26 注入卡·数据层归位）：buildTurns 中注入型
    * context 行不拆轮，原位挂进当前在场轮（afterStep = 挂靠时刻步数
    * ——run 中途注入落在两步之间，还原落盘序）；cur 为空/viewer 轮时
    * 暂存挂下一 agent 轮头部。渲染在思考过程折叠链内（TurnDisplayItem
@@ -99,7 +99,7 @@ export interface ChatMessage {
   role: 'agent' | 'user' | 'tool' | 'event' | 'error';
   content: string;
   /**
-   * 步身份键（2026-12 身份贯通）：直播行由流式帧 meta 驻留、历史行由
+   * 步身份键（2026-09-24 身份贯通）：直播行由流式帧 meta 驻留、历史行由
    * steps[].stepId 展开透传——两表示同键 = 同一事实。历史合并与 subcall
    * 宿主定位按键配对（取代位置/内容前缀猜测）；旧行无键回落启发式路径。
    */
@@ -129,7 +129,7 @@ export interface ChatMessage {
   /** 思考标签（后端推送，含耗时信息） */
   label?: string;
   /**
-   * 注入正文（context 注入行专用——2026-12 注入卡）：role:'event' 行的
+   * 注入正文（context 注入行专用——2026-09-26 注入卡）：role:'event' 行的
    * content 是 label 文案；注入体原文（<system-reminder>…）放本字段随行
    * 透传，卡片展开体渲染之。历史行由 toHistoryMessages 展开携带；直播
    * 行缺席（帧不广播正文——瘦身纪律），settlement 重拉权威行后在场。
@@ -201,8 +201,6 @@ export interface GroupInfo {
   participants: string[];
   created_at: number;
   description?: string;
-  /** 群主（记忆属主）agent id；未设置 = undefined（成员各自记忆） */
-  memory_owner?: string;
   /** 最近活动时间戳（毫秒），由前端 WS 消息驱动，与 Agent.lastActivity 统一排序 */
   lastActivity?: number;
 }

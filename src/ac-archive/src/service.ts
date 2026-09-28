@@ -12,8 +12,8 @@
 //     （ac-agent-loop 导出，对齐 src META_ARCHIVE_REVIEW）三消费方各查——
 //     ac-session 不入账 / ac-usage 不记账 / ac-conversation 不进上下文视图
 //   · 输出物对齐 src：Agent 亲自 write/read summary/<会话>.md（概来源，
-//     服务端读文件，D4）+ fs 工具重写记忆文件（memory/<会话>.md，
-//     Agent 专用空间内——2026-09 记忆面收敛为 fs 工具兼容）+ TODO/DONE/note 同理
+//     服务端读文件，D4；记忆条目已随 cr-4 记忆时间线退役——时间线
+//     Agent 专用空间内——2026-09-03 记忆面收敛为 fs 工具兼容）+ TODO/DONE/note 同理
 //   · 双侧整理（D5）：对桶两端非虚拟已注册端各跑一次（虚拟端仅 owning 侧，
 //     对齐 src participants 语义）；done 协议全到齐才归档重建
 //   · 收尾事件驱动：订阅 loop/after-run 识别 meta 标记 + agent + convId
@@ -428,8 +428,9 @@ export class ArchiveService extends Service {
   /**
    * 整理提示词（对齐 src triggerReview 提示词：Agent 亲自整理，机制回归）：
    * 概要 = Agent 亲自 write summary/<会话>.md（D4，服务端读文件）；
-   * 记忆 = fs 工具重写 Agent 专用空间的 memory/<会话>.md（不要只追加；
-   * 当前记忆已注入 <memory> 块，注入直读文件、重写即时生效）；
+   * 记忆条目已退役（cr-4）：时间线 append-only，整理归 sleep-time；
+   * 概要提示词通用规则——context 注入行（记忆快照/delta、技能注入）
+   *   是机制材料，无需纳入概要；
    * TODO/DONE/note 同理。各分支按 Agent 生效工具集自适应（缺 write 回退
    * "回复即概要"）。路径经 anchorReviewPath 锚定 Agent 专用空间（写侧对齐
    * 读侧），并显式给出会话键（Agent 无从自行推导 a~b 这类键词法）。
@@ -454,42 +455,17 @@ export class ArchiveService extends Service {
         ? `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入本会话概要文件 ${summaryRel}（整文件即总结，重写覆盖）。`
         : `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，总结为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，直接作为回复返回（这部分会整体注入后续会话上下文）。`,
     );
-    const memoryBudget = this.memoryBudgetOf(agentId);
-    if (has('write') && this.memoryEnabledOf(agentId)) {
-      const memoryRel = this.anchorReviewPath(agentId, `memory/${conversationId}.md`);
-      lines.push(
-        `${++n}. 【整理记忆】重写你在本会话（键 ${conversationId}）的长期记忆文件 ${memoryRel}（不要只追加）：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆（已完成的计划、失效的临时状态、重复的旧记录），只保留仍有效且重要的内容——用 write 工具整文件重写提交（系统提示 <memory> 块即注入自该文件，当前记忆以其为据；重写即时生效，文件不存在则新建）` +
-          (memoryBudget !== undefined
-            ? `（注入预算 ${memoryBudget} tokens，超出部分会被截断丢弃；过时信息应删除而非保留）。`
-            : `（记忆有注入预算，过时信息应删除而非保留）。`),
-      );
-    }
+    // 记忆整理条目删除（cr-4 记忆时间线）：记忆不再随会话桶重写——时间线
+    // append-only，整理归 sleep-time（二期）；memoryBudgetOf/memoryEnabledOf
+    // 同批退役。
     if (has('write') || has('edit')) {
       lines.push(
         `${++n}. 【整理工作文件】TODO.md / DONE.md / note/ 知识库同理更新：完成的事项移入 DONE、过时内容清理删除，保持精炼。`,
       );
     }
+    lines.push(`会话中的 context 注入行（长期记忆快照/增量、技能注入等）是机制材料，不属于会话事实——无需纳入概要。`);
     lines.push(`整理是机制任务：不要发起对话、不要等待用户回复；完成后简短确认即可，系统会自动归档。`);
     return lines.join('\n');
-  }
-
-  /** 记忆注入预算（settings['memory'].maxTokens；缺省不提示具体数值） */
-  private memoryBudgetOf(agentId: string): number | undefined {
-    const settings = this.ctx.agents.settingsOf(agentId, 'memory');
-    if (settings && typeof settings === 'object') {
-      const v = (settings as { maxTokens?: unknown }).maxTokens;
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-    }
-    return undefined;
-  }
-
-  /** 记忆注入是否启用（settings['memory'].enabled ?? true；停用时不给重写指令——写了也不注入） */
-  private memoryEnabledOf(agentId: string): boolean {
-    const settings = this.ctx.agents.settingsOf(agentId, 'memory');
-    if (settings && typeof settings === 'object') {
-      return (settings as { enabled?: unknown }).enabled !== false;
-    }
-    return true;
   }
 
   // ============================================================
@@ -594,8 +570,8 @@ export class ArchiveService extends Service {
   }
 
   /**
-   * 整理输出物路径锚定（写侧对齐读侧，2026-10 裁决）：记忆注入（ac-memory）
-   * 与概要读取（reviewSummaryFile）都锚 Agent 专用空间 agentWorkdir，而 fs
+   * 整理输出物路径锚定（写侧对齐读侧，2026-09-05 裁决）：概要读取
+   * （reviewSummaryFile）锚 Agent 专用空间 agentWorkdir，而 fs
    * 工具相对路径按沙箱基准 sandboxWorkdir 解析——两者一致（常规/预设
    * Agent）时给相对路径（提示词简洁、与专用空间布局同形）；显式
    * settings['security'].workdir 使两者分叉时给 agentWorkdir 绝对路径

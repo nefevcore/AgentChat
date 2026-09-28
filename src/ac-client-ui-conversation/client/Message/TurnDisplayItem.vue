@@ -79,7 +79,7 @@ const hasChain = computed(() => visibleSteps.value.length > 0);
 
 const stepCount = computed(() => meaningfulSteps.value.length);
 
-// ── 链栏实时耗时（2026-12 计时反馈：前端计时 + 后端耗时覆盖续计）──
+// ── 链栏实时耗时（2026-09-21 计时反馈：前端计时 + 后端耗时覆盖续计）──
 // 校准对取轮内任一步上的 runCalibMs/runCalibAt（派生时校准对挂在对应步的
 // assistant 上；取「最新」——runCalibAt 最大者）。流式中每秒跳动（interval
 // 驱动 nowTick → chainLabel 重算）；非流式（历史回放）不计时，返回 null
@@ -124,7 +124,7 @@ const chainLabel = computed(() => {
   const last = steps.at(cnt - 1);
   const firstTs = first?.assistant.timestamp ?? first?.tools.at(0)?.timestamp ?? 0;
   const lastTs = last?.assistant.timestamp ?? last?.tools.at(-1)?.timestamp ?? 0;
-  // 耗时（2026-12 计时反馈）：流式期 = 校准锚 + 前端续计（每秒跳动）；
+  // 耗时（2026-09-21 计时反馈）：流式期 = 校准锚 + 前端续计（每秒跳动）；
   // 无锚（首步未收束）回退时间戳推导。校准锚 = 后端 after-step 的
   // step.ts 权威收束时刻（见 types.ts ChatMessage.runCalibMs）——每步覆盖，
   // 吸收帧传播延迟；尾段（工具执行/步间静默/末步流式）前端在锚上续跑
@@ -298,7 +298,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             @mouseenter="rowHover = true"
             @mouseleave="rowHover = false"
           >
-            <!-- 图标位：链活动中且非 hover → 琥珀旋转环（2026-12 与思考卡/
+            <!-- 图标位：链活动中且非 hover → 琥珀旋转环（2026-09-13 与思考卡/
                  工具卡同款选型，尾部 dots 退役）；hover 显示折叠箭头（交互优先） -->
             <span v-if="isStreaming && !rowHover" class="chain-spin-ring" aria-hidden="true"></span>
             <Icon v-else :name="rowIcon" :size="14" class="chain-icon" />
@@ -306,7 +306,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             <span class="chain-label" :title="chainLabel">{{ chainLabel }}</span>
       </div>
 
-      <!-- v-if（2026-12 大会话切换卡顿终修）：历史轮默认折叠，此前 v-show
+      <!-- v-if（2026-09-24 大会话切换卡顿终修）：历史轮默认折叠，此前 v-show
            仍全量构建链体组件树（大会话 470 步/923 工具卡 + markdown 渲染
            只是 display:none 藏着——切换卡 1-2s 的真正主体）。折叠 = 不构建，
            用户展开才付费；流式轮 isExpanded 恒 true，直播路径无变化。 -->
@@ -501,7 +501,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   white-space: nowrap;
 }
 
-/* 链活动旋转环（2026-12 统一选型，替换尾部琥珀 dots）：链级「执行中」
+/* 链活动旋转环（2026-09-13 统一选型，替换尾部琥珀 dots）：链级「执行中」
  * 指示——与思考卡 think-spin-ring / 工具卡 tool-spin-ring 同色同款，
  * 全前端"忙"指示统一。环已入 prefers-reduced-motion 豁免清单（main.css）。 */
 .chain-spin-ring {

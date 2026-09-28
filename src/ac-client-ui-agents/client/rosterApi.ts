@@ -3,7 +3,7 @@
 // 直连数据面（M28 P1 域资产归位 → M29 P1-3b agent CRUD 归并同宿——
 // T3「数据面跟域走」+ agent 数据面双宿主收口：settings/api.ts 的
 // createAgent/getAgentConfig/saveAgentConfig 随域迁入，本包成为
-// agent 数据面唯一宿主。2026-11 模型发现/池模型归一化面迁出——
+// agent 数据面唯一宿主。2026-09-11 模型发现/池模型归一化面迁出——
 // 实为池域词汇，归宿 ui-llm-pool/client/poolApi〔fetchPoolModels/
 // poolModelEntries/visibleModelNames〕，消费方换源）
 //
@@ -37,7 +37,7 @@ function llmPoolRefOf(pools: Record<string, any>, provider: unknown): string | u
 }
 
 /** Agent 配置双视图（get-config + SYSTEM/AGENTS.md 双 read-doc 并取 + 池名回显）。
- *  persona 文档双名同义（2026-11 对齐生态事实标准 AGENTS.md）：读序
+ *  persona 文档双名同义（2026-09-16 对齐生态事实标准 AGENTS.md）：读序
  *  AGENTS.md 优先、AGENT.md（存量名）回退；保存归一写 AGENTS.md。 */
 export async function getAgentConfig(agentId: string, rpc: Rpc): Promise<AgentConfigViews> {
   const agentDoc = await rpc
@@ -237,7 +237,7 @@ export async function fetchPools(
   };
 }
 
-//（2026-11 模型发现/池模型归一化面迁出：PoolModelMeta/poolModelEntries/
+//（2026-09-11 模型发现/池模型归一化面迁出：PoolModelMeta/poolModelEntries/
 //  visibleModelNames/fetchAgentModels → ui-llm-pool/client/poolApi.ts
 //  〔fetchPoolModels——池域词汇语义归位〕，消费方 AgentPane/ChatInput/
 //  PoolManager 已换源）

@@ -2,7 +2,7 @@
 // ============================================================
 // clients/base/AppFrame.vue —— layout 基础件视图（原 App.vue 原样迁入，M27 S1）
 //
-// 「壳也是插件」（D19）：本组件占 root 席位。页面骨架（2026-11 语义
+// 「壳也是插件」（D19）：本组件占 root 席位。页面骨架（2026-09-11 语义
 // 定整——VSCode 布局同款词汇）：
 //   [menu-bar 顶部菜单栏·预留]
 //   [activity-bar 活动栏][primary-sidebar 主侧边栏][main 主面板]
@@ -55,18 +55,18 @@ provide('closeDrawer', () => ui.closeDrawer());
     </Transition>
 
     <!-- ① 活动栏（seat: activity-bar——VSCode Activity Bar 同款；出厂贡献
-         = 壳件出厂贡献 ActivityBarHost；2026-11 语义定整：原 sidebar 改名） -->
+         = 壳件出厂贡献 ActivityBarHost；2026-09-11 语义定整：原 sidebar 改名） -->
     <SlotOutlet name="activity-bar" />
 
     <!-- ② 主侧边栏（seat: primary-sidebar——VSCode Primary Side Bar 同款；
          出厂贡献 = 壳件三面板壳——agents/sessions/tracking 三选一，
-         只换主侧边栏，不动主面板；2026-11 语义定整：原 list-panel 改名） -->
+         只换主侧边栏，不动主面板；2026-09-11 语义定整：原 list-panel 改名） -->
     <div v-if="ui.primaryVisible" class="primary-sidebar-wrapper" :class="{ 'drawer-visible': ui.drawerVisible }" :style="{ width: ui.primaryWidth + 'px' }">
       <SlotOutlet name="primary-sidebar" />
       <ResizeHandle kind="primary" />
     </div>
 
-    <!-- ③ 主面板（seat: main——keyed 选举「主区视图」多选一，2026-11
+    <!-- ③ 主面板（seat: main——keyed 选举「主区视图」多选一，2026-09-11
            主区语义纯化）：会话（视角容器）/运行矩阵/未来其他主区视图同轴
            竞争——MainViewHost 按 active × order 选举（tracking(50) 居
            chat(100) 前——激活期间覆盖）；让位协议随各条目 active() 住

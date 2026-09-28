@@ -20,7 +20,7 @@ const error = ref('');
 onMounted(() => { void settings.loadMeta(); });
 
 /** 池编辑即时落盘（定向 config/set——api_key 侧信道语义在服务端）；
- *  失败提示到面板错误条。防覆盖守门（cr-29）：整域替换语义下，池数据
+ *  失败提示到面板错误条。防覆盖守门（cr-21）：整域替换语义下，池数据
  *  未加载成功（pools 停留初始 {}）时一次保存会清光后端现有连接——
  *  与 useSettings.saveGlobal 的空 config 防御对称，拒绝写盘；加载成功
  *  后空池也是用户真实意图（删除最后一条连接），正常放行。 */

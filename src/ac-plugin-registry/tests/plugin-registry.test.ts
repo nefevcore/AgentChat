@@ -69,8 +69,7 @@ describe('ac-plugin-registry staging → approve → 装载', () => {
         return modules.get(key);
       },
     });
-    ctx.on('plugin/installed', (s) => calls.push({ kind: 'installed', name: s.name }));
-    ctx.on('plugin/catalog-changed', (p) => calls.push({ kind: 'catalog', detail: p.kind }));
+    ctx.on('plugin/updated', (p, action) => calls.push({ kind: action, name: p.name }));
 
     const dir = await makePluginDir(root, 'alpha');
     modules.set('alpha', makeTestPlugin(new Map(), 'alpha')); // key = 安装后目录名（plugins/alpha）
@@ -83,7 +82,7 @@ describe('ac-plugin-registry staging → approve → 装载', () => {
     expect(result.load.status).toBe('loaded');
     expect(ctx.pluginRegistry.has('alpha')).toBe(true);
     expect(calls.some((c) => c.kind === 'installed' && c.name === 'alpha')).toBe(true);
-    expect(calls.some((c) => c.kind === 'catalog')).toBe(true);
+    expect(calls.some((c) => c.kind === 'loaded' && c.name === 'alpha')).toBe(true);
 
     // 装载即归属：工具随插件 fiber 注册
     const r = await ctx.tools.execute({ name: 'alpha-tool', args: {} });
@@ -149,11 +148,11 @@ describe('ac-plugin-registry gates（plugin/before-load）', () => {
 });
 
 describe('ac-plugin-registry 会话级与重载', () => {
-  it('会话级装载：重启即失语义（sessionOnly 标记 + catalog 事件 kind=session', async () => {
+  it('会话级装载：重启即失语义（sessionOnly 标记 + updated 事件 action=session', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-reg-'));
     const events: string[] = [];
     const { ctx } = await boot(root, { importModule: async () => ({ apply() {} }) });
-    ctx.on('plugin/catalog-changed', (p) => events.push(p.kind));
+    ctx.on('plugin/updated', (_p, action) => events.push(action));
     const dir = await makePluginDir(root, 'sessional');
     const outcome = await ctx.pluginRegistry.load({ dir, sessionOnly: true });
     expect(outcome.status).toBe('loaded');

@@ -200,26 +200,9 @@ export class SinglesService extends Service {
     const specs = normalizeToolSpecs(defs, request.tools);
     const toolsHash = sha256(JSON.stringify(specs));
     const persona = agent ? resolvePersonaText(this.ctx, request.agent, agents!.settingsOf(agent.id, 'persona')) ?? '' : '';
-    // 记忆归 Agent 本人（files/<agentId>/memory/<会话键>.md，2026-09 存储
-    // 迁移）：读取经 memory.memoryBucketOf（注入同口径单一事实源——
-    // singles 重定向对用户对桶、群桶锚属主，两处永不漂移）；无 Agent
-    // 身份（直连 run）无记忆语义 → 空串
-    const memory = this.ctx.get('memory', false) as
-      | {
-          memoryBucketOf(
-            agentId: string,
-            conversationId: string | undefined,
-            sender: string | undefined,
-          ): { anchor: string; key: string } | undefined;
-          get(anchor: string, key: string): string | undefined;
-        }
-      | undefined;
-    const memoryBucket =
-      memory && request.agent !== undefined
-        ? memory.memoryBucketOf(request.agent, request.conversationId, request.sender)
-        : undefined;
-    const memoryContent = memoryBucket ? memory!.get(memoryBucket.anchor, memoryBucket.key) ?? '' : '';
-    // 会话工作区（2026-11 挂载即授予；2026-12 升为会话级工作目录——
+    // 记忆段删除（cr-4 记忆时间线）：记忆内容退出 system（静态指引块字节
+    // 恒定），不进修订键——memoryBucketOf/get 已随服务 API 收敛退役。
+    // 会话工作区（2026-09-13 挂载即授予；2026-09-13 升为会话级工作目录——
     // sandboxWorkdir/提示词 [工作目录] 指向工作区根）+ 工作区技能组进
     // <available_skills>——挂载/卸载与技能增删都改变
     // system 字节，修订键必须覆盖（漏键 = 快照静默失效/漂移误报）。技能
@@ -247,7 +230,6 @@ export class SinglesService extends Service {
         request.model,
         request.llmParams ?? {},
         toolsHash,
-        memoryContent,
         workspaceRoot,
         skillsView,
       ]),
@@ -447,7 +429,7 @@ export class SinglesService extends Service {
   }
 
   /**
-   * 元数据读缓存（2026-12 卡顿优化）：mtime 命中零文件读。list()/purgeEmpty/
+   * 元数据读缓存（2026-09-24 卡顿优化）：mtime 命中零文件读。list()/purgeEmpty/
    * stagePendingTitle 等全走本面——379 会话规模下每次全量 list 的元数据
    * 读取从 ~19ms（热）/ 250ms+（冷）降到 stat 级（~8ms 热）。写侧
    * （writeRecord）主动刷新、删除（purge）弃条目；外部手改文件由 mtime

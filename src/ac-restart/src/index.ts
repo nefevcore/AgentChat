@@ -42,6 +42,7 @@ declare module '@agentchat/cordis' {
      * 系统重启已受理（UI system/restart 触发 / system_restart 工具 run
      * 收束后发出；发出即开始优雅关闭）。
      * @mode emit
+     * @scope host（受理点在宿主关闭序列，不属任何 Agent 的执行）
      * 载荷 = 重启原因。谁该订阅：WS 桥接（前端提示"后端重启中"）。
      */
     'system/restarting'(reason: string): void;

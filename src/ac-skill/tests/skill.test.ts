@@ -818,7 +818,7 @@ describe('/name 手势与注入通道（词汇 v2：before-run 判定 + context 
       messages: [{ role: 'user', content: 'load then think' }],
       conversationId: single.id,
     });
-    // 三步各自送入模型的消息（run 级驻留，2026-11 裁决）：load 发生在步 1
+    // 三步各自送入模型的消息（run 级驻留，2026-09-22 裁决）：load 发生在步 1
     // 工具执行中 → before-step 时刻 injectDurable 入队 → 步 2 边界 splice 进
     // 工作数组 → 步 2/3 继承（前缀稳定 KV 全命中——每步恰 1 条，无堆积；
     // 旧「每步尾部重现」形态已退役：尾部字节稳定但每步重算正文）

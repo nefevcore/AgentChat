@@ -93,7 +93,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   /**
    * conversation/stats → resume 恢复（刷新/切回时的运行中会话）。
    * 命中 running → 先拉一次 session/history（journal 活投影已带回全部
-   * 已完成步——2026-12 反馈 #3：此前合成 steps:[] 空壳快照，历史 RPC 慢/
+   * 已完成步——2026-09-21 反馈 #3：此前合成 steps:[] 空壳快照，历史 RPC 慢/
    * 失败时界面 = 空会话 + 转圈，「没回放前面 steps」）。历史响应经
    * feed.onHistory 常规管线（journal 步行展开 + resume 快照补合），失败
    * 回落最小空壳快照（保底：至少点亮流式占位与忙态）。空闲 → active:false。
@@ -109,7 +109,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       }
       // 真实数据源：feed.loadHistory（session/history + subcalls 投影 +
       // onHistory 路由 + journal 步行展开 + resume 快照补合——与切会话
-      // 完全同管线，2026-12 反馈 #3：此前只有空壳快照，历史 RPC 慢/失败
+      // 完全同管线，2026-09-21 反馈 #3：此前只有空壳快照，历史 RPC 慢/失败
       // 时界面 = 空会话 + 转圈）。到达序两种都正确：先快照后历史 →
       // onSessionResume 挂起、onHistory 首屏后补合；先历史后快照 → 直接合并。
       const dialogId = session ? singleDialog(session) : directDialog(agentId);
@@ -333,7 +333,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   const toolDefsLoading = ref(false);
   const toolDefs = ref<any[]>([]);
 
-  // ══ 会话工具调用模式快照（2026-12 预览失真修复）══
+  // ══ 会话工具调用模式快照（2026-09-21 预览失真修复）══
   /** 当前会话的工具调用模式覆盖（''=跟随；ChatInput 写口 conv-settings
    *  成功后同步 bump——system-prompt 预览/Token 估算面据此得知装配面
    *  已变，重取反映程序化 SDK 投影块/收窄后的工具 schema）。 */
@@ -563,7 +563,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   }
 
   /**
-   * 重新推理（2026-12 架构对齐重写）：删除该 assistant 回复及其触发消息，
+   * 重新推理（2026-09-21 架构对齐重写）：删除该 assistant 回复及其触发消息，
    * 保留更早历史，重发原消息（含附件）。
    *   · 持久层：单次 session/truncate（服务端原子重写——段行/注入行/
    *     injected 行同 run 成组被清，M17-C 语义；此前逐条 delete-message
@@ -620,7 +620,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   }
 
   /**
-   * 删除消息（2026-12 架构对齐）：仅删除指定气泡（assistant/user），持久层
+   * 删除消息（2026-09-21 架构对齐）：仅删除指定气泡（assistant/user），持久层
    * 按会话形态算键（single = sid——此前 kind==='pair' 恒真，single 删错
    * viewer 对桶键，等于永远删不到）。
    */
@@ -644,7 +644,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   }
 
   /**
-   * 修改用户消息（2026-12 架构对齐重写）：更新内容，删除该消息及其后全部
+   * 修改用户消息（2026-09-21 架构对齐重写）：更新内容，删除该消息及其后全部
    * 记录，重发（含原附件——此前附件被丢弃，图片消息编辑后 chips 消失）。
    *   · 持久层：单次 session/truncate（M17-C 语义——编辑 = 删其后重发；
    *     此前逐条 delete-message 是 N 次原子重写，且 single 会话因
@@ -757,8 +757,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    *  工作区白名单/工作区技能组/记忆桶按 sid 解析）；pair 场景不传（服务端
    *  落 viewer 对桶键，与 deliver 边界同口径）。
    *  options.conversationId（群视角）：显式会话键——群 gid 下后端按
-   *  群成员视角装配（记忆桶按 gid 解析、群共享记忆属主注入），不回落
-   *  viewer 对桶死键。 */
+   *  群成员视角装配（cr-4：记忆归人格时间线，会话键只影响装配上下文），
+   *  不回落 viewer 对桶死键。 */
   function requestSystemPrompt(agentId?: string, options?: { conversationId?: string }) {
     const ctx = resolveContext();
     const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
@@ -789,7 +789,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   /** 工具定义请求（target 推导同 requestSystemPrompt：显式 agentId 优先，
    *  否则当前会话上下文——single = 会话引用 Agent，pair = 激活 Agent）。
    *  独立会话引用 Agent ≠ 全局激活 Agent 时，缺省取错会污染固定开销估算。
-   *  conversationId（2026-12 估算失真修复）：透传会话键 → 后端按「会话
+   *  conversationId（2026-09-21 估算失真修复）：透传会话键 → 后端按「会话
    *  覆盖（conv-settings toolMode）?? Agent tags」收窄生效集——与 router
    *  真实 run 的 LLM 可见面同口径（程序化会话仅 run_code、tc-none 空）。 */
   function requestToolDefs(agentId?: string, options?: { conversationId?: string }) {

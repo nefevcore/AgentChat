@@ -470,7 +470,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     expect(fallback).toContain('[引用约定]');
   });
 
-  it('@ 路径引用约定 PTC：request.tools 收窄为 [run_code] 时按能力面判 read 在场（2026-12 基线段丢失修复）', async () => {
+  it('@ 路径引用约定 PTC：request.tools 收窄为 [run_code] 时按能力面判 read 在场（2026-09-21 基线段丢失修复）', async () => {
     const root = tmpRoot();
     // 装配：tools + agents（注册带 fs 标签的 Agent）+ run_code mode 工具 + fs 行
     const ctx = new Context();

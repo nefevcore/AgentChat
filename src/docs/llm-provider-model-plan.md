@@ -5,16 +5,16 @@
 > 已按定稿执行。**D1 后续修订（同日，用户裁决）：内置种子机制整体
 > 移除**——连接池成为唯一事实源（未配置即不注册、删除即真删、警示
 > 判定只看池），消除种子带来的一列衍生复杂度（条目复活 / 伪条目隐藏 /
-> 注册面≠配置面判定）。2026-09 立项，源自用户诉求：
+> 注册面≠配置面判定）。2026-09-03 立项，源自用户诉求：
 > ① baseUrl+apiKey 定义一次 provider（如 deepseek），`/models` 可发现全部模型，
 > 没必要按模型重复定义池条目；② 定义 `name = provider(baseUrl, apiKey, …)`
 > 后，用 `name@model` 决定用哪个模型；③ Agent 模型设置不得变更/覆盖
 > baseUrl/apiKey（连接面锁死在 provider 定义）；④ Agent 会话设置参考
 > singles，允许快速切换模型。
 >
-> 关联事实源：`src/README.md`（能力地图）、m15-reconciliation.md #7（已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）
+> 关联事实源：`src/README.md`（能力地图）、m15-reconciliation.md #7（已归档 `Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`）
 > （池抽象当年显式延迟——"延迟到有多模型管理的实际需求"，本方案即该需求
-> 到期）、m17-recon/settings-spec.md（池/AgentPane 现形状；已归档 `Dev\Note\AgentChat\docs-stale-2026-12\src-docs\`）。
+> 到期）、m17-recon/settings-spec.md（池/AgentPane 现形状；已归档 `Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`）。
 
 ---
 

@@ -22,20 +22,20 @@ const ui = useUiStore();
 const chatStore = useChatStore();
 
 /** 当前会话目标 Agent（与会话头 headerAgentId 同款解析：single 承载
- *  Agent 优先，回落活跃 1v1 Agent；群视角 = 群主〔memoryOwner 回落首
- *  成员〕。rail 直开与会话头按钮两入口同源——行为差异消除（此前 rail
- *  直开走无参请求，群视角静默不发起 + 标题用旧快照）。 */
+ *  Agent 优先，回落活跃 1v1 Agent；群视角 = 代表成员〔首成员——cr-4
+ *  群主退役〕。rail 直开与会话头按钮两入口同源——行为差异消除（此前
+ *  rail 直开走无参请求，群视角静默不发起 + 标题用旧快照）。 */
 const agentId = computed(() => {
   const sid = singlesBoard?.activeSingleId.value;
   if (sid) {
     const meta = singlesBoard.singles.value.find((s) => s.id === sid);
     return meta?.agentId || roster.defaultPresetId.value;
   }
-  const groups = ctx?.groups as { activeGroupId: { value: string }; groups: { value: Array<{ group_id: string; memory_owner?: string; participants: string[] }> } } | undefined;
+  const groups = ctx?.groups as { activeGroupId: { value: string }; groups: { value: Array<{ group_id: string; participants: string[] }> } } | undefined;
   const gid = groups?.activeGroupId.value;
   if (gid) {
     const g = groups.groups.value.find((r) => r.group_id === gid);
-    return g?.memory_owner || g?.participants[0] || null;
+    return g?.participants[0] || null;
   }
   return roster.activeAgentId.value || null;
 });
@@ -50,7 +50,7 @@ const agentName = computed(() => {
   const id = agentId.value;
   if (!id) return '';
   const name = roster.getAgentName(id) || id;
-  return groupConversationId.value ? `${name}（群主视角）` : name;
+  return groupConversationId.value ? `${name}（群成员视角）` : name;
 });
 const inGroupView = computed(() => !agentId.value && !!(ctx?.groups as { activeGroupId: { value: string } } | undefined)?.activeGroupId.value);
 
@@ -64,7 +64,7 @@ function requestForView() {
 
 /** 会话工具调用模式变化（ChatInput 写口 bump——run 间隙生效）→ 重取：
  *  装配面已变（程序化注入 SDK 投影块/收窄后指引块），常驻面板即时
- *  反映新模式下的真实 system prompt（2026-12 预览失真修复）。 */
+ *  反映新模式下的真实 system prompt（2026-09-18 预览失真修复）。 */
 watch(() => chatStore.convToolMode, () => {
   if (agentId.value) requestForView();
 });

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 // ============================================================
 // webui/tests/main-view-election.test.ts —— 主区视图选举回归
-//（2026-11 主区语义纯化：main 席位 keyed 选举多选一——MainViewHost）
+//（2026-09-11 主区语义纯化：main 席位 keyed 选举多选一——MainViewHost）
 //
 // 锁三条语义：
 //   ① 选举：active × order 多选一——真实 runview 行的 tracking 条目
 //      （order 50）激活期间覆盖 chat 兜底（order 100 恒真）；
-//   ② 显式导航互斥（2026-12 返回按钮退役后）：openPairView 进会话即收
+//   ② 显式导航互斥（2026-09-21 返回按钮退役后）：openPairView 进会话即收
 //      矩阵（开关单一事实源，tracking 谓词只看开关）；openTrackingView
 //      进矩阵即清 pair——两方向互斥，无跨页返回联动；行卸载 → 条目
 //      消失 → chat 直显（席位占用门控内在于选举——壳不残废）；
@@ -53,7 +53,7 @@ describe('主区视图选举 · 真实域行条目', () => {
     ui.trackingViewVisible = true;
     expect(activeMainView()?.id).toBe('tracking');
 
-    // 显式导航互斥（2026-12 返回按钮退役）：openPairView 进会话即收矩阵
+    // 显式导航互斥（2026-09-21 返回按钮退役）：openPairView 进会话即收矩阵
     // ——开关单一事实源，tracking 谓词只看开关（悬挂 pair 不再影响矩阵态）
     ui.openPairView('x', 'y');
     expect(ui.pairView).toEqual({ a: 'x', b: 'y' });

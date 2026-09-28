@@ -34,7 +34,7 @@ import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import { interruptRun, sourceLabel } from './index.ts';
 import type { RunsRunningEntry } from './index.ts';
 // ctx.subagentBoard 类型身份（声明合并 type-only——运行时零依赖；本面板
-// 子Agent 区数据源，2026-12 持久化清单主源化）
+// 子Agent 区数据源，2026-09-22 持久化清单主源化）
 import type {} from 'ac-client-ui-subagent/client/board.ts';
 import RunDuration from './RunDuration.vue';
 import {
@@ -55,7 +55,7 @@ const runSvc = useClientContext()?.runs;
 // jobs 域投影（M27 S2）：跨域消费走客户端服务面（ctx.jobBoard）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
 const jobBoard = useClientContext()?.jobBoard;
-// subagent 域投影（2026-12 持久化清单主源化）：子Agent 区数据源——
+// subagent 域投影（2026-09-22 持久化清单主源化）：子Agent 区数据源——
 // subagents/list RPC + subagents/updated 帧驱动（对齐 singles 取值链；
 // jobBoard 不再作子Agent 清单源）
 const subBoard = useClientContext()?.subagentBoard;
@@ -91,7 +91,7 @@ const bgSettled = computed(() => bgSettledAll.value.slice(0, RECENT_SETTLED_CAP)
 
 // ── 子Agent 调用清单（ctx.subagentBoard 域投影——持久化注册表主源：
 //    subagents/list RPC + subagents/updated 帧驱动刷新，跨重启完整；
-//    对齐 singles 取值链，2026-12 起 jobBoard 不再作子Agent 清单源）──
+//    对齐 singles 取值链，2026-09-22 起 jobBoard 不再作子Agent 清单源）──
 /** 运行中条目（displayStatus=running；实时时长 + stop。墓碑防御性排除——
  *  remove 会先停 run，正常流不会出现 deleted+running） */
 const subRunning = computed(() =>
@@ -195,7 +195,7 @@ function sessionTitle(r: RunsRunningEntry): string {
   // 标题，singles/updated 帧驱动刷新；矩阵域 RunsSnapshot.singles 在客户端
   // 投影恒空，不参与）。无标题时与会话列表 titleOf 同款回落（新会话 /
   // Agent · 创建时间），不再拿路由预设名（"标准模式"等模式名）冒充会话
-  // 名——2026-12 反馈：运行跟踪应显示具体会话标题。
+  // 名——2026-09-15 反馈：运行跟踪应显示具体会话标题。
   const sid = r.convKey.split('~')[1] ?? '';
   const single = singlesBoard?.singles.value.find(s => s.id === sid);
   if (single) {

@@ -7,7 +7,7 @@
 // 忽略 source）又是不带 event 语义的普通 agent 行，刷新后也不显。
 //
 // 修复后不变量：
-//   · source='event' 的机制通知上屏已退役（2026-12 通知面统一）：上屏帧
+//   · source='event' 的机制通知上屏已退役（2026-09-22 通知面统一）：上屏帧
 //     由 ac-session 在事件行落账/stash 时发 session/context-injected（带
 //     注入身份锚 injectionId——直播行与刷新行同锚去重）；steered/message-
 //     received 帧再渲染会双份——两帧的 event 分支删除，本文件钉住不回归；

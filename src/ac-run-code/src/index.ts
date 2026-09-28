@@ -1,7 +1,7 @@
 // ============================================================
 // ac-run-code/src/index.ts —— run_code 工具行（程序化模式 PTC 内核）
 //
-// 单工具 run_code（injection:'mode'——模式合成入口，2026-12 injection
+// 单工具 run_code（injection:'mode'——模式合成入口，2026-09-21 injection
 // 轴重构：不挂 requiredTags、不进常规工具面；tc-programmatic 档经
 // narrowToolsByMode 从注册面直接合成，与 tags 无关、行在装即生效）。
 // 档位随父 Agent，子调用逐个走全安全面，故本工具不挂 needPermission：
@@ -33,7 +33,7 @@ export const extension: ExtensionMeta = {
   automatic: true,
   fields: [
     { name: 'defaultMaxWallMs', type: 'number', min: 0, step: 1000, default: 720_000, description: '墙钟预算毫秒（缺省 720000 = 实战自然完成 MAX×3；durable 用户应答等待冻结豁免；0 = 不限）——超限中止程序。宿主侧单源防线，程序参数不可见不可改' },
-    { name: 'defaultMaxOutputBytes', type: 'number', min: 0, step: 1024, default: 32_768, description: '返回值序列化字节上限（缺省 32KB；0 = 不限）——超出中段截断并标注' },
+    { name: 'defaultMaxOutputBytes', type: 'number', min: 0, step: 1024, default: 65_536, description: '返回值序列化字节上限（缺省 64KB；0 = 不限）——超出中段截断并标注' },
   ],
 };
 
@@ -59,7 +59,7 @@ export function apply(ctx: Context, options: RunCodeRowOptions = {}) {
       properties: {
         description: { type: 'string', description: '本次程序的一句话意图（做什么/要什么结论）——工具卡 Label 用；程序内不必重复书写' },
         code: { type: 'string', description: '可擦除 TS 程序体（类型标注可用；enum/命名空间/参数属性不可用；不允许 import；模板串内嵌反引号须转义，多行文本优先引号串数组 join 拼接）——tools.<name>(args) 调用工具，最终结论经 return 或 log("…") 给出（无 return 值〔含 return null / undefined〕时 log 各行按序合成返回）' },
-        max_output_bytes: { type: 'number', minimum: 0, description: '返回值序列化字节上限（缺省 32KB；0 = 不限）' },
+        max_output_bytes: { type: 'number', minimum: 0, description: '返回值序列化字节上限（缺省 64KB；0 = 不限）' },
       },
       required: ['code'],
     },

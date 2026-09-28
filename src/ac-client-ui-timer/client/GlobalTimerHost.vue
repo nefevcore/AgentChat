@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// client/GlobalTimerHost.vue —— 全局定时任务节宿主（2026-09 重设计）
+// client/GlobalTimerHost.vue —— 全局定时任务节宿主（2026-09-13 重设计）
 //
 // 原形态：自带「定时任务」大标题头 + 段内描述 + 添加按钮（settings
 // 节时代遗产）。重设计：头部整体撤去——aux 聚合面板（TimersPanel）里

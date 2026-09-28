@@ -66,7 +66,7 @@ export const webCardClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'web_search',
         component: ToolResultWeb,
-        // onLabelClick：Label 直达搜索侧边栏（2026-12 R7 相位整改——原
+        // onLabelClick：Label 直达搜索侧边栏（2026-09-21 R7 相位整改——原
         // base 行 ToolMessage 直 import 本行 openSearchPanel 成 R7 违例；
         // 动作住域行 def，base 只经席位钩子调用）
         meta: {

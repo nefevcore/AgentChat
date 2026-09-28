@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-llm-pool —— llm-pool 域前端行（M28 P2 §5.2；
-// 2026-11 行拆分：搜索引擎节拆往 ac-client-ui-search-pool——本行
+// 2026-09-11 行拆分：搜索引擎节拆往 ac-client-ui-search-pool——本行
 // 收窄为 llm 连接池单节，严格镜像 ac-llm-pool 后端行）
 //
 // Provider 连接池管理 UI：PoolManager（llm 连接）+ 池更新编排
@@ -21,7 +21,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-llm-pool',
   label: '连接池管理（前端）',
-  description: 'llm-pool 域前端行（M28 P2）：Provider 连接池管理（settings:section 选举席贡献 llmPools 节；2026-11 搜索引擎节拆往 ui-search-pool）；与 ac-llm-pool 后端行双向可独立摘除',
+  description: 'llm-pool 域前端行（M28 P2）：Provider 连接池管理（settings:section 选举席贡献 llmPools 节；2026-09-11 搜索引擎节拆往 ui-search-pool）；与 ac-llm-pool 后端行双向可独立摘除',
   automatic: true,
 };
 

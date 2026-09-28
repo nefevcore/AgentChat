@@ -16,7 +16,7 @@
 # 域行卸载时消费面静默降级（可摘除性保持）。新增 base→domain 边仍一律
 # 红灯，新裁决必须显式修订本册。
 #
-# 【2026-11 R6 扩权基线裁决】R6 自 .ts 边扩为 .ts/.vue 同权重——
+# 【2026-09-11 R6 扩权基线裁决】R6 自 .ts 边扩为 .ts/.vue 同权重——
 # 消 .vue 媒介盲区（实证：PoolManager→rosterApi 模型发现边，M29 P1-3b
 # 按「名义消费者」误归 agent 面 + .vue import 落 R6 扫描面外，静默
 # 漏网）。配套语义归位：模型发现/池模型归一化迁 ui-llm-pool/poolApi
@@ -29,7 +29,7 @@ edges:
   # ---- M28 §5.1 既有裁决 ----
   - from: ac-client-ui-layout
     to: ac-client-ui-system
-    ruling: M28 §5.1 显式裁决——版本入口动作跨行消费合法（backupNow/fetchVersion = system 域 RPC 词汇；2026-11 sidebar 行归并 layout，边随 Sidebar.vue 迁移）
+    ruling: M28 §5.1 显式裁决——版本入口动作跨行消费合法（backupNow/fetchVersion = system 域 RPC 词汇；2026-09-11 sidebar 行归并 layout，边随 Sidebar.vue 迁移）
 
   # ---- M28 §4.2① 惰性取用口 + M29 P2-1 定谳 ----
   - from: ac-client-ui-conversation
@@ -43,12 +43,12 @@ edges:
     ruling: M29 P2-1 定谳——ChatInput skillsApi（@ 提及的技能清单拉取）= skill 域 RPC 契约词汇（thin typed wrapper；行卸载 = 提及清单空态）
   - from: ac-client-ui-conversation
     to: ac-client-ui-llm-pool
-    ruling: 2026-11 语义归位——ChatInput 池模型归一化（poolModelEntries/visibleModelNames）自 rosterApi 换源 ui-llm-pool/poolApi = 池域契约词汇（M29 P2-1 同款判据；行卸载 = 模型菜单回落池表裸读）
+    ruling: 2026-09-11 语义归位——ChatInput 池模型归一化（poolModelEntries/visibleModelNames）自 rosterApi 换源 ui-llm-pool/poolApi = 池域契约词汇（M29 P2-1 同款判据；行卸载 = 模型菜单回落池表裸读）
 
-  # ---- 2026-11 R6 扩权一次性入册（.vue 媒介存量边） ----
+  # ---- 2026-09-11 R6 扩权一次性入册（.vue 媒介存量边） ----
   - from: ac-client-ui-agents
     to: ac-client-ui-llm-pool
-    ruling: 2026-11 语义归位——AgentPane 模型发现/池模型归一化（fetchPoolModels/poolModelEntries）自 rosterApi 换源 = 池域契约词汇（依赖方向正置：Agent 面消费池域；原 llm-pool→agents 盲区边消化）
+    ruling: 2026-09-11 语义归位——AgentPane 模型发现/池模型归一化（fetchPoolModels/poolModelEntries）自 rosterApi 换源 = 池域契约词汇（依赖方向正置：Agent 面消费池域；原 llm-pool→agents 盲区边消化）
   - from: ac-client-ui-agents
     to: ac-client-ui-plugin-registry
     ruling: §8 组件复用表——ExtToolsPane/ExtensionSettingsModal = plugin-registry 域可复用小件（AgentPane 插件配置页签；静态引用，行卸载 = 页签消失）
@@ -57,7 +57,7 @@ edges:
     ruling: §8 组件复用表 + RPC 包装——TimerPane（AgentPane 定时任务页签小件）+ timerApi（AgentSettingsHost 定时读写）= timer 域契约词汇
   - from: ac-client-ui-timer
     to: ac-client-ui-agents
-    ruling: 2026-09 TimersPanel 重设计——useRosterCore 惰性取用口（activeAgentId/getAgentName = agents 域名册契约词汇，M28 §4.2① 同款判据；行卸载 = 面板回落无激活 Agent 态）
+    ruling: 2026-09-13 TimersPanel 重设计——useRosterCore 惰性取用口（activeAgentId/getAgentName = agents 域名册契约词汇，M28 §4.2① 同款判据；行卸载 = 面板回落无激活 Agent 态）
   - from: ac-client-ui-browser
     to: ac-client-ui-workspace
     ruling: RPC 包装——ToolResultBrowser fetchWorkspaceFile（截图经工作区文件口拉取）= workspace 域契约词汇（行卸载 = 截图降级文本）

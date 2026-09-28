@@ -154,7 +154,7 @@
 <script>
 "use strict";
 /* ================================================================
-   数据层 —— 全部事实取自 src/ 轨道源码静态扫描（2026-11）
+   数据层 —— 全部事实取自 src/ 轨道源码静态扫描（2026-09-06）
    ================================================================ */
 const C = { // 域配色 + owning 包
   conversation: { pkg: "ac-conversation", svc: "ctx.conversation", color: "#ff6b81", cn: "会话状态机" },
@@ -261,9 +261,7 @@ const EVENTS = [
   { n: "durable-interaction/replied", m: "e", s: "host", d: "durable-interaction", desc: "持久交互回复（自订阅做 late-reply 对账）", subs: ["ac-durable-interaction", "ac-ws-bridge"] },
   { n: "durable-interaction/closed", m: "e", s: "host", d: "durable-interaction", desc: "持久交互关闭", subs: ["ac-ws-bridge"] },
   { n: "plugin/before-load", m: "w", s: "host", d: "plugin", desc: "装载管道拦截：权限+契约双 gate（import 之前 fail-closed）", subs: ["ac-plugin-gates"] },
-  { n: "plugin/installed", m: "e", s: "host", d: "plugin", desc: "插件安装完成", subs: ["ac-ws-bridge"] },
-  { n: "plugin/reloaded", m: "e", s: "host", d: "plugin", desc: "插件装载/替换/卸载结果", subs: ["ac-ws-bridge"] },
-  { n: "plugin/catalog-changed", m: "e", s: "host", d: "plugin", desc: "目录变更（staging/installed/session）", subs: ["ac-ws-bridge"] },
+  { n: "plugin/updated", m: "e", s: "host", d: "plugin", desc: "插件域统一变更（installed/uninstalled/staging/session/loaded/reloaded——cr-20 三事件并源）", subs: ["ac-ws-bridge"] },
   { n: "webui/extensions-changed", m: "e", s: "host", d: "webui", desc: "UI 扩展清单变更（前端 diff→reload；卸载时由 plugin-registry 发射）", subs: ["ac-ws-bridge"] },
   { n: "system/restarting", m: "e", s: "host", d: "system", desc: "system_restart 受理通知（exit 42→supervisor 重拉）", subs: ["ac-ws-bridge"] },
   { n: "ws/connection-opened", m: "e", s: "host", d: "ws", desc: "WS 连接建立（观测预留）", subs: [] },

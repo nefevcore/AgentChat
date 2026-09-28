@@ -1,11 +1,11 @@
 // ============================================================
 // ac-ask-questions/src/index.ts —— ask_questions 工具行（挂起形态）
 //
-// 2026-02 挂起重构（src/docs/ask-questions-suspension-plan.md）+ 2026-12 steer 对齐：
+// 2026-02-00 挂起重构（src/docs/ask-questions-suspension-plan.md）+ 2026-09-22 steer 对齐：
 // 工具体不再等待——execute 是发起体（校验归一 → open 落盘 → context 行
 // → 即时返回 awaiting 标记），等待由系统持有，答案注入按 run 状态三态分流：
 //   · 忙步中作答 → replied 监听器 steer 步边界即时注入（对齐用户插话语义，
-//     2026-12：不再干等自然停点——立案现场 run 连续 39 分钟不停步）；
+//     2026-09-22：不再干等自然停点——立案现场 run 连续 39 分钟不停步）；
 //   · 挂起中作答（自然停点 idle await）→ loop/run-idle 监听器事件半边注入，
 //     同 run 续走（消息数组连续，KV 前缀稳定）；
 //   · run 死后作答（late-reply）→ deliver 唤醒新 run，答案纯 context 行
@@ -18,7 +18,7 @@
 //   · write-ahead：durableInteraction.open 先落盘（jsonl 后端）再通知
 //   · correlationId = toolCallId（执行身份——恢复对账用）
 //   · 会话键 = call.conversationId（执行身份；缺省 agentId 1v1）
-//   · 交互面（2026-02 起，2026-12 契约化）：requiresInteraction:true——
+//   · 交互面（2026-02-00 起，2026-09-21 契约化）：requiresInteraction:true——
 //     自会话桶（机制 run，无人值守）自动排除。用户应答通道在 1v1/群/
 //     独立会话，机制 run 里提问无人能答。
 // ============================================================
@@ -78,7 +78,7 @@ interface SessionLike {
 
 /**
  * agentLoop 可选能力面（窄类型，软依赖）：steer 步边界注入——忙态作答的
- * 即时通道（2026-12 steer 对齐）。行未装 = 注入通道缺席，replied 监听器
+ * 即时通道（2026-09-22 steer 对齐）。行未装 = 注入通道缺席，replied 监听器
  * 回落 late-reply deliver。
  */
 interface AgentLoopLike {
@@ -122,7 +122,7 @@ function askNotice(qs: Array<{ question: string; options: string[]; multi?: true
 export function apply(ctx: Context) {
   const service = ctx.durableInteraction;
 
-  // ---- 忙态作答即时注入（2026-12 steer 对齐）：replied 且 run 仍活着且在忙 ----
+  // ---- 忙态作答即时注入（2026-09-22 steer 对齐）：replied 且 run 仍活着且在忙 ----
   // 答案对齐用户 steer 插话语义——步边界即时注入活跃 run，不再干等自然停点
   // （立案现场 f08798fb：答案 8.7 秒到达，run 连续 39 分钟不停步，答案直到
   // 终报告后的首个自然停点才消费）。三态分流（replied 事件单点）：

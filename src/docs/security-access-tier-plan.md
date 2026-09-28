@@ -1,6 +1,6 @@
 # 安全模块重设计：访问档位与双轴门禁（access-tier）
 
-> 状态：**已实施**（2026-12 落地，含 §十.2 全部裁决点按建议值：D1 豁免 /
+> 状态：**已实施**（2026-09-13 落地，含 §十.2 全部裁决点按建议值：D1 豁免 /
 > D2 是 / D3 是）。来源：安全模块重设计对话收敛
 > （不变量 → 工具能力分类 → tag 三档 → 双轴门禁修正 → 归档临时提权）。
 > 前置均已就位：M11 执行身份（ToolCall.agentId/conversationId/toolCallId）、
@@ -162,7 +162,7 @@ tool/before-execute（ac-security，权限轴判定处）
   └─ 未覆盖 + 无人桶 → { ok:false, error: 需要的档位 + 配置指引 }
 ```
 
-- **批准范围两档（2026-12 功能增强：审批卡"通过"下拉）**：answer 为
+- **批准范围两档（2026-09-17 功能增强：审批卡"通过"下拉）**：answer 为
   `true`（等价 `{approved:true, scope:'call'}`——旧形兼容）= 仅本次（原
   语义）；`{ approved:true, scope:'run' }` = 本轮全部——ac-security 内存
   授权表按 agent+conversation 维度记录，本轮 run 内后续 needPermission
@@ -194,7 +194,7 @@ ConversationDeliverOptions.elevation（宿主 API；边界按 source 判定，�
      身份由调用方装配，工具行与安全行只读取）
 ```
 
-### 7.2 防伪造不变量（2026-12 修订：新增 user 信封快捷提权通道）
+### 7.2 防伪造不变量（2026-09-13 修订：新增 user 信封快捷提权通道）
 
 1. **deliver 边界按 source 判定**（单源 `sanitizeElevation`）：
    - `source='user'` 信封**两档直达**——宿主 API 面（web-api
@@ -211,7 +211,7 @@ ConversationDeliverOptions.elevation（宿主 API；边界按 source 判定，�
 3. 'full-access' 的 ToolCall.elevation 来源共三条：Agent tags 本就是
    full；§六的本次审批注入；宿主 API 人工快捷提权（user 信封，且仅当
    目标 Agent 自有档位低于 full）。不存在第四条路。
-4. **快捷提权持续生效**（UI 侧纪律，2026-09 裁决）：武装后持续应用到
+4. **快捷提权持续生效**（UI 侧纪律，2026-09-13 裁决）：武装后持续应用到
    后续消息，直到手动改回「跟随 Agent」（武装态警示色常显防遗忘）；
    持久授权正路仍是人经 agentAdmin 改 tags 升档。忙态排队（next-turn）
    时提权随消息入队/落盘/回放，消费时按该条档位开 run（提权跟"驱动

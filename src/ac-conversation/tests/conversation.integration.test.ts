@@ -74,7 +74,7 @@ const booted: { ctx: Context; fibers: Fiber[] }[] = [];
 const tmpRoots: string[] = [];
 
 async function boot(llmRowLike: object) {
-  // session 行 + fs 真目录 root（2026-11 视图增量层退役）：上下文每 run
+  // session 行 + fs 真目录 root（2026-09-23 视图增量层退役）：上下文每 run
   // 从会话文件重派生——跨轮上下文断言依赖 session 行入账（生产组合形态）
   const root = mkdtempSync(join(tmpdir(), 'ac-conv-int-'));
   tmpRoots.push(root);
@@ -193,7 +193,7 @@ describe('ac-conversation 串行化门 + steer placement', () => {
     expect(m.contents(1)).toContain('第二条');
 
     // 会话视图顺序验证：第三个 run 的 history = 消息1、steer 前步文本、
-    // 消息2、终稿（文件派生全形状——中间步是模型实际产出，2026-11 视图
+    // 消息2、终稿（文件派生全形状——中间步是模型实际产出，2026-09-23 视图
     // 增量层退役后与重启后回放字节一致）
     const p3 = ctx.conversation.deliver('a', '第三条');
     await m.waitForCall(3);
@@ -487,7 +487,7 @@ describe('abort 与中断（ADR-2）', () => {
     expect(ctx.conversation.stats().queued).toEqual({ 'a~user~a': 1 }); // 队列保留待自然唤醒
 
     // 中断后新投递照常（上下文含被打断的消息 + 已完成步——中断 run 的
-    // 探索轨迹是会话事实，文件派生完整可见〔2026-11 视图增量层退役〕：
+    // 探索轨迹是会话事实，文件派生完整可见〔2026-09-23 视图增量层退役〕：
     // assistant 空 text 步携带 tool_calls、tool 结果行如实回放）
     const p2 = ctx.conversation.deliver('a', '重新开始');
     await m.waitForCall(2);

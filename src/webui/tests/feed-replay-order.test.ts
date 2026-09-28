@@ -1,7 +1,7 @@
 // ============================================================
 // feed-replay-order.test.ts —— 运行中刷新回放顺序：注入行不坠尾
 //
-// 背景 bug（2026-12 顺序反馈）：journal-inject 投影行 timestamp 恒为
+// 背景 bug（2026-09-21 顺序反馈）：journal-inject 投影行 timestamp 恒为
 // "读取时刻"（records() 每次读都是 now）——刷新时注入行恒最新，前端
 // toHistoryMessages 末尾按 ts 稳定排序后 [step1, step2, inject, step3]
 // 显示成 [step1, step2, step3, inject]（注入被挤到最后）。

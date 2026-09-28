@@ -14,7 +14,7 @@
 //   · 询问提权（§六）：base + 有人桶经 durableInteraction.open({kind:
 //     'approval'}) 等待人审——批准 = 本次调用按 full 执行（call.elevation
 //     注入，单次不持久化）；无人桶/无身份拒绝并说明。
-//     功能增强（2026-12：审批卡"通过"下拉两档）——批准可带 scope：
+//     功能增强（2026-09-17：审批卡"通过"下拉两档）——批准可带 scope：
 //     'call'（缺省，原语义）| 'run'（本轮全部——本会话本轮 run 内的后续
 //     needPermission 调用免再询问；run 边界 = agent+conversation 维度
 //     "上次 after-run 至现在"窗口，见 runApprovedConvs）。
@@ -302,7 +302,7 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
 
   // ---- 询问提权（§六）：durableInteraction.open({kind:'approval'}) 等待人审 ----
   /**
-   * 审批应答（answer 的解析面，2026-12 scope 两档）：
+   * 审批应答（answer 的解析面，2026-09-17 scope 两档）：
    * true / 'approve' / 'approved' = 批准·仅本次（缺省档，兼容原前端）；
    * { approved: true, scope: 'run' } = 批准·本轮全部（run 内后续
    * needPermission 调用免再询问）。其余（false / 'reject' / null）= 拒绝。

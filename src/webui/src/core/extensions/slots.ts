@@ -41,7 +41,7 @@ export interface ActivityBarActionDef {
 }
 
 /** D13 别名键（→ slot-tree §6 收编表；声明住各 owning 基础件——M27.2-1） */
-export const SLOT_ACTIVITY_BAR_ACTIONS = 'activity-bar:plugin-actions'; // 2026-11 席位键与导出面/桥接方法同步随区域席改名（不留旧轨尾巴；manifest 词汇 = 旧 id 经 slotCatalog 归一，不受影响）
+export const SLOT_ACTIVITY_BAR_ACTIONS = 'activity-bar:plugin-actions'; // 2026-09-11 席位键与导出面/桥接方法同步随区域席改名（不留旧轨尾巴；manifest 词汇 = 旧 id 经 slotCatalog 归一，不受影响）
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → computed 重算 ──
 const version = ref(0);

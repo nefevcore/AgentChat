@@ -1,7 +1,7 @@
 // ============================================================
 // journal-replay-order.test.ts —— journal 活投影行时序（注入行不坠尾）
 //
-// 背景（2026-12 顺序反馈）：records() 把 journal-inject 行投影为 timestamp
+// 背景（2026-09-21 顺序反馈）：records() 把 journal-inject 行投影为 timestamp
 // = 读取时刻——刷新时注入行恒最新，前端按 ts 排序后注入行被挤到队尾
 //（[s1, s2, inject, s3] → [s1, s2, s3, inject]）。步行同款问题已修
 //（timestamp = 步内 ts）；本文件钉住注入行同款修复 + 混排真实序。

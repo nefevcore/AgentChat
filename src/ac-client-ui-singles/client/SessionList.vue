@@ -245,10 +245,10 @@ function timeOf(ts: number): string { return formatRelativeTime(ts); }
 // Agent/模型作为创建参数（服务端校验，失效抛错→回退空会话创建——
 // 偏好过期〔Agent 已删/provider 未注册〕不应阻断新建）；effort/
 // elevation 由 ChatInput 挂载时回放（不属会话元数据）。
-// agentId/model 的 '' = 明确选回默认（2026-09 修复）——不透传创建参数
+// agentId/model 的 '' = 明确选回默认（2026-09-15 修复）——不透传创建参数
 // （缺省即默认预设/默认模型），走原路径；否则会残留旧模式（用户选回
 // 默认后新会话仍带旧 Agent）。
-// 工作区上下文（2026-12 会话开场重设计）：新建即固化——顶部按钮也
+// 工作区上下文（2026-09-18 会话开场重设计）：新建即固化——顶部按钮也
 // 透传当前激活工作区（若有）；「新会话开场卡」内改选工作区经
 // singles/update 即时生效（开场后工具栏隐藏工作区入口）。
 const creatingSession = ref(false);

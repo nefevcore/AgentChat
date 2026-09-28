@@ -30,7 +30,7 @@ describe('ac-ws-protocol 帧编解码', () => {
   });
 
   it('业务帧 type = 事件名直转（协议目录即事件目录）', () => {
-    for (const type of ['llm/delta', 'group/message-posted', 'plugin/catalog-changed', 'ws/ack']) {
+    for (const type of ['llm/delta', 'group/message-posted', 'plugin/updated', 'ws/ack']) {
       const frame = parseFrame(buildFrame(type, { x: 1 }));
       expect(frame?.type).toBe(type);
     }

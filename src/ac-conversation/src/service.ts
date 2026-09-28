@@ -6,7 +6,7 @@
 // 投影，S3 由构造保证）。文件只追加 → 派生结果单调追加（KV 前缀稳定，
 // S4 不受损）；归档/轮转 = 显式 replace（S5，重派生自然反映）。
 //
-// 视图增量层已退役（2026-11 根因消除）：此前视图由三个事件处理器增量
+// 视图增量层已退役（2026-09-23 根因消除）：此前视图由三个事件处理器增量
 // 投影（message-received/steered/reply-completed）+ stale 补丁维护，
 // 手写投影必须永远追平文件投影——2026-09-05（终稿 vs 轨迹）与
 // 2026-09-23（error 收束丢轨迹，断网续聊失忆）两起同构漂移证明该
@@ -629,7 +629,11 @@ export class ConversationService extends Service {
       ...(options.meta ? { meta: options.meta } : {}),
     };
     this.runs.set(handle, entry); // 同步注册：deliver 同步前缀内即完成（竞态安全）
-    // 上下文重派生（2026-11 视图增量层退役）：每 run 从会话文件（或调用
+    // 内容注入 seam（memory-timeline §3.3）：run 开跑前、history 装配前——
+    // 订阅方（ac-memory checkpoint/delta）直落 context 行，本 run 派生即含。
+    // 门已注册而 run 未开跑：recordContext 走直落路径（非 journal）。
+    this.ctx.emit('conversation/before-start', agentId, conversationId);
+    // 上下文重派生（2026-09-23 视图增量层退役）：每 run 从会话文件（或调用
     // 方种子 / 群 historyFor）重新派生——S3 由构造保证（进程内 ≡ 重启后）。
     // 机制标记 run（归档整理，M20）不进文件（meta 判定在 ac-session 入账
     // 侧），重派生天然零污染。
@@ -652,7 +656,7 @@ export class ConversationService extends Service {
     try {
       let firstTurn = true;
       for (;;) {
-        // 轮间重派生（2026-11 视图增量层退役后由构造保证）：链跑轮间
+        // 轮间重派生（2026-09-23 视图增量层退役后由构造保证）：链跑轮间
         // 无条件从文件重派生——busy 成员在 run 延伸中能看到自己刚
         // send_group 的发言（2026-09-13 群 blindspot 修复语义保持），
         // 且无需任何 stale 标记。首轮视图已在 startRun 顶部派生（调用方
@@ -719,15 +723,11 @@ export class ConversationService extends Service {
 
   /**
    * 重派生会话上下文视图（每 run 调用——视图增量层退役后无沿用路径）：
-   *   · 调用方显式种子（群 send 的 per-member historyFor）优先；
-   *   · 群桶 → 可选 group 服务的 historyFor 专用投影（<msg> 包装/
-   *     peer 合并/own=assistant——session.history 角色投影不含这些，
-   *     形状单源归群侧）；2026-09-13 群 blindspot 修复语义由「轮间
-   *     无条件重派生」构造保持；
+   *   · 调用方显式种子优先；
    *   · 其余 → session.history(conv, {viewer}) 文件派生（唯一回放边界，
-   *     F1——直答/独立会话重启后首跑上下文连续；records() 读侧自带
-   *     flush 排空 + settleChain 等待 + journal 活投影，error/中断
-   *     收束的 steps 段行完整可见——2026-09-23 事故根因消除）；
+   *     F1——直答/独立/成员流（cr-4：gid~member 标准桶）重启后首跑
+   *     上下文连续；records() 读侧自带 flush 排空 + settleChain 等待 +
+   *     journal 活投影，error/中断收束的 steps 段行完整可见）；
    *   · session 行未装载（最小测试组合）→ 沿用上次快照（无则空）：
    *     seed 即唯一事实源，不构成第二事实源。
    */
@@ -741,23 +741,13 @@ export class ConversationService extends Service {
     if (seed && seed.length > 0) {
       messages = [...seed];
     } else {
-      // 群桶：historyFor 专用投影优先（<msg> 包装/peer 合并/own=assistant）
-      const group = this.ctx.get('group', false) as
-        | { get(id: string): unknown; historyFor(id: string, viewer: string): Promise<LlmMessage[]> }
+      // cr-4：群桶派生视图（historyFor）分支退役——群成员 run 恒在成员流键
+      // （gid~member）上，走标准 session.history 读者投影；群本体桶不再产 run。
+      const session = this.ctx.get('session', false) as
+        | { history(id: string, options?: { viewer?: string }): Promise<LlmMessage[]> }
         | undefined;
-      const groupView =
-        group !== undefined && group.get(conversationId) !== undefined
-          ? await group.historyFor(conversationId, viewer)
-          : undefined;
-      if (groupView !== undefined && groupView.length > 0) {
-        messages = groupView;
-      } else {
-        const session = this.ctx.get('session', false) as
-          | { history(id: string, options?: { viewer?: string }): Promise<LlmMessage[]> }
-          | undefined;
-        if (session !== undefined) {
-          messages = await session.history(conversationId, { viewer });
-        }
+      if (session !== undefined) {
+        messages = await session.history(conversationId, { viewer });
       }
     }
     // 无派生源（无 seed/无群/无 session 行）：沿用上次快照（最小测试组合）

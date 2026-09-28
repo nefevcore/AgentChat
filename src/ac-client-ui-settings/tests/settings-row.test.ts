@@ -82,11 +82,11 @@ describe('M27.2 · ac-client-ui-settings 数据面（页签解析）', () => {
 });
 
 // ------------------------------------------------------------
-// client 半边数据面：设置左树节派生（sectionTree——2026-11 左树数据化：
+// client 半边数据面：设置左树节派生（sectionTree——2026-09-11 左树数据化：
 // 席位条目 meta.section/meta.label → 平铺叶；壳零出厂叶硬编码）
 // ------------------------------------------------------------
 
-describe('2026-11 · ac-client-ui-settings 数据面（左树节派生）', () => {
+describe('2026-09-11 · ac-client-ui-settings 数据面（左树节派生）', () => {
   it('deriveSectionLeaves：meta.section/meta.label 映射 + 缺 label 回落节 id + 缺 section 弃置', async () => {
     const { deriveSectionLeaves } = await import('../client/sectionTree.ts');
     const c = { render: () => null };

@@ -19,7 +19,7 @@ const error = ref('');
 
 onMounted(() => { void settings.loadMeta(); });
 
-/** 防覆盖守门（cr-29）：与 LlmPoolsHost.saveNow 同款——池未加载成功时
+/** 防覆盖守门（cr-21）：与 LlmPoolsHost.saveNow 同款——池未加载成功时
  *  整域保存会清光后端现有连接，拒绝写盘 */
 async function saveNow(): Promise<void> {
   if (!settings.poolsLoaded.value) {

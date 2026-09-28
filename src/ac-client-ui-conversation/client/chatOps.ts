@@ -114,13 +114,13 @@ export interface StreamState {
   /** index → 累积（id/name 首见建条目；argumentsDelta 拼接） */
   tools: Map<number, ToolCallAcc>;
   /**
-   * 参数流式阶段已建 preparing 占位的 index 集合（2026-12 反馈：模型生成
+   * 参数流式阶段已建 preparing 占位的 index 集合（2026-09-13 反馈：模型生成
    * 工具参数的数秒里前端完全静默——首个分片到达即建占位卡填补）。delta-end
    * 时显式清空（StreamState 寿命已延至 run 收束——见 feed-core delta-end）；重复分片/冲洗片靠它去重，防止同调用两张卡。
    */
   preps: Set<number>;
   /**
-   * 步身份键 → 该步的流式载体消息（2026-12 身份贯通）：step-started /
+   * 步身份键 → 该步的流式载体消息（2026-09-24 身份贯通）：step-started /
    * 首 delta 到达时登记，本步 delta 帧经 meta.stepId O(1) 直达——取代
    * lastStreaming 位置扫描。旧后端帧无 stepId 时索引空置，回落启发式。
    */
