@@ -14,10 +14,14 @@
 // 作用域 = include 管理的 yml 行树；ctx.plugin() 直挂的动态行不建 Entry、
 // 不经 patch 管道（E4 熔断两层化的依据）。
 // 写口与 registry mutation 共用数据根串行队列 + 原子写（F5/G10）。
+// 写路径 setPatchEntry = eemeli/yaml AST 编辑（cr-11）：保注释/保条目序/
+// 新条目 flow 风格；损坏文件 throw 拒绝覆盖。两库分工 = 读 js-yaml（fail-soft
+// 零改动）/ 写 eemeli（仅 setPatchEntry 内部，不外泄）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import yaml from 'js-yaml';
+import { isMap, isSeq, parseDocument, YAMLMap, YAMLSeq, type Document } from 'yaml';
 import { atomicWriteFile, withRootLock } from './fsx.ts';
 
 /** patch 文件条目（官方 PatchOptions 的首期子集 + 透传未知键） */
@@ -109,20 +113,54 @@ export function writePatchFile(root: string, patches: PatchFileEntry[]): Promise
 
 /**
  * 设置一条 patch（upsert：同 id 覆盖 disabled，无则追加；首期只用
- * {id, disabled}）。返回更新后的全量列表。串行队列内读改写。
+ * {id, disabled}）。返回更新后的全量列表（写后读回单源——与读路径
+ * 过滤语义一致）。串行队列内读改写。
+ *
+ * 写路径 = eemeli/yaml AST 编辑（cr-11）：手工注释/条目顺序/行内格式
+ * 原样保留——fail-soft「人可读可手工急救」不再被程序写入冲平：
+ *   · 同 id 多条 → 改最后一条（include 的 buildMap 逐条 Map.set 覆盖
+ *     = last-wins 应用语义，改首条会「改了不生效」）；
+ *   · 新追加条目 flow 风格 - { id: x, disabled: true }（对齐 dumpPatches
+ *     既有外观；已存在条目的编辑天然保持原格式）；
+ *   · 损坏/非数组文件 → throw 拒绝覆盖：覆盖恰恰会抹掉用户手写一半的
+ *     急救内容；读路径 fail-soft（按空 patch 不阻断 boot）零改动。
+ * 文件不存在 → dumpPatches 全新写（首写注释头）。
  */
 export function setPatchEntry(root: string, id: string, disabled: boolean): Promise<PatchFileEntry[]> {
   return withRootLock(root, () => {
-    const { patches } = readPatchFile(root);
-    const existing = patches.find((p) => p.id === id);
-    if (existing) {
-      existing.disabled = disabled;
-    } else {
-      patches.push({ id, disabled });
-    }
     const file = patchFilePath(root);
+    let text: string;
+    if (fs.existsSync(file)) {
+      // 泛型拓宽到 Document<Node>：contents 收为 Node|null——new YAMLSeq()
+      // （YAMLSeq<unknown>）可直赋 contents（Document.Parsed 的 ParsedNode
+      // 收窄面拒收运行时构造的节点，纯类型面差异）
+      const doc: Document = parseDocument(fs.readFileSync(file, 'utf-8'));
+      const refuse = (reason: string): never => {
+        throw new Error(
+          `cordis.patch.yml 已损坏（${reason}）——拒绝覆盖写，请先手工修复（文件人可读可急救；读路径仍按空 patch 处理不阻断 boot）`,
+        );
+      };
+      if (doc.errors.length > 0) refuse(`解析失败: ${doc.errors.map((e) => e.message).join('; ')}`);
+      const contents = doc.contents;
+      // 单表达式收口（isSeq 窄化不跨语句存活）：seq = null 新建（空文件/纯注释，注释保留）/ 非数组 refuse
+      const seq = isSeq(contents) ? contents : contents === null ? new YAMLSeq() : refuse('顶层不是 patch 数组');
+      doc.contents = seq;
+      const target = seq.items.findLast((item): item is YAMLMap<unknown, unknown> => isMap(item) && item.get('id') === id);
+      if (target !== undefined) {
+        target.set('disabled', disabled);
+      } else {
+        const entry = new YAMLMap();
+        entry.flow = true;
+        entry.set('id', id);
+        entry.set('disabled', disabled);
+        seq.items.push(entry); // add() 在 Node 类型面不可达——items.push 等价（YAMLSeq<T>.items 直接可变）
+      }
+      text = doc.toString({ lineWidth: 0 }); // lineWidth 0 = 不折行（用户长行不改形）
+    } else {
+      text = dumpPatches([{ id, disabled }]);
+    }
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    atomicWriteFile(file, dumpPatches(patches));
-    return patches;
+    atomicWriteFile(file, text);
+    return readPatchFile(root).patches;
   });
 }

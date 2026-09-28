@@ -363,6 +363,9 @@ export class PluginRegistryService extends Service {
    * 设置一条行偏好（upsert {id, disabled}；原子写 + 串行队列）。
    * **id 必须是装配文件（cordis.yml）的裸行 id**——include 的 patch 匹配
    * 走文件原文 id（applyEntryPatches），namespaced entry.id 永不命中。
+   * 未知 id（include 在位且不在装配树）→ throw 不落盘（cr-11：这种条目
+   * 重启后同样 warn+skip 永不生效——先校验再写文件，对齐 DSH；落地核对
+   * 保留为校验与 fiber.update 之间树漂移窗口的兜底）。
    * 三态返回（F12/M5，契约前向兼容）：
    *   · 'hot' —— include 热通道（M25 P3）：进程内有 include 行时经
    *     fiber.update 事务化行树变更（失败回滚保持旧树、cordis.yml 字节
@@ -384,13 +387,24 @@ export class PluginRegistryService extends Service {
     restartRequired?: boolean;
     patches: PatchFileEntry[];
   }> {
+    // 前置装配树校验（cr-11）：id 不在装配树的 patch 重启后同样 warn+skip
+    // 永不生效——落盘只会谎报「重启后生效」。先校验再写文件（对齐 DSH
+    // unknown-plugin 语义）；include 不在位 → 无树可校验，不猜（维持现状）。
+    const include = this.includeInfo();
+    if (include) {
+      const knownIds = PluginRegistryService.enumerateDisablableEntryIds(this.ctx);
+      if (knownIds !== undefined && !knownIds.includes(id)) {
+        throw new Error(
+          `未知行 id "${id}"（不在装配树——patch 须为 cordis.yml 裸行 id）。已拒绝写入：这种条目重启后同样被跳过、永不生效。`,
+        );
+      }
+    }
     const patches = await setPatchEntry(this.root, id, disabled);
     // 行熔断计数联动：再启用即清计数（与动态插件熔断同款生命周期）
     this.rowFailures.delete(id);
     // include 热通道：fiber.update({path, patches}) 事务化更新行树
     // （path 必须与 include 行 config 原文一致——internal/update handler
     // 按 path 比对分派；测试用独立 yml 时与生产不同）
-    const include = this.includeInfo();
     if (include) {
       try {
         await include.fiber.update({ path: include.path, patches });

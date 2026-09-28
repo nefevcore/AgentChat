@@ -12,7 +12,8 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

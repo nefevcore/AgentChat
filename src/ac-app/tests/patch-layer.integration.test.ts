@@ -1,6 +1,7 @@
 // ============================================================
 // ac-app：M23 P3-lite 行偏好层
-//   · cordis.patch.yml 文件域（readPatchFile fail-soft / setPatchEntry upsert）
+//   · cordis.patch.yml 文件域（readPatchFile fail-soft / setPatchEntry
+//     AST 保注释编辑（cr-11：findLast last-wins、损坏 throw、未知 id 前置校验））
 //   · boot 桥接等价路径（文件 → bootFromConfig patches 注入 → 行停用生效）
 //   · F10 cordis.yml 写回守卫：patch 生效 + 任意树操作后出厂文件字节不变
 //     （含 insert 型 patch 场景——防未来功能把已 patch 的树数据烧回 yml）
@@ -8,6 +9,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
@@ -118,6 +120,50 @@ describe('cordis.patch.yml 文件域（A2/F12）', () => {
   });
 });
 
+describe('setPatchEntry AST 编辑（cr-11：保注释/last-wins/损坏拒绝）', () => {
+  it('手工注释与条目格式在 upsert 往返后原样保留（不注入程序头）', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-patch-ast-'));
+    roots.push(root);
+    const hand = [
+      '# 我的手工注释——急救说明',
+      '- { id: mcp, disabled: true }  # 行尾注释',
+      '- id: persona',
+      '  disabled: true',
+      '',
+    ].join('\n');
+    await writeFile(patchFilePath(root), hand, 'utf-8');
+    const patches = await setPatchEntry(root, 'mcp', false);
+    expect(patches).toEqual([
+      { id: 'mcp', disabled: false },
+      { id: 'persona', disabled: true },
+    ]);
+    const raw = await readFile(patchFilePath(root), 'utf-8');
+    expect(raw).toContain('# 我的手工注释——急救说明'); // 头注释保留
+    expect(raw).toContain('# 行尾注释'); // 行尾注释保留
+    expect(raw).toContain('- id: persona'); // 块风格条目不改形
+    expect(raw).not.toContain('# AgentChat 行偏好层'); // 不做全量重序列化
+  });
+
+  it('损坏文件 → throw 拒绝覆盖；文件内容原样未动', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-patch-broken-'));
+    roots.push(root);
+    const broken = '{oops: [';
+    await writeFile(patchFilePath(root), broken, 'utf-8');
+    await expect(setPatchEntry(root, 'mcp', true)).rejects.toThrow(/已损坏/);
+    expect(await readFile(patchFilePath(root), 'utf-8')).toBe(broken); // 未被冲平
+  });
+
+  it('重复 id → 改末条（对齐 include last-wins 应用语义）', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-patch-dup-'));
+    roots.push(root);
+    await writeFile(patchFilePath(root), '- { id: mcp, disabled: true }\n- { id: mcp, disabled: true }\n', 'utf-8');
+    await setPatchEntry(root, 'mcp', false);
+    // 首条原样、末条被改——改首条会「改了不生效」（include buildMap 后条覆盖前条）
+    const lines = (await readFile(patchFilePath(root), 'utf-8')).split('\n').filter((l) => l.includes('id: mcp'));
+    expect(lines).toEqual(['- { id: mcp, disabled: true }', '- { id: mcp, disabled: false }']);
+  });
+});
+
 describe('boot 桥接等价路径（patch 文件 → include patches → 行停用）', () => {
   it('patch 文件的 patches 注入 bootFromConfig：行停用生效且不写回', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-'));
@@ -219,7 +265,7 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
     }
   });
 
-  it('假阳性防护（2026-08-30 事故回归）：patch id 未命中装配文件原文 → 不谎报 hot', async () => {
+  it('前置校验 fail-loud（cr-11，2026-08-30 事故回归）：未知 id → throw 不落盘', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-fake-'));
     roots.push(root);
     await writeFixturePool(root);
@@ -232,17 +278,14 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
 
       // 事故形态：namespaced entry.id（<树前缀>:<裸id>——历史上 plugin/rows
       // 透出的就是这个形态）作 patch id → applyEntryPatches warn+skip、
-      // fiber.update 照样成功。修复后必须回落 written 而非谎报 hot
-      const namespaced = 'deadbeef:llm-pool';
-      const r1 = await registry.setPatch(namespaced, true);
-      expect(r1.state).toBe('written');
-      expect(r1.restartRequired).toBe(true);
-      expect(ctx.llm.providers()).toContain('glm'); // 进程内行未变（未谎报生效）
-
-      // 纯陌生 id 同理
-      const r2 = await registry.setPatch('no-such-row', true);
-      expect(r2.state).toBe('written');
-      expect(r2.restartRequired).toBe(true);
+      // fiber.update 照样成功。旧修复只堵谎报 'hot'（回落 written）——但重启
+      // 后同样 warn+skip 永不生效，'重启后生效' 仍是误导。cr-11 前置校验：
+      // include 在位且 id 不在装配树 → throw 不写文件
+      await expect(registry.setPatch('deadbeef:llm-pool', true)).rejects.toThrow(/未知行 id/);
+      await expect(registry.setPatch('no-such-row', true)).rejects.toThrow(/未知行 id/);
+      // 拒绝发生在落盘之前——patch 文件未被创建
+      expect(existsSync(patchFilePath(root))).toBe(false);
+      expect(ctx.llm.providers()).toContain('glm'); // 进程内行未变
 
       // 裸 yml id（正确锚点）依旧真 hot
       const r3 = await registry.setPatch('llm-pool', true);
