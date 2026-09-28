@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // ============================================================
 // client/SearchPoolsHost.vue —— 搜索引擎节宿主（settings:section 贡献）
-//（2026-11 自 ui-llm-pool 迁入〔行拆分〕：编排/DOM/Props 面不变——
+//（2026-09-11 自 ui-llm-pool 迁入〔行拆分〕：编排/DOM/Props 面不变——
 //  M28 P2 原 settings 内联迁 ui-llm-pool → M29 P1-3d 数据面归域 →
-//  2026-11 拆分独立行；本包 searchPoolApi 写面 + settings 只读元
+//  2026-09-11 拆分独立行；本包 searchPoolApi 写面 + settings 只读元
 //  数据，节挂载即自装载）
 // ============================================================
 import { onMounted, ref } from 'vue';
@@ -19,9 +19,16 @@ const error = ref('');
 
 onMounted(() => { void settings.loadMeta(); });
 
+/** 防覆盖守门（cr-29）：与 LlmPoolsHost.saveNow 同款——池未加载成功时
+ *  整域保存会清光后端现有连接，拒绝写盘 */
 async function saveNow(): Promise<void> {
+  if (!settings.poolsLoaded.value) {
+    error.value = '搜索池尚未加载成功，已取消保存（此时保存会清空后端现有连接）。请关闭并重新打开设置后重试';
+    return;
+  }
+  const pools = settings.pools.value.searchProviders as Record<string, unknown>;
   try {
-    await saveSearchPoolDomain(settings.pools.value.searchProviders as Record<string, unknown>, defaultRpc);
+    await saveSearchPoolDomain(pools, defaultRpc);
   } catch (e) {
     error.value = `搜索引擎保存失败: ${(e as { message?: string }).message ?? String(e)}`;
   }

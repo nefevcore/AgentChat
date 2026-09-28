@@ -30,7 +30,7 @@
 //                              系同批防御性垫面，无产品调用方已删
 //                              [2026-08-31 审计遗留#1]——服务面保留：
 //                              备份列表内嵌 run 载荷、插件重载走 watch 自动；
-//                              jobs/list·kill 2026-10 复活——webui 运行跟踪
+//                              jobs/list·kill 2026-09-05 复活——webui 运行跟踪
 //                              面的后台任务/子Agent 清单有了产品调用方）
 //   config/get|set|delete     （M17-A：全局配置面，白名单键 + sanitize）
 //   llm/providers             （M17-A：模型池查看面）
@@ -252,6 +252,12 @@ const POOL_CRED_PREFIX: Record<string, string> = {
 /**
  * 提取池条目 api_key 进凭据库并从 payload 剥离（就地变异深拷贝值）。
  * 返回剥离后的同形状值（可直接进 config.set）。
+ *
+ * 改名迁移（cr-29）：条目以掩码回传（= 保持凭据不变）但 pool:<名> 下
+ * 无凭据、且池中消失的旧名有凭据 → 搬迁 pool:<旧> → pool:<新>。
+ * 匹配规则 = 同字段同值（base_url/models 等连接指纹）：掩码语义下条目
+ * 内容未变，仅名字换了；找不到指纹匹配则不迁移（fail-safe，凭据留守
+ * 旧名——删除条目走 llm/pool-credential 显式清理，不在此隐删）。
  */
 function extractPoolCredentials(
   ctx: Context,
@@ -261,6 +267,27 @@ function extractPoolCredentials(
   const prefix = POOL_CRED_PREFIX[key];
   if (!prefix || value === null || typeof value !== 'object' || Array.isArray(value)) {
     return value;
+  }
+  // 消失的旧名候选（有凭据者）——掩码条目无凭据时用于改名迁移匹配
+  const disappeared: Array<[string, Record<string, unknown>]> = [];
+  const hasCredential = (name: string): boolean =>
+    (ctx.credentials as { getGlobal(k: string): string }).getGlobal(`${prefix}${name}`) !== '';
+  const oldPool = ctx.config.get<Record<string, unknown>>(key) ?? {};
+  if (!Array.isArray(oldPool)) {
+    const nextNames = new Set(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, e]) => e !== null && typeof e === 'object' && !Array.isArray(e))
+        .map(([n]) => n),
+    );
+    for (const [name, entry] of Object.entries(oldPool)) {
+      if (
+        !nextNames.has(name) && !name.startsWith('$') &&
+        entry !== null && typeof entry === 'object' && !Array.isArray(entry) &&
+        hasCredential(name)
+      ) {
+        disappeared.push([name, entry as Record<string, unknown>]);
+      }
+    }
   }
   const out: Record<string, unknown> = {};
   for (const [name, entry] of Object.entries(value as Record<string, unknown>)) {
@@ -276,6 +303,21 @@ function extractPoolCredentials(
     if (typeof apiKey === 'string' && apiKey !== API_KEY_MASK) {
       // 非掩码 = 新值或空串（空串 = 删除）；掩码 = 保持不变（不触凭据库）
       ctx.credentials.setGlobal(`${prefix}${name}`, apiKey);
+    } else if (apiKey === API_KEY_MASK && !hasCredential(name)) {
+      // 掩码但凭据缺席 → 改名候选：优先连接指纹（掩码外全部字段等值——
+      // 纯改名场景）；指纹失配（改名同时改了 base_url 等字段）且消失的
+      // 有凭据旧名唯一时同样迁移（单条目编辑弹窗一次只改一个名）
+      const byFingerprint = disappeared.find(
+        ([, old]) => JSON.stringify({ ...old, api_key: undefined }) === JSON.stringify({ ...e, api_key: undefined }),
+      );
+      const oldName = byFingerprint?.[0] ?? (disappeared.length === 1 ? disappeared[0][0] : undefined);
+      if (oldName !== undefined) {
+        ctx.credentials.setGlobal(
+          `${prefix}${name}`,
+          (ctx.credentials as { getGlobal(k: string): string }).getGlobal(`${prefix}${oldName}`),
+        );
+        ctx.credentials.setGlobal(`${prefix}${oldName}`, '');
+      }
     }
     delete e.api_key;
     out[name] = e;
@@ -854,7 +896,7 @@ export function apply(ctx: Context) {
   });
 
   // agents/tool-defs：生效工具集（Token 弹层固定开销估算的唯一消费面）。
-  // conversationId（可选，2026-12 估算失真修复）：按「会话覆盖 ?? Agent
+  // conversationId（可选，2026-09-18 估算失真修复）：按「会话覆盖 ?? Agent
   // tags」的工具调用模式收窄——与 router 真实 run 的 LLM 可见面同口径
   //（tc-programmatic → 仅 run_code、tc-none → 空）。缺省 = viewer 直答
   // 对桶键 pairKey('user', agentId)（与 systemPromptPreview 干跑同口径
@@ -890,7 +932,7 @@ export function apply(ctx: Context) {
   });
 
   // 全量工具目录（M17-A：ExtToolsPane 数据源；含 requiredTags 能力门禁；
-  // 2026-11 增 owner = 注册方行名——UI 按来源行分组折叠，防大行刷屏）
+  // 2026-09-05 增 owner = 注册方行名——UI 按来源行分组折叠，防大行刷屏）
   web.registerRpc('tools/list', () => ({
     tools: ctx.tools.listWithOwner().map((t) => ({
       name: t.name,
@@ -957,15 +999,8 @@ export function apply(ctx: Context) {
     return { descriptionSet: ctx.group.setDescription(reqStr(p, 'groupId'), optStr(p.description)) };
   });
 
-  // 群记忆属主（2026-10 群记忆收敛）：设定后全员共享注入属主记忆 +
-  // 轮转升级为属主 LLM 整理；memoryOwner 省略/空 = 解除
-  web.registerRpc('group/set-memory-owner', (params) => {
-    const p = obj(params);
-    const owner = optStr(p.memoryOwner);
-    return {
-      group: ctx.group.setMemoryOwner(reqStr(p, 'groupId'), owner === undefined ? undefined : owner),
-    };
-  });
+  // （group/set-memory-owner 已随 memoryOwner 全链退役删除——cr-4 记忆
+  // 时间线重构：记忆归 Agent 人格，群共享记忆概念消失）
 
   web.registerRpc('group/send', async (params) => {
     const p = obj(params);
@@ -1401,7 +1436,7 @@ export function apply(ctx: Context) {
   }
 
   // 注册表清单（跨重启；运行跟踪面板子Agent 区数据源——持久化清单主源，
-  // 2026-12）。limit 缺省 50/上限 100（对齐服务面 LIST 上限）。
+  // 2026-09-22）。limit 缺省 50/上限 100（对齐服务面 LIST 上限）。
   // include_deleted：含墓碑条目（面板展示已删除历史入口——会话文件保留、
   // subagents/history 可读）。
   web.registerRpc('subagents/list', (params) => {
@@ -1460,15 +1495,14 @@ export function apply(ctx: Context) {
   web.registerRpc('session/tokens', async (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
-    // 群会话（conversationId = gid，命中群名册）：前端群聊仪表以群主
-    //   （memoryOwner）视角分析——每成员上下文 = 同一群本体按读者派生
-    //   （historyFor：<msg> 包装/peer 合并/轮转摘要头），群主是代表读者；
-    //   未配群主回落首成员。占用 = historyFor 全量估算（派生窗 = 回放
-    //   窗口的派生源），预算分母 = 群主的 archive settings。
+    // 群会话（conversationId = gid~member 成员流键或 gid 群本体键）：
+    //   成员流 = 标准会话桶（session.history 读者投影即成员上下文）；
+    //   群本体键 = 代表读者回落首成员（UI 仪表语义）。预算分母 = 读者
+    //   的 archive settings。
     const group = ctx.group.get(conversationId);
     if (group !== undefined) {
-      const viewer = group.memoryOwner ?? group.members[0];
-      const msgs = await ctx.group.historyFor(conversationId, viewer);
+      const viewer = group.members[0];
+      const msgs = await ctx.session.history(conversationId, { viewer });
       let promptTokens = 0;
       for (const m of msgs) {
         promptTokens += estimateTokens(
@@ -2453,7 +2487,7 @@ export function apply(ctx: Context) {
   });
 
   // 本地打开（系统默认程序打开预览/编辑中的文件；路径定位与守卫同
-  // resolveFile——工作区推导（敏感遮蔽已停用：2026-12 裁决），错误经
+  // resolveFile——工作区推导（敏感遮蔽已停用：2026-09-13 裁决），错误经
   // error 字段回传不抛错，前端按钮态就地显示）
   web.registerRpc('workspace/open-local', (params) => {
     const p = obj(params);
@@ -2478,7 +2512,7 @@ export function apply(ctx: Context) {
   });
 
   // 文件内容预览（文本直读 / 二进制 base64；path 相对数据根——
-  // files/<bucket>/... 上传引用形直通；敏感遮蔽已停用：2026-12 裁决）。
+  // files/<bucket>/... 上传引用形直通；敏感遮蔽已停用：2026-09-13 裁决）。
   // agentId/conversationId（可选）：M32 工作区相对引用推导——数据根未
   // 命中时按 Agent/会话工作区基准定位（会话挂载工作区 > Agent 沙箱
   // 基准；Agent 回复中的 src/app.ts 相对路径可预览）。
@@ -2494,7 +2528,7 @@ export function apply(ctx: Context) {
   });
 
   // 原始字节直链（HTML 新窗口打开等；path 相对数据根，语义同 readFile——
-  // 敏感遮蔽已停用：2026-12 裁决）
+  // 敏感遮蔽已停用：2026-09-13 裁决）
   web.route('GET', '/api/workspace/raw', (call) => {
     const rel = call.query.get('path');
     if (!rel) return web.replyJson(call.res, 400, { error: 'path 缺失' });

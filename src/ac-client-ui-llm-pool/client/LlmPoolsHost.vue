@@ -4,7 +4,7 @@
 //（M28 P2：原 settings SettingsPanel 内联 PoolManager〔kind=llm〕迁入；
 //  M29 P1-3d：数据面归域——本包 poolApi 写/探测面 + settings 只读元数据
 // 〔pools/schema——domain→base〕，节挂载即自装载〔修复 M28 P2 节宿主
-// 实例无人装载的静默回归〕；2026-11 行拆分：PoolManager 收窄 llm 单
+// 实例无人装载的静默回归〕；2026-09-11 行拆分：PoolManager 收窄 llm 单
 // 形态〔搜索引擎节拆往 ac-client-ui-search-pool〕；DOM/Props 面不变）
 // ============================================================
 import { onMounted, ref } from 'vue';
@@ -20,10 +20,18 @@ const error = ref('');
 onMounted(() => { void settings.loadMeta(); });
 
 /** 池编辑即时落盘（定向 config/set——api_key 侧信道语义在服务端）；
- *  失败提示到面板错误条 */
+ *  失败提示到面板错误条。防覆盖守门（cr-29）：整域替换语义下，池数据
+ *  未加载成功（pools 停留初始 {}）时一次保存会清光后端现有连接——
+ *  与 useSettings.saveGlobal 的空 config 防御对称，拒绝写盘；加载成功
+ *  后空池也是用户真实意图（删除最后一条连接），正常放行。 */
 async function saveNow(): Promise<void> {
+  if (!settings.poolsLoaded.value) {
+    error.value = '连接池尚未加载成功，已取消保存（此时保存会清空后端现有连接）。请关闭并重新打开设置后重试';
+    return;
+  }
+  const pools = settings.pools.value.llmProviders as Record<string, unknown>;
   try {
-    await saveLlmPoolDomain(settings.pools.value.llmProviders as Record<string, unknown>, defaultRpc);
+    await saveLlmPoolDomain(pools, defaultRpc);
   } catch (e) {
     error.value = `模型管理保存失败: ${(e as { message?: string }).message ?? String(e)}`;
   }

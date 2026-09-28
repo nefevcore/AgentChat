@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ============================================================
 // PoolManager.vue —— Provider 连接池管理（llm 连接专属）
-//（M28 P2 自 settings 随域迁入 ui-llm-pool；2026-11 行拆分——
+//（M28 P2 自 settings 随域迁入 ui-llm-pool；2026-09-11 行拆分——
 //  原 kind='llm'/'search' 双形态组件收窄为 llm 单形态，搜索引擎池
 //  拆往 ac-client-ui-search-pool/SearchPoolManager——两对象两件，
 //  行为与拆分前 kind='llm' 分支逐字节等价。）
@@ -14,11 +14,11 @@ import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts
 import { Modal, Button, Icon, toastOk } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
-// agents 数据面直连已退役（2026-11 语义归位：模型发现/池模型归一化
+// agents 数据面直连已退役（2026-09-11 语义归位：模型发现/池模型归一化
 // 迁入本包 poolApi——原 M29 P1-3b 经 .vue 媒介跨行借住 ui-agents
 // rosterApi 的错位边消化；rpc seam 仍经 settings rpcDefault 缺省锚）
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
-// 池写/探测/发现面（M29 P1-3d 归域 + 2026-11 语义归位——本包 poolApi）；
+// 池写/探测/发现面（M29 P1-3d 归域 + 2026-09-11 语义归位——本包 poolApi）；
 // 连接模板留守 settings（getLlmSchemas 的 schema 引擎消费
 // LLM_PROVIDER_DEFAULTS——base 不可反向依赖 domain，domain→base 取用合法）
 import { deleteLlmPoolCredential, fetchPoolModels, probeLlmModels, probeLlmVision, poolModelEntries, type PoolModelMeta } from './poolApi.ts';
@@ -282,7 +282,27 @@ watch(
   },
 );
 
-function saveEntry() {
+/** 保存守门（cr-29）：编辑已存条目时，Key 掩码被清成空串（= 删凭据）
+ *  或 base_url 将被清空（含误触提供方下拉换模板——连接将整体失效）
+ *  都是高破坏动作——先弹确认，用户取消则不保存。 */
+async function guardDestructiveSave(entry: Record<string, any>, oldEntry: PoolEntry | undefined): Promise<boolean> {
+  if (!oldEntry) return true; // 新建无凭据可删
+  const maskedBefore = oldEntry.api_key === '••••••••';
+  const keyCleared = maskedBefore && (entry.api_key === '' || entry.api_key === undefined);
+  const urlCleared = !!oldEntry.base_url && !entry.base_url;
+  if (!keyCleared && !urlCleared) return true;
+  const reasons: string[] = [];
+  if (keyCleared) reasons.push('API Key 字段已清空——保存后将删除已存凭据，需重新填入');
+  if (urlCleared) reasons.push('API 地址将被清空——连接将整体失效（无法调用，直到重新填写地址）');
+  return (await confirmRef.value?.ask({
+    title: '确认清空？',
+    message: reasons.join('\n'),
+    confirmLabel: '仍要保存',
+    danger: true,
+  })) === true;
+}
+
+async function saveEntry() {
   const name = (draft.value.poolName || editingName.value || '').trim();
   if (!name) { error.value = '请输入名称'; return; }
   const { poolName, models, template, ...entry } = draft.value;
@@ -300,8 +320,12 @@ function saveEntry() {
   for (const [k, v] of Object.entries(entry)) {
     if ((v === '' || v === undefined) && k !== 'api_key') delete entry[k];
   }
+  // 守门：掩码清空/地址清空须确认（取消 = 中止保存，弹窗留在编辑态）
+  if (!(await guardDestructiveSave(entry, editingName.value ? props.pools[editingName.value] : undefined))) return;
   const pool = { ...props.pools };
   if (editingName.value && editingName.value !== name) {
+    // 改名：条目内容（models 等）随 draft 落到新名；旧名凭据由服务端
+    // 迁移（pool:<旧> → pool:<新>，见 ac-web-api extractPoolCredentials）
     delete pool[editingName.value];
   }
   // 池中无条目时，首个自动设为默认

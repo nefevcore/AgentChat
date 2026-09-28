@@ -671,9 +671,9 @@ describe('ac-web-api group / usage / interaction 面', () => {
     // ③ 会话落盘行（session 本体）
     const records = await h.session.records(gid);
     expect(records[0].attachments).toEqual(atts);
-    // ④ 成员视角回放（historyFor）：peer 合并行携带附件
-    const seeds = await h.group.historyFor(gid, 'gpt');
-    expect(seeds.some((m) => Array.isArray((m as { attachments?: unknown[] }).attachments)
+    // ④ 成员流投影行携带附件（cr-4：post 扇出——成员流 history 读者投影）
+    const memberView = await h.session.history(`${gid}~gpt`, { viewer: 'gpt' });
+    expect(memberView.some((m) => Array.isArray((m as { attachments?: unknown[] }).attachments)
       && (m as { attachments: unknown[] }).attachments.length === 1)).toBe(true);
     // ⑤ 非法附件项丢弃（kind 白名单）
     const sent2 = await rpc(ws, 'group/send', 'r4', {
@@ -1030,12 +1030,12 @@ describe('ac-web-api conv-settings 面', () => {
     expect(h.conversation.delivered[2]?.options).not.toHaveProperty('model');
   });
 
-  it('agents/tool-defs 会话模式收窄（2026-12 估算失真修复）：conversationId 给定 → 与 router 真实 run 同口径', async () => {
+  it('agents/tool-defs 会话模式收窄（2026-09-18 估算失真修复）：conversationId 给定 → 与 router 真实 run 同口径', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     h.agents.register({ id: 'coder', model: 'm', tags: ['infra'] });
     h.ctx.tools.register({ name: 't1', execute: () => ({ ok: true }) });
-    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), injection: 'mode' }); // 2026-12 注入轴：mode 替身
+    h.ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }), injection: 'mode' }); // 2026-09-21 注入轴：mode 替身
     h.ctx.tools.register({ name: 't2', execute: () => ({ ok: true }) });
 
     // 基线：无 conversationId = viewer 直答对桶键（pairKey('user', agent)）
@@ -1185,6 +1185,45 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     await rpc(ws, 'config/delete', 'r2', { key: 'tool.web_search' });
     const get = await rpc(ws, 'config/get', 'r3');
     expect((get.result as { config: Record<string, unknown> }).config['tool.web_search']).toBeUndefined();
+  });
+
+  it('config/set 池条目改名：凭据随名迁移（指纹匹配）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    await rpc(ws, 'config/set', 'r1', { key: 'llmProviders', value: { myds: { api_key: 'sk-x', base_url: 'https://x', models: ['m1'] } } });
+    expect(h.ctx.credentials.getGlobal('pool:myds')).toBe('sk-x');
+    // 改名保存：同内容（除名）+ 掩码 → 凭据迁到新名
+    await rpc(ws, 'config/set', 'r2', { key: 'llmProviders', value: { dswork: { api_key: '••••••••', base_url: 'https://x', models: ['m1'] } } });
+    expect(h.ctx.credentials.getGlobal('pool:dswork')).toBe('sk-x');
+    expect(h.ctx.credentials.getGlobal('pool:myds')).toBe('');
+    const get = await rpc(ws, 'config/get', 'r3');
+    const cfg = (get.result as { config: Record<string, unknown> }).config;
+    expect((cfg.llmProviders as Record<string, Record<string, unknown>>).dswork.api_key).toBe('••••••••');
+  });
+
+  it('config/set 池条目改名：指纹失配但消失旧名唯一 → 仍迁移（改名同时改字段）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    await rpc(ws, 'config/set', 'r1', { key: 'llmProviders', value: { a: { api_key: 'sk-a', base_url: 'https://x' } } });
+    // 改名 + 换 base_url：指纹不匹配，但消失的有凭据旧名唯一 → 迁移
+    await rpc(ws, 'config/set', 'r2', { key: 'llmProviders', value: { b: { api_key: '••••••••', base_url: 'https://y' } } });
+    expect(h.ctx.credentials.getGlobal('pool:b')).toBe('sk-a');
+    expect(h.ctx.credentials.getGlobal('pool:a')).toBe('');
+  });
+
+  it('config/set 池条目改名：多个消失旧名且指纹失配 → 不迁移（fail-safe）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    await rpc(ws, 'config/set', 'r1', { key: 'llmProviders', value: {
+      a: { api_key: 'sk-a', base_url: 'https://x' },
+      b: { api_key: 'sk-b', base_url: 'https://y' },
+    } });
+    // 删 a/b 建 c（掩码）：两个消失旧名无法归因 → 不迁移，凭据留守旧名
+    await rpc(ws, 'config/set', 'r2', { key: 'llmProviders', value: {
+      c: { api_key: '••••••••', base_url: 'https://z' },
+    } });
+    expect(h.ctx.credentials.getGlobal('pool:c')).toBe('');
+    expect(h.ctx.credentials.getGlobal('pool:a')).toBe('sk-a');
   });
 
   it('config/save：白名单域 replace 语义（缺键删除、白名单外键不动）', async () => {
@@ -1500,7 +1539,7 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     const ws = await connect(h.port);
     // 基线：harness 直构服务不经 registry——目录条目仅 harness 实际装载的
     // 行可见（2026-08-30 C6 目录扩容后 ac-timer 有条目且本 harness 装载
-    // 了 timersRow；2026-11 起本 harness 装载的 webApiRow 也自述；
+    // 了 timersRow；2026-09-15 起本 harness 装载的 webApiRow 也自述；
     // 预设拆分后 harness 另装载 builtinRow（内置模式数据行）——
     // ['preset-builtin', 'timers', 'web-api']；其余条目行未装载 → 不可见）
     const base = await rpc(ws, 'plugin/extension-catalog', 'r1');
@@ -1609,7 +1648,7 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     expect(sim.latest).not.toBe(sim.current);
     const [cMajor, cMinor, cPatch] = sim.current.split('.').map(Number);
     expect(sim.latest).toBe(`${cMajor}.${cMinor}.${(cPatch || 0) + 1}`);
-    expect(sim.latestUrl).toBe('http://47.110.63.135/'); // 自托管下载主页（2026-09 分发自托管）
+    expect(sim.latestUrl).toBe('http://47.110.63.135/'); // 自托管下载主页（2026-09-21 分发自托管）
     // 离线（fetch 全灭）→ checkFailed=true、latest=null——不是"已是最新"的假阴性
     resetReleaseCache();
     const origFetch = globalThis.fetch;
@@ -1708,7 +1747,7 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     expect(upJson.storedName).toContain('.txt');
 
     // 目录树（会话区重构二轮：锚点 = 数据根——根层见 files/ 目录；
-    // 控制面遮蔽已停用：2026-12 裁决，config.json 树可见）
+    // 控制面遮蔽已停用：2026-09-13 裁决，config.json 树可见）
     writeFileSync(join(h.root, 'config.json'), '{"llmProviders":{}}');
     const tree = (await (await fetch(`${base}/api/workspace/tree`)).json()) as { children: Array<{ name: string; type: string }> };
     expect(tree.children.some((c) => c.name === 'files' && c.type === 'dir')).toBe(true);

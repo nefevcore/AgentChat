@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// SearchPoolManager.vue —— 搜索引擎池管理（2026-11 自 ui-llm-pool
+// SearchPoolManager.vue —— 搜索引擎池管理（2026-09-11 自 ui-llm-pool
 // PoolManager〔kind='search'〕拆分行迁：模型池与搜索池两对象各自
 // 成件——本件只含 search 形态，llm 连接管理留 ui-llm-pool
 // PoolManager。行为与拆分前 kind='search' 分支逐字节等价。）
@@ -13,6 +13,7 @@ import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts
 import { toFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Modal, Button, Icon, toastOk } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
+import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 
 const props = defineProps<{
   /** 池数据（直接读写） */
@@ -119,7 +120,20 @@ function onProviderChange(newProvider: string) {
   if (name !== undefined) draft.value.poolName = name;
 }
 
-function saveEntry() {
+/** 保存守门（cr-29）：编辑已存条目时 Key 掩码被清空（= 删凭据）先确认 */
+async function guardKeyCleared(entry: Record<string, any>, oldEntry: PoolEntry | undefined): Promise<boolean> {
+  if (!oldEntry) return true;
+  const keyCleared = oldEntry.api_key === '••••••••' && (entry.api_key === '' || entry.api_key === undefined);
+  if (!keyCleared) return true;
+  return (await confirmRef.value?.ask({
+    title: '确认清空 API Key？',
+    message: 'API Key 字段已清空——保存后将删除已存凭据，需重新填入。',
+    confirmLabel: '仍要保存',
+    danger: true,
+  })) === true;
+}
+
+async function saveEntry() {
   const name = (draft.value.poolName || editingName.value || '').trim();
   if (!name) { error.value = '请输入名称'; return; }
   const { poolName, ...entry } = draft.value;
@@ -129,6 +143,7 @@ function saveEntry() {
   for (const [k, v] of Object.entries(entry)) {
     if ((v === '' || v === undefined) && k !== 'api_key') delete entry[k];
   }
+  if (!(await guardKeyCleared(entry, editingName.value ? props.pools[editingName.value] : undefined))) return;
   // ratio 字段：default=undefined 且值==min 时视为"使用 API 默认"，不保存
   for (const f of currentFields.value) {
     if (f.type === 'ratio' && f.default === undefined && entry[f.key] === f.min) delete entry[f.key];
@@ -179,6 +194,8 @@ function detailOf(name: string, entry: PoolEntry): string {
 }
 
 const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): void }>();
+/** 清空凭据守门确认（cr-29——llm 池同款语义） */
+const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 </script>
 
 <template>
@@ -239,6 +256,9 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
         <Button variant="primary" @click="saveEntry">保存</Button>
       </template>
     </Modal>
+
+    <!-- 清空凭据守门（cr-29） -->
+    <ConfirmDialog ref="confirmRef" />
   </div>
 </template>
 

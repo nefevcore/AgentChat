@@ -22,6 +22,10 @@ export function useSettings() {
   /** 命名空间 schema：key = 完整配置键（如 'tool.bash'） */
   const nsSchemas = ref<Record<string, any[]>>({});
   const pools = ref<PoolData>({ llmProviders: {}, searchProviders: {} });
+  /** 池元数据是否成功加载（cr-29 空池防覆盖守门判据：getPools 失败时 pools
+   *  停留初始 {}——此时整域保存〔config/set llmProviders/searchProviders〕
+   *  会清光后端现有连接，Host.saveNow 须拒绝） */
+  const poolsLoaded = ref(false);
   const loading = ref(false);
   const error = ref('');
 
@@ -55,7 +59,10 @@ export function useSettings() {
           for (const [k, v] of Object.entries(d.tools)) if (!(k in nsSchemas.value)) nsSchemas.value[`tool.${k}`] = v as any[];
         }
       }
-      if (poolR.status === 'fulfilled') pools.value = poolR.value;
+      if (poolR.status === 'fulfilled') {
+        pools.value = poolR.value;
+        poolsLoaded.value = true;
+      }
       // 静默失败此前出空 UI 无任何报错（provider 下拉空、表单"无配置项"）——聚合提示
       const failed = [llmR, searchR, nsR, poolR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
       if (failed.length > 0) {
@@ -114,7 +121,7 @@ export function useSettings() {
 
   return {
     // 状态
-    llmSchemas, searchSchemas, nsSchemas, pools,
+    llmSchemas, searchSchemas, nsSchemas, pools, poolsLoaded,
     loading, error,
     globalConfig, globalDirty,
     // 动作
