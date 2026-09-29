@@ -92,6 +92,9 @@ export interface LlmProviderTemplate {
   label: string;
   baseUrl: string;
   defaultModel?: string;
+  /** 连接协议（cr-39 多态）：缺省 openai-compat；anthropic/gemini/ollama
+   *  = 原生协议模板（PoolManager 保存时随条目落 protocol 字段） */
+  protocol?: string;
 }
 
 export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [

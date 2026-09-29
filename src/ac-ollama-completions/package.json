@@ -1,0 +1,17 @@
+{
+  "name": "ac-ollama-completions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ollama 原生 /api/chat 协议纯库（NDJSON 流式 + tool_calls 映射 + chat 聚合；零 cordis 依赖）——不是 provider/插件行：provider 注册走 ac-llm-pool 配置驱动（llmProviders 池条目 protocol=ollama）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -41,15 +41,19 @@ const props = defineProps<{
 // 展示。
 const LLM_CONN_FIELDS: FieldMeta[] = [
   { key: 'api_key', label: 'API Key', description: '加密存于凭据库（不入 config.json）；显示 •• 为已设置，留空保存即删除', type: 'password', sensitive: true },
-  // 接口格式（2026-09-10 Responses 扩展，对齐 DSH/pi-ai 的 api 键）：
-  // '' = chat/completions（缺省；保存时空串清理即回落）；'responses' =
-  // POST /responses。模型不支持该格式时端点如实报错（404/400）
-  { key: 'api', label: '接口格式', description: 'Responses API = POST /responses（OpenAI 新模型 / xAI 等支持的格式）；模型不支持会如实报错', type: 'select', options: [
-    { label: 'Chat Completions（默认）', value: '' },
-    { label: 'Responses API', value: 'responses' },
-  ] },
   { key: 'defaultModel', label: '默认模型', description: '该连接的默认模型（填入 API Key 自动读取清单后选择；缺省取第一个）', type: 'text' },
 ];
+
+// 接口格式（2026-09-10 Responses 扩展，对齐 DSH/pi-ai 的 api 键）：
+// '' = chat/completions（缺省；保存时空串清理即回落）；'responses' =
+// POST /responses。仅 openai-compat 协议有意义（其余协议线格式由
+// protocol 决定）。模型不支持该格式时端点如实报错（404/400）
+const API_FORMAT_FIELD: FieldMeta = {
+  key: 'api', label: '接口格式', description: 'Responses API = POST /responses（OpenAI 新模型 / xAI 等支持的格式）；模型不支持会如实报错', type: 'select', options: [
+    { label: 'Chat Completions（默认）', value: '' },
+    { label: 'Responses API', value: 'responses' },
+  ],
+};
 
 // ── 编辑弹窗状态 ──
 const editingName = ref<string | null>(null); // null=列表视图, ''=新建, 'xxx'=编辑
@@ -59,11 +63,30 @@ const error = ref('');
 const modelsLoading = ref(false);
 const modelsError = ref('');
 
-/** llm 弹窗字段：内置提供方隐藏 API 地址（模板隐含）；自定义追加可编辑地址 */
+/** 协议选项（cr-39 多态；与后端 PROTOCOLS 键集对齐——前端清单副本，
+ *  值域变化随协议库扩展同步） */
+const PROTOCOL_OPTIONS = [
+  { label: 'OpenAI 兼容（chat/completions）', value: '' },
+  { label: 'Anthropic 原生（/v1/messages）', value: 'anthropic' },
+  { label: 'Google Gemini 原生（generateContent）', value: 'gemini' },
+  { label: 'Ollama 原生（/api/chat）', value: 'ollama' },
+];
+
+/** 当前草稿的协议（缺省 openai-compat；模板自带协议优先） */
+const draftProtocol = computed<string>(() => {
+  const tpl = LLM_PROVIDER_TEMPLATES.find((t) => t.id === draft.value.template);
+  if (tpl?.protocol) return tpl.protocol;
+  const p = String(draft.value.protocol ?? '');
+  return PROTOCOL_OPTIONS.some((o) => o.value === p) ? p : '';
+});
+
+/** llm 弹窗字段：内置提供方隐藏 API 地址（模板隐含）；自定义追加
+ *  协议选择 + 可编辑地址 */
 const currentFields = computed<FieldMeta[]>(() => {
   const base = [...LLM_CONN_FIELDS];
   if ((draft.value.template ?? '') === 'custom') {
-    base.splice(1, 0, { key: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 base URL', type: 'text' });
+    base.splice(1, 0, { key: 'protocol', label: '协议', description: '端点线格式：OpenAI 兼容缺省；其余为厂商原生协议（cr-39 协议多态）', type: 'select', options: PROTOCOL_OPTIONS });
+    base.splice(2, 0, { key: 'base_url', label: 'API 地址', description: '协议根地址（openai-compat = /v1 根；anthropic/gemini = 域名根；ollama = 服务根，如 http://localhost:11434）', type: 'text' });
   }
   return base;
 });
@@ -124,6 +147,7 @@ function onTemplateChange(templateId: string) {
   draft.value.base_url = tpl?.baseUrl ?? '';
   draft.value.defaultModel = tpl?.defaultModel ?? '';
   draft.value.api = ''; // 切换提供方重置接口格式（模板均为缺省 completions）
+  draft.value.protocol = tpl?.protocol ?? ''; // 协议随模板（原生协议模板预填）
   const name = (draft.value.poolName || '').trim();
   if (!name && tpl) draft.value.poolName = tpl.id;
 }
@@ -387,7 +411,8 @@ function setDefault(name: string) {
 /** 条目 detail（列表第二行） */
 function detailOf(name: string, entry: PoolEntry): string {
   void name;
-  const parts = [entry.base_url || '内置地址'];
+  const proto = typeof entry.protocol === 'string' && entry.protocol ? entry.protocol : 'openai-compat';
+  const parts = [proto !== 'openai-compat' ? entry.base_url + ' · ' + proto : entry.base_url || '内置地址'];
   if (entry.defaultModel) parts.push(String(entry.defaultModel));
   const entries = poolModelEntries(entry.models);
   const n = entries.length;
@@ -633,7 +658,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 .pool-model-badge.on {
   background: rgba(var(--primary-rgb, 79, 70, 229), 0.1);
   border-color: rgba(var(--primary-rgb, 79, 70, 229), 0.35);
-  color: var(--primary, #4f46e5); /* 回退（cr-38） */
+  color: var(--primary, #4f46e5); /* 回退（cr-32） */
   color: color-mix(in srgb, var(--primary, #4f46e5) 80%, var(--text-1));
 }
 .pool-model-badge.is-manual {

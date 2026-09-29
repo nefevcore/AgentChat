@@ -10,7 +10,7 @@ import { Context, type Fiber, Service } from '@agentchat/cordis';
 import * as llmRow from 'ac-llm';
 import * as configRow from 'ac-config';
 import * as poolRow from '../src/index.ts';
-import { desiredProviders, defaultPoolConnection, normalizePoolHeaders, normalizePoolModels } from '../src/index.ts';
+import { desiredProviders, defaultPoolConnection, normalizePoolHeaders, normalizePoolModels, PROTOCOLS } from '../src/index.ts';
 
 const tmps: string[] = [];
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
@@ -517,3 +517,54 @@ describe('defaultPoolConnection（「默认/继承全局」物化单源）', () 
     expect(defaultPoolConnection({ 'my-gw': { base_url: 'https://gw.example/v1', default: true } })).toBeUndefined();
   });
 });
+
+describe('协议多态（cr-39：protocol 字段 + PROTOCOLS 注册表）', () => {
+  it('PROTOCOLS 键集 = 四协议；缺省 openai-compat 零迁移', () => {
+    expect(Object.keys(PROTOCOLS).sort()).toEqual(['anthropic', 'gemini', 'ollama', 'openai-compat']);
+    // 无 protocol 条目 → openai-compat
+    const d = desiredProviders({ a: { base_url: 'https://x/v1' } });
+    expect(d.get('a')?.protocol).toBe('openai-compat');
+    // 显式 protocol 透传
+    const d2 = desiredProviders({ b: { protocol: 'anthropic', base_url: 'https://api.anthropic.com' } });
+    expect(d2.get('b')?.protocol).toBe('anthropic');
+  });
+
+  it('未知协议跳过并带原因（D4）；签名含 protocol——协议变更触发重挂', () => {
+    const skipped: Array<[string, string | undefined]> = [];
+    desiredProviders({ bad: { protocol: 'nope', base_url: 'https://x' } }, (name, reason) => skipped.push([name, reason]));
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0][0]).toBe('bad');
+    expect(skipped[0][1]).toContain('未知协议');
+    // 语义：签名因 protocol 不同而不同（读侧单源验证——signatureOf 未导出，
+    // 经 desiredProviders 产物间接锁定的面此处只验 protocol 进 Desired）
+    const a = desiredProviders({ x: { protocol: 'ollama', base_url: 'http://l:11434' } });
+    expect(a.get('x')?.protocol).toBe('ollama');
+  });
+
+  it('anthropic 条目注册：stats 透 protocol + 实例懒构造不触网', async () => {
+    const root = tmpRoot({ 'my-claude': { protocol: 'anthropic', base_url: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-4-5' } });
+    const { ctx } = await boot(root);
+    const stats = ctx.llm.stats().find((s) => s.name === 'my-claude');
+    expect(stats?.protocol).toBe('anthropic');
+    expect(stats?.description).toContain('Anthropic');
+    expect(stats?.instantiated).toBe(false); // 懒构造：注册不触网
+    expect(ctx.llm.providers()).toContain('my-claude');
+  });
+
+  it('boot 期未知协议 fail-loud（D4 硬错语义）', async () => {
+    const root = tmpRoot({ bad: { protocol: 'nope', base_url: 'https://x' } });
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    for (const row of [llmRow, configRow, poolRow]) {
+      const fiber = row === configRow ? ctx.plugin(row as any, { root }) : ctx.plugin(row as any);
+      fibers.push(fiber);
+      // pool 行 fail-loud：fiber 以错误 settle
+      if (row === poolRow) await expect(fiber).rejects.toThrow(/未知协议|协议配置错误/);
+      else await fiber;
+    }
+    for (const f of [...fibers].reverse()) {
+      if (f.uid !== null) await f.dispose();
+    }
+  });
+});
+

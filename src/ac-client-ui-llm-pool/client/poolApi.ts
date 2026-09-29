@@ -31,16 +31,19 @@ export async function deleteLlmPoolCredential(name: string, rpc: Rpc): Promise<v
   await rpc.call('llm/pool-credential', { name, value: '' });
 }
 
-/** 免注册连接探测（新建弹窗"填 Key 即读清单"）：base_url + api_key 直调
- *  /models（后端本地代理，不经注册面——保存前可用；不写缓存） */
+/** 免注册连接探测（新建弹窗"填 Key 即读清单"）：base_url + api_key
+ *  [+ protocol] 直调协议清单端点（后端本地代理，不经注册面——保存前
+ *  可用；不写缓存）。protocol 缺省 openai-compat（cr-39 协议多态）。 */
 export async function probeLlmModels(
   baseUrl: string,
   apiKey: string,
   rpc: Rpc,
+  protocol?: string,
 ): Promise<{ models: string[] }> {
   const r = await rpc.call<{ models?: string[] }>('llm/probe-models', {
     base_url: baseUrl,
     api_key: apiKey,
+    ...(protocol && protocol !== 'openai-compat' ? { protocol } : {}),
   });
   return { models: r.models ?? [] };
 }

@@ -1411,6 +1411,30 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
       // 非 http(s) → 拒绝
       const bad = await rpc(ws, 'llm/probe-models', 'r2', { base_url: 'ftp://x', api_key: 'k' });
       expect(bad.ok).toBe(false);
+      // 未知协议 → 拒绝（D4）
+      const badProto = await rpc(ws, 'llm/probe-models', 'r3', { base_url: 'https://x/v1', api_key: 'k', protocol: 'nope' });
+      expect(badProto.ok).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('llm/probe-models：anthropic 协议分发（/v1/models + x-api-key）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const captured: { url?: unknown; init?: any } = {};
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any, init: any) => {
+      captured.url = url;
+      captured.init = init;
+      return new Response(JSON.stringify({ data: [{ id: 'claude-b' }, { id: 'claude-a' }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const r = await rpc(ws, 'llm/probe-models', 'r1', { base_url: 'https://api.anthropic.com', api_key: 'sk-ant', protocol: 'anthropic' });
+      expect(r.ok).toBe(true);
+      expect(r.result).toEqual({ models: ['claude-a', 'claude-b'] });
+      expect(captured.url).toBe('https://api.anthropic.com/v1/models?limit=1000');
+      expect(captured.init.headers['x-api-key']).toBe('sk-ant');
     } finally {
       globalThis.fetch = realFetch;
     }

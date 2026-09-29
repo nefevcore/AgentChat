@@ -1,9 +1,8 @@
-# LLM 自定义协议扩展 —— 设计备忘（未实施）
+# LLM 自定义协议扩展 —— 设计备忘（已实施）
 
-> 状态：**备忘稿（用户立项意向，暂不实施——2026-09-01 记）**。背景：
-> 池 v2 落地后（`llm-provider-model-plan.md` ✅），"自定义连接"仅支持
-> OpenAI 兼容协议；本文档收录扩展为多协议（Anthropic / Gemini / Ollama
-> 原生等）的目标形态与决策点，供后续优化时直接取用。
+> 状态：**✅ 已实施（cr-39，2026-09-29）**——本文档由备忘转档案：目标形态
+> §二 / 决策点 §三 均按原文落地（D2 超额：toolCalls/reasoning 一并映射）。
+> 实施记录见 `cr-log.md` cr-39 与下文 §各处批注。原立项背景（2026-09-01）：
 
 ---
 
@@ -89,13 +88,22 @@ ac-llm-pool/src/index.ts        PROTOCOLS 注册表 + protocol 分发 +（D3 条
 ac-<proto>-completions/         新纯库 ×N（stream/listModels/usage 归一）
 ac-web-api/src/index.ts         probe-models 增 protocol 参数
 ac-llm（可选）                  LlmRegisterMeta.stats 透 protocol
-webui/settings/api.ts           LLM_PROVIDER_TEMPLATES 增协议维度
-webui PoolManager.vue           提供方下拉/自定义流程带协议选择
+ac-client-ui-settings/client/api.ts  LLM_PROVIDER_TEMPLATES 增协议维度（anthropic-native / gemini-native / ollama-local 三预设；路径勘误：原备忘写 webui，实际前端行已拆包）
+ac-client-ui-llm-pool/PoolManager.vue 自定义流程协议选择 + 模板 protocol 预填 + 保存落 protocol 字段
 scripts/migrate-llm-pool-v2.ts  无需迁移（缺省 openai-compat）
-docs/llm-provider-model-plan.md 落地后补"协议扩展已实施"批注
-```
+docs/llm-provider-model-plan.md 落地后补"协议扩展已实施"批注（已补）
+
+其余实施面（超出原清单）：ac-web-api probe-models/probe-vision 按
+PROTOCOLS 分发（免注册探测共用池注册表单源）；ac-llm LlmRegisterMeta/
+stats 透 protocol。
 
 ## 五、非目标（显式不做）
+
+- 每协议的采样参数差异校验（透传白名单维持协议中立）；
+- 运行时动态协议注册（走动态插件行通道，见 §2.2）；
+- 协议级重试/降级策略（属调用编排域，不属连接定义域）；
+- 新协议的视觉探测（多模态物化仍 openai 专属——原生线格式的 image 块
+  映射待需求到期；视觉徽章可手动勾选）。
 
 - 每协议的采样参数差异校验（透传白名单维持协议中立）；
 - 运行时动态协议注册（走动态插件行通道，见 §2.2）；

@@ -40,8 +40,8 @@ L3    ac-router + ac-agents  信封投递（纯转发，零会话状态）；Age
 L2    ac-agent-loop          ReAct 编排：turn=run → [step → 推理/工具 → 收束]×N；
                              三档装配链 + steer 注入 + 语义化中断
 L1    ac-llm + ac-llm-pool   模型会话（stream/chat 聚合）；纯路由 + 配置驱动连接池
-                             （协议住纯库 ac-openai-completions；连接池 = 唯一事实源，
-                             未配置即不注册）
+                             （协议住纯库×4，池条目 protocol 分发〔cr-39〕；
+                             连接池 = 唯一事实源，未配置即不注册）
 ```
 
 **信封拓扑（身份/拓扑分离）**：`conversationId` = 会话归属键——一切双端会话都是
@@ -381,6 +381,9 @@ run 周期走 **journal（partials.jsonl，2026-09-21 泛化）**：步行/注�
 |---|---|
 | `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf——只收会成运行时环/反向依赖的最小词汇） |
 | `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离） |
+| `ac-anthropic-completions` | Anthropic 原生 /v1/messages：SSE 流式 + tool_use/thinking 映射 + chat 聚合 + listModels（cr-39 协议多态；池条目 protocol='anthropic'） |
+| `ac-gemini-completions` | Gemini 原生 generateContent：SSE 流式 + functionCall/thought 映射 + chat 聚合 + listModels（cr-39；protocol='gemini'） |
+| `ac-ollama-completions` | Ollama 原生 /api/chat：NDJSON 流式 + tool_calls/thinking 映射 + chat 聚合 + listModels /api/tags（cr-39；protocol='ollama'） |
 | `ac-config-merge` | deepMerge/computeDiff 差异配置 |
 | `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检（配平失败报错带「第 N 行第 C 列 + 行预览」定位）/readback 回显/增量 diff/行尾保留（old/new 自动 LF 归一化匹配 + CR 双写损伤修复——2026-11-19 画像 Ⓑ）/失配定位线索（最接近行 + 行尾统计）/文件突变队列 |
 | `ac-sandbox-core` | createSandboxResolver/bash 命令扫描/输出脱敏/agentSpaceRoots（读写侧基准分叉并根） |
@@ -424,9 +427,12 @@ src/
 │                            （首块产出前，缺省 2 次；已产出不重试）；LLM 域契约
 ├── ac-llm-pool/             配置驱动 provider 注册行：config llmProviders 连接池 =
 │                            唯一事实源（未配置即不注册；config/changed 热更 diff 重挂）；
-│                            defaultPoolConnection 缺省回落口；vision 并集门控 +
-│                            媒体物化；凭据注入（pool:<provider> apiKey）
-├── ac-openai-completions/   OpenAI 兼容协议纯库（见纯库清单）
+│                            protocol 字段分发四协议纯库（cr-39 PROTOCOLS 注册表，
+│                            未知协议 boot fail-loud）；defaultPoolConnection 缺省
+│                            回落口；vision 并集门控 + 媒体物化；凭据注入
+│                            （pool:<provider> apiKey）
+├── ac-openai-completions/   OpenAI 兼容协议纯库（见纯库清单；同类 anthropic/
+│                            gemini/ollama-completions 三库 2026-09-29 加入）
 ├── ac-llm-openai/ · ac-llm-deepseek/ · ac-llm-glm/
 │                            退役适配行空壳（provider 注册面已收敛至 ac-llm-pool）
 │ ── L2 编排 ────────────────────────────────────────────────────

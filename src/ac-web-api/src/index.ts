@@ -73,7 +73,7 @@ import type { Context } from '@agentchat/cordis';
 import { sessionCapsOf, displayNameOf, effectiveToolMode, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import { OpenAICompletions } from 'ac-openai-completions';
-import { normalizePoolModels, type PoolModelEntry } from 'ac-llm-pool';
+import { normalizePoolModels, PROTOCOLS, type PoolModelEntry } from 'ac-llm-pool';
 import type { LlmAttachment, LlmMessage } from 'ac-llm';
 import {
   DEFAULT_GRANTED_PERMISSIONS,
@@ -1697,17 +1697,17 @@ export function apply(ctx: Context) {
   });
 
   // 免注册连接探测（PoolManager 新建弹窗"填 Key 即读清单"）：base_url +
-  // api_key 直接构造临时客户端调 /models——不经注册面（保存前可用）；
-  // 不写任何缓存（条目落盘后的清单走 llm/models 注册路径）。
+  // api_key [+ protocol] 经 PROTOCOLS 分发各协议清单端点——不经注册面
+  // （保存前可用）；不写任何缓存（条目落盘后的清单走 llm/models 注册
+  // 路径）。protocol 缺省 openai-compat（cr-39 协议多态）。
   web.registerRpc('llm/probe-models', async (params) => {
     const p = obj(params);
     const baseUrl = reqStr(p, 'base_url');
     if (!/^https?:\/\//i.test(baseUrl)) throw new Error('base_url 须为 http(s) URL');
-    const client = new OpenAICompletions({ baseUrl });
-    const models = await client.listModels({
-      api_key: optStr(p.api_key) || undefined,
-      signal: AbortSignal.timeout(20_000),
-    });
+    const protocol = optStr(p.protocol) || 'openai-compat';
+    const def = PROTOCOLS[protocol];
+    if (!def) throw new Error(`未知协议 "${protocol}"（可用：${Object.keys(PROTOCOLS).join(' / ')}）`);
+    const models = await def.listModels(baseUrl, optStr(p.api_key) || undefined, AbortSignal.timeout(20_000));
     return { models: [...new Set(models)].sort() };
   });
 
@@ -1727,6 +1727,10 @@ export function apply(ctx: Context) {
     let probe: (model: string) => Promise<boolean | undefined>;
     if (baseUrl) {
       if (!/^https?:\/\//i.test(baseUrl)) throw new Error('base_url 须为 http(s) URL');
+      const protocol = optStr(p.protocol);
+      if (protocol && protocol !== 'openai-compat') {
+        throw new Error(`协议 ${protocol} 暂不支持视觉探测（多模态一期未覆盖原生线格式；可手动勾选视觉徽章）`);
+      }
       const client = new OpenAICompletions({ baseUrl });
       const apiKey = optStr(p.api_key) || undefined;
       probe = (model) => client.probeVision(model, { api_key: apiKey, signal: AbortSignal.timeout(30_000) });

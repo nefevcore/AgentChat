@@ -797,6 +797,16 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  src/ac-anthropic-completions:
+    dependencies:
+      ac-openai-completions:
+        specifier: workspace:*
+        version: link:../ac-openai-completions
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   src/ac-app:
     dependencies:
       '@agentchat/cordis':
@@ -2620,6 +2630,16 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  src/ac-gemini-completions:
+    dependencies:
+      ac-openai-completions:
+        specifier: workspace:*
+        version: link:../ac-openai-completions
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   src/ac-glob-core:
     devDependencies:
       vitest:
@@ -2806,9 +2826,18 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-anthropic-completions:
+        specifier: workspace:*
+        version: link:../ac-anthropic-completions
+      ac-gemini-completions:
+        specifier: workspace:*
+        version: link:../ac-gemini-completions
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
+      ac-ollama-completions:
+        specifier: workspace:*
+        version: link:../ac-ollama-completions
       ac-openai-completions:
         specifier: workspace:*
         version: link:../ac-openai-completions
@@ -2944,6 +2973,12 @@ importers:
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   src/ac-noise-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-ollama-completions:
     devDependencies:
       vitest:
         specifier: ^4.1.10

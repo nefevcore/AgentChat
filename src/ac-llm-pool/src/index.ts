@@ -22,6 +22,9 @@ import type { Context } from '@agentchat/cordis';
 import { extname } from 'node:path';
 import * as fs from 'node:fs';
 import { OpenAICompletions } from 'ac-openai-completions';
+import { AnthropicCompletions } from 'ac-anthropic-completions';
+import { GeminiCompletions } from 'ac-gemini-completions';
+import { OllamaCompletions } from 'ac-ollama-completions';
 import { registerCredentialsInjection } from './credentials.ts';
 import {
   resolveSessionHeader,
@@ -29,6 +32,7 @@ import {
   type SessionHeaderSpec,
 } from './session-affinity.ts';
 import type {} from 'ac-llm'; // ctx.llm 服务类型增强（type-only，无运行时依赖）
+import type { LlmProvider } from 'ac-llm'; // PROTOCOLS 工厂形状（type-only）
 import type {} from 'ac-config'; // ctx.config 服务类型增强（type-only）
 
 export const name = 'ac-llm-pool';
@@ -50,7 +54,14 @@ export { resolveSessionHeader, sessionHeaderValue } from './session-affinity.ts'
 
 /** 池条目 v2 形状（连接定义；model 键为旧别名条目容错读取） */
 export interface LlmPoolEntry {
-  /** OpenAI 兼容 base URL（连接必要条件） */
+  /**
+   * 连接协议（cr-39 多态扩展）：'openai-compat'（缺省，存量零迁移）/
+   * 'anthropic' / 'gemini' / 'ollama'——值域即 PROTOCOLS 键集（D5 单源，
+   * 未知值注册时 fail-loud〔boot〕/ 跳过〔热更〕，D4）。
+   */
+  protocol?: string;
+  /** 连接 base URL（连接必要条件；语义随协议——Anthropic 根址、Gemini
+   * 根址、Ollama /api 前根址） */
   base_url?: string;
   /** 该连接的默认模型（Agent 创建未显式选模型时的物化兜底） */
   defaultModel?: string;
@@ -155,6 +166,7 @@ export function normalizePoolHeaders(raw: unknown): Record<string, string> | und
 
 /** 期望注册集的单条 */
 interface Desired {
+  protocol: string;
   baseUrl: string;
   defaultModel: string | undefined;
   models: string[];
@@ -171,10 +183,46 @@ interface Desired {
   sessionHeader?: string;
 }
 
+/**
+ * 协议注册表（llm-protocol-extensibility §2.2；cr-39 实施）：protocol →
+ * { create(连接参数) → LlmProvider 结构化兼容实例, listModels(免注册
+ * 探测) }。内置四协议；动态协议走动态插件行通道（provides.llmProviders），
+ * 两机制不叠加。键集即协议值域单源（D5）——校验/下拉/探测共用。
+ */
+export const PROTOCOLS: Record<string, {
+  label: string;
+  create: (opts: { baseUrl?: string; defaultModel?: string; timeoutMs?: number; headers?: Record<string, string> }) => LlmProviderShape;
+  listModels: (baseUrl: string, apiKey?: string, signal?: AbortSignal) => Promise<string[]>;
+}> = {
+  'openai-compat': {
+    label: 'OpenAI 兼容（chat/completions）',
+    create: (o) => new OpenAICompletions(o),
+    listModels: (baseUrl, apiKey, signal) => new OpenAICompletions({ baseUrl }).listModels({ api_key: apiKey, signal }),
+  },
+  anthropic: {
+    label: 'Anthropic（/v1/messages）',
+    create: (o) => new AnthropicCompletions(o),
+    listModels: (baseUrl, apiKey, signal) => new AnthropicCompletions({ baseUrl }).listModels({ api_key: apiKey, signal }),
+  },
+  gemini: {
+    label: 'Google Gemini（generateContent）',
+    create: (o) => new GeminiCompletions(o),
+    listModels: (baseUrl, apiKey, signal) => new GeminiCompletions({ baseUrl }).listModels({ api_key: apiKey, signal }),
+  },
+  ollama: {
+    label: 'Ollama（/api/chat）',
+    create: (o) => new OllamaCompletions(o),
+    listModels: (baseUrl, apiKey, signal) => new OllamaCompletions({ baseUrl }).listModels({ api_key: apiKey, signal }),
+  },
+};
+
+/** 协议工厂返回形状（ac-llm LlmProvider 契约的 type-only 别名） */
+type LlmProviderShape = LlmProvider;
+
 /** 期望注册集：有 base_url 的连接条目（其余跳过并上报） */
 export function desiredProviders(
   pool: Record<string, unknown> | undefined,
-  onSkipped?: (name: string) => void,
+  onSkipped?: (name: string, reason?: string) => void,
 ): Map<string, Desired> {
   const desired = new Map<string, Desired>();
   if (!pool || typeof pool !== 'object' || Array.isArray(pool)) return desired;
@@ -185,6 +233,13 @@ export function desiredProviders(
     if (!entry.base_url) {
       // 连接必要条件缺失（旧别名残留）：跳过
       onSkipped?.(name);
+      continue;
+    }
+    // 协议归一（缺省 openai-compat 零迁移；未知协议是硬错——D4，区别于
+    // 残留跳过：跳过并带原因，boot 侧 fail-loud）
+    const protocol: string = typeof entry.protocol === 'string' && entry.protocol ? entry.protocol : 'openai-compat';
+    if (!Object.prototype.hasOwnProperty.call(PROTOCOLS, protocol)) {
+      onSkipped?.(name, `未知协议 "${entry.protocol}"（可用：${Object.keys(PROTOCOLS).join(' / ')}）`);
       continue;
     }
     const modelEntries = normalizePoolModels(entry.models);
@@ -198,6 +253,7 @@ export function desiredProviders(
     const headers = normalizePoolHeaders(entry.headers);
     const sessionHeader = resolveSessionHeader(entry.base_url, entry.sessionHeader);
     desired.set(name, {
+      protocol,
       ...(sessionHeader ? { sessionHeader } : {}),
       baseUrl: entry.base_url,
       defaultModel:
@@ -223,7 +279,7 @@ export function desiredProviders(
  *  modelMeta 随附，探测标志/隐藏位变更即热更重挂；timeout_ms/headers/
  *  api 同批进签名（D3/D4）——连接参数与接口格式变更即重挂） */
 function signatureOf(d: Desired): string {
-  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.api, d.sessionHeader ?? null]);
+  return JSON.stringify([d.protocol, d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.api, d.sessionHeader ?? null]);
 }
 
 /**
@@ -360,29 +416,43 @@ export function apply(ctx: Context) {
     // 视觉门控统一：显式 visionModels（前缀/通配）∪ 探测标志的
     // models[].vision ——适配层零改动，两来源同一语义
     const effectiveVision = [...d.visionModels, ...Object.entries(d.modelMeta).filter(([, m]) => m.vision).map(([model]) => model)];
+    const protocolDef = PROTOCOLS[d.protocol];
     const disposer = llm.register(
       name,
-      () =>
-        new OpenAICompletions({
+      () => {
+        if (d.protocol === 'openai-compat') {
+          return new OpenAICompletions({
+            baseUrl: d.baseUrl,
+            defaultModel: d.defaultModel,
+            // D3 连接参数透传：无进展超时 + 自定义网关头（缺省回落协议层默认）
+            ...(d.timeoutMs !== undefined ? { timeoutMs: d.timeoutMs } : {}),
+            ...(d.headers !== undefined ? { headers: d.headers } : {}),
+            // D4 接口格式：'responses' = POST /responses（请求体/事件流在
+            // 协议库内转换，域契约不变）
+            api: d.api,
+            ...(effectiveVision.length > 0 ? { visionModels: effectiveVision } : {}),
+            // 媒体引用物化：workspace 相对路径（files/... 前缀）→ data: base64
+            // URL。workspace 为可选能力（行未装 = 附件降级文本占位，不炸请求）；
+            // 调用时经 ctx.get 解析（root-traced，M12 铁律 2）。
+            ...(effectiveVision.length > 0 ? { resolveMedia: workspaceMediaResolver(ctx) } : {}),
+            // 凭据不进工厂：ac-credentials 按 pool:<名> per-request 注入
+          });
+        }
+        // 其余协议：连接参数同款透传；视觉门控/媒体物化为 openai 协议
+        // 专属面（多模态一期未覆盖原生线格式——visionModels 不传即纯文本
+        // 路径，附件走 [附件] 文本占位，fail-closed）
+        return protocolDef.create({
           baseUrl: d.baseUrl,
           defaultModel: d.defaultModel,
-          // D3 连接参数透传：无进展超时 + 自定义网关头（缺省回落协议层默认）
           ...(d.timeoutMs !== undefined ? { timeoutMs: d.timeoutMs } : {}),
           ...(d.headers !== undefined ? { headers: d.headers } : {}),
-          // D4 接口格式：'responses' = POST /responses（请求体/事件流在
-          // 协议库内转换，域契约不变）
-          api: d.api,
-          ...(effectiveVision.length > 0 ? { visionModels: effectiveVision } : {}),
-          // 媒体引用物化：workspace 相对路径（files/... 前缀）→ data: base64
-          // URL。workspace 为可选能力（行未装 = 附件降级文本占位，不炸请求）；
-          // 调用时经 ctx.get 解析（root-traced，M12 铁律 2）。
-          ...(effectiveVision.length > 0 ? { resolveMedia: workspaceMediaResolver(ctx) } : {}),
-          // 凭据不进工厂：ac-credentials 按 pool:<名> per-request 注入
-        }),
+        });
+      },
       {
         models: d.models,
         baseUrl: d.baseUrl, // 连接锚点：诊断 + llm/models 发现 RPC
-        description: `OpenAI 兼容连接 ${d.baseUrl}`,
+        description: `${protocolDef.label}连接 ${d.baseUrl}`,
+        protocol: d.protocol,
         // 能力元数据透出（llm/providers stats → 前端徽章/过滤）
         ...(Object.keys(d.modelMeta).length > 0 ? { modelMeta: d.modelMeta } : {}),
         // 视觉门控有效并集（显式 visionModels ∪ models[].vision）：
@@ -395,15 +465,28 @@ export function apply(ctx: Context) {
 
   /** 期望集 → 撤/挂 diff。boot 期（首sync）重名 fail-loud；热更期容错续命。 */
   const sync = (boot: boolean): void => {
+    const unknownProtocols: string[] = [];
     const desired = desiredProviders(
       ctx.config.get<Record<string, unknown>>('llmProviders'),
-      (name) => {
+      (name, reason) => {
+        if (reason !== undefined) {
+          // 未知协议（D4 硬错）：boot 期 fail-loud（throw 由下方挂载分支
+          // 的同一 try 前置完成——此处先记录，sync 收尾统一抛）；热更跳过续命
+          unknownProtocols.push(`${name}: ${reason}`);
+          return;
+        }
         ctx.logger.warn(
           '[llm-pool] 池条目 "%C" 缺 base_url（连接必要条件；旧别名残留？）——未注册；请运行迁移脚本 scripts/migrate-llm-pool-v2.ts',
           name,
         );
       },
     );
+    if (boot && unknownProtocols.length > 0) {
+      throw new Error(`[llm-pool] 协议配置错误（fail-loud，D4）：${unknownProtocols.join('；')}`);
+    }
+    for (const line of unknownProtocols) {
+      ctx.logger.error('[llm-pool] %C——未注册（热更跳过）', line);
+    }
     // 撤：消失或内容变更（disposer 手动调用幂等；工厂/实例同步摘除）
     for (const [name, sig] of signatures) {
       const next = desired.get(name);

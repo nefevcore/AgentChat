@@ -15,6 +15,9 @@
 > 关联事实源：`src/README.md`（能力地图）、m15-reconciliation.md #7（已归档 `Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`）
 > （池抽象当年显式延迟——"延迟到有多模型管理的实际需求"，本方案即该需求
 > 到期）、m17-recon/settings-spec.md（池/AgentPane 现形状；已归档 `Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`）。
+> **协议扩展后续（2026-09-29 已实施，cr-39）**：池条目增 `protocol` 字段
+> （openai-compat / anthropic / gemini / ollama）——详见
+> `llm-protocol-extensibility.md`（原备忘已转实施档案）。
 
 ---
 

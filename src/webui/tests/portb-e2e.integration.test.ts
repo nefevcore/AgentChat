@@ -387,7 +387,9 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'agent-admin', 'agent-loop', 'agent-presets', 'agent-store', 'agents', 'agents-dir',
       'archive', 'ask-questions', 'backup', 'bench', 'config', 'conv-settings', 'conversation', 'credentials',
       'datetime', 'dev-tools', 'durable-interaction', 'event-policy',
-      'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
+      'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group', 'hello',
+      'issue-tools', // cr-21 并行批补登（提交时期望清单漏更——2026-09-29 顺手修）
+      'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
       'plugin-gates', 'plugin-market', 'plugin-registry',
       'preset-builtin', // 内置预设模式数据行（标准/极简注入预设目录）

@@ -54,6 +54,11 @@ export interface LlmRegisterMeta {
   /** 连接锚点（诊断 + /models 发现 RPC 的 baseURL 透出；可选） */
   baseUrl?: string;
   /**
+   * 连接协议（cr-39 多态扩展）：注册行声明（ac-llm-pool 按池条目
+   * protocol 透传）；stats 透出供前端/诊断区分——不参与路由。
+   */
+  protocol?: string;
+  /**
    * 模型能力元数据（探测/手配）：model → {vision?, hidden?}。
    * llm/providers stats 透出 → 前端视觉徽章与下拉过滤；不参与路由。
    */
@@ -84,6 +89,8 @@ export interface LlmProviderStats {
   modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
   /** 视觉门控有效清单（显式 ∪ 探测；visionOf 查询与适配层同源） */
   visionModels?: string[];
+  /** 连接协议（cr-39 多态：注册行按池条目 protocol 透传；诊断区分用） */
+  protocol?: string;
 }
 
 /**
@@ -178,6 +185,7 @@ export class LlmService extends Service {
       instantiated: this.instances.has(name),
       ...(meta.description ? { description: meta.description } : {}),
       ...(meta.baseUrl ? { baseUrl: meta.baseUrl } : {}),
+      ...(meta.protocol ? { protocol: meta.protocol } : {}),
       ...(meta.modelMeta && Object.keys(meta.modelMeta).length > 0 ? { modelMeta: meta.modelMeta } : {}),
       ...(meta.visionModels && meta.visionModels.length > 0 ? { visionModels: meta.visionModels } : {}),
     }));
