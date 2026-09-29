@@ -1,5 +1,5 @@
 <!--
-  webui-kit/src/base/Sheet.vue —— 底部上滑面板原语（cr-35 Phase② 前置落地）
+  webui-kit/src/base/Sheet.vue —— 底部上滑面板原语（cr-29 Phase② 前置落地）
   用法：<Sheet :visible="show" title="标题" @close="show = false">...</Sheet>
   全屏遮罩 + 底部滑入面板（≤200ms）；Modal 的移动端同位原语。
 -->

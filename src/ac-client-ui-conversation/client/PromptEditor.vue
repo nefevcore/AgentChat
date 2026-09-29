@@ -314,7 +314,7 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   min-height: 63px;
 }
 
-/* 窄屏 2 行（cr-40）：63px = 恰好 3 整行——手机上占屏比过高；42px = 2 行
+/* 窄屏 2 行（cr-34）：63px = 恰好 3 整行——手机上占屏比过高；42px = 2 行
    （1.5 × 14px × 2），输入体验仍在（内容超出内滚） */
 @media (max-width: 768px) {
   .pe-wrap { min-height: 42px; }

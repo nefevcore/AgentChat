@@ -1,5 +1,5 @@
 // ============================================================
-// webui/tests/css-color-tokens.test.ts —— 颜色令牌三元组契约（cr-38）
+// webui/tests/css-color-tokens.test.ts —— 颜色令牌三元组契约（cr-32）
 //
 // 背景：基线 WebView 92 不解析 color-mix()（Chrome 111+），tint 一律改写
 // rgba(var(--x-rgb), α)。三元组与色值分处两行，人工极容易改一处漏一处
@@ -38,7 +38,7 @@ const INLINE_INJECTED = new Set(['sc-rgb', 'tc-rgb']);
 /** 注释中的泛型占位（文档写作 var(--x-rgb) 示例，非真实引用） */
 const DOC_PLACEHOLDER = new Set(['x-rgb']);
 
-describe('颜色令牌三元组契约（cr-38）', () => {
+describe('颜色令牌三元组契约（cr-32）', () => {
   it('① 同步锁：--x 的 hex 与 --x-rgb 三元组逐位一致（tokens.css）', () => {
     const tripletRe = /--([\w-]+)-rgb:\s*(\d+),\s*(\d+),\s*(\d+)\s*;/g;
     const mismatches: string[] = [];

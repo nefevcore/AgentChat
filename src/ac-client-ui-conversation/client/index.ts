@@ -32,7 +32,7 @@ const TokenGaugeAsync = defineAsyncComponent(() => import('./header/TokenGauge.v
 // Token 仪表(20)与 Agent·single 动作(30)之间；异步同上）
 const SystemPromptPreviewBtnAsync = defineAsyncComponent(() => import('./header/SystemPromptPreviewButton.vue'));
 // System Prompt 预览弹窗（overlay 出厂贡献 order 88——开关态住 ui store）
-// SystemPromptModal 已删（cr-36：窄屏 Modal 退役——宽窄统一 aux 'prompt' 选区）
+// SystemPromptModal 已删（cr-30：窄屏 Modal 退役——宽窄统一 aux 'prompt' 选区）
 // System Prompt aux 选区宿主（A1：宽屏对照阅读面板 + 意图消费面）
 const SystemPromptPanelHostAsync = defineAsyncComponent(() => import('./SystemPromptPanelHost.vue'));
 // 文件编辑追踪选区宿主（会话文件编辑纵览：逐文件统计 + 初版↔终版 diff）
@@ -247,7 +247,7 @@ export const conversationClientPlugin = clientPlugin({
       component: SystemPromptPreviewBtnAsync,
       order: 25,
     });
-    // System Prompt 预览弹窗 overlay 贡献已撤（cr-36：窄屏 Modal 退役——
+    // System Prompt 预览弹窗 overlay 贡献已撤（cr-30：窄屏 Modal 退役——
     // 宽窄统一 auxIntent → 'prompt' 选区，窄屏由 AuxSidebarHost 全屏 Sheet 呈现）
     // System Prompt aux 选区（A1：对照阅读——宽屏会话头按钮直达侧栏；
     // active = 显式选区；rail 恒可见〔prompt 是通用阅读工具〕；意图消费

@@ -72,7 +72,7 @@ class MainActivity : BridgeActivity() {
     }
 
     /**
-     * Android 返回键（cr-35 Phase①）：先问 WebView UI 是否消费——
+     * Android 返回键（cr-29 Phase①）：先问 WebView UI 是否消费——
      * 会话页 push 态/全屏覆盖层开着时由 webui 关闭之（栈式导航），
      * 未消费才退后台（moveTaskToBack——不 finish，链路不断）。
      * 配对面板期（WebView 未加载）直接退后台。

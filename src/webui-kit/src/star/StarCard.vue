@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{
   color?: string;
 }>(), { selected: false });
 
-/** 身份色 + 其 RGB 伴随（cr-38：tint 走 rgba(var(--sc-rgb), α) 回退形态） */
+/** 身份色 + 其 RGB 伴随（cr-32：tint 走 rgba(var(--sc-rgb), α) 回退形态） */
 const starVars = computed(() => ({
   '--sc': props.color || 'var(--primary)',
   '--sc-rgb': props.color ? hexTriplet(props.color) : 'var(--primary-rgb)',

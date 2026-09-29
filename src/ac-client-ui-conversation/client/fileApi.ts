@@ -27,7 +27,7 @@ export function browseDirs(path: string, opts: { files?: boolean } | undefined, 
  *  会话键透传：agentId 缺席时后端经 singles 推导承载 Agent） */
 export async function uploadFile(formData: FormData, agentId?: string, conversationId?: string): Promise<UploadResult> {
   const body = await rawUploadFile(formData, agentId, conversationId);
-  // 登记主形态 = absPath（cr-30：[附件] 行/attachments.ref/chips 全链绝对形；
+  // 登记主形态 = absPath（cr-22：[附件] 行/attachments.ref/chips 全链绝对形；
   // 旧后端无 absPath 时降级相对 path——双形态消费端均直通）
   const ref = typeof body.absPath === 'string' ? body.absPath : body.path;
   if (typeof ref === 'string') {

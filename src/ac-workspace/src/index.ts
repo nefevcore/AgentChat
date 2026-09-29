@@ -516,7 +516,7 @@ export class WorkspaceService extends Service {
    * 直建 files/<id>/_tmp（read 基准 = 数据根，files/ 前缀引用天然可达）；
    * 未推导出 owner（非独立会话/行未装）→ shared（原行为）。
    * 【双形态引用】path = 数据根相对（树/raw 直链传统形）；absPath = 落点
-   * 绝对路径（cr-30：Agent read 工具按沙箱锚点解析相对路径，锚点非数据
+   * 绝对路径（cr-22：Agent read 工具按沙箱锚点解析相对路径，锚点非数据
    * 根时 files/ 相对形不可达——[附件] 行与 attachments.ref 改消费绝对形，
    * resolveIn 包含判定双形态直通）。
    */

@@ -31,7 +31,7 @@ function hashAgentId(id: string): number {
 }
 
 /**
- * hex → "r, g, b" 三元组（cr-38：tint 回退用——rgba(var(--x-rgb), α)）。
+ * hex → "r, g, b" 三元组（cr-32：tint 回退用——rgba(var(--x-rgb), α)）。
  * 星色是运行时注入的内联 --sc/--tc，无法由 CSS 侧派生三元组，故由组件
  * 同时注入伴随变量；非 hex 输入（如已传 var(--primary)）回落主色三元组。
  */

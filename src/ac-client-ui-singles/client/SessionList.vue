@@ -57,7 +57,7 @@ function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' 
 /** 会话是否正在运行（其 single 对话处于流式运行中 → 头像显示流转光环） */
 function isSessionRunning(id: string): boolean { return feedStore.getDialog(singleDialog(id))?.streaming ?? false; }
 
-// 窄屏导航（cr-35）：选中即 push 会话页（宽屏 no-op）
+// 窄屏导航（cr-29）：选中即 push 会话页（宽屏 no-op）
 const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
 // ── 删除会话确认（硬删：元数据+消息，不可恢复）──
@@ -300,7 +300,7 @@ function selectSingle(sessionId: string) {
   emit('deselectGroup');
   singlesBoard?.selectSingle(sessionId);
   ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
-  pushMainIfNarrow(); // 窄屏：push 会话页（cr-35）
+  pushMainIfNarrow(); // 窄屏：push 会话页（cr-29）
 }
 
 // ── 新增工作区（弹窗：系统原生文件夹选择 → 名称确认）──
@@ -511,7 +511,7 @@ onUnmounted(() => {
         <button class="ws-add-btn" @click="openWsDialog" title="新增工作区（登记一个文件夹白名单区域）">
           <Icon name="folder-plus" :size="16" />
         </button>
-        <!-- mobile-close-btn 已删（cr-35：抽屉退役——root 页整页形态） -->
+        <!-- mobile-close-btn 已删（cr-29：抽屉退役——root 页整页形态） -->
       </div>
     </div>
 

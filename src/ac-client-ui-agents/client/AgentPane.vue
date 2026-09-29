@@ -942,7 +942,7 @@ async function removeAvatar() {
 .tag-badge.on {
   background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.08);
   border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.2);
-  color: var(--tag-hue, var(--primary)); /* 回退（cr-38） */
+  color: var(--tag-hue, var(--primary)); /* 回退（cr-32） */
   color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1));
   font-weight: 500;
 }
@@ -983,7 +983,7 @@ async function removeAvatar() {
   min-width: 14px; height: 14px; margin-left: 5px; padding: 0 3px;
   border-radius: var(--r-full); font-size: 9px; line-height: 1;
   background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.16);
-  color: var(--tag-hue, var(--primary)); /* 回退（cr-38） */
+  color: var(--tag-hue, var(--primary)); /* 回退（cr-32） */
   color: color-mix(in srgb, var(--tag-hue, var(--primary)) 70%, var(--text-1));
 }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }

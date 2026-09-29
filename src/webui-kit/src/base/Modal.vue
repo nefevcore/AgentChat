@@ -61,7 +61,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
   display: flex; flex-direction: column;
 }
 
-/* 窄屏全屏（cr-40）：桌面居中弹窗在手机上是局促的小窗——改全屏页形态；
+/* 窄屏全屏（cr-34）：桌面居中弹窗在手机上是局促的小窗——改全屏页形态；
    全部 overlay 席位贡献（用量/版本/建群/Agent 新建/工作区表单/插件配置/
    EntryPicker…）一改全改。宽度 min() 防宽度型内联样式（width: 440px 等
    数字传参）在窄屏溢出。 */

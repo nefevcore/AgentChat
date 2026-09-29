@@ -1,10 +1,10 @@
 <!-- ============================================================ -->
-<!-- client/MobileMoreSheet.vue —— 移动端「更多」面板（cr-35 建，cr-36 迁 Sheet）
+<!-- client/MobileMoreSheet.vue —— 移动端「更多」面板（cr-29 建，cr-30 迁 Sheet）
 
 TabBar「更多」的承载，三段：
   ① 头像行（点按 = openAgentSettings(viewer)，同 ActivityBar 头像钮）；
   ② 常用项（主题切换/全局设置/数据备份/检查更新）；
-  ③ 面板区（cr-36）：aux 选区全量入口（auxSidebarRailDefs——各域行
+  ③ 面板区（cr-30）：aux 选区全量入口（auxSidebarRailDefs——各域行
      声明的 rail 资产 + available 谓词；含 badge）。窄屏辅助活动栏不渲染
      （Phase①），此区是九个选区在手机端的唯一入口；点按 → openAuxPanel
      （域侧激活 + 显式置位 + 展开）→ AuxSidebarHost 窄屏全屏 Sheet 呈现。
@@ -63,7 +63,7 @@ function runAction(action: ActivityBarActionDef) {
   }
 }
 
-// ── 返回键消费（cr-36）：面板开着时消费返回（关面板，不退后台）──
+// ── 返回键消费（cr-30）：面板开着时消费返回（关面板，不退后台）──
 const registerBack = inject<((fn: () => boolean) => () => void) | null>('registerBackConsumer', null);
 let offBack: (() => void) | null = null;
 if (registerBack) {

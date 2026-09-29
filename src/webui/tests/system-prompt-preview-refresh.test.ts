@@ -7,7 +7,7 @@
 // 注入/指引块收窄）。后端干跑已按会话模式收窄（admin 侧）；本测试锁
 // 前端链路：ChatInput 写口成功 → chatStore.convToolMode bump →
 // 常驻 aux 面板（keepAlive——边聊边看场景）即时重取。
-// （cr-36：窄屏 Modal 形态退役——SystemPromptModal 删除，仅锁 aux 面板面）
+// （cr-30：窄屏 Modal 形态退役——SystemPromptModal 删除，仅锁 aux 面板面）
 // chatStore 面 mock（项目惯例，参照 interaction-mount-crash.test.ts；
 // 注意组件用相对说明符 './chatStore.ts' 导入——mock 路径须与之一致）。
 // ============================================================

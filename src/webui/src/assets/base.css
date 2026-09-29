@@ -7,7 +7,7 @@
   font-weight: normal;
 }
 
-/* ── 触屏基线（cr-37 Phase③）：桌面 hover 语义在触屏上的三个缺口 ──
+/* ── 触屏基线（cr-31 Phase③）：桌面 hover 语义在触屏上的三个缺口 ──
    ① 点击高亮块（Android WebView 默认灰闪）——透明化，交互反馈由组件自身
       hover/active 态承担；
    ② 双击缩放的 ~300ms 点击延迟与误触缩放——touch-action: manipulation 让

@@ -101,7 +101,7 @@ export interface UploadResult {
   originalName?: string;
   size?: number;
   path?: string;
-  /** 落点绝对路径（cr-30：LLM/UI 引用主形态——read 工具跨锚点可达） */
+  /** 落点绝对路径（cr-22：LLM/UI 引用主形态——read 工具跨锚点可达） */
   absPath?: string;
 }
 

@@ -1,5 +1,5 @@
 // ============================================================
-// client/useUnreadBadges.ts —— 未读聚合单源（cr-35，归位 conversation：
+// client/useUnreadBadges.ts —— 未读聚合单源（cr-29，归位 conversation：
 // feedStore 的家——徽章聚合 = feed 分区数据的展示工具）
 //
 // 消费方：ActivityBar（活动栏按钮）+ MobileTabBar（底部标签栏）同源共享。

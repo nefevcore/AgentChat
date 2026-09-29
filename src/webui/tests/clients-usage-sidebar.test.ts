@@ -55,7 +55,7 @@ describe('P2 · usage 选区注册（usage 行）', () => {
     const ui = useUiStore();
     ui.openTokenUsage(); // 宽屏（1024 > 768）
     expect(ui.auxIntent).toBe(1); // 通用意图 seq
-    expect(ui.auxIntentPanel).toBe('usage'); // cr-36：宽窄同路径（无 Modal 分支）
+    expect(ui.auxIntentPanel).toBe('usage'); // cr-30：宽窄同路径（无 Modal 分支）
     await nextTick();
     expect(ui.auxPanel).toBe('usage'); // 意图消费 → 显式选区
     expect(ui.auxVisible).toBe(true); // 区域展开
@@ -64,7 +64,7 @@ describe('P2 · usage 选区注册（usage 行）', () => {
     app.unmount();
   });
 
-  it('窄屏同路径（cr-36）：openTokenUsage → 同一 aux 意图（呈现由 AuxSidebarHost 全屏 Sheet 承担）', async () => {
+  it('窄屏同路径（cr-30）：openTokenUsage → 同一 aux 意图（呈现由 AuxSidebarHost 全屏 Sheet 承担）', async () => {
     setActivePinia(createPinia());
     const ui = useUiStore();
     ui.narrow = true; // narrow 单源（store 状态直写——jsdom matchMedia 垫片恒宽）

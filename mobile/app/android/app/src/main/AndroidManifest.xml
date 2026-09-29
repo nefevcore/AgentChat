@@ -10,7 +10,7 @@
         android:theme="@style/AppTheme"
         android:networkSecurityConfig="@xml/network_security_config">
 
-        <!-- windowSoftInputMode=adjustResize（cr-37 Phase③）：键盘弹出时压缩 WebView
+        <!-- windowSoftInputMode=adjustResize（cr-31 Phase③）：键盘弹出时压缩 WebView
              视口（而非整页上移）——100vh 高度链随之收缩，聊天输入框与消息区
              自然让位；不声明则交给系统 heuristics（pan/resize 因厂商而异，输入框
              会被键盘盖住）。真机验证见 m3-realdevice-checklist.md。 -->

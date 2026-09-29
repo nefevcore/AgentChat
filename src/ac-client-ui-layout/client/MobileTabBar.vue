@@ -1,5 +1,5 @@
 <!-- ============================================================ -->
-<!-- client/MobileTabBar.vue —— 移动端底部标签栏（cr-35 Phase①）
+<!-- client/MobileTabBar.vue —— 移动端底部标签栏（cr-29 Phase①）
 
 root 页专属（会话页 push 态不渲染——键盘弹出不与 tab 栏打架）。四 tab：
   会话（sessions）/ Agent（agents）/ 运行（tracking）/ 更多（sheet）。

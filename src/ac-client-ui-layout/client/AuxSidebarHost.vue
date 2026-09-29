@@ -19,7 +19,7 @@
 // keepAlive 旗标留作未来重选区扩展位）。多根平铺（零包裹 D23-A）：
 // ResizeHandle + 面板列 + 辅助活动栏列 = app-layout 行的三个 flex 子项。
 //
-// 窄屏形态（cr-36 Phase②）：右侧栏在手机上无立足之地，改**全屏 Sheet**
+// 窄屏形态（cr-30 Phase②）：右侧栏在手机上无立足之地，改**全屏 Sheet**
 // 承载当选选区面板（webui-kit Sheet 原语——同一选区注册面零改动，只换
 // 壳的排布）；辅助活动栏不渲染（入口归 MobileMoreSheet「面板」区，该区
 // 列 auxSidebarRailDefs 全量），返回键/关闭钮收起。宽度由 ui.auxPaneStyle
@@ -44,7 +44,7 @@ const isNarrow = computed(() => ui.narrow);
 /** Sheet 标题（选区 rail 文案单源；无 rail 回落 id） */
 const sheetTitle = computed(() => winner.value?.rail?.title ?? winner.value?.id ?? '');
 
-// 返回键消费（cr-36）：窄屏全屏 Sheet 开着时消费返回（关 Sheet，不退后台；
+// 返回键消费（cr-30）：窄屏全屏 Sheet 开着时消费返回（关 Sheet，不退后台；
 // 未开 = 不消费，交壳判定 push 页/root 层）
 const registerBack = inject<((fn: () => boolean) => () => void) | null>('registerBackConsumer', null);
 let offBack: (() => void) | null = null;
@@ -111,7 +111,7 @@ function togglePanel(def: AuxSidebarPanelDef) {
 </script>
 
 <template>
-  <!-- ── 窄屏（cr-36）：全屏 Sheet 形态 ──
+  <!-- ── 窄屏（cr-30）：全屏 Sheet 形态 ──
        keepAlive：Sheet 隐藏不卸载——选区 keepAlive 语义（曾当选即常驻）
        在开关之间保持（定时任务等编辑中状态不丢）。 -->
   <Sheet

@@ -32,7 +32,7 @@ const assetsDir = join(dist, 'assets');
 const SHIM = 'legacy-runtime.js';
 const BASELINE_WEBVIEW = 92;
 
-/** CSS 面 color-mix() 声明数上限（cr-38 棘轮，只减不增——同 dep-cycles.yml 纪律）
+/** CSS 面 color-mix() 声明数上限（cr-32 棘轮，只减不增——同 dep-cycles.yml 纪律）
  *  基线 WebView 92 不解析 color-mix（Chrome 111+）：可静态表达者一律改写为
  *  rgba(var(--x-rgb), α)（tokens.css 三元组，语义等价）；无法表达者（动态内联色 /
  *  currentColor / 与非透明色混色）保留 color-mix 但必须在同属性前置静态回退声明。
@@ -132,7 +132,7 @@ if (existsSync(assetsDir)) {
     }
   }
 
-  // ---- 判据④：CSS 面——color-mix()（Chrome 111）基线不解析（cr-38） ----
+  // ---- 判据④：CSS 面——color-mix()（Chrome 111）基线不解析（cr-32） ----
   // 静态可表达者改写为 rgba(var(--x-rgb), α)；无法表达者保留但须有静态回退。
   // 棘轮：只减不增（消化一处即下调 CSS_COLOR_MIX_CAP）。
   const cssFiles = readdirSync(assetsDir).filter((f) => f.endsWith('.css'));

@@ -14,7 +14,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { auxSidebarPanelDefs, type AuxSidebarPanelDef } from './auxSidebarViews.ts';
 
-/** 窄屏断点单源（cr-35）：CSS @media 768 与 JS narrow 同值——matchMedia 响应式，
+/** 窄屏断点单源（cr-29）：CSS @media 768 与 JS narrow 同值——matchMedia 响应式，
  *  跨界瞬间 UI 态与 CSS 断点同步翻转（旧 isNarrow() 即时读 innerWidth 的漂移退役）。 */
 const NARROW_QUERY = '(max-width: 768px)';
 
@@ -144,7 +144,7 @@ export const useUiStore = defineStore('ui', () => {
   //    进入（subagent-session-view-plan R7）——与 pair 同款让位协议：选中
   //    Agent/群/独立会话即回退；与 pairView 互斥（open 时互清）。
   const subagentView = ref<{ subId: string; name?: string; parentId?: string } | null>(null);
-  // ── 移动端导航（cr-35：root/push 双层——抽屉全链退役）──
+  // ── 移动端导航（cr-29：root/push 双层——抽屉全链退役）──
   /** 移动端主区推入态：true = 会话页整页覆盖 root 列表页（返回键/返回钮收起）。
    *  桌面恒 false（无 push 概念）；chat 视角 keepAlive——push/pop 只切显示，DOM 保活。 */
   const mobileMainOpen = ref(false);
@@ -167,7 +167,7 @@ export const useUiStore = defineStore('ui', () => {
    *  关闭/切节守护——节宿主卸载即弃置编辑，需在卸载前拦截确认） */
   const agentEditorDirty = ref(false);
   const versionVisible = ref(false);
-  // ── 文件预览（cr-36：窄屏 Modal 退役——宽窄统一走 aux 意图通道，
+  // ── 文件预览（cr-30：窄屏 Modal 退役——宽窄统一走 aux 意图通道，
   //    窄屏由 AuxSidebarHost 全屏 Sheet 呈现同一多 tab 面板）──
   const previewFilePath = ref('');
   /** 预览意图载体：路径 + fallback 随帧（意图 seq 住通用 auxIntent；
@@ -273,7 +273,7 @@ export const useUiStore = defineStore('ui', () => {
     pushMainIfNarrow();
   }
   function closeSubagentView() { subagentView.value = null; }
-  /** 窄屏导航单点（cr-35）：列表行选中后调——push 会话页；
+  /** 窄屏导航单点（cr-29）：列表行选中后调——push 会话页；
    *  兼容宽屏 no-op（选中语义照旧，不动桌面布局）。 */
   function pushMainIfNarrow() { if (narrowRef.value) mobileMainOpen.value = true; }
   function closeMobileMain() { mobileMainOpen.value = false; }
@@ -311,7 +311,7 @@ export const useUiStore = defineStore('ui', () => {
   /** 收起辅助区域（移动端全屏 Sheet 关闭/返回键消费共用） */
   function closeAux() { auxVisible.value = false; }
 
-  /** aux 选区宿主宽度样式单源（cr-36）：窄屏 = 全屏（100%——固定舒适宽会
+  /** aux 选区宿主宽度样式单源（cr-30）：窄屏 = 全屏（100%——固定舒适宽会
    *  撑破全屏 Sheet），宽屏 = 用户拖调宽。九个选区宿主统一消费，不再各自
    *  拼 `ui.auxWidth + 'px'`。 */
   const auxPaneStyle = computed<Record<string, string>>(() =>
@@ -365,14 +365,14 @@ export const useUiStore = defineStore('ui', () => {
   }
   function closeSettings() { globalSettingsVisible.value = false; }
 
-  /** Token 用量入口（cr-36：宽窄统一）——写通用 aux 意图；窄屏由
+  /** Token 用量入口（cr-30：宽窄统一）——写通用 aux 意图；窄屏由
    *  AuxSidebarHost 以全屏 Sheet 呈现同一选区面板。舒适宽住
    *  def.comfyWidth（840），宽度由 applyAuxPanelWidth 单源解析。 */
   function openTokenUsage() {
     sendAuxIntent('usage');
   }
 
-  /** 打开 System Prompt 预览（cr-36：宽窄统一 aux 'prompt' 选区）。
+  /** 打开 System Prompt 预览（cr-30：宽窄统一 aux 'prompt' 选区）。
    *  内容请求由触发方经 chatStore 发起；面板标题实时解析（无快照）。 */
   function openSystemPrompt() {
     sendAuxIntent('prompt'); // 默认宽（纯文本阅读无需铺开）
@@ -387,7 +387,7 @@ export const useUiStore = defineStore('ui', () => {
   function openVersion() { versionVisible.value = true; }
   function closeVersion() { versionVisible.value = false; }
 
-  /** 打开文件预览（cr-36：宽窄统一 aux 'preview' 选区——舒适宽 'half'
+  /** 打开文件预览（cr-30：宽窄统一 aux 'preview' 选区——舒适宽 'half'
    *  住 def，applyAuxPanelWidth 单源解析；窄屏由全屏 Sheet 呈现） */
   function openPreview(filePath: string, fallbackAgentId = '', conversationId = '') {
     previewFilePath.value = filePath;

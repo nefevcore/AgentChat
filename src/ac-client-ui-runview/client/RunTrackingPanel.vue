@@ -47,7 +47,7 @@ import {
   type WireJob,
 } from 'ac-client-ui-jobs/client';
 
-// 窄屏导航（cr-35）：跳转目标 = push 页（宽屏 no-op）
+// 窄屏导航（cr-29）：跳转目标 = push 页（宽屏 no-op）
 const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
 // runs/runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
@@ -266,7 +266,7 @@ async function jumpTo(r: RunsRunningEntry) {
   }
   // 进入会话：收矩阵 + 清视角（同值重选时选中三元组不变，让位 watch 不触发）
   ui.exitOverlays();
-  pushMainIfNarrow(); // 窄屏：push 会话页（cr-35）
+  pushMainIfNarrow(); // 窄屏：push 会话页（cr-29）
 }
 
 const interrupting = ref(new Set<string>());

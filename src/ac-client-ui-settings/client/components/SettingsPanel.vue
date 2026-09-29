@@ -24,7 +24,7 @@ const ui = useUiStore();
 
 // ── 状态 ──
 const selectedNode = ref('agents');
-/** 窄屏节下拉开合（cr-43：横滚胶囊 tab 不好用——长清单滚不出全貌；改头部下拉） */
+/** 窄屏节下拉开合（cr-37：横滚胶囊 tab 不好用——长清单滚不出全貌；改头部下拉） */
 const navOpen = ref(false);
 const saving = ref(false);
 const restarting = ref(false);
@@ -80,7 +80,7 @@ const globalPluginTabProps = computed<Record<string, unknown>>(() => {
 const currentTitle = computed(() => tree.value.find(n => n.id === selectedNode.value)?.label ?? '');
 
 function selectNode(id: string) {
-  navOpen.value = false; // 窄屏下拉：选择即收（cr-43）
+  navOpen.value = false; // 窄屏下拉：选择即收（cr-37）
   // 节切换守护：正在编辑的 Agent 有未保存编辑时先确认——节宿主卸载即
   // resetAgent（「已放弃」的编辑不复活），不拦会静默丢失（与关闭守护同款）
   if (id !== selectedNode.value && ui.agentEditorDirty) {
@@ -198,7 +198,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
         <div class="sp-header">
           <span class="sp-accent"></span>
           <h3 class="sp-title">设置</h3>
-          <!-- 窄屏节选择器（cr-43：替代横滚胶囊 tab——10+ 节横向滚不出全貌、
+          <!-- 窄屏节选择器（cr-37：替代横滚胶囊 tab——10+ 节横向滚不出全貌、
                宽度未满；下拉展开全节竖列，所见即全部） -->
           <button v-if="currentTitle" class="sp-nav-toggle" @click="navOpen = !navOpen">
             <span class="sp-nav-current">{{ currentTitle }}</span>
@@ -299,7 +299,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
   display: flex; flex-direction: column; overflow: hidden;
 }
 
-/* 窄屏形态规则统一住文件末尾（cr-43 顺序纪律——媒体查询不提升特异性，
+/* 窄屏形态规则统一住文件末尾（cr-37 顺序纪律——媒体查询不提升特异性，
    覆盖块必须在被覆盖的基础规则之后；本文件已两次栽在顺序上）。见尾部。 */
 
 .sp-header { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
@@ -310,7 +310,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 .sp-close { margin-left: auto; background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 4px; line-height: 1; display: inline-flex; align-items: center; }
 .sp-close:hover { color: var(--text-1); }
 
-/* ── 窄屏节下拉（cr-43）── */
+/* ── 窄屏节下拉（cr-37）── */
 /* 桌面隐藏节选择器（桌面用左侧树导航） */
 .sp-nav-toggle { display: none; }
 .sp-nav-current { font-size: 14px; font-weight: 600; color: var(--text-1); }
@@ -328,11 +328,11 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
   background: none; color: var(--text-2); font-size: 14px; cursor: pointer;
 }
 .sp-nav-item.active { background: var(--role-selected-bg); color: var(--text-1); font-weight: 500; }
-/* 窄屏 toggle/drop 显示规则并入文件末尾统一媒体块（cr-43 顺序纪律） */
+/* 窄屏 toggle/drop 显示规则并入文件末尾统一媒体块（cr-37 顺序纪律） */
 .sp-nav-enter-active, .sp-nav-leave-active { transition: opacity var(--dur-fast), transform var(--dur-fast); }
 .sp-nav-enter-from, .sp-nav-leave-to { opacity: 0; transform: translateY(-6px); }
 
-/* ── 窄屏全屏 + 头部下拉形态（cr-39/42/43）——置于全部基础规则之后（顺序即生效）。 */
+/* ── 窄屏全屏 + 头部下拉形态（cr-33/42/43）——置于全部基础规则之后（顺序即生效）。 */
 @media (max-width: 768px) {
   .sp-overlay { align-items: stretch; padding: 0; }
   .sp-panel {
@@ -383,7 +383,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 }
 .sp-root-leaf { padding-left: 10px; }
 
-/* cr-39 横滚胶囊叶样式已随 cr-43 下拉形态退役（树窄屏整体隐藏） */
+/* cr-33 横滚胶囊叶样式已随 cr-37 下拉形态退役（树窄屏整体隐藏） */
 
 /* ── 右侧内容 ── */
 .sp-main { flex: 1; overflow-y: auto; }

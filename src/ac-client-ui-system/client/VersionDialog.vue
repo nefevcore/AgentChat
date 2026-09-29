@@ -258,7 +258,7 @@ async function doUpdate() {
   box-shadow: 0 8px 32px rgba(0,0,0,0.12);
 }
 
-/* 窄屏全屏（cr-40：overlay 系统性适配——自建遮罩同 Modal 原语形态） */
+/* 窄屏全屏（cr-34：overlay 系统性适配——自建遮罩同 Modal 原语形态） */
 @media (max-width: 768px) {
   .version-overlay { align-items: stretch; }
   .version-panel {

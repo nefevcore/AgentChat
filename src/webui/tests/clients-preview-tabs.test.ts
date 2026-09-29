@@ -33,14 +33,14 @@ describe('P1 · preview 选区注册（workspace 行）', () => {
     expect(ids('aux-sidebar')).not.toContain('webui-domain-workspace.preview');
   });
 
-  it('意图通道：openPreview → previewIntent++（宽窄同路径，cr-36 收编）', async () => {
+  it('意图通道：openPreview → previewIntent++（宽窄同路径，cr-30 收编）', async () => {
     const ui = useUiStore();
     ui.openPreview('docs/x.md', 'agent-1');
     expect(ui.auxIntent).toBe(1); // 通用意图 seq（panel='preview'）
     expect(ui.auxIntentPanel).toBe('preview');
     expect(ui.previewIntentFallback).toBe('agent-1');
     expect(ui.previewFilePath).toBe('docs/x.md');
-    // 窄屏同路径（cr-36）：不再直开 Modal——同一意图通道递增（呈现由
+    // 窄屏同路径（cr-30）：不再直开 Modal——同一意图通道递增（呈现由
     // AuxSidebarHost 全屏 Sheet 承担）
     ui.narrow = true;
     try {

@@ -48,7 +48,7 @@ provide('openAgentSettings', (agentId: string) => ui.openAgentSettings(agentId))
 provide('pushMainIfNarrow', () => ui.pushMainIfNarrow());
 provide('closeMobileMain', () => ui.closeMobileMain());
 
-// ── 窄屏 root/push 导航（cr-35）：narrow 单源 + Android 返回键消费链 ──
+// ── 窄屏 root/push 导航（cr-29）：narrow 单源 + Android 返回键消费链 ──
 const narrow = computed(() => ui.narrow);
 
 /** 返回键消费判定（逐层：sheet 在前——MobileTabBar moreOpen 是组件本地态，
@@ -80,13 +80,13 @@ onBeforeUnmount(() => offBack());
 
     <!-- ① 活动栏（seat: activity-bar——VSCode Activity Bar 同款；出厂贡献
          = 壳件出厂贡献 ActivityBarHost；2026-09-11 语义定整：原 sidebar 改名）。
-         窄屏不渲染（cr-35：底部 tab 栏接管导航） -->
+         窄屏不渲染（cr-29：底部 tab 栏接管导航） -->
     <SlotOutlet v-if="!narrow" name="activity-bar" />
 
     <!-- ② 主侧边栏（seat: primary-sidebar——VSCode Primary Side Bar 同款；
          出厂贡献 = 壳件三面板壳——agents/sessions/tracking 三选一，
          只换主侧边栏，不动主面板；2026-09-11 语义定整：原 list-panel 改名） -->
-    <!-- 窄屏 root 层（cr-35）：列表页整页 + 底部 tab 栏——抽屉/把手退役 -->
+    <!-- 窄屏 root 层（cr-29）：列表页整页 + 底部 tab 栏——抽屉/把手退役 -->
     <div v-if="narrow" class="mobile-root">
       <div class="mobile-root-body">
         <SlotOutlet name="primary-sidebar" />
@@ -107,7 +107,7 @@ onBeforeUnmount(() => offBack());
            keepAlive 生命周期策略见 MainViewHost：chat = 文档流保活
            （草稿/滚动/流式态不因主区视图切换丢失），volatile 条目随选
            举挂卸（离开即卸载，后台零轮询） -->
-    <!-- 窄屏 push 层（cr-35）：会话页整页覆盖（transform 滑入——keepAlive 的
+    <!-- 窄屏 push 层（cr-29）：会话页整页覆盖（transform 滑入——keepAlive 的
          chat DOM 隐藏期间流式帧继续上屏，回来即最新帧） -->
     <div v-if="narrow" class="mobile-main" :class="{ open: ui.mobileMainOpen }">
       <MainViewHost />
@@ -123,7 +123,7 @@ onBeforeUnmount(() => offBack());
            （AuxActivityBar——右侧的活动栏同构布局列，DOM 末位 = 最右列）
             全在 AuxSidebarHost + 域行条目 def——壳零域知识；选区缺席
            （行卸载）→ 区域整体消失 -->
-    <!-- ④ 辅助侧边栏（窄屏 cr-36：区域宿主内部换全屏 Sheet 排布——选区注册面零改动） -->
+    <!-- ④ 辅助侧边栏（窄屏 cr-30：区域宿主内部换全屏 Sheet 排布——选区注册面零改动） -->
     <AuxSidebarHost />
 
     <!-- 全局覆盖层（seat: overlay）—— 全部弹窗 = 域行/基础件贡献
@@ -150,7 +150,7 @@ onBeforeUnmount(() => offBack());
   display: flex; flex-shrink: 0; overflow: hidden;
 }
 
-/* ── 窄屏 root/push 双层（cr-35；抽屉态已全链退役）── */
+/* ── 窄屏 root/push 双层（cr-29；抽屉态已全链退役）── */
 .mobile-root {
   position: absolute; inset: 0; z-index: 20;
   display: flex; flex-direction: column;
@@ -164,7 +164,7 @@ onBeforeUnmount(() => offBack());
   transition: transform 0.2s var(--ease-out, ease-out);
   background: var(--bg-base);
   display: flex;
-  padding-top: var(--safe-top, 0px); /* 状态栏避让（cr-40：会话头被遮的次因） */
+  padding-top: var(--safe-top, 0px); /* 状态栏避让（cr-34：会话头被遮的次因） */
 }
 .mobile-main.open { transform: translateX(0); }
 </style>

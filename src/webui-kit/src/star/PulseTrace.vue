@@ -23,7 +23,7 @@ const props = withDefaults(defineProps<{
 
 const isOpen = ref(props.open);
 
-/** 星色 + 其 RGB 伴随（cr-38：tint 走 rgba(var(--tc-rgb), α) 回退形态） */
+/** 星色 + 其 RGB 伴随（cr-32：tint 走 rgba(var(--tc-rgb), α) 回退形态） */
 const starVars = computed(() => ({
   '--tc': props.color || 'var(--primary)',
   '--tc-rgb': props.color ? hexTriplet(props.color) : 'var(--primary-rgb)',

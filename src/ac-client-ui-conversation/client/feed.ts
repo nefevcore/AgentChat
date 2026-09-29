@@ -579,7 +579,7 @@ const UNREGISTERED_SUFFIX = '（已上传，路径未记录）';
 
 /** ref 是否可安全视为附件引用（防误吞用户手打的同形文本行）：已有 chips
  *  覆盖（attachments 旁挂，text=ref）、workspace 上传路径（files/ 前缀）、
- *  绝对路径（cr-30 上传引用主形态：POSIX 根 / 或 Windows 盘符锚定）、
+ *  绝对路径（cr-22 上传引用主形态：POSIX 根 / 或 Windows 盘符锚定）、
  *  或路径未登记降级形——皆否即用户正文，原样保留。 */
 const ABS_PATH_RE = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 function isAttachmentRef(ref: string, files: FileAttachment[] | undefined): boolean {
@@ -623,7 +623,7 @@ export function splitAttachmentLines(
     const unregistered = ref.endsWith(UNREGISTERED_SUFFIX);
     return {
       hash: '',
-      // basename 双分隔符（/ 与 \——cr-30 绝对路径引用 Windows 形）
+      // basename 双分隔符（/ 与 \——cr-22 绝对路径引用 Windows 形）
       filename: unregistered ? ref : (ref.split(/[\\/]/).pop() || ref),
       filesize: 0,
       ...(unregistered ? {} : { text: ref }),

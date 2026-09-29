@@ -1,6 +1,6 @@
 # 移动端 UI 范式重设计（mobile-ui-paradigm-plan）
 
-> 立项 cr-34（2026-09-28）。背景：M3.x 安卓远端链路已收口（配对/传输/回环桥/分发），
+> 立项 cr-28（2026-09-28）。背景：M3.x 安卓远端链路已收口（配对/传输/回环桥/分发），
 > 手机端使用反馈「不方便」——本文档裁决 webui 移动端范式重设计方案与分期。
 > 事实基线：安卓端 = Capacitor 6 壳 + WebView（minSdk 28 / targetSdk 34）加载回环桥上的
 > 同一套 webui dist，**一份前端服务桌面与手机两端**。
@@ -86,7 +86,7 @@ aux-sidebar / overlay），为桌面大屏「多面板并行观察」打造。�
 
 ## 五、实施实况
 
-### Phase①（cr-35，2026-09-28 落地）
+### Phase①（cr-29，2026-09-28 落地）
 
 | 落点 | 内容 |
 |---|---|
@@ -104,7 +104,7 @@ aux-sidebar / overlay），为桌面大屏「多面板并行观察」打造。�
 
 测试对齐：三处窄屏模拟自 Object.defineProperty(innerWidth) 改 ui.narrow 直写（单源化的测试面收益——jsdom matchMedia 垫片恒宽的旧缺口消除）。验证：typecheck/webui:typecheck/test:unit(2191)/check:deps/eslint 定向全绿。
 
-### Phase②（cr-36，2026-09-28 落地）
+### Phase②（cr-30，2026-09-28 落地）
 
 | 落点 | 内容 |
 |---|---|
@@ -117,24 +117,24 @@ aux-sidebar / overlay），为桌面大屏「多面板并行观察」打造。�
 
 验证：typecheck / webui:typecheck / test:unit（2190） / check:deps（R1-R7 白名单仍 20 条，未新增） / 全域定向 eslint 全绿。测试同步：三处窄屏用例改「同路径」断言（Modal 直开断言删除）、system-prompt 测试删 modal 用例面。
 
-### Phase③（cr-37，部分落地）
+### Phase③（cr-31，部分落地）
 
 | 项 | 状态 |
 |---|---|
 | 软键盘 | ✅ AndroidManifest 补 `windowSoftInputMode="adjustResize"`（键盘压缩 WebView 视口而非整页上移，100vh 高度链随之收缩） |
 | 触摸基线 | ✅ base.css 全局：`-webkit-tap-highlight-color: transparent`（消 WebView 点击灰闪）+ `touch-action: manipulation`（消双击缩放延迟与误触）+ `body { overscroll-behavior: none }`（遏制滚动链外溢） |
-| safe-area | ✅ cr-35 已前置（tokens.css `--safe-top/--safe-bottom` + viewport-fit=cover），tab 栏/Sheet/输入区已消费 |
-| color-mix 回退 | ✅ cr-38 完成（123 处转 `rgba(var(--x-rgb), α)`；12 处带回退的渐进增强；构建期棘轮守门 + 令牌契约测试） |
+| safe-area | ✅ cr-29 已前置（tokens.css `--safe-top/--safe-bottom` + viewport-fit=cover），tab 栏/Sheet/输入区已消费 |
+| color-mix 回退 | ✅ cr-32 完成（123 处转 `rgba(var(--x-rgb), α)`；12 处带回退的渐进增强；构建期棘轮守门 + 令牌契约测试） |
 | 真机验证轮 | ⏸ 待设备（chrome://inspect + m3-realdevice-checklist） |
 
-**color-mix 收口（cr-38 已落地）**：133 处。核心洞察——`color-mix(in srgb, C N%, transparent)` 在**预乘 alpha 插值**下语义恰等于「C 以 N% 不透明度着色」，故等价物是 `rgba(var(--x-rgb), N/100)`，只差一个 RGB 三元组令牌。落地：
+**color-mix 收口（cr-32 已落地）**：133 处。核心洞察——`color-mix(in srgb, C N%, transparent)` 在**预乘 alpha 插值**下语义恰等于「C 以 N% 不透明度着色」，故等价物是 `rgba(var(--x-rgb), N/100)`，只差一个 RGB 三元组令牌。落地：
 
 - **令牌层**：tokens.css 双主题补 `--primary/-text-1/-2/-3/-ok/-warn/-err-rgb`（改色须与 hex 同改，有测试锁）；badge.css 九个 `tt-*` 色相类补 `--tag-hue-rgb`。
 - **动态色例外**：星色 `--sc`/`--tc` 是运行时内联值，CSS 无从派生三元组 → 组件同时注入伴随变量（`starColor.hexTriplet`）。
 - **机械转换**：确定性 codemod 转 123 处（含嵌套 `var()` 回退的括号平衡解析）。
 - **残量 12 处**：无法用三元组表达者（与非透明色混色 6 / currentColor 1 / 需加深的 hover 1 等）保留 `color-mix`，但**同属性前置静态回退声明**——基线运行时取回退值，现代浏览器由 color-mix 覆盖（渐进增强）。
 - **防回归**：构建期棘轮（产物 color-mix 数 ≤ 12，只减不增）+ 令牌三元组三锁测试（同步 / 存在 / 反向死条目）。
-- **验证手段（无设备替代）**：本地探针页加载构建产物 CSS，读回**解析后的计算样式**——比肉眼截图可靠，实测 tint/CSS 变量链/色相回落/回退链全部正确；并实锤一处级联缺陷（组件规则内写 `--tag-hue-rgb` 缺省值压掉色相类，详见 cr-38）。
+- **验证手段（无设备替代）**：本地探针页加载构建产物 CSS，读回**解析后的计算样式**——比肉眼截图可靠，实测 tint/CSS 变量链/色相回落/回退链全部正确；并实锤一处级联缺陷（组件规则内写 `--tag-hue-rgb` 缺省值压掉色相类，详见 cr-32）。
 - 副产品（测试反哺零冗余）：清掉 4 个未被消费的三元组条目。
 - 副产品（测试反哺零冗余）：清掉 4 个未被消费的三元组条目。
 

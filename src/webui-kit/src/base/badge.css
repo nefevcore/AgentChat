@@ -56,7 +56,7 @@
 }
 
 /* ── 能力标签色相（tt-* 设 --tag-hue 与伴随三元组 --tag-hue-rgb；
-   cr-38：tint 走 rgba(var(--tag-hue-rgb), α)——WebView 92 无 color-mix。
+   cr-32：tint 走 rgba(var(--tag-hue-rgb), α)——WebView 92 无 color-mix。
    两处工具清单共用；新增色相类须两值同加） ── */
 .tt-base { --tag-hue: var(--primary); --tag-hue-rgb: var(--primary-rgb); }
 .tt-admin { --tag-hue: #dc2626; --tag-hue-rgb: 220, 38, 38; }

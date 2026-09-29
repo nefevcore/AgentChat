@@ -462,12 +462,12 @@ html.dark .corner{background:#11151d}
 /* 列头：头像（sticky 顶；十字高亮） */
 .col-head{position:sticky;top:0;z-index:2;width:var(--cell);height:48px;display:flex;align-items:center;justify-content:center;background:var(--color-bg-page,#fff);border-radius:10px;transition:background var(--transition-fast)}
 html.dark .col-head{background:#11151d}
-.col-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-38）：页面底即本元素底色，α 混合等效 */;background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
+.col-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-32）：页面底即本元素底色，α 混合等效 */;background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
 
 /* 行头：头像 + 名称（sticky 左；十字高亮） */
 .row-head{position:sticky;left:0;z-index:1;height:var(--cell);display:flex;align-items:center;gap:8px;padding:0 10px 0 4px;background:var(--color-bg-page,#fff);min-width:0;border-radius:10px;transition:background var(--transition-fast)}
 html.dark .row-head{background:#11151d}
-.row-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-38） */;background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
+.row-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-32） */;background:color-mix(in srgb,var(--color-primary,#6366f1) 12%,var(--color-bg-page,#fff))}
 .row-head-name{font-size:12px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .head-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;flex-shrink:0}
@@ -480,7 +480,7 @@ html.dark .row-head{background:#11151d}
 /* hover 格：仅细主色描边指示（不放大、不加光晕、不改颜色 —— 避免拥挤与遮色） */
 .cell:hover{box-shadow:inset 0 0 0 2px var(--color-primary,#6366f1)}
 .cell:active{box-shadow:inset 0 0 0 2.5px var(--color-primary,#6366f1)}
-.cell.hl{box-shadow:inset 0 0 0 1px rgba(var(--color-primary-rgb, 99, 102, 241),.3) /* 回退（cr-38） */;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--color-primary,#6366f1) 25%,rgba(127,127,127,.1))}
+.cell.hl{box-shadow:inset 0 0 0 1px rgba(var(--color-primary-rgb, 99, 102, 241),.3) /* 回退（cr-32） */;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--color-primary,#6366f1) 25%,rgba(127,127,127,.1))}
 .cell.hl.mirror-data{opacity:.85}
 /* 上三角镜像：无数据 = 斜纹占位（不可点）；有数据 = 弱化浓度（可点进入同一会话） */
 .cell.mirror{cursor:default;opacity:.45}

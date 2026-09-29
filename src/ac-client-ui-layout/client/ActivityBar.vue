@@ -31,7 +31,7 @@ const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID.value) ?? 
 const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID.value) || 'User');
 
 // ── 未读聚合徽章（Agent 列表 / 会话列表按钮）──
-// 口径与实现迁 layout 共享模块 useUnreadBadges（cr-35：MobileTabBar 同源消费，
+// 口径与实现迁 layout 共享模块 useUnreadBadges（cr-29：MobileTabBar 同源消费，
 // 不复制实现）；口径注释见该模块头注。
 const { agentsUnreadTotal, singlesUnreadTotal, agentsUnreadLabel, singlesUnreadLabel } = useUnreadBadges();
 

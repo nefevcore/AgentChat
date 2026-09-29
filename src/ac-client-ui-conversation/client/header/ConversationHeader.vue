@@ -34,7 +34,7 @@ const props = defineProps<{
 const chatStore = useChatStore();
 const ui = useUiStore();
 const roster = useRosterCore();
-/** 窄屏导航（cr-35）：push 会话页态——汉堡退役，按钮变返回（closeMobileMain） */
+/** 窄屏导航（cr-29）：push 会话页态——汉堡退役，按钮变返回（closeMobileMain） */
 const closeMobileMain = inject<() => void>('closeMobileMain', () => {});
 
 /** pair 端点展示信息（system 端点特殊标签；头像/名称经名册解析） */
@@ -53,7 +53,7 @@ const epB = computed(() => endpointOf(props.b || ''));
 <template>
   <div class="chat-header">
     <template v-if="isPair">
-      <!-- 窄屏返回（cr-39：只读会话也是 push 页——必须可返回） -->
+      <!-- 窄屏返回（cr-33：只读会话也是 push 页——必须可返回） -->
       <button class="hamburger-btn back-btn" @click="closeMobileMain" title="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
       </button>
@@ -156,7 +156,7 @@ const epB = computed(() => endpointOf(props.b || ''));
   backdrop-filter: blur(8px); z-index: 100;
 }
 .header-info {
-  /* 单行（cr-40）：标题 + 预设徽章一行排布——块级默认宽度会令子项换行
+  /* 单行（cr-34）：标题 + 预设徽章一行排布——块级默认宽度会令子项换行
      成上下两行（窄屏溢出上方、与右侧按钮重叠的根因）；baseline 对齐
      令徽章与标题文字基线一致。 */
   display: flex; align-items: baseline; gap: 6px;
@@ -166,7 +166,7 @@ const epB = computed(() => endpointOf(props.b || ''));
    撑破 48px 头部；pair 形态双端点名同理（.pair-title 已 min-width:0） */
 .agent-label { font-size: 15px; font-weight: 600; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 返回按钮（cr-35：原汉堡退役——push 会话页的返回）：默认隐藏，窄屏显示 */
+/* 返回按钮（cr-29：原汉堡退役——push 会话页的返回）：默认隐藏，窄屏显示 */
 .hamburger-btn, .back-btn {
   display: none; background: none; border: none; cursor: pointer;
   color: var(--color-text-secondary); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;

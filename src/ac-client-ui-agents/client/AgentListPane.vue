@@ -272,7 +272,7 @@ function tagHint(t: string): string {
   padding: 2px 9px; border-radius: var(--r-full);
   background: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.07);
   border: 1px solid rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.16);
-  /* 回退（cr-38：无 color-mix 的运行时取本色，支持者取混色）——标签文字色 */
+  /* 回退（cr-32：无 color-mix 的运行时取本色，支持者取混色）——标签文字色 */
   color: var(--tag-hue, var(--text-3));
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 72%, var(--text-1));
   font-size: 11px; line-height: 1.5; cursor: default;
@@ -281,7 +281,7 @@ function tagHint(t: string): string {
 .agent-pool-tag:hover {
   background: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.12);
   border-color: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.24);
-  color: var(--tag-hue, var(--text-3)); /* 回退（cr-38） */
+  color: var(--tag-hue, var(--text-3)); /* 回退（cr-32） */
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 85%, var(--text-1));
 }
 /* 标签色相表（与 AgentPane tb-* 同源；base/agent 已退役） */

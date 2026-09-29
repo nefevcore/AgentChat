@@ -1,5 +1,5 @@
 // ============================================================
-// client/historyFlag.ts —— Android 返回键桥（cr-35 Phase①）
+// client/historyFlag.ts —— Android 返回键桥（cr-29 Phase①）
 //
 // 协议（最小面，壳 → WebView 单向）：MainActivity onBackPressed 时
 // evaluateJavascript 派发 'agentchat:back' CustomEvent；本模块注册

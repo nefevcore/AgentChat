@@ -39,7 +39,7 @@ function isAgentRunning(id: string): boolean { return feedStore.getDialog(direct
  * 可靠判断「群聊正在回复」的。因此群头像不做 running 判断，正式回复经
  * send_group → group.message 事件落进群组对话即可。 */
 
-// 窄屏导航（cr-35）：选中即 push 会话页（宽屏 no-op——布局不动）
+// 窄屏导航（cr-29）：选中即 push 会话页（宽屏 no-op——布局不动）
 const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
 const emit = defineEmits<{
@@ -181,7 +181,7 @@ function selectAgent(id: string) {
   const a = roster.agents.value.find(a => a.id === id);
   if (a?.hasActiveSession) chatStore.subscribeAgent(id);
   ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
-  pushMainIfNarrow(); // 窄屏：push 会话页（cr-35）
+  pushMainIfNarrow(); // 窄屏：push 会话页（cr-29）
 }
 function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.exitOverlays(); pushMainIfNarrow(); }
 

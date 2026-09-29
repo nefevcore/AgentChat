@@ -1,7 +1,7 @@
 <!-- ============================================================ -->
 <!-- client/TokenUsageHost.vue —— usage 域 overlay 席位宿主
 
-零渲染宿主（cr-36：窄屏 Modal 形态退役——TokenUsage 组件的 modal 形态不再
+零渲染宿主（cr-30：窄屏 Modal 形态退役——TokenUsage 组件的 modal 形态不再
 有消费方；宽窄统一走 aux 'usage' 选区，窄屏由 AuxSidebarHost 全屏 Sheet
 呈现 panel 形态）。本组件的唯一职责 = 承载 auxIntent 消费 watch：
 意图消费必须住 overlay 常驻组件（插件级 watch 会绑死建立时的 active pinia

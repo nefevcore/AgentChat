@@ -1,7 +1,7 @@
 <!-- ============================================================ -->
 <!-- client/FilePreviewHost.vue —— workspace 域 overlay 席位宿主
 
-零渲染宿主（cr-36：窄屏 Modal 形态退役——FilePreviewModal 删除；宽窄统一
+零渲染宿主（cr-30：窄屏 Modal 形态退役——FilePreviewModal 删除；宽窄统一
 走 aux 'preview' 选区，窄屏由 AuxSidebarHost 全屏 Sheet 呈现同一多 tab
 面板）。本组件的唯一职责 = 承载 auxIntent 消费 watch（须住 overlay 常驻
 组件——插件级 watch 绑死建立时 pinia；选区宿主 volatile 卸载即收不到意图帧）：

@@ -412,7 +412,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
    完全填满（与手机视口窄形态行为统一）。 */
 .turn-item { display: flex; flex-direction: column; gap: 8px; max-width: min(100%, max(70%, 440px)); }
 
-/* 窄屏行宽放宽（cr-43）：行容器含头像列（32 + gap 10 = 42px），70% 上限下
+/* 窄屏行宽放宽（cr-37）：行容器含头像列（32 + gap 10 = 42px），70% 上限下
    文本列被压到 ~209px（375 屏），另一侧却空 ~108px——「未考虑另一侧头像
    宽度」。88% + 两侧各 6% 呼吸边：文本列 ≈274px，对话密度正常。 */
 @media (max-width: 768px) {

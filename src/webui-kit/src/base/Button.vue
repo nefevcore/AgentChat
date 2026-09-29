@@ -61,7 +61,7 @@ const classes = computed(() => [
 
 .ui-btn-spinner {
   width: 12px; height: 12px; border-radius: var(--r-full);
-  /* 回退（cr-38）：currentColor 无法派生 RGB 三元组（任意色上下文），
+  /* 回退（cr-32）：currentColor 无法派生 RGB 三元组（任意色上下文），
      故轨道环用中性灰——仅 ◯ 弧（border-top-color: currentColor）是主视觉 */
   border: 2px solid rgba(127, 127, 127, 0.32);
   border: 2px solid color-mix(in srgb, currentColor 30%, transparent);

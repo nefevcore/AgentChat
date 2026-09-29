@@ -801,7 +801,7 @@ const busyPlaceholder = computed(() => {
 });
 
 /** 输入区 placeholder 单源（双编辑面共用；textarea 面经 :placeholder 直取）。
- *  窄屏置短（cr-39）：桌面默认提示含 Enter/Shift+Enter///@/# 等键盘与命令
+ *  窄屏置短（cr-33）：桌面默认提示含 Enter/Shift+Enter///@/# 等键盘与命令
  *  词汇——触屏无键盘快捷键、命令语法是桌面工作流；忙态手势提示同理
  *  （Cmd/Ctrl+Enter 在手机上不存在）。保留功能性提示（归档进行中——
  *  它说明的是 Agent 状态而非操作方式）。 */
@@ -810,7 +810,7 @@ const placeholderText = computed(() => {
     return uiStore.narrow ? '预设已退役——请新建会话' : '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式';
   }
   if (store.archivePending) return '当前 Agent 正在归档整理记忆，稍后处理您的回复…';
-  // 窄屏彻底置空（cr-40 二轮）：无自定义占位 = 不显示——现代输入框无需
+  // 窄屏彻底置空（cr-34 二轮）：无自定义占位 = 不显示——现代输入框无需
   // 『输入消息…』教学；功能性提示（归档/预设退役）仍保留
   if (uiStore.narrow) return props.placeholder || '';
   return busySend.value ? busyPlaceholder.value : (props.placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)');
@@ -1287,7 +1287,7 @@ async function uploadAndAttach(rawFiles: File[]): Promise<void> {
         // 兜底——hash 字段 + uploadPaths 登记保证路径合成不受显示名影响
         filename: data.originalName || data.storedName || 'file',
         filesize: data.size ?? 0,
-        // 绝对路径主形态（cr-30：read 工具跨锚点可达）；旧后端降级相对 path
+        // 绝对路径主形态（cr-22：read 工具跨锚点可达）；旧后端降级相对 path
         text: data.absPath ?? data.path,
       });
     } catch (err: any) {
@@ -1913,7 +1913,7 @@ function onThumbError(i: number) {
   flex-shrink: 0;
 }
 
-/* 窄屏纯图标（cr-39）：select-text 隐藏——六个下拉钮（模型/思考/提权/工具
+/* 窄屏纯图标（cr-33）：select-text 隐藏——六个下拉钮（模型/思考/提权/工具
    模式/实验性/工作区/Agent）只留图标+chevron；完整名与语义在点开的菜单里。
    长名按钮（实验性·浏览器已禁用/未配置模型）同时收掉 padding。 */
 @media (max-width: 768px) {
@@ -2164,7 +2164,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
   animation: pulse-stop 1.5s ease-in-out infinite;
 }
 
-.send-btn.stopping:hover { background: var(--color-error); /* 回退（cr-38）：本色（混黑为加深一档的 hover 微调） */ background: color-mix(in srgb, var(--color-error) 85%, #000); color: #fff; }
+.send-btn.stopping:hover { background: var(--color-error); /* 回退（cr-32）：本色（混黑为加深一档的 hover 微调） */ background: color-mix(in srgb, var(--color-error) 85%, #000); color: #fff; }
 
 @keyframes pulse-stop {
   0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-error-rgb), 0.35); }

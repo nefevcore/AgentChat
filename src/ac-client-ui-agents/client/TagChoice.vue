@@ -214,7 +214,7 @@ function chooseOff() {
   border-left: 1px solid rgba(var(--text-3-rgb), 0.18);
 }
 .tc-pill.on .tc-label { border-left-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.22); }
-.tc-pill.on .tc-toggle { color: var(--tag-hue, var(--primary)); /* 回退（cr-38） */ color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1)); font-weight: 500; }
+.tc-pill.on .tc-toggle { color: var(--tag-hue, var(--primary)); /* 回退（cr-32） */ color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1)); font-weight: 500; }
 .tc-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: rgba(var(--text-3-rgb), 0.45);

@@ -43,7 +43,7 @@ const saving = ref(false);
 function closePanel() {
   groupSvc?.closeDrawer();
   if (ui.auxVisible) ui.toggleAux();
-  // 窄屏 aux 已隐藏（cr-35）——本调用主要服务宽屏；窄屏回 root 由返回键/返回钮承担
+  // 窄屏 aux 已隐藏（cr-29）——本调用主要服务宽屏；窄屏回 root 由返回键/返回钮承担
 }
 
 // ── 删除编排（确认弹窗 + RPC + onGroupDeleted）──

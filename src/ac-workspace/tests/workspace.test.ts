@@ -130,7 +130,7 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     const a1 = ctx.workspace.saveUpload('admin', 'a.png', PNG);
     const a2 = ctx.workspace.saveUpload('admin', '重命名同内容.png', PNG); // 不同名同内容
     expect(a2.path).toBe(a1.path); // 同内容同 path
-    expect(a2.absPath).toBe(path.join(root, 'files', 'admin', '_tmp', a1.storedName)); // 绝对形（cr-30）
+    expect(a2.absPath).toBe(path.join(root, 'files', 'admin', '_tmp', a1.storedName)); // 绝对形（cr-22）
     expect(a2.storedName).toBe(a1.storedName);
     const dir = path.join(root, 'files', 'admin', '_tmp');
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png'));
