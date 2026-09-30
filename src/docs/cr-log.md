@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-60**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-61**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -78,3 +78,4 @@
 - 【cr-58 2026-09-30 cr-log 管理 CLI（scripts/cr.mjs 零依赖本地工具）：append 自动取号 + 当日真实日历日 + 同步头部「当前号」行（写前不变量自检 fail-loud，与守门测试同口径）；grep 条目块级检索（多词 AND、续行按引用 cr 号归属、最新在前）——登记/查询各一次调用完成，替代读头行→手写条目→改头行的多轮文件操作；CR_LOG_FILE 供测试隔离；SKILL.md 红线指路与 package.json（pnpm cr）同步】
 - 【cr-59 2026-09-30 run_code # 注释规范化：strip 前确定性 #→// 改写（共享扫描器）+ 报错提示覆盖 V8 编译失败路径 + SDK 纪律行】
 - 【cr-60 2026-09-30 会话切换 user 消息掉底/错渲染修复（resume 快照尾部追加越过 journal 活投影步）】
+- 【cr-61 2026-09-30 修复 run 中后台 job 通知 event 行插入后工具卡永久转圈：turnContentSig 漏 tool result 长度致前缀复用过期 Turn】

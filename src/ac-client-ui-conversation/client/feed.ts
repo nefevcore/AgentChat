@@ -462,7 +462,12 @@ function turnContentSig(t: Turn): string {
   let s = t.agent_id;
   for (const st of t.steps) {
     const a = st.assistant as any;
-    s += `|s:${a.id ?? ''}:${(a.content ?? '').length}:${(a.thinking ?? '').length}:${st.tools.length}`;
+    // 各 tool 的 result/label 长度必入签名（对齐 msgSig 的 toolCallsSig 口径）：
+    // 中段消息变化（如 run 中插入 event 行后，工具 result 更新不再位于末条）
+    // 走前缀复用分支时，签名漏 result 会复用过期 Turn——工具卡内容空且
+    // 永久转圈，直到收束重拉/刷新（cr-61：后台 job 完成通知 event 行插入）
+    const tools = st.tools.map((m: any) => `${(m.content ?? '').length}:${(m.label ?? '').length}`).join(',');
+    s += `|s:${a.id ?? ''}:${(a.content ?? '').length}:${(a.thinking ?? '').length}:${st.tools.length}:${tools}`;
   }
   const f = t.final;
   s += `|f:${f ? `${(f as any).id ?? ''}:${((f as any).content ?? '').length}` : '-'}`;
