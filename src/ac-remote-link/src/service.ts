@@ -413,12 +413,12 @@ export class RemoteLinkService extends Service {
       conn.sever('connect-failed');
       // KK 握手期失败重试不受 autoReconnect 门控（进房时序竞态是常态：发起方
       // m1 早于本端入房即丢——短窗内自动重排对齐客户端的重试节奏）。
-      // 间隔 7s（cr-43 真机实锤：此前 1s×10 连发 join 烧穿 relay 频控 bucket
-      // 〔burst 5 / 10 每分钟 per IP〕→ 稳定 room-unavailable 恶性循环；7s ≈ 8.5/min
-      // 不触顶，与手机侧 KK_RETRY_DELAY_MS 同节奏两端会合窗最大）
+      // 间隔 2s（cr-63 会合提速：70s 长驻 + 2s 间隙 = 在房率 97%，手机撞门即会合。
+      // 频控安全：本端每 72s 一次 join 距 30/min 上限余量巨大；cr-43 ⑬ 的教训是
+      // 「同 IP 双端合计」烧频控——手机侧已同步降为 4s/轮 = 15/min，合计仍 <30/min）
       if ((this.kkRetries.get(deviceId) ?? 0) < 10) {
         this.kkRetries.set(deviceId, (this.kkRetries.get(deviceId) ?? 0) + 1);
-        setTimeout(() => { void this.runDeviceConnection(deviceId); }, 7_000);
+        setTimeout(() => { void this.runDeviceConnection(deviceId); }, 2_000);
       } else {
         this.kkRetries.delete(deviceId);
         this.scheduleReconnect(deviceId);

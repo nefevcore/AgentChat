@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-61**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-63**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -79,3 +79,5 @@
 - 【cr-59 2026-09-30 run_code # 注释规范化：strip 前确定性 #→// 改写（共享扫描器）+ 报错提示覆盖 V8 编译失败路径 + SDK 纪律行】
 - 【cr-60 2026-09-30 会话切换 user 消息掉底/错渲染修复（resume 快照尾部追加越过 journal 活投影步）】
 - 【cr-61 2026-09-30 修复 run 中后台 job 通知 event 行插入后工具卡永久转圈：turnContentSig 漏 tool result 长度致前缀复用过期 Turn】
+- 【cr-62 2026-09-30 手机端握手时序图（src/docs/mobile-handshake-sequence.html）：XK 配对与 KK 重连两条握手全时序（源码对齐版）——三泳道参与者/保活与频控参数/断链恢复实测节奏/SAS 校验锚点，与既有 mobile-link-diagram.html 同族样式】
+- 【cr-63 2026-09-30 手机冷启会合提速：PC KK 循环间隙 7s→2s（在房率 91%→97%，join 频控无压力）+ 手机撞门轮间隔 7s→4s（15/min 频控安全）——冷启等待实测 ~29s 降至预期 ~7s 均值。根因：撞门粒度与 PC 循环间隙的乘积构成相位错拍窗口，两端各压一半】

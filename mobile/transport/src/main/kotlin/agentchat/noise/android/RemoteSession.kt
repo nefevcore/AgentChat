@@ -52,15 +52,16 @@ private const val DEFAULT_BRIDGE_PORT = 27182
  * 相位错开而永久错过；短超时 + 快速重试让本端在对方的等待窗内多次"撞门"。
  *
  * 节奏取值受 relay join 频控约束：ac-relay-server DEFAULT_LIMITS.joinBucket
- * = burst 5 / 每分钟 10 次（per IP），**每次重试都是一次新 join**。
- * 故 3s 握手超时 + 4s 间隔 ≈ 7.1s/轮 ≈ 8.5 次/分钟，留有余量不触顶
+ * = burst 20 / 每分钟 30 次（per IP，cr-43 ⑬ 提容后），**每次重试都是一次新 join**。
+ * 3s 握手超时 + 4s 间隔 ≈ 8.6s/轮 ≈ 7 次/分钟，留有余量不触顶
  * （早期实测用 1s 级重试会烧穿 bucket → relay 回 room-unavailable）。
- * 10 轮 ≈ 71s，覆盖对端最长 60s 退避窗。
+ * 10 轮 ≈ 86s，覆盖核心端 70s 长驻 + 2s 间隙的完整循环。
  */
 private const val KK_RECONNECT_ATTEMPTS = 10
-// 7s（cr-43 ⑬：原 4s ≈ 15 join/min，与核心端重试同 NAT 出口时合计远超 relay 频控
-// 且超时连接释放不及堆僵尸；7s ≈ 8.5/min 与核心端同节奏，会合窗内互撞概率最大）
-private const val KK_RETRY_DELAY_MS = 7_000L
+// 4s（cr-63 会合提速：3s 超时 + 4s 间隔 ≈ 8.6s/轮 ≈ 7/min。cr-43 ⑬ 时代调 7s 的前提
+// 〔频控 10/min、核心端 1s×10 连发〕已双双失效：频控现为 30/min（burst 20），核心端
+// 改为 70s 长驻 + 2s 间隙（每 72s 一次 join）——双端合计 ~8/min，余量充足）
+private const val KK_RETRY_DELAY_MS = 4_000L
 
 /** 退避重连总时长上限（cr-43 ⑪：防「对端已移除设备」下的无限重连卡死） */
 private const val RECONNECT_GIVE_UP_MS = 10 * 60_000L

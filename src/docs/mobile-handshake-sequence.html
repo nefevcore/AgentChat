@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>握手时序图 · AgentChat 移动端</title>
+<style>:root{
+    --ink:#1f2430; --muted:#5b6472; --line:#d9dee6; --bg:#f4f6f9; --card:#ffffff;
+    --blue:#2563eb;   --blue-bg:#eff6ff;
+    --green:#059669;  --green-bg:#ecfdf5;
+    --amber:#b45309;  --amber-bg:#fffbeb;
+    --purple:#7c3aed; --purple-bg:#f5f3ff;
+    --teal:#0f766e;   --teal-bg:#f0fdfa;
+    --red:#dc2626;    --red-bg:#fef2f2;
+    --gray:#475569;   --gray-bg:#f1f5f9;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+code,.mono{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:.92em}
+h1{font-size:26px;margin:0 0 6px}
+h2{font-size:20px;margin:0 0 4px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+.sub{color:var(--muted);margin:0 0 18px}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px 26px;margin:0 0 34px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+.legend{display:flex;flex-wrap:wrap;gap:10px 18px;margin:14px 0 0;font-size:13px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.chip{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid}
+.c-app{background:var(--purple-bg);border-color:var(--purple)}
+.c-relay{background:var(--amber-bg);border-color:var(--amber)}
+.c-host{background:var(--blue-bg);border-color:var(--blue)}
+.c-sec{background:var(--red-bg);border-color:var(--red)}
+.c-user{background:var(--teal-bg);border-color:var(--teal)}
+/* ---- 泳道头 ---- */
+.lanebox{display:grid;grid-template-columns:1fr 1fr 1fr;margin:16px 0 0}
+.lanehead{padding:10px 8px;text-align:center;border:1px solid var(--line);border-bottom:2px solid var(--ink);background:#fbfcfe}
+.lanehead .who{font-weight:650;font-size:14px}
+.lanehead small{color:var(--muted);display:block;font-size:11.5px}
+.lanehead.app{border-top:3px solid var(--purple)} .lanehead.app .who{color:var(--purple)}
+.lanehead.relay{border-top:3px solid var(--amber)} .lanehead.relay .who{color:var(--amber)}
+.lanehead.host{border-top:3px solid var(--blue)} .lanehead.host .who{color:var(--blue)}
+/* ---- 序列区：三条生命线 ---- */
+.seq{position:relative;margin-top:2px}
+.life{position:absolute;top:-2px;bottom:0;width:0;border-left:1.5px dashed var(--line);z-index:0}
+.life.p1{left:16.667%}.life.p2{left:50%}.life.p3{left:83.333%}
+/* ---- 箭头：--l/--r = 线段左右端点 ---- */
+.ar{position:relative;z-index:1;margin:10px 0 0;padding:2px 0 18px}
+.ar::before{content:"";position:absolute;left:var(--l);width:calc(var(--r) - var(--l));bottom:9px;border-top:1.7px solid var(--ac)}
+.hd{position:absolute;bottom:3.8px;width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.hd.r{right:calc(100% - var(--r));border-left:8px solid var(--ac);border-right:none}
+.hd.l{left:var(--l);border-right:8px solid var(--ac);border-left:none}
+.ar.s-a{--ac:var(--purple)}
+.ar.s-h{--ac:var(--blue)}
+.ar.s-r{--ac:var(--amber)}
+.span{position:relative;margin-left:var(--l);margin-right:calc(100% - var(--r));display:flex;justify-content:center}
+.lab{background:var(--card);padding:1px 10px;border-radius:6px;text-align:center;max-width:100%}
+.lab .t{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:12.5px;font-weight:650;word-break:break-all;display:block}
+.lab small{color:var(--muted);font-size:11.5px;display:block;line-height:1.5}
+.lab .dir{display:none}
+/* ---- 注释条 ---- */
+.note{position:relative;z-index:1;margin:8px 10%;font-size:12.5px;color:var(--muted);border-left:3px solid var(--line);padding:4px 12px;background:#fbfcfe;border-radius:0 6px 6px 0}
+.note code{font-size:11.5px}
+.note.sec{border-left-color:var(--red);background:var(--red-bg);color:#7f1d1d}
+.note.usr{border-left-color:var(--teal);background:var(--teal-bg);color:#134e4a}
+.note.ok{border-left-color:var(--green);background:var(--green-bg);color:#065f46}
+.phase{position:relative;z-index:1;margin:20px 0 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.phase b{font-size:13px;letter-spacing:.5px;padding:2px 12px;border-radius:999px;color:#fff;white-space:nowrap}
+.phase span{color:var(--muted);font-size:12.5px}
+.ph1{background:var(--purple)} .ph2{background:var(--blue)} .ph3{background:var(--green)} .ph4{background:var(--teal)}
+.ph5{background:#9333ea} .ph6{background:var(--amber)} .ph7{background:var(--red)}
+ul{margin:6px 0 0;padding-left:20px} li{margin:2px 0}
+.fine{font-size:12.5px;color:var(--muted);line-height:1.7}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.kv{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fbfcfe}
+.kv h4{margin:0 0 6px;font-size:13.5px}
+.kv ul{margin:2px 0 0;padding-left:18px;font-size:13px} .kv li{margin:3px 0}
+@media (max-width:900px){
+  .lanebox{grid-template-columns:1fr}
+  .life{display:none}
+  .ar{padding:0 0 4px;margin:12px 0 0}
+  .ar::before{display:none}
+  .hd{position:static;display:inline-block;border:none;width:auto;height:auto}
+  .span{margin:0;display:block}
+  .lab{text-align:left;padding:0}
+  .lab .dir{display:inline;margin-right:8px;font-weight:650}
+  .cols{grid-template-columns:1fr}
+}</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>手机 ⇄ PC 握手时序图</h1>
+  <p class="sub">XK 配对（首次扫码）与 KK 重连（断链自愈）两条握手的全时序——与源码逐帧对齐（ac-noise-core / Noise.kt / relay-connection.ts / RemoteSession.kt）。三泳道：手机（initiator 恒定）、哑中继（只转发密文）、PC 核心端（responder 恒定）。配图为 <a href="mobile-link-diagram.html">移动端链路图</a> 的握手放大版。</p>
+</header>
+<section>
+  <h2>① XK 配对握手（首次）</h2>
+  <div class="legend">
+    <span><i class="chip c-app"></i>手机发出</span>
+    <span><i class="chip c-host"></i>PC 核心端发出</span>
+    <span><i class="chip c-relay"></i>中继应答/通知</span>
+    <span><i class="chip c-user"></i>人工参与</span>
+    <span><i class="chip c-sec"></i>密码学事件</span>
+  </div>
+<div class="lanebox">
+  <div class="lanehead app"><div class="who">📱 手机端（initiator）</div><small>RemoteSession · Noise.kt（Kotlin）</small></div>
+  <div class="lanehead relay"><div class="who">🖦 哑中继 relay</div><small>ac-relay-server（wss 自签 · 房间管道）</small></div>
+  <div class="lanehead host"><div class="who">🖥 PC 核心端（responder）</div><small>ac-remote-link · ac-noise-core（Node）</small></div>
+</div>
+<div class="seq"><i class="life p1"></i><i class="life p2"></i><i class="life p3"></i>
+<div class="phase"><b class="ph1">① 发起</b><span>PC 端用户点「添加设备」→ 生成配对房间与二维码（TTL 5min）</span></div>
+<div class="ar s-h" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖥 ⟶ 🖦</span><span class="t">WS connect wss://…:8443</span><small>PC 出站连 relay（自签证书 rejectUnauthorized:false——认证交给 Noise 层）</small></div></div><i class="hd l"></i></div>
+<div class="ar s-h" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖥 ⟶ 🖦</span><span class="t">{op:"join", room:"p…"}</span><small>房间号 = <b>p</b> + 18B 随机 base64url（p 前缀 = 配对模式信令）</small></div></div><i class="hd l"></i></div>
+<div class="ar s-r" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖦 ⟶ 🖥</span><span class="t">{op:"joined"}</span><small>PC 入房（第 1/2 席），25s 周期 ping 保活开始</small></div></div><i class="hd r"></i></div>
+<div class="note usr">👤 用户：打开手机 App → 授权相机 → 扫码 <code>agentchat://pair?v=1&room=p…&relay=…&pk=…</code>（ScanActivity · CameraX + zxing，GMS-free）</div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">WS connect wss://…:8443</span><small>手机出站连 relay（OkHttp trustAll——自签；认证在 Noise 层）</small></div></div><i class="hd r"></i></div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">{op:"join", room:"p…"}</span><small>同一房间号（二维码带外）</small></div></div><i class="hd r"></i></div>
+<div class="ar s-r" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖦 ⟶ 📱</span><span class="t">{op:"joined"}</span><small>房间封闭（2/2）——relay 开始双向盲转 opaque 帧</small></div></div><i class="hd l"></i></div>
+<div class="phase"><b class="ph2">② XK 握手</b><span>Noise_XK_25519_ChaChaPoly_SHA256 · 3 条消息 · 手机恒为 initiator</span></div>
+<div class="note sec">🔐 XK: <b>[e] [e,ee,s,es] [s,se]</b> —— 手机已从二维码带外获知 PC 静态公钥（pk 参数），PC 身份被隐式认证；手机静态公钥在 m3 加密出示</div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">m1 = [e]（32B 明文临时公钥）</span><small>XK 第一条：仅临时公钥——relay 看不到任何身份信息</small></div></div><i class="hd r"></i></div>
+<div class="ar s-h" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖥 ⟶ 🖦</span><span class="t">m2 = [e,ee,s,es]</span><small>responder 回应：e + 加密出示 PC 静态公钥 s——中间人无法替换</small></div></div><i class="hd l"></i></div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">m3 = [s,se] + 载荷 {name, pubkey}</span><small>手机静态公钥加密出示 + 设备信息 JSON</small></div></div><i class="hd r"></i></div>
+<div class="note sec">🔐 双端各自计算 SAS = SHA256(handshake_hash) 前 4 字节 → 8 位数字。<b>PKI 缺失下的人机互信锚点</b>——二维码给不了信道认证，SAS 人工比对补上</div>
+<div class="note usr">👤 用户比对 SAS：手机显示 9230 8086，PC webui 显示同串 → 双方点「一致」——防 MITM（攻击者需同时欺骗两端显示）</div>
+<div class="note ok">✅ PC：acceptPairing → 设备注册 device-registry（pubkey ↔ deviceId 持久化）；手机：PairingStore 落盘——此后 KK 重连零用户参与</div>
+<div class="phase"><b class="ph3">③ Split → online</b><span>握手哈希派生双向传输密钥</span></div>
+<div class="note ok">✅ k1 = 手机→PC 发送密钥，k2 = PC→手机（ChaCha20-Poly1305；nonce 单调递增，重放/乱序拒绝）</div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">{op:"frame", data:{t:…, n, ct}}</span><small>业务帧：与本地 WS 协议同构的 JSON，AEAD 加密后经 relay 盲转</small></div></div><i class="hd r"></i></div>
+<div class="phase"><b class="ph4">④ 回环桥上线</b><span>密文管道打通后的手机侧本地服务</span></div>
+<div class="note ok">✅ LoopbackBridge 监听 127.0.0.1:27182（固定端口稳定 origin——localStorage 持久化前提）；WebView 加载完整 webui</div>
+</div>
+</section>
+<section>
+  <h2>② KK 重连握手（断链自愈）+ 保活网络</h2>
+<div class="lanebox">
+  <div class="lanehead app"><div class="who">📱 手机端（initiator）</div><small>RemoteSession · Noise.kt（Kotlin）</small></div>
+  <div class="lanehead relay"><div class="who">🖦 哑中继 relay</div><small>ac-relay-server（wss 自签 · 房间管道）</small></div>
+  <div class="lanehead host"><div class="who">🖥 PC 核心端（responder）</div><small>ac-remote-link · ac-noise-core（Node）</small></div>
+</div>
+<div class="seq"><i class="life p1"></i><i class="life p2"></i><i class="life p3"></i>
+<div class="phase"><b class="ph5">⑤ 断链</b><span>网络闪断 / relay 重启 / 手机切后台——任一离线即房间销毁（relay：重启即失忆）</span></div>
+<div class="note sec">⚠ 房间销毁 → 双方各收 close，旧 TransportCipher 作废。KK 重连 = <b>新房间 + 新握手</b>，身份靠已配对静态公钥互认——无需再扫码/SAS</div>
+<div class="phase"><b class="ph6">⑥ KK 重连会合</b><span>Noise_KK_25519_ChaChaPoly_SHA256 · 2 条消息 · 互补节奏避开相位死锁</span></div>
+<div class="note sec">🔐 KK: <b>[e,es] [e,ee]</b> —— 双向身份靠预置公钥 + es/ee 隐式认证（本仓精简 KK：无 s/ss token）</div>
+<div class="note sec">房间号确定性派生：<code>r + SHA256(PC静态公钥 ‖ 手机静态公钥)</code> 前 17B base64url——<b>两端独立同算，无需信令</b></div>
+<div class="ar s-h" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖥 ⟶ 🖦</span><span class="t">{op:"join", room:"r…"} → 长驻等 m1（70s）</span><small>responder 先入房长驻——窗口覆盖手机完整重试周期（cr-43 ⓔ 相位死锁修复）</small></div></div><i class="hd l"></i></div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">每 7s/轮：connect + join r…</span><small>initiator 短超时（3s）快撞门；撞到空房立即发起 m1</small></div></div><i class="hd r"></i></div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">m1 = [e,es]（32B 临时公钥）</span><small>es = DH(手机e, PC 静态公钥)——只有真 PC 能解出密钥，身份隐式认证</small></div></div><i class="hd r"></i></div>
+<div class="ar s-h" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖥 ⟶ 🖦</span><span class="t">m2 = [e,ee]</span><small>PC 回 e + ee 完成双向密钥确认——只有真手机公钥能对上</small></div></div><i class="hd l"></i></div>
+<div class="note ok">✅ Split → 双向传输密钥恢复，业务帧继续——全程无用户参与（「断链自愈」）</div>
+<div class="phase"><b class="ph7">⑦ 保活网络</b><span>握手成功不等于链路长寿——三层看门狗全程值守</span></div>
+<div class="ar s-a" style="--l:16.667%;--r:50%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">📱 ⟶ 🖦</span><span class="t">{op:"ping"} ⟷ {op:"pong"}</span><small>手机 OkHttp pingInterval <b>15s</b>——两个周期无 pong = 判死断链（手机端唯一死链检测器）</small></div></div><i class="hd l"></i><i class="hd r"></i></div>
+<div class="ar s-h" style="--l:50%;--r:83.333%"><div class="span"><div class="lab"><span class="dir" style="color:var(--ac)">🖥 ⟶ 🖦</span><span class="t">{op:"ping"} ⟷ {op:"pong"}</span><small>PC 应用层 ping <b>25s</b> + pong watchdog：<b>62s</b> 无任何入站帧 → sever（RST 立断）进重连</small></div></div><i class="hd l"></i><i class="hd r"></i></div>
+<div class="note sec">relay 侧：心跳超时 <b>60s</b> 未见 ping 即毁房；sweep 每 15s 清僵尸房间；未 join 连接 15s 清退</div>
+<div class="note ok">✅ 实测恢复节奏（cr-48 三轮真机验证）：注入闪断 8.6s 恢复 · 自然闪断 1.8s 自愈 · 杀 relay 50s 后 23s 会合</div>
+</div>
+</section>
+<section>
+  <h2>③ 时序参数与安全不变量速查</h2>
+<div class="cols">
+  <div class="kv" style="border-top:3px solid var(--purple)"><h4 style="color:var(--purple)">手机端（initiator 恒定）</h4><ul>
+    <li>KK 撞门节奏：<b>7s/轮</b> × 10 轮（与 PC 同节奏，避免烧穿 relay 频控）</li>
+    <li>重连退避上限 <b>15s</b>（配对期失败快跑）</li>
+    <li>退避总时长上限 <b>10min</b> → 超时置 ERROR 终态弹配对面板（被吊销自救，不无限卡死）</li>
+    <li>OkHttp pingInterval <b>15s</b>（死链检出 50s→30s）</li>
+  </ul></div>
+  <div class="kv" style="border-top:3px solid var(--blue)"><h4 style="color:var(--blue)">PC 核心端（responder 恒定）</h4><ul>
+    <li>KK 等 m1 窗口 <b>70s</b> 长驻（覆盖手机 10 轮 × 7s + 退避窗）</li>
+    <li>握手期失败重试 <b>7s/轮</b>，不受 autoReconnect 门控（进房时序竞态是常态）</li>
+    <li>断链重连：指数退避 1s 起，断链即 reconnectAttempt 归零（新周期新节奏）</li>
+    <li>应用层 ping 25s + pong watchdog 62s</li>
+  </ul></div>
+  <div class="kv" style="border-top:3px solid var(--amber)"><h4 style="color:var(--amber)">relay（哑中继纪律）</h4><ul>
+    <li>房间 = 恰好两方；第三人 join 一律 room-unavailable（统一错误码，无存在性回声）</li>
+    <li>frame = opaque 密文盲转：不解析、不落盘、无数据库</li>
+    <li>join 频控 30/min（burst 20）· 单 IP 并发 30 · 单帧 ≤8MB · 1GiB/天/房间</li>
+    <li>任一离线 → terminate 毁房（RST 立断不留优雅关闭尾巴）</li>
+  </ul></div>
+  <div class="kv" style="border-top:3px solid var(--red)"><h4 style="color:var(--red)">安全不变量（谁也不信谁）</h4><ul>
+    <li>TLS 自签 rejectUnauthorized:false —— <b>认证全部在 Noise 层</b>，relay 明文可见也无所谓</li>
+    <li>XK 配对：二维码带外传 PC 静态公钥 + SAS 人工比对 = 唯一信任根</li>
+    <li>KK 重连：双向静态公钥 es/ee 隐式认证，无 SAS、无用户参与</li>
+    <li>AEAD nonce 严格递增——重放/乱序帧直接拒绝</li>
+  </ul></div>
+</div>
+  <p class="fine" style="margin-top:14px">节奏设计的核心权衡：<b>PC 长驻 + 手机短撞</b>（responder 70s 等 vs initiator 7s 撞）——双端对称短重试会相位锁定永不相遇（cr-43 ⓔ 真机实锤）；join 频控 30/min 之上，两端合计 ~17/min 合法流量有余量（cr-43 ⓓ）。</p>
+</section>
+</div>
+</body>
+</html>
