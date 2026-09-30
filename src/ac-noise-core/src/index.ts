@@ -229,10 +229,14 @@ class SymmetricState {
 
 // ---- 消息模式（spec §7 子集）----
 
-type Token = 'e' | 's' | 'ee' | 'es' | 'se';
+type Token = 'e' | 's' | 'ee' | 'es' | 'se' | 'ss';
 
 const PATTERN_XK: Token[][] = [['e'], ['e', 'ee', 's', 'es'], ['s', 'se']];
-const PATTERN_KK: Token[][] = [['e', 'es'], ['e', 'ee']];
+// 真 KK（cr-64 安全审计修复：原 [['e','es'],['e','ee']] 实为 NK——发起方静态私钥
+// 从不参与任何 DH，任何人知道 PC 公钥即可冒充已配对设备。spec §7 的 KK 是
+// -> e,es,s,ss <- e,ee：发起方静态公钥出现在 m1 的 s 段，ss = DH(发起方静态
+// 私钥, 响应方静态公钥) 把发起方身份搅进密钥；responder 解出 rs 后与注册表比对。
+const PATTERN_KK: Token[][] = [['e', 'es', 's', 'ss'], ['e', 'ee']];
 
 /** 单条握手消息（wire 形态：消息体 = token 串 + 加密载荷） */
 export interface HandshakeMessage {
@@ -341,6 +345,10 @@ export class NoiseHandshake {
           }
           break;
         }
+        case 'ss': {
+          this.ss.mixKey(dh(this.requireLocalStaticPriv(), this.requireKnownRemoteStatic()));
+          break;
+        }
       }
     }
     parts.push(this.ss.encryptAndHash(payload));
@@ -372,6 +380,11 @@ export class NoiseHandshake {
           const sCt = buf.subarray(off, off + sLen);
           off += sLen;
           this.rsSeen = this.ss.decryptAndHash(sCt);
+          // 显式身份校验（cr-64）：本端持已知对端静态公钥时，解出的 s 段不符即断——
+          // 不等后续 AEAD 失败，让伪冒在源头以明确语义失败（XK/KK 通用）。
+          if (this.remoteStaticKnown !== null && !this.rsSeen.equals(this.remoteStaticKnown)) {
+            throw new Error('noise: remote static key mismatch');
+          }
           break;
         }
         case 'ee': {
@@ -393,6 +406,10 @@ export class NoiseHandshake {
             // responder 读 XK m3：rs 在本消息 s 段刚解出（rsSeen），se = DH(e, rs)
             this.ss.mixKey(dh(this.requireLocalEphemeral(), this.requireSeenRemoteStatic()));
           }
+          break;
+        }
+        case 'ss': {
+          this.ss.mixKey(dh(this.requireLocalStaticPriv(), this.requireKnownRemoteStatic()));
           break;
         }
       }

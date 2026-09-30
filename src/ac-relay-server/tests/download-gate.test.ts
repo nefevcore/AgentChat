@@ -28,6 +28,8 @@ describe('download-gate 配额门', () => {
     dir = { root: join(base, 'root'), state: join(base, 'state') };
     mkdirSync(join(dir.root, 'v0.8.5'), { recursive: true });
     writeFileSync(join(dir.root, 'v0.8.5', 'AgentChat-Setup-0.8.5.exe'), 'x'.repeat(1000));
+    // 合法双点文件名（cr-65：原子串 includes('..') 误拒——段级判定后应放行）
+    writeFileSync(join(dir.root, 'v0.8.5', 'My..App-1.0.exe'), 'x'.repeat(100));
     writeFileSync(join(dir.root, 'manifest.json'), '{"releases":[]}');
     // esbuild 产物优先（毫秒启动，消除 npx tsx 冷启动在全量并行下的就绪预算竞争——
     // 2026-09-30 连续两轮全量红皆此因，单跑恒绿）；产物缺失回落 tsx（开发态未构建）
@@ -95,6 +97,17 @@ describe('download-gate 配额门', () => {
   it('路径穿越拒绝', async () => {
     const r = await get('/..%2F..%2Fetc%2Fpasswd.exe');
     expect(r.status).toBe(400);
+  });
+
+  it('段级穿越判定：双点文件名放行、真段穿越仍拒（cr-65）', async () => {
+    const ok = await get('/v0.8.5/My..App-1.0.exe');
+    expect(ok.status).toBe(200); // 文件名内的 .. 不是穿越
+    // WHATWG URL 会归一字面与 %2E 点段——用 %2F 保段形状（服务端 decode 后
+    // split('/') 得 '..' 段）；与首个穿越测试同款编码姿势
+    const seg1 = await get('/v0.8.5/..%2Fmanifest.json.exe'); // 段恰为 '..'
+    expect(seg1.status).toBe(400);
+    const seg2 = await get('/v0.8.5/.%2Fx.exe'); // 段恰为 '.'
+    expect(seg2.status).toBe(400);
   });
 
   it('超限：403 + 中文提示', async () => {

@@ -29,7 +29,11 @@ import java.util.concurrent.TimeUnit
 class RelayClientException(message: String) : Exception(message)
 
 /** 一次 relay 会话（房间 = 连接生命周期；断线整体废弃重来） */
-class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()) : Upstream {
+class RelayClient(
+    /** relay TLS 证书 sha256 pin（hex；cr-65——null/空 = 不校验，行为同旧）。wss 才生效 */
+    tlsPinHex: String? = null,
+    private val client: OkHttpClient = RelayClient.defaultClient(tlsPinHex),
+) : Upstream {
     private val gson = Gson()
     var ws: WebSocket? = null
         private set
@@ -54,7 +58,7 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
          */
         const val KK_HANDSHAKE_TIMEOUT_MS = 3_000L
 
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        fun defaultClient(tlsPinHex: String? = null): OkHttpClient = OkHttpClient.Builder()
             // 协议层 ping（TCP 保活 + pong 监视——OkHttp 两个周期无 pong 即杀链，是
             // 手机端唯一的死链检测器）。15s：死链最坏 30s 检出（cr-48 真机轮 25s 时
             // 「sent ping but no pong in 25s」断链后重连等待分钟级，检出越快恢复越快）。
@@ -62,6 +66,17 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
             .pingInterval(15, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
+            // TLS pin（cr-65）：二维码带出的证书 sha256。注意与自签 trustAll 的层
+            // 次分工——trustAll 过连接关（自签链无 CA 可验），CertificatePinner 在其
+            // 后比对 pin：对不上即 SSLPeerUnverifiedException 断链。pin 语义是
+            // 「这个 relay 必须还是配对时那台」，堵 KCI 下伪 relay 对接。
+            .apply {
+                val pin = tlsPinHex?.trim()?.takeIf { it.isNotEmpty() } ?: return@apply
+                val b64 = java.util.Base64.getEncoder().encodeToString(
+                    pin.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+                certificatePinner(
+                    okhttp3.CertificatePinner.Builder().add("*", "sha256/$b64").build())
+            }
             // relay 自签证书（M3 方案 §4.3：认证职责在 Noise 层，TLS 仅混淆——对齐
             // PC 侧 relay-connection.ts 的 rejectUnauthorized:false；公网 wss 自签在
             // Android 默认信任链下 CertPathValidatorException，真机 cr-43 轮实锤）
@@ -162,6 +177,19 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
             "room-unavailable" -> joinedOnce?.completeExceptionally(
                 RelayClientException("relay: room-unavailable"))
             "pong" -> {}
+            // cr-70/71 常住方模型：对端（PC）的连接走了，但房间保留——PC 若活着
+            // 会立刻回来（常住），死透了则本端撞门永远无人应答后自然退避。
+            // 正确动作 = 断开本连接并走既有重连循环（onClose 驱动 startReconnectLoop），
+            // 绝不能守死幽灵连接，也不能只 cancel 不通知（cr-71 真机实锤：
+            // 发消息瞬间 PC 侧换轮触发 peer-left，旧处理自杀了健康链路）。
+            "peer-left" -> {
+                onClose?.invoke("peer-left")
+                heartbeatJob?.cancel()
+                heartbeatJob = null
+                ws?.cancel()
+                ws = null
+                transport = null
+            }
             "frame" -> {
                 val data = f.getAsJsonObject("data") ?: return
                 val hs = data.get("hs")?.takeIf { it.isJsonPrimitive }?.asString

@@ -68,7 +68,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     // URL 前缀归一：/downloads/<ver>/<file> 与 /<file> 皆可（ROOT 指向
     // 下载根目录；manifest 用 /downloads/ 前缀——nginx 扩展名路由的同域约定）
     const clean = path.replace(/^\/+/, '').replace(/^downloads\//, '');
-    if (clean.includes('..') || clean.includes('\0')) {
+    // 路径段级校验（cr-65：原子串 includes('..') 会误拒「My..App.exe」类合法
+    // 文件名——穿越判定按段：某段恰为 '..' 或 '.' 才是穿越，段内出现点号是文件名）
+    if (clean.includes('\0') || clean.split('/').some((seg) => seg === '..' || seg === '.')) {
       return json(res, 400, { ok: false, error: 'bad path' });
     }
     const file = join(ROOT, clean);

@@ -130,10 +130,16 @@ class RemoteSession(
         val relayUrl = kv["relay"] ?: throw IllegalArgumentException("二维码缺 relay")
         val room = kv["room"] ?: throw IllegalArgumentException("二维码缺 room")
         val corePub = kv["pk"] ?: throw IllegalArgumentException("二维码缺 pk")
+        val tlsPin = kv["pin"] // cr-65：可选——部署方配了才带出
+        // exp 校验（cr-65 配对面）：过期码拒绝——旧码重放是钓鱼面（攻击者出示
+        // 历史截图诱导连到抢先占座的房间；过期即拒，配对面缩小到 TTL 内）
+        kv["exp"]?.toLongOrNull()?.let { exp ->
+            if (System.currentTimeMillis() > exp) throw IllegalArgumentException("二维码已过期——请刷新核心端重新生成")
+        }
 
         _state.value = _state.value.copy(phase = LinkPhase.CONNECTING, relayUrl = relayUrl, message = null)
         Log.i(TAG, "startPairing relay=" + relayUrl + " room=" + room)
-        val rc = RelayClient()
+        val rc = RelayClient(tlsPin)
         rc.onPayload = { json -> dispatch(json) }
         // 原始帧观测（真机排障：区分「帧没到」与「到了没认出」）
         rc.onRaw = { raw -> Log.i(TAG, "RAW< " + raw.take(160)) }
@@ -147,7 +153,7 @@ class RemoteSession(
             throw e
         }
         relay = rc
-        pairing.savePairing(corePub, relayUrl)
+        pairing.savePairing(corePub, relayUrl, tlsPin)
         pairing.deviceName = deviceName
         _state.value = _state.value.copy(phase = LinkPhase.AWAIT_CONFIRM, sas = sas)
         return sas
@@ -218,12 +224,13 @@ class RemoteSession(
     private suspend fun tryReconnect(corePub: String, deviceId: String, relayUrl: String): Boolean {
         _state.value = _state.value.copy(phase = LinkPhase.CONNECTING)
         val room = deriveRoom(unb64u(corePub), deviceId, b64u(identity.publicKey))
+        val tlsPin = pairing.tlsPin?.takeIf { it.isNotEmpty() } // cr-65：配对时带出的 pin 持久复用
         // 发起方短超时重试（根因见 KK_RECONNECT_ATTEMPTS 常量说明）。
         // 每轮用**全新实例**：onClose 只在握手成功后才订阅——否则失败轮的自我关闭
         // 会误触发 startReconnectLoop，与外层退避循环并发抢链。
         var connected: RelayClient? = null
         for (attempt in 1..KK_RECONNECT_ATTEMPTS) {
-            val candidate = RelayClient()
+            val candidate = RelayClient(tlsPin)
             candidate.onPayload = { json -> dispatch(json) }
             val outcome = runCatching { candidate.reconnect(relayUrl, room, unb64u(corePub), identity) }
             if (outcome.isSuccess) {

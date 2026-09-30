@@ -6,10 +6,11 @@
 //   · DH 输出全零（低阶点）→ 立即终止（spec §7.1）；
 //   · x25519 / ChaCha20-Poly1305 / SHA-256 / HKDF 全部走 JDK 原语。
 //
-// 模式表（与 TS 蓝本一致——本仓精简 KK：无 s/ss token，双向身份靠
-// 预置公钥 + es/ee 派生密钥隐式认证；roomId 前缀 p/r 区分配对/重连）：
+// 模式表（与 TS 蓝本一致；roomId 前缀 p/r 区分配对/重连）：
 //   XK: [e] [e,ee,s,es] [s,se]
-//   KK: [e,es] [e,ee]
+//   KK: [e,es,s,ss] [e,ee]（cr-64 真 KK——原精简版实为 NK，发起方静态
+//       私钥不参与任何 DH，知道 PC 公钥即可冒充已配对设备；s 段 + ss 把
+//       发起方身份搅进密钥链，responder 解出后与预置公钥比对）
 // ============================================================
 package agentchat.noise
 
@@ -309,7 +310,7 @@ internal class SymmetricState(protocolName: String) {
 
 // ---- 消息模式（spec §7 子集；与 TS 蓝本一致）----
 
-internal enum class Token { E, S, EE, ES, SE }
+internal enum class Token { E, S, EE, ES, SE, SS }
 
 internal val PATTERN_XK: List<List<Token>> = listOf(
     listOf(Token.E),
@@ -317,7 +318,7 @@ internal val PATTERN_XK: List<List<Token>> = listOf(
     listOf(Token.S, Token.SE),
 )
 internal val PATTERN_KK: List<List<Token>> = listOf(
-    listOf(Token.E, Token.ES),
+    listOf(Token.E, Token.ES, Token.S, Token.SS),
     listOf(Token.E, Token.EE),
 )
 
@@ -356,7 +357,7 @@ class NoiseHandshake(
     val complete: Boolean get() = step >= patterns.size
     val handshakeHash: ByteArray get() = ss.handshakeHash
 
-    /** 读到的对端静态公钥（XK 在处理完第 2 条消息后非空；KK 无 s token 恒 null） */
+    /** 读到的对端静态公钥（XK 处理完第 2 条消息后非空；KK 处理完 m1 后非空） */
     val remoteStatic: ByteArray? get() = rsSeen
 
     /** 对端静态公钥是否与已知值一致（XK 发起方校验二维码 pk） */
@@ -389,6 +390,7 @@ class NoiseHandshake(
                 } else {
                     ss.mixKey(dh(requireLocalEphemeral(), requireSeenRemoteStatic()))
                 }
+                Token.SS -> ss.mixKey(dh(requireLocalStaticPriv(), requireKnownRemoteStatic()))
             }
         }
         parts.add(ss.encryptAndHash(payload))
@@ -417,6 +419,10 @@ class NoiseHandshake(
                     if (message.size - off < sLen) throw NoiseException("noise: truncated s")
                     rsSeen = ss.decryptAndHash(message.copyOfRange(off, off + sLen))
                     off += sLen
+                    // 显式身份校验（cr-64）：本端持已知对端静态公钥时，解出的 s 段不符即断
+                    if (remoteStaticKnown != null && !rsSeen!!.contentEquals(remoteStaticKnown)) {
+                        throw NoiseException("noise: remote static key mismatch")
+                    }
                 }
                 Token.EE -> ss.mixKey(dh(requireLocalEphemeral(), requireRemoteEphemeral()))
                 Token.ES -> if (role == NoiseRole.INITIATOR) {
@@ -429,6 +435,7 @@ class NoiseHandshake(
                 } else {
                     ss.mixKey(dh(requireLocalEphemeral(), requireSeenRemoteStatic()))
                 }
+                Token.SS -> ss.mixKey(dh(requireLocalStaticPriv(), requireKnownRemoteStatic()))
             }
         }
         val payload = ss.decryptAndHash(message.copyOfRange(off, message.size))

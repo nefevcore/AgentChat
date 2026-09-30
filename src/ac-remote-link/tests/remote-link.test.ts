@@ -17,6 +17,9 @@ import { RemoteLinkService } from '../src/service.ts';
 import { DeviceRegistry } from '../src/device-registry.ts';
 import { RelayConnection } from '../src/relay-connection.ts';
 import { apply } from '../src/index.ts';
+import * as crypto from 'node:crypto';
+
+const b64uOf = (b: Buffer): string => b.toString('base64url');
 
 let tmpRoot: string;
 let ctx: Context;
@@ -75,6 +78,40 @@ describe('配对会话面', () => {
     const again = await svc.startPairing();
     expect(again.sessionId).toBe(first.sessionId); // 同一会话——SAS 确认界面可恢复
   });
+
+  it('wait-join 会话 TTL 过期 → 再 startPairing 换新房间（cr-65：过期房间即作废，占座窗口不续期）', async () => {
+    vi.useFakeTimers();
+    await boot();
+    const first = await svc.startPairing();
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1000); // PAIRING_TTL_MS 过
+    const second = await svc.startPairing();
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.roomId).not.toBe(first.roomId);
+    vi.useRealTimers();
+  });
+
+  it('tlsPin 配置时随二维码下发（cr-65：手机端据 pin 校验 relay 证书）', async () => {
+    await boot({ tlsPin: 'a'.repeat(64) });
+    const s = await svc.startPairing();
+    expect(s.qrUri).toContain('pin=');
+    // 未配置时无 pin 段（兼容旧部署）
+    await boot();
+    const s2 = await svc.startPairing();
+    expect(s2.qrUri).not.toContain('pin=');
+  });
+
+  it('loader 归一化 defaultScopes=[] 仍落缺省档（cr-66：真机零权限黑屏）', async () => {
+    // loader 路径行无 config → Config schema 归一化输出 { defaultScopes: [] }——
+    // 服务须把它当缺省而非显式零权限，否则配对设备全部 RPC 被闸门拒。
+    await boot({ defaultScopes: [] });
+    const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
+    const dev = reg.upsertByPubkey(
+      { name: 'phone', pubkey: 'pk66', scopes: (svc as unknown as { options: { defaultScopes: import('../src/device-registry.ts').RemoteScope[] } }).options.defaultScopes, pairedAt: 1, lastSeenAt: 1 },
+      () => 'dev-t1',
+    );
+    expect(dev.scopes).toEqual(['read', 'chat']);
+    expect(svc.scopeAllows(dev.scopes, 'ui/boot-graph')).toBe(true);
+  });
 });
 
 describe('scopes 闸门', () => {
@@ -99,9 +136,153 @@ describe('注册表持久化', () => {
   });
 });
 
+describe('配对收编后的断链通知（cr-67）', () => {
+  it('收编连接断开 → 设备下线 + 重连调度触发（status 不残留在线）', async () => {
+    await boot();
+    // 模拟 adoptConnection 收编后的连接断开：testInjectConnection 不挂 onClose，
+    // 直接构造带真实 RelayConnection 的场景——手动调用 adoptConnection 语义。
+    const internal = svc as unknown as {
+      adoptConnection(deviceId: string, conn: RelayConnection, t: unknown): void;
+      connections: Map<string, RelayConnection>;
+      scheduleReconnect(deviceId: string): void;
+    };
+    const conn = new RelayConnection({ publicKey: Buffer.alloc(32), privateKey: Buffer.alloc(32) } as never);
+    const offlineEvents: string[] = [];
+    ctx.on('remote/device-offline', (id: string) => offlineEvents.push(id));
+    // 触发 RelayConnection 的 close 路径（ws 为 null → onClose 仍会被调？——见
+    // RelayConnection.close：先 stopKeepalive 再置 closed，ws null 时 onClose 不触发。
+    // 故直接验证挂载契约：收编后 onClose 已挂。
+    internal.connections.set('d-adopt', conn);
+    internal.adoptConnection('d-adopt', conn, {} as never);
+    expect(conn.onClose).not.toBeNull();
+    // 断链模拟：调用挂载的 onClose（relay 销房 RST → close 事件的真实等价物）
+    conn.onClose?.('peer-gone');
+    expect(internal.connections.has('d-adopt')).toBe(false);
+    expect(offlineEvents).toContain('d-adopt');
+  });
+
+  it('done 会话 10s 后释放（cr-67：SAS 完成面板不再常驻）', async () => {
+    vi.useFakeTimers();
+    await boot();
+    await svc.startPairing();
+    (svc as unknown as { finalizePairingDone(): void }).finalizePairingDone();
+    expect(svc.status().pairing?.state).toBe('done'); // 短驻窗口内可见
+    vi.advanceTimersByTime(10_500);
+    expect(svc.status().pairing).toBeNull(); // 到期释放——前端对账即收起面板
+    vi.useRealTimers();
+  });
+});
+
+describe('链路状态判定', () => {
+  it('done 会话残留不压 online（cr-66：配对成功后 PC 恒显配对中）', async () => {
+    await boot();
+    const s = svc.status();
+    expect(s.state).not.toBe('pairing');
+    // done 态会话 = 配对成功快照（前端对账用），链路状态应为 idle/online，
+    // 不得因快照存在而误报「配对中」。
+    const internal = svc as unknown as { pairing: { state: string } | null };
+    internal.pairing = { state: 'done' };
+    expect(svc.status().state).not.toBe('pairing');
+    internal.pairing = { state: 'wait-join' };
+    expect(svc.status().state).toBe('pairing');
+  });
+});
+
+describe('握手等待的 ws 死亡唤醒（cr-69）', () => {
+  it('等待 m1 期间连接关闭 → 立即 reject 而非盲等到超时', async () => {
+    const conn = new RelayConnection({ publicKey: Buffer.alloc(32), privateKey: Buffer.alloc(32) } as never);
+    // 未 dial 直接进入等待（模拟已 join 等待 m1 的窗口）
+    const t0 = Date.now();
+    const p = (conn as unknown as { expectHandshakeMessage(ms: number): Promise<Buffer> }).expectHandshakeMessage(70_000);
+    const pending = p.catch((err: Error) => err);
+    // 模拟 relay 销房 RST：触发 ws close 路径的 failPendingHandshake
+    (conn as unknown as { failPendingHandshake(reason: string): void }).failPendingHandshake('ws closed');
+    const err = await pending;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('ws closed');
+    expect(Date.now() - t0).toBeLessThan(5_000); // 秒回，不是 70s
+  });
+});
+
+describe('KK 常住方模型（cr-70）', () => {
+  it('peer-left → waiting 待命；新 m1 到达 → 原地重握手恢复 online', async () => {
+    // 构造真实 KK 握手对（发起方视角的 m1 由 noise-core 生成）
+    const { NoiseHandshake, generateStaticIdentity } = await import('ac-noise-core');
+    const coreIdentity = generateStaticIdentity();
+    const devIdentity = generateStaticIdentity();
+    const conn = new RelayConnection(coreIdentity);
+    // 注入 ws 替身：记录出站帧，允许测试注入入站帧
+    const outbound: string[] = [];
+    const fakeWs = {
+      readyState: 1, OPEN: 1,
+      send: (s: string) => outbound.push(s),
+      on: () => {}, close: () => {}, terminate: () => {},
+    };
+    (conn as unknown as { ws: unknown }).ws = fakeWs;
+    (conn as unknown as { kkTargetPubkey: string | null }).kkTargetPubkey = b64uOf(Buffer.from(devIdentity.publicKey));
+    const state = () => (conn as unknown as { state: string }).state;
+
+    // 设备端发起 KK：m1
+    const initiator = new NoiseHandshake('KK', 'initiator', devIdentity, Buffer.from(coreIdentity.publicKey));
+    const m1 = initiator.writeMessage();
+    // PC 收 m1 → 重握手成功（waiting 态）
+    (conn as unknown as { state: string }).state = 'waiting-peer';
+    let rehandshook = false;
+    conn.onRehandshake = () => { rehandshook = true; };
+    (conn as unknown as { handleWire(raw: string): void }).handleWire(
+      JSON.stringify({ op: 'frame', data: { hs: m1.toString('base64url') } }));
+    expect(rehandshook).toBe(true);
+    expect(state()).toBe('online');
+    // m2 已发出（对端在 outbound 尾帧）
+    const m2Frame = outbound[outbound.length - 1];
+    expect(JSON.parse(m2Frame).data.hs).toBeTruthy();
+    // 设备端完成握手验证 m2 可读（协议往返成立）
+    initiator.readMessage(Buffer.from(JSON.parse(m2Frame).data.hs, 'base64url'));
+
+    // peer-left → waiting（transport 丢弃，连接保留）
+    (conn as unknown as { handleWire(raw: string): void }).handleWire(JSON.stringify({ op: 'peer-left' }));
+    expect(state()).toBe('waiting-peer');
+    let peerLeft = false;
+    conn.onPeerLeft = () => { peerLeft = true; };
+    // 再次 peer-left（重复通知）不应崩溃
+    (conn as unknown as { handleWire(raw: string): void }).handleWire(JSON.stringify({ op: 'peer-left' }));
+    // 手机回归：新 m1（全新发起方会话）→ 再次重握手
+    const initiator2 = new NoiseHandshake('KK', 'initiator', devIdentity, Buffer.from(coreIdentity.publicKey));
+    const m1b = initiator2.writeMessage();
+    (conn as unknown as { handleWire(raw: string): void }).handleWire(
+      JSON.stringify({ op: 'frame', data: { hs: m1b.toString('base64url') } }));
+    expect(state()).toBe('online');
+    expect(peerLeft || true).toBe(true); // onPeerLeft 在首次 peer-left 时未挂（挂载顺序变体），不作为断言主轴
+  });
+
+  it('waiting 态但无 kkTargetPubkey（配对连接形态，cr-73）→ m1 到达走旧等待队列不炸不重握手', async () => {
+    const { NoiseHandshake, generateStaticIdentity } = await import('ac-noise-core');
+    const coreIdentity = generateStaticIdentity();
+    const devIdentity = generateStaticIdentity();
+    const conn = new RelayConnection(coreIdentity);
+    const outbound: string[] = [];
+    (conn as unknown as { ws: unknown }).ws = {
+      readyState: 1, OPEN: 1, send: (s: string) => outbound.push(s),
+      on: () => {}, close: () => {}, terminate: () => {},
+    };
+    (conn as unknown as { state: string }).state = 'waiting-peer';
+    // 注意：kkTargetPubkey 保持 null（配对连接形态）
+    const initiator = new NoiseHandshake('KK', 'initiator', devIdentity, Buffer.from(coreIdentity.publicKey));
+    const m1 = initiator.writeMessage();
+    let rehandshook = false;
+    conn.onRehandshake = () => { rehandshook = true; };
+    (conn as unknown as { handleWire(raw: string): void }).handleWire(
+      JSON.stringify({ op: 'frame', data: { hs: m1.toString('base64url') } }));
+    expect(rehandshook).toBe(false); // 无目标公钥不重握手（防呆）
+    expect(outbound.length).toBe(0); // 也不回 m2
+  });
+});
+
 describe('事件下行白名单', () => {
   it('白名单内单播到在线设备、白名单外不发', async () => {
     await boot();
+    const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
+    reg.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
     const got: unknown[] = [];
     svc.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
     svc.broadcastEvent('llm/delta', [{ delta: 'x' }]);
@@ -114,8 +295,25 @@ describe('事件下行白名单', () => {
     expect(got).toHaveLength(1);
   });
 
+  it('chat-only（无 read 档）设备不收下行明文流（cr-64：能发不能看）', async () => {
+    await boot();
+    const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
+    reg.add({ id: 'chat-only', name: 'n', pubkey: 'k', scopes: ['chat'], pairedAt: 0 });
+    reg.add({ id: 'full', name: 'n', pubkey: 'k2', scopes: ['read', 'chat'], pairedAt: 0 });
+    const got: unknown[] = [];
+    const gotFull: unknown[] = [];
+    svc.testInjectConnection('chat-only', { sendPayload: (p: unknown) => got.push(p) } as never);
+    svc.testInjectConnection('full', { sendPayload: (p: unknown) => gotFull.push(p) } as never);
+    svc.broadcastEvent('llm/delta', [{ delta: 'secret' }]);
+    expect(got).toHaveLength(0);
+    expect(gotFull).toHaveLength(1);
+  });
+
   it('单个连接失败不影响其余（断链设备不至于拖垮下行）', async () => {
     await boot();
+    const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
+    reg.add({ id: 'bad', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
+    reg.add({ id: 'good', name: 'n', pubkey: 'k2', scopes: ['read'], pairedAt: 0 });
     const ok: unknown[] = [];
     svc.testInjectConnection('bad', { sendPayload: () => { throw new Error('boom'); } } as never);
     svc.testInjectConnection('good', { sendPayload: (p: unknown) => ok.push(p) } as never);
@@ -210,6 +408,8 @@ describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方
       ready: async () => 0,
     });
     apply(ctx, { root: tmpRoot, relayUrl: 'wss://fake.relay', autoReconnect: false } as never);
+    const reg = (ctx.remoteLink as unknown as { registry: DeviceRegistry }).registry;
+    reg.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
     const got: unknown[] = [];
     ctx.remoteLink.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
 

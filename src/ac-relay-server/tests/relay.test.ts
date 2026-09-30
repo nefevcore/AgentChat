@@ -63,19 +63,7 @@ describe('RelayCore 房间生命周期', () => {
     expect(a.lastOp()).toEqual({ op: 'room-unavailable' });    // 重复 join
   });
 
-  it('帧 opaque 原样转发给对方', () => {
-    const core = new RelayCore();
-    const a = new FakeConn('1.1.1.1');
-    const b = new FakeConn('2.2.2.2');
-    core.accept(a); core.accept(b);
-    joinOk(a, 'r'.repeat(32)); joinOk(b, 'r'.repeat(32));
-    a.recv(JSON.stringify({ op: 'frame', data: { n: 1, ct: '密文块==' } }));
-    expect(b.sent).toHaveLength(2); // joined 回执 + 1 帧
-    expect(JSON.parse(b.sent[1])).toEqual({ op: 'frame', data: { n: 1, ct: '密文块==' } });
-    expect(a.sent).toHaveLength(1); // 自己只有 joined，不回声帧
-  });
-
-  it('任一离线 → 房间销毁，双方都断', () => {
+  it('任一离线 → 房间保留，幸存者收 peer-left（cr-70 常住方模型）', () => {
     const core = new RelayCore();
     const a = new FakeConn('1.1.1.1');
     const b = new FakeConn('2.2.2.2');
@@ -83,7 +71,38 @@ describe('RelayCore 房间生命周期', () => {
     const room = 'c'.repeat(32);
     joinOk(a, room); joinOk(b, room);
     a.close();
-    expect(b.closed).toBe(true);
+    // 幸存者不被断，收到 peer-left 通知；房间保留（1 席）
+    expect(b.closed).toBe(false);
+    expect(b.lastOp()).toEqual({ op: 'peer-left' });
+    expect(core.roomCount).toBe(1);
+    // 对端回归：新连接 join 同房间 → 成功，幸存者收 peer-arrived
+    const a2 = new FakeConn('1.1.1.1');
+    core.accept(a2);
+    expect(joinOk(a2, room)).toBe(true);
+    expect(b.lastOp()).toEqual({ op: 'peer-arrived' });
+  });
+
+  it('帧 opaque 原样转发给对方', () => {
+    const core = new RelayCore();
+    const a = new FakeConn('1.1.1.1');
+    const b = new FakeConn('2.2.2.2');
+    core.accept(a); core.accept(b);
+    joinOk(a, 'r'.repeat(32)); joinOk(b, 'r'.repeat(32));
+    a.recv(JSON.stringify({ op: 'frame', data: { n: 1, ct: '密文块==' } }));
+    expect(b.lastOp()).toEqual({ op: 'frame', data: { n: 1, ct: '密文块==' } });
+    // a：joined 回执 + peer-arrived（b 加入通知，cr-70），无回声帧
+    expect(a.sent.every((s) => JSON.parse(s).op !== 'frame')).toBe(true);
+  });
+
+  it('全员离线 → 房间销毁（cr-70：无幸存者即收尾）', () => {
+    const core = new RelayCore();
+    const a = new FakeConn('1.1.1.1');
+    const b = new FakeConn('2.2.2.2');
+    core.accept(a); core.accept(b);
+    const room = 'c2'.repeat(16);
+    joinOk(a, room); joinOk(b, room);
+    a.close();
+    b.close();
     expect(core.roomCount).toBe(0);
   });
 
@@ -104,10 +123,38 @@ describe('RelayCore 房间生命周期', () => {
     joinOk(a, 'd'.repeat(32)); joinOk(b, 'd'.repeat(32));
     a.recv(JSON.stringify({ op: 'ping' }));
     expect(a.lastOp()).toEqual({ op: 'pong' });
-    vi.advanceTimersByTime(DEFAULT_LIMITS.heartbeatTimeoutMs + 1000);
+    // b 保持心跳（advance 后仍活跃），a 只在 join 时 touch 过——61s 后必超时
+    vi.advanceTimersByTime(DEFAULT_LIMITS.heartbeatTimeoutMs / 2);
+    b.recv(JSON.stringify({ op: 'ping' }));
+    vi.advanceTimersByTime(DEFAULT_LIMITS.heartbeatTimeoutMs / 2 + 2000);
     core.sweep();
+    // cr-70：只清超时成员 a；b（有心跳）幸存并收 peer-left
     expect(a.closed).toBe(true);
-    expect(b.closed).toBe(true);
+    expect(b.closed).toBe(false);
+    expect(b.lastOp()).toEqual({ op: 'peer-left' });
+    vi.useRealTimers();
+  });
+
+  it('曾封闭的常住房回落 1 席 → TTL 不杀（cr-72：由心跳保活）', () => {
+    vi.useFakeTimers();
+    const core = new RelayCore(DEFAULT_LIMITS);
+    const a = new FakeConn('1.1.1.1');
+    const b = new FakeConn('2.2.2.2');
+    core.accept(a); core.accept(b);
+    const room = 'e9'.repeat(16);
+    joinOk(a, room); joinOk(b, room); // 封闭过
+    b.close(); // 回落 1 席（a 幸存，收 peer-left）
+    // 远超 openRoomTtl 的 5 分钟——只要 a 持续心跳，房间活着
+    for (let round = 0; round < 8; round++) {
+      vi.advanceTimersByTime(45_000);
+      a.recv(JSON.stringify({ op: 'ping' }));
+      core.sweep();
+    }
+    expect(core.roomCount).toBe(1);
+    // a 停止心跳 → 心跳超时兜底收房
+    vi.advanceTimersByTime(DEFAULT_LIMITS.heartbeatTimeoutMs + 2000);
+    core.sweep();
+    expect(core.roomCount).toBe(0);
     vi.useRealTimers();
   });
 
@@ -142,7 +189,8 @@ describe('RelayCore 防滥用限额', () => {
 
   it('join 频控：burst 耗尽后拒绝（cr-43 ⑬ 参数：30/min·burst 20）', () => {
     vi.useFakeTimers();
-    const core = new RelayCore({ ...DEFAULT_LIMITS, maxConnPerIp: 40 });
+    // maxOpenRoomsPerIp 放开到 burst 之上——本测试聚焦频控语义，不与 cr-64 房间配额纠缠
+    const core = new RelayCore({ ...DEFAULT_LIMITS, maxConnPerIp: 40, maxOpenRoomsPerIp: 40 });
     // 单连接只进一个房间 → 频控测试用独立连接（同 IP）
     const mk = () => { const c = new FakeConn('8.8.8.8'); core.accept(c); return c; };
     for (let i = 0; i < DEFAULT_LIMITS.joinBucket.burst; i++) {
@@ -187,6 +235,43 @@ describe('RelayCore 防滥用限额', () => {
     joinOk(a, 'j'.repeat(32));
     b.recv(JSON.stringify({ op: 'join', room: 'k'.repeat(32) }));
     expect(b.lastOp()).toEqual({ op: 'room-unavailable' });
+  });
+
+  it('单 IP 未封闭房间配额：超过 maxOpenRoomsPerIp 拒新建（cr-64 占座阻断压缩）', () => {
+    const core = new RelayCore({ ...DEFAULT_LIMITS, maxOpenRoomsPerIp: 2 });
+    const mk = () => { const c = new FakeConn('7.7.7.7'); core.accept(c); return c; };
+    // 同 IP 建 2 个未封闭（1 席）房间：配额内
+    expect(joinOk(mk(), 'm'.repeat(32))).toBe(true);
+    expect(joinOk(mk(), 'n'.repeat(32))).toBe(true);
+    // 第 3 个：超配额拒绝（统一 room-unavailable）
+    const g = mk();
+    g.recv(JSON.stringify({ op: 'join', room: 'o'.repeat(32) }));
+    expect(g.lastOp()).toEqual({ op: 'room-unavailable' });
+    // 其他 IP 不受影响
+    const other = new FakeConn('6.6.6.6');
+    core.accept(other);
+    expect(joinOk(other, 'p'.repeat(32))).toBe(true);
+    // 加入既有房间不受配额限制（不惩罚会合方）：第二方加入第 1 个房间 → 封闭
+    const meet = mk();
+    expect(joinOk(meet, 'm'.repeat(32))).toBe(true);
+  });
+
+  it('sweep 清扫长期无 take 的频控 bucket（cr-64 泄漏修复）', () => {
+    vi.useFakeTimers();
+    // 速率 0（永不恢复）让「残留 bucket」与「清扫后重建」行为可区分：残留 = 永久拒绝
+    const core = new RelayCore({ ...DEFAULT_LIMITS, joinBucket: { burst: 3, ratePerSec: 0 }, maxOpenRoomsPerIp: 8 });
+    const a = new FakeConn('5.5.5.5');
+    core.accept(a);
+    a.recv(JSON.stringify({ op: 'join', room: 'q'.repeat(32) })); // join bucket 建条目并耗 1 token
+    vi.advanceTimersByTime(601_000); // > 10 分钟无 take
+    core.sweep(); // 清扫后 bucket 重建 = burst 满额
+    const mk = () => { const c = new FakeConn('5.5.5.5'); core.accept(c); return c; };
+    for (let i = 0; i < 3; i++) {
+      const c = mk(); // 单连接只进一个房间 → 独立连接（同 IP）
+      c.recv(JSON.stringify({ op: 'join', room: 's'.repeat(30) + i.toString().padStart(2, '0') }));
+      expect(c.lastOp()?.op).toBe('joined'); // 残留 bucket（剩 2 token）第 3 次会被拒——此处 3 次全过即证明 bucket 已清重建
+    }
+    vi.useRealTimers();
   });
 
   it('非 JSON / 非法 op → 断连', () => {

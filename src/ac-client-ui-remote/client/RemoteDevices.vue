@@ -27,10 +27,12 @@ interface PairingState {
   state: 'wait-join' | 'sas-confirm' | 'done' | 'expired';
   sas?: string;
   deviceName?: string;
+  devicePubkey?: string;
 }
 
 const devices = ref<DeviceRow[]>([]);
 const relayUrl = ref<string | null>(null);
+const tlsPinConfigured = ref(false);
 const identityPubkey = ref('');
 const linkState = ref('idle');
 const error = ref('');
@@ -56,10 +58,11 @@ const linkLabel = computed(() => ({
 
 async function refresh() {
   try {
-    const r = await rpc.call<{ devices: DeviceRow[]; relayUrl: string | null; identityPubkey: string }>('remote/devices');
+    const r = await rpc.call<{ devices: DeviceRow[]; relayUrl: string | null; identityPubkey: string; tlsPinConfigured: boolean }>('remote/devices');
     devices.value = r.devices;
     relayUrl.value = r.relayUrl;
     identityPubkey.value = r.identityPubkey;
+    tlsPinConfigured.value = !!r.tlsPinConfigured;
     const st = await rpc.call<{ state: string; pairing: PairingState | null }>('remote/status');
     linkState.value = st.state;
     // 会话对账（cr-43）：服务端是配对会话的单一事实源——本地 pairing 为空而服务端
@@ -132,6 +135,11 @@ function fmtTime(ts?: number): string {
 const editingRelay = ref(false);
 const relayDraft = ref('');
 const savingRelay = ref(false);
+// TLS pin（cr-65）：relay 证书 sha256（hex）。配置后随配对二维码下发——手机端
+// 连接校验证书指纹，堵 KCI 下伪 relay 对接；留空 = 不校验（行为同旧）
+const editingPin = ref(false);
+const pinDraft = ref('');
+const savingPin = ref(false);
 
 function startEditRelay() {
   relayDraft.value = relayUrl.value ?? '';
@@ -154,6 +162,25 @@ async function saveRelay() {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     savingRelay.value = false;
+  }
+}
+
+async function savePin() {
+  const v = pinDraft.value.trim().toLowerCase();
+  if (v !== '' && !/^[0-9a-f]{64}$/.test(v)) {
+    error.value = 'TLS pin 须为 64 位 hex（证书 sha256）；留空 = 清除';
+    return;
+  }
+  savingPin.value = true;
+  error.value = '';
+  try {
+    await rpc.call('config/set', { key: 'settings.remoteLink.tlsPin', value: v });
+    editingPin.value = false;
+    await refresh();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    savingPin.value = false;
   }
 }
 
@@ -197,6 +224,18 @@ onUnmounted(() => {
         <span class="k">本机身份</span>
         <code class="mono-v dim">{{ identityPubkey.slice(0, 24) }}…</code>
       </div>
+      <div class="stat-row">
+        <span class="k">证书校验</span>
+        <template v-if="!editingPin">
+          <span :class="['pin-state', tlsPinConfigured ? 'on' : 'off']">{{ tlsPinConfigured ? '已固定（防伪中继）' : '未固定' }}</span>
+          <Button variant="ghost" size="sm" @click="editingPin = true; pinDraft = ''">{{ tlsPinConfigured ? '修改' : '设置' }}</Button>
+        </template>
+        <template v-else>
+          <input v-model="pinDraft" class="relay-input pin-input" placeholder="sha256 hex（64 位）" spellcheck="false" />
+          <Button variant="primary" size="sm" :disabled="savingPin" @click="savePin">{{ savingPin ? '保存中…' : '保存' }}</Button>
+          <Button variant="ghost" size="sm" @click="editingPin = false">取消</Button>
+        </template>
+      </div>
     </div>
 
     <!-- 未配置引导 -->
@@ -227,6 +266,9 @@ onUnmounted(() => {
           <span class="sep">·</span>
           <span>{{ pairing.sas?.slice(4) }}</span>
         </div>
+        <!-- 指纹行（cr-65）：设备名可伪造不作信任提示；指纹绑定密码学身份。
+             显示 base64url 公钥前 22 字符（≈128bit 遮蔽），真机「远程设备 → 本机信息」可核对同值 -->
+        <p class="pair-fp center" v-if="pairing.devicePubkey">设备指纹 <code>{{ pairing.devicePubkey.slice(0, 22) }}</code>…<br />（与手机 App「本机信息」页显示一致方可信任）</p>
         <p class="pair-hint center">与手机屏幕显示的数字一致吗？一致 = 信任此设备；不一致 = 可能存在中间人，拒绝并重试。</p>
         <div class="pair-actions">
           <Button variant="danger" size="sm" :disabled="pairingBusy" @click="confirmPairing(false)">不一致（拒绝）</Button>
@@ -304,7 +346,13 @@ onUnmounted(() => {
 .pair-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-3); }
 
 /* SAS 数字：primary-light 底的大号等宽数字——比对场景的视觉焦点 */
+.pin-state { font-size: 12px; }
+.pin-state.on { color: var(--ok); }
+.pin-state.off { color: var(--text-3); }
+.pin-input { max-width: 220px; }
 .sas-num { display: flex; justify-content: center; align-items: baseline; gap: var(--space-2); font-family: var(--font-mono); font-size: 30px; font-weight: 600; letter-spacing: 4px; color: var(--text-1); background: var(--primary-light); border-radius: var(--r-md); padding: var(--space-3) 0; margin: var(--space-2) 0; }
+.pair-fp { font-size: 12px; color: var(--text-2); margin: var(--space-1) 0; }
+.pair-fp code { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 var(--space-1); }
 .sas-num .sep { color: var(--text-3); font-size: 20px; }
 
 /* 设备列表 */

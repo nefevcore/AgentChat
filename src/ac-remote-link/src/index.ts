@@ -95,6 +95,7 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
       devices: remote().listDevices().map((d: import('./device-registry.ts').RemoteDevice) => ({ ...d, online: online.has(d.id) })),
       relayUrl: st.relayUrl,
       identityPubkey: st.identityPubkey,
+      tlsPinConfigured: st.tlsPinConfigured,
     };
   });
 

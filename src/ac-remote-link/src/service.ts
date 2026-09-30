@@ -48,7 +48,7 @@ const SCOPE_ALLOWED_METHODS: Record<RemoteScope, string[]> = {
     'agents/list', 'agents/presets', 'agents/tool-defs', 'tools/list', 'tags/catalog',
     'conversation/stats', 'group/list', 'group/history', 'runs/snapshot', 'usage/tokens',
     'goal/get', 'todo/get', 'skills/list', 'timer/list', 'timer/entries',
-    'session/history', 'session/tokens', 'singles/list', 'singles/update', 'singles/fork',
+    'session/history', 'session/tokens', 'singles/list',
     'subagents/list', 'subagents/history', 'fileSnapshots/list', 'fileSnapshots/read-current',
     'system/version-check', 'interaction/list',
     // 远程 WebView 启动必需：行 client 半边装载图（低敏感——仅行名与平台；
@@ -88,8 +88,6 @@ export class RemoteLinkService extends Service {
   private connectingDevices = new Set<string>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
-  /** KK 握手期重试计数（成功能话清零；区别于断线后的指数退避重连） */
-  private kkRetries = new Map<string, number>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   /** 启动即连已触发（cr-53：applySettings 的 URL 到位补触发只跑一次） */
   private bootConnected = false;
@@ -101,7 +99,12 @@ export class RemoteLinkService extends Service {
     this.options = {
       relayUrl: options.relayUrl ?? '',
       tlsPin: options.tlsPin ?? '',
-      defaultScopes: options.defaultScopes ?? ['read', 'chat'],
+      // 空数组回落缺省档（cr-66）：loader 路径行无 config 时经 Config schema
+      // 归一化得到 defaultScopes: []（schemastery 对 array 字段的缺省输出），
+      // ?? 不认空数组——真机配对落库 scopes 为空、全部 RPC 被闸门拒（手机端
+      // webui 装配黑屏）。显式配 scopes: [] 才是真「零权限」意图，loader 缺省
+      // 归一化产物不是。
+      defaultScopes: options.defaultScopes?.length ? options.defaultScopes : ['read', 'chat'],
       autoReconnect: options.autoReconnect ?? true,
       root: options.root,
     };
@@ -148,6 +151,15 @@ export class RemoteLinkService extends Service {
       this.ctx.logger.warn('[remote-link] settings.remoteLink.relayUrl 非法（须 ws:// 或 wss:// 开头；空串 = 清除），保持现状');
       return;
     }
+    // TLS pin（cr-65）：hex sha256（64 hex）或空串清除；随二维码下发供手机端校验
+    const pin = layer.tlsPin;
+    if (pin !== undefined) {
+      if (typeof pin !== 'string' || (pin !== '' && !/^[0-9a-fA-F]{64}$/.test(pin))) {
+        this.ctx.logger.warn('[remote-link] settings.remoteLink.tlsPin 非法（须 64 位 hex sha256；空串 = 清除），保持现状');
+      } else {
+        this.options.tlsPin = pin;
+      }
+    }
     if (v === this.options.relayUrl) return;
     this.options.relayUrl = v;
     // 换 relay：断现有连接（重连由 connect/手机端触发——房间号是身份派生，
@@ -184,15 +196,25 @@ export class RemoteLinkService extends Service {
   }
 
   status(): RemoteLinkStatus {
-    const online = [...this.connections.keys()];
+    // online 判定（cr-70）：只数真正在传数据的连接——waiting-peer（常住待命）
+    // 的连接虽然活着，但对端不在线，设备应显示离线。
+    const online = [...this.connections.entries()]
+      .filter(([, c]) => c.state === 'online')
+      .map(([id]) => id);
     let state: RemoteLinkStatus['state'] = 'idle';
-    if (this.pairing) state = 'pairing';
+    // done 会话是配对成功的残留快照（供前端对账），不是进行中配对——
+    // 它不得压过 online（cr-66 真机实锤：配对成功后 PC 恒显「配对中」）。
+    if (this.pairing && this.pairing.state !== 'done') state = 'pairing';
     else if (online.length > 0) state = 'online';
     else if (this.reconnectTimer) state = 'connecting';
+    // KK 快速重试期（cr-68：kkRetries 2s 间隔重排不经 reconnectTimer，状态面板
+    // 误显「异常」——用户以为链路死了不再唤起，实际一直在撞门重试）
+    else if (this.connectingDevices.size > 0) state = 'connecting';
     else if (this.lastError) state = 'error';
     return {
       identityPubkey: b64u(this.identity.publicKey),
       relayUrl: this.options.relayUrl || null,
+      tlsPinConfigured: !!this.options.tlsPin,
       state,
       onlineDeviceIds: online,
       lastError: this.lastError,
@@ -231,6 +253,11 @@ export class RemoteLinkService extends Service {
   async startPairing(deviceName?: string): Promise<PairingSession> {
     // 幂等（cr-43）：活动会话存在时返回它而非报错——多窗口/重开页重入
     // 拿同一会话（SAS 确认界面随之恢复），不再出现「被占用」死锁。
+    // TTL 过期的 wait-join 会话直接废弃重建（cr-65：原样返回过期房间 =
+    // 抢先入房者的占座窗口无限续期；过期即换房，旧房作废）。
+    if (this.pairing && this.pairing.state === 'wait-join' && this.pairing.expiresAt <= Date.now()) {
+      this.pairing = null;
+    }
     if (this.pairing && (this.pairing.state === 'wait-join' || this.pairing.state === 'sas-confirm')) {
       return { ...this.pairing };
     }
@@ -245,6 +272,9 @@ export class RemoteLinkService extends Service {
       'room=' + encodeURIComponent(roomId),
       'pk=' + encodeURIComponent(b64u(this.identity.publicKey)),
       'exp=' + expiresAt,
+      // TLS pin（cr-65）：随码带出——手机端 dial 校验证书 sha256，堵 KCI 场景
+      // 下「relay 真伪无从验证」的缺口（无 pin 字段 = 部署方未配置，行为同旧）
+      ...(this.options.tlsPin ? ['pin=' + encodeURIComponent(this.options.tlsPin)] : []),
     ].join('&');
     this.pairing = { sessionId, roomId, qrUri, expiresAt, state: 'wait-join' };
     // 后台起连接（等待手机 join → XK 握手 → SAS）
@@ -267,6 +297,10 @@ export class RemoteLinkService extends Service {
     const conn = new RelayConnection(this.identity);
     conn.onState = (note) => this.ctx.logger.info(`[remote-link] pairing ${roomId}: ${note}`);
     conn.onError = (msg) => this.ctx.logger.warn(`[remote-link] pairing ${roomId} 链路错误: ${msg}`);
+    conn.onClose = () => {
+      // 配对轮连接断开：若已被收编（在线态），由 adoptConnection 挂的 onClose 接管——
+      // 这里只处理收编前的失败路径（runPairingConnection 的 catch 已置 expired）。
+    };
     try {
       const outcome = await conn.connectAndHandshake(
         { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined },
@@ -277,6 +311,7 @@ export class RemoteLinkService extends Service {
             this.pairing.state = 'sas-confirm';
             this.pairing.sas = sas;
             this.pairing.deviceName = device.name;
+            this.pairing.devicePubkey = device.pubkey;
           }
           const accept = await new Promise<boolean>((resolve) => {
             this.pairingResolve = resolve;
@@ -303,6 +338,18 @@ export class RemoteLinkService extends Service {
       const deviceId = device.id;
       this.ctx.emit('remote/device-paired', device);
       this.adoptConnection(deviceId, conn, outcome.transport);
+      // cr-73：配对连接不转常住。它住在一次性配对房（p 前缀 rendezvous），
+      // 手机 KK 重连撞的是派生房（r 前缀）——若在此待命则房间错位永不相遇
+      // （真机实锤：重新配对后强杀手机，PC 在配对房 waiting、手机在派生房
+      // 撞门 10 分钟不合）。对端离线即弃链，立即去派生房 dial 常住连接。
+      conn.onPeerLeft = () => {
+        this.ctx.emit('remote/device-offline', deviceId, 'pairing-room-left');
+        if (this.connections.get(deviceId) === conn) {
+          this.connections.delete(deviceId);
+          conn.sever('move-to-derived-room');
+        }
+        void this.runDeviceConnection(deviceId);
+      };
       // 告知手机自身 deviceId 与权限档。
       // 为什么必须下发：KK 重连房间号 = SHA256(core_pub‖deviceId‖device_pub)，
       // 而 deviceId 是**本端分配**的（dev-<rand>）——手机侧无从自行得知。
@@ -315,13 +362,29 @@ export class RemoteLinkService extends Service {
       } catch (err) {
         this.ctx.logger.warn(`[remote-link] deviceId 信令下发失败: ${err instanceof Error ? err.message : err}`);
       }
-      if (this.pairing) this.pairing.state = 'done';
+      this.finalizePairingDone();
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       conn.close('pairing-failed');
       if (this.pairing && this.pairing.state !== 'done') this.pairing.state = 'expired';
       this.pairing = null; // 失败即释放——下次 startPairing 不被残留会话挡
     }
+  }
+
+  /**
+   * 配对成功收尾：置 done + 短驻后释放。
+   *
+   * done 会话原样保留是 cr-43 对账语义（多窗口/刷新恢复「配对完成」面板），
+   * 但永不清理会在真机上把面板变成常驻卡（cr-67）——短驻 10s 保留对账窗口，
+   * 到期释放，此后 status().pairing 为 null，前端按既有对账语义收起面板。
+   */
+  private finalizePairingDone(): void {
+    if (!this.pairing) return;
+    this.pairing.state = 'done';
+    const s = this.pairing;
+    setTimeout(() => {
+      if (this.pairing === s && s.state === 'done') this.pairing = null;
+    }, 10_000).unref();
   }
 
   // ============ 在线设备连接管理 ============
@@ -380,22 +443,25 @@ export class RemoteLinkService extends Service {
     const roomId = 'r' + derived.subarray(0, 17).toString('base64url');
     const conn = new RelayConnection(this.identity);
     conn.onPayload = (payload) => this.handleDevicePayload(deviceId, payload);
-    conn.onClose = (reason) => {
-      this.connections.delete(deviceId);
-      this.deviceRooms.delete(deviceId);
-      // 退避计数随断链归零（cr-48 真机实锤：attempt 只在连接成功时清零，一次
-      // 断链周期后 reconnectAttempt 已爬到高档——此后每次断链都直接从 60s 退避
-      // 起步，PC 侧长时间「消失」，手机在房空撞门等不到 responder。断链=新周期，
-      // 退避应从 1s 重新爬。）
-      this.reconnectAttempt = 0;
-      this.ctx.emit('remote/device-offline', deviceId, reason);
-      this.scheduleReconnect(deviceId);
+    // cr-70 常住方：对端离线/回归由连接自身处理（peer-left → waiting 待命，
+    // 新 m1 → 原地重握手）——服务层只观察状态迁移。
+    conn.onPeerLeft = () => {
+      this.ctx.emit('remote/device-offline', deviceId, 'peer-left');
+      this.ensureHeartbeat(); // 心跳维持房间（无连接时它会自停）
     };
+    conn.onRehandshake = (outcome) => {
+      this.registry.touch(deviceId);
+      this.ctx.emit('remote/device-online', deviceId);
+      this.reconnectAttempt = 0;
+      void outcome; // transport 已在连接内换新；adoptConnection 只做登记
+    };
+    // onClose 不在此挂——统一由 adoptConnection 收编时挂（cr-67 收敛，见彼处注释）
     try {
       const outcome = await conn.connectAndHandshake(
         { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined, targetDevicePubkey: device.pubkey,
-          // KK 长驻等待（70s 覆盖手机 10 轮 × 7s 完整周期 + 退避窗——见 relay-connection 注释）
-          waitFirstMsgMs: 70_000 },
+          // 首握手等待窗（cr-70 后无相位压力——手机撞门即达；窗口只兜底网络
+          // 抖动与 dial 失败的判定）。原 70s 长驻语义已被常住模型取代。
+          waitFirstMsgMs: 15_000 },
         this.registry,
         async () => false, // KK 路径不进 SAS
       );
@@ -403,26 +469,13 @@ export class RemoteLinkService extends Service {
       this.adoptConnection(deviceId, conn, outcome.transport);
       this.ctx.emit('remote/device-online', deviceId);
       this.reconnectAttempt = 0;
-      this.kkRetries.delete(deviceId);
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
-      // sever 而非 close（cr-50 真机实锤）：握手超时与对端 m1 到达存在竞态——
-      // close 的优雅关闭握手最长挂 30s 才真断 TCP，期间这条「已判死」的连接仍
-      // 占着 relay 房间 2/2，双方重试 join 全被 room-unavailable 拒 + 对端对着
-      // 残骸假 ONLINE。失败路径必须 RST 立断：relay 立即毁房，下轮撞门即空房。
+      // sever 而非 close（cr-50）：失败路径 RST 立断，不占房。
       conn.sever('connect-failed');
-      // KK 握手期失败重试不受 autoReconnect 门控（进房时序竞态是常态：发起方
-      // m1 早于本端入房即丢——短窗内自动重排对齐客户端的重试节奏）。
-      // 间隔 2s（cr-63 会合提速：70s 长驻 + 2s 间隙 = 在房率 97%，手机撞门即会合。
-      // 频控安全：本端每 72s 一次 join 距 30/min 上限余量巨大；cr-43 ⑬ 的教训是
-      // 「同 IP 双端合计」烧频控——手机侧已同步降为 4s/轮 = 15/min，合计仍 <30/min）
-      if ((this.kkRetries.get(deviceId) ?? 0) < 10) {
-        this.kkRetries.set(deviceId, (this.kkRetries.get(deviceId) ?? 0) + 1);
-        setTimeout(() => { void this.runDeviceConnection(deviceId); }, 2_000);
-      } else {
-        this.kkRetries.delete(deviceId);
-        this.scheduleReconnect(deviceId);
-      }
+      // cr-70：重试只剩这一处——dial/join 失败（relay 不可达/频控）时常规退避。
+      // 相位耦合已由常住模型根除，不再需要快重试循环。
+      this.scheduleReconnect(deviceId);
     }
   }
 
@@ -434,7 +487,24 @@ export class RemoteLinkService extends Service {
     // RelayConnection 内部已持有 transport；这里只挂回调与登记
     conn.onPayload = conn.onPayload ?? ((payload) => this.handleDevicePayload(deviceId, payload));
     const prev = this.connections.get(deviceId);
-    if (prev && prev !== conn) prev.close('superseded');
+    if (prev && prev !== conn) {
+      prev.onClose = null; // 替换前摘钩——旧链的 superseded 关闭不得误触发下线的清理
+      prev.close('superseded');
+    }
+    // onClose 统一在此挂（cr-67：配对收编路径原先漏挂——手机离线后 relay 销房 RST，
+    // 连接内态已 closed 但服务层无人通知 → connections 残留死链、status 恒报在线、
+    // 重连永不触发，手机在派生房空撞门卡「正在连接」）。KK 路径的挂载点移除，
+    // 与配对路径收敛到同一漏斗——两份 onClose 迟早走散。
+    conn.onClose = (reason) => {
+      // 新链已替换本链（superseded 摘钩在前，理论上到不了这里——防御性保留）
+      if (this.connections.get(deviceId) !== conn) return;
+      this.connections.delete(deviceId);
+      this.deviceRooms.delete(deviceId);
+      // 退避计数随断链归零（cr-48 真机实锤：断链=新周期，退避应从 1s 重新爬）
+      this.reconnectAttempt = 0;
+      this.ctx.emit('remote/device-offline', deviceId, reason);
+      this.scheduleReconnect(deviceId);
+    };
     this.connections.set(deviceId, conn);
     this.ensureHeartbeat();
   }
@@ -573,7 +643,11 @@ export class RemoteLinkService extends Service {
   broadcastEvent(type: string, args: unknown[]): void {
     if (!REMOTE_DOWNLINK_EVENTS.includes(type)) return;
     const frame: LinkPayload = { type, data: { args } };
-    for (const conn of this.connections.values()) {
+    // scopes 过滤（cr-64 审计）：下行事件全是会话内容流（llm/delta、tool 轨迹等），
+    // chat-only（无 read 档）设备不应实时收明文——「能发不能看」的权限设计。
+    for (const [deviceId, conn] of this.connections) {
+      const device = this.registry.get(deviceId);
+      if (!device || !device.scopes.includes('read')) continue;
       try {
         conn.sendPayload(frame);
       } catch { /* 单个失败不影响其余 */ }

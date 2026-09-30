@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-63**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-73**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -81,3 +81,13 @@
 - 【cr-61 2026-09-30 修复 run 中后台 job 通知 event 行插入后工具卡永久转圈：turnContentSig 漏 tool result 长度致前缀复用过期 Turn】
 - 【cr-62 2026-09-30 手机端握手时序图（src/docs/mobile-handshake-sequence.html）：XK 配对与 KK 重连两条握手全时序（源码对齐版）——三泳道参与者/保活与频控参数/断链恢复实测节奏/SAS 校验锚点，与既有 mobile-link-diagram.html 同族样式】
 - 【cr-63 2026-09-30 手机冷启会合提速：PC KK 循环间隙 7s→2s（在房率 91%→97%，join 频控无压力）+ 手机撞门轮间隔 7s→4s（15/min 频控安全）——冷启等待实测 ~29s 降至预期 ~7s 均值。根因：撞门粒度与 PC 循环间隙的乘积构成相位错拍窗口，两端各压一半】
+- 【cr-64 2026-09-30 relay 安全审计修复：KK 模式改真 KK（加 s/ss token）+ responder 校验对端静态公钥；relay 清扫频控 bucket 残留 + 单 IP 未封闭房间配额；下行事件按 device.scopes 过滤；singles/update fork 移出 read 档；relay frame 转发死代码清理】
+- 【cr-65 2026-09-30 审计修复第二批：配对二维码携带 TLS pin 并双端校验；SAS 确认显示设备公钥指纹；配对会话过期重生成房间号；download-gate 路径段级匹配修子串误拒；KK 重试错峰抖动】
+- 【cr-66 2026-09-30 远程链路真机两缺陷：①loader 行 config 经 schemastery 归一化把 defaultScopes 变空数组（?? 不认空数组）→ 配对设备零权限注册 → 手机端 webui 装配被 scopes 闸门全拒 → 黑屏；②status() 配对会话 done 后未释放仍判 pairing → PC 端恒显配对中。修：①defaultScopes 空数组回落缺省档；②链路状态判定排除 done 态会话】
+- 【cr-67 2026-09-30 远程链路真机续两缺陷：①配对收编路径（adoptConnection）漏挂 onClose——手机离线后 connections 残留死链、status 恒报在线、重连永不触发，手机在派生房空撞门卡「正在连接」（onClose 统一移入 adoptConnection 漏斗 + 新链替换守卫）；②配对 done 会话永不释放——SAS 完成面板常驻不退（done 短驻 10s 后释放，前端对账即收起）】
+- 【cr-68 2026-09-30 真机 KK 重连失败根因定位：PC 宿主重启后已跑 cr-64 真 KK（m1=[e,es,s,ss]），手机 APK 仍为 20:51 旧构建（精简 KK m1=[e,es]）——协议版本错配致 PC 端解析 m1 抛 noise: truncated s、重连永不成功；重编 APK 对齐协议版本】
+- 【cr-69 2026-09-30 PC 端 KK 70s 握手等待死等缺陷（真机+relay 日志双实锤）：expectHandshakeMessage 只挂超时定时器，ws 被 relay 销房 RST 后仍盲等到自然超时——手机撞门轮 cancel 切 TCP→relay 销房→PC 死 ws 盲等剩余窗口→手机下一轮 join 空房，两端相位互屠；修：ws close 即 reject 全部挂起握手等待，失败立即进 2s 快速重试与手机撞门轮对齐】
+- 【cr-70 2026-09-30 会合协议结构重构：常住方（resident）模型根除相位耦合——relay 成员离线不再销房（移除成员+通知幸存者 peer-left，房间随心跳存活）；PC 端 KK 改常住连接（对端离开原地待命，新 m1 到达即在同 ws 上重握手，删 70s 等待/2s 快重试/kkRetries 全部时序参数）；手机端零改动】
+- 【cr-71 2026-09-30 cr-70 手机端补丁：peer-left 处理过于激进——收到即 cancel 自杀健康连接（真机实锤：PC 旧版重试轮断开触发 relay peer-left，手机误判为断线自cancel，发消息即断连）。修正语义：peer-left = 对端连接走了但房间保留，正确动作是走既有重连循环（撞门即会合常住的 PC），非放弃】
+- 【cr-72 2026-09-30 relay TTL 误杀常住房（cr-70 补丁）：openRoomTtl 5min 判定用 createdAt 且不区分「从未封闭的占座房」与「曾封闭后回到 1 席的常住房」——PC 独守超 5min 被 sweep 杀、被迫每 5min 重拨一轮，违背常住方意图。修：Room 增 everClosed 标记，TTL 只管从未封闭的房间；常住房由幸存者心跳（60s 超时）保活】
+- 【cr-73 2026-10-01 cr-70 补缺：配对连接被收编为常住后住在配对房（p 前缀一次性房），手机 KK 撞的是派生房（r 前缀）——房间错位永不相遇（真机实锤：重新配对后强杀手机，PC 在配对房 waiting，手机在派生房撞门 10 分钟不合）。修：配对连接不转常住——onPeerLeft 时弃链并立即去派生房 dial 常住连接（配对房本就是一次性 rendezvous，常住语义只属于派生房）】

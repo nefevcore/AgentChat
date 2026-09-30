@@ -5,12 +5,15 @@
 //   · 房间 = 恰好两方的内存管道；第三人 join 一律 room-unavailable
 //     （统一错误码——不区分不存在/已满/已过期，扫描无存在性回声）；
 //   · frame = opaque 密文转发：不解析、不落盘、不记内容日志；
-//   · 任一离线 → 房间立即销毁；未封闭房间 TTL 5min；
+//   · 房间寿命 = 常住方模型（cr-70/72）：成员离线只移除该成员并通知幸存者
+//     （peer-left），房间随幸存者心跳存活；全员离场即销毁；从未封闭的
+//     占座房 TTL 5min、曾封闭的常住房由 60s 心跳超时兜底——哑中继的
+//     “哑”（内容盲/身份盲/重启失忆）分毫未动，变的只是管道寿命策略；
 //   · 防滥用四重限额（连接/房间/帧大小/速率）+ join 频控 + 单房间流量上限；
 //   · 无数据库、无磁盘卷——重启即失忆是特性。
 // ============================================================
 
-/** 控制帧（relay 全部词汇——就这四种） */
+/** 控制帧（relay 全部词汇） */
 export type RelayClientMessage =
   | { op: 'join'; room: string }
   | { op: 'frame'; data: unknown }
@@ -20,6 +23,8 @@ export type RelayClientMessage =
 export type RelayServerMessage =
   | { op: 'joined' }
   | { op: 'room-unavailable' }        // 统一错误码（不存在/已满/已过期同码）
+  | { op: 'peer-left' }               // cr-70 常住方模型：对端离线通知（房间保留）
+  | { op: 'peer-arrived' }            // cr-70：对端加入通知（幸存者可重握手）
   | { op: 'frame'; data: unknown }
   | { op: 'pong' }
   | { op: 'error'; code: string; message?: string };
@@ -35,13 +40,18 @@ export interface RateLimiterOptions {
 export class TokenBucket {
   private tokens: number;
   private last = Date.now();
-  constructor(private readonly opts: RateLimiterOptions) {
+  /** 最近一次 take 时刻（sweep 清扫残留 bucket 用——cr-64：高频 IP 永久泄漏修复） */
+  lastTake = Date.now();
+  private readonly opts: RateLimiterOptions;
+  constructor(opts: RateLimiterOptions) {
+    this.opts = opts;
     this.tokens = opts.burst;
   }
   take(n = 1): boolean {
     const now = Date.now();
     this.tokens = Math.min(this.opts.burst, this.tokens + ((now - this.last) / 1000) * this.opts.ratePerSec);
     this.last = now;
+    this.lastTake = now;
     if (this.tokens >= n) { this.tokens -= n; return true; }
     return false;
   }
@@ -64,6 +74,8 @@ export interface RelayLimits {
   openRoomTtlMs: number;
   /** 房间成员心跳超时（ms，任一方超时未 pong 即断开销毁房间） */
   heartbeatTimeoutMs: number;
+  /** 单 IP 未封闭（1 席等待期）房间数上限——cr-64：占座阻断的纵深压缩 */
+  maxOpenRoomsPerIp: number;
 }
 
 export const DEFAULT_LIMITS: RelayLimits = {
@@ -86,6 +98,10 @@ export const DEFAULT_LIMITS: RelayLimits = {
   roomDailyBytes: 1024 * 1024 * 1024,            // 1 GiB/天
   openRoomTtlMs: 5 * 60 * 1000,
   heartbeatTimeoutMs: 60 * 1000,
+  // cr-64：单 IP 未封闭房间配额。正常拓扑每 IP 同时至多 2 条链（双端各一）×
+  // 各 1 房；手机 4s/轮重试 + 核心端 70s 长驻的瞬态峰值也不超过 4-6 房。8 = 合法
+  // 流量 2 倍余量，同时把「一 IP 占满全局房间池」的耗尽攻击面压到 8 房/IP。
+  maxOpenRoomsPerIp: 8,
 };
 
 /** room id 合法形状：22-43 字符 urlsafe base64（128-256 bit 熵） */
@@ -100,6 +116,8 @@ interface Room {
   bytesIn: number;
   /** 双方 join 后每个成员的心跳截止时刻（超时未见 ping 即断开） */
   lastSeen: number[];
+  /** 曾达到 2 席（cr-70 常住房标记）：TTL 不再适用——由幸存者心跳保活 */
+  everClosed: boolean;
 }
 
 /** 连接句柄抽象（可注入测试替身） */
@@ -125,18 +143,29 @@ export class RelayCore {
 
   constructor(private readonly limits: RelayLimits = DEFAULT_LIMITS) {}
 
-  /** 每分钟一次的全局清扫（未封闭 TTL 房间 + 心跳超时成员） */
+  /** 每分钟一次的全局清扫（未封闭 TTL 房间 + 心跳超时成员 + 残留频控 bucket） */
   sweep(now = Date.now()): void {
+    // bucket 泄漏修复（cr-64）：joinBuckets/frameBuckets 原本只增不减——每个
+    // 出现过的高频 IP 永久残留一条 entry。10 分钟无 take 的 bucket 即无主残骸。
+    for (const [ip, b] of this.joinBuckets) {
+      if (now - b.lastTake > 600_000) this.joinBuckets.delete(ip);
+    }
+    for (const [ip, b] of this.frameBuckets) {
+      if (now - b.lastTake > 600_000) this.frameBuckets.delete(ip);
+    }
     for (const [id, room] of this.rooms) {
-      if (room.peers.length < 2 && now - room.createdAt > this.limits.openRoomTtlMs) {
+      // cr-72：TTL 只管「从未封闭」的占座房（防扫描占位）；曾封闭的常住房由
+      // 幸存者心跳保活（60s 超时兜底）——PC 独守不再被 5min TTL 误杀重拨。
+      if (!room.everClosed && room.peers.length < 2 && now - room.createdAt > this.limits.openRoomTtlMs) {
         this.destroyRoom(id);
         continue;
       }
-      // 心跳超时：断开呆死成员（正常成员每 <30s 一 ping）
-      for (let i = 0; i < room.peers.length; i++) {
+      // 心跳超时：只清超时成员（cr-70——原语义销毁全房；现在幸存者无责）。
+      // terminate 会触发该连接的 onClose → detach → removeMember（通知幸存者），
+      // 此处不再手动移除（同步 close 的替身会双重 splice——索引错位实锤）。
+      for (let i = room.peers.length - 1; i >= 0; i--) {
         if (now - room.lastSeen[i] > this.limits.heartbeatTimeoutMs) {
-          this.destroyRoom(id);
-          break;
+          try { room.peers[i].ws.terminate(); } catch { /* 已断 */ }
         }
       }
     }
@@ -155,7 +184,11 @@ export class RelayCore {
     const detach = () => {
       const c = this.ipConns.get(conn.ip) ?? 1;
       if (c <= 1) this.ipConns.delete(conn.ip); else this.ipConns.set(conn.ip, c - 1);
-      if (joinedRoom) this.destroyRoom(joinedRoom);
+      // cr-70 常住方模型：成员离线不再销毁房间——只移除该成员并通知幸存者。
+      // 原语义（任一离线即销房）逼得双端都做重试振荡器，相位耦合修不完
+      // （cr-43⑭/48/50/63/65/69 全是这类补丁）。现在：房间随幸存者的心跳
+      // 存活；新成员随时可 join 进来。房间仅当无成员时由 destroyRoom 收尾。
+      if (joinedRoom) this.removeMember(joinedRoom, conn);
     };
 
     conn.onClose(detach);
@@ -196,9 +229,19 @@ export class RelayCore {
             conn.send(JSON.stringify({ op: 'room-unavailable' } satisfies RelayServerMessage));
             return;
           }
+          // 单 IP 未封闭房间配额（cr-64）：新建房才计（加入既有房不限——不惩罚会合方）。
+          // 攻击面压缩：一 IP 至多 8 个占座房，全局池不再被单点耗尽。
+          if (!this.rooms.has(msg.room)) {
+            const openByIp = [...this.rooms.values()]
+              .filter((r) => r.peers.length < 2 && r.peers.some((p) => p.ip === conn.ip)).length;
+            if (openByIp >= this.limits.maxOpenRoomsPerIp) {
+              conn.send(JSON.stringify({ op: 'room-unavailable' } satisfies RelayServerMessage));
+              return;
+            }
+          }
           let room = this.rooms.get(msg.room);
           if (!room) {
-            room = { peers: [], createdAt: Date.now(), dayKey: dayKeyOf(), bytesIn: 0, lastSeen: [] };
+            room = { peers: [], createdAt: Date.now(), dayKey: dayKeyOf(), bytesIn: 0, lastSeen: [], everClosed: false };
             this.rooms.set(msg.room, room);
             // 未封闭 TTL / 心跳超时统一由全局 sweep()（main.ts 每 60s，已
             // unref）兜底——房间级定时器会钉住事件循环（进程不退出事故）
@@ -206,6 +249,11 @@ export class RelayCore {
           if (room.peers.length >= 2) {
             conn.send(JSON.stringify({ op: 'room-unavailable' } satisfies RelayServerMessage));
             return;
+          }
+          // cr-70：成员回归（房间已有 1 席 + 本连接加入）→ 通知幸存者对端已到
+          if (room.peers.length === 1) {
+            room.everClosed = true; // 曾封闭——TTL 豁免，此后由心跳保活（cr-72）
+            room.peers[0].ws.send(JSON.stringify({ op: 'peer-arrived' } satisfies RelayServerMessage));
           }
           room.peers.push({ ws: conn, ip: conn.ip });
           room.lastSeen.push(Date.now());
@@ -227,7 +275,7 @@ export class RelayCore {
           if (room.dayKey !== dk) { room.dayKey = dk; room.bytesIn = 0; }
           room.bytesIn += len;
           if (room.bytesIn > this.limits.roomDailyBytes) { this.destroyRoom(roomId); return; }
-          const other = room.peers.find((p) => p.ws !== (conn as unknown)) ?? room.peers.find((p) => p.ws !== conn);
+          const other = room.peers.find((p) => p.ws !== conn);
           if (!other) return;
           this.touch(conn, roomId);
           // opaque 原样转发（不解析 data——relay 对载荷零理解）
@@ -239,6 +287,27 @@ export class RelayCore {
       }
     });
     return true;
+  }
+
+  /**
+   * 移除房间成员（cr-70）：通知幸存者 peer-left；房间空了才销毁。
+   * 与 destroyRoom（全员清场）分工——后者仅用于销毁性事件（流量超限/sweep 收尾）。
+   */
+  private removeMember(roomId: string, conn: RelayConn): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const idx = room.peers.findIndex((p) => p.ws === conn);
+    if (idx < 0) return;
+    room.peers.splice(idx, 1);
+    room.lastSeen.splice(idx, 1);
+    if (room.peers.length === 0) {
+      this.destroyRoom(roomId);
+      return;
+    }
+    // 幸存者通知——不 terminate（cr-70 核心语义：幸存连接继续活）
+    for (const p of room.peers) {
+      try { p.ws.send(JSON.stringify({ op: 'peer-left' } satisfies RelayServerMessage)); } catch { /* 已断 */ }
+    }
   }
 
   /** 心跳刷新（ping/join/frame 均算活跃） */

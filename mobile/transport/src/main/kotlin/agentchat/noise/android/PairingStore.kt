@@ -22,6 +22,14 @@ class PairingStore(context: Context) {
         get() = prefs.getString("relayUrl", null)
         set(v) { prefs.edit().putString("relayUrl", v).apply() }
 
+    /**
+     * relay TLS 证书 sha256 pin（hex，cr-65）。配对二维码带出、此后 KK 重连复用——
+     * 堵 KCI 场景「relay 真伪无从验证」缺口。null = 部署方未配置（行为同旧）。
+     */
+    var tlsPin: String?
+        get() = prefs.getString("tlsPin", null)
+        set(v) { prefs.edit().putString("tlsPin", v).apply() }
+
     var deviceName: String
         get() = prefs.getString("deviceName", null) ?: android.os.Build.MODEL
         set(v) { prefs.edit().putString("deviceName", v).apply() }
@@ -66,12 +74,13 @@ class PairingStore(context: Context) {
         prefs.edit().putString("deviceId", deviceId).putStringSet("scopes", scopes.toSet()).apply()
     }
 
-    fun savePairing(corePubkey: String, relayUrl: String) {
-        prefs.edit().putString("corePubkey", corePubkey).putString("relayUrl", relayUrl).apply()
+    fun savePairing(corePubkey: String, relayUrl: String, tlsPin: String? = null) {
+        prefs.edit().putString("corePubkey", corePubkey).putString("relayUrl", relayUrl)
+            .putString("tlsPin", tlsPin ?: "").apply()
     }
 
     fun clearPairing() {
         // bridgePort 不随配对清除——换电脑重配对也该复用同端口（localStorage 分区不动）
-        prefs.edit().remove("corePubkey").remove("relayUrl").remove("deviceId").remove("scopes").apply()
+        prefs.edit().remove("corePubkey").remove("relayUrl").remove("deviceId").remove("scopes").remove("tlsPin").apply()
     }
 }

@@ -6,7 +6,8 @@
 //   · join(roomId) → 房间封闭（恰好两方）；
 //   · XK（配对）/ KK（重连）握手 → TransportCipher 帧泵；
 //   · 帧格式 { t: "frame", n, ct }（业务载荷 JSON 与本地 WS 协议同构）；
-//   · 断线指数退避重连（1s 起，上限 60s，±20% 抖动）。
+//   · ws 真死后指数退避重拨（1s 起，上限 60s，±20% 抖动）；对端离线走
+//     常住待命（cr-70），不弃链。
 //
 // 与 relay 的控制帧词汇（ac-relay-server）：
 //   入站 { op: "join", room } → joined | room-unavailable；
@@ -28,11 +29,13 @@ import type { RemoteDevice, RemoteScope } from './device-registry.ts';
 /** 应用层保活间隔（relay 心跳超时 60s——留足余量） */
 const KEEPALIVE_MS = 25_000;
 
-/** relay 控制帧（本模块只关心这四种） */
+/** relay 控制帧（本模块关心的六种） */
 type RelayFrame =
   | { op: 'joined' }
   | { op: 'room-unavailable' }
   | { op: 'pong' }
+  | { op: 'peer-left' }
+  | { op: 'peer-arrived' }
   | { op: 'frame'; data: { t: string; n: number; ct: string } };
 
 /** 加密业务帧的载荷形态（与本地 WS 帧 WsFrame 同构） */
@@ -48,6 +51,7 @@ export type LinkState =
   | 'handshaking'
   | 'online'
   | 'pairing-sas'
+  | 'waiting-peer'   // cr-70 常住方：对端离线，本连接原地待命（房间还在）
   | 'closed';
 
 export interface RelayConnectOptions {
@@ -72,8 +76,10 @@ export interface HandshakeOutcome {
 }
 
 /**
- * 单次 relay 会话（一个房间 = 一次连接生命周期）。
- * 服务层持有；断线后整体废弃重连（新房间/新握手——relay 房间任一离线即销毁）。
+ * 单个 relay 连接生命周期。cr-70 常住方模型后：PC 端 KK 连接常住房间——
+ * 对端离线（peer-left）不弃链，原地待命（waiting-peer），对端回归的新 m1
+ * 在同一条 ws 上重握手（kkRespond）。仅 ws 真死（relay 重启/网络断）才整体
+ * 废弃重拨（新房间/新握手）。配对（XK）会话仍是一次性生命周期。
  */
 export class RelayConnection {
   private ws: WebSocket | null = null;
@@ -86,6 +92,10 @@ export class RelayConnection {
   onError: ((message: string) => void) | null = null;
   /** 状态观察口（诊断用；不影响协议行为） */
   onState: ((note: string) => void) | null = null;
+  /** 常住模式：对端离线（peer-left）——服务层更新设备下线状态用 */
+  onPeerLeft: (() => void) | null = null;
+  /** 常住模式：对端回归重握手成功——服务层恢复在线状态用 */
+  onRehandshake: ((outcome: HandshakeOutcome) => void) | null = null;
 
   /** ws 通道活态（cr-43：connect 区分「健康在线跳过」与「死链清理重建」用） */
   get isOpen(): boolean {
@@ -93,6 +103,9 @@ export class RelayConnection {
   }
 
   private readonly identity: StaticIdentity;
+
+  /** KK 常住模式的目标设备公钥（b64url）——peer-left 后重握手用 */
+  private kkTargetPubkey: string | null = null;
 
   constructor(identity: StaticIdentity) {
     this.identity = identity;
@@ -115,6 +128,12 @@ export class RelayConnection {
     ws.on('close', () => {
       this.stopKeepalive();
       this.state = 'closed';
+      // 挂起中的握手等待立即唤醒（cr-69 真机+relay 日志双实锤：手机撞门轮
+      // cancel 切 TCP → relay 销房 RST 掉本端 → 死 ws 上的 70s 等待若只靠
+      // 定时器自然到期，盲等窗口内手机后续撞门全是空房——两端相位互屠，
+      // 二次启动永远连不上。close 即 reject：失败路径立刻进 2s 快速重试，
+      // 与手机 7.5s 撞门轮快速对齐相位。）
+      this.failPendingHandshake('ws closed');
       this.onClose?.('ws closed');
     });
     ws.on('error', (err) => this.onError?.(err.message));
@@ -183,23 +202,35 @@ export class RelayConnection {
       this.state = 'online';
       outcome = { kind: 'paired', device: info, sas, transport: pair, handshakeHash: pair.handshakeHash };
     } else {
-      // KK 重连：m1 = [e, es]——es 需要已知对端静态公钥。对端是谁由调用方决定：
-      // runDeviceConnection 已按注册表锁定 deviceId 并传入 targetDevicePubkey。
+      // KK 常住方（cr-70）：首条 m1 与后续重握手共用同一处理。
       const targetPub = (opts as RelayConnectOptions & { targetDevicePubkey?: string }).targetDevicePubkey;
       if (!targetPub) {
         ws.close();
         throw new Error('relay: reconnect requires targetDevicePubkey');
       }
-      hs = new NoiseHandshake('KK', 'responder', this.identity, unb64u(targetPub));
-      hs.readMessage(firstMsg);
-      const m2 = hs.writeMessage();
-      this.sendHandshake(m2);
-      const pair = hs.split();
-      this.transport = pair;
-      this.state = 'online';
-      outcome = { kind: 'known', device: { name: '', pubkey: targetPub }, transport: pair, handshakeHash: pair.handshakeHash };
+      this.kkTargetPubkey = targetPub;
+      outcome = this.kkRespond(firstMsg);
     }
     return outcome;
+  }
+
+  /**
+   * KK 响应握手一轮：读 m1 → 回 m2 → 换 transport → online。
+   * 幂等安全：旧 transport 直接被替换（对端已换会话，旧序号帧自然解不开）。
+   */
+  private kkRespond(m1: Buffer): HandshakeOutcome {
+    const targetPub = this.kkTargetPubkey!;
+    const hs = new NoiseHandshake('KK', 'responder', this.identity, unb64u(targetPub));
+    // 真 KK（cr-64）：m1 含发起方加密 s 段 + ss DH——静态私钥不持有者无法算出
+    // 正确密钥链，readMessage 必抛错（解 s 段失败或身份比对不符）。
+    hs.readMessage(m1);
+    const m2 = hs.writeMessage();
+    this.sendHandshake(m2);
+    const pair = hs.split();
+    this.transport = pair;
+    this.state = 'online';
+    this.onState?.('KK 重握手完成（对端回归）');
+    return { kind: 'known', device: { name: '', pubkey: b64u(hs.remoteStatic ?? unb64u(targetPub)) }, transport: pair, handshakeHash: pair.handshakeHash };
   }
 
   /** 发送业务帧（加密） */
@@ -313,13 +344,31 @@ export class RelayConnection {
     });
   }
 
-  private pendingHandshake: { resolve: (msg: Buffer) => void }[] = [];
+  private pendingHandshake: { resolve: (msg: Buffer) => void; reject: (err: Error) => void }[] = [];
 
   private expectHandshakeMessage(timeoutMs: number): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('relay: handshake timeout')), timeoutMs);
-      this.pendingHandshake.push({ resolve: (msg) => { clearTimeout(timer); resolve(msg); } });
+      const timer = setTimeout(() => {
+        this.dropPendingWaiter(waiter);
+        reject(new Error('relay: handshake timeout'));
+      }, timeoutMs);
+      const waiter = {
+        resolve: (msg: Buffer) => { clearTimeout(timer); resolve(msg); },
+        reject: (err: Error) => { clearTimeout(timer); reject(err); },
+      };
+      this.pendingHandshake.push(waiter);
     });
+  }
+
+  /** ws 已死——唤醒全部挂起握手等待（超时定时器由各 waiter 自清） */
+  private failPendingHandshake(reason: string): void {
+    const waiters = this.pendingHandshake.splice(0);
+    for (const w of waiters) w.reject(new Error('relay: ' + reason));
+  }
+
+  private dropPendingWaiter(waiter: { resolve: (msg: Buffer) => void; reject: (err: Error) => void }): void {
+    const i = this.pendingHandshake.indexOf(waiter);
+    if (i >= 0) this.pendingHandshake.splice(i, 1);
   }
 
   private sendHandshake(msg: Buffer): void {
@@ -342,9 +391,37 @@ export class RelayConnection {
       }
       return;
     }
+    // cr-70 常住方：对端离线——房间保留，丢弃 transport 原地待命。
+    // 不再触发 onClose（连接本身健康）；服务层经 onPeerLeft 观察下线。
+    if (frame.op === 'peer-left') {
+      if (this.state === 'online') {
+        this.transport = null;
+        this.state = 'waiting-peer';
+        this.onState?.('对端离线——常住待命（房间保留）');
+        this.onPeerLeft?.();
+      }
+      return;
+    }
+    if (frame.op === 'peer-arrived') {
+      // 对端进房信令——握手帧随踵而至（handleWire 的 hs 分支处理），此处仅诊断
+      if (this.state === 'waiting-peer') this.onState?.('对端进房——等待其 m1');
+      return;
+    }
     if (frame.op === 'frame') {
       const data = (frame.data ?? {}) as { hs?: unknown; n?: unknown; ct?: unknown };
       if (typeof data.hs === 'string') {
+        // 常住重握手（cr-70）：waiting 态收到 m1 = 对端回归，直接重做 KK 响应。
+        // 失败（伪冒/坏帧）只 sever 这条连接交上层重拨——不影响其他设备。
+        if (this.state === 'waiting-peer' && this.kkTargetPubkey) {
+          try {
+            const outcome = this.kkRespond(unb64u(data.hs));
+            this.onRehandshake?.(outcome);
+          } catch (err) {
+            this.onError?.('KK 重握手失败: ' + (err instanceof Error ? err.message : String(err)));
+            this.sever('kk-rehandshake-failed');
+          }
+          return;
+        }
         const waiter = this.pendingHandshake.shift();
         waiter?.resolve(unb64u(data.hs));
         return;

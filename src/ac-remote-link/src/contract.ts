@@ -19,12 +19,17 @@ export interface PairingSession {
   sas?: string;
   /** 手机上报的设备信息（握手载荷） */
   deviceName?: string;
+  /** 对端静态公钥指纹（cr-65：SAS 确认面显示——设备名可伪造不作信任提示，
+   * 指纹才绑定密码学身份；真机 App「关于本机」处可核对同值） */
+  devicePubkey?: string;
 }
 
 /** 服务状态快照（管理面展示用） */
 export interface RemoteLinkStatus {
   identityPubkey: string;
   relayUrl: string | null;
+  /** TLS pin 是否已配置（cr-65——UI 提示用；值本身不下发远端，只随二维码给配对方） */
+  tlsPinConfigured: boolean;
   state: 'idle' | 'connecting' | 'online' | 'pairing' | 'error';
   onlineDeviceIds: string[];
   lastError: string | null;

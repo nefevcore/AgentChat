@@ -98,6 +98,18 @@ describe('KK 握手（重连）', () => {
     expect(rp.recv.read(f.n, f.ct).toString()).toBe('data');
   });
 
+  it('全新身份冒充已配对设备：responder 握手必须失败（cr-64 P0 回归）', () => {
+    const phone = generateStaticIdentity();
+    const pc = generateStaticIdentity();
+    const attacker = generateStaticIdentity(); // 攻击者只知 pc 公钥与 phone 公钥（全公开信息）
+    const atk = new NoiseHandshake('KK', 'initiator', attacker, pc.publicKey);
+    const victim = new NoiseHandshake('KK', 'responder', pc, phone.publicKey);
+    const m1 = atk.writeMessage(Buffer.from('fake'));
+    // 真 KK：m1 的 s 段（attacker 静态公钥）被 victim 以 phone 公钥期待解密/比对——
+    // 静态私钥不持有者算不出正确密钥链，readMessage 必抛（身份不符或 tag 校验失败）
+    expect(() => victim.readMessage(m1)).toThrow();
+  });
+
   it('KK 载荷随末条消息携带', () => {
     const phone = generateStaticIdentity();
     const pc = generateStaticIdentity();

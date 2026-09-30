@@ -138,7 +138,7 @@ class NoiseTest {
         assertFailsWith<NoiseException> { init.readMessage(m2) }
     }
 
-    // ---- KK 握手（重连——本仓精简 KK）----
+    // ---- KK 握手（重连——cr-64 真 KK：m1 含 s/ss，发起方身份入密钥链）----
 
     @Test
     fun kk_roundtrip() {
@@ -157,6 +157,18 @@ class NoiseTest {
         val rp = resp.split()
         val f = ip.send.write("data".toByteArray())
         assertEquals("data", String(rp.recv.read(f.first, f.second)))
+    }
+
+    @Test
+    fun kk_rejects_fresh_identity_impersonation() {
+        val phone = generateStaticIdentity()
+        val pc = generateStaticIdentity()
+        val attacker = generateStaticIdentity() // 只知双方公钥（全公开信息）
+        val atk = NoiseHandshake(NoisePattern.KK, NoiseRole.INITIATOR, attacker, pc.publicKey)
+        val victim = NoiseHandshake(NoisePattern.KK, NoiseRole.RESPONDER, pc, phone.publicKey)
+        val m1 = atk.writeMessage("fake".toByteArray())
+        // 真 KK：s 段以 phone 公钥期待比对——静态私钥不持有者算不出正确密钥链
+        assertFailsWith<NoiseException> { victim.readMessage(m1) }
     }
 
     @Test
