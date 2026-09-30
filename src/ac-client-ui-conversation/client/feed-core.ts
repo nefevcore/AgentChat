@@ -1477,11 +1477,22 @@ export function createFeedCore(
       // 离——同走剥离后比较/上屏，去重不失效、气泡与历史同形
       const split = splitAttachmentLines(String(um.content ?? ''));
       if (viewerTexts.has(split.content)) continue;
-      msgs.push({
+      // 按 timestamp 定位插入（cr-60 用户消息掉底）：快照补合时历史页可能
+      // 只带回 journal 活投影步（user 行 flush 延迟未落盘）——无锚（分区无
+      // viewer 行）时盲 push 尾部会把首条 user 消息压到已完成步之后渲染
+      //（[steps, user, 续流步] 错序形态）。与 mergeHistory 首屏 anchor 保护
+      // 同语义：插在首条晚于 um.ts 的消息之前，都更早 → 尾部。
+      const umTs = um.ts || Date.now();
+      let insertAt = msgs.length;
+      for (let i = 0; i < msgs.length; i++) {
+        const ts = (msgs[i] as any).timestamp ?? 0;
+        if (ts > umTs) { insertAt = i; break; }
+      }
+      msgs.splice(insertAt, 0, {
         id: uid('user'), role: 'agent', content: split.content,
-        timestamp: um.ts || Date.now(), agent_id: VIEWER_ID.value,
+        timestamp: umTs, agent_id: VIEWER_ID.value,
         ...(split.files ? { files: split.files } : {}),
-      });
+      } as ChatMessage);
     }
 
     // ② 已完成的 ReAct 步骤（跳过已落盘部分）。

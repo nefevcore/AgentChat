@@ -1,9 +1,9 @@
 # 变更登记目录（CR log）
 
-> 一切变更（含日常 bugfix）动手前**先在此追加一行**，再动代码。
+> 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-57**（登记新条目前同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-60**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -75,3 +75,6 @@
 - 【cr-57 2026-09-30 手机端启动页 logo 畸形修复（splash 资产形态改 layer-list 等比居中）：全幅 splash.png（渐变底+logo+品牌字，320:480）作窗口背景被拉伸铺满整窗，真机屏比例（≈9:19.5）与图比例（2:3）不符 → logo 纵向拉长畸形——全幅位图做窗口背景在千差万别的屏比下必然失真。修法：gen-icons.mjs 的 splash 产物改为「drawable/splash.xml layer-list（渐变 shape 铺满 + bitmap 等比居中）+ 5 密度 splash_logo.png（透明底 logo+品牌字卡片）」，退役 11 张全幅图；styles.xml NoActionBarLaunch 补 windowBackground 项（与 android:background 双路径同指 layer-list）；新增 values-v31 styles 配 windowSplashScreenBackground 品牌底色（Android 12+ 系统 splash 阶段视觉一致，icon 用系统默认 app 图标）】
 - 【cr-56 2026-09-30 手机端 localStorage 失效根因修复（桥固定端口稳定 origin）：回环桥每次启动随机端口（LoopbackBridge port=0 缺省）+ 切后台 onStop 停桥重建 → WebView origin http://127.0.0.1:<port> 每次都变，localStorage 按 origin 分区故每次都是全新空分区——主题/lastContext/树折叠/composePrefs 等 webui 持久化在手机端「存得住一时、重启全丢」。修法（壳层三处，webui 零改动）：① LoopbackBridge.start() 固定端口 bind 失败回退 port=0 随机（fail-soft，占用者可能是别的 App 拿到同端口）；② RemoteSession.startBridge 优先复用 PairingStore 持久化的上次实际端口（无记录缺省 27182），实际端口写回持久化——回退随机也复用该值，漂移不固化；③ LoopbackBridgeTest 补固定端口监听 + 被占回退随机两测】
 - 【cr-55 2026-09-30 lite 视图 steps[].reasoning 截断（§6.5c 残余瘦身）：cr-54 后实测残余 166KB 的构成探针显示 steps[].reasoning 才是大头（单步 6~7KB × 每轮 10+ 步；toolCalls 参数/结果截断后各 <2KB 只剩零头；§6.5c 预判的 steps[].content 实测仅 0.9KB/步）。修法 = web-api session/history lite 投影把 reasoning 超 LITE_FIELD_MAX 同样截为 `前缀…[+NB 截断]` 摘要（思考折叠卡纯文本渲染，截断后缀可见即可，与工具卡截断提示同语义）。editor~user 探针：lite 166KB → ~22KB（-87%）。附带修复 cr-54 遗留的缓存污染缺陷（本测试 full-after-lite 断言抓出）：records() 元素对象共享解析缓存（约定调用方只读），cr-54 的 lite 截断直接变异缓存对象——污染后续 full 请求与 history()（LLM 回放读侧会读到「…截断」标记文本）；且 limit 未传时 page 即缓存数组本体（page = all 同引用，替换槽位 = 写缓存）。修法 = page 无条件自有副本 + lite 投影逐层浅拷贝（step/toolCall 均 spread 新对象）】
+- 【cr-58 2026-09-30 cr-log 管理 CLI（scripts/cr.mjs 零依赖本地工具）：append 自动取号 + 当日真实日历日 + 同步头部「当前号」行（写前不变量自检 fail-loud，与守门测试同口径）；grep 条目块级检索（多词 AND、续行按引用 cr 号归属、最新在前）——登记/查询各一次调用完成，替代读头行→手写条目→改头行的多轮文件操作；CR_LOG_FILE 供测试隔离；SKILL.md 红线指路与 package.json（pnpm cr）同步】
+- 【cr-59 2026-09-30 run_code # 注释规范化：strip 前确定性 #→// 改写（共享扫描器）+ 报错提示覆盖 V8 编译失败路径 + SDK 纪律行】
+- 【cr-60 2026-09-30 会话切换 user 消息掉底/错渲染修复（resume 快照尾部追加越过 journal 活投影步）】
