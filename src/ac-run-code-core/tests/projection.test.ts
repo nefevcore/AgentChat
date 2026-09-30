@@ -79,6 +79,10 @@ describe('buildSdkProjection', () => {
     const out = buildSdkProjection([READ]);
     expect(out).toContain(DEFAULT_GUIDANCE.split('\n')[0]);
   });
+  it('guidance 含注释纪律行（cr-59：# 不是 TS 注释符）', () => {
+    const out = buildSdkProjection([READ]);
+    expect(out).toContain('# 不是 TS 注释符');
+  });
   it('guidance 含字符串书写纪律（模板串转义教学——backlog 立项②）', () => {
     const out = buildSdkProjection([READ]);
     expect(out).toContain('内嵌反引号是头号错误源');

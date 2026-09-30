@@ -976,6 +976,54 @@ describe('ac-run-code：立项③ lib 注册表自愈', () => {
     expect(runCodeRow.__runCodeTestHooks.libStoreKeys('tester', 'conv-test')).not.toContain('silentBad');
   });
 
+
+  it('# 注释规范化（cr-59）：# 中文注释骗过擦除在 V8 才挂且报错无行号——擦除前归一为 //', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, [
+      "const a = '#ff0000';",
+      '# 读取文件',
+      'const b = 2',
+      'return a + b',
+    ].join('\n'));
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect((r.output as { value: string }).value).toBe('#ff00002');
+  });
+  it('# 注释规范化：shebang 与行尾 # 注释一并归一', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, [
+      '#!/usr/bin/env node',
+      'const v = 40 + 2 # 银河答案',
+      'return v',
+    ].join('\n'));
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect((r.output as { value: number }).value).toBe(42);
+  });
+  it('# 注释规范化：class 私有字段 #x 不被误改', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'class C { #n = 7; get n(): number { return this.#n } }\nreturn new C().n');
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect((r.output as { value: number }).value).toBe(7);
+  });
+  it('# 注释规范化：lib.define 源码同归一——# 注释的库函数注册成功', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, [
+      "lib.define('adder', (a: number, b: number): number => {",
+      '  # 两数求和',
+      '  return a + b',
+      '});',
+      "const add = lib.resolve('adder') as (a: number, b: number) => number;",
+      'return add(19, 23)',
+    ].join('\n'));
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect((r.output as { value: number }).value).toBe(42);
+  });
+  it('class 外误用 #x → V8 失败报错附 # 提示（cr-59 提示路径）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, 'return #bad + 1');
+    expect(r.ok).toBe(false);
+    expect((r.output as { error?: string }).error ?? r.error).toMatch(/不是 TS 注释符|私有字段/);
+  });
+
   it('好库零干扰（回归）：正常 define/resolve/调用不受包裹层影响', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, [

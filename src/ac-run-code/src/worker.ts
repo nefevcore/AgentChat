@@ -195,6 +195,8 @@ async function main(): Promise<void> {
       hints.push("多行文本优先 ['行1', '行2'].join('\\n') 拼接，避免模板串跨行");
     }
     if (code.includes('$' + '{')) hints.push("模板串内 ${ 会按插值表达式解析——要输出字面 ${ 写 \\${");
+    const hashAt = indexCodeHash(code);
+    if (hashAt !== undefined) hints.push(`${HASH_HINT}（附近：${snippetAt(code, hashAt)}）`);
     const lead = hints.length > 0 ? `——常见嫌疑：${hints.join('；')}` : '';
     return `${lead}。enum/命名空间/参数属性不可擦除——改普通常量/对象/显式赋值`;
   }
@@ -347,6 +349,7 @@ async function main(): Promise<void> {
                 ? '空字符串不是有效源码——写函数源码或含 return 的程序体字符串'
                 : '正确示例：lib.define("pick", "(obj, keys) => keys.map(k => obj[k]).join(\\" | \\")")'),
         );
+      src = normalizeHashComments(src);
       const banned = findBannedModuleSyntax(src);
       if (banned !== undefined) {
         // define 失败 = 本程序收束 + 注册表不回写（tool.ts 失败回滚语义），后续 resolve 全部落空
@@ -424,7 +427,7 @@ async function main(): Promise<void> {
   // 程序体：先包裹（async IIFE——顶层 return 合法化）再类型擦除。
   // 禁 import/require（静态 import 语法在 strip 后仍会触发模块语义——
   // 用源文本预检拒绝）。
-  const raw = init.code;
+  const raw = normalizeHashComments(init.code);
   const banned = findBannedModuleSyntax(raw);
   if (banned !== undefined) {
     send({ type: 'done', ok: false, error: banned, summary: finishSummary(summary, wallStart) });
@@ -462,7 +465,12 @@ async function main(): Promise<void> {
       result = { ok: true };
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // SyntaxError 且代码位残留 #（如 class 外 #x）——V8 报错无行号难定位，附提示
+    let msg = err instanceof Error ? err.message : String(err);
+    if (err instanceof SyntaxError) {
+      const hashAt = indexCodeHash(raw);
+      if (hashAt !== undefined) msg += `——${HASH_HINT}（附近：${snippetAt(raw, hashAt)}）`;
+    }
     // 失败时程序已有 log → 尾行并进 error（模型读的是 error 字段——
     // logsTail 只进宿主轨迹不进 LLM 面，2026-10-09 复盘：崩溃现场恰恰
     // 最需要已收集的诊断线索）
@@ -489,6 +497,129 @@ async function main(): Promise<void> {
 function finishSummary(summary: RunSummary, wallStart: number): RunSummary {
   summary.wallMs = Date.now() - wallStart;
   return summary;
+}
+
+// ── 词法骨架 + # 注释规范化（cr-59）──
+
+/**
+ * 词法骨架：src[i] 起若为字符串/模板/正则字面量或注释，返回其结束索引
+ * （region 恰含首尾界定符）；否则返回 i。正则/除法二义按启发式判——
+ * 误读仅导致该段被整体跳过（调用方按原文透传，零破坏）。
+ */
+function lexicalRegionEnd(src: string, i: number): number {
+  const c = src[i];
+  if (c === '"' || c === "'") {
+    let j = i + 1;
+    while (j < src.length && src[j] !== c) {
+      if (src[j] === '\\') j += 1;
+      j += 1;
+    }
+    return Math.min(j + 1, src.length);
+  }
+  if (c === '`') {
+    let j = i + 1;
+    while (j < src.length) {
+      if (src[j] === '\\') { j += 2; continue; }
+      if (src[j] === '`') return j + 1;
+      if (src[j] === '$' && src[j + 1] === '{') {
+        // 插值段：嵌套深度走到配对 }——其间的字符串/模板/注释整段跳过
+        //（改写器会变更源码，插值内文本零触碰）
+        let depth = 1;
+        let k = j + 2;
+        while (k < src.length && depth > 0) {
+          const ch = src[k];
+          if (ch === '{') depth += 1;
+          else if (ch === '}') depth -= 1;
+          else if (ch === '"' || ch === "'" || ch === '`' || (ch === '/' && (src[k + 1] === '/' || src[k + 1] === '*'))) {
+            const sub = lexicalRegionEnd(src, k);
+            k = sub > k ? sub : k + 1;
+            continue;
+          }
+          k += 1;
+        }
+        j = k;
+        continue;
+      }
+      j += 1;
+    }
+    return src.length;
+  }
+  if (c === '/' && src[i + 1] === '/') {
+    const nl = src.indexOf('\n', i);
+    return nl === -1 ? src.length : nl + 1;
+  }
+  if (c === '/' && src[i + 1] === '*') {
+    const close = src.indexOf('*/', i + 2);
+    return close === -1 ? src.length : close + 2;
+  }
+  if (c === '/') {
+    const m = /^\/((?:[^*\n\\[…\r]|\[(?:[^\]\\]|\\.)*\]|\\.)+)\/[a-z]*/.exec(src.slice(i));
+    if (m !== null) return i + m[0].length;
+  }
+  return i;
+}
+
+/**
+ * # → // 规范化。# 非 TS 注释符（私有字段除外）——shell/Python 语感
+ * 漂移混入即校验失败；中文 # 注释更会骗过擦除、在 V8 编译才挂且报错无
+ * 行号（实测），模型无从定位学习。擦除前确定性归一：
+ * · #!、# 后接空格/Tab/非 ASCII——判为注释改写 //；
+ * · 紧邻标识符（#x，前后无空白）= class 私有字段/访问语法，不动；# 前
+ *   是 '.' 同样不动（obj.#x）。中缀紧贴形态（a #b）罕见且与私有字段语法
+ *   无法局部区分——保守不动，漏网交由报错提示兜底。
+ */
+function normalizeHashComments(src: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const end = lexicalRegionEnd(src, i);
+    if (end > i) {
+      out.push(src.slice(i, end));
+      i = end;
+      continue;
+    }
+    if (src[i] === '#') {
+      const after = src[i + 1] ?? '';
+      const before = i === 0 ? '' : src[i - 1];
+      const shebangOrSpaced = after === '!' || after === ' ' || after === '\t' || after.charCodeAt(0) > 0x7f;
+      const idiom = after !== '#' && !/[\w$\s]/.test(after) && !/[\w$.]/.test(before);
+      if (shebangOrSpaced || idiom) {
+        out.push('//');
+        i += 1;
+        continue;
+      }
+    }
+    out.push(src[i]);
+    i += 1;
+  }
+  return out.join('');
+}
+
+/** # 注释漂移的修复提示文案（擦除失败与 V8 编译失败两路共用） */
+const HASH_HINT = '# 不是 TS 注释符——行注释一律 //、块注释 /* */（#x 是 class 私有字段语法，须在 class 内使用）';
+
+/** 代码位首个 # 的索引（词法骨架跳过字符串/模板/正则/注释）；无则 undefined */
+function indexCodeHash(src: string): number | undefined {
+  for (let i = 0; i < src.length; ) {
+    const end = lexicalRegionEnd(src, i);
+    if (end > i) { i = end; continue; }
+    if (src[i] === '#') return i;
+    i += 1;
+  }
+  return undefined;
+}
+
+/** 词法区域（字符串/模板/正则/注释）等长掩蔽为空格——保留结构与行号 */
+function maskLexicalRegions(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const end = lexicalRegionEnd(src, i);
+    if (end > i) { out += ' '.repeat(end - i); i = end; continue; }
+    out += src[i];
+    i += 1;
+  }
+  return out;
 }
 
 // ── 自由变量扫描（lib.define 防呆告警，非安全边界）──
@@ -528,39 +659,8 @@ const LEXER_KEYWORDS = new Set([
  * 标识符引用（跳过属性访问 .x / ?.x 与对象字面量 key x:）→ 差集即自由变量。
  */
 function scanFreeVariables(src: string): string[] {
-  // 1. 剥离字符串/模板/注释内容（等长空格——保留结构，与 findBannedModuleSyntax 同思路）
-  let stripped = '';
-  for (let i = 0; i < src.length; ) {
-    const rest = src.slice(i);
-    if (rest.startsWith('//')) {
-      const nl = src.indexOf('\n', i);
-      const end = nl === -1 ? src.length : nl;
-      stripped += ' '.repeat(end - i);
-      i = end;
-      continue;
-    }
-    if (rest.startsWith('/*')) {
-      const close = src.indexOf('*/', i + 2);
-      const end = close === -1 ? src.length : close + 2;
-      stripped += ' '.repeat(end - i);
-      i = end;
-      continue;
-    }
-    const quote = rest[0];
-    if (quote === '"' || quote === "'" || quote === '`') {
-      let j = i + 1;
-      while (j < src.length) {
-        if (src[j] === '\\') { j += 2; continue; }
-        if (src[j] === quote) { j += 1; break; }
-        j += 1;
-      }
-      stripped += ' '.repeat(j - i);
-      i = j;
-      continue;
-    }
-    stripped += src[i];
-    i += 1;
-  }
+  // 1. 词法区域等长掩蔽（骨架单源——见 lexicalRegionEnd）
+  const stripped = maskLexicalRegions(src);
   // 2. 声明名 + 参数名收集（近似并集）
   const bound = new Set<string>();
   for (const m of stripped.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)) bound.add(m[1]!);

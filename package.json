@@ -33,6 +33,7 @@
     "smoke": "node src/ac-app/src/smoke.ts",
     "chat": "node src/ac-app/src/chat.ts",
     "bench": "node src/ac-bench/src/cli.ts",
+    "cr": "node scripts/cr.mjs",
     "sync:office-vendor": "node scripts/sync-office-vendor.mjs",
     "webui": "pnpm --filter ac-webui-app dev",
     "webui:build": "pnpm sync:office-vendor && pnpm --filter ac-webui-app build && node scripts/check-webview-baseline.mjs",
