@@ -39,7 +39,9 @@ const STANDARD: AgentPresetDefinition = {
     // 不含 memory 标签（cr-17 记忆工具面收口）：预设无人格、单例物化，
     // 注入软停用而工具面预授予 = 「可见但永不回来」的半可用语义；收口 =
     // memory_write/grep 不可见（要记忆走人格 Agent，注入闸/工具闸独立）。
-    tags: ['fs', 'infra', 'shell', 'web', 'delegation'],
+    // issue-report（cr-41 对外发布独立轴）：随 web 保留——预设面向本机
+    // 用户自用，主动上报系统问题是缺省期待（敏感脱敏由指引自审把关）。
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report'],
     // src allowlist（persona/system-prompt/session/security/usage）不含
     // memory/skill/datetime——软停用对齐（无记忆语义）
     settings: {
@@ -97,7 +99,8 @@ const CREATOR: AgentPresetDefinition = {
     //     插件装卸三件套；免审 = 仅 admin Agent 自开发自安装，M15 对账后
     //     admin 边界）。注意 collab 协作族与 history 回放族与标准模式口径
     //     一致（不载——单会话开发流不需要）；memory 标签同 cr-17 收口。
-    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin'],
+    //     issue-report（cr-41）：开发流发现问题主动上报是缺省期待。
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin', 'issue-report'],
     // 技能面保留（与标准/极简差异化）：用户自己的技能（全局/专属）照常
     // 加载——插件开发引导不依赖技能注入（框架开发技能 agentchat-dev
     // 住 .dsh/skills 开发侧目录，不进用户技能面），已内置下方 system

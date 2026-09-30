@@ -96,7 +96,9 @@ wss.on('connection', (ws: WebSocket, req) => {
   if (!core.accept(conn)) ws.close(1013, 'try-again-later');
 });
 
-const sweeper = setInterval(() => core.sweep(), 60_000);
+// 15s 一扫（cr-48：心跳超时 60s + sweep 60s 时僵尸房间最坏堵 ~120s，期间对端重连
+// join 全被 room-unavailable 挡——sweep 提频把窗口压到 ~75s 内；unref 不钉事件循环）
+const sweeper = setInterval(() => core.sweep(), 15_000);
 sweeper.unref();
 
 httpServer.listen(port, host, () => {

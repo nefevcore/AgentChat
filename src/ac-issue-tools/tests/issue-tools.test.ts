@@ -2,10 +2,13 @@
 // ac-issue-tools：submit_issue（fetch 桩——照 ac-web-tools 测试形态）
 // ============================================================
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as agentsRow from 'ac-agents';
 import * as credentialsRow from 'ac-credentials';
+import * as convSettingsRow from 'ac-conv-settings';
 import * as issueRow from '../src/index.ts';
 
 type ExecRes = { ok: boolean; output: any; error?: string };
@@ -138,5 +141,53 @@ describe('ac-issue-tools submit_issue', () => {
     const r2 = await exec(ctx, { name: 'submit_issue', args: { title: 'x', repo: 'not-a-repo' } });
     expect(r2.ok).toBe(false);
     expect(r2.error).toContain('owner/repo');
+  });
+
+  // ---- cr-41：能力轴独立 + 会话开关 ----
+
+  it('能力轴独立：web 标签 Agent 不再解锁 submit_issue（LLM 可见面）——issue-report 才可见', async () => {
+    const ctx = await boot([[toolsRow, undefined], [agentsRow, undefined], [issueRow, {}]]);
+    ctx.agents.register({ id: 'webster', model: 'm', tags: ['web'] });
+    const { sessionCapsOf, toolAllowedFor } = await import('ac-agents');
+    const face = (agentId: string) =>
+      ctx.tools.list().filter((t) => t.injection !== 'mode' && toolAllowedFor(t, sessionCapsOf(ctx, agentId, undefined))).map((t) => t.name);
+    expect(face('webster')).not.toContain('submit_issue');
+    ctx.agents.register({ id: 'reporter2', model: 'm', tags: ['issue-report'] });
+    expect(face('reporter2')).toContain('submit_issue');
+  });
+
+  it('会话开关 disabled：有 issue-report 标签的 Agent 也被拦（本会话禁用优先于一切）', async () => {
+    const calls = stubFetch();
+    const ctx = await boot([
+      [toolsRow, undefined],
+      [agentsRow, undefined],
+      [convSettingsRow, { root: path.join(os.tmpdir(), 'ac-issue-cs-' + Date.now().toString(36)) }],
+      [issueRow, { token: 't' }],
+    ]);
+    ctx.agents.register({ id: 'reporter', model: 'm', tags: ['issue-report'] });
+    ctx.convSettings.set('user~reporter', { issueSubmit: 'disabled' });
+    const r = await exec(ctx, { name: 'submit_issue', args: { title: 'x' }, agentId: 'reporter', conversationId: 'user~reporter' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('已被本会话禁用');
+    expect(calls.length).toBe(0); // 前置拦截——未发出网络请求
+  });
+
+  it('会话开关 enabled：无 tags Agent 经 grants 注入 issue-report → LLM 可见面（实验开关授权通路）', async () => {
+    const ctx = await boot([
+      [toolsRow, undefined],
+      [agentsRow, undefined],
+      [convSettingsRow, { root: path.join(os.tmpdir(), 'ac-issue-cs-' + Date.now().toString(36)) }],
+      [issueRow, {}],
+    ]);
+    ctx.agents.register({ id: 'plain', model: 'm', tags: [] });
+    ctx.convSettings.set('user~plain', { issueSubmit: 'enabled' });
+    const { sessionCapsOf, toolAllowedFor } = await import('ac-agents');
+    const visible = ctx.tools.list().some((t) =>
+      t.name === 'submit_issue' && t.injection !== 'mode' && toolAllowedFor(t, sessionCapsOf(ctx, 'plain', 'user~plain')));
+    expect(visible).toBe(true);
+    // 无覆盖的其他会话不注入
+    const other = ctx.tools.list().some((t) =>
+      t.name === 'submit_issue' && t.injection !== 'mode' && toolAllowedFor(t, sessionCapsOf(ctx, 'plain', 'user~other')));
+    expect(other).toBe(false);
   });
 });

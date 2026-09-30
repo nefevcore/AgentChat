@@ -89,6 +89,13 @@ const RESERVED: Array<{
     description: '会话历史回放（grep_history 检索 / read_history 分页读取）',
   },
   {
+    // cr-41：对外发布独立轴——ISSUE 正文会脱离本机进公开仓库，与 web
+    // （网络只读/受控出口）分轴：网络授权不连带解锁对外发布
+    tag: 'issue-report',
+    category: 'capability',
+    description: '对外发布（submit_issue 提交公开 ISSUE——内容公开可见，脱敏后使用）',
+  },
+  {
     tag: 'tc-programmatic',
     category: 'tool-mode',
     description: '程序化：工具调用经 run_code 写程序编排（LLM 面收窄为单入口）',

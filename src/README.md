@@ -583,10 +583,13 @@ src/
 │                            observe⊂manipulate⊂inject 动作分层门禁）
 ├── ac-issue-tools/          ISSUE 反馈：submit_issue（GitHub/Gitee 创建 ISSUE，
 │                            返回链接与编号——用户经 Agent 直达 Git 的反馈通道；
-│                            requiredTags ['web'] + needPermission 出口档位门；
-│                            目的地链 args→settings→行配置→缺省本仓库；令牌
-│                            三源链行直配→凭据库 github/gitee→env；apiBase
-│                            覆盖可接 Gitea 等 GitHub 兼容自建台）
+│                            requiredTags ['issue-report']（cr-41 对外发布独立
+│                            轴——网络授权不连带解锁）+ needPermission 出口档位门
+│                            + 会话开关 issueSubmit（输入框「实验性」，disabled =
+│                            防敏感信息外发一键闸）；目的地链 args→settings→
+│                            行配置→缺省本仓库；令牌三源链行直配→凭据库
+│                            github/gitee→env；apiBase 覆盖可接 Gitea 等 GitHub
+│                            兼容自建台）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+

@@ -12,11 +12,26 @@
 //    到 journal 泛化（清理面只认新形态 type 行）之间的夹缝窗口写入的行，
 //    settlement/recoverJournal 的行身份解析（journalIdentity）一律 undefined
 //    （宁重不丢 → 永久保留），读侧却仍按 run 活投出——死数据无限累积。
+//   v6 M-stale-partial-purge（cr-44）：陈年（>7 天）未收束 partial 行物理清除
+//    （messages 物化残留 + partials 旧形态孤儿）——09-25 双进程并发写事故
+//    丢收束行后，孤儿行被读侧活投为「中断恢复源」喂幻觉（news 幻影回放）；
+//    与读侧闸门（records() 陈年过滤）同口径，判定函数 isStalePartial 同源。
 // v1 已在 live 根应用过（2026-09-19）——partials 拆分按新版本号追加，不回改 v1。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Migration } from 'ac-migration-core';
+
+/** 陈年未收束 partial 行阈值（cr-44）——与 index.ts 读侧闸门同源（本文件导出、index 消费） */
+export const STALE_PARTIAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** partial 行是否陈年（timestamp 缺席/不可解析 = 无法判龄 → 不滤，宁投勿丢） */
+export function isStalePartial(r: { partial?: boolean; timestamp?: string }): boolean {
+  if (r.partial !== true) return false;
+  if (typeof r.timestamp !== 'string' || r.timestamp === '') return false;
+  const ts = Date.parse(r.timestamp);
+  return Number.isFinite(ts) && Date.now() - ts > STALE_PARTIAL_MS;
+}
 
 /** 单会话目录迁移：按 pass 分类剥离主文件行 → 目标文件追加；role 改写内联。
  *  pass = 迁移标识（每次迁移单选一种改写——walkSessions 逐迁移调用） */
@@ -221,6 +236,52 @@ function purgeLegacyJournal(dir: string): { purged: number; kept: number } {
   return { purged, kept };
 }
 
+/** v6：单会话陈年孤儿 partial 行清除——两文件同口径。孤儿判定与 v5/读侧
+ *  absorbedRuns 同源：messages 内无该 run 的非 partial 行（收束行丢失即孤儿）。
+ *  清除面 = partial:true 且 isStalePartial 且孤儿 run 的行；timestamp 缺席
+ *  （无法判龄）或 run 内有任何新鲜行（同 run 混龄——部分行被收束行吸收
+ *  语义覆盖）不清除。幂等；mtime 还原（同 v2 会话列表时间戳保护）。 */
+function purgeStalePartials(dir: string): { main: number; part: number } {
+  const mainFile = path.join(dir, 'messages.jsonl');
+  const partFile = path.join(dir, 'partials.jsonl');
+  // 收束 run 集（主文件非 partial 行的 run 键）
+  const settled = new Set<string>();
+  if (fs.existsSync(mainFile)) {
+    for (const line of fs.readFileSync(mainFile, 'utf-8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const o = JSON.parse(line) as { run?: unknown; partial?: unknown };
+        if (typeof o.run === 'string' && o.run && o.partial !== true) settled.add(o.run);
+      } catch { /* 坏行忽略 */ }
+    }
+  }
+  const filterFile = (file: string): number => {
+    if (!fs.existsSync(file)) return 0;
+    const raw = fs.readFileSync(file, 'utf-8');
+    const kept: string[] = [];
+    let purged = 0;
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      let drop = false;
+      try {
+        const o = JSON.parse(line) as { run?: unknown; partial?: unknown; timestamp?: unknown };
+        drop = o.partial === true && typeof o.run === 'string' && !!o.run
+          && !settled.has(o.run) && isStalePartial({ partial: o.partial, timestamp: typeof o.timestamp === 'string' ? o.timestamp : undefined });
+      } catch { /* 坏行保留 */ }
+      if (drop) purged++;
+      else kept.push(line);
+    }
+    if (purged === 0) return 0;
+    const prevStat = fs.statSync(file);
+    const tmp = file + '.purge6.tmp';
+    fs.writeFileSync(tmp, kept.length > 0 ? kept.join('\n') + '\n' : '', 'utf-8');
+    fs.renameSync(tmp, file);
+    fs.utimesSync(file, prevStat.atime, prevStat.mtime);
+    return purged;
+  };
+  return { main: filterFile(mainFile), part: filterFile(partFile) };
+}
+
 /** 会话数据迁移集（升序应用；见文件头注释） */
 export const SESSION_MIGRATIONS: Migration[] = [
   {
@@ -282,6 +343,31 @@ export const SESSION_MIGRATIONS: Migration[] = [
       };
       walk(sessionsRoot);
       console.log(`[migration] 旧形态 journal 清理：剔除 ${purged} 行，保留 ${kept} 行（未定稿 run 中断恢复源），涉及 ${files} 个会话`);
+    },
+  },
+  {
+    version: 6,
+    id: 'stale-partial-purge',
+    description: '物理清除陈年（>7 天）未收束 partial 行（messages 物化残留 + partials 旧形态孤儿）——收束行丢失事故后孤儿行被读侧活投喂幻觉（cr-44 news 幻影回放根因）；与读侧闸门同口径',
+    apply(dataRoot: string): void {
+      const sessionsRoot = path.join(dataRoot, 'sessions');
+      if (!fs.existsSync(sessionsRoot)) return;
+      let purgedMain = 0;
+      let purgedPart = 0;
+      let files = 0;
+      const walk = (d: string): void => {
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+          if (entry.isDirectory()) walk(path.join(d, entry.name));
+          else if (entry.name === 'messages.jsonl' || entry.name === 'partials.jsonl') {
+            const r = purgeStalePartials(path.dirname(path.join(d, entry.name)));
+            purgedMain += r.main;
+            purgedPart += r.part;
+            if (r.main > 0 || r.part > 0) files++;
+          }
+        }
+      };
+      walk(sessionsRoot);
+      console.log(`[migration] 陈年孤儿 partial 行清除：主文件 ${purgedMain} 行，partials ${purgedPart} 行，涉及 ${files} 个会话`);
     },
   },
 ];

@@ -70,6 +70,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { acquireDataRootLock } from './data-root-lock.ts';
+import { isStalePartial } from './migrations.ts'; // 陈年 partial 判定（cr-44——与 v6 迁移/读侧闸门同源）
 import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun, type LoopRunResult, type LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 import { isGroupHint, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（解 session⇄group 环；2026-09-05 边界评估）
@@ -231,6 +232,8 @@ interface ToolResultLine {
   name?: string;
   seq?: number;
 }
+
+/** 陈年未收束 partial 行判定（cr-44）住 migrations.ts——读侧闸门与 v6 迁移同源。 */
 
 /** 补记行前缀判定（避免全量 JSON.parse） */
 
@@ -1711,7 +1714,16 @@ export class SessionService extends Service {
         } catch { /* 忽略 */ }
       }
     }
-    const agentId = conversationId.split('~')[0] ?? conversationId;
+    // 段行 agent_id 数据源（cr-45）：journal 行内直存的真实运行 Agent优先
+    //（步行 agentId——写侧 after-step 事件参数），缺席回落注入行，再缺席
+    // 回落桶键推导。旧推导对对桶（a~user → a）成立，对 singles 桶（uuid
+    // 无 ~）拿到桶键本身 ≠ 运行 Agent——history() 空 content 段行按
+    // viewer 匹配不中，整轮轨迹对后续 run 不可见（09-29 回放丢失事故）。
+    const agentIdOfRun = (bucket: { stepLines: JournalStepLine[]; injectLines: JournalInjectLine[] }): string => {
+      for (const s of bucket.stepLines) if (typeof s.agentId === 'string' && s.agentId) return s.agentId;
+      for (const j of bucket.injectLines) if (typeof j.agentId === 'string' && j.agentId) return j.agentId;
+      return conversationId.split('~')[0] ?? conversationId;
+    }
 
     const identities = new Set<string>();
 
@@ -1733,7 +1745,7 @@ export class SessionService extends Service {
       }
       // 孤儿 run：投影为中断收束行（段行物化——与 settleRun 同形）
       const interrupted: LoopRunResult = { steps: [], text: '', finish: 'interrupted', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 } };
-      await this.settleRun(conversationId, agentId, interrupted, { run });
+      await this.settleRun(conversationId, agentIdOfRun(bucket), interrupted, { run });
     }
     if (identities.size > 0) this.rewriteJournal(conversationId, identities);
   }
@@ -2814,6 +2826,20 @@ export class SessionService extends Service {
     let visible = out;
     if (absorbedRuns.size > 0) {
       visible = out.filter((r) => r.partial !== true || r.run === undefined || !absorbedRuns.has(r.run));
+    }
+    // 陈年未收束防御（cr-44）：收束行丢失（并发写事故/人工切分）后，孤儿
+    // partial 行被读侧活投为「中断恢复源」——数周前的 run 无恢复价值，
+    // 活投只喂幻觉。在吸收对账后收口三条物化路径（partials 旧形态尾部
+    // 插回 / journal 活投影物化 / 主文件物化残留），判定同口径。行仍在
+    // 盘上（审计/迁移可见），仅不投进回放；带新形态 journal 的孤儿仍由
+    // recoverJournal 物化中断收束行（有收束行即被吸收，不复发）。
+    const stale = visible.filter(isStalePartial);
+    if (stale.length > 0) {
+      visible = visible.filter((r) => !isStalePartial(r));
+      this.ctx.logger.warn(
+        '[session] 陈年未收束 partial 行 %C 条不投出（恢复源超龄，run 键详见会话文件）',
+        stale.length,
+      );
     }
     // 补行覆盖：未收束 run 的部分行 result:null ← 工具终值（收束行已带
     // 权威结果，被吸收 run 的补行无落点、自然失效）。覆盖发生在缓存入库

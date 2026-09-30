@@ -86,6 +86,13 @@ dependencies {
 
     // MainActivity 的 lifecycleScope（等桥就绪）
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+
+    // ---- 配对扫码（cr-43 ③：App 自带扫码替代系统相机/微信 + 深链跳回）----
+    implementation "androidx.camera:camera-core:$androidxCamVersion"
+    implementation "androidx.camera:camera-camera2:$androidxCamVersion"
+    implementation "androidx.camera:camera-lifecycle:$androidxCamVersion"
+    implementation "androidx.camera:camera-view:$androidxCamViewVersion"
+    implementation "com.google.zxing:core:$zxingVersion"
 }
 
 apply from: 'capacitor.build.gradle'

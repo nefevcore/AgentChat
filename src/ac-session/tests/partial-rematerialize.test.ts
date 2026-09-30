@@ -56,7 +56,7 @@ const dir = () => join(tmp, 'sessions', 'a~user');
 /** 未收束 run 的 partial 行（模拟旧版落盘 / journal 活投影物化形态） */
 const partialLine = (run: string, seq: number, rc: string, mid: string) => JSON.stringify({
   role: 'agent', content: '', agent_id: 'a', message_id: mid,
-  timestamp: '2026-09-17T05:10:35.321Z', seq, reasoning_content: rc,
+  timestamp: new Date().toISOString(), seq, reasoning_content: rc,
   steps: [{ content: '', reasoning: rc }], partial: true, run,
 });
 

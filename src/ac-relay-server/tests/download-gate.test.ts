@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -29,7 +29,17 @@ describe('download-gate 配额门', () => {
     mkdirSync(join(dir.root, 'v0.8.5'), { recursive: true });
     writeFileSync(join(dir.root, 'v0.8.5', 'AgentChat-Setup-0.8.5.exe'), 'x'.repeat(1000));
     writeFileSync(join(dir.root, 'manifest.json'), '{"releases":[]}');
-    gate = spawn('npx', ['tsx', join(import.meta.dirname, '../src/download-gate.ts')], {
+    // esbuild 产物优先（毫秒启动，消除 npx tsx 冷启动在全量并行下的就绪预算竞争——
+    // 2026-09-30 连续两轮全量红皆此因，单跑恒绿）；产物缺失回落 tsx（开发态未构建）
+    const built = join(import.meta.dirname, '../dist/download-gate.mjs');
+    const hasBuilt = existsSync(built);
+    gate = hasBuilt
+      ? spawn(process.execPath, [built], {
+          env: { ...process.env, DL_GATE_PORT: String(GATE_PORT), DL_GATE_ROOT: dir.root, DL_GATE_STATE: dir.state, DL_GATE_QUOTA: '3' },
+          stdio: 'ignore',
+          cwd: tmpdir(),
+        })
+      : spawn('npx', ['tsx', join(import.meta.dirname, '../src/download-gate.ts')], {
       env: { ...process.env, DL_GATE_PORT: String(GATE_PORT), DL_GATE_ROOT: dir.root, DL_GATE_STATE: dir.state, DL_GATE_QUOTA: '3' },
       stdio: 'ignore',
       shell: process.platform === 'win32',
@@ -43,11 +53,11 @@ describe('download-gate 配额门', () => {
     // 放宽到 30s，并在耗尽时显式报错（不再让下游用例以连接拒绝的形态
     // 掩盖真因）。
     let ready = false;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 236; i++) {
       try { await get('/healthz'); ready = true; break; } catch { await new Promise((r) => setTimeout(r, 250)); }
     }
-    if (!ready) throw new Error('download-gate 子进程 30s 内未就绪（npx tsx 冷启动失败或端口被占）');
-  }, 30_000);
+    if (!ready) throw new Error('download-gate 子进程 59s 内未就绪（npx tsx 冷启动失败或端口被占）');
+  }, 60_000);
 
   afterAll(async () => {
     // Windows 下 shell:true 的 kill 只杀 npx 壳——树杀真子进程并等待退出，

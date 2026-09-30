@@ -77,6 +77,8 @@ describe('ac-tag-registry 目录', () => {
     expect(byTag.get('collab')).toMatchObject({ category: 'capability', reserved: true });
     expect(byTag.get('infra')).toMatchObject({ category: 'capability', reserved: true });
     expect(byTag.get('history')).toMatchObject({ category: 'capability', reserved: true });
+    // cr-41：对外发布独立轴（issue-tools 双声明兜底——见该行 tagDeclarations）
+    expect(byTag.get('issue-report')).toMatchObject({ category: 'capability', reserved: true });
     expect(byTag.get('full-access')).toMatchObject({ category: 'access-tier', reserved: true });
     expect(byTag.get('sandbox-access')).toMatchObject({ category: 'access-tier', reserved: true });
     // 工具调用模式词（tc-* 标签轴——toolModeOf 消费；tc-programmatic 是

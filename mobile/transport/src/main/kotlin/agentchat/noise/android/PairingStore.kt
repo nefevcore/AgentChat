@@ -48,6 +48,16 @@ class PairingStore(context: Context) {
         get() = prefs.getBoolean("biometricLockEnabled", true)
         set(v) { prefs.edit().putBoolean("biometricLockEnabled", v).apply() }
 
+    /**
+     * 回环桥上次实际监听端口（cr-56）。持久化的不是偏好而是**身份事实**：
+     * WebView 的 localStorage 按 origin（含端口）分区，端口漂移 = 换分区 =
+     * webui 持久化清零。优先复用上次值，固定端口被占回退随机时由
+     * RemoteSession 写回——漂移一次，不固化。
+     */
+    var bridgePort: Int
+        get() = prefs.getInt("bridgePort", 0)
+        set(v) { prefs.edit().putInt("bridgePort", v).apply() }
+
     /** 配对完成标记（有核心端公钥即已配对） */
     val paired: Boolean get() = !corePubkey.isNullOrEmpty()
 
@@ -61,6 +71,7 @@ class PairingStore(context: Context) {
     }
 
     fun clearPairing() {
+        // bridgePort 不随配对清除——换电脑重配对也该复用同端口（localStorage 分区不动）
         prefs.edit().remove("corePubkey").remove("relayUrl").remove("deviceId").remove("scopes").apply()
     }
 }

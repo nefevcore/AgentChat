@@ -8,7 +8,13 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
 const src = join(repo, 'src/webui/dist');
-const dest = join(repo, 'mobile/app/www');
+// 双落点（cr-43 真机实锤）：www 是 Capacitor 工具链中转，gradle 实际打包的
+// 是 android/app/src/main/assets/public——只写 www 时 APK 里永远是旧 webui
+// （真机加载旧 chunk、html class 空——首个症状）。两处都写，免踩同坑。
+const dests = [
+  join(repo, 'mobile/app/www'),
+  join(repo, 'mobile/app/android/app/src/main/assets/public'),
+];
 const checkOnly = process.argv.includes('--check');
 
 if (!existsSync(join(src, 'index.html'))) {
@@ -29,11 +35,12 @@ console.log(`[sync-webui] dist 自洽（${refs.length} 个引用均可达，${re
 
 if (checkOnly) process.exit(0);
 
-rmSync(dest, { recursive: true, force: true });
-mkdirSync(dest, { recursive: true });
-cpSync(src, dest, { recursive: true });
-
 // 版本标记：Android 侧 WebuiAssets 据此判断是否需要重新释放 assets（幂等）
 const stamp = `${Date.now().toString(36)}-${refs.length}`;
-writeFileSync(join(dest, 'webui-version.txt'), stamp);
-console.log(`[sync-webui] 已同步 ${src} → ${dest}（版本标记 ${stamp}）`);
+for (const dest of dests) {
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(dest, { recursive: true });
+  cpSync(src, dest, { recursive: true });
+  writeFileSync(join(dest, 'webui-version.txt'), stamp);
+  console.log(`[sync-webui] 已同步 ${src} → ${dest}（版本标记 ${stamp}）`);
+}

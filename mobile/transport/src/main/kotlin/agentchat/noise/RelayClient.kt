@@ -55,12 +55,32 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
         const val KK_HANDSHAKE_TIMEOUT_MS = 3_000L
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            // 协议层 ping（TCP 保活）——注意：relay 的活跃判定只看应用层 ping 帧，
-            // 此项不能替代 startHeartbeat（M3.2 实测）
-            .pingInterval(25, TimeUnit.SECONDS)
+            // 协议层 ping（TCP 保活 + pong 监视——OkHttp 两个周期无 pong 即杀链，是
+            // 手机端唯一的死链检测器）。15s：死链最坏 30s 检出（cr-48 真机轮 25s 时
+            // 「sent ping but no pong in 25s」断链后重连等待分钟级，检出越快恢复越快）。
+            // 注意：relay 的活跃判定只看应用层 ping 帧，此项不能替代 startHeartbeat（M3.2 实测）
+            .pingInterval(15, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
+            // relay 自签证书（M3 方案 §4.3：认证职责在 Noise 层，TLS 仅混淆——对齐
+            // PC 侧 relay-connection.ts 的 rejectUnauthorized:false；公网 wss 自签在
+            // Android 默认信任链下 CertPathValidatorException，真机 cr-43 轮实锤）
+            .sslSocketFactory(trustAllSslContext().socketFactory, trustAllManager)
+            .hostnameVerifier { _, _ -> true }
             .build()
+
+        /** 信任所有证书的 X509TrustManager（仅 TLS 通道层——身份认证由 Noise XK/KK 承载） */
+        private val trustAllManager: javax.net.ssl.X509TrustManager =
+            object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+            }
+
+        private fun trustAllSslContext(): javax.net.ssl.SSLContext =
+            javax.net.ssl.SSLContext.getInstance("TLS").apply {
+                init(null, arrayOf(trustAllManager), java.security.SecureRandom())
+            }
     }
 
     /** 出站连 relay 并 join（等待 joined 确认） */
@@ -227,6 +247,20 @@ class RelayClient(private val client: OkHttpClient = RelayClient.defaultClient()
         heartbeatJob?.cancel()
         heartbeatJob = null
         ws?.close(1000, "bye")
+        ws = null
+        transport = null
+    }
+
+    /**
+     * 立即断开（cr-43 真机实锤）：KK 重试轮的超时放弃必须用 cancel——close(1000)
+     * 是优雅关闭（等对端 close ACK），relay 侧若未及处理 close 帧，TCP 挂成僵尸；
+     * 每轮重试漏一条，几分钟即爬满 relay 的 per-IP 连接上限（1013 try-again-later
+     * 互杀）。cancel 直接切 TCP，无等待。
+     */
+    fun cancel() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+        ws?.cancel()
         ws = null
         transport = null
     }

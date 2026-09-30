@@ -20,7 +20,9 @@ object WebuiAssets {
     fun ensure(context: Context): File {
         val dest = File(context.filesDir, "webui")
         val stampFile = File(dest, STAMP)
-        val version = readAssetText(context, "webui-version.txt")
+        // 版本标记在 assets/public/ 下（cr-43 ⑫：原读 assets 根永远 null →
+        // 幂等失效每次全量重释放 274 文件 + stamp 恒 unknown，真机实锤）
+        val version = readAssetText(context, "$ASSET_ROOT/webui-version.txt")
         if (stampFile.exists() && version != null && stampFile.readText() == version) {
             return dest
         }

@@ -10,6 +10,8 @@
 // 按宿主页解析必 404）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { markdownPreviewDoc, rewriteHtmlRefs, dirOf } from '../client/htmlPreviewRefs.ts';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 
@@ -24,14 +26,23 @@ describe('markdownPreviewDoc', () => {
     expect(doc).toContain('<div class="markdown-body"><p>hi</p></div>');
   });
 
-  it('代码块 banner 样式 + 沙箱内复制脚本随文档注入（2026-09-24 修复：预览面 header 样式丢失 + 复制失效）', () => {
+  it('代码块 banner 样式 + 沙箱内复制脚本外链注入（cr-42：srcdoc 继承宿主 CSP script-src self，内联必被拦——脚本本体迁 webui public 同源托管）', () => {
     const doc = markdownPreviewDoc('<p>hi</p>');
     // banner/按钮全套样式（此前仅存应用侧样式表，srcdoc 文档拿不到）
     expect(doc).toContain('.md-code-block-banner{');
     expect(doc).toContain('.md-code-block-btn.copied');
-    // 沙箱内自治复制脚本（父页事件委托进不了 iframe——sandbox 无 allow-same-origin）
-    expect(doc).toContain('.md-code-block-btn[data-action=copy]');
-    expect(doc).toContain('execCommand');
+    // 复制脚本外链注入（父页事件委托进不了 iframe——sandbox 无 allow-same-origin；
+    // 内联形被 CSP 拦死，外链 self 脚本放行）
+    expect(doc).toContain('<script src="/md-preview-copy.js">');
+    expect(doc).not.toMatch(/<script(?![^>]*src=)[^>]*>/); // 不得残留任何内联 script
+  });
+  it('复制脚本本体在 webui public（构建进 dist 同源托管，CSP self 放行）', () => {
+    const file = join(__dirname, '..', '..', 'webui', 'public', 'md-preview-copy.js');
+    expect(existsSync(file), '缺少 src/webui/public/md-preview-copy.js').toBe(true);
+    const src = readFileSync(file, 'utf-8');
+    // 与文档壳按钮选择器对齐（脱钩即按钮死控件）
+    expect(src).toContain('.md-code-block-btn[data-action=copy]');
+    expect(src).toContain('execCommand');
   });
 
   it('空正文 → 空串（组件分支回落 loading/空态）', () => {

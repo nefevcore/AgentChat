@@ -152,40 +152,10 @@ const MD_DOC_STYLES = [
   '.md-code-block pre code{background:transparent;padding:0;font-size:13px;line-height:1.6;white-space:pre;color:inherit}',
 ].join('\n');
 
-/** 沙箱内复制脚本（静态字符串，无用户内容——srcdoc 注入零注入面）。
- * 点击委托：banner 按钮 → 就近取代码文本 → navigator.clipboard 优先
- *（sandbox=allow-scripts 下可能被拒）→ execCommand 兜底 → copied 态
- * 切换（与父页 useMarkdown 的委托复制同视觉）。 */
-const MD_COPY_SCRIPT = [
-  '<script>',
-  'document.addEventListener("click", function (e) {',
-  '  var btn = e.target && e.target.closest ? e.target.closest(".md-code-block-btn[data-action=copy]") : null;',
-  '  if (!btn) return;',
-  '  var block = btn.closest(".md-code-block");',
-  '  var code = block && block.querySelector("pre code");',
-  '  if (!code) return;',
-  '  var text = code.textContent || "";',
-  '  var done = function () {',
-  '    btn.classList.add("copied");',
-  '    var t = btn.querySelector(".md-code-block-btn-text");',
-  '    if (t) t.textContent = "已复制";',
-  '    setTimeout(function () {',
-  '      btn.classList.remove("copied");',
-  '      if (t) t.textContent = "复制";',
-  '    }, 1600);',
-  '  };',
-  '  if (navigator.clipboard && navigator.clipboard.writeText) {',
-  '    navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text) && done(); });',
-  '  } else { fallbackCopy(text) && done(); }',
-  '  function fallbackCopy (s) {',
-  '    var ta = document.createElement("textarea");',
-  '    ta.value = s; ta.style.position = "fixed"; ta.style.opacity = "0";',
-  '    document.body.appendChild(ta); ta.select();',
-  '    try { return document.execCommand("copy"); } finally { ta.remove(); }',
-  '  }',
-  '});',
-  '</scr' + 'ipt>',
-].join('\n');
+/* 沙箱内复制脚本已外链化（cr-42）：srcdoc 文档继承宿主页 CSP
+ * script-src 'self'，内联 <script> 确定性被拦——脚本本体迁
+ * webui public（同源托管，CSP self 放行），此处只注入外链标签。 */
+const MD_COPY_SCRIPT_SRC = '/md-preview-copy.js';
 
 /** Markdown 预览完整文档：内嵌亮/暗调色板（随系统偏好）+ base target
  * （链接外开）+ 受信渲染正文 + 代码块 banner 样式与沙箱内复制脚本。
@@ -198,5 +168,5 @@ export function markdownPreviewDoc(bodyHtml: string): string {
     + ' @media (prefers-color-scheme:dark){:root{' + MD_PALETTE_DARK + '}}'
     + MD_DOC_STYLES + '</style>'
     + '</head><body><div class="markdown-body">' + bodyHtml + '</div>'
-    + MD_COPY_SCRIPT + '</body></html>';
+    + '<script src="' + MD_COPY_SCRIPT_SRC + '"></scr' + 'ipt></body></html>';
 }

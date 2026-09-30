@@ -477,6 +477,29 @@ describe('ac-web-api session / agents 面', () => {
     expect((after.result as { records: unknown[] }).records).toEqual([]);
   });
 
+  it('session/history lite 视图（cr-54/55）：steps[].reasoning 与 toolCalls 参数/结果超限截断；full 视图零变化', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const bigText = 'x'.repeat(3 * 1024);
+    // 预写会话文件（append 口不带 steps——steps 走 run 收束 record 的 extra 路径）
+    mkdirSync(join(h.root, 'sessions', 'lc1'), { recursive: true });
+    writeFileSync(join(h.root, 'sessions', 'lc1', 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', content: '答', agent_id: 'lc1', message_id: 'm1', timestamp: '2026-09-30T00:00:01.000Z',
+        steps: [{ content: '', reasoning: bigText, toolCalls: [{ id: 'tc1', name: 'read', arguments: bigText, result: { data: bigText } }] }] }) + '\n', 'utf-8');
+
+    const lite = await rpc(ws, 'session/history', 'l1', { conversationId: 'lc1', view: 'lite' });
+    const step = ((lite.result as { records: Array<{ steps: Array<{ reasoning: string; toolCalls: Array<{ arguments: string; result: { truncated: boolean } }> }> }> }).records[0].steps[0]);
+    expect(step.reasoning.startsWith('xxx')).toBe(true);
+    expect(step.reasoning).toContain('截断]');
+    expect(step.toolCalls[0].arguments).toContain('截断]');
+    expect(step.toolCalls[0].result).toEqual(expect.objectContaining({ truncated: true }));
+
+    const full = await rpc(ws, 'session/history', 'l2', { conversationId: 'lc1' });
+    const fullStep = ((full.result as { records: Array<{ steps: Array<{ reasoning: string; toolCalls: Array<{ arguments: string }> }> }> }).records[0].steps[0]);
+    expect(fullStep.reasoning).toBe(bigText);
+    expect(fullStep.toolCalls[0].arguments).toBe(bigText);
+  });
+
   it('session/history fingerprint 短路（2026-09-19 切换重入优化）：首屏带匹配指纹 → unchanged；文件变 → 全量 + 新指纹；上翻不参与', async () => {
     const h = await boot();
     const ws = await connect(h.port);

@@ -739,6 +739,8 @@ describe('ac-session 上架（shelving）+ 热力窗口', () => {
 });
 
 describe('ac-session 步级部分行（src step-persist 平移：ask_questions 等待期刷新不丢思维链）', () => {
+  /** 步级 ts 时序锚（近因时刻——陈年 partial 闸门下 1970 形态 ts 会被误滤） */
+  const STEP_TS = Date.now();
   /** 驱动一个"第一步带工具调用、工具阻塞等待用户回答"的 run 形态（步带 ts 时序锚） */
   function emitToolStepPending(ctx: Context, conv = 'a~user', agent = 'a'): void {
     ctx.emit('router/message-received', agent, { role: 'user', content: '帮我决定' }, conv, 'user', 'user');
@@ -747,7 +749,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
       index: 0,
       text: '',
       reasoning: '需要先问用户',
-      ts: 1_000,
+      ts: STEP_TS,
       toolCalls: [{ id: 'call-42', name: 'ask_questions', arguments: '{"questions":[{"question":"选哪个","options":["A","B"]}]}' }],
       toolResults: [],
     } as never, { conversationId: conv, sender: 'user', source: 'user' });
@@ -768,9 +770,10 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(mid[1]!.steps![0]).toMatchObject({
       content: '',
       reasoning: '需要先问用户',
-      ts: 1_000,
       toolCalls: [{ id: 'call-42', name: 'ask_questions', result: null }],
     });
+    // 步 ts = emit 时刻（近因，防陈年闸门误滤）
+    expect(mid[1]!.steps![0]!.ts!).toBeGreaterThan(1_700_000_000_000);
     expect(typeof mid[1]!.run).toBe('string');
     // LLM 回放不消费部分行（工具结果未回——展开即悬空 tool_calls）
     const replay = await ctx.session.history('a~user', { viewer: 'a' });
@@ -795,7 +798,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     ctx.emit('router/reply-completed', 'a', '选 A 的话就…', {
       steps: [
         {
-          index: 0, text: '', reasoning: '需要先问用户', ts: 1_000,
+          index: 0, text: '', reasoning: '需要先问用户', ts: STEP_TS,
           toolCalls: [{ id: 'call-42', name: 'ask_questions', arguments: '{"questions":[…]}' }],
           toolResults: [{ ok: true, output: { answers: ['A'] } }],
         },
@@ -812,7 +815,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(typeof done[1]!.run).toBe('string');
     // 收束行带完整工具结果（部分行的 result:null 不泄漏进最终形态）+ 步级 ts 时序锚
     expect(done[1]!.steps![0]!.toolCalls![0]).toMatchObject({ result: { ok: true, output: { answers: ['A'] } } });
-    expect(done[1]!.steps!.map((s) => s.ts)).toEqual([1_000, 2_000]);
+    expect(done[1]!.steps!.map((s) => s.ts)).toEqual([STEP_TS, 2_000]);
     // stats 口径同样排除物理残留的部分行
     expect(ctx.session.stats('a~user')!.messageCount).toBe(2);
   });
@@ -923,7 +926,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     ctx.emit('router/message-received', 'a', { role: 'user', content: '查状态' }, 'a~user', 'user', 'user');
     ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
     ctx.emit('loop/after-step', 'a', {
-      index: 0, text: '', reasoning: '先查', ts: 1_000,
+      index: 0, text: '', reasoning: '先查', ts: Date.now(),
       toolCalls: [{ id: 'call-7', name: 'read', arguments: '{"file_path":"a.ts"}' }],
       toolResults: [],
     } as never, { conversationId: 'a~user', sender: 'user', source: 'user' });
@@ -972,7 +975,7 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     // 步级落盘前一致
     ctx.emit('router/reply-completed', 'a', '查完了', {
       steps: [{
-        index: 0, text: '', reasoning: '先查', ts: 1_000,
+        index: 0, text: '', reasoning: '先查', ts: Date.now(),
         toolCalls: [{ id: 'call-7', name: 'read', arguments: '{"file_path":"a.ts"}' }],
         toolResults: [{ ok: true, output: { path: 'a.ts', content: '1:x', total_lines: 1 } }],
       }, { index: 1, text: '查完了', reasoning: '', ts: 2_000, toolCalls: [], toolResults: [] }],

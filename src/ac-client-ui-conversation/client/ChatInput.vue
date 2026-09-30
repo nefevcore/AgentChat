@@ -1653,9 +1653,9 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
-        <!-- 实验性功能（两级菜单）：一级 = 实验项入口列表（当前仅「浏览器
-             使用」，后续实验能力各占一项）；二级 = 该项档位列表（浏览器 =
-             conv-settings.browserTier，选择即写会话，菜单保持开可连续调整）。
+        <!-- 实验性功能（两级菜单）：一级 = 实验项入口列表（内置「浏览器使用」
+             + conv-settings 注册扩展键——如「ISSUE 提交」issueSubmit），二级 =
+             该项档位列表（选择即写会话，菜单保持开可连续调整）。
              disabled 态警示色常显（与提权武装同款语言） -->
         <div v-if="!isGroupCtx" class="dd">
           <button

@@ -38,6 +38,13 @@
 
         </activity>
 
+        <!-- 配对扫码面（cr-43 ③：App 自带扫码） -->
+        <activity
+            android:name="agentchat.noise.android.ScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme.NoActionBar" />
+
         <!-- 远程链路前台服务：持 relay 连接与回环桥的生命周期（方案 §4.4「锁」行） -->
         <service
             android:name="agentchat.noise.android.RemoteLinkService"

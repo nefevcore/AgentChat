@@ -117,10 +117,21 @@ onMounted(async () => {
 
     <div class="ms-divider" />
 
-    <!-- ② 常用项 -->
-    <button class="ms-item" @click="act(() => themeSvc?.toggleTheme())">
-      <Icon :name="themeSvc?.theme.value === 'light' ? 'moon' : 'sun'" :size="18" />
-      <span>{{ themeSvc?.theme.value === 'light' ? '切换暗色主题' : '切换亮色主题' }}</span>
+    <!-- ② 常用项（主题三档：cr-43 ②——跟随系统缺省 + 明暗固定档） -->
+    <button class="ms-item" @click="act(() => themeSvc?.followSystem())">
+      <Icon name="monitor" :size="18" />
+      <span>跟随系统</span>
+      <span v-if="themeSvc?.preference.value === 'system'" class="ms-badge ms-badge-on">当前</span>
+    </button>
+    <button class="ms-item" @click="act(() => themeSvc?.setTheme('dark'))">
+      <Icon name="moon" :size="18" />
+      <span>暗色主题</span>
+      <span v-if="themeSvc?.preference.value === 'dark'" class="ms-badge ms-badge-on">当前</span>
+    </button>
+    <button class="ms-item" @click="act(() => themeSvc?.setTheme('light'))">
+      <Icon name="sun" :size="18" />
+      <span>亮色主题</span>
+      <span v-if="themeSvc?.preference.value === 'light'" class="ms-badge ms-badge-on">当前</span>
     </button>
     <button class="ms-item" @click="act(() => ui.openGlobalSettings())">
       <Icon name="settings" :size="18" />
@@ -194,4 +205,5 @@ onMounted(async () => {
   border-radius: 999px; background: var(--primary); color: #fff;
   font-size: 10.5px; font-weight: 600; line-height: 1;
 }
+.ms-badge-on { background: var(--primary); }
 </style>

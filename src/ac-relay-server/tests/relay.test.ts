@@ -140,12 +140,12 @@ describe('RelayCore 防滥用限额', () => {
     expect(core.accept(d)).toBe(true); // 断开释放名额
   });
 
-  it('join 频控：超 10/min 后拒绝（同码）', () => {
+  it('join 频控：burst 耗尽后拒绝（cr-43 ⑬ 参数：30/min·burst 20）', () => {
     vi.useFakeTimers();
-    const core = new RelayCore({ ...DEFAULT_LIMITS, maxConnPerIp: 10 });
+    const core = new RelayCore({ ...DEFAULT_LIMITS, maxConnPerIp: 40 });
     // 单连接只进一个房间 → 频控测试用独立连接（同 IP）
     const mk = () => { const c = new FakeConn('8.8.8.8'); core.accept(c); return c; };
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < DEFAULT_LIMITS.joinBucket.burst; i++) {
       const c = mk();
       c.recv(JSON.stringify({ op: 'join', room: 'f'.repeat(30) + i.toString().padStart(2, '0') }));
       expect(c.lastOp()?.op).toBe('joined');

@@ -95,7 +95,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     ].join('\n'), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir', 'partial-rematerialize-purge', 'legacy-journal-purge']);
+    expect(done.map((m) => m.id)).toEqual(['role-v2-subcall-split', 'partials-split', 'subagents-dir', 'partial-rematerialize-purge', 'legacy-journal-purge', 'stale-partial-purge']);
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     // 改写：event/error → context+source
     expect(raw).toContain('"role":"context"');
@@ -160,7 +160,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 1, applied: [{ id: 'role-v2-subcall-split', at: 't' }] }), 'utf-8');
 
     const done = runMigrations(root, SESSION_MIGRATIONS);
-    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir', 'partial-rematerialize-purge', 'legacy-journal-purge']); // 只 v2..v5（v1 已应用）
+    expect(done.map((m) => m.id)).toEqual(['partials-split', 'subagents-dir', 'partial-rematerialize-purge', 'legacy-journal-purge', 'stale-partial-purge']); // 只 v2..v5（v1 已应用）
     const raw = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
     expect(raw).not.toContain('"partial":true');
     expect(raw).not.toContain('"type":"tool-result"');
@@ -169,7 +169,7 @@ describe('SESSION_MIGRATIONS（词汇 v2）', () => {
     const partRaw = readFileSync(join(dir, 'partials.jsonl'), 'utf-8');
     expect(partRaw).toContain('"partial":true');
     expect(partRaw).toContain('"tool_call_id":"c1"');
-    expect(readDataVersion(root)).toBe(5);
+    expect(readDataVersion(root)).toBe(6);
   });
 });
 
@@ -308,6 +308,49 @@ describe('SESSION_MIGRATIONS v5（legacy-journal-purge）', () => {
     runMigrations(root, SESSION_MIGRATIONS);
     const partLines = readFileSync(join(dir, 'partials.jsonl'), 'utf-8').split('\n').filter((l) => l.trim());
     expect(partLines).toHaveLength(2); // 全保留
+  });
+});
+
+describe('SESSION_MIGRATIONS v6（stale-partial-purge，cr-44）', () => {
+  const staleTs = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  const freshTs = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  it('陈年孤儿 partial 行清除（主文件物化残留 + partials 孤儿）；新鲜孤儿/已收束/无时间戳行保留', () => {
+    const root = makeRoot();
+    const dir = join(root, 'sessions', 'v6~user');
+    mkdirSync(dir, { recursive: true });
+    // messages：run-settled 已收束 + 陈年物化残留（应清）+ 新鲜物化残留（应留）
+    writeFileSync(join(dir, 'messages.jsonl'), [
+      JSON.stringify({ role: 'user', content: 'q', agent_id: 'user', message_id: 'm0', timestamp: freshTs, seq: 1 }),
+      JSON.stringify({ role: 'agent', content: 'done', agent_id: 'a', message_id: 'm1', timestamp: freshTs, seq: 2, run: 'run-set' }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p-stale-set', timestamp: staleTs, seq: 3, partial: true, run: 'run-set', steps: [] }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p-stale-orphan', timestamp: staleTs, seq: 4, partial: true, run: 'run-orph', steps: [] }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'p-fresh-orphan', timestamp: freshTs, seq: 5, partial: true, run: 'run-orph2', steps: [] }),
+    ].join('\n'), 'utf-8');
+    // partials：陈年孤儿（应清）+ 新鲜孤儿（应留）+ 陈年但已收束（应留——吸收语义归读侧）
+    writeFileSync(join(dir, 'partials.jsonl'), [
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'pp-stale-orphan', timestamp: staleTs, seq: 6, partial: true, run: 'run-orph', steps: [] }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'pp-fresh', timestamp: freshTs, seq: 7, partial: true, run: 'run-orph2', steps: [] }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'pp-stale-settled', timestamp: staleTs, seq: 8, partial: true, run: 'run-set', steps: [] }),
+      JSON.stringify({ role: 'agent', content: '', agent_id: 'a', message_id: 'pp-nots-orphan', seq: 9, partial: true, run: 'run-orph3', steps: [] }),
+    ].join('\n'), 'utf-8');
+
+    const done = runMigrations(root, SESSION_MIGRATIONS);
+    expect(done.map((m) => m.id)).toContain('stale-partial-purge');
+    const main = readFileSync(join(dir, 'messages.jsonl'), 'utf-8');
+    // v2 已把主文件 partial 行摘往 partials——主文件断言只验陈年孤儿不在
+    expect(main).not.toContain('p-stale-orphan');
+    expect(main).not.toContain('p-fresh-orphan'); // 同上（被 v2 摘走，非被 v6 清除）
+    const part = readFileSync(join(dir, 'partials.jsonl'), 'utf-8');
+    expect(part).not.toContain('pp-stale-orphan'); // 陈年孤儿：v6 清
+    expect(part).toContain('pp-fresh');
+    expect(part).toContain('p-fresh-orphan'); // 新鲜孤儿：留
+    expect(part).toContain('pp-nots-orphan'); // 无时间戳孤儿：无法判龄 → 宁投勿丢
+    // 已收束+旧形态（pp-stale-settled / p-stale-set）= 死数据，v5 先于 v6 清除（分工：v5 管已定稿、v6 管孤儿）
+    expect(part).not.toContain('pp-stale-settled');
+    expect(part).not.toContain('p-stale-set');
+    // 幂等
+    expect(runMigrations(root, SESSION_MIGRATIONS)).toEqual([]);
   });
 });
 

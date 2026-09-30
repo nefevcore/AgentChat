@@ -71,11 +71,11 @@ device-offline 四事件（已带 mode=emit + scope=host 标注），前端 onEv
 落点：src/ac-ws-bridge/src/index.ts 加 4 条 fwd（照 agents/updated 同款）；
 RemoteDevices.vue 的 refresh() 保留兜底轮询（降频到 10s）。
 
-### 1.3 真二维码渲染（可选，浏览器侧降级体验）
+### 1.3 真二维码渲染（✅ 2026-09-29 cr-43 ④ 完成）
 
-当前 PairingQr.vue 是散列点阵视觉占位 + URI 复制。真扫码方是 M3 安卓 App，
-浏览器侧二维码只服务于「另一台设备装了 App 但无法跳转」的边缘场景。
-若要做：webui 加 qrcode（npm 包）依赖，约 20 行替换点阵。低优。
+PairingQr.vue 已换 qrcode（npm）真码渲染（canvas，220px、静区 2 模块、纠错 M）。
+动机升级：M3 安卓 App 已自带扫码（ScanActivity，cr-43 ③）——PC 端必须出真可扫码，
+配对闭环才成立（原「低优」判断作废）。URI 复制保留为降级通道。
 
 ## 二、M3 安卓单 App（主战场）
 

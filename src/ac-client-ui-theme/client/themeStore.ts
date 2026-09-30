@@ -18,7 +18,10 @@ export const useThemeStore = defineStore('theme', () => {
 
   return {
     theme: core.theme,
+    preference: core.preference,
     toggleTheme: core.toggleTheme.bind(core),
+    setTheme: core.setTheme.bind(core),
+    followSystem: core.followSystem.bind(core),
     applyThemeClass: core.applyThemeClass.bind(core),
   };
 });

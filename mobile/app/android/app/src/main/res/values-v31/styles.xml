@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ 系统 splash（cr-57）：windowSplashScreen* 属性接管启动画面——
+         底色对齐 layer-list 渐变顶色（视觉延续），icon 用系统默认 app 图标
+         （自适应图标，系统圆形蒙版裁切，不引入形变）。 -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="android:windowBackground">@drawable/splash</item>
+        <item name="android:windowSplashScreenBackground">#141E45</item>
+    </style>
+</resources>

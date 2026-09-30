@@ -67,7 +67,11 @@ export interface RelayLimits {
 }
 
 export const DEFAULT_LIMITS: RelayLimits = {
-  maxConnPerIp: 5,
+  // 同 IP 并发连接上限（cr-43 ⑬ 真机实锤修正）：两端 NAT 同出口时手机 KK 重连（每轮
+  // 新建连接，3s 超时窗口内连接未及释放）+ 核心端 KK 重试 + 管理探测 = 轻易 6+ 并发，
+  // 原值 5 必触发 1013 try-again-later 互杀。12 = 双端各 5 活动连接 + 余量；防扫描
+  // 语义由 join 频控承担。
+  maxConnPerIp: 30,
   maxRooms: 10_000,
   // 单帧上限：初值 1MB 对远程链路的正当载荷过紧——webui 的会话历史/运行快照类
   // RPC 应答（+ Noise 封装开销）轻易破 1MB，超限即被 relay 关连接（M3.2 实测：
@@ -75,7 +79,10 @@ export const DEFAULT_LIMITS: RelayLimits = {
   // 本项只防单帧 OOM，放宽到 8MB。真正解法（分片）见 M3.4 待办。
   maxFrameBytes: 8 * 1024 * 1024,
   frameBucket: { burst: 60, ratePerSec: 30 },
-  joinBucket: { burst: 5, ratePerSec: 10 / 60 }, // 10/min
+  // join 频控（cr-43 ⑬ 真机实锤修正）：两端 NAT 同出口 IP 时，手机 KK 重连（7s ≈ 8.5/min）
+  // + 核心端 KK 重试同速率 = 17/min 合法流量，原 10/min 上限必杀——burst 5 连 3s 超时
+  // 重试的首轮都撑不过。防扫描语义保留（30/min 仍拦暴力枚举），合法双端重联不再互杀。
+  joinBucket: { burst: 20, ratePerSec: 30 / 60 }, // 30/min
   roomDailyBytes: 1024 * 1024 * 1024,            // 1 GiB/天
   openRoomTtlMs: 5 * 60 * 1000,
   heartbeatTimeoutMs: 60 * 1000,
@@ -153,6 +160,13 @@ export class RelayCore {
 
     conn.onClose(detach);
 
+    // 连接级空闲超时（cr-43 ⑬：超时重试的客户端可能遗留半开连接——15s 未 join
+    // 即清退，防僵尸爬满 per-IP 桶。unref 不钉事件循环）
+    const idleTimer = setTimeout(() => {
+      if (!joinedRoom) { try { conn.close(); } catch { /* 已断 */ } }
+    }, 15_000);
+    idleTimer.unref();
+
     conn.onMessage((raw) => {
       const len = raw.length;
       if (len > this.limits.maxFrameBytes) { conn.close(); return; }
@@ -196,6 +210,8 @@ export class RelayCore {
           room.peers.push({ ws: conn, ip: conn.ip });
           room.lastSeen.push(Date.now());
           joinedRoom = msg.room;
+          clearTimeout(idleTimer);
+          if (process.env.RELAY_DEBUG) console.log(`[relay:dbg] join ${msg.room} from #${conn.ip} (peers=${room.peers.length})`);
           this.touch(conn, joinedRoom);
           conn.send(JSON.stringify({ op: 'joined' } satisfies RelayServerMessage));
           return;
@@ -237,7 +253,9 @@ export class RelayCore {
   private destroyRoom(id: string): void {
     const room = this.rooms.get(id);
     if (!room) return;
-    for (const p of room.peers) { try { p.ws.close(); } catch { /* 已断 */ } }
+    // terminate（RST）而非 close：销毁原因多为心跳超时 = 连接已死，优雅 close 的
+    // FIN 对死端无意义，只会拖住端口等超时；RST 让对端立即感知（cr-48）
+    for (const p of room.peers) { try { p.ws.terminate(); } catch { /* 已断 */ } }
     this.rooms.delete(id);
   }
 

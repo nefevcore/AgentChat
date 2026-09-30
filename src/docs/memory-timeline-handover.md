@@ -17,7 +17,9 @@
 - **服务三口**：`write/entries/grep`（set/append/get/ids/remove/fileOf/memoryBucketOf/anchorOf 全退役）；persist=false 内存后端同语义
 - **工具**：`memory_write`（requiredTags: ['memory']，needPermission: false）/ `memory_grep`（pattern/since/until/peer/tag 过滤轴）；BUILTIN_TOOL_NAMES 已增补
 - **注入协议**：`conversation/before-start` seam（新 emit 事件，startRun 顶部、history 装配前）——
-  锚检测状态机：无锚/H<S → 快照重定基线（尾行内嵌「记忆基线 seq=N」）；H>S → 他源 delta（origin ≠ 本会话）；H=S → 零注入
+  锚检测状态机：无锚/H<S → 快照重定基线（尾行内嵌「记忆基线 seq=N」）；H>S → 他源 delta（origin ≠ 本会话）；H=S → 零注入。
+  锚只认 agent_id === 本 Agent 的注入行（cr-46：1v1 双人格共桶——如 news~user——
+  里对方人格的锚 seq 是对方时间线高度，误认会双方互相打掉基线震荡重复注入）
 - **system 侧**：恒定 `<memory-guide>` 静态指引（字节恒定——写入内容不进 system）
 - **迁移**：boot 延迟 100ms 触发；**指路形态提示词**（不内嵌旧桶——Agent 自读 ./memory 整理，
   双写入方式：memory_write 或按格式直写 timeline.md）；infra 等价授予（有存量桶 + infra tag + 无 memory →

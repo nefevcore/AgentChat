@@ -16,7 +16,10 @@
     </style>
 
 
+    <!-- 启动主题（cr-57）：layer-list = 渐变 shape 铺满 + splash_logo 等比居中。
+         全幅位图做窗口背景会被拉伸失真（屏比千差万别），不再使用。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="android:windowBackground">@drawable/splash</item>
     </style>
 </resources>

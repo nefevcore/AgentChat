@@ -60,8 +60,16 @@ async function refresh() {
     devices.value = r.devices;
     relayUrl.value = r.relayUrl;
     identityPubkey.value = r.identityPubkey;
-    const st = await rpc.call<{ state: string }>('remote/status');
+    const st = await rpc.call<{ state: string; pairing: PairingState | null }>('remote/status');
     linkState.value = st.state;
+    // 会话对账（cr-43）：服务端是配对会话的单一事实源——本地 pairing 为空而服务端
+    // 有活动会话（含 SAS 确认态）时恢复之（关页/换窗口不再丢「一致」按钮）；
+    // 服务端已释放时同步清空本地残留。
+    if (st.pairing && (st.pairing.state === 'wait-join' || st.pairing.state === 'sas-confirm')) {
+      pairing.value = st.pairing;
+    } else if (pairing.value && !st.pairing) {
+      pairing.value = null;
+    }
     error.value = '';
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);

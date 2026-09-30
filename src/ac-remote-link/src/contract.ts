@@ -28,6 +28,9 @@ export interface RemoteLinkStatus {
   state: 'idle' | 'connecting' | 'online' | 'pairing' | 'error';
   onlineDeviceIds: string[];
   lastError: string | null;
+  /** 活动配对会话快照（cr-43：UI 关页丢会话态的修复——服务端为单一事实源，
+   *  新窗口/重开页经 status 对账恢复 SAS 确认界面） */
+  pairing?: PairingSession | null;
 }
 
 /** remote-link RPC 面转发上下文（scopes 闸门判定用） */

@@ -8,13 +8,18 @@
 //     [issue-tools] → 行配置 → 内置缺省（本产品主仓库）
 //   · 令牌三源链：行直配 → ac-credentials（provider
 //     github/gitee，Agent 级→全局）→ env GITHUB_TOKEN/GITEE_TOKEN
-//   · 门禁：requiredTags [web]（网络词表复用，无新标签）+
-//     needPermission（非 LLM 出口通道——base 档审批、sandbox
-//     档自由）
+//   · 门禁：requiredTags [issue-report]（cr-41 独立能力轴——对外
+//     发布与 web 网络访问分轴：网络授权不连带解锁对外发布；标签
+//     catalog 经 tagDeclarations 声明 + tag-registry 预注册双保险）+
+//     needPermission（非 LLM 出口通道——base 档审批、sandbox 档自由）
+//   · 会话开关：conv-settings issueSubmit（输入框「实验性 → ISSUE
+//     提交」——disabled = 本会话禁用，优先于一切）
+//   · 隐私防线：description 逐字段脱敏警示 + 系统提示词第 12 条自审
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only，无运行时依赖）
 import type { ExtensionMeta } from 'ac-extension-core';
+import type { TagDeclaration } from 'ac-tag-registry';
 
 export const name = 'ac-issue-tools';
 
@@ -32,6 +37,11 @@ export const extension: ExtensionMeta = {
     { name: 'labels', type: 'list', description: '附加标签（与调用参数并集；Gitee 上限 5 个）' },
   ],
 };
+
+/** 标签目录声明（tag-registry 扫描面；RESERVED 预注册兜底——见 cr-41） */
+export const tagDeclarations: TagDeclaration[] = [
+  { tag: 'issue-report', description: '对外发布（submit_issue 提交公开 ISSUE——内容公开可见，脱敏后使用）', tools: ['submit_issue'] },
+];
 
 export interface IssueToolsRowOptions {
   /** 托管台（缺省 github） */
@@ -147,12 +157,12 @@ export const inject = ['tools'];
 export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'submit_issue',
-    requiredTags: ['web'],
+    requiredTags: ['issue-report'],
     // 权限轴（access-tier §3.3 同款）：对外发布是非 LLM 出口通道——
     // base 档审批放行、sandbox+ 档自由
     needPermission: true,
     description:
-      '向 Git 托管台提交 ISSUE（GitHub/Gitee）：把用户反馈或问题以 ISSUE 形式发到仓库，返回链接与编号。目的地（server/repo）缺省走配置（内置缺省 = 本产品主仓库），调用参数可覆盖；令牌走凭据链（github/gitee）或环境变量 GITHUB_TOKEN/GITEE_TOKEN。需要 web 能力标签。',
+      '向 Git 托管台提交 ISSUE（GitHub/Gitee）：把用户反馈或问题以 ISSUE 形式发到仓库，返回链接与编号。注意：ISSUE 是公开可见的——正文只写问题现象与复现步骤，绝不包含密钥、令牌、密码、私人数据、内部地址等敏感信息，不确定的内容先向用户确认。目的地（server/repo）缺省走配置（内置缺省 = 本产品主仓库），调用参数可覆盖；令牌走凭据链（github/gitee）或环境变量 GITHUB_TOKEN/GITEE_TOKEN。需要 issue-report 能力标签（或本会话实验开关授权）。',
     parameters: {
       type: 'object',
       properties: {
@@ -174,6 +184,18 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
         }
         if (s.enabled === false) {
           return { ok: false, error: 'submit_issue 已被本 Agent 设置停用（settings[issue-tools].enabled）' };
+        }
+
+        // 会话开关（cr-41——输入框「实验性 → ISSUE 提交」）：disabled =
+        // 本会话禁用，优先于一切（Agent tags 也压不住）；enabled 只是
+        // 可见性授权（grants 注入），无运行时语义
+        if (call.conversationId !== undefined) {
+          const convSettings = ctx.get('convSettings', false) as
+            | { get(conversationId: string): { issueSubmit?: 'enabled' | 'disabled' } | undefined }
+            | undefined;
+          if (convSettings?.get(call.conversationId)?.issueSubmit === 'disabled') {
+            return { ok: false, error: 'submit_issue 已被本会话禁用（输入框「实验性 → ISSUE 提交」）——如需使用请切换为跟随或本会话启用。' };
+          }
         }
 
         // 目的地解析链：args → settings → 行配置 → 内置缺省

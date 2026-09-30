@@ -34,7 +34,7 @@ function writeDeadPartial(root: string, conv: string, run: string, toolCallId: s
     }),
     JSON.stringify({
       role: 'agent', content, agent_id: 'a',
-      message_id: 'm2', timestamp: new Date(1).toISOString(), seq: 2,
+      message_id: 'm2', timestamp: new Date().toISOString(), seq: 2,
       reasoning_content: '先问用户', run, partial: true,
       steps: [{
         content, reasoning: '先问用户', ts: 1,
@@ -117,14 +117,14 @@ describe('ac-session backfillToolResult（重启后作答对账——2026-09-15 
       JSON.stringify({ type: 'session-header', version: 1, createdAt: new Date(0).toISOString() }),
       JSON.stringify({ role: 'agent', content: '分析下', agent_id: 'user', message_id: 'm1', timestamp: new Date(0).toISOString(), seq: 1 }),
       JSON.stringify({
-        role: 'agent', content: '', agent_id: 'a', message_id: 'm2', timestamp: new Date(1).toISOString(), seq: 2,
+        role: 'agent', content: '', agent_id: 'a', message_id: 'm2', timestamp: new Date().toISOString(), seq: 2,
         run: 'run-r1', partial: true,
         steps: [{ content: '', reasoning: '先搜', ts: 1, toolCalls: [
           { id: 'c1', name: 'grep', arguments: '{}', result: { ok: true, output: 'hits' } },
         ] }],
       }),
       JSON.stringify({
-        role: 'agent', content: '分析完毕，待确认', agent_id: 'a', message_id: 'm3', timestamp: new Date(2).toISOString(), seq: 3,
+        role: 'agent', content: '分析完毕，待确认', agent_id: 'a', message_id: 'm3', timestamp: new Date().toISOString(), seq: 3,
         run: 'run-r1', partial: true,
         steps: [{ content: '分析完毕，待确认', reasoning: '问一下', ts: 2, toolCalls: [
           { id: 'c2', name: 'ask_questions', arguments: '{"questions":[…]}', result: null },

@@ -57,6 +57,8 @@ export interface RelayConnectOptions {
   tlsPin?: string;
   /** 连接超时 ms */
   timeoutMs?: number;
+  /** responder 等首条握手消息的窗口 ms（KK 路径应传覆盖发起方重试周期的长值） */
+  waitFirstMsgMs?: number;
   /** KK 重连的目标设备静态公钥（base64url；pairing 房间不需要） */
   targetDevicePubkey?: string;
 }
@@ -84,6 +86,11 @@ export class RelayConnection {
   onError: ((message: string) => void) | null = null;
   /** 状态观察口（诊断用；不影响协议行为） */
   onState: ((note: string) => void) | null = null;
+
+  /** ws 通道活态（cr-43：connect 区分「健康在线跳过」与「死链清理重建」用） */
+  get isOpen(): boolean {
+    return this.ws !== null && this.ws.readyState === this.ws.OPEN;
+  }
 
   private readonly identity: StaticIdentity;
 
@@ -127,7 +134,10 @@ export class RelayConnection {
     this.state = 'handshaking';
     // 诊断锚点：真机排障时这两行能区分「房间没进」「对端没发」「发了没收到」
     this.onState?.(`joined ${opts.roomId}，等待首条握手消息`);
-    const firstMsg = await this.expectHandshakeMessage(opts.timeoutMs ?? 15000);
+    // KK 长等待（cr-43：responder 等 m1 的窗口必须覆盖发起方完整重试周期——
+    // 原 15s 与手机 7s 轮同量级，双端对称重试相位锁定永不相遇（真机实锤：双方都在
+    // 房间等对方却各自超时）。KK 路径传 70s；配对路径（XK）维持缺省短窗。
+    const firstMsg = await this.expectHandshakeMessage(opts.waitFirstMsgMs ?? opts.timeoutMs ?? 15000);
     this.onState?.(`收到首条握手消息 ${firstMsg.length}B`);
     // 先以「未知对端」读第一条：XK m1 = [e]（无 s）——KK m1 = [e, es]，es 需要已知 rs。
     // 我们不知道对端是谁：先试 KK 注册表匹配（读出 rs 再定），实现上先按 XK 读——
@@ -221,9 +231,21 @@ export class RelayConnection {
    */
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** 最近一次入站帧时刻（pong 之外的业务帧也算活——真有流量本就没死） */
+  private lastInboundAt = 0;
+
   private startKeepalive(): void {
     this.stopKeepalive();
+    this.lastInboundAt = Date.now();
     this.keepaliveTimer = setInterval(() => {
+      // pong watchdog（cr-48）：ws 库不发协议层 ping，盲发应用层 ping 对半开连接
+      // 零感知——ping 进死 TCP 缓冲区毫无回声，此前只能等 relay sweep 销毁。
+      // 62s 无任何入站即自行断开进入重连（正常时 pong 每 25s 一回）。
+      if (Date.now() - this.lastInboundAt > 62_000) {
+        this.onState?.('pong watchdog 超时——判定死链，主动断开');
+        this.sever();
+        return;
+      }
       try { this.ping(); } catch { /* 断链由 close 事件收束 */ }
     }, KEEPALIVE_MS);
     // Node 定时器不应阻止进程退出（pnpm dev 自退纪律）
@@ -235,6 +257,19 @@ export class RelayConnection {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
     }
+  }
+
+  /**
+   * 死链强断（watchdog/失败路径用）：优雅 close 的关闭握手对死端等不来 ACK（ws 库
+   * 30s closeTimeout 兜底白拖），且残骸占房堵对端重试；terminate 发 RST 立即触发
+   * close 事件 → onClose → service 重连。正常下线仍走 close()。
+   */
+  sever(reason = 'sever'): void {
+    this.stopKeepalive();
+    this.state = 'closed';
+    try { this.ws?.terminate(); } catch { /* 已断 */ }
+    this.ws = null;
+    this.transport = null;
   }
 
   // ---- 内部 ----
@@ -292,6 +327,7 @@ export class RelayConnection {
   }
 
   private handleWire(raw: string): void {
+    this.lastInboundAt = Date.now();
     let frame: { op: string; data?: unknown };
     try {
       frame = JSON.parse(raw);

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>移动端链路图 · AgentChat</title>
+<style>
+  :root{
+    --ink:#1f2430; --muted:#5b6472; --line:#d9dee6; --bg:#f4f6f9; --card:#ffffff;
+    --blue:#2563eb;   --blue-bg:#eff6ff;
+    --green:#059669;  --green-bg:#ecfdf5;
+    --amber:#b45309;  --amber-bg:#fffbeb;
+    --purple:#7c3aed; --purple-bg:#f5f3ff;
+    --teal:#0f766e;   --teal-bg:#f0fdfa;
+    --red:#dc2626;    --red-bg:#fef2f2;
+    --gray:#475569;   --gray-bg:#f1f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+  code,.mono{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:.92em}
+  h1{font-size:26px;margin:0 0 6px}
+  h2{font-size:20px;margin:0 0 4px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:15px;margin:18px 0 8px;color:var(--muted)}
+  .sub{color:var(--muted);margin:0 0 18px}
+  header>p{color:var(--muted);max-width:960px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px 26px;margin:0 0 34px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 18px;margin:14px 0 0;font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .chip{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid}
+  .c-app{background:var(--purple-bg);border-color:var(--purple)}
+  .c-host{background:var(--blue-bg);border-color:var(--blue)}
+  .c-relay{background:var(--amber-bg);border-color:var(--amber)}
+  .c-sec{background:var(--red-bg);border-color:var(--red)}
+  .c-lib{background:var(--gray-bg);border-color:var(--gray);border-style:dashed}
+  .cards{display:grid;gap:8px}
+  .card{border:1px solid var(--line);border-left:4px solid var(--gray);border-radius:8px;padding:8px 10px;background:var(--card);min-width:0}
+  .card b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:650}
+  .card small{color:var(--muted);font-size:12px;line-height:1.5;display:block}
+  .app{border-left-color:var(--purple)} .app b{color:var(--purple)}
+  .host{border-left-color:var(--blue)} .host b{color:var(--blue)}
+  .relay{border-left-color:var(--amber)} .relay b{color:var(--amber)}
+  .sec{border-left-color:var(--red)} .sec b{color:var(--red)}
+  .lib{border-left-color:var(--gray);border-style:dashed;border-left-style:solid}
+  .layer{position:relative;border:1px solid var(--line);border-radius:12px;padding:24px 14px 14px;background:#fbfcfe;margin:0}
+  .layer>.tag{position:absolute;top:-11px;left:12px;background:var(--ink);color:#fff;font-size:12px;padding:2px 10px;border-radius:999px;letter-spacing:.5px}
+  .layer>.note{position:absolute;top:-11px;right:12px;background:var(--card);color:var(--muted);font-size:11.5px;padding:2px 10px;border:1px solid var(--line);border-radius:999px}
+  .pipe{display:grid;grid-template-columns:1fr 46px 1.1fr 46px 1fr;gap:0;align-items:stretch}
+  .pipe .layer{margin:0}
+  .link{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:11px;text-align:center;min-width:0}
+  .link .arr{font-size:20px;line-height:1;color:var(--ink)}
+  .link code{font-size:10.5px}
+  ul{margin:6px 0 0;padding-left:20px}
+  li{margin:2px 0}
+  .fine{font-size:12.5px;color:var(--muted);line-height:1.7}
+  @media (max-width:900px){.pipe{grid-template-columns:1fr}.link{padding:10px 0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>AgentChat 移动端链路图</h1>
+  <p class="sub">单核心端 + 哑中继 + 扫码配对（remote-client-relay-plan 方案 B，M1–M3 已实施）。手机是瘦客户端：真相源（会话/记忆/凭据）全部留在 PC 核心端；relay 只转发密文帧——不存储、不探测是密码学结构，不是运营承诺。</p>
+</header>
+<section>
+  <h2>① 总览：三端一管道</h2>
+  <div class="legend">
+    <span><i class="chip c-app"></i>手机 App（Kotlin/Capacitor）</span>
+    <span><i class="chip c-relay"></i>哑中继（内存房间）</span>
+    <span><i class="chip c-host"></i>PC 核心端（Node/cordis）</span>
+    <span><i class="chip c-sec"></i>加密/安全机制</span>
+    <span><i class="chip c-lib"></i>纯库</span>
+  </div>
+  <div class="pipe" style="margin-top:18px">
+    <div class="layer" style="border-color:var(--purple)">
+      <span class="tag" style="background:var(--purple)">手机端</span>
+      <span class="note">mobile/ · 单 App</span>
+      <div class="cards">
+        <div class="card app"><b>WebView（webui dist）</b><small>与本地开发完全同构——加载 <code>http://127.0.0.1:&lt;port&gt;</code>，业务层零改动。Chrome 92 基线（legacy-runtime.js 垫片 + 构建期守门）</small></div>
+        <div class="card app"><b>LoopbackBridge（回环桥）</b><small>与 ac-web-server 同构：同口 HTTP（静态 dist + <code>/api/*</code> 通用转发）+ WS <code>/ws</code>。重连只 <code>swapUpstream</code>——桥不死、端口不变、页面零重载（防闪屏）</small></div>
+        <div class="card app"><b>RemoteSession（会话中枢）</b><small>XK 配对 → SAS → KK 重连状态机；入站帧分流：配对信令 vs WebView 业务帧。7s 撞门 ×10 轮 ≈71s 覆盖对端 60s 退避窗</small></div>
+        <div class="card app"><b>RelayClient（OkHttp）</b><small>出站 wss 连 relay；pingInterval 15s（死链 30s 检出）；重连退避上限 15s</small></div>
+        <div class="card app"><b>KeystoreIdentity / PairingStore</b><small>设备静态密钥入 Android Keystore（硬件级，不可导出）+ 配对态 prefs 持久化</small></div>
+        <div class="card app"><b>RemoteLinkService（前台服务）</b><small>通知栏常驻持有链路；切后台即断开（丢机缓解）；BiometricGate 生物锁——解锁才连 relay</small></div>
+        <div class="card app"><b>ScanActivity（CameraX+zxing）</b><small>GMS-free 扫码；<code>agentchat://pair</code> 深链唤起 App</small></div>
+      </div>
+    </div>
+    <div class="link">
+      <span class="arr">⇄</span>
+      <code>wss 出站</code>
+      <span>密文帧</span>
+      <code>{t,n,ct}</code>
+    </div>
+    <div class="layer" style="border-color:var(--amber)">
+      <span class="tag" style="background:var(--amber)">哑中继</span>
+      <span class="note">wss://…:8443 · 2C2G VPS</span>
+      <div class="cards">
+        <div class="card relay"><b>房间 = 恰好两方的内存管道</b><small>控制帧仅 4 词：<code>join/frame/ping/close</code>；frame = opaque 密文转发（不解析、不落盘、无内容日志）</small></div>
+        <div class="card relay"><b>「不探测」结构化</b><small>join 失败统一 <code>room-unavailable</code>（扫描无存在性回声）；任一离线即销毁房间（terminate）；无数据库——重启即失忆是特性</small></div>
+        <div class="card relay"><b>防滥用限额</b><small>单 IP 并发 30 · join 频控 30/min · 单帧 ≤8MB · 单房间 1GB/天 · 心跳 60s 超时 · 未封闭 TTL 5min</small></div>
+      </div>
+    </div>
+    <div class="link">
+      <span class="arr">⇄</span>
+      <code>wss 出站</code>
+      <span>密文帧</span>
+      <code>{t,n,ct}</code>
+    </div>
+    <div class="layer" style="border-color:var(--blue)">
+      <span class="tag" style="background:var(--blue)">PC 核心端</span>
+      <span class="note">src/ac-remote-link 等</span>
+      <div class="cards">
+        <div class="card host"><b>RemoteLinkService（ctx.remoteLink）</b><small>配对状态机（幂等 + status 附会话快照）+ 设备注册表 + scopes 闸门 + KK responder 长驻 70s</small></div>
+        <div class="card host"><b>RelayConnection × N</b><small>每设备一条出站连接；自签证书 sha256 pin；pong watchdog 62s；断链 reconnectAttempt 归零</small></div>
+        <div class="card host"><b>上行：RPC 转发</b><small>scopes 过闸 → <code>webServer.callRpc()</code> 进本地同一张 rpcTable；deliver 强制 <code>sender=remote:&lt;id&gt;</code> + 剥 elevation</small></div>
+        <div class="card host"><b>下行：事件单播</b><small><code>REMOTE_DOWNLINK_EVENTS</code> 白名单（llm/delta-*、loop/*、router/*、tool/* 共 12 事件）→ Noise 加密单播在线设备</small></div>
+        <div class="card host"><b>HTTP 桥（M3.4）</b><small><code>http/read · http/write</code> RPC → 回环 <code>127.0.0.1</code> 投自身 web-server——任意 <code>/api/*</code> 通用转发（只准 /api/ 前缀、主机自定、6MB 上限），远程与本地行为不可能走散</small></div>
+        <div class="card host"><b>remote/* 管理 RPC ×8</b><small>status/devices/revoke/pair-start/pair-confirm/pair-cancel/connect/disconnect——桌面 webui「远程设备」页消费</small></div>
+      </div>
+    </div>
+  </div>
+  <p class="fine" style="margin-top:14px">两侧出站连接：核心端不监听公网/局域网（保持 127.0.0.1 哲学），relay 只需一个 wss 入口。手机丢失 = 一键吊销（删注册表行 → 下次握手失败）。</p>
+</section>
+<section>
+  <h2>② 配对协议：二维码 → XK → SAS</h2>
+  <div class="layer">
+    <span class="tag">一次性配对（XK）</span>
+    <ol style="margin:8px 0 0;padding-left:22px">
+      <li><b>PC</b>：startPairing → roomId（32B 随机，p: 前缀信令）+ 二维码 <code>agentchat://pair?v=1&amp;relay=…&amp;room=…&amp;pk=…&amp;exp=…</code>（5min 过期）</li>
+      <li><b>手机</b>：扫码（深链唤起）→ 双方各自出站连 relay → join(roomId) → 房间封闭（恰好两方，第三人一律 room-unavailable）</li>
+      <li><b>Noise XK 握手</b>（发起方=手机，已带外获知 PC 静态公钥）：PC 静态公钥加密传输（防收集身份）+ 双重 DH；设备信息放 m3（加密段——设备公钥不以明文过 relay）</li>
+      <li><b>SAS 比对</b>：SHA256(handshake_hash) 前 4 字节 → 8 位数字，双端屏幕人工核对（封死二维码被副录抢配的残余通道）</li>
+      <li><b>PC</b> confirmPairing → 设备写入 <code>remote/known_devices.json</code>（含 scopes）→ 加密通道下发 <code>remote/paired{deviceId, scopes}</code> → 房间销毁</li>
+    </ol>
+  </div>
+  <div class="layer" style="margin-top:22px">
+    <span class="tag">运行态重连（KK）</span>
+    <p class="fine" style="margin:8px 0 0">双方已知对方静态公钥 → 双向认证 KK 握手。roomId 确定性派生：<code>SHA256(core_pub ‖ deviceId ‖ device_pub)</code>——两侧各自可算，无需协商。会合模式：<b>PC 长驻在房 70s 等，手机短撞 7s/轮 ×10</b>——互补相位避免对称重试死锁（relay 只转发实时帧，m1 早于对端进房即丢）。实测：闪断 1.8s 自愈 / 杀 relay 23s 会合。</p>
+  </div>
+</section>
+<section>
+  <h2>③ 安全模型</h2>
+  <div class="layer" style="border-color:var(--red)">
+    <span class="tag" style="background:var(--red)">四道防线</span>
+    <div class="cards" style="margin-top:6px">
+      <div class="card sec"><b>传输层：Noise E2E（ac-noise-core / Noise.kt 对称双实现）</b><small>XK/KK 状态机 + ChaCha20-Poly1305 AEAD + HKDF-SHA256；帧 {n, ct} 单调计数防重放；握手绑定 Ed25519 身份——relay 被接管也无法解密/注入/MITM。自签 TLS 仅混淆层（认证在 Noise 层）</small></div>
+      <div class="card sec"><b>授权层：scopes 分档 + elevation 恒剥除</b><small>read（纯查询 + GET /api）→ chat（投递面）→ files（HTTP 写面，显式开启）→ admin（空数组显式禁用）。deliver 类转发恒剥 elevation——远程设备永远不能借提权通道武装</small></div>
+      <div class="card sec"><b>设备层：Keystore + 吊销 + 生物锁</b><small>私钥硬件级不可导出；吊销 = 删注册表（下次握手即败）；生物识别解锁才连 relay、切后台即断</small></div>
+      <div class="card sec"><b>结构层：哑中继纪律</b><small>统一错误码无存在性回声 + 无持久化 + 只允许错误码计数日志——「不存储不探测」由结构兑现，开源可审计（RelayCore 13 测试）</small></div>
+    </div>
+  </div>
+</section>
+<section>
+  <h2>④ 业务帧同构：远程 = 本地</h2>
+  <div class="layer">
+    <span class="tag">密文内载荷与本地 WS 协议同构</span>
+    <p class="fine" style="margin:8px 0 6px">密文解开就是 <code>rpc/call</code> / <code>rpc/result</code> / 事件帧——核心端与手机端各只有一个「加解密壳」，业务层零改动：</p>
+    <pre style="margin:0;background:var(--gray-bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.7">上行（手机 → PC）  WebView rpc/call → 回环桥 → Noise 加密 → relay 密文转发 → remote-link 解密 → scopes 闸门 → webServer.callRpc（本地同一处理器）
+下行（PC → 手机）  ctx 事件 emit → 白名单过滤 → Noise 加密单播 → relay → 回环桥 → WebView 事件帧（webui 实时流照常）
+HTTP 面            WebView /api/* → 回环桥拦截 → http/read|write RPC（加密链路） → 回环 127.0.0.1 投自身 web-server（同一代码路径）</pre>
+    <p class="fine" style="margin-top:10px">断线语义：真相源在 PC 账本（ac-session journal），手机离线期间消息全部入账；重连后按 conversationId 增量拉取（history/replay RPC）。</p>
+  </div>
+</section>
+<section>
+  <h2>⑤ 涉及的包与落点</h2>
+  <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
+    <div class="card app"><b>mobile/app（Capacitor 壳）</b><small>appId <code>com.agentchat.mobile</code>；WebView 加载内置 webui dist（www + android assets 双落点）</small></div>
+    <div class="card app"><b>mobile/transport（Kotlin 库）</b><small>RelayClient / Noise.kt / LoopbackBridge / RemoteSession / KeystoreIdentity / ScanActivity / BiometricGate / VersionCheck</small></div>
+    <div class="card host"><b>ac-remote-link（核心端行）</b><small>service / relay-connection / identity / device-registry / http-bridge + remote/* 管理 RPC + 事件下行白名单</small></div>
+    <div class="card lib"><b>ac-noise-core（纯库）</b><small>XK/KK 状态机 + AEAD 帧 + SAS 派生，纯 node:crypto（9/9 测试，含 RFC 7748 向量）</small></div>
+    <div class="card relay"><b>ac-relay-server（中继）</b><small>RelayCore 纯逻辑 + main.ts ws/TLS 适配 + download-gate 配额门；部署 systemd 加固（ProtectSystem=strict）</small></div>
+    <div class="card host"><b>ac-client-ui-remote（前端行）</b><small>settings「远程设备」节：链路状态 / 设备清单（吊销）/ 配对向导（二维码 + SAS 双按钮）</small></div>
+  </div>
+  <p class="fine" style="margin-top:12px">参照：<code>src/docs/remote-client-relay-plan.md</code>（方案裁决）· <code>m1-remote-link-implementation-plan.md</code> · <code>m3-handoff-20260929.md</code>（真机实录）· <code>m3-realdevice-checklist.md</code>（WebView 92 基线）。图示日期 2026-09-29，与源码现状对齐。</p>
+</section>
+</div>
+</body>
+</html>

@@ -125,10 +125,11 @@ describe('bootDist 版本升级数据迁移（对齐 boot.ts；桌面/npm 形态
       'subagents-dir',
       'partial-rematerialize-purge',
       'legacy-journal-purge',
+      'stale-partial-purge',
     ]);
     // 版本标记推进 + 审计面
     const meta = JSON.parse(readFileSync(join(root, 'meta.json'), 'utf-8')) as { dataVersion: number };
-    expect(meta.dataVersion).toBe(5);
+    expect(meta.dataVersion).toBe(6);
     // 迁移前强制快照留档（backups/migrations/ 不参与轮转）
     expect(existsSync(join(root, 'backups', 'migrations'))).toBe(true);
     // 主文件改写到位：role v2 + subcall 剥离
@@ -139,7 +140,7 @@ describe('bootDist 版本升级数据迁移（对齐 boot.ts；桌面/npm 形态
 
   it('已是当前版本：零迁移，appliedMigrations = []', async () => {
     const root = v0Root();
-    writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 5 }), 'utf-8');
+    writeFileSync(join(root, 'meta.json'), JSON.stringify({ dataVersion: 6 }), 'utf-8');
     const tree = await boot(root);
     expect(tree.appliedMigrations).toEqual([]);
     const raw = readFileSync(join(root, 'sessions', 'a~user', 'messages.jsonl'), 'utf-8');

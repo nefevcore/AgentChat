@@ -13,6 +13,7 @@ package com.agentchat.mobile
 import agentchat.noise.VersionChecker
 import agentchat.noise.VersionInfo
 import agentchat.noise.android.BiometricGate
+import agentchat.noise.android.ScanActivity
 import agentchat.noise.android.LinkPhase
 import agentchat.noise.android.PairingStore
 import agentchat.noise.android.RemoteLinkService
@@ -40,12 +41,23 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : BridgeActivity() {
 
+    private companion object {
+        const val SCAN_REQ = 7043
+    }
+
     private var panel: LinearLayout? = null
     private var statusView: TextView? = null
     private var sasView: TextView? = null
     private var loadedBridge = false
+    /** 已加载的桥端口（0=未加载；变化即重载——桥异常重启时端口会换） */
+    private var loadedPort = 0
+    /** 曾 ONLINE 过（CONNECTING 防抖：短暂断线不弹全屏覆盖层——秒级自愈的闪断闪屏根因） */
+    private var wasOnline = false
     private var watchJob: Job? = null
     private var updateBar: TextView? = null
+    private var pairingInput: EditText? = null
+    /** 连接期全屏状态覆盖层（cr-43 ⑫：WebView 未加载时给用户可视反馈，免黑屏盲等） */
+    private var connectOverlay: android.widget.FrameLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,9 +92,32 @@ class MainActivity : BridgeActivity() {
     override fun onBackPressed() {
         val webView = bridge?.webView
         if (webView == null) { moveTaskToBack(true); return }
+        // 双通道（cr-43 真机实锤：WebView 加载失败/崩溃态 evaluateJavascript 永不回调，
+        // 返回键失灵黑屏困死）——JS 应答 + 600ms 超时兜底，谁先到谁算；两通道都
+        // 幂等（moveTaskToBack 重复无害）。
+        var settled = false
+        android.os.Handler(mainLooper).postDelayed({ if (!settled) { settled = true; moveTaskToBack(true) } }, 600)
         webView.evaluateJavascript("(window.__agentchatBack && window.__agentchatBack().handled) === true") { handled ->
-            if (handled != "true") moveTaskToBack(true)
+            if (!settled) {
+                settled = true
+                if (handled != "true") moveTaskToBack(true)
+            }
         }
+    }
+
+    /** 扫码回填（cr-43 ③）：ScanActivity RESULT_OK → 回填输入框并直接开配（扫码本身即用户意图） */
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SCAN_REQ || resultCode != RESULT_OK) return
+        val uri = data?.getStringExtra(ScanActivity.EXTRA_RESULT_URI) ?: return
+        pairingInput?.setText(uri)
+        startAndLoad()
+        lifecycleScope.launch { pairWith(uri) }
+    }
+
+    private fun scanForPairing() {
+        startActivityForResult(Intent(this, ScanActivity::class.java), SCAN_REQ)
     }
 
     /** 系统扫到 agentchat://pair 再次唤起（应用已在栈中） */
@@ -140,19 +175,36 @@ class MainActivity : BridgeActivity() {
                 when (st.phase) {
                     LinkPhase.ONLINE -> {
                         val port = st.bridgePort
-                        if (port != null && !loadedBridge) {
+                        // 端口变化即重载（cr-43：链路抖动重建桥后端口已换——原一次性
+                        // loadedBridge 门闩让二次会合后 WebView 停留在死端口白屏）。
+                        // cr-49 桥与链路解耦后重连不再换端口——此分支只在桥真重启时触发。
+                        if (port != null && port != loadedPort) {
                             loadedBridge = true
+                            loadedPort = port
+                            wasOnline = true
                             setStatus(null)
                             hidePanel()
+                            hideConnectOverlay()
                             bridge?.webView?.loadUrl("http://127.0.0.1:$port/")
                         }
                     }
-                    LinkPhase.CONNECTING -> setStatusIfPanel("连接中…")
+                    LinkPhase.CONNECTING -> {
+                        setStatusIfPanel("连接中…")
+                        // 防抖（cr-49）：曾 ONLINE 过的短暂断线秒级自愈——全屏覆盖层
+                        // 只会闪一下眼，不弹；首次连接仍弹（用户需要反馈）。
+                        if (!wasOnline) showConnectOverlay("正在连接你的电脑…")
+                    }
                     LinkPhase.AWAIT_CONFIRM -> {
                         setStatusIfPanel("请在核心端确认短码")
+                        showConnectOverlay("请在电脑端核对短码", showUnpair = false)
                         showSas(st.sas)
                     }
-                    LinkPhase.ERROR -> setStatusIfPanel(st.message ?: "连接失败")
+                    LinkPhase.ERROR -> {
+                        // 终态（cr-43 ⑪：重连超上限/对端移除）——黑屏静默不可接受，
+                        // 覆盖层给文案 + 解除配对出口。
+                        setStatus(st.message ?: "连接失败")
+                        showConnectOverlay(st.message ?: "连接失败")
+                    }
                     LinkPhase.IDLE -> Unit
                 }
             }
@@ -192,17 +244,38 @@ class MainActivity : BridgeActivity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         if (!initialUri.isNullOrEmpty()) input.setText(initialUri)
+        pairingInput = input
         root.addView(input, lp)
+
+        // 扫码按钮（cr-43 ③：App 自带扫码——扫得 URI 自动回填配对，免跳微信/系统相机）
+        root.addView(Button(this).apply {
+            text = "扫码"
+            setOnClickListener { scanForPairing() }
+        }, lp)
 
         root.addView(Button(this).apply {
             text = "开始配对"
             setOnClickListener {
                 val uri = input.text.toString().trim()
-                if (uri.isEmpty()) { setStatus("请先粘贴二维码链接"); return@setOnClickListener }
+                if (uri.isEmpty()) { setStatus("请先扫码或粘贴二维码链接"); return@setOnClickListener }
                 startAndLoad()
                 lifecycleScope.launch { pairWith(uri) }
             }
         }, lp)
+
+        // 已配对态区块（cr-43 ⑪：核心端移除设备/长期连不上时的自救出口——
+        // 未配对时隐藏，不留死胡同）
+        val storeEarly = PairingStore(this)
+        if (storeEarly.paired) {
+            root.addView(Button(this).apply {
+                text = "重试连接"
+                setOnClickListener { startAndLoad() }
+            }, lp)
+            root.addView(Button(this).apply {
+                text = "解除配对并重新开始"
+                setOnClickListener { confirmUnpair() }
+            }, lp)
+        }
 
         sasView = TextView(this).apply {
             setTextColor(Color.parseColor("#7FD1FF"))
@@ -306,6 +379,79 @@ class MainActivity : BridgeActivity() {
 
     private fun hidePanel() {
         panel?.visibility = android.view.View.GONE
+    }
+
+    // ---- 连接期状态覆盖层（cr-43 ⑫：WebView 未加载时的用户反馈面） ----
+
+    private fun showConnectOverlay(message: String, showUnpair: Boolean = true) {
+        if (connectOverlay != null) {
+            // 已在显示——只更新文案
+            (connectOverlay!!.findViewWithTag<TextView>("msg"))?.text = message
+            return
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(32), 0, dp(32), 0)
+            setBackgroundColor(Color.parseColor("#0B1020"))
+        }
+        root.addView(TextView(this).apply {
+            text = "AgentChat"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val msg = TextView(this).apply {
+            tag = "msg"
+            text = message
+            setTextColor(Color.parseColor("#9AA4BF"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, 0)
+        }
+        root.addView(msg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 动态提示（呼吸点）——不引动画资源，文本省略号循环由系统 marquee 处理不必要，静态即可
+        if (showUnpair && PairingStore(this).paired) {
+            root.addView(Button(this).apply {
+                text = "解除配对并重新开始"
+                setOnClickListener { confirmUnpair() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(32)
+                gravity = Gravity.CENTER_HORIZONTAL
+            })
+        }
+        val host = FrameLayout(this)
+        host.addView(root, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addContentView(host, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        connectOverlay = host
+    }
+
+    private fun hideConnectOverlay() {
+        val host = connectOverlay ?: return
+        (host.parent as? ViewGroup)?.removeView(host)
+        connectOverlay = null
+    }
+
+    /** 解除配对确认（cr-43 ⑪： irreversible 动作先确认）——清身份绑定 + 停链路 + 回扫码面 */
+    private fun confirmUnpair() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("解除配对？")
+            .setMessage("将清除本机与此电脑的配对信息。解除后需在电脑端重新扫码配对才能连接。")
+            .setPositiveButton("解除") { _, _ ->
+                PairingStore(this).clearPairing()
+                SessionHolder.session?.stop()
+                loadedBridge = false
+                wasOnline = false
+                // 重建面板（回到未配对形态——无解除/重试按钮）
+                panel?.visibility = android.view.View.GONE
+                (panel?.parent as? ViewGroup)?.removeView(panel)
+                showPairingPanel(null)
+                setStatus("已解除配对——请重新扫码")
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun dp(v: Int): Int = ((v * resources.displayMetrics.density).toInt())

@@ -102,12 +102,16 @@ export class MemoryService extends Service {
       if (session === undefined) return;
       const entries = this.entries(agentId);
       const H = entries.length;
-      // 锚检测：流尾向后扫最近一条记忆行
+      // 锚检测：流尾向后扫最近一条记忆行（cr-46：只认 agent_id === 本
+      // Agent 的注入行——1v1 双人格共桶（如 news~user）里对方人格的锚
+      // seq 是对方时间线的高度，误认会导致 S>H 走「文件缩短」全量快照、
+      // S<H 走大批「新 delta」重复注入，双方每次开口互相打掉对方基线震荡）
       const records = await session.records(conversationId);
       let S = -1;
       for (let i = records.length - 1; i >= 0; i--) {
         const r = records[i];
         if (r.role !== 'context') continue;
+        if (r.agent_id !== undefined && r.agent_id !== agentId) continue;
         if (r.source !== MEMORY_SNAPSHOT_SOURCE && r.source !== MEMORY_DELTA_SOURCE) continue;
         const m = /记忆基线 seq=(\d+)/.exec(r.content);
         S = m ? Number(m[1]) : 0;

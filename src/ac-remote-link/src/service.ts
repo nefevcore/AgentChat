@@ -35,6 +35,8 @@ export interface RemoteLinkRowOptions {
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 60000;
 const PAIRING_TTL_MS = 5 * 60 * 1000;
+/** 远程应答单帧字节上限（cr-52：移动网络对大帧敏感——超限截断 records 由前端分页续拉） */
+const MAX_REMOTE_RESULT_BYTES = 300 * 1024;
 
 /**
  * RPC 方法档位表（read 档 = 纯查询面；chat 档 = 投递面）。
@@ -82,11 +84,15 @@ export class RemoteLinkService extends Service {
   private connections = new Map<string, RelayConnection>();
   /** 设备 id ↔ 该连接的房间（重连 roomId 派生） */
   private deviceRooms = new Map<string, string>();
+  /** 在途连接尝试去重（cr-43 ⑭ 并发守卫，见 runDeviceConnection） */
+  private connectingDevices = new Set<string>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   /** KK 握手期重试计数（成功能话清零；区别于断线后的指数退避重连） */
   private kkRetries = new Map<string, number>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** 启动即连已触发（cr-53：applySettings 的 URL 到位补触发只跑一次） */
+  private bootConnected = false;
   private lastError: string | null = null;
   private pendingDeviceByConn = new Map<RelayConnection, { name: string; pubkey: string }>();
 
@@ -110,12 +116,12 @@ export class RemoteLinkService extends Service {
       description: 'remote-link relayUrl 热更（settings.remoteLink 全局层）',
     });
     this.applySettings();
-    // 启动即连（有 relay 且有已配对设备时）：KK 的发起方在手机端，其 m1 只在
-    // 「本端已在房」时才可达（relay 只转发实时帧）——核心端不先进房，手机重试
-    // 再多也握不上手（M3 真机实录：设备 10 轮重试全部落空，relay 日志全程
-    // 单连接）。connect() 内部对每设备跑 runDeviceConnection，失败由
-    // kkRetries/scheduleReconnect 兜底，此处 fire-and-forget 即可。
+    // 启动即连（config 已就位时此处直接生效；缺席时由 applySettings 的
+    // 「URL 首次到位即连」补触发——cr-53 时序修复）。KK 的发起方在手机端，
+    // 其 m1 只在「本端已在房」时才可达（relay 只转发实时帧）——核心端不先进房，
+    // 手机重试再多也握不上手（M3 真机实录：设备 10 轮重试全部落空）。
     if (this.options.relayUrl && this.registry.list().length > 0) {
+      this.bootConnected = true;
       void this.connect().catch(() => { /* 启动期 relay 不可达：scheduleReconnect 接管 */ });
     }
   }
@@ -150,6 +156,14 @@ export class RemoteLinkService extends Service {
       this.ctx.logger.info('[remote-link] relayUrl 变更——断开 %s 个在线连接（设备无需重新配对）', this.connections.size);
       this.disconnect();
     }
+    // URL 首次到位即连（cr-53：构造器时序里 config 服务可能尚未就位——applySettings
+    // 拿不到 relayUrl，启动即连被静默跳过，重启后手机端空撞门等 PC「待机」。
+    // config 的 changed 只在写入时广播，boot 期静态加载无事件可依赖——把启动
+    // 即连的触发点搬到「URL 首次就位」时刻，晚到比缺席好。）
+    if (!this.bootConnected && this.registry.list().length > 0) {
+      this.bootConnected = true;
+      void this.connect().catch(() => { /* relay 不可达：scheduleReconnect 接管 */ });
+    }
   }
 
   // ============ 管理面（RPC 转发目标） ============
@@ -182,6 +196,8 @@ export class RemoteLinkService extends Service {
       state,
       onlineDeviceIds: online,
       lastError: this.lastError,
+      // 配对会话快照：活动会话随 status 下发（UI 对账恢复用，见 contract 注释）
+      pairing: this.pairing ? { ...this.pairing } : null,
     };
   }
 
@@ -213,8 +229,10 @@ export class RemoteLinkService extends Service {
    * 返回的会话含 qrUri——webui/CLI 展示二维码。
    */
   async startPairing(deviceName?: string): Promise<PairingSession> {
+    // 幂等（cr-43）：活动会话存在时返回它而非报错——多窗口/重开页重入
+    // 拿同一会话（SAS 确认界面随之恢复），不再出现「被占用」死锁。
     if (this.pairing && (this.pairing.state === 'wait-join' || this.pairing.state === 'sas-confirm')) {
-      throw new Error('pairing already in progress');
+      return { ...this.pairing };
     }
     if (!this.options.relayUrl) throw new Error('relayUrl not configured');
     // roomId 满足 relay 校验 [A-Za-z0-9_-]{22,43}：首字符 p = 配对模式信令
@@ -316,7 +334,11 @@ export class RemoteLinkService extends Service {
     if (!this.options.relayUrl) throw new Error('relayUrl not configured');
     const targets = opts ? [opts.deviceId] : this.registry.list().map((d) => d.id);
     for (const deviceId of targets) {
-      if (this.connections.has(deviceId)) continue;
+      // 健康连接跳过；死链（断链但 onClose 未触发——relay 单侧 failure 帧/半开连接，
+      // cr-43 真机实锤 connections 槽位残留致 connect 短路、设备永不重连）交
+      // runDeviceConnection 的 stale 清理处置。
+      const existing = this.connections.get(deviceId);
+      if (existing?.isOpen) continue;
       void this.runDeviceConnection(deviceId);
     }
   }
@@ -324,12 +346,27 @@ export class RemoteLinkService extends Service {
   private async runDeviceConnection(deviceId: string): Promise<void> {
     const device = this.registry.get(deviceId);
     if (!device) return;
+    // 并发去重（cr-43 ⑭：connect 手动触发与 scheduleReconnect 退避并发时，多条 KK 链
+    // 同时 join 同一房间把自己占满（2/2），手机 join 全被拒——真机实锤 relay 房间
+    // 满员但手机不在其中）。同设备同时只允许一条在途连接尝试。
+    if (this.connectingDevices.has(deviceId)) return;
+    this.connectingDevices.add(deviceId);
+    try {
+      await this.runDeviceConnectionInner(deviceId);
+    } finally {
+      this.connectingDevices.delete(deviceId);
+    }
+  }
+
+  private async runDeviceConnectionInner(deviceId: string): Promise<void> {
+    const device = this.registry.get(deviceId);
+    if (!device) return;
     // 死链清理：重连前先 dispose 同设备旧连接（对端已换新会话——旧链的 KK 帧序号
     // 必然错位，且它占着 connections 槽位会让 connect 短路跳过）
     const stale = this.connections.get(deviceId);
     if (stale) {
       this.connections.delete(deviceId);
-      stale.close('stale-before-reconnect');
+      stale.sever('stale-before-reconnect'); // 失败路径 RST 立断（cr-50），不占房
     }
     // 重连 roomId 确定性派生：'r' + SHA256(core_pub || device_pub) 前 22 字符的 base64url——
     // 双方各自可算（互相知道对方公钥），无需通信协商；被吊销设备预计算抢房只造成
@@ -346,12 +383,19 @@ export class RemoteLinkService extends Service {
     conn.onClose = (reason) => {
       this.connections.delete(deviceId);
       this.deviceRooms.delete(deviceId);
+      // 退避计数随断链归零（cr-48 真机实锤：attempt 只在连接成功时清零，一次
+      // 断链周期后 reconnectAttempt 已爬到高档——此后每次断链都直接从 60s 退避
+      // 起步，PC 侧长时间「消失」，手机在房空撞门等不到 responder。断链=新周期，
+      // 退避应从 1s 重新爬。）
+      this.reconnectAttempt = 0;
       this.ctx.emit('remote/device-offline', deviceId, reason);
       this.scheduleReconnect(deviceId);
     };
     try {
       const outcome = await conn.connectAndHandshake(
-        { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined, targetDevicePubkey: device.pubkey },
+        { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined, targetDevicePubkey: device.pubkey,
+          // KK 长驻等待（70s 覆盖手机 10 轮 × 7s 完整周期 + 退避窗——见 relay-connection 注释）
+          waitFirstMsgMs: 70_000 },
         this.registry,
         async () => false, // KK 路径不进 SAS
       );
@@ -362,12 +406,19 @@ export class RemoteLinkService extends Service {
       this.kkRetries.delete(deviceId);
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
-      conn.close('connect-failed');
+      // sever 而非 close（cr-50 真机实锤）：握手超时与对端 m1 到达存在竞态——
+      // close 的优雅关闭握手最长挂 30s 才真断 TCP，期间这条「已判死」的连接仍
+      // 占着 relay 房间 2/2，双方重试 join 全被 room-unavailable 拒 + 对端对着
+      // 残骸假 ONLINE。失败路径必须 RST 立断：relay 立即毁房，下轮撞门即空房。
+      conn.sever('connect-failed');
       // KK 握手期失败重试不受 autoReconnect 门控（进房时序竞态是常态：发起方
-      // m1 早于本端入房即丢——短窗内自动重排对齐客户端的重试节奏）
+      // m1 早于本端入房即丢——短窗内自动重排对齐客户端的重试节奏）。
+      // 间隔 7s（cr-43 真机实锤：此前 1s×10 连发 join 烧穿 relay 频控 bucket
+      // 〔burst 5 / 10 每分钟 per IP〕→ 稳定 room-unavailable 恶性循环；7s ≈ 8.5/min
+      // 不触顶，与手机侧 KK_RETRY_DELAY_MS 同节奏两端会合窗最大）
       if ((this.kkRetries.get(deviceId) ?? 0) < 10) {
         this.kkRetries.set(deviceId, (this.kkRetries.get(deviceId) ?? 0) + 1);
-        setTimeout(() => { void this.runDeviceConnection(deviceId); }, 1000);
+        setTimeout(() => { void this.runDeviceConnection(deviceId); }, 7_000);
       } else {
         this.kkRetries.delete(deviceId);
         this.scheduleReconnect(deviceId);
@@ -445,6 +496,7 @@ export class RemoteLinkService extends Service {
       }
       const conn = this.connections.get(deviceId);
       if (!conn) return;
+      result = this.truncateRemoteResult(result);
       const frame: LinkPayload = error
         ? { type: 'rpc/result', data: { requestId: call.requestId, ok: false, error } }
         : { type: 'rpc/result', data: { requestId: call.requestId, ok: true, result } };
@@ -454,6 +506,22 @@ export class RemoteLinkService extends Service {
     })();
   }
 
+  /**
+   * 远程应答尺寸兜底（cr-52）：记录条数分页挡不住单轮超大（subcalls 投影后单条
+   * 可达数百 KB）。超阈值的 records 从尾部截断保最近 2 条，hasMore 标记让前端
+   * 自然上翻续拉——小步分页，不影响正确性。非 records 形态原样放行。
+   */
+  truncateRemoteResult(result: unknown): unknown {
+    if (!result || typeof result !== 'object' || !Array.isArray((result as { records?: unknown[] }).records)) return result;
+    const serialized = JSON.stringify(result);
+    if (serialized.length <= MAX_REMOTE_RESULT_BYTES) return result;
+    const r = result as { records: unknown[]; hasMore?: boolean; truncated?: boolean };
+    r.records = r.records.slice(-2); // 保底最近 2 条（至少有反馈，不留空屏）
+    r.hasMore = true;
+    r.truncated = true;
+    return r;
+  }
+
   /** scopes 闸门 + deliver 改写 + webServer.callRpc */
   private async forwardRpc(device: RemoteDevice, method: string, params: unknown): Promise<unknown> {
     const allowed = this.scopeAllows(device.scopes, method);
@@ -461,8 +529,24 @@ export class RemoteLinkService extends Service {
       throw new Error(`remote: method "${method}" not allowed for device scopes [${device.scopes.join(',')}]`);
     }
     let forwardParams = params;
-    if (DELIVER_METHODS.has(method) && params && typeof params === 'object') {
-      const p = { ...(params as Record<string, unknown>) };
+    // 远程大应答止血（cr-52 真机实锤）：session/history 按记录条数分页挡不住
+    // 「单轮超大」的会话（subcalls 投影展开后 50 条仍 1.28MB，移动网络必炸）。
+    // 远程路径强制 limit=8（对齐前端首屏 5 轮量级），已有 limit 一律钳到 ≤8。
+    // 桌面 webui 不经此路径不受影响。
+    if (method === 'session/history' && params && typeof params === 'object') {
+      const p = params as Record<string, unknown>;
+      const asked = typeof p.limit === 'number' ? p.limit : undefined;
+      const capped = asked === undefined ? 8 : Math.min(asked, 8);
+      // lite 视图（cr-54）：steps 工具调用截断为摘要——重会话 98.7% 体积在
+      // run_code 轨迹，移动端打开必须瘦身；前端传 view 时不覆盖。
+      if (p.view !== undefined) {
+        if (asked !== capped) forwardParams = { ...p, limit: capped };
+      } else {
+        forwardParams = { ...p, limit: capped, view: 'lite' };
+      }
+    }
+    if (DELIVER_METHODS.has(method) && forwardParams && typeof forwardParams === 'object') {
+      const p = { ...(forwardParams as Record<string, unknown>) };
       p.sender = 'remote:' + device.id;
       p.source = 'user';
       delete p.elevation;

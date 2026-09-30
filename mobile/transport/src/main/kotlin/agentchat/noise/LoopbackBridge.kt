@@ -69,6 +69,11 @@ interface Upstream {
 /**
  * 回环桥：同口 HTTP 静态资源 + WS 业务面。
  *
+ * 端口语义（cr-56）：WebView 的 localStorage 按 origin（含端口）分区——端口
+ * 漂移即换分区，webui 全部持久化清零。故固定端口是产品语义不是偏好；被占
+ * （其他 App 先拿到同端口）才回退 port=0 随机，由调用方把实际端口记下来
+ * 下次优先复用，避免漂移固化。
+ *
  * @param staticDir webui dist 目录（缺失时仅 WS 面可用——测试态）
  */
 class LoopbackBridge(
@@ -94,10 +99,41 @@ class LoopbackBridge(
     private val pendingRpc = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val rpcSeq = AtomicInteger()
 
-    /** 启动桥，返回实际监听端口（port=0 时由系统分配） */
+    /** 当前上行通道（swapUpstream 可换——链路重连时桥不死） */
+    @Volatile private var currentUpstream: Upstream = upstream
+
+    /**
+     * 换上行通道（cr-49：KK 重连成功后桥不死、端口不变，只换通道——WebView 零感知）。
+     * 旧通道静默废弃（调用方已 close）；pendingRpc 的在途请求随旧链丢失，由请求方超时自愈。
+     */
+    fun swapUpstream(newUpstream: Upstream) {
+        newUpstream.onPayload = { json -> handleDownlink(json) }
+        currentUpstream = newUpstream
+    }
+
+    /**
+     * 启动桥，返回实际监听端口（port=0 时由系统分配）。
+     * 固定端口 bind 失败（被占）时回退 port=0 随机——fail-soft，不因端口冲突
+     * 断链路；实际端口由调用方持久化、下次优先复用，避免漂移固化（cr-56）。
+     */
     fun start(awaitMs: Long = 10_000): Int {
-        upstream.onPayload = { json -> handleDownlink(json) }
-        val e = embeddedServer(CIO, host = host, port = configuredPort) {
+        currentUpstream.onPayload = { json -> handleDownlink(json) }
+        return try {
+            startAndWait(configuredPort, awaitMs)
+        } catch (ex: Exception) {
+            if (configuredPort == 0) throw ex
+            System.err.println("loopback bridge: 固定端口 $configuredPort 启动失败（" + ex.message + "）——回退随机端口")
+            startAndWait(0, awaitMs)
+        }
+    }
+
+    /**
+     * 单次启动尝试：建引擎 → 起 → 轮询 resolvedConnectors 拿实际端口。
+     * bind 失败也走「监听超时」抛出（CIO 异步绑定，失败经解析轮询浮出）——
+     * 由 start() 统一回退；超时收尾自清，不留半启动引擎。
+     */
+    private fun startAndWait(port: Int, awaitMs: Long): Int {
+        val e = embeddedServer(CIO, host = host, port = port) {
             install(WebSockets)
             routing {
                 webSocket("/ws") {
@@ -129,18 +165,17 @@ class LoopbackBridge(
                 get("/") { call.serveStatic("index.html") }
             }
         }
-        engine = e
         e.start(wait = false)
-        // port=0 时实际端口要经 resolvedConnectors 取（environment.connectors 恒为配置值）
         val deadline = System.currentTimeMillis() + awaitMs
         while (System.currentTimeMillis() < deadline) {
             val p = runCatching {
                 kotlinx.coroutines.runBlocking { e.resolvedConnectors().first().port }
             }.getOrNull() ?: 0
-            if (p > 0) { actualPort = p; return p }
+            if (p > 0) { engine = e; actualPort = p; return p }
             Thread.sleep(50)
         }
-        throw RelayClientException("loopback bridge: 监听超时")
+        e.stop(500, 1000)
+        throw RelayClientException("loopback bridge: 监听超时（port=$port）")
     }
 
     fun stop() {
@@ -178,11 +213,30 @@ class LoopbackBridge(
         }
     }
 
+    /** 在途请求合并键（cr-52：移动网络下大应答慢，webui 重试同 path 的 GET 会
+     *  打出重发风暴——宿主每秒重发 1.35MB 应答把上行带宽打满，形成拥塞死循环。
+     *  相同 (method,path) 的在途请求合并等同一个应答，不重发。） */
+    private val inflightHttp = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
+
     /** 经加密链路调核心端 RPC（桥自身使用；解包 ok/result，失败抛错） */
     suspend fun callUpstream(method: String, params: JsonObject? = null, timeoutMs: Long = 15000): JsonObject {
+        // http 代理面的在途合并（rpc/call 直接放行——非幂等）
+        val mergeKey = if (method == "http/read" || method == "http/write") {
+            method + " " + (params?.get("path")?.asString ?: "")
+        } else null
+        if (mergeKey != null) {
+            inflightHttp[mergeKey]?.let { existing ->
+                // 已有同 path 在途——等它（新 timeout 与原请求共享命运）
+                return withTimeout(timeoutMs) { existing.await() }
+            }
+        }
         val rid = "bridge-" + rpcSeq.incrementAndGet() + "-" + System.nanoTime() % 100000
         val d = CompletableDeferred<JsonObject>()
         pendingRpc[rid] = d
+        if (mergeKey != null) {
+            inflightHttp[mergeKey] = d
+            d.invokeOnCompletion { inflightHttp.remove(mergeKey) }
+        }
         val frame = JsonObject().apply {
             addProperty("type", "rpc/call")
             add("data", JsonObject().apply {
@@ -191,7 +245,7 @@ class LoopbackBridge(
                 params?.let { add("params", it) }
             })
         }
-        upstream.send(gson.toJson(frame))
+        currentUpstream.send(gson.toJson(frame))
         return try {
             val data = withTimeout(timeoutMs) { d.await() }
             if (data.get("ok")?.asBoolean == true) {
@@ -270,7 +324,7 @@ class LoopbackBridge(
         val obj = runCatching { gson.fromJson(text, JsonObject::class.java) }.getOrNull() ?: return
         if (obj.get("type")?.asString != "rpc/call") return // 出站语义帧不入站
         onUplink?.invoke(text)
-        upstream.send(text)
+        currentUpstream.send(text)
     }
 
     /** ws/ready 帧（与 ac-web-server 同字面） */

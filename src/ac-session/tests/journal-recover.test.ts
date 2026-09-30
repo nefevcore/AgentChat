@@ -60,7 +60,7 @@ describe('journal 恢复（崩溃窗口 + 孤儿投影——幂等收口）', ()
     ctx.emit('router/message-received', 'a', { role: 'user', content: '帮我决定' }, 'a~user', 'user', 'user');
     ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
     ctx.emit('loop/after-step', 'a', {
-      index: 0, text: '', reasoning: '思考中', ts: 1_000,
+      index: 0, text: '', reasoning: '思考中', ts: Date.now(),
       toolCalls: [{ id: 'call-9', name: 'read', arguments: '{}' }],
       toolResults: [],
     } as never, { conversationId: 'a~user', sender: 'user', source: 'user' });

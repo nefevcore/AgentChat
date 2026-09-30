@@ -122,6 +122,69 @@ class LoopbackBridgeTest {
         }
     }
 
+    /**
+     * cr-56：固定端口是产品语义——localStorage 按 origin（含端口）分区，
+     * 桥必须监听请求的端口。占住固定端口后 start 应回退随机而非失败。
+     */
+    @Test
+    fun fixedPortListensAndOccupiedFallsBackToRandom() = runBlocking {
+        // 1) 指定固定端口 → 实际监听该端口
+        val up1 = FakeUpstream()
+        val b1 = LoopbackBridge(up1, distDir, port = 0) // 先随机拿一个可用端口
+        val probePort = b1.start()
+        try {
+            val up2 = FakeUpstream()
+            val b2 = LoopbackBridge(up2, distDir, port = probePort) // 与 b1 同端口
+            val p2 = b2.start() // 应回退随机（probePort 被 b1 占着）
+            assertTrue(p2 != probePort, "被占端口应回退随机端口（$p2 == $probePort 即未回退）")
+            b2.stop()
+        } finally {
+            b1.stop()
+        }
+
+        // 2) 未被占的固定端口 → 实际监听它（非随机值）
+        val up3 = FakeUpstream()
+        val b3 = LoopbackBridge(up3, distDir, port = 0)
+        val freePort = b3.start()
+        b3.stop()
+        val up4 = FakeUpstream()
+        val b4 = LoopbackBridge(up4, distDir, port = freePort)
+        val p4 = b4.start()
+        assertEquals(freePort, p4, "未占用固定端口应原样监听")
+        b4.stop()
+    }
+
+    /** cr-49：链路重连只换上行通道，桥不死端口不变，下行随新通道恢复 */
+    @Test
+    fun swapUpstreamKeepsPortAndDownlinkAlive() = runBlocking {
+        val up1 = FakeUpstream()
+        val bridge = LoopbackBridge(up1, distDir)
+        val port = bridge.start()
+        try {
+            val client = HttpClient(CIO) { install(WebSockets) }
+            client.webSocket("ws://127.0.0.1:$port/ws") {
+                withTimeout(5000) { incoming.receive() } // ready
+                // 链路重连：换上游（旧链 close 由调用方负责）
+                val up2 = FakeUpstream()
+                bridge.swapUpstream(up2)
+                // 端口不变
+                assertEquals(port, bridge.port)
+                // 上行走新通道
+                send(Frame.Text("""{"type":"rpc/call","data":{"method":"agents/list","requestId":"s-1"}}"""))
+                var waited = 0
+                while (up2.sent.isEmpty() && waited < 50) { Thread.sleep(50); waited++ }
+                assertEquals(1, up2.sent.size, "swap 后上行应走新通道")
+                assertEquals(0, up1.sent.size, "旧通道不再收")
+                // 下行随新通道恢复广播
+                up2.onPayload?.invoke("""{"type":"rpc/result","data":{"requestId":"s-1","ok":true}}""")
+                val down = (withTimeout(5000) { incoming.receive() } as Frame.Text).readText()
+                assertContains(down, "\"ok\":true")
+            }
+        } finally {
+            bridge.stop()
+        }
+    }
+
     // ---- /api/ 通用转发（M3.4）----
 
     /** 假上游：对 http/read|http/write 自动回应答，模拟核心端转发面 */

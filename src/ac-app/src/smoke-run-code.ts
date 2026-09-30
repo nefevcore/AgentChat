@@ -99,7 +99,7 @@ async function main() {
     // 预配（2026-09-17 优化裁决）：本会话无覆盖键 = 跟随态 tc-base，
     // 靠 conv-settings 覆盖 tc-programmatic 实现程序化（见 [1]）；
     // smoke-programmatic 场景需 run_code 可见 → infra 在（授权随能力族）
-    tags: ['fs', 'infra', 'shell', 'web', 'delegation'],
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report'],
   });
   ctx.convSettings.set(convId, { toolMode: 'tc-programmatic' }); // 无标签 Agent + 覆盖 = 临时程序化档（优化裁决）
   const stored = ctx.convSettings.get(convId);

@@ -41,6 +41,9 @@ import java.security.MessageDigest
 
 private const val TAG = "AgentChatRemote"
 
+/** 回环桥缺省固定端口（cr-56：稳定 origin 保 localStorage 分区；被占回退随机） */
+private const val DEFAULT_BRIDGE_PORT = 27182
+
 /**
  * KK 重连（发起方）的单轮尝试次数与重试间隔。
  *
@@ -55,7 +58,12 @@ private const val TAG = "AgentChatRemote"
  * 10 轮 ≈ 71s，覆盖对端最长 60s 退避窗。
  */
 private const val KK_RECONNECT_ATTEMPTS = 10
-private const val KK_RETRY_DELAY_MS = 4_000L
+// 7s（cr-43 ⑬：原 4s ≈ 15 join/min，与核心端重试同 NAT 出口时合计远超 relay 频控
+// 且超时连接释放不及堆僵尸；7s ≈ 8.5/min 与核心端同节奏，会合窗内互撞概率最大）
+private const val KK_RETRY_DELAY_MS = 7_000L
+
+/** 退避重连总时长上限（cr-43 ⑪：防「对端已移除设备」下的无限重连卡死） */
+private const val RECONNECT_GIVE_UP_MS = 10 * 60_000L
 
 /** 链路状态（UI 直接投影） */
 enum class LinkPhase { IDLE, CONNECTING, AWAIT_CONFIRM, ONLINE, ERROR }
@@ -222,7 +230,7 @@ class RemoteSession(
                 if (attempt > 1) Log.i(TAG, "KK 重连第 " + attempt + " 轮成功")
                 break
             }
-            candidate.close()
+            candidate.cancel() // 超时放弃走 cancel（僵尸连接根因，见 RelayClient.cancel 注释）
             if (attempt < KK_RECONNECT_ATTEMPTS) {
                 Log.w(TAG, "KK 重连第 " + attempt + "/" + KK_RECONNECT_ATTEMPTS + " 轮未成（room=" + room + "），重试")
                 delay(KK_RETRY_DELAY_MS)
@@ -252,37 +260,62 @@ class RemoteSession(
     }
 
     /**
-     * 退避重连循环（1s 起、上限 60s、±20% 抖动——与核心端 scheduleReconnect 同参数）。
+     * 退避重连循环（1s 起、上限 15s、±20% 抖动）。
      * 幂等：已在跑则不重入。用户主动 stop() 置 manualStop 后自然退出。
+     *
+     * 总时长上限 RECONNECT_GIVE_UP_MS（cr-43 ⑪：核心端移除设备/长期离线时，手机端
+     * 不该无限重连卡死——超时置 ERROR 终态，UI 引导「解除配对重新开始」自救）。
      */
     private fun startReconnectLoop(corePub: String, deviceId: String, relayUrl: String) {
         if (reconnectJob?.isActive == true) return
         reconnectJob = scope.launch {
             var backoffMs = 1_000L
+            val deadline = System.currentTimeMillis() + RECONNECT_GIVE_UP_MS
             while (!manualStop) {
                 val jitter = (backoffMs / 5.0 * (Math.random() * 2 - 1)).toLong()
                 delay((backoffMs + jitter).coerceAtLeast(200L))
                 if (manualStop) return@launch
                 if (tryReconnect(corePub, deviceId, relayUrl)) return@launch
-                backoffMs = (backoffMs * 2).coerceAtMost(60_000L)
+                if (System.currentTimeMillis() > deadline) {
+                    Log.w(TAG, "重连超总时长上限（" + (RECONNECT_GIVE_UP_MS / 60_000L) + " 分钟）——置 ERROR 终态等用户处置")
+                    _state.value = _state.value.copy(
+                        phase = LinkPhase.ERROR,
+                        message = "长时间无法连接核心端：电脑可能不在线，或已在电脑端移除了本设备。可解除配对后重新扫码。",
+                    )
+                    return@launch
+                }
+                backoffMs = (backoffMs * 2).coerceAtMost(15_000L)
             }
         }
     }
 
     // ---- 桥 ----
 
-    /** 起回环桥；返回端口（WebView 加载 http://127.0.0.1:<port>/） */
+    /**
+     * 起回环桥；返回端口（WebView 加载 http://127.0.0.1:<port>/）。
+     * 幂等（cr-49）：桥已活则只换上行通道——重连不换端口，WebView 不整页重载。
+     *
+     * 端口选择（cr-56）：优先上次实际端口（PairingStore），无记录用缺省
+     * 27182，仍被占由桥回退随机。实际端口写回持久化——localStorage 按
+     * origin 分区，端口漂移 = webui 全部持久化清零，故稳定端口是产品语义。
+     */
     private fun startBridge(rc: RelayClient): Int {
-        bridge?.stop()
         val up = object : Upstream {
             override fun send(payloadJson: String) = rc.send(payloadJson)
             override var onPayload: ((String) -> Unit)?
                 get() = downlink
                 set(v) { downlink = v }
         }
-        val b = LoopbackBridge(up, staticDir)
+        val existing = bridge
+        if (existing != null) {
+            existing.swapUpstream(up)
+            return _state.value.bridgePort ?: existing.port
+        }
+        val wanted = pairing.bridgePort.takeIf { it > 0 } ?: DEFAULT_BRIDGE_PORT
+        val b = LoopbackBridge(up, staticDir, port = wanted)
         val port = b.start()
         bridge = b
+        if (port != pairing.bridgePort) pairing.bridgePort = port
         _state.value = _state.value.copy(bridgePort = port)
         return port
     }

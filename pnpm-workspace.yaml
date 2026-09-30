@@ -6,6 +6,7 @@ allowBuilds:
   '@vue-office/docx': true
   '@vue-office/excel': true
   '@vue-office/pptx': true
+  canvas: set this to true or false
   electron: true
   electron-winstaller: true
   esbuild: true

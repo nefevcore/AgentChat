@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ISSUE 反馈工具行：submit_issue（GitHub/Gitee 创建 ISSUE；requiredTags [web] + needPermission；令牌三源链 = 行直配 → 凭据库 → 环境变量）",
+  "description": "ISSUE 反馈工具行：submit_issue（GitHub/Gitee 创建 ISSUE；requiredTags [issue-report]（cr-41 对外发布独立轴）+ needPermission + 会话开关 issueSubmit（conv-settings 实验性组）；令牌三源链 = 行直配 → 凭据库 → 环境变量）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -16,8 +16,10 @@
   },
   "devDependencies": {
     "ac-agents": "workspace:*",
+    "ac-conv-settings": "workspace:*",
     "ac-credentials": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-tag-registry": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

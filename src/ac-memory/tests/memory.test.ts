@@ -228,6 +228,23 @@ describe('ac-memory 注入协议（before-start seam + 锚检测状态机）', (
     expect(r2[1].content).toMatch(/记忆基线 seq=1$/);
   });
 
+  it('双人格共桶（cr-46）：对方人格的注入行不是本 Agent 的锚——基线不互打', async () => {
+    const { ctx } = await boot({ fakeSession: true });
+    const session = ctx.get('session') as unknown as FakeSession;
+    // news 人格：4 条，已注入锚 seq=4
+    for (let i = 0; i < 4; i++) ctx.memory.write('news', { content: `news 记忆 ${i + 1}` });
+    await session.fireBeforeStart('news', 'news~user');
+    // user 人格：1 条，已注入锚 seq=1（桶内 news 的锚 seq=4 在场）
+    ctx.memory.write('user', { content: 'user 记忆' });
+    await session.fireBeforeStart('user', 'news~user');
+    const rows = session.rows.get('news~user')!;
+    expect(rows).toHaveLength(2); // user 侧一次快照即稳；若误认 news 锚（S=4>H=1）会反复全量重定基线
+    expect(rows[1].agent_id).toBe('user');
+    // news 侧稳态复跑（user 锚 seq=1 在场——S=1<H=4 若误认会注入 3 条重复 delta）
+    await session.fireBeforeStart('news', 'news~user');
+    expect(rows).toHaveLength(2); // H=S=4 稳态不注入
+  });
+
   it('空时间线不注入', async () => {
     const { ctx } = await boot({ fakeSession: true });
     const session = ctx.get('session') as unknown as FakeSession;

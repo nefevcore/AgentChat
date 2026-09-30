@@ -45,7 +45,7 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     // run_code 随 infra 族（2026-09-17 优化裁决：tc-* 纯模式词——程序化
     // 是会话形态选择，无需预配标签）
     // memory 出局（cr-17 记忆工具面收口）：注入软停用 + 工具面无标签，双闸全关
-    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation']);
+    expect(std?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report']);
 
     // 无 config 行 → 模型留空（router 层报"缺少 model"；会话级模型覆盖可用）
     expect(std?.model).toBeUndefined();
@@ -66,7 +66,7 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     const creator = ctx.agents.get('__creator__');
     expect(creator?.preset).toBe(true);
     expect(creator?.name).toBe('创造模式');
-    expect(creator?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin']);
+    expect(creator?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin', 'issue-report']);
     // memory/datetime 停；skill 不停（差异化：用户自己的技能照常加载，
     // 开发引导另经 system 内置——互补不冲突）
     const creatorSettings = creator?.settings as Record<string, { enabled?: boolean }>;

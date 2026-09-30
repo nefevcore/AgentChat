@@ -791,6 +791,9 @@ export function apply(ctx: Context) {
 
   // ============ session：历史回放 / 删消息 / 归档触发 ============
 
+  // lite 视图字段截断上限（cr-54）：单字段超此长度截断为摘要
+  const LITE_FIELD_MAX = 2 * 1024;
+
   web.registerRpc('session/history', async (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
@@ -817,10 +820,48 @@ export function apply(ctx: Context) {
     // 平铺进 steps[].toolCalls（subcall: true），前端复原完整工具卡
     const all = await ctx.session.records(conversationId, { subcalls: true });
     const summary = ctx.session.summary(conversationId);
+    // page 必须是自有数组（lite 投影会替换元素；limit 未传时 all 直接来自
+    // records() 缓存的浅拷贝——替换其槽位 = 写缓存）。
     const page =
       limit === undefined
-        ? all
+        ? [...all]
         : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
+    // lite 视图（cr-54 远程瘦身）：steps[].toolCalls 的参数/结果截断为摘要——
+    // 实测重会话 387KB 中 steps 占 98.7%（run_code 轨迹全量传输）。移动端
+    // 打开时省带宽；truncated 标记让工具卡显示「截断」提示。桌面端不传
+    // view = 全量（默认行为零变化）。
+    if (p.view === 'lite') {
+      // records() 元素对象共享（解析缓存，约定调用方只读）——lite 截断是投影，
+      // 不得变异缓存：否则污染后续 full 请求与 history()（LLM 回放读侧）。
+      // 逐层浅拷贝后再截（cr-55；cr-54 首版直接变异是真机数据源污染缺陷，
+      // 由本测试的 full-after-lite 断言抓出）。
+      for (let ri = 0; ri < page.length; ri++) {
+        const rec = page[ri] as { steps?: Array<{ reasoning?: string; toolCalls?: Array<{ arguments?: string; result?: unknown }> }> };
+        if (!rec.steps) continue;
+        const newSteps = rec.steps.map((step) => {
+          // reasoning 同口径截断（cr-55）：实测残余大头 = steps[].reasoning
+          // （单步 6~7KB × 每轮 10+ 步），思考折叠卡纯文本渲染截断后缀可见。
+          let reasoning = step.reasoning;
+          if (typeof reasoning === 'string' && reasoning.length > LITE_FIELD_MAX) {
+            reasoning = reasoning.slice(0, LITE_FIELD_MAX) + '…[+' + (reasoning.length - LITE_FIELD_MAX) + 'B 截断]';
+          }
+          const toolCalls = step.toolCalls?.map((tc) => {
+            const next: Record<string, unknown> = { ...tc };
+            if (typeof tc.arguments === 'string' && tc.arguments.length > LITE_FIELD_MAX) {
+              next.arguments = tc.arguments.slice(0, LITE_FIELD_MAX) + '…[+' + (tc.arguments.length - LITE_FIELD_MAX) + 'B 截断]';
+            }
+            const resultStr = JSON.stringify(tc.result);
+            if (resultStr.length > LITE_FIELD_MAX) {
+              next.resultTruncated = true;
+              next.result = { truncated: true, size: resultStr.length, preview: resultStr.slice(0, 200) };
+            }
+            return next;
+          });
+          return { ...step, ...(reasoning !== undefined ? { reasoning } : {}), ...(toolCalls !== undefined ? { toolCalls } : {}) };
+        });
+        (page as unknown[])[ri] = { ...rec, steps: newSteps };
+      }
+    }
     const meta = ctx.session.statMeta(conversationId);
     return {
       conversationId,
@@ -1705,8 +1746,8 @@ export function apply(ctx: Context) {
     const baseUrl = reqStr(p, 'base_url');
     if (!/^https?:\/\//i.test(baseUrl)) throw new Error('base_url 须为 http(s) URL');
     const protocol = optStr(p.protocol) || 'openai-compat';
-    const def = PROTOCOLS[protocol];
-    if (!def) throw new Error(`未知协议 "${protocol}"（可用：${Object.keys(PROTOCOLS).join(' / ')}）`);
+    if (!Object.hasOwn(PROTOCOLS, protocol)) throw new Error(`未知协议 "${protocol}"（可用：${Object.keys(PROTOCOLS).join(' / ')}）`);
+    const def = PROTOCOLS[protocol as keyof typeof PROTOCOLS];
     const models = await def.listModels(baseUrl, optStr(p.api_key) || undefined, AbortSignal.timeout(20_000));
     return { models: [...new Set(models)].sort() };
   });

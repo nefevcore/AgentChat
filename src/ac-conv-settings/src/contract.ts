@@ -62,6 +62,14 @@ export interface ConvSettings {
    * toolMode 口径：全形态会话（含 singles sid——独立会话接入的通路）。
    */
   browserTier?: 'observe' | 'manipulate' | 'inject' | 'disabled';
+  /**
+   * ISSUE 提交会话开关（cr-41——输入框「实验性 → ISSUE 提交」档位钮）：
+   * 值域 'enabled' | 'disabled'。无键 = 跟随 Agent tags（issue-report
+   * 标签）；enabled = 本会话注入 issue-report（grants 可见性通路——
+   * 无 tags Agent 也能用 submit_issue）；disabled = 本会话禁用（执行
+   * 前置拦截，优先于一切）。键面同 browserTier 口径：全形态会话。
+   */
+  issueSubmit?: 'enabled' | 'disabled';
   /** 生态扩展键（registerKey 注册的键以 string 值透出——索引签名尾巴） */
   [extensionKey: string]: string | undefined;
 }
