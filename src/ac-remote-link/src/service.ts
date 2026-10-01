@@ -623,7 +623,13 @@ export class RemoteLinkService extends Service {
     }
     if (DELIVER_METHODS.has(method) && forwardParams && typeof forwardParams === 'object') {
       const p = { ...(forwardParams as Record<string, unknown>) };
-      p.sender = 'remote:' + device.id;
+      // sender=user（cr-78）：M19 起 sender 是直答桶键的唯一输入（pairKey(sender,
+      // agentId)）——remote: 前缀会让移动端 1v1 消息落桶 remote:xxx~agent，与
+      // 桌面 user~agent 分裂（流式门控拦帧、历史读不回、conv-settings 错桶）。
+      // 手机 = viewer 的另一块表面，端点身份不变；设备溯源留在链路层（deviceId
+      // 在手），不进信封。强制改写保留——防配对设备伪造 sender 注入 agent⇄agent
+      // 桶（裁决：src/docs/remote-deliver-sender-ruling.md）。
+      p.sender = 'user';
       p.source = 'user';
       delete p.elevation;
       forwardParams = p;

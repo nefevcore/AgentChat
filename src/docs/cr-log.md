@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-77**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-78**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -95,3 +95,4 @@
 - 【cr-75 2026-10-01 哑中继安全审计第二轮报告（relay-security-audit-round2-2026-10-01.md）：服务器攻破→PC 入侵链路分析——转发链 Noise 稳健，R-1 高危发现：桌面更新信任链自指（manifest 与 sha256 同源+明文 HTTP+无代码签名）】
 - 【cr-76 2026-10-01 DSH 0.2 契约比对增量计划文档：ac-config 热更三小件（changed 载荷/提交去重/快照冻结）+ 原则记档（src/docs 新档 + README 索引）】
 - 【cr-77 2026-10-01 安全审计修复（relay-security-audit 两轮 2026-10-01）：download-gate 抽 parseGatePath 统一 400 防崩（F-1）；per-IP 房间配额含 everClosed 房间 + IPv6 聚合 /64（normalizeIp）+ 全局 maxTotalConns 兜底（F-2）；所有 op 统一收帧速率桶费（F-3）；env 数值 NaN 防护回退缺省（F-4）；quota 读盘一次复用（F-8）；桌面更新链 manifest 双源校验（下载面 ↔ GitHub Releases 信任锚，desktop.yml 上传 manifest.json 资产）+ install 前就地复核 sha256（R-1）；SAS 确认改输入 8 位数字服务端核对（R-2）】
+- 【cr-78 2026-10-01 remote-link deliver 信封 sender 由 remote:<id> 改回 user：remote: 前缀致 1v1 直答桶键分裂（pairKey(remote:xxx, agent)≠user~agent），流式门控拦帧、历史读侧读不回；sender=端点身份（手机=viewer 另一块表面），设备溯源留链路层】

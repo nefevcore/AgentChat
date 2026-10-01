@@ -112,7 +112,7 @@
       <div class="cards">
         <div class="card host"><b>RemoteLinkService（ctx.remoteLink）</b><small>配对状态机（幂等 + status 附会话快照）+ 设备注册表 + scopes 闸门 + KK responder 长驻 70s</small></div>
         <div class="card host"><b>RelayConnection × N</b><small>每设备一条出站连接；自签证书 sha256 pin；pong watchdog 62s；断链 reconnectAttempt 归零</small></div>
-        <div class="card host"><b>上行：RPC 转发</b><small>scopes 过闸 → <code>webServer.callRpc()</code> 进本地同一张 rpcTable；deliver 强制 <code>sender=remote:&lt;id&gt;</code> + 剥 elevation</small></div>
+        <div class="card host"><b>上行：RPC 转发</b><small>scopes 过闸 → <code>webServer.callRpc()</code> 进本地同一张 rpcTable；deliver 强制 <code>sender=user</code> + 剥 elevation</small></div>
         <div class="card host"><b>下行：事件单播</b><small><code>REMOTE_DOWNLINK_EVENTS</code> 白名单（llm/delta-*、loop/*、router/*、tool/* 共 12 事件）→ Noise 加密单播在线设备</small></div>
         <div class="card host"><b>HTTP 桥（M3.4）</b><small><code>http/read · http/write</code> RPC → 回环 <code>127.0.0.1</code> 投自身 web-server——任意 <code>/api/*</code> 通用转发（只准 /api/ 前缀、主机自定、6MB 上限），远程与本地行为不可能走散</small></div>
         <div class="card host"><b>remote/* 管理 RPC ×8</b><small>status/devices/revoke/pair-start/pair-confirm/pair-cancel/connect/disconnect——桌面 webui「远程设备」页消费</small></div>

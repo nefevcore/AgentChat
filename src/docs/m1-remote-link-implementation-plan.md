@@ -126,7 +126,10 @@ SAS：SHA256(handshake_hash) 前 4 字节 → 8 位数字（显示为两组 4 �
 ```
 方法不在任何档位白名单 → 拒绝（unknown-by-scope）
 设备 scopes 含该方法所属档位 → 放行（进入 webServer.callRpc）
-deliver 类 → 强制 sender=remote:<deviceId>、source=user、剥 elevation
+deliver 类 → 强制 sender=user、source=user、剥 elevation
+（cr-78 修订：原 sender=remote:<deviceId> 在 M19 对键桶模型下致 1v1 直答
+桶键分裂——pairKey(sender, agent) 是桶键唯一输入，remote: 前缀使移动端
+消息落错桶。裁决见 src/docs/remote-deliver-sender-ruling.md）
 ```
 
 ### 1.5 配对流程状态机
