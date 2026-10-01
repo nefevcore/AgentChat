@@ -17,7 +17,8 @@
 //   · assistant 历史消息的 tool_calls 与 user 的 tool 角色按 Anthropic
 //     形态互转（tool_use / tool_result content 块）。
 // ============================================================
-import { sseDataEvents } from 'ac-openai-completions';
+import { LlmHttpError, parseRetryAfter } from 'ac-error-core';
+import { sseDataEvents, stripTransportKeys } from 'ac-openai-completions';
 
 export interface AnthropicOptions {
   apiKey?: string;
@@ -59,6 +60,8 @@ export interface AnthropicChunk {
   toolCalls?: AnthropicToolCallDelta[];
   finish?: string;
   usage?: AnthropicUsage;
+  /** 思考块签名（cr-98 回放）：content_block_stop 携带——重建历史 thinking 块必需 */
+  thinkingSignature?: string;
 }
 
 export interface AnthropicChatResult {
@@ -128,6 +131,27 @@ export function toAnthropicMessages(messages: AnthropicMessage[]): { system?: st
       });
       continue;
     }
+    // thinking 回放（cr-98）：Anthropic 扩展思考 + 工具调用要求回传上一 turn
+    // 的 thinking 块（含签名），否则 400。assistant 消息带 reasoning +
+    // thinkingSignature 时原样重建。
+    const sig = (m as { thinkingSignature?: unknown }).thinkingSignature;
+    if (typeof sig === 'string' && sig !== '' && typeof m.content === 'string' && m.role === 'assistant') {
+      // 注意：thinking 块文本来自消息级 reasoning 字段（loop 装配时并入）
+      const reasoning = (m as { reasoning?: unknown }).reasoning;
+      if (typeof reasoning === 'string' && reasoning !== '') {
+        const thinkBlocks: Array<Record<string, unknown>> = [{ type: 'thinking', thinking: reasoning, signature: sig }];
+        const rawCalls0 = (m as { tool_calls?: unknown }).tool_calls;
+        const calls0 = Array.isArray(rawCalls0) ? rawCalls0 : [];
+        const blocks = [...thinkBlocks];
+        if (m.content) blocks.push({ type: 'text', text: m.content });
+        for (const tc of calls0 as Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>) {
+          blocks.push({ type: 'tool_use', id: String(tc.id ?? ''), name: String(tc.function?.name ?? ''), input: safeParseJson(tc.function?.arguments) });
+        }
+        out.push({ role: 'assistant', content: blocks });
+        continue;
+      }
+    }
+
     const rawCalls = (m as { tool_calls?: unknown }).tool_calls;
     const calls = Array.isArray(rawCalls) ? rawCalls : [];
     if (calls.length > 0) {
@@ -174,9 +198,11 @@ function safeParseJson(raw: unknown): Record<string, unknown> {
 export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk | null {
   const toolIndexByBlock = new Map<number, number>();
   let tcCount = 0;
+  const thinkingBlocks = new Map<number, { sig?: string }>();
+
   return (json) => {
     const e = (json ?? {}) as {
-      type?: string; index?: unknown; delta?: unknown; content_block?: {
+      type?: string; index?: unknown; delta?: unknown; content_block?: { signature?: unknown;
         type?: string; id?: unknown; name?: unknown;
       }; message?: { stop_reason?: unknown; usage?: unknown }; usage?: unknown;
     };
@@ -184,6 +210,8 @@ export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk 
     switch (e.type) {
       case 'content_block_start': {
         const block = e.content_block;
+        if (block?.type === 'thinking') thinkingBlocks.set(blockIndex, {});
+
         if (block?.type === 'tool_use') {
           const index = tcCount++;
           toolIndexByBlock.set(blockIndex, index);
@@ -219,10 +247,24 @@ export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk 
       case 'error': {
         throw new Error('Anthropic SSE error 事件: ' + JSON.stringify(e).slice(0, 300));
       }
+      case 'content_block_stop': {
+        if (!thinkingBlocks.has(blockIndex)) return null;
+        const sig = (e.content_block as { signature?: unknown } | undefined)?.signature;
+        thinkingBlocks.delete(blockIndex);
+        if (typeof sig !== 'string' || sig === '') return null;
+        return { delta: '', thinkingSignature: sig };
+      }
+
       default:
         return null; // ping / content_block_stop / message_stop 等无载荷事件
     }
   };
+}
+
+/** HTTP 错误响应 → LlmHttpError（读 body 文案 + Retry-After 头；cr-98） */
+async function httpError(response: Response): Promise<LlmHttpError> {
+  const text = await response.text().catch(() => '');
+  return new LlmHttpError(response.status, `LLM HTTP ${response.status}: ${text.slice(0, 500)}`, parseRetryAfter(response.headers.get('retry-after')));
 }
 
 export class AnthropicCompletions {
@@ -249,8 +291,9 @@ export class AnthropicCompletions {
     const model = params.model ?? this.defaultModel;
     if (!model) throw new Error('model 未指定（params.model 或构造参数 defaultModel）');
     const { signal, api_key, provider: _provider, headers: extraHeaders, ...restParams } = params;
+    const restStripped = stripTransportKeys(restParams as Record<string, unknown>);
     const authKey = api_key || this.apiKey;
-    const { max_tokens, temperature, top_p, stop, tools, messages, ...rest } = restParams as Record<string, unknown>;
+    const { max_tokens, temperature, top_p, stop, tools, messages, ...rest } = restStripped as Record<string, unknown>;
     const mapped = toAnthropicMessages(messages as AnthropicMessage[]);
     const body: Record<string, unknown> = {
       model,
@@ -295,10 +338,7 @@ export class AnthropicCompletions {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error('LLM HTTP ' + response.status + ': ' + text.slice(0, 500));
-      }
+      if (!response.ok) throw await httpError(response);
       if (!response.body) throw new Error('LLM 响应缺少 body');
       armProgressTimeout();
       const mapEvent = createAnthropicChunkMapper();
@@ -331,10 +371,7 @@ export class AnthropicCompletions {
       },
       ...(params.signal ? { signal: params.signal } : {}),
     });
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error('LLM HTTP ' + response.status + ': ' + text.slice(0, 500));
-    }
+    if (!response.ok) throw await httpError(response);
     const json = (await response.json()) as { data?: unknown };
     if (!Array.isArray(json.data)) throw new Error('LLM /v1/models 响应缺少 data 数组（非 Anthropic 端点）');
     return json.data

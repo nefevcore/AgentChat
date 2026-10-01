@@ -78,3 +78,71 @@ export function isTransientNetworkError(err: unknown): boolean {
   }
   return transient;
 }
+
+// ============================================================
+// LLM HTTP 错误分类（cr-98，对齐 pi-ai classifyPiAiError 语义）
+// ============================================================
+
+/** LLM HTTP 错误的机器可读分类 */
+export type LlmHttpErrorKind =
+  | 'AUTH'          // 401/403：凭据失效或无权
+  | 'QUOTA'         // 配额耗尽（余额/订阅限额）
+  | 'RATE_LIMIT'    // 429：限流（可重试，尊重 Retry-After）
+  | 'INVALID'       // 400/404/413：请求或配置错误（重试无意义）
+  | 'SERVER';       // 5xx：服务端故障（可重试）
+
+/**
+ * LLM HTTP 错误（结构化；协议库抛出、ac-llm dispatch 消费）：
+ * 携带状态码 + 机器可读分类 + 服务端 Retry-After 毫秒（如有）。
+ * 显式字段赋值（Node strip-only 加载器不支持参数属性）。
+ */
+export class LlmHttpError extends Error {
+  readonly status: number;
+  readonly kind: LlmHttpErrorKind;
+  /** 服务端 Retry-After（毫秒；解析失败/未提供 = undefined） */
+  readonly retryAfterMs: number | undefined;
+
+  constructor(status: number, message: string, retryAfterMs?: number) {
+    super(message);
+    this.name = 'LlmHttpError';
+    this.status = status;
+    this.kind = classifyLlmHttpStatus(status, message);
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** 状态码 + 文案 → 机器可读分类（文案兜底：部分网关 429 也走 400 文案） */
+export function classifyLlmHttpStatus(status: number, message: string): LlmHttpErrorKind {
+  if (status === 401 || status === 403) return 'AUTH';
+  if (status === 429) return 'RATE_LIMIT';
+  if (status === 402 || /quota|insufficient[_ ]balance|余额不足|arrears/i.test(message)) return 'QUOTA';
+  if (status === 408) return 'SERVER';
+  if (status >= 500) return 'SERVER';
+  return 'INVALID'; // 400/404/413/422…
+}
+
+/**
+ * Retry-After 头解析（秒数或 HTTP 日期；上限 5 分钟防服务端滥用）。
+ * 解析失败 = undefined（调用方回落固定退避）。
+ */
+export function parseRetryAfter(header: string | null | undefined): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) return Math.min(Number(trimmed) * 1000, 300_000);
+  const asDate = Date.parse(trimmed);
+  if (!Number.isNaN(asDate)) return Math.min(Math.max(0, asDate - Date.now()), 300_000);
+  return undefined;
+}
+
+/**
+ * 判定 LLM HTTP 错误是否值得首块前重试（RATE_LIMIT/SERVER；QUOTA/AUTH/INVALID 不重试）。
+ * 与 isTransientNetworkError 并集使用（网络层瞬时故障或可重试 HTTP 状态）。
+ */
+export function isRetryableLlmHttpError(err: unknown): boolean {
+  return err instanceof LlmHttpError && (err.kind === 'RATE_LIMIT' || err.kind === 'SERVER');
+}
+
+/** 重试等待毫秒（服务端提示优先，回落固定退避） */
+export function llmRetryWaitMs(err: unknown, fallbackMs: number): number {
+  return (err instanceof LlmHttpError && err.retryAfterMs !== undefined) ? err.retryAfterMs : fallbackMs;
+}

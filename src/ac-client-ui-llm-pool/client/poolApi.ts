@@ -31,6 +31,16 @@ export async function deleteLlmPoolCredential(name: string, rpc: Rpc): Promise<v
   await rpc.call('llm/pool-credential', { name, value: '' });
 }
 
+/** 连接引用扫描（cr-99 引用完整性）：引用该连接的 Agent 清单（删除/改名
+ *  前消费——静默断路变可见决策）。后端 llm/pool-references（agents 名册扫描）。 */
+export async function fetchPoolReferences(
+  name: string,
+  rpc: Rpc,
+): Promise<{ agents: Array<{ id: string; name?: string }> }> {
+  const r = await rpc.call<{ agents?: Array<{ id: string; name?: string }> }>('llm/pool-references', { name });
+  return { agents: r.agents ?? [] };
+}
+
 /** 免注册连接探测（新建弹窗"填 Key 即读清单"）：base_url + api_key
  *  [+ protocol] 直调协议清单端点（后端本地代理，不经注册面——保存前
  *  可用；不写缓存）。protocol 缺省 openai-compat（cr-39 协议多态）。 */

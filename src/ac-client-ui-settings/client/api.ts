@@ -95,6 +95,10 @@ export interface LlmProviderTemplate {
   /** 连接协议（cr-39 多态）：缺省 openai-compat；anthropic/gemini/ollama
    *  = 原生协议模板（PoolManager 保存时随条目落 protocol 字段） */
   protocol?: string;
+  /** 鉴权头名（cr-98 云部署型）：缺省 undefined = 标准 Bearer；'api-key'
+   *  = Azure resource key 头（裸 key 值，无 Bearer 前缀）。key 值经凭据库
+   *  （pool:<名>）注入，绝不进 headers 字段（明文落盘纪律） */
+  authHeader?: string;
 }
 
 export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
@@ -140,6 +144,13 @@ export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
   { id: 'xiaomi-token-plan-cn', label: '小米 MiMo 套餐（订阅制端点）', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
   { id: 'ant-ling', label: '蚂蚁 Ling 开放平台', baseUrl: 'https://api.ant-ling.com/v1', defaultModel: 'Ling-2.6-flash' },
   { id: 'moonshotai', label: '月之暗面 Kimi 国际版', baseUrl: 'https://api.moonshot.ai/v1', defaultModel: 'kimi-k3' },
+  // ↓ 云部署型 API key 化端点（cr-98，裁决见 src/docs/cloud-provider-api-key-adoption.md）：
+  // Bedrock /openai/v1 兼容面 + Bearer（控制台生成的短期 API key）；Azure
+  // v1 统一路由（免 deployment 拼路径）+ api-key 头（authHeader 池字段）。
+  // Vertex Express 缓收录（AI Studio 模板已覆盖 key 化面）。region/资源名
+  // 因用户而异——baseUrl 占位说明，用户按账号改写。
+  { id: 'bedrock', label: 'Amazon Bedrock（OpenAI 兼容端点）', baseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1' },
+  { id: 'azure-openai', label: 'Azure OpenAI（v1 统一路由）', baseUrl: 'https://<资源名>.openai.azure.com/openai/v1', authHeader: 'api-key' },
 ];
 
 /** 模板 → 字段默认值（getLlmSchemas 的 model 默认同源） */

@@ -385,6 +385,30 @@ describe('attachments 物化（多模态传输边界）', () => {
       { type: 'image_url', image_url: { url: 'data:image/png;base64,zz' } },
     ]);
   });
+
+  it('物化累计超限的附件降级为溢出行，未超限的正常物化（cr-98：20MiB 封顶防 413 死锁）', async () => {
+    const big = (tag: string) => tag.repeat(8 * 1024 * 1024); // ~8M 字符 ref → data URL 同量级
+    const messages = await bodyMessagesOf(
+      {
+        visionModels: ['vision-x'],
+        resolveMedia: async (ref) => `data:image/png;base64,${ref}`,
+      },
+      [
+        {
+          role: 'user',
+          content: '看图',
+          attachments: [
+            { kind: 'image', ref: big('a'), filename: 'a.png' },
+            { kind: 'image', ref: big('b'), filename: 'b.png' },
+            { kind: 'image', ref: big('c'), filename: 'c.png' }, // 第三张累计 24M > 20MiB → 拒
+          ],
+        },
+      ],
+    );
+    const parts = (messages[0] as { content: Array<{ type: string; text?: string }> }).content;
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
+    expect(parts.some((p) => p.type === 'text' && p.text?.includes('未发送'))).toBe(true);
+  });
 });
 
 describe('probeVision（视觉能力探测：三态判定）', () => {

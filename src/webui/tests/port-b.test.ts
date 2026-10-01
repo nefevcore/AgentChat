@@ -401,11 +401,11 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     // ——推理力度下拉（无/low/high/max）替代）
     const llmSchema = await settings.getLlmSchemas();
     expect(Object.keys(llmSchema).sort()).toEqual([
-      'ant-ling', 'anthropic', 'cerebras', 'deepseek', 'fireworks', 'gemini',
-      'github-copilot', 'glm', 'glm-coding', 'glm-coding-plan', 'groq',
-      'huggingface', 'kimi-coding', 'minimax', 'mistral', 'moonshot',
-      'moonshotai', 'nvidia', 'openai', 'opencode', 'opencode-go',
-      'openrouter', 'qwen', 'qwen-coding-plan', 'together',
+      'ant-ling', 'anthropic', 'azure-openai', 'bedrock', 'cerebras', 'deepseek',
+      'fireworks', 'gemini', 'github-copilot', 'glm', 'glm-coding',
+      'glm-coding-plan', 'groq', 'huggingface', 'kimi-coding', 'minimax',
+      'mistral', 'moonshot', 'moonshotai', 'nvidia', 'openai', 'opencode',
+      'opencode-go', 'openrouter', 'qwen', 'qwen-coding-plan', 'together',
       'vercel-ai-gateway', 'xai', 'xiaomi', 'xiaomi-token-plan-cn',
     ]);
     // 2026-10-01 扩容：无 OpenAI 兼容端点的网关以原生协议模板收录

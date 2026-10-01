@@ -116,7 +116,7 @@ describe('ac-llm-pool：注册面（连接池 = 唯一事实源）', () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (url: any) => {
       captured.url = url;
-      return new Response('stub', { status: 500 }); // stream 抛 HTTP 500 → catch 掉，只断言 URL
+      return new Response('stub', { status: 404 }); // stream 抛 HTTP 500 → catch 掉，只断言 URL
     }) as unknown as typeof fetch;
     try {
       await ctx.llm.chat({ model: 'my-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
@@ -137,6 +137,22 @@ describe('ac-llm-pool：热更与生命周期', () => {
     // 删除条目 → 撤注册；无隐式兜底（零注册）
     ctx.config.set('llmProviders', {});
     expect(ctx.llm.providers()).toEqual([]);
+  });
+
+  it('hidden 切换（观测变化）不重挂：replaceMeta 原位更新；models/门控变化仍重挂（cr-99）', async () => {
+    const { ctx } = await boot(tmpRoot({ myds: { base_url: 'https://a/v1', models: ['a-1'] } }));
+    // 先实例化（懒加载——让「不换实例」有实际观察对象）
+    await ctx.llm.chat({ provider: 'myds', model: 'a-1', messages: [] }).catch(() => {});
+    expect(ctx.llm.stats().find((s) => s.name === 'myds')?.instantiated).toBe(true);
+    // 观测变化：hidden 切换（前端下拉过滤——纯 UI 呈现语义；清单不变）
+    ctx.config.set('llmProviders', { myds: { base_url: 'https://a/v1', models: [{ model: 'a-1', hidden: true }] } });
+    const afterObserved = ctx.llm.stats().find((s) => s.name === 'myds');
+    expect(afterObserved?.modelMeta).toEqual({ 'a-1': { hidden: true } }); // meta 已更新
+    expect(afterObserved?.instantiated).toBe(true); // 实例未回收（未重挂）
+    // 意图变化：baseUrl 换 → 撤/挂（重挂语义保持）
+    ctx.config.set('llmProviders', { myds: { base_url: 'https://b/v1', models: ['a-1'] } });
+    const afterIntent = ctx.llm.stats().find((s) => s.name === 'myds');
+    expect(afterIntent?.baseUrl).toBe('https://b/v1');
   });
 
   it('行卸载 → 全部注册回收', async () => {
@@ -168,6 +184,21 @@ describe('ac-llm-pool：热更与生命周期', () => {
 });
 
 describe('ac-llm-pool：visionModels（多模态一期）', () => {
+  it('contextWindow 容量声明进 modelMeta（正整数收，非正整数/非整数弃；cr-99 观测面）', () => {
+    const d = desiredProviders({
+      ds: {
+        base_url: 'https://a/v1',
+        models: [
+          { model: 'big', contextWindow: 1_000_000 },
+          { model: 'bad-float', contextWindow: 1.5 },
+          { model: 'bad-neg', contextWindow: -1 },
+          'plain',
+        ],
+      },
+    });
+    expect(d.get('ds')!.modelMeta).toEqual({ big: { contextWindow: 1_000_000 } });
+  });
+
   it('desiredProviders 解析 visionModels（非字符串项过滤；缺省空清单）', () => {
     const d = desiredProviders({
       ds: { base_url: 'https://a/v1', visionModels: ['deepseek-v4-flash-vision-exp', 42, null, ''] },
@@ -186,7 +217,7 @@ describe('ac-llm-pool：visionModels（多模态一期）', () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (_url: any, init: any) => {
       bodies.push(JSON.parse(init.body));
-      return new Response('stub', { status: 500 }); // 只断言请求体形状
+      return new Response('stub', { status: 404 }); // 只断言请求体形状
     }) as unknown as typeof fetch;
     const att = [{ kind: 'image' as const, ref: 'https://cdn.example.com/x.png' }];
     try {
@@ -237,7 +268,7 @@ describe('ac-llm-pool：visionModels（多模态一期）', () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (_url: any, init: any) => {
       bodies.push(JSON.parse(init.body));
-      return new Response('stub', { status: 500 });
+      return new Response('stub', { status: 404 });
     }) as unknown as typeof fetch;
     try {
       const att = [{ kind: 'image' as const, ref: up.path }];
@@ -309,7 +340,7 @@ describe('模型能力元数据（models 宽容双形态 + vision 并集门控�
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (_url: any, init: any) => {
       bodies.push(JSON.parse(init.body));
-      return new Response('stub', { status: 500 });
+      return new Response('stub', { status: 404 });
     }) as unknown as typeof fetch;
     const att = [{ kind: 'image' as const, ref: 'https://cdn.example.com/x.png' }];
     try {
@@ -405,7 +436,7 @@ describe('D3 透传：timeout_ms / headers（池条目 → 协议层）', () => 
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (_url: any, init: any) => {
       captured.init = init;
-      return new Response('stub', { status: 500 }); // stream 抛 HTTP 500 → catch 掉，只断言头
+      return new Response('stub', { status: 404 }); // stream 抛 HTTP 500 → catch 掉，只断言头
     }) as unknown as typeof fetch;
     try {
       await ctx.llm.chat({ model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
@@ -447,7 +478,7 @@ describe('D4 接口格式：api 条目（responses = POST /responses）', () => 
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (url: any) => {
       urls.push(String(url));
-      return new Response('stub', { status: 500 }); // 仅捕获 URL，错误被 catch
+      return new Response('stub', { status: 404 }); // 仅捕获 URL，错误被 catch
     }) as unknown as typeof fetch;
     try {
       await ctx.llm.chat({ provider: 'rsp', model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
@@ -465,7 +496,7 @@ describe('D4 接口格式：api 条目（responses = POST /responses）', () => 
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (url: any) => {
       urls.push(String(url));
-      return new Response('stub', { status: 500 });
+      return new Response('stub', { status: 404 });
     }) as unknown as typeof fetch;
     try {
       await ctx.llm.chat({ provider: 'gw', model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);

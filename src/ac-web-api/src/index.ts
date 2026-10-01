@@ -1707,6 +1707,27 @@ export function apply(ctx: Context) {
     stats: ctx.llm.stats(),
   }));
 
+  // 连接引用扫描（cr-99 引用完整性）：列出引用某池连接的 Agent（model 字段
+  // provider@model 左段或裸模型名命中该连接的 models 清单）。PoolManager
+  // 删除/改名前消费——把「静默断路」变成「可见的引用清单再决策」。
+  web.registerRpc('llm/pool-references', (params) => {
+    const p = obj(params);
+    const name = reqStr(p, 'name');
+    const stat = ctx.llm.stats().find((s) => s.name === name);
+    if (!stat) return { agents: [] };
+    const refs: Array<{ id: string; name?: string }> = [];
+    for (const id of ctx.agents.ids()) {
+      const agent = ctx.agents.get(id);
+      if (!agent?.model) continue;
+      const at = agent.model.indexOf('@');
+      const provider = at > 0 ? agent.model.slice(0, at) : undefined;
+      const model = at > 0 ? agent.model.slice(at + 1) : agent.model;
+      const hit = provider === name || (provider === undefined && stat.models.includes(model));
+      if (hit) refs.push({ id, ...(agent.name ? { name: agent.name } : {}) });
+    }
+    return { agents: refs };
+  });
+
   // 连接凭据写口（PoolManager 删除连接时同步删凭据——否则种子名的
   // 发现回写会凭残留凭据把已删条目"复活"）。value '' = 删除。
   web.registerRpc('llm/pool-credential', (params) => {

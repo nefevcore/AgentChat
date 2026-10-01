@@ -9,13 +9,16 @@
 //     tracker 指向【调用方插件】的 context，注册随该插件卸载自动回收
 //     （已实例化的 provider 会被调用 close()）——插件作者零 dispose 代码。
 //   · stream —— AsyncIterable<Chunk>；chat 是 stream 的聚合语法糖。
-//   · 瞬时网络错误重试（2026-09-05 nana 事故）：dispatch 在【首块
-//     chunk 产出前】遇网络层瞬时故障（fetch failed/ECONNRESET…，
-//     isTransientNetworkError 判定，实现住 ac-error-core 纯库）按
-//     退避重试（缺省 2 次：500ms/1500ms）；已产出任何 chunk 后不
-//     重试——重放会向下游重复输出已聚合文本。重试过程走 logger.warn；
-//     llm/chat-error 仅在最终失败时发射（语义不变）。裁决依据：重试
-//     属调用编排域，不属连接定义域（docs/llm-protocol-extensibility §五）。
+//   · 首块前重试（2026-09-05 nana 事故 + cr-98 扩展）：dispatch 在【首块
+//     chunk 产出前】遇可重试故障——网络层瞬时故障（fetch failed/
+//     ECONNRESET…，isTransientNetworkError）∪ HTTP 429 限流/5xx 服务端
+//     故障（isRetryableLlmHttpError，LlmHttpError 结构化分类住
+//     ac-error-core）——按退避重试（缺省 2 次：500ms/1500ms）；HTTP 侧
+//     等待尊重服务端 Retry-After（缺省回落固定退避）。已产出任何 chunk
+//     后不重试——重放会向下游重复输出已聚合文本。重试过程走
+//     logger.warn；llm/chat-error 仅在最终失败时发射（语义不变）。裁决
+//     依据：重试属调用编排域，不属连接定义域
+//     （docs/llm-protocol-extensibility §五）。
 //   · 事件：llm/before-chat（waterfall 拦截，改写输入或短路）、
 //     llm/chat-error（emit，监控/降级订阅）。
 //
@@ -23,7 +26,7 @@
 // 升级 llm provider = 换一行：inject 的依赖方 fiber 由 cordis 自动回滚重载。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { describeError, isTransientNetworkError } from 'ac-error-core';
+import { describeError, isRetryableLlmHttpError, isTransientNetworkError, llmRetryWaitMs, LlmHttpError } from 'ac-error-core';
 import type {
   LlmChatCall,
   LlmChatInput,
@@ -59,10 +62,11 @@ export interface LlmRegisterMeta {
    */
   protocol?: string;
   /**
-   * 模型能力元数据（探测/手配）：model → {vision?, hidden?}。
-   * llm/providers stats 透出 → 前端视觉徽章与下拉过滤；不参与路由。
+   * 模型能力元数据（探测/手配）：model → {vision?, hidden?, contextWindow?}。
+   * llm/providers stats 透出 → 前端视觉徽章与下拉过滤；contextWindow = 手配
+   * 容量声明（cr-99 观测面——溢出预警消费）；不参与路由。
    */
-  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
+  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean; contextWindow?: number }>;
   /**
    * 视觉门控有效清单（精确 > 前缀 m-/m/ > 通配 *——显式 visionModels ∪
    * models[].vision 探测标志，注册行算好并集传入）。适配层物化/剥离、
@@ -85,12 +89,14 @@ export interface LlmProviderStats {
   description?: string;
   /** 连接锚点（注册行声明时透出） */
   baseUrl?: string;
-  /** 模型能力元数据（vision/hidden；前端徽章与下拉过滤消费） */
-  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
+  /** 模型能力元数据（vision/hidden/contextWindow；前端徽章与下拉过滤消费） */
+  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean; contextWindow?: number }>;
   /** 视觉门控有效清单（显式 ∪ 探测；visionOf 查询与适配层同源） */
   visionModels?: string[];
   /** 连接协议（cr-39 多态：注册行按池条目 protocol 透传；诊断区分用） */
   protocol?: string;
+  /** 最近错误健康态（cr-99：AUTH/QUOTA/RATE_LIMIT/SERVER/INVALID/UNKNOWN + 时间 + 摘要；前端徽章数据源） */
+  lastError?: { kind: string; at: number; message: string };
 }
 
 /**
@@ -172,6 +178,19 @@ export class LlmService extends Service {
     }, `llm.register(${name})`);
   }
 
+  /**
+   * 原位替换一个已注册 provider 的元数据（cr-99 观测/意图分离）：只动
+   * meta，不动工厂、不换实例、不触发 close——观测性更新（发现缓存刷新、
+   * 探测标志、健康状态）经此通道，在途请求不受影响。意图性变更（连接
+   * 定义变了：baseUrl/协议/凭据语义）仍走撤/挂重注册——重挂才会
+   * close() 中止在途流。
+   */
+  replaceMeta(name: string, meta: LlmRegisterMeta): void {
+    const entry = this.factories.get(name);
+    if (entry === undefined) throw new LlmError('NO_PROVIDER', `未注册的 llm provider "${name}"（${this.roster()}）`);
+    this.factories.set(name, { ...entry, meta });
+  }
+
   /** 已注册 provider 名单 */
   providers(): string[] {
     return [...this.factories.keys()];
@@ -188,6 +207,7 @@ export class LlmService extends Service {
       ...(meta.protocol ? { protocol: meta.protocol } : {}),
       ...(meta.modelMeta && Object.keys(meta.modelMeta).length > 0 ? { modelMeta: meta.modelMeta } : {}),
       ...(meta.visionModels && meta.visionModels.length > 0 ? { visionModels: meta.visionModels } : {}),
+      ...(this.lastErrors.get(name) ? { lastError: this.lastErrors.get(name) } : {}),
     }));
   }
 
@@ -244,7 +264,34 @@ export class LlmService extends Service {
     return modelMatchesPatterns(model, meta.visionModels);
   }
 
-  /** 解析 provider 名：显式指定 > models 精确匹配 > models 前缀匹配 */
+  /**
+   * 同名 model 跨 provider 命中清单（确定性消歧依据；cr-99）。
+   * 精确命中与前缀命中各自收集全部命中的 provider 名，>1 时取字典序
+   * 最小者并向 logger.warn 报一次歧义——裸模型名路由不再依赖注册序
+   * （config 键序）：调换连接先后不再悄悄改变路由结果。
+   */
+  private resolveByModels(model: string, exact: boolean): string | undefined {
+    const hits: string[] = [];
+    for (const [name, { meta }] of this.factories) {
+      const matched = exact
+        ? meta.models?.includes(model)
+        : meta.models?.some((m) => model.startsWith(`${m}/`) || model.startsWith(`${m}-`));
+      if (matched) hits.push(name);
+    }
+    if (hits.length > 1) {
+      hits.sort((a, b) => a.localeCompare(b));
+      this.ctx.logger.warn(
+        '[llm] 裸模型名 %C 被 %C 个连接同时命中（%C）——按字典序取 %C；显式 name@model 引用可消除歧义',
+        model,
+        String(hits.length),
+        hits.join(' · '),
+        hits[0],
+      );
+    }
+    return hits[0];
+  }
+
+  /** 解析 provider 名：显式指定 > models 精确匹配 > models 前缀匹配（同名多命中 = 字典序消歧 + warn，cr-99） */
   resolveProvider(query: LlmRouteQuery): string {
     if (query.provider) {
       if (!this.factories.has(query.provider)) {
@@ -254,14 +301,10 @@ export class LlmService extends Service {
     }
     const model = query.model;
     if (!model) throw new LlmError('NO_PROVIDER', '路由需要 provider 或 model 至少一项');
-    for (const [name, { meta }] of this.factories) {
-      if (meta.models?.includes(model)) return name;
-    }
-    for (const [name, { meta }] of this.factories) {
-      if (meta.models?.some((m) => model.startsWith(`${m}/`) || model.startsWith(`${m}-`))) {
-        return name;
-      }
-    }
+    const exact = this.resolveByModels(model, true);
+    if (exact !== undefined) return exact;
+    const prefixed = this.resolveByModels(model, false);
+    if (prefixed !== undefined) return prefixed;
     throw new LlmError('NO_PROVIDER', `model "${model}" 无法路由到任何 provider（${this.roster()}）`);
   }
 
@@ -291,6 +334,7 @@ export class LlmService extends Service {
     let reasoning = '';
     let finish: string | undefined;
     let usage: LlmUsage | undefined;
+    let thinkingSignature: string | undefined;
     const toolCalls = new Map<number, { id: string; name: string; args: string }>();
     // 相位序标记（步内卡片顺序）：首个非空 delta / 首个工具分片谁先到——
     // 谁先见谁在前。仅两者都出现时才有意义（见返回处条件展开）
@@ -331,6 +375,7 @@ export class LlmService extends Service {
         }
         if (chunk.finish) finish = chunk.finish;
         if (chunk.usage) usage = chunk.usage;
+        if (chunk.thinkingSignature !== undefined) thinkingSignature = chunk.thinkingSignature;
       }
     } finally {
       this.ctx.emit('llm/delta-end', input, input.meta);
@@ -356,6 +401,7 @@ export class LlmService extends Service {
       ...(call.elapsedMs !== undefined ? { elapsedMs: call.elapsedMs } : {}),
       ...(finish ? { finish } : {}),
       ...(usage ? { usage } : {}),
+      ...(thinkingSignature !== undefined ? { thinkingSignature } : {}),
     };
   }
 
@@ -363,6 +409,14 @@ export class LlmService extends Service {
   private async *run(call: LlmChatCall): AsyncIterable<LlmStreamChunk> {
     yield* this.ctx.waterfall('llm/before-chat', call, () => this.dispatch(call));
   }
+
+  /**
+   * provider 最近错误健康态（cr-99 健康面）：name → { kind, at, message }。
+   * dispatch 最终失败时记录（成功调用不清除——「上次错误」是有效的历史
+   * 诊断信息）；stats 透出供前端徽章（key 失效/限流中）。LlmHttpError
+   * 结构化分类，其余错误归 'UNKNOWN'。
+   */
+  private readonly lastErrors = new Map<string, { kind: string; at: number; message: string }>();
 
   /**
    * 分发到 provider 实例，含瞬时网络错误退避重试（2026-09-05 nana 事故）：
@@ -399,12 +453,17 @@ export class LlmService extends Service {
         call.elapsedMs = elapsedAcc + (Date.now() - attemptStart);
         return;
       } catch (err) {
-        if (delivered || attempt >= retries || !isTransientNetworkError(err)) {
+        // 可重试 = 网络层瞬时故障 ∪ 可重试 HTTP 状态（429 限流/5xx 服务端；
+        // cr-98——AUTH/QUOTA/INVALID 重试无意义，直抛）。HTTP 侧等待尊重
+        // 服务端 Retry-After 提示（缺省回落固定退避）。
+        const retryable = isTransientNetworkError(err) || isRetryableLlmHttpError(err);
+        if (delivered || attempt >= retries || !retryable) {
+          this.recordError(provider, err);
           this.ctx.emit('llm/chat-error', input, err);
           throw err;
         }
         elapsedAcc += Date.now() - attemptStart; // 失败尝试的 API 耗时保留
-        const wait = backoffMs[Math.min(attempt, backoffMs.length - 1)];
+        const wait = llmRetryWaitMs(err, backoffMs[Math.min(attempt, backoffMs.length - 1)]);
         this.ctx.logger.warn(
           '[llm] 瞬时网络错误（%C），%Cms 后重试 %C/%C',
           describeError(err),
@@ -421,6 +480,12 @@ export class LlmService extends Service {
         }
       }
     }
+  }
+
+  /** 健康态记录（最终失败时；LlmHttpError 分类，其余 UNKNOWN） */
+  private recordError(provider: string, err: unknown): void {
+    const kind = err instanceof LlmHttpError ? err.kind : 'UNKNOWN';
+    this.lastErrors.set(provider, { kind, at: Date.now(), message: describeError(err).slice(0, 200) });
   }
 
   private instance(name: string): LlmProvider {

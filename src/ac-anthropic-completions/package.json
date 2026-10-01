@@ -12,6 +12,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
+    "ac-error-core": "workspace:*",
     "ac-openai-completions": "workspace:*"
   },
   "devDependencies": {

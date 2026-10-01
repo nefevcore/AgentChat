@@ -558,11 +558,17 @@ export class AgentLoopService extends Service {
     );
   }
 
-  /** 步 → assistant wire 消息（tool_calls 原样映射；idle 续走补停步文本复用） */
+  /**
+   * 步 → assistant wire 消息（tool_calls 原样映射；idle 续走补停步文本复用）。
+   * thinking 回放（cr-98）：reasoning + thinkingSignature 透传——Anthropic
+   * 协议适配层（toAnthropicMessages）据此重建 thinking 块，其余协议忽略。
+   */
   private assistantOf(step: LoopStepRecord): LlmMessage {
     return {
       role: 'assistant',
       content: step.text,
+      ...(step.reasoning ? { reasoning: step.reasoning } : {}),
+      ...(step.thinkingSignature ? { thinkingSignature: step.thinkingSignature } : {}),
       ...(step.toolCalls.length > 0
         ? {
             tool_calls: step.toolCalls.map((tc) => ({
@@ -660,6 +666,7 @@ export class AgentLoopService extends Service {
         toolResults: [] as LoopStepRecord['toolResults'],
         ...(res.textBeforeTools !== undefined ? { textBeforeTools: res.textBeforeTools } : {}),
         ...(res.reasoningMs !== undefined ? { reasoningMs: res.reasoningMs } : {}),
+        ...(res.thinkingSignature !== undefined ? { thinkingSignature: res.thinkingSignature } : {}),
         ...(res.elapsedMs !== undefined ? { elapsedMs: res.elapsedMs } : {}),
         ...(res.usage ? { usage: res.usage } : {}),
         ...(res.finish ? { finish: res.finish } : {}),

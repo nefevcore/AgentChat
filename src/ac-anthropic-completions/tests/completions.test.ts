@@ -147,3 +147,45 @@ describe('AnthropicCompletions.listModels', () => {
     await expect(client.listModels()).rejects.toThrow(/已 close/);
   });
 });
+
+describe('thinking 回放（cr-98：签名捕获 → 历史重建）', () => {
+  it('content_block_stop 的 signature 经映射器透传（thinkingSignature chunk）', () => {
+    const map = createAnthropicChunkMapper();
+    expect(map({ type: 'content_block_start', index: 0, content_block: { type: 'thinking' } })).toBeNull();
+    expect(map({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '让我想想' } }))
+      .toEqual({ delta: '', reasoning: '让我想想' });
+    expect(map({ type: 'content_block_stop', index: 0, content_block: { type: 'thinking', signature: 'sig-abc' } }))
+      .toEqual({ delta: '', thinkingSignature: 'sig-abc' });
+    // 非 thinking 块的 stop 不发 signature
+    expect(map({ type: 'content_block_stop', index: 1, content_block: { type: 'text' } })).toBeNull();
+  });
+
+  it('assistant 历史（reasoning + thinkingSignature + tool_calls）重建 thinking 块', () => {
+    const { system, messages } = toAnthropicMessages([
+      { role: 'user', content: '查一下' },
+      {
+        role: 'assistant',
+        content: '',
+        reasoning: '先调工具',
+        thinkingSignature: 'sig-abc',
+        tool_calls: [{ id: 't1', type: 'function', function: { name: 'search', arguments: '{"q":"x"}' } }],
+      },
+      { role: 'tool', tool_call_id: 't1', content: '结果' },
+    ] as never);
+    expect(system).toBeUndefined();
+    const assistant = messages[1] as { role: string; content: Array<Record<string, unknown>> };
+    expect(assistant.role).toBe('assistant');
+    expect(assistant.content[0]).toEqual({ type: 'thinking', thinking: '先调工具', signature: 'sig-abc' });
+    expect(assistant.content[1]).toMatchObject({ type: 'tool_use', id: 't1', name: 'search' });
+    // tool 结果照常映射
+    expect(messages[2]).toMatchObject({ role: 'user' });
+  });
+
+  it('无签名的历史不重建 thinking 块（DeepSeek/GLM 等其余协议零影响）', () => {
+    const { messages } = toAnthropicMessages([
+      { role: 'assistant', content: '正文', reasoning: '纯思考', tool_calls: [] },
+    ] as never);
+    // 无签名 → 不走重建分支：纯文本原样直传（string content，与旧行为一致）
+    expect(messages[0]).toEqual({ role: 'assistant', content: '正文' });
+  });
+});

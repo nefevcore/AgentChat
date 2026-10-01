@@ -23,6 +23,7 @@ import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 // LLM_PROVIDER_DEFAULTS——base 不可反向依赖 domain，domain→base 取用合法）
 import { deleteLlmPoolCredential, fetchPoolModels, probeLlmModels, probeLlmVision, poolModelEntries, type PoolModelMeta } from './poolApi.ts';
 import { LLM_PROVIDER_TEMPLATES } from 'ac-client-ui-settings/client/api.ts';
+import { fetchPoolReferences } from './poolApi.ts';
 
 const props = defineProps<{
   /** 池数据（直接读写） */
@@ -148,6 +149,7 @@ function onTemplateChange(templateId: string) {
   draft.value.defaultModel = tpl?.defaultModel ?? '';
   draft.value.api = ''; // 切换提供方重置接口格式（模板均为缺省 completions）
   draft.value.protocol = tpl?.protocol ?? ''; // 协议随模板（原生协议模板预填）
+  draft.value.authHeader = tpl?.authHeader ?? ''; // 鉴权头名随模板（Azure api-key；缺省 Bearer）
   const name = (draft.value.poolName || '').trim();
   if (!name && tpl) draft.value.poolName = tpl.id;
 }
@@ -346,6 +348,23 @@ async function saveEntry() {
   }
   // 守门：掩码清空/地址清空须确认（取消 = 中止保存，弹窗留在编辑态）
   if (!(await guardDestructiveSave(entry, editingName.value ? props.pools[editingName.value] : undefined))) return;
+  // 改名守门（cr-99 引用完整性）：旧名被 Agent 引用时提示——引用不会自动
+  // 迁移（name@model 字面量），改名后这些 Agent 将断路
+  if (editingName.value && editingName.value !== name) {
+    try {
+      const { agents: refs } = await fetchPoolReferences(editingName.value, defaultRpc);
+      if (refs.length > 0) {
+        const names = refs.slice(0, 8).map((a) => a.name || a.id).join('、');
+        const ok = await confirmRef.value?.ask({
+          title: `重命名 "${editingName.value}" → "${name}"？`,
+          message: `以下 ${refs.length} 个 Agent 以旧名引用此连接（name@model），改名后需逐个更新：\n${names}${refs.length > 8 ? ' …' : ''}`,
+          confirmLabel: '仍要改名',
+          danger: true,
+        });
+        if (!ok) return;
+      }
+    } catch { /* 扫描失败不阻塞改名（仅少一层提示） */ }
+  }
   const pool = { ...props.pools };
   if (editingName.value && editingName.value !== name) {
     // 改名：条目内容（models 等）随 draft 落到新名；旧名凭据由服务端
@@ -382,9 +401,18 @@ async function saveEntry() {
  *  把条目"复活"（刷新后又出现）。 */
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 async function removeEntry(name: string) {
+  // 引用扫描（cr-99）：把「引用方将断路」从泛泛提示变成具体清单
+  let refNote = '引用此 provider 的 Agent 将无法调用，需重新配置。';
+  try {
+    const { agents: refs } = await fetchPoolReferences(name, defaultRpc);
+    if (refs.length > 0) {
+      const names = refs.slice(0, 8).map((a) => a.name || a.id).join('、');
+      refNote = `以下 ${refs.length} 个 Agent 正在引用此连接，删除后将无法调用：\n${names}${refs.length > 8 ? ' …' : ''}\n需重新配置后可用。`;
+    }
+  } catch { /* 引用扫描失败不阻塞删除（回落泛泛提示） */ }
   const ok = await confirmRef.value?.ask({
     title: `删除连接 "${name}"？`,
-    message: '将同时删除其 API Key（凭据库）。\n引用此 provider 的 Agent 将无法调用，需重新配置。',
+    message: `将同时删除其 API Key（凭据库）。\n${refNote}`,
     confirmLabel: '删除连接',
     danger: true,
   });

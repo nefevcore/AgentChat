@@ -16,7 +16,8 @@
 //     functionCall 整段）+ usageMetadata + finishReason；
 //   · tool 结果回传 = user 消息 functionResponse part。
 // ============================================================
-import { sseDataEvents } from 'ac-openai-completions';
+import { LlmHttpError, parseRetryAfter } from 'ac-error-core';
+import { sseDataEvents, stripTransportKeys } from 'ac-openai-completions';
 
 export interface GeminiOptions {
   apiKey?: string;
@@ -223,6 +224,12 @@ export function createGeminiChunkMapper(): (json: unknown) => GeminiChunk | null
   };
 }
 
+/** HTTP 错误响应 → LlmHttpError（读 body 文案 + Retry-After 头；cr-98） */
+async function httpError(response: Response): Promise<LlmHttpError> {
+  const text = await response.text().catch(() => '');
+  return new LlmHttpError(response.status, `LLM HTTP ${response.status}: ${text.slice(0, 500)}`, parseRetryAfter(response.headers.get('retry-after')));
+}
+
 export class GeminiCompletions {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -247,8 +254,9 @@ export class GeminiCompletions {
     const model = params.model ?? this.defaultModel;
     if (!model) throw new Error('model 未指定（params.model 或构造参数 defaultModel）');
     const { signal, api_key, provider: _provider, headers: extraHeaders, ...restParams } = params;
+    const restStripped = stripTransportKeys(restParams as Record<string, unknown>);
     const authKey = api_key || this.apiKey;
-    const { messages, tools, ...rest } = restParams as Record<string, unknown>;
+    const { messages, tools, ...rest } = restStripped as Record<string, unknown>;
     const mapped = toGeminiContents(messages as GeminiMessage[]);
     const body: Record<string, unknown> = {
       ...mapped.contents.length ? { contents: mapped.contents } : {},
@@ -288,10 +296,7 @@ export class GeminiCompletions {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error('LLM HTTP ' + response.status + ': ' + text.slice(0, 500));
-      }
+      if (!response.ok) throw await httpError(response);
       if (!response.body) throw new Error('LLM 响应缺少 body');
       armProgressTimeout();
       const mapEvent = createGeminiChunkMapper();
@@ -323,10 +328,7 @@ export class GeminiCompletions {
       },
       ...(params.signal ? { signal: params.signal } : {}),
     });
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error('LLM HTTP ' + response.status + ': ' + text.slice(0, 500));
-    }
+    if (!response.ok) throw await httpError(response);
     const json = (await response.json()) as { models?: unknown };
     if (!Array.isArray(json.models)) throw new Error('LLM /v1beta/models 响应缺少 models 数组（非 Gemini 端点）');
     return json.models

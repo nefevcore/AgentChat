@@ -32,7 +32,7 @@ import {
   type SessionHeaderSpec,
 } from './session-affinity.ts';
 import type {} from 'ac-llm'; // ctx.llm 服务类型增强（type-only，无运行时依赖）
-import type { LlmProvider } from 'ac-llm'; // PROTOCOLS 工厂形状（type-only）
+import type { LlmProvider, LlmRegisterMeta as LlmRegisterMetaShape } from 'ac-llm'; // PROTOCOLS 工厂形状 + metaOf 返回类型（type-only）
 import type {} from 'ac-config'; // ctx.config 服务类型增强（type-only）
 
 export const name = 'ac-llm-pool';
@@ -96,6 +96,8 @@ export interface LlmPoolEntry {
    * （其余静默丢弃——normalizePoolHeaders 唯一解析点）。
    */
   headers?: Record<string, string>;
+  /** 鉴权头名（cr-98）：undefined = Bearer；api-key = Azure 形态（透传 openai 协议库） */
+  authHeader?: string;
   /**
    * 会话亲和头（2026-09-24 连通性复查）：部分托管网关要求每会话稳定的
    * session 头（如 opencode.ai 的 x-opencode-session，缺发即 400
@@ -120,6 +122,11 @@ export interface PoolModelEntry {
   vision?: true;
   hidden?: true;
   manual?: true;
+  /**
+   * 上下文窗口容量（cr-99 缺口②窄版）：手配声明（发现端点不暴露容量时；
+   * 正整数才收）。观测面消费（溢出预警/会话估算），不参与路由与门控。
+   */
+  contextWindow?: number;
 }
 
 /**
@@ -135,12 +142,13 @@ export function normalizePoolModels(raw: unknown): PoolModelEntry[] {
     let entry: PoolModelEntry | undefined;
     if (typeof m === 'string' && m) entry = { model: m };
     else if (m !== null && typeof m === 'object' && typeof (m as { model?: unknown }).model === 'string' && (m as { model: string }).model) {
-      const o = m as { model: string; vision?: unknown; hidden?: unknown; manual?: unknown };
+      const o = m as { model: string; vision?: unknown; hidden?: unknown; manual?: unknown; contextWindow?: unknown };
       entry = {
         model: o.model,
         ...(o.vision === true ? { vision: true } : {}),
         ...(o.hidden === true ? { hidden: true } : {}),
         ...(o.manual === true ? { manual: true } : {}),
+        ...(typeof o.contextWindow === 'number' && Number.isInteger(o.contextWindow) && o.contextWindow > 0 ? { contextWindow: o.contextWindow } : {}),
       };
     }
     if (entry === undefined || seen.has(entry.model)) continue;
@@ -170,8 +178,8 @@ interface Desired {
   baseUrl: string;
   defaultModel: string | undefined;
   models: string[];
-  /** 能力元数据（探测/手配的 vision + UI hidden）：签名与 stats 消费 */
-  modelMeta: Record<string, { vision?: true; hidden?: true }>;
+  /** 能力元数据（探测/手配的 vision + UI hidden + 手配容量 contextWindow）：签名与 stats 消费 */
+  modelMeta: Record<string, { vision?: true; hidden?: true; contextWindow?: number }>;
   visionModels: string[];
   /** 无进展超时毫秒（正有限数才透传；缺省回落协议层 180s） */
   timeoutMs?: number;
@@ -179,6 +187,8 @@ interface Desired {
   api: 'completions' | 'responses';
   /** 自定义请求头（string 值项过滤后透传；空对象按未配置） */
   headers?: Record<string, string>;
+  /** 鉴权头名（cr-98）：undefined = Bearer；api-key = Azure 形态（透传 openai 协议库） */
+  authHeader?: string;
   /** 会话亲和头名（resolveSessionHeader 解析产物；undefined = 不注入） */
   sessionHeader?: string;
 }
@@ -243,14 +253,17 @@ export function desiredProviders(
       continue;
     }
     const modelEntries = normalizePoolModels(entry.models);
-    const modelMeta: Record<string, { vision?: true; hidden?: true }> = {};
+    const modelMeta: Record<string, { vision?: true; hidden?: true; contextWindow?: number }> = {};
     for (const e of modelEntries) {
-      if (e.vision === true || e.hidden === true) modelMeta[e.model] = { ...(e.vision ? { vision: true } : {}), ...(e.hidden ? { hidden: true } : {}) };
+      if (e.vision === true || e.hidden === true || e.contextWindow !== undefined) {
+        modelMeta[e.model] = { ...(e.vision ? { vision: true } : {}), ...(e.hidden ? { hidden: true } : {}), ...(e.contextWindow !== undefined ? { contextWindow: e.contextWindow } : {}) };
+      }
     }
     const timeoutRaw = entry.timeout_ms;
     const timeoutMs =
       typeof timeoutRaw === 'number' && Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : undefined;
     const headers = normalizePoolHeaders(entry.headers);
+    const authHeader = typeof entry.authHeader === 'string' && entry.authHeader ? entry.authHeader : undefined;
     const sessionHeader = resolveSessionHeader(entry.base_url, entry.sessionHeader);
     desired.set(name, {
       protocol,
@@ -270,6 +283,7 @@ export function desiredProviders(
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       api: entry.api === 'responses' ? 'responses' : 'completions',
       ...(headers !== undefined ? { headers } : {}),
+      ...(authHeader !== undefined ? { authHeader } : {}),
     });
   }
   return desired;
@@ -279,7 +293,24 @@ export function desiredProviders(
  *  modelMeta 随附，探测标志/隐藏位变更即热更重挂；timeout_ms/headers/
  *  api 同批进签名（D3/D4）——连接参数与接口格式变更即重挂） */
 function signatureOf(d: Desired): string {
-  return JSON.stringify([d.protocol, d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.api, d.sessionHeader ?? null]);
+  return JSON.stringify([d.protocol, d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.authHeader ?? null, d.api, d.sessionHeader ?? null]);
+}
+
+/**
+ * 意图签名（cr-99 观测/意图分离）：剔除纯展示性观测字段——modelMeta 的
+ * hidden 位（前端下拉过滤，UI 呈现语义）。hidden 切换是最高频的观测性回写，
+ * 经 replaceMeta 原位更新即可。models 清单与 vision/手工位保留在意图签名：
+ * 清单与门控（visionModels 并集在实例上）变化必须重挂才生效——宁可多挂，
+ * 不可门控过期（探测刷新语义不回退）。
+ */
+function intentSignatureOf(d: Desired): string {
+  const meta: Record<string, { vision?: true }> = {};
+  for (const [model, m] of Object.entries(d.modelMeta)) {
+    // hidden 位剔除（纯 UI 呈现语义——replaceMeta 通道）；vision 位保留（门控）
+    if (m.vision === true) meta[model] = { vision: true };
+  }
+  const intent = { ...d, modelMeta: meta };
+  return JSON.stringify(intent);
 }
 
 /**
@@ -402,6 +433,8 @@ export function apply(ctx: Context) {
   const llm = ctx.llm;
   const disposers = new Map<string, () => unknown>();
   const signatures = new Map<string, string>();
+  /** 全量签名（含观测字段）——意图不变时检测观测变化的对照（cr-99） */
+  const observed = new Map<string, string>();
 
   // 凭据注入（llm/before-chat → pool:<provider> apiKey）：随本行生命周期
   // 订阅/回收；credentials 行未装载 = 不注入（可选能力）
@@ -412,9 +445,26 @@ export function apply(ctx: Context) {
   const sessionHeaders = new Map<string, string>();
   registerSessionAffinityInjection(ctx, (provider) => sessionHeaders.get(provider));
 
+  /**
+   * 注册元数据构建（registerOne 与 replaceMeta 共用；cr-99）：视觉门控
+   * 并集在此算——探测标志刷新经 replaceMeta 即时更新 visionOf 查询面。
+   */
+  const metaOf = (d: Desired): LlmRegisterMetaShape => {
+    const effectiveVision = [...d.visionModels, ...Object.entries(d.modelMeta).filter(([, m]) => m.vision).map(([model]) => model)];
+    return {
+      models: d.models,
+      baseUrl: d.baseUrl,
+      description: `${PROTOCOLS[d.protocol].label}连接 ${d.baseUrl}`,
+      protocol: d.protocol,
+      ...(Object.keys(d.modelMeta).length > 0 ? { modelMeta: d.modelMeta } : {}),
+      ...(effectiveVision.length > 0 ? { visionModels: effectiveVision } : {}),
+    };
+  };
+
   const registerOne = (name: string, d: Desired): (() => unknown) => {
     // 视觉门控统一：显式 visionModels（前缀/通配）∪ 探测标志的
-    // models[].vision ——适配层零改动，两来源同一语义
+    // models[].vision ——适配层零改动，两来源同一语义（metaOf 同款并集，
+    // 工厂实例的 visionModels 用同一来源构造）
     const effectiveVision = [...d.visionModels, ...Object.entries(d.modelMeta).filter(([, m]) => m.vision).map(([model]) => model)];
     const protocolDef = PROTOCOLS[d.protocol];
     const disposer = llm.register(
@@ -427,6 +477,7 @@ export function apply(ctx: Context) {
             // D3 连接参数透传：无进展超时 + 自定义网关头（缺省回落协议层默认）
             ...(d.timeoutMs !== undefined ? { timeoutMs: d.timeoutMs } : {}),
             ...(d.headers !== undefined ? { headers: d.headers } : {}),
+            ...(d.authHeader !== undefined ? { authHeader: d.authHeader } : {}),
             // D4 接口格式：'responses' = POST /responses（请求体/事件流在
             // 协议库内转换，域契约不变）
             api: d.api,
@@ -448,17 +499,7 @@ export function apply(ctx: Context) {
           ...(d.headers !== undefined ? { headers: d.headers } : {}),
         });
       },
-      {
-        models: d.models,
-        baseUrl: d.baseUrl, // 连接锚点：诊断 + llm/models 发现 RPC
-        description: `${protocolDef.label}连接 ${d.baseUrl}`,
-        protocol: d.protocol,
-        // 能力元数据透出（llm/providers stats → 前端徽章/过滤）
-        ...(Object.keys(d.modelMeta).length > 0 ? { modelMeta: d.modelMeta } : {}),
-        // 视觉门控有效并集（显式 visionModels ∪ models[].vision）：
-        // 适配层物化与 ctx.llm.visionOf 查询口（系统提示词注入）同源
-        ...(effectiveVision.length > 0 ? { visionModels: effectiveVision } : {}),
-      },
+      metaOf(d),
     );
     return () => void disposer();
   };
@@ -487,13 +528,27 @@ export function apply(ctx: Context) {
     for (const line of unknownProtocols) {
       ctx.logger.error('[llm-pool] %C——未注册（热更跳过）', line);
     }
-    // 撤：消失或内容变更（disposer 手动调用幂等；工厂/实例同步摘除）
+    // 撤：消失或意图变更（观测变更走 replaceMeta 不进此段）。signatures 存
+    // 意图签名（intentSignatureOf）——发现缓存刷新/探测标志更新不再触发
+    // 撤挂，在途流不因观测性回写被 close 中止（cr-99 观测/意图分离）。
     for (const [name, sig] of signatures) {
       const next = desired.get(name);
-      if (next && signatureOf(next) === sig) continue;
+      if (next && intentSignatureOf(next) === sig) {
+        // 意图不变：观测字段（models/modelMeta）变化 → 原位 replaceMeta
+        if (signatureOf(next) !== observed.get(name)) {
+          try {
+            llm.replaceMeta(name, metaOf(next));
+            observed.set(name, signatureOf(next));
+          } catch (metaErr) {
+            ctx.logger.error('[llm-pool] 更新 provider "%C" 元数据失败: %C', name, metaErr instanceof Error ? metaErr.message : String(metaErr));
+          }
+        }
+        continue;
+      }
       disposers.get(name)?.();
       disposers.delete(name);
       signatures.delete(name);
+      observed.delete(name);
       sessionHeaders.delete(name);
     }
     // 挂：新增或重挂
@@ -501,7 +556,8 @@ export function apply(ctx: Context) {
       if (signatures.has(name)) continue;
       try {
         disposers.set(name, registerOne(name, d));
-        signatures.set(name, signatureOf(d));
+        signatures.set(name, intentSignatureOf(d));
+        observed.set(name, signatureOf(d));
         if (d.sessionHeader) sessionHeaders.set(name, d.sessionHeader);
       } catch (err) {
         if (boot) throw err; // boot 期 fail-loud（fiber FAILED 可诊断）

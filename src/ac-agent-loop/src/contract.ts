@@ -149,6 +149,12 @@ export interface LoopStepRecord {
    * run 级经 LoopRunUsage.elapsedMs 累加，速率 = total 累加 token / 累加耗时。
    */
   elapsedMs?: number;
+  /**
+   * 思考块签名（cr-98 Anthropic 回放）：Anthropic 扩展思考 + 工具调用
+   * 要求下一请求回传上一 turn 的 thinking 块（含签名）否则 400。落盘
+   * 透传——assistant 历史装配时随 reasoning 回填（assistantOf）。
+   */
+  thinkingSignature?: string;
   usage?: LlmUsage;
   finish?: string;
   /**

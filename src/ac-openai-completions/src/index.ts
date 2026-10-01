@@ -19,6 +19,12 @@ export interface CompletionsOptions {
   defaultModel?: string;
   headers?: Record<string, string>;
   /**
+   * 鉴权头名（cr-98 云部署型）：缺省 undefined = 标准 Authorization Bearer；
+   * 'api-key' = Azure resource key 形态（裸 key 值，无 Bearer 前缀）。key 值
+   * 仍经凭据注入（api_key 参数）——本字段只指定头名。
+   */
+  authHeader?: string;
+  /**
    * 无进展超时毫秒（缺省 180000；≤0 禁用）。建连、响应头、每条 SSE
    * data 事件都会刷新计时器——活跃长生成不限总时长（旧版一刀切总时长
    * 会错杀慢模型长输出）；但代理滴流 keep-alive 字节/SSE 注释行不算
@@ -156,10 +162,18 @@ export interface CompletionsRequest {
   [key: string]: unknown;
 }
 
+import { LlmHttpError, parseRetryAfter } from 'ac-error-core';
+
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TIMEOUT_MS = 180_000;
 /** 单条消息附件上限（与 web-api deliver 入口校验对齐；超出部分降级为溢出行） */
 const MAX_ATTACHMENTS_PER_MESSAGE = 50;
+/**
+ * 单次请求物化媒体字节上限（cr-98，对齐 pi-ai maxRequestImageBytes 默认）：
+ * 历史图片每轮重编码进请求体，不封顶将撞网关请求体上限（413）后
+ * 会话永久无法完成任何请求。超限附件降级为溢出行提示（不炸请求）。
+ */
+const MAX_MATERIALIZED_MEDIA_BYTES = 20 * 1024 * 1024;
 /**
  * 视觉能力探测图（1×1 PNG data URL）：与真图同一物化路径（base64
  * image_url 块）——探测结论即"本管线能否给它发图"。注：GLM-4V-Flash
@@ -185,6 +199,7 @@ export class OpenAICompletions {
   private readonly baseUrl: string;
   readonly defaultModel?: string;
   private readonly headers: Record<string, string>;
+  private readonly authHeader: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   private readonly visionModels: string[] | undefined;
@@ -198,6 +213,7 @@ export class OpenAICompletions {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.defaultModel = options.defaultModel;
     this.headers = options.headers ?? {};
+    this.authHeader = typeof options.authHeader === 'string' && options.authHeader ? options.authHeader : undefined;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.visionModels = options.visionModels;
@@ -249,7 +265,7 @@ export class OpenAICompletions {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
+          ...authHeaders(authKey, this.authHeader),
           ...this.headers,
           ...extraHeaders,
         },
@@ -259,11 +275,11 @@ export class OpenAICompletions {
     try {
       armProgressTimeout();
       const body: Record<string, unknown> = useResponses
-        ? buildResponsesBody(bodyParams, messages, model)
+        ? buildResponsesBody(stripTransportKeys(bodyParams), messages, model)
         : {
             stream: true,
             stream_options: { include_usage: true },
-            ...bodyParams,
+            ...stripTransportKeys(bodyParams),
             messages,
             model,
           };
@@ -283,18 +299,12 @@ export class OpenAICompletions {
         if (isMaxTokensRenameHint(errText)) {
           const { max_tokens, ...rest } = body;
           response = await doFetch({ ...rest, max_completion_tokens: max_tokens });
-          if (!response.ok) {
-            const retryText = await response.text().catch(() => '');
-            throw new Error(`LLM HTTP ${response.status}: ${retryText.slice(0, 500)}`);
-          }
+          if (!response.ok) throw await httpError(response);
         } else {
           throw new Error(`LLM HTTP ${response.status}: ${errText.slice(0, 500)}`);
         }
       }
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error(`LLM HTTP ${response.status}: ${text.slice(0, 500)}`);
-      }
+      if (!response.ok) throw await httpError(response);
       if (!response.body) throw new Error('LLM 响应缺少 body');
       armProgressTimeout(); // 响应头到达 = 进展（刷新至流静默窗口）
       const mapEvent = useResponses ? createResponsesChunkMapper() : null;
@@ -353,12 +363,24 @@ export class OpenAICompletions {
         out.push(rest); // 剥离路径：content 原样（[附件] 路径文本行兜底）
         continue;
       }
-      const overflow = atts.length > MAX_ATTACHMENTS_PER_MESSAGE ? atts.length - MAX_ATTACHMENTS_PER_MESSAGE : 0;
+      let overflow = atts.length > MAX_ATTACHMENTS_PER_MESSAGE ? atts.length - MAX_ATTACHMENTS_PER_MESSAGE : 0;
       const blocks: CompletionsContentPart[] = [];
       if (typeof rest.content === 'string' && rest.content !== '') {
         blocks.push({ type: 'text', text: rest.content });
       }
+      let mediaBytes = 0;
+      const kept: CompletionsAttachment[] = [];
       for (const a of atts.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)) {
+        const url = /^https?:\/\//i.test(a.ref) ? a.ref : await this.resolveMediaRef(a.ref, signal);
+        const size = url !== undefined ? url.length : 0; // data: URL ≈ base64 后字节
+        if (mediaBytes + size > MAX_MATERIALIZED_MEDIA_BYTES) {
+          overflow += 1;
+          continue;
+        }
+        mediaBytes += size;
+        kept.push(a);
+      }
+      for (const a of kept) {
         blocks.push(await this.materializeAttachment(a, signal));
       }
       if (overflow > 0) {
@@ -423,16 +445,13 @@ export class OpenAICompletions {
     const authKey = params.api_key || this.apiKey;
     const response = await this.fetchImpl(`${this.baseUrl}/models`, {
       headers: {
-        ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
+        ...authHeaders(authKey, this.authHeader),
         ...this.headers,
         ...params.headers,
       },
       ...(params.signal ? { signal: params.signal } : {}),
     });
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`LLM HTTP ${response.status}: ${text.slice(0, 500)}`);
-    }
+    if (!response.ok) throw await httpError(response);
     const json = (await response.json()) as { data?: unknown };
     if (!Array.isArray(json.data)) throw new Error('LLM /models 响应缺少 data 数组（非 OpenAI 兼容端点）');
     return json.data
@@ -600,6 +619,37 @@ function extractData(event: string): string | undefined {
  * 'max_completion_tokens' instead"）——双词保守匹配，误触发面≈0；
  * DeepSeek/GLM 等宽容端点不会回这条错，天然零影响。
  */
+/**
+ * 鉴权头拼装（cr-98）：缺省 Bearer；authHeader 指定时改发裸 key 头
+ * （Azure api-key 形态）。key 缺失 = 无鉴权头（匿名端点/由 headers 提供）。
+ */
+/** HTTP 错误响应 → LlmHttpError（读 body 文案 + Retry-After 头；cr-98） */
+/**
+ * 传输层键清单（单源，cr-99 脆弱点 B）：随请求参数流经全链但绝不进 body。
+ * 四协议库共此单源（anthropic/gemini/ollama 依赖本库或复制语义——集中收口
+ * 防新增传输键漏剥导致的静默 400）。
+ */
+export const TRANSPORT_KEYS: ReadonlySet<string> = new Set(['api_key', 'provider', 'headers', 'meta', 'signal']);
+
+/** 传输层键兜底剥离（序列化边界保险层；显式解构之外的二道防线） */
+export function stripTransportKeys<T extends Record<string, unknown>>(params: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (!TRANSPORT_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
+
+async function httpError(response: Response): Promise<LlmHttpError> {
+  const text = await response.text().catch(() => '');
+  return new LlmHttpError(response.status, `LLM HTTP ${response.status}: ${text.slice(0, 500)}`, parseRetryAfter(response.headers.get('retry-after')));
+}
+
+function authHeaders(key: string | undefined, header: string | undefined): Record<string, string> {
+  if (!key) return {};
+  return header !== undefined ? { [header]: key } : { authorization: `Bearer ${key}` };
+}
+
 function isMaxTokensRenameHint(errorText: string): boolean {
   return /max_tokens/i.test(errorText) && /max_completion_tokens/i.test(errorText);
 }

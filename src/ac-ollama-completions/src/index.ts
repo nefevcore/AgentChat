@@ -78,6 +78,9 @@ export interface OllamaRequest {
   [key: string]: unknown;
 }
 
+import { LlmHttpError, parseRetryAfter } from 'ac-error-core';
+import { stripTransportKeys } from 'ac-openai-completions';
+
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 const DEFAULT_TIMEOUT_MS = 180_000;
 
@@ -199,6 +202,12 @@ export function createOllamaChunkMapper(): (json: unknown) => OllamaChunk | null
   };
 }
 
+/** HTTP 错误响应 → LlmHttpError（读 body 文案 + Retry-After 头；cr-98） */
+async function httpError(response: Response): Promise<LlmHttpError> {
+  const text = await response.text().catch(() => '');
+  return new LlmHttpError(response.status, `LLM HTTP ${response.status}: ${text.slice(0, 500)}`, parseRetryAfter(response.headers.get('retry-after')));
+}
+
 export class OllamaCompletions {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -223,6 +232,7 @@ export class OllamaCompletions {
     const model = params.model ?? this.defaultModel;
     if (!model) throw new Error('model 未指定（params.model 或构造参数 defaultModel）');
     const { signal, api_key, provider: _provider, headers: extraHeaders, ...restParams } = params;
+    const restStripped = stripTransportKeys(restParams as Record<string, unknown>);
     const authKey = api_key || this.apiKey;
     const { messages, tools, ...rest } = restParams as Record<string, unknown>;
     const body: Record<string, unknown> = {
@@ -263,10 +273,7 @@ export class OllamaCompletions {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error('LLM HTTP ' + response.status + ': ' + text.slice(0, 500));
-      }
+      if (!response.ok) throw await httpError(response);
       if (!response.body) throw new Error('LLM 响应缺少 body');
       armProgressTimeout();
       const mapEvent = createOllamaChunkMapper();
@@ -295,10 +302,7 @@ export class OllamaCompletions {
       },
       ...(params.signal ? { signal: params.signal } : {}),
     });
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error('LLM HTTP ' + response.status + ': ' + text.slice(0, 500));
-    }
+    if (!response.ok) throw await httpError(response);
     const json = (await response.json()) as { models?: unknown };
     if (!Array.isArray(json.models)) throw new Error('LLM /api/tags 响应缺少 models 数组（非 Ollama 端点）');
     return json.models

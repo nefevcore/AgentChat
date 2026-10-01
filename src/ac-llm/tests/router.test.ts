@@ -3,6 +3,10 @@ import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmProvider, LlmStreamChunk } from 'ac-llm';
 import * as llmRow from '../src/index';
 import { LlmError, LlmService } from '../src/service';
+import { LlmHttpError } from 'ac-error-core';
+
+// ---- cr-99：裸模型名路由确定性（同名多命中字典序消歧，与注册序无关）----
+
 
 // ---- 脚手架：脚本化 mock provider 薄行 ----
 
@@ -285,6 +289,69 @@ describe('ac-llm 流式细分事件（llm/delta-*）', () => {
   });
 });
 
+describe('provider 健康面（cr-99：chat-error → lastError 健康态 → stats）', () => {
+  it('AUTH 失败记录 lastError（kind 分类 + stats 透出）；成功路径无记录', async () => {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const router = ctx.plugin(LlmService, { transientRetry: { retries: 0 } });
+    await router; fibers.push(router);
+    const row = {
+      name: 'mock-health',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register('h', () => ({
+          stream: async function* (): AsyncIterable<LlmStreamChunk> {
+            throw new LlmHttpError(401, 'LLM HTTP 401: bad key');
+          },
+        }), { models: ['h-1'] });
+      },
+    };
+    const f = ctx.plugin(row as any);
+    await f; fibers.push(f);
+    booted.push({ ctx, fibers });
+    await expect(ctx.llm.chat({ model: 'h-1', messages: USER })).rejects.toThrow('LLM HTTP 401');
+    const stat = ctx.llm.stats().find((s) => s.name === 'h');
+    expect(stat?.lastError?.kind).toBe('AUTH');
+    expect(stat?.lastError?.at).toBeGreaterThan(0);
+  });
+});
+
+describe('裸模型名路由确定性（cr-99）', () => {
+  /** 两连接同名模型：zeta 先注册，alpha 后注册——字典序 alpha 胜 */
+  async function bootAmbiguous() {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const mk = (name: string, models: string[]) => ({
+      name: `mock-${name}`,
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register(name, () => ({
+          stream: async function* (): AsyncIterable<LlmStreamChunk> {
+            yield { delta: name, finish: 'stop' };
+          },
+        }), { models });
+      },
+    });
+    const r1 = ctx.plugin(LlmService);
+    await r1; fibers.push(r1);
+    for (const f of [mk('zeta', ['shared-1']), mk('alpha', ['shared-1'])]) {
+      const fiber = ctx.plugin(f as any);
+      await fiber; fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return ctx;
+  }
+
+  it('同名 model 多连接命中：字典序最小者胜（与注册序无关），显式 provider 仍直达', async () => {
+    const ctx = await bootAmbiguous();
+    // zeta 先注册——若按注册序应答 zeta，字典序应答 alpha
+    const r1 = await ctx.llm.chat({ model: 'shared-1', messages: USER });
+    expect(r1.text).toBe('alpha');
+    const r2 = await ctx.llm.chat({ model: 'shared-1', messages: USER, provider: 'zeta' });
+    expect(r2.text).toBe('zeta');
+  });
+});
+
 describe('ac-llm 瞬时网络错误重试（2026-09-05 nana 事故）', () => {
   /** undici 网络层失败的标准形状（nana 会话里那条裸 "fetch failed" 的真身） */
   function undiciError(code = 'ECONNRESET'): TypeError {
@@ -378,6 +445,26 @@ describe('ac-llm 瞬时网络错误重试（2026-09-05 nana 事故）', () => {
     const { ctx } = await bootFast([flakyRow(1, calls, () => new Error('LLM HTTP 429: quota'))]);
     await expect(ctx.llm.chat({ model: 'f-1', messages: USER })).rejects.toThrow('LLM HTTP 429');
     expect(calls.attempts).toBe(1);
+  });
+
+  // ── cr-98：HTTP 429/5xx 结构化可重试（LlmHttpError）──
+  it('429 LlmHttpError 首块前可重试：退避后成功', async () => {
+    const calls = { attempts: 0 };
+    const { ctx } = await bootFast([flakyRow(2, calls, () => new LlmHttpError(429, 'LLM HTTP 429: slow down', 1))]);
+    const result = await ctx.llm.chat({ model: 'f-1', messages: USER });
+    expect(result.text).toBe('ok');
+    expect(calls.attempts).toBe(3);
+  });
+
+  it('5xx LlmHttpError 可重试；AUTH（401）不重试一次即败', async () => {
+    const fiveH = { attempts: 0 };
+    { const { ctx } = await bootFast([flakyRow(1, fiveH, () => new LlmHttpError(503, 'LLM HTTP 503: upstream'))]);
+      await ctx.llm.chat({ model: 'f-1', messages: USER });
+      expect(fiveH.attempts).toBe(2); }
+    const auth = { attempts: 0 };
+    { const { ctx } = await bootFast([flakyRow(1, auth, () => new LlmHttpError(401, 'LLM HTTP 401: bad key'))]);
+      await expect(ctx.llm.chat({ model: 'f-1', messages: USER })).rejects.toThrow('LLM HTTP 401');
+      expect(auth.attempts).toBe(1); }
   });
 
   it('退避等待中被调用方中止：不再重试，中止原因上抛', async () => {

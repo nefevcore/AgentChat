@@ -170,6 +170,12 @@ export interface LlmStreamChunk {
   delta: string;
   /** 推理增量（deepseek reasoning_content / glm thinking） */
   reasoning?: string;
+  /**
+   * 思考块签名（cr-98 Anthropic 回放）：content_block_stop 携带——
+   * Anthropic 扩展思考 + 工具调用要求下一请求回传上一 turn 的 thinking
+   * 块（含签名）否则 400。透传键——消费方（loop）随 assistant 历史回填。
+   */
+  thinkingSignature?: string;
   /** 工具调用分片（本 chunk 携带的增量） */
   toolCalls?: LlmToolCallDelta[];
   finish?: string;
@@ -205,6 +211,8 @@ export interface LlmChatResult {
   elapsedMs?: number;
   finish?: string;
   usage?: LlmUsage;
+  /** 思考块签名（cr-98 Anthropic 回放；见 LlmStreamChunk 同名字段） */
+  thinkingSignature?: string;
 }
 
 /** provider 实例契约：由适配器薄行经工厂注册，路由器懒实例化 */

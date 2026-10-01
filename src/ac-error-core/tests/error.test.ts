@@ -1,8 +1,17 @@
 // ============================================================
 // ac-error-core/tests/error.test.ts —— describeError / isTransientNetworkError
+// / LlmHttpError 分类（cr-98）
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { describeError, isTransientNetworkError } from '../src/index';
+import {
+  describeError,
+  isTransientNetworkError,
+  LlmHttpError,
+  classifyLlmHttpStatus,
+  parseRetryAfter,
+  isRetryableLlmHttpError,
+  llmRetryWaitMs,
+} from '../src/index';
 
 /** undici 网络层失败的标准形状：TypeError "fetch failed" + cause 真实原因 */
 function undiciError(code = 'ECONNRESET', message = `connect ${code} 1.2.3.4:443`): TypeError {
@@ -77,5 +86,49 @@ describe('isTransientNetworkError（瞬时网络故障判定）', () => {
     const b = new Error('b', { cause: a });
     a.cause = b;
     expect(() => isTransientNetworkError(a as Error)).not.toThrow();
+  });
+});
+
+describe('LlmHttpError 分类（cr-98）', () => {
+  it('状态码 → 分类映射（401/403=AUTH，429=RATE_LIMIT，402/文案=QUOTA，5xx=SERVER，其余=INVALID）', () => {
+    expect(classifyLlmHttpStatus(401, '')).toBe('AUTH');
+    expect(classifyLlmHttpStatus(403, '')).toBe('AUTH');
+    expect(classifyLlmHttpStatus(429, '')).toBe('RATE_LIMIT');
+    expect(classifyLlmHttpStatus(402, '')).toBe('QUOTA');
+    expect(classifyLlmHttpStatus(400, 'insufficient_balance')).toBe('QUOTA');
+    expect(classifyLlmHttpStatus(500, '')).toBe('SERVER');
+    expect(classifyLlmHttpStatus(503, '')).toBe('SERVER');
+    expect(classifyLlmHttpStatus(400, 'bad request')).toBe('INVALID');
+    expect(classifyLlmHttpStatus(404, '')).toBe('INVALID');
+  });
+
+  it('构造器携带分类与 Retry-After；isRetryable 只认 RATE_LIMIT/SERVER', () => {
+    const rateLimit = new LlmHttpError(429, 'LLM HTTP 429: slow down', 2000);
+    expect(rateLimit.kind).toBe('RATE_LIMIT');
+    expect(rateLimit.retryAfterMs).toBe(2000);
+    expect(isRetryableLlmHttpError(rateLimit)).toBe(true);
+    expect(isRetryableLlmHttpError(new LlmHttpError(503, 'oops'))).toBe(true);
+    expect(isRetryableLlmHttpError(new LlmHttpError(401, 'bad key'))).toBe(false);
+    expect(isRetryableLlmHttpError(new LlmHttpError(402, 'quota'))).toBe(false);
+    expect(isRetryableLlmHttpError(new Error('plain'))).toBe(false);
+  });
+
+  it('parseRetryAfter：秒数与 HTTP 日期；上限 5 分钟；垃圾值 undefined', () => {
+    expect(parseRetryAfter('2')).toBe(2000);
+    expect(parseRetryAfter(' 3 ')).toBe(3000);
+    expect(parseRetryAfter(null)).toBeUndefined();
+    expect(parseRetryAfter('')).toBeUndefined();
+    expect(parseRetryAfter('soon')).toBeUndefined();
+    // HTTP 日期形态：未来时间 → 正数毫秒（上限封顶）
+    const future = new Date(Date.now() + 3600_000).toUTCString();
+    expect(parseRetryAfter(future)).toBe(300_000);
+    // 过大的秒数封顶 5 分钟
+    expect(parseRetryAfter('99999')).toBe(300_000);
+  });
+
+  it('llmRetryWaitMs：Retry-After 优先，缺省回落 fallback', () => {
+    expect(llmRetryWaitMs(new LlmHttpError(429, 'x', 7000), 500)).toBe(7000);
+    expect(llmRetryWaitMs(new LlmHttpError(429, 'x'), 500)).toBe(500);
+    expect(llmRetryWaitMs(new Error('net'), 1500)).toBe(1500);
   });
 });
