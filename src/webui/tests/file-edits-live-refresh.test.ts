@@ -92,7 +92,7 @@ describe('文件编辑面板直播刷新链', () => {
     app.unmount();
   });
 
-  it('交互：卡片可全部收起（不被强制弹回）+ 头部关闭按钮收起面板', async () => {
+  it('交互：文件下拉切换选中 + 流式刷新不抢走选中 + 头部关闭按钮收起面板', async () => {
     const rpc = makeRpcStub();
     rpc.impl.call = async <T,>(method: string): Promise<T> => {
       if (method === 'fileSnapshots/list') return { snapshots: [] } as unknown as T;
@@ -108,15 +108,15 @@ describe('文件编辑面板直播刷新链', () => {
     await new Promise((r) => setTimeout(r, 600));
     const found = panelInstance();
     expect(found).toBeTruthy();
-    // 初始默认：首卡展开
-    expect(found.setupState.expanded.size).toBe(1);
-    // 用户收起全部卡片
-    found.setupState.toggle([...found.setupState.expanded][0]);
-    expect(found.setupState.expanded.size).toBe(0);
-    // 流式刷新周期后（files 重算触发 watch）不再被强制弹回
+    // 初始默认：选中首文件
+    expect(found.setupState.selected).toBe('src/a.ts');
+    // 流式刷新周期后（files 重算触发 watch）新文件落卡不抢走选中
     emitEditRun(rpc, 'news~user', 'news', 'src/b.ts', 'run-1#2');
     await new Promise((r) => setTimeout(r, 600));
-    expect(found.setupState.expanded.size).toBe(0); // 收起态保持
+    expect(found.setupState.selected).toBe('src/a.ts'); // 选中态保持
+    // 文件下拉切换选中
+    found.setupState.selectFile('src/b.ts');
+    expect(found.setupState.selected).toBe('src/b.ts');
     // 头部关闭按钮：点击 → aux 区域收起
     const ui = (await import('ac-client-ui-layout/client/uiStore.ts')).useUiStore();
     ui.auxVisible = true;

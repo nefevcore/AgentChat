@@ -12,9 +12,11 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
@@ -49,13 +51,23 @@ private class ProxyFakeUpstream(private val fail: Boolean = false) : Upstream {
             com.google.gson.JsonObject()
         } else {
             val p = data.getAsJsonObject("params")
-            val echoed = "{\"upstreamMethod\":\"" + data.get("method").asString +
-                "\",\"path\":\"" + p.get("path").asString +
-                "\",\"body\":\"" + (p.get("bodyB64")?.let { String(unb64u(it.asString)) } ?: "") + "\"}"
+            // Gson 构造（cr-82）：手拼 JSON 在含引号值（如 ifNoneMatch 的 ETag
+            // 带引号字面量）上必错转义——结构化构造后序列化。
+            val echoed = com.google.gson.JsonObject().apply {
+                addProperty("upstreamMethod", data.get("method").asString)
+                addProperty("path", p.get("path").asString)
+                addProperty("body", p.get("bodyB64")?.let { String(unb64u(it.asString)) } ?: "")
+                p.get("ifNoneMatch")?.asString?.let { addProperty("ifNoneMatch", it) }
+            }.toString()
             com.google.gson.JsonObject().apply {
                 addProperty("status", 200)
                 addProperty("contentType", "application/json")
                 addProperty("bodyB64", b64u(echoed.toByteArray()))
+                // cr-82：核心端 proxyToSelf 的缓存头白名单帧（etag/cache-control）
+                add("cacheHeaders", com.google.gson.JsonObject().apply {
+                    addProperty("etag", "\"av-1-2\"")
+                    addProperty("cache-control", "no-cache")
+                })
             }
         }
         val res = com.google.gson.JsonObject().apply {
@@ -199,6 +211,17 @@ class LoopbackBridgeTest {
             val got = client.get("http://127.0.0.1:$port/api/workspaces").bodyAsText()
             assertContains(got, "\"upstreamMethod\":\"http/read\"")
             assertContains(got, "\"path\":\"/api/workspaces\"")
+
+            // cr-82：缓存头白名单帧下行进响应头（WebView 原生 HTTP 缓存前提）
+            assertEquals("\"av-1-2\"", client.get("http://127.0.0.1:$port/api/workspaces")
+                .headers[HttpHeaders.ETag])
+            assertEquals("no-cache", client.get("http://127.0.0.1:$port/api/workspaces")
+                .headers[HttpHeaders.CacheControl])
+            // cr-82：WebView 重协商条件请求 If-None-Match 原样上行
+            val cond = client.get("http://127.0.0.1:$port/api/workspaces") {
+                header(HttpHeaders.IfNoneMatch, "\"av-1-2\"")
+            }.bodyAsText()
+            assertContains(cond, "\"ifNoneMatch\":\"\\\"av-1-2\\\"\"")
 
             // **多段路径**（真机 webui 实际请求形态）：/api/ui/boot-graph、
             // /api/workspace/tree/xxx —— tailcard 必须匹配任意段数

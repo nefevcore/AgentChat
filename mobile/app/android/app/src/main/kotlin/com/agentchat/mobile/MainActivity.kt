@@ -72,6 +72,11 @@ class MainActivity : BridgeActivity() {
         if (store.paired && store.deviceId != null) {
             // 「锁」行第一步：生物识别解锁**才**连 relay（顺序即语义——没解锁就没链路）
             gateAndLoad()
+            // 已配对态扫了新配对码（冷启深链）：同样要开配对——否则深链被无视，
+            // 用户扫完毫无反应（cr-83）。SAS 显示由 pairWith 内的面板保证接管。
+            if (deepLink != null && deepLink.startsWith("agentchat://pair")) {
+                lifecycleScope.launch { pairWith(deepLink) }
+            }
         } else {
             // 未配对：**总是**建面板（深链路径也要能看到进度与 SAS——否则用户
             // 扫码后毫无反馈）。有深链则预填并自动开配。
@@ -196,7 +201,8 @@ class MainActivity : BridgeActivity() {
                     }
                     LinkPhase.AWAIT_CONFIRM -> {
                         setStatusIfPanel("请在核心端确认短码")
-                        showConnectOverlay("请在电脑端核对短码", showUnpair = false)
+                        // SAS 画进覆盖层（cr-83：覆盖层盖住面板，面板 sasView 不可见）
+                        showConnectOverlay("请在电脑端核对短码", showUnpair = false, sas = st.sas)
                         showSas(st.sas)
                     }
                     LinkPhase.ERROR -> {
@@ -331,6 +337,16 @@ class MainActivity : BridgeActivity() {
     private suspend fun pairWith(uri: String) {
         if (pairingStarted) return
         pairingStarted = true
+        // 配对面板在位保证（根修：SAS 视图归属配对面板——已配对态重新扫码时
+        // onCreate/onNewIntent 走在线分支，面板从未创建，showSas 遇 null 静默丢，
+        // 用户只看到「请在电脑端核对短码」却看不到本机应显示的 8 位数字，配对
+        // 无法完成。幂等：面板已建/未隐藏则原样复用（重建会丢已填的 URI 输入）。）
+        if (panel == null || panel?.visibility != android.view.View.VISIBLE) {
+            if (panel != null) {
+                (panel?.parent as? ViewGroup)?.removeView(panel)
+            }
+            showPairingPanel(uri)
+        }
         var waited = 0
         while (SessionHolder.session == null && waited < 10_000) {
             delay(100)
@@ -383,10 +399,11 @@ class MainActivity : BridgeActivity() {
 
     // ---- 连接期状态覆盖层（cr-43 ⑫：WebView 未加载时的用户反馈面） ----
 
-    private fun showConnectOverlay(message: String, showUnpair: Boolean = true) {
+    private fun showConnectOverlay(message: String, showUnpair: Boolean = true, sas: String? = null) {
         if (connectOverlay != null) {
-            // 已在显示——只更新文案
+            // 已在显示——只更新文案与 SAS 区
             (connectOverlay!!.findViewWithTag<TextView>("msg"))?.text = message
+            showSasInOverlay(connectOverlay!!, sas)
             return
         }
         val root = LinearLayout(this).apply {
@@ -410,6 +427,9 @@ class MainActivity : BridgeActivity() {
             setPadding(0, dp(16), 0, 0)
         }
         root.addView(msg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // SAS 短码区（cr-83 真根因修）：AWAIT_CONFIRM 的覆盖层盖在配对面板之上，
+        // 面板 sasView 被完全遮挡——数字必须画在用户正看着的这一层。
+        addSasViewTo(root, sas)
         // 动态提示（呼吸点）——不引动画资源，文本省略号循环由系统 marquee 处理不必要，静态即可
         if (showUnpair && PairingStore(this).paired) {
             root.addView(Button(this).apply {
@@ -426,6 +446,27 @@ class MainActivity : BridgeActivity() {
         addContentView(host, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         connectOverlay = host
+    }
+
+    /** 覆盖层内 SAS 数字区（无 sas = 移除；幂等重建避免残留旧码） */
+    private fun showSasInOverlay(host: FrameLayout, sas: String?) {
+        val root = host.getChildAt(0) as? LinearLayout ?: return
+        val old = root.findViewWithTag<TextView>("sas")
+        old?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        if (sas != null) addSasViewTo(root, sas)
+    }
+
+    private fun addSasViewTo(root: LinearLayout, sas: String?) {
+        if (sas == null) return
+        root.addView(TextView(root.context).apply {
+            tag = "sas"
+            setTextColor(Color.parseColor("#7FD1FF"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(20), 0, dp(4))
+            // 8 位数字分两段显示（人工比对更省力——与配对面板同款）
+            text = if (sas.length == 8) sas.substring(0, 4) + "  " + sas.substring(4) else sas
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     private fun hideConnectOverlay() {

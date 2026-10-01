@@ -26,6 +26,7 @@ export interface AgentInfo {
   name: string;
   description: string;
   avatar?: string | null;
+  avatarVersion?: string;
   lastActivity?: number;
   /** 最后一条消息摘要（P4：runs/snapshot 尾部记录合成；实时侧由 bumpAgent 覆盖） */
   lastMessage?: {
@@ -69,6 +70,8 @@ interface PAgentConfig {
   maxSteps?: number;
   /** 真有头像（agentStore 探测；ac-web-api 注入）——为 false 时前端不产 URL */
   hasAvatar?: boolean;
+  /** 头像版本（size:mtimeMs；ac-web-api 注入）——版本化 URL 的 v 参数（cr-82） */
+  avatarVersion?: string;
 }
 
 /** snapshot 会话尾部摘要（runs/snapshot conversations[].last） */
@@ -116,10 +119,15 @@ export function toAgentList(
         description: c.description ?? '',
         // 头像 URL 只在真有头像时产生（hasAvatar 由 agents/list 注入；
         // 无头像 → null → 消费端 plainFallback 纯 icon 占位，零 404 探测。
-        // 旧后端无此字段：回退常量端点形态，保持 img onerror 自愈语义）
+        // 版本化 URL（cr-82）：v=avatarVersion（size:mtimeMs）→ 路由侧恒回
+        // immutable 长缓存，浏览器/WebView 磁盘缓存直接命中零请求；头像变更
+        // → 版本变 → URL 变 → 自动失效重取。旧后端无 avatarVersion：回退
+        // 无参 URL（no-cache + ETag 验证），行为同旧版。
         avatar: c.hasAvatar === false
           ? null
-          : `/api/agents/${encodeURIComponent(c.id)}/avatar`,
+          : `/api/agents/${encodeURIComponent(c.id)}/avatar${
+              c.avatarVersion ? `?v=${encodeURIComponent(c.avatarVersion)}` : ''
+            }`,
         virtual: c.virtual,
         hasActiveSession: runningAgents.has(c.id),
         ...(c.model ? { model: c.model, ...(c.provider ? { provider: c.provider } : {}) } : {}),
@@ -211,12 +219,12 @@ export async function fetchLlmProviders(
 // ---- 头像（preview 真实 HTTP multipart 面，浏览器直连——M27.2-2
 //      settings 件出包随件迁；原 webui api/roster.ts 门面已退役〔M28 §4.2〕） ----
 
-export function uploadAvatar(agentId: string, file: File): Promise<{ success?: boolean; error?: string }> {
+export function uploadAvatar(agentId: string, file: File): Promise<{ success?: boolean; version?: string; error?: string }> {
   const form = new FormData();
   form.append('file', file);
   return fetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'POST', body: form }).then(async (resp) => {
     if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error ?? `HTTP ${resp.status}`);
-    return resp.json() as Promise<{ success?: boolean; error?: string }>;
+    return resp.json() as Promise<{ success?: boolean; version?: string; error?: string }>;
   });
 }
 
@@ -331,16 +339,22 @@ export class RosterCore {
     return this.agents.value.find(a => a.id === id)?.avatar ?? null;
   }
 
-  /** 头像变更（上传/删除成功）后同步名册：名册头像恒指常量端点
-   *  /api/agents/:id/avatar——浏览器不会对同 src 重新请求，Avatar 的 404
-   *  回退也只在 src 变化时复位，常量 URL 永不自愈。上传 → 加时间戳强制
-   *  各视图 <img> 重取；删除 → 置 null 回退首字。 */
-  refreshAvatar(agentId: string, present: boolean): void {
+  /** 头像变更（上传/删除成功）后同步名册：上传 → 换版本化 URL（v=size:mtimeMs，
+   *  cr-82）强制各视图 <img> 重取（常量 URL 浏览器不会对同 src 重新请求）；
+   *  删除 → 置 null 回退首字。无 avatarVersion 的旧后端退回时间戳。 */
+  refreshAvatar(agentId: string, present: boolean, version?: string): void {
     const idx = this.agents.value.findIndex(a => a.id === agentId);
     if (idx === -1) return;
     this.agents.value[idx] = {
       ...this.agents.value[idx],
-      avatar: present ? `/api/agents/${encodeURIComponent(agentId)}/avatar?t=${Date.now()}` : null,
+      ...(present ? { avatarVersion: version } : { avatarVersion: undefined, avatar: null }),
+      ...(present
+        ? {
+            avatar: `/api/agents/${encodeURIComponent(agentId)}/avatar${
+              version ? `?v=${encodeURIComponent(version)}` : `?t=${Date.now()}`
+            }`,
+          }
+        : {}),
     };
   }
 
@@ -392,7 +406,7 @@ export class RosterService extends Service {
   bumpAgent(role: string, content: string) { this.core.bumpAgent(role, content); }
   bumpAgentById(agentId: string, role: string, content: string) { this.core.bumpAgentById(agentId, role, content); }
   tryRestoreLastAgent() { return this.core.tryRestoreLastAgent(); }
-  refreshAvatar(agentId: string, present: boolean) { this.core.refreshAvatar(agentId, present); }
+  refreshAvatar(agentId: string, present: boolean, version?: string) { this.core.refreshAvatar(agentId, present, version); }
 }
 
 declare module 'ac-client-runtime' {

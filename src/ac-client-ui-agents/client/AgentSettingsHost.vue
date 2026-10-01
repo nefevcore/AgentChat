@@ -82,14 +82,19 @@ function backToAgentList() {
   editingAgent.value = '';
 }
 /** 头像上传/删除成功（AgentPane avatar-changed）：名册（侧栏/会话/气泡）经
- *  store 改写 URL 强制 <img> 重取；列表 brief 同步，返回列表即时可见。 */
-function onAgentAvatarChanged(agentId: string, present: boolean) {
-  roster.refreshAvatar(agentId, present);
+ *  store 改写 URL 强制 <img> 重取；列表 brief 同步，返回列表即时可见。
+ *  版本来自上传响应（cr-82）——版本化 URL 恒 immutable 缓存。 */
+function onAgentAvatarChanged(agentId: string, present: boolean, version?: string) {
+  roster.refreshAvatar(agentId, present, version);
   const i = settings.agents.value.findIndex(a => a.id === agentId);
   if (i !== -1) {
     settings.agents.value[i] = {
       ...settings.agents.value[i],
-      avatar: present ? `/api/agents/${encodeURIComponent(agentId)}/avatar?t=${Date.now()}` : null,
+      ...(present
+        ? { avatar: `/api/agents/${encodeURIComponent(agentId)}/avatar?${
+            version ? `v=${encodeURIComponent(version)}` : `t=${Date.now()}`
+          }` }
+        : { avatar: null }),
     };
   }
 }

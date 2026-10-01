@@ -106,22 +106,40 @@ export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
   { id: 'glm-coding-plan', label: '智谱 GLM Coding Plan（编程套餐）', baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4' },
   // ↓ 2026-09-10 扩容：对齐 DSH（pi-ai）provider 目录的 OpenAI 兼容面。
   // 原生协议非 OpenAI 兼容的厂商（Anthropic/Gemini/MiniMax）取其官方
-  // OpenAI 兼容端点；Kimi 编程套餐（api.kimi.com/coding）走 Anthropic
-  // 协议，不在此列。套餐/聚合端点模型目录跨厂商且多变——不设
+  // OpenAI 兼容端点。套餐/聚合端点模型目录跨厂商且多变——不设
   // defaultModel，填 Key 读清单后自选（服务端默认物化亦有清单回落）。
+  // ↓ 2026-10-01 二次扩容（对齐 pi-ai 2026-07-25 目录）：新增 12 提供方。
+  // pi-ai 走 anthropic-messages 且 API key 可用的网关（Kimi 编程套餐/
+  // GitHub Copilot/Vercel 网关）以原生协议模板收录（protocol 字段，
+  // cr-39 多态）；占位符 URL（Cloudflare）、OAuth-only（openai-codex）
+  // 与云托管部署型（Bedrock/Azure/Vertex）不收录。
   { id: 'anthropic', label: 'Anthropic Claude（OpenAI 兼容端点）', baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
   { id: 'gemini', label: 'Google Gemini（OpenAI 兼容端点）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-flash-latest' },
-  { id: 'xai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.6' },
+  { id: 'xai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.5' },
   { id: 'moonshot', label: '月之暗面 Kimi（开放平台）', baseUrl: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3' },
   { id: 'qwen', label: '阿里云百炼 Qwen（按量付费）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.8-max' },
   { id: 'qwen-coding-plan', label: '阿里 Qwen 套餐（订阅制端点）', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' },
   { id: 'minimax', label: 'MiniMax 开放平台', baseUrl: 'https://api.minimaxi.com/v1', defaultModel: 'MiniMax-M3' },
-  { id: 'glm-coding', label: '智谱 GLM Coding 国际（z.ai）', baseUrl: 'https://api.z.ai/api/coding/paas/v4', defaultModel: 'glm-5.3' },
+  { id: 'glm-coding', label: '智谱 GLM Coding 国际（z.ai）', baseUrl: 'https://api.z.ai/api/coding/paas/v4', defaultModel: 'glm-5.2' },
   { id: 'mistral', label: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest' },
   { id: 'groq', label: 'Groq（极速推理）', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'openai/gpt-oss-120b' },
   { id: 'openrouter', label: 'OpenRouter（模型聚合）', baseUrl: 'https://openrouter.ai/api/v1' },
   { id: 'together', label: 'Together AI（模型聚合）', baseUrl: 'https://api.together.ai/v1' },
   { id: 'fireworks', label: 'Fireworks AI（模型聚合）', baseUrl: 'https://api.fireworks.ai/inference/v1' },
+  // ↓ 2026-10-01 扩容条目（批次说明见上方注释）；opencode.ai 域由
+  // session-affinity preset 自动注入 x-opencode-session（粘性路由）
+  { id: 'kimi-coding', label: 'Kimi 编程套餐（Anthropic 协议）', baseUrl: 'https://api.kimi.com/coding', protocol: 'anthropic' },
+  { id: 'github-copilot', label: 'GitHub Copilot（Anthropic 协议）', baseUrl: 'https://api.individual.githubcopilot.com', protocol: 'anthropic' },
+  { id: 'vercel-ai-gateway', label: 'Vercel AI Gateway（模型聚合，Anthropic 协议）', baseUrl: 'https://ai-gateway.vercel.sh', protocol: 'anthropic' },
+  { id: 'opencode', label: 'OpenCode Zen（订阅聚合）', baseUrl: 'https://opencode.ai/zen/v1' },
+  { id: 'opencode-go', label: 'OpenCode Go（编程订阅）', baseUrl: 'https://opencode.ai/zen/go/v1' },
+  { id: 'huggingface', label: 'Hugging Face（Inference Providers 聚合）', baseUrl: 'https://router.huggingface.co/v1' },
+  { id: 'nvidia', label: 'NVIDIA NIM（模型聚合）', baseUrl: 'https://integrate.api.nvidia.com/v1' },
+  { id: 'cerebras', label: 'Cerebras（极速推理）', baseUrl: 'https://api.cerebras.ai/v1', defaultModel: 'gpt-oss-120b' },
+  { id: 'xiaomi', label: '小米 MiMo 开放平台', baseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
+  { id: 'xiaomi-token-plan-cn', label: '小米 MiMo 套餐（订阅制端点）', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
+  { id: 'ant-ling', label: '蚂蚁 Ling 开放平台', baseUrl: 'https://api.ant-ling.com/v1', defaultModel: 'Ling-2.6-flash' },
+  { id: 'moonshotai', label: '月之暗面 Kimi 国际版', baseUrl: 'https://api.moonshot.ai/v1', defaultModel: 'kimi-k3' },
 ];
 
 /** 模板 → 字段默认值（getLlmSchemas 的 model 默认同源） */

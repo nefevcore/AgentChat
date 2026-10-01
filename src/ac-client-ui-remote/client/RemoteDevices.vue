@@ -273,15 +273,12 @@ onUnmounted(() => {
       </template>
       <template v-else-if="pairing.state === 'sas-confirm'">
         <div class="pair-title">核对数字（SAS）</div>
-        <div class="sas-num">
-          <span>{{ pairing.sas?.slice(0, 4) }}</span>
-          <span class="sep">·</span>
-          <span>{{ pairing.sas?.slice(4) }}</span>
-        </div>
+        <!-- SAS 大数字展示区已退役（cr-84）：R-2 防盲确认要求用户读手机屏显数字回传，
+             本侧再显示同一串 = 把答案贴在考卷旁，照抄即可绕过核对。数字只在手机屏。 -->
         <!-- 指纹行（cr-65）：设备名可伪造不作信任提示；指纹绑定密码学身份。
              显示 base64url 公钥前 22 字符（≈128bit 遮蔽），真机「远程设备 → 本机信息」可核对同值 -->
         <p class="pair-fp center" v-if="pairing.devicePubkey">设备指纹 <code>{{ pairing.devicePubkey.slice(0, 22) }}</code>…<br />（与手机 App「本机信息」页显示一致方可信任）</p>
-        <p class="pair-hint center">与手机屏幕显示的数字一致吗？一致 = 输入该数字并信任此设备；不一致 = 可能存在中间人，拒绝并重试。</p>
+        <p class="pair-hint center">查看手机屏幕上显示的 8 位数字并输入：核对一致 = 信任此设备；不一致或手机未显示 = 可能存在中间人，拒绝并重试。</p>
         <input
           v-model="sasInput"
           class="sas-input"
@@ -366,16 +363,14 @@ onUnmounted(() => {
 .pair-title.expired { color: var(--warn); }
 .pair-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-3); }
 
-/* SAS 数字：primary-light 底的大号等宽数字——比对场景的视觉焦点 */
+/* SAS 输入（R-2 盲确认修复）：等宽数字输入，居中 */
 .pin-state { font-size: 12px; }
 .pin-state.on { color: var(--ok); }
 .pin-state.off { color: var(--text-3); }
 .pin-input { max-width: 220px; }
-.sas-num { display: flex; justify-content: center; align-items: baseline; gap: var(--space-2); font-family: var(--font-mono); font-size: 30px; font-weight: 600; letter-spacing: 4px; color: var(--text-1); background: var(--primary-light); border-radius: var(--r-md); padding: var(--space-3) 0; margin: var(--space-2) 0; }
 .pair-fp { font-size: 12px; color: var(--text-2); margin: var(--space-1) 0; }
 .pair-fp code { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 var(--space-1); }
-.sas-num .sep { color: var(--text-3); font-size: 20px; }
-/* SAS 输入（R-2 盲确认修复）：等宽数字输入，居中对齐大数字下方 */
+/* SAS 输入（R-2 盲确认修复）：等宽数字输入，居中 */
 .sas-input { display: block; width: 100%; max-width: 260px; margin: 0 auto; background: var(--input-bg, var(--bg-raised)); border: 1px solid var(--input-border, var(--line)); border-radius: var(--r-sm); color: var(--text-1); padding: 6px 10px; font-size: 15px; font-family: var(--font-mono); letter-spacing: 2px; text-align: center; outline: none; transition: border-color var(--dur-fast) var(--ease-out); }
 .sas-input:focus { border-color: var(--input-focus, var(--primary)); }
 .sas-input::placeholder { font-family: var(--font-sans, inherit); font-size: 12px; letter-spacing: normal; color: var(--text-3); }

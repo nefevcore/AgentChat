@@ -261,7 +261,7 @@ class LoopbackBridge(
 
     /**
      * /api/ 任意子路径的通用转发：方法 / 路径（含 query）/ Content-Type / body 字节原样上行，
-     * 核心端响应的状态码 / Content-Type / 字节原样下行。
+     * 核心端响应的状态码 / Content-Type / 字节 / 缓存头（cr-82 白名单）原样下行。
      *
      * 读写分流到不同档位：GET → http/read（read 档）；其余 → http/write（files 档，
      * 须显式开启）——读权限不该能写。
@@ -293,6 +293,9 @@ class LoopbackBridge(
             addProperty("path", request.uri)
             request.headers[HttpHeaders.ContentType]?.let { addProperty("contentType", it) }
             if (body.isNotEmpty()) addProperty("bodyB64", b64u(body))
+            // 条件请求上行（cr-82）：核心端头像等 /api/* 资源已带 ETag——WebView
+            // 重协商请求的 If-None-Match 原样上行，核心端才有机会回 304 零字节。
+            request.headers[HttpHeaders.IfNoneMatch]?.let { addProperty("ifNoneMatch", it) }
         }
         // 诊断口：本模块同时被 JVM 轨（测试/CLI）与 Android 轨编译，不能用 android.util.Log
         // （android 子包被 JVM 轨排除）。println 两端都可达（Android 侧进 logcat 的 System.out）。
@@ -304,6 +307,12 @@ class LoopbackBridge(
             onSuccess = { o ->
                 val status = o.get("status")?.asInt ?: 200
                 val bytes = o.get("bodyB64")?.asString?.let { unb64u(it) } ?: ByteArray(0)
+                // 缓存头下行（cr-82）：核心端 proxyToSelf 新增 cacheHeaders 白名单
+                // （etag/last-modified/cache-control）——写进 WebView 响应，原生 HTTP
+                // 缓存自此可生效（旧核心端无此字段 = 现状，无头直传）。
+                o.get("cacheHeaders")?.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()?.forEach { (k, v) ->
+                    if (v.isJsonPrimitive) response.headers.append(k, v.asJsonPrimitive.asString)
+                }
                 respondBytes(bytes, contentTypeOf(o.get("contentType")?.asString), HttpStatusCode.fromValue(status))
             },
             onFailure = { err ->

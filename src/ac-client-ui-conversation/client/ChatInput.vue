@@ -935,6 +935,9 @@ function onKeydown(e: KeyboardEvent) {
   // 不是发送意图：不拦截，让 IME 消费（拦截会让 v-model 错过组合文本，发送丢失输入）
   if (e.isComposing) return;
   if (e.key !== 'Enter' || e.shiftKey) return;
+  // 窄屏（cr-84）：软键盘 Enter = 换行，发送只走发送按钮——物理键盘手势
+  // （Shift/Ctrl 修饰）在触屏上不存在，拦截换行反成发送误触。宽屏行为不变。
+  if (uiStore.narrow) return;
   e.preventDefault();
   // Cmd/Ctrl+Enter（DSH busy 手势对）：忙态 = 另一种行为——有草稿 = 插话
   // 发送草稿；空草稿 + 有排队 = 整队列 FIFO 插话。空闲 = 等同普通发送。

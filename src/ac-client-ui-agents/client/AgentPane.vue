@@ -54,7 +54,7 @@ const emit = defineEmits<{
   (e: 'back'): void;
   (e: 'save'): void;
   (e: 'saveTimers'): void;
-  (e: 'avatar-changed', agentId: string, present: boolean): void;
+  (e: 'avatar-changed', agentId: string, present: boolean, version?: string): void;
 }>();
 
 const tab = ref<string>('info');
@@ -577,8 +577,12 @@ function setAvatarPreview(url: string) {
   avatarPreview.value = url;
   avatarFailed.value = false;
 }
-function initAvatar() {
-  setAvatarPreview(`/api/agents/${encodeURIComponent(props.agentId)}/avatar?t=${Date.now()}`);
+function initAvatar(version?: string) {
+  // 版本化 URL（cr-82）：有版本走 v=（immutable 缓存友好），无版本（旧后端/
+  // 初始装载）退时间戳防缓存粘连。
+  setAvatarPreview(`/api/agents/${encodeURIComponent(props.agentId)}/avatar?${
+    version ? `v=${encodeURIComponent(version)}` : `t=${Date.now()}`
+  }`);
 }
 initAvatar();
 /** 切换 Agent 时重新加载头像 */
@@ -597,9 +601,9 @@ async function onAvatarFile(e: Event) {
   const form = new FormData();
   form.append('file', file);
   try {
-    await uploadAvatar(props.agentId, file);
-    initAvatar();
-    emit('avatar-changed', props.agentId, true);
+    const r = await uploadAvatar(props.agentId, file);
+    initAvatar(r.version);
+    emit('avatar-changed', props.agentId, true, r.version);
   } catch (err: any) {
     avatarError.value = `头像上传失败: ${err.message}`;
   } finally {
@@ -610,7 +614,7 @@ async function removeAvatar() {
   try {
     await deleteAvatar(props.agentId);
     setAvatarPreview('');
-    emit('avatar-changed', props.agentId, false);
+    emit('avatar-changed', props.agentId, false, undefined);
   } catch (err: any) {
     avatarError.value = `删除头像失败: ${err.message}`;
   }

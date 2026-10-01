@@ -2,22 +2,22 @@
 // ============================================================
 // client/FileEditsPanel.vue —— 文件编辑 aux 选区面板
 //
-// 当前会话的文件编辑纵览：逐文件折叠卡（统计 + 初版↔终版 diff）+
-// 展开后的编辑事件时间线。数据 = feedStore.activeDialog.rawMessages
-// → fileEdits 纯函数层（提取/重放/diff）。
+// 当前会话的文件编辑纵览（cr-86 抬头工具化：原折叠卡列表形态退役）：
+// 固定抬头工具行——文件下拉（切被编辑文件，最近编辑序，同基名多文件
+// 附目录段消歧）+ 版本下拉（初版→终版 / 当前内容 / 单次编辑 #N）+
+// 上一版/下一版本步进 + 自动换行开关 + 本地打开；下方单文件视图 = 元信息行（路径 +
+// 徽章 + ±统计）+ 填满剩余高度的 diff。数据 = feedStore.activeDialog
+// .rawMessages → fileEdits 纯函数层（提取/重放/diff）。
 //
-// 逐次回放（本次新增）：卡片 diff 区顶「视图」下拉——初版→终版
-// / 当前内容（终版全文直读）/ 单次编辑 #N（事件 + 说明 + ±N）。选中后
-// diff 区切换为对应视角（单次 = 该步 before→after；当前内容 = 全文
-// +行——新建文件 diff 基底缺失时的内容可见面）；时间线行点击直达该
-// 次编辑（双向联动——下拉与时间线是同一选择面的两个入口）。下拉旁
-// 「上一版本 / 下一版本」icon 钮沿同一序列（总览→#1..#N→当前内容）
-// 快速步进——省去点开下拉再选择的繁琐路径。
+// 选中态语义（2026-09-23 裁决承袭）：默认选中首文件只是初始形态——
+// 流式刷新（files 高频重算）不能抢走用户正在看的文件；选中项自清单
+// 消失（会话切换/文件移出）回落首项。版本下拉与上一/下一版本步进
+// 是同一选择面的两个入口（cr-88：编辑时间线退役）。
 //
 // 会话上下文（同 TasksPanel）：1v1 / single 直连；群聊视角支持
 //（多 Agent 编辑事件均带 agent_id——逐条署名）。bash 等间接写
-// 不可追踪——底部提示。断链（存量文件打头）卡降级为统计展示 +
-// partial 提示。
+// 不可追踪——底部提示。断链（存量文件打头）降级为统计展示 + partial
+// 提示。
 //
 // 全量历史（P2）：编辑记录要覆盖整个会话——rawMessages 是分页
 // 加载的（首屏一页），面板挂载且有 hasMore 时自动循环翻页拉全
@@ -39,7 +39,7 @@ import {
   extractFileEdits, replayFiles, applySnapshots, applyDiskFinals, diffOfSummary,
   diffOfStep, editStepsOf, diffOfContent,
   type FileEditSummary, type FileDiffResult, type FileEditStep,
-  type FileEditEvent, type RemoteSnapshot, type DiskContents,
+  type RemoteSnapshot, type DiskContents,
 } from './fileEdits.ts';
 
 const feed = useFeedStore();
@@ -166,10 +166,10 @@ onBeforeUnmount(() => offEvents());
 
 /**
  * 分析拆分（2026-09-21 性能整改）：原单 computed fileEditsFull 每次重算都对
- * 【全部文件】eager 生成 diff（fileEditsFull 尾段 map diffOfSummary），
- * 但 UI 只看展开卡。现拆两段：
+ * 【全部文件】eager 生成 diff（fileEditsFull 尾段逐文件 diffOfSummary），
+ * 但 UI 只看选中文件（cr-86 抬头工具化前为展开卡）。现拆两段：
  *   events+files = 轻管线（提取/重放/快照/磁盘兜底——流式期间可承受）
- *   diffs        = 惰性（依赖 expanded，仅展开卡生成 diffOfSummary）
+ *   diffs        = 惰性（依赖 selected，仅选中文件生成 diffOfSummary）
  * 语义对齐 fileEditsFull——只是 diff 从「全量预生成」变「按需」。
  */
 const analysisCore = computed(() => {
@@ -183,15 +183,12 @@ const analysis = computed(() => ({
   files: analysisCore.value.files,
   diffs: lazyDiffs.value,
 }));
-/** 展开卡的 diff（未展开文件不在数组——与原全量 diffs 数组的消费差异
- *  由 diffOf 兜底语义吸收：find 不到 → comparable:false 回退对象） */
+/** 选中文件的 diff（未选中不在数组——与全量 diffs 数组的消费差异由
+ *  diffOf 兜底语义吸收：find 不到 → comparable:false 回退对象）。
+ *  折叠卡时期 = 展开卡集合；抬头工具化（cr-86）后 = 选中文件单员。 */
 const lazyDiffs = computed(() => {
-  const out: FileDiffResult[] = [];
-  for (const path of expanded.value) {
-    const s = analysisCore.value.files.get(path);
-    if (s) out.push(diffOfSummary(s));
-  }
-  return out;
+  const s = sel.value;
+  return s ? [diffOfSummary(s)] : [];
 });
 
 /** 文件清单（最近编辑在前；无编辑 = 空态） */
@@ -232,26 +229,47 @@ const hasShellCalls = computed(() =>
   ),
 );
 
-/** 展开态（per-path；默认第一个文件展开） */
-const expanded = ref<Set<string>>(new Set());
-// 对话切换：展开态重置（新会话从默认形态起——旧路径条目不残留）
-watch(() => feed.activeDialogId, () => { expanded.value = new Set(); });
-// 默认展开首卡：仅在「无文件 → 有文件」跃迁时给默认形态（面板首开 /
-// 对话切换后首条编辑落卡）。原条件 expanded.size===0 会在用户收起全部
-// 卡片后随流式刷新（files 高频重算）反复强制弹回首卡——「无法手工
-// 收起」的根因（2026-09-23 前端反馈；默认展开只是初始形态，非硬约束）。
-watch(files, (list, old) => {
-  if ((old?.length ?? 0) === 0 && list.length > 0) {
-    expanded.value = new Set([list[0].path]);
+// ── 选中文件（抬头工具化：单文件视图）──
+/** 选中路径（null = 无——空态/会话无编辑）。默认选中只是初始形态：
+ *  流式刷新（files 高频重算）不能抢走用户正在看的文件（2026-09-23
+ *  裁决承袭——原「收起全部卡片被强制弹回」的同源语义）；选中项自
+ *  清单消失（会话切换/文件移出）回落首项。 */
+const selected = ref<string | null>(null);
+
+/** 当前选中文件的汇总（无选中 = null——空态）。读 analysisCore（轻核心）——
+ *  读 analysis 会成环：sel → analysis.diffs(lazyDiffs) → sel。 */
+const sel = computed<FileEditSummary | null>(() =>
+  analysisCore.value.files.get(selected.value ?? '') ?? null);
+
+watch(files, (list) => {
+  if (!selected.value || !list.some((s) => s.path === selected.value)) {
+    selected.value = list[0]?.path ?? null;
   }
 }, { immediate: true });
 
-function toggle(path: string) {
-  const next = new Set(expanded.value);
-  if (next.has(path)) next.delete(path);
-  else next.add(path);
-  expanded.value = next;
+function selectFile(path: string) {
+  selected.value = path;
 }
+
+/** 文件下拉项：基名（同基名多文件时附目录段消歧） */
+const dupBasenames = computed(() => {
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const s of files.value) {
+    const b = fileLabel(s);
+    if (seen.has(b)) dup.add(b);
+    seen.add(b);
+  }
+  return dup;
+});
+function fileOptionLabel(s: FileEditSummary): string {
+  const b = fileLabel(s);
+  return dupBasenames.value.has(b) ? b + " · " + (dirLabel(s) || s.path) : b;
+}
+
+/** diff 自动换行（缺省关 = 横向滚动——与预览页代码视图同语义；
+ *  深行 diff 对照时开启软换行免横向拖动） */
+const wrap = ref(false);
 
 // ── 逐次回放（视图选择）──
 // 选中态 per-path：'' = 总览（初版→终版——默认）；'content' = 当前内容
@@ -349,13 +367,7 @@ function viewDiff(s: FileEditSummary): FileDiffResult {
   return viewDiffByPath.value.get(s.path) ?? diffOf(analysis.value.diffs, s);
 }
 
-/** 时间线行点击 = 查看该次编辑（失败/越界回落总览） */
-function jumpToStep(s: FileEditSummary, ev: FileEditEvent) {
-  const idx = stepsOf(s).findIndex((st) => st.event.callId === ev.callId);
-  setView(s.path, idx >= 0 ? idx : '');
-}
-
-// ── 分段链展示辅助（方案 B）：下拉分组 / 时间线段边界 / 不可回放计数 ──
+// ── 分段链展示辅助（方案 B）：下拉分组 / 不可回放计数 ──
 
 /** 下拉分组：段 0 无标签；后续段「⟂ 外部修改后」（optgroup） */
 function stepGroupsOf(s: FileEditSummary): Array<{ label: string; steps: FileEditStep[] }> {
@@ -372,31 +384,6 @@ function stepGroupsOf(s: FileEditSummary): Array<{ label: string; steps: FileEdi
   return groups;
 }
 
-/** callId → 段序（per-analysis 记忆化——时间线行判定段边界） */
-const segmentByCallId = computed(() => {
-  const m = new Map<string, number>();
-  for (const f of analysis.value.files.values()) {
-    for (const st of stepsOf(f)) m.set(st.event.callId, st.segment);
-  }
-  return m;
-});
-
-/** 时间线行（事件 + 段边界分隔交替；失败事件沿用前段序） */
-type TimelineRow = { kind: 'event'; ev: FileEditEvent } | { kind: 'boundary' };
-function timelineRowsOf(s: FileEditSummary): TimelineRow[] {
-  const segOf = segmentByCallId.value;
-  const rows: TimelineRow[] = [];
-  let lastSeg = 0;
-  for (const ev of s.events) {
-    const seg = segOf.get(ev.callId);
-    if (seg !== undefined && seg > lastSeg && rows.length > 0) {
-      rows.push({ kind: 'boundary' });
-    }
-    if (seg !== undefined) lastSeg = seg;
-    rows.push({ kind: 'event', ev });
-  }
-  return rows;
-}
 
 /** 不可回放计数：成功事件数 - 版本点数（mismatches 为重放层失配——取大者展示） */
 function unreplayableOf(s: FileEditSummary): number {
@@ -427,17 +414,31 @@ function stepOptionLabel(st: FileEditStep): string {
 
 /** diff 行解析（generateDiffString 输出：'- 12 内容' / '+ 12 内容' / '  12 内容' / '...'）。
  * 记忆化（2026-09-21 性能整改）：per-path 行数组随视图代际算一次——原模板直调
- * 每次 v-for 重渲染都 split+map（截断提示行还引用第二次）数千行 × 每卡。 */
-interface DiffLine { kind: 'add' | 'del' | 'ctx' | 'sep'; text: string }
+ * 每次 v-for 重渲染都 split+map（截断提示行还引用第二次）数千行 × 每卡。
+ * 三段拆分（cr-90）：'符号 行号 内容' 拆独立三列渲染——符号列窄定宽、
+ * 行号列右对齐弱化，正文列 flex:1——不再挤在一串里。 */
+interface DiffLine { kind: 'add' | 'del' | 'ctx' | 'sep' | 'plain'; sign: string; num: string; text: string }
+const DIFF_LINE_RE = /^([+\- ]) (\d+)(?: (.*))?\r?$/;
+function parseDiffLine(raw: string, plain: boolean): DiffLine {
+  // CRLF 文件：split('\n') 后行尾残留 '\r'——先剥（否则正则失配全落容错分支）
+  const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+  if (line === '...') return { kind: 'sep', sign: '', num: '', text: line };
+  const m = DIFF_LINE_RE.exec(line);
+  if (m) {
+    const sign = m[1] === ' ' ? '' : m[1];
+    // 「当前内容」视图：全文非 diff 语义——kind plain、符号列恒空（无 +/-）
+    const kind = plain ? 'plain' : sign === '+' ? 'add' : sign === '-' ? 'del' : 'ctx';
+    return { kind, sign: plain ? '' : sign, num: m[2], text: String(m[3]) }; // 可选组缺席时 exec 得 null——String() 归空串
+  }
+  // 非约定格式（容错）：整行入正文列
+  return { kind: plain ? 'plain' : 'ctx', sign: '', num: '', text: line };
+}
 const diffLinesByPath = computed(() => {
   const m = new Map<string, DiffLine[]>();
   for (const [path, d] of viewDiffByPath.value) {
-    m.set(path, d.comparable ? d.diff.split('\n').map((line) => {
-      if (line === '...') return { kind: 'sep' as const, text: line };
-      if (line.startsWith('+ ')) return { kind: 'add' as const, text: line };
-      if (line.startsWith('- ')) return { kind: 'del' as const, text: line };
-      return { kind: 'ctx' as const, text: line };
-    }) : []);
+    const s = analysisCore.value.files.get(path);
+    const plain = !!s && effectiveView(s) === 'content';
+    m.set(path, d.comparable ? d.diff.split('\n').map((line) => parseDiffLine(line, plain)) : []);
   }
   return m;
 });
@@ -464,27 +465,6 @@ function timeOf(ts: number): string {
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
 }
-/** callId → 单步统计索引（per-analysis 记忆化——时间线每行 O(1) 查步，
- * 原为每行 stepsOf().find() 线性扫：多版本文件的卡内二次方） */
-const stepStatByCallId = computed(() => {
-  const m = new Map<string, { added: number; removed: number }>();
-  for (const s of analysis.value.files.values()) {
-    for (const st of stepsOf(s)) m.set(st.event.callId, { added: st.added, removed: st.removed });
-  }
-  return m;
-});
-function eventLine(ev: FileEditEvent, s?: FileEditSummary): string {
-  const base = ACTION_LABEL[ev.action] ?? ev.action;
-  if (!ev.ok) return `${base}（失败）`;
-  // 选中同一编辑时与单次 diff 所见一致（LCS 真实变更）；不可回放
-  // 文件/失败步回落工具报告口径
-  const step = stepStatByCallId.value.get(ev.callId);
-  const added = step ? step.added : ev.added;
-  const removed = step ? step.removed : ev.removed;
-  const hasStat = added !== undefined || removed !== undefined;
-  return `${base}${hasStat ? ` +${added ?? 0}/-${removed ?? 0}` : ''}`;
-}
-
 // ── 本地打开（系统默认程序；服务端按会话/Agent 工作区基准定位路径）──
 const openLocalPaths = ref(new Map<string, 'opening' | 'error'>());
 
@@ -555,139 +535,128 @@ async function openLocally(s: FileEditSummary) {
         <p class="fe-empty-sub">Agent 使用 write / edit / str_replace_editor 修改文件时会在此汇总</p>
       </div>
 
-      <!-- 文件折叠卡列表 -->
-      <div v-for="s in files" :key="s.path" class="fe-card" :class="{ open: expanded.has(s.path) }">
-        <!-- 头部（div role=button：内部嵌「本地打开」按钮——button 不可嵌套 button） -->
-        <div class="fe-card-head" role="button" tabindex="0" @click="toggle(s.path)" @keydown.enter.prevent="toggle(s.path)">
-          <Icon name="file-diff" :size="15" class="fe-file-icon" />
-          <span class="fe-file-name" :title="s.path">{{ fileLabel(s) }}</span>
-          <span v-if="dirLabel(s)" class="fe-file-dir" :title="s.path">{{ dirLabel(s) }}</span>
-          <span class="fe-badges">
-            <span v-if="s.created" class="fe-badge new">新建</span>
-            <span v-if="s.partial" class="fe-badge partial">部分</span>
-            <span class="fe-stat"><span class="fe-add-num">+{{ statOf(s).added }}</span><span class="fe-del-num">/-{{ statOf(s).removed }}</span></span>
-            <span class="fe-count">{{ s.editCount }} 次</span>
+      <!-- 单文件视图（抬头工具化）：工具行 + 元信息 + diff + 时间线 -->
+      <template v-if="sel">
+        <!-- 抬头工具行：文件下拉 + 版本下拉 + 上一/下一版本 + 本地打开 -->
+        <div class="fe-toolbar">
+          <select
+            class="fe-file-select"
+            :value="sel.path"
+            :title="sel.path"
+            @change="selectFile(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="s in files" :key="s.path" :value="s.path">{{ fileOptionLabel(s) }}</option>
+          </select>
+          <!-- 版本选择（当前内容 / 编辑次数 > 1 才有逐次视角）+ 步进 + 换行 -->
+          <select
+            v-if="sel.finalContent !== null || stepsOf(sel).length > 1"
+            class="fe-view-select"
+            :value="viewOptionOf(sel)"
+            @change="selectViewByOption(sel, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">初版 → 终版</option>
+            <option value="content">当前内容</option>
+            <!-- 分段链：外部修改后的段独立分组（⟂ 标记其前发生过
+                 事件流外的写——git checkout / shell 改写等） -->
+            <template v-for="(grp, gi) in stepGroupsOf(sel)" :key="gi">
+              <optgroup v-if="grp.label" :label="grp.label">
+                <option v-for="st in grp.steps" :key="st.event.callId" :value="st.event.callId">
+                  {{ stepOptionLabel(st) }}
+                </option>
+              </optgroup>
+              <option v-for="st in grp.steps" v-else :key="st.event.callId" :value="st.event.callId">
+                {{ stepOptionLabel(st) }}
+              </option>
+            </template>
+          </select>
+          <span class="fe-view-nav">
+            <Tooltip text="上一版本" placement="top">
+              <button class="fe-view-nav-btn" :disabled="viewCursor(sel) === 0" @click="stepView(sel, -1)">
+                <Icon name="chevron-left" :size="13" />
+              </button>
+            </Tooltip>
+            <Tooltip text="下一版本" placement="top">
+              <button class="fe-view-nav-btn" :disabled="viewCursor(sel) >= viewSeq(sel).length - 1" @click="stepView(sel, 1)">
+                <Icon name="chevron-right" :size="13" />
+              </button>
+            </Tooltip>
           </span>
+          <!-- 自动换行（icon 开关 + on 态高亮——预览页 fpt-icon-btn 同形态） -->
+          <Tooltip :text="wrap ? '自动换行：开 · 点击关闭' : '自动换行：关 · 点击开启'" placement="bottom">
+            <button class="fe-view-nav-btn" :class="{ on: wrap }" @click="wrap = !wrap">
+              <Icon name="wrap-text" :size="14" />
+            </button>
+          </Tooltip>
           <!-- 本地打开（系统默认程序；icon 按钮 + tooltip——与预览页
-               fpt-icon-btn 同形态；不冒泡防触发卡片折叠） -->
+               fpt-icon-btn 同形态） -->
           <Tooltip
-            v-if="openStateOf(s.path) !== 'error'"
-            :text="openStateOf(s.path) === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
+            v-if="openStateOf(sel.path) !== 'error'"
+            :text="openStateOf(sel.path) === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
             placement="bottom"
           >
             <button
               class="fe-open-local"
-              :disabled="openStateOf(s.path) === 'opening'"
-              @click.stop="openLocally(s)"
+              :disabled="openStateOf(sel.path) === 'opening'"
+              @click="openLocally(sel)"
             >
-              <Icon v-if="openStateOf(s.path) === 'opening'" name="loader-circle" :size="14" class="fe-spin" />
+              <Icon v-if="openStateOf(sel.path) === 'opening'" name="loader-circle" :size="14" class="fe-spin" />
               <Icon v-else name="external-link" :size="14" />
             </button>
           </Tooltip>
           <button
             v-else
             class="fe-open-local error"
-            :title="'本地打开失败（路径不可达或平台不支持）'"
-            @click.stop="openLocally(s)"
+            title="本地打开失败（路径不可达或平台不支持）"
+            @click="openLocally(sel)"
           ><Icon name="alert-circle" :size="14" /></button>
         </div>
 
-        <div v-if="expanded.has(s.path)" class="fe-card-body">
-          <!-- 断链提示（存量文件打头） -->
-          <div v-if="s.diskBackfill" class="fe-partial-note">
-            此文件无会话首见快照——初版自磁盘终版逆向回推编辑记录（自会话内首次可回推点起算）
-          </div>
-          <div v-else-if="s.partial" class="fe-partial-note">
-            <template v-if="s.finalContent !== null">此文件在会话开始前已存在——diff 自会话内首次全量写入起算</template>
-            <template v-else>此文件在会话开始前已存在，会话内无全量写入——无法重建内容，仅展示编辑统计</template>
-          </div>
-          <div v-if="unreplayableOf(s) > 0" class="fe-partial-note warn">有 {{ unreplayableOf(s) }} 条编辑无法在重放中定位或回放（外部修改或消息流残缺）——终版可能与实际有偏差</div>
-
-          <!-- diff 视图（可比对 / 当前内容视图）：视图下拉 = 总览 / 当前内容 / 某次编辑 -->
-          <template v-if="diffOf(analysis.diffs, s).comparable || s.finalContent !== null">
-            <div class="fe-diff-meta">
-              <span class="fe-view-label">{{ viewLabel(s) }}</span>
-              <span class="fe-diff-stat">+{{ viewDiff(s).added }} / -{{ viewDiff(s).removed }}</span>
-            </div>
-            <!-- 视图选择（当前内容 / 编辑次数 > 1 才有逐次视角）+ 上一/下一版本快切 -->
-            <div v-if="s.finalContent !== null || stepsOf(s).length > 1" class="fe-view-row">
-              <span class="fe-view-caption">查看</span>
-              <select
-                class="fe-view-select"
-                :value="viewOptionOf(s)"
-                @change="selectViewByOption(s, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">初版 → 终版</option>
-                <option value="content">当前内容</option>
-                <!-- 分段链：外部修改后的段独立分组（⟂ 标记其前发生过
-                     事件流外的写——git checkout / shell 改写等） -->
-                <template v-for="(grp, gi) in stepGroupsOf(s)" :key="gi">
-                  <optgroup v-if="grp.label" :label="grp.label">
-                    <option v-for="st in grp.steps" :key="st.event.callId" :value="st.event.callId">
-                      {{ stepOptionLabel(st) }}
-                    </option>
-                  </optgroup>
-                  <option v-for="st in grp.steps" v-else :key="st.event.callId" :value="st.event.callId">
-                    {{ stepOptionLabel(st) }}
-                  </option>
-                </template>
-              </select>
-              <span class="fe-view-nav">
-                <Tooltip text="上一版本" placement="top">
-                  <button class="fe-view-nav-btn" :disabled="viewCursor(s) === 0" @click="stepView(s, -1)">
-                    <Icon name="chevron-left" :size="13" />
-                  </button>
-                </Tooltip>
-                <Tooltip text="下一版本" placement="top">
-                  <button class="fe-view-nav-btn" :disabled="viewCursor(s) >= viewSeq(s).length - 1" @click="stepView(s, 1)">
-                    <Icon name="chevron-right" :size="13" />
-                  </button>
-                </Tooltip>
-              </span>
-            </div>
-            <div class="fe-diff">
-              <!-- 渲染行截断（性能护栏）：超大 diff（数千行——「当前内容」视图或大改写）
-                   只渲染首 400 行；容器本有 max-height 滚动，剩余行以计数提示代替，
-                   避免一次性挂载数千 DOM 节点卡死渲染线程 -->
-              <div
-                v-for="(line, i) in parseDiffOf(s.path).slice(0, 400)"
-                :key="i"
-                class="fe-diff-line"
-                :class="'fe-' + line.kind"
-              ><span class="fe-diff-text">{{ line.text }}</span></div>
-              <div v-if="parseDiffOf(s.path).length > 400" class="fe-diff-line ctx">
-                <span class="fe-diff-text">… 仅渲染前 400 行（共 {{ parseDiffOf(s.path).length }} 行）——完整内容请本地打开</span>
-              </div>
-            </div>
-          </template>
-          <!-- 不可比对：仅统计 -->
-          <div v-else class="fe-no-diff">无法生成 diff（见上方说明）</div>
-
-          <!-- 编辑时间线（成功行可点击 = 查看该次编辑；与视图下拉联动）。
-               分段链：外部修改边界插 ⟂ 分隔行——编辑史如实分段 -->
-          <div class="fe-timeline">
-            <template v-for="(row, ri) in timelineRowsOf(s)" :key="ri">
-              <div v-if="row.kind === 'boundary'" class="fe-ev-boundary" title="此处发生过事件流之外的外部修改（git checkout / shell 改写等）——分段回放">
-                ⟂ 外部修改
-              </div>
-              <div
-                v-else
-                class="fe-ev"
-                :class="{ fail: !row.ev.ok, active: viewOptionOf(s) !== '' && viewOptionOf(s) === row.ev.callId }"
-                role="button"
-                tabindex="0"
-                @click="jumpToStep(s, row.ev)"
-                @keydown.enter.prevent="jumpToStep(s, row.ev)"
-              >
-                <span class="fe-ev-time">{{ timeOf(row.ev.timestamp) }}</span>
-                <span class="fe-ev-action">{{ eventLine(row.ev, s) }}</span>
-                <span class="fe-ev-agent" :title="row.ev.agentId">{{ row.ev.agentId }}</span>
-                <Icon v-if="row.ev.ok" name="file-diff" :size="12" class="fe-ev-go" />
-              </div>
-            </template>
-          </div>
+        <!-- 选中文件元信息：完整路径 + 徽章 + 统计 -->
+        <div class="fe-meta">
+          <span class="fe-file-path" :title="sel.path">{{ sel.path }}</span>
+          <span class="fe-badges">
+            <span v-if="sel.created" class="fe-badge new">新建</span>
+            <span v-if="sel.partial" class="fe-badge partial">部分</span>
+            <span class="fe-stat"><span class="fe-add-num">+{{ statOf(sel).added }}</span><span class="fe-del-num">/-{{ statOf(sel).removed }}</span></span>
+            <span class="fe-count">{{ sel.editCount }} 次</span>
+          </span>
         </div>
-      </div>
+
+        <!-- 断链提示（存量文件打头） -->
+        <div v-if="sel.diskBackfill" class="fe-partial-note">
+          此文件无会话首见快照——初版自磁盘终版逆向回推编辑记录（自会话内首次可回推点起算）
+        </div>
+        <div v-else-if="sel.partial" class="fe-partial-note">
+          <template v-if="sel.finalContent !== null">此文件在会话开始前已存在——diff 自会话内首次全量写入起算</template>
+          <template v-else>此文件在会话开始前已存在，会话内无全量写入——无法重建内容，仅展示编辑统计</template>
+        </div>
+        <div v-if="unreplayableOf(sel) > 0" class="fe-partial-note warn">有 {{ unreplayableOf(sel) }} 条编辑无法在重放中定位或回放（外部修改或消息流残缺）——终版可能与实际有偏差</div>
+
+        <!-- diff 视图（可比对 / 当前内容视图） -->
+        <template v-if="diffOf(analysis.diffs, sel).comparable || sel.finalContent !== null">
+          <div class="fe-diff-meta">
+            <span class="fe-view-label">{{ viewLabel(sel) }}</span>
+            <span class="fe-diff-stat">+{{ viewDiff(sel).added }} / -{{ viewDiff(sel).removed }}</span>
+          </div>
+          <div class="fe-diff">
+            <!-- 渲染行截断（性能护栏）：超大 diff（数千行——「当前内容」视图或大改写）
+                 只渲染首 400 行；容器自身滚动，剩余行以计数提示代替，
+                 避免一次性挂载数千 DOM 节点卡死渲染线程 -->
+            <div
+              v-for="(line, i) in parseDiffOf(sel.path).slice(0, 400)"
+              :key="i"
+              class="fe-diff-line"
+              :class="[wrap ? 'wrap' : '', 'fe-' + line.kind]"
+            ><span class="fe-diff-sign">{{ line.sign }}</span><span class="fe-diff-num">{{ line.num }}</span><span class="fe-diff-text">{{ line.text }}</span></div>
+            <div v-if="parseDiffOf(sel.path).length > 400" class="fe-diff-line ctx">
+              <span class="fe-diff-sign"></span><span class="fe-diff-num"></span>
+              <span class="fe-diff-text">… 仅渲染前 400 行（共 {{ parseDiffOf(sel.path).length }} 行）——完整内容请本地打开</span>
+            </div>
+          </div>
+        </template>
+        <!-- 不可比对：仅统计 -->
+        <div v-else class="fe-no-diff">无法生成 diff（见上方说明）</div>
+      </template>
 
       <!-- bash 提示 -->
       <div v-if="hasShellCalls && totalFiles > 0" class="fe-shell-note">
@@ -736,24 +705,36 @@ export default { name: 'FileEditsPanel' };
 }
 .fe-close:hover { background: var(--color-bg-hover, rgba(0,0,0,0.06)); color: var(--color-text-primary); }
 
-.fe-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* 单列填满布局（cr-88 时间线退役）：.fe-body 不再滚动——diff 区
+   flex:1 吸收剩余高度并自带滚动，其余行按内容收缩 */
+.fe-body { flex: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
 .fe-empty { padding: 32px 12px; text-align: center; color: var(--color-text-tertiary); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .fe-empty p { margin: 0; font-size: 12px; }
 .fe-empty-sub { font-size: 11px; opacity: 0.8; }
 
-/* 卡片不收缩：flex 列容器里缺省 flex-shrink:1 会把卡片压扁而不是
-   溢出——置 0 后内容超出 .fe-body（overflow-y:auto）即出滚动条 */
-.fe-card { border: 1px solid var(--color-border-light, #e5e7eb); border-radius: var(--radius-md); background: var(--color-bg-surface, #fff); overflow: hidden; flex-shrink: 0; }
-.fe-card-head {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 9px 12px; border: none; background: none; cursor: pointer;
-  font-size: 12px; color: var(--color-text-primary); text-align: left;
+/* ── 抬头工具行（文件下拉 + 版本下拉 + 版本步进 + 本地打开）── */
+.fe-toolbar { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.fe-file-select {
+  flex: 1; min-width: 0; max-width: 240px;
+  font-size: 11px; font-family: inherit;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  background: var(--color-bg-surface, #fff);
+  color: var(--color-text-primary);
+  cursor: pointer;
 }
-.fe-card-head:hover { background: var(--color-bg-hover, rgba(0,0,0,0.03)); }
-.fe-file-icon { color: #8b5cf6; flex-shrink: 0; }
-.fe-file-name { font-weight: 600; font-family: 'SF Mono', 'Cascadia Code', monospace; white-space: nowrap; }
-.fe-file-dir { font-size: 10px; color: var(--color-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.fe-file-select:focus { outline: none; border-color: var(--primary, #6366f1); }
+.fe-file-select:hover { border-color: var(--color-border-secondary, #d1d5db); }
+
+/* 选中文件元信息行（完整路径 + 徽章/统计） */
+.fe-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 0; }
+.fe-file-path {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; font-family: 'SF Mono', 'Cascadia Code', monospace;
+  color: var(--color-text-secondary);
+}
 .fe-badges { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .fe-badge { font-size: 10px; padding: 1px 6px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-light, #e5e7eb); color: var(--color-text-tertiary); }
 .fe-badge.new { color: #22c55e; border-color: rgba(34,197,94,0.4); }
@@ -788,10 +769,6 @@ export default { name: 'FileEditsPanel' };
 .fe-open-local:disabled { opacity: 0.6; cursor: default; }
 .fe-open-local.error { color: #ef4444; }
 /* 打开中 spinner 旋转 */
-.fe-spin { animation: fe-rotate 0.8s linear infinite; }
-@keyframes fe-rotate { to { transform: rotate(360deg); } }
-
-.fe-card-body { border-top: 1px solid var(--color-border-light, #e5e7eb); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 
 .fe-partial-note { font-size: 11px; color: #8a6d1a; background: rgba(230,168,23,0.08); border: 1px solid rgba(230,168,23,0.25); border-radius: var(--radius-sm); padding: 6px 10px; }
 .fe-partial-note.warn { color: #b45309; background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.2); }
@@ -799,11 +776,9 @@ export default { name: 'FileEditsPanel' };
 .fe-diff-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--color-text-tertiary); }
 .fe-diff-stat { font-family: 'SF Mono', 'Cascadia Code', monospace; }
 
-/* ── 逐次回放视图选择（查看：总览 / 某次编辑）── */
-.fe-view-row { display: flex; align-items: center; gap: 6px; }
-.fe-view-caption { font-size: 11px; color: var(--color-text-tertiary); flex-shrink: 0; }
+/* ── 版本选择下拉（抬头工具行内——auto 宽，工具行自带间距）── */
 .fe-view-select {
-  flex: 1; min-width: 0;
+  flex: 0 1 auto; min-width: 0;
   font-size: 11px; font-family: inherit;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
@@ -836,43 +811,47 @@ export default { name: 'FileEditsPanel' };
   color: var(--color-text-primary);
 }
 .fe-view-nav-btn:disabled { opacity: 0.35; cursor: default; }
+/* 开启态偏好按钮（换行）：主题色高亮示当前值——fpt-icon-btn.on 同款 */
+.fe-view-nav-btn.on {
+  color: var(--color-primary, #6366f1);
+  background: var(--color-primary-light);
+  border-color: var(--color-primary, rgba(99,102,241,0.5));
+}
 .fe-diff {
+  flex: 1; min-height: 0; /* 填满剩余高度（cr-88）——工具行/元信息/提示行按内容收缩 */
   border: 1px solid var(--color-border-light, #e5e7eb); border-radius: var(--radius-md);
-  background: var(--color-code-bg, #1e1e2e); overflow-x: auto; max-height: 360px; overflow-y: auto;
+  background: var(--color-code-bg, #1e1e2e); overflow: auto;
 }
 .fe-diff-line { display: flex; padding: 1px 12px; font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6; white-space: pre; }
-.fe-diff-text { flex: 1; }
-.fe-add { background: rgba(34,197,94,0.1); }
+/* 自动换行（cr-89）：软换行替代横向滚动 */
+.fe-diff-line.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 三列分块（cr-90）：符号列窄定宽 / 行号列右对齐+右分界线 / 正文列 flex:1。
+   成块增强（cr-91）：符号列底色随行、行号列弱底色+分界线、行底色加浓——
+   三列视觉成块而非一整串文本 */
+.fe-diff-sign {
+  width: 16px; flex-shrink: 0; text-align: center; user-select: none;
+  margin-left: -12px; padding-left: 2px; /* 行左距让给符号列着色 */
+  border-right: 1px solid var(--color-border, rgba(255,255,255,0.08));
+}
+.fe-diff-num {
+  width: 4ch; flex-shrink: 0; text-align: right; padding: 0 10px 0 6px;
+  color: var(--color-text-tertiary); opacity: 0.6; user-select: none;
+  border-right: 1px solid var(--color-border, rgba(255,255,255,0.08));
+}
+.fe-diff-text { flex: 1; min-width: 0; }
+/* 行底色铺满三列（cr-93 统一——符号/行号列不再独立加深/减弱，去割裂） */
+.fe-add { background: rgba(34,197,94,0.13); }
+.fe-add .fe-diff-sign { color: #4ade80; }
 .fe-add .fe-diff-text { color: #4ade80; }
-.fe-del { background: rgba(239,68,68,0.12); }
+.fe-del { background: rgba(239,68,68,0.14); }
+.fe-del .fe-diff-sign { color: #f87171; }
 .fe-del .fe-diff-text { color: #f87171; }
-.fe-ctx .fe-diff-text { color: var(--color-text-tertiary); opacity: 0.75; }
+.fe-ctx .fe-diff-text { color: var(--color-text-primary, #e0e0e0); }
 .fe-sep .fe-diff-text { color: var(--color-text-tertiary); opacity: 0.5; font-style: italic; }
+/* 「当前内容」全文视图（cr-89）：非 diff 语义——无 +/- 前缀着色，正文常规色 */
+.fe-plain .fe-diff-text { color: var(--color-text-primary, #e0e0e0); }
 
 .fe-no-diff { font-size: 11px; color: var(--color-text-tertiary); padding: 8px 4px; }
-
-.fe-timeline { display: flex; flex-direction: column; gap: 3px; }
-/* 分段链边界分隔行：⟂ 外部修改（虚线分隔 + 弱化着色） */
-.fe-ev-boundary {
-  font-size: 10px;
-  color: #b45309;
-  background: rgba(230, 168, 23, 0.07);
-  border-top: 1px dashed rgba(230, 168, 23, 0.45);
-  padding: 2px 4px;
-  margin: 1px -4px 0;
-  user-select: none;
-}
-.fe-ev { display: flex; align-items: center; gap: 8px; font-size: 11px; }
-/* 成功行可点击（查看该次编辑）：hover 底色 + active 选中态（左侧主色条） */
-.fe-ev:not(.fail) { cursor: pointer; border-radius: var(--radius-sm); padding: 1px 4px; margin: 0 -4px; }
-.fe-ev:not(.fail):hover { background: var(--color-bg-hover, rgba(0,0,0,0.04)); }
-.fe-ev.active { background: var(--color-primary-light); }
-.fe-ev-time { color: var(--color-text-tertiary); font-family: 'SF Mono', 'Cascadia Code', monospace; flex-shrink: 0; }
-.fe-ev-action { color: var(--color-text-secondary); }
-.fe-ev.fail .fe-ev-action { color: #ef4444; text-decoration: line-through; }
-.fe-ev-agent { margin-left: auto; color: var(--color-text-tertiary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
-.fe-ev-go { color: var(--color-text-tertiary); flex-shrink: 0; opacity: 0; transition: opacity 0.15s; }
-.fe-ev:not(.fail):hover .fe-ev-go, .fe-ev.active .fe-ev-go { opacity: 1; }
 
 .fe-shell-note { font-size: 11px; color: var(--color-text-tertiary); text-align: center; padding: 8px 4px; border-top: 1px dashed var(--color-border-light, #e5e7eb); flex-shrink: 0; }
 </style>
