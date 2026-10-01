@@ -736,4 +736,5 @@ export const REMOTE_DOWNLINK_EVENTS: readonly string[] = [
   'tool/started',
   'tool/progress',
   'tool/after-execute',
+  'session/run-settled',
 ];

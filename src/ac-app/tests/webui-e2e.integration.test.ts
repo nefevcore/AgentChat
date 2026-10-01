@@ -133,7 +133,7 @@ describe('M7 WebUI 服务面端到端', () => {
     const types = frames.map((f) => f.type);
     expect(types).toContain('loop/run-started');
     expect(types).toContain('loop/step-started');
-    expect(types).toContain('llm/delta'); // reasoning + delta + toolCalls 分流源
+    expect(types).toContain('llm/delta-batch'); // cr-85 微批：llm/delta 攒 30ms 窗口以 delta-batch 帧下发（前端 unpackWireFrames 解包）；reasoning + delta + toolCalls 分流源
     expect(types).toContain('tool/after-execute'); // 工具终值
     expect(types).toContain('loop/after-step'); // 步终值（含 toolCalls/toolResults）
     expect(types).toContain('loop/after-run'); // 边界广播

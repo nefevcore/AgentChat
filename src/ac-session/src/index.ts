@@ -795,6 +795,43 @@ export function stepsFromRunResult(
     .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
 }
 
+/**
+ * lite 视图投影（cr-95 D2 读投影单源化）：steps[].reasoning / toolCalls 的
+ * arguments/result 超长字段截断为摘要——移动端带宽瘦身（实测重会话 387KB
+ * 中 steps 占 98.7%）。原实现住 ac-web-api（cr-54/55），投影逻辑放错层曾
+ * 直接变异 records() 共享缓存对象污染 LLM 回放读侧（cr-55 病理）——现归
+ * 位数据拥有者：缓存纪律（逐层浅拷贝、零变异）与投影语义单一事实源。
+ * 传输层（web-api / remote-link）只透传 view 参数。
+ */
+export function liteProjectRecords(
+  records: readonly SessionRecord[],
+  fieldMax: number = 2 * 1024,
+): SessionRecord[] {
+  return records.map((rec) => {
+    if (rec.steps === undefined) return rec;
+    const newSteps = rec.steps.map((step) => {
+      let reasoning = step.reasoning;
+      if (typeof reasoning === 'string' && reasoning.length > fieldMax) {
+        reasoning = reasoning.slice(0, fieldMax) + '…[+' + (reasoning.length - fieldMax) + 'B 截断]';
+      }
+      const toolCalls = step.toolCalls?.map((tc): typeof tc & { resultTruncated?: boolean } => {
+        const next: typeof tc & { resultTruncated?: boolean } = { ...tc };
+        if (typeof tc.arguments === 'string' && tc.arguments.length > fieldMax) {
+          next.arguments = tc.arguments.slice(0, fieldMax) + '…[+' + (tc.arguments.length - fieldMax) + 'B 截断]';
+        }
+        const resultStr = JSON.stringify(tc.result);
+        if (resultStr.length > fieldMax) {
+          next.resultTruncated = true;
+          next.result = { truncated: true, size: resultStr.length, preview: resultStr.slice(0, 200) };
+        }
+        return next;
+      });
+      return { ...step, ...(reasoning !== undefined ? { reasoning } : {}), ...(toolCalls !== undefined ? { toolCalls } : {}) };
+    });
+    return { ...rec, steps: newSteps };
+  });
+}
+
 /** writer 队列（src SessionLogWriter 语义原样：按文件串行 + barrier + 失败回队首） */
 interface LogQueue {
   file: string;
@@ -1498,7 +1535,13 @@ export class SessionService extends Service {
 
     const prev = this.settleChain.get(conversationId) ?? Promise.resolve();
 
-    const next = prev.then(() => this.settleTail(conversationId, identities)).catch((err: unknown) => {
+    // D1 收敛信号（cr-94）：settleTail 完成（durable flush + journal 剔除）
+    // 后 emit——records() 读侧先排空在途 settleChain，事件先于任何后续
+    // records() 到达 = 数据必可见（构造保证）。失败路径不发（读侧仍有
+    // after-run 兜底重拉）。
+    const next = prev.then(() => this.settleTail(conversationId, identities)).then(() => {
+      this.ctx.emit('session/run-settled', conversationId, agentId, { runId: state.run });
+    }).catch((err: unknown) => {
       this.ctx.logger.warn(`[session] settlement 失败（${conversationId}）: ${String(err)}`);
 
     });
@@ -2495,7 +2538,7 @@ export class SessionService extends Service {
    * 回放持久化行（含 message_id/timestamp；M12 归档去重与审计的读取口）。
    * 不含概要头部——概要是压缩产物不是事实消息。与 history() 同：先排空在途队列。
    */
-  async records(conversationId: string, options: { subcalls?: boolean } = {}): Promise<SessionRecord[]> {
+  async records(conversationId: string, options: { subcalls?: boolean; view?: 'lite' } = {}): Promise<SessionRecord[]> {
     try {
       await this.flush(conversationId);
     } catch (err) {
@@ -2918,7 +2961,10 @@ export class SessionService extends Service {
     // 复用缓存行对象，投影不得变异它们）；同宿主的多次子调用按 seq 排序
     // 追加。默认不开（history() LLM 回放面纯净——子调用不进 provider
     // 上下文，KV 前缀不受污染）。
-    return this.injectSubcalls(visible, subcallLines, options);
+    const final = this.injectSubcalls(visible, subcallLines, options);
+    // lite 视图（cr-95 D2）：投影归位本包（liteProjectRecords）——传输层
+    // 只透传 view 参数；零变异纪律在此单点保证。
+    return options.view === 'lite' ? liteProjectRecords(final) : final;
   }
 
   /**

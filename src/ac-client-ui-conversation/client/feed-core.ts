@@ -382,7 +382,6 @@ export function createFeedCore(
     d.status = 'idle';
     d.streaming = false;
     d.historyFingerprint = undefined; // 重置（归档 compact/编辑后）：下次首屏强制全量
-    _settlementReload.delete(id);
     invalidateTurns(id);
     bump(id);
   }
@@ -423,18 +422,17 @@ export function createFeedCore(
    *  与之比对，不匹配即在途旧请求的迟到响应（快速切换/大历史量时响应到达序
    *  ≠ 发送序）——直接丢弃，防止旧分页被当作首屏合并进刚重置的分区。 */
   const _historyReq: Record<string, string> = {};
-  /** run 进行中做过历史首屏合并的分区（直播行 live-wins 保留，无
-   *  persistedMsgId）：run 收束后重拉首屏换权威收束行（吸收 partial、携带
-   *  全部结果与消息 id）。 */
-  const _settlementReload = new Set<DialogId>();
-  /** run 收束 → 延迟重拉首屏（500ms 让收束行 flush 落盘；期间新 run 开跑也
-   *  无害——合并自带 live-wins 对齐）。矩阵 pair（不含 viewer）走
-   *  loadPairHistory（对桶两端寻址），直答/single 走常规 loadHistory。 */
-  // gated=false（after-run 收束路径）：无条件重拉——一直开着的会话直播行
-  // 未经历过历史合并，不重拉就永远换不成权威收束行（persistedMsgId 缺失
-  // → 分支/编辑/删除按钮要刷新页面才出现，2026-09-21 分支功能反馈）。
-  function scheduleSettlementReload(dialogId: DialogId, conversationId: string | undefined, gated = true) {
-    if (gated && !_settlementReload.delete(dialogId)) return;
+  /** run 收束 → 重拉首屏。两驱动（cr-94 D1 收敛协议）：
+   *  · session/run-settled 事件（settlement durable 落盘后端确证）→ delay=0
+   *    即时重拉——构造保证下无赌窗；
+   *  · loop/after-run +500ms 兜底（事件丢失/旧后端/无 journal 直落 run）。
+   *  期间新 run 开跑也无害——合并自带 live-wins 对齐。矩阵 pair（不含
+   *  viewer）走 loadPairHistory（对桶两端寻址），直答/single 走常规
+   *  loadHistory。 */
+  // 无条件重拉（两驱动同覆盖面）：一直开着的会话直播行未经历过历史合并，
+  // 不重拉就永远换不成权威收束行（persistedMsgId 缺失 → 分支/编辑/删除
+  // 按钮要刷新页面才出现，2026-09-21 分支功能反馈）。
+  function scheduleSettlementReload(dialogId: DialogId, conversationId: string | undefined, delayMs = 500) {
     setTimeout(() => {
       const { kind, key } = parseDialogId(dialogId);
       if (kind === 'group') return;
@@ -445,7 +443,7 @@ export function createFeedCore(
         return;
       }
       loadHistory(dialogId, VIEWER_ID.value, agentKeyOf(dialogId), kind === 'single' ? key : undefined);
-    }, 500);
+    }, delayMs);
   }
   /** 历史加载（Port B 直连）：session/history RPC + 轮次 offset → 消息游标换算；
    *  响应处理复用 onHistory（stale 判定/首屏合并/resume 补合全保留）。
@@ -659,7 +657,6 @@ export function createFeedCore(
         });
       }
     }
-    if (liveRunInFlight) _settlementReload.add(dialogId); // 收束后重拉（收束行是权威）
     // 首屏未落盘 viewer 消息保护（2026-09-21 反馈 #1：新会话发送后切走再切回，
     // 用户消息丢失）：本地已上屏的 viewer 气泡若 incoming 中无同内容行
     // （后端 record+flushBestEffort 异步——首次 flush 前 records() 读不到），
@@ -2179,17 +2176,6 @@ export function createFeedCore(
         // 步终值时刻：仅活跃 Agent 的 run 置位（TokenGauge 等派生数据重取
         // 驱动——工具步在工具执行前到达，长工具运行中仪表即可刷新占用）
         if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }
-        // run_code 子调用对账（2026-09-21 反馈 #2）：步收口时存在无终值的
-        // subcall 卡（WS 抖动丢 after-execute / 串行链长阻塞）→ 经
-        // settlement 重拉补偿（journal/subcalls 投影已含真实结果）。
-        // 节流：每分区同 run 至多一次——重拉合并自带 live-wins 对齐，
-        // 后续步不再重复触发。
-        const dSub = dialogs.value[keys.dialogId];
-        if (dSub && dSub.streaming) {
-          const hasOpenSubcall = dSub.rawMessages.some((m: any) =>
-            m.role === 'tool' && m.subcall === true && (m.isStreaming || !m.content));
-          if (hasOpenSubcall) _settlementReload.add(keys.dialogId);
-        }
         return;
       }
       case 'loop/after-run': {
@@ -2214,7 +2200,23 @@ export function createFeedCore(
         // 收束后无条件重拉首屏（gated=false）：权威收束行替换 partial 检查点行
         // 与直播行，补 persistedMsgId 供分支/编辑/删除定位——不止覆盖「run 中
         // 做过历史合并」的分区（一直开着的会话同样需要换权威行）
-        scheduleSettlementReload(keys.dialogId, request?.conversationId, false);
+        scheduleSettlementReload(keys.dialogId, request?.conversationId);
+        return;
+      }
+      case 'session/run-settled': {
+        // D1 收敛信号（cr-94）：settlement 已 durable 落盘（后端确证——
+        // records() 读侧先排空在途 settleChain 再读，事件先于任何后续读
+        // 到达 = 权威行必可见）。即时重拉首屏（delay=0）；gated=false：
+        // 权威信号已确证落盘，未预登记（一直开着未合并）的分区同样需要
+        // 换权威行——与 after-run 兜底同覆盖面；两驱动幂等（fingerprint
+        // 短路 + requestId 守卫防乱序）。
+        const [conversationId, agentId] = args as [string | undefined, string | undefined];
+        if (!conversationId) return;
+        const agent = frameAgentId(agentId);
+        if (!isUserConversation(agent, conversationId)) return;
+        const keys = routeDialog(agent, conversationId);
+        if (!keys) return;
+        scheduleSettlementReload(keys.dialogId, conversationId, 0);
         return;
       }
       case 'session/context-injected': {

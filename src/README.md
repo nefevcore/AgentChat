@@ -294,7 +294,10 @@ ctx.group.send(gid, from, content)
 ac-conversation 的上下文 = 每 run 经 history 从文件重派生（2026-09-23 视图
 增量层退役——增量投影两次漂移后退役，S3 由构造保证）。
 
-run 周期走 **journal（partials.jsonl，2026-09-21 泛化）**：步行/注入行/直调补行
+run 收束的收敛信号 = `session/run-settled`（cr-94 D1：settlement durable 后
+emit，前端事件驱动重拉替代延时赌窗；ws-bridge/remote-link 双链路转发）。lite
+视图投影住 `liteProjectRecords`（cr-95 D2：归位 ac-session——`records({view:'lite'})`
+单源，传输层只透传参数，缓存零变异纪律单点）。run 周期走 **journal（partials.jsonl，2026-09-21 泛化）**：步行/注入行/直调补行
 
 按消费点真序落台账（messages.jsonl 在 run 期间静默——单一写面）；run 收束
 
@@ -330,7 +333,7 @@ run 周期走 **journal（partials.jsonl，2026-09-21 泛化）**：步行/注�
 | agents | `ac-agents/src/service.ts`（AgentConfig + settingsOf/displayNameOf + tierOf 档位单源） | `ac-agents/src/events.ts`（agents/updated） |
 | router | `ac-router/src/service.ts`（RouterInbound 信封） | `ac-router/src/events.ts`（router/*） |
 | conversation | `ac-conversation/src/contract.ts` | `ac-conversation/src/events.ts`（conversation/*） |
-| session | `ac-session/src/index.ts`（append/records/history/compact/setShelf） | —（积累订阅 router/* + conversation/steered） |
+| session | `ac-session/src/index.ts`（append/records/history/compact/setShelf） | `ac-session/src/events.ts`（session/context-injected · session/run-settled〔cr-94 D1 收敛信号——settlement durable 后 emit，前端事件驱动重拉〕；积累订阅 router/* + conversation/steered） |
 | group | `ac-group/src/contract.ts` + `view.ts`（`<msg>` 包装） | `ac-group/src/events.ts`（group/*） |
 | singles | `ac-singles/src/contract.ts`（引用 + 覆盖模型；fork 会话分支——消息切片经 session 服务方法拷贝） | `ac-singles/src/events.ts`（singles/updated） |
 | convSettings | `ac-conv-settings/src/contract.ts`（会话级覆盖域：model/elevation/toolMode/browserTier 内置键 + `registerKey` 注册制扩展键〔键域单源 isValid 校验；KeyDef grants = 值→等效能力标签，经 ac-agents `sessionCapsOf` 注入工具可见面〕） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
@@ -394,6 +397,7 @@ run 周期走 **journal（partials.jsonl，2026-09-21 泛化）**：步行/注�
 | `ac-timer-core` | 间隔解析/目标时间/5 模式标签/节假日（农历+调休）/时区 ISO/hint 模板 |
 | `ac-backup-core` | zip 打包/周期轮转/到期间隔（路径全显式） |
 | `ac-ws-protocol` | WS 帧编解码 + rpc/ack 控制帧 + 后台源判定 |
+| `ac-wire-format` | 下行线格式：llm/delta 瘦身投影 + 30ms 微批合帧（ws-bridge 与 remote-link 同源，cr-85） |
 | `ac-plugin-core` | manifest 校验/权限授予策略/契约版本兼容/staging 人审文件域/fsx 原子写/审计流水/保留字常量表/熔断存档/cordis.patch.yml 文件域 |
 | `ac-supervisor-core` | 42/78/0 退出码协议 + 退避熔断纯函数 + .runtime 单写者锁 |
 | `ac-skill-core` | SKILL.md frontmatter 解析/发现/`<available_skills>` 渲染/白名单过滤 |
@@ -872,6 +876,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | 分组 | 档案 |
 |---|---|
 | 总览 | `architecture-diagram.html`（架构图可视化） |
+| 消息链路 | **`message-pipeline-graph.html`（消息处理链路全景图谱——写路径/双存储/三读路径/前端合流四层泳道 + bug 窗口带 + 修复热点分层，cr-87）** · `message-pipeline-analysis.md`（根因分析——双管线无收敛协议为主根因，收敛协议/投影单源/feed-core 拆分三方向） |
 | 会话与 LLM 域 | `session-design.md`（域深设计事实源——消息定义/落盘/三种会话形态） |
 | WebUI | `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** |
 | 移动端与远程接入 | **`remote-client-relay-plan.md`（域总方案——B 路线唯一裁决；M4 可选批未实施）** · `remote-link-remaining-plan.md`（后续工作交接：P1 尾巴 + M3 实况索引 + M4 可选）· `remote-deliver-sender-ruling.md`（deliver 信封 sender=user 裁决，cr-78）· `mobile-ui-paradigm-plan.md`（移动端 UI 范式——Phase①② 落地，Phase③ 余项待真机验证轮）· `mobile-link-diagram.html`（三端一管道总览图，cr-51）· `mobile-handshake-sequence.html`（XK/KK 握手时序图，cr-62） |

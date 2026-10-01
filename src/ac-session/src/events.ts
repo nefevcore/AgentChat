@@ -30,6 +30,23 @@ declare module '@agentchat/cordis' {
       agentId: string,
       meta: { source: string; injectionId?: string; label?: string },
     ): void;
+
+    /**
+     * run settlement 物化完成通知（cr-94 D1 收敛协议）：提升批已 durable
+     * 落盘 + journal 剔除完成——此时刻起 records()/history() 必已可见
+     * 权威收束行/段行。前端据此事件驱动重拉首屏（替代 after-run 后
+     * 500ms 赌窗——直播行→权威行替换获得显式收敛信号）。
+     * 只在 journal settlement 路径发（enqueueSettlement 有物化对象）；
+     * 直落收束行（无 journal run）不发——读侧在 reply-completed 时已
+     * 可见（同同步入队）。载荷瘦身（不带正文/结果）。
+     * @mode emit
+     * @scope run
+     */
+    'session/run-settled'(
+      conversationId: string,
+      agentId: string,
+      meta: { runId: string },
+    ): void;
   }
 }
 

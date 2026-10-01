@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-81**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-97**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -99,3 +99,19 @@
 - 【cr-79 2026-10-01 设计档案整理：src/docs 根 27 份已收官过程文档（M1/M3 远程批次·LLM 域·系统提示词·记忆时间线·安全审计两轮·治理审查等）移入 archive/ 冻结区 + .dsh/tmp 两份真文档收编（实战 PoC 审计/M3 交接单）+ 源码注释与留守文档引用路径同步 + src/README.md 索引重写（修正 3 处过时状态·补登 4 份漏登） + archive/README.md 索引扩容】
 - 【cr-80 2026-10-01 手机端下拉刷新：webui-kit PullToRefresh 触屏原语 + 会话/Agent 列表接线（消息区上滑加载历史为既有行为，本轮确认覆盖）】
 - 【cr-81 2026-10-01 真机「连不上」排障三修（中继重部署后双端互等实锤）：① relay-connection handleWire 的 room-unavailable 拒帧不解除 expectOp('joined') 等待——房满被拒时白等满 15s 才进重试，撞门相遇窗被拉长 3~5 倍；拒帧即 resolve(false) 走既有 join failed 路径快速重试（pong 不碰等待者，防迟到回包误判）。② MainActivity 补 onStart 回前台自愈：ERROR 终态（重连超上限停摆）与切后台 stop() 后的 IDLE（原实现回前台无任何恢复路径，WebView 停死桥白屏 ERR_CONNECTION_REFUSED）由 onStart 显式 startAndLoad + resumeOnline 拉起——watchJob 活着时不重复拉（并发双 dial 同房会占满 2 席把对端关门外）。③ build.gradle 更新清单缺省地址 127.0.0.1:18080 → 生产下载面 47.110.63.135（本地联调残留，真机每次启动必检查失败）。契约测试 +3（拒答秒回/回归锁/pong 边界）】
+- 【cr-82 2026-10-01 远程 HTTP 桥透传缓存头 + 头像版本化 URL/ETag + workspace/raw 缓存头（手机端无 web 缓存根因修复）】
+- 【cr-83 2026-10-01 手机端已配对态重新扫码不显示 SAS 验证码——pairWith 前确保配对面板在位（sasView 归属面板，未建面板则 showSas 静默丢）】
+- 【cr-84 2026-10-01 手机端 Enter 换行（窄屏不拦截）+ PC 端 SAS 大数字显示退役（防盲确认被照抄削弱）】
+- 【cr-85 2026-10-01 下行线格式共享纯库 ac-wire-format：llm/delta 瘦身投影 + 30ms 合批，ws-bridge 与 remote-link 并源（手机端流式逐帧 MB 级载荷过 WAN 根修）】
+- 【cr-86 2026-10-01 文件编辑面板抬头工具化：折叠卡列表改单文件视图（文件下拉/版本下拉/上一下一版本/本地打开固定抬头）】
+- 【cr-87 2026-10-01 消息处理链路全景图谱（message-pipeline-graph.html：写路径/存储/三读路径/前端合流四层泳道 + 双源时序 bug 窗口 + 修复热点分层）与根因分析文档（message-pipeline-analysis.md：直播流与权威投影双管线合流缺收敛协议的结构性诊断）】
+- 【cr-88 2026-10-01 文件编辑面板：时间线退役（版本下拉+步进已覆盖入口）+ diff 区填满高度】
+- 【cr-89 2026-10-01 文件编辑面板：diff 自动换行开关（对齐预览页形态）+ 当前内容视图无 diff 着色】
+- 【cr-90 2026-10-01 文件编辑面板：diff 行三段分块（符号/行号/内容三列——对齐主流 diff 界形态）】
+- 【cr-91 2026-10-01 文件编辑面板：diff 三列成块——符号列着色/行号列分界线/行底色增强】
+- 【cr-92 2026-10-01 文件编辑面板：diff 三列解析容错 CRLF 行尾（\r 残留致正则失配全落 ctx 容错分支）】
+- 【cr-93 2026-10-01 文件编辑面板：diff 行底色三列统一（去割裂）+ ctx 正文灰改主色】
+- 【cr-94 2026-10-01 消息链路根修 D1 收敛协议：settlement 物化完成后 emit session/run-settled（载荷 conversationId/agentId），前端事件驱动重拉首屏替代 TURN_DONE_DELAY 300ms 赌窗（延时降级为兜底）——直播行→权威行替换获得显式收敛信号】
+- 【cr-95 2026-10-01 D2 读投影单源化：lite 截断投影自 ac-web-api 归位 ac-session（records 单源导出——web-api 传输层只剩参数透传，消除投影逻辑放错层的缓存污染类风险，cr-55 病理断根）】
+- 【cr-96 2026-10-01 cr-94/95 后续精简：_settlementReload 预登记集与 gated 参数判死清除（两驱动均无条件重拉后只写不读——全仓求证零消费方）；scheduleSettlementReload 签名收敛为 delay 单参】
+- 【cr-97 2026-10-01 模型提供商模板扩容：对齐 DSH（pi-ai 2026-07-25 目录）新增 12 提供方（含 anthropic 原生协议模板），修正 xai/glm-coding 失效默认模型】

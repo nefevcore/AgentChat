@@ -401,10 +401,18 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     // ——推理力度下拉（无/low/high/max）替代）
     const llmSchema = await settings.getLlmSchemas();
     expect(Object.keys(llmSchema).sort()).toEqual([
-      'anthropic', 'deepseek', 'fireworks', 'gemini', 'glm', 'glm-coding',
-      'glm-coding-plan', 'groq', 'minimax', 'mistral', 'moonshot', 'openai',
-      'openrouter', 'qwen', 'qwen-coding-plan', 'together', 'xai',
+      'ant-ling', 'anthropic', 'cerebras', 'deepseek', 'fireworks', 'gemini',
+      'github-copilot', 'glm', 'glm-coding', 'glm-coding-plan', 'groq',
+      'huggingface', 'kimi-coding', 'minimax', 'mistral', 'moonshot',
+      'moonshotai', 'nvidia', 'openai', 'opencode', 'opencode-go',
+      'openrouter', 'qwen', 'qwen-coding-plan', 'together',
+      'vercel-ai-gateway', 'xai', 'xiaomi', 'xiaomi-token-plan-cn',
     ]);
+    // 2026-10-01 扩容：无 OpenAI 兼容端点的网关以原生协议模板收录
+    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'kimi-coding')).toMatchObject({
+      baseUrl: 'https://api.kimi.com/coding',
+      protocol: 'anthropic',
+    });
     // GLM Coding Plan 模板（编程套餐独立端点；无 defaultModel——读取清单后取第一个）
     expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'glm-coding-plan')).toMatchObject({
       baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',

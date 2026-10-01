@@ -1853,14 +1853,27 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     const wdel = (await (await fetch(`${base}/api/workspaces/${w.workspace.id}`, { method: 'DELETE' })).json()) as { deleted: boolean };
     expect(wdel.deleted).toBe(true);
 
-    // 头像：上传 → 静态读取 → 删除 → 404
+    // 头像：上传（回版本）→ ETag 验证 304 → ?v= immutable → 删除 → 404（cr-82）
     const avForm = new FormData();
     avForm.append('file', new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }), 'avatar.png');
     const av = await fetch(`${base}/api/agents/a1/avatar`, { method: 'POST', body: avForm });
     expect(av.status).toBe(200);
+    const avJson = (await av.json()) as { success?: boolean; version?: string };
+    expect(avJson.success).toBe(true);
+    expect(avJson.version).toMatch(/^\d+:\d+$/);
     const avGet = await fetch(`${base}/api/agents/a1/avatar`);
     expect(avGet.status).toBe(200);
     expect(avGet.headers.get('content-type')).toContain('image/png');
+    expect(avGet.headers.get('cache-control')).toBe('no-cache');
+    const avEtag = avGet.headers.get('etag');
+    expect(avEtag).toBeTruthy();
+    // ETag 验证重协商：If-None-Match 命中 → 304 零字节（旧版为全量重传）
+    const av304 = await fetch(`${base}/api/agents/a1/avatar`, { headers: { 'if-none-match': avEtag! } });
+    expect(av304.status).toBe(304);
+    // 版本化 URL（agents/list avatarVersion 消费面）：immutable 长缓存头
+    const avV = await fetch(`${base}/api/agents/a1/avatar?v=${encodeURIComponent(avJson.version!)}`);
+    expect(avV.status).toBe(200);
+    expect(avV.headers.get('cache-control')).toContain('immutable');
     const avDel = (await (await fetch(`${base}/api/agents/a1/avatar`, { method: 'DELETE' })).json()) as { deleted: boolean };
     expect(avDel.deleted).toBe(true);
     expect((await fetch(`${base}/api/agents/a1/avatar`)).status).toBe(404);

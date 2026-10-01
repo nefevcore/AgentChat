@@ -191,6 +191,7 @@ describe('事件目录锁定（M25 P1）', () => {
       'router/message-received',
       'router/reply-completed',
       'session/context-injected',
+      'session/run-settled',
       'tool/after-execute',
       'tool/before-execute',
       'tool/progress',

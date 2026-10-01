@@ -791,9 +791,6 @@ export function apply(ctx: Context) {
 
   // ============ session：历史回放 / 删消息 / 归档触发 ============
 
-  // lite 视图字段截断上限（cr-54）：单字段超此长度截断为摘要
-  const LITE_FIELD_MAX = 2 * 1024;
-
   web.registerRpc('session/history', async (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
@@ -817,51 +814,18 @@ export function apply(ctx: Context) {
       }
     }
     // subcalls 投影（2026-09-17 方面 B）：UI 历史面开启——run_code 子调用
-    // 平铺进 steps[].toolCalls（subcall: true），前端复原完整工具卡
-    const all = await ctx.session.records(conversationId, { subcalls: true });
+    // 平铺进 steps[].toolCalls（subcall: true），前端复原完整工具卡。
+    // lite 视图（cr-95 D2）：投影归位 ac-session（liteProjectRecords——缓存
+    // 零变异纪律单点）；本层只透传 view 参数，传输层无投影逻辑。
+    const all = await ctx.session.records(conversationId, {
+      subcalls: true,
+      ...(p.view === 'lite' ? { view: 'lite' as const } : {}),
+    });
     const summary = ctx.session.summary(conversationId);
-    // page 必须是自有数组（lite 投影会替换元素；limit 未传时 all 直接来自
-    // records() 缓存的浅拷贝——替换其槽位 = 写缓存）。
     const page =
       limit === undefined
-        ? [...all]
+        ? all
         : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
-    // lite 视图（cr-54 远程瘦身）：steps[].toolCalls 的参数/结果截断为摘要——
-    // 实测重会话 387KB 中 steps 占 98.7%（run_code 轨迹全量传输）。移动端
-    // 打开时省带宽；truncated 标记让工具卡显示「截断」提示。桌面端不传
-    // view = 全量（默认行为零变化）。
-    if (p.view === 'lite') {
-      // records() 元素对象共享（解析缓存，约定调用方只读）——lite 截断是投影，
-      // 不得变异缓存：否则污染后续 full 请求与 history()（LLM 回放读侧）。
-      // 逐层浅拷贝后再截（cr-55；cr-54 首版直接变异是真机数据源污染缺陷，
-      // 由本测试的 full-after-lite 断言抓出）。
-      for (let ri = 0; ri < page.length; ri++) {
-        const rec = page[ri] as { steps?: Array<{ reasoning?: string; toolCalls?: Array<{ arguments?: string; result?: unknown }> }> };
-        if (!rec.steps) continue;
-        const newSteps = rec.steps.map((step) => {
-          // reasoning 同口径截断（cr-55）：实测残余大头 = steps[].reasoning
-          // （单步 6~7KB × 每轮 10+ 步），思考折叠卡纯文本渲染截断后缀可见。
-          let reasoning = step.reasoning;
-          if (typeof reasoning === 'string' && reasoning.length > LITE_FIELD_MAX) {
-            reasoning = reasoning.slice(0, LITE_FIELD_MAX) + '…[+' + (reasoning.length - LITE_FIELD_MAX) + 'B 截断]';
-          }
-          const toolCalls = step.toolCalls?.map((tc) => {
-            const next: Record<string, unknown> = { ...tc };
-            if (typeof tc.arguments === 'string' && tc.arguments.length > LITE_FIELD_MAX) {
-              next.arguments = tc.arguments.slice(0, LITE_FIELD_MAX) + '…[+' + (tc.arguments.length - LITE_FIELD_MAX) + 'B 截断]';
-            }
-            const resultStr = JSON.stringify(tc.result);
-            if (resultStr.length > LITE_FIELD_MAX) {
-              next.resultTruncated = true;
-              next.result = { truncated: true, size: resultStr.length, preview: resultStr.slice(0, 200) };
-            }
-            return next;
-          });
-          return { ...step, ...(reasoning !== undefined ? { reasoning } : {}), ...(toolCalls !== undefined ? { toolCalls } : {}) };
-        });
-        (page as unknown[])[ri] = { ...rec, steps: newSteps };
-      }
-    }
     const meta = ctx.session.statMeta(conversationId);
     return {
       conversationId,
@@ -910,10 +874,26 @@ export function apply(ctx: Context) {
     // 目录见 agents/presets。
     // hasAvatar：真有头像才置位——前端据此决定是否给头像 URL，无头像
     // 直接走 icon 占位，不再靠 <img> 404 探测回退（控制台噪音）
-    agents: ctx.agents.list().filter((a) => a.preset !== true).map((a) => ({
-      ...a,
-      hasAvatar: ctx.agentStore.avatarPath(a.id) !== undefined,
-    })),
+    agents: ctx.agents.list().filter((a) => a.preset !== true).map((a) => {
+      const file = ctx.agentStore.avatarPath(a.id);
+      return {
+        ...a,
+        hasAvatar: file !== undefined,
+        // avatarVersion（cr-82）：头像版本号（size:mtimeMs）——前端据此拼版本化
+        // URL，头像恒 immutable 长缓存，变更时换 URL 自动失效（上传时间戳机制退役）。
+        // 无头像时 undefined——hasAvatar=false 已表达缺席，双字段不重复表态。
+        ...(file !== undefined
+          ? (() => {
+              try {
+                const st = statSync(file);
+                return { avatarVersion: `${st.size}:${Math.floor(st.mtimeMs)}` };
+              } catch {
+                return {};
+              }
+            })()
+          : {}),
+      };
+    }),
   }));
 
   // 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；可选能力行——
@@ -2580,8 +2560,17 @@ export function apply(ctx: Context) {
     const context = readContext(call);
     try {
       const file = ctx.workspace.resolveFile(rel, context);
+      // 缓存（cr-82）：no-cache + ETag(size:mtimeMs) 验证——markdown 预览图片
+      // 等高频重复渲染资源命中 304 零字节重协商（远程桥路径同受益）。
+      const st = statSync(file);
+      const etag = `"wf-${st.size}-${Math.floor(st.mtimeMs)}"`;
+      if (call.req.headers['if-none-match'] === etag) {
+        call.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+        call.res.end();
+        return;
+      }
       const data = readFileSync(file);
-      call.res.writeHead(200, { 'content-type': guessContentType(file) });
+      call.res.writeHead(200, { 'content-type': guessContentType(file), 'cache-control': 'no-cache', etag });
       call.res.end(data);
     } catch {
       web.replyJson(call.res, 404, { error: '文件不存在或不可读' });
@@ -2635,8 +2624,11 @@ export function apply(ctx: Context) {
     const body = call.body as MultipartBody | undefined;
     if (!body?.files.file) return web.replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
     try {
-      ctx.agentStore.saveAvatar(call.params.agentId, body.files.file.data, extname(body.files.file.filename));
-      web.replyJson(call.res, 200, { success: true });
+      const saved = ctx.agentStore.saveAvatar(call.params.agentId, body.files.file.data, extname(body.files.file.filename));
+      // version（cr-82）：上传即回新版本（size:mtimeMs）——前端无须重拉名册
+      // 即可拼版本化 URL（与 agents/list 的 avatarVersion 同源同构）。
+      const st = statSync(saved);
+      web.replyJson(call.res, 200, { success: true, version: `${st.size}:${Math.floor(st.mtimeMs)}` });
     } catch (err) {
       web.replyJson(call.res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
@@ -2650,7 +2642,27 @@ export function apply(ctx: Context) {
     const file = ctx.agentStore.avatarPath(call.params.agentId);
     if (!file) return web.replyJson(call.res, 404, { error: '无头像' });
     try {
-      call.res.writeHead(200, { 'content-type': guessContentType(file), 'cache-control': 'no-cache' });
+      // 缓存（cr-82）双形态：
+      //   · ?v=<version>（version = size:mtimeMs，agents/list 注入）：URL 即身份
+      //     ——immutable 长缓存，命中即零请求（移动端体感主收益）；
+      //   · 无 v（旧前端/直连）：no-cache + ETag 验证——每次回源但命中 304，
+      //     零字节重协商（旧版为全量 body 重传）。
+      const s = statSync(file);
+      const etag = `"av-${s.size}-${Math.floor(s.mtimeMs)}"`;
+      if (call.query.get('v') !== null) {
+        call.res.writeHead(200, {
+          'content-type': guessContentType(file),
+          'cache-control': 'public, max-age=31536000, immutable',
+        });
+        call.res.end(readFileSync(file));
+        return;
+      }
+      if (call.req.headers['if-none-match'] === etag) {
+        call.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+        call.res.end();
+        return;
+      }
+      call.res.writeHead(200, { 'content-type': guessContentType(file), 'cache-control': 'no-cache', etag });
       call.res.end(readFileSync(file));
     } catch {
       web.replyJson(call.res, 404, { error: '头像读取失败' });

@@ -231,6 +231,11 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   // label/来源（正文瘦身纪律）；前端渲染事件分隔行。
   fwd('session/context-injected', (conversationId, agentId, meta) =>
     forward('session/context-injected', conversationId, agentId, meta));
+  // run settlement 物化完成（cr-94 D1 收敛协议）：前端事件驱动重拉首屏的
+  // 收敛信号——替代 after-run 后 500ms 赌窗。载荷瘦身（conversationId/
+  // agentId/runId），恒转发（重拉请求本身无流式内容，与边界事件同口径）。
+  fwd('session/run-settled', (conversationId, agentId, meta) =>
+    forward('session/run-settled', conversationId, agentId, meta));
   fwd('group/created', (group) => forward('group/created', group));
   fwd('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
   fwd('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));

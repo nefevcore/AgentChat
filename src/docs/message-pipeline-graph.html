@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentChat · 消息处理链路全景图谱</title>
+<style>
+:root { --bg:#0e1116; --panel:#151a23; --panel2:#1a2029; --line:#2a3242; --text:#d7dce4; --muted:#8b93a5; --faint:#5c6575; --amber:#f0b429; --cyan:#4dd4e8; --red:#ff6b6b; --green:#51cf66; --purple:#9775fa; --orange:#ffa94d; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; padding:28px 34px 80px; }
+header.top { max-width:1380px; margin:0 auto 10px; }
+h1 { font-size:25px; font-weight:650; letter-spacing:.5px; }
+h1 .en { color:var(--muted); font-weight:400; font-size:15px; margin-left:10px; }
+.subtitle { color:var(--muted); font-size:13.5px; margin-top:8px; line-height:1.75; max-width:1150px; }
+.subtitle code, .desc code, td code, li code, .wd code { color:var(--cyan); background:var(--panel2); padding:1px 6px; border-radius:4px; font-size:12px; }
+.stats { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+.stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 14px; font-size:12.5px; color:var(--muted); }
+.stat b { color:var(--text); font-size:15px; margin-right:5px; font-family:ui-monospace,Consolas,monospace; }
+main { max-width:1380px; margin:0 auto; }
+nav.tabs { display:flex; gap:6px; margin:22px auto 0; flex-wrap:wrap; }
+nav.tabs button { background:var(--panel); color:var(--muted); border:1px solid var(--line); border-radius:8px 8px 0 0; padding:9px 16px; font-size:13.5px; cursor:pointer; border-bottom:none; font-family:inherit; }
+nav.tabs button:hover { color:var(--text); }
+nav.tabs button.active { background:var(--panel2); color:#fff; border-color:#3a4456; }
+section.view { display:none; background:var(--panel); border:1px solid var(--line); border-radius:0 10px 10px 10px; padding:24px; }
+section.view.active { display:block; }
+h2 { font-size:17px; margin-bottom:6px; }
+.desc { color:var(--muted); font-size:13px; line-height:1.8; margin-bottom:18px; }
+.lanes { display:flex; flex-direction:column; gap:0; }
+.lane { display:grid; grid-template-columns:185px 1fr; border:1px solid var(--line); border-radius:10px; margin-bottom:10px; background:var(--panel2); overflow:hidden; }
+.lane-head { background:var(--panel); padding:14px 16px; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:4px; justify-content:center; }
+.lane-head .t { font-size:13.5px; font-weight:650; color:#fff; }
+.lane-head .s { font-size:11.5px; color:var(--muted); line-height:1.6; }
+.lane-head .pkg { font-family:ui-monospace,Consolas,monospace; font-size:11px; color:var(--cyan); }
+.lane-body { padding:14px; display:flex; align-items:center; gap:0; flex-wrap:wrap; }
+.node { border:1px solid var(--line); background:var(--panel); border-radius:9px; padding:9px 12px; font-size:12px; line-height:1.55; min-width:120px; max-width:200px; margin:3px 0; }
+.node b { display:block; font-size:12.5px; color:#fff; margin-bottom:2px; }
+.node .d { color:var(--muted); font-size:11px; }
+.node.write b { color:var(--orange); } .node.store b { color:var(--amber); } .node.read b { color:var(--cyan); } .node.front b { color:var(--purple); }
+.arrow { color:var(--faint); font-size:15px; padding:0 8px; flex-shrink:0; }
+.fork { display:flex; flex-direction:column; gap:8px; width:100%; padding-left:30px; }
+.fork-row { display:flex; align-items:center; flex-wrap:wrap; }
+.fork-label { font-size:11px; color:var(--amber); border:1px dashed var(--amber); border-radius:6px; padding:2px 8px; margin-right:8px; flex-shrink:0; }
+.window { border:1px solid #5c3a3a; background:rgba(255,107,107,.05); border-radius:10px; padding:14px 18px; margin:12px 0; }
+.window .wt { color:var(--red); font-size:13.5px; font-weight:650; margin-bottom:6px; }
+.window .wd { color:var(--muted); font-size:12.5px; line-height:1.8; }
+.window .cr { color:var(--amber); font-family:ui-monospace,Consolas,monospace; font-size:11px; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { text-align:left; color:var(--muted); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line); font-size:12px; }
+td { padding:8px 10px; border-bottom:1px solid #20262f; vertical-align:top; line-height:1.7; }
+tr:hover td { background:rgba(77,212,232,.03); }
+.tag { display:inline-block; border-radius:5px; padding:1px 7px; font-size:10.5px; font-weight:600; margin-right:4px; }
+.tag.root { background:rgba(255,107,107,.15); color:var(--red); border:1px solid rgba(255,107,107,.4); }
+.tag.hot { background:rgba(240,180,41,.15); color:var(--amber); border:1px solid rgba(240,180,41,.4); }
+.tag.fix { background:rgba(77,212,232,.12); color:var(--cyan); border:1px solid rgba(77,212,232,.35); }
+.tag.ok { background:rgba(81,207,102,.12); color:var(--green); border:1px solid rgba(81,207,102,.35); }
+.findings { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:12px; }
+.finding { background:var(--panel2); border:1px solid var(--line); border-left:3px solid var(--red); border-radius:10px; padding:14px 16px; }
+.finding.amber { border-left-color:var(--amber); } .finding.cyan { border-left-color:var(--cyan); } .finding.green { border-left-color:var(--green); }
+.finding h3 { font-size:13.5px; color:#fff; margin-bottom:6px; }
+.finding p { font-size:12.5px; color:var(--muted); line-height:1.8; }
+.finding .crs { margin-top:8px; font-size:11px; color:var(--faint); font-family:ui-monospace,Consolas,monospace; }
+.note { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:12px; color:var(--muted); line-height:1.8; margin:10px 0; }
+</style>
+</head>
+<body>
+<header class="top">
+<h1>消息处理链路全景图谱<span class="en">Message Pipeline Graph</span></h1>
+<div class="subtitle">一条消息从发送到渲染的完整生命周期：<b>写路径 → 双存储 → 三条读路径 → 前端合流</b>四层泳道。核心结构性发现：直播流（WS 事件）与历史投影（RPC）是<b>两条独立管线</b>，在前端 <code>feed-core.ts</code>（2315 行）内合流，但合流缺少「直播行 → 权威行」的收敛协议——只能靠 <code>mergeHistoryPage</code> 双键去重与 <code>TURN_DONE_DELAY</code> 延时补拉兜底（见 ③ Bug 窗口带）。依据：src/README.md 轨道事实源 + src/docs/cr-log.md 修复史 + 各包源码（cr-87 登记批）。配套分析：message-pipeline-analysis.md。</div>
+<div class="stats">
+<div class="stat"><b>4</b>层泳道</div>
+<div class="stat"><b>9</b>个包</div>
+<div class="stat"><b>7</b>处 bug 窗口</div>
+<div class="stat"><b>5</b>个结构结论</div>
+<div class="stat">feed-core <b>2315</b>行</div>
+</div>
+</header>
+<nav class="tabs">
+<button class="active" data-v="lanes">① 全景泳道</button>
+<button data-v="merge">② 合流点放大</button>
+<button data-v="bugs">③ Bug 窗口带</button>
+<button data-v="hot">④ 修复热点分层</button>
+<button data-v="findings">⑤ 结构结论</button>
+</nav>
+<main>
+<section class="view active" id="v-lanes">
+<h2>四层泳道：发送 → 落盘 → 读取 → 渲染</h2>
+<div class="desc">橙色 = 写路径、金色 = 存储、青色 = 读路径、紫色 = 前端。同一份消息数据在四层间以不同形态流转，每层各有自己的身份词表。</div>
+<div class="lanes">
+<div class="lane">
+<div class="lane-head"><span class="t">L1 · 写路径</span><span class="pkg">ac-agent-loop → ac-ws-bridge</span><span class="s">run 生命周期事件 + 流式 delta；桥接行做瘦身/合批/后台过滤</span></div>
+<div class="lane-body">
+<div class="node write"><b>deliver / steer</b><span class="d">ac-conversation 会话状态机（入口）</span></div><span class="arrow">→</span>
+<div class="node write"><b>agentLoop.run</b><span class="d">ReAct：step ×N → 收束</span></div><span class="arrow">→</span>
+<div class="node write"><b>llm/delta-*</b><span class="d">流式帧（30ms 微批 cr-85）</span></div><span class="arrow">→</span>
+<div class="node write"><b>loop/after-step / after-run</b><span class="d">步/轮收束事件</span></div><span class="arrow">→</span>
+<div class="node write"><b>ws-bridge</b><span class="d">帧 type = 事件名直转；后台 run 过滤</span></div>
+</div></div>
+<div class="lane">
+<div class="lane-head"><span class="t">L2 · 双存储</span><span class="pkg">ac-session</span><span class="s">journal 台账 + settlement 切段物化；run 期间主文件静默（单一写面）</span></div>
+<div class="lane-body">
+<div class="node store"><b>partials.jsonl</b><span class="d">journal：步行/注入行/tool 补行；run 期间唯一写面</span></div><span class="arrow">→</span>
+<div class="node store"><b>settlement 物化</b><span class="d">run 收束 → 切段提升进主文件；注入行 = 切分点</span></div><span class="arrow">→</span>
+<div class="node store"><b>messages.jsonl</b><span class="d">权威历史；收束行携带 message_id</span></div>
+</div></div>
+<div class="lane">
+<div class="lane-head"><span class="t">L3 · 三条读路径</span><span class="pkg">ac-session / ac-web-api / ac-remote-link</span><span class="s">同一存储、多种投影口径；口径漂移是历史 bug 的直接来源</span></div>
+<div class="lane-body">
+<div class="node read"><b>LLM history()</b><span class="d">每 run 上下文重派生；排除 partial 步行</span></div>
+<div class="fork">
+<div class="fork-row"><span class="fork-label">本地 webui</span>
+<div class="node read"><b>web-api session/history</b><span class="d">records() 活投影；fingerprint 短路</span></div><span class="arrow">→</span>
+<div class="node read"><b>viewer 投影</b><span class="d">pair/group/single 形态各异</span></div>
+</div>
+<div class="fork-row"><span class="fork-label">远程手机</span>
+<div class="node read"><b>remote-link forwardRpc</b><span class="d">钳 8 条/页 + 300KB 截断（cr-52）</span></div><span class="arrow">→</span>
+<div class="node read"><b>lite 投影</b><span class="d">steps/reasoning 摘要化（cr-54/55）</span></div><span class="arrow">→</span>
+<div class="node read"><b>Noise 加密帧</b><span class="d">下行 wire-format 合批（cr-85）</span></div>
+</div>
+</div></div></div>
+<div class="lane">
+<div class="lane-head"><span class="t">L4 · 前端合流</span><span class="pkg">ac-client-ui-conversation</span><span class="s">feed-core.ts 2315 行单体：帧路由 + ingest 状态机 + 历史分页 + 合并去重 + 未读 + 计时 + 归档标记</span></div>
+<div class="lane-body">
+<div class="fork">
+<div class="fork-row"><span class="fork-label">直播</span>
+<div class="node front"><b>onEvent 帧路由</b><span class="d">routeDialog 三关 + isUserConversation</span></div><span class="arrow">→</span>
+<div class="node front"><b>ingest 状态机</b><span class="d">run/step/delta 状态表</span></div><span class="arrow">→</span>
+<div class="node front"><b>rawMessages</b><span class="d">append-only；流式原地更新</span></div>
+</div>
+<div class="fork-row"><span class="fork-label">历史</span>
+<div class="node front"><b>session/history RPC</b><span class="d">首屏/分页/resume 快照</span></div><span class="arrow">→</span>
+<div class="node front"><b>mergeHistoryPage</b><span class="d">persistedMsgId+id 双键去重</span></div>
+</div>
+<div class="fork-row"><span class="fork-label">收束</span>
+<div class="node front"><b>TURN_DONE_DELAY</b><span class="d">+300ms 重拉首屏，换权威收束行</span></div><span class="arrow">→</span>
+<div class="node front"><b>buildTurns → 渲染</b><span class="d">useTurnDisplayItems → TranscriptList</span></div>
+</div>
+</div></div></div>
+</div>
+<div class="note">双源时序：直播行先到（无 <code>persistedMsgId</code>），权威行后到（收束 + settlement + 重拉）。两条管线之间没有事务性收敛协议，只有「去重合并 + 延时重拉」的组合兜底——见 ③。</div>
+</section>
+<section class="view" id="v-merge">
+<h2>合流点放大：feed-core 内的直播 ↔ 历史收敛</h2>
+<div class="desc">整条链路的窄腰，也是消息区 bug 的集中发生地。一个 turn 的生命周期跨越三套 ID 体系、两次合并、一次延时重拉。</div>
+<table>
+<tr><th style="width:130px">阶段</th><th>机制</th><th style="width:260px">ID / 锚点</th></tr>
+<tr><td>run-started</td><td>直播 ingest 开 run，建占位（streamAgent 兜底身份）</td><td>本地 uid()：<code>msg-时间戳-随机</code></td></tr>
+<tr><td>流式中</td><td>delta 帧原地更新同一条 rawMessage（对象身份稳定 → 增量渲染）</td><td>直播行无 persistedMsgId</td></tr>
+<tr><td>after-step</td><td>步行入 journal；前端 event 行过滤（liveEventIds 防重复）</td><td>journal 行 message_id</td></tr>
+<tr><td>after-run</td><td>settlement 切段物化；权威收束行落 messages.jsonl</td><td>收束行 message_id</td></tr>
+<tr><td><b>+300ms</b></td><td><b>TURN_DONE_DELAY 重拉首屏</b>——用权威行替换直播行</td><td>历史行 → persistedMsgId</td></tr>
+<tr><td>合并</td><td>mergeHistoryPage 双键去重：<code>persistedMsgId|id</code> 皆同才判重</td><td>双键 = 2026-09-21 修复</td></tr>
+<tr><td>渲染</td><td>buildTurns → stableKey（agent + 轮首 ts）→ TranscriptList</td><td>Vue key 稳定性</td></tr>
+</table>
+<div class="window" style="margin-top:14px">
+<div class="wt">⚠ 根本矛盾：时序竞态窗口无协议保障</div>
+<div class="wd">重拉首屏发生在 after-run 后 300ms，此时 settlement 是否已落盘、records() 是否已可见，前端无从得知——只能赌窗口够大。切换会话（resume 快照）、运行中加载历史、群消息包装投影，每处都要再叠加一层特判。③ 逐一标注这些窗口。</div>
+</div>
+</section>
+<section class="view" id="v-bugs">
+<h2>Bug 窗口带：双管线时序差的可观察后果</h2>
+<div class="desc">每处窗口都是「直播管线与权威管线对不上」的具体形态，按链路位置排序。</div>
+<div class="window"><div class="wt">W1 · 收束竞态（全局窗口）</div><div class="wd">300ms 延时重拉与 settlement 落盘竞速：慢机器/远程链路下重拉拿到旧数据 → 直播行换不成权威行（persistedMsgId 缺失 → 分支/编辑/删除不可用）。<span class="cr">cr-60</span>：resume 快照尾部追加越过 journal 活投影步——同族窗口。</div></div>
+<div class="window"><div class="wt">W2 · 步行锚点去重</div><div class="wd">多步轮步行共享收束行 message_id（同锚）但渲染 id 各异——单键去重把同轮第二条起的步行全部吞掉。2026-09-21 改双键 <code>persistedMsgId|id</code>。</div></div>
+<div class="window"><div class="wt">W3 · event 行重复投递</div><div class="wd">直播 event 行与历史 event 行同 message_id 重复渲染——liveEventIds 过滤（feed-core L615-629）为点补丁。</div></div>
+<div class="window"><div class="wt">W4 · 前缀复用过期 Turn</div><div class="wd">run 中后台 job 通知 event 行插入后工具卡永久转圈——turnContentSig 漏 tool result 长度，前缀复用了过期 Turn。<span class="cr">cr-61</span></div></div>
+<div class="window"><div class="wt">W5 · 孤儿 partial 行幻影回放</div><div class="wd">崩溃窗口的未收束 partial 行每轮活投进上下文诱发幻觉（78 行孤儿事故）。读侧 7 天闸门 + v6 迁移清除。<span class="cr">cr-44</span></div></div>
+<div class="window"><div class="wt">W6 · 恢复物化 agent_id 错根</div><div class="wd">recoverJournal 从桶键推导 agentId，singles 桶拿到桶键本身 ≠ 运行 Agent → 整轮丢失。<span class="cr">cr-45</span></div></div>
+<div class="window"><div class="wt">W7 · 双人格共桶锚串台</div><div class="wd">记忆锚检测扫桶内全部行不看 agent_id，双端点桶互相打掉基线无限震荡。<span class="cr">cr-46</span></div></div>
+<div class="note">同族先例（链路层，同构根因）：cr-52 大帧风暴、cr-78 桶键分裂、cr-85 两条下行链路各自为政——都是「同一数据多管线、口径靠约定不靠构造」的变体。</div>
+</section>
+<section class="view" id="v-hot">
+<h2>修复热点分层：CR 修复史的消息区足迹</h2>
+<div class="desc">按「结构性（根因）/ 时序缝合（治标）/ 表现层（合理）」分层。结构性条目集中在双管线合流点。</div>
+<table>
+<tr><th style="width:200px">条目</th><th style="width:80px">层级</th><th>判读</th></tr>
+<tr><td>feed-core.ts 2315 行单体</td><td><span class="tag root">结构</span></td><td>帧路由、ingest 状态机、历史合并、resume、未读、计时、归档标记七种关切合一文件——双管线合流逻辑无独立模块边界，修 bug 牵一发动全身</td></tr>
+<tr><td>双源无收敛协议</td><td><span class="tag root">结构</span></td><td>直播行→权威行替换靠 300ms 赌窗 + 双键去重兜底，无事件驱动的收敛确认</td></tr>
+<tr><td>三读路径口径漂移</td><td><span class="tag root">结构</span></td><td>LLM history() / web-api records() / remote lite 各自投影，一致性靠人工同步（cr-54/55 缓存污染即实例）</td></tr>
+<tr><td>TURN_DONE_DELAY = 300ms</td><td><span class="tag hot">缝合</span></td><td>对慢速环境的竞态赌注；远程形态实际靠钳页 + 截断回避</td></tr>
+<tr><td>resume 快照合并特判</td><td><span class="tag hot">缝合</span></td><td>会话切换身份匹配 + mergeResumeSnapshot——W1 的变体补丁（cr-60）</td></tr>
+<tr><td>liveEventIds 过滤</td><td><span class="tag hot">缝合</span></td><td>W3 的点补丁；每多一种带 message_id 的行都要记得再加一类过滤</td></tr>
+<tr><td>双键去重</td><td><span class="tag fix">修复</span></td><td>方向正确（尊重双 ID 体系），但双 ID 体系本身即结构症状</td></tr>
+<tr><td>fingerprint 短路</td><td><span class="tag fix">修复</span></td><td>性能优化，unchanged 语义干净，无正确性风险</td></tr>
+<tr><td>lite 投影 / 钳页截断</td><td><span class="tag fix">修复</span></td><td>远程体积治理有效；cr-55 缓存污染暴露「投影变异缓存」的边界模糊</td></tr>
+<tr><td>useChatShell 滚动引擎</td><td><span class="tag ok">健康</span></td><td>程序滚动对账（expectedScrollTop）设计良好，独立于数据层 bug</td></tr>
+<tr><td>ws-bridge 后台过滤</td><td><span class="tag ok">健康</span></td><td>run 级登记 + 逐帧判定混合形态，可审计</td></tr>
+</table>
+</section>
+<section class="view" id="v-findings">
+<h2>结构结论：为什么消息区「总是有些小问题」</h2>
+<div class="findings">
+<div class="finding"><h3>F1 · 双管线无收敛协议（主根因）</h3><p>直播事件流与权威历史投影是两条独立管线，最终视图 = 两者在前端的时序敏感合并。合流只靠「去重 + 300ms 延时重拉」，没有「权威行到达即替换」的收敛事件。W1~W4 全部是同一根因的不同切面：任一管线迟到、乱序、多投，视图即错位。</p><div class="crs">cr-60 · cr-61 · 双键去重 2026-09-21 · liveEventIds</div></div>
+<div class="finding amber"><h3>F2 · 三读路径口径漂移</h3><p>同一存储被 LLM history()、web-api records()、remote lite 三种口径读取，还有 viewer/pair/group/single 投影变体。口径一致性靠人工维护，cr-54/55 缓存污染、cr-78 桶键分裂、cr-45 agentId 错根都是漂移实例。</p><div class="crs">cr-54 · cr-55 · cr-78 · cr-45</div></div>
+<div class="finding amber"><h3>F3 · feed-core 单体承载合流</h3><p>2315 行同时是：帧路由、ingest 状态机、历史分页、resume 合并、未读持久化、run 计时、归档标记。七种关切耦合同一作用域，每次修复都在同一文件加特判——修复史显示同类问题在不同关切下反复出现。</p><div class="crs">行数分布：feed-core 2315 / chat-core 954 / fileEdits 800</div></div>
+<div class="finding cyan"><h3>F4 · 存储层设计是亮点</h3><p>journal / settlement / 切段物化三段式在崩溃恢复上证明了价值（cr-44/45 修的是「窗口外的意外」而非设计本身）。问题不在存储层，在存储之上的投影与合流层。</p><div class="crs">partials.jsonl 泛化 2026-09-21 · recoverJournal 惰性幂等</div></div>
+<div class="finding green"><h3>F5 · 部分补丁已是正确方向</h3><p>fingerprint 短路、双键去重、wire-format 并源（cr-85）都是向「构造保证」演进。架构方向可救——需要的不是重写，而是把合流协议显式化。</p><div class="crs">cr-85 · fingerprint · 双键去重</div></div>
+</div>
+</section>
+</main>
+<script>
+document.querySelectorAll("nav.tabs button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("nav.tabs button").forEach(function (x) { x.classList.remove("active"); });
+    document.querySelectorAll("section.view").forEach(function (x) { x.classList.remove("active"); });
+    b.classList.add("active");
+    document.getElementById("v-" + b.dataset.v).classList.add("active");
+  });
+});
+</script>
+</body>
+</html>
