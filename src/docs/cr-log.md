@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-103**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-107**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -121,3 +121,5 @@
 - 【cr-101 2026-10-01 移动端 webui 静态资源在线化（变体B）：http-bridge 放行 GET 静态路径 + 回环桥 serveStatic 代理核心端 + 失败回落本地 dist】
 - 【cr-102 2026-10-01 cr-101 完结：核心端 http/static RPC + 桥静态面在线代理（replyProxied 共源精简）+ 双侧测试 + README 同步】
 - 【cr-103 2026-10-01 cr-101 真机验证收口：dist 顶层白名单补 legacy-runtime.js/ui-plugin-iframe.html/md-preview-copy.js（index.html 与 iframe 档真实引用）+ 端到端实锤（标记注入 dist→手机桥命中→模拟发版杀 App 重启拉到 v2）】
+- 【cr-106 2026-10-02 mergeHistory 前缀对齐加身份门+空载门：悬挂 run 空占位窗内切回会话，用户落盘行不再被内容前缀互验误吸收进 Agent 占位（Agent 气泡镜像用户消息事故根修）；回归测试 4 例钉住门语义与 2026-09-21 #4 不回归】
+- 【cr-107 2026-10-02 会话前端收敛 checkpoint B+C：B·live 分区（流式/占位/未闭合工具行）历史重入禁指纹短路，切回时点=确定性收敛（服务端全量覆盖临时态）；C·悬挂流探针——streaming 分区静默3min 查 conversation/stats 权威判死活（判死关停+强制收敛/判活顺延/RPC 失败不定罪），发送看门狗触发即权威化；新增 convergeDialog 写口 + 回归测试；run 生命周期文档同步】

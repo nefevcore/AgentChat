@@ -364,6 +364,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       if (!hasLive) {
         d.streaming = false;
         turnInProgress.value = false;
+        // 收敛（cr-107 checkpoint-C）：看门狗触发 = 事件链断裂确证——关停
+        // 已由上文 streaming=false 完成，此处再拉权威首屏替换本地猜测
+        //（run 实际已在别处收束/被中断的窗口，临时态由服务端真相拉直）。
+        feed.convergeDialog(dialogId, true);
         setBusyFeedback('发送后长时间无响应（连接可能已中断），请重试或检查后端状态', 'error');
         if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
         busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 6000);

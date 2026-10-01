@@ -92,6 +92,13 @@ interface DialogFeed {
   runStartAt?: number;
   runAnchorMs?: number;
   runAnchorBackendTs?: number;
+  /**
+   * 最近一次分区活动时刻（cr-107 悬挂流探针基线；bump 刷新）：streaming
+   * 分区静默超阈（STREAM_STALE_PROBE_MS）→ 查 conversation/stats 权威
+   * 判死活——防收尾帧永远缺席的悬挂 run 把占位/忙态无限期残留
+   * （「临时态等收束」体系的逃生口）。
+   */
+  lastStreamAt?: number;
 }
 
 function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): DialogFeed {
@@ -304,6 +311,13 @@ export function createFeedCore(
   }
   function bump(id: DialogId) {
     _version.value = { ..._version.value, [id]: (_version.value[id] ?? 0) + 1 };
+    // 活动 ↔ 存活信号（cr-107 悬挂流探针）：分区任何变更刷新基线；流式中
+    // 的分区顺手挂探针（懒启动——每分区至多一个在途，fire 后按需重排）
+    const d = dialogs.value[id];
+    if (d) {
+      d.lastStreamAt = Date.now();
+      if (d.streaming) scheduleStaleProbe(id);
+    }
   }
   /** 结构性变更（增删/替换/截断/整体替换）→ 失效增量 turns memo，下次派生全量重建 */
   function invalidateTurns(id: DialogId) {
@@ -445,17 +459,95 @@ export function createFeedCore(
       loadHistory(dialogId, VIEWER_ID.value, agentKeyOf(dialogId), kind === 'single' ? key : undefined);
     }, delayMs);
   }
+
+  /** 收敛指定分区到服务端权威（cr-107 checkpoint-B/C 共用写口）：force =
+   *  禁用指纹短路（判死收敛必须拿到权威行；普通切回由 live 判定自动全量）。 */
+  function convergeDialog(id: DialogId, force = false): void {
+    const { kind, key } = parseDialogId(id);
+    if (kind === 'group') return; // 群分区内容源 = post 行，无 run 临时态
+    if (kind === 'pair' && !pairHasViewer(key)) {
+      const [a, b] = key.split('|');
+      void loadPairHistory(id, a, b); // 只读矩阵视角：直接重拉（无写口）
+      return;
+    }
+    loadHistory(id, VIEWER_ID.value, agentKeyOf(id), kind === 'single' ? key : undefined, force);
+  }
+
+  // ── 悬挂流探针（cr-107 checkpoint-C：「临时态等收束」的逃生口）──
+  // 体系内大量「先临时、后权威」过渡由 after-run / run-settled 重拉收口——
+  // 收尾帧永远缺席的悬挂 run（进程重启丢簿记 / 帧丢失无重连信号）会让占位
+  // 与忙态无限期残留（发送看门狗只救「无占位」形态，有占位恒判活）。
+  // 探针语义：streaming 分区静默超阈 → 查串行化门权威（conversation/stats
+  // 的 runs 登记表）。计时器只触发、不定罪：判活（慢 run）刷新基线顺延再
+  // 探；判死（登记表无此 run）关停全部临时态 + 强制收敛；RPC 失败不定罪
+  // （后端不可达与悬挂不可区分，恢复归重连链路）。single 分会依赖激活时
+  // 登记的目标 Agent（setSingleContext）——未登记键匹配不到至多误判死，
+  // 代价仅一次收敛重拉（下一步边界自愈）。
+  const STREAM_STALE_PROBE_MS = 180_000;
+  const _staleProbe = new Map<DialogId, ReturnType<typeof setTimeout>>();
+
+  function scheduleStaleProbe(id: DialogId): void {
+    if (_staleProbe.has(id)) return;
+    const timer = setTimeout(() => void onStaleProbeFire(id), STREAM_STALE_PROBE_MS);
+    (timer as unknown as { unref?: () => void }).unref?.(); // node 下不阻塞进程退出
+    _staleProbe.set(id, timer);
+  }
+
+  async function onStaleProbeFire(id: DialogId): Promise<void> {
+    _staleProbe.delete(id);
+    const d = dialogs.value[id];
+    if (!d || !d.streaming) return;
+    // 排程后又有活动（bump 刷新基线）→ 顺延到活动点起算的满阈值
+    const idleFor = Date.now() - (d.lastStreamAt ?? 0);
+    if (idleFor < STREAM_STALE_PROBE_MS) {
+      const timer = setTimeout(() => void onStaleProbeFire(id), STREAM_STALE_PROBE_MS - idleFor);
+      (timer as unknown as { unref?: () => void }).unref?.();
+      _staleProbe.set(id, timer);
+      return;
+    }
+    if (!isViewerDialog(id)) return; // 只读矩阵视角不探（无写口，刷新自愈）
+    const baseline = d.lastStreamAt; // stats 往返期间新活动 → 放弃本次定罪
+    let live = false;
+    try {
+      const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }> }>('conversation/stats');
+      const { kind, key } = parseDialogId(id);
+      const conv = kind === 'single' ? key : key.split('|').join('~'); // 对桶 tilde 形（pairDialog 构造时已排序）
+      live = (stats.running ?? []).some(r => r.agentId === agentKeyOf(id) && r.conversationId === conv);
+    } catch {
+      return; // 后端不可达：不定罪（悬挂与断网不可区分，重连链 owns 恢复）
+    }
+    const dd = dialogs.value[id];
+    if (!dd || !dd.streaming || dd.lastStreamAt !== baseline) return; // 等待期间已收尾/已新活动
+    if (live) {
+      dd.lastStreamAt = Date.now(); // 慢而活：基线重置，继续静默监听
+      scheduleStaleProbe(id);
+      return;
+    }
+    // 权威判死：关停全部临时态 + 强制收敛到服务端真相
+    closeAllStreaming(dd.rawMessages);
+    dd.streaming = false;
+    bump(id);
+    convergeDialog(id, true);
+  }
   /** 历史加载（Port B 直连）：session/history RPC + 轮次 offset → 消息游标换算；
    *  响应处理复用 onHistory（stale 判定/首屏合并/resume 补合全保留）。
    *  M19：直答会话键 = pairKey(viewer, to)（与后端边界同款推导）；single = sid。 */
-  function requestHistoryPage(to: string, session: string | undefined, srcOffset: number, reqId: string) {
+  function requestHistoryPage(to: string, session: string | undefined, srcOffset: number, reqId: string, force = false) {
     const base = historyPage(session, to, srcOffset);
     const conversationId = session ?? bucketKey(VIEWER_ID.value, to);
     // fingerprint 短路（2026-09-19）：首屏请求带分区现有指纹——文件未变时
     // 服务端 unchanged 轻载荷，本地分区原样保留（内容仍是最新：切走期间的
     // 新消息经 WS 直播帧持续路由进分区，不依赖历史通道）。
+    // 两条禁用短路（cr-107 checkpoint-B）：
+    //   · live 分区（流式中/占位/未闭合工具行）——unchanged 会原样保留可能
+    //     帧丢失的临时态（重连窗口漏扫/多端竞态），live 重入一律全量：切回
+    //     时点 = 确定性收敛点，服务端真相覆盖本地（对齐合并归 mergeHistory）；
+    //   · force（watchdog/悬挂探针判死后的收敛）——收敛请求必拿权威行。
     const fpDialogId = session ? singleDialog(session) : directDialog(to);
-    const fp = srcOffset === 0 ? dialogs.value[fpDialogId]?.historyFingerprint : undefined;
+    const fpd = srcOffset === 0 ? dialogs.value[fpDialogId] : undefined;
+    const livePartition = !!fpd && (fpd.streaming
+      || fpd.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content)));
+    const fp = fpd !== undefined && !force && !livePartition ? fpd.historyFingerprint : undefined;
     void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}) })
       .then((r) => {
         // 指纹命中：分区已是最新（status 回 ready；保留 rawMessages/未读）
@@ -505,7 +597,7 @@ export function createFeedCore(
       });
   }
 
-  function loadHistory(dialogId: DialogId, from: string, to: string, session?: string) {
+  function loadHistory(dialogId: DialogId, from: string, to: string, session?: string, force = false) {
     const d = ensureById(dialogId);
     d.status = 'loading';
     d.hasMore = false;
@@ -515,8 +607,8 @@ export function createFeedCore(
     const reqId = uid('histreq');
     _historyReq[key] = reqId;
     histReqSentAt.set(reqId, performance.now());
-    traceSwitch('req', `首屏 ${dialogId} reqId=${reqId.slice(-6)}`);
-    requestHistoryPage(to, session, 0, reqId);
+    traceSwitch('req', `首屏 ${dialogId} reqId=${reqId.slice(-6)}${force ? '（强制）' : ''}`);
+    requestHistoryPage(to, session, 0, reqId, force);
   }
   function loadMoreHistory(dialogId: DialogId) {
     const d = dialogs.value[dialogId];
@@ -644,10 +736,20 @@ export function createFeedCore(
           if (m.role === 'agent' && liveAgents.length > 0) {
             const histThinking = m.thinking ?? m.reasoning_content ?? '';
             const histBody = `${histThinking}\u0000${m.content}`;
-            const hit = histBody ? liveAgents.find(live => {
+            const hit = liveAgents.find((live) => {
+              // 身份门（2026-10-02 吸收事故）：中性格式下用户落盘行同为
+              // role:'agent'——身份不同的行永非「同一步」，内容前缀不得跨
+              // 身份吸收（用户正文灌进 Agent 占位 = Agent 气泡镜像用户消息）。
+              if (live.agent_id !== m.agent_id) return false;
+              // 空载门：占位先建、内容后到（step-started 先于首 delta），空占
+              // 位是任何历史行的前缀——互验在空载态退化为全域命中。两侧任一
+              // 无内容 = 无对齐证据，不吸收（宁重不丢，收束重拉兜底；stepId
+              // 键控路径不受此门约束——键即身份）。
+              if (!(live.thinking || live.reasoning_content || live.content)) return false;
+              if (!histThinking && !m.content) return false;
               const liveBody = `${live.thinking ?? live.reasoning_content ?? ''}\u0000${live.content}`;
               return liveBody.startsWith(histBody) || histBody.startsWith(liveBody);
-            }) : undefined;
+            });
             if (hit) {
               absorbLongerInto(hit, m);
               return false;
@@ -2369,7 +2471,7 @@ export function createFeedCore(
     // busy 排队发送回显登记（chat store 排队路径专用）
     registerQueuedSend, dropQueuedSend,
     // 历史
-    loadHistory, loadMoreHistory, mergeHistory,
+    loadHistory, loadMoreHistory, mergeHistory, convergeDialog,
     loadGroupHistory, loadOlderGroupHistory, loadPairHistory, loadOlderPairHistory,
     // 事件
     ingestFrame, init, handleResume: onSessionResume,
