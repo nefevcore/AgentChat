@@ -100,7 +100,7 @@ PairingQr.vue 已换 qrcode（npm）真码渲染（canvas，220px、静区 2 模
 | XK 载荷位置 | m1 载荷空；设备信息 JSON（name、pubkey）放 m3（加密段——设备公钥不以明文过 relay） | relay-connection.ts + loopback 客户端 |
 | KK 进房竞态 | relay 只转发实时帧——m1 早于对端入房即丢。发起方 3s 超时整链重试（新 dial 新握手新 e）；宿主端 kkRetries 上限 10 次、间隔 1s 重排 | 双侧 catch 路径 |
 | 业务帧 | op=frame 的 data 里 n + ct：n = 单调计数，ct = base64url AEAD 密文；载荷 JSON 与本地 WS 帧同构（type + data） | relay-connection.ts sendPayload |
-| RPC 往返 | 手机发 rpc/call（method、requestId、params），回 rpc/result；scopes 档 read/chat 白名单见服务端 | service.ts SCOPE_ALLOWED_METHODS |
+| RPC 往返 | 手机发 rpc/call（method、requestId、params），回 rpc/result；cr-105 起全放行（deliver 类强制 sender/user 改写 + 剥 elevation） | service.ts forwardRpc |
 | SAS | SHA256(handshake_hash) 前 4 字节转 8 位数字，两端显示比对 | sasFromHandshakeHash |
 | relay 控制帧 | join{room} 应 joined 或 room-unavailable；ping 应 pong（心跳兼保活） | ac-relay-server |
 

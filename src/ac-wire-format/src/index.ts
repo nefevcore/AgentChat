@@ -14,6 +14,8 @@
 //     慢消费端（WAN/移动网络）不再逐帧摊 RTT。
 // ============================================================
 
+export { createBridgeCatalog, type BridgeEvent, type BridgeCatalog, type CatalogDeps } from './bridge-events.ts';
+
 /** llm/delta 线帧的 input 投影（瘦身：剥 messages/tools 等全量上下文） */
 export function wireLlmInput(input: unknown): unknown {
   if (!input || typeof input !== 'object') return input;

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-107**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-108**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -121,5 +121,8 @@
 - 【cr-101 2026-10-01 移动端 webui 静态资源在线化（变体B）：http-bridge 放行 GET 静态路径 + 回环桥 serveStatic 代理核心端 + 失败回落本地 dist】
 - 【cr-102 2026-10-01 cr-101 完结：核心端 http/static RPC + 桥静态面在线代理（replyProxied 共源精简）+ 双侧测试 + README 同步】
 - 【cr-103 2026-10-01 cr-101 真机验证收口：dist 顶层白名单补 legacy-runtime.js/ui-plugin-iframe.html/md-preview-copy.js（index.html 与 iframe 档真实引用）+ 端到端实锤（标记注入 dist→手机桥命中→模拟发版杀 App 重启拉到 v2）】
+- 【cr-104 2026-10-02 手机端会话级设置全部静默失效根修：remote-link SCOPE_ALLOWED_METHODS 白名单自 M1 后未随 webui 功能面迭代同步——conv-settings/get|set|keys（工具模式/浏览器档/模型覆盖/实验键=工具栏设置本体）、singles/update（改名/挂工作区/模型）等会话写面不在任何档位，手机端 rpc 全被闸门拒且仅 console.error 静默；按语义归档补齐（conv-settings/get|keys 入 read、conv-settings/set 与 singles/update 入 chat——提权 elevation 剥除面不动）+ 闸门拒绝显性化（ChatInput 设置写入失败 toast）】
+- 【cr-105 2026-10-02 remote-link scopes 闸门退役（用户裁决：配对是本人扫码建立的信任，逐方法白名单是自我限制——M1 以来两次真实事故〔cr-66 空档黑屏、cr-104 设置静默失效〕皆因白名单未随功能面同步，机制负价值）：SCOPE_ALLOWED_METHODS/scopeAllows 删除、forwardRpc 不再按方法拒绝（保留 deliver 强制 sender/user + 剥 elevation——防伪造端点注入，非自我限制）、http 桥 GET-only 与静态路径白名单保留（桥层独立安全面）、sendToReadDevices 保留 read 档下行过滤（chat-only 设备不收明文事件——注册表既有字段语义不变）、scopes 字段落库保留（历史数据兼容，仅不再参与闸门）】
 - 【cr-106 2026-10-02 mergeHistory 前缀对齐加身份门+空载门：悬挂 run 空占位窗内切回会话，用户落盘行不再被内容前缀互验误吸收进 Agent 占位（Agent 气泡镜像用户消息事故根修）；回归测试 4 例钉住门语义与 2026-09-21 #4 不回归】
 - 【cr-107 2026-10-02 会话前端收敛 checkpoint B+C：B·live 分区（流式/占位/未闭合工具行）历史重入禁指纹短路，切回时点=确定性收敛（服务端全量覆盖临时态）；C·悬挂流探针——streaming 分区静默3min 查 conversation/stats 权威判死活（判死关停+强制收敛/判活顺延/RPC 失败不定罪），发送看门狗触发即权威化；新增 convergeDialog 写口 + 回归测试；run 生命周期文档同步】
+- 【cr-108 2026-10-02 远程下行事件面与 ws-bridge 并源（cr-105 同型走散第三现场根修，用户裁决「只防必要的，不防自己」）：REMOTE_DOWNLINK_EVENTS 13 事件白名单退役——桥接策略（过滤/整形/投影）从 ws-bridge 内联监听器抽出为共享目录 ac-wire-format BRIDGE_EVENTS（42 事件全量：群消息/决策卡/列表刷新/chat-error 等 29 种此前手机端静默缺失），ws-bridge 与 remote-link 同源消费，两链载荷同构（durable-interaction/opened 整形并源）；llm/delta 微批保留在各消费侧（性能机制）。同批：http-bridge 静态路径白名单退役为通用校验（仅挡目录逃逸与 URL 形态——GET-only 与主机钉死保留，cr-103「新 dist 文件忘加白名单真机 404」事故类别根除）】

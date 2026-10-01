@@ -38,7 +38,7 @@ export interface RemoteLinkStatus {
   pairing?: PairingSession | null;
 }
 
-/** remote-link RPC 面转发上下文（scopes 闸门判定用） */
+/** remote-link RPC 面转发上下文 */
 export interface RemoteCallContext {
   deviceId: string;
   scopes: RemoteScope[];

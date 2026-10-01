@@ -109,23 +109,22 @@ beforeAll(async () => {
 afterAll(() => { void new Promise<void>((r) => server.close(() => r())); });
 
 describe('路径与方法闸', () => {
-  it('非 /api/ 前缀且非静态白名单拒绝', async () => {
-    await expect(proxyToSelf(port, { path: '/etc/passwd' })).rejects.toThrow('only /api/');
-    await expect(proxyToSelf(port, { path: '/ws' })).rejects.toThrow('only /api/');
-  });
-
-  it('静态白名单路径放行（cr-101 变体B：webui dist 在线取用）', async () => {
-    for (const p of ['/', '/?x=1', '/index.html', '/logo.svg', '/assets/x.js', '/vendor/y.js']) {
+  // cr-108：顶层静态白名单退役——web-server 静态托管为唯一目标（404 由它回答），
+  // 桥只挡逃逸形态。GET-only 钉在注册处（http/read、http/static）。
+  it('静态路径全通（cr-108：新 dist 文件自动可达——cr-103 事故类别根除）', async () => {
+    for (const p of ['/', '/?x=1', '/index.html', '/logo.svg', '/assets/x.js', '/vendor/y.js',
+                     '/assets/a/b.js', '/data/x.json', '/legacy-runtime.js', '/ws']) {
       const r = await proxyToSelf(port, { path: p });
       expect(r.status).toBeGreaterThanOrEqual(200); // 过闸即有 HTTP 应答（404 也是应答）
     }
   });
 
-  it('白名单外的静态形态拒绝（越权路径探测）', async () => {
-    await expect(proxyToSelf(port, { path: '/secret.txt' })).rejects.toThrow('only /api/');
-    await expect(proxyToSelf(port, { path: '/assets/a/b.js' })).rejects.toThrow('only /api/');
-    await expect(proxyToSelf(port, { path: '/data/x.json' })).rejects.toThrow('only /api/');
-    await expect(proxyToSelf(port, { path: '/assets/../secret' })).rejects.toThrow('only /api/');
+  it('逃逸与畸形路径拒绝（SSRF/拼接逃逸防线不变）', async () => {
+    await expect(proxyToSelf(port, { path: '/assets/../secret' })).rejects.toThrow('remote http:');
+    await expect(proxyToSelf(port, { path: 'assets/x.js' })).rejects.toThrow('remote http:');
+    await expect(proxyToSelf(port, { path: 'https://evil.com/x' })).rejects.toThrow('remote http:');
+    // 注：/etc/passwd 等普通路径 = 静态面（打到 web-server 静态托管 404）——
+    // 主机钉死回环 + 目标是静态服务而非文件系统读取，无越权面（cr-108 裁决）。
   });
 
   it('index.html 缓存协商：If-None-Match 命中 → 304 零字节（免重装的核心收益）', async () => {

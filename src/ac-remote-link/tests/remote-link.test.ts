@@ -2,9 +2,9 @@
 // ac-remote-link 测试：
 //   · 身份密钥：首次生成落盘、重启（新实例同目录）加载同钥
 //   · 配对会话面：二维码 URI 形状 + 房间 id 合法（relay 正则）+ 重复开启幂等返回同会话
-//   · scopes 闸门：read 拒 deliver / chat 过 / 未知方法拒
+//   · RPC 转发全放行（cr-105：scopes 逐方法闸门退役；deliver 改写保留）
 //   · 注册表持久化：add → 新实例读回 → revoke 删除
-//   · 事件下行白名单：allowlist 外不单播
+//   · 事件下行：目录全量单播（cr-108 白名单退役）+ read 档过滤
 // 注：全链路 ws + Noise 握手的 e2e 由 noise-core 单测（XK/KK 往返）+
 //     relay 协议 e2e（scripts/relay-e2e.mjs 形态）分层覆盖；本文件聚焦服务面。
 // ============================================================
@@ -122,7 +122,8 @@ describe('配对会话面', () => {
 
   it('loader 归一化 defaultScopes=[] 仍落缺省档（cr-66：真机零权限黑屏）', async () => {
     // loader 路径行无 config → Config schema 归一化输出 { defaultScopes: [] }——
-    // 服务须把它当缺省而非显式零权限，否则配对设备全部 RPC 被闸门拒。
+    // 服务须把它当缺省而非显式零权限，否则配对设备落库空档（下行事件全被
+    // read 过滤拦掉，cr-105 后闸门虽退役、收流语义仍在）。
     await boot({ defaultScopes: [] });
     const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
     const dev = reg.upsertByPubkey(
@@ -130,18 +131,22 @@ describe('配对会话面', () => {
       () => 'dev-t1',
     );
     expect(dev.scopes).toEqual(['read', 'chat']);
-    expect(svc.scopeAllows(dev.scopes, 'ui/boot-graph')).toBe(true);
   });
 });
 
-describe('scopes 闸门', () => {
-  it('read 拒 deliver / chat 过 / 未知方法拒', async () => {
+describe('RPC 转发放行（cr-105：scopes 逐方法闸门退役）', () => {
+  it('任意方法穿通到 webServer.callRpc——不再按 scopes/方法拒绝', async () => {
     await boot();
-    const readDev = { id: 'd1', name: 'n', pubkey: 'k', scopes: ['read' as const], pairedAt: 0 };
-    const chatDev = { id: 'd2', name: 'n', pubkey: 'k', scopes: ['read' as const, 'chat' as const], pairedAt: 0 };
-    expect(svc.scopeAllows(readDev.scopes, 'conversation/deliver')).toBe(false);
-    expect(svc.scopeAllows(chatDev.scopes, 'conversation/deliver')).toBe(true);
-    expect(svc.scopeAllows(chatDev.scopes, 'unknown/method')).toBe(false);
+    const calls: Array<{ method: string; params: any }> = [];
+    (ctx.get('webServer') as { callRpc: (m: string, p?: unknown) => Promise<unknown> }).callRpc =
+      async (method, params) => { calls.push({ method, params }); return {}; };
+    const svcAny = svc as unknown as { forwardRpc(device: { id: string; scopes: string[] }, method: string, params: unknown): Promise<unknown> };
+    // 会话设置写面（cr-104 曾因不在白名单被拒，手机端静默失效）+ 未知方法 +
+    // 空档设备——全部穿通（后端 web-api 自带各 RPC 的参数校验与能力行守卫）
+    await svcAny.forwardRpc({ id: 'd1', scopes: [] }, 'conv-settings/set', { conversationId: 'a~b', patch: { toolMode: 'tc-programmatic' } });
+    await svcAny.forwardRpc({ id: 'd1', scopes: ['read'] }, 'singles/update', { id: 's1', title: 'x' });
+    await svcAny.forwardRpc({ id: 'd1', scopes: ['read', 'chat'] }, 'some/future-method', { ok: 1 });
+    expect(calls.map((c) => c.method)).toEqual(['conv-settings/set', 'singles/update', 'some/future-method']);
   });
 });
 
@@ -328,8 +333,8 @@ describe('KK 常住方模型（cr-70）', () => {
   });
 });
 
-describe('事件下行白名单', () => {
-  it('白名单内单播到在线设备、白名单外不发', async () => {
+describe('事件下行', () => {
+  it('目录事件单播到在线设备（cr-108：白名单退役，config/changed 等全量下行）', async () => {
     await boot();
     const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
     reg.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
@@ -342,9 +347,10 @@ describe('事件下行白名单', () => {
     const d0 = (got[0] as { data: { args: [{ deltas: unknown[][] }] } }).data.args[0].deltas;
     expect(d0).toHaveLength(1);
     expect(d0[0]![1]).toEqual({ delta: 'x' }); // 参数序 [input(投影), chunk, meta]
-    // 白名单外（配置变更/管理类）不下发远程
+    // cr-108：清单/过滤住共享目录（订阅侧 wire），broadcastEvent 只管批器与单播——
+    // config/changed 等此前白名单外事件经订阅侧照常到达（此处直验单播面本身全通）
     svc.broadcastEvent('config/changed', [{}]);
-    expect(got).toHaveLength(1);
+    expect(got).toHaveLength(2);
   });
 
   it('chat-only（无 read 档）设备不收下行明文流（cr-64：能发不能看）', async () => {
@@ -467,7 +473,7 @@ describe('远程应答尺寸兜底（cr-52：条数分页挡不住单轮超大�
 });
 
 describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方）', () => {
-  it('apply 后 emit 白名单事件 → 单播到在线设备', async () => {
+  it('apply 后 emit 目录事件 → 单播到在线设备（cr-108：与 ws-bridge 同一目录全量）', async () => {
     const ctx = new Context();
     ctx.provide('webServer', {
       registerRpc: () => {},
@@ -485,8 +491,11 @@ describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方
     expect(got).toHaveLength(1);
     expect((got[0] as { type: string }).type).toBe('llm/delta-batch');
 
-    // 非白名单事件即使被 emit 也不下行
+    // cr-108：白名单退役——config/changed（曾静默缺失类）与群消息同面下行
     (ctx.emit as (...a: unknown[]) => void)('config/changed', '/x');
-    expect(got).toHaveLength(1);
+    expect(got).toHaveLength(2);
+    expect((got[1] as { type: string }).type).toBe('config/changed');
+    (ctx.emit as (...a: unknown[]) => void)('group/message-posted', 'g1', { id: 'm1' });
+    expect(got).toHaveLength(3);
   });
 });

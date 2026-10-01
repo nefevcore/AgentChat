@@ -6,7 +6,8 @@
 //   · 设备注册表（known_devices.json：配对写入 / 吊销删除）；
 //   · 配对会话状态机（二维码 URI 生成 → XK 握手 → SAS 确认 → 注册）；
 //   · 出站 relay 连接管理（断线重连指数退避；常驻心跳懒拉起）；
-//   · 远程 RPC 转发（scopes 闸门 + deliver 强制 sender=remote:<id> 剥 elevation）；
+//   · 远程 RPC 转发（cr-105 起 scopes 逐方法闸门退役——全放行；保留 deliver 强制
+//     sender/user 改写与 elevation 剥除：防伪造端点，非自我限制）；
 //   · 事件下行（emit 面白名单订阅 → 加密单播在线设备）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
@@ -39,39 +40,11 @@ const PAIRING_TTL_MS = 5 * 60 * 1000;
 /** 远程应答单帧字节上限（cr-52：移动网络对大帧敏感——超限截断 records 由前端分页续拉） */
 const MAX_REMOTE_RESULT_BYTES = 300 * 1024;
 
-/**
- * RPC 方法档位表（read 档 = 纯查询面；chat 档 = 投递面）。
- * files 档 = HTTP 写面（M3.4 起，仍须显式开启）；admin 档白名单为空
- * （显式禁用，防误开——上游方案 §4.4）。
- */
-const SCOPE_ALLOWED_METHODS: Record<RemoteScope, string[]> = {
-  read: [
-    'agents/list', 'agents/presets', 'agents/tool-defs', 'tools/list', 'tags/catalog',
-    'conversation/stats', 'group/list', 'group/history', 'runs/snapshot', 'usage/tokens',
-    'goal/get', 'todo/get', 'skills/list', 'timer/list', 'timer/entries',
-    'session/history', 'session/tokens', 'singles/list',
-    'subagents/list', 'subagents/history', 'fileSnapshots/list', 'fileSnapshots/read-current',
-    'system/version-check', 'interaction/list',
-    // 远程 WebView 启动必需：行 client 半边装载图（低敏感——仅行名与平台；
-    // 无它则手机端 webui 装配第④步拿不到清单 → 白屏，M3.2 实测）
-    'ui/boot-graph',
-    // 宿主 HTTP 面（仅 GET：webui 的 /api/ui/*、/api/workspace/*、/api/workspaces
-    // 读面）——写面另属 files 档（见下）
-    'http/read',
-    // webui dist 静态面在线取用（cr-101 变体B）：GET 白名单路径，手机端免重装
-    'http/static',
-  ],
-  chat: [
-    'conversation/deliver', 'conversation/interrupt', 'conversation/queue',
-    'conversation/queue-remove', 'conversation/queue-steer',
-    'group/send', 'interaction/reply', 'runs/interrupt',
-  ],
-  // 显式开启才有：HTTP 写面（上传、工作区增删改）+ 未来的文件工具
-  files: ['http/write'],
-  admin: [],
-};
-
-/** deliver 类方法转发时的强制改写面（上游方案 §4.4：恒剥除提权通道） */
+/** deliver 类方法转发时的强制改写面（上游方案 §4.4：恒剥除提权通道。
+ * 闸门史：M1 曾按 scopes 逐方法白名单（SCOPE_ALLOWED_METHODS），cr-105 退役——
+ * 配对是本人扫码建立的信任，粒度权限是自我限制；两次真实事故（cr-66 空档黑屏、
+ * cr-104 会话设置静默失效）皆因白名单未随 webui 功能面同步。强制改写保留：
+ * 防「被夺/伪造设备」注入伪造端点（非自我限制），语义见 forwardRpc 注释。 */
 const DELIVER_METHODS = new Set(['conversation/deliver', 'group/send', 'interaction/reply']);
 
 export class RemoteLinkService extends Service {
@@ -551,11 +524,11 @@ export class RemoteLinkService extends Service {
     }
   }
 
-  // ============ RPC 转发（scopes 闸门 + elevation 剥除） ============
+  // ============ RPC 转发（cr-105：全放行；deliver 强制改写保留） ============
 
   /**
    * 远程设备发来的 rpc/call 帧的处理入口（relay-connection 解密后回调）。
-   * 闸门判定 → webServer.callRpc → 加密回帧。
+   * forwardRpc → webServer.callRpc → 加密回帧。
    */
   private handleDevicePayload(deviceId: string, payload: LinkPayload): void {
     if (payload.type !== 'rpc/call') {
@@ -603,12 +576,8 @@ export class RemoteLinkService extends Service {
     return r;
   }
 
-  /** scopes 闸门 + deliver 改写 + webServer.callRpc */
+  /** deliver 改写 + webServer.callRpc（cr-105：scopes 逐方法闸门退役——全放行） */
   private async forwardRpc(device: RemoteDevice, method: string, params: unknown): Promise<unknown> {
-    const allowed = this.scopeAllows(device.scopes, method);
-    if (!allowed) {
-      throw new Error(`remote: method "${method}" not allowed for device scopes [${device.scopes.join(',')}]`);
-    }
     let forwardParams = params;
     // 远程大应答止血（cr-52 真机实锤）：session/history 按记录条数分页挡不住
     // 「单轮超大」的会话（subcalls 投影展开后 50 条仍 1.28MB，移动网络必炸）。
@@ -646,11 +615,6 @@ export class RemoteLinkService extends Service {
     return webServer.callRpc(method, forwardParams);
   }
 
-  /** 档位判定单源（M1：read/chat 两档有白名单；files/admin 空 = 显式禁用） */
-  scopeAllows(scopes: RemoteScope[], method: string): boolean {
-    return scopes.some((scope) => (SCOPE_ALLOWED_METHODS[scope] as string[] | undefined)?.includes(method) === true);
-  }
-
   // ============ 下行事件单播 ============
 
   /**
@@ -673,7 +637,8 @@ export class RemoteLinkService extends Service {
   }
 
   broadcastEvent(type: string, args: unknown[]): void {
-    if (!REMOTE_DOWNLINK_EVENTS.includes(type)) return;
+    // cr-108：清单/过滤/整形住共享目录（ac-wire-format createBridgeCatalog——
+    // 订阅侧 index.ts 持实例先 wire 再入此），此处只管 delta 批器与单播。
     if (type === 'llm/delta') {
       this.deltaBatcher.push(args[0], args[1], args[2]);
       return;
@@ -682,10 +647,11 @@ export class RemoteLinkService extends Service {
     this.sendToReadDevices({ type, data: { args } });
   }
 
-  /** 单播全部 read 档在线设备（scopes 闸门单点） */
+  /** 单播全部 read 档在线设备 */
   private sendToReadDevices(frame: LinkPayload): void {
-    // scopes 过滤（cr-64 审计）：下行事件全是会话内容流（llm/delta、tool 轨迹等），
-    // chat-only（无 read 档）设备不应实时收明文——「能发不能看」的权限设计。
+    // read 过滤（cr-64 审计；cr-105 闸门退役后 scopes 仅存此语义）：下行事件全是
+    // 会话内容流（llm/delta、tool 轨迹等），chat-only（无 read 档）设备不应实时
+    // 收明文——「能发不能看」的权限设计。
     for (const [deviceId, conn] of this.connections) {
       const device = this.registry.get(deviceId);
       if (!device || !device.scopes.includes('read')) continue;
@@ -708,35 +674,7 @@ export class RemoteLinkService extends Service {
 
 declare module '@agentchat/cordis' {
   interface Context {
-    /** 远程链路服务（ac-remote-link 提供）：设备/配对/连接管理 + RPC 转发闸门 */
+    /** 远程链路服务（ac-remote-link 提供）：设备/配对/连接管理 + RPC 转发 */
     remoteLink: RemoteLinkService;
   }
 }
-
-/**
- * 下行事件白名单（照 ws-bridge 桥接面收敛——不新增词汇）。
- *
- * 单一事实源：订阅侧（index.ts 的 apply 订阅这些事件）与闸门侧
- * （broadcastEvent 再判一次）都读它——两处各写一份必然走散。
- *
- * 纪律：只收 emit 面。waterfall 事件（loop/transform-* 等）禁入——
- * 本表的订阅姿势是纯观察（不调 next），挂在 waterfall 上等于静默
- * veto 下游默认行为（transform-step/run 返 undefined → run 首步即
- * 炸、收束日志读 final.usage 抛错——2026-09-26 事故）。远程端需要
- * 的终值已由 after-step / after-run 携带。
- */
-export const REMOTE_DOWNLINK_EVENTS: readonly string[] = [
-  'router/message-received',
-  'router/reply-completed',
-  'loop/run-started',
-  'loop/step-started',
-  'loop/after-step',
-  'loop/after-run',
-  'llm/delta-start',
-  'llm/delta',
-  'llm/delta-end',
-  'tool/started',
-  'tool/progress',
-  'tool/after-execute',
-  'session/run-settled',
-];

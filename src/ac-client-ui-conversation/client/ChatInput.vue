@@ -12,7 +12,7 @@ import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { singleDialog } from './feed.ts';
-import { Avatar, Icon } from '@agentchat/webui-kit';
+import { Avatar, Icon, toastError } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
 import { parkDraft, takeDraft } from './draftParking.ts';
@@ -274,7 +274,7 @@ function selectWorkspace(id: string) {
   selWorkspace.value = id;
   if (!props.single) return;
   void singlesBoard?.updateSession(props.single.id, { workspaceId: id }).catch((err: any) => {
-    console.error('[ChatInput] 切换工作区失败:', err?.message);
+    toastError('工作区切换未保存：' + (err?.message ?? err));
     if (selWorkspace.value === id) selWorkspace.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
 }
@@ -319,7 +319,7 @@ function selectAgent(id: string) {
   saveComposePrefs({ agentId: id });
   if (!props.single) return;
   void singlesBoard?.updateSession(props.single.id, { agentId: id }).catch((err: any) => {
-    console.error('[ChatInput] 切换 Agent 失败:', err?.message);
+    toastError('预设切换未保存：' + (err?.message ?? err));
     if (selAgent.value === id) selAgent.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
 }
@@ -352,7 +352,7 @@ function selectModel(value: string) {
   saveComposePrefs({ model: value });
   if (props.single) {
     void singlesBoard?.updateSession(props.single.id, { model: value || null }).catch((err: any) => {
-      console.error('[ChatInput] 切换模型失败:', err?.message);
+      toastError('模型切换未保存：' + (err?.message ?? err));
       if (selModel.value === value) selModel.value = prev; // 失败回滚（仅当未被更新选择覆盖）
     });
     return;
@@ -363,6 +363,7 @@ function selectModel(value: string) {
   const conversationId = [VIEWER_ID.value, agentId].sort().join('~');
   if (!rpc) return;
   void rpc.call('conv-settings/set', { conversationId, patch: { model: value || null } }).catch((err: any) => {
+    toastError('模型覆盖未保存：' + (err?.message ?? err));
     console.error('[ChatInput] 会话模型覆盖失败:', err?.message);
     if (selModel.value === value) selModel.value = prev;
   });
@@ -520,7 +521,7 @@ function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
       store.setConvToolMode(v);
     })
     .catch((err: any) => {
-      console.error('[ChatInput] 工具调用模式写入失败:', err?.message);
+      toastError('工具模式未保存：' + (err?.message ?? err));
       if (toolMode.value === v) toolMode.value = prev; // 失败回滚
     });
 }
@@ -542,7 +543,7 @@ function selectBrowserTier(v: '' | 'observe' | 'manipulate' | 'inject' | 'disabl
       store.setConvBrowserTier(v); // bump 快照：browser 进/出工具面 → Token 估算固定开销重取
     })
     .catch((err: any) => {
-      console.error('[ChatInput] 浏览器档位写入失败:', err?.message);
+      toastError('浏览器档位未保存：' + (err?.message ?? err));
       if (browserTier.value === v) browserTier.value = prev; // 失败回滚
     });
 }
@@ -605,7 +606,7 @@ function selectExtKey(key: string, value: string) {
   if (!conversationId || !rpc) return;
   void rpc.call('conv-settings/set', { conversationId, patch: { [key]: value || null } })
     .catch((err: any) => {
-      console.error(`[ChatInput] 实验键 ${key} 写入失败:`, err?.message);
+      toastError(`实验设置未保存：${err?.message ?? err}`);
       extKeyValues[key] = prev; // 失败回滚（键此前不存在时回 undefined = 视同未覆盖）
     });
 }

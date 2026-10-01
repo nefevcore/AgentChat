@@ -9,7 +9,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { atomicWrite } from './identity.ts';
 
-/** 远程设备权限档（上游方案 §4.4；read/chat 默认，files/admin 显式开启） */
+/** 远程设备权限档（read/chat 默认）。cr-105 起不再参与 RPC 逐方法闸门——
+ * 仅存语义：下行事件流按 read 档过滤（chat-only 设备不收明文）。 */
 export type RemoteScope = 'read' | 'chat' | 'files' | 'admin';
 
 export const REMOTE_SCOPES: readonly RemoteScope[] = ['read', 'chat', 'files', 'admin'];

@@ -397,7 +397,7 @@ emit，前端事件驱动重拉替代延时赌窗；ws-bridge/remote-link 双链
 | `ac-timer-core` | 间隔解析/目标时间/5 模式标签/节假日（农历+调休）/时区 ISO/hint 模板 |
 | `ac-backup-core` | zip 打包/周期轮转/到期间隔（路径全显式） |
 | `ac-ws-protocol` | WS 帧编解码 + rpc/ack 控制帧 + 后台源判定 |
-| `ac-wire-format` | 下行线格式：llm/delta 瘦身投影 + 30ms 微批合帧（ws-bridge 与 remote-link 同源，cr-85） |
+| `ac-wire-format` | 下行线格式与桥接目录：llm/delta 瘦身投影 + 30ms 微批合帧（cr-85）+ 事件桥接策略目录 createBridgeCatalog——订阅清单/过滤/整形两链同源（cr-108） |
 | `ac-plugin-core` | manifest 校验/权限授予策略/契约版本兼容/staging 人审文件域/fsx 原子写/审计流水/保留字常量表/熔断存档/cordis.patch.yml 文件域 |
 | `ac-supervisor-core` | 42/78/0 退出码协议 + 退避熔断纯函数 + .runtime 单写者锁 |
 | `ac-skill-core` | SKILL.md frontmatter 解析/发现/`<available_skills>` 渲染/白名单过滤 |
@@ -667,10 +667,12 @@ src/
 │                            等）→ WS 帧（type=事件名直转）；后台会话过滤；群 hint
 │                            帧不广播（群内容唯一源 = group/message-posted）
 ├── ac-remote-link/          远程链路核心端行（ctx.remoteLink，M1）：出站 relay + Noise
-│                            E2E + 设备注册表 + 配对 + scopes 闸门 + http 桥（/api/* 与
-│                            GET 静态白名单——cr-101 变体B：手机端 webui 在线取核心端
-│                            dist，前端更新免重装 APK；断链回落壳内本地 dist）+
-│                            配对状态机（二维码/SAS）+ deliver 恒剥 elevation
+│                            E2E + 设备注册表 + 配对 + RPC 转发（cr-105 起全放行，
+│                            deliver 强制 sender/user + 剥 elevation 保留）+ 事件下行
+│                            （cr-108 与 ws-bridge 同源目录 ac-wire-format 全量镜像）
+│                            + http 桥（/api/* 通用转发 + 静态面通用校验——cr-101
+│                            变体B：手机端 webui 在线取核心端 dist，前端更新免重装
+│                            APK；断链回落壳内本地 dist）+ 配对状态机（二维码/SAS）
 ├── ac-noise-core/           Noise 协议纯库（零 cordis 依赖）：XK/KK 握手状态机 +
 │                            ChaCha20-Poly1305 帧封装 + SAS 派生（纯 node:crypto）
 ├── ac-client-ui-remote/     远程设备设置节前端行（P1）：设备列表/吊销 + 配对

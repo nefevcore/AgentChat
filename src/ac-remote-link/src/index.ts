@@ -16,8 +16,12 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import z from '@agentchat/schemastery';
-import { RemoteLinkService, REMOTE_DOWNLINK_EVENTS } from './service.ts';
+import { RemoteLinkService } from './service.ts';
 import { proxyToSelf, type HttpBridgeParams } from './http-bridge.ts';
+import { createBridgeCatalog } from 'ac-wire-format';
+import { isArchiveReviewRun } from 'ac-agent-loop';
+import { isGroupHint } from 'ac-core-utils';
+import { isBackgroundSender } from 'ac-ws-protocol';
 
 export const name = 'ac-remote-link';
 export const inject = ['webServer'];
@@ -48,7 +52,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'remote-link',
   label: '远程链路',
-  description: '出站 relay 连接 + Noise E2E + 设备注册表 + 配对 + scopes 闸门（remote-client-relay-plan §4.4）',
+  description: '出站 relay 连接 + Noise E2E + 设备注册表 + 配对（cr-105：RPC 面全放行，deliver 强制改写保留）',
   automatic: true,
 };
 
@@ -140,8 +144,8 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
 
   // ---- 宿主 HTTP 面转发（M3.4）----
   // 远程 WebView 的 /api/* 请求经此投回核心端自身 web-server（通用转发，非逐端点
-  // bridge——后者会持续追着 webui 新增端点跑）。读写拆成两个 method，直接复用
-  // 现有 scopes 闸门：http/read 属 read 档；http/write 属 files 档（读权限不该能写）。
+  // bridge——后者会持续追着 webui 新增端点跑）。cr-105 起 scopes 闸门退役，
+  // read/static 桥自带 GET-only 硬校验（方法闸在桥层，不依赖设备权限）。
   web.registerRpc('http/read', async (params) => {
     const p = httpParams(obj(params));
     if ((p.method ?? 'GET').toUpperCase() !== 'GET') {
@@ -152,9 +156,9 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
 
   // GET 静态面代理（cr-101 变体B）：webui dist 的在线取用——webui 更新后手机端
   // 免重装 APK，WebView 加载核心端最新 dist（缓存协商由 cacheHeaders 白名单承载，
-  // cr-82）。仅 GET，走 read 档（路径白名单见 http-bridge 的 isSafeStaticPath——
-  // 非 /api/ 且非白名单静态路径一律拒绝，不扩大攻击面）。与 http/read 分立两个
-  // method：静态面只回 GET 且行为面独立（后续如需限流/清单化有独立落点）。
+  // cr-82）。仅 GET（此处硬校验）；路径校验住 http-bridge safePath——/api/ = 动态面，
+  // 其余 = 静态面全通（cr-108 白名单退役），逃逸形态拒绝。与 http/read 分立两个
+  // method：静态面只回 GET 且行为面独立（后续如需限流有独立落点）。
   web.registerRpc('http/static', async (params) => {
     const p = httpParams(obj(params));
     if ((p.method ?? 'GET').toUpperCase() !== 'GET') {
@@ -167,13 +171,21 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
     proxyToSelf(await web.ready(), httpParams(obj(params))));
 
   // ---- 事件下行（会话流 → 远程设备）----
-  // 与 ws-bridge 同款姿势：ctx.on(emit 面) → 服务单播。白名单是单一事实源
-  // （service.ts 的 REMOTE_DOWNLINK_EVENTS）——订阅与闸门读同一份，不走散。
-  // 载荷统一 { args }（与前端帧同构，桥与 WebView 都不必理解各事件签名）。
-  for (const event of REMOTE_DOWNLINK_EVENTS) {
-    ctx.on(event as never, ((...args: unknown[]) => {
-      remote().broadcastEvent(event, args);
-    }) as never, { description: `远程下行：${event} → 在线设备（Noise 加密帧）` });
+  // cr-108 并源：订阅清单/过滤/整形与 ws-bridge 消费同一共享目录
+  // （ac-wire-format createBridgeCatalog——域判定经注入，域词汇住各域）。
+  // 13 事件白名单退役：手机端从此与桌面同面（群消息/决策卡/列表刷新等
+  // 29 种事件此前静默缺失）。delta 批器住 service（WAN 微批实例独立）。
+  const catalog = createBridgeCatalog({
+    isBackgroundSender,
+    isArchiveReviewRun,
+    isGroupHint,
+  });
+  for (const ev of catalog.events) {
+    ctx.on(ev.name as never, ((...args: unknown[]) => {
+      const wired = ev.wire ? ev.wire(args) : args;
+      if (wired === undefined) return;
+      remote().broadcastEvent(ev.name, wired);
+    }) as never, { description: `远程下行：${ev.name} → 在线设备（Noise 加密帧）` });
   }
 }
 

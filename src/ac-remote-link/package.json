@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "远程链路核心端行：出站 relay + Noise E2E + 设备注册表 + 配对 + scopes 闸门——remote-client-relay-plan §4.4 的 M1 实现",
+  "description": "远程链路核心端行：出站 relay + Noise E2E + 设备注册表 + 配对（cr-105 起 RPC 面全放行，deliver 强制改写保留）——remote-client-relay-plan §4.4 的 M1 实现",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -19,8 +19,11 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-noise-core": "workspace:*",
     "ac-wire-format": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

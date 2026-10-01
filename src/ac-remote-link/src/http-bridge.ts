@@ -14,14 +14,14 @@
 //     错误码），远程与本地行为不可能走散。
 //
 // 安全（远程可控输入的三道闸）：
-//   1. 只允许 /api/ 前缀 + GET 静态白名单路径（cr-101 变体B：静态面在线取用，
-//      白名单见 isSafeStaticPath；动态面在 /api/，静态默认仍由壳自带兜底）；
+//   1. /api/ 前缀 = 动态面；其余 = 静态面（cr-108：顶层白名单退役——web-server
+//      静态托管是唯一目标，新 dist 文件自动可达，逃逸形态仍拒）；
 //   2. 主机由**核心端自己**决定（127.0.0.1 + 自身监听口），远程无法指定目标
 //      ——从结构上排除 SSRF；
 //   3. 方法/路径里的任何 URL 形态（://、//）一律拒绝，防拼接逃逸。
 //
-// 方法 → 档位：GET 走 read 档；写方法走 files 档（见 index.ts 的注册与
-// service.ts 的 SCOPE_ALLOWED_METHODS）——读权限不该能写。
+// 方法面：read/static 两个 method 桥在注册处硬校验 GET-only（cr-105 起
+// scopes 档位闸退役——方法闸在桥层自身，不依赖设备权限）。
 // ============================================================
 
 /** 允许转发的 HTTP 方法（webui 实际用到的全集） */
@@ -59,31 +59,17 @@ export interface HttpBridgeResult {
   cacheHeaders?: Record<string, string>;
 }
 
-/** 可代理静态路径判定（cr-101 变体B）：GET 静态面单字顶级段白名单——
- *  webui dist 的实际顶层形态（index.html / assets / vendor / logo.svg 等），
- *  不含通配。仅限 GET（见 index.ts http/static 的方法闸）；/api/ 前缀仍走原路。 */
-const STATIC_TOP_DIRS = new Set(['assets', 'vendor', 'vendor-src']);
-// index.html 的直接引用（legacy-runtime.js 垫片）与运行时构造的 iframe 入口
-//（ui-plugin-iframe.html，isolated 插件档）必须放行；md-preview-copy.js 为
-// public 静态面成员保守放行。均为桌面 WebUI 本就可加载的文件，不扩大面。
-const STATIC_TOP_FILES = new Set([
-  'index.html', 'logo.svg', 'webui-version.txt', 'favicon.ico',
-  'legacy-runtime.js', 'md-preview-copy.js', 'ui-plugin-iframe.html',
-]);
+//（cr-108：顶层静态白名单 STATIC_TOP_DIRS/FILES 退役——cr-103「新 dist 文件忘加
+// 白名单真机 404」事故类别根除。GET-only 钉在注册处；web-server 静态托管为唯一
+// 目标，404 与否由它回答——桥只挡逃逸形态。）
 
-function isSafeStaticPath(raw: string): boolean {
-  const stripped = raw.replace(/^\/+/, '');
-  if (stripped === '' || stripped.startsWith('?')) return true; // 根入口（WebView 加载 /）
-  const segs = stripped.split('/');
-  return segs.length <= 2 && (STATIC_TOP_DIRS.has(segs[0] ?? '') || STATIC_TOP_FILES.has(segs[0] ?? ''));
-}
-
-/** 校验并规范出待转发的路径（失败即抛——错误信息对远程可见，故写明原因） */
+/** 校验并规范出待转发的路径（失败即抛——错误信息对远程可见，故写明原因）。
+ *  /api/ = 动态面；其余 = web-server 静态托管面（GET-only 由注册处钉死）。 */
 function safePath(raw: string): string {
-  if (!raw.startsWith('/api/') && !isSafeStaticPath(raw)) {
-    throw new Error('remote http: only /api/ paths are proxyable');
+  if (!raw.startsWith('/')) {
+    throw new Error('remote http: path must start with /');
   }
-  if (raw.includes('://') || raw.includes('\\')) {
+  if (raw.includes('://') || raw.includes('\\') || raw.split('/').includes('..')) {
     throw new Error('remote http: malformed path');
   }
   return raw;

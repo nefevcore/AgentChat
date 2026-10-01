@@ -6,24 +6,20 @@
 //
 //   · 桥接词汇：帧 type = 事件名直转（机器可读事件目录即协议目录）；
 //     帧载荷 { args: [...] }（事件参数序同名目录，前端按目录解构）
+//   · 桥接策略（订阅清单/过滤/整形）住 ac-wire-format 的 createBridgeCatalog
+//     （cr-108 并源：remote-link 下行链路消费同一目录——两链不再各自持清单走散）；
+//     本行注入域判定（isGroupHint/isBackgroundSender/isArchiveReviewRun——
+//     域词汇住各域包，纯库零域依赖）
 //   · waterfall 事件（before-*/transform-*）绝不桥——拦截链不是广播面
-//   · 后台会话过滤（2026-09-02 反馈精化——run 级判定，run-started 登记）：
-//     - 机制来源（source='event'）的 run 只在【自会话桶 a~a】与【归档
-//       整理（meta[archive-review]）】隐藏流式帧；用户可见会话里的机制
-//       唤醒（job 通知/插件回触/重载续跑）照常流式广播
-//     - 事件自带 source 载荷（llm/delta-* 的 meta、loop/step-* 的
-//       envelope）→ 逐帧独立判定（同一 run 的 source 恒定）
-//     - tool/after-execute 无 source 载荷 → 查 run 登记表
-//       （run-started 登记、after-run 清除——纯派生缓存，非业务状态）
-//     - 边界事件（run-started/after-run）不过滤（src 同款：前端渲染
-//       分隔符需要边界可见）
+//   · llm/delta 微批是本行性能机制（30ms 窗口，LlmDeltaBatcher）；remote 链路
+//     批器实例独立
 //   · 摘行即静默：桥接面消失，webServer 与事件源互不影响
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { isArchiveReviewRun } from 'ac-agent-loop';
 import { isGroupHint } from 'ac-core-utils';
 import { isBackgroundSender } from 'ac-ws-protocol';
-import { LlmDeltaBatcher, wireLlmInput } from 'ac-wire-format';
+import { LlmDeltaBatcher, LLM_DELTA_BATCH, createBridgeCatalog } from 'ac-wire-format';
 
 // 桥接面类型增强（type-only；运行时零依赖——只经 ctx.on 订阅）
 import type {} from 'ac-llm';
@@ -61,228 +57,52 @@ export interface WsBridgeRowOptions {
   backgroundFilter?: boolean;
 }
 
-/** run 边界登记 key（tool 级事件的 sender 兜底查询） */
-function runKey(agent: string | undefined, conversationId: string | undefined): string {
-  return `${agent ?? ''}|${conversationId ?? ''}`;
-}
-
 export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
-  const filterEnabled = options.backgroundFilter !== false;
-
-  /** run 寻址 key（run 级隐藏登记） */
-  function runKey(agent: string | undefined, conversationId: string | undefined): string {
-    return `${agent ?? ''}|${conversationId ?? ''}`;
-  }
-
-  /** 自会话桶判定（a~a 对角线）：定时自唤醒等机制 run 的隐藏面 */
-  function isSelfPairConversation(conversationId: string | undefined): boolean {
-    if (!conversationId || !conversationId.includes('~')) return false;
-    const [a, b] = conversationId.split('~');
-    return a === b;
-  }
-
-  /**
-   * run 级隐藏判定（2026-09-02 反馈修正）：机制来源（source='event'）的
-   * run 只在【自会话桶 a~a】与【归档整理（meta[archive-review]，维护 run）】
-   * 隐藏流式帧——其余机制唤醒（job 完成通知、插件回执回触、reload 续跑、
-   * ask_questions 晚到回答）如今都发生在用户可见会话（a⇋b / 群 / singles），
-   * 必须流式广播。此前按 source 一刀切隐藏：表现为"回执可见但 Agent 运行
-   * 隐形，不刷新看不到流式推理"。user/agent 来源恒可见（原语义不变）。
-   */
-  const isHiddenRun = (
-    source: string | undefined,
-    conversationId: string | undefined,
-    meta: Record<string, unknown> | undefined,
-  ): boolean => {
-    if (!filterEnabled) return false;
-    if (!isBackgroundSender(source)) return false;
-    if (isArchiveReviewRun(meta)) return true;
-    return isSelfPairConversation(conversationId);
-  };
-
-  /** run 级登记（run-started 判定一次；tool 级事件无 source 载荷查表；
-   *  未登记（桥接中途装载等）退回逐帧判定） */
-  const hiddenRuns = new Map<string, boolean>();
-  const hiddenOf = (
-    agent: string | undefined,
-    conversationId: string | undefined,
-    source: string | undefined,
-  ): boolean => hiddenRuns.get(runKey(agent, conversationId)) ?? isHiddenRun(source, conversationId, undefined);
+  const catalog = createBridgeCatalog({
+    isBackgroundSender,
+    isArchiveReviewRun,
+    isGroupHint,
+    backgroundFilter: options.backgroundFilter,
+  });
 
   // ---- 通用转发：帧载荷 { args: [...] } ----
-  const forward = (name: string, ...args: unknown[]) => {
+  const forward = (name: string, args: unknown[]) => {
     ctx.webServer.broadcast(name, { args });
   };
 
-  /** 统一桥接注册：ctx.on 包装——自动附监听器描述（事件视图叶节点/治理面透出）。
-   *  类型面 = Context['on'] 原签名（调用点保留事件名 → 监听器参数推断）。 */
-  const fwd: Context['on'] = ((name: unknown, listener: unknown) =>
-    ctx.on(name as never, listener as never, {
-      description: `WS 桥接：转发 ${String(name)} 为前端帧（后台会话过滤）`,
-    })) as Context['on'];
-
-  // ---- interaction wire 整形（M7 §二B：record → 前端友好形） ----
-  // ask_questions：payload.questions 上提为顶层 questions（已整形
-  // question/options[/multi]）；其余 kind 原样透传（含 payload）。帧载荷仍是
-  // { args: [wire] }——与全部业务帧同构。
-  interface WireQuestions {
-    questions: Array<{ question: string; options: string[]; multi?: boolean }>;
-  }
-  const interactionWire = (record: unknown): unknown => {
-    if (record === null || typeof record !== 'object') return record;
-    const r = record as Record<string, unknown>;
-    if (
-      r.kind === 'ask_questions' &&
-      r.payload !== null &&
-      typeof r.payload === 'object' &&
-      Array.isArray((r.payload as WireQuestions).questions)
-    ) {
-      const { payload, ...rest } = r;
-      void payload;
-      return { ...rest, questions: (r.payload as WireQuestions).questions };
-    }
-    return record;
-  };
-
-  // ============ L1 llm：流式细分（run 级隐藏登记查表，缺省逐帧判定） ============
-  // 帧载荷瘦身 + 微批（cr-85）：投影住 ac-wire-format 共享纯库（本行私有
-  // 实现已并源退役）；llm/delta 走 30ms 微批——帧量降一个数量级，慢消费端
-  // 不再逐帧摊发送开销（2026-09-05 OOM 事故的载荷放大类别从根上消除）。
-  // 频率有界的 llm/chat-error 维持直转（前端经 input.meta 路由，瘦身后无
-  // 独立 meta 参可回落）。
-  const deltaBatcher = new LlmDeltaBatcher((args) => forward('llm/delta-batch', args));
-  // 行卸载清空在途批（不丢帧）：disposer 经 ctx.effect 挂本行 fiber——注册即归属
+  // llm/delta 微批（cr-85）：30ms 窗口攒帧——帧量降一个数量级，慢消费端不再逐帧
+  // 摊发送开销（2026-09-05 OOM 事故的载荷放大类别从根上消除）。行卸载清空在途
+  // 批（不丢帧）：disposer 经 ctx.effect 挂本行 fiber——注册即归属。
+  const deltaBatcher = new LlmDeltaBatcher((args) => forward(LLM_DELTA_BATCH, [args]));
   ctx.effect(() => () => deltaBatcher.flushNow());
-  fwd('llm/chat-error', (input, error) => forward('llm/chat-error', input, error));
-  fwd('llm/delta-start', (input, meta) => {
-    if (hiddenOf(meta?.agent ?? input.meta?.agent, meta?.conversationId ?? input.meta?.conversationId, meta?.source ?? input.meta?.source)) return;
-    forward('llm/delta-start', wireLlmInput(input), meta);
-  });
-  fwd('llm/delta', (input, chunk, meta) => {
-    if (hiddenOf(meta?.agent ?? input.meta?.agent, meta?.conversationId ?? input.meta?.conversationId, meta?.source ?? input.meta?.source)) return;
+
+  // ---- 目录订阅（清单/过滤/整形住共享目录；delta 家族由批器接管） ----
+  for (const ev of catalog.events) {
+    if (ev.kind === 'delta') continue;
+    ctx.on(ev.name as never, ((...args: unknown[]) => {
+      const wired = ev.wire ? ev.wire(args) : args;
+      if (wired === undefined) return;
+      forward(ev.name, wired);
+    }) as never, { description: `WS 桥接：转发 ${ev.name} 为前端帧（后台会话过滤）` });
+  }
+
+  // delta 家族：start/end 边界直转（含批器清界），delta 本体进批器（wire 投影在批器内）
+  const deltaEv = catalog.events.find((e) => e.name === 'llm/delta');
+  ctx.on('llm/delta-start' as never, ((input: unknown, meta: unknown) => {
+    const wired = deltaEv?.wire?.([input, undefined, meta]);
+    if (wired === undefined) return;
+    forward('llm/delta-start', wired);
+  }) as never, { description: 'WS 桥接：转发 llm/delta-start 为前端帧' });
+  ctx.on('llm/delta' as never, ((input: unknown, chunk: unknown, meta: unknown) => {
+    const wired = deltaEv?.wire?.([input, chunk, meta]);
+    if (wired === undefined) return;
+    // 批器吃原始 (input, chunk, meta)——投影在其内部（首帧立即发的语义留在批器）
     deltaBatcher.push(input, chunk, meta);
-  });
-  fwd('llm/delta-end', (input, meta) => {
-    if (hiddenOf(meta?.agent ?? input.meta?.agent, meta?.conversationId ?? input.meta?.conversationId, meta?.source ?? input.meta?.source)) return;
+  }) as never, { description: 'WS 桥接：llm/delta 微批转发' });
+  ctx.on('llm/delta-end' as never, ((input: unknown, meta: unknown) => {
+    const wired = deltaEv?.wire?.([input, undefined, meta]);
+    if (wired === undefined) return;
     deltaBatcher.flushNow(); // 批与边界保序：end 前清空在途 delta
-    forward('llm/delta-end', wireLlmInput(input), meta);
-  });
-
-  // ============ 工具执行通知（无 sender 载荷 → run 登记表判定） ============
-  // 开始通知（2026-09-21 前端反馈 #2）：run_code 子调用平铺卡此前无 running
-  // 生命周期（终值到达才建卡）——串行链阻塞（approval 等待/长工具）时后续
-  // 子调用无终值即无卡，「堆积在 run_code 卡下不动」。tool/started 是
-  // ac-tools 在 before-execute waterfall 放行后 emit 的通知型事件（emit
-  // 面——before-execute 本体是拦截链不桥，见头注释纪律），此处与
-  // after-execute 同口径转发。
-  fwd('tool/started', (call) => {
-    if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
-    forward('tool/started', call);
-  });
-  fwd('tool/after-execute', (call, result, error) => {
-    if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
-    forward('tool/after-execute', call, result, error);
-  });
-  // 工具流式进度（M7）：与 after-execute 同一过滤语义（run 登记表）
-  fwd('tool/progress', (call, chunk) => {
-    if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
-    forward('tool/progress', call, chunk);
-  });
-
-  // ============ L2 loop：run 边界广播不过滤；step 级按 envelope ============
-  fwd('loop/run-started', (request) => {
-    hiddenRuns.set(runKey(request.agent, request.conversationId), isHiddenRun(request.source, request.conversationId, request.meta));
-    forward('loop/run-started', request);
-  });
-  fwd('loop/step-started', (agent, index, messages, envelope) => {
-    if (hiddenOf(agent, envelope?.conversationId, envelope?.source)) return;
-    forward('loop/step-started', agent, index, messages, envelope);
-  });
-  fwd('loop/after-step', (agent, step, envelope) => {
-    if (hiddenOf(agent, envelope?.conversationId, envelope?.source)) return;
-    forward('loop/after-step', agent, step, envelope);
-  });
-  fwd('loop/after-run', (request, result) => {
-    hiddenRuns.delete(runKey(request.agent, request.conversationId));
-    forward('loop/after-run', request, result); // 边界事件：隐藏 run 也广播
-  });
-
-  // ============ L3 router / conversation / group ============
-  // 群 hint 投递触发器不进前端（M26 同口径——ac-session 不入账/视图不投影）：
-  // 群内容唯一源 = group/message-posted 的 post 行。曾致前端等待群回复时把
-  // 逐成员 hint 信封渲染成 N-1 条 <msg>…</msg>[当前时间] 幽灵消息（刷新即
-  // 消失——与落盘历史无对应）。
-  fwd('router/message-received', (agentId, message, conversationId, sender, source, meta) => {
-    if (isGroupHint(meta)) return;
-    forward('router/message-received', agentId, message, conversationId, sender, source);
-  });
-  fwd('router/reply-completed', (agentId, text, result, conversationId, sender, source) =>
-    forward('router/reply-completed', agentId, text, result, conversationId, sender, source));
-  fwd('conversation/steered', (agentId, message, conversationId, handle, sender, source, meta) => {
-    if (isGroupHint(meta)) return; // 同上（busy 成员的群 hint steer 注入）
-    forward('conversation/steered', agentId, message, conversationId, handle, sender, source);
-  });
-  // next-turn 队列权威快照（排队 UI 数据面；载荷含 agentId+conversationId
-  // → 前端 routeDialog 分区路由，无需另设过滤）
-  fwd('conversation/queue-changed', (agentId, conversationId, handle, items) =>
-    forward('conversation/queue-changed', agentId, conversationId, handle, items));
-  // context 注入行落账通知（2026-09-21 前端反馈 #3）：流式运行期技能注入
-  //（load_skill 等）此前只在 journal，前端零感知——刷新才见。广播面只带
-  // label/来源（正文瘦身纪律）；前端渲染事件分隔行。
-  fwd('session/context-injected', (conversationId, agentId, meta) =>
-    forward('session/context-injected', conversationId, agentId, meta));
-  // run settlement 物化完成（cr-94 D1 收敛协议）：前端事件驱动重拉首屏的
-  // 收敛信号——替代 after-run 后 500ms 赌窗。载荷瘦身（conversationId/
-  // agentId/runId），恒转发（重拉请求本身无流式内容，与边界事件同口径）。
-  fwd('session/run-settled', (conversationId, agentId, meta) =>
-    forward('session/run-settled', conversationId, agentId, meta));
-  fwd('group/created', (group) => forward('group/created', group));
-  fwd('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
-  fwd('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));
-  // 群简介变更：description = string | undefined（undefined = 清空）
-  fwd('group/description-set', (groupId, description, group) =>
-    forward('group/description-set', groupId, description, group));
-  fwd('group/member-added', (groupId, agentId, group) =>
-    forward('group/member-added', groupId, agentId, group));
-  fwd('group/member-removed', (groupId, agentId, group) =>
-    forward('group/member-removed', groupId, agentId, group));
-  fwd('group/message-posted', (groupId, message) =>
-    forward('group/message-posted', groupId, message));
-
-  // ============ 持久化 / 任务 / 交互 ============
-  fwd('config/changed', (path) => forward('config/changed', path));
-  fwd('job/started', (job) => forward('job/started', job));
-  fwd('job/settled', (job) => forward('job/settled', job));
-  fwd('durable-interaction/opened', (payload) =>
-    forward('durable-interaction/opened', interactionWire(payload)));
-  fwd('durable-interaction/replied', (payload) => forward('durable-interaction/replied', payload));
-  fwd('durable-interaction/closed', (payload) => forward('durable-interaction/closed', payload));
-  // ============ M7：归档完成 / Agent 档案变更 ============
-  fwd('archive/completed', (payload) => forward('archive/completed', payload));
-  fwd('agents/updated', (config, change) => forward('agents/updated', config, change));
-  // ============ M18-G：独立会话元数据变更（前端 singles 列表刷新） ============
-  fwd('singles/updated', (meta, action) => forward('singles/updated', meta, action));
-  // 子 Agent 变更（2026-09-22 持久化清单主源化：前端子Agent 清单/徽章刷新——
-  // 对齐 singles/updated 取值链）
-  fwd('subagents/updated', (info, action) => forward('subagents/updated', info, action));
-  // ============ 远程设备面（M3.4 尾巴：实时刷新替代 2s 轮询） ============
-  // 设备页此前靠 RemoteDevices.vue 每 2s 轮询 remote/devices；四条事件上线后
-  // onEvent 驱动刷新（轮询降频为兜底）。载荷即事件原参——前端无需再拉一次。
-  fwd('remote/device-paired', (device) => forward('remote/device-paired', device));
-  fwd('remote/device-revoked', (deviceId, device) =>
-    forward('remote/device-revoked', deviceId, device));
-  fwd('remote/device-online', (deviceId) => forward('remote/device-online', deviceId));
-  fwd('remote/device-offline', (deviceId, reason) =>
-    forward('remote/device-offline', deviceId, reason));
-
-  // ============ M13：插件域 / Web UI 域 ============
-  // cr-20：installed/reloaded/catalog-changed 三事件并 plugin/updated（订阅面
-  // 完全重合，消费方一律 refetch——载荷最小形 {name, error?} + action）
-  fwd('plugin/updated', (payload, action) => forward('plugin/updated', payload, action));
-  fwd('webui/extensions-changed', (payload) => forward('webui/extensions-changed', payload));
-  // M27 S3：boot graph 变更（行装载/卸载——前端装载器 debounce 重拉 diff）
-  fwd('webui/boot-graph-changed', (name) => forward('webui/boot-graph-changed', name));
-
-  // ============ M17：系统重启受理通知 ============
-  fwd('system/restarting', (reason) => forward('system/restarting', reason));
+    forward('llm/delta-end', wired);
+  }) as never, { description: 'WS 桥接：转发 llm/delta-end 为前端帧' });
 }
