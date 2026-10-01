@@ -57,6 +57,31 @@ beforeAll(async () => {
         res.end(Buffer.alloc(MAX_PROXY_BODY_BYTES + 1, 7));
         return;
       }
+      // 静态面（cr-101 变体B）：模仿 web-server 静态行为——index.html 带 ETag 可
+      // 重协商（304 零字节），assets/* immutable 长缓存（增量更新的全部前提）
+      if (req.url === '/index.html' || req.url === '/') {
+        if (req.headers['if-none-match'] === '"idx-1"') {
+          res.writeHead(304, { etag: '"idx-1"' });
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          etag: '"idx-1"',
+ 'cache-control': 'no-cache',
+        });
+        res.end('<html>ok</html>');
+        return;
+      }
+      if (req.url?.startsWith('/assets/')) {
+        res.writeHead(200, {
+          'content-type': 'application/javascript',
+          etag: '"a1"',
+          'cache-control': 'public, max-age=31536000, immutable',
+        });
+        res.end('console.log(1)');
+        return;
+      }
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end('{"error":"nope"}');
     });
@@ -84,9 +109,37 @@ beforeAll(async () => {
 afterAll(() => { void new Promise<void>((r) => server.close(() => r())); });
 
 describe('路径与方法闸', () => {
-  it('非 /api/ 前缀拒绝', async () => {
+  it('非 /api/ 前缀且非静态白名单拒绝', async () => {
     await expect(proxyToSelf(port, { path: '/etc/passwd' })).rejects.toThrow('only /api/');
     await expect(proxyToSelf(port, { path: '/ws' })).rejects.toThrow('only /api/');
+  });
+
+  it('静态白名单路径放行（cr-101 变体B：webui dist 在线取用）', async () => {
+    for (const p of ['/', '/?x=1', '/index.html', '/logo.svg', '/assets/x.js', '/vendor/y.js']) {
+      const r = await proxyToSelf(port, { path: p });
+      expect(r.status).toBeGreaterThanOrEqual(200); // 过闸即有 HTTP 应答（404 也是应答）
+    }
+  });
+
+  it('白名单外的静态形态拒绝（越权路径探测）', async () => {
+    await expect(proxyToSelf(port, { path: '/secret.txt' })).rejects.toThrow('only /api/');
+    await expect(proxyToSelf(port, { path: '/assets/a/b.js' })).rejects.toThrow('only /api/');
+    await expect(proxyToSelf(port, { path: '/data/x.json' })).rejects.toThrow('only /api/');
+    await expect(proxyToSelf(port, { path: '/assets/../secret' })).rejects.toThrow('only /api/');
+  });
+
+  it('index.html 缓存协商：If-None-Match 命中 → 304 零字节（免重装的核心收益）', async () => {
+    const miss = await proxyToSelf(port, { path: '/index.html' });
+    expect(miss.status).toBe(200);
+    expect(miss.cacheHeaders?.etag).toBe('"idx-1"');
+    expect(miss.cacheHeaders?.['cache-control']).toBe('no-cache');
+    const hit = await proxyToSelf(port, { path: '/index.html', ifNoneMatch: '"idx-1"' });
+    expect(hit.status).toBe(304);
+  });
+
+  it('assets/* immutable 长缓存头透传（增量更新的前提）', async () => {
+    const r = await proxyToSelf(port, { path: '/assets/x.js' });
+    expect(r.cacheHeaders?.['cache-control']).toBe('public, max-age=31536000, immutable');
   });
 
   it('URL 形态（绝对地址/反斜杠）拒绝——防拼接逃逸', async () => {

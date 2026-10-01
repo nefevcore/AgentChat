@@ -1,9 +1,10 @@
 // ============================================================
 // M3.2 回环桥测试：与 ac-web-server 线上协议同构性（无需 Android 设备）
-//   · 静态资源：webui dist 的 index.html 与资源可达（SPA fallback）；
 //   · ws/ready：连接即下发 { protocol:1, connId, serverStartedAt }；
 //   · 上行：WebView rpc/call → 原样进上游（其余类型忽略）；
 //   · 下行：上游载荷 → 广播给全部 WebView 连接。
+//   · 静态面（cr-101 变体B）：在线经 http/static 代理核心端（含 304 重协商），
+//     上游失败回落本地 dist（SPA fallback 依旧）。
 // ============================================================
 package agentchat.noise
 
@@ -37,18 +38,50 @@ private class FakeUpstream : Upstream {
 /**
  * 假上游（转发面）：对 http/read|http/write 同步回一个「原样回显」的应答，
  * 从而在无核心端的情况下验证桥的转发契约（方法分流 / 路径带 query / 体字节）。
- * fail=true 时回失败应答，验证桥的 502 分支。
+ * fail=true 时回失败应答，验证桥的 502 分支（静态面 = 回落本地 dist）。
+ * staticHtml 非空时对 http/static 回核心端式静态应答（200 + ETag；
+ * If-None-Match 命中回 304 零字节——cr-101 变体B）。
  */
-private class ProxyFakeUpstream(private val fail: Boolean = false) : Upstream {
+private class ProxyFakeUpstream(
+    private val fail: Boolean = false,
+    private val staticHtml: String? = null,
+) : Upstream {
     private val gson = com.google.gson.Gson()
+    val sent = mutableListOf<String>()
     override var onPayload: ((String) -> Unit)? = null
 
     override fun send(payloadJson: String) {
+        sent.add(payloadJson)
         val o = com.google.gson.JsonParser.parseString(payloadJson).asJsonObject
         val data = o.getAsJsonObject("data")
         val rid = data.get("requestId").asString
+        // 只对桥自身发起的 http/* RPC 应答；WebView 业务帧（agents/list 等，无
+        // params 形态）只记录不回应——回显分支会因缺 params 而 NPE 炸掉 WS 会话
+        val method = data.get("method")?.asString ?: ""
+        if (!method.startsWith("http/")) return
         val resultBody = if (fail) {
             com.google.gson.JsonObject()
+        } else if (data.get("method").asString == "http/static" && staticHtml != null) {
+            val p = data.getAsJsonObject("params")
+            if (p.get("ifNoneMatch")?.asString == "\"idx-1\"") {
+                com.google.gson.JsonObject().apply {
+                    addProperty("status", 304)
+                    addProperty("contentType", "text/html")
+                    add("cacheHeaders", com.google.gson.JsonObject().apply {
+                        addProperty("etag", "\"idx-1\"")
+                    })
+                }
+            } else {
+                com.google.gson.JsonObject().apply {
+                    addProperty("status", 200)
+                    addProperty("contentType", "text/html; charset=utf-8")
+                    addProperty("bodyB64", b64u(staticHtml.toByteArray()))
+                    add("cacheHeaders", com.google.gson.JsonObject().apply {
+                        addProperty("etag", "\"idx-1\"")
+                        addProperty("cache-control", "no-cache")
+                    })
+                }
+            }
         } else {
             val p = data.getAsJsonObject("params")
             // Gson 构造（cr-82）：手拼 JSON 在含引号值（如 ifNoneMatch 的 ETag
@@ -91,20 +124,22 @@ class LoopbackBridgeTest {
 
     @Test
     fun staticAndWebsocketShareOnePort() = runBlocking {
-        val up = FakeUpstream()
+        // 静态面在线代理后（cr-101 变体B），同口 HTTP 静态必须走会应答的上游——
+        // 永不应答的 FakeUpstream 会让每个静态请求挂 15s 超时再回落。
+        val up = ProxyFakeUpstream(staticHtml = "<html>core</html>")
         val bridge = LoopbackBridge(up, distDir)
         val port = bridge.start()
         try {
             val client = HttpClient(CIO) { install(WebSockets) }
-            // 1) 静态资源（同口 HTTP）
-            if (distDir != null) {
-                val html = client.get("http://127.0.0.1:$port/").bodyAsText()
-                assertContains(html, "<div id=\"app\">", message = "index.html 应可达")
-                // SPA fallback：未知路径回落 index.html
-                val fb = client.get("http://127.0.0.1:$port/nonexistent/route").bodyAsText()
-                assertEquals(html, fb)
-            }
+            // 1) 静态资源（同口 HTTP，在线经 http/static 从核心端取）
+            val html = client.get("http://127.0.0.1:$port/").bodyAsText()
+            assertEquals("<html>core</html>", html, "在线静态应来自核心端")
+            // SPA fallback：未知路径同样代理（核心端回 index.html）
+            val fb = client.get("http://127.0.0.1:$port/nonexistent/route").bodyAsText()
+            assertEquals(html, fb)
             // 2) WS 同口：ws/ready + 上行 rpc/call + 下行广播
+            //（静态代理请求也走 up.send——rpc/call 断言以基线计数，不写死绝对值）
+            val base = up.sent.size
             client.webSocket("ws://127.0.0.1:$port/ws") {
                 val ready = (withTimeout(5000) { incoming.receive() } as Frame.Text).readText()
                 assertContains(ready, "\"ws/ready\"")
@@ -114,14 +149,14 @@ class LoopbackBridgeTest {
                 // 上行：rpc/call 应进上游
                 send(Frame.Text("""{"type":"rpc/call","data":{"method":"agents/list","requestId":"b-1"}}"""))
                 var waited = 0
-                while (up.sent.isEmpty() && waited < 50) { Thread.sleep(50); waited++ }
-                assertEquals(1, up.sent.size)
-                assertContains(up.sent[0], "agents/list")
+                while (up.sent.size <= base && waited < 50) { Thread.sleep(50); waited++ }
+                assertEquals(base + 1, up.sent.size)
+                assertContains(up.sent.last(), "agents/list")
 
                 // 出站语义帧不入站（rpc/result 不应触发上游）
                 send(Frame.Text("""{"type":"rpc/result","data":{"requestId":"x"}}"""))
                 Thread.sleep(200)
-                assertEquals(1, up.sent.size)
+                assertEquals(base + 1, up.sent.size)
 
                 // 下行：上游载荷广播到 WebView
                 up.onPayload?.invoke("""{"type":"rpc/result","data":{"requestId":"b-1","ok":true}}""")
@@ -237,6 +272,69 @@ class LoopbackBridgeTest {
             assertContains(posted, "\"upstreamMethod\":\"http/write\"")
             assertContains(posted, "\"path\":\"/api/upload?name=x\"")
             assertContains(posted, "hello-body")
+        } finally {
+            bridge.stop()
+        }
+    }
+
+    // ---- 静态面在线代理（cr-101 变体B）----
+
+    /** 在线：静态走 http/static（read 档）；If-None-Match 命中 → 304 零字节 */
+    @Test
+    fun staticProxyOnlineWithConditionalRequest() = runBlocking {
+        val up = ProxyFakeUpstream(staticHtml = "<html>core</html>")
+        val bridge = LoopbackBridge(up, distDir)
+        val port = bridge.start()
+        try {
+            val client = HttpClient(CIO)
+            // 200：正文来自核心端，缓存协商头透传
+            val resp = client.get("http://127.0.0.1:$port/index.html")
+            assertEquals(HttpStatusCode.OK, resp.status)
+            assertEquals("<html>core</html>", resp.bodyAsText())
+            assertEquals("\"idx-1\"", resp.headers[HttpHeaders.ETag])
+            assertEquals("no-cache", resp.headers[HttpHeaders.CacheControl])
+            // 304：If-None-Match 命中——免重装的核心收益（零字节下行）
+            val cond = client.get("http://127.0.0.1:$port/index.html") {
+                header(HttpHeaders.IfNoneMatch, "\"idx-1\"")
+            }
+            assertEquals(HttpStatusCode.NotModified, cond.status)
+            // 静态分流走 http/static（非 http/read）
+            assertTrue(up.sent.any { it.contains("\"http/static\"") }, "应走 http/static")
+            assertTrue(up.sent.none { it.contains("\"http/read\"") }, "静态不应混入 http/read")
+        } finally {
+            bridge.stop()
+        }
+    }
+
+    /** 断链（链路已关 send 即抛）：runCatching 兜住 → 本地 dist（不 502 不白屏） */
+    @Test
+    fun staticOfflineFallsBackToLocalDist() = runBlocking {
+        if (distDir == null) return@runBlocking // 本机无 dist（CI 未构建）——跳过
+        // RelayClient.send 在链路关闭后的真实签名就是抛 "not connected"
+        val up = object : Upstream {
+            override var onPayload: ((String) -> Unit)? = null
+            override fun send(payloadJson: String) = throw RelayClientException("not connected")
+        }
+        val bridge = LoopbackBridge(up, distDir)
+        val port = bridge.start()
+        try {
+            val html = HttpClient(CIO).get("http://127.0.0.1:$port/").bodyAsText()
+            assertContains(html, "<div id=\"app\">", message = "断链应回落本地 dist")
+        } finally {
+            bridge.stop()
+        }
+    }
+
+    /** 上游失败（旧核心端不认 http/static / rpc 错误应答）→ 回落本地 dist */
+    @Test
+    fun staticProxyFailureFallsBackToLocalDist() = runBlocking {
+        if (distDir == null) return@runBlocking
+        val up = ProxyFakeUpstream(fail = true)
+        val bridge = LoopbackBridge(up, distDir)
+        val port = bridge.start()
+        try {
+            val html = HttpClient(CIO).get("http://127.0.0.1:$port/").bodyAsText()
+            assertContains(html, "<div id=\"app\">", message = "失败应回落本地 dist")
         } finally {
             bridge.stop()
         }

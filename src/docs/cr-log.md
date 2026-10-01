@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-97**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-103**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -115,3 +115,9 @@
 - 【cr-95 2026-10-01 D2 读投影单源化：lite 截断投影自 ac-web-api 归位 ac-session（records 单源导出——web-api 传输层只剩参数透传，消除投影逻辑放错层的缓存污染类风险，cr-55 病理断根）】
 - 【cr-96 2026-10-01 cr-94/95 后续精简：_settlementReload 预登记集与 gated 参数判死清除（两驱动均无条件重拉后只写不读——全仓求证零消费方）；scheduleSettlementReload 签名收敛为 delay 单参】
 - 【cr-97 2026-10-01 模型提供商模板扩容：对齐 DSH（pi-ai 2026-07-25 目录）新增 12 提供方（含 anthropic 原生协议模板），修正 xai/glm-coding 失效默认模型】
+- 【cr-98 2026-10-01 LLM 域五项：云部署型接入（Bedrock 模板/Azure authHeader）+ LlmHttpError 错误分类（429/5xx 可重试+Retry-After）+ Anthropic thinking 回放 + 媒体字节上限；文档收录云部署型差异裁决】
+- 【cr-99 2026-10-01 模型池评估修复：路由确定性消歧（同名 model 字典序+warn）+ 传输键单源兜底剥离 + 观测/意图分离（replaceMeta 通道，清单变化不重挂在途）+ 连接健康面（chat-error 归属 provider 进 meta）+ 容量元数据字段 + 改名/删除引用检查】
+- 【cr-100 2026-10-01 移动端 webui 产物更新：构建新 dist 并 sync-webui 双落点同步（含 cr-85 批帧解包 unpackWireFrames + cr-94 收敛协议前端面 feed-core——PC 侧已发 llm/delta-batch 合帧，旧 APK 无解包会流式丢字，本次同步消除新 PC/旧 APK 组合的线格式断裂）】
+- 【cr-101 2026-10-01 移动端 webui 静态资源在线化（变体B）：http-bridge 放行 GET 静态路径 + 回环桥 serveStatic 代理核心端 + 失败回落本地 dist】
+- 【cr-102 2026-10-01 cr-101 完结：核心端 http/static RPC + 桥静态面在线代理（replyProxied 共源精简）+ 双侧测试 + README 同步】
+- 【cr-103 2026-10-01 cr-101 真机验证收口：dist 顶层白名单补 legacy-runtime.js/ui-plugin-iframe.html/md-preview-copy.js（index.html 与 iframe 档真实引用）+ 端到端实锤（标记注入 dist→手机桥命中→模拟发版杀 App 重启拉到 v2）】

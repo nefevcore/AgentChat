@@ -12,6 +12,10 @@
 // 纪律（照 remote-link 服务端 handleDevicePayload）：只转发入站 rpc/call，
 // 其余类型忽略——出站语义的帧不应入站。
 //
+// 静态面（cr-101 变体B）：在线时 GET 静态路径原样投核心端（http/static RPC，
+// read 档）——核心端 dist 是 webui 唯一事实源，前端更新免重装 APK；断链或
+// 上游失败回落本地 dist（离线兜底 = 旧壳行为）。
+//
 // 书写坑（Kotlin 专属，踩过一次）：**块注释可嵌套**——KDoc/块注释里出现
 // 通配路径字面量（斜杠 + 星号）会开启嵌套注释，需多一个收尾符，否则整文件
 // 报「Unclosed comment」且报错行指向无关位置。行注释（双斜杠）里无此问题。
@@ -102,6 +106,9 @@ class LoopbackBridge(
     /** 当前上行通道（swapUpstream 可换——链路重连时桥不死） */
     @Volatile private var currentUpstream: Upstream = upstream
 
+    /** 上行通道可用（cr-101 变体B：静态面在线代理的前提；断链回落本地 dist） */
+    @Volatile private var upstreamLive = false
+
     /**
      * 换上行通道（cr-49：KK 重连成功后桥不死、端口不变，只换通道——WebView 零感知）。
      * 旧通道静默废弃（调用方已 close）；pendingRpc 的在途请求随旧链丢失，由请求方超时自愈。
@@ -109,6 +116,7 @@ class LoopbackBridge(
     fun swapUpstream(newUpstream: Upstream) {
         newUpstream.onPayload = { json -> handleDownlink(json) }
         currentUpstream = newUpstream
+        upstreamLive = true
     }
 
     /**
@@ -118,6 +126,7 @@ class LoopbackBridge(
      */
     fun start(awaitMs: Long = 10_000): Int {
         currentUpstream.onPayload = { json -> handleDownlink(json) }
+        upstreamLive = true
         return try {
             startAndWait(configuredPort, awaitMs)
         } catch (ex: Exception) {
@@ -158,11 +167,13 @@ class LoopbackBridge(
                 put("/api/{...}") { call.proxyApiSafely() }
                 patch("/api/{...}") { call.proxyApiSafely() }
                 delete("/api/{...}") { call.proxyApiSafely() }
-                get("/{...}") {
-                    val sub = call.request.path().trimStart('/')
-                    call.serveStatic(sub)
-                }
-                get("/") { call.serveStatic("index.html") }
+                // ---- 静态面：在线代理核心端（cr-101 变体B）----
+                // 在线时 GET 静态路径原样投核心端（WebView 永远跑核心端匹配的 dist
+                // ——前端更新免重装 APK；缓存协商走 If-None-Match/cacheHeaders，
+                // assets/* 内容哈希文件名 + immutable 命中 WebView 缓存零流量）；
+                // 上游失败回落本地 dist（离线兜底，行为等同旧壳）。
+                get("/{...}") { call.proxyStaticSafely() }
+                get("/") { call.proxyStaticSafely() }
             }
         }
         e.start(wait = false)
@@ -179,6 +190,7 @@ class LoopbackBridge(
     }
 
     fun stop() {
+        upstreamLive = false
         scope.cancel()
         engine?.stop(500, 1000)
     }
@@ -304,17 +316,7 @@ class LoopbackBridge(
         println("[bridge] 代理 ← " + (outcome.getOrNull()?.get("status")?.asInt ?: -1) +
             (outcome.exceptionOrNull()?.let { " 失败: " + it.message } ?: ""))
         outcome.fold(
-            onSuccess = { o ->
-                val status = o.get("status")?.asInt ?: 200
-                val bytes = o.get("bodyB64")?.asString?.let { unb64u(it) } ?: ByteArray(0)
-                // 缓存头下行（cr-82）：核心端 proxyToSelf 新增 cacheHeaders 白名单
-                // （etag/last-modified/cache-control）——写进 WebView 响应，原生 HTTP
-                // 缓存自此可生效（旧核心端无此字段 = 现状，无头直传）。
-                o.get("cacheHeaders")?.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()?.forEach { (k, v) ->
-                    if (v.isJsonPrimitive) response.headers.append(k, v.asJsonPrimitive.asString)
-                }
-                respondBytes(bytes, contentTypeOf(o.get("contentType")?.asString), HttpStatusCode.fromValue(status))
-            },
+            onSuccess = { o -> replyProxied(o) },
             onFailure = { err ->
                 respondText(
                     gson.toJson(mapOf("error" to ("remote bridge: " + (err.message ?: "upstream failed")))),
@@ -323,6 +325,47 @@ class LoopbackBridge(
                 )
             },
         )
+    }
+
+    /**
+     * 静态面代理（cr-101 变体B）：核心端 dist 是 webui 的唯一事实源。
+     *
+     * 在线时 GET 静态路径 → http/static RPC（read 档，核心端对路径再做白名单
+     * 闸——/api/ 前缀原路、dist 顶层白名单放行）；断链（upstreamLive=false）直接
+     * 回落本地 dist。上游失败也回落——本地缺失才 404（离线永远有完整旧版）。
+     */
+    private suspend fun ApplicationCall.proxyStaticSafely() {
+        if (!upstreamLive) { serveLocal(); return }
+        val params = JsonObject().apply {
+            addProperty("method", "GET")
+            addProperty("path", request.uri)
+            request.headers[HttpHeaders.IfNoneMatch]?.let { addProperty("ifNoneMatch", it) }
+        }
+        val outcome = runCatching { callUpstream("http/static", params) }
+        outcome.fold(
+            onSuccess = { o -> replyProxied(o) },
+            onFailure = { err ->
+                // 上游失败（断链/旧核心端不认 http/static/超时）→ 本地 dist 兜底
+                println("[bridge] 静态代理失败回落本地: " + (err.message ?: "upstream failed"))
+                serveLocal()
+            },
+        )
+    }
+
+    /** 代理应答写回（API 面与静态面共源）：状态码 / 缓存头 / 字节原样下行 */
+    private suspend fun ApplicationCall.replyProxied(o: JsonObject) {
+        val status = o.get("status")?.asInt ?: 200
+        val bytes = o.get("bodyB64")?.asString?.let { unb64u(it) } ?: ByteArray(0)
+        o.get("cacheHeaders")?.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()?.forEach { (k, v) ->
+            if (v.isJsonPrimitive) response.headers.append(k, v.asJsonPrimitive.asString)
+        }
+        respondBytes(bytes, contentTypeOf(o.get("contentType")?.asString), HttpStatusCode.fromValue(status))
+    }
+
+    /** 本地静态（离线兜底 = 旧壳行为）；本地也缺失才 404 */
+    private suspend fun ApplicationCall.serveLocal() {
+        val sub = request.path().trimStart('/')
+        serveStatic(if (sub.isEmpty()) "index.html" else sub)
     }
 
     /** 上游 Content-Type 解析（异常字面量回落 octet-stream，不因它废掉整次转发） */

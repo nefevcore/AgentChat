@@ -667,8 +667,10 @@ src/
 │                            等）→ WS 帧（type=事件名直转）；后台会话过滤；群 hint
 │                            帧不广播（群内容唯一源 = group/message-posted）
 ├── ac-remote-link/          远程链路核心端行（ctx.remoteLink，M1）：出站 relay + Noise
-│                            E2E 壳 + 设备注册表（known_devices.json）+ 配对状态机
-│                            （二维码/SAS）+ scopes 闸门 + deliver 恒剥 elevation
+│                            E2E + 设备注册表 + 配对 + scopes 闸门 + http 桥（/api/* 与
+│                            GET 静态白名单——cr-101 变体B：手机端 webui 在线取核心端
+│                            dist，前端更新免重装 APK；断链回落壳内本地 dist）+
+│                            配对状态机（二维码/SAS）+ deliver 恒剥 elevation
 ├── ac-noise-core/           Noise 协议纯库（零 cordis 依赖）：XK/KK 握手状态机 +
 │                            ChaCha20-Poly1305 帧封装 + SAS 派生（纯 node:crypto）
 ├── ac-client-ui-remote/     远程设备设置节前端行（P1）：设备列表/吊销 + 配对

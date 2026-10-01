@@ -58,6 +58,8 @@ const SCOPE_ALLOWED_METHODS: Record<RemoteScope, string[]> = {
     // 宿主 HTTP 面（仅 GET：webui 的 /api/ui/*、/api/workspace/*、/api/workspaces
     // 读面）——写面另属 files 档（见下）
     'http/read',
+    // webui dist 静态面在线取用（cr-101 变体B）：GET 白名单路径，手机端免重装
+    'http/static',
   ],
   chat: [
     'conversation/deliver', 'conversation/interrupt', 'conversation/queue',

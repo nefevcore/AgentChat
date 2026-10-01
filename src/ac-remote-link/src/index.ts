@@ -150,6 +150,19 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
     return proxyToSelf(await web.ready(), p);
   });
 
+  // GET 静态面代理（cr-101 变体B）：webui dist 的在线取用——webui 更新后手机端
+  // 免重装 APK，WebView 加载核心端最新 dist（缓存协商由 cacheHeaders 白名单承载，
+  // cr-82）。仅 GET，走 read 档（路径白名单见 http-bridge 的 isSafeStaticPath——
+  // 非 /api/ 且非白名单静态路径一律拒绝，不扩大攻击面）。与 http/read 分立两个
+  // method：静态面只回 GET 且行为面独立（后续如需限流/清单化有独立落点）。
+  web.registerRpc('http/static', async (params) => {
+    const p = httpParams(obj(params));
+    if ((p.method ?? 'GET').toUpperCase() !== 'GET') {
+      throw new Error('remote http: http/static 只接受 GET');
+    }
+    return proxyToSelf(await web.ready(), p);
+  });
+
   web.registerRpc('http/write', async (params) =>
     proxyToSelf(await web.ready(), httpParams(obj(params))));
 
