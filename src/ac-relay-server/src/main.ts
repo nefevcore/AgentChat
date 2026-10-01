@@ -9,14 +9,27 @@ import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { DEFAULT_LIMITS, RelayCore, type RelayConn } from './index.ts';
 
+/** env 数值读取（F-4：垃圾值产出 NaN，比较式 n >= NaN 恒 false → 限额静默
+ *  禁用且失效方向是放行；非有限数一律回退缺省并告警——fail-safe 优于静默） */
+function envNum(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(`[relay] env ${name}=${raw} 非法（须为正数），回退缺省 ${fallback}`);
+    return fallback;
+  }
+  return n;
+}
+
 // 测试形态放宽口：本地联调（adb reverse 出口同 IP = 127.0.0.1，设备重试期连接堆积
 // 会撞 maxConnPerIp=5 被断——生产不受影响，缺省值不变）
 const limits = {
   ...DEFAULT_LIMITS,
-  maxConnPerIp: Number(process.env.RELAY_MAX_CONN_PER_IP ?? DEFAULT_LIMITS.maxConnPerIp),
+  maxConnPerIp: envNum('RELAY_MAX_CONN_PER_IP', DEFAULT_LIMITS.maxConnPerIp),
   joinBucket: {
-    burst: Number(process.env.RELAY_JOIN_BURST ?? DEFAULT_LIMITS.joinBucket.burst),
-    ratePerSec: Number(process.env.RELAY_JOIN_RATE ?? DEFAULT_LIMITS.joinBucket.ratePerSec),
+    burst: envNum('RELAY_JOIN_BURST', DEFAULT_LIMITS.joinBucket.burst),
+    ratePerSec: envNum('RELAY_JOIN_RATE', DEFAULT_LIMITS.joinBucket.ratePerSec),
   },
 };
 const core = new RelayCore(limits);

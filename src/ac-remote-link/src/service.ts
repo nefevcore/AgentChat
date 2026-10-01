@@ -283,11 +283,17 @@ export class RemoteLinkService extends Service {
     return { ...this.pairing };
   }
 
-  /** SAS 确认（用户比对两端数字后调用；false = 拒绝配对） */
-  confirmPairing(sessionId: string, accept: boolean): PairingSession {
+  /** SAS 确认（用户比对两端数字后调用；false = 拒绝配对）。
+   * 接受时必须回传会话 SAS（R-2：堵盲确认——恶意 relay 抢先握手时 SAS
+   * 必与手机屏显不一致，回传值与服务端持有的 sasFromHandshakeHash 产
+   * 物核对，用户「不看数字直接点确认」无法通过校验；拒绝路径不受限）。 */
+  confirmPairing(sessionId: string, accept: boolean, sasInput?: string): PairingSession {
     const s = this.pairing;
     if (!s || s.sessionId !== sessionId) throw new Error('no such pairing session');
     if (s.state !== 'sas-confirm') throw new Error(`pairing state is ${s.state}, not sas-confirm`);
+    if (accept && s.sas !== undefined && sasInput !== s.sas) {
+      throw new Error('SAS 数字不一致——请核对手机屏显数字后重新输入');
+    }
     this.pairingResolve?.(accept);
     this.pairingResolve = null;
     return { ...s };

@@ -319,4 +319,28 @@ jobs:
           # 小磁盘防膨胀；每版约 600MB，3 版 ≈ 1.8GB 上限）
           scp -i ~/.ssh/deploy_key src/ac-relay-server/scripts/gen-manifest.mjs "${SERVER_USER:-deploy}@$SERVER_HOST:/opt/agentchat-relay/gen-manifest.mjs"
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads --keep 3"
-          echo "manifest 已重算（三腿产物齐全，旧版本已按 --keep 3 退役）"
+          echo "manifest 已重算（三腿产物齐全，旧版本已按 --keep 3 退役）"      # ---- 信任锚上传（R-1，2026-10-01 审计）：manifest.json 同步上传 GitHub
+      # Releases 本 tag release——下载面与锚分属独立信道（GitHub HTTPS + 签发
+      # CA vs 自托管 HTTP），壳层更新检查双源比对，单侧被篡改即拒绝更新。
+      # 仅 tag 推送发布（workflow_dispatch 无 release 语义，跳过）。
+      - name: 上传 manifest.json 信任锚到 GitHub Releases
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过信任锚上传"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          scp -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/manifest.json" manifest.json
+          gh release upload "$GITHUB_REF_NAME" manifest.json --clobber
+          echo "信任锚已上传：releases/$GITHUB_REF_NAME/manifest.json"

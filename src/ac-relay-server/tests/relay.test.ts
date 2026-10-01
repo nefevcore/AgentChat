@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RelayCore, TokenBucket, DEFAULT_LIMITS, type RelayConn } from '../src/index.ts';
+import { RelayCore, TokenBucket, DEFAULT_LIMITS, normalizeIp, type RelayConn } from '../src/index.ts';
+
+describe('normalizeIp（F-2：IPv6 /64 聚合）', () => {
+  it('IPv6 截前 4 组；IPv4 / 映射地址 / 非 IP 串原样或归一', () => {
+    expect(normalizeIp('2001:db8:1:2:0:0:0:a')).toBe('2001:db8:1:2');
+    expect(normalizeIp('2001:db8:1:2::dead:beef')).toBe('2001:db8:1:2');
+    expect(normalizeIp('fe80::1%eth0')).toBe('fe80:0:0:0'); // 展开为 fe80:0:0:0:0:0:0:1 后取前 4 组
+    expect(normalizeIp('::ffff:9.9.9.9')).toBe('9.9.9.9');
+    expect(normalizeIp('9.9.9.9')).toBe('9.9.9.9');
+    expect(normalizeIp('unknown')).toBe('unknown');
+  });
+});
 
 // ---- 测试替身：内存连接 ----
 class FakeConn implements RelayConn {
@@ -280,5 +291,59 @@ describe('RelayCore 防滥用限额', () => {
     core.accept(a);
     a.recv('not-json');
     expect(a.closed).toBe(true);
+  });
+
+  it('per-IP 房间配额含 everClosed 房间（F-2：封闭后退席不再移出统计）', () => {
+    const core = new RelayCore({ ...DEFAULT_LIMITS, maxOpenRoomsPerIp: 2 });
+    const mk = () => { const c = new FakeConn('7.7.7.7'); core.accept(c); return c; };
+    // 房1：两方封闭 → 一方退席（everClosed=true，剩 1 席靠 ping 保活）
+    const r1a = mk(); joinOk(r1a, 'v'.repeat(32));
+    const r1b = mk(); joinOk(r1b, 'v'.repeat(32));
+    r1b.close();
+    // 房2：正常占座。此时该 IP 名下 2 房（1 个 everClosed + 1 个未封闭）→ 配额满
+    expect(joinOk(mk(), 'w'.repeat(32))).toBe(true);
+    const g = mk();
+    g.recv(JSON.stringify({ op: 'join', room: 'x'.repeat(32) }));
+    expect(g.lastOp()).toEqual({ op: 'room-unavailable' }); // 旧实现此处放行（绕过）
+  });
+
+  it('IPv6 同 /64 前缀聚合为一个频控桶（F-2：轮换源地址不再各自计数）', () => {
+    const core = new RelayCore({ ...DEFAULT_LIMITS, maxConnPerIp: 2 });
+    // 同 /64 内两个不同 /128 源地址 → 共享 per-IP 并发配额
+    expect(core.accept(new FakeConn('2001:db8:1:2:0:0:0:a'))).toBe(true);
+    expect(core.accept(new FakeConn('2001:db8:1:2:0:0:0:b'))).toBe(true);
+    expect(core.accept(new FakeConn('2001:db8:1:2:0:0:0:c'))).toBe(false); // 第 3 条：超 2 上限
+    // 异 /64 不受影响
+    expect(core.accept(new FakeConn('2001:db8:1:3:0:0:0:a'))).toBe(true);
+    // IPv4 映射地址与点分 IPv4 归一到同一桶（::ffff: 剥离；per-IP 口 2）
+    const m4 = new FakeConn('::ffff:9.9.9.9');
+    expect(core.accept(m4)).toBe(true);
+    expect(core.accept(new FakeConn('9.9.9.9'))).toBe(true);
+    // 第三条仍是同地址的映射形态 → 同桶第 3 条，拒绝
+    expect(core.accept(new FakeConn('::ffff:9.9.9.9'))).toBe(false);
+    m4.close(); // 释放一席，验证桶计数随断开递减
+    expect(core.accept(new FakeConn('::ffff:9.9.9.9'))).toBe(true);
+  });
+
+  it('全局总连接上限（F-2 兜底：maxTotalConns）', () => {
+    const core = new RelayCore({ ...DEFAULT_LIMITS, maxConnPerIp: 100, maxTotalConns: 3 });
+    for (let i = 0; i < 3; i++) {
+      expect(core.accept(new FakeConn(`10.0.${i}.1`))).toBe(true);
+    }
+    expect(core.accept(new FakeConn('10.9.9.9'))).toBe(false); // 全局满（各 IP 均未超 per-IP 口）
+  });
+
+  it('ping 同样收帧速率桶费（F-3：无限速 ping 不再绕过限速）', async () => {
+    vi.useFakeTimers();
+    const core = new RelayCore({ ...DEFAULT_LIMITS, frameBucket: { burst: 3, ratePerSec: 0 } });
+    const a = new FakeConn('1.1.1.1');
+    core.accept(a);
+    for (let i = 0; i < 3; i++) {
+      a.recv(JSON.stringify({ op: 'ping' }));
+      expect(a.lastOp()).toEqual({ op: 'pong' });
+    }
+    a.recv(JSON.stringify({ op: 'ping' })); // 第 4 条：桶空（rate 0 永不恢复）
+    expect(a.closed).toBe(true);
+    vi.useRealTimers();
   });
 });

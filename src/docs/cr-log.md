@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-73**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-77**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -91,3 +91,7 @@
 - 【cr-71 2026-09-30 cr-70 手机端补丁：peer-left 处理过于激进——收到即 cancel 自杀健康连接（真机实锤：PC 旧版重试轮断开触发 relay peer-left，手机误判为断线自cancel，发消息即断连）。修正语义：peer-left = 对端连接走了但房间保留，正确动作是走既有重连循环（撞门即会合常住的 PC），非放弃】
 - 【cr-72 2026-09-30 relay TTL 误杀常住房（cr-70 补丁）：openRoomTtl 5min 判定用 createdAt 且不区分「从未封闭的占座房」与「曾封闭后回到 1 席的常住房」——PC 独守超 5min 被 sweep 杀、被迫每 5min 重拨一轮，违背常住方意图。修：Room 增 everClosed 标记，TTL 只管从未封闭的房间；常住房由幸存者心跳（60s 超时）保活】
 - 【cr-73 2026-10-01 cr-70 补缺：配对连接被收编为常住后住在配对房（p 前缀一次性房），手机 KK 撞的是派生房（r 前缀）——房间错位永不相遇（真机实锤：重新配对后强杀手机，PC 在配对房 waiting，手机在派生房撞门 10 分钟不合）。修：配对连接不转常住——onPeerLeft 时弃链并立即去派生房 dial 常住连接（配对房本就是一次性 rendezvous，常住语义只属于派生房）】
+- 【cr-74 2026-10-01 哑中继安全审计第一轮报告（relay-security-audit-2026-10-01.md）：代码面 8 项发现（F-1 崩溃/F-2 房间池耗尽为主），纯审计无代码改动】
+- 【cr-75 2026-10-01 哑中继安全审计第二轮报告（relay-security-audit-round2-2026-10-01.md）：服务器攻破→PC 入侵链路分析——转发链 Noise 稳健，R-1 高危发现：桌面更新信任链自指（manifest 与 sha256 同源+明文 HTTP+无代码签名）】
+- 【cr-76 2026-10-01 DSH 0.2 契约比对增量计划文档：ac-config 热更三小件（changed 载荷/提交去重/快照冻结）+ 原则记档（src/docs 新档 + README 索引）】
+- 【cr-77 2026-10-01 安全审计修复（relay-security-audit 两轮 2026-10-01）：download-gate 抽 parseGatePath 统一 400 防崩（F-1）；per-IP 房间配额含 everClosed 房间 + IPv6 聚合 /64（normalizeIp）+ 全局 maxTotalConns 兜底（F-2）；所有 op 统一收帧速率桶费（F-3）；env 数值 NaN 防护回退缺省（F-4）；quota 读盘一次复用（F-8）；桌面更新链 manifest 双源校验（下载面 ↔ GitHub Releases 信任锚，desktop.yml 上传 manifest.json 资产）+ install 前就地复核 sha256（R-1）；SAS 确认改输入 8 位数字服务端核对（R-2）】

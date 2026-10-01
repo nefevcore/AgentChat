@@ -114,7 +114,12 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
 
   web.registerRpc('remote/pair-confirm', (params) => {
     const p = obj(params);
-    return remote().confirmPairing(reqStr(p, 'sessionId'), optBool(p, 'accept') !== false);
+    // sas（R-2）：接受时必填——服务端与握手产物核对，堵盲确认
+    return remote().confirmPairing(
+      reqStr(p, 'sessionId'),
+      optBool(p, 'accept') !== false,
+      typeof p.sas === 'string' ? p.sas.trim() : undefined,
+    );
   });
 
   web.registerRpc('remote/pair-cancel', (params) => {

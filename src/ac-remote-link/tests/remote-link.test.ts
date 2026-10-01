@@ -100,6 +100,26 @@ describe('配对会话面', () => {
     expect(s2.qrUri).not.toContain('pin=');
   });
 
+  it('SAS 确认须回传屏显数字（R-2：错值/缺省拒绝，拒绝路径不受限）', async () => {
+    await boot();
+    // 人工推进到 sas-confirm 态：直接写服务私有态（握手链路另有集成测试）
+    const s = await svc.startPairing();
+    const svcAny = svc as unknown as { pairing: { state: string; sas?: string } };
+    svcAny.pairing.state = 'sas-confirm';
+    svcAny.pairing.sas = '12345678';
+    // 错值 → 拒（盲确认堵死：不看数字点确认无法通过）。confirmPairing 是同步方法，
+    // 校验失败直接 throw——用 toThrow 而非 rejects。
+    expect(() => svc.confirmPairing(s.sessionId, true, '87654321')).toThrow(/SAS/);
+    // 缺省 → 同拒
+    expect(() => svc.confirmPairing(s.sessionId, true)).toThrow(/SAS/);
+    // 正确值 → 过（状态推进由 pairingResolve 消化）
+    const out = svc.confirmPairing(s.sessionId, true, '12345678');
+    expect(out.state).toBe('sas-confirm');
+    // 拒绝路径不需要 sas（用户判断不一致即可拒）
+    svcAny.pairing.state = 'sas-confirm';
+    expect(() => svc.confirmPairing(s.sessionId, false)).not.toThrow();
+  });
+
   it('loader 归一化 defaultScopes=[] 仍落缺省档（cr-66：真机零权限黑屏）', async () => {
     // loader 路径行无 config → Config schema 归一化输出 { defaultScopes: [] }——
     // 服务须把它当缺省而非显式零权限，否则配对设备全部 RPC 被闸门拒。

@@ -38,6 +38,7 @@ const linkState = ref('idle');
 const error = ref('');
 const pairing = ref<PairingState | null>(null);
 const pairingBusy = ref(false);
+const sasInput = ref('');
 const revoking = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -92,11 +93,22 @@ async function startPairing() {
   }
 }
 
+/** 接受配对（R-2：须输入手机屏显 SAS 数字——服务端核对握手产物，
+ * 堵「不看数字直接点确认」的社会工程残余；拒绝路径无需输入） */
 async function confirmPairing(accept: boolean) {
   if (!pairing.value) return;
+  if (accept && sasInput.value.trim() === '') {
+    error.value = '请输入手机屏幕上显示的 8 位数字';
+    return;
+  }
   pairingBusy.value = true;
+  error.value = '';
   try {
-    const r = await rpc.call<PairingState & { sas?: string }>('remote/pair-confirm', { sessionId: pairing.value.sessionId, accept });
+    const r = await rpc.call<PairingState & { sas?: string }>('remote/pair-confirm', {
+      sessionId: pairing.value.sessionId,
+      accept,
+      ...(accept ? { sas: sasInput.value.trim() } : {}),
+    });
     pairing.value = { ...pairing.value, ...r };
     if (accept) await refresh();
   } catch (e) {
@@ -269,7 +281,16 @@ onUnmounted(() => {
         <!-- 指纹行（cr-65）：设备名可伪造不作信任提示；指纹绑定密码学身份。
              显示 base64url 公钥前 22 字符（≈128bit 遮蔽），真机「远程设备 → 本机信息」可核对同值 -->
         <p class="pair-fp center" v-if="pairing.devicePubkey">设备指纹 <code>{{ pairing.devicePubkey.slice(0, 22) }}</code>…<br />（与手机 App「本机信息」页显示一致方可信任）</p>
-        <p class="pair-hint center">与手机屏幕显示的数字一致吗？一致 = 信任此设备；不一致 = 可能存在中间人，拒绝并重试。</p>
+        <p class="pair-hint center">与手机屏幕显示的数字一致吗？一致 = 输入该数字并信任此设备；不一致 = 可能存在中间人，拒绝并重试。</p>
+        <input
+          v-model="sasInput"
+          class="sas-input"
+          type="text"
+          inputmode="numeric"
+          maxlength="8"
+          placeholder="输入手机显示的 8 位数字"
+          autocomplete="off"
+        />
         <div class="pair-actions">
           <Button variant="danger" size="sm" :disabled="pairingBusy" @click="confirmPairing(false)">不一致（拒绝）</Button>
           <Button variant="primary" size="sm" :disabled="pairingBusy" @click="confirmPairing(true)">一致（信任）</Button>
@@ -354,6 +375,10 @@ onUnmounted(() => {
 .pair-fp { font-size: 12px; color: var(--text-2); margin: var(--space-1) 0; }
 .pair-fp code { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 var(--space-1); }
 .sas-num .sep { color: var(--text-3); font-size: 20px; }
+/* SAS 输入（R-2 盲确认修复）：等宽数字输入，居中对齐大数字下方 */
+.sas-input { display: block; width: 100%; max-width: 260px; margin: 0 auto; background: var(--input-bg, var(--bg-raised)); border: 1px solid var(--input-border, var(--line)); border-radius: var(--r-sm); color: var(--text-1); padding: 6px 10px; font-size: 15px; font-family: var(--font-mono); letter-spacing: 2px; text-align: center; outline: none; transition: border-color var(--dur-fast) var(--ease-out); }
+.sas-input:focus { border-color: var(--input-focus, var(--primary)); }
+.sas-input::placeholder { font-family: var(--font-sans, inherit); font-size: 12px; letter-spacing: normal; color: var(--text-3); }
 
 /* 设备列表 */
 .list-head { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }

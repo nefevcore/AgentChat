@@ -341,8 +341,18 @@ function createTray() {
 //   linux = 文件管理器定位 AppImage 手动替换。桥不可达或 manifest 无
 //   本平台包 → 前端回落下载页外链（同旧版行为）。fail-soft：检查/
 //   下载失败静默留痕，绝不打断使用。
+//
+//   信任链（R-1，2026-10-01 审计）：manifest 与 sha256 同源同信道（同
+//   一台 HTTP 服务器），MITM 换掉 manifest 即同时换掉哈希与版本号——
+//   校验只防传输损坏不防投毒。恢复哈希/字节分离：GitHub Releases 为
+//   独立信道的信任锚（发布流每次都经 Releases draft 中转，tag release
+//   资产即 CI 产物），壳层拉取 Releases 最新 tag 的 manifest 校验下载面
+//   版本/哈希一致才预下载；锚不可达/不一致 → 拒绝（fail-closed，更新
+//   面静默不呈现，绝不用单源 manifest 降级）。
 // ------------------------------------------------------------
 const DOWNLOAD_BASE = 'http://47.110.63.135';
+const GITHUB_REPO = 'nefevcore/AgentChat';
+const GITHUB_API = 'https://api.github.com';
 
 // 暂存区：缺省数据根下 updates/（数据根可被用户迁移，更新暂存属应用
 // 自管区，锚在恒在的缺省目录——与日志目录同策略）。
@@ -361,16 +371,91 @@ function cmpVersion(a, b) {
   return 0;
 }
 
+/**
+ * 双源拉取校验（R-1）：主源 = 下载面 manifest（国内直连）；信任锚 =
+ * GitHub Releases 最新 tag 资产 manifest.json（独立信道，发布流产物）。
+ * 两源 releases[0].version 一致且每个文件 sha256/size 一致才放行——
+ * MITM/服务器沦陷只改单侧时校验必失败。
+ * @returns {Promise<{manifest: object, trusted: boolean} | null}
+ *   trusted=false = 锚不可达（GitHub 访问失败）：无第二意见，拒绝呈现
+ *   新版本（fail-closed）。
+ */
 async function fetchUpdateManifest() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(`${DOWNLOAD_BASE}/manifest.json`, { signal: controller.signal });
     if (!res.ok) return null;
-    return await res.json();
+    const manifest = await res.json();
+    if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.releases) || manifest.releases.length === 0) {
+      log('[desktop] 下载面 manifest 形状异常，拒绝');
+      return null;
+    }
+    const anchor = await fetchAnchorManifest(controller.signal);
+    if (!anchor) {
+      log('[desktop] 信任锚（GitHub Releases manifest）不可达——无第二意见，拒绝更新检查（fail-closed，R-1）');
+      return null;
+    }
+    const mismatch = manifestsDisagree(manifest, anchor);
+    if (mismatch) {
+      log(`[desktop] manifest 双源不一致（${mismatch}）——疑似投毒，拒绝更新（R-1）`);
+      return null;
+    }
+    return manifest;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 带 GitHub API 专用超时的锚拉取（任何失败 → null，不缓存） */
+async function fetchAnchorManifest(parentSignal) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  const onParentAbort = () => controller.abort();
+  parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+  try {
+    // releases/latest 重定向到最新非 draft、非 prerelease 的 tag release。
+    // 用户无 GitHub 凭据时的匿名额度足够更新检查（60/h，检查频率 4h 一次）。
+    const rel = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': 'AgentChat-Desktop' },
+      signal: controller.signal,
+    });
+    if (!rel.ok) return null;
+    const meta = await rel.json();
+    if (!meta || typeof meta !== 'object' || !Array.isArray(meta.assets)) return null;
+    const asset = meta.assets.find((a) => a && a.name === 'manifest.json' && typeof a.browser_download_url === 'string');
+    if (!asset) return null;
+    const res = await fetch(asset.browser_download_url, {
+      headers: { 'user-agent': 'AgentChat-Desktop' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const anchor = await res.json();
+    return anchor && typeof anchor === 'object' && Array.isArray(anchor.releases) ? anchor : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
+  }
+}
+
+/** 双源比对：锚 releases[0] 须含主源 releases[0]（锚可含更多历史版本——
+ *  主源 --keep 3 裁剪而锚全量）；同名文件须 sha256 与 size 全等。
+ *  @returns {string | null} 不一致原因（null = 一致） */
+export function manifestsDisagree(main, anchor) {
+  const mTop = main.releases[0];
+  const aRel = (anchor.releases || []).find((r) => r && r.version === mTop.version);
+  if (!aRel) return `主源最新 ${JSON.stringify(mTop.version)} 不在锚 releases 中`;
+  const aBy = new Map((aRel.files || []).map((f) => [f && f.name, f]));
+  for (const f of mTop.files || []) {
+    if (!f || !f.name) continue;
+    const a = aBy.get(f.name);
+    if (!a) return `文件 ${f.name} 不在锚 manifest 中`;
+    if (String(a.sha256) !== String(f.sha256)) return `文件 ${f.name} sha256 不一致`;
+    if (Number(a.size) !== Number(f.size)) return `文件 ${f.name} size 不一致`;
+  }
+  return null;
 }
 
 /** 本机安装包挑选（manifest releases[0] → platform/arch/扩展名评分最高者；
@@ -755,7 +840,7 @@ function bridgeCors(req, res) {
   }
 }
 
-function bridgeHandler(req, res, port) {
+async function bridgeHandler(req, res, port) {
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
   bridgeCors(req, res);
   if (req.method === 'OPTIONS') { // CORS 预检（简单请求本不需要，防御性应答）
@@ -839,6 +924,27 @@ function bridgeHandler(req, res, port) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(body);
       return;
+    }
+    // R-1 第三道：拉起前就地复核 sha256——ready 态是「下载完成时刻」的结论，
+    // 到用户点安装可能隔数小时（暂存区在用户磁盘，但 state 文件与包文件可被
+    // 同机恶意进程调换/损坏）；复核 state 记录的哈希与磁盘字节一致才放行。
+    const file = path.join(updatesDir, st.fileName);
+    if (typeof st.sha256 === 'string' && st.sha256 !== '') {
+      try {
+        const got = await sha256File(file);
+        if (got !== st.sha256.toLowerCase()) {
+          log(`[desktop] 安装包就地复核失败（sha256 不符）——拒绝拉起，置 failed（R-1）`);
+          writeUpdateState({ ...st, status: 'failed', error: 'sha256 复核失败（安装包已被改动）' });
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, error: '安装包校验失败，请重新下载' }));
+          return;
+        }
+      } catch (e) {
+        log(`[desktop] 安装包复核读失败: ${e instanceof Error ? e.message : String(e)}`);
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: '安装包不可读' }));
+        return;
+      }
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end('{"ok":true}');

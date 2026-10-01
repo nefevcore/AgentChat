@@ -127,4 +127,29 @@ describe('download-gate 配额门', () => {
     const after = (await get('/api/quota')).body.used;
     expect(after).toBe(before);
   });
+
+  // F-1（2026-10-01 审计）：畸形输入统一 400 绝不崩进程。解析逻辑已抽为
+  // parseGatePath 纯函数——直测其畸形面（不依赖子进程 socket 时序，
+  // Windows 上 raw socket 对 keep-alive/RST 的时序噪声在 CI 曾三连挂）。
+  it('parseGatePath：畸形输入 → null（400 路径），正常输入原样解码', async () => {
+    const { parseGatePath } = await import('../src/download-gate.ts');
+    // %ZZ 非法百分号编码 → URIError → null
+    expect(parseGatePath('/%ZZ.exe', '127.0.0.1')).toBeNull();
+    // 畸形 Host（'[' 不闭合）→ URL TypeError → null
+    expect(parseGatePath('/v0.8.5/x.exe', '[')).toBeNull();
+    // Host 含 CRLF（头注入面）→ 清洗回落 localhost，路径仍可解析（注入字节不进 URL 构造）
+    expect(parseGatePath('/x.exe', 'a\r\nEvil: 1')).toBe('/x.exe');
+    // req.url undefined（CONNECT 类）→ 回落根路径不炸
+    expect(parseGatePath(undefined, '127.0.0.1')).toBe('/');
+    // 正常输入：解码百分号编码
+    expect(parseGatePath('/v0.8.5/My%20App.exe', '127.0.0.1')).toBe('/v0.8.5/My App.exe');
+    // host 非字符串/空 → 缺省 localhost 不影响路径解析
+    expect(parseGatePath('/healthz', undefined)).toBe('/healthz');
+    expect(parseGatePath('/healthz', '')).toBe('/healthz');
+  });
+
+  // 畸形请求经子进程的集成验证：undici 客户端会先拒 %ZZ（fetch 抛错）、
+  // raw socket 时序在 CI 上噪声大（RST/慢启动三连挂）——handler 层防御由
+  // parseGatePath 纯函数直测全量覆盖（上面用例），wiring 三行由正常路径
+  // 用例间接覆盖，不再做不稳定的 socket 级烟测。
 });

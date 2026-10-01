@@ -48,9 +48,24 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(s);
 }
 
+/** 请求行解析（F-1 抽出为纯函数——畸形输入处理可直测，不依赖 socket 时序）：
+ *  %ZZ 非法编码抛 URIError、畸形 Host 抛 TypeError、CONNECT 类 req.url
+ *  为 undefined——原实现任一命中即 uncaughtException 崩掉整个下载面。
+ *  统一 null = 400。 */
+export function parseGatePath(rawUrl: string | undefined, host: unknown): string | null {
+  try {
+    const h = typeof host === 'string' && host !== '' && !/[\r\n]/.test(host) ? host : 'localhost';
+    return decodeURIComponent(new URL(rawUrl ?? '/', `http://${h}`).pathname);
+  } catch {
+    return null;
+  }
+}
+
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-  const path = decodeURIComponent(url.pathname);
+  const path = parseGatePath(req.url, req.headers.host);
+  if (path === null) {
+    return json(res, 400, { ok: false, error: 'bad request' });
+  }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return json(res, 405, { ok: false, error: 'method not allowed' });
@@ -59,7 +74,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   if (path === '/healthz') return json(res, 200, { ok: true });
 
   if (path === '/api/quota') {
-    return json(res, 200, { ok: true, quota: QUOTA, used: readCount(), remaining: Math.max(0, QUOTA - readCount()), month: monthKey() });
+    // F-8：一次读盘复用（原实现同请求两次 readCount——低频路径顺手修正）
+    const used = readCount();
+    return json(res, 200, { ok: true, quota: QUOTA, used, remaining: Math.max(0, QUOTA - used), month: monthKey() });
   }
 
   // 安装包下载：配额门 + X-Accel-Redirect
@@ -83,7 +100,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       return res.end(JSON.stringify({ ok: false, error: '本月下载配额已用完，下月恢复' }));
     }
     writeCount(used + 1);
-    // Nginx internal location 发字节（限速/并发在 Nginx 侧）
+    // Nginx internal location 发字节（限速/并发在 Nginx 侧）。clean 已过段级
+    // 校验（无 .. / NUL），这里再拦解码残留的控制字符——头值含 CR/LF 会触发
+    // Node ERR_INVALID_CHAR（F-1 第三抛错点），防御性 400 而非崩进程。
+    if (/[\r\n\0]/.test(clean)) {
+      return json(res, 400, { ok: false, error: 'bad path' });
+    }
     res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'X-Accel-Redirect': `/_internal/${clean}` });
     return res.end();
   }

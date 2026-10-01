@@ -76,6 +76,9 @@ export interface RelayLimits {
   heartbeatTimeoutMs: number;
   /** 单 IP 未封闭（1 席等待期）房间数上限——cr-64：占座阻断的纵深压缩 */
   maxOpenRoomsPerIp: number;
+  /** 全局并发连接上限（F-2 兜底：IPv6 /64 内轮换源地址时 per-IP 桶全部
+   *  独立计，一台机器可刷满房间池——全局口是耗尽攻击的最后一道闸） */
+  maxTotalConns: number;
 }
 
 export const DEFAULT_LIMITS: RelayLimits = {
@@ -102,10 +105,33 @@ export const DEFAULT_LIMITS: RelayLimits = {
   // 各 1 房；手机 4s/轮重试 + 核心端 70s 长驻的瞬态峰值也不超过 4-6 房。8 = 合法
   // 流量 2 倍余量，同时把「一 IP 占满全局房间池」的耗尽攻击面压到 8 房/IP。
   maxOpenRoomsPerIp: 8,
+  // 正常拓扑 ≈ 每房间 2 连接 × 峰值若干 + 管理探测；30 并发/IP × 合法 IP 数
+  // 远低于此。2000 = 合法流量百倍余量，单点轮换源攻击在此触顶。
+  maxTotalConns: 2_000,
 };
 
 /** room id 合法形状：22-43 字符 urlsafe base64（128-256 bit 熵） */
 const ROOM_ID_RE = /^[A-Za-z0-9_-]{22,43}$/;
+
+/** 频控/配额的 IP 归一（F-2：IPv6 聚合到 /64——同前缀轮换源地址共享一个桶，
+ *  防单机刷独立 /128 桶绕过 per-IP 限额；IPv4 与非 IP 串原样）。 */
+export function normalizeIp(ip: string): string {
+  if (ip === 'unknown') return ip;
+  const bare = ip.startsWith('::ffff:') && ip.includes('.') ? ip.slice(7) : ip;
+  if (!bare.includes(':')) return bare; // IPv4 / 主机名（传输层注入的替身 ip）
+  let v6 = bare.toLowerCase().split('%')[0]; // 去掉 zone id
+  // 展开 :: 压缩（fe80::1 → fe80:0:0:0:0:0:0:1），否则 split 段数不足
+  if (v6.includes('::')) {
+    const [head, tail = ''] = v6.split('::');
+    const headGroups = head ? head.split(':') : [];
+    const tailGroups = tail ? tail.split(':') : [];
+    const pad = Math.max(0, 8 - headGroups.length - tailGroups.length);
+    v6 = [...headGroups, ...Array<string>(pad).fill('0'), ...tailGroups].join(':');
+  }
+  const groups = v6.split(':');
+  if (groups.length < 4) return v6; // 形状异常——原样
+  return groups.slice(0, 4).join(':'); // 前 4 组 = /64 前缀
+}
 
 /** 房间：恰好两方 + 流量计数 */
 interface Room {
@@ -139,6 +165,7 @@ export class RelayCore {
   private readonly ipConns = new Map<string, number>();
   private readonly joinBuckets = new Map<string, TokenBucket>();
   private readonly frameBuckets = new Map<string, TokenBucket>();
+  private totalConns = 0;
   private closed = false;
 
   constructor(private readonly limits: RelayLimits = DEFAULT_LIMITS) {}
@@ -171,19 +198,28 @@ export class RelayCore {
     }
   }
 
-  /** 新连接接入（返回 false = 达单 IP 连接上限，传输层应立即关闭） */
+  /** 新连接接入（返回 false = 达连接上限，传输层应立即关闭） */
   accept(conn: RelayConn): boolean {
     if (this.closed) return false;
-    const n = this.ipConns.get(conn.ip) ?? 0;
+    // F-2 兜底：全局总连接上限——IPv6 /64 内轮换源地址时 per-IP 桶全部独立
+    // 计，单点即可绕过 per-IP 配额；全局口与 per-IP 口双闸。
+    if (this.totalConns >= this.limits.maxTotalConns) return false;
+    const key = normalizeIp(conn.ip);
+    const n = this.ipConns.get(key) ?? 0;
     if (n >= this.limits.maxConnPerIp) return false;
-    this.ipConns.set(conn.ip, n + 1);
+    this.ipConns.set(key, n + 1);
+    this.totalConns += 1;
 
     let joinedRoom: string | null = null;
-    let bucket = this.getFrameBucket(conn.ip);
+    // F-3：帧速率桶入即领取——原实现只在 frame 分支 take，ping 等其余 op 不计
+    // 速率费，单连接可不限速灌 8MB 合法 JSON 消耗 CPU/带宽。桶随连接绑定
+    // （而非按消息），对端换房重连自然换桶。
+    const bucket = this.getFrameBucket(key);
 
     const detach = () => {
-      const c = this.ipConns.get(conn.ip) ?? 1;
-      if (c <= 1) this.ipConns.delete(conn.ip); else this.ipConns.set(conn.ip, c - 1);
+      const c = this.ipConns.get(key) ?? 1;
+      if (c <= 1) this.ipConns.delete(key); else this.ipConns.set(key, c - 1);
+      this.totalConns -= 1;
       // cr-70 常住方模型：成员离线不再销毁房间——只移除该成员并通知幸存者。
       // 原语义（任一离线即销房）逼得双端都做重试振荡器，相位耦合修不完
       // （cr-43⑭/48/50/63/65/69 全是这类补丁）。现在：房间随幸存者的心跳
@@ -203,6 +239,9 @@ export class RelayCore {
     conn.onMessage((raw) => {
       const len = raw.length;
       if (len > this.limits.maxFrameBytes) { conn.close(); return; }
+      // F-3：所有 op 统一收速率费（JSON.parse 与协议处理都吃 CPU）——帧桶
+      // 耗尽 = 该连接已超速，断开（fail-loud，不静默丢帧）。
+      if (!bucket.take()) { conn.close(); return; }
       let msg: RelayClientMessage;
       try {
         const parsed: unknown = JSON.parse(raw);
@@ -229,12 +268,14 @@ export class RelayCore {
             conn.send(JSON.stringify({ op: 'room-unavailable' } satisfies RelayServerMessage));
             return;
           }
-          // 单 IP 未封闭房间配额（cr-64）：新建房才计（加入既有房不限——不惩罚会合方）。
-          // 攻击面压缩：一 IP 至多 8 个占座房，全局池不再被单点耗尽。
+          // 单 IP 房间配额（cr-64 + F-2 修正）：新建房才计（加入既有房不限——
+          // 不惩罚会合方）；计入口径含 everClosed 房间——原实现只数未封闭房，
+          // 攻击者可两连接封闭再退一席，把房间移出统计后靠 ping 保活，per-IP
+          // 配额形同虚设。心跳保活的常住房与占座房同样占内存与端口，同计数。
           if (!this.rooms.has(msg.room)) {
-            const openByIp = [...this.rooms.values()]
-              .filter((r) => r.peers.length < 2 && r.peers.some((p) => p.ip === conn.ip)).length;
-            if (openByIp >= this.limits.maxOpenRoomsPerIp) {
+            const byIp = [...this.rooms.values()]
+              .filter((r) => r.peers.some((p) => p.ip === conn.ip)).length;
+            if (byIp >= this.limits.maxOpenRoomsPerIp) {
               conn.send(JSON.stringify({ op: 'room-unavailable' } satisfies RelayServerMessage));
               return;
             }
@@ -267,7 +308,6 @@ export class RelayCore {
         case 'frame': {
           const roomId = joinedRoom;
           if (!roomId) { conn.close(); return; }
-          if (!bucket.take()) { conn.close(); return; }
           const room = this.rooms.get(roomId);
           if (!room) { conn.close(); return; }
           // 流量记账（入向；自然日翻转即重置）

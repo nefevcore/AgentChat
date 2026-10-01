@@ -230,6 +230,63 @@ describe('下载链路（downloadInstallerAsync → 校验 → 状态面 → ins
     expect(res.status).toBe(400);
     expect(launched).toBe(0);
   });
+
+  // R-1（2026-10-01 审计）：拉起前就地复核 sha256——ready 态文件被调换后
+  // 必须拒绝（防暂存区投毒/同机进程篡改）。
+  it('install 路由：ready 包被篡改 → 400 拒绝拉起 + 状态置 failed', async () => {
+    main = (await mainPromise) as unknown as AnyRec;
+    const payload = Buffer.from('genuine-installer-bytes');
+    const sha = createHash('sha256').update(payload).digest('hex');
+    const dlSrv = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-length': String(payload.length) });
+      res.end(payload);
+    });
+    await new Promise<void>((r) => dlSrv.listen(0, '127.0.0.1', () => r()));
+    cleanups.push(() => close(dlSrv));
+    await main.downloadInstallerAsync({
+      version: '9.9.6', name: 'tamper-test.exe', platform: 'windows', arch: 'x64',
+      size: payload.length, sha256: sha,
+      url: `http://127.0.0.1:${(dlSrv.address() as net.AddressInfo).port}/pkg.exe`,
+    });
+    expect(main.updateStatusJson().status).toBe('ready');
+    // 篡改就位文件
+    fs.writeFileSync(path.join(main.__testUpdatesDir as string, 'tamper-test.exe'), 'evil-bytes');
+    let launched = 0;
+    main.__testSetInstallLauncher(async () => { launched += 1; });
+    const bridgePort = await freePort();
+    await main.startBridge(bridgePort);
+    cleanups.push(() => main.__testCloseBridge?.());
+    const res = await fetch(`http://127.0.0.1:${bridgePort}/desktop-bridge/update/install`, { method: 'POST' });
+    expect(res.status).toBe(400);
+    expect(launched).toBe(0);
+    expect(main.updateStatusJson().status).toBe('failed');
+  });
+});
+
+describe('manifestsDisagree / 双源信任锚（R-1 纯函数）', () => {
+  it('版本/哈希/size 全等 → null；任一不一致 → 具体原因', async () => {
+    const main = (await mainPromise) as unknown as AnyRec;
+    const files = [
+      { name: 'Setup.exe', platform: 'windows', arch: 'x64', size: 100, sha256: 'ab'.repeat(32), url: '/9.9.9/Setup.exe' },
+      { name: 'App.AppImage', platform: 'linux', arch: 'x64', size: 200, sha256: 'cd'.repeat(32), url: '/9.9.9/App.AppImage' },
+    ];
+    const m = { releases: [{ version: '9.9.9', files }] };
+    expect(main.manifestsDisagree(m, m)).toBeNull();
+    // 锚含更多历史版本（主源 --keep 裁剪）——锚侧找到同版本条目即一致
+    const anchorFull = { releases: [{ version: '9.9.8', files: [] }, { version: '9.9.9', files }] };
+    expect(main.manifestsDisagree(m, anchorFull)).toBeNull();
+    // 版本不在锚中
+    expect(main.manifestsDisagree(m, { releases: [{ version: '9.9.8', files: [] }] })).toContain('不在锚');
+    // 哈希不一致
+    const badSha = { releases: [{ version: '9.9.9', files: [{ ...files[0], sha256: 'ef'.repeat(32) }, files[1]] }] };
+    expect(main.manifestsDisagree(m, badSha)).toContain('sha256');
+    // size 不一致
+    const badSize = { releases: [{ version: '9.9.9', files: [{ ...files[0], size: 999 }, files[1]] }] };
+    expect(main.manifestsDisagree(m, badSize)).toContain('size');
+    // 主源多出锚没有的文件（锚侧缺文件 = 单侧注入）
+    const missing = { releases: [{ version: '9.9.9', files: [files[0]] }] };
+    expect(main.manifestsDisagree(m, missing)).toContain('不在锚');
+  });
 });
 
 // 残料清理（隔离目录里的测试产物）
