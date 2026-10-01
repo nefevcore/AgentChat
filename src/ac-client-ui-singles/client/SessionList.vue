@@ -22,7 +22,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal, Icon, toastError } from '@agentchat/webui-kit';
+import { StarAvatar, Modal, Icon, PullToRefresh, toastError } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -410,9 +410,19 @@ async function confirmDeleteWorkspace() {
 }
 
 // ── 树列表滚动条：默认零宽不占位，hover 列表时浮现（与 AgentList 同款机制）──
-const treeScrollRef = ref<HTMLElement>();
-function onTreeEnter() { treeScrollRef.value?.classList.add('scroll-visible'); }
-function onTreeLeave() { treeScrollRef.value?.classList.remove('scroll-visible'); }
+// 滚动容器 = PullToRefresh 根元素（cr-80 下拉刷新挂载点）；treeScrollRef 指根
+const treeScrollRef = ref<InstanceType<typeof PullToRefresh>>();
+function onTreeEnter() { treeScrollRef.value?.$el?.classList.add('scroll-visible'); }
+function onTreeLeave() { treeScrollRef.value?.$el?.classList.remove('scroll-visible'); }
+
+/** 下拉刷新（cr-80）：会话列表三数据源全量同步（名册头像名/工作区树/会话清单） */
+async function refreshLists() {
+  await Promise.all([
+    roster.requestAgents(),
+    singlesBoard?.refresh() ?? Promise.resolve(),
+    wsBoard?.refresh() ?? Promise.resolve(),
+  ]); // 各自失败静默（服务面已 catch）——刷新指示照常收口
+}
 
 // ── 工作区「更多」菜单（重命名 / 删除；单开，点击外部关闭）──
 const wsMenuOpen = ref<string | null>(null);
@@ -480,14 +490,14 @@ onMounted(() => {
   void singlesBoard?.refresh();
   void wsBoard?.refresh();
   document.addEventListener('click', onDocClick);
-  treeScrollRef.value?.addEventListener('mouseenter', onTreeEnter);
-  treeScrollRef.value?.addEventListener('mouseleave', onTreeLeave);
+  treeScrollRef.value?.$el.addEventListener('mouseenter', onTreeEnter);
+  treeScrollRef.value?.$el.addEventListener('mouseleave', onTreeLeave);
 });
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick);
-  treeScrollRef.value?.removeEventListener('mouseenter', onTreeEnter);
-  treeScrollRef.value?.removeEventListener('mouseleave', onTreeLeave);
+  treeScrollRef.value?.$el.removeEventListener('mouseenter', onTreeEnter);
+  treeScrollRef.value?.$el.removeEventListener('mouseleave', onTreeLeave);
 });
 </script>
 
@@ -516,7 +526,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 3. 树列表：搜索态 → 跨工作区扁平结果；常态 → 工作区根节点（按名称排列）→ 各 session 叶节点 -->
-    <div ref="treeScrollRef" class="tree-scroll">
+    <PullToRefresh ref="treeScrollRef" class="tree-scroll" :on-refresh="refreshLists">
      <!-- 搜索态：扁平结果（跨工作区、按最近活动降序；行：头像 - 标题/归属 - 删除） -->
      <div v-if="searching" class="search-results">
        <div v-for="item in searchResults" :key="item.id" class="list-item"
@@ -617,7 +627,7 @@ onUnmounted(() => {
           暂无会话<br /><span class="empty-hint">点击「新增」直接开始；「+」登记文件夹工作区分组管理会话</span>
         </div>
      </template>
-    </div>
+    </PullToRefresh>
 
     <!-- 删除会话确认弹窗 -->
     <!-- 重命名会话弹窗 -->

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-79**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-80**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -97,3 +97,4 @@
 - 【cr-77 2026-10-01 安全审计修复（relay-security-audit 两轮 2026-10-01）：download-gate 抽 parseGatePath 统一 400 防崩（F-1）；per-IP 房间配额含 everClosed 房间 + IPv6 聚合 /64（normalizeIp）+ 全局 maxTotalConns 兜底（F-2）；所有 op 统一收帧速率桶费（F-3）；env 数值 NaN 防护回退缺省（F-4）；quota 读盘一次复用（F-8）；桌面更新链 manifest 双源校验（下载面 ↔ GitHub Releases 信任锚，desktop.yml 上传 manifest.json 资产）+ install 前就地复核 sha256（R-1）；SAS 确认改输入 8 位数字服务端核对（R-2）】
 - 【cr-78 2026-10-01 remote-link deliver 信封 sender 由 remote:<id> 改回 user：remote: 前缀致 1v1 直答桶键分裂（pairKey(remote:xxx, agent)≠user~agent），流式门控拦帧、历史读侧读不回；sender=端点身份（手机=viewer 另一块表面），设备溯源留链路层】
 - 【cr-79 2026-10-01 设计档案整理：src/docs 根 27 份已收官过程文档（M1/M3 远程批次·LLM 域·系统提示词·记忆时间线·安全审计两轮·治理审查等）移入 archive/ 冻结区 + .dsh/tmp 两份真文档收编（实战 PoC 审计/M3 交接单）+ 源码注释与留守文档引用路径同步 + src/README.md 索引重写（修正 3 处过时状态·补登 4 份漏登） + archive/README.md 索引扩容】
+- 【cr-80 2026-10-01 手机端下拉刷新：webui-kit PullToRefresh 触屏原语 + 会话/Agent 列表接线（消息区上滑加载历史为既有行为，本轮确认覆盖）】

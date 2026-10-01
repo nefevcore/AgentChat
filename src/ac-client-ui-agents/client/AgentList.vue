@@ -11,7 +11,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal } from '@agentchat/webui-kit';
+import { StarAvatar, Modal, PullToRefresh } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { directDialog, groupDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -51,6 +51,8 @@ const emit = defineEmits<{
 const props = defineProps<{
   groups: GroupInfo[];
   activeGroupId: string;
+  /** 群名册刷新（Host 供——下拉刷新数据面之一，cr-80） */
+  refreshGroups: () => Promise<void>;
 }>();
 
 const searchQuery = ref('');
@@ -154,11 +156,11 @@ function unreadCountOf(id: string): number {
   return chatStore.getUnreadCount(id) || feedStore.getDialog(groupDialog(id))?.unread || 0;
 }
 function unreadLabel(id: string): string { const n = unreadCountOf(id); return n > 99 ? '99+' : String(n); }
-const listScrollRef = ref<HTMLElement>();
-function onListEnter() { listScrollRef.value?.classList.add('scroll-visible'); }
-function onListLeave() { listScrollRef.value?.classList.remove('scroll-visible'); }
-onMounted(() => { roster.requestAgents(); document.addEventListener('click', onDocClick); listScrollRef.value?.addEventListener('mouseenter', onListEnter); listScrollRef.value?.addEventListener('mouseleave', onListLeave); });
-onUnmounted(() => { document.removeEventListener('click', onDocClick); listScrollRef.value?.removeEventListener('mouseenter', onListEnter); listScrollRef.value?.removeEventListener('mouseleave', onListLeave); });
+const listScrollRef = ref<{ $el: HTMLElement }>();
+function onListEnter() { listScrollRef.value?.$el.classList.add('scroll-visible'); }
+function onListLeave() { listScrollRef.value?.$el.classList.remove('scroll-visible'); }
+onMounted(() => { roster.requestAgents(); document.addEventListener('click', onDocClick); listScrollRef.value?.$el.addEventListener('mouseenter', onListEnter); listScrollRef.value?.$el.addEventListener('mouseleave', onListLeave); });
+onUnmounted(() => { document.removeEventListener('click', onDocClick); listScrollRef.value?.$el.removeEventListener('mouseenter', onListEnter); listScrollRef.value?.$el.removeEventListener('mouseleave', onListLeave); });
 function onDocClick() { showCreateMenu.value = false; }
 
 // ── 互斥：选中 Agent → 清除群组/single 选中 ──
@@ -211,6 +213,11 @@ async function createAgent() {
 interface PAv { avatar: string | null; name: string; }
 function getGroupAvatars(g: GroupInfo): PAv[] { return g.participants.slice(0, 9).map(id => ({ avatar: roster.getAgentAvatar(id), name: roster.getAgentName(id) })); }
 function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) return { cols: 1, rows: 1 }; if (n === 2) return { cols: 2, rows: 1 }; if (n <= 4) return { cols: 2, rows: 2 }; if (n <= 6) return { cols: 3, rows: 2 }; return { cols: 3, rows: 3 }; }
+
+/** 下拉刷新（cr-80）：名册 + 群名册双源同步（各自失败静默） */
+async function refreshAll() {
+  await Promise.all([roster.requestAgents(), props.refreshGroups()]);
+}
 </script>
 
 <template>
@@ -220,7 +227,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
 
     </div>
-    <div ref="listScrollRef" class="list-scroll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
+    <PullToRefresh ref="listScrollRef" class="list-scroll" :on-refresh="refreshAll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
         :class="{ active: item.type === 'agent' ? roster.activeAgentId.value === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
@@ -230,7 +237,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
-    </div>
+    </PullToRefresh>
     <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>Provider</label><select :value="selProvider" @change="onDialogProviderChange(($event.target as HTMLSelectElement).value)"><option value="">默认（全局连接）</option><option v-for="stat in providerStats" :key="stat.name" :value="stat.name">{{ stat.name }}{{ stat.description ? ' · ' + stat.description : '' }}</option></select></div><div class="form-group"><label>模型</label><select v-model="selModel" :disabled="!selProvider"><option value="">默认（该连接的默认模型）</option><option v-for="m in dialogModels" :key="m" :value="m">{{ m }}</option></select></div><p v-if="!selProvider" class="default-hint">将使用全局默认连接与模型</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false" :disabled="adding">取消</button><button class="btn-save" @click="createAgent" :disabled="adding">{{ adding ? '创建中…' : '创建' }}</button></div></div></Modal>
   </div>
 </template>

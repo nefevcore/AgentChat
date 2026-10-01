@@ -247,14 +247,15 @@ export class RosterCore {
   }
 
   /** 名册刷新（Port B）：fetchAgents 汇聚 → setAgents；可选回调承接
-   *  恢复选中链（chat store 的 tryRestore 逻辑在响应后执行）。 */
-  requestAgents(onLoaded?: (agents: AgentInfo[]) => void): void {
-    if (!this.rpc) return;
-    void fetchAgents(this.rpc).then((d) => {
+   *  恢复选中链（chat store 的 tryRestore 逻辑在响应后执行）。
+   *  返回拉取 Promise（失败静默——调用方 await 收口刷新指示；无 rpc = 立即落定）。 */
+  requestAgents(onLoaded?: (agents: AgentInfo[]) => void): Promise<void> {
+    if (!this.rpc) return Promise.resolve();
+    void this.fetchPresets();
+    return fetchAgents(this.rpc).then((d) => {
       this.setAgents(d.agents);
       onLoaded?.(d.agents);
     }).catch(() => undefined);
-    void this.fetchPresets();
   }
 
   async fetchPresets(): Promise<void> {
@@ -383,7 +384,7 @@ export class RosterService extends Service {
   isPreset(id: string) { return this.core.isPreset(id); }
 
   // ── 写面（名册刷新/选中/活跃提升/头像同步）──
-  requestAgents(onLoaded?: (agents: AgentInfo[]) => void) { this.core.requestAgents(onLoaded); }
+  requestAgents(onLoaded?: (agents: AgentInfo[]) => void) { return this.core.requestAgents(onLoaded); }
   fetchPresets() { return this.core.fetchPresets(); }
   selectAgent(agentId: string) { this.core.selectAgent(agentId); }
   clearSelection() { this.core.clearSelection(); }

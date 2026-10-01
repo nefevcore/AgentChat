@@ -11,12 +11,18 @@ import { useClientContext } from 'ac-client-runtime';
 const groupSvc = useClientContext()?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
 const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
+
+/** 下拉刷新（cr-80）：群名册重拉（失败静默——服务面已 catch） */
+function refreshGroups() {
+  return groupSvc?.fetchGroups() ?? Promise.resolve();
+}
 </script>
 
 <template>
   <AgentList
     :groups="groups"
     :active-group-id="activeGroupId"
+    :refresh-groups="refreshGroups"
     @select-group="(id: string) => groupSvc?.selectGroup(id)"
     @deselect-group="() => groupSvc?.deselectGroup()"
     @create-group="() => groupSvc?.openCreateGroup()"
