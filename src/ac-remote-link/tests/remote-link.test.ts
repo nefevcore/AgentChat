@@ -224,6 +224,36 @@ describe('握手等待的 ws 死亡唤醒（cr-69）', () => {
   });
 });
 
+describe('join 拒答唤醒（cr-81）', () => {
+  it('room-unavailable 立即解除 join 等待，不再白等满超时', async () => {
+    const conn = new RelayConnection({ publicKey: Buffer.alloc(32), privateKey: Buffer.alloc(32) } as never);
+    const t0 = Date.now();
+    const p = (conn as unknown as { expectOp(op: string, ms: number): Promise<boolean> }).expectOp('joined', 15_000);
+    // relay 房满拒答：handleWire 应 resolve(false)（原实现只认 joined，拒帧被吞、
+    // 白等满 15s——真机实锤：重试周期被拉长 3~5 倍，撞门相遇窗骤缩）
+    (conn as unknown as { handleWire(raw: string): void }).handleWire('{"op":"room-unavailable"}');
+    const ok = await p;
+    expect(ok).toBe(false);
+    expect(Date.now() - t0).toBeLessThan(5_000); // 秒回，不是 15s
+  });
+
+  it('joined 仍正常 resolve(true)（回归锁）', async () => {
+    const conn = new RelayConnection({ publicKey: Buffer.alloc(32), privateKey: Buffer.alloc(32) } as never);
+    const p = (conn as unknown as { expectOp(op: string, ms: number): Promise<boolean> }).expectOp('joined', 15_000);
+    (conn as unknown as { handleWire(raw: string): void }).handleWire('{"op":"joined"}');
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('pong 不吞 join 等待（迟到回包落在 join 窗内不误判失败）', async () => {
+    const conn = new RelayConnection({ publicKey: Buffer.alloc(32), privateKey: Buffer.alloc(32) } as never);
+    const p = (conn as unknown as { expectOp(op: string, ms: number): Promise<boolean> }).expectOp('joined', 3_000);
+    (conn as unknown as { handleWire(raw: string): void }).handleWire('{"op":"pong"}');
+    // pong 后等待仍未决——joined 到来才 resolve(true)
+    (conn as unknown as { handleWire(raw: string): void }).handleWire('{"op":"joined"}');
+    await expect(p).resolves.toBe(true);
+  });
+});
+
 describe('KK 常住方模型（cr-70）', () => {
   it('peer-left → waiting 待命；新 m1 到达 → 原地重握手恢复 online', async () => {
     // 构造真实 KK 握手对（发起方视角的 m1 由 noise-core 生成）

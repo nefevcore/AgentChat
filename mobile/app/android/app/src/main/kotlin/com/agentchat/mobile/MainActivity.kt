@@ -463,6 +463,28 @@ class MainActivity : BridgeActivity() {
         super.onStop()
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 回前台自愈（cr-81）：两处「链路停摆、无人重拉」的恢复缺口——
+        //   ① ERROR 终态（重连超 10 分钟上限后 startReconnectLoop 已退出）；
+        //   ② 切后台 stop() 后的 IDLE（onStop 断链，原实现回前台无任何恢复路径，
+        //     WebView 停在死桥上白屏 ERR_CONNECTION_REFUSED）。
+        // 用户切回前台的意图就是「连上」。CONNECTING/AWAIT_CONFIRM/ONLINE 不动
+        // （正在推进或已在线）；首启期 session 尚未建好（null）也自然跳过。
+        // resumeOnline 必须显式调：startAndLoad 起服务后 ensureSession 见 session
+        // 非空直接返回，链路不会被拉起。
+        if (!PairingStore(this).paired) return
+        val session = SessionHolder.session ?: return
+        val phase = session.state.value.phase
+        // watchJob 在跑 = startAndLoad 的状态流活着（服务侧 resumeOnline 也在途），
+        // 不重复拉——并发双 dial 同房会占满 2 席把 PC 关在门外（relay 房间无属主）。
+        // 只兜「链路停摆且无人看护」：watchJob 已死（onStop 取消/ERROR 后退出）。
+        if ((phase == LinkPhase.ERROR || phase == LinkPhase.IDLE) && watchJob?.isActive != true) {
+            startAndLoad()
+            lifecycleScope.launch { session.resumeOnline() }
+        }
+    }
+
     // ---- 版本更新提醒（M3.5）----
 
     /**

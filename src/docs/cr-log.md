@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-80**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-81**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -98,3 +98,4 @@
 - 【cr-78 2026-10-01 remote-link deliver 信封 sender 由 remote:<id> 改回 user：remote: 前缀致 1v1 直答桶键分裂（pairKey(remote:xxx, agent)≠user~agent），流式门控拦帧、历史读侧读不回；sender=端点身份（手机=viewer 另一块表面），设备溯源留链路层】
 - 【cr-79 2026-10-01 设计档案整理：src/docs 根 27 份已收官过程文档（M1/M3 远程批次·LLM 域·系统提示词·记忆时间线·安全审计两轮·治理审查等）移入 archive/ 冻结区 + .dsh/tmp 两份真文档收编（实战 PoC 审计/M3 交接单）+ 源码注释与留守文档引用路径同步 + src/README.md 索引重写（修正 3 处过时状态·补登 4 份漏登） + archive/README.md 索引扩容】
 - 【cr-80 2026-10-01 手机端下拉刷新：webui-kit PullToRefresh 触屏原语 + 会话/Agent 列表接线（消息区上滑加载历史为既有行为，本轮确认覆盖）】
+- 【cr-81 2026-10-01 真机「连不上」排障三修（中继重部署后双端互等实锤）：① relay-connection handleWire 的 room-unavailable 拒帧不解除 expectOp('joined') 等待——房满被拒时白等满 15s 才进重试，撞门相遇窗被拉长 3~5 倍；拒帧即 resolve(false) 走既有 join failed 路径快速重试（pong 不碰等待者，防迟到回包误判）。② MainActivity 补 onStart 回前台自愈：ERROR 终态（重连超上限停摆）与切后台 stop() 后的 IDLE（原实现回前台无任何恢复路径，WebView 停死桥白屏 ERR_CONNECTION_REFUSED）由 onStart 显式 startAndLoad + resumeOnline 拉起——watchJob 活着时不重复拉（并发双 dial 同房会占满 2 席把对端关门外）。③ build.gradle 更新清单缺省地址 127.0.0.1:18080 → 生产下载面 47.110.63.135（本地联调残留，真机每次启动必检查失败）。契约测试 +3（拒答秒回/回归锁/pong 边界）】

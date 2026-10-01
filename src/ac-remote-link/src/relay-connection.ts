@@ -385,9 +385,13 @@ export class RelayConnection {
       return;
     }
     if (frame.op === 'joined' || frame.op === 'room-unavailable' || frame.op === 'pong') {
-      if (frame.op === 'joined') {
+      // room-unavailable 同样解除 join 等待（cr-81：真机实锤——房满被拒时
+      // expectOp 只等定时器自然到期，白等满 15s 才进重试，撞门相遇窗被拉长
+      // 3~5 倍；拒帧即 resolve(false)，走既有 join failed 错误路径快速重试）。
+      // pong 不碰等待者——上轮 ping 的回包迟到落在 join 窗内时，不得误判失败。
+      if (frame.op !== 'pong') {
         const waiter = this.pendingOps.shift();
-        if (waiter && waiter.op === 'joined') waiter.resolve(true);
+        if (waiter && waiter.op === 'joined') waiter.resolve(frame.op === 'joined');
       }
       return;
     }

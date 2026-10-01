@@ -14,10 +14,14 @@ android {
         versionName "1.0.0"
         // 构建时间标识：adb install -r 未真正替换时可一眼看出（M3.3 实测踩坑）
         buildConfigField "String", "BUILD_TAG", "\"${System.currentTimeMillis()}\""
-        // 版本清单地址（M3.5：信任锚 = git raw HTTPS；缺省指向本地下载面便于验证）。
-        // 生产构建用 -PupdateManifestUrl=... 覆盖。清单可信性靠 HTTPS + 落地前 sha256 校验，
+        // 版本清单地址（M3.5：信任锚 = git raw HTTPS；缺省指向生产下载面——cr-81 修正，
+        // 原缺省 127.0.0.1:18080 是本地联调残留，真机每次启动必检查失败）。
+        // 本地联调用 -PupdateManifestUrl=... 覆盖。清单可信性靠 HTTPS + 落地前 sha256 校验，
         // 故它**不必**与下载面同源（方案 §4.6「版本清单与信任锚分离」）。
-        def manifestUrl = project.findProperty('updateManifestUrl') ?: 'http://127.0.0.1:18080/downloads/manifest.json'
+        // 注：下载面当前是明文 HTTP（HTTPS 需备案域名，审计遗留项），手机端
+        // network_security_config 只放行 loopback/局域网——真机上此检查会因
+        // cleartext 策略失败（fail-closed，不阻断启动）；HTTPS 部署后自然通。
+        def manifestUrl = project.findProperty('updateManifestUrl') ?: 'http://47.110.63.135/downloads/manifest.json'
         buildConfigField "String", "UPDATE_MANIFEST_URL", "\"" + manifestUrl + "\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
