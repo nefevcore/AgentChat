@@ -11,7 +11,7 @@
 //   · 皆空 → direct 会话（激活 Agent 对桶）
 //
 // conversation-view-split-plan（2026-09-24 拆分精简）后本视图 = 纯组合壳，
-// 细节各归其位（方案：src/docs/conversation-view-split-plan.md）：
+// 细节各归其位（方案：src/docs/archive/conversation-view-split-plan.md）：
 //   · useConversationIdentity —— 四形态判定/对话寻址/头部目标/标题徽标/
 //     席位与 dock 键的纯 computed 族
 //   · useConversationHistory —— 三条 load-more 路径 + 全部装载 watch

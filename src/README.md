@@ -872,16 +872,14 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | 分组 | 档案 |
 |---|---|
 | 总览 | `architecture-diagram.html`（架构图可视化） |
-| 会话与 LLM 域 | `session-design.md`（域深设计事实源）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
-| WebUI | `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `conversation-view-split-plan.md`（ConversationView 拆分精简方案——2026-09-24 立项待实施）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/`（M27-M29 过程档案冻结） |
-| 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
-| 记忆/转录流 | `memory-timeline-plan.md`（cr-4 设计与裁决，已实施）· `memory-timeline-handover.md`（**施工交接**——实施汇总/验证状态/生产迁移实况/下会话工作清单） |
-| 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——2026-09-18 计划，P0 已随 subagents/history 落地） |
-| 审计与精简 | `edit-tool-incident-report.md`（edit 工具事故分析 + 护栏落地实录） · `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次：重度开发/journal 泛化/机制验证——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） |
-| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `harness-bridge-plan.md`（本地 CLI harness 桥接——方案 B 工具+委托子代理，待实施）· `remote-client-relay-plan.md`（本地多端远程接入，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md`（打磨残留条目 + 边界备忘） |
-| 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单——已实施） |
+| 会话与 LLM 域 | `session-design.md`（域深设计事实源——消息定义/落盘/三种会话形态） |
+| WebUI | `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** |
+| 移动端与远程接入 | **`remote-client-relay-plan.md`（域总方案——B 路线唯一裁决；M4 可选批未实施）** · `remote-link-remaining-plan.md`（后续工作交接：P1 尾巴 + M3 实况索引 + M4 可选）· `remote-deliver-sender-ruling.md`（deliver 信封 sender=user 裁决，cr-78）· `mobile-ui-paradigm-plan.md`（移动端 UI 范式——Phase①② 落地，Phase③ 余项待真机验证轮）· `mobile-link-diagram.html`（三端一管道总览图，cr-51）· `mobile-handshake-sequence.html`（XK/KK 握手时序图，cr-62） |
+| 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——P0 已随 subagents/history 落地，余步骤见计划） |
+| 审计与精简 | `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） · `gap-backlog.md`（缺口待修清单——47 处字面搜索归集，含已修核销标注） |
+| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `harness-bridge-plan.md`（本地 CLI harness 桥接——方案 B 工具+委托子代理，待实施）· `polish-backlog.md`（打磨残留条目 + 边界备忘） · `dsh-0.2-contract-takeaways-plan.md`（DSH 0.2 插件契约比对——ac-config 热更三小件待办 + 机制不搬原则记档，待实施） |
 | 标签系统 | `tag-system-report.md`（词表/机制/归属/守则全貌）· `tags-include-semantics-report.md`（× tools.include 语义裁决） |
-| 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；存量 `YYYY-MM-00` 为历史批次标记只读不写）· `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增） |
+| 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；历史批次底册 `archive/epoch-inventory-2026-09-27.md`）· `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增） |
 
 > **归档根**（2026-09-18 起）：收官里程碑终稿（M7-M25 计划、m15/m16/m17 对账套件、
 > WebUI 适配器系列、程序化模式三件套、T0/精简审计、src→preview 映射图）已移至

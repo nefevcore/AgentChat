@@ -1,7 +1,7 @@
 // ============================================================
 // ac-edit-core/src/syntax-check.ts —— 写回前轻量语法预检（fail-fast）
 //
-// 事故背景（docs/edit-tool-incident-report.md §2.3）：替换后的内容不经
+// 事故背景（src/docs/archive/edit-tool-incident-report.md §2.3）：替换后的内容不经
 // 任何语法检查直接写回——TS 文件 interface 未闭合一类结构损坏要到下一轮
 // typecheck 才暴露，而那时调用方已基于损坏文件继续编辑，连环二次破坏。
 // 本模块按扩展名做 O(n) 级校验，失败即拒绝写回、文件保持原状。

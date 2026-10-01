@@ -1,7 +1,7 @@
 # 远程 deliver 信封裁决：sender=user，设备溯源留链路层（cr-78）
 
 > 日期：2026-10-01 · 裁决级：行为修改（forwardRpc 强制改写面）
-> 前置：src/docs/remote-client-relay-plan.md §4.4 · m1-remote-link-implementation-plan.md §1.4
+> 前置：src/docs/remote-client-relay-plan.md §4.4 · archive/m1-remote-link-implementation-plan.md §1.4
 
 ## 0. 问题
 
@@ -58,5 +58,5 @@ M19 后它成了缺陷源。
 |---|---|
 | ac-remote-link/src/service.ts | forwardRpc DELIVER_METHODS 改写：sender='user'（原 remote:+device.id），注释更新 |
 | ac-remote-link/tests/remote-link.test.ts | 新增断言：chat 设备 deliver 转发参数 sender==='user'、source==='user'、无 elevation |
-| src/docs/m1-remote-link-implementation-plan.md | §1.4 判定逻辑行同步 |
+| src/docs/archive/m1-remote-link-implementation-plan.md | §1.4 判定逻辑行同步 |
 | src/docs/mobile-link-diagram.html | 卡片文字同步（sender=user + 剥 elevation） |

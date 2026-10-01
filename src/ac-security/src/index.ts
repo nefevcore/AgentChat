@@ -2,7 +2,7 @@
 // ac-security/src/index.ts —— 安全行（双轴门禁 + 双黑名单 + bash 扫描 +
 // 脱敏 + 唆使防御注入）
 //
-// access-tier 重设计（src/docs/security-access-tier-plan.md）：
+// access-tier 重设计（src/docs/archive/security-access-tier-plan.md）：
 //   · 能力轴（不动）：requiredTags AND vs tags 单源能力集——工具可见性
 //     与执行第一道门（capabilitySetOf/toolAllowedFor 零改动）。
 //   · 权限轴（新增）：ToolDefinition.needPermission × Agent tags 档位

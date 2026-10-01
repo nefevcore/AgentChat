@@ -1,7 +1,7 @@
 // ============================================================
 // ac-web-tools/src/browser.ts —— 浏览器 Service（ctx.browser）v2
 //
-// 2026-09-26 CDP 直连改造（src/docs/browser-cdp-plan.md）：
+// 2026-09-26 CDP 直连改造（src/docs/archive/browser-cdp-plan.md）：
 //   · 执行层从「Python + playwright 守护进程」换成 Node 原生 CDP
 //     （ac-cdp-core 纯库）——协议实现可单测可 typecheck，桌面
 //     分发零 Python 依赖（Windows 宿主必装 Edge = Chromium）

@@ -4,7 +4,7 @@
 > Codex / DeepSeek Harness 等 harness 应用，希望在 AgentChat 会话中直接
 > 借力这些应用的能力。经三轮方案对比（§二），裁决先行落地**方案 B
 > （harness 工具行 + 委托子代理）**；provider 形态（方案 A）推后到
-> `llm-protocol-extensibility.md` 备忘实施后再评估。本文档给出 B 的
+> `archive/llm-protocol-extensibility.md` 备忘实施后再评估。本文档给出 B 的
 > 目标形态、数据形状、安全护栏与裁决点。
 >
 > 总立场：**零框架改动，纯增量行**——不新增事件、不动 core 四层、不新增
@@ -34,7 +34,7 @@
 ### 1.2 非目标（显式不做，首期）
 
 - **方案 A（harness provider 入池）**：把 harness 伪装成 LLM 模型端点——
-  依赖 `llm-protocol-extensibility.md` 的 PROTOCOLS 注册表先落地，且语义
+  依赖 `archive/llm-protocol-extensibility.md` 的 PROTOCOLS 注册表先落地，且语义
   错配（双 agent 循环嵌套、黑盒长步、usage/耗时失真）需要独立产品裁决，
   推后到该备忘实施后再评估；
 - **方案 C（工具回接）**：把 harness 的工具请求转成 AgentChat 工具调用

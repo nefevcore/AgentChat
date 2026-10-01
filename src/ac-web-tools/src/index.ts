@@ -9,7 +9,7 @@
 //     defaultResults 等——地图 §3.4 命名空间配置 → settings[具名]；
 //     M24 A1 经 settingsOf 合成全局默认层）
 //   · browser 是 ctx.browser Service（CDP 直连——ac-cdp-core 纯库；
-//     2026-09-26 起 Python daemon 退役，见 src/docs/browser-cdp-plan.md）
+//     2026-09-26 起 Python daemon 退役，见 src/docs/archive/browser-cdp-plan.md）
 //
 // browser 能力门禁（web + 权限分层复合标签）：
 //   · 工具级地板 requiredTags ['web','observe']——通用门禁（ac-security 行

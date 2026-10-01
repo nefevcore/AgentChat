@@ -1,7 +1,7 @@
 # 远程链路后续工作交接（P1 尾巴 + M3 安卓端 + M4 可选）
 
 > 前置阅读：src/docs/remote-client-relay-plan.md（总方案）→
-> src/docs/m1-remote-link-implementation-plan.md（M1/P0/P1 实况，含已修复缺陷清单）。
+> src/docs/archive/m1-remote-link-implementation-plan.md（M1/P0/P1 实况，含已修复缺陷清单）。
 > 本文是下个会话的开工文档——自包含，按序实施即可。
 
 ## 0. 当前状态快照（2026-09-22 收口时）

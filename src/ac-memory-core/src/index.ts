@@ -1,7 +1,7 @@
 // ============================================================
 // ac-memory-core/src/index.ts —— 记忆时间线渲染/解析纯库
 //
-// 记忆时间线重构（src/docs/memory-timeline-plan.md）：单文件
+// 记忆时间线重构（src/docs/archive/memory-timeline-plan.md）：单文件
 // files/<agentId>/memory/timeline.md，条目 = 头注释（宿主铸造：时间戳 /
 // origin=写入时会话标识 / peers / tags）+ 正文；seq = 条目在文件中的
 // 序号（1-based，位置派生）——零计数器状态。

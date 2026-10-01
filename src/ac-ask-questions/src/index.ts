@@ -1,7 +1,7 @@
 // ============================================================
 // ac-ask-questions/src/index.ts —— ask_questions 工具行（挂起形态）
 //
-// 2026-02-00 挂起重构（src/docs/ask-questions-suspension-plan.md）+ 2026-09-22 steer 对齐：
+// 2026-02-00 挂起重构（src/docs/archive/ask-questions-suspension-plan.md）+ 2026-09-22 steer 对齐：
 // 工具体不再等待——execute 是发起体（校验归一 → open 落盘 → context 行
 // → 即时返回 awaiting 标记），等待由系统持有，答案注入按 run 状态三态分流：
 //   · 忙步中作答 → replied 监听器 steer 步边界即时注入（对齐用户插话语义，

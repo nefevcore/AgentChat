@@ -12,7 +12,7 @@
 //              前、会话动态信息收尾——尾档内 prepend 恒 unshift，先于恒
 //              push 的 ac-datetime 日期行（ADR-7 收敛式，注册时序无关））
 //
-// v3 变更（docs/system-prompt-optimization-plan.md，用户逐块裁决）：
+// v3 变更（src/docs/archive/system-prompt-optimization-plan.md，用户逐块裁决）：
 //   · framework 块退役（loop 协议句随之移除——需要者由 persona 作者
 //     承载；行 Config.framework / settings.framework 随块删除）
 //   · 指引 dsh 句式重构：每条 = 动作 + 理由/边界，工具结果响应纪律

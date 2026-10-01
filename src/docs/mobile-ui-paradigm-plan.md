@@ -125,7 +125,7 @@ aux-sidebar / overlay），为桌面大屏「多面板并行观察」打造。�
 | 触摸基线 | ✅ base.css 全局：`-webkit-tap-highlight-color: transparent`（消 WebView 点击灰闪）+ `touch-action: manipulation`（消双击缩放延迟与误触）+ `body { overscroll-behavior: none }`（遏制滚动链外溢） |
 | safe-area | ✅ cr-29 已前置（tokens.css `--safe-top/--safe-bottom` + viewport-fit=cover），tab 栏/Sheet/输入区已消费 |
 | color-mix 回退 | ✅ cr-32 完成（123 处转 `rgba(var(--x-rgb), α)`；12 处带回退的渐进增强；构建期棘轮守门 + 令牌契约测试） |
-| 真机验证轮 | ⏸ 待设备（chrome://inspect + m3-realdevice-checklist） |
+| 真机验证轮 | ⏸ 待设备（chrome://inspect + archive/m3-realdevice-checklist） |
 
 **color-mix 收口（cr-32 已落地）**：133 处。核心洞察——`color-mix(in srgb, C N%, transparent)` 在**预乘 alpha 插值**下语义恰等于「C 以 N% 不透明度着色」，故等价物是 `rgba(var(--x-rgb), N/100)`，只差一个 RGB 三元组令牌。落地：
 

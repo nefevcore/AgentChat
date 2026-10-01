@@ -9,7 +9,7 @@
 
 ### 1. ☐ 协议写死 OpenAI 兼容——非兼容端点无法经池配置〔大缺口〕
 
-- **出处**：`src/docs/llm-protocol-extensibility.md` L25（本文档主题）
+- **出处**：`src/docs/archive/llm-protocol-extensibility.md` L25（本文档主题）
 - **内容**：协议层 `ac-openai-completions` 是唯一协议实现，Anthropic 原生
   `/v1/messages`、Gemini 原生 `generateContent`、Ollama 原生 `/api/chat` 等
   非兼容端点无法经 `ac-llm-pool` 配置，只能走 `templates/provider-row` 手写
@@ -20,7 +20,7 @@
 
 ### 2. ☐ 按 source 降档——Agent 间唆使链路无硬边界〔安全〕
 
-- **出处**：`src/docs/security-access-tier-plan.md` L55 / L292 / L416 / L448
+- **出处**：`src/docs/archive/security-access-tier-plan.md` L55 / L292 / L416 / L448
 - **内容**：full 档 Agent 被 source='agent' 消息触发的 run 应降档执行——当前
   只有 prompt 级软缓解（run 边界注入防御提示词），无硬边界。系统整体强度 =
   可达 Agent 最高档；`send_agent` 无 requiredTags，任何 Agent 可联系任何 Agent。
@@ -30,7 +30,7 @@
 
 ### 3. ☐ /models 发现仍是假代理——AgentPane「读取」按钮静态并集
 
-- **出处**：`src/docs/llm-provider-model-plan.md` §1.5（L89-95）
+- **出处**：`src/docs/archive/llm-provider-model-plan.md` §1.5（L89-95）
 - **内容**：AgentPane「读取」按钮注释宣称「走后端代理，从凭据库附加认证」，
   实际 `llm/providers` RPC（`ac-web-api/src/index.ts` L1684）返回**静态
   meta.models 并集**——假代理（M17 缩水项，从未补）。
@@ -55,7 +55,7 @@
   `src/webui/public/legacy-runtime.js` L5
 - **内容**：模拟器/桌面 Chromium 版本更新长期掩盖旧 WebView 缺口（M3 真机
   §1.1 暴露）；三份副本同源（构建投递），本体在 `src/webui/public/`。
-- **动作**：对目标真机 WebView 版本跑 `m3-realdevice-checklist.md` §1.1 核验；
+- **动作**：对目标真机 WebView 版本跑 `archive/m3-realdevice-checklist.md` §1.1 核验；
   对照 MDN/Chrome 状态更新垫片覆盖面（如 `Object.hasOwn`、`structuredClone`、
   `Array.prototype.at` 等按真机版本裁剪）。
 
@@ -72,9 +72,9 @@
 
 | # | 文档 | 滞后内容 | 核实依据 |
 |---|---|---|---|
-| A | `llm-protocol-extensibility.md` | 小缺口 headers/timeoutMs 已标落地；大缺口描述与 §D3 行口径需复查统一 | L19-24 落地标注 |
-| B | `llm-provider-model-plan.md` §1.5 | 「ac-openai-completions 无 listModels()」已过时——协议层已实现并带测试 | `ac-openai-completions/src/index.ts` L421 |
-| C | `llm-provider-model-plan.md` L82 | 「provider 跟随 Agent 不跟覆盖」已修——router 支持 `name@model` 拆 provider | `ac-router/src/service.ts` L58-59/L185 |
+| A | `archive/llm-protocol-extensibility.md` | 小缺口 headers/timeoutMs 已标落地；大缺口描述与 §D3 行口径需复查统一 | L19-24 落地标注 |
+| B | `archive/llm-provider-model-plan.md` §1.5 | 「ac-openai-completions 无 listModels()」已过时——协议层已实现并带测试 | `ac-openai-completions/src/index.ts` L421 |
+| C | `archive/llm-provider-model-plan.md` L82 | 「provider 跟随 Agent 不跟覆盖」已修——router 支持 `name@model` 拆 provider | `ac-router/src/service.ts` L58-59/L185 |
 
 ## 附录：核实后剔除的闭环项（修复时不必再看）
 

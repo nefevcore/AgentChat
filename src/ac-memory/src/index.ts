@@ -1,7 +1,7 @@
 // ============================================================
 // ac-memory —— 长期记忆时间线服务（memory timeline）
 //
-// 重构裁决（src/docs/memory-timeline-plan.md，2026-12-08 cr-4）：
+// 重构裁决（src/docs/archive/memory-timeline-plan.md，2026-12-08 cr-4）：
 //   · 记忆归属主体 = Agent 人格（非会话桶）：单文件
 //     files/<agentId>/memory/timeline.md，条目 = 宿主铸造头注释
 //     （时间戳/origin=写入时会话标识/peers/tags）+ 正文；seq 位置派生。

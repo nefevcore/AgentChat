@@ -146,7 +146,7 @@ function countOccurrencesRaw(searchIn: string, searchText: string): number {
 /**
  * 三级归一化出现次数一次性统计（P0 匹配语义收口）。
  *
- * 事故背景（docs/edit-tool-incident-report.md）：模糊命中的唯一性检查只在
+ * 事故背景（src/docs/archive/edit-tool-incident-report.md）：模糊命中的唯一性检查只在
  * 「选定级别」内做——Level 1 命中后 Level 2 视角下可能多处命中（归一化越
  * 激进、文本折叠越厉害），匹配滑到非预期位置造成静默错位。调用方按更严格
  * 的语义把关：crossLevel=1 时返回的 lenientCount >1 即应拒绝编辑。

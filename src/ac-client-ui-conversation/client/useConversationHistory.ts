@@ -3,7 +3,7 @@
 //（conversation-view-split-plan ③：自 ConversationView 整体迁入的历史
 //  装载块——三条 load-more 路径 + 全部装载 watch。**全部踩坑注释逐字
 //  随迁**（immediate 三连 / 取消守卫 / 8s 超时 / 群聊无限递归防护——它们
-//  是行为规约的一部分，见 src/docs/conversation-view-split-plan.md §四）。
+//  是行为规约的一部分，见 src/docs/archive/conversation-view-split-plan.md §四）。
 // ============================================================
 
 import { ref, watch, nextTick, computed, type Ref } from 'vue';

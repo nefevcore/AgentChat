@@ -3,7 +3,7 @@
 //
 // browser 侧：RowOptions.cdpEndpoint 注入 FakeCdpServer（src/
 // ac-cdp-core/tests/fake-cdp.ts 复用）——旧「假守护进程」手法同构
-// 平移（2026-09-26 CDP 化，src/docs/browser-cdp-plan.md §8）。
+// 平移（2026-09-26 CDP 化，src/docs/archive/browser-cdp-plan.md §8）。
 // ============================================================
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';

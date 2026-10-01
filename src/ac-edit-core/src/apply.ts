@@ -13,7 +13,7 @@ import type { AppliedEditsResult, EditMatchLevel, EditPosition, FuzzyMatchResult
 /**
  * 对归一化后的内容执行多个精确替换。
  *
- * 验证规则（P0 匹配语义收口，事故背景 docs/edit-tool-incident-report.md）：
+ * 验证规则（P0 匹配语义收口，事故背景 src/docs/archive/edit-tool-incident-report.md）：
  *   1. oldText 不能为空；oldText === newText 时拒绝（无变化的编辑没有任何
  *      效果，只会白白写盘、拍快照、碰 mtime——多半是模型笔误，写错一侧了）
  *   2. 仅 Level 0/1 可落编辑（Level 1 = NFKC + trimEnd + 引号/破折号归一化，
