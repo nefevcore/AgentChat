@@ -9,6 +9,8 @@
 // 身份守卫/积压/看门狗语义的惰性形态：连接由首个消费者拉起）。
 // ============================================================
 
+import { unpackWireFrames } from 'ac-wire-format';
+
 type SocketCtor = typeof WebSocket;
 
 let socketFactory: SocketCtor | null = null;
@@ -150,13 +152,16 @@ class WireRpcClient {
         }
         return;
       }
-      // 事件帧：data.args 数组
+      // 事件帧：data.args 数组。批帧（llm/delta-batch，cr-85）在此展开——
+      // 全部消费者（feed/chat/agents 等 onEvent 面）零改动见逐帧序列。
       const args = Array.isArray((data as { args?: unknown }).args) ? (data as { args: unknown[] }).args : [];
-      for (const h of [...this.eventHooks]) {
-        try {
-          h(type, args);
-        } catch (err) {
-          console.error(`[wire] 事件处理器出错（${type}）:`, err);
+      for (const [t, a] of unpackWireFrames(type, args)) {
+        for (const h of [...this.eventHooks]) {
+          try {
+            h(t, a);
+          } catch (err) {
+            console.error(`[wire] 事件处理器出错（${t}）:`, err);
+          }
         }
       }
     };

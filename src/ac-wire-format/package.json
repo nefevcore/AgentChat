@@ -1,0 +1,17 @@
+{
+  "name": "ac-wire-format",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "下行线格式纯库：llm/delta 瘦身投影 + 30ms 微批合帧（ws-bridge 与 remote-link 同源消费，零 cordis 依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -36,6 +36,8 @@ export interface HttpBridgeParams {
   path?: string;
   /** 原样透传的 Content-Type（multipart 边界靠它） */
   contentType?: string;
+  /** 条件请求 If-None-Match（cr-82）：WebView 缓存重协商上行——命中即 304 零字节 */
+  ifNoneMatch?: string;
   /** 请求体原文（**base64url**）——JSON 与 multipart 一视同仁，桥侧无需理解语义。
    *  必须 base64url：手机侧 unb64u 只认 url 字符集，标准 base64 的 +/= 会被拒
 
@@ -49,6 +51,11 @@ export interface HttpBridgeResult {
   contentType: string;
   /** 响应体原文（base64）——文本/二进制一视同仁 */
   bodyB64: string;
+  /** 缓存协商头透传（cr-82）：远程 WebView 原生 HTTP 缓存的全部前提——此前
+   *  协议只回 status/contentType/bodyB64，核心端设的 ETag/Cache-Control 到
+   *  不了手机，缓存从协议上不可能生效（每次冷启全量重拉头像等 /api/* 资源）。
+   *  白名单采集而非全量透传：远程面最小信任面。旧壳不认此字段 = 现状。 */
+  cacheHeaders?: Record<string, string>;
 }
 
 /** 校验并规范出待转发的路径（失败即抛——错误信息对远程可见，故写明原因） */
@@ -77,6 +84,9 @@ export async function proxyToSelf(port: number, params: HttpBridgeParams): Promi
 
   const headers: Record<string, string> = {};
   if (params.contentType) headers['content-type'] = params.contentType;
+  // 条件请求上行（cr-82）：桥转发 WebView 的 If-None-Match → 核心端路由才能回
+  // 304 零字节应答（回程同为 cacheHeaders 白名单帧，304 不带 bodyB64 开销更小）。
+  if (params.ifNoneMatch) headers['if-none-match'] = params.ifNoneMatch;
   // GET/HEAD 带 body 会被 fetch 拒绝——按方法决定是否附体
   const body = method === 'GET' || !params.bodyB64
     ? undefined
@@ -93,6 +103,12 @@ export async function proxyToSelf(port: number, params: HttpBridgeParams): Promi
 
   const res = await fetch(url, { method, headers, body });
   const buf = Buffer.from(await res.arrayBuffer());
+  // 缓存协商头白名单（小写——Node/fetch 头名大小写不敏感，桥侧单源）
+  const cacheHeaders: Record<string, string> = {};
+  for (const name of ['etag', 'last-modified', 'cache-control']) {
+    const v = res.headers.get(name);
+    if (v) cacheHeaders[name] = v;
+  }
   if (buf.byteLength > MAX_PROXY_BODY_BYTES) {
     return {
       status: 413,
@@ -106,6 +122,7 @@ export async function proxyToSelf(port: number, params: HttpBridgeParams): Promi
     status: res.status,
     contentType: res.headers.get('content-type') ?? 'application/octet-stream',
     bodyB64: buf.toString('base64url'),
+    ...(Object.keys(cacheHeaders).length > 0 ? { cacheHeaders } : {}),
   };
 }
 

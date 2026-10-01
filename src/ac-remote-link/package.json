@@ -20,6 +20,7 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",
     "ac-noise-core": "workspace:*",
+    "ac-wire-format": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

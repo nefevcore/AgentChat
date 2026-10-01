@@ -15,6 +15,7 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-core-utils": "workspace:*",
+    "ac-wire-format": "workspace:*",
     "ac-ws-protocol": "workspace:*"
   },
   "devDependencies": {

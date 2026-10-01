@@ -137,7 +137,8 @@ describe('ac-ws-bridge 桥接', () => {
     ctx.emit('tool/after-execute', { name: 't', agentId: 'a1', conversationId: 'a1~user' }, { ok: true });
 
     expect(await waitFor('loop/step-started')).toBeDefined();
-    expect(await waitFor('llm/delta')).toBeDefined();
+    // 线格式（cr-85）：delta 走微批合帧 llm/delta-batch（窗口首帧即发）
+    expect(await waitFor('llm/delta-batch')).toBeDefined();
     expect(await waitFor('tool/after-execute')).toBeDefined(); // run 登记（可见）→ 放行
   });
 
@@ -170,7 +171,7 @@ describe('ac-ws-bridge 桥接', () => {
     ctx.emit('llm/delta', { model: 'm', messages: [] }, { delta: 'hi' }, { agent: 'a1', conversationId: 'c2', sender: 'user' });
     ctx.emit('tool/after-execute', { name: 't', agentId: 'a1', conversationId: 'c2' }, { ok: true });
 
-    expect(await waitFor('llm/delta')).toBeDefined();
+    expect(await waitFor('llm/delta-batch')).toBeDefined();
     expect(await waitFor('tool/after-execute')).toBeDefined(); // run 登记为前台 → 桥接放行
   });
 
@@ -196,18 +197,22 @@ describe('ac-ws-bridge 桥接', () => {
     ctx.emit('llm/delta-end', input, meta);
 
     const start = (await waitFor('llm/delta-start')) as { args: Record<string, unknown>[] };
-    const delta = (await waitFor('llm/delta')) as { args: Record<string, unknown>[] };
+    // delta 走批帧（cr-85）：载荷 { args: [{ deltas: [[input, chunk, meta], ...] }] }
+    const batch = (await waitFor('llm/delta-batch')) as { args: [{ deltas: unknown[][] }] };
     const end = (await waitFor('llm/delta-end')) as { args: Record<string, unknown>[] };
     const slim = { model: 'm', meta };
     expect(start.args[0]).toEqual(slim);
-    expect(delta.args[0]).toEqual(slim);
-    expect(delta.args[1]).toEqual({ delta: 'hi' });
+    const [batchInput, chunk] = batch.args[0].deltas[0]! as [Record<string, unknown>, unknown];
+    expect(batchInput).toEqual(slim); // 批内 input 同样投影瘦身
+    expect(chunk).toEqual({ delta: 'hi' });
     expect(end.args[0]).toEqual(slim);
     // 大载荷字段绝不进逐 chunk 帧（O(历史 × chunk 数) 放大器）
-    for (const frame of [start, delta, end]) {
+    for (const frame of [start, end]) {
       expect(frame.args[0]).not.toHaveProperty('messages');
       expect(frame.args[0]).not.toHaveProperty('tools');
     }
+    expect(batchInput).not.toHaveProperty('messages');
+    expect(batchInput).not.toHaveProperty('tools');
   });
 
   it('backgroundFilter=false：全部广播（诊断模式）', async () => {
@@ -218,7 +223,7 @@ describe('ac-ws-bridge 桥接', () => {
       if (frame && frame.type !== WS_READY) frames.push(frame);
     });
     ctx.emit('llm/delta', { model: 'm', messages: [] }, { delta: 'x' }, { sender: 'x', source: 'event' });
-    expect(await waitFor('llm/delta')).toBeDefined();
+    expect(await waitFor('llm/delta-batch')).toBeDefined();
   });
 
   it('无连接时广播静默（不抛错）', async () => {

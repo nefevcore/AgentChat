@@ -14,6 +14,7 @@ import type {} from './events.ts';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { b64u, sasFromHandshakeHash } from 'ac-noise-core';
+import { LlmDeltaBatcher, LLM_DELTA_BATCH } from 'ac-wire-format';
 import { loadOrCreateIdentity, type StoredIdentity } from './identity.ts';
 import { DeviceRegistry, type RemoteDevice, type RemoteScope } from './device-registry.ts';
 import { RelayConnection, type LinkPayload } from './relay-connection.ts';
@@ -115,6 +116,8 @@ export class RemoteLinkService extends Service {
     // 全局设置层（settings.remoteLink.relayUrl）热更：config/set 落 settings →
     // config/changed → 重解析（boot 期已构造时吸收更早写入）。改 URL = 换 relay：
     // 断开现有连接（设备注册表/身份不动——换 relay 不换身份，老设备重连即恢复）
+    // 行卸载清空在途批（不丢帧）：disposer 经 ctx.effect 挂本行 fiber——注册即归属
+    this.ctx.effect(() => () => this.flushDeltas());
     this.ctx.on('config/changed', () => this.applySettings(), {
       description: 'remote-link relayUrl 热更（settings.remoteLink 全局层）',
     });
@@ -651,10 +654,34 @@ export class RemoteLinkService extends Service {
   /**
    * 事件下行入口（ws-bridge 同款订阅姿势的远程版：只单播在线设备）。
    * M1 白名单：会话流核心事件（llm/delta-*、loop/*、router/*、tool/*）。
+   *
+   * 线格式（cr-85）：llm/delta 经 ac-wire-format 与 ws-bridge 同源——投影
+   * 瘦身（剥 input.messages 全量上下文——远程链路曾 {args} 原样转发，MB 级
+   * 载荷逐 chunk 过公网 = 移动端流式卡顿根因）+ 30ms 微批（WAN 小包流
+   * 放大消除）。批帧词汇 llm/delta-batch 与本地链路共享，前端 wire 入口
+   * 统一解包。
    */
+  private deltaBatcher = new LlmDeltaBatcher((batchArgs) => {
+    this.sendToReadDevices({ type: LLM_DELTA_BATCH, data: { args: [batchArgs] } });
+  });
+
+  /** 行卸载清空在途批（不丢帧；批器属行生命周期——卸载即下行面消失） */
+  private flushDeltas(): void {
+    this.deltaBatcher.flushNow();
+  }
+
   broadcastEvent(type: string, args: unknown[]): void {
     if (!REMOTE_DOWNLINK_EVENTS.includes(type)) return;
-    const frame: LinkPayload = { type, data: { args } };
+    if (type === 'llm/delta') {
+      this.deltaBatcher.push(args[0], args[1], args[2]);
+      return;
+    }
+    if (type === 'llm/delta-end') this.deltaBatcher.flushNow(); // 边界保序
+    this.sendToReadDevices({ type, data: { args } });
+  }
+
+  /** 单播全部 read 档在线设备（scopes 闸门单点） */
+  private sendToReadDevices(frame: LinkPayload): void {
     // scopes 过滤（cr-64 审计）：下行事件全是会话内容流（llm/delta、tool 轨迹等），
     // chat-only（无 read 档）设备不应实时收明文——「能发不能看」的权限设计。
     for (const [deviceId, conn] of this.connections) {

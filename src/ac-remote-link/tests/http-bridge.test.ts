@@ -20,9 +20,13 @@ beforeAll(async () => {
     req.on('end', () => {
       const body = Buffer.concat(chunks);
       if (req.url?.startsWith('/api/echo')) {
-        // 回显方法 + 体（十六进制）——供字节级比对
+        // 回显方法 + 体（十六进制）+ If-None-Match——供字节级比对与条件请求验证
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ method: req.method, hex: body.toString('hex') }));
+        res.end(JSON.stringify({
+          method: req.method,
+          hex: body.toString('hex'),
+          inm: req.headers['if-none-match'] ?? null,
+        }));
         return;
       }
       // 注意顺序：前缀匹配，更具体者在前（/api/binary 会吞掉 /api/binary-plus）
@@ -36,6 +40,18 @@ beforeAll(async () => {
         res.end(Buffer.from([0, 1, 2, 253, 254, 255]));
         return;
       }
+      // 缓存头透传（cr-82）：远程 WebView HTTP 缓存的前提——ETag/Cache-Control
+      // 必须原样到达桥侧（此前协议只回 status/contentType/body，缓存不可能生效）
+      if (req.url?.startsWith('/api/cached')) {
+        res.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'cache-control': 'public, max-age=31536000, immutable',
+          etag: '"av-1-2"',
+          'x-custom': 'dropped', // 白名单外的头不透传
+        });
+        res.end(Buffer.from([9, 9]));
+        return;
+      }
       if (req.url?.startsWith('/api/big')) {
         res.writeHead(200, { 'content-type': 'application/octet-stream' });
         res.end(Buffer.alloc(MAX_PROXY_BODY_BYTES + 1, 7));
@@ -47,6 +63,22 @@ beforeAll(async () => {
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   port = (server.address() as { port: number }).port;
+  it('条件请求上行（cr-82）：ifNoneMatch → 核心端 If-None-Match（304 重协商前提）', async () => {
+    const r = await proxyToSelf(port, { path: '/api/echo', ifNoneMatch: '"av-1-2"' });
+    const body = JSON.parse(Buffer.from(r.bodyB64, 'base64').toString());
+    expect(body.inm).toBe('"av-1-2"');
+  });
+
+  it('缓存头白名单透传（cr-82）：etag/cache-control 原样到达，白名单外丢弃', async () => {
+    const r = await proxyToSelf(port, { path: '/api/cached' });
+    expect(r.status).toBe(200);
+    expect(r.cacheHeaders).toEqual({
+      'cache-control': 'public, max-age=31536000, immutable',
+      etag: '"av-1-2"',
+    });
+    const body = Buffer.from(r.bodyB64, 'base64');
+    expect(Array.from(body)).toEqual([9, 9]);
+  });
 });
 
 afterAll(() => { void new Promise<void>((r) => server.close(() => r())); });

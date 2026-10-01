@@ -335,11 +335,13 @@ describe('事件下行白名单', () => {
     reg.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
     const got: unknown[] = [];
     svc.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
-    svc.broadcastEvent('llm/delta', [{ delta: 'x' }]);
+    svc.broadcastEvent('llm/delta', [undefined, { delta: 'x' }, undefined]);
     expect(got).toHaveLength(1);
-    expect((got[0] as { type: string }).type).toBe('llm/delta');
-    // 载荷统一 { args }——桥与 WebView 都不必理解各事件签名
-    expect((got[0] as { data: { args: unknown[] } }).data.args).toEqual([{ delta: 'x' }]);
+    // 线格式（cr-85）：delta 走微批合帧（窗口首帧即发）——载荷 { deltas: [[input, chunk, meta]] }
+    expect((got[0] as { type: string }).type).toBe('llm/delta-batch');
+    const d0 = (got[0] as { data: { args: [{ deltas: unknown[][] }] } }).data.args[0].deltas;
+    expect(d0).toHaveLength(1);
+    expect(d0[0]![1]).toEqual({ delta: 'x' }); // 参数序 [input(投影), chunk, meta]
     // 白名单外（配置变更/管理类）不下发远程
     svc.broadcastEvent('config/changed', [{}]);
     expect(got).toHaveLength(1);
@@ -354,7 +356,7 @@ describe('事件下行白名单', () => {
     const gotFull: unknown[] = [];
     svc.testInjectConnection('chat-only', { sendPayload: (p: unknown) => got.push(p) } as never);
     svc.testInjectConnection('full', { sendPayload: (p: unknown) => gotFull.push(p) } as never);
-    svc.broadcastEvent('llm/delta', [{ delta: 'secret' }]);
+    svc.broadcastEvent('llm/delta', [undefined, { delta: 'secret' }, undefined]);
     expect(got).toHaveLength(0);
     expect(gotFull).toHaveLength(1);
   });
@@ -478,10 +480,10 @@ describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方
     const got: unknown[] = [];
     ctx.remoteLink.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
 
-    // emit 的签名由事件目录推断；这里只关心「有没有转发」，载荷形状无所谓
+    // emit 的签名由事件目录推断；这里只关心「有没有转发」——delta 走微批合帧（cr-85）
     (ctx.emit as (...a: unknown[]) => void)('llm/delta', {}, {}, {});
     expect(got).toHaveLength(1);
-    expect((got[0] as { type: string }).type).toBe('llm/delta');
+    expect((got[0] as { type: string }).type).toBe('llm/delta-batch');
 
     // 非白名单事件即使被 emit 也不下行
     (ctx.emit as (...a: unknown[]) => void)('config/changed', '/x');

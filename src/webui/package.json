@@ -42,6 +42,7 @@
     "ac-client-ui-usage": "workspace:*",
     "ac-client-ui-web": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
+    "ac-wire-format": "workspace:*",
     "highlight.js": "^11.11.1",
     "katex": "^0.18.1",
     "markdown-it": "^14.2.0",
