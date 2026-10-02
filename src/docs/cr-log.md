@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-111**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-123**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -129,3 +129,15 @@
 - 【cr-109 2026-10-02 手机端优化双件：后台保活（CONNECTING/ONLINE 期部分锁 wakelock 替代 onStop 全断链）+ 重连风暴修复（断链触发源去重防双循环互踩）】
 - 【cr-110 2026-10-02 新增根级 webui-gallery.html：webui-kit 全控件静态陈列页（对照评审用，非产品代码）】
 - 【cr-111 2026-10-02 移动端输入框默认单行自增高：PromptEditor 窄屏编辑面 42px(固定2行)→21px(1行) 起、随内容增至 63px(3行) 上限后内滚；窄屏 @media 块同步移到基础规则之后（cr-36 同款顺序坑：媒体块写在被覆盖规则前，同特异性被后写的基础 63px 压过）】
+- 【cr-112 2026-10-02 远程链路下行三连根修：①单批器漏斗 WireBatcher（全部下行帧过同一 100ms 微批，首帧原生直发保交互延迟，稳态 20/s 结构性低于 relay 30/s 帧闸——断链风暴根因是逐帧直发无界供给）；②设备上线/重握手回放信令 remote/resync（前端对账恢复 pending 交互卡，投递保证从至多一次变为至少一次）；③deliver 转发停止剥除 elevation（cr-105 配对即信任裁决的补全——sender/user 强制改写保留防伪造，手机提权武装态经 conv-settings 水位机制生效）】
+- 【cr-113 2026-10-02 多端回复竞态防御：interaction/reply 的 duplicate 结果前端如实消费——outcome.status 区分「自己已送达的重试」（answer 深比对同源 → 按成功出卡）与「其他端已先答」（提示已被他端回答、不冒充成功）；审批卡 respondApproval 同步检查。先答者赢在 store 状态机已是结构保证（answered 不覆盖不再发事件），本项补战败端诚实反馈面】
+- 【cr-114 2026-10-02 webui-gallery.html 消费面校准：移除零消费预留件 StarCard/PulseTrace 陈列，新增真实系统消费对照表（StarCard/PulseTrace 经查证为 tree.md 标注的预留原语，无行组件消费）】
+- 【cr-115 2026-10-02 webui-gallery.html 新增展区13：业务面未提取控件陈列（dock 卡族外壳/工具卡/思考卡/消息气泡对/InputMention 弹层/TokenGauge chip）——复刻自 ac-client-ui-* 真实源码】
+- 【cr-116 2026-10-02 新增 webui-standard-controls-proposal.md：基于陈列页全量数据的标准控件库整理提案（删减/合并/组合 + 分层目标态 + 迁移路线）】
+- 【cr-117 2026-10-02 webui-gallery.html 与 webui-standard-controls-proposal.md 归位 src/docs/（设计档案区，与 webui-component-tree.md 同区）】
+- 【cr-118 2026-10-02 新增 src/docs/webui-gallery-preview.html：标准控件库整理提案（cr-116）重构后目标态静态预览——删减面标记 + 三新原语（BusyRing/CollapseRow/DockCard）+ 迁移对照与组合示例】
+- 【cr-119 2026-10-02 新增 src/docs/webui/v2.html：标准控件库预览页外壳 v2（sticky 顶栏+滚动进度+区块 rail 导航+序号 eyebrow 层级+卡片/统计/删减/批次卡视觉收敛）——组件陈列与提案内容沿用 cr-118】
+- 【cr-120 2026-10-02 webui 预览页 v1：gallery-preview 单源化整理为 src/docs/webui/v1.html——裁死样式（x-* 业务复刻块/别名层）、sticky 顶栏章节导航+scrollspy、折叠交互去内联、toast 可演示】
+- 【cr-121 2026-10-02 webui-kit 控件库 v2 评审修正：双主题对比度达标 + 焦点环/reduced-motion 全局兜底 + 开关可达性 + BusyRing/CollapseRow/DockCard 三原语落地】
+- 【cr-122 2026-10-02 webui-kit 令牌与控件面收敛：合并 busy/running 色轴、用量四档收三档删 warn-strong、删死令牌（grad-star/glow-*/shadow-primary/bg-deep/role-info/role-active/accent）、行选中背景改 role-selected-bg、hover 去边框、FeedbackNotice 恒 chip、cfg 徽章并入 info、TokenGauge 硬编码清零、修复预览页星色色板无底色】
+- 【cr-123 2026-10-02 语义色拆分墨色/图形双档（--ok/--warn/--err + 新增 -graphic 变体）：4.5 线墨色保持深度、3.0 线图形档提亮（环描边/状态点/折线/命中条），亮色图形绿 #6f9f77 族】

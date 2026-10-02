@@ -258,8 +258,8 @@ const stopData = computed(() => ({
 .sa-loading { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--color-text-secondary); }
 .sa-spin {
   width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%;
-  border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
-  border-top-color: var(--color-warning, #f59e0b);
+  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border-top-color: var(--primary);
   animation: saSpin 0.8s linear infinite;
 }
 @keyframes saSpin { to { transform: rotate(360deg); } }

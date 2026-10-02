@@ -8,6 +8,7 @@
 <script setup lang="ts">
 import { toasts, dismissToast, pauseToast, resumeToast } from './toast.ts';
 import Icon from '../base/Icon.vue';
+import BusyRing from '../base/BusyRing.vue';
 
 const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', busy: 'loader-circle' } as const;
 </script>
@@ -24,7 +25,8 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
           @mouseenter="pauseToast(t.id)"
           @mouseleave="resumeToast(t.id)"
         >
-          <Icon :name="TONE_ICON[t.tone]" :size="14" class="toast-icon" />
+          <BusyRing v-if="t.tone === 'busy'" :size="14" />
+          <Icon v-else :name="TONE_ICON[t.tone]" :size="14" class="toast-icon" />
           <span class="toast-text">{{ t.text }}</span>
           <button class="toast-close" title="关闭" @click="dismissToast(t.id)"><Icon name="x" :size="12" /></button>
         </div>
@@ -37,7 +39,7 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
 .toast-stack {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(16px + var(--safe-bottom));
   z-index: 9500;
   display: flex;
   flex-direction: column;
@@ -56,8 +58,8 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
   border-radius: var(--r-lg);
   background: var(--bg-raised);
   border: 1px solid var(--line);
-  box-shadow: var(--shadow-panel);
-  font-size: 12.5px;
+  box-shadow: var(--shadow-panel), var(--elev-hairline);
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--text-1);
 }
@@ -66,6 +68,7 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
 .toast-text { min-width: 0; word-break: break-word; }
 
 .toast-close {
+  position: relative;
   flex-shrink: 0;
   border: 0;
   background: transparent;
@@ -78,21 +81,22 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
   border-radius: var(--r-sm);
   margin: -1px -2px 0 0;
 }
-.toast-close:hover { background: var(--bg-hover, rgba(127, 127, 127, 0.12)); color: var(--text-1); }
+/* 命中区撑到 --hit-min（WCAG 2.2 · 2.5.8）：视觉尺寸不变，可点范围变大 */
+.toast-close::after { content: ''; position: absolute; inset: -3px; }
+.toast-close:hover { background: var(--bg-hover); color: var(--text-1); }
 
-/* 语义配色（左缘描边 + 图标着色——文本恒主色保证可读） */
-.is-ok .toast-icon { color: var(--ok, #10b981); }
-.is-error .toast-icon { color: var(--err, #ef4444); }
+/* 语义配色（左缘描边 + 图标着色——文本恒主色保证可读；色条与图标是
+   图形件（1.4.11 · 3.0 线）取图形档（cr-123）） */
+.is-ok .toast-icon { color: var(--ok-graphic); }
+.is-error .toast-icon { color: var(--err-graphic); }
 .is-info .toast-icon { color: var(--text-3); }
-.is-busy .toast-icon { color: var(--primary, #6366f1); animation: toast-spin 0.8s linear infinite; }
 
-.is-ok { border-left: 3px solid var(--ok, #10b981); }
-.is-error { border-left: 3px solid var(--err, #ef4444); }
+.is-ok { border-left: 3px solid var(--ok-graphic); }
+.is-error { border-left: 3px solid var(--err-graphic); }
 .is-info { border-left: 3px solid var(--line-strong); }
-.is-busy { border-left: 3px solid var(--primary, #6366f1); }
+.is-busy { border-left: 3px solid var(--primary); }
 
-.toast-enter-active, .toast-leave-active { transition: all 0.18s var(--ease-out); }
+.toast-enter-active, .toast-leave-active { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(12px); }
 
-@keyframes toast-spin { to { transform: rotate(360deg); } }
 </style>

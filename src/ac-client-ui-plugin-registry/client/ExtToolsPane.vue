@@ -479,7 +479,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
                      「插件目录/插件配置」清单同款（2026-09-05 后续反馈反转旧裁决） -->
                 <span class="plugin-name">{{ e.label ?? e.row }}</span>
                 <span v-if="e.label && e.label !== e.row" class="plugin-alias" :title="`装配行包名：${e.row}（AgentConfig.settings 键：${e.name}）`">{{ e.row }}</span>
-                <span v-if="extHasParams(e)" class="ui-badge cfg" title="带参数面（点击卡片配置差异层）"><Icon name="settings" :size="10" />可配置</span>
+                <span v-if="extHasParams(e)" class="ui-badge info" title="带参数面（点击卡片配置差异层）"><Icon name="settings" :size="10" />可配置</span>
                 <span v-if="e.automatic" class="ui-badge warn" title="基础设施行：自动进入每个 run，装载即生效">基础设施</span>
                 <span v-if="extHasEnabled(e) && !extEnabled(e)" class="ui-badge dim" title="本 Agent 已软停用（settings 差异层 enabled=false；行仍装载，监听器跳过）">已软停用</span>
                 <span v-for="t in e.targets" :key="t" class="ui-badge dim" :title="`事件落点：${t}`">{{ targetLabel(t) }}</span>

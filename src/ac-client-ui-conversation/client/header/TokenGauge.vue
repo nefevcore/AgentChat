@@ -39,7 +39,7 @@ interface SessionTokensCache {
 }
 interface SessionTokens {
   tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number;
-  avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'low' | 'moderate' | 'high' | 'critical';
+  avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'normal' | 'high' | 'critical';
   cache?: SessionTokensCache;
 }
 const sessionTokens = ref<SessionTokens | null>(null);
@@ -69,7 +69,7 @@ async function fetchTokenBaseline(clearFirst = false) {
       usagePercent: data.usagePercent ?? 0,
       avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
       estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
-      status: data.status ?? 'low',
+      status: data.status ?? 'normal',
       ...(data.cache
         ? {
             cache: {
@@ -103,7 +103,7 @@ watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fet
 watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
 // 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
 const TOKEN_STATUS_LABEL: Record<SessionTokens['status'], string> = {
-  low: '正常', moderate: '偏高', high: '接近上限', critical: '临界',
+  normal: '正常', high: '接近上限', critical: '临界',
 };
 /** 重拉固定开销构成（系统提示/工具定义——打开面板/装配面变化时：人格/
  *  记忆/生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid
@@ -151,13 +151,13 @@ const overheadLoading = computed(() => chatStore.systemPromptLoading || chatStor
 
 /** 占用比例（含固定开销）：分子 = 会话净占用 + 系统提示/工具定义实值
  *  估算（未取 = 0）；分母 = maxContextTokens。status 阈值档与后端
- *  session/tokens 的档位判定（<50/<75/<90）同款。 */
+ *  session/tokens 的档位判定（<75/<90）同款（cr-122 三档收敛）。 */
 const usageWithOverhead = computed(() => {
   const st = sessionTokens.value;
-  if (!st) return { pct: 0, status: 'low' as const };
+  if (!st) return { pct: 0, status: 'normal' as const };
   const total = st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
   const p = Math.min(100, (total / st.maxContextTokens) * 100);
-  const s = p < 50 ? 'low' : p < 75 ? 'moderate' : p < 90 ? 'high' : 'critical';
+  const s = p < 75 ? 'normal' : p < 90 ? 'high' : 'critical';
   return { pct: p, status: s as SessionTokens['status'] };
 });
 
@@ -270,10 +270,9 @@ const applicable = computed(() =>
 /* 头部环形占用（数值在环心，单位 % 省略——title 补全语义） */
 .gauge-ring { display: block; }
 .gauge-ring-pct { font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.gauge-ring-pct.low { color: #22c55e; }
-.gauge-ring-pct.moderate { color: #eab308; }
-.gauge-ring-pct.high { color: #f97316; }
-.gauge-ring-pct.critical { color: #ef4444; }
+.gauge-ring-pct.normal { color: var(--ok); }
+.gauge-ring-pct.high { color: var(--warn); }
+.gauge-ring-pct.critical { color: var(--err); }
 
 /* Token 详情弹层（点击仪表盘展开，悬挂于头部下方——不与相邻控件重叠） */
 .token-panel {
@@ -286,18 +285,17 @@ const applicable = computed(() =>
 .token-panel__head { display: flex; align-items: center; justify-content: space-between; }
 .token-panel__title { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
 .token-panel__status { font-size: 11px; font-weight: 600; }
-.token-panel__status.low { color: #22c55e; }
-.token-panel__status.moderate { color: #eab308; }
-.token-panel__status.high { color: #f97316; }
-.token-panel__status.critical { color: #ef4444; }
+.token-panel__status.normal { color: var(--ok); }
+.token-panel__status.high { color: var(--warn); }
+.token-panel__status.critical { color: var(--err); }
 /* 弹层环形占用仪表：左环（占用率）+ 右侧上下文/上限行 */
 .token-panel__ring-row { display: flex; align-items: center; gap: 14px; padding: 2px 0; }
 .token-ring { flex-shrink: 0; }
 .token-ring-pct { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.token-ring-pct.low { color: #22c55e; }
-.token-ring-pct.moderate { color: #eab308; }
-.token-ring-pct.high { color: #f97316; }
-.token-ring-pct.critical { color: #ef4444; }
+/* 弹层环心数字 14px·700 粗体 = WCAG 大字（3.0 线）——图形档 */
+.token-ring-pct.normal { color: var(--ok-graphic); }
+.token-ring-pct.high { color: var(--warn-graphic); }
+.token-ring-pct.critical { color: var(--err-graphic); }
 .token-ring-sub { font-size: 10px; color: var(--color-text-tertiary, #999); margin-top: 3px; }
 .token-ring-side { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .token-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
@@ -308,7 +306,9 @@ const applicable = computed(() =>
 /* 缓存命中区（上分隔线 + 命中比例小条） */
 .token-panel__cache { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--color-border-primary, #e0e0e0); padding-top: 8px; margin-top: 2px; }
 .cache-bar { width: 100%; height: 5px; border-radius: 2.5px; background: var(--color-bg-hover, rgba(0,0,0,0.10)); overflow: hidden; }
-.cache-bar__hit { height: 100%; border-radius: 2.5px; background: #14b8a6; transition: width 0.3s ease; }
+/* 命中条 = 「好状态」绿（cr-122：原硬编码 teal #14b8a6 与 --ok 在面板同屏形成两种绿，归一语义色） */
+/* 命中条是图形件（1.4.11 · 3.0 线）——图形档（cr-123） */
+.cache-bar__hit { height: 100%; border-radius: 2.5px; background: var(--ok-graphic); transition: width 0.3s ease; }
 .token-note { font-size: 11px; line-height: 1.5; color: var(--color-text-tertiary, #999); border-top: 1px solid var(--color-border-primary, #e0e0e0); padding-top: 6px; margin-top: 2px; }
 /* 归档动作行（占用量与归档动作同屏） */
 .token-panel__action {

@@ -2146,7 +2146,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .send-btn {
   background: var(--color-primary);
   color: #fff;
-  box-shadow: var(--shadow-primary);
+  box-shadow: var(--shadow-pop);
 }
 
 .send-btn:hover:not(:disabled) {

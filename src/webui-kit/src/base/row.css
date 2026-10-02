@@ -3,8 +3,8 @@
    主应用行语言（AgentList/SessionList .list-item、RunTracking
    .tree-node/.tree-leaf、StarCard）的清单行版本：
 
-   - 透明底 + 透明边框（常态安静），hover 才浮起
-     （bg-hover + 边框 + 微影——与 .list-item/.tree-leaf 同规格）；
+   - 透明底 + 透明边框（常态安静），hover 只亮底色（cr-122 去边框与
+     微影——清单行环境安静，灰边框与选中主色描边相竞争）；
    - 选中/默认态 = StarCard.selected 同 recipe（底面 + 主色描边）；
    - 基础设施/automatic 行 = 静默虚线描边（装载即生效的只读标识）。
 
@@ -24,36 +24,49 @@
 }
 .ui-row:hover {
   background: var(--bg-hover);
-  border-color: var(--line-strong);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
 }
-/* 选中/默认态（StarCard.selected 同 recipe；晚于 hover 声明 → 悬停不冲掉标记） */
+/* 选中/默认态（StarCard.selected 同 recipe；晚于 hover 声明 → 悬停不冲掉标记）。
+   底色用角色色 role-selected-bg（cr-122）：原 bg-surface 在 surface 宿主卡内
+   同值相消——选中行无背景色，只剩描边 */
 .ui-row.is-selected {
-  background: var(--bg-surface);
+  background: var(--role-selected-bg);
   border-color: rgba(var(--primary-rgb), 0.45);
 }
 /* 基础设施/automatic 行：静默虚线描边 */
 .ui-row.is-auto { border-color: var(--line); border-style: dashed; }
 
-/* ── 红绿开关（行尾动作控件；插件库「插件目录」强制停用 toggle / 插件
-   配置软停用 toggle 共用） ──
-   绿 = 开；红 = 关。语义由使用处定义（强制停用 / 软停用 / 工具意图）。 */
-.ui-switch { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
-.ui-switch input { display: none; }
+/* ── 开关（行尾动作控件；插件库「插件目录」强制停用 / 插件配置软停用 /
+   定时任务启用共用一个配方） ──
+   语义（cr-121 修正）：关闭 = 中性灰；开启 = 主色。红只用于「阻断 / 错误」
+   的陈述（徽章与文案），不再表示「关」——旧「红绿开关」把危险色（err）与
+   关闭态混成一色，同屏里与错误徽章互相稀释，也说不清「关」是状态还是告警。
+   （cr-122 注：gated 的警示色随 --warn 黄档） */
+.ui-switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; user-select: none; min-height: var(--hit-min); }
+/* input 必须留在可达性树里（旧 display:none 连带摘掉 role / name / checked，
+   读屏读不出开关）；以透明覆盖层承担命中区与键盘焦点——命中区 ≥ --hit-min
+   （WCAG 2.2 · 2.5.8），不再只有轨道 34×18。 */
+.ui-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ui-switch-track {
-  display: inline-block; width: 34px; height: 18px; border-radius: 999px; position: relative;
-  background: rgba(var(--err-rgb), 0.55);
-  transition: background .15s ease;
+  display: inline-block; width: 34px; height: 18px; border-radius: var(--r-full); position: relative;
+  background: rgba(var(--text-3-rgb), 0.35);
+  transition: background calc(0.15s * var(--motion-scale)) var(--ease-out);
 }
 .ui-switch-dot {
   position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
-  background: #fff; transition: left .15s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  background: var(--switch-knob);
+  transition: left calc(0.15s * var(--motion-scale)) var(--ease-out);
+  box-shadow: var(--shadow-knob);
 }
-.ui-switch input:checked + .ui-switch-track { background: rgba(var(--ok-rgb), 0.6); }
+.ui-switch input:checked + .ui-switch-track { background: var(--primary); }
 .ui-switch input:checked + .ui-switch-track .ui-switch-dot { left: 18px; }
-.ui-switch input:disabled + .ui-switch-track { opacity: .5; cursor: wait; }
+/* 焦点环画在可见轨道上（input 透明；环令牌全站单源） */
+.ui-switch input:focus-visible + .ui-switch-track {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.ui-switch input:disabled { cursor: not-allowed; }
+.ui-switch input:disabled + .ui-switch-track { opacity: .5; }
 /* gated：已列入清单但能力标签不足（Agent 装配工具区）——开关仍表达"开"
-   意图（include 语义，可关 = 写 exclude），但不显示绿色：琥珀 = 门禁未过，
-   调用会被安全行拦截。 */
-.ui-switch.gated input:checked + .ui-switch-track { background: rgba(var(--warn-rgb), 0.6); }
+   意图（include 语义，可关 = 写 exclude），但不显示主色：警示色 = 门禁未过，
+   调用会被安全行拦截。（cr-122 注：警示色随 --warn 黄档） */
+.ui-switch.gated input:checked + .ui-switch-track { background: var(--warn); }

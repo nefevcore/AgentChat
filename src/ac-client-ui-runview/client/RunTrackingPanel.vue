@@ -421,7 +421,7 @@ onMounted(() => {
 <style scoped>
 .runs-panel{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
-html.dark .runs-panel{background:var(--bg-deep,#0a0d14)}
+html.dark .runs-panel{background:var(--bg-base,#0a0d14)}
 
 /* 1. 标题栏（对齐 SessionList 的 ws-toolbar 形态） */
 .panel-toolbar{display:flex;align-items:center;gap:6px;padding:10px 14px 6px;flex-shrink:0}
@@ -433,7 +433,7 @@ html.dark .runs-panel{background:var(--bg-deep,#0a0d14)}
 
 /* 树滚动区（对齐 SessionList 的 tree-scroll） */
 .tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--color-bg-surface,#f8f9fa);scrollbar-width:none;scrollbar-color:transparent transparent}
-html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
+html.dark .tree-scroll{background:var(--bg-base,#0a0d14)}
 .tree-scroll::-webkit-scrollbar{width:0;height:0}
 
 /* 树节点（对齐 ws-node：30px 行高 + hover 浮起） */

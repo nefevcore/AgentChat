@@ -5,22 +5,21 @@
     · error 失败警告（alert-circle，error 色）
     · info  中性提示（info，弱化色）
     · busy  进行中（loader-circle 旋转，primary 色——灰色与"正在做"语义不符）
-  variant：chip = 浅底描边胶囊（输入区/列表反馈）；inline = 裸图标+文字
-  （空间受限的角落提示）。定位（absolute 等）由调用方 class 叠加。 -->
+  形态恒 chip 胶囊（cr-122 删 inline 变体——业务消费 3 处全 chip，
+  inline 0 消费）。定位（absolute 等）由调用方 class 叠加。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
 import Icon from '../base/Icon.vue';
+import BusyRing from '../base/BusyRing.vue';
 
 const props = withDefaults(defineProps<{
   /** 反馈文案（空 = 不渲染；外层 v-if 亦可） */
   text?: string;
   /** 语义态 */
   tone?: 'ok' | 'error' | 'info' | 'busy';
-  /** 视觉形态：chip = 浅底描边胶囊；inline = 裸图标+文字 */
-  variant?: 'chip' | 'inline';
   /** 图标尺寸 */
   size?: number;
-}>(), { text: '', tone: 'info', variant: 'inline', size: 13 });
+}>(), { text: '', tone: 'info', size: 13 });
 
 const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', busy: 'loader-circle' } as const;
 const icon = computed(() => TONE_ICON[props.tone]);
@@ -30,10 +29,11 @@ const icon = computed(() => TONE_ICON[props.tone]);
   <span
     v-if="text"
     class="feedback-notice"
-    :class="[`is-${tone}`, `as-${variant}`]"
+    :class="`is-${tone}`"
     role="status"
   >
-    <Icon :name="icon" :size="size" class="feedback-icon" />
+    <BusyRing v-if="tone === 'busy'" tone="running" :size="size" />
+    <Icon v-else :name="icon" :size="size" class="feedback-icon" />
     <span class="feedback-text">{{ text }}</span>
   </span>
 </template>
@@ -43,7 +43,7 @@ const icon = computed(() => TONE_ICON[props.tone]);
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.4;
   min-width: 0;
 }
@@ -51,48 +51,36 @@ const icon = computed(() => TONE_ICON[props.tone]);
 .feedback-icon { flex-shrink: 0; }
 .feedback-text { overflow: hidden; text-overflow: ellipsis; }
 
-/* 语义配色（图标恒着色；文字仅 inline 形态着色——chip 由底色承载体） */
-.is-ok .feedback-icon { color: var(--color-success); }
-.is-error .feedback-icon { color: var(--color-error); }
-.is-info .feedback-icon { color: var(--color-text-tertiary, #a8abb2); }
-/* 进行中：primary 色 + 图标旋转（loader-circle） */
-.is-busy .feedback-icon { color: var(--color-primary, #6366f1); animation: feedback-notice-spin .8s linear infinite; }
-
-.as-inline.is-ok .feedback-text { color: var(--color-success); }
-.as-inline.is-error .feedback-text { color: var(--color-error); }
-.as-inline.is-info .feedback-text { color: var(--color-text-secondary); }
-.as-inline.is-busy .feedback-text { color: var(--color-primary, #6366f1); }
-
-/* 胶囊形态（浅语义底 + 描边） */
-.as-chip {
+/* 语义配色（chip 胶囊：浅语义底 + 描边，文字随本色；图标不再单独着色——
+   由 chip 底色统一承载。进行中：形状轴（旋转）由 BusyRing 承担） */
+.feedback-notice {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   white-space: nowrap;
 }
 
-.as-chip.is-ok {
-  color: var(--color-success);
-  background: rgba(var(--color-success-rgb), 0.08);
-  border: 1px solid rgba(var(--color-success-rgb), 0.25);
+.is-ok {
+  color: var(--ok);
+  background: rgba(var(--ok-rgb), 0.08);
+  border: 1px solid rgba(var(--ok-rgb), 0.25);
 }
 
-.as-chip.is-error {
-  color: var(--color-error);
-  background: rgba(var(--color-error-rgb), 0.08);
-  border: 1px solid rgba(var(--color-error-rgb), 0.25);
+.is-error {
+  color: var(--err);
+  background: rgba(var(--err-rgb), 0.08);
+  border: 1px solid rgba(var(--err-rgb), 0.25);
 }
 
-.as-chip.is-info {
-  color: var(--color-text-secondary);
-  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.03));
-  border: 1px solid var(--color-border-secondary);
+.is-info {
+  color: var(--text-2);
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
 }
 
-.as-chip.is-busy {
-  color: var(--color-primary, #6366f1);
-  background: rgba(var(--color-primary-rgb, 99, 102, 241), 0.08);
-  border: 1px solid rgba(var(--color-primary-rgb, 99, 102, 241), 0.25);
+.is-busy {
+  color: var(--primary-strong);
+  background: rgba(var(--primary-rgb), 0.08);
+  border: 1px solid rgba(var(--primary-rgb), 0.25);
 }
 
-@keyframes feedback-notice-spin { to { transform: rotate(360deg); } }
 </style>

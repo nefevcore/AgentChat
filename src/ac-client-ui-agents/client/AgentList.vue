@@ -246,7 +246,7 @@ async function refreshAll() {
 .agent-list{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease}
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（与 handle 线重叠曾呈双线） */
 /* 暗色层级修复：列表用最深底，与内容区(#1a1a1a)拉开层次 */
-html.dark .agent-list{background:var(--bg-deep,#0a0d14)}
+html.dark .agent-list{background:var(--bg-base,#0a0d14)}
 .header{height:var(--layout-header-height);padding:0 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--color-border-secondary);flex-shrink:0}
 .search-box{flex:1;position:relative;display:flex;align-items:center}
 .search-icon{position:absolute;left:8px;color:var(--color-text-tertiary,#a8abb2);pointer-events:none}
@@ -267,11 +267,11 @@ html.dark .agent-list{background:var(--bg-deep,#0a0d14)}
 /* 列表滚动容器：背景与 .agent-list 一致；滚动条默认零宽度不占位，JS 加 .scroll-visible 时浮现 */
 .list-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--color-bg-surface,#f8f9fa);scrollbar-width:none;scrollbar-color:transparent transparent}
 /* 暗色：列表背景为最深底，滚动条区域同色避免杂色带 */
-html.dark .list-scroll{background:var(--bg-deep,#0a0d14)}
+html.dark .list-scroll{background:var(--bg-base,#0a0d14)}
 .list-scroll::-webkit-scrollbar{width:0;height:0}
 /* track 设明确背景（与列表一致），避免滚动条区域透出内容/空白 */
 .list-scroll::-webkit-scrollbar-track{background:var(--color-bg-surface,#f8f9fa)}
-html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14)}
+html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-base,#0a0d14)}
 .list-scroll::-webkit-scrollbar-thumb{background:transparent}
 .list-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--color-border-primary) transparent}
 .list-scroll.scroll-visible::-webkit-scrollbar{width:6px;height:6px}

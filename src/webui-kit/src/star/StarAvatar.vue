@@ -5,7 +5,7 @@
   running=true 时在头像外圈显示「不断流转的有色线条」光环（Agent 正在回复）：
     · 底环 —— 身份色低透明度，安静提示占用状态
     · 主流光 —— 身份色渐隐尾巴的圆弧，绕圈匀速旋转
-    · 副流光 —— 主题强调色短弧，不同转速错相流转，形成层次
+    · 副流光 —— 主色亮档短弧，不同转速错相流转，形成层次
   实现为 SVG stroke（dasharray 截弧 + transform 旋转），无 @property 依赖；
   运动为功能语义（不可静止降级），已在 main.css 全局 reduce 规则中豁免。
 -->
@@ -104,12 +104,14 @@ const gradId = `star-run-grad-${++gidSeed}`;
 .run-grad-head { stop-color: var(--color-primary, var(--primary)); }
 .run-grad-mid { stop-color: var(--sc, var(--primary)); }
 .run-grad-tail { stop-color: var(--sc, var(--primary)); stop-opacity: 0; }
-/* 副流光：主题强调色短弧 */
-.run-sub { stroke: var(--accent, #f472b6); opacity: 0.85; }
+/* 副流光：主色亮档短弧（cr-122：原 --accent 单消费令牌已删，改用
+   primary-strong 与主流光亮头同源） */
+.run-sub { stroke: var(--primary-strong); opacity: 0.85; }
 /* 旋转：transform-box 对齐 viewBox，绕圆心匀速流转 */
 .run-spin {
   transform-box: view-box;
   transform-origin: center;
+  /* 豁免 --motion-scale：运行光环是功能语义（不可静止降级）——见 webui-style.md */
   animation: star-run-spin 1.15s linear infinite;
 }
 .run-spin--sub { animation-duration: 1.9s; animation-delay: -0.6s; }

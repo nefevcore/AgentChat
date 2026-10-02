@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="nebula">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentChat · 标准控件库重构预览 v2</title>
+<style>
+
+/* @kit:base/tokens.css */
+/* ============================================================
+   webui-kit/src/base/tokens.css —— L0 设计令牌（Design Tokens）
+   星群 × 工坊 · 双主题：深空 Nebula（默认）/ 晨曦 Aurora
+   风格规范与逐组件对照表：.dsh/skills/webui-kit-style/SKILL.md（§ 令牌）
+
+   约定：
+   - 所有 UI 库组件只引用本文件的变量，禁止硬编码色值
+   - 主题切换：html[data-theme="nebula|aurora"]；同时兼容旧 html.dark/.light
+   - 发光（glow）是语义：星体/聚焦用；亮色下自动降级为柔光+描边
+   ============================================================ */
+
+/* ── 几何 / 字体 / 动效（主题无关） ── */
+:root {
+  /* 圆角三档语义（全站单源；业务面经下方别名层以 --radius-* 消费）：
+     6 控件（按钮/输入框/小标签）· 10 中层容器（卡片/面板内块）·
+     14 大容器与气泡；pill（--r-full）与正圆（50%）另计 */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* ── 字号 / 行高 / 控件尺寸（cr-121 比例尺收口——此前全仓 31 种字号并存、
+     控件高 28/32/38 混用；新样式只取下列档位，禁止就近取整） ── */
+  --fs-2xs: 10px;   /* 徽章 / mono 元信息 */
+  --fs-xs: 11px;    /* 辅助说明 */
+  --fs-sm: 12px;    /* 次要文本 / 小号控件 */
+  --fs-md: 13px;    /* 正文与控件默认 */
+  --fs-lg: 15px;    /* 段落强调 */
+  --fs-xl: 19px;    /* 区块标题 */
+  --fs-2xl: 30px;   /* 页面主标题（预览 / 空态） */
+  --lh-tight: 1.25;
+  --lh-base: 1.5;
+  --lh-loose: 1.7;
+  --ctl-h-sm: 28px; /* 小号控件（行内按钮 / 选择器） */
+  --ctl-h-md: 32px; /* 默认控件（按钮 / 输入框） */
+  --ctl-h-lg: 40px; /* 主操作（composer 发送 / 主 CTA） */
+  /* 可点目标下限（WCAG 2.2 · 2.5.8）：小控件须以透明覆盖层 / 伪元素把命中区
+     撑到该尺寸（开关、图标钮、点阵导航） */
+  --hit-min: 24px;
+
+  /* 会话卡片内容视口统一限高：思考/工具纯文本/终端/代码/diff/run_code/
+     todo 等长内容滚动区同此基准（跨卡同屏高度一致）；小窗随视口收缩，
+     大屏封顶 340px */
+  --card-viewport-max: clamp(200px, 40vh, 340px);
+
+  /* 移动端安全区（cr-29）：tab 栏/输入卡贴手势条避让；viewport-fit=cover
+     生效前提下 env() 有值，否则 0px 兜底（桌面恒 0）。Phase③ 全面启用。 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", SFMono, Consolas,
+    "Courier New", monospace;
+
+
+  /* ── 动效（cr-121）：一切时长经 --motion-scale 归一，全局 reduced-motion
+     兜底单源——此前 kit 内 14 处动画无一响应系统「减少动态效果」设置。
+     新增动画一律写 calc(Xs * var(--motion-scale)) ── */
+  --motion-scale: 1;
+  --dur-fast: calc(0.12s * var(--motion-scale));
+  --dur-base: calc(0.2s * var(--motion-scale));
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── 焦点环（唯一源·cr-121）：键盘可达控件一律取本组令牌，组件不得自建
+     outline 色值（此前 kit 内 0 条 :focus-visible，26 条散落业务面） ── */
+  --focus-ring: var(--primary);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 开关滑块（双主题同值；令牌化以便主题 / 高对比模式覆盖） */
+  --switch-knob: #ffffff;
+
+  /* 主色实底 hover 影（Button primary 专用，随主色三元组派生） */
+  --shadow-primary-hover: 0 6px 22px rgba(var(--primary-rgb), 0.32);
+  /* 清单行 hover 微影 与 开关滑块影（row.css 配方专用） */
+  --shadow-hover: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* ═══════════════ 深空 Nebula（默认 / html.dark） ═══════════════ */
+:root,
+html[data-theme='nebula'],
+html.dark {
+  --bg-base: #1a1a1a;
+  --bg-surface: #2d2d2d;
+  --bg-raised: #2d2d2d;
+  --bg-hover: #252525;
+  /* 暗色层级：暗影投在 #1a1a1a 上不可见、加亮度又会压掉 primary 文字对比
+     （#818cf8 on #333 = 4.24 < 4.5），故分层改由 1px 顶缘高光承担 */
+  --elev-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  --primary: #818cf8;
+  --primary-strong: #a5b4fc;
+  /* primary-strong 三元组（cr-121）：标签底色与 .tt-base 墨色用——
+     primary 本体在 8% tint 底上只有 4.09，不足 4.5 */
+  --primary-strong-rgb: 165, 180, 252;
+  --primary-light: rgba(129, 140, 248, 0.16);
+  /* 主色实底上的前景（cr-121）：白字 on #818cf8 仅 2.99:1（hover 态
+     primary-strong 更差），亮靛底改深字 5.83:1 —— 视觉由「亮靛+白字」
+     →「亮靛+深字」 */
+  --on-primary: #16161a;
+
+  --text-1: #ecf0f1;
+  --text-2: #bdc3c7;
+  /* 5.0 / 3.96 → 6.35 / 5.02（surface 上原本不足 4.5） */
+  --text-3: #949ea0;
+
+  --line: #333333;
+  --line-strong: #404040;
+
+  /* 语义色暗底取 300/400 档：徽章自带 tint 底（rgba 0.10~0.12）会抬高背景
+     亮度，文字色必须比「裸底可比」更亮才过 4.5。
+     cr-122 语义分离：warn 橙→正黄（离开身份色橙带）、err 红→玫红
+     （离开纯红带）——warn↔err 色相距从 33° 拉到 57° */
+  --ok: #9bd39a;
+  --warn: #fcd34d;
+  --err: #f0879a;
+  /* 图形档（cr-123）：环描边/状态点/命中条/图标等「非文字」语义件用 3.0 线
+     （WCAG 1.4.11 图形件），可取更亮的档位——与墨色档同色相族 */
+  --ok-graphic: #9fd89f;
+  --warn-graphic: #fde68a;
+  --err-graphic: #f7a8b8;
+
+  /* ── RGB 三元组（cr-32：color-mix 的等价回退）──
+     color-mix(in srgb, C N%, transparent) 语义 = C 以 N% 不透明度着色；
+     WebView 92（< Chrome 111）不认识 color-mix，故 tint 一律写
+     rgba(var(--x-rgb), N)——与上方色值逐位同步，改色必须同改（有测试锁）。 */
+  --primary-rgb: 129, 140, 248;
+  --text-1-rgb: 236, 240, 241;
+  --text-2-rgb: 189, 195, 199;
+  --text-3-rgb: 148, 158, 160;
+  --ok-rgb: 155, 211, 154;
+  --warn-rgb: 252, 211, 77;
+  --err-rgb: 240, 135, 154;
+
+  --code-bg: #2d2d2d;
+  --code-text: #d6deeb;
+
+  --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
+  /* 输入卡片双层影（贴边 contact + 环境光 soft）：深色底上纯黑影几乎不可见，
+     浓度需提到 0.5 档——#1a1a1a 上约压到 #0d0d0d，观感与亮色 6-8% 灰调等效 */
+  --shadow-input: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.55);
+  /* 输入卡同级 dock 卡影（todo/goal/queue/interaction/approval）：轻 input 一档
+     ——主操作位（composer）视觉权重最高，辅助浮层半透明收敛不争焦点 */
+  --shadow-dock: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --input-bg: #2d2d2d;
+  --input-border: #333333;
+  --input-focus: var(--focus-ring);
+
+  --scroll-thumb: rgba(255, 255, 255, 0.12);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
+  --role-hover-bg: #252525;
+  --role-hover-text: #ecf0f1;
+  --role-selected-bg: #2b2b3a;
+  --role-selected-text: #a5b4fc;
+  --role-active-bg: #3a2f14;
+}
+
+/* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
+html[data-theme='aurora'],
+html.light {
+  --bg-base: #ffffff;
+  --bg-surface: #fafafa;
+  --bg-raised: #ffffff;
+  --bg-hover: #f0f0f0;
+  /* 亮色浮层分隔走描边（暗色走顶缘高光，见 Nebula 块） */
+  --elev-hairline: 0 0 0 1px rgba(15, 23, 42, 0.05);
+
+  /* 4.47 / 4.28 → 6.29 / 6.02（主色此前作为文字 / 图标略欠） */
+  --primary: #4f46e5;
+  --primary-strong: #4338ca;
+  --primary-strong-rgb: 67, 56, 202;
+  --primary-light: rgba(79, 70, 229, 0.1);
+  --on-primary: #ffffff;
+
+  --text-1: #2c3e50;
+  /* 加深一档（cr-122）：原 #5f6b78 与 text-3 #666b71 对比度仅差 0.15，
+     视觉塌缩不可辨；加深后与 text-3 拉开层级（6.4 vs 5.2 on base） */
+  --text-2: #55606c;
+  /* 2.3 / 2.2 → 5.29 / 4.73（元信息此前几乎不可读；取值受 hover 底 #f0f0f0 约束） */
+  --text-3: #666b71;
+
+  --line: #e0e0e0;
+  --line-strong: #bdc3c7;
+
+  /* 语义色亮底重定档（cr-121）：白 / 浅底上原值全部低于 4.5（ok 2.54、
+     warn 2.15、err 3.82）——语义色不再与暗色同值，各自取向达标档位 */
+  /* 草本绿（cr-122 后续反馈）：H159 青绿系（#065f46→#217055）观感偏
+     「药丸/毒液绿」；#356f43 取 H134 草本苹果绿 + S35 降饱和（取自用户
+     #9FD89F 的色感方向——该值太浅不可作墨色，白底对比仅 1.64），
+     对比余量宽（底 5.26 / tint 4.87） */
+  --ok: #356f43;
+  --warn: #8a5a06;
+  --err: #9f1239;
+  /* 图形档（cr-123，3.0 线·base/surface/raised 三白底）——文字勿用 */
+  --ok-graphic: #669a6d;
+  --warn-graphic: #bb831c;
+  --err-graphic: #d9536f;
+
+  /* RGB 三元组（cr-32：color-mix 的等价回退）——与上方色值逐位同步，
+     改色必须同改（有测试锁）。 */
+  --primary-rgb: 79, 70, 229;
+  --text-1-rgb: 44, 62, 80;
+  --text-2-rgb: 85, 96, 108;
+  --text-3-rgb: 102, 107, 113;
+  --ok-rgb: 53, 111, 67;
+  --warn-rgb: 138, 90, 6;
+  --err-rgb: 159, 18, 57;
+
+  --code-bg: #ffffff;
+  --code-text: #2c3e50;
+
+  --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
+  /* 输入卡片双层影（贴边 contact + 环境光 soft）：白底上 6-8% 灰调，
+     4px 偏移 12px 模糊的柔光层撑开层次——浮起可感不抢眼 */
+  --shadow-input: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08);
+  /* 输入卡同级 dock 卡影：轻 input 一档（同构双层，浓度/模糊收敛）——
+     dock 卡是辅助浮层，与主操作位（composer）拉开权重序 */
+  --shadow-dock: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06);
+
+  --input-bg: #ffffff;
+  --input-border: #e0e0e0;
+  --input-focus: var(--focus-ring);
+
+  --scroll-thumb: rgba(15, 23, 42, 0.16);
+  --scroll-thumb-hover: rgba(15, 23, 42, 0.32);
+
+  /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
+  --role-hover-bg: #f0f0f0;
+  --role-hover-text: #2c3e50;
+  --role-selected-bg: #ececf5;
+  --role-selected-text: #4f46e5;
+  --role-active-bg: #fdf6e3;
+}
+
+/* ── 基础样式 ── */
+body {
+  background: var(--bg-base);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+}
+
+/* 滚动条（统一） */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--r-full); }
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+
+/* 等宽数字（Token 用量等） */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ── 键盘焦点环（唯一源·cr-121）：组件化控件的「input 透明覆盖」形态
+   （开关等）在各自配方文件里把环画到可见元素上，见 row.css ── */
+:where(a, button, summary, [role='button'], input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ── 减少动态效果（全局兜底·cr-121）：--motion-scale 归零 → 一切
+    calc 时长（过渡与动画）即时收敛，装饰性动画不再无限旋转 ── */
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-scale: 0; }
+  html { scroll-behavior: auto; }
+}
+
+/* ═══════════════ 业务兼容别名层（--color-* → 本文件令牌）═══════════════
+   历史：业务组件使用 main.css 的 --color-* 体系；本文件（后加载）以别名
+   覆盖同名变量为 var(--primary)/var(--bg-*)/var(--text-*) 等 —— 单一来源。
+   值已在扁平化时对齐（视觉不变）；main.css 的重复定义可逐步移除。
+   main.css 独有且无 tokens 对应者（--color-bg-user-container、--layout-*、
+   --space-xl 等）保留在 main.css。 */
+:root,
+html[data-theme='nebula'], html[data-theme='aurora'],
+html.dark, html.light {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-strong);
+  --color-primary-light: var(--primary-light);
+
+  /* 遗留名的三元组（cr-32：业务面 color-mix 回退用——与上方同源）。
+     只列实际被引用的名（零冗余：测试③ 反向锁住死条目）。 */
+  --color-primary-rgb: var(--primary-rgb);
+  --color-text-primary-rgb: var(--text-1-rgb);
+  --color-warning-rgb: var(--warn-rgb);
+  --color-error-rgb: var(--err-rgb);
+
+  --color-text-primary: var(--text-1);
+  --color-text-secondary: var(--text-2);
+  --color-text-tertiary: var(--text-3);
+  --color-text-muted: var(--text-3);
+
+  --color-bg-page: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-subtle: var(--bg-hover);
+
+  --color-border-primary: var(--line-strong);
+  --color-border-secondary: var(--line);
+  --color-border-light: var(--line);
+
+  --color-link: var(--primary-strong);
+  --color-success: var(--ok);
+  --color-warning: var(--warn);
+  --color-error: var(--err);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+
+  --space-xs: var(--space-1);
+  --space-sm: var(--space-2);
+  --space-md: var(--space-4);
+  --space-lg: var(--space-6);
+}
+/* @end */
+/* @kit:starColor.ts */
+html[data-theme='nebula'] .sc-0,html.dark .sc-0{--sc:#c9b8f0;--sc-rgb:201, 184, 240;--tc:#c9b8f0;--tc-rgb:201, 184, 240} /* 薰衣草 */
+html[data-theme='aurora'] .sc-0,html.light .sc-0{--sc:#5b4a9e;--sc-rgb:91, 74, 158;--tc:#5b4a9e;--tc-rgb:91, 74, 158} /* 薰衣草 */
+html[data-theme='nebula'] .sc-1,html.dark .sc-1{--sc:#a8c8e8;--sc-rgb:168, 200, 232;--tc:#a8c8e8;--tc-rgb:168, 200, 232} /* 蓝青 */
+html[data-theme='aurora'] .sc-1,html.light .sc-1{--sc:#2a5a8a;--sc-rgb:42, 90, 138;--tc:#2a5a8a;--tc-rgb:42, 90, 138} /* 蓝青 */
+html[data-theme='nebula'] .sc-2,html.dark .sc-2{--sc:#9adbe0;--sc-rgb:154, 219, 224;--tc:#9adbe0;--tc-rgb:154, 219, 224} /* 湖青 */
+html[data-theme='aurora'] .sc-2,html.light .sc-2{--sc:#1a6a6e;--sc-rgb:26, 106, 110;--tc:#1a6a6e;--tc-rgb:26, 106, 110} /* 湖青 */
+html[data-theme='nebula'] .sc-3,html.dark .sc-3{--sc:#b8e8a8;--sc-rgb:184, 232, 168;--tc:#b8e8a8;--tc-rgb:184, 232, 168} /* 苔绿 */
+html[data-theme='aurora'] .sc-3,html.light .sc-3{--sc:#35702e;--sc-rgb:53, 112, 46;--tc:#35702e;--tc-rgb:53, 112, 46} /* 苔绿 */
+html[data-theme='nebula'] .sc-4,html.dark .sc-4{--sc:#d9e8a0;--sc-rgb:217, 232, 160;--tc:#d9e8a0;--tc-rgb:217, 232, 160} /* 橄榄 */
+html[data-theme='aurora'] .sc-4,html.light .sc-4{--sc:#55652a;--sc-rgb:85, 101, 42;--tc:#55652a;--tc-rgb:85, 101, 42} /* 橄榄 */
+html[data-theme='nebula'] .sc-5,html.dark .sc-5{--sc:#f5c4a8;--sc-rgb:245, 196, 168;--tc:#f5c4a8;--tc-rgb:245, 196, 168} /* 珊瑚 */
+html[data-theme='aurora'] .sc-5,html.light .sc-5{--sc:#9c4a1e;--sc-rgb:156, 74, 30;--tc:#9c4a1e;--tc-rgb:156, 74, 30} /* 珊瑚 */
+html[data-theme='nebula'] .sc-6,html.dark .sc-6{--sc:#e0a8d4;--sc-rgb:224, 168, 212;--tc:#e0a8d4;--tc-rgb:224, 168, 212} /* 品红紫 */
+html[data-theme='aurora'] .sc-6,html.light .sc-6{--sc:#8e3a75;--sc-rgb:142, 58, 117;--tc:#8e3a75;--tc-rgb:142, 58, 117} /* 品红紫 */
+html[data-theme='nebula'] .sc-7,html.dark .sc-7{--sc:#b3b8e8;--sc-rgb:179, 184, 232;--tc:#b3b8e8;--tc-rgb:179, 184, 232} /* 暮蓝 */
+html[data-theme='aurora'] .sc-7,html.light .sc-7{--sc:#3d4499;--sc-rgb:61, 68, 153;--tc:#3d4499;--tc-rgb:61, 68, 153} /* 暮蓝 */
+html[data-theme='nebula'] .sc-user,html.dark .sc-user{--sc:#e8eaf2;--sc-rgb:232, 234, 242;--tc:#e8eaf2;--tc-rgb:232, 234, 242} /* 白金 */
+html[data-theme='aurora'] .sc-user,html.light .sc-user{--sc:#1b2130;--sc-rgb:27, 33, 48;--tc:#1b2130;--tc-rgb:27, 33, 48} /* 白金 */
+/* @end */
+/* @kit:base/row.css */
+/* ============================================================
+   webui-kit/src/base/row.css —— A 语言公共行（扁平行，2026-08-30 C8 裁决）
+   主应用行语言（AgentList/SessionList .list-item、RunTracking
+   .tree-node/.tree-leaf、StarCard）的清单行版本：
+
+   - 透明底 + 透明边框（常态安静），hover 只亮底色（cr-122 去边框与
+     微影——清单行环境安静，灰边框与选中主色描边相竞争）；
+   - 选中/默认态 = StarCard.selected 同 recipe（底面 + 主色描边）；
+   - 基础设施/automatic 行 = 静默虚线描边（装载即生效的只读标识）。
+
+   设置域清单卡（插件库 .plugin-item / 插件配置 .hook-row / 池
+   .pool-entry / Agent 清单 .agent-pool-item / 定时任务 .g-timer-item）
+   收敛于此：模板 `class="<语义类> ui-row"`，组件 scoped 样式只留
+   专属修饰（padding/gap/cursor/状态透明度等）——盒装卡片
+   （常驻边框 + bg-surface 填充）不再新增。
+   ============================================================ */
+.ui-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.ui-row:hover {
+  background: var(--bg-hover);
+}
+/* 选中/默认态（StarCard.selected 同 recipe；晚于 hover 声明 → 悬停不冲掉标记）。
+   底色用角色色 role-selected-bg（cr-122）：原 bg-surface 在 surface 宿主卡内
+   同值相消——选中行无背景色，只剩描边 */
+.ui-row.is-selected {
+  background: var(--role-selected-bg);
+  border-color: rgba(var(--primary-rgb), 0.45);
+}
+/* 基础设施/automatic 行：静默虚线描边 */
+.ui-row.is-auto { border-color: var(--line); border-style: dashed; }
+
+/* ── 开关（行尾动作控件；插件库「插件目录」强制停用 / 插件配置软停用 /
+   定时任务启用共用一个配方） ──
+   语义（cr-121 修正）：关闭 = 中性灰；开启 = 主色。红只用于「阻断 / 错误」
+   的陈述（徽章与文案），不再表示「关」——旧「红绿开关」把危险色（err）与
+   关闭态混成一色，同屏里与错误徽章互相稀释，也说不清「关」是状态还是告警。
+   （cr-122 注：gated 的警示色随 --warn 黄档） */
+.ui-switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; user-select: none; min-height: var(--hit-min); }
+/* input 必须留在可达性树里（旧 display:none 连带摘掉 role / name / checked，
+   读屏读不出开关）；以透明覆盖层承担命中区与键盘焦点——命中区 ≥ --hit-min
+   （WCAG 2.2 · 2.5.8），不再只有轨道 34×18。 */
+.ui-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.ui-switch-track {
+  display: inline-block; width: 34px; height: 18px; border-radius: var(--r-full); position: relative;
+  background: rgba(var(--text-3-rgb), 0.35);
+  transition: background calc(0.15s * var(--motion-scale)) var(--ease-out);
+}
+.ui-switch-dot {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--switch-knob);
+  transition: left calc(0.15s * var(--motion-scale)) var(--ease-out);
+  box-shadow: var(--shadow-knob);
+}
+.ui-switch input:checked + .ui-switch-track { background: var(--primary); }
+.ui-switch input:checked + .ui-switch-track .ui-switch-dot { left: 18px; }
+/* 焦点环画在可见轨道上（input 透明；环令牌全站单源） */
+.ui-switch input:focus-visible + .ui-switch-track {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.ui-switch input:disabled { cursor: not-allowed; }
+.ui-switch input:disabled + .ui-switch-track { opacity: .5; }
+/* gated：已列入清单但能力标签不足（Agent 装配工具区）——开关仍表达"开"
+   意图（include 语义，可关 = 写 exclude），但不显示主色：警示色 = 门禁未过，
+   调用会被安全行拦截。（cr-122 注：警示色随 --warn 黄档） */
+.ui-switch.gated input:checked + .ui-switch-track { background: var(--warn); }
+/* @end */
+/* @kit:base/badge.css */
+/* ============================================================
+   webui-kit/src/base/badge.css —— 徽章语言（2026-09-26 统一裁决）
+   三族一底（inline-flex · mono 10px · 胶囊 · nowrap）：
+   - 状态徽章：.ui-badge + 语义色调修饰（ok/err/warn/info/dim）——
+     插件卡片六态、装配/停用标记、市场来源、可配置标记（cfg 并入 info）
+   - 标签徽章：.ui-badge.tag + --tag-hue（本色轻染 + 细描边）——
+     能力标签（tt-* 设 hue；.miss = 缺失态红染）
+   - 类型徽记：.ui-badge.kind（配置弹窗字段名旁的小 chip——
+     布尔/数字/枚举…控件形态一眼可辨）
+   迁移说明：PluginLibraryPane / ExtToolsPane 的 scoped
+   plugin-state-badge / plugin-cfg-badge / tool-tag 家族全部迁此，
+   组件不再自建徽章（视觉单源，防再漂移）。
+   ============================================================ */
+.ui-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-mono); font-size: var(--fs-2xs); line-height: 1;
+  padding: 2.5px 8px; border-radius: 999px; white-space: nowrap;
+  color: var(--text-3); background: var(--bg-hover);
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+/* ── 语义色调（状态徽章） ── */
+.ui-badge.ok   { color: var(--ok);      background: rgba(var(--ok-rgb), 0.12); }
+.ui-badge.err  { color: var(--err);     background: rgba(var(--err-rgb), 0.1); }
+.ui-badge.warn { color: var(--warn);    background: rgba(var(--warn-rgb), 0.12); }
+.ui-badge.info { color: var(--primary-strong); background: rgba(var(--primary-strong-rgb), 0.08); }
+.ui-badge.dim  { color: var(--text-3);  background: var(--bg-hover); }
+
+/* ── 标签徽章（能力标签——本色轻染 + 细描边，hue 由 tt-* 设定） ── */
+.ui-badge.tag {
+  /* 注意：此处**不得**声明 --tag-hue-rgb 缺省值——本规则特异性 (0,2,0) 高于
+     .tt-* 色相类 (0,1,0)，一旦声明就把色相类的三元组压掉（底色/描边错用灰）。
+     缺省回落走使用处的 var(--tag-hue-rgb, var(--text-3-rgb))。 */
+  color: var(--tag-hue, var(--text-3)); /* 回退（无 color-mix 的运行时）：本色 */
+  color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 75%, var(--text-1));
+  background: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.08);
+  border-color: rgba(var(--tag-hue-rgb, var(--text-3-rgb)), 0.18);
+}
+/* 缺失态：中性幽灵 + 虚线（行级警示归状态徽章琥珀——不在标签上重复用红，
+   2026-09-03 前的原设计意图保留） */
+.ui-badge.tag.miss {
+  background: rgba(var(--text-3-rgb), 0.05);
+  border-style: dashed;
+  border-color: rgba(var(--text-3-rgb), 0.26);
+  color: var(--text-3);
+}
+
+/* 可配置徽章（⚙ 参数面标记）：配方与 .info 逐字相同（cr-122 并入——
+   cfg 只是带 ⚙ 图标的 info，图标由调用方给） */
+
+/* 可聚焦徽章（带 title 的徽章应给 tabindex="0"，让键盘/读屏可达——
+   title 提示对键盘用户原本不可达） */
+.ui-badge:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ── 类型徽记（配置弹窗字段名旁） ── */
+.ui-badge.kind {
+  font-size: var(--fs-2xs); padding: 1px 6px;
+  color: var(--text-3); background: transparent; border-color: var(--line);
+}
+
+/* ── 能力标签色相（tt-* 设 --tag-hue 与伴随三元组 --tag-hue-rgb；
+   cr-32：tint 走 rgba(var(--tag-hue-rgb), α)——WebView 92 无 color-mix。
+   两处工具清单共用；新增色相类须两值同加） ── */
+/* 色相双档（cr-121）：暗底取 300/400 档、亮底取 700/800 档——单值色相不可能
+   同时过两种底（旧值在暗底 8% tint 上只有 2.7~4.0，亮底 4.3）。
+   新增色相类须两档同加（有测试锁）。 */
+.tt-base { --tag-hue: var(--primary-strong); --tag-hue-rgb: var(--primary-strong-rgb); }
+.tt-admin { --tag-hue: #fca5a5; --tag-hue-rgb: 252, 165, 165; }
+.tt-dev { --tag-hue: #b8e8a8; --tag-hue-rgb: 184, 232, 168; }
+.tt-shell { --tag-hue: #d9e8a0; --tag-hue-rgb: 217, 232, 160; }
+.tt-delegation { --tag-hue: #c9b8f0; --tag-hue-rgb: 201, 184, 240; }
+.tt-web { --tag-hue: #a8c8e8; --tag-hue-rgb: 168, 200, 232; }
+.tt-observe { --tag-hue: #9adbe0; --tag-hue-rgb: 154, 219, 224; }
+.tt-manipulate { --tag-hue: #f5c4a8; --tag-hue-rgb: 245, 196, 168; }
+.tt-inject { --tag-hue: #e0a8d4; --tag-hue-rgb: 224, 168, 212; }
+html[data-theme='aurora'] .tt-base, html.light .tt-base { --tag-hue: var(--primary-strong); --tag-hue-rgb: var(--primary-strong-rgb); }
+html[data-theme='aurora'] .tt-admin, html.light .tt-admin { --tag-hue: #b91c1c; --tag-hue-rgb: 185, 28, 28; }
+html[data-theme='aurora'] .tt-dev, html.light .tt-dev { --tag-hue: #35702e; --tag-hue-rgb: 53, 112, 46; }
+html[data-theme='aurora'] .tt-shell, html.light .tt-shell { --tag-hue: #55652a; --tag-hue-rgb: 85, 101, 42; }
+html[data-theme='aurora'] .tt-delegation, html.light .tt-delegation { --tag-hue: #5b4a9e; --tag-hue-rgb: 91, 74, 158; }
+html[data-theme='aurora'] .tt-web, html.light .tt-web { --tag-hue: #2a5a8a; --tag-hue-rgb: 42, 90, 138; }
+html[data-theme='aurora'] .tt-observe, html.light .tt-observe { --tag-hue: #1a6a6e; --tag-hue-rgb: 26, 106, 110; }
+html[data-theme='aurora'] .tt-manipulate, html.light .tt-manipulate { --tag-hue: #9c4a1e; --tag-hue-rgb: 156, 74, 30; }
+html[data-theme='aurora'] .tt-inject, html.light .tt-inject { --tag-hue: #8e3a75; --tag-hue-rgb: 142, 58, 117; }
+/* @end */
+/* ═══════════ kit 组件镜像（注入 · 事实源 src/webui-kit/src）═══════════
+   以下每段与 kit 源码同步：node scripts/build-webui-preview.mjs 写入、--check 校验
+   （src/webui/tests/preview-kit-sync.test.ts 锁定）。手抄必漂移——评审看到的
+   必须就是真组件样式。预览页自己的壳样式（.pv-* / .gal-* / .demo-frame …）手写。 */
+
+/* @kit:base/Button.vue */
+.ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; cursor: pointer; border-radius: var(--r-md);
+  font-family: var(--font-ui); font-size: var(--fs-md); font-weight: 500;
+  color: var(--text-2); background: transparent;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+  white-space: nowrap; user-select: none;
+}
+.ui-btn--sm { height: var(--ctl-h-sm); padding: 0 10px; font-size: var(--fs-sm); }
+.ui-btn--md { height: var(--ctl-h-md); padding: 0 14px; }
+.ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ui-btn--primary { color: var(--on-primary); background: var(--primary); border-radius: var(--r-md); box-shadow: var(--shadow-pop); }
+.ui-btn--primary:hover:not(:disabled) { background: var(--primary-strong); box-shadow: var(--shadow-primary-hover); }
+.ui-btn--primary:active:not(:disabled) { transform: scale(0.97); }
+
+.ui-btn--soft { background: var(--bg-hover); color: var(--text-1); }
+.ui-btn--soft:hover:not(:disabled) { background: var(--bg-hover); color: var(--primary); }
+
+.ui-btn--ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--primary); }
+
+.ui-btn--danger { background: rgba(var(--err-rgb), 0.14); color: var(--err); }
+.ui-btn--danger:hover:not(:disabled) { background: rgba(var(--err-rgb), 0.24); }
+
+.ui-btn-spinner {
+  width: 12px; height: 12px; border-radius: var(--r-full);
+  /* 回退（cr-32）：currentColor 无法派生 RGB 三元组（任意色上下文），
+     故轨道环用中性灰——仅 ◯ 弧（border-top-color: currentColor）是主视觉 */
+  border: 2px solid rgba(var(--text-3-rgb), 0.32);
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor; animation: ui-spin calc(0.7s * var(--motion-scale)) linear infinite;
+}
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+/* @end */
+
+/* 预览页专用：图标占位 <i data-ic> + 旋转修饰（非 kit 内容） */
+.ui-btn .ic{display:inline-flex}
+.ic-spin{animation:ui-spin calc(.7s * var(--motion-scale)) linear infinite}
+i[data-ic]{display:inline-flex;width:1em;height:1em;overflow:visible}
+
+/* @kit:base/Avatar.vue */
+.ui-avatar { display: inline-flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+.ui-avatar--circle { border-radius: var(--r-full); }
+.ui-avatar--square { border-radius: var(--r-sm); }
+.ui-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.ui-avatar-fallback {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  background: var(--primary-light); color: var(--primary); font-weight: 600;
+}
+.ui-avatar-icon { font-size: 0; /* 图标不参与字号缩放，尺寸由 Icon size 控制 */ }
+/* 纯 icon 占位：透明底 + 中性三级色（圆盘内的 0.6 缩放也不适用——图标即占位本体） */
+.ui-avatar-fallback--plain { background: transparent; color: var(--text-3); }
+/* @end */
+
+/* @kit:base/StatusDot.vue */
+.ui-dot { border-radius: var(--r-full); flex-shrink: 0; display: inline-block; }
+.ui-dot.pulsing { animation: ui-breathe calc(1.4s * var(--motion-scale)) ease-in-out infinite; }
+@keyframes ui-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+/* @end */
+
+/* @kit:base/Tooltip.vue */
+.ui-tip { position: relative; display: inline-flex; }
+.ui-tip::after {
+  content: attr(data-tip); position: absolute; left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--bg-raised); color: var(--text-1); border: 1px solid var(--line);
+  font-size: var(--fs-xs); padding: 4px 8px; border-radius: var(--r-sm); white-space: nowrap;
+  box-shadow: var(--shadow-pop); opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); z-index: 700;
+}
+.ui-tip--top::after { bottom: calc(100% + 6px); }
+.ui-tip--bottom::after { top: calc(100% + 6px); }
+/* hover 与键盘焦点同待遇（:focus-within）：纯 CSS 提示对键盘用户原本不可达 */
+.ui-tip:hover::after, .ui-tip:focus-within::after {
+  opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0);
+}
+/* @end */
+
+/* @kit:base/RingProgress.vue */
+.ring-progress {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ring-progress svg { display: block; transform: rotate(-90deg); }
+.ring-track { stroke: rgba(var(--text-3-rgb), 0.22); }
+.ring-fill { stroke: var(--primary); transition: stroke-dashoffset var(--dur-base) var(--ease-out); }
+/* 环描边是图形件（WCAG 1.4.11 · 3.0 线）——取图形档（cr-123） */
+.tone-normal .ring-fill { stroke: var(--ok-graphic); }
+.tone-high .ring-fill { stroke: var(--warn-graphic); }
+.tone-critical .ring-fill { stroke: var(--err-graphic); }
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  line-height: 1;
+}
+/* @end */
+
+/* @kit:feedback/FeedbackNotice.vue */
+.feedback-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.feedback-icon { flex-shrink: 0; }
+.feedback-text { overflow: hidden; text-overflow: ellipsis; }
+
+/* 语义配色（chip 胶囊：浅语义底 + 描边，文字随本色；图标不再单独着色——
+   由 chip 底色统一承载。进行中：形状轴（旋转）由 BusyRing 承担） */
+.feedback-notice {
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+
+.is-ok {
+  color: var(--ok);
+  background: rgba(var(--ok-rgb), 0.08);
+  border: 1px solid rgba(var(--ok-rgb), 0.25);
+}
+
+.is-error {
+  color: var(--err);
+  background: rgba(var(--err-rgb), 0.08);
+  border: 1px solid rgba(var(--err-rgb), 0.25);
+}
+
+.is-info {
+  color: var(--text-2);
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
+}
+
+.is-busy {
+  color: var(--primary-strong);
+  background: rgba(var(--primary-rgb), 0.08);
+  border: 1px solid rgba(var(--primary-rgb), 0.25);
+}
+/* @end */
+
+/* @kit:feedback/ToastHost.vue */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + var(--safe-bottom));
+  z-index: 9500;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none; /* 栈容器不拦交互；条目自身恢复 */
+}
+
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-panel), var(--elev-hairline);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+.toast-icon { flex-shrink: 0; margin-top: 1px; }
+.toast-text { min-width: 0; word-break: break-word; }
+
+.toast-close {
+  position: relative;
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-sm);
+  margin: -1px -2px 0 0;
+}
+/* 命中区撑到 --hit-min（WCAG 2.2 · 2.5.8）：视觉尺寸不变，可点范围变大 */
+.toast-close::after { content: ''; position: absolute; inset: -3px; }
+.toast-close:hover { background: var(--bg-hover); color: var(--text-1); }
+
+/* 语义配色（左缘描边 + 图标着色——文本恒主色保证可读；色条与图标是
+   图形件（1.4.11 · 3.0 线）取图形档（cr-123）） */
+.is-ok .toast-icon { color: var(--ok-graphic); }
+.is-error .toast-icon { color: var(--err-graphic); }
+.is-info .toast-icon { color: var(--text-3); }
+
+.is-ok { border-left: 3px solid var(--ok-graphic); }
+.is-error { border-left: 3px solid var(--err-graphic); }
+.is-info { border-left: 3px solid var(--line-strong); }
+.is-busy { border-left: 3px solid var(--primary); }
+
+.toast-enter-active, .toast-leave-active { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(12px); }
+/* @end */
+
+/* @kit:base/Modal.vue */
+.ui-modal { position: fixed; inset: 0; z-index: 600; display: flex; align-items: center; justify-content: center; }
+.ui-modal-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+.ui-modal-panel {
+  position: relative; background: var(--bg-raised); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel), var(--elev-hairline); border: 1px solid var(--line);
+  max-width: 92vw; max-height: 86vh;
+  display: flex; flex-direction: column;
+}
+
+/* 窄屏全屏（cr-34）：桌面居中弹窗在手机上是局促的小窗——改全屏页形态；
+   全部 overlay 席位贡献（用量/版本/建群/Agent 新建/工作区表单/插件配置/
+   EntryPicker…）一改全改。宽度 min() 防宽度型内联样式（width: 440px 等
+   数字传参）在窄屏溢出。 */
+@media (max-width: 768px) {
+  .ui-modal { align-items: stretch; }
+  .ui-modal-panel {
+    width: 100vw; min-width: 100vw; max-width: 100vw;
+    height: 100dvh; max-height: 100dvh;
+    border-radius: 0; border: 0; box-shadow: none;
+    padding-top: var(--safe-top, 0px);
+  }
+  .ui-modal-body { padding-bottom: calc(0px + var(--safe-bottom, 0px)); }
+}
+.ui-modal-head { display: flex; align-items: center; gap: 8px; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.ui-modal-title { font-size: 14px; font-weight: 600; flex: 1; }
+.ui-modal-head-extra { display: inline-flex; align-items: center; margin-right: 8px; font-size: 12px; color: var(--text-3); }
+.ui-modal-close {
+  border: 0; background: transparent; color: var(--text-3); cursor: pointer;
+  display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--r-sm);
+}
+.ui-modal-close:hover { background: var(--bg-hover); color: var(--text-1); }
+.ui-modal-body { padding: 0; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.ui-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 16px 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
+
+.ui-modal-enter-active, .ui-modal-leave-active { transition: opacity var(--dur-base) var(--ease-out); }
+.ui-modal-enter-active .ui-modal-panel, .ui-modal-leave-active .ui-modal-panel { transition: transform var(--dur-base) var(--ease-out); }
+.ui-modal-enter-from, .ui-modal-leave-to { opacity: 0; }
+.ui-modal-enter-from .ui-modal-panel, .ui-modal-leave-to .ui-modal-panel { transform: translateY(8px) scale(0.98); }
+/* @end */
+
+/* @kit:base/Sheet.vue */
+.ui-sheet { position: fixed; inset: 0; display: flex; align-items: flex-end; }
+.ui-sheet-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+.ui-sheet-panel {
+  position: relative; width: 100%;
+  background: var(--bg-raised); border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: var(--shadow-panel); border: 1px solid var(--line); border-bottom: 0;
+  display: flex; flex-direction: column;
+}
+/* 全屏形态：占满视口、顶到安全区（aux 面板等整页内容） */
+.ui-sheet.full { align-items: stretch; }
+.ui-sheet.full .ui-sheet-panel {
+  border-radius: 0; border: 0; height: 100%;
+  padding-top: var(--safe-top, 0px);
+}
+/* 全屏 body = 纯填充容器（面板自带内部滚动区；外层不滚，避免双滚动条） */
+.ui-sheet.full .ui-sheet-body { padding: 0; overflow: hidden; }
+.ui-sheet-grabber {
+  position: relative;
+  width: 36px;
+  height: var(--hit-min); /* 命中区：可视 4px 条，触发面 36×24 */
+  margin: 0 auto 4px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+.ui-sheet-grabber::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px;
+  border-radius: var(--r-full);
+  background: var(--line-strong);
+}
+.ui-sheet-head { display: flex; align-items: center; gap: 8px; padding: 6px 16px 8px; flex-shrink: 0; }
+.ui-sheet-title { font-size: 14px; font-weight: 600; flex: 1; }
+.ui-sheet-close {
+  border: 0; background: transparent; color: var(--text-3); cursor: pointer;
+  display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--r-sm);
+}
+.ui-sheet-close:hover { background: var(--bg-hover); color: var(--text-1); }
+.ui-sheet-body { padding: 0 0 calc(12px + var(--safe-bottom, 0px)); flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+
+.ui-sheet-enter-active, .ui-sheet-leave-active { transition: opacity var(--dur-base) var(--ease-out); }
+.ui-sheet-enter-active .ui-sheet-panel, .ui-sheet-leave-active .ui-sheet-panel { transition: transform var(--dur-base) var(--ease-out); }
+.ui-sheet-enter-from, .ui-sheet-leave-to { opacity: 0; }
+.ui-sheet-enter-from .ui-sheet-panel, .ui-sheet-leave-to .ui-sheet-panel { transform: translateY(100%); }
+/* @end */
+
+/* @kit:base/PullToRefresh.vue */
+/* 根 = 滚动容器本身（调用方 class 经 fallthrough 落根；此处只补定位锚） */
+.ui-pull-root { position: relative; }
+.ui-pull-track { position: relative; }
+/* 非跟手期（回弹/驻留/收起）：位移走过渡 */
+.ui-pull-track.is-gliding { transition: transform var(--dur-base) var(--ease-out); }
+
+/* 指示器：悬在 track 顶缘上方，随 track 下移露出 */
+.ui-pull-indicator {
+  position: absolute; top: -46px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  user-select: none; pointer-events: none;
+}
+.ui-pull-bubble {
+  width: 34px; height: 34px; border-radius: var(--r-full, 999px);
+  background: var(--bg-raised); border: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  display: flex; align-items: center; justify-content: center; color: var(--text-2);
+}
+/* armed/刷新中/完成：主色/成功色点亮（文字 + 颜色双通道） */
+.ui-pull-indicator.armed .ui-pull-bubble { color: var(--primary); border-color: var(--primary); }
+.ui-pull-indicator.is-refreshing .ui-pull-bubble { color: var(--primary); border-color: var(--primary); }
+.ui-pull-indicator.is-done .ui-pull-bubble { color: var(--ok-graphic); border-color: var(--ok-graphic); }
+.ui-pull-arrow { transition: transform var(--dur-fast) var(--ease-out); }
+.ui-pull-arrow.armed { transform: rotate(180deg); }
+.ui-pull-spin { animation: ui-pull-rot calc(0.7s * var(--motion-scale)) linear infinite; }
+@keyframes ui-pull-rot { to { transform: rotate(360deg); } }
+.ui-pull-text { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+/* @end */
+
+/* @kit:star/StarAvatar.vue */
+.ui-star { display: inline-flex; border-radius: var(--r-full); position: relative; flex-shrink: 0; vertical-align: middle; }
+/* plain-fallback（纯 icon 占位）不走 tinted 圆盘——排除之，让 Avatar 内的
+ * 透明底 + 中性色规则（低特异性）得以生效；否则本条 :deep 恒覆盖之 */
+.ui-star .ui-avatar-fallback:not(.ui-avatar-fallback--plain) {
+  background: rgba(var(--sc-rgb, var(--primary-rgb)), 0.14);
+  color: var(--sc, var(--primary));
+}
+
+/* ── 运行光环 ── */
+.run-ring {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  overflow: visible;
+}
+/* 底环：身份色（回退主题主色）低透明 */
+.run-track { stroke: var(--sc, var(--primary)); opacity: 0.16; }
+/* 主流光渐变 stops：亮头（主题主色提亮身份色）→ 身份色 → 渐隐尾 */
+.run-grad-head { stop-color: var(--color-primary, var(--primary)); }
+.run-grad-mid { stop-color: var(--sc, var(--primary)); }
+.run-grad-tail { stop-color: var(--sc, var(--primary)); stop-opacity: 0; }
+/* 副流光：主色亮档短弧（cr-122：原 --accent 单消费令牌已删，改用
+   primary-strong 与主流光亮头同源） */
+.run-sub { stroke: var(--primary-strong); opacity: 0.85; }
+/* 旋转：transform-box 对齐 viewBox，绕圆心匀速流转 */
+.run-spin {
+  transform-box: view-box;
+  transform-origin: center;
+  /* 豁免 --motion-scale：运行光环是功能语义（不可静止降级）——见 webui-style.md */
+  animation: star-run-spin 1.15s linear infinite;
+}
+.run-spin--sub { animation-duration: 1.9s; animation-delay: -0.6s; }
+@keyframes star-run-spin { to { transform: rotate(360deg); } }
+
+/* 减少动态偏好下不做静止降级：光环是功能性状态指示（「正在回复」），
+ * 运动即语义；main.css 全局 reduce 规则已用 *:not(.run-spin) 豁免本组件
+ * （@layer base 内的 !important 会压过组件内任何 important 豁免，
+ * 必须在源头排除）。 */
+/* @end */
+
+/* 预览页专用覆盖：组件本体是 fixed / 全屏浮层，演示框内收回 absolute / static */
+.demo-frame .ui-modal,.demo-frame .ui-sheet{position:absolute}
+.demo-frame .toast-stack,.gal-stage .toast-stack{position:static;right:auto;bottom:auto;padding:0}
+.demo-frame{position:relative;height:240px;border-radius:var(--r-md);background:var(--bg-base);border:1px solid var(--line);overflow:hidden}
+.sw-row{display:flex;flex-wrap:wrap;gap:10px}
+.sw{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)}
+.sw-chip{width:26px;height:26px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:var(--sc, var(--text-3))}
+.sw code{font-family:var(--font-mono);font-size:10.5px}
+
+/* ═══ 展区12 · 业务面未提取控件（复刻自 ac-client-ui-*）═══ */
+.x-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-family:var(--font-mono);font-size:10px;line-height:1;background:rgba(var(--warn-rgb),.12);color:var(--warn);border:1px solid rgba(var(--warn-rgb),.3);cursor:default;flex-shrink:0}
+.x-src{font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);word-break:break-all}
+
+/* dock 卡族外壳（ApprovalBar/InteractionBar/QueueDock/GoalDockCard/TodoDockCard 共用 recipe） */
+.x-dock{margin:0 10px 6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-raised);box-shadow:var(--shadow-dock);font-size:13px;padding:8px 12px}
+.x-dock-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.x-dock-eyebrow{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:.4px;text-transform:uppercase}
+.x-dock-title{font-size:13px;font-weight:600;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.x-dock-act{display:flex;gap:6px}
+
+/* 工具卡（ToolMessage 复刻） */
+.x-tool-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);user-select:none;cursor:pointer;padding:2px 0;transition:color calc(.15s * var(--motion-scale));min-width:0}
+.x-tool-label:hover{color:var(--text-1)}
+.x-tool-label.is-failed,.x-tool-label.is-failed:hover{color:var(--err)}
+.x-tool-label-icon{width:14px;height:14px;flex-shrink:0;color:var(--text-2);transition:opacity calc(.12s * var(--motion-scale)) ease}
+.x-tool-label-name{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.x-spin-ring{width:13px;height:13px;margin:.5px;border-radius:50%;border:2px solid rgba(var(--warn-rgb),.15);border-top-color:var(--warn);animation:x-spin calc(.8s * var(--motion-scale)) linear infinite;flex-shrink:0}
+@keyframes x-spin{to{transform:rotate(360deg)}}
+.x-diff-stat{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;font-family:var(--font-mono);font-size:11px;font-weight:600;line-height:1;user-select:none}
+.x-diff-add{color:#4ade80;white-space:nowrap}
+.x-diff-del{color:#f87171;white-space:nowrap}
+.x-tool-body{margin-top:4px;margin-left:7px;border-left:1px solid var(--line);padding-left:14px;display:flex;flex-direction:column;min-width:0}
+.x-tool-output{font-family:var(--font-mono);font-size:11.5px;line-height:1.6;color:var(--text-2);background:var(--code-bg);color:var(--code-text);border-radius:var(--r-sm);padding:8px 10px;max-height:var(--card-viewport-max);overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+
+/* 思考卡（AssistantMessage think-content 复刻） */
+.x-think-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);cursor:pointer;padding:2px 0}
+.x-think-body{margin-top:4px;margin-left:7px;border-left:1px solid var(--line);padding-left:14px;max-height:var(--card-viewport-max);overflow-y:auto;font-size:13px;line-height:1.7;color:var(--text-2)}
+
+/* 消息气泡对 */
+.x-bubble-row{display:flex;flex-direction:column;gap:8px;width:100%}
+.x-assistant-bubble{padding:12px 16px;background:rgba(var(--primary-rgb),.04);border:1px solid rgba(var(--primary-rgb),.04);border-radius:var(--r-lg);box-shadow:0 1px 2px rgba(0,0,0,.04);font-size:14px;line-height:1.6;color:var(--text-1)}
+.x-user-wrap{display:flex;justify-content:flex-end}
+.x-user-bubble{background:rgba(var(--primary-rgb),.08);border-radius:var(--r-lg);padding:12px 16px;box-shadow:0 1px 2px rgba(0,0,0,.05);font-size:14px;line-height:1.5;color:var(--text-1);max-width:80%}
+.x-file-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:var(--r-sm);font-size:12px;color:var(--text-1);max-width:200px;cursor:pointer}
+
+/* InputMention 弹层 */
+.x-im-pop{position:relative;width:min(380px,100%);background:var(--bg-raised);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-pop);overflow:hidden;display:flex;flex-direction:column}
+.x-im-filebar{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);background:var(--bg-hover);min-width:0}
+.x-im-up{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex-shrink:0;border:none;border-radius:var(--r-sm);background:transparent;color:var(--text-2);cursor:pointer}
+.x-im-up:hover{background:var(--bg-hover);color:var(--text-1)}
+.x-im-cwd{flex:1;min-width:40px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-family:var(--font-mono);color:var(--text-3)}
+.x-im-root-chip{flex-shrink:0;padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--text-2);font-size:11px;white-space:nowrap;cursor:pointer}
+.x-im-root-chip.active{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
+.x-im-list{max-height:200px;overflow-y:auto;padding:4px}
+.x-im-group-label{padding:4px 10px 2px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.3px}
+.x-im-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;border:none;border-radius:6px;background:none;color:var(--text-1);font-size:13px;cursor:pointer;text-align:left}
+.x-im-item:hover{background:var(--bg-hover)}
+.x-im-item.active{background:var(--role-selected-bg);color:var(--role-selected-text)}
+.x-im-item-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;color:var(--text-2)}
+.x-im-item.danger .x-im-item-icon{color:var(--err)}
+.x-im-item-label{font-weight:500}
+.x-im-item-hint{font-size:11px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.x-im-item-detail{font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);flex-shrink:0}
+
+/* TokenGauge chip */
+.x-tg-chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border-radius:999px;border:1px solid var(--line);cursor:pointer;font-size:11px;color:var(--text-2)}
+.x-tg-chip:hover{border-color:rgba(var(--primary-rgb),.4)}
+.x-tg-pct{font-size:9px;font-weight:700;font-variant-numeric:tabular-nums}
+.x-tg-pct.normal{color:var(--ok)}.x-tg-pct.high{color:var(--warn)}.x-tg-pct.critical{color:var(--err)}
+.x-tg-panel{margin-top:6px;width:280px;background:var(--bg-raised);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:10px 12px}
+.x-tg-row{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-2);padding:2px 0}
+.x-tg-row b{color:var(--text-1);font-weight:600;font-variant-numeric:tabular-nums}
+/* @kit:base/BusyRing.vue */
+.busy-ring {
+  display: inline-block;
+  flex-shrink: 0;
+  /* CSS 侧兜底尺寸（组件用 :size 以内联样式覆盖）；无内联时也不塌成 0 */
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border-top-color: var(--primary);
+  animation: busy-ring-spin calc(0.8s * var(--motion-scale)) linear infinite;
+}
+@keyframes busy-ring-spin { to { transform: rotate(360deg); } }
+/* @end */
+/* 预览页专用尺寸演示：组件侧走 :size 属性 */
+.busy-ring.lg{width:18px;height:18px;border-width:2.5px}
+/* @kit:base/CollapseRow.vue */
+.cr { display: flex; flex-direction: column; min-width: 0; }
+.cr-label {
+  display: flex; align-items: center; gap: 6px;
+  /* 命中区 ≥ --hit-min：label 行是折叠开关，视觉可紧凑，触发面不可小 */
+  min-height: var(--hit-min); padding: 2px 0;
+  border: 0; background: transparent; text-align: left;
+  font-family: inherit; font-size: var(--fs-sm); font-weight: 500;
+  color: var(--text-2); cursor: pointer; user-select: none; min-width: 0;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.cr-label:hover { color: var(--text-1); }
+.cr-label.is-failed, .cr-label.is-failed:hover { color: var(--err); }
+.cr-label-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-meta { font-size: var(--fs-2xs); color: var(--text-3); flex-shrink: 0; font-family: var(--font-mono); }
+.cr-body { margin-top: 4px; margin-left: 7px; border-left: 1px solid var(--line); padding-left: 14px; min-width: 0; }
+/* 正文视口：滚动容器（限高）。aria-live=off —— 流式内容不逐句打断读屏。 */
+.cr-body-in { overflow-y: auto; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.cr-chev { transition: transform calc(0.12s * var(--motion-scale)) var(--ease-out); }
+.cr.is-open .cr-chev { transform: rotate(180deg); }
+.cr-tobottom {
+  align-self: flex-start; margin: 4px 0 0 7px; padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-full); background: var(--bg-raised);
+  color: var(--text-2); font-family: var(--font-ui); font-size: var(--fs-2xs); cursor: pointer;
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+.cr-tobottom:hover { color: var(--text-1); border-color: var(--line-strong); }
+/* @end */
+/* 预览页专用：正文槽的内容样式（组件侧由宿主给） */
+.cr-viewport{font-family:var(--font-mono);font-size:11.5px;line-height:1.6;background:var(--code-bg);color:var(--code-text);border-radius:var(--r-sm);padding:8px 10px;max-height:var(--card-viewport-max);overflow-y:auto;white-space:pre-wrap;word-break:break-word}/* @kit:base/DockCard.vue */
+.dock {
+  margin: 0 10px calc(6px + var(--safe-bottom));
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-dock), var(--elev-hairline);
+  font-size: var(--fs-md);
+  color: var(--text-1);
+}
+.dock.min { padding: 6px 12px; }
+.dock.tone-warn { border-color: rgba(var(--warn-rgb), 0.45); }
+.dock.tone-error { border-color: rgba(var(--err-rgb), 0.45); }
+
+.dock-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.dock.min .dock-head { margin-bottom: 0; }
+.dock-eyebrow {
+  font-size: var(--fs-2xs); font-weight: 600; color: var(--text-3);
+  letter-spacing: 0.4px; text-transform: uppercase; flex-shrink: 0;
+}
+.dock-title {
+  font-size: var(--fs-md); font-weight: 600; color: var(--text-1);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dock-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.dock-body { min-width: 0; }
+/* @end *//* ═══════════ 预览页外壳 v2（cr-119）═══════════ */
+:root{
+  --pv-max:1120px;
+  --pv-pad:clamp(16px,4vw,40px);
+  --pv-top-h:52px;
+  --pv-hair:1px solid var(--line);
+  --pv-accent:var(--primary);
+}
+html{scroll-behavior:smooth}
+html[data-theme='aurora'],html.light{--pv-accent:var(--primary-strong)}
+
+/* ── 顶栏 ── */
+.pv-top{position:sticky;top:0;z-index:60;background:var(--bg-base)}
+.pv-top-in{max-width:var(--pv-max);margin:0 auto;padding:0 var(--pv-pad);height:var(--pv-top-h);display:flex;align-items:center;gap:12px;border-bottom:var(--pv-hair)}
+.pv-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-1);white-space:nowrap}
+.pv-brand svg{color:var(--pv-accent);flex-shrink:0}
+.pv-brand-sub{padding-left:10px;border-left:var(--pv-hair);font-size:11.5px;font-weight:500;color:var(--text-2)}
+.pv-top-spacer{flex:1}
+.pv-progress{position:absolute;left:0;right:0;bottom:0;height:2px;overflow:hidden}
+.pv-progress i{display:block;height:100%;width:0;background:var(--pv-accent);transition:width calc(.1s * var(--motion-scale)) linear}
+.gal-theme{display:flex;align-items:center;gap:4px}
+.gal-theme button{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid transparent;border-radius:var(--r-full);background:transparent;color:var(--text-2);font-family:var(--font-ui);font-size:12px;font-weight:500;cursor:pointer;transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+.gal-theme button:hover{color:var(--text-1);background:var(--bg-hover)}
+.gal-theme button.on{color:var(--pv-accent);background:var(--primary-light);border-color:rgba(var(--primary-rgb),.32)}
+.gal-theme button svg{flex-shrink:0}
+
+/* ── 页容器与 Hero ── */
+.pv-wrap{max-width:var(--pv-max);margin:0 auto;padding:0 var(--pv-pad) 104px}
+.pv-hero{padding:clamp(32px,6vh,60px) 0 32px;border-bottom:var(--pv-hair)}
+.pv-hero-tags{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:16px}
+.pv-hero h1{margin:0 0 14px;max-width:22em;font-size:clamp(24px,3.2vw,33px);font-weight:650;line-height:1.22;letter-spacing:-.02em;color:var(--text-1)}
+.pv-lead{margin:0;max-width:66ch;font-size:14px;line-height:1.8;color:var(--text-2)}
+.pv-lead b{color:var(--text-1);font-weight:600}
+.pv-meta{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:20px;font-size:11.5px;color:var(--text-2)}
+.pv-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1px solid rgba(var(--primary-rgb),.3);border-radius:var(--r-full);background:var(--primary-light);color:var(--pv-accent);font-family:var(--font-mono);font-size:11px;font-weight:600}
+.pv-badge svg{flex-shrink:0}
+.pv-meta code,.pv-sec-head code{padding:1px 6px;border-radius:var(--r-sm);background:var(--bg-hover);color:var(--text-2);font-family:var(--font-mono);font-size:11px}
+
+/* ── 区块头（层级 eyebrow + 标题 + 说明）── */
+.pv-sec{margin-top:56px;scroll-margin-top:calc(var(--pv-top-h) + 24px)}
+.pv-sec-head{max-width:74ch;margin-bottom:24px;padding-top:20px;border-top:var(--pv-hair)}
+.pv-hero + .pv-sec{margin-top:44px}
+.pv-hero + .pv-sec .pv-sec-head{padding-top:0;border-top:0}
+.pv-eyebrow{display:flex;align-items:center;gap:7px;margin-bottom:9px;color:var(--pv-accent);font-size:11px;font-weight:650;letter-spacing:.1em;text-transform:uppercase}
+.pv-eyebrow::before{content:"";width:16px;height:1px;background:currentColor;opacity:.55}
+.pv-sec-head h2{margin:0 0 7px;font-size:19px;font-weight:650;line-height:1.4;letter-spacing:-.01em;color:var(--text-1)}
+.pv-sec-head p{margin:0;font-size:12.5px;line-height:1.75;color:var(--text-2)}
+
+/* ── 陈列卡片 ── */
+.gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.gal-grid.wide{grid-template-columns:1fr}
+.gal-cell{display:flex;flex-direction:column;margin:0;overflow:hidden;border:var(--pv-hair);border-radius:var(--r-lg);background:var(--bg-surface);transition:border-color var(--dur-base) var(--ease-out),box-shadow var(--dur-base) var(--ease-out)}
+.gal-cell:hover{border-color:var(--line-strong);box-shadow:var(--shadow-dock)}
+.gal-stage{flex:1;min-height:104px;padding:22px 18px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px}
+.gal-stage.col{flex-direction:column;align-items:stretch;justify-content:center;gap:10px}
+.gal-cap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 10px;padding:9px 14px;border-top:var(--pv-hair);font-size:11.5px;line-height:1.6;color:var(--text-2)}
+.gal-cap code{padding:1px 6px;border-radius:var(--r-sm);background:var(--bg-hover);color:var(--text-2);font-family:var(--font-mono);font-size:10.5px}
+.gal-note{margin-top:16px;padding:12px 16px;border:var(--pv-hair);border-left:3px solid var(--pv-accent);border-radius:var(--r-md);background:var(--bg-surface);font-size:12px;line-height:1.8;color:var(--text-2)}
+.gal-note b{color:var(--text-1)}
+.gal-foot{margin-top:64px;padding-top:18px;border-top:var(--pv-hair);font-size:11.5px;line-height:2;color:var(--text-2)}
+.gal-foot code{color:var(--text-2);font-family:var(--font-mono);font-size:11px}
+
+/* ── 总览统计 ── */
+.pv-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.pv-stat{position:relative;padding:18px 18px 16px;border:var(--pv-hair);border-radius:var(--r-lg);background:var(--bg-surface)}
+.pv-stat::before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:3px;border-radius:0 var(--r-full) var(--r-full) 0;background:var(--line-strong)}
+.pv-stat b{display:block;margin-bottom:8px;font-size:30px;font-weight:680;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--text-1)}
+.pv-stat span{font-size:11.5px;line-height:1.7;color:var(--text-2)}
+.pv-stat.del::before{background:var(--err)}
+.pv-stat.del b{color:var(--err)}
+.pv-stat.add::before{background:var(--ok)}
+.pv-stat.add b{color:var(--ok)}
+.pv-stat.is-net{border-color:rgba(var(--primary-rgb),.35)}
+.pv-stat.is-net::before{background:var(--pv-accent)}
+.pv-stat.is-net b{color:var(--pv-accent)}
+
+/* ── 删减面 ── */
+.pv-del-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.pv-del{position:relative;padding:14px 16px 15px;border:var(--pv-hair);border-radius:var(--r-lg);background:var(--bg-surface)}
+.pv-del::before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:3px;border-radius:0 var(--r-full) var(--r-full) 0;background:rgba(var(--err-rgb),.55)}
+.pv-del-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pv-del-head code{color:var(--err);font-family:var(--font-mono);font-size:12px;font-weight:600;text-decoration:line-through;text-decoration-color:rgba(var(--err-rgb),.55);text-decoration-thickness:1.5px}
+.pv-del-badge{margin-left:auto;flex-shrink:0;padding:1px 8px;border:var(--pv-hair);border-radius:var(--r-full);background:var(--bg-hover);color:var(--text-2);font-family:var(--font-mono);font-size:10px;font-weight:600}
+.pv-del p{margin:0;font-size:12px;line-height:1.75;color:var(--text-2)}
+.pv-del p b{color:var(--text-1);font-weight:600}
+.pv-new-tag{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:2px 9px;border:1px solid rgba(var(--ok-rgb),.3);border-radius:var(--r-full);background:rgba(var(--ok-rgb),.12);color:var(--ok);font-family:var(--font-mono);font-size:10px;font-weight:600}
+
+/* ── 迁移批次 · 组合 · 幽灵位 ── */
+.pv-batch{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.pv-batch-item{padding:16px;border:var(--pv-hair);border-radius:var(--r-lg);background:var(--bg-surface)}
+.pv-batch-item h4{display:flex;align-items:center;gap:9px;margin:0 0 10px;font-size:13px;font-weight:600;color:var(--text-1)}
+.pv-batch-item p{margin:0;font-size:12px;line-height:1.8;color:var(--text-2)}
+.pv-b-num{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:22px;height:22px;border-radius:var(--r-full);background:var(--primary-light);color:var(--pv-accent);font-family:var(--font-mono);font-size:11px;font-weight:700}
+.pv-combo{display:flex;flex-direction:column;gap:10px;padding:12px 8px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg-base)}
+.pv-ghost{display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:6px 12px;border:1px dashed rgba(var(--err-rgb),.35);border-radius:var(--r-md);background:rgba(var(--err-rgb),.04)}
+.pv-ghost s{color:var(--text-3);font-size:11px;text-decoration-color:rgba(var(--err-rgb),.6)}
+.pv-ghost em{color:var(--err);font-family:var(--font-mono);font-size:9.5px;font-style:normal}
+
+/* ── 区块导航 rail（宽屏左侧点阵 / 窄屏底部序号条）── */
+.pv-rail{display:none}
+.pv-rail a{text-decoration:none}
+.pv-rail .pv-rail-n{display:none}
+
+/* ── 回到顶部 ── */
+.pv-to-top{position:fixed;right:20px;bottom:20px;z-index:59;display:grid;place-items:center;width:38px;height:38px;padding:0;border:var(--pv-hair);border-radius:var(--r-full);background:var(--bg-raised);color:var(--text-2);box-shadow:var(--shadow-pop);cursor:pointer;opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity var(--dur-base),visibility var(--dur-base),transform var(--dur-base),color var(--dur-fast),border-color var(--dur-fast)}
+.pv-to-top.on{opacity:1;visibility:visible;transform:none}
+.pv-to-top:hover{color:var(--pv-accent);border-color:rgba(var(--primary-rgb),.4)}
+
+/* ── 聚焦环 · 动效收敛 · 打印 ── */
+/* 预览页演示用：dock 底部动作行（组件侧由宿主插槽给，不属 kit 配方） */
+.dock-act{display:flex;gap:6px;margin-top:8px}
+/* 安全区示意（真机上 = 手势条区域；此处可视化） */
+.pv-safe{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;height:calc(8px + var(--safe-bottom));border-top:1px dashed var(--line);color:var(--text-3);font-family:var(--font-mono);font-size:10px}
+/* 焦点环由注入的 tokens.css 全局规则提供（--focus-ring 单源）；
+   「新原语」标记走 CSS 而非 <span class="pv-new">新</span> / emoji 字形（字形依赖字体、跨平台不一致） */
+.pv-new{display:inline-block;margin-left:4px;padding:0 5px;border-radius:var(--r-full);background:rgba(var(--primary-rgb),.16);color:var(--primary-strong);font-family:var(--font-ui);font-size:10px;font-weight:600;line-height:16px;vertical-align:middle}
+/* 减少动态效果：注入的 tokens.css 以 --motion-scale 归零统一兜底
+   （此前只列 6 个预览页选择器，且对 .gal-cell 后代一并 transition:none，
+   连带关掉按钮 spinner / 状态灯呼吸 / 忙环旋转——动画量测不可信） */
+@media print{
+  .pv-top,.pv-rail,.pv-to-top{display:none!important}
+  .gal-cell,.pv-del,.pv-stat,.pv-batch-item{break-inside:avoid}
+}
+
+/* ── 响应式 ── */
+@media (min-width:1340px){
+  .pv-rail{display:flex;flex-direction:column;align-items:center;gap:10px;position:fixed;left:calc(50% - var(--pv-max) / 2 - 34px);top:50%;transform:translateY(-50%);z-index:55}
+    .pv-rail a{position:relative;display:block;width:9px;height:9px;border-radius:var(--r-full);background:var(--line-strong);transition:background var(--dur-fast),transform var(--dur-fast),box-shadow var(--dur-fast)}
+  /* 命中区撑到 --hit-min：视觉 9px 点，可点 25×25（WCAG 2.2 · 2.5.8） */
+  .pv-rail a::before{content:'';position:absolute;inset:-8px}
+  .pv-rail a:hover,.pv-rail a.on{background:var(--pv-accent);transform:scale(1.4)}
+  .pv-rail a.on{box-shadow:0 0 0 4px var(--primary-light)}
+  .pv-rail a::after{content:attr(data-t);position:absolute;left:calc(100% + 12px);top:50%;transform:translateY(-50%);padding:5px 10px;border:var(--pv-hair);border-radius:var(--r-md);background:var(--bg-raised);box-shadow:var(--shadow-pop);color:var(--text-1);font-size:11px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity var(--dur-fast)}
+  .pv-rail a:hover::after{opacity:1}
+}
+@media (max-width:1339px){
+  .pv-rail{display:flex;gap:6px;position:fixed;left:0;right:0;bottom:0;z-index:58;padding:8px 12px calc(8px + var(--safe-bottom));overflow-x:auto;background:var(--bg-base);border-top:var(--pv-hair);scrollbar-width:none}
+  .pv-rail::-webkit-scrollbar{display:none}
+  .pv-rail a{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:32px;height:28px;padding:0 9px;border:var(--pv-hair);border-radius:var(--r-full);background:var(--bg-surface);color:var(--text-2);font-family:var(--font-mono);font-size:11px;font-weight:600;transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+  .pv-rail a.on{color:var(--pv-accent);background:var(--primary-light);border-color:rgba(var(--primary-rgb),.4)}
+  .pv-rail .pv-rail-n{display:inline}
+  .pv-to-top{bottom:calc(58px + var(--safe-bottom))}
+}
+@media (max-width:900px){
+  .gal-grid,.pv-del-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+}
+@media (max-width:720px){
+  .pv-wrap{padding-bottom:132px}
+  .gal-grid,.pv-del-grid,.pv-batch{grid-template-columns:1fr}
+  .pv-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .gal-stage{min-height:88px;padding:18px 14px}
+  .pv-sec{margin-top:44px}
+  .pv-sec-head{padding-top:16px}
+  .pv-hero h1{font-size:23px}
+  .pv-lbl{display:none}
+  .gal-theme button{padding:0 9px}
+}
+@media (max-width:420px){
+  .pv-stats{grid-template-columns:1fr}
+  .pv-brand-sub{display:none}
+}
+</style>
+</head>
+<body>
+<div class="pv-top"><div class="pv-top-in"><span class="pv-brand"><i data-ic="sparkles" data-s="14"></i>标准控件库<span class="pv-brand-sub">目标态预览 v2</span></span><span class="pv-top-spacer"></span><div class="gal-theme" role="group" aria-label="主题切换"><button type="button" id="btn-nebula" class="on" aria-pressed="true"><i data-ic="moon" data-s="14"></i><span class="pv-lbl">深空 Nebula</span></button><button type="button" id="btn-aurora" aria-pressed="false"><i data-ic="sun" data-s="14"></i><span class="pv-lbl">晨曦 Aurora</span></button></div></div><div class="pv-progress"><i id="pv-progress-bar"></i></div></div>
+<div class="pv-wrap">
+<div class="pv-hero"><div class="pv-hero-tags"><span class="pv-badge"><i data-ic="sparkles" data-s="12"></i>提案 cr-116 · 全量控件</span></div>
+<h1>AgentChat · 标准控件库重构预览</h1>
+<p class="pv-lead">整理后目标态标准库 <b>17 项控件全量陈列</b>——删减位以幽灵样式对照 · 依据 webui-standard-controls-proposal.md · 现状见 webui-gallery.html</p>
+<div class="pv-meta"><span>双主题 · 深空 Nebula / 晨曦 Aurora</span><span>cr-122 语义色分离（马卡龙星板）· cr-123 墨色/图形双档</span><span>左侧点阵为区块导航，随滚动高亮</span><span>上一版 <code>webui-gallery-preview.html</code>（cr-118）</span></div>
+</div>
+<div class="pv-sec" id="s1"><div class="pv-sec-head"><span class="pv-eyebrow">OVERVIEW</span><h2>1 · 重构总览</h2><p>从现有 16 组件到目标态标准库——一删一增之间的净变化</p></div>
+<div class="pv-stats">
+<div class="pv-stat del"><b>-2</b><span>删除组件<br>StarCard · PulseTrace</span></div>
+<div class="pv-stat del"><b>-5</b><span>裁除死形态/死出口<br>soft · square · full · idle · toastInfo</span></div>
+<div class="pv-stat add"><b>+3</b><span>新增原语<br>BusyRing · CollapseRow · DockCard</span></div>
+<div class="pv-stat is-net"><b>17</b><span>目标态库面<br>16 − 2 + 3 · 纯展示零依赖</span></div>
+</div></div>
+<div class="pv-sec" id="s1b"><div class="pv-sec-head"><span class="pv-eyebrow">CONTRACTS · cr-121 → cr-123</span><h2>1b · 本轮修正（契约层实物）</h2><p>缺口不在删减方向，而在契约层：对比度 / 焦点 / 命中区 / 动效归一 / 语义色——下面是修完后的实物，不是示意图。数值 = 该色相对 bg-surface 的对比度（暗 #2d2d2d / 亮 #fafafa）；左侧红 = 旧值（不足 4.5），右侧绿 = 新值</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:6px;width:100%">
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#7f8c8d"></span><span style="width:62px;color:var(--text-3)">#7f8c8d</span><span style="width:30px;color:var(--err);text-align:right">3.96</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#949ea0"></span><span style="width:62px;color:var(--text-1)">#949ea0</span><span style="width:30px;color:var(--ok);text-align:right">5.02</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#e74c3c"></span><span style="width:62px;color:var(--text-3)">#e74c3c</span><span style="width:30px;color:var(--err);text-align:right">3.60</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#f28b82"></span><span style="width:62px;color:var(--text-1)">#f28b82</span><span style="width:30px;color:var(--ok);text-align:right">5.77</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#10b981"></span><span style="width:62px;color:var(--text-3)">#10b981</span><span style="width:30px;color:var(--err);text-align:right">5.43</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#34d399"></span><span style="width:62px;color:var(--text-1)">#34d399</span><span style="width:30px;color:var(--ok);text-align:right">7.16</span></div>
+<div style="display:flex;gap:6px;font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:2px"><span style="width:62px">text-3</span><span style="width:62px">err</span><span>ok</span></div>
+</div></div><p class="gal-cap">暗色 Nebula 定档（text-3 / err / ok）——text-3 原本在 surface 上只有 3.96，元信息与徽章文本是最危险的位置</p></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:6px;width:100%">
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#7f8c8d"></span><span style="width:62px;color:var(--text-3)">#7f8c8d</span><span style="width:30px;color:var(--err);text-align:right">3.33</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#5f6b78"></span><span style="width:62px;color:var(--text-1)">#5f6b78</span><span style="width:30px;color:var(--ok);text-align:right">5.21</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#a8abb2"></span><span style="width:62px;color:var(--text-3)">#a8abb2</span><span style="width:30px;color:var(--err);text-align:right">2.20</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#666b71"></span><span style="width:62px;color:var(--text-1)">#666b71</span><span style="width:30px;color:var(--ok);text-align:right">5.15</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#6366f1"></span><span style="width:62px;color:var(--text-3)">#6366f1</span><span style="width:30px;color:var(--err);text-align:right">4.28</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#4f46e5"></span><span style="width:62px;color:var(--text-1)">#4f46e5</span><span style="width:30px;color:var(--ok);text-align:right">6.02</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#10b981"></span><span style="width:62px;color:var(--text-3)">#10b981</span><span style="width:30px;color:var(--err);text-align:right">2.43</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#065f46"></span><span style="width:62px;color:var(--text-1)">#065f46</span><span style="width:30px;color:var(--ok);text-align:right">7.36</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#f59e0b"></span><span style="width:62px;color:var(--text-3)">#f59e0b</span><span style="width:30px;color:var(--err);text-align:right">2.06</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#92400e"></span><span style="width:62px;color:var(--text-1)">#92400e</span><span style="width:30px;color:var(--ok);text-align:right">6.79</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#e74c3c"></span><span style="width:62px;color:var(--text-3)">#e74c3c</span><span style="width:30px;color:var(--err);text-align:right">3.66</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#b91c1c"></span><span style="width:62px;color:var(--text-1)">#b91c1c</span><span style="width:30px;color:var(--ok);text-align:right">6.20</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px"><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#ec4899"></span><span style="width:62px;color:var(--text-3)">#ec4899</span><span style="width:30px;color:var(--err);text-align:right">3.38</span><span style="color:var(--text-3);padding:0 2px">→</span><span style="width:20px;height:20px;border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0;background:#be185d"></span><span style="width:62px;color:var(--text-1)">#be185d</span><span style="width:30px;color:var(--ok);text-align:right">5.78</span></div>
+<div style="display:flex;gap:6px;font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:2px"><span style="width:62px">text-2</span><span style="width:62px">text-3</span><span style="width:62px">primary</span><span style="width:62px">ok</span><span style="width:62px">warn</span><span style="width:62px">err</span><span>accent</span></div>
+</div></div><p class="gal-cap">亮色 Aurora 定档（7 个令牌全部低于 4.5 → 全部达标）——预览旧版没复刻 app 的浅色文本色覆盖，浅色主题整页其实不达标</p></div>
+</div>
+</div>
+<div class="pv-sec" id="s1c"><div class="pv-sec-head"><span class="pv-eyebrow">CONTRACTS · cr-121</span><h2>1c · 焦点 · 命中区 · 开关语义 · 忙指示 · 令牌</h2><p>四类契约在 kit 内此前整体缺失——它们无法靠肉眼评审，只能靠实物 + 测试锁</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+<button class="ui-btn ui-btn--primary ui-btn--sm"><span class="ui-btn-label">主操作</span></button>
+<button class="ui-btn ui-btn--ghost ui-btn--sm"><span class="ui-btn-label">次操作</span></button>
+<label class="ui-switch"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label>
+<span class="ui-badge info" tabindex="0">可聚焦徽章</span>
+</div><p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">按 <b>Tab</b> 走一遍本格：焦点环全部来自 L0 单源 <code>--focus-ring</code>（tokens.css 全局 :focus-visible），组件不得自建——此前 kit 内 0 条 focus 规则，26 条散落业务面。</p></div><p class="gal-cap">焦点环（键盘 Tab 可见）</p></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+<label class="ui-switch"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label>
+<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">开关 可视 34×18 · 命中 24</span>
+<span class="ui-sheet-grabber" style="margin:0"></span>
+<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">抓手 可视 36×4 · 命中 24</span>
+</div><p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">小控件一律以透明覆盖层 / 伪元素把命中区撑到 <code>--hit-min</code>(24px)（WCAG 2.2 · 2.5.8）：视觉尺寸不放大，可点范围放大。开关的 input 也从 display:none 改成透明覆盖——否则读屏读不到 role/name/checked。</p></div><p class="gal-cap">命中区与可达性（开关 / Sheet 抓手）</p></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><label class="ui-switch"><input type="checkbox"><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label>关（中性灰）</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><label class="ui-switch"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label>开（主色）</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><label class="ui-switch gated"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label>gated（琥珀 = 门禁未过）</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);opacity:.6"><label class="ui-switch"><input type="checkbox" checked disabled><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label>disabled</span>
+</div><p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">语义纠正：<b>关 ≠ 红</b>。旧「红绿开关」把危险色（err）与关闭态混成一色，与错误徽章互相稀释；现在状态色只陈述结果 / 状态，控件开合用中性 + 主色，红留给阻断与错误。</p></div><p class="gal-cap">开关四态（语义色归位）</p></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><span class="busy-ring"></span>busy · 行内 13</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><span class="busy-ring lg"></span>busy · 独立 18</span>
+</div><p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">归一 4 处 spin-ring + main.css 全局 + toast / FeedbackNotice 的 loader 旋转：<b>形状轴</b>归 BusyRing；色轴恒主色靛蓝（cr-122 合并原 busy 琥珀 / running 靛蓝两档——消费侧无规律支撑二分，且与 StarAvatar 运行光环同语言）。默认 aria-hidden（装饰），独立等待位传 label 才播报。</p></div><p class="gal-cap">BusyRing（新原语 · 忙指示唯一源）</p></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><span class="ring-progress tone-normal" style="width:28px;height:28px"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle class="ring-track" cx="14" cy="14" r="12.5" fill="none" stroke-width="3"></circle><circle class="ring-fill" cx="14" cy="14" r="12.5" fill="none" stroke-width="3" stroke-linecap="round" stroke-dasharray="78.5" stroke-dashoffset="47"></circle></svg><span class="ring-center" style="font-size:9px">40%</span></span>normal</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><span class="ring-progress tone-high" style="width:28px;height:28px"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle class="ring-track" cx="14" cy="14" r="12.5" fill="none" stroke-width="3"></circle><circle class="ring-fill" cx="14" cy="14" r="12.5" fill="none" stroke-width="3" stroke-linecap="round" stroke-dasharray="78.5" stroke-dashoffset="19"></circle></svg><span class="ring-center" style="font-size:9px">76%</span></span>high</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)"><span class="ring-progress tone-critical" style="width:28px;height:28px"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle class="ring-track" cx="14" cy="14" r="12.5" fill="none" stroke-width="3"></circle><circle class="ring-fill" cx="14" cy="14" r="12.5" fill="none" stroke-width="3" stroke-linecap="round" stroke-dasharray="78.5" stroke-dashoffset="8"></circle></svg><span class="ring-center" style="font-size:9px">90%</span></span>critical</span>
+</div><p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">RingProgress 三档语义色全部令牌化（此前 4 个硬编码 hex）：normal / high / critical → <code>ok / warn / err -graphic</code> 图形档，随主题自动换档（cr-122 收敛——moderate 与 high 用户动作指引相同；cr-123 环描边走图形档 3.0 线）。</p></div><p class="gal-cap">用量三档（硬编码 hex 清零）</p></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--text-2)">
+<div>--motion-scale  动效时长归一；reduced-motion 归零（kit 内 14 处动画此前无一响应）</div>
+<div>--hit-min        24px 可点下限（开关 / 关闭键 / 抓手 / 导航点阵）</div>
+<div>--focus-ring     键盘焦点唯一源（此前 kit 内 0 条 focus 规则）</div>
+<div>--on-primary     主色实底前景（白字 on #818cf8 仅 2.99 → 暗色改深字 5.83）</div>
+<div>--elev-hairline  暗色浮层顶缘高光（暗影投在 #1a1a1a 上不可见）</div>
+<div>--*-graphic     语义图形档（cr-123）：环描边/状态点/色条走 3.0 线，文字仍用墨色档 4.5 线</div>
+<div>--fs-* / --ctl-h-*  字号五档 + 控件高 28/32/40（此前全仓 31 种字号并存）</div>
+</div><p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">全部有测试锁：<code>src/webui/tests/contrast-tokens.test.ts</code> 解析 tokens / badge / row / StarAvatar / starColor 本体后断言比值——改色漏改即红灯，不再靠「看起来还行」。</p></div><p class="gal-cap">本轮新增 L0 令牌（tokens.css）</p></div>
+</div>
+</div>
+<div class="pv-sec" id="s2"><div class="pv-sec-head"><span class="pv-eyebrow">REMOVALS</span><h2>2 · 删减面（7 项 · 证据）</h2><p>全部有全仓 grep 证据——细节见提案文档 §二</p></div><div class="pv-del-grid">
+<div class="pv-del"><div class="pv-del-head"><code>StarCard</code><span class="pv-del-badge">删 组件</span></div><p>预留原语，<b>0 消费</b>；与 ui-row.is-selected 同 recipe 双源。</p></div>
+<div class="pv-del"><div class="pv-del-head"><code>PulseTrace</code><span class="pv-del-badge">删 组件</span></div><p>预留原语，<b>0 消费</b>；折叠实际由 think 区承担。</p></div>
+<div class="pv-del"><div class="pv-del-head"><code>Button:soft</code><span class="pv-del-badge">删 变体</span></div><p><b>2 处</b> vs ghost 26 处，hover 态一致 → 收编 ghost。</p></div>
+<div class="pv-del"><div class="pv-del-head"><code>Avatar:square</code><span class="pv-del-badge">删 形态</span></div><p><b>0 消费</b>（恒 circle）→ 恒圆形。</p></div>
+<div class="pv-del"><div class="pv-del-head"><code>Sheet:full+keepAlive</code><span class="pv-del-badge">删 形态</span></div><p>:full <b>0 消费</b>；keepAlive 待迁移。</p></div>
+<div class="pv-del"><div class="pv-del-head"><code>StatusDot:idle</code><span class="pv-del-badge">删 状态</span></div><p>与 ok 同色穿透且 <b>0 消费</b> → 5 态。</p></div>
+<div class="pv-del"><div class="pv-del-head"><code>toastInfo</code><span class="pv-del-badge">删 出口</span></div><p>Ok 12 / Error 23 / Busy 4 / <b>Info 0</b> → 裁具名。</p></div>
+</div></div>
+<div class="pv-sec" id="s3"><div class="pv-sec-head"><span class="pv-eyebrow">BASE · L0-L1</span><h2>3 · 底座层</h2><p>Icon · Button(primary|ghost|danger) · Avatar(圆形) · BusyRing<span class="pv-new">新</span> —— soft/square 已裁</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage"><button class="ui-btn ui-btn--primary ui-btn--md"><span class="ic"><i data-ic="send" data-s="16"></i></span><span class="ui-btn-label">发送</span></button><button class="ui-btn ui-btn--ghost ui-btn--md"><span class="ic"><i data-ic="pencil" data-s="16"></i></span><span class="ui-btn-label">编辑</span></button><button class="ui-btn ui-btn--danger ui-btn--md"><span class="ic"><i data-ic="trash" data-s="16"></i></span><span class="ui-btn-label">删除</span></button><span class="pv-ghost"><s>soft</s><em>→ ghost</em></span></div><div class="gal-cap"><span>三变体（md）——soft 位已收编</span><code>variant: primary|ghost|danger</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><button class="ui-btn ui-btn--primary ui-btn--sm"><span class="ic"><i data-ic="plus" data-s="14"></i></span><span class="ui-btn-label">新建</span></button><button class="ui-btn ui-btn--ghost ui-btn--sm"><span class="ic"><i data-ic="refresh-cw" data-s="14"></i></span><span class="ui-btn-label">刷新</span></button><button class="ui-btn ui-btn--danger ui-btn--sm"><span class="ic"><i data-ic="stop" data-s="14"></i></span><span class="ui-btn-label">停止</span></button></div><div class="gal-cap"><span>sm + 图标位</span><code>size: sm</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><button class="ui-btn ui-btn--primary ui-btn--md"><span class="ui-btn-spinner"></span><span class="ui-btn-label">运行中</span></button><button class="ui-btn ui-btn--ghost ui-btn--md" disabled><span class="ui-btn-label">不可用</span></button></div><div class="gal-cap"><span>loading / disabled</span><code>loading · disabled</code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-wrap:wrap;gap:10px 14px"><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="send" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">send</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="plus" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">plus</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="search" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">search</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="settings" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">settings</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="terminal" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">terminal</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="code" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">code</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="file" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">file</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="globe" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">globe</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="cpu" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">cpu</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="bot" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">bot</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="star" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">star</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="shield" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">shield</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="check-circle" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">check-circle</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="alert-circle" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">alert-circle</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="loader-circle" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">loader-circle</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="info" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">info</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="x" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">x</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="chevron-down" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">chevron-down</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="moon" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">moon</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="sun" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">sun</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="clock" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">clock</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="zap" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">zap</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="trash" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">trash</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="pencil" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">pencil</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="copy" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">copy</code></span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)"><i data-ic="refresh-cw" data-s="16"></i><code style="font-family:var(--font-mono);font-size:10px">refresh-cw</code></span></div></div><div class="gal-cap"><span>Icon（lucide 注册表 55 名节选）</span><code>icons.ts · iconMap</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 14l5.5-7 4.5 7 6-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="14" r="2.2" fill="currentColor" opacity="0.35"/><circle cx="9.5" cy="7" r="2.2" fill="currentColor" opacity="0.55"/><circle cx="14" cy="14" r="2.2" fill="currentColor" opacity="0.75"/><circle cx="20" cy="7" r="2.2" fill="currentColor"/></svg>ThinkingIcon（链 = 整体过程）</span><span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 6.5a5.5 5.5 0 0 1 5.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 17.5a5.5 5.5 0 0 1-5.5-5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" opacity="0.55"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg>ThoughtIcon（涟漪 = 单步展开）</span></div><div class="gal-cap"><span>思维链图标族（自绘）</span><code>ThinkingIcon · ThoughtIcon</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span class="ui-avatar ui-avatar--circle" style="width:36px;height:36px;font-size:15px"><img class="ui-avatar-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23818cf8'/%3E%3Cstop offset='1' stop-color='%23f472b6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='32' fill='url(%23g)'/%3E%3Ccircle cx='23' cy='26' r='4.5' fill='rgba(255,255,255,.92)'/%3E%3Ccircle cx='41' cy='26' r='4.5' fill='rgba(255,255,255,.92)'/%3E%3Cpath d='M21 40q11 9 22 0' stroke='rgba(255,255,255,.92)' stroke-width='3.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" alt="风栗"></span><span class="ui-avatar ui-avatar--circle" style="width:36px;height:36px;font-size:15px"><span class="ui-avatar-fallback">A</span></span><span class="ui-avatar ui-avatar--circle" style="width:36px;height:36px;font-size:15px"><span class="ui-avatar-fallback ui-avatar-icon"><i data-ic="bot" data-s="22"></i></span></span><span class="ui-avatar ui-avatar--circle" style="width:36px;height:36px;font-size:15px"><span class="ui-avatar-fallback ui-avatar-fallback--plain ui-avatar-icon"><i data-ic="bot" data-s="20"></i></span></span><span class="ui-avatar ui-avatar--circle" style="width:24px;height:24px;font-size:10px"><span class="ui-avatar-fallback">B</span></span><span class="pv-ghost"><s>square</s><em>→ 恒圆形</em></span></div><div class="gal-cap"><span>三级回退：图片/首字/图标（恒圆形）</span><code>src · name · fallbackIcon</code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:12px;width:100%"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><span style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)"><span class="busy-ring"></span>sm 13px（行内）</span><span style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)"><span class="busy-ring lg"></span>lg 18px（独立等待位）</span></div><div class="gal-note" style="margin-top:0"><b>归一：</b>tool / think / chain spin-ring + run_code 内环 + main.css 全局——五处副本 → 一处。</div></div></div><div class="gal-cap"><span>BusyRing<span class="pv-new">新</span>（新）——琥珀忙指示唯一源</span><code><BusyRing size="sm|lg" /></code></div></div>
+</div></div>
+<div class="pv-sec" id="s4"><div class="pv-sec-head"><span class="pv-eyebrow">FEEDBACK</span><h2>4 · 反馈层</h2><p>toast(ok|error|busy) · FeedbackNotice · StatusDot(5 态) · Tooltip —— idle / toastInfo 已裁</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage"><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)"><span class="ui-dot pulsing" style="width:8px;height:8px;background:var(--warn);box-shadow:0 0 8px var(--warn)"></span>thinking（琥珀·呼吸）</span><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)"><span class="ui-dot pulsing" style="width:8px;height:8px;background:var(--primary);box-shadow:0 0 8px var(--primary)"></span>running（靛蓝·呼吸）</span><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)"><span class="ui-dot" style="width:8px;height:8px;background:var(--ok);box-shadow:0 0 8px var(--ok)"></span>ok（绿）</span><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)"><span class="ui-dot" style="width:8px;height:8px;background:var(--err);box-shadow:0 0 8px var(--err)"></span>err（红）</span><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)"><span class="ui-dot" style="width:8px;height:8px;background:var(--text-3);box-shadow:0 0 8px var(--text-3)"></span>offline（灰）</span><span class="pv-ghost"><s>idle</s><em>= ok 同色，已并</em></span></div><div class="gal-cap"><span>状态灯 5 态——idle 位已裁</span><code>thinking|running|ok|err|offline</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span class="feedback-notice is-ok" role="status"><i data-ic="check-circle" data-s="13"></i><span class="feedback-text">已保存</span></span><span class="feedback-notice is-error" role="status"><i data-ic="alert-circle" data-s="13"></i><span class="feedback-text">上传失败</span></span><span class="feedback-notice is-info" role="status"><i data-ic="info" data-s="13"></i><span class="feedback-text">仅预览</span></span><span class="feedback-notice is-busy" role="status"><i data-ic="loader-circle" data-s="13"></i><span class="feedback-text">导入中</span></span></div><div class="gal-cap"><span>FeedbackNotice（4 tone · 恒 chip 胶囊）</span><code>tone: ok|error|info|busy</code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div class="toast-stack"><div class="toast-item is-ok"><i data-ic="check-circle" data-s="14"></i><span class="toast-text">已保存到工作区</span><button class="toast-close"><i data-ic="x" data-s="12"></i></button></div><div class="toast-item is-busy"><i data-ic="loader-circle" data-s="14"></i><span class="toast-text">正在上传 3 个文件…</span><button class="toast-close"><i data-ic="x" data-s="12"></i></button></div><div class="toast-item is-error"><i data-ic="alert-circle" data-s="14"></i><span class="toast-text">连接 RPC 失败：等待重试 (2/5)</span><button class="toast-close"><i data-ic="x" data-s="12"></i></button></div></div><div style="height:6px"></div><span class="pv-ghost"><s>toastInfo()</s><em>→ toast(t,{tone})</em></span></div><div class="gal-cap"><span>全局 Toast 栈——info 具名已裁（形态仍可达）</span><code>toastOk · toastError · toastBusy</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span class="ui-tip ui-tip--top" data-tip="顶部提示"><button class="ui-btn ui-btn--ghost ui-btn--sm"><i data-ic="send" data-s="14"></i></button></span><span class="ui-tip ui-tip--bottom" data-tip="底部提示"><button class="ui-btn ui-btn--ghost ui-btn--sm">底侧</button></span></div><div class="gal-cap"><span>Tooltip（CSS hover）</span><code>placement: top|bottom</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span class="ui-badge ok">active</span><span class="ui-badge err">error</span><span class="ui-badge warn">loaded</span><span class="ui-badge info">info</span><span class="ui-badge dim">idle</span><span class="ui-badge tag tt-dev">dev</span><span class="ui-badge tag tt-shell">shell</span><span class="ui-badge tag tt-web miss">web（缺失）</span><span class="ui-badge kind">boolean</span><span class="ui-badge info"><i data-ic="settings" data-s="10"></i> 可配置</span></div><div class="gal-cap"><span>徽章族（三族一底，CSS 单源）——文字走墨色档 4.5 线；环/点/色条等图形件另有 -graphic 档（3.0 线，cr-123）</span><code>.ui-badge.(ok|err|warn|info|dim|tag|kind)</code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:4px;width:100%"><div class="ui-row"><i data-ic="bot" data-s="16"></i><div style="flex:1"><div style="font-size:13px">常态行（hover 浮起）</div></div><span class="ui-badge dim">12:04</span></div><div class="ui-row is-selected"><i data-ic="bot" data-s="16"></i><div style="flex:1"><div style="font-size:13px">选中行（主色描边）</div></div><span class="ui-badge info">default</span></div><div class="ui-row is-auto"><i data-ic="settings" data-s="16"></i><div style="flex:1"><div style="font-size:13px">基础设施行（虚线）</div></div><span class="ui-badge dim">auto</span></div></div><div style="display:flex;gap:14px;align-items:center;margin-top:8px"><label class="ui-switch"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label><label class="ui-switch"><input type="checkbox"><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label><label class="ui-switch gated"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label><label class="ui-switch"><input type="checkbox" checked disabled><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label><span style="font-size:11px;color:var(--text-3)">开/关/gated/disabled</span></div></div><div class="gal-cap"><span>清单行 + 红绿开关</span><code>.ui-row(.is-selected/.is-auto) · .ui-switch</code></div></div>
+</div></div>
+<div class="pv-sec" id="s5"><div class="pv-sec-head"><span class="pv-eyebrow">OVERLAY</span><h2>5 · 浮层层</h2><p>Modal · Sheet(底部滑入) · PullToRefresh —— Sheet 的 full/keepAlive 已裁</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div class="demo-frame"><div class="ui-modal" style="z-index:1"><div class="ui-modal-overlay"></div><div class="ui-modal-panel" style="width:320px"><div class="ui-modal-head"><span class="ui-modal-title">删除会话？</span><button class="ui-modal-close"><i data-ic="x" data-s="16"></i></button></div><div class="ui-modal-body"><div style="padding:14px;font-size:13px;color:var(--text-2);line-height:1.6">全部记录将不可恢复。</div></div><div class="ui-modal-footer"><button class="ui-btn ui-btn--ghost ui-btn--sm"><span class="ui-btn-label">取消</span></button> <button class="ui-btn ui-btn--danger ui-btn--sm"><span class="ic"><i data-ic="trash" data-s="14"></i></span><span class="ui-btn-label">删除</span></button></div></div></div></div></div><div class="gal-cap"><span>Modal（居中弹窗 · ≤768px 全屏）</span><code><Modal title width close-on-overlay></code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div class="demo-frame"><div class="ui-sheet" style="z-index:1"><div class="ui-sheet-overlay"></div><div class="ui-sheet-panel" style="max-height:140px"><div class="ui-sheet-grabber"></div><div class="ui-sheet-head"><span class="ui-sheet-title">更多操作</span><button class="ui-sheet-close"><i data-ic="x" data-s="16"></i></button></div><div class="ui-sheet-body"><div class="ui-row"><i data-ic="copy" data-s="16"></i><span style="font-size:13px">复制消息</span></div><div class="ui-row"><i data-ic="refresh-cw" data-s="16"></i><span style="font-size:13px">重新生成</span></div></div></div></div></div><span class="pv-ghost"><s>full/keepAlive</s><em>→ 待 AuxSidebar 迁移后移除</em></span></div><div class="gal-cap"><span>Sheet（底部上滑 · 抓手）——full 位已裁</span><code><Sheet title max-height></code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;width:100%"><div class="ui-pull-root" style="height:110px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg-base)"><div class="ui-pull-track" style="transform:translateY(20px)"><div class="ui-pull-indicator is-pulling" style="top:4px"><span class="ui-pull-bubble"><i data-ic="arrow-down" data-s="16"></i></span><span class="ui-pull-text">下拉刷新</span></div><div style="padding:42px 12px 10px;font-size:12px;color:var(--text-3)">列表容器…</div></div></div><div class="ui-pull-root" style="height:110px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg-base)"><div class="ui-pull-track" style="transform:translateY(20px)"><div class="ui-pull-indicator is-pulling armed" style="top:4px"><span class="ui-pull-bubble"><i data-ic="arrow-down" data-s="16"></i></span><span class="ui-pull-text">松开刷新</span></div><div style="padding:42px 12px 10px;font-size:12px;color:var(--text-3)">列表容器…</div></div></div><div class="ui-pull-root" style="height:110px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg-base)"><div class="ui-pull-track" style="transform:translateY(20px)"><div class="ui-pull-indicator is-refreshing" style="top:4px"><span class="ui-pull-bubble"><i data-ic="loader-circle" data-s="16"></i></span><span class="ui-pull-text">刷新中…</span></div><div style="padding:42px 12px 10px;font-size:12px;color:var(--text-3)">列表容器…</div></div></div><div class="ui-pull-root" style="height:110px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg-base)"><div class="ui-pull-track" style="transform:translateY(20px)"><div class="ui-pull-indicator is-done" style="top:4px"><span class="ui-pull-bubble"><i data-ic="check-circle" data-s="16"></i></span><span class="ui-pull-text">已刷新</span></div><div style="padding:42px 12px 10px;font-size:12px;color:var(--text-3)">列表容器…</div></div></div></div></div><div class="gal-cap"><span>PullToRefresh 指示器四态</span><code>idle→pulling→refreshing→done</code></div></div>
+</div></div>
+<div class="pv-sec" id="s6"><div class="pv-sec-head"><span class="pv-eyebrow">STRUCTURE</span><h2>6 · 结构层</h2><p>CollapseRow<span class="pv-new">新</span> · DockCard<span class="pv-new">新</span> · RingProgress —— 新原语主展区</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div class="cr"><div class="cr-label"><span class="busy-ring"></span><span class="cr-label-title">pwsh · 运行测试</span><span class="cr-meta">running</span></div><div class="cr-label" onclick="const b=this.nextElementSibling;b.style.display=b.style.display?'':'none';var c=this.querySelector('.cr-chev');if(c)c.style.transform=b.style.display?'rotate(45deg)':''"><i data-ic="code" data-s="14"></i><span class="cr-label-title">write src/docs/webui-gallery-preview.html</span><span class="cr-diff"><span class="add">+18</span><span class="del">-3</span></span><span class="cr-chev"></span></div><div class="cr-body" style="display:none;margin-bottom:6px"><div class="cr-viewport">已写入 60 KB（限高视口 · 流式吸底跟随）</div></div><div class="cr-label" style="margin-top:6px" onclick="const b=this.nextElementSibling;b.style.display=b.style.display?'':'none';var c=this.querySelector('.cr-chev');if(c)c.style.transform=b.style.display?'rotate(45deg)':''"><span class="cr-label-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 14l5.5-7 4.5 7 6-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="14" r="2.2" fill="currentColor" opacity="0.35"/><circle cx="9.5" cy="7" r="2.2" fill="currentColor" opacity="0.55"/><circle cx="14" cy="14" r="2.2" fill="currentColor" opacity="0.75"/><circle cx="20" cy="7" r="2.2" fill="currentColor"/></svg></span><span class="cr-label-title">思考过程</span><span class="cr-meta">4 步 · 18s</span><span class="cr-chev"></span></div><div class="cr-body" style="display:none;margin-bottom:6px"><div class="cr-viewport md">需要先统计 kit 出口的真实消费面，再决定哪些控件移出陈列……</div></div><div class="cr-label is-failed"><i data-ic="alert-circle" data-s="14"></i><span class="cr-label-title">bash · npm run build（失败）</span></div></div><div class="gal-note" style="margin-top:8px"><b>合一：</b>ToolMessage 工具卡 × AssistantMessage 思考区——两份漂移实现 → 一个原语。</div></div><div class="gal-cap"><span>CollapseRow<span class="pv-new">新</span>（新）——折叠内容行</span><code><CollapseRow icon title meta streaming failed></code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="width:100%;background:var(--bg-base);border:1px dashed var(--line);border-radius:var(--r-md);padding:8px 0 2px"><div class="dock"><div class="dock-head"><span class="dock-eyebrow">Agent 提问</span><span class="dock-title">是否执行该写入操作？</span><span class="ui-badge warn">等待</span></div><div style="font-size:12px;color:var(--text-2);margin-bottom:8px">write /src/app.ts（12 行变更）——base 档需审批</div><div class="dock-act"><button class="ui-btn ui-btn--primary ui-btn--sm"><span class="ic"><i data-ic="check" data-s="14"></i></span><span class="ui-btn-label">通过（本次）</span></button><button class="ui-btn ui-btn--ghost ui-btn--sm"><span class="ui-btn-label">本轮全部</span></button><button class="ui-btn ui-btn--danger ui-btn--sm"><span class="ui-btn-label">拒绝</span></button></div></div><div class="dock min" style="margin-top:4px"><div class="dock-head"><span class="dock-eyebrow">排队消息</span><span class="dock-title">2 条待发送</span><i data-ic="chevron-down" data-s="14"></i></div></div><div class="dock min" style="margin-top:4px"><div class="dock-head"><span class="busy-ring"></span><span class="dock-title" style="font-weight:500;color:var(--text-2)">正在执行审批后的命令…</span><span class="cr-meta">busy</span></div></div></div><div class="gal-note" style="margin-top:8px"><b>归一：</b>ApprovalBar / InteractionBar / QueueDock / GoalDockCard / TodoDockCard——五处外壳副本 → 一处。</div></div><div class="gal-cap"><span>DockCard<span class="pv-new">新</span>（新）——composer 上方 dock 外壳</span><code><DockCard eyebrow title collapsible closable></code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span class="ring-progress tone-normal" style="width:46px;height:46px"><svg width="46" height="46" viewBox="0 0 46 46" style="transform:rotate(-90deg)"><circle class="ring-track" cx="23" cy="23" r="20.75" fill="none" stroke-width="4.5"></circle><circle cx="23" cy="23" r="20.75" fill="none" stroke="var(--ok-graphic)" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="130.4" stroke-dashoffset="88.7"></circle></svg><span class="ring-center"><span style="font-size:10.5px;color:var(--text-2)" class="tabular-nums">32%</span></span></span><span class="ring-progress tone-high" style="width:46px;height:46px"><svg width="46" height="46" viewBox="0 0 46 46" style="transform:rotate(-90deg)"><circle class="ring-track" cx="23" cy="23" r="20.75" fill="none" stroke-width="4.5"></circle><circle cx="23" cy="23" r="20.75" fill="none" stroke="var(--warn)" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="130.4" stroke-dashoffset="31.3"></circle></svg><span class="ring-center"><span style="font-size:10.5px;color:var(--text-2)" class="tabular-nums">76%</span></span></span><span class="ring-progress tone-critical" style="width:46px;height:46px"><svg width="46" height="46" viewBox="0 0 46 46" style="transform:rotate(-90deg)"><circle class="ring-track" cx="23" cy="23" r="20.75" fill="none" stroke-width="4.5"></circle><circle cx="23" cy="23" r="20.75" fill="none" stroke="var(--err)" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="130.4" stroke-dashoffset="13"></circle></svg><span class="ring-center"><span style="font-size:10.5px;color:var(--text-2)" class="tabular-nums">90%</span></span></span><span class="ring-progress" style="width:46px;height:46px"><svg width="46" height="46" viewBox="0 0 46 46" style="transform:rotate(-90deg)"><circle class="ring-track" cx="23" cy="23" r="20.75" fill="none" stroke-width="4.5"></circle><circle cx="23" cy="23" r="20.75" fill="none" stroke="var(--primary)" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="130.4" stroke-dashoffset="71.7"></circle></svg><span class="ring-center"><span style="font-size:10.5px;color:var(--text-2)" class="tabular-nums">45%</span></span></span></div><div class="gal-cap"><span>RingProgress（三档语义色 + 主色）</span><code>tone: normal|high|critical|&apos;&apos;</code></div></div>
+</div></div>
+<div class="pv-sec" id="s7"><div class="pv-sec-head"><span class="pv-eyebrow">STAR</span><h2>7 · 星群层</h2><p>StarAvatar（运行光环）· starColor —— Agent 身份色系统</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage"><div class="sw"><span class="sw-chip sc-0"></span><code>薰衣草</code></div><div class="sw"><span class="sw-chip sc-1"></span><code>蓝青</code></div><div class="sw"><span class="sw-chip sc-2"></span><code>湖青</code></div><div class="sw"><span class="sw-chip sc-3"></span><code>苔绿</code></div><div class="sw"><span class="sw-chip sc-4"></span><code>橄榄</code></div><div class="sw"><span class="sw-chip sc-5"></span><code>珊瑚</code></div><div class="sw"><span class="sw-chip sc-6"></span><code>品红紫</code></div><div class="sw"><span class="sw-chip sc-7"></span><code>暮蓝</code></div><div class="sw"><span class="sw-chip sc-user"></span><code>用户·白金</code></div></div><div class="gal-cap"><span>星色 8 色板（AgentId 哈希 · 随主题切换）</span><code>starColor(id, theme)</code></div></div>
+<div class="gal-cell"><div class="gal-stage"><span class="ui-star sc-0"><span class="ui-avatar ui-avatar--circle" style="width:34px;height:34px;font-size:14px"><span class="ui-avatar-fallback">风</span></span></span><span class="ui-star sc-4"><span class="ui-avatar ui-avatar--circle" style="width:34px;height:34px;font-size:14px"><span class="ui-avatar-fallback">栗</span></span></span><span class="ui-star sc-6"><svg class="run-ring" width="39" height="39" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="pg-sc-6-Z" gradientUnits="userSpaceOnUse" x1="96" y1="50" x2="6" y2="58"><stop offset="0" class="run-grad-head"/><stop offset="0.55" class="run-grad-mid"/><stop offset="1" class="run-grad-tail"/></linearGradient></defs><circle cx="50" cy="50" r="46" fill="none" class="run-track" stroke-width="7"/><g class="run-spin"><circle cx="50" cy="50" r="46" fill="none" stroke="url(#pg-sc-6-Z)" stroke-width="7" stroke-linecap="round" stroke-dasharray="109.8 289.0"/></g><g class="run-spin run-spin--sub"><circle cx="50" cy="50" r="46" fill="none" class="run-sub" stroke-width="7" stroke-linecap="round" stroke-dasharray="46.2 289.0"/></g></svg><span class="ui-avatar ui-avatar--circle" style="width:34px;height:34px;font-size:14px"><span class="ui-avatar-fallback">Z</span></span></span><span class="ui-star sc-2"><span class="ui-avatar ui-avatar--circle" style="width:34px;height:34px;font-size:14px"><span class="ui-avatar-fallback">K</span></span></span><span class="ui-star sc-7"><svg class="run-ring" width="39" height="39" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="pg-sc-7-M" gradientUnits="userSpaceOnUse" x1="96" y1="50" x2="6" y2="58"><stop offset="0" class="run-grad-head"/><stop offset="0.55" class="run-grad-mid"/><stop offset="1" class="run-grad-tail"/></linearGradient></defs><circle cx="50" cy="50" r="46" fill="none" class="run-track" stroke-width="7"/><g class="run-spin"><circle cx="50" cy="50" r="46" fill="none" stroke="url(#pg-sc-7-M)" stroke-width="7" stroke-linecap="round" stroke-dasharray="109.8 289.0"/></g><g class="run-spin run-spin--sub"><circle cx="50" cy="50" r="46" fill="none" class="run-sub" stroke-width="7" stroke-linecap="round" stroke-dasharray="46.2 289.0"/></g></svg><span class="ui-avatar ui-avatar--circle" style="width:34px;height:34px;font-size:14px"><span class="ui-avatar-fallback">M</span></span></span><span class="ui-star sc-user"><span class="ui-avatar ui-avatar--circle" style="width:34px;height:34px;font-size:14px"><span class="ui-avatar-fallback">我</span></span></span><span class="ui-star sc-3"><span class="ui-avatar ui-avatar--circle" style="width:24px;height:24px;font-size:10px"><span class="ui-avatar-fallback">小</span></span></span><span class="ui-star sc-5"><svg class="run-ring" width="28" height="28" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="pg-sc-5-P" gradientUnits="userSpaceOnUse" x1="96" y1="50" x2="6" y2="58"><stop offset="0" class="run-grad-head"/><stop offset="0.55" class="run-grad-mid"/><stop offset="1" class="run-grad-tail"/></linearGradient></defs><circle cx="50" cy="50" r="46" fill="none" class="run-track" stroke-width="7"/><g class="run-spin"><circle cx="50" cy="50" r="46" fill="none" stroke="url(#pg-sc-5-P)" stroke-width="7" stroke-linecap="round" stroke-dasharray="109.8 289.0"/></g><g class="run-spin run-spin--sub"><circle cx="50" cy="50" r="46" fill="none" class="run-sub" stroke-width="7" stroke-linecap="round" stroke-dasharray="46.2 289.0"/></g></svg><span class="ui-avatar ui-avatar--circle" style="width:24px;height:24px;font-size:10px"><span class="ui-avatar-fallback">P</span></span></span></div><div class="gal-cap"><span>StarAvatar（身份色首字 + 运行光环动画）</span><code>:color · :running · :size</code></div></div>
+</div></div>
+<div class="pv-sec" id="s8"><div class="pv-sec-head"><span class="pv-eyebrow">PURE FN</span><h2>8 · 纯函数层</h2><p>与组件同包的格式化/取色纯函数——签名与行为</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:4px;width:100%"><div class="ui-row" style="align-items:flex-start"><span class="ui-badge kind">fn</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-family:var(--font-mono);color:var(--text-1)">formatFileSize(1548288)</div><div style="font-size:11.5px;color:var(--text-3);margin-top:2px">字节 → 可读大小</div></div><span class="ui-badge dim" style="flex-shrink:0">1.5 MB</span></div><div class="ui-row" style="align-items:flex-start"><span class="ui-badge kind">fn</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-family:var(--font-mono);color:var(--text-1)">formatDurationMs(754000)</div><div style="font-size:11.5px;color:var(--text-3);margin-top:2px">毫秒 → m:ss / h:mm:ss</div></div><span class="ui-badge dim" style="flex-shrink:0">12:34</span></div><div class="ui-row" style="align-items:flex-start"><span class="ui-badge kind">fn</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-family:var(--font-mono);color:var(--text-1)">formatRelativeTime(ts)</div><div style="font-size:11.5px;color:var(--text-3);margin-top:2px">时间戳 → 相对时间</div></div><span class="ui-badge dim" style="flex-shrink:0">昨天 09:31</span></div></div></div><div class="gal-cap"><span>format.ts</span><code>formatFileSize · formatDurationMs · formatRelativeTime</code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:4px;width:100%"><div class="ui-row" style="align-items:flex-start"><span class="ui-badge kind">fn</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-family:var(--font-mono);color:var(--text-1)">starColor(agentId, theme)</div><div style="font-size:11.5px;color:var(--text-3);margin-top:2px">AgentId 哈希 → 8 色板</div></div><span class="ui-badge dim" style="flex-shrink:0">hash→0..7</span></div><div class="ui-row" style="align-items:flex-start"><span class="ui-badge kind">fn</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-family:var(--font-mono);color:var(--text-1)">hexTriplet("#818cf8")</div><div style="font-size:11.5px;color:var(--text-3);margin-top:2px">hex → RGB 三元组</div></div><span class="ui-badge dim" style="flex-shrink:0">129, 140, 248</span></div></div></div><div class="gal-cap"><span>starColor.ts</span><code>starColor · hexTriplet(内部)</code></div></div>
+</div></div>
+<div class="pv-sec" id="s9"><div class="pv-sec-head"><span class="pv-eyebrow">COMPOSITION</span><h2>9 · 组合示例（新原语拼装业务形态）</h2><p>业务形态归位业务行包——kit 只供原语，拼装方式标准化</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div class="pv-combo"><div style="display:flex;justify-content:flex-end"><div style="background:rgba(var(--primary-rgb),.08);border-radius:var(--r-lg);padding:10px 14px;font-size:13.5px;max-width:80%">把重构后的效果画出来</div></div><div class="cr"><div class="cr-label" onclick="const b=this.nextElementSibling;b.style.display=b.style.display?'':'none';var c=this.querySelector('.cr-chev');if(c)c.style.transform=b.style.display?'rotate(45deg)':''"><span class="cr-label-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 14l5.5-7 4.5 7 6-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="14" r="2.2" fill="currentColor" opacity="0.35"/><circle cx="9.5" cy="7" r="2.2" fill="currentColor" opacity="0.55"/><circle cx="14" cy="14" r="2.2" fill="currentColor" opacity="0.75"/><circle cx="20" cy="7" r="2.2" fill="currentColor"/></svg></span><span class="cr-label-title">思考过程</span><span class="cr-meta">2 步</span><span class="cr-chev"></span></div></div><div style="background:rgba(var(--primary-rgb),.04);border:1px solid rgba(var(--primary-rgb),.04);border-radius:var(--r-lg);padding:10px 14px;font-size:13.5px;line-height:1.6">好——BusyRing / CollapseRow / DockCard 三个新原语覆盖提案全部重构点。</div></div></div><div class="gal-cap"><span>消息气泡（conversation 行）</span><code>Avatar + CollapseRow + BusyRing</code></div></div>
+<div class="gal-cell"><div class="gal-stage col"><div class="pv-combo" style="padding:10px 4px"><div class="dock"><div class="dock-head"><span class="dock-eyebrow">提权审批</span><span class="dock-title">bash · rm -rf dist</span><span class="ui-badge err">需审批</span></div><div style="font-size:12px;color:var(--text-2);margin-bottom:8px">base 档调用 needPermission 工具——ac-security 开出审批卡</div><div class="dock-act"><button class="ui-btn ui-btn--primary ui-btn--sm"><span class="ic"><i data-ic="check" data-s="14"></i></span><span class="ui-btn-label">批准</span></button><button class="ui-btn ui-btn--danger ui-btn--sm"><span class="ic"><i data-ic="x" data-s="14"></i></span><span class="ui-btn-label">拒绝</span></button></div></div><div class="dock min" style="margin-top:4px"><div class="dock-head"><span class="busy-ring"></span><span class="dock-title" style="font-weight:500;color:var(--text-2)">正在执行审批后的命令…</span><span class="cr-meta">busy</span></div></div></div></div><div class="gal-cap"><span>审批 dock 卡（各业务行）</span><code>DockCard + Button + ui-badge + BusyRing</code></div></div>
+</div></div>
+<div class="pv-sec" id="s9b"><div class="pv-sec-head"><span class="pv-eyebrow">COMPOSITION · STACK</span><h2>9b · 互叠态（dock 栈 + composer + 安全区）</h2><p>五处 dock 同屏互叠是最难的组合态：权重序（--shadow-dock 轻 composer 一档）、命中区、安全区、忙态双通道必须同时成立</p></div><div class="gal-grid">
+<div class="gal-cell"><div class="gal-stage col"><div class="demo-frame" style="height:320px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden">
+<div class="dock min"><div class="dock-head"><span class="dock-eyebrow">排队</span><span class="dock-title">2 条待发送</span></div></div>
+<div class="dock tone-warn"><div class="dock-head"><span class="dock-eyebrow">提权审批</span><span class="ui-badge warn">需审批</span><span class="dock-title">write /src/app.ts（12 行变更）</span></div><div style="font-size:12px;color:var(--text-2)">base 档调用 needPermission 工具——ac-security 开出审批卡</div><div class="dock-act"><button class="ui-btn ui-btn--primary ui-btn--sm"><span class="ui-btn-label">批准</span></button><button class="ui-btn ui-btn--ghost ui-btn--sm"><span class="ui-btn-label">拒绝</span></button></div></div>
+<div class="dock tone-busy"><div class="dock-head"><span class="dock-eyebrow">目标</span><span class="busy-ring"></span><span class="dock-title">正在执行审批后的命令</span></div><div class="dock-body" role="status">busy 态双通道：环表达「忙」，文本进 role=status（颜色与转圈读屏读不到）</div></div>
+<div class="dock min" style="margin-bottom:calc(14px + var(--safe-bottom))"><div class="dock-head"><span class="dock-title" style="font-weight:500;color:var(--text-2)">输入消息…</span><span class="ui-badge kind">composer</span></div></div>
+<div class="pv-safe">safe-bottom（手势条避让：dock 底缘 margin 吃 --safe-bottom）</div>
+</div><p class="gal-cap">互叠态三项检查：① 权重序（composer 最重、审批次之、排队最轻）；② 每个动作按钮命中区 ≥ --hit-min 且 Tab 可达（全局 --focus-ring）；③ 底缘留出 --safe-bottom</p></div></div>
+</div></div>
+<div class="pv-sec" id="s10"><div class="pv-sec-head"><span class="pv-eyebrow">ROLLOUT</span><h2>10 · 迁移路线（三批独立可验）</h2><p>每批一个 CR；P2/P3 期间 webui-gallery.html 同步更新陈列</p></div><div class="pv-batch">
+<div class="pv-batch-item"><h4><span class="pv-b-num">1</span>P1 · 删减</h4><p>删 StarCard/PulseTrace + 5 死形态 + toastInfo；index.ts 同步。</p><p style="margin-top:6px"><b style="color:var(--text-2)">验证：</b>typecheck + lint + 全量单测</p></div>
+<div class="pv-batch-item"><h4><span class="pv-b-num">2</span>P2 · 合并</h4><p>BusyRing → CollapseRow（工具卡/思考卡迁移）。</p><p style="margin-top:6px"><b style="color:var(--text-2)">验证：</b>定向 vitest conversation + 视觉对照</p></div>
+<div class="pv-batch-item"><h4><span class="pv-b-num">3</span>P3 · 组合</h4><p>DockCard + 五处 dock 迁移 + main.css spin-ring 清理。</p><p style="margin-top:6px"><b style="color:var(--text-2)">验证：</b>smoke + webui:typecheck + 截图</p></div>
+</div>
+<div class="gal-foot">重构后标准库全量陈列（17 项）· 依据 <code>src/docs/webui-standard-controls-proposal.md</code>（cr-116）· 本页 v2 cr-119 · 上一版 <code>src/docs/webui-gallery-preview.html</code>（cr-118）· 现状对照 <code>src/docs/webui-gallery.html</code> · cr-122 语义分离 + 马卡龙星板 · cr-123 墨色/图形双档 · 双主题可切换 · 页面内 kit 片段由 scripts/build-webui-preview.mjs 注入（--check 锁）</div>
+</div>
+<nav class="pv-rail" id="pv-rail" aria-label="区块导航"></nav>
+<button type="button" class="pv-to-top" id="pv-to-top" aria-label="回到顶部"><i data-ic="arrow-up" data-s="16"></i></button>
+<script>
+var M={
+"message-circle":"<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\"/>",
+"users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>",
+"folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>",
+"activity":"<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>",
+"settings":"<path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
+"search":"<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>",
+"plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>",
+"send":"<path d=\"m22 2-7 20-4-9-9-4Z\"/><path d=\"M22 2 11 13\"/>",
+"paperclip":"<path d=\"m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48\"/>",
+"sparkles":"<path d=\"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z\"/><path d=\"M20 3v4\"/><path d=\"M22 5h-4\"/><path d=\"M4 17v2\"/><path d=\"M5 18H3\"/>",
+"copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>",
+"pencil":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>",
+"trash":"<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>",
+"refresh-cw":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>",
+"terminal":"<polyline points=\"4 17 10 11 4 5\"/><line x1=\"12\" x2=\"20\" y1=\"19\" y2=\"19\"/>",
+"file":"<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>",
+"code":"<polyline points=\"16 18 22 12 16 6\"/><polyline points=\"8 6 2 12 8 18\"/>",
+"download":"<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>",
+"chevron-down":"<path d=\"m6 9 6 6 6-6\"/>",
+"keyboard":"<path d=\"M10 8h.01\"/><path d=\"M12 12h.01\"/><path d=\"M14 8h.01\"/><path d=\"M16 12h.01\"/><path d=\"M18 8h.01\"/><path d=\"M6 8h.01\"/><path d=\"M7 16h10\"/><path d=\"M8 12h.01\"/><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/>",
+"globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>",
+"check":"<path d=\"M20 6 9 17l-5-5\"/>",
+"check-circle":"<path d=\"M21.801 10A10 10 0 1 1 17 3.335\"/><path d=\"m9 11 3 3L22 4\"/>",
+"alert-circle":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/>",
+"loader-circle":"<path d=\"M21 12a9 9 0 1 1-6.219-8.56\"/>",
+"info":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4\"/><path d=\"M12 8h.01\"/>",
+"x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>",
+"sun":"<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>",
+"moon":"<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>",
+"clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/>",
+"zap":"<polygon points=\"13 2 3 14 12 14 11 22 21 10 12 10 13 2\"/>",
+"stop":"<rect width=\"14\" height=\"14\" x=\"5\" y=\"5\" rx=\"2\"/>",
+"pause":"<rect x=\"14\" y=\"4\" width=\"4\" height=\"16\" rx=\"1\"/><rect x=\"6\" y=\"4\" width=\"4\" height=\"16\" rx=\"1\"/>",
+"play":"<polygon points=\"6 3 20 12 6 21 6 3\"/>",
+"link":"<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>",
+"ban":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m4.9 4.9 14.2 14.2\"/>",
+"star":"<polygon points=\"12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2\"/>",
+"wrench":"<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>",
+"image":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21\"/>",
+"cpu":"<rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\"/><path d=\"M15 2v2\"/><path d=\"M15 20v2\"/><path d=\"M2 15h2\"/><path d=\"M2 9h2\"/><path d=\"M20 15h2\"/><path d=\"M20 9h2\"/><path d=\"M9 2v2\"/><path d=\"M9 20v2\"/>",
+"lock":"<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>",
+"bot":"<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>",
+"target":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><circle cx=\"12\" cy=\"12\" r=\"6\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/>",
+"calculator":"<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>",
+"timer":"<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/><circle cx=\"12\" cy=\"14\" r=\"8\"/>",
+"history":"<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M12 7v5l4 2\"/>",
+"monitor":"<rect width=\"20\" height=\"14\" x=\"2\" y=\"3\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"21\" y2=\"21\"/><line x1=\"12\" x2=\"12\" y1=\"17\" y2=\"21\"/>",
+"film":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M7 3v18\"/><path d=\"M3 7.5h4\"/><path d=\"M3 12h18\"/><path d=\"M3 16.5h4\"/><path d=\"M17 3v18\"/><path d=\"M17 7.5h4\"/><path d=\"M17 16.5h4\"/>",
+"presentation":"<path d=\"M2 3h20\"/><path d=\"M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3\"/><path d=\"m7 21 5-5 5 5\"/>",
+"binary":"<rect width=\"4\" height=\"6\" x=\"16\" y=\"4\" rx=\"2\"/><rect width=\"4\" height=\"6\" x=\"16\" y=\"14\" rx=\"2\"/><rect width=\"4\" height=\"6\" x=\"6\" y=\"4\" rx=\"2\"/><rect width=\"4\" height=\"6\" x=\"6\" y=\"14\" rx=\"2\"/><path d=\"M6 20h.01\"/><path d=\"M10 20h.01\"/><path d=\"M14 20h.01\"/><path d=\"M18 20h.01\"/>",
+"database":"<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/><path d=\"M3 5V19A9 3 0 0 0 21 19V5\"/><path d=\"M3 12A9 3 0 0 0 21 12\"/>",
+"type":"<polyline points=\"4 7 4 4 20 4 20 7\"/><line x1=\"9\" x2=\"15\" y1=\"20\" y2=\"20\"/><line x1=\"12\" x2=\"12\" y1=\"4\" y2=\"20\"/>",
+"shield":"<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>",
+"braces":"<path d=\"M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1\"/><path d=\"M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1\"/>",
+"puzzle":"<path d=\"M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z\"/>",
+"more-horizontal":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>",
+"menu":"<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>",
+"arrow-down":"<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>",
+"arrow-left":"<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
+"arrow-right":"<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>",
+"arrow-up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>"
+}
+
+
+function mk(n,s,spin){var b=M[n]||M.info;return '<svg'+(spin?' class="ic-spin"':'')+' width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+b+'</svg>';}
+document.querySelectorAll('i[data-ic]').forEach(function(el){el.outerHTML=mk(el.dataset.ic,el.dataset.s,el.dataset.spin);});
+function setTheme(t){
+  document.documentElement.setAttribute("data-theme",t);
+  var a=document.getElementById("btn-nebula"),b=document.getElementById("btn-aurora");
+  a.classList.toggle("on",t==="nebula");b.classList.toggle("on",t==="aurora");
+  a.setAttribute("aria-pressed",String(t==="nebula"));b.setAttribute("aria-pressed",String(t==="aurora"));
+}
+document.getElementById("btn-nebula").onclick=function(){setTheme("nebula")};
+document.getElementById("btn-aurora").onclick=function(){setTheme("aurora")};
+(function(){
+  var secs=[].slice.call(document.querySelectorAll(".pv-sec[id]"));
+  var rail=document.getElementById("pv-rail"),bar=document.getElementById("pv-progress-bar"),btn=document.getElementById("pv-to-top");
+  secs.forEach(function(s,i){
+    var h=s.querySelector("h2"),a=document.createElement("a"),n=document.createElement("span");
+    a.href="#"+s.id;a.setAttribute("data-t",h?h.textContent.trim():"第 "+(i+1)+" 节");
+    n.className="pv-rail-n";n.textContent=String(i+1);a.appendChild(n);rail.appendChild(a);
+  });
+  var links=[].slice.call(rail.children),cur=-1,queued=false;
+  function headerH(){return parseInt(getComputedStyle(document.documentElement).getPropertyValue("--pv-top-h"),10)||52;}
+  function sync(){
+    queued=false;
+    var y=window.pageYOffset||document.documentElement.scrollTop,line=y+headerH()+40,idx=0;
+    for(var i=0;i<secs.length;i++) if(secs[i].getBoundingClientRect().top+y<=line) idx=i;
+    if(idx!==cur){
+      cur=idx;
+      links.forEach(function(a,i){a.classList.toggle("on",i===idx);if(i===idx)a.setAttribute("aria-current","true");else a.removeAttribute("aria-current");});
+    }
+    var max=document.documentElement.scrollHeight-window.innerHeight;
+    bar.style.width=(max>0?Math.min(100,Math.max(0,y/max*100)):0)+"%";
+    btn.classList.toggle("on",y>640);
+  }
+  function onScroll(){if(!queued){queued=true;window.requestAnimationFrame(sync);}}
+  window.addEventListener("scroll",onScroll,{passive:true});
+  window.addEventListener("resize",onScroll);
+  btn.onclick=function(){window.scrollTo({top:0,behavior:"smooth"});};
+  sync();
+})();
+</script>
+</body>
+</html>

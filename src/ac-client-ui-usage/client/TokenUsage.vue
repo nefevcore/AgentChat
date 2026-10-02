@@ -316,7 +316,8 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
   }
   // 按消耗：自上而下 缓存 → 未缓存 → 输出
   return [
-    { label: '缓存', data: days.map(d => d.total_cache_hit ?? 0), color: isDark ? '#34d399' : '#10b981' },
+    /* 缓存系列色 = 图形档（cr-123：折线是图形件 3.0 线，非文字墨色档） */
+    { label: '缓存', data: days.map(d => d.total_cache_hit ?? 0), color: isDark ? '#9fd89f' : '#669a6d' },
     { label: '未缓存', data: days.map(d => d.total_cache_miss ?? 0), color: isDark ? '#818cf8' : '#6366f1' },
     { label: '输出', data: days.map(d => d.total_completion_tokens), color: isDark ? '#a78bfa' : '#8b5cf6' },
   ];
@@ -512,10 +513,12 @@ function renderChartTipAt(
 }
 
 // ===== Token 云图（气泡图）：气泡面积 ∝ √total_tokens，一眼看出最活跃 Agent =====
+/* 18 色分类板（cr-122：绿系全数移除——与页面汇总条 --ok 同屏撞绿系，
+   换蓝/紫补位；分类色板语义 = Agent 身份，与语义色无关） */
 const CLOUD_COLORS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981',
-  '#06b6d4', '#3b82f6', '#a855f7', '#ef4444', '#84cc16', '#14b8a6',
-  '#f97316', '#d946ef', '#22d3ee', '#fb7185', '#a3e635', '#facc15',
+  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#7c3aed',
+  '#06b6d4', '#3b82f6', '#a855f7', '#ef4444', '#0ea5e9', '#0284c7',
+  '#f97316', '#d946ef', '#22d3ee', '#fb7185', '#64748b', '#facc15',
 ];
 /** 字符串 → 恒定颜色（哈希取模；Agent/模型名共用同一调色板语义） */
 function paletteColor(key: string): string {

@@ -115,7 +115,6 @@ const epB = computed(() => endpointOf(props.b || ''));
             <FeedbackNotice
               v-if="chatStore.compressFeedback"
               class="compress-feedback"
-              variant="chip"
               :text="chatStore.compressFeedback"
               :tone="chatStore.compressTone"
             />
@@ -124,7 +123,6 @@ const epB = computed(() => endpointOf(props.b || ''));
             <FeedbackNotice
               v-if="chatStore.busyFeedback"
               class="compress-feedback"
-              variant="chip"
               :text="chatStore.busyFeedback"
               :tone="chatStore.busyTone"
             />
@@ -136,7 +134,6 @@ const epB = computed(() => endpointOf(props.b || ''));
             <FeedbackNotice
               v-if="chatStore.archivePending && !chatStore.compressFeedback && !chatStore.busyFeedback"
               class="compress-feedback"
-              variant="chip"
               text="正在归档整理记忆…"
               tone="busy"
             />

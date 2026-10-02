@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AgentChat 设计原语库（M27 D0 基建三包之三）：L0 设计令牌（tokens/row/badge 三 css）+ L1 基础原语（Icon/Button/Avatar/Modal）+ 工具组件（StatusDot/Tooltip/RingProgress）+ L2 组合组件（StarAvatar/StarCard/PulseTrace）+ 思维链图标族（ThinkingIcon/ThoughtIcon）；风格规范 .dsh/skills/agentchat-dev/references/webui-style.md",
+  "description": "AgentChat 设计原语库（M27 D0 基建三包之三）：L0 设计令牌（tokens/row/badge 三 css，含对比度契约与 --motion-scale/--focus-ring/--hit-min）+ L1 基础原语（Icon/Button/Avatar/Modal/BusyRing/CollapseRow/DockCard）+ 工具组件（StatusDot/Tooltip/RingProgress）+ L2 组合组件（StarAvatar/StarCard/PulseTrace）+ 思维链图标族（ThinkingIcon/ThoughtIcon）；风格规范 .dsh/skills/agentchat-dev/references/webui-style.md",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

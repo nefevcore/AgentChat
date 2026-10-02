@@ -14,8 +14,12 @@ const props = withDefaults(defineProps<{
   /** 松手触发；返回的 Promise 落定 = 刷新完成（spinner 收口） */
   onRefresh: () => unknown | Promise<unknown>;
   /** 触发阈值 px（阻尼后位移达到即「松开刷新」） */
+  /** @deprecated 零覆写 → 已固化常量 THRESHOLD（P1 批次移除该 prop） */
   threshold?: number;
-}>(), { threshold: 64 });
+}>(), {});
+
+/** 触发阈值（cr-121 固化：全仓零覆写——0 消费的旋钮不留在 API 面上） */
+const THRESHOLD = 64;
 
 /** 手势态：idle → pulling（跟手）→ refreshing（驻留）→ done（驻留一瞬）→ idle */
 const state = ref<'idle' | 'pulling' | 'refreshing' | 'done'>('idle');
@@ -35,7 +39,7 @@ let tracking = false;    // 本轮 touch 序列参与判定
 let engaged = false;     // 已判定为下拉刷新（此后 touchmove preventDefault）
 let busy = false;        // 刷新进行中（新手势屏蔽）
 
-const armed = computed(() => state.value === 'pulling' && pull.value >= props.threshold);
+const armed = computed(() => state.value === 'pulling' && pull.value >= THRESHOLD);
 const trackY = computed(() =>
   state.value === 'pulling' ? pull.value : state.value === 'refreshing' || state.value === 'done' ? HOLD : 0);
 const trackStyle = computed(() => ({ transform: trackY.value ? 'translateY(' + trackY.value + 'px)' : undefined }));
@@ -78,7 +82,7 @@ function onTouchEnd() {
   tracking = false;
   if (!engaged) return;
   engaged = false;
-  if (pull.value >= props.threshold) void trigger();
+  if (pull.value >= THRESHOLD) void trigger();
   else reset(); // 未过阈值：回弹（track 过渡生效）
 }
 
@@ -134,7 +138,7 @@ async function trigger() {
 .ui-pull-root { position: relative; }
 .ui-pull-track { position: relative; }
 /* 非跟手期（回弹/驻留/收起）：位移走过渡 */
-.ui-pull-track.is-gliding { transition: transform 0.2s var(--ease-out); }
+.ui-pull-track.is-gliding { transition: transform var(--dur-base) var(--ease-out); }
 
 /* 指示器：悬在 track 顶缘上方，随 track 下移露出 */
 .ui-pull-indicator {
@@ -151,10 +155,10 @@ async function trigger() {
 /* armed/刷新中/完成：主色/成功色点亮（文字 + 颜色双通道） */
 .ui-pull-indicator.armed .ui-pull-bubble { color: var(--primary); border-color: var(--primary); }
 .ui-pull-indicator.is-refreshing .ui-pull-bubble { color: var(--primary); border-color: var(--primary); }
-.ui-pull-indicator.is-done .ui-pull-bubble { color: var(--ok); border-color: var(--ok); }
-.ui-pull-arrow { transition: transform 0.15s var(--ease-out); }
+.ui-pull-indicator.is-done .ui-pull-bubble { color: var(--ok-graphic); border-color: var(--ok-graphic); }
+.ui-pull-arrow { transition: transform var(--dur-fast) var(--ease-out); }
 .ui-pull-arrow.armed { transform: rotate(180deg); }
-.ui-pull-spin { animation: ui-pull-rot 0.7s linear infinite; }
+.ui-pull-spin { animation: ui-pull-rot calc(0.7s * var(--motion-scale)) linear infinite; }
 @keyframes ui-pull-rot { to { transform: rotate(360deg); } }
 .ui-pull-text { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 </style>

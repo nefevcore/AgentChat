@@ -1,7 +1,8 @@
 <!-- ============================================================
      webui-kit/src/base/RingProgress.vue —— 环形进度条（SVG 圆环）
      进度弧自 12 点方向顺时针增长；中心内容经默认插槽注入（如百分比文字）。
-     颜色 tone 复用 Token 仪表盘语义色（low/moderate/high/critical），
+     颜色 tone 复用 Token 仪表盘语义色（normal/high/critical 三档，
+     cr-122 收敛——原四档中 moderate 与 high 的用户动作指引相同），
      空值 = 主题主色。
      ============================================================ -->
 
@@ -15,8 +16,8 @@ const props = withDefaults(defineProps<{
   size?: number;
   /** 描边宽度（px） */
   stroke?: number;
-  /** 语义色：low 绿 / moderate 黄 / high 橙 / critical 红；空 = 主题主色 */
-  tone?: '' | 'low' | 'moderate' | 'high' | 'critical';
+  /** 语义色：normal 绿 / high 黄 / critical 红；空 = 主题主色 */
+  tone?: '' | 'normal' | 'high' | 'critical';
 }>(), { size: 28, stroke: 3, tone: '' });
 
 const clamped = computed(() => Math.max(0, Math.min(100, props.value || 0)));
@@ -61,12 +62,12 @@ const dashOffset = computed(() => circumference.value * (1 - clamped.value / 100
   flex-shrink: 0;
 }
 .ring-progress svg { display: block; transform: rotate(-90deg); }
-.ring-track { stroke: var(--color-bg-hover, rgba(127, 127, 127, 0.18)); }
-.ring-fill { stroke: var(--color-primary, #6366f1); transition: stroke-dashoffset 0.4s ease; }
-.tone-low .ring-fill { stroke: #22c55e; }
-.tone-moderate .ring-fill { stroke: #eab308; }
-.tone-high .ring-fill { stroke: #f97316; }
-.tone-critical .ring-fill { stroke: #ef4444; }
+.ring-track { stroke: rgba(var(--text-3-rgb), 0.22); }
+.ring-fill { stroke: var(--primary); transition: stroke-dashoffset var(--dur-base) var(--ease-out); }
+/* 环描边是图形件（WCAG 1.4.11 · 3.0 线）——取图形档（cr-123） */
+.tone-normal .ring-fill { stroke: var(--ok-graphic); }
+.tone-high .ring-fill { stroke: var(--warn-graphic); }
+.tone-critical .ring-fill { stroke: var(--err-graphic); }
 .ring-center {
   position: absolute;
   inset: 0;

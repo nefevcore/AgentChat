@@ -32,8 +32,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 <template>
   <Teleport to="body">
     <Transition name="ui-modal">
-      <div v-if="visible" class="ui-modal" :style="{ zIndex }">
-        <div class="ui-modal-overlay" @click="closeOnOverlay && emit('close')" />
+      <div v-if="visible" class="ui-modal" :style="{ zIndex }" role="dialog" aria-modal="true" :aria-label="title || undefined">
+        <div class="ui-modal-overlay" aria-hidden="true" @click="closeOnOverlay && emit('close')" />
         <div class="ui-modal-panel" :style="{
           width: typeof width === 'number' ? width + 'px' : width,
           ...(height ? { height: typeof height === 'number' ? height + 'px' : height } : {}),
@@ -41,7 +41,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
           <div v-if="title" class="ui-modal-head">
             <span class="ui-modal-title">{{ title }}</span>
             <span class="ui-modal-head-extra"><slot name="head-extra" /></span>
-            <button class="ui-modal-close" @click="emit('close')"><Icon name="x" :size="16" /></button>
+            <button type="button" class="ui-modal-close" aria-label="关闭" @click="emit('close')"><Icon name="x" :size="16" /></button>
           </div>
           <div class="ui-modal-body"><slot /></div>
           <div v-if="$slots.footer" class="ui-modal-footer"><slot name="footer" /></div>
@@ -56,7 +56,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 .ui-modal-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
 .ui-modal-panel {
   position: relative; background: var(--bg-raised); border-radius: var(--r-lg);
-  box-shadow: var(--shadow-panel); border: 1px solid var(--line);
+  box-shadow: var(--shadow-panel), var(--elev-hairline); border: 1px solid var(--line);
   max-width: 92vw; max-height: 86vh;
   display: flex; flex-direction: column;
 }
@@ -86,8 +86,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 .ui-modal-body { padding: 0; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .ui-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 16px 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
 
-.ui-modal-enter-active, .ui-modal-leave-active { transition: opacity 0.18s var(--ease-out); }
-.ui-modal-enter-active .ui-modal-panel, .ui-modal-leave-active .ui-modal-panel { transition: transform 0.18s var(--ease-out); }
+.ui-modal-enter-active, .ui-modal-leave-active { transition: opacity var(--dur-base) var(--ease-out); }
+.ui-modal-enter-active .ui-modal-panel, .ui-modal-leave-active .ui-modal-panel { transition: transform var(--dur-base) var(--ease-out); }
 .ui-modal-enter-from, .ui-modal-leave-to { opacity: 0; }
 .ui-modal-enter-from .ui-modal-panel, .ui-modal-leave-to .ui-modal-panel { transform: translateY(8px) scale(0.98); }
 </style>

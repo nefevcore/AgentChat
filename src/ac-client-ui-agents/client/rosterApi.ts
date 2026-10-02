@@ -129,7 +129,7 @@ export interface SessionTokens {
   usagePercent?: number;
   avgTokensPerMsg?: number;
   estimatedMsgsRemaining?: number;
-  status?: 'low' | 'moderate' | 'high' | 'critical';
+  status?: 'normal' | 'high' | 'critical';
   cache?: {
     lastHit?: number;
     lastMiss?: number;
@@ -154,7 +154,7 @@ export async function fetchSessionTokens(
     usagePercent?: number;
     avgTokensPerMsg?: number;
     estimatedMsgsRemaining?: number;
-    status?: 'low' | 'moderate' | 'high' | 'critical';
+    status?: 'normal' | 'high' | 'critical';
     cache?: {
       lastHit?: number;
       lastMiss?: number;
@@ -173,7 +173,7 @@ export async function fetchSessionTokens(
     usagePercent: r.usagePercent ?? 0,
     avgTokensPerMsg: r.avgTokensPerMsg ?? 0,
     estimatedMsgsRemaining: r.estimatedMsgsRemaining ?? 0,
-    status: r.status ?? 'low',
+    status: r.status ?? 'normal',
     ...(r.cache
       ? {
           cache: {

@@ -6,16 +6,18 @@
 
 export type ThemeMode = 'nebula' | 'aurora';
 
-/** 8 色星板（双主题） */
+/** 8 色星板（双主题）——马卡龙 × 星空色系（cr-122 语义分离重排）：
+ *  薰衣草/蓝青/湖青/苔绿/橄榄/珊瑚/品红紫/暮蓝；
+ *  暖端仅 2 位（珊瑚/橄榄），黄/玫红/绿三带让给语义色（ok/warn/err）。 */
 const STAR_PALETTE: { nebula: string; aurora: string; label: string }[] = [
-  { nebula: '#a78bfa', aurora: '#7c3aed', label: '靛紫' },
-  { nebula: '#60a5fa', aurora: '#2563eb', label: '青蓝' },
-  { nebula: '#22d3ee', aurora: '#0891b2', label: '青' },
-  { nebula: '#34d399', aurora: '#059669', label: '绿' },
-  { nebula: '#fbbf24', aurora: '#d97706', label: '琥珀' },
-  { nebula: '#fb923c', aurora: '#ea580c', label: '橙红' },
-  { nebula: '#f472b6', aurora: '#db2777', label: '玫粉' },
-  { nebula: '#f87171', aurora: '#dc2626', label: '紫红' },
+  { nebula: '#c9b8f0', aurora: '#5b4a9e', label: '薰衣草' },
+  { nebula: '#a8c8e8', aurora: '#2a5a8a', label: '蓝青' },
+  { nebula: '#9adbe0', aurora: '#1a6a6e', label: '湖青' },
+  { nebula: '#b8e8a8', aurora: '#35702e', label: '苔绿' },
+  { nebula: '#d9e8a0', aurora: '#55652a', label: '橄榄' },
+  { nebula: '#f5c4a8', aurora: '#9c4a1e', label: '珊瑚' },
+  { nebula: '#e0a8d4', aurora: '#8e3a75', label: '品红紫' },
+  { nebula: '#b3b8e8', aurora: '#3d4499', label: '暮蓝' },
 ];
 
 /** 用户（观察者）固定白金，不参与哈希 */

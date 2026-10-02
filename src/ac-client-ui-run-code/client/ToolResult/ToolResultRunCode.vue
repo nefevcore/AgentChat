@@ -330,8 +330,8 @@ async function copyCode() {
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
-  border-top-color: var(--color-warning, #f59e0b);
+  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border-top-color: var(--primary);
   animation: rcSpin 0.8s linear infinite;
   flex-shrink: 0;
 }

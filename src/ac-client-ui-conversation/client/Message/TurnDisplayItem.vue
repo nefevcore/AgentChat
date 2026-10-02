@@ -514,8 +514,8 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 .chain-spin-ring {
   width: 13px; height: 13px; margin: 0.5px; /* 14px 图标位内居中 */
   border-radius: 50%;
-  border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
-  border-top-color: var(--color-warning, #f59e0b);
+  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border-top-color: var(--primary);
   animation: chainSpin 0.8s linear infinite;
   flex-shrink: 0;
 }

@@ -91,7 +91,7 @@ describe('TokenGauge 占用比例含固定开销', () => {
   it('实值并入：系统提示 + 工具定义抬高占比；明细含合计行', async () => {
     // 净 60k + 系统提示 ≈2k + 工具定义 ≈18 → ≈62k/100k = 62%
     const rpc = recordingRpc({
-      tokens: { messageCount: 2, contextTokens: 60_000, maxContextTokens: 100_000, usagePercent: 60, status: 'moderate' },
+      tokens: { messageCount: 2, contextTokens: 60_000, maxContextTokens: 100_000, usagePercent: 60, status: 'normal' },
     });
     const root = await mountGauge(rpc.impl, baseData);
     expect(ringText(root)).toBe('60'); // 未取前 = 净占用
@@ -105,9 +105,9 @@ describe('TokenGauge 占用比例含固定开销', () => {
     expect(rows).toContain('合计（含固定开销）');
   });
 
-  it('固定开销可跨档位：净 74%（moderate）+ 开销 ≈2k → 76% = high 档', async () => {
+  it('固定开销可跨档位：净 74%（normal）+ 开销 ≈2k → 76% = high 档', async () => {
     const rpc = recordingRpc({
-      tokens: { messageCount: 5, contextTokens: 74_000, maxContextTokens: 100_000, usagePercent: 74, status: 'moderate' },
+      tokens: { messageCount: 5, contextTokens: 74_000, maxContextTokens: 100_000, usagePercent: 74, status: 'normal' },
     });
     const root = await mountGauge(rpc.impl, baseData);
     await openPanel(root);

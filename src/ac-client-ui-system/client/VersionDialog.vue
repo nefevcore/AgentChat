@@ -314,11 +314,12 @@ async function doUpdate() {
   font-size: 13px; margin-bottom: 12px;
   display: flex; align-items: center; justify-content: center; gap: 6px;
 }
+/* 语义横幅归一令牌（cr-122：原硬编码 #92400e/#065f46 是旧语义档位值，随令牌漂移） */
 .version-status.update {
-  background: #fef3c7; color: #92400e;
+  background: rgba(var(--warn-rgb), 0.12); color: var(--warn);
 }
 .version-status.current {
-  background: #ecfdf5; color: #065f46;
+  background: rgba(var(--ok-rgb), 0.12); color: var(--ok);
 }
 .version-status.unknown {
   background: #f1f5f9; color: #475569;

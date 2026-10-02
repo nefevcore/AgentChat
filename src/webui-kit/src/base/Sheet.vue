@@ -38,10 +38,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
       <div v-if="keepAlive || visible" v-show="visible" class="ui-sheet" :class="{ full }" :style="{ zIndex }">
         <div class="ui-sheet-overlay" @click="closeOnOverlay && emit('close')" />
         <div class="ui-sheet-panel" :style="full ? undefined : { maxHeight }">
-          <div v-if="!full" class="ui-sheet-grabber" />
+          <div v-if="!full" class="ui-sheet-grabber" aria-hidden="true" />
           <div v-if="title" class="ui-sheet-head">
             <span class="ui-sheet-title">{{ title }}</span>
-            <button class="ui-sheet-close" @click="emit('close')"><Icon name="x" :size="16" /></button>
+            <button type="button" class="ui-sheet-close" aria-label="关闭" @click="emit('close')"><Icon name="x" :size="16" /></button>
           </div>
           <div class="ui-sheet-body"><slot /></div>
         </div>
@@ -67,7 +67,21 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 }
 /* 全屏 body = 纯填充容器（面板自带内部滚动区；外层不滚，避免双滚动条） */
 .ui-sheet.full .ui-sheet-body { padding: 0; overflow: hidden; }
-.ui-sheet-grabber { width: 36px; height: 4px; border-radius: 999px; background: var(--line-strong); margin: 8px auto 4px; flex-shrink: 0; }
+.ui-sheet-grabber {
+  position: relative;
+  width: 36px;
+  height: var(--hit-min); /* 命中区：可视 4px 条，触发面 36×24 */
+  margin: 0 auto 4px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+.ui-sheet-grabber::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px;
+  border-radius: var(--r-full);
+  background: var(--line-strong);
+}
 .ui-sheet-head { display: flex; align-items: center; gap: 8px; padding: 6px 16px 8px; flex-shrink: 0; }
 .ui-sheet-title { font-size: 14px; font-weight: 600; flex: 1; }
 .ui-sheet-close {
@@ -77,8 +91,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 .ui-sheet-close:hover { background: var(--bg-hover); color: var(--text-1); }
 .ui-sheet-body { padding: 0 0 calc(12px + var(--safe-bottom, 0px)); flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
-.ui-sheet-enter-active, .ui-sheet-leave-active { transition: opacity 0.2s var(--ease-out); }
-.ui-sheet-enter-active .ui-sheet-panel, .ui-sheet-leave-active .ui-sheet-panel { transition: transform 0.2s var(--ease-out); }
+.ui-sheet-enter-active, .ui-sheet-leave-active { transition: opacity var(--dur-base) var(--ease-out); }
+.ui-sheet-enter-active .ui-sheet-panel, .ui-sheet-leave-active .ui-sheet-panel { transition: transform var(--dur-base) var(--ease-out); }
 .ui-sheet-enter-from, .ui-sheet-leave-to { opacity: 0; }
 .ui-sheet-enter-from .ui-sheet-panel, .ui-sheet-leave-to .ui-sheet-panel { transform: translateY(100%); }
 </style>

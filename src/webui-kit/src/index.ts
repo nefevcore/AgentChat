@@ -3,7 +3,8 @@
 //
 // 目录分层（与 L 层对应）：
 //   base/     L0 设计令牌 tokens/row/badge 三 css + L1 基础原语
-//             Icon/Button/Avatar/Modal + 工具组件 StatusDot/Tooltip/RingProgress
+//             Icon/Button/Avatar/Modal/BusyRing/CollapseRow/DockCard
+//             + 工具组件 StatusDot/Tooltip/RingProgress
 //   feedback/ 语义反馈 FeedbackNotice + 全局 Toast（toast.ts 单例 + ToastHost 渲染半件）
 //   star/     L2 星群组合件 StarAvatar/StarCard/PulseTrace
 //   icons/    思维链图标族 + icons.ts 注册表（后者不进本入口，见文件尾注）
@@ -14,6 +15,9 @@
 
 export { default as Icon } from './base/Icon.vue';
 export { default as Button } from './base/Button.vue';
+export { default as BusyRing } from './base/BusyRing.vue';
+export { default as CollapseRow } from './base/CollapseRow.vue';
+export { default as DockCard } from './base/DockCard.vue';
 export { default as Avatar } from './base/Avatar.vue';
 export { default as Modal } from './base/Modal.vue';
 export { default as Sheet } from './base/Sheet.vue';

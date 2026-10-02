@@ -897,7 +897,7 @@ const SOURCE_LABELS: Record<string, string> = {
                 <span class="plugin-name">{{ b.label ?? b.row.name }}</span>
                 <span v-if="b.label && b.label !== b.row.name" class="plugin-alias" :title="`装配行包名：${b.row.name}`">{{ b.row.name }}</span>
                 <span v-if="b.row.version" class="plugin-version">v{{ b.row.version }}</span>
-                <span v-if="hasParams(b)" class="ui-badge cfg" title="带参数面（点击卡片配置）"><Icon name="settings" :size="10" />可配置</span>
+                <span v-if="hasParams(b)" class="ui-badge info" title="带参数面（点击卡片配置）"><Icon name="settings" :size="10" />可配置</span>
                 <span v-if="patchDisabled(b.row.name)" class="ui-badge dim" title="cordis.patch.yml 已强制停用（行不装载）——软停用开关无意义；恢复入口在「插件目录」页签">强制停用</span>
                 <span v-else-if="!b.row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
               </div>

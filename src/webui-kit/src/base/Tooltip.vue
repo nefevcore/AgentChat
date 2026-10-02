@@ -1,6 +1,8 @@
 <!--
   webui-kit/src/base/Tooltip.vue —— 轻量提示（CSS hover）
   用法：<Tooltip text="发送"> <Icon name="send" /> </Tooltip>
+ 可达性：::after 提示读屏读不到——宿主控件必须自带 aria-label / title；
+ 本组件只管视觉，:focus-within 让键盘用户也能看到。
 -->
 <script setup lang="ts">
 withDefaults(defineProps<{
@@ -21,11 +23,14 @@ withDefaults(defineProps<{
   content: attr(data-tip); position: absolute; left: 50%;
   transform: translateX(-50%) translateY(4px);
   background: var(--bg-raised); color: var(--text-1); border: 1px solid var(--line);
-  font-size: 11px; padding: 4px 8px; border-radius: var(--r-sm); white-space: nowrap;
+  font-size: var(--fs-xs); padding: 4px 8px; border-radius: var(--r-sm); white-space: nowrap;
   box-shadow: var(--shadow-pop); opacity: 0; pointer-events: none; visibility: hidden;
-  transition: opacity 0.15s, transform 0.15s; z-index: 700;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); z-index: 700;
 }
 .ui-tip--top::after { bottom: calc(100% + 6px); }
 .ui-tip--bottom::after { top: calc(100% + 6px); }
-.ui-tip:hover::after { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+/* hover 与键盘焦点同待遇（:focus-within）：纯 CSS 提示对键盘用户原本不可达 */
+.ui-tip:hover::after, .ui-tip:focus-within::after {
+  opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0);
+}
 </style>

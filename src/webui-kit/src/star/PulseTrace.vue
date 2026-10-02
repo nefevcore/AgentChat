@@ -60,14 +60,14 @@ const starVars = computed(() => ({
 .ui-pulse-line.streaming::after {
   content: ""; position: absolute; inset: 0; width: 40%;
   background: var(--tc);
-  animation: ui-flow 2.2s linear infinite;
+  animation: ui-flow calc(2.2s * var(--motion-scale)) linear infinite;
 }
 @keyframes ui-flow { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
 .ui-pulse-meta { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 .ui-pulse-chev {
   width: 8px; height: 8px; flex-shrink: 0;
   border-right: 2px solid var(--text-3); border-bottom: 2px solid var(--text-3);
-  transform: rotate(-45deg); transition: transform 0.2s;
+  transform: rotate(-45deg); transition: transform var(--dur-base) var(--ease-out);
 }
 .ui-pulse-head.open .ui-pulse-chev { transform: rotate(45deg); }
 .ui-pulse-body { border-top: 1px solid var(--line); padding: 10px 12px; }

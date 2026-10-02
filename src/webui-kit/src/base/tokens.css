@@ -26,6 +26,25 @@
   --space-5: 20px;
   --space-6: 24px;
 
+  /* ── 字号 / 行高 / 控件尺寸（cr-121 比例尺收口——此前全仓 31 种字号并存、
+     控件高 28/32/38 混用；新样式只取下列档位，禁止就近取整） ── */
+  --fs-2xs: 10px;   /* 徽章 / mono 元信息 */
+  --fs-xs: 11px;    /* 辅助说明 */
+  --fs-sm: 12px;    /* 次要文本 / 小号控件 */
+  --fs-md: 13px;    /* 正文与控件默认 */
+  --fs-lg: 15px;    /* 段落强调 */
+  --fs-xl: 19px;    /* 区块标题 */
+  --fs-2xl: 30px;   /* 页面主标题（预览 / 空态） */
+  --lh-tight: 1.25;
+  --lh-base: 1.5;
+  --lh-loose: 1.7;
+  --ctl-h-sm: 28px; /* 小号控件（行内按钮 / 选择器） */
+  --ctl-h-md: 32px; /* 默认控件（按钮 / 输入框） */
+  --ctl-h-lg: 40px; /* 主操作（composer 发送 / 主 CTA） */
+  /* 可点目标下限（WCAG 2.2 · 2.5.8）：小控件须以透明覆盖层 / 伪元素把命中区
+     撑到该尺寸（开关、图标钮、点阵导航） */
+  --hit-min: 24px;
+
   /* 会话卡片内容视口统一限高：思考/工具纯文本/终端/代码/diff/run_code/
      todo 等长内容滚动区同此基准（跨卡同屏高度一致）；小窗随视口收缩，
      大屏封顶 340px */
@@ -41,43 +60,74 @@
   --font-mono: "JetBrains Mono", "Cascadia Code", SFMono, Consolas,
     "Courier New", monospace;
 
-  /* 渐变（扁平化后 = 主色实底） */
-  --grad-star: var(--primary);
 
-  /* 动效 */
-  --dur-fast: 0.12s;
-  --dur-base: 0.2s;
+  /* ── 动效（cr-121）：一切时长经 --motion-scale 归一，全局 reduced-motion
+     兜底单源——此前 kit 内 14 处动画无一响应系统「减少动态效果」设置。
+     新增动画一律写 calc(Xs * var(--motion-scale)) ── */
+  --motion-scale: 1;
+  --dur-fast: calc(0.12s * var(--motion-scale));
+  --dur-base: calc(0.2s * var(--motion-scale));
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── 焦点环（唯一源·cr-121）：键盘可达控件一律取本组令牌，组件不得自建
+     outline 色值（此前 kit 内 0 条 :focus-visible，26 条散落业务面） ── */
+  --focus-ring: var(--primary);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 开关滑块（双主题同值；令牌化以便主题 / 高对比模式覆盖） */
+  --switch-knob: #ffffff;
+
+  /* 主色实底 hover 影（Button primary 专用，随主色三元组派生） */
+  --shadow-primary-hover: 0 6px 22px rgba(var(--primary-rgb), 0.32);
+  /* 清单行 hover 微影 与 开关滑块影（row.css 配方专用） */
+  --shadow-hover: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 /* ═══════════════ 深空 Nebula（默认 / html.dark） ═══════════════ */
 :root,
 html[data-theme='nebula'],
 html.dark {
-  --bg-deep: #1a1a1a;
   --bg-base: #1a1a1a;
   --bg-surface: #2d2d2d;
   --bg-raised: #2d2d2d;
   --bg-hover: #252525;
+  /* 暗色层级：暗影投在 #1a1a1a 上不可见、加亮度又会压掉 primary 文字对比
+     （#818cf8 on #333 = 4.24 < 4.5），故分层改由 1px 顶缘高光承担 */
+  --elev-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
   --primary: #818cf8;
   --primary-strong: #a5b4fc;
+  /* primary-strong 三元组（cr-121）：标签底色与 .tt-base 墨色用——
+     primary 本体在 8% tint 底上只有 4.09，不足 4.5 */
+  --primary-strong-rgb: 165, 180, 252;
   --primary-light: rgba(129, 140, 248, 0.16);
-  --accent: #f472b6;
+  /* 主色实底上的前景（cr-121）：白字 on #818cf8 仅 2.99:1（hover 态
+     primary-strong 更差），亮靛底改深字 5.83:1 —— 视觉由「亮靛+白字」
+     →「亮靛+深字」 */
+  --on-primary: #16161a;
 
   --text-1: #ecf0f1;
   --text-2: #bdc3c7;
-  --text-3: #7f8c8d;
+  /* 5.0 / 3.96 → 6.35 / 5.02（surface 上原本不足 4.5） */
+  --text-3: #949ea0;
 
   --line: #333333;
   --line-strong: #404040;
 
-  --glow-primary: none;
-  --glow-soft: none;
-
-  --ok: #10b981;
-  --warn: #f59e0b;
-  --err: #e74c3c;
+  /* 语义色暗底取 300/400 档：徽章自带 tint 底（rgba 0.10~0.12）会抬高背景
+     亮度，文字色必须比「裸底可比」更亮才过 4.5。
+     cr-122 语义分离：warn 橙→正黄（离开身份色橙带）、err 红→玫红
+     （离开纯红带）——warn↔err 色相距从 33° 拉到 57° */
+  --ok: #9bd39a;
+  --warn: #fcd34d;
+  --err: #f0879a;
+  /* 图形档（cr-123）：环描边/状态点/命中条/图标等「非文字」语义件用 3.0 线
+     （WCAG 1.4.11 图形件），可取更亮的档位——与墨色档同色相族 */
+  --ok-graphic: #9fd89f;
+  --warn-graphic: #fde68a;
+  --err-graphic: #f7a8b8;
 
   /* ── RGB 三元组（cr-32：color-mix 的等价回退）──
      color-mix(in srgb, C N%, transparent) 语义 = C 以 N% 不透明度着色；
@@ -86,17 +136,16 @@ html.dark {
   --primary-rgb: 129, 140, 248;
   --text-1-rgb: 236, 240, 241;
   --text-2-rgb: 189, 195, 199;
-  --text-3-rgb: 127, 140, 141;
-  --ok-rgb: 16, 185, 129;
-  --warn-rgb: 245, 158, 11;
-  --err-rgb: 231, 76, 60;
+  --text-3-rgb: 148, 158, 160;
+  --ok-rgb: 155, 211, 154;
+  --warn-rgb: 252, 211, 77;
+  --err-rgb: 240, 135, 154;
 
   --code-bg: #2d2d2d;
   --code-text: #d6deeb;
 
   --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
-  --shadow-primary: 0 4px 20px rgba(0, 0, 0, 0.5);
   /* 输入卡片双层影（贴边 contact + 环境光 soft）：深色底上纯黑影几乎不可见，
      浓度需提到 0.5 档——#1a1a1a 上约压到 #0d0d0d，观感与亮色 6-8% 灰调等效 */
   --shadow-input: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.55);
@@ -106,7 +155,7 @@ html.dark {
 
   --input-bg: #2d2d2d;
   --input-border: #333333;
-  --input-focus: #818cf8;
+  --input-focus: var(--focus-ring);
 
   --scroll-thumb: rgba(255, 255, 255, 0.12);
   --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
@@ -117,54 +166,64 @@ html.dark {
   --role-selected-bg: #2b2b3a;
   --role-selected-text: #a5b4fc;
   --role-active-bg: #3a2f14;
-  --role-active-text: #fbbf24;
-  --role-info-bg: #102a33;
-  --role-info-text: #67e8f9;
 }
 
 /* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
 html[data-theme='aurora'],
 html.light {
-  --bg-deep: #ffffff;
   --bg-base: #ffffff;
   --bg-surface: #fafafa;
   --bg-raised: #ffffff;
   --bg-hover: #f0f0f0;
+  /* 亮色浮层分隔走描边（暗色走顶缘高光，见 Nebula 块） */
+  --elev-hairline: 0 0 0 1px rgba(15, 23, 42, 0.05);
 
-  --primary: #6366f1;
-  --primary-strong: #4f46e5;
-  --primary-light: rgba(99, 102, 241, 0.1);
-  --accent: #ec4899;
+  /* 4.47 / 4.28 → 6.29 / 6.02（主色此前作为文字 / 图标略欠） */
+  --primary: #4f46e5;
+  --primary-strong: #4338ca;
+  --primary-strong-rgb: 67, 56, 202;
+  --primary-light: rgba(79, 70, 229, 0.1);
+  --on-primary: #ffffff;
 
   --text-1: #2c3e50;
-  --text-2: #7f8c8d;
-  --text-3: #a8abb2;
+  /* 加深一档（cr-122）：原 #5f6b78 与 text-3 #666b71 对比度仅差 0.15，
+     视觉塌缩不可辨；加深后与 text-3 拉开层级（6.4 vs 5.2 on base） */
+  --text-2: #55606c;
+  /* 2.3 / 2.2 → 5.29 / 4.73（元信息此前几乎不可读；取值受 hover 底 #f0f0f0 约束） */
+  --text-3: #666b71;
 
   --line: #e0e0e0;
   --line-strong: #bdc3c7;
 
-  --glow-primary: none;
-  --glow-soft: none;
+  /* 语义色亮底重定档（cr-121）：白 / 浅底上原值全部低于 4.5（ok 2.54、
+     warn 2.15、err 3.82）——语义色不再与暗色同值，各自取向达标档位 */
+  /* 草本绿（cr-122 后续反馈）：H159 青绿系（#065f46→#217055）观感偏
+     「药丸/毒液绿」；#356f43 取 H134 草本苹果绿 + S35 降饱和（取自用户
+     #9FD89F 的色感方向——该值太浅不可作墨色，白底对比仅 1.64），
+     对比余量宽（底 5.26 / tint 4.87） */
+  --ok: #356f43;
+  --warn: #8a5a06;
+  --err: #9f1239;
+  /* 图形档（cr-123，3.0 线·base/surface/raised 三白底）——文字勿用 */
+  --ok-graphic: #669a6d;
+  --warn-graphic: #bb831c;
+  --err-graphic: #d9536f;
 
-  --ok: #10b981;
-  --warn: #f59e0b;
-  --err: #e74c3c;
-
-  /* RGB 三元组（cr-32：语义色与暗色同值；主色/文本/底随主题变） */
-  --primary-rgb: 99, 102, 241;
+  /* RGB 三元组（cr-32：color-mix 的等价回退）——与上方色值逐位同步，
+     改色必须同改（有测试锁）。 */
+  --primary-rgb: 79, 70, 229;
   --text-1-rgb: 44, 62, 80;
-  --text-2-rgb: 127, 140, 141;
-  --text-3-rgb: 168, 171, 178;
-  --ok-rgb: 16, 185, 129;
-  --warn-rgb: 245, 158, 11;
-  --err-rgb: 231, 76, 60;
+  --text-2-rgb: 85, 96, 108;
+  --text-3-rgb: 102, 107, 113;
+  --ok-rgb: 53, 111, 67;
+  --warn-rgb: 138, 90, 6;
+  --err-rgb: 159, 18, 57;
 
   --code-bg: #ffffff;
   --code-text: #2c3e50;
 
   --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
-  --shadow-primary: 0 4px 16px rgba(0, 0, 0, 0.12);
   /* 输入卡片双层影（贴边 contact + 环境光 soft）：白底上 6-8% 灰调，
      4px 偏移 12px 模糊的柔光层撑开层次——浮起可感不抢眼 */
   --shadow-input: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08);
@@ -174,7 +233,7 @@ html.light {
 
   --input-bg: #ffffff;
   --input-border: #e0e0e0;
-  --input-focus: #6366f1;
+  --input-focus: var(--focus-ring);
 
   --scroll-thumb: rgba(15, 23, 42, 0.16);
   --scroll-thumb-hover: rgba(15, 23, 42, 0.32);
@@ -185,9 +244,6 @@ html.light {
   --role-selected-bg: #ececf5;
   --role-selected-text: #4f46e5;
   --role-active-bg: #fdf6e3;
-  --role-active-text: #b45309;
-  --role-info-bg: #e6f7fb;
-  --role-info-text: #0e7490;
 }
 
 /* ── 基础样式 ── */
@@ -206,6 +262,20 @@ body {
 /* 等宽数字（Token 用量等） */
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
+/* ── 键盘焦点环（唯一源·cr-121）：组件化控件的「input 透明覆盖」形态
+   （开关等）在各自配方文件里把环画到可见元素上，见 row.css ── */
+:where(a, button, summary, [role='button'], input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ── 减少动态效果（全局兜底·cr-121）：--motion-scale 归零 → 一切
+    calc 时长（过渡与动画）即时收敛，装饰性动画不再无限旋转 ── */
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-scale: 0; }
+  html { scroll-behavior: auto; }
+}
+
 /* ═══════════════ 业务兼容别名层（--color-* → 本文件令牌）═══════════════
    历史：业务组件使用 main.css 的 --color-* 体系；本文件（后加载）以别名
    覆盖同名变量为 var(--primary)/var(--bg-*)/var(--text-*) 等 —— 单一来源。
@@ -218,13 +288,11 @@ html.dark, html.light {
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-strong);
   --color-primary-light: var(--primary-light);
-  --color-secondary: var(--accent);
 
   /* 遗留名的三元组（cr-32：业务面 color-mix 回退用——与上方同源）。
      只列实际被引用的名（零冗余：测试③ 反向锁住死条目）。 */
   --color-primary-rgb: var(--primary-rgb);
   --color-text-primary-rgb: var(--text-1-rgb);
-  --color-success-rgb: var(--ok-rgb);
   --color-warning-rgb: var(--warn-rgb);
   --color-error-rgb: var(--err-rgb);
 
