@@ -218,7 +218,7 @@ function copyContent() {
 }
 
 .user-bubble {
-    background: var(--color-bg-user-container);
+    background: var(--primary-light);
     border-radius: var(--radius-lg, 14px);
     padding: 12px 16px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -231,7 +231,7 @@ function copyContent() {
 .user-text {
     font-size: 14px;
     line-height: 1.5;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     white-space: pre-wrap;
     word-break: break-word;
 }
@@ -254,10 +254,10 @@ function copyContent() {
     gap: 5px;
     padding: 3px 8px;
     background: rgba(255, 255, 255, 0.65);
-    border: 1px solid var(--color-border-secondary, rgba(0,0,0,0.08));
+    border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     font-size: 12px;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
     max-width: 200px;
@@ -265,7 +265,7 @@ function copyContent() {
 
 .user-file-chip:hover {
     background: rgba(255, 255, 255, 0.9);
-    border-color: var(--color-primary, #4f46e5);
+    border-color: var(--primary);
 }
 
 /* 图片附件 chip（多模态 M3）：只显缩略图（文件名退 hover 提示），
@@ -282,17 +282,17 @@ function copyContent() {
     height: 88px;
     object-fit: cover;
     border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border-secondary, rgba(0,0,0,0.08));
-    background: var(--color-bg-secondary, rgba(0,0,0,0.04));
+    border: 1px solid var(--line);
+    background: var(--bg-surface);
 }
 
 .user-file-chip--image:hover .user-file-thumb {
-    border-color: var(--color-primary, #4f46e5);
+    border-color: var(--primary);
 }
 
 .user-file-icon {
     flex-shrink: 0;
-    color: var(--color-primary, #4f46e5);
+    color: var(--primary);
 }
 
 .user-file-name {
@@ -302,7 +302,7 @@ function copyContent() {
 }
 
 .user-file-size {
-    color: var(--color-text-tertiary, #a8abb2);
+    color: var(--text-3);
     font-size: 11px;
     flex-shrink: 0;
 }
@@ -333,7 +333,7 @@ function copyContent() {
     justify-content: center;
     font-size: 15px;
     font-weight: 600;
-    color: var(--color-primary, #4f46e5);
+    color: var(--primary);
 }
 
 /* ===== 按钮行 ===== */
@@ -350,7 +350,7 @@ function copyContent() {
     align-items: center;
     justify-content: center;
     padding: 3px;
-    color: var(--color-text-tertiary, #a8abb2);
+    color: var(--text-3);
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
@@ -360,15 +360,15 @@ function copyContent() {
 }
 
 .user-msg-btn:hover {
-    color: var(--color-text-secondary);
+    color: var(--text-2);
 }
 
 .user-msg-btn.copied {
-    color: #22c55e;
+    color: var(--ok);
 }
 
 .user-msg-btn.error {
-    color: var(--color-error, #e74c3c);
+    color: var(--err);
 }
 
 /* ===== 编辑模式 ===== */
@@ -384,9 +384,9 @@ function copyContent() {
     padding: 6px 8px;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--color-text-primary);
-    background: var(--color-bg-page);
-    border: 1px solid var(--color-border-primary, #d0d0d0);
+    color: var(--text-1);
+    background: var(--bg-base);
+    border: 1px solid var(--line-strong);
     border-radius: var(--radius-sm);
     resize: vertical;
     font-family: inherit;
@@ -394,7 +394,7 @@ function copyContent() {
 }
 
 .edit-input:focus {
-    border-color: var(--color-primary, #4f46e5);
+    border-color: var(--primary);
 }
 
 .edit-actions {
@@ -406,7 +406,7 @@ function copyContent() {
 
 .edit-hint {
     font-size: 11px;
-    color: var(--color-text-tertiary);
+    color: var(--text-3);
     margin-right: auto;
 }
 
@@ -420,8 +420,8 @@ function copyContent() {
 }
 
 .edit-btn.confirm {
-    background: var(--color-primary, #4f46e5);
-    color: #fff;
+    background: var(--primary);
+    color: var(--on-primary);
 }
 
 .edit-btn.confirm:hover {
@@ -430,11 +430,11 @@ function copyContent() {
 
 .edit-btn.cancel {
     background: transparent;
-    color: var(--color-text-secondary);
-    border: 1px solid var(--color-border-primary);
+    color: var(--text-2);
+    border: 1px solid var(--line-strong);
 }
 
 .edit-btn.cancel:hover {
-    background: var(--color-bg-surface, rgba(0,0,0,0.05));
+    background: var(--bg-surface);
 }
 </style>

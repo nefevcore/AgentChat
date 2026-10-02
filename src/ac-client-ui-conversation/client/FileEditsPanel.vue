@@ -615,8 +615,8 @@ async function openLocally(s: FileEditSummary) {
         <div class="fe-meta">
           <span class="fe-file-path" :title="sel.path">{{ sel.path }}</span>
           <span class="fe-badges">
-            <span v-if="sel.created" class="fe-badge new">新建</span>
-            <span v-if="sel.partial" class="fe-badge partial">部分</span>
+            <span v-if="sel.created" class="ui-badge ok">新建</span>
+            <span v-if="sel.partial" class="ui-badge warn">部分</span>
             <span class="fe-stat"><span class="fe-add-num">+{{ statOf(sel).added }}</span><span class="fe-del-num">/-{{ statOf(sel).removed }}</span></span>
             <span class="fe-count">{{ sel.editCount }} 次</span>
           </span>
@@ -678,15 +678,15 @@ export default { name: 'FileEditsPanel' };
 .fe-panel {
   display: flex; flex-direction: column;
   height: 100%; min-width: 0; overflow: hidden;
-  background: var(--color-bg-page, #fff);
+  background: var(--bg-base);
 }
 .fe-head {
   display: flex; align-items: center; gap: 8px;
   height: var(--layout-header-height, 48px); padding: 0 16px; flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-bottom: 1px solid var(--line);
 }
 .fe-title { font-size: 13px; font-weight: 600; flex-shrink: 0; }
-.fe-ctx { font-size: 11px; color: var(--color-text-tertiary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fe-ctx { font-size: 11px; color: var(--text-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 头部关闭钮（与 fe-open-local 同形态的透明 icon 钮——fe-ctx flex:1 推到最右） */
 .fe-close {
@@ -698,18 +698,18 @@ export default { name: 'FileEditsPanel' };
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
 }
-.fe-close:hover { background: var(--color-bg-hover, rgba(0,0,0,0.06)); color: var(--color-text-primary); }
+.fe-close:hover { background: var(--bg-hover); color: var(--text-1); }
 
 /* 单列填满布局（cr-88 时间线退役）：.fe-body 不再滚动——diff 区
    flex:1 吸收剩余高度并自带滚动，其余行按内容收缩 */
 .fe-body { flex: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
-.fe-empty { padding: 32px 12px; text-align: center; color: var(--color-text-tertiary); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.fe-empty { padding: 32px 12px; text-align: center; color: var(--text-3); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .fe-empty p { margin: 0; font-size: 12px; }
 .fe-empty-sub { font-size: 11px; opacity: 0.8; }
 
@@ -720,30 +720,28 @@ export default { name: 'FileEditsPanel' };
   font-size: 11px; font-family: inherit;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-light, #e5e7eb);
-  background: var(--color-bg-surface, #fff);
-  color: var(--color-text-primary);
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
+  color: var(--text-1);
   cursor: pointer;
 }
-.fe-file-select:focus { outline: none; border-color: var(--primary, #6366f1); }
-.fe-file-select:hover { border-color: var(--color-border-secondary, #d1d5db); }
+.fe-file-select:focus { outline: none; border-color: var(--primary); }
+.fe-file-select:hover { border-color: var(--line); }
 
 /* 选中文件元信息行（完整路径 + 徽章/统计） */
 .fe-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 0; }
 .fe-file-path {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; font-family: 'SF Mono', 'Cascadia Code', monospace;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
 }
+/* 徽章行：徽章本体走 kit .ui-badge 族（本组件不再自建徽章样式），此处仅排版 */
 .fe-badges { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-.fe-badge { font-size: 10px; padding: 1px 6px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-light, #e5e7eb); color: var(--color-text-tertiary); }
-.fe-badge.new { color: #22c55e; border-color: rgba(34,197,94,0.4); }
-.fe-badge.partial { color: #e6a817; border-color: rgba(230,168,23,0.4); }
 .fe-stat { font-size: 11px; font-family: 'SF Mono', 'Cascadia Code', monospace; }
 /* +N/-M 红绿着色（与 diff 行同色系：增=绿、删=红） */
-.fe-add-num { color: #22c55e; }
-.fe-del-num { color: #ef4444; }
-.fe-count { font-size: 11px; color: var(--color-text-tertiary); }
+.fe-add-num { color: var(--ok); }
+.fe-del-num { color: var(--err); }
+.fe-count { font-size: 11px; color: var(--text-3); }
 
 /* 本地打开（卡片头部右侧 icon 按钮；与预览页 fpt-icon-btn 同形态——
    24×22 透明图标钮 + hover 底色，不随 badges 收缩） */
@@ -757,23 +755,23 @@ export default { name: 'FileEditsPanel' };
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
 }
 .fe-open-local:hover {
-  background: var(--color-bg-hover, rgba(0,0,0,0.06));
-  color: var(--color-text-primary);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .fe-open-local:disabled { opacity: 0.6; cursor: default; }
-.fe-open-local.error { color: #ef4444; }
+.fe-open-local.error { color: var(--err); }
 /* 打开中 spinner 旋转 */
 
-.fe-partial-note { font-size: 11px; color: #8a6d1a; background: rgba(230,168,23,0.08); border: 1px solid rgba(230,168,23,0.25); border-radius: var(--radius-sm); padding: 6px 10px; }
-.fe-partial-note.warn { color: #b45309; background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.2); }
+.fe-partial-note { font-size: 11px; color: var(--warn); background: rgba(var(--warn-rgb), 0.08); border: 1px solid rgba(var(--warn-rgb), 0.25); border-radius: var(--radius-sm); padding: 6px 10px; }
+.fe-partial-note.warn { color: var(--err); background: rgba(var(--err-rgb), 0.06); border-color: rgba(var(--err-rgb), 0.2); }
 
-.fe-diff-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--color-text-tertiary); }
+.fe-diff-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-3); }
 .fe-diff-stat { font-family: 'SF Mono', 'Cascadia Code', monospace; }
 
 /* ── 版本选择下拉（抬头工具行内——auto 宽，工具行自带间距）── */
@@ -782,13 +780,13 @@ export default { name: 'FileEditsPanel' };
   font-size: 11px; font-family: inherit;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-light, #e5e7eb);
-  background: var(--color-bg-surface, #fff);
-  color: var(--color-text-primary);
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
+  color: var(--text-1);
   cursor: pointer;
 }
-.fe-view-select:focus { outline: none; border-color: var(--primary, #6366f1); }
-.fe-view-select:hover { border-color: var(--color-border-secondary, #d1d5db); }
+.fe-view-select:focus { outline: none; border-color: var(--primary); }
+.fe-view-select:hover { border-color: var(--line); }
 /* 上一/下一版本快切（与 fe-open-local 同形态的透明 icon 钮；边界 disabled 置灰） */
 .fe-view-nav { display: inline-flex; gap: 2px; flex-shrink: 0; }
 .fe-view-nav-btn {
@@ -801,26 +799,26 @@ export default { name: 'FileEditsPanel' };
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
 }
 .fe-view-nav-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover, rgba(0,0,0,0.06));
-  color: var(--color-text-primary);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .fe-view-nav-btn:disabled { opacity: 0.35; cursor: default; }
 /* 开启态偏好按钮（换行）：主题色高亮示当前值——fpt-icon-btn.on 同款 */
 .fe-view-nav-btn.on {
-  color: var(--color-primary, #6366f1);
-  background: var(--color-primary-light);
-  border-color: var(--color-primary, rgba(99,102,241,0.5));
+  color: var(--primary);
+  background: var(--primary-light);
+  border-color: var(--primary);
 }
 .fe-diff {
   flex: 1; min-height: 0; /* 填满剩余高度（cr-88）——工具行/元信息/提示行按内容收缩 */
-  border: 1px solid var(--color-border-light, #e5e7eb); border-radius: var(--radius-md);
-  background: var(--color-code-bg, #1e1e2e); overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--code-bg); overflow: auto;
 }
 .fe-diff-line { display: flex; padding: 1px 12px; font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6; white-space: pre; }
 /* 自动换行（cr-89）：软换行替代横向滚动 */
@@ -831,27 +829,27 @@ export default { name: 'FileEditsPanel' };
 .fe-diff-sign {
   width: 16px; flex-shrink: 0; text-align: center; user-select: none;
   margin-left: -12px; padding-left: 2px; /* 行左距让给符号列着色 */
-  border-right: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  border-right: 1px solid var(--line);
 }
 .fe-diff-num {
   width: 4ch; flex-shrink: 0; text-align: right; padding: 0 10px 0 6px;
-  color: var(--color-text-tertiary); opacity: 0.6; user-select: none;
-  border-right: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  color: var(--text-3); opacity: 0.6; user-select: none;
+  border-right: 1px solid var(--line);
 }
 .fe-diff-text { flex: 1; min-width: 0; }
 /* 行底色铺满三列（cr-93 统一——符号/行号列不再独立加深/减弱，去割裂） */
 .fe-add { background: rgba(34,197,94,0.13); }
-.fe-add .fe-diff-sign { color: #4ade80; }
-.fe-add .fe-diff-text { color: #4ade80; }
+.fe-add .fe-diff-sign { color: var(--ok); }
+.fe-add .fe-diff-text { color: var(--ok); }
 .fe-del { background: rgba(239,68,68,0.14); }
-.fe-del .fe-diff-sign { color: #f87171; }
-.fe-del .fe-diff-text { color: #f87171; }
-.fe-ctx .fe-diff-text { color: var(--color-text-primary, #e0e0e0); }
-.fe-sep .fe-diff-text { color: var(--color-text-tertiary); opacity: 0.5; font-style: italic; }
+.fe-del .fe-diff-sign { color: var(--err); }
+.fe-del .fe-diff-text { color: var(--err); }
+.fe-ctx .fe-diff-text { color: var(--text-1); }
+.fe-sep .fe-diff-text { color: var(--text-3); opacity: 0.5; font-style: italic; }
 /* 「当前内容」全文视图（cr-89）：非 diff 语义——无 +/- 前缀着色，正文常规色 */
-.fe-plain .fe-diff-text { color: var(--color-text-primary, #e0e0e0); }
+.fe-plain .fe-diff-text { color: var(--text-1); }
 
-.fe-no-diff { font-size: 11px; color: var(--color-text-tertiary); padding: 8px 4px; }
+.fe-no-diff { font-size: 11px; color: var(--text-3); padding: 8px 4px; }
 
-.fe-shell-note { font-size: 11px; color: var(--color-text-tertiary); text-align: center; padding: 8px 4px; border-top: 1px dashed var(--color-border-light, #e5e7eb); flex-shrink: 0; }
+.fe-shell-note { font-size: 11px; color: var(--text-3); text-align: center; padding: 8px 4px; border-top: 1px dashed var(--line); flex-shrink: 0; }
 </style>

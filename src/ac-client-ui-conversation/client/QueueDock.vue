@@ -97,9 +97,9 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   flex-direction: column;
   flex-shrink: 0;
   margin: 0 10px 6px;
-  border: 1px solid var(--color-border-secondary);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-secondary, var(--color-bg-page));
+  background: var(--bg-base);
   overflow: hidden;
   box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
 }
@@ -119,19 +119,19 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   text-align: left;
   cursor: pointer;
 }
-.queue-lead { display: grid; place-items: center; color: var(--color-text-tertiary); flex: none; }
-.queue-title { color: var(--color-text-primary); font-size: 13px; font-weight: 500; line-height: 24px; flex: none; }
+.queue-lead { display: grid; place-items: center; color: var(--text-3); flex: none; }
+.queue-title { color: var(--text-1); font-size: 13px; font-weight: 500; line-height: 24px; flex: none; }
 .queue-count {
   min-width: 0;
   flex: auto;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-size: 12px;
   line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.queue-chevron { display: grid; place-items: center; color: var(--color-text-tertiary); flex: none; transition: transform 0.2s ease; }
+.queue-chevron { display: grid; place-items: center; color: var(--text-3); flex: none; transition: transform 0.2s ease; }
 .queue-chevron.open { transform: rotate(180deg); }
 
 /* ── 列表（TodoPanel list 同构：gap 分隔无分割线 · 180px 上限滚动） ──
@@ -153,7 +153,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   min-width: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
 }
 .queue-preview {
   flex: 1;
@@ -179,17 +179,17 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.queue-act:hover:not(:disabled) { background: var(--color-bg-hover, rgba(0,0,0,.06)); color: var(--color-text-primary); }
+.queue-act:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .queue-act:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 立即发送（插话）：运行中着警示色——"着急"的主操作位（原输入框按钮移此） */
-.queue-act.steer:not(:disabled) { color: var(--color-warning, #e67e22); }
+.queue-act.steer:not(:disabled) { color: var(--warn); }
 .queue-act.steer:not(:disabled):hover {
-  background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.12);
-  color: var(--color-warning, #e67e22);
+  background: rgba(var(--warn-rgb), 0.12);
+  color: var(--warn);
 }
 </style>

@@ -10,7 +10,7 @@
   外壳与密度对齐 dock 卡族规范（InteractionBar/QueueDock 同族）。 -->
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue';
-import { Icon } from '@agentchat/webui-kit';
+import { DockCard, Icon } from '@agentchat/webui-kit';
 import { useChatStore } from './chatStore.ts';
 
 const chatStore = useChatStore();
@@ -60,99 +60,65 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
 </script>
 
 <template>
-  <div v-if="approval && visible" class="approval-bar">
-    <Transition name="ab-card-in" appear>
-      <section class="ab-card">
-        <!-- 头部：eyebrow（申请方 + 工具）+ 档位说明 -->
-        <header class="ab-header">
-          <div class="ab-heading">
-            <div class="ab-eyebrow">提权请求 · {{ approval.agent_id || 'Agent' }} → {{ approval.tool }}</div>
-            <p v-if="approval.need" class="ab-need">{{ approval.need }}</p>
-          </div>
-          <div class="ab-header-actions">
-            <button type="button" class="ab-icon-btn" title="拒绝本次请求" @click="decide(false)">
-              <Icon name="x" :size="13" />
-            </button>
-          </div>
-        </header>
+  <Transition name="ab-card-in" appear>
+    <DockCard
+      v-if="approval && visible"
+      class="approval-bar"
+      :eyebrow="`提权请求 · ${approval.agent_id || 'Agent'} → ${approval.tool}`"
+    >
+      <template #actions>
+        <button type="button" class="ab-icon-btn" title="拒绝本次请求" @click="decide(false)">
+          <Icon name="x" :size="13" />
+        </button>
+      </template>
 
-        <!-- 参数全文（审批展示的是该次调用的完整参数——不截断遮掩） -->
-        <div v-if="argsText" class="ab-body">
-          <pre class="ab-args">{{ argsText }}</pre>
+      <!-- 档位说明（申请方诉求——审批全文的第一段） -->
+      <p v-if="approval.need" class="ab-need">{{ approval.need }}</p>
+
+      <!-- 参数全文（审批展示的是该次调用的完整参数——不截断遮掩） -->
+      <div v-if="argsText" class="ab-body">
+        <pre class="ab-args">{{ argsText }}</pre>
+      </div>
+
+      <!-- 底部：拒绝 / 批准两档（主钮"通过（本次）"；下拉可改选
+           "通过（本轮 run）全部"——本轮 run 内后续 needPermission 调用
+           免再询问，run 收束自动失效） -->
+      <footer class="ab-footer">
+        <div class="ab-note">
+          {{ approveScope === 'run'
+            ? '本轮 run 内的后续提权请求不再询问；run 结束自动失效（内存授权，不持久化）。'
+            : '批准仅对本次调用生效；持久授权请在 Agent 配置 tags 中添加档位标签。' }}
         </div>
-
-        <!-- 底部：拒绝 / 批准两档（主钮"通过（本次）"；下拉可改选
-             "通过（本轮 run）全部"——本轮 run 内后续 needPermission 调用
-             免再询问，run 收束自动失效） -->
-        <footer class="ab-footer">
-          <div class="ab-note">
-            {{ approveScope === 'run'
-              ? '本轮 run 内的后续提权请求不再询问；run 结束自动失效（内存授权，不持久化）。'
-              : '批准仅对本次调用生效；持久授权请在 Agent 配置 tags 中添加档位标签。' }}
+        <div class="ab-actions">
+          <button type="button" class="ab-btn outline" @click="decide(false)">拒绝</button>
+          <div class="ab-approve-split">
+            <button type="button" class="ab-btn primary" @click="decide(true, approveScope)">通过（{{ approveScope === 'run' ? '本轮全部' : '本次' }}）</button>
+            <select v-model="approveScope" class="ab-scope-select" title="批准范围：仅本次 / 本轮 run 全部" aria-label="批准范围">
+              <option value="call">通过（本次）</option>
+              <option value="run">通过（本轮全部）</option>
+            </select>
           </div>
-          <div class="ab-actions">
-            <button type="button" class="ab-btn outline" @click="decide(false)">拒绝</button>
-            <div class="ab-approve-split">
-              <button type="button" class="ab-btn primary" @click="decide(true, approveScope)">通过（{{ approveScope === 'run' ? '本轮全部' : '本次' }}）</button>
-              <select v-model="approveScope" class="ab-scope-select" title="批准范围：仅本次 / 本轮 run 全部" aria-label="批准范围">
-                <option value="call">通过（本次）</option>
-                <option value="run">通过（本轮全部）</option>
-              </select>
-            </div>
-          </div>
-        </footer>
-      </section>
-    </Transition>
-  </div>
+        </div>
+      </footer>
+    </DockCard>
+  </Transition>
 </template>
 
 <style scoped>
 .approval-bar {
-  /* dock 卡定位（对齐 InteractionBar/QueueDock：与输入卡同宽、随 composer 列排布） */
+  /* dock 卡定位（壳由 kit DockCard 提供：与输入卡同宽、随 composer 列排布） */
   flex-shrink: 0;
-  margin: 0 10px 6px;
 }
 
-.ab-card {
-  display: flex;
-  flex-direction: column;
-  max-height: min(50vh, 400px);
-  background: var(--color-bg-secondary, var(--color-bg-page));
-  border: 1px solid var(--color-border-secondary);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  /* 与输入卡同级的层次感（轻 --shadow-input 一档——辅助浮层不争主操作位焦点）；
-     双主题值见 webui-kit tokens.css --shadow-dock（InteractionBar .ib-card 同款） */
-  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
-}
-
-/* ── 头部（密度对齐 dock 族：6px 12px 内距） ── */
-.ab-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 8px 6px 12px;
-}
-.ab-heading { min-width: 0; }
-.ab-eyebrow {
-  margin-bottom: 4px;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* 档位说明（原 ab-header/ab-heading/ab-eyebrow 已随 DockCard 壳归位） */
 .ab-need {
-  margin: 0;
+  margin: 0 0 6px;
   font-size: 13px;
   font-weight: 500;
   line-height: 20px;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   word-break: break-word;
 }
-.ab-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
 
 .ab-icon-btn {
   display: grid;
@@ -163,16 +129,16 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.ab-icon-btn:hover { background: var(--color-bg-hover, rgba(0,0,0,.04)); color: var(--color-text-primary); }
+.ab-icon-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 
 /* ── 参数全文（滚动兜底：超长时内部滚） ── */
 .ab-body {
-  flex: 1;
-  min-height: 0;
+  /* 原 50vh/400px 上限挂在卡片上；改挂参数区（DockCard 壳无 max-height） */
+  max-height: min(50vh, 400px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -182,7 +148,7 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 18px;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -199,7 +165,7 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
   min-width: 0;
   font-size: 11px;
   line-height: 16px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
 }
 .ab-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
 .ab-btn {
@@ -211,16 +177,16 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
 }
 .ab-btn.outline {
   background: transparent;
-  border: 1px solid var(--color-border-primary);
-  color: var(--color-text-secondary);
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
 }
-.ab-btn.outline:hover { color: var(--color-text-primary); border-color: var(--color-text-tertiary); }
+.ab-btn.outline:hover { color: var(--text-1); border-color: var(--text-3); }
 .ab-btn.primary {
-  background: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  color: #fff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: var(--on-primary);
 }
-.ab-btn.primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.ab-btn.primary:hover { background: var(--primary-strong); border-color: var(--primary-strong); }
 
 /* ── 批准两档：主钮 + 范围下拉（覆盖式 select，视觉融合为分组按钮） ── */
 .ab-approve-split { display: flex; align-items: stretch; }
@@ -228,10 +194,10 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
 .ab-scope-select {
   width: 18px;
   padding: 0 2px;
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--primary);
   border-left: none;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--color-primary);
+  background: var(--primary);
   color: transparent; /* 收起态只显示箭头指示（文本对视觉无用——当前档位在主钮上） */
   font-size: 12px;
   cursor: pointer;
@@ -240,13 +206,15 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
   text-align: center;
   text-indent: 100%;
   overflow: hidden;
+  /* 一次性 SVG 数据色（%23ffffff = 下拉箭头白描边，跟 ab-btn.primary 实底；
+     非调色板色值，按指南 R1 例外保留）。 */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23ffffff' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
 }
 .ab-scope-select::-ms-expand { display: none; }
-.ab-scope-select:hover { background-color: var(--color-primary-hover); }
-.ab-scope-select option { color: var(--color-text-primary); background: var(--color-bg-secondary, #fff); }
+.ab-scope-select:hover { background-color: var(--primary-strong); }
+.ab-scope-select option { color: var(--text-1); background: var(--bg-surface); }
 
 /* ── 卡片入场 ── */
 .ab-card-in-enter-active { transition: opacity 0.16s var(--ease-out), transform 0.16s var(--ease-out); }

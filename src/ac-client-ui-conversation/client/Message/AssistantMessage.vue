@@ -506,21 +506,21 @@ onBeforeUnmount(() => {
     justify-content: center;
     font-size: 15px;
     font-weight: 600;
-    color: var(--color-primary, #4f46e5);
+    color: var(--primary);
 }
 
 .sender-name {
     font-size: 12px;
-    color: var(--color-text-secondary, rgba(255,255,255,0.55));
+    color: var(--text-2);
     padding: 0 2px;
     line-height: 1;
 }
 
 .assistant-bubble {
     padding: 12px 16px;
-    background: var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
+    background: var(--bg-surface);
     /* 描边与气泡底色一致，视觉上无描边感 */
-    border: 1px solid var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
+    border: 1px solid var(--bg-surface);
     border-radius: var(--radius-lg, 14px);
     box-shadow: 0 1px 2px rgba(0,0,0,.04);
     min-width: 0;
@@ -564,11 +564,11 @@ onBeforeUnmount(() => {
 }
 
 .error-message {
-    color: var(--color-error);
-    background: var(--color-danger-light);
+    color: var(--err);
+    background: rgba(var(--err-rgb), 0.08);
     padding: 12px;
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-error);
+    border: 1px solid var(--err);
 }
 
 /* ===== 思考过程 ===== */
@@ -590,7 +590,7 @@ onBeforeUnmount(() => {
     gap: 6px;
     font-size: 12px;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     user-select: none;
     cursor: pointer;
     padding: 2px 0;
@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
 }
 
 .think-content-label:hover {
-    color: var(--color-text-primary);
+    color: var(--text-1);
 }
 
 
@@ -614,7 +614,7 @@ onBeforeUnmount(() => {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     /* 图标位切换（涟漪 ⇄ 折叠箭头）：无位移淡入淡出 */
     transition: opacity 0.12s ease;
 }
@@ -636,7 +636,7 @@ onBeforeUnmount(() => {
 .think-content-body {
     font-size: 12px;
     line-height: 1.7;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     display: flex;
     flex-direction: column;
     min-height: calc(12px * 1.7 + 12px);
@@ -650,9 +650,9 @@ onBeforeUnmount(() => {
     /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */
     scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: var(--color-border-secondary) transparent;
+    scrollbar-color: var(--line) transparent;
     margin-left: 7px;
-    border-left: 1px solid var(--color-border-secondary);
+    border-left: 1px solid var(--line);
     /* 右侧避让滚动条 */
     padding: 0 8px 0 14px;
     /* 防止思考区代码块（含 hljs-string 超长）撑破 */
@@ -661,8 +661,8 @@ onBeforeUnmount(() => {
 }
 .think-content-body::-webkit-scrollbar { width: 5px; }
 .think-content-body::-webkit-scrollbar-track { background: transparent; }
-.think-content-body::-webkit-scrollbar-thumb { background: var(--color-border-secondary); border-radius: 3px; }
-.think-content-body::-webkit-scrollbar-thumb:hover { background: var(--color-border-primary); }
+.think-content-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.think-content-body::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
 
 .think-content-body :deep(p) {
     /* 对齐全局行距节奏（--md-gap-line）：换行/分段等距 */
@@ -703,7 +703,7 @@ onBeforeUnmount(() => {
     font-size: 12px;
     font-weight: 600;
     margin: 8px 0 4px;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
 }
 
 .think-content-body :deep(ul),
@@ -732,7 +732,7 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     padding: 4px;
-    color: var(--color-text-tertiary, #a8abb2);
+    color: var(--text-3);
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
@@ -742,15 +742,15 @@ onBeforeUnmount(() => {
 }
 
 .copy-message-btn:hover {
-    color: var(--color-text-secondary);
+    color: var(--text-2);
 }
 
 .copy-message-btn.copied {
-    color: #22c55e;
+    color: var(--ok);
 }
 
 .copy-message-btn.error {
-    color: var(--color-error);
+    color: var(--err);
 }
 
 .msg-action-btn {
@@ -758,7 +758,7 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     padding: 4px;
-    color: var(--color-text-tertiary, #a8abb2);
+    color: var(--text-3);
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
@@ -768,11 +768,11 @@ onBeforeUnmount(() => {
 }
 
 .msg-action-btn:hover:not(:disabled) {
-    color: var(--color-text-secondary);
+    color: var(--text-2);
 }
 
 .msg-action-btn.danger:hover:not(:disabled) {
-    color: var(--color-error, #e74c3c);
+    color: var(--err);
 }
 
 .msg-action-btn:disabled {
@@ -787,8 +787,8 @@ onBeforeUnmount(() => {
     gap: 3px;
     padding: 1px 6px;
     border-radius: var(--radius-sm);
-    background: var(--color-primary-light, rgba(79,70,229,0.1));
-    color: var(--color-primary, #7c7cf8);
+    background: var(--primary-light);
+    color: var(--primary);
     cursor: pointer;
     font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
     font-size: 0.9em;
@@ -798,9 +798,9 @@ onBeforeUnmount(() => {
     word-break: break-all;
 }
 :deep(.file-path-link):hover {
-    background: var(--color-primary-light, rgba(79,70,229,0.18));
-    border-color: var(--color-primary, rgba(124,124,248,0.3));
-    color: var(--color-primary-hover, #918cf8);
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary-strong);
     text-decoration: underline;
 }
 
@@ -811,8 +811,8 @@ onBeforeUnmount(() => {
     gap: 3px;
     padding: 1px 8px;
     border-radius: var(--radius-sm);
-    background: var(--color-primary-light, rgba(79,70,229,0.1));
-    color: var(--color-primary, #7c7cf8);
+    background: var(--primary-light);
+    color: var(--primary);
     cursor: pointer;
     font-size: 0.9em;
     text-decoration: none;
@@ -820,9 +820,9 @@ onBeforeUnmount(() => {
     transition: all 0.15s ease;
 }
 :deep(.file-tag):hover {
-    background: var(--color-primary-light, rgba(79,70,229,0.18));
-    border-color: var(--color-primary, rgba(124,124,248,0.3));
-    color: var(--color-primary-hover, #918cf8);
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary-strong);
     text-decoration: underline;
 }
 

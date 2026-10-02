@@ -12,7 +12,7 @@ import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { singleDialog } from './feed.ts';
-import { Avatar, Icon, toastError } from '@agentchat/webui-kit';
+import { Avatar, BusyRing, Icon, toastError } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
 import { parkDraft, takeDraft } from './draftParking.ts';
@@ -1753,7 +1753,7 @@ function onThumbError(i: number) {
       <div class="toolbar-right">
         <button type="button" class="icon-btn" :disabled="uploading" @click="triggerFileUpload" title="附件上传（也可直接在输入框 Ctrl+V 粘贴图片/文件）">
           <Icon name="paperclip" :size="17" />
-          <span v-if="uploading" class="uploading-spinner"></span>
+          <BusyRing v-if="uploading" :size="13" class="uploading-spinner" />
         </button>
 
         <!-- 输入框不设"立即发送"按钮（DSH 同款）：插话的点击位在 QueueDock
@@ -1784,8 +1784,8 @@ function onThumbError(i: number) {
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  background: var(--color-bg-page);
-  border: 1px solid var(--color-border-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   flex-shrink: 0;
   margin: 0 10px 10px;
@@ -1815,11 +1815,11 @@ function onThumbError(i: number) {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: var(--color-primary-light);
-  border: 1px solid var(--color-primary);
+  background: var(--primary-light);
+  border: 1px solid var(--primary);
   border-radius: var(--radius-sm);
   font-size: 12px;
-  color: var(--color-primary);
+  color: var(--primary);
 }
 
 /* 图片附件 chip（粘贴/选择即显缩略图；只显图——文件名退 hover 提示，
@@ -1837,8 +1837,8 @@ function onThumbError(i: number) {
   height: 54px;
   object-fit: cover;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-primary);
-  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--primary);
+  background: var(--bg-surface);
 }
 
 .file-chip--image .file-chip-remove {
@@ -1849,8 +1849,8 @@ function onThumbError(i: number) {
   height: 16px;
   justify-content: center;
   border-radius: 50%;
-  background: var(--color-primary);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   opacity: 0;
   transition: opacity 0.12s;
 }
@@ -1869,7 +1869,7 @@ function onThumbError(i: number) {
 .file-chip-remove {
   background: none;
   border: none;
-  color: var(--color-primary);
+  color: var(--primary);
   cursor: pointer;
   line-height: 1;
   padding: 0;
@@ -1935,7 +1935,7 @@ function onThumbError(i: number) {
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -1943,27 +1943,27 @@ function onThumbError(i: number) {
   white-space: nowrap;
 }
 
-.select-btn:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
-.select-btn.open { background: #eff0f1; color: var(--role-selected-text, #4f46e5); }
-html.dark .select-btn.open { background: #1a1f2c; }
+.select-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.select-btn.open { background: var(--bg-hover); color: var(--role-selected-text); }
+html.dark .select-btn.open { background: var(--role-selected-bg); }
 
 /* 会话锁定态图标（规则 1：已有消息禁换预设——fresh 预设面板内 lock 象形） */
-.lock-icon { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
+.lock-icon { flex-shrink: 0; color: var(--text-3); }
 
 /* 快捷提权武装态（持续生效直到改回）：警示色常显——防"忘记已武装"；
  * full 档用危险色（不受限的执行档，视觉重量最高） */
-.select-btn.armed { color: var(--color-warning, #e67e22); font-weight: 600; }
-.select-btn.armed:hover { color: var(--color-warning, #e67e22); background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.1); }
-.select-btn.armed-full { color: var(--color-error, #e5484d); }
+.select-btn.armed { color: var(--warn); font-weight: 600; }
+.select-btn.armed:hover { color: var(--warn); background: rgba(var(--warn-rgb), 0.1); }
+.select-btn.armed-full { color: var(--err); }
 /* 浏览器档态（实验性 → 浏览器）：授权 = 强调色（可用），禁用 = 灰暗（不可用） */
-.select-btn.browser-armed { color: var(--color-link, #3b82f6); font-weight: 600; }
-.select-btn.browser-disabled { color: var(--color-text-tertiary); text-decoration: line-through; }
+.select-btn.browser-armed { color: var(--primary-strong); font-weight: 600; }
+.select-btn.browser-disabled { color: var(--text-3); text-decoration: line-through; }
 .select-btn.browser-disabled .select-text { text-decoration: line-through; }
-.select-btn.armed-full:hover { color: var(--color-error, #e5484d); background: rgba(var(--color-error-rgb, 229, 72, 77), 0.1); }
+.select-btn.armed-full:hover { color: var(--err); background: rgba(var(--err-rgb), 0.1); }
 
 /* 程序化模式激活态（工具使用模式 = 程序化）：主色微亮——模式在场的持续提示 */
-.select-btn.prog { color: var(--color-primary, #4f46e5); font-weight: 600; }
-.select-btn.prog:hover { color: var(--color-primary, #4f46e5); background: rgba(var(--color-primary-rgb, 79, 70, 229), 0.1); }
+.select-btn.prog { color: var(--primary); font-weight: 600; }
+.select-btn.prog:hover { color: var(--primary); background: rgba(var(--primary-rgb), 0.1); }
 /* 档位不可选（Agent 无 tc-programmatic 标签——覆盖惰性对齐） */
 .dd-option.is-disabled { opacity: .55; cursor: not-allowed; }
 .dd-option.is-disabled:hover { background: none; }
@@ -1974,20 +1974,24 @@ html.dark .select-btn.open { background: #1a1f2c; }
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(var(--color-warning-rgb, 230, 126, 34), 0.45);
-  background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.08);
+  border: 1px solid rgba(var(--warn-rgb), 0.45);
+  /* 本处刻意保留 legacy 别名 --color-warning-rgb（定义 = var(--warn-rgb)，视觉零差）：
+     本包清零后它已无其它消费，而 kit 兼容层的死别名清理（删 tokens.css 该行 +
+     重跑 scripts/build-webui-preview.mjs）属 P6 兼容层批次——P1 不动包外文件，
+     故留此一处消费守住 css-color-tokens 测试③「三元组无死条目」反向锁。 */
+  background: rgba(var(--color-warning-rgb), 0.08);
   border-radius: var(--radius-md);
-  color: var(--color-warning, #e67e22);
+  color: var(--warn);
   font-size: 12px;
   line-height: 1.5;
 }
 
 /* 未配置任何模型警示态（默认模型发不出去——防用户误以为可直接会话） */
-.select-btn.warn { color: var(--color-warning, #e67e22); }
-.select-btn.warn:hover { color: var(--color-warning, #e67e22); background: rgba(var(--color-warning-rgb, 230, 126, 34), 0.1); }
-.dd-option.warn .dd-option-name { color: var(--color-warning, #e67e22); }
-.dd-option-detail.is-warn { color: var(--color-warning, #e67e22); }
-.dd-warn-icon { vertical-align: -2px; margin-right: 3px; color: var(--color-warning, #e67e22); }
+.select-btn.warn { color: var(--warn); }
+.select-btn.warn:hover { color: var(--warn); background: rgba(var(--warn-rgb), 0.1); }
+.dd-option.warn .dd-option-name { color: var(--warn); }
+.dd-option-detail.is-warn { color: var(--warn); }
+.dd-warn-icon { vertical-align: -2px; margin-right: 3px; color: var(--warn); }
 
 .select-text {
   max-width: 220px;
@@ -1996,7 +2000,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
   white-space: nowrap;
 }
 
-.chevron { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); transition: transform .15s ease; }
+.chevron { flex-shrink: 0; color: var(--text-3); transition: transform .15s ease; }
 .chevron.open { transform: rotate(180deg); }
 
 /* ── 统一下拉（Agent / 模型 / 思考强度共用；向上弹出）── */
@@ -2009,8 +2013,8 @@ html.dark .select-btn.open { background: #1a1f2c; }
   min-width: 160px;
   max-height: 260px;
   overflow-y: auto;
-  background: var(--bg-raised, var(--color-bg-page));
-  border: 1px solid var(--line, var(--color-border-secondary));
+  background: var(--bg-raised, var(--bg-base));
+  border: 1px solid var(--line, var(--line));
   border-radius: 10px;
   box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,.12));
   padding: 4px;
@@ -2026,7 +2030,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
   border: none;
   border-radius: 6px;
   background: none;
-  color: var(--text-1, var(--color-text-primary));
+  color: var(--text-1, var(--text-1));
   font-size: 13px;
   cursor: pointer;
   text-align: left;
@@ -2034,7 +2038,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 
 /* 选中态 = 行尾 check 勾（主色）——正文/名称保持常态色；此前整行染
  * --role-selected-text（主题靛蓝）是下拉里"文字发蓝"的观感来源（分组
- * 标题邻近选中项时尤显突兀——它本身是灰色 var(--color-text-tertiary)） */
+ * 标题邻近选中项时尤显突兀——它本身是灰色 var(--text-3)） */
 .dd-option:hover { background: var(--role-hover-bg, var(--bg-hover)); }
 .dd-option.selected .dd-option-name { font-weight: 600; }
 
@@ -2051,7 +2055,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .dd-option-check {
   margin-left: auto;
   flex-shrink: 0;
-  color: var(--color-primary, #4f46e5);
+  color: var(--primary);
   display: inline-flex;
   align-items: center;
 }
@@ -2075,7 +2079,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .dd-option-desc {
   font-size: 11px;
   line-height: 1.45;
-  color: var(--color-text-tertiary, #a8abb2);
+  color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2090,7 +2094,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .dd-option-detail {
   margin-left: auto;
   font-size: 11px;
-  color: var(--color-text-tertiary, #a8abb2);
+  color: var(--text-3);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -2104,19 +2108,19 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .dd-divider {
   height: 1px;
   margin: 4px 6px;
-  background: var(--color-border-secondary, #e0e0e0);
+  background: var(--line);
 }
 
-.dd-back { color: var(--color-text-secondary); font-weight: 500; }
-.dd-back:hover { color: var(--text-1, var(--color-text-primary)); }
+.dd-back { color: var(--text-2); font-weight: 500; }
+.dd-back:hover { color: var(--text-1, var(--text-1)); }
 
-.dd-arrow { margin-left: 4px; color: var(--color-text-tertiary, #a8abb2); }
+.dd-arrow { margin-left: 4px; color: var(--text-3); }
 
 .dd-group-label {
   padding: 2px 12px 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--color-text-tertiary, #a8abb2);
+  color: var(--text-3);
   letter-spacing: .3px;
 }
 
@@ -2133,25 +2137,25 @@ html.dark .select-btn.open { background: #1a1f2c; }
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
   position: relative;
   flex-shrink: 0;
 }
 
-.icon-btn:hover:not(:disabled) { background: var(--color-bg-subtle); color: var(--color-text-primary); }
+.icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .icon-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .send-btn {
-  background: var(--color-primary);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   box-shadow: var(--shadow-pop);
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--color-primary-hover);
-  color: #fff;
+  background: var(--primary-strong);
+  color: var(--on-primary);
   box-shadow: 0 6px 22px rgba(99, 102, 241, 0.32);
 }
 
@@ -2162,33 +2166,24 @@ html.dark .select-btn.open { background: #1a1f2c; }
 /* 忙态停止（DSH input.stop）：危险操作红底方停止键——停止是它唯一的职责，
    点击即中止在途 run（红色 = 破坏性动作的视觉预告） */
 .send-btn.stopping {
-  background: var(--color-error);
-  color: #fff;
+  background: var(--err);
+  color: var(--on-primary);
   box-shadow: none;
   animation: pulse-stop 1.5s ease-in-out infinite;
 }
 
-.send-btn.stopping:hover { background: var(--color-error); /* 回退（cr-32）：本色（混黑为加深一档的 hover 微调） */ background: color-mix(in srgb, var(--color-error) 85%, #000); color: #fff; }
+.send-btn.stopping:hover { background: var(--err); /* 回退（cr-32）：本色（混黑为加深一档的 hover 微调） */ background: color-mix(in srgb, var(--err) 85%, #000); /* #000 = 混色加深常量（非调色板色值，无对应令牌；WebView 92 走上一行回退） */ color: var(--on-primary); }
 
 @keyframes pulse-stop {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-error-rgb), 0.35); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--err-rgb), 0.35); }
   50% { box-shadow: 0 0 0 6px transparent; }
 }
 
+/* 上传中忙指示（形状轴统一走 kit BusyRing，本处只留定位/遮底） */
 .uploading-spinner {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--color-border-secondary);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-  background: var(--color-bg-page, #fff);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+  background: var(--bg-base);
 }
 </style>

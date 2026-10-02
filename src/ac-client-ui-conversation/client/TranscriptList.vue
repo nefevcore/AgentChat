@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { formatRelativeTime } from './format.ts';
+import { BusyRing } from '@agentchat/webui-kit';
 import { useChatShell } from './useChatShell.ts';
 import type { DisplayItem } from './types.ts';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
@@ -170,7 +171,7 @@ defineExpose({
         <!-- 空态 gate（首载未回 = 加载占位，不显示「开始对话」） -->
         <div v-if="messageCount === 0" class="empty-state">
           <template v-if="firstLoadPending">
-            <span class="history-spinner empty-state-spinner"></span>
+            <BusyRing :size="28" class="empty-state-spinner" />
             <p>正在加载历史消息…</p>
           </template>
           <template v-else>
@@ -183,7 +184,7 @@ defineExpose({
 
         <!-- 加载更多历史消息指示器（空态时由上方加载占位承担） -->
         <div v-if="messageCount > 0 && loading" class="history-loading">
-          <span class="history-spinner"></span>
+          <BusyRing :size="16" />
           <span class="history-loading-text">加载历史消息中…</span>
         </div>
 
@@ -237,47 +238,45 @@ defineExpose({
 .messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); scrollbar-width: thin; scrollbar-color: transparent transparent; }
 .messages-content { display: flex; flex-direction: column; gap: var(--space-sm); width: 100%; max-width: 100%; margin: 0 auto; min-height: 100%; }
 /* 滚动条仅悬停会话区域时可见：默认拇指透明（6px 槽位常驻，避免悬停时内容宽度跳变） */
-.messages-container:hover { scrollbar-color: var(--color-border-primary) transparent; }
+.messages-container:hover { scrollbar-color: var(--line-strong) transparent; }
 .messages-container::-webkit-scrollbar { width: 6px; }
 .messages-container::-webkit-scrollbar-track { background: transparent; }
 .messages-container::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
-.messages-container:hover::-webkit-scrollbar-thumb { background: var(--color-border-primary); }
-.messages-container::-webkit-scrollbar-thumb:hover { background: var(--color-primary); }
+.messages-container:hover::-webkit-scrollbar-thumb { background: var(--line-strong); }
+.messages-container::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
-.empty-state { text-align: center; padding: 40px; color: var(--color-text-muted); }
+.empty-state { text-align: center; padding: 40px; color: var(--text-3); }
 .empty-state svg { margin-bottom: 12px; }
 .empty-state p { font-size: 15px; }
 
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
-.time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
+.time-separator-text { font-size: 12px; color: var(--text-3); padding: 2px 12px; letter-spacing: 0.5px; }
 .event-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: min(42px, 10%); padding-right: min(42px, 10%); }
 /* run 中插播事件（前后均為同 agent 轮）：紧凑居中——文字直接复用下方通用
    .event-separator-text（无背景/边框，与时间分隔控件同视觉，只要文字）；
    仅保留行距与时间隐藏，弱化对阅读流的切断感 */
 .event-separator--inline { margin: 1px auto; padding: 0 12px; }
 .event-separator--inline .event-separator-time { display: none; }
-.event-separator-time { font-size: 11px; color: var(--color-text-tertiary, #999); letter-spacing: 0.3px; line-height: 1.4; }
-.event-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
+.event-separator-time { font-size: 11px; color: var(--text-3); letter-spacing: 0.3px; line-height: 1.4; }
+.event-separator-text { font-size: 12px; color: var(--text-3); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 .error-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; margin: 4px 0; padding-left: min(42px, 10%); padding-right: min(42px, 10%); }
-.error-separator-time { font-size: 11px; color: rgba(var(--color-error-rgb, 231, 76, 60), 0.7); letter-spacing: 0.3px; line-height: 1.4; }
-.error-separator-text { font-size: 12px; color: var(--color-error, #e74c3c); padding: 2px 12px; letter-spacing: 0.5px; text-align: center; word-break: break-word; }
+.error-separator-time { font-size: 11px; color: rgba(var(--err-rgb), 0.7); letter-spacing: 0.3px; line-height: 1.4; }
+.error-separator-text { font-size: 12px; color: var(--err); padding: 2px 12px; letter-spacing: 0.5px; text-align: center; word-break: break-word; }
 
-.history-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0; color: var(--color-text-muted); font-size: 13px; }
-.history-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--color-border-primary); border-top-color: var(--color-primary); border-radius: 50%; animation: history-spin 0.6s linear infinite; }
-/* 空态加载占位中的 spinner（居中大号；对齐空态 svg 的 margin-bottom） */
-.empty-state-spinner { width: 28px; height: 28px; border-width: 3px; margin-bottom: 12px; }
-@keyframes history-spin { to { transform: rotate(360deg); } }
+.history-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0; color: var(--text-3); font-size: 13px; }
+/* 空态加载占位（kit BusyRing 居中大号；对齐空态 svg 的 margin-bottom） */
+.empty-state-spinner { margin-bottom: 12px; }
 .history-loading-text { user-select: none; }
 
 .scroll-to-bottom-btn {
   position: absolute; bottom: 12px; right: 16px;
-  width: 40px; height: 40px; border: 1px solid var(--color-border-primary, #e0e0e0);
-  border-radius: 50%; background: var(--color-bg-page, #fff); color: var(--color-text-secondary, #666);
+  width: 40px; height: 40px; border: 1px solid var(--line-strong);
+  border-radius: 50%; background: var(--bg-base); color: var(--text-2);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   box-shadow: 0 2px 8px rgba(0,0,0,0.12); z-index: 50; padding: 0;
   transition: box-shadow 0.2s, transform 0.2s, background 0.2s;
 }
-.scroll-to-bottom-btn:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.18); transform: translateY(-1px); background: var(--color-bg-surface, #f5f5f5); }
+.scroll-to-bottom-btn:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.18); transform: translateY(-1px); background: var(--bg-surface); }
 .scroll-to-bottom-btn:active { transform: translateY(0); }
 .scroll-btn-enter-active, .scroll-btn-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .scroll-btn-enter-from, .scroll-btn-leave-to { opacity: 0; transform: translateY(8px); }

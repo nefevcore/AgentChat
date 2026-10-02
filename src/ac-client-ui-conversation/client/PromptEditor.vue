@@ -361,7 +361,9 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   line-height: 1.5;
 }
 
-/* token 药丸（与原 .tok-* 同视觉：颜色 + 底色承担，零水平占位） */
+/* token 药丸（与原 .tok-* 同视觉：颜色 + 底色承担，零水平占位）——
+   skill/file/agent/session 四类 = 分类色板（每类一色，暗/亮双档同加），
+   按指南 R1「分类色板保持独立不并入语义色」保留字面色值（非硬编码散件）。 */
 .pe-wrap :deep(.pe-tok) {
   border-radius: var(--radius-sm);
   padding: 1px 0;

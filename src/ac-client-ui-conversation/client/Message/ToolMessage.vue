@@ -309,7 +309,7 @@ watch(isExpanded, (expanded) => {
     width: auto;
     margin-left: 7px;
     padding-left: 14px;
-    border-left: 1px solid var(--color-border-secondary);
+    border-left: 1px solid var(--line);
 }
 
 .tool-section {
@@ -323,7 +323,7 @@ watch(isExpanded, (expanded) => {
     gap: 6px;
     font-size: 12px;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     user-select: none;
     cursor: pointer;
     padding: 2px 0;
@@ -333,25 +333,25 @@ watch(isExpanded, (expanded) => {
 }
 
 .tool-label:hover {
-    color: var(--color-text-primary);
+    color: var(--text-1);
 }
 
 /* 失败（error/blocked）：label 整行红字（替代原 OK/ERR/BLK 徽章） */
 .tool-label.is-failed,
 .tool-label.is-failed:hover {
-    color: var(--color-error);
+    color: var(--err);
 }
 
 /* 失败红要覆盖行首图标（Icon 继承 currentColor，随行色走） */
 .tool-label.is-failed .tool-label-icon {
-    color: var(--color-error);
+    color: var(--err);
 }
 
 .tool-label-icon {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
 }
 
 /* label 文本：单行截断（min-width:0 覆盖 flex 项 auto 下限才能收缩出
@@ -366,7 +366,7 @@ watch(isExpanded, (expanded) => {
 
 .tool-label-hint {
   display: flex; align-items: center; opacity: 0;
-  transition: opacity 0.15s; color: var(--color-accent, #4a90d9); flex-shrink: 0;
+  transition: opacity 0.15s; color: var(--primary-strong); flex-shrink: 0;
 }
 .tool-label:hover .tool-label-hint { opacity: 1; }
 
@@ -384,8 +384,8 @@ watch(isExpanded, (expanded) => {
     user-select: none;
 }
 
-.diff-stat-add { color: #4ade80; white-space: nowrap; }
-.diff-stat-remove { color: #f87171; white-space: nowrap; }
+.diff-stat-add { color: var(--ok); white-space: nowrap; }
+.diff-stat-remove { color: var(--err); white-space: nowrap; }
 
 /* 行首图标切换（工具图标 ⇄ 折叠箭头 ⇄ 运行中旋转环）：无位移的淡入淡出 */
 .tool-label-icon { transition: opacity 0.12s ease; }
@@ -408,7 +408,7 @@ watch(isExpanded, (expanded) => {
 .tool-body {
     margin-top: 4px;
     margin-left: 7px;
-    border-left: 1px solid var(--color-border-secondary);
+    border-left: 1px solid var(--line);
     padding-left: 14px;
     display: flex;
     flex-direction: column;
@@ -432,7 +432,7 @@ watch(isExpanded, (expanded) => {
     white-space: pre-wrap;
     word-break: break-word;
     font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     background: transparent;
     /* 限高滚动：超长纯文本结果收进固定视口（--card-viewport-max 统一
        令牌——与思考卡及各工具卡同高），不再把消息流撑出数屏；流式输出
@@ -443,7 +443,7 @@ watch(isExpanded, (expanded) => {
     /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */
     scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: var(--color-border-secondary) transparent;
+    scrollbar-color: var(--line) transparent;
 }
 
 .tool-output code {
@@ -454,8 +454,8 @@ watch(isExpanded, (expanded) => {
 /* 细滚动条（与思考卡同款） */
 .tool-output::-webkit-scrollbar { width: 5px; }
 .tool-output::-webkit-scrollbar-track { background: transparent; }
-.tool-output::-webkit-scrollbar-thumb { background: var(--color-border-secondary); border-radius: 3px; }
-.tool-output::-webkit-scrollbar-thumb:hover { background: var(--color-border-primary); }
+.tool-output::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.tool-output::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
 
 .tool-loading {
     display: flex;
@@ -465,23 +465,23 @@ watch(isExpanded, (expanded) => {
 
 .loading-text {
     font-size: 12px;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     font-style: italic;
 }
 
 .tool-empty {
     font-size: 12px;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
     font-style: italic;
 }
 
 .tool-json-error {
-    color: var(--color-error);
+    color: var(--err);
     font-size: 12px;
 }
 
 .tool-json-warning {
-    color: var(--color-warning);
+    color: var(--warn);
     font-size: 12px;
 }
 
@@ -489,7 +489,7 @@ watch(isExpanded, (expanded) => {
     display: flex;
     align-items: center;
     gap: 5px;
-    color: #f59e0b;
+    color: var(--warn);
     font-size: 12px;
 }
 .tool-json-blocked-icon { flex-shrink: 0; }
@@ -497,7 +497,7 @@ watch(isExpanded, (expanded) => {
 .tool-json-title {
     font-size: 12px;
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     margin-bottom: 4px;
 }
 </style>

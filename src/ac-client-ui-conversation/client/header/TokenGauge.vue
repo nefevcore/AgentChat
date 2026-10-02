@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { RingProgress } from '@agentchat/webui-kit';
+import { BusyRing, RingProgress } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
@@ -256,7 +256,7 @@ const applicable = computed(() =>
           @click="handleCompress()"
         >
           <svg v-if="!chatStore.compressPending" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
-          <span v-else class="token-panel__action-spinner"></span>
+          <BusyRing v-else :size="13" />
           {{ chatStore.compressPending ? '正在归档整理记忆…' : '归档对话' }}
         </button>
       </div>
@@ -266,7 +266,7 @@ const applicable = computed(() =>
 
 <style scoped>
 .session-token-gauge { position: relative; display: flex; align-items: center; gap: 6px; padding: 2px 4px; flex-shrink: 0; cursor: pointer; border-radius: var(--radius-sm); }
-.session-token-gauge:hover, .session-token-gauge.is-open { background: var(--color-bg-surface); }
+.session-token-gauge:hover, .session-token-gauge.is-open { background: var(--bg-surface); }
 /* 头部环形占用（数值在环心，单位 % 省略——title 补全语义） */
 .gauge-ring { display: block; }
 .gauge-ring-pct { font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -278,12 +278,12 @@ const applicable = computed(() =>
 .token-panel {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
   min-width: 248px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
-  background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-primary, #e0e0e0);
+  background: var(--bg-base); border: 1px solid var(--line-strong);
   border-radius: var(--radius-md, 10px); box-shadow: var(--shadow-pop);
   cursor: default; text-align: left;
 }
 .token-panel__head { display: flex; align-items: center; justify-content: space-between; }
-.token-panel__title { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
+.token-panel__title { font-size: 12px; font-weight: 600; color: var(--text-1); }
 .token-panel__status { font-size: 11px; font-weight: 600; }
 .token-panel__status.normal { color: var(--ok); }
 .token-panel__status.high { color: var(--warn); }
@@ -296,32 +296,30 @@ const applicable = computed(() =>
 .token-ring-pct.normal { color: var(--ok-graphic); }
 .token-ring-pct.high { color: var(--warn-graphic); }
 .token-ring-pct.critical { color: var(--err-graphic); }
-.token-ring-sub { font-size: 10px; color: var(--color-text-tertiary, #999); margin-top: 3px; }
+.token-ring-sub { font-size: 10px; color: var(--text-3); margin-top: 3px; }
 .token-ring-side { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .token-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
-.token-row .k { color: var(--color-text-secondary); white-space: nowrap; }
-.token-row .v { color: var(--color-text-primary); font-variant-numeric: tabular-nums; text-align: right; }
-.token-row--sub .k { color: var(--color-text-tertiary, #999); padding-left: 6px; }
-.token-row--sub .v { color: var(--color-text-secondary); }
+.token-row .k { color: var(--text-2); white-space: nowrap; }
+.token-row .v { color: var(--text-1); font-variant-numeric: tabular-nums; text-align: right; }
+.token-row--sub .k { color: var(--text-3); padding-left: 6px; }
+.token-row--sub .v { color: var(--text-2); }
 /* 缓存命中区（上分隔线 + 命中比例小条） */
-.token-panel__cache { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--color-border-primary, #e0e0e0); padding-top: 8px; margin-top: 2px; }
-.cache-bar { width: 100%; height: 5px; border-radius: 2.5px; background: var(--color-bg-hover, rgba(0,0,0,0.10)); overflow: hidden; }
-/* 命中条 = 「好状态」绿（cr-122：原硬编码 teal #14b8a6 与 --ok 在面板同屏形成两种绿，归一语义色） */
+.token-panel__cache { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line-strong); padding-top: 8px; margin-top: 2px; }
+.cache-bar { width: 100%; height: 5px; border-radius: 2.5px; background: var(--bg-hover); overflow: hidden; }
+/* 命中条 = 「好状态」绿（cr-122：原硬编码 teal（青绿）与 --ok 在面板同屏形成两种绿，归一语义色） */
 /* 命中条是图形件（1.4.11 · 3.0 线）——图形档（cr-123） */
 .cache-bar__hit { height: 100%; border-radius: 2.5px; background: var(--ok-graphic); transition: width 0.3s ease; }
-.token-note { font-size: 11px; line-height: 1.5; color: var(--color-text-tertiary, #999); border-top: 1px solid var(--color-border-primary, #e0e0e0); padding-top: 6px; margin-top: 2px; }
+.token-note { font-size: 11px; line-height: 1.5; color: var(--text-3); border-top: 1px solid var(--line-strong); padding-top: 6px; margin-top: 2px; }
 /* 归档动作行（占用量与归档动作同屏） */
 .token-panel__action {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   margin-top: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer;
-  border: 1px solid var(--color-border-primary, #e0e0e0); border-radius: var(--radius-sm, 6px);
-  background: var(--color-bg-page, #fff); color: var(--color-text-secondary);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm, 6px);
+  background: var(--bg-base); color: var(--text-2);
   transition: background .15s, color .15s;
 }
-.token-panel__action:hover:not(:disabled) { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.token-panel__action:hover:not(:disabled) { background: var(--bg-surface); color: var(--text-1); }
 .token-panel__action:disabled { opacity: 0.55; cursor: not-allowed; }
-.token-panel__action-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; display: inline-block; animation: tg-history-spin .7s linear infinite; }
-@keyframes tg-history-spin { to { transform: rotate(360deg); } }
 
 .fade-enter-active, .fade-leave-active { transition: opacity .25s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

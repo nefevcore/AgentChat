@@ -12,7 +12,7 @@
     仍在等待，late-reply 对账由后端负责）；超时自动关闭。 -->
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
-import { Icon } from '@agentchat/webui-kit';
+import { DockCard, FeedbackNotice, Icon } from '@agentchat/webui-kit';
 import { useChatStore } from './chatStore.ts';
 
 const chatStore = useChatStore();
@@ -172,156 +172,108 @@ function step(delta: number) {
 </script>
 
 <template>
-  <div v-if="interaction && visible" class="interaction-bar">
-    <Transition name="ib-card-in" appear>
-      <section class="ib-card" :class="{ minimized }">
-        <!-- 头部：提问方 eyebrow + 完整问题（不截断）+ 收起/关闭 -->
-        <header class="ib-header">
-          <div class="ib-heading">
-            <div class="ib-eyebrow">决策请求 · {{ interaction.agent_id || 'Agent' }}</div>
-            <h3 class="ib-title">{{ question?.question }}<span v-if="isMulti" class="ib-multi-tag">多选</span></h3>
-          </div>
-          <div class="ib-header-actions">
+  <Transition name="ib-card-in" appear>
+    <DockCard
+      v-if="interaction && visible"
+      class="interaction-bar"
+      :dense="minimized"
+      :eyebrow="`决策请求 · ${interaction.agent_id || 'Agent'}`"
+    >
+      <template #actions>
+        <button
+          type="button"
+          class="ib-icon-btn"
+          :title="minimized ? '展开' : '收起'"
+          :aria-expanded="!minimized"
+          @click="minimized = !minimized"
+        >
+          <Icon :name="minimized ? 'chevron-down' : 'chevron-up'" :size="13" />
+        </button>
+        <button type="button" class="ib-icon-btn" title="关闭（Agent 仍在等待，刷新页面可恢复作答入口）" @click="chatStore.dismissInteraction()">
+          <Icon name="x" :size="13" />
+        </button>
+      </template>
+
+      <template v-if="!minimized">
+        <!-- 完整问题（DockCard 的 title 是单行省略——题干住正文区，长问题不截断） -->
+        <h3 class="ib-title">{{ question?.question }}<span v-if="isMulti" class="ui-badge info ib-multi-tag">多选</span></h3>
+        <!-- 选项区：整行选项（序号徽标 + 文案），选中 = 底色 + 主色描边；
+             单选 radiogroup 即选即走，多选 checkbox 组停留勾选；
+             末行自定义输入（铅笔图标，与选项互斥） -->
+        <div class="ib-body">
+          <div
+            class="ib-options"
+            :role="isMulti ? 'group' : 'radiogroup'"
+            :aria-label="question?.question"
+          >
             <button
+              v-for="(opt, oi) in question?.options ?? []"
+              :key="oi"
               type="button"
-              class="ib-icon-btn"
-              :title="minimized ? '展开' : '收起'"
-              :aria-expanded="!minimized"
-              @click="minimized = !minimized"
+              :role="isMulti ? 'checkbox' : 'radio'"
+              :aria-checked="drafts[index]?.selected.includes(opt)"
+              class="ib-option"
+              :class="{ selected: drafts[index]?.selected.includes(opt) }"
+              @click="choose(opt)"
             >
-              <Icon :name="minimized ? 'chevron-down' : 'chevron-up'" :size="13" />
+              <span class="ib-number">{{ oi + 1 }}</span>
+              <span class="ib-option-label">{{ opt }}</span>
             </button>
-            <button type="button" class="ib-icon-btn" title="关闭（Agent 仍在等待，刷新页面可恢复作答入口）" @click="chatStore.dismissInteraction()">
-              <Icon name="x" :size="13" />
-            </button>
-          </div>
-        </header>
-
-        <template v-if="!minimized">
-          <!-- 选项区：整行选项（序号徽标 + 文案），选中 = 底色 + 主色描边；
-               单选 radiogroup 即选即走，多选 checkbox 组停留勾选；
-               末行自定义输入（铅笔图标，与选项互斥） -->
-          <div class="ib-body">
-            <div
-              class="ib-options"
-              :role="isMulti ? 'group' : 'radiogroup'"
-              :aria-label="question?.question"
-            >
-              <button
-                v-for="(opt, oi) in question?.options ?? []"
-                :key="oi"
-                type="button"
-                :role="isMulti ? 'checkbox' : 'radio'"
-                :aria-checked="drafts[index]?.selected.includes(opt)"
-                class="ib-option"
-                :class="{ selected: drafts[index]?.selected.includes(opt) }"
-                @click="choose(opt)"
-              >
-                <span class="ib-number">{{ oi + 1 }}</span>
-                <span class="ib-option-label">{{ opt }}</span>
-              </button>
-              <div class="ib-custom-row" :class="{ active: !!drafts[index]?.custom?.trim() }">
-                <span class="ib-number" aria-hidden="true"><Icon name="pencil" :size="11" /></span>
-                <input
-                  :value="drafts[index]?.custom ?? ''"
-                  class="ib-custom-input"
-                  placeholder="或输入其他回答…"
-                  @input="onCustomInput"
-                  @keydown="onCustomKeydown"
-                />
-              </div>
+            <div class="ib-custom-row" :class="{ active: !!drafts[index]?.custom?.trim() }">
+              <span class="ib-number" aria-hidden="true"><Icon name="pencil" :size="11" /></span>
+              <input
+                :value="drafts[index]?.custom ?? ''"
+                class="ib-custom-input"
+                placeholder="或输入其他回答…"
+                @input="onCustomInput"
+                @keydown="onCustomKeydown"
+              />
             </div>
           </div>
+        </div>
 
-          <!-- 底部：分页器（多题）+ 反馈 + 跳过 / 下一题·提交 -->
-          <footer class="ib-footer">
-            <div v-if="questions.length > 1" class="ib-pager">
-              <button type="button" class="ib-icon-btn" :disabled="index === 0" title="上一题" @click="step(-1)">
-                <Icon name="chevron-left" :size="13" />
-              </button>
-              <span class="ib-progress">{{ index + 1 }} / {{ questions.length }}</span>
-              <button type="button" class="ib-icon-btn" :disabled="isLast" title="下一题" @click="step(1)">
-                <Icon name="chevron-right" :size="13" />
-              </button>
-            </div>
-            <div class="ib-feedback" role="status">{{ feedback }}</div>
-            <div class="ib-actions">
-              <button type="button" class="ib-btn outline" @click="skipQuestion">跳过</button>
-              <button type="button" class="ib-btn primary" :disabled="!answered" @click="continueFlow">
-                {{ isLast ? '提交回答' : '下一题' }}
-              </button>
-            </div>
-          </footer>
-        </template>
-      </section>
-    </Transition>
-  </div>
+        <!-- 底部：分页器（多题）+ 反馈 + 跳过 / 下一题·提交 -->
+        <footer class="ib-footer">
+          <div v-if="questions.length > 1" class="ib-pager">
+            <button type="button" class="ib-icon-btn" :disabled="index === 0" title="上一题" @click="step(-1)">
+              <Icon name="chevron-left" :size="13" />
+            </button>
+            <span class="ib-progress">{{ index + 1 }} / {{ questions.length }}</span>
+            <button type="button" class="ib-icon-btn" :disabled="isLast" title="下一题" @click="step(1)">
+              <Icon name="chevron-right" :size="13" />
+            </button>
+          </div>
+          <!-- 作答校验反馈：kit FeedbackNotice（error tone；文案仍由本组件持有） -->
+        <div class="ib-feedback"><FeedbackNotice :text="feedback" tone="error" /></div>
+          <div class="ib-actions">
+            <button type="button" class="ib-btn outline" @click="skipQuestion">跳过</button>
+            <button type="button" class="ib-btn primary" :disabled="!answered" @click="continueFlow">
+              {{ isLast ? '提交回答' : '下一题' }}
+            </button>
+          </div>
+        </footer>
+    </template>
+    </DockCard>
+  </Transition>
 </template>
 
 <style scoped>
 .interaction-bar {
-  /* dock 卡定位（对齐 ComposerDock/QueueDock：与输入卡同宽、随 composer 列排布；
-     6px 下距 = dock 列纵向节奏） */
+  /* dock 卡定位（壳由 kit DockCard 提供：与输入卡同宽、随 composer 列排布） */
   flex-shrink: 0;
-  margin: 0 10px 6px;
 }
 
-/* ── 卡片（DSH QuestionComposer 布局 × dock 卡外壳：边框卡 + 轻浮起影
-      --shadow-dock——与输入卡同级的层次感，轻 --shadow-input 一档；
-      密度对齐 TodoPanel/QueueDock——13px 正文 / 6~12px 内距 / 22px 图标钮） ── */
-.ib-card {
-  display: flex;
-  flex-direction: column;
-  max-height: min(56vh, 440px);
-  background: var(--color-bg-secondary, var(--color-bg-page));
-  border: 1px solid var(--color-border-secondary);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
-}
-.ib-card.minimized { max-height: none; }
-
-/* ── 头部（密度对齐 TodoPanel 头行：6px 12px 内距 · 13px/500 标题） ── */
-.ib-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 8px 6px 12px;
-}
-.ib-heading { min-width: 0; }
-.ib-eyebrow {
-  margin-bottom: 4px;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* ── 题干（原 ib-header/ib-heading/ib-eyebrow 已随 DockCard 壳归位） ── */
 .ib-title {
   margin: 0;
   font-size: 13px;
   font-weight: 500;
   line-height: 20px;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   word-break: break-word;
 }
-/* 多选题徽标（对齐 ib-eyebrow 密度：11px 微标，主色描边轻底） */
-.ib-multi-tag {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 5px;
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-sm);
-  color: var(--color-primary);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 14px;
-  vertical-align: 1px;
-  white-space: nowrap;
-}
-.ib-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
+/* 多选题徽标＝ui-badge info（形状/配色归 kit 徽章族，此处只留专属修饰） */
+.ib-multi-tag { margin-left: 6px; vertical-align: 1px; }
 
 /* 方形图标按钮（收起/关闭/翻页共用；对齐 QueueDock queue-act：22px · radius-sm） */
 .ib-icon-btn {
@@ -333,17 +285,17 @@ function step(delta: number) {
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.ib-icon-btn:hover:not(:disabled) { background: var(--color-bg-hover, rgba(0,0,0,.04)); color: var(--color-text-primary); }
+.ib-icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .ib-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── 选项区（滚动兜底：题干/选项超长时内部滚） ── */
 .ib-body {
-  flex: 1;
-  min-height: 0;
+  /* 原 56vh/440px 上限挂在卡片上；改挂选项区（DockCard 壳无 max-height） */
+  max-height: min(56vh, 440px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -367,15 +319,15 @@ function step(delta: number) {
 }
 .ib-option {
   background: transparent;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.ib-option:hover { background: var(--color-bg-hover, rgba(0,0,0,.04)); }
+.ib-option:hover { background: var(--bg-hover); }
 .ib-option.selected {
-  background: var(--role-selected-bg, #e6eaff);
-  border-color: var(--color-primary);
+  background: var(--role-selected-bg);
+  border-color: var(--primary);
 }
 .ib-number {
   display: grid;
@@ -384,29 +336,29 @@ function step(delta: number) {
   width: 18px;
   height: 18px;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-hover, rgba(0,0,0,.06));
-  color: var(--color-text-secondary);
+  background: var(--bg-hover);
+  color: var(--text-2);
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
 }
 .ib-option.selected .ib-number {
-  background: var(--color-primary);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
 }
 .ib-option-label {
   flex: 1;
   min-width: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   word-break: break-word;
 }
 
 /* ── 自定义输入行（与选项同构：铅笔徽标 + 无边框输入） ── */
 .ib-custom-row:hover,
-.ib-custom-row:focus-within { background: var(--color-bg-hover, rgba(0,0,0,.04)); }
-.ib-custom-row.active { border-color: var(--color-primary); }
+.ib-custom-row:focus-within { background: var(--bg-hover); }
+.ib-custom-row.active { border-color: var(--primary); }
 .ib-custom-input {
   flex: 1;
   min-width: 0;
@@ -416,9 +368,9 @@ function step(delta: number) {
   outline: none;
   font-size: 13px;
   line-height: 20px;
-  color: var(--color-text-primary);
+  color: var(--text-1);
 }
-.ib-custom-input::placeholder { color: var(--color-text-tertiary); }
+.ib-custom-input::placeholder { color: var(--text-3); }
 
 /* ── 底部：分页器 + 反馈 + 动作（密度对齐 dock 族：12px 元信息 · 紧凑按钮） ── */
 .ib-footer {
@@ -430,7 +382,7 @@ function step(delta: number) {
 }
 .ib-pager { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
 .ib-progress {
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 500;
   line-height: 22px;
@@ -438,12 +390,10 @@ function step(delta: number) {
   padding: 0 2px;
 }
 .ib-feedback {
+  /* 反馈 chip 右对齐占位：布局归本行，图标/配色归 kit FeedbackNotice */
   flex: 1;
   min-height: 16px;
   text-align: right;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--color-error);
 }
 .ib-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
 .ib-btn {
@@ -455,17 +405,17 @@ function step(delta: number) {
 }
 .ib-btn.outline {
   background: transparent;
-  border: 1px solid var(--color-border-primary);
-  color: var(--color-text-secondary);
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
 }
-.ib-btn.outline:hover { color: var(--color-text-primary); border-color: var(--color-text-tertiary); }
+.ib-btn.outline:hover { color: var(--text-1); border-color: var(--text-3); }
 .ib-btn.primary {
-  background: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  color: #fff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: var(--on-primary);
 }
 .ib-btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.ib-btn.primary:not(:disabled):hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.ib-btn.primary:not(:disabled):hover { background: var(--primary-strong); border-color: var(--primary-strong); }
 
 /* ── 卡片入场（自下 6px 淡入上浮） ── */
 .ib-card-in-enter-active { transition: opacity 0.16s var(--ease-out), transform 0.16s var(--ease-out); }

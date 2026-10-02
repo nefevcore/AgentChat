@@ -80,7 +80,7 @@ const epB = computed(() => endpointOf(props.b || ''));
         <span class="agent-label">{{ title }}</span>
         <!-- 预设徽章（single 开场固化后的身份回显——工具栏不再放预设入口）；
              flex-shrink:0 = 徽章恒完整，长标题走 agent-label 截断 -->
-        <span v-if="presetChipLabel" class="preset-chip" style="flex-shrink: 0" title="会话预设（开场时选定，发首条消息后锁定）">
+        <span v-if="presetChipLabel" class="ui-badge tag tt-base preset-chip" style="flex-shrink: 0" title="会话预设（开场时选定，发首条消息后锁定）">
           <Icon name="sparkles" :size="11" />
           {{ presetChipLabel }}
         </span>
@@ -148,8 +148,8 @@ const epB = computed(() => endpointOf(props.b || ''));
 .chat-header {
   display: flex; align-items: center; gap: 10px;
   height: var(--layout-header-height); padding: 0 16px;
-  border-bottom: 1px solid var(--color-border-secondary);
-  background: var(--color-bg-page); flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-base); flex-shrink: 0;
   backdrop-filter: blur(8px); z-index: 100;
 }
 .header-info {
@@ -161,14 +161,14 @@ const epB = computed(() => endpointOf(props.b || ''));
 }
 /* 单行截断：主区被辅栏/主栏压缩时长标题（+ 头部 widget 挤压）不得换行
    撑破 48px 头部；pair 形态双端点名同理（.pair-title 已 min-width:0） */
-.agent-label { font-size: 15px; font-weight: 600; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-label { font-size: 15px; font-weight: 600; color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 返回按钮（cr-29：原汉堡退役——push 会话页的返回）：默认隐藏，窄屏显示 */
 .hamburger-btn, .back-btn {
   display: none; background: none; border: none; cursor: pointer;
-  color: var(--color-text-secondary); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
+  color: var(--text-2); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
 }
-.hamburger-btn:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.hamburger-btn:hover { background: var(--bg-surface); color: var(--text-1); }
 
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; align-self: stretch; }
 
@@ -176,54 +176,41 @@ const epB = computed(() => endpointOf(props.b || ''));
 .thinking-switch {
   display: flex; align-items: center;
   background: none; border: none; cursor: pointer; flex-shrink: 0;
-  color: var(--color-text-secondary); padding: 6px 8px; border-radius: var(--radius-sm);
+  color: var(--text-2); padding: 6px 8px; border-radius: var(--radius-sm);
   transition: color 0.15s;
 }
-.thinking-switch:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.thinking-switch:hover { background: var(--bg-surface); color: var(--text-1); }
 .thinking-switch-track {
   position: relative; width: 32px; height: 18px; flex-shrink: 0;
   border-radius: var(--r-full, 999px);
-  background: var(--color-border-primary, #cfd3da);
+  background: var(--line-strong);
   transition: background 0.2s ease;
 }
 .thinking-switch-knob {
   position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: #fff;
+  border-radius: 50%; background: var(--switch-knob);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  color: var(--color-text-tertiary, #a8abb2);
+  color: var(--text-3);
   transition: transform 0.2s ease, color 0.2s ease;
 }
 /* 内嵌图标：关 = 灰（未显示思维链）/ 开 = 主色白底反色（图标以主色呈现在白滑块上） */
 .thinking-switch-icon { display: block; line-height: 0; }
-.thinking-switch.on { color: var(--color-primary, #6366f1); }
-.thinking-switch.on .thinking-switch-track { background: var(--color-primary, #6366f1); }
-.thinking-switch.on .thinking-switch-knob { transform: translateX(14px); color: var(--color-primary, #6366f1); }
+.thinking-switch.on { color: var(--primary); }
+.thinking-switch.on .thinking-switch-track { background: var(--primary); }
+.thinking-switch.on .thinking-switch-knob { transform: translateX(14px); color: var(--primary); }
 
-/* 会话头预设徽标（开场固化后的身份回显） */
-.preset-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 8px;
-  padding: 1px 8px;
-  border-radius: var(--r-full, 999px);
-  background: var(--color-primary-light, rgba(99, 102, 241, .1));
-  color: var(--color-primary, #6366f1);
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
+/* 会话头预设徽标＝ui-badge tag + tt-base 色相（形状/配色归 kit 徽章族，此处只留专属修饰） */
+.preset-chip { margin-left: 8px; }
 
 /* ── pair 头部（双端点标题——自 PairDialogView 并入；返回按钮已退役：
    主区切换只由显式导航驱动，pair 视角由矩阵快照/面板入口进入，离开即
    点击其他入口，无跨页返回联动）── */
 .pair-title{display:flex;align-items:center;gap:10px;min-width:0}
 .pair-avatars{display:flex;align-items:center;gap:4px;flex-shrink:0}
-.pair-x{display:inline-flex;align-items:center;color:var(--color-text-tertiary,#a8abb2)}
-.pair-sub{font-size:11px;color:var(--color-text-tertiary,#a8abb2);white-space:nowrap;margin-left:4px}
-.ep-ic{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:#f59e0b;background:rgba(245,158,11,.15);flex-shrink:0}
+.pair-x{display:inline-flex;align-items:center;color:var(--text-3)}
+.pair-sub{font-size:11px;color:var(--text-3);white-space:nowrap;margin-left:4px}
+.ep-ic{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:var(--warn);background:rgba(var(--warn-rgb), 0.12);flex-shrink:0}
 
 /* ── 归档反馈锚（归档入口住 Token 仪表弹层——TokenGauge 贡献）──
    wrap 拉满头部高（align-self: stretch，header-actions 同步拉满作参照）：

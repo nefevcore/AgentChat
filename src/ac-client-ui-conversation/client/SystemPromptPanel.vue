@@ -9,7 +9,7 @@
 // 时由入口按钮重新触发请求。
 // ============================================================
 import { computed, watch } from 'vue';
-import { Icon, Tooltip } from '@agentchat/webui-kit';
+import { BusyRing, Icon, Tooltip } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -123,7 +123,7 @@ function fallbackCopy(text: string) {
             :disabled="chatStore.systemPromptLoading || !agentId"
             @click="requestForView()"
           >
-            <Icon v-if="chatStore.systemPromptLoading" name="loader-circle" :size="14" class="spp-spin" />
+            <BusyRing v-if="chatStore.systemPromptLoading" :size="13" />
             <Icon v-else name="refresh-cw" :size="14" />
           </button>
         </Tooltip>
@@ -146,7 +146,7 @@ function fallbackCopy(text: string) {
     <div class="spp-body">
       <div v-if="inGroupView" class="spp-empty">群聊无单一 System Prompt——切换到 1v1 或独立会话查看</div>
       <template v-else>
-        <div v-if="chatStore.systemPromptLoading" class="spp-loading"><span class="spp-spinner"></span><span>正在组装 System Prompt…</span></div>
+        <div v-if="chatStore.systemPromptLoading" class="spp-loading"><BusyRing :size="13" /><span>正在组装 System Prompt…</span></div>
         <div v-else-if="chatStore.systemPromptError" class="spp-error">{{ chatStore.systemPromptError }}</div>
         <pre v-else-if="chatStore.systemPromptContent" class="spp-content">{{ chatStore.systemPromptContent }}</pre>
         <div v-else class="spp-empty">{{ groupConversationId ? '群成员未解析——请检查群成员配置' : agentId ? '点击右上刷新组装当前 Agent 的完整提示词' : '在主侧边栏选择一个 Agent 后查看其 System Prompt' }}</div>
@@ -162,19 +162,19 @@ function fallbackCopy(text: string) {
 .spp-panel {
   display: flex; flex-direction: column;
   height: 100%; min-width: 0; overflow: hidden;
-  background: var(--color-bg-page, #fff);
+  background: var(--bg-base);
 }
 .spp-head {
   display: flex; align-items: center; gap: 8px;
   height: var(--layout-header-height, 48px); padding: 0 16px; flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-bottom: 1px solid var(--line);
 }
 .spp-title {
   font-size: 13px; font-weight: 600; flex: 1; min-width: 0;
   display: flex; align-items: baseline; gap: 0;
   overflow: hidden; white-space: nowrap;
 }
-.spp-sep { font-style: normal; font-weight: 400; color: var(--color-text-tertiary); padding: 0 6px; }
+.spp-sep { font-style: normal; font-weight: 400; color: var(--text-3); padding: 0 6px; }
 .spp-actions { display: flex; gap: 4px; flex-shrink: 0; }
 /* icon 动作按钮（刷新/复制）：与预览页 fpt-icon-btn 同形态——24×22
    透明图标钮 + hover 底色 + Tooltip 提示 */
@@ -188,40 +188,32 @@ function fallbackCopy(text: string) {
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   cursor: pointer;
   transition: all 0.15s;
 }
-.spp-btn:hover { background: var(--color-bg-hover, rgba(0,0,0,0.06)); color: var(--color-text-primary); }
+.spp-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .spp-btn:disabled { opacity: 0.5; cursor: default; }
-.spp-btn.copied { color: var(--color-success, #10b981); }
-/* 刷新中 spinner 旋转 */
-.spp-spin { animation: spp-btn-rotate 0.8s linear infinite; }
-@keyframes spp-btn-rotate { to { transform: rotate(360deg); } }
+.spp-btn.copied { color: var(--ok); }
+/* 刷新中忙指示：kit BusyRing（原自建 spp-spin 已归位） */
 .spp-body { flex: 1; min-height: 0; overflow: auto; }
 .spp-content {
   margin: 0; padding: 14px 16px;
   font-size: 12px; line-height: 1.7;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   white-space: pre-wrap; word-break: break-word;
-  color: var(--color-text-primary);
+  color: var(--text-1);
 }
 .spp-loading, .spp-empty {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 40px 20px; color: var(--color-text-tertiary); font-size: 12px;
+  padding: 40px 20px; color: var(--text-3); font-size: 12px;
   text-align: center;
 }
-.spp-error { padding: 20px; color: var(--color-error, #e74c3c); font-size: 12px; }
-.spp-spinner {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid var(--color-border-secondary, #ddd);
-  border-top-color: var(--color-primary, #6366f1);
-  animation: spp-spin 0.8s linear infinite;
-}
-@keyframes spp-spin { to { transform: rotate(360deg); } }
+.spp-error { padding: 20px; color: var(--err); font-size: 12px; }
+
 .spp-foot {
   padding: 4px 16px; flex-shrink: 0;
-  border-top: 1px solid var(--color-border-secondary, #e0e0e0);
-  font-size: 10px; color: var(--color-text-tertiary);
+  border-top: 1px solid var(--line);
+  font-size: 10px; color: var(--text-3);
 }
 </style>
