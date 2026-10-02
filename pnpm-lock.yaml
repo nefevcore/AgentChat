@@ -3204,12 +3204,21 @@ importers:
       '@agentchat/schemastery':
         specifier: workspace:*
         version: link:../vendor/schemastery
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ac-noise-core:
         specifier: workspace:*
         version: link:../ac-noise-core
       ac-wire-format:
         specifier: workspace:*
         version: link:../ac-wire-format
+      ac-ws-protocol:
+        specifier: workspace:*
+        version: link:../ac-ws-protocol
       ws:
         specifier: ^8.18.0
         version: 8.21.3

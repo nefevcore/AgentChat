@@ -4,7 +4,7 @@
 //   · 配对会话面：二维码 URI 形状 + 房间 id 合法（relay 正则）+ 重复开启幂等返回同会话
 //   · RPC 转发全放行（cr-105：scopes 逐方法闸门退役；deliver 改写保留）
 //   · 注册表持久化：add → 新实例读回 → revoke 删除
-//   · 事件下行：目录全量单播（cr-108 白名单退役）+ read 档过滤
+//   · 事件下行：目录全量单播（cr-108 白名单退役；cr-112 单批器漏斗合批）+ read 档过滤
 // 注：全链路 ws + Noise 握手的 e2e 由 noise-core 单测（XK/KK 往返）+
 //     relay 协议 e2e（scripts/relay-e2e.mjs 形态）分层覆盖；本文件聚焦服务面。
 // ============================================================
@@ -334,26 +334,33 @@ describe('KK 常住方模型（cr-70）', () => {
 });
 
 describe('事件下行', () => {
-  it('目录事件单播到在线设备（cr-108：白名单退役，config/changed 等全量下行）', async () => {
+  it('目录事件单播到在线设备（cr-112：单批器漏斗——事件帧合批 + 交互帧直发）', async () => {
+    vi.useFakeTimers();
     await boot();
     const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
     reg.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
     const got: unknown[] = [];
     svc.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
     svc.broadcastEvent('llm/delta', [undefined, { delta: 'x' }, undefined]);
-    expect(got).toHaveLength(1);
-    // 线格式（cr-85）：delta 走微批合帧（窗口首帧即发）——载荷 { deltas: [[input, chunk, meta]] }
-    expect((got[0] as { type: string }).type).toBe('llm/delta-batch');
-    const d0 = (got[0] as { data: { args: [{ deltas: unknown[][] }] } }).data.args[0].deltas;
-    expect(d0).toHaveLength(1);
-    expect(d0[0]![1]).toEqual({ delta: 'x' }); // 参数序 [input(投影), chunk, meta]
-    // cr-108：清单/过滤住共享目录（订阅侧 wire），broadcastEvent 只管批器与单播——
-    // config/changed 等此前白名单外事件经订阅侧照常到达（此处直验单播面本身全通）
+    expect(got).toHaveLength(0); // delta 批帧进 WireBatcher 排队（100ms 窗口）
     svc.broadcastEvent('config/changed', [{}]);
+    svc.broadcastEvent('group/message-posted', ['g1', { id: 'm1' }]);
+    vi.advanceTimersByTime(150);
+    // 合批单帧 wire/event-batch：[llm/delta-batch, config/changed, group/message-posted]
+    expect(got).toHaveLength(1);
+    const batch = got[0] as { type: string; data: { args: [Array<{ type: string }>] } };
+    expect(batch.type).toBe('wire/event-batch');
+    expect(batch.data.args[0].map((e: { type: string }) => e.type)).toEqual([
+      'llm/delta-batch', 'config/changed', 'group/message-posted',
+    ]);
+    // 交互帧原生直发（不经批窗；窗口已 fire 过，在途队列为空）
+    svc.broadcastEvent('durable-interaction/opened', [{ id: 'i1' }]);
     expect(got).toHaveLength(2);
+    expect((got[got.length - 1] as { type: string }).type).toBe('durable-interaction/opened');
+    vi.useRealTimers();
   });
-
   it('chat-only（无 read 档）设备不收下行明文流（cr-64：能发不能看）', async () => {
+    vi.useFakeTimers();
     await boot();
     const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
     reg.add({ id: 'chat-only', name: 'n', pubkey: 'k', scopes: ['chat'], pairedAt: 0 });
@@ -363,11 +370,14 @@ describe('事件下行', () => {
     svc.testInjectConnection('chat-only', { sendPayload: (p: unknown) => got.push(p) } as never);
     svc.testInjectConnection('full', { sendPayload: (p: unknown) => gotFull.push(p) } as never);
     svc.broadcastEvent('llm/delta', [undefined, { delta: 'secret' }, undefined]);
+    vi.advanceTimersByTime(150);
     expect(got).toHaveLength(0);
-    expect(gotFull).toHaveLength(1);
+    expect(gotFull).toHaveLength(1); // 合批单帧（含 delta 批帧）
+    vi.useRealTimers();
   });
 
   it('单个连接失败不影响其余（断链设备不至于拖垮下行）', async () => {
+    vi.useFakeTimers();
     await boot();
     const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
     reg.add({ id: 'bad', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
@@ -376,7 +386,9 @@ describe('事件下行', () => {
     svc.testInjectConnection('bad', { sendPayload: () => { throw new Error('boom'); } } as never);
     svc.testInjectConnection('good', { sendPayload: (p: unknown) => ok.push(p) } as never);
     expect(() => svc.broadcastEvent('tool/started', [{ id: 't' }])).not.toThrow();
+    vi.advanceTimersByTime(150);
     expect(ok).toHaveLength(1);
+    vi.useRealTimers();
   });
 });
 
@@ -420,19 +432,20 @@ describe('relay-connection pong watchdog（cr-48：盲发 ping 对半开连接�
 });
 
 describe('远程大应答分页（cr-51：session/history 全量回读在移动网络必炸）', () => {
-  it('deliver 类转发强制 sender/source=user 且剥 elevation（cr-78：sender=桶键输入，remote: 前缀致桶分裂）', async () => {
+  it('deliver 类转发强制 sender/source=user（cr-78）；elevation 放行（cr-112：cr-105 配对即信任补全）', async () => {
     await boot();
     const calls: Array<{ method: string; params: any }> = [];
     (ctx.get('webServer') as { callRpc: (m: string, p?: unknown) => Promise<unknown> }).callRpc =
       async (method, params) => { calls.push({ method, params }); return {}; };
     const svcAny = svc as unknown as { forwardRpc(device: { id: string; scopes: string[] }, method: string, params: unknown): Promise<unknown> };
-    // 设备伪造 sender=其他端点 + 携带 elevation——须被强制覆盖/剥除
+    // 设备伪造 sender=其他端点——须被强制覆盖；elevation 保留透传（两档白名单
+    // 窄化在 web-api deliver 边界，deliver 侧只升不降约束不变）
     await svcAny.forwardRpc({ id: 'd1', scopes: ['read', 'chat'] }, 'conversation/deliver', {
       agentId: 'a', message: 'hi', sender: 'some-agent', source: 'agent', elevation: 'full-access',
     });
     expect(calls[0].method).toBe('conversation/deliver');
     expect(calls[0].params).toMatchObject({ sender: 'user', source: 'user' });
-    expect(calls[0].params.elevation).toBeUndefined();
+    expect(calls[0].params.elevation).toBe('full-access');
   });
 
   it('远程 session/history 未指定 limit → forwardRpc 注入 limit=50', async () => {
@@ -473,7 +486,8 @@ describe('远程应答尺寸兜底（cr-52：条数分页挡不住单轮超大�
 });
 
 describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方）', () => {
-  it('apply 后 emit 目录事件 → 单播到在线设备（cr-108：与 ws-bridge 同一目录全量）', async () => {
+  it('apply 后 emit 目录事件 → 单播到在线设备（cr-112：单批器漏斗合批下行）', async () => {
+    vi.useFakeTimers();
     const ctx = new Context();
     ctx.provide('webServer', {
       registerRpc: () => {},
@@ -486,16 +500,19 @@ describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方
     const got: unknown[] = [];
     ctx.remoteLink.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
 
-    // emit 的签名由事件目录推断；这里只关心「有没有转发」——delta 走微批合帧（cr-85）
+    // emit 的签名由事件目录推断；这里只关心「有没有转发」——全部进 WireBatcher 窗口
     (ctx.emit as (...a: unknown[]) => void)('llm/delta', {}, {}, {});
-    expect(got).toHaveLength(1);
-    expect((got[0] as { type: string }).type).toBe('llm/delta-batch');
-
+    expect(got).toHaveLength(0);
     // cr-108：白名单退役——config/changed（曾静默缺失类）与群消息同面下行
     (ctx.emit as (...a: unknown[]) => void)('config/changed', '/x');
-    expect(got).toHaveLength(2);
-    expect((got[1] as { type: string }).type).toBe('config/changed');
     (ctx.emit as (...a: unknown[]) => void)('group/message-posted', 'g1', { id: 'm1' });
-    expect(got).toHaveLength(3);
+    vi.advanceTimersByTime(150);
+    expect(got).toHaveLength(1); // 合批单帧 wire/event-batch
+    const batch = got[0] as { type: string; data: { args: [Array<{ type: string }>] } };
+    expect(batch.type).toBe('wire/event-batch');
+    expect(batch.data.args[0].map((e: { type: string }) => e.type)).toEqual([
+      'llm/delta-batch', 'config/changed', 'group/message-posted',
+    ]);
+    vi.useRealTimers();
   });
 });

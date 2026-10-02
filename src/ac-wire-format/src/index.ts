@@ -26,6 +26,17 @@ export function wireLlmInput(input: unknown): unknown {
 /** 高频流事件微批合帧词汇（传输层自有，不进事件目录） */
 export const LLM_DELTA_BATCH = 'llm/delta-batch';
 
+/** 通用下行批帧词汇（cr-112：单批器漏斗——全事件帧合批发送） */
+export const WIRE_EVENT_BATCH = 'wire/event-batch';
+
+/**
+ * 必须原生直发（不进批窗）的事件类前缀（cr-112）：
+ * 交互卡投递延迟 = 用户可感知的卡顿（ask_questions 弹窗、审批卡）；close/reply
+ * 类帧若压批窗尾，批帧乱序到达会短暂复活已移除的卡片。这些帧量级稀少
+ * （每 run 至多条），直发不构成速率面。
+ */
+const DIRECT_EVENT_PREFIXES = ['durable-interaction/', 'ws/', 'remote/', 'system/'];
+
 interface BatchedArgs {
   /** 每元素 = 一次 llm/delta 的参数序 [input(已投影), chunk, meta] */
   deltas: unknown[][];
@@ -84,15 +95,90 @@ export class LlmDeltaBatcher {
 }
 
 /**
- * 批帧解包（前端 wire 入口消费）：type 为 LLM_DELTA_BATCH 时展开为
- * [type, args] 序列，其余帧原样返回。旧后端无批帧 = 行为不变。
+ * 单批器漏斗（cr-112）：远程链路全部下行帧的唯一出口。
+ *
+ * 结构动机：事件帧曾逐帧直发（只有 delta 合批），供给速率无界——流式期
+ * 工具事件突发叠加 delta 批帧，轻易越过 relay 帧速率闸（30/s），超速即静默
+ * close → 断链重连风暴。修法不是抬闸，是让供给成为自律属性：一切帧过同一
+ * 漏斗，窗口到点合为单帧（wire/event-batch）发送——稳态供给 ≤ 1/窗口。
+ *
+ * 与 LlmDeltaBatcher 的分工：那是 delta 家族的投影+合批词汇层（帧形
+ * llm/delta-batch 与前端解包契约在两链路共享）；本类是 remote 链路的
+ * 排队+合批出口，把「每秒发多少帧」从到达率解耦为窗口常量。
+ *
+ * 交互类帧（DIRECT_EVENT_PREFIXES）原生直发不进窗：投递延迟即用户可感
+ * 卡顿，且量级稀少不构成速率面。
+ */
+export class WireBatcher {
+  private queue: Array<{ type: string; data: { args: unknown[] } }> = [];
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly send: (frame: { type: string; data: { args: unknown[] } }) => void;
+  private readonly windowMs: number;
+
+  constructor(
+    send: (frame: { type: string; data: { args: unknown[] } }) => void,
+    windowMs: number = 100,
+  ) {
+    this.send = send;
+    this.windowMs = windowMs;
+  }
+
+  /** 入队一帧（delta 家族之外的通用事件帧）；交互类直发。 */
+  push(type: string, args: unknown[]): void {
+    if (DIRECT_EVENT_PREFIXES.some((p) => type.startsWith(p))) {
+      this.flushNow();
+      this.send({ type, data: { args } });
+      return;
+    }
+    this.queue.push({ type, data: { args } });
+    if (this.timer === null) {
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.fire();
+      }, this.windowMs);
+    }
+  }
+
+  /** 清空在途队列（行卸载/直发帧前——保序：直发帧不得早于在途帧到达） */
+  flushNow(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.fire();
+  }
+
+  private fire(): void {
+    if (this.queue.length === 0) return;
+    const events = this.queue;
+    this.queue = [];
+    this.send({ type: WIRE_EVENT_BATCH, data: { args: [events] } });
+  }
+}
+
+/**
+ * 批帧解包（前端 wire 入口消费）：批帧词汇展开为 [type, args] 序列，其余帧
+ * 原样返回。旧后端无批帧 = 行为不变（兼容词汇两代并存）。
  */
 export function unpackWireFrames(
   type: string,
   args: unknown[],
 ): Array<[string, unknown[]]> {
-  if (type !== LLM_DELTA_BATCH) return [[type, args]];
-  const first = args[0] as { deltas?: unknown } | undefined;
-  const deltas = first && typeof first === 'object' && Array.isArray(first.deltas) ? first.deltas : [];
-  return (deltas as unknown[][]).map((d) => ['llm/delta', d]);
+  if (type === LLM_DELTA_BATCH) {
+    const first = args[0] as { deltas?: unknown } | undefined;
+    const deltas = first && typeof first === 'object' && Array.isArray(first.deltas) ? first.deltas : [];
+    return (deltas as unknown[][]).map((d) => ['llm/delta', d]);
+  }
+  if (type === WIRE_EVENT_BATCH) {
+    const first = args[0] as unknown[] | undefined;
+    if (!Array.isArray(first)) return [];
+    return first.map((e) => {
+      const ev = e as { type?: unknown; data?: { args?: unknown } } | null;
+      return [
+        typeof ev?.type === 'string' ? ev.type : '',
+        ev && Array.isArray(ev.data?.args) ? ev.data.args as unknown[] : [],
+      ] as [string, unknown[]];
+    });
+  }
+  return [[type, args]];
 }

@@ -15,7 +15,7 @@ import type {} from './events.ts';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { b64u, sasFromHandshakeHash } from 'ac-noise-core';
-import { LlmDeltaBatcher, LLM_DELTA_BATCH } from 'ac-wire-format';
+import { LlmDeltaBatcher, LLM_DELTA_BATCH, WireBatcher } from 'ac-wire-format';
 import { loadOrCreateIdentity, type StoredIdentity } from './identity.ts';
 import { DeviceRegistry, type RemoteDevice, type RemoteScope } from './device-registry.ts';
 import { RelayConnection, type LinkPayload } from './relay-connection.ts';
@@ -346,6 +346,7 @@ export class RemoteLinkService extends Service {
       } catch (err) {
         this.ctx.logger.warn(`[remote-link] deviceId 信令下发失败: ${err instanceof Error ? err.message : err}`);
       }
+      this.sendResync(deviceId);
       this.finalizePairingDone();
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
@@ -438,6 +439,7 @@ export class RemoteLinkService extends Service {
       this.ctx.emit('remote/device-online', deviceId);
       this.reconnectAttempt = 0;
       void outcome; // transport 已在连接内换新；adoptConnection 只做登记
+      this.sendResync(deviceId);
     };
     // onClose 不在此挂——统一由 adoptConnection 收编时挂（cr-67 收敛，见彼处注释）
     try {
@@ -453,6 +455,7 @@ export class RemoteLinkService extends Service {
       this.adoptConnection(deviceId, conn, outcome.transport);
       this.ctx.emit('remote/device-online', deviceId);
       this.reconnectAttempt = 0;
+      this.sendResync(deviceId);
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       // sever 而非 close（cr-50）：失败路径 RST 立断，不占房。
@@ -605,7 +608,11 @@ export class RemoteLinkService extends Service {
       // 桶（裁决：src/docs/remote-deliver-sender-ruling.md）。
       p.sender = 'user';
       p.source = 'user';
-      delete p.elevation;
+      // elevation 放行（cr-112，cr-105「配对即信任」补全）：两档白名单窄化在
+      // web-api deliver RPC 边界（'sandbox-access'|'full-access' 之外丢弃），
+      // deliver 边界仍有只升不降与 Agent 自有档位底座约束——手机快捷提权与
+      // 桌面同语义。旧剥除是真机「明明设了完全访问仍弹提权审批」的根因：
+      // 手机的提权武装态从未到达任何 run，会话水位也从未写过。
       forwardParams = p;
     }
     // 经注册中心转发（webServer.callRpc——M1 对 ac-web-server 的唯一新增公共面）。
@@ -615,36 +622,64 @@ export class RemoteLinkService extends Service {
     return webServer.callRpc(method, forwardParams);
   }
 
+  /**
+   * 重同步信令（cr-112）：设备上线/重握手成功时直发一帧 remote/resync——
+   * 手机前端收到后重拉 interaction/list 与会话历史对账。投递保证从「至多
+   * 一次」（事件帧失败即弃）升级为「至少一次」（断链期间丢失的问卡/审批卡
+   * 在链路恢复时必然补达）。信令无载荷：恢复动作是纯前端拉取（RPC 面走
+   * 加密链路，无需服务端预备数据）。
+   */
+  private sendResync(deviceId: string): void {
+    const conn = this.connections.get(deviceId);
+    if (!conn) return;
+    try {
+      conn.sendPayload({ type: 'remote/resync', data: {} });
+    } catch { /* 连接已断——下次上线再补 */ }
+  }
+
   // ============ 下行事件单播 ============
 
   /**
    * 事件下行入口（ws-bridge 同款订阅姿势的远程版：只单播在线设备）。
-   * M1 白名单：会话流核心事件（llm/delta-*、loop/*、router/*、tool/*）。
    *
-   * 线格式（cr-85）：llm/delta 经 ac-wire-format 与 ws-bridge 同源——投影
-   * 瘦身（剥 input.messages 全量上下文——远程链路曾 {args} 原样转发，MB 级
-   * 载荷逐 chunk 过公网 = 移动端流式卡顿根因）+ 30ms 微批（WAN 小包流
-   * 放大消除）。批帧词汇 llm/delta-batch 与本地链路共享，前端 wire 入口
-   * 统一解包。
+   * 单批器漏斗（cr-112）：全部下行帧经 WireBatcher 合批出口——事件帧曾逐帧
+   * 直发，供给速率无界，流式期工具事件突发叠加 delta 批帧轻易越过 relay 帧闸
+   * （30/s）→ 静默 close → 断链重连风暴（真机实锤：ask_questions 执行瞬间
+   * tool/started + after-execute + interaction/opened + after-step 连发即死链，
+   * 问题卡帧恰好丢失）。漏斗把供给速率定为窗口常量（100ms → 稳态 ≤10 帧/s，
+   * 结构性低于闸值）；交互类帧（durable-interaction/* 等）原生直发保投递延迟。
+   *
+   * delta 家族仍走 LlmDeltaBatcher（投影 + llm/delta-batch 词汇与前端解包
+   * 契约共享，cr-85），其批帧产出作为一帧进 WireBatcher 排队——两批器串联，
+   * 出口唯一。
    */
   private deltaBatcher = new LlmDeltaBatcher((batchArgs) => {
-    this.sendToReadDevices({ type: LLM_DELTA_BATCH, data: { args: [batchArgs] } });
+    this.wireBatcher.push(LLM_DELTA_BATCH, [batchArgs]);
+  });
+
+  private wireBatcher = new WireBatcher((frame) => {
+    this.sendToReadDevices(frame as unknown as LinkPayload);
   });
 
   /** 行卸载清空在途批（不丢帧；批器属行生命周期——卸载即下行面消失） */
   private flushDeltas(): void {
     this.deltaBatcher.flushNow();
+    this.wireBatcher.flushNow();
   }
 
   broadcastEvent(type: string, args: unknown[]): void {
     // cr-108：清单/过滤/整形住共享目录（ac-wire-format createBridgeCatalog——
-    // 订阅侧 index.ts 持实例先 wire 再入此），此处只管 delta 批器与单播。
+    // 订阅侧 index.ts 持实例先 wire 再入此），此处只管批器与单播。
     if (type === 'llm/delta') {
       this.deltaBatcher.push(args[0], args[1], args[2]);
       return;
     }
-    if (type === 'llm/delta-end') this.deltaBatcher.flushNow(); // 边界保序
-    this.sendToReadDevices({ type, data: { args } });
+    if (type === 'llm/delta-end') {
+      this.deltaBatcher.flushNow(); // 边界保序
+      this.wireBatcher.flushNow();
+      return;
+    }
+    this.wireBatcher.push(type, args);
   }
 
   /** 单播全部 read 档在线设备 */

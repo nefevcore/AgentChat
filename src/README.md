@@ -71,6 +71,7 @@ pnpm smoke            # tsx 冒烟（程序化树）
 pnpm webui            # WebUI dev server（vite 3831 → proxy 3830）
 pnpm webui:build      # WebUI 生产构建（→ src/webui/dist，boot 后 127.0.0.1:3830）
 pnpm webui:typecheck  # 前端 vue-tsc
+pnpm webui:preview:check # 预览页 kit 片段与源码一致性（docs/webui/v2.html ← webui-kit，改 kit 后跑）
 ```
 
 > `preview:*` 前缀脚本保留为兼容别名（preview:boot ≡ dev 等）。
@@ -397,7 +398,7 @@ emit，前端事件驱动重拉替代延时赌窗；ws-bridge/remote-link 双链
 | `ac-timer-core` | 间隔解析/目标时间/5 模式标签/节假日（农历+调休）/时区 ISO/hint 模板 |
 | `ac-backup-core` | zip 打包/周期轮转/到期间隔（路径全显式） |
 | `ac-ws-protocol` | WS 帧编解码 + rpc/ack 控制帧 + 后台源判定 |
-| `ac-wire-format` | 下行线格式与桥接目录：llm/delta 瘦身投影 + 30ms 微批合帧（cr-85）+ 事件桥接策略目录 createBridgeCatalog——订阅清单/过滤/整形两链同源（cr-108） |
+| `ac-wire-format` | 下行线格式与桥接目录：llm/delta 瘦身投影 + 30ms 微批合帧（cr-85）+ 事件桥接策略目录 createBridgeCatalog——订阅清单/过滤/整形两链同源（cr-108）+ WireBatcher 单批器漏斗（remote 链路全下行帧合批出口，供给速率=窗口常量结构性低于 relay 帧闸，cr-112） |
 | `ac-plugin-core` | manifest 校验/权限授予策略/契约版本兼容/staging 人审文件域/fsx 原子写/审计流水/保留字常量表/熔断存档/cordis.patch.yml 文件域 |
 | `ac-supervisor-core` | 42/78/0 退出码协议 + 退避熔断纯函数 + .runtime 单写者锁 |
 | `ac-skill-core` | SKILL.md frontmatter 解析/发现/`<available_skills>` 渲染/白名单过滤 |

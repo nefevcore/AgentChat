@@ -276,9 +276,18 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   function respondApproval(approved: boolean, scope: 'call' | 'run' = 'call'): void {
     const current = approval.value;
     if (!current) return;
-    void rpc.call('interaction/reply', {
+    const answer = approved ? { approved: true, scope } : false;
+    void rpc.call<{ status?: string; answer?: unknown }>('interaction/reply', {
       id: current.interaction_id,
-      answer: approved ? { approved: true, scope } : false,
+      answer,
+    }).then((outcome) => {
+      // 多端竞态（cr-113）：duplicate 且已落盘答案与本端不同源 = 其他端已先
+      // 批/先拒——如实提示（先答者赢是 store 状态机保证，此处只补反馈面）。
+      if (outcome.status === 'duplicate' && JSON.stringify(outcome.answer) !== JSON.stringify(answer)) {
+        setBusyFeedback('该审批已在其他端处理，本端操作未生效');
+        if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
+        busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 8_000);
+      }
     }).catch(() => undefined);
     removeApproval(current.interaction_id);
   }
@@ -736,8 +745,19 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     let attempts = 0;
     const attempt = () => {
       attempts++;
-      rpc.call('interaction/reply', { id, answer: { answers } })
-        .then(() => removeInteraction(id))
+      rpc.call<{ status?: string; answer?: unknown }>('interaction/reply', { id, answer: { answers } })
+        .then((outcome) => {
+          // 多端竞态（cr-113）：先答者赢在 store 状态机已是结构保证——answered
+          // 不覆盖、不再发事件。本端迟到时 outcome.status = 'duplicate'：
+          // · 已落盘答案与本端提交同源（深比对）= 自己此前送达的重试 → 成功；
+          // · 不同源 = 其他端已先答 → 如实提示，不冒充成功。
+          if (outcome.status === 'duplicate' && !answersMatch(outcome.answer, { answers })) {
+            setBusyFeedback('该提问已在其他端回答，本端回复未生效');
+            if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
+            busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 8_000);
+          }
+          removeInteraction(id);
+        })
         .catch(() => {
           if (attempts >= REPLY_RETRY_MAX) {
             setBusyFeedback('回答未送达（连接不可用），请稍后重新提交', 'error');
@@ -749,6 +769,11 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
         });
     };
     attempt();
+  }
+
+  /** answer 同源深比对（cr-113）：区分「自己的重试」与「他端先答」 */
+  function answersMatch(a: unknown, b: unknown): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
   }
   function dismissInteraction() {
     const current = interaction.value;
@@ -927,6 +952,13 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     // 启动名册链：fetchAgents 汇聚 → 恢复上次选中（resetDialog + 首屏历史 + resume）
     roster().requestAgents((list) => onAgentListResponse(list as never));
   rpc.onEvent((type, args) => {
+    if (type === 'remote/resync') {
+      // 链路重同步信令（cr-112）：relay 链路重握手成功——离线期间可能丢失
+      // 问卡/审批卡帧，对账拉取恢复（WS 本身没断，onOpen 恢复钩子不会触发）。
+      void restorePendingInteractions();
+      void restorePendingApprovals();
+      return;
+    }
     if (type === 'agents/updated') {
       roster().requestAgents();
       return;

@@ -438,6 +438,11 @@ class RemoteSession(
         val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
         val type = obj?.get("type")?.takeIf { it.isJsonPrimitive }?.asString
         if (type != null && type.startsWith("remote/")) Log.i(TAG, "收到信令 " + type)
+        if (type == "remote/resync") {
+            // 重同步信令（cr-112）：链路重握手——转 WebView 触发对账拉取，不落库
+            downlink?.invoke(json)
+            return
+        }
         if (type == "remote/paired") {
             val data = obj.getAsJsonObject("data") ?: JsonObject()
             val deviceId = data.get("deviceId")?.asString
