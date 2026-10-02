@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-123**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-124**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -141,3 +141,4 @@
 - 【cr-121 2026-10-02 webui-kit 控件库 v2 评审修正：双主题对比度达标 + 焦点环/reduced-motion 全局兜底 + 开关可达性 + BusyRing/CollapseRow/DockCard 三原语落地】
 - 【cr-122 2026-10-02 webui-kit 令牌与控件面收敛：合并 busy/running 色轴、用量四档收三档删 warn-strong、删死令牌（grad-star/glow-*/shadow-primary/bg-deep/role-info/role-active/accent）、行选中背景改 role-selected-bg、hover 去边框、FeedbackNotice 恒 chip、cfg 徽章并入 info、TokenGauge 硬编码清零、修复预览页星色色板无底色】
 - 【cr-123 2026-10-02 语义色拆分墨色/图形双档（--ok/--warn/--err + 新增 -graphic 变体）：4.5 线墨色保持深度、3.0 线图形档提亮（环描边/状态点/折线/命中条），亮色图形绿 #6f9f77 族】
+- 【cr-124 2026-10-02 UI 重构指导文档（webui-refactor-guide.md）：迁移规则 R1-R7 / 五批路线（615 处 hex 分布） / 评审红线】
