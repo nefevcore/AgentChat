@@ -48,7 +48,8 @@
 .ui-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ui-switch-track {
   display: inline-block; width: 34px; height: 18px; border-radius: var(--r-full); position: relative;
-  background: rgba(var(--text-3-rgb), 0.35);
+  /* cr-125：text-3 提亮后浓度 0.35→0.30（保持开/关两态可辨 ≥3——测试⑥锁） */
+  background: rgba(var(--text-3-rgb), 0.30);
   transition: background calc(0.15s * var(--motion-scale)) var(--ease-out);
 }
 .ui-switch-dot {

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-131**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-134**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -149,3 +149,6 @@
 - 【cr-129 2026-10-02 webui重构P5：其余小包 hex 清零（fs/goal/jobs/layout/shell/subagent/run-code/timer/todo/group/web/llm-pool/remote/settings/search-pool）】
 - 【cr-130 2026-10-02 webui重构P6：renderer 与 webui/src/assets 兼容层 hex 判定与迁移（指南外存量收编）】
 - 【cr-131 2026-10-03 webui重构P7：遗留 legacy 别名消费清收——业务件 var(--color-*) 归本源令牌、kit StarAvatar 去自身别名依赖、死别名条目剪除 + 预览页重注入】
+- 【cr-132 2026-10-03 subagent 两修：①看门狗超时改 handoff（不杀 run，转后台 job 跟踪+通知回投父会话）②子 Agent 工具 job 回投子 Agent 自会话桶导致降档（pwsh fail-closed）——job.conversationId 改父会话键】
+- 【cr-133 2026-10-03 fix(webui-kit): tokens.css 别名层注释含 --radius-*/--space-* 使块注释提前闭合，CSS minifier 报 Unexpected * 警告——注释措辞去 * 通配】
+- 【cr-134 2026-10-03 文字链路提亮（cr-125）：Nebula 三档各提亮（text-1 #f4f6f7 / text-2 #cbd3d8 / text-3 #a8b2b5——去灰白感）；Aurora text-1 近黑化 #2c3e50→#1e293b（去蓝灰闷感）；同步 rgb 三元组/code-text/role-hover-text/Element 兼容层；开关关闭轨道浓度 0.35→0.30 保两态可辨】

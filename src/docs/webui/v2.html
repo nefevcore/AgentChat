@@ -117,10 +117,11 @@ html.dark {
      →「亮靛+深字」 */
   --on-primary: #16161a;
 
-  --text-1: #ecf0f1;
-  --text-2: #bdc3c7;
-  /* 5.0 / 3.96 → 6.35 / 5.02（surface 上原本不足 4.5） */
-  --text-3: #949ea0;
+  /* 提亮一档（cr-125）：用户反馈整体偏暗——1 往纯白、2/3 各提 4~5 个 L 点，
+     档间对比（12.7/9.1/6.4 on surface）仍保持清晰三级 */
+  --text-1: #f4f6f7;
+  --text-2: #cbd3d8;
+  --text-3: #a8b2b5;
 
   --line: #333333;
   --line-strong: #404040;
@@ -143,15 +144,15 @@ html.dark {
      WebView 92（< Chrome 111）不认识 color-mix，故 tint 一律写
      rgba(var(--x-rgb), N)——与上方色值逐位同步，改色必须同改（有测试锁）。 */
   --primary-rgb: 129, 140, 248;
-  --text-1-rgb: 236, 240, 241;
-  --text-2-rgb: 189, 195, 199;
-  --text-3-rgb: 148, 158, 160;
+  --text-1-rgb: 244, 246, 247;
+  --text-2-rgb: 203, 211, 216;
+  --text-3-rgb: 168, 178, 181;
   --ok-rgb: 155, 211, 154;
   --warn-rgb: 252, 211, 77;
   --err-rgb: 240, 135, 154;
 
   --code-bg: #2d2d2d;
-  --code-text: #d6deeb;
+  --code-text: #e3e9ee;
 
   --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
@@ -171,7 +172,7 @@ html.dark {
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
   --role-hover-bg: #252525;
-  --role-hover-text: #ecf0f1;
+  --role-hover-text: #f4f6f7;
   --role-selected-bg: #2b2b3a;
   --role-selected-text: #a5b4fc;
   --role-active-bg: #3a2f14;
@@ -194,7 +195,8 @@ html.light {
   --primary-light: rgba(79, 70, 229, 0.1);
   --on-primary: #ffffff;
 
-  --text-1: #2c3e50;
+  /* 近黑去闷（cr-125）：#2c3e50 蓝灰发闷；#1e293b 更深更纯，对比 9.6→12.8 */
+  --text-1: #1e293b;
   /* 加深一档（cr-122）：原 #5f6b78 与 text-3 #666b71 对比度仅差 0.15，
      视觉塌缩不可辨；加深后与 text-3 拉开层级（6.4 vs 5.2 on base） */
   --text-2: #55606c;
@@ -221,7 +223,7 @@ html.light {
   /* RGB 三元组（cr-32：color-mix 的等价回退）——与上方色值逐位同步，
      改色必须同改（有测试锁）。 */
   --primary-rgb: 79, 70, 229;
-  --text-1-rgb: 44, 62, 80;
+  --text-1-rgb: 30, 41, 59;
   --text-2-rgb: 85, 96, 108;
   --text-3-rgb: 102, 107, 113;
   --ok-rgb: 53, 111, 67;
@@ -229,7 +231,7 @@ html.light {
   --err-rgb: 159, 18, 57;
 
   --code-bg: #ffffff;
-  --code-text: #2c3e50;
+  --code-text: #1e293b;
 
   --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
@@ -249,7 +251,7 @@ html.light {
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
   --role-hover-bg: #f0f0f0;
-  --role-hover-text: #2c3e50;
+  --role-hover-text: #1e293b;
   --role-selected-bg: #ececf5;
   --role-selected-text: #4f46e5;
   --role-active-bg: #fdf6e3;
@@ -285,11 +287,11 @@ body {
   html { scroll-behavior: auto; }
 }
 
-/* ═══════════════ 业务兼容别名层（--radius-*/--space-* → 本文件令牌）═══════════════
-   历史：业务组件使用 main.css 的 --color-*/--radius-*/--space-* 体系；本文件（后加载）
+/* ═══════════════ 业务兼容别名层（--radius- 与 --space- 前缀 → 本文件令牌）═══════════════
+   历史：业务组件使用 main.css 的 --color-*、--radius-*、--space-* 体系；本文件（后加载）
    以别名覆盖同名变量 —— 单一来源。
-   cr-131（P7）：--color-* 别名条目全数零消费（业务件已归本源令牌 --text-*/--bg-*/--line*/
-   --primary*/--ok|warn|err；kit 自身不再依赖自身别名），整族剪除；main.css 同名重复定义同批剪除。
+   cr-131（P7）：--color-* 别名条目全数零消费（业务件已归本源令牌 --text-*、--bg-*、--line-*
+   --primary-*、--ok|warn|err；kit 自身不再依赖自身别名），整族剪除；main.css 同名重复定义同批剪除。
    main.css 独有且无 tokens 对应者（--layout-*、--el-*、--transition-fast、--color-code-* 等）
    保留在 main.css。 */
 :root,
@@ -376,7 +378,8 @@ html[data-theme='aurora'] .sc-user,html.light .sc-user{--sc:#1b2130;--sc-rgb:27,
 .ui-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ui-switch-track {
   display: inline-block; width: 34px; height: 18px; border-radius: var(--r-full); position: relative;
-  background: rgba(var(--text-3-rgb), 0.35);
+  /* cr-125：text-3 提亮后浓度 0.35→0.30（保持开/关两态可辨 ≥3——测试⑥锁） */
+  background: rgba(var(--text-3-rgb), 0.30);
   transition: background calc(0.15s * var(--motion-scale)) var(--ease-out);
 }
 .ui-switch-dot {
