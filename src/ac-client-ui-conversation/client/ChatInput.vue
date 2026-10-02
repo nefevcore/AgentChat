@@ -1790,8 +1790,10 @@ function onThumbError(i: number) {
   flex-shrink: 0;
   margin: 0 10px 10px;
   /* 双层浅影（贴边 + 4px/12px 柔光；原硬编码 0 1px 3px rgba(0,0,0,.05) 在深色底上不可见）——
-     双主题值见 webui-kit tokens.css --shadow-input */
-  box-shadow: var(--shadow-input, 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.08));
+     双主题值见 webui-kit tokens.css --shadow-input。
+     cr-130（P6）：删除亮色回退字面量——令牌随 tokens.css 无层加载恒在场，
+     fallback 只会留下绕过 L0 的硬编码阴影。 */
+  box-shadow: var(--shadow-input);
   position: relative;
 }
 
@@ -1975,11 +1977,9 @@ html.dark .select-btn.open { background: var(--role-selected-bg); }
   gap: 6px;
   padding: 8px 10px;
   border: 1px solid rgba(var(--warn-rgb), 0.45);
-  /* 本处刻意保留 legacy 别名 --color-warning-rgb（定义 = var(--warn-rgb)，视觉零差）：
-     本包清零后它已无其它消费，而 kit 兼容层的死别名清理（删 tokens.css 该行 +
-     重跑 scripts/build-webui-preview.mjs）属 P6 兼容层批次——P1 不动包外文件，
-     故留此一处消费守住 css-color-tokens 测试③「三元组无死条目」反向锁。 */
-  background: rgba(var(--color-warning-rgb), 0.08);
+  /* cr-130（P6）：保活引用退役——legacy 别名 --color-warning-rgb 的最后一处消费
+     改回本源三元组 --warn-rgb，tokens.css 侧死条目同批删除（视觉零差）。 */
+  background: rgba(var(--warn-rgb), 0.08);
   border-radius: var(--radius-md);
   color: var(--warn);
   font-size: 12px;
@@ -2016,7 +2016,7 @@ html.dark .select-btn.open { background: var(--role-selected-bg); }
   background: var(--bg-raised, var(--bg-base));
   border: 1px solid var(--line, var(--line));
   border-radius: 10px;
-  box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,.12));
+  box-shadow: var(--shadow-pop);
   padding: 4px;
   z-index: 300;
 }

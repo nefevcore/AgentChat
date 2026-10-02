@@ -26,7 +26,10 @@ function ensureThemeStyle(): HTMLStyleElement {
 }
 
 function applyTheme(isDark: boolean) {
-  // 使用内联简单主题（避免额外 CSS 文件依赖）
+  // 使用内联简单主题（避免额外 CSS 文件依赖）。
+  // cr-130 判定：以下两份色板属指南 R1「分类色板」例外（每个语法 token 一类一色，
+  // 语义 ≠ 分类——勿并入 --ok/--warn/--err 语义族），故逐字保留第三方主题值、
+  // 仅作例外登记；新增/改色仍需过双主题对比度。
   const lightTheme = `
 .hljs{color:#383a42;background:#fafafa}
 .hljs-comment,.hljs-quote{color:#a0a1a7;font-style:italic}
@@ -346,7 +349,9 @@ function ensureKatex(): Promise<void> {
                     delimiters: 'dollars',
                     katexOptions: {
                         throwOnError: false,
-                        errorColor: '#cc0000',
+                        // cr-130：R1 语义色迁移——公式错误墨色 hex → 令牌
+                        // （KaTeX 以内联 style="color:…" 输出，应用内解析 var）
+                        errorColor: 'var(--err)',
                         strict: 'ignore',
                     },
                 } as never);

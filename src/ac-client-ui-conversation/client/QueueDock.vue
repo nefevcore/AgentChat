@@ -101,7 +101,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   border-radius: var(--radius-lg);
   background: var(--bg-base);
   overflow: hidden;
-  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
+  box-shadow: var(--shadow-dock);
 }
 
 .queue-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px; }

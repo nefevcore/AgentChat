@@ -145,7 +145,7 @@ const itemCount = computed(() => props.groups.reduce((n, g) => n + g.items.lengt
   background: var(--bg-raised, var(--bg-base));
   border: 1px solid var(--line, var(--line));
   border-radius: 10px;
-  box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,.12));
+  box-shadow: var(--shadow-pop);
   z-index: 320;
   overflow: hidden;
   display: flex;

@@ -462,12 +462,12 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* 列头：头像（sticky 顶；十字高亮） */
 .col-head{position:sticky;top:0;z-index:2;width:var(--cell);height:48px;display:flex;align-items:center;justify-content:center;background:var(--bg-base);border-radius:10px;transition:background var(--transition-fast)}
 /* 深底覆盖退役（cr-127）：列头取 --bg-base */
-.col-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-32）：页面底即本元素底色，α 混合等效；别名刻意保留（定义 = var(--primary-rgb)，视觉零差——css-color-tokens 测试③锁存活） */;background:color-mix(in srgb,var(--primary) 12%,var(--bg-base))}
+.col-head.hl{background:rgba(var(--primary-rgb),.12) /* 回退（cr-32）：页面底即本元素底色，α 混合等效；cr-130（P6）保活别名 --color-primary-rgb 退役、改本源三元组 */;background:color-mix(in srgb,var(--primary) 12%,var(--bg-base))}
 
 /* 行头：头像 + 名称（sticky 左；十字高亮） */
 .row-head{position:sticky;left:0;z-index:1;height:var(--cell);display:flex;align-items:center;gap:8px;padding:0 10px 0 4px;background:var(--bg-base);min-width:0;border-radius:10px;transition:background var(--transition-fast)}
 /* 深底覆盖退役（cr-127）：行头取 --bg-base */
-.row-head.hl{background:rgba(var(--color-primary-rgb, 99, 102, 241),.12) /* 回退（cr-32）；别名刻意保留（同 col-head.hl） */;background:color-mix(in srgb,var(--primary) 12%,var(--bg-base))}
+.row-head.hl{background:rgba(var(--primary-rgb),.12) /* 回退（cr-32）；cr-130 保活别名退役（同 col-head.hl） */;background:color-mix(in srgb,var(--primary) 12%,var(--bg-base))}
 .row-head-name{font-size:12px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 头标色 = kind 分类色板（R1 例外：group/system/job/sub 每类一色，语义 ≠ 分类；
@@ -482,7 +482,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* hover 格：仅细主色描边指示（不放大、不加光晕、不改颜色 —— 避免拥挤与遮色） */
 .cell:hover{box-shadow:inset 0 0 0 2px var(--primary)}
 .cell:active{box-shadow:inset 0 0 0 2.5px var(--primary)}
-.cell.hl{box-shadow:inset 0 0 0 1px rgba(var(--color-primary-rgb, 99, 102, 241),.3) /* 回退（cr-32）；别名刻意保留（同 col-head.hl） */;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 25%,rgba(127,127,127,.1))}
+.cell.hl{box-shadow:inset 0 0 0 1px rgba(var(--primary-rgb),.3) /* 回退（cr-32）；cr-130 保活别名退役（同 col-head.hl） */;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 25%,rgba(127,127,127,.1))}
 .cell.hl.mirror-data{opacity:.85}
 /* 上三角镜像：无数据 = 斜纹占位（不可点）；有数据 = 弱化浓度（可点进入同一会话） */
 .cell.mirror{cursor:default;opacity:.45}

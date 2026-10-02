@@ -398,10 +398,10 @@
 .markdown-body .md-code-block-btn:active {
     transform: scale(0.95);
 }
-/* 复制完成后保持可见，避免状态闪烁 */
+/* 复制完成后保持可见，避免状态闪烁（cr-130：旧档位化石亮绿 hex → 语义墨色 --ok） */
 .markdown-body .md-code-block-btn.copied {
     opacity: 1;
-    color: #22c55e;
+    color: var(--ok);
 }
 
 .markdown-body .md-code-block-btn-icon {

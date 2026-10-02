@@ -288,9 +288,10 @@ body {
 /* ═══════════════ 业务兼容别名层（--color-* → 本文件令牌）═══════════════
    历史：业务组件使用 main.css 的 --color-* 体系；本文件（后加载）以别名
    覆盖同名变量为 var(--primary)/var(--bg-*)/var(--text-*) 等 —— 单一来源。
-   值已在扁平化时对齐（视觉不变）；main.css 的重复定义可逐步移除。
-   main.css 独有且无 tokens 对应者（--color-bg-user-container、--layout-*、
-   --space-xl 等）保留在 main.css。 */
+   值已在扁平化时对齐（视觉不变）；main.css 的重复定义可逐步移除——
+   cr-130（P6）已从 main.css 清掉全仓零消费别名（清单见 P6 报告）。
+   main.css 独有且无 tokens 对应者（--layout-*、--el-*、--transition-fast
+   等）保留在 main.css。 */
 :root,
 html[data-theme='nebula'], html[data-theme='aurora'],
 html.dark, html.light {
@@ -299,10 +300,10 @@ html.dark, html.light {
   --color-primary-light: var(--primary-light);
 
   /* 遗留名的三元组（cr-32：业务面 color-mix 回退用——与上方同源）。
-     只列实际被引用的名（零冗余：测试③ 反向锁住死条目）。 */
-  --color-primary-rgb: var(--primary-rgb);
+     只列实际被引用的名（零冗余：测试③ 反向锁住死条目）。
+     cr-130（P6）：--color-primary-rgb / --color-warning-rgb 的最后一处消费
+     已随 RunTracking.vue / ChatInput.vue 退役（保活引用清理），死条目删除。 */
   --color-text-primary-rgb: var(--text-1-rgb);
-  --color-warning-rgb: var(--warn-rgb);
   --color-error-rgb: var(--err-rgb);
 
   --color-text-primary: var(--text-1);

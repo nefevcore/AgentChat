@@ -33,7 +33,9 @@ const RootEmptyDiagnostic = defineComponent({
       h('div', {
         style: {
           position: 'fixed', inset: '0', padding: '32px', fontFamily: 'monospace',
-          fontSize: '14px', lineHeight: '1.7', color: '#b91c1c', background: '#fef2f2',
+          fontSize: '14px', lineHeight: '1.7',
+          /* cr-130：hex → L0 令牌（错误墨色文字 + err tint 底；诊断横幅仅 DEV 出现） */
+          color: 'var(--err)', background: 'rgba(var(--err-rgb), 0.08)',
           whiteSpace: 'pre-wrap', zIndex: '9999',
         },
       }, [
