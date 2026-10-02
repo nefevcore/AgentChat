@@ -756,8 +756,8 @@ html.dark .create-btn{background:transparent;color:var(--text-1)}
 /* hover 亮底由 .ui-row 承担（cr-122：hover 去边框、去微影）；
    选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
 .item-sub{font-size:11px;line-height:14px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);padding:4px;border-radius:var(--radius-sm);line-height:0}
-.mobile-close-btn:hover{background:var(--color-bg-subtle);color:var(--color-text-primary)}
+.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--text-2);padding:4px;border-radius:var(--radius-sm);line-height:0}
+.mobile-close-btn:hover{background:var(--bg-hover);color:var(--text-1)}
 
 /* 3. 树列表：节点统一行高 30px、垂直间距 --space-xs、同款圆角/hover/视觉密度
    （树节点与叶节点仅以缩进和图标区分层级，风格完全一致） */

@@ -469,14 +469,14 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 }
 .turn-sender-name {
   font-size: 12px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  color: var(--text-2, rgba(255,255,255,0.55));
   padding: 0 2px;
 }
 
 .chain-header {
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; font-weight: 500;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   user-select: none; cursor: pointer; padding: 2px 0; transition: color 0.15s;
   /* 允许随容器收缩（侧边栏压缩会话宽度时），label 单行省略 */
   min-width: 0;
@@ -495,10 +495,10 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   z-index: 5;
   padding-bottom: 8px;
   margin-bottom: -8px;
-  background: linear-gradient(to bottom, var(--color-bg-page) calc(100% - 8px), transparent);
+  background: linear-gradient(to bottom, var(--bg-base) calc(100% - 8px), transparent);
 }
-.chain-header:hover, .chain-streaming .chain-label { color: var(--color-text-primary); }
-.chain-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); transition: opacity 0.12s ease; }
+.chain-header:hover, .chain-streaming .chain-label { color: var(--text-1); }
+.chain-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-2); transition: opacity 0.12s ease; }
 /* 链栏 label：单行截断——容器宽度不足时尾部「…」，悬浮 title 看全文 */
 .chain-label {
   font-weight: 500;
@@ -527,7 +527,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
      的长内容（代码最长行等 min-content）不再把链撑出容器宽被裁，
      横向滚动收进各卡自己的滚动区 */
   min-width: 0;
-  border-left: 1px solid var(--color-border-secondary);
+  border-left: 1px solid var(--line);
   margin-left: 7px; /* 对齐 chain-icon（14px）中心 */
   padding: 0 0 0 14px;
 
@@ -546,5 +546,5 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 
 /* 思维链隐藏模式的静态链栏头部：无折叠目标——指针/悬停反馈不适用 */
 .chain-header.is-static { cursor: default; }
-.chain-header.is-static:hover { background: transparent; color: var(--color-text-secondary); }
+.chain-header.is-static:hover { background: transparent; color: var(--text-2); }
 </style>

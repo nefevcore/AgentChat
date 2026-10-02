@@ -24,7 +24,7 @@ body {
 
 body {
   min-height: 100vh;
-  background: var(--color-bg-page);
+  background: var(--bg-base);
   line-height: 1.6;
   font-family:
     Inter,
@@ -43,7 +43,7 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: var(--color-text-primary);
+  color: var(--text-1);
 }
 
 a {

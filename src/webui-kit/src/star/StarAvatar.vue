@@ -101,7 +101,7 @@ const gradId = `star-run-grad-${++gidSeed}`;
 /* 底环：身份色（回退主题主色）低透明 */
 .run-track { stroke: var(--sc, var(--primary)); opacity: 0.16; }
 /* 主流光渐变 stops：亮头（主题主色提亮身份色）→ 身份色 → 渐隐尾 */
-.run-grad-head { stop-color: var(--color-primary, var(--primary)); }
+.run-grad-head { stop-color: var(--primary); }
 .run-grad-mid { stop-color: var(--sc, var(--primary)); }
 .run-grad-tail { stop-color: var(--sc, var(--primary)); stop-opacity: 0; }
 /* 副流光：主色亮档短弧（cr-122：原 --accent 单消费令牌已删，改用

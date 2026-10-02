@@ -267,9 +267,9 @@ async function forkFromMessage(msgId: string) {
 <style scoped>
 .chat-view {
   flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--color-bg-page);
+  background: var(--bg-base);
 }
-.empty-chat { align-items: center; justify-content: center; color: var(--color-text-muted); }
+.empty-chat { align-items: center; justify-content: center; color: var(--text-3); }
 .empty-state { text-align: center; padding: 40px; }
 .empty-state svg { margin-bottom: 12px; }
 .empty-state p { font-size: 15px; }
@@ -280,5 +280,5 @@ async function forkFromMessage(msgId: string) {
    垂直居中——视觉焦点聚在"开始会话"这一步 ── */
 .chat-main.composer-centered { justify-content: center; }
 
-.connection-status { text-align: center; padding: 6px; font-size: 12px; color: var(--color-warning); background: var(--color-bg-surface); flex-shrink: 0; }
+.connection-status { text-align: center; padding: 6px; font-size: 12px; color: var(--warn); background: var(--bg-surface); flex-shrink: 0; }
 </style>

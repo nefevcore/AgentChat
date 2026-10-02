@@ -69,9 +69,9 @@ function openPreview() {
    行独立卸载互不影响） */
 .settings-btn {
   display: flex; align-items: center; justify-content: center;
-  background: none; border: none; cursor: pointer; color: var(--color-text-secondary);
+  background: none; border: none; cursor: pointer; color: var(--text-2);
   padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
 }
-.settings-btn:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.settings-btn:hover { background: var(--bg-surface); color: var(--text-1); }
 .settings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>

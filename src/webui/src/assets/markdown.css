@@ -14,7 +14,7 @@
 .markdown-body {
     font-size: 14px;
     line-height: 1.7;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     word-break: break-word;
     font-variant-ligatures: none;
     /* 防止超长内容（如代码块）撑开父容器，导致 pre 的 overflow-x 失效 */
@@ -75,13 +75,13 @@
     font-size: 1em;
     font-weight: 600;
     margin: 0.8em 0 0.3em;
-    color: var(--color-text-secondary);
+    color: var(--text-2);
 }
 
 /* ── 强调 ── */
 .markdown-body strong {
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: var(--text-1);
 }
 .markdown-body em {
     font-style: italic;
@@ -89,13 +89,13 @@
 
 /* ── 链接 ── */
 .markdown-body a {
-    color: var(--color-primary);
+    color: var(--primary);
     text-decoration: none;
     border-bottom: 1px solid transparent;
     transition: border-color 0.15s;
 }
 .markdown-body a:hover {
-    border-bottom-color: var(--color-primary);
+    border-bottom-color: var(--primary);
 }
 
 /* ── 列表（点符样式 + 悬挂缩进，替代默认实心圆点）──
@@ -122,7 +122,7 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: rgba(var(--color-text-primary-rgb), 0.38);
+    background: rgba(var(--text-1-rgb), 0.38);
 }
 
 .markdown-body ol {
@@ -144,7 +144,7 @@
     top: 0;
     font-variant-numeric: tabular-nums;
     /* 数字要可读：不透明度略高于点符 */
-    color: rgba(var(--color-text-primary-rgb), 0.55);
+    color: rgba(var(--text-1-rgb), 0.55);
 }
 
 .markdown-body ul,
@@ -167,7 +167,7 @@
     margin-bottom: 0;
 }
 .markdown-body li::marker {
-    color: rgba(var(--color-text-primary-rgb), 0.55);
+    color: rgba(var(--text-1-rgb), 0.55);
 }
 .markdown-body ul ul,
 .markdown-body ol ol,
@@ -179,7 +179,7 @@
 /* 嵌套内层列表：点符改空心，与外层区分 */
 .markdown-body ul ul > li::before {
     background: transparent;
-    border: 1.5px solid rgba(var(--color-text-primary-rgb), 0.38);
+    border: 1.5px solid rgba(var(--text-1-rgb), 0.38);
     width: 4px;
     height: 4px;
 }
@@ -195,7 +195,7 @@
 /* ── 任务列表 ── */
 .markdown-body input[type="checkbox"] {
     margin-right: 6px;
-    accent-color: var(--color-primary);
+    accent-color: var(--primary);
     vertical-align: middle;
 }
 
@@ -203,8 +203,8 @@
 .markdown-body blockquote {
     margin: 10px 0;
     padding: 2px 0 2px 12px;
-    border-left: 3px solid var(--color-border-primary);
-    color: var(--color-text-secondary);
+    border-left: 3px solid var(--line-strong);
+    color: var(--text-2);
 }
 .markdown-body blockquote p {
     margin: 4px 0;
@@ -215,14 +215,14 @@
     margin: 16px 0;
     border: none;
     height: 1px;
-    background: var(--color-border-secondary);
+    background: var(--line);
 }
 
 /* ── 内联代码（中性强调：浅灰底 + 正文色；主色系留给可点击元素——
    文件链接 chip 与普通链接，避免"代码"与"可点击"视觉混淆） ── */
 .markdown-body code {
-    background: var(--color-bg-subtle);
-    color: var(--color-text-primary);
+    background: var(--bg-hover);
+    color: var(--text-1);
     padding: 1px 6px;
     border-radius: 4px;
     font-size: var(--md-inline-fs);
@@ -255,11 +255,11 @@
     padding: 2px 6px;
     font-size: 0.8em;
     font-family: inherit;
-    color: var(--color-text-secondary);
-    background: var(--color-bg-surface);
-    border: 1px solid var(--color-border-secondary);
+    color: var(--text-2);
+    background: var(--bg-surface);
+    border: 1px solid var(--line);
     border-radius: 4px;
-    box-shadow: 0 1px 0 var(--color-border-secondary);
+    box-shadow: 0 1px 0 var(--line);
 }
 
 /* ── 图片 ── */
@@ -282,7 +282,7 @@
     font-size: 0.93em;
 }
 .markdown-body thead th {
-    border-bottom: 2px solid var(--color-border-primary);
+    border-bottom: 2px solid var(--line-strong);
 }
 .markdown-body th {
     /* 左右 padding 归零：单元格首字与上下正文对齐（有侧距时表格内容
@@ -290,7 +290,7 @@
     padding: 7px 10px 7px 0;
     text-align: left;
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     background: transparent;
     white-space: nowrap;
 }
@@ -299,7 +299,7 @@
 }
 .markdown-body td {
     padding: 7px 10px 7px 0;
-    border-bottom: 1px solid var(--color-border-secondary);
+    border-bottom: 1px solid var(--line);
     background: transparent;
 }
 .markdown-body td + td {
@@ -343,7 +343,7 @@
     height: 30px;
     background: var(--md-code-bg);
     /* banner 与代码区之间以细线分隔（外框之上再分区） */
-    border-bottom: 1px solid var(--color-border-secondary);
+    border-bottom: 1px solid var(--line);
     -webkit-user-select: none;
     user-select: none;
 }
@@ -352,7 +352,7 @@
 .markdown-body .md-code-block-lang {
     font-size: 11px;
     font-weight: 500;
-    color: var(--color-text-muted);
+    color: var(--text-3);
     text-transform: lowercase;
     letter-spacing: 0.3px;
 }
@@ -372,7 +372,7 @@
     padding: 3px 8px;
     font-size: 12px;
     font-weight: 500;
-    color: var(--color-text-muted);
+    color: var(--text-3);
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
@@ -392,8 +392,8 @@
     }
 }
 .markdown-body .md-code-block-btn:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-subtle);
+    color: var(--text-1);
+    background: var(--bg-hover);
 }
 .markdown-body .md-code-block-btn:active {
     transform: scale(0.95);
@@ -451,8 +451,8 @@
 .markdown-body table.md-frontmatter {
     margin: 12px 0;
     border-radius: var(--radius-md);
-    background: var(--color-bg-subtle);
-    border: 1px solid var(--color-border-secondary);
+    background: var(--bg-hover);
+    border: 1px solid var(--line);
     border-collapse: separate;
     border-spacing: 0;
     font-size: 0.93em;
@@ -467,12 +467,12 @@
 .markdown-body .md-frontmatter-key {
     font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
     font-size: 0.88em;
-    color: var(--color-text-muted);
+    color: var(--text-3);
     white-space: nowrap;
     width: 1%;
 }
 .markdown-body .md-frontmatter-value {
-    color: var(--color-text-primary);
+    color: var(--text-1);
     word-break: break-word;
     min-width: 0;
 }
@@ -496,5 +496,5 @@
 
 /* ── 暗色主题下公式颜色适配 ── */
 html.dark .markdown-body .katex {
-    color: var(--color-text-primary);
+    color: var(--text-1);
 }

@@ -351,9 +351,9 @@ const displayUrl = computed(() => {
 .brw-error {
   color: var(--err); font-size: 12px; margin: 2px 0 6px;
   white-space: pre-wrap; word-break: break-word;
-  /* legacy 别名 --color-error-rgb 刻意保留（定义 = var(--err-rgb)，视觉零差）——css-color-tokens
-     测试③反向锁存活（同 cr-127 RunTracking 先例）；已删硬编码回退 231,76,60（R1 铁律不留 hex） */
-  background: rgba(var(--color-error-rgb), 0.1); border-radius: 6px; padding: 6px 10px;
+  /* cr-131（P7）：legacy 别名 --color-error-rgb 归本源三元组（定义 = var(--err-rgb)，视觉零差）——
+     原保活引用退役，别名条目随死条剪除（css-color-tokens 测试③）；已删硬编码回退 231,76,60（R1 铁律不留 hex） */
+  background: rgba(var(--err-rgb), 0.1); border-radius: 6px; padding: 6px 10px;
 }
 
 .brw-steps { display: flex; flex-direction: column; gap: 4px; }

@@ -129,16 +129,16 @@ async function confirmDelete() {
 <style scoped>
 .settings-btn {
   display: flex; align-items: center; justify-content: center;
-  background: none; border: none; cursor: pointer; color: var(--color-text-secondary);
+  background: none; border: none; cursor: pointer; color: var(--text-2);
   padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
 }
-.settings-btn:hover, .settings-btn.active { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.settings-btn:hover, .settings-btn.active { background: var(--bg-surface); color: var(--text-1); }
 .settings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 更多菜单 */
 .more-menu-wrapper { position: relative; }
-.more-dropdown { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-raised, var(--color-bg-page)); border: 1px solid var(--line, var(--color-border-secondary)); border-radius: 10px; box-shadow: var(--shadow-pop); min-width: 180px; z-index: 300; padding: 4px; overflow: hidden; }
-.dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none; color: var(--text-1, var(--color-text-primary)); font-size: 13px; cursor: pointer; text-align: left; }
+.more-dropdown { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-raised, var(--bg-base)); border: 1px solid var(--line, var(--line)); border-radius: 10px; box-shadow: var(--shadow-pop); min-width: 180px; z-index: 300; padding: 4px; overflow: hidden; }
+.dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none; color: var(--text-1, var(--text-1)); font-size: 13px; cursor: pointer; text-align: left; }
 .dropdown-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
 .dropdown-item.danger { color: var(--err); }
 .dropdown-item.danger:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
@@ -151,14 +151,14 @@ async function confirmDelete() {
 .delete-dialog { padding: 28px 24px 20px; text-align: center; }
 .delete-icon { margin-bottom: 12px; color: var(--err-graphic); }
 .delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--text-1); }
-.delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--color-text-secondary); }
+.delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--text-2); }
 .delete-warning strong { color: var(--err); }
-.delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; }
+.delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
 .delete-emphasis { color: var(--err); font-weight: 600; }
 .delete-error { font-size: 12px; color: var(--err); margin-bottom: 8px; }
 .dialog-actions { display: flex; justify-content: center; gap: 10px; }
-.btn-cancel { padding: 8px 20px; border: 1px solid var(--color-border-secondary); border-radius: 6px; background: var(--color-bg-page); color: var(--color-text-secondary); font-size: 13px; cursor: pointer; }
-.btn-cancel:hover { background: var(--color-bg-surface); }
+.btn-cancel { padding: 8px 20px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-base); color: var(--text-2); font-size: 13px; cursor: pointer; }
+.btn-cancel:hover { background: var(--bg-surface); }
 .btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: var(--err); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
 .btn-delete:hover { filter: brightness(.8); /* 实底加深一档（无令牌可表达「同色更深」，filter 不引入色值） */ }
 .btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }

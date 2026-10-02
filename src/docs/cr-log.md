@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-130**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-131**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -148,3 +148,4 @@
 - 【cr-128 2026-10-02 webui重构P4：browser+usage+system 徽章归 ui-badge + 图表色板分层核对】
 - 【cr-129 2026-10-02 webui重构P5：其余小包 hex 清零（fs/goal/jobs/layout/shell/subagent/run-code/timer/todo/group/web/llm-pool/remote/settings/search-pool）】
 - 【cr-130 2026-10-02 webui重构P6：renderer 与 webui/src/assets 兼容层 hex 判定与迁移（指南外存量收编）】
+- 【cr-131 2026-10-03 webui重构P7：遗留 legacy 别名消费清收——业务件 var(--color-*) 归本源令牌、kit StarAvatar 去自身别名依赖、死别名条目剪除 + 预览页重注入】

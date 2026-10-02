@@ -329,8 +329,8 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   padding: 0 2px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  color: var(--color-text-primary);
-  caret-color: var(--color-text-primary);
+  color: var(--text-1);
+  caret-color: var(--text-1);
 }
 
 /* 窄屏默认单行、随内容自增高，上限 3 行（cr-111）：21px = 1.5 × 14px × 1，
@@ -355,7 +355,7 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   position: absolute;
   top: 0;
   left: 2px;
-  color: var(--color-text-muted);
+  color: var(--text-3);
   pointer-events: none;
   font-size: 14px;
   line-height: 1.5;
