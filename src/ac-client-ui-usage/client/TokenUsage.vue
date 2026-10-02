@@ -309,6 +309,7 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
       series.push({
         label: `其他（${rest.length} 个模型）`,
         data: days.map(d => rest.reduce((s, llm) => s + (cell.get(`${d.date}|${llm}`) ?? 0), 0)),
+        /* 「其他」兜底系列 = 分类板中性灰（非语义色，保持独立板——cr-128 分层核对） */
         color: isDark ? '#8b93a7' : '#9ca3af',
       });
     }
@@ -316,7 +317,11 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
   }
   // 按消耗：自上而下 缓存 → 未缓存 → 输出
   return [
-    /* 缓存系列色 = 图形档（cr-123：折线是图形件 3.0 线，非文字墨色档） */
+    /* 图表色板分层核对（cr-128）：折线/柱是图形件（cr-123 · 3.0 线），三个系列分属三档——
+       缓存 = 语义图形档（字面值 = --ok-graphic 双档镜像）
+       未缓存 = 主色轴（字面值 = --primary 双档镜像）
+       输出 = 分类板紫档（非语义色，与 CLOUD_COLORS 紫系同源）
+       JS/canvas 侧无 var() 通路，故以内联字面值镜像上方令牌（令牌改值须同步此处） */
     { label: '缓存', data: days.map(d => d.total_cache_hit ?? 0), color: isDark ? '#9fd89f' : '#669a6d' },
     { label: '未缓存', data: days.map(d => d.total_cache_miss ?? 0), color: isDark ? '#818cf8' : '#6366f1' },
     { label: '输出', data: days.map(d => d.total_completion_tokens), color: isDark ? '#a78bfa' : '#8b5cf6' },
@@ -361,7 +366,10 @@ function makeBarChart(
   mode: UsageViewMode,
   tip: (idx: number) => void,
 ): uPlot {
-  const textColor = isDark ? '#bdc3c7' : '#7f8c8d';
+  /* 图表轴文字 = 文字件 → 墨色档 --text-2（cr-128 分层核对）：内联令牌双档值
+     （暗档 = --text-2 原值；亮档 = cr-122 加深后的 --text-2 现值）。
+     原亮档字面值是 main.css 旧 text-2（亮底对比 ≈3.0，不达正文 4.5 线）的化石，已对齐。 */
+  const textColor = isDark ? '#bdc3c7' : '#55606c';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   // 序列顺序 = 视觉自上而下（顶段在前）；累计和沿视觉向下累加
   const series = buildChartDatasets(days, isDark, mode);
@@ -646,6 +654,7 @@ function renderCloud() {
   const arcW = 18;      // 外环弧宽
   const rInner = rOuter - arcW / 2; // 弦端连接在弧带内缘
   const isDark = document.documentElement.classList.contains('dark');
+  /* 「其他」节点/弧 = 分类板中性灰（同 buildChartDatasets 的兜底系列色，非语义色） */
   const OTHER_COLOR = isDark ? '#8b93a7' : '#9ca3af';
   const uid = `tc${++cloudRenderSeq}`;
 
@@ -840,6 +849,9 @@ function renderCloud() {
   }
 
   // ---- ③ 标签：主 agent（按用量 top 10）+ 其他（弧段够大时）；径向竖排完整显示 ----
+  /* 云图标签文字 = 文字件（分层归属：墨色档 --text-2）。现值是 ad-hoc slate 字面值
+     （非任一令牌的旧值化石），暗亮两档均过 4.5 线——是否归一到 --text-2 双档值
+     会动观感，cr-128 列待裁决，暂保持原样。 */
   const labelFill = isDark ? '#cbd5e1' : '#4b5563';
   const lr = rOuter + arcW / 2 + 18;
   const labelTargets: Array<{ name: string; angle: number; isOther?: boolean }> = [];
@@ -1222,7 +1234,9 @@ onUnmounted(() => { destroyChart(); });
 .tup-panel {
   display: flex; flex-direction: column;
   height: 100%; min-width: 0; overflow: hidden;
-  background: var(--bg-panel, var(--bg-raised, #fff));
+  /* 原 background 三级回退（--bg-panel → --bg-raised → 白色常量）前两级是死别名
+     （全仓无定义）——收敛为有效令牌 --bg-raised（cr-128；等价于原运行时取值） */
+  background: var(--bg-raised);
 }
 .tup-head {
   display: flex; align-items: center; gap: 8px;
@@ -1255,8 +1269,9 @@ onUnmounted(() => { destroyChart(); });
 }
 .tup-tabs button:hover { color: var(--text-1); }
 .tup-tabs button.active {
-  color: var(--acc, #6366f1);
-  border-bottom-color: var(--acc, #6366f1);
+  /* --acc 全仓无定义（死别名）；原运行时落 --primary 亮档值 → 取本源令牌 */
+  color: var(--primary);
+  border-bottom-color: var(--primary);
   font-weight: 600;
 }
 
@@ -1352,7 +1367,7 @@ onUnmounted(() => { destroyChart(); });
 .range-apply {
   flex-shrink: 0; padding: 4px 10px;
   border: none; border-radius: var(--r-sm);
-  background: var(--primary); color: #fff;
+  background: var(--primary); color: var(--on-primary); /* 实底前景用 --on-primary，禁写白色常量（cr-121） */
   font-size: 11px; cursor: pointer;
   transition: opacity var(--dur-fast);
 }
@@ -1398,7 +1413,7 @@ onUnmounted(() => { destroyChart(); });
   transition: color var(--dur-fast), background var(--dur-fast);
 }
 .tab-bar button:hover { color: var(--text-1); background: var(--bg-hover); }
-.tab-bar button.active { color: var(--primary); background: var(--primary-light, rgba(99,102,241,0.1)); font-weight: 500; }
+.tab-bar button.active { color: var(--primary); background: var(--primary-light); font-weight: 500; }
 
 /* ═══ 总览（双环复合图）═══ */
 /* 自适应填满右侧内容区（正方形 viewBox 等比缩放，无需滚动看全） */

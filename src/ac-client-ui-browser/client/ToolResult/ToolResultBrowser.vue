@@ -50,6 +50,9 @@ const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'elements'
 });
 
 // ── action 元信息（icon = lucide 图标名，经 ui/Icon 渲染——不用符号文本） ──
+// 色板口径（cr-128）：本表是「动作类型分类色板」（每动作一色 = 类型标识，非状态语义），
+// 按 R1 例外保持独立色板——不把 --ok/--warn/--err 语义色拉进分类板；徽章形态归 kit
+// .ui-badge.tag，色相经 --tag-hue / --tag-hue-rgb 内联注入（tagHueRgb 派生）。
 const ACTION_META: Partial<Record<string, { icon: string; label: string; color: string }>> = {
   open: { icon: 'external-link', label: '打开', color: '#3b82f6' },
   read: { icon: 'book-open', label: '读正文', color: '#22c55e' },
@@ -70,7 +73,16 @@ const ACTION_META: Partial<Record<string, { icon: string; label: string; color: 
   close: { icon: 'x', label: '关闭', color: '#6b7280' },
 };
 function actionMeta(action: string) {
+  // 未登记动作 = 分类板中性灰（同属独立分类色板）
   return ACTION_META[action] ?? { icon: 'wrench', label: action, color: '#6b7280' };
+}
+
+/** 分类色 → 标签徽章色相三元组（badge.css .ui-badge.tag 消费 --tag-hue-rgb："r, g, b"）。
+ *  分类色板单源仍是 ACTION_META 的 hex——此处只派生三元组，不新增色值。 */
+function tagHueRgb(hex: string): string {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+  return ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255);
 }
 
 function isStepErr(item: any): boolean {
@@ -210,7 +222,7 @@ const displayUrl = computed(() => {
           class="brw-step"
           :class="{ 'brw-step-err': isStepErr(item) }"
         >
-          <span class="brw-step-badge" :style="{ color: actionMeta(item.action).color, background: actionMeta(item.action).color + '1a' }">
+          <span class="ui-badge tag brw-step-badge" :style="{ '--tag-hue': actionMeta(item.action).color, '--tag-hue-rgb': tagHueRgb(actionMeta(item.action).color) }">
             <Icon :name="actionMeta(item.action).icon" :size="11" /> {{ actionMeta(item.action).label }}
           </span>
           <span class="brw-step-no">#{{ item.step }}<template v-if="item.repeat > 1">.{{ item.repeat }}</template></span>
@@ -242,7 +254,7 @@ const displayUrl = computed(() => {
     <!-- ════════ 单动作：截图 ════════ -->
     <div v-else-if="singleType === 'screenshot'" class="brw-screenshot">
       <div class="brw-screenshot-meta">
-        <span class="brw-badge"><Icon name="image" :size="11" class="brw-badge-icon" />截图</span>
+        <span class="ui-badge dim"><Icon name="image" :size="11" />截图</span>
         <span class="brw-file-path">{{ relPath || file }}</span>
       </div>
       <template v-if="screenshotSrc">
@@ -258,7 +270,7 @@ const displayUrl = computed(() => {
 
     <!-- ════════ 单动作：元素索引 ════════ -->
     <div v-else-if="singleType === 'elements'" class="brw-elements">
-      <span class="brw-badge"><Icon name="list" :size="11" class="brw-badge-icon" />可交互元素 × {{ elements.length }}</span>
+      <span class="ui-badge dim"><Icon name="list" :size="11" />可交互元素 × {{ elements.length }}</span>
       <pre class="brw-text brw-text-expanded"><code>{{ elements.join('\n') }}</code></pre>
     </div>
 
@@ -309,15 +321,15 @@ const displayUrl = computed(() => {
 
     <!-- ════════ 单动作：eval / html / 其他 ════════ -->
     <div v-else-if="singleType === 'eval'" class="brw-eval">
-      <span class="brw-badge"><Icon name="zap" :size="11" class="brw-badge-icon" />执行结果</span>
+      <span class="ui-badge dim"><Icon name="zap" :size="11" />执行结果</span>
       <pre class="brw-text brw-text-expanded"><code>{{ evalResult }}</code></pre>
     </div>
     <div v-else-if="singleType === 'html'" class="brw-eval">
-      <span class="brw-badge"><Icon name="globe" :size="11" class="brw-badge-icon" />HTML</span>
+      <span class="ui-badge dim"><Icon name="globe" :size="11" />HTML</span>
       <div class="brw-html-meta">{{ htmlLength }} 字符</div>
     </div>
     <div v-else class="brw-ok">
-      <span class="brw-badge brw-badge-ok"><Icon name="check" :size="11" /> 完成</span>
+      <span class="ui-badge ok"><Icon name="check" :size="11" /> 完成</span>
     </div>
   </div>
 </template>
@@ -330,60 +342,62 @@ const displayUrl = computed(() => {
   display: flex; align-items: center; gap: 10px;
   font-size: 12px; margin-bottom: 6px; flex-wrap: wrap;
 }
-.brw-batch-count { font-weight: 600; color: var(--color-text-primary); }
-.brw-batch-ok { color: #22c55e; display: inline-flex; align-items: center; gap: 3px; }
-.brw-batch-err { color: #ef4444; display: inline-flex; align-items: center; gap: 3px; }
-.brw-batch-failed { color: #f59e0b; font-weight: 600; }
+.brw-batch-count { font-weight: 600; color: var(--text-1); }
+/* 批量汇总计数（图标 + 数字，数字是文字）→ 墨色档；单独字形走图形档，见 .brw-step-status */
+.brw-batch-ok { color: var(--ok); display: inline-flex; align-items: center; gap: 3px; }
+.brw-batch-err { color: var(--err); display: inline-flex; align-items: center; gap: 3px; }
+.brw-batch-failed { color: var(--warn); font-weight: 600; }
 
 .brw-error {
-  color: var(--color-error, #e74c3c); font-size: 12px; margin: 2px 0 6px;
+  color: var(--err); font-size: 12px; margin: 2px 0 6px;
   white-space: pre-wrap; word-break: break-word;
-  background: rgba(var(--color-error-rgb, 231, 76, 60), 0.1); border-radius: 6px; padding: 6px 10px;
+  /* legacy 别名 --color-error-rgb 刻意保留（定义 = var(--err-rgb)，视觉零差）——css-color-tokens
+     测试③反向锁存活（同 cr-127 RunTracking 先例）；已删硬编码回退 231,76,60（R1 铁律不留 hex） */
+  background: rgba(var(--color-error-rgb), 0.1); border-radius: 6px; padding: 6px 10px;
 }
 
 .brw-steps { display: flex; flex-direction: column; gap: 4px; }
 
+/* 步骤行 = 工具结果卡内的内容步骤区（保留盒装形态：R4 的「设置域清单行」口径，
+   见 cr-128 报告待裁决），色值全令牌化 */
 .brw-step {
   display: flex; align-items: flex-start; gap: 8px;
   padding: 5px 8px; border-radius: 6px;
-  background: var(--color-bg-surface, #f8f8f8);
-  border: 1px solid var(--color-border-light, #e5e7eb);
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.brw-step-err { border-color: #ef444466; background: #ef44440d; }
+.brw-step-err { border-color: rgba(var(--err-rgb), 0.4); background: rgba(var(--err-rgb), 0.05); }
 
-.brw-step-badge {
-  font-size: 11px; font-weight: 600;
-  padding: 1px 8px; border-radius: 10px;
-  white-space: nowrap; flex-shrink: 0;
-  display: inline-flex; align-items: center; gap: 4px;
-}
-.brw-step-no { font-size: 11px; color: var(--color-text-tertiary); font-family: monospace; flex-shrink: 0; }
-.brw-step-status { font-weight: 700; color: #22c55e; flex-shrink: 0; display: inline-flex; align-items: center; }
-.brw-step-status.st-err { color: #ef4444; }
+/* .brw-step-badge 自建徽章样式已退役（cr-128）：动作类型徽记归 kit .ui-badge.tag
+   （色相经 --tag-hue / --tag-hue-rgb 内联注入，形状与配色单源 badge.css） */
+.brw-step-no { font-size: 11px; color: var(--text-3); font-family: monospace; flex-shrink: 0; }
+/* 步骤状态字形（纯图形件、无文字）→ 图形档（cr-123 · 3.0 线；同 StatusDot 口径） */
+.brw-step-status { font-weight: 700; color: var(--ok-graphic); flex-shrink: 0; display: inline-flex; align-items: center; }
+.brw-step-status.st-err { color: var(--err-graphic); }
 
 .brw-step-body { flex: 1; min-width: 160px; }
 .brw-step-summary {
-  font-size: 12px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--text-2);
   white-space: pre-wrap; word-break: break-word; line-height: 1.5;
 }
 .brw-step-open a {
-  color: var(--color-link, #3b82f6); font-size: 12px;
+  color: var(--primary-strong); font-size: 12px;
   word-break: break-all; text-decoration: none;
 }
 .brw-step-open a:hover { text-decoration: underline; }
-.brw-step-file { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--color-text-tertiary); font-family: monospace; word-break: break-all; }
+.brw-step-file { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-3); font-family: monospace; word-break: break-all; }
 .brw-step-file-icon { flex-shrink: 0; }
 
 .brw-expand-btn {
-  background: none; border: none; color: var(--color-link, #3b82f6);
+  background: none; border: none; color: var(--primary-strong);
   font-size: 11px; cursor: pointer; padding: 1px 0; margin-top: 2px;
 }
 .brw-detail {
   margin: 4px 0 0; font-size: 11px; line-height: 1.5;
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word;
-  max-height: 160px; overflow: auto; background: var(--color-bg-surface, #f8f8f8);
+  color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+  max-height: 160px; overflow: auto; background: var(--bg-surface);
   padding: 6px 8px; border-radius: 4px;
 }
 .brw-detail code { font-family: inherit; color: inherit; }
@@ -391,10 +405,10 @@ const displayUrl = computed(() => {
 /* ── 单动作：截图 ── */
 .brw-screenshot { display: flex; flex-direction: column; gap: 6px; }
 .brw-screenshot-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.brw-file-path { font-size: 11px; color: var(--color-text-tertiary); font-family: monospace; word-break: break-all; }
+.brw-file-path { font-size: 11px; color: var(--text-3); font-family: monospace; word-break: break-all; }
 .brw-shot-img {
   max-width: 100%; max-height: 320px; border-radius: 8px;
-  border: 1px solid var(--color-border-light, #e5e7eb); cursor: zoom-in;
+  border: 1px solid var(--line); cursor: zoom-in;
 }
 .brw-shot-img:hover { max-height: none; }
 
@@ -402,16 +416,16 @@ const displayUrl = computed(() => {
 .brw-page { display: flex; flex-direction: column; gap: 4px; }
 .brw-page-url {
   display: inline-flex; align-items: center; gap: 4px;
-  color: var(--color-link, #3b82f6); font-size: 12px; text-decoration: none;
+  color: var(--primary-strong); font-size: 12px; text-decoration: none;
   word-break: break-all;
 }
 .brw-page-url-icon { flex-shrink: 0; }
 .brw-page-url:hover { text-decoration: underline; }
-.brw-page-title { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
+.brw-page-title { font-size: 12px; font-weight: 600; color: var(--text-1); }
 .brw-text {
   margin: 0; font-size: 12px; line-height: 1.6;
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word;
+  color: var(--text-2); white-space: pre-wrap; word-break: break-word;
   max-height: 200px; overflow: hidden;
 }
 .brw-text-expanded { max-height: none; }
@@ -422,34 +436,30 @@ const displayUrl = computed(() => {
 .brw-logs { display: flex; flex-direction: column; gap: 6px; }
 .brw-logs-tabs { display: flex; gap: 4px; }
 .brw-log-tab {
-  background: none; border: 1px solid var(--color-border-light, #e5e7eb); border-radius: 6px;
-  color: var(--color-text-tertiary); font-size: 11px; padding: 2px 10px; cursor: pointer;
+  background: none; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text-3); font-size: 11px; padding: 2px 10px; cursor: pointer;
 }
-.brw-log-tab.active { color: var(--color-link, #3b82f6); border-color: var(--color-link, #3b82f6); }
+.brw-log-tab.active { color: var(--primary-strong); border-color: var(--primary-strong); }
 .brw-log-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow: auto; }
 .brw-log-row { display: flex; gap: 6px; font-size: 11px; align-items: baseline; }
-.brw-log-level, .brw-log-status { flex-shrink: 0; font-family: monospace; color: var(--color-text-tertiary); min-width: 34px; }
-.brw-log-row.lv-error .brw-log-level, .brw-log-row.lv-error .brw-log-status { color: #ef4444; }
-.brw-log-row.lv-warning .brw-log-level { color: #d97706; }
-.brw-log-status.err { color: #ef4444; font-weight: 700; }
-.brw-log-text { color: var(--color-text-secondary); word-break: break-all; }
-.brw-empty-hint { font-size: 11px; color: var(--color-text-tertiary); padding: 4px 0; }
+.brw-log-level, .brw-log-status { flex-shrink: 0; font-family: monospace; color: var(--text-3); min-width: 34px; }
+/* 日志级别/状态码是文字（error / 404 / failed）→ 墨色档 */
+.brw-log-row.lv-error .brw-log-level, .brw-log-row.lv-error .brw-log-status { color: var(--err); }
+.brw-log-row.lv-warning .brw-log-level { color: var(--warn); }
+.brw-log-status.err { color: var(--err); font-weight: 700; }
+.brw-log-text { color: var(--text-2); word-break: break-all; }
+.brw-empty-hint { font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .brw-tabs { display: flex; flex-direction: column; gap: 4px; }
-.brw-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-secondary); padding: 2px 0; }
-.brw-tab-row.active .brw-tab-title { color: var(--color-text-primary); font-weight: 600; }
-.brw-tab-row svg { flex-shrink: 0; color: var(--color-text-tertiary); }
+.brw-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); padding: 2px 0; }
+.brw-tab-row.active .brw-tab-title { color: var(--text-1); font-weight: 600; }
+.brw-tab-row svg { flex-shrink: 0; color: var(--text-3); }
 .brw-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
-.brw-tab-url { font-size: 11px; color: var(--color-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brw-tab-url { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 单动作：其他 ── */
-.brw-badge {
-  font-size: 11px; font-weight: 600; color: var(--color-text-secondary);
-  background: var(--color-bg-surface, #f8f8f8); padding: 1px 8px; border-radius: 10px;
-  display: inline-flex; align-items: center; gap: 4px;
-}
-.brw-badge-icon { flex-shrink: 0; }
-.brw-badge-ok { color: #22c55e; }
-.brw-html-meta { font-size: 12px; color: var(--color-text-tertiary); margin-top: 4px; }
+/* .brw-badge / .brw-badge-icon / .brw-badge-ok 自建徽章样式已退役（cr-128）：
+   标签徽章归 kit .ui-badge 族（dim = 中性标签；ok = 完成态），模板 class 已切换 */
+.brw-html-meta { font-size: 12px; color: var(--text-3); margin-top: 4px; }
 .brw-eval { display: flex; flex-direction: column; gap: 4px; }
 .brw-ok { padding: 2px 0; }
 </style>

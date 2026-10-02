@@ -247,8 +247,8 @@ async function doUpdate() {
   z-index: 1001;
 }
 .version-panel {
-  background: var(--color-bg-page, #fff);
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  background: var(--bg-base);
+  border: 1px solid var(--line);
   border-radius: 10px;
   width: 700px;
   max-width: 90vw;
@@ -271,16 +271,16 @@ async function doUpdate() {
 .panel-header {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 18px;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-.panel-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
-.close-btn { margin-left: auto; background: none; border: none; color: var(--color-text-secondary, #7f8c8d); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
-.close-btn:hover { color: var(--color-text-primary, #2c3e50); }
+.panel-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-1); }
+.close-btn { margin-left: auto; background: none; border: none; color: var(--text-2); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+.close-btn:hover { color: var(--text-1); }
 .panel-body { flex: 1; overflow-y: auto; padding: 20px; }
 
-.status-msg { text-align: center; padding: 32px; color: var(--color-text-secondary, #999); font-size: 14px; }
-.status-msg.error { color: #e74c3c; }
+.status-msg { text-align: center; padding: 32px; color: var(--text-2); font-size: 14px; }
+.status-msg.error { color: var(--err); }
 
 /* 版本对比卡片 */
 .version-compare {
@@ -291,22 +291,22 @@ async function doUpdate() {
   text-align: center;
   padding: 12px 18px;
   border-radius: 8px;
-  background: var(--color-bg-surface, #f8f8f8);
+  background: var(--bg-surface);
   border: 2px solid transparent;
   min-width: 100px;
 }
 .version-card.highlight {
-  border-color: var(--color-border-secondary, #e0e0e0);
+  border-color: var(--line);
   opacity: 0.7;
 }
 .version-card.latest {
-  border-color: var(--color-primary, #6366f1);
-  background: var(--color-primary-light, rgba(99,102,241,0.06));
+  border-color: var(--primary);
+  background: var(--primary-light);
 }
-.vc-label { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); margin-bottom: 4px; }
-.vc-version { font-size: 18px; font-weight: 700; color: var(--color-text-primary, #2c3e50); }
-.version-card.latest .vc-version { color: var(--color-primary, #6366f1); }
-.version-arrow { font-size: 20px; color: var(--color-text-tertiary, #a8abb2); }
+.vc-label { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.vc-version { font-size: 18px; font-weight: 700; color: var(--text-1); }
+.version-card.latest .vc-version { color: var(--primary); }
+.version-arrow { font-size: 20px; color: var(--text-3); }
 
 /* 状态提示 */
 .version-status {
@@ -322,7 +322,9 @@ async function doUpdate() {
   background: rgba(var(--ok-rgb), 0.12); color: var(--ok);
 }
 .version-status.unknown {
-  background: #f1f5f9; color: #475569;
+  /* 中性档（第三态「无法检查」）：按 .version-status 同款配方取 tint + 中性墨色——
+     原值是旧 slate 常量化石（暗色主题下不可读），cr-128 归一令牌 */
+  background: rgba(var(--text-3-rgb), 0.12); color: var(--text-2);
 }
 .version-status-icon { font-size: 14px; }
 
@@ -334,36 +336,36 @@ async function doUpdate() {
 .version-btn {
   padding: 8px 20px; border-radius: 6px;
   font-size: 13px; font-weight: 500; cursor: pointer;
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  background: var(--color-bg-page, #fff);
-  color: var(--color-text-primary, #2c3e50);
+  border: 1px solid var(--line);
+  background: var(--bg-base);
+  color: var(--text-1);
   text-decoration: none; display: inline-block;
   transition: background 0.15s;
 }
 .version-btn.primary {
-  background: var(--color-primary, #6366f1);
-  color: #fff; border-color: var(--color-primary, #6366f1);
+  background: var(--primary);
+  color: var(--on-primary); border-color: var(--primary);
 }
 .version-btn.primary:hover { opacity: 0.9; }
 .version-btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.version-btn.secondary:hover { background: var(--color-bg-surface, #f5f5f5); }
+.version-btn.secondary:hover { background: var(--bg-surface); }
 .version-btn.secondary:disabled { opacity: 0.7; cursor: default; }
 
 .version-update-msg {
   text-align: center; padding: 8px;
-  font-size: 12px; color: var(--color-text-tertiary, #a8abb2);
+  font-size: 12px; color: var(--text-3);
   white-space: pre-line;
 }
 
 /* 更新日志 */
 .version-changelog {
   margin-top: 16px;
-  border-top: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-top: 1px solid var(--line);
   padding-top: 12px;
 }
 .version-changelog summary {
   cursor: pointer; font-size: 13px; font-weight: 600;
-  color: var(--color-text-secondary, #7f8c8d);
+  color: var(--text-2);
   padding: 4px 0;
 }
 .version-changelog .markdown-body {
