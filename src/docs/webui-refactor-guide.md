@@ -28,7 +28,7 @@
 
 凡 `@keyframes` 旋转 + border-top-color 的 spinner，一律 `<BusyRing :size="13" />`（独立等待位加 `label`）。
 色轴恒 primary，不再有 busy/running 两档；`--motion-scale` 归一与 reduced-motion 由组件自带。
-已迁移标杆：ToolMessage/AssistantMessage/TurnDisplayItem/ToolResultRunCode/ToolResultSubagent 五处琥珀环（cr-122）。
+消息卡忙环例外（cr-125 裁决）：ToolMessage/AssistantMessage/TurnDisplayItem/ToolResultRunCode/ToolResultSubagent 的 label 行内环**保留自建**（cr-122 仅色轴归一 primary，未迁 BusyRing）——label 行承载域动作/sticky/流式语义，超出 BusyRing 配方；其 reduced-motion 豁免见 main.css 清单。
 
 ### R3 自建徽章 → .ui-badge 族
 
@@ -44,10 +44,11 @@
 ### R5 折叠内容区 → CollapseRow
 
 工具卡/思考区/任何「label 行 + 左竖线 + 限高滚动正文」形态。自带可达性（button/aria-expanded/aria-live=off/吸底退出）。
+例外（cr-125）：ToolMessage（label 行含域动作）、TurnDisplayItem（sticky 表头 + 无折叠变体）、AssistantMessage 思考区（流式吸底）不迁——形态不同构，强迁必改行为。
 
 ### R6 composer 上方浮层 → DockCard
 
-ApprovalBar/InteractionBar/QueueDock/GoalDockCard/TodoDockCard 五处同 recipe 副本归一；busy 态正文区 role=status 由壳自带。
+ApprovalBar/InteractionBar 外壳已迁（cr-125）；GoalDockCard/TodoDockCard 待迁；QueueDock 例外（cr-125 裁决）——表头是折叠开关语义（多条收起/单条直渲染），DockCard 无 collapsible header，保留自建。busy 态正文区 role=status 由壳自带。
 
 ### R7 反馈形态归位
 
@@ -59,11 +60,12 @@ ApprovalBar/InteractionBar/QueueDock/GoalDockCard/TodoDockCard 五处同 recipe 
 
 | 批次 | 包 | hex 量 | 主要动作 |
 |---|---|---|---|
-| P1 | conversation | 120 | 消息卡三件套迁 CollapseRow；ChatInput 反馈归 toast；TokenGauge 剩余散件 |
+| P1 | conversation | 120 | ✅ cr-125 完成：hex 143→9（余为分类色板/常量，均注释）；ApprovalBar/InteractionBar→DockCard；ContextInjectCard→CollapseRow；4 处 spinner→BusyRing；徽章/反馈归位；消息卡三件套与 QueueDock 按例外保留 |
 | P2 | agents + singles | 61+66 | AgentList/SessionList 清单行 ui-row 化（list-item 双源收编）；状态点 StatusDot |
 | P3 | workspace + runview | 55+52 | FilePreview/WorkspaceTree spinner 归 BusyRing；RunTracking 树行 ui-row |
 | P4 | browser + usage + system | 41+34+25 | 浏览器结果卡徽章归 ui-badge；usage 图表色板分层核对；VersionDialog 类横幅令牌化（已迁） |
-| P5 | 其余小包 | <20/包 | fs/goal/jobs/layout/shell/subagent/run-code/timer/todo/group/web 逐包清零 |
+| P5 | 其余小包 | <20/包 | fs/goal/jobs/layout/shell/subagent/run-code/timer/todo/group/web/llm-pool/remote/settings/search-pool 逐包清零 |
+| P6 | renderer + webui/assets | 47+93 | 指南外存量收编：renderer 迁移；main.css 兼容层判定（死别名 --color-warning-rgb 清理 + v2.html 重注入）；rgba 字面量清点（cr-125 待裁决 D/F） |
 
 每批验收：`pnpm typecheck && pnpm webui:typecheck && npx vitest run src/webui/tests` + 定向 lint + 该包截图对照。
 
@@ -78,5 +80,5 @@ ApprovalBar/InteractionBar/QueueDock/GoalDockCard/TodoDockCard 五处同 recipe 
 ## 五、已完成基准（勿重复迁移）
 
 - webui-kit 全部组件已达标（cr-121~123）；v2.html 陈列页即目标态实物。
-- 已迁移业务件：ExtToolsPane/PluginLibraryPane（ui-row+ui-badge+is-auto）、ConversationHeader（FeedbackNotice chip）、TokenGauge（三档+双档色+图形档）、usage 折线/云图、VersionDialog 横幅、5 处琥珀忙环、ChatInput 发送键影。
+- 已迁移业务件：ExtToolsPane/PluginLibraryPane（ui-row+ui-badge+is-auto）、ConversationHeader（FeedbackNotice chip）、TokenGauge（三档+双档色+图形档）、usage 折线/云图、VersionDialog 横幅、5 处消息卡忙环色轴归一（保留自建，见 R2 例外）、ChatInput 发送键影；cr-125 conversation 包全量（DockCard/CollapseRow/BusyRing/ui-badge/反馈归位，hex 143→9）。
 - 语义色现值（cr-123 终值）：墨色档 N `#9bd39a/#fcd34d/#f0879a` · A `#356f43/#8a5a06/#9f1239`；图形档 N `#9fd89f/#fde68a/#f7a8b8` · A `#669a6d/#bb831c/#d9536f`；星板马卡龙 8 色（薰衣草/蓝青/湖青/苔绿/橄榄/珊瑚/品红紫/暮蓝）。
