@@ -314,19 +314,12 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   min-height: 63px;
 }
 
-/* 窄屏 2 行（cr-34）：63px = 恰好 3 整行——手机上占屏比过高；42px = 2 行
-   （1.5 × 14px × 2），输入体验仍在（内容超出内滚） */
-@media (max-width: 768px) {
-  .pe-wrap { min-height: 42px; }
-  .pe-wrap :deep(.pe-editor) { min-height: 42px; max-height: 42px; }
-}
-
 .pe-wrap :deep(.pe-editor) {
   outline: none;
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
-  /* 高度与原 textarea 面同策略：固定恰好 3 整行（1.5 × 14px × 3），
+  /* 高度与原 textarea 面同策略：桌面固定恰好 3 整行（1.5 × 14px × 3），
      超出内容内滚；滚动条隐藏（经典滚动条占内容宽会改变换行点） */
   min-height: 63px;
   max-height: 63px;
@@ -338,6 +331,16 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   overflow-wrap: break-word;
   color: var(--color-text-primary);
   caret-color: var(--color-text-primary);
+}
+
+/* 窄屏默认单行、随内容自增高，上限 3 行（cr-111）：21px = 1.5 × 14px × 1，
+   63px = 3 行上限，超出内滚。原 cr-34 的 min/max 同值（42px = 固定 2 行）
+   令编辑面无法增高——改单值 min-height 后高度由内容撑开，上限仍由 max-height
+   守住。本块必须写在基础规则之后：媒体查询不提升特异性，同特异性时后写的赢
+   （cr-36 同款顺序坑——写在前面会被基础 63px 压过，窄屏不改动）。 */
+@media (max-width: 768px) {
+  .pe-wrap { min-height: 21px; }
+  .pe-wrap :deep(.pe-editor) { min-height: 21px; max-height: 63px; }
 }
 
 .pe-wrap :deep(.pe-editor)::-webkit-scrollbar {

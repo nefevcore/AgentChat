@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-108**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-111**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -126,3 +126,6 @@
 - 【cr-106 2026-10-02 mergeHistory 前缀对齐加身份门+空载门：悬挂 run 空占位窗内切回会话，用户落盘行不再被内容前缀互验误吸收进 Agent 占位（Agent 气泡镜像用户消息事故根修）；回归测试 4 例钉住门语义与 2026-09-21 #4 不回归】
 - 【cr-107 2026-10-02 会话前端收敛 checkpoint B+C：B·live 分区（流式/占位/未闭合工具行）历史重入禁指纹短路，切回时点=确定性收敛（服务端全量覆盖临时态）；C·悬挂流探针——streaming 分区静默3min 查 conversation/stats 权威判死活（判死关停+强制收敛/判活顺延/RPC 失败不定罪），发送看门狗触发即权威化；新增 convergeDialog 写口 + 回归测试；run 生命周期文档同步】
 - 【cr-108 2026-10-02 远程下行事件面与 ws-bridge 并源（cr-105 同型走散第三现场根修，用户裁决「只防必要的，不防自己」）：REMOTE_DOWNLINK_EVENTS 13 事件白名单退役——桥接策略（过滤/整形/投影）从 ws-bridge 内联监听器抽出为共享目录 ac-wire-format BRIDGE_EVENTS（42 事件全量：群消息/决策卡/列表刷新/chat-error 等 29 种此前手机端静默缺失），ws-bridge 与 remote-link 同源消费，两链载荷同构（durable-interaction/opened 整形并源）；llm/delta 微批保留在各消费侧（性能机制）。同批：http-bridge 静态路径白名单退役为通用校验（仅挡目录逃逸与 URL 形态——GET-only 与主机钉死保留，cr-103「新 dist 文件忘加白名单真机 404」事故类别根除）】
+- 【cr-109 2026-10-02 手机端优化双件：后台保活（CONNECTING/ONLINE 期部分锁 wakelock 替代 onStop 全断链）+ 重连风暴修复（断链触发源去重防双循环互踩）】
+- 【cr-110 2026-10-02 新增根级 webui-gallery.html：webui-kit 全控件静态陈列页（对照评审用，非产品代码）】
+- 【cr-111 2026-10-02 移动端输入框默认单行自增高：PromptEditor 窄屏编辑面 42px(固定2行)→21px(1行) 起、随内容增至 63px(3行) 上限后内滚；窄屏 @media 块同步移到基础规则之后（cr-36 同款顺序坑：媒体块写在被覆盖规则前，同特异性被后写的基础 63px 压过）】
