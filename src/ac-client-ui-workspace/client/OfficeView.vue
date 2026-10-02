@@ -84,7 +84,7 @@ function resetState() { parseError.value = ''; renderedTick.value = 0; }
   height: 100%;
   min-height: 200px;
   overflow: auto;
-  background: var(--color-bg-page, #fff);
+  background: var(--bg-base);
 }
 .ov-doc-holder {
   height: 100%;
@@ -101,11 +101,11 @@ function resetState() { parseError.value = ''; renderedTick.value = 0; }
   justify-content: center;
   gap: 8px;
   height: 100%;
-  color: var(--color-text-secondary, rgba(255,255,255,0.6));
+  color: var(--text-2);
   font-size: 13px;
 }
 .ov-error-hint {
   font-size: 12px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--text-3);
 }
 </style>

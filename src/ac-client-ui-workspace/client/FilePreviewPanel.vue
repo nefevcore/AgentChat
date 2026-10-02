@@ -121,7 +121,7 @@ function onClose() {
   height: 100%;
   min-width: 0;
   overflow: hidden;
-  background: var(--color-bg-page, #1e1e2e);
+  background: var(--bg-base);
   /* 左缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（重叠曾呈双线） */
 }
 
@@ -129,7 +129,7 @@ function onClose() {
 .fpp-tabs {
   display: flex;
   align-items: stretch;
-  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.06));
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
   /* 高度对齐会话头（--layout-header-height）——三区顶部齐线，减少视觉割裂 */
   height: var(--layout-header-height, 48px);
@@ -148,9 +148,9 @@ function onClose() {
   gap: 5px;
   padding: 0 8px 0 10px;
   border: none;
-  border-right: 1px solid var(--color-border, rgba(255,255,255,0.05));
+  border-right: 1px solid var(--line);
   background: transparent;
-  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  color: var(--text-2);
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
@@ -159,13 +159,13 @@ function onClose() {
   transition: background 0.15s, color 0.15s;
 }
 .fpp-tab:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.05));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .fpp-tab.active {
-  background: var(--color-bg-surface, rgba(255,255,255,0.04));
-  color: var(--color-text-primary, #e0e0e0);
-  box-shadow: inset 0 -2px 0 var(--color-primary, #6366f1);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  box-shadow: inset 0 -2px 0 var(--primary);
 }
 .fpp-tab-title {
   overflow: hidden;
@@ -178,20 +178,20 @@ function onClose() {
   width: 16px;
   height: 16px;
   border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--text-3);
   flex-shrink: 0;
   transition: background 0.12s, color 0.12s;
 }
 .fpp-tab-close:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.12));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .fpp-tabs-actions {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 6px;
-  border-left: 1px solid var(--color-border, rgba(255,255,255,0.05));
+  border-left: 1px solid var(--line);
   flex-shrink: 0;
 }
 .fpp-action {
@@ -201,14 +201,14 @@ function onClose() {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+  color: var(--text-3);
   cursor: pointer;
   font-size: 11px;
   transition: background 0.12s, color 0.12s;
 }
 .fpp-action:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.08));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 /* ── pane 列 ── */
@@ -223,15 +223,6 @@ function onClose() {
   min-width: 0;
 }
 
-/* ── 亮色模式 ── */
-:global(:root.light) .fpp-panel {
-  background: #ffffff;
-  border-left-color: rgba(0,0,0,0.06);
-}
-:global(:root.light) .fpp-tabs { border-bottom-color: rgba(0,0,0,0.06); }
-:global(:root.light) .fpp-tab { border-right-color: rgba(0,0,0,0.05); color: #666; }
-:global(:root.light) .fpp-tab.active {
-  background: #f4f4f6;
-  color: #222;
-}
+/* 亮色硬编码覆盖层已退役（cr-127）：面板底/分界/件底/墨色全由 L0 令牌
+   双主题单源承担（--bg-base/--line/--bg-hover/--text-1），不再逐条覆写。 */
 </style>

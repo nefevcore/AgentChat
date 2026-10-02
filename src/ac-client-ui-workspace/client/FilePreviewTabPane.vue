@@ -8,7 +8,7 @@
   不出现在下拉里）。 -->
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
-import { Icon, Tooltip, toastError } from '@agentchat/webui-kit';
+import { BusyRing, Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import {
   useFilePreviewContent,
   previewModeOptions,
@@ -185,7 +185,7 @@ onBeforeUnmount(() => {
             class="fpt-icon-btn"
             :disabled="loading"
             @click="reload"
-          ><Icon name="refresh-cw" :size="14" :class="{ 'fpt-spin': loading }" /></button>
+          ><BusyRing v-if="loading" :size="13" /><Icon v-else name="refresh-cw" :size="14" /></button>
         </Tooltip>
         <!-- 自动换行（代码/文本类视图生效；icon 开关 + on 态高亮） -->
         <Tooltip v-if="wrapApplies" :text="wrap ? '自动换行：开 · 点击关闭' : '自动换行：关 · 点击开启'" placement="bottom">
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
             :disabled="openLocalState === 'opening'"
             @click="openLocally"
           >
-            <Icon v-if="openLocalState === 'opening'" name="loader-circle" :size="14" class="fpt-spin" />
+            <BusyRing v-if="openLocalState === 'opening'" :size="13" />
             <Icon v-else name="external-link" :size="14" />
           </button>
         </Tooltip>
@@ -241,7 +241,7 @@ onBeforeUnmount(() => {
     <!-- 内容区 -->
     <div class="fpt-body">
       <div v-if="loading" class="fpt-loading">
-        <div class="fpt-spinner"></div>
+        <BusyRing :size="18" />
         <span>加载中...</span>
       </div>
 
@@ -322,7 +322,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.06));
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 .fpt-head-info {
@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
 .fpt-name {
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-primary, #e0e0e0);
+  color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -344,14 +344,14 @@ onBeforeUnmount(() => {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
-  background: var(--color-primary-light, rgba(79,70,229,0.15));
-  color: var(--color-primary, #7c7cf8);
+  background: var(--primary-light);
+  color: var(--primary);
   white-space: nowrap;
   flex-shrink: 0;
 }
 .fpt-size {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--text-3);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -374,9 +374,9 @@ onBeforeUnmount(() => {
   height: 22px;
   padding: 0 6px 0 7px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.08));
-  background: var(--color-bg-surface, rgba(255,255,255,0.04));
-  color: var(--color-text-secondary, rgba(255,255,255,0.75));
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
+  color: var(--text-2);
   font-size: 11px;
   font-family: inherit;
   cursor: pointer;
@@ -384,18 +384,15 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .fpt-mode-trigger:hover {
-  border-color: var(--color-border, rgba(255,255,255,0.16));
-  background: var(--color-bg-hover, rgba(255,255,255,0.08));
-  color: var(--color-text-primary, #e0e0e0);
+  border-color: var(--line);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
-.fpt-mode-trigger:focus-visible {
-  outline: 2px solid var(--color-primary, #7c7cf8);
-  outline-offset: 1px;
-}
-.fpt-mode-icon { color: var(--color-text-tertiary, rgba(255,255,255,0.4)); flex-shrink: 0; }
+/* 焦点环归 L0 唯一源（tokens.css 全局 :focus-visible + --focus-ring*，cr-127） */
+.fpt-mode-icon { color: var(--text-3); flex-shrink: 0; }
 .fpt-mode-label { min-width: 28px; text-align: left; }
 .fpt-mode-caret {
-  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+  color: var(--text-3);
   flex-shrink: 0;
   transition: transform 0.15s;
 }
@@ -412,28 +409,26 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  color: var(--text-2);
   cursor: pointer;
   transition: all 0.15s;
   text-decoration: none;
   flex-shrink: 0;
 }
 .fpt-icon-btn:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.08));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .fpt-icon-btn:disabled { opacity: 0.6; cursor: default; }
-.fpt-icon-btn.copied { color: #4caf50; }
-.fpt-icon-btn.error { color: #f44336; }
+.fpt-icon-btn.copied { color: var(--ok); }
+.fpt-icon-btn.error { color: var(--err); }
 /* 开启态偏好按钮（换行）：主题色高亮示当前值 */
 .fpt-icon-btn.on {
-  color: var(--color-primary, #7c7cf8);
-  background: var(--color-primary-light, rgba(79,70,229,0.12));
-  border-color: var(--color-primary, rgba(99,102,241,0.5));
+  color: var(--primary);
+  background: var(--primary-light);
+  border-color: var(--primary);
 }
-/* 打开中 spinner 旋转 */
-.fpt-spin { animation: fpt-rotate 0.8s linear infinite; }
-@keyframes fpt-rotate { to { transform: rotate(360deg); } }
+/* 忙指示归 kit BusyRing（cr-127；原自建 .fpt-spin 旋转与 @keyframes 已退役） */
 
 /* 错误区重试按钮（保留文字按钮形态——大点击目标） */
 .fpt-error-retry {
@@ -441,16 +436,16 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 3px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.12));
-  background: var(--color-bg-surface, rgba(255,255,255,0.04));
-  color: var(--color-text-secondary, rgba(255,255,255,0.7));
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
+  color: var(--text-2);
   cursor: pointer;
   font-size: 12px;
   transition: all 0.15s;
 }
 .fpt-error-retry:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.1));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 /* ── 内容区 ── */
@@ -466,18 +461,10 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 40px 20px;
   gap: 10px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.5));
+  color: var(--text-2);
   font-size: 12px;
 }
-.fpt-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--color-border, rgba(255,255,255,0.1));
-  border-top-color: var(--color-primary, #7c7cf8);
-  border-radius: 50%;
-  animation: fpt-spin 0.8s linear infinite;
-}
-@keyframes fpt-spin { to { transform: rotate(360deg); } }
+/* 内容区等待位归 kit BusyRing（独立等待位 :size="18"，相邻文案承担语义） */
 .fpt-error {
   display: flex;
   flex-direction: column;
@@ -485,7 +472,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 40px 20px;
   gap: 10px;
-  color: var(--color-error, #f44336);
+  color: var(--err);
   font-size: 12px;
 }
 .fpt-iframe {
@@ -494,6 +481,8 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 300px;
   border: none;
+  /* iframe 画布底色 = Web 默认白：HTML 预览页自带底色时不可见，且不作为
+     主题底（主题底由沙箱文档自身调色板给）——非主题色常量，cr-127 保留 */
   background: #fff;
 }
 .fpt-image-wrap {
@@ -533,17 +522,17 @@ onBeforeUnmount(() => {
   min-width: 3.5em;
   padding: 0 8px 0 12px;
   text-align: right;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.25));
+  color: var(--text-3);
   user-select: none;
   position: sticky;
   left: 0;
-  background: var(--color-bg-page, #1e1e2e); /* 遮盖横滚下穿行的代码 */
+  background: var(--bg-base); /* 遮盖横滚下穿行的代码 */
 }
 .fpt-code-line {
   flex: 1;
   min-width: 0;
   padding-right: 12px;
-  color: var(--color-text-primary, #e0e0e0);
+  color: var(--text-1);
   white-space: pre; /* nowrap 态：行不折（容器横滚）；wrap 态下行内覆盖 */
   /* code 元素被 UA 样式表显式声明 font-family: monospace，会盖过容器继承——
      显式 inherit 才能用上 .fpt-code-wrap 的字体栈（同 Modal 的 .fp-code code） */
@@ -571,32 +560,18 @@ onBeforeUnmount(() => {
 /* ── 底部路径 ── */
 .fpt-foot {
   padding: 4px 10px;
-  border-top: 1px solid var(--color-border, rgba(255,255,255,0.06));
+  border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
 .fpt-path {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  color: var(--text-3);
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
   word-break: break-all;
 }
 
-/* ── 亮色模式 ── */
-:global(:root.light) .fpt-head {
-  border-color: rgba(0,0,0,0.06);
-}
-:global(:root.light) .fpt-name { color: #222; }
-:global(:root.light) .fpt-mode-select .fpt-mode-trigger {
-  background: #f0f0f3;
-  border-color: rgba(0,0,0,0.08);
-}
-:global(:root.light) .fpt-mode-select .fpt-mode-trigger:hover { background: #e8e8ec; }
-:global(:root.light) .fpt-icon-btn:hover {
-  background: #e8e8ec;
-  color: #222;
-}
-:global(:root.light) .fpt-code-line { color: #333; }
-:global(:root.light) .fpt-line-num { background: #ffffff; }
+/* 亮色硬编码覆盖层已退役（cr-127）：pane 头分界/墨色/件底/悬停底全由 L0
+   令牌双主题单源承担（--line/--text-1/--bg-surface/--bg-hover/--bg-base）。 */
 </style>
 
 <!-- 弹层样式（非 scoped：弹层经 Teleport 落在 body 下，scoped 属性
@@ -608,8 +583,8 @@ onBeforeUnmount(() => {
   min-width: 120px;
   padding: 4px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
-  background: var(--color-bg-surface, #262633);
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
   box-shadow: 0 8px 28px rgba(0,0,0,0.38);
   display: flex;
   flex-direction: column;
@@ -629,7 +604,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-secondary, rgba(255,255,255,0.72));
+  color: var(--text-2);
   font-size: 12px;
   font-family: inherit;
   text-align: left;
@@ -637,22 +612,21 @@ onBeforeUnmount(() => {
   transition: background 0.12s, color 0.12s;
 }
 .fpt-mode-option:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.08));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .fpt-mode-option.active {
-  color: var(--color-primary, #7c7cf8);
-  background: var(--color-primary-light, rgba(99,102,241,0.12));
+  color: var(--primary);
+  background: var(--primary-light);
   font-weight: 500;
 }
 .fpt-mode-option-check { flex-shrink: 0; }
-/* 亮色模式 */
+/* 亮色档：底/墨色取令牌亮档（阴影为 rgba 字面量，收编归 P6） */
 :root.light .fpt-mode-menu {
-  background: #ffffff;
-  border-color: rgba(0,0,0,0.08);
+  background: var(--bg-raised);
   box-shadow: 0 8px 24px rgba(15,23,42,0.14);
 }
-:root.light .fpt-mode-option { color: #444; }
-:root.light .fpt-mode-option:hover { background: #f0f0f3; color: #222; }
-:root.light .fpt-mode-option.active { color: #4f46e5; background: rgba(79,70,229,0.08); }
+:root.light .fpt-mode-option { color: var(--text-2); }
+:root.light .fpt-mode-option:hover { background: var(--bg-hover); color: var(--text-1); }
+:root.light .fpt-mode-option.active { color: var(--primary); background: var(--primary-light); }
 </style>

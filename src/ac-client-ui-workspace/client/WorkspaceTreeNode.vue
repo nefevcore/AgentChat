@@ -54,6 +54,9 @@ function getFileIcon(name: string): { icon: string; color: string } {
   const binExts = new Set(['exe','dll','so','dylib','bin','wasm','o','a','class','iso','img','dmg']);
   // git 点文件（.gitignore 等）：lastIndexOf('.') 取到点后缀 → gitignore
   const gitExts = new Set(['gitignore','gitattributes','gitmodules','gitkeep']);
+  // 文件类型图标色 = 分类色板（指南 R1 例外：每类一色，语义 ≠ 分类）。
+  // 这些色值是图标身份色（不随主题切换、不进语义令牌族），随图标族整体
+  // 保留；新增/调整色相属图标族设计变更，不属 hex 清零范围。
   if (codeExts.has(ext)) return { icon: 'code', color: '#4a90d9' };
   if (termExts.has(ext)) return { icon: 'terminal', color: '#2ea44f' };
   if (imgExts.has(ext)) return { icon: 'image', color: '#a855f7' };
@@ -120,13 +123,13 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
   padding: 3px 6px; border-radius: var(--radius-sm); cursor: pointer;
   white-space: nowrap; overflow: hidden; min-width: 0;
 }
-.wtn-row:hover { background: var(--color-bg-surface, #f5f5f5); }
-.wtn-row.active { background: var(--color-primary-light, rgba(79,70,229,0.1)); }
-.wtn-dir { color: var(--color-text-primary); font-weight: 500; }
-.wtn-file { color: var(--color-text-secondary); }
+.wtn-row:hover { background: var(--bg-surface); }
+.wtn-row.active { background: var(--primary-light); }
+.wtn-dir { color: var(--text-1); font-weight: 500; }
+.wtn-file { color: var(--text-2); }
 .wtn-icon { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 16px; }
 .wtn-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-.wtn-children { margin-left: 12px; border-left: 1px solid var(--color-border-secondary, #e8e8e8); padding-left: 4px; }
-.wtn-more { color: var(--color-text-muted); font-style: italic; cursor: default; }
-.wtn-empty { padding: 4px 10px; color: var(--color-text-muted); font-size: 12px; }
+.wtn-children { margin-left: 12px; border-left: 1px solid var(--line); padding-left: 4px; }
+.wtn-more { color: var(--text-3); font-style: italic; cursor: default; }
+.wtn-empty { padding: 4px 10px; color: var(--text-3); font-size: 12px; }
 </style>

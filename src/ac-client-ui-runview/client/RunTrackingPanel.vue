@@ -325,7 +325,7 @@ onMounted(() => {
       <!-- 2. 矩阵快照：叶节点形态的矩阵入口（点击打开/关闭主区矩阵快照；
            叶行非分组节点 → 无展开 chevron/x。纯快照展示——无运行数徽标
            （运行态常驻入口 = 辅助活动栏按钮徽章 + 面板「运行中」节点） -->
-      <div class="tree-leaf overview-leaf" :class="{ active: ui.trackingViewVisible }"
+      <div class="tree-leaf overview-leaf ui-row" :class="{ 'is-selected': ui.trackingViewVisible }"
         :title="`矩阵快照：会话对 ${coverage?.pairSessions ?? 0} · 群 ${coverage?.groupSessions ?? 0} · 矩阵外独立 ${coverage?.singleSessions ?? 0}（点击${ui.trackingViewVisible ? '关闭' : '打开'}）`"
         @click="toggleMatrix">
         <span class="node-icon kind-overview"><Icon name="grid-3x3" :size="14" /></span>
@@ -333,15 +333,15 @@ onMounted(() => {
       </div>
 
       <!-- 3. 运行中 -->
-      <div class="tree-node" @click="toggleNode('running')">
+      <div class="tree-node ui-row" @click="toggleNode('running')">
         <span class="node-icon"><Icon :name="collapsed.has('running') ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
         <span class="node-icon kind-running"><Icon name="zap" :size="14" /></span>
         <span class="node-name">运行中</span>
-        <span v-if="running.length > 0" class="node-badge">{{ running.length }}</span>
+        <span v-if="running.length > 0" class="ui-badge info node-badge">{{ running.length }}</span>
       </div>
       <div v-if="!collapsed.has('running')" class="node-children">
         <div v-if="running.length === 0" class="tree-leaf stat dim-leaf">没有正在运行的会话</div>
-        <div v-for="r in running" :key="r.convKey" class="tree-leaf run"
+        <div v-for="r in running" :key="r.convKey" class="tree-leaf run ui-row"
           :class="{ jumpable: !!jumpTarget(r) }"
           :title="jumpTarget(r) ? `${sessionTitle(r)}\n${r.convKey}\n点击进入会话` : `${sessionTitle(r)}\n${r.convKey}`"
           @click="jumpTo(r)">
@@ -355,15 +355,15 @@ onMounted(() => {
       </div>
 
       <!-- 4. 后台任务（bash 后台等；运行中 + 最近终态） -->
-      <div class="tree-node" @click="toggleNode('jobs')">
+      <div class="tree-node ui-row" @click="toggleNode('jobs')">
         <span class="node-icon"><Icon :name="collapsed.has('jobs') ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
         <span class="node-icon kind-job"><Icon name="terminal" :size="14" /></span>
         <span class="node-name">后台任务</span>
-        <span v-if="bgRunning.length > 0" class="node-badge">{{ bgRunning.length }}</span>
+        <span v-if="bgRunning.length > 0" class="ui-badge info node-badge">{{ bgRunning.length }}</span>
       </div>
       <div v-if="!collapsed.has('jobs')" class="node-children">
         <div v-if="bgRunning.length + bgSettledAll.length === 0" class="tree-leaf stat dim-leaf">暂无后台任务</div>
-        <div v-for="j in bgRunning" :key="j.id" class="tree-leaf" :title="jobTitle(j)">
+        <div v-for="j in bgRunning" :key="j.id" class="tree-leaf ui-row" :title="jobTitle(j)">
           <span class="leaf-icon" :class="statusClass(j.status)"><Icon :name="statusIcon(j.status)" :size="13" /></span>
           <span class="leaf-name">{{ j.label }}</span>
           <span class="leaf-dur"><RunDuration :started-at="j.startedAt" /></span>
@@ -371,7 +371,7 @@ onMounted(() => {
             <Icon name="stop" :size="10" />
           </button>
         </div>
-        <div v-for="j in bgSettled" :key="j.id" class="tree-leaf" :title="jobTitle(j)">
+        <div v-for="j in bgSettled" :key="j.id" class="tree-leaf ui-row" :title="jobTitle(j)">
           <span class="leaf-icon" :class="statusClass(j.status)"><Icon :name="statusIcon(j.status)" :size="13" /></span>
           <span class="leaf-name dim">{{ j.label }}</span>
           <span class="leaf-status" :class="statusClass(j.status)">{{ statusLabel(j.status) }}</span>
@@ -385,15 +385,15 @@ onMounted(() => {
            跨重启完整，subagents/updated 帧驱动刷新。运行中行 = displayStatus
            running（stop 按钮 + 实时时长）；其余按 updatedAt 取最近一段。
            行点击 → 主区子 Agent 会话只读视角） -->
-      <div class="tree-node" @click="toggleNode('subs')">
+      <div class="tree-node ui-row" @click="toggleNode('subs')">
         <span class="node-icon"><Icon :name="collapsed.has('subs') ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
         <span class="node-icon kind-sub"><Icon name="bot" :size="14" /></span>
         <span class="node-name">子Agent 调用</span>
-        <span v-if="subRunning.length > 0" class="node-badge">{{ subRunning.length }}</span>
+        <span v-if="subRunning.length > 0" class="ui-badge info node-badge">{{ subRunning.length }}</span>
       </div>
       <div v-if="!collapsed.has('subs')" class="node-children">
         <div v-if="subTotal === 0" class="tree-leaf stat dim-leaf">暂无子 Agent 调用</div>
-        <div v-for="s in subRunning" :key="s.subId" class="tree-leaf jumpable"
+        <div v-for="s in subRunning" :key="s.subId" class="tree-leaf jumpable ui-row"
           :title="`${subTitle(s)}\n点击查看会话`"
           @click="openSubagent(s.subId, s.name, s.parentId)">
           <div class="leaf-avatar"><StarAvatar :src="memberAvatar(s.parentId ?? '')" :name="memberName(s.parentId ?? '')" :size="15" :color="colorOf(s.parentId ?? '')" fallback-icon="bot" :running="true" /></div>
@@ -403,7 +403,7 @@ onMounted(() => {
             <Icon name="stop" :size="10" />
           </button>
         </div>
-        <div v-for="s in subSettled" :key="s.subId" class="tree-leaf jumpable"
+        <div v-for="s in subSettled" :key="s.subId" class="tree-leaf jumpable ui-row"
           :title="`${subTitle(s)}\n点击查看会话`"
           @click="openSubagent(s.subId, s.name, s.parentId)">
           <div class="leaf-avatar"><StarAvatar :src="memberAvatar(s.parentId ?? '')" :name="memberName(s.parentId ?? '')" :size="15" :color="colorOf(s.parentId ?? '')" fallback-icon="bot" /></div>
@@ -419,75 +419,74 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.runs-panel{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+.runs-panel{flex:1;min-width:0;background:var(--bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
-html.dark .runs-panel{background:var(--bg-base,#0a0d14)}
+html.dark .runs-panel{background:var(--bg-base)}
 
 /* 1. 标题栏（对齐 SessionList 的 ws-toolbar 形态） */
 .panel-toolbar{display:flex;align-items:center;gap:6px;padding:10px 14px 6px;flex-shrink:0}
-.toolbar-label{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--color-text-tertiary,#a8abb2);user-select:none}
+.toolbar-label{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--text-3);user-select:none}
 .toolbar-actions{margin-left:auto;display:flex;align-items:center;gap:2px}
-.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);padding:4px;border-radius:var(--radius-sm);line-height:0}
-.mobile-close-btn:hover{background:var(--color-bg-subtle);color:var(--color-text-primary)}
-.load-error{padding:4px 12px 6px;font-size:11px;color:#e74c3c;flex-shrink:0}
+.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--text-2);padding:4px;border-radius:var(--radius-sm);line-height:0}
+.mobile-close-btn:hover{background:var(--bg-hover);color:var(--text-1)}
+.load-error{padding:4px 12px 6px;font-size:11px;color:var(--err);flex-shrink:0}
 
 /* 树滚动区（对齐 SessionList 的 tree-scroll） */
-.tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--color-bg-surface,#f8f9fa);scrollbar-width:none;scrollbar-color:transparent transparent}
-html.dark .tree-scroll{background:var(--bg-base,#0a0d14)}
+.tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--bg-surface);scrollbar-width:none;scrollbar-color:transparent transparent}
+html.dark .tree-scroll{background:var(--bg-base)}
 .tree-scroll::-webkit-scrollbar{width:0;height:0}
 
-/* 树节点（对齐 ws-node：30px 行高 + hover 浮起） */
-.tree-node{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:13px;cursor:pointer;user-select:none;transition:background var(--transition-fast);border:1px solid transparent;gap:6px}
-.tree-node:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
-.node-icon{display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary,#a8abb2);flex-shrink:0}
-.node-icon.kind-overview{color:var(--color-primary,#6366f1)}
+/* 树节点（cr-127）：行语言归 L0 .ui-row——hover 只亮底（无边框、无微影），
+   选中 = role-selected-bg + 主色描边；本地只留几何与文字修饰（30px 行高/内距/6px 间距） */
+.tree-node{height:30px;padding:0 8px;margin-bottom:var(--space-xs);gap:6px;color:var(--text-2);font-size:13px;cursor:pointer;user-select:none}
+.node-icon{display:flex;align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0}
+.node-icon.kind-overview{color:var(--primary)}
+/* kind 分类色板（R1 例外：overview/running/job/sub 每类一色，语义 ≠ 分类——与状态色分族，cr-127 保留） */
 .node-icon.kind-running{color:#f59e0b}
 .node-icon.kind-job{color:#0ea5e9}
 .node-icon.kind-sub{color:#8b5cf6}
-.node-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);line-height:20px}
-.node-badge{min-width:16px;height:16px;padding:0 4px;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1;flex-shrink:0}
-/* 运行矩阵：叶节点形态的矩阵入口（不在 .node-children 内 → 叶行样式自带；
- *  30px 高 + hover 与其它叶一致，主色强调 + 选中态保留） */
-.overview-leaf{display:flex;align-items:center;height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;user-select:none;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:8px}
-.overview-leaf:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
-.overview-leaf .node-icon.kind-overview{color:var(--color-primary,#6366f1)}
-.overview-leaf .leaf-name{color:var(--color-primary,#6366f1)}
-.overview-leaf.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent}
+.node-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-1);line-height:20px}
+/* 计数徽章（运行中数）：形态归 L0 .ui-badge info（cr-127；原自建红底胶囊退役——
+   计数非错误态，红只留给阻断/错误）；本地只留行尾不收缩 + 等宽数字 */
+.node-badge{flex-shrink:0;font-variant-numeric:tabular-nums}
+/* 运行矩阵入口（叶节点形态，不在 .node-children 内 → 叶行样式自带；
+   行语言归 .ui-row，选中态经 is-selected，cr-127） */
+.overview-leaf{height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);gap:8px;cursor:pointer;user-select:none}
+.overview-leaf .node-icon.kind-overview{color:var(--primary)}
+.overview-leaf .leaf-name{color:var(--primary)}
 
-/* 叶节点（对齐 SessionList 的 list-item：30px + 缩进） */
-.node-children .tree-leaf{display:flex;align-items:center;height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:default;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:8px}
-.node-children .tree-leaf:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
+/* 叶节点（对齐 SessionList 的 list-item：30px + 缩进；行语言归 .ui-row，cr-127） */
+.node-children .tree-leaf{height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);gap:8px;cursor:default}
 .node-children .tree-leaf.jumpable{cursor:pointer}
-.node-children .tree-leaf.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent}
-.leaf-icon{display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary,#a8abb2);flex-shrink:0}
-.leaf-icon.dim{color:var(--color-text-muted,#999)}
-.leaf-name{flex:1;min-width:0;font-size:13px;font-weight:500;line-height:20px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.leaf-icon{display:flex;align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0}
+.leaf-icon.dim{color:var(--text-3)}
+.leaf-name{flex:1;min-width:0;font-size:13px;font-weight:500;line-height:20px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .leaf-avatar{position:relative;flex-shrink:0}
-.leaf-dur{font-size:11px;font-weight:600;color:var(--color-text-primary);font-variant-numeric:tabular-nums;flex-shrink:0}
-.dim-leaf{color:var(--color-text-muted);font-size:12px}
-.dim{color:var(--color-text-tertiary,#a8abb2)}
+.leaf-dur{font-size:11px;font-weight:600;color:var(--text-1);font-variant-numeric:tabular-nums;flex-shrink:0}
+.dim-leaf{color:var(--text-3);font-size:12px}
+.dim{color:var(--text-3)}
 
 /* 任务终态徽标（leaf-status）/状态图标色类（.leaf-icon 本体在上方树样式区）：
  *  running 琥珀 / stopping 灰 / completed 绿 / failed 红 / killed 暗灰 */
 .leaf-status{font-size:11px;font-weight:600;flex-shrink:0}
-.st-running{color:#f59e0b}
-.st-stopping{color:var(--color-text-tertiary,#a8abb2)}
-.st-completed{color:#22c55e}
-.st-failed{color:#e74c3c}
-.st-killed{color:var(--color-text-muted,#999)}
+.st-running{color:var(--warn)}
+.st-stopping{color:var(--text-3)}
+.st-completed{color:var(--ok)}
+.st-failed{color:var(--err)}
+.st-killed{color:var(--text-3)}
 /* 子Agent 历史-only displayStatus 词汇（SubagentRunSummary：done/error/
  * timeout/stopped/idle——与 ToolResultSubagent 徽章同色系） */
-.st-done{color:#22c55e}
-.st-error{color:#e74c3c}
-.st-timeout{color:#f59e0b}
-.st-stopped{color:var(--color-text-muted,#999)}
-.st-idle{color:var(--color-text-tertiary,#a8abb2)}
-.st-deleted{color:var(--color-text-muted,#999);text-decoration:line-through}
+.st-done{color:var(--ok)}
+.st-error{color:var(--err)}
+.st-timeout{color:var(--warn)}
+.st-stopped{color:var(--text-3)}
+.st-idle{color:var(--text-3)}
+.st-deleted{color:var(--text-3);text-decoration:line-through}
 
 /* 中断按钮：hover 浮现 */
-.leaf-stop{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:var(--radius-sm);background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
+.leaf-stop{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:var(--radius-sm);background:none;color:var(--err);cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
 .tree-leaf:hover .leaf-stop{opacity:1}
-.leaf-stop:hover:not(:disabled){background:rgba(231,76,60,.1)}
+.leaf-stop:hover:not(:disabled){background:rgba(var(--err-rgb), 0.1)}
 .leaf-stop:disabled{opacity:.4;cursor:wait}
 
 </style>

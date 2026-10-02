@@ -6,7 +6,7 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useClientContext } from 'ac-client-runtime';
-import { toastError } from '@agentchat/webui-kit';
+import { BusyRing, toastError } from '@agentchat/webui-kit';
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue';
 import { useWorkspaceTreeStore, type TreeNode } from './workspaceTreeStore.ts';
 import { openLocalDir } from './fileApi.ts';
@@ -115,7 +115,7 @@ async function openInExplorer() {
       <span class="wt-header-actions">
         <!-- 本地资源管理器：打开当前树基准文件夹（失败经全局 toast 呈现） -->
         <button v-if="openDirState !== 'error'" class="wt-open-dir" :title="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" @click="openInExplorer">
-          <svg v-if="openDirState === 'opening'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="wt-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <BusyRing v-if="openDirState === 'opening'" :size="13" />
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
         </button>
         <button v-else class="wt-open-dir error" title="打开失败（详见全局提示）" @click="openInExplorer">
@@ -148,7 +148,7 @@ async function openInExplorer() {
   display: flex; flex-direction: column;
   width: 280px; flex-shrink: 0; min-width: 0; height: 100%;
   /* 与会话列表（AgentList）同一底色，左右对称 */
-  background: var(--color-bg-surface);
+  background: var(--bg-surface);
   font-size: 13px;
   overflow: hidden;
   /* 左缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（重叠曾呈双线） */
@@ -157,34 +157,33 @@ async function openInExplorer() {
   display: flex; align-items: center; justify-content: space-between;
   height: var(--layout-header-height, 48px);
   padding: 0 12px;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 .wt-title {
   display: flex; align-items: center; gap: 6px;
-  font-weight: 600; color: var(--color-text-primary);
+  font-weight: 600; color: var(--text-1);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.wt-title svg { color: var(--color-text-secondary, #7f8c8d); flex-shrink: 0; }
+.wt-title svg { color: var(--text-2); flex-shrink: 0; }
 .wt-header-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .wt-open-dir {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px;
   border: none; background: none; cursor: pointer;
-  color: var(--color-text-secondary); border-radius: 6px;
+  color: var(--text-2); border-radius: 6px;
 }
-.wt-open-dir:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
-.wt-open-dir.error { color: var(--color-error, #e74c3c); }
-.wt-spin { animation: wt-spin-rot 1s linear infinite; }
-@keyframes wt-spin-rot { to { transform: rotate(360deg); } }
+.wt-open-dir:hover { background: var(--bg-surface); color: var(--text-1); }
+.wt-open-dir.error { color: var(--err); }
+/* 打开中忙指示归 kit BusyRing（cr-127；原自建 .wt-spin 旋转 SVG 与 @keyframes 已退役） */
 .wt-close {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px;
   border: none; background: none; cursor: pointer;
-  color: var(--color-text-secondary); border-radius: 6px;
+  color: var(--text-2); border-radius: 6px;
   flex-shrink: 0;
 }
-.wt-close:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.wt-close:hover { background: var(--bg-surface); color: var(--text-1); }
 .wt-body { flex: 1; overflow-y: auto; padding: 8px 6px; }
 
 /* 小屏：工作区从右侧覆盖（v-if 控制渲染，无需位移动画） */
@@ -193,9 +192,9 @@ async function openInExplorer() {
     position:fixed; top:0; right:0; bottom:0; z-index:130;
     box-shadow:-2px 0 16px rgba(0,0,0,.15);
     /* 覆盖态保留左缘线（无 ResizeHandle 在场——独立覆盖层需要自描边） */
-    border-left:1px solid var(--color-border-secondary,#e0e0e0);
+    border-left:1px solid var(--line);
   }
 }
-.wt-loading, .wt-error { padding: 16px; color: var(--color-text-secondary); font-size: 13px; }
-.wt-error { color: var(--color-error); }
+.wt-loading, .wt-error { padding: 16px; color: var(--text-2); font-size: 13px; }
+.wt-error { color: var(--err); }
 </style>
