@@ -61,11 +61,12 @@ ApprovalBar/InteractionBar 外壳已迁（cr-125）；GoalDockCard/TodoDockCard 
 | 批次 | 包 | hex 量 | 主要动作 |
 |---|---|---|---|
 | P1 | conversation | 120 | ✅ cr-125 完成：hex 143→9（余为分类色板/常量，均注释）；ApprovalBar/InteractionBar→DockCard；ContextInjectCard→CollapseRow；4 处 spinner→BusyRing；徽章/反馈归位；消息卡三件套与 QueueDock 按例外保留 |
-| P2 | agents + singles | 61+66 | AgentList/SessionList 清单行 ui-row 化（list-item 双源收编）；状态点 StatusDot |
-| P3 | workspace + runview | 55+52 | FilePreview/WorkspaceTree spinner 归 BusyRing；RunTracking 树行 ui-row |
-| P4 | browser + usage + system | 41+34+25 | 浏览器结果卡徽章归 ui-badge；usage 图表色板分层核对；VersionDialog 类横幅令牌化（已迁） |
-| P5 | 其余小包 | <20/包 | fs/goal/jobs/layout/shell/subagent/run-code/timer/todo/group/web/llm-pool/remote/settings/search-pool 逐包清零 |
-| P6 | renderer + webui/assets | 47+93 | 指南外存量收编：renderer 迁移；main.css 兼容层判定（死别名 --color-warning-rgb 清理 + v2.html 重注入）；rgba 字面量清点（cr-125 待裁决 D/F） |
+| P2 | agents + singles | 61+66 | ✅ cr-126 完成：AgentList/SessionList→ui-row（active→is-selected）、状态点→StatusDot、ws-spin→BusyRing、徽章→ui-badge dim；hex 158→33（余为分类色板/遮罩常量/计数徽章） |
+| P3 | workspace + runview | 55+52 | ✅ cr-127 完成：5 处 spinner→BusyRing；RunTrackingPanel 树行→ui-row；bespoke 深底退役；hex 146→44（余为沙箱调色板/文件类型分类色板/iframe 白底常量） |
+| P4 | browser + usage + system | 41+34+25 | ✅ cr-128 完成：ToolResultBrowser 徽章→ui-badge（tag 色相经 --tag-hue）；usage 图表色板分层核对 + textColor 亮档化石修正；VersionDialog 第三态补迁；hex 38→18/14→10/26→1 |
+| P5 | 其余小包 | <20/包 | ✅ cr-129 完成：fs/shell/group/subagent/run-code 忙指示→BusyRing、徽章→ui-badge；GoalBar/TodoPanel 外壳→DockCard；状态点改图形档；hex 158→29（余为分类色板/终端恒暗皮肤/计数徽章） |
+| P6 | renderer + webui/assets | 47+93 | ✅ cr-130 完成：renderer R1 令牌化；main.css 零消费别名清 62 行；tokens.css 删 --color-primary-rgb/--color-warning-rgb 死条目（保活引用退役）；v2.html 重注入 `--check` 通过 |
+| P7 | 全仓别名清收 | — | ✅ cr-131 完成（审查发现的补漏批）：12 文件 85 处 `var(--color-*)` 归本源令牌（含 kit StarAvatar 去自身别名依赖）；tokens.css 别名层 21 条零消费条目整族剪除（327→298 行）；main.css 51 处重复定义清除（209→149 行）；保留 `--color-code-*`（markdown.css 消费）与 `--radius-*/--space-*` 族 |
 
 每批验收：`pnpm typecheck && pnpm webui:typecheck && npx vitest run src/webui/tests` + 定向 lint + 该包截图对照。
 
@@ -80,5 +81,7 @@ ApprovalBar/InteractionBar 外壳已迁（cr-125）；GoalDockCard/TodoDockCard 
 ## 五、已完成基准（勿重复迁移）
 
 - webui-kit 全部组件已达标（cr-121~123）；v2.html 陈列页即目标态实物。
-- 已迁移业务件：ExtToolsPane/PluginLibraryPane（ui-row+ui-badge+is-auto）、ConversationHeader（FeedbackNotice chip）、TokenGauge（三档+双档色+图形档）、usage 折线/云图、VersionDialog 横幅、5 处消息卡忙环色轴归一（保留自建，见 R2 例外）、ChatInput 发送键影；cr-125 conversation 包全量（DockCard/CollapseRow/BusyRing/ui-badge/反馈归位，hex 143→9）。
+- 已迁移业务件：ExtToolsPane/PluginLibraryPane（ui-row+ui-badge+is-auto）、ConversationHeader（FeedbackNotice chip）、TokenGauge（三档+双档色+图形档）、usage 折线/云图、VersionDialog 横幅、5 处消息卡忙环色轴归一（保留自建，见 R2 例外）、ChatInput 发送键影。
+- **cr-125~131 全量迁移完毕（27 个 ac-client-ui-* 包 + webui/assets + renderer）**：DockCard（ApprovalBar/InteractionBar/GoalBar/TodoPanel）、CollapseRow（ContextInjectCard）、BusyRing（12 处自建 spinner 退役）、ui-badge（约 30 处自建徽章退役）、ui-row（AgentList/SessionList/RunTrackingPanel）、StatusDot、反馈归位（toast/FeedbackNotice）；legacy `--color-*` 别名层整族清零（业务面 var() 零消费）。
+- 存量残留（合规例外，均就地注释）：分类色板（动作类型/文件类型/工具身份/星板/云图/canvas legend）、遮罩与加深常量（`#000` 混色、`#fff` 画布底、QR 数据色、终端恒暗皮肤）、计数徽章 `#ef4444`（kit 无计数原语）、iframe srcdoc 沙箱文档自带调色板。
 - 语义色现值（cr-123 终值）：墨色档 N `#9bd39a/#fcd34d/#f0879a` · A `#356f43/#8a5a06/#9f1239`；图形档 N `#9fd89f/#fde68a/#f7a8b8` · A `#669a6d/#bb831c/#d9536f`；星板马卡龙 8 色（薰衣草/蓝青/湖青/苔绿/橄榄/珊瑚/品红紫/暮蓝）。
