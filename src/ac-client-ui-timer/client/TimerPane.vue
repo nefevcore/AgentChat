@@ -233,7 +233,7 @@ export default { name: 'TimerPane' };
 .timer-empty { padding: 20px; text-align: center; color: var(--text-3); font-size: 13px; }
 .timer-save-btn {
   padding: 5px 14px; border-radius: var(--r-md); font-size: 12px; font-weight: 500; cursor: pointer;
-  background: var(--primary); border: none; color: #fff; transition: all var(--dur-fast);
+  background: var(--primary); border: none; color: var(--on-primary); transition: all var(--dur-fast);
 }
 .timer-save-btn:hover:not(:disabled) { opacity: .9; }
 .timer-save-btn:disabled { opacity: .5; cursor: not-allowed; }

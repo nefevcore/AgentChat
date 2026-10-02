@@ -75,6 +75,7 @@ function onTab(id: string) {
 .mtab.active { color: var(--primary); }
 .mtab-icon { position: relative; display: grid; place-items: center; height: 24px; }
 .mtab-label { line-height: 1.2; }
+/* 通知计数色保留字面值（同 AgentList/.unread-badge 配方；跨包单源待统一裁决） */
 .mtab-badge {
   position: absolute; top: -2px; right: -12px;
   min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box;

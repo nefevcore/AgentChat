@@ -291,7 +291,7 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 .pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pool-btn.danger { color: var(--err); }
 .pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
-.pool-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.pool-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .pool-set-default {
   padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
   background: transparent; color: var(--warn); font-size: 11px; cursor: pointer;

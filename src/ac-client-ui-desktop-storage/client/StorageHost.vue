@@ -58,7 +58,7 @@ async function onConfirm() {
       <div class="stat-row">
         <span class="k">当前位置</span>
         <code class="mono-v">{{ info.dataRoot }}</code>
-        <span v-if="info.customized" class="custom-badge">自定义</span>
+        <span v-if="info.customized" class="ui-badge info custom-badge">自定义</span>
       </div>
       <div class="stat-row">
         <span class="k">占用</span>
@@ -131,7 +131,8 @@ async function onConfirm() {
 .k { color: var(--text-3); min-width: 72px; font-size: 12px; flex: none; }
 .v { font-size: 13px; font-variant-numeric: tabular-nums; }
 .mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-hover); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
-.custom-badge { font-size: 10px; color: var(--primary); border: 1px solid rgba(var(--primary-rgb), 0.4); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; flex: none; }
+/* cr-129 R3：自定义标记 = ui-badge info（形状/配色归 kit，此处只留编排） */
+.custom-badge { flex: none; }
 .breakdown { margin-top: var(--space-1); border-top: 1px dashed var(--line); padding-top: var(--space-1); }
 
 /* 迁移编排 */

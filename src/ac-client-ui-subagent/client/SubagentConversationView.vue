@@ -13,7 +13,7 @@
 // 上翻分页：limit/offset 从尾部往回取（RPC 形状对齐 session/history）。
 // ============================================================
 import { computed, inject, ref, watch, nextTick } from 'vue';
-import { Icon, StarAvatar } from '@agentchat/webui-kit';
+import { Icon, StarAvatar, BusyRing, FeedbackNotice } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { useClientContext, clientRuntime } from 'ac-client-runtime';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -157,15 +157,16 @@ function refresh() { void loadInitial(); }
         </div>
       </div>
       <div class="header-actions">
-        <span v-if="isRunning" class="st-badge st-running"><Icon name="zap" :size="11" /> 运行中</span>
-        <span v-else-if="job" class="st-badge st-idle">{{ jobStatusLabel(job.status) }}</span>
+        <span v-if="isRunning" class="ui-badge warn st-badge"><Icon name="zap" :size="11" /> 运行中</span>
+        <span v-else-if="job" class="ui-badge dim st-badge">{{ jobStatusLabel(job.status) }}</span>
         <button class="refresh-btn" title="刷新（重拉历史）" :disabled="loading" @click="refresh">
-          <Icon :name="loading ? 'loader' : 'refresh-cw'" :size="15" :class="{ spin: loading }" />
+          <BusyRing v-if="loading" :size="13" />
+          <Icon v-else name="refresh-cw" :size="15" />
         </button>
       </div>
     </div>
 
-    <div v-if="loadError" class="load-error">历史拉取失败：{{ loadError }}</div>
+    <div v-if="loadError" class="load-error"><FeedbackNotice :text="'历史拉取失败：' + loadError" tone="error" /></div>
 
     <div class="chat-body">
       <TranscriptList
@@ -187,30 +188,30 @@ function refresh() { void loadInitial(); }
 <style scoped>
 .sub-chat {
   flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--color-bg-page);
+  background: var(--bg-base);
 }
 
 .chat-header {
   display: flex; align-items: center; gap: 10px;
   height: var(--layout-header-height); padding: 0 16px;
-  border-bottom: 1px solid var(--color-border-secondary);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 .header-info { flex: 1; min-width: 0; }
 /* 窄屏返回（cr-33；cr-35 补显示块——初版只写了隐藏无 @media，按钮恒不可见） */
 .back-btn {
   display: none; background: none; border: none; cursor: pointer;
-  color: var(--color-text-secondary); padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
+  color: var(--text-2); padding: 6px; border-radius: var(--r-sm); line-height: 0; flex-shrink: 0;
 }
 @media (max-width: 768px) {
   .back-btn { display: flex; align-items: center; justify-content: center; }
 }
 .pair-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.agent-label { font-size: 14px; font-weight: 600; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-label { font-size: 14px; font-weight: 600; color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pair-avatars { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
-.pair-x { color: var(--color-text-muted); display: flex; }
-.agent-label { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
-.pair-sub { font-size: 11px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pair-x { color: var(--text-3); display: flex; }
+.agent-label { font-size: 14px; font-weight: 600; color: var(--text-1); }
+.pair-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 窄屏（cr-33）：副行信息退场——标题与状态徽章优先，长 id/父链在窄屏是噪音 */
 @media (max-width: 768px) {
   .pair-sub { display: none; }
@@ -218,27 +219,24 @@ function refresh() { void loadInitial(); }
 }
 .sub-id {
   font-family: 'SF Mono', Consolas, monospace; font-size: 10px;
-  color: var(--color-primary, #6366f1); background: var(--color-primary-light, rgba(79, 70, 229, 0.08));
+  color: var(--primary); background: var(--primary-light);
   padding: 0 5px; border-radius: 4px; margin-left: 4px;
 }
 .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .refresh-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border: none; border-radius: var(--radius-sm);
-  background: none; color: var(--color-text-secondary); cursor: pointer;
+  width: 28px; height: 28px; border: none; border-radius: var(--r-sm);
+  background: none; color: var(--text-2); cursor: pointer;
 }
-.refresh-btn:hover:not(:disabled) { background: var(--color-bg-subtle); color: var(--color-text-primary); }
+.refresh-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .refresh-btn:disabled { opacity: .5; cursor: wait; }
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+/* cr-129 R2：刷新钮忙态 = BusyRing（自建旋转图标退役；reduced-motion 由组件自带） */
 
-.st-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
-}
-.st-running { color: #e6a817; background: rgba(230, 168, 23, 0.1); }
-.st-idle { color: var(--color-text-tertiary); background: var(--color-bg-subtle); }
+/* cr-129 R3：运行态徽章 = ui-badge 族（warn=运行中 / dim=终态；形状与配色归 kit，
+   此处只留编排） */
+.st-badge { gap: 4px; font-weight: 600; }
 
-.load-error { padding: 4px 16px 6px; font-size: 11px; color: #e74c3c; flex-shrink: 0; }
+/* cr-129 R7：拉取失败 = FeedbackNotice（error tone；配色/图标归 kit） */
+.load-error { padding: 4px 16px 6px; flex-shrink: 0; }
 .chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 </style>

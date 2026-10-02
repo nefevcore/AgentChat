@@ -287,37 +287,37 @@ const displayContentType = computed(() => {
    侧栏面板，窄屏点击 → 原地展开（箭头随 inlineExpanded 翻转） */
 .web-search-row {
   display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--text-2);
   cursor: pointer; flex-wrap: wrap;
   padding: 2px 0;
   border-radius: 4px;
 }
-.web-search-row:hover { color: var(--color-text-primary); }
+.web-search-row:hover { color: var(--text-1); }
 .web-search-row-query {
-  font-weight: 600; color: var(--color-text-primary);
+  font-weight: 600; color: var(--text-1);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 260px;
 }
-.web-hint-icon { flex-shrink: 0; color: var(--color-text-tertiary); }
-.web-search-row:hover .web-hint-icon { color: var(--color-link); }
+.web-hint-icon { flex-shrink: 0; color: var(--text-3); }
+.web-search-row:hover .web-hint-icon { color: var(--primary-strong); }
 .web-search-row-arrow {
-  flex-shrink: 0; margin-left: auto; color: var(--color-text-tertiary);
+  flex-shrink: 0; margin-left: auto; color: var(--text-3);
   transition: transform 0.15s;
 }
 .web-search-row-arrow.open { transform: rotate(90deg); }
 .web-search-meta {
   display: flex; gap: 8px;
-  font-size: 11px; color: var(--color-text-tertiary);
+  font-size: 11px; color: var(--text-3);
 }
 .web-search-partial {
-  color: var(--color-warning, #d4a72c);
+  color: var(--warn);
 }
 .web-search-answer { margin-top: 8px; margin-bottom: 0; }
 .web-search-results { margin-top: 8px; }
 
 .web-search-answer {
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-light);
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
@@ -325,12 +325,12 @@ const displayContentType = computed(() => {
 .web-answer-label {
   display: flex; align-items: center; gap: 5px;
   font-size: 12px; font-weight: 600;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   margin-bottom: 6px;
 }
 .web-answer-icon { flex-shrink: 0; }
 .web-answer-text {
-  font-size: 12px; color: var(--color-text-primary);
+  font-size: 12px; color: var(--text-1);
   line-height: 1.6; white-space: pre-wrap;
 }
 
@@ -340,22 +340,22 @@ const displayContentType = computed(() => {
 .web-search-item {
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-light);
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
 }
 .web-search-title {
   font-size: 12px; font-weight: 600;
-  color: var(--color-link);
+  color: var(--primary-strong);
   text-decoration: none;
   display: block; margin-bottom: 2px;
 }
 .web-search-title:hover { text-decoration: underline; }
 .web-search-url {
-  font-size: 11px; color: var(--color-text-tertiary);
+  font-size: 11px; color: var(--text-3);
   word-break: break-all; margin-bottom: 6px;
 }
 .web-search-content {
-  font-size: 12px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--text-2);
   line-height: 1.6;
   max-height: 80px; overflow: hidden;
 }
@@ -365,13 +365,13 @@ const displayContentType = computed(() => {
   margin-top: 6px;
 }
 .web-search-score {
-  font-size: 11px; color: var(--color-text-tertiary);
+  font-size: 11px; color: var(--text-3);
 }
 
 /* ---- Fetch mode ---- */
 .web-fetch-url {
   display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--color-link); text-decoration: none;
+  font-size: 12px; color: var(--primary-strong); text-decoration: none;
   margin-bottom: 6px;
 }
 .web-fetch-url:hover { text-decoration: underline; }
@@ -380,25 +380,25 @@ const displayContentType = computed(() => {
 .web-fetch-tags { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .web-tag {
   font-size: 11px; padding: 1px 8px; border-radius: 4px;
-  background: var(--color-bg-surface); color: var(--color-text-tertiary);
+  background: var(--bg-surface); color: var(--text-3);
 }
-.web-tag-truncated { color: var(--color-warning); }
+.web-tag-truncated { color: var(--warn); }
 .web-text { max-height: 200px; overflow: hidden; position: relative; }
 .web-text-expanded { max-height: none; }
 .web-text pre {
   margin: 0; font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace;
   white-space: pre-wrap; word-break: break-word;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
 }
 .web-expand-btn {
-  background: none; border: none; color: var(--color-link);
+  background: none; border: none; color: var(--primary-strong);
   font-size: 12px; cursor: pointer; padding: 2px 0; margin-top: 4px;
 }
 .web-binary {
-  font-size: 12px; color: var(--color-text-tertiary); font-style: italic;
+  font-size: 12px; color: var(--text-3); font-style: italic;
 }
 .web-empty {
-  font-size: 12px; color: var(--color-text-tertiary);
+  font-size: 12px; color: var(--text-3);
   padding: 8px 0;
 }
 </style>

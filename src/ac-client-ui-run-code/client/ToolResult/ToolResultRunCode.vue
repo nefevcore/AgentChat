@@ -74,9 +74,9 @@ const badges = computed(() => {
   if (!summary.value) return [] as Array<{ text: string; cls: string; title?: string }>;
   const s = summary.value;
   const out: Array<{ text: string; cls: string; title?: string }> = [];
-  out.push({ text: `调用 ${s.ok}/${s.calls}`, cls: s.failed > 0 ? 'rc-badge-warn' : 'rc-badge-ok', title: `子调用 ${s.ok} 成功 / ${s.failed} 失败` });
-  if (s.serialized.length > 0) out.push({ text: `串行 ${s.serialized.length}`, cls: 'rc-badge-dim', title: '写路径/命令类按提交序串行执行' });
-  out.push({ text: `${s.computeMs}ms 计算`, cls: 'rc-badge-dim', title: `子调用累计 ${s.computeMs}ms（墙钟 ${s.wallMs}ms）` });
+  out.push({ text: `调用 ${s.ok}/${s.calls}`, cls: s.failed > 0 ? 'warn' : 'ok', title: `子调用 ${s.ok} 成功 / ${s.failed} 失败` });
+  if (s.serialized.length > 0) out.push({ text: `串行 ${s.serialized.length}`, cls: 'dim', title: '写路径/命令类按提交序串行执行' });
+  out.push({ text: `${s.computeMs}ms 计算`, cls: 'dim', title: `子调用累计 ${s.computeMs}ms（墙钟 ${s.wallMs}ms）` });
   return out;
 });
 const deniedList = computed(() => summary.value?.denied ?? []);
@@ -136,7 +136,7 @@ async function copyCode() {
       <div class="rc-head">
         <span class="rc-head-label">program.ts</span>
         <span class="rc-head-meta">
-          <span class="rc-lang-badge">TypeScript</span>
+          <span class="ui-badge kind rc-lang-badge">TypeScript</span>
           <span class="rc-meta-dim">{{ lineCount }} 行</span>
           <span v-if="programHash" class="rc-meta-dim rc-hash" :title="`程序体哈希 ${programHash}（全文在宿主日志按哈希回捞）`">#{{ programHash }}</span>
         </span>
@@ -169,8 +169,8 @@ async function copyCode() {
     <div v-if="summary" class="rc-section rc-trace">
       <div class="rc-trace-head">
         <span class="rc-trace-title">工具调用</span>
-        <span v-for="b in badges" :key="b.text" class="rc-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
-        <span v-if="deniedList.length" class="rc-badge rc-badge-denied" :title="deniedList.map(d => `${d.name}: ${d.error}`).join('\n')">
+        <span v-for="b in badges" :key="b.text" class="ui-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
+        <span v-if="deniedList.length" class="ui-badge err rc-badge-denied" :title="deniedList.map(d => `${d.name}: ${d.error}`).join('\n')">
           <Icon name="ban" :size="11" /> 被拒 {{ deniedList.length }}
         </span>
       </div>
@@ -247,8 +247,8 @@ async function copyCode() {
 }
 
 .rc-section {
-  background: var(--color-bg-secondary, rgba(148, 163, 184, 0.06));
-  border: 1px solid var(--color-border-secondary, rgba(148, 163, 184, 0.16));
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -259,19 +259,20 @@ async function copyCode() {
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
-  border-bottom: 1px solid var(--color-border-secondary, rgba(148, 163, 184, 0.14));
-  background: var(--color-bg-tertiary, rgba(148, 163, 184, 0.05));
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-hover);
   font-size: 11px;
   user-select: none;
 }
 .rc-head-label {
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   font-family: 'SF Mono', 'Consolas', monospace;
 }
 .rc-head-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.rc-lang-badge { color: #3178c6; font-weight: 600; font-size: 10px; }
-.rc-meta-dim { color: var(--color-text-tertiary); font-size: 10.5px; }
+/* cr-129 R3：语言徽记 = ui-badge kind（形状/配色归 kit 徽章族） */
+.rc-lang-badge { font-weight: 600; }
+.rc-meta-dim { color: var(--text-3); font-size: 10.5px; }
 .rc-hash { font-family: 'SF Mono', 'Consolas', monospace; cursor: help; }
 
 .rc-copy-btn {
@@ -281,7 +282,7 @@ async function copyCode() {
   gap: 4px;
   border: none;
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 6px;
@@ -289,8 +290,8 @@ async function copyCode() {
   transition: all 0.15s;
   flex-shrink: 0;
 }
-.rc-copy-btn:hover { color: var(--color-text-primary); background: var(--color-bg-hover, rgba(148, 163, 184, 0.12)); }
-.rc-copy-btn.copied { color: #4ade80; }
+.rc-copy-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+.rc-copy-btn.copied { color: var(--ok); }
 
 /* 代码/值区横向滚动：markdown.css 的 pre overflow-x 规则不命中本上下文
    （全挂 .markdown-body 前缀），pre 默认 nowrap——卡根 .rc-section
@@ -320,7 +321,7 @@ async function copyCode() {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-size: 11.5px;
   user-select: none;
 }
@@ -350,23 +351,11 @@ async function copyCode() {
 .rc-trace-title {
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
 }
-.rc-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 10px;
-  user-select: none;
-  white-space: nowrap;
-}
-.rc-badge-ok { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
-.rc-badge-warn { color: #fbbf24; background: rgba(251, 191, 36, 0.1); }
-.rc-badge-dim { color: var(--color-text-tertiary); background: var(--color-bg-secondary, rgba(148, 163, 184, 0.08)); }
-.rc-badge-denied { color: #f87171; background: rgba(248, 113, 113, 0.1); cursor: help; }
+/* cr-129 R3：汇总徽章 = ui-badge 族（ok/warn/dim/err；形状与配色归 kit，
+   此处只留专属修饰） */
+.rc-badge-denied { cursor: help; }
 
 .rc-trace-list {
   display: flex;
@@ -374,7 +363,7 @@ async function copyCode() {
   gap: 1px;
   /* 嵌套竖线与 chain-body / tool-subcall 同款节奏（1px / margin 7 /
      padding 14）——run_code 卡内时间线与全前端层级视觉统一 */
-  border-left: 1px solid var(--color-border-secondary);
+  border-left: 1px solid var(--line);
   padding-left: 14px;
   margin-left: 7px;
 }
@@ -387,23 +376,24 @@ async function copyCode() {
   border-radius: 4px;
   min-width: 0;
 }
-.rc-trace-row:hover { background: var(--color-bg-hover, rgba(148, 163, 184, 0.07)); }
+.rc-trace-row:hover { background: var(--bg-hover); }
 
 .rc-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.rc-dot-ok { background: #4ade80; }
-.rc-dot-fail { background: #f87171; }
+/* 状态点＝图形件（cr-123 图形档 3.0 线） */
+.rc-dot-ok { background: var(--ok-graphic); }
+.rc-dot-fail { background: var(--err-graphic); }
 
-.rc-trace-icon { color: var(--color-text-tertiary); flex-shrink: 0; }
+.rc-trace-icon { color: var(--text-3); flex-shrink: 0; }
 .rc-trace-name {
   font-family: 'SF Mono', 'Consolas', monospace;
   font-weight: 600;
-  color: var(--color-text-primary, var(--color-text-secondary));
+  color: var(--text-1);
   flex-shrink: 0;
 }
 .rc-trace-serial {
   font-size: 9.5px;
-  color: #fbbf24;
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  color: var(--warn);
+  border: 1px solid rgba(var(--warn-rgb), 0.4);
   border-radius: 3px;
   padding: 0 3px;
   flex-shrink: 0;
@@ -411,17 +401,17 @@ async function copyCode() {
   user-select: none;
 }
 .rc-trace-brief {
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
   flex: 0 1 auto;
 }
-.rc-trace-fail .rc-trace-brief { color: var(--color-error, #f87171); }
+.rc-trace-fail .rc-trace-brief { color: var(--err); }
 .rc-trace-ms {
   margin-left: auto;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-family: 'SF Mono', 'Consolas', monospace;
   font-size: 10.5px;
   flex-shrink: 0;
@@ -433,28 +423,29 @@ async function copyCode() {
   align-self: center;
   opacity: 0.55;
 }
-.rc-bar-ok { background: #4ade80; }
-.rc-bar-fail { background: #f87171; }
+/* 耗时色条＝图形件（cr-123 图形档） */
+.rc-bar-ok { background: var(--ok-graphic); }
+.rc-bar-fail { background: var(--err-graphic); }
 
 .rc-trace-toggle {
   align-self: flex-start;
   border: none;
   background: transparent;
-  color: var(--color-accent, #4a90d9);
+  color: var(--primary-strong);
   font-size: 11px;
   cursor: pointer;
   padding: 3px 4px;
   border-radius: 4px;
 }
-.rc-trace-toggle:hover { background: var(--color-bg-hover, rgba(148, 163, 184, 0.12)); }
+.rc-trace-toggle:hover { background: var(--bg-hover); }
 .rc-trace-more {
   font-size: 10.5px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   padding: 2px 4px;
 }
 .rc-trace-empty {
   font-size: 11.5px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-style: italic;
   padding-left: 4px;
 }
@@ -464,14 +455,14 @@ async function copyCode() {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: var(--color-error, #f87171);
+  color: var(--err);
   font-size: 11.5px;
   font-weight: 600;
   padding: 6px 10px 0;
 }
 .rc-error-text {
   margin: 4px 10px 8px;
-  color: var(--color-error, #f87171);
+  color: var(--err);
   font-family: 'SF Mono', 'Consolas', monospace;
   font-size: 11.5px;
   line-height: 1.6;
@@ -484,14 +475,14 @@ async function copyCode() {
   margin-left: auto;
   border: none;
   background: transparent;
-  color: var(--color-accent, #4a90d9);
+  color: var(--primary-strong);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
   flex-shrink: 0;
 }
-.rc-expand-btn:hover { background: var(--color-bg-hover, rgba(148, 163, 184, 0.12)); }
+.rc-expand-btn:hover { background: var(--bg-hover); }
 
 /* 纯 string 返回值：退掉卡内小卡框（扁平文本直显，与错误文本同规格） */
 .rc-value-plain { border: none; background: transparent; }
@@ -510,7 +501,7 @@ async function copyCode() {
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   white-space: pre-wrap;
   word-break: break-word;
 }

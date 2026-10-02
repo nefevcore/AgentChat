@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
+import { BusyRing } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   data: Record<string, unknown>;
@@ -81,8 +82,8 @@ async function copyDiff() {
         <span class="edit-file-name">{{ fileName }}</span>
       </div>
       <div class="edit-header-right">
-        <span class="edit-stat">{{ summary }}</span>
-        <span v-if="data.first_changed_line" class="edit-stat">L{{ data.first_changed_line }}</span>
+        <span class="ui-badge dim edit-stat">{{ summary }}</span>
+        <span v-if="data.first_changed_line" class="ui-badge dim edit-stat">L{{ data.first_changed_line }}</span>
         <button class="edit-copy-btn" :class="{ copied: copyState === 'copied' }" @click="copyDiff" title="复制 diff">
           <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -103,9 +104,7 @@ async function copyDiff() {
       <div class="edit-diff-body">
         <!-- 执行中（调用阶段即可看到文件卡） -->
         <div v-if="loading && !diffText" class="edit-loading">
-          <span class="loading-dot dot-yellow"></span>
-          <span class="loading-dot dot-gray"></span>
-          <span class="loading-dot dot-gray"></span>
+          <BusyRing :size="13" />
           <span class="edit-loading-text">正在应用编辑...</span>
         </div>
         <!-- 有 diff 标记时按行渲染 -->
@@ -129,10 +128,10 @@ async function copyDiff() {
 
 <style scoped>
 .tool-result-edit {
-  border-radius: 10px;
+  border-radius: var(--r-md);
   overflow: hidden;
-  border: 1px solid var(--color-border-light, #e5e7eb);
-  background: var(--color-bg-page);
+  border: 1px solid var(--line);
+  background: var(--bg-base);
 }
 
 /* ── 头部 ── */
@@ -141,8 +140,8 @@ async function copyDiff() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--line);
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -162,6 +161,7 @@ async function copyDiff() {
   flex-shrink: 0;
 }
 
+/* 工具身份色（edit = 紫；非语义状态色，cr-129 保留理由：工具身份分类色，与 jobs 包 kind 身份色同族） */
 .edit-icon {
   color: #8b5cf6;
   flex-shrink: 0;
@@ -171,19 +171,14 @@ async function copyDiff() {
   font-size: 12px;
   font-weight: 600;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* cr-129 R3：元信息徽章 = ui-badge dim（形状/配色归 kit 徽章族） */
 .edit-stat {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-page);
-  border: 1px solid var(--color-border-light, #e5e7eb);
   white-space: nowrap;
 }
 
@@ -194,31 +189,31 @@ async function copyDiff() {
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-page);
-  border: 1px solid var(--color-border-light, #e5e7eb);
-  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  background: var(--bg-base);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
 }
 
 .edit-copy-btn:hover {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-secondary);
-  background: var(--color-bg-surface);
+  color: var(--text-1);
+  border-color: var(--line);
+  background: var(--bg-surface);
 }
 
 .edit-copy-btn.copied {
-  color: #22c55e;
-  border-color: #22c55e;
-  background: rgba(34, 197, 94, 0.08);
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(var(--ok-rgb), 0.08);
 }
 
 /* ── Diff 视口 ── */
 .edit-diff-viewport {
   position: relative;
-  background: var(--color-code-bg);
+  background: var(--code-bg);
 }
 
 .edit-diff-body {
@@ -241,26 +236,26 @@ async function copyDiff() {
 
 /* ── diff 行颜色 ── */
 .diff-del {
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(var(--err-rgb), 0.12);
 }
 .diff-del .diff-content {
-  color: #f87171;
+  color: var(--err);
 }
 
 .diff-add {
-  background: rgba(34, 197, 94, 0.1);
+  background: rgba(var(--ok-rgb), 0.1);
 }
 .diff-add .diff-content {
-  color: #4ade80;
+  color: var(--ok);
 }
 
 .diff-ctx .diff-content {
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   opacity: 0.7;
 }
 
 .diff-sep .diff-content {
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   opacity: 0.5;
   font-style: italic;
 }
@@ -268,7 +263,7 @@ async function copyDiff() {
 .edit-no-diff {
   padding: 12px 16px;
   font-size: 12px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
 
@@ -278,7 +273,7 @@ async function copyDiff() {
   font-size: 12px;
   line-height: 1.7;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -290,18 +285,9 @@ async function copyDiff() {
   gap: 6px;
   padding: 12px 16px;
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
 }
-.edit-loading .loading-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  animation: edit-dot-pulse 1.4s infinite ease-in-out;
-}
-.edit-loading .loading-dot.dot-yellow { background: #e6a817; }
-.edit-loading .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
-.edit-loading .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
-@keyframes edit-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+/* cr-129 R2：自建忙指示（三点脉冲）→ BusyRing（忙指示唯一源） */
 .edit-loading-text { margin-left: 2px; }
 
 </style>

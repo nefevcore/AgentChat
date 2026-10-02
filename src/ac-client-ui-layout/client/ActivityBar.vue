@@ -204,52 +204,56 @@ onUnmounted(() => {
 <style scoped>
 .activity-bar {
   width: 48px;
-  background: var(--color-bg-subtle, #333);
+  background: var(--bg-hover);
   display: flex; flex-direction: column; align-items: center;
   flex-shrink: 0; padding: 8px 0; gap: 4px;
-  border-right: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
+  border-right: 1px solid var(--line);
   position: relative; z-index: 10;
 }
 
 .activity-bar-avatar-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; border: none; border-radius: 6px;
+  width: 36px; height: 36px; border: none; border-radius: var(--r-sm);
   background: transparent; /* 无底色：圆形头像外不再露出色块 */
   cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
   margin-bottom: 8px; padding: 0; overflow: hidden; flex-shrink: 0; position: relative;
 }
-.activity-bar-avatar-btn:hover { transform: scale(1.1); box-shadow: 0 0 0 2px var(--color-primary, #4f46e5); }
+.activity-bar-avatar-btn:hover { transform: scale(1.1); box-shadow: 0 0 0 2px var(--primary); }
 
 .activity-bar-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; border: none; border-radius: 6px; background: none;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.5)); cursor: pointer;
+  width: 40px; height: 40px; border: none; border-radius: var(--r-sm); background: none;
+  color: var(--text-3); cursor: pointer;
   transition: color 0.15s, background 0.15s; position: relative;
 }
-.activity-bar-btn:hover { color: var(--color-text-primary, #fff); background: var(--color-bg-hover, rgba(255,255,255,0.08)); }
-.activity-bar-btn.active { color: var(--color-text-primary, #fff); }
+.activity-bar-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+.activity-bar-btn.active { color: var(--text-1); }
 .activity-bar-btn.active::before {
   content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
-  width: 2px; background: var(--color-primary, #4f46e5); border-radius: 0 2px 2px 0;
+  width: 2px; background: var(--primary); border-radius: 0 2px 2px 0;
 }
 
 /* 未读聚合徽章（Agent 列表按钮——视觉与 AgentList 行徽章同款：红底白字圆角胶囊，
    描边用活动栏底色切出分离感；右上限位在按钮内，不与相邻按钮/指示条打架） */
+/* 通知计数色保留字面值（#ef4444 底 + #fff 字）：非语义状态色、kit 无计数徽章原语，
+   与 AgentList/.unread-badge 同款配方——跨包单源（ActivityBar/MobileTabBar/jobs/AgentList）
+   待统一裁决（承 P2 报告待裁决 A）；模板类名 unread-badge 有 webui 测试锁，勿改。 */
 .unread-badge {
   position: absolute; top: 3px; right: 3px;
   min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
   border-radius: 999px; background: #ef4444; color: #fff;
   font-size: 9.5px; font-weight: 600; line-height: 1;
-  border: 1.5px solid var(--color-bg-subtle, #333); z-index: 1;
+  border: 1.5px solid var(--bg-hover); z-index: 1;
 }
 
 .activity-bar-spacer { flex: 1; }
 .more-wrapper { position: relative; z-index: 10; }
 
+/* 更新可用提示点（非语义 attention 色，同上计数徽章例外族） */
 .more-dot {
   position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
-  background: #ef4444; border-radius: 50%; border: 1.5px solid var(--color-bg-subtle, #333); z-index: 1;
+  background: #ef4444; border-radius: 50%; border: 1.5px solid var(--bg-hover); z-index: 1;
 }
 
 .more-fade-enter-active, .more-fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
@@ -259,21 +263,22 @@ onUnmounted(() => {
 <style>
 .agentchat-more-menu {
   min-width: 180px;
-  background: var(--bg-raised, var(--color-bg-page));
-  border: 1px solid var(--line, var(--color-border-secondary));
-  border-radius: 10px; box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,0.12));
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md); box-shadow: var(--shadow-pop);
   padding: 4px; overflow: hidden; z-index: 9999;
 }
 
 .agentchat-more-item {
   display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none;
-  color: var(--text-1, var(--color-text-primary)); font-size: 13px;
+  width: 100%; padding: 8px 12px; border: none; border-radius: var(--r-sm); background: none;
+  color: var(--text-1); font-size: 13px;
   cursor: pointer; text-align: left; transition: background 0.1s; position: relative;
 }
-.agentchat-more-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
-.agentchat-more-item svg { flex-shrink: 0; color: var(--text-3, var(--color-text-tertiary)); }
+.agentchat-more-item:hover { background: var(--role-hover-bg); }
+.agentchat-more-item svg { flex-shrink: 0; color: var(--text-3); }
 
+/* 菜单内同款提示点 */
 .agentchat-more-item-dot {
   margin-left: auto; width: 7px; height: 7px;
   background: #ef4444; border-radius: 50%; flex-shrink: 0;

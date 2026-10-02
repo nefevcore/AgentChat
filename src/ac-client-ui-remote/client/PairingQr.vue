@@ -20,7 +20,8 @@ onMounted(async () => {
     width: 220,
     margin: 2, // 静区（模块数）——扫屏幕码对小静区敏感，2 模块保扫率
     errorCorrectionLevel: 'M',
-    color: { dark: '#111111', light: '#ffffff' },
+    /* 二维码数据色：扫描器要求近纯黑/近纯白（功能性数据色，非 UI 色——不随主题；cr-129 保留） */
+  color: { dark: '#111111', light: '#ffffff' },
   });
 });
 
@@ -48,6 +49,7 @@ async function copyUri() {
 <style scoped>
 .qr-area { display: flex; flex-direction: column; gap: var(--space-2); align-items: center; padding: var(--space-2) 0; }
 /* 白底黑点是二维码的物理形态（扫码目标），不随主题反转 */
+/* 静默区底色须恒为亮色（暗底扫码失败）——功能性数据色，cr-129 保留 */
 .qr-frame { background: #fff; border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-2); box-shadow: var(--shadow-pop); }
 .qr-frame canvas { display: block; }
 .uri-box { display: flex; gap: var(--space-2); align-items: center; width: 100%; }

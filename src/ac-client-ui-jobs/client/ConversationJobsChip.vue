@@ -182,46 +182,50 @@ function doKill(id: string) {
 
 <style scoped>
 /* 入口（对齐 session-token-gauge：相对定位宿主 + hover/is-open 浮起） */
-.conv-jobs{position:relative;display:flex;align-items:center;gap:3px;padding:2px 6px;flex-shrink:0;cursor:pointer;border-radius:var(--radius-sm);user-select:none}
-.conv-jobs:hover,.conv-jobs.is-open{background:var(--color-bg-surface)}
+.conv-jobs{position:relative;display:flex;align-items:center;gap:3px;padding:2px 6px;flex-shrink:0;cursor:pointer;border-radius:var(--r-sm);user-select:none}
+.conv-jobs:hover,.conv-jobs.is-open{background:var(--bg-surface)}
 .cj-icon{display:flex;align-items:center;justify-content:center}
+/* 任务类型身份色（非语义状态色——与 --warn/--ok 不同轴；cr-129 保留理由：
+   后台任务=青蓝 / 子Agent=紫，工具身份分类色，同族见 fs/subagent 卡） */
 .cj-icon.kind-job{color:#0ea5e9}
 .cj-icon.kind-sub{color:#8b5cf6}
+/* 通知计数色保留字面值（#ef4444 底 + #fff 字）：非语义状态色、kit 无计数徽章原语，
+   与 AgentList/.unread-badge 同款配方——跨包单源待统一裁决（承 P2 报告待裁决 A） */
 .cj-count{min-width:14px;height:14px;padding:0 3px;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1}
 
 /* 弹层（对齐 token-panel：头部下挂 + 右对齐） */
-.cj-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:min(360px,86vw);max-height:min(420px,60vh);overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--color-bg-page,#fff);border:1px solid var(--color-border-primary,#e0e0e0);border-radius:var(--radius-md,8px);box-shadow:0 4px 16px rgba(0,0,0,.12);cursor:default;text-align:left}
+.cj-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:min(360px,86vw);max-height:min(420px,60vh);overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--bg-base);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--shadow-pop);cursor:default;text-align:left}
 .cj-head{display:flex;align-items:center;justify-content:space-between}
-.cj-title{font-size:12px;font-weight:600;color:var(--color-text-primary)}
-.cj-sub{font-size:11px;color:var(--color-text-tertiary,#a8abb2);font-variant-numeric:tabular-nums}
+.cj-title{font-size:12px;font-weight:600;color:var(--text-1)}
+.cj-sub{font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums}
 
 .cj-section{display:flex;flex-direction:column;gap:2px}
-.cj-section-title{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--color-text-secondary);padding:2px 0}
+.cj-section-title{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--text-2);padding:2px 0}
 .cj-section-title.kind-job{color:#0ea5e9}
 .cj-section-title.kind-sub{color:#8b5cf6}
-.cj-empty{font-size:11px;color:var(--color-text-muted,#999);padding:0 2px}
+.cj-empty{font-size:11px;color:var(--text-3);padding:0 2px}
 
-.cj-row{display:flex;align-items:center;gap:6px;min-height:24px;padding:1px 2px;border-radius:var(--radius-sm);font-size:12px}
-.cj-row:hover{background:var(--color-bg-hover,rgba(0,0,0,.04))}
+.cj-row{display:flex;align-items:center;gap:6px;min-height:24px;padding:1px 2px;border-radius:var(--r-sm);font-size:12px}
+.cj-row:hover{background:var(--bg-hover)}
 .cj-st{display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.cj-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary)}
-.cj-label.dim{color:var(--color-text-secondary)}
-.cj-dur{font-size:11px;font-weight:600;color:var(--color-text-primary);font-variant-numeric:tabular-nums;flex-shrink:0}
+.cj-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-1)}
+.cj-label.dim{color:var(--text-2)}
+.cj-dur{font-size:11px;font-weight:600;color:var(--text-1);font-variant-numeric:tabular-nums;flex-shrink:0}
 .cj-status{font-size:11px;font-weight:600;flex-shrink:0}
-.cj-more{font-size:11px;color:var(--color-text-muted,#999);padding:0 2px}
+.cj-more{font-size:11px;color:var(--text-3);padding:0 2px}
 
 /* 状态色（与运行跟踪面板 st-* 同词汇） */
-.st-running{color:#f59e0b}
-.st-stopping{color:var(--color-text-tertiary,#a8abb2)}
-.st-completed{color:#22c55e}
-.st-failed{color:#e74c3c}
-.st-killed{color:var(--color-text-muted,#999)}
+.st-running{color:var(--warn)}
+.st-stopping{color:var(--text-3)}
+.st-completed{color:var(--ok)}
+.st-failed{color:var(--err)}
+.st-killed{color:var(--text-3)}
 
 /* 终止按钮（hover 浮现） */
-.cj-stop{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;border-radius:var(--radius-sm);background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
+.cj-stop{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;border-radius:var(--r-sm);background:none;color:var(--err);cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
 .cj-row:hover .cj-stop{opacity:1}
-.cj-stop:hover:not(:disabled){background:rgba(231,76,60,.1)}
+.cj-stop:hover:not(:disabled){background:rgba(var(--err-rgb),0.1)}
 .cj-stop:disabled{opacity:.4;cursor:wait}
 
-.cj-note{font-size:11px;line-height:1.5;color:var(--color-text-tertiary,#999);border-top:1px solid var(--color-border-primary,#e0e0e0);padding-top:6px}
+.cj-note{font-size:11px;line-height:1.5;color:var(--text-3);border-top:1px solid var(--line-strong);padding-top:6px}
 </style>

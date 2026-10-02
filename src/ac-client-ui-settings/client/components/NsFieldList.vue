@@ -150,6 +150,6 @@ function saveJson(): void {
   background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; transition: all var(--dur-fast);
 }
 .ns-json-btn:hover { background: var(--bg-hover); color: var(--text-1); }
-.ns-json-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-.ns-json-btn.primary:hover { opacity: .9; color: #fff; }
+.ns-json-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.ns-json-btn.primary:hover { opacity: .9; color: var(--on-primary); }
 </style>

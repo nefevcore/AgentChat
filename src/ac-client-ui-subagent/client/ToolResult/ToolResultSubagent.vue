@@ -16,29 +16,29 @@ const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>(
 // 状态徽章映射（delivered 之外的 run 状态词表）——文案经 subStatusLabel
 // 单源（与运行跟踪面板跨重启历史行同词），本地只保留色类
 const STATUS_META: Partial<Record<string, { label: string; cls: string }>> = {
-  running:  { label: subStatusLabel('running'), cls: 'st-running' },
-  idle:     { label: subStatusLabel('idle'),    cls: 'st-killed' },
-  done:     { label: subStatusLabel('done'),    cls: 'st-done' },
-  error:    { label: subStatusLabel('error'),   cls: 'st-error' },
-  timeout:  { label: subStatusLabel('timeout'), cls: 'st-timeout' },
-  stopped:  { label: subStatusLabel('stopped'), cls: 'st-killed' },
+  running:  { label: subStatusLabel('running'), cls: 'warn' },
+  idle:     { label: subStatusLabel('idle'),    cls: 'dim' },
+  done:     { label: subStatusLabel('done'),    cls: 'ok' },
+  error:    { label: subStatusLabel('error'),   cls: 'err' },
+  timeout:  { label: subStatusLabel('timeout'), cls: 'warn' },
+  stopped:  { label: subStatusLabel('stopped'), cls: 'dim' },
 };
 
 // send 投递回执徽章（next-run 忙时排队与 queued 同观感）
 const DELIVERED_META: Partial<Record<string, { label: string; cls: string }>> = {
-  started: { label: '已开跑', cls: 'st-running' },
-  steered: { label: '已注入', cls: 'st-done' },
-  queued:  { label: '已排队', cls: 'st-timeout' },
+  started: { label: '已开跑', cls: 'warn' },
+  steered: { label: '已注入', cls: 'ok' },
+  queued:  { label: '已排队', cls: 'warn' },
 };
 
 function statusMeta(status: unknown) {
   const key = String(status ?? '');
-  return STATUS_META[key] ?? { label: key || '未知', cls: 'st-unknown' };
+  return STATUS_META[key] ?? { label: key || '未知', cls: 'dim' };
 }
 
 function deliveredMeta(delivered: unknown) {
   const key = String(delivered ?? '');
-  return DELIVERED_META[key] ?? { label: key || '未知', cls: 'st-unknown' };
+  return DELIVERED_META[key] ?? { label: key || '未知', cls: 'dim' };
 }
 
 // 格式化耗时
@@ -158,7 +158,7 @@ const stopData = computed(() => ({
         </svg>
         <span class="sa-title">子 Agent 已创建</span>
         <span v-if="spawnData.name" class="sa-name">{{ spawnData.name }}</span>
-        <span class="sa-badge" :class="statusMeta(spawnData.status).cls">{{ statusMeta(spawnData.status).label }}</span>
+        <span class="ui-badge sa-badge" :class="statusMeta(spawnData.status).cls">{{ statusMeta(spawnData.status).label }}</span>
       </div>
       <div class="sa-body">
         <div class="sa-id"><span class="sa-key">ID</span><code class="sa-id-link" title="点击查看子 Agent 会话" @click="openSubagentView(spawnData.id)">{{ spawnData.id }}</code></div>
@@ -173,7 +173,7 @@ const stopData = computed(() => ({
           <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
         </svg>
         <span class="sa-title">子 Agent 结果</span>
-        <span class="sa-badge" :class="statusMeta(awaitData.status).cls">{{ statusMeta(awaitData.status).label }}</span>
+        <span class="ui-badge sa-badge" :class="statusMeta(awaitData.status).cls">{{ statusMeta(awaitData.status).label }}</span>
         <span v-if="awaitData.elapsed" class="sa-elapsed"><Icon name="clock" :size="11" class="sa-elapsed-icon" />{{ fmtElapsed(awaitData.elapsed) }}</span>
       </div>
       <div class="sa-body">
@@ -200,7 +200,7 @@ const stopData = computed(() => ({
       <div class="sa-body">
         <div v-if="listData.length === 0" class="sa-empty">暂无活跃子 Agent</div>
         <div v-for="item in listData" :key="item.id" class="sa-item">
-          <span class="sa-badge sm" :class="statusMeta(item.status).cls">{{ statusMeta(item.status).label }}</span>
+          <span class="ui-badge sa-badge sm" :class="statusMeta(item.status).cls">{{ statusMeta(item.status).label }}</span>
           <span v-if="item.name" class="sa-item-name">{{ item.name }}</span>
           <code class="sa-item-id sa-id-link" title="点击查看子 Agent 会话" @click="openSubagentView(item.id)">{{ item.id }}</code>
           <span class="sa-item-task" :title="item.task">{{ item.task }}</span>
@@ -216,8 +216,8 @@ const stopData = computed(() => ({
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
         <span class="sa-title">已发送至子 Agent</span>
-        <span class="sa-badge" :class="deliveredMeta(sendData.delivered).cls">{{ deliveredMeta(sendData.delivered).label }}</span>
-        <span class="sa-badge" :class="statusMeta(sendData.status).cls">{{ statusMeta(sendData.status).label }}</span>
+        <span class="ui-badge sa-badge" :class="deliveredMeta(sendData.delivered).cls">{{ deliveredMeta(sendData.delivered).label }}</span>
+        <span class="ui-badge sa-badge" :class="statusMeta(sendData.status).cls">{{ statusMeta(sendData.status).label }}</span>
         <span v-if="sendData.elapsed" class="sa-elapsed"><Icon name="clock" :size="11" class="sa-elapsed-icon" />{{ fmtElapsed(sendData.elapsed) }}</span>
       </div>
       <div class="sa-body">
@@ -241,7 +241,7 @@ const stopData = computed(() => ({
           <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
         </svg>
         <span class="sa-title">{{ kind === 'stop' ? '已停止推理' : '子 Agent 已删除' }}</span>
-        <span class="sa-badge st-killed">{{ kind === 'stop' ? '已停止' : '已删除' }}</span>
+        <span class="ui-badge dim sa-badge">{{ kind === 'stop' ? '已停止' : '已删除' }}</span>
       </div>
       <div class="sa-body">
         <div class="sa-id"><span class="sa-key">ID</span><code>{{ stopData.id }}</code></div>
@@ -255,7 +255,7 @@ const stopData = computed(() => ({
 .subagent-result { padding: 2px 0; }
 
 /* ── loading（工具卡外壳的调用中预览：琥珀环与全前端"忙"指示同款） ── */
-.sa-loading { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--color-text-secondary); }
+.sa-loading { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--text-2); }
 .sa-spin {
   width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%;
   border: 2px solid rgba(var(--primary-rgb), 0.18);
@@ -266,36 +266,36 @@ const stopData = computed(() => ({
 .sa-loading-text { font-style: italic; }
 .sa-loading-id {
   font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
-  font-size: 11px; color: var(--color-text-tertiary);
+  font-size: 11px; color: var(--text-3);
 }
-.sa-loading-task { font-size: 11px; color: var(--color-text-tertiary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-loading-task { font-size: 11px; color: var(--text-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sa-card {
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--color-bg-surface, #fafafa);
+  background: var(--bg-surface);
 }
 
 .sa-head {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 12px;
-  background: var(--color-code-toolbar, #eceff1);
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
-.sa-head svg { color: var(--color-text-secondary); flex-shrink: 0; }
-.sa-title { font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
+.sa-head svg { color: var(--text-2); flex-shrink: 0; }
+.sa-title { font-weight: 600; color: var(--text-1); white-space: nowrap; }
 .sa-name {
-  font-size: 11px; color: var(--color-text-secondary);
-  background: var(--color-bg-page, #fff);
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  font-size: 11px; color: var(--text-2);
+  background: var(--bg-base);
+  border: 1px solid var(--line);
   padding: 0 6px; border-radius: 8px; max-width: 120px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.sa-elapsed { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--color-text-tertiary); flex-shrink: 0; }
+.sa-elapsed { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 .sa-elapsed-icon { flex-shrink: 0; }
-.sa-count { margin-left: auto; font-size: 11px; color: var(--color-text-tertiary); }
+.sa-count { margin-left: auto; font-size: 11px; color: var(--text-3); }
 
 .sa-body { padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
 
@@ -304,73 +304,59 @@ const stopData = computed(() => ({
 }
 .sa-id code, .sa-item-id {
   font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
-  font-size: 11px; color: var(--color-primary, #6366f1);
-  background: var(--color-primary-light, rgba(79,70,229,0.08));
+  font-size: 11px; color: var(--primary);
+  background: var(--primary-light);
   padding: 1px 6px; border-radius: 4px;
 }
 /* 可点击进入子会话视角的 ID */
 .sa-id-link { cursor: pointer; }
 .sa-id-link:hover { text-decoration: underline; }
-.sa-key { color: var(--color-text-tertiary); min-width: 22px; }
+.sa-key { color: var(--text-3); min-width: 22px; }
 
 .sa-task {
-  font-size: 12px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--text-2);
   white-space: pre-wrap; word-break: break-word; line-height: 1.5;
 }
-.sa-msg { font-size: 12px; color: var(--color-text-secondary); }
+.sa-msg { font-size: 12px; color: var(--text-2); }
 
 .sa-result {
-  font-size: 12px; color: var(--color-text-primary);
+  font-size: 12px; color: var(--text-1);
   white-space: pre-wrap; word-break: break-word;
   line-height: 1.6;
-  background: var(--color-bg-page, #fff);
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 6px;
+  background: var(--bg-base);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   padding: 8px 10px;
 }
 .sa-result.folded { max-height: 160px; overflow: hidden; }
 .sa-fold-btn {
   align-self: flex-start;
   background: none; border: none; padding: 2px 0;
-  font-size: 11px; color: var(--color-link, #4a90d9); cursor: pointer;
+  font-size: 11px; color: var(--primary-strong); cursor: pointer;
 }
 .sa-fold-btn:hover { text-decoration: underline; }
-.sa-error { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-error, #e74c3c); }
+.sa-error { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--err); }
 .sa-error-icon { flex-shrink: 0; }
-.sa-empty { font-size: 12px; color: var(--color-text-tertiary); padding: 6px 0; }
+.sa-empty { font-size: 12px; color: var(--text-3); padding: 6px 0; }
 
 /* ── 状态徽章 ── */
-.sa-badge {
-  display: inline-flex; align-items: center;
-  font-size: 11px; font-weight: 600;
-  padding: 1px 8px; border-radius: 10px;
-  gap: 4px; flex-shrink: 0;
-}
-.sa-badge.sm { font-size: 10px; padding: 0 6px; }
-.sa-badge::before {
-  content: ''; width: 6px; height: 6px; border-radius: 50%;
-  background: currentColor;
-}
-.st-running { color: #e6a817; background: rgba(230,168,23,0.1); }
-.st-done    { color: #16a34a; background: rgba(22,163,74,0.1); }
-.st-error   { color: #ef4444; background: rgba(239,68,68,0.1); }
-.st-timeout { color: #f97316; background: rgba(249,115,22,0.1); }
-.st-killed  { color: #6b7280; background: rgba(107,114,128,0.12); }
-.st-unknown { color: #6b7280; background: rgba(107,114,128,0.12); }
+/* cr-129 R3：状态徽章 = ui-badge 族（warn=运行/排队 · ok=完成 · err=失败 · dim=停止/未知；
+   形状与配色归 kit，此处只留编排；原 ::before 自建状态点随族退役） */
+.sa-badge { gap: 4px; flex-shrink: 0; }
 
 /* ── 列表条目 ── */
 .sa-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 4px 0; border-bottom: 1px dashed var(--color-border-secondary, rgba(0,0,0,0.06));
+  padding: 4px 0; border-bottom: 1px dashed var(--line);
   font-size: 12px;
 }
 .sa-item:last-child { border-bottom: none; }
-.sa-item-name { font-weight: 500; color: var(--color-text-primary); flex-shrink: 0; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-item-name { font-weight: 500; color: var(--text-1); flex-shrink: 0; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-item-id { font-size: 10px; flex-shrink: 0; }
 .sa-item-task {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--color-text-primary);
+  color: var(--text-1);
 }
-.sa-item-runs { font-size: 10px; color: var(--color-text-tertiary); flex-shrink: 0; }
+.sa-item-runs { font-size: 10px; color: var(--text-3); flex-shrink: 0; }
 </style>

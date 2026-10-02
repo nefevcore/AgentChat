@@ -53,11 +53,11 @@ function onReset() {
   bottom: 0;
   width: 1px;
   transform: translateX(-0.5px);
-  background: var(--color-border-secondary, rgba(128, 128, 128, 0.35));
+  background: var(--line);
   transition: background 0.15s, width 0.15s;
 }
 .resize-handle:hover::before, .resize-handle.active::before {
-  background: var(--color-primary, #6366f1);
+  background: var(--primary);
   width: 2px;
 }
 </style>

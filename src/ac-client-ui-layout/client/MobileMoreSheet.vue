@@ -202,7 +202,7 @@ onMounted(async () => {
 .ms-badge {
   margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 999px; background: var(--primary); color: #fff;
+  border-radius: var(--r-full); background: var(--primary); color: var(--on-primary);
   font-size: 10.5px; font-weight: 600; line-height: 1;
 }
 .ms-badge-on { background: var(--primary); }

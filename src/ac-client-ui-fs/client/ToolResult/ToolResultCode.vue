@@ -2,6 +2,7 @@
 import { computed, ref, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
+import { BusyRing } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   data: Record<string, unknown>;
@@ -151,9 +152,9 @@ const metaItems = computed(() => {
           <span class="code-file-name">{{ fileName }}</span>
         </div>
         <div class="code-header-meta">
-          <span class="code-meta-badge">{{ dirCount }} 项</span>
-          <span v-if="dirFolderCount" class="code-meta-badge code-meta-dim">{{ dirFolderCount }} 目录</span>
-          <span v-if="dirFileCount" class="code-meta-badge code-meta-dim">{{ dirFileCount }} 文件</span>
+          <span class="ui-badge dim code-meta-badge">{{ dirCount }} 项</span>
+          <span v-if="dirFolderCount" class="ui-badge dim code-meta-badge code-meta-dim">{{ dirFolderCount }} 目录</span>
+          <span v-if="dirFileCount" class="ui-badge dim code-meta-badge code-meta-dim">{{ dirFileCount }} 文件</span>
         </div>
       </div>
       <div class="dir-list">
@@ -193,10 +194,10 @@ const metaItems = computed(() => {
             <polyline points="14 2 14 8 20 8"/>
           </svg>
           <span class="code-file-name">{{ fileName }}</span>
-          <span v-if="lang && !isSkillRead" class="code-lang-badge">{{ langDisplay }}</span>
+          <span v-if="lang && !isSkillRead" class="ui-badge kind code-lang-badge">{{ langDisplay }}</span>
         </div>
         <div class="code-header-right">
-          <span v-for="item in metaItems" :key="item" class="code-meta-badge">{{ item }}</span>
+          <span v-for="item in metaItems" :key="item" class="ui-badge dim code-meta-badge">{{ item }}</span>
           <button
             class="code-copy-btn"
             :class="{ copied: copyState === 'copied' }"
@@ -220,9 +221,7 @@ const metaItems = computed(() => {
 
       <!-- 执行中：文件已定位，内容未返回 -->
       <div v-if="loading && !content" class="code-loading">
-        <span class="loading-dot dot-yellow"></span>
-        <span class="loading-dot dot-gray"></span>
-        <span class="loading-dot dot-gray"></span>
+        <BusyRing :size="13" />
         <span class="code-loading-text">正在读取...</span>
       </div>
 
@@ -253,11 +252,14 @@ const metaItems = computed(() => {
 
 <style scoped>
 .tool-result-code {
+  /* 文件类型分类色（非语义状态色——与 --warn 不同轴）：目录琥珀。cr-129 保留理由：
+     类型身份色，非结果态语义；单源声明，勿在规则内散写色值。 */
+  --ft-dir: #e6a817;
   padding: 0;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   overflow: hidden;
-  border: 1px solid var(--color-border-light, #e5e7eb);
-  background: var(--color-bg-page);
+  border: 1px solid var(--line);
+  background: var(--bg-base);
 }
 
 /* ==============================
@@ -268,8 +270,8 @@ const metaItems = computed(() => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--line);
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -292,43 +294,32 @@ const metaItems = computed(() => {
 }
 
 .code-file-icon {
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   flex-shrink: 0;
 }
 .dir-icon-color {
-  color: #e6a817;
+  color: var(--ft-dir);
 }
 
 .code-file-name {
   font-size: 12px;
   font-weight: 600;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* cr-129 R3：语言徽记 = ui-badge kind（形状/配色归 kit 徽章族，此处只留排版修饰） */
 .code-lang-badge {
-  font-size: 10px;
-  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  background: var(--color-primary);
-  color: #fff;
   flex-shrink: 0;
-  opacity: 0.85;
 }
 
+/* cr-129 R3：元信息徽章 = ui-badge dim（同上） */
 .code-meta-badge {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-page);
-  border: 1px solid var(--color-border-light, #e5e7eb);
   white-space: nowrap;
 }
 .code-meta-dim {
@@ -343,23 +334,23 @@ const metaItems = computed(() => {
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-page);
-  border: 1px solid var(--color-border-light, #e5e7eb);
-  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  background: var(--bg-base);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
 }
 .code-copy-btn:hover {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-secondary);
-  background: var(--color-bg-surface);
+  color: var(--text-1);
+  border-color: var(--line);
+  background: var(--bg-surface);
 }
 .code-copy-btn.copied {
-  color: #22c55e;
-  border-color: #22c55e;
-  background: rgba(34, 197, 94, 0.08);
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(var(--ok-rgb), 0.08);
 }
 
 
@@ -368,7 +359,7 @@ const metaItems = computed(() => {
    ============================== */
 .code-viewport {
   position: relative;
-  background: var(--color-code-bg);
+  background: var(--code-bg);
 }
 
 
@@ -389,7 +380,7 @@ const metaItems = computed(() => {
   margin: 0;
   border-radius: 0;
   padding: 16px 20px;
-  background: var(--color-code-bg);
+  background: var(--code-bg);
 }
 .code-area :deep(.md-code-block pre code) {
   font-size: 12px;
@@ -403,8 +394,8 @@ const metaItems = computed(() => {
   padding: 16px 18px;
   font-size: 12px;
   line-height: 1.7;
-  color: var(--color-text-primary);
-  background: var(--color-bg-page);
+  color: var(--text-1);
+  background: var(--bg-base);
 }
 
 .code-truncated-banner {
@@ -413,9 +404,9 @@ const metaItems = computed(() => {
   gap: 8px;
   padding: 9px 14px;
   font-size: 12px;
-  color: #d2991d;
-  background: rgba(210, 153, 29, 0.08);
-  border-top: 1px solid rgba(210, 153, 29, 0.2);
+  color: var(--warn);
+  background: rgba(var(--warn-rgb), 0.08);
+  border-top: 1px solid rgba(var(--warn-rgb), 0.2);
 }
 
 /* ---- 执行中 loading ---- */
@@ -425,18 +416,10 @@ const metaItems = computed(() => {
   gap: 6px;
   padding: 14px 16px;
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
 }
-.code-loading .loading-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  animation: code-dot-pulse 1.4s infinite ease-in-out;
-}
-.code-loading .loading-dot.dot-yellow { background: #e6a817; }
-.code-loading .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
-.code-loading .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
-@keyframes code-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+/* cr-129 R2：自建忙指示（三点脉冲）→ BusyRing（忙指示唯一源；
+   reduced-motion 归一由组件自带，main.css 同名豁免项随之作废） */
 .code-loading-text { margin-left: 2px; }
 
 /* ==============================
@@ -453,28 +436,28 @@ const metaItems = computed(() => {
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   font-size: 12px;
   transition: background 0.1s;
 }
 .dir-item:hover {
-  background: var(--color-bg-surface);
+  background: var(--bg-surface);
 }
 .item-icon {
   flex-shrink: 0;
 }
 .icon-dir {
-  color: #e6a817;
+  color: var(--ft-dir);
 }
 .icon-file {
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
 }
 .item-name {
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
   font-size: 12px;
 }
 .name-dir {
-  color: #e6a817;
+  color: var(--ft-dir);
   font-weight: 500;
 }
 </style>

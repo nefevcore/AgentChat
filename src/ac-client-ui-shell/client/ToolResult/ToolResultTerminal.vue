@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, BusyRing } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
@@ -74,9 +74,7 @@ watch([stdout, stderr, () => props.loading], async () => {
 
             <!-- 执行中：输出尚未返回 -->
             <div v-if="loading && !hasOutput" class="term-loading">
-              <span class="loading-dot dot-yellow"></span>
-              <span class="loading-dot dot-gray"></span>
-              <span class="loading-dot dot-gray"></span>
+              <BusyRing :size="13" />
               <span class="term-loading-text">正在执行...</span>
             </div>
 
@@ -103,10 +101,14 @@ watch([stdout, stderr, () => props.loading], async () => {
 }
 
 /* ---- 单卡片终端 ---- */
+/* 终端皮肤（cr-129 保留例外）：恒暗底 + 固定调色板——终端是跨主题同貌的
+   仿真面（真实终端不随系统明暗换肤）；此处色值**不可**换语义令牌：亮色主题的
+   墨色档（--ok/--warn/--err）在 #0f1117 暗底上对比低于 3.0，换令牌必失读。
+   该色族为终端分类色板（IN/OUT/cwd/exit/stderr/guidance），非 UI 状态色。 */
 .term-card {
   background: #0f1117;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 10px 14px;
   font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
@@ -229,15 +231,6 @@ watch([stdout, stderr, () => props.loading], async () => {
   color: #94a3b8;
   user-select: none;
 }
-.term-loading .loading-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  animation: term-dot-pulse 1.4s infinite ease-in-out;
-}
-.term-loading .loading-dot.dot-yellow { background: #e6a817; }
-.term-loading .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
-.term-loading .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
-@keyframes term-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+/* cr-129 R2：自建忙指示（三点脉冲）→ BusyRing（忙指示唯一源） */
 .term-loading-text { margin-left: 2px; }
 </style>

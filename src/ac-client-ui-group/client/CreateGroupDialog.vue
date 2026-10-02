@@ -6,7 +6,7 @@ import type { AgentInfo } from 'ac-client-ui-conversation/client/types.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import { fetchAgents } from 'ac-client-ui-agents/client';
 import { createGroup as apiCreateGroup } from './groupApi.ts';
-import { Modal } from '@agentchat/webui-kit';
+import { Modal, BusyRing } from '@agentchat/webui-kit';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -124,7 +124,7 @@ async function createGroup() {
               <div class="participant-check">
                 <svg v-if="selectedParticipants.includes(agent.id)" class="check-icon" viewBox="0 0 24 24" width="18" height="18">
                   <circle cx="12" cy="12" r="10" fill="currentColor" />
-                  <path d="M8 12l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                  <path d="M8 12l3 3 5-5" stroke="var(--on-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
                 </svg>
                 <svg v-else class="check-icon unchecked" viewBox="0 0 24 24" width="18" height="18">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" />
@@ -147,12 +147,10 @@ async function createGroup() {
             </label>
           </div>
           <div class="loading-hint" v-else-if="loadError">
-            <span class="loading-text" style="color: var(--color-error, #e74c3c)">{{ loadError }}</span>
+            <span class="loading-text" style="color: var(--err)">{{ loadError }}</span>
           </div>
           <div class="loading-hint" v-else>
-            <span class="loading-dot"></span>
-            <span class="loading-dot"></span>
-            <span class="loading-dot"></span>
+            <BusyRing :size="13" />
             <span class="loading-text">正在加载 Agent 列表…</span>
           </div>
         </div>
@@ -183,12 +181,12 @@ async function createGroup() {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border-secondary, rgba(255,255,255,0.06));
+  border-bottom: 1px solid var(--line);
 }
 .dialog-header h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--color-text-primary, #e0e0e0);
+  color: var(--text-1);
 }
 
 .close-btn {
@@ -198,10 +196,10 @@ async function createGroup() {
   width: 28px; height: 28px;
   border: none; border-radius: 4px;
   background: none;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.5));
+  color: var(--text-3);
   cursor: pointer;
 }
-.close-btn:hover { color: var(--color-text-primary, #fff); background: var(--color-bg-hover, rgba(255,255,255,0.08)); }
+.close-btn:hover { color: var(--text-1); background: var(--bg-hover); }
 
 .dialog-body {
   flex: 1;
@@ -216,25 +214,25 @@ async function createGroup() {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-secondary, rgba(255,255,255,0.7));
+  color: var(--text-2);
   margin-bottom: 6px;
 }
 
 .form-input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.12));
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: transparent;
-  color: var(--color-text-primary, #e0e0e0);
+  color: var(--text-1);
   font-size: 13px;
   outline: none;
   box-sizing: border-box;
   transition: border-color 0.15s;
 }
-.form-input:focus { border-color: var(--color-primary, #4f46e5); }
+.form-input:focus { border-color: var(--primary); }
 .form-input::placeholder {
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--text-3);
 }
 
 .section-label {
@@ -247,13 +245,13 @@ async function createGroup() {
 .label-text {
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-secondary, rgba(255,255,255,0.7));
+  color: var(--text-2);
 }
 
 .label-badge {
   font-size: 11px;
   font-weight: 500;
-  color: var(--color-primary, #4f46e5);
+  color: var(--primary);
   background: rgba(79,70,229,0.12);
   padding: 2px 8px;
   border-radius: 10px;
@@ -265,7 +263,7 @@ async function createGroup() {
   flex-direction: column;
   max-height: 300px;
   overflow-y: scroll;
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.09));
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 
@@ -276,11 +274,11 @@ async function createGroup() {
   background: transparent;
 }
 .participant-list::-webkit-scrollbar-thumb {
-  background: var(--color-border-primary, #bdc3c7);
+  background: var(--line-strong);
   border-radius: 3px;
 }
 .participant-list::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primary, #6366f1);
+  background: var(--primary);
 }
 
 .participant-item {
@@ -299,13 +297,13 @@ async function createGroup() {
   right: 10px;
   bottom: 0;
   height: 1px;
-  background: var(--color-border-secondary, rgba(255,255,255,0.06));
+  background: var(--line);
 }
 .participant-item:last-child::after {
   display: none;
 }
 .participant-item:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.04));
+  background: var(--bg-hover);
   border-color: rgba(255,255,255,0.06);
 }
 .participant-item.selected {
@@ -334,11 +332,11 @@ async function createGroup() {
 }
 
 .check-icon {
-  color: var(--color-primary, #4f46e5);
+  color: var(--primary);
   transition: transform 0.2s ease;
 }
 .check-icon.unchecked {
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--text-3);
 }
 .participant-item.selected .check-icon {
   transform: scale(1.1);
@@ -353,8 +351,8 @@ async function createGroup() {
   border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-primary, #4f46e5);
-  background: var(--color-primary-light, rgba(79,70,229,0.12));
+  color: var(--primary);
+  background: var(--primary-light);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -377,7 +375,7 @@ async function createGroup() {
 .participant-name {
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--color-text-primary, #e0e0e0);
+  color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -385,7 +383,7 @@ async function createGroup() {
 
 .participant-id {
   font-size: 10.5px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.32));
+  color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -397,42 +395,22 @@ async function createGroup() {
   justify-content: center;
   gap: 5px;
   padding: 20px 8px;
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--color-bg-subtle, rgba(255,255,255,0.015));
+  background: var(--bg-hover);
 }
 
 .loading-text {
   font-size: 12px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+  color: var(--text-3);
   margin-left: 4px;
 }
 
-.loading-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.3);
-  animation: loadingBounce 1.4s ease-in-out infinite;
-}
-.loading-dot:nth-child(1) { animation-delay: 0s; }
-.loading-dot:nth-child(2) { animation-delay: 0.2s; }
-.loading-dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes loadingBounce {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.4;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
+/* cr-129 R2：自建忙指示（三点弹跳）→ BusyRing（忙指示唯一源） */
 
 .error {
   font-size: 13px;
-  color: var(--color-error, #ef4444);
+  color: var(--err);
   padding: 8px 12px;
   border-radius: 4px;
   background: rgba(239,68,68,0.1);
@@ -443,26 +421,26 @@ async function createGroup() {
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 20px;
-  border-top: 1px solid var(--color-border-secondary, rgba(255,255,255,0.06));
+  border-top: 1px solid var(--line);
 }
 
 .btn-cancel {
   padding: 7px 16px;
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.15));
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: none;
-  color: var(--color-text-secondary, rgba(255,255,255,0.7));
+  color: var(--text-2);
   font-size: 13px;
   cursor: pointer;
 }
-.btn-cancel:hover { background: var(--color-bg-hover, rgba(255,255,255,0.05)); }
+.btn-cancel:hover { background: var(--bg-hover); }
 
 .btn-create {
   padding: 7px 20px;
   border: none;
   border-radius: 6px;
-  background: var(--color-primary, #4f46e5);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;

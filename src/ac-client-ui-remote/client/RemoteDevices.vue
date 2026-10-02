@@ -318,7 +318,7 @@ onUnmounted(() => {
         <div class="dev-info">
           <div class="dev-name">
             {{ d.name }}
-            <span v-if="d.online" class="dev-badge">在线</span>
+            <span v-if="d.online" class="ui-badge ok">在线</span>
             <span v-for="s in d.scopes" :key="s" class="dev-scope">{{ s }}</span>
           </div>
           <div class="dev-meta">配对于 {{ fmtTime(d.pairedAt) }} · 最后活跃 {{ fmtTime(d.lastSeenAt) }}</div>
@@ -383,7 +383,7 @@ onUnmounted(() => {
 .device-row:first-of-type { border-top: none; }
 .dev-info { flex: 1; min-width: 0; }
 .dev-name { font-size: 13px; color: var(--text-1); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.dev-badge { font-size: 10px; color: var(--ok); border: 1px solid rgba(var(--ok-rgb), 0.4); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; }
+/* cr-129 R3：在线标记 = ui-badge ok（形状/配色归 kit——原自建描边胶囊退役） */
 .dev-scope { font-size: 10px; color: var(--text-3); background: var(--bg-hover); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; }
 .dev-meta { color: var(--text-3); font-size: 11px; margin-top: 2px; }
 </style>

@@ -91,17 +91,17 @@ function retryRender() {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; padding: 24px; text-align: center; min-width: 0;
 }
-.pc-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--err, #e5484d); }
+.pc-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--err); }
 .pc-msg {
   margin: 0; max-width: 60%; font-size: 13px; line-height: 1.6;
-  color: var(--color-text-secondary, #666);
+  color: var(--text-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pc-retry {
-  padding: 6px 16px; border-radius: 6px; border: 1px solid var(--color-border-secondary, #ddd);
-  background: var(--color-bg-page, #fff); color: var(--color-text-primary, #333);
+  padding: 6px 16px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg-base); color: var(--text-1);
   font-size: 13px; cursor: pointer;
 }
-.pc-retry:hover { border-color: var(--color-primary, #4f46e5); color: var(--color-primary, #4f46e5); }
-.pc-hint { margin: 0; font-size: 12px; color: var(--color-text-tertiary, #999); }
+.pc-retry:hover { border-color: var(--primary); color: var(--primary); }
+.pc-hint { margin: 0; font-size: 12px; color: var(--text-3); }
 </style>

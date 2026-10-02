@@ -117,10 +117,10 @@ defineExpose({ open });
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
               <span class="code-file-name">{{ filePath }}</span>
-              <span v-if="lang" class="code-lang-badge">{{ langDisplay }}</span>
+              <span v-if="lang" class="ui-badge kind code-lang-badge">{{ langDisplay }}</span>
             </div>
             <div class="code-header-right">
-              <span v-if="content" class="code-meta-badge">{{ content.length.toLocaleString() }} 字符</span>
+              <span v-if="content" class="ui-badge dim code-meta-badge">{{ content.length.toLocaleString() }} 字符</span>
               <button class="code-copy-btn" :class="{ copied: copyState === 'copied' }" @click="copyContent" :disabled="!content" title="复制全部内容">
                 <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -150,7 +150,7 @@ defineExpose({ open });
 
 <style scoped>
 .write-link {
-  font-size: 12px; color: var(--color-accent, #4a90d9); cursor: pointer;
+  font-size: 12px; color: var(--primary-strong); cursor: pointer;
   font-family: 'SF Mono', 'Consolas', monospace;
   text-decoration: underline; text-underline-offset: 2px;
 }
@@ -164,53 +164,51 @@ defineExpose({ open });
 .code-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px; gap: 12px; flex-shrink: 0;
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-secondary);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--line);
 }
 .code-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
 .code-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.code-file-icon { color: var(--color-text-tertiary); flex-shrink: 0; }
+.code-file-icon { color: var(--text-3); flex-shrink: 0; }
 .code-file-name {
   font-size: 12px; font-weight: 600;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* cr-129 R3：语言徽记 = ui-badge kind（形状/配色归 kit 徽章族） */
 .code-lang-badge {
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
-  padding: 2px 7px; border-radius: var(--radius-sm); background: var(--color-primary); color: #fff;
-  flex-shrink: 0; opacity: 0.85;
+  text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0;
 }
+/* cr-129 R3：元信息徽章 = ui-badge dim（同上） */
 .code-meta-badge {
-  font-size: 11px; color: var(--color-text-tertiary); padding: 2px 6px;
-  border-radius: var(--radius-sm); background: var(--color-bg-page);
-  border: 1px solid var(--color-border-secondary); white-space: nowrap;
+  white-space: nowrap;
 }
 .code-copy-btn {
   display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
-  font-size: 11px; font-weight: 500; color: var(--color-text-secondary);
-  background: var(--color-bg-page); border: 1px solid var(--color-border-secondary);
-  border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  font-size: 11px; font-weight: 500; color: var(--text-2);
+  background: var(--bg-base); border: 1px solid var(--line);
+  border-radius: var(--r-sm); cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
-.code-copy-btn:hover { color: var(--color-text-primary); background: var(--color-bg-surface); }
+.code-copy-btn:hover { color: var(--text-1); background: var(--bg-surface); }
 .code-copy-btn:disabled { opacity: 0.4; cursor: default; }
-.code-copy-btn.copied { color: #22c55e; border-color: #22c55e; background: rgba(34,197,94,0.08); }
+.code-copy-btn.copied { color: var(--ok); border-color: var(--ok); background: rgba(var(--ok-rgb), 0.08); }
 
 .write-dialog-close {
   display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border: none; border-radius: 6px;
-  background: none; color: var(--color-text-tertiary); cursor: pointer; flex-shrink: 0;
+  width: 28px; height: 28px; border: none; border-radius: var(--r-sm);
+  background: none; color: var(--text-3); cursor: pointer; flex-shrink: 0;
 }
-.write-dialog-close:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.write-dialog-close:hover { background: var(--bg-hover); color: var(--text-1); }
 
-.write-dialog-body { flex: 1; overflow: auto; background: var(--color-code-bg, #1e1e2e); }
-.write-dialog-msg { font-size: 12px; color: var(--color-text-secondary); padding: 20px; }
-.write-dialog-err { color: var(--color-error, #e74c3c); }
+.write-dialog-body { flex: 1; overflow: auto; background: var(--code-bg); }
+.write-dialog-msg { font-size: 12px; color: var(--text-2); padding: 20px; }
+.write-dialog-err { color: var(--err); }
 
 .code-area :deep(.md-code-block) { margin: 0; border-radius: 0; background: transparent; }
 .code-area :deep(.md-code-block-banner) { display: none; }
 .code-area :deep(.md-code-block pre) {
   margin: 0; border-radius: 0; padding: 20px 24px;
-  background: var(--color-code-bg, #1e1e2e);
+  background: var(--code-bg);
 }
 .code-area :deep(.md-code-block pre code) {
   font-size: 12px; line-height: 1.65;

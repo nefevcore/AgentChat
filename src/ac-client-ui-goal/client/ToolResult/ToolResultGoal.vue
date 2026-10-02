@@ -42,14 +42,14 @@ const phase = computed(() => PHASES[card.value?.goal.status ?? 'active'] ?? PHAS
 .goal-card { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .goal-card-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .goal-card-phase { flex: none; font-weight: 600; font-size: 11px; }
-.p-active { color: var(--color-primary, #4a90d9); }
-.p-paused { color: var(--color-text-tertiary); }
-.p-blocked { color: #f59e0b; }
-.p-done { color: #22c55e; }
-.goal-card-objective { min-width: 0; flex: 1; color: var(--color-text-primary); overflow-wrap: anywhere; font-weight: 500; }
-.goal-card-pending { font-style: italic; color: var(--color-text-tertiary); font-weight: 400; }
-.goal-card-reason { color: #f59e0b; overflow-wrap: anywhere; }
-.goal-card-note { color: var(--color-text-tertiary); overflow-wrap: anywhere; }
-.goal-card-message { color: var(--color-text-tertiary); }
-.goal-card-empty { font-style: italic; color: var(--color-text-tertiary); }
+.p-active { color: var(--primary); }
+.p-paused { color: var(--text-3); }
+.p-blocked { color: var(--warn); }
+.p-done { color: var(--ok); }
+.goal-card-objective { min-width: 0; flex: 1; color: var(--text-1); overflow-wrap: anywhere; font-weight: 500; }
+.goal-card-pending { font-style: italic; color: var(--text-3); font-weight: 400; }
+.goal-card-reason { color: var(--warn); overflow-wrap: anywhere; }
+.goal-card-note { color: var(--text-3); overflow-wrap: anywhere; }
+.goal-card-message { color: var(--text-3); }
+.goal-card-empty { font-style: italic; color: var(--text-3); }
 </style>

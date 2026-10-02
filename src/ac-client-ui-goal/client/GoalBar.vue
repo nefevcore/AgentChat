@@ -11,7 +11,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type { TaskGoal } from './goalCard.ts';
 import type { TaskGoalPatch } from './goalApi.ts';
 import { updateGoal, deleteGoal } from './goalApi.ts';
-import { Icon, Modal, Button } from '@agentchat/webui-kit';
+import { Icon, Modal, Button, DockCard } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   goal: TaskGoal;
@@ -125,43 +125,52 @@ watch(editOpen, (open) => {
 </script>
 
 <template>
+  <!-- 外层仅承载原生 tooltip（DockCard 的 title 是 prop——同名原生属性无法透传） -->
   <div class="goal-bar" :title="tooltip">
-    <span class="goal-glyph" aria-hidden="true">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
-      </svg>
-    </span>
-    <span class="goal-phase" :class="phase.cls">{{ phase.label }}</span>
-    <span class="goal-objective">{{ goal.objective }}</span>
-    <span v-if="roundsText" class="goal-rounds">{{ roundsText }}</span>
-    <!-- 受阻/自动暂停标记：语义图标（替代 emoji 文字符号的旧形态） -->
-    <Icon v-if="goal.status === 'blocked'" name="alert-circle" :size="12" class="goal-blocked-mark" aria-hidden="true" />
-    <Icon v-else-if="goal.autoPausedReason" name="pause" :size="12" class="goal-blocked-mark goal-paused-mark" aria-hidden="true" />
+    <!-- cr-129 R6：dock 外壳 = kit DockCard（原自建条带壳退役）；dense = 单行条带，
+         阶段标签走 eyebrow（eyebrow 行同时承担 status 文案的读屏位） -->
+    <DockCard
+      class="goal-dock"
+      dense
+      :tone="goal.status === 'blocked' ? 'warn' : 'idle'"
+      :eyebrow="phase.label"
+      :title="goal.objective"
+    >
+      <template #actions>
+        <span v-if="roundsText" class="goal-rounds">{{ roundsText }}</span>
+        <!-- 受阻/自动暂停标记：语义图标（替代 emoji 文字符号的旧形态） -->
+        <Icon v-if="goal.status === 'blocked'" name="alert-circle" :size="12" class="goal-blocked-mark" aria-hidden="true" />
+        <Icon v-else-if="goal.autoPausedReason" name="pause" :size="12" class="goal-blocked-mark goal-paused-mark" aria-hidden="true" />
 
-    <!-- hover 操作区（写面齐备才渲染；busy 期间禁点防重复提交） -->
-    <span v-if="canWrite" class="goal-actions" aria-label="目标操作">
-      <button
-        class="goal-act"
-        :title="goal.status === 'active' || goal.status === 'blocked' ? '暂停（停止自动开轮）' : '恢复（继续自动推进）'"
-        :disabled="busy"
-        @click.stop="togglePause"
-      >
-        <Icon :name="goal.status === 'active' || goal.status === 'blocked' ? 'pause' : 'play'" :size="13" />
-      </button>
-      <button class="goal-act" title="编辑目标" :disabled="busy" @click.stop="openEdit">
-        <Icon name="pencil" :size="13" />
-      </button>
-      <button class="goal-act goal-act-danger" title="删除目标（放弃，不入历史）" :disabled="busy" @click.stop="deleteOpen = true">
-        <Icon name="trash" :size="13" />
-      </button>
-    </span>
+        <!-- hover 操作区（写面齐备才渲染；busy 期间禁点防重复提交） -->
+        <span v-if="canWrite" class="goal-actions" aria-label="目标操作">
+          <button
+            class="goal-act"
+            :title="goal.status === 'active' || goal.status === 'blocked' ? '暂停（停止自动开轮）' : '恢复（继续自动推进）'"
+            :disabled="busy"
+            @click.stop="togglePause"
+          >
+            <Icon :name="goal.status === 'active' || goal.status === 'blocked' ? 'pause' : 'play'" :size="13" />
+          </button>
+          <button class="goal-act" title="编辑目标" :disabled="busy" @click.stop="openEdit">
+            <Icon name="pencil" :size="13" />
+          </button>
+          <button class="goal-act goal-act-danger" title="删除目标（放弃，不入历史）" :disabled="busy" @click.stop="deleteOpen = true">
+            <Icon name="trash" :size="13" />
+          </button>
+        </span>
+      </template>
 
-    <!-- 操作失败反馈（行内短暂呈现；不弹新窗叠加在弹窗上） -->
-    <Transition name="goal-err">
-      <span v-if="actionError && !editOpen && !deleteOpen" class="goal-action-error" :title="actionError">
-        <Icon name="alert-circle" :size="12" />{{ actionError }}
-      </span>
-    </Transition>
+      <!-- 操作失败反馈（行内短暂呈现；不弹新窗叠加在弹窗上）。
+           cr-129 注：R7 拟迁 kit FeedbackNotice，但 webui/tests/goal-bar-edit 锁本节点
+           （.goal-action-error 文案断言；该测试归 P6 管辖不可改）→ 按 cr-125/127 先例
+           保留自建行内形态（恢复别名引用并加注），列入 P5 待裁决。 -->
+      <Transition name="goal-err">
+        <span v-if="actionError && !editOpen && !deleteOpen" class="goal-action-error" :title="actionError">
+          <Icon name="alert-circle" :size="12" />{{ actionError }}
+        </span>
+      </Transition>
+    </DockCard>
 
     <!-- 编辑弹窗（ui/Modal 统一外壳） -->
     <Modal :visible="editOpen" title="编辑目标" :width="440" :z-index="1200" @close="editOpen = false; actionError = ''">
@@ -219,34 +228,13 @@ watch(editOpen, (open) => {
 </template>
 
 <style scoped>
-.goal-bar {
-  display: flex; align-items: center; gap: 10px;
-  height: 32px; padding: 4px 12px;
-  /* 底距 6px = dock 卡列纵向节奏（M27 S3：原 .task-dock 包装层 spacing
-     下放为本卡自带——与 TodoPanel 同款，零像素迁移） */
-  margin: 0 10px 6px;
-  border: 1px solid var(--color-border-secondary);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-secondary, var(--color-bg-page));
-  flex-shrink: 0;
-  min-width: 0;
-  /* 与输入卡同级的层次感（轻 --shadow-input 一档——辅助浮层不争主操作位焦点）；
-     双主题值见 webui-kit tokens.css --shadow-dock */
-  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
-}
-.goal-glyph { display: inline-flex; color: var(--color-text-tertiary); flex: none; }
-.goal-phase { flex: none; font-size: 12px; font-weight: 500; line-height: 20px; }
-.phase-active { color: var(--color-primary, #4a90d9); }
-.phase-paused { color: var(--color-text-tertiary); }
-.phase-blocked { color: #f59e0b; }
-.goal-objective {
-  min-width: 0; flex: 1; font-size: 13px; line-height: 20px;
-  color: var(--color-text-secondary);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.goal-rounds { flex: none; font-size: 11px; color: var(--color-text-tertiary); }
-.goal-blocked-mark { flex: none; color: #f59e0b; }
-.goal-paused-mark { color: var(--color-text-tertiary); }
+/* cr-129 R6：本行只留编排（外壳边框/圆角/底色/影/内距与底缘 safe-bottom
+   避让全归 kit DockCard）；外层 div 仅承载原生 tooltip */
+.goal-bar { flex-shrink: 0; min-width: 0; }
+.goal-rounds { flex: none; font-size: 11px; color: var(--text-3); }
+/* 受阻/自动暂停标记（形态由 Icon 给；色取图形/墨色档） */
+.goal-blocked-mark { flex: none; color: var(--warn); }
+.goal-paused-mark { color: var(--text-3); }
 
 /* ── hover 操作区：常驻占位、透明待命（防条带宽度跳变）；触屏无 hover
    直接可见（@media (hover:none)），条带 32px 高度内图标钮 20px 可点 ── */
@@ -259,19 +247,19 @@ watch(editOpen, (open) => {
 .goal-act {
   display: inline-grid; place-items: center;
   width: 20px; height: 20px; padding: 0;
-  border: none; border-radius: var(--radius-sm); background: transparent;
-  color: var(--color-text-tertiary); cursor: pointer;
+  border: none; border-radius: var(--r-sm); background: transparent;
+  color: var(--text-3); cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.goal-act:hover:not(:disabled) { background: var(--color-bg-hover, rgba(0, 0, 0, 0.06)); color: var(--color-text-primary); }
+.goal-act:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .goal-act:disabled { opacity: 0.45; cursor: not-allowed; }
-.goal-act-danger:hover:not(:disabled) { color: var(--color-error, #e74c3c); }
+.goal-act-danger:hover:not(:disabled) { color: var(--err); }
 
-/* 操作失败反馈（截断 + title 全文；进出淡入淡出） */
+/* 操作失败反馈（截断 + title 全文；进出淡入淡出）——见上方 cr-129 注（测试锁） */
 .goal-action-error {
   flex: none; display: inline-flex; align-items: center; gap: 4px;
   max-width: 200px; font-size: 11px; line-height: 16px;
-  color: var(--color-error, #e74c3c);
+  color: var(--err);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .goal-err-enter-active, .goal-err-leave-active { transition: opacity 0.15s ease; }
@@ -280,18 +268,18 @@ watch(editOpen, (open) => {
 /* ── 弹窗表单（TimerPane 同款行式布局） ── */
 .goal-edit-body { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px; }
 .goal-edit-row { display: flex; align-items: center; gap: 10px; }
-.goal-edit-row label { flex: none; width: 56px; font-size: 13px; color: var(--color-text-secondary); }
+.goal-edit-row label { flex: none; width: 56px; font-size: 13px; color: var(--text-2); }
 .goal-edit-input {
   flex: 1; min-width: 0; height: 30px; padding: 0 10px;
-  border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm);
-  background: var(--color-bg-page, transparent); color: var(--color-text-primary);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-base); color: var(--text-1);
   font-size: 13px; font-family: inherit;
 }
-.goal-edit-input:focus { outline: none; border-color: var(--color-primary, #4a90d9); }
+.goal-edit-input:focus { outline: none; border-color: var(--primary); }
 .goal-edit-rounds { flex: none; width: 90px; }
-.goal-edit-hint { font-size: 11px; color: var(--color-text-tertiary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.goal-edit-error { font-size: 12px; line-height: 1.5; color: var(--color-error, #e74c3c); overflow-wrap: anywhere; }
-.goal-delete-msg { font-size: 13px; line-height: 1.6; color: var(--color-text-primary); }
+.goal-edit-hint { font-size: 11px; color: var(--text-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-edit-error { font-size: 12px; line-height: 1.5; color: var(--err); overflow-wrap: anywhere; }
+.goal-delete-msg { font-size: 13px; line-height: 1.6; color: var(--text-1); }
 .goal-delete-msg strong { overflow-wrap: anywhere; }
-.goal-delete-note { font-size: 12px; line-height: 1.6; color: var(--color-text-tertiary); }
+.goal-delete-note { font-size: 12px; line-height: 1.6; color: var(--text-3); }
 </style>

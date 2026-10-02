@@ -7,6 +7,7 @@
   keyed seat（id 'todo'）——行卸载即卡片回落默认文本渲染。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
+import { BusyRing } from '@agentchat/webui-kit';
 import { normalizeTodoCard, type TaskTodo } from './tasks.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
@@ -41,12 +42,7 @@ const STATUS_LABELS: Record<string, string> = {
               <circle cx="7" cy="7" r="6.4" stroke="currentColor" stroke-width="1.2" />
               <path d="M10.96 5.71L7.7 8.98c-.22.22-.42.42-.61.57-.19.16-.43.3-.73.35-.16.03-.32.03-.48 0-.3-.05-.54-.19-.73-.35-.18-.15-.38-.35-.61-.57L3.04 7.46l.93-.93 1.51 1.52c.24.24.39.38.5.48.11.09.13.09.16.08.02.01.05.01.07 0 .03.01.05-.01.16-.1.12-.09.27-.24.5-.48L10.04 4.79l.92.92z" fill="currentColor" />
             </svg>
-            <svg v-else-if="item.status === 'in_progress'" class="g-progress" width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <g class="g-spin">
-                <circle cx="7" cy="7" r="6.4" stroke="currentColor" stroke-opacity="0.25" stroke-width="1.2" />
-                <path d="M7 0.6 A6.4 6.4 0 0 1 13.4 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-              </g>
-            </svg>
+            <BusyRing v-else-if="item.status === 'in_progress'" :size="13" />
             <svg v-else class="g-pending" width="13" height="13" viewBox="0 0 14 14" fill="none">
               <circle cx="7" cy="7" r="6.4" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2.4 2.4" />
             </svg>
@@ -63,20 +59,18 @@ const STATUS_LABELS: Record<string, string> = {
 
 <style scoped>
 .todo-card { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-.todo-card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--color-text-primary); }
-.todo-card-summary { font-weight: 400; color: var(--color-text-tertiary); }
-.todo-card-pending { font-style: italic; color: var(--color-text-tertiary); font-weight: 400; }
+.todo-card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-1); }
+.todo-card-summary { font-weight: 400; color: var(--text-3); }
+.todo-card-pending { font-style: italic; color: var(--text-3); font-weight: 400; }
 .todo-card-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; max-height: var(--card-viewport-max); overflow-y: auto; }
-.todo-card-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--color-text-secondary); line-height: 18px; }
-.todo-card-item[data-status='completed'] .todo-card-content { color: var(--color-text-tertiary); text-decoration: line-through; }
+.todo-card-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-2); line-height: 18px; }
+.todo-card-item[data-status='completed'] .todo-card-content { color: var(--text-3); text-decoration: line-through; }
 .todo-card-glyph { display: grid; place-items: center; flex: none; }
-.g-done { color: #22c55e; }
-.g-progress { color: var(--color-primary, #4a90d9); }
-/* 旋转挂内层 g：transform-box 对齐 viewBox 绕圆心（仓库 SVG 旋转唯一验证姿势） */
-.g-spin { transform-box: view-box; transform-origin: center; animation: todo-card-rot 1s linear infinite; }
-.g-pending { color: var(--color-text-tertiary); }
-@keyframes todo-card-rot { to { transform: rotate(360deg); } }
+/* 三形（勾圈/忙环/虚圈）：完成取 --ok 墨色档；in_progress 改用 kit BusyRing
+   （cr-129 R2——原自建 SVG 弧环 + 无限旋转退役） */
+.g-done { color: var(--ok); }
+.g-pending { color: var(--text-3); }
 .todo-card-content { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.todo-card-status { flex: none; font-size: 11px; color: var(--color-text-tertiary); }
-.todo-card-empty { font-style: italic; color: var(--color-text-tertiary); }
+.todo-card-status { flex: none; font-size: 11px; color: var(--text-3); }
+.todo-card-empty { font-style: italic; color: var(--text-3); }
 </style>

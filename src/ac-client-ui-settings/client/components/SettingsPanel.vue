@@ -204,7 +204,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
             <span class="sp-nav-current">{{ currentTitle }}</span>
             <Icon name="chevron-down" :size="14" class="sp-nav-chev" :class="{ open: navOpen }" />
           </button>
-          <span v-if="isDirty || ui.agentEditorDirty" class="sp-dirty-badge"><StatusDot status="thinking" :size="7" /> 未保存</span>
+          <span v-if="isDirty || ui.agentEditorDirty" class="ui-badge warn sp-dirty-badge"><StatusDot status="thinking" :size="7" /> 未保存</span>
           <button class="sp-close" @click="requestClose()" title="关闭"><Icon name="x" :size="15" /></button>
         </div>
 
@@ -306,7 +306,8 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 .sp-accent { width: 4px; height: 14px; border-radius: 2px; background: var(--primary); flex-shrink: 0; }
 .sp-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-1); }
 .sp-subtitle { font-size: 11px; color: var(--text-3); }
-.sp-dirty-badge { font-size: 10px; color: var(--warn); margin-left: 4px; display: inline-flex; align-items: center; gap: 4px; }
+/* cr-129 R3：未保存标记 = ui-badge warn（形状/配色归 kit，此处只留编排） */
+.sp-dirty-badge { margin-left: 4px; gap: 4px; }
 .sp-close { margin-left: auto; background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 4px; line-height: 1; display: inline-flex; align-items: center; }
 .sp-close:hover { color: var(--text-1); }
 

@@ -70,21 +70,21 @@ function badgeLabel(v: number | string | null): string {
   width: 40px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   flex-shrink: 0; gap: 4px;
-  border-left: 1px solid var(--color-border-secondary, rgba(0, 0, 0, 0.08));
+  border-left: 1px solid var(--line);
   position: relative; z-index: 10;
 }
 
 .aux-ab-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 36px; height: 40px; border: none; border-radius: 6px; background: none;
-  color: var(--color-text-tertiary, #999); cursor: pointer;
+  width: 36px; height: 40px; border: none; border-radius: var(--r-sm); background: none;
+  color: var(--text-3); cursor: pointer;
   transition: color 0.15s, background 0.15s; position: relative;
 }
-.aux-ab-btn:hover { color: var(--color-text-primary, #fff); background: var(--color-bg-hover, rgba(0, 0, 0, 0.06)); }
-.aux-ab-btn.active { color: var(--color-text-primary, #fff); }
+.aux-ab-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+.aux-ab-btn.active { color: var(--text-1); }
 .aux-ab-btn.active::before {
   content: ''; position: absolute; right: 0; top: 8px; bottom: 8px;
-  width: 2px; background: var(--color-primary, #4f46e5); border-radius: 2px 0 0 2px;
+  width: 2px; background: var(--primary); border-radius: 2px 0 0 2px;
 }
 
 /* 数字徽章（域行 rail.badge 供数——主题色底白字，右上角；数据源/格式
@@ -94,9 +94,9 @@ function badgeLabel(v: number | string | null): string {
   min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
   border-radius: 999px;
-  background: var(--color-primary, #4f46e5); color: #fff;
+  background: var(--primary); color: var(--on-primary);
   font-size: 9px; font-weight: 600; line-height: 1;
-  border: 1.5px solid var(--color-bg-page, transparent);
+  border: 1.5px solid var(--bg-base);
   z-index: 1; pointer-events: none;
 }
 </style>

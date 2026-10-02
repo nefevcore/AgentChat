@@ -2138,6 +2138,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime

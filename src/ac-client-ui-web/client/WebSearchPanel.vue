@@ -154,14 +154,14 @@ function keyOf(tabKey: string, idx: number): string {
   height: 100%;
   min-width: 0;
   overflow: hidden;
-  background: var(--color-bg-page, #1e1e2e);
+  background: var(--bg-base);
 }
 
 /* ── tab 条（同 fpp-tabs 形态——高度对齐会话头） ── */
 .wsp-tabs {
   display: flex;
   align-items: stretch;
-  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.06));
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
   height: var(--layout-header-height, 48px);
 }
@@ -179,9 +179,9 @@ function keyOf(tabKey: string, idx: number): string {
   gap: 5px;
   padding: 0 8px 0 10px;
   border: none;
-  border-right: 1px solid var(--color-border, rgba(255,255,255,0.05));
+  border-right: 1px solid var(--line);
   background: transparent;
-  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  color: var(--text-2);
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
@@ -190,13 +190,13 @@ function keyOf(tabKey: string, idx: number): string {
   transition: background 0.15s, color 0.15s;
 }
 .wsp-tab:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.05));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .wsp-tab.active {
-  background: var(--color-bg-surface, rgba(255,255,255,0.04));
-  color: var(--color-text-primary, #e0e0e0);
-  box-shadow: inset 0 -2px 0 var(--color-primary, #6366f1);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  box-shadow: inset 0 -2px 0 var(--primary);
 }
 .wsp-tab-title {
   overflow: hidden;
@@ -209,12 +209,12 @@ function keyOf(tabKey: string, idx: number): string {
   width: 14px;
   height: 14px;
   border-radius: 3px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--text-3);
   flex-shrink: 0;
 }
 .wsp-tab-close:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.1));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .wsp-tabs-actions {
   display: flex;
@@ -226,15 +226,15 @@ function keyOf(tabKey: string, idx: number): string {
 .wsp-action {
   border: none;
   background: transparent;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.45));
+  color: var(--text-3);
   font-size: 11px;
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 4px;
 }
 .wsp-action:hover {
-  background: var(--color-bg-hover, rgba(255,255,255,0.06));
-  color: var(--color-text-primary, #e0e0e0);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 /* ── pane ── */
@@ -257,26 +257,26 @@ function keyOf(tabKey: string, idx: number): string {
   gap: 6px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   margin-bottom: 10px;
 }
-.wsp-meta-icon { flex-shrink: 0; color: var(--color-text-tertiary); }
+.wsp-meta-icon { flex-shrink: 0; color: var(--text-3); }
 .wsp-meta-query {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   word-break: break-all;
 }
 .wsp-meta-sub {
   display: flex;
   gap: 8px;
   font-size: 11px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
 }
 
 /* ── AI 摘要（同 web-search-answer 形态） ── */
 .wsp-answer {
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-light);
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
@@ -287,13 +287,13 @@ function keyOf(tabKey: string, idx: number): string {
   gap: 5px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   margin-bottom: 6px;
 }
 .wsp-answer-icon { flex-shrink: 0; }
 .wsp-answer-text {
   font-size: 12px;
-  color: var(--color-text-primary);
+  color: var(--text-1);
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -307,13 +307,13 @@ function keyOf(tabKey: string, idx: number): string {
 .wsp-item {
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-light);
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
 }
 .wsp-item-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-link);
+  color: var(--primary-strong);
   text-decoration: none;
   display: block;
   margin-bottom: 2px;
@@ -322,13 +322,13 @@ function keyOf(tabKey: string, idx: number): string {
 .wsp-item-title:hover { text-decoration: underline; }
 .wsp-item-url {
   font-size: 11px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   word-break: break-all;
   margin-bottom: 6px;
 }
 .wsp-item-content {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-2);
   line-height: 1.5;
   overflow: hidden;
   display: -webkit-box;
@@ -348,13 +348,13 @@ function keyOf(tabKey: string, idx: number): string {
 }
 .wsp-item-score {
   font-size: 11px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
   font-family: 'SF Mono', 'Consolas', monospace;
 }
 .wsp-expand-btn {
   border: none;
   background: transparent;
-  color: var(--color-link);
+  color: var(--primary-strong);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
@@ -365,6 +365,6 @@ function keyOf(tabKey: string, idx: number): string {
   padding: 24px 0;
   text-align: center;
   font-size: 12px;
-  color: var(--color-text-tertiary);
+  color: var(--text-3);
 }
 </style>

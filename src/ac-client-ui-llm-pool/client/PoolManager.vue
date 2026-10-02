@@ -619,7 +619,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 .pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pool-btn.danger { color: var(--err); }
 .pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
-.pool-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.pool-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .pool-set-default {
   padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
   background: transparent; color: var(--warn); font-size: 11px; cursor: pointer;
@@ -661,9 +661,9 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
   border: none; background: none; padding: 0; cursor: pointer; text-align: left;
   font: inherit; font-family: var(--font-mono, monospace);
 }
-.pool-model-name-btn:hover { color: var(--primary, #4f46e5); }
+.pool-model-name-btn:hover { color: var(--primary); }
 .pool-model-row.is-default .pool-model-name {
-  color: var(--primary, #4f46e5); font-weight: 600;
+  color: var(--primary); font-weight: 600;
 }
 .pool-model-row.is-default .pool-model-name-btn::after {
   content: ' ·默认'; font-weight: 400; font-size: 10px;
@@ -686,8 +686,8 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 .pool-model-badge.on {
   background: rgba(var(--primary-rgb, 79, 70, 229), 0.1);
   border-color: rgba(var(--primary-rgb, 79, 70, 229), 0.35);
-  color: var(--primary, #4f46e5); /* 回退（cr-32） */
-  color: color-mix(in srgb, var(--primary, #4f46e5) 80%, var(--text-1));
+  color: var(--primary); /* 回退（cr-32） */
+  color: color-mix(in srgb, var(--primary) 80%, var(--text-1));
 }
 .pool-model-badge.is-manual {
   background: rgba(var(--warn-rgb), 0.12);

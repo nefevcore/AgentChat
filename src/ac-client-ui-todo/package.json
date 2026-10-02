@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
     "vue": "^3.4.0"
   },
