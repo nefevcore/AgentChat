@@ -70,6 +70,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- 通知（前台服务常驻通知） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 后台保活（cr-109）：链路活动期 CPU 部分锁，防厂商省电策略冻结网络 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- 配对：扫码需相机；agentchat:// 深链唤起本 App -->
     <uses-permission android:name="android.permission.CAMERA" />

@@ -21,6 +21,7 @@ import agentchat.noise.Upstream
 import agentchat.noise.b64u
 import agentchat.noise.unb64u
 import android.content.Context
+import android.os.PowerManager
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "AgentChatRemote"
 
@@ -80,6 +82,8 @@ data class SessionState(
     val scopes: List<String> = emptyList(),
     /** 回环桥端口（ONLINE 期 WebView 的加载目标） */
     val bridgePort: Int? = null,
+    /** 后台保活中（cr-109：链路活动期切后台持 CPU 部分锁不断链） */
+    val backgroundHold: Boolean = false,
     val message: String? = null,
 )
 
@@ -98,6 +102,17 @@ class RemoteSession(
     private var relay: RelayClient? = null
     private var bridge: LoopbackBridge? = null
     private var reconnectJob: Job? = null
+
+    /**
+     * 会话代数（cr-109 重连风暴修复）：stop() 递增。在途 KK 尝试循环逐轮校验，
+     * 过期即自弃——stop 之后不再有残余 dial 撞门（真机 relay 日志实锤：切后台
+     * 后仍每 ~15s join→1006 一分多钟，正是内层尝试循环不感知 stop 的残响）。
+     */
+    private val epoch = AtomicInteger(0)
+
+    /** CPU 部分锁（cr-109 后台保活）：持锁期 = 后台链路活动期，见 updateWakeLock */
+    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    private var wakeLock: PowerManager.WakeLock? = null
 
     /** 用户主动断开（切后台 / dispose）——置位后重连循环与 onClose 都不再拉新链 */
     @Volatile private var manualStop = false
@@ -183,7 +198,8 @@ class RemoteSession(
             manualStop = false
             rc.onClose = { reason ->
                 Log.w(TAG, "链路关闭: " + reason)
-                if (!manualStop) startReconnectLoop(cp, rid, rurl)
+                // 只认现行链路（cr-109）：旧链残骸迟到的关闭不得触发重连
+                if (!manualStop && relay === rc) startReconnectLoop(cp, rid, rurl)
             }
         }
         // 顺序要紧：先起桥拿到端口，再置 ONLINE——否则 UI 收到 ONLINE 时
@@ -210,6 +226,9 @@ class RemoteSession(
         val corePub = pairing.corePubkey ?: return false
         val deviceId = pairing.deviceId ?: return false
         val relayUrl = pairing.relayUrl ?: return false
+        // 去重（cr-109）：退避循环已在跑 = 链路有人看护，并发再跑一轮 tryReconnect
+        // 会双循环同房互踩（双连接占满 2 席把 PC 关在门外）。等循环自己成功即可。
+        if (reconnectJob?.isActive == true) return false
         manualStop = false
         val ok = tryReconnect(corePub, deviceId, relayUrl)
         if (!ok) startReconnectLoop(corePub, deviceId, relayUrl)
@@ -222,6 +241,7 @@ class RemoteSession(
      * 在线路径要静默重试）。
      */
     private suspend fun tryReconnect(corePub: String, deviceId: String, relayUrl: String): Boolean {
+        val myEpoch = epoch.get()
         _state.value = _state.value.copy(phase = LinkPhase.CONNECTING)
         val room = deriveRoom(unb64u(corePub), deviceId, b64u(identity.publicKey))
         val tlsPin = pairing.tlsPin?.takeIf { it.isNotEmpty() } // cr-65：配对时带出的 pin 持久复用
@@ -230,6 +250,8 @@ class RemoteSession(
         // 会误触发 startReconnectLoop，与外层退避循环并发抢链。
         var connected: RelayClient? = null
         for (attempt in 1..KK_RECONNECT_ATTEMPTS) {
+            // 代数校验（cr-109）：stop() 已发生 → 立即弃轮，残余 dial 一轮不留
+            if (epoch.get() != myEpoch) return false
             val candidate = RelayClient(tlsPin)
             candidate.onPayload = { json -> dispatch(json) }
             val outcome = runCatching { candidate.reconnect(relayUrl, room, unb64u(corePub), identity) }
@@ -239,6 +261,7 @@ class RemoteSession(
                 break
             }
             candidate.cancel() // 超时放弃走 cancel（僵尸连接根因，见 RelayClient.cancel 注释）
+            if (epoch.get() != myEpoch) return false // 等待窗内被 stop——不烧下一轮
             if (attempt < KK_RECONNECT_ATTEMPTS) {
                 Log.w(TAG, "KK 重连第 " + attempt + "/" + KK_RECONNECT_ATTEMPTS + " 轮未成（room=" + room + "），重试")
                 delay(KK_RETRY_DELAY_MS)
@@ -249,13 +272,20 @@ class RemoteSession(
             Log.w(TAG, "KK 重连未成功（room=" + room + "，" + KK_RECONNECT_ATTEMPTS + " 轮均超时），等待退避重试")
             return false
         }
+        if (epoch.get() != myEpoch) { // 成功轮撞上 stop 竞态——新链不采纳
+            rc.cancel()
+            return false
+        }
         rc.onClose = { reason ->
             Log.w(TAG, "链路关闭: " + reason)
-            // 非用户主动断开 → 进入重连循环（切后台的 stop() 会把 manualStop 置位）
-            if (!manualStop) startReconnectLoop(corePub, deviceId, relayUrl)
+            // 只认现行链路（cr-109 风暴根因之一）：旧链残骸迟到的关闭回调会把健康
+            // 新链当 stale 清掉重连（stop→resume 间旧 ws 的 onClose 迟到即触发），
+            // 链路反复重置。断链重连只由现行链路的关闭启动。
+            if (!manualStop && relay === rc) startReconnectLoop(corePub, deviceId, relayUrl)
         }
-        // 换链前排掉旧链（旧 KK 帧序号必然错位，留着只会污染）
-        relay?.close()
+        // 换链前排掉旧链（旧 KK 帧序号必然错位，留着只会污染）。旧链在此语境按死链
+        // 处理走 cancel（RST 立断）——close 优雅等待只会在 relay 侧多养 15s 残骸。
+        relay?.cancel()
         relay = rc
         startBridge(rc)
         _state.value = _state.value.copy(
@@ -289,7 +319,11 @@ class RemoteSession(
                     _state.value = _state.value.copy(
                         phase = LinkPhase.ERROR,
                         message = "长时间无法连接核心端：电脑可能不在线，或已在电脑端移除了本设备。可解除配对后重新扫码。",
+                        backgroundHold = false,
                     )
+                    // 后台保活收尾（cr-109）：ERROR 终态不再值得保——App 在后台时没有
+                    // Activity 生命周期回调会来解锁，锁必须在此随终态释放。
+                    updateWakeLock(false)
                     return@launch
                 }
                 backoffMs = (backoffMs * 2).coerceAtMost(15_000L)
@@ -330,6 +364,7 @@ class RemoteSession(
 
     fun stop() {
         manualStop = true
+        epoch.incrementAndGet() // 在途 KK 尝试循环自弃（cr-109：防 stop 后残余 dial 撞门）
         reconnectJob?.cancel()
         reconnectJob = null
         bridge?.stop()
@@ -337,7 +372,59 @@ class RemoteSession(
         downlink = null
         relay?.close()
         relay = null
-        _state.value = _state.value.copy(phase = LinkPhase.IDLE, bridgePort = null)
+        updateWakeLock(false)
+        _state.value = _state.value.copy(phase = LinkPhase.IDLE, bridgePort = null, backgroundHold = false)
+    }
+
+    // ---- 后台保活（cr-109）----
+
+    /**
+     * 后台保活判定：已配对且链路活动（在线/重连中）才值得保——前台服务通知常驻 +
+     * CPU 部分锁让系统省电策略（MIUI 真机实锤：后台 TCP 被静默杀）不冻结网络；
+     * 其余形态（未配对/终态 ERROR/配对确认期）保持「切后台即断开」锁行语义
+     * （丢机缓解纵深——生物锁管入口，后台断链管闲置面）。重连循环自带 10 分钟
+     * 上限，后台持锁时长有界，不会无限耗电。
+     */
+    fun shouldHoldBackground(): Boolean {
+        if (manualStop || !pairing.paired) return false
+        return _state.value.phase == LinkPhase.ONLINE || _state.value.phase == LinkPhase.CONNECTING
+    }
+
+    /** 进后台（Activity onStop）：链路活动期持锁保链；非持有形态回落 stop()。 */
+    fun onAppBackground() {
+        if (!shouldHoldBackground()) {
+            stop()
+            return
+        }
+        updateWakeLock(true)
+        _state.value = _state.value.copy(backgroundHold = true)
+    }
+
+    /** 回前台（Activity onStart）：释放锁（前台进程自身保 CPU）。 */
+    fun onAppForeground() {
+        updateWakeLock(false)
+        if (_state.value.backgroundHold) _state.value = _state.value.copy(backgroundHold = false)
+    }
+
+    /**
+     * CPU 部分锁：链路与回环桥是纯 CPU + 网络负载，PARTIAL 锁即可（不亮屏）。
+     * 无超时——持锁期 = 后台链路活动期，onAppForeground/stop 释放；进程被杀由
+     * 系统自动回收。acquire 失败（厂商 ROM 极端限制）静默降级：等价旧行为
+     * （后台断链、回前台自愈），不阻断。
+     */
+    private fun updateWakeLock(hold: Boolean) {
+        if (!hold) {
+            wakeLock?.let { runCatching { it.release() } }
+            wakeLock = null
+            return
+        }
+        val pm = powerManager ?: return
+        if (wakeLock == null) {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "agentchat:remote-link").also {
+                it.setReferenceCounted(false)
+                runCatching { it.acquire() }
+            }
+        }
     }
 
     fun dispose() {

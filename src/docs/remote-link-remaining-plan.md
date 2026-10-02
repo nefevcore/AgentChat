@@ -140,6 +140,28 @@ pin sha256 指纹或信任自签（认证职责在 Noise 层，TLS 仅混淆—�
 手机侧 pair-start 拿到的 qrUri 里 relay 参数已 URL 编码，deep link 解析后先 unescape；
 relay 心跳：超 60s 无 ping 断连——安卓侧 OkHttp 连接空闲 ping 间隔设在 30s 内。
 
+## 二b、手机端优化（cr-109，2026-10-02）
+
+**后台保活**：原「切后台即断开」（锁行）被真机实锤否掉一半——MIUI 省电策略
+后台静默杀 TCP，「回前台必重连」成为常态（§6.5c 结论项实为该症状）。新语义：**已配对
+且链路活动（ONLINE/CONNECTING）时 onStop 不断链**，改持 CPU 部分锁（WAKE_LOCK 权限 +
+PARTIAL_WAKE_LOCK）+ 前台服务通知（文案随 state 流投影：后台保活中/连接中/断开）；其余
+形态（未配对/ERROR/配对确认期）保持即断。回前台（onStart → service ACTION_RESUME）解锁。
+重连循环自带 10 分钟上限，后台持锁时长有界。
+
+**重连风暴修复**（手机侧三处结构缺陷，与 PC 侧 cr-67/cr-43⑮ 同族）：
+1. `stop()` 打不断在途 KK 尝试循环——内层 10 轮 dial 不感知 stop，切后台后仍每 ~8.6s
+   join 撞门一分多钟（relay 日志「退后台后每 ~15s join→1006」残响即此）。修复 = 会话
+   epoch 代数（stop 递增，尝试循环逐轮校验自弃）。
+2. 断链触发源不去重——旧链残骸迟到的 onClose 无条件拉新循环，把健康新链当 stale 清掉
+   重连（`relay === rc` 身份校验后才触发）。同族：换链排旧改 cancel（RST 立断）。
+3. `resumeOnline` 与退避循环可并发——双 tryReconnect 同房互踩占满 2 席把 PC 关在门外
+   （`reconnectJob?.isActive` 去重，对齐 PC 侧 connectingDevices）。
+
+验证：gradle compileDebugKotlin + assembleDebug 过（唯一警告为存量 deprecation）；
+transport JVM 测试全绿。真机验收项：① 在线态切后台 5 分钟回前台——链路应仍 ONLINE（不再
+重连）；② relay 日志确认后台期无 1006 撞门风暴；③ 未配对态切后台仍即断（锁行语义保留）。
+
 ## 三、M4 可选（设备管理成熟化）
 
 多设备并发在线（connections 表已支持，需真机验证双设备互不干扰）；

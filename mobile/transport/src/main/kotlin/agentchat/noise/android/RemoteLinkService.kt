@@ -44,6 +44,11 @@ class RemoteLinkService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopSelf()
+            // 回前台（cr-109）：Activity onStart 唤起——解锁保活回落 + 兜底链路自愈
+            ACTION_RESUME -> {
+                ensureSession()
+                SessionHolder.session?.onAppForeground()
+            }
             else -> ensureSession()
         }
         return START_NOT_STICKY
@@ -64,12 +69,22 @@ class RemoteLinkService : Service() {
         scope.launch {
             // 已配对 → 直接 KK 重连；未配对 → 留在 IDLE 等配对面驱动
             val store = PairingStore(applicationContext)
-            val text = if (store.paired && store.deviceId != null) {
-                if (s.resumeOnline()) "已连接" else "连接失败（可在应用内重试）"
-            } else {
-                "未配对"
+            if (store.paired && store.deviceId != null) {
+                s.resumeOnline() // 失败由退避循环接管，通知文案交给下面的状态流
             }
-            notify(buildNotification(text))
+            // 通知 = 状态流投影（cr-109）：链路状态变化即更新——后台保活期用户靠它
+            // 知道链路死活（「已连接 · 后台保活中」/「连接中…」/「未配对」）。
+            s.state.collect { st ->
+                val text = when {
+                    st.backgroundHold -> "已连接 · 后台保活中"
+                    st.phase == LinkPhase.ONLINE -> "已连接"
+                    st.phase == LinkPhase.CONNECTING -> "连接中…"
+                    st.phase == LinkPhase.AWAIT_CONFIRM -> "等待配对确认"
+                    st.phase == LinkPhase.ERROR -> "连接断开（打开应用重试）"
+                    else -> "未配对"
+                }
+                notify(buildNotification(text))
+            }
         }
     }
 
@@ -116,6 +131,7 @@ class RemoteLinkService : Service() {
 
     companion object {
         const val ACTION_STOP = "agentchat.remote.STOP"
+        const val ACTION_RESUME = "agentchat.remote.RESUME"
         private const val CHANNEL_ID = "agentchat.remote.link"
         private const val NOTIFICATION_ID = 4711
 
@@ -125,6 +141,11 @@ class RemoteLinkService : Service() {
 
         fun stop(context: Context) {
             context.startService(Intent(context, RemoteLinkService::class.java).setAction(ACTION_STOP))
+        }
+
+        /** 回前台通知（cr-109：释放保活锁 + 兜底链路自愈） */
+        fun resume(context: Context) {
+            runCatching { context.startService(Intent(context, RemoteLinkService::class.java).setAction(ACTION_RESUME)) }
         }
     }
 }

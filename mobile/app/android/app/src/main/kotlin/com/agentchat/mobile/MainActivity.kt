@@ -498,20 +498,27 @@ class MainActivity : BridgeActivity() {
     private fun dp(v: Int): Int = ((v * resources.displayMetrics.density).toInt())
 
     override fun onStop() {
-        // 方案「锁」行：切后台即断开（丢机缓解纵深）
+        // 锁行语义演进（cr-109 后台保活）：链路活动期（在线/重连中）不再断链——
+        // 真机实锤 MIUI 后台静默杀 TCP，切后台即断让「回前台必重连」成为常态；
+        // 改持 CPU 部分锁 + 前台服务通知扛省电策略（用户可见）。其余形态保持
+        // 「切后台即断开」（丢机缓解纵深）。
         watchJob?.cancel()
-        SessionHolder.session?.stop()
+        SessionHolder.session?.onAppBackground()
         super.onStop()
     }
 
     override fun onStart() {
         super.onStart()
+        // 回前台（cr-109）：先释放保活锁（前台进程自身保 CPU）+ 通知服务，再做
+        // cr-81 的链路停摆兜底。
+        RemoteLinkService.resume(this)
         // 回前台自愈（cr-81）：两处「链路停摆、无人重拉」的恢复缺口——
         //   ① ERROR 终态（重连超 10 分钟上限后 startReconnectLoop 已退出）；
-        //   ② 切后台 stop() 后的 IDLE（onStop 断链，原实现回前台无任何恢复路径，
+        //   ② 后台非保活形态 stop() 后的 IDLE（原实现回前台无任何恢复路径，
         //     WebView 停在死桥上白屏 ERR_CONNECTION_REFUSED）。
         // 用户切回前台的意图就是「连上」。CONNECTING/AWAIT_CONFIRM/ONLINE 不动
-        // （正在推进或已在线）；首启期 session 尚未建好（null）也自然跳过。
+        // （正在推进或已在线——后台保活期链路未断，直接可用）；首启期 session
+        // 尚未建好（null）也自然跳过。
         // resumeOnline 必须显式调：startAndLoad 起服务后 ensureSession 见 session
         // 非空直接返回，链路不会被拉起。
         if (!PairingStore(this).paired) return
