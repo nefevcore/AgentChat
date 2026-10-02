@@ -1553,7 +1553,7 @@ export function apply(ctx: Context) {
         avgTokensPerMsg: Math.round(avgTokensPerMsg),
         usagePercent,
         estimatedMsgsRemaining,
-        status: usagePercent < 50 ? 'low' : usagePercent < 75 ? 'moderate' : usagePercent < 90 ? 'high' : 'critical',
+        status: usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical',
         agentId: viewer,
         cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
       };
@@ -1598,7 +1598,7 @@ export function apply(ctx: Context) {
     const estimatedMsgsRemaining =
       avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0;
     const status =
-      usagePercent < 50 ? 'low' : usagePercent < 75 ? 'moderate' : usagePercent < 90 ? 'high' : 'critical';
+      usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical';
     // 缓存命中面（展示 enrich，不驱动上方仪表值）：provider prompt cache
     // 详情（DeepSeek/GLM 上报，ac-usage 记账）——last* = 最近一次 run 覆盖
     // 轨（多步 run 为各步合计），hit/miss = 会话累计；lastRunPrompt = 末次

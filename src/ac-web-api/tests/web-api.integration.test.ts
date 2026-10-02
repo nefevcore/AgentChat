@@ -755,7 +755,7 @@ describe('ac-web-api group / usage / interaction 面', () => {
     expect(result.usagePercent).toBeCloseTo((bigTokens / 200_000) * 100, 6);
     expect(result.avgTokensPerMsg).toBe(bigTokens);
     expect(result.estimatedMsgsRemaining).toBe(Math.floor((200_000 - bigTokens) / bigTokens));
-    expect(result.status).toBe('low');
+    expect(result.status).toBe('normal');
 
     // 归档重建（compact：概要 + 空保留）——无新 run，仪表即时回落
     await h.session.compact('a1', { summary: '概要二字', keep: [] });
