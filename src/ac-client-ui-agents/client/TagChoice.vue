@@ -243,7 +243,7 @@ function chooseOff() {
   background: var(--bg-raised, var(--bg));
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: var(--shadow-pop, 0 4px 16px rgba(0, 0, 0, .12));
+  box-shadow: var(--shadow-pop);
   padding: 4px;
 }
 .tc-option {

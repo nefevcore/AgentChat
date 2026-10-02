@@ -22,7 +22,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal, Icon, PullToRefresh, toastError } from '@agentchat/webui-kit';
+import { StarAvatar, Modal, Icon, PullToRefresh, BusyRing, toastError } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -529,8 +529,8 @@ onUnmounted(() => {
     <PullToRefresh ref="treeScrollRef" class="tree-scroll" :on-refresh="refreshLists">
      <!-- 搜索态：扁平结果（跨工作区、按最近活动降序；行：头像 - 标题/归属 - 删除） -->
      <div v-if="searching" class="search-results">
-       <div v-for="item in searchResults" :key="item.id" class="list-item"
-         :class="{ active: activeSingleId === item.id }"
+       <div v-for="item in searchResults" :key="item.id" class="list-item ui-row"
+         :class="{ 'is-selected': activeSingleId === item.id }"
          :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
          @click="selectSingle(item.id)">
          <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
@@ -559,7 +559,7 @@ onUnmounted(() => {
               <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
                 :title="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开\n${group.workspace.path}`)"
                 @click.stop="openWsInExplorer(group)">
-                <Icon v-if="wsExplorerKey === group.key" name="loader-circle" :size="14" class="ws-spin" />
+                <BusyRing v-if="wsExplorerKey === group.key" :size="14" />
                 <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
                 <Icon v-else name="external-link" :size="14" />
               </button>
@@ -598,8 +598,8 @@ onUnmounted(() => {
               </button>
               <!-- 桶内会话行（前 limit 条；尾部「展开更多」渐进追加） -->
               <template v-if="bucketLimit(group, bucket.key) > 0">
-                <div v-for="item in visibleItemsOf(group, bucket)" :key="item.id" class="list-item"
-                  :class="{ active: activeSingleId === item.id }"
+                <div v-for="item in visibleItemsOf(group, bucket)" :key="item.id" class="list-item ui-row"
+                  :class="{ 'is-selected': activeSingleId === item.id }"
                   :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
                   @click="selectSingle(item.id)">
                   <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
@@ -723,147 +723,146 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.session-list{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+.session-list{flex:1;min-width:0;background:var(--bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
-/* 暗色层级修复：列表用最深底，与内容区(#1a1a1a)拉开层次 */
-html.dark .session-list{background:var(--bg-base,#0a0d14)}
+/* 暗色层级修复：列表用最深底，与内容区（--bg-base）拉开层次 */
+html.dark .session-list{background:var(--bg-base)}
 
 /* 1. 新增按钮（占满一行）：虚线幽灵样式 + 主文字色 —— 可辨识但不抢戏 */
 .create-row{padding:10px 12px 4px;flex-shrink:0}
-.create-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;border:1px dashed var(--color-border-secondary,#c5c5c5);border-radius:var(--radius-md);background:var(--color-bg-page,#fff);color:var(--color-text-primary,#2c3e50);font-size:13px;font-weight:600;cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast)}
-.create-btn:hover{border-color:var(--color-primary,#6366f1);background:var(--color-primary-light,rgba(99,102,241,.05))}
+.create-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;border:1px dashed var(--line);border-radius:var(--radius-md);background:var(--bg-base);color:var(--text-1);font-size:13px;font-weight:600;cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast)}
+.create-btn:hover{border-color:var(--primary);background:var(--primary-light)}
 .create-btn:active{transform:scale(.985)}
-html.dark .create-btn{background:transparent;color:var(--color-text-primary,#e5e7eb)}
+html.dark .create-btn{background:transparent;color:var(--text-1)}
 
 /* 2. 工具栏：工作区（文本）— 间隔 — 新增工作区（纯 ICON） */
 .ws-toolbar{display:flex;align-items:center;gap:6px;padding:8px 14px 6px;flex-shrink:0}
-.ws-label{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--color-text-tertiary,#a8abb2);text-transform:none;user-select:none}
+.ws-label{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--text-3);text-transform:none;user-select:none}
 .ws-toolbar-actions{margin-left:auto;display:flex;align-items:center;gap:2px}
-.ws-add-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:6px;background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast)}
-.ws-add-btn:hover{background:var(--color-bg-subtle);color:var(--color-primary,#6366f1)}
+.ws-add-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-3);cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast)}
+.ws-add-btn:hover{background:var(--bg-hover);color:var(--primary)}
 
 /* 搜索框（标题过滤——输入即树切扁平结果，Esc 清空回树；与 AgentList
    同款视觉语言，尺寸压到工具栏一档） */
 .search-box{flex:1;min-width:0;position:relative;display:flex;align-items:center}
-.search-icon{position:absolute;left:8px;color:var(--color-text-tertiary,#a8abb2);pointer-events:none}
-.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--color-border-secondary,#ddd);border-radius:var(--radius-sm,6px);background:var(--color-bg-page,#fff);color:var(--color-text-primary,#2c3e50);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
-.search-input:focus{border-color:var(--color-primary,#6366f1)}
-.search-input::placeholder{color:var(--color-text-tertiary,#a8abb2)}
+.search-icon{position:absolute;left:8px;color:var(--text-3);pointer-events:none}
+.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--bg-base);color:var(--text-1);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
+.search-input:focus{border-color:var(--primary)}
+.search-input::placeholder{color:var(--text-3)}
 
 /* 搜索态扁平结果行（跨工作区、按最近活动降序；与树叶节点同视觉语言，
    左侧不缩进——无层级嵌套；归属副标给跨组结果以线索） */
-.search-results .list-item{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:8px}
-.search-results .list-item:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
-.search-results .list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
-.item-sub{font-size:11px;line-height:14px;color:var(--color-text-tertiary,#a8abb2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-results .list-item{height:30px;padding:0 8px;margin-bottom:var(--space-xs);cursor:pointer;gap:8px}
+/* hover 亮底由 .ui-row 承担（cr-122：hover 去边框、去微影）；
+   选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
+.item-sub{font-size:11px;line-height:14px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);padding:4px;border-radius:var(--radius-sm);line-height:0}
 .mobile-close-btn:hover{background:var(--color-bg-subtle);color:var(--color-text-primary)}
 
 /* 3. 树列表：节点统一行高 30px、垂直间距 --space-xs、同款圆角/hover/视觉密度
    （树节点与叶节点仅以缩进和图标区分层级，风格完全一致） */
-.tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--color-bg-surface,#f8f9fa);scrollbar-width:none;scrollbar-color:transparent transparent}
-html.dark .tree-scroll{background:var(--bg-base,#0a0d14)}
+.tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--bg-surface);scrollbar-width:none;scrollbar-color:transparent transparent}
+html.dark .tree-scroll{background:var(--bg-base)}
 .tree-scroll::-webkit-scrollbar{width:0;height:0}
-.tree-scroll::-webkit-scrollbar-track{background:var(--color-bg-surface,#f8f9fa)}
-html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base,#0a0d14)}
+.tree-scroll::-webkit-scrollbar-track{background:var(--bg-surface)}
+html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .tree-scroll::-webkit-scrollbar-thumb{background:transparent}
 /* hover 列表时滚动条浮现（与 AgentList 同款细滚动条样式） */
-.tree-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--color-border-primary) transparent}
+.tree-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
 .tree-scroll.scroll-visible::-webkit-scrollbar{width:6px;height:6px}
-.tree-scroll.scroll-visible::-webkit-scrollbar-thumb{background:var(--color-border-primary);border-radius:var(--r-full,999px)}
-.tree-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:var(--color-primary)}
+.tree-scroll.scroll-visible::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:var(--r-full,999px)}
+.tree-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:var(--primary)}
 
 /* 根节点：工作区（整行点击展开/收起；文件夹开合图标即状态） */
-.ws-node{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:13px;cursor:pointer;user-select:none;transition:background var(--transition-fast);border:1px solid transparent;gap:8px}
-.ws-node:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
-.ws-icon{display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary,#a8abb2);flex-shrink:0}
-.ws-node.ungrouped .ws-icon{color:var(--color-text-muted,#999)}
-.ws-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);line-height:20px}
-.ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;flex-shrink:0;line-height:0}
+.ws-node{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);color:var(--text-2);font-size:13px;cursor:pointer;user-select:none;transition:background var(--transition-fast);border:1px solid transparent;gap:8px}
+.ws-node:hover{background:var(--role-hover-bg);border-color:var(--line);box-shadow:var(--shadow-hover)}
+.ws-icon{display:flex;align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0}
+.ws-node.ungrouped .ws-icon{color:var(--text-3)}
+.ws-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-1);line-height:20px}
+.ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);cursor:pointer;flex-shrink:0;line-height:0}
 .ws-node:hover .ws-act{display:flex}
-.ws-act:hover,.ws-act.active{background:var(--color-bg-subtle);color:var(--color-primary,#6366f1)}
-/* 本地资源管理器：打开中的 loader 旋转 */
-.ws-spin{animation:ws-spin-rot 1s linear infinite}
-@keyframes ws-spin-rot{to{transform:rotate(360deg)}}
+.ws-act:hover,.ws-act.active{background:var(--bg-hover);color:var(--primary)}
+/* 本地资源管理器「打开中」忙指示 = kit BusyRing（R2：@keyframes 自建旋转退役，
+   --motion-scale / reduced-motion 由组件自带） */
 
 /* 「更多」下拉（重命名 / 删除） */
 .ws-more-wrap{position:relative;display:flex;flex-shrink:0}
-.ws-menu{position:absolute;top:100%;right:0;margin-top:4px;min-width:130px;background:var(--bg-raised,var(--color-bg-page));border:1px solid var(--line,var(--color-border-secondary));border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:4px;z-index:300}
-.ws-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:none;border-radius:6px;background:none;color:var(--text-1,var(--color-text-primary));font-size:13px;cursor:pointer;text-align:left}
-.ws-menu-item:hover{background:var(--role-hover-bg,var(--bg-hover))}
-.ws-menu-item svg{flex-shrink:0;color:var(--color-text-tertiary,#a8abb2)}
-.ws-menu-danger{color:var(--err,#e74c3c)}
-.ws-menu-danger svg{color:var(--err,#e74c3c)}
-.ws-menu-danger:hover{background:rgba(var(--err-rgb, 231, 76, 60), 0.12)}
+.ws-menu{position:absolute;top:100%;right:0;margin-top:4px;min-width:130px;background:var(--bg-raised);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:4px;z-index:300}
+.ws-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-1);font-size:13px;cursor:pointer;text-align:left}
+.ws-menu-item:hover{background:var(--role-hover-bg)}
+.ws-menu-item svg{flex-shrink:0;color:var(--text-3)}
+.ws-menu-danger{color:var(--err)}
+.ws-menu-danger svg{color:var(--err)}
+.ws-menu-danger:hover{background:rgba(var(--err-rgb), 0.12)}
 .menu-fade-enter-active,.menu-fade-leave-active{transition:opacity .12s ease,transform .12s ease}
 .menu-fade-enter-from,.menu-fade-leave-to{opacity:0;transform:translateY(-4px)}
 
 /* 叶节点：会话（一行：头像 - 标题 - 删除；与树节点同高度/同间距/同风格） */
-.ws-children .list-item{display:flex;align-items:center;height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:8px}
-.ws-children .list-item:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
-/* 选中态：角色色板（主色系底，色系身份而非浓度渐变；名称保持默认色） */
-.ws-children .list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
+.ws-children .list-item{height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);cursor:pointer;gap:8px}
+/* hover 亮底由 .ui-row 承担（cr-122：hover 去边框、去微影）；
+   选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
 .item-avatar-wrap{position:relative;flex-shrink:0}
 .item-info{flex:1;min-width:0}
-.item-name{font-size:13px;font-weight:500;line-height:20px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-name{font-size:13px;font-weight:500;line-height:20px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 删除按钮：hover 条目时浮现 */
-.item-delete{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;opacity:0;transition:opacity var(--transition-fast),background var(--transition-fast),color var(--transition-fast);flex-shrink:0}
+.item-delete{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);cursor:pointer;opacity:0;transition:opacity var(--transition-fast),background var(--transition-fast),color var(--transition-fast);flex-shrink:0}
 .ws-children .list-item:hover .item-delete{opacity:1}
-.item-delete:hover{background:rgba(231,76,60,.1);color:#e74c3c}
+.item-delete:hover{background:rgba(var(--err-rgb), 0.1);color:var(--err)}
 
 /* 时间分桶桶头：「今天/一周/其他」标签 + 条数胶囊——与叶节点近似
    缩进、轻量小字行（比会话行矮一档，层级从视觉密度读出）；点击开合，
    chevron 收起指右、展开向下（与工作区文件夹开合同语言） */
-.bucket-head{display:flex;align-items:center;gap:6px;height:24px;width:100%;margin:2px 0 var(--space-xs);padding:0 8px 0 16px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);font-size:11.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
-.bucket-head:hover{background:var(--role-hover-bg,var(--color-bg-page));color:var(--color-primary,#6366f1)}
-.bucket-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--color-text-muted,#999);transition:transform .15s ease;transform:rotate(-90deg)}
+.bucket-head{display:flex;align-items:center;gap:6px;height:24px;width:100%;margin:2px 0 var(--space-xs);padding:0 8px 0 16px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:11.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
+.bucket-head:hover{background:var(--role-hover-bg);color:var(--primary)}
+.bucket-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-3);transition:transform .15s ease;transform:rotate(-90deg)}
 .bucket-chevron.open{transform:rotate(0deg)}
 .bucket-label{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bucket-count{flex-shrink:0;min-width:18px;text-align:center;padding:0 6px;line-height:16px;border-radius:var(--r-full,999px);font-size:10.5px;font-weight:500;color:var(--color-text-muted,#999);background:var(--color-bg-subtle,rgba(0,0,0,.06))}
-html.dark .bucket-count{background:rgba(255,255,255,.07)}
+.bucket-count{flex-shrink:0;min-width:18px;text-align:center;padding:0 6px;line-height:16px;border-radius:var(--r-full);font-size:10.5px;font-weight:500;color:var(--text-3);background:var(--bg-hover)}
+/* 原 html.dark 覆盖行删除：--bg-hover 本身双主题自适应（亮档浅灰 ↔ 暗档深灰），
+   旧覆盖（rgba(255,255,255,.07)）是兼容层时代的静态底残留 */
 
 /* 桶内分页闸门：「··· 展开更多（N）」——与桶内会话行同缩进、轻量
    幽灵样式（渐进追加一页；满额自然消失） */
-.expand-more{display:flex;align-items:center;gap:8px;height:24px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-muted,#999);font-size:11.5px;font-weight:500;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
-.expand-more:hover{background:var(--role-hover-bg,var(--color-bg-page));color:var(--color-primary,#6366f1)}
+.expand-more{display:flex;align-items:center;gap:8px;height:24px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:11.5px;font-weight:500;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
+.expand-more:hover{background:var(--role-hover-bg);color:var(--primary)}
 .expand-more-dots{flex-shrink:0;letter-spacing:1px;font-weight:700;line-height:1}
-.empty{padding:var(--space-lg);text-align:center;color:var(--color-text-muted);font-size:14px}
-.empty-hint{font-size:12px;color:var(--color-text-tertiary,#a8abb2)}
+.empty{padding:var(--space-lg);text-align:center;color:var(--text-3);font-size:14px}
+.empty-hint{font-size:12px;color:var(--text-3)}
 
 /* 弹窗通用（删除确认 / 新增工作区） */
 .del-dialog{padding:20px 24px}
-.del-dialog h4{margin:0 0 12px;font-size:15px;font-weight:600;color:var(--color-text-primary,#2c3e50)}
-.del-text{margin:0 0 6px;font-size:13px;color:var(--color-text-primary,#2c3e50);line-height:1.6}
+.del-dialog h4{margin:0 0 12px;font-size:15px;font-weight:600;color:var(--text-1)}
+.del-text{margin:0 0 6px;font-size:13px;color:var(--text-1);line-height:1.6}
 .del-text strong{font-weight:600}
-.del-warn{margin:0 0 12px;font-size:12px;color:var(--color-text-secondary,#7f8c8d);line-height:1.6}
-.del-strong{color:#e74c3c;font-weight:600}
-.del-error{font-size:12px;color:#e74c3c;margin-bottom:8px}
+.del-warn{margin:0 0 12px;font-size:12px;color:var(--text-2);line-height:1.6}
+.del-strong{color:var(--err);font-weight:600}
+.del-error{font-size:12px;color:var(--err);margin-bottom:8px}
 .del-actions{display:flex;justify-content:flex-end;gap:8px}
 .del-cancel,.del-confirm{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer}
-.del-cancel{background:var(--color-bg-page,#fff);border:1px solid var(--color-border-secondary,#ddd);color:var(--color-text-secondary,#7f8c8d)}
-.del-confirm{background:#e74c3c;border:none;color:#fff}
-.del-confirm:hover:not(:disabled){background:#c0392b}
+.del-cancel{background:var(--bg-base);border:1px solid var(--line);color:var(--text-2)}
+.del-confirm{background:var(--err);border:none;color:var(--on-primary)}
+.del-confirm:hover:not(:disabled){filter:brightness(.8); /* 实底加深一档（无令牌表达「同色更深」，filter 不引入色值） */}
 .del-confirm:disabled,.del-cancel:disabled{opacity:.6;cursor:not-allowed}
 
 /* 新增工作区弹窗 */
 .ws-dialog{padding:20px 24px}
-.ws-dialog h4{margin:0 0 6px;font-size:15px;font-weight:600;color:var(--color-text-primary,#2c3e50)}
-.ws-dialog-hint{margin:0 0 14px;font-size:12px;color:var(--color-text-secondary,#7f8c8d);line-height:1.6}
+.ws-dialog h4{margin:0 0 6px;font-size:15px;font-weight:600;color:var(--text-1)}
+.ws-dialog-hint{margin:0 0 14px;font-size:12px;color:var(--text-2);line-height:1.6}
 .ws-form-group{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
-.ws-form-group label{font-size:12px;font-weight:500;color:var(--color-text-secondary,#7f8c8d)}
-.optional-hint{color:var(--color-text-tertiary,#a8abb2);font-weight:400}
+.ws-form-group label{font-size:12px;font-weight:500;color:var(--text-2)}
+.optional-hint{color:var(--text-3);font-weight:400}
 .ws-path-row{display:flex;gap:6px}
-.ws-path-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--color-border-secondary,#ddd);border-radius:6px;font-size:12px;background:var(--color-bg-surface,#f8f9fa);color:var(--color-text-primary,#2c3e50);outline:none}
-.ws-path-input::placeholder{color:var(--color-text-tertiary,#a8abb2)}
-.ws-pick-btn{padding:6px 14px;border-radius:6px;border:1px solid var(--color-border-secondary,#ddd);background:var(--color-bg-page,#fff);color:var(--color-text-secondary,#7f8c8d);font-size:13px;cursor:pointer;flex-shrink:0}
-.ws-pick-btn:hover:not(:disabled){color:var(--color-primary,#6366f1);border-color:var(--color-primary,#6366f1)}
+.ws-path-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:12px;background:var(--bg-surface);color:var(--text-1);outline:none}
+.ws-path-input::placeholder{color:var(--text-3)}
+.ws-pick-btn{padding:6px 14px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-base);color:var(--text-2);font-size:13px;cursor:pointer;flex-shrink:0}
+.ws-pick-btn:hover:not(:disabled){color:var(--primary);border-color:var(--primary)}
 .ws-pick-btn:disabled{opacity:.6;cursor:not-allowed}
-.ws-picking-hint{font-size:11.5px;color:var(--color-text-tertiary,#a8abb2);line-height:1.5;padding:2px 0 0}
-.ws-form-group input{padding:7px 10px;border:1px solid var(--color-border-secondary,#ddd);border-radius:6px;font-size:13px;background:var(--color-bg-page,#fff);color:var(--color-text-primary,#2c3e50);outline:none}
-.ws-form-group input:focus{border-color:var(--color-primary,#6366f1)}
-.ws-save-btn{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;background:var(--color-primary,#6366f1);border:none;color:#fff}
-.ws-save-btn:hover:not(:disabled){background:var(--color-primary-hover,#4f46e5)}
+.ws-picking-hint{font-size:11.5px;color:var(--text-3);line-height:1.5;padding:2px 0 0}
+.ws-form-group input{padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:13px;background:var(--bg-base);color:var(--text-1);outline:none}
+.ws-form-group input:focus{border-color:var(--primary)}
+.ws-save-btn{padding:6px 16px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;background:var(--primary);border:none;color:var(--on-primary)}
+.ws-save-btn:hover:not(:disabled){background:var(--primary-strong)}
 .ws-save-btn:disabled{opacity:.6;cursor:not-allowed}
 
 </style>

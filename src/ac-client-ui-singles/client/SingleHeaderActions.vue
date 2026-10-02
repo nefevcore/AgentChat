@@ -144,7 +144,7 @@ async function confirmArchive() {
     <Modal :visible="archiveOpen" :width="380" @close="archiveOpen = false">
       <div class="delete-dialog">
         <div class="delete-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
         </div>
         <h4>归档独立会话</h4>
         <p class="delete-warning">确定要归档 <strong>{{ title }}</strong> 吗？</p>
@@ -170,10 +170,10 @@ async function confirmArchive() {
 
 /* 更多菜单 */
 .more-menu-wrapper { position: relative; }
-.more-dropdown { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-raised, var(--color-bg-page)); border: 1px solid var(--line, var(--color-border-secondary)); border-radius: 10px; box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,0.1)); min-width: 180px; z-index: 300; padding: 4px; overflow: hidden; }
+.more-dropdown { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-raised, var(--color-bg-page)); border: 1px solid var(--line, var(--color-border-secondary)); border-radius: 10px; box-shadow: var(--shadow-pop); min-width: 180px; z-index: 300; padding: 4px; overflow: hidden; }
 .dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none; color: var(--text-1, var(--color-text-primary)); font-size: 13px; cursor: pointer; text-align: left; }
 .dropdown-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
-.dropdown-item.danger { color: var(--err, #e74c3c); }
+.dropdown-item.danger { color: var(--err); }
 .dropdown-item.danger:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
@@ -183,25 +183,25 @@ async function confirmArchive() {
 /* 归档确认对话框（全局，供 Modal 内使用——与 AgentHeaderActions 同款
    词汇；两行各自声明同款规则，行独立卸载互不影响） */
 .delete-dialog { padding: 28px 24px 20px; text-align: center; }
-.delete-icon { margin-bottom: 12px; }
-.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
+.delete-icon { margin-bottom: 12px; color: var(--err-graphic); }
+.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--text-1); }
 .delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--color-text-secondary); }
-.delete-warning strong { color: #e74c3c; }
+.delete-warning strong { color: var(--err); }
 .delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; }
-.delete-emphasis { color: #e74c3c; font-weight: 600; }
-.delete-error { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
+.delete-emphasis { color: var(--err); font-weight: 600; }
+.delete-error { font-size: 12px; color: var(--err); margin-bottom: 8px; }
 .dialog-actions { display: flex; justify-content: center; gap: 10px; }
 .btn-cancel { padding: 8px 20px; border: 1px solid var(--color-border-secondary); border-radius: 6px; background: var(--color-bg-page); color: var(--color-text-secondary); font-size: 13px; cursor: pointer; }
 .btn-cancel:hover { background: var(--color-bg-surface); }
-.btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: #e74c3c; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
-.btn-delete:hover { background: #c0392b; }
+.btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: var(--err); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-delete:hover { filter: brightness(.8); /* 实底加深一档（无令牌可表达「同色更深」，filter 不引入色值） */ }
 .btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }
 /* 重命名会话对话框（与归档对话框同款布局） */
 .rename-dialog { padding: 28px 24px 20px; }
-.rename-dialog h4 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); text-align: center; }
+.rename-dialog h4 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--text-1); text-align: center; }
 .rename-field input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 13px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
-.rename-field input:focus { border-color: var(--color-primary, #4f6ef7); }
-.btn-rename { padding: 8px 20px; border: none; border-radius: 6px; background: var(--color-primary, #4f6ef7); color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
+.rename-field input:focus { border-color: var(--primary); }
+.btn-rename { padding: 8px 20px; border: none; border-radius: 6px; background: var(--primary); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
 .btn-rename:hover { filter: brightness(1.08); }
 .btn-rename:disabled { opacity: 0.6; cursor: default; }
 </style>

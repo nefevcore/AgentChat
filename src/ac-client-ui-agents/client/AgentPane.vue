@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue';
 import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
 import type { AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, StatusDot } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
@@ -758,7 +758,7 @@ async function removeAvatar() {
               </select>
             </div>
             <div v-if="llmEffectiveSummary" class="llm-effective">
-              <span class="llm-effective-dot"></span>
+              <StatusDot :size="6" status="ok" />
               当前生效：<strong>{{ llmEffectiveSummary.model || llmEffectiveSummary.provider }}</strong>
               <span class="llm-effective-src">· {{ llmEffectiveSummary.provider }} · {{ llmEffectiveSummary.source }}</span>
             </div>
@@ -900,9 +900,11 @@ async function removeAvatar() {
 }
 .avatar-preview img { width: 100%; height: 100%; object-fit: cover; position: relative; z-index: 1; }
 .avatar-ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; color: var(--primary); }
+/* 上传遮罩：黑底白字是不变量——无对应令牌（--on-primary 语义为主色实底前景，
+   暗色值为深字，此处不可用）；rgba(0,0,0,.5) 同属遮罩常量（见 P2 报告） */
 .avatar-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; background: rgba(0,0,0,.5); border-radius: var(--r-md); z-index: 2; }
 .avatar-hint { font-size: 10px; color: var(--text-3); transition: color var(--dur-fast); }
-.avatar-uploader:hover .avatar-preview { box-shadow: 0 0 0 3px var(--primary-light, rgba(99,102,241,.15)); }
+.avatar-uploader:hover .avatar-preview { box-shadow: 0 0 0 3px var(--primary-light); }
 .avatar-uploader:hover .avatar-hint { color: var(--primary); }
 .avatar-remove-x {
   position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; border-radius: 50%;
@@ -954,7 +956,9 @@ async function removeAvatar() {
   background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.14);
   border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.28);
 }
-/* 标签色相表（与 AgentListPane 徽章同源；base 已退役） */
+/* 标签色相表（与 AgentListPane 徽章同源；base 已退役）——能力标签 = 分类色板
+   （每词一色，非语义档），按指南 R1「分类色板保持独立色板」保留字面色值；
+   待裁决（与 badge.css tt-* 双档色相类并存是否收编）见 P2 报告。 */
 .tb-fs { --tag-hue: var(--primary); }
 .tb-collab { --tag-hue: #6366f1; }
 .tb-infra { --tag-hue: #0891b2; }
@@ -1005,15 +1009,17 @@ async function removeAvatar() {
 
 /* 模型池字段项 */
 .llm-pool-select { flex-shrink: 0; min-width: 180px; max-width: 280px; }
+/* 当前生效读出（配置态在场信息，非动作结果反馈）——R7 判定不迁 FeedbackNotice
+   （FeedbackNotice 只承载纯文本 text，本处 strong + src 两段结构不可压平） */
 .llm-effective {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
   font-size: 12px; color: var(--text-2);
-  padding: 4px 10px; background: var(--primary-light, rgba(99,102,241,.08));
+  padding: 4px 10px; background: var(--primary-light);
   border: 1px solid rgba(var(--primary-rgb), 0.3);
   border-radius: var(--r-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .llm-effective .llm-effective-src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.llm-effective-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 6px var(--primary); flex-shrink: 0; }
+/* 生效状态点已归 kit StatusDot（status=ok；原 6px 靛蓝点 + 外晕随扁平化退役） */
 .llm-effective strong { color: var(--text-1); font-weight: 600; }
 .llm-effective-src { color: var(--text-3); }
 

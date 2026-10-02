@@ -170,7 +170,7 @@ function tagHint(t: string): string {
           <span class="agent-pool-name">{{ a.name || a.id }}</span>
           <span class="agent-pool-id">
             {{ a.id }}
-            <span v-if="a.virtual" class="agent-pool-badge">虚拟</span>
+            <span v-if="a.virtual" class="ui-badge dim agent-pool-badge">虚拟</span>
           </span>
           <div v-if="a.tags && a.tags.length > 0" class="agent-pool-tags">
             <span
@@ -261,9 +261,9 @@ function tagHint(t: string): string {
 .agent-pool-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .agent-pool-name { font-size: 13px; font-weight: 500; color: var(--text-1); }
 .agent-pool-id { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
+/* 「虚拟」标记 = ui-badge.dim（badge.css 统一徽章语言），本处只留间距修饰 */
 .agent-pool-badge {
-  margin-left: 6px; padding: 1px 6px; border-radius: var(--r-full);
-  background: var(--bg-hover); color: var(--text-2); font-size: 10px; font-family: var(--font-ui);
+  margin-left: 6px;
 }
 .agent-pool-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 /* 标签胶囊（现代柔和）：轻染底 + 细描边 + 柔字色，色相由 --tag-hue 驱动
@@ -284,7 +284,9 @@ function tagHint(t: string): string {
   color: var(--tag-hue, var(--text-3)); /* 回退（cr-32） */
   color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 85%, var(--text-1));
 }
-/* 标签色相表（与 AgentPane tb-* 同源；base/agent 已退役） */
+/* 标签色相表（与 AgentPane tb-* 同源；base/agent 已退役）——能力标签 = 分类色板
+   （每词一色，非语义档），按指南 R1「分类色板保持独立色板」保留字面色值。
+   待裁决：与 badge.css 的 tt-* 双档色相类并存，是否收编见 P2 报告。 */
 .agent-pool-tag.tag-fs { --tag-hue: var(--primary); }
 .agent-pool-tag.tag-collab { --tag-hue: #6366f1; }
 .agent-pool-tag.tag-infra { --tag-hue: #0891b2; }
@@ -302,10 +304,10 @@ function tagHint(t: string): string {
   background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; transition: all var(--dur-fast);
 }
 .agent-pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 危险动作（删除）——同名块两处合并：0.08 为后者实际生效值（保留观察等价）；
+   原 border-color 在 border:none 的按钮上无渲染效果，随合并去除 */
 .agent-pool-btn.danger { color: var(--err); }
-.agent-pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
-.agent-pool-btn.danger { color: var(--err); border-color: rgba(231,76,60,.4); }
-.agent-pool-btn.danger:hover { background: rgba(231,76,60,.08); }
+.agent-pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.08); color: var(--err); }
 
 .ap-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .ap-row { display: flex; flex-direction: column; gap: 4px; }
