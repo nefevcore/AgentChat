@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue';
 import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
 import type { AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Icon, StatusDot } from '@agentchat/webui-kit';
+import { Checkbox, FieldRow, Icon, IconAction, Input, PasswordInput, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
@@ -58,6 +58,15 @@ const emit = defineEmits<{
 }>();
 
 const tab = ref<string>('info');
+
+/** Tabs 数据面：内置 4 页签 + 插件页签（settings-tab:agent 排序已由扩展侧管） */
+const tabItems = computed(() => [
+  { id: 'info', label: '基本信息' },
+  { id: 'llm', label: '模型' },
+  { id: 'timer', label: '定时任务' },
+  { id: 'ext', label: '插件配置' },
+  ...sortedAgentSettingsTabs.value.map((t) => ({ id: t.id, label: t.label })),
+]);
 const llmModelsError = ref('');
 const llmModelOptions = ref<string[]>([]);
 /** Provider 注册面快照（llm/providers；模型页签 provider/模型选择器数据源） */
@@ -146,6 +155,18 @@ const llmProvider = computed(() => {
   if (p) return p as string;
   return llmStats.value[0]?.name ?? '';
 });
+/** kit Select 选项表（cr-169）：无连接时首项（占位说明）禁选——语义同原生 option disabled */
+const llmProviderOptions = computed(() => [
+  {
+    value: '',
+    label: llmStats.value.length > 0 ? '默认（跟随模型池默认连接）' : '无可用连接（设置 → 模型管理 添加连接）',
+    disabled: llmStats.value.length === 0,
+  },
+  ...llmStats.value.map((stat) => ({
+    value: stat.name,
+    label: stat.description ? `${stat.name} · ${stat.description}` : stat.name,
+  })),
+]);
 /** 字段表：任意 provider 共用一份（连接字段已收敛；按名取不到时回落首表） */
 const llmFields = computed<FieldMeta[]>(() => {
   const schemas = props.llmSchemas;
@@ -241,6 +262,11 @@ const llmModelOptionsMerged = computed(() => {
   if (typeof cur === 'string' && cur && !list.includes(cur)) list.push(cur);
   return [...new Set(list)];
 });
+/** kit Select 选项表（cr-169）：默认项 + 合并清单（存量 llmModelOptions 为发现缓存 ref，避让改名） */
+const llmModelSelectOptions = computed(() => [
+  { value: '', label: '默认（按全局设置的默认模型处理）' },
+  ...llmModelOptionsMerged.value.map((m) => ({ value: m, label: m })),
+]);
 
 /** 选择 provider：写 raw.llm.provider；'' = 「默认」（跟随模型池默认连接
  *  ——删除 provider 覆盖、model 归''，投递侧回落 defaultPoolConnection）；
@@ -638,18 +664,8 @@ async function removeAvatar() {
       </button>
     </div>
 
-    <!-- Tabs -->
-    <div class="agent-tabs">
-      <button class="agent-tab" :class="{ active: tab === 'info' }" @click="tab = 'info'">基本信息</button>
-      <button class="agent-tab" :class="{ active: tab === 'llm' }" @click="tab = 'llm'">模型</button>
-      <button class="agent-tab" :class="{ active: tab === 'timer' }" @click="tab = 'timer'">定时任务</button>
-      <button class="agent-tab" :class="{ active: tab === 'ext' }" @click="tab = 'ext'">插件配置</button>
-      <!-- 插件 Agent 页签（settings-tab:agent）：附加在内置 4 个页签之后 -->
-      <button
-        v-for="t in sortedAgentSettingsTabs" :key="t.id"
-        class="agent-tab" :class="{ active: tab === t.id }" @click="tab = t.id"
-      >{{ t.label }}</button>
-    </div>
+    <!-- Tabs（kit Tabs line——cr-157；插件页签 settings-tab:agent 经 items 合成） -->
+    <Tabs class="agent-tabs" variant="line" :items="tabItems" :model-value="tab" @update:model-value="tab = $event" />
 
     <!-- ====== 页签内容（导航/页签固定，仅内容滚动） ====== -->
     <div class="agent-tab-body">
@@ -671,7 +687,7 @@ async function removeAvatar() {
             <button v-if="avatarPreview && !avatarFailed && !avatarUploading" class="avatar-remove-x" title="移除头像" @click="removeAvatar"><Icon name="x" :size="11" /></button>
           </div>
           <div class="identity-fields">
-            <input type="text" class="info-input" :value="raw.name ?? effective.name ?? ''" @input="emit('update:raw', { ...raw, name: ($event.target as HTMLInputElement).value })" placeholder="输入 Agent 昵称" />
+            <Input :model-value="raw.name ?? effective.name ?? ''" placeholder="输入 Agent 昵称" @update:model-value="emit('update:raw', { ...raw, name: $event })" />
             <div class="identity-id">{{ effective.agent_id ?? agentId }}</div>
           </div>
           <div v-if="avatarError" class="info-error">{{ avatarError }}</div>
@@ -717,7 +733,7 @@ async function removeAvatar() {
             ><span class="tag-name">{{ b.tag }}</span><span v-if="b.label !== b.tag" class="tag-badge-label">{{ b.label }}</span></button>
           </div>
           <div class="tag-custom">
-            <input v-model="customTagInput" type="text" class="info-input" placeholder="自定义领域标签（如 sap / math / qa），回车添加" @keyup.enter="addCustomTag" />
+            <Input v-model="customTagInput" placeholder="自定义领域标签（如 sap / math / qa），回车添加" @keyup.enter="addCustomTag" />
             <div v-if="customTags.length" class="tag-chips">
               <span v-for="t in customTags" :key="t" class="tag-chip">{{ t }}<button type="button" class="tag-chip-x" @click="removeTag(t)"><Icon name="x" :size="10" /></button></span>
             </div>
@@ -728,16 +744,16 @@ async function removeAvatar() {
         <div class="info-item">
           <div class="info-label">SYSTEM.md</div>
           <div class="info-desc">覆盖 builtin.build-system-prompt 装配的系统提示词</div>
-          <label class="info-toggle"><input type="checkbox" :checked="sysEnabled" @change="emit('update:sysEnabled', ($event.target as HTMLInputElement).checked)" /><span>启用自定义内容</span></label>
-          <textarea v-if="sysEnabled" class="info-textarea code" rows="11" :value="sysContent" @input="emit('update:sysContent', ($event.target as HTMLTextAreaElement).value)" placeholder="输入 SYSTEM.md 内容..."></textarea>
+          <Checkbox :model-value="sysEnabled" @update:model-value="emit('update:sysEnabled', $event)">启用自定义内容</Checkbox>
+          <Textarea v-if="sysEnabled" code :rows="11" :model-value="sysContent" placeholder="输入 SYSTEM.md 内容..." @update:model-value="emit('update:sysContent', $event)" />
         </div>
 
         <!-- AGENTS.md（persona 文档；AGENT.md 存量旧名兼容读取） -->
         <div class="info-item">
           <div class="info-label">AGENTS.md</div>
           <div class="info-desc">定义 Agent 的角色、行为和能力边界</div>
-          <label class="info-toggle"><input type="checkbox" :checked="agentEnabled" @change="emit('update:agentEnabled', ($event.target as HTMLInputElement).checked)" /><span>启用自定义内容</span></label>
-          <textarea v-if="agentEnabled" class="info-textarea code" rows="11" :value="agentContent" @input="emit('update:agentContent', ($event.target as HTMLTextAreaElement).value)" placeholder="输入 AGENTS.md 内容..."></textarea>
+          <Checkbox :model-value="agentEnabled" @update:model-value="emit('update:agentEnabled', $event)">启用自定义内容</Checkbox>
+          <Textarea v-if="agentEnabled" code :rows="11" :model-value="agentContent" placeholder="输入 AGENTS.md 内容..." @update:model-value="emit('update:agentContent', $event)" />
         </div>
       </div>
     </div>
@@ -748,57 +764,44 @@ async function removeAvatar() {
         <template v-for="s in llmSections" :key="s.type === 'title' ? 't-' + s.label : (s.type === 'provider' ? 'provider' : s.f.key)">
           <!-- Provider 连接选择（P5：连接定义归模型管理——此处只选用；
                「默认」= 跟随模型池默认连接，不写 provider/model 覆盖） -->
-          <div v-if="s.type === 'provider'" class="llm-item">
-            <div class="info-label">Provider</div>
-            <div class="info-desc">选择模型连接（baseUrl / API Key 在「设置 → 模型管理」定义，Agent 面不可覆盖）；「默认」= 跟随模型池的默认连接</div>
-            <div class="llm-control">
-              <select class="info-input llm-pool-select" :value="llmProvider" @change="selectLlmProvider(($event.target as HTMLSelectElement).value)">
-                <option value="" :disabled="llmStats.length > 0 ? undefined : true">{{ llmStats.length > 0 ? '默认（跟随模型池默认连接）' : '无可用连接（设置 → 模型管理 添加连接）' }}</option>
-                <option v-for="stat in llmStats" :key="stat.name" :value="stat.name">{{ stat.name }}{{ stat.description ? ' · ' + stat.description : '' }}</option>
-              </select>
-            </div>
+          <template v-if="s.type === 'provider'">
+            <FieldRow label="Provider" description="选择模型连接（baseUrl / API Key 在「设置 → 模型管理」定义，Agent 面不可覆盖）；「默认」= 跟随模型池的默认连接">
+              <div class="llm-w-pool">
+                <Select
+                  :options="llmProviderOptions"
+                  :model-value="llmProvider"
+                  @update:model-value="selectLlmProvider"
+                />
+              </div>
+            </FieldRow>
             <div v-if="llmEffectiveSummary" class="llm-effective">
               <StatusDot :size="6" status="ok" />
               当前生效：<strong>{{ llmEffectiveSummary.model || llmEffectiveSummary.provider }}</strong>
               <span class="llm-effective-src">· {{ llmEffectiveSummary.provider }} · {{ llmEffectiveSummary.source }}</span>
             </div>
-          </div>
+          </template>
           <div v-else-if="s.type === 'title'" class="llm-group-title">{{ s.label }}</div>
-          <div v-else class="llm-item" :class="{ 'is-non-default': isLlmOverridden(s.f.key) }">
-            <div class="info-label">
-              {{ s.f.label }}
-              <span class="llm-source" :class="isLlmOverridden(s.f.key) ? 'is-override' : 'is-inherit'">{{ isLlmOverridden(s.f.key) ? '本 Agent' : '继承' }}</span>
-            </div>
-            <div v-if="s.f.description" class="info-desc">{{ s.f.description }}</div>
-            <div class="llm-control">
-              <!-- 模型 ID：纯下拉（「默认」= 按全局设置的默认模型处理；清单 =
-                   连接发现缓存 ∪ 自动读取，无手输无「读取」按钮） -->
-              <select
-                v-if="s.f.key === 'model'"
-                class="info-input llm-models-select"
-                :value="(typeof llmRaw.model === 'string' && llmRaw.model) || ''"
-                @change="setLLM('model', ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">默认（按全局设置的默认模型处理）</option>
-                <option v-for="m in llmModelOptionsMerged" :key="m" :value="m">{{ m }}</option>
-              </select>
-              <!-- 推理力度：与会话输入框同词汇（无/low/high/max；无 = 关闭思考输出） -->
-              <select
-                v-else-if="s.f.key === 'reasoning_effort'"
-                class="info-input llm-models-select"
-                :value="effortSelectValue"
-                @change="setLLM('reasoning_effort', ($event.target as HTMLSelectElement).value)"
-              >
-                <option v-for="o in effortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-              <SettingField v-else :field="s.f" :model-value="getLLM(s.f.key)" @update:model-value="setLLM(s.f.key, $event)" />
-              <button v-if="isLlmOverridden(s.f.key)" class="llm-reset" title="恢复为继承（删除本 Agent 覆盖，回退连接默认）" @click="revertLlmToInherit(s.f.key)">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-              </button>
-            </div>
+          <template v-else>
+            <FieldRow :label="s.f.label" :description="s.f.description" :non-default="isLlmOverridden(s.f.key)">
+              <div class="llm-badge-and-ctrl">
+                <span class="llm-source" :class="isLlmOverridden(s.f.key) ? 'is-override' : 'is-inherit'">{{ isLlmOverridden(s.f.key) ? '本 Agent' : '继承' }}</span>
+                <!-- 模型 ID：纯下拉（「默认」= 按全局设置的默认模型处理；清单 =
+                     连接发现缓存 ∪ 自动读取，无手输无「读取」按钮） -->
+                <div v-if="s.f.key === 'model'" class="llm-w-models">
+                  <Select :options="llmModelSelectOptions" :model-value="(typeof llmRaw.model === 'string' && llmRaw.model) || ''" @update:model-value="setLLM('model', $event)" />
+                </div>
+                <!-- 推理力度：与会话输入框同词汇（无/low/high/max；无 = 关闭思考输出） -->
+                <div v-else-if="s.f.key === 'reasoning_effort'" class="llm-w-models">
+                  <Select :options="effortOptions" :model-value="effortSelectValue" @update:model-value="setLLM('reasoning_effort', $event)" />
+                </div>
+                <SettingField v-else :field="s.f" :model-value="getLLM(s.f.key)" @update:model-value="setLLM(s.f.key, $event)" />
+                <IconAction v-if="isLlmOverridden(s.f.key)" icon="rotate-ccw" label="恢复为继承（删除本 Agent 覆盖，回退连接默认）" @click="revertLlmToInherit(s.f.key)" />
+              </div>
+            </FieldRow>
+            <!-- 模型行脚注（kit FieldRow 无脚注位；长文本独立于字段行下方） -->
             <div v-if="s.f.key === 'model' && !isLlmOverridden('model') && globalDefaultModel" class="info-hint">当前全局默认模型：{{ globalDefaultModel.model }} · {{ globalDefaultModel.provider }}</div>
             <div v-if="s.f.key === 'model' && !llmModelOptionsMerged.length && llmModelsError" class="info-error">{{ llmModelsError }}</div>
-          </div>
+          </template>
         </template>
         <div v-if="llmFiltered.length === 0" class="llm-empty">未找到匹配的设置</div>
       </div>
@@ -854,15 +857,7 @@ async function removeAvatar() {
 
 /* 模型高级参数折叠（已废弃：分组化替代） */
 
-/* Tabs（下划线式） */
-.agent-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
-.agent-tab {
-  padding: 8px 16px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer;
-  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
-}
-.agent-tab:hover { color: var(--text-1); background: var(--bg-hover); border-radius: var(--r-sm) var(--r-sm) 0 0; }
-.agent-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+/* Tabs 已迁 kit Tabs line（cr-157）；.agent-tabs 仅作布局定位类（无样式） */
 
 /* Info */
 .info-grid { display: flex; flex-direction: column; gap: 2px; }
@@ -872,22 +867,8 @@ async function removeAvatar() {
 .info-desc { font-size: 11px; color: var(--text-3); }
 .info-hint { font-size: 12px; color: var(--text-3); }
 .info-error { color: var(--err); font-size: 12px; }
-.info-input, .info-select {
-  padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
-}
-.info-input:focus, .info-select:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 3px var(--primary-light); }
-.info-input:disabled { opacity: .55; cursor: not-allowed; }
-.info-textarea {
-  width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-  resize: vertical; line-height: 1.5;
-}
-.info-textarea:focus { outline: none; border-color: var(--input-focus); }
-.info-textarea.code { font-family: var(--font-mono); }
-.info-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
-.info-toggle input { accent-color: var(--primary); }
+/* cr-169：输入框/下拉/文本域/开关控件本体已归 kit
+   （Input/Select/Textarea/Checkbox——ui-input/ui-sel/ui-textarea/ui-check） */
 
 /* Avatar（合并布局：点击头像更换 + hover 删除） */
 .info-identity { flex-direction: row; align-items: flex-start; gap: 16px; }
@@ -1004,11 +985,14 @@ async function removeAvatar() {
 .tag-chip-x { border: none; background: none; cursor: pointer; color: var(--text-2); padding: 0 2px; display: inline-flex; align-items: center; }
 .tag-chip-x:hover { color: var(--err); }
 
-/* LLM */
+/* LLM（cr-169：字段行已归 kit FieldRow，下拉/复位钮归 Select/IconAction） */
 .llm-pane { display: flex; flex-direction: column; gap: 12px; }
 
-/* 模型池字段项 */
-.llm-pool-select { flex-shrink: 0; min-width: 180px; max-width: 280px; }
+/* provider/模型下拉容器（kit Select 宽度走内容流，此处定列宽） */
+.llm-w-pool { min-width: 180px; max-width: 280px; }
+.llm-w-models { max-width: 320px; flex-shrink: 1; min-width: 140px; }
+/* 字段行控件列编排（徽章 + 控件 + 复位钮） */
+.llm-badge-and-ctrl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 /* 当前生效读出（配置态在场信息，非动作结果反馈）——R7 判定不迁 FeedbackNotice
    （FeedbackNotice 只承载纯文本 text，本处 strong + src 两段结构不可压平） */
 .llm-effective {
@@ -1023,30 +1007,24 @@ async function removeAvatar() {
 .llm-effective strong { color: var(--text-1); font-weight: 600; }
 .llm-effective-src { color: var(--text-3); }
 
-/* 分组标题（采样/边界/推理） */
+/* 分组标题（采样/边界/推理；kit 无分组标题件，业务语义不新建标准件） */
 .llm-group-title {
-  margin-top: 8px; padding: 4px 0 4px 10px; border-left: 3px solid var(--primary);
+  margin-top: 8px; padding: 4px 0 4px 10px;
   font-size: 12px; font-weight: 600; color: var(--text-2);
+  position: relative;
 }
+/* cr-164：分组标题左条改独立分栏条 */
+.llm-group-title::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--primary); }
 .llm-group-title:first-child { margin-top: 0; }
 
-/* 模型/推理力度下拉（llm-control 行内） */
-.llm-models-select { max-width: 320px; flex-shrink: 1; min-width: 140px; }
+/* 来源徽章（继承/本 Agent） */
 .llm-source {
   margin-left: 6px; padding: 0 7px; border-radius: var(--r-full);
   font-size: 10px; font-weight: 400; line-height: 1.6; vertical-align: 1px;
 }
 .llm-source.is-override { color: var(--primary); background: var(--primary-light); border: 1px solid rgba(var(--primary-rgb), 0.4); }
-.llm-source.is-inherit { color: var(--text-3); background: var(--bg-hover); }
-.llm-fields { display: flex; flex-direction: column; gap: 2px; }
-.llm-item { padding: 8px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; border-left: 3px solid transparent; }
-.llm-item.is-non-default { border-left-color: var(--primary); }
-.llm-control { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.llm-reset {
-  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-  background: none; border: 1px solid var(--line-strong); border-radius: var(--r-md); color: var(--text-3); cursor: pointer;
-}
-.llm-reset:hover { background: var(--bg-hover); color: var(--primary); }
+.llm-source.is-inherit { color: var(--text-3); background: var(--bg-inset); }
+.llm-fields { display: flex; flex-direction: column; gap: 6px; }
 .llm-empty { text-align: center; padding: 20px; color: var(--text-3); font-size: 13px; }
 
 /* 旧契约迁移横幅（P2） */
