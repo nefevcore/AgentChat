@@ -699,9 +699,9 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
   background: transparent; color: var(--text-3); cursor: pointer;
 }
 .pool-model-del:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
-/* 手工新增行 */
+/* 手工新增行（输入框已归 kit Input；.ui-input 单根即行内主体） */
 .pool-model-add { display: flex; gap: 6px; margin-top: 6px; }
-.pool-model-add .pool-input { flex: 1; }
+.pool-model-add :deep(.ui-input) { flex: 1; width: auto; }
 .pool-model-add .pool-add { flex-shrink: 0; }
 .pool-error { color: var(--err); font-size: 12px; }
 </style>
