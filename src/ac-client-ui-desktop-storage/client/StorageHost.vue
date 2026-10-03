@@ -7,7 +7,7 @@
 //     组件——双主题自适应（样板：RemoteDevices.vue）。
 // ============================================================
 import { ref } from 'vue';
-import { Button, Modal, StatusDot, formatFileSize } from '@agentchat/webui-kit';
+import { Button, Checkbox, ConfirmBody, Modal, StatusDot, formatFileSize } from '@agentchat/webui-kit';
 import { useDesktopBridge } from './bridge.ts';
 
 const { info, ready, pick, setRoot } = useDesktopBridge();
@@ -79,10 +79,9 @@ async function onConfirm() {
       </div>
       <div v-if="pickedPath" class="picked">
         <code class="mono-v">{{ pickedPath }}</code>
-        <label class="migrate-opt">
-          <input type="checkbox" v-model="migrate" />
+        <Checkbox v-model="migrate" class="migrate-opt">
           迁移现有数据（{{ formatFileSize(info.total) }}）到新位置——取消勾选则新位置从空白社区开始
-        </label>
+        </Checkbox>
         <div class="warn">
           <p>· 切换后 AgentChat 将自动重启</p>
           <p>· 目标目录必须为空（防止覆盖已有数据）</p>
@@ -100,17 +99,22 @@ async function onConfirm() {
       <p class="sub">若 10 秒后窗口未自动恢复，请手动启动 AgentChat。</p>
     </div>
 
-    <!-- 确认弹层（ui/Modal 统一外壳；z-index 高于设置面板 1000） -->
+    <!-- 确认弹层（kit ConfirmBody left——cr-157；z-index 高于设置面板 1000） -->
     <Modal :visible="confirming" title="确认切换存储位置" :width="440" :z-index="1200" @close="confirming = false">
-      <div class="confirm-body">
-        <p>{{ migrate ? '将迁移全部数据到' : '将切换到（不迁移现有数据）' }}：</p>
-        <code class="mono-v">{{ pickedPath }}</code>
-        <p class="warn-inline">此操作会自动重启 AgentChat。</p>
-      </div>
-      <template #footer>
-        <Button variant="ghost" @click="confirming = false">取消</Button>
-        <Button variant="primary" :loading="busy" @click="onConfirm">确认切换</Button>
-      </template>
+      <ConfirmBody
+        align="left"
+        title="确认切换存储位置"
+        confirm-text="确认切换"
+        :busy="busy"
+        @cancel="confirming = false"
+        @confirm="onConfirm"
+      >
+        <template #default>
+          <p>{{ migrate ? '将迁移全部数据到' : '将切换到（不迁移现有数据）' }}：</p>
+          <code class="mono-v">{{ pickedPath }}</code>
+          <p class="warn-inline">此操作会自动重启 AgentChat。</p>
+        </template>
+      </ConfirmBody>
     </Modal>
   </div>
 </template>
@@ -130,15 +134,18 @@ async function onConfirm() {
 .stat-row.small { font-size: 12px; color: var(--text-3); padding: 1px 0 1px 12px; min-height: 0; }
 .k { color: var(--text-3); min-width: 72px; font-size: 12px; flex: none; }
 .v { font-size: 13px; font-variant-numeric: tabular-nums; }
-.mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-hover); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
+.mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-inset); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
 /* cr-129 R3：自定义标记 = ui-badge info（形状/配色归 kit，此处只留编排） */
 .custom-badge { flex: none; }
 .breakdown { margin-top: var(--space-1); border-top: 1px dashed var(--line); padding-top: var(--space-1); }
 
 /* 迁移编排 */
 .picked { margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2); }
-.migrate-opt { font-size: 12px; color: var(--text-2); display: flex; gap: var(--space-2); align-items: flex-start; }
-.warn { font-size: 12px; color: var(--text-3); border-left: 2px solid rgba(var(--warn-rgb), 0.45); padding-left: 10px; }
+.migrate-opt { font-size: 12px; color: var(--text-2); align-items: flex-start; }
+/* 迁移须知清单（cr-169 裁定保留本地：多行静态说明列表，kit 无对应件——
+   FeedbackNotice 只承载单行纯文本反馈，形态不符；cr-164 分栏条语义沿用） */
+.warn { font-size: 12px; color: var(--text-3); padding-left: 10px; position: relative; }
+.warn::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: rgba(var(--warn-rgb), 0.45); }
 .warn p { margin: 2px 0; }
 .actions { display: flex; justify-content: flex-end; }
 
