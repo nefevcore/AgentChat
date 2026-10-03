@@ -11,7 +11,7 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts';
-import { Modal, Button, Icon, toastOk } from '@agentchat/webui-kit';
+import { Input, Modal, Button, Icon, Select, toastOk } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 // agents 数据面直连已退役（2026-09-11 语义归位：模型发现/池模型归一化
@@ -96,6 +96,12 @@ const title = '模型管理（Provider 连接）';
 
 /** Provider 模板清单（新建预设——见 settings/api.ts 同源注释） */
 const llmTemplates = LLM_PROVIDER_TEMPLATES;
+/** kit Select 选项表（cr-169）：占位项禁选（语义同原生 option disabled） */
+const templateOptions = computed(() => [
+  { value: '', label: '选择提供方…', disabled: true },
+  ...llmTemplates.map((t) => ({ value: t.id, label: t.id })),
+  { value: 'custom', label: '自定义（手填 API 地址）' },
+]);
 
 /** 编辑中连接的模型发现缓存（列表 detail 同款来源）——能力元数据对象
  *  形态（{model, vision?, hidden?, manual?}）：vision = 探测确认收图
@@ -112,6 +118,8 @@ const draftModels = computed<PoolModelMeta[]>(() => {
   for (const e of own) byModel.set(e.model, e);
   return [...byModel.values()].sort((a, b) => b.model.localeCompare(a.model));
 });
+/** kit Select 选项表（cr-169） */
+const draftModelOptions = computed(() => draftModels.value.map((m) => ({ value: m.model, label: m.model })));
 
 /** 视觉探测进行中（读取模型后自动跑；chips 徽章就位前显示探测态） */
 const visionProbing = ref(false);
@@ -496,24 +504,20 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
              选项显示模板 id（= 引用名锚点，如 deepseek / glm），描述走 title -->
         <div class="pool-row">
           <label>提供方</label>
-          <select class="pool-input" :value="draft.template || ''" @change="onTemplateChange(($event.target as HTMLSelectElement).value)">
-            <option value="" disabled>选择提供方…</option>
-            <option v-for="t in llmTemplates" :key="t.id" :value="t.id" :title="t.label">{{ t.id }}</option>
-            <option value="custom">自定义（手填 API 地址）</option>
-          </select>
+          <Select :options="templateOptions" :model-value="draft.template || ''" @update:model-value="onTemplateChange" />
         </div>
         <div class="pool-row">
           <label>名称（= 引用名 name@model 的左段；多账号可另起名）</label>
-          <input v-model="draft.poolName" type="text" class="pool-input" :placeholder="editingName || '缺省同模板名，如 myds'" />
+          <Input v-model="draft.poolName" :placeholder="editingName || '缺省同模板名，如 myds'" />
         </div>
         <div v-for="f in currentFields" :key="f.key" class="pool-field">
           <div class="pool-field-label">{{ f.label }}</div>
           <div v-if="f.description" class="pool-field-desc">{{ f.description }}</div>
           <div class="pool-field-control">
             <SettingField v-if="!(f.key === 'defaultModel' && draftModels.length)" :field="f" :model-value="draft[f.key]" @update:model-value="draft[f.key] = $event" />
-            <select v-else class="pool-input" :value="draft.defaultModel" @change="draft.defaultModel = ($event.target as HTMLSelectElement).value">
-              <option v-for="m in draftModels" :key="m.model" :value="m.model">{{ m.model }}</option>
-            </select>
+            <div v-else class="pool-w-models">
+              <Select :options="draftModelOptions" :model-value="draft.defaultModel" @update:model-value="draft.defaultModel = $event" />
+            </div>
           </div>
         </div>
         <!-- 模型清单（llm 连接专属）：填 Key 自动读取（免注册 base_url+Key
@@ -567,10 +571,8 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
             </div>
           </div>
           <div class="pool-model-add">
-            <input
+            <Input
               v-model="manualModelInput"
-              type="text"
-              class="pool-input"
               placeholder="手工新增模型 id（回车添加——端点不暴露清单时用）"
               @keyup.enter="addManualModel"
             />
@@ -624,16 +626,13 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
   padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
   background: transparent; color: var(--warn); font-size: 11px; cursor: pointer;
 }
-.pool-set-default:hover { background: rgba(243,156,18,.1); }
+.pool-set-default:hover { background: rgba(var(--warn-rgb), 0.1); }
 
+/* cr-169：表单控件已归 kit（Input/Select）；.pool-w-models 定下拉列宽 */
 .pool-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .pool-row { display: flex; flex-direction: column; gap: 4px; }
 .pool-row label { font-size: 12px; color: var(--text-2); }
-.pool-input {
-  padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-}
-.pool-input:focus { outline: none; border-color: var(--input-focus); }
+.pool-w-models { max-width: 320px; }
 .pool-field { padding: 7px 0; border-bottom:  1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
 .pool-field-label { font-size: 13px; font-weight: 500; color: var(--text-1); }
 .pool-field-desc { font-size: 11px; color: var(--text-3); }

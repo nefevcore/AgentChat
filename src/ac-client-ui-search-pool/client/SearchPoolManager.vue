@@ -11,7 +11,7 @@
 import { ref, computed } from 'vue';
 import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts';
 import { toFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Modal, Button, Icon, toastOk } from '@agentchat/webui-kit';
+import { Input, Modal, Button, Icon, Select, toastOk } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 
@@ -80,6 +80,8 @@ const draft = ref<Record<string, any>>({});
 const error = ref('');
 
 const providerOptions = computed(() => Object.keys(effectiveSchemas.value));
+/** kit Select 选项表（cr-169） */
+const providerSelectOptions = computed(() => providerOptions.value.map((p) => ({ value: p, label: p })));
 const currentProvider = computed(() => (draft.value.provider || 'tavily') as string);
 const currentFields = computed<FieldMeta[]>(() => toFields(effectiveSchemas.value[currentProvider.value]));
 
@@ -234,13 +236,11 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
       <div class="pool-modal-body">
         <div class="pool-row">
           <label>名称</label>
-          <input v-model="draft.poolName" type="text" class="pool-input" :placeholder="editingName || '输入条目名称'" />
+          <Input v-model="draft.poolName" :placeholder="editingName || '输入条目名称'" />
         </div>
         <div class="pool-row">
           <label>Provider 类型</label>
-          <select class="pool-input" :value="currentProvider" @change="onProviderChange(($event.target as HTMLSelectElement).value)">
-            <option v-for="p in providerOptions" :key="p" :value="p">{{ p }}</option>
-          </select>
+          <Select :options="providerSelectOptions" :model-value="currentProvider" @update:model-value="onProviderChange" />
         </div>
         <div v-for="f in currentFields" :key="f.key" class="pool-field">
           <div class="pool-field-label">{{ f.label }}</div>
@@ -296,16 +296,12 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
   padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
   background: transparent; color: var(--warn); font-size: 11px; cursor: pointer;
 }
-.pool-set-default:hover { background: rgba(243,156,18,.1); }
+.pool-set-default:hover { background: rgba(var(--warn-rgb), 0.1); }
 
+/* cr-169：表单控件已归 kit（Input/Select） */
 .pool-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .pool-row { display: flex; flex-direction: column; gap: 4px; }
 .pool-row label { font-size: 12px; color: var(--text-2); }
-.pool-input {
-  padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-}
-.pool-input:focus { outline: none; border-color: var(--input-focus); }
 .pool-field { padding: 7px 0; border-bottom:  1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
 .pool-field-label { font-size: 13px; font-weight: 500; color: var(--text-1); }
 .pool-field-desc { font-size: 11px; color: var(--text-3); }
