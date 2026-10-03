@@ -5,7 +5,7 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { AgentBrief } from './useAgentSettings.ts';
-import { Modal, Button } from '@agentchat/webui-kit';
+import { Input, Modal, Button, SearchInput, Select } from '@agentchat/webui-kit';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 // 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）
 import { fetchLlmProviders, type LlmProviderStat } from './index.ts';
@@ -44,6 +44,11 @@ const draftProvider = ref('');
 const draftModel = ref('');
 const providerStats = ref<LlmProviderStat[]>([]);
 const providerOptions = computed(() => providerStats.value.map((s) => s.name));
+/** kit Select 选项表（cr-169） */
+const providerSelectOptions = computed(() => [
+  { value: '', label: '继承全局' },
+  ...providerOptions.value.map((p) => ({ value: p, label: p })),
+]);
 const poolModels = ref<Record<string, string[]>>({});
 const draftModels = computed(() => poolModels.value[draftProvider.value] ?? []);
 
@@ -153,8 +158,7 @@ function tagHint(t: string): string {
     <div class="agent-pool-desc">管理所有 Agent。点击条目进入配置；虚拟 Agent（如 user）无配置文件，仅作路由端点。</div>
 
     <div class="agent-pool-search">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input v-model="searchQuery" class="agent-pool-search-input" placeholder="搜索 Agent（名称 / ID / 标签）" />
+      <SearchInput v-model="searchQuery" placeholder="搜索 Agent（名称 / ID / 标签）" />
     </div>
 
     <div v-if="agents.length === 0" class="agent-pool-empty">暂无 Agent，点击"+ 添加 Agent"创建</div>
@@ -192,23 +196,20 @@ function tagHint(t: string): string {
       <div class="ap-modal-body">
         <div class="ap-row">
           <label>名称</label>
-          <input v-model="draftName" type="text" class="ap-input" placeholder="Agent 显示名称" />
+          <Input v-model="draftName" placeholder="Agent 显示名称" />
         </div>
         <div class="ap-row">
           <label>ID</label>
-          <input v-model="draftId" type="text" class="ap-input" placeholder="留空自动生成（字母/数字/连字符/下划线）" />
+          <Input v-model="draftId" placeholder="留空自动生成（字母/数字/连字符/下划线）" />
         </div>
         <div class="ap-row">
           <label>模型 Provider</label>
           <div class="ap-desc">可选；留空则继承全局默认模型</div>
-          <select class="ap-input" :value="draftProvider" @change="onProviderChange(($event.target as HTMLSelectElement).value)">
-            <option value="">继承全局</option>
-            <option v-for="p in providerOptions" :key="p" :value="p">{{ p }}</option>
-          </select>
+          <Select :options="providerSelectOptions" :model-value="draftProvider" @update:model-value="onProviderChange" />
         </div>
         <div v-if="draftProvider" class="ap-row">
           <label>模型</label>
-          <input v-model="draftModel" type="text" class="ap-input" placeholder="模型 ID（留空 = 该连接默认）" list="ap-model-options" />
+          <Input v-model="draftModel" placeholder="模型 ID（留空 = 该连接默认）" list="ap-model-options" />
           <datalist id="ap-model-options">
             <option v-for="m in draftModels" :key="m" :value="m" />
           </datalist>
@@ -236,15 +237,8 @@ function tagHint(t: string): string {
 }
 .agent-pool-add:hover { background: var(--primary-light); }
 .agent-pool-desc { font-size: 11px; color: var(--text-3); }
-.agent-pool-search { position: relative; display: flex; align-items: center; }
-.agent-pool-search svg { position: absolute; left: 9px; color: var(--text-3); pointer-events: none; }
-.agent-pool-search-input {
-  width: 100%; padding: 6px 10px 6px 28px;
-  border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-}
-.agent-pool-search-input:focus { outline: none; border-color: var(--input-focus); }
-.agent-pool-search-input::placeholder { color: var(--text-3); }
+/* cr-169：搜索框已归 kit SearchInput */
+.agent-pool-search { display: flex; align-items: center; }
 .agent-pool-empty { text-align: center; padding: 24px; color: var(--text-3); font-size: 13px; }
 
 .agent-pool-list { display: flex; flex-direction: column; gap: 6px; }
@@ -309,14 +303,10 @@ function tagHint(t: string): string {
 .agent-pool-btn.danger { color: var(--err); }
 .agent-pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.08); color: var(--err); }
 
+/* cr-169：表单控件已归 kit（Input/Select），此处留弹窗编排 */
 .ap-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .ap-row { display: flex; flex-direction: column; gap: 4px; }
 .ap-row label { font-size: 12px; color: var(--text-2); }
 .ap-desc { font-size: 11px; color: var(--text-3); }
-.ap-input {
-  padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-}
-.ap-input:focus { outline: none; border-color: var(--input-focus); }
 .ap-error { color: var(--err); font-size: 12px; }
 </style>

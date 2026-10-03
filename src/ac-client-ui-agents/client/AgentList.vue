@@ -11,7 +11,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal, PullToRefresh } from '@agentchat/webui-kit';
+import { StarAvatar, Modal, PullToRefresh, SearchInput } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { directDialog, groupDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -223,7 +223,7 @@ async function refreshAll() {
 <template>
   <div class="agent-list">
     <div class="header">
-      <div class="search-box"><svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg><input v-model="searchQuery" type="text" class="search-input" placeholder="搜索 Agent / 群组..." /></div>
+      <div class="search-box"><SearchInput v-model="searchQuery" placeholder="搜索 Agent / 群组..." /></div>
       <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
 
     </div>
@@ -231,9 +231,9 @@ async function refreshAll() {
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item ui-row"
         :class="{ 'is-selected': item.type === 'agent' ? roster.activeAgentId.value === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
-        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" fallback-icon="bot" plain-fallback :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
+        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" fallback-icon="bot" plain-fallback :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="ui-avatar-badge">{{ unreadLabel(item.id) }}</span></div>
         <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释）；未读徽章与 Agent 行同款 -->
-        <div v-else-if="item.type === 'group' && item.group" class="group-avatar-wrap"><div class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
+        <div v-else-if="item.type === 'group' && item.group" class="group-avatar-wrap"><div class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div><span v-if="unreadCountOf(item.id) > 0" class="ui-avatar-badge">{{ unreadLabel(item.id) }}</span></div>
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
@@ -248,11 +248,7 @@ async function refreshAll() {
 /* 暗色层级修复：列表用最深底，与内容区（--bg-base）拉开层次 */
 html.dark .agent-list{background:var(--bg-base)}
 .header{height:var(--layout-header-height);padding:0 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line);flex-shrink:0}
-.search-box{flex:1;position:relative;display:flex;align-items:center}
-.search-icon{position:absolute;left:8px;color:var(--text-3);pointer-events:none}
-.search-input{width:100%;padding:5px 8px 5px 28px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-base);color:var(--text-1);font-size:13px;outline:none;transition:border-color .15s}
-.search-input:focus{border-color:var(--primary)}
-.search-input::placeholder{color:var(--text-3)}
+.search-box{flex:1;display:flex;align-items:center}
 .add-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-2);cursor:pointer;flex-shrink:0}
 .add-btn:hover{background:var(--bg-base);color:var(--primary)}
 .add-btn-wrap{position:relative;flex-shrink:0}
@@ -285,9 +281,8 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .item-avatar-wrap{position:relative;flex-shrink:0}
 .group-avatar-wrap{position:relative;flex-shrink:0}
 /* 通知计数色保留字面值（#ef4444 底 + #fff 字）：非语义状态色、kit 无计数徽章原语，
-   跨包单源（ActivityBar/MobileTabBar/jobs/runview 同款）待统一裁决——见 P2 报告待裁决 A；
-   描边取宿主底（--bg-surface）切出分离感 */
-.unread-badge{position:absolute;top:-6px;right:-8px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1;border:2px solid var(--bg-surface);z-index:1}
+   已归一 kit badge.css .ui-avatar-badge（cr-157——err 令牌族替代 #ef4444 硬编码；
+   ActivityBar/MobileTabBar 等同款角标同批切换） */
 .item-info{flex:1;min-width:0}
 .item-name{font-size:13px;font-weight:600;line-height:17px;margin-bottom:1px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item-last-msg{font-size:11px;line-height:18px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
