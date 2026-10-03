@@ -2,16 +2,18 @@
 // ============================================================
 // SettingField.vue —— 单字段渲染（Schema 驱动的表单原子）
 // 7 种控件：checkbox / select / number / ratio / file / password / text
+// cr-169：控件全部换 kit 标准件（Checkbox/Select/Input/Slider/
+// PasswordInput），视觉单源 @agentchat/webui-kit（画廊对照 c-fx-* 格）
 // ============================================================
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { FieldMeta } from '../types.ts';
 import * as api from '../api.ts';
 import { parseNum, formatRatio } from '../schema.ts';
+import { Checkbox, Input, PasswordInput, Select, Slider } from '@agentchat/webui-kit';
 
 const props = defineProps<{ field: FieldMeta; modelValue: unknown }>();
 const emit = defineEmits<{ (e: 'update:modelValue', v: unknown): void }>();
 
-const showSecret = ref(false);
 const browsing = ref(false);
 
 function set(v: unknown) { emit('update:modelValue', v); }
@@ -20,6 +22,8 @@ function set(v: unknown) { emit('update:modelValue', v); }
 function displayValue(): unknown {
   return props.modelValue ?? props.field.default;
 }
+
+const selectOptions = computed(() => (props.field.options ?? []).map(o => ({ value: String(o.value), label: o.label })));
 
 async function onBrowse() {
   if (browsing.value) return;
@@ -37,104 +41,45 @@ async function onBrowse() {
 
 <template>
   <!-- checkbox -->
-  <template v-if="field.type === 'checkbox'">
-    <label class="sf-checkbox">
-      <input
-        type="checkbox"
-        :checked="(displayValue() as boolean) !== false"
-        @change="set(($event.target as HTMLInputElement).checked)"
-      />
-      <span class="sf-text">{{ field.label }}</span>
-    </label>
-  </template>
+  <Checkbox v-if="field.type === 'checkbox'" :model-value="(displayValue() as boolean) !== false" @update:model-value="set">{{ field.label }}</Checkbox>
 
   <!-- select -->
-  <template v-else-if="field.type === 'select' && field.options">
-    <select class="sf-select" :value="String(displayValue() ?? field.options[0]?.value)" @change="set(($event.target as HTMLSelectElement).value)">
-      <option v-for="o in field.options" :key="String(o.value)" :value="String(o.value)">{{ o.label }}</option>
-    </select>
-  </template>
+  <div v-else-if="field.type === 'select' && field.options" class="sf-w-select">
+    <Select :options="selectOptions" :model-value="String(displayValue() ?? field.options[0]?.value ?? '')" @update:model-value="set" />
+  </div>
 
   <!-- number -->
-  <template v-else-if="field.type === 'number'">
-    <input
-      type="number" class="sf-input sf-input-short"
-      :value="parseNum(displayValue())"
-      @input="set(parseNum(($event.target as HTMLInputElement).value))"
-    />
-  </template>
+  <div v-else-if="field.type === 'number'" class="sf-w-short">
+    <Input type="number" :model-value="parseNum(displayValue()) as string | number" @update:model-value="set(parseNum($event))" />
+  </div>
 
   <!-- ratio slider -->
-  <template v-else-if="field.type === 'ratio'">
-    <div class="sf-ratio">
-      <input
-        type="range" class="sf-slider"
-        :min="field.min ?? 0" :max="field.max ?? 1" :step="field.step ?? 0.01"
-        :value="(displayValue() as number) ?? field.min ?? 0"
-        @input="set(parseFloat(($event.target as HTMLInputElement).value))"
-      />
-      <span class="sf-ratio-val">{{ formatRatio(displayValue() as number, field.display) }}</span>
-    </div>
-  </template>
+  <Slider v-else-if="field.type === 'ratio'" class="sf-slider" :model-value="(displayValue() as number) ?? field.min ?? 0" :min="field.min ?? 0" :max="field.max ?? 1" :step="field.step ?? 0.01" :format="(v: number) => formatRatio(v, field.display)" @update:model-value="set" />
 
   <!-- file -->
-  <template v-else-if="field.type === 'file'">
-    <div class="sf-file">
-      <input type="text" class="sf-input sf-input-flex" :value="String(displayValue() ?? '')" @input="set(($event.target as HTMLInputElement).value)" placeholder="输入路径或点击选择文件..." />
-      <button class="sf-browse" :disabled="browsing" @click="onBrowse" title="选择文件">…</button>
-    </div>
-  </template>
+  <div v-else-if="field.type === 'file'" class="sf-file">
+    <Input class="sf-input-flex" :model-value="String(displayValue() ?? '')" placeholder="输入路径或点击选择文件..." @update:model-value="set" />
+    <button class="sf-browse" :disabled="browsing" @click="onBrowse" title="选择文件">…</button>
+  </div>
 
   <!-- password -->
-  <template v-else-if="field.type === 'password'">
-    <div class="sf-secret">
-      <input
-        :type="showSecret ? 'text' : 'password'" class="sf-input sf-input-secret"
-        :value="String(displayValue() ?? '')"
-        @input="set(($event.target as HTMLInputElement).value)"
-        autocomplete="new-password"
-      />
-      <button
-        class="sf-eye"
-        @mousedown.prevent="showSecret = true"
-        @mouseup.prevent="showSecret = false"
-        @mouseleave="showSecret = false"
-        :title="showSecret ? '隐藏' : '按住显示'"
-      >
-        <svg v-if="!showSecret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-      </button>
-    </div>
-  </template>
+  <div v-else-if="field.type === 'password'" class="sf-w-secret">
+    <PasswordInput :model-value="String(displayValue() ?? '')" @update:model-value="set" />
+  </div>
 
   <!-- text -->
-  <template v-else>
-    <input type="text" class="sf-input" :value="String(displayValue() ?? '')" @input="set(($event.target as HTMLInputElement).value)" />
-  </template>
+  <Input v-else :model-value="String(displayValue() ?? '')" @update:model-value="set" />
 </template>
 
 <style scoped>
-.sf-checkbox { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.sf-checkbox input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary); }
-.sf-text { font-size: 13px; color: var(--text-1); }
-
-.sf-input, .sf-select {
-  padding: 6px 9px;
-  border: 1px solid var(--input-border, rgba(255,255,255,.12));
-  border-radius: var(--r-sm);
-  background: var(--input-bg);
-  color: var(--text-1);
-  font-size: 13px;
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
-}
-.sf-input:focus, .sf-select:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 3px var(--primary-light); }
-.sf-input-short { width: 130px; }
+/* cr-169：控件本体样式已归 kit（ui-input/ui-sel/ui-slider/ui-secret/ui-check）。
+   尺寸约束用容器包裹（kit 件 width:100%——直传类与其同特异性，胜负随打包
+   顺序漂移，不可赌）；flex/max-width 不冲突属性可直传 */
+.sf-w-select { width: 180px; }
+.sf-w-short { width: 130px; }
+.sf-w-secret { width: 230px; }
 .sf-input-flex { flex: 1; min-width: 0; }
-.sf-input-secret { padding-right: 34px; width: 230px; }
-
-.sf-ratio { display: flex; align-items: center; gap: 8px; }
-.sf-slider { flex: 1; max-width: 200px; height: 4px; accent-color: var(--primary); cursor: pointer; }
-.sf-ratio-val { font-size: 12px; color: var(--text-2); min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.sf-slider { max-width: 230px; }
 
 .sf-file { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
 .sf-browse {
@@ -148,12 +93,4 @@ async function onBrowse() {
 }
 .sf-browse:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
 .sf-browse:disabled { opacity: .5; cursor: not-allowed; }
-
-.sf-secret { position: relative; display: inline-flex; align-items: center; }
-.sf-eye {
-  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
-  background: none; border: none; color: var(--text-3);
-  cursor: pointer; padding: 4px; display: flex; line-height: 0; border-radius: var(--r-sm);
-}
-.sf-eye:hover { color: var(--text-1); background: var(--bg-hover); }
 </style>
