@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-134**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-135**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -152,3 +152,4 @@
 - 【cr-132 2026-10-03 subagent 两修：①看门狗超时改 handoff（不杀 run，转后台 job 跟踪+通知回投父会话）②子 Agent 工具 job 回投子 Agent 自会话桶导致降档（pwsh fail-closed）——job.conversationId 改父会话键】
 - 【cr-133 2026-10-03 fix(webui-kit): tokens.css 别名层注释含 --radius-*/--space-* 使块注释提前闭合，CSS minifier 报 Unexpected * 警告——注释措辞去 * 通配】
 - 【cr-134 2026-10-03 文字链路提亮（cr-125）：Nebula 三档各提亮（text-1 #f4f6f7 / text-2 #cbd3d8 / text-3 #a8b2b5——去灰白感）；Aurora text-1 近黑化 #2c3e50→#1e293b（去蓝灰闷感）；同步 rgb 三元组/code-text/role-hover-text/Element 兼容层；开关关闭轨道浓度 0.35→0.30 保两态可辨】
+- 【cr-135 2026-10-03 色彩丰度注入（cr-135）：压抑感根因 = 色彩出现率低（90% 像素中性 + 交互反馈全灰）——hover/选中底靛染（N #252637 / A #ececf5）、primary 拉满饱和（N #7c8cff S100 / A #4338e8）、边线靛染（N #33343c/#41424e / A #e2e4ec/#b9c0d4）、滚动条同步——交互路径全面色彩回应】

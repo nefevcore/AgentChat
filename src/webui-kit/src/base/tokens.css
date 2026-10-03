@@ -92,17 +92,19 @@ html.dark {
   --bg-base: #1a1a1a;
   --bg-surface: #2d2d2d;
   --bg-raised: #2d2d2d;
-  --bg-hover: #252525;
+  /* 靛染（cr-135 色彩丰度）：交互回应的色彩化——S0 纯灰改 S20 靛调 */
+  --bg-hover: #252637;
   /* 暗色层级：暗影投在 #1a1a1a 上不可见、加亮度又会压掉 primary 文字对比
      （#818cf8 on #333 = 4.24 < 4.5），故分层改由 1px 顶缘高光承担 */
   --elev-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
-  --primary: #818cf8;
-  --primary-strong: #a5b4fc;
+  /* 拉满饱和（cr-135）：S75→100——主操作位能量感，暗底对比 5.84 不降 */
+  --primary: #7c8cff;
+  --primary-strong: #a8b0ff;
   /* primary-strong 三元组（cr-121）：标签底色与 .tt-base 墨色用——
      primary 本体在 8% tint 底上只有 4.09，不足 4.5 */
-  --primary-strong-rgb: 165, 180, 252;
-  --primary-light: rgba(129, 140, 248, 0.16);
+  --primary-strong-rgb: 168, 176, 255;
+  --primary-light: rgba(124, 140, 255, 0.16);
   /* 主色实底上的前景（cr-121）：白字 on #818cf8 仅 2.99:1（hover 态
      primary-strong 更差），亮靛底改深字 5.83:1 —— 视觉由「亮靛+白字」
      →「亮靛+深字」 */
@@ -114,8 +116,9 @@ html.dark {
   --text-2: #cbd3d8;
   --text-3: #a8b2b5;
 
-  --line: #333333;
-  --line-strong: #404040;
+  /* 线靛染（cr-135）：灰线改靛灰——边界也参与色彩氛围 */
+  --line: #33343c;
+  --line-strong: #41424e;
 
   /* 语义色暗底取 300/400 档：徽章自带 tint 底（rgba 0.10~0.12）会抬高背景
      亮度，文字色必须比「裸底可比」更亮才过 4.5。
@@ -134,7 +137,7 @@ html.dark {
      color-mix(in srgb, C N%, transparent) 语义 = C 以 N% 不透明度着色；
      WebView 92（< Chrome 111）不认识 color-mix，故 tint 一律写
      rgba(var(--x-rgb), N)——与上方色值逐位同步，改色必须同改（有测试锁）。 */
-  --primary-rgb: 129, 140, 248;
+  --primary-rgb: 124, 140, 255;
   --text-1-rgb: 244, 246, 247;
   --text-2-rgb: 203, 211, 216;
   --text-3-rgb: 168, 178, 181;
@@ -155,14 +158,14 @@ html.dark {
   --shadow-dock: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.35);
 
   --input-bg: #2d2d2d;
-  --input-border: #333333;
+  --input-border: #33343c;
   --input-focus: var(--focus-ring);
 
-  --scroll-thumb: rgba(255, 255, 255, 0.12);
-  --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
+  --scroll-thumb: rgba(168, 176, 255, 0.14);
+  --scroll-thumb-hover: rgba(168, 176, 255, 0.30);
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
-  --role-hover-bg: #252525;
+  --role-hover-bg: #252637;
   --role-hover-text: #f4f6f7;
   --role-selected-bg: #2b2b3a;
   --role-selected-text: #a5b4fc;
@@ -175,15 +178,16 @@ html.light {
   --bg-base: #ffffff;
   --bg-surface: #fafafa;
   --bg-raised: #ffffff;
-  --bg-hover: #f0f0f0;
+  /* 靛染（cr-135）：text-3 on hover 4.58 仍过 4.5 线 */
+  --bg-hover: #ececf5;
   /* 亮色浮层分隔走描边（暗色走顶缘高光，见 Nebula 块） */
   --elev-hairline: 0 0 0 1px rgba(15, 23, 42, 0.05);
 
-  /* 4.47 / 4.28 → 6.29 / 6.02（主色此前作为文字 / 图标略欠） */
-  --primary: #4f46e5;
-  --primary-strong: #4338ca;
-  --primary-strong-rgb: 67, 56, 202;
-  --primary-light: rgba(79, 70, 229, 0.1);
+  /* 拉饱和（cr-135）：#4f46e5→#4338e8——三白底 6.21+ 仍宽 */
+  --primary: #4338e8;
+  --primary-strong: #3730c4;
+  --primary-strong-rgb: 55, 48, 196;
+  --primary-light: rgba(67, 56, 232, 0.1);
   --on-primary: #ffffff;
 
   /* 近黑去闷（cr-125）：#2c3e50 蓝灰发闷；#1e293b 更深更纯，对比 9.6→12.8 */
@@ -194,8 +198,9 @@ html.light {
   /* 2.3 / 2.2 → 5.29 / 4.73（元信息此前几乎不可读；取值受 hover 底 #f0f0f0 约束） */
   --text-3: #666b71;
 
-  --line: #e0e0e0;
-  --line-strong: #bdc3c7;
+  /* 线靛染（cr-135） */
+  --line: #e2e4ec;
+  --line-strong: #b9c0d4;
 
   /* 语义色亮底重定档（cr-121）：白 / 浅底上原值全部低于 4.5（ok 2.54、
      warn 2.15、err 3.82）——语义色不再与暗色同值，各自取向达标档位 */
@@ -213,7 +218,7 @@ html.light {
 
   /* RGB 三元组（cr-32：color-mix 的等价回退）——与上方色值逐位同步，
      改色必须同改（有测试锁）。 */
-  --primary-rgb: 79, 70, 229;
+  --primary-rgb: 67, 56, 232;
   --text-1-rgb: 30, 41, 59;
   --text-2-rgb: 85, 96, 108;
   --text-3-rgb: 102, 107, 113;
@@ -234,16 +239,16 @@ html.light {
   --shadow-dock: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06);
 
   --input-bg: #ffffff;
-  --input-border: #e0e0e0;
+  --input-border: #e2e4ec;
   --input-focus: var(--focus-ring);
 
   --scroll-thumb: rgba(15, 23, 42, 0.16);
   --scroll-thumb-hover: rgba(15, 23, 42, 0.32);
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
-  --role-hover-bg: #f0f0f0;
+  --role-hover-bg: #ececf5;
   --role-hover-text: #1e293b;
-  --role-selected-bg: #ececf5;
+  --role-selected-bg: #e4e6f5;
   --role-selected-text: #4f46e5;
   --role-active-bg: #fdf6e3;
 }
