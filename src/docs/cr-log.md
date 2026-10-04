@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-229**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-230**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -247,3 +247,4 @@
 - 【cr-227 2026-10-04 cr-218 补洞：owner kill 唤醒过滤改按 killedBy 判定、不依赖终态字面——Windows taskkill /F 下进程 exit code 1 无 signal，producer done 报 completed 而非 killed，字面过滤漏网（实测 pwsh-2 kill 后 0.85s 注入完成通知）；killedBy=owner 且 settle 非 failed 一律跳过，failed（kill 未遂）照投】
 - 【cr-228 2026-10-04 cr-226 扩散排查：全仓审计 Tooltip 嵌滚动/裁剪祖先——AgentPane/TimersPanel/GroupDrawer/ToolResultRunCode 四处同因改原生 title；kit Tooltip.vue 头注释加布局约束防复发】
 - 【cr-229 2026-10-04 pnpm-workspace.yaml: canvas 构建脚本授权由占位文本改为明确 false（jsdom 可选传递依赖，无测试依赖 canvas API；占位值致 pnpm install 非零退出）】
+- 【cr-230 2026-10-04 新增会话节点面板（aux-sidebar 会话 run 面板行 ac-client-ui-run-nodes：每 run 用户消息为节点、点击跳转定位该消息）】

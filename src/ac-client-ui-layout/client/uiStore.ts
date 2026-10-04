@@ -241,6 +241,17 @@ export const useUiStore = defineStore('ui', () => {
     trackingViewVisible.value = false;
   }
 
+  // ── 会话消息定位意图（cr-230 会话节点面板跳转用）：目标 = 对话分区键 +
+  //    消息 id。消费面 = ConversationView（常驻组件 setup——aux 选区等任意
+  //    入口发此意图，视图侧统一执行「确保分区 + 滚动定位」。seq 计数同
+  //    auxIntent 通道语义：同目标重复点击也重发。 ──
+  const revealIntentSeq = ref(0);
+  const revealIntent = ref<{ dialogId: string; msgId: string } | null>(null);
+  function sendRevealIntent(dialogId: string, msgId: string) {
+    revealIntent.value = { dialogId, msgId };
+    revealIntentSeq.value += 1;
+  }
+
   /** 进入会话的完整导航意图（列表/矩阵/面板入口统一）：收矩阵 + 清
    *  pair/subagent 视角。覆盖同值重选边界——选中三元组不变时让位
    *  watch 不触发，须显式收口全部覆盖层（返回按钮已退役，无其他
@@ -471,6 +482,7 @@ export const useUiStore = defineStore('ui', () => {
     globalSettingsVisible, settingsAgentTarget, settingsSectionTarget, agentEditorDirty,
     versionVisible,
     auxIntent, auxIntentPanel, applyAuxPanelWidth,
+    revealIntentSeq, revealIntent, sendRevealIntent,
     previewFilePath,
     previewIntentFallback, previewIntentConversationId,
     // 动作

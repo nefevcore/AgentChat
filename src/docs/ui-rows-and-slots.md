@@ -58,7 +58,7 @@ layout 之后，可直接 register overlay。
 | `ac-client-ui-theme` | ui-theme | 主题行：tokens 双主题 + themeStore |
 | `ac-client-ui-tool` | ui-tool | 工具卡席位宿主：tool-card:result-view 声明 + toolLabel/toolIcon/toolResultViews 解析面 + 选举语义（零内联卡） |
 
-### 域行（phase: `domain`——封印后动态批次，20 行）
+### 域行（phase: `domain`——封印后动态批次，21 行）
 
 | 包 | 行 id | 职责 | 主要贡献（席位 → 条目） |
 |---|---|---|---|
@@ -82,6 +82,7 @@ layout 之后，可直接 register overlay。
 | `ac-client-ui-llm-pool` | ui-llm-pool | 模型池管理 + 池写/探测/发现面（poolApi） | settings:section `llmPools`(20) |
 | `ac-client-ui-search-pool` | ui-search-pool | 搜索引擎池管理（SearchPoolManager + searchPoolApi 写面；后端无池服务——消费方 ac-web-tools 读 config.searchProviders） | settings:section `searchPools`(30) |
 | `ac-client-ui-plugin-registry` | ui-plugin-registry | 插件库 + 插件数据面（pluginApi） | settings:section `pluginLibrary`(40)（四件） |
+| `ac-client-ui-run-nodes` | ui-run-nodes | 会话 run 骨架面板（cr-230：每 run 用户消息为节点、点击 reveal 定位主区消息；无后端行） | aux-sidebar `run-nodes`(27) |
 
 **边界**：基建三包 `ac-client-slots`（SlotCore 纯核 + SlotStoreAxis）、
 `ac-client-runtime`（ClientContext/SlotRegistry/clientRuntime + viewer

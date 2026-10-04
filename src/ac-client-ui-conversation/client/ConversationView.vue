@@ -28,7 +28,7 @@
 // overlay 席位（conversation 出厂贡献，开关态住 ui store）。
 // ============================================================
 
-import { ref, computed, inject, type Ref } from 'vue';
+import { ref, computed, inject, watch, type Ref } from 'vue';
 import type { Turn } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { useChatStore } from './chatStore.ts';
@@ -172,6 +172,21 @@ async function forkFromMessage(msgId: string) {
   if (!isSingle.value || !props.single || chatStore.contextBusy) return;
   await clientCtx?.get('singleBoard')?.fork(props.single.id, msgId);
 }
+
+// ── 消息定位意图消费（cr-230 会话节点面板跳转）：目标在本视图分区 →
+//    reveal（目标多在窗口化首载窗口外，TranscriptList.reveal 负责全量
+//    挂载后定位）；目标在别处分区 → 交选中链切会话后由该视图的 watch
+//    接力（dialogId 对齐帧到达时补 reveal）。item key 与 useTurnDisplayItems
+//    稳定 key 同源（turn-<agent_id>-<轮首 ts>，user 轮恒有 final）。 ──
+watch(() => ui.revealIntentSeq, (seq) => {
+  if (!seq || !ui.revealIntent) return;
+  const { dialogId: target, msgId } = ui.revealIntent;
+  if (dialogId.value !== target) return;
+  const msgs = feed.getRaw(dialogId.value);
+  const m = msgs.find((x) => x.id === msgId || x.persistedMsgId === msgId);
+  if (!m) return;
+  void transcript.value?.reveal(`turn-${VIEWER_ID.value}-${m.timestamp}`);
+});
 
 </script>
 

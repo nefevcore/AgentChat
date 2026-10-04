@@ -40,6 +40,7 @@
     "ac-client-ui-desktop-storage": "workspace:*",
     "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-run-nodes": "workspace:*",
     "ac-client-ui-runview": "workspace:*",
     "ac-client-ui-search-pool": "workspace:*",
     "ac-client-ui-settings": "workspace:*",

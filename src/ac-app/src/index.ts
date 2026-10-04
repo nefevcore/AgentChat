@@ -96,6 +96,7 @@ import * as uiWebRow from 'ac-client-ui-web';
 import * as uiBrowserRow from 'ac-client-ui-browser';
 import * as uiSubagentRow from 'ac-client-ui-subagent';
 import * as uiRunCodeRow from 'ac-client-ui-run-code';
+import * as uiRunNodesRow from 'ac-client-ui-run-nodes';
 import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
 // 2026-09-16 数据根可配置 P2：桌面壳存储管理节（壳层桥消费，非桌面降级隐藏）
 import * as uiDesktopStorageRow from 'ac-client-ui-desktop-storage';
@@ -214,6 +215,8 @@ export const TREE: TreeRow[] = [
   { id: 'ui-subagent', plugin: uiSubagentRow },
   // run_code 程序卡（ac-run-code 镜像——程序体 + 执行摘要 + 返回值）
   { id: 'ui-run-code', plugin: uiRunCodeRow },
+  // 会话节点面板（cr-230：run 骨架 aux 选区——每 run 用户消息为节点、点击定位）
+  { id: 'ui-run-nodes', plugin: uiRunNodesRow },
   { id: 'ui-llm-pool', plugin: uiLlmPoolRow },
   { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
   { id: 'ui-desktop-storage', plugin: uiDesktopStorageRow },

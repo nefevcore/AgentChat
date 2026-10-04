@@ -309,6 +309,9 @@ importers:
       ac-client-ui-run-code:
         specifier: workspace:*
         version: link:src/ac-client-ui-run-code
+      ac-client-ui-run-nodes:
+        specifier: workspace:*
+        version: link:src/ac-client-ui-run-nodes
       ac-client-ui-runview:
         specifier: workspace:*
         version: link:src/ac-client-ui-runview
@@ -911,6 +914,9 @@ importers:
       ac-client-ui-run-code:
         specifier: workspace:*
         version: link:../ac-client-ui-run-code
+      ac-client-ui-run-nodes:
+        specifier: workspace:*
+        version: link:../ac-client-ui-run-nodes
       ac-client-ui-runview:
         specifier: workspace:*
         version: link:../ac-client-ui-runview
@@ -1794,6 +1800,37 @@ importers:
       ac-client-ui-tool:
         specifier: workspace:*
         version: link:../ac-client-ui-tool
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-client-ui-run-nodes:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../ac-client-ui-layout
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)

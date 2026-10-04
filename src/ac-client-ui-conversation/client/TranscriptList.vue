@@ -157,10 +157,29 @@ watch(() => shell.isUserScrolledUp.value, (up) => {
 
 onBeforeUnmount(clearRefill);
 
+/** 滚动定位到指定条目（cr-230 会话节点跳转）：按 item key 找 DOM 锚。
+ *  窗口化挂载（renderFrom > 0 = 更旧条目未挂）时先全量挂载再定位——
+ *  目标多在窗口外（旧 run 的用户消息），须 await nextTick 等 v-if 重渲染。
+ *  锚缺席（条目已不在 items）→ false，调用方静默。 */
+async function reveal(key: string): Promise<boolean> {
+  if (renderFrom.value !== 0) {
+    clearRefill();
+    renderFrom.value = 0; // 定位优先于分帧性能（一次性全挂）
+    await nextTick();
+  }
+  const box = messagesContainer.value;
+  if (!box) return false;
+  const el = box.querySelector<HTMLElement>(`[data-item-key="${CSS.escape(key)}"]`);
+  if (!el) return false;
+  el.scrollIntoView({ block: 'center' });
+  return true;
+}
+
 defineExpose({
   scrollToBottom: () => shell.scrollToBottom(),
   reset: () => shell.reset(),
   container: () => messagesContainer.value,
+  reveal,
 });
 </script>
 
@@ -189,7 +208,8 @@ defineExpose({
         </div>
 
         <template v-for="(item, idx) in items" :key="item.key ?? `${item.type}-${idx}`">
-          <!-- 首载分帧：窗口外的（更旧）条目在后续帧补挂 -->
+          <!-- 首载分帧：窗口外的（更旧）条目在后续帧补挂；data-item-key =
+               reveal 定位锚（cr-230 会话节点跳转） -->
           <template v-if="idx >= renderFrom">
           <div v-if="item.type === 'time-separator'" class="time-separator">
             <span class="time-separator-text">{{ item.timeText }}</span>
@@ -205,8 +225,10 @@ defineExpose({
           <!-- 注入卡独立降级位（前后皆无 agent 轮可挂——会话仅机制行/失败
                run 收尾）：与挂轮卡同组件，占独立一行 -->
           <ContextInjectCard v-else-if="item.type === 'inject' && item.inject" :card="item.inject" />
+          <!-- data-item-key 透传组件根 .turn-item = reveal 定位锚（cr-230） -->
           <TurnDisplayItem
             v-else
+            :data-item-key="item.key"
             :turn="item.turn!"
             :settings-agent-id="settingsAgentId"
             :show-actions="showActions"

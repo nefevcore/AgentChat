@@ -220,6 +220,10 @@
 # run_code 程序卡（ac-run-code 镜像：程序体 + 子调用摘要 + 返回值）
 - id: ui-run-code
   name: 'ac-client-ui-run-code'
+# 会话节点面板（cr-230：当前会话 run 骨架——每 run 用户消息为节点、
+# 点击跳转主区定位该消息；aux-sidebar 选区，无后端行）
+- id: ui-run-nodes
+  name: 'ac-client-ui-run-nodes'
 # ---- M28 P2：settings 退化行（大件节 = settings:section 选举席贡献） ----
 - id: ui-llm-pool
   name: 'ac-client-ui-llm-pool'

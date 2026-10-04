@@ -120,6 +120,10 @@ import IconScrollText from '~icons/lucide/scroll-text';
 // 与 file-code（文件代码）/terminal（命令）语义区分——run_code 是
 // 「模型写程序编排工具」的容器，不是文件也不是命令
 import IconBraces from '~icons/lucide/braces';
+// 会话节点象形（aux run-nodes 选区 rail 按钮）：里程碑圆环 = run 骨架
+// 时间线的本体隐喻（每 run 用户消息一个节点）；与 git-branch（工作区树
+// git 文件类型）语义区分
+import IconMilestone from '~icons/lucide/milestone';
 // 运行矩阵象形（RunTrackingPanel 运行矩阵入口）：九宫格 = N×N 会话热力
 // 矩阵的本体象形，与 rail「运行跟踪」的 activity（心电图=监控）拉开区分
 import IconGrid3x3 from '~icons/lucide/grid-3x3';
@@ -274,6 +278,8 @@ export const iconMap: Record<string, Component> = {
   'scroll-text': IconScrollText,
   // run_code 程序卡象形（toolIcon.ts 引用）
   braces: IconBraces,
+  // 会话节点象形（aux run-nodes rail——里程碑圆环，见顶部 import 注释）
+  milestone: IconMilestone,
   // 运行矩阵象形（RunTrackingPanel 运行矩阵入口）
   'grid-3x3': IconGrid3x3,
   // 实验性菜单/browser 工具卡象形（ChatInput 实验性按钮/ToolResultBrowser）

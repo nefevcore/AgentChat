@@ -23,6 +23,8 @@ export interface TranscriptListHandle {
   scrollToBottom(forceGlide?: boolean): void;
   reset(): void;
   container(): HTMLElement | undefined;
+  /** 定位到指定 item key（cr-230 会话节点跳转）；锚缺席返回 false */
+  reveal(key: string): Promise<boolean>;
 }
 
 export function useConversationHistory(opts: {

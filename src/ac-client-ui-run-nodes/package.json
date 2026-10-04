@@ -1,0 +1,40 @@
+{
+  "name": "ac-client-ui-run-nodes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话节点前端行（cr-230）：当前会话 run 骨架面板——每 run 用户消息为节点、点击跳转主区定位该消息（aux-sidebar 选区 + 通用消息定位意图通道 revealMsg）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-conversation": "workspace:*",
+    "ac-client-ui-layout": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}
