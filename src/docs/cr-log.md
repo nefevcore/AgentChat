@@ -238,4 +238,5 @@
 - 【cr-218 2026-10-04 job kill 终态通知按发起方裁剪：owner 自杀（job 工具 kill）不再注入会话通知，外部终止（webui jobs/kill）与 kill 失败照投——killedBy 随 JobSnapshot/settled 快照携带】
 - 【cr-219 2026-10-04 singles 启动上架同步改批量核验：每工作区一次 readdir+标记 stat 替代逐会话 setShelf 幂等重放（516 会话 ≈ 千次 existsSync）；计数改真实迁移数（旧口径幂等命中也全量虚报）】
 - 【cr-220 2026-10-04 remote-link 启动即连时序根治：构造器订阅 internal/service——config 服务后于本行就位时（loader 并发行激活，boot 期静态加载不广播 config/changed）applySettings 拿不到 relayUrl、启动即连被静默跳过（cr-53 补触发的残留竞态面）。服务就位即对账：bootConnected 门闩语义不变（URL 首次到位即连，只跑一次）。新增服务面测试锁契约：config 就位回调触发 applySettings 且启动即连只触发一次。】
+- 【cr-221 2026-10-04 Tooltip 鼠标点击后 focus-within 致弹层驻留：显示条件改 :has(:focus-visible)（键盘可达保留、鼠标点击聚焦不再常显）】
 - 【cr-223 2026-10-04 v2.html 预览页退役（被 webui-gallery.html 取代）：build-webui-preview.mjs 与 preview-kit-sync.test.ts 收窄为 gallery 单页注入，src/docs/webui/ 目录随文件删除】

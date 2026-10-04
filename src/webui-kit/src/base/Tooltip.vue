@@ -2,7 +2,8 @@
   webui-kit/src/base/Tooltip.vue —— 轻量提示（CSS hover）
   用法：<Tooltip text="发送"> <Icon name="send" /> </Tooltip>
  可达性：::after 提示读屏读不到——宿主控件必须自带 aria-label（title 会与本组件视觉
- 提示同屏双显，内嵌控件不设 title）；本组件只管视觉，:focus-within 让键盘用户也能看到。
+ 提示同屏双显，内嵌控件不设 title）； 本组件只管视觉，:has(:focus-visible) 让键盘用户也能看到——只认键盘焦点，
+ 鼠标点击聚焦不匹配（cr-221：原 :focus-within 下点击后焦点留驻按钮，鼠标移开提示仍不散）。
 -->
 <script setup lang="ts">
 withDefaults(defineProps<{
@@ -29,8 +30,9 @@ withDefaults(defineProps<{
 }
 .ui-tip--top::after { bottom: calc(100% + 6px); }
 .ui-tip--bottom::after { top: calc(100% + 6px); }
-/* hover 与键盘焦点同待遇（:focus-within）：纯 CSS 提示对键盘用户原本不可达 */
-.ui-tip:hover::after, .ui-tip:focus-within::after {
+/* hover 与键盘焦点同待遇：纯 CSS 提示对键盘用户原本不可达；键盘可达走
+   :has(:focus-visible)（:focus-visible 只匹配键盘导航焦点——鼠标点击聚焦不算，cr-221） */
+.ui-tip:hover::after, .ui-tip:has(:focus-visible)::after {
   opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0);
 }
 </style>
