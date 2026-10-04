@@ -3,7 +3,7 @@
 //
 // 用法：npx tsx src/scripts/bench-singles-scan.ts [数据根=AGENTCHAT_DATA_ROOT|./data]
 // 复现 app 首次 singles.list() 的完整路径并分段计时：
-//   ① syncShelves（ensureShelves 触发的上架同步，幂等重放）
+//   ① syncShelves（ensureShelves 触发的上架同步，批量核验——cr-219）
 //   ② sortedByActivity（session.json 元数据读 + stats 冷缓存全量扫 + 排序）
 //   ③ 热缓存复扫（windowCache 命中后的稳态成本）
 // ============================================================

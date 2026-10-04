@@ -334,7 +334,7 @@ emit，前端事件驱动重拉替代延时赌窗；ws-bridge/remote-link 双链
 | agents | `ac-agents/src/service.ts`（AgentConfig + settingsOf/displayNameOf + tierOf 档位单源） | `ac-agents/src/events.ts`（agents/updated） |
 | router | `ac-router/src/service.ts`（RouterInbound 信封） | `ac-router/src/events.ts`（router/*） |
 | conversation | `ac-conversation/src/contract.ts` | `ac-conversation/src/events.ts`（conversation/*） |
-| session | `ac-session/src/index.ts`（append/records/history/compact/setShelf） | `ac-session/src/events.ts`（session/context-injected · session/run-settled〔cr-94 D1 收敛信号——settlement durable 后 emit，前端事件驱动重拉〕；积累订阅 router/* + conversation/steered） |
+| session | `ac-session/src/index.ts`（append/records/history/compact/setShelf/ensureShelf 批量核验上架） | `ac-session/src/events.ts`（session/context-injected · session/run-settled〔cr-94 D1 收敛信号——settlement durable 后 emit，前端事件驱动重拉〕；积累订阅 router/* + conversation/steered） |
 | group | `ac-group/src/contract.ts` + `view.ts`（`<msg>` 包装） | `ac-group/src/events.ts`（group/*） |
 | singles | `ac-singles/src/contract.ts`（引用 + 覆盖模型；fork 会话分支——消息切片经 session 服务方法拷贝） | `ac-singles/src/events.ts`（singles/updated） |
 | convSettings | `ac-conv-settings/src/contract.ts`（会话级覆盖域：model/elevation/toolMode/browserTier 内置键 + `registerKey` 注册制扩展键〔键域单源 isValid 校验；KeyDef grants = 值→等效能力标签，经 ac-agents `sessionCapsOf` 注入工具可见面〕） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
@@ -633,7 +633,8 @@ src/
 │                            Agent→全局解析链 + listValues 脱敏清单
 ├── ac-session/              会话历史 owning（ctx.session）：中性行入账 → writer 队列
 │                            落盘（append+fsync/幂等/失败回队首）+ history(conv,
-│                            {viewer}) 投影回放 + records/append/compact/setShelf +
+│                            {viewer}) 投影回放 + records/append/compact/setShelf +（ensureShelf
+│                            批量核验——singles 启动同步走它，免逐会话重放）
 │                            steps[] 步记录持久化 + 工具前 fail-closed checkpoint
 ├── ac-usage/                用量统计（ctx.usage）：after-run 双轨记账（覆盖 = 当次
 │                            上下文/累加 = 总用量 + cache + steps + elapsedMs API

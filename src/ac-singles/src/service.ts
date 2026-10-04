@@ -392,25 +392,21 @@ export class SinglesService extends Service {
   }
   /**
    * 会话上架：消息目录归入 sessions/singles/<workspaceId|ungrouped>/<sid>/。
-   * 经 ac-session 的 setShelf owning 写口（本服务不触碰会话文件）。
-   * @returns 上架的会话数
+   * 经 ac-session 的批量核验写口 ensureShelf（cr-219：每工作区一次
+   * readdir + 标记 stat，替代逐会话 setShelf 幂等重放——540 会话启动
+   * 首扫实测同步段 5.0s → ~0.3s；语义等价，漂移自愈保留）。
+   * @returns 实际执行上架（有写发生）的会话数——幂等核验命中不计
    */
   syncShelves(): number {
     const session = this.ctx.get('session');
-    if (!session || typeof session.setShelf !== 'function') return 0;
-    let count = 0;
-    for (const s of this.list()) {
-      try {
-        session.setShelf(s.id, `singles/${s.workspaceId ?? 'ungrouped'}`);
-        count++;
-      } catch (err: unknown) {
-        this.ctx.logger.warn(`[singles] 会话上架失败（${s.id}）: ${String(err)}`);
-      }
-    }
-    return count;
+    if (!session || typeof session.ensureShelf !== 'function') return 0;
+    return session.ensureShelf(
+      this.list().map((s) => ({ conversationId: s.id, shelf: `singles/${s.workspaceId ?? 'ungrouped'}` })),
+    );
   }
 
-  /** 首次触及即同步上架（老数据迁移 + 索引自愈；后续调用零成本） */
+  /** 首次触及即同步上架（老数据迁移 + 索引自愈；后续调用零成本——幂等
+   *  核验命中零写，正常启动无日志噪音；有修复时按真实修复数报告） */
   private ensureShelves(): void {
     if (this.shelvesSynced) return;
     this.shelvesSynced = true;

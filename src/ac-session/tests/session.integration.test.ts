@@ -640,6 +640,49 @@ describe('ac-session 上架（shelving）+ 热力窗口', () => {
     expect(() => ctx.session.setShelf('sid-2', '../evil')).toThrow(/非法/);
   });
 
+  it('ensureShelf 批量核验：幂等命中零写零迁移；漏网/失守走 setShelf 全路径自愈；计数 = 实际上架数', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 三个会话分两架：singles/ungrouped × 2 + singles/ws-1 × 1
+    ctx.session.setShelf('sid-a', 'singles/ungrouped');
+    ctx.session.setShelf('sid-b', 'singles/ungrouped');
+    ctx.session.setShelf('sid-c', 'singles/ws-1');
+    const idxFile = path.join(root, 'sessions', '.shelves.json');
+    await new Promise((r) => setTimeout(r, 5));
+    const m0 = fs.statSync(idxFile).mtimeMs;
+    // 全员已在架上：批量核验零写（索引不动、无目录迁移）
+    const n0 = ctx.session.ensureShelf(['sid-a', 'sid-b', 'sid-c'].map((id) => ({
+      conversationId: id,
+      shelf: id === 'sid-c' ? 'singles/ws-1' : 'singles/ungrouped',
+    })));
+    expect(n0).toBe(0);
+    expect(fs.statSync(idxFile).mtimeMs).toBe(m0);
+    // 漏网：新会话目录未上架（直存）→ 走全路径迁移
+    const direct = path.join(root, 'sessions', 'sid-d');
+    fs.mkdirSync(direct, { recursive: true });
+    fs.writeFileSync(path.join(direct, 'messages.jsonl'), 'x\n');
+    const n1 = ctx.session.ensureShelf(['sid-a', 'sid-d'].map((id) => ({
+      conversationId: id,
+      shelf: 'singles/ungrouped',
+    })));
+    expect(n1).toBe(1);
+    expect(fs.existsSync(path.join(root, 'sessions', 'singles', 'ungrouped', 'sid-d', 'messages.jsonl'))).toBe(true);
+    // 索引值失配（换架重放）：全路径迁移 + 索引更新
+    const n2 = ctx.session.ensureShelf([{ conversationId: 'sid-a', shelf: 'singles/ws-2' }]);
+    expect(n2).toBe(1);
+    expect(ctx.session.shelfOf('sid-a')).toBe('singles/ws-2');
+    expect(fs.existsSync(path.join(root, 'sessions', 'singles', 'ws-2', 'sid-a'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'sessions', 'singles', 'ungrouped', 'sid-a'))).toBe(false);
+    // 标记失守：删 shelf 根标记 → 批量核验不放行（补标记）
+    fs.rmSync(path.join(root, 'sessions', 'singles', '.shelf'));
+    const n3 = ctx.session.ensureShelf([{ conversationId: 'sid-b', shelf: 'singles/ungrouped' }]);
+    expect(n3).toBe(1);
+    expect(fs.existsSync(path.join(root, 'sessions', 'singles', '.shelf'))).toBe(true);
+    // 非法 shelf：warn 跳过不拖垮整批，返回不计
+    const n4 = ctx.session.ensureShelf([{ conversationId: 'sid-e', shelf: '../evil' }]);
+    expect(n4).toBe(0);
+  });
+
   it('setShelf 幂等快路径：同架重放零写（.shelves.json 不被重写），失守落全路径', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);

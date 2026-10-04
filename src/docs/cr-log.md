@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-212**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-219**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -230,3 +230,4 @@
 - 【cr-210 2026-10-04 全量按钮 tooltip 迁 kit Tooltip：kit Tooltip 补 align=start 边缘对齐（左缘场景防溢出）；布局族/会话族/消息族/工具结果族/面板族按钮类原生 title 批量迁移（截断与信息提示类保留原生 title）】
 - 【cr-211 2026-10-04 活动栏 CSS 气泡被侧边栏层叠遮挡复盘（cr-210 回退面）：kit Tooltip 非 Teleport，z-index 700 困在活动栏祖先 stacking context（aux 栏自带 z-index:10）与 overflow 裁剪链内——两活动栏按钮移除 tooltip 包裹（aria-label 保留），ResizeHandle 恢复原生 title】
 - 【cr-212 2026-10-04 弹层菜单触发钮 tooltip 复盘（cr-210 修正面）：点击带出下拉菜单后 CSS 气泡不消失与菜单同屏重叠——此类触发钮去 tooltip（AgentList 新建/两处更多操作/SessionList ws-act 更多/ActivityBar more 原生 title）；SessionList 新建钮被 Tooltip inline-flex 包裹致 width:100% 失效——去包裹复原占满】
+- 【cr-219 2026-10-04 singles 启动上架同步改批量核验：每工作区一次 readdir+标记 stat 替代逐会话 setShelf 幂等重放（516 会话 ≈ 千次 existsSync）；计数改真实迁移数（旧口径幂等命中也全量虚报）】

@@ -2057,6 +2057,58 @@ export class SessionService extends Service {
   // 会话上架（管理域组织文件夹；寻址不变）
   // ============================================================
   /**
+   * 批量核验上架（cr-219 启动索引化）：每 shelf 一次 readdir + 一次标记
+   * stat 核验整批「索引在、目录在、标记在」，漏网会话逐个走 setShelf 全
+   * 路径（迁移/补建/补标记/自愈失准索引）。语义与逐会话 setShelf 幂等
+   * 重放等价（快路径判据同源），成本从每会话 2 次 stat 降为每 shelf 2
+   * 次——540 会话实测同步段 5.0s → ~0.3s（残余为调用方 list() 元数据
+   * 读；Windows 杀软放大 existsSync 时尤甚）。
+   * 非法 shelf / 上架失败：warn 跳过不拖垮整批（逐会话语义不变）。
+   * @returns 实际执行上架（有写发生）的会话数——幂等核验命中不计
+   */
+  ensureShelf(items: Array<{ conversationId: string; shelf: string }>): number {
+    let count = 0;
+    const byShelf = new Map<string, string[]>();
+    for (const { conversationId, shelf } of items) {
+      const normalized = shelf.split('/').map((s) => s.trim()).filter(Boolean).join('/');
+      if (!normalized) continue; // 空串无上架语义（setShelf 会 throw）——跳过
+      const bucket = byShelf.get(normalized);
+      if (bucket) bucket.push(conversationId);
+      else byShelf.set(normalized, [conversationId]);
+    }
+    for (const [normalized, ids] of byShelf) {
+      const segs = normalized.split('/');
+      // 在场集懒建（桶内首个待核验会话时才付 readdir）；null = 未建或
+      // 核验失守（shelf 目录缺席/标记丢失）——失败后下个候选重试（首个
+      // 全路径 setShelf 补好标记，后续即命中）
+      let present: Set<string> | null = null;
+      for (const id of ids) {
+        if (this.shelfIndex.get(id) === normalized) {
+          if (present === null) {
+            present = new Set();
+            try {
+              for (const e of fs.readdirSync(path.join(this.sessionsDir, ...segs), { withFileTypes: true })) {
+                if (e.isDirectory()) present.add(e.name);
+              }
+              if (!fs.existsSync(path.join(this.sessionsDir, segs[0], '.shelf'))) present = null;
+            } catch {
+              present = null;
+            }
+          }
+          if (present?.has(id)) continue; // 快路径核验通过：零写
+        }
+        try {
+          this.setShelf(id, normalized);
+          count++;
+        } catch (err: unknown) {
+          this.ctx.logger.warn(`[session] ensureShelf 上架失败（${id} → ${normalized}）: ${String(err)}`);
+        }
+      }
+    }
+    return count;
+  }
+
+  /**
    * 上架：把会话目录归入 <root>/sessions/<shelf>/<id>/（现存目录迁移）。
    * conversationId 寻址不变（叶子目录名 = conversationId）；shelf 根
    * 目录放 .shelf 标记（ids() 排除），索引持久化 .shelves.json。
