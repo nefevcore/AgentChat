@@ -22,7 +22,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal, Icon, PullToRefresh, BusyRing, toastError } from '@agentchat/webui-kit';
+import { StarAvatar, Modal, Icon, PullToRefresh, BusyRing, Tooltip, toastError } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -505,7 +505,7 @@ onUnmounted(() => {
   <div class="session-list">
     <!-- 1. 新增按钮（新建会话，占满一行） -->
     <div class="create-row">
-      <button class="create-btn" @click="createSession()" title="新建会话（已有空会话时复用）">
+      <button class="create-btn" aria-label="新建会话（已有空会话时复用）" @click="createSession()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
         <span>新增</span>
       </button>
@@ -518,9 +518,11 @@ onUnmounted(() => {
         <input v-model="searchQuery" type="text" class="search-input" placeholder="搜索会话…" @keydown.esc="searchQuery = ''" />
       </div>
       <div class="ws-toolbar-actions">
-        <button class="ws-add-btn" @click="openWsDialog" title="新增工作区（登记一个文件夹白名单区域）">
-          <Icon name="folder-plus" :size="16" />
-        </button>
+        <Tooltip text="新增工作区（登记一个文件夹白名单区域）" placement="bottom">
+          <button class="ws-add-btn" aria-label="新增工作区（登记一个文件夹白名单区域）" @click="openWsDialog">
+            <Icon name="folder-plus" :size="16" />
+          </button>
+        </Tooltip>
         <!-- mobile-close-btn 已删（cr-29：抽屉退役——root 页整页形态） -->
       </div>
     </div>
@@ -538,10 +540,14 @@ onUnmounted(() => {
            <div class="item-name">{{ item.title }}</div>
            <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
          </div>
-         <button class="item-delete" title="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
-         <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-         </button>
+         <Tooltip text="重命名会话" placement="top">
+           <button class="item-delete" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
+         </Tooltip>
+         <Tooltip text="删除会话（含消息，不可恢复）" placement="top">
+           <button class="item-delete" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+           </button>
+         </Tooltip>
        </div>
        <div v-if="searchResults.length === 0" class="empty">
          没有标题匹配「{{ searchQuery.trim() }}」的会话
@@ -556,15 +562,17 @@ onUnmounted(() => {
             <span class="ws-name">{{ group.name }}</span>
             <!-- hover 操作：资源管理器 · 更多（重命名/删除）· 新增会话（未分组根无操作） -->
             <template v-if="group.workspace">
-              <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
-                :title="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开\n${group.workspace.path}`)"
-                @click.stop="openWsInExplorer(group)">
-                <BusyRing v-if="wsExplorerKey === group.key" :size="14" />
-                <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
-                <Icon v-else name="external-link" :size="14" />
-              </button>
+              <Tooltip :text="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开（${group.workspace.path}）`)" placement="top">
+                <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
+                  :aria-label="wsExplorerFailed ? '打开失败' : '在本地资源管理器中打开'"
+                  @click.stop="openWsInExplorer(group)">
+                  <BusyRing v-if="wsExplorerKey === group.key" :size="14" />
+                  <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
+                  <Icon v-else name="external-link" :size="14" />
+                </button>
+              </Tooltip>
               <div class="ws-more-wrap" @click.stop>
-                <button class="ws-act" :class="{ active: wsMenuOpen === group.key }" title="更多" @click.stop="toggleWsMenu(group.key)">
+                <button class="ws-act" :class="{ active: wsMenuOpen === group.key }" aria-label="更多" @click.stop="toggleWsMenu(group.key)">
                   <Icon name="more-horizontal" :size="14" />
                 </button>
                 <Transition name="menu-fade">
@@ -580,9 +588,11 @@ onUnmounted(() => {
                   </div>
                 </Transition>
               </div>
-              <button class="ws-act" title="在此工作区新建会话" @click.stop="createSession(group.workspace.id)">
-                <Icon name="plus" :size="14" />
-              </button>
+              <Tooltip text="在此工作区新建会话" placement="top">
+                <button class="ws-act" aria-label="在此工作区新建会话" @click.stop="createSession(group.workspace.id)">
+                  <Icon name="plus" :size="14" />
+                </button>
+              </Tooltip>
             </template>
           </div>
           <!-- 叶节点：会话按时间分桶分批展开（桶头开合 + 桶内分页；行：头像 - 标题 - 删除） -->
@@ -606,18 +616,23 @@ onUnmounted(() => {
                   <div class="item-info">
                     <div class="item-name">{{ item.title }}</div>
                   </div>
-                  <button class="item-delete" title="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
-                  <button class="item-delete" title="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-                  </button>
+                  <Tooltip text="重命名会话" placement="top">
+                    <button class="item-delete" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
+                  </Tooltip>
+                  <Tooltip text="删除会话（含消息，不可恢复）" placement="top">
+                    <button class="item-delete" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+                    </button>
+                  </Tooltip>
                 </div>
                 <!-- 桶内分页闸门：还有未渲染条目时尾部「展开更多」 -->
-                <button v-if="bucketHiddenOf(group, bucket) > 0" class="expand-more" type="button"
-                  :title="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`"
-                  @click.stop="growBucketItems(group, bucket)">
-                  <span class="expand-more-dots">···</span>
-                  <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
-                </button>
+                <Tooltip v-if="bucketHiddenOf(group, bucket) > 0" :text="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`" placement="top">
+                  <button class="expand-more" type="button"
+                    @click.stop="growBucketItems(group, bucket)">
+                    <span class="expand-more-dots">···</span>
+                    <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
+                  </button>
+                </Tooltip>
               </template>
             </template>
           </div>
@@ -670,7 +685,9 @@ onUnmounted(() => {
             <!-- 允许手动输入/粘贴路径：原生选择与内置浏览之外的常驻录入通道 -->
             <input v-model="wsPath" type="text" class="ws-path-input" placeholder="点击右侧按钮选择文件夹，或直接输入/粘贴绝对路径" @keyup.enter="confirmCreateWorkspace" />
             <button v-if="!wsPicking" class="ws-pick-btn" @click="chooseWsFolder">选择</button>
-            <button v-else class="ws-pick-btn" title="放弃等待本次系统弹窗（若弹窗在别处，服务端超时后会自动关闭）" @click="cancelWsPick">取消等待</button>
+            <Tooltip v-else text="放弃等待本次系统弹窗（若弹窗在别处，服务端超时后会自动关闭）" placement="top">
+              <button class="ws-pick-btn" aria-label="放弃等待本次系统弹窗" @click="cancelWsPick">取消等待</button>
+            </Tooltip>
           </div>
           <!-- 原生选择等待提示（系统对话框在屏幕上，不在页面里） -->
           <div v-if="wsPicking" class="ws-picking-hint">已打开系统文件夹选择对话框，请在系统弹窗中完成选择（10 分钟内有效；若未见到弹窗，请查看任务栏或其他窗口后面，也可点「取消等待」改用手动输入）…</div>
@@ -746,7 +763,7 @@ html.dark .create-btn{background:transparent;color:var(--text-1)}
    同款视觉语言，尺寸压到工具栏一档） */
 .search-box{flex:1;min-width:0;position:relative;display:flex;align-items:center}
 .search-icon{position:absolute;left:8px;color:var(--text-3);pointer-events:none}
-.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--bg-base);color:var(--text-1);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
+.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--text-1);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
 .search-input:focus{border-color:var(--primary)}
 .search-input::placeholder{color:var(--text-3)}
 
@@ -818,7 +835,7 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .bucket-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-3);transition:transform .15s ease;transform:rotate(-90deg)}
 .bucket-chevron.open{transform:rotate(0deg)}
 .bucket-label{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bucket-count{flex-shrink:0;min-width:18px;text-align:center;padding:0 6px;line-height:16px;border-radius:var(--r-full);font-size:10.5px;font-weight:500;color:var(--text-3);background:var(--bg-hover)}
+.bucket-count{flex-shrink:0;min-width:18px;text-align:center;padding:0 6px;line-height:16px;border-radius:var(--r-full);font-size:10.5px;font-weight:500;color:var(--text-3);background:var(--bg-inset)}
 /* 原 html.dark 覆盖行删除：--bg-hover 本身双主题自适应（亮档浅灰 ↔ 暗档深灰），
    旧覆盖（rgba(255,255,255,.07)）是兼容层时代的静态底残留 */
 
@@ -853,13 +870,13 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .ws-form-group label{font-size:12px;font-weight:500;color:var(--text-2)}
 .optional-hint{color:var(--text-3);font-weight:400}
 .ws-path-row{display:flex;gap:6px}
-.ws-path-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:12px;background:var(--bg-surface);color:var(--text-1);outline:none}
+.ws-path-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:12px;background:transparent;color:var(--text-1);outline:none}
 .ws-path-input::placeholder{color:var(--text-3)}
 .ws-pick-btn{padding:6px 14px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-base);color:var(--text-2);font-size:13px;cursor:pointer;flex-shrink:0}
 .ws-pick-btn:hover:not(:disabled){color:var(--primary);border-color:var(--primary)}
 .ws-pick-btn:disabled{opacity:.6;cursor:not-allowed}
 .ws-picking-hint{font-size:11.5px;color:var(--text-3);line-height:1.5;padding:2px 0 0}
-.ws-form-group input{padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:13px;background:var(--bg-base);color:var(--text-1);outline:none}
+.ws-form-group input{padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:13px;background:transparent;color:var(--text-1);outline:none}
 .ws-form-group input:focus{border-color:var(--primary)}
 .ws-save-btn{padding:6px 16px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;background:var(--primary);border:none;color:var(--on-primary)}
 .ws-save-btn:hover:not(:disabled){background:var(--primary-strong)}

@@ -402,19 +402,19 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     const llmSchema = await settings.getLlmSchemas();
     expect(Object.keys(llmSchema).sort()).toEqual([
       'ant-ling', 'anthropic', 'azure-openai', 'bedrock', 'cerebras', 'deepseek',
-      'fireworks', 'gemini', 'github-copilot', 'glm', 'glm-coding',
-      'glm-coding-plan', 'groq', 'huggingface', 'kimi-coding', 'minimax',
-      'mistral', 'moonshot', 'moonshotai', 'nvidia', 'openai', 'opencode',
-      'opencode-go', 'openrouter', 'qwen', 'qwen-coding-plan', 'together',
-      'vercel-ai-gateway', 'xai', 'xiaomi', 'xiaomi-token-plan-cn',
+      'fireworks', 'gemini', 'github-copilot', 'groq', 'huggingface',
+      'kimi-coding', 'minimax', 'mistral', 'moonshot',
+      'moonshotai', 'nvidia', 'openai', 'opencode', 'opencode-go', 'openrouter',
+      'qwen', 'qwen-coding-plan', 'together', 'vercel-ai-gateway', 'xai',
+      'xiaomi', 'xiaomi-token-plan-cn', 'zai', 'zai-coding-cn',
     ]);
     // 2026-10-01 扩容：无 OpenAI 兼容端点的网关以原生协议模板收录
     expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'kimi-coding')).toMatchObject({
       baseUrl: 'https://api.kimi.com/coding',
       protocol: 'anthropic',
     });
-    // GLM Coding Plan 模板（编程套餐独立端点；无 defaultModel——读取清单后取第一个）
-    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'glm-coding-plan')).toMatchObject({
+    // ZAI Coding Plan 模板（编程套餐独立端点；无 defaultModel——读取清单后取第一个）
+    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'zai-coding-cn')).toMatchObject({
       baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
     });
     // 扩容锚点：原生协议厂商走官方 OpenAI 兼容端点；套餐/聚合不设默认模型
@@ -426,20 +426,20 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     });
     expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'openrouter')?.defaultModel).toBeUndefined();
-    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).toEqual(expect.arrayContaining([
+    expect((llmSchema.zai ?? []).map((f: { key: string }) => f.key)).toEqual(expect.arrayContaining([
       'model', 'temperature', 'max_tokens', 'top_p', 'response_format', 'stop', 'reasoning_effort',
     ]));
-    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).not.toContain('thinking');
-    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).not.toContain('api_key');
-    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).not.toContain('base_url');
+    expect((llmSchema.zai ?? []).map((f: { key: string }) => f.key)).not.toContain('thinking');
+    expect((llmSchema.zai ?? []).map((f: { key: string }) => f.key)).not.toContain('api_key');
+    expect((llmSchema.zai ?? []).map((f: { key: string }) => f.key)).not.toContain('base_url');
     // 推理力度 = 下拉档位（与会话输入框同词汇；'' = 默认/不覆盖，
     // 'none' = 显式关闭思考输出）
-    const effort = (llmSchema.glm ?? []).find((f: { key: string }) => f.key === 'reasoning_effort') as { type?: string; options?: Array<{ label: string; value: string }> } | undefined;
+    const effort = (llmSchema.zai ?? []).find((f: { key: string }) => f.key === 'reasoning_effort') as { type?: string; options?: Array<{ label: string; value: string }> } | undefined;
     expect(effort?.type).toBe('select');
     expect(effort?.options?.map((o) => o.value)).toEqual(['', 'none', 'low', 'high', 'max']);
     // 新增模型条目带出 provider 默认模型（LLM_PROVIDER_DEFAULTS 同源）
-    const glmModel = (llmSchema.glm ?? []).find((f: { key: string }) => f.key === 'model');
-    expect((glmModel as { default?: unknown } | undefined)?.default).toBe('glm-5.3');
+    const zaiModel = (llmSchema.zai ?? []).find((f: { key: string }) => f.key === 'model');
+    expect((zaiModel as { default?: unknown } | undefined)?.default).toBe('glm-5.3');
     // 搜索 schema = 双 provider 内置表（2026-09-03 收敛 tavily/deepseek——
     // 与 ac-web-search-core PROVIDER_REGISTRY 同口径；池页下拉同源）；
     // deepseek 配置项只剩 api_key（端点/模型/次数走 provider 内置缺省，

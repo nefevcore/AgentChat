@@ -7,7 +7,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { fetchWorkspaceFile } from 'ac-client-ui-workspace/client/workspaceFile.ts';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, Tabs } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
@@ -29,7 +29,12 @@ const title = computed(() => String(props.data.title || ''));
 const text = computed(() => String(props.data.text || ''));
 const file = computed(() => String(props.data.file || ''));
 const relPath = computed(() => String(props.data.relPath || ''));
-const evalResult = computed(() => (props.data.result != null ? String(props.data.result) : ''));
+// eval 的 result 保留 JS 原生 JSON 类型（对象/数组直出），String() 会得 [object Object]——非字符串走 JSON 序列化
+function evalToString(v: unknown): string {
+  if (v == null) return '';
+  return typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+}
+const evalResult = computed(() => evalToString(props.data.result));
 const htmlLength = computed(() => Number(props.data.html_length ?? 0));
 
 const elements = computed<string[]>(() => Array.isArray(props.data.elements) ? (props.data.elements as string[]) : []);
@@ -109,7 +114,7 @@ function stepSummary(item: any): string {
     case 'press':
       return p.key ? `按键: ${p.key}` : 'OK';
     case 'eval':
-      return String(r.result ?? '').slice(0, 200);
+      return evalToString(r.result).slice(0, 200);
     case 'html':
       return r.html_length != null ? `${r.html_length} 字符` : 'OK';
     case 'read':
@@ -150,7 +155,7 @@ function stepDetail(item: any): string {
 
 function hasDetail(item: any): boolean {
   if (item.action === 'content' || item.action === 'read') return !!(item.result?.text && String(item.result.text).length > 200);
-  if (item.action === 'eval') return !!(item.result?.result && String(item.result.result).length > 80);
+  if (item.action === 'eval') return evalToString(item.result?.result).length > 80;
   if (item.action === 'elements') return (item.result?.elements || []).length > 0;
   if (item.action === 'logs') return !!((item.result?.console || []).length || (item.result?.network || []).length);
   if (item.action === 'response_body') return !!item.result?.body;
@@ -276,10 +281,12 @@ const displayUrl = computed(() => {
 
     <!-- ════════ 单动作：日志（console/network 分栏）════════ -->
     <div v-else-if="singleType === 'logs'" class="brw-logs">
-      <div class="brw-logs-tabs">
-        <button class="brw-log-tab" :class="{ active: logTab === 'console' }" @click="logTab = 'console'">控制台 {{ consoleLogs.length }}</button>
-        <button class="brw-log-tab" :class="{ active: logTab === 'network' }" @click="logTab = 'network'">网络 {{ netLogs.length }}</button>
-      </div>
+      <Tabs
+        variant="line"
+        :items="[{ id: 'console', label: `控制台 ${consoleLogs.length}` }, { id: 'network', label: `网络 ${netLogs.length}` }]"
+        :model-value="logTab"
+        @update:model-value="logTab = $event as 'console' | 'network'"
+      />
       <div v-if="logTab === 'console'" class="brw-log-list">
         <div v-for="e in consoleLogs" :key="e.seq" class="brw-log-row" :class="'lv-' + (e.level || 'info')">
           <span class="brw-log-level">{{ e.level || 'info' }}</span>
@@ -343,7 +350,7 @@ const displayUrl = computed(() => {
   font-size: 12px; margin-bottom: 6px; flex-wrap: wrap;
 }
 .brw-batch-count { font-weight: 600; color: var(--text-1); }
-/* 批量汇总计数（图标 + 数字，数字是文字）→ 墨色档；单独字形走图形档，见 .brw-step-status */
+/* 批量汇总计数（图标 + 数字，数字是文字）→ 墨色档；单独字形走状态档，见 .brw-step-status */
 .brw-batch-ok { color: var(--ok); display: inline-flex; align-items: center; gap: 3px; }
 .brw-batch-err { color: var(--err); display: inline-flex; align-items: center; gap: 3px; }
 .brw-batch-failed { color: var(--warn); font-weight: 600; }
@@ -372,9 +379,9 @@ const displayUrl = computed(() => {
 /* .brw-step-badge 自建徽章样式已退役（cr-128）：动作类型徽记归 kit .ui-badge.tag
    （色相经 --tag-hue / --tag-hue-rgb 内联注入，形状与配色单源 badge.css） */
 .brw-step-no { font-size: 11px; color: var(--text-3); font-family: monospace; flex-shrink: 0; }
-/* 步骤状态字形（纯图形件、无文字）→ 图形档（cr-123 · 3.0 线；同 StatusDot 口径） */
-.brw-step-status { font-weight: 700; color: var(--ok-graphic); flex-shrink: 0; display: inline-flex; align-items: center; }
-.brw-step-status.st-err { color: var(--err-graphic); }
+/* 步骤状态字形（纯图形件、无文字）→ 状态档（cr-123 · 3.0 线；同 StatusDot 口径） */
+.brw-step-status { font-weight: 700; color: var(--ok-status); flex-shrink: 0; display: inline-flex; align-items: center; }
+.brw-step-status.st-err { color: var(--err-status); }
 
 .brw-step-body { flex: 1; min-width: 160px; }
 .brw-step-summary {
@@ -434,12 +441,7 @@ const displayUrl = computed(() => {
 /* ── 单动作：元素索引/日志/标签页 ── */
 .brw-elements { display: flex; flex-direction: column; gap: 6px; }
 .brw-logs { display: flex; flex-direction: column; gap: 6px; }
-.brw-logs-tabs { display: flex; gap: 4px; }
-.brw-log-tab {
-  background: none; border: 1px solid var(--line); border-radius: 6px;
-  color: var(--text-3); font-size: 11px; padding: 2px 10px; cursor: pointer;
-}
-.brw-log-tab.active { color: var(--primary-strong); border-color: var(--primary-strong); }
+/* 日志分栏页签已迁 kit Tabs line（cr-157） */
 .brw-log-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow: auto; }
 .brw-log-row { display: flex; gap: 6px; font-size: 11px; align-items: baseline; }
 .brw-log-level, .brw-log-status { flex-shrink: 0; font-family: monospace; color: var(--text-3); min-width: 34px; }

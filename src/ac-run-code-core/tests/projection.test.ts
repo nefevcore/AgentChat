@@ -90,6 +90,12 @@ describe('buildSdkProjection', () => {
     expect(out).toContain('\\${');
   });
 
+  it('guidance 含思考内容不入注释纪律（cr-187）', () => {
+    const out = buildSdkProjection([READ]);
+    expect(out).toContain('思考过程');
+    expect(out).toContain('不写入注释');
+  });
+
   it('空集与空名防御', () => {
     expect(buildSdkProjection([])).toContain('declare const tools: {');
     expect(buildSdkProjection([{ name: '' } as never, READ])).not.toContain('(: ');

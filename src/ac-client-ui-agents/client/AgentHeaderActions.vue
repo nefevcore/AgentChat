@@ -9,7 +9,7 @@
 
 <script setup lang="ts">
 import { computed, ref, toRef } from 'vue';
-import { Icon, Modal } from '@agentchat/webui-kit';
+import { ConfirmBody, Icon, Modal, Tooltip } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from './rosterAccess.ts';
 import { deleteAgent } from './rosterApi.ts';
@@ -87,14 +87,16 @@ async function confirmDelete() {
 <template>
   <template v-if="applicable">
     <!-- Agent 配置（预设 Agent 无实体配置，不显示设置入口） -->
-    <button v-if="showSettings" class="settings-btn" @click="openSettings" title="Agent 配置">
-      <Icon name="settings" :size="18" />
-    </button>
+    <Tooltip v-if="showSettings" text="Agent 配置" placement="bottom">
+      <button class="settings-btn" aria-label="Agent 配置" @click="openSettings">
+        <Icon name="settings" :size="18" />
+      </button>
+    </Tooltip>
 
     <!-- 更多操作菜单（危险操作：删除 Agent；工具定义预览已移除——
          Agent 配置的插件工具面覆盖） -->
     <div class="more-menu-wrapper">
-      <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
+      <button class="settings-btn" aria-label="更多操作" @click.stop="toggleMoreMenu">
         <Icon name="more-horizontal" :size="18" />
       </button>
       <Transition name="dropdown">
@@ -107,21 +109,22 @@ async function confirmDelete() {
       </Transition>
     </div>
 
-    <!-- 删除确认对话框（随件内迁——状态自理） -->
+    <!-- 删除确认对话框（kit ConfirmBody——cr-157 归一三份 delete-dialog 副本） -->
     <Modal :visible="deleteOpen" :width="380" @close="deleteOpen = false">
-      <div class="delete-dialog">
-        <div class="delete-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-        </div>
-        <h4>永久删除 Agent</h4>
-        <p class="delete-warning">确定要删除 <strong>{{ agentName }}</strong> 吗？</p>
-        <p class="delete-detail">此操作将删除该 Agent 的所有配置、会话历史和凭据，<br /><span class="delete-emphasis">不可恢复，不可撤销。</span></p>
-        <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
-        <div class="dialog-actions">
-          <button class="btn-cancel" @click="deleteOpen = false" :disabled="deleting">取消</button>
-          <button class="btn-delete" @click="confirmDelete" :disabled="deleting">{{ deleting ? '删除中…' : '确认删除' }}</button>
-        </div>
-      </div>
+      <ConfirmBody
+        title="永久删除 Agent"
+        confirm-text="确认删除"
+        danger
+        :busy="deleting"
+        @cancel="deleteOpen = false"
+        @confirm="confirmDelete"
+      >
+        <template #default>
+          <p class="delete-warning">确定要删除 <strong>{{ agentName }}</strong> 吗？</p>
+          <p class="delete-detail">此操作将删除该 Agent 的所有配置、会话历史和凭据，<span class="delete-emphasis">不可恢复，不可撤销。</span></p>
+          <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
+        </template>
+      </ConfirmBody>
     </Modal>
   </template>
 </template>
@@ -147,19 +150,10 @@ async function confirmDelete() {
 </style>
 
 <style>
-/* 删除确认对话框（全局，供 Modal 内使用） */
-.delete-dialog { padding: 28px 24px 20px; text-align: center; }
-.delete-icon { margin-bottom: 12px; color: var(--err-graphic); }
-.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--text-1); }
+/* 弹体框架已迁 kit ConfirmBody（cr-157）；此处仅留富文本正文修饰 */
 .delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--text-2); }
 .delete-warning strong { color: var(--err); }
-.delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
+.delete-detail { margin: 0 0 4px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
 .delete-emphasis { color: var(--err); font-weight: 600; }
 .delete-error { font-size: 12px; color: var(--err); margin-bottom: 8px; }
-.dialog-actions { display: flex; justify-content: center; gap: 10px; }
-.btn-cancel { padding: 8px 20px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-base); color: var(--text-2); font-size: 13px; cursor: pointer; }
-.btn-cancel:hover { background: var(--bg-surface); }
-.btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: var(--err); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
-.btn-delete:hover { filter: brightness(.8); /* 实底加深一档（无令牌可表达「同色更深」，filter 不引入色值） */ }
-.btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }
 </style>

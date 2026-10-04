@@ -20,7 +20,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { updateGroup, deleteGroup } from './groupApi.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
-import { Avatar, Modal, Icon } from '@agentchat/webui-kit';
+import { Avatar, Button, ConfirmBody, Icon, Modal, Tooltip } from '@agentchat/webui-kit';
 
 const roster = useRosterCore();
 const ui = useUiStore();
@@ -180,9 +180,11 @@ async function saveGroupInfo() {
   <div v-if="group" class="drawer-panel" :style="ui.auxPaneStyle" @click.stop>
       <div class="drawer-head">
         <span class="drawer-head-title">群聊信息</span>
-        <button class="drawer-close-btn" title="收起面板" @click="closePanel">
-          <Icon name="x" :size="15" />
-        </button>
+        <Tooltip text="收起面板" placement="bottom">
+          <button class="drawer-close-btn" aria-label="收起面板" @click="closePanel">
+            <Icon name="x" :size="15" />
+          </button>
+        </Tooltip>
       </div>
       <div class="drawer-section">
         <div class="drawer-section-title">群成员 ({{ group.participants.length }})</div>
@@ -197,7 +199,9 @@ async function saveGroupInfo() {
               <span v-if="m.isViewer" class="member-me">我</span>
             </div>
             <span class="member-name" :title="m.name">{{ m.name }}</span>
-            <button v-if="m.canViewStream" class="member-stream-btn" title="查看该成员的私有会话流（推理/工具/发言回放）" @click.stop="openMemberStream(m.id, m.name)">会话</button>
+            <Tooltip v-if="m.canViewStream" text="查看该成员的私有会话流（推理/工具/发言回放）" placement="top">
+              <button class="member-stream-btn" aria-label="查看该成员的私有会话流（推理/工具/发言回放）" @click.stop="openMemberStream(m.id, m.name)">会话</button>
+            </Tooltip>
           </div>
           <div v-if="memberItems.length === 0" class="drawer-empty">未找到匹配的成员</div>
         </div>
@@ -223,21 +227,22 @@ async function saveGroupInfo() {
         </button>
       </div>
 
-      <!-- ═══ 删除确认弹窗（M29 P1-2 自 DialogView 统一弹窗随域内迁）═══ -->
+      <!-- ═══ 删除确认弹窗（kit ConfirmBody——cr-157）═══ -->
       <Modal :visible="deleteOpen" :width="380" @close="deleteOpen = false">
-        <div class="delete-dialog">
-          <div class="delete-icon">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--err)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-          </div>
-          <h4>删除群聊群组</h4>
-          <p class="delete-warning">确定要删除 <strong>{{ group.name }}</strong> 吗？</p>
-          <p class="delete-detail">此操作将删除该群组的所有消息记录，<br /><span class="delete-emphasis">不可恢复，不可撤销。</span></p>
-          <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
-          <div class="dialog-actions">
-            <button class="btn-cancel" @click="deleteOpen = false" :disabled="deleting">取消</button>
-            <button class="btn-delete" @click="confirmDeleteGroup" :disabled="deleting">{{ deleting ? '删除中…' : '确认删除' }}</button>
-          </div>
-        </div>
+        <ConfirmBody
+          title="删除群聊群组"
+          confirm-text="确认删除"
+          danger
+          :busy="deleting"
+          @cancel="deleteOpen = false"
+          @confirm="confirmDeleteGroup"
+        >
+          <template #default>
+            <p class="delete-warning">确定要删除 <strong>{{ group.name }}</strong> 吗？</p>
+            <p class="delete-detail">此操作将删除该群组的所有消息记录，<span class="delete-emphasis">不可恢复，不可撤销。</span></p>
+            <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
+          </template>
+        </ConfirmBody>
       </Modal>
 
       <!-- ═══ 成员私有转录流查看（cr-4：run 推理/工具/终稿回放——session/history 标准桶）═══ -->
@@ -254,8 +259,8 @@ async function saveGroupInfo() {
               <span class="stream-content">{{ row.content }}</span>
             </div>
           </div>
-          <div class="dialog-actions" style="margin-top: 14px;">
-            <button class="btn-cancel" @click="streamOpen = false">关闭</button>
+          <div class="stream-actions">
+            <Button variant="ghost" size="sm" @click="streamOpen = false">关闭</Button>
           </div>
         </div>
       </Modal>
@@ -288,7 +293,7 @@ async function saveGroupInfo() {
 .drawer-section-title { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; }
 .drawer-search-box { position: relative; display: flex; align-items: center; margin-bottom: 8px; }
 .drawer-search-box .search-icon { position: absolute; left: 8px; color: var(--text-3); pointer-events: none; }
-.drawer-search-input { width: 100%; padding: 5px 8px 5px 28px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12px; background: var(--bg-base); color: var(--text-1); outline: none; }
+.drawer-search-input { width: 100%; padding: 5px 8px 5px 28px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12px; background: transparent; color: var(--text-1); outline: none; }
 .drawer-search-input:focus { border-color: var(--primary); }
 /* 成员格子固定宽自动换行：面板随 aux 侧栏可自由拖宽（180px+），写死一行 4 个
    太死板——auto-fill + minmax 让列数随宽度自适应（窄 2 列、宽 6+ 列） */
@@ -302,12 +307,12 @@ async function saveGroupInfo() {
 .member-stream-btn:hover { color: var(--primary); border-color: var(--primary); }
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--text-3); text-align: center; }
 .drawer-name-row { display: flex; gap: 6px; }
-.drawer-name-input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13px; background: var(--bg-base); color: var(--text-1); outline: none; }
+.drawer-name-input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13px; background: transparent; color: var(--text-1); outline: none; }
 .drawer-name-input:focus { border-color: var(--primary); }
 .drawer-save-btn { padding: 4px 12px; border: none; border-radius: var(--r-sm); font-size: 12px; background: var(--primary); color: var(--on-primary); cursor: pointer; white-space: nowrap; }
 .drawer-save-btn:disabled { opacity: 0.5; cursor: default; }
 .drawer-save-btn.saved { background: var(--ok); }
-.drawer-desc-input { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12px; background: var(--bg-base); color: var(--text-1); outline: none; resize: vertical; font-family: inherit; line-height: 1.5; min-height: 52px; }
+.drawer-desc-input { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12px; background: transparent; color: var(--text-1); outline: none; resize: vertical; font-family: inherit; line-height: 1.5; min-height: 52px; }
 .drawer-desc-input:focus { border-color: var(--primary); }
 .drawer-error { font-size: 11px; color: var(--err); margin-top: 4px; }
 /* 成员转录流查看弹层（cr-4） */
@@ -325,20 +330,11 @@ async function saveGroupInfo() {
 .drawer-leave-btn, .drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: var(--r-sm); font-size: 13px; cursor: pointer; text-align: left; }
 .drawer-delete-btn { background: none; color: var(--err); }
 .drawer-delete-btn:hover { background: rgba(var(--err-rgb), 0.1); }
-/* 删除确认弹窗（自 DialogView 随域内迁——同规则同值） */
-.delete-dialog { padding: 28px 24px 20px; text-align: center; }
-.delete-icon { margin-bottom: 12px; }
-.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--text-1); }
+/* 删除弹体框架已迁 kit ConfirmBody（cr-157）；此处仅留富文本正文修饰与流弹窗底钮 */
 .delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--text-2); }
 .delete-warning strong { color: var(--err); }
-.delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
+.delete-detail { margin: 0 0 4px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
 .delete-emphasis { color: var(--err); font-weight: 600; }
 .delete-error { font-size: 12px; color: var(--err); margin-bottom: 8px; }
-.dialog-actions { display: flex; justify-content: center; gap: 10px; }
-.btn-cancel { padding: 8px 20px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-base); color: var(--text-2); font-size: 13px; cursor: pointer; }
-.btn-cancel:hover { background: var(--bg-surface); }
-.btn-delete { padding: 8px 20px; border: none; border-radius: var(--r-sm); background: var(--err); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
-/* 危险钮 hover：褪色降权（令牌族无 err-strong 档，不再自造深红字面值） */
-.btn-delete:hover { opacity: 0.9; }
-.btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }
+.stream-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 </style>

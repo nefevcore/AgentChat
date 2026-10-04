@@ -1,8 +1,8 @@
 <!--
   webui-kit/src/base/Tooltip.vue —— 轻量提示（CSS hover）
   用法：<Tooltip text="发送"> <Icon name="send" /> </Tooltip>
- 可达性：::after 提示读屏读不到——宿主控件必须自带 aria-label / title；
- 本组件只管视觉，:focus-within 让键盘用户也能看到。
+ 可达性：::after 提示读屏读不到——宿主控件必须自带 aria-label（title 会与本组件视觉
+ 提示同屏双显，内嵌控件不设 title）；本组件只管视觉，:focus-within 让键盘用户也能看到。
 -->
 <script setup lang="ts">
 withDefaults(defineProps<{

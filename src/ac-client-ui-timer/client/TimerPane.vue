@@ -10,7 +10,7 @@
 // ============================================================
 import { ref } from 'vue';
 import type { TimerEntry } from 'ac-client-ui-settings/client/types.ts';
-import { Modal, Button, Icon } from '@agentchat/webui-kit';
+import { Button, Icon, Input, Modal, Select, Textarea } from '@agentchat/webui-kit';
 
 const props = withDefaults(defineProps<{ entries: TimerEntry[]; saving?: boolean; hideHeader?: boolean }>(), { hideHeader: false });
 const emit = defineEmits<{ (e: 'update:entries', v: TimerEntry[]): void; (e: 'save'): void }>();
@@ -108,8 +108,8 @@ defineExpose({ addTimer });
         <div class="timer-desc">配置定时自动触发 Agent，结果发送给 target</div>
       </div>
       <div class="timer-head-actions">
-        <button v-if="entries.length > 0" class="timer-save-btn" :disabled="saving" @click="emit('save')">{{ saving ? '保存中...' : '保存定时配置' }}</button>
-        <button class="timer-add" @click="addTimer()">+ 添加</button>
+        <Button v-if="entries.length > 0" variant="primary" size="sm" :disabled="saving" @click="emit('save')">{{ saving ? '保存中...' : '保存定时配置' }}</Button>
+        <Button variant="ghost" size="sm" icon="plus" @click="addTimer()">添加</Button>
       </div>
     </div>
 
@@ -130,8 +130,8 @@ defineExpose({ addTimer });
             <input type="checkbox" :checked="entry.enabled" @change="toggleTimer(entry.id, ($event.target as HTMLInputElement).checked)" />
             <span class="ui-switch-track"><span class="ui-switch-dot"></span></span>
           </label>
-          <button class="timer-btn" @click="editTimer(entry)">编辑</button>
-          <button class="timer-btn danger" @click="removeTimer(entry.id)">删除</button>
+          <Button variant="ghost" size="sm" @click="editTimer(entry)">编辑</Button>
+          <Button variant="danger" size="sm" @click="removeTimer(entry.id)">删除</Button>
         </div>
       </div>
     </div>
@@ -154,35 +154,35 @@ defineExpose({ addTimer });
         </div>
         <div v-if="editing.mode === 'time'" class="timer-row">
           <label>日期（留空 = 每天）</label>
-          <input type="date" class="timer-input" :value="toDateOnly(editing.time)" @input="editing.time = updateTimeDate(($event.target as HTMLInputElement).value, toTimeOnly(editing.time))" />
+          <Input type="date" class="timer-input" :model-value="toDateOnly(editing.time)" @update:model-value="editing.time = updateTimeDate($event, toTimeOnly(editing.time))" />
         </div>
         <div v-if="editing.mode === 'time' || editing.mode === 'workday' || editing.mode === 'holiday'" class="timer-row">
           <label>时间</label>
-          <input type="time" class="timer-input" :value="toTimeOnly(editing.time)" @input="editing.time = updateTimeDate(toDateOnly(editing.time), ($event.target as HTMLInputElement).value)" />
+          <Input type="time" class="timer-input" :model-value="toTimeOnly(editing.time)" @update:model-value="editing.time = updateTimeDate(toDateOnly(editing.time), $event)" />
         </div>
         <div v-if="editing.mode === 'delay'" class="timer-row">
           <label>间隔</label>
-          <input v-model="editing.delay" class="timer-input" placeholder="1h（支持 30s / 5m / 2h30m）" />
+          <Input v-model="editing.delay" class="timer-input" placeholder="1h（支持 30s / 5m / 2h30m）" />
         </div>
         <div v-if="editing.mode === 'random'" class="timer-row">
           <label>随机范围</label>
           <div class="timer-range">
-            <input v-model="editing.delayMin" class="timer-input short" placeholder="30s" />
+            <Input v-model="editing.delayMin" class="timer-input short" placeholder="30s" />
             <span>~</span>
-            <input v-model="editing.delayMax" class="timer-input short" placeholder="5m" />
+            <Input v-model="editing.delayMax" class="timer-input short" placeholder="5m" />
           </div>
         </div>
         <div class="timer-row">
           <label>重复次数</label>
-          <input v-model.number="editing.repeatCount" type="number" min="0" class="timer-input short" placeholder="0 = 永久" />
+          <Input v-model="editing.repeatCount" type="number" class="timer-input short" placeholder="0 = 永久" />
         </div>
         <div class="timer-row">
           <label>提示内容</label>
-          <textarea v-model="editing.hint" class="timer-textarea" rows="3" placeholder="触发时发送给 Agent 的指令"></textarea>
+          <Textarea v-model="editing.hint" class="timer-textarea" :rows="3" placeholder="触发时发送给 Agent 的指令" />
         </div>
         <div class="timer-row">
           <label>目标</label>
-          <input v-model="editing.target" class="timer-input" placeholder="user, coding_agent（逗号分隔，默认 user）" />
+          <Input v-model="editing.target" class="timer-input" placeholder="user, coding_agent（逗号分隔，默认 user）" />
         </div>
         <div v-if="timerError" class="timer-error">{{ timerError }}</div>
       </div>
@@ -203,11 +203,7 @@ export default { name: 'TimerPane' };
 .timer-head { display: flex; align-items: flex-start; justify-content: space-between; }
 .timer-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
 .timer-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.timer-add {
-  padding: 5px 14px; border: 1px solid var(--primary); border-radius: var(--r-md);
-  background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; transition: all var(--dur-fast);
-}
-.timer-add:hover { background: var(--primary-light); }
+/* 头部动作钮已归 kit Button（cr-171） */
 .timer-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 /* ── 清单行（A 语言：底座 ui-row 透明底 / hover 浮起） ── */
@@ -224,32 +220,16 @@ export default { name: 'TimerPane' };
 .timer-item.off .timer-main, .timer-item.off .timer-sub { opacity: .5; }
 .timer-item.off .timer-hint { text-decoration: line-through; }
 
-/* 行尾动作（开关 + 编辑/删除） */
+/* 行尾动作（开关 + 编辑/删除——按钮已归 kit Button，cr-171） */
 .timer-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.timer-btn { padding: 3px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; }
-.timer-btn:hover { background: var(--bg-hover); color: var(--text-1); }
-.timer-btn.danger { color: var(--err); }
-.timer-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
 .timer-empty { padding: 20px; text-align: center; color: var(--text-3); font-size: 13px; }
-.timer-save-btn {
-  padding: 5px 14px; border-radius: var(--r-md); font-size: 12px; font-weight: 500; cursor: pointer;
-  background: var(--primary); border: none; color: var(--on-primary); transition: all var(--dur-fast);
-}
-.timer-save-btn:hover:not(:disabled) { opacity: .9; }
-.timer-save-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ── 编辑弹窗 ── */
+/* ── 编辑弹窗（输入已归 kit Input/Textarea——cr-171） ── */
 .timer-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .timer-row { display: flex; flex-direction: column; gap: 4px; }
 .timer-row label { font-size: 12px; color: var(--text-2); }
-.timer-input, .timer-select, .timer-textarea {
-  padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--r-sm);
-  background: var(--input-bg); color: var(--text-1); font-size: 13px;
-}
-.timer-input:focus, .timer-select:focus, .timer-textarea:focus { outline: none; border-color: var(--input-focus); }
 .timer-input.short { width: 130px; }
 .timer-range { display: flex; align-items: center; gap: 6px; }
-.timer-textarea { resize: vertical; font-family: var(--font-mono); }
 .timer-error { color: var(--err); font-size: 12px; }
 
 /* 模式胶囊选择器（2/3 列自适应网格：模式名 + 一句话说明） */
@@ -260,7 +240,7 @@ export default { name: 'TimerPane' };
   background: var(--bg-surface); cursor: pointer; text-align: left;
   transition: border-color var(--dur-fast), background var(--dur-fast);
 }
-.tp-mode:hover { border-color: rgba(var(--primary-rgb), 0.45); }
+.tp-mode:hover { border-color: var(--primary-border); }
 .tp-mode.active { border-color: var(--primary); background: var(--primary-light); }
 .tp-mode-label { font-size: 12px; font-weight: 500; color: var(--text-1); }
 .tp-mode.active .tp-mode-label { color: var(--primary); }

@@ -258,7 +258,7 @@ const stopData = computed(() => ({
 .sa-loading { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--text-2); }
 .sa-spin {
   width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%;
-  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border: 2px solid var(--primary-border-soft);
   border-top-color: var(--primary);
   animation: saSpin 0.8s linear infinite;
 }
@@ -280,7 +280,7 @@ const stopData = computed(() => ({
 .sa-head {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-hover);
+  background: var(--bg-inset);
   border-bottom: 1px solid var(--line);
   font-size: 12px;
 }

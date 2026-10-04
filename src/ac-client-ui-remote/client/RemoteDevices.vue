@@ -6,7 +6,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { defaultRpc as rpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
-import { Button, StatusDot } from '@agentchat/webui-kit';
+import { Button, Input, StatusDot } from '@agentchat/webui-kit';
 import PairingQr from './PairingQr.vue';
 
 interface DeviceRow {
@@ -214,7 +214,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 链路状态 -->
-    <div class="card status-card">
+    <div class="card">
       <div class="stat-row">
         <span class="k">链路</span>
         <StatusDot :status="linkDot" :size="8" />
@@ -227,7 +227,7 @@ onUnmounted(() => {
           <Button variant="ghost" size="sm" @click="startEditRelay">{{ relayUrl ? '修改' : '配置' }}</Button>
         </template>
         <template v-else>
-          <input v-model="relayDraft" class="relay-input" placeholder="wss://your-relay:8443" spellcheck="false" />
+          <Input v-model="relayDraft" class="relay-input" placeholder="wss://your-relay:8443" />
           <Button variant="primary" size="sm" :disabled="savingRelay" @click="saveRelay">{{ savingRelay ? '保存中…' : '保存' }}</Button>
           <Button variant="ghost" size="sm" @click="editingRelay = false">取消</Button>
         </template>
@@ -243,7 +243,7 @@ onUnmounted(() => {
           <Button variant="ghost" size="sm" @click="editingPin = true; pinDraft = ''">{{ tlsPinConfigured ? '修改' : '设置' }}</Button>
         </template>
         <template v-else>
-          <input v-model="pinDraft" class="relay-input pin-input" placeholder="sha256 hex（64 位）" spellcheck="false" />
+          <Input v-model="pinDraft" class="relay-input pin-input" placeholder="sha256 hex（64 位）" />
           <Button variant="primary" size="sm" :disabled="savingPin" @click="savePin">{{ savingPin ? '保存中…' : '保存' }}</Button>
           <Button variant="ghost" size="sm" @click="editingPin = false">取消</Button>
         </template>
@@ -298,7 +298,7 @@ onUnmounted(() => {
           <StatusDot status="ok" :size="8" /> 配对完成——设备「{{ pairing.deviceName }}」已注册
         </div>
         <div class="pair-actions">
-          <Button variant="soft" size="sm" @click="pairing = null">关闭</Button>
+          <Button variant="ghost" size="sm" @click="pairing = null">关闭</Button>
         </div>
       </template>
       <template v-else>
@@ -319,7 +319,7 @@ onUnmounted(() => {
           <div class="dev-name">
             {{ d.name }}
             <span v-if="d.online" class="ui-badge ok">在线</span>
-            <span v-for="s in d.scopes" :key="s" class="dev-scope">{{ s }}</span>
+            <span v-for="s in d.scopes" :key="s" class="ui-badge dim">{{ s }}</span>
           </div>
           <div class="dev-meta">配对于 {{ fmtTime(d.pairedAt) }} · 最后活跃 {{ fmtTime(d.lastSeenAt) }}</div>
         </div>
@@ -333,8 +333,8 @@ onUnmounted(() => {
 .remote-pane { display: flex; flex-direction: column; gap: var(--space-3); }
 .sub { color: var(--text-3); font-size: 12px; margin: 0; line-height: 1.5; }
 
-/* 卡片：tokens.css 中层容器语义（--r-md + surface 底 + line 描边） */
-.card { background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-3) var(--space-4); }
+/* 卡片：--r-md + line 描边、透明底（cr-178 去 surface 实底，承 cr-172 扁平方向） */
+.card { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-3) var(--space-4); }
 
 /* 错误横幅：role-active 语义（琥珀警示，非红——错误细节由文案承载） */
 .error-banner { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--err); background: rgba(var(--err-rgb), 0.08); border: 1px solid rgba(var(--err-rgb), 0.25); border-radius: var(--r-sm); padding: 6px 10px; }
@@ -345,13 +345,14 @@ onUnmounted(() => {
 .v { font-size: 13px; }
 .v[data-state="online"] { color: var(--ok); }
 .v[data-state="error"] { color: var(--err); }
-.mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-hover); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
+.mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-inset); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
 .mono-v.dim { color: var(--text-3); }
-.relay-input { flex: 1; min-width: 0; background: var(--input-bg, var(--bg-raised)); border: 1px solid var(--input-border, var(--line)); border-radius: var(--r-sm); color: var(--text-1); padding: 4px 8px; font-size: 12px; font-family: var(--font-mono); outline: none; transition: border-color var(--dur-fast) var(--ease-out); }
-.relay-input:focus { border-color: var(--input-focus, var(--primary)); }
+/* relay/pin 输入已归 kit Input（cr-171）；此处只留行内布局 + mono 修饰 */
+.relay-input { flex: 1; min-width: 0; }
+.relay-input:not(.pin-input) { font-family: var(--font-mono); font-size: 12px; }
 
 /* 引导卡：role-info 语义 */
-.guide-card { font-size: 12.5px; color: var(--text-2); border-style: dashed; background: transparent; }
+.guide-card { font-size: 12.5px; color: var(--text-2); border-style: dashed; }
 
 /* 配对区 */
 .pair-idle { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
@@ -369,21 +370,20 @@ onUnmounted(() => {
 .pin-state.off { color: var(--text-3); }
 .pin-input { max-width: 220px; }
 .pair-fp { font-size: 12px; color: var(--text-2); margin: var(--space-1) 0; }
-.pair-fp code { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 var(--space-1); }
+.pair-fp code { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 var(--space-1); }
 /* SAS 输入（R-2 盲确认修复）：等宽数字输入，居中 */
-.sas-input { display: block; width: 100%; max-width: 260px; margin: 0 auto; background: var(--input-bg, var(--bg-raised)); border: 1px solid var(--input-border, var(--line)); border-radius: var(--r-sm); color: var(--text-1); padding: 6px 10px; font-size: 15px; font-family: var(--font-mono); letter-spacing: 2px; text-align: center; outline: none; transition: border-color var(--dur-fast) var(--ease-out); }
+.sas-input { display: block; width: 100%; max-width: 260px; margin: 0 auto; background: transparent; border: 1px solid var(--input-border, var(--line)); border-radius: var(--r-sm); color: var(--text-1); padding: 6px 10px; font-size: 15px; font-family: var(--font-mono); letter-spacing: 2px; text-align: center; outline: none; transition: border-color var(--dur-fast) var(--ease-out); }
 .sas-input:focus { border-color: var(--input-focus, var(--primary)); }
 .sas-input::placeholder { font-family: var(--font-sans, inherit); font-size: 12px; letter-spacing: normal; color: var(--text-3); }
 
 /* 设备列表 */
 .list-head { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
-.count { font-size: 11px; font-weight: normal; color: var(--text-3); background: var(--bg-hover); border-radius: var(--r-full); padding: 0 8px; }
+.count { font-size: 11px; font-weight: normal; color: var(--text-3); background: var(--bg-inset); border-radius: var(--r-full); padding: 0 8px; }
 .empty-hint { color: var(--text-3); font-size: 12.5px; padding: var(--space-2) 0; }
 .device-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--line); }
 .device-row:first-of-type { border-top: none; }
 .dev-info { flex: 1; min-width: 0; }
 .dev-name { font-size: 13px; color: var(--text-1); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-/* cr-129 R3：在线标记 = ui-badge ok（形状/配色归 kit——原自建描边胶囊退役） */
-.dev-scope { font-size: 10px; color: var(--text-3); background: var(--bg-hover); border-radius: var(--r-full); padding: 0 6px; line-height: 16px; }
+/* cr-129 R3：在线标记 = ui-badge ok；scope 胶囊 = ui-badge dim（cr-171 归一） */
 .dev-meta { color: var(--text-3); font-size: 11px; margin-top: 2px; }
 </style>

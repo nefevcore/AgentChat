@@ -53,6 +53,7 @@ function badgeLabel(v: number | string | null): string {
       :key="d.id"
       class="aux-ab-btn"
       :class="{ active: d.id === activeId }"
+      :aria-label="d.rail!.title"
       :title="d.rail!.title"
       :aria-pressed="d.id === activeId"
       @click="emit('toggle', d)"
@@ -95,8 +96,7 @@ function badgeLabel(v: number | string | null): string {
   display: flex; align-items: center; justify-content: center;
   border-radius: 999px;
   background: var(--primary); color: var(--on-primary);
-  font-size: 9px; font-weight: 600; line-height: 1;
-  border: 1.5px solid var(--bg-base);
+  font-size: 9px; font-weight: 600; line-height: 14px;
   z-index: 1; pointer-events: none;
 }
 </style>

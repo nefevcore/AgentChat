@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Avatar, Icon } from '@agentchat/webui-kit';
+import { Avatar, Icon, Segmented } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -307,17 +307,15 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
     <div class="page-header">
       <span class="page-title">运行跟踪</span>
       <div
-        class="range-toggle"
         :title="hasWindows
           ? `浓度 = ${rangeLabel}范围内消息量（对数归一化）`
           : '后端为旧版本，暂无时间窗口数据 —— 当前按总消息量着色；重启后端（pnpm dev）后可按范围筛选'"
       >
-        <button
-          v-for="r in ranges" :key="r.id"
-          class="range-btn" :class="{ active: range === r.id }"
-          :disabled="!hasWindows && r.id !== 'all'"
-          @click="range = r.id"
-        >{{ r.label }}</button>
+        <Segmented
+          :items="ranges.map(r => ({ id: r.id, label: r.label, disabled: !hasWindows && r.id !== 'all' }))"
+          :model-value="range"
+          @update:model-value="range = $event as RangeId"
+        />
       </div>
       <div class="header-side">
         <span v-if="snapshot" class="snap-time" :class="{ loading }" :title="`快照生成于 ${snapshot.generatedAt}`">快照 {{ fmtClock(snapshotAt) }}</span>
@@ -427,12 +425,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* ── 头部：标题 + 范围筛选 ── */
 .page-header{display:flex;align-items:center;gap:16px;height:var(--layout-header-height,48px);padding:0 20px;border-bottom:1px solid var(--line);flex-shrink:0}
 .page-title{font-size:15px;font-weight:700;color:var(--text-1);letter-spacing:.3px}
-.range-toggle{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--bg-hover)}
-.range-btn{padding:4px 11px;border:none;border-radius:7px;background:none;color:var(--text-2);font-size:12px;font-weight:500;cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast),box-shadow var(--transition-fast)}
-.range-btn:hover:not(:disabled){color:var(--text-1)}
-.range-btn:disabled{opacity:.35;cursor:not-allowed}
-/* 选中段底取 --bg-raised（抬一档）：原 --bg-base 与页底同值、暗色再叠深底覆盖，cr-127 归一 */
-.range-btn.active{background:var(--bg-raised);color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+/* 范围分段器已迁 kit Segmented（cr-157——凹槽/浮起块/禁用态配方单源） */
 .header-side{margin-left:auto;display:flex;align-items:center}
 .snap-time{font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums}
 .snap-time.loading{opacity:.45}
@@ -448,7 +441,7 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* 十字底色带：整行/整列铺色（hover 高亮的载体），铺在格子图层之下 ——
  * 只在 gap 与透明格（heat-none）上可见，有浓度色的格子覆盖其上；
  * 色带贯通行头下方/列头右侧，十字以"底色通道"呈现，不触碰任何格子颜色。 */
-.cross-track{position:absolute;z-index:0;pointer-events:none;border-radius:8px;background:rgba(var(--primary-rgb), 0.1)}
+.cross-track{position:absolute;z-index:0;pointer-events:none;border-radius:8px;background:var(--primary-light)}
 .cross-row{left:0;right:0}
 .cross-col{top:0;bottom:0}
 /* 交汇处（hover 格所在）：横纵带叠加自然加深，无需额外处理 */
@@ -462,34 +455,37 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* 列头：头像（sticky 顶；十字高亮） */
 .col-head{position:sticky;top:0;z-index:2;width:var(--cell);height:48px;display:flex;align-items:center;justify-content:center;background:var(--bg-base);border-radius:10px;transition:background var(--transition-fast)}
 /* 深底覆盖退役（cr-127）：列头取 --bg-base */
-.col-head.hl{background:rgba(var(--primary-rgb),.12) /* 回退（cr-32）：页面底即本元素底色，α 混合等效；cr-130（P6）保活别名 --color-primary-rgb 退役、改本源三元组 */;background:color-mix(in srgb,var(--primary) 12%,var(--bg-base))}
+.col-head.hl{background:var(--primary-light) /* cr-170：tint 梯度令牌转正（原 α 回退 + color-mix 增强双轨退役） */}
 
 /* 行头：头像 + 名称（sticky 左；十字高亮） */
 .row-head{position:sticky;left:0;z-index:1;height:var(--cell);display:flex;align-items:center;gap:8px;padding:0 10px 0 4px;background:var(--bg-base);min-width:0;border-radius:10px;transition:background var(--transition-fast)}
 /* 深底覆盖退役（cr-127）：行头取 --bg-base */
-.row-head.hl{background:rgba(var(--primary-rgb),.12) /* 回退（cr-32）；cr-130 保活别名退役（同 col-head.hl） */;background:color-mix(in srgb,var(--primary) 12%,var(--bg-base))}
+.row-head.hl{background:var(--primary-light) /* cr-170：同 col-head.hl */}
 .row-head-name{font-size:12px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* 头标色 = kind 分类色板（R1 例外：group/system/job/sub 每类一色，语义 ≠ 分类；
-   与状态色（--ok/--warn/--err）分族，cr-127 随分类色板保留） */
+/* 头标色 = 语义色系派生（cr-137 归令牌：原 #10b981/#f59e0b 即 ok/warn 语义
+   色相的化石字面值）——group→ok 系、system→warn 系：状态档墨色 + 本色 tint */
 .head-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;flex-shrink:0}
-.head-ic.kind-group{color:#10b981;background:rgba(16,185,129,.14)}
-.head-ic.kind-system{color:#f59e0b;background:rgba(245,158,11,.15)}
-.head-ic.kind-unknown{color:var(--text-3);background:var(--bg-hover)}
+/* 墨取文字档而非状态档（cr-146 复盘）：图标坐在自身 tint 底上的构图——
+   status 墨 on 自身 tint 在亮色下仅 2.6~2.8（破 1.4.11 的 3.0 线），
+   文字档墨 4.6+ 且与 tint 同源 */
+.head-ic.kind-group{color:var(--ok);background:rgba(var(--ok-rgb), 0.14)}
+.head-ic.kind-system{color:var(--warn);background:rgba(var(--warn-rgb), 0.15)}
+.head-ic.kind-unknown{color:var(--text-3);background:var(--bg-inset)}
 
 /* ── 格子：方形圆角 + gap，纯颜色浓度；十字聚焦 = 底色带（不触碰格子本身）── */
-.cell{width:var(--cell);height:var(--cell);border-radius:10px;position:relative;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(127,127,127,.1);transition:box-shadow .1s ease}
+.cell{width:var(--cell);height:var(--cell);border-radius:10px;position:relative;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(var(--text-3-rgb), 0.1);transition:box-shadow .1s ease}
 /* hover 格：仅细主色描边指示（不放大、不加光晕、不改颜色 —— 避免拥挤与遮色） */
 .cell:hover{box-shadow:inset 0 0 0 2px var(--primary)}
 .cell:active{box-shadow:inset 0 0 0 2.5px var(--primary)}
-.cell.hl{box-shadow:inset 0 0 0 1px rgba(var(--primary-rgb),.3) /* 回退（cr-32）；cr-130 保活别名退役（同 col-head.hl） */;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 25%,rgba(127,127,127,.1))}
+.cell.hl{box-shadow:inset 0 0 0 1px var(--primary-border) /* cr-170：tint 梯度令牌转正 */}
 .cell.hl.mirror-data{opacity:.85}
 /* 上三角镜像：无数据 = 斜纹占位（不可点）；有数据 = 弱化浓度（可点进入同一会话） */
 .cell.mirror{cursor:default;opacity:.45}
-.cell.mirror:not(.mirror-data){background:repeating-linear-gradient(135deg,transparent 0 4px,var(--bg-hover) 4px 8px);box-shadow:inset 0 0 0 1px var(--line)}
+.cell.mirror:not(.mirror-data){background:repeating-linear-gradient(135deg,transparent 0 4px,var(--bg-inset) 4px 8px);box-shadow:inset 0 0 0 1px var(--line)}
 .cell.mirror.mirror-data{cursor:pointer;opacity:.5}
 .cell.mirror.mirror-data:hover{opacity:1;box-shadow:inset 0 0 0 2px var(--primary)}
-.cell.diag{outline:1px dashed rgba(127,127,127,.5);outline-offset:-4px}
+.cell.diag{outline:1px dashed rgba(var(--text-3-rgb), 0.5);outline-offset:-4px}
 
 /* 十字聚焦：hover 时非十字区域置灰（衬托底色带十字）。
  * 只用 opacity（GPU 合成）不用 filter —— 400+ 格子上的 saturate() 会在
@@ -500,11 +496,11 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 
 /* ── 浓度色阶：范围内消息量对数归一化（c1 最浅 → c5）── */
 .heat-none{background:transparent}
-.c1{background:rgba(var(--primary-rgb), 0.06)}
-.c2{background:rgba(var(--primary-rgb), 0.12)}
-.c3{background:rgba(var(--primary-rgb), 0.2)}
-.c4{background:rgba(var(--primary-rgb), 0.3)}
-.c5{background:rgba(var(--primary-rgb), 0.42)}
+.c1{background:var(--primary-tint)}
+.c2{background:var(--primary-light)}
+.c3{background:var(--primary-tint-strong)}
+.c4{background:var(--primary-border-soft)}
+.c5{background:var(--primary-border)}
 /* ── 图例 + 覆盖面 ── */
 .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;font-size:11px;color:var(--text-3)}
 .lg{display:inline-flex;align-items:center;gap:4px}
@@ -518,8 +514,8 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* 覆盖面说明行：语义图标着色（ok=已覆盖 / warn=矩阵外与残留——替代文案内嵌 emoji 前缀） */
 .cov-note{display:flex;align-items:flex-start;gap:5px}
 .cov-note-icon{flex-shrink:0;margin-top:3px}
-.cov-note.is-ok .cov-note-icon{color:var(--ok)}
-.cov-note.is-warn .cov-note-icon{color:var(--warn)}
+.cov-note.is-ok .cov-note-icon{color:var(--ok-status)}
+.cov-note.is-warn .cov-note-icon{color:var(--warn-status)}
 .empty{padding:32px;text-align:center;color:var(--text-3);font-size:13px;line-height:1.8}
 /* 图例·浓度渐变小样（c1→c5 紧排成渐变条） */
 .lg.scale .swatch{margin-right:-5px;border-radius:3px}
@@ -535,12 +531,12 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 
 <!-- tooltip 全局样式（Teleport 到 body，不能 scoped） -->
 <style>
-.mx-tip{position:fixed;z-index:10000;pointer-events:none;background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:10px 12px;display:flex;flex-direction:column;gap:5px;font-size:12px}
+.mx-tip{position:fixed;z-index:10000;pointer-events:none;background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-pop);padding:10px 12px;display:flex;flex-direction:column;gap:5px;font-size:12px}
 /* 浮层深底/描边覆盖退役（cr-127）：取 --bg-raised + --line 双主题单源 */
 .mx-tip .tip-head{display:flex;align-items:center;gap:9px}
 .mx-tip .tip-avatars{display:flex;align-items:center;gap:3px;flex-shrink:0}
-/* tip-ic = kind 分类色板同族（琥珀；与 .head-ic.kind-system 同对，cr-127 保留） */
-.mx-tip .tip-ic{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;color:#f59e0b;background:rgba(245,158,11,.15)}
+/* tip-ic = kind-system 同对（warn 语义系，cr-137 归令牌） */
+.mx-tip .tip-ic{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;color:var(--warn);background:rgba(var(--warn-rgb), 0.15)}
 .mx-tip .tip-x{display:inline-flex;align-items:center;color:var(--text-3)}
 .mx-tip .tip-x.dim{color:var(--text-3)}
 .mx-tip .tip-names{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}

@@ -6,7 +6,7 @@ import {
   fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate,
   fetchDesktopUpdateStatus, triggerDesktopUpdateDownload, installDesktopUpdate,
 } from './systemApi.ts';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, Tooltip } from '@agentchat/webui-kit';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -146,7 +146,9 @@ async function doUpdate() {
       <div class="version-panel" @click.stop>
         <div class="panel-header">
           <h3>版本信息</h3>
-          <button class="close-btn" @click="emit('close')" title="关闭"><Icon name="x" :size="14" /></button>
+          <Tooltip text="关闭" placement="bottom">
+            <button class="close-btn" aria-label="关闭" @click="emit('close')"><Icon name="x" :size="14" /></button>
+          </Tooltip>
         </div>
         <div class="panel-body">
           <div v-if="loading" class="status-msg">检查中...</div>
@@ -242,7 +244,7 @@ async function doUpdate() {
 <style scoped>
 .version-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.3);
+  background: rgba(0,0,0,0.35);
   display: flex; align-items: center; justify-content: center;
   z-index: 1001;
 }
@@ -255,7 +257,7 @@ async function doUpdate() {
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  box-shadow: var(--shadow-panel);
 }
 
 /* 窄屏全屏（cr-34：overlay 系统性适配——自建遮罩同 Modal 原语形态） */
@@ -280,7 +282,7 @@ async function doUpdate() {
 .panel-body { flex: 1; overflow-y: auto; padding: 20px; }
 
 .status-msg { text-align: center; padding: 32px; color: var(--text-2); font-size: 14px; }
-.status-msg.error { color: var(--err); }
+.status-msg.error { color: var(--err-status); }
 
 /* 版本对比卡片 */
 .version-compare {

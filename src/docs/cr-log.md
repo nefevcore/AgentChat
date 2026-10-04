@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-135**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-212**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -153,3 +153,80 @@
 - 【cr-133 2026-10-03 fix(webui-kit): tokens.css 别名层注释含 --radius-*/--space-* 使块注释提前闭合，CSS minifier 报 Unexpected * 警告——注释措辞去 * 通配】
 - 【cr-134 2026-10-03 文字链路提亮（cr-125）：Nebula 三档各提亮（text-1 #f4f6f7 / text-2 #cbd3d8 / text-3 #a8b2b5——去灰白感）；Aurora text-1 近黑化 #2c3e50→#1e293b（去蓝灰闷感）；同步 rgb 三元组/code-text/role-hover-text/Element 兼容层；开关关闭轨道浓度 0.35→0.30 保两态可辨】
 - 【cr-135 2026-10-03 色彩丰度注入（cr-135）：压抑感根因 = 色彩出现率低（90% 像素中性 + 交互反馈全灰）——hover/选中底靛染（N #252637 / A #ececf5）、primary 拉满饱和（N #7c8cff S100 / A #4338e8）、边线靛染（N #33343c/#41424e / A #e2e4ec/#b9c0d4）、滚动条同步——交互路径全面色彩回应】
+- 【cr-136 2026-10-03 submit_issue 无令牌降级：官方台（GitHub/Gitee）令牌三源链全空时不再硬失败，改为生成预填新建 ISSUE 链接（issues/new?title=&body=&labels=，Gitee 未证实支持预填参数 → 裸新建页）交用户人审后手动提交；apiBase 覆盖的自建台场景保留配令牌指路错误】
+- 【cr-137 2026-10-03 配色瑕疵清理：main.css --el-* Element Plus 覆盖死代码剪除（EP 已移除且只写在媒询内手动切暗色本不生效）+ 业务面 rgba 尾巴归令牌 22 处（旧语义档位化石→ok/err/warn-rgb tint；精确同配方影→shadow-hover/knob/primary-hover/pop/panel；var() fallback 字面量删除）+ UserMessage 附件 chip 白底暗色不可读（对比 1.9）改 bg-raised（9.1）+ CreateGroupDialog 亮色 primary 硬编码（暗色用错色）归 primary-rgb + FilePreviewTabPane P6 遗留阴影收编 TODO 落实】
+- 【cr-138 2026-10-03 v2.html 双主题色彩校准：Nebula 拉开表面层级/阴影减负/加环境辉光/星色增饱和；Aurora 语义色上浮一档/中性色去蓝/底色微暖/星色提亮；修复未 scope 硬编码暗色】
+- 【cr-139 2026-10-03 活动栏容器底色修正：新增 --bg-nav 专属令牌（双主题），.activity-bar 从误用的 --bg-hover 改归位；徽章描边同步；消灭 hover 反馈与容器底同色的错位】
+- 【cr-140 2026-10-03 语义档重构：--{ok,warn,err}-graphic 改名 --{ok,warn,err}-status（状态表示层：大字状态字/环色/状态点/图标），aurora 取 GitHub 色感值（ok #2DA44E/warn #bb831c/err #be123c），nebula 同步鲜化；文字档不动】
+- 【cr-141 2026-10-03 diff 正文回归码色（FileEditsPanel 方案 B：语义由 tint 底+符号承载，正文 code-text；符号列 err 侧用 err-status 加固）+ 活动栏底拉回融合（bg-nav 双主题回调，与侧边栏几乎连续成外壳层）】
+- 【cr-142 2026-10-03 状态表示消费面补齐：环心百分比/任务终态徽标 st-*/goal 阶段字/±diff 统计数字/覆盖面图标/版本状态字等 9 组件 12 处迁 --*-status 档（cr-140 边界：状态表示走 status，错误正文/按钮底/横幅保持文字档）】
+- 【cr-143 2026-10-03 v2.html 预览页三修：M 图标表补 chevron-up + RingProgress 展区旧令牌名 *-graphic→*-status；loader-circle 忙态图标配 data-spin（此前全页 0 处、全部静止）；DockCard 底改 --bg-surface 与输入卡同面】
+- 【cr-144 2026-10-03 图标缺失根修：iconMap 补 edit-3（独立会话活动栏钮 info 兜底）；DockCard 底改 --bg-base（用户裁决：与页面底同层）；图标着色语义补迁 status 档（v2 预览页状态灯/环展区等）】
+- 【cr-145 2026-10-03 DockCard 补 eyebrow 图标位（icon prop + Icon 渲染，cr-129 迁移缩水回填）：任务 clipboard-list/提权 shield/决策 message-circle/目标 target——dock 头部从纯文本恢复图标+文本形态】
+- 【cr-146 2026-10-03 图标着色语义补迁 status 档四处：TodoPanel 完成勾圈/GoalBar 受阻标记/ChatInput 下拉警示三角/InputMention 危险项图标（纯图标元素，cr-140 边界回填；按钮反馈与文本标记保持文字档）】
+- 【cr-147 2026-10-03 DockCard eyebrow 图标 11→13px：对齐眉标文字视觉高度（fs-2xs 大写眉标下 11px 图标过小）】
+- 【cr-148 2026-10-03 status 档伴生三元组 --{ok,warn,err}-status-rgb（cr-32 同构）：RunTracking head-ic/tip-ic 的 tint 底改用状态档本色——修 cr-140 两档分色后『status 墨坐文字档 tint』的错配（墨底同源）】
+- 【cr-149 2026-10-03 diff 面板边界统一（承 cr-146 口径）：FileEditsPanel 删行符号 err-status→err（tint 底构图墨底同源、与增行对称）；ToolResultEdit 补修 cr-141 方案 B 漏网——diff 正文全彩→code-text，语义由行底 tint 承载】
+- 【cr-150 2026-10-03 --bg-hover 语义过载修正：新增 --bg-inset（凹嵌面：计数徽章/内联代码底/开关轨道/软按钮/中性徽章/空态容器），取值与 bg-hover 同值——语义分离视觉零变；hover/open 态保留 bg-hover 本职；badge.dim 测试锁断言源同步】
+- 【cr-151 2026-10-03 v2 预览页 busy 环动画两修：① mk() 布尔判定改 spin in dataset（data-spin 无值属性 dataset 值为空串、falsy 漏判）② BusyRing/ic-spin 是忙指示功能语义（同 StarAvatar run-ring 先例）——reduce 媒体查询豁免，不经 --motion-scale 归零；装饰性 breathe 保持静止】
+- 【cr-152 2026-10-03 dock header 节奏归一：BusyRing 改 box-sizing:border-box（:size=总尺寸，修 13px 环实占 17px 且基线溢出 2px 的凸出感）；eyebrow 图标 13→12px（10px 大写眉标旁收半档）】
+- 【cr-153 2026-10-03 星色板活力版重定档：语义修正——星色=社区 Agent 身份色（鲜活个性、色相拉开），非星空氛围色（统一低调马卡龙）。nebula 果汁软糖档（S 尽量高 L 亮）/aurora 社区徽章档（600-800 活力色）；双 tint 锁（0.14 星色/0.08 标签）全过 4.5；badge.css tt-* 同步】
+- 【cr-154 2026-10-03 星色板二修：色相均匀化——旧板（含 cr-151 版）5/9 色挤在蓝紫红三带、aurora 三色相未动致观感无变化。重排为九档均匀色环（35/70/105/175/210/245/275/305/320°）并避语义带（绿/黄/玫红让 ok/warn/err）；nebula 鲜活档 S90-95/L74-80；品红紫/玫瑰拆分（原板同带相撞）】
+- 【cr-155 2026-10-03 webui-gallery.html 重写为纯画廊版：基于 v2.html 生成（默认 Aurora 白主题），剥离增删改查叙事区；build-webui-preview.mjs 扩为双页注入】
+- 【cr-156 2026-10-03 webui-gallery.html 目录化重组：移除组合示例/互叠态区，左栏目录树导航（层→控件锚点），逐 UI 插件包分析补全表单与业务控件陈列（下拉框/输入框/复选/分段等）】
+- 【cr-157 2026-10-03 标准控件库重构：webui-kit 补齐标准件（Chip/Tabs/Dropdown/Progress/Drawer/Confirm/Breadcrumb/IconAction 等），业务包自建样式统一切换】
+- 【cr-158 2026-10-03 画廊目录重编：按控件类别（基础件/输入/选择导航/标识/反馈加载/浮层容器/工具/业务参照）替代架构层分组，拆散混合陈列格】
+- 【cr-159 2026-10-03 webui-gallery 左侧目录修复：移除 cr-158 树形目录重写时遗留的旧圆点 rail 两段媒体查询（1340/1339 档），消除与树形 rail 的层叠冲突（9px 子项裁字/translateY 错位/空气泡 tooltip/点击拦截层），pv-to-top 抬升并入 <1199 档并统一 --safe-bottom 令牌】
+- 【cr-160 2026-10-03 gallery 演示对齐 kit 现状：M 表补 6 图标名、fx-search 选择器适配 svg、状态灯/StarAvatar/FeedbackNotice/Toast/PTR/三段胶囊演示 DOM 迁至现类名（漂移根因：构建脚本只注入 CSS，演示 DOM 手写无锁）】
+- 【cr-161 2026-10-03 kit 功能动画对齐 WCAG 2.3.3 essential-motion：Button spinner 与 PTR 刷新旋脱离 --motion-scale（承 cr-149 BusyRing 先例——静止的环被读作卡死），StatusDot 呼吸关键帧锚定满强度帧（reduce 下呈实心点而非半透明冻结帧）】
+- 【cr-162 2026-10-03 kit 新增 Select 标准件（cr-157 族第 13 件）：原生 select 弹层不可定制与页面风格割裂，Select 以 ui-dd-menu 配方为弹层、OptionRow 为选项行；表单弹层风格自此统一，存量原生 select 迁移另行批次】
+- 【cr-163 2026-10-03 字段行非默认态视觉改版：三处同源（gallery fx-field / AgentPane llm-item / NsFieldList ns-item）由左缘 3px 主色竖条（括号感）改为标签区 primary-light 着色底】
+- 【cr-164 2026-10-03 左侧语义色条统一改版（用户样例）：ToastHost/AgentPane 两处/NsFieldList/gallery fx-field+gal-note/StorageHost warn 由 border-left 3px 改为独立左条分栏（flex 条 + overflow:hidden 随圆角裁切），条色不变、语义不变；markdown blockquote 与目录树选中线为中性排版线不动】
+- 【cr-165 2026-10-03 左分栏色条接缝柔化（用户反馈）：条左缘单独设小圆角 2px（约条宽之半），替换此前条全直角 + 容器大圆角裁切的生硬接缝；涉及 ToastHost/AgentPane/NsFieldList/gallery fx-field+gal-note/StorageHost warn 七处同源】
+- 【cr-166 2026-10-03 修正 cr-165 色条圆角方向：条左缘 2px 小圆角被容器 overflow:hidden 的大圆角裁切覆盖（用户 F12 实测发现）——正确解是条圆角与容器同心同值（toast 用 --r-lg、fx-field 用 --r-sm、gal-note 用 --r-md），条贴容器圆角曲线无缝】
+- 【cr-167 2026-10-03 cr-166 方向再修正（用户澄清）：条与容器同心同值在视觉上等于容器原圆角（用户看来没变）；真实诉求 = 容器左角（色条侧）收窄为小圆角、右侧保持大圆角的非对称形态——toast 左 6px 右 --r-lg / fx-field 与 gal-note 左 4px 右原值 / 条直角随容器左角裁切】
+- 【cr-168 2026-10-03 UI 统一化批次（用户指令）：表单配方升级为 kit 标准件——Input/Textarea/Checkbox/Slider/FieldRow/SearchInput/PasswordInput 七件（承 cr-162 Select 路径），复合件经标准件组合间接收纳（TagChoice→Dropdown 扩展、TokenGauge→RingProgress 组合、ResizeHandle/QR 保持业务件）；推翻 cr-158「kit 无表单件」分层，业务面迁移另行批次】
+- 【cr-169 2026-10-03 业务面 UI 迁移 webui-kit 标准件：SettingField/NsFieldList/AgentPane 表单控件换 kit 件、删本地配方】
+- 【cr-170 2026-10-03 主色 tint 静态梯度令牌化：rgba(var(--primary-rgb),α) 散点（16 种 α·65 处）与 cr-135 靛染面色换血为 OKLCH 锁相静态 hex（--primary-tint/light/tint-strong/border-soft/border 五档）——sRGB alpha 合成 chroma 崩至 9% 且色相漂 +9°（紫灰「脏」感根因）；结构线/凹嵌面褪染回中性、hover/选中染色彩保量但锁 H276；WebView 92 兼容】
+- 【cr-171 2026-10-04 设置域界面归 kit：新增 --star 星标语义色（池默认星标/设为默认按钮退役 warn）；ui-row 移除边框；ui-dd 选项间隔；pl-*/agent-pane/remote-pane 等自建控件全面归 ui-* 组件】
+- 【cr-172 2026-10-04 用户反馈三连：①亮底星标色 #854d0e 观感偏棕改 #a16207（yellow-700 更金）+ 池默认星标图标实心（fill currentColor）；②remote status-card 移除 surface 底改透明；③Agent 设置表单失效排查（待用户定位具体页签）】
+- 【cr-173 2026-10-04 kit 补 Label 标准件（FieldRow .ui-field-label 配方抽出单源，画廊/v2 补陈列）+ AgentPane 移除 llm-group-title 分组标题（LLM_GROUPS/llmSections 编排随之退役，字段平铺）】
+- 【cr-174 2026-10-04 FieldRow 布局改上下（label/description 上、控件下，竖排 stretch）——设置表单长描述与宽控件（下拉/输入）横排挤压的根修；画廊/v2 同步】
+- 【cr-175 2026-10-04 Select 弹层根修纵向溢出：absolute 在 .agent-tab-body（overflow:auto）内被剪裁——靠下字段下拉底部选项 hit-test 穿透到 sp-overlay（mousedown.self 关面板），Enter 不经 hit-test 故正常。弹层改 Teleport+fixed 定位（视口坐标锚定），滚动/resize 即收起，向下不足翻上】
+- 【cr-176 2026-10-04 Select 触发器长值省略：.ui-sel-value 加 min-width:0/nowrap/ellipsis（长 label 曾换行撑破固定高触发器），chev 箭头 flex-shrink:0】
+- 【cr-177 2026-10-04 模型页签来源徽章位置统一：去 .llm-badge-and-ctrl 的 flex-wrap（宽度变化时徽章有时折行到控件上方、有时在左侧）——徽章恒定控件左侧不收缩，控件自适应】
+- 【cr-178 2026-10-04 设置页描边卡去底色：.card（StorageHost/RemoteDevices）移除 bg-surface 底承 cr-172 扁平方向，同步删 RemoteDevices .status-card 透明覆盖死代码与模板残留类；两处保留本地 scoped 定义不并源——盒装卡退役裁决（row.css）下一行配方×2 低于抽象阈值，同 error-banner/tool-group-head 双胞胎先例】
+- 【cr-179 2026-10-04 Button soft 变体收编进 ghost 落地（cr-121 定案执行）：全仓 19 处 variant="soft"→"ghost"（PluginLibraryPane 9 / AgentPane 3 / PoolManager 3 / PairingQr / RemoteDevices / SearchPoolManager / TimerPane 各 1）+ Button.vue 删 soft 配方与类型 + 默认值 soft→ghost + 头注释裁决收编完成 + 预览页重注入】
+- 【cr-180 2026-10-04 webview-baseline 棘轮补记：CSS_COLOR_MIX_CAP 12→9——cr-170 RunTracking tint 梯度令牌转正已消化底色带 3 处，产物 color-mix 实测 9 处（全部带回退）】
+- 【cr-181 2026-10-04 表单输入件去填充底色：kit Input/Textarea/Select 触发器 background 改 transparent（边框形态保留），业务侧 esm-input/sas-input 同步，--input-bg 令牌随之消亡——消除「填充块读作非输入项」的视觉歧义】
+- 【cr-182 2026-10-04 kit Avatar 回退盘方形修复：容器 overflow visible（cr-157 角标悬挂）不裁剪子元素，.ui-avatar-img 自带 border-radius:inherit 而回退盘 .ui-avatar-fallback 无圆角——无图/图挂回退（虚 Agent 常见）呈方形。根修 = 回退盘补 border-radius:inherit（随 shape 取圆/方角）——StarAvatar 内 :deep(.ui-avatar-fallback) 是星色配色规则（非圆角补丁），保留不动】
+- 【cr-183 2026-10-04 Provider 模板更名 glm→zai、glm-coding-plan→zai-coding-cn（品牌对齐）并全表按 id 字母序排列】
+- 【cr-184 2026-10-04 kit Select 弹层 z 序随宿主层自适应——弹层 Teleport 后 z 写死 1100，被 z≥1200 的 Modal 压在弹窗之下（cr-169 表单迁 kit Select 后「弹窗内下拉无弹层」回归）；打开时扫祖先链取最大 z-index，弹层盖过宿主层，缺省 1100 不变】
+- 【cr-185 2026-10-04 移除 glm-coding 模板（GLM Coding Plan 编程套餐订阅唯一，国际端点与 zai-coding-cn 国内端点同订阅——单模板收录）】
+- 【cr-186 2026-10-04 dock header 减重视觉（纯图标+不加粗文本）+ DockCard collapsible header 整体可点折叠】
+- 【cr-187 2026-10-04 run_code SDK 投影/引导加「思考内容不写入注释」纪律行（DEFAULT_GUIDANCE）】
+- 【cr-188 2026-10-04 webui-style.md 全量对齐 kit 现状（cr-125~187 漂移收口：表单标准件族/status 档/星板 9 色/--star/bg-inset/bg-nav/soft 删除/row 无边框化）+ tokens.css 头注释修复（悬空技能引用 webui-kit-style 归位 agentchat-dev/references/webui-style.md、过时 glow 约定行改动效约定）+ 双预览页重注入】
+- 【cr-189 2026-10-04 文件预览失效修复：assets/* 404 误走 SPA fallback 回 index.html（旧页面懒加载新 hash chunk 撞 200 text/html，JS 解析失败预览组件静默不挂）——assets 路径 404 直回 404 + 前端 vite:preloadError 自动 reload 自愈】
+- 【cr-190 2026-10-04 文件预览面板空白修复：FilePreviewPanel/WebSearchPanel 迁 kit DocTabs（cr-157）后 .ui-doc-tabs 根 height:100% 在宿主 flex column 里把 pane 区挤成 0 高（fpp-panes 存在但 h=0 空白）——DocTabs 根去 height:100%/min-height（两消费方均只嵌条不自足分栏）】
+- 【cr-191 2026-10-04 FileEditsPanel diff 行号列动态宽度（4 位行号溢出 4ch 定宽与正文重叠——改为按当前 diff 最大行号位数计算 ch 宽）】
+- 【cr-192 2026-10-04 FilePreviewTabPane/FileEditsPanel 控件迁 kit 标准件：fpt-icon-btn/fe 图标钮族迁 IconAction（on/error/copied 态经宿主 class），fpt-mode-select 自绘下拉与 fe-file-select/fe-view-select 原生 select 迁 kit Select，fpp-action/fe 头部按钮统一 Button ghost sm】
+- 【cr-193 2026-10-04 FileEditsPanel 下拉塌宽修复：kit Select 根 width:100% 与工具行 flex 布局冲突（版本下拉 basis:auto 吞满 572→文件下拉 grow 分 0、值区不可见）——宿主覆写 file width:0+flex:1 / view width:auto+max-width:220】
+- 【cr-194 2026-10-04 名册最近消息显示记忆快照根修：tail() 末条记录口径收窄为末条真实发言（跳过 role=context/event 宿主注入行——admin~user/neko~user 孤儿记忆快照行被名册当 user 发言展示，2026-10-04 案例；inbound 丢失微观机制未定〔案发进程已替换、当前代码全链路复现通过〕，显示层根因独立成立）】
+- 【cr-195 2026-10-04 OptionRow 选项行边框退役：ui-opt 及选中态、ui-opt-num 序号圈移除描边，选中态纯底色（循 cr-171 ui-row 裁决）】
+- 【cr-196 2026-10-04 徽章三调：unread-badge/aux-ab-badge 描边退役（border 挤占 border-box 内容高致数字不居中，循 cr-195 边框退役线）；ui-avatar-badge 配方 16px→14px 收敛（cj-count 业务先例），cj-count 覆写随之精简】
+- 【cr-197 2026-10-04 FileEditsPanel 双下拉定宽（文件 240 / 版本 168——自适应宽随选中项伸缩推挤步进钮漂移，无法同位连点上一/下一版本）】
+- 【cr-198 2026-10-04 FileEditsPanel 工具行加复制按钮（终版全文——与预览面板同形态：IconAction copy/check/alert-circle 三态 + 2s 复位）】
+- 【cr-199 2026-10-04 FileEditsPanel 复制语义修正：随视图版本（编辑 #N = 该步后全文 version point content，总览/当前内容 = 终版）——用户直觉是复制所见版本而非恒终版】
+- 【cr-200 2026-10-04 browser 卡 eval 结果为对象时显示 [object Object]：非字符串结果改 JSON 序列化】
+- 【cr-201 2026-10-04 会话输入框工具栏下拉改向上弹出（composer 场景对齐 kit Dropdown up 缺省）；webui-gallery Tooltip 预览修复为标准 top/bottom 双形态（原常显布局退化且 ui-tip-host 幽灵类）】
+- 【cr-202 2026-10-04 输入框模型菜单二级面板修复：宽度改撑满输入卡（旧 dd-menu 收缩宽迁移 kit 配方时沿用，与提权/工具模式菜单 280px 固定宽不一致，长模型名溢出裁切）；模型选项补 Label（池元数据 defaultModel→「默认」徽、vision→「视觉」徽，原裸 id 单行丢元数据——对齐思考强度档位有 label 的形态）】
+- 【cr-203 2026-10-04 模型菜单选项图标升级为厂商 logo：ui-dd-opt-icon 按 provider 匹配 simple-icons 品牌图标（27 模板 slug 映射表住 ui-llm-pool poolApi，未命中回退 cpu）；新增 devDep @iconify-json/simple-icons】
+- 【cr-204 2026-10-04 智谱品牌图标收编：ZaiIcon.vue 自绘组件（cdn.bigmodel.cn 官方 logo.svg 品牌区——21 粒子 + Z 主体，去字标，currentColor 单色）注册 si-zai，poolApi 域名映射补 open.bigmodel.cn / api.z.ai】
+- 【cr-205 2026-10-04 kit Select 选项接口扩 icon 可选图标（弹层行首 ui-dd-opt-icon 位，触发器值行同步）；PoolManager 提供方下拉选项附厂商品牌图标（providerIconOf 复用模板 baseUrl 映射）】
+- 【cr-206 2026-10-04 provider 品牌图标着色：providerIconOf 返回 {name,color}（simple-icons 官方品牌 hex）；ChatInput/Select 弹层图标位与触发器随 iconColor 染色（currentColor → 品牌色）】
+- 【cr-207 2026-10-04 DocTabs 选中底 bg-surface 改 role-selected-bg：对齐全站选中角色色（ui-row/ui-opt/sp-nav 同语言），修亮色下选中底与宿主 bg-base 几不可辨且弱于 hover 的倒挂】
+- 【cr-208 2026-10-04 kit Tooltip 与原生 title 双显修复：IconAction 新增 suppressTitle 开关（外层 Tooltip 场景关掉原生 title，aria-label 恒保留单通道可达性），FileEditsPanel/FilePreviewTabPane/SystemPromptPanel 的 Tooltip 内嵌 IconAction 补 suppressTitle】
+- 【cr-209 2026-10-04 AssistantMessage 复制钮原生 tooltip 归 kit Tooltip（placement top，动态文案已复制/复制失败/复制全文），aria-label 保留单通道可达性——cr-208 双显修复的收尾迁移】
+- 【cr-210 2026-10-04 全量按钮 tooltip 迁 kit Tooltip：kit Tooltip 补 align=start 边缘对齐（左缘场景防溢出）；布局族/会话族/消息族/工具结果族/面板族按钮类原生 title 批量迁移（截断与信息提示类保留原生 title）】
+- 【cr-211 2026-10-04 活动栏 CSS 气泡被侧边栏层叠遮挡复盘（cr-210 回退面）：kit Tooltip 非 Teleport，z-index 700 困在活动栏祖先 stacking context（aux 栏自带 z-index:10）与 overflow 裁剪链内——两活动栏按钮移除 tooltip 包裹（aria-label 保留），ResizeHandle 恢复原生 title】
+- 【cr-212 2026-10-04 弹层菜单触发钮 tooltip 复盘（cr-210 修正面）：点击带出下拉菜单后 CSS 气泡不消失与菜单同屏重叠——此类触发钮去 tooltip（AgentList 新建/两处更多操作/SessionList ws-act 更多/ActivityBar more 原生 title）；SessionList 新建钮被 Tooltip inline-flex 包裹致 width:100% 失效——去包裹复原占满】

@@ -16,9 +16,13 @@ const props = withDefaults(defineProps<{
   full?: boolean;
   /** 保活形态（v-show 代替 v-if——隐藏不卸载，内部状态/滚动保留） */
   keepAlive?: boolean;
+  /** 滑入侧（cr-157）：bottom 底部上滑 / right 右侧滑入（抽屉——宽 sideWidth） */
+  side?: 'bottom' | 'right';
+  /** right 侧抽屉宽 */
+  sideWidth?: number;
   closeOnOverlay?: boolean;
   zIndex?: number;
-}>(), { maxHeight: '70vh', full: false, keepAlive: false, closeOnOverlay: true, zIndex: 600 });
+}>(), { maxHeight: '70vh', full: false, keepAlive: false, side: 'bottom', sideWidth: 320, closeOnOverlay: true, zIndex: 600 });
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -35,9 +39,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 <template>
   <Teleport to="body">
     <Transition name="ui-sheet">
-      <div v-if="keepAlive || visible" v-show="visible" class="ui-sheet" :class="{ full }" :style="{ zIndex }">
+      <div v-if="keepAlive || visible" v-show="visible" class="ui-sheet" :class="{ full, right: side === 'right' }" :style="{ zIndex }">
         <div class="ui-sheet-overlay" @click="closeOnOverlay && emit('close')" />
-        <div class="ui-sheet-panel" :style="full ? undefined : { maxHeight }">
+        <div
+          class="ui-sheet-panel"
+          :style="full ? undefined : side === 'right' ? { width: sideWidth + 'px', height: '100%' } : { maxHeight }"
+        >
           <div v-if="!full" class="ui-sheet-grabber" aria-hidden="true" />
           <div v-if="title" class="ui-sheet-head">
             <span class="ui-sheet-title">{{ title }}</span>
@@ -67,6 +74,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 }
 /* 全屏 body = 纯填充容器（面板自带内部滚动区；外层不滚，避免双滚动条） */
 .ui-sheet.full .ui-sheet-body { padding: 0; overflow: hidden; }
+/* 右抽屉形态（cr-157）：右侧滑入、左缘圆角、抓手不适用（横向面板无拖拽语义） */
+.ui-sheet.right { align-items: stretch; justify-content: flex-end; }
+.ui-sheet.right .ui-sheet-panel {
+  border-radius: var(--r-lg) 0 0 var(--r-lg); border-bottom: 1px solid var(--line);
+  max-height: none; height: 100%;
+}
+.ui-sheet.right .ui-sheet-grabber { display: none; }
 .ui-sheet-grabber {
   position: relative;
   width: 36px;

@@ -11,7 +11,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { StarAvatar, Modal, PullToRefresh, SearchInput } from '@agentchat/webui-kit';
+import { Button, Icon, Input, Modal, PullToRefresh, SearchInput, Select, StarAvatar } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { directDialog, groupDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -91,6 +91,15 @@ async function openAddDialog() {
 
 /** 所选 provider 的模型选项（发现缓存；空 = 交给服务端默认连接物化） */
 const dialogModels = computed(() => poolModels.value[selProvider.value] ?? []);
+/** kit Select 选项表（cr-171）：Provider / 模型 */
+const dialogProviderOptions = computed(() => [
+  { value: '', label: '默认（全局连接）' },
+  ...providerStats.value.map((stat) => ({ value: stat.name, label: stat.description ? stat.name + ' · ' + stat.description : stat.name })),
+]);
+const dialogModelOptions = computed(() => [
+  { value: '', label: '默认（该连接的默认模型）' },
+  ...dialogModels.value.map((m) => ({ value: m, label: m })),
+]);
 /** 选 provider 未选 model 时的默认模型（首个已发现模型） */
 function onDialogProviderChange(name: string) {
   selProvider.value = name;
@@ -224,7 +233,7 @@ async function refreshAll() {
   <div class="agent-list">
     <div class="header">
       <div class="search-box"><SearchInput v-model="searchQuery" placeholder="搜索 Agent / 群组..." /></div>
-      <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
+      <div class="add-btn-wrap"><button class="add-btn" aria-label="新建" @click.stop="toggleCreateMenu"><Icon name="plus" :size="16" /></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="ui-dd-menu create-menu" @click.stop><button class="ui-dd-opt" @click="openAddAgentDialog"><span class="ui-dd-opt-icon"><Icon name="bot" :size="14" /></span><span class="ui-dd-opt-body"><span class="ui-dd-opt-name">新增 Agent</span></span></button><button class="ui-dd-opt" @click="openCreateGroup"><span class="ui-dd-opt-icon"><Icon name="users" :size="14" /></span><span class="ui-dd-opt-body"><span class="ui-dd-opt-name">创建群组</span></span></button></div></Transition></div>
 
     </div>
     <PullToRefresh ref="listScrollRef" class="list-scroll" :on-refresh="refreshAll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
@@ -238,7 +247,7 @@ async function refreshAll() {
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
     </PullToRefresh>
-    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>Provider</label><select :value="selProvider" @change="onDialogProviderChange(($event.target as HTMLSelectElement).value)"><option value="">默认（全局连接）</option><option v-for="stat in providerStats" :key="stat.name" :value="stat.name">{{ stat.name }}{{ stat.description ? ' · ' + stat.description : '' }}</option></select></div><div class="form-group"><label>模型</label><select v-model="selModel" :disabled="!selProvider"><option value="">默认（该连接的默认模型）</option><option v-for="m in dialogModels" :key="m" :value="m">{{ m }}</option></select></div><p v-if="!selProvider" class="default-hint">将使用全局默认连接与模型</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false" :disabled="adding">取消</button><button class="btn-save" @click="createAgent" :disabled="adding">{{ adding ? '创建中…' : '创建' }}</button></div></div></Modal>
+    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><Input v-model="newAgentId" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><Input v-model="newAgentName" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>Provider</label><Select :options="dialogProviderOptions" :model-value="selProvider" @update:model-value="onDialogProviderChange" /></div><div class="form-group"><label>模型</label><Select :options="dialogModelOptions" :model-value="selModel" :disabled="!selProvider" @update:model-value="selModel = $event" /></div><p v-if="!selProvider" class="default-hint">将使用全局默认连接与模型</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><Button variant="ghost" @click="showAddDialog = false" :disabled="adding">取消</Button><Button variant="primary" :loading="adding" @click="createAgent">{{ adding ? '创建中…' : '创建' }}</Button></div></div></Modal>
   </div>
 </template>
 
@@ -252,10 +261,8 @@ html.dark .agent-list{background:var(--bg-base)}
 .add-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-2);cursor:pointer;flex-shrink:0}
 .add-btn:hover{background:var(--bg-base);color:var(--primary)}
 .add-btn-wrap{position:relative;flex-shrink:0}
-.create-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--bg-raised);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:4px;min-width:180px;z-index:300}
-.menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:none;border-radius:6px;background:none;color:var(--text-1);font-size:13px;cursor:pointer;text-align:left}
-.menu-item:hover{background:var(--role-hover-bg);color:var(--text-1)}
-.menu-item svg{flex-shrink:0;color:var(--text-3)}
+/* 新建菜单已归 ui-dd-menu/ui-dd-opt 配方（cr-171）；.create-menu 只作定位 */
+.create-menu{top:100%;right:0;margin-top:4px;min-width:180px}
 .menu-fade-enter-active,.menu-fade-leave-active{transition:opacity .12s ease,transform .12s ease}
 .menu-fade-enter-from,.menu-fade-leave-to{opacity:0;transform:translateY(-4px)}
 .mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--text-2);padding:4px;border-radius:var(--radius-sm);line-height:0}
@@ -294,15 +301,10 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .dialog-panel h4{margin:0 0 14px;font-size:15px;font-weight:600;color:var(--text-1)}
 .dialog-panel .form-group{margin-bottom:10px;display:flex;flex-direction:column;gap:4px}
 .dialog-panel label{font-size:12px;font-weight:500;color:var(--text-2)}
-.dialog-panel input,.dialog-panel select{padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:13px;background:var(--bg-base);color:var(--text-1);outline:none;width:100%;box-sizing:border-box}
-.dialog-panel input:focus,.dialog-panel select:focus{border-color:var(--primary)}
+/* 表单控件与动作钮已归 kit Input/Select/Button（cr-171） */
 .default-hint{font-size:12px;color:var(--text-3);margin:-4px 0 4px;font-style:italic}
 .error-text{font-size:12px;color:var(--err);margin-bottom:8px}
 .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
-.btn-cancel,.btn-save{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer}
-.btn-cancel{background:var(--bg-base);border:1px solid var(--line);color:var(--text-2)}
-.btn-save{background:var(--primary);border:none;color:var(--on-primary)}
-.btn-save:hover{background:var(--primary-strong)}
 .modal-enter-active,.modal-leave-active{transition:opacity .15s ease}
 .modal-enter-from,.modal-leave-to{opacity:0}
 </style>

@@ -12,7 +12,7 @@
 
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, Tooltip } from '@agentchat/webui-kit';
 import { useChatStore } from '../chatStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
@@ -53,15 +53,16 @@ function openPreview() {
 </script>
 
 <template>
-  <button
-    v-if="applicable"
-    class="settings-btn"
-    :disabled="chatStore.systemPromptLoading"
-    title="预览 System Prompt"
-    @click="openPreview()"
-  >
-    <Icon name="scroll-text" :size="18" />
-  </button>
+  <Tooltip v-if="applicable" text="预览 System Prompt" placement="bottom">
+    <button
+      class="settings-btn"
+      :disabled="chatStore.systemPromptLoading"
+      aria-label="预览 System Prompt"
+      @click="openPreview()"
+    >
+      <Icon name="scroll-text" :size="18" />
+    </button>
+  </Tooltip>
 </template>
 
 <style scoped>

@@ -204,11 +204,11 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
   <div class="pool">
     <div class="pool-head">
       <span class="pool-title">{{ title }}</span>
-      <button class="pool-add" @click="startAdd">+ 添加</button>
+      <Button variant="primary" size="sm" icon="plus" @click="startAdd">添加</Button>
     </div>
 
     <div v-if="Object.keys(pools).filter(k => !k.startsWith('$')).length === 0" class="pool-empty">
-      暂无条目，点击"+ 添加"创建
+      暂无条目，点击「添加」创建
     </div>
     <div v-else class="pool-list">
       <div
@@ -224,9 +224,9 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
           <span class="pool-entry-detail">{{ detailOf(String(name), entry) }}</span>
         </div>
         <div class="pool-entry-actions">
-          <button v-if="!entry.default" class="pool-set-default" @click="setDefault(String(name))" title="设为默认">设为默认</button>
-          <button class="pool-btn" @click="startEdit(String(name))">编辑</button>
-          <button class="pool-btn danger" @click="removeEntry(String(name))">删除</button>
+          <Button v-if="!entry.default" variant="ghost" size="sm" icon="star" title="设为默认搜索引擎（全局缺省使用它）" @click="setDefault(String(name))">设为默认</Button>
+          <Button variant="ghost" size="sm" @click="startEdit(String(name))">编辑</Button>
+          <Button variant="danger" size="sm" @click="removeEntry(String(name))">删除</Button>
         </div>
       </div>
     </div>
@@ -266,37 +266,21 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 .pool { display: flex; flex-direction: column; gap: 12px; }
 .pool-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .pool-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
-.pool-add {
-  padding: 5px 14px; border: 1px solid var(--primary); border-radius: var(--r-md);
-  background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; transition: all var(--dur-fast);
-}
-.pool-add:hover { background: var(--primary-light); }
-.pool-add:disabled { opacity: .5; cursor: not-allowed; }
+/* 动作钮已归 kit Button（cr-171）；.pool-empty 空态保留 */
 .pool-empty { text-align: center; padding: 24px; color: var(--text-3); font-size: 13px; }
 .pool-list { display: flex; flex-direction: column; gap: 6px; }
 .pool-entry {
   /* C8 收敛 A 语言：底座 = ui/row.css .ui-row（默认条目标记 = .is-selected
-     星色描边——StarCard.selected 同 recipe） */
+     角色底——cr-171 起行语言无边框，星标走 --star 语义色） */
   justify-content: space-between; padding: 8px 12px;
 }
 .pool-entry-info { display: flex; flex-direction: column; gap: 2px; }
 .pool-entry-name { font-size: 13px; font-weight: 500; color: var(--text-1); }
-.pool-star { color: var(--warn); margin-right: 4px; display: inline-flex; align-items: center; }
+/* cr-172 实心星标：与 PoolManager 同款 */
+.pool-star { color: var(--star); margin-right: 4px; display: inline-flex; align-items: center; }
+.pool-star :deep(svg path) { fill: currentColor; }
 .pool-entry-detail { font-size: 11px; color: var(--text-3); }
 .pool-entry-actions { display: flex; gap: 6px; }
-.pool-btn {
-  padding: 4px 11px; border: none; border-radius: var(--r-md);
-  background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; transition: all var(--dur-fast);
-}
-.pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
-.pool-btn.danger { color: var(--err); }
-.pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
-.pool-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.pool-set-default {
-  padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
-  background: transparent; color: var(--warn); font-size: 11px; cursor: pointer;
-}
-.pool-set-default:hover { background: rgba(var(--warn-rgb), 0.1); }
 
 /* cr-169：表单控件已归 kit（Input/Select） */
 .pool-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }

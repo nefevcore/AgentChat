@@ -10,7 +10,7 @@
   外壳与密度对齐 dock 卡族规范（InteractionBar/QueueDock 同族）。 -->
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue';
-import { DockCard, Icon } from '@agentchat/webui-kit';
+import { DockCard, Icon, Tooltip } from '@agentchat/webui-kit';
 import { useChatStore } from './chatStore.ts';
 
 const chatStore = useChatStore();
@@ -64,12 +64,15 @@ function decide(approved: boolean, scope: 'call' | 'run' = 'call') {
     <DockCard
       v-if="approval && visible"
       class="approval-bar"
+      icon="shield"
       :eyebrow="`提权请求 · ${approval.agent_id || 'Agent'} → ${approval.tool}`"
     >
       <template #actions>
-        <button type="button" class="ab-icon-btn" title="拒绝本次请求" @click="decide(false)">
-          <Icon name="x" :size="13" />
-        </button>
+        <Tooltip text="拒绝本次请求" placement="bottom">
+          <button type="button" class="ab-icon-btn" aria-label="拒绝本次请求" @click="decide(false)">
+            <Icon name="x" :size="13" />
+          </button>
+        </Tooltip>
       </template>
 
       <!-- 档位说明（申请方诉求——审批全文的第一段） -->

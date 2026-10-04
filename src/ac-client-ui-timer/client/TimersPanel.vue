@@ -12,6 +12,7 @@
 //   · 底注：触发语义一句话说明。
 // ============================================================
 import { computed, ref, watch } from 'vue';
+import { Button, Icon, Tooltip } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { getAgentTimers, saveAgentTimers, type TimerEntry } from './timerApi.ts';
@@ -63,7 +64,7 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
     <div class="tmp-head">
       <span class="tmp-title">定时任务</span>
       <span class="tmp-count">{{ agentId ? `${enabledCount}/${timers.length} 启用` : '未选 Agent' }}</span>
-      <button v-if="dirty" class="tmp-save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+      <Button v-if="dirty" variant="primary" size="sm" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</Button>
     </div>
     <div class="tmp-body">
       <!-- Agent 级（当前活跃 Agent；无选中提示） -->
@@ -71,7 +72,9 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
         <div class="tmp-section-title">
           <span class="tmp-section-label">Agent 定时器</span>
           <span class="tmp-section-sub">{{ agentName ? agentName : '未选中 Agent' }}</span>
-          <button class="tmp-add" title="添加 Agent 定时任务" :disabled="!agentId" @click="timerPaneRef?.addTimer()">＋</button>
+          <Tooltip text="添加 Agent 定时任务" placement="top">
+            <button class="tmp-add" aria-label="添加 Agent 定时任务" :disabled="!agentId" @click="timerPaneRef?.addTimer()"><Icon name="plus" :size="13" /></button>
+          </Tooltip>
         </div>
         <TimerPane v-if="agentId" ref="timerPaneRef" :entries="timers" :saving="saving" hide-header @update:entries="onTimersUpdate" @save="save" />
         <div v-else class="tmp-empty">在主侧边栏选择一个 Agent 查看其定时器</div>
@@ -82,7 +85,9 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
         <div class="tmp-section-title">
           <span class="tmp-section-label">全局任务</span>
           <span class="tmp-section-sub">跨 Agent</span>
-          <button class="tmp-add" title="添加全局定时任务" @click="globalHostRef?.startAddTask()">＋</button>
+          <Tooltip text="添加全局定时任务" placement="top">
+            <button class="tmp-add" aria-label="添加全局定时任务" @click="globalHostRef?.startAddTask()"><Icon name="plus" :size="13" /></button>
+          </Tooltip>
         </div>
         <GlobalTimerHost ref="globalHostRef" />
       </div>
@@ -105,12 +110,7 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
 }
 .tmp-title { font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .tmp-count { font-size: 11px; color: var(--text-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tmp-save {
-  border: 1px solid var(--primary); border-radius: var(--r-sm);
-  background: var(--primary); color: var(--on-primary);
-  font-size: 11px; padding: 3px 12px; cursor: pointer; flex-shrink: 0;
-}
-.tmp-save:disabled { opacity: 0.6; cursor: default; }
+/* 保存钮已归 kit Button（cr-171） */
 .tmp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 18px; }
 .tmp-section { display: flex; flex-direction: column; gap: 6px; }
 .tmp-section-title {
@@ -124,7 +124,7 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
 .tmp-add {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border: 1px solid var(--line); border-radius: var(--r-sm, 6px);
-  background: transparent; color: var(--text-3); font-size: 13px; line-height: 1;
+  background: transparent; color: var(--text-3);
   cursor: pointer; flex-shrink: 0; transition: all var(--dur-fast, .15s ease);
 }
 .tmp-add:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }

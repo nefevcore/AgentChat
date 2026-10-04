@@ -120,7 +120,7 @@ describe('文件编辑面板直播刷新链', () => {
     // 头部关闭按钮：点击 → aux 区域收起
     const ui = (await import('ac-client-ui-layout/client/uiStore.ts')).useUiStore();
     ui.auxVisible = true;
-    const closeBtn = document.querySelector('.fe-close') as HTMLButtonElement | null;
+    const closeBtn = document.querySelector('.fe-head .ui-icon-action') as HTMLButtonElement | null; // kit IconAction（cr-192）
     expect(closeBtn).toBeTruthy(); // 按钮在头部渲染
     closeBtn!.click();
     await new Promise((r) => setTimeout(r, 50));

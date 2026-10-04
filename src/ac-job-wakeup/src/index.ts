@@ -22,6 +22,13 @@
 //
 // 与 ac-ws-bridge 的分工：那是 WS 广播通道（前端通知），本行是
 // Agent 唤醒通道（对话闭环）——同事件两个订阅方，互不依赖。
+//
+// 子 Agent owner 不唤醒（cr-132）：sub_* 的 job（run 内 pwsh handoff
+// 等）收束时不再向 owner 自会话桶投通知——该桶无人工审批面，唤醒的
+// run 以 base-access fail-closed 起跑（pwsh/write 全拒，webui 批次实测
+// 「无法清理临时文件」即此）；子 Agent 的收束汇报由 ac-subagent 的
+// settled 机制直达父会话，活跃 run 读后台 job 用 job 工具，自会话唤醒
+// 是纯浪费的第三通道。识别走 subagents 服务软依赖（行组合可摘）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-jobs'; // job/settled 事件目录 + JobSnapshot（type-only）
@@ -89,6 +96,13 @@ export function apply(ctx: Context) {
   ctx.on('job/settled', (job) => {
     const owner = job.ownerAgentId;
     if (!owner) return; // 无主任务（宿主发起）无人可唤醒
+    // 子 Agent owner 不唤醒（cr-132，头部注释）：回投自会话只会得到
+    // base-access 的失能 run。job.conversationId 显式携带（发起会话）时
+    // 照常投——那是任务发起地的回执，不是自会话唤醒。
+    if (job.conversationId === undefined) {
+      const subs = ctx.get('subagents', false) as { get(id: string): unknown } | undefined;
+      if (subs?.get(owner) !== undefined) return;
+    }
     const conversation = ctx.get('conversation');
     if (!conversation) return; // 行组合未装会话状态机——跳过（非错误）
 

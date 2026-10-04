@@ -85,21 +85,21 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
 
 <template>
   <div class="wtn-node">
-    <div v-if="node.type === 'dir'" class="wtn-row wtn-dir" @click="onToggle">
+    <div v-if="node.type === 'dir'" class="wtn-row ui-row ui-row--tree wtn-dir" @click="onToggle">
       <span class="wtn-icon"><Icon :name="isOpen ? 'folder-open' : 'folder'" :size="14" /></span>
       <span class="wtn-name">{{ node.name }}</span>
     </div>
     <div
       v-else-if="node.type === 'file'"
-      class="wtn-row wtn-file"
-      :class="{ active: activePath === full }"
+      class="wtn-row ui-row ui-row--tree wtn-file"
+      :class="{ 'is-active': activePath === full }"
       @click="emit('file-click', node, parentPath)"
       :title="full"
     >
       <span class="wtn-icon" :style="fileIcon.color ? { color: fileIcon.color } : undefined"><Icon :name="fileIcon.icon" :size="14" /></span>
       <span class="wtn-name">{{ node.name }}</span>
     </div>
-    <div v-else class="wtn-row wtn-more"><span class="wtn-name">{{ node.name }}</span></div>
+    <div v-else class="wtn-row ui-row ui-row--tree wtn-more"><span class="wtn-name">{{ node.name }}</span></div>
 
     <div v-if="node.type === 'dir' && isOpen" class="wtn-children">
       <WorkspaceTreeNode
@@ -118,13 +118,9 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
 </template>
 
 <style scoped>
-.wtn-row {
-  display: flex; align-items: center; gap: 4px;
-  padding: 3px 6px; border-radius: var(--radius-sm); cursor: pointer;
-  white-space: nowrap; overflow: hidden; min-width: 0;
-}
-.wtn-row:hover { background: var(--bg-surface); }
-.wtn-row.active { background: var(--primary-light); }
+/* 行基座/hover/is-active 已由 kit row.css --tree 变体提供（cr-157）；
+   此处只留树特有修饰（目录/文件配色、图标位、缩进线） */
+.wtn-row { cursor: pointer; white-space: nowrap; overflow: hidden; min-width: 0; }
 .wtn-dir { color: var(--text-1); font-weight: 500; }
 .wtn-file { color: var(--text-2); }
 .wtn-icon { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 16px; }

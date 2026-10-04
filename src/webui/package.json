@@ -52,6 +52,7 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@iconify-json/simple-icons": "^1.2.98",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.19.0",
     "@types/ws": "^8.5.10",

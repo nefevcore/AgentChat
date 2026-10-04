@@ -8,7 +8,7 @@
   不出现在下拉里）。 -->
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
-import { BusyRing, Icon, Tooltip, toastError } from '@agentchat/webui-kit';
+import { BusyRing, Icon, IconAction, Select, Tooltip, toastError } from '@agentchat/webui-kit';
 import {
   useFilePreviewContent,
   previewModeOptions,
@@ -16,7 +16,6 @@ import {
   PREVIEW_MODE_LABELS,
   type PreviewViewMode,
 } from './filePreviewContent.ts';
-import { useModeMenu } from './useModeMenu.ts';
 import { openLocalFile } from './fileApi.ts';
 import OfficeView from './OfficeView.vue';
 import { useClientContext } from 'ac-client-runtime';
@@ -57,15 +56,10 @@ const showModeSelect = computed(() => modeOptions.value.length > 1);
 
 const MODE_LABELS = PREVIEW_MODE_LABELS;
 
-// ── 下拉弹层（自绘 Listbox：与 Modal 共用 useModeMenu 状态机——原生
-//    select 弹层在部分平台不接 CSS，且被面板 overflow 裁剪；Teleport
-//    到 body 定位展示）──
-const { open: modeMenuOpen, triggerEl: modeTriggerEl, style: menuStyle, toggle: toggleModeMenu } = useModeMenu('fpt-mode-menu', 120);
-
-function pickMode(m: PreviewViewMode) {
-  props.onSetViewMode(m);
-  modeMenuOpen.value = false;
-}
+// ── 格式下拉（kit Select——cr-192 归一：弹层/选中态/键盘可达单源）──
+const modeSelectOptions = computed(() =>
+  modeOptions.value.map((m) => ({ value: m, label: MODE_LABELS[m] }))
+);
 
 /** 实际渲染分支（auto 落到具体格式；binary 网关 + 合法性回落） */
 const viewKind = computed(() =>
@@ -140,60 +134,23 @@ onBeforeUnmount(() => {
         <span v-if="sizeDisplay" class="fpt-size">{{ sizeDisplay }}</span>
       </div>
       <div class="fpt-head-actions">
-        <!-- 格式选择（自绘下拉：触发器 + Teleport 弹层；选项 = 该文件
-             允许的格式——previewModeOptions 能力检查先行过滤） -->
-        <div v-if="showModeSelect" class="fpt-mode-select" title="选择预览格式">
-          <button
-            ref="modeTriggerEl"
-            type="button"
-            class="fpt-mode-trigger"
-            aria-haspopup="listbox"
-            :aria-expanded="modeMenuOpen"
-            @click="toggleModeMenu"
-          >
-            <Icon name="file-text" :size="12" class="fpt-mode-icon" />
-            <span class="fpt-mode-label">{{ MODE_LABELS[viewMode] }}</span>
-            <Icon name="chevron-down" :size="12" class="fpt-mode-caret" :class="{ open: modeMenuOpen }" />
-          </button>
-        </div>
-        <Teleport to="body">
-          <div
-            v-if="modeMenuOpen"
-            class="fpt-mode-menu"
-            role="listbox"
-            aria-label="预览格式"
-            :style="menuStyle"
-          >
-            <button
-              v-for="m in modeOptions"
-              :key="m"
-              type="button"
-              role="option"
-              class="fpt-mode-option"
-              :class="{ active: m === viewMode }"
-              :aria-selected="m === viewMode"
-              @click="pickMode(m)"
-            >
-              <span class="fpt-mode-option-label">{{ MODE_LABELS[m] }}</span>
-              <Icon v-if="m === viewMode" name="check" :size="13" class="fpt-mode-option-check" />
-            </button>
-          </div>
-        </Teleport>
+        <!-- 格式选择（kit Select——cr-192；选项 = 该文件允许的格式，
+             previewModeOptions 能力检查先行过滤） -->
+        <Select
+          v-if="showModeSelect"
+          class="fpt-mode-select"
+          :options="modeSelectOptions"
+          :model-value="viewMode"
+          title="选择预览格式"
+          @update:model-value="(v) => props.onSetViewMode(v as PreviewViewMode)"
+        />
         <!-- 刷新（重新拉取文件内容；加载中转圈禁点——错误态点击即重试） -->
         <Tooltip text="刷新" placement="bottom">
-          <button
-            class="fpt-icon-btn"
-            :disabled="loading"
-            @click="reload"
-          ><BusyRing v-if="loading" :size="13" /><Icon v-else name="refresh-cw" :size="14" /></button>
+          <IconAction :icon="loading ? 'loader-circle' : 'refresh-cw'" label="刷新" :size="14" suppress-title :class="{ spin: loading }" :disabled="loading" @click="reload" />
         </Tooltip>
         <!-- 自动换行（代码/文本类视图生效；icon 开关 + on 态高亮） -->
         <Tooltip v-if="wrapApplies" :text="wrap ? '自动换行：开 · 点击关闭' : '自动换行：关 · 点击开启'" placement="bottom">
-          <button
-            class="fpt-icon-btn"
-            :class="{ on: wrap }"
-            @click="onToggleWrap"
-          ><Icon name="wrap-text" :size="14" /></button>
+          <IconAction icon="wrap-text" label="自动换行" :size="14" suppress-title :class="{ on: wrap }" @click="onToggleWrap" />
         </Tooltip>
         <!-- 本地打开（系统默认程序；icon 按钮 + tooltip；失败经全局
              toast 呈现，此处仅错误标记位） -->
@@ -202,37 +159,40 @@ onBeforeUnmount(() => {
           :text="openLocalState === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
           placement="bottom"
         >
-          <button
-            class="fpt-icon-btn"
+          <IconAction
+            :icon="openLocalState === 'opening' ? 'loader-circle' : 'external-link'"
+            label="本地打开（系统默认程序）"
+            :size="14"
+            suppress-title
+            :class="{ spin: openLocalState === 'opening' }"
             :disabled="openLocalState === 'opening'"
             @click="openLocally"
-          >
-            <BusyRing v-if="openLocalState === 'opening'" :size="13" />
-            <Icon v-else name="external-link" :size="14" />
-          </button>
+          />
         </Tooltip>
-        <button
+        <IconAction
           v-else
-          class="fpt-icon-btn error"
-          title="本地打开失败（详见全局提示）"
+          icon="alert-circle"
+          label="本地打开失败（详见全局提示）"
+          :size="14"
+          class="error"
           @click="openLocally"
-        ><Icon name="alert-circle" :size="14" /></button>
+        />
         <Tooltip v-if="fileData && !fileData.binary" :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制内容'" placement="bottom">
-          <button
-            class="fpt-icon-btn"
-            :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
+          <IconAction
+            :icon="copyState === 'copied' ? 'check' : copyState === 'error' ? 'alert-circle' : 'copy'"
+            label="复制内容"
+            :size="14"
+            suppress-title
+            :class="{ ok: copyState === 'copied', error: copyState === 'error' }"
             @click="copyContent"
-          >
-            <Icon v-if="copyState === 'copied'" name="check" :size="14" />
-            <Icon v-else-if="copyState === 'error'" name="alert-circle" :size="14" />
-            <Icon v-else name="copy" :size="14" />
-          </button>
+          />
         </Tooltip>
         <Tooltip v-if="isHtml" text="在新窗口打开" placement="bottom">
           <a
             :href="`/api/workspace/raw?path=${encodeURIComponent(path)}`"
             target="_blank"
-            class="fpt-icon-btn"
+            class="ui-icon-action"
+            aria-label="在新窗口打开"
           ><Icon name="external-link" :size="14" /></a>
         </Tooltip>
       </div>
@@ -361,74 +321,18 @@ onBeforeUnmount(() => {
   gap: 4px;
   flex-shrink: 0;
 }
-/* ── 格式选择下拉（自绘 Listbox：触发器 + Teleport 弹层〔样式在下方
-      非 scoped 块〕——原生 select 弹层不接 CSS 且受面板 overflow 裁剪）── */
-.fpt-mode-select {
-  display: inline-flex;
-  align-items: center;
-}
-.fpt-mode-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 6px 0 7px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg-surface);
-  color: var(--text-2);
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.fpt-mode-trigger:hover {
-  border-color: var(--line);
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-/* 焦点环归 L0 唯一源（tokens.css 全局 :focus-visible + --focus-ring*，cr-127） */
-.fpt-mode-icon { color: var(--text-3); flex-shrink: 0; }
-.fpt-mode-label { min-width: 28px; text-align: left; }
-.fpt-mode-caret {
-  color: var(--text-3);
-  flex-shrink: 0;
-  transition: transform 0.15s;
-}
-.fpt-mode-caret.open { transform: rotate(180deg); }
-
-/* ── icon 动作按钮（本地打开/复制/换行/新窗口/重试）── */
-.fpt-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 22px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: all 0.15s;
-  text-decoration: none;
-  flex-shrink: 0;
-}
-.fpt-icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.fpt-icon-btn:disabled { opacity: 0.6; cursor: default; }
-.fpt-icon-btn.copied { color: var(--ok); }
-.fpt-icon-btn.error { color: var(--err); }
-/* 开启态偏好按钮（换行）：主题色高亮示当前值 */
-.fpt-icon-btn.on {
-  color: var(--primary);
-  background: var(--primary-light);
-  border-color: var(--primary);
-}
-/* 忙指示归 kit BusyRing（cr-127；原自建 .fpt-spin 旋转与 @keyframes 已退役） */
+/* ── 格式下拉 + icon 动作钮已迁 kit Select/IconAction（cr-192）；
+      此处仅留宿主态修饰（选中/错误/开启色 + 紧凑尺寸）── */
+/* Select 紧凑档：头部工具行高度 22px 档 */
+.fpt-head-actions :deep(.ui-sel-trigger) { height: 22px; padding: 0 6px; font-size: var(--fs-xs); }
+.fpt-head-actions :deep(.ui-sel-value) { min-width: 28px; }
+/* IconAction 态色：copied=ok、error=err、on（换行开）=primary 高亮 */
+.fpt-head-actions :deep(.ui-icon-action.ok) { color: var(--ok); }
+.fpt-head-actions :deep(.ui-icon-action.error) { color: var(--err); }
+.fpt-head-actions :deep(.ui-icon-action.on) { color: var(--primary); background: var(--primary-light); }
+/* loading 转圈（loader-circle 随 .spin 旋转——kit Icon 无内建旋转态） */
+.fpt-head-actions :deep(.ui-icon-action.spin) .ui-icon svg { animation: fpt-spin 0.9s linear infinite; }
+@keyframes fpt-spin { to { transform: rotate(360deg); } }
 
 /* 错误区重试按钮（保留文字按钮形态——大点击目标） */
 .fpt-error-retry {
@@ -572,61 +476,4 @@ onBeforeUnmount(() => {
 
 /* 亮色硬编码覆盖层已退役（cr-127）：pane 头分界/墨色/件底/悬停底全由 L0
    令牌双主题单源承担（--line/--text-1/--bg-surface/--bg-hover/--bg-base）。 */
-</style>
-
-<!-- 弹层样式（非 scoped：弹层经 Teleport 落在 body 下，scoped 属性
-     选择器够不到——类名以 fpt- 前缀隔离，不外溢） -->
-<style>
-.fpt-mode-menu {
-  position: fixed;
-  z-index: 10050; /* 高于预览 Modal（10000）/Tooltip（700）层 */
-  min-width: 120px;
-  padding: 4px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--bg-surface);
-  box-shadow: 0 8px 28px rgba(0,0,0,0.38);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  animation: fpt-menu-in 0.12s ease-out;
-}
-@keyframes fpt-menu-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.fpt-mode-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 5px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12px;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.fpt-mode-option:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.fpt-mode-option.active {
-  color: var(--primary);
-  background: var(--primary-light);
-  font-weight: 500;
-}
-.fpt-mode-option-check { flex-shrink: 0; }
-/* 亮色档：底/墨色取令牌亮档（阴影为 rgba 字面量，收编归 P6） */
-:root.light .fpt-mode-menu {
-  background: var(--bg-raised);
-  box-shadow: 0 8px 24px rgba(15,23,42,0.14);
-}
-:root.light .fpt-mode-option { color: var(--text-2); }
-:root.light .fpt-mode-option:hover { background: var(--bg-hover); color: var(--text-1); }
-:root.light .fpt-mode-option.active { color: var(--primary); background: var(--primary-light); }
 </style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
-import { Modal } from '@agentchat/webui-kit';
+import { Modal, Tooltip } from '@agentchat/webui-kit';
 import { browseReadFile, type ReadContext } from 'ac-client-ui-workspace/client/workspaceFile.ts';
 
 const props = defineProps<{
@@ -121,20 +121,24 @@ defineExpose({ open });
             </div>
             <div class="code-header-right">
               <span v-if="content" class="ui-badge dim code-meta-badge">{{ content.length.toLocaleString() }} 字符</span>
-              <button class="code-copy-btn" :class="{ copied: copyState === 'copied' }" @click="copyContent" :disabled="!content" title="复制全部内容">
-                <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-                <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
-              </button>
-              <button class="write-dialog-close" @click="showModal = false" title="关闭">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
+              <Tooltip :text="copyState === 'copied' ? '已复制' : '复制全部内容'" placement="bottom">
+                <button class="code-copy-btn" :class="{ copied: copyState === 'copied' }" :aria-label="copyState === 'copied' ? '已复制' : '复制全部内容'" @click="copyContent" :disabled="!content">
+                  <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
+                </button>
+              </Tooltip>
+              <Tooltip text="关闭" placement="bottom">
+                <button class="write-dialog-close" aria-label="关闭" @click="showModal = false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </Tooltip>
             </div>
           </div>
 

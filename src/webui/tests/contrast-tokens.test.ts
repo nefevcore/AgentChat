@@ -62,7 +62,7 @@ const aurora = themeBlock("html[data-theme='aurora']");
 const root = themeBlock(':root {');
 
 /** 底色三档（令牌都在两侧主题块里） */
-const SURFACES = ['bg-base', 'bg-surface', 'bg-raised', 'bg-hover'];
+const SURFACES = ['bg-base', 'bg-surface', 'bg-raised', 'bg-hover', 'bg-inset'];
 function color(t: Record<string, string>, name: string): Rgb {
   const v = t[name];
   if (!v) throw new Error(`令牌缺失：--${name}`);
@@ -96,8 +96,8 @@ describe('对比度契约（cr-121）', () => {
     }
   });
 
-  it('②b 图形档令牌：图形件 ≥3.0（WCAG 1.4.11 · base/surface/raised 三底，cr-123）', () => {
-    const GRAPHICS = ['ok-graphic', 'warn-graphic', 'err-graphic'] as const;
+  it('②b 状态档令牌：图形件 ≥3.0（WCAG 1.4.11 · base/surface/raised 三底，cr-123）', () => {
+    const GRAPHICS = ['ok-status', 'warn-status', 'err-status'] as const;
     // 图形件（环描边/状态点/色条）实际只落三白净底；hover 底上无图形件消费
     const G3 = ['bg-base', 'bg-surface', 'bg-raised'] as const;
     for (const theme of ['nebula', 'aurora'] as const) {
@@ -137,7 +137,7 @@ describe('对比度契约（cr-121）', () => {
       const cInfo = contrast(infoInk, over(infoInk, tints.info!, surface));
       expect(cInfo, `${theme} .ui-badge.info/.cfg = ${cInfo.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
     }
-    const dim = contrast(color(nebula, 'text-3'), color(nebula, 'bg-hover'));
+    const dim = contrast(color(nebula, 'text-3'), color(nebula, 'bg-inset'));
     expect(dim, `.ui-badge.dim = ${dim.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
   });
 
@@ -215,7 +215,7 @@ describe('对比度契约（cr-121）', () => {
   it('⑦ 星色板：8 色 + 用户色在其 tint 底上 ≥ 4.5（首字 / 图标）', () => {
     const alpha = Number(/rgba\(var\(--sc-rgb[^)]*\),\s*([\d.]+)\)/.exec(starAvatar)?.[1] ?? 0.14);
     const entries = [...starColorTs.matchAll(/\{ nebula: '(#[0-9a-fA-F]{3,8})', aurora: '(#[0-9a-fA-F]{3,8})', label: '([^']+)' \}/g)];
-    expect(entries.length, '星板条目数（8 色 + 用户色）').toBe(9);
+    expect(entries.length, '星板条目数（9 色 + 用户色）').toBe(10);
     for (const [, neb, aur, label] of entries) {
       for (const [theme, t, hex] of [['nebula', nebula, neb!], ['aurora', aurora, aur!]] as const) {
         const ink = hexToRgb(hex);

@@ -13,7 +13,7 @@
 // 上翻分页：limit/offset 从尾部往回取（RPC 形状对齐 session/history）。
 // ============================================================
 import { computed, inject, ref, watch, nextTick } from 'vue';
-import { Icon, StarAvatar, BusyRing, FeedbackNotice } from '@agentchat/webui-kit';
+import { Icon, StarAvatar, BusyRing, FeedbackNotice, Tooltip } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { useClientContext, clientRuntime } from 'ac-client-runtime';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -139,9 +139,11 @@ function refresh() { void loadInitial(); }
     <!-- 头部：子信息 + 状态徽章 + 刷新。窄屏返回钮（cr-33：只读子会话是
          push 页——桌面导航语义不变，移动端返回 = 退出只读视角） -->
     <div class="chat-header">
-      <button class="back-btn" @click="closeMobileMain" title="返回">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
-      </button>
+      <Tooltip text="返回" placement="bottom">
+        <button class="back-btn" aria-label="返回" @click="closeMobileMain">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+        </button>
+      </Tooltip>
       <div class="header-info">
         <div class="pair-title">
           <div class="pair-avatars">
@@ -159,10 +161,12 @@ function refresh() { void loadInitial(); }
       <div class="header-actions">
         <span v-if="isRunning" class="ui-badge warn st-badge"><Icon name="zap" :size="11" /> 运行中</span>
         <span v-else-if="job" class="ui-badge dim st-badge">{{ jobStatusLabel(job.status) }}</span>
-        <button class="refresh-btn" title="刷新（重拉历史）" :disabled="loading" @click="refresh">
-          <BusyRing v-if="loading" :size="13" />
-          <Icon v-else name="refresh-cw" :size="15" />
-        </button>
+        <Tooltip text="刷新（重拉历史）" placement="bottom">
+          <button class="refresh-btn" aria-label="刷新（重拉历史）" :disabled="loading" @click="refresh">
+            <BusyRing v-if="loading" :size="13" />
+            <Icon v-else name="refresh-cw" :size="15" />
+          </button>
+        </Tooltip>
       </div>
     </div>
 

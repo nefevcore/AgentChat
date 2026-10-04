@@ -17,23 +17,23 @@
 .ui-row {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 10px;
-  border: 1px solid transparent;
+  /* 无边框（cr-171）：透明边框仍占 2px 位，行内文字与邻行视觉粘连；
+     选中态改纯底色分层，基础设施标记改透明度（见 is-selected / is-auto） */
+  border: none;
   border-radius: var(--r-md);
   background: transparent;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast), box-shadow var(--dur-fast);
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .ui-row:hover {
   background: var(--bg-hover);
 }
-/* 选中/默认态（StarCard.selected 同 recipe；晚于 hover 声明 → 悬停不冲掉标记）。
-   底色用角色色 role-selected-bg（cr-122）：原 bg-surface 在 surface 宿主卡内
-   同值相消——选中行无背景色，只剩描边 */
+/* 选中/默认态（晚于 hover 声明 → 悬停不冲掉标记）。纯角色底分层（cr-171
+   去描边，承 cr-122 教训）：role-selected-bg 主色系底与四底恒可辨 */
 .ui-row.is-selected {
   background: var(--role-selected-bg);
-  border-color: rgba(var(--primary-rgb), 0.45);
 }
-/* 基础设施/automatic 行：静默虚线描边 */
-.ui-row.is-auto { border-color: var(--line); border-style: dashed; }
+/* 基础设施/automatic 行：内容弱化标记（虚线描边随边框退役改透明度） */
+.ui-row.is-auto { opacity: .75; }
 
 /* ── 开关（行尾动作控件；插件库「插件目录」强制停用 / 插件配置软停用 /
    定时任务启用共用一个配方） ──
@@ -71,3 +71,14 @@
    意图（include 语义，可关 = 写 exclude），但不显示主色：警示色 = 门禁未过，
    调用会被安全行拦截。（cr-122 注：警示色随 --warn 黄档） */
 .ui-switch.gated input:checked + .ui-switch-track { background: var(--warn); }
+
+/* ── 变体（cr-157）：树行 / 池行 ──
+   .ui-row--tree：紧凑细行（工作区树 wtn / RunTrackingPanel 树）——
+     padding 收到 3px 6px、字号 fs-sm；is-active = primary-light 底（树上
+     的"当前项"与清单行的"选中"语义不同：树上必有且仅有一个当前项）。
+   .ui-row--pool：两行主从（池清单 pool-entry）——名称 fs-md 500 + 
+     明细 fs-xs text-3，行内容自带纵向布局，本变体只改排布为 column。 */
+.ui-row--tree { padding: 3px 6px; gap: 5px; font-size: var(--fs-sm); }
+.ui-row--tree:hover { background: var(--bg-hover); }
+.ui-row--tree.is-active { background: var(--primary-light); color: var(--text-1); border-color: transparent; }
+.ui-row--pool { flex-direction: column; align-items: stretch; gap: 2px; padding: 7px 10px; }

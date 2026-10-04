@@ -14,7 +14,11 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const preview = readFileSync(join(repo, 'src/docs/webui/v2.html'), 'utf8');
+// 双页注入（cr-155）：v2 答辩版 + gallery 纯陈列版，标记区两页同构
+const pages = ['src/docs/webui/v2.html', 'src/docs/webui-gallery.html'].map((p) => ({
+  path: p,
+  html: readFileSync(join(repo, p), 'utf8'),
+}));
 
 describe('预览页 kit 片段注入（cr-121）', () => {
   it('① 注入区与 kit 事实源一致（node scripts/build-webui-preview.mjs --check）', () => {
@@ -29,17 +33,24 @@ describe('预览页 kit 片段注入（cr-121）', () => {
 
   it('② 注入标记齐备（含星色板），且不再手抄令牌块', () => {
     const tags = [
-      'base/tokens.css', 'base/row.css', 'base/badge.css', 'starColor.ts',
+      'base/tokens.css', 'base/row.css', 'base/badge.css', 'base/dropdown.css', 'starColor.ts',
       'base/Button.vue', 'base/Avatar.vue', 'base/StatusDot.vue', 'base/Tooltip.vue',
       'base/RingProgress.vue', 'base/BusyRing.vue', 'base/CollapseRow.vue', 'base/DockCard.vue',
       'feedback/FeedbackNotice.vue', 'feedback/ToastHost.vue',
       'base/Modal.vue', 'base/Sheet.vue', 'base/PullToRefresh.vue', 'star/StarAvatar.vue',
+      'base/Chip.vue', 'base/IconAction.vue', 'base/Progress.vue', 'base/Breadcrumb.vue',
+      'base/ConfirmBody.vue', 'base/OptionRow.vue', 'base/PickTag.vue',
+      'base/Segmented.vue', 'base/Tabs.vue', 'base/DocTabs.vue', 'base/Select.vue',
+      'base/Input.vue', 'base/Textarea.vue', 'base/Checkbox.vue', 'base/Slider.vue',
+      'base/FieldRow.vue', 'base/Label.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
     ];
-    for (const tag of tags) expect(preview.includes(`/* @kit:${tag} */`), `缺标记 @kit:${tag}`).toBe(true);
-    expect(preview.split('/* @end */').length - 1, '@end 数量应与标记数一致').toBe(tags.length);
-    // 手抄痕迹：★/⚙ 字形标记与预览页私有的开关配色都不该再出现
-    expect(preview.includes('★'), '预览页不应再用 ★ 字形标记').toBe(false);
-    // 旧手抄开关（display:none 摘掉可达性树那版）不得残留
-    expect(preview.includes('.ui-switch input{display:none}'), '开关配方应来自 row.css 而非手抄').toBe(false);
+    for (const { path, html: preview } of pages) {
+      for (const tag of tags) expect(preview.includes(`/* @kit:${tag} */`), `${path} 缺标记 @kit:${tag}`).toBe(true);
+      expect(preview.split('/* @end */').length - 1, `${path} @end 数量应与标记数一致`).toBe(tags.length);
+      // 手抄痕迹：★/⚙ 字形标记与预览页私有的开关配色都不该再出现
+      expect(preview.includes('★'), `${path} 不应再用 ★ 字形标记`).toBe(false);
+      // 旧手抄开关（display:none 摘掉可达性树那版）不得残留
+      expect(preview.includes('.ui-switch input{display:none}'), `${path} 开关配方应来自 row.css 而非手抄`).toBe(false);
+    }
   });
 });

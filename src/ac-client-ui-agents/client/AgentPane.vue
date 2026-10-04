@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue';
 import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
 import type { AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Checkbox, FieldRow, Icon, IconAction, Input, PasswordInput, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';
+import { Button, Checkbox, FieldRow, Icon, IconAction, Input, PasswordInput, Select, StatusDot, Tabs, Textarea, Tooltip } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
@@ -180,27 +180,7 @@ const llmFiltered = computed(() => filterFields(llmFields.value, llmRaw.value, '
 // thinking（「思考输出」勾选退役——由「推理力度=无」替代：'none' 在投递
 // 边界翻译为 thinking disabled）
 const HIDDEN_LLM_KEYS = new Set(['logprobs', 'top_logprobs', 'tool_choice']);
-const LLM_GROUPS: { label: string; fields: string[] }[] = [
-  { label: '推理', fields: ['reasoning_effort'] },
-  { label: '采样', fields: ['temperature', 'top_p'] },
-  { label: '边界', fields: ['max_tokens', 'stop', 'response_format'] },
-];
 const llmVisible = computed(() => llmFiltered.value.filter(f => !HIDDEN_LLM_KEYS.has(f.key)));
-const llmBasic = computed(() => llmVisible.value.filter(f => !LLM_GROUPS.some(g => g.fields.includes(f.key))));
-/** 扁平化渲染序列：provider 选择 → 基础字段 → 分组标题 → 分组字段 */
-const llmSections = computed(() => {
-  const sections: Array<{ type: 'provider' } | { type: 'title'; label: string } | { type: 'field'; f: FieldMeta }> = [
-    { type: 'provider' },
-    ...llmBasic.value.map(f => ({ type: 'field' as const, f })),
-  ];
-  for (const g of LLM_GROUPS) {
-    const fields = llmVisible.value.filter(f => g.fields.includes(f.key));
-    if (fields.length === 0) continue;
-    sections.push({ type: 'title', label: g.label });
-    sections.push(...fields.map(f => ({ type: 'field' as const, f })));
-  }
-  return sections;
-});
 
 /** 进模型页签即拉注册面（provider 清单 + 发现缓存），随后自动补拉模型
  *  清单；失败静默（下拉回落池条目/发现缓存） */
@@ -651,17 +631,17 @@ async function removeAvatar() {
   <div class="agent-pane">
     <!-- 顶部导航：返回 + Agent 名 + 上/下切换 + 保存 -->
     <div class="agent-nav">
-      <button class="agent-nav-back" @click="emit('back')" title="返回 Agent 列表"><Icon name="arrow-left" :size="13" /><span>返回 Agent 列表</span></button>
+      <Button variant="ghost" size="sm" icon="arrow-left" @click="emit('back')" title="返回 Agent 列表">返回 Agent 列表</Button>
       <span class="agent-nav-name" :title="agentId">{{ agentName }}</span>
       <span class="agent-nav-id">{{ agentId }}</span>
       <div class="agent-nav-spacer"></div>
-      <button class="agent-nav-btn" :disabled="!prevAgent" :title="prevAgent ? '上一个：' + (prevAgent.name || prevAgent.id) : ''" @click="prevAgent && emit('switch', prevAgent.id)"><Icon name="chevron-left" :size="13" /><span>上一个</span></button>
-      <button class="agent-nav-btn" :disabled="!nextAgent" :title="nextAgent ? '下一个：' + (nextAgent.name || nextAgent.id) : ''" @click="nextAgent && emit('switch', nextAgent.id)"><span>下一个</span><Icon name="chevron-right" :size="13" /></button>
+      <Button variant="ghost" size="sm" :disabled="!prevAgent" :title="prevAgent ? '上一个：' + (prevAgent.name || prevAgent.id) : ''" @click="prevAgent && emit('switch', prevAgent.id)">上一个</Button>
+      <Button variant="ghost" size="sm" :disabled="!nextAgent" :title="nextAgent ? '下一个：' + (nextAgent.name || nextAgent.id) : ''" @click="nextAgent && emit('switch', nextAgent.id)">下一个</Button>
       <!-- 保存（M29 P1-3b 随编辑器内迁——原设置壳「保存配置」的 agent 半边
-           在 M28 P2.5 节迁移后断链，此处恢复并归域） -->
-      <button class="agent-nav-btn agent-nav-save" :disabled="saving || !dirty" :title="dirty ? '保存当前 Agent 的配置（含定时任务与装配）' : '无未保存更改'" @click="emit('save')">
-        <Icon name="check" :size="13" /><span>{{ saving ? '保存中…' : '保存配置' }}</span>
-      </button>
+           在 M28 P2.5 节迁移后断链，此处恢复并归域；cr-171 归 kit Button primary） -->
+      <Button variant="primary" size="sm" icon="check" :disabled="saving || !dirty" :title="dirty ? '保存当前 Agent 的配置（含定时任务与装配）' : '无未保存更改'" @click="emit('save')">
+        {{ saving ? '保存中…' : '保存配置' }}
+      </Button>
     </div>
 
     <!-- Tabs（kit Tabs line——cr-157；插件页签 settings-tab:agent 经 items 合成） -->
@@ -684,7 +664,9 @@ async function removeAvatar() {
               <span class="avatar-hint">点击更换</span>
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden @change="onAvatarFile" />
             </label>
-            <button v-if="avatarPreview && !avatarFailed && !avatarUploading" class="avatar-remove-x" title="移除头像" @click="removeAvatar"><Icon name="x" :size="11" /></button>
+            <Tooltip v-if="avatarPreview && !avatarFailed && !avatarUploading" text="移除头像" placement="top">
+              <button class="avatar-remove-x" aria-label="移除头像" @click="removeAvatar"><Icon name="x" :size="11" /></button>
+            </Tooltip>
           </div>
           <div class="identity-fields">
             <Input :model-value="raw.name ?? effective.name ?? ''" placeholder="输入 Agent 昵称" @update:model-value="emit('update:raw', { ...raw, name: $event })" />
@@ -761,47 +743,45 @@ async function removeAvatar() {
     <!-- ====== 模型 ====== -->
     <div v-else-if="tab === 'llm'" class="llm-pane">
       <div v-if="llmFields.length > 0" class="llm-fields">
-        <template v-for="s in llmSections" :key="s.type === 'title' ? 't-' + s.label : (s.type === 'provider' ? 'provider' : s.f.key)">
-          <!-- Provider 连接选择（P5：连接定义归模型管理——此处只选用；
-               「默认」= 跟随模型池默认连接，不写 provider/model 覆盖） -->
-          <template v-if="s.type === 'provider'">
-            <FieldRow label="Provider" description="选择模型连接（baseUrl / API Key 在「设置 → 模型管理」定义，Agent 面不可覆盖）；「默认」= 跟随模型池的默认连接">
-              <div class="llm-w-pool">
-                <Select
-                  :options="llmProviderOptions"
-                  :model-value="llmProvider"
-                  @update:model-value="selectLlmProvider"
-                />
+        <!-- Provider 连接选择（P5：连接定义归模型管理——此处只选用；
+             「默认」= 跟随模型池默认连接，不写 provider/model 覆盖） -->
+        <FieldRow label="Provider" description="选择模型连接（baseUrl / API Key 在「设置 → 模型管理」定义，Agent 面不可覆盖）；「默认」= 跟随模型池的默认连接">
+          <div class="llm-w-pool">
+            <Select
+              :options="llmProviderOptions"
+              :model-value="llmProvider"
+              @update:model-value="selectLlmProvider"
+            />
+          </div>
+        </FieldRow>
+        <div v-if="llmEffectiveSummary" class="llm-effective">
+          <StatusDot :size="6" status="ok" />
+          当前生效：<strong>{{ llmEffectiveSummary.model || llmEffectiveSummary.provider }}</strong>
+          <span class="llm-effective-src">· {{ llmEffectiveSummary.provider }} · {{ llmEffectiveSummary.source }}</span>
+        </div>
+        <!-- 字段平铺（cr-173 分组标题退役：推理/采样/边界分组意义不大，字段序即 schema 序） -->
+        <template v-for="f in llmVisible" :key="f.key">
+          <FieldRow :label="f.label" :description="f.description" :non-default="isLlmOverridden(f.key)">
+            <div class="llm-badge-and-ctrl">
+              <span class="llm-source" :class="isLlmOverridden(f.key) ? 'is-override' : 'is-inherit'">{{ isLlmOverridden(f.key) ? '本 Agent' : '继承' }}</span>
+              <!-- 模型 ID：纯下拉（「默认」= 按全局设置的默认模型处理；清单 =
+                   连接发现缓存 ∪ 自动读取，无手输无「读取」按钮） -->
+              <div v-if="f.key === 'model'" class="llm-w-models">
+                <Select :options="llmModelSelectOptions" :model-value="(typeof llmRaw.model === 'string' && llmRaw.model) || ''" @update:model-value="setLLM('model', $event)" />
               </div>
-            </FieldRow>
-            <div v-if="llmEffectiveSummary" class="llm-effective">
-              <StatusDot :size="6" status="ok" />
-              当前生效：<strong>{{ llmEffectiveSummary.model || llmEffectiveSummary.provider }}</strong>
-              <span class="llm-effective-src">· {{ llmEffectiveSummary.provider }} · {{ llmEffectiveSummary.source }}</span>
+              <!-- 推理力度：与会话输入框同词汇（无/low/high/max；无 = 关闭思考输出） -->
+              <div v-else-if="f.key === 'reasoning_effort'" class="llm-w-models">
+                <Select :options="effortOptions" :model-value="effortSelectValue" @update:model-value="setLLM('reasoning_effort', $event)" />
+              </div>
+              <SettingField v-else :field="f" :model-value="getLLM(f.key)" @update:model-value="setLLM(f.key, $event)" />
+              <Tooltip v-if="isLlmOverridden(f.key)" text="恢复为继承（删除本 Agent 覆盖，回退连接默认）" placement="top">
+                <IconAction icon="rotate-ccw" label="恢复为继承（删除本 Agent 覆盖，回退连接默认）" suppress-title @click="revertLlmToInherit(f.key)" />
+              </Tooltip>
             </div>
-          </template>
-          <div v-else-if="s.type === 'title'" class="llm-group-title">{{ s.label }}</div>
-          <template v-else>
-            <FieldRow :label="s.f.label" :description="s.f.description" :non-default="isLlmOverridden(s.f.key)">
-              <div class="llm-badge-and-ctrl">
-                <span class="llm-source" :class="isLlmOverridden(s.f.key) ? 'is-override' : 'is-inherit'">{{ isLlmOverridden(s.f.key) ? '本 Agent' : '继承' }}</span>
-                <!-- 模型 ID：纯下拉（「默认」= 按全局设置的默认模型处理；清单 =
-                     连接发现缓存 ∪ 自动读取，无手输无「读取」按钮） -->
-                <div v-if="s.f.key === 'model'" class="llm-w-models">
-                  <Select :options="llmModelSelectOptions" :model-value="(typeof llmRaw.model === 'string' && llmRaw.model) || ''" @update:model-value="setLLM('model', $event)" />
-                </div>
-                <!-- 推理力度：与会话输入框同词汇（无/low/high/max；无 = 关闭思考输出） -->
-                <div v-else-if="s.f.key === 'reasoning_effort'" class="llm-w-models">
-                  <Select :options="effortOptions" :model-value="effortSelectValue" @update:model-value="setLLM('reasoning_effort', $event)" />
-                </div>
-                <SettingField v-else :field="s.f" :model-value="getLLM(s.f.key)" @update:model-value="setLLM(s.f.key, $event)" />
-                <IconAction v-if="isLlmOverridden(s.f.key)" icon="rotate-ccw" label="恢复为继承（删除本 Agent 覆盖，回退连接默认）" @click="revertLlmToInherit(s.f.key)" />
-              </div>
-            </FieldRow>
-            <!-- 模型行脚注（kit FieldRow 无脚注位；长文本独立于字段行下方） -->
-            <div v-if="s.f.key === 'model' && !isLlmOverridden('model') && globalDefaultModel" class="info-hint">当前全局默认模型：{{ globalDefaultModel.model }} · {{ globalDefaultModel.provider }}</div>
-            <div v-if="s.f.key === 'model' && !llmModelOptionsMerged.length && llmModelsError" class="info-error">{{ llmModelsError }}</div>
-          </template>
+          </FieldRow>
+          <!-- 模型行脚注（kit FieldRow 无脚注位；长文本独立于字段行下方） -->
+          <div v-if="f.key === 'model' && !isLlmOverridden('model') && globalDefaultModel" class="info-hint">当前全局默认模型：{{ globalDefaultModel.model }} · {{ globalDefaultModel.provider }}</div>
+          <div v-if="f.key === 'model' && !llmModelOptionsMerged.length && llmModelsError" class="info-error">{{ llmModelsError }}</div>
         </template>
         <div v-if="llmFiltered.length === 0" class="llm-empty">未找到匹配的设置</div>
       </div>
@@ -841,19 +821,11 @@ async function removeAvatar() {
 /* 页签内容统一滚动容器：顶部导航/页签固定，仅内容区滚动 */
 .agent-tab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 
-/* 顶部导航：返回 + 切换 Agent + 保存 */
+/* 顶部导航：返回 + 切换 Agent + 保存（按钮已归 kit Button——cr-171） */
 .agent-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.agent-nav-back { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; transition: all var(--dur-fast, .12s); flex-shrink: 0; }
-.agent-nav-back:hover { background: var(--bg-hover); color: var(--text-1); }
 .agent-nav-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
 .agent-nav-id { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
 .agent-nav-spacer { flex: 1; }
-.agent-nav-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; transition: all var(--dur-fast, .12s); }
-.agent-nav-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
-/* 保存钮（主行动强调——设置壳「保存配置」agent 半边归域后的编辑器内形态） */
-.agent-nav-save { color: var(--text-1); font-weight: 500; }
-.agent-nav-save:not(:disabled) { background: var(--bg-surface); border-color: var(--line-strong); }
-.agent-nav-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 模型高级参数折叠（已废弃：分组化替代） */
 
@@ -991,15 +963,18 @@ async function removeAvatar() {
 /* provider/模型下拉容器（kit Select 宽度走内容流，此处定列宽） */
 .llm-w-pool { min-width: 180px; max-width: 280px; }
 .llm-w-models { max-width: 320px; flex-shrink: 1; min-width: 140px; }
-/* 字段行控件列编排（徽章 + 控件 + 复位钮） */
-.llm-badge-and-ctrl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+/* 字段行控件列编排（徽章 + 控件 + 复位钮）。cr-176 位置统一：去 wrap——
+ * 徽章恒定控件左侧（不随宽度折行到上方）；徽章/复位钮不收缩，控件自适应。 */
+.llm-badge-and-ctrl { display: flex; align-items: center; gap: 6px; }
+.llm-badge-and-ctrl > .llm-source, .llm-badge-and-ctrl > .ui-icon-action { flex-shrink: 0; }
+.llm-badge-and-ctrl > * { min-width: 0; }
 /* 当前生效读出（配置态在场信息，非动作结果反馈）——R7 判定不迁 FeedbackNotice
    （FeedbackNotice 只承载纯文本 text，本处 strong + src 两段结构不可压平） */
 .llm-effective {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
   font-size: 12px; color: var(--text-2);
   padding: 4px 10px; background: var(--primary-light);
-  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  border: 1px solid var(--primary-border);
   border-radius: var(--r-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .llm-effective .llm-effective-src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1007,22 +982,12 @@ async function removeAvatar() {
 .llm-effective strong { color: var(--text-1); font-weight: 600; }
 .llm-effective-src { color: var(--text-3); }
 
-/* 分组标题（采样/边界/推理；kit 无分组标题件，业务语义不新建标准件） */
-.llm-group-title {
-  margin-top: 8px; padding: 4px 0 4px 10px;
-  font-size: 12px; font-weight: 600; color: var(--text-2);
-  position: relative;
-}
-/* cr-164：分组标题左条改独立分栏条 */
-.llm-group-title::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--primary); }
-.llm-group-title:first-child { margin-top: 0; }
-
 /* 来源徽章（继承/本 Agent） */
 .llm-source {
   margin-left: 6px; padding: 0 7px; border-radius: var(--r-full);
   font-size: 10px; font-weight: 400; line-height: 1.6; vertical-align: 1px;
 }
-.llm-source.is-override { color: var(--primary); background: var(--primary-light); border: 1px solid rgba(var(--primary-rgb), 0.4); }
+.llm-source.is-override { color: var(--primary); background: var(--primary-light); border: 1px solid var(--primary-border); }
 .llm-source.is-inherit { color: var(--text-3); background: var(--bg-inset); }
 .llm-fields { display: flex; flex-direction: column; gap: 6px; }
 .llm-empty { text-align: center; padding: 20px; color: var(--text-3); font-size: 13px; }

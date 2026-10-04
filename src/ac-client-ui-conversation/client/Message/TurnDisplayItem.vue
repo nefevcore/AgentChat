@@ -469,7 +469,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 }
 .turn-sender-name {
   font-size: 12px;
-  color: var(--text-2, rgba(255,255,255,0.55));
+  color: var(--text-2);
   padding: 0 2px;
 }
 
@@ -514,7 +514,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 .chain-spin-ring {
   width: 13px; height: 13px; margin: 0.5px; /* 14px 图标位内居中 */
   border-radius: 50%;
-  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border: 2px solid var(--primary-border-soft);
   border-top-color: var(--primary);
   animation: chainSpin 0.8s linear infinite;
   flex-shrink: 0;

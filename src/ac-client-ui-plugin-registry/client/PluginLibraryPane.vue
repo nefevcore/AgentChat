@@ -29,7 +29,7 @@ import * as api from './pluginApi.ts';
 import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from './pluginApi.ts';
 import { getEventPolicy, setEventPolicy, getGlobalSettings, setGlobalSetting } from 'ac-client-ui-settings/client/api.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { Icon, Modal, Button, toastOk, toastError } from '@agentchat/webui-kit';
+import { Button, Checkbox, Icon, Modal, SearchInput, Tabs, toastOk, toastError } from '@agentchat/webui-kit';
 import StagingReviewModal from './StagingReviewModal.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
@@ -756,6 +756,20 @@ const SOURCE_LABELS: Record<string, string> = {
   npm: 'npm',
   github: 'github',
 };
+
+/** kit Tabs 页签表（cr-171）：插件目录 / 插件配置 / 插件市场 */
+const PL_TABS: Array<{ id: string; label: string }> = [
+  { id: 'directory', label: '插件目录' },
+  { id: 'config', label: '插件配置' },
+  { id: 'market', label: '插件市场' },
+];
+
+/** 插件配置页签左导航（kit Tabs pill）：计数并入页签文本（原 .pl-navcount 胶囊退役） */
+const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
+  { id: 'plugins', label: '插件 ' + (props.catalogBuiltin.length + props.catalogLocal.length + props.catalogPending.length) },
+  { id: 'tools', label: '工具 ' + props.tools.length },
+  { id: 'events', label: '事件 ' + (props.eventChains ?? []).length },
+]);
 </script>
 
 <template>
@@ -765,14 +779,10 @@ const SOURCE_LABELS: Record<string, string> = {
       安全模式生效中——动态插件本次全部未装载（AGENTCHAT_SAFE_MODE 或 .safe-mode 标记）；yml 装配行不受影响。删除数据根下的 .safe-mode 文件并重启可恢复。
     </div>
 
-    <!-- ══ 页签：插件目录 | 插件配置 | 插件市场（启停两层分家） ══ -->
+    <!-- ══ 页签：插件目录 | 插件配置 | 插件市场（启停两层分家；kit Tabs line——cr-171） ══ -->
     <div class="pl-head">
-      <div class="pl-tabs">
-        <button class="pl-tab" :class="{ active: tab === 'directory' }" @click="tab = 'directory'">插件目录</button>
-        <button class="pl-tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">插件配置</button>
-        <button class="pl-tab" :class="{ active: tab === 'market' }" @click="tab = 'market'">插件市场</button>
-      </div>
-      <button class="pl-refresh" title="刷新插件库" @click="emit('refresh')"><Icon name="refresh-cw" :size="13" />刷新</button>
+      <Tabs class="pl-tabs" variant="line" :items="PL_TABS" :model-value="tab" @update:model-value="tab = $event as 'directory' | 'config' | 'market'" />
+      <Button variant="ghost" size="sm" icon="refresh-cw" title="刷新插件库" @click="emit('refresh')">刷新</Button>
     </div>
     <div v-if="error" class="pl-error">{{ error }}</div>
 
@@ -781,13 +791,10 @@ const SOURCE_LABELS: Record<string, string> = {
       <div class="pl-zone-title" :title="patchFile || '行偏好文件：数据根下 cordis.patch.yml'">
         装配行（{{ visibleDirectoryRows.length }}<template v-if="dirFiltered"> / {{ directoryRows.length }}</template>）—— cordis.yml 出厂组合 × cordis.patch.yml 强制停用<template v-if="patchFile">；文件 {{ patchFile }}</template>
       </div>
-      <!-- 筛选栏（搜索 + 只看停用/未装配——清单长时快速定位行） -->
+      <!-- 筛选栏（搜索 + 只看停用/未装配——清单长时快速定位行；kit SearchInput/Checkbox——cr-171） -->
       <div class="pl-filter-bar">
-        <input v-model="dirQuery" class="pl-search" type="search" placeholder="搜索装配行（包名 / 名称 / 描述）" />
-        <label class="pl-check" title="只显示强制停用 / 未装配 / 目录外兜底行——快速定位异常行">
-          <input v-model="dirOnlyOff" type="checkbox" />
-          <span>只看停用/未装配</span>
-        </label>
+        <SearchInput v-model="dirQuery" class="pl-search" placeholder="搜索装配行（包名 / 名称 / 描述）" />
+        <Checkbox v-model="dirOnlyOff" class="pl-check" title="只显示强制停用 / 未装配 / 目录外兜底行——快速定位异常行">只看停用/未装配</Checkbox>
       </div>
       <div v-if="patchWarnings.length" class="pl-warn">cordis.patch.yml 告警：{{ patchWarnings.join('；') }}</div>
       <!-- 目录 RPC 阵亡兜底：清单自动并入 patch 兜底行（急救开关仍可用——
@@ -798,12 +805,12 @@ const SOURCE_LABELS: Record<string, string> = {
 
       <!-- 批量还原：最小可运行集 / 出厂装配（急救通道随行偏好层独立存活） -->
       <div class="pl-reset-row">
-        <button class="pl-btn" :disabled="resetBusy !== ''" :title="'停用全部非核心行，保留会话链+RPC面+急救+安全行+一个 provider——诊断基线'" @click="resetPatchMode('minimal')">
+        <Button variant="ghost" size="sm" :disabled="resetBusy !== ''" :title="'停用全部非核心行，保留会话链+RPC面+急救+安全行+一个 provider——诊断基线'" @click="resetPatchMode('minimal')">
           {{ resetBusy === 'minimal' ? '还原中…' : '还原到最小可运行集' }}
-        </button>
-        <button class="pl-btn" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂 cordis.yml 全量装配" @click="resetPatchMode('factory')">
+        </Button>
+        <Button variant="ghost" size="sm" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂 cordis.yml 全量装配" @click="resetPatchMode('factory')">
           {{ resetBusy === 'factory' ? '还原中…' : '还原出厂装配' }}
-        </button>
+        </Button>
       </div>
 
       <div v-for="row in visibleDirectoryRows" :key="row.key" class="plugin-item ui-row">
@@ -851,17 +858,8 @@ const SOURCE_LABELS: Record<string, string> = {
 
     <!-- ══════ 页签 2：插件配置（左导航三视图 + 右面板——右面板独立滚动） ══════ -->
     <div v-else-if="tab === 'config'" class="pl-catalog">
-      <div class="pl-leftnav">
-        <button class="pl-navitem" :class="{ active: view === 'plugins' }" @click="view = 'plugins'">
-          <span>插件</span><span class="pl-navcount">{{ catalogBuiltin.length + catalogLocal.length + catalogPending.length }}</span>
-        </button>
-        <button class="pl-navitem" :class="{ active: view === 'tools' }" @click="view = 'tools'">
-          <span>工具</span><span class="pl-navcount">{{ tools.length }}</span>
-        </button>
-        <button class="pl-navitem" :class="{ active: view === 'events' }" @click="view = 'events'">
-          <span>事件</span><span class="pl-navcount">{{ (eventChains ?? []).length }}</span>
-        </button>
-      </div>
+      <!-- 左导航（kit Tabs pill——cr-171；计数徽章跟在页签文本后） -->
+      <Tabs class="pl-leftnav" variant="pill" :items="configViewTabs" :model-value="view" @update:model-value="view = $event as 'plugins' | 'tools' | 'events'" />
 
       <div class="pl-pane">
         <!-- ▸ 视图：插件（内置组配置卡片 + 软停用开关 + 本地组 + 待审） -->
@@ -869,11 +867,8 @@ const SOURCE_LABELS: Record<string, string> = {
           <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；右侧开关 = 软停用）
                P1：只看可配置过滤（带参数面——enabled 行为开关不计）+ 过滤态计数 -->
           <div class="pl-filter-row">
-            <input v-model="pluginQuery" class="pl-search" type="search" placeholder="搜索插件（包名 / 名称 / 描述）" />
-            <label class="pl-check" title="只显示带参数面（enabled 行为开关以外有具体字段）的行——快速定位可配置插件">
-              <input v-model="onlyConfigurable" type="checkbox" />
-              <span>只看可配置</span>
-            </label>
+            <SearchInput v-model="pluginQuery" class="pl-search" placeholder="搜索插件（包名 / 名称 / 描述）" />
+            <Checkbox v-model="onlyConfigurable" class="pl-check" title="只显示带参数面（enabled 行为开关以外有具体字段）的行——快速定位可配置插件">只看可配置</Checkbox>
           </div>
           <div class="pl-zone-title" :title="'软停用写 config.json 全局默认层（settings.<configNs>.enabled，config/changed 热更）；强制停用入口在「插件目录」页签'">
             内置（{{ onlyConfigurable || pluginQuery ? `${visibleBuiltin.length} / ` : '' }}{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 软停用（行为门控，行仍装载；Agent 可覆盖）
@@ -921,12 +916,13 @@ const SOURCE_LABELS: Record<string, string> = {
                 />
                 <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
               </label>
-              <button
+              <Button
                 v-else
-                class="pl-btn"
+                variant="ghost"
+                size="sm"
                 title="此行未声明行为门控（enabled），无软停用——行级强制停用在「插件目录」页签"
                 @click="tab = 'directory'"
-              >强制停用 <Icon name="arrow-right" :size="11" /></button>
+              >强制停用 →</Button>
             </div>
           </div>
 
@@ -950,8 +946,8 @@ const SOURCE_LABELS: Record<string, string> = {
               <div class="plugin-desc">暂存待人审——安装前可查看全部文件（只读代理）与内容哈希</div>
             </div>
             <div class="plugin-actions" @click.stop>
-              <button class="pl-btn" :disabled="busyName === p.name" @click="reviewRecord = pendingToStaging(p)">审查文件与授予</button>
-              <button class="pl-btn danger" :disabled="busyName === p.name" @click="rejectPending(p)">拒绝</button>
+              <Button variant="ghost" size="sm" :disabled="busyName === p.name" @click="reviewRecord = pendingToStaging(p)">审查文件与授予</Button>
+              <Button variant="danger" size="sm" :disabled="busyName === p.name" @click="rejectPending(p)">拒绝</Button>
             </div>
           </div>
 
@@ -979,15 +975,15 @@ const SOURCE_LABELS: Record<string, string> = {
             </div>
             <div class="plugin-actions" @click.stop>
               <template v-if="l.state === 'dev'">
-                <button class="pl-btn" :disabled="busyName === l.name" @click="registerLocal(l)">装载</button>
-                <button class="pl-btn" :disabled="busyName === l.name" @click="stageLocal(l)">暂存发布</button>
+                <Button variant="ghost" size="sm" :disabled="busyName === l.name" @click="registerLocal(l)">装载</Button>
+                <Button variant="ghost" size="sm" :disabled="busyName === l.name" @click="stageLocal(l)">暂存发布</Button>
               </template>
               <template v-else-if="l.state === 'loaded'">
-                <button class="pl-btn" :disabled="busyName === l.name" @click="unloadLocal(l)">卸载装载</button>
-                <button class="pl-btn danger" :disabled="busyName === l.name" @click="uninstallLocal(l)">永久卸载</button>
+                <Button variant="ghost" size="sm" :disabled="busyName === l.name" @click="unloadLocal(l)">卸载装载</Button>
+                <Button variant="danger" size="sm" :disabled="busyName === l.name" @click="uninstallLocal(l)">永久卸载</Button>
               </template>
               <template v-else-if="l.state === 'installed' || l.state === 'failed' || l.state === 'skipped'">
-                <button class="pl-btn danger" :disabled="busyName === l.name" @click="uninstallLocal(l)">永久卸载</button>
+                <Button variant="danger" size="sm" :disabled="busyName === l.name" @click="uninstallLocal(l)">永久卸载</Button>
               </template>
             </div>
           </div>
@@ -1082,14 +1078,13 @@ const SOURCE_LABELS: Record<string, string> = {
     <!-- ══════ 页签 3：插件市场（M24 P5） ══════ -->
     <div v-else class="pl-list pl-market">
       <div class="mkt-search">
-        <input
+        <SearchInput
           v-model="marketQuery"
           class="mkt-input"
-          type="search"
           placeholder="搜索 npm / github（npm keywords:agentchat-plugin / github topic:agentchat-plugin）"
           @keyup.enter="runMarketSearch"
         />
-        <button class="pl-btn primary" :disabled="marketLoading" @click="runMarketSearch">{{ marketLoading ? '搜索中…' : '搜索' }}</button>
+        <Button variant="ghost" size="sm" :disabled="marketLoading" @click="runMarketSearch">{{ marketLoading ? '搜索中…' : '搜索' }}</Button>
       </div>
       <div v-if="marketError" class="pl-error">{{ marketError }}</div>
       <div v-if="!marketLoading && marketResults.length === 0" class="pl-empty">
@@ -1110,7 +1105,7 @@ const SOURCE_LABELS: Record<string, string> = {
         </div>
         <div class="plugin-actions" @click.stop>
           <a v-if="r.url" class="pl-link" :href="r.url" target="_blank" rel="noreferrer">来源</a>
-          <button class="pl-btn primary" @click="installTarget = r">安装</button>
+          <Button variant="primary" size="sm" @click="installTarget = r">安装</Button>
         </div>
       </div>
       <div class="pl-anno">安装流：第三方来源 = 供应链人审（M23 B2 裁决维持）——安装 → <b>暂存</b>进入「目录 · 插件 · 本地」组（待审徽章 + 审查文件弹窗：只读文件树 / 哈希 / 权限快照 / 来源锚定）→ 人审批准 → 安装装载。与 Agent 自开发免审流（install_plugin）分立。</div>
@@ -1230,19 +1225,7 @@ const SOURCE_LABELS: Record<string, string> = {
 /* 根：填充高度 + 隐藏外溢——滚动收口在右侧清单区（左导航/页签头固定） */
 .plugin-library { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
 .pl-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; }
-.pl-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.pl-tab {
-  padding: 7px 14px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
-}
-.pl-tab:hover { color: var(--text-1); background: var(--bg-hover); }
-.pl-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
-.pl-refresh {
-  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer;
-}
-.pl-refresh:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 页签/刷新钮已归 kit Tabs line + Button（cr-171）；.pl-tabs 只作定位类 */
 .pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: rgba(var(--err-rgb), 0.1); color: var(--err); font-size: 12px; flex-shrink: 0; }
 /* 批量还原行（最小集 / 出厂）——「插件目录」页签 */
 .pl-reset-row { display: flex; gap: 8px; }
@@ -1257,19 +1240,12 @@ const SOURCE_LABELS: Record<string, string> = {
 
 /* 目录布局：左导航固定 + 右面板独立滚动 */
 .pl-catalog { flex: 1; min-height: 0; display: flex; gap: 14px; align-items: stretch; }
-.pl-leftnav { width: 128px; flex: none; display: flex; flex-direction: column; gap: 3px; align-self: flex-start; }
-.pl-navitem {
-  display: flex; justify-content: space-between; align-items: center; gap: 6px;
-  padding: 7px 11px; border-radius: var(--r-md); border: 1px solid transparent;
-  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
-}
-.pl-navitem:hover { background: var(--bg-hover); }
-.pl-navitem.active { background: var(--bg-surface); color: var(--text-1); font-weight: 500; border-color: var(--line-strong); }
-.pl-navcount { font-size: 10px; color: var(--text-3); background: var(--bg-hover); padding: 0 6px; border-radius: var(--r-full); }
+/* 左导航已归 kit Tabs pill（cr-171）；.pl-leftnav 只作定位类 */
+.pl-leftnav { width: 128px; flex: none; align-self: flex-start; }
 .pl-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .pl-list { display: flex; flex-direction: column; gap: 8px; }
 .pl-empty { text-align: center; padding: 18px; color: var(--text-3); font-size: 12px; line-height: 1.7; }
-.pl-empty code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-hover); padding: 1px 5px; border-radius: 4px; }
+.pl-empty code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-inset); padding: 1px 5px; border-radius: 4px; }
 .pl-zone-title {
   margin-top: 6px; padding: 3px 0; font-size: 11px; color: var(--text-3);
   border-bottom: 1px dashed var(--line);
@@ -1279,18 +1255,9 @@ const SOURCE_LABELS: Record<string, string> = {
 .pl-filter-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 /* 筛选栏（目录页搜索 + 状态复选；ExtToolsPane .ext-filter-bar 同规格） */
 .pl-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.pl-search {
-  flex: 1; min-width: 160px; max-width: 260px; padding: 5px 10px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: var(--bg-surface); color: var(--text-1); font-size: 12px; outline: none;
-}
-.pl-search:focus { border-color: var(--primary); }
-.pl-check {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none;
-}
-.pl-check input { accent-color: var(--primary); cursor: pointer; }
-.pl-check:hover { color: var(--text-1); }
+/* 搜索框已归 kit SearchInput、复选归 kit Checkbox（cr-171）；.pl-search 定宽 */
+.pl-search { flex: 1; min-width: 160px; max-width: 260px; }
+.pl-check { font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
 .pl-dev-hint { font-size: 11px; color: var(--text-3); word-break: break-all; }
 .pl-dev-hint code { font-family: var(--font-mono); }
 .pl-anno { font-size: 11px; color: var(--text-3); line-height: 1.7; margin-top: 6px; }
@@ -1315,7 +1282,7 @@ const SOURCE_LABELS: Record<string, string> = {
   display: inline-flex; align-items: center; line-height: 1;
   font-family: var(--font-mono); font-size: 10px;
   padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  color: var(--text-3); background: var(--bg-hover);
+  color: var(--text-3); background: var(--bg-inset);
   border: 1px solid var(--line);
 }
 /* 技术包名（label 主名旁的次级标识）：mono 小字淡色——普通用户不在意，
@@ -1336,17 +1303,8 @@ const SOURCE_LABELS: Record<string, string> = {
       语义由使用处定义：插件目录 = 强制停用开关（patch 装配层），
       插件配置 = 软停用开关（settings.enabled 行为门控层） ── */
 
-.pl-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
-}
-.pl-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
-.pl-btn.danger { color: var(--err); }
-.pl-btn.danger:hover:not(:disabled) { background: rgba(var(--err-rgb), 0.1); }
-.pl-btn.primary { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.45); }
-.pl-btn.primary:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
-.pl-btn:disabled { opacity: .5; cursor: not-allowed; }
+/* 动作钮已全量归 kit Button（cr-171——soft/danger/primary 变体对应原
+   pl-btn / .danger / .primary 三态）；本块无存留样式 */
 
 /* ── 工具详情弹窗（结构化头部 + 参数表） ── */
 .tool-meta-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1382,7 +1340,7 @@ const SOURCE_LABELS: Record<string, string> = {
 .evt-node { padding-left: 22px; }
 .evt-scope-node:hover, .evt-node:hover {
   background: var(--bg-hover); border-color: var(--line-strong);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+  box-shadow: var(--shadow-hover);
 }
 .evt-caret { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
 .evt-row-name {
@@ -1393,7 +1351,7 @@ const SOURCE_LABELS: Record<string, string> = {
 .evt-scope-node.run .evt-row-name { color: var(--primary); }
 .evt-scope-node.host .evt-row-name { color: var(--warn); }
 .evt-row-count {
-  font-size: 10px; color: var(--text-3); background: var(--bg-hover);
+  font-size: 10px; color: var(--text-3); background: var(--bg-inset);
   padding: 1px 7px; border-radius: 999px; font-family: var(--font-mono); flex: none;
 }
 .evt-pre-badge { font-size: 10px; color: var(--warn); white-space: nowrap; flex: none; }
@@ -1421,7 +1379,7 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 .evt-leaf:hover {
   background: var(--bg-hover); border-color: var(--line-strong);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+  box-shadow: var(--shadow-hover);
 }
 /* 叶级图标（运行跟踪 leaf-icon 同位）：占位与事件节点 caret 列对齐——
    层级一眼可辨（caret 列 = 节点，activity 列 = 监听器叶） */
@@ -1455,13 +1413,9 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 .evt-gov-ack input { accent-color: var(--primary); }
 
-/* 市场页签 */
+/* 市场页签（搜索已归 kit SearchInput——cr-171；.mkt-input 只作弹性布局类） */
 .mkt-search { display: flex; gap: 8px; flex-shrink: 0; }
-.mkt-input {
-  flex: 1; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: var(--bg-surface); color: var(--text-1); font-size: 12px; outline: none;
-}
-.mkt-input:focus { border-color: var(--primary); }
+.mkt-input { flex: 1; min-width: 0; }
 .mkt-warn {
   font-size: 12px; color: var(--text-2); line-height: 1.75; padding: 10px 12px;
   border: 1px solid rgba(var(--warn-rgb), 0.4);

@@ -18,7 +18,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { ExtensionEntry, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from 'ac-client-ui-settings/client/types.ts';
 import { useClientContext } from 'ac-client-runtime';
 import * as pluginApi from './pluginApi.ts';
-import { Icon, Modal, Button } from '@agentchat/webui-kit';
+import { Button, Checkbox, Icon, Modal, SearchInput, Tabs } from '@agentchat/webui-kit';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
 
 const props = defineProps<{
@@ -78,6 +78,12 @@ const isEditable = computed(() => !!props.onDecl);
 
 // ── 左侧导航（三视图——插件库 pl-navitem 同规格） ──
 const selectedKind = ref<'ext' | 'tool' | 'event'>('ext');
+/** 左导航（kit Tabs pill——cr-171）：计数并入页签文本 */
+const sideTabs = computed(() => [
+  { id: 'ext', label: '插件 ' + extensions.value.length },
+  { id: 'tool', label: '工具 ' + props.tools.catalog.length },
+  { id: 'event', label: '事件 ' + agentEventChains.value.length },
+]);
 function pick(kind: 'ext' | 'tool' | 'event'): void {
   selectedKind.value = kind;
 }
@@ -432,18 +438,8 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 <template>
   <div class="ext-pane">
     <div class="ext-layout">
-      <!-- 左侧导航（三视图——插件库 pl-navitem 同规格） -->
-      <div class="ext-side">
-        <button class="ext-side-item" :class="{ active: selectedKind === 'ext' }" @click="pick('ext')">
-          <span>插件</span><span class="ext-side-count">{{ extensions.length }}</span>
-        </button>
-        <button class="ext-side-item" :class="{ active: selectedKind === 'tool' }" @click="pick('tool')">
-          <span>工具</span><span class="ext-side-count">{{ tools.catalog.length }}</span>
-        </button>
-        <button class="ext-side-item" :class="{ active: selectedKind === 'event' }" @click="pick('event')">
-          <span>事件</span><span class="ext-side-count">{{ agentEventChains.length }}</span>
-        </button>
-      </div>
+      <!-- 左侧导航（三视图——kit Tabs pill，cr-171） -->
+      <Tabs class="ext-side" variant="pill" :items="sideTabs" :model-value="selectedKind" @update:model-value="pick($event as 'ext' | 'tool' | 'event')" />
 
       <!-- 右侧主区（独立滚动——插件库 pl-pane 同构） -->
       <div class="ext-main">
@@ -453,10 +449,8 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
             点击带齿轮徽章的卡片编辑本 Agent 差异层（只存差异项，空 = 继承全局默认；生效 = settingsOf 合成，差异优先）。行尾开关 = 本 Agent 软停用（差异层 enabled，行仍装载、监听器跳过）；进程级启停在插件库。
           </div>
           <div class="ext-filter-bar">
-            <input v-model="extQuery" class="ext-search" type="search" placeholder="搜索插件 / settings 键 / 描述" />
-            <label class="ext-check" title="只显示带可配置参数（fields 非空）的插件——快速定位可配置项">
-              <input v-model="onlyConfigurable" type="checkbox" />只看可配置
-            </label>
+            <SearchInput v-model="extQuery" class="ext-search" placeholder="搜索插件 / settings 键 / 描述" />
+            <Checkbox v-model="onlyConfigurable" class="ext-check" title="只显示带可配置参数（fields 非空）的插件——快速定位可配置项">只看可配置</Checkbox>
           </div>
 
           <!-- 插件区（插件库内置组同款卡片：名称/键徽章/齿轮/落点徽章 + 描述；基础设施行虚线混排） -->
@@ -540,7 +534,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
             工具按能力标签门禁默认提供；开关写 tools.include / tools.exclude（exclude 优先）。点击卡片看参数表。
           </div>
           <div class="ext-filter-bar">
-            <input v-model="toolQuery" class="ext-search" type="search" placeholder="搜索工具 ID / 名称 / 描述 / 标签（如 shell / 命令执行）" />
+            <SearchInput v-model="toolQuery" class="ext-search" placeholder="搜索工具 ID / 名称 / 描述 / 标签（如 shell / 命令执行）" />
           </div>
           <div class="ext-zone-title">工具目录（{{ filteredTools.length }}{{ filteredTools.length !== tools.catalog.length ? ` / ${tools.catalog.length}` : '' }}）—— 详情看参数表；启停 = 本 Agent 工具意图；同源行大组默认收起</div>
           <div v-if="tools.catalog.length === 0" class="ext-empty">暂无可用工具</div>
@@ -724,33 +718,15 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 <style scoped>
 /* ── 根布局（:global——scoped 不命中组件自身根，唯一使用者无冲突） ── */
 :global(.ext-pane) { display: flex; flex-direction: column; gap: 10px; height: 100%; flex: 1; min-height: 0; }
-/* 左导航固定 + 右面板独立滚动（插件库 pl-catalog/pl-leftnav/pl-navitem 同规格） */
+/* 左导航固定 + 右面板独立滚动；左导航已归 kit Tabs pill（cr-171） */
 .ext-layout { display: flex; gap: 14px; min-height: 0; flex: 1; height: 100%; align-items: stretch; }
-.ext-side { width: 128px; flex: none; display: flex; flex-direction: column; gap: 3px; align-self: flex-start; }
-.ext-side-item {
-  display: flex; justify-content: space-between; align-items: center; gap: 6px;
-  padding: 7px 11px; border-radius: var(--r-md); border: 1px solid transparent;
-  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
-}
-.ext-side-item:hover { background: var(--bg-hover); }
-.ext-side-item.active { background: var(--bg-surface); color: var(--text-1); font-weight: 500; border-color: var(--line-strong); }
-.ext-side-count { font-size: 10px; color: var(--text-3); background: var(--bg-hover); padding: 0 6px; border-radius: var(--r-full); }
+.ext-side { width: 128px; flex: none; align-self: flex-start; }
 .ext-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
 
-/* ── 过滤行 / 搜索（插件库 pl-filter-row + mkt-input 同规格） ── */
+/* ── 过滤行 / 搜索（已归 kit SearchInput/Checkbox——cr-171） ── */
 .ext-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.ext-search {
-  flex: 1; min-width: 160px; max-width: 260px; padding: 5px 10px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: var(--bg-surface); color: var(--text-1); font-size: 12px; outline: none;
-}
-.ext-search:focus { border-color: var(--primary); }
-.ext-check {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap;
-}
-.ext-check input { accent-color: var(--primary); cursor: pointer; }
-.ext-check:hover { color: var(--text-1); }
+.ext-search { flex: 1; min-width: 160px; max-width: 260px; }
+.ext-check { font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
 .ext-anno { font-size: 11px; color: var(--text-3); line-height: 1.7; }
 .ext-empty { text-align: center; padding: 18px; color: var(--text-3); font-size: 12px; }
 .ext-zone-title {
@@ -771,7 +747,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
   display: inline-flex; align-items: center; line-height: 1;
   font-family: var(--font-mono); font-size: 10px;
   padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  color: var(--text-3); background: var(--bg-hover);
+  color: var(--text-3); background: var(--bg-inset);
   border: 1px solid var(--line);
 }
 /* 技术包名/工具 ID（主名旁的次级标识）：mono 小字淡色（与插件库同款） */
@@ -798,7 +774,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 .evt-node { padding-left: 22px; }
 .evt-scope-node:hover, .evt-node:hover {
   background: var(--bg-hover); border-color: var(--line-strong);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+  box-shadow: var(--shadow-hover);
 }
 .evt-caret { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
 .evt-row-name {
@@ -809,7 +785,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 .evt-scope-node.run .evt-row-name { color: var(--primary); }
 .evt-scope-node.host .evt-row-name { color: var(--warn); }
 .evt-row-count {
-  font-size: 10px; color: var(--text-3); background: var(--bg-hover);
+  font-size: 10px; color: var(--text-3); background: var(--bg-inset);
   padding: 1px 7px; border-radius: 999px; font-family: var(--font-mono); flex: none;
 }
 .evt-pre-badge { font-size: 10px; color: var(--warn); white-space: nowrap; flex: none; }
@@ -835,7 +811,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 }
 .evt-leaf:hover {
   background: var(--bg-hover); border-color: var(--line-strong);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+  box-shadow: var(--shadow-hover);
 }
 .evt-leaf-icon { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
 .evt-leaf.dim .evt-leaf-icon { opacity: .5; }

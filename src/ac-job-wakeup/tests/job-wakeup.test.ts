@@ -36,7 +36,17 @@ class FakeConversationService extends Service {
   }
 }
 
-async function boot(opts: { withConversation?: boolean } = {}) {
+/** 假 subagents：get 只认 sub_ 前缀 id（cr-132 子 Agent owner 过滤用例） */
+class FakeSubagentsService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'subagents');
+  }
+  get(id: string): { id: string } | undefined {
+    return id.startsWith('sub_') ? { id } : undefined;
+  }
+}
+
+async function boot(opts: { withConversation?: boolean; withSubagents?: boolean } = {}) {
   delivered = [];
   const ctx = new Context();
   const fibers: Fiber[] = [];
@@ -65,6 +75,7 @@ async function boot(opts: { withConversation?: boolean } = {}) {
     routerRow,
     jobsRow,
     ...(opts.withConversation === false ? [] : [FakeConversationService]),
+    ...(opts.withSubagents ? [FakeSubagentsService] : []),
     wakeupRow,
   ];
   for (const row of rows) {
@@ -134,6 +145,18 @@ describe('ac-job-wakeup', () => {
     expect(() => settleNow(ctx, 'a')).not.toThrow();
     await new Promise((r) => setTimeout(r, 20));
     expect(delivered).toHaveLength(0);
+  });
+
+  it('子 Agent owner 不唤醒（cr-132）：无会话键的 sub_* job 跳过投递；显式 conversationId 照常回投发起会话', async () => {
+    const { ctx } = await boot({ withSubagents: true });
+    settleNow(ctx, 'sub_1_a'); // 子 Agent 的 run 内 job（无会话键）——不投
+    settleNow(ctx, 'sub_1_a', 'admin~user'); // 显式发起会话——照常回投
+    settleNow(ctx, 'a'); // 普通 Agent 照常
+    await new Promise((r) => setTimeout(r, 30));
+    expect(delivered).toHaveLength(2);
+    expect(delivered.find((d) => d.conversationId === 'sub_1_a~sub_1_a')).toBeUndefined();
+    expect(delivered.find((d) => d.conversationId === 'admin~user')).toBeDefined();
+    expect(delivered.find((d) => d.conversationId === 'a~a')).toBeDefined();
   });
 
   it('卸载 wakeup 行 → 不再唤醒（订阅即归属）', async () => {

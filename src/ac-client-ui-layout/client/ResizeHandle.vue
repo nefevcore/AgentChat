@@ -29,6 +29,8 @@ function onReset() {
   <div
     class="resize-handle"
     :class="{ active: ui.resizing }"
+    role="separator"
+    aria-label="拖动调整宽度，双击还原默认"
     title="拖动调整宽度，双击还原默认"
     @mousedown="onStart"
     @dblclick="onReset"

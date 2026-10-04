@@ -155,10 +155,12 @@ async function trigger() {
 /* armed/刷新中/完成：主色/成功色点亮（文字 + 颜色双通道） */
 .ui-pull-indicator.armed .ui-pull-bubble { color: var(--primary); border-color: var(--primary); }
 .ui-pull-indicator.is-refreshing .ui-pull-bubble { color: var(--primary); border-color: var(--primary); }
-.ui-pull-indicator.is-done .ui-pull-bubble { color: var(--ok-graphic); border-color: var(--ok-graphic); }
+.ui-pull-indicator.is-done .ui-pull-bubble { color: var(--ok-status); border-color: var(--ok-status); }
 .ui-pull-arrow { transition: transform var(--dur-fast) var(--ease-out); }
 .ui-pull-arrow.armed { transform: rotate(180deg); }
-.ui-pull-spin { animation: ui-pull-rot calc(0.7s * var(--motion-scale)) linear infinite; }
+/* cr-161：刷新旋转是功能语义（同 cr-149 BusyRing 先例）——不经 --motion-scale，
+   系统「减少动态」下仍旋转（静止的环被读作卡死） */
+.ui-pull-spin { animation: ui-pull-rot 0.7s linear infinite; }
 @keyframes ui-pull-rot { to { transform: rotate(360deg); } }
 .ui-pull-text { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 </style>

@@ -41,7 +41,7 @@ async function copyUri() {
     </div>
     <div class="uri-box">
       <code class="uri">{{ uri }}</code>
-      <Button variant="soft" size="sm" @click="copyUri">{{ copied ? '已复制' : '复制 URI' }}</Button>
+      <Button variant="ghost" size="sm" @click="copyUri">{{ copied ? '已复制' : '复制 URI' }}</Button>
     </div>
   </div>
 </template>

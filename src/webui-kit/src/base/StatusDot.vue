@@ -18,13 +18,13 @@ const props = withDefaults(defineProps<{
 
 const color = computed(() => {
   switch (props.status) {
-    /* 色点是图形件（WCAG 1.4.11 · 3.0 线）——取图形档（cr-123） */
-    case 'thinking': return 'var(--warn-graphic)';
+    /* 色点是图形件（WCAG 1.4.11 · 3.0 线）——取状态档（cr-123） */
+    case 'thinking': return 'var(--warn-status)';
     case 'running': return 'var(--primary)';
     case 'idle':
-    case 'ok': return 'var(--ok-graphic)';
+    case 'ok': return 'var(--ok-status)';
     case 'offline': return 'var(--text-3)';
-    case 'err': return 'var(--err-graphic)';
+    case 'err': return 'var(--err-status)';
   }
 });
 const pulsing = computed(() => props.pulse || props.status === 'thinking' || props.status === 'running');
@@ -40,9 +40,11 @@ const pulsing = computed(() => props.pulse || props.status === 'thinking' || pro
 
 <style scoped>
 .ui-dot { border-radius: var(--r-full); flex-shrink: 0; display: inline-block; }
+/* cr-161：呼吸的「存在」是功能语义（reduce 下冻结在半透明帧会被读作熄灭）——
+   经 --motion-scale 收敛时长，但关键帧锚定满强度帧（0% 即静止呈满亮实点） */
 .ui-dot.pulsing { animation: ui-breathe calc(1.4s * var(--motion-scale)) ease-in-out infinite; }
 @keyframes ui-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.08); }
+  0%, 100% { opacity: 1; transform: scale(1.08); }
+  50% { opacity: 0.5; transform: scale(0.9); }
 }
 </style>

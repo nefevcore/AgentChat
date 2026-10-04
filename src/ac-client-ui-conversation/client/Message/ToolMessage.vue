@@ -384,8 +384,8 @@ watch(isExpanded, (expanded) => {
     user-select: none;
 }
 
-.diff-stat-add { color: var(--ok); white-space: nowrap; }
-.diff-stat-remove { color: var(--err); white-space: nowrap; }
+.diff-stat-add { color: var(--ok-status); white-space: nowrap; }
+.diff-stat-remove { color: var(--err-status); white-space: nowrap; }
 
 /* 行首图标切换（工具图标 ⇄ 折叠箭头 ⇄ 运行中旋转环）：无位移的淡入淡出 */
 .tool-label-icon { transition: opacity 0.12s ease; }
@@ -398,7 +398,7 @@ watch(isExpanded, (expanded) => {
     height: 13px;
     margin: 0.5px; /* 14px 图标位内居中（(14-13)/2） */
     border-radius: 50%;
-    border: 2px solid rgba(var(--primary-rgb), 0.18);
+    border: 2px solid var(--primary-border-soft);
     border-top-color: var(--primary);
     animation: toolSpin 0.8s linear infinite;
     flex-shrink: 0;

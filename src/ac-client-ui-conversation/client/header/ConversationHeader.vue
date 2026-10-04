@@ -8,7 +8,7 @@
 // ownerData）经 props 由视图的 identity 层喂入。
 // ============================================================
 import { computed, inject } from 'vue';
-import { Avatar, Icon, FeedbackNotice, ThinkingIcon } from '@agentchat/webui-kit';
+import { Avatar, Icon, FeedbackNotice, ThinkingIcon, Tooltip } from '@agentchat/webui-kit';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { useChatStore } from '../chatStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -54,9 +54,11 @@ const epB = computed(() => endpointOf(props.b || ''));
   <div class="chat-header">
     <template v-if="isPair">
       <!-- 窄屏返回（cr-33：只读会话也是 push 页——必须可返回） -->
-      <button class="hamburger-btn back-btn" @click="closeMobileMain" title="返回">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
-      </button>
+      <Tooltip text="返回" placement="bottom">
+        <button class="hamburger-btn back-btn" aria-label="返回" @click="closeMobileMain">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+        </button>
+      </Tooltip>
       <div class="header-info">
         <div class="pair-title">
           <div class="pair-avatars">
@@ -73,9 +75,11 @@ const epB = computed(() => endpointOf(props.b || ''));
     </template>
 
     <template v-else>
-      <button class="hamburger-btn back-btn" @click="closeMobileMain" title="返回">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
-      </button>
+      <Tooltip text="返回" placement="bottom">
+        <button class="hamburger-btn back-btn" aria-label="返回" @click="closeMobileMain">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+        </button>
+      </Tooltip>
       <div class="header-info">
         <span class="agent-label">{{ title }}</span>
         <!-- 预设徽章（single 开场固化后的身份回显——工具栏不再放预设入口）；
@@ -89,16 +93,18 @@ const epB = computed(() => endpointOf(props.b || ''));
         <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
              整体不渲染，消息区仅显示正文回复。图标内嵌滑块（随开合滑动，
              关 = 灰/开 = 主色）——图标不再外置，压缩按钮整体宽度 -->
-        <button
-          class="thinking-switch"
-          :class="{ on: ui.showThinking }"
-          role="switch"
-          :aria-checked="ui.showThinking"
-          :title="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'"
-          @click="ui.setShowThinking(!ui.showThinking)"
-        >
-          <span class="thinking-switch-track"><span class="thinking-switch-knob"><ThinkingIcon :size="12" class="thinking-switch-icon" /></span></span>
-        </button>
+        <Tooltip :text="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'" placement="bottom">
+          <button
+            class="thinking-switch"
+            :class="{ on: ui.showThinking }"
+            role="switch"
+            :aria-checked="ui.showThinking"
+            :aria-label="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'"
+            @click="ui.setShowThinking(!ui.showThinking)"
+          >
+            <span class="thinking-switch-track"><span class="thinking-switch-knob"><ThinkingIcon :size="12" class="thinking-switch-icon" /></span></span>
+          </button>
+        </Tooltip>
 
         <!-- 头部动作席位（list，order 序）：jobs chip（jobs 行 order 10）/
              Token 仪表（本行 order 20）/ System Prompt 预览（本行 order 25）/
@@ -190,7 +196,7 @@ const epB = computed(() => endpointOf(props.b || ''));
   position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: var(--switch-knob);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-knob);
   color: var(--text-3);
   transition: transform 0.2s ease, color 0.2s ease;
 }

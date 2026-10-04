@@ -4,7 +4,7 @@ import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
-import { Avatar, Icon } from '@agentchat/webui-kit';
+import { Avatar, Icon, IconAction, Tooltip } from '@agentchat/webui-kit';
 import { fmtElapsed } from '../feed.ts';
 import type { ChatMessage } from '../types.ts';
 
@@ -378,65 +378,57 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-if="showCopy !== false && hasContent" class="copy-btn-row">
-                    <button
-                        class="copy-message-btn"
-                        :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
-                        @click="copyMessageContent"
-                        :title="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制全文'"
-                    >
-                        <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                        <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="20 6 9 17 4 12"/>
-                        </svg>
-                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                    </button>
-                    <!-- 操作序：非破坏（复制/分支）→ 改写（重新推理）→ 破坏（删除）收尾 -->
-                    <button
-                        v-if="showFork"
-                        class="msg-action-btn"
-                        :disabled="isStreaming"
-                        @click="emit('fork')"
-                        title="从此处新建分支会话"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="6" cy="6" r="3"/>
-                            <circle cx="6" cy="18" r="3"/>
-                            <circle cx="18" cy="6" r="3"/>
-                            <path d="M18 9a9 9 0 0 1-9 9"/>
-                            <path d="M6 9v6"/>
-                        </svg>
-                    </button>
-                    <button
-                        v-if="showActions"
-                        class="msg-action-btn"
-                        :disabled="isStreaming"
-                        @click="emit('regenerate')"
-                        title="重新推理"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"/>
-                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                        </svg>
-                    </button>
-                    <button
-                        v-if="showActions"
-                        class="msg-action-btn danger"
-                        :disabled="isStreaming"
-                        @click="emit('deleteMessage')"
-                        title="删除消息"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                            <path d="M10 11v6"/>
-                            <path d="M14 11v6"/>
-                        </svg>
-                    </button>
+                    <Tooltip :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制全文'" placement="top">
+                        <button
+                            class="copy-message-btn"
+                            :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
+                            :aria-label="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制全文'"
+                            @click="copyMessageContent"
+                        >
+                            <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                            <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </Tooltip>
+                    <!-- 操作序：非破坏（复制/分支）→ 改写（重新推理）→ 破坏（删除）收尾（kit IconAction，cr-171） -->
+                    <Tooltip v-if="showFork" text="从此处新建分支会话" placement="top">
+                        <IconAction
+                            icon="git-branch"
+                            label="从此处新建分支会话"
+                            :size="14"
+                            suppress-title
+                            :disabled="isStreaming"
+                            @click="emit('fork')"
+                        />
+                    </Tooltip>
+                    <Tooltip v-if="showActions" text="重新推理" placement="top">
+                        <IconAction
+                            icon="refresh-cw"
+                            label="重新推理"
+                            :size="14"
+                            suppress-title
+                            :disabled="isStreaming"
+                            @click="emit('regenerate')"
+                        />
+                    </Tooltip>
+                    <Tooltip v-if="showActions" text="删除消息" placement="top">
+                        <IconAction
+                            class="msg-action-btn danger"
+                            icon="trash"
+                            label="删除消息"
+                            :size="14"
+                            suppress-title
+                            :disabled="isStreaming"
+                            @click="emit('deleteMessage')"
+                        />
+                    </Tooltip>
                 </div>
             </div>
         </div>
@@ -522,7 +514,7 @@ onBeforeUnmount(() => {
     /* 描边与气泡底色一致，视觉上无描边感 */
     border: 1px solid var(--bg-surface);
     border-radius: var(--radius-lg, 14px);
-    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    box-shadow: var(--shadow-hover);
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -626,7 +618,7 @@ onBeforeUnmount(() => {
     height: 13px;
     margin: 0.5px; /* 14px 图标位内居中（(14-13)/2） */
     border-radius: 50%;
-    border: 2px solid rgba(var(--primary-rgb), 0.18);
+    border: 2px solid var(--primary-border-soft);
     border-top-color: var(--primary);
     animation: thinkSpin 0.8s linear infinite;
     flex-shrink: 0;
@@ -753,31 +745,10 @@ onBeforeUnmount(() => {
     color: var(--err);
 }
 
-.msg-action-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    color: var(--text-3);
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: color 0.15s ease;
-    line-height: 0;
-}
-
-.msg-action-btn:hover:not(:disabled) {
-    color: var(--text-2);
-}
-
+/* 消息动作钮已归 kit IconAction（cr-171）；删除钮 danger hover 经 scoped
+   修饰类保留（IconAction 本体恒中性） */
 .msg-action-btn.danger:hover:not(:disabled) {
     color: var(--err);
-}
-
-.msg-action-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
 }
 
 /* ===== 文件路径链接 ===== */

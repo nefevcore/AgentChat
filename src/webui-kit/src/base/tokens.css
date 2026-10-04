@@ -1,12 +1,12 @@
 /* ============================================================
    webui-kit/src/base/tokens.css —— L0 设计令牌（Design Tokens）
    星群 × 工坊 · 双主题：深空 Nebula（默认）/ 晨曦 Aurora
-   风格规范与逐组件对照表：.dsh/skills/webui-kit-style/SKILL.md（§ 令牌）
+   风格规范与逐组件对照表：.dsh/skills/agentchat-dev/references/webui-style.md
 
    约定：
    - 所有 UI 库组件只引用本文件的变量，禁止硬编码色值
    - 主题切换：html[data-theme="nebula|aurora"]；同时兼容旧 html.dark/.light
-   - 发光（glow）是语义：星体/聚焦用；亮色下自动降级为柔光+描边
+   - tint 一律取 --primary-* 档位或 rgba(var(--x-rgb), α)——禁 color-mix 直写与 α 散点（WebView 92 兼容，cr-170）
    ============================================================ */
 
 /* ── 几何 / 字体 / 动效（主题无关） ── */
@@ -78,8 +78,8 @@
   /* 开关滑块（双主题同值；令牌化以便主题 / 高对比模式覆盖） */
   --switch-knob: #ffffff;
 
-  /* 主色实底 hover 影（Button primary 专用，随主色三元组派生） */
-  --shadow-primary-hover: 0 6px 22px rgba(var(--primary-rgb), 0.32);
+  /* 主色实底 hover 影（Button primary 专用；cr-170：随 tint border 档静态色派生） */
+  --shadow-primary-hover: 0 6px 22px rgba(77, 85, 144, 0.32);
   /* 清单行 hover 微影 与 开关滑块影（row.css 配方专用） */
   --shadow-hover: 0 1px 3px rgba(0, 0, 0, 0.05);
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -90,21 +90,37 @@
 html[data-theme='nebula'],
 html.dark {
   --bg-base: #1a1a1a;
-  --bg-surface: #2d2d2d;
-  --bg-raised: #2d2d2d;
-  /* 靛染（cr-135 色彩丰度）：交互回应的色彩化——S0 纯灰改 S20 靛调 */
-  --bg-hover: #252637;
+  /* 表面提亮 + 靛染（cr-138）：原三面同值 #2d2d2d，层级只靠 5% 顶缘高光；
+     提亮到 20/21 亮度档并带靛相——与底拉开 L*≈9 的可辨梯度 */
+  --bg-surface: #323236;
+  --bg-raised: #34343a;
+  /* 靛染收敛（cr-170）：hover 保色彩但锁 H276——cr-135 各面手工紫灰 H 不一，
+     叠出「紫灰粥」；饱和度归一到感知统一档 */
+  --bg-hover: #252733;
+  /* 凹嵌面（cr-148）：静态「嵌入」元素底——计数徽章/内联代码/开关轨道/
+     软按钮/中性徽章/空态。与 bg-hover 同值（语义分离，视觉零变），
+     后续两侧可独立调值；hover/open 反馈仍用 bg-hover */
+  --bg-inset: #27282b;
   /* 暗色层级：暗影投在 #1a1a1a 上不可见、加亮度又会压掉 primary 文字对比
-     （#818cf8 on #333 = 4.24 < 4.5），故分层改由 1px 顶缘高光承担 */
+     （cr-138 后 primary #8b97ff on #323236 = 4.65 ≥ 4.5），分层 = 表面梯度 + 1px 顶缘高光 */
   --elev-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
-  /* 拉满饱和（cr-135）：S75→100——主操作位能量感，暗底对比 5.84 不降 */
-  --primary: #7c8cff;
+  /* 提亮一档（cr-138）：#7c8cff→#8b97ff——表面提亮后主色跟进，四底矩阵 4.65+；
+     cr-135 的 S100 饱和度保持（HSL 231° S100%） */
+  --primary: #8b97ff;
   --primary-strong: #a8b0ff;
   /* primary-strong 三元组（cr-121）：标签底色与 .tt-base 墨色用——
      primary 本体在 8% tint 底上只有 4.09，不足 4.5 */
   --primary-strong-rgb: 168, 176, 255;
-  --primary-light: rgba(124, 140, 255, 0.16);
+  /* 主色 tint 梯度（cr-170）：OKLCH 锁相（H≈276）静态 hex——rgba α 合成
+     chroma 崩至 ~9% 且色相漂 +9°（发灰发紫「脏」感的根因）；L 锚原 α 合成、
+     饱和度按感知补回。α→档映射：tint≈0.07 / light≈0.16 / tint-strong≈0.20 /
+     border-soft≈0.22 / border≈0.40 */
+  --primary-tint: #313443;
+  --primary-light: #373d5c;
+  --primary-tint-strong: #39406c;
+  --primary-border-soft: #3d4367;
+  --primary-border: #4d5590;
   /* 主色实底上的前景（cr-121）：白字 on #818cf8 仅 2.99:1（hover 态
      primary-strong 更差），亮靛底改深字 5.83:1 —— 视觉由「亮靛+白字」
      →「亮靛+深字」 */
@@ -114,11 +130,14 @@ html.dark {
      档间对比（12.7/9.1/6.4 on surface）仍保持清晰三级 */
   --text-1: #f4f6f7;
   --text-2: #cbd3d8;
-  --text-3: #a8b2b5;
+  /* 再提一档（cr-138）：使用最多的元信息色，L 43→49 化解灰雾感；
+     on surface 6.52、on hover 6.30 仍稳 */
+  --text-3: #b4bec2;
 
   /* 线靛染（cr-135）：灰线改靛灰——边界也参与色彩氛围 */
-  --line: #33343c;
-  --line-strong: #41424e;
+  /* cr-170：结构线褪染回近中性（H276 微染），色彩让位交互路径 */
+  --line: #3b3c3e;
+  --line-strong: #4b4c50;
 
   /* 语义色暗底取 300/400 档：徽章自带 tint 底（rgba 0.10~0.12）会抬高背景
      亮度，文字色必须比「裸底可比」更亮才过 4.5。
@@ -126,81 +145,112 @@ html.dark {
      （离开纯红带）——warn↔err 色相距从 33° 拉到 57° */
   --ok: #9bd39a;
   --warn: #fcd34d;
-  --err: #f0879a;
-  /* 图形档（cr-123）：环描边/状态点/命中条/图标等「非文字」语义件用 3.0 线
-     （WCAG 1.4.11 图形件），可取更亮的档位——与墨色档同色相族 */
-  --ok-graphic: #9fd89f;
-  --warn-graphic: #fde68a;
-  --err-graphic: #f7a8b8;
+  /* L+1（cr-138）：surface 提亮后 err 徽章 tint 底变亮，粉色微提回 4.60 */
+  --err: #f18c9e;
+  /* 状态档（cr-140，承 cr-123 图形档 3.0 线）：状态表示层——大字状态字
+     （≥14px·700 粗体，WCAG 大字）/ 环色 / 状态点 / 图标 / toast 侧条。
+     鲜化（承用户 #2DA44E 色感）：ok #9fd89f→#4AC26B 更翠，与墨色档同色相族 */
+  --ok-status: #4AC26B;
+  --warn-status: #fde68a;
+  --err-status: #f7a8b8;
+
+  /* 星标语义色（cr-171）：收藏/默认标记专用（模型池默认连接星标、「设为
+     默认」动作）——与警示 warn 分家（此前星标借 warn，读作"警告"误导）。
+     暗底 #fbbf24 六底全 ≥7.2。 */
+  --star: #fbbf24;
 
   /* ── RGB 三元组（cr-32：color-mix 的等价回退）──
      color-mix(in srgb, C N%, transparent) 语义 = C 以 N% 不透明度着色；
      WebView 92（< Chrome 111）不认识 color-mix，故 tint 一律写
      rgba(var(--x-rgb), N)——与上方色值逐位同步，改色必须同改（有测试锁）。 */
-  --primary-rgb: 124, 140, 255;
+  --primary-rgb: 139, 151, 255;
   --text-1-rgb: 244, 246, 247;
   --text-2-rgb: 203, 211, 216;
-  --text-3-rgb: 168, 178, 181;
+  --text-3-rgb: 180, 190, 194;
   --ok-rgb: 155, 211, 154;
   --warn-rgb: 252, 211, 77;
-  --err-rgb: 240, 135, 154;
+  --err-rgb: 241, 140, 158;
 
-  --code-bg: #2d2d2d;
+  --code-bg: #323236;
   --code-text: #e3e9ee;
 
-  --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
-  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
-  /* 输入卡片双层影（贴边 contact + 环境光 soft）：深色底上纯黑影几乎不可见，
-     浓度需提到 0.5 档——#1a1a1a 上约压到 #0d0d0d，观感与亮色 6-8% 灰调等效 */
-  --shadow-input: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.55);
+  /* 阴影减负（cr-138）：原 0.45~0.55 黑影在黑底上是吸光而非造深——
+     浮起感改由表面梯度承担，影只留轮廓（浓度砍半） */
+  --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.28);
+  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --shadow-input: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.35);
   /* 输入卡同级 dock 卡影（todo/goal/queue/interaction/approval）：轻 input 一档
      ——主操作位（composer）视觉权重最高，辅助浮层半透明收敛不争焦点 */
-  --shadow-dock: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-dock: 0 1px 2px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.25);
 
-  --input-bg: #2d2d2d;
-  --input-border: #33343c;
+  --input-border: #3a3b45; /* cr-181：--input-bg 消亡——输入件去填充底（transparent） */
   --input-focus: var(--focus-ring);
 
   --scroll-thumb: rgba(168, 176, 255, 0.14);
   --scroll-thumb-hover: rgba(168, 176, 255, 0.30);
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
-  --role-hover-bg: #252637;
+  --role-hover-bg: #252733;
   --role-hover-text: #f4f6f7;
-  --role-selected-bg: #2b2b3a;
+  /* 选中态随表面梯度上移（cr-138）；cr-170 锁相 H276（#a5b4fc on 本底 = 6.10） */
+  --role-selected-bg: #2f3450;
   --role-selected-text: #a5b4fc;
   --role-active-bg: #3a2f14;
+
+  /* 环境辉光（cr-138）：暗色主题的光源——顶部一缕靛蓝微光，
+     化解「黑底无光」的深井感；fixed 保证滚动时光源恒定 */
+  --bg-glow: radial-gradient(1200px 420px at 50% -180px, rgba(139, 151, 255, 0.07), transparent 70%);
+
+  /* 活动栏容器底（cr-141 修订）：与侧边栏同层同色（暗 = base 同底），
+     分区交给 border-right 边线而非色块——消除三层割裂；
+     hover 反馈仍走主色染 var(--primary-light)（ActivityBar.vue 内） */
+  --bg-nav: var(--bg-base);
 }
 
 /* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
 html[data-theme='aurora'],
 html.light {
-  --bg-base: #ffffff;
-  --bg-surface: #fafafa;
+  /* 底色微暖（cr-138）：纯白+冷蓝灰中性 → 纸感暖白，散「无影灯」冷调；
+     raised 仍纯白承载浮层对比 */
+  --bg-base: #fdfdfb;
+  --bg-surface: #f8f7f4;
   --bg-raised: #ffffff;
-  /* 靛染（cr-135）：text-3 on hover 4.58 仍过 4.5 线 */
-  --bg-hover: #ececf5;
+  /* 靛染收敛（cr-170）：锁 H276；text-3 on hover = 4.65 仍过 4.5 线 */
+  --bg-hover: #e8ebf7;
+  /* 凹嵌面（cr-148）：静态「嵌入」元素底——同 Nebula 块注；与 bg-hover 同值 */
+  --bg-inset: #ebebee;
   /* 亮色浮层分隔走描边（暗色走顶缘高光，见 Nebula 块） */
   --elev-hairline: 0 0 0 1px rgba(15, 23, 42, 0.05);
 
-  /* 拉饱和（cr-135）：#4f46e5→#4338e8——三白底 6.21+ 仍宽 */
-  --primary: #4338e8;
-  --primary-strong: #3730c4;
-  --primary-strong-rgb: 55, 48, 196;
-  --primary-light: rgba(67, 56, 232, 0.1);
+  /* 上浮一档（cr-138）：#4338e8(700)→#4f46e5(600)——消除满屏深靛块；
+     四底矩阵 5.13+，on-primary 白字 6.29 */
+  --primary: #4f46e5;
+  --primary-strong: #4338e8;
+  --primary-strong-rgb: 67, 56, 232;
+  /* 主色 tint 梯度（cr-170，Nebula 块同注）：OKLCH 锁相（H≈276）静态 hex；
+     α→档映射：tint≈0.07 / light≈0.11 / tint-strong≈0.16 /
+     border-soft≈0.22 / border≈0.38 */
+  --primary-tint: #eff3ff;
+  --primary-light: #e6ecff;
+  --primary-tint-strong: #dbe2ff;
+  --primary-border-soft: #cfd8ff;
+  --primary-border: #aebbff;
+  --shadow-primary-hover: 0 6px 22px rgba(174, 187, 255, 0.32);
   --on-primary: #ffffff;
 
-  /* 近黑去闷（cr-125）：#2c3e50 蓝灰发闷；#1e293b 更深更纯，对比 9.6→12.8 */
-  --text-1: #1e293b;
+  /* 去蓝（cr-138）：#1e293b Δ(b-r)=29 的「蓝黑」→ 墨黑 #2b2f36，对比 14.3 */
+  --text-1: #2b2f36;
   /* 加深一档（cr-122）：原 #5f6b78 与 text-3 #666b71 对比度仅差 0.15，
-     视觉塌缩不可辨；加深后与 text-3 拉开层级（6.4 vs 5.2 on base） */
-  --text-2: #55606c;
-  /* 2.3 / 2.2 → 5.29 / 4.73（元信息此前几乎不可读；取值受 hover 底 #f0f0f0 约束） */
-  --text-3: #666b71;
+     视觉塌缩不可辨；加深后与 text-3 拉开层级（6.9 vs 5.6 on base） */
+  --text-2: #5d646c;
+  /* 2.3 / 2.2 → 5.63 / 4.73（元信息此前几乎不可读；取值受 hover 底 #f0f0f0 约束）
+     cr-138 去蓝：Δ(b-r) 11→7 */
+  --text-3: #65696e;
 
-  /* 线靛染（cr-135） */
-  --line: #e2e4ec;
-  --line-strong: #b9c0d4;
+  /* 线靛染（cr-135）· cr-138 褪蓝：Δ(b-r) 10→6 / 27→10，柔化冷调 */
+  /* cr-170：结构线褪染回近中性（暖底上的冷紫染读作「脏」） */
+  --line: #e6e6e9;
+  --line-strong: #c8c9cc;
 
   /* 语义色亮底重定档（cr-121）：白 / 浅底上原值全部低于 4.5（ok 2.54、
      warn 2.15、err 3.82）——语义色不再与暗色同值，各自取向达标档位 */
@@ -209,53 +259,73 @@ html.light {
      #9FD89F 的色感方向——该值太浅不可作墨色，白底对比仅 1.64），
      对比余量宽（底 5.26 / tint 4.87） */
   --ok: #356f43;
+  /* amber 色相天花板（cr-138）：#b45309 matrix 4.23——amber 提亮必破 4.5，
+     warn 文字档锁死 #8a5a06；亮档诉求走 graphic 档（已是 #bb831c） */
   --warn: #8a5a06;
-  --err: #9f1239;
-  /* 图形档（cr-123，3.0 线·base/surface/raised 三白底）——文字勿用 */
-  --ok-graphic: #669a6d;
-  --warn-graphic: #bb831c;
-  --err-graphic: #d9536f;
+  /* 上浮（cr-138）：#9f1239→#be123c(rose-600)，白底 5.29/徽章 4.95 */
+  --err: #be123c;
+  /* 状态档（cr-140，承 cr-123 3.0 线·三白底）：GitHub 色感——ok #2DA44E
+     (green-600，用户指定色感) / warn #bb831c (amber-600 邻档) / err #be123c
+     (rose-600，与文字档同值)。状态字须 ≥14px·700；小号状态字用文字档 */
+  --ok-status: #2DA44E;
+  --warn-status: #bb831c;
+  --err-status: #be123c;
+
+  /* 星标语义色（cr-171，Nebula 块同注；cr-172 用户反馈 #854d0e 观感偏棕，
+     提金一档 #a16207（yellow-600/700 间）——白底 4.92 / surface 4.60 仍过 4.5 线） */
+  --star: #a16207;
 
   /* RGB 三元组（cr-32：color-mix 的等价回退）——与上方色值逐位同步，
      改色必须同改（有测试锁）。 */
-  --primary-rgb: 67, 56, 232;
-  --text-1-rgb: 30, 41, 59;
-  --text-2-rgb: 85, 96, 108;
-  --text-3-rgb: 102, 107, 113;
+  --primary-rgb: 79, 70, 229;
+  --text-1-rgb: 43, 47, 54;
+  --text-2-rgb: 93, 100, 108;
+  --text-3-rgb: 101, 105, 110;
   --ok-rgb: 53, 111, 67;
   --warn-rgb: 138, 90, 6;
-  --err-rgb: 159, 18, 57;
+  --err-rgb: 190, 18, 60;
 
   --code-bg: #ffffff;
-  --code-text: #1e293b;
+  --code-text: #2b2f36;
 
-  --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
-  --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
+  /* 阴影基色去蓝（cr-138）：slate → 暖灰墨 */
+  --shadow-panel: 0 8px 24px rgba(43, 39, 36, 0.08);
+  --shadow-pop: 0 4px 16px rgba(43, 39, 36, 0.12);
   /* 输入卡片双层影（贴边 contact + 环境光 soft）：白底上 6-8% 灰调，
      4px 偏移 12px 模糊的柔光层撑开层次——浮起可感不抢眼 */
-  --shadow-input: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-input: 0 1px 2px rgba(43, 39, 36, 0.06), 0 4px 12px rgba(43, 39, 36, 0.08);
   /* 输入卡同级 dock 卡影：轻 input 一档（同构双层，浓度/模糊收敛）——
      dock 卡是辅助浮层，与主操作位（composer）拉开权重序 */
-  --shadow-dock: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-dock: 0 1px 2px rgba(43, 39, 36, 0.04), 0 2px 8px rgba(43, 39, 36, 0.06);
 
-  --input-bg: #ffffff;
-  --input-border: #e2e4ec;
+  --input-border: #e6e6e9;
   --input-focus: var(--focus-ring);
 
-  --scroll-thumb: rgba(15, 23, 42, 0.16);
-  --scroll-thumb-hover: rgba(15, 23, 42, 0.32);
+  /* 中性滚动条（cr-138）：slate #0f172a 纯黑级 hover → 中灰，去冷调毛刺 */
+  --scroll-thumb: rgba(43, 47, 54, 0.16);
+  --scroll-thumb-hover: rgba(43, 47, 54, 0.32);
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
-  --role-hover-bg: #ececf5;
-  --role-hover-text: #1e293b;
-  --role-selected-bg: #e4e6f5;
-  --role-selected-text: #4f46e5;
+  --role-hover-bg: #e8ebf7;
+  --role-hover-text: #2b2f36;
+  --role-selected-bg: #dfe6ff;
+  --role-selected-text: #4338e8;
   --role-active-bg: #fdf6e3;
+
+  /* 环境辉光（cr-138）：晨曦意象——暖金顶光，散「无影灯」冷白 */
+  --bg-glow: radial-gradient(1200px 420px at 50% -180px, rgba(251, 191, 36, 0.05), transparent 70%);
+
+  /* 活动栏容器底（cr-141 修订）：与侧边栏同层同色（亮 = surface 同底），
+     分区交给边线；hover 反馈走主色染（见 Nebula 块注） */
+  --bg-nav: var(--bg-surface);
 }
 
 /* ── 基础样式 ── */
 body {
   background: var(--bg-base);
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--text-1);
   font-family: var(--font-ui);
 }
@@ -288,7 +358,7 @@ body {
    以别名覆盖同名变量 —— 单一来源。
    cr-131（P7）：--color-* 别名条目全数零消费（业务件已归本源令牌 --text-*、--bg-*、--line-*
    --primary-*、--ok|warn|err；kit 自身不再依赖自身别名），整族剪除；main.css 同名重复定义同批剪除。
-   main.css 独有且无 tokens 对应者（--layout-*、--el-*、--transition-fast、--color-code-* 等）
+   main.css 独有且无 tokens 对应者（--layout-*、--transition-fast、--color-code-* 等）
    保留在 main.css。 */
 :root,
 html[data-theme='nebula'], html[data-theme='aurora'],

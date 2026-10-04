@@ -221,7 +221,7 @@
 /* ── 内联代码（中性强调：浅灰底 + 正文色；主色系留给可点击元素——
    文件链接 chip 与普通链接，避免"代码"与"可点击"视觉混淆） ── */
 .markdown-body code {
-    background: var(--bg-hover);
+    background: var(--bg-inset);
     color: var(--text-1);
     padding: 1px 6px;
     border-radius: 4px;
@@ -451,7 +451,7 @@
 .markdown-body table.md-frontmatter {
     margin: 12px 0;
     border-radius: var(--radius-md);
-    background: var(--bg-hover);
+    background: var(--bg-inset);
     border: 1px solid var(--line);
     border-collapse: separate;
     border-spacing: 0;

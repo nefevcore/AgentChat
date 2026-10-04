@@ -11,7 +11,8 @@
     属意外分裂而非设计；且与 StarAvatar 运行光环同语言）。
   文本语义由宿主承担——故默认 aria-hidden（不进可达性树，避免与
   宿主文案重复播报）；独立等待位传 label 才以 role=status 播报。
-  动效经 --motion-scale 归一（系统「减少动态效果」下静止）。
+  动效豁免 --motion-scale（cr-149：旋转即语义，reduce 下不静止——
+  同 StarAvatar run-ring 先例；main.css 全局 reduce 规则已 *:not 排除）。
   ============================================================ -->
 <script setup lang="ts">
 
@@ -38,13 +39,18 @@ const props = withDefaults(defineProps<{
 .busy-ring {
   display: inline-block;
   flex-shrink: 0;
+  /* 尺寸语义 = 总外径（cr-150：border-box——此前 content-box 下 :size=13 实占
+     17px，基线对齐后 21px 占位，在 dock-head 等紧凑行内上下溢出） */
+  box-sizing: border-box;
   /* CSS 侧兜底尺寸（组件用 :size 以内联样式覆盖）；无内联时也不塌成 0 */
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  border: 2px solid rgba(var(--primary-rgb), 0.18);
+  border: 2px solid var(--primary-border-soft);
   border-top-color: var(--primary);
-  animation: busy-ring-spin calc(0.8s * var(--motion-scale)) linear infinite;
+  /* cr-149：忙指示 = 功能语义（同 StarAvatar run-ring 豁免先例）——不经
+     --motion-scale，系统「减少动态」下仍旋转（静止即失去唯一语义） */
+  animation: busy-ring-spin 0.8s linear infinite;
 }
 @keyframes busy-ring-spin { to { transform: rotate(360deg); } }
 </style>

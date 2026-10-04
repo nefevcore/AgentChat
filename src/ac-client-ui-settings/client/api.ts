@@ -102,55 +102,58 @@ export interface LlmProviderTemplate {
 }
 
 export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
-  { id: 'deepseek', label: 'DeepSeek 官方', baseUrl: 'https://api.deepseek.com/', defaultModel: 'deepseek-v4-flash' },
-  { id: 'openai', label: 'OpenAI 官方', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini' },
-  { id: 'glm', label: '智谱 GLM 开放平台', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3' },
-  // GLM Coding Plan（编程套餐独立端点）——套餐模型集与开放平台不同，
-  // 不设 defaultModel：填 Key 读取清单后自动取第一个
-  { id: 'glm-coding-plan', label: '智谱 GLM Coding Plan（编程套餐）', baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4' },
-  // ↓ 2026-09-10 扩容：对齐 DSH（pi-ai）provider 目录的 OpenAI 兼容面。
-  // 原生协议非 OpenAI 兼容的厂商（Anthropic/Gemini/MiniMax）取其官方
-  // OpenAI 兼容端点。套餐/聚合端点模型目录跨厂商且多变——不设
-  // defaultModel，填 Key 读清单后自选（服务端默认物化亦有清单回落）。
-  // ↓ 2026-10-01 二次扩容（对齐 pi-ai 2026-07-25 目录）：新增 12 提供方。
-  // pi-ai 走 anthropic-messages 且 API key 可用的网关（Kimi 编程套餐/
-  // GitHub Copilot/Vercel 网关）以原生协议模板收录（protocol 字段，
-  // cr-39 多态）；占位符 URL（Cloudflare）、OAuth-only（openai-codex）
-  // 与云托管部署型（Bedrock/Azure/Vertex）不收录。
+  // 按 id 字母序维护（cr-183）。扩容沿革：2026-09-10 对齐 DSH（pi-ai）
+  // provider 目录的 OpenAI 兼容面——原生协议非 OpenAI 兼容的厂商取其
+  // 官方 OpenAI 兼容端点；2026-10-01 二次扩容（对齐 pi-ai 2026-07-25
+  // 目录）新增 12 提供方，pi-ai 走 anthropic-messages 且 API key 可用
+  // 的网关（Kimi 编程套餐/GitHub Copilot/Vercel 网关）以原生协议模板
+  // 收录（protocol 字段，cr-39 多态）；占位符 URL（Cloudflare）与
+  // OAuth-only（openai-codex）不收录，云托管部署型初批不收录（cr-98
+  // 后 Bedrock/Azure 补入，见条目分注）。2026-10-04 品牌对齐更名
+  // glm→zai、glm-coding-plan→zai-coding-cn，并移除 glm-coding（Coding
+  // Plan 订阅唯一：国际/国内端点同订阅，见 zai-coding-cn 条注）。套餐/
+  // 厂商且多变——不设 defaultModel，填 Key 读清单后自选（服务端默认
+  // 物化亦有清单回落）。
+  { id: 'ant-ling', label: '蚂蚁 Ling 开放平台', baseUrl: 'https://api.ant-ling.com/v1', defaultModel: 'Ling-2.6-flash' },
   { id: 'anthropic', label: 'Anthropic Claude（OpenAI 兼容端点）', baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { id: 'gemini', label: 'Google Gemini（OpenAI 兼容端点）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-flash-latest' },
-  { id: 'xai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.5' },
-  { id: 'moonshot', label: '月之暗面 Kimi（开放平台）', baseUrl: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3' },
-  { id: 'qwen', label: '阿里云百炼 Qwen（按量付费）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.8-max' },
-  { id: 'qwen-coding-plan', label: '阿里 Qwen 套餐（订阅制端点）', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' },
-  { id: 'minimax', label: 'MiniMax 开放平台', baseUrl: 'https://api.minimaxi.com/v1', defaultModel: 'MiniMax-M3' },
-  { id: 'glm-coding', label: '智谱 GLM Coding 国际（z.ai）', baseUrl: 'https://api.z.ai/api/coding/paas/v4', defaultModel: 'glm-5.2' },
-  { id: 'mistral', label: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest' },
-  { id: 'groq', label: 'Groq（极速推理）', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'openai/gpt-oss-120b' },
-  { id: 'openrouter', label: 'OpenRouter（模型聚合）', baseUrl: 'https://openrouter.ai/api/v1' },
-  { id: 'together', label: 'Together AI（模型聚合）', baseUrl: 'https://api.together.ai/v1' },
+  // ↓ 云部署型 API key 化端点（cr-98，裁决见 src/docs/cloud-provider-api-key-adoption.md）：
+  // Azure v1 统一路由（免 deployment 拼路径）+ api-key 头（authHeader 池
+  // 字段）；Bedrock /openai/v1 兼容面 + Bearer（控制台生成的短期 API
+  // key）。Vertex Express 缓收录（AI Studio 模板已覆盖 key 化面）。
+  // region/资源名因用户而异——baseUrl 占位说明，用户按账号改写。
+  { id: 'azure-openai', label: 'Azure OpenAI（v1 统一路由）', baseUrl: 'https://<资源名>.openai.azure.com/openai/v1', authHeader: 'api-key' },
+  { id: 'bedrock', label: 'Amazon Bedrock（OpenAI 兼容端点）', baseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1' },
+  { id: 'cerebras', label: 'Cerebras（极速推理）', baseUrl: 'https://api.cerebras.ai/v1', defaultModel: 'gpt-oss-120b' },
+  { id: 'deepseek', label: 'DeepSeek 官方', baseUrl: 'https://api.deepseek.com/', defaultModel: 'deepseek-v4-flash' },
   { id: 'fireworks', label: 'Fireworks AI（模型聚合）', baseUrl: 'https://api.fireworks.ai/inference/v1' },
-  // ↓ 2026-10-01 扩容条目（批次说明见上方注释）；opencode.ai 域由
-  // session-affinity preset 自动注入 x-opencode-session（粘性路由）
-  { id: 'kimi-coding', label: 'Kimi 编程套餐（Anthropic 协议）', baseUrl: 'https://api.kimi.com/coding', protocol: 'anthropic' },
+  { id: 'gemini', label: 'Google Gemini（OpenAI 兼容端点）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-flash-latest' },
   { id: 'github-copilot', label: 'GitHub Copilot（Anthropic 协议）', baseUrl: 'https://api.individual.githubcopilot.com', protocol: 'anthropic' },
-  { id: 'vercel-ai-gateway', label: 'Vercel AI Gateway（模型聚合，Anthropic 协议）', baseUrl: 'https://ai-gateway.vercel.sh', protocol: 'anthropic' },
+  { id: 'groq', label: 'Groq（极速推理）', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'openai/gpt-oss-120b' },
+  { id: 'huggingface', label: 'Hugging Face（Inference Providers 聚合）', baseUrl: 'https://router.huggingface.co/v1' },
+  { id: 'kimi-coding', label: 'Kimi 编程套餐（Anthropic 协议）', baseUrl: 'https://api.kimi.com/coding', protocol: 'anthropic' },
+  { id: 'minimax', label: 'MiniMax 开放平台', baseUrl: 'https://api.minimaxi.com/v1', defaultModel: 'MiniMax-M3' },
+  { id: 'mistral', label: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest' },
+  { id: 'moonshot', label: '月之暗面 Kimi（开放平台）', baseUrl: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3' },
+  { id: 'moonshotai', label: '月之暗面 Kimi 国际版', baseUrl: 'https://api.moonshot.ai/v1', defaultModel: 'kimi-k3' },
+  { id: 'nvidia', label: 'NVIDIA NIM（模型聚合）', baseUrl: 'https://integrate.api.nvidia.com/v1' },
+  { id: 'openai', label: 'OpenAI 官方', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini' },
+  // opencode.ai 域由 session-affinity preset 自动注入 x-opencode-session（粘性路由）
   { id: 'opencode', label: 'OpenCode Zen（订阅聚合）', baseUrl: 'https://opencode.ai/zen/v1' },
   { id: 'opencode-go', label: 'OpenCode Go（编程订阅）', baseUrl: 'https://opencode.ai/zen/go/v1' },
-  { id: 'huggingface', label: 'Hugging Face（Inference Providers 聚合）', baseUrl: 'https://router.huggingface.co/v1' },
-  { id: 'nvidia', label: 'NVIDIA NIM（模型聚合）', baseUrl: 'https://integrate.api.nvidia.com/v1' },
-  { id: 'cerebras', label: 'Cerebras（极速推理）', baseUrl: 'https://api.cerebras.ai/v1', defaultModel: 'gpt-oss-120b' },
+  { id: 'openrouter', label: 'OpenRouter（模型聚合）', baseUrl: 'https://openrouter.ai/api/v1' },
+  { id: 'qwen', label: '阿里云百炼 Qwen（按量付费）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.8-max' },
+  { id: 'qwen-coding-plan', label: '阿里 Qwen 套餐（订阅制端点）', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' },
+  { id: 'together', label: 'Together AI（模型聚合）', baseUrl: 'https://api.together.ai/v1' },
+  { id: 'vercel-ai-gateway', label: 'Vercel AI Gateway（模型聚合，Anthropic 协议）', baseUrl: 'https://ai-gateway.vercel.sh', protocol: 'anthropic' },
+  { id: 'xai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.5' },
   { id: 'xiaomi', label: '小米 MiMo 开放平台', baseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
   { id: 'xiaomi-token-plan-cn', label: '小米 MiMo 套餐（订阅制端点）', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
-  { id: 'ant-ling', label: '蚂蚁 Ling 开放平台', baseUrl: 'https://api.ant-ling.com/v1', defaultModel: 'Ling-2.6-flash' },
-  { id: 'moonshotai', label: '月之暗面 Kimi 国际版', baseUrl: 'https://api.moonshot.ai/v1', defaultModel: 'kimi-k3' },
-  // ↓ 云部署型 API key 化端点（cr-98，裁决见 src/docs/cloud-provider-api-key-adoption.md）：
-  // Bedrock /openai/v1 兼容面 + Bearer（控制台生成的短期 API key）；Azure
-  // v1 统一路由（免 deployment 拼路径）+ api-key 头（authHeader 池字段）。
-  // Vertex Express 缓收录（AI Studio 模板已覆盖 key 化面）。region/资源名
-  // 因用户而异——baseUrl 占位说明，用户按账号改写。
-  { id: 'bedrock', label: 'Amazon Bedrock（OpenAI 兼容端点）', baseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1' },
-  { id: 'azure-openai', label: 'Azure OpenAI（v1 统一路由）', baseUrl: 'https://<资源名>.openai.azure.com/openai/v1', authHeader: 'api-key' },
+  { id: 'zai', label: '智谱 GLM 开放平台', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3' },
+  // ZAI Coding Plan（编程套餐独立端点）——套餐模型集与开放平台不同，
+  // 不设 defaultModel：填 Key 读取清单后自动取第一个。同一订阅国际/
+  // 国内两入口（cr-185）：需国际端点时把 base_url 改为
+  // https://api.z.ai/api/coding/paas/v4（原 glm-coding 模板已并入）
+  { id: 'zai-coding-cn', label: '智谱 GLM Coding Plan（编程套餐）', baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4' },
 ];
 
 /** 模板 → 字段默认值（getLlmSchemas 的 model 默认同源） */

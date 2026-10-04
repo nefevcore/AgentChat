@@ -120,6 +120,7 @@ function fallbackCopy(text: string) {
         <Tooltip text="刷新（重新组装当前 Agent 提示词）" placement="bottom">
           <button
             class="spp-btn"
+            aria-label="刷新（重新组装当前 Agent 提示词）"
             :disabled="chatStore.systemPromptLoading || !agentId"
             @click="requestForView()"
           >
@@ -134,6 +135,7 @@ function fallbackCopy(text: string) {
         >
           <button
             class="spp-btn"
+            aria-label="复制全文"
             :class="{ copied: chatStore.copyFeedback }"
             @click="copyText(chatStore.systemPromptContent)"
           >

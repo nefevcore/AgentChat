@@ -1,19 +1,15 @@
 <!-- QueueDock.vue —— next-turn 排队 dock（composer 上方；DSH QueueDock 姿势）
   纯展示组件：队列数据/插话/删除动作由父级（QueueDockHost 持 useQueuedMessages
-  单一事实源）经 props 注入。展示规则（DSH 对齐）：队空隐藏；单条直渲染该
-  行（行首补 lead 图标——无表头形态的卡族锚点，对齐 TodoPanel/GoalBar）；
-  两条及以上默认收起为表头（标题 + 计数摘要），点击展开完整列表
+  单一事实源）经 props 注入。展示规则（DSH 对齐）：队空隐藏；单条直渲染该行
+  （无头卡——行首 lead 图标为卡族锚点）；两条及以上 = 可折叠卡（eyebrow 类别
+  + 条数 title，header 整体可点展开，cr-186 同 TodoPanel），展开完整列表
   （180px 上限滚动；队列清空后下次出现恢复收起）。
-  外壳与密度对齐 dock 卡族规范（TodoPanel/GoalBar/InteractionBar）：
-  radius-lg 扁平卡 · bg-secondary · margin 0 10px 6px（6px 下距 = dock 列
-  纵向节奏）· 12px 横向内距 · 表头 = 14px lead + 13px/500 标题 + 12px
-  计数摘要 + 14px chevron（TodoPanel header 同构）· 列表 gap 分隔无分割
-  线（TodoPanel list 同构）· 13px 行文 · 22px 图标钮。
+  cr-186：外壳终迁 kit DockCard（原自建壳/表头退役——dock 卡族六卡同壳）。
   行 = 单行预览 + 立即发送（插话，仅运行中可用——转移到活跃 run 下一步）
   + 删除。输入框没有插话按钮，"着急立即发送"的唯一点击位在这里（DSH 同款）。 -->
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { Icon } from '@agentchat/webui-kit';
+import { DockCard, Icon, Tooltip } from '@agentchat/webui-kit';
 import type { QueuedMessage } from './useQueuedMessages.ts';
 
 const props = defineProps<{
@@ -33,111 +29,57 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
 </script>
 
 <template>
-  <div v-if="items.length > 0" class="queue-dock">
-    <div class="queue-body">
-      <!-- 表头（TodoPanel header 同构）：lead + 标题 + 计数摘要 + chevron；
-           单条直渲染行，无表头 -->
-      <button
-        v-if="items.length > 1"
-        type="button"
-        class="queue-header"
-        :aria-expanded="expanded"
-        aria-controls="queue-dock-list"
-        @click="expanded = !expanded"
-      >
-        <span class="queue-lead" aria-hidden="true"><Icon name="clock" :size="14" /></span>
-        <span class="queue-title">排队消息</span>
-        <span class="queue-count">{{ items.length }} 条</span>
-        <span class="queue-chevron" :class="{ open: expanded }" aria-hidden="true">
-          <Icon name="chevron-down" :size="14" />
-        </span>
-      </button>
-
-      <div
-        v-if="items.length === 1 || expanded"
-        id="queue-dock-list"
-        class="queue-list"
-        :class="{ multi: items.length > 1 }"
-      >
-        <div v-for="q in items" :key="q.id" class="queue-row">
-          <!-- 单条形态无表头：行首补 lead 图标对齐 dock 卡族锚点（多条时表头已带） -->
-          <span v-if="items.length === 1" class="queue-lead" aria-hidden="true"><Icon name="clock" :size="14" /></span>
-          <span class="queue-preview" :title="q.preview">{{ q.preview || '（空消息）' }}</span>
-          <span class="queue-actions">
+  <!-- 多条 = 可折叠卡（header 整体可点）；单条 = 无头卡（行首 lead 图标锚点） -->
+  <DockCard
+    v-if="items.length > 0"
+    class="queue-dock"
+    :icon="items.length > 1 ? 'clock' : ''"
+    :eyebrow="items.length > 1 ? '排队消息' : ''"
+    :title="items.length > 1 ? `${items.length} 条` : ''"
+    :collapsible="items.length > 1"
+    :open="items.length === 1 || expanded"
+    @toggle="(o) => (expanded = o)"
+  >
+    <div class="queue-list" :class="{ multi: items.length > 1 }">
+      <div v-for="q in items" :key="q.id" class="queue-row">
+        <!-- 单条形态无表头：行首补 lead 图标对齐 dock 卡族锚点（多条时表头已带） -->
+        <span v-if="items.length === 1" class="queue-lead" aria-hidden="true"><Icon name="clock" :size="14" /></span>
+        <span class="queue-preview" :title="q.preview">{{ q.preview || '（空消息）' }}</span>
+        <span class="queue-actions">
+          <Tooltip :text="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'" placement="top">
             <button
               type="button"
               class="queue-act steer"
               :disabled="!busy"
-              :title="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'"
+              :aria-label="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'"
               @click="onSteer(q)"
             >
               <Icon name="zap" :size="13" />
             </button>
+          </Tooltip>
+          <Tooltip text="删除排队消息" placement="top">
             <button
               type="button"
               class="queue-act"
-              title="删除排队消息"
+              aria-label="删除排队消息"
               @click="onRemove(q.id)"
             >
               <Icon name="x" :size="13" />
             </button>
-          </span>
-        </div>
+          </Tooltip>
+        </span>
       </div>
     </div>
-  </div>
+  </DockCard>
 </template>
 
 <style scoped>
-/* ── 外壳（dock 卡族规范：radius-lg 扁平卡 · bg-secondary + 轻浮起影
-      --shadow-dock——与输入卡同级的层次感，轻 --shadow-input 一档；
-      6px 下距 = dock 列纵向节奏，ComposerDock/InteractionBar 同款） ── */
-.queue-dock {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  margin: 0 10px 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--bg-base);
-  overflow: hidden;
-  box-shadow: var(--shadow-dock);
-}
+/* cr-186：壳/表头归 kit DockCard（本行只留列表与行内动作编排） */
+.queue-dock { flex-shrink: 0; }
 
-.queue-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px; }
-
-/* ── 表头（TodoPanel header 同构：flush 按钮 · gap 10 · 13px/500 标题
-      + 12px 计数摘要 · 14px lead/chevron） ── */
-.queue-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-}
-.queue-lead { display: grid; place-items: center; color: var(--text-3); flex: none; }
-.queue-title { color: var(--text-1); font-size: 13px; font-weight: 500; line-height: 24px; flex: none; }
-.queue-count {
-  min-width: 0;
-  flex: auto;
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 20px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.queue-chevron { display: grid; place-items: center; color: var(--text-3); flex: none; transition: transform 0.2s ease; }
-.queue-chevron.open { transform: rotate(180deg); }
-
-/* ── 列表（TodoPanel list 同构：gap 分隔无分割线 · 180px 上限滚动） ──
-      尾部 4px 呼吸位仅在多条展开（可能滚动）形态给——单条直渲染时卡内
-      上下各 6px 对称，内容垂直居中（2026-09-12 反馈：单条时 4px 尾垫
-      让整行在卡内偏上，观感"没有上下居中"） */
+/* 列表（TodoPanel list 同构：gap 分隔无分割线 · 180px 上限滚动）。
+   尾部 4px 呼吸位仅在多条展开（可能滚动）形态给——单条直渲染时卡内
+   上下对称、内容垂直居中（2026-09-12 反馈）。 */
 .queue-list {
   display: flex;
   flex-direction: column;
@@ -146,6 +88,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   overflow-y: auto;
 }
 .queue-list.multi { padding: 0 0 4px; }
+.queue-lead { display: grid; place-items: center; color: var(--text-3); flex: none; }
 .queue-row {
   display: flex;
   align-items: center;
@@ -163,13 +106,8 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   white-space: nowrap;
 }
 
-/* ── 行级动作（22px 图标钮 · radius-sm · dur-fast——InteractionBar 同款） ── */
-.queue-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
+/* 行级动作（22px 图标钮 · radius-sm · dur-fast——InteractionBar 同款） */
+.queue-actions { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .queue-act {
   display: grid;
   place-items: center;

@@ -21,7 +21,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const KIT = join(repo, 'src/webui-kit/src');
-const PAGE = join(repo, 'src/docs/webui/v2.html');
+// 双页注入（cr-155）：v2 答辩版 + gallery 纯陈列版，kit 标记区两页同构
+const PAGES = ['src/docs/webui/v2.html', 'src/docs/webui-gallery.html'].map((p) => join(repo, p));
 
 /** kit 源文件 → 注入体（统一 LF，去掉尾部空行） */
 const kitBody = (p) => readFileSync(p, 'utf8').split('\r\n').join('\n').trimEnd();
@@ -117,18 +118,24 @@ function inject(html, name, body) {
   return html.slice(0, i + startTag.length) + "\n" + body + "\n" + html.slice(j);
 }
 
-export function renderPreview() {
-  let html = readFileSync(PAGE, 'utf8');
+export function renderPreview(page = PAGES[0]) {
+  let html = readFileSync(page, 'utf8');
   html = inject(html, 'base/tokens.css', kitBody(join(KIT, 'base/tokens.css')));
   html = inject(html, 'base/row.css', kitBody(join(KIT, 'base/row.css')));
   html = inject(html, 'base/badge.css', kitBody(join(KIT, 'base/badge.css')));
-  // L1 原语 / 工具组件 / 反馈层 / 浮层 / 星群：样式块逐段注入
+  html = inject(html, 'base/dropdown.css', kitBody(join(KIT, 'base/dropdown.css')));
+  // L1 原语 / 工具组件 / 反馈层 / 浮层 / 星群 / cr-157 标准件：样式块逐段注入
   for (const rel of [
     'base/Button.vue', 'base/Avatar.vue', 'base/StatusDot.vue', 'base/Tooltip.vue',
     'base/RingProgress.vue', 'base/BusyRing.vue', 'base/CollapseRow.vue', 'base/DockCard.vue',
     'feedback/FeedbackNotice.vue', 'feedback/ToastHost.vue',
     'base/Modal.vue', 'base/Sheet.vue', 'base/PullToRefresh.vue',
     'star/StarAvatar.vue',
+    'base/Chip.vue', 'base/IconAction.vue', 'base/Progress.vue', 'base/Breadcrumb.vue',
+    'base/ConfirmBody.vue', 'base/OptionRow.vue', 'base/PickTag.vue',
+    'base/Segmented.vue', 'base/Tabs.vue', 'base/DocTabs.vue', 'base/Select.vue',
+    'base/Input.vue', 'base/Textarea.vue', 'base/Checkbox.vue', 'base/Slider.vue',
+    'base/FieldRow.vue', 'base/Label.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
   ]) {
     html = inject(html, rel, vueStyle(rel));
   }
@@ -139,20 +146,27 @@ export function renderPreview() {
 
 function main() {
   const check = process.argv.includes('--check');
-  const next = renderPreview();
-  const cur = readFileSync(PAGE, 'utf8');
-  if (check) {
-    if (cur.split('\r\n').join('\n') === next.split('\r\n').join('\n')) {
-      console.log('预览页 kit 片段与事实源一致 ✓');
-      return;
+  let dirty = false;
+  for (const page of PAGES) {
+    const next = renderPreview(page);
+    const cur = readFileSync(page, 'utf8');
+    const same = cur.split('\r\n').join('\n') === next.split('\r\n').join('\n');
+    if (check) {
+      if (!same) {
+        console.error(page + ' kit 片段与事实源不一致：node scripts/build-webui-preview.mjs 重新注入');
+        process.exit(1);
+      }
+      continue;
     }
-
-    console.error('预览页 kit 片段与事实源不一致：node scripts/build-webui-preview.mjs 重新注入');
-    process.exit(1);
+    if (!same) {
+      // 页面工作区行尾跟随仓库风格（core.autocrlf=true → CRLF）：注入体是 LF，写回前统一
+      writeFileSync(page, next.split('\r\n').join('\n').split('\n').join('\r\n'));
+      dirty = true;
+    }
   }
-  // 页面工作区行尾跟随仓库风格（core.autocrlf=true → CRLF）：注入体是 LF，写回前统一
-  writeFileSync(PAGE, next.split('\r\n').join('\n').split('\n').join('\r\n'));
-  console.log('预览页已注入：L0 三 css + starColor 星板 + 14 个组件样式块（Button/Avatar/StatusDot/Tooltip/RingProgress/BusyRing/CollapseRow/DockCard/FeedbackNotice/ToastHost/Modal/Sheet/PullToRefresh/StarAvatar）');
+  console.log(check ? '预览页 kit 片段与事实源一致 ✓（' + PAGES.length + ' 页）'
+    : dirty ? '预览页已注入：L0 四 css + starColor 星板 + 25 个组件样式块（含 cr-157 十二标准件：Chip/IconAction/Progress/Breadcrumb/ConfirmBody/Dropdown/OptionRow/PickTag/Segmented/Tabs/DocTabs + Avatar 角标/Sheet right）'
+    : '预览页无需变更（已与事实源一致）');
 }
 
 const invoked = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';

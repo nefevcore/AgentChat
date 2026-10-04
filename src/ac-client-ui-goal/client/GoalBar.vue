@@ -11,7 +11,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type { TaskGoal } from './goalCard.ts';
 import type { TaskGoalPatch } from './goalApi.ts';
 import { updateGoal, deleteGoal } from './goalApi.ts';
-import { Icon, Modal, Button, DockCard } from '@agentchat/webui-kit';
+import { Icon, Modal, Button, DockCard, Tooltip } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   goal: TaskGoal;
@@ -133,6 +133,7 @@ watch(editOpen, (open) => {
       class="goal-dock"
       dense
       :tone="goal.status === 'blocked' ? 'warn' : 'idle'"
+      icon="target"
       :eyebrow="phase.label"
       :title="goal.objective"
     >
@@ -144,20 +145,26 @@ watch(editOpen, (open) => {
 
         <!-- hover 操作区（写面齐备才渲染；busy 期间禁点防重复提交） -->
         <span v-if="canWrite" class="goal-actions" aria-label="目标操作">
-          <button
-            class="goal-act"
-            :title="goal.status === 'active' || goal.status === 'blocked' ? '暂停（停止自动开轮）' : '恢复（继续自动推进）'"
-            :disabled="busy"
-            @click.stop="togglePause"
-          >
-            <Icon :name="goal.status === 'active' || goal.status === 'blocked' ? 'pause' : 'play'" :size="13" />
-          </button>
-          <button class="goal-act" title="编辑目标" :disabled="busy" @click.stop="openEdit">
-            <Icon name="pencil" :size="13" />
-          </button>
-          <button class="goal-act goal-act-danger" title="删除目标（放弃，不入历史）" :disabled="busy" @click.stop="deleteOpen = true">
-            <Icon name="trash" :size="13" />
-          </button>
+          <Tooltip :text="goal.status === 'active' || goal.status === 'blocked' ? '暂停（停止自动开轮）' : '恢复（继续自动推进）'" placement="top">
+            <button
+              class="goal-act"
+              :aria-label="goal.status === 'active' || goal.status === 'blocked' ? '暂停（停止自动开轮）' : '恢复（继续自动推进）'"
+              :disabled="busy"
+              @click.stop="togglePause"
+            >
+              <Icon :name="goal.status === 'active' || goal.status === 'blocked' ? 'pause' : 'play'" :size="13" />
+            </button>
+          </Tooltip>
+          <Tooltip text="编辑目标" placement="top">
+            <button class="goal-act" aria-label="编辑目标" :disabled="busy" @click.stop="openEdit">
+              <Icon name="pencil" :size="13" />
+            </button>
+          </Tooltip>
+          <Tooltip text="删除目标（放弃，不入历史）" placement="top">
+            <button class="goal-act goal-act-danger" aria-label="删除目标（放弃，不入历史）" :disabled="busy" @click.stop="deleteOpen = true">
+              <Icon name="trash" :size="13" />
+            </button>
+          </Tooltip>
         </span>
       </template>
 
@@ -232,8 +239,8 @@ watch(editOpen, (open) => {
    避让全归 kit DockCard）；外层 div 仅承载原生 tooltip */
 .goal-bar { flex-shrink: 0; min-width: 0; }
 .goal-rounds { flex: none; font-size: 11px; color: var(--text-3); }
-/* 受阻/自动暂停标记（形态由 Icon 给；色取图形/墨色档） */
-.goal-blocked-mark { flex: none; color: var(--warn); }
+/* 受阻/自动暂停标记（形态由 Icon 给；色取状态档 cr-145/墨色档） */
+.goal-blocked-mark { flex: none; color: var(--warn-status); }
 .goal-paused-mark { color: var(--text-3); }
 
 /* ── hover 操作区：常驻占位、透明待命（防条带宽度跳变）；触屏无 hover

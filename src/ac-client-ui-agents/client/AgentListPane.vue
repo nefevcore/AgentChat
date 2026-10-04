@@ -5,7 +5,7 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { AgentBrief } from './useAgentSettings.ts';
-import { Input, Modal, Button, SearchInput, Select } from '@agentchat/webui-kit';
+import { Input, Modal, Button, SearchInput, Select, Tooltip } from '@agentchat/webui-kit';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 // 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）
 import { fetchLlmProviders, type LlmProviderStat } from './index.ts';
@@ -185,8 +185,12 @@ function tagHint(t: string): string {
           </div>
         </div>
         <div class="agent-pool-actions" @click.stop>
-          <button class="agent-pool-btn" @click="emit('edit', a.id)" title="进入配置">编辑</button>
-          <button class="agent-pool-btn danger" @click="requestDelete(a.id, a.name || a.id)" title="永久删除">删除</button>
+          <Tooltip text="进入配置" placement="top">
+            <button class="agent-pool-btn" @click="emit('edit', a.id)">编辑</button>
+          </Tooltip>
+          <Tooltip text="永久删除" placement="top">
+            <button class="agent-pool-btn danger" @click="requestDelete(a.id, a.name || a.id)">删除</button>
+          </Tooltip>
         </div>
       </div>
     </div>

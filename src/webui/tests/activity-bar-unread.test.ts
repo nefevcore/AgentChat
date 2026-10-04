@@ -43,7 +43,7 @@ function seedUnread(feed: FeedStore, agentId: string, n: number) {
   (feed.dialogs as Record<string, { unread: number }>)[id].unread = n;
 }
 
-/** 按钮标题定位其徽章（Agent 列表 / 会话列表各一） */
+/** 按钮 title 定位其徽章（Agent 列表 / 会话列表各一——活动栏按钮 cr-211 回退原生 title） */
 function badgeText(root: HTMLElement, title: string): string | null {
   const btn = [...root.querySelectorAll('button')].find(b => b.title === title);
   const el = btn?.querySelector('.unread-badge') ?? null;

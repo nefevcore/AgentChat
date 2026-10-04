@@ -21,7 +21,7 @@ import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 // 池写/探测/发现面（M29 P1-3d 归域 + 2026-09-11 语义归位——本包 poolApi）；
 // 连接模板留守 settings（getLlmSchemas 的 schema 引擎消费
 // LLM_PROVIDER_DEFAULTS——base 不可反向依赖 domain，domain→base 取用合法）
-import { deleteLlmPoolCredential, fetchPoolModels, probeLlmModels, probeLlmVision, poolModelEntries, type PoolModelMeta } from './poolApi.ts';
+import { deleteLlmPoolCredential, fetchPoolModels, probeLlmModels, probeLlmVision, poolModelEntries, providerIconOf, providerIconColor, type PoolModelMeta } from './poolApi.ts';
 import { LLM_PROVIDER_TEMPLATES } from 'ac-client-ui-settings/client/api.ts';
 import { fetchPoolReferences } from './poolApi.ts';
 
@@ -96,10 +96,15 @@ const title = '模型管理（Provider 连接）';
 
 /** Provider 模板清单（新建预设——见 settings/api.ts 同源注释） */
 const llmTemplates = LLM_PROVIDER_TEMPLATES;
-/** kit Select 选项表（cr-169）：占位项禁选（语义同原生 option disabled） */
+/** kit Select 选项表（cr-169）：占位项禁选（语义同原生 option disabled）；
+ *  icon = 厂商品牌 logo（cr-205，域名映射自模板 baseUrl——azure 占位符
+ *  URL 亦命中；custom 无）；iconColor = 品牌官方色（cr-206，黑白系缺省随墨色） */
 const templateOptions = computed(() => [
   { value: '', label: '选择提供方…', disabled: true },
-  ...llmTemplates.map((t) => ({ value: t.id, label: t.id })),
+  ...llmTemplates.map((t) => {
+    const icon = providerIconOf(t.baseUrl);
+    return { value: t.id, label: t.id, ...(icon ? { icon, iconColor: providerIconColor(icon) ?? '' } : {}) };
+  }),
   { value: 'custom', label: '自定义（手填 API 地址）' },
 ]);
 
@@ -469,11 +474,11 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
   <div class="pool">
     <div class="pool-head">
       <span class="pool-title">{{ title }}</span>
-      <button class="pool-add" @click="startAdd">+ 添加</button>
+      <Button variant="primary" size="sm" icon="plus" @click="startAdd">添加</Button>
     </div>
 
     <div v-if="Object.keys(pools).filter(k => !k.startsWith('$')).length === 0" class="pool-empty">
-      暂无连接——未配置任何模型（会话将无法发送）；点击"+ 添加"接入 OpenAI 兼容端点
+      暂无连接——未配置任何模型（会话将无法发送）；点击「添加」接入 OpenAI 兼容端点
     </div>
     <div v-else class="pool-list">
       <div
@@ -489,9 +494,9 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
           <span class="pool-entry-detail">{{ detailOf(String(name), entry) }}</span>
         </div>
         <div class="pool-entry-actions">
-          <button v-if="!entry.default" class="pool-set-default" @click="setDefault(String(name))" title="设为默认">设为默认</button>
-          <button class="pool-btn" @click="startEdit(String(name))">编辑</button>
-          <button class="pool-btn danger" @click="removeEntry(String(name))">删除</button>
+          <Button v-if="!entry.default" variant="ghost" size="sm" icon="star" title="设为默认连接（未显式选连接的会话与 Agent 使用它）" @click="setDefault(String(name))">设为默认</Button>
+          <Button variant="ghost" size="sm" @click="startEdit(String(name))">编辑</Button>
+          <Button variant="danger" size="sm" @click="removeEntry(String(name))">删除</Button>
         </div>
       </div>
     </div>
@@ -501,7 +506,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
       <div class="pool-modal-body">
         <!-- 提供方：预设 base_url/defaultModel——内置提供方不展示
              API 地址（模板隐含）；选自定义才出现可编辑地址字段。
-             选项显示模板 id（= 引用名锚点，如 deepseek / glm），描述走 title -->
+             选项显示模板 id（= 引用名锚点，如 deepseek / zai），描述走 title -->
         <div class="pool-row">
           <label>提供方</label>
           <Select :options="templateOptions" :model-value="draft.template || ''" @update:model-value="onTemplateChange" />
@@ -528,7 +533,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
           <div class="pool-field-label">模型清单</div>
           <div class="pool-field-desc">填入 API Key 后自动读取{{ visionProbing ? '（正在逐模型探测视觉能力…）' : '（读取时逐模型探测视觉能力）' }}；「视觉」= 支持图片输入（探测自动标，可手动改）；「隐藏」= 从前端下拉隐藏；点击模型名设为默认；API 不暴露模型清单时可在下方手工新增</div>
           <div class="pool-field-control">
-            <button class="pool-add" :disabled="modelsLoading" @click="readModelList">{{ modelsLoading ? '读取中…' : draftModels.length ? '重新读取' : '读取模型' }}</button>
+            <Button variant="ghost" size="sm" :disabled="modelsLoading" :loading="modelsLoading" @click="readModelList">{{ modelsLoading ? '读取中…' : draftModels.length ? '重新读取' : '读取模型' }}</Button>
             <span v-if="modelsError" class="pool-error">{{ modelsError }}</span>
           </div>
           <div v-if="draftModels.length" class="pool-model-list">
@@ -576,7 +581,7 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
               placeholder="手工新增模型 id（回车添加——端点不暴露清单时用）"
               @keyup.enter="addManualModel"
             />
-            <button type="button" class="pool-add" @click="addManualModel">添加</button>
+            <Button variant="ghost" size="sm" @click="addManualModel">添加</Button>
           </div>
         </div>
         <div v-if="error" class="pool-error">{{ error }}</div>
@@ -596,37 +601,21 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 .pool { display: flex; flex-direction: column; gap: 12px; }
 .pool-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .pool-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
-.pool-add {
-  padding: 5px 14px; border: 1px solid var(--primary); border-radius: var(--r-md);
-  background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; transition: all var(--dur-fast);
-}
-.pool-add:hover { background: var(--primary-light); }
-.pool-add:disabled { opacity: .5; cursor: not-allowed; }
+/* 动作钮已归 kit Button（cr-171）；.pool-empty 空态保留 */
 .pool-empty { text-align: center; padding: 24px; color: var(--text-3); font-size: 13px; }
 .pool-list { display: flex; flex-direction: column; gap: 6px; }
 .pool-entry {
   /* C8 收敛 A 语言：底座 = ui/row.css .ui-row（默认条目标记 = .is-selected
-     星色描边——StarCard.selected 同 recipe） */
+     角色底——cr-171 起行语言无边框，星标走 --star 语义色） */
   justify-content: space-between; padding: 8px 12px;
 }
 .pool-entry-info { display: flex; flex-direction: column; gap: 2px; }
 .pool-entry-name { font-size: 13px; font-weight: 500; color: var(--text-1); }
-.pool-star { color: var(--warn); margin-right: 4px; display: inline-flex; align-items: center; }
+/* cr-172 实心星标：lucide star 线框 fill 后成实心（默认标记的语义重量） */
+.pool-star { color: var(--star); margin-right: 4px; display: inline-flex; align-items: center; }
+.pool-star :deep(svg path) { fill: currentColor; }
 .pool-entry-detail { font-size: 11px; color: var(--text-3); }
 .pool-entry-actions { display: flex; gap: 6px; }
-.pool-btn {
-  padding: 4px 11px; border: none; border-radius: var(--r-md);
-  background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; transition: all var(--dur-fast);
-}
-.pool-btn:hover { background: var(--bg-hover); color: var(--text-1); }
-.pool-btn.danger { color: var(--err); }
-.pool-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
-.pool-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.pool-set-default {
-  padding: 4px 11px; border: 1px solid var(--warn); border-radius: var(--r-md);
-  background: transparent; color: var(--warn); font-size: 11px; cursor: pointer;
-}
-.pool-set-default:hover { background: rgba(var(--warn-rgb), 0.1); }
 
 /* cr-169：表单控件已归 kit（Input/Select）；.pool-w-models 定下拉列宽 */
 .pool-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
@@ -702,6 +691,5 @@ const entryOf = (n: string): PoolEntry | undefined => props.pools[n];
 /* 手工新增行（输入框已归 kit Input；.ui-input 单根即行内主体） */
 .pool-model-add { display: flex; gap: 6px; margin-top: 6px; }
 .pool-model-add :deep(.ui-input) { flex: 1; width: auto; }
-.pool-model-add .pool-add { flex-shrink: 0; }
 .pool-error { color: var(--err); font-size: 12px; }
 </style>

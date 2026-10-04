@@ -9,13 +9,15 @@
     "./src/*": "./src/*",
     "./tokens.css": "./src/base/tokens.css",
     "./row.css": "./src/base/row.css",
-    "./badge.css": "./src/base/badge.css"
+    "./badge.css": "./src/base/badge.css",
+    "./dropdown.css": "./src/base/dropdown.css"
   },
   "dependencies": {
     "vue": "^3.4.0"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "^1.2.122"
+    "@iconify-json/lucide": "^1.2.122",
+    "@iconify-json/simple-icons": "^1.2.98"
   },
   "keywords": [
     "agentchat"

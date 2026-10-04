@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
-import { BusyRing } from '@agentchat/webui-kit';
+import { BusyRing, Tooltip } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   data: Record<string, unknown>;
@@ -84,18 +84,20 @@ async function copyDiff() {
       <div class="edit-header-right">
         <span class="ui-badge dim edit-stat">{{ summary }}</span>
         <span v-if="data.first_changed_line" class="ui-badge dim edit-stat">L{{ data.first_changed_line }}</span>
-        <button class="edit-copy-btn" :class="{ copied: copyState === 'copied' }" @click="copyDiff" title="复制 diff">
-          <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-          </svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-          <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
-        </button>
+        <Tooltip :text="copyState === 'copied' ? '已复制' : '复制 diff'" placement="top">
+          <button class="edit-copy-btn" :class="{ copied: copyState === 'copied' }" :aria-label="copyState === 'copied' ? '已复制' : '复制 diff'" @click="copyDiff">
+            <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
+          </button>
+        </Tooltip>
       </div>
     </div>
 
@@ -234,19 +236,20 @@ async function copyDiff() {
   flex: 1;
 }
 
-/* ── diff 行颜色 ── */
+/* ── diff 行颜色（cr-147 对齐 FileEditsPanel 方案 B）：语义由行底 tint 承载，
+   正文用 code-text——大段红绿文字是色噪 */
 .diff-del {
   background: rgba(var(--err-rgb), 0.12);
 }
 .diff-del .diff-content {
-  color: var(--err);
+  color: var(--code-text);
 }
 
 .diff-add {
   background: rgba(var(--ok-rgb), 0.1);
 }
 .diff-add .diff-content {
-  color: var(--ok);
+  color: var(--code-text);
 }
 
 .diff-ctx .diff-content {

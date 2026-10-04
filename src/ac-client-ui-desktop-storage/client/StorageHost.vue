@@ -123,8 +123,8 @@ async function onConfirm() {
 .storage-pane { display: flex; flex-direction: column; gap: var(--space-3); }
 .sub { color: var(--text-3); font-size: 12px; margin: 0; line-height: 1.5; }
 
-/* 卡片：tokens.css 中层容器语义（--r-md + surface 底 + line 描边） */
-.card { background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-3) var(--space-4); }
+/* 卡片：--r-md + line 描边、透明底（cr-178 去 surface 实底，承 cr-172 扁平方向） */
+.card { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--space-3) var(--space-4); }
 
 /* 错误横幅：role-active 语义（错误细节由文案承载） */
 .error-banner { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--err); background: rgba(var(--err-rgb), 0.08); border: 1px solid rgba(var(--err-rgb), 0.25); border-radius: var(--r-sm); padding: 6px 10px; }

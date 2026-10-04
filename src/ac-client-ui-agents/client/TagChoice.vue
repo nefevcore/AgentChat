@@ -141,30 +141,30 @@ function chooseOff() {
       </button>
     </div>
     <Transition name="menu-fade">
-      <div v-if="open" class="tc-menu">
+      <div v-if="open" class="tc-menu ui-dd-menu">
         <button
           v-if="offOption" type="button"
-          class="tc-option tc-option--off" :class="{ selected: !props.value }"
+          class="ui-dd-opt tc-option--off" :class="{ 'is-selected': !props.value }"
           :title="offOption.desc"
           @click="chooseOff()"
         >
-          <span class="tc-option-body">
-            <span class="tc-option-name">{{ offOption.label }}</span>
-            <span class="tc-option-desc">{{ offOption.desc }}</span>
+          <span class="ui-dd-opt-body">
+            <span class="ui-dd-opt-name">{{ offOption.label }}</span>
+            <span class="ui-dd-opt-desc">{{ offOption.desc }}</span>
           </span>
-          <Icon v-if="!props.value" name="check" :size="14" class="tc-option-check" />
+          <Icon v-if="!props.value" name="check" :size="14" class="ui-dd-opt-check" />
         </button>
         <button
           v-for="o in options" :key="o.tag" type="button"
-          class="tc-option" :class="{ selected: selectedOf(o.tag) }"
+          class="ui-dd-opt" :class="{ 'is-selected': selectedOf(o.tag) }"
           :title="titleOf(o.tag)"
           @click="choose(o.tag)"
         >
-          <span class="tc-option-body">
-            <span class="tc-option-name">{{ labelOf(o.tag) }}</span>
-            <span class="tc-option-desc">{{ titleOf(o.tag) }}</span>
+          <span class="ui-dd-opt-body">
+            <span class="ui-dd-opt-name">{{ labelOf(o.tag) }}</span>
+            <span class="ui-dd-opt-desc">{{ titleOf(o.tag) }}</span>
           </span>
-          <Icon v-if="selectedOf(o.tag)" name="check" :size="14" class="tc-option-check" />
+          <Icon v-if="selectedOf(o.tag)" name="check" :size="14" class="ui-dd-opt-check" />
         </button>
       </div>
     </Transition>
@@ -236,33 +236,15 @@ function chooseOff() {
 .tc-pill.on .tc-trigger { border-left-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.2); }
 .tc-chevron { transition: transform .15s ease; }
 .tc-chevron.open { transform: rotate(180deg); }
-/* 弹层（对标 ChatInput dd-menu 视觉，向下弹出——分组区在页面上方） */
-.tc-menu {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 300;
-  min-width: 230px; max-width: 340px; max-height: 280px; overflow-y: auto;
-  background: var(--bg-raised, var(--bg));
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow-pop);
-  padding: 4px;
+/* 弹层选项族已迁 kit dropdown.css 配方（cr-157）；此处仅留 TagChoice 特有修饰：
+   弹层向下弹（ui-dd-menu.up 缺省向上——composer 场景）与专属宽高、off 分隔 */
+.tc-menu.ui-dd-menu:not(.up) { top: calc(100% + 6px); bottom: auto; min-width: 230px; max-width: 340px; max-height: 280px; }
+.tc-option--off { border-bottom: 1px solid var(--line); border-radius: var(--r-sm) var(--r-sm) 0 0; margin-bottom: 2px; }
+.tc-option--off .ui-dd-opt-name { color: var(--text-2); }
+/* 档位描述两行截断（kit 配方单行省略——档位 title 较长需两行） */
+.tc-menu .ui-dd-opt-desc {
+  white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.tc-option {
-  display: flex; align-items: flex-start; gap: 8px; width: 100%;
-  padding: 6px 10px; border: none; border-radius: 6px; background: none;
-  color: var(--text-1); font-size: 12px; cursor: pointer; text-align: left;
-}
-.tc-option:hover { background: var(--bg-hover); }
-/* 「关闭」选项：与档位选项分隔（细分隔线——组头感） */
-.tc-option--off { border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; margin-bottom: 2px; }
-.tc-option--off .tc-option-name { color: var(--text-2); }
-.tc-option.selected .tc-option-name { font-weight: 600; }
-.tc-option-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tc-option-name { white-space: nowrap; }
-.tc-option-desc {
-  font-size: 10.5px; color: var(--text-3); line-height: 1.4;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.tc-option-check { margin-left: auto; flex-shrink: 0; color: var(--primary); }
 .menu-fade-enter-active, .menu-fade-leave-active { transition: opacity .12s ease, transform .12s ease; }
 .menu-fade-enter-from, .menu-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>

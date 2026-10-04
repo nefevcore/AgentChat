@@ -46,7 +46,7 @@ function onTab(id: string) {
       :aria-current="ui.primaryPanel === t.id ? 'page' : undefined"
       @click="onTab(t.id)"
     >
-      <span class="mtab-icon"><Icon :name="t.icon" :size="22" /><span v-if="t.badge > 0" class="mtab-badge">{{ t.badgeLabel }}</span></span>
+      <span class="mtab-icon"><Icon :name="t.icon" :size="22" /><span v-if="t.badge > 0" class="ui-avatar-badge mtab-badge-pos">{{ t.badgeLabel }}</span></span>
       <span class="mtab-label">{{ t.label }}</span>
     </button>
 
@@ -75,12 +75,7 @@ function onTab(id: string) {
 .mtab.active { color: var(--primary); }
 .mtab-icon { position: relative; display: grid; place-items: center; height: 24px; }
 .mtab-label { line-height: 1.2; }
-/* 通知计数色保留字面值（同 AgentList/.unread-badge 配方；跨包单源待统一裁决） */
-.mtab-badge {
-  position: absolute; top: -2px; right: -12px;
-  min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 999px; background: #ef4444; color: #fff;
-  font-size: 9.5px; font-weight: 600; line-height: 1;
-}
+/* 计数角标配方 = kit badge.css .ui-avatar-badge（cr-157 归一，#ef4444 字面值退役）；
+   此处仅定位修饰（22px 图标右上外缘） */
+.mtab-badge-pos { top: -3px; right: -14px; }
 </style>

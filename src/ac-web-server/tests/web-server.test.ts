@@ -154,6 +154,11 @@ describe('ac-web-server HTTP 路由注册中心', () => {
     expect(apiMiss.status).toBe(404);
     expect(apiMiss.headers.get('content-type')).toContain('application/json');
     await expect(apiMiss.json()).resolves.toMatchObject({ error: expect.stringContaining('api') });
+    // assets/* 不落 SPA fallback（cr-189 回归）：dist 重建后旧页面请求旧 hash
+    // chunk，fallback 回 200 text/html 会被当 JS 解析 → 懒组件静默失败
+    const staleChunk = await fetch(`${url}/assets/gone-OLDHASH.js`);
+    expect(staleChunk.status).toBe(404);
+    expect(staleChunk.headers.get('content-type')).toContain('text/plain');
     // HEAD：与 GET 同头无body（此前 404）
     const head = await fetch(`${url}/assets/app.js`, { method: 'HEAD' });
     expect(head.status).toBe(200);

@@ -159,7 +159,7 @@ const itemCount = computed(() => props.groups.reduce((n, g) => n + g.items.lengt
   gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
-  background: var(--bg-hover);
+  background: var(--bg-inset);
   min-width: 0;
 }
 
@@ -255,7 +255,7 @@ const itemCount = computed(() => props.groups.reduce((n, g) => n + g.items.lengt
   color: var(--text-2);
 }
 .im-item.active .im-item-icon { color: inherit; }
-.im-item.danger .im-item-icon { color: var(--err); }
+.im-item.danger .im-item-icon { color: var(--err-status); }
 
 .im-item-body {
   display: flex;

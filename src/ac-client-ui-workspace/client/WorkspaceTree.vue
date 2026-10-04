@@ -6,7 +6,7 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useClientContext } from 'ac-client-runtime';
-import { BusyRing, toastError } from '@agentchat/webui-kit';
+import { BusyRing, Tooltip, toastError } from '@agentchat/webui-kit';
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue';
 import { useWorkspaceTreeStore, type TreeNode } from './workspaceTreeStore.ts';
 import { openLocalDir } from './fileApi.ts';
@@ -114,16 +114,22 @@ async function openInExplorer() {
       </span>
       <span class="wt-header-actions">
         <!-- 本地资源管理器：打开当前树基准文件夹（失败经全局 toast 呈现） -->
-        <button v-if="openDirState !== 'error'" class="wt-open-dir" :title="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" @click="openInExplorer">
-          <BusyRing v-if="openDirState === 'opening'" :size="13" />
-          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-        </button>
-        <button v-else class="wt-open-dir error" title="打开失败（详见全局提示）" @click="openInExplorer">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </button>
-        <button class="wt-close" @click="emit('close')" title="关闭">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
+        <Tooltip v-if="openDirState !== 'error'" :text="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" placement="bottom">
+          <button class="wt-open-dir" :aria-label="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" @click="openInExplorer">
+            <BusyRing v-if="openDirState === 'opening'" :size="13" />
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+        </Tooltip>
+        <Tooltip v-else text="打开失败（详见全局提示）" placement="bottom">
+          <button class="wt-open-dir error" aria-label="打开失败（详见全局提示）" @click="openInExplorer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </button>
+        </Tooltip>
+        <Tooltip text="关闭" placement="bottom">
+          <button class="wt-close" aria-label="关闭" @click="emit('close')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </Tooltip>
       </span>
     </div>
     <div v-if="st.loading" class="wt-loading">加载中…</div>

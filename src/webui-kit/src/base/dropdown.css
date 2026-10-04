@@ -1,0 +1,86 @@
+/* ============================================================
+   webui-kit/src/base/dropdown.css —— 下拉选项族配方（cr-157）
+   与 Dropdown.vue 配套：menu 容器在 scoped 内，选项行经 slot 投影，
+   配方必须全局可及（同 row.css 的 .ui-row 模式）。
+
+   消费：<button class="ui-dd-opt" :class="{ 'is-selected': sel }">
+           <span class="ui-dd-opt-icon">…</span>
+           <span class="ui-dd-opt-body">
+             <span class="ui-dd-opt-name">…</span>
+             <span class="ui-dd-opt-desc">…</span>
+           </span>
+           <Icon class="ui-dd-opt-check" …/>
+         </button>
+   分隔线 .ui-dd-div；组标题 .ui-dd-group；返回行 .ui-dd-back；
+   行尾右值 .ui-dd-value；禁用 .is-disabled；警示 .is-warn。
+   ============================================================ */
+/* 容器：定位壳（Dropdown.vue 消费；业务自控 Transition 开合时亦可直接引类） */
+.ui-dd { position: relative; display: inline-flex; }
+.ui-dd-menu {
+  position: absolute;
+  left: 0;
+  min-width: 160px;
+  /* 宽度上限（cr-172）：长选项文本曾把菜单撑到 700px+ 溢出设置面板——
+     溢出区 hit-test 落在面板 overlay 上，点选项右半 = 点空白关面板
+     （Agent 设置模型下拉「选不上」的根因）。选项名 ellipsis 收敛。 */
+  max-width: min(100vw - 32px, 420px);
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+  padding: 4px;
+  z-index: 300;
+}
+.ui-dd-menu.up { bottom: calc(100% + 6px); }
+.ui-dd-menu:not(.up) { top: calc(100% + 6px); }
+
+.ui-dd-opt {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px;
+  /* 选项间隔（cr-171）：下拉长清单选项贴成一片——相邻选项 2px 间隔 */
+  margin-bottom: 2px;
+  border: none; border-radius: var(--r-sm);
+  background: none; color: var(--text-1);
+  font-size: var(--fs-md); font-family: var(--font-ui);
+  cursor: pointer; text-align: left;
+}
+.ui-dd-opt:last-child { margin-bottom: 0; }
+.ui-dd-opt:hover { background: var(--bg-hover); }
+.ui-dd-opt:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--focus-ring-width)); }
+/* 选中 = 行尾 check 勾（主色）+ 名称加重；不整行染主题色（ChatInput 既有裁决） */
+.ui-dd-opt.is-selected .ui-dd-opt-name { font-weight: 600; }
+.ui-dd-opt.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.ui-dd-opt.is-disabled:hover { background: none; }
+/* 警示态（未配置模型等）：名称走 warn 墨色档 */
+.ui-dd-opt.is-warn .ui-dd-opt-name { color: var(--warn); }
+
+.ui-dd-opt-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex-shrink: 0;
+}
+.ui-dd-opt-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+/* 双行选项（名称 + 描述）：描述独占整行宽 */
+.ui-dd-opt--2line { align-items: flex-start; padding: 6px 10px; }
+.ui-dd-opt-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-1);
+}
+.ui-dd-opt-desc {
+  font-size: var(--fs-xs); color: var(--text-3); line-height: var(--lh-tight);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ui-dd-opt-desc.is-warn, .ui-dd-value.is-warn { color: var(--warn); }
+/* 行尾：check 勾 / 右值（当前值 + 下钻箭头）共用位 */
+.ui-dd-opt-check, .ui-dd-value {
+  margin-left: auto; flex-shrink: 0; display: inline-flex; align-items: center;
+  color: var(--text-3); font-size: var(--fs-sm);
+}
+.ui-dd-opt-check { color: var(--primary); }
+.ui-dd-arrow { margin-left: 3px; color: var(--text-3); }
+
+.ui-dd-div { height: 1px; margin: 4px 2px; background: var(--line); }
+.ui-dd-group { padding: 5px 10px 3px; font-size: var(--fs-xs); color: var(--text-3); user-select: none; }
+.ui-dd-back { color: var(--text-2); font-weight: 500; }
+.ui-dd-back:hover { color: var(--text-1); }

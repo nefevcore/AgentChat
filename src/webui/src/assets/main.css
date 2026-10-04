@@ -69,17 +69,8 @@
       /* cr-131（P7）：零消费 --color-* 重复定义剪除；代码块两枚（--color-code-bg/-border）为 markdown.css 消费，保留 */
       --color-code-bg: #2d2d2d;
       --color-code-border: #404040;
-      --el-color-primary: #818cf8;
-      --el-bg-color: #1a1a1a;
-      --el-bg-color-overlay: #2d2d2d;
-      --el-text-color-primary: #f4f6f7;
-      --el-text-color-secondary: #cbd3d8;
-      --el-text-color-placeholder: #7f8c8d;
-      --el-border-color: #404040;
-      --el-border-color-light: #333333;
-      --el-fill-color-blank: #1a1a1a;
-      --el-fill-color: #2d2d2d;
-      --el-fill-color-light: #2d2d2d;
+      /* cr-137：--el-* Element Plus 覆盖族剪除——EP 已全量移除（依赖与消费双零），
+         且只写在 prefers-color-scheme 媒询内（手动切暗色本就不生效），死代码 */
     }
   }
 
@@ -131,8 +122,10 @@
        任务面板进行中 icon 不转，同款「静止的环被读作卡死」）。
        系统级关闭动画的机器（SPI client-area animation=0）浏览器报
        reduce，不豁免则「有指示无动画」（2026-09-04 反馈：
-       chain-header dots 静止） */
-    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring):not(.glyph-spin):not(.g-spin),
+       chain-header dots 静止）。
+       cr-149 补：.busy-ring（kit 忙环唯一源——cr-129 归一后所有忙指示
+       走它，静止的忙环同样被读作卡死）/ .ic-spin（v2 预览页图标旋转） */
+    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring):not(.glyph-spin):not(.g-spin):not(.busy-ring):not(.ic-spin),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;

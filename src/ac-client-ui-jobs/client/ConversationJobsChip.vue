@@ -123,9 +123,9 @@ function doKill(id: string) {
     @click.stop="toggle"
   >
     <span class="cj-icon kind-job"><Icon name="terminal" :size="13" /></span>
-    <span v-if="bgRunning.length > 0" class="cj-count">{{ bgRunning.length }}</span>
+    <span v-if="bgRunning.length > 0" class="ui-avatar-badge cj-count">{{ bgRunning.length }}</span>
     <span class="cj-icon kind-sub"><Icon name="bot" :size="13" /></span>
-    <span v-if="subRunning.length > 0" class="cj-count">{{ subRunning.length }}</span>
+    <span v-if="subRunning.length > 0" class="ui-avatar-badge cj-count">{{ subRunning.length }}</span>
 
     <transition name="fade">
       <div v-if="open" class="cj-panel" @click.stop>
@@ -189,9 +189,9 @@ function doKill(id: string) {
    后台任务=青蓝 / 子Agent=紫，工具身份分类色，同族见 fs/subagent 卡） */
 .cj-icon.kind-job{color:#0ea5e9}
 .cj-icon.kind-sub{color:#8b5cf6}
-/* 通知计数色保留字面值（#ef4444 底 + #fff 字）：非语义状态色、kit 无计数徽章原语，
-   与 AgentList/.unread-badge 同款配方——跨包单源待统一裁决（承 P2 报告待裁决 A） */
-.cj-count{min-width:14px;height:14px;padding:0 3px;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1}
+/* 计数角标配方 = kit badge.css .ui-avatar-badge（cr-157 归一，#ef4444 字面值退役）；
+   cj-count 在行内流（非角标定位）——仅需覆盖回静态定位（cr-196 配方已收敛 14px） */
+.cj-count{position:static}
 
 /* 弹层（对齐 token-panel：头部下挂 + 右对齐） */
 .cj-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:min(360px,86vw);max-height:min(420px,60vh);overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--bg-base);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--shadow-pop);cursor:default;text-align:left}
@@ -215,10 +215,10 @@ function doKill(id: string) {
 .cj-more{font-size:11px;color:var(--text-3);padding:0 2px}
 
 /* 状态色（与运行跟踪面板 st-* 同词汇） */
-.st-running{color:var(--warn)}
+.st-running{color:var(--warn-status)}
 .st-stopping{color:var(--text-3)}
-.st-completed{color:var(--ok)}
-.st-failed{color:var(--err)}
+.st-completed{color:var(--ok-status)}
+.st-failed{color:var(--err-status)}
 .st-killed{color:var(--text-3)}
 
 /* 终止按钮（hover 浮现） */

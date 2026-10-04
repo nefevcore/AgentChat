@@ -551,6 +551,14 @@ export class WebServerService extends Service {
         this.replyJson(res, 404, { error: `no api route: ${path}` });
         return;
       }
+      // assets/* 同理不落 fallback（cr-189：dist 重建后旧页面懒加载旧 hash
+      // chunk，fallback 回 200 text/html 会被当 JS 解析失败——懒组件静默
+      // 不挂，预览等面板点击无反应；直回 404 让浏览器报真实加载错误）
+      if (rel === 'assets' || rel.startsWith('assets/')) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('not found');
+        return;
+      }
       // SPA fallback：非文件路径回 index.html（前端路由）
       try {
         const index = await readFile(join(root, 'index.html'));

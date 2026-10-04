@@ -10,7 +10,8 @@
 // 点击执行任意脚本）。
 // ============================================================
 import { ref } from 'vue';
-import { Icon } from '@agentchat/webui-kit';
+import { computed } from 'vue';
+import { DocTabs, Icon, Tooltip } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useWebSearchTabsStore, type SearchTab } from './searchTabs.ts';
 
@@ -21,6 +22,11 @@ const tabs = useWebSearchTabsStore();
 function titleOf(t: SearchTab): string {
   return t.query.length > 24 ? t.query.slice(0, 24) + '…' : t.query;
 }
+
+/** DocTabs 数据面（cr-157）：search 图标 + query 标题（悬浮全文） */
+const docTabs = computed(() =>
+  tabs.tabs.map((t) => ({ key: t.key, title: titleOf(t), icon: 'search' }))
+);
 
 function onTabClick(key: string) {
   tabs.activate(key); // panelOpen 已真——tab 条只在面板在场时渲染
@@ -73,36 +79,26 @@ function keyOf(tabKey: string, idx: number): string {
 
 <template>
   <div class="wsp-panel">
-    <!-- tab 条 -->
-    <div class="wsp-tabs" role="tablist" aria-label="网络搜索">
-      <div class="wsp-tab-scroll">
-        <button
-          v-for="t in tabs.tabs"
-          :key="t.key"
-          class="wsp-tab"
-          :class="{ active: t.key === tabs.activeKey }"
-          role="tab"
-          :aria-selected="t.key === tabs.activeKey"
-          :title="t.query"
-          @click="onTabClick(t.key)"
-        >
-          <span class="wsp-tab-title">{{ titleOf(t) }}</span>
-          <span class="wsp-tab-close" title="关闭" @click.stop="onTabClose(t.key)">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    <!-- tab 条（kit DocTabs——cr-157 归一 fpp-tab/wsp-tab 双副本） -->
+    <DocTabs
+      :tabs="docTabs"
+      :active-key="tabs.activeKey"
+      @select="onTabClick"
+      @close="onTabClose"
+    >
+      <template #actions>
+        <Tooltip v-if="tabs.count > 1" text="关闭全部" placement="bottom">
+          <button class="wsp-action" aria-label="关闭全部" @click="onCloseAll">全部关闭</button>
+        </Tooltip>
+        <Tooltip text="收起面板" placement="bottom">
+          <button class="wsp-action" aria-label="收起面板" @click="onClose">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
             </svg>
-          </span>
-        </button>
-      </div>
-      <div class="wsp-tabs-actions">
-        <button v-if="tabs.count > 1" class="wsp-action" title="关闭全部" @click="onCloseAll">全部关闭</button>
-        <button class="wsp-action" title="收起面板" @click="onClose">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </button>
-      </div>
-    </div>
+          </button>
+        </Tooltip>
+      </template>
+    </DocTabs>
 
     <!-- pane 列（v-show 保活——切 tab 不丢展开态） -->
     <div class="wsp-panes">
@@ -157,72 +153,9 @@ function keyOf(tabKey: string, idx: number): string {
   background: var(--bg-base);
 }
 
-/* ── tab 条（同 fpp-tabs 形态——高度对齐会话头） ── */
-.wsp-tabs {
-  display: flex;
-  align-items: stretch;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-  height: var(--layout-header-height, 48px);
-}
-.wsp-tab-scroll {
-  display: flex;
-  align-items: stretch;
-  overflow-x: auto;
-  flex: 1;
-  min-width: 0;
-  scrollbar-width: thin;
-}
-.wsp-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 8px 0 10px;
-  border: none;
-  border-right: 1px solid var(--line);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-  flex-shrink: 0;
-  max-width: 200px;
-  transition: background 0.15s, color 0.15s;
-}
-.wsp-tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.wsp-tab.active {
-  background: var(--bg-surface);
-  color: var(--text-1);
-  box-shadow: inset 0 -2px 0 var(--primary);
-}
-.wsp-tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.wsp-tab-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-.wsp-tab-close:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.wsp-tabs-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 6px;
-  flex-shrink: 0;
-}
+/* ── tab 条已迁 kit DocTabs（cr-157）；高度对齐会话头 ── */
+.wsp-panel :deep(.ui-doc-tabs-strip) { height: var(--layout-header-height, 48px); }
+.wsp-panel :deep(.ui-doc-tabs-actions) { border-left: 1px solid var(--line); }
 .wsp-action {
   border: none;
   background: transparent;

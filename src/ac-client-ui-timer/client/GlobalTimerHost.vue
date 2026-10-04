@@ -116,8 +116,8 @@ defineExpose({ startAddTask });
           <span class="g-timer-targets">{{ targetsText(t) }}</span>
         </div>
         <div class="g-timer-actions">
-          <button class="g-timer-btn" @click="startEditTask(i)">编辑</button>
-          <button class="g-timer-btn danger" :disabled="isProtectedTask(t)" :title="isProtectedTask(t) ? '内置系统任务不可删除' : ''" @click="removeTask(i)">删除</button>
+          <Button variant="ghost" size="sm" @click="startEditTask(i)">编辑</Button>
+          <Button variant="danger" size="sm" :disabled="isProtectedTask(t)" :title="isProtectedTask(t) ? '内置系统任务不可删除' : ''" @click="removeTask(i)">删除</Button>
         </div>
       </div>
       <div v-if="gTasks.length === 0" class="g-timer-empty">暂无全局任务</div>
@@ -180,12 +180,7 @@ defineExpose({ startAddTask });
 .g-timer-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); }
 .g-timer-targets { font-size: 10.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .g-timer-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.g-timer-btn { padding: 3px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; }
-.g-timer-btn:hover { background: var(--bg-hover); color: var(--text-1); }
-.g-timer-btn.danger { color: var(--err); }
-.g-timer-btn.danger:hover { background: rgba(var(--err-rgb), 0.1); color: var(--err); }
-.g-timer-btn:disabled { opacity: .4; cursor: not-allowed; }
-.g-timer-btn:disabled:hover { background: transparent; color: var(--err); }
+/* 行内动作钮已归 kit Button（cr-171——ghost/danger 变体） */
 .g-timer-empty { text-align: center; padding: 16px; color: var(--text-3); font-size: 12px; }
 
 /* 编辑弹窗表单（sp-modal 族随件） */
@@ -195,12 +190,12 @@ defineExpose({ startAddTask });
 .sp-desc { font-size: 11px; color: var(--text-3); }
 .sp-input, .sp-textarea {
   padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: var(--bg-surface); color: var(--text-1); font-size: 12px; width: 100%;
+  background: transparent; color: var(--text-1); font-size: 12px; width: 100%; /* cr-181：去填充底 */
   box-sizing: border-box;
 }
 .sp-input:focus, .sp-textarea:focus { outline: none; border-color: var(--input-focus); }
 .sp-textarea { resize: vertical; font-family: var(--font-mono); }
-.sp-sys-fixed { font-size: 11px; color: var(--text-3); background: var(--bg-hover); padding: 6px 10px; border-radius: var(--r-sm); }
+.sp-sys-fixed { font-size: 11px; color: var(--text-3); background: var(--bg-inset); padding: 6px 10px; border-radius: var(--r-sm); }
 .sp-sys-fixed code { font-family: var(--font-mono); color: var(--primary); }
 .sp-field select.sp-input:disabled { opacity: .6; cursor: not-allowed; }
 .g-task-error { color: var(--err); font-size: 12px; }

@@ -64,10 +64,10 @@ const dashOffset = computed(() => circumference.value * (1 - clamped.value / 100
 .ring-progress svg { display: block; transform: rotate(-90deg); }
 .ring-track { stroke: rgba(var(--text-3-rgb), 0.22); }
 .ring-fill { stroke: var(--primary); transition: stroke-dashoffset var(--dur-base) var(--ease-out); }
-/* 环描边是图形件（WCAG 1.4.11 · 3.0 线）——取图形档（cr-123） */
-.tone-normal .ring-fill { stroke: var(--ok-graphic); }
-.tone-high .ring-fill { stroke: var(--warn-graphic); }
-.tone-critical .ring-fill { stroke: var(--err-graphic); }
+/* 环描边是图形件（WCAG 1.4.11 · 3.0 线）——取状态档（cr-123） */
+.tone-normal .ring-fill { stroke: var(--ok-status); }
+.tone-high .ring-fill { stroke: var(--warn-status); }
+.tone-critical .ring-fill { stroke: var(--err-status); }
 .ring-center {
   position: absolute;
   inset: 0;

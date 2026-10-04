@@ -8,8 +8,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { Series } from 'uplot';
 import { chord, ribbon } from 'd3-chord';
-import { Modal } from '@agentchat/webui-kit';
-import { Button } from '@agentchat/webui-kit';
+import { Button, Modal, Progress, Segmented, Tabs, Tooltip } from '@agentchat/webui-kit';
 import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
 
 const props = defineProps<{
@@ -258,9 +257,10 @@ function destroyChart() {
 // ── 用量统计（按日堆叠柱状图）：统计方式切换 ──
 type UsageViewMode = 'spend' | 'model';
 const usageViewMode = ref<UsageViewMode>('spend');
-const USAGE_VIEW_PRESETS: Array<{ value: UsageViewMode; label: string }> = [
-  { value: 'spend', label: '缓存' },
-  { value: 'model', label: '模型' },
+/** 统计方式分段器数据面（kit Segmented——cr-157） */
+const usageViewItems: Array<{ id: UsageViewMode; label: string }> = [
+  { id: 'spend', label: '缓存' },
+  { id: 'model', label: '模型' },
 ];
 
 /** 按模型视图：最多展示的模型数（其余合并为「其他」保持可读） */
@@ -318,7 +318,7 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
   // 按消耗：自上而下 缓存 → 未缓存 → 输出
   return [
     /* 图表色板分层核对（cr-128）：折线/柱是图形件（cr-123 · 3.0 线），三个系列分属三档——
-       缓存 = 语义图形档（字面值 = --ok-graphic 双档镜像）
+       缓存 = 语义状态档（字面值 = --ok-status 双档镜像）
        未缓存 = 主色轴（字面值 = --primary 双档镜像）
        输出 = 分类板紫档（非语义色，与 CLOUD_COLORS 紫系同源）
        JS/canvas 侧无 var() 通路，故以内联字面值镜像上方令牌（令牌改值须同步此处） */
@@ -1022,7 +1022,9 @@ onUnmounted(() => { destroyChart(); });
     <div class="tup-head">
       <span class="tup-title">Token 用量</span>
       <span v-if="lastUpdated" class="last-updated tup-updated">{{ lastUpdated }}</span>
-      <button class="tup-refresh" :disabled="loading" title="刷新" @click="loadData">⟳</button>
+      <Tooltip text="刷新" placement="bottom">
+        <button class="tup-refresh" :disabled="loading" aria-label="刷新" @click="loadData">⟳</button>
+      </Tooltip>
     </div>
     <div class="usage-body tup-body">
       <div v-if="loading && !data" class="status-msg">加载中...</div>
@@ -1155,9 +1157,7 @@ onUnmounted(() => { destroyChart(); });
                   <span class="summary-bar-pct">({{ cachePct.toFixed(1) }}%)</span>
                 </span>
               </div>
-              <div class="progress-track">
-                <div class="progress-fill" :style="{ width: cachePct + '%' }"></div>
-              </div>
+              <Progress :value="cachePct" />
               <div class="summary-bar-mini">
                 <span>总输出 {{ formatNumber(data.overall.total_completion_tokens) }}</span>
                 <span>总步数 {{ data.overall.total_react_steps }}</span>
@@ -1166,11 +1166,8 @@ onUnmounted(() => { destroyChart(); });
               </div>
             </div>
 
-            <!-- 竖向 Tab -->
-            <div class="tab-bar">
-              <button :class="{ active: activeTab === 'cloud' }" @click="activeTab = 'cloud'">总览</button>
-              <button :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">用量统计</button>
-            </div>
+            <!-- 竖向 Tab（kit Tabs pill——cr-157） -->
+            <Tabs variant="pill" :items="[{ id: 'cloud', label: '总览' }, { id: 'daily', label: '用量统计' }]" :model-value="activeTab" @update:model-value="activeTab = $event as 'cloud' | 'daily'" />
           </aside>
 
           <!-- 右侧：内容区 -->
@@ -1198,13 +1195,7 @@ onUnmounted(() => { destroyChart(); });
         <!-- ═══ 用量统计（按日堆叠柱状图，统计方式可切换）═══ -->
         <div v-if="activeTab === 'daily'" class="chart-tab">
           <div class="chart-toolbar">
-            <div class="seg-control" role="tablist" aria-label="统计方式">
-              <button
-                v-for="p in USAGE_VIEW_PRESETS" :key="p.value" role="tab"
-                :class="{ active: usageViewMode === p.value }"
-                @click="usageViewMode = p.value"
-              >{{ p.label }}</button>
-            </div>
+            <Segmented :items="usageViewItems" :model-value="usageViewMode" @update:model-value="usageViewMode = $event as UsageViewMode" />
             <span class="chart-hint">{{ usageViewMode === 'spend' ? '自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）' : '自上而下按模型 ID 排序（其他垫底）' }}</span>
           </div>
           <div class="chart-wrapper">
@@ -1328,7 +1319,7 @@ onUnmounted(() => { destroyChart(); });
 .usage-body { display: contents; }
 
 .status-msg { text-align: center; padding: 40px; color: var(--text-3); font-size: 13px; }
-.status-msg.error { color: var(--err); }
+.status-msg.error { color: var(--err-status); }
 
 /* ═══ 左右布局：左侧摘要+页签，右侧内容 ═══ */
 .usage-layout { display: flex; flex: 1; min-height: 0; }
@@ -1385,35 +1376,17 @@ onUnmounted(() => { destroyChart(); });
 }
 .summary-bar-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .summary-bar-value { font-size: 13px; color: var(--text-1); font-variant-numeric: tabular-nums; }
-.summary-bar-value strong { color: var(--ok); }
+.summary-bar-value strong { color: var(--ok-status); }
 .summary-bar-pct { font-size: 12px; color: var(--text-3); margin-left: 4px; }
 
-.progress-track {
-  height: 8px; border-radius: var(--r-full);
-  background: var(--bg-hover);
-  overflow: hidden;
-}
-.progress-fill {
-  height: 100%; border-radius: var(--r-full);
-  background: var(--ok);
-  transition: width 0.4s ease;
-}
+/* 进度条已迁 kit Progress（cr-157） */
 
 .summary-bar-mini {
   display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
   font-size: 11px; color: var(--text-3);
 }
 
-/* ═══ 竖向 Tab（左侧栏）═══ */
-.tab-bar { display: flex; flex-direction: column; gap: 2px; padding: 0; }
-.tab-bar button {
-  padding: 8px 12px; border: none; border-radius: var(--r-sm);
-  background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer;
-  text-align: left;
-  transition: color var(--dur-fast), background var(--dur-fast);
-}
-.tab-bar button:hover { color: var(--text-1); background: var(--bg-hover); }
-.tab-bar button.active { color: var(--primary); background: var(--primary-light); font-weight: 500; }
+/* 竖向 Tab 已迁 kit Tabs pill（cr-157） */
 
 /* ═══ 总览（双环复合图）═══ */
 /* 自适应填满右侧内容区（正方形 viewBox 等比缩放，无需滚动看全） */
@@ -1442,7 +1415,7 @@ onUnmounted(() => { destroyChart(); });
   max-width: 280px; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: var(--r-md);
   background: var(--bg-raised);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-pop);
   pointer-events: none;
 }
 .cloud-tip :deep(.tt-title) { font-size: 12px; font-weight: 600; color: var(--text-1); word-break: break-all; }
@@ -1474,23 +1447,7 @@ onUnmounted(() => { destroyChart(); });
 }
 .chart-hint { font-size: 12px; color: var(--text-3); }
 
-/* 分段切换（按消耗 / 按模型） */
-.seg-control {
-  display: inline-flex; padding: 2px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--bg-hover); gap: 2px;
-}
-.seg-control button {
-  padding: 4px 14px; border: none; border-radius: var(--r-sm);
-  background: transparent; color: var(--text-2);
-  font-size: 12px; cursor: pointer;
-  transition: color var(--dur-fast), background var(--dur-fast);
-}
-.seg-control button:hover { color: var(--text-1); }
-.seg-control button.active {
-  color: var(--primary); background: var(--bg-raised); font-weight: 500;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-}
+/* 分段切换已迁 kit Segmented（cr-157） */
 .chart-wrapper { flex: 1; min-height: 0; position: relative; }
 
 /* uplot 宿主：占满 wrapper；隐藏默认 tooltip/十字线（自绘 external HTML tooltip） */
@@ -1510,7 +1467,7 @@ onUnmounted(() => { destroyChart(); });
   min-width: 190px; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: var(--r-md);
   background: var(--bg-raised);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-pop);
   pointer-events: none;
 }
 .chart-tip :deep(.tt-title) {

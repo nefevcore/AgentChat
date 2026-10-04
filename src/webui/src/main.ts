@@ -20,6 +20,7 @@ import './assets/markdown.css';
 import '@agentchat/webui-kit/tokens.css';
 // L0.5 公共行（A 语言扁平行——清单卡收敛底座，C8）
 import '@agentchat/webui-kit/row.css';
+import '@agentchat/webui-kit/dropdown.css';
 // L0.6 徽章语言（状态/标签/类型徽记三族一底——2026-09-03 统一裁决）
 import '@agentchat/webui-kit/badge.css';
 
@@ -50,17 +51,23 @@ async function boot(): Promise<void> {
   // 与代码无关，唯一恢复路径 = 刷新加载新 manifest。捕获后弹提示而非
   // 静默（此前表现：主栏展开恒空白〔async 组件失败恒注释占位〕且无任何
   // 用户可见线索）。仅提示一次（多组件并发失败只弹一条）。
+  // cr-189 补两形态：① SPA fallback 曾把失效 chunk 回 200 text/html →
+  // 报 SyntaxError: Unexpected token '<'（HTML 被当 JS 解析）；② vite
+  // 动态 import 失败派发 vite:preloadError。
   let chunkErrorNotified = false;
+  const onChunkError = (): void => {
+    if (chunkErrorNotified) return;
+    chunkErrorNotified = true;
+    // 原生 confirm：不依赖任何可能同样加载失败的组件库
+    if (window.confirm('页面资源已更新（旧版缓存失效），部分面板加载失败。\n点击「确定」刷新页面加载新版本。')) {
+      window.location.reload();
+    }
+  };
   window.addEventListener('error', (ev) => {
     const msg = ev.message;
-    if (!chunkErrorNotified && /dynamically imported module|Importing a module script failed/.test(msg)) {
-      chunkErrorNotified = true;
-      // 原生 confirm：不依赖任何可能同样加载失败的组件库
-      if (window.confirm('页面资源已更新（旧版缓存失效），部分面板加载失败。\n点击「确定」刷新页面加载新版本。')) {
-        window.location.reload();
-      }
-    }
+    if (/dynamically imported module|Importing a module script failed|Unexpected token/.test(msg)) onChunkError();
   });
+  window.addEventListener('vite:preloadError', onChunkError);
 
   // pinia：基础件内部实现细节（D10——不强推全退；域插件用 store 座位/服务内 reactive）
   const pinia = createPinia();

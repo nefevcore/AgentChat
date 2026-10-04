@@ -9,7 +9,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { formatRelativeTime } from './format.ts';
-import { BusyRing } from '@agentchat/webui-kit';
+import { BusyRing, Tooltip } from '@agentchat/webui-kit';
 import { useChatShell } from './useChatShell.ts';
 import type { DisplayItem } from './types.ts';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
@@ -225,9 +225,11 @@ defineExpose({
     </div>
 
     <Transition name="scroll-btn">
-      <button v-if="isUserScrolledUp" class="scroll-to-bottom-btn" @click="shell.scrollToBottomAndReset" title="回到底部">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-      </button>
+      <Tooltip v-if="isUserScrolledUp" text="回到底部" placement="top">
+        <button class="scroll-to-bottom-btn" aria-label="回到底部" @click="shell.scrollToBottomAndReset">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </button>
+      </Tooltip>
     </Transition>
   </div>
 </template>
@@ -273,10 +275,10 @@ defineExpose({
   width: 40px; height: 40px; border: 1px solid var(--line-strong);
   border-radius: 50%; background: var(--bg-base); color: var(--text-2);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12); z-index: 50; padding: 0;
+  box-shadow: var(--shadow-pop); z-index: 50; padding: 0;
   transition: box-shadow 0.2s, transform 0.2s, background 0.2s;
 }
-.scroll-to-bottom-btn:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.18); transform: translateY(-1px); background: var(--bg-surface); }
+.scroll-to-bottom-btn:hover { transform: translateY(-1px); background: var(--bg-surface); }
 .scroll-to-bottom-btn:active { transform: translateY(0); }
 .scroll-btn-enter-active, .scroll-btn-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .scroll-btn-enter-from, .scroll-btn-leave-to { opacity: 0; transform: translateY(8px); }

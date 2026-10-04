@@ -57,12 +57,35 @@ afterEach(async () => {
 });
 
 describe('ac-issue-tools submit_issue', () => {
-  it('无令牌（行/凭据/env 全空）→ 可读错误指路', async () => {
+  it('无令牌（官方台）→ 降级预填链接：GitHub issues/new 带 title/body/labels（cr-136）', async () => {
     vi.stubEnv('GITHUB_TOKEN', '');
     const ctx = await boot([[toolsRow, undefined], [issueRow, {}]]);
+    const r = await exec(ctx, { name: 'submit_issue', args: { title: '页面打不开', body: '步骤…', labels: ['bug'] } });
+    expect(r.ok).toBe(true);
+    expect(r.output).toMatchObject({ mode: 'prefill-link', server: 'github', repo: 'nefevcore/AgentChat', title: '页面打不开' });
+    const u = new URL(r.output.url);
+    expect(u.origin + u.pathname).toBe('https://github.com/nefevcore/AgentChat/issues/new');
+    expect(u.searchParams.get('title')).toBe('页面打不开');
+    expect(u.searchParams.get('body')).toBe('步骤…');
+    expect(u.searchParams.get('labels')).toBe('bug');
+  });
+
+  it('无令牌 Gitee → 裸新建页链接（未证实预填支持，不带查询参数）', async () => {
+    vi.stubEnv('GITHUB_TOKEN', '');
+    vi.stubEnv('GITEE_TOKEN', '');
+    const ctx = await boot([[toolsRow, undefined], [issueRow, { server: 'gitee', repo: 'os/AgentChat' }]]);
+    const r = await exec(ctx, { name: 'submit_issue', args: { title: 'x' } });
+    expect(r.ok).toBe(true);
+    expect(r.output).toMatchObject({ mode: 'prefill-link', server: 'gitee' });
+    expect(r.output.url).toBe('https://gitee.com/os/AgentChat/issues/new');
+  });
+
+  it('无令牌 + 自建台（apiBase 覆盖）→ 保留配令牌指路错误', async () => {
+    vi.stubEnv('GITHUB_TOKEN', '');
+    const ctx = await boot([[toolsRow, undefined], [issueRow, { apiBase: 'https://git.example.com/api/v3', repo: 'team/agentchat' }]]);
     const r = await exec(ctx, { name: 'submit_issue', args: { title: 'x' } });
     expect(r.ok).toBe(false);
-    expect(r.error).toContain('GitHub');
+    expect(r.error).toContain('自建台');
     expect(r.error).toContain('GITHUB_TOKEN');
   });
 

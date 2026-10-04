@@ -91,6 +91,7 @@ import IconMonitor from '~icons/lucide/monitor';
 import IconSquareTerminal from '~icons/lucide/square-terminal';
 import IconUsersRound from '~icons/lucide/users-round';
 import IconFolderTree from '~icons/lucide/folder-tree';
+import IconEdit3 from '~icons/lucide/edit-3';
 // 工作区树文件类型图标集（WorkspaceTreeNode getFileIcon 引用）——按文件语义分配象形
 import IconFileAudio from '~icons/lucide/file-audio';
 import IconFilm from '~icons/lucide/film';
@@ -133,8 +134,32 @@ import IconArrowDown from '~icons/lucide/arrow-down';
 import IconAppWindow from '~icons/lucide/app-window';
 import IconCircle from '~icons/lucide/circle';
 
+// 厂商品牌 logo（simple-icons 集，cr-203 模型菜单 provider 图标）——
+// 单色 path 由 currentColor 染色，色值随消费方（菜单里 text-3 同语言）
+import IconSiOpenai from '~icons/simple-icons/openai';
+import IconSiAnthropic from '~icons/simple-icons/anthropic';
+import IconSiAws from '~icons/simple-icons/amazonwebservices';
+import IconSiAzure from '~icons/simple-icons/microsoftazure';
+import IconSiDeepseek from '~icons/simple-icons/deepseek';
+import IconSiGemini from '~icons/simple-icons/googlegemini';
+import IconSiGithubCopilot from '~icons/simple-icons/githubcopilot';
+import IconSiHuggingface from '~icons/simple-icons/huggingface';
+import IconSiMinimax from '~icons/simple-icons/minimax';
+import IconSiMistral from '~icons/simple-icons/mistralai';
+import IconSiMoonshot from '~icons/simple-icons/moonshotai';
+import IconSiNvidia from '~icons/simple-icons/nvidia';
+import IconSiOpencode from '~icons/simple-icons/opencode';
+import IconSiOpenrouter from '~icons/simple-icons/openrouter';
+import IconSiAliyun from '~icons/simple-icons/alibabacloud';
+import IconSiVercel from '~icons/simple-icons/vercel';
+import IconSiXiaomi from '~icons/simple-icons/xiaomi';
+import IconSiKimi from '~icons/simple-icons/kimi';
+import IconSiQwen from '~icons/simple-icons/qwen';
+import IconSiX from '~icons/simple-icons/x';
+
 import IconThinkingIcon from './ThinkingIcon.vue';
 import IconThoughtIcon from './ThoughtIcon.vue';
+import IconZai from './ZaiIcon.vue';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -222,6 +247,8 @@ export const iconMap: Record<string, Component> = {
   'square-terminal': IconSquareTerminal,
   'users-round': IconUsersRound,
   'folder-tree': IconFolderTree,
+  // 独立会话活动栏钮（ac-client-ui-singles）——lucide edit-3
+  'edit-3': IconEdit3,
   // 工作区树文件类型图标集（WorkspaceTreeNode getFileIcon 引用）
   'file-audio': IconFileAudio,
   film: IconFilm,
@@ -264,6 +291,30 @@ export const iconMap: Record<string, Component> = {
   // （AssistantMessage 思考行）。hover 时由 chevron-up/down 接管图标位。
   chain: IconThinkingIcon,
   thought: IconThoughtIcon,
+  // 厂商品牌 logo（simple-icons，cr-203）：si- 前缀防与 lucide 撞名。
+  // 消费：模型菜单 provider 图标（poolApi providerIconOf 映射，未命中回退 cpu）
+  'si-openai': IconSiOpenai,
+  'si-anthropic': IconSiAnthropic,
+  'si-aws': IconSiAws,
+  'si-azure': IconSiAzure,
+  'si-deepseek': IconSiDeepseek,
+  'si-gemini': IconSiGemini,
+  'si-github-copilot': IconSiGithubCopilot,
+  'si-huggingface': IconSiHuggingface,
+  'si-minimax': IconSiMinimax,
+  'si-mistral': IconSiMistral,
+  'si-moonshot': IconSiMoonshot,
+  'si-nvidia': IconSiNvidia,
+  'si-opencode': IconSiOpencode,
+  'si-openrouter': IconSiOpenrouter,
+  'si-aliyun': IconSiAliyun,
+  'si-vercel': IconSiVercel,
+  'si-xiaomi': IconSiXiaomi,
+  'si-kimi': IconSiKimi,
+  'si-qwen': IconSiQwen,
+  'si-x': IconSiX,
+  // 智谱品牌（simple-icons 未收录，ZaiIcon.vue 自绘收编——cdn.bigmodel.cn logo.svg）
+  'si-zai': IconZai,
 };
 
 /** 未注册图标的兜底 */

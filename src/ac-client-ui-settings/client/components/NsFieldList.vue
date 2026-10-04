@@ -9,7 +9,7 @@ import { ref, computed } from 'vue';
 import type { FieldMeta } from '../types.ts';
 import { toFields, filterFields, isNonDefault } from '../schema.ts';
 import SettingField from './SettingField.vue';
-import { FieldRow, IconAction, SearchInput, Textarea } from '@agentchat/webui-kit';
+import { Button, FieldRow, IconAction, SearchInput, Textarea } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   /** 配置命名空间键（空 = 顶层全局配置） */
@@ -89,8 +89,8 @@ function saveJson(): void {
       <template v-if="rawJson !== ''">
         <Textarea v-model="rawJson" code :rows="6" />
         <div class="ns-json-actions">
-          <button class="ns-json-btn" @click="rawJson = ''">取消</button>
-          <button class="ns-json-btn primary" @click="saveJson(); rawJson = ''">应用</button>
+          <Button variant="ghost" size="sm" @click="rawJson = ''">取消</Button>
+          <Button variant="primary" size="sm" @click="saveJson(); rawJson = ''">应用</Button>
         </div>
       </template>
     </div>
@@ -111,11 +111,5 @@ function saveJson(): void {
 .ns-json-head { display: flex; align-items: center; justify-content: space-between; }
 .ns-json-title { font-size: 13px; font-weight: 500; color: var(--text-1); }
 .ns-json-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.ns-json-btn {
-  padding: 4px 12px; border: none; border-radius: var(--r-md);
-  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; transition: all var(--dur-fast);
-}
-.ns-json-btn:hover { background: var(--bg-hover); color: var(--text-1); }
-.ns-json-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.ns-json-btn.primary:hover { opacity: .9; color: var(--on-primary); }
+/* 应用/取消钮已归 kit Button（cr-171） */
 </style>

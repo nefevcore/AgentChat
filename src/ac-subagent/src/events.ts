@@ -10,13 +10,15 @@ import type { SubagentInfo } from './service.ts';
 declare module '@agentchat/cordis' {
   interface Events {
     /**
-     * 子 Agent 已变更（spawn / run 起跑 / run 收束 / stop / delete 后的
-     * 统一通知；载荷 = 变更后投影（list 口径：displayStatus/runs/lastRun
-     * 等展示字段齐备），delete 时为删除前快照）。
+     * 子 Agent 已变更（spawn / run 起跑 / run 收束 / 超时转后台 / stop /
+     * delete 后的统一通知；载荷 = 变更后投影（list 口径：displayStatus/
+     * runs/lastRun 等展示字段齐备），delete 时为删除前快照）。timeout =
+     * 前台等待上限到点（cr-132 handoff：run 未终止，displayStatus 仍
+     * running）。
      * 订阅方：WS 桥（前端子Agent 清单刷新）、审计。
      * @mode emit
      * @scope host
      */
-    'subagents/updated'(info: SubagentInfo, action: 'spawned' | 'started' | 'settled' | 'stopped' | 'removed'): void;
+    'subagents/updated'(info: SubagentInfo, action: 'spawned' | 'started' | 'settled' | 'timeout' | 'stopped' | 'removed'): void;
   }
 }

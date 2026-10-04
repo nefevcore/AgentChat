@@ -1070,11 +1070,11 @@ describe('ac-subagent：超时看门狗语义', () => {
     expect(done.output.status).toBe('done');
   });
 
-  it('stop/timeout 竞态：stop 先 abort 后，迟到的看门狗不覆写 abortReason（终态 stopped 而非 timeout）', async () => {
+  it('stop/timeout 竞态：stop 先 abort 后，迟到的看门狗不误伤（终态 stopped）', async () => {
     // 窗口构造：首步产出 tool_calls，工具不响应 signal 挂在 gate——run 停在
     // tools.execute；stop abort 后 run 不收束（工具仍挂），1s 看门狗在窗口
-    // 内迟到触发。修复前：覆写 abortReason='timeout'；放行工具 → 步边界
-    // interrupted → 终态误标 timeout。修复后守卫不覆写 → stopped。
+    // 内迟到触发（handoff 语义下无等待方可释、run 不被二次打断）。放行
+    // 工具 → 步边界 interrupted → 终态 stopped。
     const toolCallProvider = {
       name: 'toolcall-provider',
       inject: ['llm'],
@@ -1124,6 +1124,67 @@ describe('ac-subagent：超时看门狗语义', () => {
     releaseTool(); // 放行工具 → 下一步边界检查 aborted → interrupted 收束
     const done = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
     expect(done.output.status).toBe('stopped'); // 不得误标 timeout
+  });
+
+  it('超时 handoff（cr-132）：timeout_s 到点释放前台等待方转后台，run 不终止、收束照常入档', async () => {
+    // 窗口同上：run 停在不可中止的慢工具上，1s 看门狗到点。handoff 语义：
+    // send(sync) 等待方立即拿 status='timeout' 回执（run 仍 running），
+    // run 本体继续；放行工具后正常收束 done（lastRun 不被 timeout 摘要污染）。
+    const toolCallProvider = {
+      name: 'toolcall-provider2',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register(
+          'mock',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              if (captured.length === 1) {
+                yield {
+                  delta: '',
+                  finish: 'tool_calls',
+                  toolCalls: [{ index: 0, id: 'tc1', name: 'deaf_tool', argumentsDelta: '{}' }],
+                };
+              } else {
+                yield { delta: `结论:${String(input.messages.at(-1)?.content).slice(0, 10)}` };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              }
+            },
+          }),
+          { models: ['mock-1'] },
+        );
+      },
+    };
+    const { ctx } = await boot({ provider: toolCallProvider });
+    let releaseTool!: () => void;
+    const toolGate = new Promise<void>((r) => {
+      releaseTool = r;
+    });
+    ctx.tools.register({
+      name: 'deaf_tool',
+      execute: () => new Promise((resolve) => void toolGate.then(() => resolve({ ok: true, output: '完成' }))),
+    });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: 'handoff 任务', tools: ['deaf_tool'], timeout_s: 1 },
+      agentId: 'chief',
+    });
+    const id = r.output.subagent_id as string;
+    await until(() => captured.length >= 1);
+    // sync 续发一条消息开新 run？——不对：当前 run 忙，sync 排队会等链跑。
+    // 直接用 await 挂载等待方（currentSettlers 通道），同链路验证 handoff 释放。
+    const awaitP = exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    await new Promise((res) => setTimeout(res, 1200)); // 看门狗到点 → handoff 释放等待方
+    const timedOut = await awaitP;
+    expect(timedOut.output.status).toBe('timeout');
+    expect(String(timedOut.output.error)).toContain('已转后台继续执行');
+    // run 仍 running（未被超时终止）
+    const running = await exec(ctx, { name: 'subagent', args: { action: 'list', running_only: true }, agentId: 'chief' });
+    expect(running.output.total).toBe(1);
+    // 放行工具 → run 正常收束；新 await 挂新等待方拿终值
+    releaseTool();
+    const done = await exec(ctx, { name: 'subagent', args: { action: 'await', subagent_id: id }, agentId: 'chief' });
+    expect(done.output.status).toBe('done');
   });
 });
 

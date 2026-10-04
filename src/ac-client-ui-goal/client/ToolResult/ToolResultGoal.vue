@@ -44,8 +44,8 @@ const phase = computed(() => PHASES[card.value?.goal.status ?? 'active'] ?? PHAS
 .goal-card-phase { flex: none; font-weight: 600; font-size: 11px; }
 .p-active { color: var(--primary); }
 .p-paused { color: var(--text-3); }
-.p-blocked { color: var(--warn); }
-.p-done { color: var(--ok); }
+.p-blocked { color: var(--warn-status); }
+.p-done { color: var(--ok-status); }
 .goal-card-objective { min-width: 0; flex: 1; color: var(--text-1); overflow-wrap: anywhere; font-weight: 500; }
 .goal-card-pending { font-style: italic; color: var(--text-3); font-weight: 400; }
 .goal-card-reason { color: var(--warn); overflow-wrap: anywhere; }

@@ -119,24 +119,24 @@ onUnmounted(() => {
 
 <template>
   <div class="activity-bar">
-    <button class="activity-bar-avatar-btn" @click="emit('openAgentSettings')" :title="`${currentAgentName} 配置`">
+    <button class="activity-bar-avatar-btn" :aria-label="`${currentAgentName} 配置`" :title="`${currentAgentName} 配置`" @click="emit('openAgentSettings')">
       <Avatar :src="currentAvatar" :name="currentAgentName" :size="30" />
     </button>
 
     <!-- Agent 列表（活动栏第一位：Agent + 群组名册）；徽章 = 名册行口径未读聚合
          （direct 私信 + 群聊；single 会话时名册不可见，Agent 私信仍经此按钮提示） -->
-    <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'agents' }" @click="emit('openPrimaryPanel', 'agents')" title="Agent 列表">
+    <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'agents' }" aria-label="Agent 列表" title="Agent 列表" @click="emit('openPrimaryPanel', 'agents')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
-      <span v-if="agentsUnreadTotal > 0" class="unread-badge">{{ agentsUnreadLabel }}</span>
+      <span v-if="agentsUnreadTotal > 0" class="ui-avatar-badge unread-badge">{{ agentsUnreadLabel }}</span>
     </button>
 
     <!-- 会话列表（独立会话页，与 Agent 列表同级）；徽章 = single 分区未读聚合
          （single 无名册行，SessionList 是其归属面板——本按钮为唯一未读提示位） -->
-    <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'sessions' }" @click="emit('openPrimaryPanel', 'sessions')" title="会话列表">
+    <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'sessions' }" aria-label="会话列表" title="会话列表" @click="emit('openPrimaryPanel', 'sessions')">
       <Icon name="message-circle" :size="22" />
-      <span v-if="singlesUnreadTotal > 0" class="unread-badge">{{ singlesUnreadLabel }}</span>
+      <span v-if="singlesUnreadTotal > 0" class="ui-avatar-badge unread-badge">{{ singlesUnreadLabel }}</span>
     </button>
 
     <!-- 运行跟踪入口已迁辅助活动栏（aux 'tracking' 选区 rail 按钮，A5）——
@@ -147,7 +147,7 @@ onUnmounted(() => {
     <!-- Token 用量入口已迁辅助活动栏（aux 'usage' 选区 rail 按钮，P2）——
          本栏不再重复入口 -->
 
-    <button class="activity-bar-btn" @click="themeSvc?.toggleTheme()" :title="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'">
+    <button class="activity-bar-btn" :aria-label="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'" :title="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'" @click="themeSvc?.toggleTheme()">
       <svg v-if="themeSvc?.theme.value === 'light'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
@@ -159,19 +159,19 @@ onUnmounted(() => {
     <!-- 活动栏插件动作（activity-bar:plugin-actions 数据席）：宿主决定位置（底部），插件只填空 -->
     <button
       v-for="action in sortedActivityBarActions" :key="action.id"
-      class="activity-bar-btn" :title="action.label" @click="runActivityBarAction(action)"
+      class="activity-bar-btn" :aria-label="action.label" :title="action.label" @click="runActivityBarAction(action)"
     >
       <Icon :name="action.icon" :size="22" />
     </button>
 
-    <button class="activity-bar-btn" @click="emit('openGlobalSettings')" title="全局设置">
+    <button class="activity-bar-btn" aria-label="全局设置" title="全局设置" @click="emit('openGlobalSettings')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
     </button>
 
     <div class="more-wrapper">
-      <button ref="moreTriggerRef" class="activity-bar-btn more-trigger" :class="{ active: moreOpen }" @click="openMore" title="更多">
+      <button ref="moreTriggerRef" class="activity-bar-btn more-trigger" :class="{ active: moreOpen }" aria-label="更多" @click="openMore">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
         </svg>
@@ -204,7 +204,7 @@ onUnmounted(() => {
 <style scoped>
 .activity-bar {
   width: 48px;
-  background: var(--bg-hover);
+  background: var(--bg-nav); /* cr-139：容器底归位——bg-hover 是悬停反馈色不是容器底 */
   display: flex; flex-direction: column; align-items: center;
   flex-shrink: 0; padding: 8px 0; gap: 4px;
   border-right: 1px solid var(--line);
@@ -226,26 +226,17 @@ onUnmounted(() => {
   color: var(--text-3); cursor: pointer;
   transition: color 0.15s, background 0.15s; position: relative;
 }
-.activity-bar-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+.activity-bar-btn:hover { color: var(--text-1); background: var(--primary-light); } /* cr-139：bg-nav 上 bg-hover 对比仅 1.1，悬停改主色染 */
 .activity-bar-btn.active { color: var(--text-1); }
 .activity-bar-btn.active::before {
   content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
   width: 2px; background: var(--primary); border-radius: 0 2px 2px 0;
 }
 
-/* 未读聚合徽章（Agent 列表按钮——视觉与 AgentList 行徽章同款：红底白字圆角胶囊，
-   描边用活动栏底色切出分离感；右上限位在按钮内，不与相邻按钮/指示条打架） */
-/* 通知计数色保留字面值（#ef4444 底 + #fff 字）：非语义状态色、kit 无计数徽章原语，
-   与 AgentList/.unread-badge 同款配方——跨包单源（ActivityBar/MobileTabBar/jobs/AgentList）
-   待统一裁决（承 P2 报告待裁决 A）；模板类名 unread-badge 有 webui 测试锁，勿改。 */
-.unread-badge {
-  position: absolute; top: 3px; right: 3px;
-  min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 999px; background: #ef4444; color: #fff;
-  font-size: 9.5px; font-weight: 600; line-height: 1;
-  border: 1.5px solid var(--bg-hover); z-index: 1;
-}
+/* 未读聚合徽章配方 = kit badge.css .ui-avatar-badge（cr-157 归一——#ef4444 字面值退役，
+   「跨包单源待裁决 A」就此收口）；.unread-badge 锚点类保留（webui 测试锁），
+   本地只补定位：右上限位在按钮内（cr-196 描边退役） */
+.unread-badge { top: 3px; right: 3px; z-index: 1; }
 
 .activity-bar-spacer { flex: 1; }
 .more-wrapper { position: relative; z-index: 10; }
@@ -253,7 +244,7 @@ onUnmounted(() => {
 /* 更新可用提示点（非语义 attention 色，同上计数徽章例外族） */
 .more-dot {
   position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
-  background: #ef4444; border-radius: 50%; border: 1.5px solid var(--bg-hover); z-index: 1;
+  background: #ef4444; border-radius: 50%; border: 1.5px solid var(--bg-nav); z-index: 1;
 }
 
 .more-fade-enter-active, .more-fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }

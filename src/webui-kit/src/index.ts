@@ -15,6 +15,26 @@
 
 export { default as Icon } from './base/Icon.vue';
 export { default as Button } from './base/Button.vue';
+export { default as Chip } from './base/Chip.vue';
+export { default as IconAction } from './base/IconAction.vue';
+export { default as Progress } from './base/Progress.vue';
+export { default as Breadcrumb } from './base/Breadcrumb.vue';
+export { default as ConfirmBody } from './base/ConfirmBody.vue';
+export { default as Dropdown } from './base/Dropdown.vue';
+export { default as Select } from './base/Select.vue';
+export { default as Input } from './base/Input.vue';
+export { default as Textarea } from './base/Textarea.vue';
+export { default as Checkbox } from './base/Checkbox.vue';
+export { default as Slider } from './base/Slider.vue';
+export { default as FieldRow } from './base/FieldRow.vue';
+export { default as Label } from './base/Label.vue';
+export { default as SearchInput } from './base/SearchInput.vue';
+export { default as PasswordInput } from './base/PasswordInput.vue';
+export { default as OptionRow } from './base/OptionRow.vue';
+export { default as PickTag } from './base/PickTag.vue';
+export { default as Segmented } from './base/Segmented.vue';
+export { default as Tabs } from './base/Tabs.vue';
+export { default as DocTabs } from './base/DocTabs.vue';
 export { default as BusyRing } from './base/BusyRing.vue';
 export { default as CollapseRow } from './base/CollapseRow.vue';
 export { default as DockCard } from './base/DockCard.vue';

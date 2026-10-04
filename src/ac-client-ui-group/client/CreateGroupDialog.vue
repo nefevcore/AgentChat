@@ -6,7 +6,7 @@ import type { AgentInfo } from 'ac-client-ui-conversation/client/types.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import { fetchAgents } from 'ac-client-ui-agents/client';
 import { createGroup as apiCreateGroup } from './groupApi.ts';
-import { Modal, BusyRing } from '@agentchat/webui-kit';
+import { Modal, BusyRing, Tooltip } from '@agentchat/webui-kit';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -84,11 +84,13 @@ async function createGroup() {
     <div class="dialog">
       <div class="dialog-header">
         <h3>创建群聊群组</h3>
-        <button class="close-btn" @click="emit('close')" title="关闭">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+        <Tooltip text="关闭" placement="bottom">
+          <button class="close-btn" aria-label="关闭" @click="emit('close')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </Tooltip>
       </div>
 
       <div class="dialog-body">
@@ -252,7 +254,7 @@ async function createGroup() {
   font-size: 11px;
   font-weight: 500;
   color: var(--primary);
-  background: rgba(79,70,229,0.12);
+  background: var(--primary-light);
   padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
@@ -304,14 +306,13 @@ async function createGroup() {
 }
 .participant-item:hover {
   background: var(--bg-hover);
-  border-color: rgba(255,255,255,0.06);
 }
 .participant-item.selected {
-  background: rgba(79,70,229,0.08);
-  border-color: rgba(79,70,229,0.2);
+  background: var(--primary-tint);
+  border-color: var(--primary-border-soft);
 }
 .participant-item.selected:hover {
-  background: rgba(79,70,229,0.12);
+  background: var(--primary-light);
 }
 
 .hidden-checkbox {
@@ -397,7 +398,7 @@ async function createGroup() {
   padding: 20px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--bg-hover);
+  background: var(--bg-inset);
 }
 
 .loading-text {
@@ -413,7 +414,7 @@ async function createGroup() {
   color: var(--err);
   padding: 8px 12px;
   border-radius: 4px;
-  background: rgba(239,68,68,0.1);
+  background: rgba(var(--err-rgb), 0.1);
 }
 
 .dialog-footer {

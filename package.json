@@ -71,6 +71,7 @@
     "@agentchat/cordis-logger": "workspace:*",
     "@agentchat/cordis-timer": "workspace:*",
     "@iconify-json/lucide": "^1.2.123",
+    "@iconify-json/simple-icons": "^1.2.98",
     "@resvg/resvg-js": "^2.6.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.0",

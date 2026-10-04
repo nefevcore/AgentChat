@@ -27,6 +27,8 @@
 //     agent 行携带 steps 时按 expandSteps 轨迹展开复放（与主会话
 //     replayTrajectory 同口径——探查型/中断 run 无终文本也不失忆）。
 //   · 每 run 登记 job（kind=subagent；owner=父；完成通知回投发起会话）。
+//   · 超时 handoff（cr-132）：timeout_s 到点不杀 run——释放前台等待方
+//     （「已转后台继续执行」回执），run 本体继续，收束照常入档 + 通知。
 //
 // 落盘（owning：本服务；三文件形态对齐 ac-session 2026-09-22 run journal
 // 裁决——skill-injection-and-storage-vocab §10/§11 同款语义）：
@@ -70,7 +72,7 @@ import {
 /** 子 Agent 实体状态（run 级终态见 SubagentRunSummary） */
 export type SubagentStatus = 'idle' | 'running';
 
-/** run 终态（timeout/stopped = 被 abort 打断，实体仍可续聊） */
+/** run 终态（timeout = 等待方视角的「超时转后台」回执；stopped = 被 stop/delete 打断，实体仍可续聊） */
 export type SubagentRunStatus = 'done' | 'error' | 'timeout' | 'stopped';
 
 /** 单轮 run 收束摘要 */
@@ -148,7 +150,7 @@ export interface SubagentSpawnOptions {
   /** 显式 system prompt（固化进 SubagentRecord——覆盖父人设，见 record.system 注释） */
   system?: string;
   toolNames?: string[];
-  /** 每轮 run 超时毫秒（0 = 不设看门狗；缺省 0 = 不限——研究型任务常为长任务） */
+  /** 前台等待上限毫秒（cr-132 handoff：到点释放等待方转后台，run 不终止；0 = 缺省不限——研究型任务常为长任务） */
   timeoutMs?: number;
   /** 发起会话键（job 完成通知回投目标） */
   conversationId?: string;
@@ -207,7 +209,7 @@ interface SubEntry {
   /** 会话消息缓存（undefined = 仅磁盘，按需装载） */
   messages: LlmMessage[] | undefined;
   controller: AbortController | undefined;
-  abortReason: 'stop' | 'timeout' | undefined;
+  abortReason: 'stop' | undefined;
   /** runLoop 活跃标志（同步置位/清位——kick 的竞态安全依据） */
   consuming: boolean;
   /** sync 等待方（token → resolve；消费该消息的 run 收束时回调） */
@@ -1090,15 +1092,7 @@ export class SubagentsService extends Service {
       rec.updatedAt = Date.now();
       this.persistRegistry();
       this.ctx.emit('subagents/updated', this.infoOf(rec), 'settled');
-      if (item.token !== undefined) {
-        const w = entry.waiters.get(item.token);
-        if (w) {
-          entry.waiters.delete(item.token);
-          w(s);
-        }
-      }
-      const settlers = entry.currentSettlers.splice(0);
-      for (const fn of settlers) fn(s);
+      this.releaseForeground(entry, item.token, s);
       jobDone?.(jobOutcomeOf(s));
       if (rec.deleted) this.entries.delete(rec.id);
       return s;
@@ -1162,17 +1156,24 @@ export class SubagentsService extends Service {
       this.ctx.logger.warn(`[subagent] "${rec.id}" 登记 ctx.jobs 失败（不影响执行）: ${String(err)}`);
     }
 
-    // 超时看门狗（abort 在步边界生效；LLM 传输层直达）。0 = 不设看门狗。
-    // 竞态守卫：stop 先 abort 且 run 收束中时，迟到触发不覆写既有
-    // abortReason（否则终态误标 timeout）——仅本 run 的 controller 在役
-    // 且尚无中止原因时才记 timeout。
+    // 超时看门狗（cr-132 handoff 语义，对齐 ac-shell-tools 前台超时转后台）：
+    // 到点不杀 run——释放前台等待方（sync waiter / await settlers 以
+    // timeout 摘要返回「已转后台继续执行」），run 本体继续，收束照常经
+    // settled 机制入档 + job/settled 通知回投发起会话。要停用 stop/delete
+    // （人工决策）。竞态守卫：仅本 run 的 controller 在役时触发（迟到
+    // 定时器不误伤下一轮 run 的等待方）。
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (rec.timeoutMs > 0) {
       timer = setTimeout(() => {
-        if (entry.controller === controller && entry.abortReason === undefined) {
-          entry.abortReason = 'timeout';
-          controller.abort();
-        }
+        if (entry.controller !== controller) return;
+        this.releaseForeground(entry, item.token, {
+          status: 'timeout',
+          finish: 'timeout',
+          error: `run 超过 ${rec.timeoutMs}ms，已转后台继续执行（不终止）——结果稍后经任务完成通知送达，或用 subagent(action="await"/"list") 查询；需要立即停止用 stop。`,
+          startedAt,
+          finishedAt: Date.now(),
+        });
+        this.ctx.emit('subagents/updated', this.infoOf(rec), 'timeout');
       }, rec.timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
     }
@@ -1281,16 +1282,13 @@ export class SubagentsService extends Service {
         ...(steps.length > 0 && steps.at(-1)?.reasoning ? { reasoning: steps.at(-1)!.reasoning } : {}),
       });
     }
-    // abortReason 经 setTimeout 闭包写入（超时看门狗）——控制流不可见，
-    // 读取经 helper 免窄化
-    const reasonOf = (): SubEntry['abortReason'] => entry.abortReason;
+    // interrupted 只来自 stop/delete/卸载（cr-132 超时不再 abort——handoff
+    // 在看门狗处直接释放等待方，run 本体不被打断）
     const status: SubagentRunStatus =
       result.finish === 'error'
         ? 'error'
         : result.finish === 'interrupted'
-          ? reasonOf() === 'timeout'
-            ? 'timeout'
-            : 'stopped'
+          ? 'stopped'
           : 'done'; // stop/max-steps/veto：有终文本即完成口径（旧语义）
     return settle({
       status,
@@ -1584,12 +1582,10 @@ export class SubagentsService extends Service {
     return 1;
   }
 
-  /** reason 字面量赋值会让 TS 流分析把 abortReason narrow 成单值，致 1285
-   * 的 timeout 比较被误判恒 false（看门狗 1173 的异步写点流分析不可见）——
-   * 参数形式保住联合类型，勿内联字面量 */
-  private stopRun(entry: SubEntry, reason: 'stop' | 'timeout' = 'stop'): boolean {
+  /** 中止当前 run（stop/delete/卸载；步边界生效，LLM 传输层直达） */
+  private stopRun(entry: SubEntry): boolean {
     if (entry.controller === undefined) return false;
-    entry.abortReason = reason;
+    entry.abortReason = 'stop';
     entry.controller.abort();
     return true;
   }
@@ -1598,6 +1594,19 @@ export class SubagentsService extends Service {
   private releaseWaiters(entry: SubEntry, fallback: SubagentRunSummary): void {
     for (const [, resolve] of entry.waiters) resolve(fallback);
     entry.waiters.clear();
+  }
+
+  /** 释放本条消息的前台等待方（sync waiter + await settlers）——settle 与
+   * 超时 handoff 共用；重复调用安全（waiters 已删/settlers 已 splice） */
+  private releaseForeground(entry: SubEntry, token: string | undefined, s: SubagentRunSummary): void {
+    if (token !== undefined) {
+      const w = entry.waiters.get(token);
+      if (w) {
+        entry.waiters.delete(token);
+        w(s);
+      }
+    }
+    for (const fn of entry.currentSettlers.splice(0)) fn(s);
   }
 
   // ============================================================
@@ -1944,7 +1953,7 @@ export class SubagentsService extends Service {
             description:
               '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）',
           },
-          timeout_s: { type: 'number', description: '[spawn] 每轮 run 超时秒数（0 = 缺省不限——研究型任务常为长任务；正值 = 超时强制终止）', minimum: 0 },
+          timeout_s: { type: 'number', description: '[spawn] 前台等待上限秒数（0 = 缺省不限——研究型任务常为长任务；正值 = 等待超过该时长立即返回「已转后台继续执行」，run 不终止，结果稍后经任务完成通知送达或 await/list 查询）', minimum: 0 },
           wait_time: {
             type: 'number',
             description: '[spawn] 正值 = 阻塞等首轮 run 完成并直接返回结果（默认 0 立即返回）',
@@ -2010,6 +2019,18 @@ export class SubagentsService extends Service {
             });
             if ((Number(args.wait_time) || 0) > 0 && spawned.settled) {
               const s = await spawned.settled;
+              if (s.status === 'timeout') {
+                // cr-132 handoff：超时不是失败——run 已转后台继续执行
+                return {
+                  ok: true,
+                  output: {
+                    action: 'spawn',
+                    subagent_id: spawned.info.id,
+                    status: 'timeout',
+                    message: s.error,
+                  },
+                };
+              }
               if (s.status !== 'done') {
                 return {
                   ok: false,

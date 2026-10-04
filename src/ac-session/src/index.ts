@@ -592,15 +592,20 @@ type TailRecord = Pick<SessionRecord, 'role' | 'content' | 'timestamp' | 'agent_
 
 /**
  * 尾窗文本 → 末条记录投影（tail 的解析核）：自尾向头找最后一条可解析的
- * 非部分行（部分行是 run 进行中的临时 checkpoint）。窗内找不到 = 交回
- * 调用方兜底（可能窗太小或文件病态）。
+ * 非部分行（部分行是 run 进行中的临时 checkpoint）。宿主注入行（role=
+ * 'context'/'event'——记忆快照/机制提示词等）不是发言，跳过——末条口径
+ * = 末条真实发言（cr-194：孤儿记忆快照行垫桶时，名册「最近消息」不得
+ * 把宿主注入当 user 发言展示）。窗内找不到 = 交回调用方兜底（可能窗太小
+ * 或文件病态）。
  */
 function tailFromWindow(text: string): TailRecord | undefined {
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i]!.trim() || lines[i]!.includes(PARTIAL_MARK) || isRunSettledLine(lines[i]!)) continue;
     const rec = parseRecordLine(lines[i]!);
-    if (rec !== undefined) return rec;
+    if (rec === undefined) continue;
+    if (rec.role === 'context' || rec.role === 'event') continue;
+    return rec;
   }
   return undefined;
 }

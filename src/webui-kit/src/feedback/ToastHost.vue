@@ -50,12 +50,16 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
 
 .toast-item {
   pointer-events: auto;
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   gap: 8px;
   max-width: min(420px, calc(100vw - 32px));
   padding: 8px 10px;
-  border-radius: var(--r-lg);
+  /* cr-167：左角（色条侧）收窄 6px、右角保持 --r-lg——非对称圆角，
+     条区呈现独立小圆角视觉 */
+  border-radius: 6px var(--r-lg) var(--r-lg) 6px;
   background: var(--bg-raised);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-panel), var(--elev-hairline);
@@ -85,16 +89,26 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
 .toast-close::after { content: ''; position: absolute; inset: -3px; }
 .toast-close:hover { background: var(--bg-hover); color: var(--text-1); }
 
-/* 语义配色（左缘描边 + 图标着色——文本恒主色保证可读；色条与图标是
-   图形件（1.4.11 · 3.0 线）取图形档（cr-123）） */
-.is-ok .toast-icon { color: var(--ok-graphic); }
-.is-error .toast-icon { color: var(--err-graphic); }
+/* 语义配色（左侧独立色条 + 图标着色——文本恒主色保证可读；色条与图标是
+   图形件（1.4.11 · 3.0 线）取状态档（cr-123）。
+   cr-164：色条从 border-left 改为独立条分栏形态（::before 实现等效分栏——
+   不动 toast-item 的 DOM 结构，避免波及消费侧选择器）；容器已带
+   border-radius，条随圆角裁切 */
+.is-ok .toast-icon { color: var(--ok-status); }
+.is-error .toast-icon { color: var(--err-status); }
 .is-info .toast-icon { color: var(--text-3); }
 
-.is-ok { border-left: 3px solid var(--ok-graphic); }
-.is-error { border-left: 3px solid var(--err-graphic); }
-.is-info { border-left: 3px solid var(--line-strong); }
-.is-busy { border-left: 3px solid var(--primary); }
+.toast-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  /* 条直角——随容器 6px 左角裁切（cr-167：形态由容器左角主导） */
+}
+.is-ok::before { background: var(--ok-status); }
+.is-error::before { background: var(--err-status); }
+.is-info::before { background: var(--line-strong); }
+.is-busy::before { background: var(--primary); }
 
 .toast-enter-active, .toast-leave-active { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(12px); }

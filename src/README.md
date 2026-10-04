@@ -593,8 +593,10 @@ src/
 │                            + 会话开关 issueSubmit（输入框「实验性」，disabled =
 │                            防敏感信息外发一键闸）；目的地链 args→settings→
 │                            行配置→缺省本仓库；令牌三源链行直配→凭据库
-│                            github/gitee→env；apiBase 覆盖可接 Gitea 等 GitHub
-│                            兼容自建台）
+│                            github/gitee→env，官方台全空降级预填新建链接
+│                            （cr-136——GitHub/Gitea issues/new 预填 title/body/
+│                            labels，Gitee 裸页）；apiBase 覆盖可接 Gitea 等
+│                            GitHub 兼容自建台）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+
@@ -927,4 +929,4 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M30 | 席位语义收口——elect/data 词汇轴扶正 + 壳宿主条目化统一 + conversation:dock-widget 改名 + 服务端 uiExtensions 退役（D3 useSeatOccupancy 原语随主区/aux 选举化失去消费方，同批除役；`docs/m30-slot-semantics-refinement-plan.md`） |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |
-| 2026-09-18 增量 | subagent 双改：run 超时缺省 300s → 不限（研究型长任务；timeout_s 正值仍可设看门狗）；run 身份未注册合成 → 派生注册（父身份编辑：preset 隐藏 + tags 剥 delegation/admin；信封装配补 system/llmParams/能力面终滤；update_agent_profile 拦 preset 自助改档） |
+| 2026-09-18 增量 | subagent 双改：run 超时缺省 300s → 不限（研究型长任务；timeout_s 正值仍可设看门狗）；run 身份未注册合成 → 派生注册（父身份编辑：preset 隐藏 + tags 剥 delegation/admin；信封装配补 system/llmParams/能力面终滤；update_agent_profile 拦 preset 自助改档） || cr-132 | subagent 双修：①看门狗超时 abort → handoff（对齐 shell 前台超时语义：到点释放前台等待方转后台、run 不终止，收束照常入档+通知；SubagentRunStatus 'timeout' 转为等待方回执口径，abortReason 收窄 'stop'）②job-wakeup 过滤子 Agent owner（sub_* 的 run 内 job 收束不再唤醒自会话桶——该桶 base-access 无审批面，唤醒即失能 run「无法清理临时文件」即此；显式 conversationId 仍回投发起会话） |

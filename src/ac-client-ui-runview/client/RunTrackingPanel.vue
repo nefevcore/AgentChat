@@ -469,16 +469,16 @@ html.dark .tree-scroll{background:var(--bg-base)}
 /* 任务终态徽标（leaf-status）/状态图标色类（.leaf-icon 本体在上方树样式区）：
  *  running 琥珀 / stopping 灰 / completed 绿 / failed 红 / killed 暗灰 */
 .leaf-status{font-size:11px;font-weight:600;flex-shrink:0}
-.st-running{color:var(--warn)}
+.st-running{color:var(--warn-status)}
 .st-stopping{color:var(--text-3)}
-.st-completed{color:var(--ok)}
-.st-failed{color:var(--err)}
+.st-completed{color:var(--ok-status)}
+.st-failed{color:var(--err-status)}
 .st-killed{color:var(--text-3)}
 /* 子Agent 历史-only displayStatus 词汇（SubagentRunSummary：done/error/
  * timeout/stopped/idle——与 ToolResultSubagent 徽章同色系） */
-.st-done{color:var(--ok)}
-.st-error{color:var(--err)}
-.st-timeout{color:var(--warn)}
+.st-done{color:var(--ok-status)}
+.st-error{color:var(--err-status)}
+.st-timeout{color:var(--warn-status)}
 .st-stopped{color:var(--text-3)}
 .st-idle{color:var(--text-3)}
 .st-deleted{color:var(--text-3);text-decoration:line-through}

@@ -7,12 +7,12 @@ import { useFeedStore, offlineRpc } from './feedStore.ts';
 import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
 // 池模型归一化经 ui-llm-pool（2026-09-11 语义归位：池域词汇——模型菜单
 // 消费；base→domain 契约词汇边，白名单显式裁决）
-import { poolModelEntries, visibleModelNames } from 'ac-client-ui-llm-pool/client/poolApi.ts';
+import { poolModelEntries, providerIconOf, providerIconColor } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { singleDialog } from './feed.ts';
-import { Avatar, BusyRing, Icon, toastError } from '@agentchat/webui-kit';
+import { Avatar, BusyRing, Chip, Icon, toastError } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
 import { parkDraft, takeDraft } from './draftParking.ts';
@@ -330,14 +330,25 @@ function selectAgent(id: string) {
  *  值 = name@model 单值引用（router 边界拆分，跨 provider 快速切换）。
  *  【能力元数据】models 宽容双形态（裸名 | {model,vision?,hidden?}）
  *  归一 + hidden 过滤（隐藏 = 纯 UI 呈现语义——已选该模型的会话不受
- *  影响，只是不再出现在下拉里）。 */
+ *  影响，只是不再出现在下拉里）；元数据随行供选项徽章（defaultModel
+ *  → 默认徽；vision → 视觉徽）。 */
 const modelGroups = computed(() => {
   return Object.entries(llmPools.value)
     .filter(([name, entry]) => !name.startsWith('$') && poolModelEntries((entry as { models?: unknown }).models).length > 0)
-    .map(([name, entry]) => ({
-      name,
-      models: visibleModelNames((entry as { models?: unknown }).models),
-    }))
+    .map(([name, entry]) => {
+      const models = poolModelEntries((entry as { models?: unknown }).models);
+      const defaultModel = typeof (entry as { defaultModel?: unknown }).defaultModel === 'string'
+        ? (entry as { defaultModel?: string }).defaultModel
+        : '';
+      // 元数据随行（徽章语义）：default = 该池 defaultModel；vision = 能力探测确认收图；
+      // icon = provider 品牌 logo（base_url 域名匹配，cr-203；未命中回退 cpu）
+      const icon = providerIconOf((entry as { base_url?: unknown }).base_url);
+      return {
+        name,
+        ...(icon ? { icon, iconColor: providerIconColor(icon) ?? '' } : {}),
+        models: models.filter((m) => m.hidden !== true).map((m) => ({ model: m.model, isDefault: m.model === defaultModel, vision: m.vision === true })),
+      };
+    })
     .filter((g) => g.models.length > 0);
 });
 
@@ -1335,7 +1346,7 @@ function onThumbError(i: number) {
     <!-- 工作区选择（开场身份之一：开始会话即固化，不可再改）。菜单直开
          工作区二级列表（复用 agentMenuOpen/agentPanel 状态——fresh 模式
          下常规身份组隐藏，单开不冲突；选择即 PATCH 生效） -->
-    <div class="dd">
+    <div class="ui-dd">
         <button
           type="button"
           class="select-btn"
@@ -1348,32 +1359,32 @@ function onThumbError(i: number) {
           <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: agentMenuOpen && agentPanel === 'ws' }" />
         </button>
         <Transition name="menu-fade">
-          <div v-if="agentMenuOpen && agentPanel === 'ws'" class="dd-menu" @click.stop>
-            <button type="button" class="dd-option dd-option--2line" :class="{ selected: !selWorkspace }" @click="selectWorkspace('')" title="会话不挂任何工作区">
-              <span class="dd-option-icon"><Icon name="folder-open" :size="16" /></span>
-              <span class="dd-option-body">
-                <span class="dd-option-name">未分组</span>
-                <span class="dd-option-desc">会话不挂任何工作区</span>
+          <div v-if="agentMenuOpen && agentPanel === 'ws'" class="ui-dd-menu up" @click.stop>
+            <button type="button" class="ui-dd-opt ui-dd-opt--2line" :class="{ 'is-selected': !selWorkspace }" @click="selectWorkspace('')" title="会话不挂任何工作区">
+              <span class="ui-dd-opt-icon"><Icon name="folder-open" :size="16" /></span>
+              <span class="ui-dd-opt-body">
+                <span class="ui-dd-opt-name">未分组</span>
+                <span class="ui-dd-opt-desc">会话不挂任何工作区</span>
               </span>
-              <Icon v-if="!selWorkspace" name="check" :size="15" class="dd-option-check" />
+              <Icon v-if="!selWorkspace" name="check" :size="15" class="ui-dd-opt-check" />
             </button>
             <button
               v-for="w in wsList" :key="w.id" type="button"
-              class="dd-option dd-option--2line" :class="{ selected: selWorkspace === w.id }"
+              class="ui-dd-opt ui-dd-opt--2line" :class="{ 'is-selected': selWorkspace === w.id }"
               :title="w.path" @click="selectWorkspace(w.id)"
             >
-              <span class="dd-option-icon"><Icon name="folder" :size="16" /></span>
-              <span class="dd-option-body">
-                <span class="dd-option-name">{{ w.name }}</span>
-                <span class="dd-option-desc">{{ w.path }}</span>
+              <span class="ui-dd-opt-icon"><Icon name="folder" :size="16" /></span>
+              <span class="ui-dd-opt-body">
+                <span class="ui-dd-opt-name">{{ w.name }}</span>
+                <span class="ui-dd-opt-desc">{{ w.path }}</span>
               </span>
-              <Icon v-if="selWorkspace === w.id" name="check" :size="15" class="dd-option-check" />
+              <Icon v-if="selWorkspace === w.id" name="check" :size="15" class="ui-dd-opt-check" />
             </button>
           </div>
         </Transition>
       </div>
       <!-- 预设模式选择（开场身份之二：首条消息后锁定，身份显示在会话头） -->
-      <div class="dd">
+      <div class="ui-dd">
         <button
           type="button"
           class="select-btn"
@@ -1387,47 +1398,47 @@ function onThumbError(i: number) {
           <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: agentMenuOpen && agentPanel === 'agent' }" />
         </button>
         <Transition name="menu-fade">
-          <div v-if="agentMenuOpen && agentPanel === 'agent'" class="dd-menu" @click.stop>
+          <div v-if="agentMenuOpen && agentPanel === 'agent'" class="ui-dd-menu up" @click.stop>
             <button
-              type="button" class="dd-option dd-option--2line"
-              :class="{ selected: !selAgent, 'is-disabled': sessionLocked }"
+              type="button" class="ui-dd-opt ui-dd-opt--2line"
+              :class="{ 'is-selected': !selAgent, 'is-disabled': sessionLocked }"
               :disabled="sessionLocked"
               @click="selectAgent('')"
               :title="roster.defaultPreset.value?.description || '无人物设定，仅基础工具预设'"
             >
-              <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
-              <span class="dd-option-body">
-                <span class="dd-option-name">{{ roster.defaultPreset.value?.label || '标准' }}（预设）</span>
-                <span class="dd-option-desc">{{ roster.defaultPreset.value?.description || '无人物设定，仅基础工具' }}</span>
+              <span class="ui-dd-opt-icon"><Icon name="sparkles" :size="16" /></span>
+              <span class="ui-dd-opt-body">
+                <span class="ui-dd-opt-name">{{ roster.defaultPreset.value?.label || '标准' }}（预设）</span>
+                <span class="ui-dd-opt-desc">{{ roster.defaultPreset.value?.description || '无人物设定，仅基础工具' }}</span>
               </span>
-              <Icon v-if="!selAgent" name="check" :size="15" class="dd-option-check" />
+              <Icon v-if="!selAgent" name="check" :size="15" class="ui-dd-opt-check" />
             </button>
             <button
               v-for="p in otherPresets" :key="p.id" type="button"
-              class="dd-option dd-option--2line" :class="{ selected: selAgent === p.id, 'is-disabled': sessionLocked }"
+              class="ui-dd-opt ui-dd-opt--2line" :class="{ 'is-selected': selAgent === p.id, 'is-disabled': sessionLocked }"
               :disabled="sessionLocked"
               :title="p.description" @click="selectAgent(p.id)"
             >
-              <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
-              <span class="dd-option-body">
-                <span class="dd-option-name">{{ p.label || p.name }}（预设）</span>
-                <span class="dd-option-desc">{{ p.description }}</span>
+              <span class="ui-dd-opt-icon"><Icon name="sparkles" :size="16" /></span>
+              <span class="ui-dd-opt-body">
+                <span class="ui-dd-opt-name">{{ p.label || p.name }}（预设）</span>
+                <span class="ui-dd-opt-desc">{{ p.description }}</span>
               </span>
-              <Icon v-if="selAgent === p.id" name="check" :size="15" class="dd-option-check" />
+              <Icon v-if="selAgent === p.id" name="check" :size="15" class="ui-dd-opt-check" />
             </button>
-            <div v-if="selectableAgents.length > 0" class="dd-divider"></div>
+            <div v-if="selectableAgents.length > 0" class="ui-dd-div"></div>
             <button
               v-for="a in selectableAgents" :key="a.id" type="button"
-              class="dd-option dd-option--2line" :class="{ selected: selAgent === a.id, 'is-disabled': sessionLocked }"
+              class="ui-dd-opt ui-dd-opt--2line" :class="{ 'is-selected': selAgent === a.id, 'is-disabled': sessionLocked }"
               :disabled="sessionLocked"
               @click="selectAgent(a.id)"
             >
-              <span class="dd-option-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" plain-fallback /></span>
-              <span class="dd-option-body">
-                <span class="dd-option-name">{{ a.name || a.id }}</span>
-                <span class="dd-option-desc">{{ a.description }}</span>
+              <span class="ui-dd-opt-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" plain-fallback /></span>
+              <span class="ui-dd-opt-body">
+                <span class="ui-dd-opt-name">{{ a.name || a.id }}</span>
+                <span class="ui-dd-opt-desc">{{ a.description }}</span>
               </span>
-              <Icon v-if="selAgent === a.id" name="check" :size="15" class="dd-option-check" />
+              <Icon v-if="selAgent === a.id" name="check" :size="15" class="ui-dd-opt-check" />
             </button>
           </div>
         </Transition>
@@ -1442,16 +1453,13 @@ function onThumbError(i: number) {
       <template v-for="(file, i) in attachedFiles" :key="`${i}-${file.hash}`">
         <div
           v-if="isImageRef(file.text, file.filename) && !thumbFailed.has(i) && file.text"
-          class="file-chip file-chip--image"
+          class="file-chip--image"
           :title="file.filename"
         >
           <img class="file-chip-thumb" :src="filePreviewUrl(file.text)" :alt="file.filename" @error="onThumbError(i)" />
           <button class="file-chip-remove" @click="removeFile(i)" title="移除"><Icon name="x" :size="10" /></button>
         </div>
-        <div v-else class="file-chip">
-          <span class="file-chip-name">{{ file.filename }}</span>
-          <button class="file-chip-remove" @click="removeFile(i)" title="移除"><Icon name="x" :size="10" /></button>
-        </div>
+        <Chip v-else removable @remove="removeFile(i)">{{ file.filename }}</Chip>
       </template>
     </div>
 
@@ -1494,91 +1502,98 @@ function onThumbError(i: number) {
 
     <!-- 底部工具栏：模型（模型+思考）- 工具模式 - 权限 ⋯ 附件 - 发送
          （身份组退役 2026-09-18：开场身份在 fresh 顶行设定，开始会话后
-         预设固化到会话头、工作区不可再改——工具栏不再放身份入口） -->
+         预设固化到会话头、工作区不可再改——工具栏不再放身份入口；
+         composer 区菜单一律向上弹 .up——kit Dropdown 同缺省，向下会越屏底） -->
     <div class="input-toolbar">
       <div class="toolbar-left">
         <!-- 模型组：模型 + 思考强度（同为推理参数语义域）——一级 = 设置项
              列表（右显当前值），点行下钻二级选项；选择回一级可连续调整 -->
-        <div v-if="!isGroupCtx" class="dd">
+        <div v-if="!isGroupCtx" class="ui-dd">
           <button type="button" class="select-btn" :class="{ open: modelMenuOpen, warn: noModels && !selModel }" @click.stop="toggleModelMenu" :title="modelTitle">
             <Icon :name="noModels && !selModel ? 'alert-circle' : 'cpu'" :size="15" />
             <span class="select-text">{{ selModel || (noModels ? '未配置模型' : '模型') }}</span>
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: modelMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="modelMenuOpen" class="dd-menu" @click.stop>
+            <div v-if="modelMenuOpen" class="ui-dd-menu up" @click.stop>
               <!-- 一级：设置项列表 -->
               <template v-if="modelPanel === 'root'">
                 <button
-                  type="button" class="dd-option"
+                  type="button" class="ui-dd-opt"
                   :class="{ selected: !!selModel }"
                   @click="modelPanel = 'model'"
                   :title="modelTitle"
                 >
-                  <span class="dd-option-icon"><Icon name="cpu" :size="16" /></span>
-                  <span class="dd-option-name">模型</span>
-                  <span class="dd-option-detail" :class="{ 'is-warn': noModels }">
+                  <span class="ui-dd-opt-icon"><Icon name="cpu" :size="16" /></span>
+                  <span class="ui-dd-opt-name">模型</span>
+                  <span class="ui-dd-value" :class="{ 'is-warn': noModels }">
                     {{ modelLabel }}
-                    <Icon name="chevron-right" :size="14" class="dd-arrow" />
+                    <Icon name="chevron-right" :size="14" class="ui-dd-arrow" />
                   </span>
                 </button>
                 <button
-                  type="button" class="dd-option"
+                  type="button" class="ui-dd-opt"
                   :class="{ selected: !!reasoningEffort }"
                   @click="modelPanel = 'effort'"
                   :title="reasoningEffort ? `思考强度：${reasoningEffort}` : '思考：关闭'"
                 >
-                  <span class="dd-option-icon"><Icon name="clock" :size="16" /></span>
-                  <span class="dd-option-name">思考强度</span>
-                  <span class="dd-option-detail">
+                  <span class="ui-dd-opt-icon"><Icon name="clock" :size="16" /></span>
+                  <span class="ui-dd-opt-name">思考强度</span>
+                  <span class="ui-dd-value">
                     {{ effortLabel }}
-                    <Icon name="chevron-right" :size="14" class="dd-arrow" />
+                    <Icon name="chevron-right" :size="14" class="ui-dd-arrow" />
                   </span>
                 </button>
               </template>
               <!-- 二级：模型选项 -->
               <template v-else-if="modelPanel === 'model'">
-                <button type="button" class="dd-option dd-back" @click="modelPanel = 'root'" title="返回">
-                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
-                  <span class="dd-option-name">模型</span>
+                <button type="button" class="ui-dd-opt ui-dd-back" @click="modelPanel = 'root'" title="返回">
+                  <span class="ui-dd-opt-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="ui-dd-opt-name">模型</span>
                 </button>
-                <div class="dd-divider"></div>
-              <button type="button" class="dd-option dd-option--2line" :class="{ selected: !selModel, warn: noModels }" :title="noModels ? '当前未配置任何模型——选择默认直接发送会失败' : '回落 Agent 原配置'" @click="selectModel('')">
-                <span class="dd-option-icon">
+                <div class="ui-dd-div"></div>
+              <button type="button" class="ui-dd-opt ui-dd-opt--2line" :class="{ 'is-selected': !selModel, 'is-warn': noModels }" :title="noModels ? '当前未配置任何模型——选择默认直接发送会失败' : '回落 Agent 原配置'" @click="selectModel('')">
+                <span class="ui-dd-opt-icon">
                   <Icon v-if="noModels" name="alert-circle" :size="16" class="dd-warn-icon" />
                   <Icon v-else name="cpu" :size="16" />
                 </span>
-                <span class="dd-option-body">
-                  <span class="dd-option-name">
+                <span class="ui-dd-opt-body">
+                  <span class="ui-dd-opt-name">
                     默认模型<template v-if="noModels">（未配置）</template>
                   </span>
-                  <span class="dd-option-desc" :class="{ 'is-warn': noModels }">{{ noModels ? '发送将失败——请到设置 → 模型管理配置连接' : '使用 Agent 原配置的模型' }}</span>
+                  <span class="ui-dd-opt-desc" :class="{ 'is-warn': noModels }">{{ noModels ? '发送将失败——请到设置 → 模型管理配置连接' : '使用 Agent 原配置的模型' }}</span>
                 </span>
-                <Icon v-if="!selModel" name="check" :size="15" class="dd-option-check" />
+                <Icon v-if="!selModel" name="check" :size="15" class="ui-dd-opt-check" />
               </button>
               <template v-for="g in modelGroups" :key="g.name">
-                <div class="dd-divider"></div>
-                <div class="dd-group-label">{{ g.name }}</div>
+                <div class="ui-dd-div"></div>
+                <div class="ui-dd-group">{{ g.name }}</div>
                 <button
-                  v-for="m in g.models" :key="g.name + '@' + m" type="button"
-                  class="dd-option" :class="{ selected: selModel === g.name + '@' + m }"
-                  @click="selectModel(g.name + '@' + m)"
+                  v-for="m in g.models" :key="g.name + '@' + m.model" type="button"
+                  class="ui-dd-opt" :class="{ 'is-selected': selModel === g.name + '@' + m.model }"
+                  @click="selectModel(g.name + '@' + m.model)"
                 >
-                  <span class="dd-option-name">{{ m }}</span>
+                  <span class="ui-dd-opt-icon" :style="g.iconColor ? { color: g.iconColor } : undefined"><Icon :name="g.icon ?? (m.vision ? 'eye' : 'cpu')" :size="16" /></span>
+                  <span class="ui-dd-opt-name">{{ m.model }}</span>
+                  <!-- 元数据徽：默认（池 defaultModel）/ 视觉（能力探测收图）——
+                       复用 .ui-dd-value 位（text-3 弱化语言，不抢主信息） -->
+                  <span v-if="m.isDefault" class="ui-dd-value">默认</span>
+                  <span v-else-if="m.vision" class="ui-dd-value">视觉</span>
+                  <Icon v-if="selModel === g.name + '@' + m.model" name="check" :size="15" class="ui-dd-opt-check" />
                 </button>
               </template>
-                <div v-if="modelGroups.length === 0" class="dd-group-label">暂无可选模型（连接未配置或未发现清单——设置 → 模型管理「读取模型」）</div>
+                <div v-if="modelGroups.length === 0" class="ui-dd-group">暂无可选模型（连接未配置或未发现清单——设置 → 模型管理「读取模型」）</div>
               </template>
               <!-- 二级：思考强度选项 -->
               <template v-else>
-                <button type="button" class="dd-option dd-back" @click="modelPanel = 'root'" title="返回">
-                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
-                  <span class="dd-option-name">思考强度</span>
+                <button type="button" class="ui-dd-opt ui-dd-back" @click="modelPanel = 'root'" title="返回">
+                  <span class="ui-dd-opt-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="ui-dd-opt-name">思考强度</span>
                 </button>
-                <div class="dd-divider"></div>
+                <div class="ui-dd-div"></div>
                 <button
                   v-for="opt in EFFORT_OPTIONS" :key="opt.value" type="button"
-                  class="dd-option" :class="{ selected: reasoningEffort === opt.value }"
+                  class="ui-dd-opt" :class="{ selected: reasoningEffort === opt.value }"
                   @click="selectEffort(opt.value)"
                 >
                   <span>{{ opt.label }}</span>
@@ -1591,7 +1606,7 @@ function onThumbError(i: number) {
         <!-- 权限（快捷提权）：独立按钮（2026-09-26 拆分；工具栏序：模型 → 提权 →
              工具模式 → 实验性）。单项菜单直开档位列表（无下钻）：选择即
              武装/解除，菜单保持开；武装态警示色常显 -->
-        <div v-if="!isGroupCtx" class="dd">
+        <div v-if="!isGroupCtx" class="ui-dd">
           <button
             type="button"
             class="select-btn"
@@ -1604,19 +1619,19 @@ function onThumbError(i: number) {
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="elevMenuOpen" class="dd-menu" @click.stop>
+            <div v-if="elevMenuOpen" class="ui-dd-menu up" @click.stop>
               <button
                 v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
-                class="dd-option dd-option--2line" :class="{ selected: elevation === opt.value }"
+                class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: elevation === opt.value }"
                 :title="opt.title"
                 @click="selectElevation(opt.value)"
               >
-                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
-                <span class="dd-option-body">
-                  <span class="dd-option-name">{{ opt.label }}</span>
-                  <span class="dd-option-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
+                <span class="ui-dd-opt-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="ui-dd-opt-body">
+                  <span class="ui-dd-opt-name">{{ opt.label }}</span>
+                  <span class="ui-dd-opt-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
                 </span>
-                <Icon v-if="elevation === opt.value" name="check" :size="15" class="dd-option-check" />
+                <Icon v-if="elevation === opt.value" name="check" :size="15" class="ui-dd-opt-check" />
               </button>
             </div>
           </Transition>
@@ -1625,7 +1640,7 @@ function onThumbError(i: number) {
         <!-- 工具调用模式（独立按钮）：与提权分立——程序化调用模式需要
              用户先单独熟悉。单项菜单直开档位列表（无下钻）：选择即写
              会话 conv-settings，菜单保持开可连续调整 -->
-        <div v-if="!isGroupCtx" class="dd">
+        <div v-if="!isGroupCtx" class="ui-dd">
           <button
             type="button"
             class="select-btn"
@@ -1638,20 +1653,20 @@ function onThumbError(i: number) {
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: toolModeMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="toolModeMenuOpen" class="dd-menu" @click.stop>
+            <div v-if="toolModeMenuOpen" class="ui-dd-menu up" @click.stop>
               <button
                 v-for="opt in TOOL_MODE_OPTIONS" :key="String(opt.value)" type="button"
-                class="dd-option dd-option--2line" :class="{ selected: toolMode === opt.value, 'is-disabled': opt.disabled }"
+                class="ui-dd-opt ui-dd-opt--2line" :class="{ 'is-selected': toolMode === opt.value, 'is-disabled': opt.disabled }"
                 :title="opt.title"
                 :disabled="opt.disabled"
                 @click="selectToolMode(opt.value)"
               >
-                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
-                <span class="dd-option-body">
-                  <span class="dd-option-name">{{ opt.label }}</span>
-                  <span class="dd-option-desc" :class="{ 'is-warn': opt.disabled }">{{ opt.detail }}</span>
+                <span class="ui-dd-opt-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="ui-dd-opt-body">
+                  <span class="ui-dd-opt-name">{{ opt.label }}</span>
+                  <span class="ui-dd-opt-desc" :class="{ 'is-warn': opt.disabled }">{{ opt.detail }}</span>
                 </span>
-                <Icon v-if="toolMode === opt.value" name="check" :size="15" class="dd-option-check" />
+                <Icon v-if="toolMode === opt.value" name="check" :size="15" class="ui-dd-opt-check" />
               </button>
             </div>
           </Transition>
@@ -1661,7 +1676,7 @@ function onThumbError(i: number) {
              + conv-settings 注册扩展键——如「ISSUE 提交」issueSubmit），二级 =
              该项档位列表（选择即写会话，菜单保持开可连续调整）。
              disabled 态警示色常显（与提权武装同款语言） -->
-        <div v-if="!isGroupCtx" class="dd">
+        <div v-if="!isGroupCtx" class="ui-dd">
           <button
             type="button"
             class="select-btn"
@@ -1674,75 +1689,75 @@ function onThumbError(i: number) {
             <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: experimentalMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="experimentalMenuOpen" class="dd-menu" @click.stop>
+            <div v-if="experimentalMenuOpen" class="ui-dd-menu up" @click.stop>
               <!-- 一级：实验项入口（目录驱动——browserTier 内置 + 注册扩展键） -->
               <template v-if="experimentalPanel === 'root'">
-                <button type="button" class="dd-option dd-option--2line" @click="experimentalPanel = 'browserTier'">
-                  <span class="dd-option-icon"><Icon name="globe" :size="16" /></span>
-                  <span class="dd-option-body">
-                    <span class="dd-option-name">浏览器使用</span>
-                    <span class="dd-option-desc">{{ browserTier === '' ? ('会话档位：' + agentBrowserTierLabel) : ('已覆盖：' + browserTierBtn.label) }}</span>
+                <button type="button" class="ui-dd-opt ui-dd-opt--2line" @click="experimentalPanel = 'browserTier'">
+                  <span class="ui-dd-opt-icon"><Icon name="globe" :size="16" /></span>
+                  <span class="ui-dd-opt-body">
+                    <span class="ui-dd-opt-name">浏览器使用</span>
+                    <span class="ui-dd-opt-desc">{{ browserTier === '' ? ('会话档位：' + agentBrowserTierLabel) : ('已覆盖：' + browserTierBtn.label) }}</span>
                   </span>
-                  <Icon name="chevron-right" :size="15" class="dd-option-check" />
+                  <Icon name="chevron-right" :size="15" class="ui-dd-opt-check" />
                 </button>
                 <button
                   v-for="k in experimentalKeys.filter(x => x.key !== 'browserTier')" :key="k.key" type="button"
-                  class="dd-option dd-option--2line" @click="experimentalPanel = k.key"
+                  class="ui-dd-opt ui-dd-opt--2line" @click="experimentalPanel = k.key"
                 >
-                  <span class="dd-option-icon"><Icon name="puzzle" :size="16" /></span>
-                  <span class="dd-option-body">
-                    <span class="dd-option-name">{{ k.label || k.key }}</span>
-                    <span class="dd-option-desc">{{ extKeyValues[k.key] ? ('已覆盖：' + (k.options?.[extKeyValues[k.key]] || extKeyValues[k.key])) : (k.description || '未覆盖——点击配置') }}</span>
+                  <span class="ui-dd-opt-icon"><Icon name="puzzle" :size="16" /></span>
+                  <span class="ui-dd-opt-body">
+                    <span class="ui-dd-opt-name">{{ k.label || k.key }}</span>
+                    <span class="ui-dd-opt-desc">{{ extKeyValues[k.key] ? ('已覆盖：' + (k.options?.[extKeyValues[k.key]] || extKeyValues[k.key])) : (k.description || '未覆盖——点击配置') }}</span>
                   </span>
-                  <Icon name="chevron-right" :size="15" class="dd-option-check" />
+                  <Icon name="chevron-right" :size="15" class="ui-dd-opt-check" />
                 </button>
               </template>
               <!-- 二级：browserTier（返回 + 五档；detail 联动 Agent tags） -->
               <template v-else-if="experimentalPanel === 'browserTier'">
-                <button type="button" class="dd-option dd-back" @click="experimentalPanel = 'root'" title="返回">
-                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
-                  <span class="dd-option-name">浏览器使用</span>
+                <button type="button" class="ui-dd-opt ui-dd-back" @click="experimentalPanel = 'root'" title="返回">
+                  <span class="ui-dd-opt-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="ui-dd-opt-name">浏览器使用</span>
                 </button>
-                <div class="dd-divider"></div>
+                <div class="ui-dd-div"></div>
                 <button
                   v-for="opt in BROWSER_TIER_OPTIONS" :key="String(opt.value)" type="button"
-                  class="dd-option dd-option--2line" :class="{ selected: browserTier === opt.value }"
+                  class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: browserTier === opt.value }"
                   :title="opt.title"
                   @click="selectBrowserTier(opt.value)"
                 >
-                  <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
-                  <span class="dd-option-body">
-                    <span class="dd-option-name">{{ opt.label }}</span>
-                    <span class="dd-option-desc" :class="{ 'is-warn': opt.value === 'disabled' }">{{ opt.value === '' ? agentBrowserTierLabel : opt.detail }}</span>
+                  <span class="ui-dd-opt-icon"><Icon :name="opt.icon" :size="16" /></span>
+                  <span class="ui-dd-opt-body">
+                    <span class="ui-dd-opt-name">{{ opt.label }}</span>
+                    <span class="ui-dd-opt-desc" :class="{ 'is-warn': opt.value === 'disabled' }">{{ opt.value === '' ? agentBrowserTierLabel : opt.detail }}</span>
                   </span>
-                  <Icon v-if="browserTier === opt.value" name="check" :size="15" class="dd-option-check" />
+                  <Icon v-if="browserTier === opt.value" name="check" :size="15" class="ui-dd-opt-check" />
                 </button>
               </template>
               <!-- 二级：注册扩展键（通用形态——返回 + 跟随项 + enum 档位） -->
               <template v-else-if="extKeyOf(experimentalPanel)">
-                <button type="button" class="dd-option dd-back" @click="experimentalPanel = 'root'" title="返回">
-                  <span class="dd-option-icon"><Icon name="chevron-left" :size="16" /></span>
-                  <span class="dd-option-name">{{ extKeyOf(experimentalPanel)?.label || experimentalPanel }}</span>
+                <button type="button" class="ui-dd-opt ui-dd-back" @click="experimentalPanel = 'root'" title="返回">
+                  <span class="ui-dd-opt-icon"><Icon name="chevron-left" :size="16" /></span>
+                  <span class="ui-dd-opt-name">{{ extKeyOf(experimentalPanel)?.label || experimentalPanel }}</span>
                 </button>
-                <div class="dd-divider"></div>
-                <button type="button" class="dd-option dd-option--2line" :class="{ selected: !extKeyValues[experimentalPanel] }" @click="selectExtKey(experimentalPanel, '')">
-                  <span class="dd-option-icon"><Icon name="settings-2" :size="16" /></span>
-                  <span class="dd-option-body">
-                    <span class="dd-option-name">默认（跟随）</span>
-                    <span class="dd-option-desc">{{ extKeyOf(experimentalPanel)?.description || '清除本会话覆盖' }}</span>
+                <div class="ui-dd-div"></div>
+                <button type="button" class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: !extKeyValues[experimentalPanel] }" @click="selectExtKey(experimentalPanel, '')">
+                  <span class="ui-dd-opt-icon"><Icon name="settings-2" :size="16" /></span>
+                  <span class="ui-dd-opt-body">
+                    <span class="ui-dd-opt-name">默认（跟随）</span>
+                    <span class="ui-dd-opt-desc">{{ extKeyOf(experimentalPanel)?.description || '清除本会话覆盖' }}</span>
                   </span>
-                  <Icon v-if="!extKeyValues[experimentalPanel]" name="check" :size="15" class="dd-option-check" />
+                  <Icon v-if="!extKeyValues[experimentalPanel]" name="check" :size="15" class="ui-dd-opt-check" />
                 </button>
                 <button
                   v-for="v in extKeyOf(experimentalPanel)?.enum || []" :key="v" type="button"
-                  class="dd-option dd-option--2line" :class="{ selected: extKeyValues[experimentalPanel] === v }"
+                  class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: extKeyValues[experimentalPanel] === v }"
                   @click="selectExtKey(experimentalPanel, v)"
                 >
-                  <span class="dd-option-icon"><Icon name="circle-dot" :size="16" /></span>
-                  <span class="dd-option-body">
-                    <span class="dd-option-name">{{ extKeyOf(experimentalPanel)?.options?.[v] || v }}</span>
+                  <span class="ui-dd-opt-icon"><Icon name="circle-dot" :size="16" /></span>
+                  <span class="ui-dd-opt-body">
+                    <span class="ui-dd-opt-name">{{ extKeyOf(experimentalPanel)?.options?.[v] || v }}</span>
                   </span>
-                  <Icon v-if="extKeyValues[experimentalPanel] === v" name="check" :size="15" class="dd-option-check" />
+                  <Icon v-if="extKeyValues[experimentalPanel] === v" name="check" :size="15" class="ui-dd-opt-check" />
                 </button>
               </template>
             </div>
@@ -1751,10 +1766,12 @@ function onThumbError(i: number) {
       </div>
 
       <div class="toolbar-right">
-        <button type="button" class="icon-btn" :disabled="uploading" @click="triggerFileUpload" title="附件上传（也可直接在输入框 Ctrl+V 粘贴图片/文件）">
-          <Icon name="paperclip" :size="17" />
-          <BusyRing v-if="uploading" :size="13" class="uploading-spinner" />
-        </button>
+        <Tooltip text="附件上传（也可直接在输入框 Ctrl+V 粘贴图片/文件）" placement="top">
+          <button type="button" class="icon-btn" :disabled="uploading" aria-label="附件上传（也可直接在输入框 Ctrl+V 粘贴图片/文件）" @click="triggerFileUpload">
+            <Icon name="paperclip" :size="17" />
+            <BusyRing v-if="uploading" :size="13" class="uploading-spinner" />
+          </button>
+        </Tooltip>
 
         <!-- 输入框不设"立即发送"按钮（DSH 同款）：插话的点击位在 QueueDock
              排队行的行级操作；键盘 = Cmd/Ctrl+Enter（有草稿插话草稿、空草稿
@@ -1762,16 +1779,18 @@ function onThumbError(i: number) {
 
         <!-- 主按钮：忙态退化为纯"停止"（DSH input.stop——危险操作，红色
              示意会中止在途 run）；空闲 = 发送 -->
-        <button
-          type="button"
-          class="icon-btn send-btn"
-          :class="{ stopping: busySend }"
-          :disabled="inputDisabled || (!busySend && !inputText.trim() && attachedFiles.length === 0)"
-          @click="onPrimary"
-          :title="busySend ? '停止生成' : '发送'"
-        >
-          <Icon :name="busySend ? 'stop' : 'send'" :size="16" />
-        </button>
+        <Tooltip :text="busySend ? '停止生成' : '发送'" placement="top">
+          <button
+            type="button"
+            class="icon-btn send-btn"
+            :class="{ stopping: busySend }"
+            :disabled="inputDisabled || (!busySend && !inputText.trim() && attachedFiles.length === 0)"
+            :aria-label="busySend ? '停止生成' : '发送'"
+            @click="onPrimary"
+          >
+            <Icon :name="busySend ? 'stop' : 'send'" :size="16" />
+          </button>
+        </Tooltip>
       </div>
     </div>
   </div>
@@ -1812,22 +1831,11 @@ function onThumbError(i: number) {
   padding-bottom: 0;
 }
 
-.file-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: var(--primary-light);
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--primary);
-}
-
 /* 图片附件 chip（粘贴/选择即显缩略图；只显图——文件名退 hover 提示，
- * 移除按钮悬浮图右上角 hover 显） */
+ * 移除按钮悬浮图右上角 hover 显）。文本附件已迁 kit Chip（cr-157）。 */
 .file-chip--image {
   position: relative;
+  display: inline-flex;
   padding: 0;
   border: none;
   background: none;
@@ -1861,27 +1869,13 @@ function onThumbError(i: number) {
   opacity: 1;
 }
 
-.file-chip-name {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .file-chip-remove {
-  background: none;
   border: none;
-  color: var(--primary);
   cursor: pointer;
-  line-height: 1;
   padding: 0;
-  opacity: 0.7;
   display: inline-flex;
   align-items: center;
-}
-
-.file-chip-remove:hover {
-  opacity: 1;
+  justify-content: center;
 }
 
 /* ---- 新会话开场顶行（fresh，输入卡外独立行）：工作区 | 预设模式
@@ -1965,10 +1959,9 @@ html.dark .select-btn.open { background: var(--role-selected-bg); }
 
 /* 程序化模式激活态（工具使用模式 = 程序化）：主色微亮——模式在场的持续提示 */
 .select-btn.prog { color: var(--primary); font-weight: 600; }
-.select-btn.prog:hover { color: var(--primary); background: rgba(var(--primary-rgb), 0.1); }
-/* 档位不可选（Agent 无 tc-programmatic 标签——覆盖惰性对齐） */
-.dd-option.is-disabled { opacity: .55; cursor: not-allowed; }
-.dd-option.is-disabled:hover { background: none; }
+.select-btn.prog:hover { color: var(--primary); background: var(--primary-light); }
+/* 档位不可选（Agent 无 tc-programmatic 标签——覆盖惰性对齐）——
+   is-disabled 配方由 kit dropdown.css 提供（cr-157），此处不再重复 */
 
 /* 退役预设迁移提示条（research §十防御）：警示色整行——存量会话只读 */
 .retire-banner {
@@ -1989,9 +1982,7 @@ html.dark .select-btn.open { background: var(--role-selected-bg); }
 /* 未配置任何模型警示态（默认模型发不出去——防用户误以为可直接会话） */
 .select-btn.warn { color: var(--warn); }
 .select-btn.warn:hover { color: var(--warn); background: rgba(var(--warn-rgb), 0.1); }
-.dd-option.warn .dd-option-name { color: var(--warn); }
-.dd-option-detail.is-warn { color: var(--warn); }
-.dd-warn-icon { vertical-align: -2px; margin-right: 3px; color: var(--warn); }
+.dd-warn-icon { vertical-align: -2px; margin-right: 3px; color: var(--warn-status); }
 
 .select-text {
   max-width: 220px;
@@ -2003,129 +1994,14 @@ html.dark .select-btn.open { background: var(--role-selected-bg); }
 .chevron { flex-shrink: 0; color: var(--text-3); transition: transform .15s ease; }
 .chevron.open { transform: rotate(180deg); }
 
-/* ── 统一下拉（Agent / 模型 / 思考强度共用；向上弹出）── */
-.dd { position: relative; }
-
-.dd-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  min-width: 160px;
-  max-height: 260px;
-  overflow-y: auto;
-  background: var(--bg-raised, var(--bg-base));
-  border: 1px solid var(--line, var(--line));
-  border-radius: 10px;
-  box-shadow: var(--shadow-pop);
-  padding: 4px;
-  z-index: 300;
-}
-
-.dd-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-1, var(--text-1));
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-
-/* 选中态 = 行尾 check 勾（主色）——正文/名称保持常态色；此前整行染
- * --role-selected-text（主题靛蓝）是下拉里"文字发蓝"的观感来源（分组
- * 标题邻近选中项时尤显突兀——它本身是灰色 var(--text-3)） */
-.dd-option:hover { background: var(--role-hover-bg, var(--bg-hover)); }
-.dd-option.selected .dd-option-name { font-weight: 600; }
-
-.dd-option-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-/* 选中勾（行尾）：主色象形替代整行染色 */
-.dd-option-check {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--primary);
-  display: inline-flex;
-  align-items: center;
-}
-
-/* ── 二级选项双层布局（上层 ICON+名称，下层描述）──
- * 描述获得整行宽度（不再与名称/箭头同行挤压），释放更多说明空间；
- * 单层行不受影响（模型清单名等仍单行）。 */
-.dd-option--2line {
-  align-items: flex-start;
-  padding: 6px 10px;
-}
-
-.dd-option-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  flex: 1;
-}
-
-.dd-option-desc {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dd-option-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dd-option-detail {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-3);
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 60%;
-  /* 文本部分超长省略（内嵌箭头图标不参与压缩） */
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.dd-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--line);
-}
-
-.dd-back { color: var(--text-2); font-weight: 500; }
-.dd-back:hover { color: var(--text-1, var(--text-1)); }
-
-.dd-arrow { margin-left: 4px; color: var(--text-3); }
-
-.dd-group-label {
-  padding: 2px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-3);
-  letter-spacing: .3px;
-}
 
 .menu-fade-enter-active, .menu-fade-leave-active { transition: opacity .12s ease, transform .12s ease; }
 .menu-fade-enter-from, .menu-fade-leave-to { opacity: 0; transform: translateY(4px); }
+
+/* composer 工具栏菜单宽（cr-202）：旧 dd-menu 迁 kit 配方后为内容收缩宽
+   （提权菜单实测 160px 下限、模型二级 192px），同排菜单宽窄跳变且装不下
+   provider@model 长名。统一底宽 260px、上限随视口（kit 配方 420px 上限保持）。 */
+.chat-input .ui-dd-menu { min-width: 260px; }
 
 /* ---- 图标按钮（附件 / 发送）---- */
 .icon-btn {
@@ -2156,7 +2032,7 @@ html.dark .select-btn.open { background: var(--role-selected-bg); }
 .send-btn:hover:not(:disabled) {
   background: var(--primary-strong);
   color: var(--on-primary);
-  box-shadow: 0 6px 22px rgba(99, 102, 241, 0.32);
+  box-shadow: var(--shadow-primary-hover);
 }
 
 .send-btn:active:not(:disabled) { transform: scale(0.95); }

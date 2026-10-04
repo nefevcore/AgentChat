@@ -7,7 +7,8 @@
 //   · 目的地解析链：args（LLM 显式覆盖）→ settings
 //     [issue-tools] → 行配置 → 内置缺省（本产品主仓库）
 //   · 令牌三源链：行直配 → ac-credentials（provider
-//     github/gitee，Agent 级→全局）→ env GITHUB_TOKEN/GITEE_TOKEN
+//     github/gitee，Agent 级→全局）→ env GITHUB_TOKEN/GITEE_TOKEN；
+//     官方台全空不硬失败——降级生成预填新建 ISSUE 链接（cr-136）
 //   · 门禁：requiredTags [issue-report]（cr-41 独立能力轴——对外
 //     发布与 web 网络访问分轴：网络授权不连带解锁对外发布；标签
 //     catalog 经 tagDeclarations 声明 + tag-registry 预注册双保险）+
@@ -162,7 +163,7 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
     // base 档审批放行、sandbox+ 档自由
     needPermission: true,
     description:
-      '向 Git 托管台提交 ISSUE（GitHub/Gitee）：把用户反馈或问题以 ISSUE 形式发到仓库，返回链接与编号。注意：ISSUE 是公开可见的——正文只写问题现象与复现步骤，绝不包含密钥、令牌、密码、私人数据、内部地址等敏感信息，不确定的内容先向用户确认。目的地（server/repo）缺省走配置（内置缺省 = 本产品主仓库），调用参数可覆盖；令牌走凭据链（github/gitee）或环境变量 GITHUB_TOKEN/GITEE_TOKEN。需要 issue-report 能力标签（或本会话实验开关授权）。',
+      '向 Git 托管台提交 ISSUE（GitHub/Gitee）：把用户反馈或问题以 ISSUE 形式发到仓库，返回链接与编号。注意：ISSUE 是公开可见的——正文只写问题现象与复现步骤，绝不包含密钥、令牌、密码、私人数据、内部地址等敏感信息，不确定的内容先向用户确认。目的地（server/repo）缺省走配置（内置缺省 = 本产品主仓库），调用参数可覆盖；令牌走凭据链（github/gitee）或环境变量 GITHUB_TOKEN/GITEE_TOKEN；未配置令牌时官方台降级返回预填新建链接（mode=prefill-link）——把链接转交用户，由其人工复核后提交。需要 issue-report 能力标签（或本会话实验开关授权）。',
     parameters: {
       type: 'object',
       properties: {
@@ -207,8 +208,14 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
         if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
           return { ok: false, error: 'repo 须为 owner/repo 形（当前 "' + repo + '"）——经参数、settings[issue-tools].repo 或行配置指定' };
         }
-        const apiBase = (nonEmptyStr(s.apiBase) ?? nonEmptyStr(options.apiBase) ??
-          (server === 'gitee' ? GITEE_API_BASE : GITHUB_API_BASE)).replace(/\/+$/, '');
+        const customBase = nonEmptyStr(s.apiBase) ?? nonEmptyStr(options.apiBase);
+        const apiBase = (customBase ?? (server === 'gitee' ? GITEE_API_BASE : GITHUB_API_BASE)).replace(/\/+$/, '');
+
+        const title = String(args.title ?? '').trim();
+        if (!title) return { ok: false, error: 'title 不能为空（ISSUE 标题，≤250 字符）' };
+        if (title.length > TITLE_MAX) return { ok: false, error: '标题过长（' + title.length + ' 字符，上限 ' + TITLE_MAX + '）——请提炼为一句话' };
+        const body = nonEmptyStr(args.body);
+        const labels = [...new Set([...strArray(s.labels), ...strArray(options.labels), ...strArray(args.labels)])];
 
         // 令牌三源链：行直配 → ac-credentials（Agent 级→全局）→ env
         let token = nonEmptyStr(options.token) ?? '';
@@ -218,18 +225,40 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
         if (!token) token = ctx.get('credentials')?.getGlobal(server) ?? '';
         if (!token) token = nonEmptyStr(process.env[ENV_TOKEN[server]]) ?? '';
         if (!token) {
+          // 官方台零配置降级（cr-136）：令牌三源链全空不再硬失败——生成
+          // 预填新建 ISSUE 链接交用户人审后手动提交（GitHub/Gitea 官方支持
+          // issues/new 查询参数预填；Gitee 未证实 → 裸新建页）。apiBase
+          // 覆盖的自建台是进阶场景，令牌非门槛，保留配令牌指路错误。
           const platform = server === 'github' ? 'GitHub' : 'Gitee';
+          if (customBase) {
+            return {
+              ok: false,
+              error: '未配置 ' + platform + ' 访问令牌——自建台（apiBase=' + apiBase + '）请任选其一：行配置 issue-tools 的 token、凭据库（provider ' + server + '）或环境变量 ' + ENV_TOKEN[server] + '。',
+            };
+          }
+          const webBase = server === 'github' ? 'https://github.com' : 'https://gitee.com';
+          const params = new URLSearchParams();
+          if (server === 'github') {
+            // 官方文档支持 title/body/labels 预填（Gitee 无此支持）
+            params.set('title', title);
+            if (body) params.set('body', body);
+            if (labels.length) params.set('labels', labels.slice(0, 10).join(','));
+          }
+          const qs = params.toString();
+          const link = webBase + '/' + repo + '/issues/new' + (qs ? '?' + qs : '');
+          call.onProgress?.('未配置 ' + platform + ' 令牌——已生成预填 ISSUE 链接（' + (server === 'github' ? '标题/正文/标签已带入' : 'Gitee 不支持预填，仅打开新建页') + '），请转交用户确认后提交：\n' + link + '\n');
           return {
-            ok: false,
-            error: '未配置 ' + platform + ' 访问令牌——请任选其一：行配置 issue-tools 的 token、凭据库（provider ' + server + '）或环境变量 ' + ENV_TOKEN[server] + '。',
+            ok: true,
+            output: {
+              mode: 'prefill-link',
+              url: link,
+              server,
+              repo,
+              title,
+              note: '未配置 ' + platform + ' 令牌（行配置/凭据库/' + ENV_TOKEN[server] + ' 三源全空）——请把上面链接转交用户：打开后' + (server === 'github' ? '内容已预填，' : '') + '人工复核敏感信息后点击提交。配置令牌后本工具可直接创建 ISSUE。',
+            },
           };
         }
-
-        const title = String(args.title ?? '').trim();
-        if (!title) return { ok: false, error: 'title 不能为空（ISSUE 标题，≤250 字符）' };
-        if (title.length > TITLE_MAX) return { ok: false, error: '标题过长（' + title.length + ' 字符，上限 ' + TITLE_MAX + '）——请提炼为一句话' };
-        const body = nonEmptyStr(args.body);
-        const labels = [...new Set([...strArray(s.labels), ...strArray(options.labels), ...strArray(args.labels)])];
 
         call.onProgress?.('正在向 ' + server + ':' + repo + ' 提交 ISSUE「' + title.slice(0, 60) + '」…\n');
         const created = await createIssue(server, repo, apiBase, token, {

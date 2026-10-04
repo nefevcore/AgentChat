@@ -9,6 +9,8 @@
   workspace-overlay 语义——窄屏走 Modal 全屏形态，FilePreviewHost
   分派）。 -->
 <script setup lang="ts">
+import { computed } from 'vue';
+import { Button, DocTabs, IconAction } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { usePreviewTabsStore } from './previewTabs.ts';
 import type { PreviewViewMode } from './filePreviewContent.ts';
@@ -21,6 +23,11 @@ const tabs = usePreviewTabsStore();
 function titleOf(key: string): string {
   return key.split(/[/\\]/).pop() || key;
 }
+
+/** DocTabs 数据面：title 兼作 hover 提示（完整路径在 tab 键里） */
+const docTabs = computed(() =>
+  tabs.tabs.map((t) => ({ key: t.key, title: titleOf(t.key), icon: 'file' }))
+);
 
 /** tab 条点击 = 激活（panelOpen 已真——tab 条只在面板在场时渲染） */
 function onTabClick(key: string) {
@@ -53,45 +60,18 @@ function onClose() {
 
 <template>
   <div class="fpp-panel">
-    <!-- tab 条 -->
-    <div class="fpp-tabs" role="tablist" aria-label="文件预览">
-      <div class="fpp-tab-scroll">
-        <button
-          v-for="t in tabs.tabs"
-          :key="t.key"
-          class="fpp-tab"
-          :class="{ active: t.key === tabs.activeKey }"
-          role="tab"
-          :aria-selected="t.key === tabs.activeKey"
-          :title="t.key"
-          @click="onTabClick(t.key)"
-        >
-          <span class="fpp-tab-title">{{ titleOf(t.key) }}</span>
-          <span
-            class="fpp-tab-close"
-            title="关闭"
-            @click.stop="onTabClose(t.key)"
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </span>
-        </button>
-      </div>
-      <div class="fpp-tabs-actions">
-        <button
-          v-if="tabs.count > 1"
-          class="fpp-action"
-          title="关闭全部"
-          @click="onCloseAll"
-        >全部关闭</button>
-        <button class="fpp-action" title="收起面板" @click="onClose">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </button>
-      </div>
-    </div>
+    <!-- tab 条（kit DocTabs——cr-157 归一 fpp-tab/wsp-tab 双副本） -->
+    <DocTabs
+      :tabs="docTabs"
+      :active-key="tabs.activeKey"
+      @select="onTabClick"
+      @close="onTabClose"
+    >
+      <template #actions>
+        <Button v-if="tabs.count > 1" variant="ghost" size="sm" class="fpp-close-all" @click="onCloseAll">全部关闭</Button>
+        <IconAction icon="chevron-right" label="收起面板" :size="14" @click="onClose" />
+      </template>
+    </DocTabs>
 
     <!-- pane 列（v-show 保活——切 tab 不丢滚动/展开态） -->
     <div class="fpp-panes">
@@ -125,91 +105,13 @@ function onClose() {
   /* 左缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（重叠曾呈双线） */
 }
 
-/* ── tab 条 ── */
-.fpp-tabs {
-  display: flex;
-  align-items: stretch;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-  /* 高度对齐会话头（--layout-header-height）——三区顶部齐线，减少视觉割裂 */
-  height: var(--layout-header-height, 48px);
-}
-.fpp-tab-scroll {
-  display: flex;
-  align-items: stretch;
-  overflow-x: auto;
-  flex: 1;
-  min-width: 0;
-  scrollbar-width: thin;
-}
-.fpp-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 8px 0 10px;
-  border: none;
-  border-right: 1px solid var(--line);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-  flex-shrink: 0;
-  max-width: 160px;
-  transition: background 0.15s, color 0.15s;
-}
-.fpp-tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.fpp-tab.active {
-  background: var(--bg-surface);
-  color: var(--text-1);
-  box-shadow: inset 0 -2px 0 var(--primary);
-}
-.fpp-tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.fpp-tab-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-sm);
-  color: var(--text-3);
-  flex-shrink: 0;
-  transition: background 0.12s, color 0.12s;
-}
-.fpp-tab-close:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.fpp-tabs-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 6px;
-  border-left: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.fpp-action {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 6px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-  font-size: 11px;
-  transition: background 0.12s, color 0.12s;
-}
-.fpp-action:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
+/* ── tab 条已迁 kit DocTabs（cr-157）；仅留两处宿主修饰 ── */
+/* 高度对齐会话头（--layout-header-height）——三区顶部齐线，减少视觉割裂 */
+.fpp-panel :deep(.ui-doc-tabs-strip) { height: var(--layout-header-height, 48px); }
+/* actions 区左缘分界（DocTabs 通用配方无分界——预览面板条满宽时需要） */
+.fpp-panel :deep(.ui-doc-tabs-actions) { border-left: 1px solid var(--line); }
+/* 全部关闭（kit Button ghost sm）：工具行字号紧凑档 */
+.fpp-close-all { font-size: var(--fs-xs); }
 
 /* ── pane 列 ── */
 .fpp-panes {

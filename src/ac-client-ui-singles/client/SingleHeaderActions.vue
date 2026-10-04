@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
 import { computed, ref, toRef } from 'vue';
-import { Icon, Modal } from '@agentchat/webui-kit';
+import { ConfirmBody, Icon, Modal } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import type { SingleSession } from './index.ts';
@@ -108,7 +108,7 @@ async function confirmArchive() {
 <template>
   <template v-if="applicable">
     <div class="more-menu-wrapper">
-      <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
+      <button class="settings-btn" aria-label="更多操作" @click.stop="toggleMoreMenu">
         <Icon name="more-horizontal" :size="18" />
       </button>
       <Transition name="dropdown">
@@ -140,21 +140,21 @@ async function confirmArchive() {
       </div>
     </Modal>
 
-    <!-- 归档确认对话框（随件内迁——状态自理） -->
+    <!-- 归档确认对话框（kit ConfirmBody——cr-157；归档非破坏性 → danger=false） -->
     <Modal :visible="archiveOpen" :width="380" @close="archiveOpen = false">
-      <div class="delete-dialog">
-        <div class="delete-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-        </div>
-        <h4>归档独立会话</h4>
-        <p class="delete-warning">确定要归档 <strong>{{ title }}</strong> 吗？</p>
-        <p class="delete-detail">此操作将归档该会话（消息保留，可从数据目录找回），<br /><span class="delete-emphasis">归档后不再出现在列表中。</span></p>
-        <div v-if="archiveError" class="delete-error">{{ archiveError }}</div>
-        <div class="dialog-actions">
-          <button class="btn-cancel" @click="archiveOpen = false" :disabled="archiving">取消</button>
-          <button class="btn-delete" @click="confirmArchive" :disabled="archiving">{{ archiving ? '归档中…' : '确认归档' }}</button>
-        </div>
-      </div>
+      <ConfirmBody
+        title="归档独立会话"
+        confirm-text="确认归档"
+        :busy="archiving"
+        @cancel="archiveOpen = false"
+        @confirm="confirmArchive"
+      >
+        <template #default>
+          <p class="delete-warning">确定要归档 <strong>{{ title }}</strong> 吗？</p>
+          <p class="delete-detail">此操作将归档该会话（消息保留，可从数据目录找回），<span class="delete-emphasis">归档后不再出现在列表中。</span></p>
+          <div v-if="archiveError" class="delete-error">{{ archiveError }}</div>
+        </template>
+      </ConfirmBody>
     </Modal>
   </template>
 </template>
@@ -180,26 +180,17 @@ async function confirmArchive() {
 </style>
 
 <style>
-/* 归档确认对话框（全局，供 Modal 内使用——与 AgentHeaderActions 同款
-   词汇；两行各自声明同款规则，行独立卸载互不影响） */
-.delete-dialog { padding: 28px 24px 20px; text-align: center; }
-.delete-icon { margin-bottom: 12px; color: var(--err-graphic); }
-.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--text-1); }
+/* 归档弹体框架已迁 kit ConfirmBody（cr-157）；此处仅留富文本正文修饰
+   （delete-warning/detail/emphasis/error——rename 弹窗复用 error） */
 .delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--text-2); }
 .delete-warning strong { color: var(--err); }
-.delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
+.delete-detail { margin: 0 0 4px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
 .delete-emphasis { color: var(--err); font-weight: 600; }
 .delete-error { font-size: 12px; color: var(--err); margin-bottom: 8px; }
-.dialog-actions { display: flex; justify-content: center; gap: 10px; }
-.btn-cancel { padding: 8px 20px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-base); color: var(--text-2); font-size: 13px; cursor: pointer; }
-.btn-cancel:hover { background: var(--bg-surface); }
-.btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: var(--err); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
-.btn-delete:hover { filter: brightness(.8); /* 实底加深一档（无令牌可表达「同色更深」，filter 不引入色值） */ }
-.btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }
 /* 重命名会话对话框（与归档对话框同款布局） */
 .rename-dialog { padding: 28px 24px 20px; }
 .rename-dialog h4 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--text-1); text-align: center; }
-.rename-field input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; background: var(--bg-base); color: var(--text-1); outline: none; }
+.rename-field input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; background: transparent; color: var(--text-1); outline: none; }
 .rename-field input:focus { border-color: var(--primary); }
 .btn-rename { padding: 8px 20px; border: none; border-radius: 6px; background: var(--primary); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
 .btn-rename:hover { filter: brightness(1.08); }

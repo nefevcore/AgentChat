@@ -73,14 +73,14 @@ const icon = computed(() => TONE_ICON[props.tone]);
 
 .is-info {
   color: var(--text-2);
-  background: var(--bg-hover);
+  background: var(--bg-inset);
   border: 1px solid var(--line);
 }
 
 .is-busy {
   color: var(--primary-strong);
-  background: rgba(var(--primary-rgb), 0.08);
-  border: 1px solid rgba(var(--primary-rgb), 0.25);
+  background: var(--primary-tint);
+  border: 1px solid var(--primary-border-soft);
 }
 
 </style>

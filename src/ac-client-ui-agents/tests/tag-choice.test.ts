@@ -87,11 +87,11 @@ describe('TagChoice 弹层开合', () => {
     await settled();
     const menu = root.querySelector('.tc-menu');
     expect(menu).toBeTruthy();
-    const opts = Array.from(root.querySelectorAll('.tc-option'));
+    const opts = Array.from(root.querySelectorAll('.ui-dd-opt'));
     expect(opts).toHaveLength(3);
-    expect(opts[1]?.querySelector('.tc-option-desc')?.textContent).toContain('沙箱档'); // 选中项描述在场
-    expect(opts[1]?.classList.contains('selected')).toBe(true); // sandbox 选中
-    expect(opts[1]?.querySelector('.tc-option-check')).toBeTruthy();
+    expect(opts[1]?.querySelector('.ui-dd-opt-desc')?.textContent).toContain('沙箱档'); // 选中项描述在场
+    expect(opts[1]?.classList.contains('is-selected')).toBe(true); // sandbox 选中
+    expect(opts[1]?.querySelector('.ui-dd-opt-check')).toBeTruthy();
     triggerEl(root, '.tc-trigger').click(); // 再点同钮 = 关
     await settled();
     expect(root.querySelector('.tc-menu')).toBeNull();
@@ -101,7 +101,7 @@ describe('TagChoice 弹层开合', () => {
     const { root, choices } = await mountChoice({ value: 'sandbox-access' });
     triggerEl(root, '.tc-trigger').click();
     await nextTick();
-    (Array.from(root.querySelectorAll('.tc-option'))[2] as HTMLElement).click();
+    (Array.from(root.querySelectorAll('.ui-dd-opt'))[2] as HTMLElement).click();
     await settled();
     expect(choices()).toEqual(['full-access']);
     expect(root.querySelector('.tc-menu')).toBeNull();

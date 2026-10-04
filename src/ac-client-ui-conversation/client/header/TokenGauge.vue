@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { BusyRing, RingProgress } from '@agentchat/webui-kit';
+import { BusyRing, RingProgress, Tooltip } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
@@ -193,6 +193,8 @@ const applicable = computed(() =>
     v-if="applicable"
     class="session-token-gauge"
     :class="{ 'is-open': tokenPanelOpen }"
+    role="button"
+    :aria-label="`上下文占用 ${Math.round(usageWithOverhead.pct)}% · 点击查看详情`"
     :title="`上下文占用 ${Math.round(usageWithOverhead.pct)}% · 点击查看详情`"
     @click.stop="toggleTokenPanel()"
   >
@@ -248,17 +250,22 @@ const applicable = computed(() =>
         <div class="token-note">≈ 为估算值；占用比例含系统提示/工具定义固定开销；缓存命中部分按折扣价计费。</div>
         <!-- 归档入口：占用量与归档动作同屏——超阈值时顺手整理；run 进行中/整理中禁用。
              群形态不显示（群归档走后端轮转：达阈值先给群主跑 [群归档整理] run） -->
-        <button
+        <Tooltip
           v-if="props.data.form !== 'group'"
-          class="token-panel__action"
-          :disabled="chatStore.turnInProgress || chatStore.compressPending"
-          :title="chatStore.compressPending ? '正在归档整理记忆…' : chatStore.turnInProgress ? '回复进行中，结束后再归档' : '归档对话：先整理记忆，再归档早期消息'"
-          @click="handleCompress()"
+          :text="chatStore.compressPending ? '正在归档整理记忆…' : chatStore.turnInProgress ? '回复进行中，结束后再归档' : '归档对话：先整理记忆，再归档早期消息'"
+          placement="top"
         >
-          <svg v-if="!chatStore.compressPending" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
-          <BusyRing v-else :size="13" />
-          {{ chatStore.compressPending ? '正在归档整理记忆…' : '归档对话' }}
-        </button>
+          <button
+            class="token-panel__action"
+            :disabled="chatStore.turnInProgress || chatStore.compressPending"
+            :aria-label="chatStore.compressPending ? '正在归档整理记忆…' : chatStore.turnInProgress ? '回复进行中，结束后再归档' : '归档对话：先整理记忆，再归档早期消息'"
+            @click="handleCompress()"
+          >
+            <svg v-if="!chatStore.compressPending" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
+            <BusyRing v-else :size="13" />
+            {{ chatStore.compressPending ? '正在归档整理记忆…' : '归档对话' }}
+          </button>
+        </Tooltip>
       </div>
     </transition>
   </div>
@@ -270,9 +277,9 @@ const applicable = computed(() =>
 /* 头部环形占用（数值在环心，单位 % 省略——title 补全语义） */
 .gauge-ring { display: block; }
 .gauge-ring-pct { font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.gauge-ring-pct.normal { color: var(--ok); }
-.gauge-ring-pct.high { color: var(--warn); }
-.gauge-ring-pct.critical { color: var(--err); }
+.gauge-ring-pct.normal { color: var(--ok-status); }
+.gauge-ring-pct.high { color: var(--warn-status); }
+.gauge-ring-pct.critical { color: var(--err-status); }
 
 /* Token 详情弹层（点击仪表盘展开，悬挂于头部下方——不与相邻控件重叠） */
 .token-panel {
@@ -292,10 +299,10 @@ const applicable = computed(() =>
 .token-panel__ring-row { display: flex; align-items: center; gap: 14px; padding: 2px 0; }
 .token-ring { flex-shrink: 0; }
 .token-ring-pct { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
-/* 弹层环心数字 14px·700 粗体 = WCAG 大字（3.0 线）——图形档 */
-.token-ring-pct.normal { color: var(--ok-graphic); }
-.token-ring-pct.high { color: var(--warn-graphic); }
-.token-ring-pct.critical { color: var(--err-graphic); }
+/* 弹层环心数字 14px·700 粗体 = WCAG 大字（3.0 线）——状态档 */
+.token-ring-pct.normal { color: var(--ok-status); }
+.token-ring-pct.high { color: var(--warn-status); }
+.token-ring-pct.critical { color: var(--err-status); }
 .token-ring-sub { font-size: 10px; color: var(--text-3); margin-top: 3px; }
 .token-ring-side { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .token-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
@@ -305,10 +312,10 @@ const applicable = computed(() =>
 .token-row--sub .v { color: var(--text-2); }
 /* 缓存命中区（上分隔线 + 命中比例小条） */
 .token-panel__cache { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line-strong); padding-top: 8px; margin-top: 2px; }
-.cache-bar { width: 100%; height: 5px; border-radius: 2.5px; background: var(--bg-hover); overflow: hidden; }
+.cache-bar { width: 100%; height: 5px; border-radius: 2.5px; background: var(--bg-inset); overflow: hidden; }
 /* 命中条 = 「好状态」绿（cr-122：原硬编码 teal（青绿）与 --ok 在面板同屏形成两种绿，归一语义色） */
-/* 命中条是图形件（1.4.11 · 3.0 线）——图形档（cr-123） */
-.cache-bar__hit { height: 100%; border-radius: 2.5px; background: var(--ok-graphic); transition: width 0.3s ease; }
+/* 命中条是图形件（1.4.11 · 3.0 线）——状态档（cr-123） */
+.cache-bar__hit { height: 100%; border-radius: 2.5px; background: var(--ok-status); transition: width 0.3s ease; }
 .token-note { font-size: 11px; line-height: 1.5; color: var(--text-3); border-top: 1px solid var(--line-strong); padding-top: 6px; margin-top: 2px; }
 /* 归档动作行（占用量与归档动作同屏） */
 .token-panel__action {

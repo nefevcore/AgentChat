@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import type { ChatMessage } from '../types.ts';
-import { Avatar } from '@agentchat/webui-kit';
+import { Avatar, Chip, Tooltip } from '@agentchat/webui-kit';
 import { isImageRef, filePreviewUrl } from '../media.ts';
 
 const props = defineProps<{
@@ -122,64 +122,64 @@ function copyContent() {
                           >
                             <img class="user-file-thumb" :src="thumbSrc(f)" :alt="f.filename" @error="onThumbError(f.hash + fi)" />
                           </div>
-                          <div
-                            v-else
-                            class="user-file-chip"
+                          <Chip
+                            v-else dim icon="paperclip"
                             :title="f.text || f.filename"
                             @click="f.text && emit('previewFile', f.text)"
-                          >
-                            <svg class="user-file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
-                            <span class="user-file-name">{{ f.filename }}</span>
-                            <span v-if="f.filesize" class="user-file-size">{{ (f.filesize / 1024).toFixed(1) }}KB</span>
-                          </div>
+                          >{{ f.filename }}<span v-if="f.filesize" class="user-file-size">{{ (f.filesize / 1024).toFixed(1) }}KB</span></Chip>
                         </template>
                       </div>
                       <p class="user-text">{{ message.content }}</p>
                     </template>
                 </div>
             <div v-if="!editing" class="user-btn-row">
-                <button
-                    class="user-msg-btn"
-                    :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
-                    @click="copyContent"
-                    :title="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制'"
-                >
-                    <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                    </svg>
-                    <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
+                <Tooltip :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制'" placement="top">
+                    <button
+                        class="user-msg-btn"
+                        :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
+                        :aria-label="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制'"
+                        @click="copyContent"
+                    >
+                        <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </Tooltip>
                 <!-- 操作序：非破坏（复制/分支）→ 改写（修改）收尾（与 assistant 侧同原则） -->
-                <button
-                    v-if="showFork"
-                    class="user-msg-btn"
-                    @click="emit('fork')"
-                    title="从此处新建分支会话"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="6" cy="6" r="3"/>
-                        <circle cx="6" cy="18" r="3"/>
-                        <circle cx="18" cy="6" r="3"/>
-                        <path d="M18 9a9 9 0 0 1-9 9"/>
-                        <path d="M6 9v6"/>
-                    </svg>
-                </button>
-                <button
-                    class="user-msg-btn"
-                    @click="startEdit"
-                    title="修改"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                </button>
+                <Tooltip v-if="showFork" text="从此处新建分支会话" placement="top">
+                    <button
+                        class="user-msg-btn"
+                        aria-label="从此处新建分支会话"
+                        @click="emit('fork')"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="6" cy="6" r="3"/>
+                            <circle cx="6" cy="18" r="3"/>
+                            <circle cx="18" cy="6" r="3"/>
+                            <path d="M18 9a9 9 0 0 1-9 9"/>
+                            <path d="M6 9v6"/>
+                        </svg>
+                    </button>
+                </Tooltip>
+                <Tooltip text="修改" placement="top">
+                    <button
+                        class="user-msg-btn"
+                        aria-label="修改"
+                        @click="startEdit"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                    </button>
+                </Tooltip>
             </div>
             </div>
             <div class="msg-avatar" v-if="senderAvatar">
@@ -221,7 +221,7 @@ function copyContent() {
     background: var(--primary-light);
     border-radius: var(--radius-lg, 14px);
     padding: 12px 16px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    box-shadow: var(--shadow-hover);
     /* 防止超长内容（URL/文本）撑破气泡 */
     min-width: 0;
     max-width: 100%;
@@ -248,28 +248,7 @@ function copyContent() {
     margin-bottom: 6px;
 }
 
-.user-file-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 8px;
-    background: rgba(255, 255, 255, 0.65);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    color: var(--text-1);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    max-width: 200px;
-}
-
-.user-file-chip:hover {
-    background: rgba(255, 255, 255, 0.9);
-    border-color: var(--primary);
-}
-
-/* 图片附件 chip（多模态 M3）：只显缩略图（文件名退 hover 提示），
- * 点击预览大图；加载失败回退上方通用文件 chip */
+/* 文本附件 chip 已迁 kit Chip dim（cr-157）；图片附件（点击预览大图）形态特异保留 */
 .user-file-chip--image {
     display: inline-flex;
     cursor: pointer;
@@ -288,17 +267,6 @@ function copyContent() {
 
 .user-file-chip--image:hover .user-file-thumb {
     border-color: var(--primary);
-}
-
-.user-file-icon {
-    flex-shrink: 0;
-    color: var(--primary);
-}
-
-.user-file-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .user-file-size {

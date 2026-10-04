@@ -15,7 +15,7 @@
   display: inline-flex; align-items: center; gap: 3px;
   font-family: var(--font-mono); font-size: var(--fs-2xs); line-height: 1;
   padding: 2.5px 8px; border-radius: 999px; white-space: nowrap;
-  color: var(--text-3); background: var(--bg-hover);
+  color: var(--text-3); background: var(--bg-inset);
   border: 1px solid transparent;
   cursor: default;
 }
@@ -25,7 +25,7 @@
 .ui-badge.err  { color: var(--err);     background: rgba(var(--err-rgb), 0.1); }
 .ui-badge.warn { color: var(--warn);    background: rgba(var(--warn-rgb), 0.12); }
 .ui-badge.info { color: var(--primary-strong); background: rgba(var(--primary-strong-rgb), 0.08); }
-.ui-badge.dim  { color: var(--text-3);  background: var(--bg-hover); }
+.ui-badge.dim  { color: var(--text-3);  background: var(--bg-inset); }
 
 /* ── 标签徽章（能力标签——本色轻染 + 细描边，hue 由 tt-* 设定） ── */
 .ui-badge.tag {
@@ -62,6 +62,21 @@
   color: var(--text-3); background: transparent; border-color: var(--line);
 }
 
+/* ── 头像/入口角标（cr-157 全局配方——Avatar badge prop 与业务自建头像壳
+   （AgentList 未读、MobileTabBar 计数）共用；计数 = err 底 + on-primary 字，
+   99+ 封顶由宿主格式化；.dot = 纯红点） ── */
+.ui-avatar-badge {
+  position: absolute; top: -4px; right: -6px;
+  min-width: 14px; height: 14px; padding: 0 3px;
+  border-radius: var(--r-full);
+  background: var(--err);
+  color: var(--on-primary); font-size: var(--fs-2xs); font-weight: 700;
+  line-height: 14px; text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.ui-avatar-badge.dot { min-width: 7px; width: 7px; height: 7px; padding: 0; top: -2px; right: -2px; }
+
 /* ── 能力标签色相（tt-* 设 --tag-hue 与伴随三元组 --tag-hue-rgb；
    cr-32：tint 走 rgba(var(--tag-hue-rgb), α)——WebView 92 无 color-mix。
    两处工具清单共用；新增色相类须两值同加） ── */
@@ -70,19 +85,19 @@
    新增色相类须两档同加（有测试锁）。 */
 .tt-base { --tag-hue: var(--primary-strong); --tag-hue-rgb: var(--primary-strong-rgb); }
 .tt-admin { --tag-hue: #fca5a5; --tag-hue-rgb: 252, 165, 165; }
-.tt-dev { --tag-hue: #b8e8a8; --tag-hue-rgb: 184, 232, 168; }
-.tt-shell { --tag-hue: #d9e8a0; --tag-hue-rgb: 217, 232, 160; }
-.tt-delegation { --tag-hue: #c9b8f0; --tag-hue-rgb: 201, 184, 240; }
-.tt-web { --tag-hue: #a8c8e8; --tag-hue-rgb: 168, 200, 232; }
-.tt-observe { --tag-hue: #9adbe0; --tag-hue-rgb: 154, 219, 224; }
-.tt-manipulate { --tag-hue: #f5c4a8; --tag-hue-rgb: 245, 196, 168; }
-.tt-inject { --tag-hue: #e0a8d4; --tag-hue-rgb: 224, 168, 212; }
+.tt-dev { --tag-hue: #9dfc7e; --tag-hue-rgb: 157, 252, 126; }
+.tt-shell { --tag-hue: #e7fc7e; --tag-hue-rgb: 231, 252, 126; }
+.tt-delegation { --tag-hue: #d199fa; --tag-hue-rgb: 209, 153, 250; }
+.tt-web { --tag-hue: #7ebdfc; --tag-hue-rgb: 126, 189, 252; }
+.tt-observe { --tag-hue: #7efcf1; --tag-hue-rgb: 126, 252, 241; }
+.tt-manipulate { --tag-hue: #fcc77e; --tag-hue-rgb: 252, 199, 126; }
+.tt-inject { --tag-hue: #fc83f2; --tag-hue-rgb: 252, 131, 242; }
 html[data-theme='aurora'] .tt-base, html.light .tt-base { --tag-hue: var(--primary-strong); --tag-hue-rgb: var(--primary-strong-rgb); }
 html[data-theme='aurora'] .tt-admin, html.light .tt-admin { --tag-hue: #b91c1c; --tag-hue-rgb: 185, 28, 28; }
-html[data-theme='aurora'] .tt-dev, html.light .tt-dev { --tag-hue: #35702e; --tag-hue-rgb: 53, 112, 46; }
-html[data-theme='aurora'] .tt-shell, html.light .tt-shell { --tag-hue: #55652a; --tag-hue-rgb: 85, 101, 42; }
-html[data-theme='aurora'] .tt-delegation, html.light .tt-delegation { --tag-hue: #5b4a9e; --tag-hue-rgb: 91, 74, 158; }
-html[data-theme='aurora'] .tt-web, html.light .tt-web { --tag-hue: #2a5a8a; --tag-hue-rgb: 42, 90, 138; }
-html[data-theme='aurora'] .tt-observe, html.light .tt-observe { --tag-hue: #1a6a6e; --tag-hue-rgb: 26, 106, 110; }
-html[data-theme='aurora'] .tt-manipulate, html.light .tt-manipulate { --tag-hue: #9c4a1e; --tag-hue-rgb: 156, 74, 30; }
-html[data-theme='aurora'] .tt-inject, html.light .tt-inject { --tag-hue: #8e3a75; --tag-hue-rgb: 142, 58, 117; }
+html[data-theme='aurora'] .tt-dev, html.light .tt-dev { --tag-hue: #296f06; --tag-hue-rgb: 41, 111, 6; }
+html[data-theme='aurora'] .tt-shell, html.light .tt-shell { --tag-hue: #5a6b06; --tag-hue-rgb: 90, 107, 6; }
+html[data-theme='aurora'] .tt-delegation, html.light .tt-delegation { --tag-hue: #8d0ce9; --tag-hue-rgb: 141, 12, 233; }
+html[data-theme='aurora'] .tt-web, html.light .tt-web { --tag-hue: #0a63bd; --tag-hue-rgb: 10, 99, 189; }
+html[data-theme='aurora'] .tt-observe, html.light .tt-observe { --tag-hue: #066f67; --tag-hue-rgb: 6, 111, 103; }
+html[data-theme='aurora'] .tt-manipulate, html.light .tt-manipulate { --tag-hue: #965408; --tag-hue-rgb: 150, 84, 8; }
+html[data-theme='aurora'] .tt-inject, html.light .tt-inject { --tag-hue: #ae09a1; --tag-hue-rgb: 174, 9, 161; }

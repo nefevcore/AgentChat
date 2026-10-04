@@ -8,8 +8,8 @@
 //   · SessionList（新增工作区的文件夹选择——singles 行跨包 import）
 // 浏览器实现单源——各弹窗不再各自复制。
 // ============================================================
-import { ref, watch } from 'vue';
-import { Icon, Modal, Button } from '@agentchat/webui-kit';
+import { computed, ref, watch } from 'vue';
+import { Icon, Modal, Button, Breadcrumb } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { browseDirs, type BrowseDirsResult } from './fileApi.ts';
 
@@ -30,6 +30,19 @@ const loading = ref(false);
 const roots = ref<Array<{ name: string; path: string }>>([]);
 /** null = 快捷根视图；否则当前目录浏览结果（含 error 降级） */
 const current = ref<BrowseDirsResult | null>(null);
+
+/** 面包屑（kit Breadcrumb——cr-157）：根层可点回快捷根；current 在场时为末项 cur */
+const crumbItems = computed(() =>
+  current.value
+    ? [
+        { key: 'roots', label: '本机快捷根' },
+        { key: 'current', label: current.value.path },
+      ]
+    : [{ key: 'roots', label: '本机快捷根' }]
+);
+function onCrumbSelect(key: string) {
+  if (key === 'roots') loadRoots();
+}
 
 async function loadRoots(): Promise<void> {
   current.value = null;
@@ -86,13 +99,7 @@ watch(() => props.visible, (v) => { if (v) void loadRoots(); }, { immediate: tru
     @close="emit('close')"
   >
     <div class="entry-picker">
-      <div class="entry-crumbs">
-        <button type="button" class="entry-crumb" :class="{ active: current === null }" @click="loadRoots">本机快捷根</button>
-        <template v-if="current">
-          <span class="entry-sep">›</span>
-          <span class="entry-crumb-current" :title="current.path">{{ current.path }}</span>
-        </template>
-      </div>
+      <Breadcrumb :items="crumbItems" @select="onCrumbSelect" />
       <div v-if="loading" class="entry-status">读取中…</div>
       <template v-else-if="current === null">
         <div v-if="roots.length === 0" class="entry-status">无快捷根</div>
@@ -135,15 +142,8 @@ watch(() => props.visible, (v) => { if (v) void loadRoots(); }, { immediate: tru
 
 <style scoped>
 .entry-picker { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; min-height: 240px; }
-.entry-crumbs { display: flex; align-items: center; gap: 6px; font-size: 12px; flex-wrap: wrap; }
-.entry-crumb {
-  border: none; background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
-  padding: 2px 6px; border-radius: var(--r-sm);
-}
-.entry-crumb:hover { background: var(--bg-hover); color: var(--text-1); }
-.entry-crumb.active { color: var(--primary); background: var(--primary-light); font-weight: 500; }
-.entry-sep { color: var(--text-3); }
-.entry-crumb-current { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); word-break: break-all; }
+/* 面包屑已迁 kit Breadcrumb（cr-157）；当前层路径保持 mono 展示 */
+.entry-picker > :deep(.ui-crumb.cur) { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); word-break: break-all; }
 .entry-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; min-height: 0; }
 .entry-row {
   display: flex; align-items: center; gap: 8px; padding: 5px 8px;

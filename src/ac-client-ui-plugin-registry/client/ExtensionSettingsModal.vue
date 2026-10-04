@@ -494,7 +494,7 @@ async function save(): Promise<void> {
 .esm-field { display: flex; flex-direction: column; gap: 4px; }
 .esm-field + .esm-field { margin-top: 4px; }
 .esm-field-label { font-size: 12px; color: var(--text-1); display: flex; align-items: center; }
-.esm-field-label code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-hover); padding: 1px 6px; border-radius: 999px; }
+.esm-field-label code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-inset); padding: 1px 6px; border-radius: 999px; }
 /* 字段类型徽记 = ui/badge.css .ui-badge.kind（统一徽章语言） */
 .esm-field-desc { font-size: 11px; color: var(--text-3); line-height: 1.5; }
 /* ── 字段元信息行（缺省值常显 + 标记 + 恢复缺省） ── */
@@ -523,7 +523,7 @@ async function save(): Promise<void> {
 .esm-chip {
   display: inline-flex; align-items: center; gap: 2px;
   font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
-  background: var(--bg-hover); border: 1px solid var(--line);
+  background: var(--bg-inset); border: 1px solid var(--line);
   border-radius: 999px; padding: 2px 4px 2px 9px; max-width: 100%;
   overflow-wrap: anywhere;
 }
@@ -544,10 +544,10 @@ async function save(): Promise<void> {
 .esm-input {
   padding: 5px 9px; font-size: 12px; color: var(--text-1);
   border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: var(--input-bg, var(--bg-surface)); outline: none;
+  background: transparent; outline: none; /* cr-181：去填充底 */
 }
 .esm-input:focus { border-color: var(--primary); }
 .esm-textarea { resize: vertical; font-family: var(--font-mono); }
-.esm-none { font-size: 12px; color: var(--text-3); padding: 8px 10px; background: var(--bg-hover); border-radius: var(--r-sm); }
+.esm-none { font-size: 12px; color: var(--text-3); padding: 8px 10px; background: var(--bg-inset); border-radius: var(--r-sm); }
 .esm-error { font-size: 12px; color: var(--err); }
 </style>

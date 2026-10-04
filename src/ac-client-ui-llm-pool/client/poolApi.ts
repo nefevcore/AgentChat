@@ -124,3 +124,80 @@ export async function fetchPoolModels(
   const r = await rpc.call<{ name?: string; models?: string[] }>('llm/models', { name, ...(refresh ? { refresh: true } : {}) });
   return { models: r.models ?? [] };
 }
+
+/** provider 品牌图标（cr-203 模型菜单）：按 base_url 域名匹配 simple-icons
+ *  logo（si- 名住 webui-kit icons.ts）；未命中 undefined——消费方回退 cpu。
+ *  映射面与 LLM_PROVIDER_TEMPLATES 同源维护（settings/api.ts）。 */
+const PROVIDER_ICON_BY_HOST: Record<string, string> = {
+  'api.openai.com': 'si-openai',
+  'api.anthropic.com': 'si-anthropic',
+  'api.individual.githubcopilot.com': 'si-github-copilot',
+  'bedrock-runtime.us-east-1.amazonaws.com': 'si-aws',
+  'api.deepseek.com': 'si-deepseek',
+  'generativelanguage.googleapis.com': 'si-gemini',
+  'router.huggingface.co': 'si-huggingface',
+  'api.minimaxi.com': 'si-minimax',
+  'api.mistral.ai': 'si-mistral',
+  'api.moonshot.cn': 'si-moonshot',
+  'api.moonshot.ai': 'si-moonshot',
+  'api.kimi.com': 'si-kimi',
+  'integrate.api.nvidia.com': 'si-nvidia',
+  'opencode.ai': 'si-opencode',
+  'openrouter.ai': 'si-openrouter',
+  'dashscope.aliyuncs.com': 'si-qwen',
+  'maas.aliyuncs.com': 'si-qwen',
+  'ai-gateway.vercel.sh': 'si-vercel',
+  'api.x.ai': 'si-x',
+  'api.xiaomimimo.com': 'si-xiaomi',
+  'token-plan-cn.xiaomimimo.com': 'si-xiaomi',
+  'open.bigmodel.cn': 'si-zai',
+  'api.z.ai': 'si-zai',
+};
+
+/** 后缀域键（azure 占位符 <资源名>.openai.azure.com 等子域形态） */
+const PROVIDER_ICON_SUFFIX: Array<[string, string]> = [
+  ['.openai.azure.com', 'si-azure'],
+  ['.amazonaws.com', 'si-aws'],
+];
+
+/** 品牌官方色（cr-206，simple-icons 档案 hex）：彩色系双主题同值；
+ *  黑白系（openai/github-copilot/opencode/vercel/x）不进表——跟随
+ *  currentColor（主题墨色），避免暗色下纯黑不可见。 */
+const PROVIDER_ICON_COLOR: Record<string, string> = {
+  'si-anthropic': '#D97757',
+  'si-aws': '#FF9900',
+  'si-azure': '#0078D4',
+  'si-deepseek': '#4D6BFE',
+  'si-gemini': '#4796E3',
+  'si-huggingface': '#FFD21E',
+  'si-minimax': '#FF3CEF',
+  'si-mistral': '#FA520F',
+  'si-moonshot': '#16B2F0',
+  'si-kimi': '#16B2F0',
+  'si-nvidia': '#76B900',
+  'si-openrouter': '#656FF5',
+  'si-qwen': '#615CED',
+  'si-xiaomi': '#FF6900',
+  'si-zai': '#134cff',
+};
+
+/** 品牌色（未收录品牌 undefined → 继承 currentColor） */
+export function providerIconColor(iconName: string | undefined): string | undefined {
+  return iconName ? PROVIDER_ICON_COLOR[iconName] : undefined;
+}
+
+export function providerIconOf(baseUrl: unknown): string | undefined {
+  if (typeof baseUrl !== 'string' || !baseUrl) return undefined;
+  // 模板占位符 URL（如 https://<资源名>.openai.azure.com/...）含非法字符，
+  // URL 构造器会抛——退化手动取 host 段（// 后到首 / 前，再去端口）
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    const m = baseUrl.match(/^[a-z][a-z0-9+.-]*:\/\/([^\/?#]+)/i);
+    if (!m) return undefined;
+    host = m[1].split(':')[0];
+  }
+  if (PROVIDER_ICON_BY_HOST[host]) return PROVIDER_ICON_BY_HOST[host];
+  return PROVIDER_ICON_SUFFIX.find(([suffix]) => host.endsWith(suffix))?.[1];
+} 

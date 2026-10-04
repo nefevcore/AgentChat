@@ -192,6 +192,9 @@ importers:
       '@iconify-json/lucide':
         specifier: ^1.2.123
         version: 1.2.123
+      '@iconify-json/simple-icons':
+        specifier: ^1.2.98
+        version: 1.2.98
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -4473,6 +4476,9 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      '@iconify-json/simple-icons':
+        specifier: ^1.2.98
+        version: 1.2.98
       '@types/markdown-it':
         specifier: ^14.1.2
         version: 14.1.2
@@ -4516,6 +4522,9 @@ importers:
       '@iconify-json/lucide':
         specifier: ^1.2.122
         version: 1.2.123
+      '@iconify-json/simple-icons':
+        specifier: ^1.2.98
+        version: 1.2.98
 
 packages:
 
@@ -5354,6 +5363,9 @@ packages:
 
   '@iconify-json/lucide@1.2.123':
     resolution: {integrity: sha512-0CozmpKXEOEEhltrfT2zt+/t1hez67Y+hM2VJWoIcBKdBrb83VYuKf+b5A0QU9HfQm+RNn2GjFWlTOwi+Ss6IA==}
+
+  '@iconify-json/simple-icons@1.2.98':
+    resolution: {integrity: sha512-35CEBG1H/3nsohVgJaRWtOZ/P5syRTL++ZXTISdQSC76o1mAFXngFoSm9EOnnBiDApKPu8WN/DY+z69yCycL9A==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -8998,6 +9010,10 @@ snapshots:
   '@humanwhocodes/retry@0.4.3': {}
 
   '@iconify-json/lucide@1.2.123':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/simple-icons@1.2.98':
     dependencies:
       '@iconify/types': 2.0.0
 

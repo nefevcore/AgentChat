@@ -28,7 +28,7 @@
 // 会话内编辑链重放）。RPC 缺席/失败 = 回落方案 A 纯重放。
 // ============================================================
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Icon, Tooltip, toastError } from '@agentchat/webui-kit';
+import { Button, IconAction, Icon, Select, Tooltip, toastError } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { countLineChanges } from 'ac-edit-core/src/diff.ts';
 import { openLocalFile } from 'ac-client-ui-workspace/client/fileApi.ts';
@@ -267,6 +267,11 @@ function fileOptionLabel(s: FileEditSummary): string {
   return dupBasenames.value.has(b) ? b + " · " + (dirLabel(s) || s.path) : b;
 }
 
+/** 文件下拉选项面（kit Select——cr-192） */
+const fileOptions = computed(() =>
+  files.value.map((s) => ({ value: s.path, label: fileOptionLabel(s) }))
+);
+
 /** diff 自动换行（缺省关 = 横向滚动——与预览页代码视图同语义；
  *  深行 diff 对照时开启软换行免横向拖动） */
 const wrap = ref(false);
@@ -321,6 +326,17 @@ function selectViewByOption(s: FileEditSummary, option: string) {
   setView(s.path, idx >= 0 ? idx : '');
 }
 
+/** 视图下拉选项面（kit Select 平铺——cr-192：段界 ⟂ 并入选项文本，
+ *  分组语义保留不再依赖 optgroup） */
+const viewOptions = computed(() => {
+  const s = sel.value;
+  if (!s) return [];
+  const opts: Array<{ value: string; label: string }> = [{ value: '', label: '初版 → 终版' }];
+  for (const st of stepsOf(s)) opts.push({ value: st.event.callId, label: stepOptionLabel(st) });
+  if (s.finalContent !== null) opts.push({ value: 'content', label: '当前内容' });
+  return opts;
+});
+
 /** 视图序列（线性化——上一/下一版本按钮的游标面）：[总览, 编辑
  * #1..#N, 当前内容（若有）]，与下拉选项同序同员。 */
 function viewSeq(s: FileEditSummary): Array<number | 'content' | ''> {
@@ -367,23 +383,8 @@ function viewDiff(s: FileEditSummary): FileDiffResult {
   return viewDiffByPath.value.get(s.path) ?? diffOf(analysis.value.diffs, s);
 }
 
-// ── 分段链展示辅助（方案 B）：下拉分组 / 不可回放计数 ──
-
-/** 下拉分组：段 0 无标签；后续段「⟂ 外部修改后」（optgroup） */
-function stepGroupsOf(s: FileEditSummary): Array<{ label: string; steps: FileEditStep[] }> {
-  const groups: Array<{ label: string; steps: FileEditStep[] }> = [];
-  for (const st of stepsOf(s)) {
-    if (st.segmentStep === 0 && groups.length > 0) {
-      groups.push({ label: '⟂ 外部修改后', steps: [st] });
-    } else if (groups.length > 0) {
-      groups[groups.length - 1].steps.push(st);
-    } else {
-      groups.push({ label: '', steps: [st] });
-    }
-  }
-  return groups;
-}
-
+// ── 分段链展示辅助（方案 B）：段界并入下拉选项文本（cr-192——optgroup
+//    随原生 select 退役，stepOptionLabel 的 ⟂ 前缀承担分组语义）──
 
 /** 不可回放计数：成功事件数 - 版本点数（mismatches 为重放层失配——取大者展示） */
 function unreplayableOf(s: FileEditSummary): number {
@@ -446,6 +447,19 @@ function parseDiffOf(path: string): DiffLine[] {
   return diffLinesByPath.value.get(path) ?? [];
 }
 
+/** 行号列宽（cr-191）：按选中文件 diff 的最大行号位数动态计算——定宽在多行号
+ *  位数下溢出与正文重叠。全局 border-box：width 须含 padding(6+10) +
+ *  border(1)，数字净宽 N×1ch 之外补 17px 常量。两列（del/ctx 或 add/ctx）
+ *  同行共用一列渲染，取全行最大值即可。 */
+const NUM_COL_EXTRA_PX = 17;
+const numColWidth = computed(() => {
+  let max = 0;
+  for (const line of parseDiffOf(sel.value?.path ?? '')) {
+    if (line.num.length > max) max = line.num.length;
+  }
+  return `calc(${Math.max(max, 2)}ch + ${NUM_COL_EXTRA_PX}px)`;
+});
+
 /** 动作中文标签 */
 const ACTION_LABEL: Record<string, string> = {
   create: '新建', overwrite: '写入', edit: '编辑', replace: '替换', insert: '插入', unknown: '编辑',
@@ -507,6 +521,34 @@ async function openLocally(s: FileEditSummary) {
     toastError(`本地打开失败：${errMsg}`, { key: 'open-local', duration: 4000 });
   }
 }
+
+// ── 复制（cr-198，cr-199 语义修正：随视图——复制「下面显示的版本」
+//    全文。编辑 #N = 该步后全文（version point content）；当前内容 =
+//    终版；总览 = 终版。copied/error 态 2s 复位）──
+const copyState = ref<'idle' | 'copied' | 'error'>('idle');
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
+function flashCopy(state: 'copied' | 'error') {
+  copyState.value = state;
+  if (copyTimer) clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => { copyState.value = 'idle'; }, 2000);
+}
+/** 当前视图对应版本全文（视图→版本点分派；无可复制面 = null）。
+ *  编辑步取 step.after（该步后全文——editStepsOf 版本点形态） */
+function viewContentOf(s: FileEditSummary): string | null {
+  const v = effectiveView(s);
+  if (v === 'content' || v === '') return s.finalContent;
+  return stepsOf(s).at(Number(v))?.after ?? null;
+}
+function copyViewContent() {
+  const s = sel.value;
+  const text = s ? viewContentOf(s) : null;
+  if (text === null) return;
+  navigator.clipboard.writeText(text).then(
+    () => flashCopy('copied'),
+    () => flashCopy('error'),
+  );
+}
+onBeforeUnmount(() => { if (copyTimer) clearTimeout(copyTimer); });
 </script>
 
 <template>
@@ -521,9 +563,7 @@ async function openLocally(s: FileEditSummary) {
       <!-- 关闭面板（区域级收起；keepAlive 选区——重开恢复滚动位置）。
            与 FilePreviewPanel 头部关闭钮同语义：ui.auxVisible=false -->
       <Tooltip text="关闭面板" placement="bottom">
-        <button class="fe-close" @click="ui.auxVisible = false">
-          <Icon name="x" :size="14" />
-        </button>
+        <IconAction icon="x" label="关闭面板" :size="14" suppress-title @click="ui.auxVisible = false" />
       </Tooltip>
     </div>
 
@@ -537,78 +577,71 @@ async function openLocally(s: FileEditSummary) {
 
       <!-- 单文件视图（抬头工具化）：工具行 + 元信息 + diff + 时间线 -->
       <template v-if="sel">
-        <!-- 抬头工具行：文件下拉 + 版本下拉 + 上一/下一版本 + 本地打开 -->
+        <!-- 抬头工具行：文件下拉 + 版本下拉 + 上一/下一版本 + 换行 + 本地打开
+             （kit Select/IconAction——cr-192 归一） -->
         <div class="fe-toolbar">
-          <select
+          <Select
             class="fe-file-select"
-            :value="sel.path"
+            :options="fileOptions"
+            :model-value="sel.path"
             :title="sel.path"
-            @change="selectFile(($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="s in files" :key="s.path" :value="s.path">{{ fileOptionLabel(s) }}</option>
-          </select>
+            @update:model-value="(v) => selectFile(v)"
+          />
           <!-- 版本选择（当前内容 / 编辑次数 > 1 才有逐次视角）+ 步进 + 换行 -->
-          <select
+          <Select
             v-if="sel.finalContent !== null || stepsOf(sel).length > 1"
             class="fe-view-select"
-            :value="viewOptionOf(sel)"
-            @change="selectViewByOption(sel, ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">初版 → 终版</option>
-            <option value="content">当前内容</option>
-            <!-- 分段链：外部修改后的段独立分组（⟂ 标记其前发生过
-                 事件流外的写——git checkout / shell 改写等） -->
-            <template v-for="(grp, gi) in stepGroupsOf(sel)" :key="gi">
-              <optgroup v-if="grp.label" :label="grp.label">
-                <option v-for="st in grp.steps" :key="st.event.callId" :value="st.event.callId">
-                  {{ stepOptionLabel(st) }}
-                </option>
-              </optgroup>
-              <option v-for="st in grp.steps" v-else :key="st.event.callId" :value="st.event.callId">
-                {{ stepOptionLabel(st) }}
-              </option>
-            </template>
-          </select>
+            :options="viewOptions"
+            :model-value="viewOptionOf(sel)"
+            @update:model-value="(v) => sel && selectViewByOption(sel, v)"
+          />
           <span class="fe-view-nav">
             <Tooltip text="上一版本" placement="top">
-              <button class="fe-view-nav-btn" :disabled="viewCursor(sel) === 0" @click="stepView(sel, -1)">
-                <Icon name="chevron-left" :size="13" />
-              </button>
+              <IconAction icon="chevron-left" label="上一版本" :size="13" suppress-title :disabled="viewCursor(sel) === 0" @click="stepView(sel, -1)" />
             </Tooltip>
             <Tooltip text="下一版本" placement="top">
-              <button class="fe-view-nav-btn" :disabled="viewCursor(sel) >= viewSeq(sel).length - 1" @click="stepView(sel, 1)">
-                <Icon name="chevron-right" :size="13" />
-              </button>
+              <IconAction icon="chevron-right" label="下一版本" :size="13" suppress-title :disabled="viewCursor(sel) >= viewSeq(sel).length - 1" @click="stepView(sel, 1)" />
             </Tooltip>
           </span>
-          <!-- 自动换行（icon 开关 + on 态高亮——预览页 fpt-icon-btn 同形态） -->
+          <!-- 自动换行（icon 开关 + on 态高亮） -->
           <Tooltip :text="wrap ? '自动换行：开 · 点击关闭' : '自动换行：关 · 点击开启'" placement="bottom">
-            <button class="fe-view-nav-btn" :class="{ on: wrap }" @click="wrap = !wrap">
-              <Icon name="wrap-text" :size="14" />
-            </button>
+            <IconAction icon="wrap-text" label="自动换行" :size="14" suppress-title :class="{ on: wrap }" @click="wrap = !wrap" />
           </Tooltip>
-          <!-- 本地打开（系统默认程序；icon 按钮 + tooltip——与预览页
-               fpt-icon-btn 同形态） -->
+          <!-- 复制当前视图版本全文（编辑 #N = 该步后全文；copied 态绿勾 2s） -->
+          <Tooltip :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制当前版本内容'" placement="bottom">
+            <IconAction
+              :icon="copyState === 'copied' ? 'check' : copyState === 'error' ? 'alert-circle' : 'copy'"
+              label="复制当前版本内容"
+              :size="14"
+              suppress-title
+              :class="{ ok: copyState === 'copied', error: copyState === 'error' }"
+              @click="copyViewContent"
+            />
+          </Tooltip>
+          <!-- 本地打开（系统默认程序；失败态红色警示可重试） -->
           <Tooltip
             v-if="openStateOf(sel.path) !== 'error'"
             :text="openStateOf(sel.path) === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
             placement="bottom"
           >
-            <button
-              class="fe-open-local"
+            <IconAction
+              :icon="openStateOf(sel.path) === 'opening' ? 'loader-circle' : 'external-link'"
+              label="本地打开（系统默认程序）"
+              :size="14"
+              suppress-title
+              :class="{ spin: openStateOf(sel.path) === 'opening' }"
               :disabled="openStateOf(sel.path) === 'opening'"
               @click="openLocally(sel)"
-            >
-              <Icon v-if="openStateOf(sel.path) === 'opening'" name="loader-circle" :size="14" class="fe-spin" />
-              <Icon v-else name="external-link" :size="14" />
-            </button>
+            />
           </Tooltip>
-          <button
+          <IconAction
             v-else
-            class="fe-open-local error"
-            title="本地打开失败（路径不可达或平台不支持）"
+            icon="alert-circle"
+            label="本地打开失败（路径不可达或平台不支持）"
+            :size="14"
+            class="error"
             @click="openLocally(sel)"
-          ><Icon name="alert-circle" :size="14" /></button>
+          />
         </div>
 
         <!-- 选中文件元信息：完整路径 + 徽章 + 统计 -->
@@ -647,9 +680,9 @@ async function openLocally(s: FileEditSummary) {
               :key="i"
               class="fe-diff-line"
               :class="[wrap ? 'wrap' : '', 'fe-' + line.kind]"
-            ><span class="fe-diff-sign">{{ line.sign }}</span><span class="fe-diff-num">{{ line.num }}</span><span class="fe-diff-text">{{ line.text }}</span></div>
+            ><span class="fe-diff-sign">{{ line.sign }}</span><span class="fe-diff-num" :style="{ width: numColWidth }">{{ line.num }}</span><span class="fe-diff-text">{{ line.text }}</span></div>
             <div v-if="parseDiffOf(sel.path).length > 400" class="fe-diff-line ctx">
-              <span class="fe-diff-sign"></span><span class="fe-diff-num"></span>
+              <span class="fe-diff-sign"></span><span class="fe-diff-num" :style="{ width: numColWidth }"></span>
               <span class="fe-diff-text">… 仅渲染前 400 行（共 {{ parseDiffOf(sel.path).length }} 行）——完整内容请本地打开</span>
             </div>
           </div>
@@ -688,22 +721,7 @@ export default { name: 'FileEditsPanel' };
 .fe-title { font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .fe-ctx { font-size: 11px; color: var(--text-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 头部关闭钮（与 fe-open-local 同形态的透明 icon 钮——fe-ctx flex:1 推到最右） */
-.fe-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px; height: 22px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.fe-close:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 头部关闭钮已迁 kit IconAction（cr-192——fe-ctx flex:1 推钮到最右） */
 
 /* 单列填满布局（cr-88 时间线退役）：.fe-body 不再滚动——diff 区
    flex:1 吸收剩余高度并自带滚动，其余行按内容收缩 */
@@ -713,20 +731,13 @@ export default { name: 'FileEditsPanel' };
 .fe-empty p { margin: 0; font-size: 12px; }
 .fe-empty-sub { font-size: 11px; opacity: 0.8; }
 
-/* ── 抬头工具行（文件下拉 + 版本下拉 + 版本步进 + 本地打开）── */
+/* ── 抬头工具行（文件下拉 + 版本下拉 + 版本步进 + 本地打开——
+      控件本体已迁 kit Select/IconAction，cr-192）── */
 .fe-toolbar { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.fe-file-select {
-  flex: 1; min-width: 0; max-width: 240px;
-  font-size: 11px; font-family: inherit;
-  padding: 3px 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  cursor: pointer;
-}
-.fe-file-select:focus { outline: none; border-color: var(--primary); }
-.fe-file-select:hover { border-color: var(--line); }
+/* 文件下拉（kit Select）：定宽（cr-194——flex:1 随容器伸缩同样漂移后续钮）。
+   width 覆写组件根 .ui-sel 的 width:100%（cr-193：100% 在 flex 行内吞满工具行） */
+.fe-file-select { width: 240px; flex: 0 0 240px; min-width: 0; }
+.fe-file-select :deep(.ui-sel-trigger) { height: 22px; padding: 0 6px; font-size: var(--fs-xs); }
 
 /* 选中文件元信息行（完整路径 + 徽章/统计） */
 .fe-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 0; }
@@ -739,34 +750,11 @@ export default { name: 'FileEditsPanel' };
 .fe-badges { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .fe-stat { font-size: 11px; font-family: 'SF Mono', 'Cascadia Code', monospace; }
 /* +N/-M 红绿着色（与 diff 行同色系：增=绿、删=红） */
-.fe-add-num { color: var(--ok); }
-.fe-del-num { color: var(--err); }
+.fe-add-num { color: var(--ok-status); }
+.fe-del-num { color: var(--err-status); }
 .fe-count { font-size: 11px; color: var(--text-3); }
 
-/* 本地打开（卡片头部右侧 icon 按钮；与预览页 fpt-icon-btn 同形态——
-   24×22 透明图标钮 + hover 底色，不随 badges 收缩） */
-.fe-open-local {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 22px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.fe-open-local:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.fe-open-local:disabled { opacity: 0.6; cursor: default; }
-.fe-open-local.error { color: var(--err); }
-/* 打开中 spinner 旋转 */
+/* 本地打开已迁 kit IconAction（cr-192）；失败态红标 + 转圈经宿主类 */
 
 .fe-partial-note { font-size: 11px; color: var(--warn); background: rgba(var(--warn-rgb), 0.08); border: 1px solid rgba(var(--warn-rgb), 0.25); border-radius: var(--radius-sm); padding: 6px 10px; }
 .fe-partial-note.warn { color: var(--err); background: rgba(var(--err-rgb), 0.06); border-color: rgba(var(--err-rgb), 0.2); }
@@ -774,47 +762,19 @@ export default { name: 'FileEditsPanel' };
 .fe-diff-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-3); }
 .fe-diff-stat { font-family: 'SF Mono', 'Cascadia Code', monospace; }
 
-/* ── 版本选择下拉（抬头工具行内——auto 宽，工具行自带间距）── */
-.fe-view-select {
-  flex: 0 1 auto; min-width: 0;
-  font-size: 11px; font-family: inherit;
-  padding: 3px 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  cursor: pointer;
-}
-.fe-view-select:focus { outline: none; border-color: var(--primary); }
-.fe-view-select:hover { border-color: var(--line); }
-/* 上一/下一版本快切（与 fe-open-local 同形态的透明 icon 钮；边界 disabled 置灰） */
+/* ── 版本下拉 + 步进钮 + 换行钮已迁 kit Select/IconAction（cr-192）── */
+/* 版本下拉（kit Select）：定宽（cr-194——自适应宽随选中项（初版→终版 vs
+   编辑 #12 …）伸缩，推挤后续步进钮位置漂移，无法同位连点）；值区 ellipsis
+   截长（kit 自带）。覆写组件根 width:100%（100% 会吞满工具行，cr-193）。 */
+.fe-view-select { width: 168px; flex: 0 0 168px; min-width: 0; }
+.fe-view-select :deep(.ui-sel-trigger) { height: 22px; padding: 0 6px; font-size: var(--fs-xs); }
 .fe-view-nav { display: inline-flex; gap: 2px; flex-shrink: 0; }
-.fe-view-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 22px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.fe-view-nav-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.fe-view-nav-btn:disabled { opacity: 0.35; cursor: default; }
-/* 开启态偏好按钮（换行）：主题色高亮示当前值——fpt-icon-btn.on 同款 */
-.fe-view-nav-btn.on {
-  color: var(--primary);
-  background: var(--primary-light);
-  border-color: var(--primary);
-}
+/* IconAction 宿主态：失败红标 / 复制成功绿标 / 换行开 primary 高亮 / 打开中转圈 */
+.fe-toolbar :deep(.ui-icon-action.error) { color: var(--err); }
+.fe-toolbar :deep(.ui-icon-action.ok) { color: var(--ok); }
+.fe-toolbar :deep(.ui-icon-action.on) { color: var(--primary); background: var(--primary-light); }
+.fe-toolbar :deep(.ui-icon-action.spin) svg { animation: fe-spin 0.9s linear infinite; }
+@keyframes fe-spin { to { transform: rotate(360deg); } }
 .fe-diff {
   flex: 1; min-height: 0; /* 填满剩余高度（cr-88）——工具行/元信息/提示行按内容收缩 */
   border: 1px solid var(--line); border-radius: var(--radius-md);
@@ -831,19 +791,24 @@ export default { name: 'FileEditsPanel' };
   margin-left: -12px; padding-left: 2px; /* 行左距让给符号列着色 */
   border-right: 1px solid var(--line);
 }
+/* 行号列：右对齐；宽度随最大行号位数动态（cr-191——内联 :style 单源） */
 .fe-diff-num {
-  width: 4ch; flex-shrink: 0; text-align: right; padding: 0 10px 0 6px;
+  flex-shrink: 0; text-align: right; padding: 0 10px 0 6px;
   color: var(--text-3); opacity: 0.6; user-select: none;
   border-right: 1px solid var(--line);
 }
 .fe-diff-text { flex: 1; min-width: 0; }
 /* 行底色铺满三列（cr-93 统一——符号/行号列不再独立加深/减弱，去割裂） */
-.fe-add { background: rgba(34,197,94,0.13); }
+/* 正文回归码色（cr-141·方案 B）：语义由行底 tint + 符号列承载，
+   正文用 code-text——大段红绿文字是色噪，且 nebula err 正文 4.25 破 4.5 线。
+   符号列墨与行底 tint 同用文字档（cr-146 口径：tint 底构图墨底同源——
+   err on 自身 tint 4.93 / ok 4.99，双主题 4.25+ 全过 3.0 图形线） */
+.fe-add { background: rgba(var(--ok-rgb), 0.13); }
 .fe-add .fe-diff-sign { color: var(--ok); }
-.fe-add .fe-diff-text { color: var(--ok); }
-.fe-del { background: rgba(239,68,68,0.14); }
+.fe-add .fe-diff-text { color: var(--code-text); }
+.fe-del { background: rgba(var(--err-rgb), 0.14); }
 .fe-del .fe-diff-sign { color: var(--err); }
-.fe-del .fe-diff-text { color: var(--err); }
+.fe-del .fe-diff-text { color: var(--code-text); }
 .fe-ctx .fe-diff-text { color: var(--text-1); }
 .fe-sep .fe-diff-text { color: var(--text-3); opacity: 0.5; font-style: italic; }
 /* 「当前内容」全文视图（cr-89）：非 diff 语义——无 +/- 前缀着色，正文常规色 */
