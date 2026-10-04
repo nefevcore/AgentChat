@@ -1,7 +1,7 @@
 // ============================================================
 // webui/tests/preview-kit-sync.test.ts —— 预览页 ↔ kit 事实源一致性（cr-121）
 //
-// 背景：src/docs/webui/v2.html 手抄 kit 令牌/组件样式，评审看到的常与源码
+// 背景：预览页（原 v2.html，已退役）曾手抄 kit 令牌/组件样式，评审看到的常与源码
 // 不一致（「预览页有焦点环、源码没有」这类结论就来自漂移）。现改为
 // scripts/build-webui-preview.mjs 注入，本测试是该注入的守门：
 //   ① 标记区内容 ≠ 事实源 → 红灯（提示重跑注入脚本）；
@@ -14,8 +14,8 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-// 双页注入（cr-155）：v2 答辩版 + gallery 纯陈列版，标记区两页同构
-const pages = ['src/docs/webui/v2.html', 'src/docs/webui-gallery.html'].map((p) => ({
+// 单页注入：v2 答辩版已退役（被 gallery 取代）
+const pages = ['src/docs/webui-gallery.html'].map((p) => ({
   path: p,
   html: readFileSync(join(repo, p), 'utf8'),
 }));

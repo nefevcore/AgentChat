@@ -1,7 +1,7 @@
 // ============================================================
 // scripts/build-webui-preview.mjs —— 预览页 kit 片段注入（cr-121）
 //
-// 背景：src/docs/webui/v2.html 是设计答辩页，过去手抄 webui-kit 的令牌与
+// 背景：预览页（原 v2.html 答辩版，已退役）过去手抄 webui-kit 的令牌与
 // 组件样式（tokens/row/badge/BusyRing/CollapseRow/DockCard + starColor 星板）。
 // 手抄必然漂移——评审看到的与源码不一致，「预览页看起来有焦点环、进源码后没有」
 // 这类问题都出自这里。故把可机读的事实源改为注入：
@@ -21,8 +21,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const KIT = join(repo, 'src/webui-kit/src');
-// 双页注入（cr-155）：v2 答辩版 + gallery 纯陈列版，kit 标记区两页同构
-const PAGES = ['src/docs/webui/v2.html', 'src/docs/webui-gallery.html'].map((p) => join(repo, p));
+// 单页注入：v2 答辩版已退役（被 gallery 取代），kit 标记区随页走
+const PAGES = ['src/docs/webui-gallery.html'].map((p) => join(repo, p));
 
 /** kit 源文件 → 注入体（统一 LF，去掉尾部空行） */
 const kitBody = (p) => readFileSync(p, 'utf8').split('\r\n').join('\n').trimEnd();
