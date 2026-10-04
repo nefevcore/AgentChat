@@ -279,6 +279,10 @@ async function createSession(workspaceId?: string) {
         else await singlesBoard?.createQuick();
       }
     }
+  } catch (err: any) {
+    // 创建链路任何失败都可见（此前 carryEmpty 分支无 catch——RPC 失败静默 unhandled，用户感知「点击无反应」）
+    console.error('[SessionList] 新建会话失败:', err);
+    toastError(`新建会话失败：${err?.message ?? err}`, { key: 'create-session', duration: 4000 });
   } finally {
     creatingSession.value = false;
   }
