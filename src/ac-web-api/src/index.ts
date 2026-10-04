@@ -1289,6 +1289,8 @@ export function apply(ctx: Context) {
     byModel: ctx.usage.byModel(),
     byDay: ctx.usage.byDay(),
     byDayModel: ctx.usage.byDayModel(),
+    // 日 × 端点对交叉维（弦图统计范围——by_pair 全量无日期，窗口过滤由此维重建）
+    byDayPair: ctx.usage.byDayPair(),
     byConversation: ctx.usage.byConversation(),
     byPair: ctx.usage.byPair(),
     bySelfSession: ctx.usage.bySelfSession(),

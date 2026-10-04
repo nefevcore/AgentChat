@@ -6,6 +6,26 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（Token 用量柱状图四修：堆叠实装 + 轴刻度/间距 + 顶部圆角，cr-217）
+- **堆叠从未生效（根因取证：canvas 像素采样）**：`barPaths` 各段画的是 0→累计值的完整矩形，而 uplot 序列绘制序 = 数组正序——后画序列把先画序列整段盖掉，双图（按消耗/按模型）实际只显示末段单色柱。修法：每段画自己的区间 [prevCum, cum]（新增 cumPrev 矩阵），零值段跳过。
+- **重复日期（近 7 日实发）**：类目少时 uplot 生成 0.5 步长小数刻度，`Math.round` 后相邻刻度撞同一类目索引 → 同一日期连显两次。修法：values 里非整数刻度置空。
+- **轴标签与柱体重叠**：axis gap 0→4，柱底与日期标签留出呼吸空隙。
+- **顶部圆角**：堆顶段上缘两角 r=3 圆角（arcTo，柱宽过窄自动收缩），下缘直角与下方段无缝衔接。
+- **堆叠顺序勘误（当日二修）**：uplot 数组正序 = 绘制序 = **视觉自下而上**（首项画堆底、末项画堆顶）——初版 `isTop` 误判数组首项为堆顶，圆角画到了堆底段上缘。已改末序列判定，并连带修正模型视图序列排布（「其他」垫底 = 数组首位，named 段往上）与 tooltip 行序（倒序遍历，列表第一行 = 堆顶段）。
+- **第二图 tooltip 错层**：`renderChartTipAt` 里 `chartInstance ?? modelChartInstance` 恒取主图，「按模型」图悬停显示的是「按消耗」的数据（弹层标题都是日期+缓存三段）。修法：tip 回调改为携带各自图表实例 `(u2, idx)`，闭包绑定。
+### Fixed（Token 用量面板：数值单位与图表日期轴两修，cr-216）
+- **B 档约化**：`formatNumber` 补十亿档（2 位有效数字 + 尾零修剪）——8685M 级总量原显示 `8282.3M`，现 `8.28B`；K/M 档顺带修剪 `1.0K` 式尾零。
+- **日期轴叠压**（根因取证）：uplot 1.6 轴刻度画在 canvas 上（非 DOM），组件里 `.u-x .u-valu` 斜排样式针对不存在的类名从未生效；`09-01` 式标签（≈33px）在 panel 窄容器（230px/7 刻度 ≈ 30px/格）互相叠压成「日期错乱」观感。修法 = 标签去前导零（`9-1` ≈ 20-26px，余量充足；tooltip 保持完整日期），axis size 回落 30，死样式清理并留注（防后人再走 CSS 斜排弯路）。
+
+### Changed（Token 用量面板控件 kit 化，cr-215）
+- **标准件替换**：日期范围下拉（两形态）迁 kit `Select`（弹层与全站下拉同语言，键盘可达）；自定义日期输入迁 `Input type=date`；「应用」按钮迁 `Button primary sm`；「包含 user / self 流量」勾选（两形态）迁 `Checkbox`；panel 头刷新钮（⟳ 文本钮）迁 `Button ghost sm` + loading spinner（与 modal footer 同语言）；panel 页签条迁 `Tabs line`（`:deep` 覆盖均分两格）。
+- **配方清理**：`.range-select`/`.range-date`/`.range-apply`/`.tup-refresh`/自建页签条与 `.cloud-toggle` 的 input 样式全部退役（态样式由 kit 自持），面板只保留布局类。
+
+### Fixed（用量弦图：切换统计范围不重绘——by_pair 补日期维度，cr-214）
+- **根因**：弦图数据源 `by_pair` 是后端全历史聚合（无日期维度），前端 `filterUsageRange` 只过滤 `by_day`/`by_day_llm`——切统计范围后 `by_pair` 不变，`renderCloud` 的 cloudKey 守卫正确判定「数据未变」跳过重绘（柱状图会变、弦图纹丝不动）。守卫没错，错的是数据面缺维度。
+- **修复**：对齐 `byDayModel` 范式补交叉维——`ac-usage` 新增 `byDayPair()`（行级 day × 端点对分桶；端点对分类自 `byPair` 提取为单源 `classifyPair`），`usage/tokens` RPC 透出 `byDayPair`；前端 `filterUsageRange` 按窗口从 `by_day_pair` 行求和重建 `by_pair`（total 降序同后端口径）。旧后端无此维时 `by_pair` 保持全量近似不误杀。cloudKey 指纹纳入 `by_day_pair`。
+- **范围语义**：`by_day_pair` 在账号有全历史流水的部署上随 boot 回读重建——历史数据的弦图范围过滤同样生效。
+
 ### Changed（文件编辑面板：diff 行三列底色统一 + 上下文行主色，cr-93）
 - **底色统一**：cr-91 的符号列加深（0.2）/行号列减弱（0.1）独立底色退役——行底色（add 绿 0.13 / del 红 0.14）铺满三列，分界线保留切块但色带连续，去割裂感。
 - **上下文行正文**：灰三级弱化（tertiary + opacity 0.75）改 `--color-text-primary` 主色（与「当前内容」视图同基准）——深底上可读性优先。

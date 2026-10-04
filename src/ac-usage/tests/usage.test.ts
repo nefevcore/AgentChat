@@ -190,7 +190,8 @@ describe('ac-usage byPair（端点对分类）', () => {
     await ctx.agentLoop.run({ agent: 'alpha', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'sid-uuid' });
 
     const pairs = ctx.usage.byPair();
-    const userPair = pairs.find((p) => p.a === 'user' && p.b === 'alpha');
+    // 端点对规范序 a ≤ b（classifyPair 单源；'alpha' < 'user'）
+    const userPair = pairs.find((p) => p.a === 'alpha' && p.b === 'user');
     expect(userPair).toBeDefined();
     expect(userPair!.runs).toBe(1); // ①（③ 是 beta↔alpha 不并入 user 弦）
     const ab = pairs.find((p) => (p.a === 'alpha' && p.b === 'beta'));
@@ -200,6 +201,21 @@ describe('ac-usage byPair（端点对分类）', () => {
     expect(pairs.some((p) => p.a === 'g-111' || p.b === 'g-111')).toBe(false);
     expect(pairs.some((p) => p.a === 'sid-uuid' || p.b === 'sid-uuid')).toBe(false);
     expect(pairs.length).toBe(2);
+  });
+
+  it('byDayPair：日 × 端点对交叉维（分类口径同 byPair；群/sid 不进；回读重建）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 同日两 run 同端点对（合并）；群 gid 不进；对键分类
+    await ctx.agentLoop.run({ agent: 'x', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'x~y' });
+    await ctx.agentLoop.run({ agent: 'y', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'x~y' });
+    await ctx.agentLoop.run({ agent: 'x', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'g-1' });
+    const rows = ctx.usage.byDayPair();
+    expect(rows).toHaveLength(1); // 群行不进，x~y 同日合并
+    expect(rows[0]).toMatchObject({ a: 'x', b: 'y', runs: 2, prompt: 20 });
+    expect(rows[0].date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // 全量口径对账：ΣbyDayPair = byPair 同端点对 total
+    expect(ctx.usage.byPair().find((p) => p.a === 'x' && p.b === 'y')?.runs).toBe(2);
   });
 
   it('回放重建 byPair（重启后端点对聚合不丢）', async () => {

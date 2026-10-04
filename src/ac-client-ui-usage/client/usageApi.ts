@@ -34,6 +34,8 @@ export interface PUsageResult {
   byConversation: Record<string, PUsageAggregate>;
   /** 按端点对聚合（后端分类：user⇄agent / agent⇄agent；群与 singles 不进） */
   byPair?: Array<PUsageAggregate & { a: string; b: string }>;
+  /** 按日 × 端点对交叉聚合（弦图统计范围——窗口过滤由此维重建 by_pair） */
+  byDayPair?: Array<PUsageAggregate & { date: string; a: string; b: string }>;
   totals: PUsageAggregate;
 }
 
@@ -91,6 +93,8 @@ export interface UsageSummary {
     last_step_total_tokens?: number;
   }>;
   by_pair: Array<{ a: string; b: string; total_tokens: number; record_count: number }>;
+  /** 按日期 × 端点对聚合（弦图统计范围；范围过滤按窗口行求和重建 by_pair） */
+  by_day_pair?: Array<{ date: string; a: string; b: string; total_tokens: number; record_count: number }>;
   /** 按日期 × 模型聚合（「按模型」堆叠图；TokenUsage.buildChartDatasets 消费） */
   by_day_llm?: Array<{ date: string; llm: string; total_prompt_tokens: number; total_completion_tokens: number; total_tokens: number }>;
   range?: { from: string | null; to: string | null };
@@ -149,6 +153,14 @@ export function toUsageSummary(u: PUsageResult, agentIds: Set<string> = new Set(
     total_completion_tokens: r.completion,
     total_tokens: r.total ?? r.prompt + r.completion,
   }));
+  // undefined 保留（旧后端无此维的信号——filterUsageRange 据此保持 by_pair 全量近似）
+  const byDayPair = u.byDayPair?.map((r) => ({
+    date: r.date,
+    a: r.a,
+    b: r.b,
+    total_tokens: r.total ?? r.prompt + r.completion,
+    record_count: r.runs ?? 0,
+  }));
   return {
     overall: {
       ...aggRow(u.totals),
@@ -158,12 +170,15 @@ export function toUsageSummary(u: PUsageResult, agentIds: Set<string> = new Set(
     by_agent: byAgent,
     by_day: byDay,
     by_pair: byPair,
+    by_day_pair: byDayPair,
     by_day_llm: byDayLlm,
     range: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : { from: null, to: null },
   };
 }
 
-/** 日期范围过滤：by_day/by_day_llm 行过滤 + overall 从过滤行重算（by_agent/by_pair 无日期维度，近似全量） */
+/** 日期范围过滤：by_day/by_day_llm 行过滤 + overall 从过滤行重算 + by_pair 从
+ *  by_day_pair 窗口行求和重建（by_agent 无日期维度，近似全量）。by_day_pair
+ *  缺失（旧后端）→ by_pair 保持全量近似，不误杀。 */
 export function filterUsageRange(summary: UsageSummary, params: UsageRangeParams): UsageSummary {
   if (!params.days && !params.from && !params.to) return summary;
   const cutoff = params.days ? Date.now() - params.days * 86_400_000 : 0;
@@ -173,10 +188,24 @@ export function filterUsageRange(summary: UsageSummary, params: UsageRangeParams
   const rows = summary.by_day.filter((d) => inRange(d.date));
   const llmRows = (summary.by_day_llm ?? []).filter((d) => inRange(d.date));
   const sum = (pick: (d: UsageSummary['by_day'][number]) => number) => rows.reduce((s, d) => s + pick(d), 0);
+  // 弦图数据源重建：窗口内日 × 端点对行按端点对求和（排序同后端口径 total 降序）
+  const pairAcc = new Map<string, { a: string; b: string; total_tokens: number; record_count: number }>();
+  for (const r of summary.by_day_pair ?? []) {
+    if (!inRange(r.date)) continue;
+    const acc = pairAcc.get(`${r.a}|${r.b}`);
+    if (acc) {
+      acc.total_tokens += r.total_tokens;
+      acc.record_count += r.record_count;
+    } else {
+      pairAcc.set(`${r.a}|${r.b}`, { a: r.a, b: r.b, total_tokens: r.total_tokens, record_count: r.record_count });
+    }
+  }
+  const pairRows = [...pairAcc.values()].sort((x, y) => y.total_tokens - x.total_tokens);
   return {
     ...summary,
     by_day: rows,
     by_day_llm: llmRows,
+    ...(summary.by_day_pair !== undefined ? { by_pair: pairRows } : {}),
     overall: {
       ...summary.overall,
       total_prompt_tokens: sum((d) => d.total_prompt_tokens),

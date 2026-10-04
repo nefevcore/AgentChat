@@ -8,7 +8,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { Series } from 'uplot';
 import { chord, ribbon } from 'd3-chord';
-import { Button, Modal, Progress, Segmented, Tabs, Tooltip } from '@agentchat/webui-kit';
+import { Button, Checkbox, Input, Modal, Progress, Segmented, Select, Tabs, Tooltip } from '@agentchat/webui-kit';
 import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
 
 const props = defineProps<{
@@ -92,6 +92,9 @@ interface UsageSummary {
   by_agent: AgentUsage[];
   by_day: DailyUsage[];
   by_pair: PairUsage[];
+  /** 按日期 × 端点对聚合（弦图统计范围——范围过滤后 by_pair 由此维重建，
+   *  仅 cloudKey 重绘指纹消费） */
+  by_day_pair?: Array<{ date: string; a: string; b: string; total_tokens: number; record_count: number }>;
   /** 按日期 × 模型聚合（「按模型」堆叠图） */
   by_day_llm?: DayLlmUsage[];
   /** 数据实际覆盖的日期区间（后端按筛选范围返回） */
@@ -116,6 +119,7 @@ const AUTO_REFRESH_MS = 30_000;
 
 // ── 日期筛选（默认近 30 天）──
 type RangeMode = '7' | '30' | '90' | 'all' | 'custom';
+/* value/label 形状直供 kit Select（options 契约） */
 const RANGE_PRESETS: Array<{ value: RangeMode; label: string }> = [
   { value: '7', label: '近 7 天' },
   { value: '30', label: '近 30 天' },
@@ -179,9 +183,11 @@ const apiTps = computed(() => {
   return tokens / (ms / 1000);
 });
 
+/** 数值约化：K/M/B 三档（2 位有效数字——8.28B 比 8282.3M 可读） */
 function formatNumber(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2).replace(/\.?0+$/, '') + 'B';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.?0+$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.?0+$/, '') + 'K';
   return n.toString();
 }
 
@@ -282,8 +288,8 @@ interface BarSeries {
 }
 
 /** 堆叠柱状图数据集（按统计方式；panel 双图各持固定 mode——spend/model）
- *  返回顺序 = 视觉自上而下（缓存类：缓存 → 未缓存 → 输出；模型类：id 升序、「其他」垫底）
- *  uplot 绘制自底向上：序列数组直接用此顺序即可让首项出现在堆顶 */
+ *  返回顺序 = 绘制序 = 视觉自下而上（cr-217 像素实测：首项画堆底、末项画堆顶）。
+ *  缓存类：缓存（底）→ 未缓存 → 输出（顶）；模型类：「其他」（底）→ id 升序段往上 */
 function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageViewMode = usageViewMode.value): BarSeries[] {
   if (mode === 'model') {
     // 透视 by_day_llm → 每模型一个序列（归一化合并同名模型，按区间总量降序，超出合并「其他」）
@@ -295,16 +301,12 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
       cell.set(`${r.date}|${m}`, (cell.get(`${r.date}|${m}`) ?? 0) + r.total_tokens);
       totals.set(m, (totals.get(m) ?? 0) + r.total_tokens);
     }
-    // 展示集：区间总量 top N（防模型爆炸），展示顺序按模型 id 升序（自上而下）；其余合并「其他」
+    // 展示集：区间总量 top N（防模型爆炸），展示顺序按模型 id 升序；其余合并「其他」
     const rankedByTotal = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([llm]) => llm);
     const rest = rankedByTotal.slice(MAX_MODEL_SERIES);
     const named = rankedByTotal.slice(0, MAX_MODEL_SERIES).sort((a, b) => a.localeCompare(b));
-    // 序列顺序 = 视觉自上而下（id 升序），「其他」非模型 id，固定堆底（末位）
-    const series: BarSeries[] = named.map(llm => ({
-      label: llm,
-      data: days.map(d => cell.get(`${d.date}|${llm}`) ?? 0),
-      color: paletteColor(llm),
-    }));
+    // 序列数组序 = 绘制序 = 视觉自下而上（cr-217）：「其他」垫底 = 数组首位，named 段往上
+    const series: BarSeries[] = [];
     if (rest.length > 0) {
       series.push({
         label: `其他（${rest.length} 个模型）`,
@@ -313,6 +315,11 @@ function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageView
         color: isDark ? '#8b93a7' : '#9ca3af',
       });
     }
+    series.push(...named.map(llm => ({
+      label: llm,
+      data: days.map(d => cell.get(`${d.date}|${llm}`) ?? 0),
+      color: paletteColor(llm),
+    })));
     return series;
   }
   // 按消耗：自上而下 缓存 → 未缓存 → 输出
@@ -347,58 +354,81 @@ function renderChart() {
 
   // 主图：modal = 当前统计方式 / panel = 总用量（spend 固定）
   if (chartCanvas.value) {
-    chartInstance = makeBarChart(chartCanvas.value, days, isDark, isPanel.value ? 'spend' : usageViewMode.value, (i) => renderChartTipAt(chartTip.value, i));
+    chartInstance = makeBarChart(chartCanvas.value, days, isDark, isPanel.value ? 'spend' : usageViewMode.value, (u2, i) => renderChartTipAt(chartTip.value, u2, i));
   }
   // panel 双图第二张：按模型（model 固定；modal 形态无此 div 自然跳过）
   if (modelChartCanvas.value) {
-    modelChartInstance = makeBarChart(modelChartCanvas.value, days, isDark, 'model', (i) => renderChartTipAt(modelChartTip.value, i));
+    modelChartInstance = makeBarChart(modelChartCanvas.value, days, isDark, 'model', (u2, i) => renderChartTipAt(modelChartTip.value, u2, i));
   }
 }
 
 /** 单张堆叠柱状图构造（uplot；双图共用配置；tooltip 定位到各自容器）。
- *  堆叠技巧：序列数据用累计和，绘制顺序 = 视觉自上而下（数组正序）——
- *  后画的底段累计更高、盖住先画的顶段下沿，只露出自身增量；类目轴用
- *  x 值 0..n-1 + values 定制刻度标签。 */
+ *  堆叠：序列数据用累计和（cum）+ 段底（cumPrev），每段画 [prev, cum] 区间、
+ *  序列数组顺序 = 视觉自上而下（顶段在前）；类目轴用 x 值 0..n-1 + values
+ *  定制刻度标签（非整数刻度置空防重复）。 */
 function makeBarChart(
   host: HTMLDivElement,
   days: DailyUsage[],
   isDark: boolean,
   mode: UsageViewMode,
-  tip: (idx: number) => void,
+  tip: (u2: uPlot, idx: number) => void,
 ): uPlot {
   /* 图表轴文字 = 文字件 → 墨色档 --text-2（cr-128 分层核对）：内联令牌双档值
      （暗档 = --text-2 原值；亮档 = cr-122 加深后的 --text-2 现值）。
      原亮档字面值是 main.css 旧 text-2（亮底对比 ≈3.0，不达正文 4.5 线）的化石，已对齐。 */
   const textColor = isDark ? '#bdc3c7' : '#55606c';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-  // 序列顺序 = 视觉自上而下（顶段在前）；累计和沿视觉向下累加
+  // 序列顺序 = 绘制序 = 视觉自下而上（首项堆底；cr-217 像素实测确认）
   const series = buildChartDatasets(days, isDark, mode);
-  const labels = days.map(d => d.date.slice(5));
+  // 轴标签去前导零（'09-01'→'9-1'，单标签 ≈20px）——窄容器刻度不叠压（tooltip 仍完整日期）
+  const labels = days.map(d => d.date.replace(/^\d{4}-/, '').replace(/-(0)(?=\d)/g, '-'));
   const n = days.length;
   const xs = Array.from({ length: n }, (_, i) => i);
+  /* 堆叠实装（cr-217）：每段画自己的区间 [prevCum, cum]——原实现各段画 0..cum 完整矩形，
+   *  uplot 序列绘制序 = 数组正序，后画序列把先画序列整段盖掉（双图从未真正堆叠，只剩末
+   *  序列单色柱）。uplot 数组正序 = 绘制序 = 视觉自下而上（首项画堆底、末项画堆顶），
+   *  故「缓存→未缓存→输出」的数组序即视觉序（缓存在底、输出在顶），首段 prev=0。 */
   const cum: number[][] = [];
+  const cumPrev: number[][] = [];
   let acc = Array.from({ length: n }, () => 0);
   for (const s of series) {
+    cumPrev.push([...acc]);
     acc = acc.map((a, i) => a + s.data[i]);
     cum.push([...acc]);
   }
   // 柱宽（类目单位；band=1 留 30% 间隙）
   const barSpan = n > 1 ? 0.7 : 0.5;
-  // 柱状路径绘制器（npm uplot 未随包发布 bars 插件，8 行自绘：
-  //  每个类目画一支到自身累计值的矩形；返回 fill 路径即可）
+  /* 柱状路径绘制器（npm uplot 未随包发布 bars 插件，自绘）：每类目每段画 [prevCum, cum]
+   *  区间矩形；顶段（seriesIdx === 0，首序列在堆顶）上缘两角圆角（r 随柱宽收缩）。 */
   const barPaths: Series.PathBuilder = (u, seriesIdx, idx0, idx1) => {
     const plot = u.bbox; // 绘图区（CSS 像素）
     const bar = plot.width / n * barSpan;
+    const isTop = seriesIdx === series.length; // uplot 数组正序绘制（首项画堆底、末项画堆顶）——末序列才是视觉顶段
+    const r = isTop ? Math.min(3, bar / 4) : 0; // 顶部圆角半径（柱过窄收缩防自交）
     const p = new Path2D();
     for (let i = Math.max(0, idx0); i <= Math.min(n - 1, idx1); i++) {
       const xv = u.data[0][i];
-      const yv = u.data[seriesIdx][i];
+      const yv = u.data[seriesIdx]?.[i];
+      const yPrev = cumPrev[seriesIdx - 1]?.[i] ?? 0;
       if (yv == null) continue;
       const cx = u.valToPos(xv, 'x', true);
-      const y0 = u.valToPos(0, u.series[seriesIdx].scale!, true);
-      const y1 = u.valToPos(yv, u.series[seriesIdx].scale!, true);
+      const y0 = u.valToPos(yPrev, u.series[seriesIdx].scale!, true); // 段底（前累计）
+      const y1 = u.valToPos(yv, u.series[seriesIdx].scale!, true);   // 段顶（自身累计）
+      if (y1 >= y0) continue; // 零值段（y1 === y0）跳过
       const x0 = Math.round(cx - bar / 2), x1 = Math.round(cx + bar / 2);
-      p.rect(x0, y1, x1 - x0, y0 - y1);
+      const h = y0 - y1;
+      if (r > 0 && h > r) {
+        // 上缘两角圆角（arcTo 近似）；下缘直角与下方段衔接
+        p.moveTo(x0, y0);
+        p.lineTo(x0, y1 + r);
+        p.arcTo(x0, y1, x0 + r, y1, r);
+        p.lineTo(x1 - r, y1);
+        p.arcTo(x1, y1, x1, y1 + r, r);
+        p.lineTo(x1, y0);
+        p.closePath();
+      } else {
+        p.rect(x0, y1, x1 - x0, h);
+      }
     }
     return { stroke: null, fill: p, clip: null, bands: null, gaps: undefined, width: 0, flags: 0 };
   };
@@ -423,10 +453,14 @@ function makeBarChart(
       ],
       axes: [
         {
-          values: (_u: uPlot, vals: Array<number | null>) => vals.map(v => v == null ? '' : labels[Math.round(v)] ?? ''),
+          // 刻度标签：uplot 按宽度自适应刻度数，类目密集时会生成 0.5 步长等小数刻度——
+          // Math.round 后相邻刻度撞同一类目索引致标签重复（近 7 日实发），非整数刻度置空。
+          // 标签去前导零（'09-01'→'9-1'，≈20px）保证窄容器不叠压
+          values: (_u: uPlot, vals: Array<number | null>) => vals.map(v =>
+            v == null || v % 1 !== 0 ? '' : labels[Math.round(v)] ?? ''),
           font: '11px system-ui, sans-serif',
           stroke: textColor,
-          gap: 0,
+          gap: 4,
           size: 30,
           grid: { show: false },
           ticks: { show: false },
@@ -451,13 +485,13 @@ function makeBarChart(
           (u2: uPlot) => {
             const idx = u2.cursor.idx;
             if (idx == null) { hideChartTip(); if (modelChartTip.value) modelChartTip.value.style.display = 'none'; }
-            else tip(idx);
+            else tip(u2, idx);
           },
         ],
         setScale: [
           (u2: uPlot) => {
             const idx = u2.cursor.idx;
-            if (idx != null) tip(idx);
+            if (idx != null) tip(u2, idx);
           },
         ],
       },
@@ -477,20 +511,22 @@ function makeBarChart(
   return u;
 }
 
-/** tooltip 渲染到指定容器（双图各持一个 tip 元素；逻辑与 modal 单图同源） */
+/** tooltip 渲染到指定容器（双图各持一个 tip 元素 + 各自图表实例——cr-217 前恒读主图 rawSeries，
+ *  第二图（按模型）tooltip 显示的是主图（按消耗）的数据） */
 function renderChartTipAt(
   tipEl: HTMLDivElement | null,
+  u: uPlot | null,
   idx: number,
 ): void {
   if (!tipEl) return;
-  const u = chartInstance ?? modelChartInstance;
   const days = data.value?.by_day ?? [];
   const day = days.at(idx);
   if (!u || !day) { tipEl.style.display = 'none'; return; }
-  // rawSeries 数组顺序 = 视觉自上而下（顶段在前）+ 过滤零值段（模型视图跨天缺失时保持简洁）
+  // rawSeries 数组序 = 视觉自下而上（cr-217）——倒序遍历让列表第一行 = 堆顶段；
+  // 过滤零值段（模型视图跨天缺失时保持简洁）
   const raw = (u as uPlot & { rawSeries?: BarSeries[] }).rawSeries ?? [];
   const items: Array<{ label: string; color: string; val: number }> = [];
-  for (const s of raw) {
+  for (const s of [...raw].reverse()) {
     const v = s.data[idx] ?? 0;
     if (v > 0) items.push({ label: s.label, color: s.color, val: v });
   }
@@ -641,7 +677,7 @@ function renderCloud() {
   // 预设目录/名册指纹参与守卫：两者迟到（首开与 fetch 竞态）时剔除集变化 → 重绘
   // （id 排序后 join——名册按活跃度排序，直接 join 会因排序抖动频繁失效）
   const cloudKey = `${includeUserSelf.value}|${themeStore.theme}|${[...roster.presets.value.map(p => p.id)].sort().join(',')}|${[...roster.agents.value.map(a => a.id)].sort().join(',')}|${data.value.by_agent.length}|${data.value.by_pair.length}|` +
-    `${JSON.stringify(data.value.by_agent.map(a => a.total_tokens))}|${JSON.stringify(data.value.by_pair.map(p => [p.a, p.b, p.total_tokens]))}`;
+    `${JSON.stringify(data.value.by_agent.map(a => a.total_tokens))}|${JSON.stringify(data.value.by_pair.map(p => [p.a, p.b, p.total_tokens]))}|${JSON.stringify(data.value.by_day_pair ?? [])}`;
   if (svg === lastCloudSvg && cloudKey === lastCloudKey) return;
   lastCloudSvg = svg;
   lastCloudKey = cloudKey;
@@ -1023,7 +1059,7 @@ onUnmounted(() => { destroyChart(); });
       <span class="tup-title">Token 用量</span>
       <span v-if="lastUpdated" class="last-updated tup-updated">{{ lastUpdated }}</span>
       <Tooltip text="刷新" placement="bottom">
-        <button class="tup-refresh" :disabled="loading" aria-label="刷新" @click="loadData">⟳</button>
+        <Button variant="ghost" size="sm" icon="refresh-cw" :loading="loading" aria-label="刷新" @click="loadData" />
       </Tooltip>
     </div>
     <div class="usage-body tup-body">
@@ -1031,34 +1067,19 @@ onUnmounted(() => { destroyChart(); });
       <div v-else-if="error && !data" class="status-msg error">{{ error }}</div>
       <template v-else-if="data">
         <div class="usage-layout tup-layout">
-          <!-- 页签条（吸顶一行：总览/用量 二选一） -->
-          <div class="tup-tabs" role="tablist" aria-label="用量视图">
-            <button
-              role="tab"
-              :aria-selected="activeTab === 'cloud'"
-              :class="{ active: activeTab === 'cloud' }"
-              @click="activeTab = 'cloud'"
-            >总览</button>
-            <button
-              role="tab"
-              :aria-selected="activeTab === 'daily'"
-              :class="{ active: activeTab === 'daily' }"
-              @click="activeTab = 'daily'"
-            >用量统计</button>
-          </div>
+          <!-- 页签条（kit Tabs line + 均分覆盖：吸顶一行，总览/用量二选一） -->
+          <Tabs variant="line" class="tup-tabs" :items="[{ id: 'cloud', label: '总览' }, { id: 'daily', label: '用量统计' }]" :model-value="activeTab" @update:model-value="activeTab = $event as 'cloud' | 'daily'" />
 
-          <!-- 工具行：日期筛选（占满）+ 覆盖提示 -->
+          <!-- 工具行：日期筛选（kit Select 占满）+ 覆盖提示 -->
           <div class="tup-toolbar">
-            <select v-model="rangeMode" class="range-select tup-range" title="统计范围（默认近 30 天）">
-              <option v-for="p in RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
-            </select>
+            <Select class="tup-range" :options="RANGE_PRESETS" :model-value="rangeMode" title="统计范围（默认近 30 天）" @update:model-value="rangeMode = $event as RangeMode" />
             <span v-if="appliedRange?.from" class="range-coverage tup-coverage" :title="`数据覆盖 ${appliedRange.from} ~ ${appliedRange.to}`">{{ appliedRange.from }}~{{ appliedRange.to?.slice(5) }}</span>
           </div>
           <div v-if="rangeMode === 'custom'" class="range-custom tup-custom">
-            <input v-model="customFrom" type="date" class="range-date" aria-label="开始日期" />
+            <Input :model-value="customFrom" type="date" aria-label="开始日期" @update:model-value="customFrom = $event" />
             <span class="range-sep">~</span>
-            <input v-model="customTo" type="date" class="range-date" aria-label="结束日期" />
-            <button class="range-apply" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</button>
+            <Input :model-value="customTo" type="date" aria-label="结束日期" @update:model-value="customTo = $event" />
+            <Button variant="primary" size="sm" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</Button>
           </div>
 
           <!-- 摘要条（紧凑单行小字；命中/输出/请求） -->
@@ -1077,10 +1098,7 @@ onUnmounted(() => { destroyChart(); });
           <!-- 图表区（复用 modal 态两页签内容） -->
           <div class="usage-main tup-main">
             <div v-if="activeTab === 'cloud'" class="cloud-tab">
-              <label class="cloud-toggle tup-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量">
-                <input type="checkbox" v-model="includeUserSelf" />
-                包含 user / self 流量
-              </label>
+              <Checkbox v-model="includeUserSelf" class="cloud-toggle tup-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量">包含 user / self 流量</Checkbox>
               <div class="cloud-canvas-wrap">
                 <svg ref="cloudSvg" class="cloud-svg"></svg>
                 <div ref="cloudTip" class="cloud-tip"></div>
@@ -1136,14 +1154,12 @@ onUnmounted(() => { destroyChart(); });
                 <span class="range-title">统计范围</span>
                 <span v-if="rangeMode === 'custom' && customDirty" class="range-dirty">未应用</span>
               </div>
-              <select v-model="rangeMode" class="range-select" title="筛选统计的时间范围（默认近 30 天）">
-                <option v-for="p in RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
-              </select>
+              <Select :options="RANGE_PRESETS" :model-value="rangeMode" title="筛选统计的时间范围（默认近 30 天）" @update:model-value="rangeMode = $event as RangeMode" />
               <div v-if="rangeMode === 'custom'" class="range-custom">
-                <input v-model="customFrom" type="date" class="range-date" aria-label="开始日期" />
+                <Input :model-value="customFrom" type="date" aria-label="开始日期" @update:model-value="customFrom = $event" />
                 <span class="range-sep">~</span>
-                <input v-model="customTo" type="date" class="range-date" aria-label="结束日期" />
-                <button class="range-apply" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</button>
+                <Input :model-value="customTo" type="date" aria-label="结束日期" @update:model-value="customTo = $event" />
+                <Button variant="primary" size="sm" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</Button>
               </div>
               <div v-if="appliedRange?.from" class="range-coverage">数据覆盖 {{ appliedRange.from }} ~ {{ appliedRange.to }}</div>
               <div v-else-if="!loading" class="range-coverage">范围内暂无记录</div>
@@ -1175,10 +1191,7 @@ onUnmounted(() => { destroyChart(); });
             <!-- ═══ 云图（弦图）═══ -->
             <div v-if="activeTab === 'cloud'" class="cloud-tab">
           <div class="cloud-hint">弦图：外环弧段 = Agent（长度 ∝ 协作流量，颜色区分），弦（色带）连接 1v1 会话，宽度与颜色渐变 ∝ 用量；悬停弧段/弦查看明细。预设模式（标准/极简等）与群聊流量不计入。</div>
-          <label class="cloud-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量；群聊与预设模式流量始终排除（后续单独图谱）">
-            <input type="checkbox" v-model="includeUserSelf" />
-            包含 user / self 流量
-          </label>
+          <Checkbox v-model="includeUserSelf" class="cloud-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量；群聊与预设模式流量始终排除（后续单独图谱）">包含 user / self 流量</Checkbox>
           <div class="cloud-canvas-wrap">
             <svg ref="cloudSvg" class="cloud-svg"></svg>
             <!-- 弦图悬停明细（renderCloud 内联注入内容） -->
@@ -1236,35 +1249,13 @@ onUnmounted(() => { destroyChart(); });
 }
 .tup-title { font-size: 13px; font-weight: 600; }
 .tup-updated { flex: 1; text-align: right; }
-.tup-refresh {
-  border: none; background: none; cursor: pointer;
-  color: var(--text-3); font-size: 15px; line-height: 1;
-  padding: 2px 6px; border-radius: var(--r-sm);
-}
-.tup-refresh:hover { color: var(--text-1); background: var(--bg-hover); }
-.tup-refresh:disabled { opacity: 0.5; cursor: default; }
+/* 刷新钮已迁 kit Button ghost sm（cr-215）——态样式 kit 自持 */
 .tup-body { flex: 1; min-height: 0; display: flex; }
 .tup-layout { flex-direction: column; }
 
-/* 页签条：吸顶一行，均分两格（侧栏窄宽友好） */
-.tup-tabs {
-  display: flex; flex-shrink: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-raised);
-}
-.tup-tabs button {
-  flex: 1; padding: 6px 0; border: none; background: none; cursor: pointer;
-  font-size: 12px; color: var(--text-3);
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
-}
-.tup-tabs button:hover { color: var(--text-1); }
-.tup-tabs button.active {
-  /* --acc 全仓无定义（死别名）；原运行时落 --primary 亮档值 → 取本源令牌 */
-  color: var(--primary);
-  border-bottom-color: var(--primary);
-  font-weight: 600;
-}
+/* 页签条：kit Tabs line（.tup-tabs 落 kit 根元素）——覆盖为均分两格（侧栏窄宽友好） */
+.tup-tabs { flex-shrink: 0; background: var(--bg-raised); }
+.tup-tabs :deep(.ui-tab) { flex: 1; padding: 6px 0; font-size: var(--fs-sm); text-align: center; }
 
 /* 工具行：日期筛选占满 + 覆盖提示尾随 */
 .tup-toolbar {
@@ -1341,28 +1332,9 @@ onUnmounted(() => { destroyChart(); });
 .range-head { display: flex; align-items: center; justify-content: space-between; }
 .range-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .range-dirty { font-size: 11px; color: var(--warn); }
-.range-select {
-  width: 100%; padding: 5px 8px;
-  border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: var(--bg-base); color: var(--text-1);
-  font-size: 12px; cursor: pointer;
-}
+/* 下拉/日期输入/应用按钮已迁 kit 标准件（Select/Input/Button，cr-215）——只剩布局 */
 .range-custom { display: flex; align-items: center; gap: 4px; }
-.range-date {
-  flex: 1; min-width: 0; padding: 4px 6px;
-  border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: var(--bg-base); color: var(--text-1);
-  font-size: 11px;
-}
 .range-sep { color: var(--text-3); font-size: 11px; }
-.range-apply {
-  flex-shrink: 0; padding: 4px 10px;
-  border: none; border-radius: var(--r-sm);
-  background: var(--primary); color: var(--on-primary); /* 实底前景用 --on-primary，禁写白色常量（cr-121） */
-  font-size: 11px; cursor: pointer;
-  transition: opacity var(--dur-fast);
-}
-.range-apply:disabled { opacity: 0.45; cursor: default; }
 .range-coverage { font-size: 11px; color: var(--text-3); }
 .usage-main {
   flex: 1; min-width: 0;
@@ -1399,12 +1371,11 @@ onUnmounted(() => { destroyChart(); });
   font-size: 12px; color: var(--text-3);
   margin-bottom: 6px;
 }
+/* 「包含 user/self」勾选已迁 kit Checkbox（cr-215）——只保留间距与字号档 */
 .cloud-toggle {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--text-2);
-  margin-bottom: 6px; cursor: pointer; user-select: none;
+  font-size: var(--fs-sm); color: var(--text-2);
+  margin-bottom: 6px;
 }
-.cloud-toggle input { cursor: pointer; accent-color: var(--primary); }
 .cloud-canvas-wrap { flex: 1; min-height: 0; position: relative; }
 .cloud-svg { width: 100%; height: 100%; display: block; }
 .cloud-svg :deep(.tc-chord), .cloud-svg :deep(.tc-arc) { cursor: crosshair; }
@@ -1455,11 +1426,8 @@ onUnmounted(() => { destroyChart(); });
 .uplot-host :deep(.u-cursor-x),
 .uplot-host :deep(.u-cursor-y) { display: none; }
 .uplot-host :deep(.u-select) { display: none; }
-/* x 轴日期标签：密集时斜排（等价 chart.js maxRotation 45） */
-.uplot-host :deep(.u-x .u-valu) {
-  transform-origin: top center;
-  white-space: nowrap;
-}
+/* 注：x 轴日期标签画在 canvas 上（uplot 1.6 轴刻度非 DOM）——历史 .u-x .u-valu
+   斜排样式是死代码（类名不存在），已删；密集问题由标签去前导零解决（cr-216） */
 
 /* 柱状图 external HTML tooltip：与弦图 cloud-tip 同风格卡片；两列布局，数值列右对齐 */
 .chart-tip {

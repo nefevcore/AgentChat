@@ -722,8 +722,9 @@ describe('ac-web-api group / usage / interaction 面', () => {
     const ws = await connect(h.port);
     const r = await rpc(ws, 'usage/tokens', 'r1');
     const result = r.result as Record<string, unknown>;
-    expect(Object.keys(result).sort()).toEqual(['byAgent', 'byConversation', 'byDay', 'byDayModel', 'byModel', 'byPair', 'bySelfSession', 'totals']);
+    expect(Object.keys(result).sort()).toEqual(['byAgent', 'byConversation', 'byDay', 'byDayModel', 'byDayPair', 'byModel', 'byPair', 'bySelfSession', 'totals']);
     expect(Array.isArray(result.byPair)).toBe(true);
+    expect(Array.isArray(result.byDayPair)).toBe(true); // 弦图统计范围维（cr-214）
     expect(Array.isArray(result.byDayModel)).toBe(true);
     expect(result.bySelfSession).toMatchObject({ byAgent: {}, pairPromptTotal: 0, shareOfPairs: 0 });
   });

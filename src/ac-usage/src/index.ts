@@ -9,7 +9,7 @@
 //     （promptAccumulated/completion）· cache hit/miss · react_steps
 //   · 审计流水：<root>/usage/usage-<date>.jsonl（本服务自有目录，
 //     ADR-5；append 失败尽力而为不阻塞事件链）
-//   · 查询面：内存聚合（boot 起）byAgent/byModel/byDay/byDayModel/totals
+//   · 查询面：内存聚合（boot 起）byAgent/byModel/byDay/byDayModel/byDayPair/totals
 //
 // M15 对账落地：持久聚合回读——构造期回读全部 usage-*.jsonl 重建
 // 内存聚合（src /api/usage 的"重启即恢复"语义；单机量级全量回读
@@ -77,6 +77,16 @@ export interface UsagePairAggregate extends UsageAggregate {
   b: string;
 }
 
+/** 按日 × 端点对交叉聚合（弦图统计范围数据源：by_pair 全量无日期维度，
+ *  按日分桶行级留存——范围过滤时按窗口行求和重建 by_pair，与 byDayModel
+ *  同范式） */
+export interface UsageDayPairAggregate extends UsageAggregate {
+  /** YYYY-MM-DD */
+  date: string;
+  a: string;
+  b: string;
+}
+
 function emptyAggregate(): UsageAggregate {
   return {
     runs: 0,
@@ -103,6 +113,21 @@ function mergeAggregate(acc: UsageAggregate, usage: LoopRunUsage): void {
   acc.lastCacheMiss = usage.cacheMiss ?? 0;
   acc.cacheHit += usage.cacheHit ?? 0;
   acc.cacheMiss += usage.cacheMiss ?? 0;
+  if (usage.elapsedMs != null) acc.elapsedMs = (acc.elapsedMs ?? 0) + usage.elapsedMs;
+}
+
+/** 聚合桶字段级相加（acc += usage；覆盖轨取 usage 侧）——byPair/byDayPair 查询合并单源 */
+function addAggregate(acc: UsageAggregate, usage: UsageAggregate): void {
+  acc.runs += usage.runs;
+  acc.steps += usage.steps;
+  acc.prompt += usage.prompt;
+  acc.completion += usage.completion;
+  acc.total += usage.total;
+  acc.lastContextPrompt = usage.lastContextPrompt;
+  acc.lastCacheHit = usage.lastCacheHit;
+  acc.lastCacheMiss = usage.lastCacheMiss;
+  acc.cacheHit += usage.cacheHit;
+  acc.cacheMiss += usage.cacheMiss;
   if (usage.elapsedMs != null) acc.elapsedMs = (acc.elapsedMs ?? 0) + usage.elapsedMs;
 }
 
@@ -171,6 +196,9 @@ export class UsageService extends Service {
    * 排除）。
    */
   private byAgentConvMap = new Map<string, { agent: string; conversationId: string; usage: UsageAggregate }>();
+  /** 日期 × (agent, 会话键) 行级留存（byDayPair 数据源；查询时经 classifyPair
+   *  分类合并——与 byPair 同时态分类（服务就绪后），旧迁移行不因回放时序丢维） */
+  private byDayAgentConvMap = new Map<string, { day: string; agent: string; conversationId: string; usage: UsageAggregate }>();
 
   constructor(ctx: Context, options: UsageRowOptions = {}) {
     super(ctx, 'usage');
@@ -238,6 +266,15 @@ export class UsageService extends Service {
     this.mergeAgentConv(agent, conv, usage);
     mergeAggregate(this.bucket(this.byDayMap, day), usage);
     mergeAggregate(this.bucket(this.byDayModelMap, `${day}|${model}`), usage);
+    // 日 × (agent, 会话键) 行级留存（byDayPair 数据源）——分类推迟到查询时
+    const dk = `${day}\u0000${agent}\u0000${conversationId ?? agent}`;
+    const dayRow = this.byDayAgentConvMap.get(dk);
+    if (dayRow) mergeAggregate(dayRow.usage, usage);
+    else {
+      const fresh = emptyAggregate();
+      mergeAggregate(fresh, usage);
+      this.byDayAgentConvMap.set(dk, { day, agent, conversationId: conversationId ?? agent, usage: fresh });
+    }
   }
 
   /** agent × 会话键交叉累加（同键合并） */
@@ -317,65 +354,77 @@ export class UsageService extends Service {
       .sort((a, b) => a.date.localeCompare(b.date) || a.model.localeCompare(b.model));
   }
 
+  /** 按日 × 端点对交叉聚合（弦图统计范围）：行级留存经 classifyPair 查询时
+   *  分类合并——与 byPair 同时态分类，两维口径恒一致（date 升序、total 降序快照拷贝） */
+  byDayPair(): UsageDayPairAggregate[] {
+    const merged = new Map<string, UsageDayPairAggregate>();
+    for (const { day, agent, conversationId, usage } of this.byDayAgentConvMap.values()) {
+      const pair = this.classifyPair(agent, conversationId);
+      if (!pair) continue;
+      const [a, b] = pair;
+      const key = `${day}|${a}|${b}`;
+      const acc = merged.get(key);
+      if (acc) addAggregate(acc, usage);
+      else merged.set(key, { date: day, a, b, ...usage });
+    }
+    return [...merged.values()].sort((x, y) => x.date.localeCompare(y.date) || y.total - x.total);
+  }
+
   /** 按会话聚合（M17-F 弦图数据源；byPair 的 preview 收敛） */
   byConversation(): Record<string, UsageAggregate> {
     return Object.fromEntries([...this.byConversationMap].map(([k, v]) => [k, { ...v }]));
   }
 
   /**
-   * 按端点对聚合（弦图数据源，M19 对键统一解析）：行级 (agent, conversationId)
-   * 按会话键形态分类——
+   * 会话键 → 端点对分类（byPair/byDayPair 单源，M19 对键统一解析）：
    *   · conv = 'a~b'（对桶：直答 user~x / 委托 a~b / 自会话 a~a）
    *                               → (a, b)          端点对
    *   · conv === agent            → ('user', agent)  迁移行兜底（旧 agentId 桶）
    *   · conv = 其他 agent id（迁移行：counterpart 落在 conversationId）
    *                               → (agent, conv)    agent⇄agent（历史数据）
-   *   · conv = 群 gid / 独立会话 sid → 不进 byPair（弦图是端点对视图；
+   *   · conv = 群 gid / 独立会话 sid → 不进端点对（弦图是端点对视图；
    *     群用量见 byConversation）
    * user 是普通端点（M19）——是否在弦图里显示 user 轴由视图层选择
    * （TokenUsage 的过滤是纯视图选择，非特判）。agents/group 经 ctx.get
-   * 可选解析（查询时服务已就绪；缺行 = 未知名不进 byPair，宁可少不可错挂）。
+   * 可选解析（查询时服务已就绪；缺行 = 未知名不进端点对，宁可少不可错挂）。
+   * 返回规范序 [a, b]（a ≤ b），非对桶行返回 undefined。
    */
-  byPair(): UsagePairAggregate[] {
+  private classifyPair(agent: string, conversationId: string | undefined): [string, string] | undefined {
     const agents = this.ctx.get('agents');
     const group = this.ctx.get('group');
-    const groupIds = new Set(group?.list().map((g) => g.id) ?? []);
+    let a: string | undefined;
+    let b: string | undefined;
+    if (conversationId?.includes('~')) {
+      // 对桶统一解析（M19）：user 只是端点之一，不再排除
+      const [p, q] = conversationId.split('~');
+      if (p && q) [a, b] = [p, q];
+    } else if (conversationId === agent) {
+      // 迁移行兜底：旧 agentId 桶（user⇄agent 1v1 时代的键）
+      a = 'user';
+      b = agent;
+    } else if (conversationId !== undefined && agents?.has(conversationId)) {
+      // 迁移行兜底：旧委托行（counterpart 落在 conversationId）
+      [a, b] = [agent, conversationId].sort();
+    }
+    if (a === undefined || b === undefined || a === b) return undefined;
+    if (group?.list().some((g) => g.id === a || g.id === b)) return undefined;
+    return a < b ? [a, b] : [b, a];
+  }
+
+  /**
+   * 按端点对聚合（弦图数据源）：行级 (agent, conversationId) 经 classifyPair
+   * 分类合并（分类语义单源见上；字段合并单源 addAggregate）。
+   */
+  byPair(): UsagePairAggregate[] {
     const merged = new Map<string, UsagePairAggregate>();
     for (const { agent, conversationId, usage } of this.byAgentConvMap.values()) {
-      let a: string | undefined;
-      let b: string | undefined;
-      if (conversationId.includes('~')) {
-        // 对桶统一解析（M19）：user 只是端点之一，不再排除
-        const [p, q] = conversationId.split('~');
-        if (p && q) [a, b] = [p, q];
-      } else if (conversationId === agent) {
-        // 迁移行兜底：旧 agentId 桶（user⇄agent 1v1 时代的键）
-        a = 'user';
-        b = agent;
-      } else if (agents?.has(conversationId)) {
-        // 迁移行兜底：旧委托行（counterpart 落在 conversationId）
-        [a, b] = [agent, conversationId].sort();
-      }
-      // 群 gid / 独立会话 sid / 未注册名：不进端点对
-      if (a === undefined || b === undefined || a === b) continue;
-      if (groupIds.has(a) || groupIds.has(b)) continue;
+      const pair = this.classifyPair(agent, conversationId);
+      if (!pair) continue;
+      const [a, b] = pair;
       const key = `${a}|${b}`;
       const acc = merged.get(key);
-      if (acc) {
-        acc.runs += usage.runs;
-        acc.steps += usage.steps;
-        acc.prompt += usage.prompt;
-        acc.completion += usage.completion;
-        acc.total += usage.total;
-        acc.lastContextPrompt = usage.lastContextPrompt;
-        acc.lastCacheHit = usage.lastCacheHit;
-        acc.lastCacheMiss = usage.lastCacheMiss;
-        acc.cacheHit += usage.cacheHit;
-        acc.cacheMiss += usage.cacheMiss;
-        if (usage.elapsedMs != null) acc.elapsedMs = (acc.elapsedMs ?? 0) + usage.elapsedMs;
-      } else {
-        merged.set(key, { a, b, ...usage });
-      }
+      if (acc) addAggregate(acc, usage);
+      else merged.set(key, { a, b, ...usage });
     }
     return [...merged.values()].sort((x, y) => y.total - x.total);
   }
@@ -441,7 +490,7 @@ export class UsageService extends Service {
 
 declare module '@agentchat/cordis' {
   interface Context {
-    /** 用量统计服务（ac-usage 提供）：after-run 记账 + 持久回读 + byAgent/byModel/byDay/byDayModel/totals 查询 */
+    /** 用量统计服务（ac-usage 提供）：after-run 记账 + 持久回读 + byAgent/byModel/byDay/byDayModel/byDayPair/totals 查询 */
     usage: UsageService;
   }
 }

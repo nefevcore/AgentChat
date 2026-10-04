@@ -46,6 +46,12 @@ const USAGE: PUsageResult = {
     { date: DAY_NEW, model: 'deepseek-v4-flash', prompt: 3, completion: 2, total: 5, runs: 1 },
   ],
   byConversation: { helper: { prompt: 10, completion: 5, total: 15, runs: 2 }, 'g~x': { prompt: 99, completion: 0, total: 99, runs: 9 } },
+  // 日 × 端点对交叉维（旧端点对全量 + 旧日期端点对——范围过滤重建 by_pair 用）
+  byDayPair: [
+    { date: DAY_OLD, a: 'user', b: 'helper', prompt: 4, completion: 2, total: 6, runs: 1 },
+    { date: DAY_NEW, a: 'user', b: 'helper', prompt: 10, completion: 5, total: 15, runs: 2 },
+  ],
+  byPair: [{ a: 'user', b: 'helper', prompt: 14, completion: 7, total: 21, runs: 3 }],
   totals: { prompt: 10, completion: 5, total: 15, runs: 2, steps: 3, cacheHit: 4, lastContextPrompt: 8 },
 };
 
@@ -59,7 +65,7 @@ describe('Port B：api/usage（usage/tokens 直连）', () => {
     // 旧后端（无 byPair）：byConversation 推导——helper 是名册 agent → user 弦；
     // g~x（对键）与 'sid-9'（未知名/群）跳过防错挂
     const agentIds = new Set(['helper', 'user']);
-    const legacy = toUsageSummary({ ...USAGE, byConversation: { ...USAGE.byConversation, 'sid-9': { prompt: 1, completion: 1, total: 2, runs: 1 } } }, agentIds);
+    const legacy = toUsageSummary({ ...USAGE, byPair: undefined, byConversation: { ...USAGE.byConversation, 'sid-9': { prompt: 1, completion: 1, total: 2, runs: 1 } } }, agentIds);
     expect(legacy.by_pair).toEqual([{ a: 'user', b: 'helper', total_tokens: 15, record_count: 2 }]);
     // 新后端 byPair：端点对原样消费（含 agent⇄agent）
     const withPair = toUsageSummary({
@@ -83,15 +89,20 @@ describe('Port B：api/usage（usage/tokens 直连）', () => {
     expect(s.range).toEqual({ from: DAY_OLD, to: DAY_NEW });
   });
 
-  it('日期范围过滤：by_day 行过滤 + overall 重算', () => {
+  it('日期范围过滤：by_day 行过滤 + overall 重算 + by_pair 从 by_day_pair 重建', () => {
     const base = toUsageSummary(USAGE);
     const filtered = filterUsageRange(base, { from: dayOffset(-2), to: dayOffset(0) });
     expect(filtered.by_day.map((d) => d.date)).toEqual([DAY_NEW]);
     expect(filtered.by_day_llm?.map((d) => `${d.date}|${d.llm}`).sort()).toEqual([`${DAY_NEW}|deepseek-v4-flash`, `${DAY_NEW}|glm-5.3`]);
+    // 弦图数据源随范围变化：窗口外端点对流量被剔除（cr-214 根因——by_pair 原为全量近似）
+    expect(filtered.by_pair).toEqual([{ a: 'user', b: 'helper', total_tokens: 15, record_count: 2 }]);
     expect(filtered.overall.total_prompt_tokens).toBe(10);
     expect(filtered.overall.total_records).toBe(2);
     const unfiltered = filterUsageRange(base, {});
     expect(unfiltered).toBe(base);
+    // 无 byDayPair 维（旧后端）：by_pair 保持全量近似（21），不误杀
+    const legacy = toUsageSummary({ ...USAGE, byDayPair: undefined });
+    expect(filterUsageRange(legacy, { from: dayOffset(-2), to: dayOffset(0) }).by_pair).toEqual([{ a: 'user', b: 'helper', total_tokens: 21, record_count: 3 }]);
   });
 
   it('fetchUsageTokens：usage/tokens + agents/list 聚合（名册供旧后端 fallback 判别；失败容忍）', async () => {
