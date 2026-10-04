@@ -224,12 +224,18 @@ defineExpose({
       </div>
     </div>
 
+    <!-- 定位锚与 Tooltip 分层（2026-10-04 cr-222）：kit Tooltip 根 span 是
+         position:relative（::after 提示的锚），直接包 abs 按钮会劫持其包含块
+         ——按钮漂出 wrapper 被 overflow:hidden 裁剪。锚 div 独立承担悬浮定位，
+         按钮回归文档流。 -->
     <Transition name="scroll-btn">
-      <Tooltip v-if="isUserScrolledUp" text="回到底部" placement="top">
-        <button class="scroll-to-bottom-btn" aria-label="回到底部" @click="shell.scrollToBottomAndReset">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-        </button>
-      </Tooltip>
+      <div v-if="isUserScrolledUp" class="scroll-to-bottom-anchor">
+        <Tooltip text="回到底部" placement="top">
+          <button class="scroll-to-bottom-btn" aria-label="回到底部" @click="shell.scrollToBottomAndReset">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+        </Tooltip>
+      </div>
     </Transition>
   </div>
 </template>
@@ -270,12 +276,13 @@ defineExpose({
 .empty-state-spinner { margin-bottom: 12px; }
 .history-loading-text { user-select: none; }
 
+/* 悬浮定位归锚（cr-222）：inset/z-index 在锚上，按钮回归文档流外观件 */
+.scroll-to-bottom-anchor { position: absolute; bottom: 12px; right: 16px; z-index: 50; }
 .scroll-to-bottom-btn {
-  position: absolute; bottom: 12px; right: 16px;
   width: 40px; height: 40px; border: 1px solid var(--line-strong);
   border-radius: 50%; background: var(--bg-base); color: var(--text-2);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
-  box-shadow: var(--shadow-pop); z-index: 50; padding: 0;
+  box-shadow: var(--shadow-pop); padding: 0;
   transition: box-shadow 0.2s, transform 0.2s, background 0.2s;
 }
 .scroll-to-bottom-btn:hover { transform: translateY(-1px); background: var(--bg-surface); }
@@ -285,6 +292,6 @@ defineExpose({
 
 @media (max-width: 768px) {
   .messages-container { padding: var(--space-sm); }
-  .scroll-to-bottom-btn { right: 12px; bottom: 12px; }
+  .scroll-to-bottom-anchor { right: 12px; bottom: 12px; }
 }
 </style>
