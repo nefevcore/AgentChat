@@ -12,7 +12,7 @@
 //   · 底注：触发语义一句话说明。
 // ============================================================
 import { computed, ref, watch } from 'vue';
-import { Button, Icon, Tooltip } from '@agentchat/webui-kit';
+import { Button, Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { getAgentTimers, saveAgentTimers, type TimerEntry } from './timerApi.ts';
@@ -72,9 +72,8 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
         <div class="tmp-section-title">
           <span class="tmp-section-label">Agent 定时器</span>
           <span class="tmp-section-sub">{{ agentName ? agentName : '未选中 Agent' }}</span>
-          <Tooltip text="添加 Agent 定时任务" placement="top">
-            <button class="tmp-add" aria-label="添加 Agent 定时任务" :disabled="!agentId" @click="timerPaneRef?.addTimer()"><Icon name="plus" :size="13" /></button>
-          </Tooltip>
+          <!-- cr-226：原生 title——Tooltip ::after 溢出会撑宽滚动容器（tmp-body）且被其裁剪 -->
+          <button class="tmp-add" title="添加 Agent 定时任务" aria-label="添加 Agent 定时任务" :disabled="!agentId" @click="timerPaneRef?.addTimer()"><Icon name="plus" :size="13" /></button>
         </div>
         <TimerPane v-if="agentId" ref="timerPaneRef" :entries="timers" :saving="saving" hide-header @update:entries="onTimersUpdate" @save="save" />
         <div v-else class="tmp-empty">在主侧边栏选择一个 Agent 查看其定时器</div>
@@ -85,9 +84,7 @@ const enabledCount = computed(() => timers.value.filter(t => t.enabled !== false
         <div class="tmp-section-title">
           <span class="tmp-section-label">全局任务</span>
           <span class="tmp-section-sub">跨 Agent</span>
-          <Tooltip text="添加全局定时任务" placement="top">
-            <button class="tmp-add" aria-label="添加全局定时任务" @click="globalHostRef?.startAddTask()"><Icon name="plus" :size="13" /></button>
-          </Tooltip>
+          <button class="tmp-add" title="添加全局定时任务" aria-label="添加全局定时任务" @click="globalHostRef?.startAddTask()"><Icon name="plus" :size="13" /></button>
         </div>
         <GlobalTimerHost ref="globalHostRef" />
       </div>

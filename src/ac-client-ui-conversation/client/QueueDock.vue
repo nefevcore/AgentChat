@@ -6,10 +6,13 @@
   （180px 上限滚动；队列清空后下次出现恢复收起）。
   cr-186：外壳终迁 kit DockCard（原自建壳/表头退役——dock 卡族六卡同壳）。
   行 = 单行预览 + 立即发送（插话，仅运行中可用——转移到活跃 run 下一步）
-  + 删除。输入框没有插话按钮，"着急立即发送"的唯一点击位在这里（DSH 同款）。 -->
+  + 删除。输入框没有插话按钮，"着急立即发送"的唯一点击位在这里（DSH 同款）。
+  cr-226：行内动作提示用原生 title（原 Tooltip ::after 绝对定位 + nowrap，隐藏态
+  也占 .queue-list 横向滚动范围——未满也出横向滚动条；显示态还会被滚动容器
+  顶/右裁剪。原生提示浮于顶层无此患，IconAction 同款 title+aria-label 双通道）。 -->
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { DockCard, Icon, Tooltip } from '@agentchat/webui-kit';
+import { DockCard, Icon } from '@agentchat/webui-kit';
 import type { QueuedMessage } from './useQueuedMessages.ts';
 
 const props = defineProps<{
@@ -46,27 +49,25 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
         <span v-if="items.length === 1" class="queue-lead" aria-hidden="true"><Icon name="clock" :size="14" /></span>
         <span class="queue-preview" :title="q.preview">{{ q.preview || '（空消息）' }}</span>
         <span class="queue-actions">
-          <Tooltip :text="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'" placement="top">
-            <button
-              type="button"
-              class="queue-act steer"
-              :disabled="!busy"
-              :aria-label="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'"
-              @click="onSteer(q)"
-            >
-              <Icon name="zap" :size="13" />
-            </button>
-          </Tooltip>
-          <Tooltip text="删除排队消息" placement="top">
-            <button
-              type="button"
-              class="queue-act"
-              aria-label="删除排队消息"
-              @click="onRemove(q.id)"
-            >
-              <Icon name="x" :size="13" />
-            </button>
-          </Tooltip>
+          <button
+            type="button"
+            class="queue-act steer"
+            :disabled="!busy"
+            :title="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'"
+            :aria-label="busy ? '立即发送：插入当前运行（下一步生效）' : '仅运行中可立即发送'"
+            @click="onSteer(q)"
+          >
+            <Icon name="zap" :size="13" />
+          </button>
+          <button
+            type="button"
+            class="queue-act"
+            title="删除排队消息"
+            aria-label="删除排队消息"
+            @click="onRemove(q.id)"
+          >
+            <Icon name="x" :size="13" />
+          </button>
         </span>
       </div>
     </div>

@@ -20,7 +20,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { updateGroup, deleteGroup } from './groupApi.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
-import { Avatar, Button, ConfirmBody, Icon, Modal, Tooltip } from '@agentchat/webui-kit';
+import { Avatar, Button, ConfirmBody, Icon, Modal } from '@agentchat/webui-kit';
 
 const roster = useRosterCore();
 const ui = useUiStore();
@@ -180,11 +180,10 @@ async function saveGroupInfo() {
   <div v-if="group" class="drawer-panel" :style="ui.auxPaneStyle" @click.stop>
       <div class="drawer-head">
         <span class="drawer-head-title">群聊信息</span>
-        <Tooltip text="收起面板" placement="bottom">
-          <button class="drawer-close-btn" aria-label="收起面板" @click="closePanel">
-            <Icon name="x" :size="15" />
-          </button>
-        </Tooltip>
+        <!-- cr-226：原生 title——Tooltip ::after 溢出会撑宽滚动容器（drawer-panel）且被其裁剪 -->
+        <button class="drawer-close-btn" title="收起面板" aria-label="收起面板" @click="closePanel">
+          <Icon name="x" :size="15" />
+        </button>
       </div>
       <div class="drawer-section">
         <div class="drawer-section-title">群成员 ({{ group.participants.length }})</div>
@@ -199,9 +198,8 @@ async function saveGroupInfo() {
               <span v-if="m.isViewer" class="member-me">我</span>
             </div>
             <span class="member-name" :title="m.name">{{ m.name }}</span>
-            <Tooltip v-if="m.canViewStream" text="查看该成员的私有会话流（推理/工具/发言回放）" placement="top">
-              <button class="member-stream-btn" aria-label="查看该成员的私有会话流（推理/工具/发言回放）" @click.stop="openMemberStream(m.id, m.name)">会话</button>
-            </Tooltip>
+            <!-- cr-226：原生 title——Tooltip ::after 溢出会撑宽滚动容器（drawer-member-list）且被其裁剪 -->
+            <button v-if="m.canViewStream" class="member-stream-btn" title="查看该成员的私有会话流（推理/工具/发言回放）" aria-label="查看该成员的私有会话流（推理/工具/发言回放）" @click.stop="openMemberStream(m.id, m.name)">会话</button>
           </div>
           <div v-if="memberItems.length === 0" class="drawer-empty">未找到匹配的成员</div>
         </div>

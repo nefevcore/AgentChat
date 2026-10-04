@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue';
 import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
 import type { AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Button, Checkbox, FieldRow, Icon, IconAction, Input, PasswordInput, Select, StatusDot, Tabs, Textarea, Tooltip } from '@agentchat/webui-kit';
+import { Button, Checkbox, FieldRow, Icon, IconAction, Input, PasswordInput, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
@@ -664,9 +664,8 @@ async function removeAvatar() {
               <span class="avatar-hint">点击更换</span>
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden @change="onAvatarFile" />
             </label>
-            <Tooltip v-if="avatarPreview && !avatarFailed && !avatarUploading" text="移除头像" placement="top">
-              <button class="avatar-remove-x" aria-label="移除头像" @click="removeAvatar"><Icon name="x" :size="11" /></button>
-            </Tooltip>
+            <!-- cr-226：原生 title——Tooltip ::after 溢出会撑宽滚动容器（agent-tab-body）且被其裁剪 -->
+            <button v-if="avatarPreview && !avatarFailed && !avatarUploading" class="avatar-remove-x" title="移除头像" aria-label="移除头像" @click="removeAvatar"><Icon name="x" :size="11" /></button>
           </div>
           <div class="identity-fields">
             <Input :model-value="raw.name ?? effective.name ?? ''" placeholder="输入 Agent 昵称" @update:model-value="emit('update:raw', { ...raw, name: $event })" />
@@ -774,9 +773,9 @@ async function removeAvatar() {
                 <Select :options="effortOptions" :model-value="effortSelectValue" @update:model-value="setLLM('reasoning_effort', $event)" />
               </div>
               <SettingField v-else :field="f" :model-value="getLLM(f.key)" @update:model-value="setLLM(f.key, $event)" />
-              <Tooltip v-if="isLlmOverridden(f.key)" text="恢复为继承（删除本 Agent 覆盖，回退连接默认）" placement="top">
-                <IconAction icon="rotate-ccw" label="恢复为继承（删除本 Agent 覆盖，回退连接默认）" suppress-title @click="revertLlmToInherit(f.key)" />
-              </Tooltip>
+              <!-- cr-226：原生 title——Tooltip ::after 溢出会撑宽滚动容器（agent-tab-body）且被其裁剪；
+                   IconAction 去 suppress-title 让其自带 title 生效（Kit IconAction 本就是 title+aria 双通道） -->
+              <IconAction v-if="isLlmOverridden(f.key)" icon="rotate-ccw" label="恢复为继承（删除本 Agent 覆盖，回退连接默认）" @click="revertLlmToInherit(f.key)" />
             </div>
           </FieldRow>
           <!-- 模型行脚注（kit FieldRow 无脚注位；长文本独立于字段行下方） -->

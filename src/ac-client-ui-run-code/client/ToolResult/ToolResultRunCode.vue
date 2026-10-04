@@ -11,7 +11,7 @@
 import { computed, ref, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
-import { Icon, Tooltip } from '@agentchat/webui-kit';
+import { Icon } from '@agentchat/webui-kit';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; toolName?: string; loading?: boolean }>();
@@ -140,8 +140,8 @@ async function copyCode() {
           <span class="rc-meta-dim">{{ lineCount }} 行</span>
           <span v-if="programHash" class="rc-meta-dim rc-hash" :title="`程序体哈希 ${programHash}（全文在宿主日志按哈希回捞）`">#{{ programHash }}</span>
         </span>
-        <Tooltip :text="copyState === 'copied' ? '已复制' : '复制程序全文'" placement="bottom">
-          <button class="rc-copy-btn" :class="{ copied: copyState === 'copied' }" :aria-label="copyState === 'copied' ? '已复制' : '复制程序全文'" @click="copyCode">
+        <!-- cr-226：原生 title——Tooltip ::after 会超出 .rc-section（overflow:hidden）右缘被裁剪 -->
+        <button class="rc-copy-btn" :class="{ copied: copyState === 'copied' }" :title="copyState === 'copied' ? '已复制' : '复制程序全文'" :aria-label="copyState === 'copied' ? '已复制' : '复制程序全文'" @click="copyCode">
             <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
             </svg>
@@ -149,8 +149,7 @@ async function copyCode() {
               <polyline points="20 6 9 17 4 12"/>
             </svg>
             <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
-          </button>
-        </Tooltip>
+        </button>
       </div>
       <ScrollableViewport class="rc-viewport">
         <div class="rc-code-body" v-html="renderedCode" />
