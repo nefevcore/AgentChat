@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-227**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-228**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -245,3 +245,4 @@
 - 【cr-225 2026-10-04 ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.11.0 → 0.12.0（纯引擎换代零适配改动；插件本体发版在独立仓库，本仓不动主项目版本）】
 - 【cr-226 2026-10-04 QueueDock 行内动作提示改原生 title——修 queue-list 未满也出横向滚动条（Tooltip ::after 绝对定位 nowrap，隐藏态仍占滚动范围且显示态被滚动容器裁剪）】
 - 【cr-227 2026-10-04 cr-218 补洞：owner kill 唤醒过滤改按 killedBy 判定、不依赖终态字面——Windows taskkill /F 下进程 exit code 1 无 signal，producer done 报 completed 而非 killed，字面过滤漏网（实测 pwsh-2 kill 后 0.85s 注入完成通知）；killedBy=owner 且 settle 非 failed 一律跳过，failed（kill 未遂）照投】
+- 【cr-228 2026-10-04 cr-226 扩散排查：全仓审计 Tooltip 嵌滚动/裁剪祖先——AgentPane/TimersPanel/GroupDrawer/ToolResultRunCode 四处同因改原生 title；kit Tooltip.vue 头注释加布局约束防复发】

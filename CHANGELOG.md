@@ -6,6 +6,10 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.11.0 → 0.12.0，cr-225）
+- **依赖**：`ac-sap-adt` 的 `@nefevcore/abap-adt-core` `^0.11.0` → `^0.12.0`（0.x 下 `^` 不跨 minor，需显式改 specifier）；`pnpm-workspace.yaml` 供应链豁免三行（core/mock/protocol）追加 `0.12.0`；lock 同步为 registry 条目。
+- 纯引擎换代零适配改动：typecheck + check:deps + 域 20 测试 + reserved 占名对账 2 例全绿（工具面 32 个不变）。插件本体（独立仓库）已同步发版。
+
 ### Fixed（Token 用量柱状图四修：堆叠实装 + 轴刻度/间距 + 顶部圆角，cr-217）
 - **堆叠从未生效（根因取证：canvas 像素采样）**：`barPaths` 各段画的是 0→累计值的完整矩形，而 uplot 序列绘制序 = 数组正序——后画序列把先画序列整段盖掉，双图（按消耗/按模型）实际只显示末段单色柱。修法：每段画自己的区间 [prevCum, cum]（新增 cumPrev 矩阵），零值段跳过。
 - **重复日期（近 7 日实发）**：类目少时 uplot 生成 0.5 步长小数刻度，`Math.round` 后相邻刻度撞同一类目索引 → 同一日期连显两次。修法：values 里非整数刻度置空。
