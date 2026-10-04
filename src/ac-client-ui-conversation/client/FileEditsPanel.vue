@@ -801,12 +801,14 @@ export default { name: 'FileEditsPanel' };
 /* 行底色铺满三列（cr-93 统一——符号/行号列不再独立加深/减弱，去割裂） */
 /* 正文回归码色（cr-141·方案 B）：语义由行底 tint + 符号列承载，
    正文用 code-text——大段红绿文字是色噪，且 nebula err 正文 4.25 破 4.5 线。
-   符号列墨与行底 tint 同用文字档（cr-146 口径：tint 底构图墨底同源——
-   err on 自身 tint 4.93 / ok 4.99，双主题 4.25+ 全过 3.0 图形线） */
-.fe-add { background: rgba(var(--ok-rgb), 0.13); }
+   符号列墨与行底 tint 同用文字档（cr-146 口径：tint 底构图墨底同源）。
+   cr-224 提档：用户反馈行底偏淡——α 统一 0.18（ok 4.64 / err 4.57 on
+   Aurora tint，4.5 线安全上限；Nebula 符号墨 4.94/3.99 走 3.0 图形线档，
+   正文对比度 10.4 / 7.0 仍宽裕） */
+.fe-add { background: rgba(var(--ok-rgb), 0.18); }
 .fe-add .fe-diff-sign { color: var(--ok); }
 .fe-add .fe-diff-text { color: var(--code-text); }
-.fe-del { background: rgba(var(--err-rgb), 0.14); }
+.fe-del { background: rgba(var(--err-rgb), 0.18); }
 .fe-del .fe-diff-sign { color: var(--err); }
 .fe-del .fe-diff-text { color: var(--code-text); }
 .fe-ctx .fe-diff-text { color: var(--text-1); }
