@@ -23,7 +23,8 @@ declare module '@agentchat/cordis' {
      * 任务终态通知（settle 后触发一轮；first-wins 保证一个任务只发一次）。
      * @mode emit
      * @scope host
-     * 载荷 = 任务终态快照（id/kind/status/detail/ownerAgentId）。
+     * 载荷 = 任务终态快照（id/kind/status/detail/ownerAgentId/killedBy——
+     * 后者仅 kill 路径携带，订阅方据此裁剪 owner 自杀通知，cr-218）。
      * 谁该订阅：宿主接线（触发 Agent 干活 = sender:'event' 信封投递）、
      * WS 广播、审计。替代 src onJobDone 私有 listener 数组。
      */

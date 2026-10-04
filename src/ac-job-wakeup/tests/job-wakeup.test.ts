@@ -113,6 +113,24 @@ function settleNow(ctx: Context, ownerAgentId?: string, conversationId?: string)
   });
 }
 
+/** 手动收束任务（kill 用例）：done 的 resolve 由测试掌控 */
+function manualJob(ctx: Context, ownerAgentId?: string): {
+  id: string;
+  settle: (o: { status: 'completed' | 'killed' | 'failed'; detail?: string }) => void;
+} {
+  let settle!: (o: { status: 'completed' | 'killed' | 'failed'; detail?: string }) => void;
+  const done = new Promise<{ status: 'completed' | 'killed' | 'failed'; detail?: string }>((resolve) => {
+    settle = resolve;
+  });
+  const id = ctx.jobs.start({
+    kind: 'bash',
+    label: 'manual',
+    ...(ownerAgentId ? { ownerAgentId } : {}),
+    run: () => ({ cancel: () => {}, done }),
+  });
+  return { id, settle };
+}
+
 describe('ac-job-wakeup', () => {
   it('有 owner 的任务 settle → deliver(source:event，自会话桶) 通知 owner；无 owner 跳过', async () => {
     const { ctx } = await boot();
@@ -157,6 +175,30 @@ describe('ac-job-wakeup', () => {
     expect(delivered.find((d) => d.conversationId === 'sub_1_a~sub_1_a')).toBeUndefined();
     expect(delivered.find((d) => d.conversationId === 'admin~user')).toBeDefined();
     expect(delivered.find((d) => d.conversationId === 'a~a')).toBeDefined();
+  });
+
+  it('owner 自杀不通知（cr-218）：job 工具 kill settle killed 后跳过；外部 kill / kill 失败照投', async () => {
+    const { ctx } = await boot();
+    // owner 自杀：owner 本人 kill → settle killed → 不投
+    const self = manualJob(ctx, 'a');
+    ctx.jobs.kill(self.id, 'a');
+    self.settle({ status: 'killed', detail: 'signal: SIGKILL' });
+    // 外部终止：宿主全权 kill（不传 owner）→ settle killed → 照投
+    const ext = manualJob(ctx, 'b');
+    ctx.jobs.kill(ext.id);
+    ext.settle({ status: 'killed', detail: 'signal: SIGKILL' });
+    // kill 失败：settle failed → 照投（意外事件，不在过滤面）
+    const fail = manualJob(ctx, 'c');
+    ctx.jobs.kill(fail.id, 'c');
+    fail.settle({ status: 'failed', detail: 'cancel threw: boom' });
+    // 自然完成照投（对照组）
+    settleNow(ctx, 'd');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(delivered).toHaveLength(3); // b（外部终止）+ c（失败）+ d（完成）；a 无投递
+    expect(delivered.find((d) => d.agent === 'a')).toBeUndefined();
+    expect(delivered.find((d) => d.agent === 'b')?.message).toContain('已终止');
+    expect(delivered.find((d) => d.agent === 'c')?.message).toContain('失败');
+    expect(delivered.find((d) => d.agent === 'd')?.message).toContain('完成');
   });
 
   it('卸载 wakeup 行 → 不再唤醒（订阅即归属）', async () => {

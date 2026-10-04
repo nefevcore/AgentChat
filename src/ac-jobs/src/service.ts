@@ -115,6 +115,9 @@ export class JobsService extends Service {
   /**
    * 按 id 请求取消（仅已登记 id）：置 stopping + 调 producer.cancel；
    * 真正的 killed/completed 由 done promise 回写。已终态 → already-finished。
+   * killedBy（cr-218）：caller = owner 本人（job 工具分桶断言）记 'owner'，
+   * 宿主全权视角（不传 owner）记 'external'——唤醒行据此裁剪 owner 自杀
+   * 通知；kill 失败（settle 为 failed）是意外事件，照常通知。
    */
   kill(
     id: string,
@@ -125,6 +128,7 @@ export class JobsService extends Service {
     if (isTerminal(job.status)) {
       return { outcome: 'already-finished', job: this.snapshot(job) };
     }
+    job.killedBy = job.ownerAgentId !== undefined && ownerAgentId === job.ownerAgentId ? 'owner' : 'external';
     job.status = 'stopping';
     try {
       // C1：producer.cancel 可返回 Promise（如进程树 kill）——rejection
@@ -170,6 +174,7 @@ export class JobsService extends Service {
       kind: job.kind,
       label: job.label,
       status: job.status,
+      ...(job.killedBy !== undefined ? { killedBy: job.killedBy } : {}),
       ...(job.ownerAgentId !== undefined ? { ownerAgentId: job.ownerAgentId } : {}),
       ...(job.conversationId !== undefined ? { conversationId: job.conversationId } : {}),
       ...(job.detail !== undefined ? { detail: job.detail } : {}),

@@ -230,4 +230,10 @@
 - 【cr-210 2026-10-04 全量按钮 tooltip 迁 kit Tooltip：kit Tooltip 补 align=start 边缘对齐（左缘场景防溢出）；布局族/会话族/消息族/工具结果族/面板族按钮类原生 title 批量迁移（截断与信息提示类保留原生 title）】
 - 【cr-211 2026-10-04 活动栏 CSS 气泡被侧边栏层叠遮挡复盘（cr-210 回退面）：kit Tooltip 非 Teleport，z-index 700 困在活动栏祖先 stacking context（aux 栏自带 z-index:10）与 overflow 裁剪链内——两活动栏按钮移除 tooltip 包裹（aria-label 保留），ResizeHandle 恢复原生 title】
 - 【cr-212 2026-10-04 弹层菜单触发钮 tooltip 复盘（cr-210 修正面）：点击带出下拉菜单后 CSS 气泡不消失与菜单同屏重叠——此类触发钮去 tooltip（AgentList 新建/两处更多操作/SessionList ws-act 更多/ActivityBar more 原生 title）；SessionList 新建钮被 Tooltip inline-flex 包裹致 width:100% 失效——去包裹复原占满】
+- 【cr-213 2026-10-04 会话清单新增按钮「点击无反应」排查：createSession carryEmpty 分支 RPC 失败无 catch（unhandled rejection 静默）——补 catch + toastError 错误可见化；复用既有空白会话时无感切换确认为主区切换正常（浏览器实测场景复现数据链）】
+- 【cr-214 2026-10-04 usage 弦图统计范围修复：byPair 增日×端点对交叉维 byDayPair，usageApi 范围过滤后重建 by_pair（切时间段弦图不重绘的根因 = by_pair 无日期维度，cloudKey 守卫判定数据未变）】
+- 【cr-215 2026-10-04 TokenUsage 面板控件 kit 化：日期范围下拉/日期输入/应用按钮/包含 user 复选框/panel 刷新钮与页签条迁 webui-kit 标准件（Select/Input/Button/Checkbox/Tabs），清理自建配方】
+- 【cr-216 2026-10-04 TokenUsage 面板两修：①formatNumber 加 B 档（8282.3M → 8.28B，十亿量级可读）②用量统计柱状图 x 轴日期标签补齐斜排实现（样式段注释自称斜排但 rotate 从未存在——34 天标签窄容器叠压成日期错乱观感）+ uplot 轴空间参数（size/gap）适配】
+- 【cr-217 2026-10-04 TokenUsage 柱状图四修：①类目轴滤非整数刻度（7 天 0.5 步长 round 撞索引致日期重复）②轴标签与柱底留隙（gap 0→4）③堆叠柱整体顶部圆角 ④堆叠实装——barPaths 各段改画 prev..cum 区间（原 0..cum 全覆盖致后序列盖掉先序列，双图从未真正堆叠）+ 第二图 tooltip 修正（恒读主图 rawSeries 的根因）】
+- 【cr-218 2026-10-04 job kill 终态通知按发起方裁剪：owner 自杀（job 工具 kill）不再注入会话通知，外部终止（webui jobs/kill）与 kill 失败照投——killedBy 随 JobSnapshot/settled 快照携带】
 - 【cr-219 2026-10-04 singles 启动上架同步改批量核验：每工作区一次 readdir+标记 stat 替代逐会话 setShelf 幂等重放（516 会话 ≈ 千次 existsSync）；计数改真实迁移数（旧口径幂等命中也全量虚报）】

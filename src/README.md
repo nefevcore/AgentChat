@@ -639,7 +639,7 @@ src/
 ├── ac-usage/                用量统计（ctx.usage）：after-run 双轨记账（覆盖 = 当次
 │                            上下文/累加 = 总用量 + cache + steps + elapsedMs API
 │                            计时〔token/s 速率分母，不含工具/编排〕）→ 多维查询
-│                            （byAgent/byModel/byDay/byDayModel/byConversation/byPair）
+│                            （byAgent/byModel/byDay/byDayModel/byConversation/byPair/byDayPair）
 │                            + 日 jsonl 审计流水 + boot 回读重建
 ├── ac-archive/              归档编排（ctx.archive）：after-run 阈值检测 → 同桶整理
 │                            run（Agent 亲写概要；meta 标记三处不落盘；maxSteps 128
@@ -662,7 +662,8 @@ src/
 │                            纯模块 native-dialog：win32 IFileDialog/darwin
 │                            osascript/linux zenity→kdialog，10 分钟超时兜底）
 ├── ac-job-wakeup/           job/settled → deliver(source:'event') 通知 owner（与
-│                            ws-bridge 同事件两订阅方）
+│                            ws-bridge 同事件两订阅方；owner 自杀〔killedBy=
+│                            'owner'〕跳过通知 cr-218，外部终止照投）
 │ ── 传输与可视化（核心域零 UI 知识）────────────────────────────
 ├── ac-web-server/           传输基座（ctx.webServer）：HTTP 路由注册中心 + WS 广播/
 │                            心跳 + rpc/call 显式分发表 + requestId 幂等去重 +

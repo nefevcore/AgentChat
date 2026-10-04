@@ -55,6 +55,13 @@ export interface JobSnapshot {
   kind: string;
   label: string;
   status: JobStatus;
+  /**
+   * 终止发起方（cr-218）：'owner' = owner 本人经 job 工具 kill；
+   * 'external' = 宿主全权视角（webui jobs/kill 等）。仅 kill 路径记录，
+   * 自然终态缺省——唤醒行据此裁剪 owner 自杀通知（接收者即制造者，
+   * kill 回执已在 tool result）。
+   */
+  killedBy?: 'owner' | 'external';
   /** 归属 Agent id（owner 分桶键；无主任务缺省） */
   ownerAgentId?: string;
   /** 发起会话键（完成通知回投目标；缺省 = 未记录，唤醒行回退 owner 自会话桶） */

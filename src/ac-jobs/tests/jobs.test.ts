@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as jobsRow from '../src/index.ts';
+import type { JobSnapshot } from '../src/contract.ts';
 
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
 
@@ -138,6 +139,27 @@ describe('ac-jobs 注册表', () => {
     const res2 = ctx.jobs.kill(id);
     expect(res2.outcome).toBe('already-finished');
     expect(ctx.jobs.get(id).status).toBe('killed');
+  });
+
+  it('killedBy（cr-218）：owner 本人 kill 记 owner；宿主全权 kill 记 external；自然终态缺省', async () => {
+    const { ctx } = await boot();
+    const settled: JobSnapshot[] = [];
+    ctx.on('job/settled', (job) => settled.push(job));
+    const a = manualHooks();
+    const idA = ctx.jobs.start({ kind: 'bash', label: 'x', ownerAgentId: 'agent-a', run: () => a.hooks });
+    const b = manualHooks();
+    const idB = ctx.jobs.start({ kind: 'bash', label: 'y', ownerAgentId: 'agent-a', run: () => b.hooks });
+    const c = manualHooks();
+    const idC = ctx.jobs.start({ kind: 'bash', label: 'z', ownerAgentId: 'agent-a', run: () => c.hooks });
+    ctx.jobs.kill(idA, 'agent-a'); // owner 自杀（job 工具路径）
+    ctx.jobs.kill(idB); // 宿主全权（webui jobs/kill 路径）
+    a.settle({ status: 'killed' });
+    b.settle({ status: 'killed' });
+    c.settle({ status: 'completed' }); // 自然终态
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled.find((j) => j.id === idA)).toMatchObject({ killedBy: 'owner' });
+    expect(settled.find((j) => j.id === idB)).toMatchObject({ killedBy: 'external' });
+    expect(settled.find((j) => j.id === idC)?.killedBy).toBeUndefined();
   });
 
   it('kill cancel 抛错 → 收敛为 failed；done reject → failed', async () => {

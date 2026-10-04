@@ -23,6 +23,11 @@
 // 与 ac-ws-bridge 的分工：那是 WS 广播通道（前端通知），本行是
 // Agent 唤醒通道（对话闭环）——同事件两个订阅方，互不依赖。
 //
+// owner 自杀不通知（cr-218）：job 工具 kill 的任务（killedBy='owner'）
+// settle 为 killed 时跳过投递——接收者就是制造者，kill 回执已在 tool
+// result；外部终止（webui jobs/kill，killedBy='external'）与 kill 失败
+// （settle failed）是 Agent 不可预期的外部事件，照常投。
+//
 // 子 Agent owner 不唤醒（cr-132）：sub_* 的 job（run 内 pwsh handoff
 // 等）收束时不再向 owner 自会话桶投通知——该桶无人工审批面，唤醒的
 // run 以 base-access fail-closed 起跑（pwsh/write 全拒，webui 批次实测
@@ -61,7 +66,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'job-wakeup',
   label: '任务完成唤醒',
-  description: '后台任务完成唤醒行（job/settled → 回投源会话通知；同会话 5s 窗口内合并为 digest）',
+  description: '后台任务完成唤醒行（job/settled → 回投源会话通知；owner 自杀跳过；同会话 5s 窗口内合并为 digest）',
   automatic: true,
 };
 
@@ -96,6 +101,8 @@ export function apply(ctx: Context) {
   ctx.on('job/settled', (job) => {
     const owner = job.ownerAgentId;
     if (!owner) return; // 无主任务（宿主发起）无人可唤醒
+    // owner 自杀不通知（cr-218，头部注释）
+    if (job.status === 'killed' && job.killedBy === 'owner') return;
     // 子 Agent owner 不唤醒（cr-132，头部注释）：回投自会话只会得到
     // base-access 的失能 run。job.conversationId 显式携带（发起会话）时
     // 照常投——那是任务发起地的回执，不是自会话唤醒。
