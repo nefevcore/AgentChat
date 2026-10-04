@@ -57,9 +57,11 @@ export interface JobSnapshot {
   status: JobStatus;
   /**
    * 终止发起方（cr-218）：'owner' = owner 本人经 job 工具 kill；
-   * 'external' = 宿主全权视角（webui jobs/kill 等）。仅 kill 路径记录，
-   * 自然终态缺省——唤醒行据此裁剪 owner 自杀通知（接收者即制造者，
-   * kill 回执已在 tool result）。
+   * 'external' = 宿主全权视角（webui jobs/kill 等）。仅 kill 请求路径
+   * 记录，settle 时保留（producer 可能把 kill 映射为 completed——如
+   * Windows taskkill 的 exit code 1，终态字面不含归属），自然终态缺省
+   * ——唤醒行据此裁剪 owner 自杀通知（接收者即制造者，kill 回执已在
+   * tool result）。
    */
   killedBy?: 'owner' | 'external';
   /** 归属 Agent id（owner 分桶键；无主任务缺省） */

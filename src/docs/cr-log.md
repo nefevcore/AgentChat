@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-223**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-227**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -241,3 +241,7 @@
 - 【cr-221 2026-10-04 Tooltip 鼠标点击后 focus-within 致弹层驻留：显示条件改 :has(:focus-visible)（键盘可达保留、鼠标点击聚焦不再常显）】
 - 【cr-222 2026-10-04 修复消息区回到底部按钮消失：TranscriptList 按钮被 kit Tooltip 根 span（position:relative）改写包含块后漂出 wrapper 被 overflow:hidden 裁剪（4dc8ad64 控件库重构批次引入，z-index 无辜）；悬浮定位上移独立锚 div，按钮回归文档流】
 - 【cr-223 2026-10-04 v2.html 预览页退役（被 webui-gallery.html 取代）：build-webui-preview.mjs 与 preview-kit-sync.test.ts 收窄为 gallery 单页注入，src/docs/webui/ 目录随文件删除】
+- 【cr-224 2026-10-04 diff 行底 tint 提档（fe-add 0.13→0.18 / fe-del 0.14→0.18）：用户反馈增删行底色偏淡——α 提至 Aurora 符号墨 4.5 线安全上限（ok 4.64 / err 4.57），双主题过目，正文对比度 10.4/7.0 仍宽裕】
+- 【cr-225 2026-10-04 ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.11.0 → 0.12.0（纯引擎换代零适配改动；插件本体发版在独立仓库，本仓不动主项目版本）】
+- 【cr-226 2026-10-04 QueueDock 行内动作提示改原生 title——修 queue-list 未满也出横向滚动条（Tooltip ::after 绝对定位 nowrap，隐藏态仍占滚动范围且显示态被滚动容器裁剪）】
+- 【cr-227 2026-10-04 cr-218 补洞：owner kill 唤醒过滤改按 killedBy 判定、不依赖终态字面——Windows taskkill /F 下进程 exit code 1 无 signal，producer done 报 completed 而非 killed，字面过滤漏网（实测 pwsh-2 kill 后 0.85s 注入完成通知）；killedBy=owner 且 settle 非 failed 一律跳过，failed（kill 未遂）照投】

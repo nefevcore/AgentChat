@@ -23,10 +23,13 @@
 // 与 ac-ws-bridge 的分工：那是 WS 广播通道（前端通知），本行是
 // Agent 唤醒通道（对话闭环）——同事件两个订阅方，互不依赖。
 //
-// owner 自杀不通知（cr-218）：job 工具 kill 的任务（killedBy='owner'）
-// settle 为 killed 时跳过投递——接收者就是制造者，kill 回执已在 tool
-// result；外部终止（webui jobs/kill，killedBy='external'）与 kill 失败
-// （settle failed）是 Agent 不可预期的外部事件，照常投。
+// owner 自杀不通知（cr-218；cr-227 补洞）：job 工具 kill 的任务
+// （killedBy='owner'）settle 非 failed 一律跳过——接收者就是制造者，
+// kill 回执已在 tool result。判据用 killedBy 而非终态字面：producer
+// 对 kill 的状态映射有损（Windows taskkill /F = exit code 1 无 signal
+// → executor 报 completed 而非 killed，字面过滤曾漏网）。外部终止
+// （webui jobs/kill，killedBy='external'）与 kill 未遂（settle failed）
+// 是 Agent 不可预期的外部事件，照常投。
 //
 // 子 Agent owner 不唤醒（cr-132）：sub_* 的 job（run 内 pwsh handoff
 // 等）收束时不再向 owner 自会话桶投通知——该桶无人工审批面，唤醒的
@@ -101,8 +104,8 @@ export function apply(ctx: Context) {
   ctx.on('job/settled', (job) => {
     const owner = job.ownerAgentId;
     if (!owner) return; // 无主任务（宿主发起）无人可唤醒
-    // owner 自杀不通知（cr-218，头部注释）
-    if (job.status === 'killed' && job.killedBy === 'owner') return;
+    // owner 自杀不通知（cr-218/227，头部注释）——按 killedBy 判，不依赖终态字面
+    if (job.killedBy === 'owner' && job.status !== 'failed') return;
     // 子 Agent owner 不唤醒（cr-132，头部注释）：回投自会话只会得到
     // base-access 的失能 run。job.conversationId 显式携带（发起会话）时
     // 照常投——那是任务发起地的回执，不是自会话唤醒。

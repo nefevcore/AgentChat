@@ -177,12 +177,17 @@ describe('ac-job-wakeup', () => {
     expect(delivered.find((d) => d.conversationId === 'a~a')).toBeDefined();
   });
 
-  it('owner 自杀不通知（cr-218）：job 工具 kill settle killed 后跳过；外部 kill / kill 失败照投', async () => {
+  it('owner 自杀不通知（cr-218/227）：按 killedBy 判不依赖终态字面——kill 后 settle completed/killed/failed 分类，外部 kill 照投', async () => {
     const { ctx } = await boot();
     // owner 自杀：owner 本人 kill → settle killed → 不投
     const self = manualJob(ctx, 'a');
     ctx.jobs.kill(self.id, 'a');
     self.settle({ status: 'killed', detail: 'signal: SIGKILL' });
+    // owner 自杀（字面陷阱，cr-227）：Windows taskkill /F = exit code 1
+    // 无 signal → producer 报 completed——killedBy 仍判 owner，不投
+    const fake = manualJob(ctx, 'a2');
+    ctx.jobs.kill(fake.id, 'a2');
+    fake.settle({ status: 'completed', detail: 'exit code: 1' });
     // 外部终止：宿主全权 kill（不传 owner）→ settle killed → 照投
     const ext = manualJob(ctx, 'b');
     ctx.jobs.kill(ext.id);
@@ -191,11 +196,12 @@ describe('ac-job-wakeup', () => {
     const fail = manualJob(ctx, 'c');
     ctx.jobs.kill(fail.id, 'c');
     fail.settle({ status: 'failed', detail: 'cancel threw: boom' });
-    // 自然完成照投（对照组）
+    // 自然完成照投（对照组——无 killedBy）
     settleNow(ctx, 'd');
     await new Promise((r) => setTimeout(r, 30));
-    expect(delivered).toHaveLength(3); // b（外部终止）+ c（失败）+ d（完成）；a 无投递
+    expect(delivered).toHaveLength(3); // b（外部终止）+ c（失败）+ d（完成）；a/a2 无投递
     expect(delivered.find((d) => d.agent === 'a')).toBeUndefined();
+    expect(delivered.find((d) => d.agent === 'a2')).toBeUndefined();
     expect(delivered.find((d) => d.agent === 'b')?.message).toContain('已终止');
     expect(delivered.find((d) => d.agent === 'c')?.message).toContain('失败');
     expect(delivered.find((d) => d.agent === 'd')?.message).toContain('完成');
