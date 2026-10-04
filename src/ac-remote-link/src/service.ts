@@ -96,6 +96,16 @@ export class RemoteLinkService extends Service {
     this.ctx.on('config/changed', () => this.applySettings(), {
       description: 'remote-link relayUrl 热更（settings.remoteLink 全局层）',
     });
+    // config 服务就位对账（cr-220）：loader 并发激活行，ac-config 可能晚于本行
+    // 就位——构造器时 ctx.get('config', false) 为空，applySettings 空转，而
+    // boot 期静态加载不广播 config/changed（cr-53 只覆盖写入路径）——启动即连
+    // 被静默跳过。internal/service 是框架服务就位广播（ctx.provide → notify
+    // → emit），config 到场即重跑对账，bootConnected 门闩保证只连一次。
+    this.ctx.on('internal/service', (name: string) => {
+      if (name === 'config') this.applySettings();
+    }, {
+      description: 'remote-link config 服务就位对账（启动即连的晚到 config 场景）',
+    });
     this.applySettings();
     // 启动即连（config 已就位时此处直接生效；缺席时由 applySettings 的
     // 「URL 首次到位即连」补触发——cr-53 时序修复）。KK 的发起方在手机端，

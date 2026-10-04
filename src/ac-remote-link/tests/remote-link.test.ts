@@ -485,6 +485,60 @@ describe('远程应答尺寸兜底（cr-52：条数分页挡不住单轮超大�
   });
 });
 
+describe('启动即连时序（cr-220：config 晚于本行就位不得静默跳过）', () => {
+  /** boot 同款但 config 服务后置——模拟 loader 并发激活下 ac-config 晚到 */
+  async function bootWithoutConfig(devices: Array<{ id: string; pubkey: string }>): Promise<void> {
+    ctx = new Context();
+    ctx.provide('webServer', {
+      callRpc: async () => ({}),
+    });
+    svc = new RemoteLinkService(ctx, { root: tmpRoot, relayUrl: '', autoReconnect: false } as never);
+    // 注册表预置已配对设备（不落 relayUrl——行配置为空，全局层晚到）
+    const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
+    for (const d of devices) reg.add({ id: d.id, name: 'n', pubkey: d.pubkey, scopes: ['read'], pairedAt: 0 });
+  }
+
+  it('config 服务就位（internal/service）→ 对账吸收 relayUrl → 启动即连触发且只一次', async () => {
+    await bootWithoutConfig([{ id: 'd1', pubkey: 'k1' }]);
+    const internal = svc as unknown as {
+      bootConnected: boolean;
+      options: { relayUrl: string };
+      connect(opts?: { deviceId: string }): Promise<void>;
+    };
+    expect(internal.bootConnected).toBe(false); // 构造器时 URL 未到位——未触发
+    const connectCalls: string[][] = [];
+    internal.connect = (opts) => {
+      connectCalls.push(opts ? [opts.deviceId] : []);
+      return Promise.resolve();
+    };
+    // config 服务就位广播（framework internal/service：ctx.provide → notify → emit）
+    ctx.provide('config', {
+      get: (key: string) => (key === 'settings.remoteLink' ? { relayUrl: 'wss://late.relay' } : undefined),
+    });
+    await new Promise((r2) => setTimeout(r2, 0));
+    expect(internal.options.relayUrl).toBe('wss://late.relay'); // 对账已吸收
+    expect(connectCalls).toHaveLength(1); // 启动即连触发
+    expect(internal.bootConnected).toBe(true); // 门闩置位
+    // 重复就位/热更写入不得二连（bootConnected 门闩只跑一次；URL 未变不重连）
+    ctx.emit('config/changed', '/x');
+    await new Promise((r2) => setTimeout(r2, 0));
+    expect(connectCalls).toHaveLength(1);
+  });
+
+  it('无已配对设备时 config 就位不触发连接（静默待机语义不变）', async () => {
+    await bootWithoutConfig([]);
+    const internal = svc as unknown as { bootConnected: boolean; connect(): Promise<void> };
+    let called = 0;
+    internal.connect = () => { called += 1; return Promise.resolve(); };
+    ctx.provide('config', {
+      get: (key: string) => (key === 'settings.remoteLink' ? { relayUrl: 'wss://late.relay' } : undefined),
+    });
+    await new Promise((r2) => setTimeout(r2, 0));
+    expect(called).toBe(0);
+    expect(internal.bootConnected).toBe(false);
+  });
+});
+
 describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方）', () => {
   it('apply 后 emit 目录事件 → 单播到在线设备（cr-112：单批器漏斗合批下行）', async () => {
     vi.useFakeTimers();

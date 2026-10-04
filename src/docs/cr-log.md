@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-219**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-220**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -237,3 +237,4 @@
 - 【cr-217 2026-10-04 TokenUsage 柱状图四修：①类目轴滤非整数刻度（7 天 0.5 步长 round 撞索引致日期重复）②轴标签与柱底留隙（gap 0→4）③堆叠柱整体顶部圆角 ④堆叠实装——barPaths 各段改画 prev..cum 区间（原 0..cum 全覆盖致后序列盖掉先序列，双图从未真正堆叠）+ 第二图 tooltip 修正（恒读主图 rawSeries 的根因）】
 - 【cr-218 2026-10-04 job kill 终态通知按发起方裁剪：owner 自杀（job 工具 kill）不再注入会话通知，外部终止（webui jobs/kill）与 kill 失败照投——killedBy 随 JobSnapshot/settled 快照携带】
 - 【cr-219 2026-10-04 singles 启动上架同步改批量核验：每工作区一次 readdir+标记 stat 替代逐会话 setShelf 幂等重放（516 会话 ≈ 千次 existsSync）；计数改真实迁移数（旧口径幂等命中也全量虚报）】
+- 【cr-220 2026-10-04 remote-link 启动即连时序根治：构造器订阅 internal/service——config 服务后于本行就位时（loader 并发行激活，boot 期静态加载不广播 config/changed）applySettings 拿不到 relayUrl、启动即连被静默跳过（cr-53 补触发的残留竞态面）。服务就位即对账：bootConnected 门闩语义不变（URL 首次到位即连，只跑一次）。新增服务面测试锁契约：config 就位回调触发 applySettings 且启动即连只触发一次。】
