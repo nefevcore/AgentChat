@@ -22,6 +22,7 @@ export { default as Breadcrumb } from './base/Breadcrumb.vue';
 export { default as ConfirmBody } from './base/ConfirmBody.vue';
 export { default as Dropdown } from './base/Dropdown.vue';
 export { default as Select } from './base/Select.vue';
+export { default as DatePicker } from './base/DatePicker.vue';
 export { default as Input } from './base/Input.vue';
 export { default as Textarea } from './base/Textarea.vue';
 export { default as Checkbox } from './base/Checkbox.vue';

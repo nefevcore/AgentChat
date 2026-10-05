@@ -10,7 +10,7 @@
 // ============================================================
 import { ref } from 'vue';
 import type { TimerEntry } from 'ac-client-ui-settings/client/types.ts';
-import { Button, Icon, Input, Modal, Select, Textarea } from '@agentchat/webui-kit';
+import { Button, DatePicker, Icon, Input, Modal, Select, Textarea } from '@agentchat/webui-kit';
 
 const props = withDefaults(defineProps<{ entries: TimerEntry[]; saving?: boolean; hideHeader?: boolean }>(), { hideHeader: false });
 const emit = defineEmits<{ (e: 'update:entries', v: TimerEntry[]): void; (e: 'save'): void }>();
@@ -154,7 +154,7 @@ defineExpose({ addTimer });
         </div>
         <div v-if="editing.mode === 'time'" class="timer-row">
           <label>日期（留空 = 每天）</label>
-          <Input type="date" class="timer-input" :model-value="toDateOnly(editing.time)" @update:model-value="editing.time = updateTimeDate($event, toTimeOnly(editing.time))" />
+          <DatePicker class="timer-input" :model-value="toDateOnly(editing.time)" @update:model-value="editing.time = updateTimeDate($event, toTimeOnly(editing.time))" />
         </div>
         <div v-if="editing.mode === 'time' || editing.mode === 'workday' || editing.mode === 'holiday'" class="timer-row">
           <label>时间</label>

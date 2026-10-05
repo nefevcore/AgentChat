@@ -27,6 +27,7 @@ import IconFile from '~icons/lucide/file';
 import IconFileText from '~icons/lucide/file-text';
 import IconCode from '~icons/lucide/code';
 import IconDownload from '~icons/lucide/download';
+import IconCalendar from '~icons/lucide/calendar';
 import IconChevronDown from '~icons/lucide/chevron-down';
 import IconChevronUp from '~icons/lucide/chevron-up';
 import IconChevronLeft from '~icons/lucide/chevron-left';
@@ -187,6 +188,7 @@ export const iconMap: Record<string, Component> = {
   'file-text': IconFileText,
   code: IconCode,
   download: IconDownload,
+  calendar: IconCalendar,
   'chevron-down': IconChevronDown,
   'chevron-up': IconChevronUp,
   'chevron-left': IconChevronLeft,

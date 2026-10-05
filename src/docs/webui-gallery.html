@@ -98,6 +98,7 @@
 :root,
 html[data-theme='nebula'],
 html.dark {
+  color-scheme: dark; /* cr-252：原生控件（日期选择弹层等）随主题——nebula 是缺省暗档 */
   --bg-base: #1a1a1a;
   /* 表面提亮 + 靛染（cr-138）：原三面同值 #2d2d2d，层级只靠 5% 顶缘高光；
      提亮到 20/21 亮度档并带靛相——与底拉开 L*≈9 的可辨梯度 */
@@ -219,6 +220,7 @@ html.dark {
 /* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
 html[data-theme='aurora'],
 html.light {
+  color-scheme: light; /* cr-252 */
   /* 底色微暖（cr-138）：纯白+冷蓝灰中性 → 纸感暖白，散「无影灯」冷调；
      raised 仍纯白承载浮层对比 */
   --bg-base: #fdfdfb;
@@ -360,6 +362,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   :root { --motion-scale: 0; }
   html { scroll-behavior: auto; }
+}
+
+/* ── 原生控件配色档跟随系统（cr-252）：主题行只写 html.dark/.light 与 data-theme——
+    :root 的 dark 缺省档在系统亮色下会反过来污染原生件，媒体侧单独声明对冲 ── */
+@media (prefers-color-scheme: light) {
+  html:not(.dark):not([data-theme='nebula']) { color-scheme: light; }
 }
 
 /* ═══════════════ 业务兼容别名层（--radius- 与 --space- 前缀 → 本文件令牌）═══════════════
@@ -1266,6 +1274,66 @@ i[data-ic]{display:inline-flex;width:1em;height:1em;overflow:visible}
 .ui-doc-tabs-actions { display: flex; align-items: center; gap: 2px; padding: 0 6px; flex-shrink: 0; }
 /* @end */
 
+/* @kit:base/DatePicker.vue */
+/* 触发器与 Select 同语言（ui-sel-trigger 同配方）；弹层壳走 ui-dd-menu 单源，
+   此处只补月历网格。z/定位内联（fixed）——与 Select 相同。 */
+.ui-dp { position: relative; display: inline-flex; width: 100%; }
+.ui-dp-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  width: 100%; height: var(--ctl-h-md); padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: transparent; color: var(--text-1);
+  font-size: var(--fs-md); font-family: var(--font-ui); cursor: pointer;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.ui-dp-trigger:hover:not(:disabled) { border-color: var(--line-strong); }
+.ui-dp-trigger:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.ui-dp-trigger:disabled { opacity: 0.55; cursor: not-allowed; }
+.ui-dp-ic { flex-shrink: 0; color: var(--text-3); }
+.ui-dp-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.ui-dp-value.empty { color: var(--text-3); }
+/* 月历弹层：定宽（7×32 + gap/padding），覆盖 ui-dd-menu 的滚动条假设 */
+.ui-dp-menu { width: 200px; padding: 10px; max-height: none; overflow: visible; }
+.ui-dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+/* 标题可点上钻/下钻（cr-260）——按钮语义 + hover 提示 */
+.ui-dp-title {
+  border: none; background: none; padding: 2px 6px; border-radius: var(--r-sm);
+  font-size: var(--fs-md); font-weight: 600; color: var(--text-1); font-family: var(--font-ui);
+  cursor: pointer;
+}
+.ui-dp-title:hover { background: var(--bg-hover); }
+.ui-dp-week { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 2px; }
+.ui-dp-week span { text-align: center; font-size: var(--fs-xs); color: var(--text-3); padding: 3px 0; }
+.ui-dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.ui-dp-cell {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; border: none; border-radius: var(--r-sm);
+  background: none; color: var(--text-1);
+  font-size: var(--fs-xs); font-family: var(--font-ui); font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.ui-dp-cell:hover:not(:disabled) { background: var(--bg-hover); }
+.ui-dp-cell:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--focus-ring-width)); }
+.ui-dp-cell.is-out { color: var(--text-3); opacity: 0.45; cursor: default; }
+.ui-dp-cell.is-out:hover { background: none; }
+/* 今日 = 中性描边环（今日是事实陈述，非状态语义）；选中 = 主色实底 */
+.ui-dp-cell.is-today { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ui-dp-cell.is-sel { background: var(--primary); color: var(--on-primary); font-weight: 600; }
+.ui-dp-cell.is-sel.is-today { box-shadow: none; }
+/* 年视图（cr-260）：3×4 月格；选中月 tint 底 + 当月中性环（与日格同语义） */
+.ui-dp-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.ui-dp-mcell {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 44px; border: none; border-radius: var(--r-sm);
+  background: none; color: var(--text-1);
+  font-size: var(--fs-sm); font-family: var(--font-ui); cursor: pointer;
+}
+.ui-dp-mcell:hover { background: var(--bg-hover); }
+.ui-dp-mcell:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--focus-ring-width)); }
+.ui-dp-mcell.is-msel { background: var(--primary-tint); color: var(--primary-strong); font-weight: 600; }
+.ui-dp-mcell.is-mcur { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ui-dp-mcell.is-msel.is-mcur { box-shadow: none; }
+/* @end */
 /* @kit:base/Select.vue */
 /* 弹层选项行配方单源：base/dropdown.css（.ui-dd-menu / .ui-dd-opt）——
    本件只补触发器与 fixed 弹层定位；弹层 Teleport 到 body（cr-175：
@@ -1769,13 +1837,14 @@ a.pv-rail-item.on{border-left-color:var(--primary);font-weight:600}
 </div></div>
 
 <!-- ═══ 2 输入 ═══ -->
-<div class="pv-sec" id="s-input"><div class="pv-sec-head"><span class="pv-eyebrow">INPUT</span><h2>2 · 输入</h2><p>Input / SearchInput / PasswordInput / Textarea / Select / Checkbox / Slider / Label / FieldRow——表单标准件族（cr-168 收编配方入 kit）</p></div><div class="gal-grid">
+<div class="pv-sec" id="s-input"><div class="pv-sec-head"><span class="pv-eyebrow">INPUT</span><h2>2 · 输入</h2><p>Input / SearchInput / PasswordInput / Textarea / Select / DatePicker / Checkbox / Slider / Label / FieldRow——表单标准件族（cr-168 收编配方入 kit）</p></div><div class="gal-grid">
 <div class="gal-cell" id="c-fx-input"><div class="gal-stage col"><input class="ui-input" type="text" placeholder="输入名称…" value="风栗" style="width:100%"><div style="display:flex;gap:8px"><input class="ui-input" type="number" value="30" style="width:90px"><input class="ui-input" type="text" placeholder="禁用态" disabled style="flex:1"></div></div><div class="gal-cap"><span>Input 文本 / 数字（焦点光晕 3px）</span><code>Input · type/v-model</code></div></div>
 <div class="gal-cell" id="c-fx-search"><div class="gal-stage"><span class="ui-search"><svg class="ui-search-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="ui-input" type="text" placeholder="搜索 Agent（名称 / ID / 标签）" style="padding-left:28px"></span></div><div class="gal-cap"><span>SearchInput 搜索框（左内嵌图标）</span><code>SearchInput · v-model</code></div></div>
 <div class="gal-cell" id="c-fx-password"><div class="gal-stage"><span class="ui-secret"><input class="ui-input" type="password" value="secret-token-42" style="padding-right:34px;font-family:var(--font-mono)"><button class="ui-secret-eye" type="button" aria-label="显示" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg></button></span></div><div class="gal-cap"><span>PasswordInput 密码框（按住眼睛显示）</span><code>PasswordInput · v-model</code></div></div>
 <div class="gal-cell" id="c-fx-textarea"><div class="gal-stage col"><textarea class="ui-textarea code" rows="4" placeholder="输入 SYSTEM.md 内容…" spellcheck="false"># AGENT.md
 你是风栗的专属 Agent。</textarea></div><div class="gal-cap"><span>Textarea 多行文本域（code 态）</span><code>Textarea · rows/code</code></div></div>
 <div class="gal-cell" id="c-fx-select"><div class="gal-stage col" style="gap:10px"><span class="ui-sel" style="width:100%"><button type="button" class="ui-sel-trigger" title="zai-coding-cn · OpenAI 兼容（chat/completions）连接"><span class="ui-sel-value">zai-coding-cn · OpenAI 兼容（chat/completions）连接</span><i data-ic="chevron-down" data-s="14" class="ui-sel-chev"></i></button></span><span class="ui-sel" style="width:100%"><button type="button" class="ui-sel-trigger" disabled><span class="ui-sel-value empty">请选择</span><i data-ic="chevron-down" data-s="14" class="ui-sel-chev"></i></button></span><div class="ui-dd" style="width:100%"><div class="ui-dd-menu" style="position:static;width:100%"><button type="button" class="ui-dd-opt is-selected"><span class="ui-dd-opt-body"><span class="ui-dd-opt-name">glm-5.3</span><span class="ui-dd-opt-desc">默认池 · 128k 上下文</span></span><span class="ui-dd-opt-check"><i data-ic="check" data-s="14"></i></span></button><button type="button" class="ui-dd-opt"><span class="ui-dd-opt-body"><span class="ui-dd-opt-name">deepseek-v3.2</span><span class="ui-dd-opt-desc">备用池</span></span></button></div></div></div><div class="gal-cap"><span>Select 表单下拉标准件（cr-162 · ui-dd 弹层风格）</span><code>Select · options/v-model</code></div></div>
+<div class="gal-cell" id="c-fx-date"><div class="gal-stage col" style="gap:10px"><span class="ui-dp" style="width:100%"><button type="button" class="ui-dp-trigger"><i data-ic="calendar" data-s="14" class="ui-dp-ic"></i><span class="ui-dp-value">2026-10-05</span></button></span><span class="ui-dp" style="width:100%"><button type="button" class="ui-dp-trigger" disabled><i data-ic="calendar" data-s="14" class="ui-dp-ic"></i><span class="ui-dp-value empty">选择日期</span></button></span><div class="ui-dd" style="width:100%"><div class="ui-dd-menu ui-dp-menu" style="position:static;width:200px"><div class="ui-dp-head"><button type="button" class="ui-ia" aria-label="上一月"><i data-ic="chevron-left" data-s="14"></i></button><button type="button" class="ui-dp-title" aria-label="查看年视图">2026 年 10 月</button><button type="button" class="ui-ia" aria-label="下一月"><i data-ic="chevron-right" data-s="14"></i></button></div><div class="ui-dp-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div><div class="ui-dp-grid"><button type="button" class="ui-dp-cell is-out">1</button><button type="button" class="ui-dp-cell is-out">2</button><button type="button" class="ui-dp-cell is-out">3</button><button type="button" class="ui-dp-cell">4</button><button type="button" class="ui-dp-cell">5</button><button type="button" class="ui-dp-cell">6</button><button type="button" class="ui-dp-cell">7</button><button type="button" class="ui-dp-cell">8</button><button type="button" class="ui-dp-cell">9</button><button type="button" class="ui-dp-cell">10</button><button type="button" class="ui-dp-cell">11</button><button type="button" class="ui-dp-cell">12</button><button type="button" class="ui-dp-cell">13</button><button type="button" class="ui-dp-cell">14</button><button type="button" class="ui-dp-cell">15</button><button type="button" class="ui-dp-cell">16</button><button type="button" class="ui-dp-cell">17</button><button type="button" class="ui-dp-cell">18</button><button type="button" class="ui-dp-cell is-today">19</button><button type="button" class="ui-dp-cell is-sel">20</button><button type="button" class="ui-dp-cell">21</button><button type="button" class="ui-dp-cell">22</button><button type="button" class="ui-dp-cell">23</button><button type="button" class="ui-dp-cell">24</button><button type="button" class="ui-dp-cell">25</button><button type="button" class="ui-dp-cell">26</button><button type="button" class="ui-dp-cell">27</button><button type="button" class="ui-dp-cell">28</button><button type="button" class="ui-dp-cell">29</button><button type="button" class="ui-dp-cell">30</button><button type="button" class="ui-dp-cell">31</button></div></div></div><div class="ui-dd" style="width:100%"><div class="ui-dd-menu ui-dp-menu" style="position:static;width:200px"><div class="ui-dp-head"><button type="button" class="ui-ia" aria-label="上一年"><i data-ic="chevron-left" data-s="14"></i></button><button type="button" class="ui-dp-title" aria-label="回到月视图">2026 年</button><button type="button" class="ui-ia" aria-label="下一年"><i data-ic="chevron-right" data-s="14"></i></button></div><div class="ui-dp-months"><button type="button" class="ui-dp-mcell">1月</button><button type="button" class="ui-dp-mcell">2月</button><button type="button" class="ui-dp-mcell is-msel">3月</button><button type="button" class="ui-dp-mcell">4月</button><button type="button" class="ui-dp-mcell">5月</button><button type="button" class="ui-dp-mcell">6月</button><button type="button" class="ui-dp-mcell">7月</button><button type="button" class="ui-dp-mcell">8月</button><button type="button" class="ui-dp-mcell">9月</button><button type="button" class="ui-dp-mcell is-mcur">10月</button><button type="button" class="ui-dp-mcell">11月</button><button type="button" class="ui-dp-mcell">12月</button></div></div></div></div><div class="gal-cap"><span>DatePicker 日期选择标准件（cr-254/260 · 月历 + 标题上钻年视图）</span><code>DatePicker · v-model</code></div></div>
 <div class="gal-cell" id="c-fx-check"><div class="gal-stage col"><label class="ui-check"><input type="checkbox" checked> 流式输出</label><label class="ui-check"><input type="checkbox"> 记忆增强</label></div><div class="gal-cap"><span>Checkbox 复选框（accent 主色）</span><code>Checkbox · v-model</code></div></div>
 <div class="gal-cell" id="c-fx-slider"><div class="gal-stage col"><div class="ui-slider"><input type="range" min="0" max="1" step="0.01" value="0.7"><span class="ui-slider-val">0.70</span></div></div><div class="gal-cap"><span>Slider 滑杆（配比值 + mono 回显）</span><code>Slider · min/max/step</code></div></div>
 <div class="gal-cell" id="c-fx-label"><div class="gal-stage col"><div class="ui-label"><div class="ui-label-name">温度</div><div class="ui-label-desc">采样随机度，越高越发散</div></div><div class="ui-label" style="margin-top:8px"><div class="ui-label-name">API Key</div></div></div><div class="gal-cap"><span>Label 字段标签（名 + 可选说明行）</span><code>Label · label/description</code></div></div>

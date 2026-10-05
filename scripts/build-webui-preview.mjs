@@ -133,7 +133,7 @@ export function renderPreview(page = PAGES[0]) {
     'star/StarAvatar.vue',
     'base/Chip.vue', 'base/IconAction.vue', 'base/Progress.vue', 'base/Breadcrumb.vue',
     'base/ConfirmBody.vue', 'base/OptionRow.vue', 'base/PickTag.vue',
-    'base/Segmented.vue', 'base/Tabs.vue', 'base/DocTabs.vue', 'base/Select.vue',
+    'base/Segmented.vue', 'base/Tabs.vue', 'base/DocTabs.vue', 'base/Select.vue', 'base/DatePicker.vue',
     'base/Input.vue', 'base/Textarea.vue', 'base/Checkbox.vue', 'base/Slider.vue',
     'base/FieldRow.vue', 'base/Label.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
   ]) {

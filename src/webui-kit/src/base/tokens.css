@@ -89,6 +89,7 @@
 :root,
 html[data-theme='nebula'],
 html.dark {
+  color-scheme: dark; /* cr-252：原生控件（日期选择弹层等）随主题——nebula 是缺省暗档 */
   --bg-base: #1a1a1a;
   /* 表面提亮 + 靛染（cr-138）：原三面同值 #2d2d2d，层级只靠 5% 顶缘高光；
      提亮到 20/21 亮度档并带靛相——与底拉开 L*≈9 的可辨梯度 */
@@ -210,6 +211,7 @@ html.dark {
 /* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
 html[data-theme='aurora'],
 html.light {
+  color-scheme: light; /* cr-252 */
   /* 底色微暖（cr-138）：纯白+冷蓝灰中性 → 纸感暖白，散「无影灯」冷调；
      raised 仍纯白承载浮层对比 */
   --bg-base: #fdfdfb;
@@ -351,6 +353,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   :root { --motion-scale: 0; }
   html { scroll-behavior: auto; }
+}
+
+/* ── 原生控件配色档跟随系统（cr-252）：主题行只写 html.dark/.light 与 data-theme——
+    :root 的 dark 缺省档在系统亮色下会反过来污染原生件，媒体侧单独声明对冲 ── */
+@media (prefers-color-scheme: light) {
+  html:not(.dark):not([data-theme='nebula']) { color-scheme: light; }
 }
 
 /* ═══════════════ 业务兼容别名层（--radius- 与 --space- 前缀 → 本文件令牌）═══════════════

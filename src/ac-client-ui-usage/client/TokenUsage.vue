@@ -8,7 +8,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { Series } from 'uplot';
 import { chord, ribbon } from 'd3-chord';
-import { Button, Checkbox, Input, Modal, Progress, Segmented, Select, Tabs, Tooltip } from '@agentchat/webui-kit';
+import { Button, Checkbox, DatePicker, Modal, Progress, Segmented, Select, Tabs, Tooltip } from '@agentchat/webui-kit';
 import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
 
 const props = defineProps<{
@@ -1076,9 +1076,9 @@ onUnmounted(() => { destroyChart(); });
             <span v-if="appliedRange?.from" class="range-coverage tup-coverage" :title="`数据覆盖 ${appliedRange.from} ~ ${appliedRange.to}`">{{ appliedRange.from }}~{{ appliedRange.to?.slice(5) }}</span>
           </div>
           <div v-if="rangeMode === 'custom'" class="range-custom tup-custom">
-            <Input :model-value="customFrom" type="date" aria-label="开始日期" @update:model-value="customFrom = $event" />
+            <DatePicker :model-value="customFrom" @update:model-value="customFrom = $event" />
             <span class="range-sep">~</span>
-            <Input :model-value="customTo" type="date" aria-label="结束日期" @update:model-value="customTo = $event" />
+            <DatePicker :model-value="customTo" @update:model-value="customTo = $event" />
             <Button variant="primary" size="sm" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</Button>
           </div>
 
@@ -1156,9 +1156,9 @@ onUnmounted(() => { destroyChart(); });
               </div>
               <Select :options="RANGE_PRESETS" :model-value="rangeMode" title="筛选统计的时间范围（默认近 30 天）" @update:model-value="rangeMode = $event as RangeMode" />
               <div v-if="rangeMode === 'custom'" class="range-custom">
-                <Input :model-value="customFrom" type="date" aria-label="开始日期" @update:model-value="customFrom = $event" />
+                <DatePicker :model-value="customFrom" @update:model-value="customFrom = $event" />
                 <span class="range-sep">~</span>
-                <Input :model-value="customTo" type="date" aria-label="结束日期" @update:model-value="customTo = $event" />
+                <DatePicker :model-value="customTo" @update:model-value="customTo = $event" />
                 <Button variant="primary" size="sm" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</Button>
               </div>
               <div v-if="appliedRange?.from" class="range-coverage">数据覆盖 {{ appliedRange.from }} ~ {{ appliedRange.to }}</div>
