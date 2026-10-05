@@ -153,11 +153,10 @@ async function openInExplorer() {
 .workspace-tree {
   display: flex; flex-direction: column;
   width: 280px; flex-shrink: 0; min-width: 0; height: 100%;
-  /* 与会话列表（AgentList）同一底色，左右对称 */
-  background: var(--bg-surface);
   font-size: 13px;
   overflow: hidden;
   /* 左缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（重叠曾呈双线） */
+  /* 底色归宿 aux 容器（cr-230 惯例）：面板透明，不叠表面底 */
 }
 .wt-header {
   display: flex; align-items: center; justify-content: space-between;

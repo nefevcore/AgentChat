@@ -419,9 +419,9 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.runs-panel{flex:1;min-width:0;background:var(--bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+.runs-panel{flex:1;min-width:0;display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
-html.dark .runs-panel{background:var(--bg-base)}
+/* 底色归宿 aux 容器（cr-230 惯例）：面板透明，不叠表面底/基底层 */
 
 /* 1. 标题栏（对齐 SessionList 的 ws-toolbar 形态） */
 .panel-toolbar{display:flex;align-items:center;gap:6px;padding:10px 14px 6px;flex-shrink:0}
@@ -432,8 +432,7 @@ html.dark .runs-panel{background:var(--bg-base)}
 .load-error{padding:4px 12px 6px;font-size:11px;color:var(--err);flex-shrink:0}
 
 /* 树滚动区（对齐 SessionList 的 tree-scroll） */
-.tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--bg-surface);scrollbar-width:none;scrollbar-color:transparent transparent}
-html.dark .tree-scroll{background:var(--bg-base)}
+.tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);scrollbar-width:none;scrollbar-color:transparent transparent}
 .tree-scroll::-webkit-scrollbar{width:0;height:0}
 
 /* 树节点（cr-127）：行语言归 L0 .ui-row——hover 只亮底（无边框、无微影），

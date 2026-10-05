@@ -544,14 +544,10 @@ onUnmounted(() => {
            <div class="item-name">{{ item.title }}</div>
            <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
          </div>
-         <Tooltip text="重命名会话" placement="top">
-           <button class="item-delete" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
-         </Tooltip>
-         <Tooltip text="删除会话（含消息，不可恢复）" placement="top">
-           <button class="item-delete" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-           </button>
-         </Tooltip>
+         <button class="item-delete" title="重命名会话" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
+         <button class="item-delete" title="删除会话（含消息，不可恢复）" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+         </button>
        </div>
        <div v-if="searchResults.length === 0" class="empty">
          没有标题匹配「{{ searchQuery.trim() }}」的会话
@@ -566,15 +562,14 @@ onUnmounted(() => {
             <span class="ws-name">{{ group.name }}</span>
             <!-- hover 操作：资源管理器 · 更多（重命名/删除）· 新增会话（未分组根无操作） -->
             <template v-if="group.workspace">
-              <Tooltip :text="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开（${group.workspace.path}）`)" placement="top">
-                <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
-                  :aria-label="wsExplorerFailed ? '打开失败' : '在本地资源管理器中打开'"
-                  @click.stop="openWsInExplorer(group)">
-                  <BusyRing v-if="wsExplorerKey === group.key" :size="14" />
-                  <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
-                  <Icon v-else name="external-link" :size="14" />
-                </button>
-              </Tooltip>
+              <button class="ws-act" :class="{ active: wsMenuOpen === group.key }"
+                :aria-label="wsExplorerFailed ? '打开失败' : '在本地资源管理器中打开'"
+                :title="wsExplorerFailed ? '打开失败（详见全局提示）' : (wsExplorerKey === group.key ? '正在打开…' : `在本地资源管理器中打开（${group.workspace.path}）`)"
+                @click.stop="openWsInExplorer(group)">
+                <BusyRing v-if="wsExplorerKey === group.key" :size="14" />
+                <Icon v-else-if="wsExplorerFailed" name="alert-circle" :size="14" />
+                <Icon v-else name="external-link" :size="14" />
+              </button>
               <div class="ws-more-wrap" @click.stop>
                 <button class="ws-act" :class="{ active: wsMenuOpen === group.key }" aria-label="更多" @click.stop="toggleWsMenu(group.key)">
                   <Icon name="more-horizontal" :size="14" />
@@ -592,11 +587,9 @@ onUnmounted(() => {
                   </div>
                 </Transition>
               </div>
-              <Tooltip text="在此工作区新建会话" placement="top">
-                <button class="ws-act" aria-label="在此工作区新建会话" @click.stop="createSession(group.workspace.id)">
-                  <Icon name="plus" :size="14" />
-                </button>
-              </Tooltip>
+              <button class="ws-act" aria-label="在此工作区新建会话" title="在此工作区新建会话" @click.stop="createSession(group.workspace.id)">
+                <Icon name="plus" :size="14" />
+              </button>
             </template>
           </div>
           <!-- 叶节点：会话按时间分桶分批展开（桶头开合 + 桶内分页；行：头像 - 标题 - 删除） -->
@@ -620,23 +613,18 @@ onUnmounted(() => {
                   <div class="item-info">
                     <div class="item-name">{{ item.title }}</div>
                   </div>
-                  <Tooltip text="重命名会话" placement="top">
-                    <button class="item-delete" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
-                  </Tooltip>
-                  <Tooltip text="删除会话（含消息，不可恢复）" placement="top">
-                    <button class="item-delete" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-                    </button>
-                  </Tooltip>
+                  <button class="item-delete" title="重命名会话" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
+                  <button class="item-delete" title="删除会话（含消息，不可恢复）" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+                  </button>
                 </div>
                 <!-- 桶内分页闸门：还有未渲染条目时尾部「展开更多」 -->
-                <Tooltip v-if="bucketHiddenOf(group, bucket) > 0" :text="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`" placement="top">
-                  <button class="expand-more" type="button"
-                    @click.stop="growBucketItems(group, bucket)">
-                    <span class="expand-more-dots">···</span>
-                    <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
-                  </button>
-                </Tooltip>
+                <button v-if="bucketHiddenOf(group, bucket) > 0" class="expand-more" type="button"
+                  :title="`再展开 ${bucketHiddenOf(group, bucket)} 条中的最近 ${Math.min(BUCKET_PAGE_SIZE, bucketHiddenOf(group, bucket))} 条`"
+                  @click.stop="growBucketItems(group, bucket)">
+                  <span class="expand-more-dots">···</span>
+                  <span>展开更多（{{ bucketHiddenOf(group, bucket) }}）</span>
+                </button>
               </template>
             </template>
           </div>
