@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-242**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-244**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -260,3 +260,5 @@
 - 【cr-240 2026-10-05 弹层反馈九轮：修弹层内原生 title 与 kit Tooltip 同屏双显——根节点 title 覆盖含弹层的整个子树，归位到触发区（头部环），根节点保留 aria-label】
 - 【cr-241 2026-10-05 前端反馈：RunTrackingPanel/WorkspaceTree 移除自设面板底色（aux 容器惯例 cr-230——面板透明）；SessionList 树滚动容器内 7 处 Tooltip 改原生 title（cr-226 同因：::after nowrap 计入滚动范围出水平滚动条）】
 - 【cr-242 2026-10-05 弹层反馈十轮：头行右侧 ~xK/1M 去色加粗（600）、图例数值色降一档 text-1→text-2】
+- 【cr-243 2026-10-05 KV 走势加 95% 水平基准虚线（使用情况定的健康线，与 50% 弱参考线同在但强一档）】
+- 【cr-244 2026-10-05 移除会话头 System Prompt 预览按钮（冗余——辅助活动栏 rail 已有入口）】
