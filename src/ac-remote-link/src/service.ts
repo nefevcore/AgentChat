@@ -482,7 +482,20 @@ export class RemoteLinkService extends Service {
       this.lastError = msg;
       // sever 而非 close（cr-50）：失败路径 RST 立断，不占房。
       conn.sever('connect-failed');
-      // dial/join 失败（relay 不可达/频控）时常规退避。
+      // join 被拒（room-unavailable）= 房里有人——大概率是手机在撞门窗内（真机实锤：
+      // 手机 7s 循环 vs PC 退避重拨形成「拍手游戏」死锁——双端交替占房互斥永不相遇）。
+      // 此时常规退避只会恶化（退避拉长 → 错过手机间隙更多）；改 1s 短重试快速进房，
+      // 进房即稳定占座（首握窗 15s 覆盖手机下两轮撞门）。其余错误（dial 失败/频控）
+      // 常规退避。
+      if (msg.includes('room-unavailable')) {
+        this.reconnectAttempt = 0;
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          void this.runDeviceConnection(deviceId);
+        }, 1_000);
+        this.reconnectTimer.unref();
+        return;
+      }
       this.scheduleReconnect(deviceId);
     }
   }

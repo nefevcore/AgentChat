@@ -126,6 +126,10 @@ class RelayClient(
 
     private var pendingHandshake: CompletableDeferred<ByteArray>? = null
 
+    /** KK 首握 m1 缓存（cr-249）：peer-arrived 到达（对端进房晚于 m1 发出）时重发——
+     *  relay 只转发实时帧，早发的 m1 已丢；responder 对重复 m1 幂等，重发无害 */
+    @Volatile private var lastM1: ByteArray? = null
+
     /** transport 就绪前到达的加密帧（握手尾帧竞态——赋值后重放） */
     private val earlyFrames = ArrayDeque<Pair<Long, String>>()
 
@@ -177,6 +181,11 @@ class RelayClient(
             "room-unavailable" -> joinedOnce?.completeExceptionally(
                 RelayClientException("relay: room-unavailable"))
             "pong" -> {}
+            // 占座会合（cr-249）：对端进房信令。KK 首握在途（m1 已发但 m2 未回）时
+            // m1 极可能早于对端进房而丢失——重发缓存 m1，等待窗内对端即可响应。
+            "peer-arrived" -> {
+                lastM1?.let { m1 -> sendHandshake(m1) }
+            }
             // cr-70/71 常住方模型：对端（PC）的连接走了，但房间保留——PC 若活着
             // 会立刻回来（常住），死透了则本端撞门永远无人应答后自然退避。
             // 正确动作 = 断开本连接并走既有重连循环（onClose 驱动 startReconnectLoop），
@@ -248,6 +257,10 @@ class RelayClient(
      * 等待窗由 handshakeTimeoutMs 决定（缺省 KK_HANDSHAKE_TIMEOUT_MS，短超时见该常量）。
      * 失败即抛错，**重试由调用方负责**（RemoteSession.tryReconnect 逐轮全新建链）——
      * 本函数只保证"一轮尝试干净"，这样调用方可以自由决定节奏与次数。
+     *
+     * m1 丢失自愈（cr-249 占座会合）：relay 只转发实时帧——m1 早于对端进房即丢失。
+     * 本端 join 后收 peer-arrived（对端此刻进房）即重发 m1 缓存帧。responder 侧
+     * 对重复 m1 幂等（每次到达重新响应），重发无害。
      */
     suspend fun reconnect(
         relayUrl: String,
@@ -258,8 +271,10 @@ class RelayClient(
     ) {
         dialAndJoin(relayUrl, roomId)
         val hs = NoiseHandshake(NoisePattern.KK, NoiseRole.INITIATOR, identity, corePub)
-        sendHandshake(hs.writeMessage())
+        lastM1 = hs.writeMessage()
+        sendHandshake(lastM1!!)
         hs.readMessage(nextHandshake(handshakeTimeoutMs))
+        lastM1 = null
         transport = hs.split()
         replayEarlyFrames()
     }
@@ -277,6 +292,7 @@ class RelayClient(
         ws?.close(1000, "bye")
         ws = null
         transport = null
+        lastM1 = null
     }
 
     /**
@@ -291,5 +307,6 @@ class RelayClient(
         ws?.cancel()
         ws = null
         transport = null
+        lastM1 = null
     }
 }

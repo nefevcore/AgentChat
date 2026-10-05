@@ -154,6 +154,18 @@ export class RelayConnection {
     this.state = 'handshaking';
     // 诊断锚点：真机排障时这两行能区分「房间没进」「对端没发」「发了没收到」
     this.onState?.(`joined ${opts.roomId}，等待首条握手消息`);
+    // KK 目标公钥前置（cr-249 根因修复）：首握等待可能超时转入占座驻留（holdForPeer），
+    // 驻留期对端 m1 到达即 kkRespond——依赖 kkTargetPubkey 已就位。原实现赋值在
+    // firstMsg 之后，驻留态该值为 null，hs 帧落入空等待队列被吞（真机实锤：PC 占座
+    // 后手机撞门 m1 全部无应答）。前置到等待之前，驻留分支才真正可用。
+    if (!opts.roomId.startsWith('p')) {
+      const targetPub = opts.targetDevicePubkey;
+      if (!targetPub) {
+        ws.close();
+        throw new Error('relay: reconnect requires targetDevicePubkey');
+      }
+      this.kkTargetPubkey = targetPub;
+    }
     // 首握等待窗（cr-246）：只兜「对端已在房但 m1 丢失」的网络抖动判定——超时
     // 不再弃房，进入占座驻留等对端（见下方 KK 分支）。对端真不在线时这里
     // 15s 白等一轮才转驻留；可接受：占座语义下这是唯一一次。
@@ -204,12 +216,7 @@ export class RelayConnection {
       outcome = { kind: 'paired', device: info, sas, transport: pair, handshakeHash: pair.handshakeHash };
     } else {
       // KK 常住方（cr-70）：首条 m1 与后续重握手共用同一处理。
-      const targetPub = (opts as RelayConnectOptions & { targetDevicePubkey?: string }).targetDevicePubkey;
-      if (!targetPub) {
-        ws.close();
-        throw new Error('relay: reconnect requires targetDevicePubkey');
-      }
-      this.kkTargetPubkey = targetPub;
+      // kkTargetPubkey 已在等待首握前设定（见上）——此处直接响应。
       outcome = this.kkRespond(firstMsg);
     }
     return outcome;

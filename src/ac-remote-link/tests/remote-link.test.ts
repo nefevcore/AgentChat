@@ -365,6 +365,47 @@ describe('KK 常住方模型（cr-70）', () => {
     initiator.readMessage(Buffer.from(JSON.parse(m2Frame).data.hs, 'base64url')); // 协议往返成立
   });
 
+  it('真实路径回归（cr-249）：首握超时占座后 m1 到达即重握手——kkTargetPubkey 前置', async () => {
+    vi.useFakeTimers();
+    const { NoiseHandshake, generateStaticIdentity } = await import('ac-noise-core');
+    const core = generateStaticIdentity();
+    const dev = generateStaticIdentity();
+    const conn = new RelayConnection(core);
+    const outbound: string[] = [];
+    const listeners: Record<string, Array<(raw: string) => void>> = {};
+    const fakeWs = {
+      readyState: 1, OPEN: 1,
+      send: (s: string) => outbound.push(s),
+      on: (ev: string, fn: (raw: string) => void) => { (listeners[ev] ??= []).push(fn); },
+      close: () => {}, terminate: () => {},
+    };
+    (conn as unknown as { dial: unknown }).dial = async () => fakeWs;
+    const p = conn.connectAndHandshake(
+      { url: 'wss://x', roomId: 'r' + 'a'.repeat(30), targetDevicePubkey: b64uOf(Buffer.from(dev.publicKey)), waitFirstMsgMs: 15_000 },
+      { getByPubkey: () => undefined },
+      async () => false,
+    );
+    const caught: Promise<unknown> = p.catch((e: unknown) => e); // 立即挂接——防 unhandled rejection
+    await vi.advanceTimersByTimeAsync(10);
+    (listeners['message'] ?? []).forEach((fn) => fn(JSON.stringify({ op: 'joined' })));
+    await vi.advanceTimersByTimeAsync(16_000);
+    const err = await caught as Error;
+    expect(err.message).toContain('handshake timeout');
+    // service 层语义：超时转占座驻留
+    conn.holdForPeer();
+    // 对端 m1 到达（真实完整路径，非手动注入内部态）→ 应原地 KK 响应恢复 online
+    const initiator = new NoiseHandshake('KK', 'initiator', dev, Buffer.from(core.publicKey));
+    const m1 = initiator.writeMessage();
+    let rehandshook = false;
+    conn.onRehandshake = () => { rehandshook = true; };
+    (listeners['message'] ?? []).forEach((fn) => fn(JSON.stringify({ op: 'frame', data: { hs: m1.toString('base64url') } })));
+    expect(rehandshook).toBe(true);
+    expect((conn as unknown as { state: string }).state).toBe('online');
+    const m2Frame = outbound[outbound.length - 1];
+    expect(JSON.parse(m2Frame).data.hs).toBeTruthy();
+    initiator.readMessage(Buffer.from(JSON.parse(m2Frame).data.hs, 'base64url'));
+    vi.useRealTimers();
+  });
   it('waiting 态但无 kkTargetPubkey（配对连接形态，cr-73）→ m1 到达走旧等待队列不炸不重握手', async () => {
     const { NoiseHandshake, generateStaticIdentity } = await import('ac-noise-core');
     const coreIdentity = generateStaticIdentity();

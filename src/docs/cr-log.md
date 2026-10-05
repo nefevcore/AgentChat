@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-251**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-255**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -269,3 +269,7 @@
 - 【cr-249 2026-10-05 relay 帧闸调参 60/s burst120（cr-248 后续）：30/s 在手机 webui 启动/切页洪峰下打空 → fail-loud 断链（relay #59 closed 1006 与手机链路关闭同刻实锤）→ 在途 RPC 全超时。60s 监控终验：relay 重启（部署）手机 1.5s 自愈重连，链路终态 link ok + 设备 online】
 - 【cr-250 2026-10-05 pi durable 对标补强：steer stash 窗口 durable 化 + deliver requestId 幂等准入】
 - 【cr-251 2026-10-05 KV 走势实时性补齐：ac-usage 加订 loop/after-step（步收束即写 pendingMap 临时步流），conversationTimeline 查询拼接 pending 尾段，after-run 到达即清（正式记账接管）——run 进行中的缓存率步级可见，不再等整轮收束】
+- 【cr-252 2026-10-05 webkit 日期选择控件适配：Input(type=date) 加 ::-webkit-calendar-picker-indicator 配方 + tokens.css 主题 color-scheme 联动（nebula/dark、aurora/light、system 媒询三路对齐 main.css 既有四路）】
+- 【cr-253 2026-10-05 webkit 日期控件体验增强（cr-252 后续）：Input type=date 点击输入框任意处调 showPicker() 弹日历（特性检测，WebView<95 静默降级原生点图标路径）——原生只点小图标弹层，收窄面板里易被读作无日历控件】
+- 【cr-254 2026-10-05 DatePicker 表单标准件（cr-162 Select 同款路径）：原生 date 弹层 OS 绘制不可定制（color-scheme 只保明暗正确、风格不同构）——自建月历弹层（ui-dd 同语言 + Teleport fixed 锚定 + z 序自适应 cr-184 模式 + 方向键可达）+ icons 注册 calendar + 陈列室 INPUT 节编目 + 迁移消费面（TokenUsage 自定义区间×4 / TimerPane 日期×1）】
+- 【cr-255 2026-10-05 占座会合根因修复（cr-246 遗留缺陷）：kkTargetPubkey 赋值在首握等待之后——首握超时转占座驻留时该值为 null，waiting-peer 收 m1 走 kkRespond 分支不成立，hs 帧落入空等待队列被静默吞（真机实锤：PC 占座 waiting 但手机撞门 m1 全部无应答、3s 超时循环至 10min ERROR 弃连；下午验证走的是在线降级路径〔先握上手再 peer-left，kkTargetPubkey 已就位〕故未暴露；纯 loopback 同理）。修复：赋值前置到首握等待之前 + 真实路径回归测试（dial 劫持走完整 connectAndHandshake 超时→holdForPeer→m1 到达）。配套：PC join 被拒改 1s 短重试（手机撞门 3s 窗与 PC 退避形成拍手游戏死锁）；手机端 peer-arrived 重发缓存 m1（relay 只转发实时帧，早发 m1 已丢；responder 对重复 m1 幂等）】
