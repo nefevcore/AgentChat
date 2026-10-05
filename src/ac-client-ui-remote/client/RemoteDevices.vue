@@ -16,7 +16,6 @@ interface DeviceRow {
   scopes: string[];
   pairedAt: number;
   lastSeenAt?: number;
-  online: boolean;
 }
 
 interface PairingState {
@@ -30,11 +29,15 @@ interface PairingState {
   devicePubkey?: string;
 }
 
-const devices = ref<DeviceRow[]>([]);
+interface DeviceStatus extends DeviceRow {
+  session: 'online' | 'waiting' | null;
+}
+
+const devices = ref<DeviceStatus[]>([]);
 const relayUrl = ref<string | null>(null);
 const tlsPinConfigured = ref(false);
 const identityPubkey = ref('');
-const linkState = ref('idle');
+const linkState = ref('unconfigured');
 const error = ref('');
 const pairing = ref<PairingState | null>(null);
 const pairingBusy = ref(false);
@@ -42,30 +45,28 @@ const sasInput = ref('');
 const revoking = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-/** 链路状态 → StatusDot 词汇映射 */
+/** 传输面链路状态（cr-246 两维度：此处只表达本机↔relay 可达性，设备进度看各行） */
 const linkDot = computed(() => {
   switch (linkState.value) {
-    case 'online': return 'ok';
-    case 'pairing': return 'thinking';
-    case 'connecting': return 'running';
+    case 'ok': return 'ok';
     case 'error': return 'err';
-    default: return 'offline';
+    default: return 'offline'; // unconfigured
   }
 });
 
 const linkLabel = computed(() => ({
-  idle: '待机', online: '在线', pairing: '配对中', connecting: '连接中', error: '异常',
+  ok: '正常', error: '异常', unconfigured: '未配置',
 } as Record<string, string>)[linkState.value] ?? linkState.value);
 
 async function refresh() {
   try {
-    const r = await rpc.call<{ devices: DeviceRow[]; relayUrl: string | null; identityPubkey: string; tlsPinConfigured: boolean }>('remote/devices');
+    const r = await rpc.call<{ devices: DeviceStatus[]; relayUrl: string | null; identityPubkey: string; tlsPinConfigured: boolean }>('remote/devices');
     devices.value = r.devices;
     relayUrl.value = r.relayUrl;
     identityPubkey.value = r.identityPubkey;
     tlsPinConfigured.value = !!r.tlsPinConfigured;
-    const st = await rpc.call<{ state: string; pairing: PairingState | null }>('remote/status');
-    linkState.value = st.state;
+    const st = await rpc.call<{ link: string; pairing: PairingState | null }>('remote/status');
+    linkState.value = st.link;
     // 会话对账（cr-43）：服务端是配对会话的单一事实源——本地 pairing 为空而服务端
     // 有活动会话（含 SAS 确认态）时恢复之（关页/换窗口不再丢「一致」按钮）；
     // 服务端已释放时同步清空本地残留。
@@ -314,11 +315,12 @@ onUnmounted(() => {
       <div class="list-head">已配对设备 <span class="count">{{ devices.length }}</span></div>
       <div v-if="!devices.length" class="empty-hint">暂无设备{{ relayUrl ? '——点击「添加远程设备」开始配对' : '' }}。</div>
       <div v-for="d in devices" :key="d.id" class="device-row">
-        <StatusDot :status="d.online ? 'ok' : 'offline'" :size="8" />
+        <StatusDot :status="d.session === 'online' ? 'ok' : d.session === 'waiting' ? 'running' : 'offline'" :size="8" />
         <div class="dev-info">
           <div class="dev-name">
             {{ d.name }}
-            <span v-if="d.online" class="ui-badge ok">在线</span>
+            <span v-if="d.session === 'online'" class="ui-badge ok">在线</span>
+            <span v-else-if="d.session === 'waiting'" class="ui-badge dim">等待上线</span>
             <span v-for="s in d.scopes" :key="s" class="ui-badge dim">{{ s }}</span>
           </div>
           <div class="dev-meta">配对于 {{ fmtTime(d.pairedAt) }} · 最后活跃 {{ fmtTime(d.lastSeenAt) }}</div>
@@ -343,7 +345,7 @@ onUnmounted(() => {
 .stat-row { display: flex; align-items: center; gap: var(--space-2); padding: 3px 0; min-height: 30px; }
 .k { color: var(--text-3); min-width: 56px; font-size: 12px; flex: none; }
 .v { font-size: 13px; }
-.v[data-state="online"] { color: var(--ok); }
+.v[data-state="ok"] { color: var(--ok); }
 .v[data-state="error"] { color: var(--err); }
 .mono-v { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-inset); padding: 2px 8px; border-radius: var(--r-sm); word-break: break-all; }
 .mono-v.dim { color: var(--text-3); }

@@ -24,14 +24,16 @@ export interface PairingSession {
   devicePubkey?: string;
 }
 
-/** 服务状态快照（管理面展示用） */
+/** 服务状态快照（管理面展示用）——两维度（cr-246）：link 传输面 + devices 会话面 */
 export interface RemoteLinkStatus {
   identityPubkey: string;
   relayUrl: string | null;
   /** TLS pin 是否已配置（cr-65——UI 提示用；值本身不下发远端，只随二维码给配对方） */
   tlsPinConfigured: boolean;
-  state: 'idle' | 'connecting' | 'online' | 'pairing' | 'error';
-  onlineDeviceIds: string[];
+  /** 传输面：本机→relay 链路可达性（占座驻留/重试中均算 ok——会合进度看 devices） */
+  link: 'unconfigured' | 'ok' | 'error';
+  /** 会话面：每设备的加密会话进度（占座等对端 / 在线传输） */
+  devices: Array<{ deviceId: string; session: 'waiting' | 'online' }>;
   lastError: string | null;
   /** 活动配对会话快照（cr-43：UI 关页丢会话态的修复——服务端为单一事实源，
    *  新窗口/重开页经 status 对账恢复 SAS 确认界面） */

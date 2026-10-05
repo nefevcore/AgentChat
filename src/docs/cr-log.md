@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-245**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-249**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -263,3 +263,7 @@
 - 【cr-243 2026-10-05 KV 走势加 95% 水平基准虚线（使用情况定的健康线，与 50% 弱参考线同在但强一档）】
 - 【cr-244 2026-10-05 移除会话头 System Prompt 预览按钮（冗余——辅助活动栏 rail 已有入口）】
 - 【cr-245 2026-10-05 KV 走势删 50% 弱参考线（用户反馈太浅未察觉——信息价值低于视觉噪音，95% 基准线已承担参考职责）】
+- 【cr-246 2026-10-05 占座模型+状态两维度投影：KK 首握超时改占房驻留（waiting-peer 提前到首握前，根除重启后手机缺席的相位空窗）；relay 房间存活统一为心跳保活（删 everClosed/openRoomTtl 分支）；remote/status 拆传输面 link+会话面 devices 两维度，前端随投影（待机不再误显连接中）】
+- 【cr-247 2026-10-05 占座模型真机 e2e 实证（cr-246）：手机冷启动/杀后台重拉均首轮 KK 会合（占座房 m1 直达，无撞门轮数）；断线自愈 1.4~2.6s；PC 端手机离线落 waiting 不弃房、link 恒 ok；期间发现并修复配对房 XK 超时污染 link 投影（一次性 rendezvous 无人扫码不属传输面异常）；另实锤存量身份漂移（手机换 Keystore 身份后旧配对断裂）经重新配对恢复】
+- 【cr-248 2026-10-05 手机桥静态代理超时修复（cr-246 后续）：启动期并发拉 chunk 打满 15s 超时 → 回落本地旧 dist → 新 chunk 缺失 404 →「页面资源已更新」弹窗死循环（真机实锤「Timed out waiting for 15000ms」×3 后回落）。修：静态代理窗放宽 60s；超时（TimeoutCancellationException）不回落本地直报 504（超时=上游忙≠资源不存在，回落只造成哈希断代），确定性失败仍回落；APK 内置 dist 同步重建（离线兜底同代）】
+- 【cr-249 2026-10-05 relay 帧闸调参 60/s burst120（cr-248 后续）：30/s 在手机 webui 启动/切页洪峰下打空 → fail-loud 断链（relay #59 closed 1006 与手机链路关闭同刻实锤）→ 在途 RPC 全超时。60s 监控终验：relay 重启（部署）手机 1.5s 自愈重连，链路终态 link ok + 设备 online】

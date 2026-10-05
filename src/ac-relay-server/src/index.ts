@@ -7,7 +7,7 @@
 //   · frame = opaque 密文转发：不解析、不落盘、不记内容日志；
 //   · 房间寿命 = 常住方模型（cr-70/72）：成员离线只移除该成员并通知幸存者
 //     （peer-left），房间随幸存者心跳存活；全员离场即销毁；从未封闭的
-//     占座房 TTL 5min、曾封闭的常住房由 60s 心跳超时兜底——哑中继的
+//     房间存活统一由成员心跳判活（60s 超时兜底）——哑中继的
 //     “哑”（内容盲/身份盲/重启失忆）分毫未动，变的只是管道寿命策略；
 //   · 防滥用四重限额（连接/房间/帧大小/速率）+ join 频控 + 单房间流量上限；
 //   · 无数据库、无磁盘卷——重启即失忆是特性。
@@ -70,11 +70,9 @@ export interface RelayLimits {
   joinBucket: RateLimiterOptions;
   /** 单房间每日流量上限（字节——入向计） */
   roomDailyBytes: number;
-  /** 未封闭房间 TTL（ms） */
-  openRoomTtlMs: number;
-  /** 房间成员心跳超时（ms，任一方超时未 pong 即断开销毁房间） */
+  /** 房间成员心跳超时（ms，任一方超时未 pong 即断开） */
   heartbeatTimeoutMs: number;
-  /** 单 IP 未封闭（1 席等待期）房间数上限——cr-64：占座阻断的纵深压缩 */
+  /** 单 IP 名下房间数上限——cr-64：占座阻断的纵深压缩 */
   maxOpenRoomsPerIp: number;
   /** 全局并发连接上限（F-2 兜底：IPv6 /64 内轮换源地址时 per-IP 桶全部
    *  独立计，一台机器可刷满房间池——全局口是耗尽攻击的最后一道闸） */
@@ -93,13 +91,16 @@ export const DEFAULT_LIMITS: RelayLimits = {
   // 桥的上游在一两分钟后静默失效）。防滥用主力是速率桶与房间日流量上限（均不变）；
   // 本项只防单帧 OOM，放宽到 8MB。真正解法（分片）见 M3.4 待办。
   maxFrameBytes: 8 * 1024 * 1024,
-  frameBucket: { burst: 60, ratePerSec: 30 },
+  // 帧速率桶（cr-248 调参）：30/s 在手机端 webui 启动/切页洪峰（懒加载 chunk 并发
+  // rpc/call + vite import 失败重试 + 事件对账）下打空 → fail-loud 断链 → 在途 RPC
+  // 全超时（真机实锤 #59 closed 1006 与手机「链路关闭」同刻）。60/s + burst 120
+  // 覆盖合法峰值；防滥用语义不变（持续灌帧仍触顶，单帧 8MB 限制不动）。
+  frameBucket: { burst: 120, ratePerSec: 60 },
   // join 频控（cr-43 ⑬ 真机实锤修正）：两端 NAT 同出口 IP 时，手机 KK 重连（7s ≈ 8.5/min）
   // + 核心端 KK 重试同速率 = 17/min 合法流量，原 10/min 上限必杀——burst 5 连 3s 超时
   // 重试的首轮都撑不过。防扫描语义保留（30/min 仍拦暴力枚举），合法双端重联不再互杀。
   joinBucket: { burst: 20, ratePerSec: 30 / 60 }, // 30/min
   roomDailyBytes: 1024 * 1024 * 1024,            // 1 GiB/天
-  openRoomTtlMs: 5 * 60 * 1000,
   heartbeatTimeoutMs: 60 * 1000,
   // cr-64：单 IP 未封闭房间配额。正常拓扑每 IP 同时至多 2 条链（双端各一）×
   // 各 1 房；手机 4s/轮重试 + 核心端 70s 长驻的瞬态峰值也不超过 4-6 房。8 = 合法
@@ -142,8 +143,6 @@ interface Room {
   bytesIn: number;
   /** 双方 join 后每个成员的心跳截止时刻（超时未见 ping 即断开） */
   lastSeen: number[];
-  /** 曾达到 2 席（cr-70 常住房标记）：TTL 不再适用——由幸存者心跳保活 */
-  everClosed: boolean;
 }
 
 /** 连接句柄抽象（可注入测试替身） */
@@ -170,7 +169,7 @@ export class RelayCore {
 
   constructor(private readonly limits: RelayLimits = DEFAULT_LIMITS) {}
 
-  /** 每分钟一次的全局清扫（未封闭 TTL 房间 + 心跳超时成员 + 残留频控 bucket） */
+  /** 周期性全局清扫（心跳超时成员 + 残留频控 bucket） */
   sweep(now = Date.now()): void {
     // bucket 泄漏修复（cr-64）：joinBuckets/frameBuckets 原本只增不减——每个
     // 出现过的高频 IP 永久残留一条 entry。10 分钟无 take 的 bucket 即无主残骸。
@@ -180,13 +179,11 @@ export class RelayCore {
     for (const [ip, b] of this.frameBuckets) {
       if (now - b.lastTake > 600_000) this.frameBuckets.delete(ip);
     }
-    for (const [id, room] of this.rooms) {
-      // cr-72：TTL 只管「从未封闭」的占座房（防扫描占位）；曾封闭的常住房由
-      // 幸存者心跳保活（60s 超时兜底）——PC 独守不再被 5min TTL 误杀重拨。
-      if (!room.everClosed && room.peers.length < 2 && now - room.createdAt > this.limits.openRoomTtlMs) {
-        this.destroyRoom(id);
-        continue;
-      }
+    for (const [_id, room] of this.rooms) {
+      // 房间存活统一判据（cr-246）：成员心跳。占座房（cr-246 PC 常驻等对端）与
+      // 常住房同语义——有心跳即活，无人心跳即由下面的超时清理收房。防滥用不变：
+      // 恶意占房须持续心跳（受 join 频控与 per-IP 房间配额约束），且清理窗
+      // 60s 反而比旧 TTL 5min 更严。
       // 心跳超时：只清超时成员（cr-70——原语义销毁全房；现在幸存者无责）。
       // terminate 会触发该连接的 onClose → detach → removeMember（通知幸存者），
       // 此处不再手动移除（同步 close 的替身会双重 splice——索引错位实锤）。
@@ -269,9 +266,9 @@ export class RelayCore {
             return;
           }
           // 单 IP 房间配额（cr-64 + F-2 修正）：新建房才计（加入既有房不限——
-          // 不惩罚会合方）；计入口径含 everClosed 房间——原实现只数未封闭房，
+          // 不惩罚会合方）；计入口径含全部房间——原实现只数未封闭房，
           // 攻击者可两连接封闭再退一席，把房间移出统计后靠 ping 保活，per-IP
-          // 配额形同虚设。心跳保活的常住房与占座房同样占内存与端口，同计数。
+          // 配额形同虚设。心跳保活的房间同样占内存与端口，同计数。
           if (!this.rooms.has(msg.room)) {
             const byIp = [...this.rooms.values()]
               .filter((r) => r.peers.some((p) => p.ip === conn.ip)).length;
@@ -282,18 +279,17 @@ export class RelayCore {
           }
           let room = this.rooms.get(msg.room);
           if (!room) {
-            room = { peers: [], createdAt: Date.now(), dayKey: dayKeyOf(), bytesIn: 0, lastSeen: [], everClosed: false };
+            room = { peers: [], createdAt: Date.now(), dayKey: dayKeyOf(), bytesIn: 0, lastSeen: [] };
             this.rooms.set(msg.room, room);
-            // 未封闭 TTL / 心跳超时统一由全局 sweep()（main.ts 每 60s，已
-            // unref）兜底——房间级定时器会钉住事件循环（进程不退出事故）
+            // 心跳超时由全局 sweep()（main.ts 每 15s，已 unref）兜底——
+            // 房间级定时器会钉住事件循环（进程不退出事故）
           }
           if (room.peers.length >= 2) {
             conn.send(JSON.stringify({ op: 'room-unavailable' } satisfies RelayServerMessage));
             return;
           }
-          // cr-70：成员回归（房间已有 1 席 + 本连接加入）→ 通知幸存者对端已到
+          // 成员回归（房间已有 1 席 + 本连接加入）→ 通知幸存者对端已到
           if (room.peers.length === 1) {
-            room.everClosed = true; // 曾封闭——TTL 豁免，此后由心跳保活（cr-72）
             room.peers[0].ws.send(JSON.stringify({ op: 'peer-arrived' } satisfies RelayServerMessage));
           }
           room.peers.push({ ws: conn, ip: conn.ip });

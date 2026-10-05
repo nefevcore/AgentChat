@@ -184,27 +184,23 @@ export class RemoteLinkService extends Service {
   }
 
   status(): RemoteLinkStatus {
-    // online 判定（cr-70）：只数真正在传数据的连接——waiting-peer（常住待命）
-    // 的连接虽然活着，但对端不在线，设备应显示离线。
-    const online = [...this.connections.entries()]
-      .filter(([, c]) => c.state === 'online')
-      .map(([id]) => id);
-    let state: RemoteLinkStatus['state'] = 'idle';
-    // done 会话是配对成功的残留快照（供前端对账），不是进行中配对——
-    // 它不得压过 online（cr-66 真机实锤：配对成功后 PC 恒显「配对中」）。
-    if (this.pairing && this.pairing.state !== 'done') state = 'pairing';
-    else if (online.length > 0) state = 'online';
-    else if (this.reconnectTimer) state = 'connecting';
-    // KK 快速重试期（cr-68：kkRetries 2s 间隔重排不经 reconnectTimer，状态面板
-    // 误显「异常」——用户以为链路死了不再唤起，实际一直在撞门重试）
-    else if (this.connectingDevices.size > 0) state = 'connecting';
-    else if (this.lastError) state = 'error';
+    // 两维度投影（cr-246）：传输面 link（本机→relay 可达性）与会话面 devices
+    // （每设备的加密会话进度）独立呈现。历史单枚举把配对/在线/重试压扁排序
+    // 挤出显示值——cr-66/68 与「手机缺席恒显连接中」三次同根发病，根因即此。
+    // 拆分后：手机离线 = link ok + device waiting，一眼可判对端缺席。
+    const devices = [...this.connections.entries()].map(([id, c]) => ({
+      deviceId: id,
+      session: c.state === 'online' ? ('online' as const) : ('waiting' as const),
+    }));
+    let link: RemoteLinkStatus['link'] = 'ok';
+    if (!this.options.relayUrl) link = 'unconfigured';
+    else if (this.lastError) link = 'error';
     return {
       identityPubkey: b64u(this.identity.publicKey),
       relayUrl: this.options.relayUrl || null,
       tlsPinConfigured: !!this.options.tlsPin,
-      state,
-      onlineDeviceIds: online,
+      link,
+      devices,
       lastError: this.lastError,
       // 配对会话快照：活动会话随 status 下发（UI 对账恢复用，见 contract 注释）
       pairing: this.pairing ? { ...this.pairing } : null,
@@ -359,7 +355,11 @@ export class RemoteLinkService extends Service {
       this.sendResync(deviceId);
       this.finalizePairingDone();
     } catch (err) {
-      this.lastError = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      // 配对房是 XK 一次性 rendezvous——「等 m1 超时」= 没人扫码/TTL 到期，
+      // 属配对面常态收尾（cr-246 两维度：不污染传输面 link）；只有传输性错误
+      // （dial 失败等）才算链路异常。
+      if (!msg.includes('handshake timeout')) this.lastError = msg;
       conn.close('pairing-failed');
       if (this.pairing && this.pairing.state !== 'done') this.pairing.state = 'expired';
       this.pairing = null; // 失败即释放——下次 startPairing 不被残留会话挡
@@ -455,8 +455,8 @@ export class RemoteLinkService extends Service {
     try {
       const outcome = await conn.connectAndHandshake(
         { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined, targetDevicePubkey: device.pubkey,
-          // 首握手等待窗（cr-70 后无相位压力——手机撞门即达；窗口只兜底网络
-          // 抖动与 dial 失败的判定）。原 70s 长驻语义已被常住模型取代。
+          // 首握等待窗（cr-246）：兜「对端在房但 m1 丢失」的抖动判定；超时走
+          // holdForPeer 占座驻留（房间常驻，对端随到随握手），不再弃房重拨。
           waitFirstMsgMs: 15_000 },
         this.registry,
         async () => false, // KK 路径不进 SAS
@@ -467,19 +467,31 @@ export class RemoteLinkService extends Service {
       this.reconnectAttempt = 0;
       this.sendResync(deviceId);
     } catch (err) {
-      this.lastError = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      // 首握超时 = 对端不在线 → 占座驻留（cr-246）：房间保留（ping 保活），
+      // 对端 m1 到达即在同一条 ws 上握手（onRehandshake 恢复在线）。会合
+      // 与本端重试节律解耦——重启/退避间隙不再有相位空窗。
+      if (msg.includes('handshake timeout')) {
+        conn.holdForPeer();
+        this.reconnectAttempt = 0;
+        this.lastError = null;
+        this.adoptConnection(deviceId, conn, null);
+        this.ctx.logger.info(`[remote-link] ${deviceId} 占座驻留（房间 ${roomId}，等对端上线）`);
+        return;
+      }
+      this.lastError = msg;
       // sever 而非 close（cr-50）：失败路径 RST 立断，不占房。
       conn.sever('connect-failed');
-      // cr-70：重试只剩这一处——dial/join 失败（relay 不可达/频控）时常规退避。
-      // 相位耦合已由常住模型根除，不再需要快重试循环。
+      // dial/join 失败（relay 不可达/频控）时常规退避。
       this.scheduleReconnect(deviceId);
     }
   }
 
+  /** transport 仅在线会话形态非空；占座驻留形态（cr-246）传 null——恢复在线经 onRehandshake */
   private adoptConnection(
     deviceId: string,
     conn: RelayConnection,
-    transport: { send: import('ac-noise-core').TransportCipher; recv: import('ac-noise-core').TransportCipher },
+    transport: { send: import('ac-noise-core').TransportCipher; recv: import('ac-noise-core').TransportCipher } | null,
   ): void {
     // RelayConnection 内部已持有 transport；这里只挂回调与登记
     conn.onPayload = conn.onPayload ?? ((payload) => this.handleDevicePayload(deviceId, payload));

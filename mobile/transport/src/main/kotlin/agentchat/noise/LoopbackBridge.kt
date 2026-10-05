@@ -332,7 +332,11 @@ class LoopbackBridge(
      *
      * 在线时 GET 静态路径 → http/static RPC（read 档，核心端对路径再做白名单
      * 闸——/api/ 前缀原路、dist 顶层白名单放行）；断链（upstreamLive=false）直接
-     * 回落本地 dist。上游失败也回落——本地缺失才 404（离线永远有完整旧版）。
+     * 回落本地 dist。确定性失败（旧核心端不认方法/RPC 错误应答）回落本地；
+     * **超时不回落**（cr-246 真机实锤：启动期并发拉 chunk 打满 15s 超时 →
+     * 回落本地旧 dist → 新 chunk 本地缺失 404 →「页面资源已更新」弹窗死循环。
+     * 超时 = 上游忙/慢 ≠ 资源不存在，回落只会造成哈希断代）——直报 504，
+     * WebView 侧的 import 重试机制自会再拉。资源拉取非交互面，窗放宽到 60s。
      */
     private suspend fun ApplicationCall.proxyStaticSafely() {
         if (!upstreamLive) { serveLocal(); return }
@@ -341,13 +345,18 @@ class LoopbackBridge(
             addProperty("path", request.uri)
             request.headers[HttpHeaders.IfNoneMatch]?.let { addProperty("ifNoneMatch", it) }
         }
-        val outcome = runCatching { callUpstream("http/static", params) }
+        val outcome = runCatching { callUpstream("http/static", params, timeoutMs = 60_000) }
         outcome.fold(
             onSuccess = { o -> replyProxied(o) },
             onFailure = { err ->
-                // 上游失败（断链/旧核心端不认 http/static/超时）→ 本地 dist 兜底
-                println("[bridge] 静态代理失败回落本地: " + (err.message ?: "upstream failed"))
-                serveLocal()
+                if (err is kotlinx.coroutines.TimeoutCancellationException) {
+                    println("[bridge] 静态代理超时（上游忙，不回落本地防哈希断代）: " + request.uri)
+                    respondText("upstream busy (timeout, no local fallback)", ContentType.Application.Json, HttpStatusCode.GatewayTimeout)
+                } else {
+                    // 确定性失败（断链/旧核心端不认 http/static）→ 本地 dist 兜底
+                    println("[bridge] 静态代理失败回落本地: " + (err.message ?: "upstream failed"))
+                    serveLocal()
+                }
             },
         )
     }

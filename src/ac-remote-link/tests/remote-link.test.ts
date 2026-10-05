@@ -198,18 +198,43 @@ describe('配对收编后的断链通知（cr-67）', () => {
   });
 });
 
-describe('链路状态判定', () => {
-  it('done 会话残留不压 online（cr-66：配对成功后 PC 恒显配对中）', async () => {
-    await boot();
-    const s = svc.status();
-    expect(s.state).not.toBe('pairing');
-    // done 态会话 = 配对成功快照（前端对账用），链路状态应为 idle/online，
-    // 不得因快照存在而误报「配对中」。
-    const internal = svc as unknown as { pairing: { state: string } | null };
+describe('状态两维度投影（cr-246）', () => {
+  it('link 传输面与会话面独立：done 会话快照不影响 link（cr-66 根治形态）', async () => {
+    await boot({ relayUrl: '' });
+    // 未配置 relayUrl → unconfigured
+    const internal = svc as unknown as { pairing: { state: string } | null; options: { relayUrl: string } };
+    expect(svc.status().link).toBe('unconfigured');
+    // done 态会话 = 配对成功快照（前端对账用）——link 不受其影响（cr-66：
+    // 历史单枚举被 done 压成「配对中」；两维度后快照只经 pairing 字段下发）
     internal.pairing = { state: 'done' };
-    expect(svc.status().state).not.toBe('pairing');
+    expect(svc.status().link).toBe('unconfigured');
+    expect(svc.status().pairing?.state).toBe('done');
+    // 配对进行中同样只体现在 pairing 字段
     internal.pairing = { state: 'wait-join' };
-    expect(svc.status().state).toBe('pairing');
+    expect(svc.status().link).toBe('unconfigured');
+    expect(svc.status().pairing?.state).toBe('wait-join');
+  });
+
+  it('占座驻留的设备投影 waiting；在线设备投影 online', async () => {
+    await boot();
+    // 注入两形态连接：waiting-peer（占座）与 online（传输中）
+    svc.testInjectConnection('d-hold', { state: 'waiting-peer' } as never);
+    svc.testInjectConnection('d-live', { state: 'online' } as never);
+    const st = svc.status();
+    expect(st.devices).toEqual([
+      { deviceId: 'd-hold', session: 'waiting' },
+      { deviceId: 'd-live', session: 'online' },
+    ]);
+  });
+
+  it('link=error 由传输面错误置位（dial 失败），不因会话等待混淆', async () => {
+    await boot({ relayUrl: 'wss://fake.relay' });
+    // dial 失败路径的 lastError 落盘（runDeviceConnectionInner catch）——直接模拟
+    // 该字段后验证 link 投影；占座驻留（handshake timeout）路径会清 error 保持 ok
+    const internal = svc as unknown as { lastError: string | null };
+    internal.lastError = 'relay: connect timeout';
+    expect(svc.status().link).toBe('error');
+    expect(svc.status().lastError).toBe('relay: connect timeout');
   });
 });
 
@@ -308,6 +333,36 @@ describe('KK 常住方模型（cr-70）', () => {
       JSON.stringify({ op: 'frame', data: { hs: m1b.toString('base64url') } }));
     expect(state()).toBe('online');
     expect(peerLeft || true).toBe(true); // onPeerLeft 在首次 peer-left 时未挂（挂载顺序变体），不作为断言主轴
+  });
+
+  it('首握占座（cr-246）：holdForPeer 后 m1 到达 → 直接 KK 响应恢复 online', async () => {
+    const { NoiseHandshake, generateStaticIdentity } = await import('ac-noise-core');
+    const coreIdentity = generateStaticIdentity();
+    const devIdentity = generateStaticIdentity();
+    const conn = new RelayConnection(coreIdentity);
+    const outbound: string[] = [];
+    (conn as unknown as { ws: unknown }).ws = {
+      readyState: 1, OPEN: 1, send: (s: string) => outbound.push(s),
+      on: () => {}, close: () => {}, terminate: () => {},
+    };
+    (conn as unknown as { kkTargetPubkey: string | null }).kkTargetPubkey = b64uOf(Buffer.from(devIdentity.publicKey));
+    const state = () => (conn as unknown as { state: string }).state;
+
+    // 首握超时 → 占座驻留（不弃房）
+    conn.holdForPeer();
+    expect(state()).toBe('waiting-peer');
+    // 对端到达：m1 → 原地重握手 → online + m2 回帧
+    const initiator = new NoiseHandshake('KK', 'initiator', devIdentity, Buffer.from(coreIdentity.publicKey));
+    const m1 = initiator.writeMessage();
+    let rehandshook = false;
+    conn.onRehandshake = () => { rehandshook = true; };
+    (conn as unknown as { handleWire(raw: string): void }).handleWire(
+      JSON.stringify({ op: 'frame', data: { hs: m1.toString('base64url') } }));
+    expect(rehandshook).toBe(true);
+    expect(state()).toBe('online');
+    const m2Frame = outbound[outbound.length - 1];
+    expect(JSON.parse(m2Frame).data.hs).toBeTruthy();
+    initiator.readMessage(Buffer.from(JSON.parse(m2Frame).data.hs, 'base64url')); // 协议往返成立
   });
 
   it('waiting 态但无 kkTargetPubkey（配对连接形态，cr-73）→ m1 到达走旧等待队列不炸不重握手', async () => {

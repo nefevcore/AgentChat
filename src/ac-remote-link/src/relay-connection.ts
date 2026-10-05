@@ -6,8 +6,9 @@
 //   · join(roomId) → 房间封闭（恰好两方）；
 //   · XK（配对）/ KK（重连）握手 → TransportCipher 帧泵；
 //   · 帧格式 { t: "frame", n, ct }（业务载荷 JSON 与本地 WS 协议同构）；
-//   · ws 真死后指数退避重拨（1s 起，上限 60s，±20% 抖动）；对端离线走
-//     常住待命（cr-70），不弃链。
+//   · KK 占座模型（cr-246）：进房即占座，对端未到/离线一律 waiting-peer 驻留
+//     （房内 ping 保活，对端 m1 随到随握手）——会合与 PC 端重试节律解耦；
+//     仅 ws 真死（relay 重启/网络断）才废弃重拨。配对（XK）仍一次性生命周期。
 //
 // 与 relay 的控制帧词汇（ac-relay-server）：
 //   入站 { op: "join", room } → joined | room-unavailable；
@@ -51,7 +52,7 @@ export type LinkState =
   | 'handshaking'
   | 'online'
   | 'pairing-sas'
-  | 'waiting-peer'   // cr-70 常住方：对端离线，本连接原地待命（房间还在）
+  | 'waiting-peer'   // 占座驻留（cr-70 对端离线 / cr-246 首握前占座）：房内待命等 m1
   | 'closed';
 
 export interface RelayConnectOptions {
@@ -153,9 +154,9 @@ export class RelayConnection {
     this.state = 'handshaking';
     // 诊断锚点：真机排障时这两行能区分「房间没进」「对端没发」「发了没收到」
     this.onState?.(`joined ${opts.roomId}，等待首条握手消息`);
-    // KK 长等待（cr-43：responder 等 m1 的窗口必须覆盖发起方完整重试周期——
-    // 原 15s 与手机 7s 轮同量级，双端对称重试相位锁定永不相遇（真机实锤：双方都在
-    // 房间等对方却各自超时）。KK 路径传 70s；配对路径（XK）维持缺省短窗。
+    // 首握等待窗（cr-246）：只兜「对端已在房但 m1 丢失」的网络抖动判定——超时
+    // 不再弃房，进入占座驻留等对端（见下方 KK 分支）。对端真不在线时这里
+    // 15s 白等一轮才转驻留；可接受：占座语义下这是唯一一次。
     const firstMsg = await this.expectHandshakeMessage(opts.waitFirstMsgMs ?? opts.timeoutMs ?? 15000);
     this.onState?.(`收到首条握手消息 ${firstMsg.length}B`);
     // 先以「未知对端」读第一条：XK m1 = [e]（无 s）——KK m1 = [e, es]，es 需要已知 rs。
@@ -212,6 +213,18 @@ export class RelayConnection {
       outcome = this.kkRespond(firstMsg);
     }
     return outcome;
+  }
+
+  /**
+   * KK 首握超时 → 占座驻留（cr-246）：不弃房，房内 ping 保活等对端 m1。
+   * 对端到达（handleWire 的 hs 分支）即 kkRespond 恢复。ws 真死（relay 重启/
+   * 网络断）由 close 事件收束 → 服务层重拨。返回 promise 永不 resolve——
+   * 驻留期状态经 onPeerLeftArrival 观察口上报，调用方不必 await。
+   */
+  holdForPeer(): void {
+    this.transport = null;
+    this.state = 'waiting-peer';
+    this.onState?.('首握超时——占座驻留（房内保活等对端）');
   }
 
   /**
@@ -395,8 +408,8 @@ export class RelayConnection {
       }
       return;
     }
-    // cr-70 常住方：对端离线——房间保留，丢弃 transport 原地待命。
-    // 不再触发 onClose（连接本身健康）；服务层经 onPeerLeft 观察下线。
+    // 对端离线（cr-70）：房间保留，丢弃 transport 原地待命。
+    // 不触发 onClose（连接本身健康）；服务层经 onPeerLeft 观察下线。
     if (frame.op === 'peer-left') {
       if (this.state === 'online') {
         this.transport = null;
@@ -414,8 +427,8 @@ export class RelayConnection {
     if (frame.op === 'frame') {
       const data = (frame.data ?? {}) as { hs?: unknown; n?: unknown; ct?: unknown };
       if (typeof data.hs === 'string') {
-        // 常住重握手（cr-70）：waiting 态收到 m1 = 对端回归，直接重做 KK 响应。
-        // 失败（伪冒/坏帧）只 sever 这条连接交上层重拨——不影响其他设备。
+        // 占座/常住会合（cr-70/246）：waiting 态收到 m1 = 对端到达（首握或回归），
+        // 直接做 KK 响应。失败（伪冒/坏帧）只 sever 这条连接交上层重拨——不影响其他设备。
         if (this.state === 'waiting-peer' && this.kkTargetPubkey) {
           try {
             const outcome = this.kkRespond(unb64u(data.hs));

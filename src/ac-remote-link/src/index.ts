@@ -94,9 +94,10 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
 
   web.registerRpc('remote/devices', () => {
     const st = remote().status();
-    const online = new Set(st.onlineDeviceIds);
+    const session = new Map(st.devices.map((d) => [d.deviceId, d.session]));
     return {
-      devices: remote().listDevices().map((d: import('./device-registry.ts').RemoteDevice) => ({ ...d, online: online.has(d.id) })),
+      // session 会话态（cr-246 两维度）：online=在线传输 / waiting=占座等对端 / 无=未连
+      devices: remote().listDevices().map((d: import('./device-registry.ts').RemoteDevice) => ({ ...d, session: session.get(d.id) ?? null })),
       relayUrl: st.relayUrl,
       identityPubkey: st.identityPubkey,
       tlsPinConfigured: st.tlsPinConfigured,

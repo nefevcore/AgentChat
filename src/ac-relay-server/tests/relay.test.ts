@@ -146,7 +146,7 @@ describe('RelayCore 房间生命周期', () => {
     vi.useRealTimers();
   });
 
-  it('曾封闭的常住房回落 1 席 → TTL 不杀（cr-72：由心跳保活）', () => {
+  it('常住房回落 1 席 → 心跳保活（cr-72 语义，cr-246 与占座房统一）', () => {
     vi.useFakeTimers();
     const core = new RelayCore(DEFAULT_LIMITS);
     const a = new FakeConn('1.1.1.1');
@@ -155,7 +155,7 @@ describe('RelayCore 房间生命周期', () => {
     const room = 'e9'.repeat(16);
     joinOk(a, room); joinOk(b, room); // 封闭过
     b.close(); // 回落 1 席（a 幸存，收 peer-left）
-    // 远超 openRoomTtl 的 5 分钟——只要 a 持续心跳，房间活着
+    // 远超旧 TTL 的 5 分钟——只要 a 持续心跳，房间活着
     for (let round = 0; round < 8; round++) {
       vi.advanceTimersByTime(45_000);
       a.recv(JSON.stringify({ op: 'ping' }));
@@ -169,14 +169,22 @@ describe('RelayCore 房间生命周期', () => {
     vi.useRealTimers();
   });
 
-  it('未封闭房间 TTL 过期销毁', () => {
+  it('占座房（单方等待）心跳保活，停跳即收（cr-246：房间存活统一为心跳判活）', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-15T00:00:00Z'));
     const core = new RelayCore(DEFAULT_LIMITS);
     const a = new FakeConn('1.1.1.1');
     core.accept(a);
     joinOk(a, 'e'.repeat(32));
-    vi.advanceTimersByTime(DEFAULT_LIMITS.openRoomTtlMs + 1000);
+    // 超过旧 openRoomTtl 5min 的时长——只要占座方持续心跳，房间活着（PC 常驻占座
+    // 等对端是合法形态，不再被「从未封闭」TTL 误杀）
+    for (let round = 0; round < 8; round++) {
+      vi.advanceTimersByTime(45_000);
+      a.recv(JSON.stringify({ op: 'ping' }));
+      core.sweep();
+    }
+    expect(core.roomCount).toBe(1);
+    // 停止心跳 → 心跳超时收房（防滥用：无人心跳的占座房最长 60s+sweep 间隔即清）
+    vi.advanceTimersByTime(DEFAULT_LIMITS.heartbeatTimeoutMs + 1000);
     core.sweep();
     expect(a.closed).toBe(true);
     expect(core.roomCount).toBe(0);
@@ -293,14 +301,14 @@ describe('RelayCore 防滥用限额', () => {
     expect(a.closed).toBe(true);
   });
 
-  it('per-IP 房间配额含 everClosed 房间（F-2：封闭后退席不再移出统计）', () => {
+  it('per-IP 房间配额含回落 1 席的常住房（F-2：封闭后退席不再移出统计）', () => {
     const core = new RelayCore({ ...DEFAULT_LIMITS, maxOpenRoomsPerIp: 2 });
     const mk = () => { const c = new FakeConn('7.7.7.7'); core.accept(c); return c; };
-    // 房1：两方封闭 → 一方退席（everClosed=true，剩 1 席靠 ping 保活）
+    // 房1：两方封闭 → 一方退席（剩 1 席靠 ping 保活）
     const r1a = mk(); joinOk(r1a, 'v'.repeat(32));
     const r1b = mk(); joinOk(r1b, 'v'.repeat(32));
     r1b.close();
-    // 房2：正常占座。此时该 IP 名下 2 房（1 个 everClosed + 1 个未封闭）→ 配额满
+    // 房2：正常占座。此时该 IP 名下 2 房 → 配额满
     expect(joinOk(mk(), 'w'.repeat(32))).toBe(true);
     const g = mk();
     g.recv(JSON.stringify({ op: 'join', room: 'x'.repeat(32) }));
