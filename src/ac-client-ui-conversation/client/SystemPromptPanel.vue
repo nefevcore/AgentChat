@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // ============================================================
 // client/SystemPromptPanel.vue —— System Prompt aux 选区面板
-//（A1：对照会话阅读——宽屏会话头按钮直达侧栏，边聊边看 prompt）
+//（A1：对照会话阅读，边聊边看 prompt；入口 = 辅助活动栏 rail——
+// 会话头按钮已撤 cr-244〔冗余〕）
 //
-// 数据：chatStore systemPrompt 族（与 modal 同源——requestSystemPrompt
-// 由会话头按钮发起；选区宿主只在当选时补一次请求〔宽屏入口不再开
-// modal，请求可能从未发起〕）。keepAlive 语义：内容常驻，切换会话
-// 时由入口按钮重新触发请求。
+// 数据：chatStore systemPrompt 族。当选兜底请求覆盖 rail 直开场景
+// （选区激活且无内容时补一次）；keepAlive 语义：内容常驻，切换会话
+// 时由目标切换 watch 清空重取。
 // ============================================================
 import { computed, watch } from 'vue';
 import { BusyRing, Icon, Tooltip } from '@agentchat/webui-kit';
@@ -23,8 +23,8 @@ const chatStore = useChatStore();
 
 /** 当前会话目标 Agent（与会话头 headerAgentId 同款解析：single 承载
  *  Agent 优先，回落活跃 1v1 Agent；群视角 = 代表成员〔首成员——cr-4
- *  群主退役〕。rail 直开与会话头按钮两入口同源——行为差异消除（此前
- *  rail 直开走无参请求，群视角静默不发起 + 标题用旧快照）。 */
+ *  群主退役〕。按视角带 gid/会话键请求——群成员视角装配（此前 rail
+ *  直开走无参请求，群视角静默不发起 + 标题用旧快照）。 */
 const agentId = computed(() => {
   const sid = singlesBoard?.activeSingleId.value;
   if (sid) {
@@ -69,8 +69,9 @@ watch(() => chatStore.convToolMode, () => {
   if (agentId.value) requestForView();
 });
 
-/** 选区激活时兜底请求：目标解析自持（带 agentId——single 视角由
- *  chatStore resolveContext 附 sessionId）；内容已有则不重复。 */
+/** 选区激活时兜底请求（rail 直开场景——内容请求唯一入口）：目标解析
+ *  自持（带 agentId——single 视角由 chatStore resolveContext 附
+ *  sessionId）；内容已有则不重复。 */
 watch(() => [ui.auxPanel, ui.auxVisible, agentId.value, groupConversationId.value] as const, ([panel, visible]) => {
   if (panel === 'prompt' && visible && agentId.value && !chatStore.systemPromptContent
     && !chatStore.systemPromptLoading && !chatStore.systemPromptError) {

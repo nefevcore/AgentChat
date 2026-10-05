@@ -383,12 +383,6 @@ export const useUiStore = defineStore('ui', () => {
     sendAuxIntent('usage');
   }
 
-  /** 打开 System Prompt 预览（cr-30：宽窄统一 aux 'prompt' 选区）。
-   *  内容请求由触发方经 chatStore 发起；面板标题实时解析（无快照）。 */
-  function openSystemPrompt() {
-    sendAuxIntent('prompt'); // 默认宽（纯文本阅读无需铺开）
-  }
-
   /** 设置思维链可见性（全局；写回 localStorage 刷新保持） */
   function setShowThinking(v: boolean) {
     showThinking.value = v;
@@ -490,7 +484,7 @@ export const useUiStore = defineStore('ui', () => {
     openPairView, closePairView, openSubagentView, closeSubagentView, exitOverlays,
     toggleAux, openAux, selectAuxPanel,
     openAgentSettings, openGlobalSettings, closeSettings,
-    openTokenUsage, openSystemPrompt,
+    openTokenUsage,
     openVersion, closeVersion,
     openPreview,
     // resize

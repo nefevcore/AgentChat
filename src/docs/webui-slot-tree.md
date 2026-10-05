@@ -100,7 +100,7 @@ toolResultViews / perspectives 已承担），slot 树主打**填充/装饰/覆�
                                 └─ tracking(50)：运行矩阵（volatile，让位协议随 active() 住 ui-runview 行）
 [④ aux-sidebar 辅助侧边栏——keyed 选举「选区」多选一（group 群面板 + workspace 树；辅助活动栏 AuxActivityBar）]
 [bottom-panel 底部面板·预留] [status-bar 底部状态栏·预留]   ← 同上占名
-[⑤ 全局覆盖层] SystemPromptModal / FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
+[⑤ 全局覆盖层] FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
 ```
 
 **调研时点原貌**（App.vue 三层 + 覆盖层，矩阵让位协议与工作区分屏
@@ -112,7 +112,7 @@ toolResultViews / perspectives 已承担），slot 树主打**填充/装饰/覆�
                                                 └─ 聊天区（v-show 保活）
                                                    ├─ PerspectiveHost（视角容器）
                                                    └─ ④ 工作区分屏（右侧 rail + WorkspaceTree）
-[⑤ 全局覆盖层] SystemPromptModal / FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
+[⑤ 全局覆盖层] FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
 ```
 
 ---
@@ -185,7 +185,7 @@ app ······································
 │  │  ├─ chat:header
 │  │  │  ├─ chat:header-title           【饰/替】标题区（状态徽标/副标题；视角上下文）
 │  │  │  ├─ chat:header-actions         【已收编·会话区重构】conversation:header-widget 席位
-│  │  │  │                                   （jobs chip/gauge/system-prompt 预览/
+│  │  │  │                                   （jobs chip/gauge/
 │  │  │  │                                   agents·singles 动作 = 出厂贡献；
 │  │  │  │                                   thinking 开关与反馈锚留内核）
 │  │  │  ├─ chat:header-gauge-panel-section【填】token 占用弹层追加行（插件自报上下文开销）

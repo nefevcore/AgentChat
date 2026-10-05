@@ -28,9 +28,6 @@ const ConversationViewAsync = defineAsyncComponent(() => import('./ConversationV
 // Token 仪表（conversation:header-widget 出厂贡献 order 20——direct/single
 // 上下文占用仪表；异步同上）
 const TokenGaugeAsync = defineAsyncComponent(() => import('./header/TokenGauge.vue'));
-// System Prompt 预览入口（conversation:header-widget 出厂贡献 order 25——
-// Token 仪表(20)与 Agent·single 动作(30)之间；异步同上）
-const SystemPromptPreviewBtnAsync = defineAsyncComponent(() => import('./header/SystemPromptPreviewButton.vue'));
 // System Prompt 预览弹窗（overlay 出厂贡献 order 88——开关态住 ui store）
 // SystemPromptModal 已删（cr-30：窄屏 Modal 退役——宽窄统一 aux 'prompt' 选区）
 // System Prompt aux 选区宿主（A1：宽屏对照阅读面板 + 意图消费面）
@@ -237,22 +234,12 @@ export const conversationClientPlugin = clientPlugin({
       component: TokenGaugeAsync,
       order: 20,
     });
-    // System Prompt 预览入口（会话区重构遗留归位：原 ConversationView 内联
-    // 按钮迁席位贡献 order 25——Token 仪表(20)之后、Agent·single 动作(30)
-    // 之前，恢复预置次序〔预览在「更多」前〕；内联残留恒排 outlet 之后＝
-    // 恒排「更多」按钮之后（次序回归根源）。direct/single 形态组件内自隐；
-    // 弹窗 = overlay 席位贡献）
-    ctx.slots.register('conversation:header-widget', {
-      id: 'system-prompt-preview',
-      component: SystemPromptPreviewBtnAsync,
-      order: 25,
-    });
     // System Prompt 预览弹窗 overlay 贡献已撤（cr-30：窄屏 Modal 退役——
     // 宽窄统一 auxIntent → 'prompt' 选区，窄屏由 AuxSidebarHost 全屏 Sheet 呈现）
-    // System Prompt aux 选区（A1：对照阅读——宽屏会话头按钮直达侧栏；
-    // active = 显式选区；rail 恒可见〔prompt 是通用阅读工具〕；意图消费
-    // 住 SystemPromptPanelHost〔常驻组件 setup——插件级 watch 绑死 pinia
-    // 实例的踩坑锚见 usage 行〕）
+    // System Prompt aux 选区（A1：对照阅读；入口 = 辅助活动栏 rail——会话头
+    // 按钮已撤 cr-244〔冗余〕；active = 显式选区；rail 恒可见〔prompt 是通用
+    // 阅读工具〕；意图消费住 SystemPromptPanelHost〔常驻组件 setup——插件级
+    // watch 绑死 pinia 实例的踩坑锚见 usage 行〕）
     ctx.slots.inject('aux-sidebar', () =>
       ctx.slots.register('aux-sidebar', {
         id: 'webui-base-conversation.prompt',

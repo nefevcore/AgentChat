@@ -137,8 +137,6 @@ declare 占名（无 outlet——实现时壳重构顶部/底部布局后开口�
    │        按钮住此，与「工作区」同级）
    │
    └─ ⑤ 全局覆盖层 overlay 席位（list，按 order 排；order 缺省 100）
-      ├─ SystemPromptModal               [conversation]  order 88（自持开关态
-      │                                  ui.systemPromptOpen）
       ├─ FilePreviewHost → FilePreviewModal     [workspace]     order 90（markdown/hljs 渲染）
       ├─ CreateGroupHost → CreateGroupDialog    [group]         order 95
       ├─ TokenUsageHost  → TokenUsage           [usage]         order 96
@@ -179,15 +177,12 @@ ConversationView [ac-client-ui-conversation]
 │  │  │                               chip，零任务自隐）
 │  │  ├─ TokenGauge                   [conversation] order 20（占用 gauge(26px)
 │  │  │                               + 详情弹层(56px) + 归档入口）
-│  │  ├─ SystemPromptPreviewButton    [conversation] order 25（System Prompt
-│  │  │                               预览入口，弹窗走 overlay 席位）
 │  │  ├─ AgentHeaderActions           [agents]       order 30（Agent 配置按钮 +
 │  │  │                               ⋯ 菜单〔删除 Agent，确认弹窗随件内迁〕）
 │  │  └─ SingleHeaderActions          [singles]      order 30（⋯ 菜单〔归档独立
 │  │                                 会话，确认弹窗随件内迁〕）
 │  ├─ FeedbackNotice ×3               压缩/忙碌/归档整理中反馈 chip（零宽锚点
 │  │                                 悬挂；tone 语义派生图标/配色）
-│  └─ Icon                            System Prompt 入口按钮 (webui-kit)
 │
 ├─ ② 消息区 TranscriptList（四形态共享）
 │  ├─ time / event / error 分隔符      纯 div 非组件（时间线/系统事件/错误）
@@ -419,7 +414,7 @@ StarCard / PulseTrace（L2 组合件，当前无行组件消费——预留原�
 | kit 原语 | 消费方（行包） |
 |---|---|
 | Icon | 32 组件（最广：会话/侧边栏/工具卡/设置全线——ActivityBar、AuxActivityBar、ConversationView、TurnDisplayItem、ToolMessage、ChatInput、InputMention、QueueDock、InteractionBar、GoalBar、头部动作件〔AgentHeaderActions / SingleHeaderActions 等〕、各 ToolResult 卡、PoolManager 族、PluginLibraryPane 族、EntryPickerModal、WorkspaceTreeNode、RunTracking 族、SettingsPanel 等） |
-| Modal | SystemPromptModal、AgentHeaderActions、SingleHeaderActions、GroupDrawer、CreateGroupDialog、TokenUsage、SettingsPanel、ConfirmDialog、EntryPickerModal、ExtToolsPane、ExtensionSettingsModal、PluginLibraryPane、StagingReviewModal、PoolManager、SearchPoolManager、TimerPane、GlobalTimerHost、ToolResultWrite、AgentList、AgentListPane、SessionList |
+| Modal | AgentHeaderActions、SingleHeaderActions、GroupDrawer、CreateGroupDialog、TokenUsage、SettingsPanel、ConfirmDialog、EntryPickerModal、ExtToolsPane、ExtensionSettingsModal、PluginLibraryPane、StagingReviewModal、PoolManager、SearchPoolManager、TimerPane、GlobalTimerHost、ToolResultWrite、AgentList、AgentListPane、SessionList |
 | Button | ConfirmDialog、AgentListPane、PoolManager、SearchPoolManager、StagingReviewModal、ExtToolsPane、ExtensionSettingsModal、PluginLibraryPane、TokenUsage、TimerPane、GlobalTimerHost、EntryPickerModal |
 | Avatar | ActivityBar、ConversationView（pair 头部双端点）、ChatInput、UserMessage、AssistantMessage、TurnDisplayItem、GroupDrawer、RunTracking |
 | StarAvatar | AgentList、SessionList、RunTrackingPanel |
