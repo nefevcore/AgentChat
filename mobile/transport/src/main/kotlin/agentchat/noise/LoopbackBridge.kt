@@ -345,7 +345,18 @@ class LoopbackBridge(
             addProperty("path", request.uri)
             request.headers[HttpHeaders.IfNoneMatch]?.let { addProperty("ifNoneMatch", it) }
         }
-        val outcome = runCatching { callUpstream("http/static", params, timeoutMs = 60_000) }
+        // 静态拉取超时的恢复策略（cr-256）：超时主因是链路静默死（WiFi 半开——OkHttp
+        // 判死需两个 ping 周期 ~30s，期间所有 RPC 白等 60s）。第一次超时后等链路恢复
+        // （最多 20s，500ms 轮询 upstreamLive）再重试一次；仍失败才 504——把「链路瞬断」
+        // 吸收在桥内，WebView 的 import 不至于立刻失败弹窗。
+        var outcome = runCatching { callUpstream("http/static", params, timeoutMs = 60_000) }
+        if (outcome.isFailure && outcome.exceptionOrNull() is kotlinx.coroutines.TimeoutCancellationException) {
+            val revived = waitUpstreamAlive(20_000)
+            if (revived) {
+                println("[bridge] 静态代理超时后链路已恢复，重试: " + request.uri)
+                outcome = runCatching { callUpstream("http/static", params, timeoutMs = 30_000) }
+            }
+        }
         outcome.fold(
             onSuccess = { o -> replyProxied(o) },
             onFailure = { err ->
@@ -359,6 +370,16 @@ class LoopbackBridge(
                 }
             },
         )
+    }
+
+    /** 等上行通道恢复（半开链路被 OkHttp ping 判死后 KK 重连的窗口）；到期仍未活返回 false */
+    private suspend fun waitUpstreamAlive(maxMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + maxMs
+        while (System.currentTimeMillis() < deadline) {
+            if (upstreamLive) return true
+            kotlinx.coroutines.delay(500)
+        }
+        return upstreamLive
     }
 
     /** 代理应答写回（API 面与静态面共源）：状态码 / 缓存头 / 字节原样下行 */

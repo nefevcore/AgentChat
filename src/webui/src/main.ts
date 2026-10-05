@@ -58,10 +58,43 @@ async function boot(): Promise<void> {
   const onChunkError = (): void => {
     if (chunkErrorNotified) return;
     chunkErrorNotified = true;
-    // 原生 confirm：不依赖任何可能同样加载失败的组件库
-    if (window.confirm('页面资源已更新（旧版缓存失效），部分面板加载失败。\n点击「确定」刷新页面加载新版本。')) {
-      window.location.reload();
-    }
+    // cr-256：chunk 失败两大因——dist 换代（真·需重载）与链路瞬断（重载无用且循环弹窗）。
+    // 用 rpc 探活分流：rpc 通 = 链路健康，确属资源换代 → 提示重载；rpc 不通 = 等链路
+    // 恢复后自动重载（恢复即自愈，无需用户干预）。
+    void (async () => {
+      const rpcAlive = async (): Promise<boolean> => {
+        // 探活必须穿透到核心端（桥的 /ws 建在本地回环，链路死它也 open）——发一个
+        // rpc/call 等应答：经桥 → 加密链路 → 核心 RPC 面，任一环死即超时。
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+        return new Promise<boolean>((resolve) => {
+          const t = setTimeout(() => { try { ws.close(); } catch { /* ignore */ } resolve(false); }, 6000);
+          ws.onopen = () => {
+            ws.send(JSON.stringify({ type: 'rpc/call', data: { method: 'remote/status', requestId: 'chunk-probe', params: {} } }));
+          };
+          ws.onmessage = (ev) => {
+            try {
+              const m = JSON.parse(String(ev.data)) as { type?: string; data?: { requestId?: string } };
+              if (m.type === 'rpc/result' && m.data?.requestId === 'chunk-probe') {
+                clearTimeout(t); ws.close(); resolve(true);
+              }
+            } catch { /* 非 JSON 帧忽略 */ }
+          };
+          ws.onerror = () => { clearTimeout(t); resolve(false); };
+        });
+      };
+      const alive = await rpcAlive();
+      if (alive) {
+        // 原生 confirm：不依赖任何可能同样加载失败的组件库
+        if (window.confirm('页面资源已更新（旧版缓存失效），部分面板加载失败。\n点击「确定」刷新页面加载新版本。')) {
+          window.location.reload();
+        }
+        return;
+      }
+      console.warn('[boot] chunk 加载失败但 rpc 不通——链路瞬断，等恢复后自动重载');
+      const probe = setInterval(() => {
+        void rpcAlive().then((ok) => { if (ok) { clearInterval(probe); window.location.reload(); } });
+      }, 3000);
+    })();
   };
   window.addEventListener('error', (ev) => {
     const msg = ev.message;
