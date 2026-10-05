@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-256**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-260**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -274,3 +274,7 @@
 - 【cr-254 2026-10-05 DatePicker 表单标准件（cr-162 Select 同款路径）：原生 date 弹层 OS 绘制不可定制（color-scheme 只保明暗正确、风格不同构）——自建月历弹层（ui-dd 同语言 + Teleport fixed 锚定 + z 序自适应 cr-184 模式 + 方向键可达）+ icons 注册 calendar + 陈列室 INPUT 节编目 + 迁移消费面（TokenUsage 自定义区间×4 / TimerPane 日期×1）】
 - 【cr-255 2026-10-05 占座会合根因修复（cr-246 遗留缺陷）：kkTargetPubkey 赋值在首握等待之后——首握超时转占座驻留时该值为 null，waiting-peer 收 m1 走 kkRespond 分支不成立，hs 帧落入空等待队列被静默吞（真机实锤：PC 占座 waiting 但手机撞门 m1 全部无应答、3s 超时循环至 10min ERROR 弃连；下午验证走的是在线降级路径〔先握上手再 peer-left，kkTargetPubkey 已就位〕故未暴露；纯 loopback 同理）。修复：赋值前置到首握等待之前 + 真实路径回归测试（dial 劫持走完整 connectAndHandshake 超时→holdForPeer→m1 到达）。配套：PC join 被拒改 1s 短重试（手机撞门 3s 窗与 PC 退避形成拍手游戏死锁）；手机端 peer-arrived 重发缓存 m1（relay 只转发实时帧，早发 m1 已丢；responder 对重复 m1 幂等）】
 - 【cr-256 2026-10-05 「页面资源已更新」弹窗循环根因修复（cr-256）：弹窗两大成因分流——dist 换代（真需重载）vs 链路静默死（WiFi 半开，OkHttp 30s 判死窗内 chunk 全超时；reload 无用且循环弹窗）。修复：① webui chunk 失败改 rpc 探活分流——rpc 通才 confirm 重载，不通则 3s 轮询恢复后自动 reload（穿透式探活：rpc/call 经桥→加密链路→核心，本地桥 open 不算活）② 手机桥静态代理超时后等链路恢复（20s 轮询 upstreamLive）重试一次再 504——瞬断吸收在桥内。另实锤托管面路径：cordis 行 config ./webui/dist 按 baseUrl（src/）解析=src/webui/dist，每次 webui:build 即刻生效（多会话并发构建致 dist 代际漂移是弹窗土壤）】
+- 【cr-257 2026-10-05 remote 手机端提速：http 桥双向 gzip（PC 压缩+手机透传）——公网 relay 160KB 应答 1.2s 的带宽瓶颈】
+- 【cr-258 2026-10-05 移动端渲染性能优化立项文档（webui-mobile-render-perf-plan）：K20 实测基线与分期方案】
+- 【cr-259 2026-10-05 RPC 帧通道 gzip：rpc/result 压缩词汇（gz 标记 + 前端解压 + 协商位）——singles/list 类大应答 3.5x 提速；含压缩链收敛】
+- 【cr-260 2026-10-05 DatePicker 交互两项：①弹层收窄 200px 定宽（7×24 矩形日格）且与触发器宽解耦（原 min(触发器,240) 强拉宽是「太宽」根因）+ 右缘防溢出钳制；②标题上钻年视图（月↔年两级：标题点击切换、箭头随层级翻月/翻年、月格 tint 选中 + 当月中性环）+ 陈列室同步年视图陈列】

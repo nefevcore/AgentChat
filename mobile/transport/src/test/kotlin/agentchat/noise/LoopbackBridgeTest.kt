@@ -115,6 +115,33 @@ private class ProxyFakeUpstream(
     }
 }
 
+/** gz 应答假上游（cr-259）：对 rpc/call 回压缩形态 { gz, resultB64 }，验证桥还原。 */
+private class GzFakeUpstream : Upstream {
+    val sent = mutableListOf<String>()
+    override var onPayload: ((String) -> Unit)? = null
+    override fun send(payloadJson: String) {
+        sent.add(payloadJson)
+        val o = com.google.gson.JsonParser.parseString(payloadJson).asJsonObject
+        if (o.get("type")?.asString != "rpc/call") return
+        val data = o.getAsJsonObject("data")
+        val rid = data.get("requestId").asString
+        // 大 JSON 结果 gzip + base64url（对齐核心端 cr-259 形态）
+        val big = "{\"pad\":\"" + "g".repeat(8192) + "\"}"
+        val bos = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(bos).use { it.write(big.toByteArray()) }
+        val res = com.google.gson.JsonObject().apply {
+            addProperty("type", "rpc/result")
+            add("data", com.google.gson.JsonObject().apply {
+                addProperty("requestId", rid)
+                addProperty("ok", true)
+                addProperty("gz", true)
+                addProperty("resultB64", b64u(bos.toByteArray()))
+            })
+        }
+        onPayload?.invoke(com.google.gson.Gson().toJson(res))
+    }
+}
+
 class LoopbackBridgeTest {
 
     private val distDir: File? = listOf(
@@ -350,6 +377,39 @@ class LoopbackBridgeTest {
             assertEquals(HttpStatusCode.BadGateway, resp.status)
             // 关键：**不得**回落 index.html（M3.2 教训——回落 HTML 会掩盖真实缺口）
             assertContains(resp.bodyAsText(), "remote bridge:")
+        } finally {
+            bridge.stop()
+        }
+    }
+
+    @Test
+    fun gzResultRestoredBeforeReachingWebView() = runBlocking {
+        // cr-259：WebView 的 rpc/call 桥层注入协商位；gz 应答在桥内还原成普通
+        // result 再广播（wire.ts 只认 result/error 形态）
+        val up = GzFakeUpstream()
+        val bridge = LoopbackBridge(up, null)
+        val port = bridge.start()
+        try {
+            val client = HttpClient(CIO) { install(WebSockets) }
+            var received = ""
+            withTimeout(5000) {
+                client.webSocket("ws://127.0.0.1:$port/ws") {
+                    send(Frame.Text("{\"type\":\"rpc/call\",\"data\":{\"method\":\"singles/list\",\"requestId\":\"w1\"}}"))
+                    for (frame in incoming) {
+                        if (frame !is Frame.Text) continue
+                        val text = frame.readText()
+                        if (text.contains("\"w1\"")) { received = text; break }
+                    }
+                }
+            }
+            client.close()
+            // 上行帧：协商位已注入
+            val sent = up.sent.first()
+            assertContains(sent, "\"supportsGzip\":true")
+            // 下行帧：gz 形态已还原为普通 result（8KB pad 完整到达，无 resultB64 残留）
+            assertContains(received, "\"requestId\":\"w1\"")
+            assertContains(received, "\"result\":{\"pad\":\"gggg")
+            assertEquals(false, received.contains("resultB64"))
         } finally {
             bridge.stop()
         }

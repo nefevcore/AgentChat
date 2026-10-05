@@ -417,6 +417,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-remote', // P1 远程设备前端行（settings:section 设备管理节）
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-run-code', // run_code 程序卡（ac-run-code 镜像：程序体 + 子调用摘要 + 返回值）
+      'ui-run-nodes', // cr-230 会话节点面板行（aux-sidebar 选区；合入时本清单漏更——2026-10-05 顺手补）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-search-pool', // 2026-09-19 行拆分：搜索引擎池自 ui-llm-pool 拆出
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）

@@ -635,6 +635,75 @@ describe('启动即连时序（cr-220：config 晚于本行就位不得静默跳
   });
 });
 
+describe('RPC 应答压缩（cr-259：协商位 + gz 形态 + 阈值）', () => {
+  function makeHarness(bigResult: unknown, rpcImpl?: () => Promise<unknown>) {
+    const ctx = new Context();
+    ctx.provide('webServer', {
+      registerRpc: () => {},
+      callRpc: rpcImpl ?? (async () => bigResult),
+      ready: async () => 0,
+    });
+    apply(ctx, { root: tmpRoot, relayUrl: 'wss://fake.relay', autoReconnect: false } as never);
+    const svc = ctx.remoteLink as unknown as {
+      registry: DeviceRegistry;
+      testInjectConnection: (id: string, conn: unknown) => void;
+      handleDevicePayload: (deviceId: string, payload: unknown) => void;
+    };
+    svc.registry.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
+    const got: Array<{ type: string; data: Record<string, unknown> }> = [];
+    svc.testInjectConnection('d1', {
+      sendPayload: (p: unknown) => { got.push(p as { type: string; data: Record<string, unknown> }); },
+    } as never);
+    return {
+      got,
+      send: (data: Record<string, unknown>) => { svc.handleDevicePayload('d1', { type: 'rpc/call', data }); },
+    };
+  }
+
+  it('协商 supportsGzip + 大结果 → gz 形态（gunzip 还原 == 原结果）', async () => {
+    const big = { records: Array.from({ length: 200 }, (_, i) => ({ i, pad: 'x'.repeat(64) })) };
+    const h = makeHarness(big);
+    h.send({ method: 'x/list', requestId: 'r1', supportsGzip: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.got).toHaveLength(1);
+    const frame = h.got[0];
+    expect(frame.type).toBe('rpc/result');
+    expect(frame.data.gz).toBe(true);
+    expect(typeof frame.data.resultB64).toBe('string');
+    expect(frame.data.result).toBeUndefined();
+    const { gunzipSync } = await import('node:zlib');
+    const restored = JSON.parse(gunzipSync(Buffer.from(frame.data.resultB64 as string, 'base64url')).toString());
+    expect(restored).toEqual(big);
+    expect((frame.data.resultB64 as string).length).toBeLessThan(JSON.stringify(big).length / 3);
+  });
+
+  it('旧壳无协商位 → 明文 result（兼容生命线：旧壳拿 gz 形态会解不出）', async () => {
+    const big = { pad: 'y'.repeat(64 * 1024) };
+    const h = makeHarness(big);
+    h.send({ method: 'x/list', requestId: 'r2' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.got[0].data.gz).toBeUndefined();
+    expect((h.got[0].data.result as { pad: string }).pad.length).toBe(64 * 1024);
+  });
+
+  it('小结果不压缩（阈值以下——开销不抵收益）', async () => {
+    const h = makeHarness({ ok: true });
+    h.send({ method: 'x/list', requestId: 'r3', supportsGzip: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.got[0].data.gz).toBeUndefined();
+    expect(h.got[0].data.result).toEqual({ ok: true });
+  });
+
+  it('错误应答永不压缩（短文本无压缩面）', async () => {
+    const h = makeHarness(undefined, async () => { throw new Error('boom'); });
+    h.send({ method: 'x/boom', requestId: 'r4', supportsGzip: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.got[0].data.ok).toBe(false);
+    expect(h.got[0].data.error).toBe('boom');
+    expect(h.got[0].data.gz).toBeUndefined();
+  });
+});
+
 describe('事件下行订阅接线（M3.4：broadcastEvent 曾零生产调用方）', () => {
   it('apply 后 emit 目录事件 → 单播到在线设备（cr-112：单批器漏斗合批下行）', async () => {
     vi.useFakeTimers();

@@ -14,12 +14,20 @@ import { Service, type Context } from '@agentchat/cordis';
 import type {} from './events.ts';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { gzip as gzipCb } from 'node:zlib';
+import { promisify } from 'node:util';
 import { b64u, sasFromHandshakeHash } from 'ac-noise-core';
 import { LlmDeltaBatcher, LLM_DELTA_BATCH, WireBatcher } from 'ac-wire-format';
 import { loadOrCreateIdentity, type StoredIdentity } from './identity.ts';
 import { DeviceRegistry, type RemoteDevice, type RemoteScope } from './device-registry.ts';
 import { RelayConnection, type LinkPayload } from './relay-connection.ts';
 import type { PairingSession, RemoteLinkStatus } from './contract.ts';
+
+const gzipAsync = promisify(gzipCb);
+
+/** RPC 应答压缩阈值（cr-259）：与 http-bridge GZIP_MIN_BYTES 同款语义——
+ *  小应答的压缩收益不抵 CPU 与帧包装开销。 */
+const RPC_GZIP_MIN_BYTES = 2048;
 
 export interface RemoteLinkRowOptions {
   /** 数据根（缺省 AGENTCHAT_DATA_ROOT ?? ./data） */
@@ -575,7 +583,7 @@ export class RemoteLinkService extends Service {
     }
     const device = this.registry.get(deviceId);
     if (!device) return;
-    const call = payload.data as { method?: string; requestId?: string; params?: unknown } | undefined;
+    const call = payload.data as { method?: string; requestId?: string; params?: unknown; supportsGzip?: unknown } | undefined;
     if (!call || typeof call.method !== 'string' || typeof call.requestId !== 'string') return;
     const { method, requestId, params } = call;
     void (async () => {
@@ -589,9 +597,24 @@ export class RemoteLinkService extends Service {
       const conn = this.connections.get(deviceId);
       if (!conn) return;
       result = this.truncateRemoteResult(result);
+      // RPC 应答压缩（cr-259）：协商位（call.supportsGzip）在才压——旧壳拿压缩形态当
+      // 普通结果会解不出。错误应答是短文本，无压缩面。阈值与 http-bridge 同款语义
+      //（2KB；RPC result 全 JSON 无需 content-type 白名单）。
+      let resultField: unknown = result;
+      let gz = false;
+      if (!error && call.supportsGzip === true) {
+        const serialized = JSON.stringify(result);
+        if (serialized.length > RPC_GZIP_MIN_BYTES) {
+          const packed = await gzipAsync(Buffer.from(serialized));
+          resultField = packed.toString('base64url');
+          gz = true;
+        }
+      }
       const frame: LinkPayload = error
         ? { type: 'rpc/result', data: { requestId: call.requestId, ok: false, error } }
-        : { type: 'rpc/result', data: { requestId: call.requestId, ok: true, result } };
+        : gz
+          ? { type: 'rpc/result', data: { requestId: call.requestId, ok: true, gz: true, resultB64: resultField } }
+          : { type: 'rpc/result', data: { requestId: call.requestId, ok: true, result } };
       try {
         conn.sendPayload(frame);
       } catch { /* 连接已断——忽略 */ }

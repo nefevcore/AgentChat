@@ -24,8 +24,24 @@
 // scopes 档位闸退役——方法闸在桥层自身，不依赖设备权限）。
 // ============================================================
 
+import { gzip as gzipCb } from 'node:zlib';
+import { promisify } from 'node:util';
+
+const gzipAsync = promisify(gzipCb);
+
 /** 允许转发的 HTTP 方法（webui 实际用到的全集） */
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** 桥侧压缩阈值（cr-257）：小于它的应答压缩收益不抵 CPU 与帧包装开销 */
+const GZIP_MIN_BYTES = 2048;
+
+/** 可压缩 content-type 前缀白名单（文本类；字体/图片自带压缩或二进制敏感） */
+const COMPRESSIBLE_PREFIXES = [
+  'application/json',
+  'application/javascript',
+  'text/',
+  'image/svg+xml',
+];
 
 /** 响应体上限：relay 单帧 8MB + base64 膨胀 4/3 + JSON 包装——留余量取 6MB。
  *  超限返回 413 并说明（大文件分片是已知后续项，见 M3.4 文档）。 */
@@ -44,6 +60,9 @@ export interface HttpBridgeParams {
 
    *  （M3.4 实测：用 base64 时桥侧抛 `bad base64url char`）。 */
   bodyB64?: string;
+  /** 对端壳支持 gzip 解压（cr-257 协商位）：旧壳不认 gzip 标记却会拿到压缩字节
+   *  当原文——JSON 解析全挂。只有显式 true 才启用桥侧压缩，新壳缺省向上兼容。 */
+  supportsGzip?: boolean;
 }
 
 export interface HttpBridgeResult {
@@ -57,6 +76,10 @@ export interface HttpBridgeResult {
    *  不了手机，缓存从协议上不可能生效（每次冷启全量重拉头像等 /api/* 资源）。
    *  白名单采集而非全量透传：远程面最小信任面。旧壳不认此字段 = 现状。 */
   cacheHeaders?: Record<string, string>;
+  /** 响应体已是 gzip（cr-257）：桥侧对 >2KB 可压缩类应答主动压缩，远程链路
+   *  （WAN/移动网络）带宽是首要瓶颈——160KB JSON 压到 ~25KB。仅当请求带
+   *  supportsGzip 协商位时产生（旧壳拿压缩字节当原文会全挂）。 */
+  gzip?: boolean;
 }
 
 //（cr-108：顶层静态白名单 STATIC_TOP_DIRS/FILES 退役——cr-103「新 dist 文件忘加
@@ -115,7 +138,18 @@ export async function proxyToSelf(port: number, params: HttpBridgeParams): Promi
     const v = res.headers.get(name);
     if (v) cacheHeaders[name] = v;
   }
-  if (buf.byteLength > MAX_PROXY_BODY_BYTES) {
+  // 桥侧压缩（cr-257）：undici fetch 已把 web-server 的压缩应答自动解压——统一在
+  // 桥出口按阈值决策，web-server 侧行为不进方程。只压文本类（JSON/JS/CSS/SVG…），
+  // 字体/图片类自带压缩或二进制敏感，前缀白名单判定。
+  const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+  let respBody = buf;
+  let gzipped = false;
+  if (params.supportsGzip === true
+    && buf.byteLength > GZIP_MIN_BYTES && COMPRESSIBLE_PREFIXES.some((p) => contentType.startsWith(p))) {
+    respBody = await gzipAsync(buf);
+    gzipped = true;
+  }
+  if (respBody.byteLength > MAX_PROXY_BODY_BYTES) {
     return {
       status: 413,
       contentType: 'application/json',
@@ -126,8 +160,9 @@ export async function proxyToSelf(port: number, params: HttpBridgeParams): Promi
   }
   return {
     status: res.status,
-    contentType: res.headers.get('content-type') ?? 'application/octet-stream',
-    bodyB64: buf.toString('base64url'),
+    contentType,
+    bodyB64: respBody.toString('base64url'),
+    ...(gzipped ? { gzip: true } : {}),
     ...(Object.keys(cacheHeaders).length > 0 ? { cacheHeaders } : {}),
   };
 }

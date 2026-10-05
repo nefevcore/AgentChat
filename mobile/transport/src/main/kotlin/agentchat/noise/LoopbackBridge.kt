@@ -207,11 +207,37 @@ class LoopbackBridge(
         val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
         if (obj?.get("type")?.asString == "rpc/result") {
             val data = obj.getAsJsonObject("data")
-            val rid = data?.get("requestId")?.asString
+            // 压缩应答还原（cr-259）：gz 形态 { gz, resultB64 } → 普通 { result }。
+            // 桥自身请求与 WebView 请求的应答都要还原（后者经 broadcast 达 WebView——
+            // wire.ts 只认 result/error 形态），还原后统一走既有分发
+            var payload = data
+            if (data?.get("gz")?.takeIf { it.isJsonPrimitive }?.asBoolean == true) {
+                val b64 = data.get("resultB64")?.takeIf { it.isJsonPrimitive }?.asString
+                payload = if (b64 != null) {
+                    try {
+                        val raw = java.util.zip.GZIPInputStream(unb64u(b64).inputStream()).use { it.readBytes() }
+                        JsonObject().apply {
+                            data.entrySet().forEach { (k, v) -> if (k != "gz" && k != "resultB64") add(k, v) }
+                            add("result", gson.fromJson(String(raw), com.google.gson.JsonElement::class.java))
+                        }
+                    } catch (e: Exception) {
+                        // 解压失败按错误应答交付（调用方可感知，不静默吞成协议错误）
+                        JsonObject().apply {
+                            addProperty("requestId", data.get("requestId")?.asString ?: "")
+                            addProperty("ok", false)
+                            addProperty("error", "bridge: gunzip failed: " + e.message)
+                        }
+                    }
+                } else data
+            }
+            if (payload !== data) obj.add("data", payload)
+            val rid = payload?.get("requestId")?.asString
             if (rid != null) {
                 val waiter = pendingRpc.remove(rid)
-                if (waiter != null) { waiter.complete(data); return }
+                if (waiter != null) { waiter.complete(payload); return }
             }
+            broadcast(gson.toJson(obj))
+            return
         }
         broadcast(json)
     }
@@ -254,6 +280,7 @@ class LoopbackBridge(
             add("data", JsonObject().apply {
                 addProperty("method", method)
                 addProperty("requestId", rid)
+                addProperty("supportsGzip", true) // cr-259：本壳可解压 gz 应答
                 params?.let { add("params", it) }
             })
         }
@@ -305,6 +332,8 @@ class LoopbackBridge(
             addProperty("path", request.uri)
             request.headers[HttpHeaders.ContentType]?.let { addProperty("contentType", it) }
             if (body.isNotEmpty()) addProperty("bodyB64", b64u(body))
+            // cr-257：本壳能解压 gzip 应答——协商位上行，核心端见 true 才压缩
+            addProperty("supportsGzip", true)
             // 条件请求上行（cr-82）：核心端头像等 /api/* 资源已带 ETag——WebView
             // 重协商请求的 If-None-Match 原样上行，核心端才有机会回 304 零字节。
             request.headers[HttpHeaders.IfNoneMatch]?.let { addProperty("ifNoneMatch", it) }
@@ -344,6 +373,7 @@ class LoopbackBridge(
             addProperty("method", "GET")
             addProperty("path", request.uri)
             request.headers[HttpHeaders.IfNoneMatch]?.let { addProperty("ifNoneMatch", it) }
+            addProperty("supportsGzip", true) // cr-257 协商位
         }
         // 静态拉取超时的恢复策略（cr-256）：超时主因是链路静默死（WiFi 半开——OkHttp
         // 判死需两个 ping 周期 ~30s，期间所有 RPC 白等 60s）。第一次超时后等链路恢复
@@ -382,10 +412,15 @@ class LoopbackBridge(
         return upstreamLive
     }
 
-    /** 代理应答写回（API 面与静态面共源）：状态码 / 缓存头 / 字节原样下行 */
+    /** 代理应答写回（API 面与静态面共源）：状态码 / 缓存头 / 字节原样下行。
+     *  gzip 标记（cr-257）：核心端桥侧压缩的大应答在此解压——回环面是明文 HTTP，
+     *  压缩只服务于 relay 链路段，到 WebView 手里必须是原文。旧核心端无标记 = 原样。 */
     private suspend fun ApplicationCall.replyProxied(o: JsonObject) {
         val status = o.get("status")?.asInt ?: 200
-        val bytes = o.get("bodyB64")?.asString?.let { unb64u(it) } ?: ByteArray(0)
+        var bytes = o.get("bodyB64")?.asString?.let { unb64u(it) } ?: ByteArray(0)
+        if (o.get("gzip")?.takeIf { it.isJsonPrimitive }?.asBoolean == true && bytes.isNotEmpty()) {
+            bytes = java.util.zip.GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
+        }
         o.get("cacheHeaders")?.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()?.forEach { (k, v) ->
             if (v.isJsonPrimitive) response.headers.append(k, v.asJsonPrimitive.asString)
         }
@@ -405,8 +440,16 @@ class LoopbackBridge(
     private fun handleUplink(text: String) {
         val obj = runCatching { gson.fromJson(text, JsonObject::class.java) }.getOrNull() ?: return
         if (obj.get("type")?.asString != "rpc/call") return // 出站语义帧不入站
-        onUplink?.invoke(text)
-        currentUpstream.send(text)
+        // 协商位注入（cr-259）：WebView 的 rpc/call 统一在桥层加 supportsGzip——
+        // 下行解压在 handleDownlink 的 pendingRpc 分支与 gz 广播还原处，webui 零感知
+        val data = obj.getAsJsonObject("data")
+        var out = text
+        if (data != null && !data.has("supportsGzip")) {
+            data.addProperty("supportsGzip", true)
+            out = gson.toJson(obj)
+        }
+        onUplink?.invoke(out)
+        currentUpstream.send(out)
     }
 
     /** ws/ready 帧（与 ac-web-server 同字面） */

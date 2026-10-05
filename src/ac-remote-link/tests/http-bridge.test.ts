@@ -52,6 +52,12 @@ beforeAll(async () => {
         res.end(Buffer.from([9, 9]));
         return;
       }
+      // 大 JSON 应答（cr-257 压缩面）：>2KB 文本类应触发桥侧 gzip
+      if (req.url?.startsWith('/api/big-json')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ pad: 'x'.repeat(64 * 1024) }));
+        return;
+      }
       if (req.url?.startsWith('/api/big')) {
         res.writeHead(200, { 'content-type': 'application/octet-stream' });
         res.end(Buffer.alloc(MAX_PROXY_BODY_BYTES + 1, 7));
@@ -180,10 +186,11 @@ describe('往返保真', () => {
     expect(body.hex).toBe(payload.toString('hex'));
   });
 
-  it('二进制响应体原样（含 0x00 与高位字节）', async () => {
-    const r = await proxyToSelf(port, { path: '/api/binary' });
+  it('二进制响应体原样（含 0x00 与高位字节；协商 gzip 也不压 octet-stream）', async () => {
+    const r = await proxyToSelf(port, { path: '/api/binary', supportsGzip: true });
     expect(r.contentType).toContain('octet-stream');
     expect([...Buffer.from(r.bodyB64, 'base64')]).toEqual([0, 1, 2, 253, 254, 255]);
+    expect(r.gzip).toBeUndefined();
   });
 
   it('响应体是 **base64url**（手机侧 unb64u 只认 url 字符集——标准 base64 的 +/= 会被拒）', async () => {
@@ -196,6 +203,27 @@ describe('往返保真', () => {
   it('上游 404 原样透传（不吞成 200）', async () => {
     const r = await proxyToSelf(port, { path: '/api/nope' });
     expect(r.status).toBe(404);
+  });
+
+  it('大 JSON 应答压缩（cr-257）：协商 supportsGzip 后 gzip 标记 + gunzip 还原原文 + 体积显著缩小', async () => {
+    const r = await proxyToSelf(port, { path: '/api/big-json', supportsGzip: true });
+    expect(r.gzip).toBe(true);
+    const gz = Buffer.from(r.bodyB64, 'base64');
+    const { gunzipSync } = await import('node:zlib');
+    const raw = gunzipSync(gz).toString();
+    expect(JSON.parse(raw).pad.length).toBe(64 * 1024);
+    expect(gz.byteLength).toBeLessThan(64 * 1024 / 4); // 压缩比至少 4:1（重复文本远超此）
+  });
+
+  it('旧壳未协商不压缩（旧壳拿 gzip 字节当原文会全挂——协商位是兼容生命线）', async () => {
+    const r = await proxyToSelf(port, { path: '/api/big-json' });
+    expect(r.gzip).toBeUndefined();
+    expect(JSON.parse(Buffer.from(r.bodyB64, 'base64').toString()).pad.length).toBe(64 * 1024);
+  });
+
+  it('小应答不压缩（阈值以下 gzip 标记缺省——开销不抵收益）', async () => {
+    const r = await proxyToSelf(port, { path: '/api/echo', supportsGzip: true });
+    expect(r.gzip).toBeUndefined();
   });
 });
 
