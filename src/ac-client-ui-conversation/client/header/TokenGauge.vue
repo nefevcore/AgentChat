@@ -406,7 +406,7 @@ const applicable = computed(() =>
 /* 头行（cr-235 #3）：「上下文占用」常规字重（text-2），数值 strong 加粗（text-1） */
 .token-bar-pct { font-size: 11px; font-weight: 400; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .token-bar-pct strong { font-weight: 700; color: var(--text-1); }
-.token-bar-limit { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.token-bar-limit { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .token-stack { display: flex; width: 100%; height: 6px; border-radius: 3px; overflow: hidden; background: var(--bg-inset); }
 /* 段 = 真比例 flex-grow（token 数）+ flex-basis 2px 微段保底；段色 = 星色板
    hex 内联（cr-234 #2：浅淡色带，用户指定脱离令牌体系）；余量段透明占位
@@ -417,8 +417,8 @@ const applicable = computed(() =>
 .token-legend { display: flex; flex-direction: column; gap: 2px; }
 .token-legend__row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 11px; }
 .token-legend__name { color: var(--text-2); white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; }
-/* 数值默认色（cr-233 #1：颜色只留色点一个通道）；色点 = 段同色内联 */
-.token-legend__val { color: var(--text-1); font-variant-numeric: tabular-nums; }
+/* 数值色降一档 text-2（cr-241：与键名同档，颜色只留色点一个通道）；色点 = 段同色内联 */
+.token-legend__val { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .token-legend__dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; background: var(--bg-inset); }
 .token-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
 .token-row .k { color: var(--text-2); white-space: nowrap; }
