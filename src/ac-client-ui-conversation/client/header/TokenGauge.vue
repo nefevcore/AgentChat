@@ -223,12 +223,9 @@ const kvCy = (rate: number): number => {
   const inner = kvView.H - kvView.padT - kvView.padB;
   return kvView.padT + (1 - rate) * inner;
 };
-/** 参考虚线（0/1 线即上下边界不画）：50% 弱线 +
- *  95% 健康基准线（cr-243：使用情况定——命中率跌破即缓存接近失效，与 50% 线同在但描边加粗区分） */
-const kvGridY = [
-  { y: kvCy(0.5), kind: 'half' },
-  { y: kvCy(0.95), kind: 'base' },
-];
+/** 95% 健康基准虚线（cr-243：使用情况定——命中率跌破即缓存接近
+ *  失效；50% 弱线已删（cr-244：太浅未察觉——信息价值低于视觉噪音）） */
+const kvGridY = [{ y: kvCy(0.95) }];
 /** 折线段数组：null 点断线——无数据的 run 不连线糊弄 */
 const kvPolyline = computed(() => {
   const segs: string[] = [];
@@ -352,7 +349,7 @@ const applicable = computed(() =>
                   @mousemove="onKvMove"
                   @mouseleave="kvHoverIdx = -1"
                 >
-                  <line v-for="g in kvGridY" :key="g.kind" class="kv-spark__grid" :class="`is-${g.kind}`" :x1="0" :y1="g.y" :x2="kvView.W" :y2="g.y" />
+                  <line v-for="g in kvGridY" :key="g.y" class="kv-spark__grid is-base" :x1="0" :y1="g.y" :x2="kvView.W" :y2="g.y" />
                   <polyline v-for="(seg, si) in kvPolyline" :key="si" class="kv-spark__line" :points="seg" />
 
                   <line v-if="kvHoverIdx >= 0" class="kv-spark__cursor" :x1="kvCx(kvHoverIdx)" :y1="kvView.padT" :x2="kvCx(kvHoverIdx)" :y2="kvView.H - kvView.padB" />
@@ -437,8 +434,7 @@ const applicable = computed(() =>
 .kv-spark--loading { align-items: flex-start; }
 .kv-spark__label { font-size: 10px; color: var(--text-3); }
 .kv-spark__svg { display: block; width: 100%; height: 44px; }
-.kv-spark__grid { stroke: var(--line); stroke-width: 0.5; stroke-dasharray: 2 2; }
-/* 95% 健康基准线比 50% 弱参考线强一档（描边提亮 + 线宽翻倍） */
+/* 95% 健康基准虚线（唯一参考线，cr-244 删 50% 弱线） */
 .kv-spark__grid.is-base { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 2; }
 .kv-spark__line { fill: none; stroke: var(--ok-status); stroke-width: 1.5; stroke-linejoin: round; }
 
