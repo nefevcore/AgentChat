@@ -4,8 +4,9 @@
 // 与后端 ac-text-budget estimateTokens 同款启发式：CJK 0.6 / 其他 0.3，
 // 逐字符串向上取整。用于 Token 详情弹层的固定开销拆分（系统提示/工具
 // 定义）——展示口径与后端归档估算一致，仅提示"≈"（与 provider 实际
-// 计费 token 有偏差）。
+// 计费 token 有偏差）。KV 缓存走势（cr-231）的 rpc 拉取薄壳同住本域。
 // ============================================================
+import type { RpcClientFace } from 'ac-client-runtime';
 
 const CJK = /[\u4e00-\u9fff]/;
 
@@ -35,3 +36,22 @@ export function fmtTokenCount(n: number): string {
   const k = n / 1000;
   return `${k >= 100 ? Math.round(k) : Number(k.toFixed(1))}K`;
 }
+
+/** KV 缓存走势点（session/kv-timeline 返回形；cr-232 步粒度：每点 = 一次
+ *  有计量的 LLM 调用——hit+miss=0 的步无计量不入序列） */
+export interface KvTimelinePoint {
+  /** 步收束时刻（epoch ms；旧形态 run 合计回退点 = run 时间戳） */
+  ts: number;
+  hit: number;
+  miss: number;
+}
+
+/** 会话步级 KV 缓存序列（全量；弹层打开时懒加载） */
+export async function fetchKvTimeline(
+  conversationId: string,
+  rpc: RpcClientFace,
+): Promise<KvTimelinePoint[]> {
+  const r = await rpc.call<{ points?: KvTimelinePoint[] }>('session/kv-timeline', { conversationId });
+  return r.points ?? [];
+}
+

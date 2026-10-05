@@ -1621,6 +1621,19 @@ export function apply(ctx: Context) {
     };
   });
 
+  // KV 缓存率走势（cr-231/232/236）：会话步级缓存序列（ac-usage timeline 留存
+  // 的透传面；每点 = 一次有计量的 LLM 调用，全量返回——limit 已随 cr-236
+  // 退役）。记账户口桶键 = 会话键本身（群消息 run 的 conversationId 即群
+  // 键，无读者投影）——与 session/tokens 不同，无需 agent 解析。弹层打开
+  // 时拉取（与固定开销重拉同姿态）。
+  web.registerRpc('session/kv-timeline', (params) => {
+    const conversationId = reqStr(obj(params), 'conversationId');
+    return {
+      conversationId,
+      points: ctx.usage.conversationTimeline(conversationId),
+    };
+  });
+
   // ============================================================
   // M17-A 补齐面：timer / backup / jobs / config / llm / plugin / system
   // ============================================================

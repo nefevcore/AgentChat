@@ -236,6 +236,67 @@ describe('ac-usage byPair（端点对分类）', () => {
   });
 });
 
+describe('ac-usage conversationTimeline（KV 缓存走势数据源，cr-231/232）', () => {
+  it('步级缓存序列：每 run 单步各成点 + limit 取尾 + 快照拷贝', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    for (let i = 0; i < 3; i++) {
+      await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'a~user' });
+    }
+    const tl = ctx.usage.conversationTimeline('a~user');
+    expect(tl).toHaveLength(3); // 每 run 1 步（mock usage: hit 6 / miss 4）
+    expect(tl[0]).toMatchObject({ hit: 6, miss: 4 });
+    expect(tl[0].ts).toBeGreaterThan(0); // 步收束 ts
+    // 升序（追加序即时间序）
+    expect(tl[1].ts >= tl[0].ts).toBe(true);
+    expect(tl[2].ts >= tl[1].ts).toBe(true);
+    // 全量返回（cr-236：limit 裁剪退役——快照拷贝断言换全量口径）
+    expect(ctx.usage.conversationTimeline('a~user')).toHaveLength(3);
+    // 快照拷贝：外部改返回行不影响内部留存
+    tl[0].hit = 999;
+    expect(ctx.usage.conversationTimeline('a~user')[0].hit).toBe(6);
+  });
+
+  it('旧流水行（无 stepCache）回退 run 合计单点（cr-232 兼容）', async () => {
+    const root = tmpRoot();
+    // 手写旧形态流水：usage 带 cacheHit/miss、无 stepCache 键
+    fs.mkdirSync(path.join(root, 'usage'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'usage', 'usage-2026-10-05.jsonl'), [
+      JSON.stringify({ timestamp: '2026-10-05T10:00:00.000Z', agent: 'a', model: 'm', finish: 'stop', usage: { prompt: 1000, completion: 5, promptAccumulated: 1000, cacheHit: 800, cacheMiss: 200, steps: 1 }, conversationId: 'a~user' }),
+      '',
+    ].join('\n'));
+    const { ctx } = await boot(root);
+    const tl = ctx.usage.conversationTimeline('a~user');
+    expect(tl).toHaveLength(1); // run 合计单点
+    expect(tl[0]).toMatchObject({ hit: 800, miss: 200 });
+    expect(tl[0].ts).toBe(Date.parse('2026-10-05T10:00:00.000Z')); // ts 用 run 时间戳
+  });
+
+  it('归档整理 run 不入 timeline（M20 同款）+ 无数据会话空数组 + 回放重建', async () => {
+    const root = tmpRoot();
+    {
+      const { ctx } = await boot(root);
+      await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'a~user' });
+      await ctx.agentLoop.run({
+        agent: 'a', model: 'mock-1', conversationId: 'a~user', sender: 'a', source: 'event',
+        meta: { [ARCHIVE_REVIEW_META]: true },
+        messages: [{ role: 'user', content: '[归档整理] ……' }],
+      });
+      expect(ctx.usage.conversationTimeline('a~user')).toHaveLength(1); // 整理 run 不入
+      expect(ctx.usage.conversationTimeline('no-such')).toEqual([]);
+      for (const { fibers } of booted.splice(0)) {
+        for (const fiber of [...fibers].reverse()) if (fiber.uid !== null) await fiber.dispose();
+      }
+    }
+    // 重启回放：timeline 由流水重建（stepCache 随行透传 → 步粒度不丢）
+    const { ctx } = await boot(root);
+    const tl = ctx.usage.conversationTimeline('a~user');
+    expect(tl).toHaveLength(1);
+    expect(tl[0]).toMatchObject({ hit: 6, miss: 4 });
+    expect(tl[0].ts).toBeGreaterThan(0);
+  });
+});
+
 describe('ac-usage bySelfSession（自会话成本观测，P5）', () => {
   it('对角线桶聚合 + 占比：非对角线对桶计入分母不进分子；群/sid 不计', async () => {
     const root = tmpRoot();

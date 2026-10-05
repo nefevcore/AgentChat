@@ -795,6 +795,39 @@ describe('ac-web-api group / usage / interaction 面', () => {
     expect((r.result as Record<string, number>).contextTokens).toBe(0);
   });
 
+  it('session/kv-timeline：步级缓存序列 + limit 取尾 + 旧形态 run 合计回退（cr-231/232）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 两次 run（各 2 步）+ 一次旧形态（无 steps 计量 → 合计单点）：命中率先高后跳变
+    const mk = (prompt: number, hit: number, miss: number, withSteps: boolean, ts: number) => ({
+      steps: withSteps
+        ? [
+            { text: '', toolCalls: [], toolResults: [], usage: { prompt, completion: 2, cacheHit: hit, cacheMiss: miss }, ts },
+            { text: '', toolCalls: [], toolResults: [], usage: { prompt, completion: 2, cacheHit: hit, cacheMiss: miss }, ts: ts + 1000 },
+          ]
+        : [],
+      text: '', finish: 'stop' as const,
+      usage: { prompt, completion: 4, promptAccumulated: prompt, cacheHit: hit * (withSteps ? 2 : 1), cacheMiss: miss * (withSteps ? 2 : 1), steps: withSteps ? 2 : 1 },
+    });
+    h.ctx.emit('loop/after-run', { agent: 'k1', model: 'm', conversationId: 'k1~user', messages: [] }, mk(1000, 950, 50, true, Date.now() - 60_000) as never);
+    h.ctx.emit('loop/after-run', { agent: 'k1', model: 'm', conversationId: 'k1~user', messages: [] }, mk(900, 0, 900, true, Date.now() - 30_000) as never);
+    h.ctx.emit('loop/after-run', { agent: 'k1', model: 'm', conversationId: 'k1~user', messages: [] }, mk(1100, 1050, 50, false, 0) as never);
+    const r = await rpc(ws, 'session/kv-timeline', 't1', { conversationId: 'k1~user' });
+    const res = r.result as { conversationId: string; points: Array<{ ts: number; hit: number; miss: number }> };
+    expect(res.conversationId).toBe('k1~user');
+    expect(res.points).toHaveLength(5); // 2 + 2 步 + 1 合计回退点
+    expect(res.points[0]).toMatchObject({ hit: 950, miss: 50 });
+    expect(res.points[2]).toMatchObject({ hit: 0, miss: 900 }); // 第二 run 首步跳变
+    expect(res.points[4]).toMatchObject({ hit: 1050, miss: 50 }); // 旧形态合计单点
+    // limit 已退役（cr-236）：传 limit 被忽略，全量返回
+    const r2 = await rpc(ws, 'session/kv-timeline', 't2', { conversationId: 'k1~user', limit: 2 });
+    const res2 = r2.result as { points: Array<{ hit: number }> };
+    expect(res2.points).toHaveLength(5);
+    // 无数据会话 → 空数组
+    const r3 = await rpc(ws, 'session/kv-timeline', 't3', { conversationId: 'empty~user' });
+    expect((r3.result as { points: unknown[] }).points).toEqual([]);
+  });
+
   it('agents/list 过滤预设 + agents/presets 目录（独立会话选用面）', async () => {
     const h = await boot();
     const ws = await connect(h.port);

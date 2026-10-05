@@ -9,7 +9,8 @@
 //     （promptAccumulated/completion）· cache hit/miss · react_steps
 //   · 审计流水：<root>/usage/usage-<date>.jsonl（本服务自有目录，
 //     ADR-5；append 失败尽力而为不阻塞事件链）
-//   · 查询面：内存聚合（boot 起）byAgent/byModel/byDay/byDayModel/byDayPair/totals
+//   · 查询面：内存聚合（boot 起）byAgent/byModel/byDay/byDayModel/byDayPair/
+//     conversationTimeline/totals
 //
 // M15 对账落地：持久聚合回读——构造期回读全部 usage-*.jsonl 重建
 // 内存聚合（src /api/usage 的"重启即恢复"语义；单机量级全量回读
@@ -77,6 +78,19 @@ export interface UsagePairAggregate extends UsageAggregate {
   b: string;
 }
 
+/** 会话 run 级缓存行（KV 缓存率走势数据源，cr-231；audit 行的内存投影）。
+ *  cr-232 粒度细化：run 内 steps 逐步行（步级 LlmUsage.cacheHit/cacheMiss +
+ *  步收束 ts）——走势按步绘制；旧流水行无 stepCache → 回退 run 合计单点。 */
+export interface UsageTimelinePoint {
+  /** run 时间戳（ISO——流水行 timestamp 原样） */
+  timestamp: string;
+  /** 该 run 缓存命中/未命中 token（run 内各步合计，LoopRunUsage 累加语义） */
+  cacheHit: number;
+  cacheMiss: number;
+  /** 步级行（有数据步；无 stepCache 的旧行 = undefined → 消费方回退合计） */
+  steps?: Array<{ ts: number; hit: number; miss: number }>;
+}
+
 /** 按日 × 端点对交叉聚合（弦图统计范围数据源：by_pair 全量无日期维度，
  *  按日分桶行级留存——范围过滤时按窗口行求和重建 by_pair，与 byDayModel
  *  同范式） */
@@ -140,6 +154,9 @@ interface UsageAuditLine {
   usage: LoopRunUsage;
   /** 会话键（M15 入账；byPair 维度数据基础） */
   conversationId?: string;
+  /** 步级缓存摘要（cr-232 走势粒度：[{ts, hit, miss}]，仅含缓存字段）——
+   *  run 级 usage 不含 steps，走势细化所需的最小投影在这里落盘 */
+  stepCache?: Array<{ ts: number; hit: number; miss: number }>;
 }
 
 /** 流水行宽容解析：缺 agent/model/usage 的行返回 null（损坏跳过） */
@@ -161,10 +178,18 @@ function parseAuditLine(raw: string): UsageAuditLine | null {
       finish: typeof parsed.finish === 'string' ? parsed.finish : '',
       usage: parsed.usage,
       ...(typeof parsed.conversationId === 'string' ? { conversationId: parsed.conversationId } : {}),
+      ...(Array.isArray(parsed.stepCache) ? { stepCache: parsed.stepCache.filter(isStepCacheRow) } : {}),
     };
   } catch {
     return null;
   }
+}
+
+/** stepCache 行宽容判别（损坏行丢弃该步，不弃整行） */
+function isStepCacheRow(v: unknown): v is { ts: number; hit: number; miss: number } {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.ts === 'number' && typeof r.hit === 'number' && typeof r.miss === 'number';
 }
 
 /** 本地日期键（YYYY-MM-DD；与流水文件名同口径） */
@@ -199,6 +224,9 @@ export class UsageService extends Service {
   /** 日期 × (agent, 会话键) 行级留存（byDayPair 数据源；查询时经 classifyPair
    *  分类合并——与 byPair 同时态分类（服务就绪后），旧迁移行不因回放时序丢维） */
   private byDayAgentConvMap = new Map<string, { day: string; agent: string; conversationId: string; usage: UsageAggregate }>();
+  /** 会话 run 级缓存序列（KV 走势数据源，cr-231）：追加序即时间序，
+   *  内存全量留存不裁剪（RPC limit 参数取尾——载荷体积见 cr-231 基准） */
+  private timelineMap = new Map<string, UsageTimelinePoint[]>();
 
   constructor(ctx: Context, options: UsageRowOptions = {}) {
     super(ctx, 'usage');
@@ -229,6 +257,12 @@ export class UsageService extends Service {
     conversationId: string | undefined,
     result: LoopRunResult,
   ): void {
+    // 步级缓存摘要（cr-232 走势粒度）：仅含缓存字段——usage 无缓存数据的
+    // 步不入（走势点 = 「有计量的步」序列）；全 run 无步数据 → 不写键（旧
+    // 流水行同形态，回放/实时同一回退路径）
+    const stepCache = result.steps
+      .filter((s) => s.usage && (s.usage.cacheHit != null || s.usage.cacheMiss != null))
+      .map((s) => ({ ts: s.ts ?? Date.now(), hit: s.usage!.cacheHit ?? 0, miss: s.usage!.cacheMiss ?? 0 }));
     const line: UsageAuditLine = {
       timestamp: new Date().toISOString(),
       agent,
@@ -236,8 +270,9 @@ export class UsageService extends Service {
       finish: result.finish,
       usage: result.usage,
       ...(conversationId !== undefined ? { conversationId } : {}),
+      ...(stepCache.length > 0 ? { stepCache } : {}),
     };
-    this.mergeIntoMaps(agent, model, conversationId, dayKeyOf(line), result.usage);
+    this.mergeIntoMaps(agent, model, conversationId, dayKeyOf(line), line.timestamp, line.stepCache, result.usage);
     try {
       fs.mkdirSync(this.usageDir, { recursive: true });
       fs.appendFileSync(
@@ -251,18 +286,27 @@ export class UsageService extends Service {
     }
   }
 
-  /** 六维聚合入账（record 与 replayAuditFiles 共用单源——新增维度两边不再走散） */
+  /** 七维聚合入账（record 与 replayAuditFiles 共用单源——新增维度两边不再走散） */
   private mergeIntoMaps(
     agent: string,
     model: string,
     conversationId: string | undefined,
     day: string,
+    timestamp: string,
+    stepCache: Array<{ ts: number; hit: number; miss: number }> | undefined,
     usage: LoopRunUsage,
   ): void {
     mergeAggregate(this.bucket(this.byAgentMap, agent), usage);
     mergeAggregate(this.bucket(this.byModelMap, model), usage);
     const conv = conversationId ?? agent;
     mergeAggregate(this.bucket(this.byConversationMap, conv), usage);
+    // 会话 run 级缓存序列（KV 走势数据源，cr-231；cr-232 步级行随行携带）
+    this.bucketTimeline(conv).push({
+      timestamp,
+      cacheHit: usage.cacheHit ?? 0,
+      cacheMiss: usage.cacheMiss ?? 0,
+      ...(stepCache !== undefined ? { steps: stepCache } : {}),
+    });
     this.mergeAgentConv(agent, conv, usage);
     mergeAggregate(this.bucket(this.byDayMap, day), usage);
     mergeAggregate(this.bucket(this.byDayModelMap, `${day}|${model}`), usage);
@@ -309,7 +353,7 @@ export class UsageService extends Service {
         if (!row.trim()) continue;
         const line = parseAuditLine(row);
         if (!line) continue;
-        this.mergeIntoMaps(line.agent, line.model, line.conversationId, dayKeyOf(line), line.usage);
+        this.mergeIntoMaps(line.agent, line.model, line.conversationId, dayKeyOf(line), line.timestamp, line.stepCache, line.usage);
         replayed++;
       }
     }
@@ -325,6 +369,15 @@ export class UsageService extends Service {
       map.set(key, acc);
     }
     return acc;
+  }
+
+  private bucketTimeline(conversationId: string): UsageTimelinePoint[] {
+    let rows = this.timelineMap.get(conversationId);
+    if (!rows) {
+      rows = [];
+      this.timelineMap.set(conversationId, rows);
+    }
+    return rows;
   }
 
   /** 按 Agent 聚合（快照拷贝） */
@@ -373,6 +426,25 @@ export class UsageService extends Service {
   /** 按会话聚合（M17-F 弦图数据源；byPair 的 preview 收敛） */
   byConversation(): Record<string, UsageAggregate> {
     return Object.fromEntries([...this.byConversationMap].map(([k, v]) => [k, { ...v }]));
+  }
+
+  /** 会话缓存走势序列（KV 走势数据源，cr-231；cr-232 步粒度、cr-236 全量）：
+   *  每点 = 一次有计量的 LLM 调用（步）；无 stepCache 的旧 run 回退合计
+   *  单点。时间升序全量返回（前端懒加载整段历史——limit 裁剪随 cr-236
+   *  退役；载荷量级见 cr-231 基准：10k 步 ≈ 0.5MB，弹层单次拉取可受）。 */
+  conversationTimeline(conversationId: string): Array<{ ts: number; hit: number; miss: number }> {
+    const rows = this.timelineMap.get(conversationId);
+    if (!rows || rows.length === 0) return [];
+    const steps: Array<{ ts: number; hit: number; miss: number }> = [];
+    for (const run of rows) {
+      if (run.steps !== undefined) {
+        for (const s of run.steps) steps.push(s);
+      } else {
+        // 旧流水行（无 stepCache）：run 合计单点——ts 用 run 时间戳
+        steps.push({ ts: Date.parse(run.timestamp) || 0, hit: run.cacheHit, miss: run.cacheMiss });
+      }
+    }
+    return steps.map((p) => ({ ...p }));
   }
 
   /**
