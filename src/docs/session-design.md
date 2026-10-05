@@ -226,6 +226,12 @@ role='system'（概要头）              → system     （直通，不参与�
 ├── groups/<gid>/group.json + messages.jsonl   群本体 + 成员表（ac-group owning）
 │                archive/history_N.jsonl + summary_N.md   群轮转分段与机械摘要
 ├── conversation/pending-<handle>.jsonl        待投持久化（next-turn 队列）
+├── conversation/steer-stash-<handle>.jsonl    busy steer 暂存持久化（cr-250 durable
+│                                             steer：stash 即落盘〔fsync〕，消费/
+│                                             drop/兜底三清理点剔行，启动恢复
+│                                             重投——经标准 deliver，失败回落留痕）
+├── .deliver-seen.json                         deliver requestId 幂等键（cr-250：
+│                                             FIFO 200 跨重启短路，deduped outcome）
 ├── archive/<convId>/…                         全量备份域归档（ac-backup 消费）
 └── usage/usage-<date>.jsonl                   用量审计流水（cache hit/miss 在此）
 ```

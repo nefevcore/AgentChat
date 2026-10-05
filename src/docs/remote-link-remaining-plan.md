@@ -4,16 +4,21 @@
 > src/docs/archive/m1-remote-link-implementation-plan.md（M1/P0/P1 实况，含已修复缺陷清单）。
 > 本文是下个会话的开工文档——自包含，按序实施即可。
 
-## 0. 当前状态快照（2026-09-22 收口时）
+## 0. 当前状态快照（2026-10-05 更新）
 
 | 里程碑 | 状态 | 验证方式 |
 |---|---|---|
 | M1 核心端（noise-core + remote-link 服务） | 完成 | 单测 9+6；全仓 2011 过 |
 | M2 relay 服务器 + 下载面 | 早已上线 | 公网 wss://47.110.63.135:8443（e2e 8/8） |
 | P1 管理 RPC + loopback 全链路 + webui 设备页 | 完成 | 本地实跑：XK 配对、SAS、加密 RPC、KK 重连全通 |
-| P1 尾巴（见一、节） | 待办 | — |
-| M3 安卓单 App（见二、节，主战场） | 待办 | — |
+| P1 尾巴（见一、节） | 1.2 仍待做（1.0/1.1/1.1.1/1.3 已落） | — |
+| M3 安卓单 App（见二、节） | **完成（2026-09-30 收口，cr-43~54）** | 真机 Redmi K20 全链路；实况见 `archive/m3-handoff-20260929.md` |
+| 手机端优化（二b 节） | 保活/重连风暴已落（cr-109）；提速双压缩已落（cr-257/259）；占座会合根因已修（cr-255） | 真机回归 |
 | M4 设备管理成熟化（见三、节，可选） | 待办 | — |
+
+2026-10-05 后的链路硬化增量（详见 cr-log）：cr-250 requestId 幂等准入（ws/ack
+deduped + .deliver-seen.json 跨重启短路）、cr-256 chunk 失败弹窗分流（rpc 探活
+替代循环重载）、cr-257/259 双向 gzip + RPC 帧压缩（公网 160KB 应答 1.2s → 秒开）。
 
 全链路本地复现方法（写完 M3 前的自检基准）：
 
@@ -21,10 +26,10 @@
     cd src/ac-relay-server
     RELAY_PORT=18443 RELAY_HOST=127.0.0.1 npx tsx src/main.ts
 
-（2）宿主（bootTree 全组合树；data root 固定 .dsh/tmp/loopback-data）
+（2）宿主（bootTree 全组合树；data root 固定 sandbox/loopback-data）
     npx tsx scripts/remote-loopback-host.ts
 
-（3）客户端（冒充手机；身份持久化在 .dsh/tmp/loopback-identity.json）
+（3）客户端（冒充手机；身份持久化在 sandbox/loopback-identity.json）
     npx tsx scripts/remote-loopback-client.ts --relay ws://127.0.0.1:18443 --rpc ws://127.0.0.1:3839 --reconnect
     老设备直连（跳过配对）：加 --skip-pair
 
@@ -63,9 +68,12 @@ RemoteDevices.vue / PairingQr.vue 已重写为 webui-kit 形态：Button/StatusD
 SAS 数字用 primary-light 底大号等宽焦点块；链路/设备在线状态用 StatusDot 语义色；
 scopes 档位以 pill 徽章展示。视觉走查仍待用户在桌面端确认。
 
-### 1.2 remote/* 事件 ws-bridge 转发（实时推送替代 2s 轮询）
+### 1.2 remote/* 事件 ws-bridge 转发（实时推送替代 2s 轮询）——仍待做
 
-现状：RemoteDevices.vue 每 2s 轮询 remote/devices；
+现状（2026-10-05 复核）：RemoteDevices.vue 仍每 2s 轮询 remote/devices
+（`setInterval(() => void refresh(), 2000)`——L202）；ws-bridge 的 remote
+转发走 cr-108 并源目录（ac-wire-format createBridgeCatalog），补 4 条 fwd
+时落同一目录勿另持清单；
 目标：ws-bridge 桥接 remote/device-paired、device-revoked、device-online、
 device-offline 四事件（已带 mode=emit + scope=host 标注），前端 onEvent 驱动刷新；
 落点：src/ac-ws-bridge/src/index.ts 加 4 条 fwd（照 agents/updated 同款）；

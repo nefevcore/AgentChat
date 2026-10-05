@@ -1,22 +1,21 @@
 # 缺口待修清单（gap-backlog）
 
 > 来源：2026-10-14 全仓代码注释/文档字面搜索「缺口」（47 处：src 40 + mobile 5 +
-> CHANGELOG 2），逐项核实当前状态后的**开放项**清单。排除范围：`.dsh/tmp/`（外部
-> 项目快照）、`workspace/`（会话数据落盘）。已核实剔除的闭环项见文末附录。
+> CHANGELOG 2），逐项核实当前状态后的**开放项**清单。排除范围：`sandbox/`（Agent
+> 沙箱：临时工作区/测试数据根/工具链）、`workspace/`（会话数据落盘）。已核实剔除的闭环项见文末附录。
 > 状态标记：☐ 开放待修 / ◐ 部分完成 / ☑ 已修但文档滞后（顺手修文档即可）。
 
 ## 一、开放缺口（按建议修复顺序）
 
-### 1. ☐ 协议写死 OpenAI 兼容——非兼容端点无法经池配置〔大缺口〕
+### 1. ☑ 协议多态已落地（cr-39，2026-10-01 复核核销）
 
-- **出处**：`src/docs/archive/llm-protocol-extensibility.md` L25（本文档主题）
-- **内容**：协议层 `ac-openai-completions` 是唯一协议实现，Anthropic 原生
-  `/v1/messages`、Gemini 原生 `generateContent`、Ollama 原生 `/api/chat` 等
-  非兼容端点无法经 `ac-llm-pool` 配置，只能走 `templates/provider-row` 手写
-  适配行（每协议一个）。
-- **核实**：`src/**/*anthropic*` 零命中——至今无第二协议实现。
-- **建议起点**：该文档 §设计草案（协议中立抽象 + 适配行形态）已较完整，可按
-  文档直接立项。
+- **原缺口**：协议层 `ac-openai-completions` 是唯一协议实现，非兼容端点无法经
+  `ac-llm-pool` 配置。
+- **现状**：`ac-anthropic-completions`（/v1/messages）· `ac-gemini-completions`
+  （generateContent）· `ac-ollama-completions`（/api/chat）三纯库已落地；池条目
+  `protocol` 字段分发（'openai' | 'anthropic' | 'gemini' | 'ollama'，PROTOCOLS
+  单源），llm-pool 协议注册表见 `src/ac-llm-pool/src/index.ts` 头注释。
+- **出处**：`src/docs/archive/llm-protocol-extensibility.md`（设计草案已实施）。
 
 ### 2. ☐ 按 source 降档——Agent 间唆使链路无硬边界〔安全〕
 
@@ -28,15 +27,14 @@
 - **seam 现成**：`router/before-deliver` / `loop/before-run`（文档 L55 已指出）。
 - **注意**：§8.3 表中「prompt 级防御可被话术绕过」为显式接受项，非本条待修。
 
-### 3. ☐ /models 发现仍是假代理——AgentPane「读取」按钮静态并集
+### 3. ☑ /models 真代理已落地（2026-10-05 复核核销）
 
-- **出处**：`src/docs/archive/llm-provider-model-plan.md` §1.5（L89-95）
-- **内容**：AgentPane「读取」按钮注释宣称「走后端代理，从凭据库附加认证」，
-  实际 `llm/providers` RPC（`ac-web-api/src/index.ts` L1684）返回**静态
-  meta.models 并集**——假代理（M17 缩水项，从未补）。
-- **核实**：协议层 `ac-openai-completions` `listModels()` 已实现（带
-  `tests/list-models.test.ts`）；缺的是 web-api 侧经真实端点发现模型。
-- **提醒**：plan 文档 §1.5「listModels 不存在」表述已过时——修此项时顺手更新。
+- **原缺口**：`llm/providers` RPC 返回静态 meta.models 并集（M17 缩水项）。
+- **现状**：`llm/models` RPC（`ac-web-api/src/index.ts` L1824 起）经 provider
+  实例真实代理 /models——凭据从凭据库锚定 `pool:<name>` 附加、20s 探测超时、
+  发现结果归一回写 `config.llmProviders[name].models` 缓存并热更重挂；AgentPane
+  「读取」按钮已退役，改**自动读取**（无缓存才拉、每连接一次防抖——见
+  AgentPane.vue L201 起；ChatInput ensureDiscovered 同款）。
 
 ### 4. ☐ 机制 run steer 拦截全类型覆盖审计
 
@@ -47,6 +45,13 @@
   其他机制 run 类型待审计。
 - **动作**：审计 ac-session deliver 侧对 source='event' run 的 steer 拦截是否
   全类型覆盖；有漏则补，无漏则关闭并在此登记。
+- **2026-10-05 复核注记**：拦截判定单源 = `isArchiveReviewRun(meta)`
+  （ac-agent-loop service.ts L171——见 meta 标记即跳过）；设置面现有两处：
+  ac-archive（整理 run）与 ac-bench（bench-case run，service.ts L172）。源头上
+  设标记的机制 run 已被两门（deliver steer 门 L483 + steerQueued 门 L649，
+  ac-conversation）覆盖；**审计缺口收窄为**：其余 source='event' 发起但不设
+  ARCHIVE_REVIEW_META 的 run（若有）是否需要同款拦截——grep `source: 'event'`
+  逐处核对设置面即可关闭。
 
 ### 5. ☐ 真机 WebView 兼容缺口残余（mobile 三份 legacy-runtime 副本）
 
@@ -72,9 +77,9 @@
 
 | # | 文档 | 滞后内容 | 核实依据 |
 |---|---|---|---|
-| A | `archive/llm-protocol-extensibility.md` | 小缺口 headers/timeoutMs 已标落地；大缺口描述与 §D3 行口径需复查统一 | L19-24 落地标注 |
-| B | `archive/llm-provider-model-plan.md` §1.5 | 「ac-openai-completions 无 listModels()」已过时——协议层已实现并带测试 | `ac-openai-completions/src/index.ts` L421 |
-| C | `archive/llm-provider-model-plan.md` L82 | 「provider 跟随 Agent 不跟覆盖」已修——router 支持 `name@model` 拆 provider | `ac-router/src/service.ts` L58-59/L185 |
+| A | `archive/llm-protocol-extensibility.md` | ☑ 已核销（2026-10-05，cr-267）：大缺口（协议多态）随 cr-39 落地——见一、节第 1 项 | `ac-anthropic-completions` 等三纯库 |
+| B | `archive/llm-provider-model-plan.md` §1.5 | ☑ 已核销（2026-10-05，cr-267）：listModels 已实装 + web-api 侧 `llm/models` 真代理——见一、节第 3 项 | `ac-web-api/src/index.ts` L1824 |
+| C | `archive/llm-provider-model-plan.md` L82 | ☑ 已核销（2026-10-05，cr-267）：「provider 跟随 Agent 不跟覆盖」已修——router 支持 `name@model` 拆 provider | `ac-router/src/service.ts` L58-59/L185 |
 
 ## 附录：核实后剔除的闭环项（修复时不必再看）
 
@@ -89,7 +94,8 @@
   ac-app bootDist 迁移、feed-core 历史对账、webui 可见性恢复——均已闭环（注释留档）。
 
 > 本清单的变更登记 = cr-log `cr-23`（首登时误取号 cr-31，随 cr-24 勘误改号；
-> 引用以 cr-log 序列为准）。
+> 引用以 cr-log 序列为准）。2026-10-05 复核批登记 = `cr-267`（第 1/3 项核销、
+> 第 4 项补判定面注记、滞后表 A/B/C 三行核销）。
 >
 > 维护约定：每修一项，把对应条目改为 ☑ 并注明 cr 号与日期；全部闭环后本文件
 > 可归档至 archive/。

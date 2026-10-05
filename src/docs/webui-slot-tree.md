@@ -98,7 +98,7 @@ toolResultViews / perspectives 已承担），slot 树主打**填充/装饰/覆�
                              [③ main 主面板——keyed 选举多选一]
                                 ├─ chat(100)：PerspectiveHost（视角容器，keepAlive 保活）
                                 └─ tracking(50)：运行矩阵（volatile，让位协议随 active() 住 ui-runview 行）
-[④ aux-sidebar 辅助侧边栏——keyed 选举「选区」多选一（group 群面板 + workspace 树；辅助活动栏 AuxActivityBar）]
+[④ aux-sidebar 辅助侧边栏——keyed 选举「选区」多选一（group 群面板 + workspace 树 + run-nodes 会话节点面板〔cr-230〕；辅助活动栏 AuxActivityBar）]
 [bottom-panel 底部面板·预留] [status-bar 底部状态栏·预留]   ← 同上占名
 [⑤ 全局覆盖层] FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
 ```

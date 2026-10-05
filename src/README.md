@@ -16,7 +16,7 @@ plugin-logger-console 控制台输出）。
 
 （见[设计档案索引](#设计档案索引)；注释日期标记（YYYY-MM-DD = 真实日历日）
 
-读写规范与变更登记（CR 目录）见 `docs/epoch-marking-convention.md`；收官过程文档冻结于 `src/docs/archive/` 与
+读写规范与变更登记（CR 目录）见 `docs/epoch-marking-convention.md` 与仓库根 `cr-log.md`；收官过程文档冻结于 `src/docs/archive/` 与
 
 仓库外归档根 `Dev\Note\AgentChat\docs-stale-2026-09-18\`）；开发姿势与新增能力域
 
@@ -72,7 +72,7 @@ pnpm smoke            # tsx 冒烟（程序化树）
 pnpm webui            # WebUI dev server（vite 3831 → proxy 3830）
 pnpm webui:build      # WebUI 生产构建（→ src/webui/dist，boot 后 127.0.0.1:3830）
 pnpm webui:typecheck  # 前端 vue-tsc
-pnpm webui:preview:check # 预览页 kit 片段与源码一致性（docs/webui/v2.html ← webui-kit，改 kit 后跑）
+pnpm webui:preview:check # 预览页 kit 片段与源码一致性（webui/design/gallery.html ← webui-kit，改 kit 后跑）
 ```
 
 > `preview:*` 前缀脚本保留为兼容别名（preview:boot ≡ dev 等）。
@@ -427,8 +427,9 @@ src/
 │                            timer/logger/hmr，本轨运行时基座）
 ├── templates/               插件开发模板骨架（tool-row / provider-row / event-row）
 ├── docs/                    设计档案与里程碑规划（见文末索引）
-├── scripts/                 迁移与验证脚本（migrate-workspace / migrate-session-neutral /
-│                            unify-group-storage / migrate-hooks-to-settings / usage-baseline）
+├── scripts/                 usage-baseline + 带恒等门测试的 migrate 三件
+│                            （hooks-to-settings/llm-pool-v2/session-neutral）；
+│                            其余一次性迁移/验证脚本已冻结 docs/archive/scripts/（cr-261）
 │ ── L1 模型域 ──────────────────────────────────────────────────
 ├── ac-llm/                  LLM 纯路由（ctx.llm）：注册工厂懒实例化 + provider/model
 │                            路由 + stream/chat + /models 发现 + 瞬时网络错误退避重试
@@ -888,15 +889,15 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | 分组 | 档案 |
 |---|---|
 | 总览 | `architecture-diagram.html`（架构图可视化） |
-| 消息链路 | **`message-pipeline-graph.html`（消息处理链路全景图谱——写路径/双存储/三读路径/前端合流四层泳道 + bug 窗口带 + 修复热点分层，cr-87）** · `message-pipeline-analysis.md`（根因分析——双管线无收敛协议为主根因，收敛协议/投影单源/feed-core 拆分三方向） |
-| 会话与 LLM 域 | `session-design.md`（域深设计事实源——消息定义/落盘/三种会话形态） |
-| WebUI | `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** |
-| 移动端与远程接入 | **`remote-client-relay-plan.md`（域总方案——B 路线唯一裁决；M4 可选批未实施）** · `remote-link-remaining-plan.md`（后续工作交接：P1 尾巴 + M3 实况索引 + M4 可选）· `remote-deliver-sender-ruling.md`（deliver 信封 sender=user 裁决，cr-78）· `mobile-ui-paradigm-plan.md`（移动端 UI 范式——Phase①② 落地，Phase③ 余项待真机验证轮）· `mobile-link-diagram.html`（三端一管道总览图，cr-51）· `mobile-handshake-sequence.html`（XK/KK 握手时序图，cr-62） · `webui-mobile-render-perf-plan.md`（移动端渲染性能优化——K20 实测基线 + 分期方案，cr-258） |
+| 消息链路 | **`message-pipeline-graph.html`（消息处理链路全景图谱——写路径/双存储/三读路径/前端合流四层泳道 + bug 窗口带 + 修复热点分层，cr-87）** · `message-pipeline-analysis.md`（根因分析——双管线无收敛协议为主根因，收敛协议/投影单源/feed-core 拆分三方向）· `../archive/message-pipeline-d1-convergence-plan.md`（D1 收敛协议实施计划，cr-94 已实施，已冻结） |
+| 会话与 LLM 域 | `session-design.md`（域深设计事实源——消息定义/落盘/三种会话形态）· `run-lifecycle-checkpoints.md`（Run 生命周期临时态与收敛 checkpoint 全景——cr-107 收敛 B/C 的评估基准图）· `skill-injection-and-storage-vocab.md`（技能注入持久化 + 会话存储词汇 v2 裁决链——ac-session/migrations 与 ac-skill 的规范出处）· `llm-pool-hardening-cr99.md`（模型池加固记录，cr-99）· `cloud-provider-api-key-adoption.md`（云部署型 LLM 接入裁决，cr-98）· `../archive/feed-identity-overhaul-plan.md`（会话流身份贯通根治方案，2026-09-24 诊断，已冻结） |
+| WebUI | `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `../webui/design/gallery.html`（kit 全控件静态陈列廊，cr-155 纯画廊版——轨道工件，cr-262 自 docs 归位） · `webui-standard-controls-proposal.md`（标准控件库提案，cr-116——删减/合并/组合整理）· **`webui-standard-controls-cr157.md`（表单层/业务层标准件定案，cr-157）** · `../archive/webui-refactor-guide.md`（存量 UI 迁移指南，cr-124，已冻结） |
+| 移动端与远程接入 | **`remote-client-relay-plan.md`（域总方案——B 路线唯一裁决；M4 可选批未实施）** · `remote-link-remaining-plan.md`（后续工作交接：P1 尾巴〔仅剩 1.2 事件转发〕+ M3 已收口〔2026-09-30，cr-43~54〕+ M4 可选）· `remote-deliver-sender-ruling.md`（deliver 信封 sender=user 裁决，cr-78）· `mobile-ui-paradigm-plan.md`（移动端 UI 范式——Phase①②③ 大部落地，余真机验证轮与 color-mix 残量）· `mobile-link-diagram.html`（三端一管道总览图，cr-51）· `mobile-handshake-sequence.html`（XK/KK 握手时序图，cr-62） · `webui-mobile-render-perf-plan.md`（移动端渲染性能优化——K20 实测基线 + 分期方案，cr-258，待实施） |
 | 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——P0 已随 subagents/history 落地，余步骤见计划） |
-| 审计与精简 | `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） · `gap-backlog.md`（缺口待修清单——47 处字面搜索归集，含已修核销标注） |
+| 审计与精简 | `run-code-usage-profile-2026-09-20.md`（run_code 使用画像三批次——失败形态与优化线索纵向对比） · `run-code-hardening-backlog.md`（2026-11-19 DX 五连修后遗留立项：worker 防退化护栏/转义税/lib 注册表自愈 + worker 死锁事故实录） · `gap-backlog.md`（缺口待修清单——47 处字面搜索归集；2026-10-05 复核：6 开放项中 2 项核销〔协议多态/模型发现〕、1 项收窄〔机制 run 审计〕，详见 cr-267） |
 | 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `harness-bridge-plan.md`（本地 CLI harness 桥接——方案 B 工具+委托子代理，待实施）· `polish-backlog.md`（打磨残留条目 + 边界备忘） · `dsh-0.2-contract-takeaways-plan.md`（DSH 0.2 插件契约比对——ac-config 热更三小件待办 + 机制不搬原则记档，待实施） |
 | 标签系统 | `tag-system-report.md`（词表/机制/归属/守则全貌）· `tags-include-semantics-report.md`（× tools.include 语义裁决） |
-| 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；历史批次底册 `archive/epoch-inventory-2026-09-27.md`）· `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增） |
+| 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；历史批次底册 `archive/epoch-inventory-2026-09-27.md`）· `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增）· `release-ci-postmortem.md`（发布 CI 复盘主档，12 版 20+ run 无一首发全绿——release-preflight 的由来）· `../archive/release-ci-postmortem-0814.md`（0.8.14 发版 23 轮 CI 实操录，已冻结） |
 
 > **归档根**（2026-09-18 起）：收官里程碑终稿（M7-M25 计划、m15/m16/m17 对账套件、
 > WebUI 适配器系列、程序化模式三件套、T0/精简审计、src→preview 映射图）已移至

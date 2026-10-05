@@ -63,7 +63,7 @@ export function acquireDataRootLock(root: string, opts: { pid?: number; now?: nu
   if (held !== null && held.pid !== pid && isAlive(held.pid)) {
     throw new Error(
       `数据根已被进程 ${held.pid} 独占（${root}）——同一数据根禁止多进程并发写。`
-      + '测试/验证实例请将 AGENTCHAT_DATA_ROOT 指向独立临时目录（如 .dsh/tmp/test-home-<n>）',
+      + '测试/验证实例请将 AGENTCHAT_DATA_ROOT 指向独立临时目录（如 sandbox/test-home-<n>）',
     );
   }
   // 无锁 / 陈旧锁（持锁进程已死）/ 本进程复入 → 获锁（首获写身份，复入只计数）

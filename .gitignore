@@ -19,7 +19,9 @@ release/
 # MCP configuration files (may contain sensitive credentials)
 *.mcp
 
-# Runtime data
+# Runtime data（历史根级数据根已迁 sandbox/boot/data-2026-09，cr-264；
+# 根级不再作数据根——agents/files/memory/sessions/singles/usage/archive/
+# groups/timer/config.json/credentials.json/AppData 等历史规则随迁退役，不再保留）
 /data/
 
 # Editor / IDE
@@ -40,10 +42,13 @@ npm-debug.log*
 # Vite
 src/webui/.vite/
 
-# Temp / misc
+# Temp / misc（temp/ 与 /_tmp/ 历史残留已清，规则保留防复发）
 *.tmp
 temp/
 workspace/
+
+# Agent 沙箱（项目根；临时工作区 + 测试数据根 + 历史数据根归档，cr-264）
+/sandbox/
 
 # 本地临时残留（news-timer 备份等）
 /_tmp/
@@ -54,9 +59,8 @@ workspace/
 # 桌面构建产物（NSIS unpacked 副本）
 /desktop/release/
 
-# mobile 轨本地工具链（Gradle 发行包/缓存——M3.1 起下载，不入库）
-/mobile/.dsh-gradle/
-/mobile/.dsh-gradle-home/
+# mobile 轨本地工具链（Gradle 发行包/缓存——M3.1 起下载，不入库；cr-264 迁沙箱 sandbox/toolchain/）
+/sandbox/toolchain/
 # mobile 构建产物（sync-webui / cap sync 再生，不入库）
 /mobile/app/www/
 /mobile/app/android/app/src/main/assets/public/
@@ -82,31 +86,17 @@ src_old/
 # DSH 形态组合：profile 用户补丁层（本地差异，热生效）
 /cordis.patch.yml
 
-# 本地运行残留：仓库根被当作用户数据目录时产生的 Temp 部署产物
-/AppData/
-
 # Tauri 自动生成（desktop/src-tauri/gen/schemas，构建期再生）
 desktop/src-tauri/gen/
 
 # supervisor 单写者锁（supervisor.mjs 运行时产物）
 src/.runtime
 
-# src 本地数据根（含加密凭据/会话/记忆，绝不入库）
-src/data/
-
-# 运行时数据根落在仓库根时（boot 锚定启动 cwd）产生的运行时产物
-/agents/
-/files/
-/memory/
-/sessions/
-/singles/
-/usage/
-/archive/
-/groups/
-/timer/
-/.initialized
-/config.json
-/credentials.json
+# 历史根级数据根残留规则（/AppData/ /agents/ /files/ /memory/ /sessions/
+# /singles/ /usage/ /archive/ /groups/ /timer/ /.initialized /config.json
+# /credentials.json /src/data/）已于 cr-264 退役——数据根规范为
+# workspace/home（主）与 sandbox/test-home-<n>（测试），根级不再作数据根；
+# 若历史检出分支再生成这些路径，git add 前先核对是否真的需要入库
 src/webui/tests/__screenshots__/*.diff.png
-# agent 工作区整体不入库（技能/会话产物均为本机态）
+# agent 工作区整体不入库（技能/会话产物均为本机态；sandbox = Agent 临时工作区，cr-262）
 /.dsh/

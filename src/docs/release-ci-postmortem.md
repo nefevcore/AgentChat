@@ -141,7 +141,7 @@ manifest 收尾 job（sha256 校验 + gen-manifest）过了才算下载面就绪
 （见 §2.6）；确认后直接走中继或 SSH 通道，不要在原通路反复重试浪费时间：
 
 ```powershell
-node .dsh/tmp/git-relay.cjs 34567          # 或把脚本挪到 scripts/ 固化
+node scripts/git-github-relay.cjs 34567    # 固化版（端口 argv 缺省 34567；一次性 ad-hoc 脚本已随 cr-264/265 大扫除清退）
 git push http://127.0.0.1:34567/nefevcore/AgentChat.git main
 git push http://127.0.0.1:34567/nefevcore/AgentChat.git -f vX.Y.Z
 ```

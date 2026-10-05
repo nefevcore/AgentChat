@@ -14,6 +14,7 @@
 | `../m30-slot-semantics-refinement-plan.md` | 席位语义收口裁决（elect/data 轴、D6 装饰批次容器裁决、D8 不做项与翻盘条件——P2 批次开工前必读） |
 | `../webui-plugin-ownership.md` | 资产归属原案（物理落点已被 D19 改裁为行包 client/ 半边） |
 | `../session-design.md` | Session 域目标设计（消息定义/落盘/三种会话形态） |
+| `../run-lifecycle-checkpoints.md` | Run 生命周期临时态与收敛 checkpoint 全景（cr-107 评估基准） |
 
 ## 本目录索引
 
@@ -86,6 +87,16 @@
 | 文档 | 类型 | 收官状态 | 备注 |
 |---|---|---|---|
 | `epoch-inventory-2026-09-27.md` | 日期清点底册 | cr-1 整改配套，一次性产物 | 历史批次标记的事实底册 |
+| `message-pipeline-d1-convergence-plan.md` | 实施计划 | 已实施（cr-94，session/run-settled 事件驱动重拉） | 自 src/docs 根冻结（cr-261） |
+| `release-ci-postmortem-0814.md` | 发版实操录 | 0.8.14 已发布，教训已固化 | 主档 `../release-ci-postmortem.md` 留活（cr-261） |
+
+### 会话前端与迁移脚本（cr-261 整理批）
+
+| 条目 | 类型 | 收官状态 | 备注 |
+|---|---|---|---|
+| `feed-identity-overhaul-plan.md` | 根治方案 | 2026-09-24 诊断档；cr-107 以收敛 checkpoint B/C 收口另路 | 自 src/docs 根冻结（cr-261） |
+| `webui-refactor-guide.md` | 迁移指南 | cr-124 立项，五批路线已执行完毕 | 自 src/docs 根冻结（cr-261） |
+| `scripts/`（20 个） | 一次性验证/迁移脚本 | 各自里程碑收官 | m31/m32/m35 验证、relay-e2e、migrate-workspace/migrate-subcalls-split/unify-group-storage、verify-*portb ×7、bench-singles-scan；自 scripts/ 与 src/scripts/ 冻结（cr-261）。注：migrate-hooks-to-settings / migrate-llm-pool-v2 / migrate-session-neutral 有恒等门测试 import，留在 src/scripts/ |
 
 ## 阅读须知
 

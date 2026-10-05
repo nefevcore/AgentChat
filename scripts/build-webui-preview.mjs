@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const KIT = join(repo, 'src/webui-kit/src');
 // 单页注入：v2 答辩版已退役（被 gallery 取代），kit 标记区随页走
-const PAGES = ['src/docs/webui-gallery.html'].map((p) => join(repo, p));
+const PAGES = ['src/webui/design/gallery.html'].map((p) => join(repo, p));
 
 /** kit 源文件 → 注入体（统一 LF，去掉尾部空行） */
 const kitBody = (p) => readFileSync(p, 'utf8').split('\r\n').join('\n').trimEnd();

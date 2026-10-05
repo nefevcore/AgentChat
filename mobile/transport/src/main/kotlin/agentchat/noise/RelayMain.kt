@@ -8,7 +8,7 @@
 //   RPC 面 ws://127.0.0.1:3839 调 remote/pair-start → 解 qrUri →
 //   RelayClient XK 握手 → 打印 SAS → 轮询 remote/status 等 online →
 //   agents/list 加密 RPC 冒烟 → --reconnect 走 KK。
-// 身份落盘 .dsh/tmp/kotlin-identity.txt（模拟 Keystore）。
+// 身份落盘 sandbox/kotlin-identity.txt（模拟 Keystore）。
 // ============================================================
 package agentchat.noise
 
@@ -36,7 +36,7 @@ fun main(args: Array<String>) = runBlocking {
     val corePubArg = (args.firstOrNull { it.startsWith("--core-pub=") })?.removePrefix("--core-pub=")
 
     // 身份落盘（模拟 Keystore——重启算同设备）
-    val idFile = File(".dsh/tmp/kotlin-identity.txt")
+    val idFile = File("sandbox/kotlin-identity.txt")
     val identity = if (idFile.exists()) {
         val parts = idFile.readText().trim().split(":")
         StaticIdentity(unb64u(parts[0]), unb64u(parts[1]))
@@ -71,7 +71,7 @@ fun main(args: Array<String>) = runBlocking {
     val qrUri = session.get("qrUri")?.asString
         ?: run { println("[kotlin] FAIL pair-start: " + session); kotlin.system.exitProcess(1) }
     // sessionId 落盘供外部代答（m31-auto-confirm 轮询此文件）
-    File(".dsh/tmp/pair-session.txt").writeText(session.get("sessionId")?.asString ?: "")
+    File("sandbox/pair-session.txt").writeText(session.get("sessionId")?.asString ?: "")
     println("[kotlin] qrUri: " + qrUri)
     val kv = qrUri.removePrefix("agentchat://pair?").split("&").associate {
         val i = it.indexOf('=')

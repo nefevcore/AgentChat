@@ -128,6 +128,10 @@ declare 占名（无 outlet——实现时壳重构顶部/底部布局后开口�
    │     │    词表：config.json/credentials.json 等 + .env/*.pem 内置模式〕
    │     │    树不可见、预览/raw 读口拒读——词表单源住 ac-sandbox-core）
    │     │    └─ WorkspaceTreeNode（递归自引用）        + Icon (webui-kit)
+   │     ├─ run-nodes（选区 order 27）：RunNodesPanel [ac-client-ui-run-nodes]
+   │     │    会话 run 骨架面板（cr-230：每 run 用户消息为节点、点击 reveal
+   │     │    定位主区消息——uiStore.revealIntent → TranscriptList.reveal
+   │     │    通用消息定位意图通道；正序时间线贴底跟随；无后端行）
    │     └─ 辅助活动栏 AuxActivityBar [ac-client-ui-layout]（右侧的活动栏
    │        同构布局列：40px 窄列 / 无底色透页面背景 / 内侧描边 / 按钮
    │        竖向居中 / 活动指示条镜像右缘——常规 flex 列**占位不覆盖**，

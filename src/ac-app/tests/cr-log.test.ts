@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CR_LOG = fileURLToPath(new URL('../../docs/cr-log.md', import.meta.url));
+const CR_LOG = fileURLToPath(new URL('../../../cr-log.md', import.meta.url));
 
 const text = fs.readFileSync(CR_LOG, 'utf8');
 const lines = text.split(/\r?\n/);

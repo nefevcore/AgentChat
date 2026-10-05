@@ -1,6 +1,6 @@
 # 标准控件库 cr-157：表单层与业务层标准件定案
 
-> 背景：`webui-gallery.html` 业务区陈列暴露的散乱根因——kit 只有底座/反馈/浮层/结构四层，
+> 背景：`webui/gallery.html`（时居 src/docs，cr-262 已迁 `src/webui/design/`）业务区陈列暴露的散乱根因——kit 只有底座/反馈/浮层/结构四层，
 > 表单层（fx-*）与业务层（bx-*）的 recipe 在各 ac-client-ui-* 包内各自抄写（同名 dd-menu 两处、
 > tabs 五套、chip 两套、seg 三套、confirm 三套、树行两套……），视觉细节随每次抄写漂移。
 > cr-125~131 收敛了徽章/行/忙指示；本批收敛剩余的 19 族形态。
@@ -46,10 +46,15 @@ layout（MobileTabBar 角标→Avatar badge 语义、IconAction）。
 
 ## 五、画廊重建
 
-`webui-gallery.html` 重写：kit 六层 + 表单层 + 业务层三段结构保留，业务区陈列**只列 kit 标准件实物**，
+`webui/design/gallery.html` 重写：kit 六层 + 表单层 + 业务层三段结构保留，业务区陈列**只列 kit 标准件实物**，
 不再陈列散乱副本；kit 片段仍由 build-webui-preview.mjs 注入（新组件样式块加入注入清单）。
 
-## 六、落地记录（2026-10-03）
+## 六、落地记录（2026-10-03； DatePicker 增补 2026-10-05）
+
+- **DatePicker（cr-254/260，2026-10-05）**：表单层新增标准件——原生 date 弹层
+  OS 绘制不可定制（color-scheme 只保明暗），自建月历弹层归 kit（ui-dd 同语言 +
+  Teleport fixed 锚定 + z 序自适应 cr-184 模式 + 方向键可达；200px 定宽 7×24
+  日格、月↔年两级视图）；消费面 TokenUsage 自定义区间×4 / TimerPane 日期×1。
 
 - Phase A：12 组件 + dropdown.css + row.css --tree/--pool 变体 + Avatar badge + badge.css 角标全局配方 +
   Sheet side=right 全部落地；index.ts/package.json 出口齐。

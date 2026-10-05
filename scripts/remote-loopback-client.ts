@@ -208,7 +208,7 @@ function wire(obj: unknown): string {
   return JSON.stringify(obj);
 }
 
-const IDENTITY_FILE = '.dsh/tmp/loopback-identity.json';
+const IDENTITY_FILE = 'sandbox/loopback-identity.json';
 
 /** 设备身份持久化（模拟 Android Keystore：跨进程同身份 = 同设备——
  *  否则每次重启都是新设备，KK 重连房间永远对不上） */
@@ -220,7 +220,7 @@ function genIdentity(): StaticIdentity {
   const pair = crypto.generateKeyPairSync('x25519');
   const pub = Buffer.from((pair.publicKey.export({ format: 'jwk' }) as { x: string }).x, 'base64');
   const priv = Buffer.from((pair.privateKey.export({ format: 'jwk' }) as { d: string }).d, 'base64');
-  try { fs.mkdirSync('.dsh/tmp', { recursive: true }); } catch { /* exists */ }
+  try { fs.mkdirSync('sandbox', { recursive: true }); } catch { /* exists */ }
   fs.writeFileSync(IDENTITY_FILE, JSON.stringify({ pub: pub.toString('base64url'), priv: priv.toString('base64url') }));
   return { publicKey: pub, privateKey: priv };
 }

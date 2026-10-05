@@ -1,6 +1,6 @@
 # AgentChat 标准控件库整理提案
 
-> 基于 `webui-gallery.html` 全量陈列（16 组件 + 2 纯函数模块 + 6 组业务面未提取形态）与全仓消费面数据，
+> 基于 `webui/design/gallery.html`（时居 src/docs）全量陈列（16 组件 + 2 纯函数模块 + 6 组业务面未提取形态）与全仓消费面数据，
 > 对现有控件做删减 / 合并 / 组合整理，形成一套专用于 AgentChat 的标准控件库目标态。
 > 数据截至 2026-10-02（CR cr-116）；消费面数字均来自全仓 import 与类名扫描。
 
@@ -132,7 +132,7 @@ webui-kit（标准控件库 · 整理后）
 | P2 合并 | 新增 BusyRing → CollapseRow（含工具卡/思考卡迁移） | 定向 vitest conversation 包 + 视觉对照截图 |
 | P3 组合 | DockCard + 五处 dock 迁移 + main.css spin-ring 清理 | smoke + webui:typecheck + 截图 |
 
-每批一个 CR；P2/P3 迁移期间 `webui-gallery.html` 同步更新陈列（保持对照页与库同步是它的存在目的）。
+每批一个 CR；P2/P3 迁移期间 gallery 同步更新陈列（保持对照页与库同步是它的存在目的）。
 
 ## 七、红线对齐自查
 

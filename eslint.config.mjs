@@ -39,10 +39,14 @@ export default [
       // 类型感知 lint 无从解析——lint 面与 typecheck 面对齐；后续若纳入
       // typecheck 再同步放开。
       'src/webui/tests/**',
+      // Agent 沙箱（toolchain 带 gradle 发行包内嵌 js；探针脚本亦非 lint 面）
+      'sandbox/**',
       'src/*/tests/**',
       'src/*/src/tests/**',
       'src/scripts/**',
       'src/templates/**',
+      // 设计档案区（md/html 为主；archive/scripts/ 冻结的一次性脚本不入 lint 面）
+      'src/docs/**',
       'src/webui/vite.config.ts',
     ],
   },

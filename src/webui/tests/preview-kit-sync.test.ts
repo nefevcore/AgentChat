@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 // 单页注入：v2 答辩版已退役（被 gallery 取代）
-const pages = ['src/docs/webui-gallery.html'].map((p) => ({
+const pages = ['src/webui/design/gallery.html'].map((p) => ({
   path: p,
   html: readFileSync(join(repo, p), 'utf8'),
 }));

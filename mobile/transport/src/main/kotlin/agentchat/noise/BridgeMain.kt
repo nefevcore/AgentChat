@@ -25,7 +25,7 @@ fun main(args: Array<String>) = runBlocking {
     val staticDir = args.getOrNull(2)?.let { File(it) }
     val deviceName = "kotlin-phone"
 
-    val idFile = File(".dsh/tmp/kotlin-identity.txt")
+    val idFile = File("sandbox/kotlin-identity.txt")
     val identity = if (idFile.exists()) {
         val parts = idFile.readText().trim().split(":")
         StaticIdentity(unb64u(parts[0]), unb64u(parts[1]))
@@ -65,7 +65,7 @@ fun main(args: Array<String>) = runBlocking {
     // 回环桥：上游 = 已加密的 RelayClient
     val bridge = LoopbackBridge(rc, staticDir)
     // 诊断口：把上下行帧落盘（M3.2 排查；生产壳移除）
-    val traceFile = File(".dsh/tmp/bridge-trace.log")
+    val traceFile = File("sandbox/bridge-trace.log")
     var maxFrame = 0
     bridge.onDownlink = { json ->
         val n = json.toByteArray().size

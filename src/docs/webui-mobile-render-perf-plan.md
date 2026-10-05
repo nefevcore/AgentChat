@@ -109,5 +109,5 @@ DOM 全量在文档流，长文档流本身就是老 WebView 的重负载（即�
 ## 五、测量工具沉淀（复用口径）
 
 本文件全部基线来自 CDP 直采（debug 构建 WebView 已开 setWebContentsDebuggingEnabled），
-探针脚本沉淀于 `.dsh/tmp/wv-*.mjs`（帧率直方图 / longtask / CPU profile / RPC 计时），
+探针脚本沉淀于 `sandbox/wv-*.mjs`（帧率直方图 / longtask / CPU profile / RPC 计时；时为 .dsh/tmp，cr-263/264 已迁移），
 分期实施时同口径复测对比。正式化时可将探针收编为 `scripts/perf-probe/`。

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-260**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-267**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -278,3 +278,10 @@
 - 【cr-258 2026-10-05 移动端渲染性能优化立项文档（webui-mobile-render-perf-plan）：K20 实测基线与分期方案】
 - 【cr-259 2026-10-05 RPC 帧通道 gzip：rpc/result 压缩词汇（gz 标记 + 前端解压 + 协商位）——singles/list 类大应答 3.5x 提速；含压缩链收敛】
 - 【cr-260 2026-10-05 DatePicker 交互两项：①弹层收窄 200px 定宽（7×24 矩形日格）且与触发器宽解耦（原 min(触发器,240) 强拉宽是「太宽」根因）+ 右缘防溢出钳制；②标题上钻年视图（月↔年两级：标题点击切换、箭头随层级翻月/翻年、月格 tint 选中 + 当月中性环）+ 陈列室同步年视图陈列】
+- 【cr-261 2026-10-05 仓库整理三线：.dsh/tmp 历史残留移仓库外归档根 agent-scratch-2026-10（test-home* 数据根与被引用状态文件留位，dsh-main/pi 源码克隆删除）+ 一次性验证/迁移脚本冻结 src/docs/archive/scripts/ + src/docs 未索引文档判活归档与索引补全】
+- 【cr-262 2026-10-05 cr-log 提升至仓库根 cr-log.md（跨 src/scripts/docs 全仓变更登记）+ 新增 Agent 沙箱 .dsh/sandbox（run_code 程序化模式工作区）+ gallery 挪 webui/ 轨道目录】
+- 【cr-263 2026-10-05 .dsh/tmp 退役：全部状态目录/数据根迁 .dsh/sandbox（沙箱二合一：Agent 临时工作区 + 测试数据根），Kotlin 冒烟/loopback/download-gate/data-root-lock 报错语/技能红线/gap-backlog/postmortem/remote-link/perf-plan 引用同步，冻结区脚本按快照保留】
+- 【cr-264 2026-10-05 大扫除：sandbox 迁项目根（Agent 沙箱 + 测试数据根二合一，.dsh/tmp 退役承接）+ data/ 历史数据根归 sandbox/boot/ + workspace 清理 + gradle 隔离层归位 + 其余根级杂项处置】
+- 【cr-265 2026-10-05 大扫除执行批：desktop/release 构建产物清空（713MB，CI/本地可重建）+ workspace/home/backups 历史备份移仓库外归档根（864MB 含历史会话快照，不销毁；singles 双布局按用户指示暂缓)】
+- 【cr-266 2026-10-05 cr-265 补充：workspace/home/sessions-backup-cr44-20260929（0.6MB cr-44 修复期备份）同批移入归档根 backups/home-backups-2026-10/】
+- 【cr-267 2026-10-05 cr.mjs usage 尾行路径滞后修正：src/docs/cr-log.md → 仓库根 cr-log.md（cr-262 大扫除漏改），另 docs 索引维护批（本会话）预备登记】

@@ -38,7 +38,7 @@ const argv = process.argv.slice(2);
 const root = resolve(argOf(argv, '--root', 'downloads'));
 const port = Number(argOf(argv, '--port', '18080'));
 const quota = Number(argOf(argv, '--quota', '200'));
-const stateDir = resolve(argOf(argv, '--state', '.dsh/tmp/download-gate'));
+const stateDir = resolve(argOf(argv, '--state', 'sandbox/download-gate'));
 const behindNginx = argv.includes('--behind-nginx');
 const internalPrefix = argOf(argv, '--internal-prefix', '/__dl');
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // ============================================================
 // scripts/cr.mjs —— cr-log 登记/查询 CLI（cr-58）
-// cr-log 事实源 src/docs/cr-log.md 的本地管理工具（零依赖）。
+// cr-log 事实源（仓库根 cr-log.md，cr-262 自 src/docs/ 提升——登记范围跨
+// src/scripts/docs 全仓）的本地管理工具（零依赖）。
 //   append  登记新条目——自动取号（目录最大号 +1）、日期缺省当日真实
 //           日历日（--date 可覆写）、同步头部「当前号」快查行；写前自检
 //           不变量（头行在位/序号无重复/头行=目录最大号），不一致
@@ -19,7 +20,7 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const LOG = process.env.CR_LOG_FILE
-  || fileURLToPath(new URL('../src/docs/cr-log.md', import.meta.url));
+  || fileURLToPath(new URL('../cr-log.md', import.meta.url));
 
 const ENTRY_RE = /^- 【cr-(\d+) (\d{4}-\d{2}-\d{2}) /;
 const HEAD_RE = /^> \*\*当前号：cr-(\d+)\*\*/;
@@ -157,7 +158,7 @@ function usage() {
     '用法：',
     "  node scripts/cr.mjs append '一句话描述' [--date YYYY-MM-DD]  登记新条目（自动取号/当日日期/同步头行）",
     '  node scripts/cr.mjs grep <词>... [-n N] [--oneline]         查询条目（多词 AND，整块输出，最新在前）',
-    '事实源：src/docs/cr-log.md；测试隔离：CR_LOG_FILE 环境变量指向副本。',
+    '事实源：仓库根 cr-log.md（cr-262 自 src/docs 提升）；测试隔离：CR_LOG_FILE 环境变量指向副本。',
   ].join('\n'));
 }
 
