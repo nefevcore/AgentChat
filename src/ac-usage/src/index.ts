@@ -227,6 +227,10 @@ export class UsageService extends Service {
   /** 会话 run 级缓存序列（KV 走势数据源，cr-231）：追加序即时间序，
    *  内存全量留存不裁剪（RPC limit 参数取尾——载荷体积见 cr-231 基准） */
   private timelineMap = new Map<string, UsageTimelinePoint[]>();
+  /** 运行中 run 的临时步流（KV 走势实时性，cr-251）：after-step 即写，
+   *  conversationTimeline 查询拼接尾段；after-run 正式记账后清空（正式 timeline
+   *  接管）。进程崩溃丢失——与现状一致（那部分本来就没落盘）。 */
+  private pendingTimelineMap = new Map<string, Array<{ ts: number; hit: number; miss: number }>>();
 
   constructor(ctx: Context, options: UsageRowOptions = {}) {
     super(ctx, 'usage');
@@ -235,8 +239,12 @@ export class UsageService extends Service {
 
     this.ctx.on('loop/after-run', (request, result) => {
       // 机制标记 run（归档整理，M20）不记账：巨型整理上下文会顶掉该桶
-      // lastContextPrompt、污染 tokens 仪表（src META_ARCHIVE_REVIEW 消费方）
-      if (isArchiveReviewRun(request.meta)) return;
+      // lastContextPrompt、污染 tokens 仪表（src META_ARCHIVE_REVIEW 消费方）。但其步级缓存已进
+      // pending（after-step 不识别 run 语义）——此处一并清理，避免残留重复段。
+      if (isArchiveReviewRun(request.meta)) {
+        this.pendingTimelineMap.delete(request.conversationId ?? request.agent ?? '(anonymous)');
+        return;
+      }
       try {
         this.record(
           request.agent ?? '(anonymous)',
@@ -244,10 +252,27 @@ export class UsageService extends Service {
           request.conversationId,
           result,
         );
+        // 正式 timeline 已接管（record 内写入）——清 pending，下轮查询不再拼接本轮步
+        this.pendingTimelineMap.delete(request.conversationId ?? request.agent ?? '(anonymous)');
       } catch (err: unknown) {
         this.ctx.logger.warn(`[usage] 记账失败: ${String(err)}`);
       }
     }, { description: '用量双轨记账（覆盖轨/累计轨）' });
+
+    // KV 走势实时性（cr-251）：步收束即写 pending，不再等整轮
+    // run 收束。只关心缓存字段（其余聚合仍由 after-run 单点入账）；
+    // 归档整理 run 的步也会到达（它们仍是真实 LLM 调用，缓存率不因 run
+    // 语义失真）但不落盘——与 after-run 不记账整理 run 的口径一致。
+    this.ctx.on('loop/after-step', (agent, step, envelope) => {
+      if (!step.usage || (step.usage.cacheHit == null && step.usage.cacheMiss == null)) return;
+      const conv = envelope?.conversationId ?? agent ?? '(anonymous)';
+      let pending = this.pendingTimelineMap.get(conv);
+      if (!pending) {
+        pending = [];
+        this.pendingTimelineMap.set(conv, pending);
+      }
+      pending.push({ ts: step.ts ?? Date.now(), hit: step.usage.cacheHit ?? 0, miss: step.usage.cacheMiss ?? 0 });
+    }, { description: 'KV 走势临时步流（after-run 记账后接管）' });
   }
 
   /** 记一次 run（聚合 + 审计流水） */
@@ -428,22 +453,34 @@ export class UsageService extends Service {
     return Object.fromEntries([...this.byConversationMap].map(([k, v]) => [k, { ...v }]));
   }
 
-  /** 会话缓存走势序列（KV 走势数据源，cr-231；cr-232 步粒度、cr-236 全量）：
-   *  每点 = 一次有计量的 LLM 调用（步）；无 stepCache 的旧 run 回退合计
-   *  单点。时间升序全量返回（前端懒加载整段历史——limit 裁剪随 cr-236
-   *  退役；载荷量级见 cr-231 基准：10k 步 ≈ 0.5MB，弹层单次拉取可受）。 */
+  /** 会话缓存走势序列（KV 走势数据源，cr-231；cr-232 步粒度、cr-236 全量、
+   *  cr-251 实时）：每点 = 一次有计量的 LLM 调用（步）；无 stepCache 的
+   *  旧 run 回退合计单点；运行中 run 的步拼接尾段（ts 晚于正式尾的
+   *  pending 步——严格大于判重：正式记账与 pending 清理间的窗口内两者短暂并存，同
+   *  ts 不重复拉入）。时间升序全量返回。 */
   conversationTimeline(conversationId: string): Array<{ ts: number; hit: number; miss: number }> {
     const rows = this.timelineMap.get(conversationId);
-    if (!rows || rows.length === 0) return [];
+    const pending = this.pendingTimelineMap.get(conversationId);
+    if ((!rows || rows.length === 0) && (!pending || pending.length === 0)) return [];
     const steps: Array<{ ts: number; hit: number; miss: number }> = [];
-    for (const run of rows) {
+    let lastTs = 0;
+    for (const run of rows ?? []) {
       if (run.steps !== undefined) {
-        for (const s of run.steps) steps.push(s);
+        for (const s of run.steps) {
+          steps.push(s);
+          lastTs = s.ts;
+        }
       } else {
         // 旧流水行（无 stepCache）：run 合计单点——ts 用 run 时间戳
-        steps.push({ ts: Date.parse(run.timestamp) || 0, hit: run.cacheHit, miss: run.cacheMiss });
+        const ts = Date.parse(run.timestamp) || 0;
+        steps.push({ ts, hit: run.cacheHit, miss: run.cacheMiss });
+        lastTs = ts;
       }
     }
+    for (const s of pending ?? []) {
+      if (s.ts > lastTs) steps.push({ ...s });
+    }
+    // 快照拷贝：正式步直引内部对象——统一拷贝防外部改写穿透
     return steps.map((p) => ({ ...p }));
   }
 
@@ -576,7 +613,7 @@ export const extension: ExtensionMeta = {
   label: 'Token 用量记录',
   description: 'after-run 双轨记账 + 审计流水（用量看板数据源）',
   automatic: true,
-  listeners: [{ event: 'loop/after-run', role: '双轨记账', description: 'run 结束通知（持久化/审计/指标订阅）——承重：关停用量看板断流' }],
+  listeners: [{ event: 'loop/after-run', role: '双轨记账', description: 'run 结束通知（持久化/审计/指标订阅）——承重：关停用量看板断流' }, { event: 'loop/after-step', role: 'KV 走势实时步流', description: '步收束写 pending（运行中 run 的缓存率可见），after-run 记账后接管清理' }],
 };
 
 

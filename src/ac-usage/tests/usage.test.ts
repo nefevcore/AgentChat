@@ -257,6 +257,43 @@ describe('ac-usage conversationTimeline（KV 缓存走势数据源，cr-231/232�
     expect(ctx.usage.conversationTimeline('a~user')[0].hit).toBe(6);
   });
 
+  it('运行中 run 实时可见（cr-251）：after-step 写 pending，after-run 记账后接管不重复', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // run 进行中：两步已收束、run 未收束（不 emit after-run）
+    const ts1 = Date.now() - 10_000;
+    const ts2 = Date.now() - 5_000;
+    ctx.emit('loop/after-step', 'a', { text: '', toolCalls: [], toolResults: [], usage: { prompt: 100, completion: 1, cacheHit: 90, cacheMiss: 10 }, ts: ts1 } as never, { conversationId: 'a~user' } as never);
+    ctx.emit('loop/after-step', 'a', { text: '', toolCalls: [], toolResults: [], usage: { prompt: 110, completion: 1, cacheHit: 100, cacheMiss: 10 }, ts: ts2 } as never, { conversationId: 'a~user' } as never);
+    let tl = ctx.usage.conversationTimeline('a~user');
+    expect(tl).toHaveLength(2); // 不等 run 收束即可见
+    expect(tl[0]).toMatchObject({ ts: ts1, hit: 90, miss: 10 });
+    // run 收束：after-run 正式记账（含同两步的 stepCache）+ pending 清理
+    ctx.emit('loop/after-run', { agent: 'a', model: 'mock-1', conversationId: 'a~user', messages: [] } as never, {
+      steps: [
+        { text: '', toolCalls: [], toolResults: [], usage: { prompt: 100, completion: 1, cacheHit: 90, cacheMiss: 10 }, ts: ts1 },
+        { text: '', toolCalls: [], toolResults: [], usage: { prompt: 110, completion: 1, cacheHit: 100, cacheMiss: 10 }, ts: ts2 },
+      ],
+      text: '', finish: 'stop',
+      usage: { prompt: 210, completion: 2, promptAccumulated: 210, cacheHit: 190, cacheMiss: 20, steps: 2 },
+    } as never);
+    tl = ctx.usage.conversationTimeline('a~user');
+    expect(tl).toHaveLength(2); // 接管后无重复（pending 已清）
+    expect(tl[1]).toMatchObject({ ts: ts2, hit: 100, miss: 10 });
+  });
+
+  it('归档整理 run 的 pending 步也清（避免残留重复段）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.emit('loop/after-step', 'a', { text: '', toolCalls: [], toolResults: [], usage: { prompt: 100, completion: 1, cacheHit: 50, cacheMiss: 50 }, ts: Date.now() } as never, { conversationId: 'a~user' } as never);
+    expect(ctx.usage.conversationTimeline('a~user')).toHaveLength(1);
+    // 整理 run 收束（带标记）：不记账但清 pending
+    ctx.emit('loop/after-run', { agent: 'a', model: 'mock-1', conversationId: 'a~user', sender: 'a', source: 'event', meta: { [ARCHIVE_REVIEW_META]: true }, messages: [] } as never, {
+      steps: [], text: '', finish: 'stop', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+    } as never);
+    expect(ctx.usage.conversationTimeline('a~user')).toHaveLength(0);
+  });
+
   it('旧流水行（无 stepCache）回退 run 合计单点（cr-232 兼容）', async () => {
     const root = tmpRoot();
     // 手写旧形态流水：usage 带 cacheHit/miss、无 stepCache 键
