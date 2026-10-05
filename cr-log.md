@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-267**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-268**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -285,3 +285,4 @@
 - 【cr-265 2026-10-05 大扫除执行批：desktop/release 构建产物清空（713MB，CI/本地可重建）+ workspace/home/backups 历史备份移仓库外归档根（864MB 含历史会话快照，不销毁；singles 双布局按用户指示暂缓)】
 - 【cr-266 2026-10-05 cr-265 补充：workspace/home/sessions-backup-cr44-20260929（0.6MB cr-44 修复期备份）同批移入归档根 backups/home-backups-2026-10/】
 - 【cr-267 2026-10-05 cr.mjs usage 尾行路径滞后修正：src/docs/cr-log.md → 仓库根 cr-log.md（cr-262 大扫除漏改），另 docs 索引维护批（本会话）预备登记】
+- 【cr-268 2026-10-06 SDK 投影参数语义保真：schemaTypeToTs 丢弃参数 description/enum——程序化形态下 subagent(browser/timer 同)参数级语义不可见（传统形态经 schema 直达）。修复=enum 投影为字面量联合+参数 description 单行尾注；DEFAULT_GUIDANCE 补程序内派子 Agent 编排纪律】

@@ -55,7 +55,7 @@ describe('buildSdkProjection', () => {
       },
     };
     const out = buildSdkProjection([tool]);
-    expect(out).toContain('action: string;');
+    expect(out).toContain(`action: "list" | "kill" | "logs";`);
     expect(out).toContain('tags?: Array<string> | undefined;');
     expect(out).toContain('flags?: { force: boolean; } | undefined;');
     expect(out).toContain('tier?: string | number | undefined;');
@@ -94,6 +94,32 @@ describe('buildSdkProjection', () => {
     const out = buildSdkProjection([READ]);
     expect(out).toContain('思考过程');
     expect(out).toContain('不写入注释');
+  });
+
+  it('参数 description 进尾注；string enum 投影为字面量联合（cr-268 参数语义保真）', () => {
+    const tool = {
+      name: 'subagent',
+      description: '派出子 Agent',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['spawn', 'await'], description: '操作' },
+          task: { type: 'string', description: '[spawn] 首条任务消息\n需完整自包含' },
+          silent: { type: 'boolean' },
+        },
+        required: ['action'],
+      },
+    };
+    const out = buildSdkProjection([tool]);
+    expect(out).toContain('action: "spawn" | "await";');
+    expect(out).toContain('// task: [spawn] 首条任务消息；需完整自包含');
+    expect(out).toContain('// action: 操作');
+    expect(out).not.toContain('// silent'); // 无 description 参数不产尾注
+  });
+
+  it('guidance 含并行子任务编排条目（cr-268）', () => {
+    expect(DEFAULT_GUIDANCE).toContain('并行子任务');
+    expect(DEFAULT_GUIDANCE).toContain('tools.subagent');
   });
 
   it('空集与空名防御', () => {

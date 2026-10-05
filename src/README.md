@@ -248,7 +248,7 @@ browser-tier 选高层词连带写齐全部低层词（requiredTags AND 地板�
 全文入 host 日志。**投影注入**
 （loop/before-run 主档）：仅程序化调用（互斥形态——LLM 生效面单
 
-schema 仅 run_code）时 system 尾部追加投影块（SDK 声明 + 程序书写
+schema 仅 run_code）时 system 尾部追加投影块（SDK 声明〔参数语义保真：参数 description 进签名尾注、string enum 投影为字面量联合——参数级用法不随 schema 面收窄丢失，cr-268〕+ 程序书写
 
 纪律——字典序稳定，KV cache 前缀友好）；形态
 判定读 run 级 request.tools 终值（开关收窄不落 Agent 配置）。子调用带
