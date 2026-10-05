@@ -72,6 +72,13 @@ export interface ConversationDeliverOptions {
   signal?: AbortSignal;
   /** placement='next-run' 等待会话空闲的上限 ms（缺省 190s，对齐 LLM 超时兜底+余量） */
   timeoutMs?: number;
+  /**
+   * 投递幂等键（cr-250）：传输层 requestId 贯通——同 requestId 短窗重发
+   * （前端重连 flush）或重启后重发（传输层 dedup 窗不跨进程）时准入短路
+   * deduped。持久面 = next-turn 队列文件（pending-*.jsonl 行内 id 前缀
+   * `req:`）+ 会话目录 .deliver-seen.json（最近 N 键，FIFO 淘汰）。
+   */
+  requestId?: string;
 }
 
 /** 投递结果 */
@@ -83,7 +90,9 @@ export type ConversationOutcome =
   /** 已入 next-turn 队列（lane='next-turn' 且会话繁忙；当前 run 结束后消费） */
   | { kind: 'queued'; handle: string }
   /** placement='next-run' 等待空闲超时放弃（消息未投递） */
-  | { kind: 'timeout'; handle: string };
+  | { kind: 'timeout'; handle: string }
+  /** 幂等命中（cr-250）：同 requestId 已受理过，本次短路不重复投递 */
+  | { kind: 'deduped'; handle: string };
 
 /** 运行中会话快照（listRunning/stats） */
 export interface ConversationRunInfo {

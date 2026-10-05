@@ -727,6 +727,9 @@ export function apply(ctx: Context) {
       ...(modelOverride ? { model: modelOverride } : {}),
       // 临时提权（webui 快捷提权按钮）：deliver 边界按 source 判定生效
       ...(elevation ? { elevation } : {}),
+      // 投递幂等键（cr-250）：传输层 requestId 贯通准入短路（重连重发/
+      // 重启后重发 → deduped，不重复投递）
+      ...(optStr(p.requestId) ? { requestId: optStr(p.requestId) } : {}),
     });
     if (outcome.kind === 'steered') {
       // busy ack 附 agentId（前端提示文案取名；steered = 已插话注入）
@@ -735,6 +738,8 @@ export function apply(ctx: Context) {
       caller.ack('busy', { agentId, conversationId, queued: true, handle: outcome.handle });
     } else if (outcome.kind === 'timeout') {
       throw new Error('会话忙：next-run 等待空闲超时，消息未投递');
+    } else if (outcome.kind === 'deduped') {
+      caller.ack('deduped', { agentId, conversationId });
     }
     return outcome;
   });

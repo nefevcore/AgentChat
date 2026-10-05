@@ -145,7 +145,7 @@ interface RunEntry {
 
 /** 待投落盘行（pending-<handle>.jsonl；source 不落盘——恢复后按 'user' 计 MAX_AUTO_WAKES 预算，现存语义） */
 interface PendingLine {
-  /** 稳定条目 id（旧文件缺省 → 回放时补生成） */
+  /** 稳定条目 id（旧文件缺省 → 回放时补生成）；requestId 受理时 = `req:<requestId>` */
   id?: string;
   message: LlmMessage;
   sender: string;
@@ -154,6 +154,9 @@ interface PendingLine {
   /** 本条提权（user 快捷提权语义；旧文件缺省 → 无提权） */
   elevation?: 'sandbox-access' | 'full-access';
 }
+
+/** deliver 幂等键容量（.deliver-seen.json FIFO 淘汰上限，cr-250） */
+const SEEN_REQUESTS_MAX = 200;
 
 /** handle 文件名安全校验（runAddress 产物仅含 [a-z0-9-_.~]，防御性校验） */
 function assertHandleSafe(handle: string): boolean {
@@ -195,7 +198,10 @@ export class ConversationService extends Service {
     const persistRoot = options.root ?? process.env.AGENTCHAT_DATA_ROOT;
     this.pendingDir =
       persistRoot !== undefined ? path.resolve(persistRoot, 'conversation') : undefined;
-    if (this.pendingDir !== undefined) this.replayPending();
+    if (this.pendingDir !== undefined) {
+      this.loadSeen();
+      this.replayPending();
+    }
 
     // D3 残余观测：before-run veto 窗口内被吞的注入（消息已入账，
     // 下一条自然 run 重派生时可见——自愈）。只告警不重投（重投经
@@ -213,7 +219,56 @@ export class ConversationService extends Service {
 
   // ============================================================
   // 待投持久化（M15 最小闭环：入队即落盘、消费即重写、启动回放）
+  // + deliver 幂等键（cr-250：requestId 准入短路，跨重启）
   // ============================================================
+
+  /** 已受理 requestId 集（Set 保插入序 = FIFO 淘汰序；构造时从盘加载） */
+  private seenRequests: Set<string> = new Set();
+
+  /** 幂等键文件（数据根 conversation/.deliver-seen.json） */
+  private get seenFile(): string | undefined {
+    return this.pendingDir === undefined ? undefined : path.join(this.pendingDir, '.deliver-seen.json');
+  }
+
+  /** 幂等键短路判定 + 受理登记（deliver 入口同步调用——先查后登记，命中即返回 true 不重复登记） */
+  private admitRequest(requestId: string): boolean {
+    if (this.seenRequests.has(requestId)) return false;
+    this.seenRequests.add(requestId);
+    if (this.seenRequests.size > SEEN_REQUESTS_MAX) {
+      const oldest = this.seenRequests.values().next().value;
+      if (oldest !== undefined) this.seenRequests.delete(oldest);
+    }
+    this.persistSeen();
+    return true;
+  }
+
+  /** 幂等键落盘（fail-open：失败告警不阻塞投递——窗口退化为传输层 30s 短窗） */
+  private persistSeen(): void {
+    const file = this.seenFile;
+    if (file === undefined) return;
+    try {
+      fs.mkdirSync(this.pendingDir!, { recursive: true });
+      const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify([...this.seenRequests]), 'utf-8');
+      fs.renameSync(tmp, file);
+    } catch (err: unknown) {
+      this.ctx.logger.warn('[conversation] 幂等键落盘失败: ' + String(err));
+    }
+  }
+
+  /** 幂等键启动加载（replayPending 同目录） */
+  private loadSeen(): void {
+    const file = this.seenFile;
+    if (file === undefined) return;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const k of parsed) if (typeof k === 'string' && k) this.seenRequests.add(k);
+      }
+    } catch {
+      /* 缺席/损坏 = 空集 */
+    }
+  }
 
   private pendingPath(handle: string): string {
     return path.join(this.pendingDir!, `pending-${handle}.jsonl`);
@@ -382,6 +437,14 @@ export class ConversationService extends Service {
     //（conversationId0 已在水位段算过同源键——直接复用。）
     const conversationId = effOptions.conversationId ?? conversationId0;
     const handle = runAddress(agentId, conversationId)!; // agentId 必填 → 恒有地址
+    // 投递幂等短路（cr-250）：requestId 已受理（本进程或重启前——持久面
+    // .deliver-seen.json）即 deduped，不重复投递。晚于水位读写与提权判定
+    //（幂等键登记不受副作用影响——命中即短路整条路径）。
+    if (typeof effOptions.requestId === 'string' && effOptions.requestId) {
+      if (!this.admitRequest(effOptions.requestId)) {
+        return { kind: 'deduped', handle };
+      }
+    }
     const lane: ConversationLane = effOptions.lane ?? 'next-step';
     // M18 调试可见性：投递入口（谁 → 哪个会话 → 走向）
     const busy = this.runs.has(handle);
@@ -402,7 +465,9 @@ export class ConversationService extends Service {
       const mechanismBusy = isArchiveReviewRun(this.runs.get(handle)?.meta);
       if (lane === 'next-turn') {
         this.turnsFor(handle).push({
-          id: nextQueuedId(),
+          id: typeof effOptions.requestId === 'string' && effOptions.requestId
+            ? 'req:' + effOptions.requestId
+            : nextQueuedId(),
           message,
           sender,
           source,

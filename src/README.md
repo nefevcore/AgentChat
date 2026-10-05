@@ -35,6 +35,7 @@ cordis 是用于构建框架的框架。本轨道交付的是**一组可独立�
 ```
 入口  ac-conversation        会话状态机：串行化门（handle=runAddress）+ inbox 双队列
                              （steer / next-turn 链跑）+ MAX_AUTO_WAKES 防自激 + 待投持久化
+                             + requestId 幂等准入（cr-250：跨重启 deduped 短路）
 L3    ac-router + ac-agents  信封投递（纯转发，零会话状态）；Agent 是数据不是插件
                              （+ ac-group 群拓扑 / ac-singles 独立会话）
 L2    ac-agent-loop          ReAct 编排：turn=run → [step → 推理/工具 → 收束]×N；
@@ -310,7 +311,9 @@ emit，前端事件驱动重拉替代延时赌窗；ws-bridge/remote-link 双链
 
 （records()/run-started 触发）。subcalls.jsonl 是子调用永久档案（UI 回放
 
-数据源，不清理——与 journal 生命周期相反）。
+数据源，不清理——与 journal 生命周期相反）。steer-stash.jsonl（cr-250
+
+durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即落盘、消费/drop/兜底三清理点剔行、启动恢复重投（经标准 deliver 路径，失败回落留痕；机制标记/event 行跳过）。
 
 ## 契约归属（谁 emit 谁声明）
 

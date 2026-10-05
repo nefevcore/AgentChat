@@ -551,6 +551,37 @@ function genMessageId(): string {
 /** 生成 context 注入身份键（recordContext 单点铸造：journal 行/事件帧/
  *  活投影行/提升行四形态共享——同键即同一份注入事实，前端按 persistedMsgId
  *  精确去重）。ctx- 前缀与消息 id（msg-）词形区分。 */
+/** steer stash 落盘行（steer-stash.jsonl；cr-250 durable steer）——崩溃窗口
+ *  的用户插话留痕：stash 时追加、消费/drop/兜底时按 id 剔行、启动时残留
+ *  行物化（与 steer-dropped 兜底同形——用户说过 = 会话事实）。 */
+interface SteerStashLine {
+  type: 'steer-stash';
+  /** 稳定行键（剔行对账锚） */
+  id: string;
+  conversationId: string;
+  /** 目标 Agent（消费点 runLogKey 锚；与 steered 事件首参同源） */
+  agentId?: string;
+  message: LlmMessage;
+  source?: string;
+  sender?: string;
+  /** 机制标记（归档整理/群 hint 恢复时跳过物化——机制通知非会话事实） */
+  meta?: Record<string, unknown>;
+  /** 机制通知注入 id（source='event' 时物化行复用——同锚去重） */
+  injectionId?: string;
+  ts: number;
+}
+
+/** steer stash 信息（内存形态——WeakMap 值类型） */
+interface SteerStashInfo {
+  conversationId: string;
+  agentId?: string;
+  message: LlmMessage;
+  source?: string;
+  sender?: string;
+  meta?: Record<string, unknown>;
+  injectionId?: string;
+}
+
 function genInjectionId(): string {
   return `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -926,10 +957,16 @@ export class SessionService extends Service {
    * （串行会话门保证同会话不并发；残留项在进程死亡时随内存消失，无害）。
    */
   /** steer 消费前 stash（消息对象 → 投递信息）：步边界消费时切分落账 */
-  private steerStash = new WeakMap<object, { conversationId: string; agentId?: string; message: LlmMessage; source?: string; sender?: string; meta?: Record<string, unknown>; injectionId?: string }>();
+  private steerStash = new WeakMap<object, SteerStashInfo>();
   /** stash 会话索引（conversationId → 消息对象集）：after-run 兜底扫描用
    *  （WeakMap 无法按会话遍历；条目随消费/drop/兜底摘除） */
   private steerStashByConv = new Map<string, Set<object>>();
+  /**
+   * stash 行 id（消息对象 → 稳定行键）：cr-250 durable steer——stash 时同步
+   * 落 steer-stash.jsonl，消费/drop/兜底三清理点按 id 剔行。崩溃后启动时
+   * 残留行按 steer-dropped 同形物化（用户说过 = 会话事实），见 recoverSteerStash。
+   */
+  private steerStashIds = new WeakMap<object, string>();
 
   /**
    * settlement per-conv 链（2026-09-21 泛化）：同会话的 settlement 串行执行
@@ -989,6 +1026,9 @@ export class SessionService extends Service {
     this.sessionsDir = path.join(dataRoot, 'sessions');
     this.shelfFile = path.join(this.sessionsDir, '.shelves.json');
     this.loadShelfIndex();
+    // durable steer（cr-250）：崩溃窗口内未消费的插话留痕物化（幂等；正常
+    // 路径 steer-stash.jsonl 不存在 = 零成本）
+    this.recoverSteerStash();
 
     // ---- 记录通道（订阅即归属：随本服务 fiber 卸载撤销） ----
     // 【M21/D13 中性入账】一切真实发言 = role:'agent' + agent_id=说话人端点
@@ -1050,6 +1090,9 @@ export class SessionService extends Service {
           this.steerStashByConv.set(conversationId, bag);
         }
         bag.add(message);
+        // durable steer（cr-250）：stash 即落盘——消费点前的崩溃窗口内，
+        // 用户插话以留痕形式活过重启（消费/丢弃/兜底三清理点剔行）
+        this.steerStashIds.set(message, this.persistSteerStash(conversationId, { conversationId, agentId, message, source, meta, sender, ...(stashId !== undefined ? { injectionId: stashId } : {}) }));
         return;
       }
       // steer 注入的说话人 = 注入方端点（deliver 调用者），非桶主；
@@ -1221,6 +1264,7 @@ export class SessionService extends Service {
         if (info === undefined) continue;
         this.steerStash.delete(d.message as object);
         this.steerStashByConv.get(conversationId)?.delete(d.message as object);
+        this.clearSteerStashLine(conversationId, this.steerStashIds.get(d.message as object));
         // 机制标记/群 hint 的 steer 不入账（与步边界消费点、after-run 兜底
         // 同款门控——机制通知非会话事实，落账会绕过群桶/机制 run 的隔离口径）
         if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
@@ -1252,6 +1296,8 @@ export class SessionService extends Service {
         this.steerStash.delete(m as object);
 
         this.steerStashByConv.get(conversationId)?.delete(m as object);
+
+        this.clearSteerStashLine(conversationId, this.steerStashIds.get(m as object));
 
         // 机制标记/群 hint 的 steer 不入账（与空闲路径同款门控）
 
@@ -1291,6 +1337,7 @@ export class SessionService extends Service {
         }
         this.steerStash.delete(obj);
         bag.delete(obj);
+        this.clearSteerStashLine(cid, this.steerStashIds.get(obj));
         if (info.meta !== undefined && (isArchiveReviewRun(info.meta) || isGroupHint(info.meta))) continue;
         if (info.source === 'event') {
           this.record(cid, request.agent ?? cid, info.message, { roleOverride: 'context', source: 'event', ...(info.injectionId !== undefined ? { messageId: info.injectionId } : {}) });
@@ -1417,6 +1464,180 @@ export class SessionService extends Service {
 
     queue.pending.push(JSON.stringify(line));
 
+  }
+
+  // ============================================================
+  // steer stash 落盘（cr-250 durable steer：崩溃窗口用户插话不蒸发）
+  // ============================================================
+
+  private steerStashFile(conversationId: string): string {
+    return path.join(this.conversationDir(conversationId), 'steer-stash.jsonl');
+  }
+
+  /**
+   * stash 行落盘（追加 + fsync——崩溃窗口内必 durable）：返回行 id 供清理点
+   * 剔行。fail-open：落盘失败不阻塞 steer 注入（内存语义照常，仅丢留痕）。
+   */
+  private persistSteerStash(conversationId: string, info: SteerStashInfo): string {
+    const id = genInjectionId();
+    const line: SteerStashLine = {
+      type: 'steer-stash',
+      id,
+      conversationId,
+      ...(info.agentId !== undefined ? { agentId: info.agentId } : {}),
+      message: info.message,
+      ...(info.source !== undefined ? { source: info.source } : {}),
+      ...(info.sender !== undefined ? { sender: info.sender } : {}),
+      ...(info.meta !== undefined ? { meta: info.meta } : {}),
+      ...(info.injectionId !== undefined ? { injectionId: info.injectionId } : {}),
+      ts: Date.now(),
+    };
+    try {
+      const file = this.steerStashFile(conversationId);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const fd = fs.openSync(file, 'a');
+      try {
+        fs.writeSync(fd, JSON.stringify(line) + '\n', null, 'utf-8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (err: unknown) {
+      this.ctx.logger.warn('[session] steer stash 落盘失败（' + conversationId + '）: ' + String(err));
+    }
+    return id;
+  }
+
+  /**
+   * 剔除 stash 行（消费/drop/兜底三清理点共用）：按 id 重写文件（无该 id 行
+   * = 幂等零写）。fail-open：失败只告警（残留行的后果 = 恢复时多物化一次，
+   * 由 message_id 幂等兜住）。
+   */
+  private clearSteerStashLine(conversationId: string, id: string | undefined): void {
+    if (id === undefined) return;
+    try {
+      const file = this.steerStashFile(conversationId);
+      if (!fs.existsSync(file)) return;
+      const lines = fs.readFileSync(file, 'utf-8').split('\n');
+      const kept: string[] = [];
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line) as { id?: unknown };
+          if (parsed.id === id) continue;
+        } catch { /* 损坏行保留——宁重不丢 */ }
+        kept.push(line);
+      }
+      if (kept.length === lines.filter((x) => x.trim()).length) return; // 无剔除（幂等安全）
+      if (kept.length === 0) fs.rmSync(file);
+      else {
+        const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+        fs.writeFileSync(tmp, kept.join('\n') + '\n', 'utf-8');
+        fs.renameSync(tmp, file);
+      }
+    } catch (err: unknown) {
+      this.ctx.logger.warn('[session] steer stash 剔行失败（' + conversationId + '）: ' + String(err));
+    }
+  }
+
+  /**
+   * 启动恢复（cr-250 裁决 B：留痕 + 自动重投）：上一进程崩溃窗口内未消费
+   * 的 steer stash 行——真实发言重投（等 conversation 服务就绪后经标准
+   * deliver 路径：入账一次、空闲即开 run——Agent 一定会看到）；重投失败
+   * （Agent 不存在 / 服务久候不至）回落 record 留痕（用户说过 = 会话事实）。
+   * 机制标记/群 hint 行跳过、event 行丢弃（重启后触发语境已失效）。
+   * 构造器调用一次（会话目录枚举全量扫）；正常路径文件不存在 = 零成本。
+   */
+  private recoverSteerStash(): void {
+    // 会话目录收集（有界递归：shelf 最深两层〔groups 一层 / singles/<ws> 两层〕
+    // + 会话目录；跳过 .shelf 标记无关——只认目录）。conversationId = 叶子
+    // 目录名（规约 2），行内 conversationId 字段为对账冗余（不一致以行内为准）。
+    const convDirs: Array<{ conversationId: string; file: string }> = [];
+    const walk = (dir: string, depth: number): void => {
+      if (depth > 3) return; // shelf 两层 + 会话一层
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const child = path.join(dir, e.name);
+        const stash = path.join(child, 'steer-stash.jsonl');
+        if (fs.existsSync(stash)) convDirs.push({ conversationId: e.name, file: stash });
+        walk(child, depth + 1);
+      }
+    };
+    walk(this.sessionsDir, 0);
+    const pendingReinject: SteerStashLine[] = [];
+    let dropped = 0;
+    for (const { file } of convDirs) {
+      try {
+        const lines = fs.readFileSync(file, 'utf-8').split('\n');
+        const remain: string[] = [];
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const p = JSON.parse(line) as SteerStashLine;
+            if ((p as { type?: unknown }).type !== 'steer-stash' || typeof p.conversationId !== 'string') { remain.push(line); continue; }
+            if (p.meta !== undefined && (isArchiveReviewRun(p.meta) || isGroupHint(p.meta))) continue; // 机制通知：跳过（不重投不留痕）
+            if (p.source === 'event') { dropped++; continue; } // 机制通知：重启后触发语境失效，丢弃
+            pendingReinject.push(p);
+          } catch { /* 损坏行丢弃 */ }
+        }
+        if (remain.length === 0) fs.rmSync(file);
+        else {
+          const tmp = file + '.tmp';
+          fs.writeFileSync(tmp, remain.join('\n') + '\n', 'utf-8');
+          fs.renameSync(tmp, file);
+        }
+      } catch {
+        /* 单文件失败跳过 */
+      }
+    }
+    if (pendingReinject.length > 0) {
+      this.ctx.logger.info('[session] 恢复 ' + String(pendingReinject.length) + ' 条崩溃窗口内未消费的插话（重投中；event 通知丢弃 ' + String(dropped) + ' 条）');
+      void this.reinjectSteerStash(pendingReinject);
+    }
+  }
+
+  /**
+   * 恢复插话重投（cr-250 裁决 B）：等 conversation 服务就绪（行激活序不
+   * 保证 session 晚于 conversation——轮询最多 10s），经标准 deliver 路径
+   * 重新投递（入账一次、空闲即开 run）。失败回落 record 留痕——不丢用户
+   * 事实。逐条串行（同会话多条保持原相对序；deliver 串行化门自身排队）。
+   */
+  private async reinjectSteerStash(items: SteerStashLine[]): Promise<void> {
+    const conversation = await new Promise<{ deliver(agentId: string, inbound: unknown, options?: Record<string, unknown>): Promise<{ kind: string }> } | undefined>((resolve) => {
+      const started = Date.now();
+      const probe = (): void => {
+        const svc = this.ctx.get('conversation', false) as { deliver(agentId: string, inbound: unknown, options?: Record<string, unknown>): Promise<{ kind: string }> } | undefined;
+        if (svc !== undefined) resolve(svc);
+        else if (Date.now() - started > 10_000) resolve(undefined);
+        else setTimeout(probe, 200);
+      };
+      probe();
+    });
+    for (const p of items) {
+      let ok = false;
+      if (conversation !== undefined && typeof p.agentId === 'string' && p.agentId) {
+        try {
+          const outcome = await conversation.deliver(p.agentId, p.message, {
+            conversationId: p.conversationId,
+            ...(typeof p.sender === 'string' && p.sender ? { sender: p.sender } : {}),
+            ...(p.source === 'user' || p.source === 'agent' ? { source: p.source } : {}),
+          });
+          ok = outcome.kind !== 'timeout';
+        } catch {
+          ok = false; // 未知 Agent 等：回落留痕
+        }
+      }
+      if (!ok) {
+        this.record(p.conversationId, p.sender ?? p.agentId ?? 'user', p.message);
+        this.flushBestEffort(p.conversationId, 'steer stash 恢复留痕');
+      }
+    }
   }
 
   /** 落盘尽力而为（失败记日志不阻塞 emit 链） */
