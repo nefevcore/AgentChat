@@ -35,6 +35,8 @@ import * as goalRow from 'ac-goal';
 import * as groupRow from 'ac-group';
 import * as helloRow from 'ac-hello';
 import * as issueToolsRow from 'ac-issue-tools';
+import * as harnessToolsRow from 'ac-harness-tools';
+import { apply as harnessPresetApply, extension as harnessPresetExtension } from 'ac-harness-tools/src/preset.ts';
 import * as jobsRow from 'ac-jobs';
 import * as jobWakeupRow from 'ac-job-wakeup';
 import * as llmRow from 'ac-llm';
@@ -167,6 +169,10 @@ export const TREE: TreeRow[] = [
   { id: 'web-tools', plugin: webToolsRow },
   // ISSUE 反馈（submit_issue：GitHub/Gitee 创建 ISSUE；行集与 cordis.yml 同步）
   { id: 'issue-tools', plugin: issueToolsRow },
+  // ---- harness 委托（run_harness：本地 Claude Code/Codex CLI；行集与 cordis.yml 同步） ----
+  { id: 'harness-tools', plugin: harnessToolsRow },
+  // harness 委托预设子行（转述协议 __harness__；对象行带自述——collectExtensionCatalog 读 runtime.plugin.extension）
+  { id: 'harness-preset', plugin: { name: 'ac-harness-tools/preset', inject: ['agentPresets'], apply: harnessPresetApply, extension: harnessPresetExtension } as unknown as Plugin },
   // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
   { id: 'sap-adt', plugin: sapAdtRow },
   // ABAP 开发模式预设子行（工具面与预设面独立装配；对象行显式带自述

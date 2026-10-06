@@ -1,0 +1,25 @@
+{
+  "name": "ac-harness-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "本地 CLI harness 委托面纯库：exec 编排（spawn/stdin/JSONL 行流/看门狗/中止）+ claude-code/codex 适配器 + 事件归一（harness 桥接方案 B）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat",
+    "pure-library",
+    "no-cordis",
+    "harness-bridge",
+    "claude-code",
+    "codex"
+  ]
+}
