@@ -27,7 +27,7 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { formDeniedBy, resolveToolNames, sessionCapsOf, toolAllowedFor } from 'ac-agents';
-import { buildSdkProjection } from 'ac-run-code-core';
+import { buildSdkProjection, validateInvoke } from 'ac-run-code-core';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
 
@@ -577,6 +577,23 @@ export async function executeRunCode(
   let serialChain: Promise<void> = Promise.resolve();
 
   const invoke = (name: string, invokeArgs: Record<string, unknown>, seq: number): Promise<void> => {
+    // 前置校验（cr-276）：投影同源面（能力面直取）上拦截未知名/缺 required/
+    // enum 错值/additionalProperties:false 未知键——postMessage 回程前拒绝，
+    // 模型当场拿到可自修错误（省一轮真实执行往返）。拦截不逃逸 ctx.tools.execute
+    // 的既有门禁（能力轴逐调用复检照走——校验面宽 = fail-safe）。
+    const projectionFace = resolveEffectiveTools(ctx, call.agentId, call.conversationId, 'projection');
+    const invalid = validateInvoke(projectionFace, name, invokeArgs);
+    if (invalid !== undefined) {
+      summary.calls++;
+      summary.failed++;
+      if (summary.trace.length < TRACE_LIMIT) {
+        summary.trace.push({ seq, name, ok: false, ms: 0, brief: subcallBrief(name, invokeArgs, undefined), error: invalid.slice(0, 200) });
+      } else {
+        traceTruncated++;
+      }
+      worker.postMessage({ type: 'result', seq, ok: false, error: invalid } satisfies MainToWorker);
+      return Promise.resolve();
+    }
     const isSerial = SERIAL_LISTS.write.has(name) || SERIAL_LISTS.command.has(name);
     if (isSerial) summary.serialized.push(seq);
     const task = (): Promise<void> =>

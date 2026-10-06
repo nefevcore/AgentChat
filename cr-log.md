@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-275**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-276**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -293,3 +293,4 @@
 - 【cr-273 2026-10-06 SDK 投影参数注释迁 JSDoc @param：cr-268 的行注释尾注（// key: text）是自造约定——LLM 消费者对 .d.ts 语料里的标准 @param 先验更强；*/ 转义与工具级 JSDoc 同源处理（根因：两套注释约定并存，并归一为 JSDoc 块）】
 - 【cr-274 2026-10-06 移动端启动等待优化：ONLINE 后覆盖层保留至 webui 就绪（ready 轮询撤层）+ index.html 首帧 splash + AppFrame 全局连接条（会话内局部条退役）】
 - 【cr-275 2026-10-06 链路级断线横幅：RemoteSession 状态流广播 remote/link-state 事件帧（桥与链路解耦后 wire WS 无感断线——真机实锤 connected 恒 true），AppFrame 消费打横幅】
+- 【cr-276 2026-10-06 SDK 投影消费面优化：①子调用前置校验器（纯库 validateInvoke——未知名/缺 required/enum 错值/additionalProperties:false 未知键，主线程 invoke 桥拦截，含最近名建议）把类型签名的软约束补成硬拦截，typo 第 0 步可修；②list_tools 从投影剔除（mode 形态下投影即工具面清单，回显纯冗余）——剔除名单 PROJECTION_EXCLUDE 双端（注入/校验）同源】

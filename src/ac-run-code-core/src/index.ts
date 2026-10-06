@@ -24,11 +24,19 @@ export interface ProjectedToolDef {
 
 /** 投影选项 */
 export interface ProjectionOptions {
-  /** 递归防护：从投影中排除的工具名（缺省 ['run_code']） */
+  /** 递归防护：从投影中排除的工具名（缺省 PROJECTION_EXCLUDE） */
   exclude?: string[];
   /** 头部附加指引（程序书写纪律；缺省用内置文案） */
   guidance?: string;
 }
+
+/**
+ * 投影剔除名单（cr-276）：递归防护（run_code——程序内再造程序无意义且
+ * 套计费）+ 纯回显面（list_tools——mode 形态下 SDK 投影即工具面清单，
+ * 调它只会回显投影已有的内容）。注入（prompt.ts）与前置校验（tool.ts
+ * invoke 桥）双端同源消费——名单改一处两端齐动。
+ */
+export const PROJECTION_EXCLUDE = ['run_code', 'list_tools'];
 
 /** 内置程序书写纪律（程序化互斥形态注入用；并存形态不注入投影块） */
 export const DEFAULT_GUIDANCE = [
@@ -108,13 +116,59 @@ function safePropName(name: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : JSON.stringify(name);
 }
 
-/** 单工具声明行（description → JSDoc；参数 → 类型化对象字面量） */
+/**
+ * description 按「[a/b/c] 释义」段切分（cr-272 尾注规范）。
+ * 形状：以 [动作/动作/...] 开头，段间以「；」或「。」分隔且后续段同样以
+ * [xxx] 开头——多段皆带前缀才切（半带半不带 = 普通描述，不切防误拆；
+ * 段中文内再出现 [xx] 不构成切分点，只认分隔符后的 [）。
+ * 返回 [{ actions, text }]；首段无 [xxx] 前缀 → 单段 actions=undefined。
+ */
+function segByActionPrefix(d: string): Array<{ actions: string[] | undefined; text: string }> {
+  const flattened = d.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join('；');
+  const segs = flattened.split(/[；。]\s*(?=\[)/);
+  if (segs.length < 2) return [{ actions: undefined, text: flattened }];
+  const out: Array<{ actions: string[] | undefined; text: string }> = [];
+  for (const seg of segs) {
+    const m = /^\[([^\]]+)\]\s*(.*?)\s*[；;。]?\s*$/s.exec(seg);
+    if (m === null) return [{ actions: undefined, text: flattened }];
+    if (m[2] === '') continue;
+    out.push({ actions: m[1].split('/').map((x) => x.trim()).filter(Boolean), text: m[2] });
+  }
+  return out.length > 0 ? out : [{ actions: undefined, text: flattened }];
+}
+
+/** JSDoc 块内文本的「块尾定界符」转义（防提前闭合块注释——cr-268 前工具级描述已同口径处理） */
+function escJsdoc(s: string): string {
+  return s.replace(/\*\//g, '*\\/');
+}
+
+/** 单工具声明行（description + 参数语义 → JSDoc；参数 → 类型化对象字面量） */
 function projectTool(def: ProjectedToolDef): string {
   const lines: string[] = [];
   const doc = (def.description ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
-  if (doc.length > 0) {
+  // 参数语义 @param（cr-268）：schema 参数 description 不随类型投影丢弃——
+  // 程序化形态下它是参数用法（如 subagent 的 wait_time/mode 语义）的
+  // 唯一可见面。cr-273 迁 JSDoc @param 标签（此前为行注释尾注）：LLM 对
+  // .d.ts 语料的标准 @param 先验远强于自造约定。前缀抽取（cr-272）保留：
+  // 「[a/b/c] …」形状的段拆为多条 @param 行，动作到释义映射一目了然。
+  const paramLines: string[] = [];
+  const p = def.parameters;
+  const props = p !== undefined && typeof p === 'object' ? p.properties : undefined;
+  if (props !== undefined && typeof props === 'object' && props !== null) {
+    for (const [key, sub] of Object.entries(props as Record<string, unknown>)) {
+      const d = sub !== null && typeof sub === 'object' ? (sub as Record<string, unknown>).description : undefined;
+      if (typeof d !== 'string' || d.trim() === '') continue;
+      for (const seg of segByActionPrefix(d)) {
+        const flat = seg.text.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join('；');
+        const head = seg.actions !== undefined ? `[${seg.actions.join('/')}] ` : '';
+        paramLines.push(`@param ${safePropName(key)} - ${head}${flat.length > 220 - head.length ? flat.slice(0, 220 - head.length) + '…' : flat}`);
+      }
+    }
+  }
+  if (doc.length > 0 || paramLines.length > 0) {
     lines.push(`  /**`);
-    for (const l of doc) lines.push(`   * ${l.replace(/\*\//g, '*\\/')}`);
+    for (const l of doc) lines.push(`   * ${escJsdoc(l)}`);
+    for (const pl of paramLines) lines.push(`   * ${escJsdoc(pl)}`);
     lines.push(`   */`);
   }
   let argsType = 'Record<string, unknown>';
@@ -127,20 +181,95 @@ function projectTool(def: ProjectedToolDef): string {
     }
   }
   lines.push(`  ${safePropName(def.name)}(args: ${argsType}): Promise<{ ok: boolean; output?: unknown; error?: string }>;`);
-  // 参数语义尾注（cr-268）：schema 参数 description 不随类型投影丢弃——
-  // 程序化形态下它是参数用法（如 subagent 的 wait_time/mode 语义）的
-  // 唯一可见面。单行化 + 截断，注释行内无转义需求（'// ' 行注释）。
+  return lines.join('\n');
+}
+
+/**
+ * 子调用前置校验（cr-276）：把 SDK 投影类型签名的「软约束」补成「硬拦截」。
+ * 校验面与投影面同源（同一份 defs）——投影里有的工具/参数/枚举值才是合法
+ * 调用面。拒绝项（错误信息面向模型自修，含最近名建议）：
+ *   · 未知工具名（附编辑距离最近的名字——typo 自纠线索）；
+ *   · 缺 required 参数；
+ *   · enum 参数值不在字面量联合内（附合法值集）；
+ *   · additionalProperties:false 的 schema 传未知键（开放 schema 缺省
+ *     放行——JSON Schema 缺省语义即开放世界，防第三方工具误伤）。
+ * 深度：顶层参数级（嵌套对象内层不递归——浅校验拦截绝大多数 typo，深度
+ * 校验的复杂度/误伤比不划算）。校验失败 = 子调用在 postMessage 回程前
+ * 拒绝，模型在程序内当场拿到可修错误（省一轮往返）。
+ */
+export function validateInvoke(
+  defs: readonly ProjectedToolDef[],
+  name: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  const def = defs.find((d) => d.name === name);
+  if (def === undefined) {
+    return `未知工具 "${name}"——最近名：${nearestName(defs, name) ?? '（无可用工具）'}；修正工具名后重试`;
+  }
   const p = def.parameters;
-  const props = p !== undefined && typeof p === 'object' ? p.properties : undefined;
-  if (props !== undefined && typeof props === 'object' && props !== null) {
-    for (const [key, sub] of Object.entries(props as Record<string, unknown>)) {
-      const d = sub !== null && typeof sub === 'object' ? (sub as Record<string, unknown>).description : undefined;
-      if (typeof d !== 'string' || d.trim() === '') continue;
-      const flat = d.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join('；');
-      lines.push(`  // ${safePropName(key)}: ${flat.length > 220 ? flat.slice(0, 220) + '…' : flat}`);
+  const schema = p !== undefined && typeof p === 'object' && (p as { type?: unknown }).type === 'object'
+    ? (p as { properties?: unknown; required?: unknown; additionalProperties?: unknown })
+    : undefined;
+  if (schema === undefined) return undefined; // 无 schema = 开放参数面，放行
+  const props = schema.properties !== undefined && typeof schema.properties === 'object'
+    ? schema.properties as Record<string, unknown>
+    : undefined;
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((x): x is string => typeof x === 'string')
+    : [];
+  for (const key of required) {
+    if (!(key in args) || args[key] === undefined) {
+      return `工具 "${name}" 缺必填参数 ${key}（schema required）——补参后重试`;
     }
   }
-  return lines.join('\n');
+  for (const [key, value] of Object.entries(args)) {
+    const sub = props?.[key];
+    if (sub === undefined) {
+      if (schema.additionalProperties === false) {
+        return `工具 "${name}" 无参数 ${key}（schema additionalProperties:false）——已知参数：${props !== undefined ? Object.keys(props).join('、') : '无'}；去参后重试`;
+      }
+      continue; // 开放 schema：未知键放行
+    }
+    const en = sub !== null && typeof sub === 'object' && Array.isArray((sub as { enum?: unknown }).enum)
+      ? (sub as { enum: unknown[] }).enum.filter((x): x is string => typeof x === 'string')
+      : undefined;
+    if (en !== undefined && en.length > 0 && typeof value === 'string' && !en.includes(value)) {
+      return `工具 "${name}" 参数 ${key}="${String(value).slice(0, 40)}" 不在合法值集——合法值：${en.map((v) => JSON.stringify(v)).join(' | ')}；改值后重试`;
+    }
+  }
+  return undefined;
+}
+
+/** 编辑距离最近名（typo 自纠建议；并列取字典序首个——输出确定） */
+function nearestName(defs: readonly ProjectedToolDef[], target: string): string | undefined {
+  let best: string | undefined;
+  let bestDist = Infinity;
+  for (const d of defs) {
+    const dist = editDistance(target, d.name);
+    if (dist < bestDist || (dist === bestDist && best !== undefined && d.name < best)) {
+      best = d.name;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/** Levenshtein 编辑距离（小写归一——大小写 typo 同样命中） */
+function editDistance(a: string, b: string): number {
+  const s = a.toLowerCase();
+  const t = b.toLowerCase();
+  const dp = Array.from({ length: s.length + 1 }, (_, i) => [i, ...Array(t.length).fill(0)]);
+  for (let j = 0; j <= t.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= s.length; i++) {
+    for (let j = 1; j <= t.length; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (s[i - 1] === t[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return dp[s.length][t.length];
 }
 
 /**
@@ -156,7 +285,7 @@ export function buildSdkProjection(
   defs: readonly ProjectedToolDef[],
   options: ProjectionOptions = {},
 ): string {
-  const exclude = new Set(options.exclude ?? ['run_code']);
+  const exclude = new Set(options.exclude ?? PROJECTION_EXCLUDE);
   const guidance = options.guidance ?? DEFAULT_GUIDANCE;
   const sorted = defs
     .filter((d) => typeof d.name === 'string' && d.name !== '' && !exclude.has(d.name))

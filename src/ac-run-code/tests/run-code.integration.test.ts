@@ -148,6 +148,34 @@ describe('ac-run-code：子调用桥接', () => {
     expect(summary.ok).toBe(1);
   });
 
+  it('前置校验（cr-276）：typo 工具名在 postMessage 回程前拦截——程序拿到可自修错误（含最近名建议）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      const a = await tools.ech0({ text: 'hi' });
+      return { got: a.output?.echoed ?? a.error };
+    `);
+    // 拦截不致程序失败——子调用以 ok:false 落地，模型读 error 自修
+    expect(r.ok).toBe(true);
+    expect((r.output as { value: { got: string } }).value.got).toContain('echo');
+    const s = (r.output as { summary: { calls: number; failed: number; trace: Array<{ name: string; ok: boolean; error?: string }> } }).summary;
+    expect(s.calls).toBe(1);
+    expect(s.failed).toBe(1);
+    expect(s.trace[0].name).toBe('ech0');
+    expect(s.trace[0].ok).toBe(false);
+    expect(s.trace[0].error).toContain('echo');
+  });
+
+  it('前置校验（cr-276）：缺 required 在回程前拦截（不触发工具体）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, `
+      const a = await tools.echo({});
+      return { err: a.error ?? '' };
+    `);
+    expect(r.ok).toBe(true);
+    expect((r.output as { value: { err: string } }).value.err).toContain('缺必填参数 text');
+    expect((r.output as { summary: { failed: number } }).summary.failed).toBe(1);
+  });
+
   it('时间线 trace：子调用逐条入摘要（卡片数据源——名字/耗时/状态/简述）', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
