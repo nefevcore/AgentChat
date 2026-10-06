@@ -73,6 +73,7 @@
     "ac-goal": "workspace:*",
     "ac-group": "workspace:*",
     "ac-hello": "workspace:*",
+    "ac-harness-tools": "workspace:*",
     "ac-issue-tools": "workspace:*",
     "ac-job-wakeup": "workspace:*",
     "ac-jobs": "workspace:*",

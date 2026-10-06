@@ -1004,6 +1004,12 @@ importers:
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
+      ac-harness-core:
+        specifier: workspace:*
+        version: link:../ac-harness-core
+      ac-harness-tools:
+        specifier: workspace:*
+        version: link:../ac-harness-tools
       ac-hello:
         specifier: workspace:*
         version: link:../ac-hello
@@ -2771,6 +2777,40 @@ importers:
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-harness-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-harness-tools:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-harness-core:
+        specifier: workspace:*
+        version: link:../ac-harness-core
+    devDependencies:
+      ac-agent-presets:
+        specifier: workspace:*
+        version: link:../ac-agent-presets
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../ac-conv-settings
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-tag-registry:
+        specifier: workspace:*
+        version: link:../ac-tag-registry
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools

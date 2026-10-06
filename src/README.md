@@ -340,7 +340,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | session | `ac-session/src/index.ts`（append/records/history/compact/setShelf/ensureShelf 批量核验上架） | `ac-session/src/events.ts`（session/context-injected · session/run-settled〔cr-94 D1 收敛信号——settlement durable 后 emit，前端事件驱动重拉〕；积累订阅 router/* + conversation/steered） |
 | group | `ac-group/src/contract.ts` + `view.ts`（`<msg>` 包装） | `ac-group/src/events.ts`（group/*） |
 | singles | `ac-singles/src/contract.ts`（引用 + 覆盖模型；fork 会话分支——消息切片经 session 服务方法拷贝） | `ac-singles/src/events.ts`（singles/updated） |
-| convSettings | `ac-conv-settings/src/contract.ts`（会话级覆盖域：model/elevation/toolMode/browserTier 内置键 + `registerKey` 注册制扩展键〔键域单源 isValid 校验；KeyDef grants = 值→等效能力标签，经 ac-agents `sessionCapsOf` 注入工具可见面〕） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
+| convSettings | `ac-conv-settings/src/contract.ts`（会话级覆盖域：model/elevation/toolMode/browserTier/issueSubmit 内置键 + `registerKey` 注册制扩展键〔键域单源 isValid 校验；KeyDef grants = 值→等效能力标签，经 ac-agents `sessionCapsOf` 注入工具可见面——issueSubmit/harnessTier 均此通路〕） | `ac-conv-settings/src/events.ts`（conv-settings/updated） |
 | memory | `ac-memory/src/index.ts` | — |
 | config | `ac-config/src/service.ts` | `ac-config/src/events.ts`（config/*） |
 | credentials | `ac-credentials/src/service.ts` | — |
@@ -601,6 +601,25 @@ src/
 │                            （cr-136——GitHub/Gitea issues/new 预填 title/body/
 │                            labels，Gitee 裸页）；apiBase 覆盖可接 Gitea 等
 │                            GitHub 兼容自建台）
+├── ac-harness-core/        本地 CLI harness 委托面纯库（零 cordis）：exec 编排
+│                            （spawn shell:false/stdin 传 prompt/JSONL 行流/
+│                            看门狗/中止树杀 Windows taskkill /T）+ claude-code /
+│                            codex 两适配器（文档化 exec JSONL 面——stream-json /
+│                            exec --json；未知事件丢弃计数前向兼容）+ 事件归一
+│                            （started/delta/reasoning/notice/done）——harness
+│                            桥接方案 B（docs/harness-bridge-plan.md）算法半边
+├── ac-harness-tools/       harness 委托行：run_harness（把完整任务委托给本地
+│                            Claude Code/Codex CLI——订阅额度复用零 API key；
+│                            requiredTags ['harness'] + needPermission + 沙箱两档
+│                            plan/workspace-write + agent 维互斥 + 全局上限；
+│                            harnessTier 实验键随行注册——conv-settings 实验性
+│                            组缺省 enabled，grants 通路见 sessionCapsOf）+
+│                            会话续接 P2（sessions.ts：Agent 专属空间
+│                            harness/sessions.json 映射 conversationId→runKey，
+│                            成功即记/失败保留；resume auto/new——claude
+│                            --resume、codex exec resume）+ preset.ts 子行：
+│                            harness 委托预设（__harness__，转述协议）——工具面
+│                            与预设面独立装配
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+
@@ -895,7 +914,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | 移动端与远程接入 | **`remote-client-relay-plan.md`（域唯一总文档，cr-269 治理轮四合一重写——架构现状 + 里程碑实况 + 裁决史〔cr-78 sender=user 等入附录〕+ 开放项〔P1 尾巴 1.2 前端事件驱动 + M4 可选〕+ 移动端 UI 范式全史附录）** · `mobile-link-diagram.html`（三端一管道总览图，cr-51）· `mobile-handshake-sequence.html`（XK/KK 握手时序图，cr-62） · `webui-mobile-render-perf-plan.md`（移动端渲染性能优化——K20 实测基线 + 分期方案，cr-258，待实施） · 归档：`archive/remote-link-remaining-plan.md`（交接）/ `archive/remote-deliver-sender-ruling.md`（cr-78）/ `archive/mobile-ui-paradigm-plan.md`（范式计划——全史并入总文档附录 A） |
 | 治理与插件域 | `event-graphs.html`（事件图谱可视化）· `subagent-session-view-plan.md`（子 Agent 会话展示——P0 已落地 + 分页/error 行已实现，live 流式与嵌套导航仍为预留路径；cr-269 治理轮头部状态注记） |
 | 审计与精简 | **`gap-backlog.md`（唯一活缺口清单，cr-269 治理轮重写——开放项 14 条按域分组 + 已闭环留档 + 边界备忘 + 来源追踪）** · 归档：`archive/run-code-usage-profile-2026-09-20.md`（使用画像三批次快照）/ `archive/run-code-hardening-backlog.md`（DX 遗留立项——开放项已并入活清单，worker 死锁事故实录留档） |
-| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `harness-bridge-plan.md`（本地 CLI harness 桥接——方案 B 工具+委托子代理，待实施） · 归档：`archive/polish-backlog.md`（打磨清单——完成态占大头，未竟项已并入 gap-backlog）/ `archive/dsh-0.2-contract-takeaways-plan.md`（DSH 0.2 契约比对——ac-config 热更三小件待办并入 gap-backlog，机制不搬原则已沉淀） |
+| 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `harness-bridge-plan.md`（本地 CLI harness 桥接——方案 B 工具+委托子代理，**P1+P2 已实施**：cr-278 两包 + harnessTier 实验键；cr-279 会话续接——runKey 映射 Agent 专属空间 + resume auto/new） · 归档：`archive/polish-backlog.md`（打磨清单——完成态占大头，未竟项已并入 gap-backlog）/ `archive/dsh-0.2-contract-takeaways-plan.md`（DSH 0.2 契约比对——ac-config 热更三小件待办并入 gap-backlog，机制不搬原则已沉淀） |
 | 标签系统 | **`tag-system-report.md`（词表/机制/归属/守则全貌，cr-269 治理轮并二为一——include 语义裁决并入相应章节，词表按源码重核）** · 归档：`archive/tags-include-semantics-report.md`（程序化模式实施前的门禁裁决——结论已并入前者） |
 | 工程规范 | `epoch-marking-convention.md`（**注释日期标记规约**——日期 = 真实日历日 YYYY-MM-DD；历史批次底册 `archive/epoch-inventory-2026-09-27.md`）· 仓库根 `cr-log.md`（**CR 变更登记目录**——一切变更〔含日常 bugfix〕动手前先登记一行【cr-序号 日期 描述】，cr 号正整数单调递增；cr-262 自本目录提升至仓库根）· `release-ci-postmortem.md`（发布 CI 复盘主档，12 版 20+ run 无一首发全绿——release-preflight 的由来）· `../archive/release-ci-postmortem-0814.md`（0.8.14 发版 23 轮 CI 实操录，已冻结） |
 

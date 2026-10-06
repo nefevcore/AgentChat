@@ -30,4 +30,4 @@ export type * from './contract.ts';
 export type {} from './events.ts';
 
 export { ConvSettingsService } from './service.ts';
-export type { ConvSettingsRowOptions } from './service.ts';
+export type { ConvSettingsRowOptions, ConvSettingsKeyDef } from './service.ts';
