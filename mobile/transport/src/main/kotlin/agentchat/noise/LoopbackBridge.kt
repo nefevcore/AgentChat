@@ -341,7 +341,12 @@ class LoopbackBridge(
         // 诊断口：本模块同时被 JVM 轨（测试/CLI）与 Android 轨编译，不能用 android.util.Log
         // （android 子包被 JVM 轨排除）。println 两端都可达（Android 侧进 logcat 的 System.out）。
         println("[bridge] 代理 → " + method + " " + request.uri + " (body " + body.size + "B)")
-        val outcome = runCatching { callUpstream(if (isRead) "http/read" else "http/write", params) }
+        // 写面超时放宽（cr-280）：上传体经 base64 单帧过 relay，移动网络上行
+        // 兆级 body 需分钟级——缺省 15s 必超时。读面维持 15s（在途合并已挡重发
+        // 风暴，见 cr-52）。
+        val outcome = runCatching {
+            callUpstream(if (isRead) "http/read" else "http/write", params, timeoutMs = if (isRead) 15_000 else 120_000)
+        }
         println("[bridge] 代理 ← " + (outcome.getOrNull()?.get("status")?.asInt ?: -1) +
             (outcome.exceptionOrNull()?.let { " 失败: " + it.message } ?: ""))
         outcome.fold(
