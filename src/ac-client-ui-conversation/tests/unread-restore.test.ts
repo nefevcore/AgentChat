@@ -119,6 +119,22 @@ describe('未读持久化与刷新恢复（persistUnread 链路）', () => {
     expect(feed2.getDialog(groupDialog('room-a'))!.unread).toBe(2);
   });
 
+  it('pruneSingleUnread 对账：active 集外的 single 未读清 + 写穿（删/归档会话的孤儿未读无行可点——tab 聚合永久残留根修，cr-290）', async () => {
+    // 造快照：live 会话 + 已删会话（快照残留）各带未读
+    unreadStore.saveUnreadSnapshot({ [singleDialog('live-1')]: 2, [singleDialog('gone-1')]: 5, [groupDialog('room-a')]: 3 });
+    const { RosterCore } = await import('ac-client-ui-agents/client');
+    const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
+    feed.pruneSingleUnread(['live-1']); // SingleBoardService.refresh 后同款调用（active 集）
+    expect(feed.getDialog(singleDialog('live-1'))!.unread).toBe(2); // live 不动
+    expect(feed.getDialog(singleDialog('gone-1'))!.unread).toBe(0); // 孤儿未读清零（分区对象仍在——只清数，不删分区）
+    expect(feed.getDialog(groupDialog('room-a'))!.unread).toBe(3); // 非 single 分区不受牵连
+    const snap = unreadStore.loadUnreadSnapshot(); // 写穿：重建实例孤儿不复活
+    expect(snap![singleDialog('gone-1')]).toBeUndefined();
+    const feed2 = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
+    expect(feed2.getDialog(singleDialog('live-1'))!.unread).toBe(2);
+    expect(feed2.getDialog(singleDialog('gone-1'))).toBeNull();
+  });
+
   it('脏快照防御：损坏 JSON / 非法键 / 非正整数 → 整份丢弃不恢复', async () => {
     unreadStore.__setUnreadSnapshotRaw('{broken json');
     const { RosterCore } = await import('ac-client-ui-agents/client');
