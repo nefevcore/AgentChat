@@ -146,6 +146,7 @@
     "ac-glob-core": "workspace:*",
     "ac-goal": "workspace:*",
     "ac-group": "workspace:*",
+    "ac-harness-tools": "workspace:*",
     "ac-hello": "workspace:*",
     "ac-issue-tools": "workspace:*",
     "ac-job-wakeup": "workspace:*",

@@ -120,9 +120,11 @@
 # cr-277/278 harness 桥接方案 B） ----
 - id: harness-tools
   name: 'ac-harness-tools'
-# harness 委托预设子行（转述协议 __harness__；与工具行独立装配）
+# harness 委托预设子行（转述协议 __harness__；与工具行独立装配）。
+# 同包内子行写相对路径（与 ac-sap-adt/preset、ac-plugin-registry/patch-rpc 同款）：
+# 包 exports 只有 '.' 与 './src/*'，'ac-harness-tools/preset' 这类子路径不解析。
 - id: harness-preset
-  name: 'ac-harness-tools/preset'
+  name: './ac-harness-tools/src/preset.ts'
 # ---- SAP ABAP ADT 工具面（46 个 adt_* 工具；引擎 = npm abap-adt 的
 # host-neutral 入口；工具需 sap-adt 能力标签——Agent tags 显式授予才
 # 可见；demo 目的地（进程内 mock）默认可用；配置走行 config <
