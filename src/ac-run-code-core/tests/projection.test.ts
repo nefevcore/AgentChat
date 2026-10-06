@@ -96,7 +96,7 @@ describe('buildSdkProjection', () => {
     expect(out).toContain('不写入注释');
   });
 
-  it('参数 description 进尾注；string enum 投影为字面量联合（cr-268 参数语义保真）', () => {
+  it('参数 description 进 JSDoc @param；string enum 投影为字面量联合（cr-268 参数语义保真，cr-273 迁 @param）', () => {
     const tool = {
       name: 'subagent',
       description: '派出子 Agent',
@@ -112,9 +112,9 @@ describe('buildSdkProjection', () => {
     };
     const out = buildSdkProjection([tool]);
     expect(out).toContain('action: "spawn" | "await";');
-    expect(out).toContain('// task: [spawn] 首条任务消息；需完整自包含');
-    expect(out).toContain('// action: 操作');
-    expect(out).not.toContain('// silent'); // 无 description 参数不产尾注
+    expect(out).toContain('@param task - [spawn] 首条任务消息；需完整自包含');
+    expect(out).toContain('@param action - 操作');
+    expect(out).not.toContain('@param silent'); // 无 description 参数不产 @param
   });
 
   it('guidance 含并行子任务编排条目（cr-268）', () => {
