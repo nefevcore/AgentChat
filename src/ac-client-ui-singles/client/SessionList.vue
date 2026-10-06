@@ -736,6 +736,8 @@ onUnmounted(() => {
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
 /* 暗色层级修复：列表用最深底，与内容区（--bg-base）拉开层次 */
 html.dark .session-list{background:var(--bg-base)}
+/* 窄屏整页形态（cr-287）：亮色 surface/base 两种白在单页导航里成「色缝」——统一 base（对齐暗色既有裁决） */
+@media (max-width:768px){.session-list{background:var(--bg-base)}}
 
 /* 1. 新增按钮（占满一行）：虚线幽灵样式 + 主文字色 —— 可辨识但不抢戏 */
 .create-row{padding:10px 12px 4px;flex-shrink:0}
@@ -772,9 +774,11 @@ html.dark .create-btn{background:transparent;color:var(--text-1)}
    （树节点与叶节点仅以缩进和图标区分层级，风格完全一致） */
 .tree-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--bg-surface);scrollbar-width:none;scrollbar-color:transparent transparent}
 html.dark .tree-scroll{background:var(--bg-base)}
+@media (max-width:768px){.tree-scroll{background:var(--bg-base)}}
 .tree-scroll::-webkit-scrollbar{width:0;height:0}
 .tree-scroll::-webkit-scrollbar-track{background:var(--bg-surface)}
 html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
+@media (max-width:768px){.tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}}
 .tree-scroll::-webkit-scrollbar-thumb{background:transparent}
 /* hover 列表时滚动条浮现（与 AgentList 同款细滚动条样式） */
 .tree-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
