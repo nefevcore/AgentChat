@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-289**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-292**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -307,3 +307,6 @@
 - 【cr-287 2026-10-06 移动端窄屏底色统一（真机反馈「侧边栏与会话区两种白色」）：SessionList 容器/tree-scroll 亮色下为 bg-surface 暖白、与会话区 bg-base 及 tab 栏不同色——窄屏(≤768px,narrow 同源断点)下统一 bg-base（对齐暗色既有裁决 html.dark 翻 base 的先例）；桌面双栏分区设计不动】
 - 【cr-288 2026-10-06 harness 行集启动失败根修（supervised 启动 exit 78）：ac-harness-tools 未声明进根 package.json devDependencies——loader 以 src/ 为 baseUrl 解析裸行名，根 node_modules 无链接即 ERR_MODULE_NOT_FOUND（其余 97 个裸行名全部已声明）；+ src/cordis.yml 的 harness-preset 行名 'ac-harness-tools/preset' 非包导出子路径（exports 仅 . 与 ./src/*，链接补齐后必 ERR_PACKAGE_PATH_NOT_EXPORTED）→ 改相对路径 './ac-harness-tools/src/preset.ts'（同 ac-sap-adt/patch-rpc 先例）】
 - 【cr-289 2026-10-06 移动端窄屏底色统一续（cr-287 漏网补全）：AgentList 容器/list-scroll 同为 bg-surface——上轮搜索模式带空格漏匹配紧凑写法致误判「agents 透明底」；窄屏(≤768px)统一 bg-base 对齐 cr-287 裁决；SessionList 补滚动条 track 同规则；tracking 容器本就 base 无需动】
+- 【cr-290 2026-10-06 手机端会话清单未读无法定位与清除：SessionList 行补 single 未读角标（tab 聚合有数、行上无落点）+ 会话删除/归档清 feed 分区未读（孤儿未读防御）】
+- 【cr-291 2026-10-06 移动端通知：后台/锁屏时收到 Agent 消息或独立会话收尾消息弹出系统通知（Web Notification API + 安卓壳桥接预留）】
+- 【cr-292 2026-10-06 移动端常驻链路通知折叠为静默级（IMPORTANCE_MIN 删旧重建——FGS 法定通知不可去除，降级后状态栏无图标/通知栏折叠；消息通知 channel 不受影响）】

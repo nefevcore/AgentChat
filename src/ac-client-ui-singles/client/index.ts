@@ -182,6 +182,9 @@ export class SingleBoardService extends Service {
       const d = await fetchSingles(this.own.rpc, { track: (id, removed) => this.track(id, removed) });
       this.singles.value = d.singles;
       this.loaded.value = true;
+      // single 未读对账（cr-290）：active 集外分区的未读 = 会话已删/归档——
+      // 无行可点无清除路径（tab 聚合徽章永久残留），顺手清 + 写穿
+      this.own.sessions.pruneSingleUnread(this.activeSingles.value.map(s => s.id));
     } catch (err: unknown) {
       console.warn('[SingleBoard] 拉取独立会话列表失败:', (err as { message?: string }).message ?? String(err));
     }

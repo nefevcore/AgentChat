@@ -135,6 +135,12 @@ export class ConversationService extends Service {
     if (removed) chatPresence.knownSingles.delete(id);
     else chatPresence.knownSingles.add(id);
   }
+
+  /** singles 域：single 分区未读对账（孤儿清除——会话已删/归档后未读
+   *  无清除路径，聚合徽章永久残留；feed 状态归本件，原语住 feed-core） */
+  pruneSingleUnread(activeIds: string[]): void {
+    this.feed.pruneSingleUnread(activeIds);
+  }
 }
 
 // ctx.sessions 契约面归 ac-client-runtime（SessionsClientFace——行

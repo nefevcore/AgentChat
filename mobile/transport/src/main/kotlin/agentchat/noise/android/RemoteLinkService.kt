@@ -100,9 +100,13 @@ class RemoteLinkService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val mgr = getSystemService(NotificationManager::class.java)
-        if (mgr.getNotificationChannel(CHANNEL_ID) != null) return
+        // cr-292 静默降噪：请求 MIN（mOriginalImp=1）——NMS 对 FGS 通知会钳到
+        // LOW 下限（后台服务必须用户可感知，AOSP 红线；真机 K20/MIUI 实测同样
+        // 钳制），即无声/无振动/无横幅/无锁屏，但通知栏仍有折叠条目。完全隐藏
+        // 需用户在系统设置里关「远程链路」channel（服务照跑）。旧 id
+        // agentchat.remote.link 的持久化记录带 LOW 无法代码降级，故换 id 从零建。
         mgr.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "远程链路", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL_ID, "远程链路", NotificationManager.IMPORTANCE_MIN),
         )
     }
 
@@ -132,7 +136,9 @@ class RemoteLinkService : Service() {
     companion object {
         const val ACTION_STOP = "agentchat.remote.STOP"
         const val ACTION_RESUME = "agentchat.remote.RESUME"
-        private const val CHANNEL_ID = "agentchat.remote.link"
+        // v2（cr-292）：旧 id agentchat.remote.link 的 NMS 持久化记录带 LOW 档，
+        // 代码无法降级——换 id 从零建 MIN
+        private const val CHANNEL_ID = "agentchat.remote.link.v2"
         private const val NOTIFICATION_ID = 4711
 
         fun start(context: Context) {

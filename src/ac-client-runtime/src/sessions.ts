@@ -36,6 +36,9 @@ export interface SessionsClientFace {
   setKnownGroups(ids: string[]): void;
   /** singles 域：登记/摘除单个会话 presence（single~sid 帧路由判别） */
   trackKnownSingle(id: string, removed?: boolean): void;
+  /** singles 域：single 分区未读对账（列表刷新后——非 active 会话的
+   *  未读 = 孤儿〔删/归档后无行可点〕，清除写穿；实现归 conversation） */
+  pruneSingleUnread(activeIds: string[]): void;
 }
 
 declare module './context.ts' {

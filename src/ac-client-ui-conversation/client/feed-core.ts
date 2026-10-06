@@ -24,6 +24,7 @@ import {
   type StreamState,
 } from './chatOps.ts';
 import { loadUnreadSnapshot, saveUnreadSnapshot } from './unreadStore.ts';
+import { notifyUser, pageHidden } from './notifyBridge.ts';
 import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
@@ -262,6 +263,15 @@ export function createFeedCore(
     return key;
   }
 
+  /**
+   * Agent 显示名（通知标题用）：名册命中取 name；缺席（未拉到/测试）
+   * 回落 id 原文——通知标题宁可显示 id 也不弃发。
+   */
+  function agentDisplayName(agentId: string | undefined): string {
+    if (!agentId) return 'Agent';
+    return roster().agents.value.find((a) => a.id === agentId)?.name ?? agentId;
+  }
+
   /** 流式帧路由入站：登记 run 目标身份（非 viewer 对桶的身份源） */
   function noteStreamAgent(keys: { dialogId: DialogId; agentId?: string }): void {
     if (!keys.agentId) return;
@@ -413,6 +423,17 @@ export function createFeedCore(
     if (d) {
       d.unread = 0;
       persistUnreadNow(); // 读位清除写穿（读即抹除，刷新不复活）
+    }
+  }
+  /** single 分区未读对账（singles 域 refresh 后经 sessions 契约面调用）：
+   *  不在 liveIds 内的 single 分区未读 = 孤儿——会话已删/归档，列表无行
+   *  可点、清除无路径（聚合徽章永久残留）。清 + 写穿（非 single 分区与
+   *  live 会话不动）。 */
+  function pruneSingleUnread(liveIds: string[]): void {
+    const live = new Set(liveIds);
+    for (const id of Object.keys(dialogs.value)) {
+      if (!id.startsWith('single:')) continue;
+      if (!live.has(id.slice('single:'.length))) clearUnread(id as DialogId);
     }
   }
   /** 获取指定 Agent 的未读消息数量 */
@@ -1966,6 +1987,15 @@ export function createFeedCore(
       d.unread += 1;
       roster().bumpAgentById(from, 'assistant', payload);
       persistUnreadNow();
+      // 后台唤回（cr-291）：页面隐藏时的 Agent 私信弹系统通知（前台切走
+      // 只看别的会话 = 未读徽章已足够，不弹）
+      if (pageHidden()) {
+        notifyUser({
+          title: agentDisplayName(from),
+          body: payload.slice(0, 80),
+          tag: dialogId,
+        });
+      }
     }
   }
 
@@ -2299,6 +2329,19 @@ export function createFeedCore(
         }
         const active = isForActiveAgent(keys);
         onChatEnd(keys.dialogId, { content: finish === 'stop' ? String(result?.text ?? '') : '' }, active);
+        // run 收束后台唤回（cr-291）：独立会话/直答的长任务在后台跑完——
+        // 页面隐藏且不在该会话时弹系统通知（错误/中断已有红条反馈，只在
+        // 正常完成时唤回；正在看的会话直播已可见，不打扰）。「正看该会话」
+        // 用 activeDialogId 直比——isForActiveAgent 是 UI 信号门控语义，无激活
+        // 上下文恒 true，不表达「用户是否在看」
+        if (finish === 'stop' && keys.dialogId !== activeDialogId.value && pageHidden()) {
+          const text = String(result?.text ?? '');
+          notifyUser({
+            title: `${agentDisplayName(agent)} · 已完成`,
+            body: (text || '（无输出）').slice(0, 80),
+            tag: keys.dialogId,
+          });
+        }
         // 收束后无条件重拉首屏（gated=false）：权威收束行替换 partial 检查点行
         // 与直播行，补 persistedMsgId 供分支/编辑/删除定位——不止覆盖「run 中
         // 做过历史合并」的分区（一直开着的会话同样需要换权威行）
@@ -2467,7 +2510,7 @@ export function createFeedCore(
     getDialog, getRaw, getTurns,
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,
-    clearUnread, touch, bump,
+    clearUnread, pruneSingleUnread, touch, bump,
     // busy 排队发送回显登记（chat store 排队路径专用）
     registerQueuedSend, dropQueuedSend,
     // 历史

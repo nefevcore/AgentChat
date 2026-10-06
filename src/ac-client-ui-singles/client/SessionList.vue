@@ -57,6 +57,13 @@ function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' 
 /** 会话是否正在运行（其 single 对话处于流式运行中 → 头像显示流转光环） */
 function isSessionRunning(id: string): boolean { return feedStore.getDialog(singleDialog(id))?.streaming ?? false; }
 
+// single 未读的行级落点（cr-290）：SessionList 是 single 未读的归属面板
+// （useUnreadBadges 口径注释明示），此前只有 tab 聚合数字、行上无角标——
+// 用户看不出哪条会话挂未读，点开别的会话清不掉（手机端「未读无法
+// 清除」反馈根因）。配方 = kit .ui-avatar-badge（与 AgentList 同语言）。
+function unreadCountOf(id: string): number { return feedStore.getDialog(singleDialog(id))?.unread ?? 0; }
+function unreadLabel(n: number): string { return n > 99 ? '99+' : String(n); }
+
 // 窄屏导航（cr-29）：选中即 push 会话页（宽屏 no-op）
 const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
 
@@ -539,7 +546,7 @@ onUnmounted(() => {
          :class="{ 'is-selected': activeSingleId === item.id }"
          :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
          @click="selectSingle(item.id)">
-         <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+         <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="ui-avatar-badge">{{ unreadLabel(unreadCountOf(item.id)) }}</span></div>
          <div class="item-info">
            <div class="item-name">{{ item.title }}</div>
            <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
@@ -609,7 +616,7 @@ onUnmounted(() => {
                   :class="{ 'is-selected': activeSingleId === item.id }"
                   :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
                   @click="selectSingle(item.id)">
-                  <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+                  <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="ui-avatar-badge">{{ unreadLabel(unreadCountOf(item.id)) }}</span></div>
                   <div class="item-info">
                     <div class="item-name">{{ item.title }}</div>
                   </div>

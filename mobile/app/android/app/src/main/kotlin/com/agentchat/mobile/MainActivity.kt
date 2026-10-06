@@ -18,7 +18,9 @@ import agentchat.noise.android.LinkPhase
 import agentchat.noise.android.PairingStore
 import agentchat.noise.android.RemoteLinkService
 import agentchat.noise.android.SessionHolder
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
@@ -46,6 +48,7 @@ class MainActivity : BridgeActivity() {
 
     private companion object {
         const val SCAN_REQ = 7043
+        const val MSG_CHANNEL_ID = "agentchat.remote.messages"
     }
 
     private var panel: LinearLayout? = null
@@ -67,6 +70,14 @@ class MainActivity : BridgeActivity() {
     private var statusBarDark: Boolean? = null
     /** web 主题已知（首次轮询到 html class 即真）——此前系统夜间档只有兜底资格 */
     private var webThemeKnown = false
+    /** 消息通知轮询（cr-291）：WebView 后台被节流，壳侧轮询 webui 的通知队列 */
+    private var notifyWatchJob: Job? = null
+    /** POST_NOTIFICATIONS 已授（Android 13+ 运行时权限；一次性判定，拒绝不重问） */
+    private var notifyPermAsked = false
+    /** 权限请求 launcher（字段期注册——registerForActivityResult 必须在 onCreate 完成前，回调里临时注册会抛 IllegalStateException） */
+    private val notifyPermLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { /* 授予与否都由下次冷启的系统记忆接管；拒绝不重问 */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,6 +94,10 @@ class MainActivity : BridgeActivity() {
         // 手动切换/启动恢复一律落定于此；cr-286），web 就绪后轮询同步；
         // 未就绪期以系统夜间档先涂（配对面板/连接覆盖层期的兜底色）。
         applyStatusBarStyle(isSystemNight())
+        // 消息通知运行时权限（cr-291）：Android 13+ POST_NOTIFICATIONS 必须请求；
+        // 拒绝过系统会静默 deny（notifyWatch 轮询照跑，弹不出系统通知而已——
+        // 前台服务常驻通知在低版本不受影响）。33 以下系统安装即授。
+        requestNotifyPermissionIfNeeded()
         val store = PairingStore(this)
         val deepLink = intent?.data?.toString()
         // 更新检查与配对状态无关：**任何**启动形态下都该知道有没有新版（M3.5）
@@ -218,6 +233,7 @@ class MainActivity : BridgeActivity() {
                             bridge?.webView?.loadUrl("http://127.0.0.1:$port/")
                             awaitBootReady()
                             startThemeWatch()
+                            startNotifyWatch()
                         }
                     }
                     LinkPhase.CONNECTING -> {
@@ -550,6 +566,104 @@ class MainActivity : BridgeActivity() {
             .show()
     }
 
+    // ---- 消息通知（cr-291：后台/锁屏收到 Agent 消息或会话收尾弹系统通知） ----
+
+    private fun requestNotifyPermissionIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED) return
+        if (notifyPermAsked) return
+        notifyPermAsked = true
+        notifyPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    /**
+     * 通知队列轮询：webui notifyBridge 把待发通知写进
+     * window.__agentchatNotifyQueue（页面后台时 WebView 定时器冻结，写入仍
+     * 即时——事件回调由链路线程驱动）+ __agentchatNotifyDirty 置位。壳侧
+     * 1s 轮询：dirty 才取队列、按 tag 去重后经原生 NotificationManager 弹。
+     * 前台也轮询（切到别的 App 分屏形态仍可能有消息；页面 visible 时 webui
+     * 自清 dirty，不会重复弹）。
+     */
+    private fun startNotifyWatch() {
+        if (notifyWatchJob?.isActive == true) return
+        notifyWatchJob = lifecycleScope.launch {
+            val seenTags = HashMap<String, Long>() // tag → 上次弹出时间（10min 内同 tag 不重弹）
+            while (isActive) {
+                val webView = bridge?.webView
+                if (webView != null) {
+                    webView.evaluateJavascript(
+                        "(function(){var q=window.__agentchatNotifyQueue;var d=window.__agentchatNotifyDirty;" +
+                            "if(d===true&&Array.isArray(q)&&q.length>0){window.__agentchatNotifyDirty=false;" +
+                            "window.__agentchatNotifyQueue=[];return JSON.stringify(q)}return null})()"
+                    ) { raw ->
+                        // evaluateJavascript 把 JS 返回值 JSON 序列化：字符串带外层
+                        // 双引号 + 内部转义——直接 parse 会得 JsonPrimitive，剥壳再解析。
+                        val unquoted = raw
+                            ?.takeIf { it != "null" }
+                            ?.removePrefix("\"")?.removeSuffix("\"")
+                            ?.replace("\\\"", "\"")
+                        if (unquoted != null && unquoted.isNotEmpty()) {
+                            runCatching {
+                                val arr = com.google.gson.JsonParser.parseString(unquoted).asJsonArray
+                                for (el in arr) {
+                                    val o = el.asJsonObject
+                                    val tag = o.get("tag")?.asString ?: ""
+                                    val now = System.currentTimeMillis()
+                                    if (tag.isNotEmpty() && (seenTags[tag] ?: 0L) > now - 600_000) continue
+                                    if (tag.isNotEmpty()) seenTags[tag] = now
+                                    showMsgNotification(
+                                        o.get("title")?.asString ?: "AgentChat",
+                                        o.get("body")?.asString ?: "",
+                                        tag,
+                                    )
+                                }
+                            }.onFailure { err ->
+                                android.util.Log.w("MainActivity", "通知队列解析失败", err)
+                            }
+                        }
+                    }
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    /** 消息通知 channel（独立于「远程链路」常驻通知——可独立关免打扰） */
+    private fun ensureMsgChannel() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val mgr = getSystemService(android.app.NotificationManager::class.java)
+        if (mgr.getNotificationChannel(MSG_CHANNEL_ID) != null) return
+        mgr.createNotificationChannel(
+            android.app.NotificationChannel(
+                MSG_CHANNEL_ID, "消息提醒", android.app.NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
+    }
+
+    private fun showMsgNotification(title: String, body: String, tag: String) {
+        ensureMsgChannel()
+        val open = android.app.PendingIntent.getActivity(
+            this, 0, packageManager.getLaunchIntentForPackage(packageName),
+            android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, MSG_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION") android.app.Notification.Builder(this)
+        }
+        val n = builder
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(android.app.Notification.BigTextStyle().bigText(body))
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        getSystemService(android.app.NotificationManager::class.java)
+            .notify(4700 + (tag.hashCode() % 300), n)
+    }
+
     private fun dp(v: Int): Int = ((v * resources.displayMetrics.density).toInt())
 
     override fun onStop() {
@@ -559,6 +673,7 @@ class MainActivity : BridgeActivity() {
         // 「切后台即断开」（丢机缓解纵深）。
         watchJob?.cancel()
         themeWatchJob?.cancel()
+        notifyWatchJob?.cancel()
         SessionHolder.session?.onAppBackground()
         super.onStop()
     }
@@ -589,6 +704,8 @@ class MainActivity : BridgeActivity() {
         }
         // web 主题同步轮询随前台恢复（onStop 已停；WebView 活着才有意义）
         if (loadedBridge && themeWatchJob?.isActive != true) startThemeWatch()
+        // 消息通知轮询随前台恢复（cr-291；WebView 未就绪期轮询空转自然跳过）
+        if (loadedBridge && notifyWatchJob?.isActive != true) startNotifyWatch()
     }
 
     /** 系统夜间档（web 主题未知期的兜底事实源） */
