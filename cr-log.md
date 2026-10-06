@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-285**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-289**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -303,3 +303,7 @@
 - 【cr-283 2026-10-06 手机端网络切换即时换链：NetworkCallback 监听默认网络变化，在线期主动 cancel 旧链走既有重连循环，切网恢复从 OkHttp ping 最坏 30s 降到秒级】
 - 【cr-284 2026-10-06 移动端异形屏适配：安卓壳状态栏与 webui bg-base 双主题同色+图标明暗随系统（真机反馈顶部灰条——AppTheme 从未声明状态栏色，AppCompat 缺省灰悬于 web 深底上；MainActivity 补 applyStatusBarStyle，uiMode 不重建故 onConfigurationChanged 重涂）】
 - 【cr-285 2026-10-06 Remote 域发版前结构清理：service.ts 死字段（deviceRooms/pendingDeviceByConn）与死导出（REMOTE_SCOPES/RemoteCallContext）删除、reconnectTimer 单槽记账收敛（scheduleReconnect 与 room-unavailable 快速重试先 clear 在途定时器——旧设备退避定时器残留会覆盖丢新设备的重连请求）、relay-connection 握手分支大段求解过程注释收为结论、被 client 件取代的 remote-loopback.ts 原型脚本删除并同步文档】
+- 【cr-286 2026-10-06 移动端状态栏主题同步修正（cr-284 复验反馈）：事实源从系统夜间模式改为 web 实际主题——html.dark class 轮询（同 __agentchatBootReady 的 evaluateJavascript 通道）；web 主题可手动固定/localStorage 恢复，与系统值脱节时状态栏停在错侧。web 未就绪前系统夜间档兜底，onStop/onStart 停续轮询】
+- 【cr-287 2026-10-06 移动端窄屏底色统一（真机反馈「侧边栏与会话区两种白色」）：SessionList 容器/tree-scroll 亮色下为 bg-surface 暖白、与会话区 bg-base 及 tab 栏不同色——窄屏(≤768px,narrow 同源断点)下统一 bg-base（对齐暗色既有裁决 html.dark 翻 base 的先例）；桌面双栏分区设计不动】
+- 【cr-288 2026-10-06 harness 行集启动失败根修（supervised 启动 exit 78）：ac-harness-tools 未声明进根 package.json devDependencies——loader 以 src/ 为 baseUrl 解析裸行名，根 node_modules 无链接即 ERR_MODULE_NOT_FOUND（其余 97 个裸行名全部已声明）；+ src/cordis.yml 的 harness-preset 行名 'ac-harness-tools/preset' 非包导出子路径（exports 仅 . 与 ./src/*，链接补齐后必 ERR_PACKAGE_PATH_NOT_EXPORTED）→ 改相对路径 './ac-harness-tools/src/preset.ts'（同 ac-sap-adt/patch-rpc 先例）】
+- 【cr-289 2026-10-06 移动端窄屏底色统一续（cr-287 漏网补全）：AgentList 容器/list-scroll 同为 bg-surface——上轮搜索模式带空格漏匹配紧凑写法致误判「agents 透明底」；窄屏(≤768px)统一 bg-base 对齐 cr-287 裁决；SessionList 补滚动条 track 同规则；tracking 容器本就 base 无需动】

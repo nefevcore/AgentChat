@@ -38,6 +38,7 @@ import com.getcapacitor.BridgeActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -60,6 +61,12 @@ class MainActivity : BridgeActivity() {
     private var pairingInput: EditText? = null
     /** 连接期全屏状态覆盖层（cr-43 ⑫：WebView 未加载时给用户可视反馈，免黑屏盲等） */
     private var connectOverlay: android.widget.FrameLayout? = null
+    /** web 主题 → 状态栏同步轮询（cr-286）；onStop 停、回前台/web 就绪起 */
+    private var themeWatchJob: Job? = null
+    /** 状态栏当前色态（幂等去重；null = 尚未涂过） */
+    private var statusBarDark: Boolean? = null
+    /** web 主题已知（首次轮询到 html class 即真）——此前系统夜间档只有兜底资格 */
+    private var webThemeKnown = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,8 +79,10 @@ class MainActivity : BridgeActivity() {
         // WebView 的 env(safe-area-inset-*) 恒 0，真全屏需 setDecorFitsSystemWindows
         // (false) 并自管 IME inset——会破坏 adjustResize 的键盘实测行为（cr-31 ③）。
         // 稳态方案：状态栏涂 webui bg-base 同色（nebula #1a1a1a / aurora #fdfdfb，
-        // 对齐 tokens.css），图标明暗随系统夜间模式（web 主题缺省 system 同源）。
-        applyStatusBarStyle()
+        // 对齐 tokens.css）。事实源 = web 实际主题（html.dark class——system 跟随/
+        // 手动切换/启动恢复一律落定于此；cr-286），web 就绪后轮询同步；
+        // 未就绪期以系统夜间档先涂（配对面板/连接覆盖层期的兜底色）。
+        applyStatusBarStyle(isSystemNight())
         val store = PairingStore(this)
         val deepLink = intent?.data?.toString()
         // 更新检查与配对状态无关：**任何**启动形态下都该知道有没有新版（M3.5）
@@ -208,6 +217,7 @@ class MainActivity : BridgeActivity() {
                             showConnectOverlay("正在加载界面…", showUnpair = false)
                             bridge?.webView?.loadUrl("http://127.0.0.1:$port/")
                             awaitBootReady()
+                            startThemeWatch()
                         }
                     }
                     LinkPhase.CONNECTING -> {
@@ -548,6 +558,7 @@ class MainActivity : BridgeActivity() {
         // 改持 CPU 部分锁 + 前台服务通知扛省电策略（用户可见）。其余形态保持
         // 「切后台即断开」（丢机缓解纵深）。
         watchJob?.cancel()
+        themeWatchJob?.cancel()
         SessionHolder.session?.onAppBackground()
         super.onStop()
     }
@@ -576,21 +587,55 @@ class MainActivity : BridgeActivity() {
             startAndLoad()
             lifecycleScope.launch { session.resumeOnline() }
         }
+        // web 主题同步轮询随前台恢复（onStop 已停；WebView 活着才有意义）
+        if (loadedBridge && themeWatchJob?.isActive != true) startThemeWatch()
     }
 
-    /** 状态栏着色（cr-284）：与 webui bg-base 双主题同色——缘由见 onCreate 注释 */
-    private fun applyStatusBarStyle() {
-        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+    /** 系统夜间档（web 主题未知期的兜底事实源） */
+    private fun isSystemNight(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
-        window.statusBarColor = Color.parseColor(if (night) "#1a1a1a" else "#fdfdfb")
+
+    /**
+     * 状态栏着色（cr-284）：与 webui bg-base 双主题同色——缘由见 onCreate 注释。
+     * 幂等去重：同色态重复调用零副作用（轮询高频触达）。
+     */
+    private fun applyStatusBarStyle(dark: Boolean) {
+        if (statusBarDark == dark) return
+        statusBarDark = dark
+        window.statusBarColor = Color.parseColor(if (dark) "#1a1a1a" else "#fdfdfb")
         // 亮底配深色图标、暗底配浅色图标（状态栏时间/电量可读性）
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !night
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
     }
 
-    /** uiMode 在 manifest configChanges 内声明（切昼夜不重建）——需手动重涂状态栏 */
+    /**
+     * web 主题 → 状态栏同步（cr-286）：轮询 html.dark class（ThemeCore
+     * .applyThemeClass 即时维护），变化即重涂——webui 内切主题、系统昼夜牵动
+     * system 档、启动恢复固定档，全走这一条。WebView 未就绪回调 null = 无从
+     * 判定，保持现涂不动。页面重载瞬间 class 为空会先亮后暗闪一下（≤1 个轮询
+     * 周期，端口切换重载才出现）——不值得为它加就绪信号。
+     */
+    private fun startThemeWatch() {
+        themeWatchJob?.cancel()
+        themeWatchJob = lifecycleScope.launch {
+            while (isActive) {
+                bridge?.webView?.evaluateJavascript(
+                    "document.documentElement.classList.contains('dark')"
+                ) { dark ->
+                    if (dark == "true" || dark == "false") {
+                        webThemeKnown = true
+                        applyStatusBarStyle(dark == "true")
+                    }
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    /** uiMode 在 manifest configChanges 内声明（切昼夜不重建）——web 主题未知期重涂兜底色 */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        applyStatusBarStyle()
+        if (!webThemeKnown) applyStatusBarStyle(isSystemNight())
     }
 
     // ---- 版本更新提醒（M3.5）----

@@ -256,6 +256,8 @@ async function refreshAll() {
 /* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（与 handle 线重叠曾呈双线） */
 /* 暗色层级修复：列表用最深底，与内容区（--bg-base）拉开层次 */
 html.dark .agent-list{background:var(--bg-base)}
+/* 窄屏整页形态（cr-289）：surface/base 两种白在单页导航里成「色缝」——统一 base（同 SessionList cr-287） */
+@media (max-width:768px){.agent-list{background:var(--bg-base)}}
 .header{height:var(--layout-header-height);padding:0 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line);flex-shrink:0}
 .search-box{flex:1;display:flex;align-items:center}
 .add-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-2);cursor:pointer;flex-shrink:0}
@@ -271,10 +273,12 @@ html.dark .agent-list{background:var(--bg-base)}
 .list-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--bg-surface);scrollbar-width:none;scrollbar-color:transparent transparent}
 /* 暗色：列表背景为最深底，滚动条区域同色避免杂色带 */
 html.dark .list-scroll{background:var(--bg-base)}
+@media (max-width:768px){.list-scroll{background:var(--bg-base)}}
 .list-scroll::-webkit-scrollbar{width:0;height:0}
 /* track 设明确背景（与列表一致），避免滚动条区域透出内容/空白 */
 .list-scroll::-webkit-scrollbar-track{background:var(--bg-surface)}
 html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
+@media (max-width:768px){.list-scroll::-webkit-scrollbar-track{background:var(--bg-base)}}
 .list-scroll::-webkit-scrollbar-thumb{background:transparent}
 .list-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
 .list-scroll.scroll-visible::-webkit-scrollbar{width:6px;height:6px}
