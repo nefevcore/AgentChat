@@ -3,7 +3,6 @@
 // ============================================================
 
 export type { RemoteDevice, RemoteScope } from './device-registry.ts';
-import type { RemoteScope } from './device-registry.ts';
 
 /** 配对会话（startPairing 后的活动状态） */
 export interface PairingSession {
@@ -38,10 +37,4 @@ export interface RemoteLinkStatus {
   /** 活动配对会话快照（cr-43：UI 关页丢会话态的修复——服务端为单一事实源，
    *  新窗口/重开页经 status 对账恢复 SAS 确认界面） */
   pairing?: PairingSession | null;
-}
-
-/** remote-link RPC 面转发上下文 */
-export interface RemoteCallContext {
-  deviceId: string;
-  scopes: RemoteScope[];
 }
