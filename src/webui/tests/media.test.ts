@@ -3,7 +3,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
-import { isImageRef, filePreviewUrl, contentHash12 } from '../src/utils/media';
+import { isImageRef, filePreviewUrl, contentHash12, maybeCompressImage } from '../src/utils/media';
 
 describe('isImageRef', () => {
   it('常见图片扩展名（大小写）命中；路径与文件名任一命中即可', () => {
@@ -44,5 +44,21 @@ describe('contentHash12（与服务端 saveUpload 同算法：sha1 hex 前 12 �
     expect(await contentHash12(new Blob([]))).toBe(
       createHash('sha1').update(new Uint8Array()).digest('hex').slice(0, 12),
     );
+  });
+});
+
+describe('maybeCompressImage（cr-280 上传前压缩）', () => {
+  it('小文件（≤400KB）与非图片扩展名原样返回（不触发解码）', async () => {
+    const small = new File([new Uint8Array(1024)], 'a.jpg', { type: 'image/jpeg' });
+    const bigTxt = new File([new Uint8Array(500 * 1024)], 'b.txt', { type: 'text/plain' });
+    const bigSvg = new File([new Uint8Array(500 * 1024)], 'c.svg', { type: 'image/svg+xml' });
+    expect(await maybeCompressImage(small)).toBe(small);
+    expect(await maybeCompressImage(bigTxt)).toBe(bigTxt);
+    expect(await maybeCompressImage(bigSvg)).toBe(bigSvg);
+  });
+
+  it('解码不可用（jsdom 无 createImageBitmap）时 fail-safe 回退原件', async () => {
+    const big = new File([new Uint8Array(500 * 1024)], 'photo.jpg', { type: 'image/jpeg' });
+    expect(await maybeCompressImage(big)).toBe(big);
   });
 });

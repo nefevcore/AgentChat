@@ -17,7 +17,7 @@ import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
 import { parkDraft, takeDraft } from './draftParking.ts';
 import { ensurePasteName } from './clipboardFile.ts';
-import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
+import { isImageRef, filePreviewUrl, contentHash12, maybeCompressImage } from './media.ts';
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
 import { detectMention, replaceMentionToken, mentionMatches, formatFileMention, buildSessionMentionCandidates, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -1278,8 +1278,11 @@ async function uploadAndAttach(rawFiles: File[]): Promise<void> {
     ? (props.single.agentId || undefined)
     : (roster.activeAgentId.value || undefined);
   const curConv = props.single?.id;
-  for (const raw of rawFiles) {
+  for (const raw0 of rawFiles) {
     try {
+      // 大图先压缩（cr-280）：拍照原图兆级在远程链路（base64 单帧过 relay）
+      // 大概率超时/超限；本地网络下无损——小图/非图片原样返回
+      const raw = await maybeCompressImage(raw0);
       // 去重（内容哈希——与服务端 saveUpload 同算法，命中登记即复用）
       const hash = await contentHash12(raw);
       if (attachedFiles.value.some((f) => f.hash === hash)) continue; // 已挂同内容
@@ -1307,6 +1310,9 @@ async function uploadAndAttach(rawFiles: File[]): Promise<void> {
       });
     } catch (err: any) {
       console.error('[ChatInput] Upload failed:', err);
+      // 失败可见化（cr-280）：远程链路上传失败此前只有 console——用户看到的是
+      // 「附件没挂上」却无从知道原因（超时/超限/断链排查方向完全不同）
+      toastError(`附件上传失败：${raw0.name || '未命名文件'}（${err?.message ?? err}）`, { duration: 6000 });
     }
   }
   uploading.value = false;

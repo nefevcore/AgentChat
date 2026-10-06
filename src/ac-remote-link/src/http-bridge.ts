@@ -43,9 +43,12 @@ const COMPRESSIBLE_PREFIXES = [
   'image/svg+xml',
 ];
 
-/** 响应体上限：relay 单帧 8MB + base64 膨胀 4/3 + JSON 包装——留余量取 6MB。
+/** 响应体上限：relay 单帧 8MiB 是硬顶（超限 relay 直接 conn.close 断链，cr-280
+ *  实锤：6MiB × base64 4/3 膨胀 = 恰 8MiB，再加 JSON 包装与 Noise 认证标签必超——
+ *  原注释「留余量」实际是负余量，贴近上限的大上传会打段整条链路）。校准到
+ *  4MiB：4 × 4/3 ≈ 5.34MiB + 包装/标签 ≈ 5.4MiB < 8MiB，真余量 ≈ 2.6MiB。
  *  超限返回 413 并说明（大文件分片是已知后续项，见 M3.4 文档）。 */
-export const MAX_PROXY_BODY_BYTES = 6 * 1024 * 1024;
+export const MAX_PROXY_BODY_BYTES = 4 * 1024 * 1024;
 
 export interface HttpBridgeParams {
   method?: string;
