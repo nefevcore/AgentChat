@@ -17,7 +17,7 @@ import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions, pickApproval } from './chatOps.ts';
-import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from './feed.ts';
+import { directDialog, singleDialog, bucketKey, parseDialogId, splitAttachmentLines, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
 import { loadComposePrefs } from './composePrefs.ts';
 import { settleToolMode } from './toolModeInherit.ts';
@@ -955,8 +955,19 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     if (type === 'remote/resync') {
       // 链路重同步信令（cr-112）：relay 链路重握手成功——离线期间可能丢失
       // 问卡/审批卡帧，对账拉取恢复（WS 本身没断，onOpen 恢复钩子不会触发）。
+      // cr-281 补全对账面：链路死窗期 boot 的页面（刷新撞上后台杀链）历史拉取
+      // 静默失败后无重试——当前分区强制收敛（禁指纹短路，必拿权威行），其余
+      // 分区按需重拉由用户切入时触发；名册一并重取（boot 期 agents/list 同样
+      // 可能落在死窗内静默失败——侧栏空直到重启的姊妹症状）。
       void restorePendingInteractions();
       void restorePendingApprovals();
+      const active = feed.activeDialogId;
+      if (active) {
+        const { kind, key } = parseDialogId(active);
+        if (kind === 'group') feed.loadGroupHistory(active, key);
+        else feed.convergeDialog(active, true);
+      }
+      roster().requestAgents((list) => onAgentListResponse(list as never));
       return;
     }
     if (type === 'agents/updated') {
