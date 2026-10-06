@@ -2,7 +2,7 @@
   "name": "ac-mobile-app",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentChat 安卓单 App 壳（Capacitor）——WebView 加载 webui dist + 原生传输半边（transport 模块）",
+  "description": "AgentChat Remote 安卓 App 壳（Capacitor）——AgentChat 的远程操作端：WebView 加载 webui dist + 原生传输半边（transport 模块）",
   "scripts": {
     "sync": "node ../scripts/sync-webui.mjs && cap sync android",
     "add:android": "cap add android",

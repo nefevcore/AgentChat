@@ -148,7 +148,7 @@ class MainActivity : BridgeActivity() {
         if (BuildConfig.DEBUG) { startAndLoad(); return }
         BiometricGate.request(
             this,
-            "解锁 AgentChat",
+            "解锁 AgentChat Remote",
             onUnlocked = { startAndLoad() },
             onDenied = { msg ->
                 setStatus("已取消解锁：" + msg)
@@ -413,7 +413,7 @@ class MainActivity : BridgeActivity() {
             setBackgroundColor(Color.parseColor("#0B1020"))
         }
         root.addView(TextView(this).apply {
-            text = "AgentChat"
+            text = "AgentChat Remote"
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
             gravity = Gravity.CENTER

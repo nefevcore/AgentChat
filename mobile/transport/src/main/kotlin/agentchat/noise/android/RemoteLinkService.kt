@@ -117,7 +117,7 @@ class RemoteLinkService : Service() {
             @Suppress("DEPRECATION") Notification.Builder(this)
         }
         return builder
-            .setContentTitle("AgentChat")
+            .setContentTitle("AgentChat Remote")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
             .setContentIntent(open)

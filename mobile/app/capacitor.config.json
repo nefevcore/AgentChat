@@ -1,7 +1,7 @@
 {
   "$schema": "https://capacitorjs.com/schema.json",
   "appId": "com.agentchat.mobile",
-  "appName": "AgentChat",
+  "appName": "AgentChat Remote",
   "webDir": "www",
   "android": {
     "allowMixedContent": false,
