@@ -19,6 +19,7 @@ import agentchat.noise.android.PairingStore
 import agentchat.noise.android.RemoteLinkService
 import agentchat.noise.android.SessionHolder
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -31,6 +32,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.getcapacitor.BridgeActivity
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,14 @@ class MainActivity : BridgeActivity() {
         // WebView CDP 调试口（debug 构建）——真机 UI 自动化/现场排障用：
         // chrome://inspect → agentchat WebView。仅 debug 生效，不进 release。
         if (BuildConfig.DEBUG) android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+        // 异形屏状态栏对齐（cr-284）：壳层此前从未声明状态栏颜色——AppCompat
+        // 主题缺省灰条悬在 webui 深底之上（真机反馈「上方一块灰色」）。webui 虽按
+        // edge-to-edge 设计（viewport-fit=cover + --safe-top 避让），但普通窗口下
+        // WebView 的 env(safe-area-inset-*) 恒 0，真全屏需 setDecorFitsSystemWindows
+        // (false) 并自管 IME inset——会破坏 adjustResize 的键盘实测行为（cr-31 ③）。
+        // 稳态方案：状态栏涂 webui bg-base 同色（nebula #1a1a1a / aurora #fdfdfb，
+        // 对齐 tokens.css），图标明暗随系统夜间模式（web 主题缺省 system 同源）。
+        applyStatusBarStyle()
         val store = PairingStore(this)
         val deepLink = intent?.data?.toString()
         // 更新检查与配对状态无关：**任何**启动形态下都该知道有没有新版（M3.5）
@@ -566,6 +576,21 @@ class MainActivity : BridgeActivity() {
             startAndLoad()
             lifecycleScope.launch { session.resumeOnline() }
         }
+    }
+
+    /** 状态栏着色（cr-284）：与 webui bg-base 双主题同色——缘由见 onCreate 注释 */
+    private fun applyStatusBarStyle() {
+        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        window.statusBarColor = Color.parseColor(if (night) "#1a1a1a" else "#fdfdfb")
+        // 亮底配深色图标、暗底配浅色图标（状态栏时间/电量可读性）
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !night
+    }
+
+    /** uiMode 在 manifest configChanges 内声明（切昼夜不重建）——需手动重涂状态栏 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyStatusBarStyle()
     }
 
     // ---- 版本更新提醒（M3.5）----
