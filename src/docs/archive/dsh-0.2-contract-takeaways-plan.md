@@ -1,5 +1,8 @@
 # DSH 0.2 插件契约比对——增量计划
 
+> **归档说明（2026-10-06 治理批 · cr-269 组）**：比对分析已完成、实施条目未动工——归档冻结，原文原样保留（含 §3 原则记档与 §4 验证阶梯）。
+> **条目状态（2026-10-06 逐条核实：三件均未做）**：P1 `config/changed` 载荷仍为单参文件路径（`ac-config/src/events.ts` L18 + `service.ts` L88/L96）；P2 `commit()` 无深等价去重（`service.ts` L93-97 直写盘直 emit）；P3 `all()/get()` 仍 `structuredClone`（`service.ts` L39/L48）。三件已摘入活清单 `../gap-backlog.md`；行号以当前源码为准。
+
 > 日期：2026-10-01。状态：**记档待迭代**（比对分析完成，实施条目未动工）。
 > 背景：DSH（DeepSeek Harness）0.1.2-rc.1 → 0.2.0-rc.2 插件契约转向「声明式组合」，
 > 与 AgentChat 同出 cordis 生态。原始比对报告（外部文档）：

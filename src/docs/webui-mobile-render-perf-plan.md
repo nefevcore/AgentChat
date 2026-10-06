@@ -1,4 +1,12 @@
 # 移动端渲染性能优化方案（webui-mobile-render-perf-plan）
+> **【2026-10-06 核实注记（cr-269 webui 文档组治理）】——结论：未实施，原文整体保留**
+>
+> - **cr-258 的登记原文**（`cr-log.md`）=「移动端渲染性能优化**立项文档**」——即立项动作本身；截至 cr-269 未见实施类后继 CR。
+> - **源码复核（2026-10-06）**：P1 `StarAvatar` 仍是 `run-spin` transform 旋转 + 副流光双弧，无窄屏 opacity 降级分支（`src/webui-kit/src/star/StarAvatar.vue`）；P2 消息列表无窗口化 / 虚拟滚动实现；P3 `chatStore` 无 rAF 合帧入口 —— **P1 / P2 / P3 均未实施**。
+> - **P5 已部分前置完成**（katex/texmath 条件加载、immutable 长缓存属现状）——该条不再有剩余动作；「关键路径优先 / 预热清单」仍为待议项。
+> - 故本文件保持**待实施计划**原貌（不归档）：分期（Phase① P1+P3 → Phase② P2 → Phase③ P4+P5）与验证口径继续有效。
+> - 相关现状（行 / 席 / 贡献）见事实源 `ui-rows-and-slots.md`。
+
 
 > 立项 cr-258（2026-10-05）。前置事实：cr-257 已解决链路带宽瓶颈（HTTP 桥双向 gzip，
 > 大载荷提速 40-50%）——本文件处理剩下的另一半：**WebView 本地渲染**。基线数据来自

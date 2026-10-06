@@ -1,213 +1,191 @@
-# AgentChat Session 设计（preview 轨道 · 目标设计）
+# AgentChat Session 设计（域设计事实源）
 
-> 定位：本文是 Session 域的**目标设计文档**——设计理念、消息定义、
-> 落盘格式、三种会话形态（Agent 对会话 / 独立会话 / 群组会话）、
-> KV 缓存分析，以及当前 preview 轨道实现与设计的差异清单。
+> **定位**：Session 域的现行设计事实源——设计理念、消息定义（存储词汇 v2）、落盘格式（三文件分工）、
+> 三种会话形态（Agent 对会话 / 独立会话 / 群组会话）、消息链路与收敛协议、Run 生命周期、KV 缓存分析，
+> 以及**裁决链**（被取代的旧方案保留结论与裁决过程，勿按历史文本动手）。
 >
-> 演化关系：由 m21-replay-prefix-cache-plan.md（回放重构规划：问题实证档案
-> + 分阶段步骤 + 决策点 D1-D7；**已归档** `Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`）
-> 重写而成——M21 是本文的**落地计划与实证档案**（含 2026-08-27 实测基线，
-> 实施步骤、测试门、裁决记录见彼，已随归档根冻结）；本文回答"设计应该
-> 是什么、为什么"。
-> 双参照系：DSH `dsh-kv-cache-analysis.md`（前缀稳定纪律）+
-> `dsh-session-storage-format.md`（事件溯源落盘格式）。
-> 事实源：`preview/README.md`；本文与其冲突时以 README 的链路事实为准、
-> 以本文的设计裁决为纲。
+> **事实源优先级**：`src/README.md`（轨道事实源）> 各包源码 > 本文。本文与源码冲突时改本文；
+> 与 README 的链路事实冲突时以 README 为准、以本文的设计裁决为纲。
 >
-> 状态标注约定：§1-§7 描述目标设计；已被 M19/M20 等落地覆盖的部分标
-> 【已落地】，M21 尚未动工的部分标【设计】；§8 集中列出现状与设计的
-> 全部差距及其落地步骤映射。
+> **文档级裁决链**（本文自身的历史，逐条注明取代关系）：
+> - 由 `m21-replay-prefix-cache-plan.md`（回放重构规划：实证档案 + 分阶段步骤 + 决策点 D1-D7）**重写**而成——
+>   M21 是本文的落地计划与实证档案（2026-08-27 实测基线在彼），已归档至仓库外归档根，内容冻结。
+> - 原稿写作于 `preview/` 轨道时期；「preview」即现 `src/` 轨道（2026-08-31 整体部署原地保留历史，见 `src/README.md` 轨道历史）。
+> - 2026-08-27 裁决 ①：落盘采用 **src 中性语义**（`role: agent|system|tool|error|event` + `agent_id`）——取代初版「维持 baked 格式」取舍；
+>   ② **轨迹回放开关**做成布尔两态（`settings.session.replayTrajectory`），K 截断档否决——取代 M21 D7「不实装」。
+> - 2026-09-02~09-18：**存储词汇 v2**（role/source/label 三轴）——`error`/`event` 从一等 role 降为 `context` 行的 `source` 取值；
+>   裁决链与迁移规范住 `skill-injection-and-storage-vocab.md`（本文 §2 依其收口）。
+> - 2026-09-20：**partials 摘除**（三文件裁决）——`messages/partials/subcalls` 分工定型，vacuum 退役（§3.2）。
+> - 2026-09-23：**视图增量层退役**——事件驱动增量投影退回「每 run 无条件从文件重派生」（§4.2）。
+> - 2026-09-27 cr-4：**记忆归人格单时间线**（记忆内容出 system、走会话流 context 行）；**群聊派生视图改成员私有转录流**，
+>   memoryOwner 全链与派生窗全族退役（§4.4 / §6）。
+> - 2026-10-01/02 cr-94/95/106/107：**消息链路根修**——D1 收敛协议实施（§7.2）、D2 读投影单源化（§7.3）、
+>   前端收敛 checkpoint 身份门/空载门 + B/C（§7.4 / §8）。
+> - 2026-10-05 cr-231~251：KV 缓存率观测面上线（会话级走势图，步粒度），见 §9.4。
+> - 2026-10-06 文档治理：`message-pipeline-analysis.md`（cr-87 双管线根因分析，其 D1/D2 方向均已实施）
+>   有效结论压缩并入 §7，原文件归档 `src/docs/archive/`；`run-lifecycle-checkpoints.md` 保留独立（§8 引用其全景图）。
+> - 双参照系：DSH `dsh-kv-cache-analysis.md`（前缀稳定纪律）+ `dsh-session-storage-format.md`（事件溯源落盘格式）。
 >
-> 裁决记录（2026-08-27，用户）：① **落盘格式采用 src 中性语义**
-> （`role: agent|system|tool|error|event` + `agent_id` 标记归属，
-> §2.2），回放层 viewer 变换随之调整（§2.4）——取代本文初版"维持
-> baked 格式"的取舍，也修正 M21"不动存量行格式"原则（迁移策略见
-> §8-D13）；② **轨迹回放开关**：steps 是否进跨 run 回放做成
-> ac-session 可配置项（`settings.session.replayTrajectory`——M24
-> X1/A1 settingsOf 合成，插件库/Agent 插件配置页可调，§2.5；2026-08-30
-> P2 收口，存量 config 键双读过渡；**2026-09-23 缺省翻转开**）——取代 M21 D7"不实装"裁决。布尔
-> 两态；K 截断档
-> 否决（截断预算使回放形状随内容前滑 → 缓存失效且费用反升，长对话
-> 预算归归档阈值唯一属主）。
+> **状态标注约定**：正文描述**现状**（与源码同拍）；【设计】= 目标形态未落地；【已落地】= 与源码一致；
+> 被取代的旧方案不删除，集中住 §10 裁决链表并标注裁决沿革。
+>
+> **规约**（跨域读写纪律）：规约 1 = `ac-session` 是会话文件的 owning service，跨域读写一律走服务方法；
+> 规约 2 = 一切会话态按 `conversationId` 寻址，文件叶子目录名即键，零前缀/排序魔法；
+> 规约 3 = 机制任务直调服务或 `sender='event'` 信封，痕迹自然进会话流。
 
 ---
 
 ## 1. 设计理念
 
-Session 域回答一个问题：**一段对话的"事实"存在哪里，各参与者看到的
-"历史"从哪里来，每一步 LLM 请求的前缀如何保持字节稳定。** 五条支柱：
+Session 域回答一个问题：**一段对话的「事实」存在哪里，各参与者看到的「历史」从哪里来，每一步 LLM 请求的前缀如何保持字节稳定。** 五条支柱：
 
 **S1 事件是真理，消息是投影。**
-会话文件（append-only jsonl）是唯一事实源；一切"历史"——UI 回放、
-LLM 上下文、审计、统计——都是从文件的**确定性派生投影**。LLM 上下文
-每 run 从文件重派生（2026-09-23 视图增量层退役：事件驱动的增量投影曾两次
-漂移——终稿 vs 轨迹、error 收束丢轨迹——手写投影追不平文件投影是结构
-性双事实源，退役）。没有平行的"持久化消息类型"：写下去的行就是全部
-对话事实。
+会话文件（append-only jsonl）是唯一事实源；一切「历史」——UI 回放、LLM 上下文、审计、统计——都是从文件的**确定性派生投影**。
+LLM 上下文每 run 从文件重派生（2026-09-23 视图增量层退役：事件驱动的增量投影曾两次漂移——终稿 vs 轨迹、error 收束丢轨迹——
+手写投影追不平文件投影是结构性双事实源，退役）。没有平行的「持久化消息类型」：写下去的行就是全部对话事实。
 
 **S2 视角正确性：存储记话语事实，角色由回放按读者赋予。**
-落盘行是**读者无关的中性事实**（src 语义，§2.2）：`role` 记话语类别
-（一切真实发言 = `agent`），`agent_id` 记说话人端点。任何读者回放同一
-桶时由投影赋予角色：`agent_id === viewer → assistant`，其余 → `user`。
-role 是 chat 模型最强的身份条件，视角错乱直接污染第一人称连续性——
-存储层永不烘死视角（写入侧不猜读者是谁），回放层必须保证"我看到的
-历史里，我说的话都是我（assistant）说的"。
+落盘行是**读者无关的中性事实**（词汇 v2，§2.2）：`role` 记消费通道（一切真实发言 = `agent`），`agent_id` 记说话人端点。
+任何读者回放同一桶时由投影赋予角色：`agent_id === viewer → assistant`，其余 → `user`。
+role 是 chat 模型最强的身份条件，视角错乱直接污染第一人称连续性——存储层永不烘死视角（写入侧不猜读者是谁）。
 
 **S3 字节等价：进程内上下文 ≡ 文件派生（由构造保证）。**
-同一读者、同一桶，进程内每 run 派生的上下文与重启后从文件重派生的
-视图**逐字节一致**——因为它们走的是**同一条派生路径**
-（session.history → records → 文件），不存在第二套投影代码。历史上
-增量视图时代此等价靠 golden 对拍两套实现维持，两次漂移事故
-（2026-09-05 / 2026-09-23）证明不可靠；现等价由构造成立，对拍退化为
-回归锁定。
+同一读者、同一桶，进程内每 run 派生的上下文与重启后从文件重派生的视图**逐字节一致**——因为它们走**同一条派生路径**
+（`session.history` → `records()` → 文件），不存在第二套投影代码。历史上增量视图时代此等价靠 golden 对拍两套实现维持，
+两次漂移事故（2026-09-05 / 2026-09-23）证明不可靠；现等价由构造成立，对拍退化为回归锁定。
 
 **S4 前缀稳定是一等架构约束。**
-KV 缓存命中本身不是目标函数——**成本与 TTFT 才是**。每个 LLM 请求的
-前缀 = `[system][tool schema][history]`；理想不变量是**每步请求 = 上一步
-的字节级前缀 + 纯追加后缀**，服务端自动前缀缓存除尾部全命中。任何
-回放/注入相关代码必须能回答"我对请求前缀做了什么"（KV Cache effect
-声明纪律：None / Append-only / Prefix-stable / invalidate-from-X）。
+KV 缓存命中本身不是目标函数——**成本与 TTFT 才是**。每个 LLM 请求的前缀 = `[system][tool schema][history]`；
+理想不变量是**每步请求 = 上一步的字节级前缀 + 纯追加后缀**，服务端自动前缀缓存除尾部全命中。
+任何回放/注入相关代码必须能回答「我对请求前缀做了什么」（KV Cache effect 声明纪律：None / Append-only / Prefix-stable / invalidate-from-X）。
 
 **S5 显式 replace：唯一的前缀破坏者。**
-归档（对桶/独立）、轮转（群）、快照重拍（独立会话 system 前缀）是仅有的
-允许改变前缀的操作：显式、低频、可审计，且触发视图重派生。除此之外
-一切对会话流的操作都是追加。
+归档（对桶/独立）、群本体轮转、快照重拍（独立会话 system 前缀）、版本升级迁移是仅有的允许改变前缀的操作：
+显式、低频、可审计，且触发视图重派生。除此之外一切对会话流的操作都是追加。
 
-与框架规约的衔接：**规约 1**（ac-session 是会话文件的 owning service，
-跨域读写一律走服务方法）、**规约 2**（一切会话态按 conversationId 寻址，
-文件叶子目录名即键，零前缀/排序魔法）、**规约 3**（机制任务直调服务或
-`sender='event'` 信封，痕迹自然进会话流）、M19 全对键桶模型（user 只是
-端点之一，桶/路由/统计零专属路径）。
-
-会话形态总览（一切按 conversationId 寻址，三种键形态）：
+会话形态总览（一切按 `conversationId` 寻址，三种键形态）：
 
 | 形态 | conversationId | 读者 | 事实源 |
 |---|---|---|---|
 | Agent 对会话 | `pairKey(a, b)`（`[a,b].sort().join('~')`）：直答 `viewer~agent`、委托 `a~b`、自会话 `a~a`（对角线，机制触发） | 桶内每个真实 Agent 各自独立 | `<root>/sessions/<convId>/messages.jsonl` |
 | 独立会话 | `sid`（singles 名册消歧） | 引用的单个 Agent（会话级可换） | 同上（上架到 `sessions/singles/<ws|ungrouped>/<sid>/`） |
-| 群组会话 | `gid` | 每个成员（含 viewer 虚拟端点只读） | `<root>/groups/<gid>/messages.jsonl` 本体（仅真实发言） |
+| 群组会话 | `gid`（禁 `~`） | 本体 = 真实发言流；每个成员另有**成员私有转录流** `gid~member` | 本体 `<root>/sessions/groups/<gid>/messages.jsonl`（仅真实发言）+ 成员流 `<root>/sessions/<gid>~<member>/`（§6.1） |
 
 ---
 
-## 2. 消息定义
+## 2. 消息定义（现状）
 
-三层词汇，各司其职：
+四层词汇，各司其职：
 
 ```
 LlmMessage        传输/回放层（ac-llm owning）：进 provider 请求与 history 的形状
 SessionRecord     持久层（ac-session owning）：messages.jsonl 的一行
-SessionStepRecord 持久层内嵌：assistant 行的 ReAct 步记录
+SessionStepRecord 持久层内嵌：agent（回复）行的 ReAct 步记录
+判别行（type 键）  持久层内嵌：非消息行——session-header / journal-step / journal-inject / tool-result / run-settled
 ```
 
-### 2.1 LlmMessage（回放产物）
+### 2.1 LlmMessage（ac-llm owning）
 
-`{ role, content, name?, tool_call_id? }`，role ∈ system / user / assistant /
-tool。`name` 是可选的说话人标注——回放产物带 `name`（由存储行
-`agent_id` 投影而来，§2.4），**由回放层统一保证，不依赖调用方记得带**。
+`{ role, content, name?, tool_call_id?, attachments? }`，role ∈ `system | user | assistant | tool`。
+`name` 是可选的说话人标注——回放产物带 `name`（由存储行 `agent_id` 投影而来，§2.6，**由回放层统一保证，不依赖调用方记得带**）。
+`attachments`（image/video/file 引用）随行回放，base64 物化收敛在 provider 适配层。
 
-### 2.2 SessionRecord（持久行）【中性格式——src 语义，2026-08-27 裁决】
+### 2.2 SessionRecord（持久行）
+
+**存储词汇 v2 三轴**（2026-09-18 收口，取代中性格式 v1 的「role 载语义类别 + source 复读」写法；规范出处 `skill-injection-and-storage-vocab.md` §2）：
+
+- **`role` = 消费通道（封闭词汇，读者无关）**：`agent`（真实发言）/ `context`（上下文材料——LLM 回放 user 语义位，UI 按 source/label 呈现）；
+  `system`/`tool` 预留（概要经 `summary.md`、轨迹展开是回放投影非存储）；`event`/`error` 为**存量旧词**（读侧回放等价，迁移后绝迹）；
+  `user`/`assistant` 为旧 baked 格式兼容词（无头文件宽容读，§2.7）。
+- **`source`（context 行携带）= UI 决策词（开放词汇）**：`event`（分隔符）/ `error`（红色语义）/ `skill`（技能注入 label 条）等。
+- **`label`（可选）= UI 文案**，缺省按 `source` 回落（后台事件 / 运行错误）。
 
 | 字段 | 语义 | 备注 |
 |---|---|---|
-| `role` | `'agent' \| 'system' \| 'tool' \| 'error' \| 'event'` | **话语类别（读者无关的存储事实）**：一切真实发言（人类入站 / Agent 出站）= `agent`，归属由 `agent_id` 标记；`event` = 机制触发（UI 分隔符）；`error` = run 错误收束（§2.3）；`system`/`tool` 预留（概要不落行、对话级无顶层 tool 行——轨迹展开是回放投影非存储，§2.5） |
-| `agent_id` | 说话人端点 id | **完备归属标记**（`'agent'` 行必有；viewer/人类/Agent 端点同词汇——M19 端点对等贯穿到存储层）；取代旧 `name` 字段 |
+| `role` | `'agent' \| 'context' \| 'system' \| 'tool' \| 'error' \| 'event' \| 'user' \| 'assistant'` | 消费通道（词汇 v2 三轴，见上） |
+| `agent_id?` | 说话人端点 id | **完备归属标记**（`agent` 行必有；viewer/人类/Agent 端点同词汇——端点对等贯穿到存储层）；取代旧 `name` |
+| `name?` | 旧 baked 格式说话人标注 | 仅读取兼容，新写不再产生 |
 | `content` | 正文 | 工具参数/结果存原始 JSON 串（不二次编码） |
 | `message_id` | 幂等固化 id（`msg-<ts>-<rand>`） | 同一消息对象重复入队产出同一 id 行；归档二次去重锚 |
 | `timestamp` | ISO 时间 | 热力窗/审计数据源 |
-| `source?` | `'event'` 等拓扑类 | 机制行携带；诊断用 |
+| `source` / `label` | context 行的呈现决策词与文案 | 见三轴 |
 | `reasoning_content?` | 整轮思维链（各步 reasoning 拼接） | `agent`（回复）行；刷新后恢复折叠栏 |
-| `steps?` | `SessionStepRecord[]` | `agent`（回复）行；ReAct 各步正文/思考/工具调用对（`{id, name, arguments: 原始 JSON 串, result: ToolResult}`）。持久层全量落账；跨 run 轨迹回放经 `session.replayTrajectory` 开关按投影展开（§2.5——2026-09-23 起缺省开，可显式关） |
+| `steps?` | `SessionStepRecord[]` | `agent`（回复）行；持久层全量落账，跨 run 回放经 `session.replayTrajectory` 开关按投影展开（§2.6） |
+| `seq?` | 文件内单调序号 | writer 按文件分配；崩溃/丢行检测 + 归档二次去重序号锚 |
+| `partial?` | 步级部分行标记 | run 进行中已完工具步的 checkpoint（结果未回）；结果到达由 `tool-result` 补行覆盖（§3.2） |
+| `echoSeq?` | 归位锚（partials 行专用） | 落盘时刻主文件队列序；读侧合并按此归位（同毫秒 timestamp 歧义免疫） |
+| `run?` | run 关联键 | 切段后同 run 可有多条段行（注入行是切分点） |
+| `injected?` | journal 提升行标记 | 读侧合并把 journal 注入行排除在吸收对账外（注入行永不被吸收/去重） |
+| `attachments?` | 多模态附件引用 | 只存引用（几十字节），UI 刷新后恢复附件 chips |
 
-**版本锚点**：带 session-header 的文件按本表——header `version:1` **即
-中性格式**（头行机制尚未落地、无存量头行文件，v1 直接定义为新词表，
-不经过 baked 中间态）；无头文件 = 旧 baked 格式（user/assistant +
-name），读取层宽容归一（§2.4 兼容路径；迁移见 §8-D13）。M21 步骤 7
-原文"v1 = 现格式"的表述以此为准修正。
+### 2.3 判别行（type 键：非消息行，同 `session-header` 机制）
 
-### 2.3 入账规则（谁写什么行）
+writer/读侧以 `"type":"…"` 前缀判定，避免全量 JSON.parse；旧版本读到未知 type → 安全忽略（前向兼容）。
+
+| 判别行 | 落点 | 语义 |
+|---|---|---|
+| `session-header` | `messages.jsonl` 首行 | `{type, version:1, createdAt}`——**version:1 即中性格式**（词汇 v2 是读侧词表扩展，不升版本号）；无头文件 = 旧 baked 格式宽容读 |
+| `journal-step` | `partials.jsonl` | 一个已完成的步（工具步 result:null 由补行携带；`agentId` 为活投影归属源）——行序 = 模型消息数组实际序 |
+| `journal-inject` | `partials.jsonl` | 注入消息按**消费点真序**落（steer / 事件 / 技能 context）；`ts` 快照注入时刻，settlement 提升时还原 |
+| `tool-result` | `subcalls.jsonl`（subcall）/ `partials.jsonl`（模型直调补行） | 工具终值补记；读侧按 `(run, tool_call_id)` 覆盖到 `result:null` 的部分行/关闭行 |
+| `run-settled` | `messages.jsonl`（提升批成员） | settlement 提升批的原子提交点：在场 = 本批完整落盘（恢复判定不单点依赖它）；同时是 `session/run-settled` 事件的落账面（§7.2） |
+| `steer-stash` | `<root>/conversation/steer-stash-*.jsonl` | busy steer stash 即落盘（fsync，cr-250 durable steer）；消费/drop/兜底三清理点剔行，启动恢复重投 |
+
+### 2.4 SessionStepRecord（`agent` 行的 steps[] 成员）
+
+`{ id?, name?, arguments: 原始 JSON 串, result: ToolResult | null, content?, reasoning?/thinking? 等 }`——每步含正文/思考与工具调用对。
+`history()` 的 LLM 回放只在 `replayTrajectory=true` 且 `agent_id === viewer` 时消费本字段（§2.6）；records/UI 展示始终消费。
+
+### 2.5 入账规则（谁写什么行）
+
+`source`（信封触发来源）是唯一的类别判据，忙（`conversation/steered`）/闲（`router/message-received`）两条入账路径同形：
 
 | 投递形态 | 落盘行 | 说明 |
 |---|---|---|
-| 任何真实发言：入站 / 回复 / steer 注入 / 私信 | `role:'agent'` + `agent_id=说话人端点` | 视角无关——入账函数已备（record 的 agentId 参数即 agent_id，映射零成本）；回复附 reasoning_content 与 steps[]；中断/空回复不入账 |
-| 机制触发（`source='event'`） | `role:'event'` + `source` + `agent_id=目标自身` | UI 渲染事件分隔符；LLM 回放按 user 喂回 |
-| run 错误收束（`finish='error'`） | `role:'error'` + source 标注 | 中性词表一等成员（src error 语义吸收）：UI 错误分隔符；LLM 回放按 **user** 喂回（告知"出了错"而无自他归因污染；不采纳 src 的 `error→tool` 映射——无 tool_call_id 配对的 tool 行在严格 provider 侧有被拒风险）。现状 `[error] …` 伪装 assistant 文本落盘的行为随切换消灭 |
-| 机制标记 run（`meta[ARCHIVE_REVIEW_META]`） | **不入账** | 归档整理是机制产物，非会话事实（三消费方：session 不入账 / usage 不记账 / conversation 不进视图） |
+| 真实发言（入站 / 回复 / steer 注入 / 私信） | `role:'agent'` + `agent_id=说话人端点` | 视角无关；回复附 `reasoning_content` 与 `steps[]`；中断/空回复不入账 |
+| 机制触发（`source='event'`） | `role:'context'` + `source:'event'` + `agent_id=目标自身` | UI 渲染事件分隔符；LLM 回放按 user 喂回；**hint 视点过滤**：投递目标非 viewer 的 context 行不进该读者回放 |
+| 技能/材料注入 | `role:'context'` + `source:'skill'` 等 + `label` | 正文即语义（不折叠）；落位 = 正文进入消息数组的位置（§6 注） |
+| run 错误收束（`finish='error'`） | `role:'context'` + `source:'error'` | v2 前是 `role:'error'` 一等行（D12，见 §10）；LLM 回放按 **user** 喂回（不采纳 src 的 `error→tool` 映射——无 tool_call_id 配对的 tool 行有被拒风险） |
+| 机制标记 run（`meta[ARCHIVE_REVIEW_META]` / `GROUP_HINT_META`） | **不入账** | 机制产物非会话事实（三消费方：session 不入账 / usage 不记账 / conversation 不进视图） |
 
-**随切换删除的特判**：ac-session 虚拟端点入账分支（`target.virtual
-&& source==='agent'` → 记 assistant + name=说话人）——中性存储下
-agent→viewer 私信就是 `role:'agent' + agent_id=说话 Agent`，无需猜
-方向。baked role 模型"写入侧必须猜视角"的结构代价（该分支是第一个
-症状）就此终结。
+### 2.6 回放投影（视角变换，纯函数 `projectRecord`）
 
-### 2.4 回放投影（视角变换）【设计，M21 步骤 1 + D13 格式切换】
+存储中性（role 记消费通道、agent_id 记归属）⇒ **角色完全由回放投影赋予**——变换不是「纠正」写入视角，而是从头构建读者视角，对任何桶形态统一：
 
-存储中性（role 记话语类别、agent_id 记归属）⇒ **角色完全由回放投影
-赋予**——变换不再"纠正"写入视角，而是从头构建读者视角，对任何桶
-形态统一：
-
-`session.history(conversationId, { viewer })` —— viewer 是**读者端点
-id**（回 Agent 的那个 Agent；UI 审计面可传 undefined 取原始行）：
+`session.history(conversationId, { viewer })` —— viewer 是**读者端点 id**（回 Agent 的那个 Agent；审计/原始行走 `records()`）：
 
 ```
 role='agent' && agent_id === viewer  → assistant  （我自己说的话）
 role='agent' && 其他                 → user       （别人说的，无论对方是谁）
-role='event' | 'error'               → user       （机制提示/错误的 LLM 语义位）
-role='system'（概要头）              → system     （直通，不参与变换）
-产物行 = { role, content, name: agent_id }（wire 形；name 供多方会话
-说话人区分与 UI 渲染——确定性派生，不影响前缀稳定）
+role='context' | 'event' | 'error'   → user       （机制提示/错误的 LLM 语义位，source 无关）
+role='system'                        → system     （直通，不参与变换）
+产物行 = { role, content, name: agent_id, attachments? }（wire 形；name 供多方会话说话人区分与 UI 渲染——确定性派生，不影响前缀稳定）
 ```
 
-- 对 src 规则的**去特殊化改写**：src 的 `agent_id==='user'→user` 特判
-  不需要——人类端点 id ≠ viewer（Agent），自然落 user；M19"端点对等"
-  语义在中性格式下才真正贯穿到存储层；
-- **兼容路径（迁移期）**：无 session-header 的旧文件按 baked 格式
-  （user/assistant + name）宽容读取，等价变换（`name===viewer→
-  assistant`、其余→user、event/error→user）产出与中性投影**同构**的
-  输出——user⇄x 直答桶保持零回归；一次性迁移脚本（scripts/
-  migrate-workspace 先例）改写存量行（user/assistant+name → agent+
-  agent_id）+ 补头行后，旧路径退役；
-- **UI/RPC 消费**：session/history RPC 增 viewer 参数（1v1/singles
-  缺省 = 对话 Agent——气泡左右语义与现状一致；矩阵只读视角可取原始
-  行或指定视角）。
+投影管线的其余现状（全在 `history()` 内，读侧单源）：
 
-### 2.5 轨迹回放开关（replayTrajectory）【设计，2026-08-27 裁决：布尔两态】
+- **viewer 缺省 = 匿名读者**：中性行一律 user（无法判定自他，审计/矩阵只读视角用）；旧 baked 行按原 role 直通。
+- **轨迹展开（`replayTrajectory`）**：`true`（**缺省**，2026-09-03 缺省翻转——质量优先；原缺省 false 是成本优先取舍，文档旧稿误记为 2026-09-23，以源码/测试头注为准）时，
+  仅 `agent_id === viewer` 的回复行按 `steps[]` 全量物化（每步 assistant(tool_calls?) + 配对 tool 行 → 终 assistant(content)；reasoning 不回传，M4）；
+  `false` = 对话级（工具中间态只服务 UI 展示与审计）。翻转 = 该会话回放形状的**显式 replace**（一次性全量失效）。
+- **事件行折叠（`settings.session.eventReplay='journal'`）**：仅对角线自会话桶（`conversationId = viewer~viewer`）把旧 context+source:'event' 行折叠为一条计数摘要，
+  保留最近 `eventJournalKeep`（缺省 6）条原文——治定时器自唤醒导致的机制行无限堆积（存量 records/UI 不动，只作用于 LLM 回放）。
+- **部分行回放闸门**：run 未收束残留的 partial 行，工具结果补记齐全则视同普通 steps 行回放（中断 run 已见前缀**字节保真**，provider KV 命中 + 完成步记忆）；
+  不齐（工具执行中进程死亡）→ 跳过（悬空 tool_calls 破坏 provider 消息序）；陈年 partial 由 `migrations.ts` 同源闸门判定（cr-44）。
+- **空 content 的 agent 行**（内容全在 steps：中断/max-steps 收束）在无轨迹展开时跳过——回放层面与「不入账」语义一致。
+- **回放对账**（2026-09-20 断网事故复盘）：run 首轮采基线，`history()` 相对基线骤缩/为空即告警（历史丢失信号，按会话 10 分钟去重）。
 
-"steps 是否进 LLM 跨 run 回放"做成**用户可调的布尔开关**（K 截断档
-已否决——见下"不设 K 档"）：
+**兼容路径（迁移期）**：无 `agent_id` 的旧 baked 行按 `name===viewer→assistant`、其余→user、event→user 变换——user⇄x 直答桶保持零回归；assistant 行缺 name 时归属回落 conversationId（singles 旧行）。
 
-- **配置键**：`settings.session.replayTrajectory: boolean`（缺省 `true` =
-  轨迹展开——**2026-09-23 缺省翻转**，原缺省 `false` 是成本优先取舍，现质量
-  优先；两处（合成层 + 存量键）皆未配置才走缺省，显式 `false` 受尊重）
-  ——2026-08-30 P2 词汇收口：落 M24 X1/A1 的 `settings[具名]` 层（全局默认层
-  config `settings.session` ∪ Agent 差异层，读取经 `settingsOf(viewer,'session')`
-  合成——viewer 即回读 Agent，per-Agent 语义天然成立）；存量 M21 键
-  `config.session.replayTrajectory` **双读过渡**（新层显式值优先、未配置回落
-  旧键——存量部署不静默翻转），`config/changed` 热生效；ac-session
-  `history()` 消费（归档整理 run 的播种同口径）；
-- **展开语义**：开启时 `agent`（回复）行的 steps[] **全量**物化为回放
-  序列——每步 `assistant(tool_calls)` + 对应 `tool` 结果行
-  （tool_call_id 配对）→ 终 `assistant(content)`，复现 run 内消息序；
-  关闭时维持对话级（现状）。展开只影响 LLM 回放（history 面），
-  records/UI 展示不变；
-- **前端**：插件库目录 ac-session 卡片「⚙ 可配置」弹窗（全局默认层，写
-  `config/set → settings.session`）+ Agent 装配页差异层实例（2026-08-30
-  P2 收口——原 SettingsPanel sys.session 全局面板退役）；
-- **KV 注记（§7.3 核算的显式化）**：关 = 成本最优（省略 token 费用
-  为 0 < 命中价 0.1×）；开 = 质量优先（跨 run 保留自己的工具轨迹
-  记忆、少重复调用），但持久化 steps 是脱敏 + JSON 往返产物，与当轮
-  实际发送字节漂移——历史 run 边界处仍 miss，"开 = 高命中"不成立，
-  用户按质量需求自选。**开关本身 = 该会话回放形状整体变化的显式
-  replace**（翻转即一次性全量失效）：低频、可接受，但翻开关不是
-  免费操作；
-- **不设 K 档（截断预算）的理由**：① 前缀稳定的前提是**每轮回放形状
-  不可变**——任何"近 K 步"截断预算都会随新内容前滑（群滑窗同款
-  结构性缺陷），历史首条每轮变化 ⇒ 前缀整体重建 ⇒ 无法命中，截掉的
-  token 没省下、未截部分反而从命中变 miss，**费用不降反升**；② 长对话
-  的预算控制已有唯一属主 = 归档阈值（显式 replace、可审计、触发视图
-  重派生，M20）——机制一职，不为同一职责引入第二个旋钮；③ 两态使
-  回放形状的 golden 锁定与 UI 都减半；
-- **取代 M21 D7**（原裁决"维持不实装"）；false/true 两态的回放形状
-  以 golden 测试锁定。
+### 2.7 版本治理与迁移
+
+- **版本锚点**：`data/meta.json` 的 `dataVersion`（首启从 `.initialized` 推断 v0）；文件级锚点 = `session-header version:1`。
+- **迁移集 v1**（纯库 `ac-migration-core`：注册表 + 执行器，按序/幂等/断点续跑；位置 = `ac-app/boot.ts` 运行锁后、行装载前；
+  失败即拒绝启动；迁移前经 `ac-backup-core` 直调强制打快照——**append-only 历史的唯一重写通道，仅此一条**）：
+  - `M-role-v2`：`event → context+source:event`、`error → context+source:error`；
+  - `M-subcall`：主文件 `"subcall":true` 的 tool-result 行剥离 → 同目录 `subcalls.jsonl`（行序保持、seq 续起）；
+  - `M-partials-split`：主文件 partial 行 + 模型直调补行 → `partials.jsonl`。
+- 未知 `version` 留 fail-loud 口子（宁可拒绝也不误读），无头文件按宽容读（个人数据宁可部分可用）。
 
 ---
 
@@ -217,498 +195,392 @@ role='system'（概要头）              → system     （直通，不参与�
 
 ```
 <root>/
-├── sessions/<conversationId>/messages.jsonl   消息流（append-only 唯一事实源）
-│                                             summary.md    概要（compact 产物）
-│                                             history_N.jsonl  归档分段（N 递增）
-├── sessions/singles/<ws|ungrouped>/<sid>/     独立会话上架（叶子名 = sid，
-│                                             寻址不变；索引 .shelves.json）
+├── sessions/<conversationId>/messages.jsonl   会话定稿流（append-only 唯一事实源）
+│                             partials.jsonl   run 中间态（步行/注入行/直调补行——收束即清）
+│                             subcalls.jsonl   run_code 子调用永久档案（不清理）
+│                             summary.md       概要（compact 产物）
+│                             history_N.jsonl  归档分段（N 递增）
+├── sessions/singles/<ws|ungrouped>/<sid>/     独立会话上架（叶子名 = sid，寻址不变；索引 sessions/.shelves.json）
+├── sessions/groups/<gid>/                     群本体上架（shelf='groups'，仅真实发言，§6）
+├── sessions/<gid>~<member>/                   群成员私有转录流（cr-4，标准 session 桶，无 shelf）
 ├── singles/<sid>/session.json                 独立会话元数据（ac-singles owning）
-├── groups/<gid>/group.json + messages.jsonl   群本体 + 成员表（ac-group owning）
-│                archive/history_N.jsonl + summary_N.md   群轮转分段与机械摘要
-├── conversation/pending-<handle>.jsonl        待投持久化（next-turn 队列）
-├── conversation/steer-stash-<handle>.jsonl    busy steer 暂存持久化（cr-250 durable
-│                                             steer：stash 即落盘〔fsync〕，消费/
-│                                             drop/兜底三清理点剔行，启动恢复
-│                                             重投——经标准 deliver，失败回落留痕）
-├── .deliver-seen.json                         deliver requestId 幂等键（cr-250：
-│                                             FIFO 200 跨重启短路，deduped outcome）
+│                   prefix-snapshot.json       singles system+tools 前缀快照（§5.2，本服务 owning）
+├── groups/<gid>/group.json + archive/         群成员表（原子写）+ 轮转分段 history_N.jsonl + summary_N.md
+├── conversation/pending-<handle>.jsonl        待投持久化（next-turn 队列；行 id 带 req: 前缀）
+├── conversation/steer-stash-<handle>.jsonl    busy steer 暂存持久化（cr-250 durable steer）
+├── conversation/.deliver-seen.json            deliver requestId 幂等键（cr-250：FIFO 200 跨重启短路，deduped outcome）
 ├── archive/<convId>/…                         全量备份域归档（ac-backup 消费）
-└── usage/usage-<date>.jsonl                   用量审计流水（cache hit/miss 在此）
+└── usage/usage-<date>.jsonl                   用量审计流水（cache hit/miss 在此；KV 走势数据源）
 ```
 
-会话键校验：conversationId 禁路径分隔/遍历字符——文件名即键，无
-`chat~lo~hi` 排序魔法、无 `group~` 前缀判别（规约 2）。
+会话键校验：`conversationId` 禁路径分隔/遍历字符与 `~`（群 id）——文件名即键，无 `chat~lo~hi` 排序魔法、无 `group~` 前缀判别（规约 2）。
 
-### 3.2 messages.jsonl 行序与版本治理【设计，M21 步骤 7】
+### 3.2 三文件分工与 settlement（2026-09-20 裁决，取代「单文件 + vacuum」形态）
 
-- **会话头行**：新会话首行写
-  `{"type":"session-header","version":1,"createdAt":…}`——**version:1 即
-  中性格式**（§2.2，D13；头行机制未落地、无存量头行文件，v1 直接定义为
-  新词表，不经 baked 中间态）。读取时无头行 = 旧 baked 格式按 §2.4
-  兼容路径**宽容解析**（个人数据宁可部分可用）；解析侧对未知
-  `version` 留 fail-loud 口子（宁可拒绝也不误读）。成本一个字段，换未来
-  一切格式演进的锚点（src 轨道教训已在预演：trigger 解包兼容层、两种
-  tool_calls 形状并存，格式演进代价全堆在读取代码里）。
-- **单调 `seq`**：SessionRecord 增可选 `seq`（writer 按文件单调分配）。
-  三重收益：① 归档尾锚 = 末行 seq（或 sidecar 锚文件），替代"读末 8KB
-  解析末行"——对 128KB 级大行（实测最大 128.6KB）8KB 窗口必然解析
-  失败、锚静默丢失；② 崩溃/丢行检测（seq 断裂 = 有损，现在不可见）；
-  ③ 归档二次去重从内容匹配变序号匹配。旧行无 seq 视为缺失，行为不变。
-- 头行与 seq 落地时，`stats()` 行计数须排除头行（防消息数 +1 漂移）。
+| 文件 | 定位 | 生命周期 |
+|---|---|---|
+| `messages.jsonl` | 会话定稿流（header/agent/context/关闭行/收束行） | append-only，零死重（vacuum 退役） |
+| `partials.jsonl` | run 中间态：`journal-step` 步行 + `journal-inject` 注入行 + 直调 `tool-result` 补行 | run 收束由 settlement 剔除已提升行；**不进清理面**（关闭行 `result:null` 恒需补行覆盖） |
+| `subcalls.jsonl` | `call.runCodeSubcall` 的子调用档案（UI 回放数据源） | 永久档案，不清理——与 journal 生命周期相反 |
 
-### 3.3 写入语义（writer 队列【已落地】）
+**为什么拆三文件**：变体乙（写侧 run 切分——插入消息到达消费点时当前进度落「关闭行」、余下步走新 run 键，落盘自然顺序 = 回放顺序）首版实测暴露三缺陷：
+关闭行终值可能被按「收束行带全量结果」旧假设清理、关闭行落盘时点无法保证工具完成、同毫秒 timestamp 归位歧义。
+解法 = partials 独立成文件（终值档案如实保留）+ `echoSeq` 归位锚（读侧按「主文件 seq ≥ echoSeq 首行之前」归位）+ vacuum 退役。
 
-- 按文件串行（单写者假设：ac-session 是会话文件唯一写口）；
+**settlement（run 收束物化，两阶段）**：`router/reply-completed` → ① 提升批（段行 + 注入行 + 收束行）append 到 `messages.jsonl`（durable，含 `run-settled` 判别行）；
+② 按行身份从 `partials.jsonl` 剔除已提升行。崩溃窗口（①后②前）由 `recoverJournal` 惰性幂等收口（`records()` / `loop/run-started` 触发）。
+
+### 3.3 写入语义（writer 队列）
+
+- 按文件串行（单写者假设：ac-session 是会话文件唯一写口）；三文件各有独立队列（`flush(conv, kind)`）；
 - WeakSet 引用幂等：同一消息对象对同一会话只落盘一次；
-- 幂等固化：入队时铸造 `message_id`/`timestamp` 并**固化到消息对象**
-  （重复投递至少产出同 id 行）；
+- 幂等固化：入队时铸造 `message_id`/`timestamp` 并**固化到消息对象**（重复投递至少产出同 id 行）；
 - append + fsync 批量写；quiescence barrier；失败批次保序回队首；
-- **fail-closed checkpoint**：`tool/before-execute` 按执行身份
-  `call.conversationId` 定向 flush，落盘失败则 veto 工具执行——入站消息
-  先于工具副作用 durable；
-- 卸载收尾 flushAll（优雅关闭）。
+- **fail-closed checkpoint**：`tool/before-execute` 按执行身份 `call.conversationId` 定向 flush（M11），落盘失败则 veto 工具执行——入站消息与 journal 先于工具副作用 durable；
+- 卸载收尾 `flushAll()`（优雅关闭）。
 
 ### 3.4 概要与重建（replace 的落盘面）
 
-- `compact({summary, keep})`：flush → 写 summary.md → tmp+rename 原子
-  重写消息流（Windows 主场，不做硬链接发布）→ 旧队列作废；
+- `compact({summary, keep})`：flush → 写 `summary.md` → tmp+rename 原子重写消息流（Windows 主场，不做硬链接发布）→ 旧队列作废；
 - `deleteMessage` / `truncateAfter`（行内编辑语义）同款原子重写；
-- 归档分段（ac-archive-core：message_id 去重 + 尾部水位截断不拆工具对）
-  写 `history_N.jsonl`，会话流由 compact 重建为尾部 keep。
+- 归档分段（ac-archive-core：`message_id` 去重 + 尾部水位截断不拆工具对）写 `history_N.jsonl`，会话流由 compact 重建为尾部 keep；
+- 群本体轮转：500k token 阈值 → `groups/<gid>/archive/history_N.jsonl` + 机械摘要 `summary_N.md`，本体重建保留尾部 30k（§6.1）。
 
-### 3.5 崩溃语义
+### 3.5 崩溃语义（现状：step 级 checkpoint 已落地）
 
-现状：mid-run 崩溃整轮丢失（回复在 run 收束才入账）、已执行工具副作用
-零痕迹——已知最大落盘弱点。设计演进方向（M22 候选，本期不做）：
-**step 级增量落盘**（assistant 的 tool_calls 决策先于工具副作用落盘）+
-**崩溃闭合器**（重启发现未闭合轮时追加合成行补平日志：未答复工具调用
-按风险分级合成 `TOOL_NOT_STARTED`/`TOOL_OUTCOME_UNKNOWN` 结果行 +
-`turn/end{interrupted}`）。
+原「mid-run 崩溃整轮丢失、已执行工具副作用零痕迹」的落盘弱点**已由 run journal 消解**（2026-09-21 partials 泛化）：
+
+- **步级增量落盘**：`loop/after-step` → `journal-step`（决策先于工具副作用落盘）；`tool/after-execute` → `tool-result` 补行；
+- **崩溃闭合**：孤儿 journal 由 `loop/run-started` / `records()` 惰性恢复（`recoverJournal` 幂等）；run 未收束时 partial 行保留，刷新后历史首屏据此恢复思维链/工具卡；
+- **悬空调用合成**：中断 run 中 `result` 为 null 的调用在轨迹展开时合成 tool 行（防 provider 消息序被悬空 tool_calls 破坏）；
+- **残留缺口**（显式枚举）：工具执行中进程死亡的步无结果 → 该 run 不进 LLM 回放（只服务 UI）；跨进程崩溃的 steer stash 由启动恢复重投（cr-250）。
 
 ### 3.6 明确不做（对 DSH 落盘设计的取舍）
 
-SQLite/seek 后端与投影检查点缓存（单机个人规模无查询压力）；"未知必需
-事件拒绝加载"全严格读（选宽容跳过，头行留加严口子）；zstd 帧串接/硬
-链接原子发布（Windows 主场，tmp+rename 已够）；chunk 打包压缩（先做
-末步文本双写消除；将来做须守"压缩是编码层词汇，不是事件词汇"原则，
-不污染 SessionRecord 词表）。
+SQLite/seek 后端与投影检查点缓存（单机个人规模无查询压力）；「未知必需事件拒绝加载」全严格读（选宽容跳过 + 头行 fail-loud 口子）；
+zstd 帧串接/硬链接原子发布（Windows 主场，tmp+rename 已够）；chunk 打包压缩（压缩是编码层词汇，不污染 SessionRecord 词表）。
 
 ---
 
 ## 4. Agent 会话（对桶）
 
-### 4.1 桶模型与信封【已落地，M19】
+### 4.1 桶模型与信封
 
-一切双端会话都是对桶：`conversationId = pairKey(a, b)`，自会话 = `a~a`
-（对角线，机制触发统一归此——timer 自唤醒/job 完成，与用户直答桶
-分离）。信封身份/拓扑分离：`sender` = 发送方端点 id、`source` =
-'user'|'agent'|'event' 拓扑词、`conversationId` = 会话键；`hooks[具名]`
-不进信封（扩展插件自行经 agents 查询）。串行化门 handle =
-`runAddress(agent, conversationId)`：同一会话同一 Agent 至多一个 run；
-忙时 steer 注入 / next-run 等闲 / next-turn 链跑（MAX_AUTO_WAKES=3 防自激）。
+一切双端会话都是对桶：`conversationId = pairKey(a, b)`，自会话 = `a~a`（对角线，机制触发统一归此——timer 自唤醒/job 完成，与用户直答桶分离）。
+信封身份/拓扑分离：`sender` = 发送方端点 id、`source` = 'user'|'agent'|'event' 拓扑词、`conversationId` = 会话键；`hooks[具名]` 不进信封。
+串行化门 handle = `runAddress(agent, conversationId)`：同一会话同一 Agent 至多一个 run；忙时 steer 注入 / next-run 等闲 / next-turn 链跑（MAX_AUTO_WAKES=3 防自激）。
 
-> **timer 会话维度增量（2026-09-26）**：条目带 `conversationId`（timer
-> 工具 set 时从执行身份 `call.conversationId` 烘焙）时，触发回投该会话
-> 桶（独立会话 sid / 对桶 / 群 id 皆可），`sender='user'`——与用户直答
-> 同键（memoryBucketOf 把 sid 桶记忆锚到 pairKey(agent,'user') 对桶，
-> 入账/投递键一致）。缺省保持 D2 原语义（自会话对角线，sender=目标
-> 自身）。目标会话消亡（独立会话归档/移除、群解散）→ 跳过本轮不计数
-> （fire 慢通道，activeHours 同款形态）。
+> **投递幂等与 durable steer（cr-250，2026-10-05）**：`deliver` 带 `requestId` 时按下沉水位短路（`.deliver-seen.json` FIFO 200 跨重启，deduped outcome——多端重试不重复入账）；
+> busy steer stash **即落盘**（`steer-stash-*.jsonl` + fsync），消费/drop/兜底三清理点剔行，启动恢复重投（经标准 deliver，失败回落留痕；机制标记/event 行跳过）。
+>
+> **timer 会话维度增量（2026-09-26）**：条目带 `conversationId`（timer 工具 set 时从执行身份烘焙）时触发回投该会话桶（sid / 对桶 / 群 id 皆可），`sender='user'`；
+> 缺省保持自会话对角线语义。目标会话消亡（独立会话归档/移除、群解散）→ 跳过本轮不计数。
 
-### 4.2 上下文视图 = 按读者的派生投影【设计，M21 步骤 2；**2026-09-23 增量层退役**】
+### 4.2 上下文视图 = 每 run 从文件重派生
 
-> **退役裁决（2026-09-23 事故根因消除）**：本节原设计的事件驱动增量
-> 投影（三个 router/conversation 事件处理器 + stale 补丁）已退役——
-> 手写投影必须永远追平文件投影，两起同构漂移（2026-09-05 终稿 vs
-> 轨迹、2026-09-23 error 收束丢轨迹致断网续聊失忆）证明该结构性双
-> 事实源不可维护。现行为：**startRun 每 run 无条件经
-> session.history(conv,{viewer}) 从文件重派生**（链跑轮间亦然——
-> 群 blindspot/D11 语义由构造保持）；归档/轮转后无需任何失效标记
-> （下轮派生自然反映）；调用方显式种子与群 historyFor 优先路径保留。
-> 下方原文存档。
+**现行为（2026-09-23 增量层退役）**：`startRun` 每 run 无条件经 `session.history(conv, { viewer })` 从文件重派生（链跑轮间亦然——群 blindspot/D11 语义由构造保持）；
+归档/轮转后无需任何失效标记（下轮派生自然反映）。调用方显式种子与群 `historyFor` 优先路径保留。
 
-目标形态（统一心法 S1+S2+S3）：
-
-- ac-conversation 的会话视图改由 **router 事件投影驱动**：订阅
-  `router/message-received` / `router/reply-completed` /
-  `conversation/steered`，把每个文件事件（说话人 = sender / 回复
-  Agent，即存储行的 agent_id）按
-  `agent_id === viewer ? assistant : user` 投影进**该桶全部 handle** 的
-  视图，行形态 `{role, content, name}` 与文件派生完全一致；
-- 进程内视图 = 文件事件的增量投影缓存；**重启 = 重派生**（同一函数，
-  golden 对拍字节等价）；startRun 现有手工 push 逻辑退役或退化为兜底；
-- 归档联动：订阅 `archive/completed` 标记该桶全部 handle stale，下次
-  startRun 重派生（stale-惰性，天然避开在途 run 竞态）——归档后视图
-  收缩、上下文回落 keep 预算内；
-- 机制标记 run（整理）不投影（meta 判定，M20 已落地）。
+> **被取代的方案（历史裁决，勿恢复）**：曾设计「router 事件投影驱动 + 进程内增量视图 + `archive/completed` stale 标记」的懒重派生形态。
+> 退役理由：手写投影必须永远追平文件投影，两起同构漂移（2026-09-05 终稿 vs 轨迹、2026-09-23 error 收束丢轨迹致断网续聊失忆）证明该结构性双事实源不可维护。
 
 ### 4.3 回放与消费方
 
-- `history(conv, { viewer })`（§2.4）是唯一回放边界；全部调用方传
-  viewer = 目标 Agent：collab-tools `send_agent`（委托桶）、timer（自会话
-  桶）、web-api（直答桶/独立会话）、**ac-archive 整理 run**（同桶播种，
-  "你与 X 的会话"提示词天然是整理 Agent 视角）。
-- 整理 run 的缓存复用（M20 已达成的 DSH 8.3 形态）：整理提示词 = agent
-  system + `history(conv, {viewer})` 逐字回放 + 尾部整理指令——结构上
-  前缀全命中。保持。
+`history(conv, { viewer })` 是唯一回放边界；调用方全部传 viewer = 目标 Agent：
+collab-tools `send_agent`（委托桶）、timer（自会话桶）、web-api（直答桶/独立会话）、**ac-archive 整理 run**（同桶播种，「你与 X 的会话」提示词天然是整理 Agent 视角）。
+整理 run 的缓存复用：整理提示词 = agent system + `history(conv, {viewer})` 逐字回放 + 尾部整理指令——结构上前缀全命中。
 
-### 4.4 system 抖动（本期显式接受）
+### 4.4 system 抖动的现状（cr-4 后已大幅收敛）
 
-memory（键 = conversationId）/ datetime（日更）/ 归档 rewrite 都会变
-system → 该桶一次全量前缀 reset。失效面 = 单桶、频率 = 记忆变更/日更/
-归档，实测无系统性低命中（§7.4），**本期接受、后续另议**（优化方向
-预留：memory 挪尾部注入等）。归档触发比维持 0.5 本期不动（M21 D6）。
+请求前缀的易变件现状：
+
+- **datetime**：其余会话 = system 尾部日期行（`loop/before-run-last` 尾档——序与装配顺序无关，跨日只失效日期行自身）；独立会话 = 每日 user 快照行（进 history 不进 system）；
+- **memory**：cr-4 起**彻底出 system**——记忆内容走会话流 context 行（checkpoint 快照 + delta 尾部追加，KV 零失效），system 侧只剩恒定静态指引；
+- **技能注入**：不再每 run 尾部重付——手势 pre-run 落 context 行、run_code 子调用收束落账（一次落账、跨 run 永久回放，成为前缀的一部分）；
+- **归档 rewrite**：显式 replace（§3.4），低频可审计。
+
+失效面 = 单桶、频率 = 日更/归档，实测无系统性低命中（§9.4）；本期接受、后续另议。
 
 ---
 
 ## 5. 独立会话（singles）
 
-### 5.1 模型：会话 = 引用 + 覆盖，不是拷贝【已落地，M18-G】
+### 5.1 模型：会话 = 引用 + 覆盖，不是拷贝
 
-`<root>/singles/<sid>/session.json` = Agent 引用（`agentId`）+ 会话级
-模型覆盖（`model?`）+ 工作区挂载（`workspaceId?`）+ 标题/状态；消息流
-归 ac-session（conversationId = sid，规约 2 零新写路径）。规则：**有消息
-即锁 Agent**（未选 Agent 的空会话经默认预设 `__standard__` 路由）；空白
-会话全局唯一（reuse）；模型覆盖随投递信封透传（预设默认无模型时必须
-靠它）。自动标题：首 run 后 LLM 一句话标题（失败回落首条消息截断）。
+`<root>/singles/<sid>/session.json` = Agent 引用（`agentId`）+ 会话级模型覆盖（`model?`）+ 工作区挂载（`workspaceId?`）+ 标题/状态；
+消息流归 ac-session（`conversationId = sid`，规约 2 零新写路径）。规则：**有消息即锁 Agent**（未选 Agent 的空会话经默认预设 `__standard__` 路由）；
+空白会话全局唯一（reuse）；模型覆盖随投递信封透传。自动标题：首 run 后 LLM 一句话标题（失败回落首条消息截断）。
 
-### 5.2 system + tools 前缀快照【设计，M21 步骤 4】
+### 5.2 system + tools 前缀快照（已落地：修订键锚点 + 终态核验）
 
-singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域
-恒定），是前缀绝对稳定的最佳试点位。目标：`[system + tool schema]`
-前缀对该会话**跨轮、跨重启字节不变**：
+singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域恒定），是前缀绝对稳定的最佳试点位。
+落点 `<root>/singles/<sid>/prefix-snapshot.json`（ac-singles owning），快照 = `{ system 全文, 规范化后 tools schema 全集, 修订键 }`：
 
-- **快照持久化**（DSH EpochHeader 子集 + fold-latest）：快照 = `{ system
-  全文, 规范化后 tools schema 全集, 修订键 }`，single 创建（或首跑）时
-  组装并持久化到 singles 自有目录（`session.json` 新字段或 sidecar）；
-  此后每跑字节复用快照，不再重组装。快照最新胜（重拍覆盖）——只服务
-  前缀复现，审计由 usage 流水兜底。
-  修订键必须覆盖**装配输入全集**（persona/system/hooks/工具集/模型），
-  漏键 = 静默陈旧（fail-loud：修订键计算覆盖白名单）。"换了组合历史将
-  无法复现"——与 DSH agentPreset 持久化同一论证。
-- **易变件出 system、追加化**（DSH M3）：datetime → **每日一条 user
-  快照行**（追加，日内幂等不再注入；跨日仅追加一行）；memory → 快照按
-  memory 内容哈希作修订键，变更时重拍快照（一次显式失效；M21 D4 裁决
-  ——保留 system 位指令强度优先）。
-- **残余失效清单**（显式枚举接受）：Agent 档案/人设编辑、生效工具集
-  变化、模型覆盖修改（换缓存域）、memory 修订。
-- 上下文回放/视图与对桶同一套派生投影规则（§4.2）——sid 桶只是单
-  读者特例。
-- 归档照常走 M20 流程（显式 replace，低频）。
+- **机制（M5-lite「请求可重建」轻量版）**：`loop/before-run` gate（零变异、位置无关）按**装配输入全集**计算修订键——
+  persona/system/settings/生效工具集 schema/模型/llmParams/memory 哈希（白名单显式枚举，漏键 = 快照静默失效）；
+  键未变 → **verify**（run 终态比对 system/tools 字节，漂移即告警「KV 前缀可能失效」）；键变/无快照 → **capture**（重拍覆盖）。
+- **为什么不是运行时覆盖**：装配链是顺序敏感的监听器组合，强行末位置覆盖需行序保证；输入确定 + 修订键覆盖 + 字节对拍告警达成同一不变量。
+- **残余失效清单**（显式枚举接受）：Agent 档案/人设编辑、生效工具集变化、模型覆盖修改（换缓存域）、记忆修订。
+- **易变件出 system、追加化**：datetime → 每日一条 user 快照行（追加，日内幂等不再注入）；memory → cr-4 起走会话流 context 行（不再进 system，§4.4）。
+- 上下文回放/视图与对桶同一套派生路径（sid 桶只是单读者特例）；归档照常走显式 replace。
 
 ---
 
 ## 6. 群组会话
 
-### 6.1 本体与投递【已落地，M15】
+### 6.1 本体 + 成员私有转录流（cr-4 现行形态）
 
-- 群本体 = **仅真实发言**的 append-only 内容流（`groups/<gid>/messages.jsonl`，
-  500k token 轮转 → `archive/history_N.jsonl` + 机械摘要 `summary_N.md`，
-  本体重建保留尾部 30k）——无思考/工具中间态，群事实源与对桶分离；
-- 投递：`send(gid, from, content)` = post 入流 → 逐参与者
-  `conversation.deliver(member, <msg>包装+时间, {sender: from, …,
-  conversationId: gid})`；handle = `gid~member` 每参与者独立门
-  （busy = steer、idle = 新 run；fire-and-forget）；
-- GroupFeed：`readSince(anchor)`/`currentAnchor` —— busy 参与者的免重复
-  增量注入通道（steer 注入与视图投影同一构造点）。
+| 通道 | 落点 | 内容 |
+|---|---|---|
+| **群本体** | `sessions/groups/<gid>/messages.jsonl`（shelf='groups' 上架，ac-session 域） | **仅真实发言**的 append-only 内容流（SessionRecord 中性行，原文不包装——`<msg>` 包装是回放投影，落盘包装会把视角烘死进事实层）；`post` 是唯一入账口 |
+| **成员私有转录流** | `sessions/<gid>~<member>/`（标准 session 桶，无 shelf） | 每个成员的对话转录：post 按 viewer 投影扇出行 + 该成员 run 的转录（journal/settlement/步级/崩溃恢复/回放/压缩**全套复用**）。键形 `gid~member`（member 恒最右，右起解析无歧义；gid 禁 `~`） |
+| 成员表 / 轮转分段 | `<root>/groups/<gid>/group.json`（原子写）+ `archive/history_N.jsonl` + `summary_N.md` | 成员表与本体轮转产物（ac-group owning） |
+
+- **投递**：`send(gid, from, content)` = post 入本体 → 逐参与者 `conversation.deliver(member, <msg>包装+时间, {sender: from, conversationId: gid})`；handle = `gid~member`（busy = steer、idle = 新 run，fire-and-forget）；hint 只唤醒不携消息（投影行已入账）；busy 参与者经 `GroupFeed.readSince(anchor)` 免重复增量注入；
+- **本体轮转**：500k token 阈值 → 机械轮转（archive 分段 + 摘要），重建保留尾部 30k；群共享记忆概念已随 cr-4 消失；
+- **KV Cache effect**：成员流 Prefix-stable by construction——只做尾部追加（扇出投影 + run 转录），无就地变异、无重派生。
 
 ### 6.2 per-viewer 投影
 
-每个成员看到的历史是本体的**按读者投影**：
-
-- `<msg from="…" name="…" group="…">` 包装：**唯一构造点**
-  `wrapGroupMsg`（ac-group/src/view.ts——四次消息重复事故的教训：包装
-  格式只允许一个构造点，锚点增量/历史回放/触发通知共用）；
+- `<msg from="…" name="…" group="…">` 包装：**唯一构造点** `wrapGroupMsg`（`ac-group/src/view.ts`——四次消息重复事故的教训：包装格式只允许一个构造点，扇出投影/入群种子/触发通知共用）；
 - own 消息原文回显（自己说过的话不包装）；peer 消息 `<msg>` 包装；
-- **相邻 peer 纯发言合并**（连续 user 稀释注意力、多占 token 的 src
-  教训）：相邻同向 peer 发言合成一条，`<msg>` 标签区分说话人；
-- 轮转摘要注入为头部（长期记忆锚点："本群更早的消息已归档…"）。
+- 轮转摘要注入为头部（长期记忆锚点：「本群更早的消息已归档…」）；
+- **群聊行为契约**（M26）：`GROUP_CONTRACT_TEXT` 经 `loop/before-run` 注入历史尾部、触发消息之前（「回/不回」决策点）——
+  两次真实事故（空转、回声链雪崩）沉淀的文案，**勿回退到系统提示词位置**（最长上下文场景注意力稀释）。
 
-### 6.3 派生视图与滑窗消除【设计，M21 步骤 5】
-
-src 平移来的尾部 `loadLimitTokens` 截断（30k）**每次回放从尾重算**：
-本体每增长，截断窗头前滑 ⇒ 每轮请求的历史首条都在变 ⇒ **群请求的
-历史前缀每轮整体重建**——三形态中唯一"结构性永不命中"。修法：
-
-- 成员视图首次触发时**派生一次**（`[轮转摘要头][按预算的尾窗投影]`），
-  此后本体新事件**增量投影追加**（含尾部合并块的增量合并：新事件与
-  尾块同说话人则并入尾块，否则开新块——前缀仅在尾块结束符处分叉，
-  损失恒定为尾部一块）；
-- 视图超阈值（0.8×模型窗口，M21 D5）→ 显式重派生（可配合本体轮转的
-  新摘要），一次性失效；
-- 重启 = 重派生，与进程内派生同一函数 ⇒ 字节等价（golden 可测）；
-- **播种视角必须 per-member**：首跑种子按各自 viewer 派生（现状缺陷
-  见 §8-F2）。
-
-### 6.4 存储统一【设计方向，差异 D11——M21 步骤 5 一并落地或列 M22】
-
-**现状（双事实源，§8-F6 实证）**：群同时存在两个消息文件——
-`<root>/groups/<gid>/messages.jsonl` 本体（GroupMessageRecord：id/from/
-content/timestamp，**无 steps**；UI 群历史 `group/history` 与 historyFor
-回放读它）+ `<root>/sessions/<gid>/messages.jsonl` **影子桶**（群投递经
-conversation→router 全链事件，ac-session 照常入账：`<msg>` 包装 hint 行
-**按成员投递重复 N 次** + 各成员 assistant 回复含 steps[]——基本无人
-消费但持续增长、进备份、无轮转无归档）。
-
-**目标形态（用户方向采纳一半）**：
-
-- **本体迁入 sessions 树**：借既有 shelf 机制 `setShelf(gid, 'groups')`
-  （终位 = `sessions/groups/<gid>/`——shelf 参数不含叶子名，叶子名恒为
-  conversationId）——寻址仍是 conversationId=gid（规约 2 不破），消息流归 ac-session 单
-  owning（规约 1）；退役 `groups/<gid>/messages.jsonl`，影子桶扶正为唯一
-  本体。本体行 = SessionRecord 形状（中性格式 §2.2）：`from → agent_id`、
-  **原文不包装**（
-  `<msg>` 包装是回放投影，唯一构造点不变——落盘包装会把视角烘死进事实
-  层）、assistant 行内嵌 steps[]（群成员工具卡片刷新不丢，与对桶同构）；
-  入站行**只入一次**（修重复 hint：post 入本体取代按成员投递入账）。
-- **per-Agent 视角文件不采纳**：视角是按读者的派生投影（S1），进程内
-  视图是缓存（S3）——落成文件 = 第二事实源 + 写入放大（一条消息 × N
-  成员）+ 本体轮转后全成员视角重写；DSH"投影检查点缓存"也已明确不学
-  （单机规模重派生廉价，golden 对拍保证等价）。用户直觉"本体消息内嵌
-  steps 即可"正确——steps 内嵌消除了视角文件的全部存在理由。
-- **轮转/摘要迁移**：群 500k 轮转/30k 保留/机械摘要改走 ac-session
-  compact 域（归档分段与对桶同构），ac-group 保留编排（阈值检测/触发）
-  ——与 M20 归档分工同款。
-- **收益**：单事实源（UI 群历史/审计 grep_history/备份统一口径）、群
-  成员工具卡片刷新不丢、归档域机制复用、消灭无人消费却无限增长的影子
-  桶。**成本**：UI 群历史改读 records（含 name）、GroupFeed 锚点与
-  message_id 对齐、存量本体迁移脚本、historyFor 换到 session.records
-  派生——建议与 M21 步骤 5（群派生视图重设计）**同批落地**，避免先修
-  滑窗再迁移的两次返工。
+> **裁决链（历史，勿按旧文动手）**：原设计（M21 D6 一期）为「本体 + 每 run 派生视图 + 增量合并」并显式否决 per-Agent 视角文件（理由是写放大 + 第二事实源）。
+> 后果是派生窗全族（windowOf/deriveWindow/tailScan）、相邻 peer 纯发言合并、尾部滑窗截断——**cr-4（2026-09-27）推翻 D11 S1/S3 与派生视图路线**：
+> 改裁为成员私有转录流（写放大换简单性 + 全套 session 机制复用），派生窗全族与相邻 peer 合并退役，`historyFor` 降级为入群种子（不再是成员 run 的上下文源）。
+> KV 论证随之反转：原「写放大 + 第二事实源」担忧被「只追加、无重派生、前缀由构造成立」买单。
 
 ---
 
-## 7. KV 缓存分析
+## 7. 消息链路（四层 + 收敛协议）
 
-### 7.1 缓存模型与目标函数
+> 本章吸收 `message-pipeline-analysis.md`（cr-87 根因分析）的有效结论——其 D1/D2 两方向已实施（cr-94/95），
+> 原文件 2026-10-06 归档 `src/docs/archive/`；主根因已消解，F/D 的裁决沿革见 §7.5。
 
-provider（DeepSeek 等）自动前缀缓存：请求前缀与近期请求字节级一致则
-命中，命中部分按缓存价计费且 TTFT 大幅下降。**命中率不是目标函数，
-成本与 TTFT 才是**——因此分析对象是"结构性前缀破坏点"，不是救火式
-追命中率。
+### 7.1 四层链路
 
-请求前缀解剖：`[system][tool schema][history]`。理想不变量（S4）：每步
-请求 = 上一步的字节级前缀 + 纯追加后缀（新工具结果、新助手轮、新用户
-输入），唯一合法破坏 = 显式 replace（S5）。
+```
+L1 写路径   ac-conversation(状态机/串行化门/inbox) → ac-agent-loop(事件) → ws-bridge(帧桥)
+            产出：emit 事件流（delta/step/run 边界）——「直播管线」
+L2 存储     ac-session：partials.jsonl(journal 台账) → settlement 切段物化 → messages.jsonl(定稿流)
+            subcalls.jsonl 子调用永久档案并行；三文件分工见 §3.2
+L3 读路径   ① LLM history()（每 run 上下文重派生，viewer 投影）
+            ② web-api session/history（webui 首屏/分页，records() 活投影；lite 投影归 ac-session）
+            ③ remote-link forwardRpc（手机端：钳页 + lite 投影 + 加密帧）
+L4 前端     ac-client-ui-conversation：feed-core(分区 ingest + 历史分页) + feed.ts(纯函数合流层)
+            → buildTurns → 渲染；席位/视图归行包（message:final-view 等）
+```
 
-### 7.2 八机制对照（DSH 纪律 × 本设计落点）
+- **下行线格式共享纯库 `ac-wire-format`**（cr-85/108/112）：`llm/delta` 瘦身投影（`wireLlmInput`：帧面只留 `{model, meta}`）+ 30ms 微批（`LlmDeltaBatcher`）；
+  `BRIDGE_EVENTS` 目录（cr-108，42 事件全量）为 ws-bridge 与 remote-link 的共用桥接策略源；单批器漏斗 `WireBatcher`（cr-112，全事件 100ms 微批，首帧直发保交互；`durable-interaction/`、`ws/`、`remote/`、`system/` 前缀原生直发）。
+- **关键事实**：直播流（WS 事件）与历史投影（RPC）仍是两条物理独立的管线，最终视图是两者在前端合并的结果——
+  但**替换不再是时序赌注**（§7.2 收敛协议）。
+
+### 7.2 收敛协议（cr-94 D1，已实施）：显式信号取代赌窗
+
+**后端**：settlement 物化完成后 emit `session/run-settled`（载荷 `conversationId`/`agentId`，meta.runId）——此时刻起 `records()`/`history()` 必已可见权威收束行/段行；
+只在 journal settlement 路径发（直落收束行无 journal run 不发——读侧在 `reply-completed` 时已可见）。事件目录声明住 `ac-session/src/events.ts`（另含 `session/context-injected`）。
+
+**前端两驱动（`feed-core.ts`）**：
+
+| 驱动 | 触发 | 行为 |
+|---|---|---|
+| `session/run-settled` | settlement durable 落盘后端确证 | `delay = 0` 即时重拉首屏——构造保证下无赌窗 |
+| `loop/after-run` +500ms | 事件丢失 / 旧后端 / 无 journal 直落 run | 兜底（原 `TURN_DONE_DELAY` 300ms 路径降级为兜底） |
+
+两驱动均**无条件重拉**（始终开着的会话直播行从未经过历史合并，不重拉永远换不成权威收束行 → 分支/编辑/删除按钮要刷新才出现）；
+期间新 run 开跑无害（合并自带 live-wins 对齐）。收敛写口 = `convergeDialog(id, force)`（群分区早退——群内容源是 post 行，无 run 临时态）。
+
+**两道前线闸门（cr-106 / cr-107 B）**：
+
+1. **指纹短路双门**（`session/history` 首屏带分区指纹，文件未变时服务端回 `unchanged` 轻载荷）：
+   **live 分区**（`streaming` / 占位 / 未闭合工具行）一律禁用短路——切回时点 = 确定性收敛点，服务端真相覆盖本地（对齐合并归 `mergeHistory`）；`force`（判死收敛）必拿权威行；
+2. **吸收双门**（前缀互验吸收，cr-106 2026-10-02 吸收事故根修）：
+   **身份门**——中性格式下用户落盘行同为 `role:'agent'`，`agent_id` 不同的行永非「同一步」（否则用户正文灌进 Agent 占位 = 气泡镜像用户消息）；
+   **空载门**——占位先建、内容后到（`step-started` 先于首 delta），空占位是任何历史行的前缀，两侧任一无内容 = 无对齐证据，不吸收（宁重不丢，收束重拉兜底；`stepId` 键控路径不受此门约束——键即身份）。
+
+**悬挂流探针（cr-107 checkpoint-C）**：`streaming` 分区静默超 `STREAM_STALE_PROBE_MS = 180_000`（3min）→ 查 `conversation/stats` 权威判死活：
+判活（慢 run）刷新基线顺延再探；判死（登记表无此 run）关停全部临时态 + `convergeDialog(id, true)` 强制收敛；**RPC 失败不定罪**（后端不可达与悬挂不可区分，恢复归重连链路）。
+动机：收尾帧永远缺席的悬挂 run 会让占位与忙态无限期残留，而发送看门狗（30s）只救「无占位」形态、有占位恒判活（盲区）。
+
+**遗留纵深防御**：`mergeHistory` 的对齐猜测保留（B 的重拉到达前仍有一屏窗口）；发送侧 watchdog 触发即权威化。
+
+### 7.3 读路径单源化（cr-95 D2，已实施）
+
+同一存储被三种口径读取（LLM history / web-api records / remote lite），曾靠人工同步、无构造保证。
+现状：**lite 截断投影归位 ac-session**（`records(conv, { view:'lite' })` → `liteProjectRecords`，包内单源导出），web-api / remote-link 只剩传输层参数透传——
+消除「投影逻辑放错层」类风险（cr-55 lite 投影直接变异 records() 共享缓存对象污染 LLM 回放读侧，即此病理）。
+viewer 投影同样单源：`history()` 与 web-api 展示投影共用 `projectRecord` / `expandSteps`（轨迹形状单一事实源，防两处漂移）。
+
+### 7.4 前端合流器现状
+
+- **已有构造保证**：双键去重（`persistedMsgId|id`——同锚多步行共享收束行 message_id 但渲染 id 各异，单键会吞掉同轮第二条起的步行）、指纹短路、cr-85/108 线格式并源、cr-94 收敛信号、cr-106/107 门与探针；
+- **合流纯函数层**：`feed.ts`（统一信息流纯函数层）承载 `mergeHistoryPage` / `buildTurnsIncremental` / `lastStreaming` / `closeAllStreaming` 与包装透传；**双源合并语义已有单点落点**；
+- **未落地**：`feed-core.ts` 仍是约 135KB 单体，同域承载帧路由、ingest 状态机、历史分页、resume 合并、未读持久化、run 计时、归档标记等关切（**原 D3「按关切切分」未实施**——仅在出包归位（M27.2）时把纯函数与传输参数化拆出）。
+
+### 7.5 原根因分析的结论与裁决沿革（2026-10-06 压缩存档）
+
+| 编号 | 原结论 | 现状 / 裁决 |
+|---|---|---|
+| F1 | 双管线无收敛协议 = 主根因（替换依赖 300ms 时序赌注） | **已消解**：cr-94 显式收敛事件 + cr-106/107 门与探针（§7.2） |
+| F2 | 三读路径口径漂移（无构造保证） | **已消解方向**：cr-95 lite 投影单源（§7.3）；viewer 投影复用 `projectRecord`/`expandSteps` |
+| F3 | feed-core 单体承载合流（2315 行，七关切同作用域） | **未消解**：仍约 135KB 单体（合流纯函数已抽出，详见 §7.4） |
+| F4 | 存储层设计健康（排除项）——问题在投影与合流层 | **维持有效**（三文件 + settlement + 恢复机制持续证明价值） |
+| F5 | 部分补丁已是正确方向（fingerprint 短路、双键去重、线格式并源） | **维持有效**（并在 cr-94/106/107 中被收敛协议收编为门/探针） |
+| D1 | 收敛协议显式化（方案 a 后端补齐 / 方案 b 前端去赌）——推荐 a | **a 已采纳实施**（cr-94） |
+| D2 | 读投影单源化（收进 ac-session 参数化投影） | **已实施**（cr-95） |
+| D3 | feed-core 按关切拆分（配合 D1 做） | **未实施**（见 §7.4；拆分仍成立但非阻塞项） |
+| D4 | 不建议：重写存储层 / 继续打时序补丁 | **维持否决**（修复史证明打补丁是移动窗口而非消除窗口） |
+
+衔接记录：D1 落地走 after-* 观察通知 + ac-session 事件目录登记（`session/run-settled` 已过事件目录静态锁定）；
+D2 属服务方法演化，不涉新事件；二者均符合插槽-插头可逆性验收（摘掉改动能零改动恢复）。
+
+相关后续：`2026-09-24` 会话流身份贯通根治方案（`feed-identity-overhaul-plan.md`，已归档）为身份维诊断；cr-106 的身份门是其实证补强之一。
+
+---
+
+## 8. Run 生命周期与收敛 checkpoint
+
+全景图与临时态清单住 **`run-lifecycle-checkpoints.md`**（现行架构描述，2026-10-06 治理核实：cr-106/107 的 B/C 已实施并有回归测试，A/D 为已裁决不做项）。
+要点（细节以该文为准）：
+
+- **checkpoint-1 `loop/after-run`**（帧边界，final 物化/closeAllStreaming）→ **checkpoint-2 `session/run-settled`**（durable 落盘）→ 重拉首屏权威替换；
+- **第三个一等收敛点**：切回会话（live 分区禁指纹短路，cr-107 B）；**第四个**：悬挂流探针判死强制收敛（cr-107 C）；
+- **临时态清单**（本地乐观用户行 / 流式占位 / preparing 工具卡 / final 悬置 / 步终值校准锚 / 吸收合并 / journal 活投影行 / watchdog 兜底）逐项标注产生与拉直时刻——悬挂 run 期间哪些会「永悬」是 cr-106 吸收事故的教训面；
+- 本文 §3.2/§3.5 的 journal 物化与崩溃恢复即该图 S 侧（session）的机制底座。
+
+---
+
+## 9. KV 缓存分析（现状）
+
+### 9.1 缓存模型与目标函数
+
+provider（DeepSeek 等）自动前缀缓存：请求前缀与近期请求字节级一致则命中，命中部分按缓存价计费且 TTFT 大幅下降。
+**命中率不是目标函数，成本与 TTFT 才是**——因此分析对象是「结构性前缀破坏点」，不是救火式追命中率。
+请求前缀解剖：`[system][tool schema][history]`。理想不变量（S4）：每步请求 = 上一步的字节级前缀 + 纯追加后缀（新工具结果、新助手轮、新用户输入），唯一合法破坏 = 显式 replace（S5）。
+
+### 9.2 机制对照（DSH 纪律 × 本设计落点）
 
 | DSH 机制 | 本设计落点 | 状态 |
 |---|---|---|
-| M1 append-only 会话 + **派生**历史 | 文件 append-only【已落地】；视图派生化（§4.2） | ◐ 步骤 2 |
+| M1 append-only 会话 + **派生**历史 | 三文件落盘（§3.2）；每 run 从文件重派生（§4.2） | ✓ 已落地 |
 | M2a system 确定性组装 | persona/framework 分块拼接，输入不变则输出确定 | ✓ |
-| M2b 工具顺序规范化 | toolSpecs 缺省按工具名**字典序**（与注册顺序/插件装卸解耦；落地即一次性全量失效，接受） | ✗ 步骤 3 |
-| M3 易变内容追加化 | datetime 日快照行（singles §5.2）；agent 桶 system 抖动本期接受（§4.4） | ◐ |
-| M4 条件 reasoning 回传 | run 内 assistant 轮不回传 reasoning_content；steps[] 缺省不进跨 run 回放（replayTrajectory 开关可开，§2.5） | ✓（切 thinking 系模型复核） |
-| M5 请求可重建不变量 | 以 golden 等价测试做轻量版（视图 ≡ 重派生，字节级） | ◐ 步骤 2/6 |
-| M6 compaction 唯一破坏者 + 自身复用缓存 | 归档 = 唯一显式 replace（§3.4）；整理 run 前缀全命中（§4.3）；群视图阈值重派生（§6.3） | ✓/◐ |
-| M7 计量闭环 | cacheHit/cacheMiss 入 usage 流水（M15）+ 基线查询脚本化 | ✓ 步骤 6 |
+| M2b 工具顺序规范化 | `normalizeToolSpecs` 按工具名**字典序**（与注册顺序/插件装卸解耦；测试锁定） | ✓ 已落地（原 2026-08-27 为 ✗，M21 步骤 3 收口） |
+| M3 易变内容追加化 | datetime：其余会话 system 尾档日期行（只失效自身）、singles 每日 user 快照行；**memory cr-4 起出 system**，走会话流 context 行（checkpoint+delta 尾部追加，KV 零失效） | ✓ 已落地 |
+| M4 条件 reasoning 回传 | run 内 assistant 轮不回传 `reasoning_content`；跨 run 轨迹**缺省展开**（`replayTrajectory` 缺省 true，§2.6），关切即关 | ✓（切 thinking 系模型复核） |
+| M5 请求可重建不变量 | singles 修订键锚点 + run 终态核验（M5-lite，§5.2）+ golden 等价测试（进程内派生 ≡ 重派生） | ◐ 轻量版已落地 |
+| M6 compaction 唯一破坏者 + 自身复用缓存 | 归档/群轮转 = 唯一显式 replace（§3.4）；整理 run 前缀全命中（§4.3）；版本迁移是另一条显式通道（§2.7，频率更低） | ✓ |
+| M7 计量闭环 | `usage/usage-<date>.jsonl` 记 cacheHit/cacheMiss；基线查询脚本 `src/scripts/usage-baseline.ts`；会话级/步级观测面见 §9.4 | ✓ 已落地 |
 | M8 不为不存在的语义留 API | 无显式缓存标记/预热 API | ✓ |
 
-### 7.3 各会话形态的前缀稳定性
+### 9.3 各会话形态的前缀稳定性
 
 | 形态 | system | tool schema | history | 结论 |
 |---|---|---|---|---|
-| 对桶（直答/委托/自会话） | persona/framework 确定；memory/datetime/归档 rewrite 会抖动（§4.4 接受） | 随注册顺序抖动 → 字典序修复 | 视角修复 + 派生等价后，逐步纯追加 | 修两处后达标 |
-| 独立会话 | **快照持久化，跨重启字节不变**（§5.2） | 进快照修订键 | 同对桶 | 最佳试点位 |
-| 群 | 组名/成员表确定（低频变） | 同上 | **滑窗缺陷 → 派生视图 + 增量合并消除**（§6.3） | 三形态中唯一结构性破坏，步骤 5 修复 |
+| 对桶（直答/委托/自会话） | persona/framework 确定；datetime 尾档日更、归档 rewrite（§4.4 接受） | 字典序确定 | viewer 投影 + 每 run 重派生，逐步纯追加 | 达标（两处结构性破坏已修） |
+| 独立会话 | **快照持久化 + 修订键核验，跨重启字节不变**（§5.2） | 进快照修订键 | 同对桶 | 最佳试点位 |
+| 群 | 组名/成员表确定（低频变） | 同上 | **成员流只追加 by construction**（cr-4，§6.1）——原「尾部滑窗导致历史前缀每轮整体重建」的结构性缺陷已消除 | 三形态齐平（本体轮转 = 显式 replace） |
 
-**"steps 不进 LLM 回放"的 KV 成本核算（结论：不会导致低命中，反而是
-成本最优解）**：
+**跨 run 轨迹展开的 KV 账（结论：质量优先取舍，成本差异已显式签收）**：
 
-- **run 内**：ReAct 各步的 assistant(tool_calls) + tool 行**就在请求里**
-  （循环内消息流逐步追加——这是 ReAct 的机制要求），步内/步间前缀完全
-  共享，零损失；
-- **跨 run**：对话级回放省略工具中间态。成本账：省略的 token 费用 =
-  0，命中价 ≈ 0.1×，未命中 1×——**省略永远比"包含为命中"便宜**。以
-  一轮 10k token 工具中间态 + 500 token 终文本为例：对话级下轮重放仅
-  500 miss；轨迹级（理想字节稳定）是 10.5k 全命中 ≈ 等效 1.05k——
-  命中率数字更好看，绝对成本反而更高（命中率不是目标函数，§7.1）；
-- **轨迹级回放的隐性门槛**：持久化的 steps 含 transform-result 脱敏后
-  的结果与 JSON 往返——与当轮实际发送的字节**必然漂移**，直接回放 =
-  全量 miss + 脱敏内容回注；要做到字节稳定需 DSH M5 式请求可重建
-  机制（成本远超收益）；
-- **实证**：95.3% 基线中稳态 miss = 本轮新工具输出（run 内新 token，
-  架构不变量）；1% 全量 miss 簇 = 空闲逐出 + §8.2-C 字节分叉——均与
-  steps 省略无关；
-- **真实代价是质量而非成本**：跨 run 失去自己的工具轨迹记忆（重复调
-  用风险）——已按 2026-08-27 裁决升格为**可配置布尔开关**
-  `session.replayTrajectory`（§2.5：**2026-09-23 缺省翻转开 = 质量优先
-  全量展开**；显式关 = 成本最优），用户自选，取代 M21 D7"不实装"；
-  K 截断档否决（截断
-  破坏命中且费用反升，预算归归档阈值）。
+- **run 内**：ReAct 各步的 assistant(tool_calls) + tool 行本就在请求里（循环内消息流逐步追加），步内/步间前缀完全共享，零损失；
+- **跨 run（缺省展开）**：以一轮 10k token 工具中间态 + 500 token 终文本为例——对话级下轮重放仅 500 miss；轨迹级（理想字节稳定）是 10.5k 全命中 ≈ 等效 1.05k。命中率数字更好看，绝对成本反而更高（命中率不是目标函数）；
+  且持久化 steps 是脱敏 + JSON 往返产物，与当轮实际发送字节必然漂移，历史 run 边界处仍 miss——「开 = 高命中」不成立；
+- 因此缺省翻转（2026-09-03，质量优先：跨 run 保留自己的工具轨迹记忆、少重复调用）是**质量取舍**而非成本优化；成本敏感场景显式置 `false`；
+- **K 截断档否决理由（维持）**：① 前缀稳定的前提是每轮回放形状不可变，任何「近 K 步」截断预算都会随新内容前滑 ⇒ 前缀整体重建，截掉的 token 没省下、未截部分反而从命中变 miss，**费用不降反升**；② 长对话预算控制已有唯一属主 = 归档阈值（显式 replace、可审计）；③ 两态使 golden 锁定与 UI 都减半。
 
-### 7.4 实测基线（2026-08-27，`<root>/usage/*.jsonl`）
+### 9.4 实测基线与现行观测面
 
-全局 9,140 run 命中率 **95.3%**；news（2,191 run）91.3%、均 miss/run
-≈16k。news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
-架构不变量）；1% 全量 miss 簇 = 9.5h 空闲 provider 逐出 + 重启后的字节
-分叉（§8-D3）。**结论：无系统性低命中，修复对象是结构性破坏点
-（字节分叉、工具顺序、群滑窗、直答重启丢史），不是整体策略。**
+**历史基线（2026-08-27，`<root>/usage/*.jsonl`）**：全局 9,140 run 命中率 **95.3%**；news（2,191 run）91.3%、均 miss/run ≈16k。
+news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，架构不变量）；1% 全量 miss 簇 = 9.5h 空闲 provider 逐出 + 重启后的字节分叉。
+**结论：无系统性低命中，修复对象是结构性破坏点（字节分叉、工具顺序、群滑窗、直答重启丢史），不是整体策略**——四类破坏点现状见 §9.2/§9.3。
 
-### 7.5 观测与声明纪律
+**现行观测面（cr-231~251，2026-10-05 起）**：
 
-- usage 流水含 cacheHit/cacheMiss（provider 归一化：DeepSeek 顶层 /
-  OpenAI·GLM 嵌套推导）；基线查询脚本化（命中率/miss 分布），每步
-  落地后以真实数据对拍 §7.4；
-- **KV Cache effect 声明纪律**：回放/注入相关行（session/conversation/
-  group/persona/system-prompt/memory/datetime/skill）头注释声明自己对
-  请求前缀的作用（None / Append-only / Prefix-stable /
-  invalidate-from-X）。
+- **`session/tokens`**：上下文占用（四段堆叠条：工具定义/系统提示/会话上下文/余量）+ 缓存区摘要；
+- **`session/kv-timeline`**：会话**步级**缓存率序列（ac-usage 行级 timeline 留存；每点 = 一次有计量的 LLM 调用；cr-232 步粒度、cr-236 懒加载全量返回 limit 退役）；
+  弹层打开时拉取，配 95% 健康基准虚线（cr-243/245：50% 弱参考线已删）；
+- **run 进行中即可见**（cr-251）：ac-usage 加订 `loop/after-step` 写 pending 临时步流，`conversationTimeline` 拼接 pending 尾段，after-run 正式记账接管并清尾——不再等整轮收束；
+- 基线查询脚本化（命中率/miss 分布），每步落地后以真实数据对拍本节历史基线。
+
+### 9.5 观测与声明纪律
+
+- usage 流水含 cacheHit/cacheMiss（provider 归一化：DeepSeek 顶层 / OpenAI·GLM 嵌套推导）；
+- **KV Cache effect 声明纪律**：回放/注入相关行（session/conversation/group/persona/system-prompt/memory/datetime/skill）头注释声明自己对请求前缀的作用
+  （None / Append-only / Prefix-stable / invalidate-from-X）——现行实例见 `ac-session/src/index.ts`、`ac-group/src/service.ts`、`ac-datetime/src/index.ts` 包头。
 
 ---
 
-## 8. 当前 preview 轨道与设计差异说明
+## 10. 裁决链（设计点 × 现状态 × 裁决沿革）
 
-### 8.1 差异总表（设计点 × 现状 × 差距 × 落地映射）
+> 读法：本表是**历史裁决的存档**，不是待办清单。原稿（2026-08-27）的 ✗ 标记已按源码现状更新；被取代的方案保留结论与取代原因。
 
-> **落地状态（2026-08-27，M21 实施）**：D1/D12/D13（步骤 1）、D2/D3/D7/F1
-> （步骤 2）、D4（步骤 3）、D5（步骤 4）、D6/F2 + F6①（步骤 5 精益版）、
-> D9（步骤 6）、D8 + D13 迁移脚本（步骤 7）、D14（已落地）——全部
-> `pnpm preview:typecheck && pnpm preview:test` 全绿。**D11 亦已落地（当日
-> 二批）**：群本体迁 sessions 树（sessions/groups/<gid>/ 经 shelf 上架，
-> post → session.append[行 id 返回对齐锚点]、回复经 reply-completed 事件
-> 入账[steps 内嵌]、hint 投递 GROUP_HINT_META 不重复入账）；退役
-> groups/<gid>/messages.jsonl（groups/<gid>/ 只剩成员表 + 轮转分段）；
-> 本体读取懒水合（historyFor/GroupFeed/records）；轮转分段归本域 +
-> session.compact 重建；post/轮转后无需视图失效标记（2026-09-23 起
-> conversation 每 run 无条件重派生）——成员上下文 per-member 单源派生
->（本体即事实源，下次 run 由 send 的新种子
-> 重派生，不落视角文件——写放大与第二事实源双双消除）。singles 归位
-> sessions/singles/<ws|ungrouped>/（与运行时 syncShelves 同款）。存量
-> 整备脚本 preview/scripts/unify-group-storage.ts（三源合并去重 + 归位
-> + 视角桶清理）；migrate-workspace.ts 同步产出统一布局。**前端契约
-> 同步落地**：GroupMessageRecord 契约透传 steps[]/reasoning（群成员工具
-> 卡片与思维链刷新不丢——§6.4 收益项）；群回复经 reply-completed 订阅
-> 进 GroupService 内存 log（records/锚点即刻可见，UI 群历史刷新不丢
-> 回复）；webui 侧 fetchGroupHistory 按步展开（与 1v1 toHistoryMessages
-> 同构：agent 步气泡[tool_calls/thinking] + 配对 tool 气泡）+
-> groupMessageToChatMessage 透传 tool_calls/reasoning。实现备注：
-> ① singles 快照采用「修订键锚点 + run-started 终态核验」（M5-lite）
-> 而非运行时覆盖——装配链是顺序敏感的监听器组合，强行末位置覆盖需
-> 行序保证；输入确定（M2a）+ 修订键覆盖 + 字节对拍告警达成同一不变量。
-> ② 群 datetime 日快照行取「每信封恰一行、尾部插入」形态（内容日内
-> 恒定，跨日换行），持久化累积留给 D11 单源化。③ history() 的
-> viewer 缺省 = 匿名读者（中性行一律 user；旧 baked 行原 role 直通，
-> 与既有行为一致）——审计/原始行走 records()。
+| # | 设计点 | 现状态与证据 | 裁决沿革 |
+|---|---|---|---|
+| D1 | 回放按读者投影（变换基址 = `agent_id`） | ✓ `projectRecord` viewer 变换（`history(conv,{viewer})`） | 原 ✗（a⇄b 桶视角颠倒）→ 2026-08-27 落地 |
+| D2 | 视图 = 文件事件派生投影 | ✓ 但形态改变：每 run **无条件重派生**（无进程内增量视图） | 原设计「事件投影 + stale 标记」→ **2026-09-23 退役**（两次漂移事故，§4.2） |
+| D3 | 重启重派生 = 字节等价 | ✓ 由构造保证（单一派生路径） | 顺带修复直答/独立会话「重启后首轮上下文为空」（原 F1 差距） |
+| D4 | 工具顺序字典序 | ✓ `normalizeToolSpecs`（ac-agent-loop）+ 测试锁定 | 原 ✗（注册顺序 = 插件加载时序产物） |
+| D5 | singles system+tools 快照 | ✓ `prefix-snapshot.json` + 修订键锚点 + 终态核验告警 | 原 ✗（每跑重组装）；形态由「运行时覆盖」改裁为「修订键 + 核验」 |
+| D6 | 群派生视图 + 增量合并 | **改裁**：成员私有转录流（标准 session 桶，只追加） | 原「派生视图 + 增量合并」→ **cr-4（2026-09-27）推翻**（派生窗全族/相邻 peer 合并退役，§6） |
+| D7 | 归档后视图收缩 | ✓ 自动成立（下轮派生自然反映，无 stale 标记需求） | 随 D2 形态变更消解 |
+| D8 | 会话头行 + `seq` | ✓ `session-header v1` + writer 单调 seq；stats/窗口计数排除头行与判别行 | 原 ✗（零版本治理、归档尾锚 8KB 窗口对 128KB 大行失效） |
+| D9 | KV effect 声明 + 基线脚本 | ✓ 包头声明纪律 + `src/scripts/usage-baseline.ts` + cr-231~251 观测面 | 原 ◐ |
+| D10 | 视角/字节/追加语义 | ✓ 落盘 append-only、writer 队列、幂等固化、归档唯一 replace、整理 run 前缀复用、群 `<msg>` 唯一构造点 | — |
+| D11 | 群存储统一：本体迁 sessions 树 + steps 内嵌、退役影子桶 | ✓ 本体 = `sessions/groups/<gid>/`（shelf 上架，ac-session owning），`groups/<gid>/` 只剩成员表 + 轮转分段；**保留部分** = 成员私有转录流（cr-4） | 原「本体迁入 + 退役影子桶」已落地；per-member 视角「不落文件」裁决 → 被 cr-4 改裁为成员流（§6） |
+| D12 | 错误行一等化 | **改写**：`role:'error'` → v2 的 `role:'context' + source:'error'` | 原「error 是词表一等成员」→ 2026-09-18 词汇 v2 取代（三轴，§2.2）；行为面不变（UI 红色语义 / LLM 按 user 喂回） |
+| D13 | 中性格式切换 + viewer 变换 + 迁移 | ✓ 迁移 `M-role-v2` 后写侧不再产生旧词；旧 baked 文件宽容读 | v1 词表定义被 v2 扩展（role 收敛为消费通道，source/label 承载呈现） |
+| D14 | 轨迹回放布尔开关 | ✓ `settings.session.replayTrajectory`（settingsOf 合成 + 存量键双读，热生效）；**缺省 true（2026-09-03 缺省翻转）** | 取代 M21 D7「不实装」；K 截断档否决（§9.3）；文档旧稿把翻转日记为 2026-09-23，按源码/测试头注更正 |
 
-| # | 设计点 | 现状 | 差距 | M21 步骤 |
-|---|---|---|---|---|
-| D1 | 回放按读者投影（§2.4，变换基址 = `agent_id`） | `history(conv)` 无 viewer 参数；a⇄b 桶回放视角颠倒（§8.2-A） | ✗ | 步骤 1 |
-| D2 | 视图 = 文件事件派生投影（§4.2） | 双 handle 双视图独立积累、播种一次后永不再同步；进程内行与文件派生行字节不等价（§8.2-B/C） | ✗ | 步骤 2 |
-| D3 | 重启重派生 = 字节等价 | 直答/独立会话路径**无人播种**：重启后首跑 LLM 上下文为空（§8.3-F1） | ✗✗ | 步骤 2（顺带修复） |
-| D4 | 工具顺序字典序（§7.2 M2b） | toolSpecs 按 `ctx.tools.list()` 注册顺序（插件加载时序产物，HMR/装卸即变） | ✗ | 步骤 3 |
-| D5 | singles system+tools 快照（§5.2） | 每跑重组装；datetime 在 system（日更失效）；memory 变更即失效 | ✗ | 步骤 4 |
-| D6 | 群派生视图 + 增量合并（§6.3） | `historyFor` 逐轮全量重投影 + 尾部滑窗 ⇒ 历史前缀每轮整体重建；播种视角错位（§8.3-F2） | ✗✗ | 步骤 5 |
-| D7 | 归档后视图收缩 | `archive/completed` 后内存视图不 stale（长活进程预算失效，v1 版 P2） | ✗ | 步骤 2 |
-| D8 | 会话头行 + seq（§3.2；header v1 **即中性格式**，见 D13） | messages.jsonl 零版本治理；归档尾锚 8KB 窗口对 128KB 大行解析失效（锚静默丢 null） | ✗ | 步骤 7 |
-| D9 | KV effect 声明 + 基线脚本（§7.5） | usage 已记 hit/miss；无声明纪律、无对拍脚本 | ◐ | 步骤 6 |
-| D10 | 视角/字节/追加语义（§1-§3） | 落盘 append-only、writer 队列、幂等固化、归档唯一 replace、整理 run 前缀复用、群 `<msg>` 唯一构造点等 | ✓【已落地】 | — |
-| D11 | 群存储统一：本体迁 sessions 树 + steps 内嵌、退役影子桶（§6.4） | 已落地（2026-08-27 二批）：本体 = sessions/groups/<gid>/（shelf 上架，post→append + 回复经事件[steps 内嵌]，hint 不重复入账）；groups/<gid>/ 只剩成员表+轮转分段；成员视图 = markStale + per-member 种子重派生（不落视角文件）；UI 群历史 records() 换 session.records 派生（形状不变） | ✓ | 已落地 |
-| D12 | 错误行一等化 `role:'error'`（§2.3） | 错误折叠为 `[error]` 文本伪装 assistant 落盘并喂回 LLM（F7） | ✗ | 随 D13 词表一并 |
-| D13 | **中性格式切换（src 语义：role agent\|system\|tool\|error\|event + agent_id，§2.2）+ viewer 变换调整（§2.4）+ 迁移** | baked user/assistant + name；虚拟端点入账特判；`[error]` 折叠；无版本锚点 | ✗ | 步骤 1+7 合并（写入侧词表/特判删除；头行 v1 = 中性；无头兼容读 + 一次性迁移脚本） |
-| D14 | 轨迹回放布尔开关 `replayTrajectory`（§2.5，2026-09-23 缺省翻转为开；K 档否决） | 已落地：config 白名单键 + history() 消费即读（热生效）+ viewer 自己的行展开 + SettingsPanel 会话回放页 + 两态 golden。**2026-08-30 P2 收口**：键迁 `settings.session`（settingsOf 合成 + 存量键双读），UI 面收口为插件可配置项。**2026-09-23**：缺省翻转为开（质量优先；两处皆未配置才走缺省，显式 false 受尊重） | ✓ | 已落地（D13 后） |
+### 10.1 历史实证存档（原 §8.2/§8.3 的三层回放失败与审核差距——结论保留，均已消解或有现行对应）
 
-### 8.2 已核验的三层回放失败（M21 §1 实证，代码复核属实）
-
-**A｜桶内角色按"投递目标"写死，对端发起的半段对话角色颠倒。**
-入账规则：入站记 `user`+name=sender、回复记 `assistant`+name=回复
-Agent（ac-session/src/index.ts L180-199）。a⇄b 共享桶内，b 回放时：
-b 自己发起的话是 `user name=b`（应为 assistant）、a 的回复是
-`assistant name=a`（应为 user）——恰好颠倒；a 对称错另一半。user⇄agent
-桶不受影响（虚拟端点永远是读者侧的"对方"，写死角色恰等于读者视角），
-**这正是问题长期未暴露的原因**：主路径语义正确，委托路径才触发。
-
-**B｜双 handle 双视图，播种一次后永不再同步。**
-M19 对桶模型下 a、b 在同桶各有独立门与独立视图（`a~b~a` / `a~b~b`）；
-`send_agent` 首次投递以 `session.history(convKey)` 播种（ac-collab-tools
-L117-128），`contextFor` 只在视图不存在时播种一次（ac-conversation/src/
-service.ts L387-394）——b 的视图此后只积累 a→b 入站 + b 的回复；b 发起
-的方向进了桶文件，**永不进 b 的视图**（长活进程失忆，重启才重新播种）。
-
-**C｜视图行与文件派生行字节不等价（跨重启缓存全丢）。**
-进程内 push `{role, content}`（无 name）；且 record 固化的
-message_id/timestamp 变异进消息对象，随信封 `...bodyParams` 直达
-provider 请求体（ac-openai-completions L118-121）；文件回放
-`{role, content, name}`。重启后首个请求在 name/固化字段处分叉 → 全量
-miss（通用问题，不限 a⇄b）。
-
-### 8.3 审核补充差距（M21 未点名，实施须一并覆盖）
-
-- **F1（P0）｜直答/独立会话重启丢史**：web-api `conversation/deliver`
-  不传 history、router 纯转发不读 session、ac-conversation 无文件兜底
-  ——web 驱动的直答与 singles **重启后首跑 LLM 上下文为空**（UI 仍显示
-  历史，更隐蔽）。send_agent/timer/group/archive 四路径有种子，恰是
-  web 主路径没有。M21 步骤 2 的"重启 = 重派生"顺带修复，但 §8 验收门
-  须补"直答/独立会话跨重启上下文连续"断言，防只修缓存不修正确性。
-- **F2（P1）｜群播种视角错位**：`send` 只按 `historyFor(gid,
-  targets[0])` 算一份种子发给**全部成员**——非首成员首跑以他人视角
-  播种（自己的话被包成 peer `<msg>`）。步骤 5 的 per-viewer 派生视图
-  修复之，测试须点名。
-- **F3（P2）｜viewer 调用方清单漏 ac-archive**：M21 步骤 1 列了
-  collab-tools/timer/web-api，遗漏第四个 history 消费方 triggerReview
-  （ac-archive L337/L360，"你与 X 的会话"提示词天然需要 viewer=整理
-  Agent）——正是 M21 风险①"视角变换漏点"的自我应验。
-- **F4（P3）｜头行污染行计数**：D8 落地时 `stats()` 的 messageCount
-  按行数统计会把 session-header 计入（+1 漂移）；tail() 对头行
-  role 校验失败返回 undefined（无害）。步骤 7 实施清单须含 stats 排除。
-- **F5（P3）｜投影规则对 system 行的直通语义**：§2.4 已补——概要头
-  （role:'system'）不参与 viewer 变换；event → user；M21 §5 步骤 1 只
-  写了 event 行，实施时以本文 §2.4 为准。
-- **F6（P1）｜群双事实源（审核二轮新发现）**：群投递经 conversation→
-  router 全链，ac-session 按 conversationId=gid 照常入账——`<root>/
-  sessions/<gid>/messages.jsonl` 影子桶与 `<root>/groups/<gid>/
-  messages.jsonl` 本体并存：① hint 行**按成员投递重复 N 次**（每次
-  deliver 从字符串新建消息对象，WeakSet 引用幂等失效）；② 影子桶基本
-  无人消费（仅 grep_history/read_history 触及）却持续增长、进备份、
-  无轮转无归档（gid 无 `~`，ac-archive participantsOf 判空）；③ UI 群
-  历史读本体（GroupMessageRecord 无 steps）——**群成员的工具卡片刷新
-  即丢**（steps 在影子桶里，UI 不读）。修法 = §6.4 存储统一（D11）。
-- **F7（P3）｜错误折叠为 assistant 文本**：`finish='error'` 时
-  `[error] …` 以 assistant 身份落盘（router L145 / conversation L347）
-  并进上下文视图喂回 LLM——模型自归因失真 + UI 无错误分隔符。修法 =
-  §2.3 错误行一等化（随 D13 中性格式切换落地，error 是词表成员）。
-
-### 8.4 落地顺序与验收
-
-实施顺序 = M21 §5 步骤 1-7（回放视角 → 视图派生化 → 工具字典序 →
-singles 快照 → 群派生视图 → 观测固化 → 头行/seq），每步独立可验证：
-`pnpm preview:typecheck && pnpm preview:test` + 真实数据对拍 §7.4 基线。
-**D13 中性格式随步骤 1（写入侧词表 + viewer 变换基址）+ 步骤 7（头行
-v1 = 中性 + 迁移脚本）合并落地；D14 轨迹开关其后；D11 群存储统一并入
-步骤 5 或列 M22。**关键验收门（M21 §8 + §8.3 补充）：
-
-- a⇄b 双侧视角正确（name=自己的行全 assistant）；user⇄x 桶回放与现状
-  逐字节一致（恒等门，零回归）；
-- 进程内视图 ≡ `history(conv, {viewer})` 重派生（字节级；覆盖 steer/
-  链跑/私信/a⇄b 双向/归档后）；**直答/独立会话跨重启上下文连续**（F1 门）；
-- 归档完成不重启，同桶下一轮 ctx 回落 keep 预算内；在途 run 不截断；
-- singles 跨重启 system+tools 前缀字节不变；datetime 跨日仅追加一行；
-- 群连续两轮，第二轮请求前缀包含第一轮完整字节（除尾部合并块）；
-  播种视角 per-member（F2 门）；
-- 工具 schema 序与插件装卸/注册顺序无关；
-- 新会话首行 session-header；无头行旧文件回放行为不变（兼容门）；
-  seq 连续可检测；归档尾锚在 >8KB 大行下不失效；stats 计数排除头行（F4 门）；
-- **中性格式（D13）**：新写文件 role 词表 = agent|system|tool|error|event
-  + agent_id；迁移脚本改写后，同一桶迁移前后的 `history(conv,{viewer})`
-  投影输出逐字节同构（迁移恒等门）；无头旧文件兼容读取（legacy 门）；
-  虚拟端点入账特判代码删除（grep 门）；error 行不再以 assistant 文本落盘；
-- **轨迹开关（D14）**：replayTrajectory false/true 两态回放形状 golden；
-  config 热生效；SettingsPanel 可调可持久；无 K 档（截断即结构性 miss，
-  见 §2.5）。
+- **A 视角颠倒**（桶内角色按投递目标写死）：已消解——存储中性 + `agent_id` 投影（§2.6）。
+- **B 双 handle 双视图**（播种一次后永不再同步，长活进程失忆）：已消解——每 run 无条件重派生（§4.2）。
+- **C 视图行与文件派生行字节不等价**（跨重启缓存全丢）：已消解——同源派生 + 幂等字段只进落盘行、绝不进请求体。
+- **F1 直答/独立会话重启丢史**（web 主路径无种子）：已修（同 B/C 的形态变更）。
+- **F2 群播种视角错位**（一份种子发全部成员）：已消解——cr-4 成员私有转录流（每成员各自回放）。
+- **F3 viewer 调用方清单漏 ac-archive**：已列（§4.3 四消费方）。
+- **F4 头行污染行计数**：已处理——`countWindowMessages` / stats 排除 header、`tool-result`、`run-settled`、partial 行。
+- **F5 投影对 system 行的直通语义**：已处理——`projectRecord` 直通 system、context/event/error 恒 user。
+- **F6 群双事实源（影子桶 + 本体）**：已消解——D11 落地 + cr-4 成员流（§6.1）。
+- **F7 错误折叠为 assistant 文本**：已消解——词汇 v2 `context+source:'error'`（§2.5、D12）。
 
 ---
 
-## 附录：术语表
+## 附录 A · 术语表
 
 | 术语 | 含义 |
 |---|---|
 | 对桶 / pairKey | 双端会话键 `[a,b].sort().join('~')`；三态：直答 `viewer~agent`、委托 `a~b`、自会话 `a~a` |
 | handle / runAddress | 串行化门键 = (agent, conversationId)；同门至多一个 run |
 | viewer | 回放读者端点 id；视角变换的基准 |
-| 本体（群） | 仅真实发言的 append-only 内容流（群事实源，与对桶消息流分离） |
-| 派生视图 | 由文件/本体事件按读者投影增量维护的上下文缓存；重启重派生，字节等价 |
-| 显式 replace | 归档/轮转/快照重拍——唯一允许的前缀破坏操作 |
+| 消费通道（role） | 词汇 v2：`agent` = 真实发言，`context` = 上下文材料（source/label 决定呈现） |
+| 判别行 | `type` 键非消息行：session-header / journal-step / journal-inject / tool-result / run-settled |
+| run journal / partials | run 周期台账（步行/注入行/补行）；settlement 提升入 messages 后剔除 |
+| settlement | run 收束物化：提升批 append（durable）+ journal 剔除，两阶段 |
+| 收敛协议 | `session/run-settled`（cr-94）+ 前端驱动重拉 + 指纹双门/探针（cr-106/107） |
+| 本体（群） | 仅真实发言的 append-only 内容流（`sessions/groups/<gid>/`） |
+| 成员私有转录流 | `sessions/<gid>~<member>/`，成员自己的对话转录（cr-4，标准 session 桶） |
+| 显式 replace | 归档/轮转/快照重拍/版本迁移——仅有的允许前缀破坏的操作 |
 | golden 对拍 | 等价性测试：进程内派生 ≡ 全量重派生 / 迁移前后投影输出，逐字节比较 |
 | KV Cache effect | 行级声明：本代码对请求前缀的作用（None/Append-only/Prefix-stable/invalidate-from-X） |
-| 整理 run | 归档前 Agent 亲自整理的机制 run（meta 标记三处不落盘，M20） |
+| 整理 run | 归档前 Agent 亲自整理的机制 run（meta 标记三处不落盘） |
+| 匿名读者 | `history()` 未传 viewer：中性行一律 user（审计/矩阵只读视角） |
+
+## 附录 B · 相关文档
+
+| 文档 | 关系 |
+|---|---|
+| `src/README.md` | 轨道事实源（三层架构/契约归属总表/纯库清单）——冲突时以它为准 |
+| `run-lifecycle-checkpoints.md` | Run 生命周期临时态与收敛 checkpoint 全景（§8 引） |
+| `skill-injection-and-storage-vocab.md` | 存储词汇 v2 + 技能注入三通道 + 迁移机制（§2 的规范出处） |
+| `src/docs/archive/message-pipeline-analysis.md` | 消息链路根因分析（cr-87，2026-10-06 归档；有效结论已并入 §7） |
+| `src/docs/archive/message-pipeline-d1-convergence-plan.md` | D1 收敛协议实施计划（cr-94 已实施，冻结） |
+| `message-pipeline-graph.html` | 消息处理链路全景图谱（cr-87 可视化，四层泳道） |
+| `src/docs/archive/memory-timeline-plan.md` | cr-4 记忆时间线/群成员流改裁的计划与实证（§4.4/§6 依据） |
+| `src/docs/archive/feed-identity-overhaul-plan.md` | 会话流身份贯通根治方案（2026-09-24，已冻结） |
+| `src/scripts/usage-baseline.ts` | KV 基线查询脚本（§9.4） |
+

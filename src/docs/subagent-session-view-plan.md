@@ -3,6 +3,16 @@
 > 2026-09-17 制定。需求两条：①「运行跟踪」面板点击 subagent 调用行 → 主区展示该子
 > Agent 会话；②子 Agent 落盘完整消息（思维链/工具调用与结果），支撑展示。
 > 本计划是一次完整现状勘探的产物——所有锚点（函数名/行为/行号）经源码核对。
+>
+> **状态注记（2026-10-06 核实，cr-269 文档治理轮）**：P0 全部落地——`ac-client-ui-subagent`
+> 行在册（SubagentConversationView 视角 / ToolResultSubagent 工具卡 / subagentBoard
+> 域投影三贡献面齐全），`subagents/list` + `subagents/history` RPC 就位（ac-web-api），
+> 三文件化落盘（后记）已实施。原「七、P1 展望」中**历史分页 UI** 已实现
+> （SubagentConversationView.vue 首屏 50 条 + hasMore 上翻前插），**error 行**已实现
+> （role='context' + source='error' 错误收束行，词汇 v2 形态——注意与原文设想的
+> role='error' 不同，以源码为准）；live 流式、步级 partial 可视化、嵌套导航仍为
+> 未实施的预留路径。本文转为「已实施 P0 + 预留 P1」存档，锚点行号以 2026-09-17
+> 快照为准，后续漂移以就近搜索函数名为准。
 ## 后记：三文件化落盘（2026-09-22，sessions 域 journal 裁决对齐）
 
 sessions 域三文件拆分（messages/partials/subcalls，skill-injection-and-storage-vocab

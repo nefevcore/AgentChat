@@ -5,6 +5,15 @@
 > 悬挂 run（进程卡死、无收尾帧）期间切走切回，中间态只能靠 mergeHistory 的对齐猜测消化。
 > 本图以 single 会话一轮 run 为例，标出每个阶段产生的临时态与现有/候选收敛点，
 > 供评估是否加 checkpoint。时序主轴 = 后端事件序，右侧标注前端分区态与临时态。
+>
+> **核实注记（2026-10-06 文档治理）**：本文为**现行**架构描述，未被取代——已对照源码与 cr-log 逐项核实：
+> cr-106 身份门 + 空载门在场（`ac-client-ui-conversation/client/feed-core.ts` 吸收段）；cr-107 checkpoint-B
+> （live 分区禁指纹短路，`feed-core.ts` requestHistoryPage 双门）与 checkpoint-C（悬挂流探针 180s +
+> `conversation/stats` 权威判死活 + `convergeDialog(id, true)` 强制收敛）在场，回归测试
+> `src/webui/tests/feed-converge-checkpoints.test.ts`。候选 A/D 为 cr-107 已裁决不做项（历史裁决，非待办）。
+> 另：run 收束重拉的两驱动为 `session/run-settled`（delay 0，cr-94）+ `loop/after-run` +500ms 兜底（本文
+> 落点行「feed-core」成文于三文件化之前，journal 行读侧合并在 `ac-session` `records()` 内完成——见
+> `session-design.md` §7/§8）。
 
 ## 一、时序图（正常路径）
 
