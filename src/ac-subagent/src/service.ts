@@ -734,6 +734,11 @@ export class SubagentsService extends Service {
       });
       // runLoop 在当前 run 收束后见 deleted 自行退出并回收 entry
     }
+    // 派生后台 job 清理（cr-270）：run 内 pwsh background/handoff 以
+    // owner=<subId> 登记——abort 管不到（工具已返回、进程树独立存活）。
+    // remove 与工具步登记的竞态窗口（remove 扫过之后 run 才登记的漏网者）
+    // 由 settle 处的补刀收口
+    this.killOrphanJobs(id);
     this.persistRegistry();
     this.ctx.emit('subagents/updated', this.infoOf(record), 'removed');
     return true;
@@ -1094,7 +1099,12 @@ export class SubagentsService extends Service {
       this.ctx.emit('subagents/updated', this.infoOf(rec), 'settled');
       this.releaseForeground(entry, item.token, s);
       jobDone?.(jobOutcomeOf(s));
-      if (rec.deleted) this.entries.delete(rec.id);
+      if (rec.deleted) {
+        // cr-270 补刀：remove 与工具步登记的竞态窗口漏网者（remove 清扫时
+        // 尚未登记）在 run 收束时再清一遍——kill 幂等（已终态即 already-finished）
+        this.killOrphanJobs(rec.id);
+        this.entries.delete(rec.id);
+      }
       return s;
     };
 
@@ -1580,6 +1590,22 @@ export class SubagentsService extends Service {
       }
     } catch { /* 无文件/解析失败 = 1 */ }
     return 1;
+  }
+
+  /**
+   * 清理子 Agent 派生的后台 job（cr-270）：run 内 pwsh background/handoff
+   * 登记 owner=<subId>，进程树不随 run abort 回收（工具已返回、进程独立
+   * 存活）。以 subId 身份 kill → killedBy='owner'（cr-218 自杀免通知——
+   * delete 回执已带清理说明，父会话不再收冗余收尾通知）。
+   */
+  private killOrphanJobs(subId: string): void {
+    for (const j of this.ctx.jobs.list(subId)) {
+      try {
+        this.ctx.jobs.kill(j.id, subId, `子 Agent ${subId} 已删除，清理其派生的后台任务`);
+      } catch (err: unknown) {
+        this.ctx.logger.warn(`[subagent] "${subId}" 清理后台任务 ${j.id} 失败: ${String(err)}`);
+      }
+    }
   }
 
   /** 中止当前 run（stop/delete/卸载；步边界生效，LLM 传输层直达） */
@@ -2182,7 +2208,7 @@ export class SubagentsService extends Service {
             }
             return {
               ok: true,
-              output: { action: 'delete', subagent_id: id, deleted: true, message: '已标记删除（list 不再可见；会话文件保留）' },
+              output: { action: 'delete', subagent_id: id, deleted: true, message: '已标记删除（list 不再可见；会话文件保留；其派生的后台任务已一并终止）' },
             };
           }
           default:

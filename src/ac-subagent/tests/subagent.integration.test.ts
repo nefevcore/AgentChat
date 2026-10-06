@@ -18,6 +18,7 @@ import { ConfigService } from 'ac-config';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
 import * as jobsRow from 'ac-jobs';
+import type { JobOutcome } from 'ac-jobs';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as subagentRow from '../src/index.ts';
@@ -671,6 +672,145 @@ describe('ac-subagent：delete / list / 旧词汇', () => {
     expect(q.output.subagents[0].name).toBe('调研员');
     const idleOnly = await exec(ctx, { name: 'subagent', args: { action: 'list', running_only: true }, agentId: 'chief' });
     expect(idleOnly.output.total).toBe(0);
+  });
+});
+
+describe('ac-subagent：delete 清理派生后台 job（cr-270）', () => {
+  /** 派生 job 的 producer 形态（executor.ts jobs.start 同款钩子结构） */
+  function orphanJobHooks(cancelLog: string[]) {
+    let resolveDone!: (o: JobOutcome) => void;
+    const done = new Promise<JobOutcome>((r) => { resolveDone = r; });
+    return {
+      hooks: {
+        cancel: () => { cancelLog.push('cancelled'); resolveDone({ status: 'killed', detail: 'subagent removed' }); },
+        done,
+      },
+    };
+  }
+
+  it('delete：run 内登记的后台 job 以 subId 为 owner → 一并 kill（killedBy=owner 免通知）', async () => {
+    const cancelLog: string[] = [];
+    const toolCallProvider = {
+      name: 'toolcall-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register(
+          'mock',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              if (captured.length === 1) {
+                yield {
+                  delta: '', finish: 'tool_calls',
+                  toolCalls: [{ index: 0, id: 'tc1', name: 'bg_tool', argumentsDelta: '{}' }],
+                };
+              } else {
+                yield { delta: `结论:${String(input.messages.at(-1)?.content).slice(0, 10)}` };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              }
+            },
+          }),
+          { models: ['mock-1'] },
+        );
+      },
+    };
+    const { ctx } = await boot({ provider: toolCallProvider });
+    let jobId = '';
+    let ownerId = '';
+    ctx.tools.register({
+      name: 'bg_tool',
+      execute: (_args, call) => {
+        // 模拟 executor：以后台形态登记（owner = 执行身份 subId），立即返回
+        const { hooks } = orphanJobHooks(cancelLog);
+        jobId = ctx.jobs.start({
+          kind: 'pwsh', label: 'bg cmd', ownerAgentId: call.agentId,
+          run: () => hooks,
+        });
+        ownerId = String(call.agentId);
+        return Promise.resolve({ ok: true, output: { job_id: jobId } });
+      },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '跑后台命令', tools: ['bg_tool'] }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    await until(() => jobId !== '');
+    expect(ownerId).toBe(id); // owner 确为 subId（cr-270 语义前提）
+    expect(ctx.jobs.get(jobId).status).toBe('running');
+    const d = await exec(ctx, { name: 'subagent', args: { action: 'delete', subagent_id: id }, agentId: 'chief' });
+    expect(d.ok).toBe(true);
+    // 派生 job 被 kill：cancel 已调、终态 killed、killedBy=owner（wakeup 免通知）
+    await until(() => ctx.jobs.get(jobId).status !== 'running');
+    const job = ctx.jobs.get(jobId);
+    expect(job.status).toBe('killed');
+    expect(job.killedBy).toBe('owner');
+    expect(cancelLog).toEqual(['cancelled']);
+  });
+
+  it('remove 后 run 工具步才登记的漏网 job → 收束补刀收口', async () => {
+    const cancelLog: string[] = [];
+    let toolGateRelease!: () => void;
+    const toolGate = new Promise<void>((r) => { toolGateRelease = r; });
+    const settledJobs: Array<{ id: string; killedBy?: string }> = [];
+    const toolCallProvider = {
+      name: 'toolcall-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register(
+          'mock',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              if (captured.length === 1) {
+                yield {
+                  delta: '', finish: 'tool_calls',
+                  toolCalls: [{ index: 0, id: 'tc1', name: 'late_bg_tool', argumentsDelta: '{}' }],
+                };
+              } else {
+                yield { delta: `结论:${String(input.messages.at(-1)?.content).slice(0, 10)}` };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              }
+            },
+          }),
+          { models: ['mock-1'] },
+        );
+      },
+    };
+    const { ctx } = await boot({ provider: toolCallProvider });
+    ctx.on('job/settled', (job) => settledJobs.push({ id: job.id, killedBy: job.killedBy }));
+    let lateJobId = '';
+    ctx.tools.register({
+      name: 'late_bg_tool',
+      execute: (_args, call) => {
+        // 挂起期间 remove 扫过（漏网）→ 释放后登记 + 返回，run 步边界收束
+        void toolGate.then(() => {
+          const { hooks } = orphanJobHooks(cancelLog);
+          lateJobId = ctx.jobs.start({
+            kind: 'pwsh', label: 'late bg', ownerAgentId: call.agentId,
+            run: () => hooks,
+          });
+        });
+        return new Promise((resolve) => {
+          const onAbort = () => resolve({ ok: false, error: 'aborted' });
+          if (call.signal) {
+            if (call.signal.aborted) return onAbort();
+            call.signal.addEventListener('abort', onAbort, { once: true });
+          }
+        });
+      },
+    });
+    const r = await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: '晚登记后台', tools: ['late_bg_tool'] }, agentId: 'chief' });
+    const id = r.output.subagent_id as string;
+    await until(() => captured.length >= 1);
+    // remove 在工具挂起时打墓碑（此刻清扫 = 空，job 尚未登记）
+    const d = await exec(ctx, { name: 'subagent', args: { action: 'delete', subagent_id: id }, agentId: 'chief' });
+    expect(d.ok).toBe(true);
+    // 释放工具：登记发生（漏网者）→ run 步边界收束 → settle 补刀
+    toolGateRelease();
+    await until(() => lateJobId !== '');
+    await until(() => ctx.jobs.get(lateJobId).status !== 'running');
+    const job = ctx.jobs.get(lateJobId);
+    expect(job.status).toBe('killed');
+    expect(job.killedBy).toBe('owner');
+    expect(cancelLog).toEqual(['cancelled']);
   });
 });
 
