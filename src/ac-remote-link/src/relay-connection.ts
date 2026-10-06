@@ -171,23 +171,9 @@ export class RelayConnection {
     // 15s 白等一轮才转驻留；可接受：占座语义下这是唯一一次。
     const firstMsg = await this.expectHandshakeMessage(opts.waitFirstMsgMs ?? opts.timeoutMs ?? 15000);
     this.onState?.(`收到首条握手消息 ${firstMsg.length}B`);
-    // 先以「未知对端」读第一条：XK m1 = [e]（无 s）——KK m1 = [e, es]，es 需要已知 rs。
-    // 我们不知道对端是谁：先试 KK 注册表匹配（读出 rs 再定），实现上先按 XK 读——
-    // 若 m1 长度 > 32 则可能是 KK？不可靠。正确做法：两条消息的第一条都以「盲读 e」开始，
-    // es/se token 只在已知 rs 或读到 s 后才用。这里采用：先读 e（前 32B），然后查注册表
-    // ——KK 的 es 用查到的 rs；XK 没有 es。故构造两个候选 responder，按 m1 长度分流：
-    //   len == 32 + tag+payload：XK m1（payload 加密——但 m1 无 DH，载荷明文？）
-    // 统一处理：用「先读 32B e + mixHash」的探测头，然后按注册表选择 KK/XK 路径。
-    // 为保持实现可审计，直接规则：m1 恰好 32B + 密文载荷(>=16B tag)。我们先用盲读：
-    //   XK m1: tokens=[e]，载荷加密（k 空 → 明文）。
-    //   KK m1: tokens=[e, es]，载荷加密（k 非空）。
-    // 无法从长度区分（载荷可变）。因此约定：**载荷首字节标记模式**（XK='P'，KK='R'，
-    // 其余 = 协议错误）。m1 载荷在两种模式下都可读（XK 明文 / KK 加密——不，KK m1
-    // 载荷用 es 后的密钥加密）。改用更简单的判定：注册表匹配。核心端把 m1 的 e 公钥
-    // 与所有已知设备公钥比对？——e 是临时公钥，不是静态公钥，无法匹配。
-    // 最终方案（与安卓端约定的信令）：**连接前 join 时把模式写进 roomId 命名空间**——
-    // 配对房间以 'p:' 前缀、重连房间以 'r:' 前缀。roomId 由两端独立知晓（二维码/注册表），
-    // 无歧义。
+    // XK/KK 模式判定：m1 无法从长度区分（载荷可变），e 是临时公钥也匹配不了注册表——
+    // 最终方案（与安卓端约定的信令）：模式写进 roomId 命名空间——'p' 前缀 = 配对房
+    // （XK），'r' 前缀 = 派生重连房（KK）。roomId 由两端独立知晓（二维码/注册表），无歧义。
     const isPairing = opts.roomId.startsWith('p');
     let hs: NoiseHandshake;
     let outcome: HandshakeOutcome;

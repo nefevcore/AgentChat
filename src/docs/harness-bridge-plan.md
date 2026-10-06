@@ -1,6 +1,6 @@
 # Harness 桥接（方案 B）：本地 CLI harness 借力通道
 
-> 状态：**方案稿（用户立项，待实施）**。用户场景：本机装有 Claude Code /
+> 状态：**P1+P2 已实施**（cr-278/279——两包 + harnessTier 实验键 + 会话续接；P3 观察中）。用户场景：本机装有 Claude Code /
 > Codex / DeepSeek Harness 等 harness 应用，希望在 AgentChat 会话中直接
 > 借力这些应用的能力。经三轮方案对比（§二），裁决先行落地**方案 B
 > （harness 工具行 + 委托子代理）**；provider 形态（方案 A）推后到
@@ -9,7 +9,8 @@
 >
 > 总立场：**零框架改动，纯增量行**——不新增事件、不动 core 四层、不新增
 > 服务键；能力长在既有插槽上（`ctx.tools.register` 工具四轴 + 权限轴 +
-> tags 门禁 + 预设 Agent 行 + ac-subagent/collab 委托先例）。
+> tags 门禁 + 预设 Agent 行 + ac-subagent/collab 委托先例 + conv-settings
+> 实验键目录——run_harness 归输入框「实验性」菜单，出厂默认启用，§5.7/D11）。
 
 ---
 
@@ -84,6 +85,7 @@ B 的架构契合论据：harness 调用本质是**一次可审计的工具执�
 | ac-subagent / ac-collab-tools | 子 Agent 派生注册 + tierOf 继承；`@名称` 引用 + spawn({name, task}) 委托 | harness 子代理天然可被 @ / spawn；父 Agent 也可经 tags 直取工具 |
 | journal / subcalls | run_code 子调用平铺先例（subcall 补行入档 + UI 平铺） | 工具结果走既有步记录通道零改动；事件流摘要进 host 日志 |
 | settings 三层 | schemastery 校验 + `extension` 自述 + `settings.<域>.<键>` + config/changed 热更；per-Agent 经 `ctx.agents.settingsOf` | `settings.harness` 域（enabled / maxConcurrent / gateways）；行声明 respectsEnabled 自查 |
+| conv-settings 实验键目录（ac-conv-settings） | `ConvSettingsKeyDef` 注册制键目录（`registerKey` 注册即归属）+ `group:'experimental'` 进输入框「实验性」菜单（ChatInput 经 `conv-settings/keys` rpc 目录驱动渲染，零前端改动）；`grants`（值→等效标签）经 `sessionCapsOf` 注入能力集（六决定点统一消费） | `harnessTier` 实验键（cr-277）：enum `enabled/disabled`、label「Harness 委托」、缺省 **enabled**（默认启用——实验性=发现入口归属，非能力开关）；grants `enabled → ['harness']`（见 §5.7） |
 
 ---
 
@@ -240,6 +242,34 @@ run_code trace 时间线形态）。
 - **行卸载**：在飞 run kill + 注册面 cordis 自动回收（kill 编排是子进程
   副作用清理，不违零 dispose 纪律）。
 
+### 5.7 实验性工具键（harnessTier，cr-277 补充裁决）
+
+run_harness 归入**实验性工具**：经 conv-settings 注册制实验键出现在
+输入框工具栏的「实验性」按钮菜单里，**出厂默认启用**。语义要点：
+
+- **实验性 = 发现入口归属，非能力开关**——键落点在 conv-settings 键目录
+  （`group:'experimental'`），与 browserTier（浏览器使用）、issueSubmit
+  （ISSUE 提交）同菜单同构；ChatInput 经 `conv-settings/keys` rpc 拉目录
+  驱动渲染，**零前端改动**。
+- **键形**：`harnessTier`，enum `['enabled','disabled']`，label「Harness
+  委托」，order 3（browserTier=1 / issueSubmit=2 之后），options
+  `{ enabled: '本会话启用', disabled: '本会话禁用' }`。
+- **缺省语义（与 issueSubmit 对称但反转）**：无键 = **enabled**（默认启用
+  ——用户裁决：实验性只是发现入口，不额外设门槛）；会话可显式 disabled
+  （临时禁用——防误委托/省订阅额度）。
+- **grants 通路**：`enabled → ['harness']` 标签注入（`sessionCapsOf` 单源
+  ——六决定点统一：router execute / agents tool-defs / list_tools /
+  run_code 投影 / ac-security 执行门禁 / subagent 装配）。语义 = **会话级
+  加法授权**：无键时回落 Agent tags（配了 `harness` 标签的 Agent 不受
+  影响）；未配标签的 Agent 在会话里选 enabled 即得 `run_harness` 可见面
+  ——无 tags Agent 的 LLM 可见面通路（issueSubmit 同款先例）。caps 通路
+  只做加法；**disabled 的拦截面 = 工具 execute 自查**（run_harness 执行前
+  读会话键，`disabled` 即拒绝并说明——issueSubmit 同款口径，配了 tags
+  的 Agent 在显式禁用会话同样被拦）。
+- **与 settings.harness.enabled 的分层**：实验键 = 会话粒度（用户在输入框
+  选择）；settings 域 = 全局/per-Agent 粒度（装了哪些网关、并发上限）。
+  两层正交，禁用面 = 会话 disabled ∪ settings disabled（任一禁即禁）。
+
 ---
 
 ## 六、配置形状
@@ -267,8 +297,8 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 
 | 期 | 内容 | 依赖 |
 |---|---|---|
-| P1 | ac-harness-core（两适配器 + 事件归一 + probe）+ ac-harness-tools（工具 + 子代理 + 权限/并发/生命周期 + settings 面） | 无 |
-| P2 | 会话续接：runKey 持久化（Agent 专属空间映射表 conversationId → session/thread id）+ resume 参数 | P1 |
+| P1 ✅ | ac-harness-core（两适配器 + 事件归一 + probe）+ ac-harness-tools（工具 + 子代理 + 权限/并发/生命周期 + settings 面） | 无 |
+| P2 ✅ | 会话续接：runKey 持久化（Agent 专属空间 `harness/sessions.json` 映射 conversationId → {gateway, runKey, ts}，成功即记/失败保留）+ resume 参数（auto/new；claude --resume / codex exec resume） | P1 |
 | P3（观察） | DSH web 桥（需双侧开发）；方案 A provider 形态（PROTOCOLS 注册表实施后） | 外部条件 |
 
 ---
@@ -279,7 +309,7 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 |---|---|---|
 | D1 | 工具与子代理关系 | 同包两件：子代理只是便利预设（转述层），非必需机制——工具独立成立 |
 | D2 | 子代理直通形态（零转述模型） | 一期转述层（便宜模型 + 固定协议）；直通需 loop 外执行路径（新机制），观察使用量再裁 |
-| D3 | 会话续接策略 | 一期 run 级（每次全量任务书，runKey 只透传）；会话级映射二期 |
+| D3 | 会话续接策略 | 一期 run 级（每次全量任务书，runKey 只透传）；**会话级映射已随 P2 落地**（cr-279——resume auto 缺省续接，new 强制重开；失败不覆盖上次凭据） |
 | D4 | 并发纪律 | agent 维互斥 + 全局上限；占线报忙不排队 |
 | D5 | 中断/超时语义 | signal → kill 子树；看门狗 maxMs；finish 四态如实收敛 |
 | D6 | 是否占 jobs 后台面 | 不占——工具执行天然同步（loop 步内等待），时长由 timeout 管 |
@@ -287,6 +317,7 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 | D8 | 预装探测时机 | 首次调用 probe（非 boot 期——未装不影响宿主启动） |
 | D9 | DSH 桥接 | 显式不做（web 服务无 exec 面、双侧开发、定位重叠）；出现公开 CLI 桥接面再评估 |
 | D10 | 新标签登记 | `harness` 进 tag-registry（实施时查 RESERVED 词表防撞） |
+| D11 | 实验性归属与缺省（cr-277） | run_harness 归输入框「实验性」菜单（conv-settings `harnessTier` 键，grants 通路）；**无键 = enabled 默认启用**——实验性=发现入口归属，非能力开关；会话可显式 disabled（§5.7） |
 
 ---
 
@@ -314,7 +345,8 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
   注册四轴（requiredTags 门禁 / needPermission 生效）；权限轴路径（有人桶
   询问 / 无人桶拒绝 / 专属空间免询问）；并发互斥与占线报忙；超时 kill /
   中止传播（signal → kill 调用断言）；agentGate 停用；dispose 回收（在飞
-  run kill）。
+  run kill）；harnessTier 键路径（无 tags Agent + 会话 enabled → 工具进面；
+  显式 disabled → execute 自查拒绝；键回收 → 宽松降级回落 tags）。
 - **集成档**（`*.integration.test.ts`，env 开关 `AGENTCHAT_HARNESS_E2E=1`
   且本机装了对应 CLI 才跑）：真 spawn 一轮只读最小任务（plan 档），断言终稿
   与事件流完整性。
@@ -326,7 +358,9 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 ```
 src/ac-harness-core/            新纯库（gateway.ts + adapters/claude-code.ts +
                                 adapters/codex.ts + events.ts + tests/）
-src/ac-harness-tools/           新行包（tool.ts + agent.ts + index.ts + tests/）
+src/ac-harness-tools/           新行包（tool.ts + agent.ts + index.ts + tests/；
+                                apply 内 convSettings.registerKey 注册
+                                harnessTier 实验键——§5.7/D11，注册即归属）
 src/cordis.yml                  +1 行（id: harness-tools）
 src/ac-app/src/index.ts         TREE +1 行
 src/README.md                   布局 + 工具行清单；设计档案索引加本文档

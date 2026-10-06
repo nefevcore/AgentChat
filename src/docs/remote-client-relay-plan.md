@@ -68,7 +68,7 @@
 | 设备页 + 配对二维码 | `src/ac-client-ui-remote/client/`（`RemoteDevices.vue`、`PairingQr.vue`） | 落地（P1；桌面视觉走查待用户确认） |
 | 远程事件面并入桥接目录 | `src/ac-wire-format/src/bridge-events.ts` L193-196（`remote/device-paired` 等四事件）+ `index.ts` L38 `DIRECT_EVENT_PREFIXES` 含 `remote/` | 落地（cr-108） |
 | 移动端壳（同一份 webui dist 双形态） | `src/ac-client-ui-layout/client/`（`MobileTabBar.vue`、`MobileMoreSheet.vue`、`AppFrame.vue`、`uiStore.ts`、`historyFlag.ts`）+ `src/webui-kit/src/base/Sheet.vue` | 落地（cr-29/30/31/32，见附录 A） |
-| 本地全链路验证双件套 | `scripts/remote-loopback-host.ts` / `scripts/remote-loopback-client.ts`（共享 `remote-loopback.ts`） | 常备 |
+| 本地全链路验证双件套 | `scripts/remote-loopback-host.ts` / `scripts/remote-loopback-client.ts`（各自独立自包含；最早的 `remote-loopback.ts` 原型已随 cr-285 退役） | 常备 |
 
 两处与本节原始判断的差异（以源码为现状）：
 
@@ -842,7 +842,7 @@ M19 后它成了缺陷源 → cr-78 改回 `user`。（cr-105 之后 scopes 方�
 | `src/ac-relay-server/src/main.ts`（+ `index.ts` / `download-gate.ts`） | 服务器传输适配（明文分支 node:http + `/healthz`）+ 配额门 |
 | `src/ac-client-ui-remote/` | webui 远程设备节（settings:section 贡献，order 95） |
 | `src/ac-wire-format/src/bridge-events.ts` | 桥接事件目录（含 `remote/device-*` 四事件，cr-108 并源） |
-| `scripts/remote-loopback-{host,client}.ts`（共用 `remote-loopback.ts`） | 本地全链路验证双件套 |
+| `scripts/remote-loopback-{host,client}.ts` | 本地全链路验证双件套 |
 | `src/ac-web-server/src/service.ts` 的 `callRpc` | 对 web-server 的唯一侵入点（远程 RPC 复用 rpcTable 处理器） |
 
 ### C.4 手机端链路硬化（cr-109，2026-10-02；原「二b 手机端优化」）

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-276**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-285**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -294,3 +294,12 @@
 - 【cr-274 2026-10-06 移动端启动等待优化：ONLINE 后覆盖层保留至 webui 就绪（ready 轮询撤层）+ index.html 首帧 splash + AppFrame 全局连接条（会话内局部条退役）】
 - 【cr-275 2026-10-06 链路级断线横幅：RemoteSession 状态流广播 remote/link-state 事件帧（桥与链路解耦后 wire WS 无感断线——真机实锤 connected 恒 true），AppFrame 消费打横幅】
 - 【cr-276 2026-10-06 SDK 投影消费面优化：①子调用前置校验器（纯库 validateInvoke——未知名/缺 required/enum 错值/additionalProperties:false 未知键，主线程 invoke 桥拦截，含最近名建议）把类型签名的软约束补成硬拦截，typo 第 0 步可修；②list_tools 从投影剔除（mode 形态下投影即工具面清单，回显纯冗余）——剔除名单 PROJECTION_EXCLUDE 双端（注入/校验）同源】
+- 【cr-277 2026-10-06 harness 桥接方案 B 补充裁决：run_harness 归入实验性工具（输入框工具栏实验性按钮区），出厂默认启用——实验性=发现入口归属，非能力开关；方案文档同步补 §5.7 + D11 + 插槽表/影响面/测试计划】
+- 【cr-278 2026-10-06 harness 桥接方案 B P1 实施：ac-harness-core 纯库（HarnessGateway 接口 + claude-code/codex exec JSONL 适配器 + 事件归一 + probe）+ ac-harness-tools 行包（run_harness 工具 [needPermission + tags harness + 沙箱两档 + agent 维互斥] + harnessTier 实验键注册 [conv-settings group experimental，缺省 enabled] + harness 委托子代理预设）；挂载 cordis.yml/ac-app TREE 各 +1 行；README 同步】
+- 【cr-279 2026-10-06 harness 桥接 P2 会话续接：runKey 持久化（Agent 专属空间 harness/sessions.json，conversationId→{gateway,runKey,ts} 映射，run 成功即记/失败不覆盖）+ run_harness resume 参数（auto/new；claude --resume、codex exec resume）+ 成功 run 后自动写映射——同会话再次委托默认续接上次 harness 会话】
+- 【cr-280 2026-10-06 手机端图片上传链路四连修：①ChatInput 上传失败 toastError 可见化（原 console.error 静默）；②大图上传前 canvas 压缩（media.ts 单源新增 maybeCompressImage，手机拍照兆级图压至约 2MP/JPEG0.85，绕开移动网络上传超时）；③LoopbackBridge API 面写请求超时 15s→120s（proxyToUpstream 显式传 timeoutMs，静态面 60s 先例对齐）；④MAX_PROXY_BODY_BYTES 6MiB→4MiB 校准（6MiB×4/3 base64 膨胀 + JSON 包装恰触 relay 单帧 8MiB conn.close 断链——原余量为负）】
+- 【cr-281 2026-10-06 手机端刷新后消息不更新：remote/resync 处理补全会话历史对账（convergeDialog + 名册重拉）——原实现只恢复问卡/审批卡，历史重拉缺失致页面停在旧消息直到重启】
+- 【cr-282 2026-10-06 harnessTier 实验键漏注册根修：ac-harness-tools 的 registerKey 走软取 ctx.get(convSettings, false)——loader 并发激活下行序 ≠ 激活序，软取 miss 即永久漏注册（bootTree 顺序 await 路径碰巧掩盖）。修 = inject 加 convSettings 硬依赖（cordis 依赖等待排激活序），注册与 execute 读取统一走注入服务面】
+- 【cr-283 2026-10-06 手机端网络切换即时换链：NetworkCallback 监听默认网络变化，在线期主动 cancel 旧链走既有重连循环，切网恢复从 OkHttp ping 最坏 30s 降到秒级】
+- 【cr-284 2026-10-06 移动端异形屏适配：安卓壳状态栏与 webui bg-base 双主题同色+图标明暗随系统（真机反馈顶部灰条——AppTheme 从未声明状态栏色，AppCompat 缺省灰悬于 web 深底上；MainActivity 补 applyStatusBarStyle，uiMode 不重建故 onConfigurationChanged 重涂）】
+- 【cr-285 2026-10-06 Remote 域发版前结构清理：service.ts 死字段（deviceRooms/pendingDeviceByConn）与死导出（REMOTE_SCOPES/RemoteCallContext）删除、reconnectTimer 单槽记账收敛（scheduleReconnect 与 room-unavailable 快速重试先 clear 在途定时器——旧设备退避定时器残留会覆盖丢新设备的重连请求）、relay-connection 握手分支大段求解过程注释收为结论、被 client 件取代的 remote-loopback.ts 原型脚本删除并同步文档】

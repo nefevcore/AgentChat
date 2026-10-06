@@ -66,8 +66,6 @@ export class RemoteLinkService extends Service {
   private pairingResolve: ((accept: boolean) => void) | null = null;
   /** 在线设备连接表（deviceId → 连接） */
   private connections = new Map<string, RelayConnection>();
-  /** 设备 id ↔ 该连接的房间（重连 roomId 派生） */
-  private deviceRooms = new Map<string, string>();
   /** 在途连接尝试去重（cr-43 ⑭ 并发守卫，见 runDeviceConnection） */
   private connectingDevices = new Set<string>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,7 +74,6 @@ export class RemoteLinkService extends Service {
   /** 启动即连已触发（cr-53：applySettings 的 URL 到位补触发只跑一次） */
   private bootConnected = false;
   private lastError: string | null = null;
-  private pendingDeviceByConn = new Map<RelayConnection, { name: string; pubkey: string }>();
 
   constructor(ctx: Context, options: RemoteLinkRowOptions = {}) {
     super(ctx, 'remoteLink');
@@ -497,6 +494,7 @@ export class RemoteLinkService extends Service {
       // 常规退避。
       if (msg.includes('room-unavailable')) {
         this.reconnectAttempt = 0;
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
           void this.runDeviceConnection(deviceId);
@@ -529,7 +527,6 @@ export class RemoteLinkService extends Service {
       // 新链已替换本链（superseded 摘钩在前，理论上到不了这里——防御性保留）
       if (this.connections.get(deviceId) !== conn) return;
       this.connections.delete(deviceId);
-      this.deviceRooms.delete(deviceId);
       // 退避计数随断链归零（cr-48 真机实锤：断链=新周期，退避应从 1s 重新爬）
       this.reconnectAttempt = 0;
       this.ctx.emit('remote/device-offline', deviceId, reason);
@@ -542,6 +539,9 @@ export class RemoteLinkService extends Service {
   private scheduleReconnect(deviceId: string): void {
     if (!this.options.autoReconnect) return;
     if (!this.registry.get(deviceId)) return; // 已吊销
+    // 单槽记账：reconnectTimer 是服务级单槽（非按设备）——重拨前先清在途定时器，
+    // 否则旧设备的退避定时器残留，新设备的重连请求被它覆盖丢失
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempt);
     const jitter = delay * (0.8 + Math.random() * 0.4);
     this.reconnectAttempt += 1;
