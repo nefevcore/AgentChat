@@ -21,6 +21,8 @@ import agentchat.noise.Upstream
 import agentchat.noise.b64u
 import agentchat.noise.unb64u
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.PowerManager
 import android.util.Log
 import com.google.gson.Gson
@@ -114,6 +116,11 @@ class RemoteSession(
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /** 网络切换监听（cr-283）：default network 变化即主动换链，见 registerNetworkWatch */
+    private val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+
     /** 用户主动断开（切后台 / dispose）——置位后重连循环与 onClose 都不再拉新链 */
     @Volatile private var manualStop = false
 
@@ -126,6 +133,7 @@ class RemoteSession(
     val identity: StaticIdentity by lazy { identityStore.load() }
 
     init {
+        registerNetworkWatch()
         _state.value = _state.value.copy(
             devicePubkey = b64u(identity.publicKey),
             relayUrl = pairing.relayUrl,
@@ -443,8 +451,47 @@ class RemoteSession(
     }
 
     fun dispose() {
+        unregisterNetworkWatch()
         stop()
         scope.cancel()
+    }
+
+    // ---- 网络切换即时换链（cr-283）----
+
+    /**
+     * 监听系统默认网络变化（WiFi↔蜂窝切换、WiFi 恢复）。
+     *
+     * 根因：网络切换后旧 TCP 绑死在已消失的接口上（半开连接）——手机端毫不知情，
+     * 要等 OkHttp 协议 ping 两周期超时（最坏 ~30-45s「在线但卡死」）才触发重连。
+     * 而系统在切换后 ~1s 内就发出 default network 回调。
+     *
+     * 修法：default network 变化且当前在线 → 显式触发旧链 onClose（对齐 peer-left
+     * 先例——不赌 OkHttp cancel 的回调时序，重连链必达）+ cancel 拆链（RST 立断）。
+     * 既有 startReconnectLoop 自动接管（幂等防重入、1s 起退避）。零新状态机。
+     *
+     * onAvailable 既覆盖「切到新网络」也覆盖「当前网络恢复」。初始注册时系统会
+     * 立即回放一次 onAvailable——会话刚建 phase 尚为 IDLE，自然无事发生。
+     */
+    private fun registerNetworkWatch() {
+        val cm = connectivityManager ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val rc = relay ?: return
+                if (_state.value.phase != LinkPhase.ONLINE) return
+                Log.i(TAG, "默认网络变化——主动换链（旧链半开防等待）")
+                rc.onClose?.invoke("network-changed")
+                rc.cancel()
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb) }
+            .onFailure { Log.w(TAG, "网络监听注册失败（降级为 ping 超时检测）: " + it.message) }
+        netCallback = cb
+    }
+
+    private fun unregisterNetworkWatch() {
+        val cb = netCallback ?: return
+        netCallback = null
+        runCatching { connectivityManager?.unregisterNetworkCallback(cb) }
     }
 
     // ---- 入站帧分发 ----
