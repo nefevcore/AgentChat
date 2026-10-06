@@ -417,6 +417,9 @@ importers:
       ac-group:
         specifier: workspace:*
         version: link:src/ac-group
+      ac-harness-tools:
+        specifier: workspace:*
+        version: link:src/ac-harness-tools
       ac-hello:
         specifier: workspace:*
         version: link:src/ac-hello
@@ -1004,9 +1007,6 @@ importers:
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
-      ac-harness-core:
-        specifier: workspace:*
-        version: link:../ac-harness-core
       ac-harness-tools:
         specifier: workspace:*
         version: link:../ac-harness-tools
