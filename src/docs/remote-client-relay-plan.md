@@ -879,6 +879,10 @@ deep link 解析后先 unescape；relay 心跳超 60s 无 ping 断连——客�
 
 cr-250 requestId 幂等准入（ws/ack deduped + `.deliver-seen.json` 跨重启短路）、cr-256 chunk 失败弹窗分流
 （rpc 探活替代循环重载）、cr-257/259 双向 gzip + RPC 帧压缩（公网 160KB 应答 1.2s → 秒开）、
-cr-255 占座会合根因（kkTargetPubkey 在首握等待之后赋值 → waiting-peer 收 m1 后无法会合）。
+cr-255 占座会合根因（kkTargetPubkey 在首握等待之后赋值 → waiting-peer 收 m1 后无法会合）、
+cr-274 启动等待反馈（ONLINE 后覆盖层文案过渡到「正在加载界面」，轮询 webui `__agentchatBootReady`
+标志撤层；index.html 首帧 splash 覆盖 HTML 已到 JS 未跑的空窗；断线提示上提 AppFrame 全局连接条）、
+cr-275 链路级断线横幅（真机实锤桥链解耦后 wire WS 无感断线——RemoteSession 状态流广播
+`remote/link-state` 事件帧，AppFrame 消费；真机验证断网 6s 横幅出现、恢复后自愈）。
 
 > **维护约定**：本域新事实直接改本文——里程碑进展进 §6.1、开放项进出 §9，不再另起文档（一份域一份总文档）。

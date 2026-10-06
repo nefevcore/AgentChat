@@ -149,6 +149,13 @@ async function boot(): Promise<void> {
   void initUiExtensionHost();
 
   app.mount('#app');
+
+  // boot 收尾（cr-274）：撤首帧 splash + 挂就绪标志——安卓壳轮询此标志决定
+  // 撤「正在加载界面」覆盖层的时机（ONLINE ≠ 界面可用，webui 资源仍在经桥
+  // 拉取）。挂点在 mount 之后 = 首屏已渲染。CustomEvent 等价通道（壳二选一）。
+  document.getElementById('boot-splash')?.remove();
+  (window as unknown as Record<string, unknown>).__agentchatBootReady = true;
+  window.dispatchEvent(new CustomEvent('agentchat:boot-ready'));
 }
 
 void boot();

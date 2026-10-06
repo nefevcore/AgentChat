@@ -53,15 +53,6 @@ const roster = useRosterCore();
 // feed 统一信息流（本视图剩余用点：isSingleFresh 空判定 / turns 渲染源；
 // 历史装载路径的 feed 用点已随 useConversationHistory 迁出）
 const feed = useFeedStore();
-// rpc 契约面（宿主 'rpc' 服务——wireRpc 薄壳；群发/连接态经此）
-const rpc = useClientContext()?.rpc ?? null;
-// 连接态初值取现态（M27 S3-1b 回归修复）：行 client 经 boot graph 异步
-// 装载后，WS 常在视图挂载前已开——onOpen 只在「下一次」开时触发，
-// 纯事件初值 false 会让连接条永久误显（注册顺序竞态）。
-// 桩缺省（connected 未提供）按已连接处理（离线桩不误显断连条）
-const wireStoreConnected = ref(rpc?.connected?.() ?? true);
-rpc?.onOpen?.(() => { wireStoreConnected.value = true; });
-rpc?.onClose?.(() => { wireStoreConnected.value = false; });
 const ui = useUiStore();
 /** 消息左右对齐基准（用户消息靠右；pair = viewer：两端非 user 全左气泡） */
 const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref(VIEWER_ID.value));
@@ -204,10 +195,6 @@ watch(() => ui.revealIntentSeq, (seq) => {
       :owner-data="headerWidgetData"
     />
 
-    <div v-if="!isGroup && !isPair && !wireStoreConnected" class="connection-status">
-      <span>[WARN] 连接已断开，正在重连...</span>
-    </div>
-
     <div class="chat-body">
       <div class="chat-main" :class="{ 'composer-centered': isSingleFresh }">
         <!-- 消息区（fresh 开场模式不渲染：空滚动外壳 flex:1 会占满主区把
@@ -294,6 +281,4 @@ watch(() => ui.revealIntentSeq, (seq) => {
 /* ── 新会话开场居中（single 空会话）：消息区不渲染，composer 区块
    垂直居中——视觉焦点聚在"开始会话"这一步 ── */
 .chat-main.composer-centered { justify-content: center; }
-
-.connection-status { text-align: center; padding: 6px; font-size: 12px; color: var(--warn); background: var(--bg-surface); flex-shrink: 0; }
 </style>

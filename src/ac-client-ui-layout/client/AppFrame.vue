@@ -36,6 +36,25 @@ import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
 const clientCtx = useClientContext();
 
+// 全局连接条（cr-274）：wire 断开时顶部提示（此前只有会话页内局部条——布局
+// 外壳未加载/切到其他主区视图时断线无提示，移动端回前台慢重连期尤其明显）。
+// 初值取现态（注册顺序竞态防线——与 ConversationView 同款裁决），桩缺省按已
+// 连接处理（离线桩不误显断连条）。
+const rpc = clientCtx?.rpc;
+const wireConnected = ref(rpc?.connected?.() ?? true);
+rpc?.onOpen?.(() => { wireConnected.value = true; });
+rpc?.onClose?.(() => { wireConnected.value = false; });
+// 链路级断线（cr-274 真机实锤）：桥与链路解耦（cr-49）后链路死而桥活——wire
+// WS（连本地回环桥）无感断线，connected 恒 true。安卓壳把 RemoteSession 状态
+// 以 remote/link-state 事件帧广播（online | reconnecting），此处消费：非 online
+// 即打横幅（与 wire 断线同一条，语义都是「与核心端的链路断了」）。缺帧 = 桌面
+// 端（无壳广播）或旧壳，不误显。
+const offLinkState = rpc?.onEvent((type, args) => {
+  if (type !== 'remote/link-state') return;
+  wireConnected.value = args[0] === 'online';
+}) ?? (() => undefined);
+onBeforeUnmount(() => { offLinkState(); });
+
 // 初始化主题
 useThemeStore();
 
@@ -77,6 +96,12 @@ onBeforeUnmount(() => offBack());
 
 <template>
   <div class="app-layout">
+
+    <!-- 全局连接条（cr-274）：wire 断开 = 顶部横幅（重连由 wire 自身退避处理，
+         此处纯提示）。绝对定位不占布局流，窄屏同样可见。 -->
+    <div v-if="!wireConnected" class="conn-banner" role="status">
+      连接已断开，正在重连…
+    </div>
 
     <!-- ① 活动栏（seat: activity-bar——VSCode Activity Bar 同款；出厂贡献
          = 壳件出厂贡献 ActivityBarHost；2026-09-11 语义定整：原 sidebar 改名）。
@@ -140,6 +165,14 @@ onBeforeUnmount(() => offBack());
 <style scoped>
 .app-layout {
   display: flex; height: 100vh; width: 100vw; overflow: hidden; position: relative;
+}
+
+/* 全局连接条（cr-274）：warn 语义墨 + 浮面底，安全区顶部避让（移动端刘海） */
+.conn-banner {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 900;
+  padding: calc(var(--safe-top, 0px) + 6px) 12px 6px;
+  text-align: center; font-size: var(--fs-xs); color: var(--warn);
+  background: var(--bg-raised);
 }
 
 .main-area {

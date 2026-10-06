@@ -189,8 +189,15 @@ class MainActivity : BridgeActivity() {
                             wasOnline = true
                             setStatus(null)
                             hidePanel()
-                            hideConnectOverlay()
+                            // 覆盖层撤除时机（cr-274）：ONLINE 只说明 relay 链路通，
+                            // webui 静态资源仍在经桥逐个拉取（cr-101 变体B：核心端
+                            // dist 是唯一事实源）——此刻撤层 = WebView 白屏盲等。
+                            // 改为覆盖层文案过渡到「正在加载界面」，等 webui boot
+                            // 完成挂起 __agentchatBootReady 标志再撤（超时兜底：极慢
+                            // 链路下 60s 后也撤，WebView 自身的加载态接管）。
+                            showConnectOverlay("正在加载界面…", showUnpair = false)
                             bridge?.webView?.loadUrl("http://127.0.0.1:$port/")
+                            awaitBootReady()
                         }
                     }
                     LinkPhase.CONNECTING -> {
@@ -215,6 +222,34 @@ class MainActivity : BridgeActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 等 webui boot 完成再撤覆盖层（cr-274）。
+     *
+     * webui main.ts 在装配序列末尾挂 window.__agentchatBootReady = true（等价
+     * 通道 CustomEvent 亦派发）；壳在 WebView 侧轮询该标志（500ms 一次，与返回键
+     * 桥同款 evaluateJavascript 通道）。webui 未加载/JS 未跑 = 恒 false，由 60s
+     * 超时兜底撤层（此时 WebView 已显示自身加载态或 splash）。
+     */
+    private fun awaitBootReady() {
+        val startedAt = System.currentTimeMillis()
+        val poll = object : Runnable {
+            override fun run() {
+                val webView = bridge?.webView ?: return
+                webView.evaluateJavascript("(window.__agentchatBootReady === true)") { ready ->
+                    if (ready == "true") {
+                        hideConnectOverlay()
+                    } else if (System.currentTimeMillis() - startedAt < 60_000) {
+                        android.os.Handler(mainLooper).postDelayed(this, 500)
+                    }
+                    // 超时：撤层（60s 仍不就绪 = 极慢链路或 webui 异常，让 WebView
+                    // 自身状态可见——比无限盖着「正在加载界面」诚实）
+                    else hideConnectOverlay()
+                }
+            }
+        }
+        android.os.Handler(mainLooper).post(poll)
     }
 
     // ---- 配对路径 ----

@@ -132,6 +132,21 @@ class RemoteSession(
             deviceId = pairing.deviceId,
             scopes = pairing.scopes,
         )
+        // 链路状态投影到 WebView（cr-274）：桥与链路解耦（cr-49）后链路死而桥活，
+        // webui 的 wire WS（连本地桥）无感断线——RPC 只会慢慢超时，无即时提示。
+        // 状态流已是唯一事实源，此处把它以 remote/link-state 事件帧广播（remote/*
+        // 是 wire-format 直发词汇，合法），webui 全局连接条消费。online 视为「无帧」
+        // ——常态零噪音，只有离开 online 才需要打扰。
+        scope.launch {
+            _state.collect { st ->
+                // online = 常态零噪音（webui 侧清除横幅）；CONNECTING/ERROR = 打横幅。
+                // IDLE/AWAIT_CONFIRM 只出现在配对期与整链停止（WebView 未起或即将整页重载），不播。
+                val phase = if (st.phase == LinkPhase.ONLINE) "online" else "reconnecting"
+                if (st.phase == LinkPhase.ONLINE || st.phase == LinkPhase.CONNECTING || st.phase == LinkPhase.ERROR) {
+                    bridge?.broadcast("{\"type\":\"remote/link-state\",\"data\":{\"args\":[\"$phase\"]}}")
+                }
+            }
+        }
     }
 
     // ---- 配对 ----
