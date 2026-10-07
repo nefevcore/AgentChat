@@ -274,6 +274,8 @@ export interface SubagentMessageLine {
   steps?: Array<{
     content: string;
     reasoning?: string;
+    /** 思考块签名（cr-294 回放同形）：expandSteps 回放时随 reasoning 回填 */
+    thinkingSignature?: string;
     textBeforeTools?: boolean;
     reasoningMs?: number;
     ts?: number;
@@ -390,6 +392,7 @@ function toStepRecord(step: LoopStepRecord, resultOf: (i: number) => unknown = (
   return {
     content: step.text,
     ...(step.reasoning ? { reasoning: step.reasoning } : {}),
+    ...(step.thinkingSignature !== undefined ? { thinkingSignature: step.thinkingSignature } : {}),
     ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
     ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}),
     ...(step.ts !== undefined ? { ts: step.ts } : {}),

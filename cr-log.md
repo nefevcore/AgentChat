@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-292**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-305**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -310,3 +310,16 @@
 - 【cr-290 2026-10-06 手机端会话清单未读无法定位与清除：SessionList 行补 single 未读角标（tab 聚合有数、行上无落点）+ 会话删除/归档清 feed 分区未读（孤儿未读防御）】
 - 【cr-291 2026-10-06 移动端通知：后台/锁屏时收到 Agent 消息或独立会话收尾消息弹出系统通知（Web Notification API + 安卓壳桥接预留）】
 - 【cr-292 2026-10-06 移动端常驻链路通知折叠为静默级（IMPORTANCE_MIN 删旧重建——FGS 法定通知不可去除，降级后状态栏无图标/通知栏折叠；消息通知 channel 不受影响）】
+- 【cr-293 2026-10-06 KV 前缀缓存断裂根因排查结案 + 修复方案设计（src/docs/kv-prefix-cache-fix-plan.md）：wire 探针实证每 run 首步 miss ≈ 上轮思考量；真实 API 实测锁定字段语义——DeepSeek 只认 reasoning_content 且 tools 在场时计入、GLM 只认 thinking、reasoning 为两家共死的字段名、name 字段两平台均不影响缓存；对照 dsh/pi-ai 源码确认思考回传 capability 矩阵（requiresReasoningContentOnAssistantMessages/reasoning-details 签名往返/clear_thinking:false）；修复 = 思考字段按 provider 单源化（live assistantOf 与回放 expandSteps 同形）+ OpenAI prompt_cache_key + Anthropic cache_control 增强】
+- 【cr-294 2026-10-06 思考字段按 provider 单源化：live/回放同形修 KV 边界断裂（kv-prefix-cache-fix-plan 实施）】
+- 【cr-295 2026-10-07 修复群播报重复投递：deliver 增 wakeNotice 双形态（steer 投原文/run 投瘦通知），群 hint 空闲轮不再与成员流投影行逐字双份】
+- 【cr-296 2026-10-07 技能事实校准（agentchat-dev）：gallery 陈列室路径改 src/webui/design/gallery.html（cr-262 迁移后技能未同步）+ webui-kit base 清单补 DatePicker（cr-260）+ plugin.md ac-session 规模 1200→3900+ 行 + release-ci check-deps 脚本路径笔误（scripts/check-deps.mjs）+ SKILL.md CR 规约文档路径显式化（src/docs/epoch-marking-convention.md + 仓库根 cr-log.md）+ framework.md TREE 位置精确到 src/ac-app/src/index.ts】
+- 【cr-297 2026-10-07 群聊行为契约新增工作任务先分工引导】
+- 【cr-298 2026-10-07 首启向导批1：ac-client-ui-onboarding 建包（overlay 98 + 首启标记 + 第1步 user 编辑 + 第5步导览，中间三步占位）——first-run-onboarding-plan 实施】
+- 【cr-299 2026-10-07 首启向导批2：PoolManager/SearchPoolManager 编辑弹窗体抽取为共用表单件 + 向导第2/3步接入内嵌表单（first-run-onboarding-plan §4.3）】
+- 【cr-300 2026-10-07 首启向导批3：第 4 步 Agent 创建表单（名称/模型下拉/人格/能力标签，默认 tags 对齐出厂标准档）+ provider 模型缓存加载并源 poolModelsOf（first-run-onboarding-plan）】
+- 【cr-301 2026-10-07 首启向导批4：activity-bar:more-menu 数据席位（layout 声明 + ActivityBar 渲染 + 向导注册「新手引导」项）——first-run-onboarding-plan §4.5】
+- 【cr-302 2026-10-07 首启向导前端行装配根修（同类第二次：cr-288）：ac-client-ui-onboarding 未声明进根 package.json devDependencies——loader 以 src/ 为 baseUrl 解析裸行名，根 node_modules 无链接即 ERR_MODULE_NOT_FOUND，supervised 启动 exit 78（cordis.yml/TREE/ac-app 依赖/docs 均已就位，只漏根声明）；+ 新增守门测试 src/ac-app/tests/row-manifest.test.ts（unit 档，静态零 boot）：裸行名必须①声明进根 devDependencies ②可从 src/ 锚点解析——行集装配这类缺口从此在 pnpm test:unit 就现形】
+- 【cr-303 2026-10-07 webview-baseline 棘轮守门红修：新组件 PoolEntryForm/AgentStep(onboarding) 选中态 chip 文字各引入 1 处无静态表达的 color-mix（primary 80%+text-1），产物 9→10 超上限——静态色混静态色改写 --primary-strong 令牌（tokens.css 既定档位：tint 底上 primary 对比不足 4.5 的文字场景），产物回到 9 处】
+- 【cr-304 2026-10-07 webview-baseline 棘轮随动：cr-303 改写后产物 color-mix 实测 8 处（另有一处被进行中改动消化），CSS_COLOR_MIX_CAP 9→8】
+- 【cr-305 2026-10-07 移除 __harness__ 预设子行：harness 委托已被实验性功能（harnessTier 实验键）覆盖，转述协议形态多余——yml/TREE/preset.ts/README/测试期望五面同步；工具行 run_harness 保留】

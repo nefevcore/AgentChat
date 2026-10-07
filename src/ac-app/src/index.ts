@@ -36,7 +36,6 @@ import * as groupRow from 'ac-group';
 import * as helloRow from 'ac-hello';
 import * as issueToolsRow from 'ac-issue-tools';
 import * as harnessToolsRow from 'ac-harness-tools';
-import { apply as harnessPresetApply, extension as harnessPresetExtension } from 'ac-harness-tools/src/preset.ts';
 import * as jobsRow from 'ac-jobs';
 import * as jobWakeupRow from 'ac-job-wakeup';
 import * as llmRow from 'ac-llm';
@@ -103,6 +102,8 @@ import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
 // 2026-09-16 数据根可配置 P2：桌面壳存储管理节（壳层桥消费，非桌面降级隐藏）
 import * as uiDesktopStorageRow from 'ac-client-ui-desktop-storage';
 import * as uiSearchPoolRow from 'ac-client-ui-search-pool';
+// 首启向导前端行（first-run-onboarding-plan，cr-298——行集与 cordis.yml 同步）
+import * as uiOnboardingRow from 'ac-client-ui-onboarding';
 import * as uiPluginRegistryRow from 'ac-client-ui-plugin-registry';
 import * as uiRemoteRow from 'ac-client-ui-remote';
 import * as workspaceRow from 'ac-workspace';
@@ -171,8 +172,6 @@ export const TREE: TreeRow[] = [
   { id: 'issue-tools', plugin: issueToolsRow },
   // ---- harness 委托（run_harness：本地 Claude Code/Codex CLI；行集与 cordis.yml 同步） ----
   { id: 'harness-tools', plugin: harnessToolsRow },
-  // harness 委托预设子行（转述协议 __harness__；对象行带自述——collectExtensionCatalog 读 runtime.plugin.extension）
-  { id: 'harness-preset', plugin: { name: 'ac-harness-tools/preset', inject: ['agentPresets'], apply: harnessPresetApply, extension: harnessPresetExtension } as unknown as Plugin },
   // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
   { id: 'sap-adt', plugin: sapAdtRow },
   // ABAP 开发模式预设子行（工具面与预设面独立装配；对象行显式带自述
@@ -227,6 +226,8 @@ export const TREE: TreeRow[] = [
   { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
   { id: 'ui-desktop-storage', plugin: uiDesktopStorageRow },
   { id: 'ui-search-pool', plugin: uiSearchPoolRow },
+  // 首启向导（cr-298：五步覆盖层——首启一次 + 更多菜单重播；行集与 cordis.yml 同步）
+  { id: 'ui-onboarding', plugin: uiOnboardingRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },
   { id: 'ui-renderer', plugin: uiRendererRow },

@@ -272,7 +272,7 @@ maxOutputBytes + unref + 中止）。并发纪律：写路径（WRITE_PATH_TOOLS
 bundle——bundle 形态走 build-bundle.mjs 第二入口产物 `dist/worker.mjs`
 （运行时存在性探测：dev `./worker.ts` → bundle 同目录 `worker.mjs`）。
 
-**群拓扑**（单通道 v3）：
+**群拓扑**（单通道 v3；cr-295 hint 双形态）：
 
 ```
 ctx.group.send(gid, from, content)
@@ -280,9 +280,12 @@ ctx.group.send(gid, from, content)
     sessions/groups/<gid>/messages.jsonl，超阈值机械轮转）
   + post 扇出（cr-4 成员私有转录流）：逐成员 sessions/<gid>~<member>/ 追加
     viewer 投影行（own=assistant 原文保示范密度 / peer=user <msg> 包装+时间）
-  → 逐成员 conversation.deliver(member, <msg>包装+时间, {sender: from,
-    conversationId: gid~member}——hint 只唤醒不携消息：投影行已入成员流，
-    run/回放/压缩全套走标准 session 机制，沉默权保真——转录流私有)
+  → 逐成员 conversation.deliver(member, hint, {sender: from,
+    conversationId: gid~member, wakeNotice}——hint 双形态（cr-295 群播重复
+    投递修复）：busy steer 注入活跃 run 快照（看不到新入账行）投 <msg>
+    原文；直接开 run / 链跑消费投瘦通知（wakeNotice 替换形态——投影行经
+    history 重派生已在上下文，信封再携原文即逐字双份）。run/回放/压缩
+    全套走标准 session 机制，沉默权保真——转录流私有）
 ```
 
 **会话历史**（ac-session，"事件积累 + 回放"模式）：订阅 `router/*` +
@@ -387,7 +390,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | 纯库 | 职责 |
 |---|---|
 | `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf——只收会成运行时环/反向依赖的最小词汇） |
-| `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离） |
+| `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离）+ 思考字段 wire 翻译（thinkingWireForm 单源：中立 reasoning 键 → DeepSeek reasoning_content / GLM thinking / 其余剥除，cr-294 KV 边界修复） |
 | `ac-anthropic-completions` | Anthropic 原生 /v1/messages：SSE 流式 + tool_use/thinking 映射 + chat 聚合 + listModels（cr-39 协议多态；池条目 protocol='anthropic'） |
 | `ac-gemini-completions` | Gemini 原生 generateContent：SSE 流式 + functionCall/thought 映射 + chat 聚合 + listModels（cr-39；protocol='gemini'） |
 | `ac-ollama-completions` | Ollama 原生 /api/chat：NDJSON 流式 + tool_calls/thinking 映射 + chat 聚合 + listModels /api/tags（cr-39；protocol='ollama'） |
@@ -617,9 +620,7 @@ src/
 │                            会话续接 P2（sessions.ts：Agent 专属空间
 │                            harness/sessions.json 映射 conversationId→runKey，
 │                            成功即记/失败保留；resume auto/new——claude
-│                            --resume、codex exec resume）+ preset.ts 子行：
-│                            harness 委托预设（__harness__，转述协议）——工具面
-│                            与预设面独立装配
+│                            --resume、codex exec resume）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+
@@ -735,15 +736,15 @@ src/
 ├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2 + M28 P0/P1/P2，
 │   todo,jobs,workspace,       D19 改裁：前端插件一律 ac-client-ui-* 独立包
 │   singles,group,agents,      ——包名即身份；cordis.yml/TREE 各占一行、
-│   goal,usage,skill,          各自可独立摘除）：**二十七行** = runview（S3
+│   goal,usage,skill,          各自可独立摘除）：**二十八行** = runview（S3
 │   system,timer,shell,        首例改名）+ 六域（todo/jobs/workspace/
 │   fs,web,browser,            singles/group/agents）+ **四+一域行**
 │   subagent,search-pool,      （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
 │   llm-pool,plugin-registry,  usage 用量面板 / skill 技能读面 / system
 │   theme,renderer,tool,       版本弹窗+系统小 API / timer 定时视图）+
 │   sidebar,conversation,      **五工具卡行**（M28 P2 §2.2 镜像表：
-│   settings,layout}/          shell/fs/web/browser/subagent——tool 宿主
-│                              退化零卡；subagent 行兼营**子 Agent 会话
+│   settings,layout,          shell/fs/web/browser/subagent——tool 宿主
+│   onboarding}/               退化零卡；subagent 行兼营**子 Agent 会话
 │                              只读视角**〔main:perspective 贡献 order 9，
 │                              运行跟踪面板点击进入——历史回放复用
 │                              conversation 渲染内核，session-view-plan〕）
@@ -760,7 +761,11 @@ src/
 │                              layout 应用壳 root+六 seat 声明——webui
 │                              零基础件残留；M28 P1 起四视角/文件预览/
 │                              建群/用量/版本/矩阵/工作区树 = 域行席位
-│                              贡献，AppFrame 退化为近零内联壳）。
+│                              贡献，AppFrame 退化为近零内联壳）+
+│                              **首启向导行**（cr-298~301：五步覆盖层
+│                              wizard——用户/模型/搜索/Agent/导览；首启
+│                              localStorage 标记一次，重播入口 = 更多菜单
+│                              activity-bar:more-menu 数据席位）。
 │                              宿主半边仅声明 boot graph（派生名 ui-<名>
 │                              = 行 id = ExtensionMeta name 三处同名）；
 │                              client 半边 = 域投影 + slot 贡献 + 视图

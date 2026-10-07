@@ -38,6 +38,16 @@ const { agentsUnreadTotal, singlesUnreadTotal, agentsUnreadLabel, singlesUnreadL
 // activity-bar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
 const sortedActivityBarActions = useActivityBarActions(clientCtx);
 
+// activity-bar:more-menu 贡献面（cr-301：更多菜单数据席位——两项硬编码之后按 order 升序追加）
+const moreMenuItems = computed(() => {
+  if (!clientCtx) return [];
+  void clientCtx.slots.version('activity-bar:more-menu');
+  return clientCtx.slots.entries('activity-bar:more-menu')
+    .map((e) => ({ order: e.order ?? 100, ...(e.meta?.def as { id: string; label: string; icon?: string; onClick: () => void }) }))
+    .filter((d) => typeof d.id === 'string' && typeof d.onClick === 'function')
+    .sort((a, b) => a.order - b.order);
+});
+
 // ── 更多菜单 ──
 const moreOpen = ref(false);
 const moreTriggerRef = ref<HTMLElement | null>(null);
@@ -195,6 +205,11 @@ onUnmounted(() => {
           </svg>
           <span>检查更新</span>
           <span v-if="hasUpdate" class="agentchat-more-item-dot" />
+        </button>
+        <!-- more-menu 席位贡献（cr-301：行卸载即消失，不残留） -->
+        <button v-for="item in moreMenuItems" :key="item.id" class="agentchat-more-item" @click="onItemClick(item.onClick)">
+          <Icon v-if="item.icon" :name="item.icon" :size="16" />
+          <span>{{ item.label }}</span>
         </button>
       </div>
     </Transition>

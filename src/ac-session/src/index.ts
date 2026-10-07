@@ -477,6 +477,12 @@ export interface SessionStepRecord {
   content: string;
   reasoning?: string;
   /**
+   * 思考块签名（cr-98 Anthropic 回放 / cr-294 回放同形）：Anthropic 扩展
+   * 思考 + 工具调用要求回传 thinking 块（含签名）。loop 步记录透传落盘
+   * ——expandSteps 回放时随 reasoning 回填（与 live assistantOf 同形）。
+   */
+  thinkingSignature?: string;
+  /**
    * 步身份键（2026-09-24 身份贯通）：= `${runId}:${index}（源自 loop 的
    * LoopStepRecord.stepId）。前端历史展开时透传——直播行与 journal 行
    * 按键控对齐（取代内容前缀猜测）。旧行无此键 → 前端回落启发式。
@@ -740,9 +746,12 @@ export function projectRecord(
 
 /**
  * 轨迹展开（M21/D14，§2.5）：viewer 自己的回复行 steps[] → run 内消息序
- * 复现——每步 assistant(tool_calls?) + 配对 tool 结果行（tool_call_id 配对，
- * content = 结果 JSON 串——与 loop 运行时同构[脱敏/往返漂移已显式接受]）→
- * 终 assistant(content)。reasoning 不回传（M4）。
+ * 复现——每步 assistant(reasoning?, tool_calls?) + 配对 tool 结果行
+ * （tool_call_id 配对，content = 结果 JSON 串——与 loop 运行时同构[脱敏/
+ * 往返漂移已显式接受]）→ 终 assistant(content)。思考回放（cr-294 KV
+ * 边界修复，M4「不回传」反转）：中立 reasoning 键与 live（loop
+ * assistantOf）同形——两侧字节一致是 run 边界前缀缓存不断裂的前提；
+ * wire 翻译（reasoning_content/thinking/strip）收敛在协议适配层。
  */
 function expandTrajectory(r: SessionRecord): LlmMessage[] {
   if (r.steps === undefined || r.steps.length === 0) {
@@ -754,8 +763,8 @@ function expandTrajectory(r: SessionRecord): LlmMessage[] {
 /**
  * 步记录 → run 内消息序（expandTrajectory 的步级核，导出供
  * ac-conversation 视图投影复用——轨迹回放形状的单一事实源，防两处漂移）：
- * 每步 assistant(tool_calls?) + 配对 tool 结果行（结果 JSON 串化——
- * 与 loop 回填模型的 content 同源字节）。
+ * 横列 assistant(reasoning?, thinkingSignature?, tool_calls?) + 配对 tool
+ * 结果行（结果 JSON 串化——与 loop 回填模型的 content 同源字节）。
  */
 export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
   const out: LlmMessage[] = [];
@@ -764,6 +773,8 @@ export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
     out.push({
       role: 'assistant',
       content: s.content,
+      ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+      ...(s.thinkingSignature ? { thinkingSignature: s.thinkingSignature } : {}),
       ...(calls.length > 0
         ? {
             tool_calls: calls.map((tc) => ({
@@ -806,12 +817,13 @@ export function stepsFromRunResult(
   // reasoning 单份存储（2026-09-20 终版裁决，方向反转）：正源 = steps[]
   // [].reasoning（步级粒度——UI 步级 thinking 卡直读）；收束行
   // reasoning_content 不落盘（读侧投影：replayTrajectory 关闭用户的整轮
-  // 折叠栏由前端从 steps 拼接，见 historyApi）。API 请求侧从不回传
-  // reasoning（适配层请求体无此键），存储形态不影响 API 交互。
+  // 折叠栏由前端从 steps 拼接，见 historyApi）。API 请求侧以中立 reasoning
+  // 键回传（cr-294），wire 形态由协议适配层翻译——存储形态即回放形态。
   return result.steps
     .map((s) => ({
       content: s.text,
       ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+      ...(s.thinkingSignature !== undefined ? { thinkingSignature: s.thinkingSignature } : {}),
       ...(s.ts !== undefined ? { ts: s.ts } : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(s.reasoningMs !== undefined ? { reasoningMs: s.reasoningMs } : {}),
@@ -1209,6 +1221,7 @@ export class SessionService extends Service {
       const stepRecord: SessionStepRecord = {
         content: step.text,
         ...(step.reasoning ? { reasoning: step.reasoning } : {}),
+        ...(step.thinkingSignature !== undefined ? { thinkingSignature: step.thinkingSignature } : {}),
         ...(step.stepId !== undefined ? { stepId: step.stepId } : {}),
         ...(step.ts !== undefined ? { ts: step.ts } : {}),
         ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),

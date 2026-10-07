@@ -105,6 +105,18 @@ function sanitizeElevation(
   return undefined;
 }
 
+/**
+ * run 开跑前的信封替换形态（cr-295 群播重复投递修复）：投递方声明
+ * wakeNotice（内容已由 session.append 入账——群 post 扇出的成员流投影行）
+ * 时，直接开 run 的信封末位改投瘦通知——上下文经 history 重派生天然携带
+ * 原文行，再投原文即逐字双份。steer 注入路径不经本替换（活跃 run 快照
+ * 看不到新入账行，原文是唯一内容载体）。只换 content，附件/角色照旧。
+ */
+function slimForRun(message: LlmMessage, options: ConversationDeliverOptions): LlmMessage {
+  if (options.wakeNotice === undefined) return message;
+  return { ...message, content: options.wakeNotice };
+}
+
 /** next-turn 队列条目 */
 interface QueuedTurn {
   /** 稳定条目 id（排队 UI 变更操作——删除/插话——的寻址键） */
@@ -119,6 +131,12 @@ interface QueuedTurn {
    * 消息"的档位执行；缺省 = 无提权）。入队前已经 deliver 边界判定。
    */
   elevation?: 'sandbox-access' | 'full-access';
+  /**
+   * 瘦通知替换形态（cr-295）：非空时链跑消费轮的信封末位改投本文本
+   * （message 原文仅保留在队列/steerQueued 插话路径——若在消费前被
+   * 插话转 steer，注入的是活跃 run，原文是唯一内容载体）。
+   */
+  wakeNotice?: string;
 }
 
 /** 排队条目 id 生成（进程内单调；持久化后跨重启稳定） */
@@ -369,10 +387,13 @@ export class ConversationService extends Service {
     inbound: string | LlmMessage,
     options: ConversationDeliverOptions = {},
   ): Promise<ConversationOutcome> {
-    const message: LlmMessage =
-      typeof inbound === 'string' ? { role: 'user', content: inbound } : inbound;
     const sender = options.sender ?? DEFAULT_SENDER;
     const source = options.source ?? 'user';
+    // name 对齐（cr-294 KV 边界修复）：回放侧 projectRecord 恒补
+    // name=agent_id（wire 形说话人标注）——live 侧同步补上，两侧字节同形。
+    // 实测 name 对缓存命中无影响（Δ=0 五次对照），纯形态一致性。
+    const message: LlmMessage =
+      typeof inbound === 'string' ? { role: 'user', content: inbound, name: sender } : inbound;
     // 对桶缺省（M19）：直答 = pairKey(sender, agentId)——user 只是端点之一；
     // 群/独立/委托/机制路径由调用方显式传键（web-api 边界显式算直答键，D3）。
     //（水位读写都要用 conversationId——先算键再做提权判定。）
@@ -475,6 +496,7 @@ export class ConversationService extends Service {
           // 提权随消息：链跑消费时按本条档位开 run（webui 快捷提权在
           // 忙态排队下不丢失）
           ...(effOptions.elevation ? { elevation: effOptions.elevation } : {}),
+          ...(effOptions.wakeNotice !== undefined ? { wakeNotice: effOptions.wakeNotice } : {}),
         });
         this.persistQueue(handle); // 先记账后受理（M15 待投持久化）
         this.notifyQueue(agentId, conversationId, handle); // 排队 UI 权威快照
@@ -512,8 +534,11 @@ export class ConversationService extends Service {
         const idle = await this.waitIdle(handle, deadline - Date.now());
         if (!idle) return { kind: 'timeout', handle };
       }
+      // 等到空闲后独立开 run（非 steer 注入）：与下方空闲直达同形态——
+      // 上下文重派生可见投影行，信封投瘦通知（cr-295）
+      return this.startRun(agentId, conversationId, handle, slimForRun(message, effOptions), effOptions);
     }
-    return this.startRun(agentId, conversationId, handle, message, effOptions);
+    return this.startRun(agentId, conversationId, handle, slimForRun(message, effOptions), effOptions);
   }
 
   /**
@@ -775,7 +800,11 @@ export class ConversationService extends Service {
         } else {
           autoWakes = 0; // 用户来源（及 1v1 的 Agent 委托）重置预算
         }
-        message = next.message;
+        // 链跑轮信封形态（cr-295）：轮间重派生已可见投递方入账的原文行
+        //（群成员流投影行），带 wakeNotice 的条目投瘦通知防逐字双份。
+        message = next.wakeNotice !== undefined
+          ? { ...next.message, content: next.wakeNotice }
+          : next.message;
         sender = next.sender;
         source = next.source;
         elevation = next.elevation;

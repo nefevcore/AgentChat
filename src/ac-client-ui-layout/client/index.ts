@@ -59,6 +59,8 @@ declare module 'ac-client-slots' {
     'main:perspective': { kind: 'list'; elect: true };
     /** 活动栏插件动作位（★sidebar-action 别名，D13；数据席位——宿主渲染按钮，M30 D2。第一段 = 宿主件 ActivityBar 组件〔D5——2026-09-11 组件与席键同步改名；第三方 manifest 词汇 = 旧轨 sidebar-action，经 slotCatalog 归一不变〕） */
     'activity-bar:plugin-actions': { kind: 'list'; data: true };
+    /** 更多菜单项位（cr-301 首启向导重播入口数据化：ActivityBar「更多」菜单两项硬编码之外，插件经本席位追加菜单项——卸载即消失，不残留） */
+    'activity-bar:more-menu': { kind: 'list'; data: true; public: true };
   }
 }
 
@@ -174,6 +176,14 @@ export const layoutClientPlugin = clientPlugin({
       data: true,
       public: true,
       description: '活动栏插件动作位（activity-bar:plugin-actions = sidebar-action 别名，D13；数据席位——ActivityBarHost 渲染按钮、贡献供 meta.def，M30 D2；2026-09-11 席键随区域席/宿主件同步改名，第三方 manifest 旧轨词汇经 slotCatalog 归一不变）',
+    });
+    // 更多菜单项位（cr-301：两项硬编码之外的数据化追加面——卸载随行回收）
+    ctx.slots.declare({
+      key: 'activity-bar:more-menu',
+      kind: 'list',
+      data: true,
+      public: true,
+      description: '更多菜单项位（cr-301 首启向导：ActivityBar「更多」菜单追加项——宿主渲染按钮，插件供 meta.def {id,label,icon?,onClick}，order 升序稳定）',
     });
 
     // ── main 席位宿主条目（M30 D4 条目化 + 2026-09-11 主区语义纯化）：

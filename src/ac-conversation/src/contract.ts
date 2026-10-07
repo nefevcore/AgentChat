@@ -58,6 +58,16 @@ export interface ConversationDeliverOptions {
    */
   meta?: Record<string, unknown>;
   /**
+   * 瘦通知替换形态（cr-295 群播重复投递修复）：消息内容已由投递方经
+   * session.append 入账（如群 post 扇出的成员流投影行）——直接开 run 时
+   * 上下文经 history 重派生天然携带该行，run 信封末位若再携带原文即
+   * 逐字双份。开启本项后：steer 注入（busy 快照看不到新入账行）投原文；
+   * 直接开 run / 链跑消费（轮间重派生可见投影行）投 wakeNotice 替换形态。
+   * 替换发生在 run 开跑前（busy 状态已知，零竞态），消息落账/事件仍按
+   * 原文（wakeNotice 只影响 LLM 信封，不影响持久化路径）。
+   */
+  wakeNotice?: string;
+  /**
    * 临时提权（access-tier §七，宿主 API）：deliver 边界按 source 判定——
    * 'user' 信封两档直达（webui 输入框快捷提权按钮，人工当场授权）；
    * 'event' 信封上限 'sandbox-access'（机制分支——归档整理永远不需要

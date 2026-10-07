@@ -141,15 +141,16 @@ export function memberStreamKey(groupId: string, member: string): string {
 // 方向相逆成环——见 ac-core-utils 包头。
 
 /**
- * 群聊行为契约正典（src 轨 group-contract.ts 逐字继承——两次真实事故
+ * 群聊行为契约正典（主体 src 轨 group-contract.ts 逐字继承——两次真实事故
  * 沉淀的实测文案：08-03 空转（不调 send_group 直接输出，输出无人可见）/ 
  * 08-09 回声链雪崩（4 Agent 秒级互接话、91.4% 消息间隔 <3s）。契约位于
  * "回/不回"决策点而非系统提示词——群聊是最长上下文场景，系统提示词
  * 位置会注意力稀释失效（src 实测结论，勿回退）。修改文案需过真实群
- * 沉默率/回复质量验收。
+ * 沉默率/回复质量验收。cr-297 增补任务分工引导句（工作任务先讨论
+ * 定分工再动手，防各自为战造成重复劳动）。
  */
 export const GROUP_CONTRACT_TEXT =
-  '收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默，请注意不要刷屏。';
+  '收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默，请注意不要刷屏。若是工作任务，请先在群内讨论、定下分工再动手——未经协调各自为战会造成重复劳动。';
 
 /** 触发通知的时间行（对齐 src tail 形态） */
 function timeLine(): string {
@@ -804,11 +805,14 @@ export class GroupService extends Service {
     // source = 拓扑类（虚拟端点 = 'user'，Agent 成员 = 'agent'）。
     const source = this.ctx.agents.get(from)?.virtual ? ('user' as const) : ('agent' as const);
     const message = await this.post(groupId, from, content, options.attachments);
-    // hint = <msg> 包装（含显示名）+ 时间行（M26：不带契约——契约经
-    // loop/before-run 注入决策点，busy steer 免重复携带）。
-    // cr-4：deliver 只唤醒不携消息——投影行已由 post 扇出入成员流
-    // （session 对 GROUP_HINT_META 跳过入账，成员流不产生第二份触发行），
-    // handle/conversationId = 成员流键 gid~member（run 与回放都在私有流上）。
+    // hint 双形态（cr-295 群播重复投递修复）：投影行已由 post 扇出入成员流
+    // （唯一入账行——session 对 GROUP_HINT_META 跳过入账），run 开跑经
+    // history 重派生天然携带——信封末位再投 <msg> 全文即上下文逐字双份
+    //（落盘单条，每发必现）。busy steer 注入活跃 run 快照（看不到新入账
+    // 行）时投原文 hint（<msg> 包装 + 时间行，唯一内容载体）；直接开 run /
+    // 链跑消费（deliver wakeNotice）时投瘦通知——内容已在上下文，只需知道
+    // 被谁唤醒。handle/conversationId = 成员流键 gid~member（run 与回放都在
+    // 私有流上）。
     const hint = `${wrapGroupMsg({ from, displayName: displayNameOf(this.ctx.agents.get(from)), groupName: group.name, content })}\n\n${timeLine()}`;
     const hintMessage: LlmMessage = {
       role: 'user',
@@ -817,6 +821,8 @@ export class GroupService extends Service {
         ? { attachments: options.attachments }
         : {}),
     };
+    const fromName = displayNameOf(this.ctx.agents.get(from)) ?? from;
+    const wakeNotice = `[群聊唤醒] ${fromName}（${group.name}）发送了新消息——内容见上方历史最新一条。\n\n${timeLine()}`;
 
     // 不 await 单个投递：trigger 语义（idle 参与者的 run 在后台进行）。
     // deliver 的同步前缀（busy 决策/门注册）在本次循环内即完成——
@@ -830,6 +836,9 @@ export class GroupService extends Service {
           source,
           conversationId: memberStreamKey(groupId, member),
           meta: { [GROUP_HINT_META]: true },
+          // 瘦通知（cr-295）：idle 直开 run / 链跑消费轮的信封末位投
+          // wakeNotice 替换形态；busy steer 路径在 deliver 内部投原文。
+          wakeNotice,
           ...(options.placement ? { placement: options.placement } : {}),
         }),
       );

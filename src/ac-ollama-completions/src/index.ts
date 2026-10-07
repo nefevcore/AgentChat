@@ -114,12 +114,13 @@ export async function* ndjsonLines(body: ReadableStream<Uint8Array>): AsyncGener
 /**
  * 中性消息序 → Ollama messages（导出测试锁定）：system 保留在
  * messages 内（Ollama 收 system 角色）；role:tool 原样（Ollama natively
- * 支持）；assistant tool_calls 原样透传（同为 OpenAI 形态——仅剥
- * attachments 传输键）。
+ * 支持）；assistant tool_calls 原样透传（同为 OpenAI 形态——剥
+ * attachments 传输键与思考中立键：Ollama 思考回传是 message.thinking
+ * wire 键，由本库流侧聚合——历史侧无回传语义，cr-294 同款剥法）。
  */
 export function toOllamaMessages(messages: OllamaMessage[]): Array<Record<string, unknown>> {
   return messages.map((m) => {
-    const { attachments: _attachments, ...rest } = m;
+    const { attachments: _attachments, reasoning: _r, thinking: _t, reasoning_content: _rc, thinkingSignature: _ts, ...rest } = m as Record<string, unknown>;
     return rest;
   });
 }

@@ -66,7 +66,8 @@ describe('ac-session backfillToolResult（重启后作答对账——2026-09-15 
     // 事故语义的恢复：完整分析正文（2471 字）+ 提问调用 + 答案结果全部可见
     expect(after).toEqual([
       { role: 'user', content: '帮我决定', name: 'user' },
-      { role: 'assistant', content: '完整分析正文（事故现场：重启后丢失的 2471 字）', tool_calls: [{ id: 'call-42', type: 'function', function: { name: 'ask_questions', arguments: '{"questions":[…]}' } }] },
+      // reasoning 回放（cr-294）：与 live 同形——中立键
+      { role: 'assistant', content: '完整分析正文（事故现场：重启后丢失的 2471 字）', reasoning: '先问用户', tool_calls: [{ id: 'call-42', type: 'function', function: { name: 'ask_questions', arguments: '{"questions":[…]}' } }] },
       { role: 'tool', tool_call_id: 'call-42', content: JSON.stringify({ ok: true, output: { answers: ['全部做'], interaction_id: 'dur-1' } }) },
     ]);
   });
@@ -135,16 +136,16 @@ describe('ac-session backfillToolResult（重启后作答对账——2026-09-15 
     // stepsComplete 逐行判：c1 行结果齐全本就回放，被拦的只有 c2 悬空行
     expect(before).toEqual([
       { role: 'user', content: '分析下', name: 'user' },
-      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
+      { role: 'assistant', content: '', reasoning: '先搜', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
       { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: 'hits' }) },
     ]);
 
     expect(await ctx.session.backfillToolResult('a~user', 'c2', { ok: true, output: { answers: ['全部做'] } })).toBe(true);
     expect(await ctx.session.history('a~user', { viewer: 'a' })).toEqual([
       { role: 'user', content: '分析下', name: 'user' },
-      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
+      { role: 'assistant', content: '', reasoning: '先搜', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
       { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: 'hits' }) },
-      { role: 'assistant', content: '分析完毕，待确认', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'ask_questions', arguments: '{"questions":[…]}' } }] },
+      { role: 'assistant', content: '分析完毕，待确认', reasoning: '问一下', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'ask_questions', arguments: '{"questions":[…]}' } }] },
       { role: 'tool', tool_call_id: 'c2', content: JSON.stringify({ ok: true, output: { answers: ['全部做'] } }) },
     ]);
   });

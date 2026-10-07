@@ -106,6 +106,7 @@
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-llm-pool": "workspace:*",
+    "ac-client-ui-onboarding": "workspace:*",
     "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-remote": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",

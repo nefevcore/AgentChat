@@ -120,11 +120,6 @@
 # cr-277/278 harness 桥接方案 B） ----
 - id: harness-tools
   name: 'ac-harness-tools'
-# harness 委托预设子行（转述协议 __harness__；与工具行独立装配）。
-# 同包内子行写相对路径（与 ac-sap-adt/preset、ac-plugin-registry/patch-rpc 同款）：
-# 包 exports 只有 '.' 与 './src/*'，'ac-harness-tools/preset' 这类子路径不解析。
-- id: harness-preset
-  name: './ac-harness-tools/src/preset.ts'
 # ---- SAP ABAP ADT 工具面（46 个 adt_* 工具；引擎 = npm abap-adt 的
 # host-neutral 入口；工具需 sap-adt 能力标签——Agent tags 显式授予才
 # 可见；demo 目的地（进程内 mock）默认可用；配置走行 config <
@@ -249,6 +244,11 @@
 #  config.searchProviders） ----
 - id: ui-search-pool
   name: 'ac-client-ui-search-pool'
+# ---- 首启向导前端行（first-run-onboarding-plan，cr-298）：五步覆盖层
+# （用户/模型/搜索/Agent/导览）——首启一次自动弹（localStorage 标记），
+# 重播入口 = 活动栏更多菜单（批 4）；纯增量前端行，双向可摘除 ----
+- id: ui-onboarding
+  name: 'ac-client-ui-onboarding'
 # ---- M27.2：基础七件出包（phase:'base'——前端封印前批次装载；
 # 无后端行——宿主半边仅声明 boot graph 条目。逐件出包进行中） ----
 - id: ui-theme

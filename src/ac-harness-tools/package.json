@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "harness 委托工具行：run_harness（把任务委托给本地 Claude Code/Codex CLI——订阅额度复用；requiredTags [harness] + needPermission + 沙箱两档 + agent 维互斥）+ harnessTier 实验键（conv-settings，缺省 enabled）+ harness 委托预设子行（转述协议）",
+  "description": "harness 委托工具行：run_harness（把任务委托给本地 Claude Code/Codex CLI——订阅额度复用；requiredTags [harness] + needPermission + 沙箱两档 + agent 维互斥）+ harnessTier 实验键（conv-settings，缺省 enabled）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -16,7 +16,6 @@
     "ac-harness-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-presets": "workspace:*",
     "ac-conv-settings": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tag-registry": "workspace:*",
