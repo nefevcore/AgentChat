@@ -44,6 +44,7 @@ jobs:
       - name: 同步 webui 进壳并 cap sync
         working-directory: mobile/app
         run: |
+          pnpm install --frozen-lockfile
           node ../scripts/sync-webui.mjs
           npx cap sync android
 
