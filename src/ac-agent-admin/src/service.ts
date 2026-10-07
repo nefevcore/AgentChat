@@ -71,6 +71,24 @@ export class AgentAdminService extends Service {
   }
 
   /**
+   * create 缺 id 时的派生：name → slug（ASCII 字母数字与连字符；非 ASCII
+   * 名如中文整词不可 slug → agent-N 序号）。撞已存在 id 时追加 -2/-3…，
+   * 循环上限防御病态注册表。
+   */
+  private deriveAgentId(name: unknown): string {
+    const base = typeof name === 'string' && name
+      ? name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      : '';
+    const stem = base || `agent-${Date.now().toString(36).slice(-5)}`;
+    let candidate = stem;
+    for (let n = 2; this.ctx.agents.has(candidate) || this.ctx.agentStore.getAgent(candidate); n++) {
+      candidate = `${stem}-${n}`;
+      if (n > 1000) throw new Error(`agent id 派生防撞超限（${stem}）`);
+    }
+    return candidate;
+  }
+
+  /**
    * 创建 Agent：sanitize → 落盘 → reassign（数据驱动注册，生命周期 =
    * 持久化配置）。未携带 model 且非 virtual → 显式存 null（「默认服务商/
    * 继承全局」引用语义，与 update 面清除同形态）：不再物化默认池连接——
@@ -423,7 +441,11 @@ export class AgentAdminService extends Service {
       model?: unknown;
       provider?: unknown;
     };
-    const agentId = current?.id ?? (typeof id === 'string' ? id : undefined);
+    const agentId = current?.id ?? (typeof id === 'string' && id ? id : undefined)
+      // create 缺 id：由 name 派生 slug（防撞后缀兜底）——三创建面（引导页/
+      // AgentList 快建/设置面板）均不传 id，AgentList「留空自动生成」的承诺
+      // 在此落地（cr-307：此前必炸「缺少 agent id」）
+      ?? (current === undefined ? this.deriveAgentId(rest.name) : undefined);
     if (!agentId) throw new Error('缺少 agent id（create 须携带 id；update 按 agentId 定位）');
     // id 词法（M19 承重墙，仅 create 校验新 id；update 的 id 由 current 固定）
     if (current === undefined) assertAgentId(agentId);

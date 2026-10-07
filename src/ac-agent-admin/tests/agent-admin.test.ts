@@ -232,9 +232,19 @@ describe('ac-agent-admin CRUD', () => {
     expect(bad.ok).toBe(false);
     expect(bad.error).toContain('llmProviders');
 
-    const noId = await rpc(ws, 'agents/create', 'r2', { config: { model: 'm' } });
-    expect(noId.ok).toBe(false);
-    expect(noId.error).toContain('id');
+    // cr-307：缺 id 不再拒绝——服务端由 name 派生 slug（无 name → 时间戳兜底）
+    const noId = await rpc(ws, 'agents/create', 'r2', { config: { model: 'm', name: 'My 助手 Bot' } });
+    expect(noId.ok).toBe(true);
+    expect((noId.result as { config: { id: string } }).config.id).toBe('my-bot');
+
+    // 无 name 无 id → 时间戳兜底（不炸、不撞空）
+    const bare = await rpc(ws, 'agents/create', 'r2b', { config: { model: 'm' } });
+    expect(bare.ok).toBe(true);
+    expect((bare.result as { config: { id: string } }).config.id).toMatch(/^agent-/);
+
+    // 撞名防撞：同名再建 → -2 后缀
+    const dup = await rpc(ws, 'agents/create', 'r2c', { config: { name: 'My 助手 Bot' } });
+    expect((dup.result as { config: { id: string } }).config.id).toBe('my-bot-2');
 
     // 无 model 不再拒绝：存 null（「默认服务商」引用语义），解析延迟到投递侧
     const noModel = await rpc(ws, 'agents/create', 'r3', { config: { id: 'y' } });
