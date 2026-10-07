@@ -111,7 +111,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           scp -i ~/.ssh/deploy_key src/ac-relay-server/scripts/gen-manifest.mjs "${SERVER_USER:-deploy}@$SERVER_HOST:/opt/agentchat-relay/gen-manifest.mjs"
-          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" VER="$VER" bash -s <<'SWAP'
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" VER="$VER" BASE="http://$SERVER_HOST/downloads/mobile" bash -s <<'SWAP'
           set -euo pipefail
           STG="/var/www/agentchat/staging/mobile/$VER"
           DEST="/var/www/agentchat/downloads/mobile/$VER"
@@ -120,7 +120,7 @@ jobs:
           rm -rf "$DEST"
           mv "$STG" "$DEST"
           echo "[swap] mobile/$VER 换入完成"
-          node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads/mobile --product mobile --keep 3 --base-url http://$SERVER_HOST/downloads/mobile
+          node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads/mobile --product mobile --keep 3 --base-url "$BASE"
           SWAP
       - name: 上传 APK artifact
         uses: actions/upload-artifact@v4
