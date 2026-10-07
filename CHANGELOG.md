@@ -6,6 +6,19 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.15] - 2026-10-08
+
+### Added（移动端 AgentChat Remote 首发发布链，cr-306）
+- **mobile.yml 工作流**：`m*` tag 独立触发（与桌面 `v*` 互不干扰）——webui 构建 → sync-webui 双落点 → cap sync → gradle assembleDebug → APK 上传下载服务器 `/downloads/mobile/<ver>/`，`gen-manifest --product mobile` 生成独立 `mobile-manifest.json`（--keep 3 防膨胀）。APK 为 debug 签名（v1 阶段未做发布证书）。
+- **gen-manifest 产物线维度**：`--product desktop|mobile`（缺省 desktop 行为不变）+ `--base-url`（mobile 线 url 直出下载面绝对地址——安卓更新条直接打开）+ `--out`。
+
+### Changed（下载页重构：仅最新版 + 双下载项 + 平台默认判定，cr-306）
+- 不再列出旧版本——每产物线只展示最新版；`--keep 3` 已在服务器侧退役旧目录，页面与保留策略对齐。
+- 左右双下载卡：桌面端 AgentChat / 移动端 AgentChat Remote（窄屏单列堆叠）。
+- 桌面卡按访客平台默认选中 Windows/macOS/Linux（UA 判定，iPad 归 macOS 下载），平台段控可切换；主按钮 + 全部安装包折叠清单（sha256 复制保留）。
+- 下载页风格与项目统一：webui-kit tokens.css 双主题令牌子集（深空 Nebula / 晨曦 Aurora，系统偏好自动切换）——靛蓝主色、卡片层级、圆角三档、焦点环。
+- 服务器侧：nginx 增 `/mobile/manifest.json` 别名；CSP script hash 随新页更新。
+
 ### Changed（ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.11.0 → 0.12.0，cr-225）
 - **依赖**：`ac-sap-adt` 的 `@nefevcore/abap-adt-core` `^0.11.0` → `^0.12.0`（0.x 下 `^` 不跨 minor，需显式改 specifier）；`pnpm-workspace.yaml` 供应链豁免三行（core/mock/protocol）追加 `0.12.0`；lock 同步为 registry 条目。
 - 纯引擎换代零适配改动：typecheck + check:deps + 域 20 测试 + reserved 占名对账 2 例全绿（工具面 32 个不变）。插件本体（独立仓库）已同步发版。

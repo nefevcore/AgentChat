@@ -1,0 +1,58 @@
+# AgentChat 下载面 —— Nginx 站点（四件套 + X-Accel-Redirect 内部发文件）
+# 80 端口；manifest/主页静态直出；安装包经 download-gate 配额门。
+# 共享区定义在 agentchat-zones.conf（http 级）。
+server {
+    listen 80 default_server;
+    server_name _;
+
+    # ---- 主页 + manifest：静态直出（不计配额、不限速） ----
+    root /var/www/agentchat/site;
+    index index.html;
+    location /manifest.json {
+        alias /var/www/agentchat/downloads/manifest.json;
+        expires -1;   # Cache-Control: no-cache（不动 add_header 继承）
+    }
+    # mobile 产物线清单（cr-306：desktop manifest 与 mobile manifest 分道）
+    location /mobile/manifest.json {
+        alias /var/www/agentchat/downloads/mobile/mobile-manifest.json;
+        expires -1;
+    }
+    location = /favicon.ico {
+        alias /var/www/agentchat/site/logo.svg;
+        types { }
+        default_type image/svg+xml;
+    }
+    location ~* ^/index\.html$ {
+        expires 5m;    # Cache-Control: max-age=300（不动 add_header 继承）
+    }
+
+    # ---- /api/* 与安装包：代理到 download-gate（回环） ----
+    location /api/ {
+        proxy_pass http://127.0.0.1:12700;
+        proxy_set_header Host $host;
+    }
+    location ~* \.(exe|msi|dmg|zip|apk|appimage|deb|rpm|exe\.blockmap)$ {
+        # 同 IP 限流：1r/m 突发 3（limit_req）+ 并发 2（limit_conn）
+        limit_req zone=dl_req burst=3 nodelay;
+        limit_conn addr 2;
+        proxy_pass http://127.0.0.1:12700;
+        proxy_set_header Host $host;
+    }
+
+    # ---- internal：gate 的 X-Accel-Redirect 落点（外部不可直达） ----
+    location ^~ /_internal/ {
+        internal;
+        alias /var/www/agentchat/downloads/;
+        # 限速 2MB/s（§4.6 计划值；滥用硬顶=配额门 200 次/月）
+        limit_rate 2m;
+        limit_conn addr 2;
+    }
+
+    # 隐藏版本号 + 禁目录浏览
+    server_tokens off;
+    include /etc/nginx/snippets/agentchat-security-headers.conf;
+    autoindex off;
+
+    # 访问日志（供封禁 top IPs 用）
+    access_log /var/log/nginx/agentchat_dl.access.log;
+}
