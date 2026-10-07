@@ -8,10 +8,13 @@ android {
         applicationId "com.agentchat.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 与版本派生规则一致（每段 ×1000 累乘）：1.0.0 → 1000000。
-        // 两者同规则可避免「清单显式 versionCode」与「客户端派生」对不上。
-        versionCode 1000000
-        versionName "1.0.0"
+        // 版本单源 = mobile/app/package.json（cr-306：CI 产物名/清单/ APK 内版本同源，
+        // 避免产物叫 0.1.0 而装机显示 1.0.0 的漂移）；versionCode 与客户端派生规则
+        // 同算法（每段 ×1000 累乘）。
+        def pkgJson = rootProject.file('../package.json')
+        def pkgVersion = pkgJson.exists() ? new groovy.json.JsonSlurper().parseText(pkgJson.text).version : '0.1.0'
+        versionCode pkgVersion.split('[.]').collect { it.toInteger() }.inject(0) { acc, p -> acc * 1000 + p }
+        versionName pkgVersion
         // 构建时间标识：adb install -r 未真正替换时可一眼看出（M3.3 实测踩坑）
         buildConfigField "String", "BUILD_TAG", "\"${System.currentTimeMillis()}\""
         // 版本清单地址（M3.5：信任锚 = git raw HTTPS；缺省指向生产下载面——cr-81 修正，

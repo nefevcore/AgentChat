@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-305**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-306**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -323,3 +323,4 @@
 - 【cr-303 2026-10-07 webview-baseline 棘轮守门红修：新组件 PoolEntryForm/AgentStep(onboarding) 选中态 chip 文字各引入 1 处无静态表达的 color-mix（primary 80%+text-1），产物 9→10 超上限——静态色混静态色改写 --primary-strong 令牌（tokens.css 既定档位：tint 底上 primary 对比不足 4.5 的文字场景），产物回到 9 处】
 - 【cr-304 2026-10-07 webview-baseline 棘轮随动：cr-303 改写后产物 color-mix 实测 8 处（另有一处被进行中改动消化），CSS_COLOR_MIX_CAP 9→8】
 - 【cr-305 2026-10-07 移除 __harness__ 预设子行：harness 委托已被实验性功能（harnessTier 实验键）覆盖，转述协议形态多余——yml/TREE/preset.ts/README/测试期望五面同步；工具行 run_harness 保留】
+- 【cr-306 2026-10-08 移动端 Remote CI 发版（独立 workflow mobile.yml + APK 分发进下载面）与下载页重构（仅最新版 + 桌面/移动双下载项 + 平台默认判定与切换 + webui 令牌风格）】

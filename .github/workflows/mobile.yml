@@ -1,0 +1,127 @@
+name: mobile
+
+# 移动端 AgentChat Remote 发布 —— APK 构建 → 上传下载服务器（cr-306）
+#
+# 与 desktop.yml（v* tag 触发）完全独立：m* tag 单独触发，互不干扰。
+# 产物：AgentChat-Remote-x.y.z-universal.apk（debug 签名——v1 阶段未做
+# release 签名证书，装机走「允许未知来源」路径；证书就绪后在此接入）。
+# 分发：/downloads/mobile/<ver>/ + mobile-manifest.json（gen-manifest
+# --product mobile 生成，与桌面 manifest 分道——桌面 consumers 不受影响）。
+#
+# 构建链：webui dist → sync-webui 双落点 → cap sync → gradle assembleDebug。
+# transport 模块以源码编入（app/build.gradle sourceSets），无需独立构建。
+
+on:
+  push:
+    tags: ['m*']
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: pnpm/action-setup@v4
+
+      # 根 workspace install（webui 在 src/webui 包内，dist 构建依赖根 node_modules）
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建前端（webui dist）
+        run: pnpm build:frontend
+
+      - name: 同步 webui 进壳并 cap sync
+        working-directory: mobile/app
+        run: |
+          node ../scripts/sync-webui.mjs
+          npx cap sync android
+
+      - name: 构建 APK（assembleDebug）
+        working-directory: mobile/app/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 定位 APK 并计算 sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="$(node -p "require('./mobile/app/package.json').version")"
+          SRC="mobile/app/android/app/build/outputs/apk/debug/app-debug.apk"
+          [ -f "$SRC" ] || { echo "::error::APK 未产出：$SRC"; exit 1; }
+          DST="AgentChat-Remote-$VER-universal.apk"
+          cp "$SRC" "$DST"
+          sha256sum "$DST" | tee apk-sha256.txt
+          echo "APK_NAME=$DST" >> "$GITHUB_ENV"
+
+      - name: 上传构建诊断（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-build-diagnostic
+          path: |
+            apk-sha256.txt
+          if-no-files-found: ignore
+
+      # ---- 上传 staging + 换入 + manifest 重算（desktop.yml 同构三步）----
+      - name: 上传 APK 到 staging
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 secrets——跳过上传，APK 留在 artifact"
+            exit 0
+          fi
+          VER="$(node -p "require('./mobile/app/package.json').version")"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" "mkdir -p /var/www/agentchat/staging/mobile/$VER"
+          scp -i ~/.ssh/deploy_key "AgentChat-Remote-$VER-universal.apk" "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/staging/mobile/$VER/"
+
+      - name: staging 换入 downloads 并重算 mobile manifest
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${SSH_PRIVATE_KEY:-}" ]; then exit 0; fi
+          VER="$(node -p "require('./mobile/app/package.json').version")"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          scp -i ~/.ssh/deploy_key src/ac-relay-server/scripts/gen-manifest.mjs "${SERVER_USER:-deploy}@$SERVER_HOST:/opt/agentchat-relay/gen-manifest.mjs"
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" VER="$VER" bash -s <<'SWAP'
+          set -euo pipefail
+          STG="/var/www/agentchat/staging/mobile/$VER"
+          DEST="/var/www/agentchat/downloads/mobile/$VER"
+          GOT=$(ls -1 "$STG" 2>/dev/null | wc -l)
+          [ "$GOT" -ge 1 ] || { echo "[swap] staging 空（$GOT）"; exit 1; }
+          rm -rf "$DEST"
+          mv "$STG" "$DEST"
+          echo "[swap] mobile/$VER 换入完成"
+          node /opt/agentchat-relay/gen-manifest.mjs /var/www/agentchat/downloads/mobile --product mobile --keep 3 --base-url http://$SERVER_HOST/downloads/mobile
+          SWAP
+      - name: 上传 APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentChat-Remote-apk
+          path: AgentChat-Remote-*.apk
+          if-no-files-found: error

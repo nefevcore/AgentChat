@@ -2842,9 +2842,6 @@ importers:
         specifier: workspace:*
         version: link:../ac-harness-core
     devDependencies:
-      ac-agent-presets:
-        specifier: workspace:*
-        version: link:../ac-agent-presets
       ac-conv-settings:
         specifier: workspace:*
         version: link:../ac-conv-settings
