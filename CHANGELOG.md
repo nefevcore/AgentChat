@@ -6,6 +6,13 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.16] - 2026-10-08
+
+### Fixed（Agent 创建缺 id 报错根修，cr-307）
+- **现象**：引导页（首启向导第 4 步）创建 Agent 报「缺少 agent id」无法完成。
+- **根因**：后端 `agents/create` 契约要求 create 必带 id，但三个前端创建面（引导页 AgentStep / AgentList 快建 / 设置面板）均不传 id——AgentList「留空自动生成 UUID」的承诺从未在服务端落地。
+- **修复**：服务端 create 缺 id 时自动派生——name 生成 slug（如「My 助手 Bot」→ `my-bot`，纯中文名不可 slug 时 `agent-<时间戳>` 兜底），撞已存在 id 自动追加 `-2`/`-3` 后缀。三处创建面一次修复，前端零改动。
+
 ## [0.8.15] - 2026-10-08
 
 ### Added（移动端 AgentChat Remote 首发发布链，cr-306）

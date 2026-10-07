@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-307**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-308**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -325,3 +325,4 @@
 - 【cr-305 2026-10-07 移除 __harness__ 预设子行：harness 委托已被实验性功能（harnessTier 实验键）覆盖，转述协议形态多余——yml/TREE/preset.ts/README/测试期望五面同步；工具行 run_harness 保留】
 - 【cr-306 2026-10-08 移动端 Remote CI 发版（独立 workflow mobile.yml + APK 分发进下载面）与下载页重构（仅最新版 + 桌面/移动双下载项 + 平台默认判定与切换 + webui 令牌风格）】
 - 【cr-307 2026-10-08 Agent 创建缺 id 报错根修：agents/create 服务端补 id 生成（name 派生 slug + 防撞后缀）——三创建面（引导页 AgentStep/AgentList 快建/设置面板）均不传 id 而 AgentList UI 承诺自动生成从未落地】
+- 【cr-308 2026-10-08 桌面端 v0.8.16 发版：cr-307 引导页 Agent 创建修复随版触达（版本同步 + CHANGELOG + tag/CI/下载面）】
