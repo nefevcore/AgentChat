@@ -22,6 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4  # 必须先于 setup-node（cache: pnpm 依赖 pnpm 已在 PATH）
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -31,8 +33,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-
-      - uses: pnpm/action-setup@v4
 
       # 根 workspace install（webui 在 src/webui 包内，dist 构建依赖根 node_modules）
       - name: 安装依赖

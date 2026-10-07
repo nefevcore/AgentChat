@@ -342,5 +342,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           scp -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST:/var/www/agentchat/downloads/manifest.json" manifest.json
+          # tag 可能是轻量 ref（无 release 对象）——upload 前确保 release 存在
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --notes ""
           gh release upload "$GITHUB_REF_NAME" manifest.json --clobber
           echo "信任锚已上传：releases/$GITHUB_REF_NAME/manifest.json"
