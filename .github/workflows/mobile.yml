@@ -50,7 +50,9 @@ jobs:
 
       - name: 构建 APK（assembleDebug）
         working-directory: mobile/app/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
       - name: 定位 APK 并计算 sha256
         shell: bash
