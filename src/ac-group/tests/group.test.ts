@@ -173,7 +173,7 @@ describe('ac-group 内容通道（单通道 v3）', () => {
 });
 
 describe('ac-group 投递（经 ac-conversation）', () => {
-  it('user 群发：两个 idle 参与者各开新 run，通知携带 <msg> 包装全文', async () => {
+  it('user 群发：两个 idle 参与者各开新 run——信封末位瘦通知，<msg> 原文恰一份（cr-295 双形态）', async () => {
     const m = gatedLlm();
     const { ctx } = await boot(m);
     ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
@@ -186,10 +186,13 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     expect(result.triggered.sort()).toEqual(['a', 'b']);
     expect(result.delivery?.a.kind).toBe('run');
     expect(result.delivery?.b.kind).toBe('run');
-    // 信封：conversationId=群 id；hint = <msg> 包装 + 时间行
-    const hint = String(m.contents(0).at(-1));
-    expect(hint).toContain('<msg from="user" name="user" group="客厅">大家好</msg>');
-    expect(hint).toContain('[当前时间]');
+    // 信封末位 = 瘦通知（cr-295：内容已由 post 扇出入成员流投影行，
+    // 再投 <msg> 全文即逐字双份）；<msg> 原文恰一份（投影行）
+    const contents = m.contents(0).map(String);
+    expect(String(contents.at(-1))).toContain('群聊唤醒');
+    expect(String(contents.at(-1))).toContain('[当前时间]');
+    expect(contents.filter((c) => c.includes('大家好'))).toHaveLength(1);
+    expect(contents.find((c) => c.includes('大家好'))).toContain('<msg from="user" name="user" group="客厅">大家好</msg>');
   });
 
   it('busy 参与者 → steer 注入活跃 run；idle 参与者照常新 run', async () => {
@@ -225,9 +228,11 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     m.release();
     const result = await sending;
     expect(result.triggered).toEqual(['b']);
-    expect(String(m.contents(0).at(-1))).toContain('<msg from="a"');
-    // 会话桶 = 群 id（session 可按 conversationId=g 积累）
-    expect(m.calls[0].messages.length).toBeGreaterThan(0);
+    // 直开 run：末位瘦通知，<msg from="a"> 原文恰一份（投影行）
+    const contents = m.contents(0).map(String);
+    expect(String(contents.at(-1))).toContain('群聊唤醒');
+    expect(contents.filter((c) => c.includes('我是 a'))).toHaveLength(1);
+    expect(contents.find((c) => c.includes('我是 a'))).toContain('<msg from="a"');
   });
 
   it('M26：hint/回放解析显示名（注册表 description）——群里显示"小七"而非裸 id', async () => {
@@ -240,7 +245,10 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     await m.waitForCall(1);
     m.release();
     await sending;
-    expect(String(m.contents(0).at(-1))).toContain('<msg from="c" name="小七" group="露台">我上线啦</msg>');
+    // <msg> 原文恰一份（投影行），带显示名（cr-295：信封末位是瘦通知）
+    const contents = m.contents(0).map(String);
+    expect(contents.filter((c) => c.includes('我上线啦'))).toHaveLength(1);
+    expect(contents.find((c) => c.includes('我上线啦'))).toContain('<msg from="c" name="小七" group="露台">我上线啦</msg>');
     // 成员流投影行同款显示名（cr-4：post 扇出的 peer 包装）
     const history = await ctx.session.history('g3~a', { viewer: 'a' });
     expect(history.some((h) => String(h.content).includes('name="小七"'))).toBe(true);
@@ -267,16 +275,20 @@ describe('群聊行为契约（M26 决策点注入）', () => {
   it('群 run 注入正典契约：历史尾部、触发消息之前（倒数第二位）；词形逐字锚定', async () => {
     const m = gatedLlm();
     const { ctx } = await boot(m);
-    ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
+    // 独占群 id：同文件测试共享数据根，'g' 桶历史会跨测试累积（cr-295 断言
+    // 「恰一份」后暴露的既有耦合）
+    ctx.group.create({ id: 'g-contract', name: '客厅', members: ['a', 'b'] });
 
-    const sending = ctx.group.send('g', 'user', '大家好', { settle: true });
+    const sending = ctx.group.send('g-contract', 'user', '大家好', { settle: true });
     await m.waitForCall(1);
     m.release();
     await sending;
     const contents = m.contents(0).map(String);
-    // 契约 = 触发消息之前（上下文倒数第二区），末位是触发 hint
+    // 契约 = 触发消息之前（上下文倒数第二区），末位是触发 hint（cr-295：
+    // 直开 run 投瘦通知；原文投影行恰一份在契约之前）
     expect(contents.at(-2)).toBe(groupRow.GROUP_CONTRACT_TEXT);
-    expect(contents.at(-1)).toContain('大家好');
+    expect(String(contents.at(-1))).toContain('群聊唤醒');
+    expect(contents.filter((c) => c.includes('大家好'))).toHaveLength(1);
     expect(contents.filter((c) => c === groupRow.GROUP_CONTRACT_TEXT)).toHaveLength(1);
   });
 

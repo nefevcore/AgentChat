@@ -85,7 +85,8 @@ describe('ac-session 断网事故三修复（2026-09-20 复盘）', () => {
     const rows = await ctx.session.history('a~user', { viewer: 'a' });
     expect(rows).toEqual([
       { role: 'user', content: '分析任务', name: 'user' },
-      { role: 'assistant', content: '先看现场', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
+      // reasoning 回放（cr-294 KV 边界修复）：中立键与 live 同形
+      { role: 'assistant', content: '先看现场', reasoning: '断网前的推理', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
       { role: 'tool', tool_call_id: 'call-1', content: JSON.stringify({ ok: false, error: '（工具未完成：run 异常收束，结果不可用）' }) },
     ]);
   });

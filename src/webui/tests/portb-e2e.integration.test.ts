@@ -387,7 +387,9 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'agent-admin', 'agent-loop', 'agent-presets', 'agent-store', 'agents', 'agents-dir',
       'archive', 'ask-questions', 'backup', 'bench', 'config', 'conv-settings', 'conversation', 'credentials',
       'datetime', 'dev-tools', 'durable-interaction', 'event-policy',
-      'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group', 'hello',
+      'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group',
+      'harness-tools', // cr-288 harness 委托工具行（run_harness）；预设子行 cr-305 移除（实验键覆盖）
+      'hello',
       'issue-tools', // cr-21 并行批补登（提交时期望清单漏更——2026-09-29 顺手修）
       'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
@@ -413,6 +415,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-group', 'ui-jobs',
       'ui-layout', // M27.2-2：基础件出包之七（应用壳——基础七件收官）
       'ui-llm-pool', // M28 P2：settings 退化行（Provider 连接池管理节）
+      'ui-onboarding', // cr-298 首启向导前端行（五步覆盖层，双向可摘除）
       'ui-plugin-registry', // M28 P2：settings 退化行（插件库四件）
       'ui-remote', // P1 远程设备前端行（settings:section 设备管理节）
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）

@@ -178,9 +178,10 @@ export async function fetchAgentPresets(rpc: Pick<RpcClientFace, 'call'>): Promi
 //      原 webui api/roster.ts 门面已退役〔M28 §4.2〕） ----
 
 /** 创建 Agent（src 形状 → preview AgentConfig 白名单）。tags 显式透传
- *  （2026-09-16：写口不再静默补基础族——基础族预选由创建面显式传入） */
+ *  （2026-09-16：写口不再静默补基础族——基础族预选由创建面显式传入）；
+ *  system 可选透传（cr-300 首启向导第 4 步人格字段——白名单键） */
 export async function createAgent(
-  payload: { id?: string; name?: string; provider?: string; llm?: Record<string, unknown>; tools?: unknown; tags?: string[] },
+  payload: { id?: string; name?: string; provider?: string; llm?: Record<string, unknown>; tools?: unknown; tags?: string[]; system?: string },
   rpc: Pick<RpcClientFace, 'call'>,
 ): Promise<{ success?: boolean; agentId?: string; error?: string }> {
   const config: Record<string, unknown> = {};
@@ -191,6 +192,7 @@ export async function createAgent(
   if (typeof model === 'string' && model) config.model = model;
   if (payload.tools !== undefined) config.tools = payload.tools;
   if (Array.isArray(payload.tags)) config.tags = payload.tags;
+  if (payload.system && payload.system.trim()) config.system = payload.system;
   const r = await rpc.call<{ config?: { id?: string } }>('agents/create', { config });
   return { success: true, agentId: r.config?.id ?? payload.id };
 }

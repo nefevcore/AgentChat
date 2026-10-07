@@ -8,9 +8,8 @@ import type { AgentBrief } from './useAgentSettings.ts';
 import { Input, Modal, Button, SearchInput, Select, Tooltip } from '@agentchat/webui-kit';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 // 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）
-import { fetchLlmProviders, type LlmProviderStat } from './index.ts';
-import { fetchPools } from './rosterApi.ts';
-import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import type { LlmProviderStat } from './index.ts';
+import { loadPoolModelCache } from './poolModelCache.ts';
 
 const props = defineProps<{
   agents: AgentBrief[];
@@ -59,18 +58,11 @@ function openCreate() {
   draftModel.value = '';
   error.value = '';
   showCreate.value = true;
+  // provider 注册面 + 池发现缓存（并源 poolModelCache——与首启向导共用，cr-300）
   if (providerStats.value.length === 0) {
-    void Promise.all([
-      fetchLlmProviders(defaultRpc).then((r) => r.stats).catch(() => []),
-      fetchPools(defaultRpc).then((r) => r.llmProviders).catch(() => ({})),
-    ]).then(([stats, pools]) => {
-      providerStats.value = stats;
-      const cache: Record<string, string[]> = {};
-      for (const [name, entry] of Object.entries(pools as Record<string, { models?: unknown }>)) {
-        if (name.startsWith('$') || !Array.isArray(entry.models)) continue;
-        cache[name] = entry.models.filter((m): m is string => typeof m === 'string');
-      }
-      poolModels.value = cache;
+    void loadPoolModelCache().then((c) => {
+      providerStats.value = c.stats;
+      poolModels.value = c.models;
     });
   }
 }

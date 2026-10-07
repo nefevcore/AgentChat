@@ -37,7 +37,7 @@ const BASELINE_WEBVIEW = 92;
  *  rgba(var(--x-rgb), α)（tokens.css 三元组，语义等价）；无法表达者（动态内联色 /
  *  currentColor / 与非透明色混色）保留 color-mix 但必须在同属性前置静态回退声明。
  *  消化一处即下调本数；新写 color-mix 未经此路径 = 红。 */
-const CSS_COLOR_MIX_CAP = 9;
+const CSS_COLOR_MIX_CAP = 8;
 
 if (!existsSync(indexPath)) {
   console.error(`[webview-baseline] 缺少 ${indexPath}——先跑 pnpm webui:build`);

@@ -231,8 +231,11 @@ export class OpenAICompletions {
     // OpenAI 严格校验 400 拒收
     const { signal, api_key, provider: _provider, headers: extraHeaders, ...bodyParams } = params;
     const authKey = api_key || this.apiKey;
-    // attachments 是传输层键（同 api_key 纪律）：构造请求体前物化/剥离
-    const messages = await this.materializeMessages(model, params.messages, signal);
+    // attachments 是传输层键（同 api_key 纪律）：构造请求体前物化/剥离；
+    // 思考字段同边界翻译（cr-294 KV 边界修复）：中立 reasoning → 端点家族
+    // wire 形态（DeepSeek reasoning_content / GLM thinking / 其余剥掉）
+    const rawMessages = await this.materializeMessages(model, params.messages, signal);
+    const messages = rawMessages.map((m) => normalizeAssistantMessage(m, thinkingWireForm(this.baseUrl, model)));
     const controller = new AbortController();
     this.controllers.add(controller);
     // 调用方中止透传（reason 原样——用户中止文案可诊断）。addEventListener
@@ -631,6 +634,65 @@ function extractData(event: string): string | undefined {
  */
 export const TRANSPORT_KEYS: ReadonlySet<string> = new Set(['api_key', 'provider', 'headers', 'meta', 'signal']);
 
+/**
+ * 思考字段 wire 形态（kv-prefix-cache-fix-plan 主修复，cr-294）：live 与
+ * 回放两侧统一产中立 reasoning 键（loop assistantOf / session expandSteps），
+ * 序列化边界在此按端点家族翻译——两侧字节同形，run 边界前缀缓存不再断裂。
+ * 实测语义（2026-10-06 结案实验，sandbox/kv-analysis）：
+ *   · DeepSeek：只认 reasoning_content；thinking 模式 + tools 时强制回传
+ *     上一 assistant 消息的思考（缺发即 400）——含空串兜底（pi-ai 同款）
+ *   · GLM/zai：只认 thinking；实测边界重发/剥思考均 95%+ 命中，
+ *     回传无代价、无对称 400 风险
+ *   · 其余端点：无思考回传语义，中立键剥掉（死字段不出 body）
+ * 家族判定按 baseUrl（连接级事实——pool 的 Desired 有 baseUrl；模型级
+ * 差异不存在：DeepSeek/GLM 全系同形）。
+ */
+export type ThinkingWireForm = 'reasoning_content' | 'thinking' | 'strip';
+
+export function thinkingWireForm(baseUrl: string | undefined, model: string | undefined): ThinkingWireForm {
+  const url = urlHostname((baseUrl ?? '').toLowerCase());
+  if (/(^|\.)deepseek\.com$/.test(url)) return 'reasoning_content';
+  if (/(^|\.)bigmodel\.cn$/.test(url) || /(^|\.)zhipuai\.cn$/.test(url)) return 'thinking';
+  if (model !== undefined && /^(glm-|chatglm)/i.test(model)) return 'thinking';
+  if (model !== undefined && /^deepseek/i.test(model)) return 'reasoning_content';
+  return 'strip';
+}
+
+function urlHostname(url: string): string {
+  try {
+    return new URL(url.includes('://') ? url : 'http://' + url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 中立 assistant 消息（reasoning 键）→ wire 形态：按 form 写字段或剥掉。
+ * live 与回放同过此函数（单源——两构造源的分歧是 KV 边界断裂根因）。
+ * 空串兜底：DeepSeek thinking 模式 + tools 强制回传，无思考步补空串
+ *（pi-ai assistantMsg.reasoning_content = '' 同款语义）。
+ */
+export function normalizeAssistantMessage(
+  msg: CompletionsMessage,
+  form: ThinkingWireForm,
+): CompletionsMessage {
+  if (msg.role !== 'assistant') return msg;
+  const { reasoning, thinking, reasoning_content, thinkingSignature, ...rest } = msg as {
+    reasoning?: unknown; thinking?: unknown; reasoning_content?: unknown;
+    thinkingSignature?: unknown; role: string; content: CompletionsMessage['content'];
+    [key: string]: unknown;
+  };
+  if (form === 'reasoning_content') {
+    // 空串兜底：无思考步也写 reasoning_content=''——DeepSeek thinking 模式
+    // + tools 的强制回传校验按「键存在」判定（缺失即 400，实测）
+    return { ...rest, reasoning_content: reasoning !== undefined ? String(reasoning) : '' };
+  }
+  if (form === 'thinking') {
+    return { ...rest, ...(reasoning !== undefined ? { thinking: String(reasoning) } : {}) };
+  }
+  return rest;
+}
+
 /** 传输层键兜底剥离（序列化边界保险层；显式解构之外的二道防线） */
 export function stripTransportKeys<T extends Record<string, unknown>>(params: T): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -741,7 +803,10 @@ export function buildResponsesBody(
   messages: CompletionsMessage[],
   model: string,
 ): Record<string, unknown> {
-  const { max_tokens, stream_options: _so, stop: _stop, reasoning_effort, ...rest } = params;
+  // messages 也剥（cr-294 顺手修）：rest 展开曾把它透传进 body——input 与
+  // messages 并存，OpenAI 严格校验未知字段即 400（stripTransportKeys 只管
+  // 传输层键，不覆盖本键——此处显式解构剥离）
+  const { max_tokens, stream_options: _so, stop: _stop, reasoning_effort, messages: _m, ...rest } = params;
   const body: Record<string, unknown> = { stream: true, ...rest, input: toResponsesInput(messages), model };
   const cap = max_tokens ?? rest.max_output_tokens;
   if (cap !== undefined) body.max_output_tokens = cap;

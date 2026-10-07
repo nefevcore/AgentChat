@@ -895,7 +895,8 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     const replay2 = await ctx.session.history('a~user', { viewer: 'a' });
     expect(replay2).toEqual([
       { role: 'user', content: '帮我决定', name: 'user' },
-      { role: 'assistant', content: '', tool_calls: [{ id: 'call-42', type: 'function', function: { name: 'ask_questions', arguments: '{}' } }] },
+      // reasoning 回放（cr-294 KV 边界修复）：与 live 同形
+      { role: 'assistant', content: '', reasoning: '需要先问用户', tool_calls: [{ id: 'call-42', type: 'function', function: { name: 'ask_questions', arguments: '{}' } }] },
       { role: 'tool', tool_call_id: 'call-42', content: JSON.stringify({ ok: false, error: '等待被中止' }) },
     ]);
     // 完全空 run（首步前中断，无任何步产出）→ 不入账
@@ -1005,7 +1006,8 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(replay).toEqual([
       { role: 'user', content: '查状态', name: 'user' },
       {
-        role: 'assistant', content: '',
+        // reasoning 回放（cr-294 KV 边界修复）：与 live 同形
+        role: 'assistant', content: '', reasoning: '先查',
         tool_calls: [{ id: 'call-7', type: 'function', function: { name: 'read', arguments: '{"file_path":"a.ts"}' } }],
       },
       {

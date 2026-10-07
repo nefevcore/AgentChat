@@ -69,6 +69,7 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 | `ac-client-ui-skill` | ui-skill | 技能目录数据面（skillsApi；纯数据行，零席位贡献） | — |
 | `ac-client-ui-subagent` | ui-subagent | 子 Agent 卡 + 子会话视角 + 域投影（ctx.subagentBoard） | tool-card:result-view#subagent；main:perspective#subagent(9) |
 | `ac-client-ui-system` | ui-system | 版本 / 备份（systemApi） | overlay#version-dialog(97) |
+| `ac-client-ui-onboarding` | ui-onboarding | 首启向导（五步覆盖层：用户/模型/搜索/Agent/导览；首启 localStorage 标记一次 + 未配模型跳过确认） | overlay#wizard(98)；activity-bar:more-menu#onboarding(10) |
 | `ac-client-ui-timer` | ui-timer | 定时器视图 + 定时数据面（timerApi） | aux-sidebar#timers(30) |
 | `ac-client-ui-todo` | ui-todo | todo 域 | tool-card:result-view#todo；conversation:dock-widget#todo(40) |
 | `ac-client-ui-usage` | ui-usage | Token 用量（usageApi） | overlay#panel(96)；aux-sidebar#usage(15) |
@@ -94,8 +95,10 @@ root 〔k:single·factory——layout 出厂占用 webui-base-layout.app-frame(0
    │   [activity-bar][primary-sidebar] / [main][aux-sidebar] / [bottom-panel·预留] /
    │   [status-bar·预留] + overlay 覆盖层〕
    ├─ activity-bar 〔k:list〕→ ActivityBarHost [ui-layout]
-   │  └─ activity-bar:plugin-actions 〔k:list·data·pub〕
-   │     └─ NULL（第三方插件动作位——/ui-plugin/ 通道落点）〔注 1〕
+   │  ├─ activity-bar:plugin-actions 〔k:list·data·pub〕
+   │  │     └─ NULL（第三方插件动作位——/ui-plugin/ 通道落点）〔注 1〕
+   │  └─ activity-bar:more-menu 〔k:list·data·pub〕（cr-301：更多菜单项位——两项硬编码之外的数据化追加面）
+   │        └─ 「新手引导」重播项 [ui-onboarding]
    ├─ primary-sidebar 〔k:list〕→ PrimarySidebarHost [ui-layout]
    │  └─ primary-sidebar:domain 〔k:list·elect——按 ui.primaryPanel × meta.panel 选举，
    │     与外层 primary-sidebar outlet 分离防叠加〕
@@ -133,6 +136,7 @@ root 〔k:single·factory——layout 出厂占用 webui-base-layout.app-frame(0
    │  ├─ create-dialog(95)  → CreateGroupHost [ui-group]
    │  ├─ panel(96)          → TokenUsageHost [ui-usage]
    │  ├─ version-dialog(97) → VersionHost [ui-system]
+   │  ├─ wizard(98)        → WizardOverlay（首启向导——首启一次 + 更多菜单重播）[ui-onboarding]
    │  ├─ webui-base-settings.panel(100 缺省) → SettingsOverlayHost [ui-settings]
    │  └─ NULL（第三方弹窗贡献位——z-index 配额 / 四态回落见 ownerProps）〔注 2〕
    └─ menu-bar / bottom-panel / status-bar 〔k:list——骨架预留：declare 占名、无 outlet〕
@@ -184,7 +188,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 └─ 未命中 → 文本渲染回落（宿主默认）〔注 3〕
 ```
 
-**席位总数 19**（layout 12 + settings 3 + conversation 3 + tool 1）。按渲染形态分：**DOM outlet 6**（root / activity-bar / primary-sidebar / overlay / conversation:dock-widget / conversation:header-widget）、**解析面选举 7**（primary-sidebar:domain / main / aux-sidebar / main:perspective / settings:section / tool-card:result-view / message:final-view）、**页签别名解析 2**（settings:main-view / agent-pane:tab）、**数据席 1**（activity-bar:plugin-actions）、**骨架预留 3**（menu-bar / bottom-panel / status-bar）。
+**席位总数 20**（layout 13 + settings 3 + conversation 3 + tool 1）。按渲染形态分：**DOM outlet 6**（root / activity-bar / primary-sidebar / overlay / conversation:dock-widget / conversation:header-widget）、**解析面选举 7**（primary-sidebar:domain / main / aux-sidebar / main:perspective / settings:section / tool-card:result-view / message:final-view）、**页签别名解析 2**（settings:main-view / agent-pane:tab）、**数据席 2**（activity-bar:plugin-actions / activity-bar:more-menu）、**骨架预留 3**（menu-bar / bottom-panel / status-bar）。
 
 ---
 
@@ -199,6 +203,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | `root` | single·factory | ui-layout | `renderSlot(root)`（main.ts AcClientRoot；出厂条 `webui-base-layout.app-frame`） |
 | `activity-bar` | list | ui-layout | ActivityBarHost（SlotOutlet） |
 | `activity-bar:plugin-actions` | list·data·pub | ui-layout | ActivityBar 壳渲染按钮，贡献只供 `meta.def` |
+| `activity-bar:more-menu` | list·data·pub | ui-layout | ActivityBar「更多」菜单追加项（cr-301——两项硬编码之后按 order 升序；出厂贡献 = ui-onboarding「新手引导」） |
 | `primary-sidebar` | list | ui-layout | PrimarySidebarHost（SlotOutlet） |
 | `primary-sidebar:domain` | list·elect | ui-layout | PrimarySidebarHost 选举（`ui.primaryPanel` × `meta.panel`） |
 | `main` | list·elect | ui-layout | MainViewHost（`active()` × order 小者先；keepAlive 条目 v-show 保活） |

@@ -43,6 +43,9 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'subagent', 'ask_questions', 'timer',
   // ac-run-code（程序化模式 PTC：tc-programmatic 标签门禁——标签即模式）
   'run_code',
+  // ac-harness-tools（run_harness：本地 CLI 委托——cr-288 入行集时漏登，
+  // 2026-10-07 集成测试红灯补登）
+  'run_harness',
   // ac-issue-tools（cr-21 批次漏更占名表——2026-09-29 集成测试红灯补登）
   'submit_issue',
   // ac-goal / ac-todo（任务追踪工具面）
