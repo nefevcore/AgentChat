@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-310**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-311**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -328,3 +328,4 @@
 - 【cr-308 2026-10-08 桌面端 v0.8.16 发版：cr-307 引导页 Agent 创建修复随版触达（版本同步 + CHANGELOG + tag/CI/下载面）】
 - 【cr-309 2026-10-08 隐藏群聊形态的上下文占用仪表：KV 走势按群 gid 聚合多 agent 步流，展示口径待定，想清后恢复】
 - 【cr-310 2026-10-08 凭据删除守卫：locked 密文（解密失败在盘）空串删除指令保留不删并 warnings 反馈，杜绝换机后随手保存销毁可恢复密文】
+- 【cr-311 2026-10-08 TokenGauge KV 走势 min-max 降采样（>440 代表点时桶内取极值，保深谷）】

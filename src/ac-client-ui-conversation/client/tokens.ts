@@ -55,3 +55,51 @@ export async function fetchKvTimeline(
   return r.points ?? [];
 }
 
+/** KV 走势代表点（cr-311 降采样产物）：i = 原始步号（定位/hover 显示），
+ *  empty = 无计量占位（断线语义，hit/miss 无效） */
+export interface KvSample {
+  i: number;
+  ts: number;
+  hit: number;
+  miss: number;
+  empty: boolean;
+}
+
+/** KV 走势 min-max 降采样（cr-311）：步数 ≤ maxSamples 原样直通；超限按
+ *  桶取命中率极值两点为代表（顺序保持）——桶内深谷（骤降）不因取均值/抽稀
+ *  而消失。全桶无计量 → 一个 empty 占位（维持 null 断线）。x 定位用原始步号 i，
+ *  走势横向比例与全量绘制一致。 */
+export function downsampleKvSteps(points: KvTimelinePoint[], maxSamples = 440): KvSample[] {
+  const asSample = (i: number): KvSample => {
+    const p = points[i];
+    return { i, ts: p.ts, hit: p.hit, miss: p.miss, empty: p.hit + p.miss <= 0 };
+  };
+  if (points.length <= maxSamples) {
+    return points.map((_, i) => asSample(i));
+  }
+  // 桶数 = maxSamples/2：每桶最多 min+max 两代表点，总点数 ≤ maxSamples
+  const buckets = Math.max(1, Math.floor(maxSamples / 2));
+  const bucketSize = points.length / buckets;
+  const out: KvSample[] = [];
+  for (let b = 0; b < buckets; b++) {
+    // 桶界共享一条边（本桶 hi ≡ 下桶 lo）：floor/ceil 各算会出现小数边界重叠，
+    // 同一步在相邻两桶重复当选
+    const lo = Math.floor(b * bucketSize);
+    const hi = b === buckets - 1 ? points.length : Math.floor((b + 1) * bucketSize);
+    let minR = Infinity, maxR = -Infinity, minI = -1, maxI = -1;
+    for (let k = lo; k < hi; k++) {
+      const t = points[k].hit + points[k].miss;
+      if (t <= 0) continue;
+      const r = points[k].hit / t;
+      if (r < minR) { minR = r; minI = k; }
+      if (r > maxR) { maxR = r; maxI = k; }
+    }
+    if (minI < 0) { out.push({ i: lo, ts: points[lo].ts, hit: 0, miss: 0, empty: true }); continue; }
+    const first = Math.min(minI, maxI);
+    const last = Math.max(minI, maxI);
+    out.push(asSample(first));
+    if (last !== first) out.push(asSample(last));
+  }
+  return out;
+}
+

@@ -12,7 +12,7 @@ import { computed, ref, watch } from 'vue';
 import { BusyRing, RingProgress, Tooltip } from '@agentchat/webui-kit';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
 import { fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
-import { fetchKvTimeline, type KvTimelinePoint } from '../tokens.ts';
+import { downsampleKvSteps, fetchKvTimeline, type KvSample, type KvTimelinePoint } from '../tokens.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { useChatStore } from '../chatStore.ts';
 import { estimateTokens, fmtTokenCount } from '../tokens.ts';
@@ -202,18 +202,18 @@ async function fetchKv() {
   } catch { /* 失败保留旧值 */ }
   finally { if (seq === kvFetchSeq) kvLoading.value = false; }
 }
-/** 走势点视图模型（cr-232 步粒度）：命中率 0~1（hit+miss=0 的步无计量 → null 不绘点） */
-const kvRatePoints = computed(() =>
-  kvPoints.value.map((p) => {
-    const total = p.hit + p.miss;
-    return total > 0 ? p.hit / total : null;
-  }));
+/** 走势代表点（cr-311 min-max 降采样）：x 定位用原始步号 i——超限降采样后
+ *  横向比例仍与全量一致；hover 显示真实步号。empty = 无计量（null 不绘点）。
+ *  ≤440 点直通，走势形状分毫不变。 */
+const kvSamples = computed(() => downsampleKvSteps(kvPoints.value));
 
-// sparkline 几何（等距 run 序号；逻辑宽 220 = 面板 min-width 248 - padding 28——
+// sparkline 几何（等距步序号；逻辑宽 220 = 面板 min-width 248 - padding 28——
 // 与容器同尺寸避免 preserveAspectRatio="none" 的非均匀拉伸歪描边）
 const kvView = { W: 220, H: 44, padT: 4, padB: 4 } as const;
+// x 定位基准 = 原始步号全域（kvPoints 长度，非样本数）：降采样后样本稀疏段
+// 仍按真实步序落位，首末样本贴边框两端（0 与 W）
 const kvCx = (i: number): number => {
-  const n = kvRatePoints.value.length;
+  const n = kvPoints.value.length;
   if (n <= 1) return kvView.W / 2;
   return (i / (n - 1)) * kvView.W;
 };
@@ -224,40 +224,50 @@ const kvCy = (rate: number): number => {
 /** 95% 健康基准虚线（cr-243：使用情况定——命中率跌破即缓存接近
  *  失效；50% 弱线已删（cr-244：太浅未察觉——信息价值低于视觉噪音）） */
 const kvGridY = [{ y: kvCy(0.95) }];
-/** 折线段数组：null 点断线——无数据的 run 不连线糊弄 */
+/** 折线段数组：empty 样本断线——无计量的步不连线糊弄（cr-311 降采样后占位语义不变） */
 const kvPolyline = computed(() => {
   const segs: string[] = [];
   let cur: string[] = [];
-  kvRatePoints.value.forEach((r, i) => {
-    if (r === null) {
+  kvSamples.value.forEach((s) => {
+    if (s.empty) {
       if (cur.length > 1) segs.push(cur.join(' '));
       cur = [];
     } else {
-      cur.push(`${kvCx(i).toFixed(2)},${kvCy(r).toFixed(2)}`);
+      const total = s.hit + s.miss;
+      cur.push(`${kvCx(s.i).toFixed(2)},${kvCy(s.hit / total).toFixed(2)}`);
     }
   });
   if (cur.length > 1) segs.push(cur.join(' '));
   return segs;
 });
-/** hover 索引（-1 = 无）：mousemove 在 svg 上捕获，等距反推序号 */
+/** hover 样本索引（-1 = 无）：mousemove 在 svg 上捕获，按原始步号反推最近样本 */
 const kvHoverIdx = ref(-1);
 function onKvMove(e: MouseEvent): void {
   const svg = e.currentTarget as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
   const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  const n = kvRatePoints.value.length;
-  kvHoverIdx.value = Math.round(frac * (n - 1));
+  const total = kvPoints.value.length;
+  if (total <= 1) { kvHoverIdx.value = 0; return; }
+  // 原始步号 → 样本索引：取 |x(i) - 鼠标x| 最小者（样本按 i 升序，可提前终止）
+  const stepNo = frac * (total - 1);
+  let best = 0, bestD = Infinity;
+  for (let k = 0; k < kvSamples.value.length; k++) {
+    const d = Math.abs(kvSamples.value[k].i - stepNo);
+    if (d < bestD) { bestD = d; best = k; }
+    if (kvSamples.value[k].i > stepNo + 1) break;
+  }
+  kvHoverIdx.value = best;
 }
-/** hover 提示文案（kit Tooltip 即显；无 hover = 引导语） */
+/** hover 提示文案（kit Tooltip 即显；无 hover = 引导语）。样本反查用原始步号域：
+ *  kvHoverIdx(-1) 越界在 TS 索引签名上不可判空——noUncheckedIndexedAccess 关闭时
+ *  索引访问恒非空，判空即 no-unnecessary-condition（cr-311 踩坑） */
 const kvHoverText = computed(() => {
-  const i = kvHoverIdx.value;
-  if (i < 0) return 'hover 查看各步命中率';
-  const rate = kvRatePoints.value[i];
-  const rateText = rate === null ? '无计量' : `${(rate * 100).toFixed(1)}%`;
-  return `步 #${i + 1} · ${rateText} · ${kvTimeOf(i)}`;
+  if (kvHoverIdx.value < 0) return 'hover 查看各步命中率';
+  const s = kvSamples.value[kvHoverIdx.value];
+  const rateText = s.empty ? '无计量' : `${((s.hit / (s.hit + s.miss)) * 100).toFixed(1)}%`;
+  return `步 #${s.i + 1} · ${rateText} · ${kvTimeOf(s.ts)}`;
 });
-function kvTimeOf(i: number): string {
-  const ts = kvPoints.value[i]?.ts;
+function kvTimeOf(ts: number): string {
   if (!ts) return '';
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -331,14 +341,14 @@ const applicable = computed(() =>
         </div>
         <!-- KV 缓存区（cr-232 反馈：原「最近一次」行已被走势覆盖删除）：走势 +
              本会话累计。命中部分按服务商折扣价计费。 -->
-        <template v-if="kvRatePoints.length > 0 || kvLoading">
+        <template v-if="kvSamples.length > 0 || kvLoading">
           <div class="token-panel__cache">
             <!-- KV 缓存率走势（cr-231/232 步粒度）：等距步序号，X = 步序，Y = 命中率；
                  hover 竖线 + 数值气泡（时间/命中率进 meta——步间隔不均，
                  序号等距避免长间隔把最近走势挤扁） -->
             <div v-if="kvLoading" class="kv-spark kv-spark--loading"><BusyRing :size="13" label="正在拉取 KV 缓存走势…" /></div>
-            <div v-else-if="kvRatePoints.length > 1" class="kv-spark">
-              <span class="kv-spark__label">KV 缓存率走势 · 全部 {{ kvRatePoints.length }} 步</span>
+            <div v-else-if="kvSamples.length > 1" class="kv-spark">
+              <span class="kv-spark__label">KV 缓存率走势 · 全部 {{ kvPoints.length }} 步<template v-if="kvSamples.length < kvPoints.length">（{{ kvSamples.length }} 代表点）</template></span>
               <Tooltip :text="kvHoverText" placement="bottom">
                 <svg
                   class="kv-spark__svg"
