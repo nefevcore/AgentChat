@@ -24,7 +24,7 @@ const props = defineProps<{
     agentId?: string | null;
     /** 独立会话（非空 = single 形态，会话键 = sid） */
     single?: SingleSession | null;
-    /** 会话形态（direct/single/group 显示仪表；pair 只读无仪表） */
+    /** 会话形态（direct/single 显示仪表；group 暂隐 cr-309、pair 只读——均无仪表） */
     form?: 'direct' | 'group' | 'single' | 'pair';
     /** 会话键（群 = gid——按群主视角分析） */
     conversationId?: string | null;
@@ -49,20 +49,18 @@ const sessionTokens = ref<SessionTokens | null>(null);
 async function fetchTokenBaseline(clearFirst = false) {
   // single：会话键 = sid、承载 Agent = data.agentId（元数据 agentId 空 =
   //   默认预设——不补全则后端以 sid 为 viewer 估算，占用严重偏低）；
-  // group：会话键 = gid、Agent = 群主（后端群分支按群主视角 historyFor 估算
-  //   ——每成员上下文 = 同一群本体按读者派生，群主是代表读者）；
   // direct：data.agentId（后端按对桶推导会话键）。agentId 未选 → 跳过。
   const agentId = props.data.agentId || '';
-  if (!agentId || !rpc.value) return;
+  // 群暂隐 cr-309：基线拉取一并停（隐藏后 watcher 仍在跑——不 gate 则每步
+  // 终值空打一次 session/tokens）
+  if (props.data.form === 'group' || !agentId || !rpc.value) return;
   if (clearFirst) sessionTokens.value = null;
   const seq = ++tokenFetchSeq; // 竞态守卫：快速切换会话时 A 的迟到响应不得覆盖 B
   try {
     const data = await fetchSessionTokens(agentId, rpc.value,
       props.data.single
         ? { conversationId: props.data.single.id, agentId }
-        : props.data.form === 'group' && props.data.conversationId
-          ? { conversationId: props.data.conversationId, agentId }
-          : undefined);
+        : undefined);
     if (seq !== tokenFetchSeq) return;
     sessionTokens.value = {
       tokenCount: data.tokenCount ?? 0,
@@ -271,10 +269,11 @@ function handleCompress() {
   chatStore.compressSession();
 }
 
-/** 形态 gate：direct/single/群且有会话数据时渲染（群 = 群主视角占用；
- *  pair 只读无仪表） */
+/** 形态 gate：direct/single 且有会话数据时渲染（pair 只读无仪表；群暂隐
+ *  cr-309——占用/KV 走势按群主/群 gid 单视角聚合多 agent 步流，展示口径
+ *  待重定，想清后恢复） */
 const applicable = computed(() =>
-  (props.data.form === 'direct' || props.data.form === 'single' || props.data.form === 'group')
+  (props.data.form === 'direct' || props.data.form === 'single')
   && !!sessionTokens.value && sessionTokens.value.messageCount > 0);
 </script>
 

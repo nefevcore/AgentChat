@@ -221,4 +221,13 @@ describe('TokenGauge 占用比例含固定开销', () => {
     await seedOverhead(SYS_2K, []);
     expect(ringText(root)).toBe('100'); // 101,004 → min(100, 101)
   });
+
+  it('群形态整枝不渲染且不拉基线（cr-309：KV 走势按群 gid 聚合多 agent 步流，暂隐待口径重定）', async () => {
+    const rpc = recordingRpc({
+      tokens: { messageCount: 5, contextTokens: 20_000, maxContextTokens: 100_000, usagePercent: 20 },
+    });
+    const root = await mountGauge(rpc.impl, { agentId: 'helper', form: 'group', conversationId: 'g1', single: null });
+    expect(root.querySelector('.session-token-gauge')).toBeFalsy(); // 仪表整枝不渲染
+    expect(rpc.calls.filter((c) => c.method === 'session/tokens')).toHaveLength(0); // 基线拉取同停
+  });
 });

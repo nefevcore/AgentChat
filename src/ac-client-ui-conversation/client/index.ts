@@ -234,7 +234,8 @@ export const conversationClientPlugin = clientPlugin({
     });
     // Token 仪表头部贡献（会话区重构自 ConversationView 内联迁出：
     // conversation:header-widget 出厂 order 20——direct/single 上下文占用
-    // 仪表 + 详情弹层 + 归档入口；群/pair 形态组件内自隐）
+    // 仪表 + 详情弹层 + 归档入口；群/pair 形态组件内自隐——群 cr-309 暂隐：
+    // KV 走势按群 gid 聚合多 agent 步流，展示口径待定，想清后恢复）
     ctx.slots.register('conversation:header-widget', {
       id: 'token-gauge',
       component: TokenGaugeAsync,
