@@ -14,21 +14,25 @@
 //（全局配置域 + 通用 kit）；此处收【写/探测/发现】面。
 // ============================================================
 
+import { callGuarded } from 'ac-client-ui-settings/client/api.ts';
+
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
 /** 模型池定向保存（PoolManager 即时落盘——不再等底部「保存配置」全量保存；
- *  api_key 侧信道语义在服务端 config/set：掩码=不动 / ''=删 / 新值=存） */
+ *  api_key 侧信道语义在服务端 config/set：掩码=不动 / ''=删〔locked 守卫
+ *  保留〕/ 新值=存；warnings 经 callGuarded toast） */
 export async function saveLlmPoolDomain(
   pools: Record<string, any>,
   rpc: Rpc,
 ): Promise<void> {
-  await rpc.call('config/set', { key: 'llmProviders', value: pools });
+  await callGuarded('config/set', { key: 'llmProviders', value: pools }, rpc);
 }
 
 /** 删除 Provider 连接凭据（pool:<name>）——删除连接条目时必须同步调用，
- *  否则内置种子名的 /models 发现回写会凭残留凭据"复活"已删条目 */
+ *  否则内置种子名的 /models 发现回写会凭残留凭据"复活"已删条目；目标
+ *  locked（在盘不可解密）时服务端保留不删（cr-310）并 warnings 提示 */
 export async function deleteLlmPoolCredential(name: string, rpc: Rpc): Promise<void> {
-  await rpc.call('llm/pool-credential', { name, value: '' });
+  await callGuarded('llm/pool-credential', { name, value: '' }, rpc);
 }
 
 /** 连接引用扫描（cr-99 引用完整性）：引用该连接的 Agent 清单（删除/改名

@@ -50,7 +50,7 @@ export { default as Tooltip } from './base/Tooltip.vue';
 export { default as FeedbackNotice } from './feedback/FeedbackNotice.vue';
 export { default as ToastHost } from './feedback/ToastHost.vue';
 export {
-  toast, toastOk, toastError, toastInfo, toastBusy,
+  toast, toastOk, toastError, toastWarn, toastInfo, toastBusy,
   dismissToast, clearToasts, pauseToast, resumeToast, toasts,
   type ToastTone, type ToastOptions, type ToastItem,
 } from './feedback/toast.ts';

@@ -9,13 +9,16 @@
 // 【写】面。
 // ============================================================
 
+import { callGuarded } from 'ac-client-ui-settings/client/api.ts';
+
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
 /** 搜索池定向保存（PoolManager 即时落盘——不再等底部「保存配置」全量保存；
- *  api_key 侧信道语义在服务端 config/set：掩码=不动 / ''=删 / 新值=存） */
+ *  api_key 侧信道语义在服务端 config/set：掩码=不动 / ''=删〔locked 守卫
+ *  保留〕/ 新值=存；warnings 经 callGuarded toast） */
 export async function saveSearchPoolDomain(
   pools: Record<string, any>,
   rpc: Rpc,
 ): Promise<void> {
-  await rpc.call('config/set', { key: 'searchProviders', value: pools });
+  await callGuarded('config/set', { key: 'searchProviders', value: pools }, rpc);
 }

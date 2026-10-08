@@ -1,7 +1,8 @@
 <!-- webui-kit/src/feedback/ToastHost.vue —— 全局 Toast 栈渲染半件（AppFrame 挂载一次）
   消费 toast.ts 单例栈：右下角浮层栈。图标/配色按 tone 派生（与
   FeedbackNotice 同轴：ok=check-circle/success · error=alert-circle/
-  error · info=info/弱化 · busy=loader-circle 旋转/primary）。hover
+  error · warn=alert-triangle/warn · info=info/弱化 · busy=loader-circle
+  旋转/primary）。hover
   暂停由 toast.ts pause/resume 承担。z-index 9500：低于更多菜单
   (9999) 与 FilePreview(10000)，盖过其余内容与设置域弹窗(1200)——
   全局反馈须对任何面板可见，但不与全屏预览/菜单抢顶层。 -->
@@ -10,7 +11,7 @@ import { toasts, dismissToast, pauseToast, resumeToast } from './toast.ts';
 import Icon from '../base/Icon.vue';
 import BusyRing from '../base/BusyRing.vue';
 
-const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', busy: 'loader-circle' } as const;
+const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', warn: 'alert-triangle', info: 'info', busy: 'loader-circle' } as const;
 </script>
 
 <template>
@@ -96,6 +97,7 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
    border-radius，条随圆角裁切 */
 .is-ok .toast-icon { color: var(--ok-status); }
 .is-error .toast-icon { color: var(--err-status); }
+.is-warn .toast-icon { color: var(--warn-status); }
 .is-info .toast-icon { color: var(--text-3); }
 
 .toast-item::before {
@@ -107,6 +109,7 @@ const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', bus
 }
 .is-ok::before { background: var(--ok-status); }
 .is-error::before { background: var(--err-status); }
+.is-warn::before { background: var(--warn-status); }
 .is-info::before { background: var(--line-strong); }
 .is-busy::before { background: var(--primary); }
 

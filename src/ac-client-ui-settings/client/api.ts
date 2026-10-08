@@ -21,9 +21,26 @@ import type {
   AssemblyData,
   AssemblyPatch,
 } from './types.ts';
+import { toastWarn } from '@agentchat/webui-kit';
 import { defaultRpc as wireRpc } from './rpcDefault.ts';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
+
+// ── 凭据守卫反馈（cr-310）：服务端 locked 守卫（空串删除指令命中在盘
+//    不可解密密文 → 保留不删）经 warnings 回传——保存 API 包装层统一
+//    toast，调用方零改动（jsdom 之外无宿主时静默容忍）──
+
+export async function callGuarded<T extends Record<string, any>>(
+  method: string,
+  params: Record<string, unknown>,
+  rpc: Rpc = wireRpc,
+): Promise<T> {
+  const r = await rpc.call<T>(method, params);
+  try {
+    for (const w of Array.isArray(r.warnings) ? r.warnings : []) toastWarn(w, { duration: 6000 });
+  } catch { /* 无 Toast 宿主（测试环境）——静默 */ }
+  return r;
+}
 
 // ── 全局配置 ──
 
@@ -32,7 +49,7 @@ export function getGlobalConfig(rpc: Rpc = wireRpc): Promise<{ config: Record<st
 }
 
 export function saveGlobalConfig(config: Record<string, any>, rpc: Rpc = wireRpc): Promise<{ success?: boolean; error?: string }> {
-  return rpc.call('config/save', { config });
+  return callGuarded('config/save', { config }, rpc);
 }
 
 export function getPools(rpc: Rpc = wireRpc): Promise<PoolData> {

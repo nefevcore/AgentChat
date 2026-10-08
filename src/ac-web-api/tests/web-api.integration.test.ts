@@ -1225,6 +1225,42 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     expect(h.ctx.credentials.getGlobal('pool:glm')).toBe('');
   });
 
+  it('locked 守卫（cr-310）：空串删除指令命中在盘不可解密密文 → 保留不删 + warnings', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 存真 key → 篡改盘上密文（模拟换机：locked 态）
+    await rpc(ws, 'config/set', 'r0', { key: 'llmProviders', value: { openai: { api_key: 'sk-real', base_url: 'https://x' } } });
+    const credFile = join(h.root, 'credentials.json');
+    const raw = JSON.parse(readFileSync(credFile, 'utf-8')) as Record<string, string>;
+    const credKey = Object.keys(raw).find((k) => k.includes('OPENAI'))!;
+    raw[credKey] = raw[credKey].slice(0, -4) + 'AAAA';
+    writeFileSync(credFile, JSON.stringify(raw), 'utf-8');
+
+    // config/set 路径：空串（= 换机后掩码回填的默认值）→ 保留 + warnings
+    const set = await rpc(ws, 'config/set', 'r1', { key: 'llmProviders', value: { openai: { api_key: '', base_url: 'https://x' } } });
+    expect(set.ok).toBe(true);
+    expect(((set.result as { warnings?: string[] }).warnings ?? []).join('; ')).toContain('无法解密');
+    const raw1 = JSON.parse(readFileSync(credFile, 'utf-8')) as Record<string, string>;
+    expect(raw1[credKey]).toBeTruthy(); // 密文仍在盘上（可恢复）
+
+    // config/save 路径：同款守卫
+    const save = await rpc(ws, 'config/save', 'r2', { config: { llmProviders: { openai: { api_key: '', base_url: 'https://x' } } } });
+    expect(((save.result as { warnings?: string[] }).warnings ?? []).join('; ')).toContain('无法解密');
+    const raw2 = JSON.parse(readFileSync(credFile, 'utf-8')) as Record<string, string>;
+    expect(raw2[credKey]).toBeTruthy();
+
+    // llm/pool-credential 路径：空串删除 → 保留 + warnings
+    const del = await rpc(ws, 'llm/pool-credential', 'r3', { name: 'openai', value: '' });
+    expect(del.ok).toBe(true);
+    expect(((del.result as { warnings?: string[] }).warnings ?? []).join('; ')).toContain('无法解密');
+    const raw3 = JSON.parse(readFileSync(credFile, 'utf-8')) as Record<string, string>;
+    expect(raw3[credKey]).toBeTruthy();
+
+    // 填新值 = 覆盖自愈（locked → set）
+    await rpc(ws, 'config/set', 'r4', { key: 'llmProviders', value: { openai: { api_key: 'sk-new', base_url: 'https://x' } } });
+    expect(h.ctx.credentials.getGlobal('pool:openai')).toBe('sk-new');
+  });
+
   it('config/set：白名单外键 fail-closed', async () => {
     const h = await boot();
     const ws = await connect(h.port);

@@ -140,6 +140,21 @@ export class CredentialsService extends Service {
     return Object.keys(this.readStore());
   }
 
+  /** 盘上条目三态：'set' 在盘且可解密 / 'locked' 在盘但解密失败（换机/
+   * 密钥变更——密文仍保留在盘上，可恢复）/ 'none' 无条目。删除守卫消费
+   *（cr-310）：「读不了」≠「不存在」，空串删除指令不得销毁 locked 密文。 */
+  state(agentId: string, provider: string): 'set' | 'locked' | 'none' {
+    const store = this.readRawStore();
+    const key = CredentialsService.key(agentId, provider);
+    if (!(key in store)) return 'none';
+    return decryptValue(store[key]) === null ? 'locked' : 'set';
+  }
+
+  /** 全局级三态（同 state） */
+  stateGlobal(provider: string): 'set' | 'locked' | 'none' {
+    return this.state(GLOBAL_AGENT_ID, provider);
+  }
+
   // ---- 文件层 ----
 
   /** 解密视图（get/keys/listValues 用）：解密失败条目按未设置处理（原密文仍在盘上） */

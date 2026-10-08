@@ -22,7 +22,7 @@
 // ============================================================
 import { ref } from 'vue';
 
-export type ToastTone = 'ok' | 'error' | 'info' | 'busy';
+export type ToastTone = 'ok' | 'error' | 'warn' | 'info' | 'busy';
 
 export interface ToastOptions {
   /** 语义态（决定图标与配色——与 FeedbackNotice 同轴） */
@@ -46,7 +46,7 @@ export interface ToastItem {
 }
 
 /** 缺省时长分级（ms）——error 最长（长错误文本阅读时间），ok 最短 */
-const TONE_DURATION: Record<ToastTone, number> = { ok: 2000, info: 3000, busy: 4000, error: 5000 };
+const TONE_DURATION: Record<ToastTone, number> = { ok: 2000, info: 3000, busy: 4000, warn: 5000, error: 5000 };
 
 /** 栈上限：超出丢弃最旧 */
 const MAX_STACK = 4;
@@ -94,6 +94,7 @@ export function toast(text: string, opts: ToastOptions = {}): void {
 /** 便捷别名（语义态直呼） */
 export const toastOk = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'ok' });
 export const toastError = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'error' });
+export const toastWarn = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'warn' });
 export const toastInfo = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'info' });
 export const toastBusy = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'busy' });
 

@@ -156,4 +156,22 @@ describe('ac-credentials', () => {
     // '_' (0x5F) > 大写字母 → HELPER_… 排在 __GLOBAL___… 前
     expect(ctx.credentials.keys().sort()).toEqual(['HELPER_GLM_API_KEY', '__GLOBAL___OPENAI_API_KEY']);
   });
+
+  it('state 三态（cr-310）：set 可解 / locked 在盘不可解 / none 无条目', async () => {
+    const file = tmpFile();
+    const ctx1 = await boot(file);
+    ctx1.credentials.setGlobal('pool:openai', 'sk-real');
+    ctx1.credentials.setGlobal('pool:glm', 'sk-ok');
+    // 篡改 openai 条目（模拟换机）
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    const openaiKey = Object.keys(raw).find((k) => k.includes('OPENAI'))!;
+    raw[openaiKey] = raw[openaiKey].slice(0, -4) + 'AAAA';
+    fs.writeFileSync(file, JSON.stringify(raw), 'utf-8');
+
+    const ctx2 = await boot(file);
+    expect(ctx2.credentials.stateGlobal('pool:openai')).toBe('locked'); // 在盘不可解
+    expect(ctx2.credentials.stateGlobal('pool:glm')).toBe('set'); // 在盘可解
+    expect(ctx2.credentials.stateGlobal('pool:ghost')).toBe('none'); // 无条目
+    expect(ctx2.credentials.state('helper', 'pool:openai')).toBe('none'); // Agent 级无条目
+  });
 });

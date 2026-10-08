@@ -241,7 +241,8 @@ function sanitizeConfigValue(value: unknown): unknown {
 // ---- 池凭据侧信道（src /api/config 的提取/回填语义收编）----
 // 池条目的 api_key 不落 config.json：保存时提取进 ctx.credentials
 // （全局级，credId 'pool:<名>'/'searchpool:<名>'）；读取时回填掩码
-// 指示"已设置"。掩码值 = 保持不变；空串 = 删除凭据。
+// 指示"已设置"。掩码值 = 保持不变；空串 = 删除凭据——但命中 locked
+// 密文（在盘解密失败，可恢复）时保留不删（cr-310），warnings 回传前端。
 
 /** 池域 → 凭据 id 前缀 */
 const POOL_CRED_PREFIX: Record<string, string> = {
@@ -263,6 +264,7 @@ function extractPoolCredentials(
   ctx: Context,
   key: string,
   value: unknown,
+  warnings: string[] = [],
 ): unknown {
   const prefix = POOL_CRED_PREFIX[key];
   if (!prefix || value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -300,9 +302,14 @@ function extractPoolCredentials(
     }
     const e = { ...(entry as Record<string, unknown>) };
     const apiKey = e.api_key;
-    if (typeof apiKey === 'string' && apiKey !== API_KEY_MASK) {
-      // 非掩码 = 新值或空串（空串 = 删除）；掩码 = 保持不变（不触凭据库）
-      ctx.credentials.setGlobal(`${prefix}${name}`, apiKey);
+    if (typeof apiKey === 'string' && apiKey !== API_KEY_MASK && apiKey !== '') {
+      ctx.credentials.setGlobal(`${prefix}${name}`, apiKey); // 新值 = 存
+    } else if (apiKey === '' && ctx.credentials.stateGlobal(`${prefix}${name}`) === 'locked') {
+      // 空串删除指令命中 locked 密文（换机后掩码回填 '' 的误删路径）——
+      // 密文在盘可恢复，保留不删（cr-310）：填新值保存即可覆盖自愈
+      warnings.push(`连接 "${name}" 存有本机无法解密的密钥，已保留（换回原机名可恢复，或填入新 Key 覆盖）`);
+    } else if (typeof apiKey === 'string' && apiKey !== API_KEY_MASK) {
+      ctx.credentials.setGlobal(`${prefix}${name}`, ''); // 空串 = 删（locked 已在上面拦截）
     } else if (apiKey === API_KEY_MASK && !hasCredential(name)) {
       // 掩码但凭据缺席 → 改名候选：优先连接指纹（掩码外全部字段等值——
       // 纯改名场景）；指纹失配（改名同时改了 base_url 等字段）且消失的
@@ -1682,10 +1689,12 @@ export function apply(ctx: Context) {
     const key = reqStr(p, 'key');
     assertConfigKey(key);
     if (p.value === undefined) throw new Error('参数 value 缺失');
-    // 池域：先提取 api_key 进凭据库（掩码语义），再 sanitize 落 config
-    const extracted = extractPoolCredentials(ctx, key, p.value);
+    // 池域：先提取 api_key 进凭据库（掩码语义；locked 守卫收集 warnings），
+    // 再 sanitize 落 config
+    const warnings: string[] = [];
+    const extracted = extractPoolCredentials(ctx, key, p.value, warnings);
     ctx.config.set(key, sanitizeConfigValue(extracted));
-    return { set: true, key };
+    return { set: true, key, ...(warnings.length > 0 ? { warnings } : {}) };
   });
 
   web.registerRpc('config/delete', (params) => {
@@ -1709,15 +1718,16 @@ export function apply(ctx: Context) {
     // 注意顺序：sanitize 先剥掉掩码值条目（= 保持不变），再对存留的
     // 池条目提取真实 key（''/新值）——被 sanitize 丢掉的掩码条目不触凭据库。
     const current = ctx.config.all();
+    const warnings: string[] = [];
     for (const key of CONFIG_KEY_PREFIXES) {
       if (key in payload) {
-        const extracted = extractPoolCredentials(ctx, key, payload[key]);
+        const extracted = extractPoolCredentials(ctx, key, payload[key], warnings);
         ctx.config.set(key, extracted);
       } else if (key in current) {
         ctx.config.delete(key);
       }
     }
-    return { saved: true };
+    return { saved: true, ...(warnings.length > 0 ? { warnings } : {}) };
   });
 
   // ============ llm：模型池查看面 + 模型发现 + 连接凭据写口 ============
@@ -1749,12 +1759,17 @@ export function apply(ctx: Context) {
   });
 
   // 连接凭据写口（PoolManager 删除连接时同步删凭据——否则种子名的
-  // 发现回写会凭残留凭据把已删条目"复活"）。value '' = 删除。
+  // 发现回写会凭残留凭据把已删条目"复活"）。value '' = 删除；但目标
+  // locked（在盘解密失败，可恢复）时保留不删（cr-310 同款守卫）。
   web.registerRpc('llm/pool-credential', (params) => {
     const p = obj(params);
     const name = reqStr(p, 'name');
     if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error('参数 name 须为安全字符（字母/数字/_/-）');
-    ctx.credentials.setGlobal(`pool:${name}`, typeof p.value === 'string' ? p.value : '');
+    const value = typeof p.value === 'string' ? p.value : '';
+    if (value === '' && ctx.credentials.stateGlobal(`pool:${name}`) === 'locked') {
+      return { set: true, name, warnings: [`连接 "${name}" 存有本机无法解密的密钥，已保留（换回原机名可恢复，或填入新 Key 覆盖）`] };
+    }
+    ctx.credentials.setGlobal(`pool:${name}`, value);
     return { set: true, name };
   });
 
