@@ -21,6 +21,7 @@ import * as jobsRow from 'ac-jobs';
 import type { JobOutcome } from 'ac-jobs';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
+import * as sessionRow from 'ac-session';
 import * as subagentRow from '../src/index.ts';
 import * as toolsRow from 'ac-tools';
 
@@ -103,6 +104,10 @@ async function boot(opts: { root?: string; provider?: unknown; model?: string } 
     [loopRow, undefined],
     [agentsRow, undefined],
     [ConfigService, undefined],
+    // session 行（cr-320 值导入消解后 ctx.session.expandSteps 为硬依赖）：独立
+    // 临时数据根——数据根隔离红线（每 boot 一个，不与主进程/其他用例共目录；
+    // subagent 自身 root 语义不随本行变化——纯内存态用例零漂移）
+    [sessionRow, { root: fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-session-')) }],
     [subagentRow, opts.root !== undefined ? { root: opts.root } : undefined],
   ];
   const prevEnv = process.env.AGENTCHAT_DATA_ROOT;
@@ -1156,6 +1161,7 @@ describe('access-tier：子 Agent 档位继承（§7.3 elevation = tierOf(parent
       [loopRow, undefined],
       [agentsRow, undefined],
       [recorder, undefined],
+      [sessionRow, { root: fs.mkdtempSync(path.join(os.tmpdir(), 'ac-subagent-session-')) }],
       [subagentRow, undefined],
     ];
     for (const [plugin, config] of rows) {

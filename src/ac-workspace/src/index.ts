@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context } from '@agentchat/cordis';
-import { pairKey } from 'ac-agent-loop';
+import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import { createRootsContainment } from 'ac-sandbox-core';
 import type { AgentConfig } from 'ac-agents';
 import { runNativePickFolder, type NativePickOutcome } from './native-dialog.ts';

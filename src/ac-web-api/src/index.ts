@@ -71,10 +71,10 @@ import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
 import { sessionCapsOf, displayNameOf, effectiveToolMode, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
-import { pairKey } from 'ac-agent-loop';
+import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import { OpenAICompletions } from 'ac-openai-completions';
-import { normalizePoolModels, PROTOCOLS, type PoolModelEntry } from 'ac-llm-pool';
-import type { LlmAttachment, LlmMessage } from 'ac-llm';
+import { PROTOCOLS } from 'ac-llm-pool'; // 协议注册表——协议实现归属注册行（cr-319 分层：llm-protocol-extensibility §2.2）
+import { normalizePoolModels, type LlmAttachment, type LlmMessage, type PoolModelEntry } from 'ac-llm'; // 池词汇——cr-319 归位 owning 包
 import {
   DEFAULT_GRANTED_PERMISSIONS,
   EXECUTION_EXPLICIT_REQUIRED,

@@ -19,7 +19,6 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",
-    "ac-agent-loop": "workspace:*",
     "ac-core-utils": "workspace:*",
     "ac-noise-core": "workspace:*",
     "ac-wire-format": "workspace:*",

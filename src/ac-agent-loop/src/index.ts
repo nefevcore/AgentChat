@@ -23,7 +23,10 @@ export function apply(ctx: Context) {
   ctx.plugin(AgentLoopService);
 }
 
-export { AgentLoopService, runAddress, pairKey, ARCHIVE_REVIEW_META, isArchiveReviewRun, normalizeToolSpecs } from './service.ts';
+// runAddress / pairKey / ARCHIVE_REVIEW_META / isArchiveReviewRun /
+// normalizeToolSpecs 已下沉 ac-core-utils（cr-318：跨行协议词汇单源，
+// 消费方直连纯库免拉插件行）——先例同 GROUP_HINT_META，不留 re-export。
+export { AgentLoopService };
 
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家 contract）
 export {

@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "人设注入：loop/before-run waterfall 前置 <persona> 块（人设来源 AgentConfig.hooks['persona']，经 ctx.agents 查询）",
+  "description": "人设注入：loop/before-run 前置 <persona> 块（人设来源 settings['persona']，经 ctx.agents.settingsOf 合成；解析词法 resolvePersonaText 住 ac-core-utils——cr-321 下沉，singles 修订键同口径单源）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-core-utils": "workspace:*"
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",

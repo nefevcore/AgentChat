@@ -16,7 +16,7 @@
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
-import { pairKey } from 'ac-agent-loop';
+import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import { loadManifestFromDir, type PluginPermission } from 'ac-plugin-core';
 import { PluginRegistryService, type PluginRegistryRowOptions } from './service.ts';
 

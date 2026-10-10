@@ -16,7 +16,7 @@
 //   · 摘行即静默：桥接面消失，webServer 与事件源互不影响
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import { isArchiveReviewRun } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import { isGroupHint } from 'ac-core-utils';
 import { isBackgroundSender } from 'ac-ws-protocol';
 import { LlmDeltaBatcher, LLM_DELTA_BATCH, createBridgeCatalog } from 'ac-wire-format';

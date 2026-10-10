@@ -25,7 +25,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { DurableInteraction } from 'ac-durable-interaction';
-import { runAddress } from 'ac-agent-loop';
+import { runAddress } from 'ac-core-utils'; // run 寻址——cr-318 下沉纯库
 
 /** 挂起等待的轮询双保险间隔（replied 事件之外——store 可能被外部进程回复） */
 const WAIT_POLL_MS = 150;

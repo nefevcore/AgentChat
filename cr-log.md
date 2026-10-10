@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-311**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-322**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -329,3 +329,14 @@
 - 【cr-309 2026-10-08 隐藏群聊形态的上下文占用仪表：KV 走势按群 gid 聚合多 agent 步流，展示口径待定，想清后恢复】
 - 【cr-310 2026-10-08 凭据删除守卫：locked 密文（解密失败在盘）空串删除指令保留不删并 warnings 反馈，杜绝换机后随手保存销毁可恢复密文】
 - 【cr-311 2026-10-08 TokenGauge KV 走势 min-max 降采样（>440 代表点时桶内取极值，保深谷）】
+- 【cr-312 2026-10-08 前端 Agent 面切 Provider「当前生效」摘要不更新修复：selectLlmProvider 发现缓存 string-only 滤空（对象形态 models 全被滤掉→自动落模型逻辑永不触发）——改走 poolModelEntries 单源 + 对齐后端 defaultPoolConnection 落点口径（defaultModel 优先→降序首项）；cur 空/错配统一落新连接默认模型（「provider 显式+model 空」是无意义态——投递侧默认连接整体胜出，router 测试锁定）；llmEffectiveSummary 存量坏态按真实投递落点呈现（不再拼接「全局默认模型×所选连接」）】
+- 【cr-313 2026-10-08 「provider 显式 + model 空」语义补全（第四态断根）：provider×model 四组合此前有一态语义断裂——model 空被投递侧解释为连接选择整体未声明、默认池连接整体胜出（UI 多路径可达坏态：还原 model/切 Provider 解析坏/直连 patch，补丁修不完）。本轮：ac-llm-pool 提单源 poolFallbackRef（provider 显式→该连接默认模型，否则全局默认连接；per-entry 解析提 poolEntryDefaultModel 公开）+ router/agent-admin 预览/subagent 派生三处复制回落换用单源 + router 测试断言改新语义（provider 胜出）+ 前端摘要第四态显示「连接默认」、模型下拉默认项/脚注文案按连接感知】
+- 【cr-314 2026-10-09 journal 折叠 KV 前缀稳定化——折叠边界按 eventJournalKeep 量化推进（fold = floor((E-K)/q)*q, q=max(1,K)）：量子内摘要行与保留窗字节全稳、回放=上一轮前缀+尾部追加，news~news 每轮首步全量失效（命中恒剩 system+tools 静态前缀）降为每 q 轮一次；eventJournalKeep 语义改为保留窗下限（K..2K-1 呼吸），K=0 逐条即折不变；测试重写并新增前缀稳定性锁定用例】
+- 【cr-315 2026-10-09 journal 折叠方案融合落地（方案A）——eventReplay=journal 语义从读侧虚拟折叠升级为轮数触发的物理滚动归档：攒 K+max(1,K) 条机制行触发 ac-archive 整理 run（复用单漏斗：Agent 亲写滚动概要 + compact 物理剪至保留 K 条 + 被剪轮入归档段），上下文恒≈概要+K..2K 轮、非触发轮纯追加（KV 性质继承 cr-314 量子语义且断时重算量更小）；ac-session 读侧折叠分支与 eventReplayOf/eventJournalKeepOf 退役删除；自会话桶整理提示词对角线文案修正（不再误称与 user 的会话）】
+- 【cr-316 2026-10-10 新增 docs/explore 设计探索档案：cell 运行时与架构迭代（未裁决草稿，五轮讨论沉淀）】
+- 【cr-317 2026-10-10 插件包审查 #2：ac-relay-server 深审改判留（P0 删除候选→确认保留）——审查清单两条依据均不成立：①「非 workspace 成员」有误，pnpm-workspace src/* 通配实际覆盖（lock importers 可证）；②「零被依赖」仅指 import 图内，消费方全在图外：CI 双工作流部署 gen-manifest.mjs、移动端 Kotlin 协议级耦合（帧词汇/频控节奏注释互引）、公网 47.110.63.135 生产部署在跑、最近提交 2026-10-08（cr-306）。按清单联动规则「留则在 README 注明身份」：布局节补一行身份说明。源码 642/512 行无精简空间（注释全挂生产事故 CR 背书、限额参数真机校准）。】
+- 【cr-318 2026-10-10 ac-agent-loop 独立性修复（P1-3）：runAddress/pairKey/ARCHIVE_REVIEW_META/isArchiveReviewRun/normalizeToolSpecs 五个跨行协议词汇下沉 ac-core-utils，23 处消费方改源 + 依赖规范化】
+- 【cr-319 2026-10-10 P1-4 池词汇归位：LlmPoolEntry/PoolModelEntry/SessionHeaderSpec 形状 + normalizePoolModels/poolEntryDefaultModel/defaultPoolConnection/poolFallbackRef 解析词汇自 ac-llm-pool 下沉 ac-llm/src/pool.ts（域 owning，refs.ts 先例）；router/subagent/archive/agent-admin/presets/web-api 六包值导入改源，四包 ac-llm-pool 依赖解除（web-api 保留——PROTOCOLS 协议注册表留注册行，档案分层背书）；词汇测试随迁】
+- 【cr-320 2026-10-10 P1-5 ac-session 独立性修复：expandSteps 跨行值导入消解——ac-subagent 值导入改 ctx.session 服务面消费口（inject 加 session 硬声明），ac-session 导出收私有 + SessionService 挂公有方法；subagent ac-session 依赖转 devDependencies（type-only）；集成测试 boot 补 sessionRow（独立临时数据根）】
+- 【cr-321 2026-10-10 ac-persona 独立性修复（审计 P1-6）：resolvePersonaText/PersonaSettings 词汇下沉 ac-core-utils（cr-318 normalizeToolSpecs 同构——singles 前缀快照修订键与装配行同口径单源）；singles ac-persona 依赖解除（测试留 devDeps）；personas 行内解析改调纯库】
+- 【cr-322 2026-10-11 vitest 渗漏防线补 AGENTCHAT_SUPERVISED 摘除——Supervisor 模式宿主（本产品自托管开发态）跑测试时该变量渗入 worker，system/restart 非 Supervisor fail-closed 用例误走真重启路径（dispose 关掉测试自 boot 的 rpc 目标→15s 超时 + process.exit(42) Unhandled Rejection）；与 AGENTCHAT_DATA_ROOT 同一防线同一病根，摘除后测试对宿主 shell 环境免疫】

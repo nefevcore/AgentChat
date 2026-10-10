@@ -22,7 +22,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'archive',
   label: '超长归档',
-  description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）',
+  description: '会话超阈值触发整理归档（预算 per-Agent 覆盖；eventReplay=journal 的自会话桶按机制行条数滚动归档——攒 2×keep 触发）',
   automatic: true,
   fields: [
     { name: 'maxContextTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_ARCHIVE_BUDGETS.maxContextTokens, description: '会话上下文预算上限（token）。实际触发阈值 = 本值 × archiveTokenRatio（缺省 50 万）' },

@@ -72,7 +72,8 @@ import * as path from 'node:path';
 import { acquireDataRootLock } from './data-root-lock.ts';
 import { isStalePartial } from './migrations.ts'; // 陈年 partial 判定（cr-44——与 v6 迁移/读侧闸门同源）
 import { Service, type Context } from '@agentchat/cordis';
-import { isArchiveReviewRun, type LoopRunResult, type LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
+import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
+import type { LoopRunResult, LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 import { isGroupHint, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（解 session⇄group 环；2026-09-05 边界评估）
 import type { LlmAttachment, LlmImageAttachment, LlmMessage, LlmRole } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
@@ -761,12 +762,12 @@ function expandTrajectory(r: SessionRecord): LlmMessage[] {
 }
 
 /**
- * 步记录 → run 内消息序（expandTrajectory 的步级核，导出供
- * ac-conversation 视图投影复用——轨迹回放形状的单一事实源，防两处漂移）：
+ * 步记录 → run 内消息序（expandTrajectory 的步级核——轨迹回放形状的
+ * 单一事实源，防两处漂移；包外消费走 ctx.session.expandSteps 服务面）：
  * 横列 assistant(reasoning?, thinkingSignature?, tool_calls?) + 配对 tool
  * 结果行（结果 JSON 串化——与 loop 回填模型的 content 同源字节）。
  */
-export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
+function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
   const out: LlmMessage[] = [];
   for (const s of steps) {
     const calls = s.toolCalls ?? [];
@@ -2640,6 +2641,15 @@ export class SessionService extends Service {
   // 回放与维护
   // ============================================================
   /**
+   * 轨迹展开服务面（cr-320）：步记录 → run 内消息序——包外消费
+   *（ac-subagent 回放口径）的唯一入口，替代跨行值导入导出符号
+   *（独立行装载面不受单个消费方拖累，§7.3 单一事实源不变）。
+   */
+  expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
+    return expandSteps(steps);
+  }
+
+  /**
    * 回放历史（概要头部 + 此前消息；供 router.send options.history）——
    * **唯一回放边界**，角色由回放按读者赋予（§2.4）：viewer = 读者端点 id
    * （回 Agent 的那个 Agent），`agent_id === viewer → assistant`、其余 → user。
@@ -2664,43 +2674,13 @@ export class SessionService extends Service {
     // config/changed 后下一轮自动生效。
     const replayTrajectory =
       options.viewer !== undefined && this.replayTrajectoryOf(options.viewer);
-    // 事件行 journal 折叠（P2）：仅对角线自会话桶 + viewer 显式配置 journal
-    // 时启用。两遍扫描：先定位全部（对 viewer 可见的）event 行，尾部 K 条
-    // 之外折叠为一条计数摘要（插入在首条被折叠 event 行的位置，保序）。
-    const journalMode =
-      options.viewer !== undefined &&
-      this.eventReplayOf(options.viewer) === 'journal' &&
-      conversationId === `${options.viewer}~${options.viewer}`;
-    let eventIndexes: number[] = [];
-    if (journalMode) {
-      for (let i = 0; i < records.length; i++) {
-        const r = records[i];
-        // 词汇 v2：context+source:'event' 才是可折叠的机制行——技能注入行
-        //（source:'skill' 等）正文即语义，折叠即丢失，天然豁免
-        if (r.role !== 'event' && !(r.role === 'context' && r.source === 'event')) continue;
-        // hint 视点过滤同口径：投递目标非 viewer 的 event 行本就被跳过——
-        // 不计入折叠范围（折叠摘要只覆盖本就会回放的行）。
-        if (r.agent_id !== undefined && r.agent_id !== options.viewer) continue;
-        eventIndexes.push(i);
-      }
-    }
-    const keepEvents = journalMode ? this.eventJournalKeepOf(options.viewer!) : Infinity;
-    const foldedSet = keepEvents < eventIndexes.length
-      ? new Set(eventIndexes.slice(0, eventIndexes.length - keepEvents))
-      : null;
-    let foldSummaryInserted = false;
+    // 事件行 journal 折叠已退役（cr-315 方案A）：eventReplay='journal' 语义
+    // 移交 ac-archive 轮数滚动归档（机制行攒 2×keep 触发整理 run + 物理剪裁
+    // + 概要滚动）——读侧不再虚拟折叠，history() 恒全量投影；设置读取口
+    // （eventReplayOf/eventJournalKeepOf）保留为 rollup 触发口的配置消费面。
+    // KV 排查 2026-10-06 两根因（摘要行头部位移 + 滑动窗移行）随物理剪裁消除。
     const rows: LlmMessage[] = [];
     for (const [idx, r] of records.entries()) {
-      if (foldedSet !== null && foldedSet.has(idx)) {
-        if (!foldSummaryInserted) {
-          foldSummaryInserted = true;
-          rows.push({
-            role: 'user',
-            content: `[机制运行日志] 此前有 ${foldedSet.size} 次机制触发（定时/任务通知），细节已折叠——最新触发见下方近期条目；需要细节可用会话记录工具查阅。`,
-          });
-        }
-        continue; // 折叠行跳过（摘要占位于首条折叠处，保序）
-      }
       // 部分行（run 未收束残留）：工具结果补记齐全（records 覆盖后）→ 视同
       // 普通 steps 行回放——中断 run 已见前缀**字节保真**（provider KV 缓存
       // 命中 + 完成步记忆，2026-09-04）；不齐（工具执行中进程死亡）→ 跳过
@@ -2788,12 +2768,14 @@ export class SessionService extends Service {
   }
 
   /**
-   * 事件行回放模式（P2 自会话成本治理）：
+   * 事件行回放模式（P2 自会话成本治理；cr-315 方案A 后 journal = 轮数
+   * 滚动归档触发开关，消费者 = ac-archive maybeRollup——本服务读侧不再
+   * 折叠；未装 ac-archive 行时设置无消费者，等同 full）：
    *   · 'full'（缺省）——event 行全量原文回放（历史行为，零变化）；
    *   · 'journal'——对角线自会话桶（conversationId = viewer~viewer，机制
-   *     驱动的运行日志）的**旧 event 行**折叠为计数摘要，仅保留最近
-   *     eventJournalKeep（缺省 6）条原文。非自会话桶不受影响（用户直答/
-   *     委托对桶的 event 行语义不同，不折叠）。
+   *     驱动的运行日志）启用**轮数滚动归档**（cr-315 方案A）：ac-archive
+   *     检测机制行攒满 2×keep 触发整理 run + 物理剪裁（读侧折叠已退役——
+   *     压不住回复行累积且断时全量重算）。非自会话桶不受影响。
    * 动机：30 分钟一轮的定时器让自会话 event 行无限堆积，每条 hint 原文
    * （数百字符）随全部历史每轮重放——news 实测单轮上下文 37 万 tokens
    * 中 event 行占大头，而"过去 46 次触发全部静默"的信息量是一行字。
@@ -2812,7 +2794,7 @@ export class SessionService extends Service {
     return 'full'; // 缺省零变化
   }
 
-  /** journal 模式保留的最近 event 行数（settings.session.eventJournalKeep；缺省 6） */
+  /** journal 模式保留窗下限（settings.session.eventJournalKeep；缺省 6）——折叠按此量子推进 */
   eventJournalKeepOf(viewer: string): number {
     const agents = this.ctx.get('agents', false) as
       | { settingsOf?(id: string, name?: string): unknown }
@@ -3768,8 +3750,8 @@ export const extension: ExtensionMeta = {
   automatic: true,
   fields: [
     { name: 'replayTrajectory', type: 'boolean', default: true, description: '轨迹回放——开（缺省）= Agent 回看自己历史时保留当时的工具调用轨迹（思考与工具结果对），质量优先但历史轮边界缓存失效、token 略增；关 = 对话级回放只保留每轮最终回复，成本最优。仅影响 Agent 自己的视角，翻转后下一轮生效（Agent 差异层可覆盖）' },
-    { name: 'eventReplay', type: 'string', default: 'full', description: '事件行回放模式——full（缺省）= 机制触发行全量原文回放；journal = 仅自会话桶（agent~agent）的旧机制行折叠为计数摘要（保留最近 eventJournalKeep 条原文），适合高频定时器驱动的 Agent（如 news 每 30 分钟一轮监控）——旧触发记录的信息量是一行计数，不必每轮按原价重放' },
-    { name: 'eventJournalKeep', type: 'number', min: 0, step: 1, default: 6, description: 'journal 模式保留的最近机制行条数（缺省 6；仅 eventReplay=journal 时生效）' },
+    { name: 'eventReplay', type: 'string', default: 'full', description: '事件行回放模式——full（缺省）= 机制触发行全量原文回放；journal = 自会话桶（agent~agent）启用轮数滚动归档：机制行攒满 2×eventJournalKeep 条触发整理归档（Agent 亲写滚动概要 + 早期记录物理移入归档段，上下文恒 ≈ 概要 + 保留条数），适合高频定时器驱动的 Agent（如 news 每 30 分钟一轮监控）；未装归档行时等同 full' },
+    { name: 'eventJournalKeep', type: 'number', min: 0, step: 1, default: 6, description: 'journal 模式保留的机制行条数（缺省 6；仅 eventReplay=journal 时生效）——攒满 2 倍触发滚动归档，剪至保留本数条；非触发轮回放纯尾部追加（KV 前缀缓存命中）' },
   ],
   listeners: [
     { event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' },

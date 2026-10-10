@@ -10,7 +10,8 @@ import { Context, type Fiber, Service } from '@agentchat/cordis';
 import * as llmRow from 'ac-llm';
 import * as configRow from 'ac-config';
 import * as poolRow from '../src/index.ts';
-import { desiredProviders, defaultPoolConnection, normalizePoolHeaders, normalizePoolModels, PROTOCOLS } from '../src/index.ts';
+import { desiredProviders, normalizePoolHeaders, PROTOCOLS } from '../src/index.ts';
+import { normalizePoolModels } from 'ac-llm'; // 池词汇——cr-319 归位 owning 包
 
 const tmps: string[] = [];
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
@@ -299,27 +300,6 @@ describe('ac-llm-pool：visionModels（多模态一期）', () => {
 });
 
 describe('模型能力元数据（models 宽容双形态 + vision 并集门控）', () => {
-  it('normalizePoolModels：裸名/对象双形态归一，非法项丢弃、按名去重', () => {
-    expect(normalizePoolModels([
-      'a',
-      { model: 'b', vision: true },
-      { model: 'c', hidden: true },
-      { model: 'd', vision: 'yes' },   // 非布尔 true → 忽略该标志
-      { model: 'e-manual', manual: true }, // 手工条目标志（发现刷新保留语义）
-      { model: '' },                    // 空名丢弃
-      42, null, 'x',                    // 非法项丢弃
-      'a',                              // 重复（首个胜）
-    ])).toEqual([
-      { model: 'a' },
-      { model: 'b', vision: true },
-      { model: 'c', hidden: true },
-      { model: 'd' },
-      { model: 'e-manual', manual: true },
-      { model: 'x' },
-    ]);
-    expect(normalizePoolModels(undefined)).toEqual([]);
-  });
-
   it('desiredProviders：对象形态 models 进路由清单 + modelMeta 提取', () => {
     const d = desiredProviders({
       ds: {
@@ -506,46 +486,6 @@ describe('D4 接口格式：api 条目（responses = POST /responses）', () => 
       globalThis.fetch = realFetch;
     }
     expect(urls).toEqual(['https://g.example/v1/chat/completions', 'https://g.example/v1/responses']);
-  });
-});
-
-describe('defaultPoolConnection（「默认/继承全局」物化单源）', () => {
-  it('defaultModel 优先；缺省回落 models 可见清单降序首项（≈ 命名最新）', () => {
-    // 2026-09-10 反馈场景：自定义提供方做默认连接——只填了连接与清单缓存，
-    // 未选默认模型。「默认/继承全局」物化失败 → 建 Agent 报错
-    const pool = {
-      'my-gw': {
-        base_url: 'https://gw.example/v1',
-        default: true,
-        models: ['glm-4.6', 'glm-5.3', 'glm-4.5'],
-      },
-    };
-    expect(defaultPoolConnection(pool)).toEqual({ provider: 'my-gw', model: 'glm-5.3' });
-    // defaultModel 一旦存在即最高优先（不被回落覆盖）
-    expect(
-      defaultPoolConnection({ 'my-gw': { ...pool['my-gw'], defaultModel: 'glm-4.6' } }),
-    ).toEqual({ provider: 'my-gw', model: 'glm-4.6' });
-  });
-
-  it('回落跳过 hidden 条目（旧模型归档标记）；全 hidden / 无 models → undefined', () => {
-    const hidden = {
-      'my-gw': {
-        base_url: 'https://gw.example/v1',
-        default: true,
-        models: [
-          { model: 'glm-4.5', hidden: true },
-          { model: 'glm-4.6', hidden: true },
-          'glm-5.3',
-        ],
-      },
-    };
-    expect(defaultPoolConnection(hidden)?.model).toBe('glm-5.3');
-    expect(
-      defaultPoolConnection({
-        'my-gw': { base_url: 'https://gw.example/v1', default: true, models: [{ model: 'a', hidden: true }] },
-      }),
-    ).toBeUndefined();
-    expect(defaultPoolConnection({ 'my-gw': { base_url: 'https://gw.example/v1', default: true } })).toBeUndefined();
   });
 });
 

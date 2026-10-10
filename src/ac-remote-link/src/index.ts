@@ -19,7 +19,7 @@ import z from '@agentchat/schemastery';
 import { RemoteLinkService } from './service.ts';
 import { proxyToSelf, type HttpBridgeParams } from './http-bridge.ts';
 import { createBridgeCatalog } from 'ac-wire-format';
-import { isArchiveReviewRun } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import { isGroupHint } from 'ac-core-utils';
 import { isBackgroundSender } from 'ac-ws-protocol';
 

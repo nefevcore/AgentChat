@@ -15,6 +15,8 @@
 // 跨域读取一律走服务方法（铁律 2：this.ctx.get）：
 //   agents   → 引用校验（存在且非 virtual）
 //   workspace → 工作区挂载校验
+//   agentStore → 修订键 persona 文档读取（cr-321：词法经 core-utils，
+//              与 ac-persona 装配行同口径）
 //   session  → hasMessages/lastActivity（消息文件属 ac-session 域）
 // 硬删的消息清理同样经 ctx.session.clear(sid)（owning 写口）。
 // ============================================================
@@ -22,9 +24,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
-import { isArchiveReviewRun, normalizeToolSpecs } from 'ac-agent-loop';
-import { resolvePersonaText } from 'ac-persona';
+import { isArchiveReviewRun, normalizeToolSpecs, resolvePersonaText } from 'ac-core-utils'; // 机制标记/工具规范化/persona 词法——cr-318/321 下沉纯库
 import { splitModelRef } from 'ac-llm';
+import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only——修订键 persona 口径与装配行同源）
 import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 import type { SingleSessionMeta, SinglesCreateInput, SinglesUpdateInput } from './contract.ts';
 
@@ -199,7 +201,7 @@ export class SinglesService extends Service {
     const defs = this.ctx.get('tools')?.list() ?? [];
     const specs = normalizeToolSpecs(defs, request.tools);
     const toolsHash = sha256(JSON.stringify(specs));
-    const persona = agent ? resolvePersonaText(this.ctx, request.agent, agents!.settingsOf(agent.id, 'persona')) ?? '' : '';
+    const persona = agent ? resolvePersonaText(this.ctx.get('agentStore'), request.agent, agents!.settingsOf(agent.id, 'persona')) ?? '' : '';
     // 记忆段删除（cr-4 记忆时间线）：记忆内容退出 system（静态指引块字节
     // 恒定），不进修订键——memoryBucketOf/get 已随服务 API 收敛退役。
     // 会话工作区（2026-09-13 挂载即授予；2026-09-13 升为会话级工作目录——

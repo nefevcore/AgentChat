@@ -12,7 +12,7 @@ import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { TimerService as VendorTimer } from '@agentchat/cordis-timer';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import type { LoopRunRequest } from 'ac-agent-loop';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { ARCHIVE_REVIEW_META } from 'ac-core-utils';
 import * as agentsRow from 'ac-agents';
 import * as conversationRow from 'ac-conversation';
 import * as llmRow from 'ac-llm';

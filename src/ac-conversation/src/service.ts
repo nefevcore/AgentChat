@@ -46,7 +46,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { runAddress, pairKey, isArchiveReviewRun } from 'ac-agent-loop';
+import { runAddress, pairKey, isArchiveReviewRun } from 'ac-core-utils'; // 寻址/对桶键/机制标记——cr-318 下沉纯库
 import { TIER_RANK, tierOf, type AgentConfig } from 'ac-agents';
 import { securityNoticeText, wrapWithSecurityNotice } from 'ac-sandbox-core';
 import type { LlmMessage } from 'ac-llm';

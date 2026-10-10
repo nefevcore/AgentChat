@@ -45,6 +45,15 @@ if (process.env.AGENTCHAT_DATA_ROOT !== undefined) {
   );
   delete process.env.AGENTCHAT_DATA_ROOT;
 }
+// AGENTCHAT_SUPERVISED 同病同防（cr-322）：Supervisor 模式宿主的 shell
+// 渗入 worker 后，system/restart「非 Supervisor fail-closed」用例误判
+// supervised → 真重启路径（dispose 关掉测试自 boot 的 rpc 目标 → 超时红）。
+if (process.env.AGENTCHAT_SUPERVISED !== undefined) {
+  console.warn(
+    `[vitest-setup-chdir] 摘除渗漏的 AGENTCHAT_SUPERVISED=${process.env.AGENTCHAT_SUPERVISED}（测试进程非 Supervisor 模式）`,
+  );
+  delete process.env.AGENTCHAT_SUPERVISED;
+}
 
 // 每 worker 独立数据根：并行 worker 同时 boot 服务器（agents 目录 rename /
 // config 写入）会在共享根上竞态（EPERM/丢行）——按 pool id 分桶隔离；

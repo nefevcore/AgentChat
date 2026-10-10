@@ -39,7 +39,8 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import { agentOfRunRequest, isArchiveReviewRun } from 'ac-agent-loop';
+import { agentOfRunRequest } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { LoopRunResult } from 'ac-agent-loop';
 import { agentGate } from 'ac-gate-core';
 import type {} from 'ac-agent-store'; // ctx.agentStore 服务类型（type-only）

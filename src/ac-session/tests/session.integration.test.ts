@@ -9,7 +9,7 @@ import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
 import * as llmRow from 'ac-llm';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { ARCHIVE_REVIEW_META } from 'ac-core-utils';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as sessionRow from '../src/index.ts';

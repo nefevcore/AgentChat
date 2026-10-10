@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
-import { pairKey } from 'ac-agent-loop';
+import { pairKey } from 'ac-core-utils';
 import { makePluginDir } from './helpers.ts';
 import * as agentsRow from 'ac-agents';
 import * as llmRow from 'ac-llm';

@@ -117,6 +117,32 @@ export function visibleModelNames(raw: unknown): string[] {
   return poolModelEntries(raw).filter((e) => e.hidden !== true).map((e) => e.model);
 }
 
+/** 连接默认模型解析（与后端 defaultPoolConnection 单口径）：defaultModel
+ *  优先 → 旧别名形态 entry.model → models 可见清单降序首项（≈命名最新，
+ *  hidden 跳过）；无可解析模型 → undefined。Agent 面切换 Provider 的落点
+ *  与「当前生效」摘要共用（cr-312：切 Provider 摘要不更新的根因修复） */
+export function poolDefaultModel(entry: unknown): string | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const e = entry as { defaultModel?: unknown; model?: unknown; models?: unknown };
+  for (const k of ['defaultModel', 'model'] as const) {
+    if (typeof e[k] === 'string' && e[k]) return e[k];
+  }
+  const visible = poolModelEntries(e.models).filter((m) => m.hidden !== true).map((m) => m.model);
+  return [...visible].sort((a, b) => b.localeCompare(a))[0];
+}
+
+/** 切换 Provider 时的模型落点：当前模型在新连接清单中（跨连接同名模型，
+ *  含 hidden——保显语义）→ 保持；否则落新连接默认模型（poolDefaultModel
+ *  口径，含 model 未选场景——「provider 显式 + model 空」是无意义态：投递
+ *  侧默认池连接整体胜出，provider 覆盖无效）；无清单无默认 → 保持现值
+ *  （由清单自动读取或连接默认补齐） */
+export function modelOnProviderSwitch(entry: unknown, cur: unknown): string | undefined {
+  const curModel = typeof cur === 'string' && cur ? cur : '';
+  const names = poolModelEntries((entry as { models?: unknown } | undefined)?.models).map((e) => e.model);
+  if (curModel && names.includes(curModel)) return curModel;
+  return poolDefaultModel(entry) ?? (curModel || undefined);
+}
+
 /** 模型发现（llm/models 真 /models 代理：后端附加 pool:<name> 凭据；
  *  refresh = 强制拉取并回写发现缓存——下拉随刷新联动。消费者：
  *  PoolManager〔本行〕+ AgentPane〔ui-agents〕/ ChatInput〔conversation〕） */

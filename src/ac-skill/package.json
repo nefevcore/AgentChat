@@ -11,6 +11,7 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-skill-core": "workspace:*"
   },
   "devDependencies": {

@@ -16,7 +16,7 @@
 // ============================================================
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { ARCHIVE_REVIEW_META } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { ToolDefinition } from 'ac-tools';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 import type {

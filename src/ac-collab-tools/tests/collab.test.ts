@@ -389,10 +389,12 @@ describe('send_agent（经 conversation 状态机）', () => {
 });
 
 describe('send_agent（子 Agent 直投分支）', () => {
-  async function bootWithSubagent(opts: { withSession?: boolean } = {}) {
+  async function bootWithSubagent() {
     const ctx = new Context();
     const fibers: Fiber[] = [];
     // rows = collab 基础 + jobs（subagent 依赖）+ subagent 行
+    // session 行（cr-320）：subagent 值导入消解后 ctx.session 为硬依赖——恒装
+    //（独立临时数据根——数据根隔离红线）
     const rows: unknown[] = [
       toolsRow,
       llmRow,
@@ -408,10 +410,16 @@ describe('send_agent（子 Agent 直投分支）', () => {
       agentsRow,
       routerRow,
       conversationRow,
-      ...(opts.withSession ? [sessionRow] : []),
       collabRow,
-      subagentRow,
     ];
+    // session 行（cr-320，subagent 硬依赖）：rows 单值形态不带 config，单独装载
+    // （独立临时数据根——数据根隔离红线）
+    const sessionFiber = ctx.plugin(sessionRow as any, { root: tmpRoot() });
+    await sessionFiber;
+    fibers.push(sessionFiber);
+    const subagentFiber = ctx.plugin(subagentRow as any);
+    await subagentFiber;
+    fibers.push(subagentFiber);
     for (const row of rows) {
       const fiber = ctx.plugin(row as any);
       await fiber;
@@ -468,7 +476,7 @@ describe('send_agent（子 Agent 直投分支）', () => {
 
   // ---- 子 Agent 发信身份归一（2026-09-17 修复：注入到正确的会话）----
   it('子 Agent send_agent(普通 Agent)：对桶归一到父（pairKey(parent, b)，非幽灵 sub~b 桶）+ 回复直返', async () => {
-    const { ctx } = await bootWithSubagent({ withSession: true });
+    const { ctx } = await bootWithSubagent();
     ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
     ctx.agents.register({ id: 'b', model: 'mock-1' });
     ctx.agents.register({ id: 'user', virtual: true });
@@ -491,7 +499,7 @@ describe('send_agent（子 Agent 直投分支）', () => {
   });
 
   it('子 Agent send_agent(user 虚拟端点)：落父的直答对桶（chief~user）', async () => {
-    const { ctx } = await bootWithSubagent({ withSession: true });
+    const { ctx } = await bootWithSubagent();
     ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
     ctx.agents.register({ id: 'user', virtual: true });
     const sp = await call(ctx, 'subagent', { action: 'spawn', task: '任务', wait_time: 30 }, 'chief');

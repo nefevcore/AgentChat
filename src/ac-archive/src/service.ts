@@ -41,10 +41,11 @@ import {
   type ArchiveBudgets,
   type ArchiveMessage,
 } from 'ac-archive-core';
-import { ARCHIVE_REVIEW_META, isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop';
+import { ARCHIVE_REVIEW_META, isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
+import type { LoopRunResult } from 'ac-agent-loop';
 import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
 import { resolveToolNames } from 'ac-agents';
-import { defaultPoolConnection } from 'ac-llm-pool';
+import { poolFallbackRef } from 'ac-llm'; // 池回落词汇——cr-319 归位 owning 包
 import { maxSeqOf } from 'ac-core-utils';
 import type { SessionRecord } from 'ac-session';
 
@@ -86,6 +87,10 @@ interface PendingMarker {
   /** 参与整理的端点（对桶非虚拟已注册端；虚拟端折叠为单侧） */
   participants: string[];
   requestedAt: string;
+  /** journal rollup 保留条数（cr-315 方案A）：触发时快照——机制行剪至
+   *  keep 条（被剪轮入归档分段，信息由滚动概要承接）；缺席 = token
+   *  阈值归档（按预算分割）。 */
+  rollupKeep?: number;
 }
 
 /** 整理 run 完成态缓存（概要回退取回复文本；清理随标记回收） */
@@ -170,10 +175,15 @@ export class ArchiveService extends Service {
       if (!conversationId.includes('~')) return;
       if (!conversationId.split('~').includes(agentId)) return;
       if (this.pending.has(conversationId)) return;
-      void this.maybeArchive(agentId, conversationId).catch((err: unknown) => {
-        this.ctx.logger.error(`[archive] 阈值检测失败（${conversationId}）: ${String(err)}`);
-      });
-    }, { description: '归档阈值检测（按会话消息估算触发整理 run）' });
+      // journal rollup（cr-315 方案A）：eventReplay='journal' 的对角线自会话
+      // 桶按机制行条数先行检测（2×keep 触发滚动归档）；未触发/不适用回落
+      // token 阈值检测——双闸并存：条数闸管机制行节奏，token 闸兜非机制行膨胀。
+      void this.maybeRollup(agentId, conversationId)
+        .then((rolled) => (rolled ? undefined : this.maybeArchive(agentId, conversationId)))
+        .catch((err: unknown) => {
+          this.ctx.logger.error(`[archive] 阈值检测失败（${conversationId}）: ${String(err)}`);
+        });
+    }, { description: '归档阈值检测（journal rollup 条数闸 + token 阈值兜底）' });
 
     // ---- 闸③：整理 run 步级观测（source='event' 过滤了流式，日志是唯一观测面） ----
     this.ctx.on('loop/step-started', (agent, index, messages, envelope) => {
@@ -272,6 +282,42 @@ export class ArchiveService extends Service {
     await this.requestArchive(conversationId, agentId);
   }
 
+  /**
+   * journal rollup 触发检测（cr-315 方案A）：eventReplay='journal' 的对角线
+   * 自会话桶（agent~agent 机制运行日志）按**机制行条数**触发滚动归档——
+   * 攒满 2×keep 条（keep = eventJournalKeep，ac-session 设置读取口）触发
+   * 整理归档：Agent 亲写滚动概要 + 物理剪至保留 keep 条（被剪行入归档
+   * 分段）。上下文恒 ≈ 概要 + keep..2×keep 条；非触发轮回放纯尾部追加
+   * （KV 前缀字节保真——量子语义继承 cr-314，且断点重算量 = 概要 + 保留
+   * 窗，优于读侧折叠的全量重算）。取代理由：读侧虚拟折叠（cr-314）压不住
+   * 回复行累积且断时全量重算；物理剪裁 + 概要滚动一次解决两者。
+   * 设置声明住 ac-session（settings.session.*——配置与回放同域）；未装
+   * 本行时设置无消费者，等同 full。
+   * @returns 是否触发（true = 整理 run 进行中，token 检测跳过）
+   */
+  private async maybeRollup(agentId: string, conversationId: string): Promise<boolean> {
+    if (conversationId !== `${agentId}~${agentId}`) return false;
+    if (this.ctx.session.eventReplayOf(agentId) !== 'journal') return false;
+    const keep = this.ctx.session.eventJournalKeepOf(agentId);
+    const records = await this.ctx.session.records(conversationId);
+    // 机制行口径同既有折叠（词汇 v2）：event 行 / context+source:'event'；
+    // 技能注入行豁免、投递目标非本人的行不计（本就不回放）。partial 悬空
+    // 行计入触发计数但剪裁时跳过（splitForRollup playable 判）——计数是
+    // 触发近似，剪裁是精确执行，极端不一致由下一轮收口。
+    let mechanism = 0;
+    for (const r of records) {
+      if (r.role !== 'event' && !(r.role === 'context' && r.source === 'event')) continue;
+      if (r.agent_id !== undefined && r.agent_id !== agentId) continue;
+      mechanism++;
+    }
+    if (mechanism < keep * 2) return false;
+    this.ctx.logger.info(
+      `[archive] journal rollup 触发 ${conversationId}（机制行 ${mechanism} ≥ 2×${keep}）`,
+    );
+    await this.requestArchive(conversationId, agentId, { keep });
+    return true;
+  }
+
   // ============================================================
   // 请求归档（标记 + 双侧整理投递 + done 协议收尾）
   // ============================================================
@@ -283,7 +329,11 @@ export class ArchiveService extends Service {
    * loop/after-run 事件驱动 done 协议收尾（全参与者 done → 归档重建）。
    * 超时/崩溃残留由 scanPending 兜底（abort 在途 run + 强制归档）。
    */
-  async requestArchive(conversationId: string, agentId: string): Promise<void> {
+  async requestArchive(
+    conversationId: string,
+    agentId: string,
+    opts: { keep?: number } = {},
+  ): Promise<void> {
     if (this.pending.has(conversationId)) return;
     this.pending.add(conversationId);
     this.syncScan(); // 整理进行中 → 拉起周期扫描（挂死兜底）
@@ -297,6 +347,7 @@ export class ArchiveService extends Service {
           agent: agentId,
           participants,
           requestedAt: new Date().toISOString(),
+          ...(opts.keep !== undefined ? { rollupKeep: opts.keep } : {}),
         } satisfies PendingMarker),
         'utf-8',
       );
@@ -359,15 +410,16 @@ export class ArchiveService extends Service {
     });
   }
 
-  /** 整理 run 可跑的模型判定（对齐 router：model ?? 默认池连接 `default:true`
-   *  优先、缺省首条；config 为可选能力——未装/无池/无具体模型 → undefined） */
-  private runnableModelOf(agent: { virtual?: boolean; model?: string }): string | undefined {
+  /** 整理 run 可跑的模型判定（对齐 router：model ?? poolFallbackRef 回落
+   *  ——provider 显式 → 该连接默认模型；未声明 → 默认池连接；config 为
+   *  可选能力——未装/无池/无具体模型 → undefined） */
+  private runnableModelOf(agent: { virtual?: boolean; model?: string; provider?: string }): string | undefined {
     if (agent.virtual) return undefined;
     if (agent.model) return agent.model;
     const config = this.ctx.get('config', false) as
       | { get<T>(key: string): T | undefined }
       | undefined;
-    return defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'))?.model;
+    return poolFallbackRef(config?.get<Record<string, unknown>>('llmProviders'), agent.provider)?.model;
   }
 
   /**
@@ -386,8 +438,7 @@ export class ArchiveService extends Service {
     // viewer=整理 Agent（M21/F3）：回放按读者投影——"你与 X 的会话"提示词
     // 天然是整理 Agent 视角（自己的话 assistant）；含既有概要头
     const history = await this.ctx.session.history(conversationId, { viewer: agentId });
-    const other = conversationId.split('~').find((p) => p !== agentId) ?? 'user';
-    const prompt = this.reviewPrompt(conversationId, agentId, other);
+    const prompt = this.reviewPrompt(conversationId, agentId);
     // M12 铁律 2：deliver 是深链服务（内部还要 router→loop→tools/llm），
     // 经 ctx.get 取 root-traced 无限制引用——受限 fiber 链（本服务 inject
     // 表）解析不到它的传递依赖。
@@ -435,9 +486,13 @@ export class ArchiveService extends Service {
    * "回复即概要"）。路径经 anchorReviewPath 锚定 Agent 专用空间（写侧对齐
    * 读侧），并显式给出会话键（Agent 无从自行推导 a~b 这类键词法）。
    */
-  private reviewPrompt(conversationId: string, agentId: string, other: string): string {
+  private reviewPrompt(conversationId: string, agentId: string): string {
     const agent = this.ctx.agents.require(agentId);
     const budget = this.summaryBudgetChars(agentId, conversationId);
+    // 对角线自会话桶（journal rollup 路径）= 机制运行日志而非对话——文案
+    // 分流（cr-315：不再误称"与对方的会话"；整理对象与概要侧重不同）
+    const self = conversationId === `${agentId}~${agentId}`;
+    const other = conversationId.split('~').find((p) => p !== agentId) ?? 'user';
     // 工具集解析（对象形态 → string[]；全部已注册 = 不传——与 router 同
     // 语义；传 defs 支持 tag 引用展开）
     const registered = this.ctx.tools.list();
@@ -446,14 +501,19 @@ export class ArchiveService extends Service {
     const has = (name: string): boolean =>
       effective !== undefined ? effective.includes(name) : registeredNames.includes(name);
     const summaryRel = this.anchorReviewPath(agentId, `summary/${fileNameSafe(conversationId)}.md`);
+    const subject = self
+      ? '此前运行日志（含已有概要覆盖的更早内容）的关键事件、推送结论、失败教训与待跟进事项'
+      : '这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项';
     const lines: string[] = [
-      `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话（会话键 ${conversationId}）已达到归档阈值，早期消息即将移出会话流。请在归档前完成以下整理：`,
+      self
+        ? `${ARCHIVE_REVIEW_PREFIX} 你的自会话运行日志（会话键 ${conversationId}）需要滚动整理，早期机制触发记录即将移出会话流。请完成以下整理：`
+        : `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话（会话键 ${conversationId}）已达到归档阈值，早期消息即将移出会话流。请在归档前完成以下整理：`
     ];
     let n = 1;
     lines.push(
       has('write')
-        ? `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入本会话概要文件 ${summaryRel}（整文件即总结，重写覆盖）。`
-        : `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，总结为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，直接作为回复返回（这部分会整体注入后续会话上下文）。`,
+        ? `${n}. 【生成会话总结】把${subject}，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入本会话概要文件 ${summaryRel}（整文件即总结，重写覆盖）。`
+        : `${n}. 【生成会话总结】把${subject}，总结为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，直接作为回复返回（这部分会整体注入后续会话上下文）。`
     );
     // 记忆整理条目删除（cr-4 记忆时间线）：记忆不再随会话桶重写——时间线
     // append-only，整理归 sleep-time（二期）；memoryBudgetOf/memoryEnabledOf
@@ -532,7 +592,7 @@ export class ArchiveService extends Service {
     }
     this.ctx.logger.info(`[archive] 整理全部完成，执行归档 ${conversationId}`);
     const summary = this.summaryOf(conversationId, marker);
-    await this.archiveAndRebuild(conversationId, marker.agent, summary);
+    await this.archiveAndRebuild(conversationId, marker.agent, summary, marker.rollupKeep);
     this.cleanupMarkers(conversationId, participants);
   }
 
@@ -614,17 +674,24 @@ export class ArchiveService extends Service {
    * 写归档分段 history_N.jsonl → session.compact（概要 + 尾部保留重写）。
    * 概要缺省（整理失败/降级）时保留既有概要文件不动。
    */
-  async archiveAndRebuild(conversationId: string, agentId: string, summary?: string): Promise<void> {
+  async archiveAndRebuild(
+    conversationId: string,
+    agentId: string,
+    summary?: string,
+    rollupKeep?: number,
+  ): Promise<void> {
     const dir = this.conversationDir(conversationId);
     const records: SessionRecord[] = await this.ctx.session.records(conversationId);
     if (records.length === 0) return;
 
-    const budgets = this.budgetsFor(agentId, conversationId);
     const archiveCount = this.archiveCountOf(conversationId);
     const lastArchived = this.readLastArchived(conversationId, archiveCount);
-    // 回放口径分割（viewer = owning agent）：尾部水位按该 Agent 实际注入
-    // 形状计量（自有轨迹展开计入）——keep 的回放预算与 history() 一致
-    const split = splitForArchive(records, budgets, lastArchived, { viewer: agentId });
+    // 分割双路（cr-315 方案A）：rollupKeep = 机制行条数剪裁（对角线自会话
+    // 桶）；缺省 = 回放口径 token 分割（viewer = owning agent——尾部水位按
+    // 该 Agent 实际注入形状计量，keep 的回放预算与 history() 一致）
+    const split = rollupKeep !== undefined
+      ? this.splitForRollup(records, agentId, rollupKeep)
+      : splitForArchive(records, this.budgetsFor(agentId, conversationId), lastArchived, { viewer: agentId });
 
     let segment: string | undefined;
     if (split.archive.length > 0) {
@@ -645,9 +712,11 @@ export class ArchiveService extends Service {
         ...(typeof anchorRow.seq === 'number' ? { seq: anchorRow.seq } : {}),
         ...(anchorRow.message_id ? { messageId: anchorRow.message_id } : {}),
       });
+      // rollup 分割无去重段（去重是 token 路径语义）；双形态显式取值
+      const cutoff = (split as { cutoff?: number }).cutoff ?? 0;
       this.ctx.logger.info(
         `[archive] 已归档 ${split.archive.length} 条 → ${segmentPath}（保留尾部 ${split.keep.length} 条` +
-          `${split.cutoff > 0 ? `，去重跳过前 ${split.cutoff} 条` : ''}）`,
+          `${cutoff > 0 ? `，去重跳过前 ${cutoff} 条` : ''}）`,
       );
     }
 
@@ -668,6 +737,38 @@ export class ArchiveService extends Service {
       kept: split.keep.length,
       ...(segment !== undefined ? { segment } : {}),
     });
+  }
+
+  /**
+   * journal rollup 分割（cr-315 方案A）：头部剪至「机制行保留 keep 条」——
+   * 第 keep+1 条可回放机制行（含其前交叉的全部行——回复行一并入段）为
+   * 保留区首行；被剪区的信息由滚动概要承接（summary.md 单源，history()
+   * 常规注入概要头）。与 token 分割互斥（rollup 触发优先；非机制行膨胀
+   * 由 token 闸兜底——两闸共用本重建漏斗）。
+   */
+  private splitForRollup(
+    records: SessionRecord[],
+    viewer: string,
+    keep: number,
+  ): { archive: SessionRecord[]; keep: SessionRecord[] } {
+    const playable = (r: SessionRecord): boolean => {
+      if (r.partial !== true) return true;
+      return (r.steps ?? []).length > 0
+        && r.steps!.every((s) => (s.toolCalls ?? []).every((tc) => tc.result !== null && tc.result !== undefined));
+    };
+    const isMechanism = (r: SessionRecord): boolean =>
+      (r.role === 'event' || (r.role === 'context' && r.source === 'event'))
+      && (r.agent_id === undefined || r.agent_id === viewer);
+    let seen = 0;
+    let cut = records.length; // 机制行 ≤ keep → 全保留（零归档条目，只滚动概要）
+    for (let i = 0; i < records.length; i++) {
+      if (!playable(records[i]) || !isMechanism(records[i])) continue;
+      if (++seen > keep) {
+        cut = i; // 第 keep+1 条机制行 = 保留区首行（其前全部入段）
+        break;
+      }
+    }
+    return { archive: records.slice(0, cut), keep: records.slice(cut) };
   }
 
   // ============================================================
@@ -812,6 +913,9 @@ export class ArchiveService extends Service {
           ? raw.participants.filter((p): p is string => typeof p === 'string' && !!p)
           : [],
         requestedAt: typeof raw.requestedAt === 'string' ? raw.requestedAt : '',
+        ...(typeof raw.rollupKeep === 'number' && Number.isFinite(raw.rollupKeep)
+          ? { rollupKeep: raw.rollupKeep }
+          : {}),
       };
     } catch {
       return undefined;

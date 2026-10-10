@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-llm-pool": "workspace:*"
+    "ac-llm": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",

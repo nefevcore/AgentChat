@@ -39,7 +39,7 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import type {} from 'ac-agents'; // ctx.agents 服务类型增强（type-only）
 
-import { runAddress } from 'ac-agent-loop'; // run 地址（injectDurable 驻留注入通道锚）
+import { runAddress } from 'ac-core-utils'; // run 地址（injectDurable 驻留注入通道锚）——cr-318 下沉纯库
 
 import type { ToolResult } from 'ac-tools';
 import {

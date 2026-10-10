@@ -21,7 +21,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { isArchiveReviewRun } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { LoopRunResult, LoopRunUsage } from 'ac-agent-loop';
 
 /** 行配置 */

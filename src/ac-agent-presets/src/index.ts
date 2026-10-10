@@ -16,7 +16,7 @@
 //     （agents/list RPC 过滤），仅供独立会话选用；不接收协作消息
 //     （send_agent 拒绝——src 防幽灵会话语义）；管理面写口拦截
 //     （ac-agent-admin）。
-//   · 模型解析：llm 池缺省 → 默认池连接（P5 口径统一：ac-llm-pool
+//   · 模型解析：llm 池缺省 → 默认池连接（P5 口径统一：ac-llm
 //     defaultPoolConnection——provider = 条目名，model = defaultModel；
 //     config/changed 后重解析（reassign 热更新，不重注册）。
 //   · 注册即 skip-if-present：盘上已有同 id 实体（agents-dir 物化在前）
@@ -30,7 +30,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { AgentConfig } from 'ac-agents';
-import { defaultPoolConnection } from 'ac-llm-pool';
+import { defaultPoolConnection } from 'ac-llm'; // 池词汇——cr-319 归位 owning 包
 
 /** 预设展示元信息（singles 选用 UI 用） */
 export interface AgentPresetMeta {
@@ -50,7 +50,7 @@ export interface AgentPresetDefinition {
   agent: Omit<AgentConfig, 'model'>;
 }
 
-/** llm 池条目形状（config llmProviders；P5：连接定义，默认物化走 ac-llm-pool） */
+/** llm 池条目形状（config llmProviders；P5：连接定义，默认物化走 ac-llm 池词汇） */
 type LlmPools = Record<string, unknown>;
 
 /** 默认池连接（provider = 条目名，model = defaultModel；无 → undefined） */

@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { ARCHIVE_REVIEW_META } from 'ac-core-utils';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as toolsRow from 'ac-tools';

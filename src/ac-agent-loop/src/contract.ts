@@ -71,7 +71,8 @@ export interface LoopRunRequest {
   /**
    * 机制标记透明通道（M20，对齐 src META_ARCHIVE_REVIEW）：调用方（归档
    * 整理等机制 run）经它向下游消费者声明"本 run 不入会话账 / 不记
-   * usage / 不进上下文视图"。已知键：ARCHIVE_REVIEW_META（本包导出，
+   * usage / 不进上下文视图"。已知键：ARCHIVE_REVIEW_META（ac-core-utils
+   * 导出——cr-318 下沉，
    * 值 = 'archive-review'，约定值 true）。不外漏进 provider——loop 构造
    * llm.chat 的 meta 是显式字段，request.meta 不参与。
    */

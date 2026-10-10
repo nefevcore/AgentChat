@@ -14,12 +14,7 @@
 // ============================================================
 import { createHash } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
-import type {} from 'ac-llm'; // llm/* 事件目录（type-only）
-
-/** 池条目 sessionHeader 字段形状（index.ts LlmPoolEntry 消费） */
-export type SessionHeaderSpec =
-  | false // 强制关闭（连 preset 匹配也不发）
-  | { name: string }; // 显式指定头名（值仍按会话派生）
+import type { SessionHeaderSpec } from 'ac-llm'; // llm/* 事件目录 + 池词汇形状（cr-319 归位 owning 包；type-only）
 
 /**
  * 确认过需要会话亲和头的网关事实清单（base_url 后缀匹配，大小写不敏感）。

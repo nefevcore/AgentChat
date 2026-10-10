@@ -28,7 +28,7 @@ export const extension: ExtensionMeta = {
     '子 Agent 多轮会话（SubagentsService + subagent 工具）：spawn/send/await/list/stop/delete；消息与注册表落盘可跨重启续聊；send 四投递语义（sync 等回复 / steer 注入当前步 / next-run 排队）',
 };
 
-export const inject = ['tools', 'agentLoop', 'jobs', 'agents'];
+export const inject = ['tools', 'agentLoop', 'jobs', 'agents', 'session'];
 
 export function apply(ctx: Context, options: SubagentRowOptions = {}) {
   ctx.plugin(SubagentsService, options);

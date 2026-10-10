@@ -34,7 +34,7 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { sessionCapsOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
-import { pairKey } from 'ac-agent-loop';
+import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 import type {} from 'ac-subagent'; // ctx.subagents 可选能力类型（type-only）
 import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only）

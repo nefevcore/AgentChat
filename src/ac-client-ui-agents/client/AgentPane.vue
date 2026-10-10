@@ -19,7 +19,7 @@ import TagChoice from './TagChoice.vue';
 // 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）；
 // 模型发现/池模型归一化经 ui-llm-pool（2026-09-11 语义归位：池域词汇，
 // Agent 面消费 = domain→domain 契约词汇边，白名单显式裁决）
-import { fetchPoolModels, poolModelEntries } from 'ac-client-ui-llm-pool/client/poolApi.ts';
+import { fetchPoolModels, poolModelEntries, modelOnProviderSwitch, poolDefaultModel } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { uploadAvatar, deleteAvatar, fetchLlmProviders, type LlmProviderStat } from './index.ts';
 import { fetchTagCatalog, type TagCatalogItem } from './rosterApi.ts';
 import { collectExclusiveGroups, currentExclusiveTag, applyExclusiveChoice, type ExclusiveGroup } from './tagExclusive.ts';
@@ -242,16 +242,16 @@ const llmModelOptionsMerged = computed(() => {
   if (typeof cur === 'string' && cur && !list.includes(cur)) list.push(cur);
   return [...new Set(list)];
 });
-/** kit Select 选项表（cr-169）：默认项 + 合并清单（存量 llmModelOptions 为发现缓存 ref，避让改名） */
+/** kit Select 选项表（cr-169）：默认项 + 合并清单（存量 llmModelOptions 为发现缓存 ref，避让改名）。默认项语义连接感知（cr-313）：provider 显式 → 跟随该连接默认模型；未选 → 全局默认连接 */
 const llmModelSelectOptions = computed(() => [
-  { value: '', label: '默认（按全局设置的默认模型处理）' },
+  { value: '', label: llmProvider.value ? '默认（跟随该连接的默认模型）' : '默认（按全局设置的默认模型处理）' },
   ...llmModelOptionsMerged.value.map((m) => ({ value: m, label: m })),
 ]);
 
 /** 选择 provider：写 raw.llm.provider；'' = 「默认」（跟随模型池默认连接
  *  ——删除 provider 覆盖、model 归''，投递侧回落 defaultPoolConnection）；
- *  当前模型不在新 provider 的发现清单 → 自动换成其首个已发现模型（避免
- *  provider/model 错配；无清单保持现值——由自动读取或连接默认补齐） */
+ *  模型落点 = modelOnProviderSwitch 单源（cr-312：此前 string-only 滤掉
+ *  对象形态发现缓存致清单恒空——「自动换新连接模型」永不触发） */
 function selectLlmProvider(name: string): void {
   if (!name) {
     // 「默认」：provider/model 双清除（继承全局，池默认热更即跟随）
@@ -260,12 +260,7 @@ function selectLlmProvider(name: string): void {
     emit('update:raw', next);
     return;
   }
-  const cached = props.pools.llmProviders[name]?.models;
-  const models = Array.isArray(cached) ? cached.filter((m): m is string => typeof m === 'string') : [];
-  const cur = getLLM('model');
-  const nextModel = models.length && typeof cur === 'string' && cur && !models.includes(cur)
-    ? models[0]
-    : cur;
+  const nextModel = modelOnProviderSwitch(props.pools.llmProviders[name], getLLM('model'));
   const next = { ...props.raw };
   next.llm = { ...llmRaw.value, provider: name, ...(nextModel ? { model: nextModel } : {}) };
   emit('update:raw', next);
@@ -345,19 +340,34 @@ const globalDefaultModel = computed<{ provider: string; model: string } | null>(
   return m ? { provider: hit[0], model: m } : null;
 });
 
-/** 当前生效模型摘要（provider+model 双字段 + 来源标注；未声明模型 →
- *  全局默认模型；provider 未选（''）→ 跟随池默认连接） */
+/** 模型行脚注（连接感知——cr-313）：provider 显式 → 该连接默认模型；
+ *  未选 → 全局默认连接。与摘要 source 同语义 */
+const llmModelDefaultHint = computed(() => {
+  if (llmProvider.value) {
+    const m = poolDefaultModel(props.pools.llmProviders[llmProvider.value]);
+    return m ? `当前连接默认模型：${m} · ${llmProvider.value}` : `该连接未设默认模型（${llmProvider.value}）`;
+  }
+  return globalDefaultModel.value ? `当前全局默认模型：${globalDefaultModel.value.model} · ${globalDefaultModel.value.provider}` : '';
+});
+/** 还原按钮 tooltip（连接感知）：model → 连接默认；其余字段 → 继承全局 */
+function revertLabelOf(key: string): string {
+  return key === 'model'
+    ? (llmProvider.value ? '恢复为默认（跟随该连接的默认模型）' : '恢复为默认（跟随全局默认模型）')
+    : '恢复为继承（删除本 Agent 覆盖，回退全局默认）';
+}
+
+/** 当前生效模型摘要（provider+model 双字段 + 来源标注），与投递侧
+ *  poolFallbackRef 同口径：model 显式 → 本 Agent 配置（provider 空 =
+ *  裸名路由）；model 空 + provider 显式 → 该连接默认模型（引用，热更
+ *  跟随——cr-313 第四态）；双空 → 全局默认连接 */
 const llmEffectiveSummary = computed(() => {
-  const eff = llmEffective.value;
-  const provider = llmProvider.value;
-  const model = llmRaw.value.model || eff.model || globalDefaultModel.value?.model || '';
-  const hasOwn = Object.keys(llmRaw.value).some(
-    (k) => k !== '$ref' && k !== 'provider' && llmRaw.value[k] !== undefined && llmRaw.value[k] !== null && llmRaw.value[k] !== '',
-  );
-  const source = !provider
-    ? '默认（跟随模型池）'
-    : hasOwn ? '本 Agent 配置' : (props.pools.llmProviders[provider] ? '连接 · ' + provider : '内置 · ' + provider);
-  return { provider: provider || globalDefaultModel.value?.provider || '', model, source };
+  if (llmRaw.value.model) {
+    return { provider: llmProvider.value, model: llmRaw.value.model, source: '本 Agent 配置' };
+  }
+  const ownConn = llmProvider.value ? poolDefaultModel(props.pools.llmProviders[llmProvider.value]) : undefined;
+  if (ownConn) return { provider: llmProvider.value, model: ownConn, source: '连接默认' };
+  const fallback = globalDefaultModel.value;
+  return { provider: fallback?.provider ?? '', model: fallback?.model ?? '', source: '默认（跟随模型池）' };
 });
 // ── 能力标签 ──
 /** 工具 requires 可能用到的标签 → 中文说明（base 已退役——全量标签化
@@ -756,7 +766,7 @@ async function removeAvatar() {
         <div v-if="llmEffectiveSummary" class="llm-effective">
           <StatusDot :size="6" status="ok" />
           当前生效：<strong>{{ llmEffectiveSummary.model || llmEffectiveSummary.provider }}</strong>
-          <span class="llm-effective-src">· {{ llmEffectiveSummary.provider }} · {{ llmEffectiveSummary.source }}</span>
+          <span class="llm-effective-src">· {{ llmEffectiveSummary.provider || '自动路由' }} · {{ llmEffectiveSummary.source }}</span>
         </div>
         <!-- 字段平铺（cr-173 分组标题退役：推理/采样/边界分组意义不大，字段序即 schema 序） -->
         <template v-for="f in llmVisible" :key="f.key">
@@ -775,11 +785,11 @@ async function removeAvatar() {
               <SettingField v-else :field="f" :model-value="getLLM(f.key)" @update:model-value="setLLM(f.key, $event)" />
               <!-- cr-226：原生 title——Tooltip ::after 溢出会撑宽滚动容器（agent-tab-body）且被其裁剪；
                    IconAction 去 suppress-title 让其自带 title 生效（Kit IconAction 本就是 title+aria 双通道） -->
-              <IconAction v-if="isLlmOverridden(f.key)" icon="rotate-ccw" label="恢复为继承（删除本 Agent 覆盖，回退连接默认）" @click="revertLlmToInherit(f.key)" />
+              <IconAction v-if="isLlmOverridden(f.key)" icon="rotate-ccw" :label="revertLabelOf(f.key)" @click="revertLlmToInherit(f.key)" />
             </div>
           </FieldRow>
           <!-- 模型行脚注（kit FieldRow 无脚注位；长文本独立于字段行下方） -->
-          <div v-if="f.key === 'model' && !isLlmOverridden('model') && globalDefaultModel" class="info-hint">当前全局默认模型：{{ globalDefaultModel.model }} · {{ globalDefaultModel.provider }}</div>
+          <div v-if="f.key === 'model' && !isLlmOverridden('model') && llmModelDefaultHint" class="info-hint">{{ llmModelDefaultHint }}</div>
           <div v-if="f.key === 'model' && !llmModelOptionsMerged.length && llmModelsError" class="info-error">{{ llmModelsError }}</div>
         </template>
         <div v-if="llmFiltered.length === 0" class="llm-empty">未找到匹配的设置</div>

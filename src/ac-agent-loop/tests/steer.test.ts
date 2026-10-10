@@ -4,7 +4,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmMessage, LlmStreamChunk } from 'ac-llm';
-import { runAddress } from '../src/index.ts';
 import * as llmRow from 'ac-llm';
 import * as loopRow from '../src/index';
 import * as toolsRow from 'ac-tools';
@@ -76,15 +75,6 @@ afterEach(async () => {
 });
 
 const USER = (text: string): LlmMessage[] => [{ role: 'user', content: text }];
-
-describe('runAddress（steer/串行化门共用的寻址词汇）', () => {
-  it('agent 缺省 → 无地址；conversationId 缺省/=agent → agent；群聊 → conversationId~agent', () => {
-    expect(runAddress(undefined, undefined)).toBeUndefined();
-    expect(runAddress('a1', undefined)).toBe('a1');
-    expect(runAddress('a1', 'a1')).toBe('a1');
-    expect(runAddress('a1', 'g1')).toBe('g1~a1');
-  });
-});
 
 describe('steer 注入（Service 方法，ADR-1）', () => {
   it('run 中注入 → 下一步消息含注入内容；run 结束后队列回收', async () => {

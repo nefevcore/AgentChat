@@ -33,6 +33,9 @@
 import { Service, type Context } from '@agentchat/cordis';
 import { sessionCapsOf, toolAllowedFor } from 'ac-agents';
 import { describeError } from 'ac-error-core';
+// run 寻址/工具规范化——cr-318 下沉 ac-core-utils 的词汇（本包仍是协议
+// owning，单源住纯库；其余三词汇包内无使用、不在本包导出）
+import { normalizeToolSpecs, runAddress } from 'ac-core-utils';
 import type { LlmMessage, LlmToolCall, LlmToolSpec, LlmUsage } from 'ac-llm';
 import type {
   LoopInterruptReason,
@@ -128,74 +131,9 @@ function mergeUsage(
   return out;
 }
 
-/**
- * run 寻址（steer 注入 / 串行化门共用的地址词汇，本包 owning）：
- *   · agent 缺省 → 无地址（subagent 直连形态，steer 不适用）
- *   · conversationId 缺省或 = agent → agent（1v1：一个 Agent 一条会话门）
- *   · conversationId ≠ agent → `${conversationId}~${agent}`（群聊：组键共享
- *     会话桶，但每个参与者是独立 run——对齐 src group~gid~aid 语义）
- * 无歧义前提：Agent id 禁 `~`（agents.register 校验），对键从右起最后
- * 一段即 agent——M19 承重墙。
- */
-export function runAddress(
-  agent: string | undefined,
-  conversationId: string | undefined,
-): string | undefined {
-  if (agent === undefined) return undefined;
-  if (!conversationId || conversationId === agent) return agent;
-  return `${conversationId}~${agent}`;
-}
-
-/**
- * 对键构造（M19 全对键桶模型的会话归属键，本包 owning——conversationId
- * 词汇与信封契约归此）：两端排序后 `~` 连接；a===b 即自会话对角线 `a~a`。
- * 一切双端会话（user⇄agent 直答 / agent⇄agent 委托 / 机制自会话）共用。
- */
-export function pairKey(a: string, b: string): string {
-  return [a, b].sort().join('~');
-}
-
-/**
- * 归档整理 run 的信封标记键（M20，对齐 src META_ARCHIVE_REVIEW）：
- * 值恒为 true。透传链 conversation.deliver → router.send → LoopRunRequest.meta；
- * 三个消费方各查本键跳过副作用——ac-session（入账）、ac-usage（记账）、
- * ac-conversation（上下文视图）。ws-bridge 的流式过滤仍按 source='event'。
- */
-export const ARCHIVE_REVIEW_META = 'archive-review';
-
-/**
- * 机制标记 run（归档整理等）判定（M20 三消费方共用单源——ac-session
- * 不入账 / ac-usage 不记账 / ac-conversation 不进上下文视图 / ac-group
- * 不入账）：见标记即跳过，回复照常（回复是会话事实）。
- */
-export function isArchiveReviewRun(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[ARCHIVE_REVIEW_META] === true;
-}
-
-/**
- * 工具名清单 → 规范化 LlmToolSpec[]（缺省 = 全部已注册工具；空清单 = 空集）。
- * M21/D4 顺序规范化（DSH M2b）：按工具名**字典序**——与注册顺序/插件
- * 装卸时序解耦（注册顺序是插件加载时序的产物，HMR/装卸即变 → 前缀
- * 抖动）。落地即一次性全量缓存失效，接受（一次性迁移成本）。
- * 导出供 ac-singles 前缀快照（M21 步骤 4）同口径计算 specs 哈希——
- * 唯一规范化点，防两处漂移。
- */
-export function normalizeToolSpecs(
-  defs: Array<{ name: string; description?: string; parameters?: Record<string, unknown> }>,
-  names: string[] | undefined,
-): LlmToolSpec[] {
-  const selected = (names ? defs.filter((d) => names.includes(d.name)) : defs)
-    .slice()
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return selected.map((d) => ({
-    type: 'function' as const,
-    function: {
-      name: d.name,
-      ...(d.description ? { description: d.description } : {}),
-      ...(d.parameters ? { parameters: d.parameters } : {}),
-    },
-  }));
-}
+// runAddress / pairKey / ARCHIVE_REVIEW_META / isArchiveReviewRun /
+// normalizeToolSpecs 已下沉 ac-core-utils（cr-318：跨行协议词汇单源，
+// 8+ 包值导入免拉插件行）——本包 import 自用，protocol 注释见彼处。
 
 /**
  * steer 队列（run 生灭）：

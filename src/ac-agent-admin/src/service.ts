@@ -25,9 +25,8 @@
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
 import { capabilitySetOf, toolAllowedFor, assertAgentId, effectiveToolMode, narrowToolsByMode, resolveToolNames, type AgentConfig } from 'ac-agents';
-import { defaultPoolConnection } from 'ac-llm-pool';
-import { splitModelRef } from 'ac-llm';
-import { pairKey } from 'ac-agent-loop';
+import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 池回落词汇——cr-319 归位 owning 包
+import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import type { LoopRunCall, LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 /** AgentConfig 字段白名单（GLOBAL_ONLY_KEYS 的 preview fail-closed 形态）。
@@ -106,14 +105,14 @@ export class AgentAdminService extends Service {
     return config;
   }
 
-  /** 默认池连接（config llmProviders：default:true 优先，缺省第一条；
-   *  P5 口径统一 = ac-llm-pool defaultPoolConnection。config 为可选能力
+  /** 模型缺省回落（cr-313 单源 = ac-llm poolFallbackRef——cr-319 归位：provider
+   *  显式 → 该连接默认模型；未声明 → 默认池连接）。config 为可选能力
    *  （行未装/无池/无具体模型 → undefined，创建回退原校验）。 */
-  private defaultPoolConnection(): { provider: string; model: string } | undefined {
+  private fallbackConnection(provider: string | undefined): { provider: string; model: string } | undefined {
     const config = this.ctx.get('config') as
       | { get<T>(key: string): T | undefined }
       | undefined;
-    return defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'));
+    return poolFallbackRef(config?.get<Record<string, unknown>>('llmProviders'), provider);
   }
 
   /**
@@ -339,7 +338,7 @@ export class AgentAdminService extends Service {
     const single = conversationId ? singles?.get(conversationId) ?? null : null;
     let modelRef = single?.model || config.model || '';
     if (!modelRef) {
-      const def = this.defaultPoolConnection();
+      const def = this.fallbackConnection(config.provider);
       if (def) modelRef = `${def.provider}@${def.model}`;
     }
     let model = modelRef || '(preview)';

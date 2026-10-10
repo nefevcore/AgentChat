@@ -20,12 +20,11 @@
 //     （历史持久化/WS 广播/审计等订阅方【零注入 router】）
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { splitModelRef } from 'ac-llm';
+import { splitModelRef, poolFallbackRef } from 'ac-llm'; // 池回落词汇——cr-319 归位 owning 包
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
-import { pairKey } from 'ac-agent-loop';
+import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import { sessionCapsOf, effectiveToolMode, filterLlmParams, formDeniedBy, narrowToolsByMode, resolveToolNames, toolAllowedFor } from 'ac-agents';
-import { defaultPoolConnection } from 'ac-llm-pool';
 
 /** 路由入站消息（string 糖衣 → { role:'user', content }） */
 export type RouterInbound = string | LlmMessage;
@@ -165,13 +164,14 @@ export class RouterService extends Service {
         usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
       };
     }
-    // 模型引用：会话级覆盖 > Agent 原配置 > 默认池连接（Agent 面「默认」
-    // 选项 = model 存 null，投递边界回落全局默认模型；引用形
+    // 模型引用：会话级覆盖 > Agent 原配置 > 回落单源 poolFallbackRef
+    //（cr-313 第四态语义补全：provider 显式 + model 空 → 该连接默认模型
+    //〔引用，热更跟随〕；provider 也未声明 → 全局默认连接；引用形
     // `provider@model` 使 provider 随归属连接走——resolveModelRef 拆分
     // 优先于 agent.provider，跨 provider 的默认连接也能正确路由）。
     let modelRef = options.model ?? agent.model ?? '';
     if (!modelRef) {
-      const def = this.defaultConnection();
+      const def = this.fallbackConnection(agent.provider);
       if (!def) {
         throw new Error(`agent "${call.agentId}" 缺少 model 配置（非 virtual Agent 必须声明模型；也未配置默认模型连接）`);
       }
@@ -304,15 +304,16 @@ export class RouterService extends Service {
   }
 
   /**
-   * 默认池连接（模型缺省回落；口径统一 = ac-llm-pool defaultPoolConnection：
-   * `default:true` 条目优先，缺省首条）。config 为可选能力——行未装/无池/
-   * 无具体模型 → undefined（调用方维持原 fail-closed 校验）。
+   * 模型缺省回落（cr-313 单源 = ac-llm poolFallbackRef——cr-319 归位）：provider
+   * 显式 → 该连接默认模型；未声明 → 默认池连接（default:true 优先，缺省
+   * 首条）。config 为可选能力——行未装/无池/无具体模型 → undefined
+   * （调用方维持原 fail-closed 校验）。
    */
-  private defaultConnection(): { provider: string; model: string } | undefined {
+  private fallbackConnection(provider: string | undefined): { provider: string; model: string } | undefined {
     const config = this.ctx.get('config') as
       | { get<T>(key: string): T | undefined }
       | undefined;
-    return defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'));
+    return poolFallbackRef(config?.get<Record<string, unknown>>('llmProviders'), provider);
   }
 }
 

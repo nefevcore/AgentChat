@@ -15,8 +15,8 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
-    "ac-llm": "workspace:*",
-    "ac-llm-pool": "workspace:*"
+    "ac-core-utils": "workspace:*",
+    "ac-llm": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",

@@ -54,7 +54,8 @@ conversationId，群/1v1 差异只在视图层。
 **模型引用语法**：`name@model`（如 `deepseek@deepseek-v4-pro`）——router 边界
 拆分为 provider + model，`LoopRunRequest.model` 恒裸名（usage/delta/前缀快照不被
 引用语法污染）；左段非已注册 provider 回退整串按裸模型路由。Agent 未声明 model
-时投递侧回落 defaultPoolConnection（无默认连接 fail-closed）。
+时投递侧按 poolFallbackRef 回落（provider 显式 → 该连接默认模型；未声明 →
+defaultPoolConnection 全局默认连接；无回落 fail-closed）。
 
 ## 命令
 
@@ -389,7 +390,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 
 | 纯库 | 职责 |
 |---|---|
-| `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf——只收会成运行时环/反向依赖的最小词汇） |
+| `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf、runAddress/pairKey、ARCHIVE_REVIEW_META/isArchiveReviewRun、normalizeToolSpecs、resolvePersonaText——只收会成运行时环/反向依赖/跨行词法协议的最小词汇；cr-318 起五词汇自 ac-agent-loop 下沉；cr-321 persona 解析词法自 ac-persona 下沉） |
 | `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离）+ 思考字段 wire 翻译（thinkingWireForm 单源：中立 reasoning 键 → DeepSeek reasoning_content / GLM thinking / 其余剥除，cr-294 KV 边界修复） |
 | `ac-anthropic-completions` | Anthropic 原生 /v1/messages：SSE 流式 + tool_use/thinking 映射 + chat 聚合 + listModels（cr-39 协议多态；池条目 protocol='anthropic'） |
 | `ac-gemini-completions` | Gemini 原生 generateContent：SSE 流式 + functionCall/thought 映射 + chat 聚合 + listModels（cr-39；protocol='gemini'） |
@@ -437,12 +438,14 @@ src/
 ├── ac-llm/                  LLM 纯路由（ctx.llm）：注册工厂懒实例化 + provider/model
 │                            路由 + stream/chat + /models 发现 + 瞬时网络错误退避重试
 │                            （首块产出前，缺省 2 次；已产出不重试）；LLM 域契约
+│                            + 池配置词汇（cr-319 自 ac-llm-pool 归位：
+│                            LlmPoolEntry/PoolModelEntry 形状 + normalizePoolModels/
+│                            defaultPoolConnection/poolFallbackRef 读侧解析）
 ├── ac-llm-pool/             配置驱动 provider 注册行：config llmProviders 连接池 =
 │                            唯一事实源（未配置即不注册；config/changed 热更 diff 重挂）；
 │                            protocol 字段分发四协议纯库（cr-39 PROTOCOLS 注册表，
-│                            未知协议 boot fail-loud）；defaultPoolConnection 缺省
-│                            回落口；vision 并集门控 + 媒体物化；凭据注入
-│                            （pool:<provider> apiKey）
+│                            未知协议 boot fail-loud）；vision 并集门控 + 媒体物化；
+│                            凭据注入（pool:<provider> apiKey）
 ├── ac-openai-completions/   OpenAI 兼容协议纯库（见纯库清单；同类 anthropic/
 │                            gemini/ollama-completions 三库 2026-09-29 加入）
 ├── ac-llm-openai/ · ac-llm-deepseek/ · ac-llm-glm/
@@ -461,7 +464,7 @@ src/
 │                            （router 事件按读者投影，与 history 文件派生字节等价）
 ├── ac-router/               纯转发（ctx.router）：agents 解析 AgentConfig 构建信封
 │                            投递 agentLoop + 事件通知双通道；router/before-deliver
-│                            决策 seam；模型缺省回落 defaultPoolConnection
+│                            决策 seam；模型缺省回落 poolFallbackRef（cr-313：provider 显式优先；cr-319 归 ac-llm）
 ├── ac-agents/               Agent 注册中心（ctx.agents）：AgentConfig +
 │                            settingsOf(id, name?)（全局默认层 ∪ 差异层合成口）+
 │                            displayNameOf；Agent 是数据不是插件
@@ -493,7 +496,8 @@ src/
 │                            群聊行为契约注入（本体键与成员流键）+ 机械轮转
 │ ── 系统提示装配行（loop/before-run* 落点，见端到端链路）─────────
 ├── ac-persona/              人设注入：<persona> 块（file 优先 text 回退；裸名走
-│                            agentStore 文档、路径走文件系统）
+│                            agentStore 文档、路径走文件系统；解析词法 cr-321 起
+│                            住 ac-core-utils——singles 修订键同口径单源）
 ├── ac-system-prompt/        系统提示词分块装配器：静态块（系统环境/术语约定/指引
 │                            ——条目级工具门控；独立会话形态不注入多 Agent 协作/
 │                            主动安排/系统管理条目）落主档 + 对话信息块落尾档（prepend
@@ -539,7 +543,8 @@ src/
 │                            对齐 sessions 域 run journal 裁决：messages=定稿流+run
 │                            键 / partials=journal 收束即清+崩溃恢复 / subcalls=
 │                            run_code 子调用档案）跨重启续聊；跨 run 上下文轨迹
-│                            复放（expandSteps——探查型 run 不失忆）+ 展示面
+│                            复放（ctx.session.expandSteps 服务面——探查型 run 不失忆，
+│                            cr-320 值导入消解）+ 展示面
 │                            journal 活投影（运行中 partials 可见）；每 run job 登记（usage
 │                            记账落 subId 名下）；会话行 = SessionRecord 中性格式
 │                            兼容形（settlement 切段物化；historyRecords 展示投影
@@ -704,6 +709,13 @@ src/
 │                            APK；断链回落壳内本地 dist）+ 配对状态机（二维码/SAS）
 ├── ac-noise-core/           Noise 协议纯库（零 cordis 依赖）：XK/KK 握手状态机 +
 │                            ChaCha20-Poly1305 帧封装 + SAS 派生（纯 node:crypto）
+├── ac-relay-server/         独立中继进程（**非 cordis 行**——不在 cordis.yml/TREE，
+│                            宿主零依赖；workspace 成员仅为共享测试基建）。哑中继：
+│                            房间制密文帧转发（remote-client-relay-plan §4.3）+
+│                            download-gate 下载配额门 + gen-manifest.mjs（CI
+│                            desktop/mobile 工作流部署）+ site/（nginx 配置样例）；
+│                            公网部署在跑（cr-306，47.110.63.135），移动端 Kotlin
+│                            与其协议级耦合——勿按插件行口径审查
 ├── ac-client-ui-remote/     远程设备设置节前端行（P1）：设备列表/吊销 + 配对
 │                            向导（二维码 URI + SAS 比对）——remote/* RPC 消费
 ├── ac-web-api/              WS RPC 业务方法注册薄编排行：conversation/session/

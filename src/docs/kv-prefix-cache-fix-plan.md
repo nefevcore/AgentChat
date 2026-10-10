@@ -1,7 +1,7 @@
 # KV 前缀缓存断裂：根因排查结案与修复方案
 
 > 状态：**主修复已实施（cr-294）**——live/回放统一中立 reasoning 键，wire 翻译收敛协议适配层；
-> 增强 A/B（prompt_cache_key / cache_control）与 journal 折叠落位仍为可选另立 CR。
+> 增强 A/B（prompt_cache_key / cache_control）仍为可选另立 CR；journal 折叠落位已由 cr-314 落地（§五.3）。
 > 排查时间：2026-10-06（会话 d392fea3「KV缓存每轮首步下降原因排查」）
 > 方法：ac-wire-probe 探针（cr-294 落盘的真实请求载荷）+ 真实 API 受控实验 + dsh/pi-ai 源码对照
 
@@ -19,7 +19,7 @@ run 内各步命中率正常（99%+），问题只出现在 run 边界。
 
 news~news 会话（eventReplay=journal）更极端：每轮首步命中恒 11,776 tok
 （= system+tools 静态前缀），13 万 token 历史全量重算——该会话另有 journal
-折叠计数行落在回放头部的问题（见 §五.3，独立根因，本方案不含其修复）。
+折叠计数行落在回放头部的问题（见 §五.3，独立根因，已由 cr-314 修复）。
 
 ## 二、根因（已实证）
 
@@ -138,9 +138,13 @@ Anthropic 是显式缓存：不打标不缓存。三点标注（dsh :799-837 同
    命中 10%）——若复现，GLM 分支可能要维持 strip 并接受其边界 miss
 2. **思考计入 = token 成本上涨**：DeepSeek 边界命中换回的节省 vs 上下文膨胀，
    长会话净收益为正（缓存价约为标准价 1/10），短会话可能持平——上线后用 usage 对账
-3. **news 的 journal 折叠落位**（折叠计数行在回放第 0 条，N 每轮 +1）是独立
-   根因，影响 eventReplay=journal 的 Agent；修复方向：折叠摘要物化进文件或
-   尾部追加——另立方案，勿与本 CR 混做
+3. **news 的 journal 折叠落位**（折叠计数行在回放第 0 条，N 每轮 +1）——独立
+   根因，cr-314 先以读侧量子折叠止血（fold = floor((E-K)/q)×q，量子内
+   摘要行与保留窗字节全稳），cr-315 方案A 落地终态：读侧折叠退役，
+   eventReplay='journal' 语义升级为**轮数滚动归档**（ac-archive maybeRollup：
+   机制行攒 2×keep 触发整理 run + Agent 亲写滚动概要 + compact 物理剪裁）
+   ——上下文恒 ≈ 概要 + keep..2×keep 条、回复行不再无限累积；非触发轮
+   纯尾部追加（量子语义继承），断点重算量 = 概要 + 保留窗（优于折叠态）
 4. **空 assistant 消息**：dsh 会剔除无 content 且无 tool_calls 的 assistant
    （:1057-1059）；我们 live 侧不过滤，中断步可能产生——单源化时顺带处理
 5. **responses API 分支的 messages 泄漏**：ac-openai-completions 的

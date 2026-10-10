@@ -41,7 +41,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
-import { isArchiveReviewRun } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 同批下沉
 import { GROUP_HINT_META, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（原住本包/ac-session，解 session⇄group 环；2026-09-05 边界评估）
 import { displayNameOf } from 'ac-agents'; // 端点显示名单源解析（连带 ctx.agents 类型增强）
 import type { LlmMessage } from 'ac-llm';

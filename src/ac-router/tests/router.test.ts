@@ -446,7 +446,7 @@ describe('ac-router 模型引用 name@model（P4 边界拆分）', () => {
     expect(captured[0].model).toBe('ghost@x-1');
   });
 
-  it('Agent 未声明 model（「默认」= 存 null）→ 回落默认池连接；provider 随归属连接走', async () => {
+  it('Agent 未声明 model + provider 显式 → 该连接默认模型（cr-313 第四态：连接选择不被无视）', async () => {
     // config llmProviders：默认条目名 = 已注册 provider 名（池条目名即注册名）
     const root = await mkdtemp(join(tmpdir(), 'ac-router-pool-'));
     fs.mkdirSync(root, { recursive: true });
@@ -459,12 +459,49 @@ describe('ac-router 模型引用 name@model（P4 边界拆分）', () => {
     const { ctx } = await bootDual();
     void new ConfigService(ctx, { root }); // 直构服务（随 ctx 销毁回收，不入行卸载列）
 
-    // model: null（admin 清除语义）+ agent.provider 指向另一连接 → 默认连接胜出
+    // model: null（admin 清除语义）+ provider 指向非默认连接 alpha → alpha 胜出
     ctx.agents.register({ id: 'a', model: null as unknown as string, provider: 'alpha' });
+    const run = await ctx.router.send('a', 'q');
+    expect(run.text).toBe('来自 alpha');
+    expect(captured[0].provider).toBe('alpha');
+    expect(captured[0].model).toBe('a-1');
+  });
+
+  it('Agent 未声明 model/provider → 默认池连接（beta default:true 胜出）', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-router-pool-'));
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(join(root, 'config.json'), JSON.stringify({
+      llmProviders: {
+        alpha: { base_url: 'https://alpha.example/v1', defaultModel: 'a-1' },
+        beta: { base_url: 'https://beta.example/v1', defaultModel: 'b-1', default: true },
+      },
+    }));
+    const { ctx } = await bootDual();
+    void new ConfigService(ctx, { root });
+
+    ctx.agents.register({ id: 'a', model: null as unknown as string });
     const run = await ctx.router.send('a', 'q');
     expect(run.text).toBe('来自 beta');
     expect(captured[0].provider).toBe('beta');
     expect(captured[0].model).toBe('b-1');
+  });
+
+  it('provider 显式但该连接无默认模型 → 回落全局默认连接（fail-open，roster 校验兜底）', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-router-pool-'));
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(join(root, 'config.json'), JSON.stringify({
+      llmProviders: {
+        alpha: { base_url: 'https://alpha.example/v1', defaultModel: 'a-1', default: true },
+        ghost: { base_url: 'https://ghost.example/v1' }, // 无 defaultModel 无清单
+      },
+    }));
+    const { ctx } = await bootDual();
+    void new ConfigService(ctx, { root });
+
+    ctx.agents.register({ id: 'a', model: null as unknown as string, provider: 'ghost' });
+    const run = await ctx.router.send('a', 'q');
+    expect(run.text).toBe('来自 alpha');
+    expect(captured[0].provider).toBe('alpha');
   });
 
   it('未声明 model 且无默认连接可回落 → 维持 fail-closed 校验错误', async () => {

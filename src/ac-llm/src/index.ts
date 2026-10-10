@@ -39,5 +39,9 @@ export type { LlmRegisterMeta, LlmProviderStats, LlmRouteQuery, LlmServiceOption
 export { splitModelRef, joinModelRef } from './refs.ts';
 export type { ModelRef } from './refs.ts';
 
+// 池配置词汇（cr-319 自 ac-llm-pool 归位：config llmProviders 形状与读侧解析）
+export { normalizePoolModels, poolEntryDefaultModel, defaultPoolConnection, poolFallbackRef } from './pool.ts';
+export type { LlmPoolEntry, PoolModelEntry, SessionHeaderSpec } from './pool.ts';
+
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家 contract）
 export { agentOfChatCall, agentOfChatInput } from './readers.ts';

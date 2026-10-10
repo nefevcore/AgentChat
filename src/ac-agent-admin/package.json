@@ -16,8 +16,8 @@
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-config-merge": "workspace:*",
-    "ac-llm": "workspace:*",
-    "ac-llm-pool": "workspace:*"
+    "ac-core-utils": "workspace:*",
+    "ac-llm": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

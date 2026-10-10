@@ -56,9 +56,8 @@ import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopStepRecord } from 'ac-agent-loop';
 import type { ToolResult } from 'ac-tools';
 import type { JobOutcome } from 'ac-jobs';
-import { splitModelRef } from 'ac-llm';
-import { defaultPoolConnection } from 'ac-llm-pool';
-import { expandSteps } from 'ac-session';
+import { splitModelRef, poolFallbackRef } from 'ac-llm'; // 池回落词汇——cr-319 归位 owning 包
+import type {} from 'ac-session'; // ctx.session 服务面类型（回放口径 expandSteps——cr-320 值导入消解）
 import {
   sessionCapsOf,
   effectiveTierOf,
@@ -477,7 +476,7 @@ export function subagentErr(err: unknown): ToolResult {
 }
 
 export class SubagentsService extends Service {
-  static inject = ['tools', 'agentLoop', 'jobs', 'agents'];
+  static inject = ['tools', 'agentLoop', 'jobs', 'agents', 'session'];
 
   /** 持久化注册表全量（含墓碑；启动装载后常驻内存） */
   private records = new Map<string, SubagentRecord>();
@@ -1191,6 +1190,11 @@ export class SubagentsService extends Service {
       if (typeof timer.unref === 'function') timer.unref();
     }
 
+    // session 服务句柄早取（cr-320）：run 可能在行卸载后迟到收束（stop/
+    // timeout 转后台 + 测试 dispose）——ctx 取服务在失活 context 上抛错，
+    // 句柄常驻（expandSteps 纯转发，无宿主副作用）保迟到 settlement 完成。
+    const session = this.ctx.session;
+
     let result: LoopRunResult;
     try {
       // 子 Agent 档位继承（access-tier §7.3）：elevation = 父 run 生效档位
@@ -1268,7 +1272,7 @@ export class SubagentsService extends Service {
     // 即终文本，与主会话 replayTrajectory 单源同形）；无步纯文本 = 终文本行。
     {
       const steps = result.steps.map((s) => toStepRecord(s, (i) => s.toolResults[i] ?? null));
-      if (steps.length > 0) messages.push(...expandSteps(steps));
+      if (steps.length > 0) messages.push(...session.expandSteps(steps));
       else if (result.text) messages.push({ role: 'assistant', content: result.text });
     }
     const active = entry.activeRun!;
@@ -1642,7 +1646,8 @@ export class SubagentsService extends Service {
   // 身份/注册表/消息 持久化与装载
   // ============================================================
 
-  /** 父模型解析（与 router 信封同口径：父 model → 默认池连接 → fail-closed） */
+  /** 父模型解析（与 router 信封同口径：父 model → poolFallbackRef 回落
+   *  〔provider 显式 → 该连接默认模型；未声明 → 默认池连接〕→ fail-closed） */
   private resolveModel(parentId: string): { model: string; provider?: string } {
     const parent = this.ctx.agents.get(parentId);
     if (!parent) {
@@ -1653,7 +1658,7 @@ export class SubagentsService extends Service {
       const config = this.ctx.get('config', false) as
         | { get<T>(key: string): T | undefined }
         | undefined;
-      const def = defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'));
+      const def = poolFallbackRef(config?.get<Record<string, unknown>>('llmProviders'), parent.provider);
       if (def) model = `${def.provider}@${def.model}`;
     }
     if (!model || parent.virtual) {
@@ -1828,7 +1833,7 @@ export class SubagentsService extends Service {
               if (parsed.role === 'user') lines.push({ role: 'user', content: parsed.content });
               else if (parsed.role === 'agent' || parsed.role === 'assistant') {
                 if (parsed.steps !== undefined && parsed.steps.length > 0) {
-                  lines.push(...expandSteps(parsed.steps));
+                  lines.push(...this.ctx.session.expandSteps(parsed.steps));
                 } else if (parsed.content) {
                   lines.push({ role: 'assistant', content: parsed.content });
                 }
