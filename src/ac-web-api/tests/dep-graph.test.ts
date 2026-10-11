@@ -24,6 +24,7 @@ import { DurableInteractionService } from 'ac-durable-interaction';
 import { LlmService } from 'ac-llm';
 import { JobsService } from 'ac-jobs';
 import { BackupService } from 'ac-backup';
+import { RestartService } from 'ac-restart';
 import { PluginRegistryService } from 'ac-plugin-registry';
 import { WorkspaceService } from 'ac-workspace';
 import { SinglesService } from 'ac-singles';
@@ -75,6 +76,7 @@ async function boot(): Promise<{ ctx: Context; port: number }> {
   new LlmService(ctx);
   new JobsService(ctx);
   new BackupService(ctx, { root });
+  new RestartService(ctx); // web-api 行 inject 'restart'（cr-323 服务化）
   new PluginRegistryService(ctx, { root });
   new WorkspaceService(ctx, { root });
   new SinglesService(ctx, { root });

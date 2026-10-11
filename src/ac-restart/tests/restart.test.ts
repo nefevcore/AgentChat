@@ -5,7 +5,6 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as restartRow from '../src/index.ts';
-import { requestSystemRestart } from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -49,16 +48,18 @@ describe.skipIf(process.env.AGENTCHAT_SUPERVISED === '1')('ac-restart', () => {
     // 走到这里即证明未触发 exit(42)——进程仍在执行断言
   });
 
-  it('requestSystemRestart：非 Supervisor 直接拒绝（不广播不关闭）', async () => {
+  it('ctx.restart.request：非 Supervisor 直接拒绝（不广播不关闭）', async () => {
     const { ctx } = await boot();
-    const r = requestSystemRestart(ctx, '冒烟测试');
+    expect(ctx.restart).toBeTruthy(); // 服务键随行挂载
+    const r = ctx.restart.request('冒烟测试');
     expect(r).toEqual({ ok: false, error: expect.stringContaining('拒绝') });
   });
 
-  it('dispose：restart fiber 卸载后工具回收', async () => {
+  it('dispose：restart fiber 卸载后工具与服务键回收', async () => {
     const { ctx, fibers } = await boot();
     await fibers[1]!.dispose();
     expect(ctx.tools.has('system_restart')).toBe(false);
+    expect(ctx.get('restart')).toBeUndefined(); // 服务键随行卸载回收
     const r = await ctx.tools.execute({ name: 'system_restart', args: {} });
     expect(r).toEqual({ ok: false, error: 'unknown tool: system_restart' });
   });

@@ -21,7 +21,6 @@
     "ac-llm-pool": "workspace:*",
     "ac-openai-completions": "workspace:*",
     "ac-plugin-core": "workspace:*",
-    "ac-restart": "workspace:*",
     "ac-text-budget": "workspace:*",
     "ac-timer": "workspace:*",
     "ac-workspace": "workspace:*"
@@ -46,6 +45,7 @@
     "ac-hello": "workspace:*",
     "ac-jobs": "workspace:*",
     "ac-plugin-registry": "workspace:*",
+    "ac-restart": "workspace:*",
     "ac-session": "workspace:*",
     "ac-singles": "workspace:*",
     "ac-skill": "workspace:*",

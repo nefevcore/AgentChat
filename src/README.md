@@ -370,6 +370,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | mcp | `ac-mcp/src/index.ts`（全局服务器注册，懒建连） | — |
 | goals | `ac-goal/src/index.ts`（会话桶目标 + goal-round 驱动） | — |
 | todos | `ac-todo/src/index.ts`（会话桶工作清单） | — |
+| restart | `ac-restart/src/index.ts`（request 受理：Supervisor 门禁 → system/restarting 广播 → 优雅关闭 exit 42；cr-323 自导出函数服务化） | 同文件（system/restarting，emit·host） |
 | bench | `ac-bench/src/contract.ts`（套件/用例/对拍规格/报告） | `ac-bench/src/events.ts`（bench/run-started·case-settled·run-completed） |
 
 **客户端服务面（浏览器运行时，M27 起）**：类型身份 = `ClientContext`
@@ -640,9 +641,9 @@ src/
 │                            update_agent_profile + @<名称> 引用约定
 ├── ac-dev-tools/            开发辅助：read_logs（环形缓冲）/reload/reload_modules
 │                            （语义化中断）
-├── ac-restart/              system_restart 工具（中断上报 + after-run 宿主半边：
-│                            优雅关闭 → exit 42 → supervisor 重拉；正常工具
-│                            无会话形态限制）
+├── ac-restart/              系统重启行（ctx.restart：request 受理 + system_restart
+│                            工具中断上报 + after-run 宿主半边——优雅关闭 → exit 42 →
+│                            supervisor 重拉；正常工具无会话形态限制）
 ├── ac-session-query/        会话查询门面：grep_history/read_history（复用
 │                            ctx.session.history()）+ #<标题>(<会话id>) 引用约定
 │ ── 评测域 ─────────────────────────────────────────────────────

@@ -25,6 +25,7 @@ import { estimateTokens } from 'ac-text-budget';
 import { DurableInteractionService } from 'ac-durable-interaction';
 import { LlmService } from 'ac-llm';
 import { BackupService } from 'ac-backup';
+import { RestartService } from 'ac-restart';
 import { PluginRegistryService } from 'ac-plugin-registry';
 import { WorkspaceService } from 'ac-workspace';
 import { SinglesService } from 'ac-singles';
@@ -185,6 +186,7 @@ async function boot(options?: { jobs?: boolean; subagents?: boolean }): Promise<
   const interaction = new DurableInteractionService(ctx);
   const llm = new LlmService(ctx);
   const backup = new BackupService(ctx, { root });
+  new RestartService(ctx); // web-api 行 inject 'restart'（cr-323 服务化）
   const plugins = new PluginRegistryService(ctx, { root });
   // workspace（M17-E 文件面；构造默认 user + files 目录布局）
   const workspace = new WorkspaceService(ctx, { root });

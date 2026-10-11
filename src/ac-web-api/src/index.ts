@@ -88,7 +88,6 @@ import {
   type PluginPermission,
 } from 'ac-plugin-core';
 import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
-import { requestSystemRestart } from 'ac-restart';
 import { compareVersion, DOWNLOAD_BASE, fetchLatestRelease, findProjectVersion, isDesktopInstall, readChangelog, readCurrentVersion, runSelfUpdate } from './version.ts';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
@@ -115,6 +114,7 @@ import type {} from 'ac-plugin-registry';
 import type {} from 'ac-workspace';
 import type {} from 'ac-agent-store';
 import type {} from 'ac-singles';
+import type {} from 'ac-restart';
 
 export const name = 'ac-web-api';
 
@@ -143,6 +143,7 @@ export const inject = [
   'pluginRegistry',
   'workspace',
   'agentStore',
+  'restart',
 ];
 
 // ---- 参数窄化（薄行自持；缺参/类型不符 → rpc error） ----
@@ -2508,7 +2509,7 @@ export function apply(ctx: Context) {
   web.registerRpc('system/version-changelog', () => ({ content: readChangelog() }));
 
   /** 自更新（git 检出：stash→pull→install→build；成功且 Supervisor 模式
-   *  经 requestSystemRestart 优雅重启，非 Supervisor 提示手动重启；
+   *  经 ctx.restart.request 优雅重启，非 Supervisor 提示手动重启；
    *  npm/桌面安装显式 unavailable + 指引。命令异步执行不阻塞事件循环，
    *  前端以长超时等待。根锚走 package.json 走查——不吃 version.json
    *  短路，本地构建过 dist 的源码检出仍指回 git 仓库根。） */
@@ -2516,7 +2517,7 @@ export function apply(ctx: Context) {
     const root = findProjectVersion()?.dir ?? process.cwd();
     const outcome = await runSelfUpdate(root);
     if (outcome.status !== 'success') return outcome;
-    const restart = requestSystemRestart(ctx, 'ui-version-update');
+    const restart = ctx.restart.request('ui-version-update');
     return restart.ok
       ? { ...outcome, message: '更新完成，服务正在重启，页面稍后自动刷新…' }
       : { ...outcome, message: `${outcome.message} 请手动重启后端进程使新版本生效。` };
@@ -2524,7 +2525,7 @@ export function apply(ctx: Context) {
 
   web.registerRpc('system/restart', (params) => {
     const reason = optStr(obj(params).reason) ?? 'ui-system-restart';
-    const outcome = requestSystemRestart(ctx, reason);
+    const outcome = ctx.restart.request(reason);
     if (!outcome.ok) throw new Error(outcome.error);
     return { restarting: true, reason };
   });

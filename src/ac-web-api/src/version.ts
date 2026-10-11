@@ -239,7 +239,7 @@ function errDetail(err: unknown): string {
  * git 检出自更新：stash 本地改动 → git pull → stash pop → 包管理器
  * install（pnpm 优先，缺则 npm）→ build（非致命）。
  * 非 git 检出（npm 全局/桌面安装）→ unavailable + 手动更新指引；
- * 不偷偷执行任何命令。重启归调用方（supervisor 模式走 requestSystemRestart）。
+ * 不偷偷执行任何命令。重启归调用方（supervisor 模式走 ctx.restart.request）。
  */
 export async function runSelfUpdate(root: string): Promise<SelfUpdateOutcome> {
   const steps: string[] = [];
