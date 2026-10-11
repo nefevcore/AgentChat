@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OpenAI 兼容 /chat/completions 共享协议纯库（SSE 流式解析 + chat 聚合 + 多模态物化；零 cordis 依赖）——不是 provider/插件行：provider 注册走 ac-llm-pool 配置驱动（llmProviders 池），openai/deepseek/glm 适配薄行与本池共用本库",
+  "description": "OpenAI 兼容 /chat/completions 共享协议纯库（SSE 流式解析 + chat 聚合 + 多模态物化；零 cordis 依赖）——不是 provider/插件行：provider 注册走 ac-llm-pool 配置驱动（llmProviders 池），openai/deepseek/glm 适配薄行与本池共用本库；sseDataEvents/stripTransportKeys 为 anthropic/gemini/ollama 三协议库值导入的共享单源（cr-39 D1/cr-99 B 分层裁决）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

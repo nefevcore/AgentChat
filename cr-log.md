@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-324**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-325**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -342,3 +342,4 @@
 - 【cr-322 2026-10-11 vitest 渗漏防线补 AGENTCHAT_SUPERVISED 摘除——Supervisor 模式宿主（本产品自托管开发态）跑测试时该变量渗入 worker，system/restart 非 Supervisor fail-closed 用例误走真重启路径（dispose 关掉测试自 boot 的 rpc 目标→15s 超时 + process.exit(42) Unhandled Rejection）；与 AGENTCHAT_DATA_ROOT 同一防线同一病根，摘除后测试对宿主 shell 环境免疫】
 - 【cr-323 2026-10-11 ac-restart 能力服务化（审计清单#7）：requestSystemRestart 函数升 ctx.restart 服务，ac-web-api 值导入解除改 inject 硬声明；ws-bridge 的 ac-restart 依赖顺带归位 devDependencies（type-only）】
 - 【cr-324 2026-10-11 ac-web-api 体量审查（#8 P1 验收+精简）：空 import type 死导入/孤儿注释/runsDigestCache payload 驻留/派生重复并源/头注释漂移订正】
+- 【cr-325 2026-10-11 P1-9 ac-openai-completions 深审收口：sseDataEvents/stripTransportKeys 三库值导入系 cr-39 D1/cr-99 B 双裁决背书的分层设计（纯库共享单源，非漂移），注释声明现状；孤儿 JSDoc 三块（isMaxTokensRenameHint/authHeaders/httpError 文档与函数分离悬空）合并归位；导出面逐词汇核验零包外越权消费，测试比健康（125 断言）】

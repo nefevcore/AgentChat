@@ -583,7 +583,11 @@ export class OpenAICompletions {
   }
 }
 
-/** 解析 SSE 字节流为 data 载荷序列（规范：\n\n 分隔事件，兼容 \r\n） */
+/**
+ * 解析 SSE 字节流为 data 载荷序列（规范：\n\n 分隔事件，兼容 \r\n）。
+ * 跨协议共享件：anthropic/gemini 两库值导入复用（cr-39 D1 协议库不
+ * 合并单包 + cr-99 B 单源分层——SSE 行解析协议无关，住本库单源）。
+ */
 export async function* sseDataEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -617,20 +621,9 @@ function extractData(event: string): string | undefined {
 }
 
 /**
- * OpenAI 推理系模型（o1/o3/gpt-5 等）对 max_tokens 的 400 指误判定：
- * 错误文案同时提及 max_tokens 与 max_completion_tokens（"Use
- * 'max_completion_tokens' instead"）——双词保守匹配，误触发面≈0；
- * DeepSeek/GLM 等宽容端点不会回这条错，天然零影响。
- */
-/**
- * 鉴权头拼装（cr-98）：缺省 Bearer；authHeader 指定时改发裸 key 头
- * （Azure api-key 形态）。key 缺失 = 无鉴权头（匿名端点/由 headers 提供）。
- */
-/** HTTP 错误响应 → LlmHttpError（读 body 文案 + Retry-After 头；cr-98） */
-/**
  * 传输层键清单（单源，cr-99 脆弱点 B）：随请求参数流经全链但绝不进 body。
- * 四协议库共此单源（anthropic/gemini/ollama 依赖本库或复制语义——集中收口
- * 防新增传输键漏剥导致的静默 400）。
+ * 四协议库共此单源（anthropic/gemini/ollama 值导入本库——cr-39 D1/cr-99 B
+ * 分层裁决，集中收口防新增传输键漏剥导致的静默 400）。
  */
 export const TRANSPORT_KEYS: ReadonlySet<string> = new Set(['api_key', 'provider', 'headers', 'meta', 'signal']);
 
@@ -693,7 +686,10 @@ export function normalizeAssistantMessage(
   return rest;
 }
 
-/** 传输层键兜底剥离（序列化边界保险层；显式解构之外的二道防线） */
+/**
+ * 传输层键兜底剥离（序列化边界保险层；显式解构之外的二道防线）。
+ * 三协议库值导入共用（cr-99 B 单源裁决，清单见 TRANSPORT_KEYS）。
+ */
 export function stripTransportKeys<T extends Record<string, unknown>>(params: T): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(params)) {
@@ -702,16 +698,27 @@ export function stripTransportKeys<T extends Record<string, unknown>>(params: T)
   return out;
 }
 
+/** HTTP 错误响应 → LlmHttpError（读 body 文案 + Retry-After 头；cr-98） */
 async function httpError(response: Response): Promise<LlmHttpError> {
   const text = await response.text().catch(() => '');
   return new LlmHttpError(response.status, `LLM HTTP ${response.status}: ${text.slice(0, 500)}`, parseRetryAfter(response.headers.get('retry-after')));
 }
 
+/**
+ * 鉴权头拼装（cr-98）：缺省 Bearer；authHeader 指定时改发裸 key 头
+ * （Azure api-key 形态）。key 缺失 = 无鉴权头（匿名端点/由 headers 提供）。
+ */
 function authHeaders(key: string | undefined, header: string | undefined): Record<string, string> {
   if (!key) return {};
   return header !== undefined ? { [header]: key } : { authorization: `Bearer ${key}` };
 }
 
+/**
+ * OpenAI 推理系模型（o1/o3/gpt-5 等）对 max_tokens 的 400 指误判定：
+ * 错误文案同时提及 max_tokens 与 max_completion_tokens（"Use
+ * 'max_completion_tokens' instead"）——双词保守匹配，误触发面≈0；
+ * DeepSeek/GLM 等宽容端点不会回这条错，天然零影响。
+ */
 function isMaxTokensRenameHint(errorText: string): boolean {
   return /max_tokens/i.test(errorText) && /max_completion_tokens/i.test(errorText);
 }
