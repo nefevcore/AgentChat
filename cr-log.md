@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-336**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-337**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -354,3 +354,4 @@
 - 【cr-334 2026-10-11 ac-client-ui-usage #17 精简收口：modal 形态死代码删除（cr-30 裁决补执行——Modal 模板/专属 CSS/usageViewMode 切换/variant prop，唯一消费方 PanelHost 恒传 panel）；rpcDefault 副本并源 settings 单源（12 前端行同款先例）；UsageSummary 类型镜像并源 usageApi 单源；uplot peer+dev 双声明收敛 dependencies；usageApi 纯函数面补包内测试（原测试比 1.9%，契约锁住 webui 不进 typecheck）；package 描述与头注 modal 残留措辞订正】
 - 【cr-335 2026-10-11 P2-18 ac-subagent 深审精简：死词三清——subagentErr 死函数删除（注释宣称 collab-tools 同源引用系漂移，实为零消费；工具体抛错由 ac-tools 统一收敛）、abortReason 死状态收口（cr-132 收窄后零读侧，6 处赋值随删）、HINT_AGENT_MESSAGING 收私有（包内 4 处消费、包外零引用）；package.json 描述四投递漏 async 订正；collab-tools 子上下文源注释旧单文件形态订正（三文件化后）】
 - 【cr-336 2026-10-11 ac-run-code 审计 #19：修词表单源 ESM 空转（tool.ts 裸 require 在 dev 形态 ReferenceError 被吞、永远走 FALLBACK——单源承诺从未生效）+ 出口截断假失败（enforceOutputBudget 截断破坏 JSON 结构、主线程 JSON.parse 炸 → 子调用全成功的程序整体报错）两 bug；精简：resolveEffectiveTools 零调用 llm 分支（全仓含测试求证）/formDenied 单行包装/core exclude 选项与空 if 块；2026-11-19 未来日期笔误校准 2026-09-21（lib DX 批次 git 首见日，worker.ts+测试 6 处；edit-core/fs-search/shell-tools/README 同款待后续批次）】
+- 【cr-337 2026-10-11 深审 ac-plugin-core（审计清单#20）：包健康留——多文件域面=纯库分域正解不拆包；①ac-plugin-market 依赖正位（type-only → devDependencies）；②镜像交叉锁定测试兑现 #1 遗留①（webui/tests/slot-catalog.test.ts 补 UI_SLOT_IDS/HIGH_RISK_UI_SLOTS/highRiskSlotsOf ↔ LEGACY_SLOT_CATALOG/highRiskOf 三断言，webui devDeps 加 ac-plugin-core）；③reserved.ts 与 plugin-core.integration.test.ts 行尾 CRLF→LF 与包内统一；④package.json 描述补内置目录清单域】

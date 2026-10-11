@@ -18,7 +18,9 @@ import {
   assertDeclarableSlot,
   highRiskOf,
   COMPONENT_CLASS_SLOTS,
+  LEGACY_SLOT_CATALOG,
 } from '../src/core/extensions/slotCatalog';
+import { UI_SLOT_IDS, HIGH_RISK_UI_SLOTS, highRiskSlotsOf } from 'ac-plugin-core/src/manifest.ts';
 
 const DESC = (slots: string[]) => ({ name: 'probe-plugin', slots: slots as never[] });
 
@@ -110,5 +112,31 @@ describe('D8 收窄 · 内部无旧注册面直用（bridge = 唯一转发入口
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------
+// 镜像单源交叉断言（cr-337，兑现审计 #1 遗留①）：服务端安装期
+// 词汇校验（ac-plugin-core manifest.ts——manifest.ui.slots 白名单）
+// 与浏览器归一目录（LEGACY_SLOT_CATALOG）是两份手工镜像，此断言
+// 锁死同步——任一侧改词汇/高危名单，CI 即红。
+// ------------------------------------------------------------
+describe('镜像单源：ac-plugin-core 安装期词汇 ↔ LEGACY_SLOT_CATALOG', () => {
+  it('可声明词汇一致（UI_SLOT_IDS = LEGACY_SLOT_CATALOG 键集）', () => {
+    expect([...UI_SLOT_IDS].sort()).toEqual(Object.keys(LEGACY_SLOT_CATALOG).sort());
+  });
+
+  it('高危名单一致（HIGH_RISK_UI_SLOTS = highRisk: true 键集）', () => {
+    const byFlag = Object.entries(LEGACY_SLOT_CATALOG)
+      .filter(([, mapping]) => mapping.highRisk === true)
+      .map(([id]) => id)
+      .sort();
+    expect([...HIGH_RISK_UI_SLOTS].sort()).toEqual(byFlag);
+  });
+
+  it('高危求值行为一致（highRiskSlotsOf ≡ highRiskOf；全词汇 + 未知 id 不炸）', () => {
+    const all = [...UI_SLOT_IDS, 'unknown-slot'];
+    expect(highRiskSlotsOf({ slots: all })).toEqual(highRiskOf(all));
+    expect(highRiskSlotsOf(undefined)).toEqual(highRiskOf(undefined));
   });
 });
