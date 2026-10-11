@@ -13,7 +13,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createSessionCores } from './helpers/sessionCores.ts';
-import { directDialog, groupDialog } from '../src/utils/feed';
+import { directDialog, groupDialog } from 'ac-client-ui-conversation/client/feed.ts';
 
 const G1 = 'room-a';
 const G2 = 'room-b';

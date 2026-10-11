@@ -4080,9 +4080,6 @@ importers:
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
-      ac-restart:
-        specifier: workspace:*
-        version: link:../ac-restart
       ac-text-budget:
         specifier: workspace:*
         version: link:../ac-text-budget
@@ -4108,9 +4105,6 @@ importers:
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
-      ac-archive:
-        specifier: workspace:*
-        version: link:../ac-archive
       ac-backup:
         specifier: workspace:*
         version: link:../ac-backup
@@ -4150,6 +4144,9 @@ importers:
       ac-plugin-registry:
         specifier: workspace:*
         version: link:../ac-plugin-registry
+      ac-restart:
+        specifier: workspace:*
+        version: link:../ac-restart
       ac-session:
         specifier: workspace:*
         version: link:../ac-session

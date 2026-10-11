@@ -4,7 +4,7 @@
 // 逐串向上取整）——Token 详情弹层的固定开销拆分以此计数。
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { estimateTokens, fmtTokenCount } from '../src/utils/tokens';
+import { estimateTokens, fmtTokenCount } from 'ac-client-ui-conversation/client/tokens.ts';
 
 describe('estimateTokens（展示口径，对齐 ac-text-budget）', () => {
   it('CJK 0.6/字，其他 0.3/字符，逐串向上取整', () => {

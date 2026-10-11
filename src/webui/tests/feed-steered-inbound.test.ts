@@ -27,7 +27,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 
 import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
 import { wireFace } from '../src/runtime/wireFace';
-import { directDialog, pairDialog } from '../src/utils/feed';
+import { directDialog, pairDialog } from 'ac-client-ui-conversation/client/feed.ts';
 
 const A = 'admin';
 const NOTICE = '[系统通知] 后台任务 bash-1（bash）完成：exit code: 0。';

@@ -5,7 +5,7 @@
 // llm 引用键不再维护；sanitize 保留存量折叠容错（防展开对象回写冻结）。
 // ============================================================
 import { describe, expect, it } from 'vitest';
-import { sanitizeGlobalConfig } from '../src/settings/schema';
+import { sanitizeGlobalConfig } from 'ac-client-ui-settings/client/schema.ts';
 
 describe('sanitizeGlobalConfig（llm 分支——存量容错）', () => {
   it('GET 展开对象（带 $ref）折叠回纯 {$ref}，防回写冻结', () => {

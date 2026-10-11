@@ -30,11 +30,11 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 // toolResultViews.ts（纯 ts——node 测试链不触 .vue；本测试只锁数据
 // 归一化，无需置空组件解析）
 
-import { useToolResult } from '../src/composables/useToolResult';
+import { useToolResult } from 'ac-client-ui-conversation/client/useToolResult.ts';
 import { stringifyToolResult } from 'ac-client-ui-conversation/client/chatOps.ts';
 import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
 import { wireFace } from '../src/runtime/wireFace';
-import { directDialog } from '../src/utils/feed';
+import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
 
 /** 与 ToolMessage.vue 同款消费：parsed 优先，退化参数预览 */
 function viewOf(content: string, toolName?: string) {
@@ -194,7 +194,7 @@ describe('流式全链路（帧序列 → 派生 turns → 卡片数据）', () 
     expect((toolRows[0] as Record<string, unknown>).tool_call_id).toBe('tc_ok');
 
     // buildTurns：assistant.toolCalls 携带幻影条目时不产生工具卡
-    const { buildTurns } = await import('../src/utils/feed.ts');
+    const { buildTurns } = await import('ac-client-ui-conversation/client/feed.ts');
     const turns = buildTurns([
       {
         id: 'a1', role: 'agent', content: '', timestamp: 1,

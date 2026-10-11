@@ -3,7 +3,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
-import { isImageRef, filePreviewUrl, contentHash12, maybeCompressImage } from '../src/utils/media';
+import { isImageRef, filePreviewUrl, contentHash12, maybeCompressImage } from 'ac-client-ui-conversation/client/media.ts';
 
 describe('isImageRef', () => {
   it('常见图片扩展名（大小写）命中；路径与文件名任一命中即可', () => {

@@ -4,7 +4,7 @@
 // 用户"设为默认"看似不生效；同步函数让默认确定性落到全局 ns。
 // ============================================================
 import { describe, expect, it } from 'vitest';
-import { applySearchPoolDefault } from '../src/settings/schema';
+import { applySearchPoolDefault } from 'ac-client-ui-settings/client/schema.ts';
 
 const POOLS = {
   'tavily-free': { provider: 'tavily', default: false },

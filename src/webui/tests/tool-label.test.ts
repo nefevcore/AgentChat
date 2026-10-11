@@ -7,7 +7,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { toolDisplayLabel, toolDiffStat } from '../src/utils/toolLabel.ts';
+import { toolDisplayLabel, toolDiffStat } from 'ac-client-ui-tool/client/toolLabel.ts';
 
 describe('toolDisplayLabel', () => {
   it('label=name（退化合成）→ 友好名 + 参数摘要', () => {

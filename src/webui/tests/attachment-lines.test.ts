@@ -21,7 +21,7 @@ import {
   pairMessageToChatMessage,
   groupMessageToChatMessage,
   buildTurns,
-} from '../src/utils/feed.ts';
+} from 'ac-client-ui-conversation/client/feed.ts';
 import type { FileAttachment } from '../src/types';
 
 /** attachments 旁挂引用转出的 chips（attachmentFilesOf 同款形状） */

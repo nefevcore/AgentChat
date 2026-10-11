@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 // 与包内签名一致；wire 本体保留 src/api/wire.ts）
 import { toUsageSummary, filterUsageRange, fetchUsageTokens, type PUsageResult } from 'ac-client-ui-usage/client/usageApi.ts';
 import { fetchVersion, fetchChangelog, runVersionUpdate, backupNow } from 'ac-client-ui-system/client/systemApi.ts';
-import * as settings from '../src/settings/api.ts';
+import * as settings from 'ac-client-ui-settings/client/api.ts';
 // M29 P1-3a：插件域数据面归 ui-plugin-registry/client/pluginApi（rpc 必传）
 import * as pluginApi from 'ac-client-ui-plugin-registry/client/pluginApi.ts';
 // M29 P1-3b/c：agent CRUD 归 ui-agents（rosterApi 同宿）、timer 归 ui-timer

@@ -2,7 +2,7 @@
 // clipboard-file：剪贴板文件补名（粘贴图片/文件 → 上传附件链路）
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { ensurePasteName } from '../src/utils/clipboard-file';
+import { ensurePasteName } from 'ac-client-ui-conversation/client/clipboardFile.ts';
 
 function file(name: string, type: string, content = 'x'): File {
   return new File([content], name, { type });

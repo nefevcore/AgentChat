@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AgentChat preview WebUI（src/ui/webui 同源保真迁移）：UI 组件/stores/composables 与 src 逐字节一致，差异只存在于数据面——adapter/ 防腐层（webui-adapter-plan 阶段一：TranslatingWebSocket 帧 + fetch→RPC 拦截，src chat.* 词汇 ⇄ preview 协议）",
+  "description": "AgentChat WebUI 前端薄壳（M27.2-2 终态）：main.ts 装配序列 + runtime 胶水（bootGraph/rpcClient/wireFace）+ api/wire·extensions 传输面 + 第三方 UI 插件宿主（core/extensions bridge）；基础件与域行全部在 ac-client-ui-* 前端行包",
   "scripts": {
     "dev": "vite",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",

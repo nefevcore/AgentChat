@@ -29,6 +29,6 @@
     "../webui-kit/src/**/*.d.ts",
     "../webui-kit/src/**/*.vue"
   ],
-  "exclude": ["src/index.ts", "src/plugin.ts"],
+  "exclude": [],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

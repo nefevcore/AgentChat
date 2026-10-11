@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { RpcClientFace } from 'ac-client-runtime';
 
 import { ref, nextTick } from 'vue';
-import { useQueuedMessages, createQueuedDockStore } from '../src/composables/useQueuedMessages';
+import { useQueuedMessages, createQueuedDockStore } from 'ac-client-ui-conversation/client/useQueuedMessages.ts';
 
 const flush = async () => { await nextTick(); await new Promise((r) => setTimeout(r, 0)); };
 

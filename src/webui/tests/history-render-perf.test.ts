@@ -9,8 +9,8 @@
 // 和内容长度线性相关，且首屏页大小固定 5 轮，量级由页大小约束）。
 // ============================================================
 import { describe, expect, it } from 'vitest';
-import { mergeHistoryPage, buildTurnsIncremental, type TurnsMemo } from '../src/utils/feed';
-import { insertTimeSeparators } from '../src/utils/format';
+import { mergeHistoryPage, buildTurnsIncremental, type TurnsMemo } from 'ac-client-ui-conversation/client/feed.ts';
+import { insertTimeSeparators } from 'ac-client-ui-conversation/client/format.ts';
 import type { ChatMessage } from '../src/types';
 
 /** 合成长度可控的伪正文（含 markdown 结构，模拟真实回复） */

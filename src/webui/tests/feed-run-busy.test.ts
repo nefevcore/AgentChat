@@ -44,7 +44,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 
 import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
 import { wireFace } from '../src/runtime/wireFace';
-import { directDialog } from '../src/utils/feed';
+import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
 
 const A = 'alpha';
 const conv = `${A}~user`;
@@ -153,11 +153,11 @@ describe('忙态投递分流（Enter 排队 / Cmd+Ctrl+Enter 插话）', () => {
     expect(deliverParams()?.placement).toBeUndefined();
   });
 
-  it('忙时 Cmd/Ctrl+Enter（mode steer）→ placement steer（注入运行中 run）', async () => {
-    const feed = cores.feed;
-    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
-    cores.chat.sendMessage('着急，现在就改', undefined, { mode: 'steer' });
-    await Promise.resolve(); await Promise.resolve();
+  it('忙时 Cmd/Ctrl+Enter（mode steer）→ placement steer（注入运行中 run）', async () => {
+    const feed = cores.feed;
+    feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
+    cores.chat.sendMessage('着急，现在就改', undefined, { mode: 'steer' });
+    await Promise.resolve(); await Promise.resolve();
     expect(deliverParams()?.placement).toBe('steer');
     expect(deliverParams()?.lane).toBeUndefined();
   });

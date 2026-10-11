@@ -33,7 +33,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 
 import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
 import { wireFace } from '../src/runtime/wireFace';
-import { directDialog, singleDialog } from '../src/utils/feed';
+import { directDialog, singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 
 const A = 'alpha';
 

@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { toHistoryMessages } from 'ac-client-ui-conversation/client/historyApi.ts';
-import { buildTurns } from '../src/utils/feed.ts';
+import { buildTurns } from 'ac-client-ui-conversation/client/feed.ts';
 import type { ChatMessage } from '../src/types';
 
 const T0 = Date.parse('2026-09-02T01:06:27Z');

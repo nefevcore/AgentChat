@@ -10,7 +10,7 @@ import {
   formatFileMention,
   buildSessionMentionCandidates,
   sessionActivityOf,
-} from '../src/utils/mention';
+} from 'ac-client-ui-conversation/client/mention.ts';
 
 describe('detectMention', () => {
   it('空串/光标越界 → null', () => {

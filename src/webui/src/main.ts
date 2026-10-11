@@ -39,12 +39,6 @@ import { applyBootGraph } from './runtime/bootGraph';
 import { initUiExtensionHost } from './core/extensions';
 
 async function boot(): Promise<void> {
-  // M27 S0 验收入口：?slots-demo 查询参 → 纯 slot 装配玩具界面（临时）
-  if (new URLSearchParams(location.search).has('slots-demo')) {
-    const m = await import('./runtime/slots-demo.ts');
-    await m.mountSlotsDemo('#app');
-    return;
-  }
 
   // 动态 chunk 加载失败兜底（stale bundle 场景）：webui:build 重建后
   // 旧页面挂着的异步组件 loader 请求已失效的 chunk URL → 404。此错误

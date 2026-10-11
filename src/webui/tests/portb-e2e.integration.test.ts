@@ -372,7 +372,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
   });
 
   it('M22 P2 全链路：扩展目录 × 全行集 / dev 扫描根 / 装配 per-name 合并（真 bootTree RPC）', { timeout: 60_000 }, async () => {
-    const settings = await import('../src/settings/api.ts');
+    const settings = await import('ac-client-ui-settings/client/api.ts');
     const pluginApi = await import('ac-client-ui-plugin-registry/client/pluginApi.ts');
     const { clientRuntime } = await import('ac-client-runtime');
     // M29 P1-3a：插件域数据面 rpc 必传——取已装配 runtime 的契约面
