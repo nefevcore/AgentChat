@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-325**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-326**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -343,3 +343,4 @@
 - 【cr-323 2026-10-11 ac-restart 能力服务化（审计清单#7）：requestSystemRestart 函数升 ctx.restart 服务，ac-web-api 值导入解除改 inject 硬声明；ws-bridge 的 ac-restart 依赖顺带归位 devDependencies（type-only）】
 - 【cr-324 2026-10-11 ac-web-api 体量审查（#8 P1 验收+精简）：空 import type 死导入/孤儿注释/runsDigestCache payload 驻留/派生重复并源/头注释漂移订正】
 - 【cr-325 2026-10-11 P1-9 ac-openai-completions 深审收口：sseDataEvents/stripTransportKeys 三库值导入系 cr-39 D1/cr-99 B 双裁决背书的分层设计（纯库共享单源，非漂移），注释声明现状；孤儿 JSDoc 三块（isMaxTokensRenameHint/authHeaders/httpError 文档与函数分离悬空）合并归位；导出面逐词汇核验零包外越权消费，测试比健康（125 断言）】
+- 【cr-326 2026-10-11 ac-client-ui-conversation P2 精简审查收口：uid 单行函数双份并源 chatOps.ts（feed-core/chat-core 改 import）；全包死导出/孤儿模块/断链 import 零命中（171 导出全仓求证），大文件不拆（闭包内聚+CR 背书），包健康留】

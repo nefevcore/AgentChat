@@ -16,14 +16,12 @@ import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
-import { toToolDefs, chatPresence, pickAskQuestions, pickApproval } from './chatOps.ts';
+import { toToolDefs, chatPresence, pickAskQuestions, pickApproval, uid } from './chatOps.ts';
 import { directDialog, singleDialog, bucketKey, parseDialogId, splitAttachmentLines, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
 import { loadComposePrefs } from './composePrefs.ts';
 import { settleToolMode } from './toolModeInherit.ts';
 import type { FeedView } from './feed-core.ts';
-
-function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
 /** deliver RPC 等整轮 run 收束才返回（web-api 语义）——长 run 专属超时
  *  （普通 RPC 缺省 60s；工具密集的 run 轻松超过，曾把"运行中"误报成

@@ -33,6 +33,9 @@ export const chatPresence: ChatPresence = {
   uploadPaths: new Map(),
 };
 
+/** 本地行 id 生成（feed-core/chat-core 共用单源——重复两份迟早走散，cr-326 并源） */
+export function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
+
 // ---- 帧载荷路由（feed 三关的 preview 词汇版） ----
 
 interface FrameKeys {

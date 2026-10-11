@@ -20,7 +20,7 @@ import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory, fetchPairHistory, toHistoryMessages } from './historyApi.ts';
 import {
   routeDialog, isUserConversation, streamOf, parseArgs, stringifyToolResult, errText,
-  historyPage, historyServed, chatPresence, extractPartialJsonString,
+  historyPage, historyServed, chatPresence, extractPartialJsonString, uid,
   type StreamState,
 } from './chatOps.ts';
 import { loadUnreadSnapshot, saveUnreadSnapshot } from './unreadStore.ts';
@@ -110,8 +110,6 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
     lastActivity: 0, lastMessage: null, unread: 0, streaming: false,
   };
 }
-
-function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
 /** createFeedCore 可选面：persistUnread = 未读快照持久化开关（缺省关）。
  *  生产路径（ConversationService）开：未读徽章刷新后经 localStorage
