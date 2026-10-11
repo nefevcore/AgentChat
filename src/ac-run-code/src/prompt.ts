@@ -68,7 +68,7 @@ function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
   // 投影源（scope='projection'——能力面直取，不受 include/exclude/开关
   // 收窄；互斥形态的投影要涵盖全部已授权工具，否则程序里除了 run_code
   // 什么都调不了）
-  const projectionFace = resolveEffectiveTools(ctx, request.agent, request.conversationId, 'projection');
+  const projectionFace = resolveEffectiveTools(ctx, request.agent, request.conversationId);
   // guidance='' —— 代码块内不嵌纪律注释：块后已有一份纯文本（下方
   // DEFAULT_GUIDANCE），块内再嵌一份是纯重复（~5K 字符/请求，2026-09-21
   // 裁决）。代码块保持纯粹的 API 类型签名参考。

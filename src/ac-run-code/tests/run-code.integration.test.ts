@@ -231,6 +231,18 @@ describe('ac-run-code：子调用桥接', () => {
     expect([...COMMAND_TOOLS].sort()).toEqual(['bash', 'pwsh']);
   });
 
+  it('词表单源 dev 生效：requireShim 形态 + security 分支可达（2026-10-11 审计修复锁）', async () => {
+    // 旧 bug：裸 require('ac-security') 在 dev ESM 形态 ReferenceError 被吞 → 恒走
+    // FALLBACK（vitest 的 vite 桥注入 require，掩盖此 bug——真实 dev 形态才炸）。
+    // 双锁：①静态源断言 tool.ts 不回退裸 require 形态；②本环境 via=security 证明
+    // security 分支可达（createRequire 解析 workspace 包）。
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../src/tool.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/[^a-zA-Z_]require\('ac-security'\)/);
+    expect(src).toContain("requireShim('ac-security')");
+    expect(runCodeRow.__runCodeTestHooks.serialLists().via).toBe('security');
+  });
+
   it('程序体含 import → 拒绝（不执行任何子调用）', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `import { x } from 'node:fs';\nreturn x;`);
@@ -418,6 +430,17 @@ describe('ac-run-code：预算与中止', () => {
     expect(out.length).toBeLessThan(1300);
   });
 
+  it('max_output_bytes 截断大对象（结构位截断）→ 程序不假失败，截断文本作 value 带回（2026-10-11 审计修复锁）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    // 大数组超预算 → enforceOutputBudget 在结构位中段截断，旧实现 JSON.parse(截断文本)
+    // 必炸 → 子调用全成功的程序被整体判失败。修复后：截断文本直接作字符串 value。
+    const r = await call(ctx, 'return Array.from({ length: 2000 }, (_, i) => ({ idx: i, pad: \'x\'.repeat(20) }));', { max_output_bytes: 1000 });
+    expect(r.ok).toBe(true);
+    const v = (r.output as { value: unknown }).value;
+    expect(typeof v).toBe('string'); // 截断文本形态（与 log 合成通道同形）
+    expect(v).toMatch(/输出超预算截断/);
+  });
+
   // —— serializeValue 降级链（实测复盘 0d55714a-W1）——出口序列化失败不再整程序失败
   it('return 值含 BigInt/函数 → 降级标注而非程序失败（子调用结果不丢）', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
@@ -574,7 +597,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
     expect((r.output as { value: string }).value).toMatch(/nope 未注册/);
   });
 
-  it('Ⓐ（2026-11-19 追记）define 传对象 → 即时指引（数据本体无法跨程序注册）', async () => {
+  it('Ⓐ（2026-09-21 追记）define 传对象 → 即时指引（数据本体无法跨程序注册）', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       try {
@@ -641,7 +664,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
     expect((r.output as { value: string }).value).toMatch(/async 函数形态/);
   });
 
-  it('lib DX 增强（2026-11-19）：直调糖——lib.<名> 与 resolve 同通道同结果', async () => {
+  it('lib DX 增强（2026-09-21）：直调糖——lib.<名> 与 resolve 同通道同结果', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       lib.define('add', (a, b) => a + b);
@@ -702,7 +725,7 @@ describe('ac-run-code：lib 临时库（会话级复用）', () => {
     expect(v).toMatch(/lib\.define|resolve/); // 指引在场
   });
 
-  it('Ⓐ（2026-11-19 追记）define 传数字 → 即时指引', async () => {
+  it('Ⓐ（2026-09-21 追记）define 传数字 → 即时指引', async () => {
     const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
     const r = await call(ctx, `
       try {

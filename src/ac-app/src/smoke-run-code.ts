@@ -109,12 +109,15 @@ async function main() {
   // 模式收窄经 router 消费（LLM 面 = 仅 run_code）——见 [7] 端到端验证
 
   // ---- 2) 标签目录 ----
-  console.log('[2] tag-registry catalog（tc-programmatic 预注册；run_code 授权随 infra）');
+  console.log('[2] tag-registry catalog（tc-programmatic 预注册；run_code 与能力轴正交）');
   const progTag = ctx.tagRegistry.catalog().find((t) => t.tag === 'tc-programmatic');
   check('catalog 含 tc-programmatic（reserved）', progTag?.reserved === true);
   check('tc-programmatic 零消费工具（纯模式词）', (progTag?.tools ?? []).length === 0);
-  const infraTag = ctx.tagRegistry.catalog().find((t) => t.tag === 'infra');
-  check('run_code 授权随 infra（消费计数含它）', (infraTag?.tools ?? []).some((t) => t.name === 'run_code'));
+  // 旧断言「run_code 授权随 infra（消费计数含它）」是 2026-09-21 injection 轴重构前的
+  // 过时口径——mode 工具不挂 requiredTags（tag-registry 明文禁止双门），catalog 按
+  // requiredTags 采集永不含它。正交语义改从注册面直验。
+  const runCodeDef = ctx.tools.list().find((t) => t.name === 'run_code');
+  check('run_code 为 mode 注入（无 requiredTags——与能力轴正交）', runCodeDef?.injection === 'mode' && (runCodeDef?.requiredTags?.length ?? 0) === 0);
 
   // run_code 执行的公共入口（预设身份）
   const runCode = (code: string, extra: Record<string, unknown> = {}) =>

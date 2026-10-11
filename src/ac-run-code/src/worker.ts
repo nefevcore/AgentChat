@@ -58,8 +58,8 @@ function checkAbort(): void {
  *      保住可序列化主体；返回值标注「含不可序列化字段（已降级标注）」
  *      ——程序不失败，模型看得见哪些字段出了问题。
  */
-function serializeValue(value: unknown, maxBytes: number): { ok: true; text: string; note?: string } | { ok: false; error: string } {
-  if (value === undefined) return { ok: true, text: 'undefined' };
+function serializeValue(value: unknown, maxBytes: number): { ok: true; text: string; truncated: boolean; note?: string } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, text: 'undefined', truncated: false };
   let text: string;
   let note: string | undefined;
   try {
@@ -80,7 +80,8 @@ function serializeValue(value: unknown, maxBytes: number): { ok: true; text: str
     // 注意：说明走独立 note 字段——text 必须保持纯 JSON（下游 JSON.parse 消费）
     note = 'return 值含不可序列化字段（循环引用/BigInt/函数等，已降级标注）——建议 return 纯数据对象';
   }
-  return { ok: true, text: enforceOutputBudget(text, maxBytes), ...(note !== undefined ? { note } : {}) };
+  const budgeted = enforceOutputBudget(text, maxBytes);
+  return { ok: true, text: budgeted, truncated: budgeted !== text, ...(note !== undefined ? { note } : {}) };
 }
 
 /** UTF-8 字节偏移 → 字符索引（偏移落在多字节码点内部时左移到码点起始，不撕裂字符） */
@@ -357,7 +358,7 @@ async function main(): Promise<void> {
       }
       // 试求值自检（定义期发现自由变量，而非使用期）
       evalLibSource(name, src);
-      // 自由变量词法告警（2026-11-19 lib DX 增强：防呆不拒绝）。函数体内的
+      // 自由变量词法告警（2026-09-21 lib DX 增强：防呆不拒绝）。函数体内的
       // 外围引用试求值抓不到（只造函数不执行体）——词法扫描在 define 期露头：
       // 注册/resolve/同程序直调原函数都成功（闭包活着），唯独跨程序 resolve
       // 后调用炸 ReferenceError——「测试时好、复用时炸」的静默陷阱。
@@ -452,10 +453,16 @@ async function main(): Promise<void> {
     if (value !== undefined && value !== null) {
       // return 有值（null 视为无值——走 log 回退）→ return 优先（复合协议上半）
       const ser = serializeValue(value, init.maxOutputBytes);
-      // 降级说明并入 value（字段名 __serializeNote——模型可见但不破坏数据主体）
-      result = ser.ok
-        ? { ok: true, valueVia: 'return', value: ser.note === undefined ? JSON.parse(ser.text) : { ...JSON.parse(ser.text), __serializeNote: ser.note } }
-        : { ok: false, error: ser.error };
+      if (!ser.ok) {
+        result = { ok: false, error: ser.error };
+      } else if (ser.truncated) {
+        // 截断后的文本不再是合法 JSON（中段丢弃破坏结构位）——JSON.parse 往返
+        // 必炸、成功程序被假判失败（2026-10-11 审计修复）：截断文本直接作字符串
+        // value 带回（与 log 合成通道同形），截断标注随文本可见
+        result = { ok: true, valueVia: 'return', value: ser.text };
+      } else {
+        result = { ok: true, valueVia: 'return', value: ser.note === undefined ? JSON.parse(ser.text) : { ...JSON.parse(ser.text), __serializeNote: ser.note } };
+      }
     } else if (logs.length > 0) {
       // 无 return 值但有 log → 收集行按序合成 value（复合协议下半）
       const lines = [...logs, ...(logsDropped > 0 ? [`…[log 条目超限：丢弃 ${logsDropped} 条]`] : [])];
@@ -648,7 +655,7 @@ const LEXER_KEYWORDS = new Set([
 /**
  * 词法级自由变量扫描（近似——告警用，非精确作用域分析）。
  *
- * 动机（2026-11-19 追记 Ⓐ 延伸实测）：lib.define('trap', (s) => s.slice(0, LIMIT))
+ * 动机（2026-09-21 追记 Ⓐ 延伸实测）：lib.define('trap', (s) => s.slice(0, LIMIT))
  * 注册成功（试求值只造函数不执行体）、resolve 成功（返回可调用函数）、同程序直调
  * 原函数也成功（闭包活着）——唯独跨程序 resolve 后调用炸 ReferenceError。
  * 「测试时好、复用时炸」的完美静默陷阱，define 期就该露头。

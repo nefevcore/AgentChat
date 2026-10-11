@@ -25,8 +25,7 @@ import { fileURLToPath } from 'node:url';
 const requireShim = createRequire(import.meta.url);
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
-import type { AgentConfig } from 'ac-agents';
-import { formDeniedBy, resolveToolNames, sessionCapsOf, toolAllowedFor } from 'ac-agents';
+import { formDeniedBy, sessionCapsOf, toolAllowedFor } from 'ac-agents';
 import { buildSdkProjection, validateInvoke } from 'ac-run-code-core';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
@@ -42,9 +41,11 @@ const FALLBACK_WRITE_TOOLS = new Set(['write', 'edit', 'str_replace_editor']);
 const FALLBACK_COMMAND_TOOLS = new Set(['pwsh', 'bash']);
 function serialWordlists(): { write: Set<string>; command: Set<string> } {
   try {
-    // 动态 require 形态的静态可达 import——esbuild 正常打包；缺席时
-    // try/catch 兜底（独立性：不把 ac-security 声明为硬依赖）
-    const security = require('ac-security') as {
+    // requireShim（createRequire(import.meta.url)）——裸 require 在 ESM 下
+    // ReferenceError 被 try/catch 吞掉，dev 形态单源从未生效（bundle 有桥才
+    // 正常——2026-10-11 审计实证）；shim 形态两形态均解析 workspace 包。
+    // 缺席时 try/catch 兜底（独立性：不把 ac-security 声明为硬依赖）
+    const security = requireShim('ac-security') as {
       WRITE_PATH_TOOLS: Set<string>;
       COMMAND_TOOLS: Set<string>;
     };
@@ -55,6 +56,12 @@ function serialWordlists(): { write: Set<string>; command: Set<string> } {
   return { write: FALLBACK_WRITE_TOOLS, command: FALLBACK_COMMAND_TOOLS };
 }
 const SERIAL_LISTS = serialWordlists();
+// 测试锁出口：重放词表解析（dev ESM 下裸 require 已被修复为 requireShim——
+// 旧实现此处吞 ReferenceError 恒走 FALLBACK，单源承诺空转；审计修复锁消费）
+function serialListsProbe(): { via: 'security' | 'fallback'; write: Set<string>; command: Set<string> } {
+  const r = serialWordlists();
+  return { via: r.write === FALLBACK_WRITE_TOOLS ? 'fallback' : 'security', ...r };
+}
 
 /** 预算缺省（行 config 可覆盖）。墙钟是唯一时间防线（宿主侧单源——不进参数表，Agent 不可见/不可改） */
 export interface RunCodeRowOptions {
@@ -143,65 +150,31 @@ function subcallBrief(name: string, args: Record<string, unknown>, result: ToolR
 }
 
 /**
- * 生效工具集解析（与 router RouterService.execute 的可见面合成同链——
- * 能力面 → resolveToolNames → 形态面终滤；计划 §二同源纪律）。
- * router 私有逻辑不 import（三条红线），此处按同一单源函数复算；
- * tag 展开告警接 logger.warn（对齐 router 文案口径）。
+ * 生效工具集解析——投影源口径（与 router RouterService.execute 的可见面
+ * 合成同链；计划 §二同源纪律）：能力面直取（跳过 include/exclude 收窄——
+ * 互斥形态的投影要涵盖全部已授权工具，否则程序里除了 run_code 什么都
+ * 调不了）。include/exclude 的语义边界收窄为「LLM 直调面」；投影面 =
+ * tags 即工具面的授权真理。安全无碍：子调用执行照走 ctx.tools.execute
+ * 全门禁（能力轴逐调用复检），投影声明宽 = fail-safe（声明了但无权执行
+ * 会被拒），不越权。形态面终滤（single 裁剪与 router 同口径——坑 #10）。
  *
- * 口径（2026-09-17 互斥形态改版）：
- *   · scope='llm'——LLM 可见面：能力面 → include/exclude → 形态面。
- *     互斥形态（AgentConfig.tools = ['run_code']）下其余工具被 include
- *     收出 LLM 面，但仍在能力面内（tags 授权未变）。
- *   · scope='projection'——投影源：**能力面直取**（跳过 include/exclude
- *     收窄——互斥形态的投影要涵盖全部已授权工具，否则程序里除了
- *     run_code 什么都调不了）。include/exclude 的语义边界收窄为
- *     「LLM 直调面」；投影面 = tags 即工具面的授权真理。安全无碍：
- *     子调用执行照走 ctx.tools.execute 全门禁（能力轴逐调用复检），
- *     投影声明宽 = fail-safe（声明了但无权执行会被拒），不越权。
- * 两口径都过形态面终滤（single 裁剪与 router 同口径——坑 #10）。
+ * （2026-10-11 审计精简：scope='llm' 分支——能力面 → resolveToolNames 点名/
+ * tag 展开 → 形态面——全仓零调用方删除；LLM 可见面合成住 router 单源。）
  */
 export function resolveEffectiveTools(
   ctx: Context,
   agentId: string | undefined,
   conversationId: string | undefined,
-  scope: 'llm' | 'projection' = 'llm',
 ): ToolDefinition[] {
   // agents 为可选能力（ctx.get 非 strict）；sessionCapsOf 内部软依赖 agents/
   // convSettings 面（缺面回退 base）——受限调用方纪律经软依赖合成，且含
   // 会话授权注入（conv-settings grants——2026-09-26 可见性断层同款修复：
   // 投影面与 router/tool-defs/list_tools 同口径，实验档授权进 SDK 投影块）
-  const agents = ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
-  const agent = agentId === undefined ? undefined : agents?.get(agentId);
   const caps = sessionCapsOf(ctx, agentId, conversationId);
-  const visible = ctx.tools.list().filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps));
-  if (scope === 'projection') {
-    // 投影源：能力面全量（授权真理）——不经 include/exclude 收窄，
-    // mode 工具（run_code 等）排除（递归防护在投影层：程序内再造程序
-    // 无意义且套计费）；requiresInteraction 工具随交互面终滤
-    return visible.filter((d) => !formDenied(ctx, d, conversationId));
-  }
-  const resolved = resolveToolNames(
-    agent?.tools,
-    visible,
-    (tag) => {
-      ctx.logger.warn(`[run_code] tools 引用 'tag:${tag}' 展开为空（标签不存在或无工具声明它），相关条目已静默落空——Agent ${agentId ?? '无身份'}`);
-    },
-    (name) => {
-      ctx.logger.warn(`[run_code] tools 点名 '${name}' 不在当前可见工具面（不存在/不可见/已改名），该条目落空——Agent ${agentId ?? '无身份'}`);
-    },
-  ) ?? visible.map((t) => t.name);
-  return resolved
-    .map((name) => ctx.tools.get(name))
-    .filter((d): d is ToolDefinition => d !== undefined && !formDenied(ctx, d, conversationId));
-}
-
-/**
- * 形态面（single/self）判定：formDeniedBy 单源（ac-agents——router
- * formAllowed 同口径，坑 #10）。含自会话（a~a）：run_code 程序内子调用
- * 的可见面与 router 信封一致。
- */
-function formDenied(ctx: Context, def: ToolDefinition, conversationId: string | undefined): boolean {
-  return formDeniedBy(ctx, def, conversationId);
+  // 投影源：能力面全量（授权真理）——不经 include/exclude 收窄，
+  // mode 工具（run_code 等）排除（递归防护在投影层：程序内再造程序
+  // 无意义且套计费）；requiresInteraction 工具随交互面终滤
+  return ctx.tools.list().filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, conversationId));
 }
 
 /**
@@ -581,7 +554,7 @@ export async function executeRunCode(
     // enum 错值/additionalProperties:false 未知键——postMessage 回程前拒绝，
     // 模型当场拿到可自修错误（省一轮真实执行往返）。拦截不逃逸 ctx.tools.execute
     // 的既有门禁（能力轴逐调用复检照走——校验面宽 = fail-safe）。
-    const projectionFace = resolveEffectiveTools(ctx, call.agentId, call.conversationId, 'projection');
+    const projectionFace = resolveEffectiveTools(ctx, call.agentId, call.conversationId);
     const invalid = validateInvoke(projectionFace, name, invokeArgs);
     if (invalid !== undefined) {
       summary.calls++;
@@ -833,4 +806,6 @@ export const __runCodeTestHooks = {
   libStoreKeys(agentId: string | undefined, conversationId: string | undefined): string[] {
     return [...libStoreOf(agentId, conversationId).keys()];
   },
+  /** 重放串行词表解析（审计修复锁：via='security' = 单源生效，'fallback' = 解析失败回落） */
+  serialLists: serialListsProbe,
 };

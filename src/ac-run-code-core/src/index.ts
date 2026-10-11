@@ -24,8 +24,6 @@ export interface ProjectedToolDef {
 
 /** 投影选项 */
 export interface ProjectionOptions {
-  /** 递归防护：从投影中排除的工具名（缺省 PROJECTION_EXCLUDE） */
-  exclude?: string[];
   /** 头部附加指引（程序书写纪律；缺省用内置文案） */
   guidance?: string;
 }
@@ -171,15 +169,11 @@ function projectTool(def: ProjectedToolDef): string {
     for (const pl of paramLines) lines.push(`   * ${escJsdoc(pl)}`);
     lines.push(`   */`);
   }
-  let argsType = 'Record<string, unknown>';
-  if (def.parameters !== undefined && typeof def.parameters === 'object') {
-    argsType = schemaTypeToTs(def.parameters, true);
-    // 参数对象可能是 { type:'object', properties:{...} }——顶层已由 object 分支展开；
-    // 非对象形状退回宽松类型。
-    if (argsType === 'unknown' || argsType === 'Record<string, unknown>') {
-      // 保持宽松（模型自由传参，运行时按 schema 由工具行校验）
-    }
-  }
+  // 参数对象可能是 { type:'object', properties:{...} }——顶层已由 object 分支展开；
+  // 非对象形状由 schemaTypeToTs 退回宽松类型（模型自由传参，运行时按 schema 由工具行校验）
+  const argsType = def.parameters !== undefined && typeof def.parameters === 'object'
+    ? schemaTypeToTs(def.parameters, true)
+    : 'Record<string, unknown>';
   lines.push(`  ${safePropName(def.name)}(args: ${argsType}): Promise<{ ok: boolean; output?: unknown; error?: string }>;`);
   return lines.join('\n');
 }
@@ -285,10 +279,9 @@ export function buildSdkProjection(
   defs: readonly ProjectedToolDef[],
   options: ProjectionOptions = {},
 ): string {
-  const exclude = new Set(options.exclude ?? PROJECTION_EXCLUDE);
   const guidance = options.guidance ?? DEFAULT_GUIDANCE;
   const sorted = defs
-    .filter((d) => typeof d.name === 'string' && d.name !== '' && !exclude.has(d.name))
+    .filter((d) => typeof d.name === 'string' && d.name !== '' && !PROJECTION_EXCLUDE.includes(d.name))
     .slice()
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const body = sorted.map(projectTool).join('\n');

@@ -133,7 +133,7 @@ describe('工具调用模式面集成（2026-09-17 tc-* 标签轴统一重构）
     // ③ 投影源 = 能力面直取（scope='projection'——含 read 等全部已授权族；
     //    include/开关收窄不影响投影源）
     const { resolveEffectiveTools } = await import('ac-run-code/src/tool.ts');
-    const projectionFace = resolveEffectiveTools(ctx, 'coder', 'user~coder', 'projection');
+    const projectionFace = resolveEffectiveTools(ctx, 'coder', 'user~coder');
     const names = projectionFace.map((d: { name: string }) => d.name);
     expect(names).toContain('read');
     expect(names).toContain('write');

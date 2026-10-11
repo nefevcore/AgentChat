@@ -205,7 +205,7 @@ logger.warn 告警——不静默。「**tags 即工具面**」的准确边界�
 `toolModeOf(agent)` 单源判定（ac-agents——对标 tierOf）；生效档 = 会话覆盖
 （conv-settings `toolMode`，三值全暴露，无键 = 跟随）?? toolModeOf(agent)。
 tc-programmatic ⇒ LLM 面合成 mode 工具集（投影源从能力面直取
-`resolveEffectiveTools(…, 'projection')` 跳过 include 收窄）；tc-none ⇒ LLM
+`resolveEffectiveTools(…)` 跳过 include 收窄——投影源单口径，LLM 可见面合成住 router 单源）；tc-none ⇒ LLM
 工具面清空（纯聊天）；tc-base ⇒ 常规工具面（mode 工具不在其中）。
 **injection 注入轴（2026-09-21 重构）**：`ToolDefinition.injection`——
 `'capability'`（缺省，能力轴门禁）| `'mode'`（模式合成：不挂
@@ -261,8 +261,8 @@ subcall 补行注入宿主步 `steps[].toolCalls`（按 `<runId>#<seq>` 前缀�
 subcall 标记；UI 历史面开启，LLM 回放面 history() 纯净不受污染）；②
 直播面 feed-core 按 `runCodeSubcall` 直接平铺建独立工具卡；③ 渲染层
 subcall 卡片带缩进样式（紧跟 run_code 卡、复用各工具结果卡片组件）。同源纪律：`resolveEffectiveTools`
-（ac-run-code/src/tool.ts，scope 两口径——'llm' 与 router 可见面合成
-同链、'projection' 能力面授权真理），递归防护 = 投影排除 run_code
+（ac-run-code/src/tool.ts，投影源单口径——能力面授权真理；LLM 可见面合成
+与 router 同链、住 router 单源），递归防护 = 投影排除 run_code
 自身。安全：子调用一律 `ctx.tools.execute`（能力轴/档位/黑名单/扫描/
 脱敏/事件面全自动生效）；worker = containment 非 boundary（只做资源
 约束 computeMs/maxWallMs/
