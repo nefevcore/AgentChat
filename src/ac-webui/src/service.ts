@@ -233,9 +233,10 @@ declare module '@agentchat/cordis' {
      * unload/reload（src ui.extensions.changed 同款 sync 语义）。
      * @mode emit
      * @scope host
-     * 载荷：name + reason（register|unregister|reload）。
+     * 载荷：name + reason（register|unregister——重载路径经 disposeRecord
+     * 先 unregister、再 mountRecord register，无独立 reload 帧）。
      */
-    'webui/extensions-changed'(payload: { name: string; reason: 'register' | 'unregister' | 'reload' }): void;
+    'webui/extensions-changed'(payload: { name: string; reason: 'register' | 'unregister' }): void;
 
     /**
      * boot graph 变更通知（declareClient 登记/回收后发出——行装载/卸载、

@@ -194,7 +194,7 @@ export interface PluginRegistryRowOptions {
  * provider 供给行。不含 persona/system-prompt/memory/技能/工具行——
  * 聊天为裸循环，仅作诊断基线。
  */
-const MINIMAL_CORE_ENTRY_IDS: ReadonlySet<string> = new Set([
+export const MINIMAL_CORE_ENTRY_IDS: ReadonlySet<string> = new Set([
   'logger-console', 'timer', 'tools', 'jobs', 'config', 'credentials',
   'agent-store', 'agents', 'agents-dir', 'llm', 'llm-pool', 'agent-loop',
   'router', 'conversation', 'session', 'group', 'usage', 'durable-interaction',
@@ -402,41 +402,57 @@ export class PluginRegistryService extends Service {
     const patches = await setPatchEntry(this.root, id, disabled);
     // 行熔断计数联动：再启用即清计数（与动态插件熔断同款生命周期）
     this.rowFailures.delete(id);
-    // include 热通道：fiber.update({path, patches}) 事务化更新行树
-    // （path 必须与 include 行 config 原文一致——internal/update handler
-    // 按 path 比对分派；测试用独立 yml 时与生产不同）
+    // 落地三态收尾（与 resetPatches 共用单源）：include 热通道 fiber.update
+    // 事务化更新行树（path 必须与 include 行 config 原文一致——internal/
+    // update handler 按 path 比对分派）；未落地/无 include → written（重启生效）
+    return this.applyPatchesAfterWrite(include, patches, `setPatch("${id}")`, (landed) => landed);
+  }
+
+  /**
+   * 落地三态收尾单源（setPatch 与 resetPatches 共用——两份同构尾部曾走散）：
+   * include 热通道 fiber.update 事务生效（失败回滚保持旧树、cordis.yml
+   * 字节不变——F10 守卫维持）+ 落地核对；未落地/无 include → written（重启
+   * 生效）；无 include 行时 dist 发布形态（AGENTCHAT_BOOT_FORM=dist，
+   * bootstrap 标记）如实报 written——patch 由下次启动的 bootstrap 消费；
+   * 未标记的程序化组合（测试直调 bootTree）维持 no-include-row 语义。
+   */
+  private async applyPatchesAfterWrite(
+    include: { fiber: Fiber & { update(config: unknown): Promise<void> }; path: string } | undefined,
+    patches: PatchFileEntry[],
+    op: string,
+    landed: (hot: boolean) => boolean,
+  ): Promise<{
+    state: 'hot' | 'written' | 'no-include-row';
+    restartRequired?: boolean;
+    patches: PatchFileEntry[];
+  }> {
     if (include) {
       try {
         await include.fiber.update({ path: include.path, patches });
-        // 假阳性防护：核对目标行 disabled 态是否真的落地
-        if (!this.rowPatchLanded(id, disabled)) {
-          this.ctx.logger.warn(
-            `[pluginRegistry] setPatch("${id}") 热更新未落地（patch id 不在装配文件原文——须为 yml 裸 id），回落重启生效`,
-          );
+        if (!landed(true)) {
+          this.ctx.logger.warn(`[pluginRegistry] ${op} 热更新未落地，回落重启生效`);
           return { state: 'written', restartRequired: true, patches };
         }
         return { state: 'hot', patches };
       } catch (err: unknown) {
         this.ctx.logger.warn(
-          `[pluginRegistry] 行偏好热更新失败（回滚保持旧树，回落重启生效）: ${err instanceof Error ? err.message : String(err)}`,
+          `[pluginRegistry] ${op} 热更新失败（回滚保持旧树，回落重启生效）: ${err instanceof Error ? err.message : String(err)}`,
         );
         return { state: 'written', restartRequired: true, patches };
       }
     }
     if (!this.hasIncludeRow()) {
-      // dist 发布形态（bootstrap = bootTree 程序化组合）：无 include 行，
-      // 但 cordis.patch.yml 由 bootstrap 于下次启动消费（skip 停用行）——
-      // 偏好有消费者，如实按"重启生效"报告（AGENTCHAT_BOOT_FORM 由
-      // bootstrap 标记；未标记的程序化组合（测试直调 bootTree）维持
-      // no-include-row 语义）。
+      // dist 发布形态（bootstrap = bootTree 程序化组合）：无 include 行，但
+      // cordis.patch.yml 由 bootstrap 于下次启动消费（skip 停用行）——偏好有
+      // 消费者，如实按"重启生效"报告。
       if (process.env.AGENTCHAT_BOOT_FORM === 'dist') {
         this.ctx.logger.warn(
-          `[pluginRegistry] setPatch("${id}") 已写入 ${patchFilePath(this.root)}——发布 bundle 形态无热通道，重启后生效`,
+          `[pluginRegistry] ${op} 已写入 ${patchFilePath(this.root)}——发布 bundle 形态无热通道，重启后生效`,
         );
         return { state: 'written', restartRequired: true, patches };
       }
       this.ctx.logger.warn(
-        `[pluginRegistry] setPatch("${id}") 已写入 ${patchFilePath(this.root)}，但当前进程无 include 行（程序化组合）——偏好无消费者`,
+        `[pluginRegistry] ${op} 已写入 ${patchFilePath(this.root)}，但当前进程无 include 行（程序化组合）——偏好无消费者`,
       );
       return { state: 'no-include-row', patches };
     }
@@ -492,31 +508,7 @@ export class PluginRegistryService extends Service {
     }
     await writePatchFile(this.root, patches);
     this.rowFailures.clear();
-    const include = this.includeInfo();
-    if (include) {
-      try {
-        await include.fiber.update({ path: include.path, patches });
-        const allLanded = patches.every((p) => this.rowPatchLanded(p.id, true));
-        if (!allLanded) {
-          this.ctx.logger.warn('[pluginRegistry] resetPatches(minimal) 热更新部分未落地，回落重启生效');
-          return { state: 'written', restartRequired: true, patches };
-        }
-        return { state: 'hot', patches };
-      } catch (err: unknown) {
-        this.ctx.logger.warn(
-          `[pluginRegistry] 还原热更新失败（回滚保持旧树，回落重启生效）: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return { state: 'written', restartRequired: true, patches };
-      }
-    }
-    if (!this.hasIncludeRow()) {
-      // 同 setPatch：dist 发布形态（bootstrap 标记）patch 由下次启动消费
-      if (process.env.AGENTCHAT_BOOT_FORM === 'dist') {
-        return { state: 'written', restartRequired: true, patches };
-      }
-      return { state: 'no-include-row', patches };
-    }
-    return { state: 'written', restartRequired: true, patches };
+    return this.applyPatchesAfterWrite(this.includeInfo(), patches, 'resetPatches', (landed) => landed && patches.every((p) => this.rowPatchLanded(p.id, true)));
   }
 
   /**
@@ -705,11 +697,7 @@ export class PluginRegistryService extends Service {
    * 装载（G8）；保留字护栏拒绝（F13/G1）；数据根外来源附可见警告 +
    * 审计记原始 sourceDir（F14/L10）。三态结果见 PluginInstallResult。
    */
-  async installFromDir(
-    sourceDir: string,
-    owner: string,
-    grants?: PluginPermission[],
-  ): Promise<PluginInstallResult> {
+  async installFromDir(sourceDir: string, owner: string): Promise<PluginInstallResult> {
     const resolved = path.resolve(sourceDir);
     const warning = this.outOfRootWarning(resolved);
     const fail = async (error: string, name?: string): Promise<PluginInstallResult> => {
@@ -782,7 +770,8 @@ export class PluginRegistryService extends Service {
     }
     let approveResult: ApproveResult;
     try {
-      approveResult = await approveStaging(this.root, stagingId, grants ?? manifest.permissions ?? []);
+      // 免审快照 = manifest permissions 全集（F14/L5——不暴露 grants 参数）
+      approveResult = await approveStaging(this.root, stagingId, manifest.permissions ?? []);
     } catch (err: unknown) {
       // 安装未成：清暂存（E6——rejected 态暂存已清）
       await this.rejectStaging(stagingId).catch(() => undefined);
@@ -1257,11 +1246,11 @@ export class PluginRegistryService extends Service {
     record.fiber = fiber;
     this.loaded.set(record.name, record);
     if (record.watch) this.startWatcher(record);
-    this.mountUi(record, 'register');
+    this.mountUi(record);
   }
 
   /** 挂载 manifest.ui（可选能力：未装 webui 行时静默跳过） */
-  private mountUi(record: LoadedPlugin, reason: 'register' | 'reload'): void {
+  private mountUi(record: LoadedPlugin): void {
     if (!record.manifest.ui) return;
     const webui = this.ctx.get('webui') as WebUiService | undefined;
     if (!webui) return;
@@ -1285,7 +1274,7 @@ export class PluginRegistryService extends Service {
           return;
         }
         record.uiDisposer = disposer;
-        this.ctx.emit('webui/extensions-changed', { name: record.name, reason });
+        this.ctx.emit('webui/extensions-changed', { name: record.name, reason: 'register' });
       })
       .catch((err: unknown) => {
         // UI 半边失败不回滚后端装载（isolated 降级）；记日志

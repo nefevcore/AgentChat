@@ -409,7 +409,7 @@ export interface UISlotInfo {
 
 export interface UIExtensionsChangedEvent {
   name: string;
-  reason: 'register' | 'unregister' | 'reload';
+  reason: 'register' | 'unregister';
 }
 
 export const PLUGIN_EVENT = {

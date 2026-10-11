@@ -186,13 +186,13 @@ export async function initUiExtensionHost(): Promise<void> {
   // 订阅 wire 事件（Port B：preview 事件名 webui/extensions-changed）
   wsUnsubscribe = wireRpc.onWireEvent((type, args) => {
     if (type !== 'webui/extensions-changed') return;
-    const payload = (args[0] ?? undefined) as { name?: string; reason?: 'register' | 'unregister' | 'reload' } | undefined;
+    const payload = (args[0] ?? undefined) as { name?: string; reason?: 'register' | 'unregister' } | undefined;
     console.info('[ui-ext] 收到 webui/extensions-changed:', payload);
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = setTimeout(() => {
       syncTimer = null;
       void syncFromServer();
-    }, 150); // debounce：register/unregister/reload 往往连续到达
+    }, 150); // debounce：register/unregister 往往连续到达
   });
 
   let list: UIExtensionDescriptor[];
