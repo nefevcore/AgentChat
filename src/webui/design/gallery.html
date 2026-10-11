@@ -416,12 +416,13 @@ html[data-theme='aurora'] .sc-user,html.light .sc-user{--sc:#78350F;--sc-rgb:120
 /* ============================================================
    webui-kit/src/base/row.css —— A 语言公共行（扁平行，2026-08-30 C8 裁决）
    主应用行语言（AgentList/SessionList .list-item、RunTracking
-   .tree-node/.tree-leaf、StarCard）的清单行版本：
+   .tree-node/.tree-leaf）的统一清单行——原 StarCard 选中描边 recipe
+   并入本源（cr-327 StarCard 退役）：
 
-   - 透明底 + 透明边框（常态安静），hover 只亮底色（cr-122 去边框与
-     微影——清单行环境安静，灰边框与选中主色描边相竞争）；
-   - 选中/默认态 = StarCard.selected 同 recipe（底面 + 主色描边）；
-   - 基础设施/automatic 行 = 静默虚线描边（装载即生效的只读标识）。
+   - 透明底 + 无边框（常态安静），hover 只亮底色（cr-122 去边框微影；
+     cr-171 透明边框占位致行间粘连，改无边框 + 纯底色选中）；
+   - 选中/默认态 = role-selected-bg 底（见 is-selected）；
+   - 基础设施/automatic 行 = 透明度弱化（is-auto，装载即生效只读标识）。
 
    设置域清单卡（插件库 .plugin-item / 插件配置 .hook-row / 池
    .pool-entry / Agent 清单 .agent-pool-item / 定时任务 .g-timer-item）
@@ -606,8 +607,9 @@ html[data-theme='aurora'] .tt-inject, html.light .tt-inject { --tag-hue: #ae09a1
 /* @kit:base/dropdown.css */
 /* ============================================================
    webui-kit/src/base/dropdown.css —— 下拉选项族配方（cr-157）
-   与 Dropdown.vue 配套：menu 容器在 scoped 内，选项行经 slot 投影，
-   配方必须全局可及（同 row.css 的 .ui-row 模式）。
+   业务自控开合（Transition 归业务）直接引 .ui-dd-* 类名消费（Select/
+   DatePicker/ChatInput/TagChoice 同语言）；cr-327 起 Dropdown.vue 容器件
+   零消费退役，配方本体（全局 css）为唯一事实源（同 row.css 的 .ui-row 模式）。
 
    消费：<button class="ui-dd-opt" :class="{ 'is-selected': sel }">
            <span class="ui-dd-opt-icon">…</span>
@@ -620,7 +622,7 @@ html[data-theme='aurora'] .tt-inject, html.light .tt-inject { --tag-hue: #ae09a1
    分隔线 .ui-dd-div；组标题 .ui-dd-group；返回行 .ui-dd-back；
    行尾右值 .ui-dd-value；禁用 .is-disabled；警示 .is-warn。
    ============================================================ */
-/* 容器：定位壳（Dropdown.vue 消费；业务自控 Transition 开合时亦可直接引类） */
+/* 容器：定位壳（.ui-dd/.ui-dd-menu 类名直引；Select/DatePicker 弹层 Teleport 场景只用 .ui-dd-menu） */
 .ui-dd { position: relative; display: inline-flex; }
 .ui-dd-menu {
   position: absolute;
@@ -1195,18 +1197,6 @@ i[data-ic]{display:inline-flex;width:1em;height:1em;overflow:visible}
 .ui-opt.is-selected .ui-opt-num { color: var(--primary); }
 .ui-opt-label { min-width: 0; }
 /* @end */
-/* @kit:base/PickTag.vue */
-.ui-pick {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border: 1px solid var(--line);
-  border-radius: var(--r-md); background: none;
-  font-size: var(--fs-sm); font-family: var(--font-ui);
-  color: var(--text-2); cursor: pointer; position: relative;
-}
-.ui-pick:hover { background: var(--bg-hover); }
-.ui-pick.on { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
-.ui-pick:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-width); }
-/* @end */
 /* @kit:base/Segmented.vue */
 .ui-seg {
   display: inline-flex; gap: 2px; padding: 3px;
@@ -1409,12 +1399,6 @@ i[data-ic]{display:inline-flex;width:1em;height:1em;overflow:visible}
 .ui-slider-val { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-2); min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 /* @end */
 
-/* @kit:base/Label.vue */
-.ui-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ui-label-name { font-size: var(--fs-md); font-weight: 500; color: var(--text-1); }
-.ui-label-desc { font-size: var(--fs-xs); color: var(--text-3); }
-/* @end */
-
 /* @kit:base/FieldRow.vue */
 .ui-field {
   display: flex; flex-direction: column; align-items: stretch; gap: 8px;
@@ -1429,6 +1413,10 @@ i[data-ic]{display:inline-flex;width:1em;height:1em;overflow:visible}
   width: 4px; background: var(--primary);
 }
 .ui-field-main { min-width: 0; }
+/* cr-173 抽出的名/说明配方（原 .ui-label 族；cr-327 Label 退役后单消费方内联） */
+.ui-field-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ui-field-label-name { font-size: var(--fs-md); font-weight: 500; color: var(--text-1); }
+.ui-field-label-desc { font-size: var(--fs-xs); color: var(--text-3); }
 .ui-field-ctrl { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* @end */
 
@@ -1849,17 +1837,16 @@ a.pv-rail-item.on{border-left-color:var(--primary);font-weight:600}
 <div class="gal-cell" id="c-fx-date"><div class="gal-stage col" style="gap:10px"><span class="ui-dp" style="width:100%"><button type="button" class="ui-dp-trigger"><i data-ic="calendar" data-s="14" class="ui-dp-ic"></i><span class="ui-dp-value">2026-10-05</span></button></span><span class="ui-dp" style="width:100%"><button type="button" class="ui-dp-trigger" disabled><i data-ic="calendar" data-s="14" class="ui-dp-ic"></i><span class="ui-dp-value empty">选择日期</span></button></span><div class="ui-dd" style="width:100%"><div class="ui-dd-menu ui-dp-menu" style="position:static;width:200px"><div class="ui-dp-head"><button type="button" class="ui-ia" aria-label="上一月"><i data-ic="chevron-left" data-s="14"></i></button><button type="button" class="ui-dp-title" aria-label="查看年视图">2026 年 10 月</button><button type="button" class="ui-ia" aria-label="下一月"><i data-ic="chevron-right" data-s="14"></i></button></div><div class="ui-dp-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div><div class="ui-dp-grid"><button type="button" class="ui-dp-cell is-out">1</button><button type="button" class="ui-dp-cell is-out">2</button><button type="button" class="ui-dp-cell is-out">3</button><button type="button" class="ui-dp-cell">4</button><button type="button" class="ui-dp-cell">5</button><button type="button" class="ui-dp-cell">6</button><button type="button" class="ui-dp-cell">7</button><button type="button" class="ui-dp-cell">8</button><button type="button" class="ui-dp-cell">9</button><button type="button" class="ui-dp-cell">10</button><button type="button" class="ui-dp-cell">11</button><button type="button" class="ui-dp-cell">12</button><button type="button" class="ui-dp-cell">13</button><button type="button" class="ui-dp-cell">14</button><button type="button" class="ui-dp-cell">15</button><button type="button" class="ui-dp-cell">16</button><button type="button" class="ui-dp-cell">17</button><button type="button" class="ui-dp-cell">18</button><button type="button" class="ui-dp-cell is-today">19</button><button type="button" class="ui-dp-cell is-sel">20</button><button type="button" class="ui-dp-cell">21</button><button type="button" class="ui-dp-cell">22</button><button type="button" class="ui-dp-cell">23</button><button type="button" class="ui-dp-cell">24</button><button type="button" class="ui-dp-cell">25</button><button type="button" class="ui-dp-cell">26</button><button type="button" class="ui-dp-cell">27</button><button type="button" class="ui-dp-cell">28</button><button type="button" class="ui-dp-cell">29</button><button type="button" class="ui-dp-cell">30</button><button type="button" class="ui-dp-cell">31</button></div></div></div><div class="ui-dd" style="width:100%"><div class="ui-dd-menu ui-dp-menu" style="position:static;width:200px"><div class="ui-dp-head"><button type="button" class="ui-ia" aria-label="上一年"><i data-ic="chevron-left" data-s="14"></i></button><button type="button" class="ui-dp-title" aria-label="回到月视图">2026 年</button><button type="button" class="ui-ia" aria-label="下一年"><i data-ic="chevron-right" data-s="14"></i></button></div><div class="ui-dp-months"><button type="button" class="ui-dp-mcell">1月</button><button type="button" class="ui-dp-mcell">2月</button><button type="button" class="ui-dp-mcell is-msel">3月</button><button type="button" class="ui-dp-mcell">4月</button><button type="button" class="ui-dp-mcell">5月</button><button type="button" class="ui-dp-mcell">6月</button><button type="button" class="ui-dp-mcell">7月</button><button type="button" class="ui-dp-mcell">8月</button><button type="button" class="ui-dp-mcell">9月</button><button type="button" class="ui-dp-mcell is-mcur">10月</button><button type="button" class="ui-dp-mcell">11月</button><button type="button" class="ui-dp-mcell">12月</button></div></div></div></div><div class="gal-cap"><span>DatePicker 日期选择标准件（cr-254/260 · 月历 + 标题上钻年视图）</span><code>DatePicker · v-model</code></div></div>
 <div class="gal-cell" id="c-fx-check"><div class="gal-stage col"><label class="ui-check"><input type="checkbox" checked> 流式输出</label><label class="ui-check"><input type="checkbox"> 记忆增强</label></div><div class="gal-cap"><span>Checkbox 复选框（accent 主色）</span><code>Checkbox · v-model</code></div></div>
 <div class="gal-cell" id="c-fx-slider"><div class="gal-stage col"><div class="ui-slider"><input type="range" min="0" max="1" step="0.01" value="0.7"><span class="ui-slider-val">0.70</span></div></div><div class="gal-cap"><span>Slider 滑杆（配比值 + mono 回显）</span><code>Slider · min/max/step</code></div></div>
-<div class="gal-cell" id="c-fx-label"><div class="gal-stage col"><div class="ui-label"><div class="ui-label-name">温度</div><div class="ui-label-desc">采样随机度，越高越发散</div></div><div class="ui-label" style="margin-top:8px"><div class="ui-label-name">API Key</div></div></div><div class="gal-cap"><span>Label 字段标签（名 + 可选说明行）</span><code>Label · label/description</code></div></div>
-<div class="gal-cell" id="c-fx-field"><div class="gal-stage col"><div class="ui-field"><div class="ui-field-main"><div class="ui-label"><div class="ui-label-name">温度</div><div class="ui-label-desc">采样随机度，越高越发散</div></div></div><div class="ui-field-ctrl"><input class="ui-input" type="number" value="0.7" style="width:140px"></div></div><div class="ui-field is-non-default" style="margin-top:8px"><div class="ui-field-main"><div class="ui-label"><div class="ui-label-name">最大上下文</div><div class="ui-label-desc">非默认值（左侧分栏条 + 左角收窄）</div></div></div><div class="ui-field-ctrl"><input class="ui-input" type="number" value="131072" style="width:140px"></div></div></div><div class="gal-cap"><span>FieldRow 字段行（上下布局；nonDefault 左条）</span><code>FieldRow · label/description</code></div></div>
+<div class="gal-cell" id="c-fx-field"><div class="gal-stage col"><div class="ui-field"><div class="ui-field-main"><div class="ui-field-label"><div class="ui-field-label-name">温度</div><div class="ui-field-label-desc">采样随机度，越高越发散</div></div></div><div class="ui-field-ctrl"><input class="ui-input" type="number" value="0.7" style="width:140px"></div></div><div class="ui-field is-non-default" style="margin-top:8px"><div class="ui-field-main"><div class="ui-field-label"><div class="ui-field-label-name">最大上下文</div><div class="ui-field-label-desc">非默认值（左侧分栏条 + 左角收窄）</div></div></div><div class="ui-field-ctrl"><input class="ui-input" type="number" value="131072" style="width:140px"></div></div></div><div class="gal-cap"><span>FieldRow 字段行（上下布局；nonDefault 左条）</span><code>FieldRow · label/description</code></div></div>
 </div></div>
 
 <!-- ═══ 3 选择与导航 ═══ -->
-<div class="pv-sec" id="s-nav"><div class="pv-sec-head"><span class="pv-eyebrow">SELECT &amp; NAV</span><h2>3 · 选择与导航</h2><p>Dropdown 选项族 · Tabs / DocTabs 页签 · Segmented 分段器 · Breadcrumb 面包屑 · 单选/多选行 · 筛选标签 · 树行/池行 · 清单行 + 开关</p></div><div class="gal-grid">
+<div class="pv-sec" id="s-nav"><div class="pv-sec-head"><span class="pv-eyebrow">SELECT &amp; NAV</span><h2>3 · 选择与导航</h2><p>Dropdown 选项族 · Tabs / DocTabs 页签 · Segmented 分段器 · Breadcrumb 面包屑 · 单选/多选行 · 树行/池行 · 清单行 + 开关</p></div><div class="gal-grid">
 <div class="gal-cell" id="c-dd"><div class="gal-stage col"><div class="ui-dd" style="align-self:stretch"><div class="ui-dd-menu" style="position:static;width:100%"><button type="button" class="ui-dd-opt is-selected"><span class="ui-dd-opt-icon"><i data-ic="cpu" data-s="16"></i></span><span class="ui-dd-opt-body"><span class="ui-dd-opt-name">glm-5.3</span><span class="ui-dd-opt-desc">默认池 · 128k 上下文</span></span><span class="ui-dd-opt-check"><i data-ic="check" data-s="14"></i></span></button><button type="button" class="ui-dd-opt"><span class="ui-dd-opt-icon"><i data-ic="cpu" data-s="16"></i></span><span class="ui-dd-opt-name">deepseek-v3.2</span><span class="ui-dd-value">备用池<i data-ic="chevron-right" data-s="13" class="ui-dd-arrow"></i></span></button><div class="ui-dd-div"></div><button type="button" class="ui-dd-opt is-warn"><span class="ui-dd-opt-icon"><i data-ic="alert-circle" data-s="16"></i></span><span class="ui-dd-opt-body"><span class="ui-dd-opt-name">未配置模型</span><span class="ui-dd-opt-desc is-warn">发送将失败——请先配置连接</span></span></button></div></div></div><div class="gal-cap"><span>Dropdown 下拉族（容器 + 选项配方）</span><code>Dropdown + dropdown.css</code></div></div>
 <div class="gal-cell" id="c-tabs"><div class="gal-stage col"><div class="ui-tabs line" style="align-self:stretch"><button type="button" class="ui-tab">基本</button><button type="button" class="ui-tab on">模型</button><button type="button" class="ui-tab">标签</button></div><div class="ui-tabs pill" style="align-self:flex-start"><button type="button" class="ui-tab on">总览</button><button type="button" class="ui-tab">用量统计</button></div></div><div class="gal-cap"><span>Tabs 页签（line 下划线 / pill 竖栏）</span><code>Tabs · variant</code></div></div>
 <div class="gal-cell" id="c-doctabs"><div class="gal-stage col"><div class="ui-doc-tabs" style="align-self:stretch"><div class="ui-doc-tabs-strip"><div class="ui-doc-tabs-scroll"><button type="button" class="ui-doc-tab on"><i data-ic="file" data-s="13"></i><span class="ui-doc-tab-title">App.vue</span><span class="ui-doc-tab-close" role="button"><i data-ic="x" data-s="10"></i></span></button><button type="button" class="ui-doc-tab"><i data-ic="file-text" data-s="13"></i><span class="ui-doc-tab-title">main.ts</span><span class="ui-doc-tab-close" role="button"><i data-ic="x" data-s="10"></i></span></button></div><div class="ui-doc-tabs-actions"><span class="ui-icon-action"><i data-ic="plus" data-s="13"></i></span></div></div></div></div><div class="gal-cap"><span>DocTabs 可关闭文档页签</span><code>DocTabs · tabs/activeKey</code></div></div>
 <div class="gal-cell" id="c-seg"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start"><span class="ui-seg"><button type="button" class="ui-seg-btn on">15m</button><button type="button" class="ui-seg-btn">1h</button><button type="button" class="ui-seg-btn">6h</button><button type="button" class="ui-seg-btn" disabled>24h</button></span><span class="ui-seg"><button type="button" class="ui-seg-btn">全部</button><button type="button" class="ui-seg-btn on">仅失败</button></span></div></div><div class="gal-cap"><span>Segmented 分段器（凹槽 + 浮起块）</span><code>Segmented · items/v-model</code></div></div>
-<div class="gal-cell" id="c-opt"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:4px;width:100%"><button type="button" class="ui-opt is-selected"><span class="ui-opt-radio"></span><span class="ui-opt-label">重写全部并保留注释</span></button><button type="button" class="ui-opt"><span class="ui-opt-num">2</span><span class="ui-opt-label">仅替换目标函数（序号位）</span></button><button type="button" class="ui-opt"><span class="ui-opt-check"></span><span class="ui-opt-label">多选行（checkbox 勾）</span></button><div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button type="button" class="ui-pick">全部会话</button><button type="button" class="ui-pick on">仅本会话</button><button type="button" class="ui-pick">自定义</button></div></div></div><div class="gal-cap"><span>OptionRow 选项行 + PickTag 筛选钮</span><code>OptionRow · PickTag</code></div></div>
+<div class="gal-cell" id="c-opt"><div class="gal-stage col"><div style="display:flex;flex-direction:column;gap:4px;width:100%"><button type="button" class="ui-opt is-selected"><span class="ui-opt-radio"></span><span class="ui-opt-label">重写全部并保留注释</span></button><button type="button" class="ui-opt"><span class="ui-opt-num">2</span><span class="ui-opt-label">仅替换目标函数（序号位）</span></button><button type="button" class="ui-opt"><span class="ui-opt-check"></span><span class="ui-opt-label">多选行（checkbox 勾）</span></button></div></div><div class="gal-cap"><span>OptionRow 单选/多选/序号位三形态</span><code>OptionRow · selected/multi/index</code></div></div>
 <div class="gal-cell" id="c-crumb"><div class="gal-stage"><span class="ui-crumbs"><button type="button" class="ui-crumb">工作区</button><span class="ui-crumb-sep">/</span><button type="button" class="ui-crumb">src</button><span class="ui-crumb-sep">/</span><span class="ui-crumb cur">docs</span></span></div><div class="gal-cap"><span>Breadcrumb 面包屑（末项 cur 态）</span><code>Breadcrumb · items</code></div></div>
 <div class="gal-cell" id="c-rowvar"><div class="gal-stage col"><div style="width:100%;display:flex;flex-direction:column;gap:2px"><div class="ui-row ui-row--tree" style="color:var(--text-1);font-weight:500"><i data-ic="folder" data-s="14"></i>src</div><div style="margin-left:11px;padding-left:10px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:1px"><div class="ui-row ui-row--tree is-active"><i data-ic="file" data-s="14"></i>tokens.css</div><div class="ui-row ui-row--tree"><i data-ic="file" data-s="14"></i>Button.vue</div></div><div class="ui-row ui-row--pool is-selected"><div style="font-size:var(--fs-md);font-weight:500;color:var(--text-1)">默认池 <span class="ui-badge info">default</span></div><div style="font-size:var(--fs-xs);color:var(--text-3)">glm-5.3 · deepseek-v3.2</div></div></div></div><div class="gal-cap"><span>行变体：--tree 树行（is-active）/ --pool 池行</span><code>row.css · ui-row--tree/--pool</code></div></div>
 <div class="gal-cell" id="c-rowsw"><div class="gal-stage col"><div class="ui-row" style="width:100%"><span style="flex:1;font-size:var(--fs-sm);color:var(--text-1)">清单行（hover 亮底 · 选中描边）</span><span class="ui-badge ok">运行中</span></div><div class="ui-row is-selected" style="width:100%"><span style="flex:1;font-size:var(--fs-sm);color:var(--text-1)">选中行（role-selected 底 + 主色描边）</span></div><div class="ui-row is-auto" style="width:100%"><span style="flex:1;font-size:var(--fs-sm);color:var(--text-1)">基础设施行（is-auto 虚线）</span><label class="ui-switch"><input type="checkbox" checked><span class="ui-switch-track"><span class="ui-switch-dot"></span></span></label></div></div><div class="gal-cap"><span>清单行三态 + 开关（关 = 中性 / 开 = 主色）</span><code>.ui-row + .ui-switch</code></div></div>

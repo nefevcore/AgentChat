@@ -1,7 +1,8 @@
 /* ============================================================
    webui-kit/src/base/dropdown.css —— 下拉选项族配方（cr-157）
-   与 Dropdown.vue 配套：menu 容器在 scoped 内，选项行经 slot 投影，
-   配方必须全局可及（同 row.css 的 .ui-row 模式）。
+   业务自控开合（Transition 归业务）直接引 .ui-dd-* 类名消费（Select/
+   DatePicker/ChatInput/TagChoice 同语言）；cr-327 起 Dropdown.vue 容器件
+   零消费退役，配方本体（全局 css）为唯一事实源（同 row.css 的 .ui-row 模式）。
 
    消费：<button class="ui-dd-opt" :class="{ 'is-selected': sel }">
            <span class="ui-dd-opt-icon">…</span>
@@ -14,7 +15,7 @@
    分隔线 .ui-dd-div；组标题 .ui-dd-group；返回行 .ui-dd-back；
    行尾右值 .ui-dd-value；禁用 .is-disabled；警示 .is-warn。
    ============================================================ */
-/* 容器：定位壳（Dropdown.vue 消费；业务自控 Transition 开合时亦可直接引类） */
+/* 容器：定位壳（.ui-dd/.ui-dd-menu 类名直引；Select/DatePicker 弹层 Teleport 场景只用 .ui-dd-menu） */
 .ui-dd { position: relative; display: inline-flex; }
 .ui-dd-menu {
   position: absolute;

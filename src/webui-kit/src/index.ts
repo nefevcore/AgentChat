@@ -2,12 +2,12 @@
 // webui-kit/src/index.ts —— @agentchat/webui-kit 出口
 //
 // 目录分层（与 L 层对应）：
-//   base/     L0 设计令牌 tokens/row/badge 三 css + L1 基础原语
-//             Icon/Button/Avatar/Modal/BusyRing/CollapseRow/DockCard
-//             + 工具组件 StatusDot/Tooltip/RingProgress
+//   base/     L0 设计令牌 tokens/row/badge/dropdown 四 css + L1 原语与标准件
+//             （Icon/Button/Avatar/Modal + 表单件 + 结构件；cr-327 死件清理后
+//             无 Dropdown/Label/PickTag——配方在 css，容器件零消费不设）
 //   feedback/ 语义反馈 FeedbackNotice + 全局 Toast（toast.ts 单例 + ToastHost 渲染半件）
-//   star/     L2 星群组合件 StarAvatar/StarCard/PulseTrace
-//   icons/    思维链图标族 + icons.ts 注册表（后者不进本入口，见文件尾注）
+//   star/     L2 组合件 StarAvatar（StarCard/PulseTrace cr-116 判零消费、cr-327 补执行）
+//   icons/    思维链图标族 ThinkingIcon + icons.ts 注册表（后者不进本入口，见尾注）
 //   根级      纯函数 format.ts / starColor.ts
 //
 // 风格规范与逐组件对照表：.dsh/skills/agentchat-dev/references/webui-style.md
@@ -20,7 +20,6 @@ export { default as IconAction } from './base/IconAction.vue';
 export { default as Progress } from './base/Progress.vue';
 export { default as Breadcrumb } from './base/Breadcrumb.vue';
 export { default as ConfirmBody } from './base/ConfirmBody.vue';
-export { default as Dropdown } from './base/Dropdown.vue';
 export { default as Select } from './base/Select.vue';
 export { default as DatePicker } from './base/DatePicker.vue';
 export { default as Input } from './base/Input.vue';
@@ -28,11 +27,9 @@ export { default as Textarea } from './base/Textarea.vue';
 export { default as Checkbox } from './base/Checkbox.vue';
 export { default as Slider } from './base/Slider.vue';
 export { default as FieldRow } from './base/FieldRow.vue';
-export { default as Label } from './base/Label.vue';
 export { default as SearchInput } from './base/SearchInput.vue';
 export { default as PasswordInput } from './base/PasswordInput.vue';
 export { default as OptionRow } from './base/OptionRow.vue';
-export { default as PickTag } from './base/PickTag.vue';
 export { default as Segmented } from './base/Segmented.vue';
 export { default as Tabs } from './base/Tabs.vue';
 export { default as DocTabs } from './base/DocTabs.vue';
@@ -56,10 +53,7 @@ export {
 } from './feedback/toast.ts';
 
 export { default as StarAvatar } from './star/StarAvatar.vue';
-export { default as StarCard } from './star/StarCard.vue';
-export { default as PulseTrace } from './star/PulseTrace.vue';
 export { default as ThinkingIcon } from './icons/ThinkingIcon.vue';
-export { default as ThoughtIcon } from './icons/ThoughtIcon.vue';
 
 // icons/icons.ts（iconMap/resolveIcon）不进本入口：~icons/* 是 unplugin-icons
 // 虚拟模块，仅 webui/vite 工具链有类型源；根 tsc 经包入口跟进会把

@@ -2,10 +2,9 @@
   webui-kit/src/base/FieldRow.vue —— 设置字段行标准件（cr-168）
   归一：AgentPane llm-item / NsFieldList ns-item 的「标签+描述+控件」行。
   is-non-default：非默认值态——左侧 4px 主色分栏条 + 容器左角收窄（cr-167 非对称圆角）。
-  cr-173：名/说明配方抽出 Label 标准件（本件内嵌消费，散表单独立可用）。
+  cr-327：原 Label 标准件（cr-173）散表单零消费退役，配方收回本件内联。
 -->
 <script setup lang="ts">
-import Label from './Label.vue';
 withDefaults(defineProps<{
   label: string;
   description?: string;
@@ -17,7 +16,10 @@ withDefaults(defineProps<{
 <template>
   <div class="ui-field" :class="{ 'is-non-default': nonDefault }">
     <div class="ui-field-main">
-      <Label :label="label" :description="description" />
+      <div class="ui-field-label">
+        <div class="ui-field-label-name">{{ label }}</div>
+        <div v-if="description" class="ui-field-label-desc">{{ description }}</div>
+      </div>
     </div>
     <div class="ui-field-ctrl"><slot /></div>
   </div>
@@ -37,5 +39,9 @@ withDefaults(defineProps<{
   width: 4px; background: var(--primary);
 }
 .ui-field-main { min-width: 0; }
+/* cr-173 抽出的名/说明配方（原 .ui-label 族；cr-327 Label 退役后单消费方内联） */
+.ui-field-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ui-field-label-name { font-size: var(--fs-md); font-weight: 500; color: var(--text-1); }
+.ui-field-label-desc { font-size: var(--fs-xs); color: var(--text-3); }
 .ui-field-ctrl { display: flex; align-items: center; gap: 8px; min-width: 0; }
 </style>

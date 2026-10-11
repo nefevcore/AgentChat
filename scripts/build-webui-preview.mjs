@@ -132,10 +132,10 @@ export function renderPreview(page = PAGES[0]) {
     'base/Modal.vue', 'base/Sheet.vue', 'base/PullToRefresh.vue',
     'star/StarAvatar.vue',
     'base/Chip.vue', 'base/IconAction.vue', 'base/Progress.vue', 'base/Breadcrumb.vue',
-    'base/ConfirmBody.vue', 'base/OptionRow.vue', 'base/PickTag.vue',
+    'base/ConfirmBody.vue', 'base/OptionRow.vue',
     'base/Segmented.vue', 'base/Tabs.vue', 'base/DocTabs.vue', 'base/Select.vue', 'base/DatePicker.vue',
     'base/Input.vue', 'base/Textarea.vue', 'base/Checkbox.vue', 'base/Slider.vue',
-    'base/FieldRow.vue', 'base/Label.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
+    'base/FieldRow.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
   ]) {
     html = inject(html, rel, vueStyle(rel));
   }
@@ -165,7 +165,7 @@ function main() {
     }
   }
   console.log(check ? '预览页 kit 片段与事实源一致 ✓（' + PAGES.length + ' 页）'
-    : dirty ? '预览页已注入：L0 四 css + starColor 星板 + 25 个组件样式块（含 cr-157 十二标准件：Chip/IconAction/Progress/Breadcrumb/ConfirmBody/Dropdown/OptionRow/PickTag/Segmented/Tabs/DocTabs + Avatar 角标/Sheet right）'
+    : dirty ? '预览页已注入：L0 四 css + starColor 星板 + 23 个组件样式块（含 cr-157 标准件：Chip/IconAction/Progress/Breadcrumb/ConfirmBody/OptionRow/Segmented/Tabs/DocTabs + Avatar 角标/Sheet right）'
     : '预览页无需变更（已与事实源一致）');
 }
 

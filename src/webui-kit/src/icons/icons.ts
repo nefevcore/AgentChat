@@ -41,10 +41,8 @@ import IconCornerDownLeft from '~icons/lucide/corner-down-left';
 import IconGlobe from '~icons/lucide/globe';
 import IconCheck from '~icons/lucide/check';
 import IconPlay from '~icons/lucide/play';
-import IconGripVertical from '~icons/lucide/grip-vertical';
 import IconSettings2 from '~icons/lucide/settings-2';
 import IconX from '~icons/lucide/x';
-import IconMenu from '~icons/lucide/menu';
 import IconSun from '~icons/lucide/sun';
 import IconMoon from '~icons/lucide/moon';
 import IconAlertCircle from '~icons/lucide/alert-circle';
@@ -62,12 +60,9 @@ import IconStar from '~icons/lucide/star';
 import IconInfo from '~icons/lucide/info';
 import IconWrench from '~icons/lucide/wrench';
 import IconGitBranch from '~icons/lucide/git-branch';
-import IconBrainCircuit from '~icons/lucide/brain-circuit';
 import IconImage from '~icons/lucide/image';
 import IconFileJson from '~icons/lucide/file-json';
 import IconFileArchive from '~icons/lucide/file-archive';
-import IconFileCode from '~icons/lucide/file-code';
-import IconPanelRight from '~icons/lucide/panel-right';
 import IconCpu from '~icons/lucide/cpu';
 import IconLock from '~icons/lucide/lock';
 import IconFolderPlus from '~icons/lucide/folder-plus';
@@ -105,7 +100,6 @@ import IconDatabase from '~icons/lucide/database';
 import IconType from '~icons/lucide/type';
 // 安全/提权象形（ChatInput 快捷提权按钮等）
 import IconShield from '~icons/lucide/shield';
-import IconShieldCheck from '~icons/lucide/shield-check';
 import IconShieldHalf from '~icons/lucide/shield-half';
 import IconShieldOff from '~icons/lucide/shield-off';
 // 自动换行象形（文件预览代码视图 wrap 开关）
@@ -155,7 +149,6 @@ import IconSiMoonshot from '~icons/simple-icons/moonshotai';
 import IconSiNvidia from '~icons/simple-icons/nvidia';
 import IconSiOpencode from '~icons/simple-icons/opencode';
 import IconSiOpenrouter from '~icons/simple-icons/openrouter';
-import IconSiAliyun from '~icons/simple-icons/alibabacloud';
 import IconSiVercel from '~icons/simple-icons/vercel';
 import IconSiXiaomi from '~icons/simple-icons/xiaomi';
 import IconSiKimi from '~icons/simple-icons/kimi';
@@ -163,7 +156,6 @@ import IconSiQwen from '~icons/simple-icons/qwen';
 import IconSiX from '~icons/simple-icons/x';
 
 import IconThinkingIcon from './ThinkingIcon.vue';
-import IconThoughtIcon from './ThoughtIcon.vue';
 import IconZai from './ZaiIcon.vue';
 
 /** 图标注册表：name → 组件 */
@@ -202,10 +194,8 @@ export const iconMap: Record<string, Component> = {
   globe: IconGlobe,
   check: IconCheck,
   play: IconPlay,
-  'grip-vertical': IconGripVertical,
   'settings-2': IconSettings2,
   x: IconX,
-  menu: IconMenu,
   sun: IconSun,
   moon: IconMoon,
   'alert-circle': IconAlertCircle,
@@ -223,12 +213,9 @@ export const iconMap: Record<string, Component> = {
   info: IconInfo,
   wrench: IconWrench,
   'git-branch': IconGitBranch,
-  'brain-circuit': IconBrainCircuit,
   image: IconImage,
   'file-json': IconFileJson,
   'file-archive': IconFileArchive,
-  'file-code': IconFileCode,
-  'panel-right': IconPanelRight,
   cpu: IconCpu,
   lock: IconLock,
   'folder-plus': IconFolderPlus,
@@ -267,7 +254,6 @@ export const iconMap: Record<string, Component> = {
   type: IconType,
   // 安全/提权象形（ChatInput 快捷提权按钮等）
   shield: IconShield,
-  'shield-check': IconShieldCheck,
   'shield-half': IconShieldHalf,
   'shield-off': IconShieldOff,
   // 自动换行象形（文件预览代码视图 wrap 开关）
@@ -294,11 +280,11 @@ export const iconMap: Record<string, Component> = {
   'arrow-down': IconArrowDown,
   'app-window': IconAppWindow,
   circle: IconCircle,
-  // 自绘专属象形（ThinkingIcon/ThoughtIcon.vue）——折叠行图标位默认显示：
-  // 'chain' = 思维链脑电波（TurnDisplayItem 链栏）；'thought' = 思考涟漪
-  // （AssistantMessage 思考行）。hover 时由 chevron-up/down 接管图标位。
+  // 自绘专属象形（ThinkingIcon.vue）——折叠行图标位默认显示：
+  // 'chain' = 思维链脑电波（TurnDisplayItem 链栏/AssistantMessage 思考行
+  // 同图——cr-327 归并原 thought 涟漪别名）。hover 时由 chevron 接管。
   chain: IconThinkingIcon,
-  thought: IconThoughtIcon,
+  thought: IconThinkingIcon,
   // 厂商品牌 logo（simple-icons，cr-203）：si- 前缀防与 lucide 撞名。
   // 消费：模型菜单 provider 图标（poolApi providerIconOf 映射，未命中回退 cpu）
   'si-openai': IconSiOpenai,
@@ -315,7 +301,6 @@ export const iconMap: Record<string, Component> = {
   'si-nvidia': IconSiNvidia,
   'si-opencode': IconSiOpencode,
   'si-openrouter': IconSiOpenrouter,
-  'si-aliyun': IconSiAliyun,
   'si-vercel': IconSiVercel,
   'si-xiaomi': IconSiXiaomi,
   'si-kimi': IconSiKimi,

@@ -1,12 +1,13 @@
 /* ============================================================
    webui-kit/src/base/row.css —— A 语言公共行（扁平行，2026-08-30 C8 裁决）
    主应用行语言（AgentList/SessionList .list-item、RunTracking
-   .tree-node/.tree-leaf、StarCard）的清单行版本：
+   .tree-node/.tree-leaf）的统一清单行——原 StarCard 选中描边 recipe
+   并入本源（cr-327 StarCard 退役）：
 
-   - 透明底 + 透明边框（常态安静），hover 只亮底色（cr-122 去边框与
-     微影——清单行环境安静，灰边框与选中主色描边相竞争）；
-   - 选中/默认态 = StarCard.selected 同 recipe（底面 + 主色描边）；
-   - 基础设施/automatic 行 = 静默虚线描边（装载即生效的只读标识）。
+   - 透明底 + 无边框（常态安静），hover 只亮底色（cr-122 去边框微影；
+     cr-171 透明边框占位致行间粘连，改无边框 + 纯底色选中）；
+   - 选中/默认态 = role-selected-bg 底（见 is-selected）；
+   - 基础设施/automatic 行 = 透明度弱化（is-auto，装载即生效只读标识）。
 
    设置域清单卡（插件库 .plugin-item / 插件配置 .hook-row / 池
    .pool-entry / Agent 清单 .agent-pool-item / 定时任务 .g-timer-item）

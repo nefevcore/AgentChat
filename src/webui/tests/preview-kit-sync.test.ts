@@ -39,10 +39,10 @@ describe('预览页 kit 片段注入（cr-121）', () => {
       'feedback/FeedbackNotice.vue', 'feedback/ToastHost.vue',
       'base/Modal.vue', 'base/Sheet.vue', 'base/PullToRefresh.vue', 'star/StarAvatar.vue',
       'base/Chip.vue', 'base/IconAction.vue', 'base/Progress.vue', 'base/Breadcrumb.vue',
-      'base/ConfirmBody.vue', 'base/OptionRow.vue', 'base/PickTag.vue',
+      'base/ConfirmBody.vue', 'base/OptionRow.vue',
       'base/Segmented.vue', 'base/Tabs.vue', 'base/DocTabs.vue', 'base/Select.vue', 'base/DatePicker.vue',
       'base/Input.vue', 'base/Textarea.vue', 'base/Checkbox.vue', 'base/Slider.vue',
-      'base/FieldRow.vue', 'base/Label.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
+      'base/FieldRow.vue', 'base/SearchInput.vue', 'base/PasswordInput.vue',
     ];
     for (const { path, html: preview } of pages) {
       for (const tag of tags) expect(preview.includes(`/* @kit:${tag} */`), `${path} 缺标记 @kit:${tag}`).toBe(true);

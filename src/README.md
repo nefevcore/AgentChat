@@ -797,8 +797,8 @@ src/
 │                            基建三包之三；src 分层 base/feedback/star/icons/）：
 │                            tokens/row/badge 三 css + Icon/Button/Avatar/Modal
 │                            基础原语 + StatusDot/Tooltip/RingProgress 工具组件 +
-│                            FeedbackNotice/toast 反馈族 + StarAvatar/StarCard/
-│                            PulseTrace 组合件 + 思维链图标族（纯库不进行；
+│                            FeedbackNotice/toast 反馈族 + StarAvatar 组合件 +
+│                            思维链图标族 ThinkingIcon（纯库不进行；
 │                            风格规范与组件对照表 .dsh/skills/agentchat-dev/references/webui-style.md）
 ├── webui/                    前端薄壳（Vue；M27.2-2 终态）：main.ts =
 │                            装配序列（createClient → install(vueRenderer) →

@@ -83,7 +83,7 @@
 | DocTabs | FilePreviewPanel fpp-tab、WebSearchPanel wsp-tab | 可关闭文档页签（icon+title+close+add 钮位） |
 | Segmented | RunTracking range-toggle、TokenUsage/FileEditsPanel seg-control | items/v-model；凹槽+浮起激活块 |
 | OptionRow | InteractionBar ib-option、ChatInput 选项 | 单/多选行（radio/checkbox 语义、selected 态、序号位） |
-| PickTag | CreateGroupDialog label-badge、PluginLibraryPane 筛选 | 隐式多选标签钮（on = primary 描边+tint） |
+| PickTag | CreateGroupDialog label-badge、PluginLibraryPane 筛选 | 隐式多选标签钮（cr-327 退役：归一对象未迁移，零消费死件） |
 | Progress | TokenUsage progress-track、AgentList 用量条 | value/tone；细进度条 |
 | Breadcrumb | EntryPickerModal entry-crumbs | items(label/cur) + click emit |
 | IconAction | 9 处 -x / close-x 小关闭钮 | icon=x/chevron-*；视觉 16px、命中 --hit-mini |
@@ -107,6 +107,11 @@ member 网格、drawer 分节列表——组合件/域语义，强迁必改行�
 - **验证**：pnpm typecheck / webui:typecheck / test:unit（2342 passed）/ check:deps / 定向 eslint / contrast 8 契约 / preview-kit-sync / tag-choice 选择器同步 / activity-bar-unread——全绿。
 
 ## 五、裁决链终点与现状
+
+> cr-327 补遗（2026-10-11）：cr-116 判定「已删除」的 StarCard/PulseTrace 当时
+> 实未执行（文件俱在、零消费），本轮补删；同批退役 Dropdown 容器件（业务
+> 全部自控开合直引 .ui-dd-* 类名）/Label（cr-173 增补件，散表单零消费，配方
+> 收回 FieldRow 内联）/PickTag/thought 涟漪图标别名 + 7 个零消费图标。
 
 kit 目标形态（底座/反馈/浮层/结构 + 表单层 + 业务层标准件 + 四类契约）已全部落地。
 后续控件演进不再经本文——直接以 kit 源码与 gallery 陈列页为事实源，新控件入 kit
