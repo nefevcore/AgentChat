@@ -2298,12 +2298,18 @@ importers:
       ac-client-ui-layout:
         specifier: workspace:*
         version: link:../ac-client-ui-layout
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../ac-client-ui-settings
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
       d3-chord:
         specifier: ^3.0.1
         version: 3.0.1
+      uplot:
+        specifier: ^1.6.32
+        version: 1.6.32
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -2317,9 +2323,6 @@ importers:
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
-      uplot:
-        specifier: ^1.6.32
-        version: 1.6.32
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -4610,9 +4613,6 @@ importers:
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
-      uplot:
-        specifier: ^1.6.32
-        version: 1.6.32
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)

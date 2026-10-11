@@ -6,9 +6,9 @@
 // apply 极薄——仅向 ac-webui 声明 boot graph 条目。
 //
 // 可摘除性（双向语义）：
-//   · 卸本行 → overlay 贡献消失（用量面板退出；sidebar 入口按钮的
-//     openTokenUsage 无消费面，静默）；
-//   · 卸后端行（ac-usage）→ 本行照常装载，RPC 失败 → 弹窗空态降级。
+//   · 卸本行 → aux 选区与 overlay 意图宿主消失（rail 图标随选区注册
+//     回收；uiStore.openTokenUsage 意图无消费者，静默）；
+//   · 卸后端行（ac-usage）→ 本行照常装载，RPC 失败 → 面板空态降级。
 // ============================================================
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -22,7 +22,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-usage',
   label: '用量（前端）',
-  description: 'usage 域前端行（M28 P1）：Token 用量面板（overlay 席位贡献——柱状图/弦图/汇总）+ usageApi 数据面；与 ac-usage 后端行双向可独立摘除',
+  description: 'usage 域前端行（M28 P1）：Token 用量面板（aux 选区 + overlay 意图宿主——柱状图/弦图/汇总）+ usageApi 数据面；与 ac-usage 后端行双向可独立摘除',
   automatic: true,
 };
 

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "usage 域前端行（M28 P1 §4.1 原案）：Token 用量面板——overlay 席位贡献（TokenUsageHost + 用量弹窗：柱状图/弦图/汇总）+ usageApi 数据面（usage/tokens RPC → UsageSummary 视图契约映射）随域迁入；与 ac-usage 后端行经 RPC 契约面耦合，双向可独立摘除",
+  "description": "usage 域前端行（M28 P1 §4.1 原案）：Token 用量面板——aux 选区（chart-pie rail + keepAlive 面板：双柱图/弦图/汇总）+ overlay 意图宿主 + usageApi 数据面（usage/tokens RPC → UsageSummary 视图契约映射）；与 ac-usage 后端行经 RPC 契约面耦合，双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -27,18 +27,16 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-layout": "workspace:*",
+    "ac-client-ui-settings": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
     "d3-chord": "^3.0.1",
+    "uplot": "^1.6.32",
     "vue": "^3.4.0"
-  },
-  "peerDependencies": {
-    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@types/d3-chord": "^3.0.6",
     "ac-extension-core": "workspace:*",
     "ac-webui": "workspace:*",
-    "uplot": "^1.6.32",
     "vitest": "^4.1.10"
   },
   "keywords": [

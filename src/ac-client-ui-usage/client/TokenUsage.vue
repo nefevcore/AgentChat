@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import uPlot from 'uplot';
@@ -8,19 +8,11 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { Series } from 'uplot';
 import { chord, ribbon } from 'd3-chord';
-import { Button, Checkbox, DatePicker, Modal, Progress, Segmented, Select, Tabs, Tooltip } from '@agentchat/webui-kit';
-import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
+import { Button, Checkbox, DatePicker, Select, Tabs, Tooltip } from '@agentchat/webui-kit';
+import { fetchUsageTokens, type UsageRangeParams, type UsageSummary } from './usageApi.ts';
 
-const props = defineProps<{
-  visible: boolean;
-  /** 形态：'modal' = 弹窗（活动栏入口/窄屏）；'panel' = 辅助侧边栏选区
-   *  （P2：上下布局——摘要/筛选横排，图表填满剩余；加载时机关联 visible
-   *  语义两态同源：panel 态常驻选区内，visible 由宿主按选区激活传） */
-  variant?: 'modal' | 'panel';
-}>();
-const emit = defineEmits<{ (e: 'close'): void }>();
-const isPanel = computed(() => props.variant === 'panel');
-
+// 辅助侧边栏选区形态（cr-30 后唯一形态）：上下布局——摘要/筛选横排，
+// 图表填满剩余；显隐由 AuxSidebarHost 选区激活管（keepAlive v-show）。
 const roster = useRosterCore();
 const themeStore = useThemeStore();
 
@@ -71,43 +63,14 @@ interface PairUsage {
   record_count: number;
 }
 
-interface UsageSummary {
-  overall: {
-    total_prompt_tokens: number;
-    total_completion_tokens: number;
-    total_tokens: number;
-    total_react_steps: number;
-    total_cache_hit: number;
-    total_cache_miss: number;
-    total_cache_hit_count: number;
-    total_cache_miss_count: number;
-    total_records: number;
-    /** API 流时间合计（ms；token/s 速率分母。0 = 旧数据无计时，速率不显示） */
-    total_elapsed_ms?: number;
-    /** 各 run 末步输入合计（上下文处理量口径；归档/容量判断参照） */
-    last_step_prompt_tokens?: number;
-    /** 各 run 末步 total 合计 */
-    last_step_total_tokens?: number;
-  };
-  by_agent: AgentUsage[];
-  by_day: DailyUsage[];
-  by_pair: PairUsage[];
-  /** 按日期 × 端点对聚合（弦图统计范围——范围过滤后 by_pair 由此维重建，
-   *  仅 cloudKey 重绘指纹消费） */
-  by_day_pair?: Array<{ date: string; a: string; b: string; total_tokens: number; record_count: number }>;
-  /** 按日期 × 模型聚合（「按模型」堆叠图） */
-  by_day_llm?: DayLlmUsage[];
-  /** 数据实际覆盖的日期区间（后端按筛选范围返回） */
-  range?: { from: string | null; to: string | null };
-}
+// UsageSummary 视图契约单源住 usageApi.ts（本组件 import type 消费）。
 
 const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
-// panel 形态默认进「用量统计」（双柱图填满侧栏高度——弦图是正方形
-// viewBox，窄高比的侧栏里上下留白大）；modal 形态维持总览（宽画布
-// 弦图是主视觉）
-const activeTab = ref<'cloud' | 'daily'>(props.variant === 'panel' ? 'daily' : 'cloud');
+// 默认进「用量统计」（双柱图填满侧栏高度——弦图是正方形 viewBox，
+// 窄高比的侧栏里上下留白大；总览弦图宽画布，页签可切）
+const activeTab = ref<'cloud' | 'daily'>('daily');
 /** 弦图：是否包含 user / self（自己↔自己）流量（默认排除——聚焦 Agent
  *  间协作流量；以 user 1v1 为主的部署打开弹窗先看到空态引导，勾选后
  *  可纳入 user↔agent / self 流量） */
@@ -210,21 +173,13 @@ async function loadData() {
   } finally { if (seq === loadSeq) loading.value = false; }
 }
 
-// 打开时立即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）；每次打开默认进入总览
-// panel 形态不重置 activeTab（选区常驻——切走再回保持上次页签）。
-// immediate：panel 形态 visible 恒 true（挂载即激活）——不 immediate 则
-// watch 永不触发 → loadData 不跑 → data=null 且无 loading → 模板三
-// 分支全不命中 = 空白面板（modal 形态初始 false 走 else 分支无副作用）
-watch(() => props.visible, (v) => {
-  if (v) {
-    if (!isPanel.value) activeTab.value = 'cloud'; // modal 每次打开回总览；panel 保持用户选择
-    if (!customFrom.value || !customTo.value) initCustomDates();
-    loadData();
-    if (!refreshTimer) refreshTimer = setInterval(loadData, AUTO_REFRESH_MS);
-  } else {
-    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-  }
-}, { immediate: true });
+// 挂载即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）。选区常驻
+// （keepAlive = v-show，挂载一次）——页签/筛选状态跨让位保留。
+onMounted(() => {
+  if (!customFrom.value || !customTo.value) initCustomDates();
+  loadData();
+  if (!refreshTimer) refreshTimer = setInterval(loadData, AUTO_REFRESH_MS);
+});
 
 // 预设切换立即生效；自定义等「应用」
 watch(rangeMode, (m) => {
@@ -260,14 +215,8 @@ function destroyChart() {
   hideChartTip();
 }
 
-// ── 用量统计（按日堆叠柱状图）：统计方式切换 ──
+// ── 用量统计（按日堆叠柱状图）：统计方式（双图各持固定 mode）──
 type UsageViewMode = 'spend' | 'model';
-const usageViewMode = ref<UsageViewMode>('spend');
-/** 统计方式分段器数据面（kit Segmented——cr-157） */
-const usageViewItems: Array<{ id: UsageViewMode; label: string }> = [
-  { id: 'spend', label: '缓存' },
-  { id: 'model', label: '模型' },
-];
 
 /** 按模型视图：最多展示的模型数（其余合并为「其他」保持可读） */
 const MAX_MODEL_SERIES = 7;
@@ -290,7 +239,7 @@ interface BarSeries {
 /** 堆叠柱状图数据集（按统计方式；panel 双图各持固定 mode——spend/model）
  *  返回顺序 = 绘制序 = 视觉自下而上（cr-217 像素实测：首项画堆底、末项画堆顶）。
  *  缓存类：缓存（底）→ 未缓存 → 输出（顶）；模型类：「其他」（底）→ id 升序段往上 */
-function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageViewMode = usageViewMode.value): BarSeries[] {
+function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageViewMode): BarSeries[] {
   if (mode === 'model') {
     // 透视 by_day_llm → 每模型一个序列（归一化合并同名模型，按区间总量降序，超出合并「其他」）
     const rows = data.value?.by_day_llm ?? [];
@@ -352,11 +301,11 @@ function renderChart() {
   destroyChart();
   const isDark = document.documentElement.classList.contains('dark');
 
-  // 主图：modal = 当前统计方式 / panel = 总用量（spend 固定）
+  // 双图第一张：总用量（缓存构成，spend 固定）
   if (chartCanvas.value) {
-    chartInstance = makeBarChart(chartCanvas.value, days, isDark, isPanel.value ? 'spend' : usageViewMode.value, (u2, i) => renderChartTipAt(chartTip.value, u2, i));
+    chartInstance = makeBarChart(chartCanvas.value, days, isDark, 'spend', (u2, i) => renderChartTipAt(chartTip.value, u2, i));
   }
-  // panel 双图第二张：按模型（model 固定；modal 形态无此 div 自然跳过）
+  // 双图第二张：按模型（model 固定；daily 页签未激活时无此 div 自然跳过）
   if (modelChartCanvas.value) {
     modelChartInstance = makeBarChart(modelChartCanvas.value, days, isDark, 'model', (u2, i) => renderChartTipAt(modelChartTip.value, u2, i));
   }
@@ -1029,9 +978,6 @@ watch(activeTab, async (tab) => {
   if (tab === 'daily') { await nextTick(); renderChart(); }
   else { destroyChart(); await nextTick(); renderCloud(); }
 });
-watch(usageViewMode, async () => {
-  if (activeTab.value === 'daily') { await nextTick(); renderChart(); }
-});
 watch(() => data.value, async (d) => {
   if (d && activeTab.value === 'daily') { await nextTick(); renderChart(); }
   else if (d && activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
@@ -1052,8 +998,9 @@ onUnmounted(() => { destroyChart(); });
 </script>
 
 <template>
-  <!-- ═══ panel 形态（辅助侧边栏选区）：上下布局，无 Modal 壳 ═══ -->
-  <div v-if="isPanel" v-show="visible" class="tup-panel">
+  <!-- 辅助侧边栏选区形态（cr-30 后唯一形态）：上下布局，无 Modal 壳。显隐
+       由 AuxSidebarHost keepAlive 选区管（v-show），visible prop 已退役 -->
+  <div class="tup-panel">
     <!-- 头部：标题 + 刷新（页签条融入头部右段） -->
     <div class="tup-head">
       <span class="tup-title">Token 用量</span>
@@ -1062,27 +1009,27 @@ onUnmounted(() => { destroyChart(); });
         <Button variant="ghost" size="sm" icon="refresh-cw" :loading="loading" aria-label="刷新" @click="loadData" />
       </Tooltip>
     </div>
-    <div class="usage-body tup-body">
+    <div class="tup-body">
       <div v-if="loading && !data" class="status-msg">加载中...</div>
       <div v-else-if="error && !data" class="status-msg error">{{ error }}</div>
       <template v-else-if="data">
-        <div class="usage-layout tup-layout">
+        <div class="tup-layout">
           <!-- 页签条（kit Tabs line + 均分覆盖：吸顶一行，总览/用量二选一） -->
           <Tabs variant="line" class="tup-tabs" :items="[{ id: 'cloud', label: '总览' }, { id: 'daily', label: '用量统计' }]" :model-value="activeTab" @update:model-value="activeTab = $event as 'cloud' | 'daily'" />
 
           <!-- 工具行：日期筛选（kit Select 占满）+ 覆盖提示 -->
           <div class="tup-toolbar">
             <Select class="tup-range" :options="RANGE_PRESETS" :model-value="rangeMode" title="统计范围（默认近 30 天）" @update:model-value="rangeMode = $event as RangeMode" />
-            <span v-if="appliedRange?.from" class="range-coverage tup-coverage" :title="`数据覆盖 ${appliedRange.from} ~ ${appliedRange.to}`">{{ appliedRange.from }}~{{ appliedRange.to?.slice(5) }}</span>
+            <span v-if="appliedRange?.from" class="tup-coverage" :title="`数据覆盖 ${appliedRange.from} ~ ${appliedRange.to}`">{{ appliedRange.from }}~{{ appliedRange.to?.slice(5) }}</span>
           </div>
-          <div v-if="rangeMode === 'custom'" class="range-custom tup-custom">
+          <div v-if="rangeMode === 'custom'" class="tup-custom">
             <DatePicker :model-value="customFrom" @update:model-value="customFrom = $event" />
             <span class="range-sep">~</span>
             <DatePicker :model-value="customTo" @update:model-value="customTo = $event" />
             <Button variant="primary" size="sm" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</Button>
           </div>
 
-          <!-- 摘要条（紧凑单行小字；命中/输出/请求） -->
+          <!-- 模态壳已退役（cr-30）：原摘要条为 tup-summary 单样式 -->
           <div class="tup-summary" title="缓存命中 / 总输入（提示：prompt = 命中 + 未命中）">
             <span class="tup-stat">
               <em>命中</em>
@@ -1095,8 +1042,8 @@ onUnmounted(() => { destroyChart(); });
             <span v-if="apiTps !== null" class="tup-stat" title="API 输出速率：补全 token ÷ API 流时间（不含工具执行/编排耗时；不含 prompt——上下文膨胀会虚高）"><em>速率</em><strong>{{ apiTps.toFixed(1) }} t/s</strong></span>
           </div>
 
-          <!-- 图表区（复用 modal 态两页签内容） -->
-          <div class="usage-main tup-main">
+          <!-- 图表区（页签二选一） -->
+          <div class="tup-main">
             <div v-if="activeTab === 'cloud'" class="cloud-tab">
               <Checkbox v-model="includeUserSelf" class="cloud-toggle tup-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量">包含 user / self 流量</Checkbox>
               <div class="cloud-canvas-wrap">
@@ -1109,7 +1056,7 @@ onUnmounted(() => { destroyChart(); });
               </div>
               <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
             </div>
-            <div v-if="activeTab === 'daily'" class="chart-tab tup-charts">
+            <div v-if="activeTab === 'daily'" class="tup-charts">
               <!-- 双图上下：总用量（缓存构成）+ 按模型 -->
               <div class="tup-chart-block">
                 <div class="tup-chart-title" title="自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）">总用量 <i>缓存 / 未缓存 / 输出</i></div>
@@ -1132,103 +1079,6 @@ onUnmounted(() => { destroyChart(); });
       </template>
     </div>
   </div>
-
-  <!-- ═══ modal 形态（原样）═══ -->
-  <Modal v-else :visible="visible" title="Token 用量统计" :width="1120" height="min(80vh, 780px)" @close="emit('close')">
-    <template #head-extra>
-      <span v-if="lastUpdated" class="last-updated">更新于 {{ lastUpdated }}</span>
-    </template>
-
-    <div class="usage-body">
-      <!-- 首次加载全屏占位；已有数据时后台刷新/切筛选不闪占位（内容随 data 更新） -->
-      <div v-if="loading && !data" class="status-msg">加载中...</div>
-      <div v-else-if="error && !data" class="status-msg error">{{ error }}</div>
-      <template v-else-if="data">
-        <!-- ═══ 左右布局：左侧摘要+页签，右侧内容（云图无需滚动看全）═══ -->
-        <div class="usage-layout">
-          <!-- 左侧：日期筛选 + 摘要 + 竖向页签 -->
-          <aside class="usage-side">
-            <!-- 日期筛选（默认近 30 天，作用于全部页签） -->
-            <div class="range-filter">
-              <div class="range-head">
-                <span class="range-title">统计范围</span>
-                <span v-if="rangeMode === 'custom' && customDirty" class="range-dirty">未应用</span>
-              </div>
-              <Select :options="RANGE_PRESETS" :model-value="rangeMode" title="筛选统计的时间范围（默认近 30 天）" @update:model-value="rangeMode = $event as RangeMode" />
-              <div v-if="rangeMode === 'custom'" class="range-custom">
-                <DatePicker :model-value="customFrom" @update:model-value="customFrom = $event" />
-                <span class="range-sep">~</span>
-                <DatePicker :model-value="customTo" @update:model-value="customTo = $event" />
-                <Button variant="primary" size="sm" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</Button>
-              </div>
-              <div v-if="appliedRange?.from" class="range-coverage">数据覆盖 {{ appliedRange.from }} ~ {{ appliedRange.to }}</div>
-              <div v-else-if="!loading" class="range-coverage">范围内暂无记录</div>
-            </div>
-
-            <div class="summary-bar">
-              <div class="summary-bar-label">
-                <span class="summary-bar-title">缓存命中 / 总输入</span>
-                <span class="summary-bar-value">
-                  <strong>{{ formatNumber(cacheHitVal) }}</strong> / {{ formatNumber(totalInput) }}
-                  <span class="summary-bar-pct">({{ cachePct.toFixed(1) }}%)</span>
-                </span>
-              </div>
-              <Progress :value="cachePct" />
-              <div class="summary-bar-mini">
-                <span>总输出 {{ formatNumber(data.overall.total_completion_tokens) }}</span>
-                <span>总步数 {{ data.overall.total_react_steps }}</span>
-                <span>请求 {{ data.overall.total_records }}</span>
-                <span v-if="apiTps !== null" title="API 输出速率：补全 token ÷ API 流时间（不含工具执行/编排耗时；不含 prompt——上下文膨胀会虚高）">速率 {{ apiTps.toFixed(1) }} t/s</span>
-              </div>
-            </div>
-
-            <!-- 竖向 Tab（kit Tabs pill——cr-157） -->
-            <Tabs variant="pill" :items="[{ id: 'cloud', label: '总览' }, { id: 'daily', label: '用量统计' }]" :model-value="activeTab" @update:model-value="activeTab = $event as 'cloud' | 'daily'" />
-          </aside>
-
-          <!-- 右侧：内容区 -->
-          <div class="usage-main">
-            <!-- ═══ 云图（弦图）═══ -->
-            <div v-if="activeTab === 'cloud'" class="cloud-tab">
-          <div class="cloud-hint">弦图：外环弧段 = Agent（长度 ∝ 协作流量，颜色区分），弦（色带）连接 1v1 会话，宽度与颜色渐变 ∝ 用量；悬停弧段/弦查看明细。预设模式（标准/极简等）与群聊流量不计入。</div>
-          <Checkbox v-model="includeUserSelf" class="cloud-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量；群聊与预设模式流量始终排除（后续单独图谱）">包含 user / self 流量</Checkbox>
-          <div class="cloud-canvas-wrap">
-            <svg ref="cloudSvg" class="cloud-svg"></svg>
-            <!-- 弦图悬停明细（renderCloud 内联注入内容） -->
-            <div ref="cloudTip" class="cloud-tip"></div>
-            <!-- 无协作流量时的引导 -->
-            <div v-if="!hasChordFlow" class="cloud-empty">
-              <div>当前范围内没有 Agent 间 1v1 协作流量</div>
-              <div class="cloud-empty-sub">可勾选「包含 user / self 流量」或调整左侧统计范围</div>
-            </div>
-          </div>
-          <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
-        </div>
-
-        <!-- ═══ 用量统计（按日堆叠柱状图，统计方式可切换）═══ -->
-        <div v-if="activeTab === 'daily'" class="chart-tab">
-          <div class="chart-toolbar">
-            <Segmented :items="usageViewItems" :model-value="usageViewMode" @update:model-value="usageViewMode = $event as UsageViewMode" />
-            <span class="chart-hint">{{ usageViewMode === 'spend' ? '自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）' : '自上而下按模型 ID 排序（其他垫底）' }}</span>
-          </div>
-          <div class="chart-wrapper">
-            <div ref="chartCanvas" class="uplot-host"></div>
-            <!-- external HTML tooltip（renderChartTip 注入内容；数值列右对齐） -->
-            <div ref="chartTip" class="chart-tip"></div>
-          </div>
-          <div v-if="data.by_day.length === 0" class="status-msg">暂无数据</div>
-        </div>
-          </div>
-        </div>
-      </template>
-    </div>
-
-    <!-- Footer（ui/Button 统一按钮语言） -->
-    <template #footer>
-      <Button variant="ghost" icon="refresh-cw" :disabled="loading" @click="loadData">刷新</Button>
-      <Button variant="ghost" @click="emit('close')">关闭</Button>
-    </template>
-  </Modal>
 </template>
 
 <style scoped>
@@ -1250,14 +1100,14 @@ onUnmounted(() => { destroyChart(); });
 .tup-title { font-size: 13px; font-weight: 600; }
 .tup-updated { flex: 1; text-align: right; }
 /* 刷新钮已迁 kit Button ghost sm（cr-215）——态样式 kit 自持 */
-.tup-body { flex: 1; min-height: 0; display: flex; }
+.tup-body { flex: 1; min-height: 0; display: contents; }
 .tup-layout { flex-direction: column; }
 
 /* 页签条：kit Tabs line（.tup-tabs 落 kit 根元素）——覆盖为均分两格（侧栏窄宽友好） */
 .tup-tabs { flex-shrink: 0; background: var(--bg-raised); }
 .tup-tabs :deep(.ui-tab) { flex: 1; padding: 6px 0; font-size: var(--fs-sm); text-align: center; }
 
-/* 工具行：日期筛选占满 + 覆盖提示尾随 */
+/* 工具行：日期筛选占满 + 覆盖提示尾随（range-sep 无独立样式，仅文本节点） */
 .tup-toolbar {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 12px 0; flex-shrink: 0;
@@ -1305,71 +1155,15 @@ onUnmounted(() => { destroyChart(); });
 }
 .tup-chart-block .chart-wrapper { flex: 1; min-height: 0; }
 
-/* body 直接作为 Modal 内 flex 容器（sticky 吸附 + 图表填满剩余高度）；
-   panel 形态下是 flex 子项（tup-body 覆盖为 flex:1） */
-.usage-body { display: contents; }
-
 .status-msg { text-align: center; padding: 40px; color: var(--text-3); font-size: 13px; }
 .status-msg.error { color: var(--err-status); }
 
-/* ═══ 左右布局：左侧摘要+页签，右侧内容 ═══ */
-.usage-layout { display: flex; flex: 1; min-height: 0; }
-.usage-side {
-  width: 216px; flex-shrink: 0;
-  border-right: 1px solid var(--line);
-  background: var(--bg-raised);
-  display: flex; flex-direction: column;
-  padding: 14px 16px;
-  overflow-y: auto;
-}
-
-/* ═══ 日期筛选 ═══ */
-.range-filter {
-  display: flex; flex-direction: column; gap: 6px;
-  padding-bottom: 12px; margin-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
-.range-head { display: flex; align-items: center; justify-content: space-between; }
-.range-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
-.range-dirty { font-size: 11px; color: var(--warn); }
-/* 下拉/日期输入/应用按钮已迁 kit 标准件（Select/Input/Button，cr-215）——只剩布局 */
-.range-custom { display: flex; align-items: center; gap: 4px; }
-.range-sep { color: var(--text-3); font-size: 11px; }
-.range-coverage { font-size: 11px; color: var(--text-3); }
-.usage-main {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column;
-  overflow-y: auto;
-}
-.summary-bar { padding: 0 0 14px; }
-.summary-bar-label {
-  display: flex; flex-direction: column; gap: 4px;
-  margin-bottom: 8px;
-}
-.summary-bar-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
-.summary-bar-value { font-size: 13px; color: var(--text-1); font-variant-numeric: tabular-nums; }
-.summary-bar-value strong { color: var(--ok-status); }
-.summary-bar-pct { font-size: 12px; color: var(--text-3); margin-left: 4px; }
-
-/* 进度条已迁 kit Progress（cr-157） */
-
-.summary-bar-mini {
-  display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
-  font-size: 11px; color: var(--text-3);
-}
-
-/* 竖向 Tab 已迁 kit Tabs pill（cr-157） */
-
 /* ═══ 总览（双环复合图）═══ */
-/* 自适应填满右侧内容区（正方形 viewBox 等比缩放，无需滚动看全） */
+/* 自适应填满内容区（正方形 viewBox 等比缩放，无需滚动看全） */
 .cloud-tab {
   display: flex; flex-direction: column;
   flex: 1; min-height: 0;
   padding: 8px 12px 12px;
-}
-.cloud-hint {
-  font-size: 12px; color: var(--text-3);
-  margin-bottom: 6px;
 }
 /* 「包含 user/self」勾选已迁 kit Checkbox（cr-215）——只保留间距与字号档 */
 .cloud-toggle {
@@ -1405,20 +1199,8 @@ onUnmounted(() => { destroyChart(); });
 }
 .cloud-empty-sub { font-size: 12px; margin-top: 4px; }
 
-/* ═══ Chart（用量统计：按日堆叠柱状图）═══ */
-/* 自适应填满右侧内容区；工具栏 = 统计方式切换 + 说明 */
-.chart-tab {
-  padding: 12px 18px 18px;
-  display: flex; flex-direction: column;
-  flex: 1; min-height: 0;
-}
-.chart-toolbar {
-  display: flex; align-items: center; gap: 12px;
-  flex-wrap: wrap; margin-bottom: 10px;
-}
-.chart-hint { font-size: 12px; color: var(--text-3); }
-
-/* 分段切换已迁 kit Segmented（cr-157） */
+/* ═══ Chart（用量统计：按日堆叠双柱图；统计方式随 modal 形态 cr-334 退役——
+   双图各持固定 mode spend/model，工具栏无存留）═══ */
 .chart-wrapper { flex: 1; min-height: 0; position: relative; }
 
 /* uplot 宿主：占满 wrapper；隐藏默认 tooltip/十字线（自绘 external HTML tooltip） */

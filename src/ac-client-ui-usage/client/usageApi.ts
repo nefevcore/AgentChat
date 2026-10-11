@@ -6,9 +6,12 @@
 // 映射是本模块自己的应用代码（视图模型归消费方，非翻译层）。
 // 日期筛选（days/from/to）客户端执行——preview 只有按日聚合。
 // 原 webui api/usage 门面已退役〔M28 §4.2〕。
+// UsageSummary 类型单源住本模块（TokenUsage.vue import type 消费）。
 // ============================================================
 
-import { defaultRpc as wireRpc } from './rpcDefault.ts';
+// 缺省 rpc 锚并源 ac-client-ui-settings/client/rpcDefault（12 前端行同款先例；
+// cr-334 前本包私存一份功能等价副本——重复实现并源纪律）
+import { defaultRpc as wireRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 
 // ---- preview 形状（ac-usage 五查询的 RPC 结果镜像） ----
 
@@ -49,7 +52,7 @@ export interface UsageRangeParams {
   to?: string;
 }
 
-// ---- 视图契约（TokenUsage.vue 本地 UsageSummary 的镜像） ----
+// ---- 视图契约（UsageSummary 单源；TokenUsage.vue import type 消费） ----
 
 export interface UsageSummary {
   overall: {
@@ -217,7 +220,7 @@ export function filterUsageRange(summary: UsageSummary, params: UsageRangeParams
   };
 }
 
-/** Token 用量统计（TokenUsage.vue 数据源；rpc 可注入供测试）。
+/** Token 用量统计（TokenUsage 面板数据源；rpc 可注入供测试）。
  *  聚合 agents/list 名册（旧后端 byPair fallback 的端点判别用；失败容忍）。 */
 export async function fetchUsageTokens(
   params: UsageRangeParams = {},

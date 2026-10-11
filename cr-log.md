@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-333**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-334**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -351,3 +351,4 @@
 - 【cr-331 2026-10-11 webui 前端壳精简收口（审计清单#15，P2）——残留门面清理：6 零引用死门面删除（utils/switchTrace·toolIcon·types/index、settings/types·useSettings、composables/useChatShell）；12 仅测试引用门面改直连 owning 包后删（utils 九件、settings 三件〔api/types/schema〕、composables 两件）；preview-main 纯透传退役（index.html 入口直连 main.ts，adapter 过时注释订正）；slots-demo 临时验收入口删除（M27 已关，D3 语义已由 ac-client-slots 包测试锁定）；layout-unload.test 断链 import 修正（vueRenderer 已迁 ac-client-ui-renderer，webui tests 不进 typecheck 故静默）；package.json 描述漂移订正（adapter 已退役）；vitest.config.ts 5 处双 CR 字节修复；tsconfig exclude 死项清理（src/index.ts·plugin.ts 已不存在）】
 - 【cr-332 2026-10-11 ac-client-ui-layout 深审精简（cr-332）：备份/版本检查双份并源 systemActions.ts、图标归一（3 内联 SVG→kit Icon+2 新注册名、ms-dot #ef4444→--err-status）、badgeOf 双份并源 auxSidebarViews.ts、死口清理（togglePrimary/closePairView 导出、openAux 空 doc、~icons 白名单注释、AppFrame VIEWER_ID 改单源）、RESET 导出常量、测试比 3.9%→17%（新增 33 用例：选举互斥/持久化/备份单源/图标消费/webui stores 漂移）】
 - 【cr-333 2026-10-11 cr-327 thought 归并撤销：ThoughtIcon.vue 恢复（涟漪=单步思考 vs 脑电波链=整链过程——两图分工系原文件头注文档化设计，cr-327 按视觉直觉误判重复归并致链栏/思考行同图视觉回归，用户反馈发现；icons.ts thought 键重新映射 ThoughtIcon + 注释订正，webui-style.md 两处 cr-327 表述回订，审计清单 #11 补正）】
+- 【cr-334 2026-10-11 ac-client-ui-usage #17 精简收口：modal 形态死代码删除（cr-30 裁决补执行——Modal 模板/专属 CSS/usageViewMode 切换/variant prop，唯一消费方 PanelHost 恒传 panel）；rpcDefault 副本并源 settings 单源（12 前端行同款先例）；UsageSummary 类型镜像并源 usageApi 单源；uplot peer+dev 双声明收敛 dependencies；usageApi 纯函数面补包内测试（原测试比 1.9%，契约锁住 webui 不进 typecheck）；package 描述与头注 modal 残留措辞订正】

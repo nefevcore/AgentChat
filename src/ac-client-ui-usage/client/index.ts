@@ -4,7 +4,8 @@
 //
 // 贡献面：
 //   · overlay 席位（id webui-domain-usage.panel；order 96 = 保持原
-//     AppFrame overlay DOM 序）——Modal 形态（窄屏 fallback）；
+//     AppFrame overlay DOM 序）——零渲染意图宿主（cr-30 后承载
+//     auxIntent 消费 watch；Modal 形态已退役）；
 //   · aux-sidebar 选区（id 'usage'，P2 监视常驻面板）——active =
 //     auxPanel 显式选区驱动（意图通道 ui.usageIntent → watch 置位
 //     'usage' + 展开）；keepAlive = true（图表/筛选状态跨让位保留）；
