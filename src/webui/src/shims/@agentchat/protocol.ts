@@ -185,6 +185,9 @@ export interface PluginInfo {
   /** 携带非隔离 UI（manifest.ui.isolated === false；M23 F7/F8 如实呈现：
    *  可读会话流、以用户会话身份调全部 RPC 含写口） */
   uiNonIsolated?: boolean;
+  /** 高危 UI 席位清单（M27 D13 ⚠ 名单：manifest ui.slots ∩ HIGH_RISK——
+   *  安装确认面/已装卡片徽章；pluginApi highRiskOf 填充） */
+  uiHighRiskSlots?: string[];
 }
 
 /** 事件落点已知子集（UI 徽章标签映射用；A1 注册制后 wire 面 targets 为

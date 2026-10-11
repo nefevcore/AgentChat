@@ -55,7 +55,11 @@ export const COMPONENT_CLASS_SLOTS: UISlotId[] = [
 ];
 
 /** 声明清单中的高危席位（安装确认面徽章数据源——服务端单源
- *  ac-plugin-core HIGH_RISK_UI_SLOTS 的前端镜像） */
+ *  ac-plugin-core HIGH_RISK_UI_SLOTS 的前端镜像）。未收录 id 判非高危
+ *  （cr-328：入参是 manifest 回读的 ui.slots——未知 id 过滤即可，抛
+ *  TypeError 会把 getCatalog 五源合成整页拖崩——注册面另有
+ *  assertDeclarableSlot fail-closed 把关，词汇校验不在此层） */
 export function highRiskOf(slots: string[] | undefined): string[] {
-  return (slots ?? []).filter((s) => LEGACY_SLOT_CATALOG[s as UISlotId].highRisk === true);
+  const catalog = LEGACY_SLOT_CATALOG as Record<string, LegacySlotMapping | undefined>;
+  return (slots ?? []).filter((s) => catalog[s]?.highRisk === true);
 }

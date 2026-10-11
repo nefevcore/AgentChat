@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-327**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-328**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -345,3 +345,4 @@
 - 【cr-325 2026-10-11 P1-9 ac-openai-completions 深审收口：sseDataEvents/stripTransportKeys 三库值导入系 cr-39 D1/cr-99 B 双裁决背书的分层设计（纯库共享单源，非漂移），注释声明现状；孤儿 JSDoc 三块（isMaxTokensRenameHint/authHeaders/httpError 文档与函数分离悬空）合并归位；导出面逐词汇核验零包外越权消费，测试比健康（125 断言）】
 - 【cr-326 2026-10-11 ac-client-ui-conversation P2 精简审查收口：uid 单行函数双份并源 chatOps.ts（feed-core/chat-core 改 import）；全包死导出/孤儿模块/断链 import 零命中（171 导出全仓求证），大文件不拆（闭包内聚+CR 背书），包健康留】
 - 【cr-327 2026-10-11 webui-kit 深审收口（审计清单#11，P2 精简）：①死件三连删除（Dropdown 容器/Label/PickTag——cr-157 cr-173 增补后包外零 import 零标签使用，归一对象 label-badge 原样居 group/PluginLibrary 从未迁移；gallery 陈列格与注入标记同步拆）；②假执行裁决恢复执行——StarCard/PulseTrace 删除（cr-116 判死刑后未删，包外零消费，唯二命中系组件内用法示例注释；Skill 规范表同步订正）；③ThoughtIcon 退役（包外唯消费链 AssistantMessage 思考行图标位经 iconMap thought 键间接达成，与 ThinkingIcon 脑电波形态近乎重复，归并单图标）；④icons.ts 死图标 7 行剪除（grip-vertical/menu/brain-circuit/file-code/panel-right/shield-check/si-aliyun——137 名逐名字符串扫描全仓零消费；calendar 系 DatePicker 自用保留）；⑤ToastTone/ToastOptions/ToastItem/ThemeMode 类型出口修正为纯测试锁定（业务经类型推断零显式 import，无漂移不删）；审计清单 3614/0 与零测试指控勘误：kit 测试住 webui/tests（toast 12/kit-datepicker/kit-select-z/kit-tooltip/pull-to-refresh/contrast-tokens 8 契约/preview-kit-sync），非零测试包】
+- 【cr-328 2026-10-11 深审 ac-client-ui-plugin-registry（审计清单#12，P2 精简）：①补包内数据面测试 tests/plugin-registry-data.test.ts——pluginApi 21 导出中 16 个零覆盖（getPluginCatalog 不吞错契约〔2026-08-30 事故防线〕/patch 三态/dep-graph 与 events/descriptions 降级/staging 人审链/市场链/uninstall 会话链），附带 highRiskOf 未收录 id 回归锁；②highRiskOf 可选链断根（ac-webui-extensions/src/slotCatalog.ts——#1 遗留跟进②兑现：manifest 回读 ui.slots 带未收录 id 时 TypeError 致 getCatalog 五源全崩→插件库整页空白）；③精简裁决：不删不拆——三页签+ExtToolsPane 活跃（agents 跨包消费）、大件分区纪律好共享词汇密集拆分徒增胶水】
