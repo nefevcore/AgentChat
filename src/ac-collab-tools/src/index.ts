@@ -148,7 +148,7 @@ export function apply(ctx: Context) {
         // 执行身份 = sub_*（子 Agent 自己在 send_agent）时：对桶
         // pairKey(sub, to) 会造出"子 ⇄ 对端"幽灵会话——用户视角该对话
         // 不可见（UI 会话列表按父口径），回复也进不了子的任务收件箱
-        // （子的上下文源 = subagents/<subId>.jsonl + inbox，非 session 桶）。
+        // （子的上下文源 = subagents/<subId>/messages.jsonl + inbox，非 session 桶）。
         // 归一：会话归属落到**父的口径**——普通 Agent 对桶 = pairKey(parent,
         // to)（用户在父⇄to 的既有会话里直接看到子的发言，行的 agent_id
         // 仍是 sub——中性入账认得出说话人）；虚拟端点（user 等）= 父的

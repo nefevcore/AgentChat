@@ -34,7 +34,7 @@ export function apply(ctx: Context, options: SubagentRowOptions = {}) {
   ctx.plugin(SubagentsService, options);
 }
 
-export { SubagentsService, subagentErr, HINT_AGENT_MESSAGING } from './service.ts';
+export { SubagentsService } from './service.ts';
 export type {} from './events.ts';
 export type { SubagentRowOptions } from './service.ts';
 export type {

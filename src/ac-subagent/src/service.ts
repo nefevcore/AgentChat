@@ -208,7 +208,6 @@ interface SubEntry {
   /** 会话消息缓存（undefined = 仅磁盘，按需装载） */
   messages: LlmMessage[] | undefined;
   controller: AbortController | undefined;
-  abortReason: 'stop' | undefined;
   /** runLoop 活跃标志（同步置位/清位——kick 的竞态安全依据） */
   consuming: boolean;
   /** sync 等待方（token → resolve；消费该消息的 run 收束时回调） */
@@ -333,11 +332,11 @@ interface SubcallLine {
   seq: number;
 }
 
-/** settled 判别行（messages.jsonl 提升批尾的原子提交标记） */
+/** settled 判别行（messages.jsonl 提升批尾的原子提交标记；ac-session 同款形态——
+ * 恢复判定按组员存在性，seq 无读者但旧盘面已写，读侧忽略） */
 interface RunSettledLine {
   type: 'run-settled';
   run: string;
-  seq?: number;
 }
 
 /** journal 行身份（rewritePartials 剔除对账的行键；无法解析 = 保留） */
@@ -458,22 +457,13 @@ function safeId(id: string): boolean {
 
 /**
  * 「给 Agent/用户发消息」的指路提示（news 事故 2026-09-16：subagent(send)
- * 被 send_agent 意图串用）。工具层各误用出口共用一份文案，ac-collab-tools
- * 反向引用同源，避免两处漂移。
+ * 被 send_agent 意图串用）。工具层误用出口（护栏/earlyCheck/触达 note）
+ * 共用一份文案。
  */
-export const HINT_AGENT_MESSAGING =
+const HINT_AGENT_MESSAGING =
   'subagent 管理的是你私有的子 Agent 看板（spawn/send/await/list/stop/delete）：'
   + '子 Agent 的回复只返回给你。给其他 Agent 或用户发消息 → send_agent；'
   + '发群消息 → send_group；给已 spawn 的子 Agent 发任务消息 → subagent(action="send", subagent_id=…, message=…)。';
-
-/** subagent 工具统一报错收敛：服务层 Error → 带指路的 ToolResult */
-export function subagentErr(err: unknown): ToolResult {
-  const message = err instanceof Error ? err.message : String(err);
-  if (message.includes('send_agent') || message.includes('转达') || message.includes('推送')) {
-    return { ok: false, error: message, output: { hint: HINT_AGENT_MESSAGING } };
-  }
-  return { ok: false, error: message };
-}
 
 export class SubagentsService extends Service {
   static inject = ['tools', 'agentLoop', 'jobs', 'agents', 'session'];
@@ -569,7 +559,6 @@ export class SubagentsService extends Service {
   dispose(): void {
     for (const entry of this.entries.values()) {
       if (entry.controller) {
-        entry.abortReason ??= 'stop';
         entry.controller.abort();
       }
       this.releaseWaiters(entry, {
@@ -1079,7 +1068,6 @@ export class SubagentsService extends Service {
     const startedAt = Date.now();
     const controller = new AbortController();
     entry.controller = controller;
-    entry.abortReason = undefined;
     rec.status = 'running';
     rec.updatedAt = startedAt;
     this.persistRegistry();
@@ -1091,7 +1079,6 @@ export class SubagentsService extends Service {
 
     const settle = (s: SubagentRunSummary): SubagentRunSummary => {
       entry.controller = undefined;
-      entry.abortReason = undefined;
       entry.activeRun = undefined; // 闭簿（settlement 已在调用前完成——见收束段）
       rec.status = 'idle';
       rec.runs++;
@@ -1428,8 +1415,7 @@ export class SubagentsService extends Service {
     for (const fn of batch) fn();
     // settled 判别行（提升批尾——原子提交标记 + 恢复判定诊断信号）
     try {
-      const file = this.messagesPath(id);
-      fs.appendFileSync(file, JSON.stringify({ type: 'run-settled', run, seq: this.nextMsgSeq(file) } satisfies RunSettledLine) + '\n', 'utf-8');
+      fs.appendFileSync(this.messagesPath(id), JSON.stringify({ type: 'run-settled', run } satisfies RunSettledLine) + '\n', 'utf-8');
     } catch { /* 判别行失败不阻塞——恢复判定按组员存在性 */ }
     // journal 剔除（按行身份；subcalls 永久档案不在此文件，天然不受影响）
     this.rewritePartials(id, new Set([
@@ -1586,19 +1572,6 @@ export class SubagentsService extends Service {
     this.rewritePartials(id, identities);
   }
 
-  /** messages.jsonl 行序号（判别行 seq 用；末行续起） */
-  private nextMsgSeq(file: string): number {
-    try {
-      const lines = fs.readFileSync(file, 'utf-8').trim().split('\n');
-      const last = lines.at(-1);
-      if (last) {
-        const p = JSON.parse(last) as { seq?: unknown };
-        if (typeof p.seq === 'number') return p.seq + 1;
-      }
-    } catch { /* 无文件/解析失败 = 1 */ }
-    return 1;
-  }
-
   /**
    * 清理子 Agent 派生的后台 job（cr-270）：run 内 pwsh background/handoff
    * 登记 owner=<subId>，进程树不随 run abort 回收（工具已返回、进程独立
@@ -1618,7 +1591,6 @@ export class SubagentsService extends Service {
   /** 中止当前 run（stop/delete/卸载；步边界生效，LLM 传输层直达） */
   private stopRun(entry: SubEntry): boolean {
     if (entry.controller === undefined) return false;
-    entry.abortReason = 'stop';
     entry.controller.abort();
     return true;
   }
@@ -1697,7 +1669,6 @@ export class SubagentsService extends Service {
         inbox: [],
         messages: undefined,
         controller: undefined,
-        abortReason: undefined,
         consuming: false,
         waiters: new Map(),
         currentSettlers: [],
