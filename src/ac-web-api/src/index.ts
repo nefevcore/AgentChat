@@ -16,6 +16,7 @@
 //   conversation/deliver      ≡ chat.send（+ack busy/parked/deduped）
 //   conversation/interrupt    ≡ chat.interrupt
 //   conversation/stats        （运行快照；UI 忙闲指示）
+//   conversation/queue·queue-remove·queue-steer（next-turn 排队面）
 //   interaction/list|reply    ≡ chat.interact.respond（+待答清单）
 //   session/history           ≡ history.request
 //   session/delete-message    ≡ chat.delete_message
@@ -26,6 +27,7 @@
 //                              群资料写面：名称/简介/记忆属主）
 //   usage/tokens              ≡ usage.tokens
 //   timer/list|entries|save|trigger   （M17-A：定时任务管理面）
+//   session/tokens             （会话头 Token 仪表：估算 + 派生 + KV 面分）
 //   backup/run                （M17-A：数据备份面。backup/list·plugin/reload
 //                              系同批防御性垫面，无产品调用方已删
 //                              [2026-08-31 审计遗留#1]——服务面保留：
@@ -63,7 +65,7 @@
 //                              conversationId 可选——listForAgent 合成口：
 //                              白名单 + 本 Agent 专属 + 会话工作区约定目录）
 //   （agent.config 归 ac-agent-admin 行注册——写侧能力随其行走；
-//    file.upload 低优延后，见 docs/m7-webui-plan.md）
+//    附件上传面 = POST /api/upload，见下方 HTTP 路由区）
 // ============================================================
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -96,25 +98,10 @@ import { estimateTokens } from 'ac-text-budget';
 import type { ExtensionMeta, ExtensionFieldMeta, ExtensionListenerMeta } from 'ac-extension-core';
 import type { MultipartBody } from 'ac-web-server';
 
-// 类型层认识各域（运行时按服务 key 解耦；type-only 零依赖）
-import type {} from 'ac-conversation';
+// 类型层认识各域（运行时按服务 key 解耦，ctx.get 处 as 窄化；此处只
+// 收真实形状导入——纯占位的空 import type 已随 cr-324 清理）
 import type { JobSnapshot } from 'ac-jobs';
-import type {} from 'ac-session';
-import type {} from 'ac-agents';
-import type {} from 'ac-group';
 import type { AgentPresetDefinition } from 'ac-agent-presets';
-import type {} from 'ac-usage';
-import type {} from 'ac-durable-interaction';
-import type {} from 'ac-tools';
-import type {} from 'ac-llm';
-import type {} from 'ac-archive';
-import type {} from 'ac-backup';
-import type {} from 'ac-config';
-import type {} from 'ac-plugin-registry';
-import type {} from 'ac-workspace';
-import type {} from 'ac-agent-store';
-import type {} from 'ac-singles';
-import type {} from 'ac-restart';
 
 export const name = 'ac-web-api';
 
@@ -667,6 +654,44 @@ function hooksTableOf(ctx: Context): HooksTable {
 /** runtime 的在役 fiber 清单（uid 非空 = 未卸载；plugin/catalog 与 plugin/rows 统计共用判据） */
 function liveFibersOf<F extends { uid: number | null }>(runtime: { fibers: Iterable<F> }): F[] {
   return [...runtime.fibers].filter((f) => f.uid !== null);
+}
+
+/** session/tokens 载荷合成（群/single 两分支同口径）：messageCount
+ *  来自会话文件 stats；maxContextTokens = 承载 Agent 的归档预算
+ *  （settings['archive']，缺省 1M——与 ac-archive budgetsFor 同口径）；
+ *  cache 面 = provider prompt cache 记账（ac-usage，展示 enrich，不驱动
+ *  仪表值——last* 最近一次 run 覆盖轨，hit/miss 会话累计）。 */
+function sessionTokensPayload(
+  ctx: Context,
+  conversationId: string,
+  promptTokens: number,
+  agentId?: string,
+): Record<string, unknown> {
+  const archiveSettings = ctx.agents.settingsOf(agentId ?? '', 'archive') as
+    | { maxContextTokens?: unknown }
+    | undefined;
+  const maxContextTokens =
+    typeof archiveSettings?.maxContextTokens === 'number' && archiveSettings.maxContextTokens > 0
+      ? archiveSettings.maxContextTokens
+      : 1_000_000;
+  const messageCount = ctx.session.stats(conversationId)?.messageCount ?? 0;
+  const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
+  const usagePercent = Math.min(100, (promptTokens / maxContextTokens) * 100);
+  const { lastCacheHit: lastHit, lastCacheMiss: lastMiss, cacheHit: hit, cacheMiss: miss, lastContextPrompt: lastRunPrompt } =
+    ctx.usage.byConversation()[conversationId] ?? { lastCacheHit: 0, lastCacheMiss: 0, cacheHit: 0, cacheMiss: 0, lastContextPrompt: 0 };
+  return {
+    conversationId,
+    messageCount,
+    contextTokens: promptTokens,
+    maxContextTokens,
+    avgTokensPerMsg: Math.round(avgTokensPerMsg),
+    usagePercent,
+    estimatedMsgsRemaining:
+      avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0,
+    status: usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical',
+    ...(agentId ? { agentId } : {}),
+    cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
+  };
 }
 
 export function apply(ctx: Context) {
@@ -1325,7 +1350,7 @@ export function apply(ctx: Context) {
   // stats/tail 的 mtime/size + running/queued 句柄集 + 群组面）拼串 hash 而
   // 成——不依赖载荷 JSON 全序列化（省的就是这份序列化）。指纹元素任一
   // 变化 digest 即变，漏判为零（误判更新 = 返回完整载荷，无损）。
-  let runsDigestCache: { digest: string; payload: unknown } | null = null;
+  let lastRunsDigest: string | null = null;
   web.registerRpc('runs/snapshot', (params) => {
     const ids = ctx.session.ids();
     // 数据指纹（2026-09-19 性能修复重排）：指纹阶段只做 statMeta（stat 直取
@@ -1344,9 +1369,10 @@ export function apply(ctx: Context) {
     ].join('::');
     const digest = hashFingerprint(fingerprint);
     const reqDigest = obj(params).digest;
-    if (typeof reqDigest === 'string' && reqDigest === digest && runsDigestCache) {
+    if (typeof reqDigest === 'string' && reqDigest === digest && lastRunsDigest === digest) {
       return { unchanged: true, digest, generatedAt: Date.now() };
     }
+    lastRunsDigest = digest;
     // digest 变化（或首轮无参照）：展开真数据——此刻才调 tail/stats
     // （tail 增量小窗试探 + stats 增量段，见 ac-session 对应注释）。
     // single 桶（conversationId 无 '~'）跳过 tail：运行矩阵只认对桶
@@ -1394,7 +1420,6 @@ export function apply(ctx: Context) {
       })),
       usageTotals: ctx.usage.totals(),
     };
-    runsDigestCache = { digest, payload };
     return payload;
   });
 
@@ -1514,20 +1539,10 @@ export function apply(ctx: Context) {
     return { stopped: requireSubagents().stop(reqStr(p, 'id')) === true };
   });
 
-  // 会话 Token 仪表（会话头）：messageCount 来自会话文件；contextTokens =
-  // 当前会话上下文**实时估算**——概要 summary.md + 回放口径 records 估算
-  // （estimateReplayTokens，viewer = 对桶承载 Agent——与 history() 注入
-  // 形状同构，概要头部同理计入）。归档口径修复：此前取 usage 覆盖轨
-  // lastContextPrompt（末次 run 实测快照），归档 compact 重写会话后没有
-  // 新 run，快照不回落——用户所见"归档后占用量不变"；且实测轨含系统
-  // 提示固定开销，而归档阈值判定本就用估算口径（固定开销不触发归档），
-  // 仪表与阈值同源后"约 N 条后需归档"才与实际触发一致。百分比分母 =
-  // 归档预算 maxContextTokens（settings['archive'] 合成[M24 A1]，缺省 1M
-  // ——与 ac-archive budgetsFor 同口径）；派生 avgTokensPerMsg
-  // / estimatedMsgsRemaining（前端 Header 仪表直接消费，M18 前端反馈 #3：
-  // 此前前端硬编码 0%）。
-  // status 阈值按占 maxContextTokens 的比例（M18 反馈：绝对阈值在 1M 分母
-  // 下 6% 就红）：<50% low / <75% moderate / <90% high / ≥90% critical。
+  // 会话 Token 仪表（会话头）：contextTokens = 实时估算（概要 + 回放口径
+  // records，viewer = 承载 Agent）——与归档阈值判定同源（实测快照不回落
+  // 归档重写、含固定开销，故不用 usage 轨）。分母/status/派生值/cache 面
+  // 的口径统一住 sessionTokensPayload（cr-324 两分支并源）。
   web.registerRpc('session/tokens', async (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
@@ -1537,47 +1552,19 @@ export function apply(ctx: Context) {
     //   的 archive settings。
     const group = ctx.group.get(conversationId);
     if (group !== undefined) {
+      // 群键（成员流 gid~member / 群本体 gid）：读者回落首成员（UI 仪表
+      // 语义），逐消息直估——成员流无回放投影口径，history 即成员上下文
       const viewer = group.members[0];
       const msgs = await ctx.session.history(conversationId, { viewer });
       let promptTokens = 0;
-      for (const m of msgs) {
-        promptTokens += estimateTokens(
-          m.content,
-        );
-      }
-      const archiveSettings = ctx.agents.settingsOf(viewer, 'archive') as
-        | { maxContextTokens?: unknown }
-        | undefined;
-      const maxContextTokens =
-        typeof archiveSettings?.maxContextTokens === 'number' && archiveSettings.maxContextTokens > 0
-          ? archiveSettings.maxContextTokens
-          : 1_000_000;
-      const usagePercent = Math.min(100, (promptTokens / maxContextTokens) * 100);
-      const st = ctx.session.stats(conversationId);
-      const messageCount = st?.messageCount ?? 0;
-      const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
-      const estimatedMsgsRemaining =
-        avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0;
-      const { lastCacheHit: lastHit, lastCacheMiss: lastMiss, cacheHit: hit, cacheMiss: miss, lastContextPrompt: lastRunPrompt } =
-        ctx.usage.byConversation()[conversationId] ?? { lastCacheHit: 0, lastCacheMiss: 0, cacheHit: 0, cacheMiss: 0, lastContextPrompt: 0 };
-      return {
-        conversationId,
-        messageCount,
-        contextTokens: promptTokens,
-        maxContextTokens,
-        avgTokensPerMsg: Math.round(avgTokensPerMsg),
-        usagePercent,
-        estimatedMsgsRemaining,
-        status: usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical',
-        agentId: viewer,
-        cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
-      };
+      for (const m of msgs) promptTokens += estimateTokens(m.content);
+      return sessionTokensPayload(ctx, conversationId, promptTokens, viewer);
     }
     // single 会话（conversationId = sid，无 ~ 段）：承载 Agent 优先调用方显式
-    //   agentId；缺省时从 singles 元数据解析（agentId 空 = 默认预设）——与
-    //   session/archive 显式传参、前端 defaultPresetId 补全同口径。回放估算
-    //   视角与 archive 预算分母都需真实承载 Agent：用 sid 当 viewer（agentOfPair
-    //   无 ~ 段恒返自身）会令 Agent 回复的 steps 不展开、占用严重偏低。
+    //   agentId；缺省从 singles 元数据解析（agentId 空 = 默认预设）——与
+    //   session/archive、前端 defaultPresetId 同口径。回放估算视角与预算
+    //   分母都需真实承载 Agent：用 sid 当 viewer（agentOfPair 无 ~ 段恒返
+    //   自身）会令 Agent 回复的 steps 不展开、占用严重偏低。
     let agentId = optStr(p.agentId);
     if (!agentId && !conversationId.includes('~')) {
       const singles = ctx.get('singles', false) as
@@ -1595,43 +1582,11 @@ export function apply(ctx: Context) {
       }
     }
     agentId ||= agentOfPair(conversationId, (id) => ctx.agents.has(id));
-    const st = ctx.session.stats(conversationId);
     const records = await ctx.session.records(conversationId);
     const summary = ctx.session.summary(conversationId);
     const promptTokens =
       estimateReplayTokens(records, agentId) + (summary !== undefined ? estimateTokens(summary) : 0);
-    const archiveSettings = ctx.agents.settingsOf(agentId, 'archive') as
-      | { maxContextTokens?: unknown }
-      | undefined;
-    const maxContextTokens =
-      typeof archiveSettings?.maxContextTokens === 'number' && archiveSettings.maxContextTokens > 0
-        ? archiveSettings.maxContextTokens
-        : 1_000_000;
-    const messageCount = st?.messageCount ?? 0;
-    const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
-    const usagePercent = Math.min(100, (promptTokens / maxContextTokens) * 100);
-    const estimatedMsgsRemaining =
-      avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0;
-    const status =
-      usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical';
-    // 缓存命中面（展示 enrich，不驱动上方仪表值）：provider prompt cache
-    // 详情（DeepSeek/GLM 上报，ac-usage 记账）——last* = 最近一次 run 覆盖
-    // 轨（多步 run 为各步合计），hit/miss = 会话累计；lastRunPrompt = 末次
-    // run 实际输入（计费口径对照——含系统提示/工具等固定开销，估算口径
-    // 的 contextTokens 不含）。整理 run 不记账（M20），不污染本面。
-    const { lastCacheHit: lastHit, lastCacheMiss: lastMiss, cacheHit: hit, cacheMiss: miss, lastContextPrompt: lastRunPrompt } =
-      ctx.usage.byConversation()[conversationId] ?? { lastCacheHit: 0, lastCacheMiss: 0, cacheHit: 0, cacheMiss: 0, lastContextPrompt: 0 };
-    return {
-      conversationId,
-      messageCount,
-      contextTokens: promptTokens,
-      maxContextTokens,
-      avgTokensPerMsg: Math.round(avgTokensPerMsg),
-      usagePercent,
-      estimatedMsgsRemaining,
-      status,
-      cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
-    };
+    return sessionTokensPayload(ctx, conversationId, promptTokens, agentId);
   });
 
   // KV 缓存率走势（cr-231/232/236）：会话步级缓存序列（ac-usage timeline 留存

@@ -31,7 +31,6 @@
     "@types/ws": "^8.18.1",
     "ac-agent-presets": "workspace:*",
     "ac-agent-store": "workspace:*",
-    "ac-archive": "workspace:*",
     "ac-backup": "workspace:*",
     "ac-config": "workspace:*",
     "ac-conv-settings": "workspace:*",
