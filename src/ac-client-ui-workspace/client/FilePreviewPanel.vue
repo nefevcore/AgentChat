@@ -5,9 +5,8 @@
     · 面板挂载时若 panelOpen 为真 → 同步 ui.auxVisible + 显式选区，
       收起（ui.auxVisible=false）不关 tab——重开恢复。
   数据：各 pane 自取数（filePreviewContent composable）。
-  移动端（≤768）：本面板不渲染（同席位 ownerProps mobileBehavior=
-  workspace-overlay 语义——窄屏走 Modal 全屏形态，FilePreviewHost
-  分派）。 -->
+  移动端（≤768）：辅助活动栏不渲染，本选区由 AuxSidebarHost 全屏
+  Sheet 承载（cr-30 Phase②——同一选区注册面零改动）。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Button, DocTabs, IconAction } from '@agentchat/webui-kit';

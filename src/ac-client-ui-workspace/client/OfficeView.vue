@@ -5,11 +5,12 @@
   docx 侧 fetch；base64 载荷会被当 URL 请求，不可传）。
   CSS 随组件引入（excel 的 x-spreadsheet 画布/工具栏必需——漏引则
   画布尺寸塌陷为不可见）；样式表经懒路径动态 import，与 KaTeX 懒注入
-  同一手法。@rendered 计数做加载态，解析失败（损坏文件/网络）走
-  @error → 错误面板（本地打开兜底提示）。 -->
+  同一手法。解析失败（损坏文件/网络）走 @error → 错误面板（本地打开
+  兜底提示）。 -->
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount, defineAsyncComponent } from 'vue';
 import { loadOfficeComponent } from './officeVendor.ts';
+import { extOf } from './filePreviewContent.ts';
 
 const props = defineProps<{
   /** 文件名（扩展名选组件 + alt 兜底） */
@@ -31,11 +32,8 @@ const VueOfficePptx = defineAsyncComponent(() => loadOfficeComponent('pptx'));
 import('@vue-office/excel/lib/index.css');
 import('@vue-office/docx/lib/index.css');
 
-// 扩展名（小写）
-const ext = computed(() => {
-  const i = props.name.lastIndexOf('.');
-  return i > 0 ? props.name.slice(i + 1).toLowerCase() : '';
-});
+// 扩展名（extOf 单源——与 filePreviewContent 同语义，点文件不误判）
+const ext = computed(() => extOf(props.name));
 
 const kind = computed<'docx' | 'excel' | 'pptx' | null>(() => {
   if (ext.value === 'docx') return 'docx';
@@ -51,11 +49,8 @@ const comp = computed(() => {
   return null;
 });
 
-// 渲染成功计数（@rendered；切换 src 重置——加载态依据）
-const renderedTick = ref(0);
-function onRendered() { renderedTick.value++; }
-
-// 解析失败态（@error；守卫 pane 已卸载的迟到信号）
+// 解析失败态（@error；守卫 pane 已卸载的迟到信号；src 切换经 :key
+// 重挂整棵子树——状态自然归零，无需手动重置）
 const parseError = ref('');
 let isDead = false;
 onBeforeUnmount(() => { isDead = true; });
@@ -64,7 +59,6 @@ function onError(err: unknown) {
   const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
   parseError.value = '文档解析失败' + (msg ? '（' + msg + '）' : '');
 }
-function resetState() { parseError.value = ''; renderedTick.value = 0; }
 </script>
 
 <template>
@@ -74,7 +68,7 @@ function resetState() { parseError.value = ''; renderedTick.value = 0; }
       <span class="ov-error-hint">可尝试「本地打开」用系统程序查看</span>
     </div>
     <div v-else class="ov-doc-holder">
-      <component :is="comp" :src="src" @rendered="onRendered" @error="onError" class="ov-doc" />
+      <component :is="comp" :src="src" @error="onError" class="ov-doc" />
     </div>
   </div>
 </template>

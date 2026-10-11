@@ -52,13 +52,14 @@ const TEXT_EXTS = new Set(['txt', 'log', 'csv', 'env']);
  *  维持未知二进制兜底（十六进制/下载/本地打开） */
 const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xlsm', 'pptx']);
 
-/** 文件名（含扩展名）提取 */
-function baseNameOf(p: string): string {
+/** 文件名（含扩展名）提取（预览域单源——OfficeView 等同域消费） */
+export function baseNameOf(p: string): string {
   return p.split(/[/\\]/).pop() || p;
 }
 
-/** 扩展名提取（小写；无扩展名 = ''） */
-function extOf(p: string): string {
+/** 扩展名提取（小写；无扩展名 = ''；点文件〔.gitignore 等〕返回 ''
+ *  ——「名.扩展」才成扩展，防 gitignore 误判为扩展名） */
+export function extOf(p: string): string {
   const name = baseNameOf(p);
   const i = name.lastIndexOf('.');
   return i > 0 ? name.slice(i + 1).toLowerCase() : '';
@@ -192,13 +193,9 @@ export function useFilePreviewContent(
 
   const path = computed(() => filePath());
 
-  // 文件扩展名
-  const ext = computed(() => {
-    const parts = path.value.split('.');
-    return parts.length > 1 ? parts.pop()!.toLowerCase() : '';
-  });
+  const ext = computed(() => extOf(path.value));
 
-  const fileName = computed(() => path.value.split(/[/\\]/).pop() || path.value);
+  const fileName = computed(() => baseNameOf(path.value));
 
   // 是否为 HTML 文件
   const isHtml = computed(() => ['html', 'htm'].includes(ext.value));
@@ -206,8 +203,8 @@ export function useFilePreviewContent(
   // 是否为 Office 文档（@vue-office 前端渲染域：docx/xlsx/pptx 家族）
   const isOffice = computed(() => OFFICE_EXTS.has(ext.value));
 
-  // 是否为图片
-  const isImage = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext.value));
+  // 是否为图片（IMAGE_EXTS 单源——能力检查/视图分派/此处三元消费同一词表）
+  const isImage = computed(() => IMAGE_EXTS.has(ext.value));
 
   // 是否为 Markdown
   const isMarkdown = computed(() => ext.value === 'md');

@@ -11,7 +11,7 @@
 // 门面 re-export 维持旧路径）。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
-import type { ReadContext } from './workspaceFile.ts';
+import { jsonFetch, type ReadContext } from './workspaceFile.ts';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
@@ -84,15 +84,6 @@ export function pickFolder(rpc: Rpc, title?: string): Promise<PickFolderResult> 
     undefined,
     10 * 60_000 + 5_000,
   );
-}
-
-async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init);
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({} as Record<string, unknown>));
-    throw new Error((data as { error?: string }).error || `HTTP ${resp.status}`);
-  }
-  return resp.json() as Promise<T>;
 }
 
 export interface UploadResult {

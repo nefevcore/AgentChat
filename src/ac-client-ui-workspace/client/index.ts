@@ -25,6 +25,7 @@ import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarVi
 import FilePreviewHost from './FilePreviewHost.vue';
 import WorkspaceTreeHost from './WorkspaceTreeHost.vue';
 import { usePreviewTabsStore } from './previewTabs.ts';
+import { jsonFetch, contextQuery } from './workspaceFile.ts';
 
 // 多 tab 预览面板（异步：node 环境消费本模块不求值 .vue 视图链）
 const FilePreviewPanelHostAsync = defineAsyncComponent(() => import('./FilePreviewPanelHost.vue'));
@@ -55,23 +56,7 @@ export function fetchWorkspaceTree(
   query: string,
   ctx?: { agentId?: string; conversationId?: string },
 ): Promise<{ path?: string; children?: WorkspaceNode[]; root?: { label?: string } }> {
-  const suffix = query;
-  if (!ctx) return jsonFetch(`/api/workspace/tree${suffix}`);
-  const sep = suffix ? '&' : '?';
-  const parts: string[] = [];
-  if (ctx.agentId) parts.push(`agentId=${encodeURIComponent(ctx.agentId)}`);
-  if (ctx.conversationId) parts.push(`conversationId=${encodeURIComponent(ctx.conversationId)}`);
-  if (!parts.length) return jsonFetch(`/api/workspace/tree${suffix}`);
-  return jsonFetch(`/api/workspace/tree${suffix}${sep}${parts.join('&')}`);
-}
-
-async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init);
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({} as Record<string, unknown>));
-    throw new Error((data as { error?: string }).error || `HTTP ${resp.status}`);
-  }
-  return resp.json() as Promise<T>;
+  return jsonFetch(`/api/workspace/tree${query}${contextQuery(ctx, query ? '&' : '?')}`);
 }
 
 export function fetchWorkspaces(): Promise<{ workspaces: Workspace[] }> {
@@ -98,18 +83,13 @@ export function deleteWorkspace(id: string): Promise<{ deleted: boolean }> {
   return jsonFetch(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-export interface WorkspaceBoardOptions {
-  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
-}
-
 export class WorkspaceBoardService extends Service {
   /** 用户工作区清单（会话树分组的文件夹白名单） */
   readonly workspaces: Ref<Workspace[]> = ref([]);
   readonly loaded: Ref<boolean> = ref(false);
 
-  constructor(ctx: Context, options: WorkspaceBoardOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'workspaceBoard');
-    void options;
   }
 
   async refresh(): Promise<void> {

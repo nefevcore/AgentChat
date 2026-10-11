@@ -118,10 +118,6 @@ async function openLocally() {
     flashOpenLocalError(err?.message ?? String(err));
   }
 }
-
-onBeforeUnmount(() => {
-  invalidate(); // 作废在途请求
-});
 </script>
 
 <template>

@@ -24,8 +24,10 @@ export interface ReadContext {
   conversationId?: string;
 }
 
-async function jsonFetch<T>(url: string): Promise<T> {
-  const resp = await fetch(url);
+/** 同源 REST GET/POST JSON 小件（包内单源——workspaces/board CRUD/upload 共用；
+ *  非 ok → 抛 error 文案〔服务端 JSON error 字段优先，缺席 HTTP 状态〕） */
+export async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const resp = await fetch(url, init);
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({} as Record<string, unknown>));
     throw new Error((data as { error?: string }).error || `HTTP ${resp.status}`);
@@ -33,18 +35,20 @@ async function jsonFetch<T>(url: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-/** context → query 后缀（agentId/conversationId 可选透传；空 context = ''） */
-function contextQuery(ctx?: ReadContext): string {
+/** context → query 后缀（agentId/conversationId 可选透传；空 context / 空字段 = ''）。
+ *  sep：与前参的分隔符——缺省 '&'（URL 已带 ?path=… 前参形）；无前参
+ *  场景（如树根层空 query）传 '?'。 */
+export function contextQuery(ctx?: ReadContext, sep: '&' | '?' = '&'): string {
   if (!ctx) return '';
   const parts: string[] = [];
   if (ctx.agentId) parts.push(`agentId=${encodeURIComponent(ctx.agentId)}`);
   if (ctx.conversationId) parts.push(`conversationId=${encodeURIComponent(ctx.conversationId)}`);
-  return parts.length ? `&${parts.join('&')}` : '';
+  return parts.length ? `${sep}${parts.join('&')}` : '';
 }
 
 /** 工作区文件内容（预览）；注入 binary = base64（图片分支硬依赖——preview 端点无此字段） */
 export async function fetchWorkspaceFile(path: string, ctx?: ReadContext): Promise<WorkspaceFile & { binary: boolean }> {
-  const body = await jsonFetch<WorkspaceFile>(`/api/workspace/file?path=${encodeURIComponent(path)}${contextQuery(ctx)}`);
+  const body = await jsonFetch<WorkspaceFile>(`/api/workspace/file?path=${encodeURIComponent(path)}${contextQuery(ctx, '&')}`);
   return { ...body, binary: body.base64 === true };
 }
 
