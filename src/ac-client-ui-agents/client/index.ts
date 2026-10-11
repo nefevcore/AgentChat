@@ -122,7 +122,8 @@ export function toAgentList(
         // 版本化 URL（cr-82）：v=avatarVersion（size:mtimeMs）→ 路由侧恒回
         // immutable 长缓存，浏览器/WebView 磁盘缓存直接命中零请求；头像变更
         // → 版本变 → URL 变 → 自动失效重取。旧后端无 avatarVersion：回退
-        // 无参 URL（no-cache + ETag 验证），行为同旧版。
+        // 无参 URL（no-cache + ETag 验证），行为同旧版——与 avatarUrl 的
+        // 缓存破坏回退（?t=）语义不同，不并源。
         avatar: c.hasAvatar === false
           ? null
           : `/api/agents/${encodeURIComponent(c.id)}/avatar${
@@ -239,6 +240,15 @@ export async function deleteAvatar(agentId: string): Promise<{ success?: boolean
 /** 会话切换时间戳追踪（诊断用——与 conversation/runview/singles 共享单源，owning = ac-client-runtime） */
 import { traceSwitch } from 'ac-client-runtime';
 
+/** Agent 头像 URL（版本化——cr-82：v=avatarVersion〔size:mtimeMs〕恒 immutable
+ *  长缓存；无版本〔旧后端/初始装载〕退时间戳防缓存粘连）。名册合成与上传
+ *  成功后的即时同步共用单源（cr-329 并源——此前四处内联已出现旧后端回退
+ *  参数〔t= vs ?t=〕细节走散） */
+export function avatarUrl(agentId: string, version?: string): string {
+  const q = version ? `v=${encodeURIComponent(version)}` : `t=${Date.now()}`;
+  return `/api/agents/${encodeURIComponent(agentId)}/avatar?${q}`;
+}
+
 // ---- 名册核心 + 服务面 ----
 
 /** 名册核心（纯 reactive；零 cordis——门面独立模式复用） */
@@ -251,7 +261,8 @@ export class RosterCore {
   private lastActiveAgent = '';
   private rpc: Pick<RpcClientFace, 'call'> | null = null;
 
-  /** RPC 面注入（行内服务构造后由插件 apply 供给；门面独立模式 = null → 拉取静默跳过） */
+  /** RPC 面注入（RosterService 构造器调用口 + conversation 集成测试 rpc 桩
+   *  注入口——保持公有；门面独立模式 = null → 拉取静默跳过） */
   bindRpc(rpc: Pick<RpcClientFace, 'call'>): void {
     this.rpc = rpc;
   }
@@ -268,7 +279,7 @@ export class RosterCore {
     }).catch(() => undefined);
   }
 
-  async fetchPresets(): Promise<void> {
+  private async fetchPresets(): Promise<void> {
     if (!this.rpc) return;
     try {
       const d = await fetchAgentPresets(this.rpc);
@@ -350,13 +361,7 @@ export class RosterCore {
     this.agents.value[idx] = {
       ...this.agents.value[idx],
       ...(present ? { avatarVersion: version } : { avatarVersion: undefined, avatar: null }),
-      ...(present
-        ? {
-            avatar: `/api/agents/${encodeURIComponent(agentId)}/avatar${
-              version ? `?v=${encodeURIComponent(version)}` : `?t=${Date.now()}`
-            }`,
-          }
-        : {}),
+      ...(present ? { avatar: avatarUrl(agentId, version) } : {}),
     };
   }
 
@@ -374,24 +379,19 @@ export class RosterCore {
   }
 }
 
-interface RosterClientOptions {
-  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
-}
-
 /** roster 服务面：Core 的透传（读面 + 写面；§0.3 层 2 身份面） */
 export class RosterService extends Service {
   readonly core = new RosterCore();
 
-  // ── 读面（身份面：名册/预设/显示名/头像）──
+  // ── 读面（身份面：名册/预设/显示名/头像；defaultPreset 为 Core 内部
+  //  派生——消费面一律 defaultPresetId，透传行 cr-329 死口清理）──
   readonly agents = this.core.agents;
   readonly presets = this.core.presets;
   readonly activeAgentId = this.core.activeAgentId;
-  readonly defaultPreset = this.core.defaultPreset;
   readonly defaultPresetId = this.core.defaultPresetId;
 
-  constructor(ctx: Context, options: RosterClientOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'roster');
-    void options;
     this.core.bindRpc((ctx as ClientContext).rpc);
   }
 
@@ -401,7 +401,6 @@ export class RosterService extends Service {
 
   // ── 写面（名册刷新/选中/活跃提升/头像同步）──
   requestAgents(onLoaded?: (agents: AgentInfo[]) => void) { return this.core.requestAgents(onLoaded); }
-  fetchPresets() { return this.core.fetchPresets(); }
   selectAgent(agentId: string) { this.core.selectAgent(agentId); }
   clearSelection() { this.core.clearSelection(); }
   setAgents(list: AgentInfo[]) { this.core.setAgents(list); }

@@ -22,8 +22,9 @@ type Rpc = Pick<RpcClientFace, 'call'>;
 
 // ── Agent 配置面（M29 P1-3b 自 settings/api.ts 归并——rpc 必传同宿形态） ──
 
-/** llmParams 透传键全集（与 ac-agents LLM_SAMPLING_KEYS 白名单逐键一致） */
-const LLM_SAMPLING_KEYS = [
+/** llmParams 透传键全集（与 ac-agents LLM_SAMPLING_KEYS 白名单逐键一致——
+ *  纯手工镜像，交叉锁定测试 tests/sampling-keys-parity.test.ts 单源对齐） */
+export const LLM_SAMPLING_KEYS = [
   'temperature', 'max_tokens', 'top_p', 'response_format', 'stop',
   'reasoning_effort', 'thinking', 'logprobs', 'top_logprobs', 'tool_choice',
 ] as const;

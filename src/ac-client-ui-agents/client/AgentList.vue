@@ -4,9 +4,9 @@
 import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
-import { createAgent as apiCreateAgent, fetchLlmProviders, type LlmProviderStat } from './index.ts';
-import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
+import { createAgent as apiCreateAgent, type LlmProviderStat } from './index.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
+import { loadPoolModelCache } from 'ac-client-ui-agents/client/poolModelCache.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -74,18 +74,12 @@ function openAddAgentDialog() { showCreateMenu.value = false; openAddDialog(); }
 function openCreateGroup() { showCreateMenu.value = false; emit('createGroup'); }
 async function openAddDialog() {
   showAddDialog.value = true; selProvider.value = ''; selModel.value = '';
-  if (providerStats.value.length === 0 && rpc) {
-    const [statsR, poolsR] = await Promise.all([
-      fetchLlmProviders(rpc).then((r) => r.stats).catch(() => []),
-      fetchPools(rpc).then((r) => r.llmProviders).catch(() => ({})),
-    ]);
-    providerStats.value = statsR;
-    const cache: Record<string, string[]> = {};
-    for (const [name, entry] of Object.entries(poolsR as Record<string, { models?: unknown }>)) {
-      if (name.startsWith('$') || !Array.isArray(entry.models)) continue;
-      cache[name] = entry.models.filter((m): m is string => typeof m === 'string');
-    }
-    poolModels.value = cache;
+  // provider 注册面 + 池发现缓存（并源 poolModelCache——与 AgentListPane/首启向导
+  // 共用，cr-299 建立时的第三处遗漏收口）
+  if (providerStats.value.length === 0) {
+    const c = await loadPoolModelCache();
+    providerStats.value = c.stats;
+    poolModels.value = c.models;
   }
 }
 
@@ -267,8 +261,6 @@ html.dark .agent-list{background:var(--bg-base)}
 .create-menu{top:100%;right:0;margin-top:4px;min-width:180px}
 .menu-fade-enter-active,.menu-fade-leave-active{transition:opacity .12s ease,transform .12s ease}
 .menu-fade-enter-from,.menu-fade-leave-to{opacity:0;transform:translateY(-4px)}
-.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--text-2);padding:4px;border-radius:var(--radius-sm);line-height:0}
-.mobile-close-btn:hover{background:var(--bg-hover);color:var(--text-1)}
 /* 列表滚动容器：背景与 .agent-list 一致；滚动条默认零宽度不占位，JS 加 .scroll-visible 时浮现 */
 .list-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--bg-surface);scrollbar-width:none;scrollbar-color:transparent transparent}
 /* 暗色：列表背景为最深底，滚动条区域同色避免杂色带 */
@@ -309,6 +301,4 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .default-hint{font-size:12px;color:var(--text-3);margin:-4px 0 4px;font-style:italic}
 .error-text{font-size:12px;color:var(--err);margin-bottom:8px}
 .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
-.modal-enter-active,.modal-leave-active{transition:opacity .15s ease}
-.modal-enter-from,.modal-leave-to{opacity:0}
 </style>

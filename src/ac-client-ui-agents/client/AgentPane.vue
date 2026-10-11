@@ -9,9 +9,9 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
-import type { AgentBrief } from './useAgentSettings.ts';
+import { assemblyOf, type AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
-import { Button, Checkbox, FieldRow, Icon, IconAction, Input, PasswordInput, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';
+import { Button, Checkbox, FieldRow, Icon, IconAction, Input, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
@@ -20,7 +20,7 @@ import TagChoice from './TagChoice.vue';
 // 模型发现/池模型归一化经 ui-llm-pool（2026-09-11 语义归位：池域词汇，
 // Agent 面消费 = domain→domain 契约词汇边，白名单显式裁决）
 import { fetchPoolModels, poolModelEntries, modelOnProviderSwitch, poolDefaultModel } from 'ac-client-ui-llm-pool/client/poolApi.ts';
-import { uploadAvatar, deleteAvatar, fetchLlmProviders, type LlmProviderStat } from './index.ts';
+import { uploadAvatar, deleteAvatar, fetchLlmProviders, avatarUrl, type LlmProviderStat } from './index.ts';
 import { fetchTagCatalog, type TagCatalogItem } from './rosterApi.ts';
 import { collectExclusiveGroups, currentExclusiveTag, applyExclusiveChoice, type ExclusiveGroup } from './tagExclusive.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
@@ -105,24 +105,9 @@ const agentIndex = computed(() => props.agents.findIndex(a => a.id === props.age
 const prevAgent = computed(() => (agentIndex.value > 0 ? props.agents[agentIndex.value - 1] : null));
 const nextAgent = computed(() => (agentIndex.value >= 0 && agentIndex.value < props.agents.length - 1 ? props.agents[agentIndex.value + 1] : null));
 
-// ── 装配声明（M22 P2 + M24 X1）：tools/settings（具名设置对象）两字段 patch ──
-function strArray(v: unknown): string[] {
-  return Array.isArray(v) ? (v.filter((x): x is string => typeof x === 'string')) : [];
-}
-function toolOverridesOf(v: unknown): { include: string[]; exclude: string[] } {
-  if (Array.isArray(v)) return { include: strArray(v), exclude: [] };
-  if (v && typeof v === 'object') {
-    return { include: strArray((v as Record<string, any>).include), exclude: strArray((v as Record<string, any>).exclude) };
-  }
-  return { include: [], exclude: [] };
-}
-function settingsConfigsOf(v: unknown): Record<string, unknown> {
-  return v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {};
-}
-const decl = computed(() => ({
-  tools: toolOverridesOf(props.raw.tools),
-  settings: settingsConfigsOf(props.raw.settings),
-}));
+// ── 装配声明（M22 P2 + M24 X1）：tools/settings（具名设置对象）两字段 patch
+//（解析并源 assemblyOf——useAgentSettings 同款，与 dirty 基线/保存同形状） ──
+const decl = computed(() => assemblyOf(props.raw));
 /** settings per-name 浅合并 / null 删除（服务端语义——M22 D5） */
 function patchDecl(patch: AssemblyPatch): void {
   emit('update:raw', {
@@ -535,7 +520,7 @@ const toolTagBadges = computed(() => {
   for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
   return [...order, ...rest]
-    .map(tag => ({ tag, label: TOOL_TAG_LABELS[tag] ?? tag, fixed: false }));
+    .map(tag => ({ tag, label: TOOL_TAG_LABELS[tag] ?? tag }));
 });
 const toolBadgeSet = computed(() => new Set(toolTagBadges.value.map(b => b.tag)));
 const customTagInput = ref('');
@@ -562,9 +547,9 @@ function toggleTag(tag: string, on: boolean): void {
 }
 /** 徽章点击：切换该标签（on 态与落盘 tags 一致——reserved 目录词不再
  *  恒亮，2026-09-16 教训：reserved=「目录恒有此词」≠「该 Agent 恒有此标签」，
- *  恒亮展示曾让管理员误判存量 Agent 都有 collab，掩盖协作工具静默消失） */
-function toggleToolTag(tag: string, fixed: boolean): void {
-  if (fixed) return;
+ *  恒亮展示曾让管理员误判存量 Agent 都有 collab，掩盖协作工具静默消失。
+ *  fixed「基础标签恒亮」参数已随 base 退役收口——恒 false 字段无信息量） */
+function toggleToolTag(tag: string): void {
   toggleTag(tag, !(props.raw.tags ?? []).includes(tag));
 }
 function addCustomTag(): void {
@@ -594,11 +579,7 @@ function setAvatarPreview(url: string) {
   avatarFailed.value = false;
 }
 function initAvatar(version?: string) {
-  // 版本化 URL（cr-82）：有版本走 v=（immutable 缓存友好），无版本（旧后端/
-  // 初始装载）退时间戳防缓存粘连。
-  setAvatarPreview(`/api/agents/${encodeURIComponent(props.agentId)}/avatar?${
-    version ? `v=${encodeURIComponent(version)}` : `t=${Date.now()}`
-  }`);
+  setAvatarPreview(avatarUrl(props.agentId, version));
 }
 initAvatar();
 /** 切换 Agent 时重新加载头像 */
@@ -709,7 +690,7 @@ async function removeAvatar() {
                   v-for="item in g.items" :key="item.tag" type="button"
                   class="tag-badge" :class="[{ on: (raw.tags ?? []).includes(item.tag) }, 'tb-' + item.tag]"
                   :title="tagTooltip(item)"
-                  @click="toggleToolTag(item.tag, false)"
+                  @click="toggleToolTag(item.tag)"
                 ><span class="tag-name">{{ item.tag }}</span><span v-if="tagLabelOf(item) !== item.tag" class="tag-badge-label">{{ tagLabelOf(item) }}</span><span v-if="item.tools.length" class="tag-tool-count" :title="`解锁 ${item.tools.length} 个工具`">{{ item.tools.length }}</span></button>
               </div>
             </div>
@@ -718,9 +699,9 @@ async function removeAvatar() {
           <div v-else class="tag-badges">
             <button
               v-for="b in toolTagBadges" :key="b.tag" type="button"
-              class="tag-badge" :class="[{ on: b.fixed || (raw.tags ?? []).includes(b.tag) }, 'tb-' + b.tag]"
-              :title="b.fixed ? '基础标签，始终启用' : (raw.tags ?? []).includes(b.tag) ? '点击移除' : '点击启用'"
-              @click="toggleToolTag(b.tag, b.fixed)"
+              class="tag-badge" :class="[{ on: (raw.tags ?? []).includes(b.tag) }, 'tb-' + b.tag]"
+              :title="(raw.tags ?? []).includes(b.tag) ? '点击移除' : '点击启用'"
+              @click="toggleToolTag(b.tag)"
             ><span class="tag-name">{{ b.tag }}</span><span v-if="b.label !== b.tag" class="tag-badge-label">{{ b.label }}</span></button>
           </div>
           <div class="tag-custom">
@@ -940,7 +921,6 @@ async function removeAvatar() {
 .tb-tc-base { --tag-hue: #2563eb; }
 .tb-tc-programmatic { --tag-hue: #7c3aed; }
 .tb-fs_minimal { --tag-hue: #65a30d; }
-.tb-delegation { --tag-hue: #7c3aed; }
 .tag-custom { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 /* 标签分组（tag-registry 目录视图）：分组标题 + 组内徽章 */
 .tag-group { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }

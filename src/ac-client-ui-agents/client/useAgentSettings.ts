@@ -16,8 +16,6 @@ import { fetchAgents, createAgent as createAgentRpc } from './index.ts';
 import { deleteAgent as deleteAgentRpc, getAgentConfig, saveAgentConfig } from './rosterApi.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 
-export type { LlmProviderStat } from './index.ts';
-
 /** 定时任务数据面注入口（M29 P1-3c：timerApi 归 ui-timer——本包 .ts 不直连
  *  domain 行数据面〔R6〕，由宿主 .vue 注入 ui-timer 的 timerApi） */
 export interface AgentTimerFace {
@@ -44,7 +42,10 @@ function toolOverridesOf(v: unknown): { include: string[]; exclude: string[] } {
 function settingsConfigsOf(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {};
 }
-function assemblyOf(raw: Record<string, any>): {
+// 导出供 AgentPane 共用（decl 视图 + 本文件 dirty 基线/保存——装配解析单源，
+// cr-329 并源：此前两份实现已现细节走散——本份 strArray 对 include 严格
+// string 过滤，AgentPane 旧份不做，双视图不对称的温床）
+export function assemblyOf(raw: Record<string, any>): {
   tools: { include: string[]; exclude: string[] };
   settings: Record<string, unknown>;
 } {
@@ -370,7 +371,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
     agentTimers, agentDirty,
     agentAssembly, agentAssemblyDirty, agentAssemblyError,
     // 动作
-    loadMeta, loadAgent, loadAssembly,
+    loadMeta, loadAgent,
     saveAgent, saveTimers, resetAgent,
     createAgent, removeAgent,
     disposeWs,

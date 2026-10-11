@@ -100,9 +100,9 @@ async function confirmDelete() {
         <Icon name="more-horizontal" :size="18" />
       </button>
       <Transition name="dropdown">
-        <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
-          <button class="dropdown-item danger" @click="askDelete">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+        <div v-if="showMoreMenu" class="more-dropdown ui-dd-menu" @click.stop>
+          <button class="dropdown-item ui-dd-opt danger" @click="askDelete">
+            <Icon name="trash" :size="14" />
             删除 Agent
           </button>
         </div>
@@ -133,16 +133,18 @@ async function confirmDelete() {
 .settings-btn {
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; cursor: pointer; color: var(--text-2);
-  padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
+  padding: 6px; border-radius: var(--r-sm); line-height: 0; flex-shrink: 0;
 }
 .settings-btn:hover, .settings-btn.active { background: var(--bg-surface); color: var(--text-1); }
 .settings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* 更多菜单 */
+/* 更多菜单：容器/选项已归 kit dropdown.css 配方（.ui-dd-menu/.ui-dd-opt，
+   cr-157——与 Select/ChatInput/TagChoice 同语言）；此处仅留右对齐定位与
+   danger 语义着色 */
 .more-menu-wrapper { position: relative; }
-.more-dropdown { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-raised, var(--bg-base)); border: 1px solid var(--line, var(--line)); border-radius: 10px; box-shadow: var(--shadow-pop); min-width: 180px; z-index: 300; padding: 4px; overflow: hidden; }
-.dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none; color: var(--text-1, var(--text-1)); font-size: 13px; cursor: pointer; text-align: left; }
-.dropdown-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
+/* left:auto 必须显式复位：kit 配方 left:0 与此处的 right:0 同设时过约束
+   （LTR 下 right 被忽略 → 左锚定溢出面板右缘） */
+.more-dropdown.ui-dd-menu { left: auto; right: 0; min-width: 180px; }
 .dropdown-item.danger { color: var(--err); }
 .dropdown-item.danger:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }

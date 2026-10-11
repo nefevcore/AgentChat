@@ -15,6 +15,7 @@ import AgentPane from './AgentPane.vue';
 import AgentListPane from './AgentListPane.vue';
 import { useAgentSettings } from './useAgentSettings.ts';
 import { useRosterCore } from './rosterAccess.ts';
+import { avatarUrl } from './index.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 // 定时任务数据面（M29 P1-3c：timerApi 归 ui-timer——.vue 媒介注入编排
 // composable，agents .ts 不直连 domain 行数据面）
@@ -90,11 +91,7 @@ function onAgentAvatarChanged(agentId: string, present: boolean, version?: strin
   if (i !== -1) {
     settings.agents.value[i] = {
       ...settings.agents.value[i],
-      ...(present
-        ? { avatar: `/api/agents/${encodeURIComponent(agentId)}/avatar?${
-            version ? `v=${encodeURIComponent(version)}` : `t=${Date.now()}`
-          }` }
-        : { avatar: null }),
+      ...(present ? { avatar: avatarUrl(agentId, version) } : { avatar: null }),
     };
   }
 }
