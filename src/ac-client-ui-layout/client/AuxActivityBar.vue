@@ -13,7 +13,7 @@
 // 宿主 = AuxSidebarHost（DOM 序末位 = app-layout 行最右列）。
 // ============================================================
 import { Icon } from '@agentchat/webui-kit';
-import type { AuxSidebarPanelDef } from './auxSidebarViews.ts';
+import { auxBadgeText, type AuxSidebarPanelDef } from './auxSidebarViews.ts';
 
 defineProps<{
   /** 切换条候选（带 rail 资产且 available——AuxSidebarHost 供） */
@@ -26,24 +26,6 @@ const emit = defineEmits<{
   (e: 'toggle', def: AuxSidebarPanelDef): void;
 }>();
 
-/** 徽章安全求值：抛错/0/空 = 不渲染（同 available 谓词姿势——缺陷 def 不击穿栏） */
-function badgeOf(d: AuxSidebarPanelDef): number | string | null {
-  try {
-    const v = d.rail?.badge?.() ?? null;
-    // 0 / 空串 = 无可计数态 → 不渲染（真值文本「√」等照常）
-    if (v === null || v === 0 || v === '') return null;
-    return v;
-  } catch (err) {
-    console.warn(`[aux-sidebar] 区域选区 "${d.id}" 的 badge() 徽章源抛错——按不渲染跳过`, err);
-    return null;
-  }
-}
-
-/** 数字徽章文案：>99 封顶「99+」（文本徽章原样透传） */
-function badgeLabel(v: number | string | null): string {
-  if (typeof v === 'number' && v > 99) return '99+';
-  return String(v ?? '');
-}
 </script>
 
 <template>
@@ -59,7 +41,7 @@ function badgeLabel(v: number | string | null): string {
       @click="emit('toggle', d)"
     >
       <Icon :name="d.rail!.icon" :size="22" />
-      <span v-if="badgeOf(d) !== null" class="aux-ab-badge">{{ badgeLabel(badgeOf(d)) }}</span>
+      <span v-if="auxBadgeText(d)" class="aux-ab-badge">{{ auxBadgeText(d) }}</span>
     </button>
   </nav>
 </template>

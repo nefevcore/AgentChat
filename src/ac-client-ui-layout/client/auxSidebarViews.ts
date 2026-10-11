@@ -139,6 +139,23 @@ export function electedAuxSidebarPanel(preferred?: string | null): AuxSidebarPan
   return activeAuxSidebarPanel();
 }
 
+/** 徽章文案（AuxActivityBar 渲染面与 MobileMoreSheet 面板区共用——cr-332 并源）：
+ *  域行 rail.badge() 供数，壳安全求值并格式化：0/null/undefined/空串 = ''（不渲染），
+ *  数字 >99 封顶「99+」，文本（如「√」）原样透传——封顶只对数字生效，
+ *  域行自带格式化语义的文本不被截断。badge() 抛错 = ''（缺陷 def 不击穿）。 */
+export function auxBadgeText(def: AuxSidebarPanelDef): string {
+  try {
+    // 宽松等并防 undefined（域行超类型返回的防御——原两份实现仅一份防了，并源取并集）
+    const v = def.rail?.badge?.();
+    if (v == null || v === 0 || v === '') return '';
+    if (typeof v === 'number' && v > 99) return '99+';
+    return String(v);
+  } catch (err) {
+    console.warn(`[aux-sidebar] 区域选区 "${def.id}" 的 badge() 徽章源抛错——按不渲染跳过`, err);
+    return '';
+  }
+}
+
 /** 辅助活动栏按钮清单（带 rail 资产且 available 可见——安全求值；order 升序） */
 export function auxSidebarRailDefs(): AuxSidebarPanelDef[] {
   return auxSidebarPanelDefs()

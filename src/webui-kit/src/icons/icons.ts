@@ -132,6 +132,10 @@ import IconMousePointer2 from '~icons/lucide/mouse-pointer-2';
 import IconArrowDown from '~icons/lucide/arrow-down';
 import IconAppWindow from '~icons/lucide/app-window';
 import IconCircle from '~icons/lucide/circle';
+// 检查更新象形（ActivityBar 更多菜单 + MobileMoreSheet 常用项——cr-332 归一：
+// 盾形勾选 = 「待确认的版本信息」；原两处一处内联 info 圆 i 形、一处
+// refresh-cw（与「刷新」语义混用）已走散，统一本图）
+import IconBadgeCheck from '~icons/lucide/badge-check';
 
 // 厂商品牌 logo（simple-icons 集，cr-203 模型菜单 provider 图标）——
 // 单色 path 由 currentColor 染色，色值随消费方（菜单里 text-3 同语言）
@@ -280,6 +284,8 @@ export const iconMap: Record<string, Component> = {
   'arrow-down': IconArrowDown,
   'app-window': IconAppWindow,
   circle: IconCircle,
+  // 检查更新象形（见顶部 import 注释）
+  'badge-check': IconBadgeCheck,
   // 自绘专属象形（ThinkingIcon.vue）——折叠行图标位默认显示：
   // 'chain' = 思维链脑电波（TurnDisplayItem 链栏/AssistantMessage 思考行
   // 同图——cr-327 归并原 thought 涟漪别名）。hover 时由 chevron 接管。

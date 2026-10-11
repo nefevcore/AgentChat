@@ -13,12 +13,12 @@ TabBar「更多」的承载，三段：
 -->
 <script setup lang="ts">
 import { ref, computed, inject, watch, onMounted, onBeforeUnmount } from 'vue';
-import { Avatar, Icon, Sheet, toastBusy, toastOk, toastError } from '@agentchat/webui-kit';
+import { Avatar, Icon, Sheet } from '@agentchat/webui-kit';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
 import { useUiStore } from './uiStore.ts';
 import { useActivityBarActions, type ActivityBarActionDef } from './activityBarActions.ts';
-import { auxSidebarRailDefs, type AuxSidebarPanelDef } from './auxSidebarViews.ts';
-import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
+import { auxSidebarRailDefs, auxBadgeText, type AuxSidebarPanelDef } from './auxSidebarViews.ts';
+import { createBackupRunner, checkUpdateOnce } from './systemActions.ts';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -36,20 +36,13 @@ const sortedActivityBarActions = useActivityBarActions(clientCtx);
 // 清单与徽章在「每次打开时」重算：available()/badge() 读的是各域 store 态，
 // computed 追踪不到（安全求值契约本就是命令式读取）——打开时快照即正确观感。
 const panelList = ref<Array<{ def: AuxSidebarPanelDef; badge: string }>>([]);
-function badgeOf(def: AuxSidebarPanelDef): string {
-  try {
-    const v = def.rail?.badge?.() ?? null;
-    if (v === null || v === 0 || v === '') return '';
-    return typeof v === 'number' && v > 99 ? '99+' : String(v);
-  } catch { return ''; }
-}
 function openPanel(def: AuxSidebarPanelDef) {
   emit('close');
   ui.openAuxPanel(def);
 }
 watch(() => props.visible, (v) => {
   if (!v) return;
-  panelList.value = auxSidebarRailDefs().map((def) => ({ def, badge: badgeOf(def) }));
+  panelList.value = auxSidebarRailDefs().map((def) => ({ def, badge: auxBadgeText(def) }));
 }, { immediate: true });
 
 function act(fn: () => void) { emit('close'); fn(); }
@@ -75,34 +68,12 @@ if (registerBack) {
 }
 onBeforeUnmount(() => offBack?.());
 
-// ── 备份（与 ActivityBar 同款，toast 反馈同 key 原位刷新）──
-const backupBusy = ref(false);
-async function runBackup() {
-  if (backupBusy.value) return;
-  backupBusy.value = true;
-  toastBusy('正在备份…', { key: 'backup' });
-  try {
-    const d = await backupNow(clientCtx!.rpc);
-    if (d.status === 'ok') {
-      const mb = ((d.size ?? 0) / 1024 / 1024).toFixed(1);
-      toastOk('备份完成：' + d.file + '（' + mb + 'MB，保留 ' + d.keep + ' 份）', { key: 'backup' });
-    } else {
-      toastError('备份失败：' + (d.error || '未知错误'), { key: 'backup' });
-    }
-  } catch (err: any) {
-    toastError('备份失败：' + (err?.message || '网络错误'), { key: 'backup' });
-  } finally {
-    backupBusy.value = false;
-  }
-}
+// ── 备份（systemActions.ts 单源——与 ActivityBar 同一实现，cr-332 并源）──
+const backup = createBackupRunner(clientCtx?.rpc);
 
 const hasUpdate = ref(false);
 onMounted(async () => {
-  try {
-    const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
-    const data = await fetchVersion(simulate, clientCtx!.rpc);
-    hasUpdate.value = data.hasUpdate || false;
-  } catch { /* ignore */ }
+  hasUpdate.value = await checkUpdateOnce(clientCtx?.rpc);
 });
 </script>
 
@@ -137,12 +108,12 @@ onMounted(async () => {
       <Icon name="settings" :size="18" />
       <span>全局设置</span>
     </button>
-    <button class="ms-item" @click="act(runBackup)" :disabled="backupBusy">
+    <button class="ms-item" @click="act(backup.run)" :disabled="backup.busy.value">
       <Icon name="download" :size="18" />
-      <span>{{ backupBusy ? '备份中…' : '数据备份' }}</span>
+      <span>{{ backup.busy.value ? '备份中…' : '数据备份' }}</span>
     </button>
     <button class="ms-item" @click="act(() => ui.openVersion())">
-      <Icon name="refresh-cw" :size="18" />
+      <Icon name="badge-check" :size="18" />
       <span>检查更新</span>
       <span v-if="hasUpdate" class="ms-dot" />
     </button>
@@ -198,7 +169,8 @@ onMounted(async () => {
 .ms-item:hover { background: var(--bg-hover); }
 .ms-item:disabled { opacity: .6; cursor: wait; }
 .ms-item svg { color: var(--text-3); flex-shrink: 0; }
-.ms-dot { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
+/* 更新提示点（cr-332：#ef4444 归一 --err-status 图形档令牌） */
+.ms-dot { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; border-radius: 50%; background: var(--err-status); }
 .ms-badge {
   margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;

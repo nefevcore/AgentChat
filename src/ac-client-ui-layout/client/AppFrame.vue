@@ -32,7 +32,7 @@ import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import MobileTabBar from './MobileTabBar.vue';
 import { registerBackHandler } from './historyFlag.ts';
-import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
+import { VIEWER_ID } from 'ac-client-runtime';
 
 const clientCtx = useClientContext();
 
@@ -60,7 +60,7 @@ useThemeStore();
 
 const ui = useUiStore();
 
-/** 消息左右对齐基准（用户消息靠右） */
+/** 消息左右对齐基准（用户消息靠右；viewer 端点 id 单源住 runtime——M29 P1-1） */
 provide('settingsAgentId', ref(VIEWER_ID.value));
 /** Agent 设置入口（聊天页/侧边栏调用，打开设置面板并定位到该 Agent） */
 provide('openAgentSettings', (agentId: string) => ui.openAgentSettings(agentId));

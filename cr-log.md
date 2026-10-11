@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-331**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-332**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -349,3 +349,4 @@
 - 【cr-329 2026-10-11 ac-client-ui-agents P2 精简收口：死口清理（服务面透传/死导入/死 CSS/fixed 恒假字段）+ 三处重复并源（池缓存加载/装配解析/avatar URL）+ LLM_SAMPLING_KEYS 镜像交叉锁定测试 + kit 归一（trash-2 图标注册、ui-dd 配方）】
 - 【cr-330 2026-10-11 ac-client-ui-workspace 精简收口：TabPane 重复 onBeforeUnmount 合并；jsonFetch 三副本并源 workspaceFile；isImage/ext 与 IMAGE_EXTS/extOf 并源（点文件语义走散修正）；OfficeView renderedTick/onRendered/resetState 死三件删除；Panel 头注释窄屏表述漂移订正；空壳 WorkspaceBoardOptions 退役】
 - 【cr-331 2026-10-11 webui 前端壳精简收口（审计清单#15，P2）——残留门面清理：6 零引用死门面删除（utils/switchTrace·toolIcon·types/index、settings/types·useSettings、composables/useChatShell）；12 仅测试引用门面改直连 owning 包后删（utils 九件、settings 三件〔api/types/schema〕、composables 两件）；preview-main 纯透传退役（index.html 入口直连 main.ts，adapter 过时注释订正）；slots-demo 临时验收入口删除（M27 已关，D3 语义已由 ac-client-slots 包测试锁定）；layout-unload.test 断链 import 修正（vueRenderer 已迁 ac-client-ui-renderer，webui tests 不进 typecheck 故静默）；package.json 描述漂移订正（adapter 已退役）；vitest.config.ts 5 处双 CR 字节修复；tsconfig exclude 死项清理（src/index.ts·plugin.ts 已不存在）】
+- 【cr-332 2026-10-11 ac-client-ui-layout 深审精简（cr-332）：备份/版本检查双份并源 systemActions.ts、图标归一（3 内联 SVG→kit Icon+2 新注册名、ms-dot #ef4444→--err-status）、badgeOf 双份并源 auxSidebarViews.ts、死口清理（togglePrimary/closePairView 导出、openAux 空 doc、~icons 白名单注释、AppFrame VIEWER_ID 改单源）、RESET 导出常量、测试比 3.9%→17%（新增 33 用例：选举互斥/持久化/备份单源/图标消费/webui stores 漂移）】

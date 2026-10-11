@@ -1,8 +1,8 @@
 // ============================================================
 // client/uiStore.ts —— 布局与面板状态（2026-09-11 自 ac-client-ui-sidebar 行归并壳件——布局状态归位壳件）
 //（原 webui stores/ui.ts 原样迁入——M27.2-2 随 sidebar 件出包；
-// webui stores/ui 门面 re-export 维持旧路径〔同一 pinia id =
-// 同一 store 实例〕）
+// 旧路径门面已随 M28 §4.2/cr-331 门面清退退役——消费方一律
+// 本包深路径直连）
 //
 // 职责：
 //   · 面板可见性：列表 / aside（右侧区域）/ 设置 / Token 用量 / 版本 / 文件预览
@@ -30,9 +30,9 @@ if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
 const MIN_PRIMARY = 160;
 const MIN_CHAT = 320;
 const MIN_AUX = 180;
-/** 主/辅侧边栏默认宽度（双击把手还原值） */
-const DEFAULT_PRIMARY = 260;
-const DEFAULT_AUX = 280;
+/** 主/辅侧边栏默认宽度（双击把手还原值——导出供测试断言同一常量，防漂移） */
+export const DEFAULT_PRIMARY = 260;
+export const DEFAULT_AUX = 280;
 
 /** 半屏宽（preview 舒适宽——代码/文档对照的横向空间；受 maxAux 钳制 + 主区保底） */
 function halfScreenWidth(): number {
@@ -179,7 +179,8 @@ export const useUiStore = defineStore('ui', () => {
   /** 窄屏判定（单源 narrowRef——响应式，跨界即翻转） */
   function isNarrow(): boolean { return narrowRef.value; }
 
-  /** 切换列表面板（窄屏 no-op——tab 栏语义走 openPrimaryPanel，抽屉已退役）。 */
+  /** 切换主侧边栏开合（窄屏 no-op——tab 栏语义走 openPrimaryPanel，抽屉已退役）。
+   *  openPrimaryPanel「点当前页 = 收起/展开」路径的内部分支，无独立外部入口。 */
   function togglePrimary() {
     if (isNarrow()) return;
     primaryVisible.value = !primaryVisible.value;
@@ -272,7 +273,6 @@ export const useUiStore = defineStore('ui', () => {
     pairView.value = { a, b };
     pushMainIfNarrow();
   }
-  function closePairView() { pairView.value = null; }
 
   /** 主区「子 Agent 会话」只读视角（运行跟踪面板子Agent 行进入）：
    *  与 pairView 互斥；显式导航互斥同 pair——进会话收矩阵（无返回联动）。
@@ -297,10 +297,8 @@ export const useUiStore = defineStore('ui', () => {
       openAux();
     }
   }
-  /** 展开右侧区域（切换条按钮「点非当选区」路径：选区置位 + 展开）。
-   *  无专属舒适宽的选区（prompt/tasks/timers/tracking/workspace 等）以
-   *  缺省宽 DEFAULT_AUX（280）展开——窄面板更舒服，主区保留最大空间；
-   *  用户拖调/意图铺开后沿用已调宽（auxWidth !== DEFAULT_AUX 即已调）。 */
+  /** 展开右侧区域（不换选区、不动宽度——选区切换与宽度重整走 openAuxPanel/
+   *  selectAuxPanel/applyAuxPanelWidth 单点；aux 意图消费面 watch 后展开用）。 */
   function openAux() {
     auxVisible.value = true;
   }
@@ -479,9 +477,9 @@ export const useUiStore = defineStore('ui', () => {
     revealIntentSeq, revealIntent, sendRevealIntent,
     previewFilePath,
     previewIntentFallback, previewIntentConversationId,
-    // 动作
-    isNarrow, togglePrimary, openPrimaryPanel, openTrackingView, closeTrackingView, auxOpenTracking, openTimers,
-    openPairView, closePairView, openSubagentView, closeSubagentView, exitOverlays,
+    // 动作（togglePrimary/closePairView 无独立外部入口，不入导出面——cr-332）
+    isNarrow, openPrimaryPanel, openTrackingView, closeTrackingView, auxOpenTracking, openTimers,
+    openPairView, openSubagentView, closeSubagentView, exitOverlays,
     toggleAux, openAux, selectAuxPanel,
     openAgentSettings, openGlobalSettings, closeSettings,
     openTokenUsage,

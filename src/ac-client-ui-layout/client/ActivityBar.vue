@@ -5,10 +5,10 @@
 // 单源住 ac-client-runtime（M29 P1-1 收敛）。
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
-import { Avatar, Icon, toastBusy, toastOk, toastError } from '@agentchat/webui-kit';
+import { Avatar, Icon } from '@agentchat/webui-kit';
 import { useActivityBarActions, type ActivityBarActionDef } from './activityBarActions.ts';
 import { useUnreadBadges } from 'ac-client-ui-conversation/client/useUnreadBadges.ts';
-import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
+import { createBackupRunner, checkUpdateOnce } from './systemActions.ts';
 
 const emit = defineEmits<{
   (e: 'openPrimaryPanel', panel: 'agents' | 'sessions' | 'tracking'): void;
@@ -53,27 +53,8 @@ const moreOpen = ref(false);
 const moreTriggerRef = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 const hasUpdate = ref(false);
-const backupBusy = ref(false);
-
-/** 备份反馈走全局 toast（原菜单内 FeedbackNotice 随「点菜单即关」消失——
- *  结果不可见的真 bug；同 key 'backup' 刷新：busy → ok/error 原位更新） */
-async function runBackup() {
-  if (backupBusy.value) return;
-  backupBusy.value = true;
-  toastBusy('正在备份…', { key: 'backup' });
-  try {
-    const d = await backupNow(clientCtx!.rpc);
-    if (d.status === 'ok') {
-      toastOk(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`, { key: 'backup' });
-    } else {
-      toastError(`备份失败：${d.error || '未知错误'}`, { key: 'backup' });
-    }
-  } catch (err: any) {
-    toastError(`备份失败：${err?.message || '网络错误'}`, { key: 'backup' });
-  } finally {
-    backupBusy.value = false;
-  }
-}
+// 备份执行器单源（systemActions.ts——与 MobileMoreSheet 同一实现，cr-332 并源）
+const backup = createBackupRunner(clientCtx?.rpc);
 
 let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -115,11 +96,7 @@ function runActivityBarAction(action: ActivityBarActionDef) {
 }
 
 onMounted(async () => {
-  try {
-    const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
-    const data = await fetchVersion(simulate, clientCtx!.rpc);
-    hasUpdate.value = data.hasUpdate || false;
-  } catch { /* ignore */ }
+  hasUpdate.value = await checkUpdateOnce(clientCtx?.rpc);
 });
 
 onUnmounted(() => {
@@ -136,9 +113,7 @@ onUnmounted(() => {
     <!-- Agent 列表（活动栏第一位：Agent + 群组名册）；徽章 = 名册行口径未读聚合
          （direct 私信 + 群聊；single 会话时名册不可见，Agent 私信仍经此按钮提示） -->
     <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'agents' }" aria-label="Agent 列表" title="Agent 列表" @click="emit('openPrimaryPanel', 'agents')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>
+      <Icon name="users" :size="22" />
       <span v-if="agentsUnreadTotal > 0" class="ui-avatar-badge unread-badge">{{ agentsUnreadLabel }}</span>
     </button>
 
@@ -158,12 +133,8 @@ onUnmounted(() => {
          本栏不再重复入口 -->
 
     <button class="activity-bar-btn" :aria-label="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'" :title="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'" @click="themeSvc?.toggleTheme()">
-      <svg v-if="themeSvc?.theme.value === 'light'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-      </svg>
-      <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-      </svg>
+      <Icon v-if="themeSvc?.theme.value === 'light'" name="sun" :size="22" />
+      <Icon v-else name="moon" :size="22" />
     </button>
 
     <!-- 活动栏插件动作（activity-bar:plugin-actions 数据席）：宿主决定位置（底部），插件只填空 -->
@@ -175,16 +146,12 @@ onUnmounted(() => {
     </button>
 
     <button class="activity-bar-btn" aria-label="全局设置" title="全局设置" @click="emit('openGlobalSettings')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
+      <Icon name="settings" :size="22" />
     </button>
 
     <div class="more-wrapper">
       <button ref="moreTriggerRef" class="activity-bar-btn more-trigger" :class="{ active: moreOpen }" aria-label="更多" @click="openMore">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
-        </svg>
+        <Icon name="more-horizontal" :size="22" />
         <span v-if="hasUpdate" class="more-dot" />
       </button>
     </div>
@@ -193,16 +160,12 @@ onUnmounted(() => {
   <Teleport to="body">
     <Transition name="more-fade">
       <div v-if="moreOpen" class="agentchat-more-menu" :style="menuStyle" @mouseenter="onMoreMouseEnter" @mouseleave="onMoreMouseLeave">
-        <button class="agentchat-more-item" @click="onItemClick(runBackup)" :disabled="backupBusy">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          <span>{{ backupBusy ? '备份中…' : '数据备份' }}</span>
+        <button class="agentchat-more-item" @click="onItemClick(backup.run)" :disabled="backup.busy.value">
+          <Icon name="download" :size="16" />
+          <span>{{ backup.busy.value ? '备份中…' : '数据备份' }}</span>
         </button>
         <button class="agentchat-more-item" @click="onItemClick(() => emit('showVersion'))">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
+          <Icon name="badge-check" :size="16" />
           <span>检查更新</span>
           <span v-if="hasUpdate" class="agentchat-more-item-dot" />
         </button>
@@ -256,10 +219,11 @@ onUnmounted(() => {
 .activity-bar-spacer { flex: 1; }
 .more-wrapper { position: relative; z-index: 10; }
 
-/* 更新可用提示点（非语义 attention 色，同上计数徽章例外族） */
+/* 更新可用提示点（cr-332：#ef4444 字面值归一 --err-status 图形档令牌——
+   状态点取 3.0 线状态色，与 .ms-dot 同步归一） */
 .more-dot {
   position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
-  background: #ef4444; border-radius: 50%; border: 1.5px solid var(--bg-nav); z-index: 1;
+  background: var(--err-status); border-radius: 50%; border: 1.5px solid var(--bg-nav); z-index: 1;
 }
 
 .more-fade-enter-active, .more-fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
@@ -284,10 +248,10 @@ onUnmounted(() => {
 .agentchat-more-item:hover { background: var(--role-hover-bg); }
 .agentchat-more-item svg { flex-shrink: 0; color: var(--text-3); }
 
-/* 菜单内同款提示点 */
+/* 菜单内同款提示点（--err-status 同 more-dot） */
 .agentchat-more-item-dot {
   margin-left: auto; width: 7px; height: 7px;
-  background: #ef4444; border-radius: 50%; flex-shrink: 0;
+  background: var(--err-status); border-radius: 50%; flex-shrink: 0;
 }
 .agentchat-more-item:disabled { opacity: 0.6; cursor: wait; }
 </style>
