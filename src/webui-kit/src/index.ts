@@ -54,6 +54,9 @@ export {
 
 export { default as StarAvatar } from './star/StarAvatar.vue';
 export { default as ThinkingIcon } from './icons/ThinkingIcon.vue';
+// ThoughtIcon（涟漪）：思考行图标位专用——与 ThinkingIcon 分工见该文件头注
+//（cr-327 曾误判重复归并，cr-333 恢复）
+export { default as ThoughtIcon } from './icons/ThoughtIcon.vue';
 
 // icons/icons.ts（iconMap/resolveIcon）不进本入口：~icons/* 是 unplugin-icons
 // 虚拟模块，仅 webui/vite 工具链有类型源；根 tsc 经包入口跟进会把

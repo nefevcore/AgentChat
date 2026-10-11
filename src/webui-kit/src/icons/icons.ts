@@ -160,6 +160,7 @@ import IconSiQwen from '~icons/simple-icons/qwen';
 import IconSiX from '~icons/simple-icons/x';
 
 import IconThinkingIcon from './ThinkingIcon.vue';
+import IconThoughtIcon from './ThoughtIcon.vue';
 import IconZai from './ZaiIcon.vue';
 
 /** 图标注册表：name → 组件 */
@@ -286,11 +287,13 @@ export const iconMap: Record<string, Component> = {
   circle: IconCircle,
   // 检查更新象形（见顶部 import 注释）
   'badge-check': IconBadgeCheck,
-  // 自绘专属象形（ThinkingIcon.vue）——折叠行图标位默认显示：
-  // 'chain' = 思维链脑电波（TurnDisplayItem 链栏/AssistantMessage 思考行
-  // 同图——cr-327 归并原 thought 涟漪别名）。hover 时由 chevron 接管。
+  // 自绘专属象形（两图分工系设计意图，非重复——cr-327 误归并，cr-333 恢复）：
+  // 'chain' = 思维链脑电波节点链（TurnDisplayItem 链栏——整链「思考过程」）；
+  // 'thought' = 思考涟漪（AssistantMessage 思考行——单步「已思考」，
+  //   中心焦点 + 扩散弧 = 单个思考的展开，见 ThoughtIcon.vue 头注）。
+  // hover 时均由 chevron 接管。
   chain: IconThinkingIcon,
-  thought: IconThinkingIcon,
+  thought: IconThoughtIcon,
   // 厂商品牌 logo（simple-icons，cr-203）：si- 前缀防与 lucide 撞名。
   // 消费：模型菜单 provider 图标（poolApi providerIconOf 映射，未命中回退 cpu）
   'si-openai': IconSiOpenai,
