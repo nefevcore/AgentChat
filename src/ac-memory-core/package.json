@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "记忆注入预算截断纯库（token 预算内保留尾部近期记忆 + 明确截断标记，代理对安全；零 cordis 依赖）",
+  "description": "记忆时间线渲染/解析纯库（条目头铸造/容错解析、快照确定性渲染〔token 预算内整数条截断 + 溢出注记〕、grep 过滤轴、delta 渲染；零 cordis 依赖）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

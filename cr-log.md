@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-357**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-358**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -375,3 +375,4 @@
 - 【cr-355 2026-10-12 ac-agent-presets-builtin 深审收口（#40）：五面注释漂移订正——创造模式增补后头注释/README 漏列；程序化「随 ac-run-code preset.ts 子行走」过时叙事全链清除（现为会话级开关 tc-programmatic 非预设身份，reserved.ts L103 背书，git 全史无该文件）；创造模式内置指南两处事实校准（manifest「必填项」→实际必填仅 name/version、entry 缺省 index.ts；模板指路 src/templates/tool-row 精确化）】
 - 【cr-356 2026-10-12 ac-conv-settings 深审精简：clear() 零生产消费收口（set 键级 null 同终态可达）；set 签名 boolean 死通道收窄（wire 零生产者，web-api 镜像同步）；events/头注/description 三处漂移订正（事件实订阅面=零、行 options 非 config、全键口径）】
 - 【cr-357 2026-10-12 ac-system-prompt 深审收口（审计清单#42，P4 装配行）：注释漂移四订正——①L42 空导入注释宣称 LoopSender 系幽灵词汇（全仓唯一命中即该注释自身，信封字段实名 sender）；②single 字段 JSDoc/③apply 侧注释/④extension fields 描述三处仍持 2026-09-21 注入轴重构前旧口径（system_restart 受形态门控/工具已随形态面裁剪——实际门控已撤、指引随工具在场注入，头注与测试双锁定）——对齐现行事实。删/拆双否：分块装配器单文件 596 行为域 owning 真实复杂度（12 指引条目逐条事故背书+整段措辞锁定），消费面全活跃（yml/TREE/agent-loop 契约注释/backlog 载引），依赖声明全正位（ac-agents 双列=fs-search/session-query 同款惯例）】
+- 【cr-358 2026-10-13 ac-memory 深审收口：agent-loop 依赖归位 devDeps + 注释漂移订正三处（迁移双重 JSDoc/内嵌措辞/铸造双重 JSDoc）+ core 包描述刷新】

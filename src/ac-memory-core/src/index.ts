@@ -132,16 +132,6 @@ export function parseTimeline(text: string): MemoryEntry[] {
 }
 
 /**
- * 铸造条目行（memory_write 服务写口/测试共用）：头注释 + 正文，
- * 追加到文件尾的完整文本块（含首尾换行对齐）。origin/at/seq 由宿主
- * 铸造，Agent 不接触。
- *
- * 条目格式约定（log 形态）：正文行首由宿主铸 `[YYYY-MM-DD] ` 日期段；
- * 标签段 `[tag|tag]` 紧随其后由 Agent 直接写进正文（标签唯一通道，parse
- * 侧提取为轴）。正文在时间线里自描述，渲染/人工阅读不依赖头注释。
- * Agent 传入正文若已带日期段则去重（标签段保留）。
- */
-/**
  * 正文行首前缀 `[date] `——日期段由宿主铸造；tags 段由 Agent 直接写进正文
  * （`[date] [tag|tag] 正文`——前缀即标签通道，parse 侧提取为轴）。
  */
@@ -154,6 +144,16 @@ export function stripEntryPrefix(content: string): string {
   return content.replace(/^\[\d{4}-\d{2}-\d{2}\]\s?/, "");
 }
 
+/**
+ * 铸造条目行（memory_write 服务写口/测试共用）：头注释 + 正文，
+ * 追加到文件尾的完整文本块（含首尾换行对齐）。origin/at 由宿主
+ * 铸造，Agent 不接触。
+ *
+ * 条目格式约定（log 形态）：正文行首由宿主铸 `[YYYY-MM-DD] ` 日期段；
+ * 标签段 `[tag|tag]` 紧随其后由 Agent 直接写进正文（标签唯一通道，parse
+ * 侧提取为轴）。正文在时间线里自描述，渲染/人工阅读不依赖头注释。
+ * Agent 传入正文若已带日期段则去重（标签段保留）。
+ */
 export function mintEntry(input: {
   at: string;
   origin: string;

@@ -224,11 +224,11 @@ export class MemoryService extends Service {
   // ============================================================
 
   /**
-   * 存量桶迁移：逐 Agent 投递迁移 run（内嵌旧记忆内容，零路径残留）；
+   * 存量桶迁移（boot 延迟触发；public 供测试/手动重发）：逐 Agent 投递
+   * 迁移 run（指路提示词——不内嵌旧记忆内容，见 migratePrompt 裁决注）；
    * marker 落盘幂等；旧桶文件保留不删（供回查），不再注入。前置检查：
    * 无 memory tag → 跳过并告警（memory_write 不可见，迁移必然失败）。
    */
-  /** 存量桶迁移（boot 延迟触发；public 供测试/手动重发） */
   async migrateLegacyBuckets(): Promise<void> {
     const agents = this.ctx.get('agents', false) as
       | { list(): Array<Record<string, unknown> & { id: string; tags?: string[]; preset?: boolean }> }
@@ -294,7 +294,7 @@ export class MemoryService extends Service {
    * 读取旧桶全部记忆文件（files/<agentId>/memory/*.md 除 timeline.md）。
    * 桶键正向判定：对键含 ~（1v1/自会话/singles 重定向）/ 群 id 约定 g- 前缀 /
    * 缺省裸 agentId 键——其余同名目录工作文件（TODO/DONE/README/MEMORY/
-   * DONE-archive-* 等）不是记忆桶，不进迁移提示词。
+   * DONE-archive-* 等）不是记忆桶，不进迁移（提示词只指路，Agent 自己读）。
    */
   private readLegacyBuckets(agentId: string): Array<{ key: string; text: string }> {
     const dir = path.dirname(this.timelineFileOf(agentId));
