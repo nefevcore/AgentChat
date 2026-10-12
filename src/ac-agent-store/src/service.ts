@@ -3,8 +3,9 @@
 //
 // ADR-5：Agent 数据目录（<root>/agents/<id>/）的一切写入归本服务——
 // 消灭 src 的跨域越权写（教训：timer 直写 config.json、read_agent_info
-// 直读 memory 文件）。其他域（M12 ac-timer 的条目、M14 ac-skill 清单）
-// 一律经 saveEntry/readEntry 走本服务，不触碰文件。
+// 直读 memory 文件）。其他域（ac-timer 的 timer/timer-archive 条目、
+// ac-goal/ac-todo 的桶清单）一律经 saveEntry/readEntry 走本服务，
+// 不触碰文件。
 //
 // 目录布局（ADR-5：会话键统一 conversationId 思想的同款推广——
 // 目录名即 Agent id，无排序/前缀魔法）：
@@ -20,12 +21,17 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import type { AgentConfig } from 'ac-agents';
 
-/** 原子写 JSON：临时文件 + rename（各 owning service 自持写法——不跨域引实现） */
-function writeJsonAtomic(file: string, data: unknown): void {
+/** 原子写文本：临时文件 + rename（各 owning service 自持写法——不跨域引实现） */
+function writeTextAtomic(file: string, text: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(tmp, text, 'utf-8');
   fs.renameSync(tmp, file);
+}
+
+/** 原子写 JSON（统一尾换行 + 2 空格缩进——saveAgent/saveEntry 共用口径） */
+function writeJsonAtomic(file: string, data: unknown): void {
+  writeTextAtomic(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 /** 行配置 */
@@ -41,11 +47,17 @@ function assertEntryKey(key: string): void {
   }
 }
 
-/** Agent id 校验：禁路径分隔/遍历 */
+/** Agent id 校验：禁路径分隔/遍历/~（对键桶词法——与 ac-agents
+ * assertAgentId 同口径，各 owning 域自持实现；~ 见 M19 承重墙） */
 function assertAgentId(id: string): void {
   if (!id || id.includes('/') || id.includes('\\') || id.includes('..') || id.includes('~')) {
-    throw new Error(`agent id "${id}" 非法（禁路径分隔/遍历字符）`);
+    throw new Error(`agent id "${id}" 非法（禁路径分隔/遍历/~ 字符）`);
   }
+}
+
+/** 非抛错版（agentIds 目录名过滤用——与 assertAgentId 同口径） */
+function isLegalAgentId(id: string): boolean {
+  return !!id && !id.includes('/') && !id.includes('\\') && !id.includes('..') && !id.includes('~');
 }
 
 /** 文档名校验：单词 .md 文件名（AGENT.md/SYSTEM.md 等），禁路径分隔/遍历 */
@@ -125,12 +137,13 @@ export class AgentStoreService extends Service {
       .filter((c): c is AgentConfig => c !== undefined);
   }
 
-  /** 全部 Agent id（有目录即算，config 损坏的 id 也列出供诊断） */
+  /** 全部 Agent id（有目录即算，config 损坏的 id 也列出供诊断；
+   * 外部污染的非法词法目录名跳过——盘面词法防线，agentDir 对其抛错）。 */
   agentIds(): string[] {
     try {
       return fs
         .readdirSync(this.agentsDir, { withFileTypes: true })
-        .filter((e) => e.isDirectory())
+        .filter((e) => e.isDirectory() && isLegalAgentId(e.name))
         .map((e) => e.name);
     } catch {
       return []; // 目录不存在
@@ -192,11 +205,7 @@ export class AgentStoreService extends Service {
    */
   saveDoc(agentId: string, name: string, content: string): void {
     assertDocName(name);
-    const file = path.join(this.agentDir(agentId), name);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmp, content.endsWith('\n') ? content : `${content}\n`, 'utf-8');
-    fs.renameSync(tmp, file);
+    writeTextAtomic(path.join(this.agentDir(agentId), name), content.endsWith('\n') ? content : `${content}\n`);
   }
 
   /** 读文档（缺失 → undefined；内容原样含 frontmatter） */
@@ -222,14 +231,16 @@ export class AgentStoreService extends Service {
 
   // ---- 头像（M17-E：Agent 数据目录内二进制；本服务 owning） ----
 
-  /** 存头像（<agentDir>/avatar<ext>；写新前清理旧扩展名残留） */
+  /** 存头像（<agentDir>/avatar<ext>，ext 归一小写；写新前清理旧扩展名残留） */
   saveAvatar(agentId: string, data: Buffer, ext: string): string {
-    const safe = /^\.(png|jpe?g|gif|webp|svg)$/i.exec(ext)?.[0] ?? '.png';
+    const safe = /^\.(png|jpe?g|gif|webp|svg)$/i.exec(ext)?.[0].toLowerCase() ?? '.png';
     const dir = this.agentDir(agentId);
     fs.mkdirSync(dir, { recursive: true });
-    for (const old of AVATAR_EXTS) {
-      const f = path.join(dir, `avatar${old}`);
-      if (old !== safe && fs.existsSync(f)) fs.rmSync(f);
+    // 清理面大小写不敏感（avatar.PNG 历史残留也回收——探测/清理统一小写口径）
+    for (const old of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+      if (/^avatar\.(png|jpe?g|gif|webp|svg)$/i.test(old) && old.toLowerCase() !== `avatar${safe}`) {
+        fs.rmSync(path.join(dir, old));
+      }
     }
     const file = path.join(dir, `avatar${safe}`);
     fs.writeFileSync(file, data);

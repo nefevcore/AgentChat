@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agent 数据目录 owning 服务（ctx.agentStore）：<root>/agents/<id>/config.json + 机制数据 entries（timer/skills 等）——消灭跨域越权写（ADR-5）",
+  "description": "Agent 数据目录 owning 服务（ctx.agentStore）：<root>/agents/<id>/config.json + 机制数据 entries（timer/goal/todo 桶清单等）+ 文档/头像实体——消灭跨域越权写（ADR-5）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

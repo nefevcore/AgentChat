@@ -3,7 +3,9 @@
 //
 // 无 inject（零运行时依赖；AgentConfig 仅 type-import）。
 // 目录扫描物化进 ctx.agents 的是姊妹行 ac-agents-dir（职责分离）。
-// config（{ root? }）经 loader/bootTree 传入 → 转构造参数。
+// config（{ root? }）→ 构造参数：M15 数据根统一 AGENTCHAT_DATA_ROOT 后
+// 出厂装配（yml/TREE）不传参；root 现役面 = 测试注入独立数据根
+// （数据根隔离红线：boot 拉起的第二 host 实例须避开主进程 data 目录）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { AgentStoreService, type AgentStoreRowOptions } from './service.ts';
