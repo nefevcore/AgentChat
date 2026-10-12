@@ -72,6 +72,11 @@ describe('codex adapter', () => {
     });
   });
 
+  it('reasoning → reasoning 事件（思考流直播）', () => {
+    const o = parseJsonlLine(JSON.stringify({ type: 'item.completed', item: { type: 'reasoning', content: [{ type: 'output_text', text: '思考中' }] } }))!;
+    expect(codexAdapter.lineOutcome(o)).toEqual({ ok: true, event: { kind: 'reasoning', text: '思考中' } });
+  });
+
   it('turn.failed → terminal error', () => {
     const o = parseJsonlLine(JSON.stringify({ type: 'turn.failed', error: { message: 'quota' } }))!;
     expect((codexAdapter.lineOutcome(o) as any).terminal).toMatchObject({ finish: 'error' });
@@ -91,6 +96,28 @@ describe('codex adapter', () => {
       .toEqual(['-p', '--output-format', 'stream-json', '--verbose', '--resume', 's-1', '--permission-mode', 'acceptEdits']);
     expect(codexAdapter.buildArgs({ prompt: 'p', cwd: '/w', resumeKey: 'th-1' }))
       .toEqual(['exec', 'resume', 'th-1', '--json', '-C', '/w', '--sandbox', 'workspace-write']);
+  });
+});
+
+describe('终稿累积与凭据链', () => {
+  it('codex accrue：delta 入累积表（gateway 空稿回填用）；claude 无 accrue', () => {
+    const d: string[] = [];
+    codexAdapter.accrue?.({ kind: 'delta', text: 'A' }, d);
+    codexAdapter.accrue?.({ kind: 'reasoning', text: 'R' }, d);
+    codexAdapter.accrue?.({ kind: 'delta', text: 'B' }, d);
+    expect(d).toEqual(['A', 'B']);
+    expect(claudeCodeAdapter.accrue).toBeUndefined();
+  });
+
+  it('claude result 终态不带 runKey（session_id 只在 system init 行——凭据经 started 捕获回填）', () => {
+    const o = parseJsonlLine(JSON.stringify({ type: 'result', result: 'ok', is_error: false }))!;
+    expect((claudeCodeAdapter.lineOutcome(o) as { terminal?: { runKey?: string } }).terminal?.runKey).toBeUndefined();
+  });
+
+  it('delta 不预截断（全文直播，截断归消费面）', () => {
+    const long = 'x'.repeat(600);
+    const o = parseJsonlLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: long }] } }))!;
+    expect((claudeCodeAdapter.lineOutcome(o) as { event?: { text?: string } }).event?.text?.length).toBe(600);
   });
 });
 

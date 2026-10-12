@@ -3,9 +3,10 @@
 //
 // 两家 JSONL 流 → HarnessEvent 归一形状（工具卡直播与结果 notices
 // 共用）。归一规则：claude assistant text 块 / codex agent_message →
-// delta；工具执行与文件变更 → notice；终态 → done（终稿 + usage 归一，
-// token 两家口径差异保留 optional）。损坏行/未知事件 → 丢弃 + 计数
-// （stats.unknownEvents——流不中断，前向兼容 D7）。
+// delta；codex reasoning → reasoning；工具执行与文件变更 → notice；
+// 终态不走事件（terminal facts 直供 finalize 收敛，usage 两家口径差异
+// 保留 optional）。损坏行/未知事件 → 丢弃 + 计数（stats.unknownEvents
+// ——流不中断，前向兼容 D7）。
 // ============================================================
 
 /** 归一事件流（claude-code / codex JSONL 的公共形状） */
@@ -13,8 +14,7 @@ export type HarnessEvent =
   | { kind: 'started'; runKey?: string; model?: string }
   | { kind: 'delta'; text: string }
   | { kind: 'reasoning'; text: string }
-  | { kind: 'notice'; label: string; detail?: string }
-  | { kind: 'done'; finish: 'stop' | 'error'; summary: string };
+  | { kind: 'notice'; label: string; detail?: string };
 
 /** 归一 usage（口径差异保留 optional——如实透传不折算） */
 export interface HarnessUsage {

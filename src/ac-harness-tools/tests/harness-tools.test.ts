@@ -104,5 +104,8 @@ describe('ac-harness-tools run_harness', () => {
   });
 
   // agent 维互斥与看门狗的 exec 层用例住 core 的 gateway.test.ts（argv 可控：node -e 慢命令）；
-  // 行级只测注册/门禁/键路径（本文件已覆盖）。真并发占线由集成档补。
+  // 续接凭据链同样锁在 core（gateway.test.ts：started 捕获回填；adapters.test.ts：claude 终态
+  // 不带 runKey + codex accrue；sessions.test.ts：映射表语义）——行级 argv 由适配器拼装不可
+  // 注入（假 CLI 死路，本文件头注），故 L207 recordSession 接线靠类型与三段覆盖守护。
+  // 真并发占线由集成档补（AGENTCHAT_HARNESS_E2E=1）。
 });

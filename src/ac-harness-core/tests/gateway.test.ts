@@ -20,6 +20,23 @@ const NODE_ADAPTER: HarnessAdapter = {
   },
 };
 
+/** 假适配器（终稿/凭据链形态）：started 带 id、delta 可累积、end 终态 */
+const RUNKEY_ADAPTER: HarnessAdapter = {
+  name: 'claude-code',
+  buildArgs: (req) => ['-e', (req as unknown as { script?: string }).script ?? ''],
+  lineOutcome: (o) => {
+    if (o.type === 'start') return { ok: true, event: { kind: 'started', runKey: String(o.id), model: 'm1' } };
+    if (o.type === 'text') return { ok: true, event: { kind: 'delta', text: String(o.text) } };
+    if (o.type === 'end') return { ok: true, terminal: { finish: 'stop', text: String(o.text ?? '') } };
+    return { ok: false };
+  },
+  accrue: (e, deltas) => { if (e.kind === 'delta') deltas.push(e.text); },
+  finalize: (facts, code) => {
+    const finish = facts?.finish ?? (code === 0 ? 'stop' : 'error');
+    return { ok: finish === 'stop', text: facts?.text ?? '', finish, ...(facts?.runKey !== undefined ? { runKey: facts.runKey } : {}) };
+  },
+};
+
 describe('runGateway 编排', () => {
   it('JSONL 行流归一 + stdin 传递 + 终态收敛', async () => {
     const script = [
@@ -72,6 +89,34 @@ describe('runGateway 编排', () => {
     expect(r.finish).toBe('error');
     expect(r.text).toContain('definitely-missing-cmd-xyz');
     expect(r.text).toContain('安装');
+  });
+
+  it('续接凭据链（cr-345）：started 会话 id 捕获 → terminal 不带时回填 runKey', async () => {
+    const script = [
+      "console.log(JSON.stringify({type:'start',id:'sess-7'}));",
+      "console.log(JSON.stringify({type:'end',text:'终稿'}));",
+    ].join('\n');
+    const r = await runGateway(RUNKEY_ADAPTER, process.execPath, {
+      prompt: '', cwd: process.cwd(), script,
+    } as never);
+    expect(r.finish).toBe('stop');
+    expect(r.runKey).toBe('sess-7'); // 终态行不带 id——回填自 started 捕获
+    expect(r.text).toBe('终稿');
+  });
+
+  it('codex 终稿回填：terminal 空稿 + delta 已累积 → 末条即终稿', async () => {
+    const script = [
+      "console.log(JSON.stringify({type:'start',id:'th-1'}));",
+      "console.log(JSON.stringify({type:'text',text:'第一段'}));",
+      "console.log(JSON.stringify({type:'text',text:'第二段'}));",
+      "console.log(JSON.stringify({type:'end'}));",
+    ].join('\n');
+    const r = await runGateway(RUNKEY_ADAPTER, process.execPath, {
+      prompt: '', cwd: process.cwd(), script,
+    } as never);
+    expect(r.finish).toBe('stop');
+    expect(r.text).toBe('第二段'); // codex 语义：agent_message 整段全文，末条即终稿
+    expect(r.runKey).toBe('th-1');
   });
 
   it('未知事件行丢弃计数 + 损坏行不中断流', async () => {

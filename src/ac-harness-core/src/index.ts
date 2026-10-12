@@ -10,7 +10,7 @@
 // 纯库可独立单测（JSONL fixture，零真子进程）。
 // ============================================================
 export type { HarnessEvent, HarnessUsage, LineOutcome, TerminalFacts } from './events.ts';
-export { clip, parseJsonlLine, str, num } from './events.ts';
+export { parseJsonlLine } from './events.ts';
 export type { HarnessRunRequest, HarnessRunResult, HarnessAdapter, HarnessRunHooks } from './gateway.ts';
-export { runGateway, probeGateway } from './gateway.ts';
+export { runGateway } from './gateway.ts';
 export { claudeCodeAdapter, codexAdapter } from './adapters.ts';

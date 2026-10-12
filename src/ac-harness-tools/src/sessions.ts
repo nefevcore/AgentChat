@@ -5,6 +5,7 @@
 // 语义：run 成功（finish=stop）即记——同会话下次委托默认续接（resume=auto）；
 // 失败/超时/中止不覆盖（上次成功凭据保留，模型可显式 resume=new 重开）。
 // 原子写（tmp+rename 同仓惯例）；读失败/损坏 = 空表（宽松降级——续接是优化不是承诺）。
+// agentDir 恒为基准根（行侧 base，cr-345）：显式 cwd 不改映射表位置——键位恒定。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';

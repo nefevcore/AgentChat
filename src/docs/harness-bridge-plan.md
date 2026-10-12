@@ -1,6 +1,6 @@
 # Harness 桥接（方案 B）：本地 CLI harness 借力通道
 
-> 状态：**P1+P2 已实施**（cr-278/279——两包 + harnessTier 实验键 + 会话续接；P3 观察中）。用户场景：本机装有 Claude Code /
+> 状态：**P1+P2 已实施**（cr-278/279——两包 + harnessTier 实验键 + 会话续接；P3 观察中；cr-345 修复 P2 续接/codex 终稿两条链路并退役 probe 面）。用户场景：本机装有 Claude Code /
 > Codex / DeepSeek Harness 等 harness 应用，希望在 AgentChat 会话中直接
 > 借力这些应用的能力。经三轮方案对比（§二），裁决先行落地**方案 B
 > （harness 工具行 + 委托子代理）**；provider 形态（方案 A）推后到
@@ -201,6 +201,8 @@ run_code trace 时间线形态）。
 
 ### 5.4 委托子代理预设（ac-harness-tools 同包）
 
+> **实施现状**：子代理预设未随 P1 落地（cr-305 移除 `__harness__` 预设子行时裁决——harnessTier 实验键已覆盖转述协议形态，预设层多余）；「其他 Agent 取用」经 tags 自取 run_harness 成立（D10 + grants 通路），D1「同包两件」收敛为工具单件。
+
 - `ctx.agents.register({ id: 'harness', label: 'harness 委托', tools: [],
   tags: ['harness'], system: <转述协议>, settings: { harness: { enabled: true } }, ... })`
   ——预设行形态（对齐 ac-agent-presets-builtin 先例）。
@@ -275,7 +277,8 @@ run_harness 归入**实验性工具**：经 conv-settings 注册制实验键出�
 ## 六、配置形状
 
 ```jsonc
-// settings.harness（全局默认层；per-Agent 差异层同键收窄）
+// 行配置（cordis.yml harness-tools 行 options——运行面参数的真实家；settings 面
+// 无配置项，cr-345 撤 fields：maxConcurrent/defaultTimeoutMs/gateways 不走 config/set）
 {
   "enabled": true,
   "maxConcurrent": 2,
@@ -338,9 +341,10 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 
 ## 十、测试计划
 
-- **core 单测**（JSONL fixture 矩阵，零 spawn）：claude/codex 事件样本 → 归一
-  断言（delta/notice/done 映射、损坏行容错、usage 归一、session/thread_id
-  提取）；probe mock；stdin 组装。
+- **core 单测**（JSONL fixture 矩阵 + node 真子进程假适配器）：claude/codex
+  事件样本 → 归一断言（delta/notice/终态映射、损坏行容错、usage 归一、
+  started 会话 id 捕获回填、codex 空稿终稿回填）；stdin 组装。（probe 面
+  已随 cr-345 退役——D8 装探意图由 spawn fail-loud 错误面达成，零 mock）
 - **行测试**（mock gateway 注入，boot 脚手架同 ac-llm/tests 姿势）：工具
   注册四轴（requiredTags 门禁 / needPermission 生效）；权限轴路径（有人桶
   询问 / 无人桶拒绝 / 专属空间免询问）；并发互斥与占线报忙；超时 kill /

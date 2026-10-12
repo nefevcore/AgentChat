@@ -12,7 +12,7 @@
 //     / turn.failed。
 // 未知事件行丢弃 + 计数（前向兼容）。字段缺失 fail-loud。
 // ============================================================
-import type { HarnessAdapter } from './gateway.ts';
+import type { HarnessAdapter, HarnessRunResult } from './gateway.ts';
 import { clip, num, str, type LineOutcome, type TerminalFacts } from './events.ts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -85,7 +85,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
         return { ok: true, event: { kind: 'notice', label: `工具 ${tool}` } };
       }
       if (text !== undefined) {
-        return { ok: true, event: { kind: 'delta', text: clip(text, 400) } };
+        return { ok: true, event: { kind: 'delta', text } };
       }
       return { ok: false };
     }
@@ -107,25 +107,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
     return { ok: false };
   },
   finalize(factsIn, exitCode, stderrTail) {
-    const facts = factsIn ?? { finish: exitCode === 0 ? 'stop' : 'error', text: '' };
-    if (facts.text === '' && exitCode !== 0) {
-      return {
-        ok: false,
-        text: `claude CLI 非零退出（code=${exitCode}）${stderrTail ? '：' + clip(stderrTail, 400) : ''}`,
-        finish: 'error',
-        ...(facts.runKey !== undefined ? { runKey: facts.runKey } : {}),
-        ...(facts.usage !== undefined ? { usage: facts.usage } : {}),
-        ...(facts.stats !== undefined ? { stats: facts.stats } : {}),
-      };
-    }
-    return {
-      ok: facts.finish === 'stop',
-      text: facts.text !== '' ? facts.text : '（harness 无终稿输出）',
-      finish: facts.finish,
-      ...(facts.runKey !== undefined ? { runKey: facts.runKey } : {}),
-      ...(facts.usage !== undefined ? { usage: facts.usage } : {}),
-      ...(facts.stats !== undefined ? { stats: facts.stats } : {}),
-    };
+    return finalizeRun('claude CLI', factsIn, exitCode, stderrTail);
   },
 };
 
@@ -139,7 +121,7 @@ function codexItemOutcome(item: UnknownRecord): LineOutcome {
   if (t === 'agent_message' || t === 'reasoning') {
     const text = listToText(item.content) ?? str(item.text);
     if (text === undefined) return { ok: false };
-    return { ok: true, event: { kind: t === 'reasoning' ? 'reasoning' : 'delta', text: clip(text, 400) } };
+    return { ok: true, event: { kind: t === 'reasoning' ? 'reasoning' : 'delta', text } };
   }
   if (t === 'command_execution' || t === 'file_change' || t === 'mcp_tool_call' || t === 'web_search' || t === 'todo_list') {
     const label = t === 'command_execution' ? `命令 ${str(item.command) ?? str(item.aggregated_output) ?? ''}`
@@ -196,24 +178,37 @@ export const codexAdapter: HarnessAdapter = {
     }
     return { ok: false };
   },
+  // turn.completed 终态无终稿文本（"text: ''——终稿在 item.completed 里累积"），
+  // accrue 记 agent_message 全文（整段非增量），gateway 在空稿终态用末条回填
+  accrue(event, deltas) {
+    if (event.kind === 'delta') deltas.push(event.text);
+  },
   finalize(factsIn, exitCode, stderrTail) {
-    const facts = factsIn ?? { finish: exitCode === 0 ? 'stop' : 'error', text: '' };
-    if (facts.text === '' && exitCode !== 0) {
-      return {
-        ok: false,
-        text: `codex CLI 非零退出（code=${exitCode}）${stderrTail ? '：' + clip(stderrTail, 400) : ''}`,
-        finish: 'error',
-        ...(facts.usage !== undefined ? { usage: facts.usage } : {}),
-        ...(facts.stats !== undefined ? { stats: facts.stats } : {}),
-      };
-    }
+    return finalizeRun('codex CLI', factsIn, exitCode, stderrTail);
+  },
+};
+
+/** 终态收敛（两家族共用，cr-345 并源——原两份已走散：codex 非零退出缺 runKey）：
+ *  非零退出且无终稿 → 错误形态带 stderr 尾；其余按 terminal 事实组装（空稿
+ *  给可读说明）。runKey/usage/stats 如实透传（续接凭据链）。 */
+function finalizeRun(who: string, factsIn: TerminalFacts | undefined, exitCode: number | null, stderrTail: string): HarnessRunResult {
+  const facts = factsIn ?? { finish: exitCode === 0 ? 'stop' : 'error', text: '' };
+  if (facts.text === '' && exitCode !== 0) {
     return {
-      ok: facts.finish === 'stop',
-      text: facts.text !== '' ? facts.text : '（harness 无终稿输出）',
-      finish: facts.finish,
+      ok: false,
+      text: `${who} 非零退出（code=${exitCode}）${stderrTail ? '：' + clip(stderrTail, 400) : ''}`,
+      finish: 'error',
       ...(facts.runKey !== undefined ? { runKey: facts.runKey } : {}),
       ...(facts.usage !== undefined ? { usage: facts.usage } : {}),
       ...(facts.stats !== undefined ? { stats: facts.stats } : {}),
     };
-  },
-};
+  }
+  return {
+    ok: facts.finish === 'stop',
+    text: facts.text !== '' ? facts.text : '（harness 无终稿输出）',
+    finish: facts.finish,
+    ...(facts.runKey !== undefined ? { runKey: facts.runKey } : {}),
+    ...(facts.usage !== undefined ? { usage: facts.usage } : {}),
+    ...(facts.stats !== undefined ? { stats: facts.stats } : {}),
+  };
+}

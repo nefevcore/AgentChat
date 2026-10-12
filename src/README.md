@@ -612,11 +612,13 @@ src/
 │                            GitHub 兼容自建台）
 ├── ac-harness-core/        本地 CLI harness 委托面纯库（零 cordis）：exec 编排
 │                            （spawn shell:false/stdin 传 prompt/JSONL 行流/
-│                            看门狗/中止树杀 Windows taskkill /T）+ claude-code /
-│                            codex 两适配器（文档化 exec JSONL 面——stream-json /
-│                            exec --json；未知事件丢弃计数前向兼容）+ 事件归一
-│                            （started/delta/reasoning/notice/done）——harness
-│                            桥接方案 B（docs/harness-bridge-plan.md）算法半边
+│                            看门狗/中止树杀 Windows taskkill /T；started 会话
+│                            id 捕获回填续接凭据链 + codex 空稿终稿回填——
+│                            cr-345）+ claude-code / codex 两适配器（文档化
+│                            exec JSONL 面——stream-json / exec --json；未知
+│                            事件丢弃计数前向兼容；终态收敛并源）+ 事件归一
+│                            （started/delta/reasoning/notice——终态不走事件）
+│                            ——harness 桥接方案 B 算法半边
 ├── ac-harness-tools/       harness 委托行：run_harness（把完整任务委托给本地
 │                            Claude Code/Codex CLI——订阅额度复用零 API key；
 │                            requiredTags ['harness'] + needPermission + 沙箱两档
@@ -626,7 +628,8 @@ src/
 │                            会话续接 P2（sessions.ts：Agent 专属空间
 │                            harness/sessions.json 映射 conversationId→runKey，
 │                            成功即记/失败保留；resume auto/new——claude
-│                            --resume、codex exec resume）
+│                            --resume、codex exec resume；凭据链与键位恒基准
+│                            修复 cr-345，映射表不随显式 cwd 漂移）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（32 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+

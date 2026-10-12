@@ -8,8 +8,9 @@
 //
 // 本模块住跨家共用编排：spawn、stdin 写入、行流解析、看门狗、中止
 // （kill 子树——Windows taskkill /T 递斩孙进程，posix 进程组）、finish
-// 四态收敛（stop/error/timeout/aborted 如实回——模型可读可重试决策）。
-// 家族差异（命令行拼装 + 每行事件归一）由各 adapter 提供。
+// 四态收敛（stop/error/timeout/aborted 如实回——模型可读可重试决策）、
+// started 会话 id 捕获（续接凭据链）与流式文本累积回填。
+// 家族差异（命令行拼装 + 每行事件归一 + 终稿累积策略）由各 adapter 提供。
 // ============================================================
 import { spawn, type ChildProcess } from 'node:child_process';
 import { parseJsonlLine } from './events.ts';
@@ -56,6 +57,12 @@ export interface HarnessAdapter {
   lineOutcome(obj: Record<string, unknown>): LineOutcome;
   /** 进程自然退出后的终稿组装（exitCode + 归一到的终态事实） */
   finalize(facts: TerminalFacts | undefined, exitCode: number | null, stderrTail: string): HarnessRunResult;
+  /**
+   * 流式文本累积策略（可选，codex 语义：agent_message 是整段全文、末条即
+   * 终稿——terminal text 为空时由 gateway 用末条回填）。claude 无此语义
+   * （result 行自带终稿），不实现。
+   */
+  accrue?(event: HarnessEvent, deltas: string[]): void;
 }
 
 export interface HarnessRunHooks {
@@ -90,6 +97,10 @@ export function runGateway(
     let settled = false;
     let unknownEvents = 0;
     let terminal: TerminalFacts | undefined;
+    // started 事件携带的会话 id（claude session_id / codex thread_id）——两家
+    // terminal 都不带，续接凭据的唯一来源（行侧 recordSession 靠它，cr-345）
+    let startedRunKey: string | undefined;
+    const deltas: string[] = [];
     let stderrTail = '';
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
@@ -161,43 +172,27 @@ export function runGateway(
         terminal = outcome.terminal;
         return;
       }
+      if (outcome.event.kind === 'started' && outcome.event.runKey !== undefined) {
+        startedRunKey = outcome.event.runKey;
+      }
+      adapter.accrue?.(outcome.event, deltas);
       hooks.onEvent?.(outcome.event);
     }
 
     child.on('error', (err) => {
       // spawn 失败（未装/不在 PATH）——fail-loud 带安装提示
-      settle({ ok: false, text: `无法启动 "${command}"（${adapter.name}）：${err.message}——请确认本机已安装并在 PATH，或在 settings[harness].gateways 配置全路径`, finish: 'error' });
+      settle({ ok: false, text: `无法启动 "${command}"（${adapter.name}）：${err.message}——请确认本机已安装并在 PATH，或在行配置 harness-tools.gateways 配置全路径`, finish: 'error' });
     });
     child.on('close', (code) => {
       const stats = { unknownEvents, ...(stderrTail ? { stderrTail } : {}) };
       const merged: TerminalFacts = terminal
         ? { ...terminal, stats: { ...stats, ...terminal.stats } }
         : { finish: code === 0 ? 'stop' : 'error', text: '', stats };
+      // 续接凭据回填：terminal 不带会话 id 时取 started 事件捕获值
+      if (merged.runKey === undefined && startedRunKey !== undefined) merged.runKey = startedRunKey;
+      // codex 终稿回填：terminal 空稿 + 已累积 agent_message → 末条即终稿
+      if (merged.text === '' && deltas.length > 0) merged.text = deltas[deltas.length - 1];
       settle(adapter.finalize(merged, code, stderrBuf));
     });
-  });
-}
-
-/** probe 轻探测：`<command> --version`（0.5s 超时；未装如实报错） */
-export function probeGateway(command: string, label: string): Promise<{ ok: boolean; version?: string; hint?: string }> {
-  return new Promise((resolve) => {
-    let done = false;
-    let out = '';
-    const finish = (r: { ok: boolean; version?: string; hint?: string }) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(r);
-    };
-    const timer = setTimeout(() => finish({ ok: false, hint: `${label} --version 探测超时（0.5s）` }), 500);
-    try {
-      const child = spawn(command, ['--version'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], shell: false });
-      child.stdout.setEncoding('utf-8');
-      child.stdout.on('data', (c: string) => { out += c; });
-      child.on('error', (err) => finish({ ok: false, hint: `无法启动 "${command}"：${err.message}（未安装或不在 PATH？）` }));
-      child.on('close', () => finish({ ok: true, version: out.trim().split(/\r?\n/)[0] || undefined }));
-    } catch (err) {
-      finish({ ok: false, hint: String(err) });
-    }
   });
 }

@@ -11,7 +11,10 @@
 //   · needPermission（真实子进程 + 外部模型计费——base 档审批）
 //   · 会话开关 harnessTier（conv-settings 实验性组，cr-277：缺省 enabled
 //     ——实验性=发现入口归属非能力开关；disabled = execute 自查拒绝，
-//     issueSubmit 同款口径）
+//     issueSubmit 同款口径）。
+//   · 续接凭据链（cr-345 修复）：gateway 捕获 started 事件会话 id 回填
+//     terminal → run_harness 成功后 recordSession 持久化 → 同会话下次
+//     委托 resume=auto 自动续接（cr-279 承诺自此生效）
 //   · 沙箱两档收死（plan 只读 / workspace-write），无 full 档
 //   · agent 维互斥（同 Agent 同时仅一个 harness run）+ 全局上限
 // ============================================================
@@ -32,11 +35,9 @@ export const extension: ExtensionMeta = {
   label: 'Harness 委托',
   description: 'run_harness 工具：把完整任务委托给本地 CLI harness（Claude Code/Codex）执行，终稿回流（沙箱两档 + agent 维互斥）',
   automatic: true,
-  fields: [
-    { name: 'enabled', type: 'boolean', description: '全局停用 run_harness（缺省启用）' },
-    { name: 'maxConcurrent', type: 'number', description: '全局并发上限（缺省 2）' },
-    { name: 'defaultTimeoutMs', type: 'number', description: '看门狗缺省毫秒（缺省 600000 = 10 分钟）' },
-  ],
+  // 无 fields：maxConcurrent/defaultTimeoutMs/gateways 是行配置（cordis.yml），
+  // 不走 settings 面——假配置面撤除（sap-adt config-layer-bug 同款裁决）；
+  // settings['harness-tools'].enabled 仍被 execute 自查消费（软停用口径）。
 };
 
 /** 标签目录声明（tag-registry 扫描面；RESERVED 未占——D10 已核） */
@@ -87,7 +88,7 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
 
   // 会话实验键注册（注册即归属——本行卸载键自动回收，存量值回读同被清）。
   // inject 声明 convSettings 硬依赖（loader 并发激活下行序 ≠ 激活序——软取会
-  // 永久漏注册，cr-280 根因）；bootTree 顺序 await 路径天然满足。
+  // 永久漏注册，cr-282 根修）；bootTree 顺序 await 路径天然满足。
   ctx.convSettings.registerKey(HARNESS_TIER_KEY);
 
   // 并发纪律（D4）：agent 维互斥（内存表）+ 全局上限；占线报忙不排队
@@ -159,9 +160,10 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
       const model = typeof args.model === 'string' && args.model.trim() ? args.model.trim() : undefined;
 
       // 会话续接（P2）：resume=auto（缺省）查 Agent 专属空间映射表——同会话同网关的
-      // 上次成功 runKey；new 或无记录 = 新会话。agentDir 与 cwd 同基准（专属空间根）。
+      // 上次成功 runKey；new 或无记录 = 新会话。映射表恒住基准根的 harness/ 子
+      // 目录，不随显式 cwd 漂移——cwd 只是工作目录，凭据是 Agent 的（cr-345）。
       const resumeMode = args.resume === 'new' ? 'new' as const : 'auto' as const;
-      const agentDir = path.dirname(cwd); // cwd 缺省 <agentDir>/harness；显式 cwd 时以基准为家
+      const agentDir = base; // 恒基准根（修复前 dirname(cwd) 随显式 cwd 漂移——键位漂移即凭据丢失）
       const resumeKey = resumeMode === 'auto'
         ? sessionRunKeyOf(agentDir, call.conversationId, gw)
         : undefined;
@@ -197,7 +199,8 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
               } else if (e.kind === 'notice') {
                 pushNotice(e.label);
                 call.onProgress?.(e.label);
-              } else if (e.kind === 'delta') {
+              } else {
+                // delta / reasoning（codex 思考流）——文本直播
                 call.onProgress?.(e.text);
               }
             },
