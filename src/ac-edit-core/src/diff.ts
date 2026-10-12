@@ -74,7 +74,7 @@ export function generateIncrementalDiff(
 }
 
 /** 查找所有换行符位置（用于 O(1) 字符→行号转换） */
-function findLineBreaks(content: string): number[] {
+export function findLineBreaks(content: string): number[] {
   const breaks: number[] = [];
   for (let i = 0; i < content.length; i++) {
     if (content[i] === '\n') breaks.push(i);
@@ -83,7 +83,7 @@ function findLineBreaks(content: string): number[] {
 }
 
 /** 将字符偏移转换为行号（0-based），使用前缀数组二分查找 */
-function charToLine(breaks: number[], charIndex: number): number {
+export function charToLine(breaks: number[], charIndex: number): number {
   // 二分查找：找到第一个 > charIndex 的换行符位置
   let lo = 0;
   let hi = breaks.length;

@@ -65,7 +65,7 @@ export function parseRawLines(raw: string): RawLine[] {
 /**
  * 修复 CR 双写行尾损伤（\r{2,}\n → \r\n）。
  *
- * 2026-11-19 画像 Ⓑ 实锤形态：带 CRLF 的 new_string 混入 LF 匹配空间后，
+ * 2026-09-21 画像 Ⓑ 实锤形态：带 CRLF 的 new_string 混入 LF 匹配空间后，
  * 写回行尾恢复再叠一层 \r 产出 \r\r\n；后续 normalizeToLF 把 \r\r\n 拆成
  * 空行（\n\n），一次损伤放大成连环失配。读入即修（executor）+ 写回终检
  * （防御性）双向堵截。

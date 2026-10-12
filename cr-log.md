@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-339**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-340**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -357,3 +357,4 @@
 - 【cr-337 2026-10-11 深审 ac-plugin-core（审计清单#20）：包健康留——多文件域面=纯库分域正解不拆包；①ac-plugin-market 依赖正位（type-only → devDependencies）；②镜像交叉锁定测试兑现 #1 遗留①（webui/tests/slot-catalog.test.ts 补 UI_SLOT_IDS/HIGH_RISK_UI_SLOTS/highRiskSlotsOf ↔ LEGACY_SLOT_CATALOG/highRiskOf 三断言，webui devDeps 加 ac-plugin-core）；③reserved.ts 与 plugin-core.integration.test.ts 行尾 CRLF→LF 与包内统一；④package.json 描述补内置目录清单域】
 - 【cr-338 2026-10-11 ac-plugin-registry #21 精简收口：ac-agent-loop 依赖归位 devDeps（type-only 剩余）+ installFromDir grants 死参数删（M23 免审不暴露语义一致化）+ mountUi 死 reason 参数删与 extensions-changed reload 死变体跨包收窄 + setPatch/resetPatches 热通道同构尾部并源 + MINIMAL_CORE_ENTRY_IDS 装配树一致性锁定测试】
 - 【cr-339 2026-10-12 ac-shell-tools 审计 #22（P2 精简）：修 translateUnset 多变量/带引号译文绑定错误（Remove-Item Env: 位置参数绑定错且错误形态不入 invocation-error 表→command-feedback 假成功；改词法校验 [A-Za-z_]\w* 空白分隔 + 逗号数组译文 Env:A, Env:B——实测存在删/缺失静默=unset no-op 语义）；job logs 死参数 args.lines 收口（schema 只声明 limit，隐藏参数面零消费）；审计误注勘正（cr-263/264 系沙箱目录迁移非翻译层改动）；2026-11-19 未来日期笔误校准 2026-09-21（画像Ⓐ git 首见日 1391f7a1，executor+process 三处——cr-336 尾注遗留批次兑现）】
+- 【cr-340 2026-10-12 ac-edit-core 审计 #23（P2 精简）收口：唯一性交叉校验死分支清理（maxCount=Math.max 三级计数恒= lenientCount——归一化越宽松计数单调不减，counts 数组+三元链两级漂移产物，改直判 lenientCount>1，报错文案值与级别名逐字节等价）；countOccurrences 死词删除（全仓零调用，countOccurrencesRaw 直供 countOccurrencesByLevel）；executor renderReadback 与 diff 的 findLineBreaks/charToLine 同构二分并源（diff.ts 导出、executor 改 import）；countOccurrencesByLevel JSDoc 幽灵参数 crossLevel 订正；2026-11-19 未来日期笔误校准 2026-09-21（画像 Ⓑ/Ⓒ git 首见 109010c6——edit-core 6 处 + README 1 处 + fs-search 3 处，cr-336 尾注欠账批次收口）】

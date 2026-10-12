@@ -17,6 +17,7 @@ export {
   fuzzyFindText,
   countOccurrencesByLevel,
 } from './fuzzy-match.ts';
+// countOccurrences 已删（2026-10-12 cr-340：全仓零调用——countOccurrencesRaw 直供 countOccurrencesByLevel）
 export {
   stripBom,
   detectLineEnding,

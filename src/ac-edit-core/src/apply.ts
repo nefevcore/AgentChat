@@ -87,16 +87,14 @@ export function applyEditsToNormalizedContent(
 
     // 4. 唯一性交叉校验：按最宽松级别（trim 全归一化）计数——归一化空间里
     //    与多处文本趋同的 old_string 不可信（含「扩大上下文会把更多重复内容
-    //    包进来、越改越不唯一」的场景）
+    //    包进来、越改越不唯一」的场景）。三级计数仍是报错文案的数据源，
+    //    但拒绝判定只看 lenientCount：trim 投影两侧同步、非重叠计数单调
+    //    不减，lenient 恒为三者最大值，max/levelName 挑选链是漂移产物。
     const { exactCount, strictCount, lenientCount } = countOccurrencesByLevel(normalizedContent, edit.oldText);
-    const counts = [exactCount, strictCount, lenientCount];
-    const maxCount = Math.max(...counts);
 
-    if (maxCount > 1) {
-      const levelName =
-        exactCount === maxCount ? '精确' : strictCount === maxCount ? '归一化（trimEnd）' : '全归一化（trim）';
+    if (lenientCount > 1) {
       throw new Error(
-        `在 "${filePath}" 中 old_string 有歧义：${levelName}形态下出现 ${maxCount} 次（精确 ${exactCount} / 归一化 ${strictCount} / 全归一化 ${lenientCount}）。` +
+        `在 "${filePath}" 中 old_string 有歧义：全归一化（trim）形态下出现 ${lenientCount} 次（精确 ${exactCount} / 归一化 ${strictCount} / 全归一化 ${lenientCount}）。` +
           `\n重复文本："""\n${edit.oldText.slice(0, 300)}"""` +
           (edit.oldText.length > 300 ? '\n...（已截断）' : '') +
           `\n恢复建议：归一化后与多处文本趋同，扩大 old_string 上下文可能把更多重复内容包进来；文件存在同前缀重复文本块时，改用 write 整段重写或命令行行级操作。`,
@@ -159,7 +157,7 @@ function clipLine(line: string): string {
 }
 
 /**
- * 失配定位线索（2026-11-19 画像 Ⓑ.3 / 09-20 ③号）：old_string 的行在文件里
+ * 失配定位线索（2026-09-21 画像 Ⓑ.3 / 09-20 ③号）：old_string 的行在文件里
  * 找全等行（首 5 行候选）→「old_string 第 N 行与文件第 M 行一致，失配在附近
  * 其他行」；找不到全等再按归一化包含找最接近行。一行线索顶十次盲试。
  */

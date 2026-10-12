@@ -38,7 +38,7 @@ export interface FsSearchRowOptions extends SandboxResolverOptions {
 }
 
 /**
- * 正则元字符转义建议（2026-11-19 画像 Ⓒ）：模型把函数名/调用式直接当
+ * 正则元字符转义建议（2026-09-21 画像 Ⓒ）：模型把函数名/调用式直接当
  * pattern（async records( 、this.journalStep( ——括号未转义）是高频失配
  * 形态。判定「pattern 含未转义元字符」→ 给出字面量化建议版本。
  * 只转义显然是失误的形态：元字符前无反斜杠、且不在字符类内（保守——
@@ -580,7 +580,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
         // 转义。字面量模式把整条 pattern 按 RegExp 字面量转义，一条参数消灭整类失败）
         regex = fixed ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : new RegExp(pattern);
       } catch (err: unknown) {
-        // 画像 Ⓒ（2026-11-19）：函数名当 pattern（async records( 类，括号未
+        // 画像 Ⓒ（2026-09-21）：函数名当 pattern（async records( 类，括号未
         // 转义）是高频形态——附转义后的建议 pattern，一条信息修复全部同类失配
         const escaped = suggestEscapedPattern(pattern);
         return {

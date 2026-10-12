@@ -18,7 +18,7 @@ import {
   stripBom,
 } from './line-ending.ts';
 import { applyEditsToNormalizedContent } from './apply.ts';
-import { generateDiffString, generateIncrementalDiff } from './diff.ts';
+import { generateDiffString, generateIncrementalDiff, findLineBreaks, charToLine } from './diff.ts';
 import { syntaxCheckBeforeWrite } from './syntax-check.ts';
 import { withFileMutationQueue } from './mutation-queue.ts';
 import type { ReplaceEdit } from './types.ts';
@@ -32,13 +32,13 @@ export interface EditBatchResult {
   diff: string;
   firstChangedLine: number | undefined;
   fuzzyMatches: number;
-  /** 行级新增数（编辑区 `- ` 行；工具卡 Label +N 数据源） */
+  /** 行级新增数（编辑区 `+ ` 行；工具卡 Label +N 数据源） */
   diffAdded: number;
-  /** 行级删除数（编辑区 `+ ` 行；工具卡 Label -M 数据源） */
+  /** 行级删除数（编辑区 `- ` 行；工具卡 Label -M 数据源） */
   diffRemoved: number;
   /** 编辑落点核验回显（readback）：编辑区前后各 ~3 行，带行号（read 同款格式） */
   readback?: string;
-  /** 读入时修复的 CR 双写行尾损伤处数（\r\r\n → \r\n；0/无损伤省略——2026-11-19 画像 Ⓑ） */
+  /** 读入时修复的 CR 双写行尾损伤处数（\r\r\n → \r\n；0/无损伤省略——2026-09-21 画像 Ⓑ） */
   repairedCr?: number;
 }
 
@@ -65,7 +65,7 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
     const content = stripBom(rawContent);
     // 存量 CR 双写损伤修复（\r{2,}\n → \r\n）：既往事故的行尾损伤会让后续
     // 所有标准 CRLF old_string 失配——读入即修，一次损伤不再放大成连环失败
-    // （2026-11-19 画像 Ⓑ 实锤：一次行尾损伤放大成 27 次失配）
+    // （2026-09-21 画像 Ⓑ 实锤：一次行尾损伤放大成 27 次失配）
     const { fixed: repairedContent, count: repairedCr } = repairDuplicatedCr(content);
     const lineEnding = detectLineEnding(repairedContent);
     const normalized = normalizeToLF(repairedContent);
@@ -148,28 +148,16 @@ function describeLineEndings(s: string): string {
   return `CRLF=${crlf} LF=${lf} 孤立CR=${loneCr}`;
 }
 
-/** readback 渲染：编辑区前后各 ~3 行，`行号 文本`（与 read 工具输出同格式） */
+/** readback 渲染：编辑区前后各 ~3 行，`行号 文本`（与 read 工具输出同格式；
+ *  换行符前缀数组与二分查打 diff.ts 并源共享） */
 function renderReadback(content: string, editStarts: number[]): string {
   const lines = content.split('\n');
-  const breaks: number[] = [];
-  for (let i = 0; i < content.length; i++) {
-    if (content[i] === '\n') breaks.push(i);
-  }
-  const charToLine = (charIndex: number): number => {
-    let lo = 0;
-    let hi = breaks.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (breaks[mid] < charIndex) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo; // 0-based
-  };
+  const breaks = findLineBreaks(content);
 
   const RANGE = 3;
   const selected = new Set<number>();
   for (const start of editStarts) {
-    const line = charToLine(start);
+    const line = charToLine(breaks, start);
     for (let l = Math.max(0, line - RANGE); l <= Math.min(lines.length - 1, line + RANGE); l++) {
       selected.add(l);
     }

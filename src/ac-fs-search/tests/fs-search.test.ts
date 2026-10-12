@@ -174,7 +174,7 @@ describe('ac-fs-search', () => {
     expect((h.output as { total: number }).total).toBe(1);
   });
 
-  it('Ⓒ grep 转义建议：括号未转义的 pattern 编译失败 → 附转义后建议（2026-11-19 画像）', async () => {
+  it('Ⓒ grep 转义建议：括号未转义的 pattern 编译失败 → 附转义后建议（2026-09-21 画像）', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-'));
     makeTree(root);
     const { ctx } = await boot(root);

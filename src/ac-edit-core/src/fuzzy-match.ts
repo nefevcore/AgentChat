@@ -116,17 +116,6 @@ function mapTrimmedIndexToOriginal(
   return -1;
 }
 
-/** 统计 oldText 在 searchIn 中的出现次数（useFuzzy 时按归一化形态计数） */
-export function countOccurrences(
-  searchIn: string,
-  oldText: string,
-  useFuzzy: boolean,
-  fuzzyLevel = 0,
-): number {
-  const searchText = useFuzzy ? normalizeForFuzzyMatch(oldText, fuzzyLevel >= 2) : oldText;
-  return countOccurrencesRaw(searchIn, searchText);
-}
-
 /**
  * 在 searchIn 中统计 searchText 的非重叠出现次数。
  * 逐次 +1 推进（事故修复：逐字符推进会把「ababab」中的「abab」计成 2 次——
@@ -149,7 +138,7 @@ function countOccurrencesRaw(searchIn: string, searchText: string): number {
  * 事故背景（src/docs/archive/edit-tool-incident-report.md）：模糊命中的唯一性检查只在
  * 「选定级别」内做——Level 1 命中后 Level 2 视角下可能多处命中（归一化越
  * 激进、文本折叠越厉害），匹配滑到非预期位置造成静默错位。调用方按更严格
- * 的语义把关：crossLevel=1 时返回的 lenientCount >1 即应拒绝编辑。
+ * 的语义把关：lenientCount > 1 即拒绝编辑。
  */
 export function countOccurrencesByLevel(
   content: string,

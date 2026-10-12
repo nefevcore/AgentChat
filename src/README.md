@@ -397,7 +397,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | `ac-gemini-completions` | Gemini 原生 generateContent：SSE 流式 + functionCall/thought 映射 + chat 聚合 + listModels（cr-39；protocol='gemini'） |
 | `ac-ollama-completions` | Ollama 原生 /api/chat：NDJSON 流式 + tool_calls/thinking 映射 + chat 聚合 + listModels /api/tags（cr-39；protocol='ollama'） |
 | `ac-config-merge` | deepMerge/computeDiff 差异配置 |
-| `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检（配平失败报错带「第 N 行第 C 列 + 行预览」定位）/readback 回显/增量 diff/行尾保留（old/new 自动 LF 归一化匹配 + CR 双写损伤修复——2026-11-19 画像 Ⓑ）/失配定位线索（最接近行 + 行尾统计）/文件突变队列 |
+| `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检（配平失败报错带「第 N 行第 C 列 + 行预览」定位）/readback 回显/增量 diff/行尾保留（old/new 自动 LF 归一化匹配 + CR 双写损伤修复——2026-09-21 画像 Ⓑ）/失配定位线索（最接近行 + 行尾统计）/文件突变队列 |
 | `ac-sandbox-core` | createSandboxResolver/bash 命令扫描/输出脱敏/agentSpaceRoots（读写侧基准分叉并根） |
 | `ac-text-budget` | token 估算/代理对安全截断 |
 | `ac-glob-core` | glob→RegExp + 有界 walk（SKIP_BASE/SKIP_DIRS 分层缺省——产物目录缺省跳过，skipDirs 整表覆盖 + skippedRoots 透出） |
