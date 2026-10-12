@@ -116,6 +116,11 @@ expected/actual/耗时）。生产验收建议同记：跨 seed 方差（同参�
 ## 路线图（套件槽位已就绪）
 
 - [x] BFCL 单轮（simple/multiple/parallel/parallel-multiple/反例）
-- [ ] BFCL v3 多轮（turn 级对话 + 状态对拍）
-- [ ] τ²-bench（用户模拟器 + 政策合规）
-- [ ] Terminal-Bench 子集（fs/shell 工具行 + Docker 校验器）
+- [ ] BFCL v3 多轮（turn 级对话 + 状态对拍）——未启动
+- [ ] τ²-bench（用户模拟器 + 政策合规）——未启动
+- [ ] Terminal-Bench 子集（fs/shell 工具行 + Docker 校验器）——未启动
+
+> 现状（2026-10-12）：仅 BFCL 单轮适配器在用；跑批基建（套件槽位/
+> 对拍/报告）已就绪待扩展。评测域长期定位见
+> `src/docs/explore/cell-runtime-and-architecture-evolution.md` §2（ac-bench
+> 即 RSI 选择压力）——基建保留的裁决背书。
