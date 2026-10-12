@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-350**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-351**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -368,3 +368,4 @@
 - 【cr-348 2026-10-12 ac-llm 深审精简：poolEntryDefaultModel 导出收私有（包外零消费——cr-319 下沉词汇导出面收紧，包内 defaultPoolConnection/poolFallbackRef 消费不变）；readers 零锁定缺口补 tests/readers.test.ts（agentOfChatCall/agentOfChatInput 载荷形状，对齐 cr-347 ac-tools 先例）；index.ts 头注 ac-llm-pool「OpenAI 兼容」过时表述订正（cr-39 后多协议）；package.json 描述补池词汇域】
 - 【cr-349 2026-10-12 ac-router #34 深审收口：maxSteps JSDoc 0 语义对齐 loop 真实口径（0=不限非回落 Agent 原配置）+ ac-agent-loop 依赖段位归位 devDeps（纯 type 导入）+ index 行级 inject 与 static inject 漂移断根（补 tools）+ 描述「会话历史」史前残留订正 + readers 零锁定缺口补测（cr-347/348 族先例）】
 - 【cr-350 2026-10-12 ac-conversation 审毕收口（审计 #35）：ac-agent-loop 依赖归位 devDeps（源内已纯 type 导入，cr-318 下沉后漏改）；contract.ts ARCHIVE_REVIEW_META 注释住址订正（ac-agent-loop→ac-core-utils）；PendingLine 隐性前提显式化（source/wakeNotice 不落盘依赖 event/agent 源不走 next-turn 的消费面前提）；readers 补锁测对齐四包先例】
+- 【cr-351 2026-10-12 ac-agents 深审收口：reassign 补撞群校验（cr-4 双向卡位第三写口——管理面 create/update 走 reassign 绕过 register 的撞群防线，真 bug）；TOOL_MODE_TAGS 死词删除（全仓零消费、toolModeOf 未用）；UNIVERSAL_TAGS 收私有（运行时零消费——语义存档 + 注释指路）】

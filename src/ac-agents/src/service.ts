@@ -117,16 +117,16 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
 }
 
 /**
- * 基础族标签（全量标签化 2026-09-16）。历史上有过读边界自动补齐迁移
+ * 基础族标签语义存档（全量标签化 2026-09-16 终态；词表本体已随 cr-351
+ * 删除——运行时零消费，创建面预选词各自声明：AgentList
+ * NEW_AGENT_DEFAULT_TAGS / sap-adt 预设 tags）。历史上基础族是导出常量
+ * UNIVERSAL_TAGS = ['fs', 'collab', 'infra']，且读边界曾有自动补齐迁移
  * （normalizeUniversalTags，含一次性标记 _migratedUniversalTags），后经
  * 用户裁决**整体移除**：tags 完全以用户/预设配置为准，框架不做任何自动
  * 补齐——新建 Agent 由创建面（UI/预设）负责声明基础族；存量 Agent 由
- * 用户手工补（用户基数小，明确知情优于隐式改写）。此注释是移除前的
- * 语义存档（2026-09-16 终态），防止后人"顺手恢复"。
+ * 用户手工补（用户基数小，明确知情优于隐式改写）。此注释是移除后的
+ * 语义存档，防止后人"顺手恢复"。
  */
-const UNIVERSAL_TAGS = ['fs', 'collab', 'infra'] as const;
-
-export { UNIVERSAL_TAGS };
 
 /**
  * 解析 AgentConfig.tools 为生效工具名清单（router 构建 LoopRunRequest /
@@ -250,9 +250,6 @@ export function effectiveTierOf(
  * requiredTags、不进常规工具面——早先「授权词 = infra」语义随之退役）。
  */
 export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
-
-/** 模式词表（tags 中合法的 tc-* 词；判定序 = 数组序——tc-none 优先） */
-export const TOOL_MODE_TAGS: readonly ToolMode[] = ['tc-none', 'tc-programmatic'];
 
 /**
  * 工具调用模式判定单源（对标 tierOf）：tags 含 'tc-none' → none；
@@ -557,6 +554,20 @@ export class AgentsService extends Service {
   }
 
   /**
+   * 双向名册校验（cr-4 撞形防线②反向卡位）：Agent id 撞已存在群 id →
+   * 拒（gid~member 成员流键会与 1v1 对桶争用同一会话桶）。group 为可选
+   * 能力——未装载时无群可撞。register（插件行/目录扫描）与 reassign
+   * （管理面/热重扫覆盖注册/预设热更）共用——写口归一，防第三口绕过
+   * （cr-351：管理面 create/update 走 reassign 此前不校验）。
+   */
+  private assertNoGroupCollision(id: string): void {
+    const group = this.ctx.get('group', false) as { get(id: string): unknown } | undefined;
+    if (group !== undefined && group.get(id) !== undefined) {
+      throw new Error(`Agent id "${id}" 与已存在群同名（成员流键 gid~member 会与 1v1 对桶撞形——先删群或换 id）`);
+    }
+  }
+
+  /**
    * 注册/覆盖 Agent（同 id 后者覆盖前者）。
    * fiber 归属：从插件行调用时随该行卸载自动回收。
    * @returns effect disposer（数据驱动场景可手动调用撤注册）
@@ -564,13 +575,7 @@ export class AgentsService extends Service {
   register(config: AgentConfig) {
     if (!config.id) throw new Error('Agent 注册缺少 id');
     assertAgentId(config.id);
-    // 双向名册校验（cr-4 撞形防线②反向卡位）：Agent id 撞已存在群 id →
-    // 拒（gid~member 成员流键会与 1v1 对桶争用同一会话桶）。group 为可选
-    // 能力——未装载时无群可撞。
-    const group = this.ctx.get('group', false) as { get(id: string): unknown } | undefined;
-    if (group !== undefined && group.get(config.id) !== undefined) {
-      throw new Error(`Agent id "${config.id}" 与已存在群同名（成员流键 gid~member 会与 1v1 对桶撞形——先删群或换 id）`);
-    }
+    this.assertNoGroupCollision(config.id);
     return this.ctx.fiber.effect(() => {
       this.configs.set(config.id, config);
       return () => {
@@ -650,6 +655,7 @@ export class AgentsService extends Service {
   reassign(config: AgentConfig): void {
     if (!config.id) throw new Error('Agent reassign 缺少 id');
     assertAgentId(config.id);
+    this.assertNoGroupCollision(config.id);
     this.configs.set(config.id, config);
     this.ctx.emit('agents/updated', config, 'updated');
   }

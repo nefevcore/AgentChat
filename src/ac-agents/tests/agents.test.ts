@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index';
 
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
@@ -61,6 +61,40 @@ describe('ac-agents 注册中心', () => {
     expect(ctx.agents.has('preset-1')).toBe(true);
     await fiber.dispose();
     expect(ctx.agents.has('preset-1')).toBe(false);
+  });
+});
+
+describe('撞形防线（cr-4 双向卡位——reassign 同守，cr-351 写口归一）', () => {
+  it('register 与 reassign 均拒撞群 id；群未装载时静默通过', async () => {
+    const { ctx } = await boot();
+    // group 为可选能力——未装载时两写口都直接通过
+    ctx.agents.register({ id: 'gx', model: 'm' });
+    ctx.agents.reassign({ id: 'gy', model: 'm' });
+    expect(ctx.agents.has('gx')).toBe(true);
+    expect(ctx.agents.has('gy')).toBe(true);
+  });
+
+  it('group 在场：Agent id 撞已存在群 → register/reassign 双拒（错误文案单源）', async () => {
+    const { ctx } = await boot();
+    // 最小群面桩（Service 即 plugin——index.ts ctx.plugin(AgentsService) 同形态；
+    // 撞形判定只消费 get(id) 非 undefined）
+    class GroupStub extends Service {
+      private groups = new Map([['gx', { id: 'gx' }]]);
+      constructor(c: Context) {
+        super(c, 'group');
+      }
+      get(id: string): unknown {
+        return this.groups.get(id);
+      }
+    }
+    const stubFiber = ctx.plugin(GroupStub);
+    await stubFiber;
+    expect(() => ctx.agents.register({ id: 'gx', model: 'm' })).toThrow(/同名/);
+    expect(() => ctx.agents.reassign({ id: 'gx', model: 'm' })).toThrow(/同名/);
+    // 非撞 id 不受影响
+    ctx.agents.register({ id: 'ok', model: 'm' });
+    expect(ctx.agents.has('ok')).toBe(true);
+    await stubFiber.dispose();
   });
 });
 

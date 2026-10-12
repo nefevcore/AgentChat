@@ -488,7 +488,7 @@ export class AgentAdminService extends Service {
     // 运行时按落盘 tags 计算（无 collab）——两个世界不一致导致误判，
     // 协作工具对存量 Agent 静默消失。基础族标签由创建面（UI 对话框
     // 显式预选/预设声明）负责，写口不再越权代填。语义存档见
-    // ac-agents service.ts UNIVERSAL_TAGS 注释。）
+    // ac-agents service.ts 基础族标签语义存档注释。）
     return normalized as unknown as AgentConfig;
   }
 }

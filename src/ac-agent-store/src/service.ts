@@ -90,7 +90,7 @@ export class AgentStoreService extends Service {
    *     存量授权意图原样保留）；
    *     （2026-09-16 全量标签化的基础族自动补齐迁移曾在此处，经用户
    *     裁决整体移除——tags 完全以用户/预设配置为准，存量由用户手工
-   *     补；语义存档见 ac-agents service.ts UNIVERSAL_TAGS 注释）
+   *     补；语义存档见 ac-agents service.ts 基础族标签语义存档注释）
    *   · 显示名语义拆分：`name` 缺失且 `description` 非空 → 拷贝
    *     `name = description`（description 保留，零信息损失）——存量档
    *     的 description 曾兼任显示名，归一后 Agent 改 description 不再
