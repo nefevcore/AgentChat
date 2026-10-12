@@ -52,8 +52,9 @@ export interface ConversationDeliverOptions {
   maxSteps?: number;
   /**
    * 机制标记透明通道（M20）：透传 router.send → 信封 meta。携带
-   * ARCHIVE_REVIEW_META（ac-agent-loop 导出）时本服务跳过会话上下文
-   * 视图积累（整理提示词/回复不泄漏进后续 run 的 history），ac-session /
+   * ARCHIVE_REVIEW_META（ac-core-utils 导出，cr-318 下沉）时本服务跳过
+   * 会话上下文视图积累（整理提示词/回复不泄漏进后续 run 的 history），
+   * ac-session /
    * ac-usage 各查同键跳过入账/记账。
    */
   meta?: Record<string, unknown>;

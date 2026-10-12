@@ -161,7 +161,13 @@ interface RunEntry {
   noticedSenders?: Set<string>;
 }
 
-/** 待投落盘行（pending-<handle>.jsonl；source 不落盘——恢复后按 'user' 计 MAX_AUTO_WAKES 预算，现存语义） */
+/**
+ * 待投落盘行（pending-<handle>.jsonl）。source 不落盘（恢复后按 'user'
+ * 计 MAX_AUTO_WAKES 预算）的前提：source='event'/'agent' 的生产方
+ * （job-wakeup/timer/collab/group）全走 next-step，永不入 next-turn
+ * 队列——'user' 缺省即真实构成。wakeNotice 同理（唯一消费方 ac-group
+ * 走 steer/next-run，不落盘）。
+ */
 interface PendingLine {
   /** 稳定条目 id（旧文件缺省 → 回放时补生成）；requestId 受理时 = `req:<requestId>` */
   id?: string;

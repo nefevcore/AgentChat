@@ -2496,9 +2496,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -2515,6 +2512,9 @@ importers:
       '@agentchat/cordis-timer':
         specifier: workspace:*
         version: link:../vendor/timer
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
