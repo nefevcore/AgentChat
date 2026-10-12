@@ -39,7 +39,7 @@
 // ============================================================
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import type {} from 'ac-agent-loop'; // LoopSender（经 LoopRunRequest 传入，仅文档引用）
+import type {} from 'ac-agent-loop'; // loop/* 事件类型增强（type-only）
 import { displayNameOf, widenToolsForGating } from 'ac-agents'; // 显示名单源解析 + PTC 门控面展开（值导入连带 ctx.agents 类型增强）
 import type {} from 'ac-group'; // ctx.group 可选能力类型（type-only）
 import type {} from 'ac-tools'; // ctx.tools 可选能力类型（type-only）
@@ -60,7 +60,7 @@ export const extension: ExtensionMeta = {
   label: '系统提示装配',
   description: '系统环境/术语约定/指引（条目级工具门控；独立会话形态不注入多 Agent 协作知识）/对话信息分块装配（override 可全量覆盖）',
   fields: [
-    { name: 'guidelines', type: 'boolean', default: true, description: '指引块开关——条目按生效工具集门控（文件/命令/后台/产出/协作/行为策略）；协作、主动安排（timer）与系统管理（system_restart）条目另受形态门控（独立会话不注入）' },
+    { name: 'guidelines', type: 'boolean', default: true, description: '指引块开关——条目按生效工具集门控（文件/命令/后台/产出/协作/行为策略）；协作与主动安排（timer）条目另受形态门控（独立会话不注入），系统管理（system_restart）随工具在场注入' },
     { name: 'systemEnv', type: 'boolean', default: true, description: '系统环境块开关（[工作目录]/[宿主环境]/[模型能力]/白名单自动注入）' },
     { name: 'conversationPartner', type: 'boolean', default: true, description: '对话信息块开关（sender 三态解析 + 群成员表）' },
     { name: 'override', type: 'text', description: '整段替换文本——非空时替换全部静态块（对话信息仍追加）' },
@@ -166,9 +166,9 @@ export interface AssembleInput {
    * 独立会话（singles）形态标志（conversationId 命中 singles 注册表）。
    * 形态化装配：独立会话是用户与单 Agent 的专注对话——多 Agent 会话
    * 知识不注入（术语约定块 + 多Agent协作/群聊协作指引条目）；主动安排
-   * （timer——后台任务反馈已覆盖）与系统管理（system_restart——工具已
-   * 随形态面裁剪，双保险）同受门控。协作/计时工具面不裁剪（显式配置
-   * 仍可用），只是不教。
+   * （timer——后台任务反馈已覆盖）同受门控；系统管理（system_restart）
+   * 2026-09-21 注入轴重构起随工具在场注入（工具面无形态裁剪）。
+   * 协作/计时工具面不裁剪（显式配置仍可用），只是不教。
    */
   single?: boolean;
   /**
@@ -520,9 +520,9 @@ export function apply(ctx: Context) {
 
     const agents = ctx.get('agents');
     const security = agentId && agents ? agents.settingsOf(agentId, 'security') : undefined;
-    // 可选能力：独立会话形态（singles 注册表命中 → 多 Agent 协作知识、
-    // 主动安排（timer）与系统管理（system_restart——工具已随形态面裁剪）
-    // 条目不注入。协作/计时工具面不裁剪，仅不教）
+    // 可选能力：独立会话形态（singles 注册表命中 → 多 Agent 协作知识与
+    // 主动安排（timer）条目不注入；系统管理随 system_restart 在场注入
+    // （2026-09-21 注入轴：工具面无形态裁剪）。协作/计时工具面不裁剪，仅不教）
     const singles = ctx.get('singles', false) as SinglesLike | undefined;
     const single = !!(
       request.conversationId &&
