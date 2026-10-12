@@ -59,8 +59,9 @@ export interface RouterSendOptions {
    */
   model?: string;
   /**
-   * run 级步数上限覆盖（M20）：给定则取代 Agent 原配置的 maxSteps
-   * （0/缺省 = Agent 原配置语义）。归档整理 run 的失控防线①经它注入。
+   * run 级步数上限覆盖（M20）：给定则取代 Agent 原配置的 maxSteps。
+   * 语义对齐 loop（0 = 不限，非回落 Agent 原配置——全仓统一 0=不限
+   * 口径，collab-tools「0 = 不限」同款）。归档整理 run 的失控防线①经它注入。
    */
   maxSteps?: number;
   /**
@@ -253,6 +254,7 @@ export class RouterService extends Service {
     // 语义是"全部已注册"——省略即绕过能力面（空集照传，loop 收敛为无工具）
     const llmParams = filterLlmParams(agent.llmParams);
     const provider = refProvider ?? agent.provider;
+    const maxSteps = options.maxSteps ?? agent.maxSteps;
     this.ctx.logger.info(
       '[router] → loop %C（model=%C provider=%C conv=%C sender=%C/%C tools=%C）',
       call.agentId,
@@ -263,7 +265,7 @@ export class RouterService extends Service {
       call.source,
       // 能力面 + 形态面过滤后的生效工具数（include/exclude 已解析；含
       // 未配置 = 可见面全量；工具调用模式收窄后为 LLM 实际可见面）
-      `(${llmTools.length}/${this.ctx.tools.list().length})`,
+      `(${llmTools.length}/${allDefs.length})`,
     );
     const run = await this.ctx.agentLoop.run({
       agent: call.agentId,
@@ -273,7 +275,8 @@ export class RouterService extends Service {
       ...(agent.system ? { system: agent.system } : {}),
       tools: llmTools,
       // 步数上限：run 级覆盖（M20 归档整理硬闸①）> Agent 原配置
-      ...((options.maxSteps ?? agent.maxSteps) != null ? { maxSteps: options.maxSteps ?? agent.maxSteps } : {}),
+      //（给定 options.maxSteps = 0 时按 loop 口径 = 不限，不回落）
+      ...(maxSteps != null ? { maxSteps } : {}),
       ...(Object.keys(llmParams).length > 0 ? { llmParams } : {}),
       sender: call.sender,
       source: call.source,

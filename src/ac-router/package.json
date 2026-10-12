@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "消息路由（ctx.router）：send 能力调用（agents+agentLoop）+ message-received/reply-completed 事件通知双通道 + 会话历史",
+  "description": "消息路由（ctx.router）：send 能力调用（agents+agentLoop+tools 可见面过滤）+ router/before-deliver 决策 seam + message-received/reply-completed 事件通知双通道（零会话状态）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -13,12 +13,12 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-core-utils": "workspace:*",
     "ac-llm": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",

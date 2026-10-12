@@ -3274,9 +3274,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -3284,6 +3281,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-plugin-core
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -3398,9 +3398,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -3411,6 +3408,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-llm
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-config:
         specifier: workspace:*
         version: link:../ac-config

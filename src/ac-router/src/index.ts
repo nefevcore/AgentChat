@@ -1,10 +1,11 @@
 // ============================================================
 // ac-router —— 消息路由插件行（纯转发，零会话状态）
 //
-// inject ['agents', 'agentLoop']：能力依赖（Agent 数据源 + 执行引擎）。
-// send = agents 解析 AgentConfig → 构建信封投递 agentLoop；
-// 此前会话由调用方经 options.history 提供（将来的 ac-session 走事件）。
-// 通知订阅方（历史/WS/审计）不需要 inject 本服务 —— 走事件。
+// inject ['agents', 'agentLoop', 'tools']：能力依赖（Agent 数据源 +
+// 执行引擎 + 工具注册面——可见面过滤）。send = agents 解析 AgentConfig
+// → 构建信封投递 agentLoop；此前会话由调用方经 options.history 提供
+// （ac-session 走事件积累后回放）。通知订阅方（历史/WS/审计）不需要
+// inject 本服务 —— 走事件。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { RouterService } from './service.ts';
@@ -19,7 +20,7 @@ export const extension: ExtensionMeta = {
   description: '信封投递纯转发（ctx.router）：conversationId 寻址，零会话状态（router/* 事件）',
   automatic: true,
 };
-export const inject = ['agents', 'agentLoop'];
+export const inject = ['agents', 'agentLoop', 'tools'];
 
 export function apply(ctx: Context) {
   ctx.plugin(RouterService);
