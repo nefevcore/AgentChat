@@ -1,7 +1,7 @@
 // ============================================================
 // ac-conv-settings —— 会话设置插件行
 //
-// inject 无（零依赖基础服务，数据自持）。config（{ root? }）经
+// inject 无（零依赖基础服务，数据自持）。行 options（{ root? }）经
 // loader/bootTree 传入 → 转构造参数。
 // 生效合并点在 ac-web-api 的 conversation/deliver（薄编排行）：
 // 入参 model 缺省时查 ctx.convSettings.get(conversationId) 补投——

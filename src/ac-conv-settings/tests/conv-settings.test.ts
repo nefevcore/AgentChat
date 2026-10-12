@@ -1,5 +1,5 @@
 // ============================================================
-// ac-conv-settings 测试：get/set/clear 覆盖语义 · 原子写 · 事件 ·
+// ac-conv-settings 测试：get/set 覆盖语义 · 原子写 · 事件 ·
 // conversationId 词法校验 · 键删除落删文件
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -104,26 +104,17 @@ describe('ac-conv-settings', () => {
   });
 
   it('conv-settings/updated 事件：set/cleared 终态载荷', async () => {
-    const ctx = await boot(tmpRoot());
+    const root = tmpRoot();
+    const ctx = await boot(root);
     const seen: Array<[string, { model?: string }, string]> = [];
     ctx.on('conv-settings/updated', (id, settings, change) => seen.push([id, settings, change]));
     ctx.convSettings.set('room-1', { model: 'glm@glm-5.3' });
-    ctx.convSettings.set('room-1', { model: null });
+    ctx.convSettings.set('room-1', { model: null }); // 全空 = 删文件 → cleared（clear() 收口后唯一入口）
     expect(seen).toEqual([
       ['room-1', { model: 'glm@glm-5.3' }, 'set'],
       ['room-1', {}, 'cleared'],
     ]);
-  });
-
-  it('clear：幂等（无文件不 emit）', async () => {
-    const ctx = await boot(tmpRoot());
-    const events: string[] = [];
-    ctx.on('conv-settings/updated', (_id, _s, change) => events.push(change));
-    ctx.convSettings.clear('user~helper'); // 无文件：静默
-    ctx.convSettings.set('user~helper', { model: 'm-1' });
-    ctx.convSettings.clear('user~helper');
-    expect(events).toEqual(['set', 'cleared']);
-    expect(ctx.convSettings.get('user~helper')).toEqual({});
+    expect(fs.existsSync(path.join(root, 'conv-settings', 'room-1.json'))).toBe(false);
   });
 
   it(`toolMode 键（工具调用模式覆盖，tc-* 标签轴）：合法枚举写/读、其余清、盘上损坏值丢弃`, async () => {

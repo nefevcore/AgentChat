@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-355**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-356**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -373,3 +373,4 @@
 - 【cr-353 2026-10-12 ac-agent-store 深审（审计 #38）：修 saveAvatar 大写扩展名丢头像（avatarPath 只探测小写）+ agentIds 过滤非法词法目录（外部污染盘面曾可拖垮 boot——listAgents/timer reload 遍历链）+ 原子写尾部并源 writeTextAtomic + skills entries 注释漂移订正（实际消费者 timer/goal/todo）+ 头像与过滤测试补（原零覆盖）】
 - 【cr-354 2026-10-12 ac-agent-presets 深审收口（#39）：cr-319 换向残留 defaultConnection/LlmPools 转发壳删除（materialize/refreshModels 直连 defaultPoolConnection——agent-admin 同款先例，JSDoc 与 owning 侧重复随之归一）；refreshModels 池清空回落清除分支（model/provider 置 undefined）补锁定测试】
 - 【cr-355 2026-10-12 ac-agent-presets-builtin 深审收口（#40）：五面注释漂移订正——创造模式增补后头注释/README 漏列；程序化「随 ac-run-code preset.ts 子行走」过时叙事全链清除（现为会话级开关 tc-programmatic 非预设身份，reserved.ts L103 背书，git 全史无该文件）；创造模式内置指南两处事实校准（manifest「必填项」→实际必填仅 name/version、entry 缺省 index.ts；模板指路 src/templates/tool-row 精确化）】
+- 【cr-356 2026-10-12 ac-conv-settings 深审精简：clear() 零生产消费收口（set 键级 null 同终态可达）；set 签名 boolean 死通道收窄（wire 零生产者，web-api 镜像同步）；events/头注/description 三处漂移订正（事件实订阅面=零、行 options 非 config、全键口径）】

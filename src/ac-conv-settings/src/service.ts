@@ -175,7 +175,7 @@ export class ConvSettingsService extends Service {
    * 写入，无此键/非法值 = 清除。emit conv-settings/updated（终态载荷
    * ——观察者见即所得）。
    */
-  set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): ConvSettings {
+  set(conversationId: string, patch: Record<string, string | null | undefined>): ConvSettings {
     assertConversationId(conversationId);
     const next = this.readSettings(conversationId) as unknown as Record<string, string>;
     for (const [key, value] of Object.entries(patch)) {
@@ -188,13 +188,6 @@ export class ConvSettingsService extends Service {
     return next as unknown as ConvSettings;
   }
 
-  /** 清除全部覆盖（删文件）；幂等 */
-  clear(conversationId: string): void {
-    assertConversationId(conversationId);
-    const existed = fs.existsSync(this.fileOf(conversationId));
-    fs.rmSync(this.fileOf(conversationId), { force: true });
-    if (existed) this.ctx.emit('conv-settings/updated', conversationId, {}, 'cleared');
-  }
 }
 
 declare module '@agentchat/cordis' {

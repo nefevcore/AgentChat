@@ -1153,7 +1153,7 @@ export function apply(ctx: Context) {
     const convSettings = ctx.get('convSettings', false) as
       | {
           get(conversationId: string): Record<string, unknown>;
-          set(conversationId: string, patch: Record<string, string | boolean | null | undefined>): Record<string, unknown>;
+          set(conversationId: string, patch: Record<string, string | null | undefined>): Record<string, unknown>;
         }
       | undefined;
     if (!convSettings) throw new Error('convSettings 服务未装载（会话设置面不可用）');

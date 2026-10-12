@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "会话设置域（ctx.convSettings）：按 conversationId 持久化会话级覆盖（模型 name@model 引用等），deliver 边界单点生效",
+  "description": "会话设置域（ctx.convSettings）：按 conversationId 持久化会话级覆盖（model/elevation/toolMode/browserTier/issueSubmit 内置键 + registerKey 注册制扩展键；deliver/router/sessionCapsOf 等边界消费）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
