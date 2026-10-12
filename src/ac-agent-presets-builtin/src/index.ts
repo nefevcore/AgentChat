@@ -1,10 +1,11 @@
 // ============================================================
 // ac-agent-presets-builtin —— 内置预设模式数据行（标准/极简/创造）
 //
-// 纯数据薄行：向 ctx.agentPresets 目录注册三个内置模式（标准模式
-// __standard__ / 极简模式 __dsh_minimal__，src presets/standard +
-// presets/dsh-minimal 的形状迁移）。物化/模型解析/热更新语义全部由
-// ac-agent-presets 目录服务承担——本行零逻辑，只定义「模式长什么样」。
+// 纯数据薄行：向 ctx.agentPresets 目录注册三个内置模式——标准模式
+// __standard__ / 极简模式 __dsh_minimal__（src presets/standard +
+// presets/dsh-minimal 的形状迁移）+ 创造模式 __creator__（2026-09-21
+// 增补：插件开发面）。物化/模型解析/热更新语义全部由 ac-agent-presets
+// 目录服务承担——本行零逻辑，只定义「模式长什么样」。
 //
 // 第三方插件注入自有模式 = 同一注册面（ctx.agentPresets.register），
 // 与本行零特殊化；摘掉本行 = 空目录（宿主仍可运行）。
@@ -116,7 +117,7 @@ const CREATOR: AgentPresetDefinition = {
 
 ## 1. 开发
 - 插件目录建在你的沙箱 files/<你的id>/<插件名>/ 下，含 manifest.json + 入口文件（如 index.ts，TS 直跑无需构建）。
-- manifest 必填项：name（规约 <你的id>-<名>）、version、entry、contracts（宿主契约范围，如 "^1"）、permissions、provides。
+- manifest 必填项：name（规约 <你的id>-<名>）与 version；entry 缺省 index.ts，contracts（宿主契约范围，如 "^1"）、permissions、provides 均可选。
 - permissions 词表：fs / network / process / shell / ui（fs/network 缺省授予；process/shell/ui 需显式声明）。声明全集 = 免审授权面。
 - provides 形状：{ tools?, llmProviders?, events?, ui?, agents? }——可注册工具/provider/Agent、订阅事件。
 - 内置注册名是保留字（工具名/provider 名/Agent id 三面常量表），撞名 = 可诊断拒绝；命名带自己的 id 前缀可避开。
@@ -136,7 +137,7 @@ const CREATOR: AgentPresetDefinition = {
 ## 4. 防线（了解即可）
 - 全部装卸进 plugins/audit.jsonl 审计；连续装载失败 3 次熔断（复位 = bump version 重装）；已装目录被改动 → 拒载（hash 复验）。
 
-开发时先用 read/grep 查看现有插件与模板结构（templates/tool-row 等），照抄骨架起步。`,
+开发时先用 read/grep 查看现有插件与模板结构（src/templates/tool-row 等），照抄骨架起步。`,
   },
 };
 
@@ -147,7 +148,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'preset-builtin',
   label: '内置预设模式',
-  description: '内置模式数据：标准模式（__standard__）+ 极简模式（__dsh_minimal__）+ 创造模式（__creator__，插件开发面）注入预设目录（程序化模式随 ac-run-code 走——preset.ts 子行）',
+  description: '内置模式数据：标准模式（__standard__）+ 极简模式（__dsh_minimal__）+ 创造模式（__creator__，插件开发面）注入预设目录',
   automatic: true,
 };
 

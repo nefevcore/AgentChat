@@ -1,6 +1,6 @@
 // ============================================================
 // ac-agent-presets-builtin 测试：内置模式数据行（标准/极简/创造）注入预设
-// 目录 + 物化形状（原 ac-agent-presets 内置清单断言迁移）· 行卸载回收
+// 目录 + 物化形状（含创造模式 dev/admin 钥匙圈与内置开发指南）· 行卸载回收
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
