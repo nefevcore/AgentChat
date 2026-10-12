@@ -835,7 +835,7 @@ src/
 │                            events.disabled（吞注册≠veto）+ boot 末一次性清扫 +
 │                            fiber→顶层行聚合
 │ ── 样例 ──────────────────────────────────────────────────────
-└── ac-hello/                链路验证最小样例（inject/apply/effect/on）
+└── ac-hello/                链路验证最小样例（inject/apply/on + extension 自述）
 ```
 
 ## 装配与运行时

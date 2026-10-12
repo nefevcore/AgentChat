@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-345**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-346**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -363,3 +363,4 @@
 - 【cr-343 2026-10-12 cr-342 补记：RPC 应答压缩测试固定 20ms 等待窗改轮询（waitForFrame 50ms×40）——全仓跑批并发负载下假红（定向复跑绿），断言零变化；全仓 2558 测两 flake（本包 + webui boot-graph 集成）均定向复跑绿判时敏】
 - 【cr-344 2026-10-12 ac-sap-adt 深审收口（audit #28）：工具数口径漂移订正 46/47→32（README/cordis.yml 两注释/PluginLibraryPane 注释——0.8 时代旧数，正源 reserved.ts+引擎 0.12 assembleAdtTools）；engine.ts 重复 readDir/readFile 并源 guard 化收口（cwd 越界拒）；README 锚点注释漂移订正（.ac-sap-adt/agents 树 2026-09-17 已废）；包健康留】
 - 【cr-345 2026-10-12 ac-harness-tools/core 深审收口（#29/#30 裁决=留）：修 P2 续接链路断裂——started 事件 runKey 未捕获进 terminal facts，recordSession 永不执行、resume 恒落空（cr-279 承诺从未生效）+ codex 终稿丢失——delta 无累积、stop 空稿永远『无终稿输出』（注释宣称的 finalize 累积不存在）+ 续接键位随 cwd 漂移（agentDir=dirname(cwd)→恒基准）+ reasoning 事件行侧丢弃；精简：probeGateway 零消费死面删（D8 意图已由 spawn fail-loud 达成）、done 事件变体零生产删、两 adapter finalize 并源（已走散：codex 非零退出缺 runKey）、delta 去截断归消费面、导出收紧、cr-280→282 与 settings 域名漂移订正】
+- 【cr-346 2026-10-12 ac-hello 审计收口（#31）：裁决留——范例包三锚点背书；订正 src/README.md 布局行 effect 残词（源码无 effect 导出，实为 inject/apply/on + extension 自述）】
