@@ -50,14 +50,6 @@ export interface AgentPresetDefinition {
   agent: Omit<AgentConfig, 'model'>;
 }
 
-/** llm 池条目形状（config llmProviders；P5：连接定义，默认物化走 ac-llm 池词汇） */
-type LlmPools = Record<string, unknown>;
-
-/** 默认池连接（provider = 条目名，model = defaultModel；无 → undefined） */
-function defaultConnection(pools: LlmPools | undefined): { provider: string; model: string } | undefined {
-  return defaultPoolConnection(pools);
-}
-
 export class AgentPresetsService extends Service {
   /** 物化必需 agents（fiber 依赖等待）；config 为可选能力（缺行 = 模型留空） */
   static inject = ['agents'];
@@ -107,7 +99,7 @@ export class AgentPresetsService extends Service {
    *  bash，2026-09-16 工具拆分。物化发生在运行期，平台已知，字面名
    *  可靠；预设数据保持平台无关（占位词只在本层消化，不进 AgentConfig） */
   private materialize(def: AgentPresetDefinition): AgentConfig {
-    const conn = defaultConnection(this.pools());
+    const conn = defaultPoolConnection(this.pools());
     const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';
     const resolveInclude = (names: string[]): string[] =>
       names.map((n) => (n === 'tag:shell' ? shellTool : n));
@@ -128,16 +120,16 @@ export class AgentPresetsService extends Service {
   }
 
   /** 全局 llm 池（config 行未装 → undefined） */
-  private pools(): LlmPools | undefined {
+  private pools(): Record<string, unknown> | undefined {
     const config = this.ctx.get('config') as
       | { get<T>(key: string): T | undefined }
       | undefined;
-    return config?.get<LlmPools>('llmProviders');
+    return config?.get<Record<string, unknown>>('llmProviders');
   }
 
   /** 重解析默认连接并热更新已物化的预设（未装配置行/无池 = 清除回落） */
   private refreshModels(): void {
-    const conn = defaultConnection(this.pools());
+    const conn = defaultPoolConnection(this.pools());
     for (const def of this.defs.values()) {
       const current = this.ctx.agents.get(def.agent.id);
       if (!current || current.preset !== true) continue; // 未物化/已被用户实体覆盖

@@ -127,6 +127,27 @@ describe('ac-agent-presets：目录注册面', () => {
     expect(updated).toContain('__night__');
   });
 
+  it('池清空 → 回落清除：config/changed 后 defaultPoolConnection undefined → 已物化预设 model/provider 置 undefined（未物化/被用户实体覆盖不碰）', async () => {
+    const root = tmpRoot();
+    fs.writeFileSync(
+      path.join(root, 'config.json'),
+      JSON.stringify({ llmProviders: { glm: { defaultModel: 'glm-5.3', default: true } } }),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    ctx.agentPresets.register(CUSTOM);
+    expect(ctx.agents.get('__night__')).toMatchObject({ model: 'glm-5.3', provider: 'glm' });
+
+    // 池清空 → 物化过的预设清回落（模型留空回到「无 config 行」口径）
+    ctx.config.set('llmProviders', undefined);
+    expect(ctx.agents.get('__night__')?.model).toBeUndefined();
+    expect(ctx.agents.get('__night__')?.provider).toBeUndefined();
+
+    // 恢复池 → 重新物化（热更双向）
+    ctx.config.set('llmProviders', { glm: { defaultModel: 'glm-5.3', default: true } });
+    expect(ctx.agents.get('__night__')).toMatchObject({ model: 'glm-5.3', provider: 'glm' });
+  });
+
   it('旧别名条目容错：provider+model 形态物化为 entry.provider + entry.model', async () => {
     const root = tmpRoot();
     fs.writeFileSync(

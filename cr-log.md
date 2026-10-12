@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-353**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-354**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -371,3 +371,4 @@
 - 【cr-351 2026-10-12 ac-agents 深审收口：reassign 补撞群校验（cr-4 双向卡位第三写口——管理面 create/update 走 reassign 绕过 register 的撞群防线，真 bug）；TOOL_MODE_TAGS 死词删除（全仓零消费、toolModeOf 未用）；UNIVERSAL_TAGS 收私有（运行时零消费——语义存档 + 注释指路）】
 - 【cr-352 2026-10-12 ac-agents-dir 深审收口：死配置面 AgentsDirRowOptions 删除（M15 数据根锚定后两条装配路径均不传参、实现零消费）；头注释热重扫待办订正（M14 管理面实际走写口同步 saveAgent→reassign，整目录热重扫被取代）；ac-agents events/service 注释幽灵机制热重扫覆盖注册连带订正】
 - 【cr-353 2026-10-12 ac-agent-store 深审（审计 #38）：修 saveAvatar 大写扩展名丢头像（avatarPath 只探测小写）+ agentIds 过滤非法词法目录（外部污染盘面曾可拖垮 boot——listAgents/timer reload 遍历链）+ 原子写尾部并源 writeTextAtomic + skills entries 注释漂移订正（实际消费者 timer/goal/todo）+ 头像与过滤测试补（原零覆盖）】
+- 【cr-354 2026-10-12 ac-agent-presets 深审收口（#39）：cr-319 换向残留 defaultConnection/LlmPools 转发壳删除（materialize/refreshModels 直连 defaultPoolConnection——agent-admin 同款先例，JSDoc 与 owning 侧重复随之归一）；refreshModels 池清空回落清除分支（model/provider 置 undefined）补锁定测试】
