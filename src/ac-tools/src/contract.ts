@@ -45,8 +45,9 @@ export interface ToolDefinition {
    * 档位；有人审核时可经询问提权放行（人审批 = 单次按 full 执行）。
    * 与能力轴（requiredTags）正交：能力轴管"装载/暴露面"（不满足连
    * 询问资格都没有），权限轴管"敏感动作的档位门"。
-   *   · true —— write/edit/str_replace_editor/bash/browser/web_search
-   *     （文件写 + 命令执行 + 非 LLM 出口通道）；
+   *   · true —— write/edit/str_replace_editor/pwsh(bash)/browser/
+   *     web_search/submit_issue/run_harness（文件写 + 命令执行 + 非
+   *     LLM 出口通道：浏览器交互/搜索查询词/对外发布/harness 委托）；
    *   · false / 缺省 —— 读与协作面不设权限门。
    * 执行面在 ac-security 行（tool/before-execute 的档位矩阵）。
    */
@@ -186,6 +187,6 @@ export interface ToolTransform {
   result: ToolResult;
   /** 工具体执行耗时（毫秒） */
   durationMs: number;
-  /** 工具体抛出的原始错误（收敛为 result.error 前；成功时缺省） */
+  /** 工具体抛出的原始错误（收敛为 result.error 前；成功时缺省。cr-347 起随 payload 构造填充——此前恒 undefined） */
   error?: unknown;
 }

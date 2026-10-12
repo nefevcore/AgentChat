@@ -110,8 +110,15 @@ export class ToolsService extends Service {
         error = err;
         result = { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
-      // 变换链：工具体产出 → 变换器改写 payload.result → 最终回填值
-      const payload: ToolTransform = { call: finalCall, result, durationMs: Date.now() - started };
+      // 变换链：工具体产出 → 变换器改写 payload.result → 最终回填值。
+      // cr-347：error 随 payload 构造填充——events/contract 承诺的执行现场
+      // 三件套（call/durationMs/error）此前缺一，订阅方恒读 undefined。
+      const payload: ToolTransform = {
+        call: finalCall,
+        result,
+        durationMs: Date.now() - started,
+        ...(error !== undefined ? { error } : {}),
+      };
       const final = await this.ctx.waterfall(
         'tool/transform-result',
         payload,
