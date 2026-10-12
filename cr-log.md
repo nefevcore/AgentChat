@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-351**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-352**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -369,3 +369,4 @@
 - 【cr-349 2026-10-12 ac-router #34 深审收口：maxSteps JSDoc 0 语义对齐 loop 真实口径（0=不限非回落 Agent 原配置）+ ac-agent-loop 依赖段位归位 devDeps（纯 type 导入）+ index 行级 inject 与 static inject 漂移断根（补 tools）+ 描述「会话历史」史前残留订正 + readers 零锁定缺口补测（cr-347/348 族先例）】
 - 【cr-350 2026-10-12 ac-conversation 审毕收口（审计 #35）：ac-agent-loop 依赖归位 devDeps（源内已纯 type 导入，cr-318 下沉后漏改）；contract.ts ARCHIVE_REVIEW_META 注释住址订正（ac-agent-loop→ac-core-utils）；PendingLine 隐性前提显式化（source/wakeNotice 不落盘依赖 event/agent 源不走 next-turn 的消费面前提）；readers 补锁测对齐四包先例】
 - 【cr-351 2026-10-12 ac-agents 深审收口：reassign 补撞群校验（cr-4 双向卡位第三写口——管理面 create/update 走 reassign 绕过 register 的撞群防线，真 bug）；TOOL_MODE_TAGS 死词删除（全仓零消费、toolModeOf 未用）；UNIVERSAL_TAGS 收私有（运行时零消费——语义存档 + 注释指路）】
+- 【cr-352 2026-10-12 ac-agents-dir 深审收口：死配置面 AgentsDirRowOptions 删除（M15 数据根锚定后两条装配路径均不传参、实现零消费）；头注释热重扫待办订正（M14 管理面实际走写口同步 saveAgent→reassign，整目录热重扫被取代）；ac-agents events/service 注释幽灵机制热重扫覆盖注册连带订正】

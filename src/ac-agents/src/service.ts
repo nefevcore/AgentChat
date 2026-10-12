@@ -557,7 +557,7 @@ export class AgentsService extends Service {
    * 双向名册校验（cr-4 撞形防线②反向卡位）：Agent id 撞已存在群 id →
    * 拒（gid~member 成员流键会与 1v1 对桶争用同一会话桶）。group 为可选
    * 能力——未装载时无群可撞。register（插件行/目录扫描）与 reassign
-   * （管理面/热重扫覆盖注册/预设热更）共用——写口归一，防第三口绕过
+   * （管理面写/预设热更）共用——写口归一，防第三口绕过
    * （cr-351：管理面 create/update 走 reassign 此前不校验）。
    */
   private assertNoGroupCollision(id: string): void {
