@@ -9,11 +9,11 @@ AgentChat 的 **SAP ABAP 开发工具面**：32 个 `adt_*` 工具直连 SAP ADT
 
 ## 引擎与单一事实源
 
-引擎 = npm 包 [`@nefevcore/abap-adt-core`](https://github.com/nefevcore/dsh-adt)
-（纯内核）——同一份代码同时服务 DeepSeek Harness 适配层（`abap-adt-dsh-plugin`）
-与本行（源仓库 290+ 项测试锁定全部行为：策略/OCC 快照/$batch/调试器/quirk 回归）。
-0.11 起 `adt_create_destination` 支持自由文本 `description`（连接用途备注，
-list 面可见——Agent 起名的连接不再需要看名字猜用途）；FUGR/FF 函数模块解析
+引擎 = npm 包 [`@nefevcore/abap-adt-core`](https://github.com/nefevcore/dsh-adt)
+（纯内核）——同一份代码同时服务 DeepSeek Harness 适配层（`abap-adt-dsh-plugin`）
+与本行（源仓库 290+ 项测试锁定全部行为：策略/OCC 快照/$batch/调试器/quirk 回归）。
+0.11 起 `adt_create_destination` 支持自由文本 `description`（连接用途备注，
+list 面可见——Agent 起名的连接不再需要看名字猜用途）；FUGR/FF 函数模块解析
 改走 search 定位，不再对未知组伪造 URI。
 本行只做宿主适配（工具形状归一、能力门禁、fs/credentials/config 三缝），
 **不含任何业务逻辑**——升级内核即升级两宿主。
@@ -52,9 +52,11 @@ list 面可见——Agent 起名的连接不再需要看名字猜用途）；FUG
    进程级，非弹窗面；与 settings 域分工）
 ③ 显式 configFile（团队共享 YAML；相对路径锚定 AgentChat 数据根）
 ④ 工作区层（最近层——对话式 adt_create_destination 写这里；目录随宿主
-   档案声明，AgentChat 不复用 DSH 的 .dsh-abap-adt）。**按调用方隔离**：
-   Agent 调用 → <数据根>/.ac-sap-adt/agents/<agentId>/destinations.yaml
-   （各 Agent 独立目的地表，互不可见）；宿主直调（无身份）→
+   档案声明，AgentChat 不复用 DSH 的 .dsh-abap-adt）。锚点 =
+   ac-workspace sandboxWorkdir 唯一事实源（与提示词 [工作目录] 同源）：
+   Agent 会话 → 自身专用空间 files/<agentId>/.ac-sap-adt/destinations.yaml，
+   single 预设会话（挂载项目工作区）→ <项目>/.ac-sap-adt/destinations.yaml
+   （各项目各持一份，互不可见）；仅宿主直调（无身份且无工作区解析）→
    <数据根>/.ac-sap-adt/destinations.yaml
 ⑤ SAP_* 环境变量（仅权限开关，且仅在 ①-④ 均未设置时）
 ```

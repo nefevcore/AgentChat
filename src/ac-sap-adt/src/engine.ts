@@ -112,15 +112,11 @@ export class SapAdtFs implements AdtFileSystem {
   }
 
   async listDir(target: AdtFsTarget): Promise<AdtFsDirEntry[]> {
-    const entries = await fs.promises.readdir(target.targetKey, { withFileTypes: true });
-    return entries.map((e) => ({
-      name: e.name,
-      type: e.isDirectory() ? ('directory' as const) : e.isFile() ? ('file' as const) : ('other' as const),
-    }));
+    return await this.readDir(target.targetKey);
   }
 
   async readDir(absPath: string): Promise<AdtFsDirEntry[]> {
-    const entries = await fs.promises.readdir(absPath, { withFileTypes: true });
+    const entries = await fs.promises.readdir(this.guard(absPath, path.resolve(this.baseDir)), { withFileTypes: true });
     return entries.map((e) => ({
       name: e.name,
       type: e.isDirectory() ? ('directory' as const) : e.isFile() ? ('file' as const) : ('other' as const),
@@ -128,6 +124,6 @@ export class SapAdtFs implements AdtFileSystem {
   }
 
   async readFile(absPath: string): Promise<string> {
-    return await fs.promises.readFile(absPath, 'utf8');
+    return await fs.promises.readFile(this.guard(absPath, path.resolve(this.baseDir)), 'utf8');
   }
 }

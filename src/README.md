@@ -627,7 +627,7 @@ src/
 │                            harness/sessions.json 映射 conversationId→runKey，
 │                            成功即记/失败保留；resume auto/new——claude
 │                            --resume、codex exec resume）
-├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
+├── ac-sap-adt/              SAP ABAP ADT 工具行（32 个 adt_* 工具；引擎 =
 │                            @nefevcore/abap-adt-core 纯内核；requiredTags
 │                            ['sap-adt']；demo 目的地默认开启，零 SAP 端到端可用）+
 │                            preset.ts 子行：ABAP开发模式（__abap_dev__）注入

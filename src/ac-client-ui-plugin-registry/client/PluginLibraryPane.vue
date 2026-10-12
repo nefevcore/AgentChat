@@ -528,7 +528,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 });
 
 // ── 工具视图：按注册行分组折叠（owner = tools/list 附带的注册方行名——
-//    注册即归属的框架侧事实；同一行刷屏级数量（如 sap-adt 47 个 adt_*）收进
+//    注册即归属的框架侧事实；同一行刷屏级数量（如 sap-adt 32 个 adt_*）收进
 //    一个可折叠组，普通行 1~7 个工具保持平铺不换面貌） ──
 /** 同行工具数 ≥ 此值才成组 */
 const TOOL_GROUP_MIN = 5;

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-343**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-344**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -361,3 +361,4 @@
 - 【cr-341 2026-10-12 ac-bench 深审收口（audit #24 裁决：用、留）：修 bench/* 事件订阅方注释漂移（实订阅面 = CLI 进度 + 测试断言，非 WS 广播/审计）；修 CLI 装配注释（无 system 行、进度行内嵌 bench 域装配自述，行集真实）；README 路线图改现状备注（多轮/τ²/Terminal-Bench 未启动，ac-bench 即选择压力已由 explore 档案背书）】
 - 【cr-342 2026-10-12 ac-remote-link #25 深审：修 httpParams 窄化器丢 supportsGzip/ifNoneMatch 真机失效 bug（cr-257/82 优化从未生效——测试直调 proxyToSelf 绕过 RPC 窄化层）+ 死件清理（knownDevices 死参数/startPairing deviceName 死链/DeviceRegistry.add 纯测试口/sasFromHandshakeHash 死导入）+ 注释漂移订正 + 窄化层透传测试锁】
 - 【cr-343 2026-10-12 cr-342 补记：RPC 应答压缩测试固定 20ms 等待窗改轮询（waitForFrame 50ms×40）——全仓跑批并发负载下假红（定向复跑绿），断言零变化；全仓 2558 测两 flake（本包 + webui boot-graph 集成）均定向复跑绿判时敏】
+- 【cr-344 2026-10-12 ac-sap-adt 深审收口（audit #28）：工具数口径漂移订正 46/47→32（README/cordis.yml 两注释/PluginLibraryPane 注释——0.8 时代旧数，正源 reserved.ts+引擎 0.12 assembleAdtTools）；engine.ts 重复 readDir/readFile 并源 guard 化收口（cwd 越界拒）；README 锚点注释漂移订正（.ac-sap-adt/agents 树 2026-09-17 已废）；包健康留】
