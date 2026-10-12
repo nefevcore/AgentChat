@@ -129,7 +129,7 @@ export function normalizePoolModels(raw: unknown): PoolModelEntry[] {
  *     「默认/继承全局」物化失败致建 Agent 报错）；
  *   · 无任何可物化模型 → undefined。
  */
-export function poolEntryDefaultModel(entry: LlmPoolEntry): string | undefined {
+function poolEntryDefaultModel(entry: LlmPoolEntry): string | undefined {
   if (typeof entry.defaultModel === 'string' && entry.defaultModel) return entry.defaultModel;
   if (typeof entry.model === 'string' && entry.model) return entry.model;
   return newestVisibleModel(entry);

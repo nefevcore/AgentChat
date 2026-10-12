@@ -3,8 +3,9 @@
 //
 // 依赖形态：
 //   ac-llm（本行，纯路由）
-//     ← ac-llm-pool（配置驱动注册行：读 config llmProviders 注册
-//       OpenAI 兼容连接 + 内置种子让位；热更走 config/changed）
+//     ← ac-llm-pool（配置驱动注册行：读 config llmProviders 注册多协议
+//       连接——openai-compat/anthropic/gemini/ollama（PROTOCOLS）+
+//       内置种子让位；热更走 config/changed）
 //   协议实现全部住在 ac-openai-completions 纯库（注册行依赖，本行不依赖）。
 //
 // 升级 provider = 摘旧行挂新行：inject ['llm'] 的依赖方由 cordis
@@ -40,7 +41,7 @@ export { splitModelRef, joinModelRef } from './refs.ts';
 export type { ModelRef } from './refs.ts';
 
 // 池配置词汇（cr-319 自 ac-llm-pool 归位：config llmProviders 形状与读侧解析）
-export { normalizePoolModels, poolEntryDefaultModel, defaultPoolConnection, poolFallbackRef } from './pool.ts';
+export { normalizePoolModels, defaultPoolConnection, poolFallbackRef } from './pool.ts';
 export type { LlmPoolEntry, PoolModelEntry, SessionHeaderSpec } from './pool.ts';
 
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家 contract）

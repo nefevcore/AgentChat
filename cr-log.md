@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-347**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-348**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -365,3 +365,4 @@
 - 【cr-345 2026-10-12 ac-harness-tools/core 深审收口（#29/#30 裁决=留）：修 P2 续接链路断裂——started 事件 runKey 未捕获进 terminal facts，recordSession 永不执行、resume 恒落空（cr-279 承诺从未生效）+ codex 终稿丢失——delta 无累积、stop 空稿永远『无终稿输出』（注释宣称的 finalize 累积不存在）+ 续接键位随 cwd 漂移（agentDir=dirname(cwd)→恒基准）+ reasoning 事件行侧丢弃；精简：probeGateway 零消费死面删（D8 意图已由 spawn fail-loud 达成）、done 事件变体零生产删、两 adapter finalize 并源（已走散：codex 非零退出缺 runKey）、delta 去截断归消费面、导出收紧、cr-280→282 与 settings 域名漂移订正】
 - 【cr-346 2026-10-12 ac-hello 审计收口（#31）：裁决留——范例包三锚点背书；订正 src/README.md 布局行 effect 残词（源码无 effect 导出，实为 inject/apply/on + extension 自述）】
 - 【cr-347 2026-10-12 ac-tools 深审（audit #32）：ToolTransform.error 假契约修复（service 构造 payload 从未填充——events/contract 双处承诺的执行现场三件套缺一）+ readers 三读取器补单测（对齐 loop 域先例，M25 §3.2 零锁定缺口）+ tool/started·registered·unregistered emit 契约补测试锁定 + contract needPermission 例举注释漂移订正】
+- 【cr-348 2026-10-12 ac-llm 深审精简：poolEntryDefaultModel 导出收私有（包外零消费——cr-319 下沉词汇导出面收紧，包内 defaultPoolConnection/poolFallbackRef 消费不变）；readers 零锁定缺口补 tests/readers.test.ts（agentOfChatCall/agentOfChatInput 载荷形状，对齐 cr-347 ac-tools 先例）；index.ts 头注 ac-llm-pool「OpenAI 兼容」过时表述订正（cr-39 后多协议）；package.json 描述补池词汇域】
