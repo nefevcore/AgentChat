@@ -129,6 +129,12 @@ describe('translateUnixToPowerShell —— 正确形状', () => {
     );
   });
 
+  it('unset 单/多合法变量：Remove-Item Env:<name> 逗号数组（缺失变量静默 = unset no-op 语义）', () => {
+    expect(translateUnixToPowerShell('unset FOO').command).toBe('Remove-Item Env:FOO -ErrorAction SilentlyContinue');
+    expect(translateUnixToPowerShell('unset FOO BAR').command).toBe('Remove-Item Env:FOO, Env:BAR -ErrorAction SilentlyContinue');
+  });
+
+
   it('export 纯字面量值', () => {
     expect(translateUnixToPowerShell('export FOO="hello world"').command).toBe(`$env:FOO = 'hello world'`);
     expect(translateUnixToPowerShell('export BAR=42').command).toBe(`$env:BAR = '42'`);
@@ -226,6 +232,11 @@ describe('translateUnixToPowerShell —— fail-closed（不可忠实翻译则�
     expect(translateUnixToPowerShell('touch -t 202601010000 f').translated).toBe(false);
     expect(translateUnixToPowerShell('rm -i file').translated).toBe(false);
     expect(translateUnixToPowerShell('cp -p a b').translated).toBe(false);
+  });
+
+  it('unset 带引号/带 flag：不翻（旧译文 Remove-Item Env:A B 空格平铺是绑定错误→假成功；多变量已改逗号数组译文，见正向件）', () => {
+    expect(translateUnixToPowerShell("unset 'FOO'").translated).toBe(false);
+    expect(translateUnixToPowerShell('unset FOO -f').translated).toBe(false);
   });
 
   it('which -a：不翻', () => {

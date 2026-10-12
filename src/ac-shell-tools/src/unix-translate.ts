@@ -504,7 +504,18 @@ function translateExport(rest: string): string | null {
 
 function translateUnset(rest: string): string | null {
   if (!rest) return null;
-  return `Remove-Item Env:${rest.trim()} -ErrorAction SilentlyContinue`;
+  // 变量名词法校验（fail-closed）：仅认 [A-Za-z_][A-Za-z0-9_]* 空白分隔的
+  // 多变量形态。其余 token（引号/flag/-f 映射 -Force/带路径 token 被当
+  // Path 删真实文件）原样平铺进 Remove-Item Env: 是位置参数绑定错误，
+  // 且该错误形态不在 looksLikeInvocationError 表里 → 误判 command-feedback
+  // 假成功。多变量译文用逗号数组绑定：实测存在的删、缺失的静默
+  // （-ErrorAction SilentlyContinue），与 unset 对不存在变量的 no-op 语义一致。
+  const names: string[] = [];
+  for (const t of rest.trim().split(/\s+/)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(t)) return null;
+    names.push(t);
+  }
+  return `Remove-Item Env:${names.join(', Env:')} -ErrorAction SilentlyContinue`;
 }
 
 // ── ls ────────────────────────────────────────────────────────

@@ -222,7 +222,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           if (!id) return { ok: false, error: '缺少 job_id 参数（要读取输出的任务 id）' };
           const { text, job } = ctx.jobs.read(id, owner);
           const logFile = typeof job.meta?.logFile === 'string' ? (job.meta.logFile as string) : undefined;
-          const lines = Math.min(500, Math.max(1, Number(args.limit ?? args.lines) || 50));
+          const lines = Math.min(500, Math.max(1, Number(args.limit) || 50));
           const content = logFile ? tailLogFile(logFile, lines) || text || '(日志为空)' : text || '(暂无输出)';
           return { ok: true, output: { job_id: id, lines: content ? content.split('\n').length : 0, content } };
         }

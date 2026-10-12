@@ -490,7 +490,7 @@ export function executeShellCommand(
           `实际执行的是 Unix→PowerShell 翻译产物（可能偏离原命令语义）：${translatedCommand}。若怀疑翻译有误，可直接改写为 PowerShell 原生命令重试。`,
         ].filter(Boolean).join(' ');
       }
-      // 反馈型/错误型分类（2026-11-19 画像 Ⓐ）：exit≠0 有两类——
+      // 反馈型/错误型分类（2026-09-21 画像 Ⓐ）：exit≠0 有两类——
       //   · command-feedback = 命令按预期运行并报告了非零退出（测试红灯、
       //     grep 无命中、断言失败等）：命令的语义输出，不是工具链路错误；
       //   · invocation-error = 命令没跑起来/语法层失败（ParserError、
