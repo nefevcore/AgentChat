@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-341**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-343**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -359,3 +359,5 @@
 - 【cr-339 2026-10-12 ac-shell-tools 审计 #22（P2 精简）：修 translateUnset 多变量/带引号译文绑定错误（Remove-Item Env: 位置参数绑定错且错误形态不入 invocation-error 表→command-feedback 假成功；改词法校验 [A-Za-z_]\w* 空白分隔 + 逗号数组译文 Env:A, Env:B——实测存在删/缺失静默=unset no-op 语义）；job logs 死参数 args.lines 收口（schema 只声明 limit，隐藏参数面零消费）；审计误注勘正（cr-263/264 系沙箱目录迁移非翻译层改动）；2026-11-19 未来日期笔误校准 2026-09-21（画像Ⓐ git 首见日 1391f7a1，executor+process 三处——cr-336 尾注遗留批次兑现）】
 - 【cr-340 2026-10-12 ac-edit-core 审计 #23（P2 精简）收口：唯一性交叉校验死分支清理（maxCount=Math.max 三级计数恒= lenientCount——归一化越宽松计数单调不减，counts 数组+三元链两级漂移产物，改直判 lenientCount>1，报错文案值与级别名逐字节等价）；countOccurrences 死词删除（全仓零调用，countOccurrencesRaw 直供 countOccurrencesByLevel）；executor renderReadback 与 diff 的 findLineBreaks/charToLine 同构二分并源（diff.ts 导出、executor 改 import）；countOccurrencesByLevel JSDoc 幽灵参数 crossLevel 订正；2026-11-19 未来日期笔误校准 2026-09-21（画像 Ⓑ/Ⓒ git 首见 109010c6——edit-core 6 处 + README 1 处 + fs-search 3 处，cr-336 尾注欠账批次收口）】
 - 【cr-341 2026-10-12 ac-bench 深审收口（audit #24 裁决：用、留）：修 bench/* 事件订阅方注释漂移（实订阅面 = CLI 进度 + 测试断言，非 WS 广播/审计）；修 CLI 装配注释（无 system 行、进度行内嵌 bench 域装配自述，行集真实）；README 路线图改现状备注（多轮/τ²/Terminal-Bench 未启动，ac-bench 即选择压力已由 explore 档案背书）】
+- 【cr-342 2026-10-12 ac-remote-link #25 深审：修 httpParams 窄化器丢 supportsGzip/ifNoneMatch 真机失效 bug（cr-257/82 优化从未生效——测试直调 proxyToSelf 绕过 RPC 窄化层）+ 死件清理（knownDevices 死参数/startPairing deviceName 死链/DeviceRegistry.add 纯测试口/sasFromHandshakeHash 死导入）+ 注释漂移订正 + 窄化层透传测试锁】
+- 【cr-343 2026-10-12 cr-342 补记：RPC 应答压缩测试固定 20ms 等待窗改轮询（waitForFrame 50ms×40）——全仓跑批并发负载下假红（定向复跑绿），断言零变化；全仓 2558 测两 flake（本包 + webui boot-graph 集成）均定向复跑绿判时敏】

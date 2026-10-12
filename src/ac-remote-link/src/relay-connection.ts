@@ -25,7 +25,7 @@ import {
   unb64u,
   type StaticIdentity,
 } from 'ac-noise-core';
-import type { RemoteDevice, RemoteScope } from './device-registry.ts';
+
 
 /** 应用层保活间隔（relay 心跳超时 60s——留足余量） */
 const KEEPALIVE_MS = 25_000;
@@ -114,11 +114,11 @@ export class RelayConnection {
 
   /**
    * 出站连接 + join + 响应方握手（核心端永远是 responder）。
-   * knownDevices：按 pubkey 查注册表——命中走 KK，未命中走 XK（配对）。
+   * XK/KK 模式由 roomId 前缀判定（'p' 配对 / 'r' 重连）——历史参数
+   * knownDevices 注册表查询已无调用面（判定早已前缀化），cr-342 删除。
    */
   async connectAndHandshake(
     opts: RelayConnectOptions,
-    knownDevices: { getByPubkey(b64u: string): RemoteDevice | undefined },
     acceptPairing: (device: { name: string; pubkey: string }, sas: string) => Promise<boolean>,
   ): Promise<HandshakeOutcome> {
     this.state = 'connecting';

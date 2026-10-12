@@ -7,7 +7,8 @@
 //   · 配对会话状态机（二维码 URI 生成 → XK 握手 → SAS 确认 → 注册）；
 //   · 出站 relay 连接管理（断线重连指数退避；常驻心跳懒拉起）；
 //   · 远程 RPC 转发（cr-105 起 scopes 逐方法闸门退役——全放行；保留 deliver 强制
-//     sender/user 改写与 elevation 剥除：防伪造端点，非自我限制）；
+//     sender/user 改写：防伪造端点，非自我限制。elevation 自 cr-112 起放行——
+//     两档白名单窄化在 web-api deliver 边界）；
 //   · 事件下行（emit 面白名单订阅 → 加密单播在线设备）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
@@ -16,7 +17,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { gzip as gzipCb } from 'node:zlib';
 import { promisify } from 'node:util';
-import { b64u, sasFromHandshakeHash } from 'ac-noise-core';
+import { b64u } from 'ac-noise-core';
 import { LlmDeltaBatcher, LLM_DELTA_BATCH, WireBatcher } from 'ac-wire-format';
 import { loadOrCreateIdentity, type StoredIdentity } from './identity.ts';
 import { DeviceRegistry, type RemoteDevice, type RemoteScope } from './device-registry.ts';
@@ -48,7 +49,7 @@ const PAIRING_TTL_MS = 5 * 60 * 1000;
 /** 远程应答单帧字节上限（cr-52：移动网络对大帧敏感——超限截断 records 由前端分页续拉） */
 const MAX_REMOTE_RESULT_BYTES = 300 * 1024;
 
-/** deliver 类方法转发时的强制改写面（上游方案 §4.4：恒剥除提权通道。
+/** deliver 类方法转发时的强制改写面（sender/source 恒 user）。
  * 闸门史：M1 曾按 scopes 逐方法白名单（SCOPE_ALLOWED_METHODS），cr-105 退役——
  * 配对是本人扫码建立的信任，粒度权限是自我限制；两次真实事故（cr-66 空档黑屏、
  * cr-104 会话设置静默失效）皆因白名单未随 webui 功能面同步。强制改写保留：
@@ -239,7 +240,7 @@ export class RemoteLinkService extends Service {
    * 开启配对会话：生成 roomId + 二维码 URI，等手机进房（XK 握手）。
    * 返回的会话含 qrUri——webui/CLI 展示二维码。
    */
-  async startPairing(deviceName?: string): Promise<PairingSession> {
+  async startPairing(): Promise<PairingSession> {
     // 幂等（cr-43）：活动会话存在时返回它而非报错——多窗口/重开页重入
     // 拿同一会话（SAS 确认界面随之恢复），不再出现「被占用」死锁。
     // TTL 过期的 wait-join 会话直接废弃重建（cr-65：原样返回过期房间 =
@@ -268,7 +269,6 @@ export class RemoteLinkService extends Service {
     this.pairing = { sessionId, roomId, qrUri, expiresAt, state: 'wait-join' };
     // 后台起连接（等待手机 join → XK 握手 → SAS）
     void this.runPairingConnection(roomId);
-    void deviceName;
     return { ...this.pairing };
   }
 
@@ -299,7 +299,6 @@ export class RemoteLinkService extends Service {
     try {
       const outcome = await conn.connectAndHandshake(
         { url: this.options.relayUrl, roomId, tlsPin: this.options.tlsPin || undefined },
-        this.registry,
         async (device, sas) => {
           // 进入 SAS 确认态——等 RPC confirmPairing
           if (this.pairing) {
@@ -463,7 +462,6 @@ export class RemoteLinkService extends Service {
           // 首握等待窗（cr-246）：兜「对端在房但 m1 丢失」的抖动判定；超时走
           // holdForPeer 占座驻留（房间常驻，对端随到随握手），不再弃房重拨。
           waitFirstMsgMs: 15_000 },
-        this.registry,
         async () => false, // KK 路径不进 SAS
       );
       this.registry.touch(deviceId);

@@ -13,6 +13,8 @@
 //   remote/pair-cancel    取消配对会话
 //   remote/connect        手动连 relay（重连模式）
 //   remote/disconnect     断开全部连接
+//   http/read|write       宿主 HTTP 面通用转发（M3.4——httpParams 窄化器在此）
+//   http/static           webui dist 静态面代理（cr-101 变体B）
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import z from '@agentchat/schemastery';
@@ -73,13 +75,19 @@ function optBool(source: Record<string, unknown>, key: string): boolean | undefi
   return typeof v === 'boolean' ? v : undefined;
 }
 
-/** HTTP 转发的参数窄化（缺省 GET；path 必填——其余由 http-bridge 校验） */
+/** HTTP 转发的参数窄化（缺省 GET；path 必填——其余由 http-bridge 校验）。
+ *  协商位全字段透传：ifNoneMatch（cr-82 缓存重协商）与 supportsGzip（cr-257
+ *  桥侧压缩）缺一即整条优化静默失效——曾因窄化器只透传四字段，两项在真机
+ *  链路从未生效（壳侧一直在发；桥测试直调 proxyToSelf 绕过了本层，从未红，
+ *  cr-342 修复并加窄化层透传锁）。 */
 function httpParams(p: Record<string, unknown>): HttpBridgeParams {
   return {
     method: typeof p.method === 'string' ? p.method : undefined,
     path: reqStr(p, 'path'),
     contentType: typeof p.contentType === 'string' ? p.contentType : undefined,
     bodyB64: typeof p.bodyB64 === 'string' ? p.bodyB64 : undefined,
+    ifNoneMatch: typeof p.ifNoneMatch === 'string' ? p.ifNoneMatch : undefined,
+    supportsGzip: p.supportsGzip === true,
   };
 }
 
@@ -111,11 +119,7 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
     return { revoked: removed.id };
   });
 
-  web.registerRpc('remote/pair-start', async (params) => {
-    const p = obj(params);
-    const name = typeof p.deviceName === 'string' && p.deviceName ? p.deviceName : undefined;
-    return remote().startPairing(name);
-  });
+  web.registerRpc('remote/pair-start', () => remote().startPairing());
 
   web.registerRpc('remote/pair-confirm', (params) => {
     const p = obj(params);

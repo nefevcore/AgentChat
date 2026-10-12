@@ -8,7 +8,12 @@
 // ============================================================
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { proxyToSelf, MAX_PROXY_BODY_BYTES } from '../src/http-bridge.ts';
+import { apply } from '../src/index.ts';
+import { Context } from '@agentchat/cordis';
 
 let server: Server;
 let port = 0;
@@ -242,6 +247,55 @@ describe('体积闸', () => {
   it('响应体超限 → 413（避免撑爆 relay 单帧上限）', async () => {
     const r = await proxyToSelf(port, { path: '/api/big' });
     expect(r.status).toBe(413);
+  });
+});
+
+// ============================================================
+// RPC 窄化层透传锁（cr-342）：壳侧发的协商位必须活着穿过 index.ts 的
+// httpParams 窄化器到达 proxyToSelf——曾因窄化器只透传四字段，cr-82 缓存
+// 协商与 cr-257 压缩在真机链路从未生效（本文件此前直调 proxyToSelf 绕过
+// 窄化层，从未红）。这里经 apply → registerRpc 捕获的 RPC handler 全链路验证。
+// ============================================================
+describe('RPC 窄化层透传（cr-342：协商位活着穿过 httpParams）', () => {
+  let ctx: Context;
+  let rpcHandlers: Map<string, (params: unknown) => unknown | Promise<unknown>>;
+  let tmpRoot: string;
+
+  beforeAll(async () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'remote-link-rpc-'));
+    ctx = new Context();
+    rpcHandlers = new Map();
+    ctx.provide('webServer', {
+      registerRpc: (method: string, handler: (params: unknown) => unknown) => { rpcHandlers.set(method, handler); },
+      callRpc: async () => ({}),
+      ready: async () => port,
+    });
+    apply(ctx, { root: tmpRoot, relayUrl: 'wss://fake.relay', autoReconnect: false } as never);
+  });
+
+  afterAll(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('ifNoneMatch 穿过窄化器 → 核心端收到 if-none-match（cr-82 生效前提）', async () => {
+    const h = rpcHandlers.get('http/read')!;
+    const r = await h({ path: '/api/echo', ifNoneMatch: '"av-1-2"' }) as { status: number; bodyB64: string };
+    expect(r.status).toBe(200);
+    const body = JSON.parse(Buffer.from(r.bodyB64, 'base64url').toString());
+    expect(body.inm).toBe('"av-1-2"'); // 回显上游真实收到的请求头
+  });
+
+  it('supportsGzip 穿过窄化器 → 大 JSON 应答带 gzip 标记（cr-257 生效前提）', async () => {
+    const h = rpcHandlers.get('http/read')!;
+    const r = await h({ path: '/api/big-json', supportsGzip: true }) as { status: number; gzip?: boolean; bodyB64: string };
+    expect(r.status).toBe(200);
+    expect(r.gzip).toBe(true); // 压缩决策确实发生（协商位活着到达）
+  });
+
+  it('未带协商位 → 不压缩不崩溃（旧壳兼容面不变）', async () => {
+    const h = rpcHandlers.get('http/read')!;
+    const r = await h({ path: '/api/big-json' }) as { gzip?: boolean };
+    expect(r.gzip).toBeUndefined();
   });
 });
 

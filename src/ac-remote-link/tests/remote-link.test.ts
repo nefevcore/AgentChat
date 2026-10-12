@@ -382,7 +382,6 @@ describe('KK 常住方模型（cr-70）', () => {
     (conn as unknown as { dial: unknown }).dial = async () => fakeWs;
     const p = conn.connectAndHandshake(
       { url: 'wss://x', roomId: 'r' + 'a'.repeat(30), targetDevicePubkey: b64uOf(Buffer.from(dev.publicKey)), waitFirstMsgMs: 15_000 },
-      { getByPubkey: () => undefined },
       async () => false,
     );
     const caught: Promise<unknown> = p.catch((e: unknown) => e); // 立即挂接——防 unhandled rejection
@@ -657,6 +656,14 @@ describe('RPC 应答压缩（cr-259：协商位 + gz 形态 + 阈值）', () => 
     return {
       got,
       send: (data: Record<string, unknown>) => { svc.handleDevicePayload('d1', { type: 'rpc/call', data }); },
+      // 轮询等帧（cr-342）：固定 20ms 窗在并发负载下不够（全仓跑批时 gzip/回帧
+      // 排队超窗 → 假红）；轮询 50ms×40 = 上限 2s，快路径仍 50ms 内通过
+      waitForFrame: async () => {
+        for (let i = 0; i < 40 && got.length === 0; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return got[0];
+      },
     };
   }
 
@@ -664,9 +671,8 @@ describe('RPC 应答压缩（cr-259：协商位 + gz 形态 + 阈值）', () => 
     const big = { records: Array.from({ length: 200 }, (_, i) => ({ i, pad: 'x'.repeat(64) })) };
     const h = makeHarness(big);
     h.send({ method: 'x/list', requestId: 'r1', supportsGzip: true });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(h.got).toHaveLength(1);
-    const frame = h.got[0];
+    const frame = await h.waitForFrame();
+    expect(frame).toBeTruthy();
     expect(frame.type).toBe('rpc/result');
     expect(frame.data.gz).toBe(true);
     expect(typeof frame.data.resultB64).toBe('string');
@@ -681,26 +687,26 @@ describe('RPC 应答压缩（cr-259：协商位 + gz 形态 + 阈值）', () => 
     const big = { pad: 'y'.repeat(64 * 1024) };
     const h = makeHarness(big);
     h.send({ method: 'x/list', requestId: 'r2' });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(h.got[0].data.gz).toBeUndefined();
-    expect((h.got[0].data.result as { pad: string }).pad.length).toBe(64 * 1024);
+    const frame = await h.waitForFrame();
+    expect(frame.data.gz).toBeUndefined();
+    expect((frame.data.result as { pad: string }).pad.length).toBe(64 * 1024);
   });
 
   it('小结果不压缩（阈值以下——开销不抵收益）', async () => {
     const h = makeHarness({ ok: true });
     h.send({ method: 'x/list', requestId: 'r3', supportsGzip: true });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(h.got[0].data.gz).toBeUndefined();
-    expect(h.got[0].data.result).toEqual({ ok: true });
+    const frame = await h.waitForFrame();
+    expect(frame.data.gz).toBeUndefined();
+    expect(frame.data.result).toEqual({ ok: true });
   });
 
   it('错误应答永不压缩（短文本无压缩面）', async () => {
     const h = makeHarness(undefined, async () => { throw new Error('boom'); });
     h.send({ method: 'x/boom', requestId: 'r4', supportsGzip: true });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(h.got[0].data.ok).toBe(false);
-    expect(h.got[0].data.error).toBe('boom');
-    expect(h.got[0].data.gz).toBeUndefined();
+    const frame = await h.waitForFrame();
+    expect(frame.data.ok).toBe(false);
+    expect(frame.data.error).toBe('boom');
+    expect(frame.data.gz).toBeUndefined();
   });
 });
 
