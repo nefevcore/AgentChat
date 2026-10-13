@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-382**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-383**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -400,3 +400,4 @@
 - 【cr-380 2026-10-13 ac-job-wakeup 深审收口（清单 #64）——ac-conversation 依赖归位 devDeps（type-only 正位）+ 测试死导入 conversationRow 删除 + disposeAll 冗余接持收直 + 头注 role 词汇漂移订正（M-role-v2）】
 - 【cr-381 2026-10-13 事故报告：ac-shell-tools 前台子进程在宿主退出后成孤儿（8 个 pwsh 常驻占满 8 核，跨重启存活），落档 src/docs/shell-orphan-process-postmortem.md】
 - 【cr-382 2026-10-13 孤儿进程闭环修复（cr-381 报告建议 1-4）：desktop 无条件树杀后端；shell 执行体记账 + exit 同步补刀；启动期孤儿指纹对账清扫（AGENTCHAT_ORPHAN_REAP）；killWithConfirm 未确认泄漏告警；pwsh 工具描述劝阻递归管道】
+- 【cr-383 2026-10-13 ac-security #65 深审收口：approvalScopeKey 归位 runAddress 单源（core-utils 注释宣称兑现）+ ac-tools 依赖归位 devDeps（type-only）+ CRLF→LF 统一 + webui port-b security mock 字段漂移订正】

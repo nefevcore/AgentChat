@@ -28,6 +28,7 @@ import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import { TIER_RANK, effectiveTierOf, sessionCapsOf, tierOf } from 'ac-agents';
+import { runAddress } from 'ac-core-utils'; // run 地址——cr-383 归位（approvalScopeKey 自造 \u0000 键退役）
 import {
   agentSpaceRoots,
   bashCommandViolation,
@@ -373,10 +374,10 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
    */
   const runApproved = new Map<string, true>();
 
-  /** 授权键：agent+conversation 维度（对齐 loop runAddress——run 内
-   *  工具调用恒定，跨 run 唯一） */
+  /** 授权键：agent+conversation 维度（= loop runAddress 单源——run 内
+   *  工具调用恒定，跨 run 唯一；cr-318 下沉宣称 security 共用，cr-383 兑现） */
   function approvalScopeKey(agentId: string, conversationId: string | undefined): string {
-    return conversationId ? `${agentId}\u0000${conversationId}` : agentId;
+    return runAddress(agentId, conversationId) ?? agentId;
   }
 
   /** loop/after-run：run 收束即清该维度的 run 级授权（观察型） */

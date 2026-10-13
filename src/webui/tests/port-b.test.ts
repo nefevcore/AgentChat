@@ -346,7 +346,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'plugin/extension-catalog': {
         extensions: [
           { name: 'persona', row: 'ac-persona', label: '人设注入', description: 'AGENT.md / persona 文本角色块前置注入', targets: ['loop/before-run'], fields: ['text', 'file'] },
-          { name: 'security', row: 'ac-security', label: '安全检查·脱敏', description: '门禁 + 脱敏', targets: ['tool/before-execute', 'tool/transform-result'], fields: ['capabilities', 'workdir', 'allowedPaths', 'denyPaths'] },
+          { name: 'security', row: 'ac-security', label: '安全检查·脱敏', description: '门禁 + 脱敏', targets: ['tool/before-execute', 'tool/transform-result'], fields: ['workdir', 'allowedPaths', 'accessDenyPaths', 'readDenyPaths', 'enabled'] },
           { name: 'web-tools', row: 'ac-web-tools', label: '网络工具行', description: '工具行', targets: [], automatic: true },
         ],
       },

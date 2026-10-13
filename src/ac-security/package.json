@@ -14,8 +14,8 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*",
-    "ac-sandbox-core": "workspace:*",
-    "ac-tools": "workspace:*"
+    "ac-core-utils": "workspace:*",
+    "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
@@ -25,6 +25,7 @@
     "ac-extension-core": "workspace:*",
     "ac-session": "workspace:*",
     "ac-str-replace-editor": "workspace:*",
+    "ac-tools": "workspace:*",
     "ac-workspace": "workspace:*",
     "vitest": "^4.1.10"
   },

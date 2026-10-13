@@ -3557,12 +3557,12 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ac-sandbox-core:
         specifier: workspace:*
         version: link:../ac-sandbox-core
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
     devDependencies:
       ac-agent-loop:
         specifier: workspace:*
@@ -3585,6 +3585,9 @@ importers:
       ac-str-replace-editor:
         specifier: workspace:*
         version: link:../ac-str-replace-editor
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       ac-workspace:
         specifier: workspace:*
         version: link:../ac-workspace
