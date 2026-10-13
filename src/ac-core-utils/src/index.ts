@@ -92,6 +92,16 @@ export function pairKey(a: string, b: string): string {
 }
 
 /**
+ * 群成员私有转录流键（cr-4，原住 ac-group）：sessions/<gid>~<member>/——
+ * runAddress 同形（member 恒最右，右起解析无歧义；gid 禁 ~ 使拆分唯一）。
+ * 撞形防线：群 id 禁 ~（规约）+ 双向名册校验（create/register 双卡）+
+ * 一致性测试。跨行消费（ac-file-snapshots 级联清理）走本单源。
+ */
+export function memberStreamKey(groupId: string, member: string): string {
+  return `${groupId}~${member}`;
+}
+
+/**
  * 归档整理 run 的信封标记键（M20，对齐 src META_ARCHIVE_REVIEW）：值恒为
  * true。透传链 conversation.deliver → router.send → LoopRunRequest.meta；
  * 三个消费方各查本键跳过副作用——ac-session（入账）、ac-usage（记账）、

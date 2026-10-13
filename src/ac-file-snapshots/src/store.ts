@@ -101,11 +101,6 @@ export class SnapshotStore {
     this.max = options.maxBytes ?? SNAPSHOT_MAX_BYTES;
   }
 
-  /** 快照根（诊断面） */
-  get location(): string {
-    return this.root;
-  }
-
   /** 单文件快照字节上限（诊断面；<=0 = 无上限） */
   get maxBytes(): number {
     return this.max;

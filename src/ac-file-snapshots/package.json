@@ -12,12 +12,15 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-core-utils": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-fs-tools": "workspace:*",
+    "ac-group": "workspace:*",
+    "ac-singles": "workspace:*",
     "ac-str-replace-editor": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

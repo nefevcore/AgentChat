@@ -391,7 +391,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 
 | 纯库 | 职责 |
 |---|---|
-| `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf、runAddress/pairKey、ARCHIVE_REVIEW_META/isArchiveReviewRun、normalizeToolSpecs、resolvePersonaText——只收会成运行时环/反向依赖/跨行词法协议的最小词汇；cr-318 起五词汇自 ac-agent-loop 下沉；cr-321 persona 解析词法自 ac-persona 下沉） |
+| `ac-core-utils` | 跨行共享基础纯函数/协议常量（GROUP_HINT_META/isGroupHint、maxSeqOf、runAddress/pairKey、memberStreamKey、ARCHIVE_REVIEW_META/isArchiveReviewRun、normalizeToolSpecs、resolvePersonaText——只收会成运行时环/反向依赖/跨行词法协议的最小词汇；cr-318 起五词汇自 ac-agent-loop 下沉；cr-321 persona 解析词法自 ac-persona 下沉；cr-376 memberStreamKey 自 ac-group 下沉〔file-snapshots 级联清理消费〕） |
 | `ac-openai-completions` | OpenAI 兼容协议：SSE 流式 + tool_calls 分片 + chat 聚合 + listModels + 无进展超时（缺省 180s）+ 多模态附件物化（visionModels 门控，非视觉模型 fail-closed 剥离）+ 思考字段 wire 翻译（thinkingWireForm 单源：中立 reasoning 键 → DeepSeek reasoning_content / GLM thinking / 其余剥除，cr-294 KV 边界修复） |
 | `ac-anthropic-completions` | Anthropic 原生 /v1/messages：SSE 流式 + tool_use/thinking 映射 + chat 聚合 + listModels（cr-39 协议多态；池条目 protocol='anthropic'） |
 | `ac-gemini-completions` | Gemini 原生 generateContent：SSE 流式 + functionCall/thought 映射 + chat 聚合 + listModels（cr-39；protocol='gemini'） |

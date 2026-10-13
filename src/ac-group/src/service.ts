@@ -42,7 +42,8 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 同批下沉
-import { GROUP_HINT_META, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（原住本包/ac-session，解 session⇄group 环；2026-09-05 边界评估）
+import { GROUP_HINT_META, maxSeqOf, memberStreamKey } from 'ac-core-utils'; // 跨行协议纯函数（GROUP_HINT_META/maxSeqOf 原住本包/ac-session，解 session⇄group 环；memberStreamKey cr-376 下沉）
+export { memberStreamKey }; // 兼容既有 import 面（ac-session/测试），owning 已归 ac-core-utils
 import { displayNameOf } from 'ac-agents'; // 端点显示名单源解析（连带 ctx.agents 类型增强）
 import type { LlmMessage } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
@@ -127,14 +128,9 @@ function mintMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * 成员私有转录流键（cr-4）：sessions/<gid>~<member>/——runAddress 同形
- * （member 恒最右，右起解析无歧义；gid 禁 ~ 使拆分唯一）。撞形防线：
- * 群 id 禁 ~（规约）+ 双向名册校验（create/register 双卡）+ 一致性测试。
- */
-export function memberStreamKey(groupId: string, member: string): string {
-  return `${groupId}~${member}`;
-}
+// memberStreamKey 已下沉 ac-core-utils（cr-376——file-snapshots 级联清理
+// 跨行消费同键；GROUP_HINT_META 先例），本包 re-export 兼容既有 import 面
+// （ac-session/测试），非 owning。
 
 // GROUP_HINT_META / isGroupHint 已下沉 ac-core-utils（跨行协议纯函数）：
 // session/conversation/ws-bridge 消费、本行生产，随本包导出会与 D11 存储

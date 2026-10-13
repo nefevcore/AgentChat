@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-375**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-376**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -393,3 +393,4 @@
 - 【cr-373 2026-10-13 ac-dev-tools 深审收口（审计清单#58）——删/拆双否：消费面全活跃（TREE+yml 装配 + reserved 占名 read_logs/reload/reload_modules + tag-registry dev 词条 + __creator__ 预设授予 + event-graphs 榜 + gap-backlog source:event 调用点登记），263 行单行同轴不拆（三工具+宿主半边共享 dev 域词汇与 executeReloadInterrupt，拆分徒增组合根开销）。修三处：①reload 假参数 scope 删除——self/global/all 三值唯一去向是 reason 装饰串且全仓零解析，宿主半边 include.refresh 全树原子无 scope 分支，系 src 平移遗留无对应物；②DevToolsRowOptions/bufferSize 死配置面删除——cordis.yml/TREE 零 config 传递，容量常量内联；③依赖正位——src 零 import ac-tools（type-only）归位 devDependencies（cr-369 同款 R1/R4 判定）；reason 描述漂移订正（记入日志→随语义化中断记录）。补测试：宿主半边 reload include 分支两用例 + read_logs limit 钳位】
 - 【cr-374 2026-10-13 cr-373 收尾备注：全仓 test:unit 2599 测 2596 绿（1 失败 = ac-client-ui-todo 装卸用例 15s 超时，定向复跑 6/6 绿判并发时敏 flake，cr-366~372 同款先例）；最终行数 262→248 src / 142→209 tests】
 - 【cr-375 2026-10-13 ac-ask-questions 深审收口（清单 #59）：死代码三清（questionsOf 死函数/ConversationLike.listRunning 死接口成员/poller deadline 自查死分支——2026-09-21 deadline_ms 移除漏网）+ ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零收尾）+ 中断清账悬问注释订正】
+- 【cr-376 2026-10-13 ac-file-snapshots 深审收口：会话删除级联接线（singles/updated-removed + group/deleted 含成员私有流键全清）+ memberStreamKey 下沉 ac-core-utils（跨行键词法，GROUP_HINT_META 先例）+ 死词清理（SnapshotStore re-export/location getter/rowOptions 死字段）】
