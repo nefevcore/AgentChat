@@ -64,8 +64,11 @@ describe('ac-fs-tools', () => {
     expect(r.output.content).toContain('4:'); // 尾空行也计数
     const p2 = await exec(ctx, { name: 'read', args: { file_path: 'a.txt', offset: 2, limit: 1 } });
     expect(p2.output.content).toBe('2:l2');
+    fs.writeFileSync(path.join(root, '.env'), 'SECRET=1');
     const dir = await exec(ctx, { name: 'read', args: { file_path: '.' } });
-    expect(dir.output).toMatchObject({ type: 'directory', count: 1 });
+    expect(dir.output).toMatchObject({ type: 'directory' });
+    // 发现面条目过滤（对齐 glob/grep 结果过滤）：.env 条目名不外显
+    expect(dir.output.items.map((i: { name: string }) => i.name)).toEqual(['a.txt']);
     // token 截断（大文件）
     fs.writeFileSync(path.join(root, 'big.txt'), `${'word '.repeat(60000)}\n`);
     const big = await exec(ctx, { name: 'read', args: { file_path: 'big.txt', limit: 5000 } });
@@ -362,6 +365,51 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     });
     expect(out.ok).toBe(false);
     expect(out.error).toContain('沙箱');
+  });
+
+  it('基线层档位感知：elevation=full 越界写放行（跳过沙箱白名单）；accessDeny 不随档位跳过（域规则与档位正交）', async () => {
+    const root = tmpRoot();
+    const base = path.join(root, 'files', 'neko');
+    const secret = path.join(root, 'vault', 's.txt');
+    fs.mkdirSync(path.join(root, 'vault'), { recursive: true });
+    // 行配置追加访问黑名单（settings/系统域部分之外的可测通道）
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [FakeWorkspaceService, { agents: { neko: { base } } }],
+      [fsToolsRow, { workdir: root, accessDenyPaths: [path.join(root, 'vault')] }],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+
+    // 无 elevation：沙箱内相对路径可写；沙箱外（vault）越界拦
+    const inside = await exec(ctx, { name: 'write', agentId: 'neko', args: { file_path: 'ok.txt', content: 'x' } });
+    expect(inside.ok).toBe(true);
+    const outside = await exec(ctx, { name: 'write', agentId: 'neko', args: { file_path: secret, content: 'x' } });
+    expect(outside.ok).toBe(false);
+
+    // elevation=full-access（审批/机制提权）：跳过沙箱白名单——沙箱外放行…
+    const elevated = await exec(ctx, {
+      name: 'write',
+      agentId: 'neko',
+      elevation: 'full-access',
+      args: { file_path: path.join(root, 'outside-elev', 'w.txt'), content: 'x' },
+    });
+    expect(elevated.ok).toBe(true);
+    // …但 accessDeny 命中仍拦（域规则与档位正交，§9.3）
+    const denied = await exec(ctx, {
+      name: 'write',
+      agentId: 'neko',
+      elevation: 'full-access',
+      args: { file_path: secret, content: 'x' },
+    });
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toContain('访问黑名单');
   });
 
   it('singles 会话挂载工作区 = 会话级工作目录：基准指向工作区根（相对/绝对路径锚工作区）；他 conversationId/无会话键仍拦', async () => {

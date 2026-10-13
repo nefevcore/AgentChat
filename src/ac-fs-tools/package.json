@@ -16,11 +16,11 @@
     "ac-agents": "workspace:*",
     "ac-edit-core": "workspace:*",
     "ac-sandbox-core": "workspace:*",
-    "ac-text-budget": "workspace:*",
-    "ac-tools": "workspace:*"
+    "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-tools": "workspace:*",
     "ac-fs-search": "workspace:*",
     "ac-str-replace-editor": "workspace:*",
     "vitest": "^4.1.10"

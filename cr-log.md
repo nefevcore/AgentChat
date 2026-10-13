@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-361**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-362**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -379,3 +379,4 @@
 - 【cr-359 2026-10-13 ac-datetime 深审收口（audit #44）：健康包留，零改动——双形态注入行 121/279 行设计全档案背书（收尾档位化 CHANGELOG-0.8/三档装配链/ADR-7 收敛式/KV cache §5.2），消费面全活跃（singles 行签名耦合/agent-loop 尾档契约/system-prompt 互引/web-api 扩展目录/技能范例包身份），零死代码零重复，依赖声明三处全正位（本包 + singles/web-api 消费方 devDeps），测试 9+5 用例双形态全覆盖】
 - 【cr-360 2026-10-13 ac-skill 深审收口（audit #45）：ac-agent-loop 依赖归位 devDeps（源码零 import，测试 boot 消费）+ 三区域隔行空行乱纹修复（词汇 v2 重构编辑事故残留）+ 头注手势去重叙事漂移订正 + 测试死占位行删除】
 - 【cr-361 2026-10-13 ac-mcp 深审收口：并发 run 双 sync 竞态修复（entry 级单飞——群聊/subagent 并发 before-run 双建连双注册互相拆台）；死词三清（sync force 死参/getServerVersion 死口/describeError re-export 及重复测试）；注释漂移订正】
+- 【cr-362 2026-10-13 ac-fs-tools 深审（清单#47）：read 目录列表补条目级双黑名单过滤（对齐 glob/grep 结果过滤口径）+ ac-tools 依赖归位 devDeps（src 零导入）+ 基线层 elevation/full×accessDeny 测试补强】

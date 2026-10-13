@@ -6,7 +6,8 @@
 // 沙箱基线（access-tier §9.3 执行面分层）：
 //   · read 读不设防（§9.1 放宽）：脱离工作区沙箱——相对路径仍按锚点
 //     （sandboxWorkdir）解析，只过双黑名单（accessDeny 全档 + readDeny
-//     非 full 档）；
+//     非 full 档）；目录列表 = 发现面，条目过滤对齐 glob/grep 结果过滤
+//     （敏感条目名不外显）；
 //   · write/edit 写侧防线不动：沙箱白名单 + denyPatterns（full 档/
 //     审批 elevation 跳过白名单，accessDeny 不跳过）。
 // M18 起 per-call 基准经 ac-workspace.sandboxWorkdir（Agent 专用空间
@@ -134,19 +135,29 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     };
   }
 
-  /** 读路径黑名单判定（read/glob/grep 共用口径；full 档跳过 readDeny） */
+  /** 读面双黑名单命中判定（read 路径判定与目录列表条目过滤共用单源；
+   * accessDeny 全档 + readDeny 非 full 档——与 fs-search 检索结果过滤同口径） */
+  function readDenyHitOf(
+    call: { agentId?: string; elevation?: string },
+  ): (abs: string) => 'access' | 'read' | undefined {
+    const deny = denyListsOf(call);
+    const skipReadDeny = tierOfCall(call) === 'full-access';
+    return (abs: string): 'access' | 'read' | undefined => {
+      if (isDeniedPath(deny.accessDeny, abs)) return 'access';
+      if (!skipReadDeny && isDeniedPath(deny.readDeny, abs)) return 'read';
+      return undefined;
+    };
+  }
+
+  /** 读路径黑名单判定（read/glob/grep 共用口径）：命中类别 → 面向模型的消息 */
   function readDeniedMessage(
     call: { agentId?: string; elevation?: string },
     file: string,
     raw: string,
   ): string | undefined {
-    const deny = denyListsOf(call);
-    if (isDeniedPath(deny.accessDeny, file)) {
-      return `路径被访问黑名单拒绝（系统域读+写双禁）：${raw}`;
-    }
-    if (tierOfCall(call) !== 'full-access' && isDeniedPath(deny.readDeny, file)) {
-      return `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${raw}`;
-    }
+    const hit = readDenyHitOf(call)(file);
+    if (hit === 'access') return `路径被访问黑名单拒绝（系统域读+写双禁）：${raw}`;
+    if (hit === 'read') return `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${raw}`;
     return undefined;
   }
 
@@ -193,11 +204,16 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
         if (denied) return { ok: false, error: denied };
         const stat = fs.statSync(file);
         if (stat.isDirectory()) {
+          // 条目级双黑名单过滤（发现面口径对齐 glob/grep 结果过滤：列父目录
+          // 时 .env / 持久化域树等敏感条目名不外显——文件分支由上方路径判定拦截）
+          const hitOf = readDenyHitOf(call);
           const entries = fs.readdirSync(file, { withFileTypes: true });
-          const items = entries.map((entry) => ({
-            name: entry.name,
-            type: entry.isDirectory() ? 'directory' : 'file',
-          }));
+          const items = entries
+            .filter((entry) => hitOf(path.join(file, entry.name)) === undefined)
+            .map((entry) => ({
+              name: entry.name,
+              type: entry.isDirectory() ? 'directory' : 'file',
+            }));
           items.sort((a, b) => {
             if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
             return a.name.localeCompare(b.name);
