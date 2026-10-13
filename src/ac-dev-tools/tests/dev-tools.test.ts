@@ -37,16 +37,36 @@ class FakeConversationService extends Service {
   }
 }
 
-async function boot(opts: { hmr?: boolean; conversation?: boolean } = {}) {
+/** 假 loader：entries() 返回带 refresh/filename 的 include 子树 */
+let includeRefreshed: string[] = [];
+class FakeLoaderService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'loader');
+  }
+  entries() {
+    return [{
+      subtree: {
+        filename: 'cordis.yml',
+        refresh: async () => {
+          includeRefreshed.push('cordis.yml');
+        },
+      },
+    }];
+  }
+}
+
+async function boot(opts: { hmr?: boolean; conversation?: boolean; loader?: boolean } = {}) {
   reloadedUrls = [];
   discovered = [];
   delivered = [];
+  includeRefreshed = [];
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: unknown[] = [
     toolsRow,
     ...(opts.hmr === false ? [] : [FakeHmrService]),
     ...(opts.conversation === false ? [] : [FakeConversationService]),
+    ...(opts.loader ? [FakeLoaderService] : []),
     devRow,
   ];
   for (const row of rows) {
@@ -126,6 +146,39 @@ describe('ac-dev-tools 宿主半边（reload 意图执行 + 回投续跑）', ()
     expect(delivered[0].message).toContain('HMR 未启用');
   });
 
+  it('reload（含 include 子树）→ include.refresh 执行 + 回投「配置热重载完成」', async () => {
+    const { ctx } = await boot({ loader: true });
+    ctx.emit('loop/after-run',
+      { agent: 'dev', conversationId: 'dev~user' } as never,
+      {
+        steps: [], text: '', finish: 'interrupted',
+        interruptReason: { type: 'tool-interrupt', toolInterrupt: { type: 'reload' } },
+        usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+      } as never,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    expect(includeRefreshed).toEqual(['cordis.yml']);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].message).toContain('配置热重载完成');
+    expect(delivered[0].message).toContain('可继续刚才的任务');
+  });
+
+  it('reload（无 include 子树——非 yml 驱动 boot 形态）→ 如实报告未执行，仍回投', async () => {
+    const { ctx } = await boot();
+    ctx.emit('loop/after-run',
+      { agent: 'dev', conversationId: 'dev~user' } as never,
+      {
+        steps: [], text: '', finish: 'interrupted',
+        interruptReason: { type: 'tool-interrupt', toolInterrupt: { type: 'reload' } },
+        usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+      } as never,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    expect(includeRefreshed).toEqual([]);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].message).toContain('未找到 include 配置子树');
+  });
+
   it('非 reload 意图的中断收束 → 不触发（system-restart 等归各自宿主半边）', async () => {
     const { ctx } = await boot();
     ctx.emit('loop/after-run',
@@ -163,6 +216,9 @@ describe('ac-dev-tools 工具体', () => {
     const kw = await exec(ctx, { name: 'read_logs', args: { keyword: '连接' } });
     expect(kw.output.count).toBeGreaterThanOrEqual(1);
     expect(kw.output.logs.join('\n')).toContain('连接失败');
+    // limit 钳位：0/非数 → 100 缺省、>500 → 500（clamp 锁定）
+    const clamped = await exec(ctx, { name: 'read_logs', args: { limit: 99999 } });
+    expect(clamped.output.count).toBeLessThanOrEqual(500);
     await exec(ctx, { name: 'read_logs', args: { clear: true } });
     ctx.logger.info('after-clear');
     const after = await exec(ctx, { name: 'read_logs', args: {} });
@@ -172,9 +228,9 @@ describe('ac-dev-tools 工具体', () => {
 
   it('reload / reload_modules：语义化中断（interrupt 字段，不执行宿主级行为）', async () => {
     const { ctx } = await boot();
-    const r = await exec(ctx, { name: 'reload', args: { scope: 'global' } });
+    const r = await exec(ctx, { name: 'reload', args: {} });
     expect(r.ok).toBe(true);
-    expect(r.interrupt).toMatchObject({ type: 'reload', reason: 'scope=global' });
+    expect(r.interrupt).toMatchObject({ type: 'reload' });
     const r2 = await exec(ctx, { name: 'reload_modules', args: { paths: ['a.ts'] } });
     expect(r2.interrupt).toMatchObject({ type: 'reload-modules', paths: ['a.ts'] });
   });

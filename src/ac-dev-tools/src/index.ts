@@ -9,6 +9,9 @@
 //     宿主级热重载，返回 ToolResult.interrupt，loop 收束后本行宿主半边
 //     执行（include.refresh / hmr.reloadFiles）并回投续跑通知——
 //     会话不因语义化中断断流（2026-09-02 反馈 #1 补齐）
+// cr-373 精简：删 src 平移遗留的 scope 假参数（宿主半边
+//  include.refresh 全树原子、无 scope 分支对应物）；DevToolsRowOptions
+//  bufferSize 死配置面同删（cordis.yml/TREE 零 config 传递）。
 // 能力门禁：requires ['dev']（ac-security 行执行；缺省放行 base）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
@@ -34,11 +37,6 @@ function renderLine(e: LogEntry): string {
   return `[${time}] [${e.level.toUpperCase()}] [${e.name}] ${e.text}`;
 }
 
-export interface DevToolsRowOptions {
-  /** 环形缓冲容量（缺省 2000） */
-  bufferSize?: number;
-}
-
 export const name = 'ac-dev-tools';
 
 // ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
@@ -51,8 +49,8 @@ export const extension: ExtensionMeta = {
 
 export const inject = ['tools'];
 
-export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
-  const capacity = options.bufferSize ?? LOG_BUFFER_SIZE;
+export function apply(ctx: Context) {
+  const capacity = LOG_BUFFER_SIZE;
   const buffer: LogEntry[] = [];
 
   // 日志环形缓冲：注册 exporter（随本行 fiber 卸载撤销）。
@@ -112,20 +110,13 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
     requiredTags: ['dev'],
     parameters: {
       type: 'object',
-      properties: {
-        scope: {
-          type: 'string',
-          enum: ['self', 'global', 'all'],
-          description: '范围：self 本 Agent / global 全部 / all 两者（默认）',
-        },
-      },
+      properties: {},
     },
-    execute(args): ToolResult {
-      const scope = (args.scope || 'all') as 'self' | 'global' | 'all';
+    execute(): ToolResult {
       return {
         ok: true,
         output: { message: '已请求热重载配置：run 收束后由宿主执行' },
-        interrupt: { type: 'reload', reason: `scope=${scope}` },
+        interrupt: { type: 'reload' },
       };
     },
   });
@@ -141,7 +132,7 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
         paths: { type: 'array', items: { type: 'string' }, description: '要重载的模块路径（缺省 = 自动探测变更）' },
         // src 兼容参数（M15 对账：src 工具名为 files[]+reason——别名收编）
         files: { type: 'array', items: { type: 'string' }, description: '同 paths（src 参数名兼容）' },
-        reason: { type: 'string', description: '重载原因（记入日志）' },
+        reason: { type: 'string', description: '重载原因（随语义化中断记录）' },
       },
     },
     execute(args): ToolResult {

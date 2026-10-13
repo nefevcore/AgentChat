@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-372**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-374**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -390,3 +390,5 @@
 - 【cr-370 2026-10-13 ac-timer-tools 深审收口：依赖正位（ac-timer/ac-tools 归 devDependencies——src 零值导入/纯 type-only）+ inject 死项清理（agents 零消费）+ 测试补强（可选字段透传锁定与 disable 未知 id 错误路径）】
 - 【cr-371 2026-10-13 ac-todo 深审（审计 #56）：listBuckets 死词删除（全仓零消费——含测试）+ 头注「goal-round 对齐提示」漂移订正（ac-goal 源码零 todo 引用，todo 状态唯一通道 = 工具消息面）+ 桶淘汰/上限护栏补测试锁定】
 - 【cr-372 2026-10-13 ac-goal 深审收口（审计 #57）：GoalsService.list() 死词删除（全仓零消费，cr-371 listBuckets 同款）+ renderGoalRoundMessage/GOAL_ROUND_META 包外零引用收私有 + package.json 描述漏 delete 订正（cr-335 ac-subagent 同款）+ ac-client-ui-todo tasks.ts 头注 goal 半边去向漂移订正 + 桶淘汰/history 上限零覆盖补测试】
+- 【cr-373 2026-10-13 ac-dev-tools 深审收口（审计清单#58）——删/拆双否：消费面全活跃（TREE+yml 装配 + reserved 占名 read_logs/reload/reload_modules + tag-registry dev 词条 + __creator__ 预设授予 + event-graphs 榜 + gap-backlog source:event 调用点登记），263 行单行同轴不拆（三工具+宿主半边共享 dev 域词汇与 executeReloadInterrupt，拆分徒增组合根开销）。修三处：①reload 假参数 scope 删除——self/global/all 三值唯一去向是 reason 装饰串且全仓零解析，宿主半边 include.refresh 全树原子无 scope 分支，系 src 平移遗留无对应物；②DevToolsRowOptions/bufferSize 死配置面删除——cordis.yml/TREE 零 config 传递，容量常量内联；③依赖正位——src 零 import ac-tools（type-only）归位 devDependencies（cr-369 同款 R1/R4 判定）；reason 描述漂移订正（记入日志→随语义化中断记录）。补测试：宿主半边 reload include 分支两用例 + read_logs limit 钳位】
+- 【cr-374 2026-10-13 cr-373 收尾备注：全仓 test:unit 2599 测 2596 绿（1 失败 = ac-client-ui-todo 装卸用例 15s 超时，定向复跑 6/6 绿判并发时敏 flake，cr-366~372 同款先例）；最终行数 262→248 src / 142→209 tests】
