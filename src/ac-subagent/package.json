@@ -15,13 +15,13 @@
     "@agentchat/cordis": "workspace:*",
     "ac-tools": "workspace:*",
     "ac-agent-loop": "workspace:*",
-    "ac-jobs": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-llm": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-jobs": "workspace:*",
     "ac-session": "workspace:*",
     "vitest": "^4.1.10"
   },

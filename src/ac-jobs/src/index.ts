@@ -29,5 +29,5 @@ export function apply(ctx: Context, options: JobsRowOptions = {}) {
 export type * from './contract.ts';
 export type {} from './events.ts';
 
-export { JobsService, DEFAULT_MAX_CONCURRENT_JOBS_PER_OWNER } from './service.ts';
+export { JobsService } from './service.ts';
 export type { JobsRowOptions } from './service.ts';

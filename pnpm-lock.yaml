@@ -2934,9 +2934,6 @@ importers:
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
-      ac-jobs:
-        specifier: workspace:*
-        version: link:../ac-jobs
     devDependencies:
       '@agentchat/cordis-timer':
         specifier: workspace:*
@@ -2950,6 +2947,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../ac-jobs
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
@@ -3822,9 +3822,6 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
-      ac-jobs:
-        specifier: workspace:*
-        version: link:../ac-jobs
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
@@ -3838,6 +3835,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../ac-jobs
       ac-session:
         specifier: workspace:*
         version: link:../ac-session

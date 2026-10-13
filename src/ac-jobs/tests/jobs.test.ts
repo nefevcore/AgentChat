@@ -112,7 +112,7 @@ describe('ac-jobs 注册表', () => {
     expect(settled[0]).toMatchObject({ id: 'bash-1', conversationId: 'a~b' });
   });
 
-  it('每 owner 活跃上限（默认 8）：超出抛错；终态让位', async () => {
+  it('每 owner 活跃上限：显式 2 超出抛错；终态让位；缺省 8（第 9 个抛错）', async () => {
     const { ctx } = await boot({ maxConcurrentJobsPerOwner: 2 });
     const mk = () => manualHooks();
     const a = mk(), b = mk(), c = mk();
@@ -124,6 +124,16 @@ describe('ac-jobs 注册表', () => {
     a.settle({ status: 'completed' });
     await new Promise((r) => setTimeout(r, 0));
     expect(() => ctx.jobs.start({ kind: 't', label: '3', ownerAgentId: 'a1', run: () => c.hooks })).not.toThrow();
+
+    // 缺省上限 8：不传 options 时第 9 个任务抛错（服务面常量口径锁定）
+    const { ctx: ctx2 } = await boot();
+    const hs = Array.from({ length: 9 }, () => manualHooks());
+    for (let i = 0; i < 8; i++) {
+      ctx2.jobs.start({ kind: 't', label: `d${i}`, ownerAgentId: 'a2', run: () => hs[i].hooks });
+    }
+    expect(() => ctx2.jobs.start({ kind: 't', label: 'd8', ownerAgentId: 'a2', run: () => hs[8].hooks })).toThrow(
+      /已达上限（8）/,
+    );
   });
 
   it('kill：running → stopping + cancel 调用；done 回写 killed；已终态 → already-finished', async () => {

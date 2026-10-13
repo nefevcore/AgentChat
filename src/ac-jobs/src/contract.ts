@@ -15,7 +15,7 @@ export interface JobOutcome {
   status: Exclude<JobStatus, 'running' | 'stopping'>;
   /** 人类可读的终态说明（如 `exit code: 0` / `signal: SIGKILL`） */
   detail?: string;
-  /** 终态输出（readOutput 缺省时，job read 兜底返回此值） */
+  /** 终态输出（settle 回写 meta.output——webui jobs/list 500 字预览；job read 兜底链 = readOutput → detail，不含此值） */
   output?: string;
 }
 

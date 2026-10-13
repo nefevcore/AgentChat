@@ -19,8 +19,8 @@ interface JobRecord extends JobSnapshot {
   readOutput?: () => string;
 }
 
-/** 默认每 owner 活跃任务上限 */
-export const DEFAULT_MAX_CONCURRENT_JOBS_PER_OWNER = 8;
+/** 默认每 owner 活跃任务上限（包内缺省值；配置口 = JobsRowOptions.maxConcurrentJobsPerOwner） */
+const DEFAULT_MAX_CONCURRENT_JOBS_PER_OWNER = 8;
 
 /** 判断是否终态 */
 function isTerminal(status: JobStatus): boolean {
