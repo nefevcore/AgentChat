@@ -1,6 +1,6 @@
 // ============================================================
-// ac-dev-tools：reload / reload_modules 宿主半边
-// （loop/after-run 消费 toolInterrupt → 执行热重载 + 回投续跑通知）
+// ac-dev-tools：宿主半边（loop/after-run 消费 toolInterrupt →
+// 执行热重载 + 回投续跑）+ 工具体（read_logs / reload / reload_modules）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
@@ -70,6 +70,11 @@ afterEach(async () => {
   }
 });
 
+type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
+async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
+  return (await ctx.tools.execute(call as never)) as ExecRes;
+}
+
 describe('ac-dev-tools 宿主半边（reload 意图执行 + 回投续跑）', () => {
   it('reload-modules（显式 paths）→ hmr.reloadFiles 收到 file URL + 原会话回投 [系统通知] 续跑', async () => {
     const { ctx } = await boot();
@@ -138,5 +143,39 @@ describe('ac-dev-tools 宿主半边（reload 意图执行 + 回投续跑）', ()
     await new Promise((r) => setTimeout(r, 30));
     expect(reloadedUrls).toEqual([]);
     expect(delivered).toEqual([]);
+  });
+});
+
+// ---- 工具体面：工具只发语义化中断 / 只读缓冲，宿主级行为不在此触发 ----
+describe('ac-dev-tools 工具体', () => {
+  it('read_logs：环形缓冲收集 ctx.logger 输出；级别/关键词过滤；clear 清空', async () => {
+    const { ctx } = await boot();
+    ctx.logger.info('启动完成 port=3000');
+    ctx.logger.warn('磁盘水位偏高');
+    ctx.logger.error('连接失败');
+    const r = await exec(ctx, { name: 'read_logs', args: {} });
+    expect(r.ok).toBe(true);
+    expect(r.output.count).toBeGreaterThanOrEqual(3);
+    expect(r.output.logs.join('\n')).toContain('启动完成 port=3000');
+    const warnOnly = await exec(ctx, { name: 'read_logs', args: { level: 'warn' } });
+    expect(warnOnly.output.logs.join('\n')).not.toContain('启动完成');
+    expect(warnOnly.output.logs.join('\n')).toContain('磁盘水位偏高');
+    const kw = await exec(ctx, { name: 'read_logs', args: { keyword: '连接' } });
+    expect(kw.output.count).toBeGreaterThanOrEqual(1);
+    expect(kw.output.logs.join('\n')).toContain('连接失败');
+    await exec(ctx, { name: 'read_logs', args: { clear: true } });
+    ctx.logger.info('after-clear');
+    const after = await exec(ctx, { name: 'read_logs', args: {} });
+    expect(after.output.logs.join('\n')).toContain('after-clear');
+    expect(after.output.logs.join('\n')).not.toContain('启动完成');
+  });
+
+  it('reload / reload_modules：语义化中断（interrupt 字段，不执行宿主级行为）', async () => {
+    const { ctx } = await boot();
+    const r = await exec(ctx, { name: 'reload', args: { scope: 'global' } });
+    expect(r.ok).toBe(true);
+    expect(r.interrupt).toMatchObject({ type: 'reload', reason: 'scope=global' });
+    const r2 = await exec(ctx, { name: 'reload_modules', args: { paths: ['a.ts'] } });
+    expect(r2.interrupt).toMatchObject({ type: 'reload-modules', paths: ['a.ts'] });
   });
 });

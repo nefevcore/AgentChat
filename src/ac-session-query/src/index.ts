@@ -74,7 +74,7 @@ export function apply(ctx: Context) {
   }
 
   // ---- grep_history：按正则检索会话历史（含跨会话查询——# 引用后端能力） ----
-  // history 标签（2026-09-17 自 infra 拆出）：会话回放门面自立族——标准
+  // history 标签（2026-09-16 全量标签化时自 infra 分立）：会话回放门面自立族——标准
   // 预设精简协作面时连带出局（infra 保留提问/待办等单 Agent 刚需）
   ctx.tools.register({
     name: 'grep_history',

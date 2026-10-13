@@ -3634,22 +3634,16 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
-    devDependencies:
-      ac-dev-tools:
-        specifier: workspace:*
-        version: link:../ac-dev-tools
-      ac-extension-core:
-        specifier: workspace:*
-        version: link:../ac-extension-core
-      ac-restart:
-        specifier: workspace:*
-        version: link:../ac-restart
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))

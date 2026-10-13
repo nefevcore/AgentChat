@@ -1,6 +1,6 @@
 // ============================================================
-// ac-dev-tools / ac-restart / ac-session-query：
-// 日志环形缓冲 + 语义化中断三件套 + 会话查询门面
+// ac-session-query：会话查询门面（grep_history / read_history
+// + # 会话引用指引 owner 行条件注入；跨会话 # 引用后端实证）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -9,17 +9,16 @@ import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as sessionRow from 'ac-session';
 import * as toolsRow from 'ac-tools';
-import * as devRow from 'ac-dev-tools';
-import * as restartRow from 'ac-restart';
-import * as queryRow from 'ac-session-query';
-type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
+import * as queryRow from '../src/index.ts';
+
+type ExecRes = { ok: boolean; output: any; error?: string };
 async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
   return (await ctx.tools.execute(call as never)) as ExecRes;
 }
 
 const tmps: string[] = [];
 function tmpRoot(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-devq-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-query-'));
   tmps.push(dir);
   return dir;
 }
@@ -32,8 +31,6 @@ async function boot(root: string) {
   for (const [plugin, config] of [
     [toolsRow, undefined],
     [sessionRow, { root }],
-    [devRow, undefined],
-    [restartRow, undefined],
     [queryRow, undefined],
   ] as Array<[unknown, unknown]>) {
     const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
@@ -55,63 +52,6 @@ afterEach(async () => {
     }
   }
   for (const dir of tmps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-  delete process.env.AGENTCHAT_SUPERVISED;
-});
-
-describe('ac-dev-tools', () => {
-  it('read_logs：环形缓冲收集 ctx.logger 输出；级别/关键词/条数过滤', async () => {
-    const { ctx } = await boot(tmpRoot());
-    ctx.logger.info('启动完成 port=3000');
-    ctx.logger.warn('磁盘水位偏高');
-    ctx.logger.error('连接失败');
-    const r = await exec(ctx, { name: 'read_logs', args: {} });
-    expect(r.ok).toBe(true);
-    expect(r.output.count).toBeGreaterThanOrEqual(3);
-    expect(r.output.logs.join('\n')).toContain('启动完成 port=3000');
-    const warnOnly = await exec(ctx, { name: 'read_logs', args: { level: 'warn' } });
-    expect(warnOnly.output.logs.join('\n')).not.toContain('启动完成');
-    expect(warnOnly.output.logs.join('\n')).toContain('磁盘水位偏高');
-    const kw = await exec(ctx, { name: 'read_logs', args: { keyword: '连接' } });
-    expect(kw.output.count).toBeGreaterThanOrEqual(1);
-    expect(kw.output.logs.join('\n')).toContain('连接失败');
-  });
-
-  it('read_logs clear 清空缓冲', async () => {
-    const { ctx } = await boot(tmpRoot());
-    ctx.logger.info('x', 'before-clear');
-    await exec(ctx, { name: 'read_logs', args: { clear: true } });
-    ctx.logger.info('x', 'after-clear');
-    const r = await exec(ctx, { name: 'read_logs', args: {} });
-    expect(r.output.logs.join('\n')).toContain('after-clear');
-    expect(r.output.logs.join('\n')).not.toContain('before-clear');
-  });
-
-  it('reload / reload_modules：语义化中断（interrupt 字段，不执行宿主级行为）', async () => {
-    const { ctx } = await boot(tmpRoot());
-    const r = await exec(ctx, { name: 'reload', args: { scope: 'global' } });
-    expect(r.ok).toBe(true);
-    expect(r.interrupt).toMatchObject({ type: 'reload', reason: 'scope=global' });
-    const r2 = await exec(ctx, { name: 'reload_modules', args: { paths: ['a.ts'] } });
-    expect(r2.interrupt).toMatchObject({ type: 'reload-modules', paths: ['a.ts'] });
-  });
-});
-
-describe('ac-restart', () => {
-  it('非 Supervisor 模式拒绝', async () => {
-    const { ctx } = await boot(tmpRoot());
-    delete process.env.AGENTCHAT_SUPERVISED;
-    const r = await exec(ctx, { name: 'system_restart', args: { reason: 'test' } });
-    expect(r.ok).toBe(false);
-    expect(r.error).toContain('Supervisor');
-  });
-
-  it('Supervisor 模式：语义化中断 system-restart', async () => {
-    const { ctx } = await boot(tmpRoot());
-    process.env.AGENTCHAT_SUPERVISED = '1';
-    const r = await exec(ctx, { name: 'system_restart', args: { reason: '升级依赖' } });
-    expect(r.ok).toBe(true);
-    expect(r.interrupt).toMatchObject({ type: 'system-restart', reason: '升级依赖' });
-  });
 });
 
 describe('ac-session-query', () => {
@@ -205,5 +145,34 @@ describe('ac-session-query', () => {
     });
     expect(grep.ok).toBe(true);
     expect(grep.output.count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('参数边界：无效正则 → 结构化报错；limit 越界钳制到 250 并给 note', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const bad = await exec(ctx, {
+      name: 'grep_history',
+      args: { pattern: '(unclosed' },
+      conversationId: 'a',
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain('无效的正则表达式');
+
+    // 260 条命中 > limit 上限 250（schema 声明 maximum: 250，实现同值钳制）
+    for (let i = 0; i < 260; i++) {
+      ctx.emit('router/message-received', 'a', { role: 'user', content: `SQBULK 批量 ${i}` }, 'a');
+    }
+    ctx.emit('router/reply-completed', 'a', '收工', {
+      steps: [], text: '收工', finish: 'stop', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+    }, 'a');
+    await new Promise((r) => setTimeout(r, 100));
+    const r = await exec(ctx, {
+      name: 'grep_history',
+      args: { pattern: 'SQBULK', limit: 999 },
+      conversationId: 'a',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.output.count).toBe(250);
+    expect(r.output.note).toBe('已达返回上限 250 条（收窄 pattern）');
   });
 });

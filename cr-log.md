@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-368**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-369**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -386,3 +386,4 @@
 - 【cr-366 2026-10-13 ac-web-tools 深审收口（审计清单#51）——删/拆双否：消费面全活跃（TREE 装配唯一被依赖 + ac-cdp-core/ac-web-search-core 两纯库唯一行级消费方 + 前端镜像行 match web_search + tagExclusive browser-tier 抉择组 + conv-settings browserTier 消费方 + reserved 占名 + run-code/sap-adt 集成 boot）。修四处：①content/html 退役别名到期删除（CDP 化已随 v0.8.15 发布两版本，schema enum/ACTION_TIER/case 分支/observe 描述四处同步）；②fullPage 孤儿参数归位——实现自 CDP 化起读取但 schema 从未声明（git 实证），补 schema（screenshot 整页开关 + buildCmd 透传），删字符串兼容形态；③WebToolsSettings.enabled 全仓零消费死词删；④AgentsGateFace 死形状删（探测后仅真值判断，get() 从未被调——能力集合成早已单源 sessionCapsOf，无 agents 恒放行探测保留）。测试两改：无 key 用例 stubEnv 加固（本机/CI 有 DEEPSEEK_API_KEY 即假红）；补 fullPage 用例（dataRoot 注入通道——cdpEndpoint 同款测试注入先例）。注释漂移订正三处（守护进程/5 provider/三源链）。克制不动：web_search 全参数兼容分支（M15 对账背书）、nonEmptyStr 与 issue-tools 双份私有（不成环不满足 core-utils 准入）、BROWSER_FAMILY 前端正则匹配旧工具名（#122 裁决面）】
 - 【cr-367 2026-10-13 ac-issue-tools 深审收口（#52）：包健康留——cordis.yml 注释漂移订正（cr-41 切轴漏更：requiredTags web→issue-report）+ 凭据链冗余查询消除（resolve 已含全局级联，getGlobal 补位加 agentId 守卫与 web-tools 同构）】
 - 【cr-368 2026-10-13 ac-collab-tools 深审（#53）：ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零后残留，R1 判定）+ sub_ 未注册分支注释漂移订正；裁决留（消费面全活跃、删/拆双否）】
+- 【cr-369 2026-10-13 ac-session-query 深审收口（审计清单#54）：删/拆双否+依赖正位+三包合一测试归位拆分（dev/restart 各回 owning 包，query 留包内并补边界锁定）】
