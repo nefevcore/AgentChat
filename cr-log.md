@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-366**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-367**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -384,3 +384,4 @@
 - 【cr-364 2026-10-13 ac-str-replace-editor 深审收口：三写命令读改写整段进突变队列（lost update 断根）+ view 目录列表双黑名单条目过滤（发现面对齐 fs-tools read）+ devDeps 重复声明清理】
 - 【cr-365 2026-10-13 ac-math 深审（#50）：判留——删/拆双否（消费面全活跃：TREE/yml/reserved 占名/toolLabel 镜像/run-code 面板/subagent·system-prompt·webui 集成测试；纯函数 evaluateExpression 已是纯库正位形态，单文件单行拆分即碎尸）。修三处：①头部注释漂移——仍称「注册无 requiredTags」但 2026-09-16 全量标签化后实为 requiredTags=[infra]（infra 属 UNIVERSAL_TAGS，一切 Agent 可调语义不变，机制描述过时）；②MAX_TOKENS=4000 死护栏——token 数恒≤字符数+1≤2001（MAX_EXPR_LENGTH=2000 先触发），恒不可达即删；③package.json description 仍称 node:vm 沙箱求值——vm 已于 A2（2026-08-31）移除，订正为现状】
 - 【cr-366 2026-10-13 ac-web-tools 深审收口（审计清单#51）——删/拆双否：消费面全活跃（TREE 装配唯一被依赖 + ac-cdp-core/ac-web-search-core 两纯库唯一行级消费方 + 前端镜像行 match web_search + tagExclusive browser-tier 抉择组 + conv-settings browserTier 消费方 + reserved 占名 + run-code/sap-adt 集成 boot）。修四处：①content/html 退役别名到期删除（CDP 化已随 v0.8.15 发布两版本，schema enum/ACTION_TIER/case 分支/observe 描述四处同步）；②fullPage 孤儿参数归位——实现自 CDP 化起读取但 schema 从未声明（git 实证），补 schema（screenshot 整页开关 + buildCmd 透传），删字符串兼容形态；③WebToolsSettings.enabled 全仓零消费死词删；④AgentsGateFace 死形状删（探测后仅真值判断，get() 从未被调——能力集合成早已单源 sessionCapsOf，无 agents 恒放行探测保留）。测试两改：无 key 用例 stubEnv 加固（本机/CI 有 DEEPSEEK_API_KEY 即假红）；补 fullPage 用例（dataRoot 注入通道——cdpEndpoint 同款测试注入先例）。注释漂移订正三处（守护进程/5 provider/三源链）。克制不动：web_search 全参数兼容分支（M15 对账背书）、nonEmptyStr 与 issue-tools 双份私有（不成环不满足 core-utils 准入）、BROWSER_FAMILY 前端正则匹配旧工具名（#122 裁决面）】
+- 【cr-367 2026-10-13 ac-issue-tools 深审收口（#52）：包健康留——cordis.yml 注释漂移订正（cr-41 切轴漏更：requiredTags web→issue-report）+ 凭据链冗余查询消除（resolve 已含全局级联，getGlobal 补位加 agentId 守卫与 web-tools 同构）】

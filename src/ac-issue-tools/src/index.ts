@@ -222,7 +222,11 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
         if (!token && call.agentId !== undefined) {
           token = ctx.get('credentials')?.resolve(call.agentId, server) ?? '';
         }
-        if (!token) token = ctx.get('credentials')?.getGlobal(server) ?? '';
+        // resolve 已含 Agent 级→全局级联；仅无 agentId 上下文时补查全局
+        // （web-tools 同款守卫形态）
+        if (!token && call.agentId === undefined) {
+          token = ctx.get('credentials')?.getGlobal(server) ?? '';
+        }
         if (!token) token = nonEmptyStr(process.env[ENV_TOKEN[server]]) ?? '';
         if (!token) {
           // 官方台零配置降级（cr-136）：令牌三源链全空不再硬失败——生成

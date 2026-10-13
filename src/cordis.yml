@@ -110,8 +110,9 @@
 - id: web-tools
   name: 'ac-web-tools'
 # ---- ISSUE 反馈工具行（submit_issue：GitHub/Gitee 创建 ISSUE——用户经
-# Agent 直达 Git 的反馈通道；requiredTags ['web'] + needPermission；令牌
-# 三源链 = 行直配 → 凭据库（github/gitee）→ env GITHUB_TOKEN/GITEE_TOKEN） ----
+# Agent 直达 Git 的反馈通道；requiredTags ['issue-report']（cr-41 对外
+# 发布独立轴）+ needPermission；令牌三源链 = 行直配 → 凭据库（github/
+# gitee）→ env GITHUB_TOKEN/GITEE_TOKEN；官方台全空降级预填新建链接） ----
 - id: issue-tools
   name: 'ac-issue-tools'
 # ---- harness 委托（run_harness：把任务委托给本地 Claude Code/Codex

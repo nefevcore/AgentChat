@@ -132,6 +132,11 @@ describe('ac-issue-tools submit_issue', () => {
     const r = await exec(ctx, { name: 'submit_issue', args: { title: 'x' } });
     expect(r.ok).toBe(true);
     expect((calls[0].init.headers as Record<string, string>)['Authorization']).toBe('Bearer cred-key');
+    // agentId 在场走 resolve——级联已含全局兜底，无 Agent 级凭据也命中
+    // （cr-367 收口冗余二次 getGlobal 后的语义锁定）
+    const r2 = await exec(ctx, { name: 'submit_issue', args: { title: 'y' }, agentId: 'reporter' });
+    expect(r2.ok).toBe(true);
+    expect((calls[1].init.headers as Record<string, string>)['Authorization']).toBe('Bearer cred-key');
   });
 
   it('per-Agent settings：repo 覆盖生效 + enabled=false 停用（settingsOf 合成）', async () => {
