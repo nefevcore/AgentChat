@@ -19,7 +19,6 @@
   },
   "devDependencies": {
     "ac-agent-store": "workspace:*",
-    "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-session": "workspace:*",
     "ac-tools": "workspace:*",

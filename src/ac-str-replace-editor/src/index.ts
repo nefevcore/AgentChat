@@ -8,7 +8,8 @@
 //   · str_replace：字面量精确替换（old_str 须唯一；new_str 缺省空 = 删除）
 //   · insert：插到第 insert_line 行之后（1 基，与 view 行号一致；0=开头）
 // 修 src 已知缺口（地图 §3.4）：写操作经 ac-edit-core 突变队列串行化
-// （同文件并行编辑交错风险收敛——与 read/write/edit 共享同一把锁）。
+// （同文件并行编辑交错风险收敛——与 read/write/edit 共享同一把锁；
+// cr-364：读改写整段进队列——队列外先读再队列内写仍有 lost update 窗口）。
 //
 // 能力门禁（2026-09-03 裁决）：requiredTags ['fs_minimal']——移出默认工具
 // 面（与 read/write/edit 功能重叠，DSH 兼容定位）；仅显式声明该标签的
@@ -114,9 +115,16 @@ function formatFileView(displayPath: string, content: string, viewRange?: number
   return maybeTruncate(`${header}:\n${numbered}\n`);
 }
 
-/** 目录查看：下探两层浅层列表（跳过隐藏/node_modules/__pycache__；d/f 前缀；按路径排序） */
-function formatDirectoryView(displayPath: string, rootAbs: string): string {
+/** 目录查看：下探两层浅层列表（跳过隐藏/node_modules/__pycache__；d/f 前缀；按路径排序）。
+ *  denyFilterOf：条目级双黑名单过滤（cr-364 发现面对齐——列目录时敏感条目
+ *  不外显，与 fs-tools read 目录列表同口径；目录自身已过路径级判定） */
+function formatDirectoryView(
+  displayPath: string,
+  rootAbs: string,
+  denyFilterOf?: () => (abs: string) => 'access' | 'read' | undefined,
+): string {
   const rows: string[] = [];
+  const hitOf = denyFilterOf?.();
   const visit = (dirAbs: string, depth: number): void => {
     let dirents: fs.Dirent[];
     try {
@@ -127,6 +135,7 @@ function formatDirectoryView(displayPath: string, rootAbs: string): string {
     for (const ent of dirents) {
       if (ent.name.startsWith('.') || DIR_SKIP.has(ent.name)) continue;
       const abs = path.join(dirAbs, ent.name);
+      if (hitOf !== undefined && hitOf(abs) !== undefined) continue;
       const type = ent.isDirectory() ? 'd' : ent.isFile() ? 'f' : '?';
       rows.push(`${type}\t${toPosix(abs)}`);
       if (ent.isDirectory() && depth < DIR_DEPTH) visit(abs, depth + 1);
@@ -201,6 +210,21 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     return effectiveTierOfCall(call, agentsOf);
   }
 
+  /** 读面双黑名单命中判定（view 路径判定与目录列表条目过滤共用单源；
+   * accessDeny 全档 + readDeny 非 full 档——与 fs-tools readDenyHitOf 同口径，
+   * cr-364 条目过滤对齐） */
+  function readDenyHitOf(
+    call: { agentId?: string; elevation?: string },
+  ): (abs: string) => 'access' | 'read' | undefined {
+    const deny = denyListsOf(call);
+    const skipReadDeny = tierOfCall(call) === 'full-access';
+    return (abs: string): 'access' | 'read' | undefined => {
+      if (isDeniedPath(deny.accessDeny, abs)) return 'access';
+      if (!skipReadDeny && isDeniedPath(deny.readDeny, abs)) return 'read';
+      return undefined;
+    };
+  }
+
   // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
   // ——与 fs-tools / fs-search 基线同源不漂移；workspace 缺失时 best-effort
   // 只查追加项并告警一次（本行原缺失告警——三姊妹走散的实证，随并源补齐），
@@ -257,14 +281,20 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
       const target = tierOfCall(call) === 'full-access'
         ? path.resolve(sandbox.workdir, pathInput)
         : sandbox.resolve(pathInput);
-      const deny = denyListsOf(call);
-      if (isDeniedPath(deny.accessDeny, target)) {
+      // accessDeny 全档拦截（写命令同样适用——系统域读+写双禁）；view 是
+      // 读面另过 readDeny（§9.1 口径对齐 read/glob/grep；cr-363 修本行原
+      // 只查 accessDeny 的走散）。路径判定与目录列表条目过滤共用单源。
+      const hit = readDenyHitOf(call)(target);
+      if (command !== 'view' && hit === 'access') {
         return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${pathInput}` };
       }
-      // view 是读面：readDeny 口径对齐 read/glob/grep（§9.1——非 full 档
-      // 机密文件不外显；cr-363 修口径走散：本行原只查 accessDeny）
-      if (command === 'view' && tierOfCall(call) !== 'full-access' && isDeniedPath(deny.readDeny, target)) {
-        return { ok: false, error: `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${pathInput}` };
+      if (command === 'view' && hit !== undefined) {
+        return {
+          ok: false,
+          error: hit === 'access'
+            ? `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${pathInput}`
+            : `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${pathInput}`,
+        };
       }
 
       switch (command) {
@@ -274,7 +304,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
             if (args.view_range !== undefined) return { ok: false, error: 'view_range 仅在 path 为文件时可用' };
             return {
               ok: true,
-              output: { path: pathInput, type: 'directory', content: formatDirectoryView(pathInput, target) },
+              output: { path: pathInput, type: 'directory', content: formatDirectoryView(pathInput, target, () => readDenyHitOf(call)) },
             };
           }
           const viewRange = args.view_range as number[] | undefined;
@@ -292,17 +322,21 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
         }
         case 'create': {
           const content = requiredFor(args.file_text as string | undefined, 'file_text', 'create');
-          if (fs.existsSync(target)) {
+          // 存在性检查入队（cr-364：TOCTOU 断根——check-then-act 需与写同
+          // 持锁，否则并发 create 挤过检查双写覆盖）。快照在队列回调内取。
+          const existed = await withFileMutationQueue(target, async () => {
+            if (fs.existsSync(target)) return true;
+            snapshotBefore(call, target); // 首见快照（方案 C；幂等）
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, content, 'utf-8');
+            return false;
+          });
+          if (existed) {
             return {
               ok: false,
               error: `文件已存在: ${pathInput}（create 不能覆盖已有文件；修改请用 str_replace/insert）`,
             };
           }
-          snapshotBefore(call, target); // 首见快照（方案 C；幂等）
-          await withFileMutationQueue(target, async () => {
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, content, 'utf-8');
-          });
           return {
             ok: true,
             output: {
@@ -320,38 +354,36 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
           const newValue = (args.new_str as string | undefined) ?? '';
           statExisting(pathInput, target, 'str_replace');
 
-          const before = fs.readFileSync(target, 'utf-8');
-          const offsets = matchOffsets(before, oldValue);
-          if (offsets.length === 0) {
-            return {
-              ok: false,
-              error: `未执行替换：old_str 未在 ${pathInput} 中逐字出现。请检查空白/缩进/换行是否与原文完全一致`,
-            };
-          }
-          if (offsets.length > 1) {
-            const lines = lineNumbersAt(before, offsets).join(', ');
-            return {
-              ok: false,
-              error: `未执行替换：old_str 在 ${pathInput} 中出现 ${offsets.length} 次（行 [${lines}]）。请扩大 old_str 上下文使其唯一`,
-            };
-          }
-          if (oldValue === newValue) {
-            return {
-              ok: false,
-              error: `未执行替换：new_str 与 old_str 完全相同，替换后文件不会有任何变化。多半是笔误（写错了其中一侧）：new_str 填替换后的完整新文本。`,
-            };
-          }
-          snapshotBefore(call, target); // 首见快照（方案 C；幂等）
-          const offset = offsets[0];
-          const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
-          await withFileMutationQueue(target, async () => {
+          // 读改写整段进队列（cr-364）：读-匹配-写同持锁——队列外先读再
+          // 队列内写会与并发写交错（lost update：旧读覆盖新写）。校验失败
+          // 形态在队列回调内判出，未写盘即直接返回（文件保持原状）。
+          const result = await withFileMutationQueue(target, async () => {
+            const before = fs.readFileSync(target, 'utf-8');
+            const offsets = matchOffsets(before, oldValue);
+            if (offsets.length === 0) {
+              return { ok: false as const, error: `未执行替换：old_str 未在 ${pathInput} 中逐字出现。请检查空白/缩进/换行是否与原文完全一致` };
+            }
+            if (offsets.length > 1) {
+              const lines = lineNumbersAt(before, offsets).join(', ');
+              return { ok: false as const, error: `未执行替换：old_str 在 ${pathInput} 中出现 ${offsets.length} 次（行 [${lines}]）。请扩大 old_str 上下文使其唯一` };
+            }
+            if (oldValue === newValue) {
+              return {
+                ok: false as const,
+                error: `未执行替换：new_str 与 old_str 完全相同，替换后文件不会有任何变化。多半是笔误（写错了其中一侧）：new_str 填替换后的完整新文本。`,
+              };
+            }
+            snapshotBefore(call, target); // 首见快照（方案 C；幂等）
+            const offset = offsets[0];
+            const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
             fs.writeFileSync(target, after, 'utf-8');
+            const { added, removed } = countLineChanges(before, after);
+            return {
+              ok: true as const,
+              output: { message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1, diff_added: added, diff_removed: removed },
+            };
           });
-          const { added, removed } = countLineChanges(before, after);
-          return {
-            ok: true,
-            output: { message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1, diff_added: added, diff_removed: removed },
-          };
+          return result;
         }
         case 'insert': {
           const insertLine = args.insert_line as number | undefined;
@@ -361,37 +393,37 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
           const value = requiredFor(args.new_str as string | undefined, 'new_str', 'insert');
           statExisting(pathInput, target, 'insert');
 
-          const before = fs.readFileSync(target, 'utf-8');
-          const lines = before.split('\n');
-          if (insertLine < 0 || insertLine > lines.length) {
-            return {
-              ok: false,
-              error: `无效的 insert_line ${insertLine}：应在文件行边界范围内 [0, ${lines.length}]`,
-            };
-          }
-          snapshotBefore(call, target); // 首见快照（方案 C；幂等）
-          const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
-          await withFileMutationQueue(target, async () => {
+          // 读改写整段进队列（cr-364，与 str_replace 同因）：行边界校验
+          // 基于持锁读的当下内容，杜绝「校验时 100 行、写入时 50 行」漂移。
+          const result = await withFileMutationQueue(target, async () => {
+            const before = fs.readFileSync(target, 'utf-8');
+            const lines = before.split('\n');
+            if (insertLine < 0 || insertLine > lines.length) {
+              return { ok: false as const, error: `无效的 insert_line ${insertLine}：应在文件行边界范围内 [0, ${lines.length}]` };
+            }
+            snapshotBefore(call, target); // 首见快照（方案 C；幂等）
+            const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
             fs.writeFileSync(target, after, 'utf-8');
+            // 位置双表述（自校验用；0/尾部分支单独措辞，避免"第 0 行之后"式歧义）
+            const where =
+              insertLine === 0
+                ? '文件开头（第 1 行之前）'
+                : insertLine === lines.length
+                  ? `文件尾（原第 ${lines.length} 行之后）`
+                  : `第 ${insertLine} 行之后 / 第 ${insertLine + 1} 行之前`;
+            return {
+              ok: true as const,
+              output: {
+                message: `已在 ${pathInput} 插入文本（insert_line=${insertLine} → ${where}；文件现 ${after.split('\n').length} 行）`,
+                path: pathInput,
+                insert_line: insertLine,
+                // 纯插入：新增 = 插入行数，删除 0
+                diff_added: value.split('\n').length,
+                diff_removed: 0,
+              },
+            };
           });
-          // 位置双表述（自校验用；0/尾部分支单独措辞，避免"第 0 行之后"式歧义）
-          const where =
-            insertLine === 0
-              ? '文件开头（第 1 行之前）'
-              : insertLine === lines.length
-                ? `文件尾（原第 ${lines.length} 行之后）`
-                : `第 ${insertLine} 行之后 / 第 ${insertLine + 1} 行之前`;
-          return {
-            ok: true,
-            output: {
-              message: `已在 ${pathInput} 插入文本（insert_line=${insertLine} → ${where}；文件现 ${after.split('\n').length} 行）`,
-              path: pathInput,
-              insert_line: insertLine,
-              // 纯插入：新增 = 插入行数，删除 0
-              diff_added: value.split('\n').length,
-              diff_removed: 0,
-            },
-          };
+          return result;
         }
         default:
           return { ok: false, error: `未知 command "${command}"（允许：view / create / str_replace / insert）` };

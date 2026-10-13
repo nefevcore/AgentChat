@@ -194,4 +194,65 @@ describe('ac-str-replace-editor 双黑名单（cr-363：deny 装配并源 + view
     expect(tree.ok).toBe(false);
     expect(tree.error).toContain('访问黑名单');
   });
+
+  it('view 目录列表条目过滤（cr-364 发现面对齐 fs-tools read）：secret.key / agents 树条目不外显', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sre-deny-'));
+    writeFileSync(join(root, 'secret.key'), 'KEY=1', 'utf8');
+    writeFileSync(join(root, 'note.txt'), 'normal', 'utf8');
+    mkdirSync(join(root, 'agents', 'a'), { recursive: true });
+    writeFileSync(join(root, 'agents', 'a', 'config.json'), '{}', 'utf8');
+    const { ctx } = await bootWs(root);
+
+    // 非 full 档列根目录：readDeny 命中条目（*.key）与 accessDeny 命中树（agents）不出现；普通条目照常
+    const r = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: '.' } });
+    expect(r.ok).toBe(true);
+    const content = (r.output as { content: string }).content;
+    expect(content).toContain('note.txt');
+    expect(content).not.toContain('secret.key');
+    expect(content).not.toContain('agents');
+  });
+});
+
+describe('ac-str-replace-editor 突变队列读改写整段（cr-364：lost update 断根）', () => {
+  /** boot：仅工具行（无 agents/workspace——base 档，沙箱基准 = 临时目录） */
+  async function bootBare(workdir: string) {
+    const ctx = new Context();
+    const f1 = ctx.plugin(toolsRow as any);
+    await f1;
+    const f2 = ctx.plugin(editorRow as any, { workdir });
+    await f2;
+    booted.push({ ctx, fibers: [f1, f2] });
+    return { ctx };
+  }
+
+  it('并发 str_replace 不丢编辑：两处互不重叠替换并行发起，盘上两处都在', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sre-race-'));
+    writeFileSync(join(root, FILE), 'A0 alpha\nB0 beta\nC0 gamma', 'utf8');
+    const { ctx } = await bootBare(root);
+
+    const one = ctx.tools.execute({
+      name: 'str_replace_editor',
+      args: { command: 'str_replace', path: FILE, old_str: 'A0', new_str: 'A1' },
+    });
+    const two = ctx.tools.execute({
+      name: 'str_replace_editor',
+      args: { command: 'str_replace', path: FILE, old_str: 'B0', new_str: 'B1' },
+    });
+    await Promise.all([one, two]);
+    // lost update 形态（修复前可达）：后写者基于旧读覆盖——只余一处替换
+    expect(readFileSync(join(root, FILE), 'utf8')).toBe('A1 alpha\nB1 beta\nC0 gamma');
+  });
+
+  it('并发 create 同一路径：恰一个成功，另一侧报已存在（TOCTOU 断根）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sre-race-'));
+    const { ctx } = await bootBare(root);
+
+    const pair = await Promise.all([
+      ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'create', path: 'dup.txt', file_text: 'one' } }),
+      ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'create', path: 'dup.txt', file_text: 'two' } }),
+    ]);
+    const oks = pair.filter((r) => r.ok);
+    expect(oks).toHaveLength(1);
+    expect(pair.filter((r) => !r.ok && r.error?.includes('已存在'))).toHaveLength(1);
+  });
 });
