@@ -4,7 +4,8 @@
 // src 轨道映射（agent-mcp，地图 §3.2 形态重构）：
 //   · 全局注册 + 懒建连（对齐 ac-llm 范式）：registerServer 只存
 //     定义，首次消费（loop/before-run 触发的 sync）才建连发现；
-//     连接缓存跨 run 复用
+//     连接缓存跨 run 复用；并发 run 同服务器单飞（entry.syncing
+//     在飞复用——重入会双建连泄漏 + 二次注册撞名拆台）
 //   · 发现的工具注册进 ctx.tools（注册即归属：随 mcp 行卸载/服务器
 //     移除自动回收）；撞名命名空间前缀（裸名 → `${server}__${name}`
 //     回退——ac-mcp-core pickToolName）
@@ -61,6 +62,8 @@ interface ServerEntry {
   /** 本服务器注册的工具最终名（暴露面收敛判定 + teardown 定向回收） */
   toolNames: string[];
   synced: boolean;
+  /** 在飞 sync（并发 run 单飞——在飞即等待复用，不重入） */
+  syncing: Promise<void> | null;
 }
 
 export class McpService extends Service {
@@ -100,7 +103,7 @@ export class McpService extends Service {
   registerServer(def: McpServerDef) {
     if (!def.name) throw new Error('MCP 服务器注册缺少 name');
     if (this.servers.has(def.name)) throw new Error(`MCP 服务器 "${def.name}" 已注册`);
-    const entry: ServerEntry = { def, connection: null, disposers: [], toolNames: [], synced: false };
+    const entry: ServerEntry = { def, connection: null, disposers: [], toolNames: [], synced: false, syncing: null };
     return this.ctx.fiber.effect(() => {
       this.servers.set(def.name, entry);
       return () => {
@@ -135,21 +138,29 @@ export class McpService extends Service {
   }
 
   /**
-   * 发现并注册全部 enabled 服务器的工具（幂等：已 synced 跳过；
-   * force = 断开重连重发现）。单服务器失败 warn 不炸。
+   * 发现并注册全部 enabled 服务器的工具（幂等：已 synced 跳过）。
+   * 并发 run 单飞：同服务器在飞 sync 直接等待复用——loop/before-run
+   * 并发到达（群聊多参与者 / subagent 与主会话同窗）时重入会双建连
+   * 泄漏旧连接 + 二次注册撞名触发 teardown 拆台。单服务器失败 warn 不炸。
    */
-  async sync(options: { force?: boolean } = {}): Promise<void> {
+  async sync(): Promise<void> {
     this.reconcile(); // 配置层对账（settings.mcp——便宜：内存读 + 名集 diff）
     for (const entry of this.servers.values()) {
       if (entry.def.enabled === false) continue;
-      if (entry.synced && !options.force) continue;
-      if (options.force) this.teardown(entry);
-      try {
-        await this.syncServer(entry);
-      } catch (err: unknown) {
-        this.ctx.logger.warn(`[mcp] 服务器 "${entry.def.name}" 同步失败: ${String(err)}`);
-        this.teardown(entry); // 失败回收半注册状态（下一 run 重试）
+      if (entry.synced) continue;
+      if (entry.syncing) {
+        await entry.syncing; // 首飞收尾（成功置 synced / 失败已 teardown）；本 run 不再重试
+        continue;
       }
+      entry.syncing = this.syncServer(entry)
+        .catch((err: unknown) => {
+          this.ctx.logger.warn(`[mcp] 服务器 "${entry.def.name}" 同步失败: ${String(err)}`);
+          this.teardown(entry); // 失败回收半注册状态（下一 run 重试）
+        })
+        .finally(() => {
+          entry.syncing = null;
+        });
+      await entry.syncing;
     }
   }
 

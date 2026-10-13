@@ -12,8 +12,7 @@
 //     "fetch failed"）
 //   · describeError       展开 err.cause 链（Node fetch 的真实原因
 //     在 cause，message 只有 "fetch failed"）——实现住 ac-error-core
-//     纯库（ac-llm 重试判定/loop 收束诊断共享），本包 re-export 维持
-//     既有 API 面
+//     纯库（ac-llm 重试判定/loop 收束诊断共享），本包内部消费
 //   · resolveEnvVars      stdio env 的 ${VAR} 展开
 //   · pickToolName        撞名命名空间策略（裸名 → `${server}__${name}`
 //     回退；仍撞 → null 跳过）
@@ -69,9 +68,8 @@ export interface McpConnection {
 // ============================================================
 
 // describeError 实现 2026-09-05 迁至 ac-error-core 纯库（ac-llm 瞬时
-// 网络错误重试与 ac-agent-loop 收束诊断共享同源判定）；此处 re-export
-// 维持本包既有 API 面（下方连接/调用失败诊断继续使用）
-export { describeError } from 'ac-error-core';
+// 网络错误重试与 ac-agent-loop 收束诊断共享同源判定）；本包内部消费
+// （下方连接/调用失败诊断）
 import { describeError } from 'ac-error-core';
 
 /** stdio env 的 ${VAR} 展开（缺失变量展开为空串） */
@@ -118,7 +116,6 @@ export interface SdkClientLike {
     content?: Array<{ type: string; text?: string }>;
     isError?: boolean;
   }>;
-  getServerVersion?(): { name: string; version: string } | null;
 }
 
 /** undici 面（insecure dispatcher 用） */

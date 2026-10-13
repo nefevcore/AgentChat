@@ -2,6 +2,7 @@
 // ac-mcp/tests/mcp.test.ts —— MCP 注册中心
 //
 // · 懒建连：注册不建连；首个 run 才连接发现；连接跨 run 复用
+// · 并发 run 单飞：同服务器在飞 sync 等待复用（不双建连、不撞名拆台）
 // · 工具注册：裸名优先、撞名命名空间前缀、include 白名单暴露
 // · 单服务器失败不炸行（回收半注册状态、下一 run 重试）
 // · removeServer / 行卸载：连接关闭 + 工具回收（注册即归属）
@@ -46,8 +47,8 @@ interface FakeHandle {
   def: McpServerDef;
 }
 
-/** 假服务器（clientFactory 注入——零网络零子进程） */
-function fakeServer(name: string, tools: McpToolDef[], opts: { fail?: boolean } = {}): FakeHandle {
+/** 假服务器（clientFactory 注入——零网络零子进程；delayMs 拉长建连窗口测并发） */
+function fakeServer(name: string, tools: McpToolDef[], opts: { fail?: boolean; delayMs?: number } = {}): FakeHandle {
   const state = { connected: false, closed: 0, connectCount: 0, calls: [] as Array<{ toolName: string; args: Record<string, unknown> }> };
   const connection: McpConnection = {
     serverName: name,
@@ -56,6 +57,7 @@ function fakeServer(name: string, tools: McpToolDef[], opts: { fail?: boolean } 
     },
     async connect() {
       state.connectCount += 1;
+      if (opts.delayMs) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
       if (opts.fail) throw new Error('连不上');
       state.connected = true;
     },
@@ -144,6 +146,29 @@ describe('ac-mcp 懒建连与工具注册', () => {
     expect(tool?.description).toBe('[MCP:srv] 回声');
     const r = await ctx.tools.execute({ name: 'echo', args: { text: 'x' } });
     expect(r).toEqual({ ok: true, output: 'srv:echo' });
+    expect(fake.state.calls).toEqual([{ toolName: 'echo', args: { text: 'x' } }]);
+  });
+
+  it('并发 run 单飞：懒建连窗口内双 sync 不双建连、不撞名拆台', async () => {
+    // 群聊多参与者 / subagent 与主会话同窗 = 不同会话地址的 run 并发进入
+    // loop/before-run；旧实现各自重入 syncServer → 双建连（旧连接泄漏）+
+    // 二次注册撞「已注册」抛错 → teardown 把首飞刚注册的工具拆光
+    const fake = fakeServer('srv', [ECHO], { delayMs: 80 });
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    const mcpFiber = ctx.plugin(mcpRow, { servers: [fake.def] });
+    await mcpFiber;
+
+    await Promise.all([
+      ctx.agentLoop.run({ model: 'mock-1', messages: USER }),
+      ctx.agentLoop.run({ model: 'mock-1', messages: USER }),
+    ]);
+    expect(fake.state.connectCount).toBe(1); // 单飞：仅一次建连
+    expect(fake.state.closed).toBe(0); // 无泄漏旧连接
+    expect(ctx.tools.has('echo')).toBe(true); // 工具恰注册一次（未被拆台）
+    expect(fake.state.calls).toEqual([]);
+
+    await ctx.tools.execute({ name: 'echo', args: { text: 'x' } });
     expect(fake.state.calls).toEqual([{ toolName: 'echo', args: { text: 'x' } }]);
   });
 

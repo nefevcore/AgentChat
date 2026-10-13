@@ -1,9 +1,9 @@
 // ============================================================
 // ac-mcp-core/tests/mcp-core.test.ts —— 纯函数 + SDK 包装（假 loader）
+// （describeError 住 ac-error-core，测试随实现归位——此处不重复覆盖）
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import {
-  describeError,
   resolveEnvVars,
   isHttpTransport,
   pickToolName,
@@ -11,21 +11,6 @@ import {
   type McpSdk,
   type SdkClientLike,
 } from '../src/index';
-
-describe('describeError（cause 链展开）', () => {
-  it('拼接 message + cause 链（深度上限 3、去重）', () => {
-    const err = new Error('fetch failed');
-    (err as unknown as { cause: unknown }).cause = Object.assign(new Error('connect ECONNREFUSED'), {
-      code: 'ECONNREFUSED',
-    });
-    expect(describeError(err)).toBe('fetch failed ← ECONNREFUSED: connect ECONNREFUSED');
-  });
-
-  it('无 cause / 非 Error 输入不炸', () => {
-    expect(describeError(new Error('x'))).toBe('x');
-    expect(describeError('裸字符串')).toBe('裸字符串');
-  });
-});
 
 describe('resolveEnvVars / isHttpTransport', () => {
   it('${VAR} 展开（缺失 → 空串）', () => {
