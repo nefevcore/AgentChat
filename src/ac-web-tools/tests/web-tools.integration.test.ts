@@ -87,6 +87,8 @@ describe('ac-web-tools web_search', () => {
   });
 
   it('无 key（行/凭据/env 全空）→ validateConfig 报可读错误（缺省 deepseek，2026-09-03）', async () => {
+    vi.stubEnv('TAVILY_API_KEY', '');
+    vi.stubEnv('DEEPSEEK_API_KEY', ''); // 本机/CI 挂真实 key 时原用例假红
     const { ctx } = await boot(); // 无池无行配置 → 内置缺省 deepseek
     const r = await exec(ctx, { name: 'web_search', args: { query: 'x' } });
     expect(r.ok).toBe(false);
@@ -280,6 +282,47 @@ describe('ac-web-tools browser（CDP 直连——fake endpoint）', () => {
     expect(r.ok).toBe(true);
     expect(r.output.tabs).toHaveLength(2);
     expect(r.output.tabs[0]).toMatchObject({ active: true, title: 'Example' });
+  });
+
+  it('content/html 退役别名删除：schema 外动作 → 可读报错（cr-366 兼容期收口）', async () => {
+    const { ctx } = await boot();
+    const r1 = await exec(ctx, { name: 'browser', args: { action: 'content' } });
+    expect(r1.ok).toBe(false);
+    expect(String(r1.error)).toContain('unknown action');
+    const r2 = await exec(ctx, { name: 'browser', args: { action: 'html' } });
+    expect(r2.ok).toBe(false);
+    expect(String(r2.error)).toContain('unknown action');
+  });
+
+  it('screenshot：fullPage 整页开关（dataRoot 注入通道——截图落注入目录）', async () => {
+    const dir = path.join(os.tmpdir(), `ac-web-shot-${Date.now().toString(36)}`);
+    const server = newFakeCdp();
+    const port = await server.listen();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    for (const [plugin, config] of [
+      [toolsRow, undefined],
+      [webRow, { cdpEndpoint: `ws://127.0.0.1:${port}/devtools/browser/abc`, timeoutMs: 5000, idleTimeoutMs: 0, dataRoot: dir }],
+    ] as Array<[unknown, unknown]>) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    for (let i = 0; i < 1000; i++) {
+      if ((ctx as any).tools && (ctx as any).browser) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    booted.push({ ctx, fibers });
+    server.handlers.set('Page.captureScreenshot', () => ({ data: Buffer.from('png').toString('base64') }));
+    const r = await exec(ctx, { name: 'browser', args: { action: 'screenshot', name: 'full.png', fullPage: true } });
+    expect(r.ok).toBe(true);
+    expect(String(r.output.file)).toContain(dir); // dataRoot 注入生效（截图落注入目录）
+    const shot = server.calls.find((c: { method: string }) => c.method === 'Page.captureScreenshot');
+    expect(shot?.params).toMatchObject({ format: 'png', captureBeyondViewport: true }); // fullPage 透传 CDP
+    const fs = await import('node:fs');
+    expect(fs.existsSync(String(r.output.file))).toBe(true);
+    await exec(ctx, { name: 'browser', args: { action: 'close' } });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('close 动作：会话关闭（再调用重新 boot）', async () => {

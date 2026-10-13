@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "网络工具行：web_search（5 provider 纯库 + key 三源链 + settings per-Agent）+ browser（ctx.browser 守护进程）",
+  "description": "网络工具行：web_search（tavily/deepseek provider 纯库 + key 四层解析链 + 缺省源 = 全局搜索引擎池）+ browser（ctx.browser CDP 直连会话）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

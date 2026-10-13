@@ -3,8 +3,9 @@
 //
 // src web 平移（输出归一 {ok, output}）。preview 形态差异：
 //   · provider 算法住纯库 ac-web-search-core（5 provider）
-//   · key 三源解析链：行配置 → ac-credentials（Agent 级→全局，
-//     call.agentId 执行身份）→ 环境变量（TAVILY_API_KEY 等）
+//   · key 解析链（四层）：行配置 → ac-credentials（Agent 级→全局，
+//     call.agentId 执行身份）→ 搜索池引用（searchpool:<名>）→ 环境变量
+//     （TAVILY_API_KEY 等）
 //   · per-Agent 调优走 settings['web-tools']（provider/baseURL/model/
 //     defaultResults 等——地图 §3.4 命名空间配置 → settings[具名]；
 //     M24 A1 经 settingsOf 合成全局默认层）
@@ -58,9 +59,8 @@ const ENV_KEY_MAP: Record<string, string> = {
   deepseek: 'DEEPSEEK_API_KEY',
 };
 
-/** settings['web-tools'] 的 per-Agent 配置形状 */
+/** settings['web-tools'] 的 per-Agent 配置形状（2026-09-03 起 UI 不再暴露，存量键兼容读取） */
 interface WebToolsSettings {
-  enabled?: boolean;
   provider?: string;
   baseURL?: string;
   model?: string;
@@ -86,8 +86,6 @@ const ACTION_TIER: Record<string, number> = {
   open: 1,
   read: 1,
   elements: 1,
-  content: 1, // 退役别名（read 同义，保留一个版本期）
-  html: 1, // 退役别名（并入 read debug——保留兼容期）
   scroll: 1,
   wait: 1,
   logs: 1,
@@ -103,14 +101,6 @@ const ACTION_TIER: Record<string, number> = {
 };
 /** 层级 → 标签名（错误文案用） */
 const TIER_TAG: Record<number, string> = { 1: 'observe', 2: 'manipulate', 3: 'inject' };
-
-/**
- * agents 服务软依赖面（ctx.get 探测；结构化形状——无 agents 服务的组合
- * 恒放行，与 ac-gate-core agentGate 同款形态：无注册表面即无门禁面）。
- */
-interface AgentsGateFace {
-  get(id: string): { tags?: string[] } | undefined;
-}
 
 function truncateRawContent(results: SearchResponse['results'], maxLen: number): void {
   for (const r of results) {
@@ -155,7 +145,7 @@ import type { TagDeclaration } from 'ac-tag-registry';
 export const extension: ExtensionMeta = {
   name: 'web-tools',
   label: '网络工具行',
-  description: 'web_search（tavily/deepseek 双 provider + key 三源链；缺省源 = 全局设置「搜索引擎」页）/browser 工具',
+  description: 'web_search（tavily/deepseek 双 provider + key 四层解析链；缺省源 = 全局设置「搜索引擎」页）/browser 工具',
   automatic: true,
 };
 
@@ -181,7 +171,7 @@ export const tagDeclarations: TagDeclaration[] = [
   },
   {
     tag: 'observe',
-    description: '观察：只读族（open/content/html/screenshot/close）',
+    description: '观察：只读族（open/read/elements/scroll/wait/screenshot/logs 等）',
     tools: ['browser'],
     group: 'Web 与浏览器',
     order: 1,
@@ -376,8 +366,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
         error: 'browser 工具已被本会话禁用（输入框「实验性 → 浏览器」档位）——如需使用请切换档位为跟随或对应层级。',
       };
     }
-    const agents = ctx.get('agents') as AgentsGateFace | undefined;
-    if (!agents) return next(); // 无 agents 服务：无标签面，恒放行（agentGate 同款；disabled 已在上方拦）
+    if (!ctx.get('agents', false)) return next(); // 无 agents 服务：无标签面，恒放行（agentGate 同款；disabled 已在上方拦）——能力集合成由 sessionCapsOf 软依赖自理
 
     const args = (call.args ?? {}) as { action?: unknown; steps?: unknown };
     const stepActions = Array.isArray(args.steps)
@@ -409,7 +398,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     };
   }, { description: 'browser 动作分层门禁（observe/manipulate/inject 层级判定）' });
 
-  // ---- browser：真实 Chromium 操作（ctx.browser 守护进程）----
+  // ---- browser：真实 Chromium 操作（ctx.browser CDP 直连会话）----
   ctx.tools.register({
     name: 'browser',
     requiredTags: ['web', 'observe'],
@@ -423,7 +412,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
       properties: {
         action: {
           type: 'string',
-          enum: ['open', 'read', 'elements', 'click', 'hover', 'type', 'press', 'scroll', 'wait', 'screenshot', 'logs', 'response_body', 'tabs', 'content', 'html', 'eval', 'close'],
+          enum: ['open', 'read', 'elements', 'click', 'hover', 'type', 'press', 'scroll', 'wait', 'screenshot', 'logs', 'response_body', 'tabs', 'eval', 'close'],
           description: '要执行的动作',
         },
         url: { type: 'string', description: '[open] 目标 URL' },
@@ -440,6 +429,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
         level: { type: 'string', enum: ['verbose', 'info', 'warning', 'error'], description: '[logs] console 最低级别（默认不过滤）' },
         requestId: { type: 'string', description: '[response_body] 请求 ID（logs network 条目）' },
         name: { type: 'string', description: '[screenshot] 截图文件名' },
+        fullPage: { type: 'boolean', description: '[screenshot] 整页截图（默认 false 只截视口）' },
         js: { type: 'string', description: '[eval] JS 代码' },
         steps: {
           type: 'array',
@@ -467,7 +457,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     async execute(args) {
       const buildCmd = (step: Record<string, unknown>): Record<string, unknown> => {
         const cmd: Record<string, unknown> = { action: step.action };
-        for (const k of ['url', 'ref', 'selector', 'text', 'key', 'direction', 'amount', 'ms', 'maxLen', 'since', 'kind', 'level', 'requestId', 'name', 'js'] as const) {
+        for (const k of ['url', 'ref', 'selector', 'text', 'key', 'direction', 'amount', 'ms', 'maxLen', 'since', 'kind', 'level', 'requestId', 'name', 'fullPage', 'js'] as const) {
           if (step[k] !== undefined) cmd[k] = step[k];
         }
         return cmd;

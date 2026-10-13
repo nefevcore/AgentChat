@@ -36,6 +36,8 @@ export interface BrowserRowOptions {
   bootTimeoutMs?: number;
   /** 空闲回收毫秒（缺省 300000；0 = 不回收） */
   idleTimeoutMs?: number;
+  /** 数据根显式覆盖（profile/截图落位；缺省 workspace root → ./data——测试注入） */
+  dataRoot?: string;
   /** headful 调试（缺省 headless） */
   headful?: boolean;
   /** UA / locale / timezone 覆盖（缺省真实 UA 探测） */
@@ -45,7 +47,7 @@ export interface BrowserRowOptions {
 }
 
 /** 单动作结果（序列化前的内部形；LLM 面截断纪律见 index.ts） */
-export interface BrowserActionOutput {
+interface BrowserActionOutput {
   ok: boolean;
   output?: Record<string, unknown>;
   error?: string;
@@ -66,9 +68,11 @@ export class BrowserService extends Service {
   private timeoutMs: number;
   private idleMs: number;
   private launchCfg: LaunchConfig;
+  /** options.dataRoot（显式覆盖，测试注入通道） */
+  private rootOverride?: string;
   /** 测试注入的 fake endpoint（cdpEndpoint 配置） */
   private endpointOverride?: string;
-  /** 数据根（profile/截图落位）——boot 时从 workspace 解析 */
+  /** 数据根（profile/截图落位）——workspace root → ./data（或 options.dataRoot） */
   private dataRoot?: string;
 
   private launched: LaunchedBrowser | null = null;
@@ -86,6 +90,7 @@ export class BrowserService extends Service {
     this.timeoutMs = options.timeoutMs ?? 35_000;
     this.idleMs = options.idleTimeoutMs ?? DEFAULT_IDLE_MS;
     this.endpointOverride = options.cdpEndpoint;
+    this.rootOverride = options.dataRoot;
     this.launchCfg = {
       executablePath: options.executablePath,
       headful: options.headful,
@@ -102,11 +107,11 @@ export class BrowserService extends Service {
     return this.client !== null && !this.client.closed && this.launched !== null;
   }
 
-  /** 数据根（软依赖 workspace；缺省 cwd/data） */
+  /** 数据根（软依赖 workspace；缺省 cwd/data；options.dataRoot 显式覆盖——测试注入） */
   private root(): string {
     if (!this.dataRoot) {
       const ws = this.ctx.get('workspace', false) as { root: string } | undefined;
-      this.dataRoot = ws?.root ?? path.resolve('./data');
+      this.dataRoot = this.rootOverride ?? ws?.root ?? path.resolve('./data');
     }
     return this.dataRoot;
   }
@@ -340,7 +345,7 @@ export class BrowserService extends Service {
       case 'screenshot': {
         const name = str('name') || `shot_${Date.now().toString(36)}.png`;
         const safe = name.replace(/[^\w.-]/g, '_');
-        const data = await p.screenshot(str('fullPage') === 'true' || args.fullPage === true);
+        const data = await p.screenshot(args.fullPage === true);
         const dir = this.screenshotDir();
         fs.mkdirSync(dir, { recursive: true });
         const file = path.join(dir, safe.endsWith('.png') ? safe : safe + '.png');
@@ -378,14 +383,6 @@ export class BrowserService extends Service {
         const targets = await this.client!.send<{ targetInfos: Array<{ targetId: string; type: string; title: string; url: string }> }>('Target.getTargets');
         const pages = targets.targetInfos.filter((t) => t.type === 'page');
         return { ok: true, output: { tabs: pages.map((t, i) => ({ index: i, id: t.targetId.slice(0, 8), title: t.title.slice(0, 80), url: t.url.slice(0, 120), active: t.targetId === this.page?.targetId })) } };
-      }
-      case 'content': {
-        // 退役别名（保留一个版本期）：正文抽取同 read
-        return this.runUnlocked('read', { maxLen: args.maxLen ?? 5000 });
-      }
-      case 'html': {
-        // 退役别名（保留一个版本期）：正文抽取同 read（原 daemon 的源码面已并入正文 debug）
-        return this.runUnlocked('read', { maxLen: args.maxLen ?? 5000 });
       }
       case 'eval': {
         // 结果保留 JSON 类型（数字/布尔/对象直出，不再字符串化——2026-10-09
