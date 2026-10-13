@@ -171,8 +171,8 @@ describe('ask_questions 挂起全链路（loop/run-idle 同 run 续走）', () =
     ac.abort('用户中断');
     const result = await running;
     expect(result.finish).toBe('interrupted');
-    // 登记表随 run 收束……本实现 openByRun 是模块级：中断路径监听器空手返回但登记未清？
-    // 中断后作答 → late-reply（回投）
+    // 中断路径：idle 监听器 onAbort 空手返回（登记清账发生在 finish 收尾半边），
+    // run 已收束 → 之后作答走 late-reply deliver 回投（登记表缺席判定）
     await new Promise((r) => setTimeout(r, 50));
     ctx.durableInteraction.reply(open.id, { answers: ['x'] });
     await new Promise((r) => setTimeout(r, 80));

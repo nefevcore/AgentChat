@@ -336,7 +336,6 @@ describe('late-reply 唤醒（run 已死时的作答回投——登记表缺席�
     const { Service } = await import('@agentchat/cordis');
     class ConvStub extends (Service as any) {
       constructor(c: any) { super(c, 'conversation'); }
-      listRunning() { return []; }
       deliver(agentId: string, message: string, options: Record<string, unknown>) {
         deliveries.push({ agentId, message, options });
         return Promise.resolve({});

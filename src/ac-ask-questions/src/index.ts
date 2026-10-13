@@ -59,7 +59,6 @@ export const inject = ['tools', 'durableInteraction'];
 
 /** conversation 可选能力面（行未装 = 无唤醒，作答只落记录不回投——组合可选惯例） */
 interface ConversationLike {
-  listRunning(): Array<{ agentId: string; conversationId: string }>;
   deliver(agentId: string, message: string | Record<string, unknown>, options?: {
     sender?: string; source?: string; conversationId?: string;
     elevation?: 'sandbox-access' | 'full-access';
@@ -102,12 +101,6 @@ function answerNotice(record: DurableInteraction): string {
     return `- ${label}: ${formatAnswer(answers[i])}`;
   });
   return `[系统通知] 你此前发起的提问（interaction ${record.id}）已收到用户回答：\n${lines.join('\n')}\n请基于以上回答继续之前的任务。`;
-}
-
-/** 载荷问题列表原样提取（展示文本与返回 output 的 questions 字段） */
-function questionsOf(record: DurableInteraction): unknown {
-  const payload = record.payload as { questions?: unknown } | null;
-  return Array.isArray(payload?.questions) ? payload!.questions : [];
 }
 
 /** 发起时给会话流看的展示文本（context 行正文——UI 按 source 呈现，LLM 回放 user 语义位） */
@@ -207,7 +200,9 @@ export function apply(ctx: Context) {
 
   // ---- loop/run-idle 监听器：自然停点挂起等待本 run 未消费的 ask 交互 ----
   // 只认本 run 打开的交互（发起体写入登记表）；等待 = replied/closed 事件 +
-  // 轮询双保险 + signal abort。resolved 后注入答案 context 消息（同 run 续走）。
+  // 轮询双保险（2026-09-21 deadline_ms 移除后轮询只做外部终态对账，不再
+  // 自查超时——等待无期限，收口归调用方 signal）+ signal abort。resolved 后
+  // 注入答案 context 消息（同 run 续走）。
   ctx.on('loop/run-idle', async (call, next) => {
     const rest = await next(); // 组合可选：其他 idle 住户的材料照常透传
     const agent = call.request.agent;
@@ -256,10 +251,6 @@ export function apply(ctx: Context) {
           if (cur && cur.state !== 'pending') {
             observe(cur);
             continue;
-          }
-          // deadline 自查：过期未答 → close(timeout)（closed 事件回环 observe）
-          if (cur?.deadline !== undefined && cur.deadline <= Date.now()) {
-            service.close(id, 'timeout');
           }
         }
         if (call.request.signal?.aborted || want.size === 0) finish();
