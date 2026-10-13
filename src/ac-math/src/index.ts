@@ -4,8 +4,8 @@
 // A2 加固（2026-08-31 审计）：node:vm 求值已被移除——宿主对象按引用注入
 // vm context 即构造器链逃逸（Math.constructor.constructor("return
 // process")()，实测），且 Promise 微任务可冻结宿主事件循环。vm 沙箱对
-// 敌意输入不构成安全边界，本工具面对的是提示注入可达面（math 注册无
-// requiredTags，一切 Agent 含默认预设可调）。
+// 敌意输入不构成安全边界，本工具面对的是提示注入可达面（requiredTags
+// = [infra] 属 UNIVERSAL_TAGS，一切 Agent 含默认预设可调）。
 //
 // 现实现 = 自写 tokenizer + 递归下降求值器（零 npm 依赖、零宿主对象
 // 注入面）：只认数字字面量（含 0x/0b/0o/BigInt n 后缀）、白名单常量与
@@ -13,14 +13,13 @@
 // 函数/语句一律解析失败；标识符白名单外即报错（process/require/
 // globalThis 天然不可见——不是"看不见"，是语法上不存在）。
 //
-// 资源护栏：表达式长度、token 数、嵌套深度、BigInt 幂指数上限（防
+// 资源护栏：表达式长度、嵌套深度、BigInt 幂指数上限（防
 // 巨数内存炸弹）；求值为同步纯计算，无可挂死面。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 
-/** 求值器资源护栏 */
+/** 求值器资源护栏（token 数天然受限于表达式长度：每 token 至少 1 字符） */
 const MAX_EXPR_LENGTH = 2000;
-const MAX_TOKENS = 4000;
 const MAX_DEPTH = 200;
 const MAX_BIGINT_EXPONENT = 65_536n;
 
@@ -109,14 +108,12 @@ function tokenize(input: string): Token[] {
       }
       tokens.push({ kind: 'num', value });
       i += length;
-      if (tokens.length > MAX_TOKENS) throw new MathError('表达式过长（token 数超限）');
       continue;
     }
     if (/[A-Za-z_$]/.test(ch)) {
       const m = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(input.slice(i))!;
       tokens.push({ kind: 'ident', name: m[0] });
       i += m[0].length;
-      if (tokens.length > MAX_TOKENS) throw new MathError('表达式过长（token 数超限）');
       continue;
     }
     const two = input.slice(i, i + 2);

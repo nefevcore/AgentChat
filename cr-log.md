@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-364**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-365**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -382,3 +382,4 @@
 - 【cr-362 2026-10-13 ac-fs-tools 深审（清单#47）：read 目录列表补条目级双黑名单过滤（对齐 glob/grep 结果过滤口径）+ ac-tools 依赖归位 devDeps（src 零导入）+ 基线层 elevation/full×accessDeny 测试补强】
 - 【cr-363 2026-10-13 ac-fs-search 深审收口：deny 装配三姊妹并源 ac-sandbox-core（createDenyListsFactory）+ per-call 档位判定归位 ac-agents（effectiveTierOfCall）——#47 留给 #48/#49 的联动裁决兑现；sre view 读面补双黑名单口径】
 - 【cr-364 2026-10-13 ac-str-replace-editor 深审收口：三写命令读改写整段进突变队列（lost update 断根）+ view 目录列表双黑名单条目过滤（发现面对齐 fs-tools read）+ devDeps 重复声明清理】
+- 【cr-365 2026-10-13 ac-math 深审（#50）：判留——删/拆双否（消费面全活跃：TREE/yml/reserved 占名/toolLabel 镜像/run-code 面板/subagent·system-prompt·webui 集成测试；纯函数 evaluateExpression 已是纯库正位形态，单文件单行拆分即碎尸）。修三处：①头部注释漂移——仍称「注册无 requiredTags」但 2026-09-16 全量标签化后实为 requiredTags=[infra]（infra 属 UNIVERSAL_TAGS，一切 Agent 可调语义不变，机制描述过时）；②MAX_TOKENS=4000 死护栏——token 数恒≤字符数+1≤2001（MAX_EXPR_LENGTH=2000 先触发），恒不可达即删；③package.json description 仍称 node:vm 沙箱求值——vm 已于 A2（2026-08-31）移除，订正为现状】

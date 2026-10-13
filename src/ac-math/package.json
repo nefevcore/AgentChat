@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "数学工具行：node:vm 沙箱求值（Math 白名单 + 常用函数全局化 + timeout 兜底）",
+  "description": "数学工具行：纯表达式解析求值（白名单常量/函数 + BigInt 混算 + 资源护栏）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
