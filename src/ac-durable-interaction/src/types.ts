@@ -1,6 +1,5 @@
 // ============================================================
 // ac-durable-interaction/src/types.ts —— 通用持久化交互契约
-// （src durable-interaction 直接平移——src 已是 preview owning-package 形态）
 //
 // 语义（durable suspension / resumable interaction 模式）：
 //   · open 先落盘意图，再允许发生外部可见动作（弹窗/回调/审批）
@@ -84,16 +83,12 @@ export interface DurableInteractionFilter {
  *   4. 崩溃后重新构造 store 可恢复相同投影
  */
 export interface DurableInteractionStore {
-  /** 后端标识（诊断用） */
-  readonly name: string;
   open(input: DurableInteractionInput): DurableInteraction;
   reply(id: string, answer: JsonValue): ReplyOutcome;
   close(id: string, reason?: string): boolean;
   get(id: string): DurableInteraction | undefined;
   list(filter?: DurableInteractionFilter): DurableInteraction[];
   listOpen(filter?: DurableInteractionFilter): DurableInteraction[];
-  /** 清空全部记录（测试/重置用；生产慎用） */
-  clear(): number;
   /**
    * 按保留期清理过期终态记录并折叠持久文件（jsonl 后端提供；
    * pending 永不清理）。memory 后端无持久化，可不实现。

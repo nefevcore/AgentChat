@@ -1,5 +1,5 @@
 // ============================================================
-// ac-durable-interaction/src/store.ts —— 内存 / JSONL 后端（src 原样平移）
+// ac-durable-interaction/src/store.ts —— 内存 / JSONL 后端
 //
 // 两条实现共享同一状态机与幂等语义：
 //   · MemoryDurableInteractionStore：测试、嵌入式单进程
@@ -85,7 +85,6 @@ function applyClose(record: DurableInteraction, reason?: string): DurableInterac
 // ============================================================
 
 export class MemoryDurableInteractionStore implements DurableInteractionStore {
-  readonly name = 'memory';
   private records = new Map<string, DurableInteraction>();
 
   open(input: DurableInteractionInput): DurableInteraction {
@@ -129,12 +128,6 @@ export class MemoryDurableInteractionStore implements DurableInteractionStore {
     return this.list({ ...filter, state: 'pending' });
   }
 
-  clear(): number {
-    const count = this.records.size;
-    this.records.clear();
-    return count;
-  }
-
   dispose(): void {
     this.records.clear();
   }
@@ -156,14 +149,13 @@ export interface JsonlDurableInteractionStoreOptions {
 }
 
 export class JsonlDurableInteractionStore implements DurableInteractionStore {
-  readonly name = 'jsonl';
   private records = new Map<string, DurableInteraction>();
   private readonly fsyncOnAppend: boolean;
   private readonly retentionMs?: number;
   /** reload 时盘上非空物理行数（sweep 判断文件是否需要折叠重写） */
   private physicalLines = 0;
-  /** 持久化文件路径（诊断用） */
-  readonly file: string;
+  /** 持久化文件路径 */
+  private readonly file: string;
 
   constructor(
     file: string,
@@ -218,17 +210,6 @@ export class JsonlDurableInteractionStore implements DurableInteractionStore {
 
   listOpen(filter?: DurableInteractionFilter): DurableInteraction[] {
     return this.list({ ...filter, state: 'pending' });
-  }
-
-  clear(): number {
-    const count = this.records.size;
-    this.records.clear();
-    try {
-      if (fs.existsSync(this.file)) fs.rmSync(this.file);
-    } catch {
-      // 文件可能被外部持有；内存投影已清空
-    }
-    return count;
   }
 
   dispose(): void {

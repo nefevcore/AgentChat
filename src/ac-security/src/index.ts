@@ -112,7 +112,6 @@ interface DurableInteractionLike {
     payload: unknown;
     correlationId?: string;
     owner?: string;
-    deadline?: number;
   }): { id: string };
   get(id: string): { id: string; state: string; answer?: unknown; closedReason?: string } | undefined;
   close(id: string, reason?: string): boolean;

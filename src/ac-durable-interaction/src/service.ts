@@ -1,8 +1,8 @@
 // ============================================================
-// ac-durable-interaction/src/service.ts —— cordis Service（src 原样平移）
+// ac-durable-interaction/src/service.ts —— cordis Service
 //
 // ctx.durableInteraction：通用持久化暂停点服务。
-// 领域无关：open/reply/close/get/list/listOpen/clear +
+// 领域无关：open/reply/close/get/list/listOpen +
 // durable-interaction/{opened,replied,closed} 三事件（谁 emit 谁声明）。
 // 缺省 jsonl 落盘（2026-09-12 修正，见 createStore 注释）。
 // ============================================================
@@ -98,10 +98,6 @@ export class DurableInteractionService extends Service {
 
   listOpen(filter?: DurableInteractionFilter): DurableInteraction[] {
     return this.store.listOpen(filter);
-  }
-
-  clear(): number {
-    return this.store.clear();
   }
 
   /**

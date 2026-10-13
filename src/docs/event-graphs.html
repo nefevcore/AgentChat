@@ -208,7 +208,7 @@ const SUBCAT = {
   "ac-agent-presets": { cat: "hot", label: "预设模型热更" },
   "ac-sap-adt":   { cat: "hot", label: "引擎配置热更" },
   "ac-hello":     { cat: "misc", label: "链路验证样例" },
-  "ac-durable-interaction": { cat: "misc", label: "自订阅（late-reply 对账）" },
+  "ac-durable-interaction": { cat: "persist", label: "write-ahead 状态机" },
   "ac-app CLI":   { cat: "misc", label: "CLI 流式打印" },
 };
 const CATCOLOR = { bridge: "#4dabf7", persist: "#63e6be", inject: "#f0b429", guard: "#ff8787", react: "#ffa94d", hot: "#a9e34b", misc: "#8b93a5" };
@@ -257,9 +257,9 @@ const EVENTS = [
   { n: "singles/updated", m: "e", s: "host", d: "singles", desc: "独立会话元数据变更（前端列表刷新）", subs: ["ac-ws-bridge"] },
   { n: "conv-settings/updated", m: "e", s: "host", d: "conv-settings", desc: "会话级设置写入（无内置订阅方，前端/扩展预留）", subs: [] },
   { n: "archive/completed", m: "e", s: "host", d: "archive", desc: "归档完成→conversation 视图 stale-惰性重派生", subs: ["ac-conversation", "ac-ws-bridge"] },
-  { n: "durable-interaction/opened", m: "e", s: "host", d: "durable-interaction", desc: "持久交互开启（ask_questions 等）", subs: ["ac-ws-bridge"] },
-  { n: "durable-interaction/replied", m: "e", s: "host", d: "durable-interaction", desc: "持久交互回复（自订阅做 late-reply 对账）", subs: ["ac-durable-interaction", "ac-ws-bridge"] },
-  { n: "durable-interaction/closed", m: "e", s: "host", d: "durable-interaction", desc: "持久交互关闭", subs: ["ac-ws-bridge"] },
+  { n: "durable-interaction/opened", m: "e", s: "host", d: "durable-interaction", desc: "持久交互开启（ask_questions/approval）", subs: ["ac-ws-bridge"] },
+  { n: "durable-interaction/replied", m: "e", s: "host", d: "durable-interaction", desc: "持久交互回复（工具唤醒/审批结算/预算冻结解冻）", subs: ["ac-ask-questions", "ac-security", "ac-run-code", "ac-ws-bridge"] },
+  { n: "durable-interaction/closed", m: "e", s: "host", d: "durable-interaction", desc: "持久交互关闭", subs: ["ac-ask-questions", "ac-run-code", "ac-ws-bridge"] },
   { n: "plugin/before-load", m: "w", s: "host", d: "plugin", desc: "装载管道拦截：权限+契约双 gate（import 之前 fail-closed）", subs: ["ac-plugin-gates"] },
   { n: "plugin/updated", m: "e", s: "host", d: "plugin", desc: "插件域统一变更（installed/uninstalled/staging/session/loaded/reloaded——cr-20 三事件并源）", subs: ["ac-ws-bridge"] },
   { n: "webui/extensions-changed", m: "e", s: "host", d: "webui", desc: "UI 扩展清单变更（前端 diff→reload；卸载时由 plugin-registry 发射）", subs: ["ac-ws-bridge"] },
