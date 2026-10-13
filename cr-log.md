@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-385**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-386**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -403,3 +403,4 @@
 - 【cr-383 2026-10-13 ac-security #65 深审收口：approvalScopeKey 归位 runAddress 单源（core-utils 注释宣称兑现）+ ac-tools 依赖归位 devDeps（type-only）+ CRLF→LF 统一 + webui port-b security mock 字段漂移订正】
 - 【cr-384 2026-10-13 ac-durable-interaction 深审（#66）：包健康留——死口清理（service.clear 透传/store.clear 全链/store.name 诊断口/file 收私有，全仓零消费）+ ac-security 窄类型死声明 deadline 删 + 三文件平移残注与 event-graphs 订阅者数据订正 + 包内 CRLF 统一 LF】
 - 【cr-385 2026-10-13 ac-usage 深审收口（审计 #67）：ac-agent-loop 依赖归位 devDeps（cr-318 值导入解除后残留，R1）+ byPair/byDayPair 查询合并键 | 换 \u0000（对齐同文件 byAgentConvMap 惯例——Agent id 无 | 禁令，自由段连接真串桶隐患）+ 方法面注释目录补齐（cr-324 同款漂移）】
+- 【cr-386 2026-10-13 ac-archive 深审收口（审计#68）：依赖正位 ac-agent-loop→devDependencies（src 仅 type-only，R1 最后遗漏）+ 双条 ac-core-utils import 合并（cr-318 下沉补丁痕迹）+ A1 listeners 补 loop/step-started 闸③观测条目（ac-usage 双条目先例）+ 头注 timer 依赖表述漂移订正（static inject 硬声明非经 ctx.get）+ events.ts 行尾与包内统一】

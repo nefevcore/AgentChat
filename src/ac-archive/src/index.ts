@@ -8,7 +8,7 @@
 //   · agents        —— owning agent 解析（model/system/tools）+ settings['archive'] 预算覆盖
 //   · tools         —— 整理提示词的生效工具集探测（write/edit 自适应分支）
 // 算法住 ac-archive-core 纯库（去重/截断/阈值）；timer 为可选运行时
-// 依赖（ctx.interval 懒扫描，经 ctx.get 解析）。
+// 依赖（ArchiveService.static inject 硬声明；懒扫描周期经 ctx.interval）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { ArchiveService, type ArchiveRowOptions } from './service.ts';
@@ -30,7 +30,10 @@ export const extension: ExtensionMeta = {
     { name: 'keepRecentRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.keepRecentRatio, description: '尾部保留预算比（0~1）：归档后保留最近消息的 token 预算 = maxContextTokens × 本值（缺省 3 万，超出部分移入归档段）' },
     { name: 'maxSelfContextTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_SELF_CONTEXT_TOKENS, description: '自会话桶（agent~agent 运行日志）专项预算上限（token）——仅覆盖自会话桶的 maxContextTokens，触发阈值 = 本值 × archiveTokenRatio。缺省 40 万（低于通用 100 万：自会话是机制驱动的运行日志，无用户交互对冲，缺省即收紧锯齿峰值）；高频定时器 Agent（如每 30 分钟监控轮）可再调低，用户直答/委托会话不受影响' },
   ],
-  listeners: [{ event: 'loop/after-run', role: '阈值检测触发归档', description: 'run 结束通知（持久化/审计/指标订阅）' }],
+  listeners: [
+    { event: 'loop/after-run', role: '阈值检测触发归档 + 整理 run done 协议收尾', description: 'run 结束通知（持久化/审计/指标订阅）' },
+    { event: 'loop/step-started', role: '闸③ 整理 run 步级观测', description: '步开始（载荷=实际送入模型的消息）——source=event 整理 run 过滤了流式，日志是唯一观测面' },
+  ],
 };
 
 

@@ -41,12 +41,11 @@ import {
   type ArchiveBudgets,
   type ArchiveMessage,
 } from 'ac-archive-core';
-import { ARCHIVE_REVIEW_META, isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
+import { ARCHIVE_REVIEW_META, isArchiveReviewRun, maxSeqOf } from 'ac-core-utils'; // 机制 run 标记（cr-318 下沉纯库）等核心词法
 import type { LoopRunResult } from 'ac-agent-loop';
 import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
 import { resolveToolNames } from 'ac-agents';
 import { poolFallbackRef } from 'ac-llm'; // 池回落词汇——cr-319 归位 owning 包
-import { maxSeqOf } from 'ac-core-utils';
 import type { SessionRecord } from 'ac-session';
 
 /** 行配置（cordis.yml config / bootTree configs / 构造直传） */

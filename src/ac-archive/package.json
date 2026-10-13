@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-archive-core": "workspace:*",
     "ac-core-utils": "workspace:*",
@@ -21,6 +20,7 @@
   },
   "devDependencies": {
     "@agentchat/cordis-timer": "workspace:*",
+    "ac-agent-loop": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-router": "workspace:*",
