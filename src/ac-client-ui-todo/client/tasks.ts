@@ -5,7 +5,7 @@
 //   · fetchTodos —— todo/get RPC 直连（桶键 = conversationId：1v1 对键 /
 //     singles sid）；写路径归 Agent 工具（todo write/read）——本面只读；
 //   · normalizeTodoCard —— 会话流卡片数据归一化（live 帧与历史回放两形
-//     统一）。goal 半边留 webui（ac-goal 迁移时随行走）。
+//     统一）。goal 半边已随域迁入 ac-client-ui-goal（M28 P1 落地）。
 //
 // 行 client 不 import webui 内部模块：RPC 经 ac-client-runtime 契约面
 // （RpcClientFace，inject 'rpc'）。

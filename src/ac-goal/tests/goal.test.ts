@@ -386,6 +386,30 @@ describe('ac-goal goal-round 驱动（after-run → 下一轮 / 自动暂停）'
   });
 });
 
+describe('ac-goal 护栏（桶淘汰 / history 上限）', () => {
+  it('桶数超 32 按 updatedAt 淘汰最旧（防无界增长）；history 上限 20（完成序保留最新）', async () => {
+    const { ctx } = await boot();
+    // 33 个桶逐个登记（updatedAt 单调）：第 33 次写入触发淘汰，最旧桶（k00）出局
+    for (let i = 0; i < 33; i++) {
+      ctx.goals.create('a', `k${String(i).padStart(2, '0')}`, `桶 ${i}`);
+      if (i < 32) await new Promise((r) => setTimeout(r, 2)); // 保证 updatedAt 严格递增
+    }
+    expect(ctx.goals.currentOf('a', 'k00')).toBeUndefined();   // 最旧被淘汰
+    expect(ctx.goals.currentOf('a', 'k32')?.objective).toBe('桶 32');
+
+    // history 上限 20：同桶 21 次 create→completed 循环后只留最近 20 条
+    //（服务面常量口径——MAX_HISTORY 无导出，锁行为）
+    for (let i = 0; i < 21; i++) {
+      ctx.goals.create('a', 'h0', `目标 ${i}`);
+      ctx.goals.update('a', 'h0', { status: 'completed' });
+    }
+    const snap = ctx.goals.snapshot('a', 'h0');
+    expect(snap.history).toHaveLength(20);
+    expect(snap.history[0]?.objective).toBe('目标 1');  // 最旧（目标 0）被淘汰
+    expect(snap.history[19]?.objective).toBe('目标 20');
+  });
+});
+
 describe('ac-goal 行回收（注册即归属）', () => {
   it('摘行 fiber → 工具与服务一并消失，驱动器停止（零 dispose 代码）', async () => {
     const { ctx, fibers, conversation } = await boot();

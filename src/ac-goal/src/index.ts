@@ -101,7 +101,7 @@ export interface GoalUpdatePatch {
 }
 
 /** goal-round 信封 meta 键（M20 机制标记透明通道同款；值 = 轮号） */
-export const GOAL_ROUND_META = 'goal-round';
+const GOAL_ROUND_META = 'goal-round';
 
 /** agentStore entry key（param-case；机制数据归 agent-store 唯一写口） */
 const GOAL_ENTRY_KEY = 'goal';
@@ -127,7 +127,7 @@ function isGoalStatus(v: unknown): v is GoalStatus {
 }
 
 /**
- * goal-round 投递消息（纯函数供测试锁定；状态经消息面到达模型）。
+ * goal-round 投递消息（状态经消息面到达模型）。
  * DSH 同款单块形态（dsh-goal-round-driver prompt 模板）：
  *   · <goal_round> 标签块——机器可解析的续行标记；
  *   · Objective 经 JSON.stringify——多行/类标签目标保持**数据**形态
@@ -138,7 +138,7 @@ function isGoalStatus(v: unknown): v is GoalStatus {
  * 无备注接力（DSH 同款）：跨轮连续性由会话历史承载（工具调用/结果
  * 持久在场）；note 仍是 goal 字段（UI/get 可见），不随轮消息回注。
  */
-export function renderGoalRoundMessage(goal: GoalRecord, round: number): string {
+function renderGoalRoundMessage(goal: GoalRecord, round: number): string {
   const max = goal.maxRounds ?? DEFAULT_MAX_ROUNDS;
   return [
     '<goal_round>',
@@ -324,13 +324,6 @@ export class GoalsService extends Service {
     return current ? { ...current } : undefined;
   }
 
-  /** 全部桶视图（诊断） */
-  list(agentId: string): Array<{ key: string; bucket: GoalBucket }> {
-    const store = this.loadStore(agentId);
-    return Object.entries(store.buckets)
-      .filter((e): e is [string, GoalBucket] => e[1] !== undefined)
-      .map(([key, bucket]) => ({ key, bucket }));
-  }
 
   // ============================================================
   // 写 API（域规则违反抛错——工具面由 ac-tools 收敛为 { ok:false, error }）
