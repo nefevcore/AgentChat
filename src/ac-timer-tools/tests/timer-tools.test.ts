@@ -164,4 +164,40 @@ describe('ac-timer-tools：timer 工具三 action', () => {
     });
     expect(ctx.timers.entries('a').find((e) => e.id === 'n1')?.conversationId).toBeUndefined();
   });
+
+  it('可选字段透传锁定（target/activeHours/gate/repeatCount 落条目；disable 未知 id 报可用清单）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const call = { agentId: 'a', conversationId: 'a' };
+    // random 模式缺省间隔 + 全可选字段一次到位
+    const set = await ctx.tools.execute({
+      name: 'timer',
+      args: {
+        action: 'set', id: 'opt', mode: 'random', repeat_count: 3.9,
+        target: 'b,c', active_hours: '06:30-23:30', gate: 'node -e "process.exit(1)"',
+        hint: '可选字段',
+      },
+      ...call,
+    });
+    expect(set.ok).toBe(true);
+    const entry = ctx.timers.entries('a').find((e) => e.id === 'opt');
+    expect(entry).toMatchObject({
+      mode: 'random',
+      delayMin: '30s', // random 模式缺省下界（delay_min 未传）
+      delayMax: '5m',
+      repeatCount: 3, // 3.9 向下取整（Math.floor）
+      target: 'b,c',
+      activeHours: '06:30-23:30',
+      gate: 'node -e "process.exit(1)"',
+    });
+
+    const miss = await ctx.tools.execute({
+      name: 'timer',
+      args: { action: 'disable', id: 'nope' },
+      ...call,
+    });
+    expect(miss.ok).toBe(false);
+    expect(miss.error).toContain('nope');
+    expect(miss.error).toContain('opt'); // 可用清单带回，LLM 可自纠
+  });
 });

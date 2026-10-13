@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-369**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-370**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -387,3 +387,4 @@
 - 【cr-367 2026-10-13 ac-issue-tools 深审收口（#52）：包健康留——cordis.yml 注释漂移订正（cr-41 切轴漏更：requiredTags web→issue-report）+ 凭据链冗余查询消除（resolve 已含全局级联，getGlobal 补位加 agentId 守卫与 web-tools 同构）】
 - 【cr-368 2026-10-13 ac-collab-tools 深审（#53）：ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零后残留，R1 判定）+ sub_ 未注册分支注释漂移订正；裁决留（消费面全活跃、删/拆双否）】
 - 【cr-369 2026-10-13 ac-session-query 深审收口（审计清单#54）：删/拆双否+依赖正位+三包合一测试归位拆分（dev/restart 各回 owning 包，query 留包内并补边界锁定）】
+- 【cr-370 2026-10-13 ac-timer-tools 深审收口：依赖正位（ac-timer/ac-tools 归 devDependencies——src 零值导入/纯 type-only）+ inject 死项清理（agents 零消费）+ 测试补强（可选字段透传锁定与 disable 未知 id 错误路径）】

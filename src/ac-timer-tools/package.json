@@ -13,13 +13,13 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-timer": "workspace:*",
-    "ac-timer-core": "workspace:*",
-    "ac-tools": "workspace:*"
+    "ac-timer-core": "workspace:*"
   },
   "devDependencies": {
     "@agentchat/cordis-timer": "workspace:*",
     "ac-agent-loop": "workspace:*",
+    "ac-timer": "workspace:*",
+    "ac-tools": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-config": "workspace:*",

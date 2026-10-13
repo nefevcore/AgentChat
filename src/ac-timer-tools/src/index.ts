@@ -39,7 +39,7 @@ export const extension: ExtensionMeta = {
   description: 'timer 工具行（set/list/disable——经 ctx.timers 服务面）',
 };
 
-export const inject = ['tools', 'timers', 'agents'];
+export const inject = ['tools', 'timers'];
 
 export function apply(ctx: Context) {
   // infra 标签（2026-09-16 全量标签化）：定时任务属会话基础设施
