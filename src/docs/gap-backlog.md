@@ -61,10 +61,10 @@
 11. ☐ **A5 dep-graph 软依赖盲区**：`ctx.get` 依赖不在图内（已文档化；补齐需静态分析，代价高收益低）。
 12. ☐ **A6 ac-web-api 静态 inject 瘦身**（17 项）：级联易碎根源；非核心 inject 改 `ctx.get` 软依赖（RPC 失败容忍）或拆面。改动面大，需单独立项。
 13. ☐ **A7 group 配置簇事件并源（缓行）**：created/deleted/renamed/description-set/member-added/member-removed 六事件订阅面完全重合（后端仅 ws-bridge；载荷已统一携带 GroupConfig 终值），可并为 `group/updated(group, action)`。缓行理由 = 前端按 type 分两个刷新作用域（列表态 vs 详情态），合并需前端改按 action 分流。触发条件 = 第三处同形态域出现，或前端群视图重构时顺手并源。
-14. ☐ **ac-config 热更三小件**（DSH 0.2 契约比对增量；2026-10-06 逐条核实：三件均未做）
-    - **P1 `config/changed` 载荷携带变更路径**：现状 = 单参文件路径（`ac-config/src/events.ts` L18；`service.ts` L88/L96 emit 只传 file），订阅方（ac-agent-presets refreshModels / ac-event-policy 等）一律全量重查。目标 = emit 增可选第二参（变更路径数组，对齐 DSH `loader/volatile-update` 语义）；`set(key)` 单键路径天然已知，`merge`/`reload` 需 diff。
-    - **P2 commit 前深等价去重**：现状 = `commit()` 直写盘直 emit（`service.ts` L93-97），`set()` 同值也原子写盘 + 唤醒订阅方。目标 = 入口深等价判断，无实质变化直接返回。开放决策点 = `reload()` 内容等价时是否去重 emit、返回值 true/false 语义是否随之调整（实施时定夺并写测试锁定）。
-    - **P3（候选）快照深冻结替代 structuredClone**：现状 = `all()`/`get()` 仍 `structuredClone`（`service.ts` L39/L48），消费方误改自己那份副本被静默丢弃（弱 fail-loud）。前置 = 全仓审计 `ctx.config.get(` / `.all(` 返回值有 mutate 的调用点（行为变更非纯收窄）；零 mutate 才可直接换。
+14. ☑ **ac-config 热更三小件**（DSH 0.2 契约比对增量；2026-10-06 逐条核实：三件均未做）——2026-10-13 cr-377 落地：
+    - **P1 `config/changed` 载荷携带变更路径** ✅：签名 `(path, changed?)`——set/merge 载荷 = 写入键（点路径/顶层键），reload = 内容有异的顶层键（changedKeys 粗粒度 diff）；深等价不广播。既有订阅方（7 行）回调签名自适应零改动，ws-bridge `wire: (a) => a` 直转零破坏。
+    - **P2 commit 前深等价去重** ✅：`jsonEqual`（JSON 序列化形状比较，ac-agent-admin jsonEq 同款）入口判等，无实质变化静默返回（不写盘不 emit）；reload 内容等价 = true 不广播（返回值语义维持 true=文件存在且已对账），测试锁定（同值 set mtime 不变 + reload 等价零广播）。
+    - **P3（候选）快照深冻结替代 structuredClone** ✗ 不做：前置审计（cr-377 逐点核验 14 处 `config.get` 调用点）确认读侧快照隔离无 mutate 场景；改为补写侧对称——`set/merge` 值深拷贝入内存（写侧存引用 = 调用方事后变异静默绕过写盘与事件，读侧隔离承诺被写侧戳穿），测试锁定。冻结替代的 fail-loud 收益在双侧隔离下不存在，不引入。
     - 落点/验证阶梯/原则记档：`archive/dsh-0.2-contract-takeaways-plan.md`（§3 记档见本档 §三）。
 
 ## 二、已闭环留档（不再领；原档全文在 `archive/` 或 git 历史）

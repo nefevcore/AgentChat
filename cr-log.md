@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-376**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-377**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -394,3 +394,4 @@
 - 【cr-374 2026-10-13 cr-373 收尾备注：全仓 test:unit 2599 测 2596 绿（1 失败 = ac-client-ui-todo 装卸用例 15s 超时，定向复跑 6/6 绿判并发时敏 flake，cr-366~372 同款先例）；最终行数 262→248 src / 142→209 tests】
 - 【cr-375 2026-10-13 ac-ask-questions 深审收口（清单 #59）：死代码三清（questionsOf 死函数/ConversationLike.listRunning 死接口成员/poller deadline 自查死分支——2026-09-21 deadline_ms 移除漏网）+ ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零收尾）+ 中断清账悬问注释订正】
 - 【cr-376 2026-10-13 ac-file-snapshots 深审收口：会话删除级联接线（singles/updated-removed + group/deleted 含成员私有流键全清）+ memberStreamKey 下沉 ac-core-utils（跨行键词法，GROUP_HINT_META 先例）+ 死词清理（SnapshotStore re-export/location getter/rowOptions 死字段）】
+- 【cr-377 2026-10-13 ac-config 逐包深审收口：热更三小件 P1/P2 落地 + set 写侧快照隔离 + readJson/writeJsonAtomic 出口收私有】

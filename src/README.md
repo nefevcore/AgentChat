@@ -661,7 +661,7 @@ src/
 │                            call.conversationId，提醒回当前会话）
 │ ── 持久化与服务编排 ───────────────────────────────────────────
 ├── ac-config/               全局配置（ctx.config）：<root>/config.json 原子读写 +
-│                            热重载 + config/changed
+│                            双侧快照隔离 + 深等价提交去重 + config/changed（载荷带变更键）
 ├── ac-credentials/          凭据（ctx.credentials）：AES-256-GCM 机器绑定加密 +
 │                            Agent→全局解析链 + listValues 脱敏清单
 ├── ac-session/              会话历史 owning（ctx.session）：中性行入账 → writer 队列

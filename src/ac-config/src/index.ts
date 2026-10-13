@@ -22,7 +22,7 @@ export function apply(ctx: Context, options: ConfigRowOptions = {}) {
   ctx.plugin(ConfigService, options);
 }
 
-export { ConfigService, readJson, writeJsonAtomic } from './service.ts';
+export { ConfigService } from './service.ts';
 export type { ConfigRowOptions } from './service.ts';
 
 // 契约出口：事件目录类型增强（events.ts）
