@@ -796,7 +796,6 @@ describe('/name 手势与注入通道（词汇 v2：before-run 判定 + context 
     });
     // 三步脚本：echo / echo / 文本收束 —— 步 1 注入一次，步 2、3 不再重注
     let n = 0;
-    const { ctx: _c } = { ctx }; // lint 占位（避免误用 _c）
     const scripted = () => ({
       stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
         captured.push({ ...input, messages: input.messages.map((m) => ({ ...m })) });
