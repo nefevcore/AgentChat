@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-379**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-380**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -397,3 +397,4 @@
 - 【cr-377 2026-10-13 ac-config 逐包深审收口：热更三小件 P1/P2 落地 + set 写侧快照隔离 + readJson/writeJsonAtomic 出口收私有】
 - 【cr-378 2026-10-13 ac-credentials 深审收口（audit #62）：包健康留——域 owning 消费面全活跃（security 脱敏 listValues/web-api 池凭据双 RPC 面/llm-pool 注入/issue-tools·web-tools 解析链/sap-adt 引擎缝全 ctx.get 解耦）。精简四刀：①path getter 死口删除（全仓零消费，JSDoc 诊断用从未接线）；②keys() JSDoc 漂移订正（管理面从未接线，实况=测试锁定盘上 key 命名）；③ac-agent-admin 死 inject credentials 删除（P4/D3 set-credential 退役漏清——service 零消费，测试四处凑数装配随删）；④ac-security 依赖归位 devDependencies（src 零 import，六消费方唯一异类）。CRLF 统一 LF】
 - 【cr-379 2026-10-13 ac-jobs 深审收口（audit #63）：JobOutcome.output 注释漂移订正（承诺 read 兜底实为 meta.output 供 wire 面）；DEFAULT_MAX 死导出收私有；测试补缺省上限断言；subagent/wakeup 的 ac-jobs 依赖 type-only 归位 devDeps】
+- 【cr-380 2026-10-13 ac-job-wakeup 深审收口（清单 #64）——ac-conversation 依赖归位 devDeps（type-only 正位）+ 测试死导入 conversationRow 删除 + disposeAll 冗余接持收直 + 头注 role 词汇漂移订正（M-role-v2）】

@@ -12,13 +12,13 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*",
-    "ac-conversation": "workspace:*"
+    "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
     "@agentchat/cordis-timer": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
+    "ac-conversation": "workspace:*",
     "ac-jobs": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",

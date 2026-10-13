@@ -2931,9 +2931,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-conversation:
-        specifier: workspace:*
-        version: link:../ac-conversation
     devDependencies:
       '@agentchat/cordis-timer':
         specifier: workspace:*
@@ -2944,6 +2941,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-conversation:
+        specifier: workspace:*
+        version: link:../ac-conversation
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core

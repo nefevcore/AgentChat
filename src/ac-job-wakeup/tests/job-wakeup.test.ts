@@ -8,7 +8,6 @@ import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { TimerService as VendorTimer } from '@agentchat/cordis-timer';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
-import * as conversationRow from 'ac-conversation';
 import * as jobsRow from 'ac-jobs';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';

@@ -2,7 +2,7 @@
 // ac-job-wakeup —— 后台任务完成唤醒行（M15 对账补齐）
 //
 // src boot 插件的 onJobDone 双通道之②（完成通知进 owner inbox——
-// followup notice，role='user' + system source）的 preview 形态：
+// followup notice，入账词汇 role:'context' + source:'event'）的 preview 形态：
 //   · 订阅 job/settled（emit 面）→ 有 owner 的任务完成时经
 //     ctx.conversation.deliver 注入通知（sender:'event' 信封——
 //     机制触发的标准形态，串行化门/链跑/MAX_AUTO_WAKES 防自激全由
@@ -77,7 +77,7 @@ export function apply(ctx: Context) {
   /** 窗口注册表（键 = owner\u0000conversationId；行卸载时 timer 全清） */
   const windows = new Map<string, DigestWindow>();
 
-  const disposeAll = ctx.fiber.effect(() => () => {
+  ctx.fiber.effect(() => () => {
     for (const w of windows.values()) clearTimeout(w.timer);
     windows.clear();
   }, 'job-wakeup.digest-windows');
@@ -153,6 +153,4 @@ export function apply(ctx: Context) {
         ctx.logger.warn(`[job-wakeup] 唤醒 ${owner} 失败（任务 ${job.id}）: ${String(err)}`);
       });
   }, { description: 'job 完成唤醒：向 owner 会话投递回执（同会话窗口内合并）' });
-
-  void disposeAll;
 }
