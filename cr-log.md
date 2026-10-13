@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-370**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-371**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -388,3 +388,4 @@
 - 【cr-368 2026-10-13 ac-collab-tools 深审（#53）：ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零后残留，R1 判定）+ sub_ 未注册分支注释漂移订正；裁决留（消费面全活跃、删/拆双否）】
 - 【cr-369 2026-10-13 ac-session-query 深审收口（审计清单#54）：删/拆双否+依赖正位+三包合一测试归位拆分（dev/restart 各回 owning 包，query 留包内并补边界锁定）】
 - 【cr-370 2026-10-13 ac-timer-tools 深审收口：依赖正位（ac-timer/ac-tools 归 devDependencies——src 零值导入/纯 type-only）+ inject 死项清理（agents 零消费）+ 测试补强（可选字段透传锁定与 disable 未知 id 错误路径）】
+- 【cr-371 2026-10-13 ac-todo 深审（审计 #56）：listBuckets 死词删除（全仓零消费——含测试）+ 头注「goal-round 对齐提示」漂移订正（ac-goal 源码零 todo 引用，todo 状态唯一通道 = 工具消息面）+ 桶淘汰/上限护栏补测试锁定】

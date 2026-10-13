@@ -5,11 +5,12 @@
 // 语义：每次发送完整清单替换旧表，无逐条增删接口），Agent 随做随更
 // （开工标 in_progress、完成即标 completed，不批量补记）。
 //
-// 状态到达模型的通道 = **消息面**（todo 工具调用与结果的历史行 +
-// goal-round 消息的对齐提示），**不改写 system**——清单逐轮变化，
-// system 注入会使 [system+tool schema] 前缀每轮失效（KV cache 全
-// miss）；消息面追加只扩展前缀尾部（M21/D4 同口径，system 恒定）。
-// 需要对齐状态时模型经 todo(action="read") 主动读。
+// 状态到达模型的通道 = **消息面**（todo 工具调用与结果的历史行），
+// **不改写 system**——清单逐轮变化，system 注入会使 [system+tool
+// schema] 前缀每轮失效（KV cache 全 miss）；消息面追加只扩展前缀
+// 尾部（M21/D4 同口径，system 恒定）。需要状态对齐时模型经
+// todo(action="read") 主动读（跨 run 推进同口径——工具描述与 goal
+// 轮消息均引导 read，不注入清单快照）。
 //
 // 状态归属（与 ac-goal 同规约，对齐 ac-memory 键口径）：
 //   · 桶键 = conversationId ?? agentId——清单随会话桶走：1v1 对话、
@@ -107,14 +108,6 @@ export class TodosService extends Service {
     const bucket = this.loadStore(agentId).buckets[key];
     if (bucket === undefined || typeof bucket !== 'object' || !Array.isArray(bucket.items)) return [];
     return bucket.items.map((t) => ({ ...t }));
-  }
-
-  /** 全部桶视图（诊断） */
-  listBuckets(agentId: string): Array<{ key: string; bucket: TodoBucket }> {
-    const store = this.loadStore(agentId);
-    return Object.entries(store.buckets)
-      .filter((e): e is [string, TodoBucket] => e[1] !== undefined)
-      .map(([key, bucket]) => ({ key, bucket }));
   }
 
   /**

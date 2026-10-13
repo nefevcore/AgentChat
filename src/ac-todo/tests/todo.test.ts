@@ -164,6 +164,24 @@ describe('ac-todo 工具面（write/read 整表全量重写）', () => {
   });
 });
 
+describe('ac-todo 护栏（桶淘汰 / 条目与 content 上限）', () => {
+  it('桶数超 32 按 updatedAt 淘汰最旧（防无界增长）；条目上限 50、content 上限 1000', async () => {
+    const { ctx } = await boot();
+    // 33 个桶逐个写入（updatedAt 单调）：第 33 次写入触发淘汰，最旧桶（k00）出局
+    for (let i = 0; i < 33; i++) {
+      ctx.todos.write('a', `k${String(i).padStart(2, '0')}`, [{ content: `桶 ${i}` }]);
+      if (i < 32) await new Promise((r) => setTimeout(r, 2)); // 保证 updatedAt 严格递增
+    }
+    expect(ctx.todos.list('a', 'k00')).toEqual([]);       // 最旧被淘汰
+    expect(ctx.todos.list('a', 'k32')).toEqual([{ content: '桶 32', status: 'pending' }]);
+
+    // 条目上限 50（工具面已测；此处锁服务面常量口径）
+    expect(() => ctx.todos.write('a', 'cap', Array.from({ length: 51 }, (_, i) => ({ content: `t${i}` })))).toThrow('上限');
+    // content 上限 1000
+    expect(() => ctx.todos.write('a', 'cap', [{ content: 'x'.repeat(1001) }])).toThrow('上限');
+  });
+});
+
 describe('ac-todo 持久化（agentStore entry "todo"）', () => {
   it('落盘可读；重启（新组合）回读清单连续', async () => {
     const root = tmpRoot();
