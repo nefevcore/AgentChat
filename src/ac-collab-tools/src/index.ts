@@ -196,8 +196,9 @@ export function apply(ctx: Context) {
               return err(e instanceof Error ? e.message : String(e));
             }
           }
-          // sub_ 前缀但注册表无此子 Agent：落入下方常规注册校验（报错口径
-          // 统一为"未注册"，避免双份文案）
+          // sub_ 前缀但 subagents 行未装/无此条目：落入下方常规注册校验。
+          // agents 表有该 id（subagent 行注册的派生条目 preset:true）→ 走预设
+          // 拒绝文案；无条目 → "未注册"（报错口径随事实源，不在此双份维护）
         }
 
         const target = ctx.agents.get(to);
