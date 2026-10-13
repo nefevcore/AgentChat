@@ -14,13 +14,13 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*",
-    "ac-credentials": "workspace:*",
     "ac-sandbox-core": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
     "ac-agent-store": "workspace:*",
+    "ac-credentials": "workspace:*",
     "ac-durable-interaction": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-session": "workspace:*",

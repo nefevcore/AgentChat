@@ -1,7 +1,7 @@
 // ============================================================
 // ac-agent-admin —— Agent 管理面行（M7 §二D 首期）
 //
-// inject ['webServer','agents','agentStore','credentials','tools']：
+// inject ['webServer','agents','agentStore','tools']：
 // 服务本体（ctx.agentAdmin）+ 写侧 RPC 注册（注册即归属——摘本行 =
 // 管理面下线，各域服务与 ac-web-api 读面不受影响）。
 //
@@ -33,7 +33,7 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export const inject = ['webServer', 'agents', 'agentStore', 'credentials', 'tools'];
+export const inject = ['webServer', 'agents', 'agentStore', 'tools'];
 
 // ---- 参数窄化（与 ac-web-api 同款薄行自持） ----
 

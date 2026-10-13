@@ -89,11 +89,6 @@ export class CredentialsService extends Service {
       options.file ?? path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'credentials.json');
   }
 
-  /** 凭据文件路径（诊断用） */
-  get path(): string {
-    return this.file;
-  }
-
   /** Agent 级凭据 key：<agentId>_<provider>_API_KEY */
   static key(agentId: string, provider: string): string {
     return `${agentId}_${provider}_API_KEY`.toUpperCase();
@@ -135,7 +130,7 @@ export class CredentialsService extends Service {
     return Object.values(this.readStore()).filter((v) => typeof v === 'string' && v.length > 0);
   }
 
-  /** 全部 key 名（管理面列举用；不含值） */
+  /** 全部 key 名（不含值；测试锁定盘上 key 命名格式用——管理面走 getGlobal/stateGlobal，从不列举 key） */
   keys(): string[] {
     return Object.keys(this.readStore());
   }

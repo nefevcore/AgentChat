@@ -1,6 +1,6 @@
 // ============================================================
 // ac-agent-admin：管理面首期
-// 真实件（agentStore/credentials/agents/tools/webServer）+ ws RPC 客户端；
+// 真实件（agentStore/agents/tools/webServer）+ ws RPC 客户端；
 // system-prompt dry-run 用假组装器验证 waterfall 过链。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -13,7 +13,6 @@ import WebSocket from 'ws';
 import { Context } from '@agentchat/cordis';
 import { WebServerService } from 'ac-web-server';
 import { AgentStoreService } from 'ac-agent-store';
-import { CredentialsService } from 'ac-credentials';
 import { AgentsService } from 'ac-agents';
 import { ToolsService } from 'ac-tools';
 import { ConfigService } from 'ac-config';
@@ -36,7 +35,6 @@ interface Harness {
   ctx: Context;
   web: WebServerService;
   store: AgentStoreService;
-  creds: CredentialsService;
   agents: AgentsService;
   root: string;
   port: number;
@@ -50,7 +48,6 @@ async function boot(): Promise<Harness> {
   const ctx = new Context();
   const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
   const store = new AgentStoreService(ctx, { root });
-  const creds = new CredentialsService(ctx, { root });
   const agents = new AgentsService(ctx);
   const tools = new ToolsService(ctx);
   void tools;
@@ -72,7 +69,7 @@ async function boot(): Promise<Harness> {
   await ctx.plugin(adminRow);
   const port = await web.ready();
   harnesses.push({ web, ctx });
-  return { ctx, web, store, creds, agents, root, port };
+  return { ctx, web, store, agents, root, port };
 }
 
 function connect(port: number): Promise<WebSocket> {
@@ -268,11 +265,10 @@ describe('ac-agent-admin CRUD', () => {
     const ctx = new Context();
     const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
     const store = new AgentStoreService(ctx, { root });
-    const creds = new CredentialsService(ctx, { root });
     const agents = new AgentsService(ctx);
     const tools = new ToolsService(ctx);
     const config = new ConfigService(ctx, { root });
-    void store; void creds; void agents; void tools; void config;
+    void store; void agents; void tools; void config;
     await ctx.plugin(adminRow);
     const port = await web.ready();
     harnesses.push({ web, ctx });
@@ -325,11 +321,10 @@ describe('ac-agent-admin CRUD', () => {
     const ctx = new Context();
     const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
     const store = new AgentStoreService(ctx, { root });
-    const creds = new CredentialsService(ctx, { root });
     const agents = new AgentsService(ctx);
     const tools = new ToolsService(ctx);
     const config = new ConfigService(ctx, { root });
-    void store; void creds; void agents; void tools; void config;
+    void store; void agents; void tools; void config;
     await ctx.plugin(adminRow);
     const port = await web.ready();
     harnesses.push({ web, ctx });
@@ -585,11 +580,10 @@ describe('ac-agent-admin 文档 / 预览', () => {
     const ctx = new Context();
     const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
     const store = new AgentStoreService(ctx, { root });
-    const creds = new CredentialsService(ctx, { root });
     const agents = new AgentsService(ctx);
     const tools = new ToolsService(ctx);
     const config = new ConfigService(ctx, { root });
-    void store; void creds; void tools; void config;
+    void store; void tools; void config;
     await ctx.plugin(sessionRow);
     // llm 注册面：visionOf 静态判定元数据（[模型能力] 行的注入门——
     // visionModels 声明 vision-m 视觉、m 纯文本；工厂永不实例化，干跑无 LLM 调用）

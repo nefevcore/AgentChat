@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-377**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-378**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -395,3 +395,4 @@
 - 【cr-375 2026-10-13 ac-ask-questions 深审收口（清单 #59）：死代码三清（questionsOf 死函数/ConversationLike.listRunning 死接口成员/poller deadline 自查死分支——2026-09-21 deadline_ms 移除漏网）+ ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零收尾）+ 中断清账悬问注释订正】
 - 【cr-376 2026-10-13 ac-file-snapshots 深审收口：会话删除级联接线（singles/updated-removed + group/deleted 含成员私有流键全清）+ memberStreamKey 下沉 ac-core-utils（跨行键词法，GROUP_HINT_META 先例）+ 死词清理（SnapshotStore re-export/location getter/rowOptions 死字段）】
 - 【cr-377 2026-10-13 ac-config 逐包深审收口：热更三小件 P1/P2 落地 + set 写侧快照隔离 + readJson/writeJsonAtomic 出口收私有】
+- 【cr-378 2026-10-13 ac-credentials 深审收口（audit #62）：包健康留——域 owning 消费面全活跃（security 脱敏 listValues/web-api 池凭据双 RPC 面/llm-pool 注入/issue-tools·web-tools 解析链/sap-adt 引擎缝全 ctx.get 解耦）。精简四刀：①path getter 死口删除（全仓零消费，JSDoc 诊断用从未接线）；②keys() JSDoc 漂移订正（管理面从未接线，实况=测试锁定盘上 key 命名）；③ac-agent-admin 死 inject credentials 删除（P4/D3 set-credential 退役漏清——service 零消费，测试四处凑数装配随删）；④ac-security 依赖归位 devDependencies（src 零 import，六消费方唯一异类）。CRLF 统一 LF】
