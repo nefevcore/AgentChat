@@ -21,21 +21,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import {
-  accessDenyPatterns,
   createAgentSandboxCache,
-  denyExtrasOf,
+  createDenyListsFactory,
   isDeniedPath,
+  type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveTierOf } from 'ac-agents';
+import { effectiveTierOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 
-export interface StrReplaceEditorRowOptions extends SandboxResolverOptions {
-  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
-  accessDenyPaths?: string[];
-}
+export type StrReplaceEditorRowOptions = SandboxResolverOptions & DenyRowOptions;
 
 /** 查看输出保留的字符上限（与 DSH maxOutputChars 缺省一致） */
 const MAX_OUTPUT_CHARS = 16000;
@@ -198,27 +195,26 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     svc?.ensure(call.conversationId, file);
   }
 
-  /** effectiveTier（§3.2）：call.elevation ?? tierOf(agent)——与 ac-security
-   *  加严层共用单源，防基线与复检漂移 */
+  /** effectiveTier（§3.2）：call.elevation ?? tierOf(agent)——ac-agents 导出的
+   *  per-call 单源（effectiveTierOfCall），防基线与复检漂移 */
   function tierOfCall(call: { agentId?: string; elevation?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
-    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
-    return effectiveTierOf(
-      agent,
-      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
-    );
+    return effectiveTierOfCall(call, agentsOf);
   }
 
-  /** 访问黑名单（基线端，per-call）：workspace 可用时锚定系统域默认表；
-   *  不可用 = 系统部分缺失（best-effort；ac-security 加严层 fail-closed 兜底） */
-  function accessDenyListOf(call: { agentId?: string }): string[] {
-    const wsRaw = ctx.get('workspace') as { root?: unknown } | undefined;
-    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
-    const agents = agentsOf() as ({ settingsOf?(id: string, name?: string): unknown } | undefined);
-    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
-    const extras = denyExtrasOf(s);
-    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
-    return root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra;
-  }
+  // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
+  // ——与 fs-tools / fs-search 基线同源不漂移；workspace 缺失时 best-effort
+  // 只查追加项并告警一次（本行原缺失告警——三姊妹走散的实证，随并源补齐），
+  // ac-security 加严层 fail-closed 兜底）
+  const denyListsOf = createDenyListsFactory(
+    options,
+    {
+      workspaceOf: () => ctx.get('workspace') as { root?: unknown } | undefined,
+      agentsOf: () => agentsOf() as { settingsOf?(id: string, name?: string): unknown } | undefined,
+    },
+    () => ctx.logger.warn(
+      '[str-replace-editor] workspace 服务不可用：访问黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
+    ),
+  );
 
   ctx.tools.register({
     name: 'str_replace_editor',
@@ -261,8 +257,14 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
       const target = tierOfCall(call) === 'full-access'
         ? path.resolve(sandbox.workdir, pathInput)
         : sandbox.resolve(pathInput);
-      if (isDeniedPath(accessDenyListOf(call), target)) {
+      const deny = denyListsOf(call);
+      if (isDeniedPath(deny.accessDeny, target)) {
         return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${pathInput}` };
+      }
+      // view 是读面：readDeny 口径对齐 read/glob/grep（§9.1——非 full 档
+      // 机密文件不外显；cr-363 修口径走散：本行原只查 accessDeny）
+      if (command === 'view' && tierOfCall(call) !== 'full-access' && isDeniedPath(deny.readDeny, target)) {
+        return { ok: false, error: `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${pathInput}` };
       }
 
       switch (command) {

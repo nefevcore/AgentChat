@@ -18,24 +18,18 @@ import { StringDecoder } from 'node:string_decoder';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import {
-  accessDenyPatterns,
   createAgentSandboxCache,
-  denyExtrasOf,
+  createDenyListsFactory,
   isDeniedPath,
-  readDenyPatterns,
+  type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveTierOf } from 'ac-agents';
+import { effectiveTierOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { globToRegExp, literalDirPrefix, normalizeGlobPattern, walkFiles, type WalkEntry } from 'ac-glob-core';
 
-export interface FsSearchRowOptions extends SandboxResolverOptions {
-  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
-  accessDenyPaths?: string[];
-  /** 追加读黑名单（仅读禁；默认表 .env 系/密钥文件模式自动内置） */
-  readDenyPaths?: string[];
-}
+export type FsSearchRowOptions = SandboxResolverOptions & DenyRowOptions;
 
 /**
  * 正则元字符转义建议（2026-09-21 画像 Ⓒ）：模型把函数名/调用式直接当
@@ -401,9 +395,19 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
     ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
 
-  /** workspace 不可用的告警只发一次（基线 best-effort；ac-security 加严层
-   *  对 workspace 缺失 fail-closed 兜底） */
-  let warnedNoWorkspace = false;
+  // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
+  // ——与 fs-tools / str-replace-editor 基线同源不漂移；workspace 缺失时
+  // best-effort 只查追加项并告警一次，ac-security 加严层 fail-closed 兜底）
+  const denyListsOf = createDenyListsFactory(
+    options,
+    {
+      workspaceOf: () => ctx.get('workspace') as { root?: unknown } | undefined,
+      agentsOf: () => agentsOf() as { settingsOf?(id: string, name?: string): unknown } | undefined,
+    },
+    () => ctx.logger.warn(
+      '[fs-search] workspace 服务不可用：检索黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
+    ),
+  );
 
   /**
    * 检索面黑名单判定（§9.2 双黑名单结果过滤，glob/grep 共用）：
@@ -411,31 +415,10 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
    * 目录前缀判定覆盖子树（agents/ 等持久化域树整树过滤）。
    */
   function searchDenyFilterOf(call: { agentId?: string; elevation?: string }): (abs: string) => boolean {
-    // root 防御性校验：mock/部分实现可能无 root（非 string = 视同未装，
-    // best-effort 跳过系统部分——加严层 fail-closed 兜底）
-    const wsRaw = ctx.get('workspace') as { root?: unknown } | undefined;
-    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
-    const agents = agentsOf() as ({ settingsOf?(id: string, name?: string): unknown } | undefined);
-    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
-    const extras = denyExtrasOf(s);
-    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
-    const readExtra = [...(options.readDenyPaths ?? []), ...extras.readDenyPaths];
-    if (root === undefined && !warnedNoWorkspace) {
-      warnedNoWorkspace = true;
-      ctx.logger.warn(
-        '[fs-search] workspace 服务不可用：检索黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
-      );
-    }
-    const accessDeny = root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra;
-    const readDeny = readDenyPatterns(readExtra);
-    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
-    const tier = effectiveTierOf(
-      agent,
-      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
-    );
-    const skipReadDeny = tier === 'full-access';
+    const deny = denyListsOf(call);
+    const skipReadDeny = effectiveTierOfCall(call, agentsOf) === 'full-access';
     return (abs: string): boolean =>
-      isDeniedPath(accessDeny, abs) || (!skipReadDeny && isDeniedPath(readDeny, abs));
+      isDeniedPath(deny.accessDeny, abs) || (!skipReadDeny && isDeniedPath(deny.readDeny, abs));
   }
 
   // ---- glob：按路径模式找文件 ----

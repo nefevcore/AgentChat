@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import { bashCommandViolation, hostKillViolation, type SandboxResolver } from 'ac-sandbox-core';
-import { effectiveTierOf } from 'ac-agents';
+import { effectiveTierOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { buildErrorMessage, isProcessAlive, killProcessTree, looksLikeInvocationError, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
 import type { ShellSpec } from './shells.ts';
@@ -86,18 +86,6 @@ export interface ExecutorDeps {
 /** 命令预处理钩子（pwsh = 翻译+编码前缀；bash = 纯透传） */
 export type PrepareFn = (command: string) => { commandToRun: string; translatedCommand?: string };
 
-/** effectiveTier（access-tier §3.2）：elevation ?? tierOf(agent)——与 ac-security 共用单源 */
-function tierOfCall(
-  call: { agentId?: string; elevation?: string },
-  agentsOf: () => { get(id: string): AgentConfig | undefined } | undefined,
-): 'full-access' | 'sandbox-access' | 'base-access' {
-  const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
-  return effectiveTierOf(
-    agent,
-    call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
-  );
-}
-
 /**
  * 平台无关执行体：一次命令调用的全生命周期。
  * 参数形状与旧 bash 工具体一致（command/description/workdir/timeout/
@@ -123,7 +111,7 @@ export function executeShellCommand(
   const sandbox = deps.sandboxOf(call);
   // 基线 tierOf 感知（full "不做任何限制"的字面义）：workdir 只锚定不设
   // 白名单；命令级扫描跳过（软边界语义只约束 base/sandbox）
-  const unrestricted = tierOfCall(call, deps.agentsOf) === 'full-access';
+  const unrestricted = effectiveTierOfCall(call, deps.agentsOf) === 'full-access';
   let dir: string;
   if (unrestricted) {
     dir = wd ? path.resolve(sandbox.workdir, String(wd)) : sandbox.workdir;

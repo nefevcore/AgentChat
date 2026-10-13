@@ -237,6 +237,25 @@ export function effectiveTierOf(
 }
 
 /**
+ * per-call 档位判定（工具行基线共用单源，cr-363 收编四处同构）：
+ * agents 注册表软依赖读取 + ToolCall.elevation 归一化 + effectiveTierOf
+ * 一体——fs-search / fs-tools / str-replace-editor / shell-tools 原各持
+ * 一份 elevation 归一化三行，换新档位词时四处同改。elevation 类型宽于
+ * 契约（unknown 透传容错，见 effectiveTierOf 宽容缺省 base）。
+ */
+export function effectiveTierOfCall(
+  call: { agentId?: string; elevation?: unknown },
+  agentsOf: () => { get(id: string): AgentConfig | undefined } | undefined,
+): AccessTier {
+  const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
+  const raw = call.elevation;
+  return effectiveTierOf(
+    agent,
+    raw === 'full-access' ? 'full-access' : raw === 'sandbox-access' ? 'sandbox-access' : undefined,
+  );
+}
+
+/**
  * 工具调用模式（tc-* 标签轴——与提权档位 access-tier 同构的第三条轴）：
  * AgentConfig.tags 新增词汇 tc-none / tc-programmatic；缺省（无任一
  * 模式词）= tc-base。模式词经 toolModeOf 单源判定，router / ac-subagent

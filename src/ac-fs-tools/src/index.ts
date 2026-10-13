@@ -20,25 +20,19 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import {
-  accessDenyPatterns,
   createAgentSandboxCache,
-  denyExtrasOf,
+  createDenyListsFactory,
   isDeniedPath,
-  readDenyPatterns,
+  type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveTierOf, widenToolsForGating } from 'ac-agents';
+import { effectiveTierOfCall, widenToolsForGating } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
 
-export interface FsToolsRowOptions extends SandboxResolverOptions {
-  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
-  accessDenyPaths?: string[];
-  /** 追加读黑名单（仅读禁；默认表 .env 系/密钥文件模式自动内置） */
-  readDenyPaths?: string[];
-}
+export type FsToolsRowOptions = SandboxResolverOptions & DenyRowOptions;
 
 /** read 输出的 token 预算（防大文件撑爆上下文；超出安全截断并标注） */
 const READ_TOKEN_BUDGET = 24000;
@@ -97,43 +91,24 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   }
 
   /** effectiveTier（§3.2）：call.elevation（机制提权/审批注入）?? tierOf(agent)
-   *  ——与 ac-security 加严层共用单源（effectiveTierOf），防基线与复检漂移 */
+   *  ——ac-agents 导出的 per-call 单源（effectiveTierOfCall），防基线与复检漂移 */
   function tierOfCall(call: { agentId?: string; elevation?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
-    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
-    return effectiveTierOf(
-      agent,
-      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
-    );
+    return effectiveTierOfCall(call, agentsOf);
   }
 
-  /** workspace 不可用的告警只发一次（基线 best-effort；ac-security 加严层
-   *  对 workspace 缺失 fail-closed 兜底） */
-  let warnedNoWorkspace = false;
-
-  /** 双黑名单装配（基线端，per-call）：workspace 可用时锚定系统域默认表
-   *  （控制面 + 持久化域树）；不可用 = 系统部分缺失（best-effort）。
-   *  追加项 = 行配置 ∪ settings['security']（denyExtrasOf 单源读取）。 */
-  function denyListsOf(call: { agentId?: string }): { accessDeny: string[]; readDeny: string[] } {
-    // root 防御性校验：mock/部分实现可能无 root（非 string = 视同未装，
-    // best-effort 跳过系统部分——加严层 fail-closed 兜底）
-    const wsRaw = ctx.get('workspace') as { root?: unknown } | undefined;
-    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
-    const agents = agentsOf() as ({ settingsOf?(id: string, name?: string): unknown } | undefined);
-    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
-    const extras = denyExtrasOf(s);
-    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
-    const readExtra = [...(options.readDenyPaths ?? []), ...extras.readDenyPaths];
-    if (root === undefined && !warnedNoWorkspace) {
-      warnedNoWorkspace = true;
-      ctx.logger.warn(
-        '[fs-tools] workspace 服务不可用：访问黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
-      );
-    }
-    return {
-      accessDeny: root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra,
-      readDeny: readDenyPatterns(readExtra),
-    };
-  }
+  // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
+  // ——与 fs-search / str-replace-editor 基线同源不漂移；workspace 缺失时
+  // best-effort 只查追加项并告警一次，ac-security 加严层 fail-closed 兜底）
+  const denyListsOf = createDenyListsFactory(
+    options,
+    {
+      workspaceOf: () => ctx.get('workspace') as { root?: unknown } | undefined,
+      agentsOf: () => agentsOf() as { settingsOf?(id: string, name?: string): unknown } | undefined,
+    },
+    () => ctx.logger.warn(
+      '[fs-tools] workspace 服务不可用：访问黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
+    ),
+  );
 
   /** 读面双黑名单命中判定（read 路径判定与目录列表条目过滤共用单源；
    * accessDeny 全档 + readDeny 非 full 档——与 fs-search 检索结果过滤同口径） */

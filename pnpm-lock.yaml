@@ -2729,9 +2729,6 @@ importers:
       ac-text-budget:
         specifier: workspace:*
         version: link:../ac-text-budget
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
     devDependencies:
       ac-extension-core:
         specifier: workspace:*
@@ -2742,6 +2739,9 @@ importers:
       ac-str-replace-editor:
         specifier: workspace:*
         version: link:../ac-str-replace-editor
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -3091,13 +3091,13 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-memory-core:
         specifier: workspace:*
         version: link:../ac-memory-core
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -3733,9 +3733,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -3743,6 +3740,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-skill-core
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
@@ -3792,12 +3792,21 @@ importers:
         specifier: workspace:*
         version: link:../ac-sandbox-core
     devDependencies:
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-session:
+        specifier: workspace:*
+        version: link:../ac-session
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
+      ac-workspace:
+        specifier: workspace:*
+        version: link:../ac-workspace
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))

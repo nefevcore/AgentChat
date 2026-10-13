@@ -121,6 +121,63 @@ export function denyExtrasOf(security: unknown): { accessDenyPaths: string[]; re
   return { accessDenyPaths: list(s.accessDenyPaths), readDenyPaths: list(s.readDenyPaths) };
 }
 
+/**
+ * 工具行基线的行级 deny 追加项形状（fs-search / fs-tools / str-replace-editor
+ * 的 RowOptions 共用段——cr-363 随装配并源收拢）。
+ */
+export interface DenyRowOptions {
+  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
+  accessDenyPaths?: string[];
+  /** 追加读黑名单（仅读禁；默认表 .env 系/密钥文件模式自动内置） */
+  readDenyPaths?: string[];
+}
+
+/**
+ * 双黑名单装配源（工具行注入的软依赖面——结构化注入保持纯库零 cordis
+ * 依赖，与 SandboxWorkdirSource 同款形态）。
+ */
+export interface DenyListsSource {
+  /** workspace 服务（root 锚定系统域默认表；不可得 = best-effort 缺系统部分） */
+  workspaceOf(): { root?: unknown } | undefined;
+  /** agents 注册表（settingsOf 读取器——追加项来源） */
+  agentsOf(): { settingsOf?(id: string, name?: string): unknown } | undefined;
+}
+
+/**
+ * per-call 双黑名单装配工厂（工具行基线共用单源）。cr-363 并源三姊妹：
+ * fs-search searchDenyFilterOf / fs-tools denyListsOf / sre accessDenyListOf
+ * 各持一份同构装配且已走散（sre 缺 workspace 缺失告警）——趁早并源。
+ * workspace 可用时锚定系统域默认表（控制面 + 持久化域树）；不可用 =
+ * 系统部分缺失（best-effort 只查追加项，onDegraded 只发一次——ac-security
+ * 加严层对 workspace 缺失 fail-closed 兜底）。追加项 = 行配置 ∪
+ * settings['security']（denyExtrasOf 单源读取）。
+ */
+export function createDenyListsFactory(
+  options: DenyRowOptions,
+  source: DenyListsSource,
+  onDegraded?: () => void,
+): (call: { agentId?: string }) => { accessDeny: string[]; readDeny: string[] } {
+  let warned = false;
+  return (call) => {
+    // root 防御性校验：mock/部分实现可能无 root（非 string = 视同未装）
+    const wsRaw = source.workspaceOf();
+    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
+    const agents = source.agentsOf();
+    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
+    const extras = denyExtrasOf(s);
+    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
+    const readExtra = [...(options.readDenyPaths ?? []), ...extras.readDenyPaths];
+    if (root === undefined && !warned) {
+      warned = true;
+      onDegraded?.();
+    }
+    return {
+      accessDeny: root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra,
+      readDeny: readDenyPatterns(readExtra),
+    };
+  };
+}
+
 /** 沙箱解析器参数（ac-security 行从 AgentConfig.settings['security'] 装配） */
 export interface SandboxResolverOptions {
   /** 相对路径解析基准（缺省 process.cwd()；src security.workdir 对应物） */

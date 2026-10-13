@@ -8,10 +8,12 @@ import * as os from 'node:os';
 import {
   createSandboxResolver,
   createAgentSandboxCache,
+  createDenyListsFactory,
   isPathUnder,
   agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
+  DEFAULT_READ_DENY,
   bashCommandViolation,
   hostKillViolation,
   stripHeredocPayloads,
@@ -73,6 +75,51 @@ describe('沙箱路径解析器', () => {
     expect(isDeniedPath(['**/id_rsa*'], '/home/u/.ssh/id_rsa.pub')).toBe(true);
     expect(isDeniedPath(['**/backup'], '/x/backup')).toBe(true);
     expect(isDeniedPath(BUILTIN_DENY_PATTERNS, `${home}/documents/file.txt`)).toBe(false);
+  });
+});
+
+describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-363 三姊妹并源）', () => {
+  const mkSource = (root: string | undefined, security: unknown = undefined) => ({
+    workspaceOf: () => (root === undefined ? undefined : ({ root })),
+    agentsOf: () =>
+      security === undefined
+        ? undefined
+        : ({ settingsOf: () => security } as { settingsOf?: (id: string, name?: string) => unknown }),
+  });
+
+  it('workspace 可用：accessDeny 锚定控制面+持久化域树；readDeny 含默认读表 + 行配置并集', () => {
+    const denyOf = createDenyListsFactory({ accessDenyPaths: ['D:/extra'], readDenyPaths: ['**/*.kdbx'] }, mkSource('C:/data'));
+    const d = denyOf({ agentId: 'a1' });
+    // path.join 按平台产出（win32 反斜杠）——与实现同构
+    expect(d.accessDeny).toContain(path.join('C:/data', 'agents'));
+    expect(d.accessDeny).toContain(path.join('C:/data', 'cordis.patch.yml'));
+    expect(d.accessDeny).toContain('D:/extra'); // 行配置追加项原样
+    expect(d.readDeny).toContain('**/.env*'); // DEFAULT_READ_DENY 内置
+    expect(d.readDeny).toContain('**/*.kdbx'); // 行配置追加项
+  });
+
+  it('settings[security] 追加项并入；非字符串数组值被 denyExtrasOf 过滤', () => {
+    const denyOf = createDenyListsFactory({}, mkSource('C:/data', { accessDenyPaths: ['E:/x'], readDenyPaths: [42, 'ok'] }));
+    const d = denyOf({ agentId: 'a1' });
+    expect(d.accessDeny).toContain('E:/x');
+    expect(d.readDeny).toContain('ok');
+    expect(d.readDeny).not.toContain(42 as unknown as string);
+  });
+
+  it('workspace 不可用：降级只查追加项，onDegraded 恰好发一次（跨 call）', () => {
+    let fired = 0;
+    const denyOf = createDenyListsFactory({ accessDenyPaths: ['D:/only'] }, mkSource(undefined), () => { fired++; });
+    denyOf({});
+    denyOf({ agentId: 'x' });
+    expect(fired).toBe(1);
+    const d = denyOf({});
+    expect(d.accessDeny).toEqual(['D:/only']); // 系统部分缺失（best-effort）
+    expect(d.readDeny).toEqual([...DEFAULT_READ_DENY]);
+  });
+
+  it('无 agentId（无执行身份）不读 settings；无 onDegraded 不炸', () => {
+    const denyOf = createDenyListsFactory({}, mkSource(undefined)); // 无 onDegraded
+    expect(() => denyOf({})).not.toThrow();
   });
 });
 

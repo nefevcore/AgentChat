@@ -2,11 +2,15 @@
 // ac-str-replace-editor：精准编辑器行生命周期冒烟（view/str_replace/create→dispose 回收）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as agentsRow from 'ac-agents';
+import * as agentStoreRow from 'ac-agent-store';
+import * as sessionRow from 'ac-session';
+import * as workspaceRow from 'ac-workspace';
 import * as editorRow from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -120,5 +124,74 @@ describe('ac-str-replace-editor', () => {
     expect(ctx.tools.has('str_replace_editor')).toBe(false);
     const r = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: FILE } });
     expect(r).toEqual({ ok: false, error: 'unknown tool: str_replace_editor' });
+  });
+});
+
+describe('ac-str-replace-editor 双黑名单（cr-363：deny 装配并源 + view 读面口径对齐）', () => {
+  /** boot：agents + agentStore + session + workspace（黑名单锚定数据根）+ 编辑器行 */
+  async function bootWs(root: string) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [agentsRow, undefined],
+      [agentStoreRow, { root }],
+      [sessionRow, { root }],
+      [workspaceRow, { root }],
+      [editorRow, { workdir: root }],
+    ];
+    for (const pair of rows) {
+      const row = pair[0];
+      const config = pair[1];
+      const fiber = config === undefined ? ctx.plugin(row as any) : ctx.plugin(row as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('view：.env 拒绝（沙箱内置 deny 先拦）；持久化域树（agents/，访问黑名单）拒绝', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sre-deny-'));
+    writeFileSync(join(root, '.env'), 'SECRET=1', 'utf8');
+    mkdirSync(join(root, 'agents', 'a'), { recursive: true });
+    writeFileSync(join(root, 'agents', 'a', 'config.json'), '{}', 'utf8');
+    writeFileSync(join(root, 'note.txt'), 'normal', 'utf8');
+    const { ctx } = await bootWs(root);
+
+    // 非 full 档：.env 命中沙箱内置 BUILTIN_DENY_PATTERNS，resolve 即拦（readDeny 层之前）
+    const env = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: '.env' } });
+    expect(env.ok).toBe(false);
+    expect(env.error).toContain('敏感文件黑名单');
+
+    const tree = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: 'agents' } });
+    expect(tree.ok).toBe(false);
+    expect(tree.error).toContain('访问黑名单');
+
+    const plain = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: 'note.txt' } });
+    expect(plain.ok).toBe(true);
+  });
+
+  it('view readDeny 层（read 工具同款口径，cr-363 补齐）：**/*.key 在 DEFAULT_READ_DENY 而不在沙箱内置表——readDeny 是唯一防线', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-sre-deny-'));
+    writeFileSync(join(root, 'secret.key'), 'KEY=1', 'utf8');
+    mkdirSync(join(root, 'agents', 'a'), { recursive: true });
+    writeFileSync(join(root, 'agents', 'a', 'config.json'), '{}', 'utf8');
+    const { ctx } = await bootWs(root);
+
+    // 非 full 档：沙箱 resolve 放行（*.key 非内置表）→ 新增 readDeny 检查命中
+    const key = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: 'secret.key' } });
+    expect(key.ok).toBe(false);
+    expect(key.error).toContain('读黑名单');
+
+    // full 档（绝对路径直达）：readDeny 跳过 → 可见（fs-search full 档 .env 同款语义）
+    ctx.agents.register({ id: 'boss', model: 'm', tags: ['full-access'] });
+    const keyFull = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: join(root, 'secret.key') }, agentId: 'boss' });
+    expect(keyFull.ok).toBe(true);
+
+    // accessDeny 全档：agents/ 树 full 档绝对路径仍拦
+    const tree = await ctx.tools.execute({ name: 'str_replace_editor', args: { command: 'view', path: join(root, 'agents') }, agentId: 'boss' });
+    expect(tree.ok).toBe(false);
+    expect(tree.error).toContain('访问黑名单');
   });
 });
