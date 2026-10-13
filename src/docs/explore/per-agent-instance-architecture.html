@@ -84,7 +84,7 @@
     <div class='node n-user' style='left:44px;top:172px;width:212px'><b>远程设备</b><small>remote-link · Noise E2E 配对</small></div>
     <div class='node n-ext' style='left:44px;top:236px;width:212px;height:66px'><b>agent-cli（直连形态）</b><small>宿主缺席可聊 · boot agent 子树 · activation 锁互斥</small></div>
     <div class='zone' style='left:330px;top:50px;width:380px;height:470px'><span class='zt'>宿主 AgentChat · 控制面</span><span class='zn'>邮局 + 监护人</span></div>
-    <div class='node n-host' style='left:350px;top:96px;width:340px;height:60px'><b>邮局 · 投递路由</b><small>durable 收件箱 · steer / next-turn · 防自激 budget 随信封</small></div>
+    <div class='node n-host' style='left:350px;top:96px;width:340px;height:60px'><b>邮局 · 投递路由（默认通道，非必经）</b><small>durable 收件箱 · steer / next-turn · 防自激 budget 随信封 · 协议层恒一（通道可插拔：中继 / 直投）</small></div>
     <div class='node n-host' style='left:350px;top:166px;width:340px;height:46px'><b>群拓扑 = multicast 地址表</b><small>逐成员扇出（own / peer 投影通例）</small></div>
     <div class='node n-host' style='left:350px;top:222px;width:340px;height:46px'><b>Supervisor 监护</b><small>42/78/0 · 退避熔断 · per-activation</small></div>
     <div class='node n-host' style='left:350px;top:278px;width:340px;height:46px'><b>服务面</b><small>usage 计费单源 · credentials · 定时唤醒 · market</small></div>
@@ -191,32 +191,32 @@
 <section>
   <h2>图 5 · 缺失裁决清单（依赖图 · 编号 = 建议裁决序）</h2>
   <p class='sub'>三族 + 迁移独立项；箭头指向被阻塞的落地面。</p>
-  <div class='board'><div class='canvas' style='height:604px'>
+  <div class='board'><div class='canvas' style='height:640px'>
     <svg class='edges' width='1060' height='560' viewBox='0 0 1060 560'>
       <path d='M632 118 C 672 114 690 110 718 108' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
-      <path d='M632 302 C 670 292 686 270 718 250' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
-      <path d='M632 452 C 670 442 688 414 718 392' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
-      <path d='M632 542 C 670 534 688 512 718 494' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M632 316 C 670 306 686 284 718 264' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M632 486 C 670 476 688 448 718 426' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M632 576 C 670 568 688 546 718 528' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
     </svg>
     <div class='zone' style='left:30px;top:60px;width:600px;height:130px'><span class='zt'>族一 · 会话与投递核</span></div>
     <div class='pill n-hl' style='left:46px;top:94px;width:182px;height:44px'><b>OPEN-1 ✓</b> 发送方签发 + 邮局登记校验（已裁决）</div>
     <div class='pill n-hl' style='left:240px;top:94px;width:182px;height:44px'><b>OPEN-2 ✓</b> 写职责随原语：send/receive 各写自己（已裁决）</div>
-    <div class='pill' style='left:46px;top:146px;width:282px;height:36px'><b>OPEN-2a</b> 双壳并发写 user 账本（webui + CLI 同活）仲裁</div><div class='pill' style='left:340px;top:146px;width:276px;height:36px'><b>OPEN-3</b> 收件确认边界 · redelivery 时机</div>
-    <div class='cap' style='left:46px;top:188px;color:#059669'>已裁决：发送方签发（OPEN-1）· 写职责随原语（OPEN-2）· 残余：OPEN-2a 双壳仲裁 · OPEN-3 确认边界</div>
-    <div class='zone' style='left:30px;top:238px;width:600px;height:158px'><span class='zt'>族二 · 子树边界（CLI 形态）</span></div>
-    <div class='pill' style='left:46px;top:272px;width:282px;height:44px'><b>OPEN-4</b> 子树最小集 · 离线装载走什么门禁</div>
-    <div class='pill' style='left:340px;top:272px;width:276px;height:44px'><b>OPEN-6</b> memory / persona 资产：本地直读 or RPC</div>
-    <div class='pill' style='left:46px;top:326px;width:282px;height:44px'><b>OPEN-9</b> 承重工具代理协议（进度流 / 中断 / 审批回合）</div>
-    <div class='pill' style='left:340px;top:326px;width:276px;height:44px'><b>OPEN-5</b> subagent 账本归属 · 工具面继承跨进程</div>
-    <div class='zone' style='left:30px;top:418px;width:600px;height:100px'><span class='zt'>族三 · 自进化地基</span></div>
-    <div class='pill' style='left:46px;top:452px;width:282px;height:44px'><b>OPEN-7</b> 版本指纹规范形态（三元组？暴露位置？）</div>
-    <div class='pill' style='left:340px;top:452px;width:276px;height:44px'><b>OPEN-8</b> 健康检查点标准 · 快照频率 / 保留</div>
-    <div class='zone' style='left:30px;top:538px;width:600px;height:44px'><span class='zt'>独立</span></div>
-    <div class='pill' style='left:46px;top:546px;width:570px;height:32px'><b>OPEN-10</b> 存量迁移窗口 · 双读 · 恒等门测试范围</div>
+    <div class='pill n-hl' style='left:46px;top:146px;width:282px;height:36px'><b>OPEN-2a ✗</b> 伪问题出局：双壳 = 双生产者，单写者队列 + inbox 语义即解</div><div class='pill n-hl' style='left:340px;top:146px;width:276px;height:36px'><b>OPEN-3 ✓</b> 落账即确认 + requestId 幂等 + 重投正交（已裁决）</div>
+    <div class='cap' style='left:46px;top:188px;color:#059669'>族一全闭合：发送方签发（OPEN-1）· 写职责随原语（OPEN-2）· 双壳伪问题出局（2a）· 落账即确认（OPEN-3）</div>
+    <div class='zone' style='left:30px;top:238px;width:600px;height:194px'><span class='zt'>族二 · 子树边界（CLI 形态）</span></div>
+    <div class='pill n-hl' style='left:46px;top:272px;width:282px;height:44px'><b>OPEN-4 ✓</b> 信任边界积极定义 · 离线不可装载（已裁决）</div>
+    <div class='pill n-hl' style='left:340px;top:272px;width:276px;height:44px'><b>OPEN-6 ✓</b> 三层直读 · 写权随塑造者（已裁决）</div>
+    <div class='pill n-hl' style='left:46px;top:326px;width:282px;height:44px'><b>OPEN-9 ✓</b> 请求-应答 + 在途认领；中断/审批并入既有（已裁决）</div>
+    <div class='pill n-hl' style='left:340px;top:326px;width:276px;height:44px'><b>OPEN-5 ✓</b> 双形态：run 内嵌 / durable 委托·快照继承（已裁决）</div>
+    <div class='pill' style='left:46px;top:382px;width:570px;height:36px'><b>OPEN-11</b> LLM 凭据供给（CLI 形态）——倾向 ③ 共享数据根直读</div><div class='zone' style='left:30px;top:452px;width:600px;height:100px'><span class='zt'>族三 · 自进化地基</span></div>
+    <div class='pill' style='left:46px;top:486px;width:282px;height:44px'><b>OPEN-7</b> 版本指纹规范形态（三元组？暴露位置？）</div>
+    <div class='pill' style='left:340px;top:486px;width:276px;height:44px'><b>OPEN-8</b> 健康检查点标准 · 快照频率 / 保留</div>
+    <div class='zone' style='left:30px;top:572px;width:600px;height:44px'><span class='zt'>独立</span></div>
+    <div class='pill' style='left:46px;top:580px;width:570px;height:32px'><b>OPEN-10</b> 存量迁移窗口 · 双读 · 恒等门测试范围</div>
     <div class='node n-host' style='left:720px;top:80px;width:300px;height:56px'><b>阻塞 §2 会话 spike</b><small>落地路径第 1 步</small></div>
-    <div class='node n-agent' style='left:720px;top:224px;width:300px;height:56px'><b>阻塞 CLI 形态（§1.2）</b><small>落地路径第 2 步</small></div>
-    <div class='node n-guard' style='left:720px;top:364px;width:300px;height:56px'><b>阻塞五步闭环（0/4/5 步）</b><small>自进化</small></div>
-    <div class='node n-data' style='left:720px;top:466px;width:300px;height:56px'><b>阻塞存量迁移</b><small>落地第一步的前置</small></div>
+    <div class='node n-agent' style='left:720px;top:238px;width:300px;height:56px'><b>阻塞 CLI 形态（§1.2）</b><small>落地路径第 2 步（前置：OPEN-11）</small></div>
+    <div class='node n-guard' style='left:720px;top:398px;width:300px;height:56px'><b>阻塞五步闭环（0/4/5 步）</b><small>自进化</small></div>
+    <div class='node n-data' style='left:720px;top:500px;width:300px;height:56px'><b>阻塞存量迁移</b><small>落地第一步的前置</small></div>
     <div class='cap' style='left:30px;top:32px;color:var(--muted)'>已裁决不复发：群视图无需合并 · 存储近单份 · 亚插件热换零新原语 · 恢复环成立（rollback）· 逃生门 = 两守护原子</div>
   </div></div>
 </section>
