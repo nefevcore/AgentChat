@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "定时任务服务（ctx.timers）：5 模式调度（叠官方 cordis-timer 的 ctx.timeout 排程）+ 限定次数/永久 + timer-state.json（原子写/30s 心跳/停机补偿）+ 条目持久化归 ac-agent-store + 触发=conversation.deliver sender:'event' + 机制任务直调（archive-all/backup-all）",
+  "description": "定时任务服务（ctx.timers）：5 模式调度（叠官方 cordis-timer 的 ctx.timeout 排程）+ 限定次数/永久 + 停机补偿（原子写状态 + 30s 心跳）+ 条目持久化归 ac-agent-store + 全局条目 config timer.tasks + 触发=conversation.deliver sender:'event' + 机制任务直调（archive-all/backup-all）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

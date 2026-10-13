@@ -35,7 +35,6 @@ import {
   randomDelay,
   renderHint,
   withinActiveHours,
-  type GlobalScheduleEntry,
   type TimerEntry,
 } from 'ac-timer-core';
 import type { LlmMessage } from 'ac-llm';
@@ -53,8 +52,6 @@ export interface TimerRowOptions {
   holidays?: string[];
   /** 调休工作日（YYYY-MM-DD） */
   makeupWorkdays?: string[];
-  /** 全局定时条目（chime 兼容：times 或 tasks） */
-  entries?: GlobalScheduleEntry[];
   /** 心跳间隔（缺省 30s；测试可调小） */
   heartbeatMs?: number;
   /** gate 预检命令超时（缺省 30s；超时 fail-open 不挡触发；测试可调小） */
@@ -120,7 +117,6 @@ export class TimersService extends Service {
 
   private stateFile: string;
   private readonly tz: string;
-  private readonly globalSchedule: GlobalScheduleEntry[];
   private readonly heartbeatMs: number;
   private readonly gateTimeoutMs: number;
   /** 数据根目录（gate 预检子进程的 cwd——相对路径的 gate 命令锚定于此） */
@@ -143,7 +139,6 @@ export class TimersService extends Service {
     this.stateFile = path.join(dataRoot, 'timer', 'state.json');
     this.tz = options.timezone ?? 'Asia/Shanghai';
     this.rowOptions = options;
-    this.globalSchedule = options.entries ?? [];
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
     this.gateTimeoutMs = options.gateTimeoutMs ?? GATE_TIMEOUT_MS;
 
@@ -203,20 +198,10 @@ export class TimersService extends Service {
       if (enabled.length > 0) this.entriesByAgent.set(agentId, enabled);
     }
 
-    // 2) 全局条目 = row 配置 chime 条目（builtin 保护：设置面板只读，
-    //    重启按配置复活）+ 运行时 config 'timer.tasks'（可编辑，全局配置所有）
-    const globalEntries: TimerEntry[] = [
-      ...this.globalSchedule.map((t) => ({
-        id: `chime-${t.time}`,
-        enabled: true,
-        mode: 'time' as const,
-        time: t.time,
-        hint: t.hint ?? '',
-        target: t.targets?.length ? t.targets.join(',') : '*',
-        source: 'builtin',
-      })),
-      ...this.configEntries(),
-    ];
+    // 2) 全局条目 = 运行时 config 'timer.tasks'（可编辑，全局配置所有；
+    //    完整生命周期走 save GLOBAL_TIMER_OWNER 写口——save 落 config、
+    //    completeEntry 归档面摘运行时，重启恒按配置复活）
+    const globalEntries: TimerEntry[] = this.configEntries();
     if (globalEntries.length > 0) this.entriesByAgent.set(GLOBAL_TIMER_OWNER, globalEntries);
 
     // 3) 清理无主持久化状态（条目已删；保留 '_' 内部键）
@@ -282,13 +267,13 @@ export class TimersService extends Service {
 
   /**
    * 保存某 Agent 的条目（全量覆盖），并重排该 Agent 的全部条目。
-   * 全局条目（GLOBAL_TIMER_OWNER）归全局配置所有：builtin（row 配置）
-   * 不可写，其余落 config 'timer.tasks'（重启按配置复活）。
+   * 全局条目（GLOBAL_TIMER_OWNER）归全局配置所有：落 config
+   * 'timer.tasks'（重启按配置复活）。
    */
   save(agentId: string, entries: TimerEntry[]): void {
     const stored: TimerStoreEntry = { entries };
     if (agentId === GLOBAL_TIMER_OWNER) {
-      this.ctx.config.set('timer.tasks', entries.filter((e) => e.source !== 'builtin'));
+      this.ctx.config.set('timer.tasks', entries);
     } else {
       this.ctx.agentStore.saveEntry(agentId, 'timer', stored);
     }
@@ -791,7 +776,7 @@ export class TimersService extends Service {
       if (idx >= 0) cached.splice(idx, 1);
       if (cached.length === 0) this.entriesByAgent.delete(owner);
     }
-    if (owner === GLOBAL_TIMER_OWNER) return; // 全局条目归配置所有：仅摘运行时（重启按配置复活）
+    if (owner === GLOBAL_TIMER_OWNER) return; // 全局条目归配置所有：仅摘运行时（save 写口管完整生命周期，重启按配置复活）
 
     const stored = this.ctx.agentStore.readEntry<TimerStoreEntry>(owner, 'timer') ?? { entries: [] };
     stored.entries = stored.entries.filter((e) => e.id !== entry.id);

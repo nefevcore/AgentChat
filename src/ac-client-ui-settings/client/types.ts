@@ -87,6 +87,5 @@ export interface TimerEntry {
   repeatCount?: number;
   hint: string;
   target?: string;
-  source?: string;
   maxSteps?: number;
 }

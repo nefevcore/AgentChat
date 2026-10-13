@@ -2,7 +2,7 @@
 // ac-timer —— 定时任务插件行
 //
 // inject ['agents', 'agentStore', 'conversation', 'config']：
-//   · agents      —— chime target '*' 解析（非 virtual 清单）
+//   · agents      —— 全局条目 target '*' 解析（非 virtual/preset 清单）
 //   · agentStore  —— per-Agent 条目持久化唯一合法通道（entry 'timer'/'timer-archive'）
 //   · conversation—— 触发投递（sender:'event'：串行化门 + MAX_AUTO_WAKES）
 //   · config      —— 全局条目（sys.timer）持久化（key 'timer.tasks'）
@@ -38,4 +38,4 @@ export function apply(ctx: Context, options: TimerRowOptions = {}) {
 
 export { GLOBAL_TIMER_OWNER, TimersService } from './service.ts';
 export type { TimerRowOptions } from './service.ts';
-export type { TimerEntry, GlobalScheduleEntry } from 'ac-timer-core';
+export type { TimerEntry } from 'ac-timer-core';

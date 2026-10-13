@@ -65,15 +65,6 @@ export interface TimerEntry {
    * （fail-open：预检失败不挡正常触发）。
    */
   gate?: string;
-  /** 条目来源标注（诊断） */
-  source?: string;
-}
-
-/** 全局定时条目（chime 兼容形态；target '*' = 全部已注册 agent） */
-export interface GlobalScheduleEntry {
-  time: string;
-  hint?: string;
-  targets?: string[];
 }
 
 // ============================================================

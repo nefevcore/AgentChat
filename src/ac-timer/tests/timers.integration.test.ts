@@ -1,6 +1,7 @@
 // ============================================================
-// ac-timer：5 模式排程 / 一次性归档 / 机制任务直调 / 停机补偿 /
-// workday 门控 / 条目持久化（agent-store）/ 卸载回收
+// ac-timer：5 模式排程（delay/time/random 集成——workday/holiday 门控
+// 词法归 core 纯库测试锁定）/ 一次性归档 / 过期日历归档 / 机制任务直调 /
+// 停机补偿 / 条目持久化（agent-store）/ 卸载回收
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -414,5 +415,41 @@ describe('ac-timer 排程与触发', () => {
     expect(state['a/d1']?.executedCount ?? 0).toBe(0); // 不计数
     expect(state['a/d2']?.executedCount ?? 0).toBe(0);
     expect(ctx.timers.entries('a')).toHaveLength(2); // 条目仍在册：重排下一周期（未触发不归档）
+  });
+
+  it('random 模式：窗口内抽取触发 + 记账固化下一次延迟（totalDelayMs 持久化）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.timers.save('a', [
+      { id: 'rnd1', enabled: true, mode: 'random', delayMin: '20ms', delayMax: '50ms', hint: '随机唤醒' },
+    ]);
+    await until(() => received.length > 0);
+    expect(received[0].content).toBe('随机唤醒');
+    // 记账面（永久条目状态驻留）：executedCount 1 + totalDelayMs 固化
+    // （random 下一窗口恢复依据；限定次完成链已由 once 用例锁定，不重复）
+    await until(() => {
+      const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8'));
+      return state['a/rnd1']?.executedCount === 1 && typeof state['a/rnd1']?.totalDelayMs === 'number';
+    });
+    expect(ctx.timers.entries('a')).toHaveLength(1); // 永久条目仍在册
+  });
+
+  it('过期日历条目（time 已过且限定次）→ arm 自动归档不排程（防僵尸驻留，src 语义）', async () => {
+    const root = tmpRoot();
+    const past = new Date(Date.now() - 3600_000); // 1 小时前的指定时刻
+    const p = (n: number) => String(n).padStart(2, '0');
+    const timeStr = `${past.getFullYear()}-${p(past.getMonth() + 1)}-${p(past.getDate())}T${p(past.getHours())}:${p(past.getMinutes())}`;
+    fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'agents', 'a', 'timer.json'),
+      JSON.stringify({ entries: [{ id: 'gone', enabled: true, mode: 'time', time: timeStr, hint: '过期', repeatCount: 2 }] }),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    await until(() => ctx.timers.entries('a').every((e) => e.id !== 'gone'));
+    const archive = ctx.agentStore.readEntry<Array<{ id: string; status: string }>>('a', 'timer-archive');
+    expect(archive).toMatchObject([{ id: 'gone', status: 'completed' }]);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(received.filter((x) => x.content === '过期')).toHaveLength(0); // 不投递不排程
   });
 });
