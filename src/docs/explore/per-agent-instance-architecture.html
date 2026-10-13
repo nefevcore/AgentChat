@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang='zh-CN'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Per-Agent 实例架构图 · AgentChat（探索稿）</title>
+<style>
+  :root{ --ink:#1f2430; --muted:#5b6472; --line:#d9dee6; --bg:#eef1f6; --card:#fff;
+    --blue:#2563eb; --blue-bg:#eff6ff; --green:#059669; --green-bg:#ecfdf5;
+    --amber:#b45309; --amber-bg:#fffbeb; --purple:#7c3aed; --purple-bg:#f5f3ff;
+    --teal:#0f766e; --teal-bg:#f0fdfa; --red:#dc2626; --red-bg:#fef2f2; --gray:#64748b; }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.6 'Segoe UI','Microsoft YaHei',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+  .wrap{max-width:1120px;margin:0 auto;padding:26px 18px 70px}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:0 0 2px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  section{margin:0 0 30px}
+  .mono,code{font-family:ui-monospace,Consolas,monospace}
+  .board{overflow-x:auto}
+  .canvas{position:relative;width:1060px;margin:6px auto 2px;border:1px solid var(--line);border-radius:14px;
+    background:#fff;background-image:radial-gradient(#dbe1ea 1px,transparent 1px);background-size:22px 22px}
+  svg.edges{position:absolute;left:0;top:0;pointer-events:none}
+  .zone{position:absolute;border:1.5px solid var(--line);border-radius:12px;background:rgba(255,255,255,.72)}
+  .zone .zt{position:absolute;top:-11px;left:14px;background:var(--ink);color:#fff;font-size:12px;padding:1px 10px;border-radius:999px}
+  .zone .zn{position:absolute;top:-10px;right:12px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:10.5px;padding:0 8px;border-radius:999px}
+  .node{position:absolute;border:1px solid var(--line);border-radius:9px;background:#fff;padding:7px 10px;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+  .node b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:650;margin-bottom:2px}
+  .node small{display:block;color:var(--muted);font-size:11px;line-height:1.45}
+  .n-host{border-left:4px solid var(--blue)}  .n-host b{color:var(--blue)}
+  .n-agent{border-left:4px solid var(--green)} .n-agent b{color:var(--green)}
+  .n-user{border-left:4px solid var(--purple)} .n-user b{color:var(--purple)}
+  .n-data{border-left:4px solid var(--teal)}  .n-data b{color:var(--teal)}
+  .n-ext{border-left:4px solid var(--amber)}  .n-ext b{color:var(--amber)}
+  .n-guard{border-left:4px solid var(--red);background:var(--red-bg)} .n-guard b{color:var(--red)}
+  .n-note{border-style:dashed;background:rgba(255,255,255,.85)}
+  .n-hl{border:1.5px solid var(--green);background:var(--green-bg)}
+  .elabel{position:absolute;font-size:10.5px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:0 8px;color:var(--muted);white-space:nowrap;z-index:3}
+  .pill{position:absolute;border:1px solid var(--line);border-radius:999px;background:#fff;padding:4px 10px;font-size:11.5px;line-height:1.35}
+  .pill b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:650}
+  .cap{position:absolute;color:var(--muted);font-size:11.5px;z-index:3}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:var(--muted);margin:2px 0 4px}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .sw{display:inline-block;width:22px;height:0;border-top:2.5px solid;border-radius:2px}
+  footer p{text-align:center;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<svg width='0' height='0' style='position:absolute'><defs>
+  <marker id='mB' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='#2563eb'/></marker>
+  <marker id='mG' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='#059669'/></marker>
+  <marker id='mR' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='#dc2626'/></marker>
+  <marker id='mA' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='#b45309'/></marker>
+  <marker id='mY' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='#94a3b8'/></marker>
+</defs></svg>
+<div class='wrap'>
+<header>
+  <h1>Per-Agent 实例架构图（探索稿）</h1>
+  <p class='sub'>配套 <code>per-agent-instance-architecture.md</code>（2026-10-13）· 未裁决，非现状 · Agent = 自治实例，AgentChat = 邮局 + 监护人 + 可选 UI</p>
+  <div class='legend'>
+    <span><i class='sw' style='border-color:#2563eb'></i>控制 / 请求</span>
+    <span><i class='sw' style='border-color:#059669'></i>信封 / 数据正向</span>
+    <span><i class='sw' style='border-color:#b45309;border-top-style:dashed'></i>直连 / 例外路径</span>
+    <span><i class='sw' style='border-color:#dc2626;border-top-style:dashed'></i>恢复环 / 守护</span>
+    <span><i class='sw' style='border-color:#94a3b8;border-top-style:dotted'></i>弱关联 / 读</span>
+  </div>
+</header>
+<section>
+  <h2>图 1 · 全景拓扑：宿主退化为邮局 + 监护人</h2>
+  <p class='sub'>宿主重启 = 邮局暂时关门，agent 存活；每账本单写者；安全承重件与守护原子物理留在控制面。</p>
+  <div class='board'><div class='canvas' style='height:620px'>
+    <svg class='edges' width='1060' height='620' viewBox='0 0 1060 620'>
+      <path d='M250 125 H344' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M250 188 H310 V135 H344' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M695 120 H798' stroke='#059669' stroke-width='2' fill='none' marker-end='url(#mG)'/>
+      <path d='M800 155 H695' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M257 270 H300 V582 H533' stroke='#b45309' stroke-width='2' stroke-dasharray='7 5' fill='none' marker-end='url(#mA)'/>
+      <path d='M400 523 V557' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M905 524 V557' stroke='#059669' stroke-width='2' fill='none' marker-end='url(#mG)'/>
+      <path d='M858 46 C830 14 660 12 562 46' stroke='#dc2626' stroke-width='2' stroke-dasharray='6 5' fill='none' marker-end='url(#mR)'/>
+      <path d='M678 46 C676 18 764 16 802 46' stroke='#dc2626' stroke-width='2' stroke-dasharray='6 5' fill='none' marker-end='url(#mR)'/>
+    </svg>
+    <div class='zone' style='left:30px;top:88px;width:240px;height:236px'><span class='zt'>USER 侧</span></div>
+    <div class='node n-user' style='left:44px;top:104px;width:212px'><b>webui / 桌面壳</b><small>会话列表 · 群视图（user 账本单投影）· 回放</small></div>
+    <div class='node n-user' style='left:44px;top:172px;width:212px'><b>远程设备</b><small>remote-link · Noise E2E 配对</small></div>
+    <div class='node n-ext' style='left:44px;top:236px;width:212px;height:66px'><b>agent-cli（直连形态）</b><small>宿主缺席可聊 · boot agent 子树 · activation 锁互斥</small></div>
+    <div class='zone' style='left:330px;top:50px;width:380px;height:470px'><span class='zt'>宿主 AgentChat · 控制面</span><span class='zn'>邮局 + 监护人</span></div>
+    <div class='node n-host' style='left:350px;top:96px;width:340px;height:60px'><b>邮局 · 投递路由</b><small>durable 收件箱 · steer / next-turn · 防自激 budget 随信封</small></div>
+    <div class='node n-host' style='left:350px;top:166px;width:340px;height:46px'><b>群拓扑 = multicast 地址表</b><small>逐成员扇出（own / peer 投影通例）</small></div>
+    <div class='node n-host' style='left:350px;top:222px;width:340px;height:46px'><b>Supervisor 监护</b><small>42/78/0 · 退避熔断 · per-activation</small></div>
+    <div class='node n-host' style='left:350px;top:278px;width:340px;height:46px'><b>服务面</b><small>usage 计费单源 · credentials · 定时唤醒 · market</small></div>
+    <div class='node n-guard' style='left:350px;top:346px;width:340px;height:56px'><b>安全承重件（不出控制面）</b><small>门禁链 tool/before-execute · 审批卡 · plugin-gates</small></div>
+    <div class='node n-guard' style='left:350px;top:414px;width:340px;height:56px;border-style:dashed'><b>守护原子（RSI 变更面外）</b><small>① 快照链 last-known-good　② 回退通道 + 数据根独占锁</small></div>
+    <div class='zone' style='left:790px;top:50px;width:250px;height:470px'><span class='zt'>AGENT 实例层</span><span class='zn'>per-agent 子树</span></div>
+    <div class='node n-agent' style='left:805px;top:96px;width:220px;height:98px'><b>agent-a 子树</b><small>L2 loop（ReAct）· L1 模型会话 · 工具面：纯计算本地 / 承重 = stub → RPC 回宿主过门禁</small></div>
+    <div class='node n-agent' style='left:805px;top:206px;width:220px;height:74px'><b>agent-b 子树</b><small>同构 · 可异版本共存（特性）</small></div>
+    <div class='node n-agent' style='left:805px;top:292px;width:220px;height:64px'><b>subagent 树</b><small>子树中的子树 · 账本归属 = OPEN-5</small></div>
+    <div class='node n-note' style='left:805px;top:368px;width:220px;height:132px'><b>activation 单例锁</b><small>同 agent 唯一激活实例（CLI / 宿主互斥）· run 串行仍 per-conversation · 两侧死亡互不传染 = 恢复环安全前提</small></div>
+    <div class='zone' style='left:30px;top:548px;width:1000px;height:64px'><span class='zt'>数据层 · 本体消解</span><span class='zn'>每账本 = 一方视角</span></div>
+    <div class='node n-data' style='left:50px;top:560px;width:470px;height:42px'><b>user 账本 agents/user/sessions/</b><small>宿主唯一写者 · webui 数据源（可见性 = 成员资格）</small></div>
+    <div class='node n-data' style='left:540px;top:560px;width:470px;height:42px'><b>agents/&lt;id&gt;/sessions/&lt;uuid&gt;/</b><small>header · messages.jsonl · journal/ · inbox/（durable 收件箱）</small></div>
+    <span class='elabel' style='left:262px;top:106px'>WS / RPC</span>
+    <span class='elabel' style='left:694px;top:98px'>信封流入 →</span>
+    <span class='elabel' style='left:692px;top:158px'>← 事件流出</span>
+    <span class='elabel' style='left:400px;top:512px'>agent-cli 直连（宿主缺席 · 单例锁互斥）</span>
+    <span class='elabel' style='left:408px;top:522px'>宿主写 user 账本</span>
+    <span class='elabel' style='left:914px;top:522px'>写各自账本</span>
+    <span class='elabel' style='left:620px;top:8px;border-color:#dc2626;color:#dc2626'>agent 拉起宿主（先回退快照）</span>
+    <span class='elabel' style='left:640px;top:28px;border-color:#dc2626;color:#dc2626'>宿主监护拉起 agent</span>
+  </div></div>
+</section>
+<section>
+  <h2>图 2 · 会话：全部形态统一为 agent ~ 端点 + 投影分层</h2>
+  <p class='sub'>uuid 全局共享、不编码拓扑（pairKey 退役）；run 内部归产生方独占，只投递终稿。</p>
+  <div class='board'><div class='canvas' style='height:360px'>
+    <svg class='edges' width='1060' height='360' viewBox='0 0 1060 360'>
+      <ellipse cx='250' cy='170' rx='100' ry='42' fill='#eff6ff' stroke='#2563eb' stroke-width='1.5'/>
+      <path d='M162 146 L137 94' stroke='#94a3b8' stroke-width='1.8' stroke-dasharray='4 4'/>
+      <path d='M336 144 L404 94' stroke='#94a3b8' stroke-width='1.8' stroke-dasharray='4 4'/>
+      <path d='M182 203 L142 266' stroke='#94a3b8' stroke-width='1.8' stroke-dasharray='4 4'/>
+      <path d='M313 202 L400 266' stroke='#94a3b8' stroke-width='1.8' stroke-dasharray='4 4'/>
+      <path d='M780 100 H844' stroke='#059669' stroke-width='2' marker-end='url(#mG)'/>
+      <path d='M850 150 H788' stroke='#059669' stroke-width='2' marker-end='url(#mG)'/>
+    </svg>
+    <div class='cap' style='left:180px;top:150px;width:140px;text-align:center'><b style='color:#2563eb'>agent ~ 端点</b><br>uuid 共享 · 不编码拓扑</div>
+    <div class='node n-user' style='left:60px;top:46px;width:150px;height:44px'><b>user</b><small>虚拟端点 · 有账本</small></div>
+    <div class='node n-agent' style='left:330px;top:46px;width:150px;height:44px'><b>agent（对端）</b><small>双视角互不写</small></div>
+    <div class='node n-host' style='left:60px;top:266px;width:150px;height:44px'><b>group</b><small>multicast 地址表</small></div>
+    <div class='node n-data' style='left:330px;top:266px;width:150px;height:44px'><b>session</b><small>独立会话 sid</small></div>
+    <div class='node n-note' style='left:160px;top:318px;width:250px;height:36px'><b style='color:var(--muted)'>未来端点：device · cron · workflow</b></div>
+    <div class='node n-note' style='left:60px;top:196px;width:390px;height:56px'><b>形态统一</b><small>a~user · a~b · a~group · a~session —— 新拓扑零改键结构；participants 进 header.json</small></div>
+    <div class='node n-agent' style='left:590px;top:56px;width:190px;height:128px'><b>agent a 账本</b></div>
+    <div class='pill' style='left:604px;top:92px;width:162px;height:36px;background:#f0fdfa;border-color:#0f766e'><b style='color:#0f766e'>run 内部</b>：思考+工具+结果（独占）</div>
+    <div class='pill' style='left:604px;top:136px;width:162px;height:32px'><b>终稿</b>：own 原文</div>
+    <div class='node n-data' style='left:850px;top:56px;width:190px;height:128px'><b>agent b / user 账本</b></div>
+    <div class='pill' style='left:864px;top:92px;width:162px;height:36px;background:#fffbeb;border-color:#b45309'><b style='color:#b45309'>peer</b>：终稿 &lt;msg&gt; 包装</div>
+    <div class='pill' style='left:864px;top:136px;width:162px;height:32px;color:var(--muted)'>（b 回复时对称同理）</div>
+    <span class='elabel' style='left:758px;top:118px'>互投终稿（peer 包装）</span>
+    <div class='node n-note' style='left:590px;top:210px;width:450px;height:92px'><b>投影分层（已裁决）</b><small>run 内部归产生方独占 —— per-agent 可回放性与不重复存储 = 同一投影规则两侧；终稿层才是投递物。可见性 = 读侧投影：webui 经宿主只读 agent 账本看工具卡 / 思考，存储布局不动</small></div>
+  </div></div>
+</section>
+<section>
+  <h2>图 3 · 三层注册表：fiber 树 = 注册表套注册表</h2>
+  <p class='sub'>cordis 源码勘察：子 fiber 的 dispose 本身就是父 effect 表的一个条目——「拔单个注册项」原生闭合。</p>
+  <div class='board'><div class='canvas' style='height:430px'>
+    <svg class='edges' width='1060' height='430' viewBox='0 0 1060 430'>
+      <path d='M155 192 V236' stroke='#94a3b8' stroke-width='1.8' stroke-dasharray='4 4' marker-end='url(#mY)'/>
+      <path d='M860 330 V306' stroke='#94a3b8' stroke-width='1.8' marker-end='url(#mY)'/>
+      <path d='M875 244 V222' stroke='#94a3b8' stroke-width='1.8' marker-end='url(#mY)'/>
+      <path d='M602 306 C 650 312 668 330 700 344' stroke='#94a3b8' stroke-width='1.5' stroke-dasharray='4 4'/>
+    </svg>
+    <div class='zone' style='left:30px;top:54px;width:620px;height:340px'><span class='zt'>ctx.registry —— callback → runtime Map</span></div>
+    <div class='zone' style='left:60px;top:102px;width:560px;height:116px'><span class='zt'>runtime.fibers : DisposableList</span></div>
+    <div class='pill' style='left:90px;top:146px;width:130px;height:46px'><b style='color:#059669'>Fiber F1</b>（agent-a 行）</div>
+    <div class='pill' style='left:240px;top:146px;width:130px;height:46px'><b style='color:#059669'>Fiber F2</b>（动态插件）</div>
+    <div class='pill' style='left:390px;top:146px;width:90px;height:46px;color:var(--muted)'>+ n …</div>
+    <div class='zone' style='left:90px;top:240px;width:530px;height:136px'><span class='zt'>F1._disposables : DisposableList —— fiber 本身就是注册表</span></div>
+    <div class='pill' style='left:110px;top:282px;width:110px;height:40px'>ctx.on(listener)</div>
+    <div class='pill' style='left:232px;top:282px;width:140px;height:40px'>tools.register(x)</div>
+    <div class='pill n-hl' style='left:384px;top:282px;width:216px;height:48px'><b style='color:#059669'>子 fiber 的 dispose</b>＝ ctx.plugin() 条目 · O(1) 单拔</div>
+    <div class='node n-note' style='left:690px;top:54px;width:340px;height:74px'><b>插件树 = 注册表物化</b><small>ctx.registry ⊃ runtime.fibers ⊃ fiber._disposables；effect 收养机制（collect）形成 effect 树</small></div>
+    <div class='node n-agent' style='left:750px;top:158px;width:280px;height:58px'><b>L2 代码热换</b><small>import ?t= / hmr 驱逐 · reload + 回滚</small></div>
+    <div class='node n-host' style='left:720px;top:244px;width:310px;height:58px'><b>L1 插件实例</b><small>fiber.dispose → ctx.plugin · 事务原子（失败自动 restore）</small></div>
+    <div class='node n-data' style='left:690px;top:330px;width:340px;height:58px'><b>L0 注册表条目</b><small>disposer() O(1) 单拔 · 不重启 fiber · 零新原语</small></div>
+    <span class='elabel' style='left:640px;top:284px;color:#059669;border-color:#059669'>同物</span>
+  </div></div>
+</section>
+<section>
+  <h2>图 4 · 自进化五步闭环 + 相互恢复环</h2>
+  <p class='sub'>处置语义 = rollback 非 retry → 环收敛；最小工程量 = 红色三件。</p>
+  <div class='board'><div class='canvas' style='height:430px'>
+    <svg class='edges' width='1060' height='430' viewBox='0 0 1060 430'>
+      <path d='M548 102 A150 150 0 0 1 622 147' stroke='#94a3b8' stroke-width='2' fill='none' marker-end='url(#mY)'/>
+      <path d='M639 200 A140 140 0 0 1 604 309' stroke='#94a3b8' stroke-width='2' fill='none' marker-end='url(#mY)'/>
+      <path d='M557 343 A140 140 0 0 1 443 343' stroke='#94a3b8' stroke-width='2' fill='none' marker-end='url(#mY)'/>
+      <path d='M398 301 A150 150 0 0 1 370 199' stroke='#94a3b8' stroke-width='2' fill='none' marker-end='url(#mY)'/>
+      <path d='M364 181 A140 140 0 0 1 443 87' stroke='#94a3b8' stroke-width='2' fill='none' marker-end='url(#mY)'/>
+      <path d='M382 145 C480 36 646 42 700 145' stroke='#059669' stroke-width='2' stroke-dasharray='7 5' fill='none' marker-end='url(#mG)'/>
+    </svg>
+    <div class='cap' style='left:400px;top:192px;width:200px;text-align:center'><b style='font-size:15px'>自进化闭环</b><br><span style='font-size:11px'>宿主重启 = 会话里的一次可观察事件</span></div>
+    <div class='node n-guard' style='left:430px;top:50px;width:140px;height:50px'><b>0 版本指纹</b><small>缺 —— 变化的锚点</small></div>
+    <div class='node n-ext' style='left:560px;top:147px;width:145px;height:50px'><b>1 快照</b><small>部分 · last-known-good</small></div>
+    <div class='node n-agent' style='left:505px;top:303px;width:155px;height:50px'><b>2+3 换装</b><small>已有 · cordis 事务原子</small></div>
+    <div class='node n-guard' style='left:345px;top:303px;width:145px;height:50px'><b>4 观察回执</b><small>缺 · 成功指纹+失败回退</small></div>
+    <div class='node n-guard' style='left:290px;top:147px;width:150px;height:50px'><b>5 验收 / 回滚判定</b><small>缺 · agent 自判 + bench 门</small></div>
+    <span class='elabel' style='left:432px;top:44px;color:#059669;border-color:#059669'>通过 → 拍新快照</span>
+    <div class='node n-note' style='left:720px;top:64px;width:320px;height:74px'><b>相互恢复环（rollback）</b><small>每次回退指向 last-known-good → 有限步收敛；两侧死亡互不传染；同时死 → supervisor 保底</small></div>
+    <div class='node n-guard' style='left:720px;top:154px;width:320px;height:74px'><b>守护原子（变更面外）</b><small>① 快照链（boot 成功+冒烟过才拍 · 三层覆盖）② 回退通道 —— 进化器不能进化逃生门</small></div>
+    <div class='node n-note' style='left:720px;top:244px;width:320px;height:74px'><b>最小工程量 = 红色三件</b><small>版本指纹 · 观察回执 · 验收判定——其余机构（换装/patch/熔断/backupDir）全部已有</small></div>
+  </div></div>
+</section>
+<section>
+  <h2>图 5 · 缺失裁决清单（依赖图 · 编号 = 建议裁决序）</h2>
+  <p class='sub'>三族 + 迁移独立项；箭头指向被阻塞的落地面。</p>
+  <div class='board'><div class='canvas' style='height:604px'>
+    <svg class='edges' width='1060' height='560' viewBox='0 0 1060 560'>
+      <path d='M632 118 C 672 114 690 110 718 108' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M632 302 C 670 292 686 270 718 250' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M632 452 C 670 442 688 414 718 392' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+      <path d='M632 542 C 670 534 688 512 718 494' stroke='#2563eb' stroke-width='2' fill='none' marker-end='url(#mB)'/>
+    </svg>
+    <div class='zone' style='left:30px;top:60px;width:600px;height:130px'><span class='zt'>族一 · 会话与投递核</span></div>
+    <div class='pill n-hl' style='left:46px;top:94px;width:182px;height:44px'><b>OPEN-1 ✓</b> 发送方签发 + 邮局登记校验（已裁决）</div>
+    <div class='pill n-hl' style='left:240px;top:94px;width:182px;height:44px'><b>OPEN-2 ✓</b> 写职责随原语：send/receive 各写自己（已裁决）</div>
+    <div class='pill' style='left:46px;top:146px;width:282px;height:36px'><b>OPEN-2a</b> 双壳并发写 user 账本（webui + CLI 同活）仲裁</div><div class='pill' style='left:340px;top:146px;width:276px;height:36px'><b>OPEN-3</b> 收件确认边界 · redelivery 时机</div>
+    <div class='cap' style='left:46px;top:188px;color:#059669'>已裁决：发送方签发（OPEN-1）· 写职责随原语（OPEN-2）· 残余：OPEN-2a 双壳仲裁 · OPEN-3 确认边界</div>
+    <div class='zone' style='left:30px;top:238px;width:600px;height:158px'><span class='zt'>族二 · 子树边界（CLI 形态）</span></div>
+    <div class='pill' style='left:46px;top:272px;width:282px;height:44px'><b>OPEN-4</b> 子树最小集 · 离线装载走什么门禁</div>
+    <div class='pill' style='left:340px;top:272px;width:276px;height:44px'><b>OPEN-6</b> memory / persona 资产：本地直读 or RPC</div>
+    <div class='pill' style='left:46px;top:326px;width:282px;height:44px'><b>OPEN-9</b> 承重工具代理协议（进度流 / 中断 / 审批回合）</div>
+    <div class='pill' style='left:340px;top:326px;width:276px;height:44px'><b>OPEN-5</b> subagent 账本归属 · 工具面继承跨进程</div>
+    <div class='zone' style='left:30px;top:418px;width:600px;height:100px'><span class='zt'>族三 · 自进化地基</span></div>
+    <div class='pill' style='left:46px;top:452px;width:282px;height:44px'><b>OPEN-7</b> 版本指纹规范形态（三元组？暴露位置？）</div>
+    <div class='pill' style='left:340px;top:452px;width:276px;height:44px'><b>OPEN-8</b> 健康检查点标准 · 快照频率 / 保留</div>
+    <div class='zone' style='left:30px;top:538px;width:600px;height:44px'><span class='zt'>独立</span></div>
+    <div class='pill' style='left:46px;top:546px;width:570px;height:32px'><b>OPEN-10</b> 存量迁移窗口 · 双读 · 恒等门测试范围</div>
+    <div class='node n-host' style='left:720px;top:80px;width:300px;height:56px'><b>阻塞 §2 会话 spike</b><small>落地路径第 1 步</small></div>
+    <div class='node n-agent' style='left:720px;top:224px;width:300px;height:56px'><b>阻塞 CLI 形态（§1.2）</b><small>落地路径第 2 步</small></div>
+    <div class='node n-guard' style='left:720px;top:364px;width:300px;height:56px'><b>阻塞五步闭环（0/4/5 步）</b><small>自进化</small></div>
+    <div class='node n-data' style='left:720px;top:466px;width:300px;height:56px'><b>阻塞存量迁移</b><small>落地第一步的前置</small></div>
+    <div class='cap' style='left:30px;top:32px;color:var(--muted)'>已裁决不复发：群视图无需合并 · 存储近单份 · 亚插件热换零新原语 · 恢复环成立（rollback）· 逃生门 = 两守护原子</div>
+  </div></div>
+</section>
+<footer><p>探索稿 · 2026-10-13 · 配套 per-agent-instance-architecture.md · 未裁决非现状</p></footer>
+</div>
+</body>
+</html>
