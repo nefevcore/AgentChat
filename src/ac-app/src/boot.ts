@@ -84,6 +84,23 @@ if (process.env.AGENTCHAT_SUPERVISED !== '1') {
   }
 }
 
+// ---- 启动期孤儿进程对账清扫（cr-382，postmortem 建议三）----
+// 锁后即扫：上一世宿主死亡时未绑定的 shell 子进程（孤儿 pwsh）在此
+// 回收——指纹 + 双护栏（父已死 & 早于 boot），AGENTCHAT_ORPHAN_REAP=off
+// 关闭。留痕走 boot 日志（pid + 命令行摘要）。
+try {
+  const { reapOrphanProcesses } = await import('./orphans.ts');
+  const r = reapOrphanProcesses(Date.now());
+  if (!r.skipped) {
+    for (const o of r.reaped) {
+      console.warn(`[boot] 清扫上一世孤儿进程 pid=${o.pid}: ${o.cmdline.slice(0, 200)}`);
+    }
+    if (r.reaped.length === 0) console.log('[boot] 孤儿进程对账：无命中');
+  }
+} catch (err: unknown) {
+  console.warn(`[boot] 孤儿进程对账异常（已忽略，不阻断启动）: ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // ---- 版本升级数据迁移（锁后、装载前——顺序敏感，skill-injection-and-
 // storage-vocab §4）：meta.json 版本标记 + 迁移前强制快照 + 按序应用。
 // 失败 = 拒绝启动（绝不带半迁移数据跑——后续行会以新词汇写盘）----

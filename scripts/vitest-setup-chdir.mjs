@@ -54,6 +54,9 @@ if (process.env.AGENTCHAT_SUPERVISED !== undefined) {
   );
   delete process.env.AGENTCHAT_SUPERVISED;
 }
+// 孤儿对账清扫默认关闭（cr-382）：测试进程会真枚举/真杀机器上的进程
+// ——非密封动作，测试环境一律不做；生产 boot 路径不受影响。
+process.env.AGENTCHAT_ORPHAN_REAP = 'off';
 
 // 每 worker 独立数据根：并行 worker 同时 boot 服务器（agents 目录 rename /
 // config 写入）会在共享根上竞态（EPERM/丢行）——按 pool id 分桶隔离；

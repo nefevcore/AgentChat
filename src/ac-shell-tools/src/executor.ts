@@ -17,6 +17,7 @@ import { bashCommandViolation, hostKillViolation, type SandboxResolver } from 'a
 import { effectiveTierOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { buildErrorMessage, isProcessAlive, killProcessTree, looksLikeInvocationError, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
+import { spawnSync } from 'node:child_process';
 import type { ShellSpec } from './shells.ts';
 
 /** 后台任务临时日志前缀（>1 小时清理） */
@@ -55,6 +56,17 @@ const CLOSE_FALLBACK_MS = 2500;
 
 /** 树杀存活确认宽限 ms（永挂窗口补丁）：超时/中止 kill 后轮询确认 */
 const KILL_CONFIRM_MS = 4000;
+
+// ---- 子进程台账（cr-382 孤儿进程复盘建议二，postmortem §3D）----
+// 每条 spawn 记 {pid, startedAt, command, ownerAgentId}，进程退出时销账。
+// 双用途：①process.on('exit') 同步补刀（taskkill /F /T）兜住「宿主死时
+// 子进程仍在跑」的 OS 无绑定缺口；②内存台账即事后审计面（job list 之外
+// 的活子进程清单）。不落盘——跨重启对账由 boot 期指纹清扫（orphans.ts）负责。
+const childLedger = new Map<number, { startedAt: number; command: string; ownerAgentId?: string }>();
+
+// ---- 泄漏清单（cr-382 建议 4）：kill 未确认死亡的进程登记于此，宿主退出 ----
+// 钩子重试补刀（kill 失败 = 可能泄漏；成功则从清单移除）
+const leakedChildren = new Map<number, { startedAt: number; command: string }>();
 
 /** 执行限额（工具行按 call.agentId 合成后传入） */
 export interface ExecLimits {
@@ -171,6 +183,8 @@ export function executeShellCommand(
       if (child.pid == null) {
         return Promise.resolve({ ok: false, error: '后台启动失败：未取得子进程 PID' });
       }
+      trackChild(child.pid, command, call.agentId);
+      child.on('exit', () => untrackChild(child.pid!));
       // owner = 执行身份；conversationId = 发起会话（完成通知回投本会话）；
       // label = 意图优先展示标签，原始命令恒存 meta.command
       const intent = typeof args.description === 'string' ? args.description.trim() : '';
@@ -253,6 +267,8 @@ export function executeShellCommand(
       shell: false,
     });
 
+    if (child.pid != null) trackChild(child.pid, command, call.agentId);
+
     // C1：data 回调在子进程 stdout/stderr 流里执行——任何抛错都是
     // uncaughtException（无外层帧兜底）；进度链失败只丢该片流式
     const onStdout = (data: Buffer) => {
@@ -281,7 +297,8 @@ export function executeShellCommand(
       child.stdin.end();
     }
 
-    /** 收束统一出口（幂等）：清计时器 → resolve */
+    /** 收束统一出口（幂等）：清计时器 → resolve（不销账——handoff 路径
+     * 前台收束时进程仍活，销账点统一在 exit 事件 = 进程本体退出确认） */
     const settle = (result: ToolResult) => {
       if (settled) return;
       settled = true;
@@ -397,6 +414,7 @@ export function executeShellCommand(
         if (Date.now() - killAt >= KILL_CONFIRM_MS) {
           if (killWatchdog) clearInterval(killWatchdog);
           killWatchdog = undefined;
+          noteUnconfirmedKill(pid, command);
           child.stdout?.destroy();
           child.stderr?.destroy();
           finish(child.exitCode);
@@ -536,9 +554,63 @@ export function executeShellCommand(
     };
 
     child.on('close', (code) => finish(code));
-    child.on('exit', (code) => armCloseFallback(code));
+    child.on('exit', (code) => {
+      // 进程本体退出 → 台账销账 + 泄漏条目废弃（settle 不做——handoff
+      // 路径前台收束 ≠ 进程死亡，提前销账会让退出钩子漏杀存活进程）
+      if (child.pid != null) {
+        untrackChild(child.pid);
+        leakedChildren.delete(child.pid);
+      }
+      armCloseFallback(code);
+    });
     child.on('error', (err) => {
       settle({ ok: false, error: err.message, output: { command, cwd: dir } });
     });
   });
 }
+
+// ============================================================
+// 子进程台账与退出钩子（cr-382 孤儿进程复盘建议二/四）
+// ============================================================
+
+function trackChild(pid: number, command: string, ownerAgentId?: string): void {
+  childLedger.set(pid, { startedAt: Date.now(), command, ...(ownerAgentId !== undefined ? { ownerAgentId } : {}) });
+}
+
+function untrackChild(pid: number): void {
+  childLedger.delete(pid);
+}
+
+/**
+ * kill 宽限后仍未确认死亡 → 显式告警 + 泄漏清单登记（cr-382 建议 4，
+ * postmortem §3C「安静留活口」）：旧实现只销毁本端管道并收束 Promise，
+ * 进程继续烧 CPU 且不再产出任何输出。泄漏清单由 exit 钩子兜底补刀。
+ */
+export function noteUnconfirmedKill(pid: number, command: string): void {
+  console.warn(`[shell] kill 未确认死亡 pid=${pid}（已进泄漏清单，宿主退出钩子将补刀）：${command.slice(0, 200)}`);
+  leakedChildren.set(pid, { startedAt: Date.now(), command });
+}
+
+// 宿主退出补刀（postmortem §3A 根因）：Windows 上父进程退出不会连带杀
+// 子进程，唯一的生命周期绑定是本钩子 + 桌面壳 taskkill /T。exit 只允许
+// 同步工作——spawnSync 是唯一可用形态（与 ac-app/src/boot.ts 释放数据
+// 根锁同一姿势）。台账 ∪ 泄漏清单里仍存活的进程一律补刀；泄漏清单的
+// 存在本身说明常规 kill 路径没杀干净，双来源并集兜底。
+process.on('exit', () => {
+  for (const pid of new Set([...childLedger.keys(), ...leakedChildren.keys()])) {
+    if (!isProcessAlive(pid)) continue;
+    const info = childLedger.get(pid);
+    console.warn(`[shell] 宿主退出，补刀子进程 pid=${pid}：${info?.command.slice(0, 120) ?? '(泄漏清单)'}…`);
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true, stdio: 'ignore' });
+    } else {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch { /* 已退出 */ }
+      }
+    }
+  }
+});

@@ -181,19 +181,23 @@ function spawnBackend(port) {
   return backend;
 }
 
-/** 杀后端进程树：先礼后兵（3s 后 taskkill /F /T——shell 工具孙进程不孤儿） */
+/** 杀后端进程树（cr-382 孤儿进程复盘建议 1）：无条件先 taskkill /F /T
+ * （win32）——/T 连孙进程一起回收，不需要「先礼后兵」。旧实现
+ * 「backend.kill() 后 3s 内退出即不再补刀」恰在最常见的优雅退出路径上
+ * 跳过 reap，shell 工具孙进程原地成孤儿（postmortem §3B）。后端已退
+ * （exitCode !== null）时树已无根，直接返回。 */
 function killBackendTree() {
   if (!backend || backend.exitCode !== null) return;
   const pid = backend.pid;
-  backend.kill();
-  setTimeout(() => {
-    if (!backend || backend.exitCode !== null) return;
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true });
-    } else {
-      backend.kill('SIGKILL');
-    }
-  }, 3000).unref();
+  if (process.platform === 'win32') {
+    log(`[desktop] 树杀后端进程树 pid=${pid}（taskkill /F /T——reap 已执行）`);
+    spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true });
+  } else {
+    backend.kill();
+    setTimeout(() => {
+      if (backend && backend.exitCode === null) backend.kill('SIGKILL');
+    }, 3000).unref();
+  }
 }
 
 // ------------------------------------------------------------
@@ -1047,6 +1051,9 @@ export { pickUpdateAsset, readUpdateState, updateStatusJson, cmpVersion, downloa
 export { updatesDir as __testUpdatesDir };
 /** 测试注入口：替代真实安装器拉起（避免测试态真起进程/弹挂载） */
 export function __testSetInstallLauncher(fn) { installLauncherOverride = fn; }
+/** 测试注入口：置 backend 句柄并触发 killBackendTree（cr-382 树杀回归——
+ *  mock 掉 spawn 断言 taskkill /F /T 无条件发出，不再被优雅退出竞态跳过） */
+export function __testKillBackendTree(fakeBackend) { backend = fakeBackend; killBackendTree(); }
 /** 测试注入口：重试退避延时（0 = 用例免等待） */
 export function __testSetRetryDelay(ms) { dlRetryDelayMs = ms; }
 export { transferToPart, partBytes };
