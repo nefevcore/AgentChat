@@ -234,6 +234,19 @@ describe('ac-usage byPair（端点对分类）', () => {
     // 无 agents 名册（本 boot 未装）：对键仍可分类（不依赖名册）
     expect(pairs.find((p) => (p.a === 'x' && p.b === 'y'))?.runs).toBe(1);
   });
+  it('端点 id 含 | 不串桶（\u0000 分隔防撞键——id 词法校验无 | 禁令）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 对 (p, q|x) 与 (p|q, x)：| 作分隔符时同键 p|q|x 串桶——\u0000 分隔不撞
+    await ctx.agentLoop.run({ agent: 'x', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'p~q|x' });
+    await ctx.agentLoop.run({ agent: 'x', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'p|q~x' });
+    const pairs = ctx.usage.byPair();
+    expect(pairs).toHaveLength(2);
+    expect(pairs.find((pr) => pr.a === 'p' && pr.b === 'q|x')?.runs).toBe(1);
+    expect(pairs.find((pr) => pr.a === 'p|q' && pr.b === 'x')?.runs).toBe(1);
+    // byDayPair 同键制（日 × 端点对交叉维同场景不串桶）
+    expect(ctx.usage.byDayPair()).toHaveLength(2);
+  });
 });
 
 describe('ac-usage conversationTimeline（KV 缓存走势数据源，cr-231/232）', () => {

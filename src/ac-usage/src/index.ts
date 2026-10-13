@@ -10,7 +10,7 @@
 //   · 审计流水：<root>/usage/usage-<date>.jsonl（本服务自有目录，
 //     ADR-5；append 失败尽力而为不阻塞事件链）
 //   · 查询面：内存聚合（boot 起）byAgent/byModel/byDay/byDayModel/byDayPair/
-//     conversationTimeline/totals
+//     byPair/byConversation/bySelfSession/conversationTimeline/totals/auditFiles
 //
 // M15 对账落地：持久聚合回读——构造期回读全部 usage-*.jsonl 重建
 // 内存聚合（src /api/usage 的"重启即恢复"语义；单机量级全量回读
@@ -440,7 +440,8 @@ export class UsageService extends Service {
       const pair = this.classifyPair(agent, conversationId);
       if (!pair) continue;
       const [a, b] = pair;
-      const key = `${day}|${a}|${b}`;
+      // \u0000 分隔（对齐 byAgentConvMap 惯例——Agent id 无 | 禁令，| 连接真串桶）
+      const key = `${day}\u0000${a}\u0000${b}`;
       const acc = merged.get(key);
       if (acc) addAggregate(acc, usage);
       else merged.set(key, { date: day, a, b, ...usage });
@@ -530,7 +531,8 @@ export class UsageService extends Service {
       const pair = this.classifyPair(agent, conversationId);
       if (!pair) continue;
       const [a, b] = pair;
-      const key = `${a}|${b}`;
+      // 同上：\u0000 分隔防端点 id 含 | 撞键
+      const key = `${a}\u0000${b}`;
       const acc = merged.get(key);
       if (acc) addAggregate(acc, usage);
       else merged.set(key, { a, b, ...usage });
@@ -599,7 +601,7 @@ export class UsageService extends Service {
 
 declare module '@agentchat/cordis' {
   interface Context {
-    /** 用量统计服务（ac-usage 提供）：after-run 记账 + 持久回读 + byAgent/byModel/byDay/byDayModel/byDayPair/totals 查询 */
+    /** 用量统计服务（ac-usage 提供）：after-run 记账 + 持久回读 + 十一查询面（byAgent/byModel/byDay/byDayModel/byDayPair/byPair/byConversation/bySelfSession/conversationTimeline/totals/auditFiles） */
     usage: UsageService;
   }
 }

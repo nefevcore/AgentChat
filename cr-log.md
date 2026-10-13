@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-384**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-385**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -402,3 +402,4 @@
 - 【cr-382 2026-10-13 孤儿进程闭环修复（cr-381 报告建议 1-4）：desktop 无条件树杀后端；shell 执行体记账 + exit 同步补刀；启动期孤儿指纹对账清扫（AGENTCHAT_ORPHAN_REAP）；killWithConfirm 未确认泄漏告警；pwsh 工具描述劝阻递归管道】
 - 【cr-383 2026-10-13 ac-security #65 深审收口：approvalScopeKey 归位 runAddress 单源（core-utils 注释宣称兑现）+ ac-tools 依赖归位 devDeps（type-only）+ CRLF→LF 统一 + webui port-b security mock 字段漂移订正】
 - 【cr-384 2026-10-13 ac-durable-interaction 深审（#66）：包健康留——死口清理（service.clear 透传/store.clear 全链/store.name 诊断口/file 收私有，全仓零消费）+ ac-security 窄类型死声明 deadline 删 + 三文件平移残注与 event-graphs 订阅者数据订正 + 包内 CRLF 统一 LF】
+- 【cr-385 2026-10-13 ac-usage 深审收口（审计 #67）：ac-agent-loop 依赖归位 devDeps（cr-318 值导入解除后残留，R1）+ byPair/byDayPair 查询合并键 | 换 \u0000（对齐同文件 byAgentConvMap 惯例——Agent id 无 | 禁令，自由段连接真串桶隐患）+ 方法面注释目录补齐（cr-324 同款漂移）】
