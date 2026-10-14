@@ -410,10 +410,10 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | `ac-plugin-core` | manifest 校验/权限授予策略/契约版本兼容/staging 人审文件域/fsx 原子写/审计流水/保留字常量表/熔断存档/cordis.patch.yml 文件域 |
 | `ac-supervisor-core` | 42/78/0 退出码协议 + 退避熔断纯函数 + .runtime 单写者锁 |
 | `ac-skill-core` | SKILL.md frontmatter 解析/发现/`<available_skills>` 渲染/白名单过滤 |
-| `ac-mcp-core` | MCP 客户端（官方 SDK 包装，HTTP/stdio 双传输；describeError 自 ac-error-core re-export） |
+| `ac-mcp-core` | MCP 宔户端（官方 SDK 包装，HTTP/stdio 双传输；describeError 自 ac-error-core 值导入） |
 | `ac-memory-core` | 记忆时间线渲染/解析纯库（条目头铸造/容错解析、快照确定性渲染〔整数条截断 + 溢出注记〕、grep 过滤轴、delta 渲染） |
 | `ac-gate-core` | agentGate 门控：waterfall 停用机械 next()/emit 停用跳过/facet 子键覆盖回落行为级 |
-| `ac-error-core` | describeError（cause 链展开单行诊断）+ isTransientNetworkError（瞬时网络故障判定） |
+| `ac-error-core` | describeError（cause 链展开单行诊断）+ isTransientNetworkError（瞬时网络故障判定）+ LLM HTTP 分类簇（LlmHttpError/parseRetryAfter 等，cr-98） |
 | `ac-extension-core` | ExtensionMeta 契约（可配置行入口自述 `export const extension`） |
 | `ac-client-slots` | 浏览器侧 SlotCore 纯核（M27 S0）：string key 声明账本 + order/single-list/disabled + 装载校验 + 卸载级联；注册面签名按 D2 终态形状占位（cell/priority/store/children）——零 cordis、零框架依赖 |
 

@@ -10,8 +10,10 @@
 //   · isTransientNetworkError 网络层瞬时故障判定（可安全重试的
 //                            建连/握手/DNS 抖动；中止不是故障）
 //
-// 消费方：ac-llm（瞬时错误重试判定 + 重试日志）、ac-agent-loop
-// （run 收束错误描述）、ac-mcp-core（连接失败诊断——原址迁入）。
+// 消费方：ac-llm（瞬时错误重试判定 + HTTP 分类重试、重试日志）、
+// ac-agent-loop（run 收束错误描述）、ac-mcp-core（连接失败诊断——
+// 原址迁入）、四协议库（openai/anthropic/gemini/ollama-completions：
+// LlmHttpError/parseRetryAfter 抛结构化 HTTP 错误，cr-98）。
 // ============================================================
 
 /**

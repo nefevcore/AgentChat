@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "错误描述纯库（零 cordis 依赖）：describeError——展开 err.cause 链为单行诊断文本（Node fetch 失败时真实原因在 cause）；isTransientNetworkError——网络层瞬时故障判定（建连/握手/DNS 抖动，可安全重试；中止不算）",
+  "description": "错误描述纯库（零 cordis 依赖）：describeError——展开 err.cause 链为单行诊断文本（Node fetch 失败时真实原因在 cause）；isTransientNetworkError——网络层瞬时故障判定（建连/握手/DNS 抖动，可安全重试；中止不算）；LLM HTTP 分类簇（cr-98）——LlmHttpError/classifyLlmHttpStatus/parseRetryAfter/isRetryableLlmHttpError/llmRetryWaitMs（协议库抛结构化错误、ac-llm 重试消费）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
