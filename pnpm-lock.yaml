@@ -4343,54 +4343,12 @@ importers:
         specifier: workspace:*
         version: link:../ac-ws-protocol
     devDependencies:
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
-      ac-archive:
-        specifier: workspace:*
-        version: link:../ac-archive
-      ac-config:
-        specifier: workspace:*
-        version: link:../ac-config
-      ac-conversation:
-        specifier: workspace:*
-        version: link:../ac-conversation
-      ac-durable-interaction:
-        specifier: workspace:*
-        version: link:../ac-durable-interaction
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-      ac-group:
-        specifier: workspace:*
-        version: link:../ac-group
-      ac-jobs:
-        specifier: workspace:*
-        version: link:../ac-jobs
-      ac-llm:
-        specifier: workspace:*
-        version: link:../ac-llm
-      ac-plugin-registry:
-        specifier: workspace:*
-        version: link:../ac-plugin-registry
-      ac-restart:
-        specifier: workspace:*
-        version: link:../ac-restart
-      ac-router:
-        specifier: workspace:*
-        version: link:../ac-router
-      ac-subagent:
-        specifier: workspace:*
-        version: link:../ac-subagent
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
       ac-web-server:
         specifier: workspace:*
         version: link:../ac-web-server
-      ac-webui:
-        specifier: workspace:*
-        version: link:../ac-webui
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))

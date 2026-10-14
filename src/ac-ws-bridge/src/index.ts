@@ -16,26 +16,9 @@
 //   · 摘行即静默：桥接面消失，webServer 与事件源互不影响
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
-import { isGroupHint } from 'ac-core-utils';
+import { isArchiveReviewRun, isGroupHint } from 'ac-core-utils'; // 机制 run 标记（cr-318 下沉纯库）/ 群 hint 判定
 import { isBackgroundSender } from 'ac-ws-protocol';
 import { LlmDeltaBatcher, LLM_DELTA_BATCH, createBridgeCatalog } from 'ac-wire-format';
-
-// 桥接面类型增强（type-only；运行时零依赖——只经 ctx.on 订阅）
-import type {} from 'ac-llm';
-import type {} from 'ac-tools';
-import type {} from 'ac-router';
-import type {} from 'ac-conversation';
-import type {} from 'ac-group';
-import type {} from 'ac-config';
-import type {} from 'ac-jobs';
-import type {} from 'ac-durable-interaction';
-import type {} from 'ac-plugin-registry';
-import type {} from 'ac-webui';
-import type {} from 'ac-archive';
-import type {} from 'ac-agents';
-import type {} from 'ac-subagent';
-import type {} from 'ac-restart';
 
 export const name = 'ac-ws-bridge';
 
@@ -86,21 +69,26 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
     }) as never, { description: `WS 桥接：转发 ${ev.name} 为前端帧（后台会话过滤）` });
   }
 
-  // delta 家族：start/end 边界直转（含批器清界），delta 本体进批器（wire 投影在批器内）
-  const deltaEv = catalog.events.find((e) => e.name === 'llm/delta');
+  // delta 家族：start/end 边界直转（含批器清界），delta 本体进批器（投影在批器内）。
+  // 三者各用目录原生 wire——边界帧形 [input, meta]，与 remote-link 下行同源同形
+  // （cr-402：曾统一借 llm/delta 项 3 参 wire，边界帧多出 null 中位、两链路帧形走散）
+  const deltaWireOf = (name: string) => catalog.events.find((e) => e.name === name)?.wire;
+  const startWire = deltaWireOf('llm/delta-start');
+  const bodyWire = deltaWireOf('llm/delta');
+  const endWire = deltaWireOf('llm/delta-end');
   ctx.on('llm/delta-start' as never, ((input: unknown, meta: unknown) => {
-    const wired = deltaEv?.wire?.([input, undefined, meta]);
+    const wired = startWire?.([input, meta]);
     if (wired === undefined) return;
     forward('llm/delta-start', wired);
   }) as never, { description: 'WS 桥接：转发 llm/delta-start 为前端帧' });
   ctx.on('llm/delta' as never, ((input: unknown, chunk: unknown, meta: unknown) => {
-    const wired = deltaEv?.wire?.([input, chunk, meta]);
+    const wired = bodyWire?.([input, chunk, meta]);
     if (wired === undefined) return;
     // 批器吃原始 (input, chunk, meta)——投影在其内部（首帧立即发的语义留在批器）
     deltaBatcher.push(input, chunk, meta);
   }) as never, { description: 'WS 桥接：llm/delta 微批转发' });
   ctx.on('llm/delta-end' as never, ((input: unknown, meta: unknown) => {
-    const wired = deltaEv?.wire?.([input, undefined, meta]);
+    const wired = endWire?.([input, meta]);
     if (wired === undefined) return;
     deltaBatcher.flushNow(); // 批与边界保序：end 前清空在途 delta
     forward('llm/delta-end', wired);

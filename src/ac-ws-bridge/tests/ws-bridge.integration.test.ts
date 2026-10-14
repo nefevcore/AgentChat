@@ -201,11 +201,13 @@ describe('ac-ws-bridge 桥接', () => {
     const batch = (await waitFor('llm/delta-batch')) as { args: [{ deltas: unknown[][] }] };
     const end = (await waitFor('llm/delta-end')) as { args: Record<string, unknown>[] };
     const slim = { model: 'm', meta };
-    expect(start.args[0]).toEqual(slim);
+    // 帧形 2 元素 [input, meta]：各用目录原生 wire，与 remote-link 下行同源同形
+    // （cr-402：曾借 llm/delta 项 3 参 wire 产 [slim, null, meta]，两链路帧形走散）
+    expect(start.args).toEqual([slim, meta]);
     const [batchInput, chunk] = batch.args[0].deltas[0]! as [Record<string, unknown>, unknown];
     expect(batchInput).toEqual(slim); // 批内 input 同样投影瘦身
     expect(chunk).toEqual({ delta: 'hi' });
-    expect(end.args[0]).toEqual(slim);
+    expect(end.args).toEqual([slim, meta]);
     // 大载荷字段绝不进逐 chunk 帧（O(历史 × chunk 数) 放大器）
     for (const frame of [start, end]) {
       expect(frame.args[0]).not.toHaveProperty('messages');
