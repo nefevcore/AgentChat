@@ -1,5 +1,5 @@
 // ============================================================
-// ac-webui：entries 清单 + /ui-plugin/ 静态 + extensions-changed 事件
+// ac-webui：entries 清单 + /ui-plugin/ 静态 + boot graph 服务面
 //（M30 D7：服务端 slot 注册表测试块随 ctx.uiExtensions 退役移除——
 //  现行防线 = 浏览器侧 host.ts install 15s 超时 + bridge
 //  assertDeclarableSlot 账本派生校验，各有测试锁定）
@@ -9,18 +9,16 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@agentchat/cordis';
-import { WebServerService } from 'ac-web-server';
 import { WebUiService } from '../src/service.ts';
 
-const servers: WebServerService[] = [];
 const webuis: WebUiService[] = [];
 
 function makeCtx(): Context {
   return new Context();
 }
 
-afterEach(async () => {
-  for (const svc of servers.splice(0)) await svc.stop();
+afterEach(() => {
+  // 直构服务不 start、无监听资源——仅回收引用（与全族 row 测试收尾形态一致）
   webuis.splice(0);
 });
 
@@ -83,5 +81,44 @@ describe('ac-webui entries', () => {
     expect(replies[1].status).toBe(404);
     await svc.serveUiAsset('p3', '../escape.js', reply);
     expect(replies[2].status).toBe(403);
+  });
+});
+
+describe('ac-webui boot graph（行 client 半边声明面）', () => {
+  it('declareClient → 登记与快照；卸载级联回收 + 变更帧', async () => {
+    const ctx = makeCtx();
+    const svc = new WebUiService(ctx);
+    webuis.push(svc);
+    const changed: string[] = [];
+    const off = ctx.on('webui/boot-graph-changed', (n) => changed.push(n));
+
+    const dispose1 = svc.declareClient({ name: 'ui-a', entry: '/a/client/index.ts', platform: 'web' });
+    expect(svc.listBootGraph().map((d) => d.name)).toEqual(['ui-a']);
+    expect(changed).toEqual(['ui-a']);
+
+    // 同名替换：先回收旧声明（帧先发），再登记新声明（帧后发）
+    const dispose2 = svc.declareClient({ name: 'ui-a', entry: '/a2/client/index.ts', platform: 'web' });
+    expect(svc.listBootGraph()[0].entry).toBe('/a2/client/index.ts');
+    expect(changed).toEqual(['ui-a', 'ui-a', 'ui-a']);
+    // 陈旧 disposer（旧声明已被替换）不得误删新声明
+    dispose1();
+    expect(svc.listBootGraph().map((d) => d.name)).toEqual(['ui-a']);
+    expect(changed).toEqual(['ui-a', 'ui-a', 'ui-a']);
+
+    dispose2();
+    expect(svc.listBootGraph()).toEqual([]);
+    expect(changed).toEqual(['ui-a', 'ui-a', 'ui-a', 'ui-a']);
+    off();
+  });
+
+  it('listBootGraph 排序：base 先于 domain（缺省），同相位按名', async () => {
+    const ctx = makeCtx();
+    const svc = new WebUiService(ctx);
+    webuis.push(svc);
+    svc.declareClient({ name: 'ui-zz', entry: '/z/client/index.ts', platform: 'web' });
+    svc.declareClient({ name: 'ui-b', entry: '/b/client/index.ts', platform: 'web', phase: 'base' });
+    svc.declareClient({ name: 'ui-a', entry: '/a/client/index.ts', platform: 'web' });
+    svc.declareClient({ name: 'ui-c', entry: '/c/client/index.ts', platform: 'web', phase: 'base' });
+    expect(svc.listBootGraph().map((d) => d.name)).toEqual(['ui-b', 'ui-c', 'ui-a', 'ui-zz']);
   });
 });

@@ -5,26 +5,19 @@
 //   · entries 注册表：name → descriptor + 插件目录（同名替换先旧 disposer）
 //   · 清单查询：/api/ui/extensions 直接读 listExtensions()
 //   · 静态资源：/ui-plugin/<name>/* 从 entry 目录提供（安全路径解析）
-//   · 变更通知：webui/extensions-changed(E)——前端宿主据此 sync
-//     （拉清单 → diff → unload/reload，src ui.extensions.changed 同款）
+//   · 变更通知：webui/extensions-changed(E)——由 ac-plugin-registry 的
+//     装载/卸载路径 emit（事件目录住本包）；前端宿主据此 sync（拉清单 →
+//     diff → unload/reload，src ui.extensions.changed 同款）
 // 静态路由经 ctx.webServer.route 注册（注册即归属——本行摘除即下线）。
 // ============================================================
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
+// manifest.ui 声明形状单源住 ac-plugin-core（manifest 校验/装载 owning 域）——
+// 两处独立维护的镜像会走散（本包曾自持副本）
+import type { PluginUiManifest } from 'ac-plugin-core';
 
-/** manifest.ui 的声明形状（插件作者在 manifest.json 里写的） */
-export interface PluginUiManifest {
-  /** UI 产物入口（相对插件目录；缺省 'ui/dist/index.js'） */
-  entry?: string;
-  /** 附加样式表（相对插件目录） */
-  styles?: string[];
-  /** 声明填充的 slot（宿主白名单校验在浏览器宿主 bridge——账本派生，
-   *  M30 D7 服务端注册表退役） */
-  slots?: string[];
-  /** 不信任档：sandbox iframe 隔离运行（src P5.5 原样语义） */
-  isolated?: boolean;
-}
+export type { PluginUiManifest }; // re-export：插件 UI 挂载面词汇，随 webui 服务面走
 
 /** 前端可见的扩展描述子（/api/ui/extensions 清单条目） */
 export interface UiExtensionDescriptor {
@@ -228,7 +221,8 @@ declare module '@agentchat/cordis' {
 
   interface Events {
     /**
-     * UI 扩展清单变更通知（addEntry/removeEntry 后发出）。
+     * UI 扩展清单变更通知（ac-plugin-registry 装载/卸载路径 emit——事件
+     * 目录住本包，emit 方为消费者 registry：addEntry/removeEntry 不 emit）。
      * 前端宿主订阅（经 ws-bridge 转 WS 帧）→ 拉清单 diff →
      * unload/reload（src ui.extensions.changed 同款 sync 语义）。
      * @mode emit

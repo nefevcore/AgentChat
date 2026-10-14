@@ -361,7 +361,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | workspace | `ac-workspace/src/index.ts`（agentWorkdir/sandboxWorkdir 唯一事实源 + pickFolder 原生选择·纯模块 native-dialog.ts） | — |
 | webServer | `ac-web-server/src/contract.ts`（RouteCall/RpcHandler/RpcCaller） | `ac-web-server/src/events.ts`（ws/ack + ws/connection-*） |
 | remoteLink | `ac-remote-link/src/contract.ts`（RemoteDevice/PairingSession/RemoteLinkStatus；Noise 纯库 `ac-noise-core`——XK/KK 握手 + AEAD 帧，M1） | `ac-remote-link/src/events.ts`（remote/device-paired · device-revoked · device-online · device-offline） |
-| webui | `ac-webui/src/service.ts` | 同文件（webui/extensions-changed） |
+| webui | `ac-webui/src/service.ts` | 同文件（webui/extensions-changed + webui/boot-graph-changed——前者 emit 方为 ac-plugin-registry 装载/卸载路径） |
 | （退役）uiExtensions | ~~`ac-webui-extensions/src/service.ts`~~ M30 D7 退役：生产链路零消费（第三方 UI 走 manifest.ui → webui.addEntry → 浏览器 SlotRegistry）；词汇表 slotCatalog 留包转纯库 | — |
 | pluginRegistry | `ac-plugin-registry/src/service.ts` | 同文件（plugin/before-load(W) + plugin/updated(E)——cr-20 三事件并源：installed·reloaded·catalog-changed → updated 单流） |
 | eventPolicy | `ac-event-policy/src/service.ts`（停用键/清扫/行聚合） | —（治理 seam = internal/listener bail，非公开事件） |

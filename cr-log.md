@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-402**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-403**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -420,3 +420,4 @@
 - 【cr-400 2026-10-14 per-agent 档案 R-8 裁决：健康检查点判定分层（结构冒烟基 / 代码冒烟+观察期 / agent 包 run 收束）+ 事件触发 + GFS 分代保留；与 ac-backup 分轴（共享工程件、语义独立）；五步闭环前置全闭合】
 - 【cr-401 2026-10-14 per-agent 档案 MCP 归属裁决（族二 R-12）：MCP client = 子树内工具行、服务器清单 = 授权资产数据根直读、stdio 服务器进程 = 拉起方所有；待裁决清单该项收口】
 - 【cr-402 2026-10-14 审计清单 #78 ac-ws-bridge 深审收口：delta 家族统一走目录各自 wire（帧形状 3→2 元素与 remote-link 同源同形，删借道层）+ 14 条空 import type 占位死导入与配套 devDeps 清理 + 双条 import 合并】
+- 【cr-403 2026-10-14 ac-webui 深审收口：删 M3.4 通用桥后零调用的 ui/boot-graph 死 RPC；PluginUiManifest 并源 ac-plugin-core；测试死导入清理（ac-web-server devDeps 解除）；boot graph 服务面补测试（同名替换/陈旧 disposer 守卫/排序口径）；注释与描述漂移订正】

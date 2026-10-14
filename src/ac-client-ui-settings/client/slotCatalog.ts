@@ -39,7 +39,9 @@ export function publicLegacySlots(): UISlotId[] {
  *   ④ 高危 seat：诊断信息明示（manifest 显式声明是门槛本身）。
  * 违反即抛可诊断错误（install 外层捕获回滚）。
  */
-export function assertDeclarableSlot(descriptor: { name: string; slots?: UISlotId[] }, slot: UISlotId): void {
+export function assertDeclarableSlot(descriptor: { name: string; slots?: string[] }, slot: UISlotId): void {
+  // slots 形状 = 服务端透传 manifest.ui.slots（string[]——M30 D7 后非仅旧 8 集合，
+  // 未知 id 由下方 LEGACY_SLOT_CATALOG 查键 fail-closed 兜住）
   const declared = (descriptor.slots ?? []).includes(slot);
   if (!declared) {
     throw new Error(

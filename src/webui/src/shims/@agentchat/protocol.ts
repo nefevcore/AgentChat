@@ -395,10 +395,14 @@ export interface UIExtensionDescriptor {
   version: string;
   entry: string;
   styles: string[];
-  slots: UISlotId[];
+  /** 声明填充的 slot id（服务端透传 manifest.ui.slots——string[]，
+   *  注册前经 bridge assertDeclarableSlot 归一校验，非仅旧 8 永久集） */
+  slots: string[];
   isolated: boolean;
   status: 'installed' | 'session';
-  grantedPermissions: PluginPermission[];
+  /** 授予的权限快照（cr-403 对齐服务端 UiExtensionDescriptor 实发字段名——
+   *  原 grantedPermissions 系镜像漂移，前端零读侧，改名无行为影响） */
+  permissions: PluginPermission[];
 }
 
 export interface UISlotInfo {

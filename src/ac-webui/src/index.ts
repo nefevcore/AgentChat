@@ -1,12 +1,15 @@
 // ============================================================
 // ac-webui —— Web UI 表面行（ctx.webui）
 //
-// inject ['webServer']：注册两条 HTTP 路由（注册即归属——本行摘除
+// inject ['webServer']：注册三条 HTTP 路由（注册即归属——本行摘除
 // 即下线，webui 服务面与传输面解耦）：
 //   GET /api/ui/extensions   扩展清单（前端宿主拉取）
+//   GET /api/ui/boot-graph   行 client 半边装载图
 //   GET /ui-plugin/:name/*   插件 UI 产物静态服务（安全路径）
 //
-// 契约出口固定形态：webui/extensions-changed(E) 随本包走。
+// 契约出口固定形态：webui/extensions-changed(E) / webui/boot-graph-changed(E)
+// 随本包走（前者由 ac-plugin-registry 装载/卸载路径 emit）。远程 WebView
+// 经 ac-remote-link 的通用 HTTP 转发桥（M3.4）到达全部 /api/* 端点。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { WebUiService } from './service.ts';
@@ -18,7 +21,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'webui',
   label: 'WebUI 表面',
-  description: 'Web UI 表面行（ctx.webui）：静态托管接线与前端会话接线',
+  description: 'Web UI 表面行（ctx.webui）：扩展清单 + boot graph 下发 + 插件 UI 静态托管',
   automatic: true,
 };
 
@@ -40,11 +43,6 @@ export function apply(ctx: Context) {
     call.res.end(JSON.stringify({ clients: webui.listBootGraph() }));
   });
 
-  // 同一数据的 RPC 面（M3.2）：远程客户端（安卓 App 的 WebView）只见 loopback，
-  // 拿不到核心端 HTTP——经加密 RPC 通道取行清单（ac-remote-link scopes read 档放行）。
-  // 注册即归属：行摘除 → RPC 随之消失。
-  ctx.webServer.registerRpc('ui/boot-graph', () => ({ clients: webui.listBootGraph() }));
-
   ctx.webServer.route('GET', '/ui-plugin/:name/*', async (call) => {
     await webui.serveUiAsset(call.params.name, call.params['*'], (status, body, type) => {
       call.res.writeHead(status, { 'content-type': type });
@@ -54,4 +52,5 @@ export function apply(ctx: Context) {
 }
 
 export { WebUiService } from './service.ts';
-export type { PluginUiManifest, UiExtensionDescriptor, RowClientDescriptor } from './service.ts';
+export type { UiExtensionDescriptor, RowClientDescriptor } from './service.ts';
+// PluginUiManifest 单源住 ac-plugin-core（manifest owning 域），本包经 service.ts re-export

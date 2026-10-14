@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Web UI 表面行（ctx.webui）：插件 UI 扩展资源清单 + /ui-plugin/ 静态路由 + webui/extensions-changed(E)",
+  "description": "Web UI 表面行（ctx.webui）：插件 UI 扩展资源清单 + boot graph 下发 + /ui-plugin/ 静态路由 + webui/extensions-changed·boot-graph-changed(E)",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -16,7 +16,7 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-web-server": "workspace:*",
+    "ac-plugin-core": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {
