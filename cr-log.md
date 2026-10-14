@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-397**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-400**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -415,3 +415,6 @@
 - 【cr-395 2026-10-14 per-agent 档案 R-5 修订：subagent 单形态——注册表实体 + 域内嵌套物化 agents/<parentId>/children/，spawn 定性 ⊆ 授权投影；原双形态裁决附理由推翻（推理链存档）】
 - 【cr-396 2026-10-14 ac-plugin-market 深审收口：依赖正位（ac-web-server/ac-plugin-registry 移 devDependencies——src 零 import 纯服务面消费，ac-web-api/ws-bridge 同款 R1/R4 判定）+ index.ts CRLF→LF 统一】
 - 【cr-397 2026-10-14 审计清单 #76 ac-agent-admin 深审收口：删/拆双否（Agent 管理面写侧 owning——CRUD/文档写口/装配视图/system-prompt 干跑三域内聚共享 sanitize/changedKeysOf，9 RPC 全活跃前端消费），精简+正位——ac-agent-loop 归位 devDependencies（src type-only/tests 零消费）、index 空导入锚点×2 与包尾 re-export 死件清理、头注释 host 源对照叙事订正、yml m7-webui-plan 引用修正、assertNotPreset 防线补锁定】
+- 【cr-398 2026-10-14 per-agent 档案 R-7 裁决：版本指纹——主体 = boot 单元（宿主 / activation 两类）、形态 = Merkle 内容树为体 git 为饰、回滚目标规则（可回滚指纹 = 快照链上有快照的根）+ 内容物化纪律；新增族三，五步闭环待项收敛 R-8】
+- 【cr-399 2026-10-14 ac-web-server 审计清单 #77 深审收口：删/拆双否（传输域 owning，七生态行 inject + TREE/yml 双表 + 8 测试 harness 全活跃）+ ac-webui 依赖正位（src 零 import 纯 inject，deps→devDeps，cr-396 七行先例漏网者）+ boundPort/listenError 死词清理 + multipart 解析器包内契约锁定补测】
+- 【cr-400 2026-10-14 per-agent 档案 R-8 裁决：健康检查点判定分层（结构冒烟基 / 代码冒烟+观察期 / agent 包 run 收束）+ 事件触发 + GFS 分代保留；与 ac-backup 分轴（共享工程件、语义独立）；五步闭环前置全闭合】

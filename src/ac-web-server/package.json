@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Web 传输服务行（ctx.webServer）：HTTP 路由注册中心（注册即归属）+ WS 广播/心跳 + requestId 幂等去重 + ack + RPC 显式注册",
+  "description": "Web 传输服务行（ctx.webServer）：HTTP 路由注册中心（注册即归属）+ WS 广播/心跳 + requestId 幂等去重 + ack + RPC 显式注册 + 静态托管（br/gzip 协商 + SPA fallback）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

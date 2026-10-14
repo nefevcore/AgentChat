@@ -159,8 +159,6 @@ export class WebServerService extends Service {
   private connSeq = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private readonly listening: Promise<number>;
-  /** 监听失败原因（降级标志：传输面未就绪但服务 API 可用） */
-  listenError?: Error;
   private stopped = false;
 
   constructor(ctx: Context, options: WebServerRowOptions = {}) {
@@ -196,13 +194,11 @@ export class WebServerService extends Service {
     // 无 listener 的 'error' 会直接 throw（uncaught）。常驻 sink 接住：
     // 监听失败（EADDRINUSE 等）在这里降级为日志，不炸进程
     this.wss.on('error', (err) => {
-      if (!this.listenError) this.listenError = err;
       this.ctx.logger.warn(`[webServer] 传输层错误（降级继续）: ${err.message}`);
     });
 
     this.listening = new Promise<number>((resolve) => {
       const onListenError = (err: Error) => {
-        this.listenError = err;
         this.ctx.logger.warn(
           `[webServer] 监听失败（${err.message}）——传输面降级：路由/RPC 注册继续可用，但无外部访问口`,
         );
@@ -235,14 +231,9 @@ export class WebServerService extends Service {
     );
   }
 
-  /** 实际监听端口（port 0 时测试需要）；监听失败时返回配置端口（listenError 置位） */
+  /** 实际监听端口（port 0 时测试需要）；监听失败时返回配置端口 */
   async ready(): Promise<number> {
     return this.listening;
-  }
-
-  get boundPort(): number | undefined {
-    const addr = this.server.address();
-    return typeof addr === 'object' && addr ? addr.port : undefined;
   }
 
   // ============================================================
