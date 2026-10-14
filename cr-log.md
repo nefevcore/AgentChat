@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-391**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-393**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -409,3 +409,5 @@
 - 【cr-389 2026-10-14 ac-workspace 深审收口（审计清单#71）——admin 配置手工镜像吞字段修复（spread 全字段跟随，曾漏 tags/llmParams）+ browser_daemon 退役遗留清理（mkdir 死初始化/fileURLToPath 死导入/files 死字段/叙事注释与步骤编号）+ ac-agent-loop 依赖归位 devDeps（cr-318 值导入归零后漏清）】
 - 【cr-390 2026-10-14 ac-tag-registry 深审收口（#72）：事件增量缓存与 defs 现算双源并源修 tools[].owner 装载序走散 + TagCategory 死词清理（base/owner/unknown，前端镜像同步）+ 启动断言 bootTree 接线（兑现 tag-system-report 红线承诺）+ 注释漂移订正】
 - 【cr-391 2026-10-14 cell-runtime 探索档案增补：per-agent 前向引用 + 四处前提演进尾注 + 开放张力小节】
+- 【cr-392 2026-10-14 ac-event-policy 深审（audit #73）：web-api events/policy-list live 字段假计算修真（disabledKeys 自证恒真 → chainEntriesOf×聚合行名交叉：待重载=live、已生效/stale=否）+ 集成测试补锁定 + aggregate.ts/index.ts 消费方注释漂移订正（M25 §3.5 计划的 plugin/rows·熔断·反依赖图三面落地未消费本模块）】
+- 【cr-393 2026-10-14 per-agent 架构探索档案 D3 激进化修订：需授权能力并入子树（信任轴翻转），R-4/R-9/R-11 连锁标注与 D9/D10/待裁决清单同步更新】

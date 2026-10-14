@@ -2391,13 +2391,21 @@ export function apply(ctx: Context) {
       | undefined;
     if (!policy) throw new Error('eventPolicy 服务未装载（事件治理面不可用）');
     const keys = [...policy.disabledKeys()].sort();
+    // 交叉呈现：键 × 当前执行链——哪些键当前确有**在链可停条目**（cr-392：
+    // 旧实现回查 isDisabled 即自证恒真——停用集的键查停用集必命中）。
+    // live = 键的 (owner, event) 在当前 _hooks 执行链上确有条目（已被
+    // 吞/清扫 = 不在链，等待重载后依然生效）；stale = 良性 no-op：
+    // 注册不存在了。owner 匹配与 sweep 同口径（fiber 名 ?? 聚合行名，
+    // isDisabled 双命中只判停用与否——条目在链与否在此交叉）。
+    const chains = chainEntriesOf(ctx);
+    const rowOf = computeRowAggregates(ctx);
     return {
       disabled: keys,
-      // 交叉呈现：键 × 当前执行链（哪些键当前确有可停条目——治理键
-      // stale = 良性 no-op：注册不存在了）
       live: keys.filter((k) => {
         const [owner, event] = k.split('::');
-        return policy.isDisabled(owner, event);
+        return (chains[event] ?? []).some(
+          (l) => l.owner === owner || rowOf.get(l.owner) === owner,
+        );
       }),
     };
   });

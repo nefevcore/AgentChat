@@ -3,8 +3,10 @@
 //
 // 沿 fiber 祖先链定位挂载行；匿名 fiber 继承父名的假边在聚合时归并
 // （fiber.name 自带"最近具名祖先"语义——聚合只需把行内多层 fiber 归到
-// 顶层行名）。消费方：events/listeners owner 裸名 → 行名、plugin/rows
-// 动态同名判据精确化、yml 行熔断归属、反依赖图行清单。
+// 顶层行名）。消费方（cr-392 订正——M25 §3.5 计划的 plugin/rows·熔断·
+// 反依赖图三面落地时改走 fiber.entry/inject 直判，未消费本模块）：
+// events/listeners owner 裸名 → 行名、治理双命中（isDisabled 聚合别名）、
+// events/policy-list live 交叉（chainEntriesOf owner × 聚合行名）。
 //
 // **聚合只改呈现，不改任何键**（§3.4 双命中：治理键 = owner 原文，
 // 策略行匹配对 fiber 名与聚合行名双命中——按行名书写的新键不失配）。
