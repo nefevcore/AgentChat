@@ -99,7 +99,7 @@ export function parseTimeline(text: string): MemoryEntry[] {
     }
     if (!line.trim()) {
       // 空行：条目间分隔（丢）或正文内空行（保留在条目内）
-      if (current) current.content += (current.content ? "\n" : "") + "";
+      if (current) current.content += current.content ? "\n" : "";
       continue;
     }
     // 无头区（fs 裸写/人工编辑）：带 [date] 前缀的行 = 独立 log 条（前缀即边界，
@@ -135,12 +135,12 @@ export function parseTimeline(text: string): MemoryEntry[] {
  * 正文行首前缀 `[date] `——日期段由宿主铸造；tags 段由 Agent 直接写进正文
  * （`[date] [tag|tag] 正文`——前缀即标签通道，parse 侧提取为轴）。
  */
-export function entryPrefix(at: string): string {
+function entryPrefix(at: string): string {
   return `[${at.slice(0, 10)}] `;
 }
 
 /** 剥离正文自带的日期前缀段（防重复；标签段是 Agent 的内容通道，保留） */
-export function stripEntryPrefix(content: string): string {
+function stripEntryPrefix(content: string): string {
   return content.replace(/^\[\d{4}-\d{2}-\d{2}\]\s?/, "");
 }
 
@@ -183,7 +183,7 @@ const DEFAULT_MAX_ENTRIES = 200;
  */
 function renderEntry(e: MemoryEntry): string {
   if (e.at === undefined) return e.content;
-  const body = e.content.replace(/^\[\d{4}-\d{2}-\d{2}\]\s?/, ""); // 只剥日期段
+  const body = stripEntryPrefix(e.content); // 只剥日期段
   if (body.startsWith("[")) return `${entryPrefix(e.at)}${body}`; // 正文自带标签段
   const tags = e.tags && e.tags.length > 0 ? `[${e.tags.join("|")}] ` : "";
   return `${entryPrefix(e.at)}${tags}${body}`;

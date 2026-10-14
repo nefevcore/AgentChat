@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-430**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-431**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -448,3 +448,4 @@
 - 【cr-428 2026-10-14 ac-supervisor-core 深审收口（审计 #94）：包健康留——纯库 191 行三职责（42/78/0 协议/退避熔断纯函数/.runtime 单写者锁）分层正确、消费面全活跃（supervisor.mjs 6 词 + boot/bootstrap 各 3 词）、11 测绿零死导出；修消费方真 bug——supervisor.mjs startChild 全量重置 policyState 致退避恒 1.5s、熔断永不可达（crashStreak/crashes 每次 spawn 清零，崩溃死循环无限重拉），改为仅更新 childStartedAt 延续监护状态；sandbox 探针真机验证退避数列与熔断】
 - 【cr-429 2026-10-14 ac-skill-core 审计：修 parseSkillFrontmatter 多行 description 末键形态解析坏（description 渲染成字面 |）——lookahead 加绝对串尾终止；补末键用例 + 头注多来源分组漏工作区组订正】
 - 【cr-430 2026-10-14 ac-mcp-core 深审收口（审计 #96）：connect 并发单飞断根（重入共享同一建连，防双连泄漏——cr-361 行侧单飞同根下移）+ 回归锁测试 + package.json CRLF→LF】
+- 【cr-431 2026-10-14 ac-memory-core 深审收口（审计清单#97，记忆渲染纯库）——删/拆双否（301 行四域词汇内聚，分层纪律 cr-4 档案背书）；精简三处：①entryPrefix/stripEntryPrefix 死导出收私有（全仓求证包外零消费——唯一 importer ac-memory 七词不含，cr-358 联动审阅漏网）；②renderEntry 内联日期剥离正则与 stripEntryPrefix 逐字节同构，并源消灭副本；③parse 空行累积死串清理；行为零变化】
