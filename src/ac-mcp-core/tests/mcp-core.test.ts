@@ -132,6 +132,44 @@ describe('SdkConnection（注入假 loader）', () => {
     }
   });
 
+  it('并发 connect 单飞：双调用共享同一建连（单 Client 实例）', async () => {
+    const { state, sdk } = fakeSdk();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const conn = new SdkConnection({ name: 'srv', url: 'https://mcp.example/mcp' }, {
+      loadSdk: async () => { await gate; return sdk; }, // 建连窗口拉开——两路 connect 同窗在飞
+    });
+    const p1 = conn.connect();
+    const p2 = conn.connect();
+    release();
+    await Promise.all([p1, p2]);
+    expect(state.connects).toHaveLength(1); // 重入不二次建连（双连 = 先建者泄漏）
+    expect(conn.connected).toBe(true);
+    conn.close();
+  });
+
+  it('建连失败回收半建连状态（close 置未连接——下次重试建新连）', async () => {
+    const sdkOf = (fail: boolean): McpSdk => ({
+      Client: class {
+        constructor(_o: unknown) {}
+        async connect() {
+          if (fail) throw new Error('ECONNREFUSED');
+        }
+        async close() {}
+      } as unknown as McpSdk['Client'],
+      StreamableHTTPClientTransport: class {},
+      StdioClientTransport: class {},
+    });
+    let fail = true;
+    const conn = new SdkConnection({ name: 's', url: 'https://x' }, { loadSdk: async () => sdkOf(fail) });
+    await expect(conn.connect()).rejects.toThrow(/连接失败/);
+    expect(conn.connected).toBe(false);
+    fail = false; // 下一轮重试成功——失败残留已被回收，不叠泄漏
+    await conn.connect();
+    expect(conn.connected).toBe(true);
+    conn.close();
+  });
+
   it('连接失败：错误信息带服务器名 + cause 展开并置未连接', async () => {
     const failing: McpSdk = {
       Client: class {
@@ -141,6 +179,7 @@ describe('SdkConnection（注入假 loader）', () => {
           (err as unknown as { cause: unknown }).cause = new Error('connect ECONNREFUSED');
           throw err;
         }
+        async close() {} // SdkClientLike 要求——失败回收路径会调 close
       } as unknown as McpSdk['Client'],
       StreamableHTTPClientTransport: class {},
       StdioClientTransport: class {},

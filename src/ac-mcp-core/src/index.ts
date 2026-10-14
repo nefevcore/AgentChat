@@ -150,7 +150,7 @@ export interface SdkConnectionOptions {
   loadUndici?: LoadUndici;
 }
 
-/** 官方 SDK 连接实现（懒建连：connect 后缓存；close 幂等） */
+/** 官方 SDK 连接实现（懒建连：connect 后缓存、并发在飞单飞；失败回收半建连状态；close 幂等） */
 export class SdkConnection implements McpConnection {
   readonly serverName: string;
 
@@ -161,6 +161,8 @@ export class SdkConnection implements McpConnection {
   private transport: unknown = null;
   private insecureAgent: { close(): void } | null = null;
   private _connected = false;
+  /** 在飞建连（并发 connect 单飞：重入共享同一建连——双建连 = 先建者泄漏） */
+  private connecting: Promise<void> | null = null;
 
   constructor(config: McpServerConfig, options: SdkConnectionOptions = {}) {
     this.serverName = config.name;
@@ -175,14 +177,30 @@ export class SdkConnection implements McpConnection {
 
   async connect(): Promise<void> {
     if (this._connected) return;
-    const { Client } = await this.loadSdk();
-    this.client = new Client({ name: 'AgentChat', version: '1.0.0' });
+    if (!this.connecting) {
+      this.connecting = this.doConnect().finally(() => {
+        this.connecting = null;
+      });
+    }
+    await this.connecting; // 在飞重入共享同一建连（单飞），不二次建连
+  }
 
-    const url = this.config.url || (isHttpTransport(this.config) ? this.config.command : undefined);
-    if (url) await this.connectHttp(url);
-    else await this.connectStdio();
+  /** 建连主体：失败回收半建连状态（close 置未连接——否则泄漏半初始化连接，
+   *  且下次重试再建新连时旧连接无人关），下一轮 connect 重试 */
+  private async doConnect(): Promise<void> {
+    try {
+      const { Client } = await this.loadSdk();
+      this.client = new Client({ name: 'AgentChat', version: '1.0.0' });
 
-    this._connected = true;
+      const url = this.config.url || (isHttpTransport(this.config) ? this.config.command : undefined);
+      if (url) await this.connectHttp(url);
+      else await this.connectStdio();
+
+      this._connected = true;
+    } catch (err: unknown) {
+      this.close();
+      throw err;
+    }
   }
 
   private async connectHttp(baseUrl: string): Promise<void> {
