@@ -5,7 +5,7 @@
 // 服务本体（ctx.agentAdmin）+ 写侧 RPC 注册（注册即归属——摘本行 =
 // 管理面下线，各域服务与 ac-web-api 读面不受影响）。
 //
-// 方法面（src agent.config / api/agents 对照，preview 命名）：
+// 方法面（src 时代 agent.config 的 owning 化收编，preview 命名）：
 //   agents/get-config      读档（store 优先，回退注册表）
 //   agents/create          创建（白名单 + model 引用归一 + 落盘 + reassign）
 //   agents/update-config   局部补丁（deepMerge + computeDiff 变更报告）
@@ -17,10 +17,6 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { AgentAdminService } from './service.ts';
-
-// 类型层认识（运行时按服务 key 解耦；type-only 零依赖）
-import type {} from 'ac-agent-loop';
-import type {} from 'ac-tools'; // ctx.tools 服务类型增强
 
 export const name = 'ac-agent-admin';
 
@@ -123,5 +119,3 @@ export function apply(ctx: Context) {
   });
 }
 
-export { AgentAdminService } from './service.ts';
-export type { AdminUpdateResult } from './service.ts';

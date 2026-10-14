@@ -151,6 +151,35 @@ describe('ac-agent-admin CRUD', () => {
     expect(bad.error).toContain('apiKey');
   });
 
+  it('预设 Agent 写口拦截：5 写口 fail-closed（预设落盘 = 复制成实体 Agent，重启后与物化注册撞名——boot 崩溃级污染）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 预设形态 = 注册表 preset:true 且无盘上档案（ac-agent-presets 运行时物化）
+    h.agents.register({ id: '__standard__', model: 'pm', preset: true });
+
+    // update-config / delete / save-doc / assembly/update 四写口拦截
+    const upd = await rpc(ws, 'agents/update-config', 'r1', { agentId: '__standard__', patch: { description: 'x' } });
+    expect(upd.ok).toBe(false);
+    expect(upd.error).toContain('预设 Agent');
+    const del = await rpc(ws, 'agents/delete', 'r2', { agentId: '__standard__' });
+    expect(del.ok).toBe(false);
+    const doc = await rpc(ws, 'agents/save-doc', 'r3', { agentId: '__standard__', name: 'AGENT.md', content: '# x' });
+    expect(doc.ok).toBe(false);
+    const asm = await rpc(ws, 'agents/assembly/update', 'r4', { agentId: '__standard__', patch: { tools: { include: ['t1'] } } });
+    expect(asm.ok).toBe(false);
+
+    // create 撞已存在预设 id：不落盘（注册表留原 preset 条目，无实体目录）
+    const create = await rpc(ws, 'agents/create', 'r5', { config: { id: '__standard__', model: 'm2' } });
+    expect(create.ok).toBe(false);
+    expect(create.error).toContain('预设 Agent');
+    expect(h.agents.get('__standard__')?.model).toBe('pm'); // 注册表未被覆盖
+    expect(fs.existsSync(join(h.root, 'agents', '__standard__'))).toBe(false); // 零落盘
+
+    // read-doc / get-config / assembly / system-prompt 读面不受拦截（预览预设合法）
+    const read = await rpc(ws, 'agents/read-doc', 'r6', { agentId: '__standard__', name: 'AGENT.md' });
+    expect(read.ok).toBe(true);
+  });
+
   it('update-config：局部补丁 deepMerge + 变更键报告；未变更不重写', async () => {
     const h = await boot();
     const ws = await connect(h.port);

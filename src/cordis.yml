@@ -307,7 +307,7 @@
   name: 'ac-job-wakeup'
 # ---- M7 WebUI 接线（ac-web-api：WS RPC 业务方法注册薄编排行；
 # ac-agent-admin：Agent 管理面写侧 + 自有 RPC；前端本体 =
-# 预构建 dist 进 ac-webui 静态目录，见 docs/m7-webui-plan.md） ----
+# ac-client-ui-agents 等前端行，M22 P2 起直连 RPC） ----
 - id: web-api
   name: 'ac-web-api'
 # ---- M1 远程链路（remote-client-relay-plan §4.4：出站 relay + Noise E2E +

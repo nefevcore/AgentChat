@@ -1,8 +1,8 @@
 // ============================================================
 // ac-agent-admin/src/service.ts —— Agent 管理面服务（ctx.agentAdmin）
 //
-// src AgentService（host/server/agent-service.ts）的 preview 首期
-// （M7 §二D，src agent-service.ts ~350 行的 owning 化收编）：
+// src 时代 AgentService 的 owning 化收编（M7 §二D 首期，
+// host/server/agent-service.ts ~350 行随 src 退役，本包为唯一延续）：
 //
 //   · CRUD 写路径：sanitize（白名单 + model 引用归一）→ deepMerge 局部
 //     补丁 → agentStore.saveAgent（唯一写口，ADR-5）→ agents.reassign
@@ -25,7 +25,7 @@
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
 import { capabilitySetOf, toolAllowedFor, assertAgentId, effectiveToolMode, narrowToolsByMode, resolveToolNames, type AgentConfig } from 'ac-agents';
-import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 池回落词汇——cr-319 归位 owning 包
+import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 池回落 + 模型引用拆分词汇——cr-319 归位 owning 包（refs/pool 两源）
 import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import type { LoopRunCall, LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
