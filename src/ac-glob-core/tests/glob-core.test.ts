@@ -101,6 +101,18 @@ describe('walkFiles', () => {
     expect(withSkipBase).not.toContain('node_modules/x/y.js'); // 基础层仍拦依赖
   });
 
+  it('skippedRoots：只记根层跳过段（深层重复段不记录——fs-search note 透出的口径）', async () => {
+    const root = tree();
+    fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'dist', 'b.js'), 'built');
+    fs.mkdirSync(path.join(root, 'src', 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src', 'node_modules', 'z.js'), 'dep');
+    const { skippedRoots } = await walkFiles(root);
+    expect(skippedRoots).toContain('dist'); // 根层产物段记录（note 告知被跳过了什么）
+    expect(skippedRoots).toContain('node_modules'); // 根层依赖段同记
+    expect(skippedRoots).not.toContain('src/node_modules'); // 深层重复段：已知目录内部结构，不记
+  });
+
   it('toPosix：平台分隔归一', () => {
     expect(toPosix(path.join('a', 'b'))).toBe('a/b');
   });

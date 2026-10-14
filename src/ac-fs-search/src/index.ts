@@ -27,7 +27,7 @@ import {
 } from 'ac-sandbox-core';
 import { effectiveTierOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
-import { globToRegExp, literalDirPrefix, normalizeGlobPattern, walkFiles, type WalkEntry } from 'ac-glob-core';
+import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, type WalkEntry } from 'ac-glob-core';
 
 export type FsSearchRowOptions = SandboxResolverOptions & DenyRowOptions;
 
@@ -619,7 +619,8 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
         targets = [
           {
             abs: targetAbs,
-            rel: rel.startsWith('..') || path.isAbsolute(rel) ? targetAbs.replace(/\\/g, '/') : rel.replace(/\\/g, '/'),
+            // toPosix 而非内联 replace：POSIX 下文件名字面反斜杠不被误转（path.sep 按平台切分）
+            rel: rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(targetAbs) : toPosix(rel),
           },
         ];
       } else if (stat.isDirectory()) {
