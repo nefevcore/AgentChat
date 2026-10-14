@@ -68,6 +68,19 @@ describe('validateInvoke', () => {
     expect(validateInvoke([{ name: 'bare' }], 'bare', { whatever: 1 })).toBeUndefined();
   });
 
+  it('剔除名单内工具按未知名拦截（cr-432：投影面 = 校验面——list_tools 不挂 injection:mode，能力面含它）', () => {
+    // defs 含名单内工具（模拟 resolveEffectiveTools 能力面真实形态）
+    const defs = [...DEFS, { name: 'list_tools' }, { name: 'run_code' }];
+    const err = validateInvoke(defs, 'list_tools', {});
+    expect(err).toContain('不在程序化调用面');
+    expect(validateInvoke(defs, 'run_code', {})).toContain('不在程序化调用面');
+    // 最近名建议不回指名单内工具（候选已过滤名单内条目）
+    expect(err).toContain('最近名：');
+    expect(err).not.toMatch(/最近名：(list_tools|run_code)/);
+    // 名单外工具不受影响
+    expect(validateInvoke(defs, 'read', { file_path: 'a' })).toBeUndefined();
+  });
+
   it('enum 非字符串值不误伤（数字 enum 场景缺省跳过）', () => {
     const defs = [{ name: 'n', parameters: { type: 'object', properties: { t: { type: 'number', enum: [1, 2] } } } }];
     expect(validateInvoke(defs, 'n', { t: 1 })).toBeUndefined();

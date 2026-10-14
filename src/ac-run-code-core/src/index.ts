@@ -29,10 +29,13 @@ export interface ProjectionOptions {
 }
 
 /**
- * 投影剔除名单（cr-276）：递归防护（run_code——程序内再造程序无意义且
- * 套计费）+ 纯回显面（list_tools——mode 形态下 SDK 投影即工具面清单，
- * 调它只会回显投影已有的内容）。注入（prompt.ts）与前置校验（tool.ts
- * invoke 桥）双端同源消费——名单改一处两端齐动。
+ * 投影剔除名单（cr-276；cr-432 校验端兑现同源）：递归防护（run_code——
+ * 程序内再造程序无意义且套计费）+ 纯回显面（list_tools——mode 形态下
+ * SDK 投影即工具面清单，调它只会回显投影已有的内容）。注入（prompt.ts
+ * 投影）与前置校验（tool.ts invoke 桥）双端同源消费：注入端经
+ * buildSdkProjection 过滤、校验端经 validateInvoke 过滤（能力面含不挂
+ * injection:'mode' 的 list_tools——只靠 mode 过滤挡不住，名单是校验端
+ * 唯一闸）。名单改一处两端齐动。
  */
 export const PROJECTION_EXCLUDE = ['run_code', 'list_tools'];
 
@@ -59,7 +62,8 @@ export const DEFAULT_GUIDANCE = [
   '- 典型场景：同一对象会被多个程序反复读/改（如大文件源码多次取用）——注册 readXxx()/patchXxx(args) 一类函数，省去每程序重写取数与加工步骤；跨程序只需传递键名/参数等小值。',
   '结果语义：',
   '- pwsh/bash 退出码非 0 ≠ 工具错误：output.failure_class 区分两类——command-feedback（命令按预期运行后的非零退出：测试红灯/断言失败/grep 无命中——输出在 output 字段，ok=true）与 invocation-error（命令未跑起来/语法失败——ok=false + error）。判断测试结果看 exit_code 与 output，不要因非零退出码误判链路故障绕路重试；',
-  '- 前台命令超时 ≠ 命令死亡：超时处置缺省 handoff——命令自动转后台 job 继续执行（结果带 timeout_action:handoff + job_id/log_file + 已收集输出快照），用 job 工具（logs/kill）接力跟进即可，不要原样重跑长命令；timeout 单位是毫秒（300000 = 5 分钟，30 不是 30 秒）；可预期的长任务（构建/测试/远程/CI 等待）优先 background:true 显式后台——前台 timeout 会被本 Agent 的 maxTimeout 上限静默截断，调大参数可能无效；确需前台完整结果时增大 timeout 参数；',  '- load_skill 是注入型工具：返回值只有 name/scope/baseDir/status 回执，正文不进返回值（由注入机制随后进入上下文）——程序内判定成功看 status==="injected"，不要把返回值当数据处理；',
+  '- 前台命令超时 ≠ 命令死亡：超时处置缺省 handoff——命令自动转后台 job 继续执行（结果带 timeout_action:handoff + job_id/log_file + 已收集输出快照），用 job 工具（logs/kill）接力跟进即可，不要原样重跑长命令；timeout 单位是毫秒（300000 = 5 分钟，30 不是 30 秒）；可预期的长任务（构建/测试/远程/CI 等待）优先 background:true 显式后台——前台 timeout 会被本 Agent 的 maxTimeout 上限静默截断，调大参数可能无效；确需前台完整结果时增大 timeout 参数；',
+  '- load_skill 是注入型工具：返回值只有 name/scope/baseDir/status 回执，正文不进返回值（由注入机制随后进入上下文）——程序内判定成功看 status==="injected"，不要把返回值当数据处理；',
   '- 并行子任务：独立、可并行的调研/验证类子任务用 tools.subagent({action:"spawn"}) 派出——task 须完整自包含（子 Agent 看不到你的会话），人设/输出约束进 system 参数；同程序内 tools.subagent({action:"await", subagent_id}) 阻塞收结果，长任务占墙钟预算（spawn 的 timeout_s 超时自动转后台、run 不终止，后续程序 await/list 可取）；先派一个看质量与进度，确有需要再补派，勿一次铺开；后续步骤依赖其输出的任务不适合派出（程序内直接编排）；',
 ].join('\n');
 
@@ -196,6 +200,12 @@ export function validateInvoke(
   name: string,
   args: Record<string, unknown>,
 ): string | undefined {
+  // 剔除名单同源消费：校验面 = 投影面（「投影里有的才是合法调用面」）——
+  // 名单内工具（run_code/list_tools）即便在 defs 里（能力面含非 mode 注册的
+  // list_tools）也按未知名拦截，防投影外入口静默放行
+  if (PROJECTION_EXCLUDE.includes(name)) {
+    return `工具 "${name}" 不在程序化调用面（投影剔除名单——递归防护/回显冗余）——改用投影内工具；最近名：${nearestName(defs.filter((d) => !PROJECTION_EXCLUDE.includes(d.name)), name) ?? '（无可用工具）'}`;
+  }
   const def = defs.find((d) => d.name === name);
   if (def === undefined) {
     return `未知工具 "${name}"——最近名：${nearestName(defs, name) ?? '（无可用工具）'}；修正工具名后重试`;

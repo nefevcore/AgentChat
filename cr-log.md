@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-431**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-432**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -449,3 +449,4 @@
 - 【cr-429 2026-10-14 ac-skill-core 审计：修 parseSkillFrontmatter 多行 description 末键形态解析坏（description 渲染成字面 |）——lookahead 加绝对串尾终止；补末键用例 + 头注多来源分组漏工作区组订正】
 - 【cr-430 2026-10-14 ac-mcp-core 深审收口（审计 #96）：connect 并发单飞断根（重入共享同一建连，防双连泄漏——cr-361 行侧单飞同根下移）+ 回归锁测试 + package.json CRLF→LF】
 - 【cr-431 2026-10-14 ac-memory-core 深审收口（审计清单#97，记忆渲染纯库）——删/拆双否（301 行四域词汇内聚，分层纪律 cr-4 档案背书）；精简三处：①entryPrefix/stripEntryPrefix 死导出收私有（全仓求证包外零消费——唯一 importer ac-memory 七词不含，cr-358 联动审阅漏网）；②renderEntry 内联日期剥离正则与 stripEntryPrefix 逐字节同构，并源消灭副本；③parse 空行累积死串清理；行为零变化】
+- 【cr-432 2026-10-14 ac-run-code-core 深审（#98 审毕留）：validateInvoke 消费 PROJECTION_EXCLUDE 兑现双端同源承诺（list_tools 不挂 injection:mode 能力面含它——投影面≠校验面，程序内调用真的执行回显）；tool.ts buildSdkProjection 死导入清理（注入轴重构后投影迁 prompt.ts）+ 头注释链路订正；core L62 双条目挤行格式残留修复】

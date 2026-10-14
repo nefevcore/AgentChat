@@ -2,9 +2,11 @@
 // ac-run-code/src/tool.ts —— run_code 工具体（主线程侧）
 //
 // 链路：resolveEffectiveTools（与 router 工具可见面合成同链）→
-// buildSdkProjection → worker（双入口引导，计划 §五.2）→ 桥接执行
-// （子调用一律 ctx.tools.execute——能力轴/档位/黑名单/扫描/脱敏/
+// validateInvoke 前置校验（cr-276）→ worker（双入口引导，计划 §五.2）→
+// 桥接执行（子调用一律 ctx.tools.execute——能力轴/档位/黑名单/扫描/脱敏/
 // 事件面全自动生效）→ 摘要步记录（裁决 #1：程序体全文不回上下文）。
+// SDK 投影注入住 prompt.ts（2026-09-21 注入轴重构——经系统提示，不经
+// 工具体传 worker）。
 //
 // 预算冻结（2026-02-00 ask 挂起重构后，子调用挂起源主要是 approval；ask_questions 已即返）：本 run 子调用挂起 durable-interaction（
 // approval——均以 correlationId=子调用 toolCallId 落盘）期间，墙钟看门狗
@@ -26,7 +28,7 @@ const requireShim = createRequire(import.meta.url);
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
 import { formDeniedBy, sessionCapsOf, toolAllowedFor } from 'ac-agents';
-import { buildSdkProjection, validateInvoke } from 'ac-run-code-core';
+import { validateInvoke } from 'ac-run-code-core';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
 
