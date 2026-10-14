@@ -46,11 +46,13 @@ export async function fetchVersion(simulate: boolean, rpc: Rpc): Promise<Version
   };
 }
 
-/** 立即备份（Sidebar 菜单；名字与 src 端点契约一致，最小组件 diff） */
-export async function backupNow(rpc: Rpc): Promise<{ status?: string; file?: string; size?: number; keep?: number; error?: string }> {
+/** 立即备份（Sidebar 菜单；名字与 src 端点契约一致，最小组件 diff）。
+ *  count = 当前盘上备份份数（BackupResult.backups.length）——非保留上限，
+ *  旧名 keep 系语义漂移（cr-388 订正）。 */
+export async function backupNow(rpc: Rpc): Promise<{ status?: string; file?: string; size?: number; count?: number; error?: string }> {
   const r = await rpc.call<{ backup?: { file?: string; path?: string; size?: number; backups?: Array<unknown> } }>('backup/run');
   const b = r.backup ?? {};
-  return { status: 'ok', file: b.file ?? b.path, size: b.size, keep: b.backups?.length };
+  return { status: 'ok', file: b.file ?? b.path, size: b.size, count: b.backups?.length };
 }
 
 // ---- 版本面其余两接口（M27.2-2 layout 件出包随件迁：VersionDialog

@@ -178,9 +178,9 @@ describe('Port B：api/system（version/changelog/update/backup 直连）', () =
     expect(calls.map((c) => c.method)).toEqual(['system/version-changelog', 'system/version-update']);
   });
 
-  it('backupNow：backup/run → Sidebar 契约形状', async () => {
+  it('backupNow：backup/run → Sidebar 契约形状（count = 当前存档数，非保留上限——cr-388）', async () => {
     const r = await backupNow({ async call() { return { backup: { file: 'b.zip', size: 123, backups: [{}, {}, {}, {}] } }; } });
-    expect(r).toEqual({ status: 'ok', file: 'b.zip', size: 123, keep: 4 });
+    expect(r).toEqual({ status: 'ok', file: 'b.zip', size: 123, count: 4 });
   });
 });
 

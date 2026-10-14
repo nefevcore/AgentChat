@@ -47,6 +47,19 @@ class FakeArchiveService extends Service {
   }
 }
 
+/** 机制任务 mock：ctx.backup（backup-all 直调口） */
+let backupCalls = 0;
+
+class FakeBackupService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'backup');
+  }
+  run(_opts?: { force?: boolean }): Promise<{ file: string }> {
+    backupCalls++;
+    return Promise.resolve({ file: 'backup-test.zip' });
+  }
+}
+
 /** 独立会话注册表 mock：ctx.singles（sid → status；null = 未注册） */
 const fakeSingles = new Map<string, { status: string } | null>();
 
@@ -63,6 +76,7 @@ class FakeSinglesService extends Service {
 async function boot(root: string, config: Record<string, unknown> = {}) {
   received.length = 0;
   archiveCalls = 0;
+  backupCalls = 0;
   fakeSingles.clear();
   const ctx = new Context();
   const fibers: Fiber[] = [];
@@ -93,6 +107,7 @@ async function boot(root: string, config: Record<string, unknown> = {}) {
     routerRow,
     conversationRow,
     FakeArchiveService as unknown as Record<string, unknown>,
+    FakeBackupService as unknown as Record<string, unknown>,
     FakeSinglesService as unknown as Record<string, unknown>,
     timersRow,
   ];
@@ -177,6 +192,34 @@ describe('ac-timer 排程与触发', () => {
     await until(() => archiveCalls > 0);
     expect(received).toEqual([]); // 不走 LLM / 不产生会话消息
     expect(ctx.timers.entries('a')).toHaveLength(1); // 机制任务条目不归档（无限期）
+  });
+
+  it('UI 简化形状全局任务（cr-388）：{time,hint:__backup_all__,targets} 归一化为机制任务 → ctx.backup 直调（不过 LLM）', async () => {
+    const root = tmpRoot();
+    // config 预置 UI 全局任务节写下的简化形状（GlobalTimerHost saveTask 产物）
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'config.json'),
+      JSON.stringify({
+        timer: {
+          tasks: [
+            { time: '03:00', hint: '__backup_all__', targets: ['a'] },
+            { time: '04:00', hint: '自定义提醒', targets: [] },
+          ],
+        },
+      }),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    // 归一化后全局条目就绪：机制词 → task: backup-all；自定义词保留 LLM 投递
+    const entries = ctx.timers.entries(GLOBAL_TIMER_OWNER);
+    expect(entries.map((e) => [e.id, e.task])).toEqual([
+      ['g-03:00-__backup_all__', 'backup-all'],
+      ['g-04:00-自定义提醒', undefined],
+    ]);
+    expect(entries[0].target).toBe('a'); // targets 数组 → target 逗号串
+    // 本用例锁定归一化形状（id/mode/task/target 派生）；触发时点走 time 模式
+    // 日历排程，不在此断言（机制直调行为已由 m1 用例锁定）。
   });
 
   it("全局 '*' 广播排除预设与虚拟 Agent：不产生 __standard__ 自会话桶", async () => {

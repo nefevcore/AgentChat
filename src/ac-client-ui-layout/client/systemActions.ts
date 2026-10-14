@@ -22,7 +22,7 @@ export function createBackupRunner(rpc: Rpc | undefined): { busy: ReturnType<typ
     try {
       const d = await backupNow(rpc!);
       if (d.status === 'ok') {
-        toastOk(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`, { key: 'backup' });
+        toastOk(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，现有 ${d.count} 份备份）`, { key: 'backup' });
       } else {
         toastError(`备份失败：${d.error || '未知错误'}`, { key: 'backup' });
       }

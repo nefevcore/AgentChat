@@ -233,14 +233,46 @@ export class TimersService extends Service {
   /**
    * 运行时全局条目（config 'timer.tasks'，设置面板 sys.timer 写口）。
    * 形状校验宽松降级：非法条目跳过并记日志（防脏配置拖垮排程）。
+   *
+   * 写侧两套词汇（cr-388 接通）：设置面板全局任务节存简化形状
+   * { time, hint, targets? }（GlobalTimerHost；mode 恒 'time'），timer
+   * 工具/agent-store 存完整 TimerEntry。此处先归一化简化形状（hint
+   * 双下划线机制词 → task 字段——前端 SPECIAL_HINTS 词汇的读侧对齐），
+   * 再按 TimerEntry 校验。
    */
   private configEntries(): TimerEntry[] {
     const raw = this.ctx.config.get<unknown>('timer.tasks');
     if (!Array.isArray(raw)) return [];
     const valid: TimerEntry[] = [];
+    // 简化形状的机制词 → TimerEntry.task（前端 SPECIAL_HINTS 单源镜像）
+    const MECH_HINTS: Record<string, 'archive-all' | 'backup-all'> = {
+      __archive_all__: 'archive-all',
+      __backup_all__: 'backup-all',
+    };
     for (const item of raw) {
       if (item === null || typeof item !== 'object') continue;
       const e = item as Record<string, unknown>;
+      // 简化形状归一化：{ time, hint, targets } → TimerEntry（mode 'time'）。
+      // 稳定 id = time+hint 派生（同刻同词 = 语义重复，冲突即静默去重）；
+      // time 非法由排程层拒绝（arm 抛错被 catch 记日志），与此处宽容一致。
+      // 历史注记：单体时代（cr 前身 29ee1de3）此转换住 timer-manager，
+      // preview 轨道重写时丢失——UI 全局任务节自转正以来是死面（cr-388）。
+      if (e.mode === undefined && typeof e.time === 'string') {
+        const simpleHint = typeof e.hint === 'string' ? e.hint.trim() : '';
+        e.id = `g-${e.time}-${simpleHint}`;
+        e.mode = 'time';
+        e.hint = simpleHint;
+        if (Array.isArray(e.targets)) {
+          const joined = e.targets.filter((t): t is string => typeof t === 'string' && t !== '').join(',');
+          e.target = joined !== '' ? joined : undefined;
+        }
+        delete e.targets;
+      }
+      const hint = typeof e.hint === 'string' ? e.hint.trim() : '';
+      if (hint in MECH_HINTS) {
+        e.task = MECH_HINTS[hint];
+        e.hint = hint;
+      }
       if (
         typeof e.id === 'string' &&
         e.id !== '' &&

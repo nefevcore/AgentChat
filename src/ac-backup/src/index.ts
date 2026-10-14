@@ -86,7 +86,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'backup',
   label: '数据备份',
-  description: '定时全量备份（tar 快照；任务表见全局设置·定时任务 __backup_all__）',
+  description: '定时全量备份（zip 快照 + 轮转保留 4 份；任务表见全局设置·定时任务 __backup_all__）',
   automatic: true,
 };
 

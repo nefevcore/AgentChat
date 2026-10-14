@@ -22,8 +22,8 @@ export const BACKUP_KEEP = 4;
 /** 自动备份最小间隔（毫秒，缺省 7 天）——手工触发不受此限制 */
 export const BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** 排除目录（非数据目录防御性排除 + 备份目录自身防递归） */
-export const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', '.cache', '_tmp', 'backups']);
+/** 排除目录（非数据目录防御性排除 + 备份目录自身防递归；包内私有——全仓零导入） */
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', '.cache', '_tmp', 'backups']);
 
 /** 排除文件 */
 const EXCLUDE_FILES = new Set(['.DS_Store', 'Thumbs.db']);

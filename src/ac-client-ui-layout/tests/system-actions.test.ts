@@ -41,13 +41,13 @@ beforeEach(() => {
 
 describe('createBackupRunner（备份执行器单源）', () => {
   it('成功路径：busy → ok 同 key 原位刷新；完成后 busy 复位', async () => {
-    backupNow.mockResolvedValueOnce({ status: 'ok', file: 'b.zip', size: 2 * 1024 * 1024, keep: 3 });
+    backupNow.mockResolvedValueOnce({ status: 'ok', file: 'b.zip', size: 2 * 1024 * 1024, count: 3 });
     const { busy, run } = createBackupRunner({} as never);
     const p = run();
     expect(busy.value).toBe(true);
     expect(toastBusy).toHaveBeenCalledWith('正在备份…', { key: 'backup' });
     await p;
-    expect(toastOk).toHaveBeenCalledWith('备份完成：b.zip（2.0MB，保留 3 份）', { key: 'backup' });
+    expect(toastOk).toHaveBeenCalledWith('备份完成：b.zip（2.0MB，现有 3 份备份）', { key: 'backup' });
     expect(busy.value).toBe(false);
   });
 
