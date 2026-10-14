@@ -8,7 +8,7 @@
 // ============================================================
 export { CdpClient, CdpCommandError, type CdpClientOptions } from './client.ts';
 export {
-  launchBrowser, killTree, removeProfile, detectBrowser,
+  launchBrowser, killTree, removeProfile,
   type LaunchOptions, type LaunchedBrowser, type CdpVersionInfo,
 } from './launch.ts';
 export {

@@ -323,9 +323,12 @@ export class CdpPage {
     await this.send('Input.insertText', { text });
   }
 
-  /** 按键（常见键映射虚拟键码） */
+  /** 按键（常见键映射虚拟键码）。未映射键（如 F1/PrintScreen）fail-loud
+   * 抛错——旧形态回 code 0 合成无 keydown 的 rawKeyDown，页面无输入且
+   * 工具面报成功（假成功）。 */
   async press(key: string): Promise<void> {
     const code = KEY_CODES[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+    if (code === 0) throw new Error(`不支持的按键: ${key}（可用：Enter/Tab/Escape/Backspace/Delete/Arrow*/Home/End/PageUp/PageDown/Space 及单字符键）`);
     const common = {
       type: '', key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code,
       ...(code === 32 ? { text: ' ' } : {}),

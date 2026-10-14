@@ -49,6 +49,13 @@ describe('extractElements（扁平索引形态）', () => {
     const lines = serializeElements(extractElements(elementsFixture(), { width: 1280, height: 720 }));
     expect(lines).toEqual(['[1] <a role=link> Click me', '[2] <button> 提交', '[3] <input> 搜索']);
   });
+
+  it('序列化无截断语义（serializeElements 不再接受 limit——上限由 extractElements 的 MAX_REFS 单源保证）', () => {
+    // @ts-expect-error 死参数已收口（cr-434）——传参即编译错误
+    serializeElements([], 100);
+    const refs = extractElements(elementsFixture(), { width: 1280, height: 720 });
+    expect(serializeElements(refs)).toHaveLength(refs.length);
+  });
 });
 
 describe('extractText（扁平索引形态）', () => {
@@ -71,5 +78,11 @@ describe('extractText（扁平索引形态）', () => {
     const r = extractText(doc2, 8000);
     expect(r.title).toBe('My Page');
     expect(r.text.split('\n')).toEqual(['# Hello', 'Intro']);
+  });
+
+  it('extractText 早停预算（超长文档截断到 maxLen；预算累计不整树遍历）', () => {
+    const r = extractText(elementsFixture(), 5);
+    expect(r.text.length).toBeLessThanOrEqual(6); // 5 + 截断省略号
+    expect(r.text.endsWith('…')).toBe(true);
   });
 });

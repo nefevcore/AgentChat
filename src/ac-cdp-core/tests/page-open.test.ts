@@ -45,6 +45,25 @@ describe('CdpPage.open + navigate 全链路（fake ws）', () => {
     expect(nav).toEqual({ url: 'https://example.com/', title: 'Example' });
   });
 
+  it('press：映射键 rawKeyDown+keyUp；未映射键（如 F1）fail-loud 拒绝', async () => {
+    const s = new FakeCdpServer();
+    await s.listen();
+    cleanup.push(() => s.close());
+    s.handlers.set('Target.createTarget', () => ({ targetId: 't-1' }));
+    s.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sess-1' }));
+    const c = await CdpClient.connect(s.url());
+    cleanup.push(() => Promise.resolve(c.close()));
+    const page = await CdpPage.open(c, {});
+    await page.press('Enter');
+    const keys = s.calls.filter((x) => x.method === 'Input.dispatchKeyEvent');
+    expect(keys.map((x) => x.params['type'])).toEqual(['rawKeyDown', 'keyUp']);
+    expect(keys[0]!.params['windowsVirtualKeyCode']).toBe(13);
+    // 未映射键：旧形态回 code 0 合成无 keydown 事件（假成功）——现 fail-loud 且零命令发出
+    const before = s.calls.length;
+    await expect(page.press('F1')).rejects.toThrow(/不支持的按键/);
+    expect(s.calls.length).toBe(before);
+  });
+
   it('事件流喂入诊断缓冲（ws 事件 → handleEvent 自动接驳）', async () => {
     const s = new FakeCdpServer();
     await s.listen();

@@ -63,7 +63,7 @@ export interface CdpFlatNodes {
   attributes: number[][]; // [nameIdx, valueIdx, ...] 平铺对
 }
 
-/** Target.getTargets 的 targetInfo（截取用到的字段） */
+/** Target.getTargets 的 targetInfo（tabs 动作消费——ac-web-tools/browser.ts 单源引用） */
 export interface CdpTargetInfo {
   targetId: string;
   type: string; // 'page' | 'background_page' | ...

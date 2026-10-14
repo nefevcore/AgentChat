@@ -19,7 +19,6 @@ export interface RefElement {
   /** 视口内坐标（点击用） */
   x: number;
   y: number;
-  backendNodeId?: number;
 }
 
 /** 重建后的树节点（内部形态） */
@@ -29,7 +28,6 @@ interface TreeNode {
   text: string;
   attrs: Map<string, string>;
   bounds?: [number, number, number, number];
-  backendNodeId?: number;
   children: TreeNode[];
 }
 
@@ -65,7 +63,6 @@ function buildTree(nodes: CdpFlatNodes, strings: string[], layout?: { nodeIndex:
       text: nodeType === 3 ? String(strings[textIdx] ?? '') : '',
       attrs,
       bounds: boundsOf.get(i),
-      backendNodeId: nodes.backendNodeId[i],
       children: [],
     };
     treeNodes[i] = node;
@@ -133,7 +130,6 @@ export function extractElements(doc: CdpSnapshotDoc, viewport: { width: number; 
             name: name.length > NAME_TRUNCATE ? name.slice(0, NAME_TRUNCATE) + '…' : name,
             x: Math.round(node.bounds[0] + node.bounds[2] / 2),
             y: Math.round(node.bounds[1] + node.bounds[3] / 2),
-            backendNodeId: node.backendNodeId,
           });
         }
       }
@@ -147,8 +143,8 @@ export function extractElements(doc: CdpSnapshotDoc, viewport: { width: number; 
 /** 元素索引序列化（LLM 可读行；role 与 tag 本义同则省略——button/button 冗余） */
 const IMPLICIT_ROLE: Record<string, string> = { button: 'button', combobox: 'combobox', textbox: 'textbox', option: 'option', input_checkbox: 'checkbox', input_radio: 'radio' };
 const isImplicitRole = (tag: string, role: string): boolean => IMPLICIT_ROLE[tag] === role || (tag === 'input' && role.startsWith('input_'));
-export function serializeElements(refs: RefElement[], limit = 100): string[] {
-  return refs.slice(0, limit).map((e) => `[${e.ref}] <${e.tag}${e.role !== 'generic' && !isImplicitRole(e.tag, e.role) ? ` role=${e.role}` : ''}>${e.name ? ` ${e.name}` : ''}`);
+export function serializeElements(refs: RefElement[]): string[] {
+  return refs.map((e) => `[${e.ref}] <${e.tag}${e.role !== 'generic' && !isImplicitRole(e.tag, e.role) ? ` role=${e.role}` : ''}>${e.name ? ` ${e.name}` : ''}`);
 }
 
 // ── 正文抽取（read）──────────────────────────────────────────
@@ -171,15 +167,18 @@ export function extractText(doc: CdpSnapshotDoc, maxLen: number): ExtractedText 
   const root = buildTree(nodes, strings, docEntry.layout);
   const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'IFRAME', 'TEMPLATE', 'NAV', 'HEADER', 'FOOTER', 'ASIDE', 'FORM', 'BUTTON', 'SELECT', 'HEAD']);
   const lines: string[] = [];
+  // 累计文本预算（早停阈值不变：maxLen*2，防超长页整树遍历）——
+  // 逐行累加替代每节点 join 全量重算（O(n²)→O(n)，merge 尾段仍兜底截断）
+  let collected = 0;
 
   const collectText = (node: TreeNode): string =>
     node.nodeType === 3 ? node.text : node.children.map(collectText).join('');
 
   const walk = (node: TreeNode | null): void => {
-    if (!node || lines.join('\n').length > maxLen * 2) return;
+    if (!node || collected > maxLen * 2) return;
     if (node.nodeType === 3) {
       const t = node.text.trim();
-      if (t) lines.push(t);
+      if (t) { lines.push(t); collected += t.length; }
       return;
     }
     if (node.nodeType !== 1) {
@@ -190,7 +189,7 @@ export function extractText(doc: CdpSnapshotDoc, maxLen: number): ExtractedText 
     const heading = /^H([1-6])$/.exec(node.tag);
     if (heading) {
       const inner = collectText(node).trim();
-      if (inner) lines.push('#'.repeat(Number(heading[1])) + ' ' + inner);
+      if (inner) { lines.push('#'.repeat(Number(heading[1])) + ' ' + inner); collected += inner.length + 2; }
       return;
     }
     const href = node.attrs.get('href');
@@ -198,12 +197,13 @@ export function extractText(doc: CdpSnapshotDoc, maxLen: number): ExtractedText 
       const inner = collectText(node).trim();
       if (inner) {
         lines.push('[' + inner + '](' + (href.startsWith('javascript:') ? '' : href) + ')');
+        collected += inner.length + href.length + 4;
         return;
       }
     }
     if (node.tag === 'P' || node.tag === 'LI' || node.tag === 'BLOCKQUOTE' || node.tag === 'PRE' || node.tag === 'TD' || node.tag === 'TH') {
       const inner = collectText(node).replace(/\s+/g, ' ').trim();
-      if (inner) lines.push(node.tag === 'LI' ? '- ' + inner : inner);
+      if (inner) { lines.push(node.tag === 'LI' ? '- ' + inner : inner); collected += inner.length + 2; }
       return;
     }
     if (node.tag === 'BR') { lines.push(''); return; }

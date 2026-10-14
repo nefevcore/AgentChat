@@ -19,7 +19,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import {
   CdpClient, CdpPage, killTree, launchBrowser, removeProfile,
   extractElements, extractText, serializeElements,
-  type LaunchedBrowser,
+  type LaunchedBrowser, type CdpTargetInfo,
 } from 'ac-cdp-core';
 
 export interface BrowserRowOptions {
@@ -286,8 +286,8 @@ export class BrowserService extends Service {
         const snap = await p.snapshot();
         const refs = extractElements(snap, { width: 1280, height: 720 });
         this.lastElements = refs;
-        const lines = serializeElements(refs);
-        return { ok: true, output: { count: refs.length, elements: lines.slice(0, 100), marker: p.marker } };
+        const lines = serializeElements(refs); // 上限 100 由 extractElements 的 MAX_REFS 单源保证
+        return { ok: true, output: { count: refs.length, elements: lines, marker: p.marker } };
       }
       case 'click': {
         const target = await this.resolveClickTarget(args);
@@ -380,7 +380,8 @@ export class BrowserService extends Service {
         return { ok: true, output: { ...body } };
       }
       case 'tabs': {
-        const targets = await this.client!.send<{ targetInfos: Array<{ targetId: string; type: string; title: string; url: string }> }>('Target.getTargets');
+        // Target.getTargets 形状单源（ac-cdp-core 协议词汇——防零锁定的内联镜像走散）
+        const targets = await this.client!.send<{ targetInfos: CdpTargetInfo[] }>('Target.getTargets');
         const pages = targets.targetInfos.filter((t) => t.type === 'page');
         return { ok: true, output: { tabs: pages.map((t, i) => ({ index: i, id: t.targetId.slice(0, 8), title: t.title.slice(0, 80), url: t.url.slice(0, 120), active: t.targetId === this.page?.targetId })) } };
       }

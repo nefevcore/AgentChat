@@ -77,7 +77,7 @@ function unixCandidates(): string[] {
 }
 
 /** 探测浏览器可执行文件（显式覆盖 → 平台标准路径 → PATH 名） */
-export function detectBrowser(executablePath?: string): string | undefined {
+function detectBrowser(executablePath?: string): string | undefined {
   if (executablePath) return executablePath;
   const cands = process.platform === 'win32' ? winCandidates() : unixCandidates();
   for (const p of cands) if (existsSync(p)) return p;
