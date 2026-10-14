@@ -71,7 +71,12 @@ function startChild() {
     ?? path.resolve(process.env.INIT_CWD || process.cwd());
   log(`AGENTCHAT_DATA_ROOT=${dataRoot}（worker 持久化目录）`);
 
-  policyState = initialSupervisionState(Date.now());
+  // 监护状态跨代延续（cr-428）：仅更新 childStartedAt（退避的存活基准），
+  // crashStreak/crashes 沿用上一代——此前每次 spawn 全量重置，退避恒 1.5s、
+  // 熔断永不可达（崩溃死循环被无限重拉）。
+  policyState = policyState === null
+    ? initialSupervisionState(Date.now())
+    : { ...policyState, childStartedAt: Date.now() };
   child = spawn(process.execPath, args, {
     cwd: TRACK_DIR,
     env: { ...process.env, AGENTCHAT_SUPERVISED: '1', AGENTCHAT_DATA_ROOT: dataRoot },
