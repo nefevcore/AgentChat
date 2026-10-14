@@ -4580,6 +4580,9 @@ importers:
       ac-wire-format:
         specifier: workspace:*
         version: link:../ac-wire-format
+      ac-ws-protocol:
+        specifier: workspace:*
+        version: link:../ac-ws-protocol
       highlight.js:
         specifier: ^11.11.1
         version: 11.12.0

@@ -6,10 +6,11 @@
 //   · 词汇表收敛：src 的 18 类 chat.* 私有词汇**不再镜像**——出站业务帧
 //     type = 事件名直转（`loop/after-step`、`group/message-posted`…），
 //     机器可读事件目录即协议目录（sdk/protocol 跨端契约消解的推论）；
-//   · 控制帧仅三种（本包固定词汇）：
+//   · 控制帧四种（本包固定词汇）：
 //       rpc/call    入站：显式注册的 RPC 调用（弃 src 反射全量）
 //       rpc/result  出站：RPC 应答（ok/result | error）
 //       ws/ack      出站：投递回执（deduped / busy / parked）
+//       ws/ready    出站：握手就绪（服务端广播、前端静默）
 //
 // ack 语义（src WSHandler 的 preview 归位，地图 §2）：
 //   · deduped —— 传输层幂等去重命中（同 requestId 短窗重发不重复投递；

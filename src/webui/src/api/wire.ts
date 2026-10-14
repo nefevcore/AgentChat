@@ -3,13 +3,16 @@
 //
 // 聊天面收口后的唯一 WS 通道：RPC（rpc/call + requestId 相关性 +
 // 60s 超时）+ 事件帧订阅（type=事件名直转、args 按事件目录解包）+
-// ws/ack（deliver busy/deduped 双通道）+ 断线自动重连（退避 2s→30s，
+// ws/ack（deliver busy/parked/deduped 三态回执）+ 断线自动重连（退避 2s→30s，
 // onOpen 通知——feed 重连清理依赖）。
 // 机制对齐归档原生面 wire/connection.ts（src WebSocketClient 同款
 // 身份守卫/积压/看门狗语义的惰性形态：连接由首个消费者拉起）。
 // ============================================================
 
 import { unpackWireFrames } from 'ac-wire-format';
+// 控制帧词汇单源 ac-ws-protocol（cr-426 并源：原四常量镜像无对拍锁，协议
+// 词汇漂移 CI 不红——裸包名导入先例即上方 ac-wire-format，同依赖边）
+import { RPC_CALL, RPC_RESULT, WS_ACK, WS_READY } from 'ac-ws-protocol';
 
 type SocketCtor = typeof WebSocket;
 
@@ -20,10 +23,6 @@ export function setWireSocketFactory(ctor: SocketCtor): void {
   socketFactory = ctor;
 }
 
-const RPC_CALL = 'rpc/call';
-const RPC_RESULT = 'rpc/result';
-const WS_ACK = 'ws/ack';
-const WS_READY = 'ws/ready';
 const RPC_TIMEOUT_MS = 60_000;
 /** 退避基线（导出 = 测试对拍"归零回到 base"语义） */
 export const RECONNECT_BASE_MS = 2000;
