@@ -537,7 +537,12 @@ function readBuiltinPkg(file: string): BuiltinPkgJson | null {
 // ctx.on description 监听器自述的同款"声明即注册"模式）。
 // ============================================================
 
-/** 扩展目录条目（plugin/extension-catalog 载荷元素；包内构造——wire 面为 JSON） */
+/**
+ * 扩展目录条目（plugin/extension-catalog 载荷元素；包内构造——wire 面为 JSON）。
+ * listeners 为服务端内部字段（events/descriptions 聚合源），不出 wire——
+ * 前端监听器声明走 events/descriptions 单源（cr-433：此前透出为前端
+ * ExtensionEntry 镜像无字段、全端零读的死载荷）。
+ */
 interface ExtensionCatalogEntry {
   /** AgentConfig.settings 键（persona/memory/…；动态插件 = manifest.name） */
   name: string;
@@ -559,7 +564,7 @@ interface ExtensionCatalogEntry {
    * ExtensionFieldMeta）。
    */
   fields?: Array<string | ExtensionFieldMeta>;
-  /** 监听器级声明（M25 P2：事件描述 + 角色 + facet + respectsEnabled；形状 = ExtensionListenerMeta） */
+  /** 监听器级声明（服务端内部：events/descriptions 聚合源；形状 = ExtensionListenerMeta，不出 wire） */
   listeners?: ExtensionListenerMeta[];
 }
 
@@ -1881,9 +1886,12 @@ export function apply(ctx: Context) {
     safeMode: ctx.pluginRegistry.isSafeMode(),
   }));
 
-  // 扩展目录（M22 D4① → A1 注册制）：registry 自述聚合（行卸载 → 条目隐藏）
+  // 扩展目录（M22 D4① → A1 注册制）：registry 自述聚合（行卸载 → 条目隐藏）。
+  // wire 投影剔 listeners（服务端内部字段——前端零读，cr-433）
   web.registerRpc('plugin/extension-catalog', () => {
-    return { extensions: collectExtensionCatalog(ctx) };
+    return {
+      extensions: collectExtensionCatalog(ctx).map(({ listeners: _drop, ...entry }) => entry),
+    };
   });
 
   // 开发目录扫描（M22 D7②）：<root>/plugins/<agentId>/<name>/ 布局 + 数据根透出

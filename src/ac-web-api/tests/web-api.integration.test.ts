@@ -1675,6 +1675,9 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     // 2026-09-05 收尾档位化：日期行改落尾档 before-run-last（三档装配链
     // 中结构性晚于主档一切装配）——自述 listeners 声明两事件
     expect(extensions[0].targets).toEqual(['loop/before-run', 'loop/before-run-last']);
+    // wire 面不带 listeners（cr-433：监听器声明走 events/descriptions 单源，
+    // 此前透出为零读方死载荷）
+    expect('listeners' in extensions[0]).toBe(false);
     await fiber.dispose();
   });
 
