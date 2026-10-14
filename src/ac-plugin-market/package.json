@@ -12,13 +12,13 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*",
-    "ac-plugin-registry": "workspace:*",
-    "ac-web-server": "workspace:*"
+    "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
     "ac-plugin-core": "workspace:*",
+    "ac-plugin-registry": "workspace:*",
+    "ac-web-server": "workspace:*",
     "ac-ws-protocol": "workspace:*",
     "@types/ws": "^8.18.1",
     "vitest": "^4.1.10",

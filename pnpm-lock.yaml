@@ -3249,12 +3249,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-plugin-registry:
-        specifier: workspace:*
-        version: link:../ac-plugin-registry
-      ac-web-server:
-        specifier: workspace:*
-        version: link:../ac-web-server
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -3265,6 +3259,12 @@ importers:
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
+      ac-plugin-registry:
+        specifier: workspace:*
+        version: link:../ac-plugin-registry
+      ac-web-server:
+        specifier: workspace:*
+        version: link:../ac-web-server
       ac-ws-protocol:
         specifier: workspace:*
         version: link:../ac-ws-protocol
@@ -4290,9 +4290,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -4300,6 +4297,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-sandbox-core
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
