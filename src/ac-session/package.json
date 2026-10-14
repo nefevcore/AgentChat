@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "ac-agents": "workspace:*",
+    "ac-archive-core": "workspace:*",
     "ac-config": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-extension-core": "workspace:*",

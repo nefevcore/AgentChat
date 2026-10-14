@@ -273,7 +273,8 @@ export class ArchiveService extends Service {
   private async maybeArchive(agentId: string, conversationId: string): Promise<void> {
     const records = await this.ctx.session.records(conversationId);
     const threshold = thresholdOf(this.budgetsFor(agentId, conversationId));
-    const estimate = estimateReplayTokens(records, agentId);
+    // 概要头与回放注入同源计入（cr-424 单口径——history() 注入形状含概要）
+    const estimate = estimateReplayTokens(records, agentId, { summary: this.ctx.session.summary(conversationId) });
     if (estimate <= threshold) return;
     this.ctx.logger.info(
       `[archive] 超阈值触发归档 ${conversationId}（估算 ${estimate} / 阈值 ${threshold}）`,
@@ -798,7 +799,7 @@ export class ArchiveService extends Service {
         continue;
       }
       const threshold = thresholdOf(this.budgetsFor(owningAgent, conversationId));
-      if (estimateReplayTokens(records, owningAgent) < threshold) {
+      if (estimateReplayTokens(records, owningAgent, { summary: this.ctx.session.summary(conversationId) }) < threshold) {
         report.push({ conversationId, skipped: true, reason: 'below-threshold' });
         continue;
       }

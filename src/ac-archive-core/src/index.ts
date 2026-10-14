@@ -7,7 +7,9 @@
 //     大 AGENT.md 让任何 run 都"超阈值"的教训）
 //   · replayTokensOf / estimateReplayTokens —— 回放口径估算：镜像
 //     ac-session history() 的注入形状（viewer 自有 steps[] 轨迹展开 +
-//     partial/空行/event 视点过滤）。归档阈值/水位判断的唯一口径——
+//     partial/空行/event+context 视点过滤 + 步 reasoning 计入；逐行可见
+//     性由 ac-session tests/replay-parity.test.ts 交叉锁定）。归档阈值/
+//     水位判断的唯一口径——
 //     2026-09-04 事故：replayTrajectory 缺省 true 后 LLM 上下文含轨迹
 //     展开（实测 196K），content-only 估算只见 4.3K → 手工/自动归档
 //     恒判"无需移出"（分割 0 条），上下文只涨不降
@@ -64,9 +66,11 @@ export interface ArchiveMessage {
   steps?: ArchiveStep[];
 }
 
-/** 轨迹步骤（SessionRecord.steps 的结构子集；reasoning 不回放不占预算） */
+/** 轨迹步骤（SessionRecord.steps 的结构子集；reasoning 回放计入见 replayTokensOf） */
 export interface ArchiveStep {
   content?: string | null;
+  /** 步级思考（cr-294 回放：live 与回放同形注入；DeepSeek/GLM wire 家族强制回传） */
+  reasoning?: string | null;
   toolCalls?: Array<{
     id?: string;
     name?: string;
@@ -88,7 +92,8 @@ export function estimateMessagesTokens(messages: Array<{ content?: string | null
  *     → 视同普通行回放；不齐（悬空 tool_calls）→ 跳过计 0；
  *   · 空 content 的 agent 行：viewer 轨迹可展开（有 steps）→ 保留
  *     （中断/max-steps 收束行，内容全在 steps）；否则跳过计 0；
- *   · event 行带投递目标且非 viewer：视点过滤 → 0；
+ *   · event/context 行带投递目标且非 viewer：视点过滤 → 0（context 系
+ *     journal-inject 机制行主流载体——cr-424 对齐 history() 双角色过滤）；
  *   · viewer 自己的回复行（role='agent' 且 agent_id===viewer）有 steps：
  *     轨迹全量物化（每步 content + 工具名/参数 + 结果 JSON——与
  *     expandTrajectory 同构；行 content 即末步 content，不重复计）；
@@ -107,7 +112,7 @@ export function replayTokensOf(m: ArchiveMessage, viewer?: string): number {
     && (m.steps ?? []).length > 0;
   if (m.role === 'agent' && !(m.content ?? '').trim() && !replaySteps) return 0;
   if (
-    m.role === 'event' &&
+    (m.role === 'event' || m.role === 'context') &&
     viewer !== undefined &&
     m.agent_id !== undefined &&
     m.agent_id !== viewer
@@ -118,6 +123,10 @@ export function replayTokensOf(m: ArchiveMessage, viewer?: string): number {
     let total = 0;
     for (const s of m.steps!) {
       total += estimateTokens(s.content ?? '');
+      // 思考回放（cr-294）：DeepSeek/GLM wire 家族强制回传，实测为步体积
+      // 大头（cr-55：单步 reasoning 6~7KB vs content 0.9KB）——计入取回传
+      // 家族口径，strip 家族剥掉属高估安全向（归档估算宁早勿晚）
+      total += estimateTokens(s.reasoning ?? '');
       for (const tc of s.toolCalls ?? []) {
         total += estimateTokens(`${tc.name ?? ''}${tc.arguments ?? ''}`);
         total += estimateTokens(JSON.stringify(tc.result ?? null));
@@ -128,12 +137,18 @@ export function replayTokensOf(m: ArchiveMessage, viewer?: string): number {
   return estimateTokens(m.content ?? '');
 }
 
-/** 回放口径的会话估算（归档阈值/水位判断的唯一口径；viewer = 回读的 Agent） */
+/**
+ * 回放口径的会话估算（归档阈值/水位判断的唯一口径；viewer = 回读的 Agent）。
+ * opts.summary：会话概要（history() 注入头部 system 行；给定时计入——
+ * 此前 ac-archive 阈值检测漏计、web-api 仪表手拼，同款估算器三消费方
+ * 两种口径已走散，cr-424 并源为会话占用单口径）。
+ */
 export function estimateReplayTokens(
   messages: ArchiveMessage[],
   viewer?: string,
+  opts: { summary?: string } = {},
 ): number {
-  let total = 0;
+  let total = opts.summary !== undefined ? estimateTokens(opts.summary) : 0;
   for (const m of messages) total += replayTokensOf(m, viewer);
   return total;
 }

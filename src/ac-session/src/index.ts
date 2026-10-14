@@ -2673,7 +2673,8 @@ export class SessionService extends Service {
     // settingsOf 合成（全局默认层 settings.session ∪ Agent 差异层——viewer
     // 即回读的 Agent，per-Agent 语义天然成立）；存量 config 键
     // `session.replayTrajectory` 双读过渡（新层显式值优先，未配置回落旧键
-    // ——存量部署不静默翻转）。布尔两态，缺省 false = 对话级；K 截断档
+    // ——存量部署不静默翻转）。布尔两态，缺省 true = 轨迹展开（2026-09-04
+    // 事故翻转：content-only 与实际注入背离 40x+）；K 截断档
     // 否决——截断预算使回放形状随内容前滑 → 缓存失效且费用反升，长对话
     // 预算归归档阈值唯一属主。true = **viewer 自己的**回复行 steps[] 全量
     // 物化（复现 run 内消息序——跨 run 保留自己的工具轨迹记忆、少重复

@@ -1583,9 +1583,9 @@ export function apply(ctx: Context) {
     }
     agentId ||= agentOfPair(conversationId, (id) => ctx.agents.has(id));
     const records = await ctx.session.records(conversationId);
-    const summary = ctx.session.summary(conversationId);
-    const promptTokens =
-      estimateReplayTokens(records, agentId) + (summary !== undefined ? estimateTokens(summary) : 0);
+    // 概要头计入并源 estimateReplayTokens opts.summary（cr-424——与 ac-archive
+    // 阈值检测同口径，会话占用单一估算器）
+    const promptTokens = estimateReplayTokens(records, agentId, { summary: ctx.session.summary(conversationId) });
     return sessionTokensPayload(ctx, conversationId, promptTokens, agentId);
   });
 

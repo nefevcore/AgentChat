@@ -3616,6 +3616,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-archive-core:
+        specifier: workspace:*
+        version: link:../ac-archive-core
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
