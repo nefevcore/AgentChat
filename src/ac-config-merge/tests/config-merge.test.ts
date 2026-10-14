@@ -42,8 +42,12 @@ describe('computeDiff', () => {
     expect(diff).toEqual({ id: 'a1', system: '自定义', extra: true });
   });
 
-  it('身份键（id/agent_id/name）始终保留', () => {
+  it('身份键（id/name）始终保留', () => {
     expect(computeDiff({ id: 'x', name: 'n' }, { id: 'x', name: 'n' })).toEqual({ id: 'x', name: 'n' });
+  });
+
+  it('agent_id 非身份键（cr-418）：残留旧档同值键不检出——恒保留会虚报变更键恒重写盘', () => {
+    expect(computeDiff({ id: 'x', agent_id: 'y' }, { id: 'x', agent_id: 'y' })).toEqual({ id: 'x' });
   });
 
   it('嵌套对象递归 diff：仅差异子键；子级无差异则整体省略', () => {

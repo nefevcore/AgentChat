@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-417**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-419**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -435,3 +435,5 @@
 - 【cr-415 2026-10-14 ac-text-budget 深审收口（审计清单#84）——深审揪出 lone surrogate 三防线全断（2026-08-05 DeepSeek 400 事故修复 9c6f8fdf 的三防线在插件化迁移中全部丢失）：防线1 grep_history 截断回退裸 slice（109010c6 批次回退）、防线2 写盘清洗零消费、防线3 请求体清洗未迁移。修复=三线全复活：sanitizeJsonLine 新词落 ac-text-budget（转义文本级清洗，当年 openai.ts 形态）+ ac-session write()/setShelf 落盘单点清洗 + ac-openai-completions 两 doFetch 请求体兜底 + grep_history 改 safeClipByTokens + ac-group 归档摘要/ac-singles 标题提示词安全截断。顺手：safeClipByTokens 尾部代理对计费疑点深查证伪（pair 相邻存储恒成立，charAt 恒正确——不修，误判防再犯）、包内 CRLF→LF、头注漂移订正】
 - 【cr-416 2026-10-14 per-agent 档案 R-10 裁决（preview 旁路重建模型）：迁移语义改为 cutover 时导入——开发期零兼容、旧格式知识圈禁导入脚本、主线原样保留 = 终极回滚；D9 补 preview 开发模型注记（步骤性质变里程碑、并行自由）；shell-model 档案 P3 新增 cutover 语义裁决点（并行期数据根隔离 / 稳定判据 / 切换动作）】
 - 【cr-417 2026-10-14 新增探索档案 host-shell-row-manifest.md：宿主树 × 壳树行集清单工程规格草稿——现状 100 行四分类（宿主沿用/壳沿用/一行两面拆分件/退役）+ 新增件九件 + 分类判据决策树 + 待钉清单；依据 per-agent 档案 R1-R12 与 shell-model S0-S5 裁决推导】
+- 【cr-418 2026-10-14 ac-config-merge 深审收口：注释/描述叙事订正（写侧已全量落盘，computeDiff 系变更键报告）+ IDENTITY_KEYS 死词条 agent_id 删除（白名单不可达，旧档残留形态恒虚报变更键的潜伏缺陷断根）+ CRLF→LF】
+- 【cr-419 2026-10-14 新增探索档案 protocol-spec-envelope-lock-guardian.md：协议规格草稿——A 信封 schema（uuid/requestId/budget/hop）+ B 投递通道与状态机（acquire→delivered→acked→settled）+ C activation 文件锁（agents/<id>/activation.lock）+ D 宿主监护信号（stdio TSV + 拉起三节拍）+ E 授权信；复用现状先例（cr-250 requestId / MAX_AUTO_WAKES=3 / 42-78-0 / ac-ws-protocol 帧）】

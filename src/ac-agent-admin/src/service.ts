@@ -413,9 +413,10 @@ export class AgentAdminService extends Service {
   // ============================================================
 
   /**
-   * 变更键报告：computeDiff 恒保留身份键（id/agent_id/name——差异补丁
-   * 语义），但变更报告里身份键仅在实际变化时出现（name 现为可刻意修改的
-   * 显示名字段：读边界归一拷贝出的 name 不得虚报为变更）。
+   * 变更键报告：computeDiff 恒保留身份键（id/name——差异补丁语义；
+   * agent_id 词条已随 cr-418 删除），但变更报告里身份键仅在实际变化时
+   * 出现（name 现为可刻意修改的显示名字段：读边界归一拷贝出的 name
+   * 不得虚报为变更）。
    */
   private changedKeysOf(next: Record<string, unknown>, current: Record<string, unknown>): string[] {
     const keys = Object.keys(computeDiff(next, current)).filter((k) => k !== 'id');
