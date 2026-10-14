@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-388**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-389**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -406,3 +406,4 @@
 - 【cr-386 2026-10-13 ac-archive 深审收口（审计#68）：依赖正位 ac-agent-loop→devDependencies（src 仅 type-only，R1 最后遗漏）+ 双条 ac-core-utils import 合并（cr-318 下沉补丁痕迹）+ A1 listeners 补 loop/step-started 闸③观测条目（ac-usage 双条目先例）+ 头注 timer 依赖表述漂移订正（static inject 硬声明非经 ctx.get）+ events.ts 行尾与包内统一】
 - 【cr-387 2026-10-14 ac-timer 深审收口：chime 兼容死链清除（row options entries/globalSchedule/chime- 合成/TimerEntry.source + GlobalScheduleEntry 词汇）/ workday·random 集成缺口补 2 用例 / CRLF 统一】
 - 【cr-388 2026-10-14 ac-backup 深审收口（清单 #70/#91）：机制任务链断裂修复——前端简化形状（time/hint/targets）与 TimerEntry（id/mode）两套词汇从未接通，UI 建的系统任务全被 configEntries 形状校验丢弃（机制备份/归档定时执行从未生效）；映射归位 ac-timer configEntries 入口（time→mode time、hint 双下划线词→task 机制词、targets→target 逗号串）。语义修复：backupNow 的 keep 字段名不副实（实为当前存档数）；extension 描述 tar→zip；CRLF→LF 统一】
+- 【cr-389 2026-10-14 ac-workspace 深审收口（审计清单#71）——admin 配置手工镜像吞字段修复（spread 全字段跟随，曾漏 tags/llmParams）+ browser_daemon 退役遗留清理（mkdir 死初始化/fileURLToPath 死导入/files 死字段/叙事注释与步骤编号）+ ac-agent-loop 依赖归位 devDeps（cr-318 值导入归零后漏清）】

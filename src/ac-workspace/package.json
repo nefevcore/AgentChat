@@ -3,24 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "工作区初始化行（ctx.workspace）：目录布局 + browser 守护脚本分发 + 默认 user（virtual）/admin 数据 register + 首启消息经 ac-session append API（不直写会话文件）。前端半边 = ac-client-ui-workspace 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
+  "description": "工作区初始化行（ctx.workspace）：目录布局 + 默认 user（virtual）/admin 数据 register + 首启消息经 ac-session append API（不直写会话文件）+ agentWorkdir/sandboxWorkdir 唯一事实源 + 文件树/预览/上传落盘/工作区登记/本机浏览与原生选择。前端半边 = ac-client-ui-workspace 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
-  "files": [
-    "files"
-  ],
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-agent-loop": "workspace:*",
     "ac-core-utils": "workspace:*",
     "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-config": "workspace:*",

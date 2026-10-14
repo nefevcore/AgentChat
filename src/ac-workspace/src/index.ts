@@ -7,9 +7,6 @@
 //     router 遇之只记事件不跑 loop）
 //   · 首启消息经 ac-session append API（ADR-5：不直写会话文件——
 //     src workspace 直写 messages.jsonl 的越权写消灭）
-//   · browser 守护进程脚本随本包分发（files/browser_daemon.py →
-//     <root>/files/shared/scripts/；M11 缺口补齐）——ac-web-tools
-//     的 scriptPath 行配置指向该路径
 //   · <root> 即"workspace 根统一"锚点（M11 遗留：会话级与工具行级
 //     沙箱基准一致性依赖行配置约定——各持久化行 root 缺省 './data'
 //     与本行对齐）
@@ -18,7 +15,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { Service, type Context } from '@agentchat/cordis';
 import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import { createRootsContainment } from 'ac-sandbox-core';
@@ -79,26 +75,19 @@ export class WorkspaceService extends Service {
     //   ...CONTROL_PLANE_FILES.map((rel) => path.join(this.root, rel)),
     // );
 
-    // 1) 目录布局（其余子目录由各 owning 服务按需自建）
+    // 1) 目录布局（files/ = Agent 专用空间/上传桶的树可见锚点；其余
+    //    子目录由各 owning 服务按需自建）
     fs.mkdirSync(this.root, { recursive: true });
-    fs.mkdirSync(path.join(this.root, 'files', 'shared', 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(this.root, 'files'), { recursive: true });
 
 
-    // 3) 默认 user（virtual）+ admin（可选）= 数据 register
+    // 2) 默认 user（virtual）+ admin（可选）= 数据 register
     this.ensureUser();
     const existingAdmin = this.ctx.agentStore.getAgent('admin');
     if (options.admin) {
-      const config: AgentConfig = existingAdmin ?? {
-        id: 'admin',
-        model: options.admin.model,
-        ...(options.admin.name ? { name: options.admin.name } : {}),
-        ...(options.admin.provider ? { provider: options.admin.provider } : {}),
-        ...(options.admin.system ? { system: options.admin.system } : {}),
-        ...(options.admin.tools ? { tools: options.admin.tools } : {}),
-        ...(options.admin.maxSteps != null ? { maxSteps: options.admin.maxSteps } : {}),
-        ...(options.admin.description ? { description: options.admin.description } : {}),
-        ...(options.admin.settings ? { settings: options.admin.settings } : {}),
-      };
+      // spread 全字段跟随 AgentConfig（手工逐字段展开曾吞 tags/llmParams
+      // 等可选键——镜像漂移形态，新增字段即静默失效）
+      const config: AgentConfig = existingAdmin ?? { id: 'admin', ...options.admin };
       if (!existingAdmin) {
         this.ctx.agentStore.saveAgent(config);
         this.ctx.logger.info('[workspace] 已创建默认 admin Agent');
@@ -106,7 +95,7 @@ export class WorkspaceService extends Service {
       this.registerIfAbsent(config); // 二次启动：store 有则直接物化
     }
 
-    // 4) 首启检测（.initialized 标记 + admin 存在性）→ 首启消息
+    // 3) 首启检测（.initialized 标记 + admin 存在性）→ 首启消息
     this.isFirstRun = this.detectFirstRun();
     if (this.isFirstRun) {
       if (options.admin) this.injectIntro(options.intro ?? DEFAULT_INTRO);

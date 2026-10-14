@@ -278,12 +278,13 @@ describe('ac-workspace 读面工作区推导（M32：Agent 回复相对路径按
 describe('ac-workspace 初始化', () => {
   it('首启：目录布局 + browser 脚本分发 + user/admin 物化 + 首启消息入会话流', async () => {
     const root = tmpRoot();
-    const { ctx } = await boot(root, { admin: { model: 'glm-5.3' } });
-    // 目录布局（browser daemon 已退役——CDP 直连，2026-09-26）
-    expect(fs.existsSync(path.join(root, 'files', 'shared', 'scripts'))).toBe(true);
-    // user = virtual 数据；admin = 配置数据
+    const { ctx } = await boot(root, {
+      admin: { model: 'glm-5.3', tags: ['fs'], llmParams: { temperature: 0.3 }, maxSteps: 12 },
+    });
+    // user = virtual 数据；admin = 配置数据（全字段透传——tags/llmParams 等
+    // 可选键不再被手工镜像吞掉，cr-389）
     expect(ctx.agents.get('user')).toMatchObject({ id: 'user', virtual: true });
-    expect(ctx.agents.get('admin')).toMatchObject({ id: 'admin', model: 'glm-5.3' });
+    expect(ctx.agents.get('admin')).toMatchObject({ id: 'admin', model: 'glm-5.3', tags: ['fs'], llmParams: { temperature: 0.3 }, maxSteps: 12 });
     expect(ctx.workspace.isFirstRun).toBe(true);
     // store 持久化（重启物化依据）
     expect(ctx.agentStore.getAgent('user')?.virtual).toBe(true);
