@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-393**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-394**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -411,3 +411,4 @@
 - 【cr-391 2026-10-14 cell-runtime 探索档案增补：per-agent 前向引用 + 四处前提演进尾注 + 开放张力小节】
 - 【cr-392 2026-10-14 ac-event-policy 深审（audit #73）：web-api events/policy-list live 字段假计算修真（disabledKeys 自证恒真 → chainEntriesOf×聚合行名交叉：待重载=live、已生效/stale=否）+ 集成测试补锁定 + aggregate.ts/index.ts 消费方注释漂移订正（M25 §3.5 计划的 plugin/rows·熔断·反依赖图三面落地未消费本模块）】
 - 【cr-393 2026-10-14 per-agent 架构探索档案 D3 激进化修订：需授权能力并入子树（信任轴翻转），R-4/R-9/R-11 连锁标注与 D9/D10/待裁决清单同步更新】
+- 【cr-394 2026-10-14 ac-plugin-gates 深审收口：删死选项面 PluginGatesRowOptions（enabled/contractsVersion 全仓零使用——yml 无 config、测试从不传参），src/index.ts CRLF→LF 统一（同文件混用 5+73）】

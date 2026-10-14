@@ -30,44 +30,28 @@ export const extension: ExtensionMeta = {
   listeners: [{ event: 'plugin/before-load', role: '权限+契约双 gate', description: '插件装载前拦截（权限/契约 gate——代码不进进程）——承重：关停失去供应链防线' }],
 };
 
-
 export const inject = ['pluginRegistry'];
 
-export interface PluginGatesRowOptions {
-  /** gate 开关（缺省全开；诊断用） */
-  enabled?: boolean;
-  /**
-   * 覆盖宿主契约版本（缺省 HOST_CONTRACTS_VERSION；测试注入）。
-   * major 位 = 插件兼容面（破坏性升级升 major）。
-   */
-  contractsVersion?: string;
-}
-
-export function apply(ctx: Context, options: PluginGatesRowOptions = {}) {
-  const enabled = options.enabled !== false;
-  const hostVersion = options.contractsVersion ?? HOST_CONTRACTS_VERSION;
-
+export function apply(ctx: Context) {
   ctx.on('plugin/before-load', async (call, next) => {
-    if (enabled) {
-      // 权限 gate：未授予的高危权限在 import 前拒绝
-      try {
-        assertPermissionsGranted(call.manifest, call.grants);
-      } catch (err) {
-        return {
-          status: 'rejected' as const,
-          name: call.manifest.name,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
+    // 权限 gate：未授予的高危权限在 import 前拒绝
+    try {
+      assertPermissionsGranted(call.manifest, call.grants);
+    } catch (err) {
+      return {
+        status: 'rejected' as const,
+        name: call.manifest.name,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
 
-      // 契约 gate：声明的兼容范围不含宿主版本 → 拒绝（代码不进进程）
-      if (!isContractsCompatible(call.manifest.contracts, hostVersion)) {
-        return {
-          status: 'rejected' as const,
-          name: call.manifest.name,
-          error: `插件 "${call.manifest.name}@${call.manifest.version}" 声明 contracts "${call.manifest.contracts}"，与宿主契约 ${hostVersion} 不兼容（装载被拒绝；代码未进进程）`,
-        };
-      }
+    // 契约 gate：声明的兼容范围不含宿主版本 → 拒绝（代码不进进程）
+    if (!isContractsCompatible(call.manifest.contracts, HOST_CONTRACTS_VERSION)) {
+      return {
+        status: 'rejected' as const,
+        name: call.manifest.name,
+        error: `插件 "${call.manifest.name}@${call.manifest.version}" 声明 contracts "${call.manifest.contracts}"，与宿主契约 ${HOST_CONTRACTS_VERSION} 不兼容（装载被拒绝；代码未进进程）`,
+      };
     }
     return next();
   }, { description: '供应链 gate：权限/契约校验（fail-closed）' });
