@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "token 估算/UTF-16 安全截断/代理对安全截取纯库（零 cordis 依赖）",
+  "description": "token 估算/UTF-16 安全截断/lone surrogate 清洗纯库（字符串面 sanitizeSurrogates + 转义面 sanitizeJsonLine；零 cordis 依赖）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

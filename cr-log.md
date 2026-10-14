@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-413**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-417**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -431,3 +431,7 @@
 - 【cr-411 2026-10-14 shell-model 档案 M6 沙箱角色剔除：沙箱非架构角色而是授权宽度参数——三客户查证（RSI 影子天然 ⊆ 授权投影 / 高风险 agent = 窄授权配置 / 不可信代码与 D3 二值信任模型互斥）；S3 节删除、宪法层无专用硬化版、开放问题 4 收口；cell 档案遗产全部吸收完毕】
 - 【cr-412 2026-10-14 ac-error-core 深审收口（清单#83）：包健康留——删/拆双否（7 包值导入 + webui 对拍锁 + cr-98 分类簇共享单源）；订正描述漂移三处（package 描述/头注消费方目录/README 两行：LLM HTTP 分类簇漏记 + mcp-core re-export 残述），行为零变化】
 - 【cr-413 2026-10-14 shell-model 档案误写事故恢复：pwsh -replace 参数嵌含换行变量致解析炸裂、null 回写清空文件（未入 git 无版本兜底），自会话上下文按 cr-405→411 累积态完整重建；顺带一致性修正（P2①②措辞对齐 M4/M5/M6、S2 后果重编号、P3/P2 标题计数）】
+- 【cr-414 2026-10-14 shell-model 档案 S4 降格：自进化对照表移入 P1 存亡清单附注（对照区），「自进化 = 涌现性质，无独立子系统」一句入 S5 引语；设计部分编号 S4 退役、原 S6 顺移为 S5】
+- 【cr-415 2026-10-14 ac-text-budget 深审收口（审计清单#84）——深审揪出 lone surrogate 三防线全断（2026-08-05 DeepSeek 400 事故修复 9c6f8fdf 的三防线在插件化迁移中全部丢失）：防线1 grep_history 截断回退裸 slice（109010c6 批次回退）、防线2 写盘清洗零消费、防线3 请求体清洗未迁移。修复=三线全复活：sanitizeJsonLine 新词落 ac-text-budget（转义文本级清洗，当年 openai.ts 形态）+ ac-session write()/setShelf 落盘单点清洗 + ac-openai-completions 两 doFetch 请求体兜底 + grep_history 改 safeClipByTokens + ac-group 归档摘要/ac-singles 标题提示词安全截断。顺手：safeClipByTokens 尾部代理对计费疑点深查证伪（pair 相邻存储恒成立，charAt 恒正确——不修，误判防再犯）、包内 CRLF→LF、头注漂移订正】
+- 【cr-416 2026-10-14 per-agent 档案 R-10 裁决（preview 旁路重建模型）：迁移语义改为 cutover 时导入——开发期零兼容、旧格式知识圈禁导入脚本、主线原样保留 = 终极回滚；D9 补 preview 开发模型注记（步骤性质变里程碑、并行自由）；shell-model 档案 P3 新增 cutover 语义裁决点（并行期数据根隔离 / 稳定判据 / 切换动作）】
+- 【cr-417 2026-10-14 新增探索档案 host-shell-row-manifest.md：宿主树 × 壳树行集清单工程规格草稿——现状 100 行四分类（宿主沿用/壳沿用/一行两面拆分件/退役）+ 新增件九件 + 分类判据决策树 + 待钉清单；依据 per-agent 档案 R1-R12 与 shell-model S0-S5 裁决推导】

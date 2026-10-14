@@ -94,6 +94,29 @@ describe('OpenAICompletions', () => {
     expect(chunks.at(-1)?.finish).toBe('stop');
   });
 
+  it('请求体 lone surrogate 清洗（cr-415 防线3）：孤立转义替换为替换符，成对转义不动', async () => {
+    // 2026-08-05 DeepSeek 400 事故链兜底：上游截断面失守产出 lone surrogate
+    // 进消息 content → JSON.stringify 输出 \ud83d 孤立转义文本 → 网关 400
+    // "lone leading surrogate"。当年 openai.ts 防线在插件化迁移中丢失，cr-415 复活。
+    const captured: { url?: unknown; init?: any } = {};
+    const client = new OpenAICompletions({
+      fetchImpl: jsonFetch(captured, () => sseResponse([
+        JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+        '[DONE]',
+      ])),
+    });
+    for await (const _c of client.stream({ model: 'm', messages: [
+      { role: 'user', content: '毒\uD83D料' }, // lone high surrogate
+      { role: 'user', content: '好😀的' },   // 成对代理对（必须原样保留）
+    ] })) { /* 收尽流 */ }
+    const body = captured.init.body as string;
+    expect(body).not.toContain('\\ud83d"');
+    expect(body).toContain('\\ufffd');
+    // 合法 emoji 字面存活（JSON.stringify 只转义不可表示字符——成对代理对
+    // 原样输出，不受清洗牵连）
+    expect(body).toContain('好😀的');
+  });
+
   it('chat：聚合 delta/reasoning/usage，defaultModel 兜底', async () => {
     const client = new OpenAICompletions({
       defaultModel: 'm-1',

@@ -9,6 +9,7 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { widenToolsForGating } from 'ac-agents';
+import { safeClipByTokens } from 'ac-text-budget'; // UTF-16 安全截断（lone surrogate 防线1，cr-415）
 
 /** read_history 单页上限 */
 const HISTORY_PAGE_MAX = 500;
@@ -119,8 +120,12 @@ export function apply(ctx: Context) {
             index: i + 1,
             role: msg.role,
             ...(msg.name !== undefined ? { name: msg.name } : {}),
-            content:
-              msg.content.length > 500 ? msg.content.slice(0, 500) + '…(truncated)' : msg.content,
+            // 裸 slice 按 code unit 截断会切在代理对中间产生 lone surrogate——
+          // 工具结果落盘后污染后续 LLM 请求（2026-08-05 DeepSeek 400 事故，
+          // 109010c6 批次重写时防线丢失，cr-415 复活）。预算 166 tokens ≈ 原实字 500。
+          content: safeClipByTokens(msg.content, 166, false) === msg.content
+            ? msg.content
+            : safeClipByTokens(msg.content, 166, false) + '…(truncated)',
           });
         }
       }

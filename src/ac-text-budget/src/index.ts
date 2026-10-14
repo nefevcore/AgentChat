@@ -1,12 +1,18 @@
 // ============================================================
 // ac-text-budget/src/index.ts —— token 估算 / UTF-16 安全截断纯库
 //
-// src toolkit shared.ts 对应物原样平移（零 cordis 依赖）：
-//   · estimateTokens   —— CJK 0.6 / 其他 0.3 近似（阈值判断用）
-//   · sanitizeSurrogates —— lone surrogate 替换 U+FFFD（纵深防御）
-//   · safeTruncate     —— code unit 长度截断不切代理对
-//   · safeClipByTokens —— token 预算截取（keepTail/keepHead）
-// read 输出纳入 token 预算截断等工具行消费（地图 §3.4 缺口）。
+// 五个运行时词四类消费（工具行截断 / 落盘清洗 / 请求体兜底 / 阈值估算）：
+//   · estimateTokens    —— CJK 0.6 / 其他 0.3 近似（阈值判断用）
+//   · safeClipByTokens  —— token 预算截取（keepTail/keepHead，不切代理对）
+//   · safeTruncate      —— code unit 长度截断不切代理对
+//   · sanitizeSurrogates —— lone surrogate 替换 U+FFFD（字符串面清洗）
+//   · sanitizeJsonLine  —— JSON 行/请求体文本级清洗（转义面兜底）
+//
+// lone surrogate 三防线（2026-08-05 归档轮 DeepSeek 400 事故，9c6f8fdf）：
+// 根修 = 截断不切代理对（safeClipByTokens/safeTruncate）；纵深 = 落盘前
+// 字符串面清洗（sanitizeSurrogates——内存字段粒度）；兜底 = 序列化后
+// 转义文本级清洗（sanitizeJsonLine——行/请求体粒度，JSON.stringify 对
+// lone surrogate 输出 \udXXX 转义文本而非 U+FFFD）。
 // ============================================================
 
 /** 估算文本 token 数（CJK 0.6 / 其他 0.3，近似值用于阈值判断） */
@@ -22,10 +28,23 @@ export function estimateTokens(text: string | null | undefined): number {
 /** 匹配 lone surrogate（孤立的高/低代理项） */
 const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
-/** 将文本中的 lone surrogate 替换为 U+FFFD（纵深防御） */
+/** 将文本中的 lone surrogate 替换为 U+FFFD（字符串面清洗——内存字段粒度） */
 export function sanitizeSurrogates(text: string): string {
   if (!text) return text;
   return text.replace(LONE_SURROGATE_RE, '\uFFFD');
+}
+
+/**
+ * JSON 行/请求体文本级清洗（转义面兜底）：JSON.stringify 对 lone surrogate
+ * 输出 \udXXX 转义文本（Node 20+ well-formed 序列化），网关解析时报
+ * 400 "lone leading surrogate"（DeepSeek 2026-08-05 实测）。本函数在已
+ * 序列化的文本上把孤立转义对（后无 low 转义跟随的 high 转义 / 前无 high
+ * 转义的 low 转义）替换为 \ufffd。成对转义（合法代理对的序列化产物）不动。
+ */
+export function sanitizeJsonLine(text: string): string {
+  return text
+    .replace(/\\u[dD][89abAB][0-9a-fA-F]{2}(?!\\u[dD][c-fC-F][0-9a-fA-F]{2})/g, '\\ufffd')
+    .replace(/(?<!\\u[dD][89abAB][0-9a-fA-F]{2})\\u[dD][c-fC-F][0-9a-fA-F]{2}/g, '\\ufffd');
 }
 
 /** 按 code unit 长度安全截断：不会切断 surrogate pair */

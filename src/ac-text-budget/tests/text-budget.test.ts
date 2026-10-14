@@ -2,7 +2,12 @@
 // ac-text-budget：token 估算 / lone surrogate 清洗 / 代理对安全截断（纯函数行为锁定）
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { estimateTokens, sanitizeSurrogates, safeTruncate, safeClipByTokens } from '../src/index.ts';
+import { estimateTokens, sanitizeSurrogates, safeTruncate, safeClipByTokens, sanitizeJsonLine } from '../src/index.ts';
+
+/** lone surrogate 检测（与生产正则同形——测试自带验证器，事故复现断言用） */
+function hasLoneSurrogate(s: string): boolean {
+  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+}
 
 describe('estimateTokens', () => {
   it('空串 / null / undefined → 0', () => {
@@ -111,5 +116,51 @@ describe('safeClipByTokens', () => {
     // 首字符 0.3 + margin 1 = 1.3 > 1 → 立即截停，out 为空
     expect(safeClipByTokens('abcd', 1, true)).toBe('…');
     expect(safeClipByTokens('abcd', 1, false)).toBe('…');
+  });
+});
+
+describe('sanitizeJsonLine（JSON 转义面清洗——防线2/3 共用单源，cr-415）', () => {
+  it('干净文本原样（幂等基础）', () => {
+    expect(sanitizeJsonLine('')).toBe('');
+    expect(sanitizeJsonLine('{"a":1}')).toBe('{"a":1}');
+  });
+
+  it('JSON.stringify 的 lone surrogate 转义被替换为 \\ufffd（2026-08-05 事故形态）', () => {
+    // JSON.stringify（Node 20+ well-formed）对 lone surrogate 输出 \udXXX 转义文本
+    const polluted = JSON.stringify({ content: '前\uD83D后' }); // lone high surrogate
+    expect(polluted).toContain('\\ud83d');
+    const clean = sanitizeJsonLine(polluted);
+    expect(clean).not.toContain('\\ud83d');
+    expect(clean).toContain('\\ufffd');
+    expect(JSON.parse(clean).content).toBe('前\uFFFD后');
+  });
+
+  it('孤立 low surrogate 同款清洗', () => {
+    const polluted = JSON.stringify({ content: 'x\uDC00y' });
+    const clean = sanitizeJsonLine(polluted);
+    expect(clean).not.toContain('\\udc00');
+    expect(JSON.parse(clean).content).toBe('x\uFFFDy');
+  });
+
+  it('合法代理对的成对转义不动（emoji 完整保留）', () => {
+    // JSON.stringify 对合法 emoji 输出字面字符（只转义不可表示字符）——字面路径
+    const ok = JSON.stringify({ content: 'a😀b' });
+    expect(sanitizeJsonLine(ok)).toBe(ok);
+    expect(JSON.parse(sanitizeJsonLine(ok)).content).toBe('a😀b');
+    // 手写成对转义文本（盘上/网关转发的序列化形态）：high 后紧跟 low 不动
+    const pairText = '{"c":"\\ud83d\\ude00"}';
+    expect(sanitizeJsonLine(pairText)).toBe(pairText);
+  });
+
+  it('清洗幂等：已 \\ufffd 文本二次清洗原样（写失败回队重写路径依赖）', () => {
+    const once = sanitizeJsonLine(JSON.stringify({ content: '前\uD83D后' }));
+    expect(sanitizeJsonLine(once)).toBe(once);
+  });
+
+  it('大小写转义形态同款（\\uD83D / \\ud83d）', () => {
+    const lower = sanitizeJsonLine('{"c":"\\ud83d"}'); // 手写小写转义文本
+    expect(lower).toBe('{"c":"\\ufffd"}');
+    const upper = sanitizeJsonLine('{"c":"\\uD83D"}');
+    expect(upper).toBe('{"c":"\\ufffd"}');
   });
 });

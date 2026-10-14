@@ -26,6 +26,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun, normalizeToolSpecs, resolvePersonaText } from 'ac-core-utils'; // 机制标记/工具规范化/persona 词法——cr-318/321 下沉纯库
 import { splitModelRef } from 'ac-llm';
+import { safeTruncate } from 'ac-text-budget'; // 标题材料截断不切代理对（lone surrogate 防线，cr-415）
 import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only——修订键 persona 口径与装配行同源）
 import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 import type { SingleSessionMeta, SinglesCreateInput, SinglesUpdateInput } from './contract.ts';
@@ -42,9 +43,11 @@ const TITLE_MAX_LEN = 24;
 const TITLE_PROMPT = (userText: string, agentFirstOutput?: string): string =>
   `根据下面的对话材料，为这段对话生成一个简短的中文标题（不超过${TITLE_MAX_LEN}字）。\n`
   + `要求：直接输出标题本身；不要引号、句号、解释或前后缀；概括意图而非复述原文。\n\n`
-  + `用户消息：\n${userText.slice(0, 600)}`
+  // safeTruncate 不切代理对（cr-415）：裸 slice 产出 lone surrogate 会毒化标题
+  // LLM 调用请求体（2026-08-05 事故链同款——材料截断进请求体）
+  + `用户消息：\n${safeTruncate(userText, 600)}`
   + (agentFirstOutput
-    ? `\n\nAgent 的初步思考/回应（理解参考）：\n${agentFirstOutput.slice(0, 600)}`
+    ? `\n\nAgent 的初步思考/回应（理解参考）：\n${safeTruncate(agentFirstOutput, 600)}`
     : '');
 
 /** 清洗模型输出：去引号/换行/首尾空白，超长截断 */

@@ -40,7 +40,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { estimateTokens } from 'ac-text-budget';
+import { estimateTokens, safeTruncate } from 'ac-text-budget'; // safeTruncate：归档摘要截断不切代理对（lone surrogate 防线，cr-415）
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 同批下沉
 import { GROUP_HINT_META, maxSeqOf, memberStreamKey } from 'ac-core-utils'; // 跨行协议纯函数（原住本包/ac-session，解 session⇄group 环；全仓消费方均直连纯库——re-export 零消费已删，cr-406）
 import { displayNameOf } from 'ac-agents'; // 端点显示名单源解析（连带 ctx.agents 类型增强）
@@ -447,7 +447,9 @@ export class GroupService extends Service {
       .slice(-60)
       .map((r) => {
         const ts = (r.timestamp || '').slice(0, 16).replace('T', ' ');
-        const text = r.content.length > 150 ? `${r.content.slice(0, 150)}…` : r.content;
+        // safeTruncate 不切代理对（cr-415）：裸 slice 产出 lone surrogate 会经
+        // latestArchiveSummary 注入后续 LLM 上下文（2026-08-05 事故链同款）
+        const text = r.content.length > 150 ? `${safeTruncate(r.content, 150)}…` : r.content;
         return `- [${ts}] ${r.agent_id ?? 'user'}: ${text.replace(/\n/g, ' ')}`;
       });
     if (items.length === 0) return;

@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-agents": "workspace:*"
+    "ac-agents": "workspace:*",
+    "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",

@@ -75,6 +75,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { LoopRunResult, LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 import { isGroupHint, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（解 session⇄group 环；2026-09-05 边界评估）
+import { sanitizeJsonLine } from 'ac-text-budget'; // JSON 行落盘前转义面清洗（lone surrogate 防线2，cr-415）
 import type { LlmAttachment, LlmImageAttachment, LlmMessage, LlmRole } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
 import type {} from 'ac-conversation'; // conversation/* 事件目录（type-only）
@@ -2397,20 +2398,21 @@ export class SessionService extends Service {
     // 创建/换组，常态无在途写；防御性搬移）
     const queue = this.queues.get(oldFile);
     if (queue && queue.pending.length > 0) {
-      fs.appendFileSync(newFile, `${queue.pending.join('\n')}\n`, 'utf-8');
+      // 落盘清洗（防线2）：setShelf 旁路 write() 直接落盘——同款转义面清洗
+      fs.appendFileSync(newFile, `${queue.pending.map(sanitizeJsonLine).join('\n')}\n`, 'utf-8');
     }
     // 三文件（2026-09-20 partials 摘除）：partials/subcalls 队列作废 + pending
     // 防御性搬移（目录整迁已带文件本体）
     const oldPartFile = path.join(oldDir, 'partials.jsonl');
     const partQueue = this.queues.get(oldPartFile);
     if (partQueue && partQueue.pending.length > 0) {
-      fs.appendFileSync(path.join(newDir, 'partials.jsonl'), partQueue.pending.join('\n') + '\n', 'utf-8');
+      fs.appendFileSync(path.join(newDir, 'partials.jsonl'), partQueue.pending.map(sanitizeJsonLine).join('\n') + '\n', 'utf-8');
     }
     this.queues.delete(oldPartFile);
     const oldSubFile = path.join(oldDir, 'subcalls.jsonl');
     const subQueue = this.queues.get(oldSubFile);
     if (subQueue && subQueue.pending.length > 0) {
-      fs.appendFileSync(path.join(newDir, 'subcalls.jsonl'), subQueue.pending.join('\n') + '\n', 'utf-8');
+      fs.appendFileSync(path.join(newDir, 'subcalls.jsonl'), subQueue.pending.map(sanitizeJsonLine).join('\n') + '\n', 'utf-8');
     }
     this.queues.delete(oldSubFile);
     this.queues.delete(oldFile);
@@ -2622,15 +2624,22 @@ export class SessionService extends Service {
     }
   }
 
-  /** 一次 append + fsync（单写者假设：本服务是会话文件唯一写口）。
+  /**
+   * 一次 append + fsync（单写者假设：本服务是会话文件唯一写口）。
    *  B3：append 前零成本校验尾换行——同进程内撕裂写（partial writeSync
-   *  抛错回队）后重试不再把新行拼进半行 */
+   *  抛错回队）后重试不再把新行拼进半行。
+   *  lone surrogate 防线2（cr-415）：序列化行落盘前转义面清洗——上游
+   *  截断面失守产出的孤立代理对在 write 单点拦下（毒数据不进会话历史；
+   *  当年 appendJSONL 入口清洗在插件化迁移中丢失，本处复活）。写后行与
+   *  queue.pending 引用不再逐字节一致——末次写失败回队重写幂等（清洗
+   *  幂等：已 \ufffd 的文本二次清洗原样）。
+   */
   private async write(file: string, lines: string[]): Promise<void> {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     this.repairTail(file);
     const fd = fs.openSync(file, 'a');
     try {
-      fs.writeSync(fd, `${lines.join('\n')}\n`, null, 'utf-8');
+      fs.writeSync(fd, `${lines.map(sanitizeJsonLine).join('\n')}\n`, null, 'utf-8');
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);

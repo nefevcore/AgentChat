@@ -163,6 +163,7 @@ export interface CompletionsRequest {
 }
 
 import { LlmHttpError, parseRetryAfter } from 'ac-error-core';
+import { sanitizeJsonLine } from 'ac-text-budget'; // lone surrogate 请求体清洗（防线3，cr-415）
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -263,6 +264,10 @@ export class OpenAICompletions {
     };
     const useResponses = this.api === 'responses';
     const completionsUrl = `${this.baseUrl}/${useResponses ? 'responses' : 'chat/completions'}`;
+    // 转义文本级清洗（lone surrogate 防线3，cr-415）：上游截断面失守时兜底——
+    // JSON.stringify 对 lone surrogate 输出 \udXXX 转义文本，网关解析报
+    // 400 "lone leading surrogate"（2026-08-05 DeepSeek 实测；当年 openai.ts
+    // 防线在插件化迁移中丢失，本处复活）
     const doFetch = (body: Record<string, unknown>): Promise<Response> =>
       this.fetchImpl(completionsUrl, {
         method: 'POST',
@@ -272,7 +277,7 @@ export class OpenAICompletions {
           ...this.headers,
           ...extraHeaders,
         },
-        body: JSON.stringify(body),
+        body: sanitizeJsonLine(JSON.stringify(body)),
         signal: controller.signal,
       });
     try {
@@ -510,6 +515,7 @@ export class OpenAICompletions {
             },
           ],
         };
+    // 转义文本级清洗同 stream doFetch（lone surrogate 防线3，cr-415）
     const doFetch = (body: Record<string, unknown>): Promise<Response> =>
       this.fetchImpl(`${this.baseUrl}/${useResponses ? 'responses' : 'chat/completions'}`, {
         method: 'POST',
@@ -519,7 +525,7 @@ export class OpenAICompletions {
           ...this.headers,
           ...params.headers,
         },
-        body: JSON.stringify(body),
+        body: sanitizeJsonLine(JSON.stringify(body)),
         ...(params.signal ? { signal: params.signal } : {}),
       });
     try {

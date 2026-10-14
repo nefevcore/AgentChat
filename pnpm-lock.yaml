@@ -2816,9 +2816,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -2829,6 +2826,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-text-budget
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -3167,6 +3167,9 @@ importers:
       ac-error-core:
         specifier: workspace:*
         version: link:../ac-error-core
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../ac-text-budget
     devDependencies:
       vitest:
         specifier: ^4.1.10
@@ -3609,6 +3612,9 @@ importers:
       ac-migration-core:
         specifier: workspace:*
         version: link:../ac-migration-core
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../ac-text-budget
     devDependencies:
       ac-agents:
         specifier: workspace:*
@@ -3643,6 +3649,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../ac-text-budget
     devDependencies:
       ac-extension-core:
         specifier: workspace:*
@@ -3687,16 +3696,19 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../ac-text-budget
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
@@ -4270,9 +4282,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-      ac-web-server:
+      ac-plugin-core:
         specifier: workspace:*
-        version: link:../ac-web-server
+        version: link:../ac-plugin-core
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))

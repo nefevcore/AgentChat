@@ -15,7 +15,8 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-core-utils": "workspace:*",
-    "ac-migration-core": "workspace:*"
+    "ac-migration-core": "workspace:*",
+    "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",
