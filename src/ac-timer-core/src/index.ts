@@ -238,27 +238,19 @@ interface ZonedParts {
   h: number;
   mi: number;
   s: number;
-  /** 周几（0=周日；Intl 短名映射） */
-  wd: number;
 }
-
-const WEEKDAY_SHORT: Partial<Record<string, number>> = {
-  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
-};
 
 function zonedParts(date: Date, tz: string): ZonedParts {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
-    weekday: 'short', hour12: false,
+    hour12: false,
   }).formatToParts(date);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
-  const wd = WEEKDAY_SHORT[get('weekday')];
   return {
     y: Number(get('year')), m: Number(get('month')), d: Number(get('day')),
     h: Number(get('hour')) % 24, mi: Number(get('minute')), s: Number(get('second')),
-    wd: wd as number | undefined ?? NaN,
   };
 }
 
@@ -298,16 +290,14 @@ export function randomDelay(minStr?: string, maxStr?: string): number {
 export function describeEntry(entry: TimerEntry): string {
   const base = (() => {
     switch (entry.mode) {
-      case 'time':
-        return isFullDatetime(entry.time ?? '')
-          ? entry.time!
-          : isWeekdayTime(entry.time ?? '')
-            ? formatWeekdayLabel(entry.time!)
-            : `每天 ${entry.time}`;
+      case 'time': {
+        const t = entry.time ?? '';
+        return isFullDatetime(t) ? t : isWeekdayTime(t) ? formatWeekdayLabel(t) : `每天 ${t}`;
+      }
       case 'workday':
-        return `工作日 ${entry.time}`;
+        return `工作日 ${entry.time ?? ''}`;
       case 'holiday':
-        return `节假日 ${entry.time}`;
+        return `节假日 ${entry.time ?? ''}`;
       case 'random':
         return `随机 ${entry.delayMin || '30s'}~${entry.delayMax || '5m'}`;
       default:
@@ -332,6 +322,8 @@ export interface HolidayOptions {
 function formatDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
 
 /** 农历节日窗口（src 现状原样：正月 1~7 春节 + 正月 28~30 窗口、五月 3~5 端午、八月 14~16 中秋） */
 function isLunarHoliday(date: Date): boolean {
@@ -392,48 +384,49 @@ export function createHolidayResolver(options: HolidayOptions = {}, tz?: string)
 // 时区与模板
 // ============================================================
 
-/** 指定时区的 ISO 时间串（sv-SE 格式化 + 偏移推导；降级 UTC+8） */
+/** 指定时区的 ISO 时间串（zonedParts 墙钟 + 偏移直减推导；降级 UTC+8） */
 export function localISO(date = new Date(), tz = 'Asia/Shanghai'): string {
   try {
-    const parts = new Intl.DateTimeFormat('sv-SE', {
-      timeZone: tz,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-    const dateStr = `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`;
-
-    const utcParts = new Intl.DateTimeFormat('sv-SE', {
-      timeZone: 'UTC',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const utcGet = (type: string) => utcParts.find((p) => p.type === type)?.value ?? '00';
-    const utcTime = new Date(
-      `${utcGet('year')}-${utcGet('month')}-${utcGet('day')}T${utcGet('hour')}:${utcGet('minute')}:${utcGet('second')}Z`,
-    );
-    const offsetMin = Math.round((new Date(`${dateStr}+00:00`).getTime() - utcTime.getTime()) / 60000);
+    const wall = zonedParts(date, tz);
+    const dateStr = `${wall.y}-${pad2(wall.m)}-${pad2(wall.d)}T${pad2(wall.h)}:${pad2(wall.mi)}:${pad2(wall.s)}`;
+    // 偏移 = 墙钟按 UTC 解释的纪元 − 该时刻自身纪元（正向定义一次减法；
+    // 墙钟串截到秒 → 毫秒尾差由 Math.round 消除）
+    const offsetMin = Math.round((new Date(`${dateStr}+00:00`).getTime() - date.getTime()) / 60000);
     const sign = offsetMin >= 0 ? '+' : '-';
     const absMin = Math.abs(offsetMin);
-    return `${dateStr}${sign}${String(Math.floor(absMin / 60)).padStart(2, '0')}:${String(absMin % 60).padStart(2, '0')}`;
+    return `${dateStr}${sign}${pad2(Math.floor(absMin / 60))}:${pad2(absMin % 60)}`;
   } catch {
     // 降级：硬编码 UTC+8（src 语义）
   }
   const bj = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${bj.getUTCFullYear()}-${p(bj.getUTCMonth() + 1)}-${p(bj.getUTCDate())}T${p(bj.getUTCHours())}:${p(bj.getUTCMinutes())}:${p(bj.getUTCSeconds())}+08:00`;
+  return `${bj.getUTCFullYear()}-${pad2(bj.getUTCMonth() + 1)}-${pad2(bj.getUTCDate())}T${pad2(bj.getUTCHours())}:${pad2(bj.getUTCMinutes())}:${pad2(bj.getUTCSeconds())}+08:00`;
 }
 
-/** hint 模板渲染：{{now}}/{{time}}/{{date}}/{time}（nowDate 注入便于测试） */
-export function renderHint(hint: string, entry: TimerEntry, nowDate = new Date()): string {
-  const hh = String(nowDate.getHours()).padStart(2, '0');
-  const mm = String(nowDate.getMinutes()).padStart(2, '0');
+/**
+ * hint 模板渲染：{{now}}/{{time}}/{{date}}/{time}（nowDate 注入便于测试）。
+ * tz 传入时全部墙上时钟按该时区渲染（per-owner 生效时区）；非法 tz 降级本地。
+ */
+export function renderHint(hint: string, entry: TimerEntry, nowDate = new Date(), tz?: string): string {
+  let zoned: ZonedParts | undefined;
+  if (tz) {
+    try {
+      zoned = zonedParts(nowDate, tz);
+    } catch {
+      /* 非法 tz 降级本地 */
+    }
+  }
+  const hh = String(zoned?.h ?? nowDate.getHours()).padStart(2, '0');
+  const mm = String(zoned?.mi ?? nowDate.getMinutes()).padStart(2, '0');
+  const zhDate: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+  const zhNow: Intl.DateTimeFormatOptions = { ...zhDate, hour: '2-digit', minute: '2-digit' };
+  if (zoned) {
+    zhDate.timeZone = tz;
+    zhNow.timeZone = tz;
+  }
   return (hint || '')
-    .replace(/\{\{now\}\}/g, nowDate.toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' }))
+    .replace(/\{\{now\}\}/g, nowDate.toLocaleString('zh-CN', zhNow))
     .replace(/\{\{time\}\}/g, `${hh}:${mm}`)
-    .replace(/\{\{date\}\}/g, nowDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }))
+    .replace(/\{\{date\}\}/g, nowDate.toLocaleDateString('zh-CN', zhDate))
     .replace(/\{time\}/g, entry.time || `${hh}:${mm}`);
 }
 

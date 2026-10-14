@@ -233,3 +233,37 @@ describe('ac-timer-core 时区墙上时钟（tz 参数；缺省路径零变化�
     expect(utc.isWorkday(instant)).toBe(true);
   });
 });
+
+describe('ac-timer-core 并源交叉锁定与 renderHint tz（cr-425）', () => {
+  it('localISO ≡ zonedParts/zonedWallToUtc 并源：正偏移与跨季节偏移（纽约 EST→EDT）', () => {
+    // 上海无夏令时：全年 +08:00
+    expect(localISO(new Date('2026-01-15T00:00:00Z'), 'Asia/Shanghai')).toBe('2026-01-15T08:00:00+08:00');
+    // 纽约 1 月 EST（−5）、7 月 EDT（−4）——偏移推导跨季节正确
+    expect(localISO(new Date('2026-01-15T00:00:00Z'), 'America/New_York')).toBe('2026-01-14T19:00:00-05:00');
+    expect(localISO(new Date('2026-07-15T00:00:00Z'), 'America/New_York')).toBe('2026-07-14T20:00:00-04:00');
+    // 墙钟秒非零 + 毫秒尾：偏移仍精确到整分（cr-425 集成测试抓到的秒级回归锁定）
+    expect(localISO(new Date('2026-01-15T00:00:44.700Z'), 'UTC')).toBe('2026-01-15T00:00:44+00:00');
+  });
+
+  it('zonedWallToUtc 定点迭代跨 DLT：纽约 2026-03-08 02:30 不存在时刻不抛错', () => {
+    // 2026-03-08 春季拨快（02:00→03:00）：02:30 墙钟不存在，迭代收敛不抛错即契约（跳变侧语义不锁定）
+    const epoch = msUntilTime('2026-03-08T02:30', new Date('2026-03-01T00:00:00Z'), 'America/New_York');
+    expect(typeof epoch).toBe('number');
+  });
+
+  it('renderHint：tz 墙上时钟渲染（{{time}}/{{date}}/{{now}} 同源）', () => {
+    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', hint: '', time: '09:30' };
+    // 2026-06-01T02:00:00Z：上海墙 10:00 / UTC 墙 02:00
+    const now = new Date('2026-06-01T02:00:00Z');
+    const out = renderHint('现在 {{time}} {{date}}', entry, now, 'UTC');
+    expect(out).toContain('现在 02:00');
+    expect(out).toContain('2026年6月1日'); // UTC 日期
+    const sh = renderHint('现在 {{time}}', entry, now, 'Asia/Shanghai');
+    expect(sh).toContain('现在 10:00');
+  });
+
+  it('renderHint：非法 tz 降级本地不抛错', () => {
+    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', hint: '', time: '09:30' };
+    expect(typeof renderHint('现在 {{time}}', entry, new Date(), 'Mars/Olympus')).toBe('string');
+  });
+});

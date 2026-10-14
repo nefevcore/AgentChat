@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "定时算法纯库（零 cordis 依赖）：间隔解析（0s/5m/2h30m）/ 目标时间（每日 HH:mm·指定日期·周几）/ 5 模式（time/delay/random/workday/holiday）/ 节假日判定（农历+阳历+调休配置）/ 时区 ISO / hint 模板——调度状态机在 ac-timer 行",
+  "description": "定时算法纯库（零 cordis 依赖）：间隔解析（0s/5m/2h30m）/ 目标时间（每日 HH:mm·指定日期·周几）/ 5 模式（time/delay/random/workday/holiday）/ 活动窗口（含跨午夜）/ 节假日判定（农历+阳历+调休配置）/ 时区墙上时钟与时区 ISO / hint 模板——调度状态机在 ac-timer 行",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

@@ -31,7 +31,6 @@ import {
   msUntilTime,
   nextDelayOf,
   parseInterval,
-  parseActiveHours,
   randomDelay,
   renderHint,
   withinActiveHours,
@@ -501,11 +500,7 @@ export class TimersService extends Service {
       // 活动窗口门控（P1）：到点时墙上时钟不在 activeHours 窗口内 →
       // 不投递不计数，重排下一周期。静默发生在调度层——LLM 不被唤醒
       // （区别于业务脚本内部判静默：那是花全额上下文换取一句"静默"）。
-      if (
-        entry.activeHours &&
-        parseActiveHours(entry.activeHours) !== null &&
-        !withinActiveHours(entry.activeHours, new Date(), tz)
-      ) {
+      if (entry.activeHours && !withinActiveHours(entry.activeHours, new Date(), tz)) {
         this.ctx.logger.info(
           '[timers] "%C" 活动窗口外（%C），跳过本轮',
           key,
@@ -736,7 +731,7 @@ export class TimersService extends Service {
         this.ctx.logger.warn('[timers] conversation 服务不可用，跳过触发');
         return;
       }
-      const hint = renderHint(entry.hint, entry);
+      const hint = renderHint(entry.hint, entry, new Date(), this.tzOf(owner));
       const targets =
         owner === GLOBAL_TIMER_OWNER
           ? (entry.target || '*') === '*'
