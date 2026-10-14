@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-404**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-407**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -422,3 +422,6 @@
 - 【cr-402 2026-10-14 审计清单 #78 ac-ws-bridge 深审收口：delta 家族统一走目录各自 wire（帧形状 3→2 元素与 remote-link 同源同形，删借道层）+ 14 条空 import type 占位死导入与配套 devDeps 清理 + 双条 import 合并】
 - 【cr-403 2026-10-14 ac-webui 深审收口：删 M3.4 通用桥后零调用的 ui/boot-graph 死 RPC；PluginUiManifest 并源 ac-plugin-core；测试死导入清理（ac-web-server devDeps 解除）；boot graph 服务面补测试（同名替换/陈旧 disposer 守卫/排序口径）；注释与描述漂移订正】
 - 【cr-404 2026-10-14 ac-singles 深审收口（审计 #80）：ac-agent-loop 依赖正位 devDependencies（src 已 type-only，cr-320 同款 R1）+ SinglesRowOptions 双份定义并源 service.ts 单源（index 改 re-export，ac-config/credentials 惯例；注释走散归一）+ 注释漂移订正四处（events.ts 审计订阅方→实际三方订阅面/prefixSnapshotOf RPC 面残称/extension 分区会话视图表述/快照 gate·observe 两个 description 误导名）+ contract.ts title 空值语义补注 + 包内 CRLF→LF 统一（cr-337/378 先例）】
+- 【cr-405 2026-10-14 新增探索档案 shell-model-unification.md：cell × per-agent 两档案统一综述（壳模型）——cell ≡ CLI 壳、执行面同一 + 控制面取代、池化解散、多租户降格、cell 剩余角色 = 沙箱；纯设计/对照裁决/开放问题三部分，壳模型为拟定方向未裁决】
+- 【cr-406 2026-10-14 ac-group 深审（audit #81）：依赖归位（ac-agent-loop 移 devDeps——cr-318 值导入归零漏尾）+ 死类型 GroupFeedAnchor/Page 删（readSince 随 cr-4 退役孤儿）+ memberStreamKey 死 re-export 删（全仓零消费，均直连 ac-core-utils）+ 注释漂移订正（loadLimitTokens 幻影/rotateWithReview 退役叙事/membersWithUser 消费面/GROUP_HINT_META 消费方）+ CRLF→LF 统一（cr-337 先例）】
+- 【cr-407 2026-10-14 shell-model 档案剃刀修订：移除 runtime 字段（M1，选址 = 触发形态 × 信任策略）、移除 L2 树级重启与其 spike（M2，适用面被蚕食）、移除多租户提法（M3，宿主内共进程 = 缺省）、形态谱系简化为两形态（S-1，沙箱 = 策略非档）】

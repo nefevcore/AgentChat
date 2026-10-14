@@ -29,7 +29,7 @@ export interface GroupMsgViewParams {
 
 /**
  * 构造群消息的 `<msg>` 视图封装。own 消息不包装的规则由调用方持有
- * （readSince 按 viewer 判定；与将来的 history() 回放层一致）。
+ * （post 扇出/入群种子按 viewer 判定——projectFor）。
  */
 export function wrapGroupMsg(params: GroupMsgViewParams): string {
   const name =

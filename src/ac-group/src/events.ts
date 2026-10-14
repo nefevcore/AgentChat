@@ -2,8 +2,9 @@
 // ac-group/src/events.ts —— 群域事件目录（声明合并，零运行时）
 //
 // 谁 emit 谁声明：group/* 事件的分发方是本包的 GroupService。
-// 全部纯通知（emit）：WS 广播 / 持久化（ac-group-store）/ 审计订阅方
-// 【零注入 group 服务】。变更类载荷携带变更后的 GroupConfig 终值。
+// 全部纯通知（emit）：WS 广播（ac-ws-bridge）/ 快照级联（ac-file-snapshots）/
+// 前端群聊行（ac-client-ui-group）订阅；【零注入 group 服务】。
+// 变更类载荷携带变更后的 GroupConfig 终值。
 // ============================================================
 import type {} from '@agentchat/cordis';
 import type { GroupConfig, GroupMessageRecord } from './contract.ts';
@@ -55,7 +56,8 @@ declare module '@agentchat/cordis' {
 
     /**
      * 群消息已入流（内容通道唯一事实源的写入通知；投递触发在 post 之后、
-     * 由 send 编排——本事件不区分是否触发投递）。UI 实时展示 / store 落盘订阅。
+     * 由 send 编排——本事件不区分是否触发投递）。UI 实时展示订阅
+     * （本体落盘归 ac-session 域，无 store 订阅方）。
      * N2 双语境：用户经 RPC 发言 = 宿主上下文；Agent 群内回帖经 conversation
      * 投递 = 该 Agent 执行里——判定式（"发生在谁的执行里"）给不出稳定
      * 答案，按 host 保守归（无读取器即不可门控）。

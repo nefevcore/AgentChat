@@ -1,17 +1,14 @@
 // ============================================================
 // ac-group/src/contract.ts —— 群域契约（纯类型，零运行时）
 //
-// 单通道 v3（src 四次消息重复事故的沉淀，原样继承）：
-//   · 群消息流（本服务的内存日志；M13 ac-group-store 换文件后端）
-//     是群消息内容的【唯一事实源】——trigger 通知不承担内容权威；
-//   · busy 参与者经 readSince(锚点) 读增量注入；idle 参与者触发新 run
-//     （M9 用 tail 形态：通知携带 <msg> 全文 + 时间；notify 纯通知形态
-//     随 M10 会话持久化落地）；
-//   · `<msg from name group>` 包装（view.ts）是唯一构造点（ADR-3：
-//     拼接层归本包，LLM 层只收已合法的 OpenAI 形消息）。
-//
+// 单通道 v3（src 四次消息重复事故的沉淀）：群本体（sessions/groups/<gid>/，
+// D11 存储统一）是群消息内容的【唯一事实源】——hint 通知不承担内容权威。
+// cr-4 后成员上下文 = 私有转录流（post 扇出投影），派生窗族（readSince/
+// windowOf/deriveWindow）已退役。
+// `<msg from name group>` 包装（view.ts）是唯一构造点（ADR-3：拼接层归
+// 本包，LLM 层只收已合法的 OpenAI 形消息）。
 // 投递通道：ctx.conversation.deliver(member, hint, { conversationId: gid })
-// ——handle = gid~member（每参与者独立串行化门），busy=steer、idle=新 run。
+// ——成员流键 = gid~member（每参与者独立串行化门），busy=steer、idle=新 run。
 // ============================================================
 import type { ConversationOutcome, ConversationPlacement } from 'ac-conversation';
 import type { LlmAttachment } from 'ac-llm';
@@ -68,25 +65,9 @@ export interface GroupMessageRecord {
   reasoning?: string;
   /**
    * 多模态附件引用（M4 群聊图片：本体行 attachments 透传——用户发言
-   * 可带 image/video/file 引用；historyFor 回放与 UI 恢复消费）。
+   * 可带 image/video/file 引用；成员流扇出投影与 UI 恢复消费）。
    */
   attachments?: LlmAttachment[];
-}
-
-/** 群消息增量读取锚点：messageId 优先定位，index 回退（轮转/修剪预留） */
-export interface GroupFeedAnchor {
-  messageId?: string;
-  index?: number;
-}
-
-/** readSince 返回页 */
-export interface GroupFeedPage {
-  /** 已按群消息视图包装的注入文本（own 消息原文、peer 消息 <msg> 包装）；空串 = 无增量 */
-  injected: string;
-  /** 增量包含的原始消息 id（诊断/测试用） */
-  messageIds: string[];
-  /** 推进后的锚点（= 本页最后一条；空页 = 当前流尾） */
-  anchor: GroupFeedAnchor;
 }
 
 export interface GroupSendOptions {

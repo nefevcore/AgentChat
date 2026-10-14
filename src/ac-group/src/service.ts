@@ -5,8 +5,8 @@
 // 与派生视图路线）：成员上下文不再每 run 从本体派生——post 扇出
 // viewer 投影行进成员私有流（sessions/<gid>~<member>/），成员 run 走
 // 标准 session 机制（journal/settlement/步级转录/崩溃恢复/回放/压缩
-// 全套）。派生窗全族（windowOf/deriveWindow/tailScan D6）、相邻 peer
-// 合并、historyFor 派生视图退役（historyFor 降级为入群种子）。
+// 全套）。派生窗全族（windowOf/deriveWindow D6）、相邻 peer 合并、
+// historyFor 派生视图退役（historyFor 降级为入群种子——seedMemberStream）。
 //
 // KV Cache effect: Prefix-stable by construction——成员流只做尾部
 // 追加（扇出投影 + run 转录），无就地变异、无重派生。
@@ -42,16 +42,12 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 同批下沉
-import { GROUP_HINT_META, maxSeqOf, memberStreamKey } from 'ac-core-utils'; // 跨行协议纯函数（GROUP_HINT_META/maxSeqOf 原住本包/ac-session，解 session⇄group 环；memberStreamKey cr-376 下沉）
-export { memberStreamKey }; // 兼容既有 import 面（ac-session/测试），owning 已归 ac-core-utils
+import { GROUP_HINT_META, maxSeqOf, memberStreamKey } from 'ac-core-utils'; // 跨行协议纯函数（原住本包/ac-session，解 session⇄group 环；全仓消费方均直连纯库——re-export 零消费已删，cr-406）
 import { displayNameOf } from 'ac-agents'; // 端点显示名单源解析（连带 ctx.agents 类型增强）
 import type { LlmMessage } from 'ac-llm';
-import type {} from 'ac-router'; // router/* 事件目录（type-only）
-import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
+import type { ConversationOutcome } from 'ac-conversation';
 import type {
   GroupConfig,
-  GroupFeedAnchor,
-  GroupFeedPage,
   GroupMessageRecord,
   GroupSendOptions,
   GroupSendResult,
@@ -127,14 +123,6 @@ function toGroupMessage(
 function mintMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
-// memberStreamKey 已下沉 ac-core-utils（cr-376——file-snapshots 级联清理
-// 跨行消费同键；GROUP_HINT_META 先例），本包 re-export 兼容既有 import 面
-// （ac-session/测试），非 owning。
-
-// GROUP_HINT_META / isGroupHint 已下沉 ac-core-utils（跨行协议纯函数）：
-// session/conversation/ws-bridge 消费、本行生产，随本包导出会与 D11 存储
-// 方向相逆成环——见 ac-core-utils 包头。
 
 /**
  * 群聊行为契约正典（主体 src 轨 group-contract.ts 逐字继承——两次真实事故
@@ -300,6 +288,8 @@ export class GroupService extends Service {
 
   private async doEnsureLog(groupId: string): Promise<void> {
     if (this.logs.has(groupId)) return; // 已水合 / 内存态已建
+    const group = this.groups.get(groupId);
+    if (!group) return; // 未知群：空流语义（ensureLog 已拦，防御直通）
     const session = this.sessionBackend();
     if (session) {
       // 本体桶上架（D11：sessions/groups/<gid>/；幂等——同架重复无副作用）
@@ -309,6 +299,12 @@ export class GroupService extends Service {
         this.ctx.logger.warn(`[group] 本体桶上架失败（${groupId}）: ${String(err)}`);
       }
       const records = await session.records(groupId);
+      // 水合窗竞态：读盘期间群被删（或同 id 重建）——放弃本次水合并放行
+      // 重试，防前世消息写进新群缓存（记忆闪回）
+      if (this.groups.get(groupId) !== group) {
+        this.logReady.delete(groupId);
+        return;
+      }
       const log = records
         .filter((r) => r.role === 'agent')
         .map((r) => toGroupMessage(groupId, r));
@@ -355,12 +351,10 @@ export class GroupService extends Service {
 
   /**
    * 本体轮转检测（src maybeArchiveBody 语义，D11 落位）：总 token 超
-   * archiveTokens → 分流：
-   *   · 配了记忆属主且无进行中轮转 → 属主整理漏斗（rotateWithReview：
-   *     [群归档整理] run 写语义概要 + 重写群记忆，机械摘要作回退产物）；
-   *   · 其余（无属主 / 整理进行中再达阈）→ 机械轮转（rotateMechanical）。
+   * archiveTokens → 机械轮转（rotateMechanical——属主整理漏斗随
+   * memoryOwner 全链退役，cr-4）。
    */
-  private async maybeRotate(groupId: string): Promise<void> {
+  private async maybeRotate(groupId: string, group: GroupConfig): Promise<void> {
     if (this.storeRoot === undefined) return;
     const session = this.sessionBackend();
     if (!session) return; // 纯内存态：无持久域
@@ -368,8 +362,9 @@ export class GroupService extends Service {
     if (!log || log.length === 0) return;
     const totalTokens = log.reduce((acc, m) => acc + estimateTokens(m.content), 0);
     if (totalTokens <= this.archiveTokens) return;
+    if (this.groups.get(groupId) !== group) return; // 删除窗：放弃轮转
 
-    await this.rotateMechanical(groupId);
+    await this.rotateMechanical(groupId, group);
   }
 
   /** 尾部预算扫描（保留窗共用式）：从尾往前累计 token 至预算 ×1.5
@@ -393,10 +388,11 @@ export class GroupService extends Service {
    * 60 条）+ 本体经 session.compact 重建保留尾部 keepTokens（×1.5 容差；
    * owning 写口）。分段行 = SessionRecord 原文（steps/reasoning 随行保留）。
    */
-  private async rotateMechanical(groupId: string): Promise<void> {
+  private async rotateMechanical(groupId: string, group: GroupConfig): Promise<void> {
     const session = this.sessionBackend();
     if (!session) return;
     const records = await session.records(groupId); // 全 fidelity（含 steps）
+    if (this.groups.get(groupId) !== group) return; // 删除窗：不轮转已删群
     const { start: splitIdx } = this.tailScan(records.map((r) => r.content), this.keepTokens);
     if (splitIdx <= 0) return; // 全部在保留预算内（理论不达）
     const archived = records.slice(0, splitIdx);
@@ -404,6 +400,8 @@ export class GroupService extends Service {
     const index = this.writeArchiveSegment(groupId, archived);
     if (index === undefined) return;
     this.writeMechanicalSummary(groupId, index, archived);
+    // 归档段已落即止（群目录随 delete 一并清理）；rebuild 只对仍存活的群
+    if (this.groups.get(groupId) !== group) return;
     await this.rebuildBody(groupId, kept, maxSeqOf(records));
     this.ctx.logger.info(
       '[group] 本体轮转 %C：%C 条 → archive/history_%C，保留尾部 %C 条',
@@ -438,7 +436,7 @@ export class GroupService extends Service {
     }
   }
 
-  /** 机械摘要落盘（时间/发送人/截断正文，尾部 60 条；回退产物 + 无属主群的主产物） */
+  /** 机械摘要落盘（时间/发送人/截断正文，尾部 60 条；入群种子头部经 latestArchiveSummary 引用） */
   private writeMechanicalSummary(
     groupId: string,
     index: number,
@@ -575,7 +573,8 @@ export class GroupService extends Service {
 
   /**
    * 加入（agentId 须已注册；已在群中 = 幂等 true）。新成员成员流从零
-   * 开始——一次性种子（本体尾部投影，与入群时点之后的扇出衔接）。
+   * 开始——一次性种子（本体尾部投影，与入群时点之后的扇出衔接）；
+   * 纯内存态无种子可播（session 缺席，seedMemberStream 直通）。
    */
   join(groupId: string, agentId: string): boolean {
     const group = this.groups.get(groupId);
@@ -599,6 +598,7 @@ export class GroupService extends Service {
     if (!session) return;
     const groupId = group.id;
     await this.ensureLog(groupId);
+    if (this.groups.get(groupId) !== group) return; // 删除窗：不入种子
     const log = this.logs.get(groupId) ?? [];
     const archiveSummary = this.latestArchiveSummary(groupId);
     if (archiveSummary !== undefined) {
@@ -608,6 +608,7 @@ export class GroupService extends Service {
       });
     }
     for (const m of log) {
+      if (this.groups.get(groupId) !== group) return; // 删除窗：种子中止
       await session.append(memberStreamKey(groupId, member), m.from, this.projectFor(member, group, m));
     }
   }
@@ -636,9 +637,10 @@ export class GroupService extends Service {
 
   /**
    * 完整参与面（含隐式成员 user）：'user' 端点永不入册（post 特权 + UI
-   * 建群流程过滤），但它恒在群内——成员表展示/注入的参与者全貌以本方法
-   * 为单源（[群聊成员] 块、list_groups、前端成员列表）。保持 members
-   * 纯 Agent 语义不变（send 触发目标、属主校验等继续用它）。
+   * 建群流程过滤），但它恒在群内。消费面 = list_groups 工具回执
+   * （ac-collab-tools）；system-prompt 的 [群聊成员] 块与前端成员列表
+   * 各自内联同形展开（跨行投影零依赖，user 前置形状由本包测试锁定）。
+   * 保持 members 纯 Agent 语义不变（send 触发目标、post 校验等继续用它）。
    */
   membersWithUser(groupId: string): string[] {
     const group = this.groups.get(groupId);
@@ -659,13 +661,6 @@ export class GroupService extends Service {
     return this.groups.get(groupId)?.members.includes(agentId) ?? false;
   }
 
-  /**
-   * 本体消息原始记录（M7 WebUI 群历史渲染；规约 1：跨服务读取走服务
-   * 方法）。倒序 limit/正序 offset 分页（对齐 src getGroupHistory 形态）；
-   * 缺省最近 50 条。轮转入 archive 的旧段不在其中。
-   * D11：事实源 = sessions/groups/<gid>/（首次触达懒水合，此后内存缓存）。
-   */
-
   /** 最新轮转摘要（无归档 → undefined；入群种子头部用） */
   private latestArchiveSummary(groupId: string): string | undefined {
     if (this.storeRoot === undefined) return undefined;
@@ -682,6 +677,12 @@ export class GroupService extends Service {
       return undefined;
     }
   }
+  /**
+   * 本体消息原始记录（M7 WebUI 群历史渲染；规约 1：跨服务读取走服务
+   * 方法）。倒序 limit/正序 offset 分页（对齐 src getGroupHistory 形态）；
+   * 缺省最近 50 条。轮转入 archive 的旧段不在其中。
+   * D11：事实源 = sessions/groups/<gid>/（首次触达懒水合，此后内存缓存）。
+   */
   async records(groupId: string, limit = 50, offset = 0): Promise<GroupMessageRecord[]> {
     await this.ensureLog(groupId);
     const log = this.logs.get(groupId) ?? [];
@@ -699,7 +700,7 @@ export class GroupService extends Service {
    * 'user' 始终允许发言（无需入成员表）；Agent 发送者须是成员。
    * D11：持久态经 session.append 落本体（sessions/groups/<gid>/，中性行
    * role:'agent' + agent_id=说话人；行 id 返回对齐 GroupFeed 锚点）；
-   * 无 session 行 = 纯内存。成员上下文每 run 从本体重派生（视角单源 = 本体）。
+   * 无 session 行 = 纯内存。成员上下文 = 成员私有流（cr-4：post 扇出投影行）。
    */
   async post(
     groupId: string,
@@ -713,6 +714,9 @@ export class GroupService extends Service {
       throw new Error(`发送者 "${from}" 不是群 "${groupId}" 的成员`);
     }
     await this.ensureLog(groupId);
+    if (this.groups.get(groupId) !== group) {
+      throw new Error(`群 "${groupId}" 不存在（投递期间被删除）`);
+    }
     let id = mintMessageId();
     const session = this.sessionBackend();
     if (session) {
@@ -734,7 +738,8 @@ export class GroupService extends Service {
       at: Date.now(),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
-    const log = this.logs.get(groupId)!;
+    const log = this.logs.get(groupId);
+    if (log === undefined) throw new Error(`群 "${groupId}" 不存在（投递期间被删除）`);
     log.push(message);
     // 成员流扇出（cr-4 转录流）：逐成员私有流（sessions/<gid>~<member>/）
     // 追加 viewer 投影行——自己的发言 assistant 原文、他人 user + <msg>
@@ -742,6 +747,7 @@ export class GroupService extends Service {
     // 每条 post × N 成员 × 数百字节，人速频率可忽略。
     if (session) {
       for (const member of group.members) {
+        if (this.groups.get(groupId) !== group) return message; // 删除窗：不再扇出/不再触发事件（消息已落本体）
         try {
           const bucket = memberStreamKey(groupId, member);
           await session.append(bucket, from, this.projectFor(member, group, message));
@@ -750,7 +756,7 @@ export class GroupService extends Service {
         }
       }
     }
-    await this.maybeRotate(groupId);
+    await this.maybeRotate(groupId, group);
     this.ctx.emit('group/message-posted', groupId, message);
     return message;
   }
@@ -784,9 +790,8 @@ export class GroupService extends Service {
    * 群消息投递：post 入流 → 通知其余全部参与者（fire-and-forget，
    * 受理即返回；对齐 src "trigger 永远不等待 run 收尾"）。
    * busy 参与者 → conversation 按 placement（缺省 steer）注入活跃 run；
-   * idle 参与者 → 新 run（tail 形态：通知携带 <msg> 全文 + 时间）。
-   * history 种子（M15）：持久化时传群历史回放（重启后首跑恢复上下文；
-   * 会话已有内存视图则被忽略——零额外开销）。
+   * idle 参与者 → 新 run（瘦通知形态——cr-295：内容已在投影行，信封
+   * 只承载唤醒；busy steer 注入活跃 run 快照投原文——hint 双形态见下）。
    */
   async send(
     groupId: string,
