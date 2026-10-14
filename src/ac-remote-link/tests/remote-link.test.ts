@@ -454,6 +454,27 @@ describe('事件下行', () => {
     expect((got[got.length - 1] as { type: string }).type).toBe('durable-interaction/opened');
     vi.useRealTimers();
   });
+  it('llm/delta-end 帧本身下发不吞（cr-427 回归锁：flush 是保序前置，帧照发）', async () => {
+    vi.useFakeTimers();
+    await boot();
+    const reg = (svc as unknown as { registry: DeviceRegistry }).registry;
+    reg.add({ id: 'd1', name: 'n', pubkey: 'k', scopes: ['read'], pairedAt: 0 });
+    const got: unknown[] = [];
+    svc.testInjectConnection('d1', { sendPayload: (p: unknown) => got.push(p) } as never);
+    // 在途 delta（首帧即发已进漏斗窗）→ delta-end 边界：flush 把在途批先吐出
+    //（保序），边界帧本身进漏斗窗不丢（cr-427 前的 return 曾把帧吞掉）
+    svc.broadcastEvent('llm/delta', [undefined, { delta: 'x' }, undefined]);
+    svc.broadcastEvent('llm/delta-end', [undefined, undefined]);
+    expect(got).toHaveLength(1); // 在途批（llm/delta-batch）已 flush
+    const first = got[0] as { type: string; data: { args: [Array<{ type: string }>] } };
+    expect(first.type).toBe('wire/event-batch');
+    expect(first.data.args[0].map((e: { type: string }) => e.type)).toEqual(['llm/delta-batch']);
+    vi.advanceTimersByTime(150);
+    expect(got).toHaveLength(2); // 边界帧随第二窗下发
+    const second = got[1] as { type: string; data: { args: [Array<{ type: string }>] } };
+    expect(second.data.args[0].map((e: { type: string }) => e.type)).toEqual(['llm/delta-end']);
+    vi.useRealTimers();
+  });
   it('chat-only（无 read 档）设备不收下行明文流（cr-64：能发不能看）', async () => {
     vi.useFakeTimers();
     await boot();

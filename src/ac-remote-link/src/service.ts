@@ -730,10 +730,12 @@ export class RemoteLinkService extends Service {
       this.deltaBatcher.push(args[0], args[1], args[2]);
       return;
     }
+    // delta-end 边界帧本身照发（cr-427：cr-112 重构引入 return 曾把帧吞掉——
+    // 前端 feed-core 的工具占位升级/参数清理/thinking 收束在手机端静默失效；
+    // flush 只是保序前置，帧下发语义与 ws-bridge 侧 flush+forward 同源）
     if (type === 'llm/delta-end') {
-      this.deltaBatcher.flushNow(); // 边界保序
-      this.wireBatcher.flushNow();
-      return;
+      this.deltaBatcher.flushNow(); // 批内 delta 先于边界帧
+      this.wireBatcher.flushNow(); // 在途批先出（直发帧不得早于先到帧）
     }
     this.wireBatcher.push(type, args);
   }
