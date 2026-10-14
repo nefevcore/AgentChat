@@ -15,6 +15,7 @@ export interface SingleSessionMeta {
   agentId: string;
   /** 会话级模型覆盖（undefined = Agent 原配置） */
   model?: string;
+  /** 标题（自动命名/手动重命名；设定后不可清空——update 忽略空串） */
   title?: string;
   /** 挂载的用户工作区 id（缺省/空 = 未分组） */
   workspaceId?: string;
@@ -38,7 +39,7 @@ export interface SinglesCreateInput {
   reuse?: boolean;
 }
 
-/** 更新入参（undefined = 不变；model: null = 清除覆盖；agentId: '' = 清空待选） */
+/** 更新入参（undefined = 不变；model: null = 清除覆盖；agentId: '' = 清空待选；title 空串 = 忽略） */
 export interface SinglesUpdateInput {
   agentId?: string;
   model?: string | null;

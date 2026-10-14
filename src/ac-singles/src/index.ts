@@ -7,7 +7,7 @@
 // config（{ root? }）：数据根，与各持久化行同根约定。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import { SinglesService } from './service.ts';
+import { SinglesService, type SinglesRowOptions } from './service.ts';
 
 export const name = 'ac-singles';
 
@@ -16,15 +16,9 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'singles',
   label: '独立会话',
-  description: '独立会话元数据（ctx.singles）：绑定 Agent 或回落默认预设路由（分区会话视图）',
+  description: '独立会话元数据（ctx.singles）：Agent 引用（空 = 默认预设路由）+ 模型覆盖 + 工作区挂载 + 自动命名 + 归档',
   automatic: true,
 };
-
-/** 行配置（透传 SinglesService 构造） */
-export interface SinglesRowOptions {
-  /** 数据根目录（缺省 './data'；元数据目录 = <root>/singles） */
-  root?: string;
-}
 
 export function apply(ctx: Context, options: SinglesRowOptions = {}) {
   // 纯后端行（M27.1，D19 改裁）：前端半边 = ac-client-ui-singles 独立 UI 行
@@ -32,6 +26,7 @@ export function apply(ctx: Context, options: SinglesRowOptions = {}) {
 }
 
 export { SinglesService } from './service.ts';
+export type { SinglesRowOptions } from './service.ts';
 
 // 契约出口：域类型（contract.ts）+ 事件目录类型增强（events.ts）
 export type * from './contract.ts';

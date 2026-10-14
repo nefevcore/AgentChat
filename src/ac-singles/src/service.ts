@@ -146,10 +146,10 @@ export class SinglesService extends Service {
     this.ctx.on('loop/before-run', (call, next) => {
       this.snapshotGate(call.request);
       return next();
-    }, { description: '独立会话历史装配' });
+    }, { description: '独立会话前缀快照修订键锚定（before-run）' });
     this.ctx.on('loop/run-started', (request) => {
       this.snapshotObserve(request);
-    }, { description: '独立会话运行态登记' });
+    }, { description: '独立会话前缀快照终态核验（run-started）' });
   }
 
   /** 快照 gate：独立会话 run 计算修订键，决定本 run 是 capture 还是 verify */
@@ -267,7 +267,7 @@ export class SinglesService extends Service {
     }
   }
 
-  /** 快照读取口（诊断/RPC 面）：无快照 → undefined */
+  /** 快照读取口（诊断面；prefix-snapshot.test 锁定）：无快照 → undefined */
   prefixSnapshotOf(sessionId: string): PrefixSnapshot | undefined {
     return this.readSnapshot(sessionId);
   }
