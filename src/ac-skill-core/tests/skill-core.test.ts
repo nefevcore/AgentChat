@@ -28,6 +28,12 @@ describe('parseSkillFrontmatter', () => {
     expect(m?.description).toBe('对输入进行分类， 输出类别标签。');
   });
 
+  it('多行 description 为 frontmatter 末键（块止于 ---，社区常见写法——曾渲染成字面 |，cr-429）', () => {
+    const md = ['---', 'name: triage', 'description: |', '  对输入进行分类，', '  输出类别标签。', '---', 'body'].join('\n');
+    const m = parseSkillFrontmatter(md, 'triage-dir');
+    expect(m?.description).toBe('对输入进行分类， 输出类别标签。');
+  });
+
   it('name 缺失回退 dirName；引号剥离', () => {
     const m = parseSkillFrontmatter('---\nname: "quoted"\ndescription: d\n---\n', 'fallback');
     expect(m?.name).toBe('quoted');

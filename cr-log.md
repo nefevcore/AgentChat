@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-428**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-429**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -446,3 +446,4 @@
 - 【cr-426 2026-10-14 ac-ws-protocol 深审收口（审计 #92）：webui wire.ts 四控制帧常量镜像并源（ac-wire-format 裸包名先例同文件，镜像无对拍锁）+ 头注「仅三种」漏 WS_READY 订正 + package.json CRLF→LF】
 - 【cr-427 2026-10-14 审计清单 #93 ac-wire-format 深审收口：包健康留；连带修 ac-remote-link broadcastEvent 的 llm/delta-end 吞帧真 bug（cr-112 WireBatcher 重构引入 return——cr-85 原始形态帧照发；前端 feed-core 工具占位升级/thinking 收束/参数累积清理在手机端静默失效，测试从未断言 delta-end 下行故从未红）+ 回归锁测试 + package.json 描述补桥接目录与漏斗】
 - 【cr-428 2026-10-14 ac-supervisor-core 深审收口（审计 #94）：包健康留——纯库 191 行三职责（42/78/0 协议/退避熔断纯函数/.runtime 单写者锁）分层正确、消费面全活跃（supervisor.mjs 6 词 + boot/bootstrap 各 3 词）、11 测绿零死导出；修消费方真 bug——supervisor.mjs startChild 全量重置 policyState 致退避恒 1.5s、熔断永不可达（crashStreak/crashes 每次 spawn 清零，崩溃死循环无限重拉），改为仅更新 childStartedAt 延续监护状态；sandbox 探针真机验证退避数列与熔断】
+- 【cr-429 2026-10-14 ac-skill-core 审计：修 parseSkillFrontmatter 多行 description 末键形态解析坏（description 渲染成字面 |）——lookahead 加绝对串尾终止；补末键用例 + 头注多来源分组漏工作区组订正】

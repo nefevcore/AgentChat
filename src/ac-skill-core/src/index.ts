@@ -14,8 +14,9 @@
 //                           （.claude/skills、.github/skills、skills、
 //                           .agents/skills、.dsh/skills——同名先命中先得）
 //   · buildSkillsBlock       渲染 <available_skills> 区块（system prompt
-//                            尾部追加用；支持多来源分组：全局目录 + 某
-//                            Agent 的私有技能目录，各自带 location 前缀）
+//                            尾部追加用；支持多来源分组：会话工作区
+//                            约定目录 + 全局目录 + 本 Agent 私有技能目录，
+//                            各自带 location 前缀）
 //
 // 目录形态：<skillsRoot>/<dirName>/SKILL.md，frontmatter 需
 // name/description（description 支持单行与 | 多行两种）。
@@ -55,7 +56,10 @@ export function escapeXml(str: string): string {
 /**
  * 解析 SKILL.md 内容的 YAML frontmatter（name/description）。
  * 无 frontmatter / 空内容 → null（该目录不算技能）。
- * description 支持单行（`description: xxx`）与多行（`description: |`）。
+ * description 支持单行（`description: xxx`）与多行（`description: |`）；
+ * 多行块可止于后续顶格键或 frontmatter 末尾（description 殿后是
+ * 社区常见写法——终止若只认后续键，末键形态落入单行分支渲染成
+ * 字面 "|"，cr-429）。
  */
 export function parseSkillFrontmatter(content: string, dirName: string): SkillManifest | null {
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -66,7 +70,9 @@ export function parseSkillFrontmatter(content: string, dirName: string): SkillMa
   const name = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : dirName;
 
   let description = '';
-  const descMatch = fm.match(/^description:\s*\|\s*\n([\s\S]*?)(?=^[a-zA-Z])/m);
+  // 块终止 = 后续顶格键（[a-zA-Z] 起头）或绝对串尾（(?![\s\S])——
+  // m 旗标下 $ 匹配每行尾会把块截断在首行，不可用）
+  const descMatch = fm.match(/^description:\s*\|\s*\n([\s\S]*?)(?=^[a-zA-Z]|(?![\s\S]))/m);
   if (descMatch) {
     description = descMatch[1]
       .split('\n')
