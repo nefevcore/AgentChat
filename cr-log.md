@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-434**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-435**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -452,3 +452,4 @@
 - 【cr-432 2026-10-14 ac-run-code-core 深审（#98 审毕留）：validateInvoke 消费 PROJECTION_EXCLUDE 兑现双端同源承诺（list_tools 不挂 injection:mode 能力面含它——投影面≠校验面，程序内调用真的执行回显）；tool.ts buildSdkProjection 死导入清理（注入轴重构后投影迁 prompt.ts）+ 头注释链路订正；core L62 双条目挤行格式残留修复】
 - 【cr-433 2026-10-14 ac-extension-core 深审收口（审计#99）：包健康留——纯类型契约三接口逐词活跃（ExtensionMeta 94 行包自述 + FieldMeta/ListenerMeta web-api 聚合）、96 处 import 全 type-only、测试锁零运行时导出、A1 注册制档案背书。连带两修：①wire plugin/extension-catalog 剔除 listeners 死载荷（前端 ExtensionEntry 镜像无此字段、webui/mobile/desktop 全端零读——监听器声明消费走 events/descriptions 单源；shim 曾同步 fields 漏 listeners 系镜像走散痕迹，cr-338 reload 变体删同款先例；服务端内部消费保留在 collectExtensionCatalog 返回值不动）；②ac-tag-registry 的 ac-extension-core 依赖正位 devDependencies（type-only，全仓 95 消费包唯一异类，cr-386 同款 R1 弱形态正位）】
 - 【cr-434 2026-10-14 ac-cdp-core 深审收口：死词三清（detectBrowser 收私有 / CdpTargetInfo 删 / RefElement.backendNodeId 死数据链删）+ serializeElements 死 limit 参数删 + press 未映射键 fail-loud（code 0 假成功）+ extractText 早停 O(n^2) join 改累计预算 + web-tools 连带死 slice 与注释漂移订正】
+- 【cr-435 2026-10-15 ac-web-search-core 深审收口（审计清单#101）：删/拆双否——纯库分层正位；修头注 key 三源→四层解析链漂移（cr-366 行侧订正漏同步）；package.json 描述补注册表在册口径；补 ddg Infobox 合成路径用例】

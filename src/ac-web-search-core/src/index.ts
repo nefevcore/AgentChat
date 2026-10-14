@@ -2,8 +2,9 @@
 // ac-web-search-core —— web_search provider 纯库（零 cordis 依赖）
 //
 // src web/web-search 五 provider 原样平移（tavily/serpapi/brave/
-// duckduckgo/deepseek 特型）。ac-web-tools 行消费；key 三源解析链
-// （行配置 → ac-credentials → 环境变量）在行内组装。
+// duckduckgo/deepseek 特型）。ac-web-tools 行消费；key 四层解析链
+// （行配置 → ac-credentials〔Agent 级→全局〕→ 搜索池引用
+// searchpool:<名> → 环境变量 TAVILY_API_KEY 等）在行内组装。
 // 2026-09-03 注册表收敛：只收经实证的 tavily/deepseek（未实测的三家
 // 不保证可用，注册表摘除后行侧不可选）；实现文件与个体工厂导出保留，
 // 需要时加回注册表一行即可。

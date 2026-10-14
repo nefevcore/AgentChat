@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "web_search provider 纯库（零 cordis 依赖）：tavily/serpapi/brave/duckduckgo/deepseek 特型 + 标准化 SearchProvider 接口",
+  "description": "web_search provider 纯库（零 cordis 依赖）：标准化 SearchProvider 接口 + 五 provider 特型（注册表在册 tavily/deepseek；serpapi/brave/duckduckgo 个体工厂保留未实测）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

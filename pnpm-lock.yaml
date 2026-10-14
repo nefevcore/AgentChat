@@ -3902,10 +3902,10 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+    devDependencies:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-    devDependencies:
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools

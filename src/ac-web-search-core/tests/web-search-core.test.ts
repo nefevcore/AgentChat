@@ -467,6 +467,27 @@ describe('未入注册表的三家工厂（个体导出保留）', () => {
     ]);
   });
 
+  it('duckduckgo search：Infobox 条目在预算内合成（label: value 形态、ddg 搜索 URL）', async () => {
+    const data = {
+      Infobox: {
+        content: [
+          { label: 'Developer', value: 'AC Labs', data_type: 'string' },
+          { label: 'License', value: 'MIT', data_type: 'string' },
+        ],
+      },
+    };
+    const fetchMock = vi.fn<FetchLike>(async () => jsonResponse(data));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await createDuckDuckGoProvider().search({ query: 'agentchat', max_results: 5 }, { apiKey: '' });
+
+    expect(res.answer).toBeNull(); // 无 AbstractText/Answer
+    expect(res.results).toEqual([
+      { title: 'Developer', url: 'https://duckduckgo.com/?q=agentchat', content: 'Developer: AC Labs', score: 0.5 },
+      { title: 'License', url: 'https://duckduckgo.com/?q=agentchat', content: 'License: MIT', score: 0.5 },
+    ]);
+  });
+
   it('duckduckgo search：无任何结果字段 → 兜底提示项', async () => {
     const fetchMock = vi.fn<FetchLike>(async () => jsonResponse({}));
     vi.stubGlobal('fetch', fetchMock);
