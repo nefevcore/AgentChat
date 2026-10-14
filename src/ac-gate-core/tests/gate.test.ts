@@ -103,6 +103,7 @@ describe('agentGate（M25 §3.3）', () => {
       'a|gate-demo': { enabled: false, redact: { enabled: true } }, // 子键开、行为级关
       'b|gate-demo': { enabled: true, redact: { enabled: false } }, // 子键关、行为级开
       'c|gate-demo': { enabled: false }, // 无子键 → 回落行为级
+      'd|gate-demo': { enabled: false, redact: 'legacy-string' }, // 子键非对象 → 同回落行为级
     };
     const ctx = ctxOf((id, name) => table[`${id}|${name}`]);
     const gated = agentGate(
@@ -115,6 +116,7 @@ describe('agentGate（M25 §3.3）', () => {
     expect(await gated({ agent: 'a' }, async () => 'n')).toBe('inner(n)'); // 子键覆盖开
     expect(await gated({ agent: 'b' }, async () => 'n')).toBe('n'); // 子键覆盖关（next 机械放行）
     expect(await gated({ agent: 'c' }, async () => 'n')).toBe('n'); // 回落行为级关
+    expect(await gated({ agent: 'd' }, async () => 'n')).toBe('n'); // 子键非对象形状 → 回落行为级关
   });
 
   it('settingsOf 返回非对象差异层值（旧 string 形状等）= 启用', async () => {

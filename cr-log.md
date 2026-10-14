@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-422**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-423**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -440,3 +440,4 @@
 - 【cr-420 2026-10-14 新增探索档案 auth-registry-data-format.md：授权注册表数据格式草稿——两层 schema（全局 auth.json / per-agent agents/<id>/auth.json）+ 投影算法（全局∩tags、denials 优先、children 物化即快照）+ grant 事务 + 现状五状态复用清单】
 - 【cr-421 2026-10-14 ac-glob-core 审计 #86 深审收口：fs-search grep 单文件分支 toPosix 并源（内联 replace POSIX 字面反斜杠误转缺陷随修）+ walkFiles skippedRoots 库级锁定 + glob-regex.ts 行尾归一】
 - 【cr-422 2026-10-14 ac-sandbox-core 深审收口：ac-text-budget 重复测试块+devDep 迁迹清除（owning 包覆盖更全）、包内 CRLF 统一 LF（#20 先例）、package 描述与 index 头注补 notice/双黑名单装配/防自杀域】
+- 【cr-423 2026-10-14 ac-gate-core 深审收口（审计清单#88）：删/拆双否——M25 §3.3 per-Agent 事件门控唯一实现（治理面双半边：per-Agent = 分发时门控本库、进程级 = ac-event-policy 注册期拦截，头注互引在档），生产消费 ac-goal（dependencies 正位）+ templates/event-row 模板装载面，101 行零 cordis 零依赖纯库三件套最小形态正位，6 测锁六形态测试比 130%；package.json CRLF→LF 包内统一（cr-337/418/422 先例）；facet 脏子键形状（非对象）回落行为级补锁定断言】
