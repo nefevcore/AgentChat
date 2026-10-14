@@ -282,5 +282,11 @@ export async function bootTree(
     await fiber;
     fibers.set(row.id, fiber);
   }
+  // 标签纪律启动断言（cr-390 接线，tag-system-report §红线）：档位/模式
+  // 词进 requiredTags、mode 通道工具挂 requiredTags 即 fail-loud——工具行
+  // 集中装配后一处全量校验。可选服务面（skip tag-registry 行时缺席即跳过
+  // ——测试树常只装少数行，defs 里无违规词时断言本就无差别）
+  const tagRegistry = ctx.get('tagRegistry', false);
+  if (tagRegistry) tagRegistry.assertNoTierInToolRequirements();
   return { ctx, fibers };
 }

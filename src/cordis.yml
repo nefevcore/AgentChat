@@ -133,8 +133,8 @@
   name: './ac-sap-adt/src/preset.ts'
 - id: dev-tools
   name: 'ac-dev-tools'
-# ---- 标签注册中心（tag-registry P1：tool/registered 采集 + 档位/base
-# 预注册；tags/catalog RPC 数据源——AgentPane 徽章编辑的分组目录） ----
+# ---- 标签注册中心（tag-registry P1：defs 现算目录 + 档位/模式预注册；
+# tags/catalog RPC 数据源——AgentPane 徽章编辑的分组目录） ----
 - id: tag-registry
   name: 'ac-tag-registry'
 - id: restart

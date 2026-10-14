@@ -5,29 +5,25 @@
 // 没有任何一处汇聚「当前系统全部合法 tag」——配 Agent 时面对的是
 // 手写字符串数组，既不知道有哪些词、也不知道某词解锁什么。本服务
 // 把词表变成显式：
-//   · 采集：监听 tool/registered · tool/unregistered（ac-tools 发出，
-//     注册/回收时同步），按 tag 汇聚消费工具清单——工具行零改动；
+//   · 目录：按 ac-tools defs 现算（cr-390 单一事实源——快照语义，
+//     装载序无关，行装卸即如实反映；事件增量缓存旧形态已并源），
+//     数据源 = tags/catalog RPC（ac-web-api 注册，AgentPane 消费）；
 //   · 预注册：档位词（full-access/sandbox-access，tierOf 消费）、工具
-//     调用模式词（tc-*，toolModeOf 消费；tc-programmatic 是唯一被
-//     requiredTags 合法引用的非能力词——标签即授权，见 assert 白名单）
-//     与能力族（fs/collab/infra/history），启动即在场；
-//   · 分类：reserved（base/档位）≠ tool-required（被工具门禁消费）≠
-//     owner（agent:<id> 私有工具标签，等 owner 自行声明）≠ unknown
-//     （拼错/外部词——UI 警示）。
+//     调用模式词（tc-*，toolModeOf 消费）与能力族（fs/collab/infra/
+//     history/issue-report）启动即在场——工具面采集到的消费清单如实
+//     并入（2026-09-16 起能力族也需要解锁计数与工具清单）；
+//   · 分类：reserved（档位/模式）≠ tool-required（被工具门禁消费）；
+//     owner 私有标签（agent:<id> 前缀）不进目录——等 owner 自行
+//     声明（tagDeclarations 注册制）；
 //   · 抉择组（2026-09-21）：access-tier / tool-mode 预注册组与 browser
 //     声明组挂 exclusive 元数据——UI 聚合为下拉单选（落词由 UI 规则
 //     保证同组至多一词；判定面不受影响）。
-//
-// 双源校正：ac-tools 的 defs 是 tags→tools 的原始事实，本服务只是
-// 附加描述元数据——采集不经过任何注册面，纵贯线最短。注册序上
-// 工具行先装载、本行后装载也无妨：视图查询时按 defs 现算，事件
-// 仅维护增量缓存。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { TagDeclaration } from './contract.ts';
 
-/** 标签类别（UI 分组依据；'base' 为历史类别，保留类型兼容——base 已退役） */
-export type TagCategory = 'base' | 'access-tier' | 'tool-mode' | 'capability' | 'owner' | 'unknown';
+/** 标签类别（UI 分组依据） */
+export type TagCategory = 'access-tier' | 'tool-mode' | 'capability';
 
 /** 目录条目（wire 面：JSON 直出） */
 export interface TagCatalogEntry {
@@ -38,7 +34,7 @@ export interface TagCatalogEntry {
   description?: string;
   /** 引用本标签的工具（name + 一句话描述 + 注册方行名；类别 = capability） */
   tools: Array<{ name: string; description?: string; owner?: string }>;
-  /** 预注册词（档位与能力族；base 已退役）——目录恒有，手工声明不覆盖 */
+  /** 预注册词（档位/模式与能力族）——目录恒有，手工声明不覆盖 */
   reserved?: boolean;
   /** 手工声明方（行名；声明来源标注） */
   declaredBy?: string;
@@ -57,9 +53,10 @@ export interface TagCatalogEntry {
 }
 
 /** 预注册词表（面向用户的短描述——经 tags/catalog RPC 直出前端 tooltip）。
- *  base 已退役（全量标签化 2026-09-16：一切出厂工具挂具体标签）。
- *  access-tier / tool-mode 两组是抉择组（exclusive 同名——UI 聚合为
- *  下拉单选；base-access / tc-base 为 exclusiveNone 缺省词，落词不写） */
+ *  base 已退役（全量标签化 2026-09-16：一切出厂工具挂具体标签；存量
+ *  tags 里的 'base' 由前端归一剔除）。access-tier / tool-mode 两组是
+ *  抉择组（exclusive 同名——UI 聚合为下拉单选；base-access / tc-base
+ *  为 exclusiveNone 缺省词，落词不写） */
 const RESERVED: Array<{
   tag: string;
   category: TagCategory;
@@ -144,45 +141,8 @@ const RESERVED: Array<{
 export class TagRegistryService extends Service {
   static inject = ['tools'];
 
-  /** tag → 消费工具清单（增量缓存；事件驱动维护） */
-  private consumers = new Map<string, Array<{ name: string; description?: string; owner?: string }>>();
-
   constructor(ctx: Context) {
     super(ctx, 'tagRegistry');
-
-    // 采集面：工具注册/回收事件（ac-tools 发出；含动态插件工具）
-    ctx.on(
-      'tool/registered',
-      (def) => {
-        for (const tag of def.requiredTags ?? []) this.add(tag, def);
-      },
-      { description: 'tag-registry：采集工具 requiredTags' },
-    );
-    ctx.on(
-      'tool/unregistered',
-      (name) => {
-        for (const [tag, list] of this.consumers) {
-          const next = list.filter((t) => t.name !== name);
-          if (next.length === 0 && !this.isReserved(tag)) this.consumers.delete(tag);
-          else this.consumers.set(tag, next);
-        }
-      },
-      { description: 'tag-registry：回收工具 requiredTags' },
-    );
-  }
-
-  private isReserved(tag: string): boolean {
-    return RESERVED.some((r) => r.tag === tag);
-  }
-
-  private add(tag: string, def: { name: string; description?: string }): void {
-    // owner 私有标签（agent:<id>）：等 owner 自行声明，不进 capability 目录
-    if (tag.startsWith('agent:')) return;
-    const list = this.consumers.get(tag) ?? [];
-    if (!list.some((t) => t.name === def.name)) {
-      list.push({ name: def.name, ...(def.description ? { description: def.description } : {}) });
-      this.consumers.set(tag, list);
-    }
   }
 
   /**
@@ -213,13 +173,12 @@ export class TagRegistryService extends Service {
   }
 
   /**
-   * 目录视图（tags/catalog RPC 数据源）：预注册 + 工具面采集 + 手工
-   * 声明合并，按 tag 字典序稳定输出。快照语义——每次现算，纵贯线不
-   * 依赖装载序。合并规则：手工声明补描述/排序元数据；requiredTags
-   * 采集到的消费工具如实并入（双源对同一词 = 描述来自声明、工具清单
-   * 取并集——browser 的 observe 两者都有，正好合成完整语义）。
-   * 注：base 退役（全量标签化 2026-09-16）——不再预注册；存量 tags
-   * 里的 'base' 由前端归一剔除（无门禁语义，保留也不影响能力判定）。
+   * 目录视图（tags/catalog RPC 数据源）：预注册 + 工具面（defs 现算）
+   * + 手工声明合并，按 tag 字典序稳定输出。快照语义——每次现算，
+   * 纵贯线不依赖装载序，tools[].owner 恒由 defs 带出（注册方行名）。
+   * 合并规则：手工声明补描述/排序元数据；requiredTags 采集到的消费
+   * 工具如实并入（双源对同一词 = 描述来自声明、工具清单取并集——
+   * browser 的 observe 两者都有，正好合成完整语义）。
    */
   catalog(): TagCatalogEntry[] {
     const byTag = new Map<string, TagCatalogEntry>();
@@ -252,6 +211,7 @@ export class TagRegistryService extends Service {
         ...(d.exclusiveOffDesc ? { exclusiveOffDesc: d.exclusiveOffDesc } : {}),
       });
     }
+    // 工具面采集：defs 现算（唯一事实源；owner = 注册方行名）
     for (const def of this.ctx.tools.listWithOwner()) {
       for (const tag of def.requiredTags ?? []) {
         if (tag.startsWith('agent:')) continue; // owner 私有标签不进目录（等 owner 自行声明）
@@ -265,17 +225,12 @@ export class TagRegistryService extends Service {
           }
           continue;
         }
-        const list = this.consumers.get(tag) ?? [];
-        const merged = list.some((t) => t.name === def.name)
-          ? list
-          : [...list, { name: def.name, ...(def.description ? { description: def.description } : {}), owner: def.owner }];
-        byTag.set(tag, { tag, category: 'capability', tools: merged });
+        byTag.set(tag, {
+          tag,
+          category: 'capability',
+          tools: [{ name: def.name, ...(def.description ? { description: def.description } : {}), owner: def.owner }],
+        });
       }
-    }
-    // 校正增量缓存与 defs 的漂移（事件遗漏/时序差的兜底）
-    for (const [tag, tools] of this.consumers) {
-      if (byTag.has(tag)) continue;
-      byTag.set(tag, { tag, category: tag.startsWith('agent:') ? 'owner' : 'capability', tools });
     }
     return [...byTag.values()].sort((a, b) => a.tag.localeCompare(b.tag));
   }
@@ -285,8 +240,8 @@ export class TagRegistryService extends Service {
    * 模式词）被任何 requiredTags 引用即抛错——tc-* 是纯模式词（2026-09-17
    * 裁决；「程序化」是形态选择非授权门槛）。② injection:'mode' 工具
    * 挂 requiredTags 即抛错（2026-09-21 injection 轴：mode 通道与能力轴
-   * 无关，双门语义混乱）。启动期检查（boot 后调用一次；测试/宿主可
-   * 随时复查）。
+   * 无关，双门语义混乱）。ac-app bootTree 装配完成即调用（cr-390 接线，
+   * tag-system-report 红线的启动断言）；测试/宿主可随时复查。
    */
   assertNoTierInToolRequirements(): void {
     const modeWords = RESERVED.filter((r) => r.category !== 'capability').map((r) => r.tag);

@@ -197,10 +197,10 @@ export async function deleteAgent(agentId: string, rpc: Rpc): Promise<{ success?
 
 // ── 能力标签目录（tag-registry P1：AgentPane 徽章编辑数据源） ──
 
-/** 标签目录条目（tags/catalog 线形） */
+/** 标签目录条目（tags/catalog 线形；cr-390 类别镜像同步——base/owner/unknown 三词已随产出面退役） */
 export interface TagCatalogItem {
   tag: string;
-  category: 'base' | 'access-tier' | 'tool-mode' | 'capability' | 'owner' | 'unknown';
+  category: 'access-tier' | 'tool-mode' | 'capability';
   description?: string;
   tools: Array<{ name: string; description?: string; owner?: string }>;
   reserved?: boolean;

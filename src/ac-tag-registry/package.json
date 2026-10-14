@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "能力标签注册中心（ctx.tagRegistry）：tool/* 注册面自动采集 + 档位/base 预注册 + owner/未知词分类",
+  "description": "能力标签注册中心（ctx.tagRegistry）：工具 requiredTags 现算目录 + 档位/模式词预注册 + 抉择组元数据与启动断言",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

@@ -504,7 +504,8 @@ const tagGroups = computed<TagGroup[]>(() => {
  *  2026-09-16 也如实带工具计数——后端采集面已并入）；分层族附「含低层级能力」语义 */
 function tagTooltip(item: TagCatalogItem): string {
   const desc = TOOL_TAG_LABELS[item.tag] ?? item.description;
-  if (item.category === 'base') return desc ?? item.tag; // 历史类别（base 退役后不再产生）
+  // 档位/模式组：纯描述（无解锁清单——它们不进工具门禁）；base 分支随
+  // 类别退役已清（cr-390：目录产出面不再有该类别条目）
   if (item.category === 'access-tier' || item.category === 'tool-mode') return desc ?? item.tag;
   const lines: string[] = [];
   if (desc) lines.push(desc);

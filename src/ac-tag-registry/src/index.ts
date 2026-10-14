@@ -1,9 +1,9 @@
 // ============================================================
 // ac-tag-registry —— 能力标签注册中心插件行
 //
-// P1（tag 词表显式化）：tool/registered 采集 + 档位/base 预注册 +
-// owner/未知词分类；数据源 = tags/catalog RPC（ac-web-api 注册）。
-// 工具行零改动——事件由 ac-tools 的注册面自动发出。
+// P1（tag 词表显式化）：defs 现算目录 + 档位/模式词预注册；数据源 =
+// tags/catalog RPC（ac-web-api 注册）。工具行零改动——目录按 ac-tools
+// 注册表（defs + 注册方行名）现算，不依赖事件时序。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { TagRegistryService } from './service.ts';
@@ -15,7 +15,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'tag-registry',
   label: '标签注册中心',
-  description: '能力标签目录（ctx.tagRegistry）：工具 requiredTags 自动采集 + 档位/base 预注册 + 分类与断言',
+  description: '能力标签目录（ctx.tagRegistry）：工具 requiredTags 现算采集 + 档位/模式词预注册 + 抉择组元数据与启动断言',
   automatic: true,
 };
 

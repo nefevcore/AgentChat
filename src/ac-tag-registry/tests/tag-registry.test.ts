@@ -1,11 +1,13 @@
 // ============================================================
 // ac-tag-registry/tests/tag-registry.test.ts —— 标签注册中心
 //
-// · 采集：tool/registered 事件（ac-tools 发出）→ tag → 消费工具清单
-// · 预注册：base / 档位词（full-access/sandbox-access）启动即在场
-// · 分类：owner（agent:<id>）不进目录；reserved 词带描述
+// · 目录：按 ac-tools defs 现算（cr-390 单源）——预注册 + 手工声明 +
+//   工具面三源合并；tools[].owner 恒由 defs 带出（装载序无关）
+// · 预注册：能力族与档位/模式词（full-access/sandbox-access/tc-*）启动即在场
+// · 分类：owner 私有标签（agent:<id>）不进目录；reserved 词带描述
 // · 断言：档位词进 requiredTags → assertNoTierInToolRequirements 抛错
-// · 装载序无关：工具行先注册、tag-registry 后装载也能补齐目录
+//   （ac-app bootTree 装配完成即接线调用——cr-390）
+// · 装载序无关：工具行先注册、tag-registry 后装载目录同样完整
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -141,6 +143,9 @@ describe('ac-tag-registry 目录', () => {
     expect(byTag.get('shell')?.category).toBe('capability');
     // 兜底合成也补 owner
     expect(byTag.get('shell')?.tools.some((t) => t.name === 't-early')).toBe(true);
+    // tools[].owner 恒由 defs 带出（cr-390：修事件增量缓存丢 owner——
+    // 先注册后装载与先装载后注册两序同形）
+    expect(byTag.get('shell')?.tools.find((t) => t.name === 't-early')?.owner).toBe('fake-tool-row');
   });
 
   it('owner 标签（agent:<id>）不进目录——等 owner 自行声明', async () => {
@@ -164,6 +169,19 @@ describe('ac-tag-registry 目录', () => {
     expect(ctx.tagRegistry.catalog().some((t) => t.tag === 'solo-tag')).toBe(true);
     dispose();
     expect(ctx.tagRegistry.catalog().some((t) => t.tag === 'solo-tag')).toBe(false);
+  });
+
+  it('tools[].owner 恒在（cr-390：事件增量缓存丢 owner 的装载序走散修复）', async () => {
+    const { ctx, fibers } = await boot();
+    fibers.push(await ctx.plugin({
+      name: 'late-tool-row',
+      inject: ['tools'],
+      apply(c: Context) {
+        c.tools.register({ name: 't-late', requiredTags: ['late-tag'], execute: () => ({ ok: true }) });
+      },
+    }));
+    const entry = ctx.tagRegistry.catalog().find((t) => t.tag === 'late-tag');
+    expect(entry?.tools[0]).toMatchObject({ name: 't-late', owner: 'late-tool-row' });
   });
 });
 

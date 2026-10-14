@@ -74,9 +74,9 @@ declare module '@agentchat/cordis' {
 
     /**
      * 工具注册通知（注册生效即 emit；def 携带完整定义——requiredTags
-     * 等门禁词汇对采集方可见）。消费先例：ac-tag-registry 的标签目录
-     * 采集（行装载序无关——服务激活即收后续事件，目录查询另有 defs
-     * 兜底合成）。
+     * 等门禁词汇对订阅方可见）。标签目录已改 defs 现算（cr-390 起不经
+     * 事件采集——快照语义，装载序无关）；本事件面向行装卸审计与第三方
+     * 订阅方（动态插件工具行跟踪）。
      * @mode emit
      * @scope host
      */
