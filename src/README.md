@@ -398,7 +398,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | `ac-ollama-completions` | Ollama 原生 /api/chat：NDJSON 流式 + tool_calls/thinking 映射 + chat 聚合 + listModels /api/tags（cr-39；protocol='ollama'） |
 | `ac-config-merge` | deepMerge（settingsOf 全局层∪差异层合成；管理面补丁合成）/computeDiff（变更键报告） |
 | `ac-edit-core` | 编辑引擎：三级模糊匹配（trim 级只定位不替换 + 三级交叉唯一性）/写回前语法预检（配平失败报错带「第 N 行第 C 列 + 行预览」定位）/readback 回显/增量 diff/行尾保留（old/new 自动 LF 归一化匹配 + CR 双写损伤修复——2026-09-21 画像 Ⓑ）/失配定位线索（最接近行 + 行尾统计）/文件突变队列 |
-| `ac-sandbox-core` | createSandboxResolver/bash 命令扫描/输出脱敏/agentSpaceRoots（读写侧基准分叉并根） |
+| `ac-sandbox-core` | createSandboxResolver/bash 命令扫描/双黑名单装配工厂（createDenyListsFactory）/输出脱敏/防自杀检测/唆使提权防御提示词/agentSpaceRoots（读写侧基准分叉并根） |
 | `ac-text-budget` | token 估算/代理对安全截断 |
 | `ac-glob-core` | glob→RegExp + 有界 walk（SKIP_BASE/SKIP_DIRS 分层缺省——产物目录缺省跳过，skipDirs 整表覆盖 + skippedRoots 透出） |
 | `ac-web-search-core` | 搜索 provider 特型（tavily/deepseek 在册） |

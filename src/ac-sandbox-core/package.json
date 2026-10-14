@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "沙箱与安全纯库（零 cordis 依赖）：路径解析器/bash 命令扫描（heredoc 剥离）/输出脱敏",
+  "description": "沙箱与安全纯库（零 cordis 依赖）：路径解析器/bash 命令扫描（heredoc 剥离）/双黑名单装配工厂/输出脱敏/防自杀检测/唆使提权防御提示词",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -12,7 +12,6 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "devDependencies": {
-    "ac-text-budget": "workspace:*",
     "vitest": "^4.1.10"
   }
 }

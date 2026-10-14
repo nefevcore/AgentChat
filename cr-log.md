@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-421**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-422**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -439,3 +439,4 @@
 - 【cr-419 2026-10-14 新增探索档案 protocol-spec-envelope-lock-guardian.md：协议规格草稿——A 信封 schema（uuid/requestId/budget/hop）+ B 投递通道与状态机（acquire→delivered→acked→settled）+ C activation 文件锁（agents/<id>/activation.lock）+ D 宿主监护信号（stdio TSV + 拉起三节拍）+ E 授权信；复用现状先例（cr-250 requestId / MAX_AUTO_WAKES=3 / 42-78-0 / ac-ws-protocol 帧）】
 - 【cr-420 2026-10-14 新增探索档案 auth-registry-data-format.md：授权注册表数据格式草稿——两层 schema（全局 auth.json / per-agent agents/<id>/auth.json）+ 投影算法（全局∩tags、denials 优先、children 物化即快照）+ grant 事务 + 现状五状态复用清单】
 - 【cr-421 2026-10-14 ac-glob-core 审计 #86 深审收口：fs-search grep 单文件分支 toPosix 并源（内联 replace POSIX 字面反斜杠误转缺陷随修）+ walkFiles skippedRoots 库级锁定 + glob-regex.ts 行尾归一】
+- 【cr-422 2026-10-14 ac-sandbox-core 深审收口：ac-text-budget 重复测试块+devDep 迁迹清除（owning 包覆盖更全）、包内 CRLF 统一 LF（#20 先例）、package 描述与 index 头注补 notice/双黑名单装配/防自杀域】

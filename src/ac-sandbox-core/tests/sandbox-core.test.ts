@@ -1,5 +1,5 @@
 // ============================================================
-// ac-sandbox-core + ac-text-budget：沙箱/bash 扫描/脱敏/token 截断
+// ac-sandbox-core：沙箱路径解析/bash 扫描/双黑名单装配/脱敏/防自杀
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -20,7 +20,6 @@ import {
   makeSecretRedactor,
   redactSecretValue,
 } from 'ac-sandbox-core';
-import { estimateTokens, sanitizeSurrogates, safeTruncate, safeClipByTokens } from 'ac-text-budget';
 
 const home = os.homedir().replace(/\\/g, '/');
 
@@ -494,43 +493,5 @@ describe('输出脱敏', () => {
     );
     expect(v).toMatchObject({ items: ['has *** inside'], nested: { key: '***' }, n: 42 });
     expect(redactSecretValue(7, redact)).toBe(7);
-  });
-});
-
-describe('token 预算与安全截断', () => {
-  it('estimateTokens：CJK 0.6 / 其他 0.3', () => {
-    expect(estimateTokens('')).toBe(0);
-    expect(estimateTokens(null)).toBe(0);
-    expect(estimateTokens('中文')).toBe(2); // 0.6*2=1.2 → ceil 2
-    expect(estimateTokens('abcd')).toBe(2); // 0.3*4=1.2 → ceil 2
-  });
-
-  it('safeTruncate：不切代理对', () => {
-    const text = 'a😀b'; // a + 😀(2 units) + b = 4 units
-    expect(safeTruncate(text, 4)).toBe('a😀b');
-    expect(safeTruncate(text, 3)).toBe('a😀'); // 切点落在对之后 → 完整保留
-    expect(safeTruncate(text, 2)).toBe('a'); // 切点落在高/低代理之间 → 退一格
-    expect(safeTruncate(text, 1)).toBe('a');
-    expect(safeTruncate('', 3)).toBe('');
-  });
-
-  it('sanitizeSurrogates：孤立代理替换 U+FFFD', () => {
-    expect(sanitizeSurrogates('a\u{1F600}b')).toBe('a\u{1F600}b'); // 完整对保留
-    expect(sanitizeSurrogates('a\uD800b')).toBe('a\uFFFDb'); // 孤立高代理 → U+FFFD
-    expect(sanitizeSurrogates('a\uDC00b')).toBe('a\uFFFDb'); // 孤立低代理 → U+FFFD
-  });
-
-  it('safeClipByTokens：预算内原样；超预算加省略号；keepTail/keepHead', () => {
-    expect(safeClipByTokens('short', 100, false)).toBe('short');
-    const head = safeClipByTokens('a'.repeat(100), 10, false);
-    expect(head.endsWith('…')).toBe(true);
-    expect(head.length).toBeLessThanOrEqual(35);
-    const tail = safeClipByTokens('a'.repeat(100), 10, true);
-    expect(tail.startsWith('…')).toBe(true);
-    // 代理对完整（emoji 不被切半）
-    const emoji = '😀'.repeat(50);
-    const clipped = safeClipByTokens(emoji, 5, false);
-    expect(clipped.endsWith('…')).toBe(true);
-    expect(clipped.slice(0, -1)).not.toContain('\uFFFD');
   });
 });
