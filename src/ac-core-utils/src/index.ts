@@ -6,7 +6,7 @@
 // 域词汇本身（契约/事件/服务面）仍归 owning 包，本库只收"会成环的
 // 那一小块"。域逻辑、状态、cordis 注册面禁止入内。
 //
-// 现状六组词汇：
+// 现状七组词汇：
 //   · GROUP_HINT_META / isGroupHint —— 群 hint 投递标记协议
 //     （原住 ac-group；group 生产、session/conversation/ws-bridge
 //     消费。session→group 与 D11 存储归属方向相逆，环的一边）
@@ -16,6 +16,8 @@
 //   · runAddress / pairKey —— run 寻址与对桶键（原住 ac-agent-loop，
 //     2026-10-10 cr-318 下沉：conversation 串行化门 / router 对桶投递 /
 //     workspace 会话桶等 8+ 包值导入——词法协议全仓单源）
+//   · memberStreamKey —— 群成员私有转录流键（原住 ac-group，2026-10-13
+//     cr-376 下沉：file-snapshots 会话删除级联跨行消费走单源）
 //   · ARCHIVE_REVIEW_META / isArchiveReviewRun —— 机制 run 标记
 //     （原住 ac-agent-loop，cr-318 同批：conversation/session/usage/
 //     goal/group/singles/ws-bridge/remote-link 消费，与 GROUP_HINT_META

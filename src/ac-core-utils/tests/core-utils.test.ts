@@ -1,6 +1,7 @@
 // ============================================================
 // ac-core-utils：跨行协议纯函数（GROUP_HINT_META/isGroupHint、maxSeqOf、
-// runAddress/pairKey/ARCHIVE_REVIEW_META/isArchiveReviewRun/normalizeToolSpecs）
+// runAddress/pairKey/memberStreamKey/ARCHIVE_REVIEW_META/isArchiveReviewRun/
+// normalizeToolSpecs)
 // persona 解析词法测试住 tests/persona.test.ts（cr-321 随迁）
 // ============================================================
 import { describe, it, expect } from 'vitest';
@@ -10,6 +11,7 @@ import {
   isArchiveReviewRun,
   isGroupHint,
   maxSeqOf,
+  memberStreamKey,
   normalizeToolSpecs,
   pairKey,
   runAddress,
@@ -50,6 +52,13 @@ describe('pairKey（M19 对桶键：排序 ~ 连接，自会话 = 对角线）',
   });
   it('a===b 即自会话对角线', () => {
     expect(pairKey('x', 'x')).toBe('x~x');
+  });
+});
+
+describe('memberStreamKey（cr-4 成员私有流键：gid~member，member 恒最右）', () => {
+  it('键值 = groupId~member 字面拼接（gid 禁 ~ 规约下右起解析无歧义）', () => {
+    expect(memberStreamKey('g1', 'alice')).toBe('g1~alice');
+    expect(memberStreamKey('fanout', 'b')).toBe('fanout~b');
   });
 });
 

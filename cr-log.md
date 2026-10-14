@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-407**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-410**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -425,3 +425,6 @@
 - 【cr-405 2026-10-14 新增探索档案 shell-model-unification.md：cell × per-agent 两档案统一综述（壳模型）——cell ≡ CLI 壳、执行面同一 + 控制面取代、池化解散、多租户降格、cell 剩余角色 = 沙箱；纯设计/对照裁决/开放问题三部分，壳模型为拟定方向未裁决】
 - 【cr-406 2026-10-14 ac-group 深审（audit #81）：依赖归位（ac-agent-loop 移 devDeps——cr-318 值导入归零漏尾）+ 死类型 GroupFeedAnchor/Page 删（readSince 随 cr-4 退役孤儿）+ memberStreamKey 死 re-export 删（全仓零消费，均直连 ac-core-utils）+ 注释漂移订正（loadLimitTokens 幻影/rotateWithReview 退役叙事/membersWithUser 消费面/GROUP_HINT_META 消费方）+ CRLF→LF 统一（cr-337 先例）】
 - 【cr-407 2026-10-14 shell-model 档案剃刀修订：移除 runtime 字段（M1，选址 = 触发形态 × 信任策略）、移除 L2 树级重启与其 spike（M2，适用面被蚕食）、移除多租户提法（M3，宿主内共进程 = 缺省）、形态谱系简化为两形态（S-1，沙箱 = 策略非档）】
+- 【cr-408 2026-10-14 ac-core-utils 深审收口（#82）：cr-376 memberStreamKey 下沉时包内文档漏同步三处订正（头注目录/描述/测试头注——六组实为七组）+ memberStreamKey 包内锁定测试补齐（10 词中唯一零包内覆盖）】
+- 【cr-409 2026-10-14 shell-model 档案 M4 终态修订：壳恒为进程（宿主内子树降为迁移过渡态，不进终态）——一形态/单协议/完整隔离/纯宿主/文件锁；宿主监护职责成文（拉起/监视/idle-exit/退避熔断）；S2/S6/P0/P2/开放问题连锁重写】
+- 【cr-410 2026-10-14 shell-model 档案 M5 过渡态删除：宿主内子树概念整体退役——过渡态验证的不是终态（内存锁/共享故障域/直调 transport 三样终态全无）、锁与 transport 双实现分叉、账本语义不依赖执行位置（现状单宿主即是验证场地）；D9 路径改写为直上终态（步 1 现状验证账本语义 → 步 2 进程化带出文件锁与宿主投递）】
