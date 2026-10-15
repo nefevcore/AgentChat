@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "theme 基础件前端行（M27.2-2 出包首件，phase:'base'）：明暗主题视图状态（ctx.theme：ThemeCore 私有 reactive + toggle/applyThemeClass 方法面；localStorage 持久化 + html class + highlight.js 主题切换事件）；无后端行——宿主半边仅声明 boot graph 条目",
+  "description": "theme 基础件前端行（M27.2-2 出包首件，phase:'base'）：明暗主题视图状态（ctx.theme：ThemeCore 私有 reactive + toggle/set/followSystem 方法面；localStorage 持久化 + html class 同步 + highlight.js 主题切换事件）；无后端行——宿主半边仅声明 boot graph 条目",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

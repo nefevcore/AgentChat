@@ -7,11 +7,11 @@
 //
 // ctx.theme（client 半边提供；服务名与服务端占名无碰撞，D22）：
 //   · 视图状态（明暗主题）归本件私有（§0.3 层 1）——不跨插件暴露
-//     store 本体；他件影响主题走服务方法（toggle/set）；
+//     store 本体；他件影响主题走服务方法（toggle/set/followSystem）；
 //   · 持久化 localStorage('agentchat.theme') + html class 应用 +
 //     highlight.js 主题切换事件（theme-changed）；
-//   · 双模门面：webui stores/theme.ts 转发 ctx.theme.core（runtime
-//     在场）/ 独立 Core（无 runtime 单测）。
+//   · 双模门面（client/themeStore.ts）：runtime 在场 → 绑
+//     ctx.theme.core（单一事实源）；无 runtime（单测）→ 独立 Core。
 //
 // 可摘除性：本件是 base 地基件——卸载即 boot graph base 行集变更
 // → 前端整页重载（M27.2 §3.2 裁决：基础件不可动态回收）。

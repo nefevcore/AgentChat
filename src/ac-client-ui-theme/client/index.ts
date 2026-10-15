@@ -11,8 +11,9 @@
 //   · 偏好三档 system|light|dark（cr-43 ②）：缺省 system 实时跟随
 //     prefers-color-scheme（含运行时 change 监听——安卓下拉切深色即跟），
 //     toggle/set 从 system 切出时落定生效值为固定档；
-//   · 双模门面：webui stores/theme.ts 转发 ctx.theme.core（runtime
-//     在场）/ 独立 Core（无 runtime 单测）——roster 门面同款。
+//   · 双模门面（同目录 themeStore.ts）：runtime 在场 → 绑
+//     ctx.theme.core（单一事实源）；无 runtime（单测）→ 独立 Core
+//     ——roster 门面同款。
 // 行 client 不 import webui 内部模块（依赖一律 inject 声明，D6）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
@@ -114,12 +115,11 @@ export class ThemeService extends Service {
   toggleTheme(): void { this.core.toggleTheme(); }
   setTheme(mode: ThemeMode): void { this.core.setTheme(mode); }
   followSystem(): void { this.core.followSystem(); }
-  applyThemeClass(): void { this.core.applyThemeClass(); }
 }
 
 declare module 'ac-client-runtime' {
   interface ClientContext {
-    /** theme 基础件（视图状态私有 + 方法面）：theme/preference/toggleTheme/setTheme/followSystem/applyThemeClass */
+    /** theme 基础件（视图状态私有 + 方法面）：theme/preference/toggleTheme/setTheme/followSystem */
     theme: ThemeService;
   }
 }

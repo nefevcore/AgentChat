@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-444**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-447**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -462,3 +462,6 @@
 - 【cr-442 2026-10-15 ac-gemini-completions 深审收口（审计 #106）：修三真机缺陷——thoughtSignature 通道打通（functionCall part 签名采集→中性 thinkingSignature 现成链路→回放附 functionResponse/functionCall part，Gemini 2.5 多轮工具不回传即 400，cr-98/cr-440 同型）、promptFeedback.blockReason 请求级安全拦截映射 finish（原静默空文本假成功）、并行 functionResponse 合并单 user content（官方角色交替形态）；测试 8→15 用例改官方事件形态；CRLF→LF】
 - 【cr-443 2026-10-15 ac-gemini-completions 签名通道跨包贯通（cr-442 收尾）：中性 tool_calls[].signature 通道打通——LlmToolCallDelta/LlmToolCall/GeminiToolCallDelta 增 signature 字段、ac-llm chat 聚合透传、loop assistantOf 装配、session expandSteps/wire 投影、openai completions+responses+ollama 剥离（cr-294 thinkingSignature 同因同法——跨 provider 重放不泄漏进 body）】
 - 【cr-444 2026-10-15 ollama 协议库深审收口（审计 #107）：restStripped 走散修复（解构源 restParams→restStripped，与 anthropic/gemini 同构对齐——白名单当前兜住无泄漏，形态归一断根）、toOllamaTools 死导出收私有、CRLF→LF 包内统一、补测试 6 用例（chat 聚合/无进展超时两形态/close 拒绝/NDJSON 解析失败/meta 传输键）】
+- 【cr-445 2026-10-15 行集清单 v2 补装配期派生：ac-rowset-core 纯库 + boot 编排读行集引用 + R7-6 两级定向（行级装配期/工具级运行时，软门壳内退役）+ R7-8 配置变更生效路径待钉 + plugin-registry 行集条目注入（动态插件隔离物理化）；协议规格 D1 argv 补行集清单引用】
+- 【cr-446 2026-10-15 行集清单 v2：ac-tag-registry 退役归并——catalog 静态化进 ac-rowset-core（per-agent 目录投影，编辑面与壳存活期解耦）、启动断言纯函数化进壳 boot 编排、TagDeclaration 类型随迁；壳树 36→35】
+- 【cr-447 2026-10-15 ac-client-ui-theme 深审收口（审计清单#108，P4 前端薄行）：删/拆双否（6 域行 themeStore 值消费 + ActivityBar/MobileMoreSheet 服务面 + renderer theme-changed 事件消费 + webui 验收测试；base 地基件卸载即整页重载——M27.2 §3.2 裁决）；注释漂移三处订正（头注引用的 webui stores/theme.ts 已随 M27.2-2 出包迁移消亡，双模门面实住本包 client/themeStore.ts——消费面 sidebar 面板壳表述同步订正为 6 域行）；applyThemeClass 死出口清理（ThemeService 委托 + themeStore 门面出口全仓零消费——html class 由 ThemeCore watch flush:sync 内同步保证，useMarkdown 直读 DOM class，跨包直接调用的消费形态不存在）】

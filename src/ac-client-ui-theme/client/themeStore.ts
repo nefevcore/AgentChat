@@ -1,10 +1,9 @@
 // ============================================================
 // ac-client-ui-theme/client/themeStore.ts —— 主题 pinia 门面
-//（包内消费面：sidebar 面板壳等组件用）
+//（消费面：agents/singles/runview/subagent/usage 域行组件 + layout 壳）
 //
 // runtime 在场 → 绑 ctx.theme.core（单一事实源）；无 runtime（单测）
-// → 独立 ThemeCore。与 webui stores/theme.ts 同 pinia id 'theme'：
-// app 内两定义均绑 runtime core = 同一 store 实例（先注册者生效）。
+// → 独立 ThemeCore。pinia id 'theme' 全仓唯此一处定义。
 // ============================================================
 
 import { defineStore } from 'pinia';
@@ -22,6 +21,5 @@ export const useThemeStore = defineStore('theme', () => {
     toggleTheme: core.toggleTheme.bind(core),
     setTheme: core.setTheme.bind(core),
     followSystem: core.followSystem.bind(core),
-    applyThemeClass: core.applyThemeClass.bind(core),
   };
 });
