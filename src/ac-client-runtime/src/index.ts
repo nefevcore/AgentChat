@@ -3,21 +3,20 @@
 //
 // 契约出口：ClientContext 类型身份（D22）+ 客户端事件目录类型增强；
 // 纯核（SlotCore）住 ac-client-slots 单独 import。
+// 服务类（SlotsService/ObjectsService）不出包级出口：唯一装配口 =
+// createClient()（context.ts），测试经包内相对路径直连。
 // ============================================================
 export { ClientContext, createClient, clientPlugin } from './context.ts';
 export type { ClientPluginObject } from './context.ts';
 export type { Fiber } from '@agentchat/cordis';
 // runtime 单例持有（M27.2-2：包内模块的非组件上下文读取面）
 export { setClientRuntime, clientRuntime, resetClientRuntime } from './runtime.ts';
-export { SlotsService } from './slots.ts';
 export type { SlotRenderer } from './slots.ts';
-export { ObjectsService } from './objects.ts';
 export { CLIENT_CONTEXT_KEY, SLOT_OWNER_KEY, useContext, useClientContext, wrapComponent } from './vue.ts';
 export type { RpcClientFace } from './rpc.ts';
-export type {} from './rpc.ts';
-// 会话服务契约面（conversation 基础件实现；行 client/门面消费）
-export type { SessionsClientFace, SessionsFeedFace, SessionsChatFace } from './sessions.ts';
-export type {} from './sessions.ts';
+// 会话服务契约面（conversation 基础件实现；行 client/门面消费——子接口
+// feed/chat 由实现侧深路径取用）
+export type { SessionsClientFace } from './sessions.ts';
 // 上次会话上下文持久化小件（roster/groups/singles 域行 client 共用）
 export { loadLastContext, saveLastContext, clearLastContextIf } from './lastContext.ts';
 export type { LastContext } from './lastContext.ts';

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-436**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-437**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -454,3 +454,4 @@
 - 【cr-434 2026-10-14 ac-cdp-core 深审收口：死词三清（detectBrowser 收私有 / CdpTargetInfo 删 / RefElement.backendNodeId 死数据链删）+ serializeElements 死 limit 参数删 + press 未映射键 fail-loud（code 0 假成功）+ extractText 早停 O(n^2) join 改累计预算 + web-tools 连带死 slice 与注释漂移订正】
 - 【cr-435 2026-10-15 ac-web-search-core 深审收口（审计清单#101）：删/拆双否——纯库分层正位；修头注 key 三源→四层解析链漂移（cr-366 行侧订正漏同步）；package.json 描述补注册表在册口径；补 ddg Infobox 合成路径用例】
 - 【cr-436 2026-10-15 ac-migration-core 深审（#102）：readDataVersion 字段级异常（合法 JSON 但 dataVersion 缺失/非法）归 -1 全量重放——原静默落 0 跳过全部迁移；.initialized 推断注释漂移订正；ac-session type-only 依赖正位 devDeps；README 纯库表补行；补告警分支/快照红线锁定】
+- 【cr-437 2026-10-15 ac-client-runtime 深审精简（#103）：死出口清理（SlotsService/ObjectsService barrel、SessionsFeedFace/SessionsChatFace 子接口、rpc/sessions 冗余 type{} 锚行）+ CRLF 统一 LF（index/slots/switchTrace）+ lastContext 注释漂移订正（webui utils 门面已随 cr-331 清退）】

@@ -8,7 +8,7 @@
 //
 // 归属（M27 S3-1b）：roster/groups/singles 三个域行 client 共用的
 // 浏览器持久化小件——住客户端运行时包（行 client 互不 import，跨行
-// 共享件归运行时；webui utils/lastContext.ts re-export 维持旧路径）。
+// 共享件归运行时；行 client 经包级出口消费）。
 // localStorage 经结构化类型访问（不引 DOM lib——本包进根 tsc 程序）。
 // ============================================================
 
