@@ -121,7 +121,7 @@ async function boot(): Promise<void> {
   // M27.2-2：base 阶段基础件（boot graph phase:'base'——封印前批次，
   // root 席位/渲染地基类基础件可安全占据；已出包：theme/renderer/tool/sidebar）
   await applyBootGraph('base');
-  // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
+  // 出厂封印（D3）：此后 root 席位的注册一律入动态层（选举恒低于出厂层）
   ctx.slots.sealFactory();
 
   // ④ domain 阶段域行（M27 S3/D7）：宿主下发行 client 半边清单

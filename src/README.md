@@ -416,7 +416,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | `ac-gate-core` | agentGate 门控：waterfall 停用机械 next()/emit 停用跳过/facet 子键覆盖回落行为级 |
 | `ac-error-core` | describeError（cause 链展开单行诊断）+ isTransientNetworkError（瞬时网络故障判定）+ LLM HTTP 分类簇（LlmHttpError/parseRetryAfter 等，cr-98） |
 | `ac-extension-core` | ExtensionMeta 契约（可配置行入口自述 `export const extension`） |
-| `ac-client-slots` | 浏览器侧 SlotCore 纯核（M27 S0）：string key 声明账本 + order/single-list/disabled + 装载校验 + 卸载级联；注册面签名按 D2 终态形状占位（cell/priority/store/children）——零 cordis、零框架依赖 |
+| `ac-client-slots` | 浏览器侧 SlotCore 纯核（M27 S0 → S1.5）：声明账本 + order/cell/priority 选举（single shadow/chain 消费序）+ store 座位实例轴（引用计数/会话死即清）+ abdicate 退位 + 装载校验 + 卸载级联——零 cordis、零框架依赖 |
 
 ## 布局（扁平，每行一包，`ac-*` 前缀）
 

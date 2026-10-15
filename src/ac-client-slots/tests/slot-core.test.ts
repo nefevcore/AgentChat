@@ -184,7 +184,7 @@ describe('SlotCore · root 单席位纪律（D3）', () => {
     core.register('root', entry('layout.app-frame', { order: 0 })); // 出厂层（tier 0）
     core.sealFactory();
     expect(core.sealed).toBe(true);
-    // S1.5：动态注册不再抛 FACTORY_SEALED，而是恒入动态层（tier 1）
+    // S1.5：动态注册不再被拒（S0/S1「封印即拒」防线已由 tier 选举取代），而是恒入动态层（tier 1）
     core.register('root', entry('dynamic.theme', { order: 0, priority: 9999 }));
     core.register('root', entry('dynamic.takeover', { order: -999 }));
     // 出厂层恒胜——动态条目 priority/order 再高也不打散框架

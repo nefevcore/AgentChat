@@ -26,8 +26,9 @@
 //   · 同 slot 内同 id 后注册者替换前者（幂等，继承插入序）；
 //   · order 缺省 100，升序，同 order 按注册先后稳定（list 型排序轴）；
 //   · 未声明（不在声明账本）的 key 一律拒绝注册——D1 fail-closed；
-//   · root 单席位纪律（D3）：factory 席位出厂装配封印后拒绝动态注册；
-//     选举中出厂层恒高于动态层（「动态注册者恒低优」）。
+//   · root 单席位纪律（D3）：factory 席位分出厂/动态两层——封印前注册
+//     = 出厂层（tier 0，选举恒胜），封印后动态注册恒入动态层（tier 1，
+//     「动态注册者恒低优」——S1.5 起取代「封印即拒」防线）。
 // ============================================================
 
 /** slot 形态（D2 终态词汇） */
@@ -46,11 +47,6 @@ export const DEFAULT_CELL = 'base';
 export type SlotCoreErrorCode =
   /** 注册到未声明的 slot（先 declare 再 register） */
   | 'UNDECLARED_SLOT'
-  /**
-   * 出厂席位封印后的动态注册（S0/S1 防线语义；S1.5 起被 tier 选举
-   * 取代——动态注册恒低优不再拒绝，此码保留给诊断面/历史兼容）
-   */
-  | 'FACTORY_SEALED'
   /** 声明/条目参数形状非法 */
   | 'INVALID_DEF';
 
@@ -419,7 +415,7 @@ export class SlotCore {
     return true;
   }
 
-  /** 出厂装配封印（D3）：此后 factory 席位的动态注册一律拒绝。 */
+  /** 出厂装配封印（D3）：此后 factory 席位的注册一律入动态层（tier 1，选举恒低于出厂层）。 */
   sealFactory(): void {
     this.factorySealed = true;
   }

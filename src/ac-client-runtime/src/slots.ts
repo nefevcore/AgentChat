@@ -83,8 +83,8 @@ export class SlotsService extends Service {
   }
 
   /**
-   * 注册贡献（装载校验失败同步抛 SlotCoreError：未声明 / 出厂封印 /
-   * 形状非法）。经调用方 fiber effect——插件卸载即级联回收。
+   * 注册贡献（装载校验失败同步抛 SlotCoreError：未声明 / 形状非法）。
+   * 经调用方 fiber effect——插件卸载即级联回收。
    *
    * @returns effect disposer（一般无需手动调用——随注册方 fiber 卸载自动执行）
    */
@@ -222,8 +222,9 @@ export class SlotsService extends Service {
   }
 
   /**
-   * 出厂装配封印（D3）：此后 factory 席位（root 等）的动态注册一律拒绝。
-   * 装配序列在「基础插件集合装配完成」后调用（main.ts）。
+   * 出厂装配封印（D3）：此后 factory 席位（root 等）的注册一律入动态层
+   * （tier 1，选举恒低于出厂层）。装配序列在「基础插件集合装配完成」
+   * 后调用（main.ts）。
    */
   sealFactory(): void {
     this.core.sealFactory();

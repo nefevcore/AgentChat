@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-437**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-439**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -455,3 +455,5 @@
 - 【cr-435 2026-10-15 ac-web-search-core 深审收口（审计清单#101）：删/拆双否——纯库分层正位；修头注 key 三源→四层解析链漂移（cr-366 行侧订正漏同步）；package.json 描述补注册表在册口径；补 ddg Infobox 合成路径用例】
 - 【cr-436 2026-10-15 ac-migration-core 深审（#102）：readDataVersion 字段级异常（合法 JSON 但 dataVersion 缺失/非法）归 -1 全量重放——原静默落 0 跳过全部迁移；.initialized 推断注释漂移订正；ac-session type-only 依赖正位 devDeps；README 纯库表补行；补告警分支/快照红线锁定】
 - 【cr-437 2026-10-15 ac-client-runtime 深审精简（#103）：死出口清理（SlotsService/ObjectsService barrel、SessionsFeedFace/SessionsChatFace 子接口、rpc/sessions 冗余 type{} 锚行）+ CRLF 统一 LF（index/slots/switchTrace）+ lastContext 注释漂移订正（webui utils 门面已随 cr-331 清退）】
+- 【cr-438 2026-10-15 ac-client-slots 深审收口（#104）：FACTORY_SEALED 死错误码删除（全仓零构造零消费——S1.5 tier 选举取代封印拒绝后的幽灵词汇）+ 封印语义注释漂移订正五处（纯核头注与 sealFactory JSDoc 仍是「封印即拒」旧语义、runtime slots.ts 两处、webui main.ts）+ package/README 描述「D15 占位」表述更新为 S1.5 实装现状 + 包内行尾 CRLF→LF 统一】
+- 【cr-439 2026-10-15 行集清单 v2 重写：新增 R0b 行资格测试，立行 12→4（8 项改判纯库/编排/归并），归并现状行 9 退役 3；同步协议·授权草稿 security-exec/行序引用】
