@@ -3,7 +3,9 @@
 import { ref, onMounted } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import type { AgentInfo } from 'ac-client-ui-conversation/client/types.ts';
-import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
+// VIEWER_ID 单源住 ac-client-runtime（M29 P1-1）——conversation/viewer.ts
+// 仅保留旧路径 re-export，新消费直连 runtime
+import { VIEWER_ID } from 'ac-client-runtime';
 import { fetchAgents } from 'ac-client-ui-agents/client';
 import { createGroup as apiCreateGroup } from './groupApi.ts';
 import { Modal, BusyRing, Tooltip } from '@agentchat/webui-kit';

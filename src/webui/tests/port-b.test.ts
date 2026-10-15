@@ -588,11 +588,16 @@ describe('Port B：api/groups（群名册，第三梯）', () => {
     expect(r.groups[0]).toEqual({ group_id: 'g1', name: '群', participants: ['a', 'b'], created_at: 5 });
   });
 
-  it('createGroup：group/create → {group:{group_id}}（创建后选中硬依赖）', async () => {
+  it('createGroup：group/create → {group:{group_id}}（创建后选中硬依赖）；自定义 id 透传', async () => {
     const { rpc, calls } = rec({ 'group/create': { group: { id: 'g9' } } });
     const r = await createGroup({ name: '新群', participants: ['a'] }, rpc);
     expect(r).toEqual({ group: { group_id: 'g9' }, success: true });
     expect(calls[0].params).toMatchObject({ name: '新群', members: ['a'] });
+    // 自定义群 id 透传（后端读 p.id——建群弹窗「群组 ID」输入框链路）
+    await createGroup({ name: '指名群', participants: ['a'], group_id: 'custom-1' }, rpc);
+    expect(calls[1].params).toMatchObject({ id: 'custom-1', name: '指名群' });
+    // 缺省不自带 id 键（后端自动生成）
+    expect('id' in (calls[0].params as Record<string, unknown>)).toBe(false);
   });
 
   it('updateGroup：改名 + 简介 + 成员差量（对账 group/list 现值）', async () => {

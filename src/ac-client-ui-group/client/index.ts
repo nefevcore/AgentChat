@@ -82,10 +82,6 @@ export async function fetchGroups(rpc: Pick<RpcClientFace, 'call'>): Promise<{ g
 
 // ---- 域投影服务 ----
 
-export interface GroupsClientOptions {
-  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
-}
-
 export class GroupsClientService extends Service {
   readonly groups: Ref<GroupInfo[]> = ref([]);
   readonly activeGroupId: Ref<string> = ref('');
@@ -99,10 +95,9 @@ export class GroupsClientService extends Service {
   private readonly own: ClientContext;
   private initialized = false;
 
-  constructor(ctx: Context, options: GroupsClientOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'groups');
     this.own = ctx as ClientContext;
-    void options;
   }
 
   async fetchGroups(): Promise<void> {

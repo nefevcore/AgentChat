@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-457**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-458**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -475,3 +475,4 @@
 - 【cr-455 2026-10-15 行集清单 R7-3 三拆重写：流式增量定向宿主转发（单安全边界/连接风暴吸收/远程复用/R0a 一致四论据，开销三个数量级以下不构成约束）+ 流式帧建模瞬态旁带（非信封、不入发件箱、生命周期=run）；协议规格 B 节补旁带帧条款】
 - 【cr-456 2026-10-15 行集清单 v3 重写：设计/裁决分离——正文纯净化（终态陈述，节号 R0-R8 保持稳定，R7 改待钉状态板：已定向一行指向裁决簿、未决展开），论据/判例/推演/演进史迁入新建 host-shell-decisions.md 裁决簿（十条目）；auth/protocol 草稿引用 v2→v3 同步】
 - 【cr-457 2026-10-15 ac-client-ui-jobs 深审收口（#113）：死口两清（Chip props.data.form 死字段——pair 隐身已由 conversationId=null 承载；JobBoardOptions 空壳+void options 退役，cr-330 同款）+ api/jobs.ts 已退役门面三处注释漂移订正（包内头注/RunTrackingPanel/webui 测试）+ WireJob⇄JobSnapshot 镜像锁补齐（#1 遗留①同构缺口）】
+- 【cr-458 2026-10-15 ac-client-ui-group 深审精简：修 group_id 透传断裂/VIEWER_ID 归一 runtime/死配置面与描述漂移订正/CRLF 统一】

@@ -8,15 +8,17 @@ import type { RpcClientFace } from 'ac-client-runtime';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
-/** 创建群组（CreateGroupDialog 消费——本行 overlay 贡献） */
+/** 创建群组（CreateGroupDialog 消费——本行 overlay 贡献；id 可选透传——
+ * 后端 group/create 读 p.id，缺省自动生成） */
 export async function createGroup(
-  payload: { name?: string; participants?: string[]; description?: string },
+  payload: { name?: string; participants?: string[]; description?: string; group_id?: string },
   rpc: Rpc,
 ): Promise<{ group?: { group_id?: string }; success?: boolean; error?: string }> {
   const r = await rpc.call<{ group?: { id?: string } }>('group/create', {
     name: String(payload.name ?? '未命名群组'),
     ...(Array.isArray(payload.participants) ? { members: payload.participants.map(String) } : {}),
     ...(payload.description !== undefined ? { description: String(payload.description) } : {}),
+    ...(payload.group_id ? { id: payload.group_id } : {}),
   });
   return { group: { group_id: r.group?.id }, success: true };
 }
