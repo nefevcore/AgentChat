@@ -132,7 +132,7 @@ function openSubagent(subId: string | undefined, name?: string, parentId?: strin
   ui.openSubagentView(subId, name, parentId);
 }
 
-/** 任务状态 → 色类（st-<status>；图标/文案共享 api/jobs 词汇） */
+/** 任务状态 → 色类（st-<status>；图标/文案共享 ac-client-ui-jobs/client 词汇） */
 function statusClass(s: WireJob['status']): string {
   return `st-${s}`;
 }

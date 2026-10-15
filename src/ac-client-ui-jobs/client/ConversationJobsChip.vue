@@ -30,10 +30,8 @@ import {
 const props = defineProps<{
   /** 席位 owner 上下文透传（D16-③：ConversationView 经 SlotOutlet data 传入） */
   data: {
-    /** 本会话键（1v1 对桶键 / singles sid / 群 gid；null = 无会话，不渲染） */
+    /** 本会话键（1v1 对桶键 / singles sid / 群 gid；null = 无会话不渲染——pair 无归属会话键即恒隐） */
     conversationId?: string | null;
-    /** 会话形态（贡献自gate 用；pair 无归属会话键恒隐） */
-    form?: 'direct' | 'group' | 'single' | 'pair';
   };
 }>();
 

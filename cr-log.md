@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-454**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-457**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -472,3 +472,6 @@
 - 【cr-452 2026-10-15 ac-client-ui-settings 深审精简：ns.* 死面链清理（getNamespaceSchemas/nsSchemas/NsFieldList/isNonDefault/nsValue·setNsValue——M22 D1 后无 ns 叶生产者，分支不可达）+ publicLegacySlots 死导出 + 注释漂移订正 + ac-client-slots 依赖正位 devDeps + 补包内 schema 纯函数测试】
 - 【cr-453 2026-10-15 行集清单 + 协议规格：jobs 归属三场景定向——壳 job（worker=壳子进程）进程内事件直投 inbox / 跨壳邮局信 / 宿主自有异步无基座（R7-2 收口：宿主 jobs 基座不设）；idle-exit 补第四条件（无在途 job）；job-wakeup 投递策略随迁；webui 观测 = 壳自报快照信 + 宿主聚合镜像（usage 同构）】
 - 【cr-454 2026-10-15 ac-client-ui-todo 深审（audit #112）：家族对齐三处（todo-row 测试 4.5s 超时根修=client 半边测试动态 import .vue 视图链改 defineAsyncComponent 同 goal 行先例；裸 slots.register 改 slots.inject 声明存活期效应同 run-code/shell 五行家族先例——消 boot 序隐性依赖）；重复勾圈 SVG path 双份并源 TodoGlyph.vue + 色档统一 --ok-status；reduce-motion 豁免表死类名清理（.glyph-spin/.g-spin 随 cr-129 BusyRing 化已无源消费）】
+- 【cr-455 2026-10-15 行集清单 R7-3 三拆重写：流式增量定向宿主转发（单安全边界/连接风暴吸收/远程复用/R0a 一致四论据，开销三个数量级以下不构成约束）+ 流式帧建模瞬态旁带（非信封、不入发件箱、生命周期=run）；协议规格 B 节补旁带帧条款】
+- 【cr-456 2026-10-15 行集清单 v3 重写：设计/裁决分离——正文纯净化（终态陈述，节号 R0-R8 保持稳定，R7 改待钉状态板：已定向一行指向裁决簿、未决展开），论据/判例/推演/演进史迁入新建 host-shell-decisions.md 裁决簿（十条目）；auth/protocol 草稿引用 v2→v3 同步】
+- 【cr-457 2026-10-15 ac-client-ui-jobs 深审收口（#113）：死口两清（Chip props.data.form 死字段——pair 隐身已由 conversationId=null 承载；JobBoardOptions 空壳+void options 退役，cr-330 同款）+ api/jobs.ts 已退役门面三处注释漂移订正（包内头注/RunTrackingPanel/webui 测试）+ WireJob⇄JobSnapshot 镜像锁补齐（#1 遗留①同构缺口）】

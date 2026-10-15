@@ -26,7 +26,7 @@ const ConversationJobsChipAsync = defineAsyncComponent(() => import('./Conversat
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-jobs） ----
 
-/** 任务快照线形（= ac-jobs JobSnapshot；meta.output 为 500 字预览；原 webui api/jobs.ts 门面已退役〔M28 §4.2〕） */
+/** 任务快照线形（= ac-jobs JobSnapshot，形状锁见 tests/wire-job-parity.test.ts；meta.output 为 500 字预览） */
 export interface WireJob {
   id: string;
   kind: string;
@@ -64,10 +64,6 @@ export async function killJob(
 
 // ---- 域投影服务 ----
 
-export interface JobBoardOptions {
-  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
-}
-
 export class JobBoardService extends Service {
   /** null = 面不可用（域件未装载/服务未装载/拉取失败）；空数组 = 无任务 */
   readonly jobs: Ref<WireJob[] | null> = ref(null);
@@ -79,10 +75,9 @@ export class JobBoardService extends Service {
   private started = false;
   private inFlight = false;
 
-  constructor(ctx: Context, options: JobBoardOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'jobBoard');
     this.own = ctx as ClientContext;
-    void options; // 预留（对齐 SlotsService 构造签名形态——无必选配置）
   }
 
   /** 刷新投影（started/settled 连发时合并为一次在途请求） */
@@ -151,8 +146,7 @@ export const jobsClientPlugin = clientPlugin({
 export default jobsClientPlugin;
 
 // ---- 纯视图拆分（M27.2 conversation 视图半边随件迁：会话头任务
-//      chip 与运行跟踪面板共用的清单词汇；webui api/jobs.ts re-export
-//      维持旧路径） ----
+//      chip 与运行跟踪面板共用的清单词汇） ----
 
 /** 运行中（running/stopping 都算未收束） */
 export function jobIsRunning(j: WireJob): boolean {
