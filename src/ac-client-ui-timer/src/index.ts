@@ -1,11 +1,9 @@
 // ============================================================
 // ac-client-ui-timer —— timer 域前端行（M28 P1 §4.1 原案）
 //
-// 视图资产行：TimerPane（Agent 定时任务编辑，含编辑弹窗）。数据面
-//（timer/entries 读写）住 settings api（Agent 配置写侧编排）；
-// 全局 sys.timer 页签贡献随 P2 settings 退化落位（SettingsPanel
-// 内联块届时经 settings:main-view 席位迁入本行——裁决注记见
-// m28 计划执行进度段）。
+// 视图资产行：TimerPane（Agent 定时任务编辑，含编辑弹窗）+ aux
+// 聚合面板（TimersPanel——A3 起唯一全局任务入口）。数据面
+//（timer/entries 读写）住本行 timerApi（M29 P1-3c 归域）。
 // ============================================================
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -19,7 +17,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-timer',
   label: '定时任务（前端）',
-  description: 'timer 域前端行（M28 P1）：Agent 定时任务编辑视图（TimerPane）；全局 sys.timer 页签贡献随 P2 settings 退化落位',
+  description: 'timer 域前端行：Agent 定时任务编辑视图（TimerPane）+ timers aux 聚合面板（全局任务唯一入口）',
   automatic: true,
 };
 

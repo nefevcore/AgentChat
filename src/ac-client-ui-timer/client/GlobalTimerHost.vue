@@ -9,7 +9,7 @@
 // 视觉语言统一。数据仍经 settings 共享 store（timer.tasks）。
 // ============================================================
 import { ref, computed } from 'vue';
-import { Modal, Button } from '@agentchat/webui-kit';
+import { Button, Input, Modal, Select, Textarea } from '@agentchat/webui-kit';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
 
 const settings = useSettings();
@@ -23,6 +23,12 @@ const SPECIAL_HINTS: Record<string, { label: string; desc: string }> = {
   '__backup_all__': { label: '数据备份', desc: '自动打包备份全部数据（每周一次，不走 LLM）' },
 };
 type SysHint = keyof typeof SPECIAL_HINTS;
+/** 任务类型下拉选项（kit Select——原原生 <select> cr-171 归一漏网） */
+const TASK_TYPE_OPTIONS = [
+  { value: 'custom', label: '自定义报时' },
+  { value: '__archive_all__', label: '全局归档（系统）' },
+  { value: '__backup_all__', label: '数据备份（系统）' },
+];
 function specialHint(hint?: string): { label: string; desc: string } | undefined {
   return hint ? SPECIAL_HINTS[hint.trim()] : undefined;
 }
@@ -129,22 +135,18 @@ defineExpose({ startAddTask });
     <div class="sp-modal-body">
       <div class="sp-field">
         <label>时间（HH:mm）</label>
-        <input v-model="gTaskDraft.time" type="text" class="sp-input" placeholder="08:30" />
+        <Input v-model="gTaskDraft.time" placeholder="08:30" />
       </div>
       <div class="sp-field">
         <label>任务类型</label>
         <div class="sp-desc">系统任务为纯机制操作（不走 LLM）；自定义任务为报时提醒</div>
-        <select v-model="gTaskType" class="sp-input" :disabled="gTaskBuiltin">
-          <option value="custom">自定义报时</option>
-          <option value="__archive_all__">全局归档（系统）</option>
-          <option value="__backup_all__">数据备份（系统）</option>
-        </select>
+        <Select v-model="gTaskType" :options="TASK_TYPE_OPTIONS" :disabled="gTaskBuiltin" />
       </div>
       <template v-if="gTaskType === 'custom'">
         <div class="sp-field">
           <label>提示内容</label>
           <div class="sp-desc">留空则使用默认报时文本。占位符：&#123;&#123;now&#125;&#125; / &#123;&#123;time&#125;&#125; / &#123;&#123;date&#125;&#125;</div>
-          <textarea v-model="gTaskDraft.hint" class="sp-textarea" rows="3" placeholder="现在是 {{now}}，巡检提醒..."></textarea>
+          <Textarea v-model="gTaskDraft.hint" :rows="3" placeholder="现在是 {{now}}，巡检提醒..." />
         </div>
       </template>
       <template v-else>
@@ -157,7 +159,7 @@ defineExpose({ startAddTask });
       <div class="sp-field">
         <label>目标 Agent</label>
         <div class="sp-desc">每行一个 Agent ID，留空 = 全部 Agent</div>
-        <textarea v-model="gTaskTargetsText" class="sp-textarea" rows="3" placeholder="agent_chat_dev&#10;news"></textarea>
+        <Textarea v-model="gTaskTargetsText" :rows="3" placeholder="agent_chat_dev&#10;news" />
       </div>
       <div v-if="gTaskError" class="g-task-error">{{ gTaskError }}</div>
     </div>
@@ -183,20 +185,13 @@ defineExpose({ startAddTask });
 /* 行内动作钮已归 kit Button（cr-171——ghost/danger 变体） */
 .g-timer-empty { text-align: center; padding: 16px; color: var(--text-3); font-size: 12px; }
 
-/* 编辑弹窗表单（sp-modal 族随件） */
+/* 编辑弹窗表单：输入件已归 kit Input/Select/Textarea（cr-171 归一补课——
+   ui-input/ui-sel/ui-textarea 自带样式，sp-input/sp-textarea 手工副本随撤） */
 .sp-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; }
 .sp-field { display: flex; flex-direction: column; gap: 5px; }
 .sp-field label { font-size: 12px; color: var(--text-2); }
 .sp-desc { font-size: 11px; color: var(--text-3); }
-.sp-input, .sp-textarea {
-  padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background: transparent; color: var(--text-1); font-size: 12px; width: 100%; /* cr-181：去填充底 */
-  box-sizing: border-box;
-}
-.sp-input:focus, .sp-textarea:focus { outline: none; border-color: var(--input-focus); }
-.sp-textarea { resize: vertical; font-family: var(--font-mono); }
 .sp-sys-fixed { font-size: 11px; color: var(--text-3); background: var(--bg-inset); padding: 6px 10px; border-radius: var(--r-sm); }
 .sp-sys-fixed code { font-family: var(--font-mono); color: var(--primary); }
-.sp-field select.sp-input:disabled { opacity: .6; cursor: not-allowed; }
 .g-task-error { color: var(--err); font-size: 12px; }
 </style>

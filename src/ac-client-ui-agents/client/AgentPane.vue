@@ -8,7 +8,8 @@
 // 展示读 effective（后端解析），编辑写 raw（差异）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
+import type { FieldMeta, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
+import type { TimerEntry } from 'ac-timer-core';
 import { assemblyOf, type AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Button, Checkbox, FieldRow, Icon, IconAction, Input, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';

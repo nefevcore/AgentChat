@@ -25,6 +25,8 @@
     "../ac-*/client/**/*.ts",
     "../ac-*/client/**/*.d.ts",
     "../ac-*/client/**/*.vue",
+    "../ac-timer-core/src/**/*.ts",
+    "../ac-timer-core/src/**/*.d.ts",
     "../webui-kit/src/**/*.ts",
     "../webui-kit/src/**/*.d.ts",
     "../webui-kit/src/**/*.vue"

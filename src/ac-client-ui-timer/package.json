@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "timer 域前端行（M28 P1 §4.1 → P2 收口）：Agent 定时任务编辑视图（TimerPane——AgentPane 跨包消费）+ 全局定时任务节（GlobalTimerHost——settings:section 选举席贡献，原 SettingsPanel 内联 sys.timer 节 + 编辑弹窗整体迁入）；数据面 timer/entries RPC 留 settings api（Agent 配置写侧）",
+  "description": "timer 域前端行：Agent 定时任务编辑视图（TimerPane——AgentPane 跨包消费）+ timers aux 聚合面板（TimersPanel/GlobalTimerHost——A3 起唯一全局任务入口）；数据面 timerApi（timer/entries RPC，M29 P1-3c 归域；TimerEntry 类型单源 ac-timer-core）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -28,6 +28,7 @@
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-settings": "workspace:*",
+    "ac-timer-core": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

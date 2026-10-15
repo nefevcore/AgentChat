@@ -10,7 +10,8 @@
 // 合法向取用）+ wire 热刷新，全部自理。
 // ============================================================
 import { ref, computed } from 'vue';
-import type { AgentConfigViews, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
+import type { AgentConfigViews, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
+import type { TimerEntry } from 'ac-timer-core';
 import { getAssembly, saveAssembly, getLlmSchemas, getPools } from 'ac-client-ui-settings/client/api.ts';
 import { fetchAgents, createAgent as createAgentRpc } from './index.ts';
 import { deleteAgent as deleteAgentRpc, getAgentConfig, saveAgentConfig } from './rosterApi.ts';

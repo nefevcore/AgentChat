@@ -9,8 +9,8 @@
 // 由面板侧统一渲染；AgentPane（Agent 设置 timer 页签）保持自带头。
 // ============================================================
 import { ref } from 'vue';
-import type { TimerEntry } from 'ac-client-ui-settings/client/types.ts';
-import { Button, DatePicker, Icon, Input, Modal, Select, Textarea } from '@agentchat/webui-kit';
+import type { TimerEntry } from 'ac-timer-core';
+import { Button, DatePicker, Icon, Input, Modal, Textarea } from '@agentchat/webui-kit';
 
 const props = withDefaults(defineProps<{ entries: TimerEntry[]; saving?: boolean; hideHeader?: boolean }>(), { hideHeader: false });
 const emit = defineEmits<{ (e: 'update:entries', v: TimerEntry[]): void; (e: 'save'): void }>();

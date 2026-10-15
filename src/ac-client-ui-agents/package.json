@@ -37,6 +37,7 @@
   "devDependencies": {
     "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-timer-core": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },

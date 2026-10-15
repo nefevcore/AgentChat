@@ -4,10 +4,12 @@
 // 视图已随行（TimerPane/GlobalTimerHost），数据面随视图归位）
 //
 // 形态：rpc 必传（消费组件/编排侧经 rpc 契约面 + seam 取用）。
+// TimerEntry 类型单源 ac-timer-core（cr-463：ui-settings 手工镜像已
+// 漂移缺 task/conversationId/activeHours/gate，删除归一）。
 // 全局定时任务（globalConfig.timer.tasks）= 全局配置域，读写在
 // settings api（getGlobalConfig/saveGlobalConfig）——不在此。
 // ============================================================
-import type { TimerEntry } from 'ac-client-ui-settings/client/types.ts';
+import type { TimerEntry } from 'ac-timer-core';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 

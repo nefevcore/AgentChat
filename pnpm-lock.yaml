@@ -1371,6 +1371,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-timer-core:
+        specifier: workspace:*
+        version: link:../ac-timer-core
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1815,9 +1818,6 @@ importers:
       markdown-it-texmath:
         specifier: ^1.0.0
         version: 1.0.0
-      uuid:
-        specifier: ^14.0.1
-        version: 14.0.1
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1979,9 +1979,6 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
-      ac-client-slots:
-        specifier: workspace:*
-        version: link:../ac-client-slots
       ac-client-ui-layout:
         specifier: workspace:*
         version: link:../ac-client-ui-layout
@@ -1992,6 +1989,9 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      ac-client-slots:
+        specifier: workspace:*
+        version: link:../ac-client-slots
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2211,6 +2211,9 @@ importers:
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
+      ac-timer-core:
+        specifier: workspace:*
+        version: link:../ac-timer-core
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -4559,9 +4562,6 @@ importers:
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
-      ac-client-ui-timer:
-        specifier: workspace:*
-        version: link:../ac-client-ui-timer
       ac-client-ui-todo:
         specifier: workspace:*
         version: link:../ac-client-ui-todo
@@ -4617,6 +4617,9 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^5.0.0
         version: 5.2.4(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))(vue@3.5.41(typescript@5.9.3))
+      ac-client-ui-timer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-timer
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
@@ -8186,10 +8189,6 @@ packages:
 
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
-
-  uuid@14.0.1:
-    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
-    hasBin: true
 
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
@@ -12105,8 +12104,6 @@ snapshots:
   utf8-byte-length@1.0.5: {}
 
   util-deprecate@1.0.2: {}
-
-  uuid@14.0.1: {}
 
   vary@1.1.2: {}
 

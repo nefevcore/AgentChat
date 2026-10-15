@@ -74,18 +74,3 @@ export interface AgentConfigViews {
   agentContent: string;
 }
 
-/** 定时任务条目（与后端 TimerEntry 对齐） */
-export interface TimerEntry {
-  id: string;
-  enabled: boolean;
-  mode: 'time' | 'delay' | 'random' | 'workday' | 'holiday';
-  time?: string;
-  delay?: string;
-  delayMin?: string;
-  delayMax?: string;
-  /** 重复次数：0=永久，N=N次 */
-  repeatCount?: number;
-  hint: string;
-  target?: string;
-  maxSteps?: number;
-}
