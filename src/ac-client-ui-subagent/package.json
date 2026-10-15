@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "subagent 域前端行（M28 P2 §2.2 镜像表 + subagent-session-view-plan）：subagent 工具卡（action 分发清单卡）+ 子 Agent 会话只读视角（main:perspective 贡献，运行跟踪面板点击进入——历史回放复用 conversation 渲染内核）；与后端行双向可独立摘除",
+  "description": "subagent 域前端行（M28 P2 §2.2 镜像表 + subagent-session-view-plan）：subagent 工具卡（action 分发清单卡）+ 子 Agent 会话只读视角（main:perspective 贡献，运行跟踪面板点击进入——历史回放复用 conversation 渲染内核）+ ctx.subagentBoard 域投影（subagents/list RPC + updated 帧驱动，运行跟踪面板子Agent 区主源）；与后端行双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

@@ -14,7 +14,7 @@
 //     卸后端行 → RPC 失败 → null → 面板静默空态。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { clientPlugin, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
+import type { ClientContext, RpcClientFace } from 'ac-client-runtime';
 import { ref, type Ref } from 'vue';
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-subagent） ----
@@ -71,12 +71,8 @@ export async function stopSubagent(
   }
 }
 
-// ---- 域投影服务 ----
-
-export interface SubagentBoardOptions {
-  /** 拉取上限（服务面上限 100） */
-  limit?: number;
-}
+// ---- 域投影服务（无 options：装配面 cordis.yml/TREE 零 config 传递，
+// 拉取上限 100 = 服务面上限常量内联） ----
 
 export class SubagentBoardService extends Service {
   /** null = 面不可用（域件未装载/服务未装载/拉取失败）；空数组 = 无子 Agent */
@@ -84,15 +80,16 @@ export class SubagentBoardService extends Service {
   /** stop 请求进行中的子 Agent id（按钮态） */
   readonly stopping: Ref<Set<string>> = ref(new Set());
 
+  /** 拉取上限（subagents/list RPC 服务面上限 100） */
+  private static readonly LIMIT = 100;
+
   private readonly own: ClientContext;
   private started = false;
   private inFlight = false;
-  private readonly limit: number;
 
-  constructor(ctx: Context, options: SubagentBoardOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'subagentBoard');
     this.own = ctx as ClientContext;
-    this.limit = options.limit ?? 100;
   }
 
   /** 刷新投影（帧连发时合并为一次在途请求） */
@@ -100,7 +97,7 @@ export class SubagentBoardService extends Service {
     if (this.inFlight) return;
     this.inFlight = true;
     try {
-      const next = await fetchSubagents(this.ctx.get('rpc') as ClientContext['rpc'], this.limit);
+      const next = await fetchSubagents(this.ctx.get('rpc') as ClientContext['rpc'], SubagentBoardService.LIMIT);
       if (next !== null) this.subs.value = next;
     } finally {
       this.inFlight = false;
@@ -140,13 +137,3 @@ declare module 'ac-client-runtime' {
     subagentBoard: SubagentBoardService;
   }
 }
-
-export const subagentBoardPlugin = clientPlugin({
-  name: 'ac-client-ui-subagent.board',
-  inject: ['rpc'],
-  async apply(ctx: ClientContext) {
-    await ctx.plugin(SubagentBoardService);
-  },
-});
-
-export default subagentBoardPlugin;

@@ -6,7 +6,7 @@
 // ID 可点击 → openSubagentView 进入子会话只读视角（P3 联动）。
 // ============================================================
 import { computed, ref } from 'vue';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, BusyRing } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { subStatusLabel } from 'ac-client-ui-jobs/client';
 import { inferKind } from './inferKind.ts';
@@ -88,10 +88,12 @@ const awaitData = computed(() => ({
   elapsed: props.data.elapsed_ms as number | undefined,
 }));
 
-// await/spawn(等待) 的 result 折叠（长结果默认 6 行高度，可展开）
+// result 折叠（await 与 sync send 两卡共用同一 result 字段——折叠判定/展开
+// 态单源，长结果默认 6 行高度可展开）
 const resultExpanded = ref(false);
 const RESULT_FOLD_LIMIT = 400;
-const resultFoldable = computed(() => String(awaitData.value.result ?? '').length > RESULT_FOLD_LIMIT);
+const foldedResult = computed(() => String(awaitData.value.result ?? sendData.value.result ?? ''));
+const resultFoldable = computed(() => foldedResult.value.length > RESULT_FOLD_LIMIT);
 
 // ── list 结果 ──
 interface SubItem {
@@ -142,7 +144,7 @@ const stopData = computed(() => ({
   <div class="subagent-result">
     <!-- ═══ loading：调用中（data=参数预览，无 subagent_id 等结果字段） ═══ -->
     <div v-if="loading" class="sa-loading">
-      <span class="sa-spin" aria-hidden="true"></span>
+      <BusyRing :size="12" />
       <span class="sa-loading-text">{{ actionLabel[String(data.action)] || '执行 subagent' }}…</span>
       <code v-if="data.subagent_id" class="sa-loading-id">{{ data.subagent_id }}</code>
       <span v-else-if="data.task" class="sa-loading-task">{{ String(data.task).slice(0, 60) }}<template v-if="String(data.task).length > 60">…</template></span>
@@ -151,11 +153,7 @@ const stopData = computed(() => ({
     <!-- ═══ spawn：创建子 Agent ═══ -->
     <div v-else-if="kind === 'spawn'" class="sa-card sa-spawn">
       <div class="sa-head">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="5" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="5" cy="12" r="1.5"/>
-          <circle cx="12" cy="19" r="1.5"/><line x1="12" y1="6.5" x2="18" y2="10.8"/><line x1="6" y1="10.8" x2="12" y2="6.5"/>
-          <line x1="12" y1="17.5" x2="18" y2="13.2"/><line x1="6" y1="13.2" x2="12" y2="17.5"/>
-        </svg>
+        <Icon name="share" :size="15" class="sa-head-icon" />
         <span class="sa-title">子 Agent 已创建</span>
         <span v-if="spawnData.name" class="sa-name">{{ spawnData.name }}</span>
         <span class="ui-badge sa-badge" :class="statusMeta(spawnData.status).cls">{{ statusMeta(spawnData.status).label }}</span>
@@ -169,9 +167,7 @@ const stopData = computed(() => ({
     <!-- ═══ await：等待/收取结果 ═══ -->
     <div v-else-if="kind === 'await'" class="sa-card sa-await">
       <div class="sa-head">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
+        <Icon name="clock" :size="15" class="sa-head-icon" />
         <span class="sa-title">子 Agent 结果</span>
         <span class="ui-badge sa-badge" :class="statusMeta(awaitData.status).cls">{{ statusMeta(awaitData.status).label }}</span>
         <span v-if="awaitData.elapsed" class="sa-elapsed"><Icon name="clock" :size="11" class="sa-elapsed-icon" />{{ fmtElapsed(awaitData.elapsed) }}</span>
@@ -190,10 +186,7 @@ const stopData = computed(() => ({
     <!-- ═══ list：子 Agent 列表 ═══ -->
     <div v-else-if="kind === 'list'" class="sa-card sa-list">
       <div class="sa-head">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-          <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-        </svg>
+        <Icon name="list" :size="15" class="sa-head-icon" />
         <span class="sa-title">子 Agent 列表</span>
         <span class="sa-count">{{ activeCount }} 活跃 / 共 {{ totalCount }}</span>
       </div>
@@ -212,9 +205,7 @@ const stopData = computed(() => ({
     <!-- ═══ send：投递回执（async 排队回执 / sync 带结果） ═══ -->
     <div v-else-if="kind === 'send'" class="sa-card sa-send">
       <div class="sa-head">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-        </svg>
+        <Icon name="send" :size="15" class="sa-head-icon" />
         <span class="sa-title">已发送至子 Agent</span>
         <span class="ui-badge sa-badge" :class="deliveredMeta(sendData.delivered).cls">{{ deliveredMeta(sendData.delivered).label }}</span>
         <span class="ui-badge sa-badge" :class="statusMeta(sendData.status).cls">{{ statusMeta(sendData.status).label }}</span>
@@ -225,7 +216,7 @@ const stopData = computed(() => ({
         <div v-if="sendData.message" class="sa-msg">{{ sendData.message }}</div>
         <div v-if="sendData.result" class="sa-result" :class="{ folded: resultFoldable && !resultExpanded }">{{ sendData.result }}</div>
         <div v-else-if="sendData.error" class="sa-error"><Icon name="alert-circle" :size="12" class="sa-error-icon" />{{ sendData.error }}</div>
-        <button v-if="resultFoldable && sendData.result" class="sa-fold-btn" @click="resultExpanded = !resultExpanded">
+        <button v-if="resultFoldable" class="sa-fold-btn" @click="resultExpanded = !resultExpanded">
           {{ resultExpanded ? '收起' : '展开全文' }}
         </button>
       </div>
@@ -234,12 +225,7 @@ const stopData = computed(() => ({
     <!-- ═══ stop / delete：轻量回执 ═══ -->
     <div v-else class="sa-card sa-receipt">
       <div class="sa-head">
-        <svg v-if="kind === 'stop'" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="6" y="6" width="12" height="12" rx="1"/>
-        </svg>
-        <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-        </svg>
+        <Icon :name="kind === 'stop' ? 'stop' : 'trash'" :size="15" class="sa-head-icon" />
         <span class="sa-title">{{ kind === 'stop' ? '已停止推理' : '子 Agent 已删除' }}</span>
         <span class="ui-badge dim sa-badge">{{ kind === 'stop' ? '已停止' : '已删除' }}</span>
       </div>
@@ -254,15 +240,8 @@ const stopData = computed(() => ({
 <style scoped>
 .subagent-result { padding: 2px 0; }
 
-/* ── loading（工具卡外壳的调用中预览：琥珀环与全前端"忙"指示同款） ── */
+/* ── loading（工具卡外壳的调用中预览：忙指示 = BusyRing 唯一源，cr-129 R2） ── */
 .sa-loading { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--text-2); }
-.sa-spin {
-  width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%;
-  border: 2px solid var(--primary-border-soft);
-  border-top-color: var(--primary);
-  animation: saSpin 0.8s linear infinite;
-}
-@keyframes saSpin { to { transform: rotate(360deg); } }
 .sa-loading-text { font-style: italic; }
 .sa-loading-id {
   font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
@@ -284,7 +263,7 @@ const stopData = computed(() => ({
   border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
-.sa-head svg { color: var(--text-2); flex-shrink: 0; }
+.sa-head-icon { color: var(--text-2); flex-shrink: 0; }
 .sa-title { font-weight: 600; color: var(--text-1); white-space: nowrap; }
 .sa-name {
   font-size: 11px; color: var(--text-2);

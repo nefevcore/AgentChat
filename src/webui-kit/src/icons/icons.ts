@@ -136,6 +136,8 @@ import IconCircle from '~icons/lucide/circle';
 // 盾形勾选 = 「待确认的版本信息」；原两处一处内联 info 圆 i 形、一处
 // refresh-cw（与「刷新」语义混用）已走散，统一本图）
 import IconBadgeCheck from '~icons/lucide/badge-check';
+// subagent 工具卡 spawn 头图（cr-468 归一）：引线分享 = 任务分发象形
+import IconShare from '~icons/lucide/share';
 
 // 厂商品牌 logo（simple-icons 集，cr-203 模型菜单 provider 图标）——
 // 单色 path 由 currentColor 染色，色值随消费方（菜单里 text-3 同语言）
@@ -287,6 +289,8 @@ export const iconMap: Record<string, Component> = {
   circle: IconCircle,
   // 检查更新象形（见顶部 import 注释）
   'badge-check': IconBadgeCheck,
+  // subagent spawn 卡头图（见顶部 import 注释）
+  share: IconShare,
   // 自绘专属象形（两图分工系设计意图，非重复——cr-327 误归并，cr-333 恢复）：
   // 'chain' = 思维链脑电波节点链（TurnDisplayItem 链栏——整链「思考过程」）；
   // 'thought' = 思考涟漪（AssistantMessage 思考行——单步「已思考」，

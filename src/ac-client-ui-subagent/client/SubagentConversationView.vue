@@ -214,7 +214,6 @@ function refresh() { void loadInitial(); }
 .agent-label { font-size: 14px; font-weight: 600; color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pair-avatars { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
 .pair-x { color: var(--text-3); display: flex; }
-.agent-label { font-size: 14px; font-weight: 600; color: var(--text-1); }
 .pair-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 窄屏（cr-33）：副行信息退场——标题与状态徽章优先，长 id/父链在窄屏是噪音 */
 @media (max-width: 768px) {
