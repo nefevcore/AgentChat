@@ -3,6 +3,38 @@ import { computed, ref, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 import { BusyRing, Tooltip } from '@agentchat/webui-kit';
+import { fenceOf } from 'ac-client-ui-renderer/client/codeFence.ts';
+
+// ---- 语言检测（fs Code 卡专属词条：扩展名 → fence 语言名/显示名） ----
+const EXT_LANGS: Record<string, string> = {
+  py: 'python', ts: 'typescript', js: 'javascript', jsx: 'javascript',
+  vue: 'html', json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml',
+  html: 'html', css: 'css', scss: 'scss', sass: 'sass', less: 'less',
+  md: 'markdown', sh: 'bash', bash: 'bash', ps1: 'powershell',
+  xml: 'xml', sql: 'sql', rs: 'rust', go: 'go', java: 'java',
+  cpp: 'cpp', cxx: 'cpp', c: 'c', h: 'c', hpp: 'cpp',
+  rb: 'ruby', php: 'php', swift: 'swift', kt: 'kotlin',
+  abap: 'abap', txt: 'text', log: 'text', cfg: 'ini', ini: 'ini',
+  env: 'bash', dockerfile: 'dockerfile', makefile: 'makefile',
+  bat: 'dos', cmd: 'dos',
+  cmake: 'cmake', gradle: 'groovy', groovy: 'groovy',
+};
+const LANG_DISPLAY: Record<string, string> = {
+  python: 'Python', typescript: 'TypeScript', javascript: 'JavaScript',
+  html: 'Vue/HTML', json: 'JSON', yaml: 'YAML', toml: 'TOML',
+  css: 'CSS', scss: 'SCSS', markdown: 'Markdown', bash: 'Bash',
+  powershell: 'PowerShell', xml: 'XML', sql: 'SQL', rust: 'Rust',
+  go: 'Go', java: 'Java', cpp: 'C++', c: 'C', ruby: 'Ruby',
+  php: 'PHP', swift: 'Swift', kotlin: 'Kotlin', abap: 'ABAP',
+  text: '纯文本', dockerfile: 'Dockerfile', ini: 'INI', dos: 'Batch',
+  groovy: 'Groovy', cmake: 'CMake', makefile: 'Makefile',
+};
+/** 字节数格式化（B/KB/MB） */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 const props = defineProps<{
   data: Record<string, unknown>;
@@ -17,7 +49,6 @@ interface DirItem {
 
 const { render } = useMarkdown();
 
-const isSkillRead = computed(() => props.toolName === 'skill_read');
 const isDirectory = computed(() => props.data.type === 'directory');
 
 // ---- 文件名（从路径提取；调用阶段参数里即有 path/filePath/file_path——
@@ -27,39 +58,8 @@ const fileName = computed(() => {
   return p.split(/[/\\]/).pop() || p;
 });
 
-const lang = computed(() => {
-  if (isSkillRead.value) return '';
-  const path = String(props.data.path || '');
-  const ext = path.split('.').pop()?.toLowerCase();
-  const map: Record<string, string> = {
-    py: 'python', ts: 'typescript', js: 'javascript', vue: 'html',
-    json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml',
-    html: 'html', css: 'css', scss: 'scss', sass: 'sass', less: 'less',
-    md: 'markdown', sh: 'bash', bash: 'bash', ps1: 'powershell',
-    xml: 'xml', sql: 'sql', rs: 'rust', go: 'go', java: 'java',
-    cpp: 'cpp', cxx: 'cpp', c: 'c', h: 'c', hpp: 'cpp',
-    rb: 'ruby', php: 'php', swift: 'swift', kt: 'kotlin',
-    abap: 'abap', txt: 'text', log: 'text', cfg: 'ini', ini: 'ini',
-    env: 'bash', dockerfile: 'dockerfile', makefile: 'makefile',
-    cmake: 'cmake', gradle: 'groovy', groovy: 'groovy',
-  };
-  return map[ext || ''] || '';
-});
-
-// ---- 语言显示名 ----
-const langDisplay = computed(() => {
-  const display: Record<string, string> = {
-    python: 'Python', typescript: 'TypeScript', javascript: 'JavaScript',
-    html: 'Vue/HTML', json: 'JSON', yaml: 'YAML', toml: 'TOML',
-    css: 'CSS', scss: 'SCSS', markdown: 'Markdown', bash: 'Bash',
-    powershell: 'PowerShell', xml: 'XML', sql: 'SQL', rust: 'Rust',
-    go: 'Go', java: 'Java', cpp: 'C++', c: 'C', ruby: 'Ruby',
-    php: 'PHP', swift: 'Swift', kotlin: 'Kotlin', abap: 'ABAP',
-    text: '纯文本', dockerfile: 'Dockerfile', ini: 'INI',
-    groovy: 'Groovy', cmake: 'CMake', makefile: 'Makefile',
-  };
-  return display[lang.value] || lang.value.toUpperCase() || '纯文本';
-});
+const lang = computed(() => EXT_LANGS[String(props.data.path || '').split('.').pop()?.toLowerCase() || ''] || '');
+const langDisplay = computed(() => LANG_DISPLAY[lang.value] || lang.value.toUpperCase() || '纯文本');
 
 // ---- 目录 ----
 const dirItems = computed<DirItem[]>(() => {
@@ -82,13 +82,6 @@ const startLine = computed(() => Number(props.data.start_line || 0));
 const endLine = computed(() => Number(props.data.end_line || 0));
 const isRange = computed(() => startLine.value > 0 && endLine.value > 0);
 
-const lineCount = computed(() => {
-  // 用实际返回内容的行数作为折叠判断依据（范围读取时内容行数 < total_lines）
-  return content.value ? content.value.split('\n').length : 0;
-});
-
-
-
 // ---- 复制 ----
 const copyState = ref<'idle' | 'copied'>('idle');
 let copyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -102,29 +95,10 @@ async function copyContent() {
   } catch { /* ignore */ }
 }
 
-// ---- Markdown 渲染 ----
-/** 包裹文件内容的围栏：内容自身含 ``` 时（如读取 .md 文件）改用更长围栏，
- *  否则内嵌 fence 会提前截断外层围栏 → 后续内容按 markdown 渲染（版面跑偏） */
-function fenceOf(code: string): string {
-  let fence = '```';
-  while (code.includes(fence)) fence += '`';
-  return fence;
-}
 const renderedContent = computed(() => {
-  if (isSkillRead.value) {
-    return render(content.value);
-  }
-  const code = content.value;
-  const fence = fenceOf(code);
-  return render(`${fence}${lang.value || ''}\n${code}\n${fence}`);
+  const fence = fenceOf(content.value);
+  return render(`${fence}${lang.value || ''}\n${content.value}\n${fence}`);
 });
-
-// ---- 尺寸格式化 ----
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 // ---- 元信息行 ----
 const metaItems = computed(() => {
@@ -194,7 +168,7 @@ const metaItems = computed(() => {
             <polyline points="14 2 14 8 20 8"/>
           </svg>
           <span class="code-file-name">{{ fileName }}</span>
-          <span v-if="lang && !isSkillRead" class="ui-badge kind code-lang-badge">{{ langDisplay }}</span>
+          <span v-if="lang" class="ui-badge kind code-lang-badge">{{ langDisplay }}</span>
         </div>
         <div class="code-header-right">
           <span v-for="item in metaItems" :key="item" class="ui-badge dim code-meta-badge">{{ item }}</span>
@@ -220,7 +194,6 @@ const metaItems = computed(() => {
         </div>
       </div>
 
-
       <!-- 执行中：文件已定位，内容未返回 -->
       <div v-if="loading && !content" class="code-loading">
         <BusyRing :size="13" />
@@ -229,14 +202,9 @@ const metaItems = computed(() => {
 
       <!-- 代码正文 -->
       <ScrollableViewport v-else class="code-viewport">
-        <template v-if="isSkillRead">
-          <div class="code-body-md" v-html="renderedContent" />
-        </template>
-        <template v-else>
-          <div class="code-area-wrapper">
-            <div class="code-area" v-html="renderedContent" />
-          </div>
-        </template>
+        <div class="code-area-wrapper">
+          <div class="code-area" v-html="renderedContent" />
+        </div>
       </ScrollableViewport>
 
       <!-- 截断提示 -->
@@ -388,16 +356,6 @@ const metaItems = computed(() => {
   font-size: 12px;
   line-height: 1.65;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
-}
-
-/* Markdown 模式（skill_read）：横向滚动兜底（表格等 nowrap 元素不撑破卡宽） */
-.code-body-md {
-  overflow-x: auto;
-  padding: 16px 18px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--text-1);
-  background: var(--bg-base);
 }
 
 .code-truncated-banner {

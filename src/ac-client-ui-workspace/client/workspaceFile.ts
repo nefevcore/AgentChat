@@ -52,7 +52,4 @@ export async function fetchWorkspaceFile(path: string, ctx?: ReadContext): Promi
   return { ...body, binary: body.base64 === true };
 }
 
-/** 浏览读取文件（ToolResultWrite 展开原文）：workspace/file 的别名（同 context 推导） */
-export async function browseReadFile(path: string, ctx?: ReadContext): Promise<{ content?: string; error?: string }> {
-  return fetchWorkspaceFile(path, ctx);
-}
+

@@ -53,7 +53,7 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 | `ac-client-ui-agents` | ui-agents | 名册身份面 + agent 数据面单宿主（rosterApi）+ 编辑编排 useAgentSettings | primary-sidebar:domain#agents；settings:section#agents(10)；conversation:header-widget#agent-actions(30) |
 | `ac-client-ui-browser` | ui-browser | 浏览器工具卡 | tool-card:result-view#browser |
 | `ac-client-ui-desktop-storage` | ui-desktop-storage | 桌面壳「存储管理」节（壳层桥消费；无桥自摘） | settings:section#storage(90) |
-| `ac-client-ui-fs` | ui-fs | fs 工具卡 ×3 | tool-card:result-view#read / #write / #edit |
+| `ac-client-ui-fs` | ui-fs | fs 工具卡 ×2（write 走 Label 直达预览，cr-465） | tool-card:result-view#read / #edit |
 | `ac-client-ui-goal` | ui-goal | goal 域（goalApi / useGoalTracking） | tool-card:result-view#goal；conversation:dock-widget#goal(50) |
 | `ac-client-ui-group` | ui-group | 群域投影 + 群写侧（groupApi）+ 群信息面板 | overlay#create-dialog(95)；main:perspective#group(30)；aux-sidebar#group(45) |
 | `ac-client-ui-jobs` | ui-jobs | 后台任务清单（jobBoard 域投影） | conversation:header-widget#jobs-chip(10) |
@@ -178,7 +178,7 @@ settings 树（SettingsPanel 壳内，非 root 子树）：
 
 tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 正则族 → priority 选举〕
 ├─ bash / pwsh → ToolResultTerminal [ui-shell]
-├─ read → ToolResultCode / write → ToolResultWrite / edit → ToolResultEdit [ui-fs]
+├─ read → ToolResultCode / edit → ToolResultEdit [ui-fs]（write 不占卡——Label 直达预览）
 ├─ web_search → ToolResultWeb / BROWSER_FAMILY（正则）→ ToolResultWeb [ui-web]
 ├─ browser → ToolResultBrowser [ui-browser]
 ├─ subagent → ToolResultSubagent [ui-subagent]
@@ -233,7 +233,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-agents | primary-sidebar:domain#agents；settings:section#agents(10)；conversation:header-widget#agent-actions(30) | 三处均 `inject` |
 | ui-browser | tool-card:result-view#browser | |
 | ui-desktop-storage | settings:section#storage(90) | 无桥（非桌面形态）→ 宿主自摘本节 |
-| ui-fs | tool-card:result-view#read / #write / #edit | 三卡一行（同后端域） |
+| ui-fs | tool-card:result-view#read / #edit | 双卡一行（同后端域；write 直达，cr-465） |
 | ui-goal | tool-card:result-view#goal；conversation:dock-widget#goal(50) | |
 | ui-group | overlay#create-dialog(95)；main:perspective#group(30)；aux-sidebar#group(45) | aux 选区 available=群视角有活跃群 |
 | ui-jobs | conversation:header-widget#jobs-chip(10) | 另含 jobBoard 域投影 |
@@ -266,7 +266,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-tool / ui-theme / ui-renderer | —（renderer 仅 slots/runtime） | — |
 | ui-agents | conversation、layout、settings、theme | llm-pool（`✓R6`）、plugin-registry（`✓R6`）、timer（`✓R6`） |
 | ui-browser | — | workspace（`✓R6`） |
-| ui-fs | renderer | workspace（`✓R6`） |
+| ui-fs | renderer | —（write 卡删除后 workspace 边消化，cr-465） |
 | ui-group | conversation、layout | agents（`✓R6`） |
 | ui-plugin-registry | settings | workspace（`✓R6`） |
 | ui-runview | conversation、layout、theme | agents（`✓R6`）、jobs（`✓R6`） |
@@ -295,7 +295,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-conversation → ui-skill | ChatInput skillsApi（@ 提及的技能清单拉取） |
 | ui-conversation → ui-llm-pool | ChatInput 池清单（模型选择数据面） |
 
-**R6（domain → domain，15 条）**：ui-agents → llm-pool / plugin-registry / timer；ui-timer → agents；ui-browser → workspace；ui-fs → workspace；ui-group → agents；ui-plugin-registry → workspace；ui-runview → agents / jobs；ui-subagent → agents / jobs；ui-singles → agents / workspace；ui-usage → agents。
+**R6（domain → domain，14 条）**：ui-agents → llm-pool / plugin-registry / timer；ui-timer → agents；ui-browser → workspace；ui-group → agents；ui-plugin-registry → workspace；ui-runview → agents / jobs；ui-subagent → agents / jobs；ui-singles → agents / workspace；ui-usage → agents。
 
 **纪律**：白名单**只减不增**（新增边不在册 = 红；边已消化而条目未删 = 红）；每消化一环即删条目，清零即除役白名单机制本身。R6 自 2026-09-11 扩权为 `.ts` / `.vue` 同权重（消 .vue 媒介盲区）。
 

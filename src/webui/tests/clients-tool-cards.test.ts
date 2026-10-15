@@ -25,15 +25,13 @@ describe('M28 P2 · 五工具卡行（§2.2 镜像表——tool 零卡，卡片 
     expect(resolveToolResultView('bash')).toBeNull();
   });
 
-  it('fs：read/write/edit 三卡一行（同后端域）；卸载 → 三卡齐落', async () => {
+  it('fs：read/edit 双卡一行（同后端域；write 不占卡——Label 直达预览，cr-465）；卸载 → 双卡齐落', async () => {
     const { ctx } = await bootWebuiRuntime();
     const fiber = await ctx.plugin(fsCardClientPlugin);
     expect(resolveToolResultView('read')).toBeTruthy();
-    expect(resolveToolResultView('write')).toBeTruthy();
     expect(resolveToolResultView('edit')).toBeTruthy();
     await fiber.dispose();
     expect(resolveToolResultView('read')).toBeNull();
-    expect(resolveToolResultView('write')).toBeNull();
     expect(resolveToolResultView('edit')).toBeNull();
   });
 

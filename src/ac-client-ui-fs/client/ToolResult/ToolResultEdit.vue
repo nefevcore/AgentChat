@@ -9,7 +9,6 @@ const props = defineProps<{
   loading?: boolean;
 }>();
 
-const diffExpanded = ref(true);
 const copyState = ref<'idle' | 'copied'>('idle');
 
 // 文件路径：结果里的 path/file，或调用参数里的 file_path/filePath/path
@@ -37,15 +36,12 @@ const diffText = computed(() => String(props.data.diff || ''));
 
 const diffLines = computed(() => {
   const text = diffText.value;
-  return text ? text.split('\n') : [];
+  return text ? text.split('\\n') : [];
 });
 
 const hasDiffMarkers = computed(() =>
   diffLines.value.some(l => l.startsWith('- ') || l.startsWith('+ '))
 );
-
-
-
 
 function lineClass(line: string) {
   if (line.startsWith('- ')) return 'diff-del';

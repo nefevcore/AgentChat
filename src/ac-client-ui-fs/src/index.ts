@@ -1,5 +1,5 @@
 // ============================================================
-// ac-client-ui-fs —— 工具卡前端行（M28 P2 §2.2 镜像表：ac-fs-tools + ac-str-replace-editor）
+// ac-client-ui-fs —— 工具卡前端行（M28 P2 §2.2 镜像表：ac-fs-tools + ac-str-replace-editor；read/edit 双卡——write 走 Label 直达预览，cr-465）
 //
 // 卡片经 tool-card:result-view 席位贡献；行卸载 → def 消失 → resolve
 // 回落默认文本渲染。与后端行经 RPC 契约面解耦，双向可独立摘除。
@@ -16,7 +16,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-fs',
   label: '文件工具卡（前端）',
-  description: 'ac-fs-tools + ac-str-replace-editor 域工具卡前端行（M28 P2 镜像表）：read → Code / write → Write / edit → Edit 三卡（§2.2 镜像表：fs 行三卡同后端域）',
+  description: 'ac-fs-tools + ac-str-replace-editor 域工具卡前端行（M28 P2 镜像表）：read → Code / edit → Edit 双卡（write 走 Label 直达预览，cr-465）',
   automatic: true,
 };
 

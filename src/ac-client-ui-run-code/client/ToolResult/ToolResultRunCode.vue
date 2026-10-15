@@ -13,6 +13,7 @@ import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 import { Icon } from '@agentchat/webui-kit';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
+import { fenceOf } from 'ac-client-ui-renderer/client/codeFence.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; toolName?: string; loading?: boolean }>();
 
@@ -24,11 +25,6 @@ const code = computed(() => {
   return typeof c === 'string' ? c : '';
 });
 const lineCount = computed(() => (code.value ? code.value.split('\n').length : 0));
-function fenceOf(text: string): string {
-  let fence = '```';
-  while (text.includes(fence)) fence += '`';
-  return fence;
-}
 const renderedCode = computed(() => {
   if (!code.value) return '';
   return render(`${fenceOf(code.value)}typescript\n${code.value}\n${fenceOf(code.value)}`);
@@ -305,7 +301,7 @@ async function copyCode() {
 
 /* 嵌套代码块按卡内规格覆盖（markdown.css 的 .md-code-block 系列全挂
    .markdown-body 前缀——工具卡在 .tool-body 内不命中；同处置见
-   ToolResultWrite/ToolResultCode）：banner 隐藏（卡头已有标题 + 复制按钮，
+   ToolResultCode）：banner 隐藏（卡头已有标题 + 复制按钮，
    其样式与复制点击委托均在 markdown 上下文外 = 死控件） */
 .rc-code-body :deep(.md-code-block),
 .rc-value-body :deep(.md-code-block) { margin: 0; border: none; border-radius: 0; background: transparent; min-width: 0; }
