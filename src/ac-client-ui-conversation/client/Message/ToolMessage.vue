@@ -244,8 +244,8 @@ watch(isExpanded, (expanded) => {
                         <Icon name="ban" :size="12" class="tool-json-blocked-icon" />{{ parsed.message || parsed.data?.message }}
                     </div>
                     <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
-                    <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中）；browser 批量部分失败也需渲染（展示已成功 steps）；run_code 程序失败也需渲染（错误与执行摘要在卡内——实测复盘后确立）；subagent 的错误带近似候选 id/护栏指路（卡内 error 分支渲染） -->
-                    <template v-if="parsed.status !== 'error' || message.name === 'bash' || message.name === 'browser' || message.name === 'run_code' || message.toolName === 'run_code' || message.name === 'subagent' || message.toolName === 'subagent'">
+                    <!-- 注意：bash/pwsh 的 status=error 仍需渲染 terminal（输出信息在 data.output 中——pwsh 系 2026-09-16 工具拆分双名，cr-464 补）；browser 批量部分失败也需渲染（展示已成功 steps）；run_code 程序失败也需渲染（错误与执行摘要在卡内——实测复盘后确立）；subagent 的错误带近似候选 id/护栏指路（卡内 error 分支渲染） -->
+                    <template v-if="parsed.status !== 'error' || message.name === 'bash' || message.toolName === 'bash' || message.name === 'pwsh' || message.toolName === 'pwsh' || message.name === 'browser' || message.name === 'run_code' || message.toolName === 'run_code' || message.name === 'subagent' || message.toolName === 'subagent'">
                         <div v-if="resultTitle" class="tool-json-title">{{ resultTitle }}</div>
                         <component
                             v-if="ResultComponent"

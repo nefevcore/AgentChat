@@ -5,18 +5,29 @@ import { Icon, BusyRing } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
-// 终端输入（bash 工具返回 command）+ 执行环境
+// 终端输入（命令工具返回 command）+ 执行环境
 const command = computed(() => String(props.data.command || ''));
 const cwd = computed(() => String(props.data.cwd || ''));
+// Unix→PowerShell 翻译产物（pwsh 工具 fail-closed 翻译层）：实际执行的
+// 命令与请求命令不同时展示，归因落回真实执行物（2026-09-16 报错归因对齐）
+const translated = computed(() => String(props.data.translated_command || ''));
 const exitCode = computed(() => {
   const c = props.data.exit_code;
   return c === undefined || c === null ? null : Number(c);
 });
 const stdout = computed(() => String(props.data.stdout || props.data.output || ''));
 const stderr = computed(() => String(props.data.stderr || ''));
-// 执行失败时的错误信息 + 引导
-const errorMessage = computed(() => String(props.data.message || ''));
-const guidance = computed(() => String(props.data.guidance || ''));
+// 非错误提示（notice）：成功形附带的说明文案——后台启动通知（handoff 的
+// output.message）、command-feedback 引导（note，含译文归因）等；真失败的
+// 错误信息走 error 键（ok:false 信封的 error 字段，历史回放形可见）
+const notice = computed(() => {
+  const n = props.data.note || props.data.message || '';
+  return typeof n === 'string' ? n : '';
+});
+const errorMessage = computed(() => {
+  const e = props.data.error || '';
+  return typeof e === 'string' ? e : '';
+});
 const truncated = computed(() => Boolean(props.data.truncated));
 const timedOut = computed(() => Boolean(props.data.timed_out));
 const hasCommand = computed(() => !!command.value);
@@ -25,7 +36,7 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
 
 /** OUT 区是否渲染（有输出 / 执行中 / 有提示；无 command 时也兜底渲染避免整卡空白） */
 const showOut = computed(() =>
-  hasOutput.value || !!errorMessage.value || !!guidance.value || !!props.loading || !hasCommand.value,
+  hasOutput.value || !!errorMessage.value || !!notice.value || !!props.loading || !hasCommand.value,
 );
 /** IN/OUT 之间的 --- 分隔线（两侧都有内容时才有意义） */
 const showDivider = computed(() => hasCommand.value && showOut.value);
@@ -51,11 +62,15 @@ watch([stdout, stderr, () => props.loading], async () => {
     <!-- 单卡片终端：IN / --- / OUT 以文本标记区分输入与输出 -->
     <div class="term-card">
       <ScrollableViewport ref="viewportRef" class="term-scroll" @scroll="onScroll">
-        <!-- IN：输入命令 -->
+        <!-- IN：输入命令；被翻译过 → 下一行展示实际执行的 PowerShell 命令 -->
         <div v-if="hasCommand" class="term-row term-in">
           <span class="term-mark term-mark-in">IN:</span>
           <code class="term-cmd">{{ command }}</code>
           <span v-if="cwd" class="term-cwd" :title="cwd">{{ cwd }}</span>
+        </div>
+        <div v-if="hasCommand && translated" class="term-row term-translated">
+          <span class="term-mark term-mark-in">↳ PS:</span>
+          <code class="term-cmd">{{ translated }}</code>
         </div>
 
         <!-- ---：IN/OUT 分隔线，非零退出码以徽标居中呈现 -->
@@ -78,16 +93,17 @@ watch([stdout, stderr, () => props.loading], async () => {
               <span class="term-loading-text">正在执行...</span>
             </div>
 
-            <!-- 执行失败信息：无输出时红色展示；有输出时作为黄色引导展示，避免吞掉修复提示 -->
+            <!-- 失败信息：无输出时红色展示；有输出时作黄色提示展示，避免吞掉修复引导 -->
             <div v-if="errorMessage && !hasOutput" class="term-error">{{ errorMessage }}</div>
             <div v-if="errorMessage && hasOutput" class="term-guidance">{{ errorMessage }}</div>
-            <div v-if="guidance" class="term-guidance">{{ guidance }}</div>
+            <!-- 成功形附带提示（后台启动通知 / command-feedback 引导）——非错误，黄色提示 -->
+            <div v-if="notice && !errorMessage" class="term-guidance">{{ notice }}</div>
 
             <div v-if="truncated || timedOut" class="term-truncated">
               <Icon name="alert-circle" :size="12" /> {{ truncated ? '输出已截断' : '' }}{{ truncated && timedOut ? '；' : '' }}{{ timedOut ? '命令超时' : '' }}
             </div>
 
-            <div v-if="!hasCommand && !hasOutput && !errorMessage && !guidance && !loading" class="term-empty">(无输出)</div>
+            <div v-if="!hasCommand && !hasOutput && !errorMessage && !notice && !loading" class="term-empty">(无输出)</div>
           </div>
         </div>
       </ScrollableViewport>
@@ -104,7 +120,7 @@ watch([stdout, stderr, () => props.loading], async () => {
 /* 终端皮肤（cr-129 保留例外）：恒暗底 + 固定调色板——终端是跨主题同貌的
    仿真面（真实终端不随系统明暗换肤）；此处色值**不可**换语义令牌：亮色主题的
    墨色档（--ok/--warn/--err）在 #0f1117 暗底上对比低于 3.0，换令牌必失读。
-   该色族为终端分类色板（IN/OUT/cwd/exit/stderr/guidance），非 UI 状态色。 */
+   该色族为终端分类色板（IN/OUT/cwd/exit/stderr/提示），非 UI 状态色。 */
 .term-card {
   background: #0f1117;
   border: 1px solid rgba(148, 163, 184, 0.16);
@@ -153,6 +169,14 @@ watch([stdout, stderr, () => props.loading], async () => {
   user-select: none;
 }
 
+/* ---- 译文行（IN 与分隔线之间；与 IN 同族但弱一档） ---- */
+.term-translated {
+  margin-top: 2px;
+}
+.term-translated .term-cmd {
+  color: #94a3b8;
+}
+
 /* ---- --- 分隔线 ---- */
 .term-divider {
   display: flex;
@@ -197,7 +221,7 @@ watch([stdout, stderr, () => props.loading], async () => {
   color: #f87171 !important;
 }
 
-/* ---- 错误 / 引导 / 提示 ---- */
+/* ---- 错误 / 提示 ---- */
 .term-error {
   color: #f87171;
   white-space: pre-wrap;

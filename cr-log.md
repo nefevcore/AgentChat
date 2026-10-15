@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-463**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-464**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -481,3 +481,4 @@
 - 【cr-461 2026-10-15 ac-client-ui-skill 深审：client 门面 re-export 死口删除（全仓零消费，ChatInput/测试均走 skillsApi 深路径）+ fetchSkills 成功路径补测（三源合成/空字段归一/参数形状——原仅失败路径覆盖）】
 - 【cr-462 2026-10-15 ac-client-ui-system 深审收口（audit #118）：死门面 re-export 删除（cr-461 同款）+ simulateUpdate 键读取并源 simulateUpdateChannel + 头注/描述漂移订正（sidebar→layout、留-webui 矛盾、overlay 序补 98）+ 桌面更新桥客户端补测试（此前零覆盖）+ CRLF→LF 统一】
 - 【cr-463 2026-10-15 ac-client-ui-timer 深审收口（审计#119）：TimerEntry 镜像断根——ui-settings 手工副本（已漂移缺 task/conversationId/activeHours/gate）删除，四处消费改 import type 单源接 ac-timer-core；GlobalTimerHost 编辑弹窗表单归 kit 标准件（Input/Select/Textarea，sp-* 手工样式副本随撤）；TimerPane Select 死导入清理；头注/描述 A3 漂移订正；webui 零源码消费依赖转 devDependencies】
+- 【cr-464 2026-10-15 ui-shell 深审（audit #120）：修 ToolMessage error 特判漏 pwsh（Windows 失败态终端卡不渲染）；终端卡 notice 归一——handoff 后台启动通知（output.message 唯一生产者）误染红修正 + command-feedback 引导 note 卡内可见 + guidance 死词删；translated_command 翻译产物行可见；注释/描述漂移订正 + 包内 CRLF 统一 LF + 终端卡渲染测试补盲（webui/tests）】
