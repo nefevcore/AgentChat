@@ -8,7 +8,7 @@
 // 非行非服务（行激活序是需求驱动的 PENDING，无法保证先于 session）。
 //
 // 机制：
-//   · 版本标记 data/meta.json { dataVersion }（首启从 .initialized 推断 v0）；
+//   · 版本标记 data/meta.json { dataVersion }（无 meta 一律 v0——见 readDataVersion）；
 //   · 迁移注册表：升序版本号 → 迁移体（纯函数，数据根路径入参）；
 //   · 执行器：目标版本 > 当前版本 → 迁移前强制快照（ac-backup-core 直调
 //     ——行未激活，owning 行的 core 独立可用）→ 按序应用 → 每迁移完成
@@ -44,19 +44,23 @@ export interface DataMeta {
   applied?: Array<{ id: string; at: string }>;
 }
 
-/** 读当前数据版本：meta.json > .initialized 推断 v0 > 空目录 v0 */
+/** 读当前数据版本：meta.json >（缺失/损坏/字段异常 → -1 全量重放；无 meta → v0） */
 export function readDataVersion(dataRoot: string): number {
   const metaPath = path.join(dataRoot, META_FILE);
   if (fs.existsSync(metaPath)) {
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as DataMeta;
       if (typeof meta.dataVersion === 'number' && meta.dataVersion >= 0) return meta.dataVersion;
+      // 字段级异常（dataVersion 缺失/非法）同归未知：落 0 = 静默跳过全部迁移，
+      // 旧格式数据不重写即被新词法读写——无声劣化路径
+      return -1;
     } catch {
       // 损坏的 meta：视为未知（v=-1）→ 全量重放（迁移幂等保证安全）
       return -1;
     }
   }
-  // 无 meta：.initialized 在场 = 旧数据（v0）；全新数据根也按 v0（无迁移可跳）
+  // 无 meta：一律 v0（迁移器诞生前的旧根与全新根同归——v0 全量重放幂等安全，
+  // 新根无 sessions 可迁即 no-op；不检查 .initialized：两态同归 v0，检查无差别）
   return 0;
 }
 

@@ -405,6 +405,7 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 | `ac-archive-core` | 归档阈值/尾部截断（不拆工具对）/二次归档去重分割 |
 | `ac-timer-core` | 间隔解析/目标时间/5 模式标签/节假日（农历+调休）/时区 ISO/hint 模板 |
 | `ac-backup-core` | zip 打包/周期轮转/到期间隔（路径全显式） |
+| `ac-migration-core` | 数据版本迁移执行器：meta.json 版本标记 + 按序应用/幂等/断点续跑 + 迁移前强制快照（backups/migrations/ 不参与轮转；boot 锁后装载前调用，非行非服务——迁移体住 owning 域〔ac-session/src/migrations.ts〕） |
 | `ac-ws-protocol` | WS 帧编解码 + rpc/ack 控制帧 + 后台源判定 |
 | `ac-wire-format` | 下行线格式与桥接目录：llm/delta 瘦身投影 + 30ms 微批合帧（cr-85）+ 事件桥接策略目录 createBridgeCatalog——订阅清单/过滤/整形两链同源（cr-108）+ WireBatcher 单批器漏斗（remote 链路全下行帧合批出口，供给速率=窗口常量结构性低于 relay 帧闸，cr-112） |
 | `ac-plugin-core` | manifest 校验/权限授予策略/契约版本兼容/staging 人审文件域/fsx 原子写/审计流水/保留字常量表/熔断存档/cordis.patch.yml 文件域 |

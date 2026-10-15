@@ -1,12 +1,12 @@
 // ============================================================
 // ac-migration-core/tests/migration.test.ts —— 迁移执行器 + 词汇 v2 迁移体
 //
-// · 版本标记读写（meta.json / .initialized 推断 v0 / 损坏 meta → -1）
+// · 版本标记读写（meta.json / 无 meta → v0 / 损坏或字段异常 meta → -1 全量重放）
 // · runMigrations：按序应用 + 幂等跳过 + 迁移前快照 + 断点续跑（逐迁移落版本）
 // · SESSION_MIGRATIONS：role v2 改写 + subcall 剥离（同 pass）+ 坏行保留
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, utimesSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, utimesSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readDataVersion, runMigrations, writeDataVersion, type Migration } from '../src/index.ts';
@@ -38,6 +38,14 @@ describe('版本标记', () => {
     const root = makeRoot();
     writeFileSync(join(root, 'meta.json'), '{broken', 'utf-8');
     expect(readDataVersion(root)).toBe(-1);
+  });
+
+  it('字段级异常（合法 JSON 但 dataVersion 缺失/负数/非数）→ -1 全量重放——落 0 = 静默跳过全部迁移的无声劣化路径', () => {
+    for (const body of ['{}', '{"applied":[]}', '{"dataVersion":-1}', '{"dataVersion":"x"}']) {
+      const root = makeRoot();
+      writeFileSync(join(root, 'meta.json'), body, 'utf-8');
+      expect(readDataVersion(root)).toBe(-1);
+    }
   });
 });
 
@@ -74,6 +82,30 @@ describe('runMigrations 执行器', () => {
       { version: 2, id: 'boom-fixed', description: '', apply: () => {} },
     ];
     expect(runMigrations(root, fixed).map((m) => m.id)).toEqual(['boom-fixed']);
+  });
+
+  it('未来版本告警（dataVersion 超出已知最大迁移）：不拒启动、零迁移返回', () => {
+    const root = makeRoot();
+    writeDataVersion(root, 99, []);
+    const applied: string[] = [];
+    const migrations: Migration[] = [
+      { version: 1, id: 'm1', description: '', apply: () => { applied.push('m1'); } },
+    ];
+    expect(runMigrations(root, migrations)).toEqual([]); // 降级运行：读侧宽容
+    expect(applied).toEqual([]);
+  });
+
+  it('迁移前强制快照红线：有 pending 迁移即快照落 backups/migrations/（不参与常规轮转目录）', () => {
+    const root = makeRoot();
+    mkdirSync(join(root, 'sessions', 'z~user'), { recursive: true });
+    const migrations: Migration[] = [
+      { version: 1, id: 'm1', description: '', apply: () => {} },
+    ];
+    runMigrations(root, migrations);
+    const backupDir = join(root, 'backups', 'migrations');
+    const files = existsSync(backupDir) ? readdirSync(backupDir) : [];
+    expect(files.length).toBe(1); // 恰一份迁移前快照
+    expect(files[0]).toMatch(/\.zip$/);
   });
 });
 

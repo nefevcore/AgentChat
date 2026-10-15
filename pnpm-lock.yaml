@@ -3606,9 +3606,6 @@ importers:
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
-      ac-migration-core:
-        specifier: workspace:*
-        version: link:../ac-migration-core
       ac-text-budget:
         specifier: workspace:*
         version: link:../ac-text-budget
@@ -3631,6 +3628,9 @@ importers:
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
+      ac-migration-core:
+        specifier: workspace:*
+        version: link:../ac-migration-core
       ac-router:
         specifier: workspace:*
         version: link:../ac-router
