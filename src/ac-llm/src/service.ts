@@ -335,7 +335,7 @@ export class LlmService extends Service {
     let finish: string | undefined;
     let usage: LlmUsage | undefined;
     let thinkingSignature: string | undefined;
-    const toolCalls = new Map<number, { id: string; name: string; args: string }>();
+    const toolCalls = new Map<number, { id: string; name: string; args: string; signature?: string }>();
     // 相位序标记（步内卡片顺序）：首个非空 delta / 首个工具分片谁先到——
     // 谁先见谁在前。仅两者都出现时才有意义（见返回处条件展开）
     let sawText = false;
@@ -371,6 +371,8 @@ export class LlmService extends Service {
           if (frag.id) acc.id = frag.id;
           if (frag.name) acc.name = frag.name;
           if (frag.argumentsDelta) acc.args += frag.argumentsDelta;
+          // 签名透传（cr-443）：Gemini 整段到达——last-wins 覆盖即聚合
+          if (frag.signature) acc.signature = frag.signature;
           toolCalls.set(frag.index, acc);
         }
         if (chunk.finish) finish = chunk.finish;
@@ -389,7 +391,7 @@ export class LlmService extends Service {
       // 否则 loop 会执行 "unknown tool:"，并在落盘步记录里留下无结果的
       // 幻影工具卡（前端渲染为永久转圈）
       .filter(([, acc]) => acc.id && acc.name)
-      .map(([, acc]) => ({ id: acc.id, name: acc.name, arguments: acc.args }));
+      .map(([, acc]) => ({ id: acc.id, name: acc.name, arguments: acc.args, ...(acc.signature ? { signature: acc.signature } : {}) }));
     return {
       provider: this.nominalProvider(call.input),
       model: call.input.model,

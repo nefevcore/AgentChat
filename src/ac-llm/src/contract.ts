@@ -155,6 +155,13 @@ export interface LlmToolCallDelta {
   name?: string;
   /** arguments JSON 的增量片段 */
   argumentsDelta?: string;
+  /**
+   * 思考签名分片级透传（cr-443 Gemini thoughtSignature；Anthropic 签名走
+   * 消息级 thinkingSignature——形态不同源）：Gemini 2.5 系 functionCall
+   * part 携带签名，多轮工具调用须原样回传（附在下一轮 functionCall /
+   * functionResponse part）否则 400。聚合进 LlmToolCall.signature。
+   */
+  signature?: string;
 }
 
 /** 聚合后的完整工具调用 */
@@ -163,6 +170,8 @@ export interface LlmToolCall {
   name: string;
   /** JSON 字符串参数 */
   arguments: string;
+  /** 思考签名（cr-443 Gemini thoughtSignature；见 LlmToolCallDelta 同名注释） */
+  signature?: string;
 }
 
 export interface LlmStreamChunk {

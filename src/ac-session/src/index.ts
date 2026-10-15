@@ -528,6 +528,8 @@ export interface SessionStepRecord {
     name: string;
     /** 参数原始 JSON 字符串（前端按需 parse 展示） */
     arguments: string;
+    /** 思考签名（cr-443 Gemini thoughtSignature 透传位；回放时随 tool_calls 重建） */
+    signature?: string;
     /** 工具体返回的 ToolResult（对象原样 JSON 往返） */
     result: unknown;
     /**
@@ -783,6 +785,7 @@ function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
               id: tc.id,
               type: 'function' as const,
               function: { name: tc.name, arguments: tc.arguments },
+              ...(tc.signature ? { signature: tc.signature } : {}),
             })),
           }
         : {}),
@@ -837,6 +840,7 @@ export function stepsFromRunResult(
               id: tc.id,
               name: tc.name,
               arguments: tc.arguments,
+              ...(tc.signature ? { signature: tc.signature } : {}),
               result: s.toolResults[i] ?? null,
             })),
           }

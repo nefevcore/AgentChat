@@ -31,6 +31,49 @@ describe('toGeminiContents', () => {
       { role: 'user', parts: [{ functionResponse: { name: 'read', response: { ok: true } } }] },
     ]);
   });
+
+  it('cr-442 · 同轮并行 functionResponse 合并进单个 user content（官方角色交替形态）', () => {
+    const out = toGeminiContents([
+      { role: 'user', content: '查两个文件' },
+      { role: 'assistant', content: '', tool_calls: [
+        { id: 'c1', function: { name: 'read', arguments: '{}' } },
+        { id: 'c2', function: { name: 'grep', arguments: '{}' } },
+      ] },
+      { role: 'tool', tool_call_id: 'c1', name: 'read', content: '{"n":1}' },
+      { role: 'tool', tool_call_id: 'c2', name: 'grep', content: '{"hits":2}' },
+      { role: 'assistant', content: 'done' },
+    ]);
+    expect(out.contents).toEqual([
+      { role: 'user', parts: [{ text: '查两个文件' }] },
+      { role: 'model', parts: [
+        { functionCall: { name: 'read', args: {} } },
+        { functionCall: { name: 'grep', args: {} } },
+      ] },
+      { role: 'user', parts: [ // 两轮 tool 消息合并为一 content
+        { functionResponse: { name: 'read', response: { n: 1 } } },
+        { functionResponse: { name: 'grep', response: { hits: 2 } } },
+      ] },
+      { role: 'model', parts: [{ text: 'done' }] },
+    ]);
+  });
+
+  it('cr-442 · 中性 tool_calls[].signature → functionCall.thoughtSignature 回传', () => {
+    const out = toGeminiContents([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'read', arguments: '{}' }, signature: 'sig-abc' }] },
+      { role: 'tool', tool_call_id: 'c1', name: 'read', content: '{}' },
+    ]);
+    expect(out.contents[1]).toEqual({ role: 'model', parts: [{ functionCall: { name: 'read', args: {}, thoughtSignature: 'sig-abc' } }] });
+  });
+
+  it('cr-442 · 尾部 tool 消息（语义化中断后不再有 assistant）也合并收口', () => {
+    const out = toGeminiContents([
+      { role: 'user', content: 'x' },
+      { role: 'assistant', content: '', tool_calls: [{ function: { name: 'ask', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 't1', name: 'ask', content: '{"interrupt":true}' },
+    ]);
+    expect(out.contents.at(-1)).toEqual({ role: 'user', parts: [{ functionResponse: { name: 'ask', response: { interrupt: true } } }] });
+  });
 });
 
 describe('toGeminiTools / toGeminiGenerationConfig', () => {
@@ -60,6 +103,19 @@ describe('createGeminiChunkMapper', () => {
       delta: '', toolCalls: [{ index: 0, id: 'call_0', name: 'read', argumentsDelta: '{"a":1}' }], finish: 'stop', usage: { prompt: 2, completion: 0 },
     });
     expect(m({ candidates: [{}] })).toBeNull();
+  });
+
+  it('cr-442 · functionCall part 携带 thoughtSignature → toolCalls[].signature 透传', () => {
+    const m = createGeminiChunkMapper();
+    expect(m({ candidates: [{ content: { parts: [{ functionCall: { name: 'read', args: {}, thoughtSignature: 'sig-xyz' } }] } }] }))
+      .toMatchObject({ toolCalls: [{ index: 0, signature: 'sig-xyz' }] });
+  });
+
+  it('cr-442 · promptFeedback.blockReason（请求级安全拦截）→ finish 原值透传，不再静默空成功', () => {
+    const m = createGeminiChunkMapper();
+    expect(m({ candidates: [{ finishReason: 'SAFETY' }] })).toEqual({ delta: '', finish: 'SAFETY' });
+    expect(m({ promptFeedback: { blockReason: 'SAFETY' } })).toEqual({ delta: '', finish: 'SAFETY' });
+    expect(m({ promptFeedback: { blockReason: 'BLOCKLIST' }, usageMetadata: { promptTokenCount: 5 } })).toEqual({ delta: '', finish: 'BLOCKLIST' });
   });
 });
 
@@ -130,5 +186,35 @@ describe('GeminiCompletions.listModels', () => {
     expect(captured.url).toBe('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000');
     expect(captured.init.headers['x-goog-api-key']).toBe('k');
     expect(models).toEqual(['gemini-a', 'gemini-b']);
+  });
+});
+
+describe('GeminiCompletions.chat（cr-442 聚合）', () => {
+  it('functionCall thoughtSignature 聚合进 toolCalls[].signature；usage 直取末片', async () => {
+    const client = new GeminiCompletions({
+      fetchImpl: (async () => sseResponse([
+        { candidates: [{ content: { parts: [{ text: '查一下' }] } }] },
+        { candidates: [{ content: { parts: [{ functionCall: { name: 'read', args: { a: 1 }, thoughtSignature: 'sig-1' } }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, totalTokenCount: 14 } },
+      ])) as unknown as typeof fetch,
+    });
+    const res = await client.chat({ model: 'gemini-2.5-pro', messages: [{ role: 'user', content: 'hi' }] });
+    expect(res).toMatchObject({
+      model: 'gemini-2.5-pro',
+      text: '查一下',
+      toolCalls: [{ id: 'call_0', name: 'read', arguments: '{"a":1}', signature: 'sig-1' }],
+      finish: 'stop',
+      usage: { prompt: 10, completion: 4, total: 14 },
+    });
+  });
+
+  it('promptFeedback.blockReason 聚合为 finish（端到端）', async () => {
+    const client = new GeminiCompletions({
+      fetchImpl: (async () => sseResponse([
+        { promptFeedback: { blockReason: 'SAFETY' } },
+      ])) as unknown as typeof fetch,
+    });
+    const res = await client.chat({ model: 'm', messages: [{ role: 'user', content: 'hi' }] });
+    expect(res.finish).toBe('SAFETY');
+    expect(res.text).toBe('');
   });
 });

@@ -13,8 +13,10 @@
 //   · 鉴权 x-goog-api-key 头（不进 query，避免 URL 泄 key）；
 //   · 请求体 { contents, systemInstruction?, tools?, generationConfig? }；
 //   · SSE data JSON：candidates[0].content.parts[]（text / thought /
-//     functionCall 整段）+ usageMetadata + finishReason；
-//   · tool 结果回传 = user 消息 functionResponse part。
+//     functionCall〔含 thoughtSignature——cr-442〕）+ usageMetadata +
+//     finishReason；promptFeedback.blockReason = 请求级安全拦截（cr-442）；
+//   · tool 结果回传 = user 消息 functionResponse part（同轮并行调用
+//     合并进单个 user content——官方角色交替形态，cr-442）。
 // ============================================================
 import { LlmHttpError, parseRetryAfter } from 'ac-error-core';
 import { sseDataEvents, stripTransportKeys } from 'ac-openai-completions';
@@ -51,6 +53,8 @@ export interface GeminiToolCallDelta {
   id?: string;
   name?: string;
   argumentsDelta?: string;
+  /** 思考签名（cr-442）：functionCall part 级 thoughtSignature 原样透传 */
+  signature?: string;
 }
 
 export interface GeminiChunk {
@@ -65,7 +69,7 @@ export interface GeminiChatResult {
   model: string;
   text: string;
   reasoning?: string;
-  toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+  toolCalls?: Array<{ id: string; name: string; arguments: string; signature?: string }>;
   finish?: string;
   usage?: GeminiUsage;
 }
@@ -113,38 +117,56 @@ export function mapGeminiUsage(raw: unknown): GeminiUsage | undefined {
 
 /**
  * 中性消息序 → Gemini contents + systemInstruction（导出测试锁定）：
-//   · system → systemInstruction.parts（Gemini 不收 contents 内 system）；
+//   · system → systemInstruction（官方 Content 对象形态：{parts:[{text}]}；
+//     多条 system 拼接——systemInstruction 是请求级单值）；
 //   · role assistant → 'model'，user/tool → 'user'；
-//   · assistant 带 tool_calls → parts [{functionCall:{name, args}}]；
-//   · role:'tool'（name=工具名）→ parts [{functionResponse:{name, response}}]；
+//   · assistant 带 tool_calls → parts [{functionCall:{name, args,
+//     thoughtSignature?}}]（签名随调用透传——cr-442）；
+//   · role:'tool'（name=工具名）→ functionResponse part，**同一轮并行
+//     调用的结果合并进单个 user content**（官方角色交替形态：连续同角色
+//     contents 在多轮工具场景有 400 风险——官方文档 function calling 指南
+//     明示合并形态，cr-442）；
 //   · 其余原样 {role, parts:[{text}]}。
  */
 export function toGeminiContents(messages: GeminiMessage[]): { systemInstruction?: string; contents: Array<Record<string, unknown>> } {
   const system: string[] = [];
   const out: Array<Record<string, unknown>> = [];
+  let pendingToolResponses: Array<Record<string, unknown>> | undefined;
+  const flushToolResponses = () => {
+    if (pendingToolResponses !== undefined && pendingToolResponses.length > 0) {
+      out.push({ role: 'user', parts: pendingToolResponses });
+      pendingToolResponses = undefined;
+    }
+  };
   for (const m of messages) {
     if (m.role === 'system') { if (m.content) system.push(m.content); continue; }
     if (m.role === 'tool') {
-      out.push({
-        role: 'user',
-        parts: [{ functionResponse: { name: String(m.name ?? ''), response: safeParseJson(m.content) } }],
+      (pendingToolResponses ??= []).push({
+        functionResponse: { name: String(m.name ?? ''), response: safeParseJson(m.content) },
       });
       continue;
     }
+    flushToolResponses();
     const role = m.role === 'assistant' ? 'model' : 'user';
     const rawCalls = (m as { tool_calls?: unknown }).tool_calls;
     const calls = Array.isArray(rawCalls) ? rawCalls : [];
     if (calls.length > 0) {
       const parts: Array<Record<string, unknown>> = [];
       if (m.content) parts.push({ text: m.content });
-      for (const tc of calls as Array<{ function?: { name?: unknown; arguments?: unknown } }>) {
-        parts.push({ functionCall: { name: String(tc.function?.name ?? ''), args: safeParseJson(tc.function?.arguments) } });
+      for (const tc of calls as Array<{ function?: { name?: unknown; arguments?: unknown }; signature?: unknown }>) {
+        const call: Record<string, unknown> = {
+          name: String(tc.function?.name ?? ''),
+          args: safeParseJson(tc.function?.arguments),
+        };
+        if (typeof tc.signature === 'string' && tc.signature) call.thoughtSignature = tc.signature;
+        parts.push({ functionCall: call });
       }
       out.push({ role, parts });
       continue;
     }
     out.push({ role, parts: [{ text: m.content }] });
   }
+  flushToolResponses();
   return { ...(system.length ? { systemInstruction: system.join('\n\n') } : {}), contents: out };
 }
 
@@ -188,15 +210,22 @@ function safeParseJson(raw: unknown): Record<string, unknown> {
  * Gemini SSE data JSON → 中性分片（有状态映射器）。functionCall 是整段
  * 到达（Gemini 无参数增量）——每次发完整 arguments 一次（chat 聚合器
  * 天然拼接兼容）。多 candidates 只取 [0]。
+ *
+ * thoughtSignature（cr-442）：Gemini 2.5 系思考模型的 functionCall part
+ * 携带思考签名，官方文档明示多轮工具调用须原样回传（附在
+ * functionResponse / 下一轮 functionCall part），不回传即 400——与
+ * Anthropic thinkingSignature 同型语义（cr-98/cr-440）。签名随 toolCall
+ * 分片透传（toolCalls[].signature），chat 聚合进 toolCalls[].signature；
+ * 回放侧 toGeminiContents 从中性 tool_calls[].signature 读取。
  */
 export function createGeminiChunkMapper(): (json: unknown) => GeminiChunk | null {
   let tcCount = 0;
   return (json) => {
     const r = (json ?? {}) as {
       candidates?: Array<{
-        content?: { parts?: Array<{ text?: unknown; thought?: unknown; functionCall?: { name?: unknown; args?: unknown } }> };
+        content?: { parts?: Array<{ text?: unknown; thought?: unknown; functionCall?: { name?: unknown; args?: unknown; thoughtSignature?: unknown } }> };
         finishReason?: unknown;
-      }>; usageMetadata?: unknown;
+      }>; usageMetadata?: unknown; promptFeedback?: { blockReason?: unknown };
     };
     const candidate = r.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
@@ -209,11 +238,20 @@ export function createGeminiChunkMapper(): (json: unknown) => GeminiChunk | null
       }
       if (p.functionCall && typeof p.functionCall.name === 'string') {
         const index = tcCount++;
-        toolCalls.push({ index, id: 'call_' + index, name: p.functionCall.name, argumentsDelta: JSON.stringify(p.functionCall.args ?? {}) });
+        const frag: GeminiToolCallDelta = { index, id: 'call_' + index, name: p.functionCall.name, argumentsDelta: JSON.stringify(p.functionCall.args ?? {}) };
+        if (typeof p.functionCall.thoughtSignature === 'string' && p.functionCall.thoughtSignature) frag.signature = p.functionCall.thoughtSignature;
+        toolCalls.push(frag);
       }
     }
     const finish = mapGeminiFinishReason(candidate?.finishReason as string | undefined);
     const usage = mapGeminiUsage(r.usageMetadata);
+    // 请求级安全拦截（cr-442）：promptFeedback.blockReason 在场即整请求被
+    // 拦（candidates 缺席/空）——映射为中性 finish 原值透传（SAFETY/RECITATION/
+    // BLOCKLIST/PROHIBITED_CONTENT/SEXUAL/...），调用方（loop/前端）按 finish
+    // 诊断；不映射 = 空文本静默成功，用户侧无任何解释。
+    if (finish === undefined && typeof r.promptFeedback?.blockReason === 'string' && r.promptFeedback.blockReason) {
+      return { delta: '', finish: r.promptFeedback.blockReason };
+    }
     if (delta === '' && reasoning === '' && toolCalls.length === 0 && finish === undefined && usage === undefined) return null;
     const chunk: GeminiChunk = { delta };
     if (reasoning !== '') chunk.reasoning = reasoning;
@@ -346,7 +384,7 @@ export class GeminiCompletions {
     let reasoning = '';
     let finish: string | undefined;
     let usage: GeminiUsage | undefined;
-    const toolCalls = new Map<number, { id: string; name: string; args: string }>();
+    const toolCalls = new Map<number, { id: string; name: string; args: string; signature?: string }>();
     for await (const chunk of this.stream(params)) {
       text += chunk.delta;
       if (chunk.reasoning) reasoning += chunk.reasoning;
@@ -355,14 +393,15 @@ export class GeminiCompletions {
         if (frag.id) acc.id = frag.id;
         if (frag.name) acc.name = frag.name;
         if (frag.argumentsDelta) acc.args += frag.argumentsDelta;
+        if (frag.signature) acc.signature = frag.signature;
         toolCalls.set(frag.index, acc);
       }
       if (chunk.finish) finish = chunk.finish;
-      if (chunk.usage) usage = { ...usage, ...chunk.usage };
+      if (chunk.usage) usage = chunk.usage;
     }
     const calls = [...toolCalls.entries()]
       .sort(([a], [b]) => a - b)
-      .map(([, acc]) => ({ id: acc.id, name: acc.name, arguments: acc.args }));
+      .map(([, acc]) => ({ id: acc.id, name: acc.name, arguments: acc.args, ...(acc.signature ? { signature: acc.signature } : {}) }));
     return {
       model,
       text,

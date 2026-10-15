@@ -513,6 +513,9 @@ export class AgentLoopService extends Service {
               id: tc.id,
               type: 'function' as const,
               function: { name: tc.name, arguments: tc.arguments },
+              // 中性签名位（cr-443 Gemini thoughtSignature；Anthropic 走消息级
+              // thinkingSignature）：Gemini 库 toGeminiContents 读本键回传
+              ...(tc.signature ? { signature: tc.signature } : {}),
             })),
           }
         : {}),

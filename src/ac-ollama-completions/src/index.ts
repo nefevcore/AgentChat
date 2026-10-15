@@ -121,6 +121,16 @@ export async function* ndjsonLines(body: ReadableStream<Uint8Array>): AsyncGener
 export function toOllamaMessages(messages: OllamaMessage[]): Array<Record<string, unknown>> {
   return messages.map((m) => {
     const { attachments: _attachments, reasoning: _r, thinking: _t, reasoning_content: _rc, thinkingSignature: _ts, ...rest } = m as Record<string, unknown>;
+    // 调用级签名位（cr-443）：Gemini thoughtSignature 专有——剥掉（cr-294 同因同法）
+    if (Array.isArray((rest as { tool_calls?: unknown }).tool_calls)) {
+      (rest as { tool_calls: unknown[] }).tool_calls = (rest as { tool_calls: unknown[] }).tool_calls.map((tc) => {
+        if (tc && typeof tc === 'object' && 'signature' in tc) {
+          const { signature: _sig, ...tcRest } = tc as Record<string, unknown>;
+          return tcRest;
+        }
+        return tc;
+      });
+    }
     return rest;
   });
 }

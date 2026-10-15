@@ -676,11 +676,22 @@ export function normalizeAssistantMessage(
   form: ThinkingWireForm,
 ): CompletionsMessage {
   if (msg.role !== 'assistant') return msg;
-  const { reasoning, thinking, reasoning_content, thinkingSignature, ...rest } = msg as {
+  const { reasoning, thinking, reasoning_content, thinkingSignature, ...restMsg } = msg as {
     reasoning?: unknown; thinking?: unknown; reasoning_content?: unknown;
     thinkingSignature?: unknown; role: string; content: CompletionsMessage['content'];
     [key: string]: unknown;
   };
+  // 调用级签名位（cr-443）：Gemini thoughtSignature 专有——completions 面
+  // 剥掉（cr-294 thinkingSignature 同因同法），tool_calls[].signature 剥离
+  const rest = restMsg.tool_calls !== undefined && Array.isArray(restMsg.tool_calls)
+    ? { ...restMsg, tool_calls: restMsg.tool_calls.map((tc) => {
+        if (tc && typeof tc === 'object' && 'signature' in tc) {
+          const { signature: _sig, ...tcRest } = tc as Record<string, unknown>;
+          return tcRest as typeof tc;
+        }
+        return tc;
+      }) }
+    : restMsg;
   if (form === 'reasoning_content') {
     // 空串兜底：无思考步也写 reasoning_content=''——DeepSeek thinking 模式
     // + tools 的强制回传校验按「键存在」判定（缺失即 400，实测）
