@@ -18,28 +18,39 @@
 // dock 卡静默隐藏（三态空态语义）。
 // ============================================================
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
-import ToolResultTodo from './ToolResultTodo.vue';
-import TodoDockCard from './TodoDockCard.vue';
+import { defineAsyncComponent } from 'vue';
+
+// 贡献组件（异步：node 环境消费本模块不求值 .vue 视图链——cr-454，同
+// ac-client-ui-goal 先例；此前 eager import 使 todo-row 测试装载链拖入
+// 视图树，单用例 4.5s，全仓并发挤压下 15s 超时 = 审计反复记名的 flake）
+const ToolResultTodoAsync = defineAsyncComponent(() => import('./ToolResultTodo.vue'));
+const TodoDockCardAsync = defineAsyncComponent(() => import('./TodoDockCard.vue'));
 
 /** todo 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const todoClientPlugin = clientPlugin({
   name: 'ac-client-ui-todo.client',
   inject: ['rpc', 'slots'],
   apply(ctx: ClientContext) {
-    // 工具结果卡片（keyed presentation seat——精确名 'todo'，同 id 后
-    // 注册者替换；行卸载 → def 消失 → resolve 回落默认文本渲染）
-    ctx.slots.register('tool-card:result-view', {
-      id: 'todo',
-      component: ToolResultTodo,
-      meta: { def: { match: 'todo', component: ToolResultTodo, priority: 0, label: '任务清单', icon: 'clipboard-list' } },
-    });
+    // 注册经 slots.inject（声明存活期效应，cr-454——run-code/shell/fs/
+    // browser/subagent/goal 七行家族先例）：席位声明在场才注册、塌缩即
+    // 回收，不依赖 boot 序上 conversation 基础件先行（裸 register 遇未
+    // 声明席位即 UNDECLARED_SLOT 抛错——隐性装载顺序假设）
+    ctx.slots.inject('tool-card:result-view', () =>
+      ctx.slots.register('tool-card:result-view', {
+        id: 'todo',
+        component: ToolResultTodoAsync,
+        meta: { def: { match: 'todo', component: ToolResultTodoAsync, priority: 0, label: '任务清单', icon: 'clipboard-list' } },
+      }),
+    );
     // 任务清单 dock 卡（list seat；order 40 = dock 序重排后任务在排队后、
     // 目标前——环境追踪卡下沉，待办行动卡〔决策/审批〕置顶）
-    ctx.slots.register('conversation:dock-widget', {
-      id: 'todo',
-      component: TodoDockCard,
-      order: 40,
-    });
+    ctx.slots.inject('conversation:dock-widget', () =>
+      ctx.slots.register('conversation:dock-widget', {
+        id: 'todo',
+        component: TodoDockCardAsync,
+        order: 40,
+      }),
+    );
   },
 });
 

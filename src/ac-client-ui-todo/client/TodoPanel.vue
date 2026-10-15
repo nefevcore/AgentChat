@@ -8,6 +8,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { DockCard, BusyRing } from '@agentchat/webui-kit';
+import TodoGlyph from './TodoGlyph.vue';
 import type { TaskTodo } from './tasks.ts';
 
 const props = defineProps<{ todos: TaskTodo[] }>();
@@ -46,18 +47,11 @@ const progressText = computed(() => {
   >
     <ul class="todo-list">
       <li v-for="(item, i) in todos" :key="i" class="todo-item" :data-status="item.status">
-        <span class="todo-glyph" aria-hidden="true">
-          <!-- completed：实心勾圈 -->
-          <svg v-if="item.status === 'completed'" class="glyph-done" width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.4" stroke="currentColor" stroke-width="1.2" />
-            <path d="M10.96 5.71L7.7 8.98c-.22.22-.42.42-.61.57-.19.16-.43.3-.73.35-.16.03-.32.03-.48 0-.3-.05-.54-.19-.73-.35-.18-.15-.38-.35-.61-.57L3.04 7.46l.93-.93 1.51 1.52c.24.24.39.38.5.48.11.09.13.09.16.08.02.01.05.01.07 0 .03.01.05-.01.16-.1.12-.09.27-.24.5-.48L10.04 4.79l.92.92z" fill="currentColor" />
-          </svg>
-          <!-- in_progress：kit BusyRing（cr-129 R2：忙指示唯一源） -->
-          <BusyRing v-else-if="item.status === 'in_progress'" :size="13" />
-          <!-- pending：虚线圈 -->
-          <svg v-else class="glyph-pending" width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.4" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2.4 2.4" />
-          </svg>
+        <span class="todo-glyph">
+          <!-- 三形（cr-454 并源 TodoGlyph）：completed 勾圈 / pending 虚线圈；
+               in_progress = kit BusyRing（cr-129 R2：忙指示唯一源） -->
+          <BusyRing v-if="item.status === 'in_progress'" :size="13" />
+          <TodoGlyph v-else :status="item.status === 'completed' ? 'completed' : 'pending'" :size="14" />
         </span>
         <span class="todo-content">{{ item.content }}</span>
       </li>
@@ -82,11 +76,8 @@ const progressText = computed(() => {
 .todo-item { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; line-height: 20px; color: var(--text-2); }
 .todo-item[data-status='completed'] .todo-content { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--text-3); }
 .todo-glyph { display: grid; place-items: center; width: 16px; height: 16px; flex: none; }
-/* 三形（勾圈/忙环/虚圈）：完成取状态档（cr-145——图形件 3.0 线，
-   cr-140 语义分层后图标性元素一律 *-status）；in_progress 用 kit BusyRing
+/* 勾圈/虚线圈色档归 TodoGlyph 单源（cr-454）；in_progress 用 kit BusyRing
    （cr-129 R2——原自建 SVG 弧环 + 无限旋转退役，reduced-motion 归一由组件自带） */
-.glyph-done { color: var(--ok-status); }
-.glyph-pending { color: var(--text-3); }
 
 .todo-content { min-width: 0; overflow-wrap: anywhere; }
 </style>
