@@ -1,5 +1,6 @@
 // ============================================================
-// webui/src/runtime/slotRender.ts —— slot 条目 → VNode 的共享渲染面（M27 S0）
+// ac-client-ui-renderer/client/slotRender.ts —— slot 条目 → VNode 的共享渲染面
+//（M27 S0；M27.2-2 随 renderer 件自 webui/src/runtime/slotRender.ts 迁入）
 //
 // SlotOutlet 与 vueRenderer 共用：贡献组件经 ownerOf 取注册方 ctx
 // 包 wrapComponent（D17：Vue 树与 fiber 树对齐），props/data 按

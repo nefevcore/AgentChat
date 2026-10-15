@@ -1,5 +1,6 @@
 // ============================================================
-// webui/src/components/SlotOutletItem.ts —— 宿主模板内容的同轴标记（M27 D16-①）
+// ac-client-ui-renderer/client/SlotOutletItem.ts —— 宿主模板内容的同轴标记
+//（M27 D16-①；M27.2-2 随 renderer 件自 webui/src/components/SlotOutletItem.ts 迁入）
 //
 // 宿主在 SlotOutlet 默认插槽里用它包裹自己的默认内容并声明 order——
 // 与插件贡献用同一个 order 轴合并排序（「排前/排后」而非只能整体替换）。

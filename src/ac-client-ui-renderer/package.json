@@ -29,7 +29,6 @@
     "katex": "^0.18.1",
     "markdown-it": "^14.2.0",
     "markdown-it-texmath": "^1.0.0",
-    "uuid": "^14.0.1",
     "vue": "^3.4.0"
   },
   "devDependencies": {

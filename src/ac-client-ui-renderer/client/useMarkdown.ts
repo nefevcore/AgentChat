@@ -5,7 +5,6 @@
 
 import MarkdownIt from 'markdown-it';
 import { hljs, ensureHljsLanguage, hljsLanguageVersion } from './hljs-languages';
-import { v4 as uuidv4 } from 'uuid';
 import { registerAbapLanguage } from './abap-hljs';
 import { katexVersion } from './markdownMath';
 import { logger } from './logger';
@@ -286,7 +285,6 @@ function createBaseInstance(trusted = false): MarkdownIt {
         // 文件内容），未转义直接进 v-html 可注入 onerror 等事件载荷
         const rawLang = (token.info || 'text').trim().split(/\s+/)[0] || 'text';
         const lang = md.utils.escapeHtml(rawLang);
-        const codeId = `cb-${uuidv4().slice(0, 8)}`;
         const highlighted = defaultRender(tokens, idx, options, env, self);
         const copyIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
         const checkIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
@@ -295,7 +293,7 @@ function createBaseInstance(trusted = false): MarkdownIt {
   <div class="md-code-block-banner">
     <span class="md-code-block-lang">${lang}</span>
     <div class="md-code-block-actions">
-      <button class="md-code-block-btn" data-action="copy" data-code-id="${codeId}">
+      <button class="md-code-block-btn" data-action="copy">
         <span class="md-code-block-btn-icon md-code-block-btn-icon-copy">${copyIcon}</span>
         <span class="md-code-block-btn-icon md-code-block-btn-icon-check" style="display:none">${checkIcon}</span>
         <span class="md-code-block-btn-text">复制</span>
@@ -316,9 +314,8 @@ function getMarkdownInstance(): MarkdownIt {
     return mdInstance;
 }
 
-// KaTeX 就绪版本号：本体住 markdownMath.ts（无 DOM 依赖），此处转出——
-// 既有消费面（组件/分块渲染）的导入路径保持不变。
-export { katexVersion };
+// KaTeX 就绪信号 katexVersion 住 markdownMath.ts（无 DOM 依赖，分块渲染
+// 在 node 测试环境直连导入）——useMarkdown 仅消费不转出（cr-448）。
 
 /** 数学分隔符特征（$…$ / $$…$$）：命中才值得拉取 KaTeX */
 const MATH_HINT = /\$\$?[^\n$]+\$\$?/;
@@ -425,7 +422,7 @@ interface ParsedTag {
 }
 
 /** 每次渲染生成唯一占位符，不含任何 markdown 特殊字符 */
-function makePlaceholder(prefix: string, index: number): string {
+function makePlaceholder(index: number): string {
   const rnd = Math.random().toString(36).slice(2, 10);
   return `MDFT_${rnd}_${index}`;
 }
@@ -438,7 +435,7 @@ function parseFileTags(content: string): { text: string; tags: ParsedTag[] } {
   const text = content.replace(filePattern, (match, _quote, filePath, displayName) => {
     const escapedPath = filePath.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const escapedName = displayName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const placeholder = makePlaceholder('FT', tags.length);
+    const placeholder = makePlaceholder(tags.length);
     tags.push({
       placeholder,
       replacement: `<span class="file-tag" data-file-path="${escapedPath}" title="点击预览文件">${escapedName}</span>`,
