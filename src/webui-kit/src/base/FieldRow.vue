@@ -1,6 +1,6 @@
 <!--
   webui-kit/src/base/FieldRow.vue —— 设置字段行标准件（cr-168）
-  归一：AgentPane llm-item / NsFieldList ns-item 的「标签+描述+控件」行。
+  归一：AgentPane llm-item 等表单的「标签+描述+控件」行。
   is-non-default：非默认值态——左侧 4px 主色分栏条 + 容器左角收窄（cr-167 非对称圆角）。
   cr-327：原 Label 标准件（cr-173）散表单零消费退役，配方收回本件内联。
 -->

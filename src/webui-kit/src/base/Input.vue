@@ -1,7 +1,7 @@
 <!--
   webui-kit/src/base/Input.vue —— 文本输入标准件（cr-168）
   归一：全仓表单原生 input 配方（gallery fx-input / AgentPane info-input /
-  NsFieldList ns-search-input 同语系）——焦点光晕 3px、边框转主色。
+  SearchInput 等同语系）——焦点光晕 3px、边框转主色。
   type 透传原生（text/number/url…）；密码与搜索有专用件 PasswordInput/SearchInput。
 -->
 <script setup lang="ts">

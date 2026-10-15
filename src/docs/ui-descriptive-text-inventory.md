@@ -364,6 +364,6 @@
 
 以下描述来自后端 `/api/*-schemas` 返回的 schema（`settings/schema.ts` 归一化为 FieldMeta），前端仅渲染：
 
-- `NsFieldList.vue:77`（ns-desc）、`AgentPane.vue:526`（info-desc）、`PoolManager.vue:234`（pool-field-desc）、`ExtensionSettingsModal.vue`（esm-field-desc / entry.description）、工具参数表 tp-desc（PluginLibraryPane.vue:1027 / ExtToolsPane.vue:592）。
+- `AgentPane.vue:526`（info-desc）、`PoolManager.vue:234`（pool-field-desc）、`ExtensionSettingsModal.vue`（esm-field-desc / entry.description）、工具参数表 tp-desc（PluginLibraryPane.vue:1027 / ExtToolsPane.vue:592）。（NsFieldList 已于 2026-10-15 随 ns.* 死面清理删除）
 
 若这些也要 tooltip 化，应改 schema 消费端渲染方式（一处改全局生效），不动各页面。

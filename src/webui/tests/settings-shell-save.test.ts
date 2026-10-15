@@ -4,7 +4,8 @@
 //（M29 P1-3b 收口余留修复：「两个保存配置」歧义）
 //
 //  1. 壳层保存钮管辖面：域节（settings:section 大件）在场 = 隐藏壳层
-//     保存钮；ns.* / ui-tab:* = 保留（文案「保存全局配置」）。
+//     保存钮；ui-tab:* = 保留（文案「保存全局配置」）。（ns.* 叶自 M22
+//     D1 并入插件库后无生产者，2026-10-15 随 ns 面清理删除。）
 //  2. agentEditorDirty 发布链路：AgentSettingsHost watch → uiStore →
 //     设置壳关闭/切节守护消费。
 //  3. saveAll 无 dirty 短路（不弹假「已保存」）。
@@ -35,11 +36,10 @@ describe('设置壳保存钮收口（agentEditorDirty 发布链路）', () => {
     expect(ui.agentEditorDirty).toBe(false);
   });
 
-  it('壳层保存钮管辖面：ns.* / ui-tab:* 保留；域节 id 不匹配（隐藏）', () => {
-    // shellSaveRelevant 的判定语义：startsWith('ns.') || startsWith('ui-tab:')
-    const relevant = (id: string) => id.startsWith('ns.') || id.startsWith('ui-tab:');
-    expect(relevant('ns.llm')).toBe(true);          // 命名空间表单——壳层保存管辖
-    expect(relevant('ui-tab:my-plugin')).toBe(true); // 插件全局页签——同上
+  it('壳层保存钮管辖面：ui-tab:* 保留；域节 id 不匹配（隐藏）', () => {
+    // shellSaveRelevant 的判定语义：startsWith('ui-tab:')
+    const relevant = (id: string) => id.startsWith('ui-tab:');
+    expect(relevant('ui-tab:my-plugin')).toBe(true); // 插件全局页签——壳层保存管辖
     expect(relevant('agents')).toBe(false);          // Agent 域节——编辑器内保存
     expect(relevant('llmPools')).toBe(false);        // 模型池——即时落盘
     expect(relevant('searchPools')).toBe(false);     // 搜索池——即时落盘

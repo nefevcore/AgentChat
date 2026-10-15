@@ -2,12 +2,12 @@
 // ============================================================
 // SettingsPanel.vue —— 统一设置面板（替代 GlobalSettings + AgentSettings）
 // 纯壳：左树（叶自 settings:section 席位派生）+ 节选举 + 全局保存编排
-// 数据：schema 驱动；展示 effective、编辑 raw
+// 数据：域节/插件页签自理取数，壳层只编排全局配置（agent 编辑已迁
+// ui-agents——M29 P1-3b）
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings.ts';
 import { Button, Icon, StatusDot, toastOk } from '@agentchat/webui-kit';
-import NsFieldList from './NsFieldList.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
 import { deriveSectionLeaves } from '../sectionTree.ts';
@@ -72,7 +72,6 @@ const globalPluginTabProps = computed<Record<string, unknown>>(() => {
   if (!tab) return {};
   return resolveTabProps(tab, {
     globalConfig: settings.globalConfig.value,
-    nsSchemas: settings.nsSchemas.value,
     pools: settings.pools.value,
   });
 });
@@ -114,11 +113,11 @@ const domainSection = computed<SlotEntry | null>(
 
 /** 壳层保存钮管辖面：域行大件节（settings:section 贡献）自理保存——
  *  Agent 编辑器内置保存钮、池管理即时落盘、定时/插件库同理；壳层保存
- *  只对命名空间表单（ns.*）与插件全局页签（ui-tab:*）有意义。域节在场
- *  时隐藏壳层保存钮，避免与域内保存动作形成「两个保存配置」的歧义。 */
-const shellSaveRelevant = computed(() =>
-  selectedNode.value.startsWith('ns.') || selectedNode.value.startsWith('ui-tab:'),
-);
+ *  只对插件全局页签（ui-tab:*——props 带 globalConfig 的表单页）有
+ *  意义。域节在场时隐藏壳层保存钮，避免与域内保存动作形成「两个保存
+ *  配置」的歧义。（M22 D1 并入插件库后左树已无 ns.* 叶——2026-10-15
+ *  随 ns 面清理收口） */
+const shellSaveRelevant = computed(() => selectedNode.value.startsWith('ui-tab:'));
 
 async function saveAll() {
   if (!settings.globalDirty.value) return; // 无可保存：不弹假「已保存」
@@ -240,19 +239,11 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
                    meta.section 与 selectedNode 匹配，无贡献 = 空态） -->
               <component :is="domainSection?.component" v-if="domainSection" />
 
-              <!-- 插件全局设置页签（settings-tab:global slot） -->
+              <!-- 插件全局设置页签（settings-tab:global slot——props 带
+                   globalConfig/pools，表单页由壳层保存钮管辖） -->
               <div v-else-if="currentPluginSettingsTab" class="plugin-settings-tab">
                 <component :is="currentPluginSettingsTab.component" v-bind="globalPluginTabProps" />
               </div>
-
-              <!-- 命名空间配置（扩展/工具/系统） -->
-              <NsFieldList
-                v-else-if="selectedNode.startsWith('ns.')"
-                :ns-key="selectedNode.slice(3)"
-                :config="settings.globalConfig.value"
-                :schema="(settings.nsSchemas.value as any)[selectedNode.slice(3)]"
-                :title="currentTitle"
-              />
 
             </template>
           </div>

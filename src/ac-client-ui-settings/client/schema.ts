@@ -71,13 +71,6 @@ export function filterFields(fields: FieldMeta[], nsConfig: Record<string, unkno
   return visible.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
 }
 
-/** 判断当前值是否非默认（用于高亮/显示恢复按钮） */
-export function isNonDefault(val: unknown, def: unknown): boolean {
-  if (def === undefined || def === null) return val !== undefined && val !== null && val !== '';
-  if (val === undefined || val === null) return false;
-  return JSON.stringify(val) !== JSON.stringify(def);
-}
-
 /** 数字解析：非数字回退原值 */
 export function parseNum(val: any): any {
   const n = Number(val);

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-450**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-453**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -468,3 +468,6 @@
 - 【cr-448 2026-10-15 ac-client-ui-renderer 审计精简：data-code-id/uuid 死链删除、katexVersion re-export 死出口收口、makePlaceholder 死参、头注 webui 旧路径漂移订正、包内 CRLF 统一】
 - 【cr-449 2026-10-15 行集清单：宿主 per-agent 管理转向配置文集——ac-agents 活注册表解体（配置轴=文件文集 / 在场轴=guardian 可达表，R0b 判例五）、ac-agent-presets 目录静态化归并编辑面行、ac-agents-core 扩为契约 owning+词汇+settingsOf 纯函数；宿主 48→47；顺修 cr-446 恒等式算误（tag-registry 双计，应为退役 3/归并 11）】
 - 【cr-450 2026-10-15 ac-client-ui-tool 深审精简（审计 #110）：注释漂移订正（8 卡批次已随域行退役——src/client 头注、extension.description、package 描述三处 M28 P2 过时叙述）+ toolLabel grep 截断死层删除（外层 80 上限内即 30 上限失效层）+ 悬空 JSDoc 合并 + CRLF→LF 统一六文件】
+- 【cr-451 2026-10-15 行集清单 R7 待钉清理：R7-1 timer 不进壳树定向（unref 本地原语 / 唤醒恒投递信 / 持久性恒宿主三理由，R3 补壳内定时纪律行）；R7-6 改残留定量领衔（两级定向保留正文）；R7 头注记定向项续编规则】
+- 【cr-452 2026-10-15 ac-client-ui-settings 深审精简：ns.* 死面链清理（getNamespaceSchemas/nsSchemas/NsFieldList/isNonDefault/nsValue·setNsValue——M22 D1 后无 ns 叶生产者，分支不可达）+ publicLegacySlots 死导出 + 注释漂移订正 + ac-client-slots 依赖正位 devDeps + 补包内 schema 纯函数测试】
+- 【cr-453 2026-10-15 行集清单 + 协议规格：jobs 归属三场景定向——壳 job（worker=壳子进程）进程内事件直投 inbox / 跨壳邮局信 / 宿主自有异步无基座（R7-2 收口：宿主 jobs 基座不设）；idle-exit 补第四条件（无在途 job）；job-wakeup 投递策略随迁；webui 观测 = 壳自报快照信 + 宿主聚合镜像（usage 同构）】

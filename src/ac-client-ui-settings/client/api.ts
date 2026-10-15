@@ -10,9 +10,9 @@
 // approve/uninstall/patch/会话装载/事件链与描述）已迁
 // ac-client-ui-plugin-registry/client/pluginApi.ts（rpc 必传）；
 // agent CRUD → ui-agents（rosterApi 同宿）、timer → ui-timer、
-// llm/search pool → ui-llm-pool。本文件留守：全局配置 + 池读写（P1-3d
-// 前过渡）+ schema 引擎 + assembly + 全局默认层 + event policy
-//（治理配置——M29 开工裁决定留守）。
+// llm/search pool 写面 → ui-llm-pool。本文件留守：全局配置 + 池读
+//（getPools——onboarding/域行 Host 消费）+ schema 引擎 + assembly +
+// 全局默认层 + event policy（治理配置——M29 开工裁决定留守）。
 // ============================================================
 
 import type {
@@ -223,10 +223,6 @@ const BUILTIN_SEARCH_SCHEMAS: Record<string, FieldMeta[]> = {
 
 export async function getSearchSchemas(): Promise<Record<string, any[]>> {
   return BUILTIN_SEARCH_SCHEMAS;
-}
-
-export async function getNamespaceSchemas(): Promise<{ namespaces: Record<string, any[]>; extensions?: any; tools?: any }> {
-  return { namespaces: {} };
 }
 
 // ── Agent 装配视图（M29 P1-3 留守 settings——保存编排的组成部分） ──

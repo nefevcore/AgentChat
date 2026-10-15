@@ -19,8 +19,6 @@ export function useSettings() {
   // ── 元数据（schema / pools——全局配置树 + 插件全局页签 props 面） ──
   const llmSchemas = ref<Record<string, any[]>>({});
   const searchSchemas = ref<Record<string, any[]>>({});
-  /** 命名空间 schema：key = 完整配置键（如 'tool.bash'） */
-  const nsSchemas = ref<Record<string, any[]>>({});
   const pools = ref<PoolData>({ llmProviders: {}, searchProviders: {} });
   /** 池元数据是否成功加载（cr-21 空池防覆盖守门判据：getPools 失败时 pools
    *  停留初始 {}——此时整域保存〔config/set llmProviders/searchProviders〕
@@ -43,30 +41,21 @@ export function useSettings() {
   async function loadMeta(): Promise<void> {
     loading.value = true;
     try {
-      const [llmR, searchR, nsR, poolR] = await Promise.allSettled([
+      const [llmR, searchR, poolR] = await Promise.allSettled([
         api.getLlmSchemas(),
         api.getSearchSchemas(),
-        api.getNamespaceSchemas(),
         api.getPools(),
       ]);
       if (llmR.status === 'fulfilled') llmSchemas.value = llmR.value;
       if (searchR.status === 'fulfilled') searchSchemas.value = searchR.value;
-      if (nsR.status === 'fulfilled') {
-        const d = nsR.value;
-        nsSchemas.value = d.namespaces;
-        // 兼容旧结构：{ extensions, tools }
-        if (d.tools && typeof d.tools === 'object') {
-          for (const [k, v] of Object.entries(d.tools)) if (!(k in nsSchemas.value)) nsSchemas.value[`tool.${k}`] = v as any[];
-        }
-      }
       if (poolR.status === 'fulfilled') {
         pools.value = poolR.value;
         poolsLoaded.value = true;
       }
       // 静默失败此前出空 UI 无任何报错（provider 下拉空、表单"无配置项"）——聚合提示
-      const failed = [llmR, searchR, nsR, poolR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+      const failed = [llmR, searchR, poolR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
       if (failed.length > 0) {
-        error.value = `部分元数据加载失败（${failed.length}/4 项）：${failed.map(f => f.reason?.message ?? String(f.reason)).join('; ')}`;
+        error.value = `部分元数据加载失败（${failed.length}/3 项）：${failed.map(f => f.reason?.message ?? String(f.reason)).join('; ')}`;
       }
     } finally {
       loading.value = false;
@@ -108,26 +97,14 @@ export function useSettings() {
     void wireRpc.call('system/restart').catch(() => undefined);
   }
 
-  // ── 命名空间访问 helper ──
-  function nsValue(nsKey: string, fieldKey: string): any {
-    if (!nsKey) return globalConfig.value[fieldKey];
-    return (globalConfig.value[nsKey] ?? {})[fieldKey];
-  }
-  function setNsValue(nsKey: string, fieldKey: string, value: any): void {
-    if (!nsKey) { globalConfig.value[fieldKey] = value; return; }
-    if (!globalConfig.value[nsKey]) globalConfig.value[nsKey] = {};
-    globalConfig.value[nsKey][fieldKey] = value;
-  }
-
   return {
     // 状态
-    llmSchemas, searchSchemas, nsSchemas, pools, poolsLoaded,
+    llmSchemas, searchSchemas, pools, poolsLoaded,
     loading, error,
     globalConfig, globalDirty,
     // 动作
     loadMeta, loadGlobal,
     saveGlobal,
     restartBackend,
-    nsValue, setNsValue,
   };
 }

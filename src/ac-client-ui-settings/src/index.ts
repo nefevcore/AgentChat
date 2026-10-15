@@ -10,11 +10,10 @@
 //   · settings:main-view / agent-pane:tab 两席位声明（★settings-tab:
 //     global / settings-tab:agent 别名，D13）+ overlay 席位出厂贡献
 //    （SettingsOverlayHost）；
-//   · SettingsPanel 壳+左树+保存编排 + 模型池管理（PoolManager）/
-//     插件库（PluginLibraryPane）/扩展设置（ExtensionSettingsModal）/
-//     定时面板（TimerPane）等 12 组件；
-//   · 类型化 API 层（settings/api——config/pool/assembly/plugin/
-//     timer 域 rpc 直连，rpc 缺省 = clientRuntime 契约面）+ schema
+//   · SettingsPanel 壳+左树+保存编排 + SettingField/ConfirmDialog
+//     通用表单件（域行大件节已各归其行——M28/M29 拆分）；
+//   · 类型化 API 层（settings/api——config/pool/assembly/全局默认层/
+//     事件治理域 rpc 直连，rpc 缺省 = clientRuntime 契约面）+ schema
 //     归一化 + settings 页签解析面（extensionTabs）+ 旧 slot 目录
 //    （slotCatalog——bridge 注册面留 webui re-export）。
 //
@@ -33,7 +32,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-settings',
   label: '设置（前端）',
-  description: 'settings 基础件前端行：设置域（settings/agent 页签席位 + 设置面板 overlay 出厂贡献 + 类型化 API/schema + 页签解析面 + 旧 slot 目录；boot graph base 阶段装载）',
+  description: 'settings 基础件前端行：设置域（settings/agent 页签席位 + 设置面板 overlay 出厂贡献 + 类型化 API/schema 归一化 + 页签解析面 + 旧 slot 目录 re-export；boot graph base 阶段装载）',
   automatic: true,
 };
 
