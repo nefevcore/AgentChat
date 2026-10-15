@@ -4,7 +4,7 @@
 //
 // M28 P1 §4.1：域插件 owning = ac-client-ui-goal/client——
 // tool-card:result-view（id 'goal'）+ conversation:dock-widget
-//（id 'goal'，order 20——M30 D5 改名）双席位贡献 + 双向摘除。
+//（id 'goal'，order 50）双席位贡献 + 双向摘除。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { bootWebuiRuntime } from './lib/webuiBoot';

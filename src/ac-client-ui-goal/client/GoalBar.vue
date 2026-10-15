@@ -169,9 +169,8 @@ watch(editOpen, (open) => {
       </template>
 
       <!-- 操作失败反馈（行内短暂呈现；不弹新窗叠加在弹窗上）。
-           cr-129 注：R7 拟迁 kit FeedbackNotice，但 webui/tests/goal-bar-edit 锁本节点
-           （.goal-action-error 文案断言；该测试归 P6 管辖不可改）→ 按 cr-125/127 先例
-           保留自建行内形态（恢复别名引用并加注），列入 P5 待裁决。 -->
+           cr-129 定形：保留自建行内形态（kit FeedbackNotice 系 banner/横幅形态，
+           32px 条带内行内反馈更契合；webui/tests/goal-bar-edit 锁本节点）。 -->
       <Transition name="goal-err">
         <span v-if="actionError && !editOpen && !deleteOpen" class="goal-action-error" :title="actionError">
           <Icon name="alert-circle" :size="12" />{{ actionError }}
