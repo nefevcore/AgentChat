@@ -5,6 +5,7 @@ import { useClientContext } from 'ac-client-runtime';
 import {
   fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate,
   fetchDesktopUpdateStatus, triggerDesktopUpdateDownload, installDesktopUpdate,
+  simulateUpdateChannel,
 } from './systemApi.ts';
 import { Icon, Tooltip } from '@agentchat/webui-kit';
 
@@ -78,7 +79,7 @@ async function fetchVersion() {
   error.value = '';
   if (!rpc) { error.value = 'RPC 不可用'; loading.value = false; return; }
   try {
-    const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
+    const simulate = simulateUpdateChannel();
     const data = await apiFetchVersion(simulate, rpc);
     current.value = data.current || '';
     latest.value = data.latest || '';

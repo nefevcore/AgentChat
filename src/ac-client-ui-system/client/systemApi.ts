@@ -1,14 +1,19 @@
 // ============================================================
-// ac-client-ui-sidebar/client/systemApi.ts —— 系统小 API
-//（M27.2-2 随 sidebar 件迁入：Sidebar 更多菜单的数据面）
+// ac-client-ui-system/client/systemApi.ts —— 系统域数据面
+//（M28 P1 §4.1 随 sidebar 件迁入并成行：版本/备份/changelog/更新）
 //
-// 自 webui api/system.ts 迁入（fetchVersion/backupNow——rpc 经
-// ac-client-runtime 契约面注入，缺省由调用方（组件）传 ctx.rpc；
-// fetchChangelog/runVersionUpdate 留 webui——VersionDialog 消费，
-// 且 runVersionUpdate 需 10min 超时透传，超出 ctx.rpc 契约面）。
-// 原 webui api/system 门面已退役〔M28 §4.2〕。
+// rpc 经调用方传入（ac-client-runtime 契约面注入的组件取 ctx.rpc）；
+// runVersionUpdate 的 10min 超时经 call timeoutMs 透传（超出 ctx.rpc
+// 基本契约面，签名收 FullRpc）。原 webui api/system 门面已退役〔M28
+// §4.2〕。
 // ============================================================
 type Rpc = { call<T>(m: string, p?: Record<string, unknown>): Promise<T> };
+
+/** 更新模拟测试通道（localStorage 开关；弹窗手动检查与挂载即查双读侧单源——
+ *  键名漂移即双口径走散，cr-462 并源） */
+export function simulateUpdateChannel(): boolean {
+  return localStorage.getItem('agentchat.simulateUpdate') === '1';
+}
 
 export interface VersionInfo {
   current?: string;
@@ -112,7 +117,10 @@ export async function fetchDesktopUpdateStatus(): Promise<DesktopUpdateStatus | 
   for (const base of bases) {
     try {
       const r = await fetch(`${base}/desktop-bridge/update`, { signal: AbortSignal.timeout(1500) });
-      if (!r.ok) continue;
+      // 非 200 应答同样失效缓存基址：壳重启桥口漂移后，旧口若被其他
+      // HTTP 服务占用（404/500 应答），只 continue 会把客户端钉死在死
+      // 基址——缓存只承载 200 应答过的基址（cr-462）
+      if (!r.ok) { cachedUpdateBase = null; continue; }
       cachedUpdateBase = base;
       return (await r.json()) as DesktopUpdateStatus;
     } catch {

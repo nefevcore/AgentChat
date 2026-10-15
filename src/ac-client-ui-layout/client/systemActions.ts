@@ -8,7 +8,7 @@
 // ============================================================
 import { ref } from 'vue';
 import { toastBusy, toastOk, toastError } from '@agentchat/webui-kit';
-import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
+import { backupNow, fetchVersion, simulateUpdateChannel } from 'ac-client-ui-system/client/systemApi.ts';
 
 type Rpc = { call<T>(m: string, p?: Record<string, unknown>): Promise<T> };
 
@@ -41,7 +41,7 @@ export function createBackupRunner(rpc: Rpc | undefined): { busy: ReturnType<typ
  *  更新红点只在确认有更新时亮，检查失败不误报） */
 export async function checkUpdateOnce(rpc: Rpc | undefined): Promise<boolean> {
   try {
-    const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
+    const simulate = simulateUpdateChannel();
     const data = await fetchVersion(simulate, rpc!);
     return data.hasUpdate || false;
   } catch {

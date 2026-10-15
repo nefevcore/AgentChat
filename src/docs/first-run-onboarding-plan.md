@@ -183,7 +183,7 @@
 
 ### 4.2 依赖与可摘除性
 
-- 引导行**跨包 import** 复用 §2.4 的四处数据面与 `LLM_PROVIDER_TEMPLATES`。此形态经用户裁决放行（"独立插件包"要求让步：不追求零依赖与自写一套池表单），仓库既有同型先例——`ActivityBar.vue` import `ac-client-ui-system/client/systemApi.ts`、`useAgentSettings.ts` import settings 的 `api.ts`。
+- 引导行**跨包 import** 复用 §2.4 的四处数据面与 `LLM_PROVIDER_TEMPLATES`。此形态经用户裁决放行（"独立插件包"要求让步：不追求零依赖与自写一套池表单），仓库既有同型先例——layout 的 `systemActions.ts` import `ac-client-ui-system/client/systemApi.ts`（cr-332 并源后 ActivityBar/MobileMoreSheet 经它消费）、`useAgentSettings.ts` import settings 的 `api.ts`。
 - **摘除引导行**：overlay 席位与菜单项随 fiber 回收，首启不再弹；被复用行零改动。
 - **反向缺席降级**：若某被复用行不在场（如 ui-llm-pool 被摘），对应步骤降级为静态说明 + 深链按钮，**不得崩**（席位/RPC 失败静默降级是既有约定）。
 

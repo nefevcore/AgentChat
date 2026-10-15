@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "system 域前端行（M28 P1 §4.1 原案）：版本弹窗（overlay 席位贡献——版本信息/更新/changelog）+ 系统小 API（fetchVersion/fetchChangelog/runVersionUpdate/backupNow）随域自 sidebar/layout 迁入；版本/备份入口仍由 sidebar 更多菜单触发（动作跨行消费合法）；与 ac-web-api 版本面经 RPC 契约面耦合",
+  "description": "system 域前端行（M28 P1 §4.1 原案）：版本弹窗（overlay 席位贡献——版本信息/更新/changelog）+ 系统域数据面 systemApi（fetchVersion/fetchChangelog/runVersionUpdate/backupNow + 桌面更新桥客户端）随域自 sidebar 迁入成行；版本/备份入口由 layout 更多菜单触发（动作跨行消费合法，systemApi 深路径直连）；与 ac-web-api 版本面经 RPC 契约面耦合",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

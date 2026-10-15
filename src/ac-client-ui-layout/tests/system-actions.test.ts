@@ -12,7 +12,7 @@ import { createBackupRunner, checkUpdateOnce } from '../client/systemActions.ts'
 // 顶层变量；vi.hoisted 是 vitest 的合法提升通道）
 const mocks = vi.hoisted(() => ({
   toastBusy: vi.fn(), toastOk: vi.fn(), toastError: vi.fn(),
-  backupNow: vi.fn(), fetchVersion: vi.fn(),
+  backupNow: vi.fn(), fetchVersion: vi.fn(), simulateUpdateChannel: vi.fn(),
 }));
 // toast 单例 mock（webui-kit 全局态——单测不渲染 ToastHost，直捕写口）
 vi.mock('@agentchat/webui-kit', () => ({
@@ -24,6 +24,7 @@ vi.mock('@agentchat/webui-kit', () => ({
 vi.mock('ac-client-ui-system/client/systemApi.ts', () => ({
   backupNow: mocks.backupNow,
   fetchVersion: mocks.fetchVersion,
+  simulateUpdateChannel: mocks.simulateUpdateChannel,
 }));
 
 const { toastBusy, toastOk, toastError, backupNow, fetchVersion } = mocks;
@@ -79,7 +80,8 @@ describe('createBackupRunner（备份执行器单源）', () => {
 });
 
 describe('checkUpdateOnce（版本检查单源）', () => {
-  it('hasUpdate 透传；失败静默 false（不误报红点）', async () => {
+  it('hasUpdate 透传；失败静默 false（不误报红点）；simulate 走 simulateUpdateChannel 单源', async () => {
+    mocks.simulateUpdateChannel.mockReturnValue(false);
     fetchVersion.mockResolvedValueOnce({ hasUpdate: true });
     expect(await checkUpdateOnce({} as never)).toBe(true);
     fetchVersion.mockResolvedValueOnce({ hasUpdate: false });
