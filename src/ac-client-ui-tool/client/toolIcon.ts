@@ -11,9 +11,9 @@
 //   · 搜索 / 浏览 / 计算 → 各自象形（globe / monitor / calculator）
 //   · Agent / 群组协作 → 人形与会话气泡系
 //   · 追踪类 → target / clipboard / timer 等已有品牌意象
-// 与 toolLabel.ts 的 TOOL_FRIENDLY_NAMES、toolResultViews 的正则族
-// 口径保持一致（浏览器族共用 monitor）。M28 P3/T9：卡行携带
-// icon 词条（meta.def.icon）优先——本表为回落词汇。
+// 与 toolLabel.ts 的 TOOL_FRIENDLY_NAMES、域卡行的浏览器族正则
+//（ui-web BROWSER_FAMILY）口径保持一致（共用 monitor）。M28 P3/T9：
+// 卡行携带 icon 词条（meta.def.icon）优先——本表为无卡行装载时的回落词汇。
 // ============================================================
 
 import { resolveToolDisplayMeta } from './toolResultViews.ts';

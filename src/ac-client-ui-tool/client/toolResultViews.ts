@@ -7,8 +7,8 @@
 // 匹配链：精确名 / 正则族 → 优先级覆盖 → 未命中返回 null（调用方按文本渲染）。
 //
 // M27 D9 收编（S2）：数据面经 SlotRegistry（tool-card:result-view
-// keyed presentation seat——席位声明 + 内置 8 卡出厂批次住本包
-// client/index.ts）。本模块 = 【解析面】：
+// keyed presentation seat——席位声明住本包 client/index.ts；卡片
+// def 全部由域行贡献——M28 P2 后本包零卡）。本模块 = 【解析面】：
 //   · register → ctx.slots.register（meta 携带 def；match/priority
 //     语义原样进选举）；runtime 未装配（pre-boot/单测）→ 旧数组；
 //   · resolveToolResultView ← ctx.slots.entries 的 meta.def（版本计数
@@ -41,7 +41,7 @@ export interface ToolResultViewDef {
   onLabelClick?: (data: Record<string, unknown>) => boolean;
 }
 
-/** 席位键（与 webui 解析面同词汇；声明 + 出厂批次住 client/index.ts） */
+/** 席位键（与 webui 解析面同词汇；席位声明住 client/index.ts） */
 export const SLOT_KEY = 'tool-card:result-view';
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → resolve 重解析 ──
@@ -113,12 +113,6 @@ export function resolveToolResultView(toolName?: string): Component | null {
 }
 
 /**
- * 解析工具名 → 展示词条（label/icon；M28 P3/T9——卡片行自带 meta，
- * 解析面只做 election）。匹配链与 resolveToolResultView 同源
- * （精确名 → 正则族 → 未命中 null——调用方回落静态表/裸名）。
- * 响应式：读 version 依赖锚，行装卸后消费 computed 自动重解析。
- */
-/**
  * 解析工具名 → Label 点击直达动作（onLabelClick；2026-09-21 R7 相位整改）。
  * 匹配链与 resolveToolDisplayMeta 同源（精确名 → 正则族 → 未命中 null
  * ——调用方回落默认展开）。响应式同读 version 依赖锚。
@@ -142,6 +136,12 @@ export function resolveToolLabelAction(toolName?: string): ((data: Record<string
   return best?.onLabelClick ?? null;
 }
 
+/**
+ * 解析工具名 → 展示词条（label/icon；M28 P3/T9——卡片行自带 meta，
+ * 解析面只做 election）。匹配链与 resolveToolResultView 同源
+ * （精确名 → 正则族 → 未命中 null——调用方回落静态表/裸名）。
+ * 响应式：读 version 依赖锚，行装卸后消费 computed 自动重解析。
+ */
 export function resolveToolDisplayMeta(toolName?: string): { label?: string; icon?: string } | null {
   const views = defs();
   if (!toolName) return null;

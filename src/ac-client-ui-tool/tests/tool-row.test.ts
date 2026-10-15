@@ -3,7 +3,7 @@
 //（M27.2-2 出包之三：boot graph 声明〔base 阶段〕+ 卸载级联）
 //
 // node 环境（jsdom 的 URL 垫片与 node:url 不兼容）。client 半面
-//（席位声明 + 内置 7 卡出厂注册）见 webui/tests/d9-registry。
+//（席位声明 + 解析面——M28 P2 后零卡）见 webui/tests/d9-registry。
 // goalCard 数据管线测试随域迁 ac-client-ui-goal/tests（M28 P1）。
 // ============================================================
 import { describe, it, expect } from 'vitest';

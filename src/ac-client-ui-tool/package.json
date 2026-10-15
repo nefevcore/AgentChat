@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "tool 基础件前端行（M27.2-2 出包之三 → M28 P2 退化终态，phase:'base'）：工具结果视图域宿主——tool-card:result-view 席位声明 + 解析面（resolve/registerToolResultView）+ 选举语义 + toolLabel/toolIcon 展示词条（T9 词条注册化留 P3），零卡——内置 8 卡全部随域行走（§2.2 镜像表五卡行 shell/fs/web/browser/subagent + todo/goal 域行）；无后端行——宿主半边仅声明 boot graph 条目",
+  "description": "tool 基础件前端行（M27.2-2 出包之三 → M28 P2 退化终态，phase:'base'）：工具结果视图域宿主——tool-card:result-view 席位声明 + 解析面（resolve/registerToolResultView）+ 选举语义 + toolLabel/toolIcon 展示词条（T9 词条随卡行走，本表为无行装载时的回落），零卡——卡片 def 全部由域行贡献（§2.2 镜像表：shell/fs/web/browser/subagent + todo/goal 域行）；无后端行——宿主半边仅声明 boot graph 条目",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

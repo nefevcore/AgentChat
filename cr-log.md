@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-449**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-450**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -467,3 +467,4 @@
 - 【cr-447 2026-10-15 ac-client-ui-theme 深审收口（审计清单#108，P4 前端薄行）：删/拆双否（6 域行 themeStore 值消费 + ActivityBar/MobileMoreSheet 服务面 + renderer theme-changed 事件消费 + webui 验收测试；base 地基件卸载即整页重载——M27.2 §3.2 裁决）；注释漂移三处订正（头注引用的 webui stores/theme.ts 已随 M27.2-2 出包迁移消亡，双模门面实住本包 client/themeStore.ts——消费面 sidebar 面板壳表述同步订正为 6 域行）；applyThemeClass 死出口清理（ThemeService 委托 + themeStore 门面出口全仓零消费——html class 由 ThemeCore watch flush:sync 内同步保证，useMarkdown 直读 DOM class，跨包直接调用的消费形态不存在）】
 - 【cr-448 2026-10-15 ac-client-ui-renderer 审计精简：data-code-id/uuid 死链删除、katexVersion re-export 死出口收口、makePlaceholder 死参、头注 webui 旧路径漂移订正、包内 CRLF 统一】
 - 【cr-449 2026-10-15 行集清单：宿主 per-agent 管理转向配置文集——ac-agents 活注册表解体（配置轴=文件文集 / 在场轴=guardian 可达表，R0b 判例五）、ac-agent-presets 目录静态化归并编辑面行、ac-agents-core 扩为契约 owning+词汇+settingsOf 纯函数；宿主 48→47；顺修 cr-446 恒等式算误（tag-registry 双计，应为退役 3/归并 11）】
+- 【cr-450 2026-10-15 ac-client-ui-tool 深审精简（审计 #110）：注释漂移订正（8 卡批次已随域行退役——src/client 头注、extension.description、package 描述三处 M28 P2 过时叙述）+ toolLabel grep 截断死层删除（外层 80 上限内即 30 上限失效层）+ 悬空 JSDoc 合并 + CRLF→LF 统一六文件】

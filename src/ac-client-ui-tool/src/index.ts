@@ -8,11 +8,10 @@
 // client 半边资产（ownership §3.2 落点）：
 //   · tool-card:result-view 席位声明（★toolResultViews 收编目标；
 //     keyed presentation——精确名/正则族/priority 选举）；
-//   · 内置 8 组件出厂注册（bash/read/write/edit/web/browser/subagent/
-//     goal 卡；第三方/域插件工具卡经 registerToolResultView 动态追加
-//     ——同 match 后注册者替换）；
-//   · workspace 文件 REST 读取小件 + goal 卡归一化纯函数随件走
-//    （ToolResult 组件的数据管线）。
+//   · 解析面 + 展示词条（toolResultViews/toolLabel/toolIcon）；卡片
+//     def 全部由域行贡献（M28 P2 §2.2 镜像表退役随域行，本包零卡）；
+//     第三方/域插件工具卡经 registerToolResultView 动态追加（同
+//     match 后注册者替换）。
 //
 // 可摘除性：本件是 base 地基件——卸载即 boot graph base 行集变更
 // → 前端整页重载（M27.2 §3.2 裁决：基础件不可动态回收）。
@@ -29,7 +28,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-tool',
   label: '工具卡（前端）',
-  description: 'tool 基础件前端行：工具结果视图域（tool-card:result-view 席位 + 内置 8 卡出厂注册；boot graph base 阶段装载）',
+  description: 'tool 基础件前端行：工具结果视图域（tool-card:result-view 席位声明 + 解析面 + 展示词条；卡片 def 由域行贡献，boot graph base 阶段装载）',
   automatic: true,
 };
 
