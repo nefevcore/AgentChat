@@ -16,7 +16,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-web',
   label: 'Web 工具卡（前端）',
-  description: 'ac-web-tools 域工具卡前端行（M28 P2 镜像表）：web_search + 浏览器族正则（fetch_webpage 等 11 工具）→ ToolResultWeb',
+  description: 'ac-web-tools 域工具卡前端行（M28 P2 镜像表）：web_search 单席 → ToolResultWeb + 网络搜索 aux 选区（多 tab 面板）',
   automatic: true,
 };
 

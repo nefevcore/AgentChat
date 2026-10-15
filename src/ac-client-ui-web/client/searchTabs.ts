@@ -108,11 +108,11 @@ export const useWebSearchTabsStore = defineStore('webSearchTabs', () => {
 /**
  * 打开搜索侧边栏面板（共享入口——卡片摘要行点击与工具卡 Label 直达
  * 两处消费）：工具卡 data → tab 快照 + 显式选区 + 舒适宽 + 展开。
- * 窄屏（≤768 抽屉形态）无侧栏空间：返回 false（调用方自行兜底——
- * 卡内原地展开等）。
+ * 窄屏（抽屉形态——narrow 单源 uiStore.narrow，cr-29）无侧栏空间：
+ * 返回 false（调用方自行兜底——卡内原地展开等）。
  */
 export function openSearchPanel(data: Record<string, unknown>): boolean {
-  if (typeof window !== 'undefined' && window.innerWidth <= 768) return false;
+  if (useUiStore().narrow) return false;
   const tabs = useWebSearchTabsStore();
   const results = Array.isArray(data.results)
     ? (data.results as Array<Record<string, unknown>>).map((r) => ({

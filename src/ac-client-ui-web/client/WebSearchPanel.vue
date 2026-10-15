@@ -92,9 +92,7 @@ function keyOf(tabKey: string, idx: number): string {
         </Tooltip>
         <Tooltip text="收起面板" placement="bottom">
           <button class="wsp-action" aria-label="收起面板" @click="onClose">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
+            <Icon name="chevron-right" :size="12" />
           </button>
         </Tooltip>
       </template>

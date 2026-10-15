@@ -2,9 +2,10 @@
 // ac-client-ui-web/client/index.ts —— 工具卡行 client 半边（M28 P2 §2.2）
 //
 // 贡献面：
-//   · tool-card:result-view keyed seat——行卸载 → def 消失 →
-//     resolve 回落默认文本渲染。web_search + 浏览器族正则（11 工具）
-//     → ToolResultWeb（ac-web-tools 镜像，§2.2）；
+//   · tool-card:result-view keyed seat（web_search 单席）——行卸载 →
+//     def 消失 → resolve 回落默认文本渲染（ac-web-tools 镜像，§2.2）；
+//     浏览器族正则 def 已随 daemon 时代工具名退役（cr-466——CDP 化后
+//     不可再生，浏览器卡住 ui-browser 行 'browser' 单席）；
 //   · aux-sidebar 选区（id 'search'）——多 tab 搜索结果面板：卡片
 //     点击（宽屏）→ searchTabs.openTab + 显式选区 + 展开（write 卡
 //     直达 preview 的同款交互）；tab 状态住 pinia store，选区卸载
@@ -19,9 +20,6 @@ import { useWebSearchTabsStore, openSearchPanel } from './searchTabs.ts';
 const ToolResultWeb = defineAsyncComponent(() => import('./ToolResult/ToolResultWeb.vue'));
 // aux 搜索选区宿主（异步同上）
 const WebSearchPanelHostAsync = defineAsyncComponent(() => import('./WebSearchPanelHost.vue'));
-
-/** 浏览器工具族正则（与原 tool 内置批次口径一致——fetch_webpage 等 11 工具） */
-const BROWSER_FAMILY = /^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/;
 
 /** web 工具卡行 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const webCardClientPlugin = clientPlugin({
@@ -62,6 +60,7 @@ export const webCardClientPlugin = clientPlugin({
         },
       }),
     );
+
     ctx.slots.inject('tool-card:result-view', () =>
       ctx.slots.register('tool-card:result-view', {
         id: 'web_search',
@@ -79,13 +78,6 @@ export const webCardClientPlugin = clientPlugin({
             onLabelClick: (data: Record<string, unknown>) => openSearchPanel(data),
           },
         },
-      }),
-    );
-    ctx.slots.inject('tool-card:result-view', () =>
-      ctx.slots.register('tool-card:result-view', {
-        id: String(BROWSER_FAMILY),
-        component: ToolResultWeb,
-        meta: { def: { match: BROWSER_FAMILY, component: ToolResultWeb, priority: 0, icon: 'monitor' } },
       }),
     );
   },

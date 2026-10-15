@@ -35,15 +35,15 @@ describe('M28 P2 · 五工具卡行（§2.2 镜像表——tool 零卡，卡片 
     expect(resolveToolResultView('edit')).toBeNull();
   });
 
-  it('web：web_search + 浏览器族正则（fetch_webpage 等 11 工具）双 def', async () => {
+  it('web：web_search 单席 def（浏览器族正则已随 daemon 时代工具名退役，cr-466）', async () => {
     const { ctx } = await bootWebuiRuntime();
     const fiber = await ctx.plugin(webCardClientPlugin);
     expect(resolveToolResultView('web_search')).toBeTruthy();
-    expect(resolveToolResultView('fetch_webpage')).toBeTruthy();
-    expect(resolveToolResultView('run_playwright_code')).toBeTruthy();
+    // daemon 时代 11 工具名不可再生——回落文本渲染（行卸载同语义）
+    expect(resolveToolResultView('fetch_webpage')).toBeNull();
+    expect(resolveToolResultView('run_playwright_code')).toBeNull();
     await fiber.dispose();
     expect(resolveToolResultView('web_search')).toBeNull();
-    expect(resolveToolResultView('fetch_webpage')).toBeNull();
   });
 
   it('browser：browser 多动作卡；subagent：清单卡', async () => {

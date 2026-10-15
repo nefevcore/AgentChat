@@ -73,7 +73,7 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 | `ac-client-ui-timer` | ui-timer | 定时器视图 + 定时数据面（timerApi） | aux-sidebar#timers(30) |
 | `ac-client-ui-todo` | ui-todo | todo 域 | tool-card:result-view#todo；conversation:dock-widget#todo(40) |
 | `ac-client-ui-usage` | ui-usage | Token 用量（usageApi） | overlay#panel(96)；aux-sidebar#usage(15) |
-| `ac-client-ui-web` | ui-web | web 工具卡 + 网络搜索面板 | tool-card:result-view#web_search / #BROWSER_FAMILY（正则）；aux-sidebar#search(12) |
+| `ac-client-ui-web` | ui-web | web 工具卡 + 网络搜索面板 | tool-card:result-view#web_search；aux-sidebar#search(12) |
 | `ac-client-ui-workspace` | ui-workspace | 工作区 / 文件面（fileApi 上传登记） | overlay#file-preview(90)；aux-sidebar#preview(10) / #workspace(40) |
 
 ### 1.3 边界与薄壳
@@ -179,7 +179,7 @@ settings 树（SettingsPanel 壳内，非 root 子树）：
 tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 正则族 → priority 选举〕
 ├─ bash / pwsh → ToolResultTerminal [ui-shell]
 ├─ read → ToolResultCode / edit → ToolResultEdit [ui-fs]（write 不占卡——Label 直达预览）
-├─ web_search → ToolResultWeb / BROWSER_FAMILY（正则）→ ToolResultWeb [ui-web]
+├─ web_search → ToolResultWeb [ui-web]
 ├─ browser → ToolResultBrowser [ui-browser]
 ├─ subagent → ToolResultSubagent [ui-subagent]
 ├─ run_code → ToolResultRunCode [ui-run-code]
@@ -251,7 +251,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-timer | aux-sidebar#timers(30) | 定时任务聚合 aux 选区（settings sys.timer 节已撤，见裁决链） |
 | ui-todo | tool-card:result-view#todo；conversation:dock-widget#todo(40) | 裸 register（注 8） |
 | ui-usage | overlay#panel(96)；aux-sidebar#usage(15) | |
-| ui-web | tool-card:result-view#web_search / #BROWSER_FAMILY(正则)；aux-sidebar#search(12) | 双 def 同行（精确 + 族） |
+| ui-web | tool-card:result-view#web_search；aux-sidebar#search(12) | 浏览器族正则 def 已随 daemon 工具名退役（cr-466） |
 | ui-workspace | overlay#file-preview(90)；aux-sidebar#preview(10) / #workspace(40) | 裸 register（注 8）；两选区并存同轴竞争 |
 
 ### 3.3 依赖矩阵（各行包 `package.json` 运行时依赖；只列 `ac-*` / `@agentchat/*` 非 kit 项）

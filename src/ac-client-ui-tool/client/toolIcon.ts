@@ -11,8 +11,7 @@
 //   · 搜索 / 浏览 / 计算 → 各自象形（globe / monitor / calculator）
 //   · Agent / 群组协作 → 人形与会话气泡系
 //   · 追踪类 → target / clipboard / timer 等已有品牌意象
-// 与 toolLabel.ts 的 TOOL_FRIENDLY_NAMES、域卡行的浏览器族正则
-//（ui-web BROWSER_FAMILY）口径保持一致（共用 monitor）。M28 P3/T9：
+// 与 toolLabel.ts 的 TOOL_FRIENDLY_NAMES 口径保持一致。M28 P3/T9：
 // 卡行携带 icon 词条（meta.def.icon）优先——本表为无卡行装载时的回落词汇。
 // ============================================================
 
@@ -33,7 +32,7 @@ const TOOL_ICONS: Record<string, string> = {
   job: 'square-terminal',
   // ── 网络 / 搜索 / 浏览器 ──
   web_search: 'globe',
-  browser: 'monitor',
+  browser: 'monitor', // 浏览器卡住 ui-browser 行；无行装载时本表回落
   // ── 计算 / 技能 ──
   math: 'calculator',
   skill: 'book-open',
@@ -60,10 +59,6 @@ const TOOL_ICONS: Record<string, string> = {
   list_tools: 'wrench',
 };
 
-/** 正则族 → 图标（与 toolResultViews 的浏览器工具族口径一致） */
-const TOOL_ICON_PATTERNS: Array<[RegExp, string]> = [
-  [/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, 'monitor'],
-];
 
 /** 未收录工具的兜底（工具通用象形） */
 export const FALLBACK_TOOL_ICON = 'wrench';
@@ -76,8 +71,5 @@ export function toolIconName(name: string | undefined | null): string {
   if (meta?.icon) return meta.icon;
   const exact = TOOL_ICONS[name];
   if (exact) return exact;
-  for (const [re, icon] of TOOL_ICON_PATTERNS) {
-    if (re.test(name)) return icon;
-  }
   return FALLBACK_TOOL_ICON;
 }

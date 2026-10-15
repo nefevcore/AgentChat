@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-465**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-466**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -483,3 +483,4 @@
 - 【cr-463 2026-10-15 ac-client-ui-timer 深审收口（审计#119）：TimerEntry 镜像断根——ui-settings 手工副本（已漂移缺 task/conversationId/activeHours/gate）删除，四处消费改 import type 单源接 ac-timer-core；GlobalTimerHost 编辑弹窗表单归 kit 标准件（Input/Select/Textarea，sp-* 手工样式副本随撤）；TimerPane Select 死导入清理；头注/描述 A3 漂移订正；webui 零源码消费依赖转 devDependencies】
 - 【cr-464 2026-10-15 ui-shell 深审（audit #120）：修 ToolMessage error 特判漏 pwsh（Windows 失败态终端卡不渲染）；终端卡 notice 归一——handoff 后台启动通知（output.message 唯一生产者）误染红修正 + command-feedback 引导 note 卡内可见 + guidance 死词删；translated_command 翻译产物行可见；注释/描述漂移订正 + 包内 CRLF 统一 LF + 终端卡渲染测试补盲（webui/tests）】
 - 【cr-465 2026-10-15 ac-client-ui-fs 深审收口（审计 #121）——删/拆双否：M28 P2 §2.2 镜像表 fs 行（read/write/edit），消费面活跃（TREE/yml 双表/webui 装配/clients-tool-cards/d9）。修一真死件：ToolResultWrite 整卡渲染不可达 28 天——4116723a（2026-09-17）openPreview 直达后 write Label 永不展开 body（注释明示「无展开体」），卡只活在测试断言里；删除卡+write def+browseReadFile 别名（消费归零）+defineExpose 死口，write 落回 Label 直达预览（调用中流式即可点）。死代码三清：Code lineCount（宣称折叠判断从未接线）、Edit diffExpanded（全展开遗迹）、Code skill_read 双分支（全仓无此工具注册——skill/load_skill 是另一机制；连带 lang 早退/纯文本模式分支/样式）。并源两处：fenceOf 三份→单源 cardBits（Write 随卡消失、run-code 改 import）、lang/langDisplay 双份→单源（Write 增量 jsx/bat/cmd 并入）。CRLF→LF（cr-337 家族）。描述订正三卡→双卡。补渲染测试 clients-tool-cards-fs（Code 文件/目录/截断 + Edit diff 分色/无变更——卡组件此前零渲染测试，cr-464 先例）】
+- 【cr-466 2026-10-15 ac-client-ui-web 深审收口：BROWSER_FAMILY 死词汇联动清除（#51 移交线索——daemon 时代 11 工具名 v0.8.15 起不可再生，browser 卡实住 ui-browser 单席；def 注册/toolIcon 正则族/webui 断言三镜像同删，历史回放回落文本渲染=行卸载同语义）+ fetch 分支随 def 死亡整块退役（isFetch 恒 false；isBinary/text_extracted 全仓零生产者）+ openSearchPanel 768 即时读改 uiStore.narrow 单源（cr-29 退役形态）+ 截断恢复抽 partialSearch.ts 纯库并补测（SFC 内 50 行零覆盖）+ 内联 SVG 归 kit + 重复 CSS/描述订正】

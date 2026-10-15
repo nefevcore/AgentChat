@@ -4,7 +4,7 @@
 // 贡献面：tool-card:result-view keyed seat——行卸载 → def 消失 →
 // resolve 回落默认文本渲染。bash / pwsh（2026-09-16 工具拆分双名，
 // executor 平台分支各注册其一）→ ToolResultTerminal（ac-shell-tools
-// 镜像，§2.2；精确名 match 双 def——正则族形态在 ui-web 行）。
+// 镜像，§2.2；精确名 match 双 def）。
 // ============================================================
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { defineAsyncComponent } from 'vue';
