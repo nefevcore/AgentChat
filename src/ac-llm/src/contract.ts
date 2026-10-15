@@ -171,9 +171,10 @@ export interface LlmStreamChunk {
   /** 推理增量（deepseek reasoning_content / glm thinking） */
   reasoning?: string;
   /**
-   * 思考块签名（cr-98 Anthropic 回放）：content_block_stop 携带——
-   * Anthropic 扩展思考 + 工具调用要求下一请求回传上一 turn 的 thinking
-   * 块（含签名）否则 400。透传键——消费方（loop）随 assistant 历史回填。
+   * 思考块签名（cr-98 Anthropic 回放；cr-440 形态校准）：signature_delta
+   * 增量事件传输、thinking 块收束时发射——Anthropic 扩展思考 + 工具
+   * 调用要求下一请求回传上一 turn 的 thinking 块（含签名）否则 400。
+   * 透传键——消费方（loop）随 assistant 历史回填。
    */
   thinkingSignature?: string;
   /** 工具调用分片（本 chunk 携带的增量） */

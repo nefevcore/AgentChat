@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Anthropic 原生 /v1/messages 协议纯库（SSE 流式 + tool_use 分片映射 + chat 聚合；零 cordis 依赖）——不是 provider/插件行：provider 注册走 ac-llm-pool 配置驱动（llmProviders 池条目 protocol=anthropic）",
+  "description": "Anthropic 原生 /v1/messages 协议纯库（SSE 流式 + tool_use/thinking 签名映射 + chat 聚合；usage 分段合并与缓存桶口径官方对齐；零 cordis 依赖）——不是 provider/插件行：provider 注册走 ac-llm-pool 配置驱动（llmProviders 池条目 protocol=anthropic）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

@@ -12,8 +12,8 @@
 //   · 鉴权头 x-api-key + anthropic-version: 2023-06-01（必需）；
 //   · 请求体 { model, max_tokens(必填), messages, system?, tools? }；
 //   · SSE 事件流 content_block_delta(text_delta / input_json_delta /
-//     thinking_delta) / content_block_start(tool_use 出 id+name) /
-//     message_delta(stop_reason + usage)；
+//     thinking_delta / signature_delta) / content_block_start(tool_use 出
+//     id+name) / message_delta(stop_reason + usage)；
 //   · assistant 历史消息的 tool_calls 与 user 的 tool 角色按 Anthropic
 //     形态互转（tool_use / tool_result content 块）。
 // ============================================================
@@ -60,7 +60,7 @@ export interface AnthropicChunk {
   toolCalls?: AnthropicToolCallDelta[];
   finish?: string;
   usage?: AnthropicUsage;
-  /** 思考块签名（cr-98 回放）：content_block_stop 携带——重建历史 thinking 块必需 */
+  /** 思考块签名（cr-98 回放；cr-440 形态校准）：signature_delta 增量累积、thinking 块收束时发射——重建历史 thinking 块必需 */
   thinkingSignature?: string;
 }
 
@@ -95,19 +95,28 @@ export function mapFinishReason(stopReason: string | null | undefined): string |
   return stopReason; // 'stop' | 'max_tokens' | 'pause_turn' | 'refusal' …
 }
 
-/** Anthropic usage → 中性（input/output_tokens；cache 嵌套归一） */
+/**
+ * Anthropic usage → 中性（cr-440 语义校准）：官方 input_tokens 仅计非缓存
+ * 输入，cache_read / cache_creation 是独立桶（与 OpenAI/DeepSeek 的
+ * 「prompt 含缓存」口径不同）——中性 prompt = 三桶之和；cacheMiss =
+ * prompt − cacheHit（含写入桶，openai 库同款推导）；total 官方无此字段，
+ * 本映射补齐（prompt + completion）。
+ */
 export function mapAnthropicUsage(raw: unknown): AnthropicUsage | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const r = raw as {
     input_tokens?: unknown; output_tokens?: unknown;
     cache_read_input_tokens?: unknown; cache_creation_input_tokens?: unknown;
   };
-  const prompt = Number(r.input_tokens ?? 0);
-  const usage: AnthropicUsage = { prompt, completion: Number(r.output_tokens ?? 0) };
+  const uncached = Number(r.input_tokens ?? 0);
   const hit = Number(r.cache_read_input_tokens ?? 0);
-  if (hit > 0 || Number(r.cache_creation_input_tokens ?? 0) > 0) {
+  const creation = Number(r.cache_creation_input_tokens ?? 0);
+  const prompt = uncached + hit + creation;
+  const completion = Number(r.output_tokens ?? 0);
+  const usage: AnthropicUsage = { prompt, completion, total: prompt + completion };
+  if (hit > 0 || creation > 0) {
     usage.cacheHit = hit;
-    usage.cacheMiss = Math.max(0, prompt - hit);
+    usage.cacheMiss = prompt - hit;
   }
   return usage;
 }
@@ -139,28 +148,14 @@ export function toAnthropicMessages(messages: AnthropicMessage[]): { system?: st
       // 注意：thinking 块文本来自消息级 reasoning 字段（loop 装配时并入）
       const reasoning = (m as { reasoning?: unknown }).reasoning;
       if (typeof reasoning === 'string' && reasoning !== '') {
-        const thinkBlocks: Array<Record<string, unknown>> = [{ type: 'thinking', thinking: reasoning, signature: sig }];
-        const rawCalls0 = (m as { tool_calls?: unknown }).tool_calls;
-        const calls0 = Array.isArray(rawCalls0) ? rawCalls0 : [];
-        const blocks = [...thinkBlocks];
-        if (m.content) blocks.push({ type: 'text', text: m.content });
-        for (const tc of calls0 as Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>) {
-          blocks.push({ type: 'tool_use', id: String(tc.id ?? ''), name: String(tc.function?.name ?? ''), input: safeParseJson(tc.function?.arguments) });
-        }
-        out.push({ role: 'assistant', content: blocks });
+        out.push({ role: 'assistant', content: assistantBlocks(m, { thinking: reasoning, signature: sig }) });
         continue;
       }
     }
 
     const rawCalls = (m as { tool_calls?: unknown }).tool_calls;
-    const calls = Array.isArray(rawCalls) ? rawCalls : [];
-    if (calls.length > 0) {
-      const blocks: Array<Record<string, unknown>> = [];
-      if (m.content) blocks.push({ type: 'text', text: m.content });
-      for (const tc of calls as Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>) {
-        blocks.push({ type: 'tool_use', id: String(tc.id ?? ''), name: String(tc.function?.name ?? ''), input: safeParseJson(tc.function?.arguments) });
-      }
-      out.push({ role: 'assistant', content: blocks });
+    if (Array.isArray(rawCalls) && rawCalls.length > 0) {
+      out.push({ role: 'assistant', content: assistantBlocks(m) });
       continue;
     }
     out.push({ role: m.role, content: m.content });
@@ -191,14 +186,52 @@ function safeParseJson(raw: unknown): Record<string, unknown> {
 }
 
 /**
+ * assistant 消息 → content 块序列：[thinking 块?] + text + tool_use…
+ * （cr-440 并源：thinking 回放与普通 tool_calls 两分支的同构尾部）
+ */
+function assistantBlocks(m: AnthropicMessage, think?: { thinking: string; signature: string }): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = [];
+  if (think) blocks.push({ type: 'thinking', thinking: think.thinking, signature: think.signature });
+  if (m.content) blocks.push({ type: 'text', text: m.content });
+  const rawCalls = (m as { tool_calls?: unknown }).tool_calls;
+  for (const tc of (Array.isArray(rawCalls) ? rawCalls : []) as Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>) {
+    blocks.push({ type: 'tool_use', id: String(tc.id ?? ''), name: String(tc.function?.name ?? ''), input: safeParseJson(tc.function?.arguments) });
+  }
+  return blocks;
+}
+
+/**
  * Anthropic SSE 事件 → 中性分片（有状态映射器）。input_json_delta 的
  * index 归属：Anthropic 事件带顶层 index（content block 序号）——映射器
  * 维护 block index → tool index 的指派（content_block_start 时登记）。
+ * usage 分段合并：输入侧计数只在 message_start 报告，输出侧只在
+ * message_delta——部分值缺省归 0，若 spread 覆盖会把输入侧清零（cr-440：
+ * 此前无合并状态，消费方各自为政，真机 prompt 统计恒 0）。
  */
 export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk | null {
   const toolIndexByBlock = new Map<number, number>();
   let tcCount = 0;
-  const thinkingBlocks = new Map<number, { sig?: string }>();
+  const thinkingBlocks = new Set<number>();
+  const sigBufByBlock = new Map<number, string>();
+  // 分段 usage 合并态：输入侧只在 message_start、输出侧只在 message_delta
+  // 报告（缺省归 0）。字段级 max 合并——同流内输入侧计数恒定，分段口径
+  // 不一致（如 message_delta 重复报输入侧但缺 cache 桶）时取更全的一份，
+  // 保证 cacheMiss = prompt − cacheHit 不变式不被走散的重复报告破坏
+  let usageAcc: AnthropicUsage | undefined;
+  const mergeUsage = (raw: unknown): AnthropicUsage | undefined => {
+    const u = mapAnthropicUsage(raw);
+    if (u === undefined) return undefined;
+    const acc: AnthropicUsage = usageAcc === undefined
+      ? { prompt: 0, completion: 0 }
+      : { ...usageAcc };
+    for (const k of ['prompt', 'completion', 'cacheHit', 'cacheMiss'] as const) {
+      const v = u[k];
+      if (v !== undefined && v > (acc[k] ?? 0)) acc[k] = v;
+    }
+    acc.total = acc.prompt + acc.completion;
+    usageAcc = acc;
+    return acc;
+  };
 
   return (json) => {
     const e = (json ?? {}) as {
@@ -210,7 +243,7 @@ export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk 
     switch (e.type) {
       case 'content_block_start': {
         const block = e.content_block;
-        if (block?.type === 'thinking') thinkingBlocks.set(blockIndex, {});
+        if (block?.type === 'thinking') thinkingBlocks.add(blockIndex);
 
         if (block?.type === 'tool_use') {
           const index = tcCount++;
@@ -220,19 +253,27 @@ export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk 
         return null;
       }
       case 'content_block_delta': {
-        const d = e.delta as { type?: string; text?: unknown; partial_json?: unknown; thinking?: unknown } | undefined;
+        const d = e.delta as { type?: string; text?: unknown; partial_json?: unknown; thinking?: unknown; signature?: unknown } | undefined;
         if (d?.type === 'text_delta') return { delta: String(d.text ?? '') };
         if (d?.type === 'input_json_delta') {
           const index = toolIndexByBlock.get(blockIndex) ?? 0;
           return { delta: '', toolCalls: [{ index, argumentsDelta: String(d.partial_json ?? '') }] };
         }
         if (d?.type === 'thinking_delta') return { delta: '', reasoning: String(d.thinking ?? '') };
+        if (d?.type === 'signature_delta') {
+          // 官方流式签名形态（cr-440 校准）：增量传输、按块累积，
+          // content_block_stop 只收束不携带载荷
+          if (thinkingBlocks.has(blockIndex)) {
+            sigBufByBlock.set(blockIndex, (sigBufByBlock.get(blockIndex) ?? '') + String(d.signature ?? ''));
+          }
+          return null;
+        }
         return null;
       }
       case 'message_start': {
-        // message_start 的 message.usage 携带输入侧计数——先透传（total
-        // 与 finish 留给 message_delta 补齐）
-        const usage = mapAnthropicUsage(e.message?.usage);
+        // message_start 的 message.usage 携带输入侧计数——入合并态透传
+        // （finish 留给 message_delta）
+        const usage = mergeUsage(e.message?.usage);
         return usage !== undefined ? { delta: '', usage } : null;
       }
       case 'message_delta': {
@@ -240,7 +281,7 @@ export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk 
         // 顶层（官方 SDK 事件形态）；兼容 message.stop_reason 旧读法
         const d = e.delta as { stop_reason?: unknown } | undefined;
         const finish = mapFinishReason((d?.stop_reason ?? e.message?.stop_reason) as string | undefined);
-        const usage = mapAnthropicUsage(e.usage ?? e.message?.usage);
+        const usage = mergeUsage(e.usage ?? e.message?.usage);
         if (finish === undefined && usage === undefined) return null;
         return { delta: '', ...(finish !== undefined ? { finish } : {}), ...(usage !== undefined ? { usage } : {}) };
       }
@@ -249,14 +290,15 @@ export function createAnthropicChunkMapper(): (json: unknown) => AnthropicChunk 
       }
       case 'content_block_stop': {
         if (!thinkingBlocks.has(blockIndex)) return null;
-        const sig = (e.content_block as { signature?: unknown } | undefined)?.signature;
         thinkingBlocks.delete(blockIndex);
-        if (typeof sig !== 'string' || sig === '') return null;
+        const sig = sigBufByBlock.get(blockIndex);
+        sigBufByBlock.delete(blockIndex);
+        if (sig === undefined || sig === '') return null;
         return { delta: '', thinkingSignature: sig };
       }
 
       default:
-        return null; // ping / content_block_stop / message_stop 等无载荷事件
+        return null; // ping / message_stop 等无载荷事件
     }
   };
 }
@@ -399,7 +441,7 @@ export class AnthropicCompletions {
         toolCalls.set(frag.index, acc);
       }
       if (chunk.finish) finish = chunk.finish;
-      if (chunk.usage) usage = { ...usage, ...chunk.usage };
+      if (chunk.usage) usage = chunk.usage;
     }
     const calls = [...toolCalls.entries()]
       .sort(([a], [b]) => a - b)

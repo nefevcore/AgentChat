@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-439**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-440**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -457,3 +457,4 @@
 - 【cr-437 2026-10-15 ac-client-runtime 深审精简（#103）：死出口清理（SlotsService/ObjectsService barrel、SessionsFeedFace/SessionsChatFace 子接口、rpc/sessions 冗余 type{} 锚行）+ CRLF 统一 LF（index/slots/switchTrace）+ lastContext 注释漂移订正（webui utils 门面已随 cr-331 清退）】
 - 【cr-438 2026-10-15 ac-client-slots 深审收口（#104）：FACTORY_SEALED 死错误码删除（全仓零构造零消费——S1.5 tier 选举取代封印拒绝后的幽灵词汇）+ 封印语义注释漂移订正五处（纯核头注与 sealFactory JSDoc 仍是「封印即拒」旧语义、runtime slots.ts 两处、webui main.ts）+ package/README 描述「D15 占位」表述更新为 S1.5 实装现状 + 包内行尾 CRLF→LF 统一】
 - 【cr-439 2026-10-15 行集清单 v2 重写：新增 R0b 行资格测试，立行 12→4（8 项改判纯库/编排/归并），归并现状行 9 退役 3；同步协议·授权草稿 security-exec/行序引用】
+- 【cr-440 2026-10-15 ac-anthropic-completions 深审收口：修真机流式三缺陷（signature_delta 签名事件形态——cr-98 捕获读法在官方流式下恒空致 thinking 回放 400；usage 分段合并——message_start 输入侧被 message_delta 覆盖归零；cache 语义归一——input_tokens 不含缓存桶，照抄 openai 包含式假设致 prompt/cacheMiss 低估）+ total 补齐 + chat() 替换式对齐兄弟库 + assistant 块构造并源；测试 mock 修正为官方事件形态】

@@ -44,8 +44,9 @@ describe('mapFinishReason / mapAnthropicUsage', () => {
   it('tool_use → tool_calls；cache 归一', () => {
     expect(mapFinishReason('tool_use')).toBe('tool_calls');
     expect(mapFinishReason('stop')).toBe('stop');
+    // cr-440 官方口径：input_tokens 仅非缓存输入（100），prompt = 100+60 = 160
     expect(mapAnthropicUsage({ input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 60 })).toEqual({
-      prompt: 100, completion: 5, cacheHit: 60, cacheMiss: 40,
+      prompt: 160, completion: 5, total: 165, cacheHit: 60, cacheMiss: 100,
     });
   });
 });
@@ -53,7 +54,7 @@ describe('mapFinishReason / mapAnthropicUsage', () => {
 describe('createAnthropicChunkMapper', () => {
   it('text/tool_use/input_json_delta/thinking/message_delta 全事件链', () => {
     const m = createAnthropicChunkMapper();
-    expect(m({ type: 'message_start', message: { usage: { input_tokens: 3 } } })).toEqual({ delta: '', usage: { prompt: 3, completion: 0 } });
+    expect(m({ type: 'message_start', message: { usage: { input_tokens: 3 } } })).toEqual({ delta: '', usage: { prompt: 3, completion: 0, total: 3 } });
     expect(m({ type: 'content_block_start', index: 0, content_block: { type: 'text' } })).toBeNull();
     expect(m({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } })).toEqual({ delta: 'hi' });
     expect(m({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'th' } })).toEqual({ delta: '', reasoning: 'th' });
@@ -64,7 +65,7 @@ describe('createAnthropicChunkMapper', () => {
       delta: '', toolCalls: [{ index: 0, argumentsDelta: '{"a":1}' }],
     });
     expect(m({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 7 } })).toEqual({
-      delta: '', finish: 'tool_calls', usage: { prompt: 0, completion: 7 },
+      delta: '', finish: 'tool_calls', usage: { prompt: 3, completion: 7, total: 10 },
     });
     expect(m({ type: 'ping' })).toBeNull();
   });
@@ -84,6 +85,7 @@ describe('AnthropicCompletions.stream（SSE 全链路）', () => {
           { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '你' } },
           { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '好' } },
           { type: 'message_delta', delta: { stop_reason: 'stop' }, usage: { output_tokens: 2 } },
+          { type: 'message_stop' },
         ]);
       }) as unknown as typeof fetch,
     });
@@ -96,7 +98,7 @@ describe('AnthropicCompletions.stream（SSE 全链路）', () => {
     expect(body.system).toBe('s');
     expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
     expect(body.max_tokens).toBe(4096);
-    expect(chunks.at(-1)).toEqual({ delta: '', finish: 'stop', usage: { prompt: 0, completion: 2 } });
+    expect(chunks.at(-1)).toEqual({ delta: '', finish: 'stop', usage: { prompt: 10, completion: 2, total: 12 } });
   });
 
   it('api_key 传输层键单次覆盖；provider/headers 剥离不进 body', async () => {
@@ -149,13 +151,15 @@ describe('AnthropicCompletions.listModels', () => {
 });
 
 describe('thinking 回放（cr-98：签名捕获 → 历史重建）', () => {
-  it('content_block_stop 的 signature 经映射器透传（thinkingSignature chunk）', () => {
+  it('signature_delta 增量累积、content_block_stop 收束发射（官方流式形态）', () => {
     const map = createAnthropicChunkMapper();
     expect(map({ type: 'content_block_start', index: 0, content_block: { type: 'thinking' } })).toBeNull();
     expect(map({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '让我想想' } }))
       .toEqual({ delta: '', reasoning: '让我想想' });
-    expect(map({ type: 'content_block_stop', index: 0, content_block: { type: 'thinking', signature: 'sig-abc' } }))
-      .toEqual({ delta: '', thinkingSignature: 'sig-abc' });
+    // 官方形态：签名走 signature_delta 增量事件（split 多段），stop 不携带载荷
+    expect(map({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-' } })).toBeNull();
+    expect(map({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'abc' } })).toBeNull();
+    expect(map({ type: 'content_block_stop', index: 0 })).toEqual({ delta: '', thinkingSignature: 'sig-abc' });
     // 非 thinking 块的 stop 不发 signature
     expect(map({ type: 'content_block_stop', index: 1, content_block: { type: 'text' } })).toBeNull();
   });
@@ -187,5 +191,40 @@ describe('thinking 回放（cr-98：签名捕获 → 历史重建）', () => {
     ] as never);
     // 无签名 → 不走重建分支：纯文本原样直传（string content，与旧行为一致）
     expect(messages[0]).toEqual({ role: 'assistant', content: '正文' });
+  });
+});
+
+describe('usage 分段合并（cr-440：message_start 输入侧 + message_delta 输出侧）', () => {
+  it('分段报告合并后 prompt 不被输出段归零（真机形态）', () => {
+    const m = createAnthropicChunkMapper();
+    // 官方真机形态：message_start 报输入侧，message_delta 只报输出侧
+    const start = m({ type: 'message_start', message: { usage: { input_tokens: 100, cache_read_input_tokens: 60 } } }) as { usage?: unknown };
+    expect(start.usage).toEqual({ prompt: 160, completion: 0, total: 160, cacheHit: 60, cacheMiss: 100 });
+    const end = m({ type: 'message_delta', delta: { stop_reason: 'stop' }, usage: { output_tokens: 5 } }) as { usage?: unknown };
+    // 输出段不含输入字段——合并保留输入侧，非 spread 覆盖归零
+    expect(end.usage).toEqual({ prompt: 160, completion: 5, total: 165, cacheHit: 60, cacheMiss: 100 });
+  });
+
+  it('cache 字段首报后保持（message_delta 稀缺重复时不清空）', () => {
+    const m = createAnthropicChunkMapper();
+    m({ type: 'message_start', message: { usage: { input_tokens: 10, cache_creation_input_tokens: 4 } } });
+    const end = m({ type: 'message_delta', delta: { stop_reason: 'stop' }, usage: { input_tokens: 10, output_tokens: 3 } }) as { usage?: unknown };
+    // message_delta 重复报输入侧但缺 cache 桶——max 合并取更全的首报
+    // （prompt=14 含 cache 桶），残缺的 10 不回退；cacheMiss 保持
+    // （cacheHit=0 不落键——缓存活动信号由 cacheMiss 承载即可）
+    expect(end.usage).toEqual({ prompt: 14, completion: 3, total: 17, cacheMiss: 14 });
+  });
+
+  it('chat() 聚合 stream 分段 usage（端到端替换式）', async () => {
+    const client = new AnthropicCompletions({
+      fetchImpl: (async () =>
+        sseResponse([
+          { type: 'message_start', message: { usage: { input_tokens: 10 } } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } },
+          { type: 'message_delta', delta: { stop_reason: 'stop' }, usage: { output_tokens: 2 } },
+        ])) as unknown as typeof fetch,
+    });
+    const result = await client.chat({ model: 'claude-sonnet-4-5', messages: [] });
+    expect(result.usage).toEqual({ prompt: 10, completion: 2, total: 12 });
   });
 });
