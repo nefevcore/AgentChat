@@ -136,10 +136,6 @@ export async function deleteSingle(id: string, rpc: Pick<RpcClientFace, 'call'>,
 
 // ---- 域投影服务 ----
 
-export interface SingleBoardOptions {
-  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
-}
-
 export class SingleBoardService extends Service {
   readonly singles: Ref<SingleSession[]> = ref([]);
   readonly loaded: Ref<boolean> = ref(false);
@@ -155,10 +151,9 @@ export class SingleBoardService extends Service {
   /** 构造期 ctx = 本域插件 fiber（帧订阅绑定于此——卸载即回收，D5） */
   private readonly own: ClientContext;
 
-  constructor(ctx: Context, options: SingleBoardOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'singleBoard');
     this.own = ctx as ClientContext;
-    void options;
     // wire singles/updated → 增量合并（mergeUpdate，零 RPC；全量 refresh 只留
     // 重连兜底与显式调用方）
     this.own.fiber.effect(() => this.own.rpc.onEvent((type, args) => {
@@ -434,5 +429,3 @@ export const singlesClientPlugin = clientPlugin({
     );
   },
 });
-
-export default singlesClientPlugin;

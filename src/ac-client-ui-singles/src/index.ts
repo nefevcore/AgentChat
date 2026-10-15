@@ -7,7 +7,7 @@
 // 条目（前端装配序列第④步按图装载 client 模块）。
 //
 // 行间依赖（§2.5 机制已成立）：client 插件 inject ['rpc','sessions',
-// 'roster']——roster 由 ui-agents 行提供，fiber 等待、装载序无关。
+// 'roster','slots']——roster 由 ui-agents 行提供，fiber 等待、装载序无关。
 //
 // 可摘除性（M27.1 双向语义）：
 //   · 卸本行 → boot graph 收缩 → 独立会话列表/视角消费面消失

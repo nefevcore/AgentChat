@@ -112,13 +112,13 @@ async function confirmArchive() {
         <Icon name="more-horizontal" :size="18" />
       </button>
       <Transition name="dropdown">
-        <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
-          <button class="dropdown-item" @click="askRename">
+        <div v-if="showMoreMenu" class="more-dropdown ui-dd-menu" @click.stop>
+          <button class="dropdown-item ui-dd-opt" @click="askRename">
             <Icon name="pencil" :size="14" />
             重命名会话
           </button>
-          <button class="dropdown-item danger" @click="askArchive">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+          <button class="dropdown-item ui-dd-opt danger" @click="askArchive">
+            <Icon name="file-archive" :size="14" />
             归档独立会话
           </button>
         </div>
@@ -163,16 +163,16 @@ async function confirmArchive() {
 .settings-btn {
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; cursor: pointer; color: var(--text-2);
-  padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
+  padding: 6px; border-radius: var(--r-sm); line-height: 0; flex-shrink: 0;
 }
 .settings-btn:hover, .settings-btn.active { background: var(--bg-surface); color: var(--text-1); }
 .settings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 更多菜单 */
 .more-menu-wrapper { position: relative; }
-.more-dropdown { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-raised, var(--bg-base)); border: 1px solid var(--line, var(--line)); border-radius: 10px; box-shadow: var(--shadow-pop); min-width: 180px; z-index: 300; padding: 4px; overflow: hidden; }
-.dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none; color: var(--text-1, var(--text-1)); font-size: 13px; cursor: pointer; text-align: left; }
-.dropdown-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
+/* 更多菜单：容器/选项面归 kit dropdown.css 配方（.ui-dd-menu/.ui-dd-opt，cr-329 同款）；本地仅留右锚定 */
+.more-dropdown.ui-dd-menu { left: auto; min-width: 180px; }
+
 .dropdown-item.danger { color: var(--err); }
 .dropdown-item.danger:hover { background: rgba(var(--err-rgb), 0.12); color: var(--err); }
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
@@ -190,9 +190,9 @@ async function confirmArchive() {
 /* 重命名会话对话框（与归档对话框同款布局） */
 .rename-dialog { padding: 28px 24px 20px; }
 .rename-dialog h4 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--text-1); text-align: center; }
-.rename-field input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; background: transparent; color: var(--text-1); outline: none; }
+.rename-field input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13px; background: transparent; color: var(--text-1); outline: none; }
 .rename-field input:focus { border-color: var(--primary); }
-.btn-rename { padding: 8px 20px; border: none; border-radius: 6px; background: var(--primary); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-rename { padding: 8px 20px; border: none; border-radius: var(--r-sm); background: var(--primary); color: var(--on-primary); font-size: 13px; cursor: pointer; font-weight: 500; }
 .btn-rename:hover { filter: brightness(1.08); }
 .btn-rename:disabled { opacity: 0.6; cursor: default; }
 </style>

@@ -5,11 +5,8 @@
 // 群选中清除经 ctx.groups 服务面直连）
 // ============================================================
 import SessionList from './SessionList.vue';
-import { useClientContext } from 'ac-client-runtime';
-
-const groupSvc = useClientContext()?.groups;
 </script>
 
 <template>
-  <SessionList @deselect-group="() => groupSvc?.deselectGroup()" />
+  <SessionList />
 </template>

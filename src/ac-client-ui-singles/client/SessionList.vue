@@ -2,7 +2,7 @@
 //
 // 布局（自上而下）：
 //   1. 新增按钮（新建会话，占满一行）
-//   2. 工具栏：搜索会话（标题过滤——树切扁平结果）— 间隔 — 新增工作区（纯 ICON）
+//   2. 工具栏：搜索会话（标题过滤——树切扁平结果）— 新增工作区（纯 ICON）
 //   3. 树列表：用户工作区为根节点（按名称排列，整行点击展开/收起，
 //      文件夹开合图标即状态；hover 显示 更多（重命名/删除）+ 新增会话），
 //      各 session 为单行叶节点（头像 - 标题 - 删除；未挂工作区的会话
@@ -32,11 +32,10 @@ import { bucketByTime, bucketLimitOf, growBucket, resetGroupReveal, toggleBucket
 import { formatRelativeTime } from '@agentchat/webui-kit';
 import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';
 import { pickFolder, openLocalDir } from 'ac-client-ui-workspace/client/fileApi.ts';
+import { baseNameOf } from 'ac-client-ui-workspace/client/filePreviewContent.ts';
 import type { Workspace } from 'ac-client-ui-workspace/client';
 
-const emit = defineEmits<{
-  (e: 'deselectGroup'): void;
-}>();
+
 
 const roster = useRosterCore();
 // 注意：useClientContext = inject()，只能在 setup 期调用——事件处理器内调用
@@ -66,6 +65,10 @@ function unreadLabel(n: number): string { return n > 99 ? '99+' : String(n); }
 
 // 窄屏导航（cr-29）：选中即 push 会话页（宽屏 no-op）
 const pushMainIfNarrow = inject<() => void>('pushMainIfNarrow', () => {});
+
+// 群选中清除（进独立会话前）：groups 服务面直连（原 emit 链经 Host 转接——
+// 服务面就在 ctx 上，emit 是多余中转；RunTracking 进 1v1 前同款直连）
+const groupSvc = useClientContext()?.groups;
 
 // ── 删除会话确认（硬删：元数据+消息，不可恢复）──
 const deleteTarget = ref<{ id: string; title: string } | null>(null);
@@ -308,7 +311,7 @@ function activeWorkspaceIdOfSelected(): string {
 function selectSingle(sessionId: string) {
   traceSwitch('click-single', sessionId);
   roster.activeAgentId.value = '';
-  emit('deselectGroup');
+  groupSvc?.deselectGroup();
   singlesBoard?.selectSingle(sessionId);
   ui.exitOverlays(); // 进入会话：收矩阵 + 清 pair 视角（含同值重选边界）
   pushMainIfNarrow(); // 窄屏：push 会话页（cr-29）
@@ -339,7 +342,7 @@ function openWsDialog() {
 function onPickFolder(path: string) {
   wsPath.value = path;
   wsError.value = '';
-  if (!wsName.value.trim()) wsName.value = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+  if (!wsName.value.trim()) wsName.value = baseNameOf(path.replace(/[\\/]+$/, '')) || path;
 }
 
 /** 「选择」= 本机系统原生文件夹选择对话框（workspace/pick-folder RPC，
@@ -517,7 +520,7 @@ onUnmounted(() => {
     <!-- 1. 新增按钮（新建会话，占满一行） -->
     <div class="create-row">
       <button class="create-btn" aria-label="新建会话（已有空会话时复用）" @click="createSession()">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+        <Icon name="plus" :size="15" />
         <span>新增</span>
       </button>
     </div>
@@ -525,7 +528,7 @@ onUnmounted(() => {
     <!-- 2. 工具栏：搜索会话（标题过滤）— 间隔 — 新增工作区（纯 ICON） -->
     <div class="ws-toolbar">
       <div class="search-box">
-        <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+        <Icon class="search-icon" name="search" :size="13" />
         <input v-model="searchQuery" type="text" class="search-input" placeholder="搜索会话…" @keydown.esc="searchQuery = ''" />
       </div>
       <div class="ws-toolbar-actions">
@@ -553,7 +556,7 @@ onUnmounted(() => {
          </div>
          <button class="item-delete" title="重命名会话" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
          <button class="item-delete" title="删除会话（含消息，不可恢复）" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+           <Icon name="trash" :size="13" />
          </button>
        </div>
        <div v-if="searchResults.length === 0" class="empty">
@@ -582,12 +585,12 @@ onUnmounted(() => {
                   <Icon name="more-horizontal" :size="14" />
                 </button>
                 <Transition name="menu-fade">
-                  <div v-if="wsMenuOpen === group.key" class="ws-menu">
-                    <button class="ws-menu-item" @click="startRename(group.workspace!)">
+                  <div v-if="wsMenuOpen === group.key" class="ws-menu ui-dd-menu">
+                    <button class="ws-menu-item ui-dd-opt" @click="startRename(group.workspace!)">
                       <Icon name="pencil" :size="13" />
                       <span>重命名</span>
                     </button>
-                    <button class="ws-menu-item ws-menu-danger" @click="wsMenuOpen = null; deleteWsTarget = { id: group.workspace!.id, name: group.workspace!.name }">
+                    <button class="ws-menu-item ws-menu-danger ui-dd-opt" @click="wsMenuOpen = null; deleteWsTarget = { id: group.workspace!.id, name: group.workspace!.name }">
                       <Icon name="trash" :size="13" />
                       <span>删除</span>
                     </button>
@@ -622,7 +625,7 @@ onUnmounted(() => {
                   </div>
                   <button class="item-delete" title="重命名会话" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
                   <button class="item-delete" title="删除会话（含消息，不可恢复）" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+                    <Icon name="trash" :size="13" />
                   </button>
                 </div>
                 <!-- 桶内分页闸门：还有未渲染条目时尾部「展开更多」 -->
@@ -748,14 +751,13 @@ html.dark .session-list{background:var(--bg-base)}
 
 /* 1. 新增按钮（占满一行）：虚线幽灵样式 + 主文字色 —— 可辨识但不抢戏 */
 .create-row{padding:10px 12px 4px;flex-shrink:0}
-.create-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;border:1px dashed var(--line);border-radius:var(--radius-md);background:var(--bg-base);color:var(--text-1);font-size:13px;font-weight:600;cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast)}
+.create-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--bg-base);color:var(--text-1);font-size:13px;font-weight:600;cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast)}
 .create-btn:hover{border-color:var(--primary);background:var(--primary-light)}
 .create-btn:active{transform:scale(.985)}
 html.dark .create-btn{background:transparent;color:var(--text-1)}
 
-/* 2. 工具栏：工作区（文本）— 间隔 — 新增工作区（纯 ICON） */
+/* 2. 工具栏：搜索会话 — 新增工作区（纯 ICON） */
 .ws-toolbar{display:flex;align-items:center;gap:6px;padding:8px 14px 6px;flex-shrink:0}
-.ws-label{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--text-3);text-transform:none;user-select:none}
 .ws-toolbar-actions{margin-left:auto;display:flex;align-items:center;gap:2px}
 .ws-add-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-3);cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast)}
 .ws-add-btn:hover{background:var(--bg-hover);color:var(--primary)}
@@ -764,7 +766,7 @@ html.dark .create-btn{background:transparent;color:var(--text-1)}
    同款视觉语言，尺寸压到工具栏一档） */
 .search-box{flex:1;min-width:0;position:relative;display:flex;align-items:center}
 .search-icon{position:absolute;left:8px;color:var(--text-3);pointer-events:none}
-.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--text-1);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
+.search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--line);border-radius:var(--r-sm);background:transparent;color:var(--text-1);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
 .search-input:focus{border-color:var(--primary)}
 .search-input::placeholder{color:var(--text-3)}
 
@@ -774,8 +776,6 @@ html.dark .create-btn{background:transparent;color:var(--text-1)}
 /* hover 亮底由 .ui-row 承担（cr-122：hover 去边框、去微影）；
    选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
 .item-sub{font-size:11px;line-height:14px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--text-2);padding:4px;border-radius:var(--radius-sm);line-height:0}
-.mobile-close-btn:hover{background:var(--bg-hover);color:var(--text-1)}
 
 /* 3. 树列表：节点统一行高 30px、垂直间距 --space-xs、同款圆角/hover/视觉密度
    （树节点与叶节点仅以缩进和图标区分层级，风格完全一致） */
@@ -794,12 +794,12 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .tree-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:var(--primary)}
 
 /* 根节点：工作区（整行点击展开/收起；文件夹开合图标即状态） */
-.ws-node{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);color:var(--text-2);font-size:13px;cursor:pointer;user-select:none;transition:background var(--transition-fast);border:1px solid transparent;gap:8px}
+.ws-node{display:flex;align-items:center;height:30px;padding:0 8px;margin-bottom:var(--space-xs);border-radius:var(--r-md);color:var(--text-2);font-size:13px;cursor:pointer;user-select:none;transition:background var(--transition-fast);border:1px solid transparent;gap:8px}
 .ws-node:hover{background:var(--role-hover-bg);border-color:var(--line);box-shadow:var(--shadow-hover)}
 .ws-icon{display:flex;align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0}
 .ws-node.ungrouped .ws-icon{color:var(--text-3)}
 .ws-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-1);line-height:20px}
-.ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);cursor:pointer;flex-shrink:0;line-height:0}
+.ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-3);cursor:pointer;flex-shrink:0;line-height:0}
 .ws-node:hover .ws-act{display:flex}
 .ws-act:hover,.ws-act.active{background:var(--bg-hover);color:var(--primary)}
 /* 本地资源管理器「打开中」忙指示 = kit BusyRing（R2：@keyframes 自建旋转退役，
@@ -807,9 +807,8 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 
 /* 「更多」下拉（重命名 / 删除） */
 .ws-more-wrap{position:relative;display:flex;flex-shrink:0}
-.ws-menu{position:absolute;top:100%;right:0;margin-top:4px;min-width:130px;background:var(--bg-raised);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:4px;z-index:300}
-.ws-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-1);font-size:13px;cursor:pointer;text-align:left}
-.ws-menu-item:hover{background:var(--role-hover-bg)}
+.ws-menu.ui-dd-menu{left:auto;right:0;min-width:130px} /* 容器面归 kit .ui-dd-menu（bg/border/radius/shadow/padding/z-index）；本地留右锚定（cr-329 AgentHeaderActions 同款） */
+/* 选项布局/悬停面归 kit .ui-dd-opt（模板复合类）；本地仅留图标色与 danger 变体 */
 .ws-menu-item svg{flex-shrink:0;color:var(--text-3)}
 .ws-menu-danger{color:var(--err)}
 .ws-menu-danger svg{color:var(--err)}
@@ -826,14 +825,14 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .item-name{font-size:13px;font-weight:500;line-height:20px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 删除按钮：hover 条目时浮现 */
-.item-delete{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);cursor:pointer;opacity:0;transition:opacity var(--transition-fast),background var(--transition-fast),color var(--transition-fast);flex-shrink:0}
+.item-delete{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-3);cursor:pointer;opacity:0;transition:opacity var(--transition-fast),background var(--transition-fast),color var(--transition-fast);flex-shrink:0}
 .ws-children .list-item:hover .item-delete{opacity:1}
 .item-delete:hover{background:rgba(var(--err-rgb), 0.1);color:var(--err)}
 
 /* 时间分桶桶头：「今天/一周/其他」标签 + 条数胶囊——与叶节点近似
    缩进、轻量小字行（比会话行矮一档，层级从视觉密度读出）；点击开合，
    chevron 收起指右、展开向下（与工作区文件夹开合同语言） */
-.bucket-head{display:flex;align-items:center;gap:6px;height:24px;width:100%;margin:2px 0 var(--space-xs);padding:0 8px 0 16px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:11.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
+.bucket-head{display:flex;align-items:center;gap:6px;height:24px;width:100%;margin:2px 0 var(--space-xs);padding:0 8px 0 16px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-3);font-size:11.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
 .bucket-head:hover{background:var(--role-hover-bg);color:var(--primary)}
 .bucket-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-3);transition:transform .15s ease;transform:rotate(-90deg)}
 .bucket-chevron.open{transform:rotate(0deg)}
@@ -844,7 +843,7 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 
 /* 桶内分页闸门：「··· 展开更多（N）」——与桶内会话行同缩进、轻量
    幽灵样式（渐进追加一页；满额自然消失） */
-.expand-more{display:flex;align-items:center;gap:8px;height:24px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:11.5px;font-weight:500;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
+.expand-more{display:flex;align-items:center;gap:8px;height:24px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--r-sm);background:none;color:var(--text-3);cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast)}
 .expand-more:hover{background:var(--role-hover-bg);color:var(--primary)}
 .expand-more-dots{flex-shrink:0;letter-spacing:1px;font-weight:700;line-height:1}
 .empty{padding:var(--space-lg);text-align:center;color:var(--text-3);font-size:14px}
@@ -859,7 +858,7 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .del-strong{color:var(--err);font-weight:600}
 .del-error{font-size:12px;color:var(--err);margin-bottom:8px}
 .del-actions{display:flex;justify-content:flex-end;gap:8px}
-.del-cancel,.del-confirm{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer}
+.del-cancel,.del-confirm{padding:6px 16px;border-radius:var(--r-sm);font-size:13px;cursor:pointer}
 .del-cancel{background:var(--bg-base);border:1px solid var(--line);color:var(--text-2)}
 .del-confirm{background:var(--err);border:none;color:var(--on-primary)}
 .del-confirm:hover:not(:disabled){filter:brightness(.8); /* 实底加深一档（无令牌表达「同色更深」，filter 不引入色值） */}
