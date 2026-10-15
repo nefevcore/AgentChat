@@ -1,6 +1,7 @@
 <!-- ToolResultBrowser.vue —— browser 工具结果展示
      支持：
-       - 单动作：open / content / screenshot / click / type / press / eval / html / close
+       - 单动作：open / read / elements / screenshot / click / hover / type / press /
+         scroll / wait / logs / response_body / tabs / eval / close
        - 批量：steps 模式 {status, count, results:[{step, action, repeat, params, result}]}
        - 错误：{status:'error', message, results?}（批量部分成功也完整展示）
 -->
@@ -35,7 +36,6 @@ function evalToString(v: unknown): string {
   return typeof v === 'string' ? v : JSON.stringify(v, null, 2);
 }
 const evalResult = computed(() => evalToString(props.data.result));
-const htmlLength = computed(() => Number(props.data.html_length ?? 0));
 
 const elements = computed<string[]>(() => Array.isArray(props.data.elements) ? (props.data.elements as string[]) : []);
 const consoleLogs = computed<Array<{ seq: number; level?: string; text: string }>>(() => Array.isArray(props.data.console) ? (props.data.console as Array<{ seq: number; level?: string; text: string }>) : []);
@@ -43,14 +43,13 @@ const netLogs = computed<Array<{ seq: number; method?: string; url: string; stat
 const tabsList = computed<Array<{ index: number; title: string; url: string; active?: boolean }>>(() => Array.isArray(props.data.tabs) ? (props.data.tabs as Array<{ index: number; title: string; url: string; active?: boolean }>) : []);
 const logTab = ref<'console' | 'network'>('console');
 
-const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'elements' | 'logs' | 'tabs' | 'ok'>(() => {
+const singleType = computed<'screenshot' | 'page' | 'eval' | 'elements' | 'logs' | 'tabs' | 'ok'>(() => {
   if (relPath.value || file.value) return 'screenshot';
   if (elements.value.length > 0) return 'elements';
   if (consoleLogs.value.length > 0 || netLogs.value.length > 0) return 'logs';
   if (tabsList.value.length > 0) return 'tabs';
   if (url.value || text.value) return 'page';
   if (evalResult.value) return 'eval';
-  if (htmlLength.value > 0) return 'html';
   return 'ok';
 });
 
@@ -71,9 +70,7 @@ const ACTION_META: Partial<Record<string, { icon: string; label: string; color: 
   logs: { icon: 'scroll-text', label: '日志', color: '#f59e0b' },
   response_body: { icon: 'file-json', label: '响应体', color: '#f97316' },
   tabs: { icon: 'app-window', label: '标签页', color: '#64748b' },
-  content: { icon: 'file-text', label: '提取内容', color: '#22c55e' },
   screenshot: { icon: 'image', label: '截图', color: '#f59e0b' },
-  html: { icon: 'globe', label: 'HTML', color: '#f97316' },
   eval: { icon: 'zap', label: '执行 JS', color: '#ef4444' },
   close: { icon: 'x', label: '关闭', color: '#6b7280' },
 };
@@ -102,8 +99,6 @@ function stepSummary(item: any): string {
   switch (item.action) {
     case 'open':
       return r.url || p.url || '';
-    case 'content':
-      return (r.text || '').slice(0, 200) + ((r.text || '').length > 200 ? '…' : '');
     case 'screenshot':
       return r.relPath || r.file || p.name || '';
     case 'click':
@@ -115,8 +110,6 @@ function stepSummary(item: any): string {
       return p.key ? `按键: ${p.key}` : 'OK';
     case 'eval':
       return evalToString(r.result).slice(0, 200);
-    case 'html':
-      return r.html_length != null ? `${r.html_length} 字符` : 'OK';
     case 'read':
       return (r.text || '').slice(0, 200) + ((r.text || '').length > 200 ? '…' : '');
     case 'elements':
@@ -142,7 +135,7 @@ function stepSummary(item: any): string {
 function stepDetail(item: any): string {
   const r = item.result || {};
   if (isStepErr(item)) return String(item.message || r.message || '');
-  if ((item.action === 'content' || item.action === 'read') && r.text) return r.text;
+  if (item.action === 'read' && r.text) return r.text;
   if (item.action === 'elements' && Array.isArray(r.elements)) return r.elements.join('\n');
   if (item.action === 'logs') {
     const c = (r.console || []).map((e: any) => `[${e.level}] ${e.text}`).join('\n');
@@ -154,7 +147,7 @@ function stepDetail(item: any): string {
 }
 
 function hasDetail(item: any): boolean {
-  if (item.action === 'content' || item.action === 'read') return !!(item.result?.text && String(item.result.text).length > 200);
+  if (item.action === 'read') return !!(item.result?.text && String(item.result.text).length > 200);
   if (item.action === 'eval') return evalToString(item.result?.result).length > 80;
   if (item.action === 'elements') return (item.result?.elements || []).length > 0;
   if (item.action === 'logs') return !!((item.result?.console || []).length || (item.result?.network || []).length);
@@ -188,9 +181,8 @@ async function loadScreenshot() {
     const j = await fetchWorkspaceFile(relPath.value);
     if (j.base64) {
       screenshotSrc.value = 'data:' + (j.contentType || 'image/png') + ';base64,' + j.content;
-    } else if (j.error) {
-      screenshotError.value = String(j.error);
     } else {
+      // 应答非 base64（错误路径已由 jsonFetch 非 ok 抛出接管）——非图片内容兜底
       screenshotError.value = '无法加载截图';
     }
   } catch (e: any) {
@@ -326,14 +318,10 @@ const displayUrl = computed(() => {
       </template>
     </div>
 
-    <!-- ════════ 单动作：eval / html / 其他 ════════ -->
+    <!-- ════════ 单动作：eval / 其他 ════════ -->
     <div v-else-if="singleType === 'eval'" class="brw-eval">
       <span class="ui-badge dim"><Icon name="zap" :size="11" />执行结果</span>
       <pre class="brw-text brw-text-expanded"><code>{{ evalResult }}</code></pre>
-    </div>
-    <div v-else-if="singleType === 'html'" class="brw-eval">
-      <span class="ui-badge dim"><Icon name="globe" :size="11" />HTML</span>
-      <div class="brw-html-meta">{{ htmlLength }} 字符</div>
     </div>
     <div v-else class="brw-ok">
       <span class="ui-badge ok"><Icon name="check" :size="11" /> 完成</span>
@@ -461,7 +449,6 @@ const displayUrl = computed(() => {
 /* ── 单动作：其他 ── */
 /* .brw-badge / .brw-badge-icon / .brw-badge-ok 自建徽章样式已退役（cr-128）：
    标签徽章归 kit .ui-badge 族（dim = 中性标签；ok = 完成态），模板 class 已切换 */
-.brw-html-meta { font-size: 12px; color: var(--text-3); margin-top: 4px; }
 .brw-eval { display: flex; flex-direction: column; gap: 4px; }
 .brw-ok { padding: 2px 0; }
 </style>
