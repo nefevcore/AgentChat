@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-460**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-461**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -478,3 +478,4 @@
 - 【cr-458 2026-10-15 ac-client-ui-group 深审精简：修 group_id 透传断裂/VIEWER_ID 归一 runtime/死配置面与描述漂移订正/CRLF 统一】
 - 【cr-459 2026-10-15 ac-client-ui-singles 深审精简：死 CSS/空壳 Options/内联 SVG 归一/kit 配方归位/双实现并源/依赖正位/注释订正】
 - 【cr-460 2026-10-15 ac-client-ui-goal 深审（audit #116）：删/拆双否——双席位贡献+直编面全活跃（boot graph default 装载链/goal get RPC 契约/current 非终态不变式逐项核验）；订正描述漂移三处（order 20→50——2026-09-13 dock 序重排后 package/extension/头注未随行）+ goalCard 头注悬空残句 + GoalBar cr-129 注「P5 待裁决」过时表述收口（P5 已随 cr-129 终结）；CRLF→LF 包内统一（8 文件，cr-337 先例）】
+- 【cr-461 2026-10-15 ac-client-ui-skill 深审：client 门面 re-export 死口删除（全仓零消费，ChatInput/测试均走 skillsApi 深路径）+ fetchSkills 成功路径补测（三源合成/空字段归一/参数形状——原仅失败路径覆盖）】

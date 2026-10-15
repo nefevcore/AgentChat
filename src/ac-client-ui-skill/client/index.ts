@@ -1,10 +1,9 @@
 // ============================================================
 // ac-client-ui-skill/client/index.ts —— skill 域前端行 client 半边
-//（M28 P1 §4.1 原案：数据面行——暂无席位贡献；skillsApi 供跨包消费）
+//（M28 P1 §4.1 原案：数据面行——暂无席位贡献；跨包消费走
+//  ./skillsApi.ts 深路径直连，本模块仅出 boot graph 插件）
 // ============================================================
 import { clientPlugin } from 'ac-client-runtime';
-
-export { fetchSkills, type SkillEntry, type SkillsResult } from './skillsApi.ts';
 
 /** skill 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const skillClientPlugin = clientPlugin({

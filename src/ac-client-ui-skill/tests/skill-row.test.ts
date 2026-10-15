@@ -32,7 +32,7 @@ describe('M28 P1 · ac-client-ui-skill 宿主半边（boot graph 声明）', () 
   });
 });
 
-describe('M28 P1 · skillsApi 数据面（RPC 失败三态静默）', () => {
+describe('M28 P1 · skillsApi 数据面', () => {
   it('fetchSkills：RPC 失败（后端行摘除）→ null（技能区静默隐藏，不抛）', async () => {
     const { fetchSkills } = await import('../client/skillsApi.ts');
     const badRpc = {
@@ -41,5 +41,56 @@ describe('M28 P1 · skillsApi 数据面（RPC 失败三态静默）', () => {
       },
     };
     await expect(fetchSkills('a1', 'a1~user', badRpc)).resolves.toBeNull();
+  });
+
+  it('fetchSkills：成功路径——三源合成 + 缺字段归一空数组 + 参数形状（agentId/conversationId 缺省不传键）', async () => {
+    const { fetchSkills } = await import('../client/skillsApi.ts');
+    const seen: Array<{ method: string; params: unknown }> = [];
+    const reply: unknown = {
+      skills: {
+        global: [{ name: 'agentchat-dev', description: 'd', dirName: 'agentchat-dev' }],
+        own: [],
+        workspace: [{ name: 'w1', description: 'd2', dirName: 'w1', dir: '.claude/skills', location: 'ws/.claude/skills' }],
+      },
+    };
+    const rpc = {
+      call<T>(method: string, params: unknown): Promise<T> {
+        seen.push({ method, params });
+        return Promise.resolve(reply as T);
+      },
+    };
+    const r = await fetchSkills('a1', 'a1~user', rpc);
+    expect(r).toEqual({
+      global: [{ name: 'agentchat-dev', description: 'd', dirName: 'agentchat-dev' }],
+      own: [],
+      workspace: [{ name: 'w1', description: 'd2', dirName: 'w1', dir: '.claude/skills', location: 'ws/.claude/skills' }],
+    });
+    expect(seen).toEqual([
+      { method: 'skills/list', params: { agentId: 'a1', conversationId: 'a1~user' } },
+    ]);
+  });
+
+  it('fetchSkills：全缺省载荷（skills 字段缺席）→ 三源全归一空数组（非 null——行在场即有目录面）', async () => {
+    const { fetchSkills } = await import('../client/skillsApi.ts');
+    const rpc = {
+      call<T>(): Promise<T> {
+        return Promise.resolve({} as T);
+      },
+    };
+    await expect(fetchSkills(undefined, undefined, rpc)).resolves.toEqual({ global: [], own: [], workspace: [] });
+  });
+
+  it('fetchSkills：agentId/conversationId 缺省时 params 不携带空键（全局目录口径）', async () => {
+    const { fetchSkills } = await import('../client/skillsApi.ts');
+    const seen: Array<{ method: string; params: unknown }> = [];
+    const reply: unknown = { skills: {} };
+    const rpc = {
+      call<T>(method: string, params: unknown): Promise<T> {
+        seen.push({ method, params });
+        return Promise.resolve(reply as T);
+      },
+    };
+    await fetchSkills(undefined, undefined, rpc);
+    expect(seen).toEqual([{ method: 'skills/list', params: {} }]);
   });
 });
