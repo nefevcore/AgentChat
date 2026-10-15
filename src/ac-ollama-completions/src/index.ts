@@ -149,8 +149,8 @@ export function toOllamaOptions(params: Record<string, unknown>): Record<string,
   return Object.keys(opts).length > 0 ? opts : undefined;
 }
 
-/** 工具规格：OpenAI function 嵌套 → Ollama 形态（同 OpenAI——直接透传） */
-export function toOllamaTools(tools: unknown): Array<Record<string, unknown>> | undefined {
+/** 工具规格：OpenAI function 嵌套 → Ollama 形态（同 OpenAI——直接透传；仅 stream 内部消费） */
+function toOllamaTools(tools: unknown): Array<Record<string, unknown>> | undefined {
   if (!Array.isArray(tools)) return undefined;
   return tools as Array<Record<string, unknown>>;
 }
@@ -245,7 +245,7 @@ export class OllamaCompletions {
     const { signal, api_key, provider: _provider, headers: extraHeaders, ...restParams } = params;
     const restStripped = stripTransportKeys(restParams as Record<string, unknown>);
     const authKey = api_key || this.apiKey;
-    const { messages, tools, ...rest } = restParams as Record<string, unknown>;
+    const { messages, tools, ...rest } = restStripped as Record<string, unknown>;
     const body: Record<string, unknown> = {
       model,
       messages: toOllamaMessages(messages as OllamaMessage[]),

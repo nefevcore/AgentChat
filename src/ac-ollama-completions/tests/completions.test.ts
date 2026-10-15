@@ -124,3 +124,110 @@ describe('OllamaCompletions.listModels', () => {
     expect(models).toEqual(['llama4:latest', 'qwen4:7b']);
   });
 });
+describe('OllamaCompletions.chat（聚合语法糖）', () => {
+  it('text/reasoning/toolCalls/finish/usage 聚合（tool_calls 整段 + 终行 usage）', async () => {
+    const NL = String.fromCharCode(10);
+    const client = new OllamaCompletions({
+      fetchImpl: (async () =>
+        new Response(
+          textStream([
+            { message: { role: 'assistant', content: '算', thinking: '想' } },
+            { message: { role: 'assistant', content: '一下' } },
+            // 真机形态：tool_calls 与 done 终行同行到达（整段、无增量）
+            { message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'add', arguments: { a: 1 } } }] }, done: true, prompt_eval_count: 4, eval_count: 6 },
+          ].map((l) => JSON.stringify(l)).join(NL)),
+          { status: 200 },
+        )) as unknown as typeof fetch,
+    });
+    const result = await client.chat({ model: 'llama4', messages: [] });
+    expect(result).toEqual({
+      model: 'llama4',
+      text: '算一下',
+      reasoning: '想',
+      toolCalls: [{ id: 'call_0', name: 'add', arguments: '{"a":1}' }],
+      finish: 'tool_calls',
+      usage: { prompt: 4, completion: 6, total: 10 },
+    });
+  });
+});
+
+describe('无进展超时（idle 语义，对齐 openai 库测试形态）', () => {
+  /** 永不落地的 fetch（abort 即以 reason 拒绝在途请求——对齐 undici） */
+  function hangingFetch(): typeof fetch {
+    return (async (_url: any, init: any) =>
+      new Promise<never>((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(init.signal.reason));
+      })) as unknown as typeof fetch;
+  }
+
+  it('建连挂起：窗口内无响应 → 中止并给出可诊断错误', async () => {
+    const client = new OllamaCompletions({ timeoutMs: 60, fetchImpl: hangingFetch() });
+    await expect(client.chat({ model: 'm', messages: [] })).rejects.toThrow(/LLM 响应超时/);
+  });
+
+  it('流静默：首行数据到达后长期无新行 → 窗口内中止（已收分片保留在异常前）', async () => {
+    const NL = String.fromCharCode(10);
+    const client = new OllamaCompletions({
+      timeoutMs: 60,
+      fetchImpl: (async (_url: any, init: any) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(encoder.encode(JSON.stringify({ message: { role: 'assistant', content: '一' } }) + NL));
+              // 首行后静默：不 close、不排程——模拟死流
+              init.signal.addEventListener('abort', () => controller.error(init.signal.reason));
+            },
+          }),
+          { status: 200 },
+        )) as unknown as typeof fetch,
+    });
+    const chunks: string[] = [];
+    await expect(
+      (async () => {
+        for await (const c of client.stream({ model: 'm', messages: [] })) chunks.push(c.delta);
+      })(),
+    ).rejects.toThrow(/LLM 响应超时/);
+    expect(chunks).toEqual(['一']); // 首行真实到达（计时器曾按行刷新）
+  });
+});
+
+describe('close 语义', () => {
+  it('close 后拒绝调用', async () => {
+    const client = new OllamaCompletions({
+      fetchImpl: (async () => new Response('{}')) as unknown as typeof fetch,
+    });
+    client.close();
+    await expect(client.listModels()).rejects.toThrow(/已 close/);
+  });
+});
+
+describe('流协议防御', () => {
+  it('NDJSON 行解析失败 → fail-loud 报错（带行预览）', async () => {
+    const NL = String.fromCharCode(10);
+    const client = new OllamaCompletions({
+      fetchImpl: (async () => new Response(textStream('not-json' + NL), { status: 200 })) as unknown as typeof fetch,
+    });
+    await expect(client.stream({ model: 'm', messages: [] }).next()).rejects.toThrow(/LLM NDJSON 数据解析失败/);
+  });
+
+  it('meta/attachments 传输键不进请求体（stripTransportKeys 白名单 + 消息级剥离）', async () => {
+    const captured: { init?: any } = {};
+    const NL = String.fromCharCode(10);
+    const client = new OllamaCompletions({
+      fetchImpl: (async (_url: any, init: any) => {
+        captured.init = init;
+        return new Response(textStream(JSON.stringify({ done: true, prompt_eval_count: 0, eval_count: 0 })), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    void NL;
+    for await (const _c of client.stream({
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi', attachments: [{ kind: 'image', ref: 'f.png' }] }] as never[],
+      meta: { runId: 'r1' },
+    }));
+    const body = JSON.parse(captured.init.body);
+    expect('meta' in body).toBe(false);
+    expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+});
