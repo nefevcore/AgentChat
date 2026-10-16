@@ -6,7 +6,7 @@
 // 数据面（useToolResult 三形归一后传入 data）：
 //   调用中：{ code, ... }（参数预览——程序体即时可见；无时间线）
 //   完成态：{ summary: { calls, ok, failed, computeMs, wallMs, denied,
-//             serialized, trace: SubcallTrace[], traceTruncated? },
+//             serialized, trace: SubcallTrace[], traceTruncated?, frozenMs?,
 //             programHash, value?, error? }
 import { computed, ref, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
@@ -15,7 +15,7 @@ import { Icon } from '@agentchat/webui-kit';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { fenceOf } from 'ac-client-ui-renderer/client/codeFence.ts';
 
-const props = defineProps<{ data: Record<string, unknown>; toolName?: string; loading?: boolean }>();
+const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 const { render } = useMarkdown();
 
@@ -31,20 +31,25 @@ const renderedCode = computed(() => {
 });
 
 // ---- 执行摘要 + 时间线 ----
+// 形状镜像 ac-run-code/src/protocol.ts（RunSummary/SubcallTrace）——RPC 结果
+// 信封不引类型（行独立可摘除），前端卡内注释投影（subagent SubagentInfo 同款惯例）
 interface SubcallTrace {
   seq: number; name: string; ok: boolean; ms: number;
   brief: string; error?: string;
 }
-const summary = computed<{
+interface RunSummaryShape {
   calls: number; ok: number; failed: number; computeMs: number; wallMs: number;
+  /** 预算冻结区间毫秒（ask_questions/approval 用户应答等待期；后端可选省略） */
+  frozenMs?: number;
   denied: Array<{ name: string; error: string }>;
   serialized: number[];
   trace: SubcallTrace[];
   traceTruncated?: number;
-} | null>(() => {
+}
+const summary = computed<RunSummaryShape | null>(() => {
   const s = props.data.summary;
   if (s === null || typeof s !== 'object') return null;
-  return s as never;
+  return s as RunSummaryShape;
 });
 const programHash = computed(() => {
   const h = props.data.programHash;
@@ -72,7 +77,8 @@ const badges = computed(() => {
   const out: Array<{ text: string; cls: string; title?: string }> = [];
   out.push({ text: `调用 ${s.ok}/${s.calls}`, cls: s.failed > 0 ? 'warn' : 'ok', title: `子调用 ${s.ok} 成功 / ${s.failed} 失败` });
   if (s.serialized.length > 0) out.push({ text: `串行 ${s.serialized.length}`, cls: 'dim', title: '写路径/命令类按提交序串行执行' });
-  out.push({ text: `${s.computeMs}ms 计算`, cls: 'dim', title: `子调用累计 ${s.computeMs}ms（墙钟 ${s.wallMs}ms）` });
+  const freezeNote = s.frozenMs ? `，其中用户应答等待 ${s.frozenMs}ms 不计机器预算` : '';
+  out.push({ text: `${s.computeMs}ms 计算`, cls: 'dim', title: `子调用累计 ${s.computeMs}ms（墙钟 ${s.wallMs}ms${freezeNote}）` });
   return out;
 });
 const deniedList = computed(() => summary.value?.denied ?? []);
@@ -109,7 +115,6 @@ const errorText = computed(() => {
   const e = props.data.error;
   return typeof e === 'string' && e ? e : '';
 });
-const isError = computed(() => errorText.value !== '');
 
 // ---- 复制程序 ----
 const copyState = ref<'idle' | 'copied'>('idle');
@@ -126,7 +131,7 @@ async function copyCode() {
 </script>
 
 <template>
-  <div class="tool-result-run-code" :class="{ 'is-error': isError }">
+  <div class="tool-result-run-code">
     <!-- ============ ① 程序体 ============ -->
     <div v-if="code" class="rc-section rc-code">
       <div class="rc-head">
@@ -138,12 +143,7 @@ async function copyCode() {
         </span>
         <!-- cr-226：原生 title——Tooltip ::after 会超出 .rc-section（overflow:hidden）右缘被裁剪 -->
         <button class="rc-copy-btn" :class="{ copied: copyState === 'copied' }" :title="copyState === 'copied' ? '已复制' : '复制程序全文'" :aria-label="copyState === 'copied' ? '已复制' : '复制程序全文'" @click="copyCode">
-            <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+            <Icon :name="copyState === 'copied' ? 'check' : 'copy'" :size="13" />
             <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
         </button>
       </div>

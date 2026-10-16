@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-468**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-469**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -486,3 +486,4 @@
 - 【cr-466 2026-10-15 ac-client-ui-web 深审收口：BROWSER_FAMILY 死词汇联动清除（#51 移交线索——daemon 时代 11 工具名 v0.8.15 起不可再生，browser 卡实住 ui-browser 单席；def 注册/toolIcon 正则族/webui 断言三镜像同删，历史回放回落文本渲染=行卸载同语义）+ fetch 分支随 def 死亡整块退役（isFetch 恒 false；isBinary/text_extracted 全仓零生产者）+ openSearchPanel 768 即时读改 uiStore.narrow 单源（cr-29 退役形态）+ 截断恢复抽 partialSearch.ts 纯库并补测（SFC 内 50 行零覆盖）+ 内联 SVG 归 kit + 重复 CSS/描述订正】
 - 【cr-467 2026-10-15 ac-client-ui-browser 深审收口（审计 #123）——删/拆双否：M28 P2 §2.2 镜像表 browser 行，消费面活跃（TREE/yml 双表/webui 装配/clients-tool-cards/README 758/763/ui-rows-and-slots L54）。死词三清（cr-366 后端 v0.8.15 删 content/html 退役别名的前端残留——ACTION_META 词条/singleType 分支/stepSummary·stepDetail·hasDetail 三函数分支/html_length computed/eval-html 模板段六处）：content/html 动作不可再生，收到即落 default 兜底。修死路一：loadScreenshot j.error 分支（jsonFetch 非 ok 全走 throw，分支恒不可达）收敛 else 兜底。CRLF→LF（cr-337 家族，3 文件）。补渲染测试 clients-tool-cards-browser（卡组件此前零渲染测试，cr-464/465 先例：批量 tab 徽记/失败步骤、单动作 page/截图/elements/logs/tabs、单动作失败回落——修复前误显完成徽章）】
 - 【cr-468 2026-10-15 ac-client-ui-subagent 深审精简：board.ts 死插件 subagentBoardPlugin + SubagentBoardOptions 死配置面删除；卡 loading 自建 spinner→BusyRing（cr-129 R2 漏网）；六处内联 SVG→kit Icon 归一；send 卡折叠态复用 await 侧词汇；package 描述补 board 域投影面】
+- 【cr-469 2026-10-16 ac-client-ui-run-code 深审收口（审计 #125）：死类 is-error 与死 prop toolName 清理、复制按钮内联 SVG 归一 kit Icon（cr-329/332 先例）、RunSummary.frozenMs 徽章 title 消费补齐（契约字段 UI 缺口）、summary 形状具名化替 as never、头注数据面/package 描述漂移订正】
