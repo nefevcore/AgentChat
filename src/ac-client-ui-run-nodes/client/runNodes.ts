@@ -14,7 +14,7 @@ import type { Turn } from 'ac-client-ui-conversation/client/types.ts';
 export interface RunNode {
   /** 定位用消息 id（feed 消息 id） */
   id: string;
-  /** 轮首时间戳（reveal key = `turn-<viewer>-<ts>` 与渲染管线同源） */
+  /** 轮首时间戳（仅展示用——reveal 定位链路按消息 id 直传，消费侧自查原始消息构造 `turn-<viewer>-<ts>` 定位键） */
   ts: number;
   /** 正文摘要（首行；空 = 本 run 无文字输入——如纯附件/纯手势） */
   text: string;

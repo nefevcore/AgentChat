@@ -10,7 +10,6 @@ import { computed, ref, watch, nextTick } from 'vue';
 import { StatusDot, formatRelativeTime } from '@agentchat/webui-kit';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
-import type { DialogId } from 'ac-client-ui-conversation/client/feed.ts';
 import { runNodesOf } from './runNodes.ts';
 
 const ui = useUiStore();
@@ -18,27 +17,33 @@ const feed = useFeedStore();
 
 // 活跃分区的 turns → 节点（旧→新正序——run 骨架与消息流同构读作时间线）
 const nodes = computed(() => {
-  const id = feed.activeDialogId as DialogId | null;
+  const id = feed.activeDialogId;
   if (!id) return [];
   return [...runNodesOf(feed.getTurns(id).value)].reverse();
 });
 
-// 正序时间线：新节点（运行中）在底部——自动滚到底跟随（聊天流同款语义：
-// 用户上翻时不打扰，新 run 到来时贴底跟随）。切会话归零重贴底。
+// 正序时间线：新节点（运行中）在底部——贴底跟随（聊天流同款语义：用户
+// 上翻时不打扰，新 run 到来时若仍在贴底态则跟随）。首开/切会话 = 视图
+// 重置语义，强制贴底——scrollTop 跨内容替换被浏览器保留，新清单更长时
+// 距底阈值判不住，必须显式归零。
 const bodyRef = ref<HTMLElement | null>(null);
+let lastDialog: string | null = null; // 上次所见会话（null = 首跑）
 watch(() => [nodes.value.length, feed.activeDialogId], async () => {
-  await nextTick();
+  const reset = feed.activeDialogId !== lastDialog; // 首跑/切会话 = 视图重置
+  lastDialog = feed.activeDialogId;
+  await nextTick(); // immediate 首跑时 DOM 未挂，tick 后再取 el
   const el = bodyRef.value;
   if (!el) return;
-  // 距底 < 40px 视为贴底态（跟随）；上翻阅读历史节点时不打断
-  if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) el.scrollTop = el.scrollHeight;
-});
+  // 强制贴底；同会话新节点走距底阈值跟随（< 40px 视为贴底态，上翻阅读
+  // 历史节点时不打断）
+  if (reset || el.scrollHeight - el.scrollTop - el.clientHeight < 40) el.scrollTop = el.scrollHeight;
+}, { immediate: true });
 
 function onClickNode(id: string) {
   // 当前分区节点：直接 reveal（会话切换零开销路径）。宽屏不动 aux 区
   //（主区与右栏并存——收右栏会让布局跳变）；窄屏 aux 是全屏 Sheet，收掉
   // + push 主区，定位结果才可见
-  const dialogId = feed.activeDialogId as DialogId | null;
+  const dialogId = feed.activeDialogId;
   if (!dialogId) return;
   ui.sendRevealIntent(dialogId, id);
   if (ui.narrow) {
