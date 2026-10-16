@@ -6,6 +6,8 @@
 // 模块）；实际数据面全在壳层桥（127.0.0.1:<p+1..p+4>/desktop-bridge/），
 // 前端自探活，非桌面形态（无桥）节自动隐藏。
 // 卸本行 → 设置面板「存储管理」节与左树叶同步消失（D19 整枝退场）。
+// 测试域：包内 tests 锁席位贡献形态；壳层桥/更新面的回归住 desktop/tests
+//（cr-481 归位——被测面是 desktop/main.mjs 壳域，非本包源码）。
 // ============================================================
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';

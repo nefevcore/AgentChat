@@ -153,8 +153,6 @@ async function onConfirm() {
 .restarting { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-5) var(--space-4); text-align: center; }
 .restart-line { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--text-1); }
 
-/* 确认弹层 */
-.confirm-body { padding: 6px 20px 2px; display: flex; flex-direction: column; gap: var(--space-2); }
-.confirm-body p { margin: 0; font-size: 13px; color: var(--text-1); }
+/* 确认弹层（cr-157 归一 kit ConfirmBody——弹体样式由 kit 承载） */
 .warn-inline { color: var(--warn); font-size: 12px; }
 </style>

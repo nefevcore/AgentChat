@@ -316,6 +316,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 9. **席位语义轴（M30 收口已实施）**：席位词表 = kind（single / list）+ elect（选举扶正，取代旧 priority 特例语义）+ data（数据席）；旧「keyed presentation / 白名单 UISlotId」词汇退役。**useSeatOccupancy 门控原语已除役**（D3 及其后记：随主区 / aux 语义纯化同批）——占用门控内在于选举，源码仅存注释与测试注记（`ac-client-ui-renderer/tests/renderer-client.test.ts`）。
 10. **服务端注册表退役（M30 D7 已实施）**：`ctx.uiExtensions` + BUILTIN_SLOTS 白名单删除（`ac-webui-extensions` 行退役；词汇表 slotCatalog 留包转纯库）。第三方 UI 链路 = manifest.ui → `ctx.webui.addEntry` → 浏览器 SlotRegistry；`webui` 行只负责 boot graph 下发 + `/ui-plugin/` 静态路由。
 11. **两行的 `agentchat.client` 元数据缺失（遗留项）**：`ac-client-ui-desktop-storage` 与 `ac-client-ui-remote` 的 `package.json` 只有 `agentchat.plugin=true`，无 `agentchat.client{phase}`——其宿主半边 `declareClient` 已正确声明 `phase=domain`，vite 行发现也不依赖该字段，故**运行/装载不受影响**；但 `check-deps` 的相位表（`pkg.agentchat.client.phase`）不含这两行 → 其跨行静态边不受 R6/R7 扫描（当前无违例）。另：`ui-conversation → ui-singles` 仅 `import type`，按纪律不计运行时边（旧组件树文档曾按声明依赖误计 17 条边）。
+    > **落地记录（cr-481，2026-10-16）**：desktop-storage 行已补齐 `agentchat.client{platform:'web', entry, phase:'domain'}`（与 skill 行同构）——该行自此入相位表受 R6/R7 扫描。remote 行仍未补，留待其专属审计轮处理。
 12. **〔注 12〕复核命令（2026-10-06 口径）**：
     - 席位声明面：`grep -rn 'slots.declare(' src/ac-client-ui-*/client`
     - 贡献面：`grep -rn 'slots.register(' src/ac-client-ui-*/client`（配 `slots.inject(` 判存活期效应）

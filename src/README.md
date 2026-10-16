@@ -753,15 +753,17 @@ src/
 ├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2 + M28 P0/P1/P2，
 │   todo,jobs,workspace,       D19 改裁：前端插件一律 ac-client-ui-* 独立包
 │   singles,group,agents,      ——包名即身份；cordis.yml/TREE 各占一行、
-│   goal,usage,skill,          各自可独立摘除）：**二十八行** = runview（S3
-│   system,timer,shell,        首例改名）+ 六域（todo/jobs/workspace/
-│   fs,web,browser,            singles/group/agents）+ **四+一域行**
-│   subagent,search-pool,      （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
-│   llm-pool,plugin-registry,  usage 用量面板 / skill 技能读面 / system
-│   theme,renderer,tool,       版本弹窗+系统小 API / timer 定时视图）+
-│   sidebar,conversation,      **五工具卡行**（M28 P2 §2.2 镜像表：
-│   settings,layout,          shell/fs/web/browser/subagent——tool 宿主
-│   onboarding}/               退化零卡；subagent 行兼营**子 Agent 会话
+│   goal,usage,skill,          各自可独立摘除）：**三十二行**（cr-481 点数：
+│   system,timer,shell,        yml/TREE 双表在册——run-code/run-nodes/remote/
+│   fs,web,browser,            desktop-storage 成行后未随记）= runview（S3
+│   subagent,search-pool,      首例改名）+ 六域（todo/jobs/workspace/
+│   llm-pool,plugin-registry,  singles/group/agents）+ **四+一域行**
+│   theme,renderer,tool,       （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
+│   sidebar,conversation,      usage 用量面板 / skill 技能读面 / system
+│   settings,layout,           版本弹窗+系统小 API / timer 定时视图）+
+│   onboarding,desktop-       **五工具卡行**（M28 P2 §2.2 镜像表：
+│   storage,remote,run-code,  shell/fs/web/browser/subagent——tool 宿主
+│   run-nodes}+                退化零卡；subagent 行兼营**子 Agent 会话
 │                              只读视角**〔main:perspective 贡献 order 9，
 │                              运行跟踪面板点击进入——历史回放复用
 │                              conversation 渲染内核，session-view-plan〕）
@@ -770,6 +772,10 @@ src/
 │                              llm 单节〕+ search-pool 搜索引擎池〔2026-09-11
 │                              拆行〕+ plugin-registry 插件库四件——
 │                              settings 壳经 settings:section 选举席消费）+
+│                              **桌面存储行**（2026-09-16 数据根可配置 P2：
+│                              desktop-storage 存储管理节——壳层存储桥
+│                              消费 + 目录选择 + 迁移编排 UI，非桌面形态
+│                              自探降级隐藏；壳层桥回归住 desktop/tests）+
 │                              **基础七件**（M27.2-2 出包，phase:'base'
 │                              封印前批次：theme 主题 / renderer 渲染
 │                              地基+markdown 管线 / tool 工具卡 / sidebar

@@ -1,6 +1,7 @@
 // ============================================================
-// ac-client-ui-desktop-storage/tests/desktop-update.test.ts
+// desktop/tests/desktop-update.test.ts
 // —— 桌面壳更新面回归（静默预下载 + sha256/size 双校验 + 桥路由）
+//（cr-481 自 ac-client-ui-desktop-storage/tests 归位壳域——被测面即 desktop/main.mjs）
 //
 // 需求背景（2026-09-24 用户裁决：不做静默安装；静默预下载免打扰）：
 //   · 壳层发现新版即后台下载安装包（哈希/大小双校验），完成不提醒；

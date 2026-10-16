@@ -1,6 +1,8 @@
 // ============================================================
-// ac-client-ui-desktop-storage/tests/desktop-bridge.test.ts
+// desktop/tests/desktop-bridge.test.ts
 // —— 桥端口防御链回归（P0/P1：listen EACCES 不炸壳 + 候选序列顺延）
+//（cr-481 自 ac-client-ui-desktop-storage/tests 归位壳域——被测面即
+// desktop/main.mjs，壳域测试与被测物同住；vitest 根发现面覆盖 desktop/tests）
 //
 // 背景（2026-09-21 桌面端用户事故）：桥 listen 3831 报 EACCES（Windows
 // Hyper-V/WinNAT 动态排除区可覆盖任意高位口），原实现两重失效——

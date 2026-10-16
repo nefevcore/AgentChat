@@ -138,7 +138,7 @@ function killBackendTree() {
 
 **建议 1 + 2 + 3 一起做**才算闭环：1 覆盖「桌面壳退出」、2 覆盖「后端自身退出」、3 覆盖「前两者都没救到」并给出跨重启的兜底与留痕。
 
-> **落地记录（cr-382，2026-10-13）**：建议 1 → `desktop/main.mjs` killBackendTree 无条件树杀 + reap 日志；建议 2/4 → `ac-shell-tools/src/executor.ts` 子进程台账 + `process.on('exit')` 同步补刀 + kill 未确认泄漏告警；建议 3 → `ac-app/src/orphans.ts`（boot.ts / bootstrap.ts 两形态锁后接线，`AGENTCHAT_ORPHAN_REAP=off` 关闭）；工具面收窄 → pwsh 工具描述劝阻 `-Recurse` 管道过滤。回归测试：`ac-app/tests/orphans.test.ts`、`ac-shell-tools/tests/shell-ledger.integration.test.ts`、`ac-client-ui-desktop-storage/tests/desktop-kill-tree.test.ts`。
+> **落地记录（cr-382，2026-10-13）**：建议 1 → `desktop/main.mjs` killBackendTree 无条件树杀 + reap 日志；建议 2/4 → `ac-shell-tools/src/executor.ts` 子进程台账 + `process.on('exit')` 同步补刀 + kill 未确认泄漏告警；建议 3 → `ac-app/src/orphans.ts`（boot.ts / bootstrap.ts 两形态锁后接线，`AGENTCHAT_ORPHAN_REAP=off` 关闭）；工具面收窄 → pwsh 工具描述劝阻 `-Recurse` 管道过滤。回归测试：`ac-app/tests/orphans.test.ts`、`ac-shell-tools/tests/shell-ledger.integration.test.ts`、`desktop/tests/desktop-kill-tree.test.ts`（cr-481 归位壳域）。
 
 同时建议**顺手收窄工具面**：在 `ac-system-prompt` / 工具描述里明确「枚举文件优先用 `glob`/`grep` 工具，不要在 shell 里 `Get-ChildItem -Recurse` 后管道过滤」，从源头减少准死循环命令（本次 8 个孤儿有 6 个是这类命令）。
 

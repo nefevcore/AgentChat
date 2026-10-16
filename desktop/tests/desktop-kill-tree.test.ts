@@ -1,5 +1,6 @@
 // ============================================================
-// desktop killBackendTree 回归（cr-382 孤儿进程复盘建议 1）
+// desktop/tests/desktop-kill-tree.test.ts
+// desktop killBackendTree 回归（cr-382 孤儿进程复盘建议 1；cr-481 归位壳域）
 //
 // postmortem §3B：旧实现「backend.kill() 后 3s 内退出即不再补刀」在最
 // 常见的优雅退出路径上跳过 taskkill /T——shell 孙进程原地成孤儿。本

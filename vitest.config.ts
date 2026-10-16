@@ -13,8 +13,10 @@ import { fileURLToPath, URL } from 'node:url';
 //     / 未设（全量，等价改造前行为）。由 scripts/run-tests.mjs 编排。
 // ============================================================
 const PROFILE = process.env.VITEST_PROFILE ?? 'all'; // 'all' = 不加 include/exclude 过滤
-const ALL_TESTS = 'src/**/tests/**/*.test.ts';
-const INTEGRATION_TESTS = 'src/**/tests/**/*.integration.test.ts';
+// desktop/tests = 桌面壳域测试（main.mjs 桥/更新/树杀回归，cr-481 自
+// ac-client-ui-desktop-storage/tests 归位——被测面在 desktop/，与被测物同住）
+const ALL_TESTS = ['src/**/tests/**/*.test.ts', 'desktop/tests/**/*.test.ts'];
+const INTEGRATION_TESTS = ['src/**/tests/**/*.integration.test.ts', 'desktop/tests/**/*.integration.test.ts'];
 
 export default defineConfig({
   plugins: [
@@ -41,11 +43,11 @@ export default defineConfig({
   },
   test: {
     // unit 档只排集成文件；integration 档只排集成文件；all 档两者皆含
-    include: PROFILE === 'integration' ? [INTEGRATION_TESTS] : [ALL_TESTS],
+    include: PROFILE === 'integration' ? INTEGRATION_TESTS : ALL_TESTS,
     exclude: [
       '**/node_modules/**',
       '**/.git/**',
-      ...(PROFILE === 'unit' ? [INTEGRATION_TESTS] : []),
+      ...(PROFILE === 'unit' ? INTEGRATION_TESTS : []),
     ],
     environment: 'node',
     // 仓库根锚点（env 序列化进各 worker——jsdom 等浏览器环境下 setup 文件
