@@ -64,7 +64,10 @@ const skipConfirmVisible = ref(false);
 const skipConfirmedOnce = ref(false);
 
 function requestSkip(): void {
-  if (shouldConfirmSkip(Math.max(llmCount.value, 0), skipConfirmedOnce.value)) {
+  // llmCount 原值直传：-1 = 探测失败按「未确认过也不拦」静默降级（与
+  // shouldConfirmSkip 契约一致——cr-479 前的 Math.max(·,0) 把 -1 钳成 0，
+  // 探测失败时误弹「回去配置」确认框，RPC 失败静默降级从未生效）
+  if (shouldConfirmSkip(llmCount.value, skipConfirmedOnce.value)) {
     skipConfirmVisible.value = true;
     return;
   }
@@ -84,14 +87,13 @@ function cancelSkip(): void {
 
 /** 走完/跳过：写标记 + 关闭 */
 function finish(): void {
-  if (typeof window !== 'undefined') writeMark(window.localStorage);
+  writeMark(window.localStorage);
   open.value = false;
   skipConfirmVisible.value = false;
 }
 
 // ── 首启触发：boot 就绪后弹（§3.3——避免与 splash 抢首帧）──
 function maybeAutoOpen(): void {
-  if (typeof window === 'undefined') return;
   if (readMark(window.localStorage)) return;
   open.value = true;
   stepIndex.value = 0;
@@ -109,8 +111,8 @@ onMounted(() => {
   window.addEventListener('agentchat:boot-ready', maybeAutoOpen, { once: true });
 });
 
-// ── 重播入口（更多菜单经事件总线打开——批 4 席位化前的轻量通道）──
-const { offBus } = useOnboardingBus(() => {
+// ── 重播入口（更多菜单「新手引导」经模块级事件面打开——onboardingBus）──
+useOnboardingBus(() => {
   stepIndex.value = 0; // 重播重置到第 1 步
   done.value = new Set();
   skipConfirmedOnce.value = false;
@@ -173,7 +175,7 @@ const currentComponent = computed<Component>(() => STEP_COMPONENTS[stepId.value]
             </div>
             <p class="ob-lead">{{ STEP_META[stepId].lead }}</p>
             <div class="ob-body">
-              <component :is="currentComponent" :key="stepId" :llm-count="llmCount" @done="markDone(stepId)" @llm-saved="onLlmSaved" @search-saved="markDone('search')" @agent-created="markDone('agent')" />
+              <component :is="currentComponent" :key="stepId" @done="markDone(stepId)" @llm-saved="onLlmSaved" @search-saved="markDone('search')" @agent-created="markDone('agent')" />
             </div>
             <div class="ob-foot">
               <span class="ob-progress" :title="`${progress}%`"><span class="ob-progress-fill" :style="{ width: progress + '%' }" /></span>

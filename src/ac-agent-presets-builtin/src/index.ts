@@ -141,6 +141,10 @@ const CREATOR: AgentPresetDefinition = {
   },
 };
 
+/** 标准模式能力标签集（首启向导第 4 步默认勾选的镜像源——parity 锁定于
+ *  ac-client-ui-onboarding/tests；改词即红，防双处走散） */
+export const STANDARD_TAGS = STANDARD.agent.tags;
+
 export const name = 'ac-agent-presets-builtin';
 
 // ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──

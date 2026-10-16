@@ -1518,9 +1518,6 @@ importers:
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
-      ac-client-ui-workspace:
-        specifier: workspace:*
-        version: link:../ac-client-ui-workspace
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1723,6 +1720,9 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      ac-agent-presets-builtin:
+        specifier: workspace:*
+        version: link:../ac-agent-presets-builtin
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core

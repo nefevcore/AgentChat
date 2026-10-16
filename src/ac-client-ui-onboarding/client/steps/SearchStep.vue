@@ -16,8 +16,6 @@ import SearchEntryForm from 'ac-client-ui-search-pool/client/SearchEntryForm.vue
 
 const emit = defineEmits<{ (e: 'search-saved'): void }>();
 
-defineProps<{ llmCount?: number }>();
-
 const pools = ref<Record<string, PoolEntry>>({});
 const schemas = ref<Record<string, any[]>>({});
 const poolsLoaded = ref(false);

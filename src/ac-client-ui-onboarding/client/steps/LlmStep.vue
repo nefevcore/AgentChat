@@ -18,8 +18,6 @@ import PoolEntryForm from 'ac-client-ui-llm-pool/client/PoolEntryForm.vue';
 
 const emit = defineEmits<{ (e: 'llm-saved'): void }>();
 
-defineProps<{ llmCount?: number }>();
-
 // ── 池加载（cr-21 守门判据）──
 const pools = ref<Record<string, PoolEntry>>({});
 const poolsLoaded = ref(false);
@@ -49,11 +47,12 @@ async function onFormSave(name: string, entry: Record<string, any>): Promise<voi
     const pool = { ...pools.value };
     // 池中无条目时，首个自动设为默认（引导场景常态）
     const existingKeys = Object.keys(pool).filter(k => !k.startsWith('$'));
-    if (existingKeys.length === 0) entry.default = true;
+    const isFirst = existingKeys.length === 0;
+    if (isFirst) entry.default = true;
     pool[name] = entry as PoolEntry;
     await saveLlmPoolDomain(pool, defaultRpc);
     pools.value = pool;
-    feedback.value = { tone: 'ok', text: '已保存并设为默认连接' };
+    feedback.value = { tone: 'ok', text: isFirst ? '已保存并设为默认连接' : '已保存' };
     emit('llm-saved');
   } catch (err) {
     feedback.value = { tone: 'error', text: `保存失败：${(err as Error).message}` };

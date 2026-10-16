@@ -58,6 +58,10 @@ export const STEP_META: Record<OnboardingStepId, { title: string; sub: string; l
   tour: { title: '界面导览', sub: '开始使用', lead: '一张地图讲清整个界面——之后随时可以在「更多」菜单重播本引导。' },
 };
 
+// ── 第 4 步默认能力标签（R7 定稿：镜像 __standard__ 预设——ac-agent-presets-builtin
+//    STANDARD_TAGS；parity 锁定见 tests/onboarding.test.ts，后端改词 → CI 即红）──
+export const DEFAULT_TAGS = ['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report'];
+
 /** 跳过确认判定（§3.4）：无任何 llm 连接时才拦；确认过（或已配）不再拦 */
 export function shouldConfirmSkip(llmPoolCount: number, confirmedOnce: boolean): boolean {
   return llmPoolCount === 0 && !confirmedOnce;

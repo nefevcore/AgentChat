@@ -24,9 +24,8 @@ export function openOnboarding(): void {
 
 import { onBeforeUnmount } from 'vue';
 
-/** 组合式包装：挂载期注册 + 卸载期注销 */
-export function useOnboardingBus(onOpen: OpenListener): { offBus: () => void } {
+/** 组合式包装：挂载期注册 + 卸载期注销（onBeforeUnmount 自动注销） */
+export function useOnboardingBus(onOpen: OpenListener): void {
   const off = onOpenOnboarding(onOpen);
   onBeforeUnmount(off);
-  return { offBus: off };
 }

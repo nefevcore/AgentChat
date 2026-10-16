@@ -17,13 +17,9 @@ import { Button, FeedbackNotice, Input, Select, Textarea } from '@agentchat/webu
 import { loadPoolModelCache } from 'ac-client-ui-agents/client/poolModelCache.ts';
 import { createAgent } from 'ac-client-ui-agents/client/index.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import { DEFAULT_TAGS } from '../onboardingState.ts';
 
 const emit = defineEmits<{ (e: 'agent-created'): void }>();
-
-defineProps<{ llmCount?: number }>();
-
-/** 出厂标准档最小可用集（R7 定稿：与 __standard__ 预设对齐——ac-agent-presets-builtin） */
-const DEFAULT_TAGS = ['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report'];
 
 const TAG_OPTIONS: Array<{ tag: string; label: string; hint: string }> = [
   { tag: 'fs', label: 'fs', hint: '文件读写' },

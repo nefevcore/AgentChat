@@ -16,9 +16,6 @@ import { openOnboarding } from './onboardingBus.ts';
 // 向导壳（异步：node 环境消费本模块不求值 .vue 视图链）
 const WizardOverlayAsync = defineAsyncComponent(() => import('./WizardOverlay.vue'));
 
-// 重播通道再导出（菜单项消费面）
-export { openOnboarding } from './onboardingBus.ts';
-
 /** 首启向导 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const onboardingClientPlugin = clientPlugin({
   name: 'ac-client-ui-onboarding.client',

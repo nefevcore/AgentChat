@@ -20,9 +20,6 @@ const emit = defineEmits<{ (e: 'done'): void }>();
 const clientCtx = useClientContext();
 const roster = clientCtx?.roster;
 
-const props = defineProps<{ llmCount?: number }>();
-void props;
-
 // ── 昵称 ──
 const name = ref('');
 const loading = ref(true);
@@ -112,14 +109,15 @@ async function save(): Promise<void> {
       <div class="pf-row">
         <!-- 头像：上传 / 移除（Avatar 三级回退；无头像首字占位） -->
         <div class="pf-avatar-block">
+          <!-- cr-480：file input 须嵌 label 内（无 for 关联——label 外即点击不唤起） -->
           <label class="pf-avatar-uploader" :title="avatarUploading ? '上传中…' : '点击更换头像'">
             <Avatar :src="avatarPreview || undefined" :name="name || '我'" :size="72" />
             <span v-if="avatarUploading" class="pf-avatar-loading">上传中…</span>
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden @change="onAvatarFile" />
           </label>
           <button v-if="hasAvatar" type="button" class="pf-avatar-remove" @click="removeAvatar">
             <Icon name="x" :size="11" /> 移除头像
           </button>
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden @change="onAvatarFile" />
         </div>
         <div class="pf-fields">
           <div class="pf-field">

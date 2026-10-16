@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-477**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-480**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -495,3 +495,6 @@
 - 【cr-475 2026-10-16 ac-client-ui-llm-pool 深审（audit #128）：留——修 UI 死状态 2（PoolManager/LlmPoolsHost error 赋值后模板零渲染，cr-21/cr-310 反馈链断裂）；精简——visibleModelNames 死词删、draftProtocol 死计算属性删、detailOf void name 收口、白名单 ruling 词汇漂移订正】
 - 【cr-476 2026-10-16 webui 表面单包化定向：src/webui 与骨架六包并入 ac-webui（src/ 服务 + client/ 前端），ac-webui-extensions 消融；〈骨架归并〉双址残余收口】
 - 【cr-477 2026-10-16 ac-client-ui-search-pool 深审（#129 审计）：包健康留，修三缺陷——①SearchPoolsHost error ref 模板零渲染口（cr-475 同款孪生 bug）toastError 归位；②SearchEntryForm effectiveSchemas 对 schema 缺席 provider（2026-09-08 收敛摘三家后存量异 provider 条目）undefined.length 崩溃修复；③删除条目不清理 searchpool:<名> 侧信道凭据——llm/pool-credential 加 domain 参数（缺省 llm 向后兼容）+ removeEntry 确认弹窗/清理调用/失败 toast 对齐 llm 侧形态 + 注释漂移订正】
+- 【cr-478 2026-10-16 ui 树定调：新增 explore/ui-tree.md（三树同构 / 骨架=协议持有者判据 / 模块 manifest 三树投影 / 自定义阶梯与版本切换）+ 〈工作区语境〉（工作区=第三输入源，per-conversation 不进指纹）+ workspace 七面核查收口（③⑤⑥ 重组 ac-files 模块，② 纯库化）+ 骨架解构 3+4 重判 （conversation/settings/tool 转模块、renderer 剥 markdown 管线、theme 契约化、 layout 拓扑/形态壳分层）；行集清单同步】
+- 【cr-479 2026-10-16 ac-client-ui-onboarding 深审收口：修 requestSkip 钳掉 -1 哨兵致探测失败误弹确认（与 shouldConfirmSkip 契约矛盾）；LlmStep 保存文案按首条条件化；DEFAULT_TAGS 镜像 __standard__ 预设交叉锁定（builtin 导出 STANDARD + parity 测试）；死代码四清（llm-count 死 prop 链/openOnboarding 死再导出/offBus 死返回面/恒真 window 守卫）+ 注释订正两处】
+- 【cr-480 2026-10-16 ProfileStep 头像输入框在 label 外——label 无 for 关联点击头像不唤起文件选择器（AgentPane 先例嵌内），嵌回 + DOM 结构锁定测试】
