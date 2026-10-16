@@ -25,10 +25,12 @@ function rpcStub() {
     open() { for (const h of [...openHooks]) h(); },
     call: async (_method: string, params?: unknown) => {
       calls.push(params as Record<string, unknown> | undefined);
-      return {
-        digest: 'd1', unchanged: false,
-        snapshot: { generatedAt: '', running: [], pairs: [], groups: [], runningTotal: 0 },
-      };
+      // runs/snapshot 桩：完整载荷形（conversations/running/groups 顶层——
+      // 后端 RPC 无 snapshot 包裹层；agents/list 同桩应答）
+      if (_method === 'runs/snapshot') {
+        return { digest: 'd1', unchanged: false, conversations: [], running: [], groups: [] };
+      }
+      return { agents: [] };
     },
     calls,
   };

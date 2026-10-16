@@ -3,7 +3,7 @@
 // 布局对齐会话列表（SessionList）的工作区树形态，自上而下：
 //   1. 标题栏（文本「运行跟踪」）+ 移动端关闭
 //   2. 矩阵快照（树内叶节点入口，点击打开/关闭主区矩阵快照；纯快照展示，
-//      无运行数徽标——运行态常驻入口 = 活动栏按钮徽章 + 「运行中」节点）
+//      无运行数徽标——运行态常驻入口 = 辅助活动栏徽章 + 「运行中」节点）
 //   3. 运行中（树节点）→ 运行中会话叶节点（点击进入对应会话 = 主区由侧边栏
 //      选择驱动；viewer 参与的 1v1 → 直答聊天，Agent↔Agent/自会话 → pair
 //      只读视角——矩阵格子同款入口，运行中流式实时可见）
@@ -31,7 +31,7 @@ import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import { starColor } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
-import { interruptRun, sourceLabel } from './index.ts';
+import { interruptRun } from './index.ts';
 import type { RunsRunningEntry } from './index.ts';
 // ctx.subagentBoard 类型身份（声明合并 type-only——运行时零依赖；本面板
 // 子Agent 区数据源，2026-09-22 持久化清单主源化）
@@ -326,7 +326,7 @@ onMounted(() => {
            叶行非分组节点 → 无展开 chevron/x。纯快照展示——无运行数徽标
            （运行态常驻入口 = 辅助活动栏按钮徽章 + 面板「运行中」节点） -->
       <div class="tree-leaf overview-leaf ui-row" :class="{ 'is-selected': ui.trackingViewVisible }"
-        :title="`矩阵快照：会话对 ${coverage?.pairSessions ?? 0} · 群 ${coverage?.groupSessions ?? 0} · 矩阵外独立 ${coverage?.singleSessions ?? 0}（点击${ui.trackingViewVisible ? '关闭' : '打开'}）`"
+        :title="`矩阵快照：会话对 ${coverage?.pairSessions ?? 0} · 运行中 ${coverage?.runningTotal ?? 0}（点击${ui.trackingViewVisible ? '关闭' : '打开'}）`"
         @click="toggleMatrix">
         <span class="node-icon kind-overview"><Icon name="grid-3x3" :size="14" /></span>
         <span class="leaf-name">矩阵快照</span>
@@ -426,9 +426,6 @@ onMounted(() => {
 /* 1. 标题栏（对齐 SessionList 的 ws-toolbar 形态） */
 .panel-toolbar{display:flex;align-items:center;gap:6px;padding:10px 14px 6px;flex-shrink:0}
 .toolbar-label{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--text-3);user-select:none}
-.toolbar-actions{margin-left:auto;display:flex;align-items:center;gap:2px}
-.mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--text-2);padding:4px;border-radius:var(--radius-sm);line-height:0}
-.mobile-close-btn:hover{background:var(--bg-hover);color:var(--text-1)}
 .load-error{padding:4px 12px 6px;font-size:11px;color:var(--err);flex-shrink:0}
 
 /* 树滚动区（对齐 SessionList 的 tree-scroll） */
@@ -458,7 +455,6 @@ onMounted(() => {
 .node-children .tree-leaf{height:30px;padding:0 8px 0 28px;margin-bottom:var(--space-xs);gap:8px;cursor:default}
 .node-children .tree-leaf.jumpable{cursor:pointer}
 .leaf-icon{display:flex;align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0}
-.leaf-icon.dim{color:var(--text-3)}
 .leaf-name{flex:1;min-width:0;font-size:13px;font-weight:500;line-height:20px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .leaf-avatar{position:relative;flex-shrink:0}
 .leaf-dur{font-size:11px;font-weight:600;color:var(--text-1);font-variant-numeric:tabular-nums;flex-shrink:0}

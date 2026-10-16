@@ -1,8 +1,8 @@
 // AgentChat — 矩阵快照（主区视图：由侧边栏「运行」面板的「矩阵快照」入口打开）
 //
 // 头部：标题（文本）+ 日期范围筛选 + 快照时间。矩阵：
-//   · 轴集合 = Agent 清单 ∪ user（群/system 不入轴——2026-09-21 收窄：快照
-//     无法覆盖群参与证据与 system 触发，两轴只含真实会话端点）；轴标签用头像；
+//   · 轴集合 = Agent 清单 ∪ user（2026-09-21 收窄——两轴只含真实会话端点）；
+//     轴标签用头像；
 //   · 会话无方向 → 下三角 + 对角线为主（上三角有会话数据同样可交互）；自会话落对角线；
 //   · 着色 = 选中日期范围内的消息量做对数归一化浓度（直观看出范围内 Agent 间活跃程度）；
 //     运行态展示已退役（2026-09-18 简化）：矩阵只认落盘快照——正在发生的
@@ -79,15 +79,13 @@ function windowValue(s: { messageCount: number; windows?: WindowCounts }): numbe
  */
 const RANGE_CAP: Record<RangeId, number> = { h1: 30, d1: 100, d3: 300, d7: 600, d30: 1500, all: 3000 };
 
-const KIND_RANK: Record<RunsMember['kind'], number> = { agent: 0, virtual: 1, group: 3, system: 4, unknown: 5, preset: 2 };
+// 轴序：agent 前、user(virtual) 殿后（投影管线只产此二形态）
+const KIND_RANK: Record<RunsMember['kind'], number> = { agent: 0, virtual: 1 };
 
-/** 轴成员：预设不占轴（其会话为 single~，矩阵外）；群/system 不入轴
- *  （2026-09-21 收窄——快照无群参与证据/system 对桶供数，入轴只有空行列）。
- *  按类别分组 + 组内 AgentID 字典序（与目录扫描/名册返回序无关——
- *  两轴同源同序，行列对角线稳定） */
+/** 轴成员：按类别分组 + 组内 AgentID 字典序（与目录扫描/名册返回序
+ *  无关——两轴同源同序，行列对角线稳定） */
 const axis = computed<RunsMember[]>(() =>
   [...(snapshot.value?.members ?? [])]
-    .filter(m => m.kind !== 'preset' && m.kind !== 'group' && m.kind !== 'system')
     .sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.id.localeCompare(b.id, undefined, { numeric: true })));
 
 const memberById = computed(() => new Map((snapshot.value?.members ?? []).map(m => [m.id, m])));
@@ -172,13 +170,9 @@ const thresholdLabel = computed(() => {
   return `≤${th.t1} · ${th.t1 + 1}–${th.t2} · ${th.t2 + 1}–${th.t3} · ${th.t3 + 1}–${th.t4} · ${th.t4 + 1}+`;
 });
 
-// ── 轴头像 ──
+// ── 轴头像（投影管线只产 agent/virtual——两类都有名册头像通道）──
 function memberAvatar(m: RunsMember): string | null {
-  if (m.kind === 'agent' || m.kind === 'virtual') return roster.getAgentAvatar(m.id);
-  return null;
-}
-function headIcon(m: RunsMember): string {
-  return 'alert-circle'; // unknown 端点兜底图标（轴已收窄，群/system 不入轴）
+  return roster.getAgentAvatar(m.id);
 }
 
 // ── hover 十字高亮 + tooltip ──
@@ -341,13 +335,13 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
               :title="`${m.name}（${m.id}）`"
             >
               <Avatar v-if="memberAvatar(m)" :src="memberAvatar(m)" :name="m.name" :size="30" />
-              <span v-else class="head-ic" :class="'kind-' + m.kind"><Icon :name="headIcon(m)" :size="16" /></span>
+              <span v-else class="head-ic" :class="'kind-' + m.kind"><Icon name="alert-circle" :size="16" /></span>
             </div>
             <!-- 行头（头像 + 名称，sticky 左）+ 格子（有会话即可交互，上/下三角均可点击） -->
             <template v-for="mr in matrixRows" :key="'r-' + mr.row.id">
               <div class="row-head" :class="{ hl: headActive('row', mr.i) }" :title="`${mr.row.name}（${mr.row.id}）`">
                 <Avatar v-if="memberAvatar(mr.row)" :src="memberAvatar(mr.row)" :name="mr.row.name" :size="26" />
-                <span v-else class="head-ic" :class="'kind-' + mr.row.kind"><Icon :name="headIcon(mr.row)" :size="15" /></span>
+                <span v-else class="head-ic" :class="'kind-' + mr.row.kind"><Icon name="alert-circle" :size="15" /></span>
                 <span class="row-head-name">{{ mr.row.name }}</span>
               </div>
               <div
@@ -375,9 +369,6 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
           <div v-if="coverageOpen" class="coverage">
             <div v-if="coverage" class="coverage-body">
               <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个。轴集合 = Agent 清单 ∪ user（2026-09-21 收窄：群聊与 system 不入矩阵——快照管线无群参与证据供数，群×Agent 格无从点亮；system 无对桶会话。群聊活动看 Agent 列表与运行面板）。</p>
-              <p v-if="coverage.singleSessions > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />矩阵之外：独立会话（single~）{{ coverage.singleSessions }} 个 —— 它们没有两两端点（用户 ↔ 会话引用的 Agent，上下文按会话隔离），结构上无法落入两两格子；其中 {{ coverage.runningSingles }} 个正在运行，请看「运行中会话」。</p>
-              <p v-else>独立会话（single~）：0 个 —— 当前全部会话均已入矩阵。</p>
-              <p v-if="coverage.unknownMembers.length > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />残留端点：{{ coverage.unknownMembers.join('、') }} —— 出现在会话键但已无对应 Agent/群组（已删除等），以「未知端点」入轴保留数据。</p>
             </div>
           </div>
         </div>
@@ -390,10 +381,10 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
         <div class="tip-head">
           <div class="tip-avatars">
             <Avatar v-if="memberAvatar(tip.mr.row)" :src="memberAvatar(tip.mr.row)" :name="tip.mr.row.name" :size="22" />
-            <span v-else class="tip-ic"><Icon :name="headIcon(tip.mr.row)" :size="12" /></span>
+            <span v-else class="tip-ic"><Icon name="alert-circle" :size="12" /></span>
             <span class="tip-x"><Icon name="x" :size="9" /></span>
             <Avatar v-if="memberAvatar(tip.v.col)" :src="memberAvatar(tip.v.col)" :name="tip.v.col.name" :size="22" />
-            <span v-else class="tip-ic"><Icon :name="headIcon(tip.v.col)" :size="12" /></span>
+            <span v-else class="tip-ic"><Icon name="alert-circle" :size="12" /></span>
           </div>
           <div class="tip-names">
             <span class="tip-name">{{ tip.mr.row.name }}</span>
@@ -469,8 +460,6 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 /* 墨取文字档而非状态档（cr-146 复盘）：图标坐在自身 tint 底上的构图——
    status 墨 on 自身 tint 在亮色下仅 2.6~2.8（破 1.4.11 的 3.0 线），
    文字档墨 4.6+ 且与 tint 同源 */
-.head-ic.kind-group{color:var(--ok);background:rgba(var(--ok-rgb), 0.14)}
-.head-ic.kind-system{color:var(--warn);background:rgba(var(--warn-rgb), 0.15)}
 .head-ic.kind-unknown{color:var(--text-3);background:var(--bg-inset)}
 
 /* ── 格子：方形圆角 + gap，纯颜色浓度；十字聚焦 = 底色带（不触碰格子本身）── */
@@ -524,7 +513,6 @@ const loadError = computed(() => runSvc?.loadError.value ?? '');
 @media(max-width:768px){
   .page-header{padding:0 12px;gap:8px}
   .page-title{font-size:14px}
-  .range-btn{padding:3px 8px;font-size:11px}
   .matrix-wrap{padding:12px}
 }
 </style>

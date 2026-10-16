@@ -145,7 +145,7 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
         { convKey: 'chat~a~b', kind: 'chat', agentId: 'a', startedAt: 1 },
         { convKey: 'single~s1', kind: 'single', agentId: 'x', startedAt: 2 },
       ],
-      coverage: { matrixSessions: 0, pairSessions: 0, groupSessions: 0, singleSessions: 0, runningTotal: 2, runningSingles: 0, unknownMembers: [] },
+      coverage: { pairSessions: 0, runningTotal: 2 },
     };
     expect(def.rail!.badge!()).toBe(2);
     await fiber.dispose();

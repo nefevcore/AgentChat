@@ -226,12 +226,6 @@ export const useUiStore = defineStore('ui', () => {
     trackingViewVisible.value = true;
     pushMainIfNarrow(); // 窄屏：覆盖层也是 push 页（返回键可退）
   }
-  /** 运行跟踪 aux 选区入口（A5：活动栏 tracking 按钮宽屏直达侧栏——
-   *  通用意图 panel='tracking'；RunTrackingSidebarHost 消费展开） */
-  function auxOpenTracking() {
-    if (!isNarrow()) sendAuxIntent('tracking');
-    else openPrimaryPanel('tracking'); // 窄屏兜底（抽屉面板页）
-  }
   /** 定时任务 aux 选区入口（/timer 快捷命令等——settings sys.timer 节
    *  已撤，本动作是唯一全局任务入口；TimersPanelHost 消费展开） */
   function openTimers() {
@@ -478,7 +472,7 @@ export const useUiStore = defineStore('ui', () => {
     previewFilePath,
     previewIntentFallback, previewIntentConversationId,
     // 动作（togglePrimary/closePairView 无独立外部入口，不入导出面——cr-332）
-    isNarrow, openPrimaryPanel, openTrackingView, closeTrackingView, auxOpenTracking, openTimers,
+    isNarrow, openPrimaryPanel, openTrackingView, closeTrackingView, openTimers,
     openPairView, openSubagentView, closeSubagentView, exitOverlays,
     toggleAux, openAux, selectAuxPanel,
     openAgentSettings, openGlobalSettings, closeSettings,

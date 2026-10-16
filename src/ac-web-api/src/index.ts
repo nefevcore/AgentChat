@@ -1348,7 +1348,7 @@ export function apply(ctx: Context) {
   // 运行中（conversation/stats）+ 群组面 + 用量汇总。纯读——不写任何域数据。
   // last = 每会话尾部一条摘要（Port B P4 名册 lastActivity/lastMessage 合成源）。
   //
-  // digest 短路（性能）：前端 3s 轮询，绝大多数轮次内容无变化——完整载荷
+  // digest 短路（性能）：前端事件驱动 + 60s 兜底轮询（running 时 6s），绝大多数轮次内容无变化——完整载荷
   // 几十 KB 的序列化 + 传输 + 前端投影重算都是纯浪费。请求带上一轮 digest
   // 且当前推导的 digest 相同 → 返回 { unchanged: true, digest, generatedAt }
   // 轻载荷（前端保留引用零渲染）。digest 由「数据指纹」（会话 id 集 + 各

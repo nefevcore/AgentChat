@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-469**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-472**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -487,3 +487,6 @@
 - 【cr-467 2026-10-15 ac-client-ui-browser 深审收口（审计 #123）——删/拆双否：M28 P2 §2.2 镜像表 browser 行，消费面活跃（TREE/yml 双表/webui 装配/clients-tool-cards/README 758/763/ui-rows-and-slots L54）。死词三清（cr-366 后端 v0.8.15 删 content/html 退役别名的前端残留——ACTION_META 词条/singleType 分支/stepSummary·stepDetail·hasDetail 三函数分支/html_length computed/eval-html 模板段六处）：content/html 动作不可再生，收到即落 default 兜底。修死路一：loadScreenshot j.error 分支（jsonFetch 非 ok 全走 throw，分支恒不可达）收敛 else 兜底。CRLF→LF（cr-337 家族，3 文件）。补渲染测试 clients-tool-cards-browser（卡组件此前零渲染测试，cr-464/465 先例：批量 tab 徽记/失败步骤、单动作 page/截图/elements/logs/tabs、单动作失败回落——修复前误显完成徽章）】
 - 【cr-468 2026-10-15 ac-client-ui-subagent 深审精简：board.ts 死插件 subagentBoardPlugin + SubagentBoardOptions 死配置面删除；卡 loading 自建 spinner→BusyRing（cr-129 R2 漏网）；六处内联 SVG→kit Icon 归一；send 卡折叠态复用 await 侧词汇；package 描述补 board 域投影面】
 - 【cr-469 2026-10-16 ac-client-ui-run-code 深审收口（审计 #125）：死类 is-error 与死 prop toolName 清理、复制按钮内联 SVG 归一 kit Icon（cr-329/332 先例）、RunSummary.frozenMs 徽章 title 消费补齐（契约字段 UI 缺口）、summary 形状具名化替 as never、头注数据面/package 描述漂移订正】
+- 【cr-470 2026-10-16 行集清单：preset-builtin 静态声明面承载待钉消解（内置模板 = 静态 Agent 配置文件集，随〈注册表解体〉收口）】
+- 【cr-471 2026-10-16 行集清单 R7-3：user 账本聚合定向形态二（终稿层独立账本 + steps 关联带出），〈webui 读投影〉三拆收口】
+- 【cr-472 2026-10-16 ac-client-ui-runview 深审（audit #126）：删双环死链 openTrackingPanel×auxOpenTracking（A5 迁移孤儿对）+ SidebarHost 死 watch；死词清理 sourceLabel/source 恒 chat 数据面/RunsSingleSession 恒空/coverage 恒 0 五字段/participants；RunsClientOptions 空壳退役；RunsMember.kind 收窄 agent|virtual；死 CSS 五处；event-refresh 桩形状修正（conversations 顶层——曾被 refresh catch 掩盖）；注释漂移订正（3s 轮询/头注/描述补 aux 贡献）】

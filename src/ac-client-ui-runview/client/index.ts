@@ -6,6 +6,9 @@
 // prod 期构建为行 client 模块块）；经 ctx.rpc 调宿主 RPC（不 import
 // webui 内部模块——行 client 半边只依赖 ac-client-runtime 契约面）。
 // 依赖一律 inject 声明（D6）：rpc + slots。
+//
+// 快照刷新主通道 = WS 事件驱动（2026-09-19 起）；兜底轮询缺省 60s
+//（running 非空时缩至 1/10），非 3s——见 RunsClientService。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, clientRuntime, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
@@ -26,17 +29,6 @@ const RunTrackingAsync = defineAsyncComponent(() => import('./RunTracking.vue'))
 const RunTrackingPanelAsync = defineAsyncComponent(() => import('./RunTrackingPanel.vue'));
 // tracking aux 选区宿主（A5：自主侧边栏第三面板迁辅助侧边栏）
 const RunTrackingSidebarHostAsync = defineAsyncComponent(() => import('./RunTrackingSidebarHost.vue'));
-
-/** 活动栏 tracking 按钮的新入口（A5）：宽屏 = aux 'tracking' 选区意图；
- *  窄屏 = 主侧边栏旧路径（抽屉形态打开 tracking 面板页）。 */
-function openTrackingPanel(): void {
-  const ui = useUiStore();
-  if (ui.isNarrow()) {
-    ui.openPrimaryPanel('tracking'); // 窄屏抽屉：面板页保留
-  } else {
-    ui.auxOpenTracking();
-  }
-}
 
 /** pair 视角状态读取（ui.pairView——防御式：pinia 未装配的求值上下文
  *  返回 null = 视角不激活，不抛错〔测试族裸 boot 场景〕） */
@@ -65,8 +57,9 @@ function trackingActive(): boolean {
 export interface RunsMember {
   id: string;
   name: string;
-  kind: 'agent' | 'virtual' | 'preset' | 'group' | 'system' | 'unknown';
-  participants?: string[];
+  // 轴收窄（2026-09-21）后 members 只产 agent/virtual 两形态（投影管线
+  // 恒此二值；presets/groups 不入轴，system/unknown 端点已无供数源）
+  kind: 'agent' | 'virtual';
 }
 
 export interface WindowCounts { h1: number; d1: number; d3: number; d7: number; d30: number }
@@ -82,32 +75,23 @@ export interface RunsPairSession {
   windows?: WindowCounts;
 }
 
-export interface RunsSingleSession {
-  key: string;
-  id: string;
-  agentId: string;
-  title?: string;
-  status?: string;
-  workspaceId?: string;
-  messageCount: number;
-  lastActivity: number;
-}
-
 export interface RunsRunningEntry {
   convKey: string;
   kind: 'chat' | 'group' | 'single';
   agentId: string;
   startedAt: number;
-  source?: { kind?: string; form?: string; summary?: string };
 }
 
 export interface RunsSnapshot {
   generatedAt: string;
   members: RunsMember[];
   pairs: RunsPairSession[];
-  singles: RunsSingleSession[];
   running: RunsRunningEntry[];
-  coverage: { matrixSessions: number; pairSessions: number; groupSessions: number; singleSessions: number; runningTotal: number; runningSingles: number; unknownMembers: string[] };
+  // 覆盖面统计（矩阵视图与面板入口 tooltip 消费）。客户端投影恒定值：
+  // groupSessions/singleSessions/runningSingles 恒 0（群不入矩阵、singles
+  // 恒空、runningSingles 无读侧）、unknownMembers 恒 []——保留 pairSessions
+  // 与 runningTotal（真实统计）。
+  coverage: { pairSessions: number; runningTotal: number };
 }
 
 // ---- 宿主 RPC 原始形状（preview 形）+ 域投影合成管线 ----
@@ -179,7 +163,6 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
       ...agentMembers,
     ],
     pairs,
-    singles: [],
     running: s.running.map((r) => {
       // 分类（M19）：群 gid → group~gid；对桶 'a~b'（含 user~agent 与
       // a~a）→ chat~<桶名>；其余（独立会话 sid）→ single~sid
@@ -192,37 +175,19 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
         : isPair
           ? `chat~${conv}`
           : `single~${conv}`;
-      return {
-        convKey,
-        kind,
-        agentId: r.agentId,
-        startedAt: r.startedAt,
-        source: { kind: 'chat' },
-      };
+      return { convKey, kind, agentId: r.agentId, startedAt: r.startedAt };
     }),
     coverage: {
-      matrixSessions: pairs.length,
-      pairSessions: pairs.length,
-      groupSessions: 0, // 群不入矩阵（2026-09-21 收窄）——恒 0，面板文案不区分
-      singleSessions: 0,
+      pairSessions: pairs.length, // 群不入矩阵（2026-09-21 收窄）——矩阵只认对桶
       runningTotal: s.running.length,
-      runningSingles: 0,
-      unknownMembers: [],
     },
   };
 }
 
-export interface RunsClientOptions {
-  /**
-   * 兜底轮询间隔（ms；缺省 60_000）。2026-09-19 事件驱动化改造：快照
-   * 刷新的主通道 = WS 事件（loop/run-started · loop/after-run ·
-   * router/message-received——run 生命周期与投递是快照内容的全部变化源）；
-   * 定时轮询降级为兜底（防 WS 断连漏帧——feed-core 同款考量；断连期间
-   * 的变化由 onOpen 重连即刷补齐）。running 非空时缩短到 1/10（运行中
-   * 面板的时长/进度显示仍需走表刷新）。
-   */
-  pollMs?: number;
-}
+// 兜底轮询间隔（ms）：事件驱动已是主通道，轮询只防 WS 断连漏帧
+//（feed-core 同款考量；断连期间的变化由 onOpen 重连即刷补齐）。
+// running 非空时缩至 1/10（运行中面板的时长/进度仍需走表刷新）。
+const POLL_MS = 60_000;
 
 export class RunsClientService extends Service {
   /** rpc 依赖声明（D6：fiber 等待 + own-fiber store 填充——构造期可安全访问） */
@@ -236,17 +201,15 @@ export class RunsClientService extends Service {
 
   /** 构造期 ctx = 本域插件 fiber（轮询定时器绑定于此——卸载即回收） */
   private readonly own: ClientContext;
-  private readonly pollMs: number;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private inFlight = false;
   /** 上一轮快照 digest（服务端短路判等；空 = 首轮/旧后端，请求不带） */
   private digest = '';
 
-  constructor(ctx: Context, options: RunsClientOptions = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'runs');
     this.own = ctx as ClientContext;
-    this.pollMs = options.pollMs ?? 60_000;
     // ---- 事件驱动刷新（2026-09-19 改造主通道）----
     // 快照内容的变化源 = run 生命周期（running/queued 面）+ 消息入站（stats/
     // last 面）。WS 帧到达即刷（去抖 500ms——多帧连发合并一次拉取；run 结束
@@ -343,7 +306,7 @@ export class RunsClientService extends Service {
       // 密度，顺延逻辑对此无假设）。
       const schedule = (): void => {
         if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-        const interval = (this.snapshot.value?.running.length ?? 0) > 0 ? Math.max(1_000, this.pollMs / 10) : this.pollMs;
+        const interval = (this.snapshot.value?.running.length ?? 0) > 0 ? Math.max(1_000, POLL_MS / 10) : POLL_MS;
         this.pollTimer = setInterval(() => {
           if (document.visibilityState === 'visible') {
             void this.refresh();
@@ -555,8 +518,8 @@ export async function interruptRun(
 /** 宿主 preview 快照载荷（完整形 / digest 短路轻载荷的联合） */
 export type PRunsSnapshotResult = PRunsSnapshot & { digest?: string; unchanged?: boolean };
 
-/** 运行跟踪快照（3s 轮询；snapshot + agents/list 双 RPC 聚合——
- *  M28 §4.2 自 webui api/runs.ts 归位：rpc 必传）。
+/** 运行跟踪快照（snapshot + agents/list 双 RPC 聚合——M28 §4.2 自
+ *  webui api/runs.ts 归位：rpc 必传）。
  *  digest 短路：带上一轮 digest 请求，后端内容未变 → { unchanged: true }
  *  轻载荷（零序列化/零传输/零投影重算），此时跳过 agents/list 直接
  *  返回 unchanged 标记（调用方保留旧快照引用，仅刷新时间戳）。
@@ -571,11 +534,3 @@ export async function fetchRuns(
   return { snapshot: toRunsSnapshot(raw, agentsR.agents ?? []), unchanged: false, digest: raw.digest };
 }
 
-/** run 来源 → 中文标签（矩阵格/清单行共用——两视图逐字同款，并源单份） */
-export function sourceLabel(r: RunsRunningEntry): string {
-  const map: Partial<Record<string, string>> = {
-    user: '用户', agent: 'Agent', system: '系统', timer: '定时',
-    group: '群聊', subagent: '子代理', continue: '续推', restart: '重启', archive: '归档',
-  };
-  return map[r.source?.kind ?? 'system'] ?? r.source?.kind ?? 'system';
-}
