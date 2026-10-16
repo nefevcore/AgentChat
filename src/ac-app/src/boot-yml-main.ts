@@ -83,7 +83,7 @@ async function main() {
   const log = ctx.logger('ac-app');
   log.info('配置驱动 boot 完成（internals=%C）', String(hasInternals));
 
-  // 1) 服务树：全部行来自 preview/cordis.yml
+  // 1) 服务树：全部行来自 src/cordis.yml
   log.info('providers = %C', ctx.llm.providers().join(', '));
   log.info('hmr = %C', ctx.get('hmr') ? 'active' : 'disabled（需 --expose-internals）');
   log.info('timer = %C', ctx.get('timer') ? 'active' : 'missing');

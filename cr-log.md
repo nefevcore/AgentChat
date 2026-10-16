@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-481**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-482**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -499,3 +499,4 @@
 - 【cr-479 2026-10-16 ac-client-ui-onboarding 深审收口：修 requestSkip 钳掉 -1 哨兵致探测失败误弹确认（与 shouldConfirmSkip 契约矛盾）；LlmStep 保存文案按首条条件化；DEFAULT_TAGS 镜像 __standard__ 预设交叉锁定（builtin 导出 STANDARD + parity 测试）；死代码四清（llm-count 死 prop 链/openOnboarding 死再导出/offBus 死返回面/恒真 window 守卫）+ 注释订正两处】
 - 【cr-480 2026-10-16 ProfileStep 头像输入框在 label 外——label 无 for 关联点击头像不唤起文件选择器（AgentPane 先例嵌内），嵌回 + DOM 结构锁定测试】
 - 【cr-481 2026-10-16 深审 #131 ac-client-ui-desktop-storage 收口：vue 显式声明 + agentchat.client 相位元数据补齐 + 壳层测试三件归位 desktop/tests + StorageHost 死 CSS + bridge 客户端降级语义补锁 + README 布局补档】
+- 【cr-482 2026-10-16 ac-app 深审（#132 收尾）：smoke step5 静默失效修复（llm-deepseek 旧行 id 残留→llm-pool）；m7-rpc-check 死脚本删除；FIXTURE_POOL 三副本并源；PREVIEW_DIR→SRC_DIR 及 preview/ 注释漂移订正；补 smoke:run-code 入口】

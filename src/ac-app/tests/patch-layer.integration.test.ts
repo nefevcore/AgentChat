@@ -13,7 +13,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
-import { bootFromConfig, PREVIEW_DIR, type BootedConfig } from '../src/ecosystem';
+import { bootFromConfig, SRC_DIR, type BootedConfig } from '../src/ecosystem';
 import type { EntryOptions } from '@agentchat/cordis-loader';
 import type { PatchOptions } from '@agentchat/cordis-include';
 import {
@@ -25,7 +25,7 @@ import {
 const booted: BootedConfig[] = [];
 const roots: string[] = [];
 const TEST_YML = 'cordis.patch-guard.test.yml';
-const REAL_YML = join(PREVIEW_DIR, 'cordis.yml');
+const REAL_YML = join(SRC_DIR, 'cordis.yml');
 
 async function realRows(): Promise<EntryOptions[]> {
   return yaml.load(await readFile(REAL_YML, 'utf8')) as EntryOptions[];
@@ -38,7 +38,7 @@ async function bootTest(patches?: PatchOptions[]) {
     ...(patches ? { patches } : {}),
   });
   booted.push(bootedConfig);
-  return { ...bootedConfig, file: join(PREVIEW_DIR, TEST_YML) };
+  return { ...bootedConfig, file: join(SRC_DIR, TEST_YML) };
 }
 
 afterEach(async () => {
@@ -46,7 +46,7 @@ afterEach(async () => {
     await includeEntry.fiber?.dispose();
     if (loaderFiber.uid !== null) await loaderFiber.dispose();
   }
-  await rm(join(PREVIEW_DIR, TEST_YML), { force: true });
+  await rm(join(SRC_DIR, TEST_YML), { force: true });
   for (const dir of roots.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
@@ -191,7 +191,7 @@ describe('F10 cordis.yml 写回守卫（出厂态永不运行时写入）', () =
     // 树操作 ①：配置热刷新（读文件重挂——patch 再叠）
     await include.refresh();
     // 树操作 ②：loader.create（vendor 每 API 末尾 tree.write()——loader 无文件应 no-op）
-    const tempModule = join(PREVIEW_DIR, 'patch-guard-widget.test.ts');
+    const tempModule = join(SRC_DIR, 'patch-guard-widget.test.ts');
     await writeFile(tempModule, 'export function apply() {}\n', 'utf8');
     const widgetUrl = new URL(`file:///${tempModule.replaceAll('\\', '/')}`).href;
     const created = ctx.loader.create({ name: widgetUrl });
@@ -208,7 +208,7 @@ describe('F10 cordis.yml 写回守卫（出厂态永不运行时写入）', () =
   });
 
   it('insert 型 patch 场景：运行时插入行不烧回 yml（下次启动不重复插行）', async () => {
-    const tempModule = join(PREVIEW_DIR, 'patch-guard-insert.test.ts');
+    const tempModule = join(SRC_DIR, 'patch-guard-insert.test.ts');
     await writeFile(tempModule, "export const name = 'ac-patch-guard-insert';\nexport function apply() {}\n", 'utf8');
     const moduleUrl = new URL(`file:///${tempModule.replaceAll('\\', '/')}`).href;
     const { ctx, file } = await bootTest([{ insert: [{ id: 'inserted-widget', name: moduleUrl }] }]);

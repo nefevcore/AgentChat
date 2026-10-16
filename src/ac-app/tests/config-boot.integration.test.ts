@@ -3,14 +3,14 @@ import { describe, it, expect, afterEach, vi, beforeAll, afterAll } from 'vitest
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
-import { bootFromConfig, PREVIEW_DIR, type BootedConfig } from '../src/ecosystem';
+import { bootFromConfig, SRC_DIR, type BootedConfig } from '../src/ecosystem';
 import type { EntryOptions } from '@agentchat/cordis-loader';
 import { makePoolFixtureDir, removePoolFixtureDir } from './fixture-pool';
 
 const booted: BootedConfig[] = [];
 const TEST_YML = 'cordis.test.yml';
 const USER_WIDGET = 'user-widget.test.ts';
-const REAL_YML = join(PREVIEW_DIR, 'cordis.yml');
+const REAL_YML = join(SRC_DIR, 'cordis.yml');
 
 // 独立三连接 fixture 根（tree/chat 同款教训，见 fixture-pool.ts 头注释）：
 // 缺省共享根 workspace/test 在 2 核 CI 上可被并行 fork 的其他 config
@@ -30,7 +30,7 @@ async function realRows(): Promise<EntryOptions[]> {
 }
 
 /**
- * 测试 boot：baseUrl = preview/（与生产同锚点 → 裸包名行同样解析），
+ * 测试 boot：baseUrl = src/（与生产同锚点 → 裸包名行同样解析），
  * 配置文件用独立测试名（不触真实 cordis.yml），initial 取自真实 yml。
  */
 /** 行表注入独立 fixture 根（config 行）——bootTest 与物化断言共用同一变换 */
@@ -49,7 +49,7 @@ async function bootTest(overrides: Partial<Parameters<typeof bootFromConfig>[0]>
     ...overrides,
   });
   booted.push(bootedConfig);
-  return { ...bootedConfig, file: join(PREVIEW_DIR, TEST_YML) };
+  return { ...bootedConfig, file: join(SRC_DIR, TEST_YML) };
 }
 
 afterEach(async () => {
@@ -58,12 +58,12 @@ afterEach(async () => {
     await includeEntry.fiber?.dispose(); // 停 include 子树（全部 yml 行）
     if (loaderFiber.uid !== null) await loaderFiber.dispose();
   }
-  await unlink(join(PREVIEW_DIR, TEST_YML)).catch(() => {});
-  await unlink(join(PREVIEW_DIR, USER_WIDGET)).catch(() => {});
+  await unlink(join(SRC_DIR, TEST_YML)).catch(() => {});
+  await unlink(join(SRC_DIR, USER_WIDGET)).catch(() => {});
 });
 
 describe('ac-app 配置驱动 boot（官方 loader 形态：裸包名行）', () => {
-  it('initial 物化落盘，全部行激活（裸包名从 preview/ 解析）', async () => {
+  it('initial 物化落盘，全部行激活（裸包名从 src/ 解析）', async () => {
     const { ctx, file } = await bootTest();
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<{ id: string; name: string }>;
     const expected = rowsWithRoot(await realRows());
@@ -171,7 +171,7 @@ describe('ac-app 配置驱动 boot（官方 loader 形态：裸包名行）', ()
       '',
     ].join('\n');
     const { ctx, file, include } = await bootTest();
-    await writeFile(join(PREVIEW_DIR, USER_WIDGET), fixture, 'utf8');
+    await writeFile(join(SRC_DIR, USER_WIDGET), fixture, 'utf8');
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
     rows.push({ id: 'user-widget', name: `./${USER_WIDGET}` });
     await writeFile(file, yaml.dump(rows), 'utf8');

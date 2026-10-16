@@ -19,7 +19,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PREVIEW_DIR = fileURLToPath(new URL('../../', import.meta.url));
+const SRC_DIR = fileURLToPath(new URL('../../', import.meta.url));
 
 /**
  * 发现全部事件声明文件：域包 src 目录下（tests 与 node_modules 除外），
@@ -31,10 +31,10 @@ const PREVIEW_DIR = fileURLToPath(new URL('../../', import.meta.url));
 function discoverEventFiles(): string[] {
   const out: string[] = [];
   const domains = fs
-    .readdirSync(PREVIEW_DIR, { withFileTypes: true })
+    .readdirSync(SRC_DIR, { withFileTypes: true })
     .filter((d) => d.isDirectory() && d.name.startsWith('ac-'));
   for (const domain of domains) {
-    const srcDir = path.join(PREVIEW_DIR, domain.name, 'src');
+    const srcDir = path.join(SRC_DIR, domain.name, 'src');
     if (!fs.existsSync(srcDir)) continue;
     const walk = (dir: string): void => {
       for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -49,7 +49,7 @@ function discoverEventFiles(): string[] {
           ) {
             out.push(
               path
-                .relative(PREVIEW_DIR, path.join(dir, ent.name))
+                .relative(SRC_DIR, path.join(dir, ent.name))
                 .split(path.sep)
                 .join('/'),
             );
@@ -75,7 +75,7 @@ interface EventDecl {
 
 /** 解析一个文件中的事件声明（JSDoc 块 + 事件名签名） */
 function parseEvents(file: string): EventDecl[] {
-  const text = fs.readFileSync(path.join(PREVIEW_DIR, file), 'utf-8');
+  const text = fs.readFileSync(path.join(SRC_DIR, file), 'utf-8');
   const out: EventDecl[] = [];
   // JSDoc 块后跟事件签名（跨行；签名以 ): 收尾）
   const re = /\/\*\*([\s\S]*?)\*\/\s*\n?\s*'([a-z][a-z0-9-]*\/[a-z][a-z0-9-]*)'\s*\(/g;

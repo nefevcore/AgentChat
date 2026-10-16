@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
 import { bootTree, TREE, type BootedTree } from '../src/index';
-import { PREVIEW_DIR } from '../src/ecosystem';
+import { SRC_DIR } from '../src/ecosystem';
 import { LlmError } from 'ac-llm';
 import { makePoolFixtureDir, removePoolFixtureDir } from './fixture-pool';
 
@@ -38,7 +38,7 @@ afterEach(async () => {
 
 describe('ac-app 组合树', () => {
   it('双表一致：TREE 行集 = cordis.yml 非 disabled 行集（防漂移守护）', async () => {
-    const ymlRows = yaml.load(await readFile(join(PREVIEW_DIR, 'cordis.yml'), 'utf8')) as Array<{
+    const ymlRows = yaml.load(await readFile(join(SRC_DIR, 'cordis.yml'), 'utf8')) as Array<{
       id: string;
       disabled?: boolean;
     }>;

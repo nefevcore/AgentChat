@@ -425,7 +425,9 @@ src/
 │ ── 组合根与进程层 ──────────────────────────────────────────────
 ├── ac-app/                  组合根：TREE/bootTree（程序化）与 ecosystem.ts/cordis.yml
 │                            （配置驱动）双路径；boot.ts = 官方启动入口；bootstrap.ts =
-│                            dist 发布入口（桌面/npm 形态，含数据迁移）
+│                            dist 发布入口（桌面/npm 形态，含数据迁移）；orphans.ts =
+│                            启动期孤儿进程对账（双 boot 路径共用）；chat.ts = REPL
+│                            真机入口；smoke*.ts = 冒烟脚本（零网络自验证）
 ├── cordis.yml               配置驱动装配文件（行集与 ac-app TREE 保持一致）
 ├── supervisor.mjs           宿主监护进程：spawn worker + 42/78/0 协议 + 退避熔断 +
 │                            .runtime 单写者锁（进程层脚本，不经组合根）

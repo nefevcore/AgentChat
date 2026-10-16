@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "组合根：装配行表 + bootTree + 冒烟脚本 + 集成验收测试",
+  "description": "组合根：装配行表（TREE/cordis.yml 双表）+ bootTree + 双 boot 入口（boot.ts Loader 路径 / bootstrap.ts dist 发布形态）+ 冒烟脚本 + 集成验收测试",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
   "scripts": {
-    "smoke": "tsx src/smoke.ts"
+    "smoke": "tsx src/smoke.ts",
+    "smoke:run-code": "node src/smoke-run-code.ts"
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",

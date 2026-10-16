@@ -1490,16 +1490,19 @@ importers:
 
   src/ac-client-ui-desktop-storage:
     dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
       '@agentchat/webui-kit':
         specifier: workspace:*
         version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
     devDependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../vendor/cordis
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core

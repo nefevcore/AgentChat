@@ -10,12 +10,14 @@
 // 临时目录，启动前自清理；路径护栏同 vitest global-setup）。不读外部
 // AGENTCHAT_DATA_ROOT——机器级 env 会把冒烟劫持到真实数据根：三连接
 // fixture 缺失 → gpt-4o-mini NO_PROVIDER，且 probe/会话文件污染真实根。
+// fixture 三连接 = tests/fixture-pool.ts 单源（vitest global-setup 同款）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Context } from '@agentchat/cordis';
 import { bootTree } from './index.ts';
+import { FIXTURE_POOL } from '../tests/fixture-pool.ts';
 
 const smokeRoot = path.resolve(
   fileURLToPath(new URL('../../../', import.meta.url)),
@@ -33,13 +35,7 @@ fs.rmSync(smokeRoot, { recursive: true, force: true });
 fs.mkdirSync(smokeRoot, { recursive: true });
 fs.writeFileSync(
   path.join(smokeRoot, 'config.json'),
-  `${JSON.stringify({
-    llmProviders: {
-      openai: { base_url: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-5', 'o3'] },
-      deepseek: { base_url: 'https://api.deepseek.com/', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp'] },
-      glm: { base_url: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', models: ['glm-5.3'] },
-    },
-  }, null, 2)}\n`,
+  `${JSON.stringify({ llmProviders: FIXTURE_POOL }, null, 2)}\n`,
   'utf8',
 );
 console.log(`[smoke] 数据根（自清理临时目录 + 三连接 fixture）: ${smokeRoot}`);
@@ -108,8 +104,10 @@ async function main() {
   log.info('步1 工具结果 → %C', JSON.stringify(run.steps[0].toolResults[0]));
   log.info('通知通道（事件订阅，ac-session 前身）→ %C', roles.join(' → '));
 
-  // 5) dispose：摘 deepseek 薄行 → 路由立即失效，其余行不动
-  await fibers.get('llm-deepseek')?.dispose();
+  // 5) dispose：摘 llm-pool 行 → 三连接路由立即失效，其余行不动
+  //    （旧 id llm-deepseek 系三薄行时代残留——fibers.get 恒 undefined，
+  //    可选链吞掉后本步曾长期静默 no-op，cr-482 修正）
+  await fibers.get('llm-pool')!.dispose();
   log.info('providers = [%C]', ctx.llm.providers().join(', '));
   try {
     ctx.llm.resolveProvider({ model: 'deepseek-v4-flash' });

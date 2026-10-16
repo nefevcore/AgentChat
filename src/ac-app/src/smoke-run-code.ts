@@ -14,8 +14,8 @@
 //      loop 执行（投影注入 #A1 经 llm/before-chat 截获验证）→
 //      二轮文本收束（开关开 = 互斥形态注入）
 // 数据根：无条件锚定 <repo>/workspace/test（同 smoke.ts 语义：自清理 +
-// 三连接 fixture + 路径护栏；不读外部 AGENTCHAT_DATA_ROOT，防机器级 env
-// 劫持到真实数据根）。
+// 三连接 fixture〔tests/fixture-pool.ts 单源〕+ 路径护栏；不读外部
+// AGENTCHAT_DATA_ROOT，防机器级 env 劫持到真实数据根）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { Context } from '@agentchat/cordis';
 import { bootTree } from './index.ts';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
+import { FIXTURE_POOL } from '../tests/fixture-pool.ts';
 
 const smokeRoot = path.resolve(
   fileURLToPath(new URL('../../../', import.meta.url)),
@@ -37,13 +38,7 @@ fs.rmSync(smokeRoot, { recursive: true, force: true });
 fs.mkdirSync(smokeRoot, { recursive: true });
 fs.writeFileSync(
   path.join(smokeRoot, 'config.json'),
-  `${JSON.stringify({
-    llmProviders: {
-      openai: { base_url: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini', models: ['gpt-4o-mini'] },
-      deepseek: { base_url: 'https://api.deepseek.com/', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash'] },
-      glm: { base_url: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', models: ['glm-5.3'] },
-    },
-  }, null, 2)}\n`,
+  `${JSON.stringify({ llmProviders: FIXTURE_POOL }, null, 2)}\n`,
   'utf8',
 );
 console.log(`[smoke-run-code] 数据根（自清理临时目录 + 三连接 fixture）: ${smokeRoot}`);
@@ -117,7 +112,8 @@ async function main() {
   // 过时口径——mode 工具不挂 requiredTags（tag-registry 明文禁止双门），catalog 按
   // requiredTags 采集永不含它。正交语义改从注册面直验。
   const runCodeDef = ctx.tools.list().find((t) => t.name === 'run_code');
-  check('run_code 为 mode 注入（无 requiredTags——与能力轴正交）', runCodeDef?.injection === 'mode' && (runCodeDef?.requiredTags?.length ?? 0) === 0);
+  const noTierRequired = (runCodeDef?.requiredTags?.length ?? 0) === 0;
+  check('run_code 为 mode 注入（无 requiredTags——与能力轴正交）', runCodeDef?.injection === 'mode' && noTierRequired);
 
   // run_code 执行的公共入口（预设身份）
   const runCode = (code: string, extra: Record<string, unknown> = {}) =>

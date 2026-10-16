@@ -121,7 +121,7 @@ interface TreeRow {
 }
 
 /**
- * 装配行表（程序化路径；配置驱动路径的事实源 = preview/cordis.yml，
+ * 装配行表（程序化路径；配置驱动路径的事实源 = src/cordis.yml，
  * 两张表行集一致，bootTree 供测试/嵌入直用）。
  * 行序仅是装配一览；依赖解析由各插件 inject 声明推导。
  */

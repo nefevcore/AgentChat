@@ -17,14 +17,14 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
-import { bootFromConfig, PREVIEW_DIR, type BootedConfig } from '../src/ecosystem';
+import { bootFromConfig, SRC_DIR, type BootedConfig } from '../src/ecosystem';
 import { computeRowAggregates, rowOfFiber } from 'ac-event-policy';
 import type { Fiber } from '@agentchat/cordis';
 import type { EntryOptions } from '@agentchat/cordis-loader';
 
 const booted: BootedConfig[] = [];
 const TEST_YML = 'cordis.aggregate-test.yml';
-const REAL_YML = join(PREVIEW_DIR, 'cordis.yml');
+const REAL_YML = join(SRC_DIR, 'cordis.yml');
 
 /** 真实 cordis.yml 行表 = 唯一事实源（与 config-boot.test 同款脚手架） */
 async function bootTest(): Promise<BootedConfig> {
@@ -39,7 +39,7 @@ afterEach(async () => {
     await includeEntry.fiber?.dispose(); // 停 include 子树（全部 yml 行）
     if (loaderFiber.uid !== null) await loaderFiber.dispose();
   }
-  await unlink(join(PREVIEW_DIR, TEST_YML)).catch(() => {});
+  await unlink(join(SRC_DIR, TEST_YML)).catch(() => {});
 });
 
 describe('官方 loader boot 的 fiber→行聚合（P5）', () => {

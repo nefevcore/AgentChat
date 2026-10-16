@@ -31,6 +31,7 @@
     "dev:supervised": "node src/supervisor.mjs",
     "dev:demo": "node --expose-internals src/ac-app/src/boot-yml-main.ts",
     "smoke": "node src/ac-app/src/smoke.ts",
+ "smoke:run-code": "node src/ac-app/src/smoke-run-code.ts",
     "chat": "node src/ac-app/src/chat.ts",
     "bench": "node src/ac-bench/src/cli.ts",
     "cr": "node scripts/cr.mjs",

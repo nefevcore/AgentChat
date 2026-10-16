@@ -1,13 +1,13 @@
 // ============================================================
 // ac-app/src/ecosystem.ts —— 配置驱动装配（测试/演示辅助）
 //
-// ⚠ 官方启动路径不是本文件：pnpm preview:boot（boot.ts chdir 后复用
+// ⚠ 官方启动路径不是本文件：pnpm dev（boot.ts chdir 后复用
 //   vendor cordis bin.js，零自研引导）。本文件仅在官方路径之外提供
 //   initial 物化 / include patches / 临时 yml 等测试与演示能力。
 //
 // 行 name 全部为【裸包名】（教程/官方形态）：
 //   ac-* / @agentchat/cordis-* —— 解析锚点是 ctx.baseUrl（vendor loader
-//   tree.ts 的 internal.import 以 baseUrl 为 parentURL），从 preview/
+//   tree.ts 的 internal.import 以 baseUrl 为 parentURL），从 src/
 //   沿目录树向上至仓库根 node_modules 命中（ac-* 已声明进根
 //   package.json devDependencies —— 与旧轨 @agentchat/* 同一惯例）。
 //   本地文件行用相对路径（教程同款：'./hello.ts'）。
@@ -22,7 +22,7 @@ export interface BootFromConfigOptions {
   file?: string;
   /**
    * 初始行表（include 的 initial：目标文件缺失时物化落盘）。
-   * 生产路径不传——官方 bin.js 直接读已存在的 preview/cordis.yml；
+   * 生产路径不传——官方 bin.js 直接读已存在的 src/cordis.yml；
    * 本选项供测试用独立 yml（initial 取自对真实 cordis.yml 的解析，
    * 单一事实源，勿在此维护第二份行表）。
    */
@@ -68,5 +68,5 @@ function findIncludeEntry(ctx: Context): Entry | undefined {
   }
 }
 
-/** 便捷：preview/ 目录的绝对路径与 file URL */
-export const PREVIEW_DIR = fileURLToPath(new URL('../../', import.meta.url));
+/** 便捷：src/ 目录（cordis.yml 所在装配根）的绝对路径 */
+export const SRC_DIR = fileURLToPath(new URL('../../', import.meta.url));
