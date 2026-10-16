@@ -6,16 +6,15 @@
 //  2026-09-11 拆分独立行；本包 searchPoolApi 写面 + settings 只读元
 //  数据，节挂载即自装载）
 // ============================================================
-import { onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import SearchPoolManager from './SearchPoolManager.vue';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { applySearchPoolDefault } from 'ac-client-ui-settings/client/schema.ts';
+import { toastError } from '@agentchat/webui-kit';
 import { saveSearchPoolDomain } from './searchPoolApi.ts';
 
 const settings = useSettings();
-/** 节内错误条（原共享 store error 的节内等价物） */
-const error = ref('');
 
 onMounted(() => { void settings.loadMeta(); });
 
@@ -23,14 +22,14 @@ onMounted(() => { void settings.loadMeta(); });
  *  整域保存会清光后端现有连接，拒绝写盘 */
 async function saveNow(): Promise<void> {
   if (!settings.poolsLoaded.value) {
-    error.value = '搜索池尚未加载成功，已取消保存（此时保存会清空后端现有连接）。请关闭并重新打开设置后重试';
+    toastError('搜索池尚未加载成功，已取消保存（此时保存会清空后端现有连接）。请关闭并重新打开设置后重试');
     return;
   }
   const pools = settings.pools.value.searchProviders as Record<string, unknown>;
   try {
     await saveSearchPoolDomain(pools, defaultRpc);
   } catch (e) {
-    error.value = `搜索引擎保存失败: ${(e as { message?: string }).message ?? String(e)}`;
+    toastError(`搜索引擎保存失败: ${(e as { message?: string }).message ?? String(e)}`);
   }
 }
 

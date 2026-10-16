@@ -1719,18 +1719,24 @@ export function apply(ctx: Context) {
     return { agents: refs };
   });
 
-  // 连接凭据写口（PoolManager 删除连接时同步删凭据——否则种子名的
-  // 发现回写会凭残留凭据把已删条目"复活"）。value '' = 删除；但目标
-  // locked（在盘解密失败，可恢复）时保留不删（cr-310 同款守卫）。
+  // 池凭据写口（llm PoolManager / search SearchPoolManager 删除条目时同步
+  // 删凭据——llm 侧不删则种子名的发现回写会凭残留凭据把已删条目"复活"；
+  // search 侧无发现回写，残留即无清理口的存量密钥）。value '' = 删除；但
+  // 目标 locked（在盘解密失败，可恢复）时保留不删（cr-310 同款守卫）。
+  // domain（cr-477）：'search' = 搜索池（searchpool:<名>——config/set 侧
+  // 信道提取的同款前缀）；缺省 'llm'（pool:<名>，既有调用面向后兼容）。
   web.registerRpc('llm/pool-credential', (params) => {
     const p = obj(params);
     const name = reqStr(p, 'name');
     if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error('参数 name 须为安全字符（字母/数字/_/-）');
+    const domain = p.domain ?? 'llm';
+    if (domain !== 'llm' && domain !== 'search') throw new Error(`参数 domain 非法（${String(p.domain)}）`);
+    const prefix = domain === 'search' ? 'searchpool:' : 'pool:';
     const value = typeof p.value === 'string' ? p.value : '';
-    if (value === '' && ctx.credentials.stateGlobal(`pool:${name}`) === 'locked') {
+    if (value === '' && ctx.credentials.stateGlobal(`${prefix}${name}`) === 'locked') {
       return { set: true, name, warnings: [`连接 "${name}" 存有本机无法解密的密钥，已保留（换回原机名可恢复，或填入新 Key 覆盖）`] };
     }
-    ctx.credentials.setGlobal(`pool:${name}`, value);
+    ctx.credentials.setGlobal(`${prefix}${name}`, value);
     return { set: true, name };
   });
 

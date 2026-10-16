@@ -22,3 +22,10 @@ export async function saveSearchPoolDomain(
 ): Promise<void> {
   await callGuarded('config/set', { key: 'searchProviders', value: pools }, rpc);
 }
+
+/** 删除搜索引擎凭据（searchpool:<name>）——删除池条目时同步调用（密钥
+ *  经 config/set 侧信道提取存储，不清理即永久残留）；目标 locked（在盘
+ *  不可解密）时服务端保留不删（cr-310）并 warnings 提示 */
+export async function deleteSearchPoolCredential(name: string, rpc: Rpc): Promise<void> {
+  await callGuarded('llm/pool-credential', { name, value: '', domain: 'search' }, rpc);
+}

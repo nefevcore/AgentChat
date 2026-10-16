@@ -11,7 +11,10 @@
 // ============================================================
 import { ref } from 'vue';
 import type { PoolEntry } from 'ac-client-ui-settings/client/types.ts';
-import { Button, Icon, Modal, toastOk } from '@agentchat/webui-kit';
+import { Button, Icon, Modal, toastError, toastOk } from '@agentchat/webui-kit';
+import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
+import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import { deleteSearchPoolCredential } from './searchPoolApi.ts';
 import SearchEntryForm from './SearchEntryForm.vue';
 
 const props = defineProps<{
@@ -61,13 +64,26 @@ function onFormSave(name: string, entry: Record<string, any>): void {
   props.onSaved?.();
 }
 
-/** 删除条目（搜索池无凭据联动/确认弹窗——与拆分前 kind='search'
- *  行为一致；llm 连接的确认 + 凭据删除留 ui-llm-pool） */
-function removeEntry(name: string) {
+/** 删除条目：确认弹窗后同步删侧信道凭据 searchpool:<名>（api_key 经
+ *  config/set 提取进凭据库——与 llm 侧 pool:<名> 同款侧信道；locked
+ *  守卫在服务端 cr-310，warnings 经 callGuarded toast） */
+const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
+async function removeEntry(name: string) {
+  const ok = await confirmRef.value?.ask({
+    title: `删除搜索引擎 "${name}"？`,
+    message: '将同时删除其 API Key（凭据库）。',
+    confirmLabel: '删除引擎',
+    danger: true,
+  });
+  if (!ok) return;
   const pool = { ...props.pools };
   delete pool[name];
   emit('update:pools', pool);
   props.onSaved?.();
+  // 凭据清理失败 toast（条目已删——残留密钥不参与解析，仅存量占用）
+  void deleteSearchPoolCredential(name, defaultRpc).catch((err: any) => {
+    toastError(`凭据删除失败（条目已删，密钥残留凭据库）: ${err?.message ?? err}`);
+  });
 }
 
 function setDefault(name: string) {
@@ -131,6 +147,9 @@ function detailOf(name: string, entry: PoolEntry): string {
         />
       </div>
     </Modal>
+
+    <!-- 删除确认（通用 ConfirmDialog，替代原生 confirm） -->
+    <ConfirmDialog ref="confirmRef" />
   </div>
 </template>
 

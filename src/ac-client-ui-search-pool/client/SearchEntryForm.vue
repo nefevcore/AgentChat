@@ -65,13 +65,15 @@ function inferExtraFields(pools: Partial<Record<string, PoolEntry>>): Map<string
   return new Map([...byProvider].map(([p, m]) => [p, [...m.values()]]));
 }
 
-/** 合成 schema（真 schema 优先；空则基线 + 观测字段） */
-const effectiveSchemas = computed<Record<string, any[]>>(() => {
-  const out: Record<string, any[]> = { ...props.schemas };
+/** 合成 schema（真 schema 优先；空则基线 + 观测字段）。观测 provider
+ *  可能不在 schemas——out 有洞，类型如实 Partial（out[p] 可 undefined） */
+const effectiveSchemas = computed<Partial<Record<string, any[]>>>(() => {
+  const out: Partial<Record<string, any[]>> = { ...props.schemas };
   const extra = inferExtraFields(props.pools);
   const providers = new Set([...Object.keys(props.schemas), ...extra.keys()]);
   for (const p of providers) {
-    if (out[p].length) continue;
+    // 观测 provider 可能不在 schemas（out[p] undefined）——与空表同路回退基线
+    if (out[p]?.length) continue;
     out[p] = [...SEARCH_FIELDS, ...(extra.get(p) ?? [])];
   }
   return out;

@@ -1549,6 +1549,20 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     expect(bad.ok).toBe(false);
   });
 
+  it('llm/pool-credential domain=search：写/删搜索池凭据（searchpool:<名>；cr-477）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const set = await rpc(ws, 'llm/pool-credential', 'r1', { name: 't2', value: 'sk-t', domain: 'search' });
+    expect(set.result).toEqual({ set: true, name: 't2' });
+    expect(h.ctx.credentials.getGlobal('searchpool:t2')).toBe('sk-t');
+    const del = await rpc(ws, 'llm/pool-credential', 'r2', { name: 't2', value: '', domain: 'search' });
+    expect(del.ok).toBe(true);
+    expect(h.ctx.credentials.getGlobal('searchpool:t2')).toBe('');
+    // 未知 domain → fail-closed
+    const bad = await rpc(ws, 'llm/pool-credential', 'r3', { name: 't2', value: 'x', domain: 'bogus' });
+    expect(bad.ok).toBe(false);
+  });
+
   it('plugin/stage + staging-list + staging-files + reject（真 PluginRegistryService）', async () => {
     const h = await boot();
     const ws = await connect(h.port);
