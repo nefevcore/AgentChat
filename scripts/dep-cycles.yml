@@ -43,7 +43,7 @@ edges:
     ruling: M29 P2-1 定谳——ChatInput skillsApi（@ 提及的技能清单拉取）= skill 域 RPC 契约词汇（thin typed wrapper；行卸载 = 提及清单空态）
   - from: ac-client-ui-conversation
     to: ac-client-ui-llm-pool
-    ruling: 2026-09-11 语义归位——ChatInput 池模型归一化（poolModelEntries/visibleModelNames）自 rosterApi 换源 ui-llm-pool/poolApi = 池域契约词汇（M29 P2-1 同款判据；行卸载 = 模型菜单回落池表裸读）
+    ruling: 2026-09-11 语义归位——ChatInput 池模型归一化（poolModelEntries；cr-203 起另有 providerIconOf/Color 图标词）自 rosterApi 换源 ui-llm-pool/poolApi = 池域契约词汇（M29 P2-1 同款判据；行卸载 = 模型菜单回落池表裸读）
 
   # ---- 2026-09-11 R6 扩权一次性入册（.vue 媒介存量边） ----
   - from: ac-client-ui-agents

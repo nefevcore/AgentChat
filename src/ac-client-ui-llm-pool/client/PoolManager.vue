@@ -13,7 +13,7 @@
 // ============================================================
 import { ref } from 'vue';
 import type { PoolEntry } from 'ac-client-ui-settings/client/types.ts';
-import { Button, Icon, Modal, toastOk } from '@agentchat/webui-kit';
+import { Button, Icon, Modal, toastError, toastOk } from '@agentchat/webui-kit';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { deleteLlmPoolCredential, fetchPoolModels, fetchPoolReferences, poolModelEntries } from './poolApi.ts';
@@ -32,7 +32,6 @@ const title = '模型管理（Provider 连接）';
 
 // ── 编辑弹窗状态（表单体 = PoolEntryForm）──
 const editingName = ref<string | null>(null); // null=列表视图, ''=新建, 'xxx'=编辑
-const error = ref('');
 
 function startAdd() {
   editingName.value = '';
@@ -110,8 +109,10 @@ ${refNote}`,
   delete pool[name];
   emit('update:pools', pool);
   props.onSaved?.();
+  // 凭据侧信道失败 toast（原写 error ref 但模板无渲染口——反馈链断裂；
+  // 与 callGuarded warnings 同反馈形态归位）
   void deleteLlmPoolCredential(name, defaultRpc).catch((err: any) => {
-    error.value = `凭据删除失败（条目已删，但 /models 发现可能复活它）: ${err?.message ?? err}`;
+    toastError(`凭据删除失败（条目已删，但 /models 发现可能复活它）: ${err?.message ?? err}`);
   });
 }
 
@@ -126,8 +127,7 @@ function setDefault(name: string) {
 }
 
 /** 条目 detail（列表第二行） */
-function detailOf(name: string, entry: PoolEntry): string {
-  void name;
+function detailOf(entry: PoolEntry): string {
   const proto = typeof entry.protocol === 'string' && entry.protocol ? entry.protocol : 'openai-compat';
   const parts = [proto !== 'openai-compat' ? entry.base_url + ' · ' + proto : entry.base_url || '内置地址'];
   if (entry.defaultModel) parts.push(String(entry.defaultModel));
@@ -163,7 +163,7 @@ function detailOf(name: string, entry: PoolEntry): string {
             <span v-if="entry.default" class="pool-star" title="当前默认"><Icon name="star" :size="10" /></span>
             {{ name }}
           </span>
-          <span class="pool-entry-detail">{{ detailOf(String(name), entry) }}</span>
+          <span class="pool-entry-detail">{{ detailOf(entry) }}</span>
         </div>
         <div class="pool-entry-actions">
           <Button v-if="!entry.default" variant="ghost" size="sm" icon="star" title="设为默认连接（未显式选连接的会话与 Agent 使用它）" @click="setDefault(String(name))">设为默认</Button>

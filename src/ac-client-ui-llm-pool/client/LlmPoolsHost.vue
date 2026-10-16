@@ -7,15 +7,14 @@
 // 实例无人装载的静默回归〕；2026-09-11 行拆分：PoolManager 收窄 llm 单
 // 形态〔搜索引擎节拆往 ac-client-ui-search-pool〕；DOM/Props 面不变）
 // ============================================================
-import { onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import PoolManager from './PoolManager.vue';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import { toastError } from '@agentchat/webui-kit';
 import { saveLlmPoolDomain } from './poolApi.ts';
 
 const settings = useSettings();
-/** 节内错误条（原共享 store error 的节内等价物） */
-const error = ref('');
 
 onMounted(() => { void settings.loadMeta(); });
 
@@ -26,14 +25,14 @@ onMounted(() => { void settings.loadMeta(); });
  *  后空池也是用户真实意图（删除最后一条连接），正常放行。 */
 async function saveNow(): Promise<void> {
   if (!settings.poolsLoaded.value) {
-    error.value = '连接池尚未加载成功，已取消保存（此时保存会清空后端现有连接）。请关闭并重新打开设置后重试';
+    toastError('连接池尚未加载成功，已取消保存（此时保存会清空后端现有连接）。请关闭并重新打开设置后重试');
     return;
   }
   const pools = settings.pools.value.llmProviders as Record<string, unknown>;
   try {
     await saveLlmPoolDomain(pools, defaultRpc);
   } catch (e) {
-    error.value = `模型管理保存失败: ${(e as { message?: string }).message ?? String(e)}`;
+    toastError(`模型管理保存失败: ${(e as { message?: string }).message ?? String(e)}`);
   }
 }
 

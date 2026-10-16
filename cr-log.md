@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-472**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-475**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -490,3 +490,6 @@
 - 【cr-470 2026-10-16 行集清单：preset-builtin 静态声明面承载待钉消解（内置模板 = 静态 Agent 配置文件集，随〈注册表解体〉收口）】
 - 【cr-471 2026-10-16 行集清单 R7-3：user 账本聚合定向形态二（终稿层独立账本 + steps 关联带出），〈webui 读投影〉三拆收口】
 - 【cr-472 2026-10-16 ac-client-ui-runview 深审（audit #126）：删双环死链 openTrackingPanel×auxOpenTracking（A5 迁移孤儿对）+ SidebarHost 死 watch；死词清理 sourceLabel/source 恒 chat 数据面/RunsSingleSession 恒空/coverage 恒 0 五字段/participants；RunsClientOptions 空壳退役；RunsMember.kind 收窄 agent|virtual；死 CSS 五处；event-refresh 桩形状修正（conversations 顶层——曾被 refresh catch 掩盖）；注释漂移订正（3s 轮询/头注/描述补 aux 贡献）】
+- 【cr-473 2026-10-16 ac-client-ui-run-nodes 审计收口（#127）：修面板滚动跟随缺陷（watch 无 immediate 挂载停顶 + scrollTop 跨内容保留致切会话不贴底——切会话/首开强制贴底、其余距底阈值跟随）；删 activeDialogId 冗余双重断言；runNodes.ts ts 字段注释按真实 reveal 链路订正（id 直传，ts 仅展示用）】
+- 【cr-474 2026-10-16 行集清单 R7-4：ui 骨架六件定向并入 webui 本体（phase:base 退役）+ 插件 client 通道立项（唯一通道，项目桩行同收敛）；并后宿主 42 算误修正】
+- 【cr-475 2026-10-16 ac-client-ui-llm-pool 深审（audit #128）：留——修 UI 死状态 2（PoolManager/LlmPoolsHost error 赋值后模板零渲染，cr-21/cr-310 反馈链断裂）；精简——visibleModelNames 死词删、draftProtocol 死计算属性删、detailOf void name 收口、白名单 ruling 词汇漂移订正】

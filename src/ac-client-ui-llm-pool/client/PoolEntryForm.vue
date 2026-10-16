@@ -76,16 +76,7 @@ function initDraft(): void {
 initDraft();
 watch(() => props.editingName, initDraft);
 
-/** 当前草稿的协议（缺省 openai-compat；模板自带协议优先） */
-const draftProtocol = computed<string>(() => {
-  const tpl = LLM_PROVIDER_TEMPLATES.find((t) => t.id === draft.value.template);
-  if (tpl?.protocol) return tpl.protocol;
-  const p = String(draft.value.protocol ?? '');
-  return PROTOCOL_OPTIONS.some((o) => o.value === p) ? p : '';
-});
-void draftProtocol; // custom 分支字段序引用（模板隐含协议时不追加协议选择）
-
-/** llm 表单字段：内置提供方隐藏 API 地址（模板隐含）；自定义追加协议/接口格式/可编辑地址 */
+/** llm 表单字段：内置提供方隐藏 API 地址（模板隐含）；自定义追加协议/接口格式/可编辑地址（模板自带协议时不再追加协议选择） */
 const currentFields = computed<FieldMeta[]>(() => {
   const base = [...LLM_CONN_FIELDS];
   if ((draft.value.template ?? '') === 'custom') {

@@ -112,11 +112,6 @@ export function poolModelEntries(raw: unknown): PoolModelMeta[] {
   return out;
 }
 
-/** 下拉可见模型名（hidden 过滤——纯 UI 呈现语义，路由不受影响） */
-export function visibleModelNames(raw: unknown): string[] {
-  return poolModelEntries(raw).filter((e) => e.hidden !== true).map((e) => e.model);
-}
-
 /** 连接默认模型解析（与后端 defaultPoolConnection 单口径）：defaultModel
  *  优先 → 旧别名形态 entry.model → models 可见清单降序首项（≈命名最新，
  *  hidden 跳过）；无可解析模型 → undefined。Agent 面切换 Provider 的落点
