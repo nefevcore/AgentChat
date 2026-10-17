@@ -34,12 +34,10 @@ const emit = defineEmits<{
 const SEARCH_FIELDS: FieldMeta[] = [
   { key: 'api_key', label: 'API Key', description: '加密存于凭据库（不入 config.json）；显示 •• 为已设置，留空保存即删除', type: 'password', sensitive: true },
   { key: 'baseURL', label: 'API 地址', type: 'text' },
-  { key: 'model', label: '模型 ID', type: 'text' },
   { key: 'defaultResults', label: '默认结果数', type: 'number' },
   { key: 'defaultDepth', label: '默认深度', description: '如 basic / advanced', type: 'text' },
   { key: 'defaultTopic', label: '默认主题', description: '如 general / news', type: 'text' },
   { key: 'rawContentMaxLen', label: '原文截断长度', type: 'number' },
-  { key: 'maxUses', label: '每日限额', type: 'number' },
 ];
 
 /** 搜索池内各 provider 观测到的额外字段（基线之外，类型按值推断） */

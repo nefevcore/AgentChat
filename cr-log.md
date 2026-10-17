@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-485**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-486**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -503,3 +503,4 @@
 - 【cr-483 2026-10-16 run-nodes 面板贴底修复（首开/切会话强制归零 + activeDialogId 类型断言链余清）+ per-agent preview 架构文档批次（R-10 裁决修订 + 6 篇规格新档）】
 - 【cr-484 2026-10-16 R7-6 裁决：tag 机制解体（方案 A）——requiredTags/tags 全链退役，七职能归位（行集派生/settings X1/行引用资产/tier 轴/物理隔离），双闸换轨不换强度，R7-6 消解；回写裁决簿+行集清单+auth 草稿+per-agent D1】
 - 【cr-485 2026-10-16 R7-7 裁决：patch 机制整体退役——cordis.patch.yml/loader patches/热通道/急救通道形态退役，两树同形 boot（清单驱动装配：宿主 = 偏好文件 → rowset-core 派生，壳 = argv 派生清单）；行集唯一来源 = 派生推广全域】
+- 【cr-486 2026-10-16 web-search deepseek provider 换用官方专用搜索端点 /v1/tools/search（2026-10-16 上线），退役 Anthropic Messages 绕道特型与模型结构化输出解析】

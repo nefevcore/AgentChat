@@ -43,7 +43,7 @@ describe('cr-477 · schema 合成守卫（回归锁）', () => {
     // 名称 placeholder = 编辑目标名（HTML 属性，不进 textContent）
     expect(root.querySelector('input')?.getAttribute('placeholder')).toBe('legacy');
     expect(root.textContent).toContain('API Key');
-    expect(root.textContent).toContain('模型 ID'); // SEARCH_FIELDS 基线
+    expect(root.textContent).toContain('默认结果数'); // SEARCH_FIELDS 基线（cr-486：model/maxUses 已随 deepseek 专用端点退役）
   });
 
   it('真 schema 在场优先于基线——基线字段不重复出现', async () => {

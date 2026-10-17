@@ -6,16 +6,18 @@
 /** 传递给 provider 的运行时配置（apiKey 来自 ac-credentials 解析链或环境变量） */
 export interface ProviderConfig {
   apiKey: string;
-  // ── DeepSeek 搜索扩展字段（其余 provider 忽略；缺省由 provider 内置默认） ──
-  /** Anthropic 兼容端点 base（默认 https://api.deepseek.com/anthropic/v1，勿复用 LLM 聊天 base） */
+  // ── DeepSeek 搜索扩展字段（其余 provider 忽略；缺省由 provider 内置默认）。
+  //    cr-486 换用官方 /v1/tools/search 端点后仅 baseURL 仍被消费；model/
+  //    maxUses/maxTokens/apiVersion 为旧 Messages 特型键，存量配置静默忽略 ──
+  /** 搜索端点 base（默认 https://api.deepseek.com/v1） */
   baseURL?: string;
-  /** 执行搜索的模型 ID（默认 deepseek-v4-flash） */
+  /** @deprecated 旧 Anthropic Messages 特型键——专用搜索端点无模型参数，忽略 */
   model?: string;
-  /** 单次请求内服务端搜索工具最多使用次数（默认 5） */
+  /** @deprecated 旧 Anthropic Messages 特型键——忽略 */
   maxUses?: number;
-  /** 单次请求生成 token 上限（默认 4096） */
+  /** @deprecated 旧 Anthropic Messages 特型键——忽略 */
   maxTokens?: number;
-  /** anthropic-version 头（默认 2023-06-01） */
+  /** @deprecated 旧 Anthropic Messages 特型键——忽略 */
   apiVersion?: string;
 }
 

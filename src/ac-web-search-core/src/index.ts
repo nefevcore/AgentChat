@@ -21,8 +21,7 @@ export { createTavilyProvider } from './tavily.ts';
 export { createSerpApiProvider } from './serpapi.ts';
 export { createBraveProvider } from './brave.ts';
 export { createDuckDuckGoProvider } from './duckduckgo.ts';
-export { createDeepSeekProvider, parseSourceSummaries, extractAnswer, mapAnthropicResponse } from './deepseek.ts';
-export type { DeepSeekSource } from './deepseek.ts';
+export { createDeepSeekProvider, mapSearchResponse } from './deepseek.ts';
 
 import { createTavilyProvider } from './tavily.ts';
 import { createDeepSeekProvider } from './deepseek.ts';

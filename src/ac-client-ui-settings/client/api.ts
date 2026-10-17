@@ -196,12 +196,12 @@ export async function getLlmSchemas(): Promise<Record<string, any[]>> {
 // 注册表与池页下拉一并摘除）──
 // 此前 getSearchSchemas 恒返回空表：PoolManager 的 providerOptions 为空、
 // 字段集为空——「+ 添加」弹窗只有一个空下拉和零字段，搜索引擎根本无法
-// 新增。deepseek 配置项只保留 api_key——端点（anthropic/v1 端点）/模型
-// （deepseek-v4-flash）/搜索次数（5）由 ac-web-search-core 内置缺省接管，
-// 调优字段（深度/主题）deepseek 不消费，均不再暴露（存量 config 键运行时
-// 兼容读取）；tavily 只读 api_key + 调优字段（默认值与 ac-web-tools 缺省
-// 一致：5 条 / advanced / general / 截断 2000）。池 default 条目 =
-// web_search 的缺省源（行侧 defaultSearchPool 接线）。
+// 新增。deepseek 配置项只保留 api_key——端点（官方 /v1/tools/search，
+// cr-486 换用）由 ac-web-search-core 内置缺省接管，调优字段（深度/主题）
+// deepseek 不消费，均不再暴露（存量 config 键运行时兼容读取）；tavily 只
+// 读 api_key + 调优字段（默认值与 ac-web-tools 缺省一致：5 条 / advanced /
+// general / 截断 2000）。池 default 条目 = web_search 的缺省源（行侧
+// defaultSearchPool 接线）。
 
 /** 搜索调优公共字段（键 = 搜索池条目 / settings['web-tools'] 词汇） */
 const SEARCH_TUNING_FIELDS: FieldMeta[] = [
@@ -217,7 +217,7 @@ const BUILTIN_SEARCH_SCHEMAS: Record<string, FieldMeta[]> = {
     ...SEARCH_TUNING_FIELDS,
   ],
   deepseek: [
-    { key: 'api_key', label: 'API Key', description: '与 DeepSeek 模型共用同一 Key（platform.deepseek.com）。加密存于凭据库，不入 config.json；端点/模型/搜索次数等参数走内置默认', type: 'password', sensitive: true },
+    { key: 'api_key', label: 'API Key', description: '与 DeepSeek 模型共用同一 Key（platform.deepseek.com）。加密存于凭据库，不入 config.json；端点等参数走内置默认', type: 'password', sensitive: true },
   ],
 };
 

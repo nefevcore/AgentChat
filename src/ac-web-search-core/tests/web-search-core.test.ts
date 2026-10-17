@@ -9,9 +9,7 @@ import {
   createBraveProvider,
   createDuckDuckGoProvider,
   createDeepSeekProvider,
-  parseSourceSummaries,
-  extractAnswer,
-  mapAnthropicResponse,
+  mapSearchResponse,
 } from '../src/index.ts';
 
 /** providers 调全局 fetch 的最小形状（不可注入，统一 vi.stubGlobal 打桩） */
@@ -157,90 +155,30 @@ describe('createTavilyProvider', () => {
   });
 });
 
-describe('createDeepSeekProvider 纯函数', () => {
-  it('parseSourceSummaries：SOURCE:/SUMMARY: 配对，续行拼接（空行忽略），前导散文与 ANSWER: 段忽略', () => {
-    const text = [
-      '下面是搜索结果：', // 前导散文
-      'SOURCE: https://a.com',
-      'SUMMARY: 第一行',
-      '第二行续写',
-      '',
-      'SOURCE: https://b.com',
-      'SUMMARY: b 摘要',
-      'ANSWER: 综合结论',
-      'ANSWER 之后的行也被忽略',
-    ].join('\n');
-    const map = parseSourceSummaries(text);
-    expect(map.size).toBe(2);
-    expect(map.get('https://a.com')).toBe('第一行\n第二行续写');
-    expect(map.get('https://b.com')).toBe('b 摘要');
-  });
-
-  it('parseSourceSummaries：同 URL 首个优先', () => {
-    const map = parseSourceSummaries(
-      'SOURCE: https://dup.com\nSUMMARY: 首个\nSOURCE: https://dup.com\nSUMMARY: 第二个',
-    );
-    expect(map.get('https://dup.com')).toBe('首个');
-  });
-
-  it('parseSourceSummaries：空文本 / 无标记文本 → 空 Map', () => {
-    expect(parseSourceSummaries('').size).toBe(0);
-    expect(parseSourceSummaries('没有任何结构化标记的散文').size).toBe(0);
-  });
-
-  it('extractAnswer：取最后一次 ANSWER: 标记之后的内容并 trim', () => {
-    expect(extractAnswer(['SOURCE: https://a.com\nSUMMARY: 摘要', 'ANSWER: 是 42'])).toBe('是 42');
-    expect(extractAnswer(['ANSWER: 第一版', 'ANSWER: 第二版'])).toBe('第二版');
-  });
-
-  it('extractAnswer：ANSWER 段截到下一个 SOURCE: 为止', () => {
-    expect(extractAnswer(['ANSWER: 甲\nSOURCE: https://x.com\nSUMMARY: 乙'])).toBe('甲');
-  });
-
-  it('extractAnswer：无 ANSWER: 标记 → 回落最后一个非空 text 块；全空 → null', () => {
-    expect(extractAnswer(['', '散文综合段', '   '])).toBe('散文综合段');
-    expect(extractAnswer([''])).toBeNull();
-    expect(extractAnswer([])).toBeNull();
-  });
-
-  it('mapAnthropicResponse：无 web_search_tool_result 块 → 抛错（不退化解析散文）', () => {
-    expect(() => mapAnthropicResponse({ content: [{ type: 'text', text: 'hi' }] }, 5)).toThrow(
-      /web_search_tool_result/,
-    );
-    expect(() => mapAnthropicResponse(undefined, 5)).toThrow(/web_search_tool_result/);
-  });
-
-  it('mapAnthropicResponse：citations 优先、SUMMARY 兜底、title 缺省回退 URL、按 URL 去重、maxResults 截断', () => {
+describe('createDeepSeekProvider 纯函数（cr-486 /v1/tools/search）', () => {
+  it('mapSearchResponse：summary 填 content、date 前缀、rerank_score/3 归一、title 回退 URL、缺 url 跳过、maxResults 截断', () => {
     const data = {
-      content: [
-        { type: 'text', text: '模型前言' },
-        {
-          type: 'web_search_tool_result',
-          content: [
-            { type: 'web_search_result', url: 'https://a.com', title: 'A 页', page_age: '2025-01-01' },
-            { type: 'web_search_result', url: 'https://b.com' }, // 缺 title/page_age
-            { type: 'web_search_result', url: 'https://a.com' }, // 重复 URL
-            { type: 'web_search_result', url: 'https://c.com', title: 'C 页' },
-            { type: 'other_kind', url: 'https://x.com' }, // 非 web_search_result 项
-          ],
-        },
-        {
-          type: 'text',
-          text: 'SOURCE: https://b.com\nSUMMARY: B 摘要\n续行',
-          citations: [{ url: 'https://a.com', cited_text: 'A 引用片段' }], // citations 优先于 SUMMARY
-        },
+      results: [
+        { rerank_score: 2.4, title: 'A 页', url: 'https://a.com', snippet: 'A 短摘要', summary: 'A 长摘要', date: '2026-06-01T00:00:00+00:00' },
+        { url: 'https://b.com' }, // 全缺 → title 回退 URL、score 0、content 空串
+        { rerank_score: 9, url: 'https://cap.com', title: 'C 页' }, // 超 3 → 归一截到 1
+        {}, // 缺 url → 跳过
+        { rerank_score: 0.3, title: 'D 页', url: 'https://d.com', snippet: 'D 短摘要' }, // 无 summary → 回落 snippet
       ],
     };
-    const sources = mapAnthropicResponse(data, 5);
-    expect(sources).toEqual([
-      { title: 'A 页', url: 'https://a.com', snippet: 'A 引用片段', publishedAt: '2025-01-01' },
-      { title: 'https://b.com', url: 'https://b.com', snippet: 'B 摘要\n续行' },
-      { title: 'C 页', url: 'https://c.com', snippet: '' },
-    ]);
-    // maxResults 本地截断（API 无结果条数参数）
-    const clipped = mapAnthropicResponse(data, 2);
-    expect(clipped).toHaveLength(2);
-    expect(clipped[1]?.url).toBe('https://b.com');
+    const results = mapSearchResponse(data, 4);
+    expect(results).toEqual([
+      { title: 'A 页', url: 'https://a.com', content: '[2026-06-01T00:00:00+00:00] A 长摘要', score: 0.8, raw_content: null },
+      { title: 'https://b.com', url: 'https://b.com', content: '', score: 0, raw_content: null },
+      { title: 'C 页', url: 'https://cap.com', content: '', score: 1, raw_content: null },
+      { title: 'D 页', url: 'https://d.com', content: 'D 短摘要', score: 0.1, raw_content: null }, // 无 summary → snippet 兜底
+    ]); // 缺 url 项跳过，预算 4 全收
+    expect(mapSearchResponse(data, 2)).toHaveLength(2); // maxResults 截断
+  });
+
+  it('mapSearchResponse：空结果 / undefined 容错 → 空数组', () => {
+    expect(mapSearchResponse({ results: [] }, 5)).toEqual([]);
+    expect(mapSearchResponse(undefined, 5)).toEqual([]);
   });
 });
 
@@ -253,84 +191,42 @@ describe('createDeepSeekProvider search', () => {
     expect(() => provider.validateConfig({ apiKey: 'sk-x' })).not.toThrow();
   });
 
-  it('请求打到缺省 {baseURL}/messages，头/请求体按约定，响应归一化（publishedAt 前缀、名次递减 score）', async () => {
-    const data = {
-      content: [
-        { type: 'text', text: 'SOURCE: https://a.com\nSUMMARY: A 摘要' },
-        {
-          type: 'web_search_tool_result',
-          content: [
-            { type: 'web_search_result', url: 'https://a.com', title: 'A 页', page_age: '2025-06-01' },
-            { type: 'web_search_result', url: 'https://b.com', title: 'B 页' }, // 无摘要无时间 → content 空
-          ],
-        },
-        { type: 'text', text: 'ANSWER: 综合答案' },
-      ],
-    };
+  it('请求打到缺省 {baseURL}/tools/search：Bearer 鉴权、count 钳位（1~50）、need_content 缺省不发', async () => {
+    const data = { results: [{ rerank_score: 3, title: 'A 页', url: 'https://a.com', summary: 'A 摘要' }] };
     const fetchMock = vi.fn<FetchLike>(async () => jsonResponse(data));
     vi.stubGlobal('fetch', fetchMock);
 
-    const res = await provider.search({ query: '测试查询' }, { apiKey: 'sk-x' });
+    const res = await provider.search({ query: '测试查询', max_results: 80 }, { apiKey: 'sk-x' });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe('https://api.deepseek.com/anthropic/v1/messages');
+    expect(String(url)).toBe('https://api.deepseek.com/v1/tools/search');
     expect(init?.method).toBe('POST');
     expect(init?.redirect).toBe('error');
     const headers = init?.headers as Record<string, string>;
-    expect(headers['x-api-key']).toBe('sk-x');
     expect(headers.Authorization).toBe('Bearer sk-x');
-    expect(headers['anthropic-version']).toBe('2023-06-01');
     const body = JSON.parse(String(init?.body));
-    expect(body.model).toBe('deepseek-v4-flash');
-    expect(body.max_tokens).toBe(4096);
-    expect(body.messages[0].role).toBe('user');
-    expect(body.messages[0].content[0].text).toContain('测试查询');
-    expect(body.tools[0]).toEqual({ type: 'web_search_20250305', name: 'web_search', max_uses: 5 });
+    expect(body).toEqual({ query: '测试查询', count: 50 }); // 80 钳到 50，need_content 不发
 
     expect(res.query).toBe('测试查询');
-    expect(res.results).toHaveLength(2);
-    expect(res.results[0]).toMatchObject({
-      title: 'A 页',
-      url: 'https://a.com',
-      content: '[2025-06-01] A 摘要',
-      raw_content: null,
-    });
-    expect(res.results[0]?.score).toBeCloseTo(0.9);
-    expect(res.results[1]).toMatchObject({ title: 'B 页', url: 'https://b.com', content: '', raw_content: null });
-    expect(res.results[1]?.score).toBeCloseTo(0.8);
-    expect(res.answer).toBe('综合答案');
-    expect(typeof res.response_time).toBe('number');
+    expect(res.results).toEqual([
+      { title: 'A 页', url: 'https://a.com', content: 'A 摘要', score: 1, raw_content: null },
+    ]);
+    expect(res.answer).toBeNull(); // 纯检索端点无综合答案
     expect(res.credits_used).toBeNull();
+    expect(typeof res.response_time).toBe('number');
   });
 
-  it('baseURL/model/maxTokens/maxUses/apiVersion 覆盖透传（端点换成 {baseURL}/messages）', async () => {
-    const data = {
-      content: [{ type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.com' }] }],
-    };
+  it('baseURL 覆盖透传（端点换成 {baseURL}/tools/search）；max_results 缺省 5', async () => {
+    const data = { results: [{ url: 'https://a.com' }] };
     const fetchMock = vi.fn<FetchLike>(async () => jsonResponse(data));
     vi.stubGlobal('fetch', fetchMock);
 
-    const res = await provider.search(
-      { query: 'q' },
-      {
-        apiKey: 'k',
-        baseURL: 'https://gw.example/anthropic',
-        model: 'm-x',
-        maxUses: 2,
-        maxTokens: 128,
-        apiVersion: '2024-01-01',
-      },
-    );
+    const res = await provider.search({ query: 'q' }, { apiKey: 'k', baseURL: 'https://gw.example/ds' });
 
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe('https://gw.example/anthropic/messages');
-    const headers = init?.headers as Record<string, string>;
-    expect(headers['anthropic-version']).toBe('2024-01-01');
-    const body = JSON.parse(String(init?.body));
-    expect(body.model).toBe('m-x');
-    expect(body.max_tokens).toBe(128);
-    expect(body.tools[0].max_uses).toBe(2);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('https://gw.example/ds/tools/search');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).count).toBe(5);
     expect(res.results).toHaveLength(1);
   });
 

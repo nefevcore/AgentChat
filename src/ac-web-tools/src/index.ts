@@ -59,13 +59,19 @@ const ENV_KEY_MAP: Record<string, string> = {
   deepseek: 'DEEPSEEK_API_KEY',
 };
 
-/** settings['web-tools'] 的 per-Agent 配置形状（2026-09-03 起 UI 不再暴露，存量键兼容读取） */
+/** settings['web-tools'] 的 per-Agent 配置形状（2026-09-03 起 UI 不再暴露，存量键兼容读取）。
+ *  cr-486：model/maxUses/maxTokens/apiVersion 为旧 deepseek Messages 特型键，
+ *  专用搜索端点不消费——保留类型槽仅供存量读取，不再组装进 providerCfg */
 interface WebToolsSettings {
   provider?: string;
   baseURL?: string;
+  /** @deprecated 旧 deepseek Messages 特型键——忽略 */
   model?: string;
+  /** @deprecated 旧 deepseek Messages 特型键——忽略 */
   maxUses?: number;
+  /** @deprecated 旧 deepseek Messages 特型键——忽略 */
   maxTokens?: number;
+  /** @deprecated 旧 deepseek Messages 特型键——忽略 */
   apiVersion?: string;
   defaultResults?: number;
   defaultDepth?: 'basic' | 'advanced';
@@ -275,19 +281,13 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
           if (envVar && process.env[envVar]) apiKey = process.env[envVar]!;
         }
 
-        // 单次求值（positiveInt 双调用 → 局部变量）；settings 层覆盖池层
-        const maxUses = positiveInt(webSettings.maxUses ?? poolSettings.maxUses);
-        const maxTokens = positiveInt(webSettings.maxTokens ?? poolSettings.maxTokens);
+        // cr-486：deepseek 换用专用搜索端点后 provider 只认 baseURL（tavily
+        // 不消费 ProviderConfig 扩展字段）；model/maxUses/maxTokens/apiVersion
+        // 为旧特型键，存量 settings/池条目值静默忽略、不再组装
         const sBase = nonEmptyStr(webSettings.baseURL) ?? nonEmptyStr(poolSettings.baseURL);
-        const sModel = nonEmptyStr(webSettings.model) ?? nonEmptyStr(poolSettings.model);
-        const sApiVer = nonEmptyStr(webSettings.apiVersion) ?? nonEmptyStr(poolSettings.apiVersion);
         const providerCfg: ProviderConfig = {
           apiKey,
           ...(sBase ? { baseURL: sBase } : {}),
-          ...(sModel ? { model: sModel } : {}),
-          ...(maxUses !== undefined ? { maxUses } : {}),
-          ...(maxTokens !== undefined ? { maxTokens } : {}),
-          ...(sApiVer ? { apiVersion: sApiVer } : {}),
         };
         provider.validateConfig(providerCfg);
 
