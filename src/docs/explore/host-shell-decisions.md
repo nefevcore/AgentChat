@@ -184,6 +184,62 @@ layout 拆拓扑契约/形态壳（变体层）；③ 模块判定按功能模�
 时读面；⑤ 工作区 = 第三输入源（per-conversation，永不进指纹——单例锁与装配期指纹
 互斥的推论）。R7-5 / R7-9 待钉面细化至 ui-tree.md §5-7。
 
+# 〈tag 机制解体〉（2026-10-16 定向，cr-484）
+
+**tag 机制全链退役（方案 A）。** 导火索：R7-6 重工具行按需 boot 议题发现
+1:1 行词（sap-adt / harness / issue-report / dev）在壳模式下与行集开关语义重合，
+提出「放弃 tag」；深查后定性升级为职能过载——现状 AgentConfig.tags + 工具
+requiredTags 的全局扁平词汇同扛七职能（行装载信号 / 跨行捆绑 / 行内档位 / 授权
+资产引用 / 双闸声明面 / tier 档位词 / owner 私有词），per-agent 壳 + install =
+授权动作两裁决联手后，无一职能仍需全局扁平词汇承载。方案比对：A 全解体（七职能
+归位）/ B 中间态（1:1 行词退役、横切词保留）/ C 维持草稿（双闸不变）——裁 A：
+B 留下一层继续过载的词汇；C 接受七职能过载。与既有裁决关系：不推翻任何一篇——
+〈tag 目录静态化〉退役的是聚合行，本篇退役词汇本身（承其未尽，非否定）；E 节
+「tags 不动」是复用清单平移项非专项裁决，本篇为其上位修订。
+
+**七职能归位：**① 行装载信号 → 行集派生（AgentConfig 引用行 = 装即声明，行集
+谓词：点名工具 ∨ 引用行名）；② 跨行捆绑（fs / infra）→ 行集派生内消解（引用
+fs-tools 或 fs-search 均装载两行）；③ 行内档位（web+observe AND 地板 / collab
+admin 子集）→ 行自身词汇（settings 具名扩展 X1 / 行 config，行 owner 自治）；
+④ 授权资产引用（AssetRef.tag）→ 行引用资产（install = 授权动作同语义，静态行
+补齐同款 AssetRef.row）；⑤ 声明面双闸 → 行集 ∧ 授权投影（C1 换词汇不换强度：
+全局授予只对装了该行的 agent 生效，双闸形状不变）；⑥ tier 词（full-access /
+sandbox-access）→ 权限档位轴词汇，非 tag（本来就不进 requiredTags，正交轴）；
+⑦ owner 私有词（agent:<id>）→ 行集隔离物理覆盖（install 是 per-agent 授权动作，
+装进 owner 自己的壳；共享 = 他人各自 install）。
+
+**连锁消解：** R7-6 消解（装载信号 = 行引用，无特例；「默认胖瘦」降格为默认预设
+模板含哪些行的产品题）；requiredTags 全链退役（「装了即可见」即语义，base 等价词
+随之消亡；mode 词断言消解）；resolveToolNames tag: 展开改轨为行展开（M15 词形
+修订）；UI 徽章 / canAddTool / tagExclusive 改读行集与授权投影。遗留子项两枚 ◐：
+a. 行内档位词统一形态（web observe/manipulate、collab admin——settings X1 vs 行
+config，倾向 settings）；b. 现状 192 处 requiredTags 迁移批次（行内档位词改挂行
+config，删除工具 requiredTags）。
+
+# 〈patch 机制退役〉（2026-10-16 定向，cr-485）
+
+**patch 机制整体退役，两树同形 boot。** 议题源：R7-7（patch 归属：宿主专属 vs
+两树各持）。初判 A（宿主专属）的两条支柱被「壳可独立拉起，为什么 boot 要是
+cordis.patch.yml」一问拆穿：①「宿主树唯一合法运行时写入口」把机制当必需——宿主
+树要的只是停用行能力，loader patch 只是现状实现；宿主树 = 固定第一方行集（47 行
+无第三方，S2），全部可变性 = 减去用户停用行，与壳行集派生同构；②「急救通道需要
+patch 层」实为需要**带外可写**（级联死后仍可改）——偏好文件人可读手编 + RPC 写
+文件，带外性质不变（webui 本身死 → 手工编辑 = 现状真盲区处置不变）。现状反证：
+cordis.patch.yml 消费者仅两宿主启动器 + 测试；boot.ts 内联官方 bin.js 的唯一理由
+就是注入 patches（M23 A2）——机制退役后宿主 boot 可回官方路径。B（两树各持）在
+〈装配期派生〉已死：壳行集双来源无解。
+
+**终态：boot 形态全域单一 = 清单驱动装配。** 宿主：数据根一份宿主行集偏好文件
+（形状沿用 {id, disabled}，人可读手编）→ ac-rowset-core 派生宿主清单 → 装配；壳：
+argv 派生清单 → 装配。cordis.patch.yml / loader patches 注入 / 热通道
+（setPatch 动态装卸）/ patch-rpc 形态（plugin/patch-list·patch-set·patch-reset）
+全退役。急救能力保留：带外行位不变（级联存活设计），写目标 = 宿主行集偏好文件，
+恒冷生效——宿主重启走 guardian 重启入口（壳进程独立存活、数据全在文件，宿主重启
+变便宜 = 新架构红利）。代价：停用宿主行从热变冷（重启一次）——宿主行变更低频，
+接受。「行集唯一来源 = 派生」从壳推广到全域；与 R-7 两形态同根同族（宿主与壳
+同形 boot 是该断言在装配面的下半句）。遗留 ◐ 一枚：宿主行集偏好文件的 schema
+细节（是否兼当 CLI 直连形态的宿主清单源）随 ac-rowset-core 设计落。
+
 # 〈账目与修正史〉
 
 - ui 族账目：v1 记 27，yml 实数 31（25 域行 + 骨架 6）——v2 修正。
@@ -212,6 +268,8 @@ layout 拆拓扑契约/形态壳（变体层）；③ 模块判定按功能模�
   项目桩行唯一通道收敛）；「并后宿主 42」算误修正。
 - cr-476：webui 表面单包化（〈骨架归并〉双址残余收口；extensions 消融）。
 - cr-478：ui 树定调 + 工作区语境 + workspace 七面收口 + 骨架 3+4 解构（ui-tree.md 立；清单 R7-5 收口）。
+- cr-484：tag 机制解体（方案 A）——requiredTags/tags 全链退役、七职能归位、双闸换轨；R7-6 消解。
+- cr-485：R7-7 收口——patch 机制整体退役，两树同形 boot（清单驱动装配全域单一）；行集唯一来源 = 派生推广全域。
 
 ## 本档案纪律
 

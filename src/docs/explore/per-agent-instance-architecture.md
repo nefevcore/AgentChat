@@ -13,6 +13,8 @@
 > 闭环前置全闭合（余实现件）。
 > 同日修订五：R-12 MCP 归属裁决（三条全由已裁原则推出）。同日修订六：R-10 裁决
 > （preview 旁路重建模型，cutover 导入语义，见族三 R-10）——待裁决清单前置项全部清空。
+> 2026-10-16 修订：tag 机制解体（cr-484）——D1 工具面 tags 退役（声明面 = 行集引用，
+> 七职能归位与授权侧换轨见裁决簿〈tag 机制解体〉与 auth 草稿修订）。
 > 配图（2026-10-13 版）未随修订更新。
 > 仓内相关：cell-runtime-and-architecture-evolution.md（CR-316）、ac-session（writer 队列 +
 > 数据根独占锁）、ac-conversation（inbox 双队列 + steer-stash durable）、ac-group（群转录
@@ -41,7 +43,7 @@ Agent 拥有 per-agent 账本（agents/<id>/sessions/<uuid>/），投递不经�
 Agent 实例 = {
   账本    agents/<id>/sessions/<uuid>/    一等事实源，单写者（实例自身或其代理 writer）
   激活    activation（无常进程/子树）：同一 agent 同时只有一个激活实例（单例锁）
-  工具面  AgentConfig.tags / include / exclude + 信封展开（resolveEffectiveTools 语义不变）
+  工具面  AgentConfig 行引用 / include / exclude + 信封展开（resolveEffectiveTools 语义不变；tags 已随 tag 机制解体退役——cr-484，装载信号 = 引用行即声明）
   身份    注册表数据（agents/ 树）：模型引用、人格、记忆、档案——数据身份与运行身份分离
 }
 ```

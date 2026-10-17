@@ -5,6 +5,10 @@
 > 授权投影）、R-11 ③（凭据直读）、R-12（MCP 归属）；shell-model S3（授权宽度 = 参数）；
 > 协议规格 E 节（grant 事务）。配套：host-shell-row-manifest.md v3（auth-registry 行 + 壳侧
 > tools 门——security-exec 已改判非行，见行集清单 v3 R4）。
+> 2026-10-16 修订（cr-484）：tag 机制解体上位修订——C 节投影 ∩ AgentConfig.tags
+> 换轨为 ∩ 行集；AssetRef.tag → AssetRef.row（行引用资产，与 install = 授权动作
+> 同语义）；E 节「AgentConfig.tags 不动」平移项废止，双闸强度不变（全局授予只对
+> 装了该行的 agent 生效）。依据：裁决簿〈tag 机制解体〉。
 
 # A. 总形态
 
@@ -38,9 +42,9 @@ interface GlobalAuthEntry {
   id: string;                    // 稳定条目 id（UUIDv7）
   asset:
     | { kind: 'credential'; ref: string }          // credentials/ 内条目名（引用不复制）
-    | { kind: 'plugin-row'; rowId: string }        // 插件行装载授权（装载 = 授权动作）
+    | { kind: 'row-load'; rowId: string }         // 行装载授权（装载 = 授权动作；静态行
+                                                   //   与插件行同语义，cr-484）
     | { kind: 'mcp-server'; name: string }         // MCP 服务器放行
-    | { kind: 'capability-tag'; tag: string };     // 能力标签（shell/web/issue-report…）
   grantedAt: string;             // ISO 时间
   grantSource: 'user-webui' | 'grant-letter';     // 用户直配 or 授权信受理
   revokedAt?: string;            // 墓碑：非空 = 已吊销（不物理删——审计 + 指纹稳定）
@@ -58,7 +62,8 @@ interface AgentAuth {
   materializedAt?: string;       // children 有：spawn 时间
   grants: AssetRef[];            // 授权资产引用集（全局条目 id 或内联字面量）
   denials: AssetRef[];           // 显式拒绝集（投影减法项；user 对 child 的收紧）
-  // AssetRef = { globalId?: string; tag?: string; mcp?: string; inline?: InlineAsset }
+  // AssetRef = { globalId?: string; row?: string; mcp?: string; inline?: InlineAsset }
+  //   （row = 行引用资产：install 同语义；tag 引用已随 tag 机制解体退役——cr-484）
 }
 ```
 
@@ -72,13 +77,13 @@ grant 事务 priorFingerprint / 回执新指纹（协议规格 E）对此对拍�
 
 ```
 effective(agent) = { a ∈ 全局层有效条目 ∪ per-agent 内联条目 | a ∉ denials }
-                   ∩ AgentConfig.tags（工具面声明）
+                   ∩ 行集（装配期派生清单——AgentConfig 行引用）
                    ∩（children：直接读物化快照的 grants/denials——不重算，
                       物化即快照，父此后改配置不传播，R-5）
 
 语义要点：
-1. 全局 ∩ tags：全局授予但 Agent 未声明该 tag 的能力 → 不生效（声明面与授权面双闸，
-   现状 requiredTags 语义平移）；
+1. 全局 ∩ 行集：全局授予但该 agent 未装对应行 → 不生效（声明面与授权面双闸，
+   声明面从 tags 换轨为行集引用——裁决簿〈tag 机制解体〉）；
 2. denials 优先于一切（显式拒绝 > 全局授予 > per-agent 授予）；
 3. children 不做运行时投影——物化即快照；
 4. 每 run 前重读 = 生效时点语义（协议规格 E：最终一致，在线吊销最坏延迟 =
@@ -101,11 +106,11 @@ effective(agent) = { a ∈ 全局层有效条目 ∪ per-agent 内联条目 | a 
 
 | 现状 | 去向 |
 |---|---|---|
-| ac-security requiredTags / needPermission 语义 | C 节投影算法双闸 + 审批信实例化 |
+| ac-security requiredTags / needPermission 语义 | C 节投影算法双闸 + 审批信实例化；requiredTags 词汇已随 tag 机制解体退役（cr-484），门禁 = 行集 ∧ 投影 |
 | ac-credentials 凭据库 | credentials/ 原位保留（引用制，物理单副本） |
 | ac-workspace agentWorkdir / 授权目录 | 内联字面量资产（InlineAsset { workdir, allowedDirs }）进 per-agent grants |
 | ac-mcp 行 config.servers | mcp.json 迁数据根（R-12：清单 = 授权资产） |
-| AgentConfig.tags（声明面） | 不动——与授权面正交双闸（C1） |
+| AgentConfig.tags（声明面） | 退役——声明面换轨为行集引用（工具点名 ∨ 行名），与授权面双闸形状不变（C1 修订，cr-484） |
 
 # F. 待钉（◐ 动工时）
 

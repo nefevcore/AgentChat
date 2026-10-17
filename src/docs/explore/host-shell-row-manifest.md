@@ -34,7 +34,7 @@
 3. **独立装载档位**：按行粒度选择装 / 不装，是有意义的产品或工程决策？
 
 判例五则（锁 / 指纹 / 授权投影 / 群拓扑 / Agent 在场性）与原理：裁决簿
-〈行资格判例〉。
+〈行资格判例〉。tag 机制解体判例（七职能归位）：裁决簿〈tag 机制解体〉。
 
 # R1. 宿主树（47 行 = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 5 + 传输/web 4 + 插件治理 3 + 远程 1 + ui 域行 25）
 
@@ -53,7 +53,7 @@
 | 数据服务 | backup | ac-backup | 数据轴备份 + 快照链 GFS（分轴共行） | 改造（吸收 snapshot-chain） |
 | 数据服务 | session-query | ac-session-query | 多根只读搜索 | 改造 |
 | 传输/web | web-server / ws-bridge / webui / web-api | ac-web-* | 传输基座 + 桥接 + web 表面 + RPC 编排；**webui = 单包表面**（src/ 服务半边 + client/ 前端半边含骨架资产——裁决簿〈骨架归并〉）；会话历史读 = 文件直读，流式 token = 宿主转发（〈webui 读投影〉） | 沿用 |
-| 插件治理 | plugin-registry | ac-plugin-registry | 装载裁决 + patch RPC + 熔断闸门 + 动态插件行集条目注入（install = 授权动作 → 壳行集，第三方代码零宿主驻留）+ client 半边 manifest 注入（〈插件 client 通道〉） | 改造（吸收 patch-rpc + plugin-gates） |
+| 插件治理 | plugin-registry | ac-plugin-registry | 装载裁决 + 熔断闸门 + 动态插件行集条目注入（install = 授权动作 → 壳行集，第三方代码零宿主驻留）+ 宿主行集偏好急救 RPC（写偏好文件，恒冷生效——〈patch 机制退役〉）+ client 半边 manifest 注入（〈插件 client 通道〉） | 改造（吸收 patch-rpc + plugin-gates；patch 热通道与 patch-rpc 形态退役） |
 | 插件治理 | plugin-market / event-policy | ac-plugin-market / ac-event-policy | 市场 + 事件策略（全局治理门） | 沿用 |
 | 远程 | remote-link | ac-remote-link | 远程链路 | 沿用 |
 | ui | ui 域行 ×25 | ac-client-ui-* | 域卡片行（卸载 → 该域卡片回落文本渲染）；id 清单以 yml 为准（31 − 骨架 6；骨架经 ui 树解构为协议 3 件入 ac-webui，conversation/settings/tool 转模块资产——ui-tree.md §2） | 沿用（通道建成后续批收敛 manifest 声明——R7-9） |
@@ -69,7 +69,7 @@
 | 模型编排 | llm / llm-pool / agent-loop | ac-llm 族 / ac-agent-loop | 模型会话 + 连接池（凭据直读数据根，R-11 ③）+ ReAct 编排 | 沿用 |
 | 装配链 | persona / system-prompt / memory | ac-persona 等 | 装配链（persona 身份数据只读；memory 经验数据本壳写） | 沿用 |
 | 任务追踪 | goal / todo | ac-goal / ac-todo | 任务追踪 | 沿用 |
-| 工具面 | 16 行 | fs-tools / fs-search / file-snapshots / str-replace-editor / shell-tools / run-code / math / web-tools / issue-tools / harness-tools / sap-adt / dev-tools / datetime / skill / collab-tools / mcp | agent 工具面（MCP 照 R-12；issue / harness 令牌链直读 credentials 纯库；sap-adt 吸收 preset 子行） | 沿用 |
+| 工具面 | 16 行 | fs-tools / fs-search / file-snapshots / str-replace-editor / shell-tools / run-code / math / web-tools / issue-tools / harness-tools / sap-adt / dev-tools / datetime / skill / collab-tools / mcp | agent 工具面（MCP 照 R-12；issue / harness 令牌链直读 credentials 纯库；sap-adt 吸收 preset 子行；tag 门禁词全链退役——装载 = 行集引用，行内档位 = 行自身词汇，裁决簿〈tag 机制解体〉） | 沿用 |
 | 域服务 | conv-settings | ac-conv-settings | 会话级覆盖读面（会话粒度运行时门） | 改造 |
 | 域服务 | subagent | ac-subagent | 子 Agent（R-5：children 嵌套物化 + spawn ⊆ 授权投影） | 改造 |
 | 域服务 | durable-interaction / ask-questions | ac-durable-* | 交互承重（数据化 boot；审批 = user 端点消息） | 改造 |
@@ -86,15 +86,18 @@
 | ac-fingerprint-core | Merkle 内容树 + 规范化 + 子指纹（R-7）——两形态同根断言的物理载体 | guardian verify 节拍（宿主）+ 壳 boot stdout 自报 |
 | ac-auth-core | 授权投影算法（授权草稿 C） | 壳 tools 门（每 run 前重读现算） |
 | ac-agents-core | AgentConfig 契约 owning + 词汇纯函数（tierOf / toolModeOf / resolveToolNames / narrowToolsByMode / displayNameOf）+ settingsOf 纯函数化 + agents/&lt;id&gt;/ 树直读 + children 嵌套解析（R-6 直读第四层） | 壳 run 前重读（装配链 / 门 / subagent）+ 宿主编辑面词汇共用 |
-| ac-rowset-core | 行集推导器：AgentConfig（tools 点名 + tag 展开）× 全局行集目录（cordis.yml 降格为全集目录）→ 壳行集派生清单；+ tag 目录静态投影（per-agent 化——装了 fs-tools 行才见 fs 词，编辑面与壳存活期解耦）；AgentConfig 入指纹输入 | 宿主 boot 现算（argv 传清单引用）+ CLI 本地派生；tags/catalog RPC 数据源；TagDeclaration 类型随迁 |
+| ac-rowset-core | 行集推导器：AgentConfig（tools 点名 + 行引用——tag 展开退役，行集谓词：点名工具 ∨ 引用行名；fs / infra 类捆绑词在派生内消解）× 全局行集目录（cordis.yml 降格为全集目录）→ 壳行集派生清单；+ 行目录静态投影（per-agent 化——目录只出现该 agent 行集内的词，编辑面与壳存活期解耦；承〈tag 目录静态化〉改投影对象）；AgentConfig 入指纹输入 | 宿主 boot 现算（argv 传清单引用）+ CLI 本地派生；tags/catalog RPC 数据源；TagDeclaration 类型随迁 |
 | ac-credentials（降格） | 行降格为注入纯库（R-11 ③ 物理单副本两侧共用） | 两侧共用（写者面 = auth-registry） |
 
 ## R3.2 壳 boot 编排骨架（编排代码，非行序）
 
 ```
+两树同形（清单驱动装配，cr-485）：宿主 = 宿主行集偏好文件（数据根，形状 {id,
+disabled} 沿用）→ ac-rowset-core 派生宿主清单；壳 = argv 派生清单。cordis.patch.yml /
+loader patches / 热通道全退役。
 acquire activation.lock（O_EXCL + pid 探活 / 陈锁接管，协议规格 C）
 → 读 argv 行集清单引用（宿主派生 / CLI 本地派生，ac-rowset-core）
-→ 行集静态断言（档位/模式词不进 requiredTags、mode 通道不挂 tags——纯函数）
+→ 行集静态断言（行引用存在性、行 config 自洽——纯函数；requiredTags 断言面已随 tag 退役消解）
 → ledger（写权随锁）
 → conversation / tools（门装配）
 → 其余行按 inject 声明自行激活（cordis PENDING 机制）
@@ -111,12 +114,12 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 |---|---|---|
 | activation-lock / fingerprint ×2 / agents-readonly / user-stub / usage-report / snapshot-chain / security-exec（v1 虚拟行） | boot 编排 / 共享纯库 + guardian 节拍 / ac-agents-core / conversation 行内 / ledger 行内 / backup 行内 / ac-auth-core + tools 门 | 行资格三问皆否——裁决簿〈新增件资格判定〉 |
 | agents-dir / agent-store | agents 行内（物理布局 + 写引擎） | 编辑面内部实现 |
-| patch-rpc / plugin-gates / sap-adt-preset | 本体包内 | 包内文件 / 小包 / 子行 |
+| patch-rpc / plugin-gates / sap-adt-preset | 本体包内 | 包内文件 / 小包 / 子行。patch 机制终态补钉（cr-485）：patch-rpc 形态与热通道整体退役，急救能力转宿主行集偏好 RPC（写偏好文件）——裁决簿〈patch 机制退役〉 |
 | restart | guardian 行内 | 宿主进程生命周期 = 监护职责 |
 | job-wakeup | 壳 jobs 行内（三投递策略随迁） | 唤醒面随 worker 父级走——裁决簿〈jobs 归属〉 |
 | group | 解散：扇出 → 邮局；拓扑 → 数据根；编辑 → webui 卡片 | 群 = multicast 地址表（数据不配行） |
 | workspace | 解散七面（ui-tree.md §7）：①引导→boot 编排；②沙箱推导→ac-sandbox-core 纯库；③⑤⑥文件/本机交互/类型→ac-files 模块（后端半=宿主行+client 半=ui 树）；④登记→auth-registry（能力语境目录）；⑦能力语境发现→壳行运行时读面 | 行资格三问皆否；工作区=第三输入源（ui-tree.md §6） |
-| tag-registry | 解散：catalog → ac-rowset-core 静态投影；启动断言 → boot 编排；类型随迁 | 现算依赖宿主在场——裁决簿〈tag 目录静态化〉 |
+| tag-registry | 解散：catalog → ac-rowset-core 静态投影；启动断言 → boot 编排；类型随迁。终态补钉：tag 词汇本身全链退役（requiredTags / AgentConfig.tags / AssetRef.tag），行目录投影替代 tag 目录投影——裁决簿〈tag 机制解体〉 | 现算依赖宿主在场——裁决簿〈tag 目录静态化〉+〈tag 机制解体〉 |
 | ac-agents 注册表瓣 | 活注册表退役；物化拆 create-from-template + transient boot；reassign 被 R7-8 裁向覆盖 | 两轴分离——裁决簿〈注册表解体〉 |
 | ac-agent-presets | 目录静态化归并 agents 编辑面行 | 模板目录 = 静态数据 |
 
@@ -153,8 +156,8 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 | 3 | webui 读投影 | ✅ 三拆齐定向 → 裁决簿〈webui 读投影〉（user 账本聚合 = 形态二） |
 | 4 | ui 骨架六件归并 | ✅ 并入 webui 本体（phase:'base' 退役）→ 裁决簿〈骨架归并 webui 本体〉；后续解构修订：协议 3 件入包 + conversation/settings/tool/markdown 管线转模块 → ui-tree.md §2 |
 | 5 | workspace 残留面核查 | ✅ 七面解散收口（③⑤⑥ 重组 ac-files 模块 / ② 纯库化 sandbox-core / ⑦ 工作区语境面）→ ui-tree.md §6-7 + 裁决簿〈ui 树定调〉 |
-| 6 | 重工具行按需 boot | ◐ sap-adt / harness / issue 全量 vs 按需进默认壳集（裁剪两级已定向——裁决簿〈装配期派生〉） |
-| 7 | patch 机制归属 | ◐ 宿主专属 vs 两树各持——与两形态同根断言（R-7）交互 |
+| 6 | 重工具行按需 boot | ✅ 消解（tag 机制解体连锁）——装载信号 = AgentConfig 引用行即声明，无特例；「默认胖瘦」降格为默认预设模板含哪些行的产品题 → 裁决簿〈tag 机制解体〉 |
+| 7 | patch 机制归属 | ✅ 整体退役，两树同形 boot（清单驱动装配：宿主 = 偏好文件 → 派生，壳 = argv 派生清单）→ 裁决簿〈patch 机制退役〉 |
 | 8 | AgentConfig 变更生效路径 | ◐ 自然生灭 vs guardian 观察指纹变更主动优雅重拉——监护 spike |
 | 9 | 插件 client 通道（ui 树装配） | ◐ 框架升格 → ui-tree.md（三树同构 + 骨架=协议持有者 + manifest 三树投影）；执行端 = ac-webui/client/；schema / 注入语义 / 拓扑贡献开放度（③ 级挂拓扑+换壳）/ 存量收敛批次待设计 |
 

@@ -128,6 +128,10 @@ requestId / budget 语义（不幂等、不确认、不入发件箱——outbox 
 
 # D. 宿主监护信号（S2 监护职责）
 
+> 2026-10-16 补充（cr-485）：宿主自身 boot 同形 = 清单驱动装配（宿主行集偏好文件 →
+> ac-rowset-core 派生宿主清单；cordis.patch.yml / loader patches 退役）——两树同形
+> boot，行集唯一来源 = 派生全域单一。见裁决簿〈patch 机制退役〉。
+
 ## D1. 信号面（宿主 guardian 行 ↔ agent 壳，stdio）
 
 宿主拉起壳进程时经 argv 传递：数据根锚定、agentId、授权投影引用、行集清单引用（ac-rowset-core 派生）、（CLI 形态反向：
