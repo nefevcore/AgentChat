@@ -6,6 +6,12 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（独立会话整行前端面消失根修：行 client 半边 default 出口被误判死代码删除，cr-487）
+- **现象**：`ui-singles` 行整片前端面静默消失——独立会话列表（主侧边栏 sessions 面板）、独立会话视角（single，order 40）、会话头动作族（归档等）全部不出现；浏览器 console 仅一行 `[boot-graph] 行 "ui-singles" client 模块缺省导出插件（default apply）——跳过`。
+- **根因**：cr-459（10-15）精简按「全仓 grep 零消费」判死，删掉 `ac-client-ui-singles/client/index.ts` 的 `export default singlesClientPlugin;`——全仓 10 个消费点确实全走具名出口。但真正的消费方是 **boot graph 的动态 import 装载面**：`bootGraph.ts` 的 `loadEntry` 只认 `mod.default.apply`，具名出口再全也不算装载面，静态 grep 永远扫不到这条边。全仓 31 个 `ac-client-ui-*` 行 client 半边中，唯此一处缺 default 出口。
+- **修复**：恢复 default 出口（附契约 why 注释：此出口是装载面本体、grep 判死会漏），并补两道回归锁——① `webui/tests/boot-graph.integration.test.ts` 末节：走真装载器路径（fake 图 + 真 `rowClientLoaders` 动态 import）装载 ui-singles，断言 `ctx.singleBoard` 与三处席位真实落位、且无「缺省导出插件」warn（缺 default 时本条实测红）；② 新增 `webui/tests/row-client-default-export.test.ts`：跨 31 行结构锁，逐行断言入口具 `export default <标识符>`（注释剔除后静态扫，零模块求值）。
+- **判死纪律补注**：行 client 半边入口的 default 出口属**外部装载契约面**，「全仓 grep 零消费」不构成死代码证据；同类入口（boot graph 动态装载的模块入口）判死前须查动态 import 消费面。
+
 ## [0.8.16] - 2026-10-08
 
 ### Fixed（Agent 创建缺 id 报错根修，cr-307）

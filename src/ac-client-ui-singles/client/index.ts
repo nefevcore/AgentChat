@@ -429,3 +429,10 @@ export const singlesClientPlugin = clientPlugin({
     );
   },
 });
+
+// boot graph 装载契约（webui/src/runtime/bootGraph.ts loadEntry 只认
+// mod.default 的 apply）——本件是行 client 半边入口，default 出口不是
+// 冗余别名而是装载面本体：md 的「全仓零消费」grep 扫不到动态 import 面，
+// cr-459 曾据此判死删除 → ui-singles 整行被装载器静默跳过。
+// 跨行一致性由 webui/tests/row-client-default-export.test.ts 锁定。
+export default singlesClientPlugin;

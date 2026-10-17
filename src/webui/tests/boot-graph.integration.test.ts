@@ -12,6 +12,7 @@ import { bootWebuiRuntime } from './lib/webuiBoot';
 import { makeRpcStub } from './lib/rpcStub';
 import { rowClientLoaders } from '../src/runtime/virtual-row-clients';
 import { runviewClientPlugin } from 'ac-client-ui-runview/client';
+import { rosterClientPlugin } from 'ac-client-ui-agents/client';
 import { applyBootGraph } from '../src/runtime/bootGraph';
 
 describe('S3 · boot graph 装载器（静态映射 + 行装载）', () => {
@@ -72,6 +73,60 @@ describe('S3 · boot graph 装载器（静态映射 + 行装载）', () => {
       expect(ctx.slots.entries('tool-card:result-view').map((e) => e.id)).toContain('todo');
     } finally {
       delete rowClientLoaders['ui-todo'];
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+// ============================================================
+// 装载契约回归锁（cr-487 事故）：行 client 半边**必须**具 default 出口。
+//
+// 事故实录：cr-459 精简按「全仓 grep 零消费」判死删除
+// ac-client-ui-singles/client 的 `export default`（全仓 10 个消费点全走具名
+// singlesClientPlugin，静态 grep 确实零命中），但真正的消费方是 boot graph
+// 的动态 import 装载面——loadEntry 只认 mod.default.apply，该行随即被
+// 静默跳过（console 一行 warn），sessions 列表面板 / single 视角 /
+// header 动作族整片消失。既有测试全部直装具名出口，故全绿放行。
+//
+// 本锁走真装载器路径（fake fetch 给图 + 真 rowClientLoaders 动态 import），
+// 与既有用例「直装 singlesClientPlugin」互补：那条测插件本体，这条测
+// 「宿主真能把它装起来」。
+// ============================================================
+describe('S3 · 行 client 半边 default 装载契约（cr-487 回归锁）', () => {
+  it('ui-singles：boot graph 装载路径真装载 → ctx.singleBoard 就位（非静默跳过）', async () => {
+    const stub = makeRpcStub();
+    const boot = await bootWebuiRuntime(stub.impl);
+    const ctx = boot.ctx;
+    // 行 inject 前提：singles 行要 roster（fiber 等待，缺则本用例永不落定）
+    await ctx.plugin(rosterClientPlugin);
+    const graph = {
+      clients: [{ name: 'ui-singles', entry: '/@fs/ac-client-ui-singles/client/index.ts', platform: 'web' }],
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: true, json: async () => graph } as Response)) as typeof fetch;
+    const warns: unknown[][] = [];
+    const realWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warns.push(args); };
+    // 真映射 = 真动态 import 该行 client/index.ts——装载器读其 default
+    rowClientLoaders['ui-singles'] = () => import('ac-client-ui-singles/client');
+    try {
+      await applyBootGraph();
+      // 缺 default 出口时本断言失败（装载器 warn + 跳过，服务面缺席）
+      expect(ctx.singleBoard).toBeDefined();
+      expect(warns.filter((a) => String(a[0]).includes('缺省导出插件'))).toEqual([]);
+      // 三处贡献面真实落位（席位 = 行存在的证据面）
+      expect(ctx.slots.entries('primary-sidebar:domain').map((e) => e.meta?.panel)).toContain('sessions');
+      expect(ctx.slots.entries('main:perspective').map((e) => e.id)).toContain('single');
+      expect(ctx.slots.entries('conversation:header-widget').map((e) => e.id)).toContain('single-actions');
+    } finally {
+      console.warn = realWarn;
+      // 清装载器账本（loadedRows 模块级常驻）：喂空图 + 变更帧 → 该行 fiber
+      // 级联回收，防污染同文件其余用例
+      globalThis.fetch = (async () =>
+        ({ ok: true, json: async () => ({ clients: [] }) } as Response)) as typeof fetch;
+      stub.emit('webui/boot-graph-changed', 'ui-singles');
+      await new Promise((r) => setTimeout(r, 500)); // debounce 300ms + 余量
+      delete rowClientLoaders['ui-singles'];
       globalThis.fetch = realFetch;
     }
   });
