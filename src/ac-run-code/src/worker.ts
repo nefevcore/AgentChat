@@ -398,13 +398,13 @@ async function main(): Promise<void> {
     },
   }) as typeof libMethods;
 
-  // ── log：输出收集通道（复合返回协议）──
+  // ── log：输出收集通道（复合返回协议）——与 return 通道同预算口径 ──
   // 程序内 log(...) 按序收集；return 有值 → valueVia='return'（return 优先）；
   // 无值有 log → 收集行合成 value（valueVia='logs'）；失败/中止 → 末 5 条随
-  // done 作 logsTail（诊断线索）。条目上限 500 / 单条截 2000 字符——防循环
-  // 刷 log 撑爆收集面（超限丢弃计数，合成时标注）。
+  // done 作 logsTail（诊断线索）。条目上限 500——防循环刷 log 撑爆收集面
+  // （超限丢弃计数，合成时标注）；单条体积与 return 同走 maxOutputBytes 头尾
+  // 保留截断（cr-534：退役独立 2000 字符上限——两套口径是认知税）。
   const LOG_ENTRY_LIMIT = 500;
-  const LOG_CHAR_LIMIT = 2_000;
   const logs: string[] = [];
   let logsDropped = 0;
   const log = (...args: unknown[]): void => {
@@ -422,7 +422,7 @@ async function main(): Promise<void> {
         }
       })
       .join(' ');
-    logs.push(line.length > LOG_CHAR_LIMIT ? `${line.slice(0, LOG_CHAR_LIMIT)}…[log 条目截断：原始 ${line.length} 字符]` : line);
+    logs.push(enforceOutputBudget(line, init.maxOutputBytes));
   };
 
   // 程序体：先包裹（async IIFE——顶层 return 合法化）再类型擦除。
@@ -482,7 +482,9 @@ async function main(): Promise<void> {
     // logsTail 只进宿主轨迹不进 LLM 面，2026-10-09 复盘：崩溃现场恰恰
     // 最需要已收集的诊断线索）
     const tail = logs.length > 0 ? logs.slice(-3) : [];
-    const withTail = tail.length > 0 ? `${msg}\n〔程序内 log（末 ${tail.length} 条）〕\n${tail.join('\n')}` : msg;
+    // 尾行并入同受总预算约束（cr-534）：单条放宽后 3 条尾行可达数倍预算——
+    // error 回 LLM 面，合成后一次截断防撑爆
+    const withTail = tail.length > 0 ? `${msg}\n〔程序内 log（末 ${tail.length} 条）〕\n${enforceOutputBudget(tail.join('\n'), init.maxOutputBytes)}` : msg;
     if (aborted || /程序已中止/.test(msg)) {
       result = { ok: false, interrupted: true, error: withTail };
     } else {

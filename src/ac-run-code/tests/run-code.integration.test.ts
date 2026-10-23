@@ -895,6 +895,28 @@ describe('ac-run-code：复合返回协议（return / log）', () => {
     expect(out.value).toContain('行499');
     expect(out.value).toContain('丢弃 3 条');
   });
+
+  it('单条 log 超预算：与 return 同口径头尾保留截断（cr-534——退役 2000 字符独立上限）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "log('头标' + 'x'.repeat(4000) + '尾标');", { max_output_bytes: 1000 });
+    expect(r.ok).toBe(true);
+    const out = r.output as { value: string; valueVia: string };
+    expect(out.valueVia).toBe('logs');
+    // 同 enforceOutputBudget 形态：头 60% / 尾 20% + 截断标注
+    expect(out.value).toContain('头标');
+    expect(out.value).toContain('尾标');
+    expect(out.value).toContain('输出超预算截断');
+    expect(out.value).not.toContain('条目截断');
+  });
+
+  it('失败路径：error 并入的 log 尾行同受总预算约束（cr-534）', async () => {
+    const { ctx } = await boot({ agentTags: ['fs', 'infra'] });
+    const r = await call(ctx, "log('甲' + 'x'.repeat(4000)); throw new Error('boom');", { max_output_bytes: 1000 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('boom');
+    // 预算 1000B 挡住尾行膨胀——error 总长不随单条 log 体积线性增长
+    expect(r.error!.length).toBeLessThan(2500);
+  });
 });
 
 // ============================================================

@@ -137,6 +137,13 @@ export class McpService extends Service {
     }));
   }
 
+  /** 工具名 → 所属服务器名（非 MCP 工具 = undefined）——授权门反查用
+   * （cr-527：M8.6 tools 门按 mcp-server 资产投影裁断，机器事实源而非
+   * description 前缀——LLM 可见面非契约） */
+  serverOfTool(toolName: string): string | undefined {
+    return this.toolServers.get(toolName);
+  }
+
   /**
    * 发现并注册全部 enabled 服务器的工具（幂等：已 synced 跳过）。
    * 并发 run 单飞：同服务器在飞 sync 直接等待复用——loop/before-run

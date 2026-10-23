@@ -78,6 +78,8 @@ export interface RunCodeRowOptions {
  * 输出预算缺省 64KB（cr-10 全量复盘定标：489 会话 19008 次调用，截断 0.5% 且
  * 100% 走 return 通道，超限 p50≈45.8K——64K 档消除 71% 事件；正常返回 93%<16K，
  * 提额不伤常态。16→32 前史见复盘 a7828839：编辑工作流需 return 待改文件全文）。
+ * cr-534 起单条 log 与 return 同口径共用本预算（退役 2000 字符独立上限——
+ * 两套截断口径是认知税）。
  */
 const DEFAULTS = { maxWallMs: 720_000, maxOutputBytes: 64 * 1024 };
 

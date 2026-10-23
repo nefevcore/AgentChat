@@ -12,7 +12,7 @@ import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { singleDialog } from './feed.ts';
-import { Avatar, BusyRing, Chip, Icon, toastError } from '@agentchat/webui-kit';
+import { Avatar, BusyRing, Chip, Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
 import { parkDraft, takeDraft } from './draftParking.ts';

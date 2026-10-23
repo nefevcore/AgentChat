@@ -275,6 +275,41 @@ export class UsageService extends Service {
     }, { description: 'KV 走势临时步流（after-run 记账后接管）' });
   }
 
+  /**
+   * 外部计量入账（cr-538 additive——preview 宿主 usage 行消费事件信入口）：
+   * 与 loop/after-run 订阅共用 mergeIntoMaps + 审计流水单源。主线行为
+   * 零变化（无调用方时零效果）。
+   */
+  reportMeter(meter: {
+    agent: string;
+    model: string;
+    finish: string;
+    usage: LoopRunUsage;
+    conversationId?: string;
+    stepCache?: Array<{ ts: number; hit: number; miss: number }>;
+  }): void {
+    const line: UsageAuditLine = {
+      timestamp: new Date().toISOString(),
+      agent: meter.agent,
+      model: meter.model,
+      finish: meter.finish,
+      usage: meter.usage,
+      ...(meter.conversationId !== undefined ? { conversationId: meter.conversationId } : {}),
+      ...(meter.stepCache !== undefined && meter.stepCache.length > 0 ? { stepCache: meter.stepCache } : {}),
+    };
+    this.mergeIntoMaps(meter.agent, meter.model, meter.conversationId, dayKeyOf(line), line.timestamp, line.stepCache, meter.usage);
+    try {
+      fs.mkdirSync(this.usageDir, { recursive: true });
+      fs.appendFileSync(
+        path.join(this.usageDir, `usage-${line.timestamp.slice(0, 10)}.jsonl`),
+        `${JSON.stringify(line)}\n`,
+        'utf-8',
+      );
+    } catch (err: unknown) {
+      this.ctx.logger.warn(`[usage] 审计流水写入失败: ${String(err)}`);
+    }
+  }
+
   /** 记一次 run（聚合 + 审计流水） */
   private record(
     agent: string,

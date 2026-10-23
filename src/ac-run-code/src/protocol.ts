@@ -24,7 +24,7 @@ export interface WorkerInit {
   code: string;
   /** 预算：墙钟上限毫秒（durable 冻结期不计；0 = 不限）。2026-09-23 收敛：compute 轴退役，墙钟唯一时间防线 */
   maxWallMs: number;
-  /** 预算：返回值序列化字节上限（0 = 不限） */
+  /** 预算：输出字节上限——return 值与单条 log 共用（0 = 不限） */
   maxOutputBytes: number;
   /**
    * 会话级 lib 注册表注入（2026-09-17 lib 扩展）：key = 库名，value =

@@ -5,7 +5,9 @@
   "type": "module",
   "description": "远程设备设置节前端行：设备列表/吊销 + 配对（二维码/SAS）——remote-link P1",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
   },
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
