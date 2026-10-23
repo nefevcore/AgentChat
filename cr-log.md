@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-621**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-622**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -639,3 +639,4 @@
 - 【cr-619 2026-10-23 cr-619 多宿主共存根因修复：web-server 行增 strict 档（监听失败 reject 不降级），preview 宿主 boot 启用——此前不同数据根+同端口可双开（管道防线不撞 + EADDRINUSE 被降级成 warn，第二宿主无头存活且日志谎报端口）】
 - 【cr-620 2026-10-23 cr-620 进程可视身份：node.exe 品牌副本（bin/AgentChat{Host,Shell}.exe——rcedit 改 FileDescription，任务管理器可辨可杀）+ 宿主/壳 spawn 换用品牌副本（缺席回落 process.execPath）】
 - 【cr-621 2026-10-23 G8 第二批入库：cr-606…620 未提交改动按域切分提交 + 测试残留 X/ 清理 + bin/ ignore 补齐】
+- 【cr-622 2026-10-23 cutover 收尾：旧包退役清理首批（按归并表，ac-singles/ac-hello/ac-session 等）】

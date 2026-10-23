@@ -269,6 +269,8 @@ M0 地基 ──> M1 协议三纯库 ──> M2 数据根与授权 ──> M3 �
 
 | 2026-10-23 | G8 第二批入库（cr-621） | **cr-606…620 未提交改动按域切 6 个 commit 入库 + 一处根因修复**。入库切分：① 迁移读面批（cr-606…609/611/613：名册轴/singles 归属/viewer 更名/pair 投影/实验菜单过滤）；② 宿主-壳生命周期批（cr-612 host-revive + argv 透传 + D5 修订回填）；③ 标准模式工具面批（cr-615/616/617：预设模板物化/spawn 词过滤/tags 恢复）；④ cr-614 WorkspaceShim 沙箱消费面；⑤ cr-610 llm-pool 恒并基座；⑥ cr-619/620 web-server strict + 品牌身份 exe。**根因修复（本批前置）**：全量 preview:test 首跑 e2e-cutover 1 败——品牌壳 exe（bin/AgentChatShell.exe，本机构建产物）被 DSH 类沙箱按未知镜像拒写 %TEMP%（EPERM 建激活锁→壳 boot 早退 code=1，定向复现实锤 exe vs node 写面对照），orchestrate/subagent 两 spawn 点 VITEST 环境恒回落 node 本体（品牌面只归产品宿主）；host-revive 在壳进程内不受影响不动。顺带根因两枚：① 测试残留 X/ 根因 = orchestrate-deadline.test 相对数据根 'X'（adoptShell config 预置面每跑物化仓库根 X/agents/a1/config.json）——改 tmpdir 数据根 + 清残留；② .gitignore 补 /bin/（cr-620 声明过但未落盘）。验证：preview 548/548 绿 + preview:typecheck 0 + 定向 eslint 0 | git 6 commits（本批）+ preview/apps/host/orchestrate.ts + preview/packages/ac-shell-subagent/src/service.ts + .gitignore + preview/docs/plan.md | push 仍待用户确认；宿主自愈重启源两轮未定位（承 cr-609 行） |
 
+| 2026-10-23 | push 收口 + 旧包退役对账（cr-622） | **G8 完结 + 退役钉界**。① `git push`（35303404..2278c381，19 commit 入 origin/main）。② 旧包退役全仓对账：旧 TREE 97 行包中 preview 直接导入 72、随树退役候选 25；**结论 = 仓库无「两树零消费可单删」旧包**（ac-relay-server 系独立部署中继进程，cr-317 改判留），退役只能整批随 §3.5-5 旧树归档执行（前提 = 切换判据过门），逐包拆会搅动冻结回滚树且旧包树内互依（ac-session→ac-singles 等）。台账落 src/docs/host-shell-row-manifest.md R6.1（A 随树退役 25 / B 行退役包留 72 / C 纯库与独立进程保留），执行批须重算传递闭包。零代码改动 | git（push）+ src/docs/host-shell-row-manifest.md（R6.1）+ preview/docs/handoff-2026-10-23.md（§3 划账） | §3.5-5 执行批前提：切换判据（会话续跑 + bench 门 + 真实使用期观察）过门；A 类若遇 preview 新导入按传递闭包改判 B |
+
 ## 变更登记
 
 - cr-489（2026-10-17）：立稿（M0-M2 细化，M3-M8 占位）。

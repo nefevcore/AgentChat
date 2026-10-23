@@ -162,6 +162,28 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 | cordis-hmr（已 disabled） | 换版本 = 重启壳（S5） |
 | runtime 字段 / loop-only 过渡方案 | M1 / M5 |
 
+## R6.1 退役执行台账（2026-10-23 全仓对账，cr-622）
+
+前提钉死：**旧包退役 = §3.5-5「主线旧树退役归档」整批动作，不可逐包拆**——旧树
+（cordis.yml + ac-app TREE + dev:legacy）在切换判据（会话续跑 + bench 门 + 真实
+使用期观察）过门前仍是终极回滚线；且旧包在旧树内部互相值依赖（如
+ac-session→ac-singles、ac-web-api→ac-plugin-registry、ac-app 组合根引全体行），
+逐包拆 = 搅动冻结的回滚树。对账结论：**仓库不存在「两树零消费可单删」的旧包**
+（ac-relay-server 亦非死包——独立部署中继进程，remote 链对端，cr-317 深审改判留）。
+
+执行批（#5）时的三类处置（快照对账：旧 TREE 97 行包中 preview 直接导入 72）：
+
+| 类 | 处置 | 成员（快照，执行时须重算传递闭包） |
+|---|---|---|
+| A. 随树退役 | 整批随旧树归档删除（行与包同退役） | ac-singles、ac-hello、ac-session、ac-session-query、ac-router、ac-group、ac-credentials、ac-agent-store、ac-agents-dir、ac-agent-presets、ac-agent-presets-builtin、ac-agent-admin、ac-tag-registry、ac-restart、ac-dev-tools、ac-security、ac-subagent、ac-archive、ac-timer、ac-timer-tools、ac-job-wakeup、ac-webui、ac-web-api、ac-plugin-registry、ac-plugin-gates（25，preview 零直接导入） |
+| B. 行退役包留 | 旧行身份退役，包体作 preview 活依赖保留（壳行「零改动导入主线」的 72 行包：ac-agent-loop/ac-tools/ac-fs-*/ac-shell-tools/ac-client-ui-* 等） | 见 cordis.yml ∩ preview 导入集（执行时重算） |
+| C. 与旧树无关 | 非 row 纯库（ac-*-core/completions 族，被值导入）与独立进程（ac-relay-server）原样保留 | — |
+
+注：A 类成员的旧树内部互依（ac-session↔ac-singles 等）在整批删除下自洽；若执行时
+preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测试面），按传递闭包
+把被依赖者改判 B 类。ac-hello 的样例价值按 R6「范例归测试资产」由保留的测试资产
+承载（preview/packages 各测试已自有样例，旧树样例随树走）。
+
 # R7. 待钉状态板（✅ 已定向 → 裁决簿；◐ 未决，细节展开）
 
 | # | 项 | 状态 |
