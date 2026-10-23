@@ -90,22 +90,24 @@ describe('壳行集派生', () => {
     expect(ex.rowIds).toEqual(['x-tools']); // 排除 = 显式意志（装配终检兜底）
   });
 
-  it('装配基座恒并（cr-548 收信面 + cr-602 提示装配行）：点名形态不裁 conversation/persona/system-prompt', () => {
+  it('装配基座恒并（cr-548 收信面 + cr-602 提示装配行 + cr-610 池注册行）：点名形态不裁 conversation/persona/system-prompt/llm-pool', () => {
     const cat: RowsetCatalog = {
       rows: [
         row('conversation', 'shell'),
         row('persona', 'shell'),
         row('system-prompt', 'shell'),
+        row('llm-pool', 'shell'),
         row('x-tools', 'shell', { tools: ['x'] }),
       ],
     };
-    // 点名只给工具 x：三行基座仍恒并（导入行集按工具标签推导，装配类行
-    // 不在标签面——缺席面 = 人格/指引块静默丢失，cr-602 根因锁）
+    // 点名只给工具 x：四行基座仍恒并（导入行集按工具标签推导，装配类行/
+    // 池注册行不在标签面——缺席面 = 人格/指引块丢失〔cr-602〕或壳内零
+    // provider 注册、一切 run NO_PROVIDER〔cr-610〕）
     const r = deriveShellRowset({ tools: ['x'] }, cat);
-    expect(r.rowIds).toEqual(['conversation', 'persona', 'system-prompt', 'x-tools']);
+    expect(r.rowIds).toEqual(['conversation', 'llm-pool', 'persona', 'system-prompt', 'x-tools']);
     // 显式 exclude = 良定义降级（闭包后减法执行）
     const ex = deriveShellRowset({ tools: { include: ['x'], exclude: ['system-prompt'] } }, cat);
-    expect(ex.rowIds).toEqual(['conversation', 'persona', 'x-tools']);
+    expect(ex.rowIds).toEqual(['conversation', 'llm-pool', 'persona', 'x-tools']);
   });
 });
 

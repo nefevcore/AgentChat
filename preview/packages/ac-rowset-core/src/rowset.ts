@@ -84,15 +84,17 @@ export function deriveShellRowset(
   if (entries === null) {
     picked = new Set(baseRows); // 缺省 = 基础壳行集（非捆绑行）
   } else {
-    // 装配基座恒并（cr-548 会话基座 + cr-602 提示装配行）：点名形态恒含
-    // conversation（收信面——「点名 ≠ 裁基座」，消灭能 boot 不能收信的
-    // 静默半激活）与 persona / system-prompt（提示装配组成件——主线形态
+    // 装配基座恒并（cr-548 会话基座 + cr-602 提示装配行 + cr-610 池注册行）：
+    // 点名形态恒含 conversation（收信面——「点名 ≠ 裁基座」，消灭能 boot 不能
+    // 收信的静默半激活）、persona / system-prompt（提示装配组成件——主线形态
     // 两行全局恒装，per-agent 差异走 settings 软停用，如极简模式
     // settings['system-prompt'].enabled=false；行缺席面 = 导入行集按工具
     // 标签快照推导，装配类行不在标签面 → 全体导入 Agent 的人格与指引块
-    // 静默丢失）。用户显式 exclude 由闭包后减法执行（显式排除 = 良定义
+    // 静默丢失）与 llm-pool（池注册行——主线全局恒装行；无 requires 指向、
+    // 不在工具标签面 → 点名形态壳内零 provider 注册 = 一切 run NO_PROVIDER）。
+    // 用户显式 exclude 由闭包后减法执行（显式排除 = 良定义
     // 降级，boot 装配终检兜底矛盾）。
-    for (const seatId of ['conversation', 'persona', 'system-prompt']) {
+    for (const seatId of ['conversation', 'persona', 'system-prompt', 'llm-pool']) {
       const seatRow = byRow.get(seatId);
       if (seatRow !== undefined) picked.add(seatRow);
     }
