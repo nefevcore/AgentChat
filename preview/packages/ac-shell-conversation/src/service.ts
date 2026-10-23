@@ -450,6 +450,27 @@ export class ConversationService extends Service {
     return 'steered';
   }
 
+  /** 上下文注入落账口（cr-625：主线 session.recordContext 的壳侧形态——
+   * run 活跃 journal-inject 落账〔消费点真序〕+ session/context-injected
+   * 事件发射〔前端直播行〕。主线 ask-questions 行经 SessionShim 零改动
+   * 消费：作答注入（已收到用户回答）/ 未响应通知两形态同口）。run 不活跃
+   * 不落账（该路径调用点恒 run 活跃；跨 run 持久归 late-reply deliver）。 */
+  async recordContext(
+    conversationId: string,
+    content: string,
+    extra: { source: string; label?: string; injectionId?: string },
+  ): Promise<void> {
+    const run = this.machine.state().currentRun ?? '';
+    if (run !== '') {
+      await this.ctx.ledger.journalInject(conversationId, run, content, extra.injectionId);
+    }
+    this.ctx.emit('session/context-injected', conversationId, this.agentId, {
+      source: extra.source,
+      ...(extra.injectionId !== undefined ? { injectionId: extra.injectionId } : {}),
+      ...(extra.label !== undefined ? { label: extra.label } : {}),
+    });
+  }
+
   /** steer 寻址（主线 runAddress 词汇：conversationId ≠ agent → `<uuid>~<agent>`） */
   private steerHandle(uuid: string): string {
     return uuid === this.agentId ? this.agentId : uuid + '~' + this.agentId;

@@ -308,10 +308,34 @@ class ConvSettingsShim extends Service {
   }
 }
 
+/** ctx.session 最小面（主线消费口 = session.recordContext：ask-questions
+ * 作答注入〔已收到用户回答〕/ 未响应通知等 context 材料落账 + 事件）。
+ * 垫片 = 主线服务词汇 → 壳侧 conversation 服务 recordContext 的转发边界
+ *（cr-625；落账/发射 owning = ConversationService——机器知 currentRun）。 */
+export class SessionShim extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'session');
+  }
+
+  recordContext(
+    conversationId: string,
+    _agentId: string,
+    content: string,
+    extra: { source: string; label?: string },
+  ): void {
+    const conversation = this.ctx.get('conversation', false) as
+      { recordContext(conversationId: string, content: string, extra: { source: string; label?: string; injectionId?: string }): Promise<void> } | undefined;
+    if (conversation === undefined) return; // 会话行未装——降级不阻断（主线同语义）
+    void conversation.recordContext(conversationId, content, extra).catch(() => {
+      // 落账失败不阻断注入链（run 内消息已就位）——事件面仍发（直播行不丢）
+    });
+  }
+}
+
 /**
  * 数据根直读垫片行工厂（cordis Plugin——boot 装配进壳树，提供 agents /
- * agentStore / credentials / workspace / convSettings 五服务）。不进行集
- * 目录（非能力行——接缝件，归 boot 编排）。
+ * agentStore / credentials / workspace / convSettings / session 六服务）。
+ * 不进行集目录（非能力行——接缝件，归 boot 编排）。
  */
 export function makeShimsRow(dataRoot: string, rowTools?: Record<string, string[]>) {
   return {
@@ -332,6 +356,9 @@ export function makeShimsRow(dataRoot: string, rowTools?: Record<string, string[
       });
       ctx.plugin(class extends ConvSettingsShim {
         constructor(c: Context) { super(c, dataRoot); }
+      });
+      ctx.plugin(class extends SessionShim {
+        constructor(c: Context) { super(c); }
       });
     },
   } satisfies Plugin;

@@ -63,7 +63,11 @@ export type StreamFrame =
    * record = 主线 DurableInteraction 记录原样透传（wire 整形住宿主桥接）。 */
   | { stream: StreamId; kind: 'interaction-opened'; record: unknown; meta?: StreamMeta }
   | { stream: StreamId; kind: 'interaction-replied'; record: unknown; meta?: StreamMeta }
-  | { stream: StreamId; kind: 'interaction-closed'; record: unknown; meta?: StreamMeta };
+  | { stream: StreamId; kind: 'interaction-closed'; record: unknown; meta?: StreamMeta }
+  /** 上下文注入通知（cr-625）：主线 session/context-injected 事件旁带——
+   * 前端流式运行期注入可见性（feed 事件分隔行：已收到用户回答/技能加载
+   * 等 label 直出）。stream = conversationId；宿主直转主线同名帧。 */
+  | { stream: StreamId; kind: 'context-injected'; source: string; label?: string; injectionId?: string; meta?: StreamMeta };
 
 /** 队列快照行（主线 ConversationQueuedItem 同形——前端 useQueuedMessages 直接套用） */
 export interface QueuedItemFrame {
@@ -146,6 +150,7 @@ export function isStreamFrame(payload: unknown): payload is StreamFrame {
   if (f.kind === 'interaction-opened' && 'record' in f) return true;
   if (f.kind === 'interaction-replied' && 'record' in f) return true;
   if (f.kind === 'interaction-closed' && 'record' in f) return true;
+  if (f.kind === 'context-injected' && typeof (f as { source?: unknown }).source === 'string') return true;
   return false;
 }
 

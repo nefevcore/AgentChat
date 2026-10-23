@@ -690,6 +690,24 @@ export async function bootShell(
   ctx.on('durable-interaction/closed', (record: InteractionLike) => {
     emitStreamFrame({ stream: record.id, kind: 'interaction-closed', record, meta: interactionMeta(record) });
   });
+  // 上下文注入旁带（cr-625）：session/context-injected → context-injected 帧
+  //（宿主直转主线同名前端帧——前端 feed 事件分隔行：已收到用户回答等
+  // label 直出；主线 ws-bridge wire 恒等透传同形）。发射失败静默（瞬态）。
+  ctx.on('session/context-injected', (
+    conversationId: string,
+    agent: string | undefined,
+    meta: { source: string; injectionId?: string; label?: string } | undefined,
+  ) => {
+    if (conversationId === '' || meta === undefined) return;
+    emitStreamFrame({
+      stream: conversationId,
+      kind: 'context-injected',
+      source: meta.source,
+      ...(meta.label !== undefined ? { label: meta.label } : {}),
+      ...(meta.injectionId !== undefined ? { injectionId: meta.injectionId } : {}),
+      meta: { agent: agent ?? args.agentId, conversationId },
+    });
+  });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(transportHint, () => {

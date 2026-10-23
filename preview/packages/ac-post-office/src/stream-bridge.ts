@@ -167,6 +167,25 @@ export function streamFrameToFrontend(
     send({ type: 'durable-interaction/closed', data: { args: [frame.record] } });
     return;
   }
+  if (frame.kind === 'context-injected') {
+    // 主线 session/context-injected 帧形（args = [conversationId, agentId,
+    // meta] 参数序，wire 恒等透传）——前端 feed 事件分隔行（label 直出）。
+    send({
+      type: 'session/context-injected',
+      data: {
+        args: [
+          frame.meta?.conversationId,
+          frame.meta?.agent,
+          {
+            source: frame.source,
+            ...(frame.injectionId !== undefined ? { injectionId: frame.injectionId } : {}),
+            ...(frame.label !== undefined ? { label: frame.label } : {}),
+          },
+        ],
+      },
+    });
+    return;
+  }
   if (frame.kind === 'run-settled') {
     // 主线 loop/after-run 帧形（args = [request, result] 参数序）：finish 映射
     // ok→stop（主线词汇）；stop → onChatEnd 终稿入列 + 权威行重拉（收束三件

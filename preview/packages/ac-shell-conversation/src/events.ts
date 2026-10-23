@@ -31,6 +31,19 @@ declare module '@agentchat/cordis' {
      * @scope run
      */
     'conversation/run-settled'(payload: RunSettledPayload): void;
+    /**
+     * 上下文注入可见性（emit；主线 owning 声明 = ac-session/src/events.ts
+     * 同签名——preview 壳树不装 ac-session，此处按同形声明，两包不同树
+     * 不冲突。cr-625：ask_questions 作答注入等 context 材料的前端直播行
+     *（session/context-injected 前端帧）唯一驱动源）。
+     * @mode emit
+     * @scope session
+     */
+    'session/context-injected'(
+      conversationId: string,
+      agentId: string,
+      meta: { source: string; injectionId?: string; label?: string },
+    ): void;
     // 'conversation/queue-changed' 不在此声明——主线 ac-conversation/src/
     // events.ts 已是 owning 声明（四参序 + ConversationQueuedItem[]），
     // 本包按其签名 emit（cr-579）。

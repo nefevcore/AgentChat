@@ -206,6 +206,24 @@ describe('8.5d ShellStreamBridge（旁带 → 前端帧）', () => {
       .toEqual([{ id: 'dur-2', state: 'closed' }]);
   });
 
+  it('上下文注入帧（cr-625）：→ 主线 session/context-injected 帧形（三参序，meta 子集透传）', () => {
+    const frames: FrontendFrame[] = [];
+    const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
+    bridge.ingest({
+      stream: 'sid-1',
+      kind: 'context-injected',
+      source: 'durable-interaction',
+      label: '已收到用户回答',
+      injectionId: 'ctx-1',
+      meta: { agent: 'alpha', conversationId: 'sid-1' },
+    });
+    const ci = frames.filter((f) => f.type === 'session/context-injected');
+    expect(ci).toEqual([{
+      type: 'session/context-injected',
+      data: { args: ['sid-1', 'alpha', { source: 'durable-interaction', injectionId: 'ctx-1', label: '已收到用户回答' }] },
+    }]);
+  });
+
   it('思考/工具分片透传（cr-586）：chunk.reasoning / chunk.toolCalls 直达前端消费面', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
