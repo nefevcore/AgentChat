@@ -12,10 +12,12 @@ import { makeSubagentRow, type ShellProcess, type SpawnShellFn } from '../src/se
 import { readChildConfig } from 'ac-agents-core';
 
 const ROOT = path.join('preview', 'sandbox', 'test-subagent-' + process.pid);
+const CATALOG = path.resolve('preview/apps/catalog/row-catalog.json');
+
 beforeEach(() => {
   fs.mkdirSync(path.join(ROOT, 'agents', 'papa'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
-    JSON.stringify({ id: 'papa', model: 'mock' }), 'utf-8');
+    JSON.stringify({ id: 'papa', model: 'mock', tools: ['fs-tools', 'shell-tools', 'fs-search'] }), 'utf-8');
 });
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
@@ -54,11 +56,11 @@ async function makeService(spawn: SpawnShellFn) {
   const toolsFiber = ctx.plugin(toolsRow as unknown as Parameters<Context['plugin']>[0]);
   await toolsFiber;
   const fiber = ctx.plugin(makeSubagentRow({
-    dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: 'cat.json', spawnShell: spawn,
+    dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: spawn,
   }));
   await fiber;
   const svc = ctx.get('subagents', false) as unknown as {
-    spawnOp(i: { name?: string; system?: string; task: string; tools?: string[]; waitMs?: number }): Promise<{ childId: string; reply?: { text: string } }>;
+    spawnOp(i: { name?: string; system?: string; task: string; tools?: string[]; waitMs?: number }): Promise<{ childId: string; reply?: { text: string }; filtered?: string[] }>;
     sendOp(id: string, msg: string, mode: string, waitMs?: number): Promise<{ delivered: boolean; reply?: { text: string } }>;
     awaitOp(id: string, ms: number): Promise<{ text: string } | null>;
     listOp(): Array<{ childId: string; name?: string; status: string; busy: boolean }>;
@@ -126,6 +128,17 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // await 面先行查询（pending 不阻塞）
       const pending = await tools.execute({ name: 'subagent', args: { action: 'await', subagent_id: 'sub-none' } }).catch(() => null);
       expect(pending === null || pending.ok !== true).toBe(true); // 不在场 = fail-loud
+    } finally { await dispose(); }
+  });
+
+  it('spawn tools 词过滤（cr-616）：未命中目录的词滤除并回报，子 config 只剩有效词', async () => {
+    const fake = fakeShell();
+    const { svc, dispose } = await makeService(fake.spawn);
+    try {
+      const out = await svc.spawnOp({ task: 't', tools: ['read', 'healthz', 'fs-search'] });
+      expect(out.filtered).toEqual(['healthz']);
+      const cfg = readChildConfig(ROOT, 'papa', out.childId);
+      expect(cfg?.tools).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
     } finally { await dispose(); }
   });
 });

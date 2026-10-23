@@ -9,6 +9,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { socketPathFor } from 'ac-envelope-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
@@ -24,6 +25,40 @@ export interface SpawnFn {
     kill(): void;
   };
 }
+
+/** 预设身份词形（__<template_key>__ = 内置模板键） */
+const PRESET_ID = /^__([a-z0-9-]+)__$/;
+
+/** 内置模板目录（ac-host-rows 包内静态配置集——编排面按本文件相对定位，不引依赖） */
+const TEMPLATE_DIR = fileURLToPath(new URL('../../packages/ac-host-rows/templates', import.meta.url));
+
+/**
+ * 预设身份物化配置（cr-615）：模板 config 剥 preset 与模板自身 id 后改写
+ * id（同 agents 行 transientConfigOf 口径）——预设身份与出厂模板同源，不走
+ * 裸 {id} 兜底（裸兜底 = 基础壳行集 90 工具词，非模板行全集）。非预设身份
+ * 或模板缺席 = undefined。
+ */
+function presetConfigOf(agentId: string): Record<string, unknown> | undefined {
+  const key = PRESET_ID.exec(agentId)?.[1];
+  if (key === undefined) return undefined;
+  try {
+    const template = JSON.parse(
+      fs.readFileSync(path.join(TEMPLATE_DIR, key, 'config.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    const { preset: _preset, id: _templateId, ...body } = template;
+    return { ...body, id: agentId };
+  } catch {
+    return undefined;
+  }
+}
+
+/** 品牌壳 exe（cr-620：bin/AgentChatShell.exe——make-node-identity 产物，任务管理器可辨；缺席回落 node 本体）。
+ * 测试环境恒回落 node（cr-621）：沙箱对未知镜像 exe 拒写 %TEMP%（EPERM 建激活锁），
+ * vitest 数据根多在 tmpdir——品牌面只归产品宿主。 */
+const SHELL_EXE = (() => {
+  const p = fileURLToPath(new URL('../../../bin/AgentChatShell.exe', import.meta.url));
+  return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
+})();
 
 export const defaultSpawn: SpawnFn = (cmd, args) => {
   const child: ChildProcess = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -103,6 +138,10 @@ export async function adoptShell(
     postOffice?: PostOffice;
     /** 确定性 mock provider（e2e / 无凭据环境——model 'mock' 路由） */
     mockProvider?: boolean;
+    /** 宿主 boot 入口 + 端口（D5 边 2 cr-612：壳 argv 注入 --host-boot/--host-port，
+     * 邮局失联时壳侧复活宿主——与 --post-office 成对） */
+    hostBoot?: string;
+    hostPort?: number;
     spawnFn?: SpawnFn;
     timeoutMs?: number;
   },
@@ -110,7 +149,7 @@ export async function adoptShell(
   const spawnFn = input.spawnFn ?? defaultSpawn;
   const warden = new ShellWarden(input.agentId);
   const events: GuardianEvent[] = [];
-  const proc = spawnFn(process.execPath, [
+  const proc = spawnFn(SHELL_EXE, [
     '--experimental-strip-types',
     input.bootFile,
     '--data-root', path.resolve(input.dataRoot),
@@ -118,6 +157,8 @@ export async function adoptShell(
     '--catalog', path.resolve(input.catalogFile),
     ...(input.mockProvider === true ? ['--mock-provider', '1'] : []),
     ...(input.postOffice !== undefined ? ['--post-office', input.postOffice.listeningAddress] : []),
+    ...(input.hostBoot !== undefined ? ['--host-boot', input.hostBoot] : []),
+    ...(input.hostPort !== undefined ? ['--host-port', String(input.hostPort)] : []),
   ]);
   const timeout = input.timeoutMs ?? 15_000;
   const deadline = Date.now() + timeout;
@@ -126,9 +167,11 @@ export async function adoptShell(
   fs.mkdirSync(agentDir, { recursive: true });
   const configFile = path.join(agentDir, 'config.json');
   if (!fs.existsSync(configFile)) {
-    // 只写 id：model 缺省由壳侧按全局池默认连接回落（cr-561——此前写死
-    // 'mock' 让新 agent 一定跑在 mock 模型上，正式宿主无该 provider）
-    fs.writeFileSync(configFile, JSON.stringify({ id: input.agentId }), 'utf-8');
+    // 预设身份（__<template_key>__）→ 出厂模板物化（tools/description 等
+    // 全量写入，preset 剥除）；其余身份只写 id：model 缺省由壳侧按全局池
+    // 默认连接回落（cr-561——此前写死 'mock' 让新 agent 一定跑在 mock
+    // 模型上，正式宿主无该 provider）
+    fs.writeFileSync(configFile, JSON.stringify(presetConfigOf(input.agentId) ?? { id: input.agentId }), 'utf-8');
   }
   // 持续订阅面（cr-550 常驻监护）：adopted 后 stdout 行继续分发（心跳/
   // run 节拍/插件装载失败回报），exit 转发订阅方。单订阅——后注册覆盖。

@@ -2,6 +2,18 @@
   "id": "__standard__",
   "name": "标准模式",
   "preset": true,
+  "tags": [
+    "fs",
+    "fs_minimal",
+    "shell",
+    "web",
+    "observe",
+    "issue-report",
+    "infra",
+    "history",
+    "delegation",
+    "collab"
+  ],
   "tools": [
     "fs-tools",
     "fs-search",
@@ -11,7 +23,16 @@
     "web-tools",
     "issue-tools",
     "ask-questions",
-    "subagent"
+    "subagent",
+    "goal",
+    "todo",
+    "session-query",
+    "skill",
+    "browser",
+    "math",
+    "mcp",
+    "datetime",
+    "collab-tools"
   ],
-  "description": "无人物设定的通用对话：读写/Shell/搜索/提问/子任务委派，单会话无记忆不归档"
+  "description": "无人物设定的通用对话：读写/Shell/搜索/代码编排/浏览器/提问/子任务委派 + 目标/待办/技能/历史回放/MCP/协作，单会话无长期记忆不归档"
 }

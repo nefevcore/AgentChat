@@ -18,6 +18,7 @@ import { spawn as childSpawn } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { materializeChild, listChildIds, readAgentConfig } from 'ac-agents-core';
 import { readGlobalAuth, readAgentAuth, deriveChildAuth } from 'ac-auth-core';
@@ -107,21 +108,42 @@ export class ShellSubagentService extends Service {
   async spawnOp(input: {
     name?: string; system?: string; task: string;
     tools?: string[]; waitMs?: number;
-  }): Promise<{ childId: string; reply?: SubagentReply }> {
+  }): Promise<{ childId: string; reply?: SubagentReply; filtered?: string[] }> {
     const childId = this.newChildId();
     const parent = readAgentConfig(this.dataRoot, this.agentId);
     if (parent === null) throw new Error('父 agent 配置缺席：' + this.agentId);
+    const catalog = readCatalog(this.catalogFile);
+    const parentRowset = deriveShellRowset({ tools: parent.tools }, catalog);
+    // spawn ⊆ 授权投影（工具 schema 承诺「越权名会被过滤」）：未命中目录或
+    // 不属父行集的词在此过滤——不过滤会让子壳行集静态断言 fail-loud 早退，
+    // spawn 面只见 boot.ready 超时、真实拒因被吞（cr-616，cr-615 实测暴露）。
+    // 过滤后空集 = 纯推理子 Agent（schema 同义）。
+    let tools: string[] | undefined;
+    let filtered: string[] | undefined;
+    if (input.tools !== undefined) {
+      const parentIds = new Set(parentRowset.rowIds);
+      const granted: string[] = [];
+      const rejected: string[] = [];
+      for (const token of input.tools) {
+        const derived = deriveShellRowset({ tools: [token] }, catalog);
+        if (derived.warnings.length > 0 || !derived.rowIds.every((id) => parentIds.has(id))) {
+          rejected.push(token);
+        } else {
+          granted.push(token);
+        }
+      }
+      tools = granted;
+      if (rejected.length > 0) filtered = rejected;
+    }
     materializeChild(this.dataRoot, this.agentId, childId, {
       ...parent,
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.system !== undefined ? { system: input.system } : {}),
-      ...(input.tools !== undefined ? { tools: input.tools } : {}),
+      ...(tools !== undefined ? { tools } : {}),
     });
     // 子授权层物化（R-5 物化即快照 + spawn ⊆ 投影）：父投影快照内联 grants，
     // 此后父授权变更不传播（M6.5 deriveChildAuth 接线——cr-527）。子壳门读
     // 自己域 auth.json（children 不做运行时投影）。
-    const catalog = readCatalog(this.catalogFile);
-    const parentRowset = deriveShellRowset({ tools: parent.tools }, catalog);
     const childAuth = deriveChildAuth({
       childId,
       parentId: this.agentId,
@@ -146,10 +168,10 @@ export class ShellSubagentService extends Service {
       const meta = this.childMeta.get(childId);
       if (meta !== undefined) { meta.exited = true; meta.busy = false; }
     });
-    if (input.task === '') return { childId };
+    if (input.task === '') return { childId, ...(filtered !== undefined ? { filtered } : {}) };
     const waitMs = input.waitMs ?? 0;
     const out = await this.sendOp(childId, input.task, waitMs > 0 ? 'sync' : 'async', waitMs);
-    return { childId, ...(out.reply !== undefined ? { reply: out.reply } : {}) };
+    return { childId, ...(out.reply !== undefined ? { reply: out.reply } : {}), ...(filtered !== undefined ? { filtered } : {}) };
   }
 
   /** 任务信封（budget = 2：子 run 一次 + 回信线余量） */
@@ -311,14 +333,16 @@ export class ShellSubagentService extends Service {
               task,
               ...(Number(args.wait_time) > 0 ? { waitMs: Math.round(Number(args.wait_time) * 1000) } : {}),
             });
+            const notes: string[] = [];
+            if (out.filtered !== undefined) notes.push('以下 tools 词未命中目录或不属你的行集，已过滤：' + out.filtered.join(', '));
+            if (out.reply === undefined) notes.push('已转后台（未带 wait_time / 等待超时）——结果稍后经 await/list 查询');
             return {
               ok: true,
               output: {
                 subagent_id: out.childId,
                 status: 'created',
-                ...(out.reply !== undefined
-                  ? { result: { text: out.reply.text } }
-                  : { note: '已转后台（未带 wait_time / 等待超时）——结果稍后经 await/list 查询' }),
+                ...(notes.length > 0 ? { note: notes.join('；') } : {}),
+                ...(out.reply !== undefined ? { result: { text: out.reply.text } } : {}),
               },
             };
           }
@@ -367,6 +391,14 @@ export class ShellSubagentService extends Service {
 // false) 软取（boot 装配面同 conversation 惯例）。cutover 后主线行退役，本行成为
 // 唯一提供者。
 
+/** 品牌壳 exe（cr-620：bin/AgentChatShell.exe 在场即用——任务管理器可辨；缺席回落 node 本体）。
+ * 测试环境恒回落 node（cr-621）：品牌副本是本机构建产物，DSH 类沙箱对未知镜像
+ * exe 拒写 %TEMP%（EPERM 建激活锁）——vitest 数据根多在 tmpdir，品牌面只归产品宿主。 */
+const SHELL_EXE = (() => {
+  const p = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChatShell.exe');
+  return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
+})();
+
 /** 真 spawn：node --experimental-strip-types boot.ts --parent-id … --persist */
 const defaultSpawnShell: SpawnShellFn = (a) => {
   const args = [
@@ -379,7 +411,7 @@ const defaultSpawnShell: SpawnShellFn = (a) => {
     '--mock-provider', a.mockProvider ? '1' : '0',
   ];
   if (a.postOffice !== undefined) args.push('--post-office', a.postOffice);
-  const child = childSpawn(process.execPath, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = childSpawn(SHELL_EXE, args, { stdio: ['pipe', 'pipe', 'inherit'] });
   const lines: string[] = [];
   child.stdout!.on('data', (c: Buffer) => {
     for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l);
