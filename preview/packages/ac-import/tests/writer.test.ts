@@ -110,8 +110,7 @@ describe('importRoot 域派生', () => {
     makeLegacy(path.join('sessions', 'groups', 'g-1'), [
       { role: 'agent', content: '成员发言', message_id: 'g1', timestamp: 'T', agent_id: 'nana' },
     ]);
-    // singles：majority = __standard__（user 被排除？不——singles 不排除 user？看派生规则：singles majority 不排除，
-    // 但行内 user 与 agent 混合时 majority 取多数。此 fixture：agent 行多 → 归 __standard__
+    // singles：majority 排除 user 端点（cr-608）——此 fixture：agent 行多 → 归 __standard__
     const singleDir = path.join(LEGACY, 'sessions', 'sid-1'); // singles 直下形态（majority 派生）
     fs.mkdirSync(singleDir, { recursive: true });
     // 直下 singles 归域需顶层元数据在场
@@ -142,5 +141,34 @@ describe('importRoot 域派生', () => {
     expect(fs.existsSync(path.join(TARGET, 'agents', '__standard__', 'sessions', 'sub-1'))).toBe(true);
     // 无 unknown（本 fixture 全归域）
     expect(skipped).toEqual([]);
+  });
+
+  it('singles 归属排除 user 端点（平局/多数均不漂到 agents/user——cr-608）', async () => {
+    // user 行 2 ≥ agent 行 2（平局）+ user 多数变体——旧 bug 下 'user' 先入
+    // Map 平局胜出，归属漂 agents/user
+    const mk = (sid: string, rows: Array<Record<string, unknown>>) => {
+      const convDir = path.join(LEGACY, 'sessions', sid);
+      fs.mkdirSync(convDir, { recursive: true });
+      fs.mkdirSync(path.join(LEGACY, 'singles', sid), { recursive: true });
+      fs.writeFileSync(path.join(LEGACY, 'singles', sid, 'session.json'), JSON.stringify({ id: sid, agentId: '' }));
+      fs.writeFileSync(path.join(convDir, 'messages.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    };
+    mk('sid-tie', [
+      { role: 'agent', content: 'q1', message_id: 'm1', timestamp: 'T', agent_id: 'user' },
+      { role: 'agent', content: 'a1', message_id: 'm2', timestamp: 'T', agent_id: 'nana' },
+      { role: 'agent', content: 'q2', message_id: 'm3', timestamp: 'T', agent_id: 'user' },
+      { role: 'agent', content: 'a2', message_id: 'm4', timestamp: 'T', agent_id: 'nana' },
+    ]);
+    mk('sid-userheavy', [
+      { role: 'agent', content: 'q1', message_id: 'm1', timestamp: 'T', agent_id: 'user' },
+      { role: 'agent', content: 'q2', message_id: 'm2', timestamp: 'T', agent_id: 'user' },
+      { role: 'agent', content: 'q3', message_id: 'm3', timestamp: 'T', agent_id: 'user' },
+      { role: 'agent', content: 'a1', message_id: 'm4', timestamp: 'T', agent_id: 'neko' },
+    ]);
+    await importRoot(LEGACY, TARGET, STAGING);
+    expect(fs.existsSync(path.join(TARGET, 'agents', 'nana', 'sessions', 'sid-tie'))).toBe(true);
+    expect(fs.existsSync(path.join(TARGET, 'agents', 'user', 'sessions', 'sid-tie'))).toBe(false);
+    expect(fs.existsSync(path.join(TARGET, 'agents', 'neko', 'sessions', 'sid-userheavy'))).toBe(true);
+    expect(fs.existsSync(path.join(TARGET, 'agents', 'user', 'sessions', 'sid-userheavy'))).toBe(false);
   });
 });

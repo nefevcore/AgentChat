@@ -187,7 +187,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
       });
       expect(outcome.uuid).toMatch(/-7/); // 新会话 R-1 签发
       // 等 mock run 终稿落账 + 回链 user 账本（writeThrough 终稿写穿）
-      const udir = path.join(targetRoot, 'users', 'user', 'sessions', outcome.uuid);
+      const udir = path.join(targetRoot, 'viewer', 'sessions', outcome.uuid);
       const deadline = Date.now() + 15_000;
       for (;;) {
         const rows = readLedger(udir).rows;

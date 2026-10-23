@@ -6,7 +6,7 @@
 // 编辑截断 / 会话分支拷贝）。
 //
 // 物理布局（D4 端点轴）两侧各自持账本：
-//   users/user/sessions/<conversationId>/messages.jsonl   user 终稿投影
+//   viewer/sessions/<conversationId>/messages.jsonl   user 终稿投影（cr-609 前名 users/user）
 //   agents/<agentId>/sessions/<conversationId>/messages.jsonl  agent 域账本
 // 一次用户动作对「该会话的全部账本」生效（否则对端仍记得被删的行）。
 //
@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const MESSAGES_FILE = 'messages.jsonl';
-const USER_SESSIONS = ['users', 'user', 'sessions'];
+const USER_SESSIONS = ['viewer', 'sessions'];
 
 /** 某会话在数据根内的全部账本目录（存在的才算；agent 侧按 agents/<agentId>/sessions/<id> 扫描） */
 export function conversationDirs(dataRoot: string, conversationId: string): string[] {

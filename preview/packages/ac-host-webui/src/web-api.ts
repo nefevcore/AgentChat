@@ -18,7 +18,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { UserLedger, conversationDirs, deleteConversationRow, readJournal, sessionDir, stepsOfRun, truncateConversation, type JournalLine } from 'ac-ledger';
-import { listAgentIds, readAgentConfig } from 'ac-agents-core';
+import { listAgentIds, readAgentConfig, isAgentIdentity } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, collectRunning, type FaceOpsDeps } from './face-ops.ts';
 import { avatarPathOf, listWorkspaces, registerWorkspace, updateWorkspace, removeWorkspace } from 'ac-host-rows';
@@ -40,7 +40,7 @@ import {
 interface ConvSettingsFace {
   get(conversationId: string): Record<string, string>;
   set(conversationId: string, patch: Record<string, string | null | undefined>): Record<string, string>;
-  listKeys(): Array<{ key: string; enum?: string[]; description?: string }>;
+  listKeys(): Array<{ key: string; enum?: string[]; description?: string; group?: string }>;
 }
 
 /** web-api 行依赖注入（宿主 boot 组装——非 cordis inject：UserStub/数据根为宿主编排件非行服务） */
@@ -73,6 +73,16 @@ function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
+/** 名册身份集合（单源——agents/list 载荷与 healthz agents 计数同轴）：
+ *  config 在场 ∩ 身份词形（禁 `~`——对键桶会话流域非名册，ensureAgent 兜底
+ *  config 在场也不算）∩ 非 preset。裸目录计数会把 pair/群/子域误算进名册。 */
+function rosterConfigs(dataRoot: string) {
+  return listAgentIds(dataRoot)
+    .filter((id) => isAgentIdentity(id))
+    .map((id) => readAgentConfig(dataRoot, id))
+    .filter((c): c is NonNullable<typeof c> => c !== null && c.preset !== true);
+}
+
 /** 数据根画像（healthz 的真实性来源：数得出来的东西，不是常量 200） */
 async function dataRootFacts(dataRoot: string): Promise<{ agents: number; conversations: number; configReadable: boolean }> {
   const countDirs = async (dir: string): Promise<number> => {
@@ -81,8 +91,8 @@ async function dataRootFacts(dataRoot: string): Promise<{ agents: number; conver
   let configReadable = false;
   try { JSON.parse(await readFile(join(dataRoot, 'config.json'), 'utf-8')); configReadable = true; } catch { /* 缺席/坏文件 */ }
   return {
-    agents: await countDirs(join(dataRoot, 'agents')),
-    conversations: await countDirs(join(dataRoot, 'users', 'user', 'sessions')),
+    agents: rosterConfigs(dataRoot).length,
+    conversations: await countDirs(join(dataRoot, 'viewer', 'sessions')),
     configReadable,
   };
 }
@@ -146,11 +156,20 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const ledger = new UserLedger(deps.dataRoot, conversationId, ['user']);
         // agent 域 journal 按端点读一次缓存（D4.2 带出：peer 行按 run 键
         // 关联 agent 账本 journal——思考/工具卡投影进 steps，刷新不丢）。
+        // 对桶键（a~b）双端并读（cr-611）：迁移直答 pair 的 journal 住尾段
+        // 域（agents/user），运行时 pair 的 journal 住对端自己的域——按
+        // participants 双端取并集，run 键不相交无重。
         const journalOf = new Map<string, JournalLine[]>();
         const journalFor = (agentId: string): JournalLine[] => {
           let lines = journalOf.get(agentId);
           if (lines === undefined) {
             lines = readJournal(sessionDir(deps.dataRoot, agentId, conversationId));
+            if (conversationId.includes('~')) {
+              for (const part of conversationId.split('~')) {
+                if (part === agentId) continue;
+                lines = [...lines, ...readJournal(sessionDir(deps.dataRoot, part, conversationId))];
+              }
+            }
             journalOf.set(agentId, lines);
           }
           return lines;
@@ -317,15 +336,11 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       });
 
       web.registerRpc('agents/list', () => ({
-        // agents-core 直读（活注册表解体——在场轴 = guardian 可达表，名册轴 =
-        // 数据根文件文集）。preset 过滤语义与主线对齐（预设不进名册）。
+        // 名册 = rosterConfigs 单源（cr-607：`~` 会话流域与 preset 不进名册）。
         // 载荷 = 全量 config 展开（主线 ...a 同形——前端消费 description 回退
         // 显示名 / tags 徽章 / provider 警示态）+ hasAvatar/avatarVersion
         //（主线 cr-82：真有头像才置位 + 版本号 size:mtimeMs——版本化 URL）。
-        agents: listAgentIds(deps.dataRoot)
-          .map((id) => readAgentConfig(deps.dataRoot, id))
-          .filter((c): c is NonNullable<typeof c> => c !== null && c.preset !== true)
-          .map((c) => {
+        agents: rosterConfigs(deps.dataRoot).map((c) => {
             const file = avatarPathOf(deps.dataRoot, c.id);
             if (file === undefined) return { ...c, hasAvatar: false };
             try {
@@ -375,8 +390,12 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       });
 
       // 实验性键目录（输入框「实验性」菜单数据源——注册制：壳内扩展行经垫片
-      // 注册的键不回传，宿主侧键集单源 = conv-settings 行）
-      web.registerRpc('conv-settings/keys', () => ({ keys: convSettings().listKeys() }));
+      // 注册的键不回传，宿主侧键集单源 = conv-settings 行）。group 过滤 =
+      // 主线同款（cr-613：移植时丢失致 model/elevation/toolMode 纯消费键
+      // 混入实验性菜单——只回 UI 组键）
+      web.registerRpc('conv-settings/keys', () => ({
+        keys: convSettings().listKeys().filter((k) => k.group === 'experimental'),
+      }));
 
       // ---- 会话消息面（cr-566）：删一条 / 截断其后 —— 账本原子改写 ----
       // 账本 owning = ac-ledger（manage.ts：读→过滤→tmp+rename）。一次用户动作

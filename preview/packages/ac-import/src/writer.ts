@@ -160,7 +160,7 @@ export async function importRoot(
     onResult?: (r: SessionImportResult) => void;
     /** agents 树域迁移（cr-547：config 换轨 + entries 归拢 + 身份文件拷贝） */
     agentsTree?: boolean;
-    /** user 账本投影（cr-547：kind=user 会话 → users/user/sessions/ 终稿层） */
+    /** user 账本投影（cr-547：kind=user 会话 → viewer/sessions/ 终稿层） */
     userProjection?: boolean;
   } = {},
 ): Promise<{
@@ -206,7 +206,10 @@ export async function importRoot(
   }
   for (const [, list] of bySid) {
     for (const s of list) {
-      const agentId = majorityAgentId(s.dir, opts.singleAgentFallback ?? 'default');
+      // user 端点行恒先于 agent 行出现（先问后答）——不排除则平局/多数时
+      // 归属漂到 'user'（真数据根 296 会话错位 agents/user，cr-608）；与
+      // subagents 路径同口径排除。
+      const agentId = majorityAgentId(s.dir, opts.singleAgentFallback ?? 'default', ['user']);
       const r = importSession(s.dir, { agentId, uuid: s.sid, participants: [agentId, 'user'], kind: 'user' }, targetRoot, stagingRoot);
       results.push(r); opts.onResult?.(r);
     }

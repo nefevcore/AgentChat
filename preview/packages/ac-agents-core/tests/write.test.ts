@@ -38,6 +38,12 @@ describe('sanitizeAgentInput', () => {
     expect(() => sanitizeAgentInput({ id: 'a', tags: [1] })).toThrow(/tags/);
   });
 
+  it('create 词法闸：id 禁 ~（对键桶会话键词形——主线 M19 承重墙）', () => {
+    expect(() => sanitizeAgentInput({ id: 'a~b' })).toThrow(/禁 ~/);
+    // update 不改判（id 由现值固定）
+    expect(() => sanitizeAgentInput({ name: 'x' }, { id: 'a~b' })).not.toThrow();
+  });
+
   it('update 语义：id 由现值固定，补丁不含未提及键', () => {
     const current: AgentConfig = { id: 'real', name: '原名' };
     const patch = sanitizeAgentInput({ id: 'ignored', description: '新简介' }, current);

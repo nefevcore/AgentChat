@@ -67,7 +67,7 @@ describe('M8.4 user 壳半边端到端', () => {
       expect(uuid).toMatch(/-7/); // UUIDv7 签发
       expect(dispatched[0]).toMatchObject({ to: 'alpha', channel: 'direct' });
       // 等终稿回链：user 账本出现 peer 终稿行（mock 回声）
-      const udir = path.join(ROOT, 'users', 'user', 'sessions', uuid);
+      const udir = path.join(ROOT, 'viewer', 'sessions', uuid);
       const deadline = Date.now() + 10_000;
       let rows: ReturnType<typeof readLedger>['rows'];
       for (;;) {
@@ -101,7 +101,7 @@ describe('M8.4 user 壳半边端到端', () => {
     po.reach.markReachable('alpha', hint);
     try {
       const first = await user.send('alpha', '第一问');
-      const udir = path.join(ROOT, 'users', 'user', 'sessions', first.uuid);
+      const udir = path.join(ROOT, 'viewer', 'sessions', first.uuid);
       const waitRows = async (n: number): Promise<void> => {
         const deadline = Date.now() + 10_000;
         for (;;) {

@@ -66,6 +66,12 @@ describe('8.5a 宿主 web 面接线', () => {
     fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock', description: '阿尔法', tags: ['full-access'] }), 'utf-8');
     // 头像在场（cr-588：agents/list 注入 hasAvatar/avatarVersion——版本化 URL 面）
     fs.writeFileSync(path.join(agentDir, 'avatar.png'), Buffer.from('<png>'));
+    // 会话流域污染样本（cr-607）：pair 对角线域的兜底 config + 无 config 的
+    // 子域目录——都不得进名册/healthz agents 计数
+    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha~alpha'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha~alpha', 'config.json'), JSON.stringify({ id: 'alpha~alpha' }), 'utf-8');
+    fs.mkdirSync(path.join(ROOT, 'agents', 'sub_1'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'config.json'), '{}', 'utf-8'); // healthz ok 面
 
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
@@ -75,6 +81,11 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(list.agents.map((a) => a.id)).toEqual(['alpha']);
     expect(list.agents[0]).toMatchObject({ description: '阿尔法', tags: ['full-access'], hasAvatar: true });
     expect(list.agents[0]!.avatarVersion).toMatch(/^\d+:\d+$/);
+
+    // ①b healthz agents 计数与名册同轴（cr-607——裸目录计数会把 pair/子域误算）
+    const hz = await fetch('http://127.0.0.1:' + host.port + '/api/healthz');
+    expect(hz.status).toBe(200);
+    expect(await hz.json()).toMatchObject({ ok: true, host: 'preview-host', agents: 1 });
     // 头像静态面（cr-588 三路由）住 agent-admin 行——本 e2e 装配面（webui +
     // web-api 两行）不含，路由级由 agent-admin-row.test 单测 + 产品宿主活体覆盖
 
@@ -205,6 +216,10 @@ describe('8.5a 宿主 web 面接线', () => {
       .toEqual({ model: 'deepseek@deepseek-flash' });
     // 非法会话键 fail-closed（词法闸在 owning service）
     await expect(rpc(ws, 'conv-settings/get', { conversationId: '../escape' })).rejects.toThrow(/非法/);
+    // 键目录只回实验组（cr-613：主线同款 group 过滤——model/elevation/
+    // toolMode 纯消费键不得混入输入框实验性菜单）
+    const keys = await rpc<{ keys: Array<{ key: string; group?: string }> }>(ws, 'conv-settings/keys', {});
+    expect(keys.keys.map((k) => k.key).sort()).toEqual(['browserTier', 'issueSubmit']);
 
     // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖
     const delivered = await rpc<{ uuid: string }>(ws, 'conversation/deliver', { agentId: 'alpha', message: '带覆盖一问' });
@@ -240,7 +255,7 @@ describe('8.5a 宿主 web 面接线', () => {
     // 元数据面（cr-566）：改名走 session.json——与模型覆盖分文件、同时生效
     const renamed = await rpc<{ single: { title?: string } }>(ws, 'singles/update', { id: delivered.uuid, title: '改名' });
     expect(renamed.single.title).toBe('改名');
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'users', 'user', 'sessions', delivered.uuid, 'session.json'), 'utf-8')).title)
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', delivered.uuid, 'session.json'), 'utf-8')).title)
       .toBe('改名');
 
     ws.close();
@@ -275,7 +290,7 @@ describe('8.5a 宿主 web 面接线', () => {
     // 两条消息（deliver 落 user 终稿账本）
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '第一问', conversationId: created.single.id });
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '第二问', conversationId: created.single.id });
-    const ledgerFile = path.join(ROOT, 'users', 'user', 'sessions', created.single.id, 'messages.jsonl');
+    const ledgerFile = path.join(ROOT, 'viewer', 'sessions', created.single.id, 'messages.jsonl');
     const messages = (): Array<Record<string, unknown>> => fs.readFileSync(ledgerFile, 'utf-8')
       .split('\n').filter((l) => l.trim() !== '')
       .map((l) => JSON.parse(l) as Record<string, unknown>)
@@ -298,7 +313,7 @@ describe('8.5a 宿主 web 面接线', () => {
     const forked = await rpc<{ single: { id: string; title?: string } }>(ws, 'singles/fork', { id: created.single.id, anchorMessageId: anchor });
     expect(forked.single.id).not.toBe(created.single.id);
     expect(forked.single.title).toBe('改过的标题');
-    const forkRows = fs.readFileSync(path.join(ROOT, 'users', 'user', 'sessions', forked.single.id, 'messages.jsonl'), 'utf-8')
+    const forkRows = fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', forked.single.id, 'messages.jsonl'), 'utf-8')
       .split('\n').filter((l) => l.trim() !== '');
     expect(forkRows.filter((l) => !l.includes('session-header'))).toHaveLength(1);
 
@@ -310,7 +325,7 @@ describe('8.5a 宿主 web 面接线', () => {
 
     // delete：硬删（目录 + 覆盖文件一并清）
     await rpc(ws, 'singles/delete', { id: created.single.id });
-    expect(fs.existsSync(path.join(ROOT, 'users', 'user', 'sessions', created.single.id))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'viewer', 'sessions', created.single.id))).toBe(false);
     expect(fs.existsSync(path.join(ROOT, 'conv-settings', created.single.id + '.json'))).toBe(false);
 
     // 事件帧：四种 kind 各至少一次（前端列表增量合并的输入）
@@ -327,7 +342,7 @@ describe('8.5a 宿主 web 面接线', () => {
     for (const text of ['一', '二', '三']) {
       await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: text, conversationId: conv });
     }
-    const file = path.join(ROOT, 'users', 'user', 'sessions', conv, 'messages.jsonl');
+    const file = path.join(ROOT, 'viewer', 'sessions', conv, 'messages.jsonl');
     const read = (): Array<Record<string, unknown>> => fs.readFileSync(file, 'utf-8')
       .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
     const messages = (): Array<Record<string, unknown>> => read().filter((r) => r.type !== 'session-header');
@@ -383,6 +398,29 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(cut).toMatchObject({ role: 'assistant', content: '中断回复' });
     expect(cut!.partial).toBe(true);
     expect(cut!.steps![0]!.toolCalls![0]).toMatchObject({ id: 'c2', result: null });
+    ws.close();
+  }, 30_000);
+
+  // cr-611 迁移直答 pair：viewer 投影在对桶键上，journal 住尾段域
+  //（agents/user/sessions/<a~user>）——history 双端带出。
+  it('session/history 对桶键：peer 行 journal 从尾段域带出 steps', async () => {
+    fs.mkdirSync(path.join(ROOT, 'agents', 'user'), { recursive: true });
+    const conv = 'alpha~user';
+    const userLedger = new UserLedger(ROOT, conv, ['user']);
+    await userLedger.writeThrough({ agentId: 'alpha', content: '直答回复', uuid: conv, run: 'run-p1', requestId: 'rq-p1' });
+    const journalFile = path.join(sessionDir(ROOT, 'user', conv), 'journal', 'partials.jsonl');
+    fs.mkdirSync(path.dirname(journalFile), { recursive: true });
+    fs.writeFileSync(journalFile, [
+      JSON.stringify({ type: 'journal-step', run: 'run-p1', step: 1, content: '', reasoning: '对桶思考' }),
+      JSON.stringify({ type: 'journal-settled', run: 'run-p1', finish: 'ok' }),
+    ].join('\n') + '\n', 'utf-8');
+    host = await bootHostWeb({ dataRoot: ROOT });
+    const { ws } = await connect(host.port);
+    const history = await rpc<{ total: number; records: Array<{ steps?: Array<{ reasoning?: string }>; partial?: boolean }> }>(ws, 'session/history', { conversationId: conv });
+    expect(history.total).toBe(1);
+    expect(history.records[0]).toMatchObject({ role: 'assistant', content: '直答回复' });
+    expect(history.records[0]!.steps![0]).toMatchObject({ reasoning: '对桶思考' });
+    expect(history.records[0]!.partial).toBeUndefined();
     ws.close();
   }, 30_000);
 

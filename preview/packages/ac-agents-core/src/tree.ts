@@ -31,6 +31,17 @@ export function assertAgentId(id: string): void {
   }
 }
 
+/**
+ * Agent 身份词形（主线 M19 承重墙同款）：id 禁 `~`——对键桶 conversationId
+ * = pairKey(a,b) 排序 `~` 连接，身份若也含 `~` 会与对键撞键、破坏
+ * runAddress 从右解析的歧义性。agents/ 树内含 `~` 的目录 = 会话流域
+ * （pair 对桶/自会话对角线/群成员流——兜底 config 在场也不是名册身份）。
+ * 本函数只判身份词形；agentDir 寻址（会话域路径）仍走 assertAgentId。
+ */
+export function isAgentIdentity(id: string): boolean {
+  return id !== '' && !id.includes('~');
+}
+
 /** 直读 config.json（缺席/损坏 = null——调用方按未注册语义处理） */
 export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig | null {
   const file = path.join(agentDir(dataRoot, agentId), CONFIG_FILE);

@@ -1,7 +1,7 @@
 // ============================================================
 // singles-row.ts —— 宿主独立会话行（cr-566）
 //
-// owns：users/user/sessions/<sid>/session.json（元数据：agentId / title /
+// owns：viewer/sessions/<sid>/session.json（元数据：agentId / title /
 // workspaceId / status / 时间戳）。消息流归 user 终稿账本（UserStub 写，
 // messages.jsonl——同一端点目录，文件分家）；模型覆盖归 conv-settings
 //（D12 单源，本行只经服务方法读写真值，不落 session.json）。
@@ -64,7 +64,7 @@ interface WebFace {
 const TITLE_MAX_LEN = 24;
 
 function sessionsDir(dataRoot: string): string {
-  return path.join(dataRoot, 'users', 'user', 'sessions');
+  return path.join(dataRoot, 'viewer', 'sessions');
 }
 
 function dirOf(dataRoot: string, id: string): string {

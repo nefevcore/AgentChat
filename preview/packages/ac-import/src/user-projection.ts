@@ -3,7 +3,7 @@
 //
 // 〈webui 读投影〉形态二：user 账本 = webui 唯一数据源（会话列表/回放）。
 // singles（kind=user）会话导入后只有 agent 侧账本，webui 读面
-//（users/user/sessions/<uuid>/）对历史恒盲——投影补齐：agent 账本行
+//（viewer/sessions/<uuid>/）对历史恒盲——投影补齐：agent 账本行
 // → user 终稿层（own/peer 两行面），run 键关联照带（source=run:<id>）。
 //
 // 投影规则（D4.2 终稿层）：
@@ -20,14 +20,14 @@ export interface UserProjectionStats { sessions: number; rows: number; skipped: 
 
 /**
  * 单会话投影：agents/<agentId>/sessions/<uuid>/messages.jsonl →
- * users/user/sessions/<uuid>/messages.jsonl（终稿层 own/peer）。
+ * viewer/sessions/<uuid>/messages.jsonl（终稿层 own/peer）。
  * agentId 传路径段形态（盘上目录名——已含 %XX 转义；importSession 的
  * pathSegment(ctx.agentId) 已在导入时完成转义，此处不再转）。
  * 已有 user 账本 = 幂等跳过（既有账本优先——writeOwn 语义账本不重写）。
  */
 export async function projectUserLedger(targetRoot: string, agentId: string, uuid: string): Promise<{ rows: number; skipped: boolean }> {
   const agentSessionDir = path.join(targetRoot, 'agents', agentId, 'sessions', uuid);
-  const userSessionDir = path.join(targetRoot, 'users', 'user', 'sessions', uuid);
+  const userSessionDir = path.join(targetRoot, 'viewer', 'sessions', uuid);
   if (fs.existsSync(path.join(userSessionDir, 'messages.jsonl'))) {
     return { rows: 0, skipped: true };
   }
@@ -57,9 +57,13 @@ export async function projectUserLedger(targetRoot: string, agentId: string, uui
 }
 
 /**
- * 全域投影：扫描 targetRoot/agents/<id>/sessions/<uuid> 的 kind=user 会话
- *（singles 导入域）逐桶投影。其余 kind（agent-pair/group/subagent）
- * 不入 user 账本——webui 视角 = user 与 agent 的 1v1 会话（D4 端点轴）。
+ * 全域投影：扫描 targetRoot/agents/<id>/sessions/<uuid> 逐桶投影。
+ * 入投影的会话形态（webui 视角 = user 与 agent 的 1v1）：
+ *   · kind=user（singles 导入域）；
+ *   · kind=agent-pair 且 participants 含 'user'（主线 M19 直答对桶
+ *     pairKey(agent, user)——前端 Agent 1v1 直答视图按对桶键取历史，
+ *     缺投影 = 迁移直答会话前端恒空，cr-611）。
+ * 其余（agent⇄agent 委托 pair / group / subagent）不入 viewer 投影。
  */
 export async function projectUserLedgers(targetRoot: string): Promise<UserProjectionStats> {
   const agentsDir = path.join(targetRoot, 'agents');
@@ -73,7 +77,9 @@ export async function projectUserLedgers(targetRoot: string): Promise<UserProjec
       if (!session.isDirectory()) continue;
       const dir = path.join(sessionsDir, session.name);
       const { header } = readLedger(dir);
-      if (header?.kind !== 'user') continue;
+      const pairWithUser = header?.kind === 'agent-pair'
+        && header.participants.includes('user');
+      if (header?.kind !== 'user' && !pairWithUser) continue;
       const r = await projectUserLedger(targetRoot, agent.name, session.name);
       if (r.skipped) { stats.skipped++; continue; }
       stats.sessions++;

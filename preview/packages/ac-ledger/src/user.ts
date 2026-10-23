@@ -13,12 +13,14 @@ import * as path from 'node:path';
 import { LedgerWriter } from './writer.ts';
 import { readLedger } from './reader.ts';
 
-/** user 会话目录：<dataRoot>/users/user/sessions/<uuid>/（端点轴与 agents 平级） */
+/** user 会话目录：<dataRoot>/viewer/sessions/<uuid>/（viewer 投影轴——与
+ *  agents/ 身份树平级且刻意异名：这里是 webui 视角终稿投影，不是 Agent 域
+ *  账本；cr-609 前名 users/user 与 agents/user 一字之差曾致混淆） */
 export function userSessionDir(dataRoot: string, uuid: string): string {
   if (uuid.length === 0 || /[/\\]/.test(uuid) || uuid === '.' || uuid === '..') {
     throw new Error('user 会话路径组件非法：' + uuid);
   }
-  return path.join(dataRoot, 'users', 'user', 'sessions', uuid);
+  return path.join(dataRoot, 'viewer', 'sessions', uuid);
 }
 
 /**

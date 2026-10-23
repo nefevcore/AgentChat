@@ -98,22 +98,25 @@ describe('projectUserLedger（user 账本投影）', () => {
     expect(r2.skipped).toBe(true); // 幂等
   });
 
-  it('全域扫描只投 kind=user', async () => {
+  it('全域扫描：kind=user 与含 user 的直答 pair 投影；agent⇄agent pair 不投（cr-611）', async () => {
     const target = path.join(tmp, 'target');
-    const mk = (uuid: string, kind: string) => {
+    const mk = (uuid: string, kind: string, participants: string[]) => {
       const legacySession = path.join(tmp, 'l-' + uuid);
       fs.mkdirSync(legacySession, { recursive: true });
       fs.writeFileSync(path.join(legacySession, 'messages.jsonl'), [
-        JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-01-01T00:00:00Z', participants: ['a', 'user'] }),
+        JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-01-01T00:00:00Z', participants }),
         JSON.stringify({ role: 'user', content: 'x', message_id: 'm', timestamp: '2026-01-01T00:00:01Z', agent_id: 'user' }),
       ].join('\n') + '\n');
-      importSession(legacySession, { agentId: 'a', uuid, participants: ['a', 'user'], kind }, target, path.join(tmp, 'staging'));
+      importSession(legacySession, { agentId: participants[0] ?? 'a', uuid, participants, kind }, target, path.join(tmp, 'staging'));
     };
-    mk('s-user', 'user');
-    mk('s-pair', 'agent-pair');
+    mk('s-user', 'user', ['a', 'user']);
+    mk('s-direct', 'agent-pair', ['a', 'user']); // 直答对桶（前端 1v1 视图按此键取历史）
+    mk('s-delegate', 'agent-pair', ['a', 'b']); // 委托 pair——非 viewer 会话
     const stats = await projectUserLedgers(target);
-    expect(stats.sessions).toBe(1);
-    expect(stats.rows).toBe(1);
+    expect(stats.sessions).toBe(2);
+    expect(stats.rows).toBe(2);
+    expect(fs.existsSync(path.join(target, 'viewer', 'sessions', 's-direct'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'viewer', 'sessions', 's-delegate'))).toBe(false);
   });
 });
 

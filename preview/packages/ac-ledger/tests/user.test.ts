@@ -21,7 +21,7 @@ describe('M7.3 user 账本（形态二：仅终稿层）', () => {
       { role: 'user', agentId: 'user', content: '第一问', run: undefined },
       { role: 'peer', agentId: 'alpha', content: '终稿回复', run: 'run-9' },
     ]);
-    // 物理布局：<dataRoot>/users/user/sessions/<uuid>/
+    // 物理布局：<dataRoot>/viewer/sessions/<uuid>/
     expect(fs.existsSync(path.join(userSessionDir(ROOT, 'u-777'), 'messages.jsonl'))).toBe(true);
   });
 

@@ -61,7 +61,7 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
     await uled.writeOwn('第二问', 'rq-a2');
     await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第二问]', uuid: 'u-e2e-a', run: 'run-2', requestId: 'rr-2' });
     // webui 读面（历史读纯库）——user 账本回放
-    const udir = path.join(ROOT, 'users', 'user', 'sessions', 'u-e2e-a');
+    const udir = path.join(ROOT, 'viewer', 'sessions', 'u-e2e-a');
     const first = readLedgerFrom(udir, 0);
     expect(first.rows.map((r) => r.content)).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]']);
     // 增量读：追加一行再读只交付新行

@@ -15,7 +15,7 @@
 //   · 缺 model 的非 virtual 身份不物化默认连接（缺键 = 跟随全局默认）：写口
 //     固化创建时点的默认模型会让全局换默认对存量身份失效。
 // ============================================================
-import { assertAgentId } from './tree.ts';
+import { assertAgentId, isAgentIdentity } from './tree.ts';
 import type { AgentConfig } from './config.ts';
 
 /** AgentConfig 字段白名单（fail-closed：未知键拒绝而非静默剔除——全局专属键
@@ -51,7 +51,12 @@ export function sanitizeAgentInput(
     ?? (typeof id === 'string' && id !== '' ? id : undefined)
     ?? (current === undefined ? deriveAgentId(rest.name, options.idTaken) : undefined);
   if (agentId === undefined) throw new Error('缺少 agent id（create 须携带 id 或 name；update 按 agentId 定位）');
-  if (current === undefined) assertAgentId(agentId);
+  // create 词法闸：路径安全 + 身份词形（禁 `~`——对键桶承重墙，主线同款；
+  // update 的 id 由现值固定，存量域不改判）
+  if (current === undefined) {
+    assertAgentId(agentId);
+    if (!isAgentIdentity(agentId)) throw new Error(`Agent id "${agentId}" 非法（禁 ~——对键桶会话键词形，非身份词）`);
+  }
   if (rest.tags !== undefined
     && (!Array.isArray(rest.tags) || rest.tags.some((tag) => typeof tag !== 'string'))) {
     throw new Error('tags 须为字符串数组（档位词/模式词——能力 tag 已退役）');

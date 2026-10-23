@@ -615,7 +615,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   // digest 短路：请求带上一轮 digest 且当前一致 → unchanged 轻载荷。
   let lastRunsDigest: string | null = null;
   web.registerRpc('runs/snapshot', async (params) => {
-    const sessionsRoot = path.join(deps.dataRoot, 'users', 'user', 'sessions');
+    const sessionsRoot = path.join(deps.dataRoot, 'viewer', 'sessions');
     let sessionDirs: fs.Dirent[] = [];
     try { sessionDirs = fs.readdirSync(sessionsRoot, { withFileTypes: true }); } catch { /* 无 user 会话域 */ }
     const convsMeta = sessionDirs

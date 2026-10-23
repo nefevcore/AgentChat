@@ -44,7 +44,7 @@ function tmpRoot(tag: string): string {
 }
 
 function writeSession(root: string, agent: string, cid: string, rows: Array<Record<string, unknown>>): void {
-  const dir = path.join(root, 'users', 'user', 'sessions', cid);
+  const dir = path.join(root, 'viewer', 'sessions', cid);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'messages.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
   // agent 域账本在场（conversationDirs 判据）——journal 计量挂在同目录
@@ -146,7 +146,7 @@ describe('runs/snapshot（宿主聚合 + digest 短路）', () => {
       expect(again).toMatchObject({ unchanged: true, digest: snap.digest });
 
       // 账本变化 → digest 变、重新展开
-      fs.appendFileSync(path.join(root, 'users', 'user', 'sessions', 'c2', 'messages.jsonl'),
+      fs.appendFileSync(path.join(root, 'viewer', 'sessions', 'c2', 'messages.jsonl'),
         JSON.stringify({ role: 'agent', agent_id: 'a2', content: 'x', message_id: 'm4', timestamp: '2026-10-22T03:00:00Z' }) + '\n', 'utf-8');
       const third = await handlers.get('runs/snapshot')!({ digest: snap.digest }) as Record<string, unknown>;
       expect(third.unchanged).toBeUndefined();

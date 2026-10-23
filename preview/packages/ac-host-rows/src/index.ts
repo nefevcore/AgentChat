@@ -139,7 +139,7 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     config: configOptions,
     // 会话级覆盖目录（conv-settings/<conversationId>.json——宿主单写）
     'conv-settings': { root: opts.dataRoot },
-    // 独立会话元数据（users/user/sessions/<sid>/session.json——宿主单写）
+    // 独立会话元数据（viewer/sessions/<sid>/session.json——宿主单写）
     singles: { dataRoot: opts.dataRoot },
     backup: backupOptions,
     'ws-bridge': wsBridgeOptions,
