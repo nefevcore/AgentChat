@@ -240,6 +240,90 @@ argv 派生清单 → 装配。cordis.patch.yml / loader patches 注入 / 热通
 同形 boot 是该断言在装配面的下半句）。遗留 ◐ 一枚：宿主行集偏好文件的 schema
 细节（是否兼当 CLI 直连形态的宿主清单源）随 ac-rowset-core 设计落。
 
+# 〈D10 会话查询收敛〉（2026-10-19，cr-544 立）
+
+**裁决**：session-query 收敛为 **agent 只搜自己**——工具面只有本 agent 自己的账本
+（`agents/<id>/sessions/<uuid>/`，影子 = 物化域）；不提供跨 agent / user 账本的检索
+能力（跨 agent 历史分析改走文件只读，与 webui 读面同义）。
+
+**树归属**：host → shell（R0a 判据 1）。旧 R1 记「数据服务·多根只读搜索」与判据 1
+冲突：grep_history / read_history 是**工具**，工具只能由壳内 agent-loop 执行——宿主
+进程无 loop，注册的 ctx.tools 永不被调用。行集总数 81 不变（宿主 47→46 / 壳 34→35）。
+
+**否决的备选**（拆分为宿主「多根只读搜索服务」行 + 壳工具行，R5 判据 7）：壳→宿主
+请求面在新架构只有信封（单向投递）与 B3 旁带帧（单向），跨进程请求-应答需新增通道；
+而 D4 读面本可文件直读、工具语义又只需自己的账本——新增通道的工程与协议成本不成立。
+
+**回放语义**（与主线 session.history 恒等）：`summary.md` 概要头部以 system 消息置首；
+viewer 投影 = `agent_id === 本 agent → assistant`，其余 → user（对端行带 `name` = 对端
+端点 id——只搜自己 ≠ 只见自己的发言，本域账本里对端的话也是本会话事实）；
+context/event 机制行不入回放（台账面，非会话发言）。
+
+**会话键面**：`conversation_id` 参数保留，但只在本 agent 账本内解析（词法闸禁路径分隔/
+遍历）；本域无该会话 = fail-loud（明确报「只搜自己」），不静默空集。
+
+# 〈D11 归档全壳内〉（2026-10-19，cr-546 立）
+
+**裁决**（用户裁定，三选一取 A）：归档全链（阈值检测 / 整理 run / 归档重建 / 超时
+兜底）住**壳**，宿主零 archive 职责；timer 的 archive-all 机制任务改**批量唤醒信**
+（宿主只发信，判定与执行全在壳内自决——A13「宿主自有异步 → timers + 宿主 async，
+无注册表面」与 D10 先例同承）。
+
+**树归属**：host → shell。两判据叠加：① 整理 run = LLM 编排 + 工具执行，只能住壳
+进程（R0a 判据 1，与 D10 session-query 同构——宿主无 loop）；② 归档重建 = 写归属
+agent 的账本，D4「写权 = 账本所有权」——账本写者恒为归属 agent 的壳（会话账本归
+尾段 agent，pair 会话两壳各写自己域的镜像账本，归档各自执行）。行集总数 81 不变
+（宿主 46→45 / 壳 35→36——archive 从宿主数据服务组移壳域服务组）。
+
+**否决的备选**（B：宿主枚举行 + 壳内整理）：宿主保留 archiveAll 枚举判定（直读
+agents/*/sessions/ 估算达阈 → 拉壳投递），整理归档住壳。否决理由：估算逻辑宿主化
+引入跨进程口径耦合面——宿主侧估算须与壳内回放注入形状口径双向对齐（replayView
+过滤 / 概要头 / viewer 投影），单边演进即漂移；而全壳内形态判定与执行同进程同口径，
+宿主彻底不持 agent 定义知识（会话归属 / 预算 / 回放口径），与 D10「宿主不持 agent
+知识」同一收敛轴。C（全宿主）不可行：整理 run 必须住壳。
+
+**唤醒信形态**：archive-all 信 = 对角线 uuid（`<target>~<target>` 确定性键）+
+sender = target 自身（自会话语义）+ budget 1 + `payload.mechTask = 'archive-all'`
+（机制信分发键——壳 boot 收信面识别并路由 archiveAll；virtual / 无 model 的 agent
+不投）。批量归档枚举内化为壳内 archiveAll（本域 sessions/ 逐桶阈值判定）。
+
+**整理 run 语义**（主线 meta[ARCHIVE_REVIEW] 三不语义平移）：不落账（settle 走
+机制变体——journal-settled 落 journal、messages 不落行）、不记 usage、不进上下文
+视图；与用户 run 共串行化门（busy 排队）；maxSteps 128 硬闸 + 超时 abort + 步级
+观测三闸照搬。单 agent 壳无双侧 done 协议（主线双侧整理的对桶在 D4 视角主义下 =
+两壳两账本，各自归档各自执行）。
+
+**pending 标记协议退化**：主线 pending/done marker + 周期扫描兜底是跨参与者协议
+（双侧 done 全齐才归档）；壳内单写者事件驱动下无此形态——整理 run 由行内 await
+串联（触发 → 整理 → 重建），崩溃中断 = 重启后阈值检测自然重触发（幂等），idle-exit
+不收割 busy 会话。标记文件不迁移（观测面残留在主线归档段目录）。
+
+# 〈D12 会话覆盖写权归宿主〉（2026-10-22，cr-565 立）
+
+**裁决**：`conv-settings`（会话级覆盖：模型 / 工具档 / 实验键）行**移入宿主树**——
+写者单源 = 宿主 web RPC（输入框模型菜单、设置面板、`singles/update` 的模型覆盖）；
+壳侧改由数据根垫片 `ConvSettingsShim` 提供只读 `get` / `registerKey` / `listKeys`
+（策略同 credentials 垫片 R-11 ③：物理单副本两侧共用，写口只在一侧）。行集总数 82
+不变（宿主 45→46 / 壳 37→36——从壳域服务组移宿主数据服务组）。
+
+**判据**：① 写入的发起方**恒是用户动作**（webui 输入框 / 设置面板）——旧架构单进程
+时写口自然在 web-api，新架构的 web-api 面住宿主，故写权随动作面走（D4「写权 = 所有权」
+的同一推论：谁发起、谁落盘）；② 读面两侧都要：壳内 run 装配与 `harness-tools` 的
+`harnessTier` 注册面只读不写，垫片足够（与 agents / agentStore / credentials / workspace
+四垫片同构）；③ 否决「写面走壳控制帧」：读面（`conv-settings/get` 挂载即取）会因此
+每次都要拉起壳进程，而键目录（`conv-settings/keys`）的宿主侧子集本可静态返回。
+
+**模型覆盖链路**（本次修复的实质）：选择 → `conv-settings/set`（1v1 键 = pairKey(viewer,
+agent)）/ `singles/update`（独立会话键 = sid，同源落 conv-settings——preview 无 singles
+session.json，不存在主线「防双源」语境）→ deliver 合并点（显式入参 > 存盘覆盖）→
+**信封 `model` 字段**随信投递 → 壳内 run 装配按 `name@model` 拆 provider/model、裸名不带
+provider（`splitModelRef` 单源）。随信封而非壳内查表：排队 / inbox 重放的信仍按投递时刻
+的覆盖跑，语义确定；传参语义与主线 deliver 合并点（P6/D4）一致。
+
+**未落地面**（诚实记账）：`singles/update` 仅支持 `model`——agent 切换 / 标题 / 工作区
+属单会话元数据面（preview 无 session.json），当前 fail-loud 报错；`harnessTier` 等壳内
+扩展键在宿主键目录中不可见，前端「实验性」菜单不提供（写入面缺席，非数据丢失）。
+
 # 〈账目与修正史〉
 
 - ui 族账目：v1 记 27，yml 实数 31（25 域行 + 骨架 6）——v2 修正。
@@ -270,6 +354,9 @@ argv 派生清单 → 装配。cordis.patch.yml / loader patches 注入 / 热通
 - cr-478：ui 树定调 + 工作区语境 + workspace 七面收口 + 骨架 3+4 解构（ui-tree.md 立；清单 R7-5 收口）。
 - cr-484：tag 机制解体（方案 A）——requiredTags/tags 全链退役、七职能归位、双闸换轨；R7-6 消解。
 - cr-485：R7-7 收口——patch 机制整体退役，两树同形 boot（清单驱动装配全域单一）；行集唯一来源 = 派生推广全域。
+- cr-546：D11 归档全壳内（archive 改树入壳——timer archive-all 改批量唤醒信）。
+- cr-565：D12 会话覆盖写权归宿主（conv-settings 改树入宿主 + 壳只读垫片；模型覆盖经
+  deliver 合并点随信封换轨到壳内 run 装配）。
 
 ## 本档案纪律
 

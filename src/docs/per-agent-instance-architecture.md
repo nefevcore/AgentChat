@@ -15,6 +15,8 @@
 > （preview 旁路重建模型，cutover 导入语义，见族三 R-10）——待裁决清单前置项全部清空。
 > 2026-10-16 修订：tag 机制解体（cr-484）——D1 工具面 tags 退役（声明面 = 行集引用，
 > 七职能归位与授权侧换轨见裁决簿〈tag 机制解体〉与 auth 草稿修订）。
+> 2026-10-17 修订：壳模型统一裁决（S0 + P2 五条一揽子通过；S-2/S-3 备查搁置）——待裁决清单
+> 收口「cell × activation」与「词汇撞车」两项，见 shell-model-unification.md。
 > 配图（2026-10-13 版）未随修订更新。
 > 仓内相关：cell-runtime-and-architecture-evolution.md（CR-316）、ac-session（writer 队列 +
 > 数据根独占锁）、ac-conversation（inbox 双队列 + steer-stash durable）、ac-group（群转录
@@ -233,7 +235,7 @@ cordis 是当前非常契合的工具、必要时可改动 vendors：
 |---|---|
 | journal / compaction / 归档 per-agent 实例化 | 机制照搬，工程 ×N 实例 |
 | 新成员入群无历史（极端沉默权） | 要历史 = 从老成员账本投影回填（一次性导入语义）；隐私上甚至是 feature |
-| 跨 agent 能力改写 | session-query（多根搜索或收敛为 agent 只搜自己）、backup/archive 枚举 agents/*/sessions/ |
+| 跨 agent 能力改写 | session-query（多根搜索或收敛为 agent 只搜自己）——**已裁（2026-10-19，cr-544）：收敛为 agent 只搜自己**（默认与唯一能力面 = 本 agent 账本；跨 agent 历史改走文件只读，工具面不提供）；archive——**已裁（2026-10-19，cr-546，D11）：归档全壳内**（整理 run = LLM 编排住壳〔R0a 判据 1〕+ 归档重建 = 写归属 agent 账本〔D4 写权 = 所有权〕；宿主零 archive 职责，timer archive-all 机制任务改批量唤醒信——论据全文见裁决簿〈D11 归档全壳内〉）；backup 枚举 agents/*/sessions/ 仍 ◐（数据轴备份宿主自有——cr-537 已零改动导入） |
 | webui 读面迁移 | user 账本 = webui 唯一数据源（会话列表 / 群视图 / 回放） |
 | 与现状单向兼容 | 存量 sessions/<pairKey>/ 迁移：一次性脚本 + 恒等门测试（仓里 migrate 三件先例） |
 | 消息丢失模型 | 投递 at-least-once + 接收方幂等（requestId 准入去重，cr-250 机制复用） |
@@ -578,8 +580,8 @@ D9 注记（同日）：preview 模型下三步性质从「主线演进阶梯」
 | R-10 | 存量迁移窗口 · 双读 · 恒等门测试范围 | ✓ | 2026-10-14 裁（preview 模型，见族三 R-13） |
 | — | 新成员入群回填 | ◐ | 一次性导入语义待细化 |
 | — | MCP 服务器归属 | ✓ R-12 | 2026-10-14 闭（client = 子树工具行 / 清单 = 授权资产 / stdio 进程 = 拉起方所有，见族二 R-12） |
-| — | cell × activation 映射 | ◐ | 一 cell 多 activation 的锁语义 / activation 跨 cell 迁移 / runtime 字段与单例锁互斥；与 cell 档案「开放张力」小节同源（2026-10-14 join 后登记） |
-| — | 会话账本归属词汇撞车 | ◐ | 架构维度「不绑定运行环境」与 D4 当事方维度「按端点归属」字面冲突；立项前统一词汇表（cell 档案 §5 增补尾注） |
+| — | cell × activation 映射 | ✓ | 2026-10-17 收口（壳模型 P2 ①②③：壳:activation = 1:1 恒立；无 runtime 字段、锁辖域恒 agent 级；影子不撞锁） |
+| — | 会话账本归属词汇撞车 | ✓ | 2026-10-17 收口（壳模型 P2 ④：账本身份键恒端点（agent），壳 = 临时容器与写者执行体——壳不拥有账本、壳死账本在） |
 | — | 门禁链数据化工程面 | ◐ | 2026-10-14 D3 修订最大前置：ac-security / plugin-gates / durable-interaction / usage / credentials 执行面可由数据根 boot 的路径细化；授权注册表分层（全局 / per-agent）落地 |
 
 ## 五步闭环（自进化最小工程量——前置全闭合，余实现件）

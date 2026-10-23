@@ -187,9 +187,9 @@ payload（grant）: { asset: 凭据引用 | 插件行 id | MCP 服务器名 | �
 |---|---|---|
 | ack 超时 / 重投间隔 | 30s / 指数退避上限 5 次 | 邮局 spike |
 | budget 缺省值 | 3（MAX_AUTO_WAKES 同源） | 壳树 boot |
-| 心跳周期 / 判死拍数 | 30s / 3 拍 | 监护 spike |
-| idle-exit 阈值 | 15min | 监护 spike |
-| 崩溃熔断阈值 | 60s 内 3 次 | 监护 spike |
+| 心跳周期 / 判死拍数 | ✅ 30s / 3 拍（cr-528 钉） | ~~监护 spike~~ 已钉——壳侧 setInterval 30s（unref）发 `guardian.ping`，warden 3 拍丢失判死 |
+| idle-exit 阈值 | ✅ 15min（cr-528 钉） | ~~监护 spike~~ 已钉——壳侧探针 30s 周期查四条件（run / inbox 待消费 / 在途交互 / 活跃 job），全空 15min → 退码 0 收割 |
+| 崩溃熔断阈值 | ✅ 60s 内 3 次（cr-528 钉） | ~~监护 spike~~ 已钉——warden 窗口计数（窗外崩重置窗），窗内连续 3 崩熔断 |
 | unix socket / named pipe 命名规则 | <dataRoot>/ipc/<agentId>.sock | 通道 spike |
 | 锁 stale 清理保留 | stale-<bootId> 保留 1 个 | 壳树 boot |
 | budget 链式传播 | 回复信封携带链剩余值（配额挂 uuid 因果链）；user 直发重置满额 | 邮局 spike（A1 注记：每跳新配额则 agent 互答循环防不住——现状串行化门按会话计数即链式，语义平移非新设计） |

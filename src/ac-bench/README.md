@@ -122,5 +122,5 @@ expected/actual/耗时）。生产验收建议同记：跨 seed 方差（同参�
 
 > 现状（2026-10-12）：仅 BFCL 单轮适配器在用；跑批基建（套件槽位/
 > 对拍/报告）已就绪待扩展。评测域长期定位见
-> `src/docs/explore/cell-runtime-and-architecture-evolution.md` §2（ac-bench
+> `src/docs/cell-runtime-and-architecture-evolution.md` §2（ac-bench
 > 即 RSI 选择压力）——基建保留的裁决背书。

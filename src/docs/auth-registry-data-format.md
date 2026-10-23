@@ -112,12 +112,17 @@ effective(agent) = { a ∈ 全局层有效条目 ∪ per-agent 内联条目 | a 
 | ac-mcp 行 config.servers | mcp.json 迁数据根（R-12：清单 = 授权资产） |
 | AgentConfig.tags（声明面） | 退役——声明面换轨为行集引用（工具点名 ∨ 行名），与授权面双闸形状不变（C1 修订，cr-484） |
 
-# F. 待钉（◐ 动工时）
+# F. 待钉（cr-545 全钉，2026-10-19）
 
-1. mcp.json 是否并入 auth.json 统一条目（倾向：保持独立文件——MCP 现有用户可见面
-   不动，auth 引用之）；
-2. per-agent denials 的用户编辑面（webui 卡片形态）——与 agent-admin 管理面合并设计；
-3. 全局层条目是否需要按 agent 维度的默认集（缺省 = 空，最小授权原则）。
+1. ✅ mcp.json 保持独立文件（倾向即裁决：MCP 现有用户可见面不动，auth 引用之——
+   mcp-server 授予时宿主同步补写清单）；
+2. ✅ denials 编辑面 = F2 分立（用户裁决 2026-10-19，依据「授权位置与壳读取」推导）：
+   auth.json 物理写口单源归 auth-registry 行（本档案 A/B 节「两层皆宿主单写」+
+   manifest R1「授权注册表写者」），grant 信（agent 入口）与用户编辑（webui 入口）
+   是两个入口一个写口——授权编辑面 = auth-registry 自带 auth/* RPC 域（deny/allow/
+   agent-view/global-view/credentials/write-credential），agent-admin 保持身份编辑面
+   纯度（config/entries/文档，不碰 auth.json）；webui 卡片如何组合两域是前端自由；
+3. ✅ 全局层按 agent 维度默认集：缺省 = 空（最小授权原则钉死，不设默认集）。
 
 ## 本档案纪律
 
