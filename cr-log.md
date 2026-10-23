@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-622**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-637**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -640,3 +640,17 @@
 - 【cr-620 2026-10-23 cr-620 进程可视身份：node.exe 品牌副本（bin/AgentChat{Host,Shell}.exe——rcedit 改 FileDescription，任务管理器可辨可杀）+ 宿主/壳 spawn 换用品牌副本（缺席回落 process.execPath）】
 - 【cr-621 2026-10-23 G8 第二批入库：cr-606…620 未提交改动按域切分提交 + 测试残留 X/ 清理 + bin/ ignore 补齐】
 - 【cr-622 2026-10-23 cutover 收尾：旧包退役清理首批（按归并表，ac-singles/ac-hello/ac-session 等）】
+- 【cr-623 2026-10-23 cr-621 cr-620 补件：AgentChatSupervisor.exe 品牌 + supervisor.mjs 自重-exec（缺席回落 node）——不品牌 supervisor 则杀宿主/壳会被拉起，任务管理器三件套缺一不可】
+- 【cr-624 2026-10-23 cr-624 cr-620/623 收敛：单映像 bin/AgentChat（无扩展名——CreateProcess 显式路径可执行，任务管理器三角色折一行）——make-node-identity 单角色 + 四 spawn 点统一引用】
+- 【cr-625 2026-10-23 标准预设移除 str_replace_editor + ask_questions 交互卡前端零直播根因修复】
+- 【cr-626 2026-10-23 full-access 下沙箱 workdir 越界拦截根因修复（工作区写入被拒）】
+- 【cr-627 2026-10-23 工作区 skill 不可加载 + answered 交互无人消费双根因修复】
+- 【cr-628 2026-10-23 中断/崩溃 run 前端丢失根因修复：①driveRun 终稿回信 user run 恒投（interrupted/error 空文本不再跳过 postReply——run 键行缺席 = 刷新后 steps 全丢）+ postReply 断链重试重连 ②壳 boot 孤儿 journal 收口（journal-settled interrupted 补写）+ web-api session/history 孤儿 run 投影（orphanRunsOf 纯函数——壳死 mid-run 不再整 run 蒸发）】
+- 【cr-629 2026-10-23 安全重启工具双件：restart_shell（中止在途 run→信封回队 inbox durable→退出码 42→宿主 respawn→新壳 boot inbox 恢复面重投续跑）+ restart_host（信封请求宿主 graceful exit 42——supervised 写停机戳防壳复活双宿主竞态；warden 42 = 有意重启不计崩溃熔断）】
+- 【cr-630 2026-10-24 cr-629 restart_host 停机戳分支设计违背修正：D5 边 2 裁决 = 任意宿主死亡活壳复活（supervisor 仅兜同死）——supervised 分支写停机戳让壳 stand down 是单点故障（supervisor 未拉起则宿主永死）且滥用戳语义（戳辖用户停机/换代）。改为恒不写戳：exit 42 后 supervisor（在场快路）与活壳（常态兜底）竞态由既有防线收敛（O_EXCL 壳间仲裁 + cr-619 strict EADDRINUSE 后到者可读退出 78）】
+- 【cr-631 2026-10-24 孤儿 run 可见性持久化补环（cr-628 后续）：web-api 孤儿投影以未收束为门控——新壳 boot recoverOrphanRuns 补 settled 后投影让位而 viewer run 键行从未落过（壳死时 postReply 未跑），steps 会二度消失。补：收口时经邮局向 user 壳补投空文本 run 键锚信（writeThrough 落 viewer 行，cr-595 同通道 D4 单写者不破；盘上 viewer 行在场即跳过防重，仅本 boot 收口的用户 run 补投——机制 run 不经此面）】
+- 【cr-632 2026-10-24 cr-631 补投判定 broaden：本 boot 收口门控漏「已收口未锚定」存量（活体实锤：活壳先跑旧码收口 7zs1，新码锚信永远不投）。锚定判定改链接制——anchorableRuns 纯函数：有步行 + viewer 无锚 + run=run-<requestId> 且该 requestId 在本会话账本有入站行（消息 run 判别；机制 run 无对应入站行天然排除）】
+- 【cr-633 2026-10-24 restart 行工具面收窄到创造预设（用户裁决）：基础行（全缺省壳可见）→ bundle 化离开基础集 + creator 模板 tools 点名引入（plugin-dev 同款惯例；__standard__ 17 行清单本就未含）+ 活体 __creator__ config 同步补行】
+- 【cr-636 2026-10-24 answered 交互 boot 重放面——ask-questions late-reply 跨壳重启恢复（answered+ask_questions+owner=self 未消费记录重投 deliver，转录 id 扫描去重）】
+- 【cr-638 2026-10-24 answered 重放自激回环根因修复：late-reply 重放把「信源」当「回信目标」——sender=owner（保账本投影）使 driveRun 收束点 postReply(env.sender) 投回自身端点（落账成入站 message）→ 再拉一轮 run，自答循环（用户侧收不到终稿，只因预算衰减才停）。修：Envelope 增 replyTo（显式回信目标）+ replyTargetOf 纯函数（replyTo 优先 → sender；= 自身返 null）+ 重放面 replyTo:user + postReply 自回环防线（stderr 留痕）。活体实锤：__standard__ 会话 01a1681b 账本 reply-late-reply-dur-mvkst4pm 同文两行（seq 234 带 run / seq 236 无 run）+ journal 尾段 run-reply-late-reply 真跑——正是「我的终稿被投回自己当新输入」】
+- 【cr-637 2026-10-24 标准预设工具面复核：cr-615/625 裁决落实确认——出厂模板 templates/standard 17 行（含 collab-tools）、活体 agents/__standard__ 16 行（去 memory/collab，留 browser/math/mcp/datetime），派生 27 名/0 warnings、产品生效面 agents/tool-defs 实测 18 词（无 adt_*/bench/harness/plugin-dev）；datetime=提示注入行、mcp=接入服务行，两者零工具名；run_code 属 injection=mode（会话切程序化模式才现）。活体描述去「协作」词对齐实际行集；preview 定向 25 测 + typecheck 0】
