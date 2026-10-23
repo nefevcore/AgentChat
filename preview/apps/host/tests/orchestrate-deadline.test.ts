@@ -4,6 +4,9 @@
 // 会使 ctrl.done/心跳行永无人分发：控制帧恒 60s 超时 + 监护失流。）
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { adoptShell } from '../orchestrate.ts';
 import { ReachabilityTable } from 'ac-post-office';
 import type { SpawnFn } from '../orchestrate.ts';
@@ -38,9 +41,12 @@ describe('adoptShell stdout 循环常驻性（cr-580）', () => {
       on: (event: string, cb: (code: number | null) => void) => { void event; void cb; },
       kill: () => { /* 测试替身无进程 */ },
     });
+    // 数据根用 tmpdir（adoptShell 会物化 agents/a1/config.json——相对路径
+    // 会把残留写进仓库根，cr-621 实锤过 X/ 泄漏）
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-deadline-'));
     const adopted = await adoptShell({
       agentId: 'a1',
-      dataRoot: 'X',
+      dataRoot,
       catalogFile: 'C',
       bootFile: 'B',
       reach: new ReachabilityTable(),
@@ -51,5 +57,6 @@ describe('adoptShell stdout 循环常驻性（cr-580）', () => {
     const out = await adopted.control({ ctrl: 'admin', op: 'run-state', agentId: 'a1' });
     expect(out).toEqual({});
     expect(written).toHaveLength(1);
+    fs.rmSync(dataRoot, { recursive: true, force: true });
   }, 20_000);
 });
