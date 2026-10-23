@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-486**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-605**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -504,3 +504,122 @@
 - 【cr-484 2026-10-16 R7-6 裁决：tag 机制解体（方案 A）——requiredTags/tags 全链退役，七职能归位（行集派生/settings X1/行引用资产/tier 轴/物理隔离），双闸换轨不换强度，R7-6 消解；回写裁决簿+行集清单+auth 草稿+per-agent D1】
 - 【cr-485 2026-10-16 R7-7 裁决：patch 机制整体退役——cordis.patch.yml/loader patches/热通道/急救通道形态退役，两树同形 boot（清单驱动装配：宿主 = 偏好文件 → rowset-core 派生，壳 = argv 派生清单）；行集唯一来源 = 派生推广全域】
 - 【cr-486 2026-10-16 web-search deepseek provider 换用官方专用搜索端点 /v1/tools/search（2026-10-16 上线），退役 Anthropic Messages 绕道特型与模型结构化输出解析】
+- 【cr-487 2026-10-17 壳模型统一裁决：S0 + P2 五条一揽子通过，回填 per-agent 与 cell 两母档案；S-2/S-3 备查搁置】
+- 【cr-488 2026-10-17 壳模型立项：8 份裁决/规格档案迁 src/docs/（explore/ 退役），preview/ 目录立项开张（壳模型终态骨架 + 数据根隔离纪律）】
+- 【cr-489 2026-10-17 preview 轨立项文档：规范 spec.md（需求 + 事实源映射 + 验收纪律）与计划 plan.md（M0-M8 里程碑拆分 + 跨会话状态板）】
+- 【cr-490 2026-10-17 preview 轨开工提示词 kickoff.md（跨会话入口：状态板流程 + 硬纪律）】
+- 【cr-491 2026-10-17 preview M0 地基：workspace 纳入 preview/packages + 六纯库骨架包 + preview:* 旧别名退役】
+- 【cr-492 2026-10-17 preview M1.1 ac-envelope-core：信封 schema（A1）+ requestId 幂等准入器（cr-250 语义）+ budget 状态机 + 确认状态机（A2）】
+- 【cr-493 2026-10-17 preview M1.3 activation.lock：O_EXCL 创建 + pid 探活 + 陈锁接管（stale-<bootId> 保留 1 个）+ exit handler 释放】
+- 【cr-494 2026-10-17 preview M1.4 ac-fingerprint-core：Merkle 内容树（行级子指纹 + 规范化 + 聚合根）+ 盘适配；钉 R-7 残余：文件清单 = 包目录全量（显式排除集）】
+- 【cr-495 2026-10-17 preview M2.1 ac-agents-core：AgentConfig 契约 owning + 词汇纯函数（tierOf/toolModeOf/resolveToolNames/displayNameOf/settingsOf）+ agents/<id>/ 树直读 + children 嵌套解析】
+- 【cr-496 2026-10-17 preview M2.2 ac-auth-core：授权注册表 schema（全局层+per-agent 层，墓碑与 InlineAsset）+ 投影算法（全局 ∪ 内联 - denials ∩ 行集）】
+- 【cr-497 2026-10-17 preview M2.3 ac-rowset-core：行集推导器（AgentConfig 工具点名∨行引用 × 全局行集目录 → 壳行集）+ 行目录静态投影（per-agent 化）+ 宿主偏好文件派生】
+- 【cr-498 2026-10-17 preview M2.4 ac-credentials-core 降格：加密算法半边纯库化（AES-256-GCM + PBKDF2 机器绑定 + credentials/ 目录直读），写者面留 M4 auth-registry】
+- 【cr-499 2026-10-17 preview M2.5 数据根骨架：测试数据根布局 fixture 工厂（agents 树 + auth 两层 + mcp.json + credentials/）+ 布局单测】
+- 【cr-500 2026-10-17 preview M3/M4 细化：plan 任务表展开（M3 壳 boot 五任务 / M4 宿主邮局化四任务——依 D9 步 2/3 与 manifest R1/R2/R3.2）】
+- 【cr-501 2026-10-17 preview M3.1/M3.2：行集目录 JSON（82 行对账）+ 壳 boot 编排骨架（argv→锁→rowset 派生断言→装配→stdout TSV 三节拍）】
+- 【cr-502 2026-10-17 preview M3.3 ac-ledger：per-agent 账本行（messages.jsonl 行协议 + journal partials + inbox durable + requestId 准入 + 落账即确认 + settlement 两阶段）】
+- 【cr-503 2026-10-17 preview M3.4 ac-conversation：会话状态机（串行化门 + inbox 双队列 next-step/next-turn + budget 消费 + user 端点桩）】
+- 【cr-504 2026-10-17 preview M3.5 级联验收：CLI 直连多轮会话端到端（boot→锁→账本落账→状态机 run/steer/queue→settlement→重读续跑）+ 双壳抢锁互斥 + 行集断言拦错】
+- 【cr-505 2026-10-17 preview M4.1 ac-post-office：邮局行（uuid 登记校验 R-1 + 投递路由 + 信封准入 + ipc 帧监听）】
+- 【cr-506 2026-10-17 preview M4.2 发件箱滞留中继：outbox/ 落盘（at-least-once）+ 通道恢复转投（可达即重发 + 成功出箱）】
+- 【cr-507 2026-10-17 preview M4.3 ac-guardian：监护行（拉起三节拍消费 adopt + 心跳监视 3 拍丢失判死 + idle-exit 收割 + 崩溃退避熔断）】
+- 【cr-508 2026-10-17 preview M4.4 级联验收：跨进程 1v1（两壳进程经邮局投递）+ 群播扇出 + 崩溃陈锁接管续跑】
+- 【cr-509 2026-10-17 preview M5 细化：药丸形端到端任务表展开（agent-loop 接入 / llm 适配 / 宿主编排面 / 三步合一验收）】
+- 【cr-510 2026-10-17 preview M5.1/M5.2 ac-shell-loop：精简 ReAct 编排纯域（provider 注入 + 工具注册表 + 步进 journal）+ boot 集成（conversation plan 驱动 run/settle）】
+- 【cr-511 2026-10-17 preview M5.3 宿主编排面 ac-host-app：spawn 壳 → guardian 三节拍 adopt → 可达表登记 → 邮局投递全链】
+- 【cr-512 2026-10-17 preview M5.4 补壳 ipc 半边：boot.ts 挂投递监听（transportHint 真值 + 常驻 + shutdown 语义）——宿主 adopt 后可直投】
+- 【cr-513 2026-10-17 preview M5 收尾补丁：e2e 壳进程收割兜底（spawn 句柄登记 + afterEach 精确 pid kill——2026-10-17 宿主误杀事故防复发；教训：宿主与 preview 壳同 node+boot.ts 形态，进程清理禁扫进程表）】
+- 【cr-514 2026-10-18 preview M6 细化开工：RSI 影子闭环（R-8 快照链落地 + 观察回执步 4 + 五步闭环收尾）任务表展开与实现】
+- 【cr-515 2026-10-18 M7 ui 树任务表细化（plan §2 展开）：webui 读投影三拆 + 插件 client 通道】
+- 【cr-516 2026-10-18 M7 ui 树收口：webui 读投影三拆（历史读纯库 ac-webui-core + B3 流式旁带 stream/StreamTap + user 账本形态二 UserLedger）+ 插件 client 通道（manifest schema/boot graph/静态路由）+ 级联 e2e 三线】
+- 【cr-517 2026-10-18 M8 cutover 任务表细化（三段式：产品面恒等收敛+恒等门导入+切换）+ 8.7 ac-import 恒等门导入脚本开工】
+- 【cr-518 2026-10-18 M8.7 导入写面收口：importSession 盘上落盘 + 原子换名 + 恒等复验 + unknown/singles/groups 归域裁决】
+- 【cr-519 2026-10-18 M8.1 行集收敛：preview 树沿用行从 src/ 导入装配（第一批 + 通道建立）】
+- 【cr-520 2026-10-18 M8.1 第二批行集收敛：模型编排 3 行（llm/llm-pool/agent-loop）+ 工具面 9 行（fs-tools 含 file-snapshots 并入/fs-search/str-replace-editor/run-code/math/web-tools/browser/issue-tools/sap-adt/dev-tools/mcp 中依赖闭合子集）导入 preview 壳树 + catalog path 数组化 + credentials 垫片（R-11 ③ 数据根直读）】
+- 【cr-521 2026-10-18 M8.1 第三批行集收敛：jobs/conv-settings/shell-tools/harness-tools 四行导入装配（依赖链闭合批次）】
+- 【cr-522 2026-10-18 M8.1 第四批：durable-interaction/ask-questions/bench 三行导入装配（余 collab-tools/subagent 随 8.2/8.3）】
+- 【cr-523 2026-10-18 M8.2 任务表细化 + 实施：精简 ReAct 换主线 ac-agent-loop 等量真身（壳内 conversation 域接线 + ledger/conversation 行接线 + collab-tools 导入收口）】
+- 【cr-524 2026-10-18 M8.3 run 内 spawn 工具面：ac-shell-subagent 行（真子壳进程 + 信封投递 + 多轮）+ boot 控制帧（interrupt/bench）+ bench 门（evolve bench-gate）+ 影子子壳 ledger 嵌套域修复】
+- 【cr-525 2026-10-18 M8.4 user 壳半边：R-1 签发 UUIDv7 + 邮局投递执行器 + user 壳桩（宿主内极薄——send 签发投递/收信面终稿写穿）+ conversation postReply 门修恒投回 sender】
+- 【cr-526 2026-10-18 M8.4 补记：post-office.test.ts M4 原测试被 write 覆写丢失（preview 未入 git 不可恢复）——按源码重构 M4 覆盖面 + 增补 M8.4 执行器用例；顺带根因修复：listenIpc 异步回调+close 强制断连、IpcClient 谓词等待（旁带帧误配 ack）、named pipe write 回调 err 成功可为 null、user-stub 类参数属性（cr-501 同族第四次）】
+- 【cr-527 2026-10-18 M8.6 第一批：壳侧 tools 授权门（A14 落地——ac-auth-core 投影 per-run 现算 + tool/before-execute waterfall：denials 三路匹配 + MCP 服务器投影收窄 + children 物化快照投影）】
+- 【cr-528 2026-10-18 preview M8.6 第二批：durable-interaction A8 per-agent 域锚定（D4 单写者）+ 监护 spike 收口（协议 F 表三参数钉 / warden idle 15min 与熔断 60s 窗修正 / 壳侧心跳 + idle-exit 四条件物理面 / R7-8 变更生效路径裁决）】
+- 【cr-529 2026-10-18 8.5 ui 树产品面第一批：任务表细化 + 宿主 web 面接线（web-server/ac-webui 行导入 + preview web-api 薄面 + e2e）】
+- 【cr-530 2026-10-18 8.5b webui 本体包解构第一批：本体包建立（避让名）+ 服务半边 boot graph manifest 单源化 + client 半边装配序列（骨架 3 件 in-bundle + 通道装载器单相）+ 通道条目化架构断言】
+- 【cr-531 2026-10-18 8.5b 第二批：模块资产通道装载产品化——四模块包建立（conversation/tool/settings re-export + markdown-render 声明）+ 通道装载机制升级（vitest 条件外部化 + boot channelImports 注入 + 构建脚本外部化）】
+- 【cr-532 2026-10-19 8.5d ws-bridge 旁带接线：壳旁带帧经 StreamTap → webServer.broadcast 事件帧桥接行 + e2e】
+- 【cr-533 2026-10-19 M8.5c ui 域行 manifest 声明化：25 域行上通道（channelImports 深路径扩展 + moduleHost 骨架面）】
+- 【cr-534 2026-10-19 run_code 单条 log 截断对齐 return 预算口径：退役 2000 字符独立上限，单条走 max_output_bytes 头尾保留截断；失败路径 error 并入尾行同受总预算约束】
+- 【cr-535 2026-10-19 M8.5e 前端 dev 联调面与浏览器闭环：vite 构建面（index.html/chrome92 降级）+ dev proxy → preview 宿主 + blob importmap 浏览器真跑 + 级联验收（列表→会话→发消息→流式渲染）】
+- 【cr-536 2026-10-19 8.5e 续：UI 深链（列表→会话→发送→流式）断点定位与修复】
+- 【cr-537 2026-10-19 8.8 前置·宿主行装配第一批：ac-host-rows 包（零改动 7 行导入：logger-console/timer/config/event-policy/remote-link/backup/ws-bridge）+ apps/host/boot.ts 宿主 boot 入口（偏好文件派生行集→装配）+ catalog path 钉】
+- 【cr-538 2026-10-19 8.8 前置·usage 自报链：ledger 订阅 loop/after-run 落 journal-settled 计量（journal 计量）+ run 收束发 usage 事件信经邮局投 host（事件信）+ 宿主 ac-host-rows 增 usage 行（registerLocal host 端点 + UsageService 聚合并复用）】
+- 【cr-539 2026-10-19 8.8 前置第三批：timers 宿主行改造（agents/agentStore/conversation/config 服务依赖换数据根直读 + 邮局信封投递——D10 机制照搬 + A13 宿主投递信）】
+- 【cr-540 2026-10-19 preview 8.8 前置第四批：身份编辑面行（preset-builtin 静态模板配置集 + agents 编辑面写口）】
+- 【cr-541 2026-10-19 unknown 1 例（实为 2 会话目录）人工裁决收口：B 跳过不导入——writer.ts ADJUDICATED_SKIPS 常量记裁决依据（__standard__ singles 调试会话、元数据已删；旧根保真 R-10）】
+- 【cr-542 2026-10-19 preview 8.8 前置第五批：宿主单树装配（web 环并入宿主 ctx——ws-bridge/remote-link 的 inject webServer 在双 ctx 形态永 PENDING 静默面根因修复 + ACTIVE 终检）+ agent-admin 写侧 RPC 编排行（CRUD 六方法经 agents 编辑面单写口）】
+- 【cr-543 2026-10-19 preview 8.8 前置第六批：插件治理面行落地（plugin-registry 改造行 + plugin-market 沿用导入）——装载裁决/熔断闸门/行集偏好急救 RPC/client manifest 注入】
+- 【cr-544 2026-10-19 preview 8.8 前置第七批：session-query 收敛为 agent 只搜自己（D10 用户裁决 2026-10-19）——行集树归属 host→shell（工具执行住壳），新行 ac-shell-rows/session-query.ts 只读本域账本回放】
+- 【cr-545 2026-10-19 8.8 前置第八批：auth-registry 行落地（grant 事务受理 + 两层 additive 写者 + 凭据写面——协议 E 全链）】
+- 【cr-546 2026-10-19 8.8 前置第九批：archive 改树入壳（裁决 D11 全壳内——宿主零 archive 职责，timer archive-all 改批量唤醒信）】
+- 【cr-547 2026-10-19 8.8 级联验收本体：B 段导入脚本扩 agents 树域/user 账本投影 + 宿主 boot 回放对齐 e2e】
+- 【cr-548 2026-10-19 8.8 壳级联合流：adoptShell 编排参数面扩展（--mock-provider/--post-office 透传）+ e2e-cutover 壳半边真子进程全链（宿主 boot + 导入数据根 + user 桩 → 壳 mock run → 终稿回链 user 账本）】
+- 【cr-549 2026-10-19 8.8 收尾：sandbox test-* 残留清理 + 无 provider run 永挂根因修复】
+- 【cr-550 2026-10-20 8.9 前置收敛第一批：宿主常驻监护面（superviseShell——心跳判死/崩溃重拉/熔断）+ 壳侧插件装载失败回报接线（plugin.load-failed TSV + 宿主熔断转发）+ preview supervisor 拉起脚本（D6 物理外置件）】
+- 【cr-551 2026-10-20 8.9 前置第二批：宿主编排面（orchestrator 按需拉起 + 邮局 ensure 钩子 + onAdopted re-tap）+ respawn 指数退避档 + timers entries 单写者收口（agents 编辑面单源）】
+- 【cr-552 2026-10-20 agent-admin 跨进程 dry-run：agents/system-prompt 装配预览与 agents/assembly 装配视图读写面（装配链住壳进程——信封请求 + 壳内干跑回执设计）】
+- 【cr-553 2026-10-20 creator 模板工具面收敛：插件装卸三件套 preview 形态——壳内 plugin-dev 行（三工具+会话级装载+收束检测）+ 信封面安装/卸载请求（envelope-core plugin-request schema + 宿主 plugin-registry 行受理+回执续跑）+ conversation 工具面会话级追加 + 行集 catalog/manifest/spec/模板回写（壳 36→37）】
+- 【cr-554 2026-10-20 orchestrator 测试残留根治（afterEach 清理钩子——cr-549 同族漏网）+ 8.9 切换前真数据根全量预演重跑】
+- 【cr-555 2026-10-20 8.5 收尾批：preview sandbox 旧预演目录清理 + isolated 档（iframe）通道装载接线】
+- 【cr-556 2026-10-22 8.9 切换本体：boot 入口替换（bin/scripts/supervisor 换轨 preview 宿主）+ 真数据根正式导入（改名封存 home→home-legacy）+ 域拷贝迁移 + cutover 执行脚本】
+- 【cr-557 2026-10-22 8.9 切换失败根因修复：封存 rename 的占用判据统一（旧/新宿主进程 + 主线数据根锁）+ 有界重试；守候器复核同判据；验证探针改 TCP（/api/version 不存在）；新宿主 CLI 拒绝旧布局数据根；报告名尾点修正】
+- 【cr-558 2026-10-22 8.9 切换前置：preview UI 静态面接入（vite build 产物 + boot CLI 默认 staticDir + cutover 静态面前置校验）】
+- 【cr-559 2026-10-22 8.9 切换实跑收口：启动步引号形态修复（start 空标题 + windowsVerbatimArguments）+ 验证探针改宿主身份（boot-graph）——TCP 假阳性根因】
+- 【cr-560 2026-10-22 preview 宿主重复启动的可读失败：数据根 IPC 管道/端口被占（EADDRINUSE）时给出「已有宿主在跑」指引而非裸栈】
+- 【cr-561 2026-10-22 WebUI 发消息无反应根因修复：壳会话模型回落改全局池默认连接（poolFallbackRef），不再落 mock；编排面孤儿配置不写死 model；__standard__ 数据修正】
+- 【cr-562 2026-10-22 切换补课批：数据根补迁（file-snapshots/archive/groups/memory/TODO/DONE）+ 真实健康端点 /api/healthz 替换假探活 + config/get 读面（脱敏）】
+- 【cr-563 2026-10-22 交接文档：preview/docs/handoff-2026-10-22.md（拓扑/坑位/下一批任务/回滚）】
+- 【cr-564 2026-10-22 8.9 切换后 P0：config 写面（config/set|delete|save + 池 api_key 侧信道写 credentials/ + config/get 池掩码回填 + llm/pool-credential）】
+- 【cr-565 2026-10-22 修复输入框选模型无效：会话级模型覆盖全链（conv-settings 行改宿主行 + 壳只读垫片 + 信封 model 载体 + deliver 合并点 + singles/update|conv-settings 写面）】
+- 【cr-566 2026-10-22 会话工作面补全第一批：singles 行全族（session.json 元数据单写者 + create|update|fork|archive|delete + singles/updated 帧广播）+ 账本管理面（session/truncate|delete-message 两侧账本原子改写）】
+- 【cr-567 2026-10-22 宿主直读 RPC 补全第二批：timer 四方法 + agents/presets + tags/catalog + skills/list + fileSnapshots 两读 + usage/tokens + system/version 四件 + events 治理面（face-ops.ts 直通 owning 实现）】
+- 【cr-568 2026-10-22 宿主面补全第三批：workspace 四件（browse-dirs/原生选择/系统打开——复用 ac-workspace 纯模块）+ plugin/catalog 与 load|unload|patch-* 的 preview 语义裁定 + llm/providers 配置投影】
+- 【cr-569 2026-10-22 跨进程批第一件：admin 控制帧通道（壳内管理面目标/清单）+ 宿主 goal/get|update|delete、todo/get、conversation/interrupt 三面（惰性编排面端口，队列面显式未落地）】
+- 【cr-570 2026-10-22 跨进程批第二件：admin 帧扩 op（interaction-reply / jobs-list / jobs-kill / session-archive）+ 宿主 interaction/reply、jobs/list|kill、session/archive（活壳枚举与 id 命中、归档触发到目标壳）】
+- 【cr-571 2026-10-22 跨进程批第三件：subagents/history（读子壳嵌套域账本，尾部翻页与 session/history 同形）+ subagents/stop（admin 帧 subagents-stop → 父壳 stopOp，实体保留）】
+- 【cr-572 2026-10-22 模型发现面：llm/probe-models（免注册探测 base_url+api_key）与 llm/models（池条目经凭据侧信道取 key → /models → 回写 config 发现缓存）】
+- 【cr-573 2026-10-22 会话 KV 时间线面补位：session/kv-timeline 返回空时间线（preview 无前缀快照机制——空集是终态，前端 KV 面板渲空态）】
+- 【cr-574 2026-10-22 preview 宿主面 A 组：session/tokens + runs/snapshot 宿主聚合落地】
+- 【cr-575 2026-10-22 preview 队列面产品化：ConversationMachine queue/remove/steer 三方法 + admin 帧 + face-shell 三条 RPC】
+- 【cr-576 2026-10-22 preview group 域落地：群存储行（宿主行集 47→48）+ group/* 九条 RPC】
+- 【cr-577 2026-10-22 fix(webui): preview UI 入口补 tokens.css 导入——令牌缺席致 var(--line/--text-*) 全空、页面无主题裸奔;对齐主线 main.ts L20 同款导入;重建 dist】
+- 【cr-578 2026-10-22 feat(p4): run 失败前端呈现——壳 driveRun settle 空 finish!==ok 时经 emitStreamFrame 发 run/error 帧(reviewRun 不发)→ 宿主 ShellStreamBridge 透传 → 前端 chat-core finish:error 错误条对齐主线】
+- 【cr-579 2026-10-22 feat(tails): §5 可选尾巴三件——runs/snapshot groups 接真群数据 + 群 join 成员流种子(seedMemberStream) + conversation/queue-changed 帧广播】
+- 【cr-580 2026-10-22 fix(interaction): 补 interaction/list 恢复链——宿主重启后 pending ask_questions 无从恢复致 run 挂死占门、新消息全排队(发不出去);admin op interaction-list + 宿主活壳聚合 RPC】
+- 【cr-581 2026-10-22 fix(webui): 补齐缺失的全局基础样式层——markdown.css(消息正文)/main.css(布局别名+base)/row.css(ui-row)/dropdown.css(ui-dd);badge 零消费不补;cr-577 只补了令牌层】
+- 【cr-582 2026-10-22 前端工具面两 RPC 落地：agents/tool-defs（Token 仪表估算面）+ tools/list（工具目录 owner 分组）；assembly 工具目录补 owner 字段（cr-552 遗留收口）】
+- 【cr-583 2026-10-22 工作区登记面修复：/api/workspaces REST 四路由落地（ac-host-rows 新行 owns workspaces.json 主线同布局）+ workspaces.json 补迁 + 存量会话 workspaceId 从旧根 singles 布局回填 + browse-dirs 快捷根并入登记工作区】
+- 【cr-584 2026-10-22 通道产物 style.css 装载修复：defaultLoader 注入 <link>（28 通道 SFC scoped 样式从未进浏览器——工作区侧边栏等通道组件裸奔的结构性根因）】
+- 【cr-585 2026-10-22 会话交接文档 p6（前端工具面/工作区/通道样式三批收口；下一轮优先：前端流式输出）】
+- 【cr-586 2026-10-22 preview 前端流式根因修复：rpc-wire 事件帧直转缺 unpackWireFrames——llm/delta-batch 批帧无人展开（feed-core 只认 llm/delta）→ delta 静默丢弃；对齐主线 wire.ts 解包语义 + ac-ui-app 补 ac-wire-format 依赖】
+- 【cr-587 2026-10-22 会话历史工具卡带出：session/history 按 run 键关联 agent 账本 journal——steps 投影（思考/工具卡刷新不丢）】
+- 【cr-588 2026-10-22 Agent 剩余工作面：agents/list 全量载荷 + hasAvatar/avatarVersion 注入 + 头像三 HTTP 路由（上传/删除/静态读）】
+- 【cr-589 2026-10-22 pwsh/fs 工具面补全：沙箱 workdir 基准钉 per-agent 专用空间 + __standard__ 盘上 config 补迁模板全集（tools/list 冷面闭环）】
+- 【cr-590 2026-10-22 工具面词形断裂修复：config.tools 行 id → 工具名展开（toolFaceOf + rowTools 投影）+ 目录 tools 数组对齐真实注册名（fs/pwsh 族进 LLM 面）；ensureHook 拒因上 stderr】
+- 【cr-591 2026-10-22 run 收束帧泛化（run-settled 取代 run-error）：成功收束也广播 loop/after-run——前端收束三件套（清 busy/终稿入列/权威行重拉）补齐，终稿不再需要刷新】
+- 【cr-592 2026-10-23 思考过程直播：run-started/step-started 帧链补全（carrier 创建面）】
+- 【cr-593 2026-10-23 终稿双卡/工具结果恒等待/工具白名单生效集三症状修复】
+- 【cr-594 2026-10-23 auth-registry 行 auth/* RPC 面装配根因修复：编辑面绑定从 options.webServer（boot 从不传——rowOptionsFor 无此键）改 inject [webServer] + ctx.webServer（singles/groups/plugin-registry 同款 cordis PENDING 装配序），行选项收窄为 dataRoot/inbox/postOffice】
+- 【cr-595 2026-10-23 历史会话思考过程缺失根因修复：终稿回信信封补 run 载体（postReply payload.run）→ user 壳收信写穿 source=run:<id>（D4.2 run 键关联从未到达 user 投影——cr-587 只修了读侧联查、写侧从来没盖戳）+ 存量行 requestId 连接回填脚本】
+- 【cr-596 2026-10-23 历史工具卡永恒运行中修复：loop/after-step 先于工具执行（步行 toolResults 恒空）而主线「tool/after-execute → journal 补行」整条路 preview 漏搬——新增 journal-tool-result 行型 + ledger 服务订阅 after-execute 落补行（身份四键缺席不落）+ stepsOfRun 两遍扫描按 toolCallId 覆盖合并（已收束无补行存量合成空成功、未收束仍 null 真在途）】
+- 【cr-597 2026-10-23 前端历史 subcall 展示补全：补行扩子调用档案（runCodeSubcall 补行携 name/arguments/subcall 标——主线 subcalls.jsonl 同义随补行落）+ stepsOfRun 注入宿主卡后平铺（<hostId>#<seq> 前缀定位 + seq 排序，主线 injectSubcalls 同义）；前端 subcall:true 消费面本就在位】
+- 【cr-598 2026-10-23 流式不稳定+刷新丢步双症状修复：web-api conversation/stats 硬编码空壳 running:[] 接真数据源（face-ops runs/snapshot 的活壳 run-state 聚合提为共享 collectRunning——前端两消费链全断：resume 恢复不拉 history、流式静默探针误判流死拆分区）+ session/history 补 journal 活投影（run 中未收束步行按步 partial 行追加——running 集门控防孤儿投影）】
+- 【cr-599 2026-10-23 入库前置：.gitignore 补 preview/sandbox/（临时区防真实会话数据/凭据误入库）+ 删除误产物 X/ 目录】
+- 【cr-600 2026-10-23 预设 Agent 名册收口：__standard__ 盘上 config 补 preset:true（cutover 兜底产物漏盖标记致预设混入 agents/list——preset 过滤链本就在位，纯数据补迁）】
+- 【cr-601 2026-10-23 预设 Agent 补全三件（__dsh_minimal__/__creator__/__abap_dev__ 模板补 tags+settings + abap 新模板 + 数据根物化）+ 新会话开场态修复（singles viewOf 空会话误盖 lastActivity=创建时刻——主线语义=有消息才带，isSingleFresh 永假致点击新会话直接进常规布局）】
+- 【cr-602 2026-10-23 system prompt 不正确根因修复：①行集派生装配基座恒并扩 persona/system-prompt（导入行集按工具标签快照推导，装配类行不在标签面→全体导入 Agent 指引块+人格静默丢失——主线两行全局恒装，per-agent 差异走 settings）②previewSystemPrompt 干跑工具面换 toolFaceOf（行 id 展开同源——直读 resolveToolNames 把行 id 当工具名，条目级门控全失配）】
+- 【cr-603 2026-10-23 程序化 SDK 投影前端不可见修复：previewSystemPrompt 干跑工具面从 toolFaceOf（未收窄全量）换 llmToolFace（cr-593 模式收窄同源）——tc-programmatic 会话干跑请求面=[run_code]，run_code 行 SDK 投影注入判定（isModeToolFace）随之到达，SystemPromptPanel 与真实 run 装配口径对齐】
+- 【cr-604 2026-10-23 preview docs 重组：状态板 M0-M8 建设期行与 p4-p7 交接归档 archive/、立 2026-10-23 现行交接、kickoff 刷新至切换后阶段】
+- 【cr-605 2026-10-23 preview 树入库提交切分（G8）：按里程碑/包边界切 commit 入库 + 切换入口/主线伴生改动归批】
