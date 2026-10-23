@@ -1,0 +1,24 @@
+{
+  "name": "ac-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "per-agent 账本行（D4）：messages.jsonl 行协议 + journal partials + inbox durable + requestId 准入（落账即确认）+ settlement 两阶段",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run --root ../../../ --config preview/packages/vitest.config.ts ac-ledger"
+  },
+  "dependencies": {
+    "ac-envelope-core": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-post-office": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "ac-shell-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "壳 boot 编排骨架（R3.2）：argv → activation.lock → rowset 派生断言 → 行装配 → stdout TSV 三节拍",
+  "exports": {
+    ".": "./boot.ts"
+  },
+  "dependencies": {
+    "ac-envelope-core": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-fingerprint-core": "workspace:*",
+    "ac-credentials-core": "workspace:*",
+    "ac-shell-rows": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "ac-ledger": "workspace:*",
+    "ac-shell-conversation": "workspace:*",
+    "ac-shell-subagent": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-post-office": "workspace:*",
+    "ac-core-utils": "workspace:*",
+    "ac-bench": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

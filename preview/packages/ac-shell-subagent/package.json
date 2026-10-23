@@ -1,0 +1,27 @@
+{
+  "name": "ac-shell-subagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "子 Agent 行（preview 改造行，R-5 修订版单形态：注册表实体 + 真子壳进程 + 信封投递多轮会话）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run --root ../../../ --config preview/packages/vitest.config.ts ac-shell-subagent"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-auth-core": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-post-office": "workspace:*",
+    "ac-ledger": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

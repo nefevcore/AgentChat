@@ -1,0 +1,102 @@
+// ============================================================
+// user.ts —— user 账本（形态二：独立账本，仅终稿层）
+//
+// 裁决簿〈webui 读投影〉三拆之三 + R-2：user 端点必须有壳——
+// webui 形态 = 宿主进程内极薄 user 壳（单进程天然串行）。写者循
+// R-2 已裁语义；webui = user 账本唯一数据源（会话列表/群视图/回放）。
+//
+// 投影分层（D4.2）：字量大头（思考/工具调用与结果）归产生方独占，
+// 重复的只有终稿层。webui 需展开对方思考/工具内容时，按 run 键关联
+// agent 账本文件直读带出——取值逻辑细节，不另立承载。
+// ============================================================
+import * as path from 'node:path';
+import { LedgerWriter } from './writer.ts';
+import { readLedger } from './reader.ts';
+
+/** user 会话目录：<dataRoot>/users/user/sessions/<uuid>/（端点轴与 agents 平级） */
+export function userSessionDir(dataRoot: string, uuid: string): string {
+  if (uuid.length === 0 || /[/\\]/.test(uuid) || uuid === '.' || uuid === '..') {
+    throw new Error('user 会话路径组件非法：' + uuid);
+  }
+  return path.join(dataRoot, 'users', 'user', 'sessions', uuid);
+}
+
+/**
+ * 终稿写穿行（peer 终稿 → user 账本）：user 壳收到 agent 终稿回复后
+ * 经 writeThrough 写进 user 账本（own/peer 投影通例——user 视角的
+ * 对方发言）。写者 = webui user 壳（单进程串行，R-2a）。run 键关联：
+ * webui 展开对方思考/工具内容时按 run 键直读 agent 账本 journal 带出。
+ */
+export interface UserProjectionRow {
+  /** 说话人端点（agent id） */
+  agentId: string;
+  /** 终稿文本 */
+  content: string;
+  /** 会话身份键 */
+  uuid: string;
+  /** 产生该终稿的 run（run 键关联——agent 账本直读带出用） */
+  run?: string;
+  /** 投递幂等键（同 requestId 重投不重写） */
+  requestId?: string;
+}
+
+/** user 视角回放行（终稿层投影） */
+export interface UserReplayRow {
+  role: 'user' | 'peer';
+  agentId: string;
+  content: string;
+  run?: string;
+}
+
+/**
+ * user 账本单会话面：终稿写穿（幂等）+ user 视角回放。
+ * 内持一个 LedgerWriter（deliver 承载写穿——requestId 准入即幂等）。
+ */
+export class UserLedger {
+  private readonly writer: LedgerWriter;
+  private readonly dir: string;
+  private readonly uuid: string;
+
+  constructor(dataRoot: string, uuid: string, participants: string[]) {
+    this.dir = userSessionDir(dataRoot, uuid);
+    this.uuid = uuid;
+    this.writer = new LedgerWriter(this.dir, { participants, kind: 'user' });
+  }
+
+  /**
+   * 终稿写穿：peer 终稿（agent 发言）落 user 账本。requestId 幂等
+   * 由 deliver 内 AdmissionGate 承载（同键重投短路返回 false）。
+   */
+  async writeThrough(row: UserProjectionRow): Promise<boolean> {
+    return this.writer.deliver({
+      role: 'agent',
+      content: row.content,
+      agent_id: row.agentId,
+      requestId: row.requestId,
+      uuid: row.uuid,
+      source: row.run !== undefined ? 'run:' + row.run : undefined,
+    });
+  }
+
+  /** user 自己的发言写穿（own 层——user 发消息时同步落账） */
+  async writeOwn(text: string, requestId: string): Promise<boolean> {
+    return this.writer.deliver({
+      role: 'agent',
+      content: text,
+      agent_id: 'user',
+      requestId,
+      uuid: this.uuid,
+    });
+  }
+
+  /** user 视角回放（终稿层投影：agent_id === 'user' → user 角色） */
+  replay(): UserReplayRow[] {
+    const { rows } = readLedger(this.dir);
+    return rows.map((r) => ({
+      role: r.agent_id === 'user' ? 'user' : 'peer',
+      agentId: r.agent_id,
+      content: r.content,
+      run: r.source?.startsWith('run:') ? r.source.slice(4) : undefined,
+    }));
+  }
+}
