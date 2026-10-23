@@ -25,6 +25,11 @@ describe('M7.2 B3 流式旁带', () => {
     expect(isStreamFrame({ stream: 'call-1', kind: 'tool-progress', call: {} })).toBe(false); // 缺 chunk
     expect(isStreamFrame({ stream: 'call-1', kind: 'tool-result', call: {}, result: { ok: true } })).toBe(true);
     expect(isStreamFrame({ stream: 'call-1', kind: 'tool-result' })).toBe(false); // 缺 call
+    // cr-625 持久化交互帧
+    expect(isStreamFrame({ stream: 'dur-1', kind: 'interaction-opened', record: { id: 'dur-1' } })).toBe(true);
+    expect(isStreamFrame({ stream: 'dur-1', kind: 'interaction-replied', record: { id: 'dur-1' } })).toBe(true);
+    expect(isStreamFrame({ stream: 'dur-1', kind: 'interaction-closed', record: { id: 'dur-1' } })).toBe(true);
+    expect(isStreamFrame({ stream: 'dur-1', kind: 'interaction-opened' })).toBe(false); // 缺 record
     expect(isStreamFrame({ ack: 'req-1', fresh: true })).toBe(false); // ack 帧
     expect(isStreamFrame({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', kind: 'message', budget: 3, payload: {} })).toBe(false); // 信封
     expect(isStreamFrame(null)).toBe(false);

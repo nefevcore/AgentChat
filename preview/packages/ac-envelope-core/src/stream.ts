@@ -55,7 +55,15 @@ export type StreamFrame =
   /** 队列快照推送（cr-579）：壳 ConversationMachine 队列变更点发射、宿主
    * 桥接成主线 conversation/queue-changed 前端帧（权威全量快照直接套用）。
    * stream = conversationId（路由键）；handle = 桶句柄；items = 快照行。 */
-  | { stream: StreamId; kind: 'queue-changed'; handle: string; items: QueuedItemFrame[]; meta?: StreamMeta };
+  | { stream: StreamId; kind: 'queue-changed'; handle: string; items: QueuedItemFrame[]; meta?: StreamMeta }
+  /** 持久化交互通知（cr-625）：主线 durable-interaction/{opened,replied,closed}
+   * 事件旁带——前端 ask_questions 弹窗 / 审批卡 live 消费该三帧（主线
+   * chat-core 既有 case）；缺席 = Agent 发起提问后前端零直播，交互卡只能
+   * 刷新经 interaction/list 恢复路径出现。stream = interaction id；
+   * record = 主线 DurableInteraction 记录原样透传（wire 整形住宿主桥接）。 */
+  | { stream: StreamId; kind: 'interaction-opened'; record: unknown; meta?: StreamMeta }
+  | { stream: StreamId; kind: 'interaction-replied'; record: unknown; meta?: StreamMeta }
+  | { stream: StreamId; kind: 'interaction-closed'; record: unknown; meta?: StreamMeta };
 
 /** 队列快照行（主线 ConversationQueuedItem 同形——前端 useQueuedMessages 直接套用） */
 export interface QueuedItemFrame {
@@ -135,6 +143,9 @@ export function isStreamFrame(payload: unknown): payload is StreamFrame {
     && typeof (f as { text?: unknown }).text === 'string') return true;
   if (f.kind === 'queue-changed' && typeof (f as { handle?: unknown }).handle === 'string'
     && Array.isArray((f as { items?: unknown }).items)) return true;
+  if (f.kind === 'interaction-opened' && 'record' in f) return true;
+  if (f.kind === 'interaction-replied' && 'record' in f) return true;
+  if (f.kind === 'interaction-closed' && 'record' in f) return true;
   return false;
 }
 

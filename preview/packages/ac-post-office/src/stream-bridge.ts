@@ -17,6 +17,17 @@ export interface FrontendFrame {
   data: { args: unknown[] };
 }
 
+/** durable-interaction opened wire 整形（主线 bridge-events interactionWire 同义复制） */
+function interactionWireOf(record: unknown): unknown {
+  const r = record as { kind?: unknown; payload?: { questions?: unknown } | null } | null;
+  if (r !== null && typeof r === 'object' && r.kind === 'ask_questions' && r.payload !== null
+    && typeof r.payload === 'object' && Array.isArray(r.payload.questions)) {
+    const { payload, ...rest } = r as Record<string, unknown> & { payload: { questions: unknown[] } };
+    return { ...rest, questions: payload.questions };
+  }
+  return record;
+}
+
 /**
  * 桥接策略注入（背景过滤等目录策略在主线 ws-bridge 内联——preview 壳
  * 场景源恒壳自身，无宿主内后台会话；全量直转）。
@@ -138,6 +149,22 @@ export function streamFrameToFrontend(
       type: 'conversation/queue-changed',
       data: { args: [frame.meta?.agent, frame.meta?.conversationId, frame.handle, frame.items] },
     });
+    return;
+  }
+  if (frame.kind === 'interaction-opened') {
+    // 主线 durable-interaction/opened 帧形（args = [record]）——wire 整形
+    // 与主线 ws-bridge bridge-events interactionWire 同义（M7 §二B）：
+    // ask_questions 的 payload.questions 上提顶层（前端 pickAskQuestions
+    // 两形归一消费）；他 kind 原样。replied/closed 主线恒恒等透传。
+    send({ type: 'durable-interaction/opened', data: { args: [interactionWireOf(frame.record)] } });
+    return;
+  }
+  if (frame.kind === 'interaction-replied') {
+    send({ type: 'durable-interaction/replied', data: { args: [frame.record] } });
+    return;
+  }
+  if (frame.kind === 'interaction-closed') {
+    send({ type: 'durable-interaction/closed', data: { args: [frame.record] } });
     return;
   }
   if (frame.kind === 'run-settled') {

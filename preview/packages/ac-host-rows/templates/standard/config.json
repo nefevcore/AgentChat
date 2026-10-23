@@ -17,7 +17,6 @@
   "tools": [
     "fs-tools",
     "fs-search",
-    "str-replace-editor",
     "shell-tools",
     "run-code",
     "web-tools",

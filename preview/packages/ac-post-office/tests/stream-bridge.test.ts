@@ -183,6 +183,29 @@ describe('8.5d ShellStreamBridge（旁带 → 前端帧）', () => {
     ]);
   });
 
+  it('持久化交互帧（cr-625）：opened 整形 questions 上提 / 他 kind 原样 / replied·closed 透传', () => {
+    const frames: FrontendFrame[] = [];
+    const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
+    const askq = { id: 'dur-1', kind: 'ask_questions', key: 'sid-1', state: 'pending', payload: { questions: [{ question: '选 A 还是 B？', options: ['A', 'B'] }] } };
+    bridge.ingest({ stream: 'dur-1', kind: 'interaction-opened', record: askq, meta: { agent: 'alpha' } });
+    const other = { id: 'dur-2', kind: 'approval', key: 'sid-2', state: 'pending', payload: { scope: 'global' } };
+    bridge.ingest({ stream: 'dur-2', kind: 'interaction-opened', record: other, meta: { agent: 'alpha' } });
+    bridge.ingest({ stream: 'dur-1', kind: 'interaction-replied', record: { id: 'dur-1', state: 'answered' }, meta: { agent: 'alpha' } });
+    bridge.ingest({ stream: 'dur-2', kind: 'interaction-closed', record: { id: 'dur-2', state: 'closed' }, meta: { agent: 'alpha' } });
+    const opened = frames.filter((f) => f.type === 'durable-interaction/opened');
+    expect(opened).toHaveLength(2);
+    // ask_questions：payload.questions 上提顶层（主线 M7 §二B 整形，payload 剥除）
+    expect(opened[0].data.args).toEqual([{
+      id: 'dur-1', kind: 'ask_questions', key: 'sid-1', state: 'pending',
+      questions: [{ question: '选 A 还是 B？', options: ['A', 'B'] }],
+    }]);
+    expect(opened[1].data.args).toEqual([other]); // 他 kind 原样（payload 不动）
+    expect(frames.filter((f) => f.type === 'durable-interaction/replied')[0].data.args)
+      .toEqual([{ id: 'dur-1', state: 'answered' }]);
+    expect(frames.filter((f) => f.type === 'durable-interaction/closed')[0].data.args)
+      .toEqual([{ id: 'dur-2', state: 'closed' }]);
+  });
+
   it('思考/工具分片透传（cr-586）：chunk.reasoning / chunk.toolCalls 直达前端消费面', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });

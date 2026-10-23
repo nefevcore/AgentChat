@@ -675,6 +675,21 @@ export async function bootShell(
       meta: { agent: args.agentId, conversationId },
     });
   });
+  // 持久化交互旁带（cr-625）：durable-interaction/opened·replied·closed →
+  // 对应帧（宿主桥接成主线同名前端帧——ask_questions 弹窗/审批卡 live
+  // 面唯一驱动源，恢复路径 interaction/list 只管刷新）。record 原样透传
+  //（wire 整形住宿主桥接，与主线 ws-bridge 同归属）；发射失败静默（瞬态）。
+  type InteractionLike = { id: string; owner?: string };
+  const interactionMeta = (record: InteractionLike): StreamMeta => ({ agent: record.owner ?? args.agentId });
+  ctx.on('durable-interaction/opened', (record: InteractionLike) => {
+    emitStreamFrame({ stream: record.id, kind: 'interaction-opened', record, meta: interactionMeta(record) });
+  });
+  ctx.on('durable-interaction/replied', (record: InteractionLike) => {
+    emitStreamFrame({ stream: record.id, kind: 'interaction-replied', record, meta: interactionMeta(record) });
+  });
+  ctx.on('durable-interaction/closed', (record: InteractionLike) => {
+    emitStreamFrame({ stream: record.id, kind: 'interaction-closed', record, meta: interactionMeta(record) });
+  });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(transportHint, () => {
