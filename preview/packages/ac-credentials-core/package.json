@@ -1,0 +1,17 @@
+{
+  "name": "ac-credentials-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "凭据注入纯库（R-11 ③，开发期避让名——主线 ac-credentials 行占名，cutover 随旧行退役回收 ac-credentials 名）：数据根物理单副本两侧共用，加密算法半边 + 子树只读直读；写者面归 auth-registry 行（M4）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run --root ../../../ --config preview/packages/vitest.config.ts ac-credentials-core"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

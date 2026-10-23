@@ -1,0 +1,20 @@
+{
+  "name": "ac-agents-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentConfig 契约 owning 纯库（R-6 直读）：词汇纯函数（tierOf/toolModeOf/resolveToolNames/narrowToolsByMode/displayNameOf）+ settingsOf 纯函数化 + agents/<id>/ 树直读 + children 嵌套解析",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run --root ../../../ --config preview/packages/vitest.config.ts ac-agents-core"
+  },
+  "devDependencies": {
+    "ac-auth-core": "workspace:*",
+    "ac-credentials-core": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}
