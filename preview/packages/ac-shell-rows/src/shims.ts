@@ -14,7 +14,7 @@ import { readAgentConfig, settingsOf, deepMerge } from 'ac-agents-core';
 import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT_ID } from 'ac-credentials-core';
 
 /** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list） */
-class AgentsShim extends Service {
+export class AgentsShim extends Service {
   private dataRoot: string;
   /** 行 id → 工具名投影（cr-593）：AgentConfig.tools 盘上词形是行 id，
    * 主线消费面（collab list_tools / read_agent_info 等按 config.tools
@@ -165,7 +165,7 @@ class CredentialsShim extends Service {
  * files/<id> 同构）+ agentWorkdir。缺席时这些行会回落 ./data（cwd 相对）
  * ——preview 数据根隔离红线不可容。
  */
-class WorkspaceShim extends Service {
+export class WorkspaceShim extends Service {
   private dataRoot: string;
   constructor(ctx: Context, dataRoot: string) {
     super(ctx, 'workspace');
@@ -177,13 +177,78 @@ class WorkspaceShim extends Service {
   }
 
   /** Agent 专用空间（主线 files/<agentId> 同构——fs 工具沙箱基准） */
-  sandboxWorkdir(agentId?: string): string {
+  sandboxWorkdir(agentId?: string, conversationId?: string): string {
+    // 会话挂载工作区最优先（主线 ac-workspace 同语义：挂载即基准——
+    // bash cwd / 相对路径锚随会话指向工作区根，cr-614）
+    const wsRoot = this.conversationWorkspaceRoot(conversationId);
+    if (wsRoot !== null) return wsRoot;
     if (agentId === undefined) return this.dataRoot;
     return path.join(this.dataRoot, 'files', agentId);
   }
 
   agentWorkdir(agentId?: string): string {
     return this.sandboxWorkdir(agentId);
+  }
+
+  /**
+   * 沙箱允许根并出面（主线 ac-workspace.sandboxAllowedPaths 同语义，
+   * cr-614）：settings['security'].allowedPaths ∪ 会话挂载工作区根。
+   * 此前缺席 = 工具行 createAgentSandboxCache 拿不到任何授予——
+   * 「连工作区所在位置都越界」的根因（登记了工作区、会话挂了
+   * workspaceId，沙箱消费面断链）。
+   */
+  sandboxAllowedPaths(agentId: string | undefined, conversationId?: string): string[] {
+    const out: string[] = [];
+    if (agentId !== undefined) {
+      const agents = this.ctx.get('agents', false) as
+        | { settingsOf(id: string, name?: string): unknown }
+        | undefined;
+      const security = agents?.settingsOf(agentId, 'security');
+      const v = security !== undefined && security !== null && typeof security === 'object'
+        ? (security as { allowedPaths?: unknown }).allowedPaths
+        : undefined;
+      if (Array.isArray(v)) out.push(...v.filter((p): p is string => typeof p === 'string' && p.trim().length > 0));
+    }
+    const wsRoot = this.conversationWorkspaceRoot(conversationId);
+    if (wsRoot !== null) out.push(wsRoot);
+    return [...new Set(out)];
+  }
+
+  /**
+   * 会话挂载工作区根（主线 ac-workspace 同链路）：viewer/sessions/
+   * <id>/session.json 的 workspaceId → workspaces.json 路径。两处盘上
+   * 布局 = 宿主侧 owning 写者（ac-host-rows workspaces.ts / singles-row）
+   * ——主线 ac-workspace 同布局，冻结词形。
+   */
+  conversationWorkspaceRoot(conversationId: string | undefined): string | null {
+    if (conversationId === undefined || conversationId === '') return null;
+    if (conversationId.includes('/') || conversationId.includes('\\') || conversationId.includes('..')) return null;
+    let wsId: string | undefined;
+    try {
+      const raw: unknown = JSON.parse(fs.readFileSync(
+        path.join(this.dataRoot, 'viewer', 'sessions', conversationId, 'session.json'), 'utf-8'));
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        const v = (raw as { workspaceId?: unknown }).workspaceId;
+        if (typeof v === 'string' && v !== '') wsId = v;
+      }
+    } catch { /* 缺席/损坏 = 未挂载 */ }
+    if (wsId === undefined) return null;
+    try {
+      const raw: unknown = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'workspaces.json'), 'utf-8'));
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        const list = (raw as { workspaces?: unknown }).workspaces;
+        if (Array.isArray(list)) {
+          for (const w of list) {
+            if (w !== null && typeof w === 'object' && !Array.isArray(w)
+              && (w as { id?: unknown }).id === wsId
+              && typeof (w as { path?: unknown }).path === 'string') {
+              return (w as { path: string }).path;
+            }
+          }
+        }
+      }
+    } catch { /* 缺席/损坏 = 未挂载 */ }
+    return null;
   }
 }
 
