@@ -29,9 +29,26 @@ const WORKER_ENTRY = path.join(TRACK_DIR, 'preview', 'apps', 'host', 'boot.ts');
 const DEFAULT_DATA_ROOT = path.resolve(TRACK_DIR, 'workspace', 'home');
 const DEFAULT_PORT = '3830';
 const RUNTIME_LOCK = runtimeLockPath(TRACK_DIR);
-// 品牌宿主 exe（cr-620：bin/AgentChatHost.exe 在场即用——任务管理器可辨可杀；缺席回落 node 本体）
-const HOST_EXE_PATH = path.join(TRACK_DIR, 'bin', 'AgentChatHost.exe');
-const HOST_EXE = existsSync(HOST_EXE_PATH) ? HOST_EXE_PATH : process.execPath;
+// 品牌单映像 exe（cr-620/624：bin/AgentChat.exe——supervisor/宿主/壳同映像，
+// 任务管理器折一行「AgentChat (n)」；缺席回落 node 本体）
+const AGENTCHAT_EXE_PATH = path.join(TRACK_DIR, 'bin', 'AgentChat.exe');
+const AGENTCHAT_EXE = existsSync(AGENTCHAT_EXE_PATH) ? AGENTCHAT_EXE_PATH : process.execPath;
+
+// 自重-exec 进品牌 exe（cr-623）：supervisor 自身不被品牌化则宿主/壳
+// 被杀后仍会被它拉起。bin 缺席（未跑 make-node-identity）= 留在 node
+// 本体，行为不变。
+if (existsSync(AGENTCHAT_EXE_PATH) && path.resolve(process.execPath) !== path.resolve(AGENTCHAT_EXE_PATH)) {
+  const branded = spawn(AGENTCHAT_EXE_PATH, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  branded.on('exit', (code, signal) => {
+    process.exit(signal !== null ? 1 : (code ?? 0));
+  });
+  // 挂起本壳进程（node 包装层）——只做透传与退出码传播，不进监护逻辑
+  //（子进程与 pnpm 同终端信号组，SIGINT/SIGTERM 由子进程自处置）。
+  await new Promise(() => {});
+}
 
 function log(msg) {
   console.log(`[supervisor] ${new Date().toISOString()} ${msg}`);
@@ -68,13 +85,13 @@ function startChild() {
   restartAttempts += 1;
   const dataRoot = dataRootOverride ?? process.env.AGENTCHAT_DATA_ROOT ?? DEFAULT_DATA_ROOT;
   const args = ['--experimental-strip-types', WORKER_ENTRY, '--data-root', dataRoot, '--port', port, ...passthrough];
-  log(`spawn 宿主: ${HOST_EXE} ${args.join(' ')}`);
+  log(`spawn 宿主: ${AGENTCHAT_EXE} ${args.join(' ')}`);
   log(`AGENTCHAT_DATA_ROOT=${dataRoot}（宿主持久化目录）`);
   // 监护状态跨代延续：仅更新 childStartedAt（退避的存活基准）
   policyState = policyState === null
     ? initialSupervisionState(Date.now())
     : { ...policyState, childStartedAt: Date.now() };
-  child = spawn(HOST_EXE, args, {
+  child = spawn(AGENTCHAT_EXE, args, {
     cwd: TRACK_DIR,
     env: { ...process.env, AGENTCHAT_SUPERVISED: '1', AGENTCHAT_DATA_ROOT: dataRoot },
     stdio: 'inherit',

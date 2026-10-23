@@ -1394,6 +1394,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-ask-questions:
+        specifier: workspace:*
+        version: link:../../../src/ac-ask-questions
       ac-core-utils:
         specifier: workspace:*
         version: link:../../../src/ac-core-utils
@@ -1410,6 +1413,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-post-office
     devDependencies:
+      ac-durable-interaction:
+        specifier: workspace:*
+        version: link:../../../src/ac-durable-interaction
       ac-tools:
         specifier: workspace:*
         version: link:../../../src/ac-tools
