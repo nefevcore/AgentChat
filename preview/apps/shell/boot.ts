@@ -32,6 +32,7 @@ import { readAgentConfig, readChildConfig } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow } from 'ac-shell-rows';
 import { handleAdminFrame, type AdminFrame } from './admin-frame.ts';
+import { startHostRevive } from './host-revive.ts';
 import { makeLedgerRow } from 'ac-ledger';
 import { scriptedBenchRow, type BenchRunOptions, type BenchReport } from 'ac-bench';
 import { makeConversationRow } from 'ac-shell-conversation';
@@ -100,6 +101,11 @@ export interface ShellBootArgs {
   /** 常驻不随 stdin 收束自杀（父壳拉起的子壳形态——owner 失活子存活，R-5；
    * 控制帧经 stdin 行协议，shutdown 仍可用） */
   persist?: boolean;
+  /** 宿主 boot 入口（D5 边 2 常态化 cr-612：邮局失联时壳侧复活宿主；
+   * 与 --post-office 同在场才武装——CLI 直连形态无此职责） */
+  hostBoot?: string;
+  /** 宿主 web 端口（复活拉起时回填 --port；缺席 = 宿主缺省档） */
+  hostPort?: number;
 }
 
 export function parseShellArgs(argv: string[]): ShellBootArgs {
@@ -114,6 +120,8 @@ export function parseShellArgs(argv: string[]): ShellBootArgs {
     else if (key === '--parent-id') out.parentId = val;
     else if (key === '--post-office') out.postOffice = val;
     else if (key === '--persist') out.persist = val === '1' || val === 'true';
+    else if (key === '--host-boot') out.hostBoot = val;
+    else if (key === '--host-port') out.hostPort = Number(val);
     else if (key === '--mock-provider') out.mockProvider = val === '1' || val === 'true';
     else throw new Error('未知 argv 键：' + key);
   }
@@ -766,6 +774,21 @@ export async function main(argv: string[]): Promise<number> {
     result.ctx.on('loop/after-run', noteActive);
     result.ctx.on('durable-interaction/opened', noteActive);
     result.ctx.on('durable-interaction/replied', noteActive);
+    // D5 边 2 常态化（cr-612）：邮局在场 + 宿主入口已知 = 本壳承担宿主复活
+    // 职责（探测/停机戳/仲裁锁/退避全在 host-revive——boot 只接线与收面）。
+    // 宿主死后 stdout/stderr 管道断裂——TSV 心跳/复活信号写死管必须不崩
+    //（EPIPE 是异步 error 事件，不挂 handler = uncaughtException 壳全灭）
+    process.stdout.on('error', () => {});
+    process.stderr.on('error', () => {});
+    const revive = args.postOffice !== undefined && args.hostBoot !== undefined
+      ? startHostRevive({
+          postOffice: args.postOffice,
+          dataRoot: path.resolve(args.dataRoot),
+          hostBoot: args.hostBoot,
+          ...(args.hostPort !== undefined ? { hostPort: args.hostPort } : {}),
+          emit: emitBootSignal,
+        })
+      : null;
     await new Promise<void>((resolve) => {
       const heartbeat = setInterval(() => {
         emitBootSignal('guardian.ping', new Date().toISOString());
@@ -794,10 +817,17 @@ export async function main(argv: string[]): Promise<number> {
             .catch((err: unknown) => emitBootSignal('ctrl.error', String(err)));
         }
       });
-      if (args.persist !== true) process.stdin.on('end', () => resolve());
+      // stdin EOF 语义随复活职责翻转（cr-612 根因修复）：宿主死 = 管道断 =
+      // EOF——带复活职责的壳把它当失联旁证（立即 kick 探测 + 保持存活，
+      // idle-exit 15min 仍是收割兜底），不再自杀；无职责壳维持防孤儿自杀。
+      if (args.persist !== true) process.stdin.on('end', () => {
+        if (revive !== null) revive.kick();
+        else resolve();
+      });
       process.stdin.resume();
       process.on('SIGTERM', () => resolve());
     });
+    revive?.stop();
     await result.close();
     return 0;
   } catch (err) {

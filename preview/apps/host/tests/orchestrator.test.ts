@@ -38,6 +38,58 @@ class FakeShell implements AdoptedShellFace {
   control(frame: Record<string, unknown>): Promise<unknown> { this.controlFrames.push(frame); return Promise.resolve({ ok: true }); }
 }
 
+describe('撞活锁救援（cr-612 D5 边 2 配套）', () => {
+  it('adopt 撞活锁拒 → 读锁探活回登记可达 + 转投发件箱', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const agentDir = path.join(ROOT, 'agents', 'beta');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, // 本测试进程恒活
+      bootId: 'b-old', acquiredAt: new Date().toISOString(),
+      transportHint: 'pipe\\\\.\\mock-beta-alive',
+    }), 'utf-8');
+    let flushed = 0;
+    const poFlush = po.flushOutbox.bind(po);
+    po.flushOutbox = async () => { flushed += 1; return poFlush(); };
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      adopt: async () => { throw new Error('activation 锁被进程 ' + process.pid + ' 持有（bootId=b-old）——单例语义拒绝'); },
+    });
+    try {
+      orch.ensureHook('beta'); // 消息路径入口（fire-and-forget——救援在其 catch 面）
+      await new Promise((r) => setTimeout(r, 100));
+      expect(reach.hintFor('beta')).toBe('pipe\\\\.\\mock-beta-alive');
+      expect(flushed).toBe(1);
+    } finally {
+      orch.close();
+    }
+  });
+
+  it('holder 已死（陈锁）→ 不登记（救援静默失败）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const agentDir = path.join(ROOT, 'agents', 'gamma');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: 99999999, // 不存在的 pid
+      bootId: 'b-stale', acquiredAt: new Date().toISOString(),
+      transportHint: 'pipe\\\\.\\mock-gamma-dead',
+    }), 'utf-8');
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      adopt: async () => { throw new Error('activation 锁被进程 99999999 持有——单例语义拒绝'); },
+    });
+    try {
+      orch.ensureHook('gamma');
+      await new Promise((r) => setTimeout(r, 100));
+      expect(reach.hintFor('gamma')).toBeUndefined();
+    } finally {
+      orch.close();
+    }
+  });
+});
+
 describe('编排面（orchestrator——按需拉起触发链）', () => {
   it('ensureAgent：拉起 + re-tap（adopted 事件触发 tap 回调）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });

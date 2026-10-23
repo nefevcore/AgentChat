@@ -29,6 +29,9 @@ export interface SuperviseSpawnInput {
   reach: ReachabilityTable;
   /** 邮局（可选——在场时 adopted 即转投 outbox 滞留信） */
   postOffice?: PostOffice;
+  /** 宿主 boot 入口 + 端口（D5 边 2 cr-612：重拉同链透传壳 argv） */
+  hostBoot?: string;
+  hostPort?: number;
   mockProvider?: boolean;
 }
 

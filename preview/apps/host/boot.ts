@@ -202,6 +202,9 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
         catalogFile: options.catalogFile,
         bootFile: path.resolve(HERE, '../shell/boot.ts'),
         postOffice: po,
+        // D5 边 2 常态化（cr-612）：壳 argv 注入宿主入口/端口——邮局失联时壳侧复活
+        hostBoot: path.resolve(HERE, 'boot.ts'),
+        hostPort: web.port,
         tap: (agentId, hint) => web.tapAgent(agentId, hint),
         ...(options.mockProvider === true ? { mockProvider: true } : {}),
       })
@@ -274,6 +277,19 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
     console.error('[host] 8.9 切换未完成——旧宿主请用 pnpm dev:legacy；迁移完成后再走新入口。');
     process.exit(78); // 启动期失败：supervisor 协议里 78 = 不重拉
   }
+
+  // D5 边 2（cr-612）：boot 清停机戳（重新武装壳侧复活职责——上一代优雅
+  // 退出写的戳只辖那一次停机）；优雅退出（SIGINT/SIGTERM——用户有意停机 /
+  // supervisor 换代）写戳让壳侧 stand down，硬崩溃无戳 → 活壳复活本宿主。
+  const stampPath = path.join(path.resolve(dataRoot), '.runtime', 'host-stopped');
+  fs.mkdirSync(path.dirname(stampPath), { recursive: true });
+  fs.rmSync(stampPath, { force: true });
+  const writeStopStamp = () => {
+    try { fs.writeFileSync(stampPath, new Date().toISOString(), 'utf-8'); } catch { /* 尽力面 */ }
+    process.exit(0);
+  };
+  process.on('SIGINT', writeStopStamp);
+  process.on('SIGTERM', writeStopStamp);
 
   // 静态面（cr-558）：缺省托管本仓 UI 构建产物——旧宿主在 3830 是带 SPA 的，
   // 新宿主不接静态面就等于「切换后浏览器打不开」。--static-dir 可覆盖。

@@ -12,6 +12,7 @@
 //
 // 纯域可测：拉起链全注入（SuperviseAdopter / dataRoot 路径拼装注入）。
 // ============================================================
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
 import { adoptShell } from './orchestrate.ts';
@@ -29,6 +30,9 @@ export interface OrchestratorOptions {
   tap?: (agentId: string, transportHint: string) => Promise<void>;
   /** mock provider（dev/无凭据环境——壳 argv 注入；缺省 false 生产档） */
   mockProvider?: boolean;
+  /** 宿主 boot 入口 + 端口（D5 边 2 cr-612：壳 argv 注入——复活职责武装） */
+  hostBoot?: string;
+  hostPort?: number;
   /** 拉起链注入（测试替身）；缺省 = adoptShell 真链 */
   adopt?: SuperviseAdopter;
   /** supervise 面板注入（测试——退避档/心跳） */
@@ -59,6 +63,8 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     bootFile: options.bootFile,
     reach: options.reach ?? options.postOffice.reach,
     postOffice: options.postOffice,
+    ...(options.hostBoot !== undefined ? { hostBoot: options.hostBoot } : {}),
+    ...(options.hostPort !== undefined ? { hostPort: options.hostPort } : {}),
     mockProvider: options.mockProvider ?? false,
   });
 
@@ -84,11 +90,37 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     return handle;
   };
 
+  const reach = options.reach ?? options.postOffice.reach;
+
+  // 撞活锁救援（cr-612 D5 边 2 配套）：宿主被壳复活后可达表空白，旧壳
+  // 持 activation.lock 使 adopt 必拒（单例语义）——救援 = 读锁探活 holder
+  // pid，活着即按锁内 transportHint 回登记可达（消息路径立即恢复；监护面
+  // 降级——idle-exit 收割旧壳后下次拉起回完整 adopt 链）。
+  const rescueReachableFromLock = (agentId: string): boolean => {
+    try {
+      const info = JSON.parse(
+        fs.readFileSync(path.join(options.dataRoot, 'agents', agentId, 'activation.lock'), 'utf-8'),
+      ) as { pid: number; transportHint: string };
+      if (typeof info.pid !== 'number' || typeof info.transportHint !== 'string') return false;
+      process.kill(info.pid, 0); // ESRCH = holder 已死（陈锁）——不登记
+      reach.markReachable(agentId, info.transportHint);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const ensureHook = (target: string): void => {
     // 拉起拒绝（熔断/已停）不阻塞投递——信已落箱，恒 at-least-once；
-    // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）
+    // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）。
+    // 拒因含撞活锁时先走救援回登记，登记成功即刻转投滞留信。
     void ensureAgent(target).catch((err: unknown) => {
-      process.stderr.write(`[orchestrator] ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${err instanceof Error ? err.message : String(err)}\n`);
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[orchestrator] ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}\n`);
+      if (msg.includes('activation 锁被进程') && rescueReachableFromLock(target)) {
+        process.stderr.write(`[orchestrator] ${target} 撞活锁但 holder 活——按锁内 transportHint 回登记可达\n`);
+        void options.postOffice.flushOutbox();
+      }
     });
   };
 
