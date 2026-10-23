@@ -13,7 +13,8 @@
     "ask-questions",
     "subagent",
     "skill",
-    "plugin-dev"
+    "plugin-dev",
+    "restart"
   ],
   "tags": [
     "fs",

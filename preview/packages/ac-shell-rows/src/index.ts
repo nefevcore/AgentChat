@@ -165,3 +165,7 @@ export type { ArchiveRowOptions } from './archive.ts';
 // install·uninstall 永久档信封请求宿主受理）
 export { makePluginDevRow } from './plugin-dev.ts';
 export type { PluginDevRowOptions } from './plugin-dev.ts';
+// 安全重启行（cr-629）：restart_shell（中止回队续跑）/ restart_host（信封
+// 请求宿主 graceful 重启）
+export { makeRestartRow } from './restart.ts';
+export type { RestartRowOptions } from './restart.ts';

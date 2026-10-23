@@ -235,15 +235,19 @@ export class WorkspaceShim extends Service {
     if (wsId === undefined) return null;
     try {
       const raw: unknown = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'workspaces.json'), 'utf-8'));
-      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
-        const list = (raw as { workspaces?: unknown }).workspaces;
-        if (Array.isArray(list)) {
-          for (const w of list) {
-            if (w !== null && typeof w === 'object' && !Array.isArray(w)
-              && (w as { id?: unknown }).id === wsId
-              && typeof (w as { path?: unknown }).path === 'string') {
-              return (w as { path: string }).path;
-            }
+      // cr-627：盘上形态 = 宿主 owning 写者（ac-host-rows workspaces.ts——顶层
+      // 数组）；旧测试数据的 {workspaces:[...]} 包装形态一并兼容（读面宽进）。
+      const list = Array.isArray(raw)
+        ? raw
+        : raw !== null && typeof raw === 'object'
+          ? (raw as { workspaces?: unknown }).workspaces
+          : undefined;
+      if (Array.isArray(list)) {
+        for (const w of list) {
+          if (w !== null && typeof w === 'object' && !Array.isArray(w)
+            && (w as { id?: unknown }).id === wsId
+            && typeof (w as { path?: unknown }).path === 'string') {
+            return (w as { path: string }).path;
           }
         }
       }

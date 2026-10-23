@@ -391,11 +391,11 @@ export class ShellSubagentService extends Service {
 // false) 软取（boot 装配面同 conversation 惯例）。cutover 后主线行退役，本行成为
 // 唯一提供者。
 
-/** 品牌壳 exe（cr-620：bin/AgentChatShell.exe 在场即用——任务管理器可辨；缺席回落 node 本体）。
+/** 品牌单映像 exe（cr-620/624：bin/AgentChat.exe 在场即用——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）。
  * 测试环境恒回落 node（cr-621）：品牌副本是本机构建产物，DSH 类沙箱对未知镜像
  * exe 拒写 %TEMP%（EPERM 建激活锁）——vitest 数据根多在 tmpdir，品牌面只归产品宿主。 */
-const SHELL_EXE = (() => {
-  const p = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChatShell.exe');
+const AGENTCHAT_EXE = (() => {
+  const p = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChat.exe');
   return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
 })();
 
@@ -411,7 +411,7 @@ const defaultSpawnShell: SpawnShellFn = (a) => {
     '--mock-provider', a.mockProvider ? '1' : '0',
   ];
   if (a.postOffice !== undefined) args.push('--post-office', a.postOffice);
-  const child = childSpawn(SHELL_EXE, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = childSpawn(AGENTCHAT_EXE, args, { stdio: ['pipe', 'pipe', 'inherit'] });
   const lines: string[] = [];
   child.stdout!.on('data', (c: Buffer) => {
     for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l);

@@ -2,7 +2,8 @@
 // 行集目录对账单测（M3.1 验收）：两树行数恒等式 + 命名域唯一 +
 // 目录可派生（shell/host 各自非空）。M8.1 第二批（cr-520）：壳树 35→34
 // ——dev-tools 行剔除；cr-566 singles 全新增（83 = 47+36）；
-// cr-576 group 全新增（84 = 48+36——宿主群存储行）。
+// cr-576 group 全新增（84 = 48+36——宿主群存储行）；cr-629 restart
+// 全新增（85 = 48+37——安全重启双件行）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -14,10 +15,10 @@ const catalog = JSON.parse(
 ) as RowsetCatalog;
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
-  it('总行数 84 = 宿主 48 + 壳 36（cr-576：group 行全新增——群存储/成员表/扇出面）', () => {
-    expect(catalog.rows).toHaveLength(84);
+  it('总行数 85 = 宿主 48 + 壳 37（cr-629：restart 行全新增——安全重启双件）', () => {
+    expect(catalog.rows).toHaveLength(85);
     expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(48);
-    expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(36);
+    expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(37);
   });
 
   it('每树内 id 唯一（跨树同名 = 基座双计，合法）', () => {
@@ -37,6 +38,9 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
     expect(deriveHostRowset([], catalog).rowIds).toHaveLength(48);
     expect(deriveShellRowset({}, catalog).rowIds).toContain('plugin-dev'); // 装卸三件套行在壳基础集
+    expect(deriveShellRowset({}, catalog).rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）
+    expect(deriveShellRowset({ tools: ['restart'] }, catalog).rowIds).toContain('restart'); // 点名引入
+    expect(deriveShellRowset({ tools: ['creator'] }, catalog).rowIds).toContain('restart'); // creator 捆绑词命中
   });
 
   it('requires 词表自洽（cr-521；cr-551 宿主行首用）：引用 id 均为同树内行（垫片服务不标注）', () => {

@@ -34,6 +34,21 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
     expect(shim.sandboxAllowedPaths('neko', 'conv-a')).toEqual([WS_DIR]);
   });
 
+  it('cr-627 宿主 owning 写者真实形态：workspaces.json 顶层数组（非包装对象）', () => {
+    // ac-host-rows workspaces.ts 写的是裸数组——此前读面只认 {workspaces:[...]}
+    // 包装形态，恒不命中 = conversationWorkspaceRoot 恒 null（工作区技能/
+    // 沙箱授予断链根因）。两形态都必须解析成功。
+    fs.mkdirSync(WS_DIR, { recursive: true });
+    fs.mkdirSync(path.join(ROOT), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'workspaces.json'),
+      JSON.stringify([{ id: 'ws-real', name: '仓库', path: WS_DIR, createdAt: 't', updatedAt: 't' }]), 'utf-8');
+    seed('conv-host', 'ws-real');
+    const ctx = new Context();
+    const shim = new WorkspaceShim(ctx, ROOT);
+    expect(shim.conversationWorkspaceRoot('conv-host')).toBe(WS_DIR);
+    expect(shim.sandboxAllowedPaths('neko', 'conv-host')).toEqual([WS_DIR]);
+  });
+
   it('未挂载会话 + settings security.allowedPaths 并出面（真 agents 垫片链）', () => {
     const agentDir = path.join(ROOT, 'agents', 'neko');
     fs.mkdirSync(agentDir, { recursive: true });
