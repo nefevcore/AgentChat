@@ -1,0 +1,17 @@
+{
+  "name": "ac-snapshot-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "快照链纯库（R-8/D6 快照原子——last known good + GFS 分代 + 回滚目标列）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run --root ../../../ --config preview/packages/vitest.config.ts ac-snapshot-core"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
