@@ -631,6 +631,972 @@ importers:
         specifier: ^26.0.12
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)(supports-color@10.2.2)
 
+  preview/apps/host:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-agents-core
+      ac-bench:
+        specifier: workspace:*
+        version: link:../../../src/ac-bench
+      ac-credentials-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-credentials-core
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-envelope-core
+      ac-fingerprint-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-fingerprint-core
+      ac-guardian:
+        specifier: workspace:*
+        version: link:../../packages/ac-guardian
+      ac-host-rows:
+        specifier: workspace:*
+        version: link:../../packages/ac-host-rows
+      ac-host-webui:
+        specifier: workspace:*
+        version: link:../../packages/ac-host-webui
+      ac-import:
+        specifier: workspace:*
+        version: link:../../packages/ac-import
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../../packages/ac-ledger
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../../packages/ac-post-office
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-rowset-core
+      ac-snapshot-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-snapshot-core
+      ac-webui-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-webui-core
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/apps/shell:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../../../src/ac-agent-loop
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-agents-core
+      ac-bench:
+        specifier: workspace:*
+        version: link:../../../src/ac-bench
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../../../src/ac-core-utils
+      ac-credentials-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-credentials-core
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-envelope-core
+      ac-fingerprint-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-fingerprint-core
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../../packages/ac-ledger
+      ac-llm:
+        specifier: workspace:*
+        version: link:../../../src/ac-llm
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../../packages/ac-post-office
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-rowset-core
+      ac-shell-conversation:
+        specifier: workspace:*
+        version: link:../../packages/ac-shell-conversation
+      ac-shell-rows:
+        specifier: workspace:*
+        version: link:../../packages/ac-shell-rows
+      ac-shell-subagent:
+        specifier: workspace:*
+        version: link:../../packages/ac-shell-subagent
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/apps/ui:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../../../src/webui-kit
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-runtime
+      ac-client-slots:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-slots
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-agents
+      ac-client-ui-browser:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-browser
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-conversation
+      ac-client-ui-desktop-storage:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-desktop-storage
+      ac-client-ui-fs:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-fs
+      ac-client-ui-goal:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-goal
+      ac-client-ui-group:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-group
+      ac-client-ui-jobs:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-jobs
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-layout
+      ac-client-ui-llm-pool:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-llm-pool
+      ac-client-ui-onboarding:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-onboarding
+      ac-client-ui-plugin-registry:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-plugin-registry
+      ac-client-ui-remote:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-remote
+      ac-client-ui-renderer:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-renderer
+      ac-client-ui-run-code:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-run-code
+      ac-client-ui-run-nodes:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-run-nodes
+      ac-client-ui-runview:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-runview
+      ac-client-ui-search-pool:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-search-pool
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-settings
+      ac-client-ui-shell:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-shell
+      ac-client-ui-singles:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-singles
+      ac-client-ui-skill:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-skill
+      ac-client-ui-subagent:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-subagent
+      ac-client-ui-system:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-system
+      ac-client-ui-theme:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-theme
+      ac-client-ui-timer:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-timer
+      ac-client-ui-tool:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-tool
+      ac-client-ui-usage:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-usage
+      ac-client-ui-web:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-web
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../../../src/ac-client-ui-workspace
+      ac-webui-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-webui-core
+      ac-wire-format:
+        specifier: workspace:*
+        version: link:../../../src/ac-wire-format
+      ac-ws-protocol:
+        specifier: workspace:*
+        version: link:../../../src/ac-ws-protocol
+      pinia:
+        specifier: ^2.1.7
+        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      '@vitejs/plugin-vue':
+        specifier: ^5.0.0
+        version: 5.2.4(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))(vue@3.5.41(typescript@5.9.3))
+      jsdom:
+        specifier: ^25.0.0
+        version: 25.0.1(canvas@3.2.3)(supports-color@10.2.2)
+      unplugin-icons:
+        specifier: ^23.0.1
+        version: 23.0.1(@vue/compiler-sfc@3.5.41)
+      vite:
+        specifier: ^5.0.0
+        version: 5.4.21(@types/node@20.19.43)(lightningcss@1.33.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@25.0.1(canvas@3.2.3)(supports-color@10.2.2))(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))
+      vue-tsc:
+        specifier: ^2.0.0
+        version: 2.2.12(typescript@5.9.3)
+
+  preview/apps/ui/channel/agents:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-agents
+
+  preview/apps/ui/channel/browser:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-browser:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-browser
+
+  preview/apps/ui/channel/conversation:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-conversation
+
+  preview/apps/ui/channel/desktop-storage:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-desktop-storage:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-desktop-storage
+
+  preview/apps/ui/channel/fs:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-fs:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-fs
+
+  preview/apps/ui/channel/goal:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-goal:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-goal
+
+  preview/apps/ui/channel/group:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-group:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-group
+
+  preview/apps/ui/channel/jobs:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-jobs:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-jobs
+
+  preview/apps/ui/channel/llm-pool:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-llm-pool:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-llm-pool
+
+  preview/apps/ui/channel/markdown-render:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../../../src/vendor/cordis
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-renderer:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-renderer
+
+  preview/apps/ui/channel/onboarding:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-onboarding:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-onboarding
+
+  preview/apps/ui/channel/plugin-registry:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-plugin-registry:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-plugin-registry
+
+  preview/apps/ui/channel/remote:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-remote:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-remote
+
+  preview/apps/ui/channel/run-code:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-run-code:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-run-code
+
+  preview/apps/ui/channel/run-nodes:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-run-nodes:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-run-nodes
+
+  preview/apps/ui/channel/runview:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-runview:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-runview
+
+  preview/apps/ui/channel/search-pool:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-search-pool:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-search-pool
+
+  preview/apps/ui/channel/settings:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-settings
+
+  preview/apps/ui/channel/shell:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-shell:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-shell
+
+  preview/apps/ui/channel/singles:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-singles:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-singles
+
+  preview/apps/ui/channel/skill:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-skill:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-skill
+
+  preview/apps/ui/channel/subagent:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-subagent:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-subagent
+
+  preview/apps/ui/channel/system:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-system:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-system
+
+  preview/apps/ui/channel/timer:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-timer:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-timer
+
+  preview/apps/ui/channel/todo:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-todo:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-todo
+
+  preview/apps/ui/channel/tool:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-tool:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-tool
+
+  preview/apps/ui/channel/usage:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-usage:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-usage
+
+  preview/apps/ui/channel/web:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-web:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-web
+
+  preview/apps/ui/channel/workspace:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-runtime
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../../../../../src/ac-client-ui-workspace
+
+  preview/packages/ac-agents-core:
+    devDependencies:
+      ac-auth-core:
+        specifier: workspace:*
+        version: link:../ac-auth-core
+      ac-credentials-core:
+        specifier: workspace:*
+        version: link:../ac-credentials-core
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../ac-rowset-core
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-auth-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-credentials-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-envelope-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-fingerprint-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-guardian:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-host-rows:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      '@agentchat/cordis-logger':
+        specifier: workspace:*
+        version: link:../../../src/vendor/logger
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../../../src/vendor/timer
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
+      ac-auth-core:
+        specifier: workspace:*
+        version: link:../ac-auth-core
+      ac-backup:
+        specifier: workspace:*
+        version: link:../../../src/ac-backup
+      ac-backup-core:
+        specifier: workspace:*
+        version: link:../../../src/ac-backup-core
+      ac-config:
+        specifier: workspace:*
+        version: link:../../../src/ac-config
+      ac-credentials-core:
+        specifier: workspace:*
+        version: link:../ac-credentials-core
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-event-policy:
+        specifier: workspace:*
+        version: link:../../../src/ac-event-policy
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+      ac-plugin-core:
+        specifier: workspace:*
+        version: link:../../../src/ac-plugin-core
+      ac-plugin-market:
+        specifier: workspace:*
+        version: link:../../../src/ac-plugin-market
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../ac-post-office
+      ac-remote-link:
+        specifier: workspace:*
+        version: link:../../../src/ac-remote-link
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../ac-rowset-core
+      ac-timer-core:
+        specifier: workspace:*
+        version: link:../../../src/ac-timer-core
+      ac-usage:
+        specifier: workspace:*
+        version: link:../../../src/ac-usage
+      ac-wire-format:
+        specifier: workspace:*
+        version: link:../../../src/ac-wire-format
+      ac-ws-bridge:
+        specifier: workspace:*
+        version: link:../../../src/ac-ws-bridge
+    devDependencies:
+      ac-host-app:
+        specifier: workspace:*
+        version: link:../../apps/host
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-host-webui:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
+      ac-config:
+        specifier: workspace:*
+        version: link:../../../src/ac-config
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../../../src/ac-conv-settings
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../../../src/ac-core-utils
+      ac-credentials-core:
+        specifier: workspace:*
+        version: link:../ac-credentials-core
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-file-snapshots:
+        specifier: workspace:*
+        version: link:../../../src/ac-file-snapshots
+      ac-host-app:
+        specifier: workspace:*
+        version: link:../../apps/host
+      ac-host-rows:
+        specifier: workspace:*
+        version: link:../ac-host-rows
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../ac-post-office
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../ac-rowset-core
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../../../src/ac-text-budget
+      ac-timer-core:
+        specifier: workspace:*
+        version: link:../../../src/ac-timer-core
+      ac-ui-app:
+        specifier: workspace:*
+        version: link:../../apps/ui
+      ac-web-server:
+        specifier: workspace:*
+        version: link:../../../src/ac-web-server
+      ac-webui-core:
+        specifier: workspace:*
+        version: link:../ac-webui-core
+      ac-workspace:
+        specifier: workspace:*
+        version: link:../../../src/ac-workspace
+      ac-ws-protocol:
+        specifier: workspace:*
+        version: link:../../../src/ac-ws-protocol
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-import:
+    dependencies:
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-ledger:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../../../src/ac-agent-loop
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../../../src/ac-llm
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../ac-post-office
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-post-office:
+    dependencies:
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-wire-format:
+        specifier: workspace:*
+        version: link:../../../src/ac-wire-format
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-rowset-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-shell-conversation:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../../../src/ac-agent-loop
+      ac-agents:
+        specifier: workspace:*
+        version: link:../../../src/ac-agents
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../../../src/ac-core-utils
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+      ac-llm:
+        specifier: workspace:*
+        version: link:../../../src/ac-llm
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../ac-post-office
+    devDependencies:
+      ac-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-shell-rows:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      '@agentchat/cordis-logger':
+        specifier: workspace:*
+        version: link:../../../src/vendor/logger
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../../../src/ac-agent-loop
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
+      ac-archive-core:
+        specifier: workspace:*
+        version: link:../../../src/ac-archive-core
+      ac-ask-questions:
+        specifier: workspace:*
+        version: link:../../../src/ac-ask-questions
+      ac-auth-core:
+        specifier: workspace:*
+        version: link:../ac-auth-core
+      ac-bench:
+        specifier: workspace:*
+        version: link:../../../src/ac-bench
+      ac-collab-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-collab-tools
+      ac-config:
+        specifier: workspace:*
+        version: link:../../../src/ac-config
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../../../src/ac-conv-settings
+      ac-credentials-core:
+        specifier: workspace:*
+        version: link:../ac-credentials-core
+      ac-datetime:
+        specifier: workspace:*
+        version: link:../../../src/ac-datetime
+      ac-durable-interaction:
+        specifier: workspace:*
+        version: link:../../../src/ac-durable-interaction
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-file-snapshots:
+        specifier: workspace:*
+        version: link:../../../src/ac-file-snapshots
+      ac-fs-search:
+        specifier: workspace:*
+        version: link:../../../src/ac-fs-search
+      ac-fs-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-fs-tools
+      ac-goal:
+        specifier: workspace:*
+        version: link:../../../src/ac-goal
+      ac-harness-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-harness-tools
+      ac-issue-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-issue-tools
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../../../src/ac-jobs
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+      ac-llm:
+        specifier: workspace:*
+        version: link:../../../src/ac-llm
+      ac-llm-pool:
+        specifier: workspace:*
+        version: link:../../../src/ac-llm-pool
+      ac-math:
+        specifier: workspace:*
+        version: link:../../../src/ac-math
+      ac-mcp:
+        specifier: workspace:*
+        version: link:../../../src/ac-mcp
+      ac-memory:
+        specifier: workspace:*
+        version: link:../../../src/ac-memory
+      ac-persona:
+        specifier: workspace:*
+        version: link:../../../src/ac-persona
+      ac-plugin-core:
+        specifier: workspace:*
+        version: link:../../../src/ac-plugin-core
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../ac-post-office
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../ac-rowset-core
+      ac-run-code:
+        specifier: workspace:*
+        version: link:../../../src/ac-run-code
+      ac-sap-adt:
+        specifier: workspace:*
+        version: link:../../../src/ac-sap-adt
+      ac-shell-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-shell-tools
+      ac-skill:
+        specifier: workspace:*
+        version: link:../../../src/ac-skill
+      ac-str-replace-editor:
+        specifier: workspace:*
+        version: link:../../../src/ac-str-replace-editor
+      ac-system-prompt:
+        specifier: workspace:*
+        version: link:../../../src/ac-system-prompt
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../../../src/ac-text-budget
+      ac-todo:
+        specifier: workspace:*
+        version: link:../../../src/ac-todo
+      ac-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-tools
+      ac-web-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-web-tools
+    devDependencies:
+      ac-shell-conversation:
+        specifier: workspace:*
+        version: link:../ac-shell-conversation
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-shell-subagent:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../../src/vendor/cordis
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
+      ac-auth-core:
+        specifier: workspace:*
+        version: link:../ac-auth-core
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+      ac-post-office:
+        specifier: workspace:*
+        version: link:../ac-post-office
+      ac-rowset-core:
+        specifier: workspace:*
+        version: link:../ac-rowset-core
+      ac-tools:
+        specifier: workspace:*
+        version: link:../../../src/ac-tools
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-snapshot-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  preview/packages/ac-webui-core:
+    dependencies:
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   src/ac-agent-admin:
     dependencies:
       '@agentchat/cordis':

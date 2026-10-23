@@ -50,6 +50,9 @@ workspace/
 # Agent 沙箱（项目根；临时工作区 + 测试数据根 + 历史数据根归档，cr-264）
 /sandbox/
 
+# preview 轨临时区（测试数据根/预演导入/诊断探针输出——含真实会话副本与凭据条目，cr-599 防误入库）
+preview/sandbox/
+
 # 本地临时残留（news-timer 备份等）
 /_tmp/
 
@@ -89,8 +92,9 @@ src_old/
 # Tauri 自动生成（desktop/src-tauri/gen/schemas，构建期再生）
 desktop/src-tauri/gen/
 
-# supervisor 单写者锁（supervisor.mjs 运行时产物）
+# supervisor 单写者锁（supervisor.mjs 运行时产物；根 supervisor 写仓库根）
 src/.runtime
+/.runtime
 
 # 历史根级数据根残留规则（/AppData/ /agents/ /files/ /memory/ /sessions/
 # /singles/ /usage/ /archive/ /groups/ /timer/ /.initialized /config.json

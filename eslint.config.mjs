@@ -48,17 +48,20 @@ export default [
       // 设计档案区（md/html 为主；archive/scripts/ 冻结的一次性脚本不入 lint 面）
       'src/docs/**',
       'src/webui/vite.config.ts',
+  'preview/apps/ui/vite.config.ts', // config 面不在任何 tsconfig include——主线同款先例
+      // preview vitest 配置（同款先例：config 文件双 vite 版本类型面冲突，不入类型感知 lint）
+      'preview/packages/vitest.config.ts',
     ],
   },
   {
-    files: ['src/**/*.{ts,vue}'],
+    files: ['src/**/*.{ts,vue}', 'preview/packages/**/*.{ts,vue}', 'preview/apps/**/*.{ts,vue}'],
     languageOptions: {
       parser: vueParser,
       parserOptions: {
         parser: tsParser,
         sourceType: 'module',
         extraFileExtensions: ['.vue'],
-        project: ['tsconfig.json', 'src/webui/tsconfig.json'],
+        project: ['tsconfig.json', 'src/webui/tsconfig.json', 'preview/packages/tsconfig.json', 'preview/apps/ui/tsconfig.json'],
       },
     },
     plugins: { '@typescript-eslint': tseslint },

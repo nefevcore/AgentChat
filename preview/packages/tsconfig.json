@@ -1,0 +1,28 @@
+{
+  // preview 轨六纯库公共配置（cr-491 M0.1/M0.2）：与根 tsconfig 同面（strict + strip-only
+  // 兼容：显式 .ts 导入 / import type），但 include 只含 preview/packages——根 tsc 不扫
+  // preview（CI 面零变化）。包内不设 tsconfig（本文件即覆盖六包全部源与测试）。
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@agentchat/protocol": ["../../src/webui/src/shims/@agentchat/protocol.ts"]
+    }
+  },
+  "include": [
+    "ac-*/src/**/*.ts",
+    "ac-*/tests/**/*.ts",
+    "tests-setup.ts",
+    "../apps/*/boot.ts",
+    "../apps/host/*.ts",
+    "../apps/*/src/**/*.ts",
+    "../apps/*/tests/**/*.ts",
+    // 8.5b 第二批（cr-531）：ui 通道模块（channel/ 子包）
+    "../apps/ui/channel/*/src/**/*.ts",
+    // M8.1（cr-520）：装配主线沿用行 = 解析 src 行源码类型。主线类型增强网
+    // （declare module 全局合并）靠全量 include 闭合——preview 程序引入行包后
+    // 需同款 src 面闭合（单向：根 tsconfig 仍不含 preview，CI 面零变化）。
+    "../../src/**/src/**/*.ts",
+    "../../src/*/client/**/*.ts"
+  ]
+}
