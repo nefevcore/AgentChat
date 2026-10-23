@@ -59,6 +59,9 @@ preview/sandbox/
 # 测试输出残留
 /vitest-out.txt
 
+# 品牌身份 exe（cr-620 make-node-identity 本机产物，不入库；cr-621 补齐）
+/bin/
+
 # 桌面构建产物（NSIS unpacked 副本）
 /desktop/release/
 

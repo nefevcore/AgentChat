@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-605**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-621**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -623,3 +623,19 @@
 - 【cr-603 2026-10-23 程序化 SDK 投影前端不可见修复：previewSystemPrompt 干跑工具面从 toolFaceOf（未收窄全量）换 llmToolFace（cr-593 模式收窄同源）——tc-programmatic 会话干跑请求面=[run_code]，run_code 行 SDK 投影注入判定（isModeToolFace）随之到达，SystemPromptPanel 与真实 run 装配口径对齐】
 - 【cr-604 2026-10-23 preview docs 重组：状态板 M0-M8 建设期行与 p4-p7 交接归档 archive/、立 2026-10-23 现行交接、kickoff 刷新至切换后阶段】
 - 【cr-605 2026-10-23 preview 树入库提交切分（G8）：按里程碑/包边界切 commit 入库 + 切换入口/主线伴生改动归批】
+- 【cr-606 2026-10-23 迁移脚本重演测试：home-legacy-20261022 副本旁路跑 cutover 管线验证桌面端数据迁移能力】
+- 【cr-607 2026-10-23 名册轴修复：agents/list 与 healthz 排除 ~ 会话流键域（ensureAgent 兜底 config 污染名册）】
+- 【cr-608 2026-10-23 singles 导入归属修复：majorityAgentId 排除 user 端点（296 会话错位 agents/user）+ 存量回填】
+- 【cr-609 2026-10-23 users/user 轴更名 viewer（消除与 agents/user 命名混淆）+ 迁移管线含 cr-608 修复全停重验】
+- 【cr-610 2026-10-23 壳行集基座恒并 llm-pool：点名形态 agent 壳零 provider 注册根因修复】
+- 【cr-611 2026-10-23 迁移直答 pair 会话 viewer 投影补齐（前端非预设 Agent 1v1 历史空根因）+ journal 双端带出】
+- 【cr-612 2026-10-23 D5 边 2 常态化：壳侧邮局失联探测 + 宿主复活（host-revive 探测/退避/O_EXCL 仲裁纯域 + 壳 boot 接线 + 宿主优雅退出停机戳与 boot 清戳 + 壳 argv 增 --host-boot/--host-port）】
+- 【cr-613 2026-10-23 实验性菜单冗余根因修复：preview web-api conv-settings/keys 移植时丢主线 group===experimental 过滤——model/elevation/toolMode 三纯消费键混入输入框实验性菜单（前端只排 browserTier），补同款过滤】
+- 【cr-614 2026-10-23 full-access 仍无法访问工作区根因修复：WorkspaceShim 缺沙箱消费面——补主线同款 sandboxAllowedPaths/conversationWorkspaceRoot/会话感知 sandboxWorkdir（workspaces.json + viewer/sessions session.json 直读，主线 ac-workspace 同布局），挂载工作区即基准+授予端到端接通】
+- 【cr-615 2026-10-23 cr-615 标准模式工具面整理：预设身份模板物化（adoptShell 兜底）+ 出厂模板 18 行 + 活体 __standard__ 17 行迁移】
+- 【cr-616 2026-10-23 cr-615 配套：subagent spawn tools 词过滤落地（spawn ⊆ 父投影）——未过滤词使子壳行集断言 fail-loud 早退，spawn 面只见 boot.ready 超时】
+- 【cr-617 2026-10-23 cr-615 配套：标准模式能力 tags 恢复（活体 9 词 + 模板 10 词含 collab）——SDK 投影/能力面按 tags 门禁，缺 tags = 投影坍缩到 base 族】
+- 【cr-618 2026-10-23 cr-618 立：AgentConfig.tools → rows 改名登记为待裁决项（挂 cr-484 遗留 ◐b requiredTags 迁移批次同批落地——终态词形收敛纯行引用，名实相符）】
+- 【cr-619 2026-10-23 cr-619 多宿主共存根因修复：web-server 行增 strict 档（监听失败 reject 不降级），preview 宿主 boot 启用——此前不同数据根+同端口可双开（管道防线不撞 + EADDRINUSE 被降级成 warn，第二宿主无头存活且日志谎报端口）】
+- 【cr-620 2026-10-23 cr-620 进程可视身份：node.exe 品牌副本（bin/AgentChat{Host,Shell}.exe——rcedit 改 FileDescription，任务管理器可辨可杀）+ 宿主/壳 spawn 换用品牌副本（缺席回落 process.execPath）】
+- 【cr-621 2026-10-23 G8 第二批入库：cr-606…620 未提交改动按域切分提交 + 测试残留 X/ 清理 + bin/ ignore 补齐】
