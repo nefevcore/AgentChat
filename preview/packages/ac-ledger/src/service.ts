@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
-import { readLedger, replayView, summaryTextOf } from './reader.ts';
+import { readLedger, readJournal, anchorableRuns, replayView, summaryTextOf } from './reader.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
 import type { LedgerRow, JournalStep, RunUsage } from './records.ts';
 import type { LoopStepRecord, LoopStepEnvelope, LoopRunRequestLike, LoopRunResult } from './loop-events.ts';
@@ -219,6 +219,80 @@ export class LedgerService extends Service {
   /** 机制 run 收束（archive 行消费——journal-settled 落账、账本不落行） */
   async settleMechanismFor(uuid: string, runId: string, finish: 'ok' | 'interrupted' | 'error'): Promise<void> {
     await this.writerFor(uuid, [this.agentId], 'user').settleMechanism(runId, finish);
+  }
+
+  /**
+   * 孤儿 run 收口（cr-628，主线 recoverJournal 惰性幂等语义的 preview 形态）：
+   * 壳死于 mid-run 时 journal 留下无 journal-settled 的步行——读侧
+   * stepsOfRun 恒报 partial（真在途），run 永远「运行中」。boot 期对全部
+   * 会话域扫一遍：有步行/注入行但无 settled 标记的 run 补写
+   * journal-settled(interrupted)（幂等——已收束 run 不动）。
+   * cr-631 持久化补环：收口的 run 同时补投 viewer run 键锚信（壳死时
+   * postReply 未跑、viewer 行从未落——不补则孤儿投影随 settled 让位后
+   * steps 二度消失）。锚信 = 空文本 + run 键（user 壳 writeThrough 落行，
+   * cr-595 同通道）；盘上 viewer 行已锚定的跳过（防重——跨重启幂等）。
+   * 无邮局（CLI 直连）只收口不补锚。返回收口数。
+   */
+  async recoverOrphanRuns(): Promise<number> {
+    const sessionsRoot = path.join(this.agentDirOf(), 'sessions');
+    let uuids: string[] = [];
+    try { uuids = fs.readdirSync(sessionsRoot); } catch { return 0; }
+    let settled = 0;
+    const anchors: Array<{ uuid: string; run: string }> = [];
+    for (const uuid of uuids) {
+      const dir = path.join(sessionsRoot, uuid);
+      const lines = readJournal(dir);
+      if (lines.length === 0) continue;
+      const seen = new Set<string>();
+      for (const line of lines) {
+        if (line.run === '') continue;
+        if (line.type === 'journal-settled') seen.add(line.run);
+      }
+      const orphans = new Set<string>();
+      for (const line of lines) {
+        if (line.run !== '' && !seen.has(line.run)
+          && (line.type === 'journal-step' || line.type === 'journal-inject')) orphans.add(line.run);
+      }
+      for (const run of orphans) {
+        await this.writerFor(uuid, [this.agentId], 'user').settleMechanism(run, 'interrupted');
+        settled += 1;
+      }
+      // viewer 锚缺口（cr-632 链接制——覆盖本 boot 收口与存量已收口两类；
+      // 消息 run 判别排除机制 run）
+      if (this.postOfficeAddress !== undefined) {
+        const viewerDir = path.join(this.dataRoot, 'viewer', 'sessions', uuid);
+        const ledgerRows = readLedger(dir).rows;
+        for (const run of anchorableRuns(lines, readLedger(viewerDir).rows, ledgerRows)) {
+          anchors.push({ uuid, run });
+        }
+      }
+    }
+    for (const a of anchors) {
+      await this.relayRunAnchor(a.uuid, a.run).catch((err: unknown) => {
+        // 补锚失败可容忍：viewer 行缺席下次 boot 仍会重扫重投
+        this.ctx.logger.warn('[ledger] 孤儿锚信补投失败（' + a.run + '）：' + String(err));
+      });
+    }
+    return settled;
+  }
+
+  /** viewer run 键锚信补投（邮局 → user 壳 writeThrough；失败上抛由调用方记档） */
+  private async relayRunAnchor(uuid: string, run: string): Promise<void> {
+    if (this.usageOutbound === null) {
+      const { IpcClient } = await import('ac-post-office');
+      const client = new IpcClient();
+      await client.connect(this.postOfficeAddress!);
+      this.usageOutbound = { send: (e) => client.send(e) };
+    }
+    await this.usageOutbound.send({
+      uuid,
+      requestId: 'orphan-' + run,
+      sender: this.agentId,
+      to: 'user',
+      kind: 'message',
+      budget: 0,
+      payload: { text: '', run },
+    } as Envelope);
   }
 
   // —— inbox durable（A4：投递未消费消息；队列事实源——收束后链跑消费） ——

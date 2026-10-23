@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
 import type { TimerEntry } from 'ac-timer-core';
-import { GLOBAL_TIMER_OWNER, validateTimerEntries, listTemplates, listGroupConfigs, listWorkspaces } from 'ac-host-rows';
+import { GLOBAL_TIMER_OWNER, validateTimerEntries, listTemplates, listGroupConfigs, listWorkspaces, workspacePathOf } from 'ac-host-rows';
 import { createPoolCredentials, maskSecrets } from './config-face.ts';
 import type { ShellAdminPort } from './face-shell.ts';
 import { SnapshotStore, SNAPSHOT_MAX_BYTES, looksLikeText } from 'ac-file-snapshots/src/store.ts';
@@ -148,14 +148,62 @@ function scanSkills(root: string): Array<{ name: string; description: string; di
   return entries.filter((e) => e.isDirectory()).map((e) => readSkillManifest(path.join(root, e.name), e.name));
 }
 
+/**
+ * 会话挂载工作区根（cr-627）：viewer/sessions/<sid>/session.json 的
+ * workspaceId → workspaces.json 路径（宿主 owning 形态：顶层数组——
+ * ac-host-rows workspaces.ts 单源）。输入弹层快捷键（/ 技能区）与
+ * 壳侧 WorkspaceShim 解析链同数据同布局。
+ */
+function workspaceRootOf(dataRoot: string, conversationId: string | undefined): string | null {
+  if (conversationId === undefined || conversationId === ''
+    || conversationId.includes('/') || conversationId.includes('\\') || conversationId.includes('..')) return null;
+  let wsId: string | undefined;
+  try {
+    const meta: unknown = JSON.parse(fs.readFileSync(
+      path.join(dataRoot, 'viewer', 'sessions', conversationId, 'session.json'), 'utf-8'));
+    if (meta !== null && typeof meta === 'object' && !Array.isArray(meta)) {
+      const v = (meta as { workspaceId?: unknown }).workspaceId;
+      if (typeof v === 'string' && v !== '') wsId = v;
+    }
+  } catch { /* 缺席/损坏 = 未挂载 */ }
+  if (wsId === undefined) return null;
+  const root = workspacePathOf(dataRoot, wsId);
+  return root;
+}
+
+/**
+ * 工作区技能组（主线 ac-skill-core WORKSPACE_SKILL_DIRS 同清单——
+ * .claude/skills / .github/skills / skills / .agents/skills / .dsh/skills，
+ * 先命中先得）：线形拍平随条目附 dir/location（主线 web-api skills/list
+ * 同形——前端来源徽章数据面）。
+ */
+const WORKSPACE_SKILL_DIRS = ['.claude/skills', '.github/skills', 'skills', '.agents/skills', '.dsh/skills'];
+
+function scanWorkspaceSkills(wsRoot: string): Array<{ name: string; description: string; dirName: string; dir: string; location: string }> {
+  const out: Array<{ name: string; description: string; dirName: string; dir: string; location: string }> = [];
+  const seen = new Set<string>();
+  const locationPrefix = wsRoot.replace(/\\/g, '/');
+  for (const rel of WORKSPACE_SKILL_DIRS) {
+    for (const s of scanSkills(path.join(wsRoot, ...rel.split('/')))) {
+      if (seen.has(s.name)) continue; // 跨组同名：先命中先得（主线同语义）
+      seen.add(s.name);
+      out.push({ ...s, dir: rel, location: locationPrefix + '/' + rel });
+    }
+  }
+  return out;
+}
+
 function registerSkills(web: WebFace, deps: FaceOpsDeps): void {
   web.registerRpc('skills/list', (params) => {
-    const agentId = optStr(obj(params).agentId);
+    const p = obj(params);
+    const agentId = optStr(p.agentId);
+    const wsRoot = workspaceRootOf(deps.dataRoot, optStr(p.conversationId));
     return {
       skills: {
         global: scanSkills(path.join(deps.dataRoot, 'skills')),
         own: agentId !== undefined ? scanSkills(path.join(deps.dataRoot, 'files', agentId, 'skills')) : [],
-        workspace: [], // 工作区域未落地（无 workspace 行）：约定目录技能面无输入
+        // 会话挂载工作区的约定目录技能（主线 web-api skills/list 线形同形）
+        workspace: wsRoot !== null ? scanWorkspaceSkills(wsRoot) : [],
       },
     };
   });

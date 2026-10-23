@@ -16,8 +16,8 @@
 import type { Plugin, Context } from '@agentchat/cordis';
 import { readdir, readFile } from 'node:fs/promises';
 import { statSync } from 'node:fs';
-import { join } from 'node:path';
-import { UserLedger, conversationDirs, deleteConversationRow, readJournal, sessionDir, stepsOfRun, truncateConversation, type JournalLine } from 'ac-ledger';
+import * as path from 'node:path';
+import { UserLedger, conversationDirs, deleteConversationRow, readJournal, sessionDir, stepsOfRun, truncateConversation, orphanRunsOf, type JournalLine } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isAgentIdentity } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, collectRunning, type FaceOpsDeps } from './face-ops.ts';
@@ -89,10 +89,10 @@ async function dataRootFacts(dataRoot: string): Promise<{ agents: number; conver
     try { return (await readdir(dir, { withFileTypes: true })).filter((e) => e.isDirectory()).length; } catch { return 0; }
   };
   let configReadable = false;
-  try { JSON.parse(await readFile(join(dataRoot, 'config.json'), 'utf-8')); configReadable = true; } catch { /* 缺席/坏文件 */ }
+  try { JSON.parse(await readFile(path.join(dataRoot, 'config.json'), 'utf-8')); configReadable = true; } catch { /* 缺席/坏文件 */ }
   return {
     agents: rosterConfigs(dataRoot).length,
-    conversations: await countDirs(join(dataRoot, 'viewer', 'sessions')),
+    conversations: await countDirs(path.join(dataRoot, 'viewer', 'sessions')),
     configReadable,
   };
 }
@@ -208,6 +208,32 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
               content: '',
               run: run0.runId,
               steps: [s],
+              partial: true,
+            });
+          }
+        }
+        // 孤儿 run 投影（cr-628）：壳死于 mid-run 的 journal——无 settled、
+        // 无 viewer run 键行、非活壳在途（running 集已排除），此前整个 run
+        // 从前端蒸发（会话 01a168fe 实锤）。按会话全域扫孤儿 run，steps 投出
+        //（partial 如实——新壳 boot recoverOrphanRuns 补过 settled 的旧存量
+        // 走 stepsOfRun 的非 partial 面）。
+        const linkedRuns = new Set(all.flatMap((r) => (r.run !== undefined ? [r.run] : [])));
+        const runningIds = new Set(runningHere.map((r) => r.runId));
+        for (const dir of conversationDirs(deps.dataRoot, conversationId)) {
+          // dir = agents/<agentId>/sessions/<cid>（影子 = agents/<parent>/children/<child>/…）
+          // ——域主 = sessions 段的上一级目录名
+          const agentId = path.basename(path.dirname(path.dirname(dir)));
+          const lines = readJournal(dir);
+          for (const run of orphanRunsOf(lines)) {
+            if (linkedRuns.has(run) || runningIds.has(run)) continue;
+            const p = stepsOfRun(lines, run);
+            if (p === null) continue;
+            all.push({
+              role: 'assistant',
+              agent_id: agentId,
+              content: '',
+              run,
+              steps: p.steps,
               partial: true,
             });
           }

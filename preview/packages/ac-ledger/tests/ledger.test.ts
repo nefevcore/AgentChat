@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { readLedger, readJournal, replayView, stepsOfRun } from '../src/reader.ts';
+import { readLedger, readJournal, replayView, stepsOfRun, orphanRunsOf, anchorableRuns } from '../src/reader.ts';
 
 const ROOT = path.join('preview', 'sandbox', 'test-ledger-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -131,6 +131,63 @@ describe('journal 面', () => {
         { id: 'call_a#1', name: 'read', arguments: '{"path":"a.ts"}', result: { ok: true, output: { path: 'a.ts' } }, subcall: true },
         { id: 'run-t#1', name: 'run_code', arguments: '{}', result: { ok: false, error: '路径不存在' } },
       ]);
+    } finally {
+      await fiber.dispose();
+    }
+  });
+});
+
+describe('孤儿 run 收口 + 孤儿扫描（cr-628）', () => {
+  it('anchorableRuns（cr-631/632 链接制）：已锚出局；消息 run 判别（run-<requestId> 有入站行）入选；机制 run / 无步行不算', () => {
+    const lines = [
+      { type: 'journal-step', run: 'run-send-1', step: 1, content: 'a', seq: 1 }, // 消息 run，已锚
+      { type: 'journal-step', run: 'run-send-2', step: 1, content: 'b', seq: 2 }, // 消息 run，未锚 → 入选
+      { type: 'journal-step', run: 'review-x', step: 1, content: 'c', seq: 3 }, // 机制 run 词形 → 排除
+      { type: 'journal-tool-result', run: 'run-send-3', toolCallId: 'c1', result: { ok: true }, seq: 4 }, // 无步行
+    ] as never[];
+    const viewer = [
+      { role: 'agent', content: '', agent_id: 'x', source: 'run:run-send-1', uuid: 'u', message_id: 'm1', timestamp: 't', seq: 1 },
+    ] as never[];
+    const ledgerRows = [
+      { role: 'agent', content: '问1', agent_id: 'user', requestId: 'send-1', uuid: 'u', message_id: 'm2', timestamp: 't', seq: 2 },
+      { role: 'agent', content: '问2', agent_id: 'user', requestId: 'send-2', uuid: 'u', message_id: 'm3', timestamp: 't', seq: 3 },
+    ] as never[];
+    expect(anchorableRuns(lines, viewer, ledgerRows)).toEqual(['run-send-2']);
+  });
+
+  it('orphanRunsOf：有步行/注入无 settled 的 run 报孤儿；settled / 仅补行不算', () => {
+    const lines = [
+      { type: 'journal-step', run: 'runA', step: 1, content: 'a', seq: 1 },
+      { type: 'journal-settled', run: 'runB', finish: 'ok', seq: 2 },
+      { type: 'journal-step', run: 'runB', step: 1, content: 'b', seq: 3 },
+      { type: 'journal-inject', run: 'runC', content: '插', seq: 4 },
+      { type: 'journal-tool-result', run: 'runD', toolCallId: 'c1', result: { ok: true }, seq: 5 },
+    ] as never[];
+    expect(orphanRunsOf(lines)).toEqual(['runA', 'runC']); // runD 仅补行不算（无步行锚）
+  });
+
+  it('recoverOrphanRuns：补 journal-settled(interrupted)；已收束 run 不动；幂等', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'orphan-1' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        journalStep(uuid: string, run: string, step: unknown): Promise<void>;
+        settleMechanismFor(uuid: string, run: string, finish: string): Promise<void>;
+        recoverOrphanRuns(): Promise<number>;
+      };
+      await svc.journalStep(uuid, 'run-x', { index: 0, text: '死于中途', toolCalls: [], toolResults: [] });
+      await svc.journalStep(uuid, 'run-y', { index: 0, text: '已收束', toolCalls: [], toolResults: [] });
+      await svc.settleMechanismFor(uuid, 'run-y', 'ok');
+      expect(await svc.recoverOrphanRuns()).toBe(1);
+      const j = readJournal(sessionDir(ROOT, 'orphan-1', uuid));
+      expect(j).toContainEqual(expect.objectContaining({ type: 'journal-settled', run: 'run-x', finish: 'interrupted' }));
+      // 幂等：二扫零收口
+      expect(await svc.recoverOrphanRuns()).toBe(0);
+      // stepsOfRun 不再报在途
+      expect(stepsOfRun(j, 'run-x')!.partial).toBe(false);
     } finally {
       await fiber.dispose();
     }

@@ -153,6 +153,46 @@ export function stepsOfRun(lines: JournalLine[], run: string): { steps: Projecte
   return steps.length === 0 ? null : { steps, partial: !settled };
 }
 
+/**
+ * viewer run 键锚缺口扫描（cr-631/632 持久化补环，链接制）：journal 有步行
+ * 的 run 中 viewer 账本行 source=run:<id> 缺席、且为**消息 run** 者——
+ * 判别 = run id 形如 run-<requestId> 且该 requestId 在本会话账本有入站行
+ *（driveRun 的 runId 恒由此派生；机制 run〔reviewRun 等〕runId 无对应入站
+ * 行，天然排除——机制 run 有步行无 viewer 行是设计态，不可锚）。覆盖
+ * 「已收口未锚定」存量与「本 boot 收口」两类（壳死时 postReply 未跑
+ * = 锚缺失的共同根源）。
+ */
+export function anchorableRuns(lines: JournalLine[], viewerRows: LedgerRow[], ledgerRows: LedgerRow[]): string[] {
+  const anchored = new Set(viewerRows
+    .filter((r) => typeof r.source === 'string' && r.source.startsWith('run:'))
+    .map((r) => (r.source as string).slice(4)));
+  const delivered = new Set(ledgerRows.filter((r) => typeof r.requestId === 'string').map((r) => r.requestId as string));
+  const out = new Set<string>();
+  for (const line of lines) {
+    if (line.run === '' || line.type !== 'journal-step' || anchored.has(line.run)) continue;
+    if (!line.run.startsWith('run-')) continue;
+    if (delivered.has(line.run.slice(4))) out.add(line.run);
+  }
+  return [...out];
+}
+
+/**
+ * 孤儿 run 扫描（cr-628 web-ui 孤儿投影）：journal 里有步行/注入行但无
+ * journal-settled 标记的 run id（壳死于 mid-run——既无 viewer run 键行可
+ * 联、又无 settled 可判收束，读侧此前整 run 蒸发）。新壳 boot 的
+ * recoverOrphanRuns 补 settled 后此面自然清空（存量旧 journal 仍可见）。
+ */
+export function orphanRunsOf(lines: JournalLine[]): string[] {
+  const settled = new Set<string>();
+  const candidates = new Set<string>();
+  for (const line of lines) {
+    if (line.run === '') continue;
+    if (line.type === 'journal-settled') settled.add(line.run);
+    else if (line.type === 'journal-step' || line.type === 'journal-inject') candidates.add(line.run);
+  }
+  return [...candidates].filter((run) => !settled.has(run));
+}
+
 /** 子调用 toolCallId 尾段序数（<hostId>#<seq> 的 seq——无 seq 存量回退） */
 function idTailSeq(toolCallId: string): number {
   const hash = toolCallId.indexOf('#');
