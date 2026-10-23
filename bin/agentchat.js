@@ -2,9 +2,9 @@
 // AgentChat CLI —— 唯一启动入口
 // · 发布包：dist/agentchat.mjs（esbuild 单文件，TREE 静态行表 + 行偏好层
 //   + 单实例锁；静态 WebUI 产物与 bundle 同在 dist/）
-// · 仓库检出（无 dist 时）：直跑 src/ac-app/src/boot.ts（= pnpm dev 同参；
-//   Node ≥22.18 原生 strip-only，更早版本兜底 tsx；Loader+cordis.yml 装配，
-//   支持 hmr 行的 --expose-internals）
+// · 仓库检出（无 dist 时）：直跑 preview/apps/host/boot.ts（8.9 cutover，
+//   cr-556——旧主线 boot 退役；Node ≥22.18 原生 strip-only；数据根 = 启动
+//   文件夹 AGENTCHAT_DATA_ROOT 语义不变）
 // · 参数原样透传（--port=N 覆盖缺省 3830；数据根 = 启动文件夹）
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -41,15 +41,15 @@ if (existsSync(distEntry)) {
   // 发布包：dist 单文件（内联全部后端行与依赖）
   run(spawn(process.execPath, [distEntry, ...args], { cwd: process.cwd(), stdio: 'inherit' }));
 } else {
-  // 仓库 dev：与 pnpm dev 同参（--expose-internals 供 hmr 行构造）。
-  // TS 加载 = Node ≥22.18 原生 strip-only（同 package.json dev 脚本
-  // 2026-09-15 去 tsx 的改动）；低版本 Node 无原生 strip 时兜底 tsx。
-  const bootSrc = path.join(root, 'src', 'ac-app', 'src', 'boot.ts');
+  // 仓库 dev：与 pnpm dev 同参（preview 宿主 boot——cr-556 换轨）。
+  // TS 加载 = Node ≥22.18 原生 strip-only；低版本 Node 无原生 strip 时兜底 tsx。
+  const bootSrc = path.join(root, 'preview', 'apps', 'host', 'boot.ts');
+  const bootArgs = ['--data-root', path.resolve(process.env.INIT_CWD || process.cwd()), '--port', '3830'];
   // 原生 type stripping 门槛：≥23.6 或 22.18+（LTS 回移）；更早版本走 tsx
   const [major, minor] = process.versions.node.split('.').map(Number);
   const nativeStrip = major >= 24 || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
   if (nativeStrip) {
-    run(spawn(process.execPath, ['--expose-internals', bootSrc, ...args], {
+    run(spawn(process.execPath, ['--experimental-strip-types', bootSrc, ...bootArgs, ...args], {
       cwd: process.cwd(),
       env: { ...process.env, TSX_TSCONFIG_PATH: path.join(root, 'tsconfig.json') },
       stdio: 'inherit',
@@ -57,7 +57,7 @@ if (existsSync(distEntry)) {
   } else {
     run(spawn(
       process.execPath,
-      ['--expose-internals', '--import', tsxImport(), bootSrc, ...args],
+      ['--experimental-strip-types', '--import', tsxImport(), bootSrc, ...bootArgs, ...args],
       { cwd: process.cwd(), env: tsxEnv(), stdio: 'inherit' },
     ));
   }
