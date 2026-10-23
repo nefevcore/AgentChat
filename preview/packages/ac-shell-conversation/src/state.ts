@@ -131,14 +131,19 @@ export class ConversationMachine {
 
   /**
    * run 收束：自动唤醒消耗预算（-1）；队列有货 → 下轮 run 信号。
-   * 返回 queued 项（消费下一 turn）或 null（空闲）。
+   * 返回 queued 项（消费下一 turn——conversationId 随行：单机多会话
+   * 队列的取信寻址键，cr-627）或 null（空闲）。
    */
-  runSettled(consumedBudget: boolean): { requestId: string } | null {
+  runSettled(consumedBudget: boolean): { requestId: string; conversationId?: string } | null {
     if (consumedBudget) this.budget = Math.max(0, this.budget - 1);
     this.busy = false;
     this.currentRun = null;
     const next = this.turnQueue.shift();
-    return next === undefined ? null : { requestId: next.requestId };
+    if (next === undefined) return null;
+    return {
+      requestId: next.requestId,
+      ...(next.conversationId !== undefined ? { conversationId: next.conversationId } : {}),
+    };
   }
 
   // —— next-turn 队列读写（排队 UI 数据面——主线 queue/removeQueued/steerQueued 同语义） ——
@@ -176,5 +181,14 @@ export class ConversationMachine {
   /** steer 放回（窗口已关——原位插回不丢消息） */
   steerRestore(item: QueuedTurn, index: number): void {
     this.turnQueue.splice(Math.min(index, this.turnQueue.length), 0, item);
+  }
+
+  /**
+   * 补入队尾（cr-627）：busy 期 steer 决策落空（活跃 run 属其他会话——
+   * 单机串行化门多会话并发常态）的信封转投 next-turn 队列，当前 run
+   * 收束点链跑消费。与 plan 入队同形（queuedAt = now）。
+   */
+  requeue(item: Omit<QueuedTurn, 'queuedAt'>): void {
+    this.turnQueue.push({ ...item, queuedAt: Date.now() });
   }
 }

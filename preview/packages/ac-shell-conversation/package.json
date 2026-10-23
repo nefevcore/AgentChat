@@ -20,10 +20,12 @@
     "ac-agents": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-post-office": "workspace:*",
-    "ac-ledger": "workspace:*"
+    "ac-ledger": "workspace:*",
+    "ac-ask-questions": "workspace:*"
   },
   "devDependencies": {
     "ac-tools": "workspace:*",
+    "ac-durable-interaction": "workspace:*",
     "vitest": "^4.1.10"
   }
 }

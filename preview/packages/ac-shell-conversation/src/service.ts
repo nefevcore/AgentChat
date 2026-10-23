@@ -22,7 +22,8 @@ import type { Envelope, StreamFrame } from 'ac-envelope-core';
 import { budgetAfterReceive, entersInbox, isBudgetSource } from 'ac-envelope-core';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
 import { effectiveToolMode, narrowToolsByMode } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径——主线三处共用同源引用）
-import { readFileSync } from 'node:fs';
+import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
+import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 
 export interface ConversationRowOptions {
@@ -41,6 +42,26 @@ export interface ConversationRowOptions {
   rowTools?: Record<string, string[]>;
 }
 
+/**
+ * answered 记录 → answerNotice 正文（cr-636 恢复面比对键）：list 拿到的
+ * 是完整 DurableInteraction 投影（payload/answer 在场），直接走主线
+ * 同款格式化——单源，不另造正文。
+ */
+function answerNoticeOf(record: { id: string; payload?: unknown; answer?: unknown }): string {
+  return answerNotice(record as Parameters<typeof answerNotice>[0]);
+}
+
+/**
+ * 终稿回信目标（cr-638）：replyTo（显式指定）优先 → sender（信源即回信
+ * 目标，大多数信封同源）。目标 = 本壳 agent 时返回 null——自己回自己会
+ * 再拉起一轮 run（壳内单 agent + 收束点回投 = 自激回环：每轮自答一次，
+ * 用户侧还收不到终稿，只因预算衰减才停）。
+ */
+export function replyTargetOf(env: Envelope, agentId: string): string | null {
+  const to = env.replyTo ?? env.sender;
+  return to === agentId ? null : to;
+}
+
 /** 主线 loop 的 step 事件载荷词汇（type-only——同 ac-ledger loop-events） */
 import type { LlmMessage } from 'ac-llm';
 import type { ConversationQueuedItem } from 'ac-conversation';
@@ -56,6 +77,8 @@ export class ConversationService extends Service {
   /** 当前占门 run 的会话面（runState 消费——runs/snapshot 的壳内半边） */
   private activeRun: { conversationId: string; startedAt: number } | null = null;
   private machine = new ConversationMachine('shell');
+  /** 安全重启挂起标记（cr-629：restart_shell 置位——当前 run 收束点消费） */
+  private restartPending = false;
   /** 跨壳发信面（惰性连接邮局） */
   private outbound: { send(env: Envelope): Promise<unknown>; close(): void } | null = null;
 
@@ -74,7 +97,7 @@ export class ConversationService extends Service {
   /** 信封入站（boot 收信面唯一入口）：幂等 → 落账 → 决策 → 驱动。
    * 返回驱动概要（deduped / ledger-only / steered / settled）——deliver
    * 方言叶据此组装主线 Outcome 形状。 */
-  async receiveEnvelope(env: Envelope, ack: { fresh: boolean }): Promise<'deduped' | 'ledger-only' | 'queued' | 'steered' | 'settled'> {
+  async receiveEnvelope(env: Envelope, ack: { fresh: boolean }, opts: { recovered?: boolean } = {}): Promise<'deduped' | 'ledger-only' | 'queued' | 'steered' | 'settled'> {
     const ledger = this.ctx.ledger;
     const uuid = env.uuid;
     const payload = env.payload as { text?: string; lane?: string; placement?: string } | null;
@@ -101,7 +124,9 @@ export class ConversationService extends Service {
     // kind 按 sender 归域：user/agent 1v1 = 'user'；群地址 = 'group'；
     // 跨壳 agent 会话 = 'agent'（与 user 账本〔kind: 'user'〕投影分层对齐）
     const kind = env.to.includes('~') ? 'group' : env.sender === 'user' ? 'user' : 'agent';
-    await ledger.deliverRow(uuid, [this.agentId, env.sender], kind, {
+    // recovered（cr-629 boot 恢复面）：inbox durable 里的信在首次入站时已
+    // 落账（writer 内存 AdmissionGate 跨进程不幂等——重投会双写行），跳过。
+    if (opts.recovered !== true) await ledger.deliverRow(uuid, [this.agentId, env.sender], kind, {
       role: 'agent',
       content: text,
       agent_id: env.sender,
@@ -118,8 +143,13 @@ export class ConversationService extends Service {
       ledger.inboxStore(uuid, env);
     }
     if (plan.action === 'run' || plan.action === 'steer') {
-      const steered = await this.driveRun(uuid, env, plan);
-      return steered ? 'steered' : 'settled';
+      const outcome = await this.driveRun(uuid, env, plan);
+      // 恢复面消费即清（cr-629）：run/steered = 已消费——inbox 剔行防下代
+      // 重启再重投（queued = steer 落空转投已回存，保留）。
+      if (opts.recovered === true && outcome !== 'queued') {
+        this.ctx.ledger.inboxClear(uuid, env.requestId);
+      }
+      return outcome; // 'steered' | 'settled' | 'queued'（steer 落空转投队列，cr-627）
     }
     // queue / ledger-only / deduped：落账即全部职责（队列消费在 run 收束点）
     return plan.action === 'queue' ? 'queued' : plan.action;
@@ -145,7 +175,7 @@ export class ConversationService extends Service {
   async deliver(
     agentId: string,
     inbound: string | LlmMessage,
-    options: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number } = {},
+    options: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; replyTo?: string } = {},
   ): Promise<
     | { kind: 'run'; result: { steps: unknown[]; text: string; finish: string; usage: { prompt: number; completion: number; promptAccumulated: number; steps: number } } }
     | { kind: 'steered'; handle: string }
@@ -165,6 +195,7 @@ export class ConversationService extends Service {
       kind: 'message',
       budget: 3,
       payload: { text: content },
+      ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
     };
     const summary = await this.receiveEnvelope(env, { fresh: true });
     if (summary === 'steered') return { kind: 'steered', handle };
@@ -238,17 +269,31 @@ export class ConversationService extends Service {
     }
   }
 
-  private async driveRun(uuid: string, env: Envelope, plan: DeliverPlan): Promise<boolean> {
+  private async driveRun(uuid: string, env: Envelope, plan: DeliverPlan): Promise<'steered' | 'settled' | 'queued'> {
     if (plan.action === 'steer') {
       // steer：注入活跃 run（主线 loop Service 方法——runAddress 词汇）
       const handle = this.steerHandle(uuid);
       const injected = this.ctx.agentLoop.steer(handle, { role: 'user', content: this.textOf(env) });
       if (injected) {
         await this.ctx.ledger.journalInject(uuid, plan.runId, this.textOf(env), env.requestId);
-        return true;
+        return 'steered';
       }
-      // steer 落空（收束封口后迟到）→ 回落 next-run：入 inbox 由收束点链跑消费
-      return false;
+      // steer 落空（cr-627）：活跃 run 属其他会话（单机串行化门多会话并发
+      // 常态——steer 按 runAddress 寻址，跨会话不匹配）或收束封口后迟到。
+      // 此前只 return（注释承诺「入 inbox 由收束点链跑消费」但未实现）——
+      // 消息仅剩 deliverRow 落账，run 永不拉起（作答/投递静默丢失根源）。
+      // 转投：inbox durable + 机器 turnQueue 补入队尾，当前 run 收束点链跑消费。
+      const afterBudget = budgetAfterReceive(env.budget, env.sender);
+      if (entersInbox(env.kind, afterBudget)) this.ctx.ledger.inboxStore(uuid, env);
+      this.machine.requeue({
+        requestId: env.requestId,
+        conversationId: uuid,
+        preview: this.textOf(env),
+        sender: env.sender,
+        ...(env.sender === 'user' ? { source: 'user' } : { source: 'agent' }),
+      });
+      this.emitQueueChanged(uuid);
+      return 'queued';
     }
     // run：串行化门 + 全量 loop 真身（signal = stop 中止面——ADR-2 步边界检查）。
     // config 读取移入 try（cr-549）：plan 已占门，读取 throw 需经 finally 清门
@@ -256,6 +301,7 @@ export class ConversationService extends Service {
     const abort = new AbortController();
     this.currentAbort = abort;
     let runId = '';
+    let restartNow = false;
     try {
       const config = this.readConfig();
       runId = 'run-' + env.requestId;
@@ -304,18 +350,41 @@ export class ConversationService extends Service {
           source: env.sender === 'user' ? 'user' : 'agent',
         });
         // 终稿回复投递（R-2：终稿回复 = 一次普通 send——恒投回 sender；
-        // user 回信经邮局 local 通道到 user 壳桩，跨壳回信投 sender 端点）
-        if (this.postOfficeAddress !== undefined && result.text !== '') {
-          await this.postReply(env.sender, uuid, result.text, env, runId);
+        // user 回信经邮局 local 通道到 user 壳桩，跨壳回信投 sender 端点）。
+        // user run 恒投（cr-628）：interrupted/error 收束常无终稿文本，此前
+        // 空文本跳过 postReply → user 账本永无 run 键行 → 刷新后整个 run
+        //（含 journal steps）从前端蒸发。空文本也投——run 键行是读侧联查
+        // 的唯一锚点；跨壳 agent 收信人维持非空才投（空回信对端无消费面）。
+        // 回信目标 = replyTo ?? sender（cr-638：sender 与回信目标分离——
+        // late-reply 重放 sender=owner 保账本投影，终稿仍回 user）；
+        // 目标 = 自身（回环）→ null，不投。
+        const replyTo = replyTargetOf(env, this.agentId);
+        if (this.postOfficeAddress !== undefined && replyTo !== null && (result.text !== '' || replyTo === 'user')) {
+          await this.postReply(replyTo, uuid, result.text, env, runId);
+        }
+        // 安全重启收口（cr-629，restart_shell）：在途信封从未消费完——标记
+        // 后跳出链跑（回队动作在 finally 之后——finally 的幂等 runSettled 会
+        // shift 队列头，先回队会被它吞掉）。boot 收到 restart-ready 即以
+        // 重启码 42 退出；宿主 respawn 新壳，boot 恢复面经 recoverPendingInbox
+        // 重投续跑。
+        if (this.restartPending) {
+          this.restartPending = false;
+          restartNow = true;
+          break;
         }
         // 链跑：next-turn 队列消费（收束即重占门——runSettled 后同步
         // runStarted，见方法头注释；takeFromInbox 落空 = 该 turn 无信封可跑，
         // break 后 finally 幂等收口）
         const next = this.machine.runSettled(env.sender !== 'user');
         if (next === null) break;
-        const nextEnv = this.takeFromInbox(uuid, next.requestId);
+        // 链跑取信按条目会话键（cr-627）：单机串行化门多会话并发——队列里
+        // 可能混有其他会话的转投信（steer 落空/排队），按当前 run 会话取会
+        // 永远取不到 → 出队即丢。run 随信封的会话走（historyFor/落账同键）。
+        const nextCid = next.conversationId ?? uuid;
+        const nextEnv = this.takeFromInbox(nextCid, next.requestId);
         if (nextEnv === null) break;
-        this.emitQueueChanged(uuid); // 队列缩减点（链跑消费出队）
+        this.emitQueueChanged(nextCid); // 队列缩减点（链跑消费出队）
+        uuid = nextCid;
         env = nextEnv;
         runId = 'run-' + env.requestId;
         this.machine.runStarted(runId);
@@ -325,7 +394,22 @@ export class ConversationService extends Service {
       this.activeRun = null;
       if (this.currentAbort === abort) this.currentAbort = null;
     }
-    return false;
+    // 安全重启回队（finally 后——见循环内标记点注释）：在途信封回 inbox
+    // durable + 机器队尾（steer 落空转投同形，cr-627）+ restart-ready 通知。
+    if (restartNow) {
+      const afterRestart = budgetAfterReceive(env.budget, env.sender);
+      if (entersInbox(env.kind, afterRestart)) this.ctx.ledger.inboxStore(uuid, env);
+      this.machine.requeue({
+        requestId: env.requestId,
+        conversationId: uuid,
+        preview: this.textOf(env),
+        sender: env.sender,
+        ...(env.sender === 'user' ? { source: 'user' } : { source: 'agent' }),
+      });
+      this.emitQueueChanged(uuid);
+      this.ctx.emit('conversation/restart-ready', this.agentId);
+    }
+    return 'settled';
   }
 
   /**
@@ -395,6 +479,105 @@ export class ConversationService extends Service {
     if (this.currentAbort === null) return false;
     this.currentAbort.abort(new Error('stop 请求'));
     return true;
+  }
+
+  /**
+   * 安全重启请求（cr-629，restart_shell 工具消费面）：busy → 中止当前
+   * run + 挂起标记（收束点回队在途信封后发 conversation/restart-ready——
+   * boot 收到即以重启码 42 优雅退出）；空闲 → 直接发。返回 true = 有
+   * 在途 run（restart-ready 稍后到达）；false = 已发出。
+   */
+  requestRestart(): boolean {
+    if (this.machine.state().busy) {
+      this.restartPending = true;
+      this.interrupt();
+      return true;
+    }
+    this.ctx.emit('conversation/restart-ready', this.agentId);
+    return false;
+  }
+
+  /**
+   * boot 恢复面（cr-629）：跨壳重启/崩溃的续跑链——inbox durable 里全是
+   * 已落账未消费的信（排队/steer 落空转投/安全重启回队），逐封经标准
+   * receiveEnvelope 链重投（recovered：跳过重复落账；机器空闲 → 开新 run）。
+   * 此前无恢复面：pending inbox 只阻止 idle-exit，无人消费 = 死信。
+   * 逐封串行（每封可能是整轮 run）；信封损坏跳过（fail-soft——恢复面
+   * 不得因单封坏信拒绝整域续跑）。返回恢复封数。
+   */
+  async recoverPendingInbox(): Promise<number> {
+    const sessionsRoot = path.join(this.ctx.ledger.agentDirOf(), 'sessions');
+    let uuids: string[] = [];
+    try { uuids = readdirSync(sessionsRoot); } catch { return 0; }
+    let recovered = 0;
+    for (const uuid of uuids) {
+      const inboxDir = path.join(sessionsRoot, uuid, 'inbox');
+      let ids: string[] = [];
+      try { ids = readdirSync(inboxDir).filter((n: string) => n.endsWith('.json')).map((n: string) => n.slice(0, -5)); } catch { continue; }
+      for (const id of ids) {
+        const env = this.ctx.ledger.inboxRead(uuid, id) as Envelope | null;
+        if (env === null || typeof env.requestId !== 'string') continue;
+        try {
+          await this.receiveEnvelope(env, { fresh: true }, { recovered: true });
+          recovered += 1;
+        } catch (err) {
+          this.ctx.logger.warn('[conversation] 恢复面：信封 ' + id + ' 重投失败——' + String(err));
+        }
+      }
+    }
+    return recovered;
+  }
+
+  /**
+   * boot 恢复面（cr-636）：answered ask_questions 交互跨壳重放。
+   *
+   * 断链场景：作答时发起 run 已死且壳已换代（原 run interrupted 崩溃/宿主
+   * 重启窗口）——主线 late-reply deliver 只在壳内事件面消费，新壳 boot 后
+   * openByRun 内存登记恒空、无人重投，答案永久滞留盘上（dur-mvjk1ook
+   * 实锤：answered 落盘正确、转录有答案行但无任何 run 跟随）。
+   *
+   * 重放口径 = 主线 late-reply 同款：answerNotice 正文（单源 import）经
+   * receiveEnvelope 标准链重投——落账行去重由 transcript 比对承担：正文
+   * 中的 interaction id 在会话账本在场 = 已消费（同款重放幂等键）。
+   * 重投 run 收束成功后 close('consumed')——收缩下次扫描面（终态记录
+   * 保留期缺省 7 天，sweep 归 durable-interaction 行自身节奏）。
+   * 队列在途同 id 跳过（recoverPendingInbox 已覆盖该面）；busy 交由
+   * receiveEnvelope 决策（plan=queue 排队——链跑消费，不丢）。
+   */
+  async replayAnsweredInteractions(): Promise<number> {
+    const di = this.ctx.get('durableInteraction', false) as
+      | { list(filter?: { kind?: string; owner?: string; state?: string }): Array<{ id: string; key: string; kind: string; owner?: string; payload?: unknown; answer?: unknown }>;
+          close(id: string, reason?: string): boolean }
+      | undefined;
+    if (di === undefined) return 0; // 行集不含 durable-interaction 行——无重放面
+    const pending = di.list({ kind: 'ask_questions', owner: this.agentId, state: 'answered' });
+    let replayed = 0;
+    for (const record of pending) {
+      const uuid = record.key;
+      // 队列在途跳过：该交互答案已在机器队列排队（recoverPendingInbox 面）
+      if (this.machine.queued(uuid).some((t) => t.preview.includes(record.id))) continue;
+      // 转录在场判定：answerNotice 正文精确行比对（正文含 interaction id）。
+      // 主线 late-reply deliver sender = owner（本 agent）→ replayView 投成
+      // assistant 行——比对不限 role。已消费 = 答案行之后有终稿行；仅答案
+      // 行在场而其后无终稿（原 run interrupted——落账了但 run 未拉起）仍重放。
+      const notice = answerNoticeOf(record);
+      const rows = this.ctx.ledger.historyFor(uuid);
+      const idx = rows.findIndex((r) => r.content === notice);
+      if (idx >= 0 && rows.slice(idx + 1).some((r) => r.role === 'assistant')) continue;
+      await this.deliver(this.agentId, notice, {
+        sender: this.agentId,
+        source: 'event',
+        conversationId: uuid,
+        requestId: 'late-reply-' + record.id,
+        // 终稿回信目标 = user（cr-638）：sender 恒 owner 保 replayView 投影，
+        // 但回信必须投 user——缺 replyTo 时 postReply 投回自身，自激回环
+        // （壳内单 agent，收束点又能投给自己 = 每轮再拉一轮 run）。
+        replyTo: 'user',
+      });
+      di.close(record.id, 'consumed');
+      replayed += 1;
+    }
+    return replayed;
   }
 
   /** 串行化门 + 当前 run 会话面（admin run-state 帧消费——宿主 runs/snapshot 活跃集数据源） */
@@ -640,14 +823,12 @@ export class ConversationService extends Service {
 
   /** 跨壳回复（邮局投递——sender 端点可达性由邮局路由判定） */
   private async postReply(to: string, uuid: string, text: string, orig: Envelope, runId: string): Promise<void> {
-    if (this.outbound === null) {
-      const { IpcClient } = await import('ac-post-office');
-      const client = new IpcClient();
-      await client.connect(this.postOfficeAddress!);
-      this.outbound = {
-        send: (e: Envelope) => client.send(e),
-        close: () => client.close(),
-      };
+    // 自回环防线（cr-638）：目标 = 本壳 agent 即自己回自己，投递会再拉一轮
+    // run（预算耗尽前反复自答、用户侧却收不到终稿）。fail-open 到日志——
+    // 正常路径（user / 跨壳 agent）永不命中。
+    if (to === this.agentId) {
+      process.stderr.write('[shell] 终稿回信目标 = 自身（' + to + '），已跳过投放（replyTo 缺省回环）\n');
+      return;
     }
     const reply = {
       uuid,
@@ -661,7 +842,34 @@ export class ConversationService extends Service {
       // 思考/工具卡（D4.2）。缺席 = 读侧无键可联（刷新后只剩终稿文本）。
       payload: { text, run: runId },
     };
-    await this.outbound.send(reply);
+    // 断链重试（cr-628/629）：宿主重启窗口（restart_host / 崩溃复活）邮局
+    // 管道断——send 抛错后弃连接重连重试（run 键行只能经邮局到达 user 壳，
+    // 一次失败即丢 = 刷新后 run 蒸发）。10 次 × 2s ≈ 20s，覆盖宿主复活档
+    //（supervisor 重拉退避基档 1.5s + boot 秒级）。
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.ensureOutbound();
+        await this.outbound!.send(reply);
+        return;
+      } catch (err) {
+        if (attempt >= 9) throw err;
+        this.outbound?.close();
+        this.outbound = null;
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }
+  }
+
+  /** 邮局连接惰性建立（postReply / 断链重连共用半边） */
+  private async ensureOutbound(): Promise<void> {
+    if (this.outbound !== null) return;
+    const { IpcClient } = await import('ac-post-office');
+    const client = new IpcClient();
+    await client.connect(this.postOfficeAddress!);
+    this.outbound = {
+      send: (e: Envelope) => client.send(e),
+      close: () => client.close(),
+    };
   }
 
 }

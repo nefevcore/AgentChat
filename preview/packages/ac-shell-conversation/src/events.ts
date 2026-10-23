@@ -44,6 +44,14 @@ declare module '@agentchat/cordis' {
       agentId: string,
       meta: { source: string; injectionId?: string; label?: string },
     ): void;
+    /**
+     * 安全重启就绪（emit；cr-629 restart_shell）：在途 run 已收束、回队
+     * 已落——boot 收到即以重启码 42 优雅退出（宿主 respawn 后 boot 恢复面
+     * 重投续跑）。空闲时请求则立即发出。
+     * @mode emit
+     * @scope run
+     */
+    'conversation/restart-ready'(agentId: string): void;
     // 'conversation/queue-changed' 不在此声明——主线 ac-conversation/src/
     // events.ts 已是 owning 声明（四参序 + ConversationQueuedItem[]），
     // 本包按其签名 emit（cr-579）。

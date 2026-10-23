@@ -55,6 +55,21 @@ describe('busy 路由（inbox 双队列）', () => {
     expect(m.runSettled(false)).toBeNull();
   });
 
+  it('cr-627 requeue 补入队尾（steer 落空转投）+ runSettled 随行 conversationId', () => {
+    const m = new ConversationMachine('alpha');
+    m.plan(msg('user', 'r0', { conversationId: 'c0' }));
+    m.runStarted('run-1');
+    m.plan(msg('user', 'r1', { lane: 'next-turn', conversationId: 'c1' }));
+    // steer 落空转投：其他会话的信补入队尾（收束点链跑按随行会话键取信）
+    m.requeue({ requestId: 'r9', conversationId: 'c9', preview: '跨会话信', sender: 'user', source: 'user' });
+    expect(m.state().queuedTurns).toBe(2);
+    const first = m.runSettled(false);
+    expect(first).toEqual({ requestId: 'r1', conversationId: 'c1' });
+    const second = m.runSettled(false);
+    expect(second).toEqual({ requestId: 'r9', conversationId: 'c9' });
+    expect(m.runSettled(false)).toBeNull();
+  });
+
   it('队列读写面：快照（会话过滤）+ 删除 + steer 取件/放回', () => {
     const m = new ConversationMachine('alpha');
     m.plan(msg('user', 'r0'));

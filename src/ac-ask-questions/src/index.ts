@@ -90,8 +90,10 @@ function formatAnswer(v: string | string[] | null | undefined): string {
   return v ?? '(跳过)';
 }
 
-/** 应答通知正文：answers 与工具结果同形（Agent 醒来即可继续决策） */
-function answerNotice(record: DurableInteraction): string {
+/** 应答通知正文：answers 与工具结果同形（Agent 醒来即可继续决策）。
+ * export（cr-636）：正文单源——preview 壳 boot 恢复面（跨壳重放 answered
+ * 交互）复用同款正文做转录精确比对与重投，防第二份格式逻辑漂移。 */
+export function answerNotice(record: DurableInteraction): string {
   const payload = record.payload as { questions?: Array<{ question?: string }> } | null;
   const qs = Array.isArray(payload?.questions) ? payload!.questions! : [];
   const answer = record.answer as { answers?: Array<string | string[] | null> } | null;

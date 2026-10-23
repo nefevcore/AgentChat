@@ -32,6 +32,11 @@ export interface Envelope {
   /** 按 kind 分型：message = 行协议消息体；grant/revoke = 授权变更单；
    * receipt = 指纹 + 快照元数据 */
   payload: unknown;
+  /** 终稿回信目标覆盖（cr-638）：sender ≠ 回信目标时显式指定。late-reply
+   * 重放以 owner（本 agent）作 sender 保 replayView 投影语义，但终稿必须回给
+   * user——缺此字段时 postReply 投回自身端点，形成自激回环（每次收束再拉
+   * 一轮 run，预算耗尽前反复自答）。缺席 = 回给 sender。 */
+  replyTo?: EndpointId;
   /** 会话级模型覆盖（'name@model' 或裸模型名）——deliver 合并点的产物
    * （显式入参 > conv-settings 存储，cr-565）。随信投递而非壳内查表：
    * 排队/inbox 重放的信仍按其投递时刻的覆盖跑，语义确定。 */
