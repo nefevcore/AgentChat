@@ -1,0 +1,35 @@
+{
+  "name": "ac-host-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主编排面（M5.3）：spawn 壳 → guardian adopt → 可达表 → 邮局直投",
+  "exports": {
+    ".": "./orchestrate.ts",
+    "./evolve": "./evolve.ts",
+    "./user-stub": "./user-stub.ts",
+    "./dev": "./dev.ts",
+    "./boot": "./boot.ts",
+    "./supervise": "./supervise.ts"
+  },
+  "dependencies": {
+    "ac-envelope-core": "workspace:*",
+    "ac-host-webui": "workspace:*",
+    "ac-guardian": "workspace:*",
+    "ac-post-office": "workspace:*",
+    "ac-snapshot-core": "workspace:*",
+    "ac-fingerprint-core": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-webui-core": "workspace:*",
+    "ac-ledger": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "ac-bench": "workspace:*",
+    "ac-host-rows": "workspace:*",
+    "ac-import": "workspace:*",
+    "ac-credentials-core": "workspace:*",
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

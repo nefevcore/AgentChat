@@ -1,0 +1,17 @@
+{
+  "name": "ac-guardian",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "监护行（宿主新增）：拉起三节拍 adopt + 心跳监视 3 拍判死 + idle-exit 收割 + 崩溃退避熔断",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run --root ../../../ --config preview/packages/vitest.config.ts ac-guardian"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
