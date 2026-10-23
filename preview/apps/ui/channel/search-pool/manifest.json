@@ -1,0 +1,22 @@
+{
+  "name": "search-pool",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "@agentchat/webui-kit",
+    "ac-client-ui-settings/client/api.ts",
+    "ac-client-ui-settings/client/components/ConfirmDialog.vue",
+    "ac-client-ui-settings/client/components/SettingField.vue",
+    "ac-client-ui-settings/client/rpcDefault.ts",
+    "ac-client-ui-settings/client/schema.ts",
+    "ac-client-ui-settings/client/types.ts",
+    "ac-client-ui-settings/client/useSettings.ts"
+  ]
+}

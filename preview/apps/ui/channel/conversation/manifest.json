@@ -1,0 +1,31 @@
+{
+  "name": "conversation",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "ac-client-ui-agents/client",
+    "ac-client-ui-agents/client/rosterAccess.ts",
+    "ac-client-ui-agents/client/rosterApi.ts",
+    "ac-client-ui-layout/client/auxSidebarViews.ts",
+    "ac-client-ui-layout/client/uiStore.ts",
+    "ac-client-ui-llm-pool/client/poolApi.ts",
+    "ac-client-ui-renderer/client/SlotOutlet.vue",
+    "ac-client-ui-renderer/client/hljs-languages.ts",
+    "ac-client-ui-renderer/client/logger.ts",
+    "ac-client-ui-renderer/client/markdownMath.ts",
+    "ac-client-ui-renderer/client/useMarkdown.ts",
+    "ac-client-ui-singles/client",
+    "ac-client-ui-skill/client/skillsApi.ts",
+    "ac-client-ui-tool/client/toolIcon.ts",
+    "ac-client-ui-tool/client/toolLabel.ts",
+    "ac-client-ui-tool/client/toolResultViews.ts",
+    "ac-client-ui-workspace/client/fileApi.ts"
+  ]
+}

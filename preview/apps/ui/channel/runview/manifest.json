@@ -1,0 +1,26 @@
+{
+  "name": "runview",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "@agentchat/webui-kit",
+    "ac-client-ui-agents/client/rosterAccess.ts",
+    "ac-client-ui-conversation/client/ConversationView.vue",
+    "ac-client-ui-conversation/client/chatStore.ts",
+    "ac-client-ui-conversation/client/switchTrace.ts",
+    "ac-client-ui-conversation/client/viewer.ts",
+    "ac-client-ui-jobs/client",
+    "ac-client-ui-layout/client/auxSidebarViews.ts",
+    "ac-client-ui-layout/client/mainViews.ts",
+    "ac-client-ui-layout/client/uiStore.ts",
+    "ac-client-ui-subagent/client/board.ts",
+    "ac-client-ui-theme/client/themeStore.ts"
+  ]
+}

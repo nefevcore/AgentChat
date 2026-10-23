@@ -1,0 +1,20 @@
+{
+  "name": "group",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "@agentchat/webui-kit",
+    "ac-client-ui-agents/client",
+    "ac-client-ui-agents/client/rosterAccess.ts",
+    "ac-client-ui-conversation/client/ConversationView.vue",
+    "ac-client-ui-conversation/client/types.ts",
+    "ac-client-ui-layout/client/uiStore.ts"
+  ]
+}

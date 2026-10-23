@@ -1,0 +1,17 @@
+{
+  "id": "__standard__",
+  "name": "标准模式",
+  "preset": true,
+  "tools": [
+    "fs-tools",
+    "fs-search",
+    "str-replace-editor",
+    "shell-tools",
+    "run-code",
+    "web-tools",
+    "issue-tools",
+    "ask-questions",
+    "subagent"
+  ],
+  "description": "无人物设定的通用对话：读写/Shell/搜索/提问/子任务委派，单会话无记忆不归档"
+}

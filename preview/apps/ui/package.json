@@ -1,0 +1,70 @@
+{
+  "name": "ac-ui-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "webui 本体（8.5b）：ui 树 boot 本体 = src/ 服务半边（boot graph manifest 单源 + /ui-plugin/ 静态面）+ client/ 前端半边（装配序列：骨架 3 件 in-bundle〔phase:base 退役〕+ 通道装载器）；终态 ac-webui 单包的 preview 避让形态（主线 ac-webui/ac-webui-app 双占名，cutover 退役回收——cr-491/504 同族先例）",
+  "exports": {
+    ".": "./src/webui-row.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/main.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "node scripts/build.mjs",
+    "build:channel": "node scripts/build-channel.mjs"
+  },
+  "dependencies": {
+    "ac-webui-core": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-slots": "workspace:*",
+    "ac-client-ui-conversation": "workspace:*",
+    "ac-client-ui-settings": "workspace:*",
+    "ac-client-ui-tool": "workspace:*",
+    "ac-client-ui-layout": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-theme": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
+    "ac-wire-format": "workspace:*",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0",
+    "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-browser": "workspace:*",
+    "ac-client-ui-desktop-storage": "workspace:*",
+    "ac-client-ui-fs": "workspace:*",
+    "ac-client-ui-goal": "workspace:*",
+    "ac-client-ui-group": "workspace:*",
+    "ac-client-ui-jobs": "workspace:*",
+    "ac-client-ui-llm-pool": "workspace:*",
+    "ac-client-ui-onboarding": "workspace:*",
+    "ac-client-ui-plugin-registry": "workspace:*",
+    "ac-client-ui-remote": "workspace:*",
+    "ac-client-ui-run-code": "workspace:*",
+    "ac-client-ui-run-nodes": "workspace:*",
+    "ac-client-ui-runview": "workspace:*",
+    "ac-client-ui-search-pool": "workspace:*",
+    "ac-client-ui-shell": "workspace:*",
+    "ac-client-ui-singles": "workspace:*",
+    "ac-client-ui-skill": "workspace:*",
+    "ac-client-ui-subagent": "workspace:*",
+    "ac-client-ui-system": "workspace:*",
+    "ac-client-ui-timer": "workspace:*",
+    "ac-client-ui-usage": "workspace:*",
+    "ac-client-ui-web": "workspace:*",
+    "ac-client-ui-workspace": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "jsdom": "^25.0.0",
+    "unplugin-icons": "^23.0.1",
+    "vite": "^5.0.0",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^2.0.0"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

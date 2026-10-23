@@ -1,0 +1,17 @@
+{
+  "name": "ac-ui-channel-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "tool 通道模块（8.5b 第二批；conversation 子件——无独立消费方，随 conversation 装载）：re-export 主线 toolClientPlugin；域行内联归 8.5c 收敛",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-tool": "workspace:*"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

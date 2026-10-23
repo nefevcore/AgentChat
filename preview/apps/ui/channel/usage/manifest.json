@@ -1,0 +1,20 @@
+{
+  "name": "usage",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "@agentchat/webui-kit",
+    "ac-client-ui-agents/client/rosterAccess.ts",
+    "ac-client-ui-layout/client/auxSidebarViews.ts",
+    "ac-client-ui-layout/client/uiStore.ts",
+    "ac-client-ui-settings/client/rpcDefault.ts",
+    "ac-client-ui-theme/client/themeStore.ts"
+  ]
+}

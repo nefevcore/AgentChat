@@ -1,0 +1,5 @@
+{
+  "label": "极简模式",
+  "description": "仅 edit / pwsh 两件工具面：单工具编辑器 + 跑命令，上下文成本最低",
+  "order": 2
+}

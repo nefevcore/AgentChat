@@ -1,0 +1,25 @@
+{
+  "name": "subagent",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "@agentchat/webui-kit",
+    "ac-client-ui-agents/client/rosterAccess.ts",
+    "ac-client-ui-conversation/client/TranscriptList.vue",
+    "ac-client-ui-conversation/client/feed.ts",
+    "ac-client-ui-conversation/client/historyApi.ts",
+    "ac-client-ui-conversation/client/types.ts",
+    "ac-client-ui-conversation/client/useTurnDisplayItems.ts",
+    "ac-client-ui-conversation/client/viewer.ts",
+    "ac-client-ui-jobs/client",
+    "ac-client-ui-layout/client/uiStore.ts",
+    "ac-client-ui-theme/client/themeStore.ts"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "ac-ui-channel-search-pool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "search-pool 通道模块（8.5c）：re-export 主线 ac-client-ui-search-pool clientPlugin——域行 manifest 通道装载形态；生成产物（gen-domain-channels.mjs）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-search-pool": "workspace:*"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

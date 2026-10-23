@@ -1,0 +1,15 @@
+{
+  "name": "settings",
+  "version": "0.1.0",
+  "entry": "ui/index.js",
+  "platform": "web",
+  "isolated": false,
+  "channelImports": [
+    "vue",
+    "pinia",
+    "@agentchat/cordis",
+    "ac-client-runtime",
+    "ac-client-slots",
+    "ac-client-ui-layout/client/uiStore.ts"
+  ]
+}

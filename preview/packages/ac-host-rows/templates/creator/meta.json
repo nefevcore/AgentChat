@@ -1,0 +1,5 @@
+{
+  "label": "创造模式",
+  "description": "AgentChat 插件开发：读写/Shell/搜索/子任务委派 + 技能面 + 内置开发指南，单会话无长期记忆不归档",
+  "order": 3
+}

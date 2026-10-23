@@ -1,0 +1,16 @@
+{
+  "name": "ac-ui-channel-markdown-render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "markdown-render 通道模块（8.5b 第二批；ui-tree §2 新划分：消息内容渲染策略模块——conversation 是消费者非独占者）：owning 声明 + re-export 主线 renderer markdown 管线资产（useMarkdown 606 行 + hljs + KaTeX + 语法色板）；资产物理移出 renderer 归 cutover，域行消费面迁移归 8.5c",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
+    "@agentchat/cordis": "workspace:*"
+  },
+  "keywords": ["agentchat"]
+}

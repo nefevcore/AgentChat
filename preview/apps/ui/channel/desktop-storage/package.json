@@ -1,0 +1,17 @@
+{
+  "name": "ac-ui-channel-desktop-storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "desktop-storage 通道模块（8.5c）：re-export 主线 ac-client-ui-desktop-storage clientPlugin——域行 manifest 通道装载形态；生成产物（gen-domain-channels.mjs）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-desktop-storage": "workspace:*"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

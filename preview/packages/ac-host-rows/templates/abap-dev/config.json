@@ -1,0 +1,33 @@
+{
+  "id": "__abap_dev__",
+  "name": "ABAP开发模式",
+  "preset": true,
+  "tools": [
+    "fs-tools",
+    "fs-search",
+    "str-replace-editor",
+    "shell-tools",
+    "run-code",
+    "web-tools",
+    "issue-tools",
+    "ask-questions",
+    "subagent",
+    "collab-tools",
+    "sap-adt"
+  ],
+  "tags": [
+    "fs",
+    "fs_minimal",
+    "shell",
+    "web",
+    "collab",
+    "infra",
+    "sap-adt"
+  ],
+  "settings": {
+    "memory": { "enabled": false },
+    "skill": { "enabled": false },
+    "datetime": { "enabled": false }
+  },
+  "description": "SAP ABAP 开发面：adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试）+ Shell 与本地文件，单会话无记忆不归档"
+}
