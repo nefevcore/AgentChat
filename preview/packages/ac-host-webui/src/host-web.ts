@@ -102,6 +102,7 @@ export async function assembleWebServer(ctx: Context, options: WebRingOptions): 
   const serverOptions: WebServerRowOptions = {
     port: options.port ?? 0,
     host: options.host ?? '127.0.0.1',
+    strict: true, // 宿主形态端口 = 身份（cr-619）：被占 fail-fast，杜绝无头第二宿主
     ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
   };
   const fiber = ctx.plugin(WebServerService, serverOptions);

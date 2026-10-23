@@ -29,6 +29,9 @@ const WORKER_ENTRY = path.join(TRACK_DIR, 'preview', 'apps', 'host', 'boot.ts');
 const DEFAULT_DATA_ROOT = path.resolve(TRACK_DIR, 'workspace', 'home');
 const DEFAULT_PORT = '3830';
 const RUNTIME_LOCK = runtimeLockPath(TRACK_DIR);
+// 品牌宿主 exe（cr-620：bin/AgentChatHost.exe 在场即用——任务管理器可辨可杀；缺席回落 node 本体）
+const HOST_EXE_PATH = path.join(TRACK_DIR, 'bin', 'AgentChatHost.exe');
+const HOST_EXE = existsSync(HOST_EXE_PATH) ? HOST_EXE_PATH : process.execPath;
 
 function log(msg) {
   console.log(`[supervisor] ${new Date().toISOString()} ${msg}`);
@@ -65,13 +68,13 @@ function startChild() {
   restartAttempts += 1;
   const dataRoot = dataRootOverride ?? process.env.AGENTCHAT_DATA_ROOT ?? DEFAULT_DATA_ROOT;
   const args = ['--experimental-strip-types', WORKER_ENTRY, '--data-root', dataRoot, '--port', port, ...passthrough];
-  log(`spawn 宿主: ${process.execPath} ${args.join(' ')}`);
+  log(`spawn 宿主: ${HOST_EXE} ${args.join(' ')}`);
   log(`AGENTCHAT_DATA_ROOT=${dataRoot}（宿主持久化目录）`);
   // 监护状态跨代延续：仅更新 childStartedAt（退避的存活基准）
   policyState = policyState === null
     ? initialSupervisionState(Date.now())
     : { ...policyState, childStartedAt: Date.now() };
-  child = spawn(process.execPath, args, {
+  child = spawn(HOST_EXE, args, {
     cwd: TRACK_DIR,
     env: { ...process.env, AGENTCHAT_SUPERVISED: '1', AGENTCHAT_DATA_ROOT: dataRoot },
     stdio: 'inherit',

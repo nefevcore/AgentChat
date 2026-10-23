@@ -33,6 +33,7 @@ export const Config: z<Config> = z.object({
   dedupMs: z.number(),
   heartbeatMs: z.number(),
   maxBodyBytes: z.number(),
+  strict: z.boolean(),
 }) as z<Config>;
 
 export function apply(ctx: Context, options: WebServerRowOptions = {}) {

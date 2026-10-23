@@ -73,6 +73,12 @@ export interface WebServerRowOptions {
   heartbeatMs?: number;
   /** JSON 请求体上限字节（缺省 10 MiB） */
   maxBodyBytes?: number;
+  /**
+   * 监听失败 fail-fast 档（cr-619，缺省 false = 主线既有降级继续）。宿主 boot
+   * 形态传 true：端口 = 产品身份，EADDRINUSE 即reject——降级继续会产生无头
+   * 第二宿主与真宿主共存（不同数据根时管道防线不撞，端口是唯一冲突点）。
+   */
+  strict?: boolean;
 }
 
 interface CompiledRoute {
@@ -143,7 +149,7 @@ function originHostname(origin: string): string {
 }
 
 export class WebServerService extends Service {
-  private readonly options: Required<Pick<WebServerRowOptions, 'port' | 'host' | 'dedupMs' | 'heartbeatMs' | 'maxBodyBytes'>>;
+  private readonly options: Required<Pick<WebServerRowOptions, 'port' | 'host' | 'dedupMs' | 'heartbeatMs' | 'maxBodyBytes'>> & Pick<WebServerRowOptions, 'strict'>;
   private readonly staticDir: string | undefined;
   private readonly allowedOrigins: ReadonlySet<string>;
   private readonly allowedHosts: ReadonlySet<string>;
@@ -169,6 +175,7 @@ export class WebServerService extends Service {
       dedupMs: options.dedupMs ?? 30_000,
       heartbeatMs: options.heartbeatMs ?? 30_000,
       maxBodyBytes: options.maxBodyBytes ?? 10 * 1024 * 1024,
+      ...(options.strict === true ? { strict: true } : {}),
     };
     this.staticDir = options.staticDir;
     this.allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -197,8 +204,13 @@ export class WebServerService extends Service {
       this.ctx.logger.warn(`[webServer] 传输层错误（降级继续）: ${err.message}`);
     });
 
-    this.listening = new Promise<number>((resolve) => {
+    this.listening = new Promise<number>((resolve, reject) => {
       const onListenError = (err: Error) => {
+        if (this.options.strict === true) {
+          this.server.off('error', onListenError);
+          reject(err); // fail-fast 档（cr-619）：端口 = 宿主身份，被占即拒启
+          return;
+        }
         this.ctx.logger.warn(
           `[webServer] 监听失败（${err.message}）——传输面降级：路由/RPC 注册继续可用，但无外部访问口`,
         );

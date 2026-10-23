@@ -73,6 +73,30 @@ afterEach(async () => {
   for (const svc of servers.splice(0)) await svc.stop();
 });
 
+describe('监听失败档位（cr-619 strict）', () => {
+  it('缺省降级：端口被占 → warn 继续，ready() 返回配置端口', async () => {
+    const blocker = http.createServer();
+    await new Promise<void>((res) => blocker.listen(0, '127.0.0.1', () => res()));
+    const port = (blocker.address() as { port: number }).port;
+    const ctx = new Context();
+    const svc = new WebServerService(ctx, { port, heartbeatMs: 0 } as never);
+    servers.push(svc);
+    await expect(svc.ready()).resolves.toBe(port); // 降级不 reject
+    blocker.close();
+  });
+
+  it('strict 档：端口被占 → ready() reject（宿主身份 fail-fast）', async () => {
+    const blocker = http.createServer();
+    await new Promise<void>((res) => blocker.listen(0, '127.0.0.1', () => res()));
+    const port = (blocker.address() as { port: number }).port;
+    const ctx = new Context();
+    const svc = new WebServerService(ctx, { port, heartbeatMs: 0, strict: true } as never);
+    await expect(svc.ready()).rejects.toThrow();
+    await svc.stop().catch(() => { /* 未监听形态 stop 幂等 */ });
+    blocker.close();
+  });
+});
+
 describe('ac-web-server HTTP 路由注册中心', () => {
   it('route 注册 + JSON 路由命中（注册即归属：fiber dispose 回收）', async () => {
     const { svc, url } = await boot();
