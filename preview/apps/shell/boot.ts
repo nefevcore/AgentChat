@@ -30,7 +30,7 @@ import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis
 import { deriveShellRowset, mergeRowsetCatalog, readCatalog, readPluginRows, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
 import { readAgentConfig, readChildConfig } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
-import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow } from 'ac-shell-rows';
+import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow } from 'ac-shell-rows';
 import { handleAdminFrame, type AdminFrame } from './admin-frame.ts';
 import { startHostRevive } from './host-revive.ts';
 import { makeLedgerRow } from 'ac-ledger';
@@ -401,6 +401,12 @@ export async function bootShell(
     dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
     ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
   })));
+  // 安全重启行（cr-629）：restart_shell（中止回队 + 重启码退出）/
+  // restart_host（信封请求宿主 graceful 重启）
+  registerRowAssembler('restart', (c) => (c as Context).plugin(makeRestartRow({
+    dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
+    ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
+  })));
   // subagent 行（M8.3）：子壳 boot 入口/catalog 显式注入（本文件与同树 catalog
   // ——import.meta.url 相对定位；父壳拉子壳的标准链）。
   registerRowAssembler('subagent', (c) => (c as Context).plugin(makeSubagentRow({
@@ -716,6 +722,41 @@ export async function bootShell(
     });
   });
   emit('boot.ready', bootId, transportHint, fingerprint.root);
+  // boot 恢复面（cr-628/629）：①孤儿 run 收口——上代壳死于 mid-run 的
+  // journal 无 settled 标记（读侧恒「真在途」），补 journal-settled
+  // (interrupted)（幂等；主线 recoverJournal 惰性收口同义）。②pending
+  // inbox 重投——已落账未消费的信（排队/steer 落空/安全重启回队）经标准
+  // 收信链续跑（此前 pending inbox 只阻止 idle-exit、无人消费 = 死信）。
+  // fire-and-forget：恢复 run 走正常事件面，不阻塞 boot 返回。
+  const ledgerSvc = ctx.get('ledger', false) as
+    | { recoverOrphanRuns?(): Promise<number> }
+    | undefined;
+  if (ledgerSvc?.recoverOrphanRuns !== undefined) {
+    void ledgerSvc.recoverOrphanRuns().then((n) => {
+      if (n > 0) emit('journal.orphans-settled', String(n));
+    }).catch((err: unknown) => {
+      process.stderr.write('[shell] 孤儿 run 收口失败：' + String(err) + '\n');
+    });
+  }
+  const convSvc = ctx.get('conversation', false) as
+    | { recoverPendingInbox?(): Promise<number>; replayAnsweredInteractions?(): Promise<number> }
+    | undefined;
+  if (convSvc?.recoverPendingInbox !== undefined) {
+    void convSvc.recoverPendingInbox().then((n) => {
+      if (n > 0) emit('inbox.recovered', String(n));
+    }).catch((err: unknown) => {
+      process.stderr.write('[shell] inbox 恢复面失败：' + String(err) + '\n');
+    });
+  }
+  // ③ answered 交互重放（cr-636）：壳换代后无人消费的作答——重投开新 run
+  //（兜在 inbox 恢复之后：排队在途的答案信不在重放面，不双投）。
+  if (convSvc?.replayAnsweredInteractions !== undefined) {
+    void convSvc.replayAnsweredInteractions().then((n) => {
+      if (n > 0) emit('interaction.replayed', String(n));
+    }).catch((err: unknown) => {
+      process.stderr.write('[shell] answered 交互重放失败：' + String(err) + '\n');
+    });
+  }
   const control = async (frame: ControlFrame): Promise<unknown> => {
     if (frame.ctrl === 'admin') return handleAdminFrame(ctx, frame);
     if (frame.ctrl === 'interrupt') {
@@ -822,14 +863,17 @@ export async function main(argv: string[]): Promise<number> {
           emit: emitBootSignal,
         })
       : null;
-    await new Promise<void>((resolve) => {
+    // 安全重启退出码（cr-629）：conversation/restart-ready → 优雅退出 42
+    //（宿主 warden 42 = 有意重启——立即 respawn、不计崩溃熔断）。
+    const exitCode = await new Promise<number>((resolve) => {
+      result.ctx.on('conversation/restart-ready', () => resolve(42));
       const heartbeat = setInterval(() => {
         emitBootSignal('guardian.ping', new Date().toISOString());
       }, HEARTBEAT_MS);
       heartbeat.unref();
       const idleProbe = setInterval(() => {
         if (Date.now() - lastActiveAt < IDLE_EXIT_MS) return;
-        if (shellIsIdle(result.ctx)) resolve();
+        if (shellIsIdle(result.ctx)) resolve(0);
       }, IDLE_PROBE_MS);
       idleProbe.unref();
       let pending = '';
@@ -841,7 +885,7 @@ export async function main(argv: string[]): Promise<number> {
           const line = pending.slice(0, idx).trim();
           pending = pending.slice(idx + 1);
           if (line === '') continue;
-          if (line === 'shutdown') { resolve(); return; }
+          if (line === 'shutdown') { resolve(0); return; }
           if (!line.startsWith('{')) continue; // 非协议行忽略
           let frame: ControlFrame;
           try { frame = JSON.parse(line) as ControlFrame; } catch { continue; }
@@ -855,14 +899,14 @@ export async function main(argv: string[]): Promise<number> {
       // idle-exit 15min 仍是收割兜底），不再自杀；无职责壳维持防孤儿自杀。
       if (args.persist !== true) process.stdin.on('end', () => {
         if (revive !== null) revive.kick();
-        else resolve();
+        else resolve(0);
       });
       process.stdin.resume();
-      process.on('SIGTERM', () => resolve());
+      process.on('SIGTERM', () => resolve(0));
     });
     revive?.stop();
     await result.close();
-    return 0;
+    return exitCode;
   } catch (err) {
     process.stderr.write('[shell] boot 失败：' + String(err) + '\n');
     return 1;

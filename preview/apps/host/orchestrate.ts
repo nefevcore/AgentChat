@@ -52,11 +52,11 @@ function presetConfigOf(agentId: string): Record<string, unknown> | undefined {
   }
 }
 
-/** 品牌壳 exe（cr-620：bin/AgentChatShell.exe——make-node-identity 产物，任务管理器可辨；缺席回落 node 本体）。
+/** 品牌单映像 exe（cr-620/624：bin/AgentChat.exe——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）。
  * 测试环境恒回落 node（cr-621）：沙箱对未知镜像 exe 拒写 %TEMP%（EPERM 建激活锁），
  * vitest 数据根多在 tmpdir——品牌面只归产品宿主。 */
-const SHELL_EXE = (() => {
-  const p = fileURLToPath(new URL('../../../bin/AgentChatShell.exe', import.meta.url));
+const AGENTCHAT_EXE = (() => {
+  const p = fileURLToPath(new URL('../../../bin/AgentChat.exe', import.meta.url));
   return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
 })();
 
@@ -149,7 +149,7 @@ export async function adoptShell(
   const spawnFn = input.spawnFn ?? defaultSpawn;
   const warden = new ShellWarden(input.agentId);
   const events: GuardianEvent[] = [];
-  const proc = spawnFn(SHELL_EXE, [
+  const proc = spawnFn(AGENTCHAT_EXE, [
     '--experimental-strip-types',
     input.bootFile,
     '--data-root', path.resolve(input.dataRoot),

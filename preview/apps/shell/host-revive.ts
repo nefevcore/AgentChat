@@ -184,9 +184,9 @@ export function startHostRevive(options: HostReviveJobOptions): { stop(): void; 
       try { fs.unlinkSync(hostReviveLockPath(dataRoot)); } catch { /* 已收 */ }
     },
     spawnHost: () => {
-      // 品牌宿主 exe（cr-620：bin/AgentChatHost.exe 在场即用——任务管理器可辨；缺席回落 node 本体）
-      const hostExe = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChatHost.exe');
-      const child = spawn(fs.existsSync(hostExe) ? hostExe : process.execPath, [
+      // 品牌单映像 exe（cr-620/624：bin/AgentChat.exe 在场即用——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）
+      const brandedExe = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChat.exe');
+      const child = spawn(fs.existsSync(brandedExe) ? brandedExe : process.execPath, [
         '--experimental-strip-types', hostBoot,
         '--data-root', dataRoot,
         ...(hostPort !== undefined ? ['--port', String(hostPort)] : []),
