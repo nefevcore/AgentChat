@@ -274,6 +274,9 @@ export class ConversationService extends Service {
           source: env.sender === 'user' ? 'user' : 'agent',
           conversationId: uuid,
           messages: [...history, { role: 'user', content: this.textOf(env) }],
+          // 单次投递提权（cr-626）：信封 elevation → loop request（主线每步
+          // 装配进 ToolCall.elevation——full-access 档工具行跳过沙箱白名单）。
+          ...(env.elevation !== undefined ? { elevation: env.elevation } : {}),
           signal: abort.signal,
         });
         // settle（终稿 + journal-settled；error 文本如实入账）

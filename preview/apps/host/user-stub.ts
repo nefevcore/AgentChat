@@ -18,6 +18,8 @@ export interface UserSendOptions {
   requestId?: string;
   /** 会话级模型覆盖（deliver 合并点产物——随信投递，cr-565） */
   model?: string;
+  /** 单次投递提权档位（cr-626：输入框档位选择随信投递——信封字段） */
+  elevation?: 'sandbox-access' | 'full-access';
   /** 忙态投递方式（DSH 语义——随 payload 透传壳侧 ConversationMachine 决策，cr-575） */
   lane?: 'next-step' | 'next-turn';
   placement?: 'steer' | 'next-run';
@@ -59,6 +61,7 @@ export class UserStub {
         ...(options.placement !== undefined ? { placement: options.placement } : {}),
       },
       ...(options.model !== undefined ? { model: options.model } : {}),
+      ...(options.elevation !== undefined ? { elevation: options.elevation } : {}),
     }));
     return { uuid, dispatched };
   }

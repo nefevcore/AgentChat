@@ -36,12 +36,17 @@ export interface Envelope {
    * （显式入参 > conv-settings 存储，cr-565）。随信投递而非壳内查表：
    * 排队/inbox 重放的信仍按其投递时刻的覆盖跑，语义确定。 */
   model?: string;
+  /** 单次投递提权档位（'sandbox-access' | 'full-access'——access-tier
+   * §七：临时提权随信投递而非壳内查表，主线 loop request.elevation 同
+   * 词汇；缺席 = 按 Agent tags 档位〔tierOf〕。cr-626：输入框档位选择
+   * 此前在 deliver 边界被丢——full-access 下 pwsh workdir 仍按 base 拦）。 */
+  elevation?: 'sandbox-access' | 'full-access';
 }
 
 /** budget 缺省值（MAX_AUTO_WAKES 同源值 3，现状常量语义平移） */
 export const DEFAULT_BUDGET = 3;
 
-export type EnvelopeField = 'uuid' | 'requestId' | 'sender' | 'to' | 'kind' | 'budget' | 'hop' | 'model';
+export type EnvelopeField = 'uuid' | 'requestId' | 'sender' | 'to' | 'kind' | 'budget' | 'hop' | 'model' | 'elevation';
 
 export interface EnvelopeValidationIssue {
   field: EnvelopeField;
@@ -66,6 +71,9 @@ export function validateEnvelope(env: Envelope): EnvelopeValidationIssue[] {
   if (env.model !== undefined && !isNonEmptyString(env.model)) {
     issues.push({ field: 'model', message: '模型覆盖须为非空字符串' });
   }
+  if (env.elevation !== undefined && !(['sandbox-access', 'full-access'] as const).includes(env.elevation)) {
+    issues.push({ field: 'elevation', message: `未知提权档位: ${String(env.elevation)}` });
+  }
   return issues;
 }
 
@@ -80,6 +88,7 @@ export function makeEnvelope(init: {
   hop?: number;
   payload?: unknown;
   model?: string;
+  elevation?: 'sandbox-access' | 'full-access';
 }): Envelope {
   return {
     uuid: init.uuid,
@@ -91,5 +100,6 @@ export function makeEnvelope(init: {
     hop: init.hop,
     payload: init.payload ?? null,
     ...(init.model !== undefined ? { model: init.model } : {}),
+    ...(init.elevation !== undefined ? { elevation: init.elevation } : {}),
   };
 }

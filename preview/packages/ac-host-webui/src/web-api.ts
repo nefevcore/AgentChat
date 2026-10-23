@@ -135,10 +135,15 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // 不传 conversationId 时边界显式计算）。覆盖随信投递：壳无从查表也生效。
         const model = optStr(p.model)
           ?? storedModelOf(conversationId ?? pairKey('user', agentId));
+        // 单次投递提权档位（cr-626，主线 web-api deliver 同款白名单窄化）：
+        // 输入框档位选择随信投递——主线 loop request.elevation 同词汇。
+        const elevRaw = optStr(p.elevation);
+        const elevation = elevRaw === 'sandbox-access' || elevRaw === 'full-access' ? elevRaw : undefined;
         const result = await deps.user.send(agentId, text, {
           ...(conversationId !== undefined ? { uuid: conversationId } : {}),
           ...(requestId !== undefined ? { requestId } : {}),
           ...(model !== undefined ? { model } : {}),
+          ...(elevation !== undefined ? { elevation } : {}),
           ...(lane !== undefined ? { lane } : {}),
           ...(placement !== undefined ? { placement } : {}),
         });

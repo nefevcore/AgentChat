@@ -223,12 +223,12 @@ describe('8.5a 宿主 web 面接线', () => {
 
     // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖
     const delivered = await rpc<{ uuid: string }>(ws, 'conversation/deliver', { agentId: 'alpha', message: '带覆盖一问' });
-    const envelopeOf = (text: string): { payload?: { text?: string }; model?: string } | null => {
+    const envelopeOf = (text: string): { payload?: { text?: string }; model?: string; elevation?: string } | null => {
       const dir = path.join(ROOT, 'outbox');
       if (!fs.existsSync(dir)) return null;
       for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.json'))) {
         const entry = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8')) as {
-          envelope?: { payload?: { text?: string }; model?: string };
+          envelope?: { payload?: { text?: string }; model?: string; elevation?: string };
         };
         if (entry.envelope?.payload?.text === text) return entry.envelope;
       }
@@ -239,6 +239,12 @@ describe('8.5a 宿主 web 面接线', () => {
     // ③ 显式入参优先（临时换模随信投递、不回写存盘）
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '临时换模一问', model: 'zai@glm-5.3' });
     expect(envelopeOf('临时换模一问')?.model).toBe('zai@glm-5.3');
+
+    // ⑤ 提权档位随信投递（cr-626）：合法词入信封、非法词丢弃
+    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '提权一问', elevation: 'full-access' });
+    expect(envelopeOf('提权一问')?.elevation).toBe('full-access');
+    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '坏档位一问', elevation: 'root' });
+    expect(envelopeOf('坏档位一问')?.elevation).toBeUndefined();
     const unchanged = await rpc<{ settings: Record<string, string> }>(ws, 'conv-settings/get', { conversationId: conv });
     expect(unchanged.settings.model).toBe('deepseek@deepseek-flash');
 
