@@ -729,6 +729,21 @@
         "conversation"
       ],
       "path": "preview/packages/ac-shell-rows"
+    },
+    {
+      "id": "restart",
+      "tree": "shell",
+      "role": "安全重启双件（restart_shell 中止回队续跑 / restart_host 信封请求宿主 graceful 重启——cr-629；创造预设专属 cr-635）",
+      "bundle": "creator",
+      "tools": [
+        "restart_shell",
+        "restart_host"
+      ],
+      "requires": [
+        "tools",
+        "conversation"
+      ],
+      "path": "preview/packages/ac-shell-rows"
     }
   ]
 }

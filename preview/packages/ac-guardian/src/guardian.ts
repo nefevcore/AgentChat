@@ -37,6 +37,10 @@ export interface GuardianConfig {
   crashWindowMs: number;
 }
 
+/** 安全重启退出码（cr-629：壳侧 restart_shell 优雅退出——有意重启语义，
+ * 与主线宿主 supervisor 协议 42 = restart 同码位） */
+export const SHELL_RESTART_EXIT = 42;
+
 export const DEFAULT_GUARDIAN_CONFIG: GuardianConfig = {
   heartbeatIntervalMs: 30_000,
   heartbeatMissLimit:  3,
@@ -141,11 +145,18 @@ export class ShellWarden {
   /**
    * 壳退出处理：崩溃计数 + 熔断判定。返回 'respawn' = 宿主应重拉。
    * 计数带时间窗（F 表：60s 内 3 次）：窗外崩不累加，窗起算点重置。
+   * 退出码 42 = 安全重启（cr-629 restart_shell）：有意重启——立即重拉、
+   * 崩溃计数归零（重启不是崩溃，连续安全重启不熔断）。
    */
   shellExited(code: number | null, now: number): 'respawn' | 'broken' | 'done' {
     this.adopted = false;
     this.events.push({ type: 'shell-exit', agentId: this.agentId, code });
     if (this.broken) return 'done';
+    if (code === SHELL_RESTART_EXIT) {
+      this.consecutiveCrashes = 0;
+      this.crashWindowStart = undefined;
+      return 'respawn';
+    }
     if (code === 0) {
       this.consecutiveCrashes = 0;
       this.crashWindowStart = undefined;

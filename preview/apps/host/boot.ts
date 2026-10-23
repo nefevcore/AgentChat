@@ -56,6 +56,11 @@ export interface HostBootOptions {
   orchestrate?: boolean;
   /** 编排面 mock provider 档（dev/无凭据环境——壳 argv 注入；缺省 false 生产档） */
   mockProvider?: boolean;
+  /**
+   * 宿主重启请求钩子（cr-629 restart_host）：壳经邮局发 payload.restartHost
+   * 信时回调（CLI 形态接 graceful exit 42；缺省 = 无消费者——信封落账即弃）。
+   */
+  onRestartRequest?: (sender: string) => void;
 }
 
 export interface HostBootResult {
@@ -106,6 +111,13 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   await po.listen();
   // host 端点收信扇出面（cr-545：usage / auth-registry 行共用——邮局 local 通道单 receiver 组合器）
   const inbox = new HostInbox(po);
+  // 宿主重启请求（cr-629 restart_host）：壳工具面 → 邮局信 → 本钩子
+  //（plugin-request 同通道；payload.restartHost 词判别，不与装卸请求撞形）
+  inbox.on(async (env) => {
+    if ((env.payload as { restartHost?: unknown } | null)?.restartHost === true) {
+      options.onRestartRequest?.(env.sender);
+    }
+  });
   inbox.start();
 
   // ---- 单树 cordis 装配 ----
@@ -282,6 +294,7 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
   // 退出写的戳只辖那一次停机）；优雅退出（SIGINT/SIGTERM——用户有意停机 /
   // supervisor 换代）写戳让壳侧 stand down，硬崩溃无戳 → 活壳复活本宿主。
   const stampPath = path.join(path.resolve(dataRoot), '.runtime', 'host-stopped');
+  const hostRef: Array<Awaited<ReturnType<typeof bootHost>> | undefined> = [];
   fs.mkdirSync(path.dirname(stampPath), { recursive: true });
   fs.rmSync(stampPath, { force: true });
   const writeStopStamp = () => {
@@ -299,14 +312,30 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
     console.warn('[host] 静态面缺席（' + staticDir + '\index.html 不存在）——只有 WS/RPC，浏览器打开是 404');
     console.warn('[host] 先 pnpm --filter ac-ui-app build 生成 dist');
   }
+  // 安全重启宿主（cr-629 restart_host；cr-630 修正）：graceful 收面 →
+  // exit 42，拉起恒归活壳（D5 边 2 裁决：任意宿主死亡 → 活壳是常态复活
+  // 执行者；supervisor 仅兜「宿主+壳同死」）。恒不写停机戳——戳语义 = 用户
+  // 有意停机/supervisor 换代（cr-612），借戳压壳 stand down 是单点故障
+  //（supervisor 未拉起则宿主永死）。supervisor 在场时它是快路（42 = 固定
+  // 小延迟重拉），活壳探测是兜底；两者竞态由既有防线收敛（O_EXCL 壳间
+  // 仲裁 + cr-619 strict EADDRINUSE 后到者可读退出 78）。
+  const restartHost = (host: Awaited<ReturnType<typeof bootHost>>, sender: string): void => {
+    console.log('[host] 收到 restart_host 请求（sender=' + sender + '）——graceful 重启（exit 42，活壳/监护拉回）');
+    setTimeout(() => process.exit(42), 8_000).unref(); // 收面兜底：close 链异常不吊死重启
+    void host.close().finally(() => process.exit(42));
+  };
   void bootHost({
     dataRoot,
     catalogFile: argOf('catalog') ?? path.resolve(HERE, '../catalog/row-catalog.json'),
     port: argOf('port') !== undefined ? Number(argOf('port')) : undefined,
+    onRestartRequest: (sender) => {
+      if (hostRef[0] !== undefined) restartHost(hostRef[0], sender);
+    },
     // 诊断档（config-write-smoke 同族）：--mock-provider 在场即壳 argv 注入 mock
     ...(args.includes('--mock-provider') ? { mockProvider: true } : {}),
     ...(hasStatic ? { staticDir } : {}),
   }).then((host) => {
+    hostRef[0] = host;
     console.log('[host] boot 完成：' + host.rowIds.length + ' 行装配（cordis 面），web 端口 ' + host.web.port);
   }).catch((err: unknown) => {
     // 数据根单写者（IPC 命名管道）或端口被占 = 这个根上已经有宿主在跑。

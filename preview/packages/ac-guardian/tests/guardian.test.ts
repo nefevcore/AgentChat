@@ -56,6 +56,15 @@ describe('idle-exit 收割', () => {
 });
 
 describe('崩溃退避熔断', () => {
+  it('退出码 42 = 安全重启（cr-629）：立即 respawn、崩溃计数归零——连续安全重启不熔断', () => {
+    const w = adopted();
+    expect(w.shellExited(1, 100)).toBe('respawn');
+    expect(w.shellExited(42, 200)).toBe('respawn'); // 有意重启不计崩溃
+    expect(w.shellExited(1, 300)).toBe('respawn'); // 计数已被 42 归零（1→0→1）
+    expect(w.shellExited(42, 400)).toBe('respawn');
+    expect(w.shellExited(42, 500)).toBe('respawn');
+    expect(w.isBroken()).toBe(false);
+  });
   it('60s 窗内连续 ≥3 → broken（不再自动拉起）；正常退出清零', () => {
     const w = adopted();
     expect(w.shellExited(1, 100)).toBe('respawn');
