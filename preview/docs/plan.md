@@ -243,7 +243,10 @@ M0 地基 ──> M1 协议三纯库 ──> M2 数据根与授权 ──> M3 �
 
 | 2026-10-23 | 文档重组（cr-604） | **preview/docs 拆分归档**：① 状态板 §5 建设期 70 行（cr-489…cr-555，M0→M8 全里程碑 + 切换前置）原样归档 `archive/status-board-build-phase.md`（plan 192KB→106KB，现行板自 cr-556 切换起）；② 历代交接 handoff-2026-10-22{,-p4…-p7}.md（任务全部收口）移 `archive/` + 归档索引 README；③ 立现行交接 `handoff-2026-10-23.md`（现状/近期改动一览/下一步含入库提交切项/坑位速查/验证命令）；④ kickoff.md 刷新至切换后阶段（文档地图 + 阶段现状）；⑤ spec.md 未动（规范断言仍现行）。零代码改动 | preview/docs/{plan.md,kickoff.md,handoff-2026-10-23.md,archive/} | 下一步首项 = preview/ 入库提交切分（G8） |
 
+| 2026-10-23 | preview 树入库提交切分 G8（cr-605） | **G8 收口：preview/ 整树 355 文件按里程碑/包边界切 10 个 commit 全数入库，工作树清零**。① 设计档案晋档（src/docs/explore→docs 九件 + 两 README 引用）；② M0 地基（workspace/eslint/.gitignore/preview 文档四件+archive/tsconfig/vitest 骨架 + lock）；③ M1+M2 纯库六包（envelope/fingerprint/auth/agents/rowset/credentials）；④ M3+M5 壳半边（ledger/shell-conversation/shell-rows/shell-subagent/apps/shell/catalog）；⑤ M4+M5 宿主半边（post-office/guardian/apps/host）；⑥ M6 snapshot-core；⑦ M7+M8 web 半边（webui-core/host-webui/host-rows/apps/ui）；⑧ 8.7+8.9 cutover（ac-import/scripts/cutover* 三件/入口换轨 package.json+bin+supervisor.mjs）；⑨ 主线伴生四件（ac-mcp serverOfTool cr-527 / ac-run-code log 同口径 cr-534 / ac-usage reportMeter cr-538 / ChatInput Tooltip + remote client exports）；⑩ cr-log cr-488…605 补登。入库前基线：preview 530/530 绿 + preview:typecheck 0 + 主线 typecheck/check:deps 0；`preview/sandbox/` 恒 ignore 未入（cr-599 防线有效）；残渣清理（根 X/ 测试残留 config、preview/preview/ 空目录树）。提交后 git status 全清、355 文件数对账一致 | git 10 commits（f693a942…d22856bd，main ahead origin/main 10） | **push 未执行**（待确认后 `git push`）；提交按里程碑切但中间提交不保证独立可 build（同一工作树快照切面，历史可读性优先）；旧包退役清理（ac-singles/ac-hello 等按归并表）仍归收尾批 |
+
 ## 变更登记
 
 - cr-489（2026-10-17）：立稿（M0-M2 细化，M3-M8 占位）。
-- cr-604（2026-10-23）：文档重组——§5 建设期行（cr-489…cr-555）归档 archive/status-board-build-phase.md；历代交接（handoff-2026-10-22*.md）移 archive/；立现行交接 handoff-2026-10-23.md；kickoff.md 刷新至切换后阶段。
+- cr-604（2026-10-23）：文档重组
+- cr-605（2026-10-23）：preview 树入库提交切分 G8——355 文件 10 commits，工作树清零；push 待确认——§5 建设期行（cr-489…cr-555）归档 archive/status-board-build-phase.md；历代交接（handoff-2026-10-22*.md）移 archive/；立现行交接 handoff-2026-10-23.md；kickoff.md 刷新至切换后阶段。
