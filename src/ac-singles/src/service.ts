@@ -24,9 +24,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
-import { isArchiveReviewRun, normalizeToolSpecs, resolvePersonaText } from 'ac-core-utils'; // 机制标记/工具规范化/persona 词法——cr-318/321 下沉纯库
+import { DATE_SNAPSHOT_PREFIX, cleanTitle, fallbackTitle, isArchiveReviewRun, normalizeToolSpecs, resolvePersonaText, titlePrompt } from 'ac-core-utils'; // 机制标记/工具规范化/persona 词法（cr-318/321）+ 标题词法（cr-672 下沉纯库）
 import { splitModelRef } from 'ac-llm';
-import { safeTruncate } from 'ac-text-budget'; // 标题材料截断不切代理对（lone surrogate 防线，cr-415）
 import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only——修订键 persona 口径与装配行同源）
 import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 import type { SingleSessionMeta, SinglesCreateInput, SinglesUpdateInput } from './contract.ts';
@@ -36,31 +35,6 @@ export interface SinglesRowOptions {
   root?: string;
 }
 
-/** 标题长度上限（字符） */
-const TITLE_MAX_LEN = 24;
-
-/** 标题生成提示词（结合 Agent 首步思考/正文——概括「对话在谈什么」） */
-const TITLE_PROMPT = (userText: string, agentFirstOutput?: string): string =>
-  `根据下面的对话材料，为这段对话生成一个简短的中文标题（不超过${TITLE_MAX_LEN}字）。\n`
-  + `要求：直接输出标题本身；不要引号、句号、解释或前后缀；概括意图而非复述原文。\n\n`
-  // safeTruncate 不切代理对（cr-415）：裸 slice 产出 lone surrogate 会毒化标题
-  // LLM 调用请求体（2026-08-05 事故链同款——材料截断进请求体）
-  + `用户消息：\n${safeTruncate(userText, 600)}`
-  + (agentFirstOutput
-    ? `\n\nAgent 的初步思考/回应（理解参考）：\n${safeTruncate(agentFirstOutput, 600)}`
-    : '');
-
-/** 清洗模型输出：去引号/换行/首尾空白，超长截断 */
-function cleanTitle(raw: string): string {
-  const t = raw.trim().replace(/^["'「『《]+|["'」』》]+$/g, '').split('\n')[0]?.trim() ?? '';
-  return t.length > TITLE_MAX_LEN ? t.slice(0, TITLE_MAX_LEN) : t;
-}
-
-/** 回落标题：首条用户消息截断（LLM 失败/空回复时保底） */
-function fallbackTitle(userText: string): string {
-  const firstLine = userText.trim().split('\n')[0] ?? '';
-  return firstLine.length > TITLE_MAX_LEN ? `${firstLine.slice(0, TITLE_MAX_LEN)}…` : firstLine;
-}
 
 /** [system + tool schema] 前缀快照（M21 步骤 4 / D5，§5.2；最新胜 fold-latest） */
 export interface PrefixSnapshot {
@@ -295,7 +269,7 @@ export class SinglesService extends Service {
         m.role === 'user' &&
         typeof m.content === 'string' &&
         m.content.trim() &&
-        !m.content.startsWith('[当前时间] '),
+        !m.content.startsWith(DATE_SNAPSHOT_PREFIX),
     );
     if (!firstUser) return;
     this.pendingTitle.set(sid, {
@@ -341,7 +315,7 @@ export class SinglesService extends Service {
         const baseInput = {
           model: staged.model,
           ...(staged.provider ? { provider: staged.provider } : {}),
-          messages: [{ role: 'user', content: TITLE_PROMPT(userText, agentFirstOutput) }],
+          messages: [{ role: 'user', content: titlePrompt(userText, agentFirstOutput) }],
           max_tokens: 64,
         };
         // 思考型模型（GLM/DeepSeek 等）默认先出 reasoning 再出正文——

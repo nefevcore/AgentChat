@@ -6,7 +6,7 @@
 // 域词汇本身（契约/事件/服务面）仍归 owning 包，本库只收"会成环的
 // 那一小块"。域逻辑、状态、cordis 注册面禁止入内。
 //
-// 现状七组词汇：
+// 现状八组词汇：
 //   · GROUP_HINT_META / isGroupHint —— 群 hint 投递标记协议
 //     （原住 ac-group；group 生产、session/conversation/ws-bridge
 //     消费。session→group 与 D11 存储归属方向相逆，环的一边）
@@ -29,6 +29,10 @@
 //     ac-persona，cr-321 下沉：singles 前缀快照修订键须与装配行逐字节
 //     同口径复算 persona 终态，normalizeToolSpecs 同构；agentStore 以
 //     最小结构形状 PersonaDocStore 入参，零 cordis 依赖）
+//   · TITLE_MAX_LEN / DATE_SNAPSHOT_PREFIX / titlePrompt / cleanTitle /
+//     fallbackTitle —— 会话标题词法（cr-672 下沉：主线 ac-singles 直写与
+//     preview 壳侧 auto-title 行（生成 → 信封 → 宿主 singles 行落盘）两处
+//     生成面共用长度上限 / 提示词 / 清洗 / 截断回落——两处各写一份必走散）
 // 下沉后 session 与 group 互相零 import：协作只经 ctx.get 服务面
 // （D11 跨域读写口），两行可独立停用。
 // ============================================================
@@ -146,3 +150,4 @@ export function normalizeToolSpecs(
 }
 
 export * from './persona.ts';
+export * from './session-title.ts';

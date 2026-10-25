@@ -7,7 +7,10 @@
 //   · grep —— pattern 为 JS 正则；path 文件或目录；include 单个正向 glob
 //     过滤器（拒绝逗号列表与否定值）；二进制跳过；内联默认 50（limit 参数
 //     可调，上限 250）/ 硬顶 2000 / 每行预览 2000 字符
-// 检索算法住纯库 ac-glob-core。access-tier §9.1/§9.2：检索面读不设防
+// grep 引擎（cr-678）：spawn ripgrep 主路径（@vscode/ripgrep vendored；
+//     口径对齐详见 rg-core.ts 头注）+ 纯 Node 遍历回退（resolve/spawn 失败）。
+// glob 仍走 ac-glob-core 纯 Node（mtime 排序是刚需——rg 无此能力）。
+// access-tier §9.1/§9.2：检索面读不设防
 // （搜索根脱离工作区沙箱——相对路径仍按锚点解析），敏感面 = 双黑名单
 // **结果过滤**（accessDeny 全档 + readDeny 非 full 档；只查参数拦不住
 // 目录扫描——deny 目录前缀判定覆盖子树）。
@@ -27,7 +30,8 @@ import {
 } from 'ac-sandbox-core';
 import { effectiveTierOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
-import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, type WalkEntry } from 'ac-glob-core';
+import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, SKIP_DIRS, type WalkEntry } from 'ac-glob-core';
+import { resolveRgPath, runRg, type RgFileGroup } from './rg-core.ts';
 
 export type FsSearchRowOptions = SandboxResolverOptions & DenyRowOptions;
 
@@ -599,7 +603,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       try {
         stat = await fsp.stat(targetAbs);
       } catch {
-        // 近邻目录建议（画像 §⑤：猜模块名失误 src/ac-skills→src/ac-skill）——
+        // 近邻目录建议（画像 §⑤：猜模块名失误 src/ac-skills→src-ac-skill）——
         // 一条信息修复，避免下一轮盲试；path 不支持通配（src/ac-plugin*）同理被覆盖
         const near = await suggestSiblingDir(targetInput, targetAbs);
         return {
@@ -610,6 +614,24 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
         };
       }
 
+      // ---- rg 主路径（cr-678）：resolve 可得即 spawn ripgrep；任何失败落 Node 回退 ----
+      const rgEngine = resolveRgPath() !== undefined;
+      if (rgEngine) {
+        const rg = await runRgWithFallbackGuard(call, {
+          pattern,
+          fixed,
+          targetAbs,
+          isFile: stat.isFile(),
+          include: typeof args.include === 'string' && args.include.trim() ? args.include.trim() : undefined,
+          isDenied,
+          sandboxWorkdir: sandbox.workdir,
+        });
+        if (rg !== undefined) {
+          return assembleGrepOutput(rg.groups, rg.total, rg.truncated, limit, pattern, { capped: false, skippedRoots: rgSkippedRoots(targetAbs) });
+        }
+      }
+
+      // ---- Node 回退路径（rg 不可用 / spawn 失败）：原有遍历实现原样 ----
       // 目标文件集合：单文件直搜（include 不适用）；目录走有界遍历 + include 过滤
       let targets: WalkEntry[];
       let capped = false;
@@ -655,41 +677,132 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       }
       if (total >= GREP_HARD_CAP) truncated = true;
 
-      const notes: string[] = [];
-      if (groups.length === 0) {
-        notes.push('No matches found（未找到匹配，可调整 pattern / path / include）');
-        const escaped = suggestEscapedPattern(pattern);
-        if (escaped !== undefined && escaped !== pattern) {
-          notes.push(`pattern 含未转义正则元字符——按字面量重搜可传 fixed: true（等价 pattern "${escaped}"）`);
-        }
-      } else if (total > limit) {
-        notes.push(`共 ${total} 条匹配（${groups.length} 个文件），仅内联展示前 ${limit} 条（其余已省略；可传 limit 提高展示数（最大 ${GREP_MAX_MATCHES}），或收窄 path（到具体包/目录）/拆分交替分支 pattern）`);
-      }
-      if (truncated) notes.push(`匹配达到扫描硬顶 ${GREP_HARD_CAP}，结果可能不完整（请收窄搜索范围）`);
-      if (capped) notes.push(`扫描在 ${targets.length} 个文件处截断（病态大目录？可用 path 收窄搜索根）`);
-      if (skippedRoots.length > 0) {
-        notes.push(`已跳过构建产物/依赖目录（${skippedRoots.join('、')}）——命中不含其中内容；确需搜产物时 path 直接指向该目录`);
-      }
-
-      // 内联页面：按文件顺序截取前 limit 条（total 恒为命中总数，不受 limit 影响）
-      let budget = limit;
-      const shownGroups: FileGroup[] = [];
-      for (const g of groups) {
-        if (budget <= 0) break;
-        shownGroups.push({ path: g.path, matches: g.matches.slice(0, budget) });
-        budget -= g.matches.length;
-      }
-
-      return {
-        ok: true,
-        output: {
-          total,
-          shown: Math.min(total, limit),
-          ...(truncated ? { truncated: true } : {}),
-          groups: shownGroups,
-          ...(notes.length > 0 ? { note: notes.join('；') } : {}),
-        },
-      };
+      return assembleGrepOutput(groups, total, truncated, limit, pattern, { capped, skippedRoots, scanned: targets.length });
     },
   });
+}
+
+/**
+ * grep 输出组装（rg 与 Node 回退两路共用单源）：note 文案、内联分页、
+ * truncated 透出。capped/scanned 仅 Node 路径有值（rg 无扫描截断概念）。
+ */
+function assembleGrepOutput(
+  groups: FileGroup[],
+  total: number,
+  truncated: boolean,
+  limit: number,
+  pattern: string,
+  meta: { capped: boolean; skippedRoots: string[]; scanned?: number },
+): { ok: true; output: Record<string, unknown> } {
+  const notes: string[] = [];
+  if (groups.length === 0) {
+    notes.push('No matches found（未找到匹配，可调整 pattern / path / include）');
+    const escaped = suggestEscapedPattern(pattern);
+    if (escaped !== undefined && escaped !== pattern) {
+      notes.push(`pattern 含未转义正则元字符——按字面量重搜可传 fixed: true（等价 pattern "${escaped}"）`);
+    }
+  } else if (total > limit) {
+    notes.push(`共 ${total} 条匹配（${groups.length} 个文件），仅内联展示前 ${limit} 条（其余已省略；可传 limit 提高展示数（最大 ${GREP_MAX_MATCHES}），或收窄 path（到具体包/目录）/拆分交替分支 pattern）`);
+  }
+  if (truncated) notes.push(`匹配达到扫描硬顶 ${GREP_HARD_CAP}，结果可能不完整（请收窄搜索范围）`);
+  if (meta.capped && meta.scanned !== undefined) notes.push(`扫描在 ${meta.scanned} 个文件处截断（病态大目录？可用 path 收窄搜索根）`);
+  if (meta.skippedRoots.length > 0) {
+    notes.push(`已跳过构建产物/依赖目录（${meta.skippedRoots.join('、')}）——命中不含其中内容；确需搜产物时 path 直接指向该目录`);
+  }
+
+  // 内联页面：按文件顺序截取前 limit 条（total 恒为命中总数，不受 limit 影响）
+  let budget = limit;
+  const shownGroups: FileGroup[] = [];
+  for (const g of groups) {
+    if (budget <= 0) break;
+    shownGroups.push({ path: g.path, matches: g.matches.slice(0, budget) });
+    budget -= g.matches.length;
+  }
+
+  return {
+    ok: true,
+    output: {
+      total,
+      shown: Math.min(total, limit),
+      ...(truncated ? { truncated: true } : {}),
+      groups: shownGroups,
+      ...(notes.length > 0 ? { note: notes.join('；') } : {}),
+    },
+  };
+}
+
+/**
+ * rg 主路径包装：deny 前置 glob（rg 不进树）+ 输出侧 isDenied 双保险；
+ * include 转译（basename 语义）；失败返回 undefined → 调用方走 Node 回退。
+ * spawn 失败/rg 退出码 2（环境性错误）都按「引擎不可用」处理——回退而非报错，
+ * 用户视角无感（搜索照样出结果，只是慢路径）。
+ */
+async function runRgWithFallbackGuard(
+  call: { signal?: AbortSignal },
+  opts: {
+    pattern: string;
+    fixed: boolean;
+    targetAbs: string;
+    isFile: boolean;
+    include?: string;
+    isDenied: (abs: string) => boolean;
+    sandboxWorkdir: string;
+  },
+): Promise<{ groups: RgFileGroup[]; total: number; truncated: boolean } | undefined> {
+  // 排除 glob（cwd=搜索根基准）：SKIP_DIRS 任意深度 + deny 目录（绝对路径转相对段）
+  const excludeGlobs: string[] = [];
+  for (const dir of SKIP_DIRS) excludeGlobs.push(`!**/${dir}/**`);
+  // deny 目录前缀 → 相对搜索根的排除段（在根外的 deny 目录 rg 天然不会碰到）
+  // 简化：deny 绝对路径若在搜索根内，取其相对段做排除；否则跳过（输出侧兜底）
+  // deny 面完整判定仍在输出侧 isDenied——glob 前置只为性能（rg 不进树）。
+  // include 转译：现状 include 是 basename 语义（includeRe.test(basename)）。
+  // rg glob 无 / 时按 basename 匹配——恰好同语义，含 / 时取末段保 basename 口径。
+  let includeGlob: string | undefined;
+  if (!opts.isFile && opts.include !== undefined) {
+    const seg = opts.include.split('/').pop() ?? opts.include;
+    includeGlob = seg;
+  }
+  try {
+    const result = await runRg({
+      pattern: opts.pattern,
+      fixed: opts.fixed,
+      targetAbs: opts.targetAbs,
+      excludeGlobs,
+      ...(includeGlob !== undefined ? { includeGlob } : {}),
+      hardCap: GREP_HARD_CAP,
+      ...(call.signal !== undefined ? { signal: call.signal } : {}),
+      maxLineChars: GREP_MAX_LINE_CHARS,
+      toPosixRel: (abs: string): string => {
+        const rel = path.relative(opts.sandboxWorkdir, abs);
+        return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(abs) : toPosix(rel);
+      },
+    });
+    // 输出侧黑名单双保险（glob 前置仅为性能；语义判定单源在 isDenied）
+    const groups: RgFileGroup[] = [];
+    let total = 0;
+    for (const g of result.groups) {
+      // rg 输出的 path 已是 rel；isDenied 需要绝对路径——reconstruct
+      const abs = path.resolve(opts.sandboxWorkdir, g.path);
+      if (opts.isDenied(abs)) continue;
+      groups.push(g);
+      total += g.matches.length;
+    }
+    return { groups, total, truncated: result.truncated };
+  } catch {
+    return undefined; // 引擎失败 → Node 回退（用户无感）
+  }
+}
+
+/**
+ * rg 路径的 skippedRoots（note 透出用）：搜索根第一层里命中 SKIP_DIRS 的
+ * 目录名（与 Node 路径 walkFiles 的根层段口径一致；单文件目标恒空）。
+ */
+function rgSkippedRoots(targetAbs: string): string[] {
+  let dirents: import('node:fs').Dirent[];
+  try {
+    dirents = fs.readdirSync(targetAbs, { withFileTypes: true });
+  } catch {
+    return []; // 单文件/不可读：无根层概念
+  }
+  return dirents.filter((d) => d.isDirectory() && SKIP_DIRS.has(d.name)).map((d) => d.name);
 }

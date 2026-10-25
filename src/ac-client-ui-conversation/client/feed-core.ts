@@ -29,7 +29,7 @@ import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
   pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
-  mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming,
+  mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, closeRunningToolCalls,
   groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf, splitAttachmentLines,
 } from './feed.ts';
 
@@ -730,6 +730,27 @@ export function createFeedCore(
             legacyEventQuota.set(k, (legacyEventQuota.get(k) ?? 0) + 1);
           }
         }
+        // 同锚覆盖（cr-671 终稿上浮+重复根修）：同轮步行与终稿行共享收束行
+        // message_id——键控强路径（tool_call_id / stepId）命中的行把锚登记为
+        // 「本 run 已由直播载体承载」，后续同锚无键行（viewer 侧平文终稿行、
+        // 帧缺键的终稿步行）随之一并丢弃，不残留 deduped 前部（inFlight 首屏
+        // 合并 nextRaw = [...deduped, ...streamingTail] 会把它们顶到直播
+        // 步骤链之前，且指纹短路把乱序固化到手动刷新）。
+        const coveredAnchors = new Set<string>();
+        for (const m of msgs) {
+          if (!m.persistedMsgId) continue;
+          if ((m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id))
+            || (m.role === 'agent' && m.stepId && liveStepIds.has(m.stepId))) coveredAnchors.add(m.persistedMsgId);
+        }
+        // 内容等值兜底的轮域下界：本轮 user 锚时刻（历史页时钟域优先——
+        // incoming 行与下界同域；无 viewer 行回落本地分区锚）。内容等值只在
+        // 本轮区域内生效，跨轮同文行（定时通知等）不误删。
+        let turnFloorTs = -1;
+        for (const m of msgs) {
+          if (m.agent_id === VIEWER_ID.value && m.timestamp > turnFloorTs) turnFloorTs = m.timestamp;
+        }
+        if (turnFloorTs < 0 && lastUserIdx >= 0) turnFloorTs = d.rawMessages[lastUserIdx].timestamp;
+        const liveAgentRowsAll = streamingTail.filter(m => m.role === 'agent');
         msgs = msgs.filter(m => {
           if (m.role === 'event') {
             // 新链路：同锚即同一份注入事实——直播行是流式载体，历史行丢弃
@@ -771,9 +792,17 @@ export function createFeedCore(
             });
             if (hit) {
               absorbLongerInto(hit, m);
+              if (m.persistedMsgId) coveredAnchors.add(m.persistedMsgId);
               return false;
             }
           }
+          // 同锚覆盖：本 run 已由直播载体承载（键控/前缀路径命中过同锚行）
+          if (m.persistedMsgId && coveredAnchors.has(m.persistedMsgId)) return false;
+          // 内容等值兜底：无键终稿行与直播行正文全等（thinking 形态差异：
+          // 历史行级 reasoning = 整轮拼接 vs 直播步级 thinking）→ 同一份
+          // 终稿事实，直播载体承载，历史行丢弃（宁重不丢口径内的强证据匹配）
+          if (m.role === 'agent' && m.content && m.timestamp >= turnFloorTs
+            && liveAgentRowsAll.some(live => live.agent_id === m.agent_id && live.content === m.content)) return false;
           return true;
         });
       }
@@ -2470,9 +2499,15 @@ export function createFeedCore(
     rpc.onOpen?.(() => {
       // 重连 = 直播帧断供：延迟关闭全部作废（计时器到点查表扑空）
       _spinHold.clear();
+      // 全局忙态复位（cr-659）：收束帧（run-settled/after-run）在断线窗口
+      // 丢失时无事件可落、忙态指示死锁——历史对账后由真实新帧重新点亮
+      turnInProgress.value = false;
       for (const d of Object.values(dialogs.value)) {
         if (!d) continue;
         if (d.status === 'loading') d.status = 'ready';
+        // 工具卡收口（cr-660）：断连窗口丢失 after-execute 帧的运行中卡片
+        // 在此停转（无论分区是否 streaming——工具执行窗口分区可能尚未置位）
+        closeRunningToolCalls(d.rawMessages);
         if (d.streaming) {
           d.streaming = false;
           closeAllStreaming(d.rawMessages);

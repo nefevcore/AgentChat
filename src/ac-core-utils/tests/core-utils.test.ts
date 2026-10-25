@@ -15,6 +15,11 @@ import {
   normalizeToolSpecs,
   pairKey,
   runAddress,
+  TITLE_MAX_LEN,
+  cleanTitle,
+  fallbackTitle,
+  titleMaterialOf,
+  titlePrompt,
 } from '../src/index.ts';
 
 describe('GROUP_HINT_META / isGroupHint', () => {
@@ -120,5 +125,47 @@ describe('maxSeqOf', () => {
   it('非 number 形态的 seq 忽略（宽容读取）', () => {
     expect(maxSeqOf([{ seq: '9' } as never])).toBeUndefined();
     expect(maxSeqOf([{ seq: '9' } as never, { seq: 4 }])).toBe(4);
+  });
+});
+
+const BS = String.fromCharCode(92);
+const NL = String.fromCharCode(10);
+const CR = String.fromCharCode(13);
+
+describe('会话标题词法（cr-672 下沉：生成面与派生面同口径）', () => {
+  it('上限 24 字；超长回落补省略号（不切代理对）', () => {
+    expect(TITLE_MAX_LEN).toBe(24);
+    const long = '一二三四五六七八九十一二三四五六七八九十一二三四五';
+    const title = fallbackTitle(long);
+    expect(title).toHaveLength(25);
+    expect(title.endsWith('…')).toBe(true);
+    // 代理对（emoji）不切断：24 code unit 上限 = 12 个完整 emoji（+省略号）
+    const emoji = '😀'.repeat(20);
+    const cut = fallbackTitle(emoji);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(cut).toBe('😀'.repeat(12) + '…');
+  });
+  it('材料行：跳过空行 / 日期快照行 / 路径与引用行，取首个「像发言」的行', () => {
+    expect(titleMaterialOf('C:' + BS + 'repo' + BS + 'a.md' + NL + '分析文档反馈的问题')).toBe('分析文档反馈的问题');
+    expect(titleMaterialOf('@preview/docs/spec.md' + NL + '补规格')).toBe('补规格');
+    expect(titleMaterialOf('https://example.com/x' + NL + '看这个')).toBe('看这个');
+    expect(titleMaterialOf('[当前时间] 2026-10-24 周五' + NL + '真正的内容')).toBe('真正的内容');
+    expect(titleMaterialOf(NL + NL + '  第一行内容  ' + NL + '第二行')).toBe('第一行内容');
+    // 全是路径 → 回落首个非空行（消息本身只有路径）
+    expect(titleMaterialOf('C:' + BS + 'repo' + BS + 'a.md')).toBe('C:' + BS + 'repo' + BS + 'a.md');
+  });
+  it('fallbackTitle / cleanTitle 都从材料行出发；CRLF 不把 CR 留在标题里', () => {
+    expect(fallbackTitle('【第二次测试】 ' + CR + NL + CR + NL + '继续')).toBe('【第二次测试】');
+    expect(cleanTitle('「 会话标题 」')).toBe('会话标题');
+    expect(cleanTitle('第一行' + NL + '第二行')).toBe('第一行');
+    expect(cleanTitle('')).toBe('');
+  });
+  it('titlePrompt 含材料与上限说明；无 Agent 材料时不留占位段', () => {
+    const withAgent = titlePrompt('用户消息甲', 'Agent 的思考');
+    expect(withAgent).toContain('不超过24字');
+    expect(withAgent).toContain('用户消息甲');
+    expect(withAgent).toContain('Agent 的思考');
+    const bare = titlePrompt('用户消息甲');
+    expect(bare).not.toContain('Agent 的初步思考');
   });
 });

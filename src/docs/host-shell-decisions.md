@@ -324,6 +324,38 @@ provider（`splitModelRef` 单源）。随信封而非壳内查表：排队 / in
 属单会话元数据面（preview 无 session.json），当前 fail-loud 报错；`harnessTier` 等壳内
 扩展键在宿主键目录中不可见，前端「实验性」菜单不提供（写入面缺席，非数据丢失）。
 
+# 〈D13 会话标题生成归壳、写权归宿主〉（2026-10-24，cr-672 立）
+
+**裁决**：会话标题的**生成**住壳（新行 `auto-title`，壳树域服务组；行集 86 =
+宿主 48 + 壳 38），**写权**归宿主 `singles` 行（`viewer/sessions/<sid>/session.json`
+单写者）。链路：`loop/run-started` 暂存（路由终值 + 首条用户消息）→ 首个
+`loop/after-step` 结合 Agent 首步思考/正文 LLM 一句概括 → **标题请求信**
+（`ac-envelope-core/title-request`，uuid = `title-<会话键>` 的 host 请求域独立键，
+cr-641 同款；kind=message + budget=0）→ 邮局 → 宿主 `HostInbox`（singles 行受理）→
+write-if-absent 落盘 + `singles/updated`。`loop/after-run` 兜底（run 夭折/无步完成 →
+截断回落）。
+
+**判据**：① 生成要 LLM，`llm` / `llm-pool` 行住壳（R0a 判据：模型调用只能在壳）；
+② 标题是会话元数据，写权随 `session.json` 所有权（D4「写权 = 所有权」）——宿主是唯一
+写者，壳不得直写；③ 跨进程 = 信封（A6）：与 grant / plugin-request 同族（域外动作类
+请求信 + 宿主收信面受理），不走控制帧（控制帧是壳 boot/装配面，不是数据写面）；
+④ 只命名用户会话（run `source='user'`）：agent↔agent / 机制触发会话同一会话多壳各跑，
+谁都不该单独定名——归宿主派生面；⑤ 失败静默降级为派生标题（标题是装饰性面，不得放大
+成 run 失败）；宿主 write-if-absent 保证用户手改 / fork 继承标题不被覆盖。
+
+**派生面（兜底，保留）**：无 `session.json` 的存量会话、非用户会话与生成失败线按账本
+派生——取**用户自己的首条发言**（旧实现取「首条非空内容行」：对端台词 / 定时触发词 /
+DSML 残片都会变标题），材料行筛选跳过日期快照行（`[当前时间] ` 前缀）与「不像发言」
+的行（附件路径 / `@` 引用 / URL——实测 192 个存量会话的派生标题因此全是同一条仓库
+路径），CRLF 剥尾，上限与生成面同源（`ac-core-utils/session-title.ts` 的
+`TITLE_MAX_LEN` = 24，cr-672 下沉；旧派生面 40 字与生成面 24 字曾走散，且按换行切分
+不剥 `\r` 让 CRLF 会话标题带脏尾）。材料行筛选同用于 `fallbackTitle`（LLM 失败回落面）
+与主线 ac-singles，故三处口径一致。
+
+**恒并基座**：本行无 `tools`、无 `requires` 指向、不在工具标签面——不恒并则点名形态
+（`config.tools.include`）壳内零命名。故进 `deriveShellRowset` 的 seat 行（原四条：
+conversation / persona / system-prompt / llm-pool）为第五条；`exclude` 仍可显式摘除。
+
 # 〈账目与修正史〉
 
 - ui 族账目：v1 记 27，yml 实数 31（25 域行 + 骨架 6）——v2 修正。
@@ -357,6 +389,8 @@ provider（`splitModelRef` 单源）。随信封而非壳内查表：排队 / in
 - cr-546：D11 归档全壳内（archive 改树入壳——timer archive-all 改批量唤醒信）。
 - cr-565：D12 会话覆盖写权归宿主（conv-settings 改树入宿主 + 壳只读垫片；模型覆盖经
   deliver 合并点随信封换轨到壳内 run 装配）。
+- cr-672：D13 会话标题生成归壳、写权归宿主（auto-title 壳行 + title-request 信封 +
+  标题词法下沉 ac-core-utils 单源；派生面改用户行优先）。
 
 ## 本档案纪律
 

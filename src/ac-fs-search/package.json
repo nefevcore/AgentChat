@@ -12,6 +12,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
+    "@vscode/ripgrep": "1.18.0",
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-sandbox-core": "workspace:*",

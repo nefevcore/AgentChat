@@ -17,6 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 import { createClient, type Fiber, type RpcClientFace } from 'ac-client-runtime';
+import { closeRunningToolCalls } from 'ac-client-ui-conversation/client/feed.ts';
 import { RunsClientService, runviewClientPlugin } from 'ac-client-ui-runview/client';
 import { createFeedCore } from 'ac-client-ui-conversation/client/feed-core.ts';
 import { RosterCore } from 'ac-client-ui-agents/client';
@@ -212,6 +213,42 @@ describe('③ feed-core · onOpen 历史对账', () => {
     const hist = rpc.seen.find(([m]) => m === 'session/history');
     expect(hist).toBeTruthy();
     expect((hist![1] as { conversationId: string }).conversationId).toBe('s1');
+  });
+
+  it('重连复位全局忙态（cr-659：断线窗口收束帧丢失时忙态不死锁）', async () => {
+    const rpc = makeFeedRpc();
+    const { roster, feed } = bootFeed(rpc.impl);
+    roster.activeAgentId.value = 'alpha';
+    // step-started 直播帧点亮忙态（模拟运行中断连——收束帧将丢失）
+    feed.ingestFrame('loop/step-started', ['alpha', 0, null, { conversationId: 'alpha~user', runId: 'r1' }]);
+    expect(feed.turnInProgress.value).toBe(true);
+    rpc.open(); // 重连
+    await nextTick();
+    expect(feed.turnInProgress.value).toBe(false);
+  });
+
+  it('重连收口运行中工具卡与 subcall 流式消息（cr-660：断连丢失 after-execute 帧不永转）', async () => {
+    const rpc = makeFeedRpc();
+    const { roster, feed } = bootFeed(rpc.impl);
+    roster.activeAgentId.value = 'alpha';
+    // run 步开跑 + run_code 子调用 running 占位（restart_host 场景：执行窗口
+    // 宿主退出 → after-execute 帧丢失）
+    feed.ingestFrame('loop/step-started', ['alpha', 0, null, { conversationId: 'alpha~user', runId: 'r1' }]);
+    feed.ingestFrame('tool/started', [{ agentId: 'alpha', conversationId: 'alpha~user', toolCallId: 'sc1', name: 'restart_host', runCodeSubcall: true, runId: 'r1' }]);
+    const raw = feed.getRaw('pair:alpha|user' as never);
+    const subcallMsg = raw.find((m) => (m as { subcall?: boolean }).subcall === true);
+    expect(subcallMsg).toBeTruthy();
+    expect((subcallMsg as { isStreaming?: boolean }).isStreaming).toBe(true);
+    rpc.open(); // 重连
+    await nextTick();
+    expect((subcallMsg as { isStreaming?: boolean }).isStreaming).toBe(false);
+    // 直调工具 running 卡的收口（helper 直测——帧路径不产模型侧卡）
+    const card = { id: 'c1', running: true, result: '' };
+    const done = { id: 'c2', running: false, result: 'ok' };
+    closeRunningToolCalls([{ id: 'm', role: 'agent', content: '', isStreaming: false, toolCalls: [card, done] } as never]);
+    expect(card.running).toBe(false);
+    expect(card.result).toContain('断连中断');
+    expect(done.result).toBe('ok'); // 已收口卡不动
   });
 
   it('无活跃对话 → 重连不发起任何历史请求', async () => {

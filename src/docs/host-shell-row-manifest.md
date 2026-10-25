@@ -50,7 +50,8 @@
 | 数据服务 | timers | ac-timer | 定时唤醒（唤醒 = 投递信） | 沿用 |
 | 数据服务 | usage | ac-usage | 计费聚合（对账 ledger 自报事件信；另收 job 观测快照镜像） | 改造 |
 | 数据服务 | ~~archive~~ | — | **已改树（cr-546，2026-10-19，裁决 D11「全壳内」）**：归档编排（阈值检测/整理 run/归档重建）全链住壳——整理 run = LLM 编排只能住壳（R0a 判据 1，与 session-query 同判据）、归档重建 = 写归属 agent 账本（D4 写权 = 账本所有权）；宿主零 archive 职责，timer 的 archive-all 机制任务改批量唤醒信（宿主只发信——A13/D11）。已移入 R2 域服务（宿主 46→45 / 壳 35→36，总数 81 恒等） | 改树（D11） |
-| 数据服务 | singles | ac-singles（preview 形态 = ac-host-rows/singles-row.ts + ac-ledger 管理面） | **独立会话元数据写面**（cr-566）：owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全） |
+| 数据服务 | singles | ac-singles（preview 形态 = ac-host-rows/singles-row.ts + ac-ledger 管理面） | **独立会话元数据写面**（cr-566）：owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全）；**cr-672 标题面**：生成归壳（auto-title 行）、写权归本行——标题请求信经 HostInbox 受理，write-if-absent 落盘（用户手改 / fork 继承不覆盖）；派生标题改「用户自己的首条发言」优先（旧实现取首条非空内容行：对端台词 / 定时触发词 / DSML 残片都会变标题），CRLF 剥尾、日期快照行跳过、材料行筛选（附件路径 / @ 引用 / URL 行不是发言）、上限与
+生成面同源（24 字） |
 | 数据服务 | conv-settings | ac-conv-settings | **会话级覆盖写面**（模型 / 工具档 / 实验键）：写者单源 = 宿主 web RPC（输入框模型菜单、设置面板），壳经数据根垫片只读直取（cr-565，2026-10-22）。模型覆盖经 deliver 合并点随信封投递（显式入参 > 存盘覆盖），壳内 run 装配按信封 model 取 provider/model | 改树（cr-565——写权 = 用户动作面住宿主；读面壳垫片） |
 | 数据服务 | group | ac-group（preview 形态 = ac-host-rows/groups-row.ts + ac-post-office 扇出） | **群存储写面**（cr-576，2026-10-22）：owns `groups/<gid>/group.json`（GroupConfig 成员表 + 名称/简介）；`group/list|create|delete|join|leave|rename|set-description|send|history` 九方法 + 六变更帧广播（group/created 等 → 前端列表刷新）+ group/message-posted；send = **信封扇出**（除发送者外每成员一封，uuid = 成员流键 `gid~<member>`——主线 memberStreamKey 同形；不可达走发件箱 + ensureHook 拉壳转投）；history = 全成员流合并读面（跨流同 requestId 去重 + 成员终稿各留各）；多发送方 uuid 登记 = 群行按全名册（members ∪ user）预登记每条成员流 + registry 子集一致校验（cr-576——conflict 只拦名册外端点） | **新增**（cr-576——group 域 RPC 收口） |
 | 数据服务 | backup | ac-backup | 数据轴备份 + 快照链 GFS（分轴共行） | 改造（吸收 snapshot-chain） |
@@ -61,7 +62,7 @@
 | 远程 | remote-link | ac-remote-link | 远程链路 | 沿用 |
 | ui | ui 域行 ×25 | ac-client-ui-* | 域卡片行（卸载 → 该域卡片回落文本渲染）；id 清单以 yml 为准（31 − 骨架 6；骨架经 ui 树解构为协议 3 件入 ac-webui，conversation/settings/tool 转模块资产——ui-tree.md §2）；**25 域行已 manifest 声明化上通道（cr-533，2026-10-19）——preview/apps/ui/channel/ 通道包 + channelImports 深路径外部化（共享基座 importmap 单例契约），生成器 --check 对账** | 已声明化（cr-533） |
 
-# R2. 壳树（36 行 = 基座 2 + 账本会话 3 + 模型编排 3 + 装配链 3 + 任务追踪 2 + 工具面 16 + 域服务 6 + 评测 1）
+# R2. 壳树（38 行 = 基座 2 + 账本会话 3 + 模型编排 3 + 装配链 3 + 任务追踪 2 + 工具面 16 + 域服务 8 + 评测 1）
 
 > cr-520（2026-10-18）勘误：dev-tools 行剔除（宿主开发工具——热重载/日志导出属
 > 宿主运维面，R0a 判据 6 归宿主；壳行集无对应消费面）。工具面 16→15。
@@ -82,6 +83,8 @@
 | 域服务 | plugin-dev | ac-plugin-registry（工具面）+ ac-plugin-core（纯库） | **插件开发三件套**（cr-553，8.9 前置余件②收口——cr-540 遗留②）：register_plugin / install_plugin / unregister_plugin 三工具住壳（R0a 判据 1 工具只能由壳内 agent-loop 执行；主线 ac-plugin-registry 行拆两半——工具面归本行，安装态写者归宿主 plugin-registry 行）。形态：register = 会话级装载壳内自持（ctx.plugin dynamic import——cr-543 assemblePluginRow 同款，重启即失零宿主参与）；install/uninstall 永久档 = M11 语义化中断上报意图 → loop/after-run 收束检测 → plugin-request 信封（envelope-core 新 schema）→ 宿主 HostInbox 受理（免审安装 = stage+approve 主线 installFromDir 文件域语义 + 幂等对账；卸载 = uninstall）→ 回执信（receipt 落原会话）+ 续跑信（message 驱动下一轮——主线 receiptAndRetrigger 同义）；本壳内 install 后立即会话级装载（装好即可测试主线产品语义保住）。preview 侧落地 = ac-shell-rows/plugin-dev.ts + ac-host-rows/plugin-registry-row.ts 受理面；壳 36→37（总数 81→82——全新行） | **新增** |
 | 域服务 | durable-interaction / ask-questions | ac-durable-* | 交互承重（数据化 boot；审批 = user 端点消息） | 改造 |
 | 域服务 | jobs | ac-jobs | 后台任务基座（worker = 壳子进程；完成 = 进程内事件直投 inbox；跨壳走邮局信；观测自报快照信——裁决簿〈jobs 归属〉） | 沿用（吸收 job-wakeup） |
+| 域服务 | restart | ac-shell-rows | **安全重启双件**（cr-629，2026-10-24 补记）：restart_shell（cr-658 自然收束语义——只挂标记不中断 run，收束后 exit 42，宿主重拉 + 新壳注入「已重启」开续跑轮）/ restart_host（信封请求宿主 graceful 重启，保壳保 run）；bundle = creator（创造预设专属） | **新增**（吸收 restart 域工具面；宿主进程生命周期仍归 guardian 行） |
+| 域服务 | auto-title | ac-shell-rows + ac-core-utils | **会话命名**（cr-672，2026-10-24，裁决 D13）：`loop/run-started` 暂存 → 首个 `loop/after-step` 结合 Agent 首步思考/正文 LLM 一句概括 → **标题请求信**（`ac-envelope-core/title-request`，uuid = `title-<会话键>` 的 host 请求域独立键）→ 邮局 → 宿主 singles 行 `HostInbox` 受理 → `session.json` **write-if-absent** 落盘 + `singles/updated`；`loop/after-run` 兜底截断回落。只命名用户会话（run source='user'）——agent↔agent / 机制 run 归宿主派生面；无邮局（CLI 直连）形态不命名。标题词法（上限 24 / 提示词 / 清洗 / 截断回落 / 日期快照前缀）单源 = `ac-core-utils/session-title.ts`（主线 ac-singles 与 preview 派生面同口径）。**恒并基座**（rowset 四条 seat 行新增第五条）：无 tools / 无 requires、不在工具标签面——不恒并则点名形态壳内零命名 | **新增**（主线 ac-singles 自动标题的 preview 形态——生成归壳、写权归宿主） |
 | 评测 | bench | ac-bench | 评测域（影子壳跑 bench 门，R-8 快速通道） | 沿用 |
 
 # R3. 非行形态
@@ -210,7 +213,8 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
   全新行与 tools 门承接）+ 4 新增 + 2 基座双计 − 1 勘误剔除（dev-tools）= 81 = 47 + 34（cr-520）；
   cr-553 起 + 1 全新增（plugin-dev）= 82；cr-565 起 conv-settings 改树入宿主
   = 82 = 宿主 46 + 壳 36；cr-566 起 singles 全新增 = 83 = 宿主 47 + 壳 36；
-  cr-576 起 group 全新增 = **84 = 宿主 48 + 壳 36**。
+  cr-576 起 group 全新增 = **84 = 宿主 48 + 壳 36**；cr-629 restart 全新增 =
+85 = 宿主 48 + 壳 37；cr-672 auto-title 全新增 = **86 = 宿主 48 + 壳 38**。
 - M8.2（cr-523，2026-10-18）：8.1 收敛完毕——34 壳行全部可装配（collab-tools
   随 conversation 服务面落地导入；subagent 归 8.3 spawn 工具面）。M5 替身
   ac-shell-loop 退役删除（全量 loop = 主线 ac-agent-loop 真身，boot 直装）。

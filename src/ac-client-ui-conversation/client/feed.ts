@@ -556,6 +556,25 @@ export function closeAllStreaming(msgs: ChatMessage[]): void {
   for (const m of msgs) { if (m.isStreaming) m.isStreaming = false; }
 }
 
+/** 收口运行中工具卡（cr-660 重连清理面）：tool/after-execute（含
+ * run_code subcall 结果帧）是旁带瞬态帧——断连窗口丢失后卡片 running
+ * 永真（转圈不死）。重连即收口：running=false + 空结果补断连标注
+ *（非空结果也置位防 onToolProgress 按「结果为空」重开）；subcall
+ * 独立消息随消息级 isStreaming 同步关闭。权威结果由后续帧/收束重拉
+ * （settlement reload 换权威行）补齐。 */
+export function closeRunningToolCalls(msgs: ChatMessage[]): void {
+  for (const m of msgs) {
+    // 宽松类型（feed-core toolCallsOf 同款）：running/result/preparing 是
+    // 直播运行期字段，不在 ToolCall 契约上
+    for (const tc of (m.toolCalls ?? []) as any[]) {
+      if (!tc.running) continue;
+      tc.running = false;
+      if (tc.result === undefined || tc.result === '') tc.result = '（断连中断——结果以刷新后为准）';
+    }
+    if (m.subcall && m.isStreaming) m.isStreaming = false;
+  }
+}
+
 /** 附件引用数组 → ChatMessage.files（多模态 M3/M4：text=ref 即 workspace
  *  路径，chips 点击预览/图片缩略图共用；无合法项 → undefined 不落键） */
 export function attachmentFilesOf(

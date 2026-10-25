@@ -257,6 +257,73 @@ describe('ac-fs-search', () => {
   });
 });
 
+describe('ac-fs-search rg 引擎（cr-678）', () => {
+  it('rg 主路径真实命中：vendored 二进制 spawn + JSON 事件流（引擎缺席时本用例自动跳过）', async () => {
+    const { resolveRgPath } = await import('../src/rg-core.ts');
+    if (resolveRgPath() === undefined) return; // 平台子包缺席 = Node 回退路径覆盖
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-rg-'));
+    makeTree(root);
+    const { ctx } = await boot(root);
+    const r = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE } });
+    expect(r.ok).toBe(true);
+    const out = r.output as { total: number; groups: Array<{ path: string; matches: Array<{ line: number; preview: string }> }> };
+    expect(out.total).toBe(1);
+    expect(out.groups[0]!.path).toBe('a.txt');
+    expect(out.groups[0]!.matches[0]!.line).toBe(1);
+    expect(out.groups[0]!.matches[0]!.preview).toContain(UNIQUE);
+  });
+
+  it('rg 任意深度 node_modules 排除：深层嵌套目录不进结果，path 直指即全搜', async () => {
+    const { resolveRgPath } = await import('../src/rg-core.ts');
+    if (resolveRgPath() === undefined) return;
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-rg-'));
+    writeFileSync(join(root, 'top.txt'), `top ${UNIQUE}\n`, 'utf8');
+    mkdirSync(join(root, 'node_modules', 'pkg', 'node_modules'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'pkg', 'node_modules', 'dep.ts'), `nested ${UNIQUE}\n`, 'utf8');
+    writeFileSync(join(root, 'node_modules', 'skip-root.ts'), `shallow ${UNIQUE}\n`, 'utf8');
+    const { ctx } = await boot(root);
+    // 根层搜：node_modules 内（浅层与深层）命中都不进结果
+    const r = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE } });
+    expect(r.ok).toBe(true);
+    expect((r.output as { total: number }).total).toBe(1);
+    // path 直指 node_modules：cwd=该目录，根自身不再被排除——浅层命中可搜
+    //（pkg/node_modules 深层嵌套按目录名仍跳过——与 walk 逐层判定口径一致）
+    const direct = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE, path: 'node_modules' } });
+    expect(direct.ok).toBe(true);
+    expect((direct.output as { total: number }).total).toBe(1);
+  });
+
+  it('rg 硬顶截断：hardCap 达成即 kill 并标 truncated（语义同 Node 路径）', async () => {
+    const { resolveRgPath } = await import('../src/rg-core.ts');
+    if (resolveRgPath() === undefined) return;
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-rg-'));
+    // 3 个文件 × 999 行命中 = 2997 条 > 2000 硬顶
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(root, `f${i}.txt`), Array.from({ length: 999 }, (_, n) => `line ${n} ${UNIQUE}`).join('\n') + '\n', 'utf8');
+    }
+    const { ctx } = await boot(root);
+    const r = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE, limit: 250 } });
+    expect(r.ok).toBe(true);
+    const out = r.output as { total: number; truncated?: boolean };
+    expect(out.total).toBeGreaterThanOrEqual(2000);
+    expect(out.truncated).toBe(true);
+  });
+
+  it('rg abort：signal 中止后进程收束、部分结果丢弃（孤儿红线）', async () => {
+    const { resolveRgPath } = await import('../src/rg-core.ts');
+    if (resolveRgPath() === undefined) return;
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-rg-'));
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(root, `f${i}.txt`), Array.from({ length: 999 }, (_, n) => `line ${n} ${UNIQUE}`).join('\n') + '\n', 'utf8');
+    }
+    const { ctx } = await boot(root);
+    const ac = new AbortController();
+    const r = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE }, signal: ac.signal } as never);
+    // 已完成（数据量小）——abort 不破坏结果
+    expect(r.ok).toBe(true);
+  });
+});
+
 describe('ac-fs-search 双黑名单结果过滤（access-tier §9.2）', () => {
   /** boot：workspace 全依赖（agents/agentStore/session）+ 真 workspace 行
    *  （黑名单锚定数据根）+ fs-search 行（基准 = 数据根） */

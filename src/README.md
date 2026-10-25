@@ -571,7 +571,9 @@ src/
 │                            感知基线）/edit + @<路径> 引用约定
 ├── ac-fs-search/            检索：glob（mtime 排序/上限 100）+ grep（正则/include
 │                            过滤/二进制跳过/上限 250/fixed 字面量直通/近邻目录
-│                            建议）；结果集过滤双黑名单；walk 缺省跳构建产物目录
+│                            建议）；结果集过滤双黑名单；grep 主路径 spawn
+│                            ripgrep（@vscode/ripgrep vendored，rg-core.ts；
+│                            不可用时回退纯 Node 遍历）——glob 仍走 walk（mtime 刚需）
 ├── ac-str-replace-editor/   四合一编辑器：view/create/str_replace/insert（写经突变
 │                            队列；requiredTags ['fs_minimal']）
 ├── ac-shell-tools/          命令执行（平台拆分 2026-09-16）：pwsh（Windows；
