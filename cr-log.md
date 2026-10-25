@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-637**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-679**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -651,6 +651,49 @@
 - 【cr-631 2026-10-24 孤儿 run 可见性持久化补环（cr-628 后续）：web-api 孤儿投影以未收束为门控——新壳 boot recoverOrphanRuns 补 settled 后投影让位而 viewer run 键行从未落过（壳死时 postReply 未跑），steps 会二度消失。补：收口时经邮局向 user 壳补投空文本 run 键锚信（writeThrough 落 viewer 行，cr-595 同通道 D4 单写者不破；盘上 viewer 行在场即跳过防重，仅本 boot 收口的用户 run 补投——机制 run 不经此面）】
 - 【cr-632 2026-10-24 cr-631 补投判定 broaden：本 boot 收口门控漏「已收口未锚定」存量（活体实锤：活壳先跑旧码收口 7zs1，新码锚信永远不投）。锚定判定改链接制——anchorableRuns 纯函数：有步行 + viewer 无锚 + run=run-<requestId> 且该 requestId 在本会话账本有入站行（消息 run 判别；机制 run 无对应入站行天然排除）】
 - 【cr-633 2026-10-24 restart 行工具面收窄到创造预设（用户裁决）：基础行（全缺省壳可见）→ bundle 化离开基础集 + creator 模板 tools 点名引入（plugin-dev 同款惯例；__standard__ 17 行清单本就未含）+ 活体 __creator__ config 同步补行】
+- 【cr-634 2026-10-24 （墓碑——与 cr-633 同文的重复登记，原行在 cr-639 会话前的清理批被整行误删；号永不复用，留位保序列连续）】
+- 【cr-635 2026-10-24 （墓碑——与 cr-633 同文的重复登记，原行在 cr-639 会话前的清理批被整行误删；号永不复用，留位保序列连续）】
 - 【cr-636 2026-10-24 answered 交互 boot 重放面——ask-questions late-reply 跨壳重启恢复（answered+ask_questions+owner=self 未消费记录重投 deliver，转录 id 扫描去重）】
 - 【cr-638 2026-10-24 answered 重放自激回环根因修复：late-reply 重放把「信源」当「回信目标」——sender=owner（保账本投影）使 driveRun 收束点 postReply(env.sender) 投回自身端点（落账成入站 message）→ 再拉一轮 run，自答循环（用户侧收不到终稿，只因预算衰减才停）。修：Envelope 增 replyTo（显式回信目标）+ replyTargetOf 纯函数（replyTo 优先 → sender；= 自身返 null）+ 重放面 replyTo:user + postReply 自回环防线（stderr 留痕）。活体实锤：__standard__ 会话 01a1681b 账本 reply-late-reply-dur-mvkst4pm 同文两行（seq 234 带 run / seq 236 无 run）+ journal 尾段 run-reply-late-reply 真跑——正是「我的终稿被投回自己当新输入」】
 - 【cr-637 2026-10-24 标准预设工具面复核：cr-615/625 裁决落实确认——出厂模板 templates/standard 17 行（含 collab-tools）、活体 agents/__standard__ 16 行（去 memory/collab，留 browser/math/mcp/datetime），派生 27 名/0 warnings、产品生效面 agents/tool-defs 实测 18 词（无 adt_*/bench/harness/plugin-dev）；datetime=提示注入行、mcp=接入服务行，两者零工具名；run_code 属 injection=mode（会话切程序化模式才现）。活体描述去「协作」词对齐实际行集；preview 定向 25 测 + typecheck 0】
+- 【cr-639 2026-10-24 续聊中断会话三症状根因修复：①driveRun 当前消息重复投喂（deliverRow 已落 user 行，historyFor 复读后再 append 同文本——模型收双份，01a16af1 probe 实锤）；②事件链 ctx.tools 未声明 inject——conversation 行 run 装配在事件派生异步链（late-reply 唤醒）里抛 "cannot get property tools without inject" 被 .catch 静默吞 = 唤醒 run 从未拉起（cr-636 报告/run 7vmy 丢失同根因），inject 补 'tools'；③在途信封 at-least-once——run 起步入 inbox durable、收束即清（硬杀不再蒸发，下代 recoverPendingInbox 重投续跑）+ 恢复面补行门（盘面 requestId 查重，行缺席才补写）】
+- 【cr-640 2026-10-24 中断 run 步级工作对 Agent 上下文不可见（主线段行物化语义补齐）：journal 步行有 55 步、前端 steps 联查正常，但 replayView 只投影 messages 终稿行——空终稿被过滤 = 下轮 run 对中断前工作完全失忆。修 = 空终稿收束（interrupted/无文本 error）与孤儿收口时把 journal 步行物化为 assistant 段行入 messages（无 run 键——UI steps 联查仍走 journal，不双渲染；正常终稿 run 维持 D4.2 终稿层语义不膨胀上下文）】
+- 【cr-641 2026-10-24 restart_host R-1 uuid 冲突根因修复：壳→host 控制信封 uuid 复用会话键在已有 user↔agent 流量的会话必撞 registry participants 子集判定（incoming [sender,host] ⊄ [user,agent] → conflict fail-loud，ipc onFrame 空 catch 静默吞信）——e2e 用新鲜 uuid 首登不撞故漏测。修 = restart.ts 信封 uuid 换独立 host 请求域键 restart-host-<会话键>（首登 [sender,host] 恒 consistent）；外部帧协议探针实测修复生效（宿主 exit 42 换代）。文件：preview/packages/ac-shell-rows/src/restart.ts】
+- 【cr-642 2026-10-24 宿主收编壳 spawn 不 detached 根因修复：宿主 exit 42 时 Windows Job 对象/控制台组连带杀全部子壳——restart_host(或宿主崩溃)后所有壳换代重启，违反「保壳保 run」承诺。修 = orchestrate.ts defaultSpawn 加 detached: true（壳独立进程组，宿主死壳存活）；host-revive spawn 宿主同款已是 detached。文件：preview/apps/host/orchestrate.ts】
+- 【cr-643 2026-10-24 壳拉起 argv 丢失热修：cr-641/642（未登记的在工作树改动——orchestrate.ts detached 进程组改造）把 spawn(cmd, args, opts) 写成 spawn(cmd, opts)，壳全部裸 AgentChat.exe 启动（无 argv 不 boot）→ 零注册 → 全部投递积压 outbox、前端消息无法唤起会话。恢复三参形态，detached 语义保留】
+- 【cr-644 2026-10-24 restart_host 修复后活体实测通过：uuid 域拆分（cr-641）+ spawn detached（cr-642）+ argv 三参恢复（cr-643）三层修复叠加后实测——程序内串行调 restart_host：宿主 pid 25364→14220 换代（exit 42 快路 supervisor 重拉 4s），观察窗 healthz 断-复正常、supervisor/其他壳存活，发起调用的 run 全程存活出结果（保壳保 run 兑现，cr-639 重投链此前已三中断实战验证）。旧拓扑下「宿主重启=全壳连坐死」的根因即 cr-642 缺 detached】
+- 【cr-645 2026-10-24 restart 双件第二次实测：restart_host 复验（cr-644 后）+ restart_shell 首次活体验证（遗留项）】
+- 【cr-646 2026-10-24 restart dual-tool live testing round two: restart_host re-verification + restart_shell generational-change continuation】
+- 【cr-647 2026-10-24 restart_host 活体实测双缺陷根因修复：①壳侧 host-revive 抢跑 supervisor（stdin EOF kick 绕过探测节拍，宿主 exit 42 当刻即 spawn）→ supervisor 重拉宿主撞 EADDRINUSE 退出 78 → 监督栈永久消失（终端拓扑下连带全壳死）；修 = supervised 档复活宽限 10s（AGENTCHAT_SUPERVISED 透传），supervisor 快路 1.5s+boot 先赢 ②宿主换代后可达表空白，ensureHook 救援挂在 adopt 错误文本匹配（真链 adoptShell 只产「壳进程早退 code=」，壳内「activation 锁被进程」永不达）→ 救援恒不触发、活壳消息滞留 outbox；修 = ensureHook 前置读 activation.lock 探活回登记 + flushOutbox】
+- 【cr-648 2026-10-24 restart 链路消息面双缺口根因修复：①直投失败（陈旧 transportHint）只落 outbox 不摘除可达项也不触发拉起 → 壳死主机不知情后每封新信静默入箱无人重拉（B2 现场「nudge 也唤不起」）；修 = 失败即 markGone + store 后 ensureHook（与不可达同链）②宿主换代后活壳只在可达表不在句柄池（救援只回登记不接管），该壳 restart_shell 的 exit 42 无人 respawn → 在途消息滞留 inbox 直至下一条新消息；修 = 壳侧退出前向宿主发 restartShell 请求 + 宿主 1.5s 后轮询锁至 holder 死再 ensureAgent（有句柄则让 warden 快路，幂等）】
+- 【cr-649 2026-10-24 restart 双件二次稳定性实测（restart_host + restart_shell 活体复测）】
+- 【cr-650 2026-10-24 restart_shell 在「恢复面拉起的 run」内失效根因修复（01a16bfc 实锤）：run 由 recoverPendingInbox 重投（recovered=true）→ 收束点在途信封回队 inbox 后，receiveEnvelope 的「恢复面消费即清」在本轮返回后照常 inboxClear，把刚回队的信删掉 → 新壳 boot 恢复面读空、run 不续跑（壳本身已正常换代）。修 = driveRun 增 restarted 结果，恢复面清行门跳过 restarted（回队即下代消费，不得当已消费清）】
+- 【cr-651 2026-10-24 restart 双件第三次活体实测（restart_shell 正常/恢复面两路径 + restart_host 保壳保 run），测试留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-652 2026-10-24 restart 双件第四次活体实测（新会话继承上轮工作树）：restart_shell 正常/恢复面两路径 + restart_host 保壳保 run 复核，留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-653 2026-10-24 restart_shell 续跑「像新会话/丢历史」根因修复：中断 run 的步行物化只取 content，工具密集 run（content 恒空、只有 reasoning/toolCalls）零段行入 messages → 重投后模型上下文只剩用户消息（01a16c53 实锤：技能二次加载）。修 = stepSegmentsOf 对空 content 步渲染「推理 + 行动（工具名/参数）」，单段 2k/总预算 20k（超限裁最早步），recoverInterrupted 同源受益】
+- 【cr-654 2026-10-24 restart 双件活体实测（第三次用户任务：新会话 host→shell 双路径复核，留档 preview/sandbox/restart-lab-20261024/）】
+- 【cr-655 2026-10-24 restart 双件第五轮活体实测（__creator__ 会话 01a16c53：restart_host 宿主换代 + restart_shell 恢复面重投续跑复核），留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-656 2026-10-24 restart_host 同一壳第二次调用恒失败根因修复（活体实锤）：restart.ts 惰性缓存邮局 uplink 不随宿主换代失效——宿主 exit 42 带走旧连接后仍复用，同壳再调恒「This socket has been ended by the other party」；修 = 每次调用独立连接、发毕即关（boot.ts notifyHostRestartShell 同款形态）+ 失败回执改软失败语义 + 回归测试（旧监听关闭/新监听接管后二次调用仍送达）】
+- 【cr-657 2026-10-24 restart 双件第七轮活体实测（__creator__ 会话 01a16c53 跨代续跑）：restart_host 同壳连调两次均换代成功（cr-656 修复后对照）、restart_shell 壳 43212→24316 而宿主 39648 全程未动（healthz uptime 连续无断点）原消息重投续跑，留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-658 2026-10-24 restart_shell 改自然收束后重启：requestRestart 不再中断 run；轨迹完整性读侧修复（ledger historyMessagesFor 从 journal 重建 LlmMessage[]）；「已重启」注入信封照 timer/goal 桶对端设计；cr-650 restarted 特判与 cr-653 摘要物化退役】
+- 【cr-659 2026-10-24 restart_host 前端断连信息丢失：宿主 boot 换代活壳收复（扫 activation.lock 探活 → 可达登记 + 旁带流 re-tap）；前端 onOpen 补 turnInProgress 复位（断线窗口收束帧丢失时忙态不死锁）】
+- 【cr-660 2026-10-24 重连清理面补工具卡收口：closeAllStreaming 只关消息级 isStreaming，断连窗口丢失 tool/after-execute（含 subcall 结果帧）后工具卡 running 永真（restart_host 执行窗口杀宿主实锤）——onOpen 清理对全部分区收口运行中工具卡与 subcall 流式消息】
+- 【cr-661 2026-10-24 restart 双件第四次活体实测（cr-659 后首次）：restart_host 同壳两次换代保壳保 run + 换代后活壳直播帧收复（WS 探针实证）+ restart_shell 自然收束兑现（壳 30472→45920、宿主 43388 全程未动、复活标记自清、「已重启」注入开续跑轮、终稿恰好一次）；附带定位到测试前 14:21 creator 壳 26740 崩死引发的崩溃路径中断（孤儿收口 + inbox 重投从 step 0 重跑）】
+- 【cr-662 2026-10-24 诊断面（leftovers B1+B2）：壳 stderr 管道消费——defaultSpawn 按行转发宿主+滚动落 dataRoot/.runtime/logs/shell-<agent>.log+退出现场（code/signal+stderr 尾行）进 supervise 事件面；host-revive 复活宿主 stderr 落 ts 日志；supervisor 宿主 stdio inherit 改 tee 落日志】
+- 【cr-663 2026-10-24 restart 标记/重拉单一仲裁（leftovers C1）：orchestrator ensureAgent 在飞去重（并发触发面共享一次拉起——同宿主双拉根因）；宿主 boot 扫 restart-shell 标记原子领取（rename .claimed，失败回滚）+TTL 10min；壳 boot 自清认领文件名（保 cr-658 conversationId 注入）】
+- 【cr-664 2026-10-24 restart_shell 双防（leftovers D4/D5）：同轮重复调用直接返回已排程态（行内旗标，不再触服务面）；CLI 直连形态（无邮局）fail-loud 拒绝（退 42 无人重拉）】
+- 【cr-665 2026-10-24 B3 临时文件锚定：preview vitest setup 把 TEMP/TMP 指到 preview/sandbox/tmp（测试树及子进程不再写本机 %TEMP%——cr-593 同域瞬时 EPERM 规避；产品路径无 %TEMP% 写点已核实）】
+- 【cr-666 2026-10-24 C2 boot 收尾一致性对账：conversation 服务 reconcileUndelivered——末段入站 user 行无 run 轨迹/不在队列与收件箱（crash 窗口只落账未执行）确定性补投；boot 恢复链兜在 inbox 恢复后】
+- 【cr-667 2026-10-24 A1/A2 中断 run 原地续跑（design-run-resume.md 落地）：resumeContextOfRun 纯函数（未提交调用合成结果未知错误——不做 at-least-once 重执行）；ledger resumeStateFor/pendingInboxRequestIds + recoverOrphanRuns defer；driveRun resume 前缀装配 + maxSteps 剩余额度；恢复面续跑分支 + context-injected(resume) 标注；降级退回重投】
+- 【cr-668 2026-10-24 mock provider 延迟档：AGENTCHAT_MOCK_DELAY_MS 环境变量（首流前挂起——活体诊断/restart 实验造 mid-run 窗口，D1 复验用）】
+- 【cr-669 2026-10-24 品牌 exe 诊断旁路：AGENTCHAT_NO_BRANDED_EXE=1 时壳/复活宿主回落 node 本体（DSH 沙箱拒未知镜像 exe 连 named pipe——EPERM probe 实锤；真机不受影响，活体验证诊断档）】
+- 【cr-670 2026-10-24 supervisor argv 透传修复：无值旗标（--mock-provider 等）被成对消费循环丢弃——宿主收不到诊断档标志（活体 D1 复验抓到：壳零 provider、run 瞬间 error）。改为逐项扫描：--data-root 取值消费、值形参数成对透传、无值旗标单独透传】
+- 【cr-671 2026-10-24 mergeHistory 首屏 inFlight 分支终稿行去重失败致消息乱序修复：同锚 message_id 覆盖 + 内容等值兜底】
+- 【cr-672 2026-10-24 preview 会话标题生成修复：壳侧 auto-title 行（首步后 LLM 一句概括 → title-request 信封请求宿主 singles 行 write-if-absent 落盘 + singles/updated，行集 86 = 宿主 48 + 壳 38、rowset 恒并基座第五条）+ 标题词法下沉 ac-core-utils（上限/提示词/清洗/截断回落/材料行筛选单源，含 CRLF 首行脏尾修复；派生面改用户行优先并跳过路径/@ 引用/URL 行——存量 192 会话标题同形路径簇归零）+ 裁决簿 D13】
+- 【cr-673 2026-10-24 fix(preview): ui 树入口补 badge.css——徽章三族（.ui-badge 状态/标签/类型徽记）+ 头像角标 + tt-* 色相整族裸奔根因（cr-577 只补令牌层，导入面子集口径把 badge 记为「零消费」而实际 9 个行包在用）；新增导入面守门测试对齐 kit css 导出四层】
+- 【cr-674 2026-10-24 preview 名册第三道闸：派生（物化子）身份不进 agents/list——sub-* 子身份经运行期兜底 config 混入前端 Agent 列表】
+- 【cr-675 2026-10-24 preview 控制面与拉起所有权解耦：壳 admin/preview 控制帧改经 transportHint socket manage 通道（编排面 control 统一入口 = 句柄池 → 盘上活锁壳 → 按需拉起），修 system prompt 预览偶发「壳进程早退 code=1 / activation 锁被拒」】
+- 【cr-676 2026-10-24 preview 工作区文件面落地：宿主 web-api 补 /api/workspace/tree|file|raw + /api/upload 四端点（前端树面板/文件预览/附件上传此前落 no api route 404）——语义照搬主线 ac-workspace（树基准三级优先序/读面两段定位/raw ETag/上传内容寻址），纯函数面住 ac-host-rows/workspace-files.ts；同批并源：face-ops 工作区根推导取单源、open-dir 补 workspaceId/会话树基准、工作区登记原子写改 renameWithRetry（Windows 瞬时占用 flake）】
+- 【cr-677 2026-10-25 运行跟踪面板双区修复：subagents/list RPC（跨父盘读聚合）+ job/started·settled、subagents/updated 帧链（壳旁带→宿主桥接）——前端 jobBoard/subagentBoard 零改动点亮】
+- 【cr-678 2026-10-25 fs-search grep 引擎升级：vendor @vscode/ripgrep（spawn rg 主路径 + 纯 Node 回退），输出契约冻结——治 node_modules 大树串行遍历超时】
+- 【cr-679 2026-10-25 cr-639…678 批次入库：.pnpm-store/.runtime gitignore 卫生 + 按域切分 commit + 验证阶梯过门回写】
