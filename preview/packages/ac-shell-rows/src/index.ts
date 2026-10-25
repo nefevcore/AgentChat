@@ -169,3 +169,6 @@ export type { PluginDevRowOptions } from './plugin-dev.ts';
 // 请求宿主 graceful 重启）
 export { makeRestartRow } from './restart.ts';
 export type { RestartRowOptions } from './restart.ts';
+// 会话自动命名行（cr-672）：首步后 LLM 一句概括 → 信封请求宿主 singles 行落盘
+export { makeAutoTitleRow } from './auto-title.ts';
+export type { AutoTitleRowOptions } from './auto-title.ts';

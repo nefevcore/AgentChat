@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   createHostReviveState, tickHostRevive, reviveBackoffMs, startHostRevive,
-  hostStampPath, hostReviveLockPath, type HostReviveDeps,
+  hostStampPath, hostReviveLockPath, spawnHostProcess, type HostReviveDeps,
 } from '../host-revive.ts';
 
 const ROOT = path.join('preview', 'sandbox', 'test-host-revive-' + process.pid);
@@ -111,6 +111,25 @@ describe('tickHostRevive 纯域', () => {
     expect(fake.lockCalls).toBe(1);
   });
 
+  it('supervised 让路窗（cr-647）：失联确认后宽限内不拉起，宽限过才拉', async () => {
+    const fake = makeFake();
+    const state = createHostReviveState(fake.clock);
+    const config = { reviveGraceMs: 10_000 };
+    fake.probes.push(down);
+    await tickHostRevive(state, fake.deps, config); // 首败
+    fake.probes.push(down);
+    await tickHostRevive(state, fake.deps, config); // 确认失联 → 宽限内
+    expect(fake.spawns).toBe(0);
+    fake.clock += 9_000;
+    fake.probes.push(down);
+    await tickHostRevive(state, fake.deps, config);
+    expect(fake.spawns).toBe(0); // 宽限未过（9s < 10s）
+    fake.clock += 1_000;
+    fake.probes.push(down);
+    await tickHostRevive(state, fake.deps, config);
+    expect(fake.spawns).toBe(1); // 宽限过 → supervisor 快路未接管才兜底
+  });
+
   it('退避指数增长有 cap', () => {
     expect(reviveBackoffMs(1_500, 60_000, 0, () => 0.5)).toBe(1_500);
     expect(reviveBackoffMs(1_500, 60_000, 5, () => 0.5)).toBe(48_000);
@@ -152,3 +171,26 @@ describe('startHostRevive 真实装配（锁物理面）', () => {
     expect(fs.existsSync(hostStampPath(ROOT))).toBe(false);
   });
 });
+
+describe('cr-662 复活宿主 stderr 落日志（物理面）', () => {
+  it('spawnHostProcess：宿主 stderr 落 host-revive-<ts>.log（不再 stdio ignore 零现场）', async () => {
+    const dir = path.join(ROOT, 'revive-log');
+    fs.mkdirSync(dir, { recursive: true });
+    const boot = path.join(dir, 'boom.ts');
+    fs.writeFileSync(boot, "process.stderr.write('host-boom\\n'); process.exit(1);\n");
+    spawnHostProcess(boot, dir);
+    const logsDir = path.join(dir, '.runtime', 'logs');
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const hit = fs.existsSync(logsDir) && fs.readdirSync(logsDir).some((n) => {
+        try { return fs.readFileSync(path.join(logsDir, n), 'utf-8').includes('host-boom'); } catch { return false; }
+      });
+      if (hit || Date.now() > deadline) {
+        expect(hit).toBe(true);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }, 25_000);
+});
+

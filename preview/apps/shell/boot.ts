@@ -21,7 +21,9 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import {
   acquireActivationLock, releaseActivationLock, socketPathFor,
-  AdmissionGate, FrameDecoder, encodeFrame, isStreamFrame, streamFrameFromDelta,
+  makeEnvelope, issueRequestId,
+  AdmissionGate, FrameDecoder, encodeFrame, isStreamFrame, makeManageReply, isManageRequest,
+  streamFrameFromDelta,
   type ActivationLockInfo, type Envelope, type StreamFrame, type StreamMeta,
 } from 'ac-envelope-core';
 import * as net from 'node:net';
@@ -30,7 +32,7 @@ import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis
 import { deriveShellRowset, mergeRowsetCatalog, readCatalog, readPluginRows, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
 import { readAgentConfig, readChildConfig } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
-import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow } from 'ac-shell-rows';
+import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
 import { handleAdminFrame, type AdminFrame } from './admin-frame.ts';
 import { startHostRevive } from './host-revive.ts';
 import { makeLedgerRow } from 'ac-ledger';
@@ -331,6 +333,28 @@ export async function bootShell(
   }
   emit('boot.lock.acquired', bootId, lockInfo.acquiredAt);
   opts.onExit?.(() => releaseActivationLock(agentDir, process.pid));
+  // cr-651：本壳即 restart_shell 的换代结果——复活标记已兑现，自清（宿主
+  // boot 扫标记兜底重拉时，标记在我们 boot 完成后不再需要）。自清前读出
+  // 会话键（cr-658）——恢复面据此注入「已重启」续跑通知。
+  let restartedConversation: string | undefined;
+  try {
+    // cr-663：标记可能已被宿主原子领取成 <agentId>.<pid>.claimed——两种名
+    // 形态都认（领者宿主只 rename 不删，兑现与自清仍归本壳）。多标记同名
+    // 前缀取最新 mtime 一份，其余清扫。
+    const markerDir = path.join(path.resolve(args.dataRoot), '.runtime', 'restart-shell');
+    const candidates = fs.readdirSync(markerDir)
+      .filter((n) => n === args.agentId + '.json' || n === args.agentId + '.claimed' || (n.startsWith(args.agentId + '.') && n.endsWith('.claimed')))
+      .map((n) => ({ n, mtime: fs.statSync(path.join(markerDir, n)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (candidates.length > 0) {
+      const markerPath = path.join(markerDir, candidates[0]!.n);
+      try {
+        const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as { conversationId?: unknown };
+        if (typeof raw.conversationId === 'string' && raw.conversationId !== '') restartedConversation = raw.conversationId;
+      } catch { /* 坏标记——仍清文件 */ }
+      for (const c of candidates) fs.rmSync(path.join(markerDir, c.n), { force: true });
+    }
+  } catch { /* 无标记目录 */ }
 
   const rowset = deriveAndAssertRowset(args.dataRoot, args.agentId, args.catalogFile, args.parentId);
   seedPlaceholderAssemblers(rowset.catalogRows);
@@ -407,6 +431,12 @@ export async function bootShell(
     dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
     ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
   })));
+  // 会话命名行（cr-672）：首步后 LLM 一句概括（含 Agent 首步理解）→ 信封请求
+  // 宿主 singles 行落盘（标题写权归宿主；无邮局形态不命名——标题留派生面）
+  registerRowAssembler('auto-title', (c) => (c as Context).plugin(makeAutoTitleRow({
+    dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
+    ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
+  })));
   // subagent 行（M8.3）：子壳 boot 入口/catalog 显式注入（本文件与同树 catalog
   // ——import.meta.url 相对定位；父壳拉子壳的标准链）。
   registerRowAssembler('subagent', (c) => (c as Context).plugin(makeSubagentRow({
@@ -444,6 +474,10 @@ export async function bootShell(
       apply(c: Context) {
         c.llm.register('mock', () => ({
           stream: async function* (input: { messages: Array<{ role: string; content: string }> }) {
+            // 延迟档（cr-668）：AGENTCHAT_MOCK_DELAY_MS 首流前挂起——活体诊断
+            //（restart/断线实验造 mid-run 窗口；缺省 0 = 即时回声）。
+            const delay = Number(process.env.AGENTCHAT_MOCK_DELAY_MS ?? '0');
+            if (Number.isFinite(delay) && delay > 0) await new Promise((r) => setTimeout(r, delay));
             const last = input.messages.filter((m) => m.role === 'user').at(-1);
             yield { delta: '[mock 回复 ' + (last?.content ?? '') + ']' };
             yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
@@ -503,6 +537,47 @@ export async function bootShell(
     }
     return delivered;
   };
+  // 控制面（cr-675）：同一个 control() 既服务 stdin 控制帧（拉起方管道），
+  // 也服务 transportHint socket 上的 manage 帧——外壳换代后活壳仍可受控。
+  const control = async (frame: ControlFrame): Promise<unknown> => {
+    if (frame.ctrl === 'admin') return handleAdminFrame(ctx, frame);
+    if (frame.ctrl === 'interrupt') {
+      const conv = ctx.get('conversation', false) as
+        | { interrupt(): boolean }
+        | undefined;
+      if (conv === undefined) throw new Error('conversation 服务缺席——interrupt 无面');
+      return { interrupted: conv.interrupt() };
+    }
+    if (frame.ctrl === 'tool') {
+      const tools = ctx.get('tools', false) as
+        | { execute(call: { name: string; args: Record<string, unknown> }): Promise<unknown> }
+        | undefined;
+      if (tools === undefined) throw new Error('tools 服务缺席——行集不含 tools 行');
+      return tools.execute({ name: frame.name, args: frame.args ?? {} });
+    }
+    // preview（cr-552）：装配链住壳进程——宿主 agent-admin 行经控制帧往返取预览。
+    // 干跑只读：不落账、不占串行化门、无 LLM 调用。
+    if (frame.ctrl === 'preview') {
+      const conv = ctx.get('conversation', false) as
+        | {
+            previewSystemPrompt(conversationId?: string): Promise<string>;
+            assemblyToolsView(): { tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; enabled: string[] };
+          }
+        | undefined;
+      if (conv === undefined) throw new Error('conversation 服务缺席——行集不含 conversation 行');
+      return frame.what === 'system-prompt'
+        ? { systemPrompt: await conv.previewSystemPrompt(frame.conversationId) }
+        : conv.assemblyToolsView();
+    }
+    // bench：ctx.bench 直调（bench 行不在行集时缺席 fail-loud）
+    const bench = ctx.get('bench', false) as
+      | { run(suite: string, options: BenchRunOptions): Promise<BenchReport> }
+      | undefined;
+    if (bench === undefined) throw new Error('bench 服务缺席——行集不含 bench 行');
+    const report = await bench.run(frame.suite, frame.options);
+    emit('bench.report', JSON.stringify(report)); // TSV 尾域 = 报告 JSON（拉起方解析）
+    return report;
+  };
   const server = net.createServer((socket) => {
     uplinks.add(socket);
     socket.on('close', () => uplinks.delete(socket));
@@ -516,6 +591,22 @@ export async function bootShell(
         return;
       }
       for (const frame of frames) {
+        // 控制面 socket 帧（cr-675）：宿主换代后活壳的 stdin 管道已随旧宿主
+        // 消失，管理往返改走本壳 transportHint（与信封同一条 ipc 连接）——
+        // 入口与控制帧同一个 control()，不另开语义。回执由请求方按 id 取。
+        if (isManageRequest(frame)) {
+          const { id, frame: ctrl } = frame.manage;
+          void control(ctrl as ControlFrame).then(
+            (value) => {
+              try { socket.write(encodeFrame(makeManageReply(id, { ok: true, value }))); } catch { /* 连接已断——回执丢（请求方超时） */ }
+            },
+            (err: unknown) => {
+              const error = err instanceof Error ? err.message : String(err);
+              try { socket.write(encodeFrame(makeManageReply(id, { ok: false, error }))); } catch { /* 同上 */ }
+            },
+          );
+          continue;
+        }
         if (isStreamFrame(frame)) continue; // 旁带单向（壳→宿主）——入站旁带帧忽略
         const env = frame as Envelope;
         if (typeof env === 'object' && typeof env.requestId === 'string') {
@@ -714,6 +805,31 @@ export async function bootShell(
       meta: { agent: agent ?? args.agentId, conversationId },
     });
   });
+  // 后台任务旁带（cr-677）：job/started · job/settled（壳内 ac-jobs 行 emit）
+  // → job-event 帧（宿主桥接成主线同名前端帧——jobBoard 帧驱动刷新唯一源；
+  // bash 后台与 subagent 委派统一词汇，job = JobSnapshot 透传）。发射失败
+  // 静默（瞬态）。
+  ctx.on('job/started', (job: { id?: string }) => {
+    if (job.id === undefined) return;
+    emitStreamFrame({ stream: job.id, kind: 'job-event', phase: 'started', job, meta: { agent: args.agentId } });
+  });
+  ctx.on('job/settled', (job: { id?: string }) => {
+    if (job.id === undefined) return;
+    emitStreamFrame({ stream: job.id, kind: 'job-event', phase: 'settled', job, meta: { agent: args.agentId } });
+  });
+  // 子Agent 清单变更旁带（cr-677）：subagents/updated（壳内 subagent 行 emit）
+  // → subagents-updated 帧（宿主桥接成主线同名前端帧——subagentBoard 帧驱动
+  // 刷新唯一源）。info/action 原样透传。发射失败静默（瞬态）。
+  ctx.on('subagents/updated', (info: { id?: string; parentId?: string }, action: string) => {
+    if (info.id === undefined) return;
+    emitStreamFrame({
+      stream: info.id,
+      kind: 'subagents-updated',
+      info,
+      action,
+      meta: { agent: info.parentId ?? args.agentId },
+    });
+  });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(transportHint, () => {
@@ -729,24 +845,61 @@ export async function bootShell(
   // 收信链续跑（此前 pending inbox 只阻止 idle-exit、无人消费 = 死信）。
   // fire-and-forget：恢复 run 走正常事件面，不阻塞 boot 返回。
   const ledgerSvc = ctx.get('ledger', false) as
-    | { recoverOrphanRuns?(): Promise<number> }
+    | { recoverOrphanRuns?(defer?: Set<string>): Promise<number>; pendingInboxRequestIds?(): Set<string> }
     | undefined;
   if (ledgerSvc?.recoverOrphanRuns !== undefined) {
-    void ledgerSvc.recoverOrphanRuns().then((n) => {
+    // cr-667（A1 续跑）：inbox 在途信的 run 不补 interrupted settled——留给
+    // ②recoverPendingInbox 续跑分支原地续跑（defer 集在 ①前快照，R2）。
+    const defer = ledgerSvc.pendingInboxRequestIds?.();
+    void ledgerSvc.recoverOrphanRuns(defer).then((n) => {
       if (n > 0) emit('journal.orphans-settled', String(n));
     }).catch((err: unknown) => {
       process.stderr.write('[shell] 孤儿 run 收口失败：' + String(err) + '\n');
     });
   }
   const convSvc = ctx.get('conversation', false) as
-    | { recoverPendingInbox?(): Promise<number>; replayAnsweredInteractions?(): Promise<number> }
+    | { recoverPendingInbox?(): Promise<number>; reconcileUndelivered?(): Promise<number>; replayAnsweredInteractions?(): Promise<number>; receiveEnvelope?(env: unknown, ack: { fresh: boolean }): Promise<unknown> }
     | undefined;
-  if (convSvc?.recoverPendingInbox !== undefined) {
-    void convSvc.recoverPendingInbox().then((n) => {
-      if (n > 0) emit('inbox.recovered', String(n));
-    }).catch((err: unknown) => {
-      process.stderr.write('[shell] inbox 恢复面失败：' + String(err) + '\n');
-    });
+  const inboxRecovery: Promise<void> = convSvc?.recoverPendingInbox !== undefined
+    ? convSvc.recoverPendingInbox()
+        .catch((err: unknown) => {
+          process.stderr.write('[shell] inbox 恢复面失败：' + String(err) + '\n');
+          return 0;
+        })
+        .then((n) => {
+          if (n > 0) emit('inbox.recovered', String(n));
+        })
+    : Promise.resolve();
+  // ④ 收尾一致性对账（cr-666，leftovers C2）：crash 窗口「只落账未执行」
+  // 的入站信（无 run 轨迹、不在队列/收件箱）确定性补投——兜在 inbox 恢复
+  // 之后（在途信先由既有恢复面消费，对账只收残余死信）。
+  if (convSvc?.reconcileUndelivered !== undefined) {
+    void inboxRecovery
+      .then(() => convSvc.reconcileUndelivered!())
+      .then((n) => { if (n > 0) emit('inbox.reconciled', String(n)); })
+      .catch((err: unknown) => {
+        process.stderr.write('[shell] 收尾对账补投失败：' + String(err) + '\n');
+      });
+  }
+  // ③「已重启」续跑注入（cr-658）：restart_shell 自然收束兑现——本壳是
+  // 换代结果且 marker 带会话键时，向该会话投「已重启」通知（sender = 桶
+  // 对端，timer/goal 的 KV 前缀裁决同款），开续跑轮（续跑上下文 = 轨迹
+  // 读面，模型按上一轮终稿继续）。兜在 inbox 恢复之后：排队信先消费，
+  // 注入不插队。
+  if (restartedConversation !== undefined && typeof convSvc?.receiveEnvelope === 'function') {
+    void inboxRecovery
+      .then(() => convSvc.receiveEnvelope!(makeEnvelope({
+        uuid: restartedConversation,
+        requestId: 'restarted-' + issueRequestId(),
+        sender: restartNoteSender(restartedConversation, args.agentId),
+        to: args.agentId,
+        kind: 'message',
+        budget: 1,
+        payload: { text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。' },
+      }), { fresh: true }))
+      .catch((err: unknown) => {
+        process.stderr.write('[shell] 「已重启」注入失败：' + String(err) + '\n');
+      });
   }
   // ③ answered 交互重放（cr-636）：壳换代后无人消费的作答——重投开新 run
   //（兜在 inbox 恢复之后：排队在途的答案信不在重放面，不双投）。
@@ -757,45 +910,6 @@ export async function bootShell(
       process.stderr.write('[shell] answered 交互重放失败：' + String(err) + '\n');
     });
   }
-  const control = async (frame: ControlFrame): Promise<unknown> => {
-    if (frame.ctrl === 'admin') return handleAdminFrame(ctx, frame);
-    if (frame.ctrl === 'interrupt') {
-      const conv = ctx.get('conversation', false) as
-        | { interrupt(): boolean }
-        | undefined;
-      if (conv === undefined) throw new Error('conversation 服务缺席——interrupt 无面');
-      return { interrupted: conv.interrupt() };
-    }
-    if (frame.ctrl === 'tool') {
-      const tools = ctx.get('tools', false) as
-        | { execute(call: { name: string; args: Record<string, unknown> }): Promise<unknown> }
-        | undefined;
-      if (tools === undefined) throw new Error('tools 服务缺席——行集不含 tools 行');
-      return tools.execute({ name: frame.name, args: frame.args ?? {} });
-    }
-    // preview（cr-552）：装配链住壳进程——宿主 agent-admin 行经控制帧往返取预览。
-    // 干跑只读：不落账、不占串行化门、无 LLM 调用。
-    if (frame.ctrl === 'preview') {
-      const conv = ctx.get('conversation', false) as
-        | {
-            previewSystemPrompt(conversationId?: string): Promise<string>;
-            assemblyToolsView(): { tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; enabled: string[] };
-          }
-        | undefined;
-      if (conv === undefined) throw new Error('conversation 服务缺席——行集不含 conversation 行');
-      return frame.what === 'system-prompt'
-        ? { systemPrompt: await conv.previewSystemPrompt(frame.conversationId) }
-        : conv.assemblyToolsView();
-    }
-    // bench：ctx.bench 直调（bench 行不在行集时缺席 fail-loud）
-    const bench = ctx.get('bench', false) as
-      | { run(suite: string, options: BenchRunOptions): Promise<BenchReport> }
-      | undefined;
-    if (bench === undefined) throw new Error('bench 服务缺席——行集不含 bench 行');
-    const report = await bench.run(frame.suite, frame.options);
-    emit('bench.report', JSON.stringify(report)); // TSV 尾域 = 报告 JSON（拉起方解析）
-    return report;
-  };
   return {
     lockInfo, rowset, rowsReady, ctx, transportHint, fingerprint,
     emitStream: emitStreamFrame,
@@ -813,6 +927,55 @@ export async function bootShell(
       await new Promise<void>((res) => server.close(() => res()));
     },
   };
+}
+
+/** restart_shell 退出前向宿主发「重拉本壳」请求（cr-648）：宿主换代后活壳
+ * 只在可达表不在句柄池，exit 42 无人 respawn → 在途消息滞留 inbox 直到下一条
+ * 新消息。宿主收信后在锁释放后按需 ensureAgent；CLI 直连形态（无邮局）跳过。
+ * cr-651：请求可能撞宿主换代窗口（restart_host 的 exit 42 与新壳拉起之间）而
+ * 丢失——先落盘复活标记（dataRoot/.runtime/restart-shell/<agent>.json），新
+ * 宿主 boot 扫标记兜底重拉；宿主收信成功则由钩子删除标记。 */
+async function notifyHostRestartShell(args: ShellBootArgs, conversationId?: string): Promise<void> {
+  if (args.postOffice === undefined) return;
+  const marker = path.join(path.resolve(args.dataRoot), '.runtime', 'restart-shell', args.agentId + '.json');
+  try {
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    // cr-658：conversationId 随 marker 落盘——新壳 boot 兑现标记后据此
+    // 注入「已重启」续跑通知（宿主扫描面只认文件名，零改动）。
+    fs.writeFileSync(marker, JSON.stringify({ agentId: args.agentId, at: new Date().toISOString(), ...(conversationId !== undefined ? { conversationId } : {}) }), 'utf-8');
+  } catch (err) {
+    process.stderr.write('[shell] restart_shell 复活标记写入失败：' + String(err) + '\n');
+  }
+  try {
+    const { IpcClient } = await import('ac-post-office');
+    const client = new IpcClient();
+    await client.connect(args.postOffice);
+    await client.send(makeEnvelope({
+      uuid: 'restart-shell-' + args.agentId,
+      requestId: 'restart-shell-' + issueRequestId(),
+      sender: args.agentId,
+      to: 'host',
+      kind: 'message',
+      budget: 0,
+      payload: { restartShell: true, agentId: args.agentId },
+    }));
+    client.close();
+  } catch (err) {
+    // 宿主换代窗口内连接失败：标记已落盘，由新宿主 boot 扫标记兜底
+    process.stderr.write('[shell] restart_shell 宿主重拉请求发送失败（标记兜底）：' + String(err) + '\n');
+  }
+}
+
+/** restartNoteSender（cr-658）：「已重启」注入信封的 sender = 桶对端
+ * （主线 goalRoundSender 2026-09-03 KV 前缀裁决同款——对键取 ≠agent 一侧、
+ * 自会话对角线取自身、非对键取 'user'），保证 system 渲染与 KV 前缀不翻转。 */
+function restartNoteSender(conversationId: string, agentId: string): string {
+  const parts = conversationId.split('~');
+  if (parts.length === 2) {
+    if (parts[0] === parts[1]) return agentId;
+    return parts[0] === agentId ? parts[1]! : parts[0]!;
+  }
+  return 'user';
 }
 
 // —— 进程入口（CLI 直连形态：node boot.ts --data-root … --agent-id …） ——
@@ -860,13 +1023,24 @@ export async function main(argv: string[]): Promise<number> {
           dataRoot: path.resolve(args.dataRoot),
           hostBoot: args.hostBoot,
           ...(args.hostPort !== undefined ? { hostPort: args.hostPort } : {}),
+          // 让路窗（cr-647）：supervised 拓扑下 supervisor 是快路（宿主退出码
+          // 42 → 1.5s 重拉），壳侧宽限 10s 再兜底——否则 stdin EOF kick 抢跑，
+          // supervisor 重拉撞 EADDRINUSE 退出 78（监督栈永久消失，终端拓扑下
+          // 连带全壳死）。AGENTCHAT_SUPERVISED 由 supervisor.mjs 注入宿主，
+          // 宿主拉壳时继承；pnpm dev 前台直跑无此变量 = 宽限 0（即时复活）。
+          ...(process.env.AGENTCHAT_SUPERVISED === '1' ? { reviveGraceMs: 10_000 } : {}),
           emit: emitBootSignal,
         })
       : null;
     // 安全重启退出码（cr-629）：conversation/restart-ready → 优雅退出 42
     //（宿主 warden 42 = 有意重启——立即 respawn、不计崩溃熔断）。
+    // cr-648：宿主换代后本壳可能只在可达表、不在宿主句柄池（救援只回登记
+    // 不接管），exit 42 无人 respawn——退出前先向宿主发重拉请求（宿主在
+    // 锁释放后按需拉起），再以 42 退出。
     const exitCode = await new Promise<number>((resolve) => {
-      result.ctx.on('conversation/restart-ready', () => resolve(42));
+      result.ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => {
+        void notifyHostRestartShell(args, p.conversationId).finally(() => resolve(42));
+      });
       const heartbeat = setInterval(() => {
         emitBootSignal('guardian.ping', new Date().toISOString());
       }, HEARTBEAT_MS);

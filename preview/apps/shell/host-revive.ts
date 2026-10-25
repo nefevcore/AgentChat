@@ -50,6 +50,14 @@ export interface HostReviveConfig {
   respawnDelayMs?: number;
   /** 退避 cap ms（缺省 60_000） */
   respawnCapMs?: number;
+  /**
+   * 失联确认后的复活宽限 ms（缺省 0）：supervised 拓扑下 supervisor 是快路
+   * （退出码 42 → 1.5s 重拉），壳侧必须在宽限内让路——否则 stdin EOF kick
+   * 抢在 supervisor 前拉起宿主，supervisor 重拉撞 EADDRINUSE 退出 78，
+   * 监督栈永久消失（cr-647 现场）。非 supervised（pnpm dev 前台直跑）
+   * 无快路，宽限恒 0——复活职责仍即时生效。
+   */
+  reviveGraceMs?: number;
 }
 
 export interface HostReviveState {
@@ -58,10 +66,12 @@ export interface HostReviveState {
   nextReviveAt: number;
   down: boolean;
   standdownEmitted: boolean;
+  /** 失联确认时刻（宽限起算；0 = 未确认）。恢复即清零。 */
+  confirmedDownAt: number;
 }
 
 export function createHostReviveState(now: number): HostReviveState {
-  return { failures: 0, attempts: 0, nextReviveAt: now, down: false, standdownEmitted: false };
+  return { failures: 0, attempts: 0, nextReviveAt: now, down: false, standdownEmitted: false, confirmedDownAt: 0 };
 }
 
 /** 退避档（±20% jitter——cr-551 warden 同源语义） */
@@ -79,6 +89,7 @@ export async function tickHostRevive(
   const threshold = config.failureThreshold ?? 2;
   const base = config.respawnDelayMs ?? 1_500;
   const cap = config.respawnCapMs ?? 60_000;
+  const grace = config.reviveGraceMs ?? 0;
   if (await deps.probe()) {
     if (state.down) {
       state.down = false;
@@ -87,12 +98,18 @@ export async function tickHostRevive(
     }
     state.failures = 0;
     state.attempts = 0;
+    state.confirmedDownAt = 0;
     state.nextReviveAt = deps.now();
     return;
   }
   state.failures += 1;
   if (state.failures < threshold) return;
-  state.down = true;
+  // 失联确认只记一次时刻（宽限起算点 = 确认时刻，不是首次失败——stdin EOF
+  // kick 常把首败落在宿主退出前一拍，按首败起算会把宽限吃掉）。
+  if (!state.down) {
+    state.down = true;
+    state.confirmedDownAt = deps.now();
+  }
   if (deps.stampPresent()) {
     if (!state.standdownEmitted) {
       state.standdownEmitted = true;
@@ -101,6 +118,8 @@ export async function tickHostRevive(
     return; // 有意停机——不复活（宿主 boot 清戳后探测面自会恢复）
   }
   const now = deps.now();
+  // 让路窗（cr-647）：supervised 快路优先，宽限内不 spawn（探测面恢复即复位）。
+  if (now < state.confirmedDownAt + grace) return;
   if (now < state.nextReviveAt) return;
   if (!deps.tryLock()) return; // 另一壳在拉——等探测面恢复
   try {
@@ -120,6 +139,8 @@ export interface HostReviveJobOptions {
   hostBoot: string;
   hostPort?: number;
   probeIntervalMs?: number;
+  /** 失联确认后的让路宽限 ms（cr-647——supervised 档非 0；缺省 0） */
+  reviveGraceMs?: number;
   emit?: (signal: string, ...fields: string[]) => void;
   tick?: typeof tickHostRevive;
   setIntervalFn?: typeof setInterval;
@@ -156,6 +177,30 @@ export function probePostOffice(address: string): Promise<boolean> {
   });
 }
 
+/** 复活宿主日志路径（cr-662 诊断面：每次复活一代文件——host-revive-<ts>.log） */
+export function hostReviveLogPath(dataRoot: string, now = Date.now): string {
+  return path.join(dataRoot, '.runtime', 'logs', `host-revive-${new Date(now()).toISOString().replace(/[:.]/g, '-')}.log`);
+}
+
+/** 拉起宿主进程（物理面——cr-662：stderr 不再 ignore，落代文件日志；
+ * fd 由子进程继承，父侧副本 spawn 后即收） */
+export function spawnHostProcess(hostBoot: string, dataRoot: string, hostPort?: number): void {
+  // 品牌单映像 exe（cr-620/624：bin/AgentChat.exe 在场即用——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）
+  const brandedExe = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChat.exe');
+  const exe = process.env.AGENTCHAT_NO_BRANDED_EXE === '1' || !fs.existsSync(brandedExe) || process.env.VITEST !== undefined
+    ? process.execPath
+    : brandedExe; // cr-669 诊断档：沙箱拒品牌 exe 连管道时回落 node
+  fs.mkdirSync(path.join(dataRoot, '.runtime', 'logs'), { recursive: true });
+  const logFd = fs.openSync(hostReviveLogPath(dataRoot), 'a');
+  const child = spawn(exe, [
+    '--experimental-strip-types', hostBoot,
+    '--data-root', dataRoot,
+    ...(hostPort !== undefined ? ['--port', String(hostPort)] : []),
+  ], { stdio: ['ignore', 'ignore', logFd], detached: true });
+  child.unref();
+  fs.closeSync(logFd);
+}
+
 /** 真实装配：interval 驱动 tickHostRevive；返回停面 + kick（失联旁证
  * 〔stdin EOF〕触发的立即探测——不等下一拍 interval） */
 export function startHostRevive(options: HostReviveJobOptions): { stop(): void; kick(): void } {
@@ -183,23 +228,17 @@ export function startHostRevive(options: HostReviveJobOptions): { stop(): void; 
       }
       try { fs.unlinkSync(hostReviveLockPath(dataRoot)); } catch { /* 已收 */ }
     },
-    spawnHost: () => {
-      // 品牌单映像 exe（cr-620/624：bin/AgentChat.exe 在场即用——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）
-      const brandedExe = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChat.exe');
-      const child = spawn(fs.existsSync(brandedExe) ? brandedExe : process.execPath, [
-        '--experimental-strip-types', hostBoot,
-        '--data-root', dataRoot,
-        ...(hostPort !== undefined ? ['--port', String(hostPort)] : []),
-      ], { stdio: 'ignore', detached: true });
-      child.unref();
-    },
+    spawnHost: () => spawnHostProcess(hostBoot, dataRoot, hostPort),
     emit,
     now: () => Date.now(),
   };
   const tick = options.tick ?? tickHostRevive;
   const setIntervalFn = options.setIntervalFn ?? setInterval;
   const clearIntervalFn = options.clearIntervalFn ?? clearInterval;
-  const timer = setIntervalFn(() => { void tick(state, deps); }, options.probeIntervalMs ?? 5_000);
+  const tickConfig: HostReviveConfig = options.reviveGraceMs !== undefined
+    ? { reviveGraceMs: options.reviveGraceMs }
+    : {};
+  const timer = setIntervalFn(() => { void tick(state, deps, tickConfig); }, options.probeIntervalMs ?? 5_000);
   timer.unref(); // Node Timeout——不阻进程自退（idle-exit 收割面）
   return {
     kick: () => { void tick(state, deps); },

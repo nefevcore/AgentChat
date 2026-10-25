@@ -49,6 +49,7 @@
     "ac-collab-tools": "workspace:*",
     "ac-archive-core": "workspace:*",
     "ac-ledger": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-text-budget": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-plugin-core": "workspace:*",
