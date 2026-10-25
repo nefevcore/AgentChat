@@ -220,7 +220,7 @@ describe('agent-admin 装配面（cr-552 跨进程 dry-run 编排）', () => {
 
   it('assembly：视图合成（壳目录 + settings 直读 + plugins 空目录）', async () => {
     const { web } = await boot({ adminPreview: true });
-    await web.call('agents/create', { config: { id: 'asm', tools: { include: ['math'] }, settings: { persona: { enabled: true } } } });
+    await web.call('agents/create', { config: { id: 'asm', rows: { include: ['math'] }, settings: { persona: { enabled: true } } } });
     const r = await web.call('agents/assembly', { agentId: 'asm' }) as { assembly: Record<string, unknown> };
     expect(r.assembly.settings).toEqual({ enabled: ['persona'], configs: { persona: { enabled: true } } });
     expect(r.assembly.plugins).toEqual([]); // pluginRegistry 行不在集 = 空目录
@@ -234,11 +234,11 @@ describe('agent-admin 装配面（cr-552 跨进程 dry-run 编排）', () => {
     await web.call('agents/create', { config: { id: 'w', settings: { persona: { enabled: true, maxTokens: 9 } } } });
     const up = await web.call('agents/assembly/update', {
       agentId: 'w',
-      patch: { tools: { include: ['math', 'fs'] }, settings: { persona: { enabled: false } } },
+      patch: { rows: { include: ['math', 'fs'] }, settings: { persona: { enabled: false } } },
     }) as { changed: string[] };
-    expect(up.changed.sort()).toEqual(['settings', 'tools']);
+    expect(up.changed.sort()).toEqual(['rows', 'settings']);
     const after = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'w', 'config.json'), 'utf-8'));
-    expect(after.tools).toEqual({ include: ['math', 'fs'] });
+    expect(after.rows).toEqual({ include: ['math', 'fs'] });
     expect(after.settings.persona).toEqual({ enabled: false, maxTokens: 9 }); // 浅合并保字段
     // 零变更不落盘
     const file = path.join(ROOT, 'agents', 'w', 'config.json');

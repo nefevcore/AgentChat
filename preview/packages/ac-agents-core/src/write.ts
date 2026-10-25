@@ -21,7 +21,7 @@ import type { AgentConfig } from './config.ts';
 /** AgentConfig 字段白名单（fail-closed：未知键拒绝而非静默剔除——全局专属键
  *  已随各域 owning 化退役；连接凭据归 provider 定义，身份面不可覆盖） */
 export const AGENT_CONFIG_FIELDS: ReadonlySet<string> = new Set([
-  'id', 'model', 'provider', 'virtual', 'system', 'tools', 'llmParams',
+  'id', 'model', 'provider', 'virtual', 'system', 'rows', 'llmParams',
   'maxSteps', 'name', 'description', 'tags', 'settings',
 ]);
 
@@ -90,9 +90,11 @@ export function configFromPatch(patch: Record<string, unknown>): AgentConfig {
 }
 
 /**
- * 装配补丁（agents/assembly/update 写口——cr-552）：tools 意图 + settings
- * per-name 合并语义（主线 M22 D5 形态）。纯函数（合成 + 变更键，不落盘）：
- *   · patch.tools：include/exclude 全空意图 = 删 tools 键（恢复缺省全工具）；
+ * 装配补丁（agents/assembly/update 写口——cr-552）：rows 意图 + settings
+ * per-name 合并语义（主线 M22 D5 形态；◐b cr-691 字段更名 tools→rows——
+ * 盘上旧键 tools 由 readAgentConfig 归一后恒 rows，补丁面只认 rows）。
+ * 纯函数（合成 + 变更键，不落盘）：
+ *   · patch.rows：include/exclude 全空意图 = 删 rows 键（恢复缺省全行集）；
  *   · patch.settings[name]：object = 浅合并进既有（字段级 null = 删单字段，
  *     清空到无字段 = 删 name）；null = 删整段；
  *   · 未知顶层键 fail-closed。
@@ -101,21 +103,21 @@ export function applyAssemblyPatch(
   current: AgentConfig,
   patch: Record<string, unknown>,
 ): { config: AgentConfig; changed: string[] } {
-  const unknown = Object.keys(patch).filter((k) => k !== 'tools' && k !== 'settings');
+  const unknown = Object.keys(patch).filter((k) => k !== 'rows' && k !== 'settings');
   if (unknown.length > 0) throw new Error(`装配补丁字段不在白名单: ${unknown.join(', ')}`);
   const next: Record<string, unknown> = { ...(current as unknown as Record<string, unknown>) };
-  if (patch.tools !== undefined) {
-    const t = objOf(patch.tools);
-    const include = t.include === undefined ? undefined : strArray(t.include, 'tools.include');
-    const exclude = t.exclude === undefined ? undefined : strArray(t.exclude, 'tools.exclude');
+  if (patch.rows !== undefined) {
+    const t = objOf(patch.rows);
+    const include = t.include === undefined ? undefined : strArray(t.include, 'rows.include');
+    const exclude = t.exclude === undefined ? undefined : strArray(t.exclude, 'rows.exclude');
     if (include === undefined && exclude === undefined) {
-      delete next.tools; // 全空意图 = 恢复缺省（全部工具）
+      delete next.rows; // 全空意图 = 恢复缺省（行集全集）
     } else {
-      const tools: Record<string, unknown> = {};
-      if (include !== undefined && include.length > 0) tools.include = include;
-      if (exclude !== undefined && exclude.length > 0) tools.exclude = exclude;
-      if (Object.keys(tools).length > 0) next.tools = tools;
-      else delete next.tools;
+      const rows: Record<string, unknown> = {};
+      if (include !== undefined && include.length > 0) rows.include = include;
+      if (exclude !== undefined && exclude.length > 0) rows.exclude = exclude;
+      if (Object.keys(rows).length > 0) next.rows = rows;
+      else delete next.rows;
     }
   }
   if (patch.settings !== undefined) {

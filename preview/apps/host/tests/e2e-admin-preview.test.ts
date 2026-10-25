@@ -94,9 +94,9 @@ describe('agent-admin 跨进程 dry-run（cr-552 e2e）', () => {
       expect(a.assembly.tools.catalog.map((t) => t.name)).toContain('math');
       // 写口：加 system 字段经 update-config（另一条已验路径），assembly/update 改 tools
       const up = await rpc<{ changed: string[] }>(ws, 'agents/assembly/update', {
-        agentId: 'alpha', patch: { tools: { include: ['math', 'datetime'] } },
+        agentId: 'alpha', patch: { rows: { include: ['math', 'datetime'] } },
       });
-      expect(up.changed).toEqual(['tools']);
+      expect(up.changed).toEqual(['rows']);
       // 再预览：system-prompt 干跑按新落盘 config（工具面变化不进 system 文本——
       // 验证链路往返即可；assembly 再读见新意图
       const a2 = await rpc<{ assembly: { tools: { enabled: string[] } } }>(ws, 'agents/assembly', { agentId: 'alpha' });

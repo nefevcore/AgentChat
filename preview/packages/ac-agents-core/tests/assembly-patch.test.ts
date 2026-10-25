@@ -5,24 +5,24 @@
 import { describe, it, expect } from 'vitest';
 import { applyAssemblyPatch, type AgentConfig } from '../src/index.ts';
 
-const base: AgentConfig = { id: 'a', model: 'm', tools: { include: ['t1', 't2'] }, settings: { persona: { enabled: true, maxTokens: 100 } } };
+const base: AgentConfig = { id: 'a', model: 'm', rows: { include: ['t1', 't2'] }, settings: { persona: { enabled: true, maxTokens: 100 } } };
 
 describe('applyAssemblyPatch（装配写口纯函数）', () => {
-  it('tools include 覆盖 + 变更键报告', () => {
-    const { config, changed } = applyAssemblyPatch(base, { tools: { include: ['t1'] } });
-    expect(config.tools).toEqual({ include: ['t1'] });
-    expect(changed).toEqual(['tools']);
+  it('rows include 覆盖 + 变更键报告', () => {
+    const { config, changed } = applyAssemblyPatch(base, { rows: { include: ['t1'] } });
+    expect(config.rows).toEqual({ include: ['t1'] });
+    expect(changed).toEqual(['rows']);
   });
 
-  it('tools 全空意图 = 删键恢复缺省', () => {
-    const { config, changed } = applyAssemblyPatch(base, { tools: {} });
-    expect(config.tools).toBeUndefined();
-    expect(changed).toEqual(['tools']);
+  it('rows 全空意图 = 删键恢复缺省', () => {
+    const { config, changed } = applyAssemblyPatch(base, { rows: {} });
+    expect(config.rows).toBeUndefined();
+    expect(changed).toEqual(['rows']);
   });
 
   it('tools exclude 空数组 = 同删键（无 include 无 exclude）', () => {
-    const { config } = applyAssemblyPatch(base, { tools: { exclude: [] } });
-    expect(config.tools).toBeUndefined();
+    const { config } = applyAssemblyPatch(base, { rows: { exclude: [] } });
+    expect(config.rows).toBeUndefined();
   });
 
   it('settings 浅合并：只动 enabled，maxTokens 不动', () => {
@@ -60,7 +60,7 @@ describe('applyAssemblyPatch（装配写口纯函数）', () => {
 
   it('未知顶层键 fail-closed', () => {
     expect(() => applyAssemblyPatch(base, { presets: ['x'] })).toThrow(/白名单/);
-    expect(() => applyAssemblyPatch(base, { tools: { include: [1] } })).toThrow(/字符串数组/);
-    expect(() => applyAssemblyPatch(base, { tools: 'x' })).toThrow(/须为对象/);
+    expect(() => applyAssemblyPatch(base, { rows: { include: [1] } })).toThrow(/字符串数组/);
+    expect(() => applyAssemblyPatch(base, { rows: 'x' })).toThrow(/须为对象/);
   });
 });

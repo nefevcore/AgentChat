@@ -170,7 +170,7 @@ export class ShellSubagentService extends Service {
     const parent = readAgentConfig(this.dataRoot, this.agentId);
     if (parent === null) throw new Error('父 agent 配置缺席：' + this.agentId);
     const catalog = readCatalog(this.catalogFile);
-    const parentRowset = deriveShellRowset({ tools: parent.tools }, catalog);
+    const parentRowset = deriveShellRowset({ rows: parent.rows }, catalog);
     // spawn ⊆ 授权投影（工具 schema 承诺「越权名会被过滤」）：未命中目录或
     // 不属父行集的词在此过滤——不过滤会让子壳行集静态断言 fail-loud 早退，
     // spawn 面只见 boot.ready 超时、真实拒因被吞（cr-616，cr-615 实测暴露）。
@@ -182,7 +182,7 @@ export class ShellSubagentService extends Service {
       const granted: string[] = [];
       const rejected: string[] = [];
       for (const token of input.tools) {
-        const derived = deriveShellRowset({ tools: [token] }, catalog);
+        const derived = deriveShellRowset({ rows: [token] }, catalog);
         if (derived.warnings.length > 0 || !derived.rowIds.every((id) => parentIds.has(id))) {
           rejected.push(token);
         } else {
@@ -196,7 +196,7 @@ export class ShellSubagentService extends Service {
       ...parent,
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.system !== undefined ? { system: input.system } : {}),
-      ...(tools !== undefined ? { tools } : {}),
+      ...(tools !== undefined ? { rows: tools } : {}),
     });
     // 子授权层物化（R-5 物化即快照 + spawn ⊆ 投影）：父投影快照内联 grants，
     // 此后父授权变更不传播（M6.5 deriveChildAuth 接线——cr-527）。子壳门读

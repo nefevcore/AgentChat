@@ -107,15 +107,16 @@ const prevAgent = computed(() => (agentIndex.value > 0 ? props.agents[agentIndex
 const nextAgent = computed(() => (agentIndex.value >= 0 && agentIndex.value < props.agents.length - 1 ? props.agents[agentIndex.value + 1] : null));
 
 // ── 装配声明（M22 P2 + M24 X1）：tools/settings（具名设置对象）两字段 patch
-//（解析并源 assemblyOf——useAgentSettings 同款，与 dirty 基线/保存同形状） ──
+//（解析并源 assemblyOf——useAgentSettings 同款，与 dirty 基线/保存同形状。
+// AssemblyPatch 协议键 ◐b cr-691 改 rows——本地 raw 仍主线 AgentConfig.tools） ──
 const decl = computed(() => assemblyOf(props.raw));
 /** settings per-name 浅合并 / null 删除（服务端语义——M22 D5） */
 function patchDecl(patch: AssemblyPatch): void {
   emit('update:raw', {
     ...props.raw,
     tools: {
-      include: patch.tools?.include ?? decl.value.tools.include,
-      exclude: patch.tools?.exclude ?? decl.value.tools.exclude,
+      include: patch.rows?.include ?? decl.value.tools.include,
+      exclude: patch.rows?.exclude ?? decl.value.tools.exclude,
     },
     settings: { ...decl.value.settings, ...(patch.settings ?? {}) },
   });
@@ -419,8 +420,31 @@ const exclusiveGroups = computed<ExclusiveGroup[]>(() =>
 );
 /** 抉择组词全集（分组条目分流用） */
 const exclusiveTagSet = computed(() => new Set(exclusiveGroups.value.flatMap((g) => [...g.tags])));
-/** 抉择组当前值（Agent tags 反解；'' = 真「都不选」——组无 exclusiveNone 词时） */
+/**
+ * browser-tier 组的行内档位换轨（◐a 2026-10-26 settings X1 单源）：
+ * 装配视图在场 = 读写 settings.browser 层级布尔（capabilitySetOf 同义
+ * 合成）；缺席（行不在/拉取失败）= 回落旧 tags 落词（回滚线兼容）。
+ * 读写两头同步剔 tags 组内残留词——并集合成下双写不一致会以高档侧生效。
+ */
+const BROWSER_TIER_KEY = 'browser-tier';
+/** settings.browser 层级布尔 → 当前档词（最高 true 层；全 false/缺席 = ''） */
+function browserTierOfSettings(): string {
+  const s = (props.raw.settings ?? {}) as Record<string, unknown>;
+  const b = s.browser;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return '';
+  const tier = b as { observe?: unknown; manipulate?: unknown; inject?: unknown };
+  if (tier.inject === true) return 'inject';
+  if (tier.manipulate === true) return 'manipulate';
+  if (tier.observe === true) return 'observe';
+  return '';
+}
+/** browser-tier 走 settings（装配在场）；其余组恒 tags 反解 */
+const browserTierViaSettings = computed(() =>
+  props.assembly !== null && exclusiveGroups.value.some((g) => g.key === BROWSER_TIER_KEY));
+/** 抉择组当前值（browser-tier·settings 态 = settings.browser 反解；
+ *  其余 = Agent tags 反解；'' = 真「都不选」——组无 exclusiveNone 词时） */
 function exclusiveValueOf(group: ExclusiveGroup): string {
+  if (group.key === BROWSER_TIER_KEY && browserTierViaSettings.value) return browserTierOfSettings();
   return currentExclusiveTag(group, props.raw.tags ?? [])?.tag ?? '';
 }
 /** 抉择组词 → 展示短名：label 表优先 → description 冒号前段（目录
@@ -447,9 +471,21 @@ function exclusiveHueTag(group: ExclusiveGroup | undefined): string {
 }
 /** 抉择换档/启停（TagChoice on-choose 回调）：applyExclusiveChoice 单源
  *  落词（互斥剔除 + exclusiveNone 缺省不写 + tier 地板连带）——与普通
- *  徽章共用 emitTags 写通道 */
+ *  徽章共用 emitTags 写通道。browser-tier·settings 态改写 settings.browser
+ *  层级布尔（关闭 = 删键），并同步剔 tags 组内残留词（并集合成双写
+ *  收口——tags 恒无档位词是迁移终态） */
 function selectExclusive(group: ExclusiveGroup | undefined, nextTag: string | null): void {
   if (!group) return; // 模板 v-if 已保证非空——类型面收窄兜底
+  if (group.key === BROWSER_TIER_KEY && browserTierViaSettings.value) {
+    const rest = (props.raw.tags ?? []).filter((t: string) => !group.tags.has(t));
+    const next: Record<string, unknown> = { ...(props.raw.settings ?? {}) };
+    if (nextTag === 'inject') next.browser = { observe: true, manipulate: true, inject: true };
+    else if (nextTag === 'manipulate') next.browser = { observe: true, manipulate: true, inject: false };
+    else if (nextTag === 'observe') next.browser = { observe: true, manipulate: false, inject: false };
+    else delete next.browser; // 关闭（都不选）= 删键
+    emit('update:raw', { ...props.raw, tags: rest, settings: next });
+    return;
+  }
   emitTags(applyExclusiveChoice(group, props.raw.tags ?? [], nextTag));
 }
 

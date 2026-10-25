@@ -19,15 +19,15 @@ const catalog: RowsetCatalog = {
   rows: [
     row('ac-post-office', 'host', { role: '邮局' }),
     row('ac-guardian', 'host'),
-    row('ac-ledger', 'shell', { tools: [] }),
+    row("ac-ledger", "shell", { tools: [] }),
     row('ac-conversation', 'shell'),
     row('ac-tools', 'shell'),
-    row('ac-fs-tools', 'shell', { tools: ['fs_read', 'fs_write', 'fs_edit'], bundle: 'fs' }),
-    row('ac-fs-search', 'shell', { tools: ['fs_glob', 'fs_grep'], bundle: 'fs' }),
-    row('ac-shell-tools', 'shell', { tools: ['pwsh', 'bash'], bundle: 'infra' }),
-    row('ac-run-code', 'shell', { tools: ['run_code'], bundle: 'infra' }),
-    row('ac-math', 'shell', { tools: ['math'] }),
-    row('ac-web-tools', 'shell', { tools: ['web_search', 'browser'] }),
+    row("ac-fs-tools", "shell", { tools: ['fs_read', 'fs_write', 'fs_edit'], bundle: 'fs' }),
+    row("ac-fs-search", "shell", { tools: ['fs_glob', 'fs_grep'], bundle: 'fs' }),
+    row("ac-shell-tools", "shell", { tools: ['pwsh', 'bash'], bundle: 'infra' }),
+    row("ac-run-code", "shell", { tools: ['run_code'], bundle: 'infra' }),
+    row("ac-math", "shell", { tools: ['math'] }),
+    row("ac-web-tools", "shell", { tools: ['web_search', 'browser'] }),
   ],
 };
 
@@ -39,37 +39,37 @@ describe('壳行集派生', () => {
   });
 
   it('行引用：点名行 id 装载该行全部工具', () => {
-    const r = deriveShellRowset({ tools: ['ac-fs-tools'] }, catalog);
+    const r = deriveShellRowset({ rows: ['ac-fs-tools'] }, catalog);
     expect(r.rowIds).toEqual(['ac-fs-tools']);
     expect(r.toolNames).toEqual(['fs_edit', 'fs_read', 'fs_write']);
   });
 
   it('工具点名：按工具词命中提供行（同表多工具单行装载）', () => {
-    const r = deriveShellRowset({ tools: ['fs_read', 'fs_glob', 'math'] }, catalog);
+    const r = deriveShellRowset({ rows: ['fs_read', 'fs_glob', 'math'] }, catalog);
     expect(r.rowIds).toEqual(['ac-fs-search', 'ac-fs-tools', 'ac-math']);
   });
 
   it('捆绑词消解：fs / infra 在派生内展开为组', () => {
-    const r = deriveShellRowset({ tools: ['fs'] }, catalog);
+    const r = deriveShellRowset({ rows: ['fs'] }, catalog);
     expect(r.rowIds).toEqual(['ac-fs-search', 'ac-fs-tools']);
-    const r2 = deriveShellRowset({ tools: ['infra'] }, catalog);
+    const r2 = deriveShellRowset({ rows: ['infra'] }, catalog);
     expect(r2.rowIds).toEqual(['ac-run-code', 'ac-shell-tools']);
   });
 
   it('include ∪ 展开 + exclude 减法（工具级 = 移除提供行）', () => {
-    const r = deriveShellRowset({ tools: { include: ['fs'], exclude: ['fs_glob'] } }, catalog);
+    const r = deriveShellRowset({ rows: { include: ['fs'], exclude: ['fs_glob'] } }, catalog);
     expect(r.rowIds).toEqual(['ac-fs-tools']); // fs-search 行被工具级减法移除
-    const r2 = deriveShellRowset({ tools: { include: ['fs', 'infra'], exclude: ['ac-run-code'] } }, catalog);
+    const r2 = deriveShellRowset({ rows: { include: ['fs', 'infra'], exclude: ['ac-run-code'] } }, catalog);
     expect(r2.rowIds).toEqual(['ac-fs-search', 'ac-fs-tools', 'ac-shell-tools']);
   });
 
   it('未命中条目 → warnings（boot 静态断言面）', () => {
-    const r = deriveShellRowset({ tools: ['no-such-tool', 'fs'] }, catalog);
+    const r = deriveShellRowset({ rows: ['no-such-tool', 'fs'] }, catalog);
     expect(r.warnings).toEqual(['tools 条目未命中目录：no-such-tool']);
   });
 
   it('host 行不可被壳引用（树归属闸）', () => {
-    const r = deriveShellRowset({ tools: ['ac-post-office'] }, catalog);
+    const r = deriveShellRowset({ rows: ['ac-post-office'] }, catalog);
     expect(r.rowIds).toEqual([]);
     expect(r.warnings).toContain('tools 条目未命中目录：ac-post-office');
   });
@@ -77,16 +77,16 @@ describe('壳行集派生', () => {
   it('行集闭包（cr-521）：requires 依赖行自动并入；exclude 减法不被闭包复活', () => {
     const cat: RowsetCatalog = {
       rows: [
-        row('x-tools', 'shell', { tools: ['x'], requires: ['x-base'] }),
+        row("x-tools", "shell", { tools: ['x'], requires: ['x-base'] }),
         row('x-base', 'shell'),
         row('x-deep', 'shell', { requires: ['x-tools'] }),
       ],
     };
-    const r = deriveShellRowset({ tools: ['x'] }, cat);
+    const r = deriveShellRowset({ rows: ['x'] }, cat);
     expect(r.rowIds).toEqual(['x-base', 'x-tools']); // 依赖自动并入
-    const deep = deriveShellRowset({ tools: ['x-deep'] }, cat);
+    const deep = deriveShellRowset({ rows: ['x-deep'] }, cat);
     expect(deep.rowIds).toEqual(['x-base', 'x-deep', 'x-tools']); // 传递闭包
-    const ex = deriveShellRowset({ tools: { include: ['x'], exclude: ['x-base'] } }, cat);
+    const ex = deriveShellRowset({ rows: { include: ['x'], exclude: ['x-base'] } }, cat);
     expect(ex.rowIds).toEqual(['x-tools']); // 排除 = 显式意志（装配终检兜底）
   });
 
@@ -97,16 +97,16 @@ describe('壳行集派生', () => {
         row('persona', 'shell'),
         row('system-prompt', 'shell'),
         row('llm-pool', 'shell'),
-        row('x-tools', 'shell', { tools: ['x'] }),
+        row("x-tools", "shell", { tools: ['x'] }),
       ],
     };
     // 点名只给工具 x：四行基座仍恒并（导入行集按工具标签推导，装配类行/
     // 池注册行不在标签面——缺席面 = 人格/指引块丢失〔cr-602〕或壳内零
     // provider 注册、一切 run NO_PROVIDER〔cr-610〕）
-    const r = deriveShellRowset({ tools: ['x'] }, cat);
+    const r = deriveShellRowset({ rows: ['x'] }, cat);
     expect(r.rowIds).toEqual(['conversation', 'llm-pool', 'persona', 'system-prompt', 'x-tools']);
     // 显式 exclude = 良定义降级（闭包后减法执行）
-    const ex = deriveShellRowset({ tools: { include: ['x'], exclude: ['system-prompt'] } }, cat);
+    const ex = deriveShellRowset({ rows: { include: ['x'], exclude: ['system-prompt'] } }, cat);
     expect(ex.rowIds).toEqual(['conversation', 'llm-pool', 'persona', 'x-tools']);
   });
 });

@@ -71,9 +71,9 @@ const ROW_LEVEL_TAGS = new Map<string, { settingsKey: string; value: string }>([
 
 /**
  * 单 agent config 换轨（纯函数——tags→tools + 行内档位→settings）。
- * tags 装载词展开为行引用并入 tools（旧 tools 缺席 = 行集全集语义 →
- * 换轨后 tools = 装载行集，档位词留 tags）。未知词 fail-loud（不静默
- * 丢弃——映射表漂移即中止）。
+ * tags 装载词展开为行引用并入 rows（旧 tools/rows 均缺席 = 行集全集
+ * 语义 → 换轨后 rows = 装载行集，档位词留 tags；◐b cr-691 输出恒 rows
+ * 键）。未知词 fail-loud（不静默丢弃——映射表漂移即中止）。
  */
 export function convertConfig(agentId: string, old: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...old };
@@ -96,12 +96,14 @@ export function convertConfig(agentId: string, old: Record<string, unknown>): Re
     unknown.push(t);
   }
   if (unknown.length > 0) throw new Error('tags 装载词换轨失败 [' + agentId + ']：未知词 ' + unknown.join(',') + '——映射表须扩（fail-loud）');
-  // 旧 tools 缺席 = 全集语义；换轨后 tools = 装载行集（点名单）。旧 tools
-  // 在场（本数据根无实例）= 保留原词形（tag: 前缀已退役——主线语料无此形态）。
-  if (old.tools === undefined) {
-    if (rows.length > 0) out.tools = rows;
-  } else if (Array.isArray(old.tools)) {
-    out.tools = [...new Set([...(old.tools as string[]), ...rows])];
+  // 旧 tools/rows 均缺席 = 全集语义；换轨后 rows = 装载行集（点名单）。
+  // 旧 tools 在场（legacy 主线形态）= 与装载行并集后落 rows 键。
+  if (old.tools === undefined && old.rows === undefined) {
+    if (rows.length > 0) out.rows = rows;
+  } else {
+    const prior = Array.isArray(old.rows) ? old.rows : Array.isArray(old.tools) ? (old.tools as string[]) : [];
+    if (rows.length > 0 || prior.length > 0) out.rows = [...new Set([...prior, ...rows])];
+    else delete out.rows;
   }
   // 档位词只剩 tier 轴（空 = 删键——tags 非必填）
   if (keepTags.length > 0) out.tags = keepTags; else delete out.tags;

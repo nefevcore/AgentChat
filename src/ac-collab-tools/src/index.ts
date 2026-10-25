@@ -46,10 +46,16 @@ function err(message: string): ToolResult {
   return { ok: false, error: message };
 }
 
-/** admin 能力判定（tags 单源——capabilities 覆盖层已随 access-tier §9.4 删除） */
-function hasAdminCapability(agent: AgentConfig | undefined): boolean {
-  if (agent === undefined) return false;
-  return (agent.tags ?? []).includes('admin');
+/**
+ * admin 能力判定（◐a 2026-10-26 settings X1 单源）：settings.collab.admin
+ * 直读（settingsOf 两层合成口）∪ tags 兼容旧词——capabilitySetOf 同款
+ * 并集（未迁移旧数据回滚线兼容）。capabilities 覆盖层已随 access-tier
+ * §9.4 删除。
+ */
+function hasAdminCapability(ctx: Context, agentId: string): boolean {
+  if ((ctx.agents.get(agentId)?.tags ?? []).includes('admin')) return true;
+  const s = ctx.agents.settingsOf(agentId, 'collab');
+  return typeof s === 'object' && s !== null && (s as { admin?: unknown }).admin === true;
 }
 
 export const name = 'ac-collab-tools';
@@ -582,7 +588,7 @@ export function apply(ctx: Context) {
         // 派生条目（preset:true）若可自助改 tags 加回 delegation/admin，
         // 会突破 spawn 时的剥减防线（递归 spawn / 宿主级动作）。
         if (current.preset) return err(`Agent "${targetId}" 是预设/派生身份（运行时物化），不可经 update_agent_profile 修改`);
-        if (targetId !== selfId && !hasAdminCapability(ctx.agents.get(selfId))) {
+        if (targetId !== selfId && !hasAdminCapability(ctx, selfId)) {
           return err(`仅具备 admin 能力的 Agent 可修改他人档案（目标 "${targetId}"）`);
         }
 

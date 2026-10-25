@@ -420,12 +420,23 @@ const KNOWN_ARG_KEYS = new Set([
   'query', 'running_only', 'limit',
 ]);
 
-/** 派生身份合成（父身份编辑）：preset 隐藏 + tags 剥 delegation/admin；
+/** 派生身份合成（父身份编辑）：preset 隐藏 + tags 剥 delegation/admin +
+ * settings 剥同义提权面（◐a 2026-10-26：admin 换轨 settings.collab.admin
+ * 后 tags 剥词不再覆盖 settings 面——子 Agent 经继承获得 admin 的提权
+ * 洞同步封堵；browser/dev 继承与 tags 语义等价，保留）；
  * workdir 快照（2026-09-22 数据根一致修复）注入 settings.security.workdir
  * （sandboxWorkdir 显式档——子 Agent run 无会话键，靠快照与父会话同根） */
 function deriveAgentConfig(rec: SubagentRecord, parent: AgentConfig): AgentConfig {
   const tags = (parent.tags ?? []).filter((t) => !STRIPPED_TAGS.includes(t));
   const settings = { ...(parent.settings ?? {}) } as Record<string, unknown>;
+  if (settings.collab !== undefined) {
+    // 与 STRIPPED_TAGS 的 admin 同步：settings.collab.admin 剥除（其余
+    // collab 键保留——无 admin 语义）；对象剥空 = 删键
+    const collab = { ...((settings.collab as Record<string, unknown> | undefined) ?? {}) };
+    delete collab.admin;
+    if (Object.keys(collab).length > 0) settings.collab = collab;
+    else delete settings.collab;
+  }
   if (rec.workdir !== undefined) {
     const security = { ...((settings.security as Record<string, unknown> | undefined) ?? {}) };
     security.workdir = rec.workdir;

@@ -14,7 +14,7 @@
     "delegation",
     "collab"
   ],
-  "tools": [
+  "rows": [
     "fs-tools",
     "fs-search",
     "shell-tools",

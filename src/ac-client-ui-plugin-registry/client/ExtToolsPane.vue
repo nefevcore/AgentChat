@@ -27,9 +27,9 @@ const props = defineProps<{
     tools: { include: string[]; exclude: string[] };
     settings: Record<string, unknown>;
   } | null;
-  /** 编辑声明 */
+  /** 编辑声明（◐b cr-691：patch 键随 AssemblyPatch 协议改 rows） */
   onDecl?: (patch: {
-    tools?: { include?: string[]; exclude?: string[] };
+    rows?: { include?: string[]; exclude?: string[] };
     settings?: Record<string, Record<string, unknown> | null>;
   }) => void;
   /** 工具数据：catalog 全量目录 + enabled（装配快照）+ include/exclude 意图覆盖 */
@@ -338,7 +338,7 @@ function toggleTool(name: string, on: boolean): void {
     include = include.filter(n => n !== name);
     exclude = exclude.includes(name) ? exclude : [...exclude, name];
   }
-  props.onDecl!({ tools: { include, exclude } });
+  props.onDecl!({ rows: { include, exclude } });
 }
 
 // ── 工具目录分组（同注册行大组折叠——owner = tools/list 注册方行名；

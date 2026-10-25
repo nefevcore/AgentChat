@@ -240,7 +240,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
         // settings per-name 浅合并（服务端语义——M22 D5）：全量快照幂等，
         // 既有未编辑字段原样回写（值不变 = 合并无操作）。
         const patch: AssemblyPatch = {
-          tools: { include: a.tools.include, exclude: a.tools.exclude },
+          rows: { include: a.tools.include, exclude: a.tools.exclude },
           settings: a.settings as Record<string, Record<string, unknown> | null>,
         };
         const saved = await saveAssembly(targetId, patch);

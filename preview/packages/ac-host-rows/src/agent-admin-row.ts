@@ -183,8 +183,8 @@ export function makeAgentAdminRow(options: AgentAdminRowOptions = {}): Plugin {
             plugins,
             settings: { enabled: Object.keys(config.settings ?? {}), configs: config.settings ?? {} },
             tools: {
-              include: Array.isArray(config.tools) ? config.tools : config.tools?.include ?? [],
-              exclude: Array.isArray(config.tools) ? [] : config.tools?.exclude ?? [],
+              include: Array.isArray(config.rows) ? config.rows : config.rows?.include ?? [],
+              exclude: Array.isArray(config.rows) ? [] : config.rows?.exclude ?? [],
               enabled: tools.enabled,
               catalog: tools.tools,
             },

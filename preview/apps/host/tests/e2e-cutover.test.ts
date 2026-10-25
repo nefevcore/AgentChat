@@ -121,8 +121,8 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(report.skipped).toEqual([]);
     // agents 树：config 换轨 + entries 归拢 + 身份文件
     expect(report.agentsTreeResults).toEqual([{ agentId: 'alpha', configConverted: true, entriesMoved: 1, identityFilesCopied: 1 }]);
-    const cfg = JSON.parse(fs.readFileSync(path.join(targetRoot, 'agents/alpha/config.json'), 'utf-8')) as { tools?: string[]; tags?: string[] };
-    expect(cfg.tools).toEqual(expect.arrayContaining(['shell-tools', 'math', 'todo', 'datetime']));
+    const cfg = JSON.parse(fs.readFileSync(path.join(targetRoot, 'agents/alpha/config.json'), 'utf-8')) as { rows?: string[]; tags?: string[] };
+    expect(cfg.rows).toEqual(expect.arrayContaining(['shell-tools', 'math', 'todo', 'datetime']));
     expect(cfg.tags).toEqual(['full-access']);
     expect(fs.existsSync(path.join(targetRoot, 'agents/alpha/entries/todo.json'))).toBe(true);
     // user 投影：两 singles 会话各落 user 账本

@@ -39,10 +39,10 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
     expect(deriveHostRowset([], catalog).rowIds).toHaveLength(48);
     expect(deriveShellRowset({}, catalog).rowIds).toContain('plugin-dev'); // 装卸三件套行在壳基础集
-    expect(deriveShellRowset({ tools: [] }, catalog).rowIds).toContain('auto-title'); // cr-672 命名行恒并基座（点名形态也在）
+    expect(deriveShellRowset({ rows: [] }, catalog).rowIds).toContain('auto-title'); // cr-672 命名行恒并基座（点名形态也在）
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）
-    expect(deriveShellRowset({ tools: ['restart'] }, catalog).rowIds).toContain('restart'); // 点名引入
-    expect(deriveShellRowset({ tools: ['creator'] }, catalog).rowIds).toContain('restart'); // creator 捆绑词命中
+    expect(deriveShellRowset({ rows: ['restart'] }, catalog).rowIds).toContain('restart'); // 点名引入
+    expect(deriveShellRowset({ rows: ['creator'] }, catalog).rowIds).toContain('restart'); // creator 捆绑词命中
   });
 
   it('requires 词表自洽（cr-521；cr-551 宿主行首用）：引用 id 均为同树内行（垫片服务不标注）', () => {

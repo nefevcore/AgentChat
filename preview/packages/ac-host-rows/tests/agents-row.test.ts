@@ -122,7 +122,7 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
       const overridden = h.agents.createFromTemplate('dsh-minimal', 'mini', { model: 'mock-1', provider: 'p1' });
       expect(overridden.model).toBe('mock-1');
       expect(overridden.provider).toBe('p1');
-      expect(overridden.tools).toEqual(['str-replace-editor', 'shell-tools']);
+      expect(overridden.rows).toEqual(['str-replace-editor', 'shell-tools']);
       expect(() => h.agents.createFromTemplate('nope', 'x')).toThrow(/模板不存在/);
     } finally {
       await h.dispose();

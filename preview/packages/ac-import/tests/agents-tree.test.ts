@@ -17,7 +17,7 @@ describe('convertConfig（tags→tools 换轨）', () => {
       id: 'a',
       tags: ['shell', 'web', 'fs', 'full-access', 'tc-programmatic', 'observe', 'manipulate', 'admin'],
     });
-    expect(out.tools).toEqual(expect.arrayContaining(['shell-tools', 'web-tools', 'fs-tools', 'fs-search']));
+    expect(out.rows).toEqual(expect.arrayContaining(['shell-tools', 'web-tools', 'fs-tools', 'fs-search']));
     expect(out.tags).toEqual(['full-access', 'tc-programmatic']);
     expect(out.settings).toEqual({
       browser: { observe: true, manipulate: true },
@@ -29,15 +29,15 @@ describe('convertConfig（tags→tools 换轨）', () => {
     expect(() => convertConfig('a', { id: 'a', tags: ['no-such-tag'] })).toThrow(/未知词/);
   });
 
-  it('无 tags 不产生 tools（行集全集语义保持）', () => {
+  it('无 tags 不产生 rows（行集全集语义保持）', () => {
     const out = convertConfig('a', { id: 'a', model: null });
-    expect(out.tools).toBeUndefined();
+    expect(out.rows).toBeUndefined();
     expect(out.tags).toBeUndefined();
   });
 
-  it('旧 tools 在场 = 并集（点名单不被换轨收窄）', () => {
+  it('旧 tools 在场 = 并集落 rows 键（点名单不被换轨收窄）', () => {
     const out = convertConfig('a', { id: 'a', tags: ['infra'], tools: ['fs_read'] });
-    expect(out.tools).toEqual(expect.arrayContaining(['fs_read', 'math']));
+    expect(out.rows).toEqual(expect.arrayContaining(['fs_read', 'math']));
   });
 });
 

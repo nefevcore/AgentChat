@@ -19,7 +19,7 @@ describe('内置模板静态配置集（preset-builtin 行数据面）', () => {
     expect(templates.map((t) => t.config.id)).toEqual(['__standard__', '__dsh_minimal__', '__creator__', '__abap_dev__']);
     for (const template of templates) {
       expect(template.config.preset).toBe(true); // 模板 = 预设名册语义（创建时剥除）
-      expect(Array.isArray(template.config.tools)).toBe(true);
+      expect(Array.isArray(template.config.rows)).toBe(true);
     }
   });
 

@@ -2,7 +2,7 @@
   "id": "__creator__",
   "name": "创造模式",
   "preset": true,
-  "tools": [
+  "rows": [
     "fs-tools",
     "fs-search",
     "str-replace-editor",

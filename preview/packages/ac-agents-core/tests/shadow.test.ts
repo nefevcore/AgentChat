@@ -14,7 +14,7 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 const parent: AgentConfig = {
   id: 'w', model: 'mock', preset: true,
-  tools: ['fs-tools'],
+  rows: ['fs-tools'],
   name: '现任',
 };
 
@@ -24,7 +24,7 @@ describe('M6.5 影子物化（R-5）', () => {
     expect(dir).toBe(path.join(ROOT, 'agents', 'w', 'children', 'w-shadow-1'));
     const child = readChildConfig(ROOT, 'w', 'w-shadow-1');
     // 会话基座并入已单源化到行集派生层（cr-548）——物化快照保持父词形
-    expect(child).toMatchObject({ id: 'w-shadow-1', model: 'mock', tools: ['fs-tools'] });
+    expect(child).toMatchObject({ id: 'w-shadow-1', model: 'mock', rows: ['fs-tools'] });
     expect(child?.preset).toBeUndefined(); // 名册语义不继承
     expect(listChildIds(ROOT, 'w')).toEqual(['w-shadow-1']);
   });

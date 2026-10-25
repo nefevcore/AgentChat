@@ -20,12 +20,14 @@ export interface AgentConfig {
   provider?: string;
   system?: string;
   /**
-   * 暴露给模型的工具面声明（A10 声明面 = 行集引用）：
+   * 暴露给模型的工具面声明（A10 声明面 = 行集引用；◐b cr-691 字段更名
+   * tools→rows——词形以行引用为主，名实相符）：
    *   · string[] —— 点名清单（精确工具名 ∨ 行名——行集谓词：点名工具 ∨ 引用行）
    *   · {include?, exclude?} —— include 白名单 / exclude 增量停用
    * 缺省 = 行集全集。tag 引用（'tag:<t>'）已随 tag 机制解体退役（cr-484）。
+   * 盘上旧键 tools 由 readAgentConfig 归一（读时兼容，写恒 rows）。
    */
-  tools?: string[] | { include?: string[]; exclude?: string[] };
+  rows?: string[] | { include?: string[]; exclude?: string[] };
   /** LLM 采样参数白名单透传（temperature/max_tokens/…——无法覆盖保留键） */
   llmParams?: Record<string, unknown>;
   /** 最大步数（>0 = trigger 上限；缺省/0 = 不限） */
@@ -83,7 +85,7 @@ export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
 }
 
 /**
- * 解析 AgentConfig.tools 为生效工具面清单（行集谓词求值半边：条目词
+ * 解析 AgentConfig.rows 为生效工具面清单（行集谓词求值半边：条目词
  * = 精确工具名 ∨ 行名——行名由 ac-rowset-core 换行集清单再展工具，
  * 本函数只做词形归一与 include/exclude 合成）。
  *   · undefined → undefined（= 行集全集；调用方语义）
@@ -92,7 +94,7 @@ export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
    *   · {include,exclude} → include 减 exclude
  */
 export function resolveToolNames(
-  tools: AgentConfig['tools'],
+  tools: AgentConfig['rows'],
 ): string[] | undefined {
   if (tools === undefined) return undefined;
   if (Array.isArray(tools)) return [...tools];

@@ -2,7 +2,7 @@
   "id": "__dsh_minimal__",
   "name": "极简模式",
   "preset": true,
-  "tools": [
+  "rows": [
     "str-replace-editor",
     "shell-tools"
   ],

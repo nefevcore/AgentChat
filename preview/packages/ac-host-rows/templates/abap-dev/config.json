@@ -2,7 +2,7 @@
   "id": "__abap_dev__",
   "name": "ABAP开发模式",
   "preset": true,
-  "tools": [
+  "rows": [
     "fs-tools",
     "fs-search",
     "str-replace-editor",

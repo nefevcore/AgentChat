@@ -37,12 +37,12 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     });
     const cfg = JSON.parse(
       fs.readFileSync(path.join(dataRoot, 'agents/__standard__/config.json'), 'utf-8'),
-    ) as { id: string; preset?: boolean; tags?: string[]; tools: string[]; description?: string };
+    ) as { id: string; preset?: boolean; tags?: string[]; rows: string[]; description?: string };
     expect(cfg.id).toBe('__standard__');
     expect(cfg.preset).toBeUndefined(); // 物化剥 preset（同 transientConfigOf）
-    expect(cfg.tools).toContain('browser');
-    expect(cfg.tools).toContain('collab-tools'); // 模板 18 行（含协作面）
-    expect(cfg.tools).not.toContain('memory');
+    expect(cfg.rows).toContain('browser');
+    expect(cfg.rows).toContain('collab-tools'); // 模板 18 行（含协作面）
+    expect(cfg.rows).not.toContain('memory');
     // 能力 tags 随模板物化（cr-617：缺 tags = SDK 投影/能力面坍缩到 base 族）
     expect(cfg.tags).toContain('fs');
     expect(cfg.tags).toContain('collab');

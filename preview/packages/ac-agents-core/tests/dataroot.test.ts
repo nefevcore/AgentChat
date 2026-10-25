@@ -29,7 +29,7 @@ const catalog = {
 it('骨架全形态 → 四纯库直读互证', () => {
   buildDataRoot(ROOT, {
     agents: [
-      { id: 'alpha', model: 'gpt-x', tools: ['fs_read'] },
+      { id: 'alpha', model: 'gpt-x', rows: ['fs_read'] },
       { id: 'beta', model: 'gpt-y' },
     ],
     globalAuth: {
@@ -60,7 +60,7 @@ it('骨架全形态 → 四纯库直读互证', () => {
   const cat = readCatalog(path.join(ROOT, 'row-catalog.json'));
   expect(cat.rows).toHaveLength(6);
   expect(deriveHostRowset(readHostPreferences(ROOT), cat).rowIds).toEqual(['ac-post-office']);
-  const shell = deriveShellRowset({ tools: ['fs_read'] }, cat);
+  const shell = deriveShellRowset({ rows: ['fs_read'] }, cat);
   expect(shell.rowIds).toEqual(['ac-fs-tools']);
   // credentials
   expect(listCredentialNames(ROOT)).toEqual(['github-token']);

@@ -66,13 +66,18 @@ describe('ac-agent-presets-builtin：内置模式注入', () => {
     const creator = ctx.agents.get('__creator__');
     expect(creator?.preset).toBe(true);
     expect(creator?.name).toBe('创造模式');
-    expect(creator?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin', 'issue-report']);
+    const creatorSettings = creator?.settings as Record<string, unknown>;
+    // ◐a 行内档位 settings：dev/admin 出 tags、进 settings（dev-tools/
+    // collab/browser——capabilitySetOf 同义合成）
+    expect(creator?.tags).toEqual(['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report']);
+    expect(creatorSettings.browser).toEqual({ observe: true, manipulate: true, inject: true });
+    expect(creatorSettings.collab).toEqual({ admin: true });
+    expect(creatorSettings['dev-tools']).toEqual({ enabled: true });
     // memory/datetime 停；skill 不停（差异化：用户自己的技能照常加载，
     // 开发引导另经 system 内置——互补不冲突）
-    const creatorSettings = creator?.settings as Record<string, { enabled?: boolean }>;
-    expect(creatorSettings.memory).toEqual({ enabled: false });
-    expect(creatorSettings.datetime).toEqual({ enabled: false });
-    expect(creatorSettings.skill).toBeUndefined();
+    expect((creatorSettings as Record<string, { enabled?: boolean }>).memory).toEqual({ enabled: false });
+    expect((creatorSettings as Record<string, { enabled?: boolean }>).datetime).toEqual({ enabled: false });
+    expect((creatorSettings as Record<string, { enabled?: boolean }>).skill).toBeUndefined();
     // system 提示词内置插件开发指南（三件套分工 + manifest 必填项锚点）
     expect(creator?.system).toContain('# AgentChat 插件开发指南');
     expect(creator?.system).toContain('register_plugin');

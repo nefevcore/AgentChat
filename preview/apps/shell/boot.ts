@@ -160,7 +160,7 @@ export function deriveAndAssertRowset(
       ? path.join(dataRoot, 'agents', parentId, 'children', agentId, 'config.json')
       : path.join(dataRoot, 'agents', agentId, 'config.json')));
   }
-  const derived = deriveShellRowset({ tools: config.tools }, catalog);
+  const derived = deriveShellRowset({ rows: config.rows }, catalog);
   if (derived.warnings.length > 0) {
     throw new Error('行集静态断言失败：\n  ' + derived.warnings.join('\n  '));
   }
@@ -561,7 +561,7 @@ export async function bootShell(
       const conv = ctx.get('conversation', false) as
         | {
             previewSystemPrompt(conversationId?: string): Promise<string>;
-            assemblyToolsView(): { tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; enabled: string[] };
+            assemblyToolsView(): { rows: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; enabled: string[] };
           }
         | undefined;
       if (conv === undefined) throw new Error('conversation 服务缺席——行集不含 conversation 行');

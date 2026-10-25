@@ -920,7 +920,7 @@ export class ConversationService extends Service {
    * 生效工具集（agents/tool-defs 估算面——Token 仪表固定开销，cr-582；
    * 主线 web-api 同构）：可见面 = 注册面去 mode 工具（preview 无会话授权
    * caps 面——授权在执行时 gate〔cr-527 A14〕，LLM 面不按会话收窄）；
-   * config.tools 点名 ∩ 可见面；模式收窄单源引用主线纯函数（估算与真实
+   * config.rows 点名 ∩ 可见面；模式收窄单源引用主线纯函数（估算与真实
    * run 同口径），会话覆盖经 convSettings 垫片现读。
    */
   toolDefs(conversationId?: string): {
@@ -944,10 +944,10 @@ export class ConversationService extends Service {
    * read/write/edit）；工具名/tag 词形原样透传（visible ∩ 在 toolDefs/run
    * 装配处收敛）。 */
   private toolFaceCache: { key: string; face: string[] | undefined } | null = null;
-  private toolFaceOf(config: { tools?: string[] | { include?: string[]; exclude?: string[] } }): string[] | undefined {
-    const key = JSON.stringify(config.tools ?? null);
+  private toolFaceOf(config: { rows?: string[] | { include?: string[]; exclude?: string[] } }): string[] | undefined {
+    const key = JSON.stringify(config.rows ?? null);
     if (this.toolFaceCache?.key !== key) {
-      const resolved = resolveToolNames(config.tools);
+      const resolved = resolveToolNames(config.rows);
       // 展开去重保序（多行别名/点名并集不产重复名——LLM schema 面干净）
       const expanded = resolved === undefined ? undefined
         : [...new Set(resolved.flatMap((token) => this.rowTools?.[token] ?? [token]))];

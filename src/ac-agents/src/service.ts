@@ -401,8 +401,15 @@ export function widenToolsForGating(
  * 有效能力集（与 ac-security 执行门禁同款合成——工具【可见面】过滤的
  * 单源，2026-09-02 反馈 #1：requiredTags 缺标签的工具此前只在执行时 veto，
  * LLM 仍能在工具清单里看到并浪费一轮调用）：
- *   {'base', 'agent:<id>'} ∪ AgentConfig.tags（tags 单源——capabilities
- *   覆盖层已随 access-tier §9.4 删除）。
+ *   {'base', 'agent:<id>'} ∪ AgentConfig.tags ∪ 行内档位 settings 合成词
+ * （◐a 2026-10-26 settings X1 单源：browser/collab/dev-tools 的行内档位
+ *   从 tags 换轨 settings——capabilities 覆盖层已随 access-tier §9.4
+ *   删除；合成 = 并集，未迁移旧数据 tags 仍在 = 回滚线兼容，与
+ *   web-tools 会话 grants「只升不降」同语义）：
+ *   · settings.browser.{observe,manipulate,inject} 层级布尔——高层含全部
+ *     低层 + 'web'（与 conv-settings browserTier grants 同形）；
+ *   · settings.collab.admin === true → 'admin'；
+ *   · settings['dev-tools'].enabled === true → 'dev'。
  * 无身份（宿主直调）= {'base'}。
  */
 export function capabilitySetOf(
@@ -414,6 +421,26 @@ export function capabilitySetOf(
   caps.add(`agent:${agentId}`);
   const agent = ctx.agents.get(agentId);
   for (const t of agent?.tags ?? []) caps.add(t);
+  // 行内档位 settings 合成（settingsOf 两层合成口——全局默认层 ∪ 差异层）
+  const settingsOf = (name: string): Record<string, unknown> | undefined => {
+    const merged = ctx.agents.settingsOf(agentId, name);
+    return merged !== null && typeof merged === 'object' && !Array.isArray(merged)
+      ? (merged as Record<string, unknown>)
+      : undefined;
+  };
+  const browser = settingsOf('browser');
+  if (browser !== undefined) {
+    // 层级布尔：任一 true 即含 web + 全部低层（AND 地板 ['web','observe']
+    // 要求——与 conv-settings browserTier grants 同形）
+    if (browser.observe === true || browser.manipulate === true || browser.inject === true) {
+      caps.add('web');
+      caps.add('observe');
+    }
+    if (browser.manipulate === true) caps.add('manipulate');
+    if (browser.inject === true) caps.add('inject');
+  }
+  if (settingsOf('collab')?.admin === true) caps.add('admin');
+  if (settingsOf('dev-tools')?.enabled === true) caps.add('dev');
   return caps;
 }
 

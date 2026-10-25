@@ -42,12 +42,20 @@ export function isAgentIdentity(id: string): boolean {
   return id !== '' && !id.includes('~');
 }
 
-/** 直读 config.json（缺席/损坏 = null——调用方按未注册语义处理） */
+/**
+ * 直读 config.json（缺席/损坏 = null——调用方按未注册语义处理）。
+ * ◐b cr-691 键归一：盘上旧键 tools → rows（读时兼容已迁数据；写恒 rows
+ * ——writeAgentConfig 落盘的恒为归一后形态，旧键只在读时出现一次）。
+ */
 export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig | null {
   const file = path.join(agentDir(dataRoot, agentId), CONFIG_FILE);
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AgentConfig>;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AgentConfig> & { tools?: unknown };
     if (typeof parsed.id !== 'string' || parsed.id !== agentId) return null;
+    if (parsed.rows === undefined && parsed.tools !== undefined) {
+      (parsed as Record<string, unknown>).rows = parsed.tools;
+      delete (parsed as Record<string, unknown>).tools;
+    }
     return parsed as AgentConfig;
   } catch {
     return null;

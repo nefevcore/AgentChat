@@ -138,7 +138,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const out = await svc.spawnOp({ task: 't', tools: ['read', 'healthz', 'fs-search'] });
       expect(out.filtered).toEqual(['healthz']);
       const cfg = readChildConfig(ROOT, 'papa', out.childId);
-      expect(cfg?.tools).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
+      expect(cfg?.rows).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
     } finally { await dispose(); }
   });
 

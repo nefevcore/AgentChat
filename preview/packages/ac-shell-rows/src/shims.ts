@@ -16,8 +16,8 @@ import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT
 /** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list） */
 export class AgentsShim extends Service {
   private dataRoot: string;
-  /** 行 id → 工具名投影（cr-593）：AgentConfig.tools 盘上词形是行 id，
-   * 主线消费面（collab list_tools / read_agent_info 等按 config.tools
+  /** 行 id → 工具名投影（cr-593）：AgentConfig.rows 盘上词形是行 id，
+   * 主线消费面（collab list_tools / read_agent_info 等按 config.rows
    * 过滤注册工具名）拿原词形 = 词形断裂（行 id 落空、恰同名者幸存）。
    * 垫片 = 盘上词汇 → 主线服务词汇的翻译边界（与 conversation 服务
    * toolFaceOf 同展开语义；缺席 = 无目录投影，原样透传）。 */
@@ -36,14 +36,14 @@ export class AgentsShim extends Service {
   get(id: string) {
     const config = readAgentConfig(this.dataRoot, id) ?? undefined;
     if (config === undefined || this.rowTools === undefined) return config;
-    const tools = config.tools;
-    if (Array.isArray(tools)) return { ...config, tools: this.expandTokens(tools) };
-    if (typeof tools === 'object') {
+    const rows = config.rows;
+    if (Array.isArray(rows)) return { ...config, rows: this.expandTokens(rows) };
+    if (typeof rows === 'object') {
       return {
         ...config,
-        tools: {
-          ...(tools.include !== undefined ? { include: this.expandTokens(tools.include) } : {}),
-          ...(tools.exclude !== undefined ? { exclude: this.expandTokens(tools.exclude) } : {}),
+        rows: {
+          ...(rows.include !== undefined ? { include: this.expandTokens(rows.include) } : {}),
+          ...(rows.exclude !== undefined ? { exclude: this.expandTokens(rows.exclude) } : {}),
         },
       };
     }

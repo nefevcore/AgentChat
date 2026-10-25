@@ -270,9 +270,10 @@ export interface AssemblyData {
   };
 }
 
-/** agents/assembly/update 补丁（settings per-name 浅合并 / null 删除——M22 D5） */
+/** agents/assembly/update 补丁（settings per-name 浅合并 / null 删除——M22 D5；
+ * ◐b cr-691 rows 键随 preview 轨 AgentConfig 更名——主线 RPC 双键收讫） */
 export interface AssemblyPatch {
-  tools?: ToolOverrides;
+  rows?: ToolOverrides;
   settings?: Record<string, Record<string, unknown> | null>;
 }
 

@@ -101,7 +101,9 @@ const CREATOR: AgentPresetDefinition = {
     //     admin 边界）。注意 collab 协作族与 history 回放族与标准模式口径
     //     一致（不载——单会话开发流不需要）；memory 标签同 cr-17 收口。
     //     issue-report（cr-41）：开发流发现问题主动上报是缺省期待。
-    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'dev', 'admin', 'issue-report'],
+    // ◐a 2026-10-26 settings X1 单源：dev/admin 换轨 settings（下方
+    //     settings['dev-tools']/collab——capabilitySetOf 同义合成）。
+    tags: ['fs', 'infra', 'shell', 'web', 'delegation', 'issue-report'],
     // 技能面保留（与标准/极简差异化）：用户自己的技能（全局/专属）照常
     // 加载——插件开发引导不依赖技能注入（框架开发技能 agentchat-dev
     // 住 .dsh/skills 开发侧目录，不进用户技能面），已内置下方 system
@@ -110,6 +112,11 @@ const CREATOR: AgentPresetDefinition = {
     settings: {
       memory: { enabled: false },
       datetime: { enabled: false },
+      // ◐a 行内档位（与旧 tags dev/admin 等义）：开发流需要全层浏览器
+      // （eval 调试 webui）+ 插件装卸三件套 + 调试面
+      browser: { observe: true, manipulate: true, inject: true },
+      collab: { admin: true },
+      'dev-tools': { enabled: true },
     },
     system: `# AgentChat 插件开发指南
 

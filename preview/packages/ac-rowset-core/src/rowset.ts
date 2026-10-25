@@ -49,15 +49,17 @@ export interface DerivedRowset {
 }
 
 /**
- * 壳行集派生：AgentConfig.tools（点名工具 ∨ 引用行）× 目录。
- *   · tools 缺省 → 基础壳行集（目录内 tree=shell 且基础=true 的行）
+ * 壳行集派生：AgentConfig.rows（点名工具 ∨ 引用行）× 目录。
+ *   · rows 缺省 → 基础壳行集（目录内 tree=shell 且基础=true 的行）
  *   · 条目词形：精确工具名（目录 tools 命中）∨ 行 id（目录 rows 命中）
  *     ∨ 捆绑词（bundle 命中——展开为组内全部行）
  *   · exclude 减法在展开后的行集上执行（工具级减法 = 移除提供行）
  * 未命中条目 → warnings（行集静态断言面，boot fail-loud）
+ * ◐b cr-691：入参字段名随 AgentConfig 更名 tools→rows（旧 tools 键由
+ * readAgentConfig 归一，本函数只认 rows）。
  */
 export function deriveShellRowset(
-  config: { tools?: string[] | { include?: string[]; exclude?: string[] } },
+  config: { rows?: string[] | { include?: string[]; exclude?: string[] } },
   catalog: RowsetCatalog,
 ): DerivedRowset {
   const byTool = new Map<string, RowDescriptor>();
@@ -78,9 +80,9 @@ export function deriveShellRowset(
   }
   const warnings: string[] = [];
   let picked = new Set<RowDescriptor>();
-  const entries = config.tools === undefined || Array.isArray(config.tools)
-    ? (config.tools as string[] | undefined) ?? null
-    : config.tools.include ?? null;
+  const entries = config.rows === undefined || Array.isArray(config.rows)
+    ? (config.rows as string[] | undefined) ?? null
+    : config.rows.include ?? null;
   if (entries === null) {
     picked = new Set(baseRows); // 缺省 = 基础壳行集（非捆绑行）
   } else {
@@ -120,8 +122,8 @@ export function deriveShellRowset(
   // 显式排除依赖行的矛盾由 boot 装配终检 fail-loud（PENDING 拦截）。
   expandRequires(picked, byRow);
   // exclude 减法（工具级 = 移除其提供行；行级 = 移除行）
-  const excludes = config.tools !== undefined && !Array.isArray(config.tools)
-    ? config.tools.exclude ?? []
+  const excludes = config.rows !== undefined && !Array.isArray(config.rows)
+    ? config.rows.exclude ?? []
     : [];
   for (const token of excludes) {
     const row = byRow.get(token) ?? byTool.get(token);

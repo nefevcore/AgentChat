@@ -220,19 +220,22 @@ export class AgentAdminService extends Service {
     };
   }
 
-  /** 装配写口（tools 意图 + settings 具名配置；patch 白名单 fail-closed） */
+  /** 装配写口（tools 意图 + settings 具名配置；patch 白名单 fail-closed。
+   * ◐b cr-691：rows 键优先（preview 轨 AgentConfig 字段更名）；tools 键
+   * 兼容旧客户端（主线回滚线语义不变——两键同在以 rows 为准） */
   updateAssembly(
     agentId: string,
     patch: Record<string, unknown>,
   ): { config: AgentConfig; changed: string[] } {
-    const unknown = Object.keys(patch).filter((k) => k !== 'tools' && k !== 'settings');
+    const unknown = Object.keys(patch).filter((k) => k !== 'tools' && k !== 'rows' && k !== 'settings');
     if (unknown.length > 0) throw new Error(`装配补丁字段不在白名单: ${unknown.join(', ')}`);
     const current = this.getAgent(agentId);
     const next: Record<string, unknown> = { ...(current as unknown as Record<string, unknown>) };
     let changed: string[] = [];
 
-    if (patch.tools !== undefined) {
-      const t = objOf(patch.tools);
+    const rowsPatch = patch.rows !== undefined ? patch.rows : patch.tools;
+    if (rowsPatch !== undefined) {
+      const t = objOf(rowsPatch);
       const include = t.include === undefined ? undefined : strArray(t.include, 'tools.include');
       const exclude = t.exclude === undefined ? undefined : strArray(t.exclude, 'tools.exclude');
       if (include === undefined && exclude === undefined) {
@@ -293,7 +296,7 @@ export class AgentAdminService extends Service {
     if (patch.settings !== undefined && !changed.includes('settings') && !jsonEq(next.settings, current.settings)) {
       changed.push('settings');
     }
-    if (patch.tools !== undefined && !changed.includes('tools') && !jsonEq(next.tools, current.tools)) {
+    if (rowsPatch !== undefined && !changed.includes('tools') && !jsonEq(next.tools, current.tools)) {
       changed.push('tools');
     }
     if (changed.length > 0) {
