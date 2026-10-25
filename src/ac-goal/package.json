@@ -18,10 +18,7 @@
     "ac-gate-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-store": "workspace:*",
-    "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-llm": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

@@ -23,7 +23,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const srcRoot = join(repoRoot, 'src');
+// ◐c 迁移批（cr-696）：ac-client-ui-* 31 包迁 preview/packages——扫描根随迁
+const srcRoot = join(repoRoot, 'preview', 'packages');
 
 /** src 下全部行 client 半边入口（与 vite rowClientsPlugin 同款发现口径） */
 function rowClientEntries(): Array<{ row: string; file: string }> {

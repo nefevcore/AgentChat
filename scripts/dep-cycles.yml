@@ -27,76 +27,7 @@
 # ============================================================
 edges:
   # ---- M28 §5.1 既有裁决 ----
-  - from: ac-client-ui-layout
-    to: ac-client-ui-system
-    ruling: M28 §5.1 显式裁决——版本入口动作跨行消费合法（backupNow/fetchVersion = system 域 RPC 词汇；2026-09-11 sidebar 行归并 layout，边随 Sidebar.vue 迁移）
-
   # ---- M28 §4.2① 惰性取用口 + M29 P2-1 定谳 ----
-  - from: ac-client-ui-conversation
-    to: ac-client-ui-agents
-    ruling: M28 §4.2① rosterAccess 惰性取用口（feed/chat-core/AppFrame——pinia 门面退役形态）+ M29 P2-1 定谳：rosterApi 直连（TokenGauge 仪表〔conversation:header-widget 贡献〕/AgentHeaderActions 删除〔agents 行〕/ChatInput 池清单）= agent 域 RPC/名册契约词汇；服务态消费一律走 ctx.roster（sessions 服务核心）
-  - from: ac-client-ui-conversation
-    to: ac-client-ui-workspace
-    ruling: M29 P2-1 定谳——fileApi 上传登记门面 = workspace 域 RPC 契约词汇（thin typed wrapper，零域内状态消费；行卸载 = 上传登记静默降级）
-  - from: ac-client-ui-conversation
-    to: ac-client-ui-skill
-    ruling: M29 P2-1 定谳——ChatInput skillsApi（@ 提及的技能清单拉取）= skill 域 RPC 契约词汇（thin typed wrapper；行卸载 = 提及清单空态）
-  - from: ac-client-ui-conversation
-    to: ac-client-ui-llm-pool
-    ruling: 2026-09-11 语义归位——ChatInput 池模型归一化（poolModelEntries；cr-203 起另有 providerIconOf/Color 图标词）自 rosterApi 换源 ui-llm-pool/poolApi = 池域契约词汇（M29 P2-1 同款判据；行卸载 = 模型菜单回落池表裸读）
-
   # ---- 2026-09-11 R6 扩权一次性入册（.vue 媒介存量边） ----
-  - from: ac-client-ui-agents
-    to: ac-client-ui-llm-pool
-    ruling: 2026-09-11 语义归位——AgentPane 模型发现/池模型归一化（fetchPoolModels/poolModelEntries）自 rosterApi 换源 = 池域契约词汇（依赖方向正置：Agent 面消费池域；原 llm-pool→agents 盲区边消化）
-  - from: ac-client-ui-agents
-    to: ac-client-ui-plugin-registry
-    ruling: §8 组件复用表——ExtToolsPane/ExtensionSettingsModal = plugin-registry 域可复用小件（AgentPane 插件配置页签；静态引用，行卸载 = 页签消失）
-  - from: ac-client-ui-agents
-    to: ac-client-ui-timer
-    ruling: §8 组件复用表 + RPC 包装——TimerPane（AgentPane 定时任务页签小件）+ timerApi（AgentSettingsHost 定时读写）= timer 域契约词汇
-  - from: ac-client-ui-timer
-    to: ac-client-ui-agents
-    ruling: 2026-09-13 TimersPanel 重设计——useRosterCore 惰性取用口（activeAgentId/getAgentName = agents 域名册契约词汇，M28 §4.2① 同款判据；行卸载 = 面板回落无激活 Agent 态）
-  - from: ac-client-ui-browser
-    to: ac-client-ui-workspace
-    ruling: RPC 包装——ToolResultBrowser fetchWorkspaceFile（截图经工作区文件口拉取）= workspace 域契约词汇（行卸载 = 截图降级文本）
-  - from: ac-client-ui-group
-    to: ac-client-ui-agents
-    ruling: 惰性取用口 + RPC 包装——GroupDrawer useRosterCore（成员名册/头像解析）/ CreateGroupDialog fetchAgents（成员候选清单）= agent 域契约词汇（行卸载 = 显示名回落 id）
-  - from: ac-client-ui-plugin-registry
-    to: ac-client-ui-workspace
-    ruling: §8 组件复用表——ExtensionSettingsModal EntryPickerModal = workspace 域可复用小件（路径选择器；行卸载 = 选择器消失）
-  - from: ac-client-ui-runview
-    to: ac-client-ui-agents
-    ruling: 惰性取用口——RunTracking/RunTrackingPanel useRosterCore（运行矩阵的 agent 显示名/头像）= agent 域契约词汇（行卸载 = 显示名回落 id）
-  - from: ac-client-ui-runview
-    to: ac-client-ui-jobs
-    ruling: 契约词汇——RunTrackingPanel 消费 jobs 域任务清单词汇（jobBoard 投影；行卸载 = 任务列降级空态）
-  - from: ac-client-ui-subagent
-    to: ac-client-ui-agents
-    ruling: 惰性取用口——SubagentConversationView useRosterCore（父 Agent 显示名解析；subagent-session-view-plan §3.4；行卸载 = 显示名回落 id）
-  - from: ac-client-ui-subagent
-    to: ac-client-ui-jobs
-    ruling: 契约词汇——SubagentConversationView 消费 jobs 域任务清单词汇（jobBoard 运行态徽章 + job/settled 刷新驱动；行卸载 = 徽章/自动刷新降级、手动刷新兜底）
-  - from: ac-client-ui-singles
-    to: ac-client-ui-agents
-    ruling: 惰性取用口——SessionList/SingleHeaderActions useRosterCore（会话归属 agent 显示名/头像）= agent 域契约词汇（行卸载 = 显示名回落 id）
-  - from: ac-client-ui-singles
-    to: ac-client-ui-workspace
-    ruling: §8 组件复用表——SessionList EntryPickerModal = workspace 域可复用小件（工作区路径选择；type Workspace 为 type-only 弱依赖不计）
-  - from: ac-client-ui-usage
-    to: ac-client-ui-agents
-    ruling: 惰性取用口——TokenUsage useRosterCore（用量面板的 agent 显示名）= agent 域契约词汇（行卸载 = 显示名回落 id）
-
   # ---- cr-298 首启向导行（first-run-onboarding-plan D2 裁决放行：引导内嵌表单
   #      跨包复用既有数据面——新行首次入图，显式修订本册） ----
-  - from: ac-client-ui-onboarding
-    to: ac-client-ui-agents
-    ruling: cr-298 RPC 包装——ProfileStep uploadAvatar/deleteAvatar（user 虚拟 Agent 头像 HTTP 面）+ roster 惰性取用口（refreshAvatar 名册同步）= agent 域契约词汇（行卸载 = 头像上传降级不可用、名册同步静默跳过）
-  - from: ac-client-ui-onboarding
-    to: ac-client-ui-llm-pool
-    ruling: cr-299 §8 组件复用表——LlmStep 消费 PoolEntryForm（连接编辑表单体）+ saveLlmPoolDomain（池域写口）= 池域契约词汇（行卸载 = 向导第 2 步降级静态说明）
-  - from: ac-client-ui-onboarding
-    to: ac-client-ui-search-pool
-    ruling: cr-299 §8 组件复用表——SearchStep 消费 SearchEntryForm（引擎编辑表单体）+ saveSearchPoolDomain = 池域契约词汇（行卸载 = 向导第 3 步降级静态说明）

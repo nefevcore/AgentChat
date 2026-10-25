@@ -141,9 +141,9 @@
       "role": "web 表面（单包：src 服务半边 + client 前端半边；骨架 3 件 in-bundle）",
       "path": [
         "preview/apps/ui",
-        "src/ac-client-ui-layout",
-        "src/ac-client-ui-renderer",
-        "src/ac-client-ui-theme"
+        "preview/packages/ac-client-ui-layout",
+        "preview/packages/ac-client-ui-renderer",
+        "preview/packages/ac-client-ui-theme"
       ]
     },
     {

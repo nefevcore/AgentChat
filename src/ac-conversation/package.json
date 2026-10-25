@@ -15,20 +15,12 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-core-utils": "workspace:*",
-    "ac-sandbox-core": "workspace:*",
-    "ac-session": "workspace:*"
+    "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
-    "@agentchat/cordis-timer": "workspace:*",
     "ac-agent-loop": "workspace:*",
-    "ac-agent-store": "workspace:*",
-    "ac-conv-settings": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-goal": "workspace:*",
-    "ac-group": "workspace:*",
     "ac-llm": "workspace:*",
-    "ac-router": "workspace:*",
-    "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

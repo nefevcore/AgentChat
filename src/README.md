@@ -60,16 +60,14 @@ defaultPoolConnection 全局默认连接；无回落 fail-closed）。
 ## 命令
 
 ```bash
-pnpm dev              # 官方启动器（vendor cordis bin.js + cordis.yml；web 3830）
+pnpm dev              # preview 宿主 boot（apps/host/boot.ts，数据根 workspace/home，web 3830）
 pnpm dev:supervised   # supervisor.mjs 宿主监护（42/78/0 协议 + 退避熔断）
-pnpm dev:demo         # 演示 boot（include patches 启用 hmr + 热重载）
-pnpm chat             # 对话 REPL（真实 provider 手测；CHAT_MODEL/CHAT_AGENT 可调）
+pnpm bench            # 评测 CLI（BFCL 套件；真实跑批显式触发，零常驻）
 pnpm typecheck        # tsc --noEmit（src 全轨；webui 走 webui:typecheck）
 pnpm test             # 全量测试（scripts/run-tests.mjs all；CI/发布门用，~45s）
 pnpm test:unit        # 快循环：仅非集成件（~21s，日常改动后跑这个）
 pnpm test:integration # 仅集成件（限流 8 路；追 flake / 验重活路径时跑）
 pnpm test:watch       # 快循环 watch 模式
-pnpm smoke            # tsx 冒烟（程序化树）
 pnpm webui            # WebUI dev server（vite 3831 → proxy 3830）
 pnpm webui:build      # WebUI 生产构建（→ src/webui/dist，boot 后 127.0.0.1:3830）
 pnpm webui:typecheck  # 前端 vue-tsc
@@ -423,12 +421,10 @@ durable steer）：busy steer 消费点前的崩溃窗口留痕——stash 即�
 ```
 src/
 │ ── 组合根与进程层 ──────────────────────────────────────────────
-├── ac-app/                  组合根：TREE/bootTree（程序化）与 ecosystem.ts/cordis.yml
-│                            （配置驱动）双路径；boot.ts = 官方启动入口；bootstrap.ts =
-│                            dist 发布入口（桌面/npm 形态，含数据迁移）；orphans.ts =
-│                            启动期孤儿进程对账（双 boot 路径共用）；chat.ts = REPL
-│                            真机入口；smoke*.ts = 冒烟脚本（零网络自验证）
-├── cordis.yml               配置驱动装配文件（行集与 ac-app TREE 保持一致）
+│                            （◐c 退役批 cr-696：ac-app 组合根与 cordis.yml 已随旧树
+│                            退役——运行组合根 = preview/apps/host + supervisor.mjs；
+│                            src/ 现为 B 类行包域 + 纯库域，ac-retired-types 承载
+│                            被删包的类型增强墓碑）
 ├── supervisor.mjs           宿主监护进程：spawn worker + 42/78/0 协议 + 退避熔断 +
 │                            .runtime 单写者锁（进程层脚本，不经组合根）
 ├── vendor/                  cordis 框架行（@agentchat/cordis-*：loader/include/
@@ -466,26 +462,20 @@ src/
 │                            排队数据面（queue/removeQueued/steerQueued +
 │                            queue-changed 权威快照）+ 上下文视图派生
 │                            （router 事件按读者投影，与 history 文件派生字节等价）
-├── ac-router/               纯转发（ctx.router）：agents 解析 AgentConfig 构建信封
 │                            投递 agentLoop + 事件通知双通道；router/before-deliver
 │                            决策 seam；模型缺省回落 poolFallbackRef（cr-313：provider 显式优先；cr-319 归 ac-llm）
 ├── ac-agents/               Agent 注册中心（ctx.agents）：AgentConfig +
 │                            settingsOf(id, name?)（全局默认层 ∪ 差异层合成口）+
 │                            displayNameOf；Agent 是数据不是插件
-├── ac-agents-dir/           数据驱动行：<root>/agents/ 目录扫描物化进 ctx.agents
-├── ac-agent-presets/        预设模式目录（ctx.agentPresets）：注册中心——数据行
 │                            注入预设定义（register 即归属）→ ctx.agents 物化 +
 │                            默认池模型解析（config/changed 热更）；skip-if-present
-├── ac-agent-presets-builtin/ 内置预设模式数据行：__standard__/__dsh_minimal__/
 │                            __creator__（标准/极简/创造）注入预设目录——插件注入
 │                            自有模式走同一注册面；无记忆语义 = 预设软停用
 │                            memory/skill/datetime 等行 + memory 标签不授予
 │                            （cr-17 工具面收口；创造模式例外保留 skill——用户
 │                            技能照常加载；插件开发指南经 system 提示词内置）
-├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json +
 │                            机制 entries（timer/skills 等唯一写口）+ 文档实体
 │                            （AGENTS.md 等）；getAgent 读边界归一（旧 hooks→settings）
-├── ac-singles/              独立会话元数据（ctx.singles）：会话 = 引用 + 覆盖而非
 │                            拷贝；自动标题（run-started 暂存 → 首步 after-step
 │                            结合 Agent 思考生成，after-run 兜底；update(title)
 │                            手改覆盖）；[system+tool schema] 前缀快照（修订键
@@ -494,7 +484,6 @@ src/
 │                            模型/提权/工具模式/浏览器档覆盖（内置键）+
 │                            registerKey 注册制扩展键（键域枚举单源 + grants
 │                            能力等效声明）；deliver 边界单点生效
-├── ac-group/                群拓扑（ctx.group）：成员表 + 群本体（post = 唯一发言
 │                            事实源）+ 成员私有转录流扇出（cr-4：sessions/<gid>~
 │                            <member>/ 投影行——run/settlement/回放全套标准机制）+
 │                            群聊行为契约注入（本体键与成员流键）+ 机械轮转
@@ -536,12 +525,10 @@ src/
 │                            run_code 投影同口径）
 ├── ac-jobs/                 后台任务注册中心（ctx.jobs）：owner 分桶 + 并发上限 +
 │                            settle first-wins + job/started·settled（登记即发）
-├── ac-security/             安全行（access-tier）：双轴门禁（requiredTags
 │                            能力轴 + needPermission×档位权限轴，含有人桶
 │                            询问提权 durableInteraction approval）+ 双黑名单
 │                            （accessDenyPaths 读+写双禁 / readDenyPaths 仅读
 │                            禁）+ bash 扫描 + 输出脱敏 + 唆使防御注入
-├── ac-subagent/             子 Agent（ctx.subagents）：持久多轮实体（spawn/send
 │                            [async·sync·steer·next-run 四投递语义]/await/list/stop/
 │                            delete）；落盘 <root>/subagents/<subId>/ 三文件（2026-09-22
 │                            对齐 sessions 域 run journal 裁决：messages=定稿流+run
@@ -647,12 +634,9 @@ src/
 │                            防幽灵 sub~to 桶，用户在父口径会话可见）/
 │                            send_group/list_*/read_agent_info/
 │                            update_agent_profile + @<名称> 引用约定
-├── ac-dev-tools/            开发辅助：read_logs（环形缓冲）/reload/reload_modules
 │                            （语义化中断）
-├── ac-restart/              系统重启行（ctx.restart：request 受理 + system_restart
 │                            工具中断上报 + after-run 宿主半边——优雅关闭 → exit 42 →
 │                            supervisor 重拉；正常工具无会话形态限制）
-├── ac-session-query/        会话查询门面：grep_history/read_history（复用
 │                            ctx.session.history()）+ #<标题>(<会话id>) 引用约定
 │ ── 评测域 ─────────────────────────────────────────────────────
 ├── ac-bench/                评测跑批（ctx.bench）：套件注册中心 + 单会话跑批——
@@ -661,15 +645,12 @@ src/
 │                            实际调用对拍（多重集回溯匹配）→ 报告聚合；BFCL
 │                            单轮适配器先行（v1/v3 双数据形态宽容解析）；
 │                            CLI = pnpm bench（缺省脚本化冒烟零 LLM）
-├── ac-timer-tools/          定时任务工具：timer set/list/disable（映射 ctx.timers；
 │                            owner=执行身份；会话键烘焙——条目存
 │                            call.conversationId，提醒回当前会话）
 │ ── 持久化与服务编排 ───────────────────────────────────────────
 ├── ac-config/               全局配置（ctx.config）：<root>/config.json 原子读写 +
 │                            双侧快照隔离 + 深等价提交去重 + config/changed（载荷带变更键）
-├── ac-credentials/          凭据（ctx.credentials）：AES-256-GCM 机器绑定加密 +
 │                            Agent→全局解析链 + listValues 脱敏清单
-├── ac-session/              会话历史 owning（ctx.session）：中性行入账 → writer 队列
 │                            落盘（append+fsync/幂等/失败回队首）+ history(conv,
 │                            {viewer}) 投影回放 + records/append/compact/setShelf +（ensureShelf
 │                            批量核验——singles 启动同步走它，免逐会话重放）
@@ -679,10 +660,8 @@ src/
 │                            计时〔token/s 速率分母，不含工具/编排〕）→ 多维查询
 │                            （byAgent/byModel/byDay/byDayModel/byConversation/byPair/byDayPair）
 │                            + 日 jsonl 审计流水 + boot 回读重建
-├── ac-archive/              归档编排（ctx.archive）：after-run 阈值检测 → 同桶整理
 │                            run（Agent 亲写概要；meta 标记三处不落盘；maxSteps 128
 │                            硬闸/超时 abort/步级观测三道防线）→ 分段 + compact 重建
-├── ac-timer/                定时任务（ctx.timers）：5 模式调度（time/delay/random/
 │                            workday/holiday）+ 限定次/永久 + 停机补偿 + 懒心跳；
 │                            触发 = deliver(source:'event')——条目带
 │                            conversationId 回投该会话（sender:user），缺省落
@@ -699,7 +678,6 @@ src/
 │                            （browse-dirs）+ 原生文件夹选择（pick-folder；
 │                            纯模块 native-dialog：win32 IFileDialog/darwin
 │                            osascript/linux zenity→kdialog，10 分钟超时兜底）
-├── ac-job-wakeup/           job/settled → deliver(source:'event') 通知 owner（与
 │                            ws-bridge 同事件两订阅方；owner 自杀〔killedBy=
 │                            'owner'〕跳过通知 cr-218，外部终止照投）
 │ ── 传输与可视化（核心域零 UI 知识）────────────────────────────
@@ -727,17 +705,14 @@ src/
 │                            与其协议级耦合——勿按插件行口径审查
 ├── ac-client-ui-remote/     远程设备设置节前端行（P1）：设备列表/吊销 + 配对
 │                            向导（二维码 URI + SAS 比对）——remote/* RPC 消费
-├── ac-web-api/              WS RPC 业务方法注册薄编排行：conversation/session/
 │                            agents/group/singles/usage/timer/backup/config/llm/
 │                            plugin/events/system 全套 + jobs/list·kill（运行
 │                            跟踪清单）+ subagents/list·stop·history（子Agent
 │                            面：注册表清单跨重启 + 停止推理 + 消息全形读，
 │                            墓碑可读）
 │                            + 扩展目录聚合（collectExtensionCatalog）
-├── ac-agent-admin/          Agent 管理面（ctx.agentAdmin + 写侧 RPC）：CRUD（白名单
 │                            fail-closed + deepMerge 补丁 + 变更报告）+ 装配视图
 │                            （agents/assembly）+ system-prompt dry-run（三档干跑）
-├── ac-webui/                Web UI 表面（ctx.webui）：插件 UI 扩展 entries 清单 +
 │                            /ui-plugin/ 静态 + extensions-changed + **boot graph
 │                            下发**（declareClient 行声明 + /api/ui/boot-graph，
 │                            M27 S3/D7——行卸载级联收缩）
@@ -832,12 +807,10 @@ src/
 │                            shims + 构建入口 + dist；D23-B 视觉
 │                            快照零像素回归门（AGENTCHAT_VISUAL=1）
 │ ── 插件域与治理 ───────────────────────────────────────────────
-├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审 +
 │                            installFromDir 免审安装复合口（同 hash 幂等/保留字护栏）
 │                            + 装载管道（before-load → 动态 import）+ 熔断
 │                            .load-health.json + 安全模式 + 行偏好层 patch-rpc +
 │                            审计流水；register/install 插件工具（中断通道）
-├── ac-plugin-gates/         装载 gate 策略行：权限 + 契约双 gate（import 之前
 │                            fail-closed，代码不进进程）
 ├── ac-plugin-market/        插件市场行：market/search（npm+github 双源，opt-in
 │                            发现门槛）+ market/stage（tarball 下载解包 + manifest
@@ -846,26 +819,21 @@ src/
 │                            events.disabled（吞注册≠veto）+ boot 末一次性清扫 +
 │                            fiber→顶层行聚合
 │ ── 样例 ──────────────────────────────────────────────────────
-└── ac-hello/                链路验证最小样例（inject/apply/on + extension 自述）
 ```
 
 ## 装配与运行时
 
-### 两条装配路径
+### 装配路径（◐c 退役批 cr-696 后）
 
 | 路径 | 入口 | 说明 |
 |---|---|---|
-| **官方（生产）** | `pnpm dev` | boot.ts 内联官方 bin.js 的 16 行（Context → Loader → include 读 `./cordis.yml`；装载前读 `<数据根>/cordis.patch.yml` 行偏好层注入 patches——不存在/损坏 warn + 空数组 fail-soft） |
-| **发布（npm/桌面）** | `ac-app/src/bootstrap.ts` → dist bundle | bootDist：TREE 静态行表 + 生产 web-server config；语义与 boot.ts 对齐（数据根锚定 / 单实例锁〔锚定数据根〕/ 行偏好层 / **版本升级数据迁移**〔锁后装载前，runMigrations + SESSION_MIGRATIONS〕/ EXIT_CONFIG / 事件清扫） |
-| 测试/演示辅助 | `ac-app/src/ecosystem.ts` 的 `bootFromConfig()` | 官方路径之外的 initial 物化 / include patches / 独立测试 yml（vitest 用） |
+| **生产** | `pnpm dev` / `pnpm dev:supervised` | preview 宿主 boot（`preview/apps/host/boot.ts`——行集目录派生 + 单树装配 + 编排面）；supervisor 监护（42/78/0 协议）。旧树双路径（Loader/cordis.yml + TREE/bootstrap）已退役 |
+| 发布（npm/桌面） | **换轨待做**（发版前独立批） | 旧 bundle 链（src/webui 前端 + ac-app bootstrap）随旧树退役；发布链换轨 = preview 宿主 bundle 化 |
 
-### 装载态四层
+### 装载态（前两层随 ◐c 退役批 cr-696 消亡——yml/patch 机制属旧树）
 
-1. **`cordis.yml` 出厂态**：git 管理，永不运行时写入（F10 写回守卫测试锁定）。
-2. **`cordis.patch.yml` 本机行偏好层**：声明式 patch `{id, disabled}`；id = yml
-   裸行 id（namespaced entry.id 永不命中）；`setPatch` hot 态即时生效（include
-   热通道，cordis.yml 字节不变）；停用级联含 ac-web-api 时 UI 升级警告 + 急救
-   通道；批量还原 `plugin/patch-reset {factory|minimal}`。
+1. **`plugins/registry.json` 安装态**：动态插件；boot 扫描恢复。
+2. **`settings[具名]` per-Agent 启用表达**：全局默认层 ∪ 差异层（settingsOf 合成）。
 3. **`plugins/registry.json` 安装态**：动态插件；boot 扫描恢复。
 4. **`settings[具名]` per-Agent 启用表达**：全局默认层 ∪ 差异层（settingsOf 合成）。
 

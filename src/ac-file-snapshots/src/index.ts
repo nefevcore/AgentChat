@@ -16,8 +16,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { memberStreamKey } from 'ac-core-utils'; // 群成员流键单源（cr-376 级联清理消费；原住 ac-group——GROUP_HINT_META 先例）
-import type {} from 'ac-singles'; // singles/updated 事件目录（级联订阅，type-only）
-import type {} from 'ac-group'; // group/deleted 事件目录（级联订阅，type-only）
 import { SnapshotStore, looksLikeText, SNAPSHOT_MAX_BYTES, type FileSnapshot } from './store.ts';
 
 /** 行配置 */

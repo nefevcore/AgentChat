@@ -165,7 +165,9 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 | cordis-hmr（已 disabled） | 换版本 = 重启壳（S5） |
 | runtime 字段 / loop-only 过渡方案 | M1 / M5 |
 
-## R6.1 退役执行台账（2026-10-23 全仓对账，cr-622）
+## R6.1 退役执行台账（2026-10-23 全仓对账，cr-622；**2026-10-25 执行完毕，cr-696**）
+
+**执行记录（cr-696，◐c 路径 A）**：A 类 24 包删除（ac-webui/ac-webui-extensions 改判 B 类保留——preview 24 个行测试深路径消费 WebUiService + slotCatalog 单源锚点）；ac-client-ui-* 31 包物理迁出 src/ → preview/packages/（保包名，workspace 按名解析全不变）；ac-app 组合根 + cordis.yml + dev:legacy/smoke/chat 脚本退役；B 类 type-only 引用清理（6 空导入删行 + TagDeclaration×3 / AgentPresetDefinition×1 内联）；src/ac-retired-types 墓碑类型包承载被删包的 Context/Events 类型增强（B 类源码可选能力消费面）；旧树语义测试 22 文件退役；白名单 dep-cycles.yml 清零（44 条 ui 边随迁移出扫描面）。验证：主线 typecheck 0 + test:unit 1750 全绿 + check:deps 绿 + preview:typecheck 0 + preview:test 1131 全绿 + 定向 lint 0。**发布链换轨（build:bundle / 三条 tag CI 仍指旧树 webui/app）为发版前独立批**。
 
 前提钉死：**旧包退役 = §3.5-5「主线旧树退役归档」整批动作，不可逐包拆**——旧树
 （cordis.yml + ac-app TREE + dev:legacy）在切换判据（会话续跑 + bench 门 + 真实

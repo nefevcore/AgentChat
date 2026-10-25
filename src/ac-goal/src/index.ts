@@ -43,7 +43,6 @@ import { agentOfRunRequest } from 'ac-agent-loop';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { LoopRunResult } from 'ac-agent-loop';
 import { agentGate } from 'ac-gate-core';
-import type {} from 'ac-agent-store'; // ctx.agentStore 服务类型（type-only）
 
 /** 目标状态：active 推进中（开轮）/ paused 已暂停（停轮）/ blocked 受阻 / completed 已达成（终态入 history） */
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'blocked';

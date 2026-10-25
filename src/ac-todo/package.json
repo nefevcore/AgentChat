@@ -15,7 +15,6 @@
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-store": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

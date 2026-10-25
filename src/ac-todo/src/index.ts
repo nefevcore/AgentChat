@@ -27,7 +27,6 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import type {} from 'ac-agent-store'; // ctx.agentStore 服务类型（type-only）
 
 /** 待办状态：pending 未开始 / in_progress 进行中 / completed 已完成 */
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';

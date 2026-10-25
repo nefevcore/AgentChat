@@ -15,11 +15,7 @@
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
-    "ac-agents": "workspace:*",
-    "ac-conv-settings": "workspace:*",
-    "ac-credentials": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-tag-registry": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

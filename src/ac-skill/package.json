@@ -14,15 +14,9 @@
     "ac-skill-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-loop": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
-    "ac-llm": "workspace:*",
-    "ac-session": "workspace:*",
-    "ac-singles": "workspace:*",
     "ac-tools": "workspace:*",
-    "ac-workspace": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

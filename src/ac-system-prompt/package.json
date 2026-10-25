@@ -16,7 +16,6 @@
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-group": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-tools": "workspace:*",
     "ac-workspace": "workspace:*",
@@ -28,4 +27,4 @@
   "keywords": [
     "agentchat"
   ]
-} 
+}

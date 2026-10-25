@@ -15,7 +15,6 @@
     "ac-backup-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-session": "workspace:*",
     "vitest": "^4.1.10"
   }
 }

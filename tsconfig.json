@@ -21,7 +21,7 @@
       "@agentchat/protocol": ["src/webui/src/shims/@agentchat/protocol.ts"]
     }
   },
-  "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts", "src/*/client/**/*.ts"],
+  "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts"],
   "exclude": [
     "src/webui/**",
     "src/webui-kit/**",

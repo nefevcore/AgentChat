@@ -19,8 +19,6 @@
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-fs-tools": "workspace:*",
-    "ac-group": "workspace:*",
-    "ac-singles": "workspace:*",
     "ac-str-replace-editor": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

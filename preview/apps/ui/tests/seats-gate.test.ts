@@ -13,7 +13,8 @@ import { checkUiManifest } from 'ac-webui-core';
 // vitest root = 仓库根（preview/packages/vitest.config.ts）——__dirname 相对路径锚
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
 const channelRoot = path.join(repoRoot, 'preview', 'apps', 'ui', 'channel');
-const srcRoot = path.join(repoRoot, 'src');
+// ◐c 迁移批（cr-696）：ac-client-ui-* 31 包自 src/ 迁入 preview/packages
+const srcRoot = path.join(repoRoot, 'preview', 'packages');
 
 const SKELETON = ['conversation', 'tool', 'settings', 'markdown-render'];
 

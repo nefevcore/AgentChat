@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-694**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-696**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -712,3 +712,5 @@
 - 【cr-692 2026-10-25 ◐a/◐b 语义批全落地：capabilitySetOf settings 并集合成（browser/collab/dev-tools 行内档位 settings X1 单源）+ collab hasAdminCapability settingsOf 直读 + subagent 派生剥 settings.collab.admin 提权面 + AgentConfig tools→rows 改名（preview 全链 + 主线 RPC 双键收讫 + 活体迁移）+ AgentPane browser-tier 组读写 settings.browser】
 - 【cr-693 2026-10-25 B2 主题包通道——令牌词汇完备性校验纯函数 + 纯数据主题包装载分支 + 示例主题包】
 - 【cr-694 2026-10-25 B3 视角挂载：layout registerView 公开入口 + 隔离档容器承载（design-plugin-client-channel.md §2.1③）】
+- 【cr-695 2026-10-25 ◐c 退役批前置侦察：R6.1 A 类 25 包传递闭包重算（preview 依赖面+源码面双扫描零命中）+ 主线树内 200 边闭环核证 + B 类涟漪 34 文件清单备档——结论固化 design-plugin-client-channel.md §7】
+- 【cr-696 2026-10-25 ◐c 旧树退役批（路径 A）：ac-client-ui-* 31 包物理迁出 preview/packages + A 类 25 包与旧树装配面退役删除 + 双占名回收前置清障】

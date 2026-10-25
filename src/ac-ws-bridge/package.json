@@ -19,7 +19,6 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-web-server": "workspace:*",
     "vitest": "^4.1.10",
     "ws": "^8.21.0"
   },

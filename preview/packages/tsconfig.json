@@ -12,6 +12,9 @@
   "include": [
     "ac-*/src/**/*.ts",
     "ac-*/tests/**/*.ts",
+    // ◐c 迁移批（cr-696）：ac-client-ui-* 31 包自 src/ 迁入——client 面随包
+    // 回到本程序（含 shims.vue.d.ts——全局 .vue 解析锚）
+    "ac-client-ui-*/client/**/*.ts",
     "tests-setup.ts",
     "../apps/*/boot.ts",
     "../apps/host/*.ts",
@@ -22,7 +25,6 @@
     // M8.1（cr-520）：装配主线沿用行 = 解析 src 行源码类型。主线类型增强网
     // （declare module 全局合并）靠全量 include 闭合——preview 程序引入行包后
     // 需同款 src 面闭合（单向：根 tsconfig 仍不含 preview，CI 面零变化）。
-    "../../src/**/src/**/*.ts",
-    "../../src/*/client/**/*.ts"
+    "../../src/**/src/**/*.ts"
   ]
 }

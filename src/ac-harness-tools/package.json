@@ -18,7 +18,6 @@
   "devDependencies": {
     "ac-conv-settings": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-tag-registry": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

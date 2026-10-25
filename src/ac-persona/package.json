@@ -13,13 +13,8 @@
     "ac-core-utils": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-loop": "workspace:*",
-    "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-llm": "workspace:*",
-    "ac-system-prompt": "workspace:*",
-    "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

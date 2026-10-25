@@ -97,3 +97,14 @@ handoff §3.5 第 3 项「29 通道包物理迁出 + 双占名回收」与前置
   - **路径 B（提前迁出、保回滚）**：目录移到 `preview/packages/ac-client-ui-*` 但**保留包名**（workspace globs 已覆盖，按名 import 全部不变，旧树仍可解析），随后单独补 CI/typecheck 覆盖面（根 `tsconfig` 的 `src/*/client/**/*.ts` 不再覆盖它们 → 需挂到 `preview/packages/tsconfig.json` 的 `ac-*/client/**/*.ts`，而 preview 按设计不进主线 CI 门禁，故须显式决定是否把这条纳入门禁）。
 - **建议**：路径 B 先做（把「物理迁移」与「退役」两件大动作解耦，各自可验证），B 完成且判据过门后再走退役批；CI 覆盖面在 B 批内显式补齐（不把 31 包前端资产放出类型门禁）。
 - 量化：31 包 / 247 文件 / ~2.3 MB（`ac-client-ui-conversation` 847 KB 最大）；catalog 仅 `webui` 一行 path 数组引用其中 3 包需同步。
+
+## 7. ◐c 退役批侦察数据（2026-10-25 重算闭包，cr-695 备料）
+
+执行批前置侦察（只读全仓扫描，三面核证）：
+
+1. **A 类 25 包 preview 零引用复核成立**——preview 全部 package.json 依赖面（裸名 ac-* 形态）与源码 import 面（from 'ac-xxx'）双扫描，A 类 25 包零命中（R6.1 快照 2026-10-23 结论在 2026-10-25 工作树依然成立；cr-692 改主线 A 类包内容属内容修改，不产生依赖边）。
+2. **主线树内部 200 边**：全部在旧树内部闭环——ac-app 组合根 26 边、A 类互依、B 类涟漪 34 文件（B 类 src/index.ts 值引用 + 测试引用；退役批须同步处置：值引用改判 B→A 或删测试，见 R6.1「改判」条款）。
+3. **ac-client-ui-* 31 包**：31/31 全部在 preview 依赖集（ac-client-runtime [30] 为最大消费面）——物理迁出（路径 A：迁 preview/packages/）后主线仅剩旧树自身引用，随树退役消亡。
+4. **双占名三件**（ac-credentials / ac-conversation / ac-webui-app）：占位者均在 src/ 旧树，退役后三名可回收给 preview 同名包（恒后置退役批）。
+
+涟漪清单（B 类引用 A 类的 34 文件）已实测备档：值引用 12 处（src/index.ts 或 src/*.ts）ac-collab-tools/goal/file-snapshots/issue-tools/persona/harness-tools/web-tools/system-prompt/sap-adt/todo + scripts/migrate-llm-pool-v2.ts；测试引用 22 处。退役批处置原则（R6.1 既有条款）：值引用 → 被引用 A 类包改判 B 类保留；仅测试引用 → 测试随旧树语义退役或改桩。

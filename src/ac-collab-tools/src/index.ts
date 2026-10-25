@@ -36,8 +36,6 @@ import type { AgentConfig } from 'ac-agents';
 import { sessionCapsOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
 import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
-import type {} from 'ac-subagent'; // ctx.subagents 可选能力类型（type-only）
-import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only）
 
 /** update_agent_profile 允许修改的字段（白名单；其余拒绝） */
 const PROFILE_ALLOWED_FIELDS = ['name', 'description', 'system', 'persona', 'tools', 'maxSteps', 'settings'] as const;

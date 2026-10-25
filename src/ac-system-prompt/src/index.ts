@@ -41,7 +41,6 @@ import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // loop/* 事件类型增强（type-only）
 import { displayNameOf, widenToolsForGating } from 'ac-agents'; // 显示名单源解析 + PTC 门控面展开（值导入连带 ctx.agents 类型增强）
-import type {} from 'ac-group'; // ctx.group 可选能力类型（type-only）
 import type {} from 'ac-tools'; // ctx.tools 可选能力类型（type-only）
 import type {} from 'ac-workspace'; // ctx.workspace 可选能力类型（type-only）
 

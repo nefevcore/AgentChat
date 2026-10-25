@@ -21,7 +21,7 @@ const SRC = join(repo, 'src');
 /** 收集 src 下所有 .css 与 .vue（后者含 <style> 块） */
 function collectStyleFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === 'dist') continue;
+    if (name === 'node_modules' || name === 'dist' || name === 'sandbox' || name === '.runtime') continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) collectStyleFiles(p, out);
     else if (extname(name) === '.css' || extname(name) === '.vue') out.push(p);
@@ -29,7 +29,8 @@ function collectStyleFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-const FILES = collectStyleFiles(SRC);
+// ◐c 迁移批（cr-696）：31 ui 包消费面迁 preview——扫描面并集两树
+const FILES = [...collectStyleFiles(SRC), ...collectStyleFiles(join(repo, 'preview'))];
 const tokensCss = readFileSync(join(SRC, 'webui-kit/src/base/tokens.css'), 'utf8');
 
 /** 运行时内联注入的伴随三元组（CSS 侧无从派生）：星色 --sc/--tc */

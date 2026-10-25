@@ -1,0 +1,42 @@
+{
+  "name": "ac-client-ui-onboarding",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "首启向导前端行（first-run-onboarding-plan）：五步覆盖层向导——用户设置（user 虚拟 Agent 昵称/头像）/ 模型设置 / 搜索设置 / Agent 创建 / 界面导览；首启一次自动弹（localStorage 单键），重播经活动栏更多菜单；纯增量前端行，与后端零耦合、双向可摘除",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-llm-pool": "workspace:*",
+    "ac-client-ui-search-pool": "workspace:*",
+    "ac-client-ui-settings": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

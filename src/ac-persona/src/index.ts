@@ -29,7 +29,6 @@
 import type { Context } from '@agentchat/cordis';
 import { resolvePersonaText } from 'ac-core-utils';
 import type {} from 'ac-agents'; // ctx.agents 服务类型增强（type-only）
-import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only）
 
 // KV Cache effect（M21/D9 声明纪律）: Prefix-stable —— persona 分块拼接
 // 确定性（输入不变则输出不变）。显式失效：人设文本/文件编辑 =

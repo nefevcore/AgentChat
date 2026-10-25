@@ -20,7 +20,22 @@
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only，无运行时依赖）
 import type { ExtensionMeta } from 'ac-extension-core';
-import type { TagDeclaration } from 'ac-tag-registry';
+/** 单条手工标签声明（tag-registry 退役内联——形状同 TagDeclaration） */
+interface TagDeclaration {
+  tag: string;
+  description: string;
+  tools?: string[];
+  group?: string;
+  order?: number;
+  /** 分层族提示：低 ⊂ 高 单向层级（order 升序呈现） */
+  tier?: boolean;
+  /** 抉择组：同组标签互斥（UI 聚合下拉） */
+  exclusive?: string;
+  /** 抉择组「都不选」词（落词不写 tags，缺席即语义） */
+  exclusiveNone?: boolean;
+  /** 抉择组「全关」后果说明 */
+  exclusiveOffDesc?: string;
+}
 
 export const name = 'ac-issue-tools';
 

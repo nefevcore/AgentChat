@@ -19,19 +19,8 @@
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
-    "ac-conv-settings": "workspace:*",
     "ac-durable-interaction": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-router": "workspace:*",
-    "ac-fs-search": "workspace:*",
-    "ac-fs-tools": "workspace:*",
-    "ac-jobs": "workspace:*",
-    "ac-llm": "workspace:*",
-    "ac-math": "workspace:*",
-    "ac-security": "workspace:*",
-    "ac-shell-tools": "workspace:*",
-    "ac-tag-registry": "workspace:*",
-    "ac-web-tools": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {
