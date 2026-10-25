@@ -30,7 +30,7 @@ function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
 /** 真树 boot：tools → llm → mock provider → loop → ledger → conversation。
  *  chatModels（可选）= 捕获 provider 实收的 model（cr-565 覆盖生效断言面）；
  *  gate（可选）= 慢 mock 闸门（首流挂起直到放行——busy 窗口用，cr-575）。 */
-async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][]): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
+async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string }>>): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<unknown> = [toolsRow, llmRow, loopRow];
@@ -48,6 +48,7 @@ async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<v
           if (providerError !== undefined) throw providerError;
           chatModels?.push(input.model ?? '');
           chatTools?.push((input.tools ?? []).map((t) => t.function?.name ?? ''));
+          chatMessages?.push(input.messages.map((m) => ({ role: m.role, content: m.content })));
           const last = input.messages.filter((m) => m.role === 'user').at(-1);
           yield { delta: '[回复 ' + (last?.content ?? '') + ']' };
           yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
@@ -102,6 +103,27 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // journal：步记录在（settlement 台账）
       // 第二轮历史延续：mock 回声带最后一问 → 隐含多轮上下文装配
       void ctx;
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  // cr-639：当前消息重复投喂回归锁——deliverRow 已落 user 行，historyFor
+  // 复读即含当前消息；再 append 同文本会让模型每轮收到双份当前消息
+  //（01a16af1 活体 probe 实锤「probe4 出现两次」）。
+  it('上下文单源 = 账本：当前消息在模型输入中恰好一份', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    try {
+      await conv.receiveEnvelope(msg(UUID, 'dup-1', '第一问'), { fresh: true });
+      await conv.receiveEnvelope(msg(UUID, 'dup-2', '第二问'), { fresh: true });
+      expect(chatMessages.length).toBe(2);
+      // 每轮：当前消息恰好一份
+      expect(chatMessages[0].filter((m) => m.role === 'user' && m.content === '第一问')).toHaveLength(1);
+      expect(chatMessages[1].filter((m) => m.role === 'user' && m.content === '第二问')).toHaveLength(1);
+      // 第二轮完整历史 = 第一问 + 终稿 + 第二问（3 行，无重复）
+      expect(chatMessages[1].map((m) => m.content)).toEqual(['第一问', '[回复 第一问]', '第二问']);
     } finally {
       await dispose(fibers);
     }
@@ -510,29 +532,104 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
 
 // —— cr-629 安全重启面 + boot 恢复面 ——
 describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
-  it('requestRestart：busy → 中止当前 run → 收束点在途信封回队 inbox durable + restart-ready 事件', async () => {
+  // cr-658 自然收束语义：不中断、不回队——run 恰好消费一次，重启通知
+  // 携会话键（新壳 marker 注入「已重启」续跑轮的依据）。
+  it('requestRestart：busy → 只挂起不中断 → run 自然收束 → restart-ready 携会话键 + 无回队', async () => {
     seedAgent('alpha');
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
-    const events: string[] = [];
-    ctx.on('conversation/restart-ready', () => events.push('ready'));
+    const events: Array<string | undefined> = [];
+    ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => { events.push(p.conversationId); });
     try {
       const first = conv.receiveEnvelope(msg('conv-r', 'rr1', '慢问题'), { fresh: true });
       await new Promise((r) => setTimeout(r, 80));
       expect(conv.isBusy()).toBe(true);
-      expect(conv.requestRestart()).toBe(true); // busy → 挂起 + 中止
+      expect(conv.requestRestart()).toBe(true); // busy → 挂起（不中断）
+      expect(conv.isBusy()).toBe(true); // run 仍在途
       release();
       await first;
-      expect(events).toEqual(['ready']);
-      // 在途信封回队：inbox durable 在 + 队列快照在
+      expect(events).toEqual(['conv-r']); // 通知携会话键
+      // 不回队：inbox 已清（消息自然消费）、队列空
       const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-r', 'inbox');
-      expect(fs.readdirSync(inboxDir)).toContain('rr1.json');
-      expect(conv.queue('conv-r').map((t) => t.id)).toEqual(['rr1']);
+      expect(fs.readdirSync(inboxDir)).toEqual([]);
+      expect(conv.queue('conv-r')).toEqual([]);
       expect(conv.isBusy()).toBe(false);
+      // 终稿照常入账（run 自然收束，非 interrupted）
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-r'));
+      expect(rows.map((x) => x.content)).toEqual(['慢问题', '[回复 慢问题]']);
     } finally {
       release();
       await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-650 的回队面已随 cr-658 退役：恢复面 run 内 restart_shell 同样自然
+  // 收束——消息被本轮消费，「消费即清」照常清行（无回队信可保留）。
+  it('恢复面 run 内 restart_shell：自然收束即消费——inbox 清行照常（cr-650 回队面退役）', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    const events: Array<string | undefined> = [];
+    ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => { events.push(p.conversationId); });
+    try {
+      // 跨代 pending 形态：inbox 先有信 → 恢复面（recovered=true）起 run
+      const ledger = ctx.get('ledger', false) as unknown as { inboxStore(uuid: string, env: unknown): void };
+      ledger.inboxStore('conv-q', makeEnvelope({
+        uuid: 'conv-q', requestId: 'qq1', sender: 'user', to: 'alpha', payload: { text: '恢复面问题' },
+      }));
+      const recovery = conv.recoverPendingInbox();
+      for (let i = 0; i < 100 && !conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(conv.isBusy()).toBe(true);
+      expect(conv.requestRestart()).toBe(true);
+      release();
+      await recovery;
+      expect(events).toEqual(['conv-q']);
+      // 消息已自然消费：清行照常（不再有回队面）
+      const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-q', 'inbox');
+      expect(fs.readdirSync(inboxDir)).toEqual([]);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-639 at-least-once 在途标记：run 起步入 inbox durable、收束即清——
+  // 壳被硬杀（无 restart 回队面）时在途信随盘保留，下代恢复面重投续跑
+  //（run 7vmy 形态：interrupted/硬死窗口消息整轮蒸发）。
+  it('硬死在途信不蒸发：run 起步有标记 → 跨代 recoverPendingInbox 重投续跑', async () => {
+    seedAgent('alpha');
+    // 第一代：gate 挂住 provider——run 在途时「硬杀」（直接 dispose，不
+    // requestRestart、不 settle），模拟外部杀进程/崩溃
+    {
+      // 永不放行的闸门：run 悬挂在 provider 首流上（硬杀形态的时序等价物）
+      const gate = new Promise<void>(() => {});
+      const { fibers, conv } = await bootTree('alpha', undefined, gate);
+      try {
+        void conv.receiveEnvelope(msg('conv-k', 'kk1', '硬死在途信'), { fresh: true }).catch(() => 'killed');
+        for (let i = 0; i < 100 && !conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 20));
+        expect(conv.isBusy()).toBe(true);
+      } finally {
+        // 闸门不放（硬杀形态）：run 悬挂在 provider 流上，dispose 即进程死
+        await dispose(fibers);
+      }
+      // 盘面：在途标记在（inbox durable）
+      const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-k', 'inbox');
+      expect(fs.readdirSync(inboxDir)).toContain('kk1.json');
+    }
+    // 第二代：恢复面重投 → run 真跑 → 终稿入账 + 标记清
+    const { fibers: f2, conv: conv2 } = await bootTree('alpha');
+    try {
+      const n = await conv2.recoverPendingInbox();
+      expect(n).toBeGreaterThanOrEqual(1);
+      for (let i = 0; i < 100 && conv2.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-k'));
+      expect(rows.some((r) => r.agent_id === 'alpha' && r.content === '[回复 硬死在途信]')).toBe(true);
+      const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-k', 'inbox');
+      expect(fs.existsSync(inboxDir) ? fs.readdirSync(inboxDir) : []).toEqual([]);
+    } finally {
+      await dispose(f2);
     }
   }, 20_000);
 
@@ -545,7 +642,12 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       try {
         await conv.receiveEnvelope(msg('conv-p', 'p1', '第一代问题'), { fresh: true });
         const pending = makeEnvelope({ uuid: 'conv-p', requestId: 'p2', sender: 'user', to: 'alpha', payload: { text: '排队信' } });
-        (ctx.get('ledger', false) as unknown as { inboxStore(uuid: string, env: unknown): void }).inboxStore('conv-p', pending);
+        const ledger = ctx.get('ledger', false) as unknown as { inboxStore(uuid: string, env: unknown): void };
+        ledger.inboxStore('conv-p', pending);
+        // 对照封 p3：行已落（首投代 deliverRow 已达的常态形态）——重投须短路
+        const settled = makeEnvelope({ uuid: 'conv-p', requestId: 'p3', sender: 'user', to: 'alpha', payload: { text: '已落行的排队信' } });
+        await (ctx.get('ledger', false) as unknown as { deliverRow(uuid: string, participants: string[], kind: string, row: Record<string, unknown>): Promise<boolean> }).deliverRow('conv-p', ['alpha', 'user'], 'user', { role: 'agent', content: '已落行的排队信', agent_id: 'user', requestId: 'p3', uuid: 'conv-p' });
+        ledger.inboxStore('conv-p', settled);
       } finally {
         await dispose(fibers);
       }
@@ -557,14 +659,105 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       expect(n).toBeGreaterThanOrEqual(1);
       for (let i = 0; i < 100 && conv2.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-p'));
-      // recovered 不补入站行（recovered 跳过落账——原行在首投代已落/未落均不重写）
-      expect(rows.filter((r) => r.content === '排队信')).toHaveLength(0);
+      // cr-639 恢复面补行门：行缺席（首投代未落/直投 inbox 形态）→ 补写恰一份
+      //（在场则短路——上下文单源 = 账本，run 靠这行拿到当前消息）
+      expect(rows.filter((r) => r.content === '排队信')).toHaveLength(1);
+      // 对照封：行在场 → 重投短路，不双写
+      expect(rows.filter((r) => r.content === '已落行的排队信')).toHaveLength(1);
       // run 真跑：终稿行在场（mock 回声带原信文本）
       expect(rows.some((r) => r.agent_id === 'alpha' && r.content === '[回复 排队信]')).toBe(true);
       const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-p', 'inbox');
       expect(fs.existsSync(inboxDir) ? fs.readdirSync(inboxDir) : []).toEqual([]);
     } finally {
       await dispose(f2);
+    }
+  }, 20_000);
+  // cr-666（leftovers C2）：crash 窗口「只落账未执行」的入站信——无 run 轨迹、
+  // 不在队列/收件箱 → reconcileUndelivered 确定性补投；有轨迹/在途则不动。
+  it('reconcileUndelivered：末段无 run 轨迹的入站行补投；有终稿/在途不动', async () => {
+    seedAgent('alpha');
+    // 第一代：一轮正常收束（对照会话 conv-d，末行终稿）+ 一封只落账未执行
+    // 的信（conv-e：deliverRow 已达、plan/queue/inbox 未落——crash 窗口等价物）
+    {
+      const { ctx, fibers, conv } = await bootTree('alpha');
+      try {
+        await conv.receiveEnvelope(msg('conv-d', 'd1', '正常问题'), { fresh: true });
+        const ledger = ctx.get('ledger', false) as unknown as { deliverRow(uuid: string, participants: string[], kind: string, row: Record<string, unknown>): Promise<boolean> };
+        await ledger.deliverRow('conv-e', ['alpha', 'user'], 'user', { role: 'agent', content: '对账补投信', agent_id: 'user', requestId: 'e1', uuid: 'conv-e' });
+      } finally {
+        await dispose(fibers);
+      }
+    }
+    // 第二代：对账 → conv-e 补投起 run；conv-d 末行终稿 → 不动
+    const { fibers: f2, conv: conv2 } = await bootTree('alpha');
+    try {
+      const n = await conv2.reconcileUndelivered();
+      expect(n).toBe(1);
+      for (let i = 0; i < 100 && conv2.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      const rowsE = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-e')).rows;
+      // 补投幂等：入站行不双写 + run 真跑（终稿在场）
+      expect(rowsE.filter((r) => r.content === '对账补投信')).toHaveLength(1);
+      expect(rowsE.some((r) => r.agent_id === 'alpha' && r.content === '[回复 对账补投信]')).toBe(true);
+      // 再跑一次对账：末行已是终稿 → 零补投（收敛不动集）
+      expect(await conv2.reconcileUndelivered()).toBe(0);
+    } finally {
+      await dispose(f2);
+    }
+  }, 20_000);
+  // cr-667（A1）：中断 run 原地续跑——不再从 step 0 重做：前缀（含未提交调用
+  // 合成「结果未知」）进模型 messages、同 runId 收束恰一次、resume 标注。
+  it('recoverPendingInbox 续跑分支：中断 run 前缀重建 + 同 runId 收束 + context-injected(resume)', async () => {
+    seedAgent('alpha');
+    // 预置崩溃现场（gen1 等价物）：入站行 + 中断 run 步行（已提交步 + 未提交
+    // pwsh 调用步）+ inbox 在途标记，无 settled
+    {
+      const { Context } = await import('@agentchat/cordis');
+      const { makeLedgerRow } = await import('ac-ledger');
+      const lctx = new Context();
+      const lf = lctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'alpha' }));
+      await lf;
+      try {
+        const ledger = lctx.ledger as unknown as {
+          deliverRow(uuid: string, participants: string[], kind: string, row: Record<string, unknown>): Promise<boolean>;
+          journalStep(uuid: string, run: string, step: unknown): Promise<void>;
+          inboxStore(uuid: string, env: unknown): void;
+        };
+        await ledger.deliverRow('conv-f', ['alpha', 'user'], 'user', { role: 'agent', content: '原任务', agent_id: 'user', requestId: 'f1', uuid: 'conv-f' });
+        await ledger.journalStep('conv-f', 'run-f1', { index: 0, text: '已完成的分析', toolCalls: [], toolResults: [] });
+        await ledger.journalStep('conv-f', 'run-f1', { index: 1, text: '建目录', toolCalls: [{ id: 'c9', name: 'pwsh', arguments: '{}' }], toolResults: [] });
+        ledger.inboxStore('conv-f', makeEnvelope({ uuid: 'conv-f', requestId: 'f1', sender: 'user', to: 'alpha', payload: { text: '原任务' } }));
+      } finally {
+        await lf.dispose();
+      }
+    }
+    // 第二代：恢复面 → 续跑分支（provider 输入捕获）
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    const injections: Array<{ source?: string }> = [];
+    ctx.on('session/context-injected', (_cid: string, _agent: string | undefined, meta: { source?: string } | undefined) => {
+      if (meta !== undefined) injections.push({ source: meta.source });
+    });
+    try {
+      await conv.recoverPendingInbox();
+      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(chatMessages).toHaveLength(1);
+      const msgs = chatMessages[0]!;
+      // 前缀重建：已提交步 + 未提交调用（合成「结果未知」）都进 messages
+      expect(msgs.some((m) => m.role === 'assistant' && m.content === '已完成的分析')).toBe(true);
+      expect(msgs.some((m) => m.role === 'assistant' && m.content === '建目录')).toBe(true);
+      expect(msgs.some((m) => m.role === 'tool' && m.content.includes('未确认'))).toBe(true);
+      // 当前消息恰一份（history 复读 + 前缀无双计）
+      expect(msgs.filter((m) => m.role === 'user' && m.content === '原任务')).toHaveLength(1);
+      // 同 runId 收束恰一次 + resume 标注
+      const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f')).rows;
+      expect(rows.filter((r) => r.agent_id === 'alpha' && r.run === 'run-f1')).toHaveLength(1);
+      const journal = readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f'));
+      expect(journal.filter((l) => l.type === 'journal-settled' && l.run === 'run-f1')).toHaveLength(1);
+      expect(injections.some((i) => i.source === 'resume')).toBe(true);
+      const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f', 'inbox');
+      expect(fs.existsSync(inboxDir) ? fs.readdirSync(inboxDir) : []).toEqual([]);
+    } finally {
+      await dispose(fibers);
     }
   }, 20_000);
 

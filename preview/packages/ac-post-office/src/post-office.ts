@@ -117,12 +117,15 @@ export class PostOffice {
     const out: DispatchResult[] = [];
     for (const inst of instructions) {
       if (inst.channel === 'outbox') {
+        // 先落箱再触发拉起（cr-647）：ensureHook 可能在钩内立即回登记可达并
+        // 同步 flushOutbox（撞活锁救援面）——信必须先入箱，否则本次转投看不
+        // 见触发它的这封信，滞留成死信（宿主换代后活壳消息全滞留现场）。
+        this.outbox.store(inst.envelope, inst.reason);
         // 按需拉起（cr-551 编排面）：不可达即触发端点拉起（fire-and-forget——
         // 拒绝不改路径，信恒落箱；拉起完成后 adopted 转投 outbox 滞留信）
         if (this.ensureHook !== undefined) {
           try { this.ensureHook(inst.to); } catch { /* 拉起拒绝不阻塞投递 */ }
         }
-        this.outbox.store(inst.envelope, inst.reason);
         out.push({ to: inst.to, channel: 'outbox', ack: null });
         continue;
       }
@@ -134,8 +137,18 @@ export class PostOffice {
           ack,
         });
       } catch {
-        // 直投失败（端点死/连接断）→ 发件箱滞留（at-least-once）
+        // 直投失败（端点死/连接断）→ 摘除陈旧可达项 + 落箱 + 按需拉起（at-least-once）。
+        // cr-648：此前只落箱不摘可达项也不触发拉起——壳死但宿主不知情时，
+        // 陈旧 transportHint 让之后每一封信都静默进箱、无人重拉（「消息发出去
+        // 没反应」现场）。与不可达同链：先落箱（ensureHook 内同步 flush 要看得到
+        // 触发信，cr-647）再拉起。
+        // local 通道（user/host 桩）不摘项：处理器抛错 ≠ 端点死，摘了会断掉
+        // 同 requestId 的幂等重投（at-least-once 面由落箱重试承载）。
+        if (!inst.transportHint.startsWith(LOCAL_PREFIX)) this.reach.markGone(inst.to);
         this.outbox.store(inst.envelope, 'send-failed');
+        if (this.ensureHook !== undefined) {
+          try { this.ensureHook(inst.to); } catch { /* 拉起拒绝不阻塞投递 */ }
+        }
         out.push({ to: inst.to, channel: 'outbox', ack: null });
       }
     }

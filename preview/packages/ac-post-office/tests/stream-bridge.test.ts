@@ -241,4 +241,25 @@ describe('8.5d ShellStreamBridge（旁带 → 前端帧）', () => {
       { delta: '', toolCalls: [{ index: 0, name: 'hello' }] },
     ]);
   });
+
+  it('job-event 帧（cr-677）：→ 主线 job/started · job/settled 帧形（args = [job] 恒等透传）', () => {
+    const frames: FrontendFrame[] = [];
+    const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
+    const started = { id: 'bash-1', kind: 'bash', label: 'pnpm build', status: 'running', startedAt: 1 };
+    const settled = { id: 'bash-1', kind: 'bash', label: 'pnpm build', status: 'completed', startedAt: 1, finishedAt: 2 };
+    bridge.ingest({ stream: 'bash-1', kind: 'job-event', phase: 'started', job: started, meta: { agent: 'alpha' } });
+    bridge.ingest({ stream: 'bash-1', kind: 'job-event', phase: 'settled', job: settled, meta: { agent: 'alpha' } });
+    expect(frames.filter((f) => f.type === 'job/started')[0].data.args).toEqual([started]);
+    expect(frames.filter((f) => f.type === 'job/settled')[0].data.args).toEqual([settled]);
+  });
+
+  it('subagents-updated 帧（cr-677）：→ 主线 subagents/updated 帧形（args = [info, action] 参数序）', () => {
+    const frames: FrontendFrame[] = [];
+    const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
+    const info = { id: 'sub-abc', parentId: 'alpha', name: '调研员', status: 'ready', displayStatus: 'running', task: '查证', runs: 0, createdAt: 1, updatedAt: 2, deleted: false };
+    bridge.ingest({ stream: 'sub-abc', kind: 'subagents-updated', info, action: 'spawned', meta: { agent: 'alpha' } });
+    const out = frames.filter((f) => f.type === 'subagents/updated');
+    expect(out).toHaveLength(1);
+    expect(out[0].data.args).toEqual([info, 'spawned']);
+  });
 });

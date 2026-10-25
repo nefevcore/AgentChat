@@ -186,6 +186,50 @@ describe('M8.4 PostOffice 投递执行器', () => {
     await po.close();
   });
 
+  it('ensure 钩子触发时信封已落箱（cr-647）：钩内同步回登记 + flush 可立即转投', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const addr = socketPathFor(path.resolve(ROOT), 'alpha');
+    const got: string[] = [];
+    const srv = await listenIpc(addr, (payload) => {
+      const env = payload as Envelope;
+      got.push(env.requestId);
+      return { ack: env.requestId, fresh: true };
+    });
+    const seenAtHook: string[] = [];
+    po.setEnsureHook((to) => {
+      // 钩子运行时刻 = 信必须已落箱（宿主撞活锁救援在钩内同步 flush 的同款面）
+      seenAtHook.push(...fs.readdirSync(path.join(ROOT, 'outbox')));
+      po.reach.markReachable(to, addr); // 回登记可达后同步转投
+      void po.flushOutbox();
+    });
+    const out = await po.dispatch(msg({ requestId: 'rc' }));
+    expect(out[0]).toMatchObject({ channel: 'outbox', ack: null });
+    expect(seenAtHook).toContain('1-rc.json'); // 钩子看到的是「已落箱」态
+    await new Promise((r) => setTimeout(r, 50));
+    expect(got).toEqual(['rc']); // 钩内 flush 已就地转投——不留死信
+    expect(fs.existsSync(path.join(ROOT, 'outbox', '1-rc.json'))).toBe(false);
+    await po.close();
+    await srv.close();
+  });
+
+  it('直投失败（陈旧 transportHint）→ 摘可达项 + 落箱 + 触发 ensureHook（cr-648）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const addr = socketPathFor(path.resolve(ROOT), 'ghost'); // 管道无人监听
+    po.reach.markReachable('ghost', addr);
+    let hooks = 0;
+    const seenAtHook: string[] = [];
+    po.setEnsureHook(() => {
+      hooks += 1;
+      seenAtHook.push(...fs.readdirSync(path.join(ROOT, 'outbox')));
+    });
+    const out = await po.dispatch(msg({ to: 'ghost', requestId: 'rd' }));
+    expect(out[0]).toMatchObject({ channel: 'outbox', ack: null });
+    expect(po.reach.hintFor('ghost')).toBeUndefined(); // 陈旧项已摘——下次走 no-hint
+    expect(hooks).toBe(1); // 触发按需拉起（壳死宿主不知情的恢复入口）
+    expect(seenAtHook).toContain('1-rd.json'); // 钩子触发时信已落箱
+    await po.close();
+  });
+
   it('uuid 登记校验：冲突 fail-loud（防身份冒用——R-1）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     po.registerLocal('user', async (env) => ({ ack: env.requestId, fresh: true }));

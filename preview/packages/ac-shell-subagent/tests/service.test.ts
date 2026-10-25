@@ -141,4 +141,36 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       expect(cfg?.tools).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
     } finally { await dispose(); }
   });
+
+  // cr-677：subagents/updated 发射点（前端 subagentBoard 帧驱动刷新唯一源）
+  it('subagents/updated：spawn/send/stop/delete 各操作点发射（载荷 = infoOf 投影 + action 词）', async () => {
+    const fake = fakeShell();
+    const { ctx, svc, dispose } = await makeService(fake.spawn);
+    const events: Array<{ id: string; action: string; info: Record<string, unknown> }> = [];
+    const off = ctx.on('subagents/updated', (info: { id: string }, action: string) => {
+      events.push({ id: info.id, action, info: info as unknown as Record<string, unknown> });
+    });
+    try {
+      const out = await svc.spawnOp({ task: '发射点任务', name: '调研员', waitMs: 5_000 });
+      const id = out.childId;
+      // spawn 链：spawned（物化后）→ started（投递前）→ settled（终稿后）
+      expect(events.map((e) => e.action)).toEqual(['spawned', 'started', 'settled']);
+      // 载荷口径：parentId/displayStatus/task（infoOf 盘读统计）
+      const settled = events.at(-1)!;
+      expect(settled.info).toMatchObject({
+        id, parentId: 'papa', name: '调研员', runs: 1, deleted: false,
+      });
+      // send 二轮 + stop + delete
+      await svc.sendOp(id, '二轮', 'sync', 5_000);
+      await svc.stopOp(id);
+      await svc.deleteOp(id);
+      expect(events.map((e) => e.action)).toEqual(['spawned', 'started', 'settled', 'started', 'settled', 'stopped', 'removed']);
+      // delete 的载荷 = 墓碑形态（deleted: true）
+      expect(events.at(-1)!.info).toMatchObject({ id, deleted: true });
+      expect(events.at(-1)!.info.parentId).toBe('papa');
+    } finally {
+      off();
+      await dispose();
+    }
+  });
 });

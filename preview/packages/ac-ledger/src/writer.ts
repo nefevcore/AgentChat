@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import type { LedgerRow, LedgerHeader, JournalLine, JournalStep, JournalInject, JournalToolResult, JournalSettled, RunUsage } from './records.ts';
 import { AdmissionGate } from 'ac-envelope-core';
 import { nextSegmentName, writeAnchor, type CompactOptions, type CompactReport } from './archive.ts';
-import { readLedger } from './reader.ts';
+import { readLedger, readJournal } from './reader.ts';
 
 /** 会话目录：agents/<agentId>/sessions/<uuid>/ */
 export function sessionDir(dataRoot: string, agentId: string, uuid: string): string {
@@ -26,6 +26,7 @@ export function sessionDir(dataRoot: string, agentId: string, uuid: string): str
 const MESSAGES = 'messages.jsonl';
 const JOURNAL = path.join('journal', 'partials.jsonl');
 const INBOX = 'inbox';
+
 
 /** 单 writer（一 run 一实例——activation 单写者语义 A5） */
 export class LedgerWriter {
@@ -148,6 +149,10 @@ export class LedgerWriter {
 
   // —— settlement 两阶段（run 收束：journal 提升 + 切段物化） ——
 
+  // cr-640/653 段行物化已退役（cr-658 轨迹完整性读侧重建取代——
+  // historyMessagesFor 从 journal 重建协议级消息对，上下文不再依赖写侧
+  // 文本降维；「run 做过的推理是会话事实」裁决由读面承接）。
+
   /**
    * run 收束：终稿行 append 到 messages.jsonl + journal-settled 标记。
    * 部分行吸收 = 读侧投影（journal-settled 后部分行失效——与现状同构）。
@@ -175,6 +180,10 @@ export class LedgerWriter {
       });
     });
   }
+
+  // 孤儿 run 收口（cr-628）归 settleMechanism 同语义：journal-settled(interrupted)
+  // 落账、messages 不落行（viewer 锚归 cr-631/632 补投面；上下文轨迹归
+  // historyMessagesFor 读侧重建——cr-640 物化退役后无孤儿特有写行为）。
 
   /**
    * 机制 run 收束（归档整理等——settle 机制变体）：journal-settled 落账，

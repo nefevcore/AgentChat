@@ -186,6 +186,19 @@ export function streamFrameToFrontend(
     });
     return;
   }
+  if (frame.kind === 'job-event') {
+    // 主线 job/started · job/settled 帧形（args = [job]——主线 bridge-events
+    // wire 恒等透传同形）：前端 jobBoard.onEvent 按帧 type 重拉 jobs/list
+    //（帧载荷仅触发器，清单以 RPC 权威快照为准）。
+    send({ type: 'job/' + frame.phase, data: { args: [frame.job] } });
+    return;
+  }
+  if (frame.kind === 'subagents-updated') {
+    // 主线 subagents/updated 帧形（args = [info, action] 参数序）：前端
+    // subagentBoard.onEvent 重拉 subagents/list（帧载荷仅触发器）。
+    send({ type: 'subagents/updated', data: { args: [frame.info, frame.action] } });
+    return;
+  }
   if (frame.kind === 'run-settled') {
     // 主线 loop/after-run 帧形（args = [request, result] 参数序）：finish 映射
     // ok→stop（主线词汇）；stop → onChatEnd 终稿入列 + 权威行重拉（收束三件

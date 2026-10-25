@@ -28,6 +28,25 @@ import { IpcClient } from 'ac-post-office';
 import { readLedger } from 'ac-ledger';
 import type { ToolResult } from 'ac-tools';
 
+/**
+ * 变更后投影（subagents/updated 载荷——主线 SubagentInfo list 口径对齐，
+ * 前端 SubBoardEntry 消费面零改动：task/runs/createdAt/updatedAt 从子域
+ * 账本统计〔首条 user 行文本 + 终稿行数 + 文件时间戳〕）。
+ */
+export interface SubagentChangeInfo {
+  id: string;
+  parentId: string;
+  name: string;
+  status: string;
+  /** 徽章口径（前端词汇）：running | done | error | timeout | stopped | idle */
+  displayStatus: string;
+  task: string;
+  runs: number;
+  createdAt: number;
+  updatedAt: number;
+  deleted: boolean;
+}
+
 export interface SubagentRowOptions {
   dataRoot: string;
   /** 本壳 agent id（父） */
@@ -51,7 +70,7 @@ export interface ShellProcess {
   /** 优雅收割 */
   shutdown(): Promise<void>;
   /** 进程退出订阅 */
-  onExit(cb: (code: number | null) => void): void;
+  onExit(cb: (code: number | null, signal: string | null) => void): void;
   kill(): void;
 }
 export type SpawnShellFn = (args: {
@@ -102,6 +121,44 @@ export class ShellSubagentService extends Service {
   /** 子 id 铸造（主线同款词表） */
   private newChildId(): string {
     return 'sub-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  /** 变更通知（subagents/updated——boot 旁带成前端帧，面板清单刷新唯一源） */
+  private notify(childId: string, action: 'spawned' | 'started' | 'settled' | 'stopped' | 'removed'): void {
+    this.ctx.emit('subagents/updated', this.infoOf(childId), action);
+  }
+
+  /** 变更后投影（SubagentChangeInfo——task/runs 从子域账本统计） */
+  infoOf(childId: string): SubagentChangeInfo {
+    const meta = this.childMeta.get(childId);
+    const proc = this.children.get(childId);
+    const dir = this.sessionDirOf(childId);
+    let task = '';
+    let runs = 0;
+    let createdAt = 0;
+    let updatedAt = 0;
+    try {
+      const ledger = readLedger(dir);
+      // 首条任务行 = 对端写的行（agent_id !== 子——viewer 投影同判据）
+      const first = ledger.rows.find((r) => r.role === 'agent' && r.agent_id !== childId);
+      task = (first?.content ?? '').slice(0, 120);
+      runs = this.settledRows(childId, dir).length;
+      const st = fs.statSync(path.join(dir, 'messages.jsonl'));
+      createdAt = st.birthtimeMs;
+      updatedAt = st.mtimeMs;
+    } catch { /* 未开跑（spawn 未带 task）——零值 */ }
+    return {
+      id: childId,
+      parentId: this.agentId,
+      name: meta?.name ?? '',
+      status: meta?.exited === true || proc === undefined ? 'exited' : 'ready',
+      displayStatus: meta?.busy === true ? 'running' : (meta?.exited === true ? 'stopped' : (runs > 0 ? 'done' : 'idle')),
+      task,
+      runs,
+      createdAt,
+      updatedAt,
+      deleted: false,
+    };
   }
 
   /** 物化 + 拉起（R-5：物化即快照——父此后改配置不传播） */
@@ -167,7 +224,9 @@ export class ShellSubagentService extends Service {
     proc.onExit(() => {
       const meta = this.childMeta.get(childId);
       if (meta !== undefined) { meta.exited = true; meta.busy = false; }
+      this.notify(childId, 'settled');
     });
+    this.notify(childId, 'spawned');
     if (input.task === '') return { childId, ...(filtered !== undefined ? { filtered } : {}) };
     const waitMs = input.waitMs ?? 0;
     const out = await this.sendOp(childId, input.task, waitMs > 0 ? 'sync' : 'async', waitMs);
@@ -200,9 +259,12 @@ export class ShellSubagentService extends Service {
     const baseline = this.settledCount(childId);
     const meta = this.childMeta.get(childId);
     if (meta !== undefined) meta.busy = true;
+    this.notify(childId, 'started');
     const ack = await proc.deliver(this.taskEnvelope(childId, message));
     if (mode === 'sync' || waitMs > 0) {
       const reply = await this.awaitReply(childId, waitMs > 0 ? waitMs : 60_000, baseline);
+      if (meta !== undefined) meta.busy = false;
+      this.notify(childId, 'settled');
       return { delivered: ack.fresh, ...(reply !== null ? { reply } : {}) };
     }
     return { delivered: ack.fresh };
@@ -271,6 +333,7 @@ export class ShellSubagentService extends Service {
     const out = await proc.control({ ctrl: 'interrupt' }) as { interrupted?: boolean };
     const meta = this.childMeta.get(childId);
     if (meta !== undefined) meta.busy = false;
+    this.notify(childId, 'stopped');
     return { stopped: out.interrupted === true };
   }
 
@@ -284,6 +347,10 @@ export class ShellSubagentService extends Service {
     const meta = this.childMeta.get(childId);
     if (meta !== undefined) { meta.exited = true; meta.busy = false; }
     fs.rmSync(path.join(this.dataRoot, 'agents', this.agentId, 'children', childId), { recursive: true, force: true });
+    this.ctx.emit('subagents/updated', {
+      id: childId, parentId: this.agentId, name: meta?.name ?? '', status: 'exited',
+      displayStatus: 'stopped', task: '', runs: 0, createdAt: 0, updatedAt: Date.now(), deleted: true,
+    } satisfies SubagentChangeInfo, 'removed');
     return { deleted: true };
   }
 
@@ -396,6 +463,7 @@ export class ShellSubagentService extends Service {
  * exe 拒写 %TEMP%（EPERM 建激活锁）——vitest 数据根多在 tmpdir，品牌面只归产品宿主。 */
 const AGENTCHAT_EXE = (() => {
   const p = path.join(path.resolve(fileURLToPath(new URL('../../../../', import.meta.url))), 'bin', 'AgentChat.exe');
+  if (process.env.AGENTCHAT_NO_BRANDED_EXE === '1') return process.execPath; // cr-669 诊断档
   return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
 })();
 

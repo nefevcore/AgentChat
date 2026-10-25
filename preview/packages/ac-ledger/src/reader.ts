@@ -6,7 +6,8 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine } from './records.ts';
+import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject } from './records.ts';
+import type { LlmMessage } from 'ac-llm';
 
 export interface ReadResult {
   header: LedgerHeader | null;
@@ -151,6 +152,105 @@ export function stepsOfRun(lines: JournalLine[], run: string): { steps: Projecte
     });
   }
   return steps.length === 0 ? null : { steps, partial: !settled };
+}
+
+/**
+ * journal → run 的模型消息轨迹（cr-658 轨迹完整性读侧重建）：步行/注入
+ * 行按 seq 序重建为 LlmMessage[]——assistant{content, tool_calls} +
+ * tool{tool_call_id, content} 协议对 + steer 注入的 user 行。与 stepsOfRun
+ * 的 UI 投影分职：本函数产物直接进 run 上下文（historyMessagesFor 消费），
+ * 协议合法性优先——无结果的 toolCall（未提交步：after-step 副作用前先落、
+ * 结果补行未达）整调用剔除，剔除后 content 与 toolCalls 双空的步整步跳过；
+ * 已收束 run 的存量缺结果（cr-596 前步行）按 stepsOfRun 同款合成空成功。
+ * 子调用补行（runCodeSubcall——宿主卡内展示用）不产生独立模型消息，跳过。
+ */
+export function trajectoryOfRun(lines: JournalLine[], run: string): LlmMessage[] {
+  let settled = false;
+  const results = new Map<string, { ok: boolean; output?: unknown; error?: string }>();
+  for (const line of lines) {
+    if (line.run !== run) continue;
+    if (line.type === 'journal-settled') settled = true;
+    if (line.type === 'journal-tool-result' && line.subcall !== true) results.set(line.toolCallId, line.result);
+  }
+  const events = lines
+    .filter((l): l is JournalStep | JournalInject => l.run === run && (l.type === 'journal-step' || l.type === 'journal-inject'))
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const out: LlmMessage[] = [];
+  for (const ev of events) {
+    if (ev.type === 'journal-inject') {
+      out.push({ role: 'user', content: ev.content });
+      continue;
+    }
+    const calls = (ev.toolCalls ?? [])
+      .map((tc, i) => ({ tc, result: results.get(tc.id) ?? ev.toolResults?.[i] ?? (settled ? { ok: true } : null) }))
+      .filter((c): c is { tc: { id: string; name: string; arguments: string }; result: { ok: boolean; output?: unknown; error?: string } } => c.result !== null);
+    if (ev.content.trim() === '' && calls.length === 0) continue;
+    out.push({
+      role: 'assistant',
+      content: ev.content,
+      ...(calls.length > 0 ? {
+        tool_calls: calls.map(({ tc }) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      } : {}),
+    });
+    for (const { tc, result } of calls) {
+      out.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+    }
+  }
+  return out;
+}
+
+/**
+ * 未提交工具调用的合成结果（cr-667，A1 续跑）：崩溃窗口内调用可能已执行
+ * 也可能未执行——盲目重执行 = 副作用重复，丢弃 = 模型失忆，「结果未知」
+ * 是唯一诚实状态（设计裁决：v1 不做 at-least-once 重执行，幂等白名单归 v2）。
+ */
+export const UNCOMMITTED_TOOL_ERROR = '壳在该调用执行中崩溃，是否已产生副作用未确认——请先核查（如重读文件/查进程）再决定是否重做。';
+
+/**
+ * 续跑上下文重建（cr-667，A1）：trajectoryOfRun 的续跑变体——不再「无结果
+ * 整调用剔除」，未提交调用（步行在、结果补行缺）保留 tool_calls 并以
+ * UNCOMMITTED_TOOL_ERROR 合成 tool 消息（协议对完整，模型拿到明确信号）。
+ * committedSteps = 全调用已提交的步数（maxSteps 剩余额度基数）。run 无
+ * 步行/注入行 → null（无可续跑轨迹）。
+ */
+export function resumeContextOfRun(
+  lines: JournalLine[],
+  run: string,
+): { messages: LlmMessage[]; committedSteps: number } | null {
+  const results = new Map<string, { ok: boolean; output?: unknown; error?: string }>();
+  for (const line of lines) {
+    if (line.run !== run) continue;
+    if (line.type === 'journal-tool-result' && line.subcall !== true) results.set(line.toolCallId, line.result);
+  }
+  const events = lines
+    .filter((l): l is JournalStep | JournalInject => l.run === run && (l.type === 'journal-step' || l.type === 'journal-inject'))
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const out: LlmMessage[] = [];
+  let committedSteps = 0;
+  for (const ev of events) {
+    if (ev.type === 'journal-inject') {
+      out.push({ role: 'user', content: ev.content });
+      continue;
+    }
+    const calls = (ev.toolCalls ?? []).map((tc, i) => ({ tc, result: results.get(tc.id) ?? ev.toolResults?.[i] ?? null }));
+    if (ev.content.trim() === '' && calls.length === 0) continue;
+    if (calls.length > 0 && calls.every((c) => c.result !== null)) committedSteps += 1;
+    out.push({
+      role: 'assistant',
+      content: ev.content,
+      ...(calls.length > 0 ? {
+        tool_calls: calls.map(({ tc }) => ({ id: tc.id, type: 'function' as const, function: { name: tc.name, arguments: tc.arguments } })),
+      } : {}),
+    });
+    for (const { tc, result } of calls) {
+      out.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result ?? { ok: false, error: UNCOMMITTED_TOOL_ERROR }) });
+    }
+  }
+  return out.length === 0 ? null : { messages: out, committedSteps };
 }
 
 /**

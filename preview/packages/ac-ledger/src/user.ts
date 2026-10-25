@@ -9,6 +9,7 @@
 // 重复的只有终稿层。webui 需展开对方思考/工具内容时，按 run 键关联
 // agent 账本文件直读带出——取值逻辑细节，不另立承载。
 // ============================================================
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter } from './writer.ts';
 import { readLedger } from './reader.ts';
@@ -21,6 +22,22 @@ export function userSessionDir(dataRoot: string, uuid: string): string {
     throw new Error('user 会话路径组件非法：' + uuid);
   }
   return path.join(dataRoot, 'viewer', 'sessions', uuid);
+}
+
+/**
+ * 会话标题读取（<dir>/session.json 由宿主 singles 行单写——本函数只读）。
+ * 壳侧命名行据此跳过已命名会话（壳 idle-exit/restart 频繁，重算标题是
+ * 纯浪费），宿主派生面亦据此判定「已有标题」——路径与字段口径单源（cr-672）。
+ */
+export function readSessionTitle(dataRoot: string, uuid: string): string | undefined {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(path.join(userSessionDir(dataRoot, uuid), 'session.json'), 'utf-8'));
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const title = (raw as { title?: unknown }).title;
+    return typeof title === 'string' && title.trim() !== '' ? title : undefined;
+  } catch {
+    return undefined; // 无 session.json（存量会话/未命名）
+  }
 }
 
 /**

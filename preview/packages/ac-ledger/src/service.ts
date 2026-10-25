@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
-import { readLedger, readJournal, anchorableRuns, replayView, summaryTextOf } from './reader.ts';
+import { readLedger, readJournal, anchorableRuns, replayView, summaryTextOf, trajectoryOfRun, resumeContextOfRun } from './reader.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
 import type { LedgerRow, JournalStep, RunUsage } from './records.ts';
 import type { LoopStepRecord, LoopStepEnvelope, LoopRunRequestLike, LoopRunResult } from './loop-events.ts';
@@ -32,6 +32,7 @@ export interface ToolResultLike {
   error?: string;
 }
 import type { Envelope } from 'ac-envelope-core';
+import type { LlmMessage } from 'ac-llm';
 import { makeUsageEnvelope } from './usage.ts';
 
 /** 行配置（boot 装配参数） */
@@ -129,6 +130,12 @@ export class LedgerService extends Service {
     return this.writerFor(uuid, participants, kind).deliver(row);
   }
 
+  /** 入站行在场判定（盘面直读——cr-639 恢复面补行门）：writer 幂等门在内存、
+   *  跨进程不防重投双写，恢复面重投前以此判「行是否已落」，缺席才补写。 */
+  hasInboundRow(uuid: string, requestId: string): boolean {
+    return readLedger(path.join(this.agentDirOf(), 'sessions', uuid)).rows.some((r) => r.requestId === requestId);
+  }
+
   /** 步行落 journal（run 周期台账） */
   async journalStep(uuid: string, run: string, step: LoopStepRecord): Promise<void> {
     if (run === '') return;
@@ -200,9 +207,89 @@ export class LedgerService extends Service {
     return summary !== '' ? [{ role: 'system', content: summary }, ...view] : view;
   }
 
+  /** 会话历史轨迹回放（cr-658 轨迹完整性）：historyFor 文本投影之上，
+   * 凡带 run 键的收束行前置该 run 的 journal 轨迹（assistant/tool 协议对）
+   * ——run 上下文对自己做过的工具工作不再失明（正常终稿 run 同样带出，
+   * 不只中断 run）。读侧重建取代 cr-640/653 写侧段行物化（已退役）；
+   * 存量段行（message_id 前缀 seg-）过滤防双计。归档 compact 重写后
+   * run 键行随 keep 面消失 = 轨迹注入自然有界。 */
+  historyMessagesFor(uuid: string): LlmMessage[] {
+    const dir = path.join(this.agentDirOf(), 'sessions', uuid);
+    const summary = summaryTextOf(dir);
+    const rows = readLedger(dir).rows;
+    const journal = readJournal(dir);
+    const out: LlmMessage[] = summary !== '' ? [{ role: 'system', content: summary }] : [];
+    const traced = new Set<string>();
+    for (const row of rows) {
+      if (row.role !== 'agent' || row.message_id.startsWith('seg-')) continue;
+      if (typeof row.run === 'string' && row.run !== '' && !traced.has(row.run)) {
+        traced.add(row.run);
+        const traj = trajectoryOfRun(journal, row.run);
+        // 末步去重：自然收束 run 的末步 content 即终稿（loop 自然停点），
+        // settle 行同文再入 = 终稿双份。轨迹末条 assistant 与终稿行同文时
+        // 让位给终稿行（权威投影），其余步全保留。
+        const last = traj.at(-1);
+        if (row.content.trim() !== '' && last !== undefined && last.role === 'assistant'
+          && !Array.isArray(last.tool_calls) && last.content === row.content) {
+          traj.pop();
+        }
+        out.push(...traj);
+      }
+      if (row.content.trim() !== '') {
+        out.push({ role: row.agent_id === this.agentId ? 'assistant' : 'user', content: row.content });
+      }
+    }
+    return out;
+  }
+
   /** 会话概要直读（archive 行消费——mtime 判新鲜归 overview 收尾） */
   summaryOf(uuid: string): string {
     return summaryTextOf(path.join(this.agentDirOf(), 'sessions', uuid));
+  }
+  /**
+   * 续跑状态读面（cr-667，A1）：run 有步行/注入且无 settled → 重建消息前缀
+   * + 已提交步数（续跑准入与额度基数）；journal 损坏/重建抛错 → 'degraded'
+   *（调用方退回重投 + 标注）；无步行或已 settled → null（走常规链）。
+   */
+  resumeStateFor(uuid: string, runId: string): { messages: import('ac-llm').LlmMessage[]; committedSteps: number } | 'degraded' | null {
+    let lines;
+    try {
+      lines = readJournal(path.join(this.agentDirOf(), 'sessions', uuid));
+    } catch {
+      return null; // journal 目录级不可读（缺席等）——常规链
+    }
+    const hasSteps = lines.some((l) => l.run === runId && (l.type === 'journal-step' || l.type === 'journal-inject'));
+    if (!hasSteps) return null;
+    if (lines.some((l) => l.run === runId && l.type === 'journal-settled')) return null;
+    try {
+      return resumeContextOfRun(lines, runId);
+    } catch {
+      return 'degraded'; // 轨迹重建失败（版本不兼容等）——降级重投
+    }
+  }
+
+  /**
+   * inbox 在途 requestId 集（cr-667，A1——恢复面仲裁）：boot 期先取，
+   * recoverOrphanRuns 以此 defer 命中的 run（不补 interrupted settled，留给
+   * 续跑面原地续跑）。
+   */
+  pendingInboxRequestIds(): Set<string> {
+    const sessionsRoot = path.join(this.agentDirOf(), 'sessions');
+    const out = new Set<string>();
+    let uuids: string[] = [];
+    try { uuids = fs.readdirSync(sessionsRoot); } catch { return out; }
+    for (const uuid of uuids) {
+      const inboxDir = path.join(sessionsRoot, uuid, 'inbox');
+      let ids: string[] = [];
+      try { ids = fs.readdirSync(inboxDir).filter((n) => n.endsWith('.json')); } catch { continue; }
+      for (const n of ids) {
+        try {
+          const env = JSON.parse(fs.readFileSync(path.join(inboxDir, n), 'utf-8')) as { requestId?: unknown };
+          if (typeof env.requestId === 'string' && env.requestId !== '') out.add(env.requestId);
+        } catch { /* 坏封跳过 */ }
+      }
+    }
+    return out;
   }
 
   /** 尾锚直读（archive 行消费——二次归档去重锚） */
@@ -232,8 +319,12 @@ export class LedgerService extends Service {
    * steps 二度消失）。锚信 = 空文本 + run 键（user 壳 writeThrough 落行，
    * cr-595 同通道）；盘上 viewer 行已锚定的跳过（防重——跨重启幂等）。
    * 无邮局（CLI 直连）只收口不补锚。返回收口数。
+   * cr-667（A1 续跑）：defer = inbox 在途 requestId 集（boot 先取
+   * pendingInboxRequestIds）——命中的 run 不补 interrupted settled（留给
+   * recoverPendingInbox 续跑面原地续跑，续跑收束即落 ok settled）；锚补投
+   * 与收口面解耦，照常执行。
    */
-  async recoverOrphanRuns(): Promise<number> {
+  async recoverOrphanRuns(defer?: Set<string>): Promise<number> {
     const sessionsRoot = path.join(this.agentDirOf(), 'sessions');
     let uuids: string[] = [];
     try { uuids = fs.readdirSync(sessionsRoot); } catch { return 0; }
@@ -254,6 +345,11 @@ export class LedgerService extends Service {
           && (line.type === 'journal-step' || line.type === 'journal-inject')) orphans.add(line.run);
       }
       for (const run of orphans) {
+        // cr-667 defer：inbox 在途信的 run 走续跑面——不补 settled（补了
+        // 续跑准入〔无 settled〕即失效，退回 step 0 重跑）。
+        if (defer !== undefined && run.startsWith('run-') && defer.has(run.slice(4))) continue;
+        // 收口只补 journal-settled(interrupted)（cr-640 物化已退役——
+        // 步级上下文归 historyMessagesFor 读侧轨迹重建，cr-658）。
         await this.writerFor(uuid, [this.agentId], 'user').settleMechanism(run, 'interrupted');
         settled += 1;
       }

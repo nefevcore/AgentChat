@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { readLedger, readJournal, replayView, stepsOfRun, orphanRunsOf, anchorableRuns } from '../src/reader.ts';
+import { readLedger, readJournal, replayView, stepsOfRun, orphanRunsOf, anchorableRuns, trajectoryOfRun, resumeContextOfRun, UNCOMMITTED_TOOL_ERROR } from '../src/reader.ts';
 
 const ROOT = path.join('preview', 'sandbox', 'test-ledger-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -209,6 +209,122 @@ describe('settlement 两阶段', () => {
   });
 });
 
+// cr-658：轨迹完整性读侧重建（取代 cr-640/653 写侧段行物化——已退役）。
+// 「run 做过的推理是会话事实」裁决由 historyMessagesFor / trajectoryOfRun
+// 承接：journal 步行重建为 assistant/tool 协议对，写侧不再降维成文本段行。
+describe('轨迹读面（cr-658）', () => {
+  it('trajectoryOfRun：步行 → assistant{tool_calls} + tool 协议对；注入行 → user', () => {
+    const lines = [
+      { type: 'journal-step', run: 'run1', step: 0, content: '先看文件', toolCalls: [{ id: 'c1', name: 'read', arguments: '{"p":"a.md"}' }], seq: 1 },
+      { type: 'journal-tool-result', run: 'run1', toolCallId: 'c1', result: { ok: true, output: '内容' }, seq: 2 },
+      { type: 'journal-inject', run: 'run1', content: '补充要求', seq: 3 },
+      { type: 'journal-step', run: 'run1', step: 1, content: '结论', seq: 4 },
+      { type: 'journal-settled', run: 'run1', finish: 'ok', seq: 5 },
+    ];
+    const out = trajectoryOfRun(lines as never[], 'run1');
+    expect(out).toEqual([
+      { role: 'assistant', content: '先看文件', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"p":"a.md"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: '内容' }) },
+      { role: 'user', content: '补充要求' },
+      { role: 'assistant', content: '结论' },
+    ]);
+  });
+
+  it('trajectoryOfRun：未提交步剔除（无结果且未收束）；收束后存量缺结果合成空成功；子调用补行不产生消息', () => {
+    const uncommitted = [
+      { type: 'journal-step', run: 'run2', step: 0, content: '', toolCalls: [{ id: 'c1', name: 'pwsh', arguments: '{}' }], seq: 1 },
+    ];
+    expect(trajectoryOfRun(uncommitted as never[], 'run2')).toEqual([]); // 无结果未收束 = 整步剔除
+    const settledLegacy = [
+      { type: 'journal-step', run: 'run3', step: 0, content: '', toolCalls: [{ id: 'c1', name: 'pwsh', arguments: '{}' }], seq: 1 },
+      { type: 'journal-settled', run: 'run3', finish: 'interrupted', seq: 2 },
+    ];
+    expect(trajectoryOfRun(settledLegacy as never[], 'run3')).toEqual([
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'pwsh', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true }) },
+    ]);
+    const subcall = [
+      { type: 'journal-step', run: 'run4', step: 0, content: '跑程序', toolCalls: [{ id: 'h1', name: 'run_code', arguments: '{}' }], seq: 1 },
+      { type: 'journal-tool-result', run: 'run4', toolCallId: 'h1', result: { ok: true }, seq: 2 },
+      { type: 'journal-tool-result', run: 'run4', toolCallId: 'h1#1', result: { ok: true }, subcall: true, name: 'read', arguments: '{}', seq: 3 },
+    ];
+    expect(trajectoryOfRun(subcall as never[], 'run4')).toHaveLength(2); // 宿主对 + 无子调用独立消息
+  });
+
+  it('写侧不再物化段行（cr-640/653 退役）：空终稿收束只落空终稿锚行，轨迹归读面', async () => {
+    const w = mk('traj-2');
+    await w.deliver({ role: 'agent', content: '问', agent_id: 'user', requestId: 'q1', uuid });
+    await w.journal({ type: 'journal-step', run: 'run-q1', step: 0, content: '第一步推理' });
+    await w.settle(
+      { role: 'agent', content: '', agent_id: 'traj-2', requestId: 'reply-q1', uuid, run: 'run-q1' },
+      'run-q1', 'interrupted',
+    );
+    const { rows } = readLedger(sessionDir(ROOT, 'traj-2', uuid));
+    expect(rows.map((r) => [r.content, r.agent_id])).toEqual([
+      ['问', 'user'],
+      ['', 'traj-2'], // 空终稿锚行（run 键联查锚）——不再有段行
+    ]);
+  });
+
+  it('historyMessagesFor：正常终稿 run 也带轨迹（终稿行前置步行）；存量 seg- 段行过滤防双计', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'traj-3' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        deliverRow(uuid2: string, participants: string[], kind: string, row: Record<string, unknown>): Promise<boolean>;
+        journalStep(uuid2: string, run: string, step: unknown): Promise<void>;
+        settleRun(uuid2: string, participants: string[], kind: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
+        historyMessagesFor(uuid2: string): Array<{ role: string; content: string; tool_call_id?: string; tool_calls?: unknown[] }>;
+      };
+      await svc.deliverRow(uuid, ['traj-3', 'user'], 'user', { role: 'agent', content: '任务', agent_id: 'user', requestId: 'q1', uuid });
+      await svc.journalStep(uuid, 'run-q1', { index: 0, text: '先读文档', toolCalls: [{ id: 'c1', name: 'read', arguments: '{}' }], toolResults: [] });
+      // 自然停点末步 = 终稿同文（loop 真实形态）——去重让位终稿行
+      await svc.journalStep(uuid, 'run-q1', { index: 1, text: '终稿', toolCalls: [], toolResults: [] });
+      // 手写一条存量 seg- 段行（cr-640/653 时代产物）——必须被过滤
+      fs.appendFileSync(path.join(sessionDir(ROOT, 'traj-3', uuid), 'messages.jsonl'), JSON.stringify({
+        role: 'agent', content: '先读文档', message_id: 'seg-run-q1-1', timestamp: 'T', agent_id: 'traj-3', uuid, run: 'run-q1', seq: 99,
+      }) + '\n');
+      await svc.settleRun(uuid, ['traj-3', 'user'], 'user', { role: 'agent', content: '终稿', agent_id: 'traj-3', requestId: 'reply-q1', uuid, run: 'run-q1' }, 'run-q1', 'ok');
+      const out = svc.historyMessagesFor(uuid);
+      expect(out).toEqual([
+        { role: 'user', content: '任务' },
+        { role: 'assistant', content: '先读文档', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true }) },
+        { role: 'assistant', content: '终稿' },
+      ]);
+    } finally {
+      await fiber.dispose();
+    }
+  });
+
+  it('recoverOrphanRuns（孤儿收口）：只补 settled，轨迹经读面可见；二扫零重复', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'traj-4' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        journalStep(uuid2: string, run: string, step: unknown): Promise<void>;
+        recoverOrphanRuns(): Promise<number>;
+        historyMessagesFor(uuid2: string): Array<{ role: string; content: string }>;
+      };
+      await svc.journalStep(uuid, 'run-z', { index: 0, text: '硬死前的推理', toolCalls: [], toolResults: [] });
+      expect(await svc.recoverOrphanRuns()).toBe(1);
+      // 孤儿 run 无终稿行 = 轨迹不进 historyMessagesFor（无 run 键行锚）——
+      // 上下文可见性归 run 键锚定面（cr-631 补投）；收口幂等 + settled 落盘
+      expect(await svc.recoverOrphanRuns()).toBe(0);
+      const j = readJournal(sessionDir(ROOT, 'traj-4', uuid));
+      expect(j).toContainEqual(expect.objectContaining({ type: 'journal-settled', run: 'run-z', finish: 'interrupted' }));
+    } finally {
+      await fiber.dispose();
+    }
+  });
+});
+
 describe('inbox durable', () => {
   it('store/list/clear：投递未消费消息落盘，消费后清', async () => {
     const w = mk('epsilon');
@@ -249,5 +365,79 @@ describe('壳死账本在（A5）', () => {
     const { rows } = readLedger(sessionDir(ROOT, 'zeta', uuid));
     expect(rows).toHaveLength(1);
     expect(rows[0].content).toBe('持久');
+  });
+});
+// cr-667（A1）：中断 run 原地续跑读面——resumeContextOfRun 纯函数 +
+// recoverOrphanRuns defer + pendingInboxRequestIds + resumeStateFor 准入。
+describe('续跑读面（cr-667）', () => {
+  it('resumeContextOfRun：已提交步原样；未提交调用合成「结果未知」tool 消息；注入行入序；无步行 → null', () => {
+    const lines = [
+      { type: 'journal-step', run: 'runR', step: 0, content: '先看文件', toolCalls: [{ id: 'c1', name: 'read', arguments: '{}' }], seq: 1 },
+      { type: 'journal-tool-result', run: 'runR', toolCallId: 'c1', result: { ok: true, output: '内容' }, seq: 2 },
+      { type: 'journal-inject', run: 'runR', content: '补充要求', seq: 3 },
+      { type: 'journal-step', run: 'runR', step: 1, content: '建目录', toolCalls: [{ id: 'c2', name: 'pwsh', arguments: '{}' }], seq: 4 },
+      // c2 无结果补行——崩溃窗口（工具执行中壳死）
+    ];
+    const out = resumeContextOfRun(lines as never[], 'runR')!;
+    expect(out.messages).toEqual([
+      { role: 'assistant', content: '先看文件', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: '内容' }) },
+      { role: 'user', content: '补充要求' },
+      { role: 'assistant', content: '建目录', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'pwsh', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c2', content: JSON.stringify({ ok: false, error: UNCOMMITTED_TOOL_ERROR }) },
+    ]);
+    expect(out.committedSteps).toBe(1); // 步 0 全提交；步 1 未提交不计
+    expect(resumeContextOfRun(lines as never[], 'run-无涉')).toBeNull();
+  });
+
+  it('recoverOrphanRuns(defer)：defer 命中 run 不补 settled（留给续跑面）；未命中照旧', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'resume-1' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        journalStep(uuid: string, run: string, step: unknown): Promise<void>;
+        recoverOrphanRuns(defer?: Set<string>): Promise<number>;
+      };
+      await svc.journalStep(uuid, 'run-keep', { index: 0, text: '在途续跑', toolCalls: [], toolResults: [] });
+      await svc.journalStep(uuid, 'run-drop', { index: 0, text: '普通孤儿', toolCalls: [], toolResults: [] });
+      expect(await svc.recoverOrphanRuns(new Set(['keep']))).toBe(1); // 只收口 run-drop
+      const j = readJournal(sessionDir(ROOT, 'resume-1', uuid));
+      expect(j).toContainEqual(expect.objectContaining({ type: 'journal-settled', run: 'run-drop', finish: 'interrupted' }));
+      expect(j).not.toContainEqual(expect.objectContaining({ run: 'run-keep', type: 'journal-settled' }));
+    } finally {
+      await fiber.dispose();
+    }
+  });
+
+  it('pendingInboxRequestIds + resumeStateFor 准入：有步行无 settled → 前缀；settled/无步行 → null', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'resume-2' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        journalStep(uuid: string, run: string, step: unknown): Promise<void>;
+        settleMechanismFor(uuid: string, run: string, finish: string): Promise<void>;
+        inboxStore(uuid: string, env: unknown): void;
+        resumeStateFor(uuid: string, runId: string): unknown;
+        pendingInboxRequestIds(): Set<string>;
+      };
+      await svc.journalStep(uuid, 'run-a1', { index: 0, text: '中途', toolCalls: [], toolResults: [] });
+      await svc.journalStep(uuid, 'run-a2', { index: 0, text: '收束', toolCalls: [], toolResults: [] });
+      await svc.settleMechanismFor(uuid, 'run-a2', 'ok');
+      svc.inboxStore(uuid, { requestId: 'a1', sender: 'user' });
+      svc.inboxStore(uuid, { requestId: 'zz', sender: 'user' });
+      expect([...svc.pendingInboxRequestIds()].sort()).toEqual(['a1', 'zz']);
+      const st = svc.resumeStateFor(uuid, 'run-a1');
+      expect(typeof st === 'object' && st !== null && 'committedSteps' in (st as Record<string, unknown>)).toBe(true);
+      expect(svc.resumeStateFor(uuid, 'run-a2')).toBeNull(); // 已 settled
+      expect(svc.resumeStateFor(uuid, 'run-无涉')).toBeNull(); // 无步行
+    } finally {
+      await fiber.dispose();
+    }
   });
 });
