@@ -122,3 +122,32 @@ describe('派生标题兜底（cr-672）', () => {
     expect(list.singles.some((s) => s.id === 'd4')).toBe(false);
   });
 });
+
+describe('摘要缓存（cr-682：size+mtimeMs 失效——写者单源同进程）', () => {
+  it('账本追加（size 变）→ 摘要即时失效重算；未变 → 复用（list 两次结果一致）', async () => {
+    seedLedger('c1', [{ agent_id: 'user', content: '首句' }]);
+    const h = boot(false);
+    const first = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string; title?: string }> };
+    const v1 = first.singles.find((s) => s.id === 'c1')!;
+    expect(v1.title).toBe('首句');
+    // 账本追加一行（UserStub 同进程写者形态）：size+mtimeMs 变 → 缓存失效
+    fs.appendFileSync(path.join(sessionDir('c1'), 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', agent_id: 'user', content: '第二句', timestamp: '2026-10-25T00:00:00.000Z' }) + '\n', 'utf-8');
+    const second = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    const v2 = second.singles.find((s) => s.id === 'c1')!;
+    expect(v2.lastActivity).toBe('2026-10-25T00:00:00.000Z'); // 追加行被看见——无陈旧缓存
+    // 未再写：第三次结果与第二次一致（缓存命中路径行为不变）
+    const third = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    expect(third.singles.find((s) => s.id === 'c1')!.lastActivity).toBe('2026-10-25T00:00:00.000Z');
+  });
+
+  it('账本删空（文件消失）→ 摘要回落 count 0（不进列表）', async () => {
+    seedLedger('c2', [{ agent_id: 'user', content: '会消失' }]);
+    const h = boot(false);
+    let list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(list.singles.some((s) => s.id === 'c2')).toBe(true);
+    fs.rmSync(path.join(sessionDir('c2'), 'messages.jsonl'));
+    list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(list.singles.some((s) => s.id === 'c2')).toBe(false); // stat 失败 = count 0
+  });
+});

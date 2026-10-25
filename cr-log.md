@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-681**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-682**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -699,3 +699,4 @@
 - 【cr-679 2026-10-25 cr-639…678 批次入库：.pnpm-store/.runtime gitignore 卫生 + 按域切分 commit + 验证阶梯过门回写】
 - 【cr-680 2026-10-25 bench 门判据兑现：产品根 workspace/home 真凭据 bench-gate 跑批（evolve 五步闭环自验收 + BFCL 评测域行真 LLM 面）】
 - 【cr-681 2026-10-25 manage 探针 boot 窗口竞态根因修复：control() 读活锁时壳 ipc 未 listen（锁 :330 / listen :835 隔整段装载）→ ENOENT 被当老壳记黑名单 + spawn（必被单例拒，spawn 风暴 + 管理面全挂）——传输层失败改 holder 探活重试等窗口，仅回执超时才走 cr-675 黑名单】
+- 【cr-682 2026-10-25 singles/list 性能债收口：每次 RPC 全量重读+解析 919 会话账本（~300ms，随会话数线性劣化）——ledgerSummary 摘要按 messages.jsonl 的 size+mtimeMs 缓存（写者单源同进程，stat 未变即复用）】

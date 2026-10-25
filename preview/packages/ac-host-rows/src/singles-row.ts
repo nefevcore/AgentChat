@@ -117,10 +117,34 @@ function writeMeta(dataRoot: string, meta: SingleMeta): void {
   fs.renameSync(tmp, file);
 }
 
-/** 账本摘要（无 session.json 的存量会话按行派生——agentId / title / 末行时刻 / 行数） */
-function ledgerSummary(dataRoot: string, id: string): {
+/** 账本摘要派生值（无 session.json 的存量会话按行派生——agentId / title / 末行时刻 / 行数） */
+interface LedgerSummary {
   agentId?: string; title?: string; lastActivity?: string; count: number;
-} {
+}
+
+// 摘要缓存（cr-682）：singles/list 每次调用都全量重读+解析全部账本（919 会话
+// ~300ms，随会话数线性劣化）。写者单源 = UserStub（同进程唯一写者），按
+// messages.jsonl 的 size+mtimeMs 失效——stat 未变即复用，账本一变即重算。
+const summaryCache = new Map<string, { size: number; mtimeMs: number; summary: LedgerSummary }>();
+
+function ledgerSummary(dataRoot: string, id: string): LedgerSummary {
+  const file = path.join(dirOf(dataRoot, id), 'messages.jsonl');
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return { count: 0 };
+  }
+  const key = dataRoot + '\n' + id;
+  const hit = summaryCache.get(key);
+  if (hit !== undefined && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.summary;
+  const summary = computeLedgerSummary(dataRoot, id);
+  if (summaryCache.size > 4_096) summaryCache.clear(); // 多测试根累积护栏
+  summaryCache.set(key, { size: st.size, mtimeMs: st.mtimeMs, summary });
+  return summary;
+}
+
+function computeLedgerSummary(dataRoot: string, id: string): LedgerSummary {
   let text: string;
   try {
     text = fs.readFileSync(path.join(dirOf(dataRoot, id), 'messages.jsonl'), 'utf-8');
