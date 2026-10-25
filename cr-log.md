@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-692**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-693**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -710,3 +710,4 @@
 - 【cr-690 2026-10-25 B1 插件 client 通道实施：seats 对账（装载器快照 diff 双向 warning）+ manifest 三词形校验（new:/view/theme）+ 生成器 seats 声明快照 + 29 通道全装对账测试】
 - 【cr-691 2026-10-25 ◐a/◐b 语义批：档位词 settings X1 单源（web/collab 行内监听器改读 settingsOf + 活体 tags 换轨）+ requiredTags 迁移 + preview 全链 tools→rows 改名】
 - 【cr-692 2026-10-25 ◐a/◐b 语义批全落地：capabilitySetOf settings 并集合成（browser/collab/dev-tools 行内档位 settings X1 单源）+ collab hasAdminCapability settingsOf 直读 + subagent 派生剥 settings.collab.admin 提权面 + AgentConfig tools→rows 改名（preview 全链 + 主线 RPC 双键收讫 + 活体迁移）+ AgentPane browser-tier 组读写 settings.browser】
+- 【cr-693 2026-10-25 B2 主题包通道——令牌词汇完备性校验纯函数 + 纯数据主题包装载分支 + 示例主题包】

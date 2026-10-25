@@ -1,0 +1,119 @@
+/* ============================================================
+   midnight · B2 示例主题包（cr-693）——纯数据模块（theme:{tokensOnly}）
+   深海色板：暗极深蓝黑 + 青主色；亮极冷纸白 + teal。52 词两极全覆盖
+   （TOKEN_VOCAB 对账测试锁）；选择器词形契约：暗极 html[data-theme='midnight']
+   （特异性 0,2,0 > html.dark）+ 亮极 html.light[data-theme='midnight']（0,2,1）。
+   派生源：src/webui-kit/src/base/tokens.css（scripts/gen-midnight-theme.mjs）。
+   ============================================================ */
+
+:root, html[data-theme='midnight'], html.dark { /* 暗极（深空底变体——dark class 同步命中保双轴一致） */
+  color-scheme: dark;
+  --bg-base: #0d1220;
+  --bg-glow: radial-gradient(1200px 420px at 50% -180px, rgba(34, 211, 238, 0.06), transparent 70%);
+  --bg-hover: #1a2438;
+  --bg-inset: #161d2c;
+  --bg-nav: var(--bg-base);
+  --bg-raised: #172034;
+  --bg-surface: #151c2e;
+  --code-bg: #323236;
+  --code-text: #e3e9ee;
+  --elev-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --err: #f18c9e;
+  --err-rgb: 241, 140, 158;
+  --err-status: #f7a8b8;
+  --input-border: #3a3b45;
+  --input-focus: var(--focus-ring);
+  --line: #232a3a;
+  --line-strong: #323a4e;
+  --ok: #9bd39a;
+  --ok-rgb: 155, 211, 154;
+  --ok-status: #4AC26B;
+  --on-primary: #06202a;
+  --primary: #22d3ee;
+  --primary-border: #2b6478;
+  --primary-border-soft: #1e4c63;
+  --primary-light: #16394d;
+  --primary-rgb: 34, 211, 238;
+  --primary-strong: #67e8f9;
+  --primary-strong-rgb: 103, 232, 249;
+  --primary-tint: #123040;
+  --primary-tint-strong: #1a4257;
+  --role-active-bg: #3a2f14;
+  --role-hover-bg: #252733;
+  --role-hover-text: #f4f6f7;
+  --role-selected-bg: #14324a;
+  --role-selected-text: #7dd3fc;
+  --scroll-thumb: rgba(103, 232, 249, 0.14);
+  --scroll-thumb-hover: rgba(103, 232, 249, 0.30);
+  --shadow-dock: 0 1px 2px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-input: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.28);
+  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --shadow-primary-hover: undefined;
+  --star: #fbbf24;
+  --text-1: #f4f6f7;
+  --text-1-rgb: 244, 246, 247;
+  --text-2: #cbd3d8;
+  --text-2-rgb: 203, 211, 216;
+  --text-3: #b4bec2;
+  --text-3-rgb: 180, 190, 194;
+  --warn: #fcd34d;
+  --warn-rgb: 252, 211, 77;
+  --warn-status: #fde68a;
+}
+
+html.light[data-theme='midnight'] { /* 亮极 */
+  color-scheme: light;
+  --bg-base: #fafcfc;
+  --bg-glow: radial-gradient(1200px 420px at 50% -180px, rgba(14, 116, 144, 0.05), transparent 70%);
+  --bg-hover: #e8ebf7;
+  --bg-inset: #ebebee;
+  --bg-nav: var(--bg-surface);
+  --bg-raised: #ffffff;
+  --bg-surface: #f8f7f4;
+  --code-bg: #ffffff;
+  --code-text: #2b2f36;
+  --elev-hairline: 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --err: #be123c;
+  --err-rgb: 190, 18, 60;
+  --err-status: #be123c;
+  --input-border: #e2eaee;
+  --input-focus: var(--focus-ring);
+  --line: #e2eaee;
+  --line-strong: #c3ced5;
+  --ok: #356f43;
+  --ok-rgb: 53, 111, 67;
+  --ok-status: #2DA44E;
+  --on-primary: #ffffff;
+  --primary: #0e7490;
+  --primary-border: #6fb8cf;
+  --primary-border-soft: #a8d9e8;
+  --primary-light: #d3eef6;
+  --primary-rgb: 14, 116, 144;
+  --primary-strong: #155e75;
+  --primary-strong-rgb: 21, 94, 117;
+  --primary-tint: #e0f5fa;
+  --primary-tint-strong: #c2e6f1;
+  --role-active-bg: #fdf6e3;
+  --role-hover-bg: #e8ebf7;
+  --role-hover-text: #2b2f36;
+  --role-selected-bg: #d3edf5;
+  --role-selected-text: #155e75;
+  --scroll-thumb: rgba(43, 47, 54, 0.16);
+  --scroll-thumb-hover: rgba(43, 47, 54, 0.32);
+  --shadow-dock: 0 1px 2px rgba(43, 39, 36, 0.04), 0 2px 8px rgba(43, 39, 36, 0.06);
+  --shadow-input: 0 1px 2px rgba(43, 39, 36, 0.06), 0 4px 12px rgba(43, 39, 36, 0.08);
+  --shadow-panel: 0 8px 24px rgba(43, 39, 36, 0.08);
+  --shadow-pop: 0 4px 16px rgba(43, 39, 36, 0.12);
+  --shadow-primary-hover: 0 6px 22px rgba(174, 187, 255, 0.32);
+  --star: #a16207;
+  --text-1: #2b2f36;
+  --text-1-rgb: 43, 47, 54;
+  --text-2: #5d646c;
+  --text-2-rgb: 93, 100, 108;
+  --text-3: #65696e;
+  --text-3-rgb: 101, 105, 110;
+  --warn: #8a5a06;
+  --warn-rgb: 138, 90, 6;
+  --warn-status: #bb831c;
+}

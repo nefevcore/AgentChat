@@ -18,8 +18,11 @@ export const useThemeStore = defineStore('theme', () => {
   return {
     theme: core.theme,
     preference: core.preference,
+    themeId: core.themeId,
     toggleTheme: core.toggleTheme.bind(core),
     setTheme: core.setTheme.bind(core),
     followSystem: core.followSystem.bind(core),
+    setThemeId: core.setThemeId.bind(core),
+    listThemeIds: core.listThemeIds.bind(core),
   };
 });

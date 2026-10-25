@@ -25,6 +25,8 @@ export type ThemeMode = 'light' | 'dark';
 export type ThemePreference = 'system' | ThemeMode;
 
 const STORAGE_KEY = 'agentchat.theme';
+/** 色板主题 id 持久化键（B2 cr-693：data-theme 选择轴——与明暗偏好正交） */
+const THEME_ID_KEY = 'agentchat.theme.id';
 
 function readStoredPreference(): ThemePreference {
   try {
@@ -34,9 +36,25 @@ function readStoredPreference(): ThemePreference {
   return 'system';
 }
 
+function readStoredThemeId(): string {
+  try {
+    const stored = localStorage.getItem(THEME_ID_KEY);
+    if (stored && /^[a-z0-9-]+$/.test(stored)) return stored;
+  } catch { /* ignore */ }
+  return 'classic';
+}
+
 function systemTheme(): ThemeMode {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
+
+/**
+ * 已登记色板主题 id 集（data-theme 选择轴词汇）。'classic' = 内置缺省
+ * （tokens.css 的 nebula/aurora——不写 data-theme 即命中）。通道主题包
+ * （theme:{tokensOnly}）装载后登记（B2 cr-693）；登记面开放 = 第三方
+ * 主题可见性的单源，主题选择 UI 消费面（◐）从这取清单。
+ */
+const registeredThemeIds = new Set<string>(['classic']);
 
 /** 主题核心（纯 reactive；门面独立模式复用） */
 export class ThemeCore {
@@ -44,6 +62,8 @@ export class ThemeCore {
   readonly theme: Ref<ThemeMode>;
   /** 用户偏好档位（持久化对象） */
   readonly preference: Ref<ThemePreference>;
+  /** 生效色板主题 id（'classic' = 内置；持久化 + data-theme 通道，B2 cr-693） */
+  readonly themeId: Ref<string>;
 
   /** 系统主题变化 → system 档实时跟随（固定档不受扰） */
   private readonly onMediaChange = (e: MediaQueryListEvent) => {
@@ -54,6 +74,7 @@ export class ThemeCore {
 
   constructor() {
     this.preference = ref(readStoredPreference());
+    this.themeId = ref(readStoredThemeId());
     this.theme = ref(this.preference.value === 'system' ? systemTheme() : this.preference.value);
     this.media = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     if (this.media) {
@@ -69,6 +90,12 @@ export class ThemeCore {
     }, { immediate: true, flush: 'sync' });
     watch(this.preference, (val) => {
       try { localStorage.setItem(STORAGE_KEY, val); } catch { /* ignore */ }
+    }, { immediate: true, flush: 'sync' });
+    // 色板主题 id 同理：持久化 + data-theme 通道同步（immediate+sync——装载序
+    // 早期的通道主题包注入选择器即可命中）
+    watch(this.themeId, (val) => {
+      try { localStorage.setItem(THEME_ID_KEY, val); } catch { /* ignore */ }
+      this.applyThemeClass();
     }, { immediate: true, flush: 'sync' });
   }
 
@@ -87,15 +114,35 @@ export class ThemeCore {
     this.theme.value = systemTheme();
   }
 
-  applyThemeClass(): void {
-    if (this.theme.value === 'dark') {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
-    }
+  /** 切换色板主题（未登记 id 静默忽略——主题包缺席不半途换肤） */
+  setThemeId(id: string): void {
+    if (id === 'classic' || registeredThemeIds.has(id)) this.themeId.value = id;
   }
+
+  /** 已登记色板主题 id 清单（'classic' 恒在） */
+  listThemeIds(): string[] {
+    return [...registeredThemeIds];
+  }
+
+  applyThemeClass(): void {
+    const el = document.documentElement;
+    if (this.theme.value === 'dark') {
+      el.classList.add('dark');
+      el.classList.remove('light');
+    } else {
+      el.classList.add('light');
+      el.classList.remove('dark');
+    }
+    // data-theme 选择轴（B2 cr-693）：'classic' 撤属性（命中 :root / html.dark
+    // 内置缺省），其余写属性命中主题包选择器
+    if (this.themeId.value === 'classic') el.removeAttribute('data-theme');
+    else el.setAttribute('data-theme', this.themeId.value);
+  }
+}
+
+/** 登记色板主题 id（通道主题包装载成功时调用——装载器消费面） */
+export function registerThemeId(id: string): void {
+  if (/^[a-z0-9-]+$/.test(id)) registeredThemeIds.add(id);
 }
 
 export interface ThemeClientOptions {
@@ -112,9 +159,13 @@ export class ThemeService extends Service {
 
   get theme(): Ref<ThemeMode> { return this.core.theme; }
   get preference(): Ref<ThemePreference> { return this.core.preference; }
+  /** 生效色板主题 id（'classic' = 内置；B2 cr-693） */
+  get themeId(): Ref<string> { return this.core.themeId; }
   toggleTheme(): void { this.core.toggleTheme(); }
   setTheme(mode: ThemeMode): void { this.core.setTheme(mode); }
   followSystem(): void { this.core.followSystem(); }
+  setThemeId(id: string): void { this.core.setThemeId(id); }
+  listThemeIds(): string[] { return this.core.listThemeIds(); }
 }
 
 declare module 'ac-client-runtime' {

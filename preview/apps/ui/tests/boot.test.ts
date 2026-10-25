@@ -263,3 +263,96 @@ describe('8.5 收尾批 · isolated 白名单纯函数（p5.5 policy 平移）',
   });
 });
 
+describe('B2 · 主题包装载（theme:{tokensOnly}——纯数据条目）', () => {
+  const tokenCss = "html[data-theme='t'] { --bg-base: #000; --primary: #0ff; } html.light[data-theme='t'] { --bg-base: #111; }";
+
+  /** fetch 桩（jsdom fetch 走 undici 真网络——单测恒桩面） */
+  function stubFetch(body: string, status = 200): { urls: string[]; restore(): void } {
+    const urls: string[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (u: unknown) => {
+      urls.push(String(u));
+      return new Response(status === 200 ? body : '', { status });
+    }) as typeof fetch;
+    return { urls, restore: () => { globalThis.fetch = orig; } };
+  }
+
+  it('装载链：fetch CSS → 词汇审计（缺项 warning 不拒载）→ style 注入 → 登记 id → channel ok', async () => {
+    setActivePinia(createPinia());
+    const fetchStub = stubFetch(tokenCss);
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...a: unknown[]) => { warns.push(a.join(' ')); };
+    try {
+      const { channel, themeAudit } = await bootUiClient({
+        fetchGraph: async () => [entry('t', { theme: { tokensOnly: true }, styles: ['tokens.css'], entry: undefined })],
+      });
+      expect(channel.get('t')).toBe('ok');
+      // 审计报告进结果面（缺项数量 = 词汇总量 - 2——完备性缺口可见）
+      const audit = themeAudit.get('t');
+      expect(audit?.id).toBe('t');
+      expect(audit?.audit.coverage.dark).toBe(2);
+      // style 注入（data-ui-theme 标记）+ 文本入 head
+      const style = document.querySelector("style[data-ui-theme='t']");
+      expect(style?.textContent).toContain('--bg-base: #000');
+      // 登记：可选 id 面（未登记 id 拒切的防线语义在 theme-id.test）
+      expect(warns.some((w) => w.includes('词汇不完备'))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+      fetchStub.restore();
+    }
+  });
+
+  it('CSS 拉取失败：条目 err（逐条隔离），后续条目不受扰', async () => {
+    setActivePinia(createPinia());
+    const fetchStub = stubFetch('', 404);
+    const okPlugin = { apply: () => Promise.resolve() };
+    const { channel } = await bootUiClient({
+      fetchGraph: async () => [
+        entry('dead-theme', { theme: { tokensOnly: true }, styles: ['missing.css'], entry: undefined }),
+        entry('healthy', { isolated: false }),
+      ],
+      loadChannel: async () => ({ default: okPlugin }),
+    });
+    expect(channel.get('dead-theme')).toBe('err');
+    expect(channel.get('healthy')).toBe('ok');
+    fetchStub.restore();
+  });
+
+  it('midnight 示例主题包：真文件审计全覆盖（52 词 × 双极，零 warning）', async () => {
+    const { auditThemeTokens } = await import('ac-webui-core');
+    const { readFileSync } = await import('node:fs');
+    const { join, resolve } = await import('node:path');
+    const css = readFileSync(resolve('preview/apps/ui/themes/midnight/tokens.css'), 'utf8');
+    const audit = auditThemeTokens(css, 'midnight');
+    expect(audit.missing.dark).toEqual([]);
+    expect(audit.missing.light).toEqual([]);
+    expect(audit.unknown.dark).toEqual([]);
+    expect(audit.unknown.light).toEqual([]);
+  });
+
+  it('graph 重载不重复注入（data-ui-theme 去重）', async () => {
+    setActivePinia(createPinia());
+    const fetchStub = stubFetch(tokenCss);
+    const graph = [entry('dup', { theme: { tokensOnly: true }, styles: ['tokens.css'], entry: undefined })];
+    await bootUiClient({ fetchGraph: async () => graph });
+    await bootUiClient({ fetchGraph: async () => graph });
+    expect(document.querySelectorAll("style[data-ui-theme='dup']")).toHaveLength(1);
+    fetchStub.restore();
+  });
+
+  it('fetch 面注入：样式 URL 恒走真实 fetch（jsdom 原生面）', async () => {
+    setActivePinia(createPinia());
+    const fetchStub = stubFetch(tokenCss);
+    try {
+      const { channel } = await bootUiClient({
+        fetchGraph: async () => [entry('probe', { theme: { tokensOnly: true }, styles: ['tokens.css'], entry: undefined })],
+      });
+      expect(channel.get('probe')).toBe('ok');
+      expect(fetchStub.urls.some((u) => u.includes('/ui-plugin/probe/tokens.css'))).toBe(true);
+    } finally {
+      fetchStub.restore();
+    }
+  });
+});
+

@@ -123,7 +123,15 @@ export function checkUiManifest(m: unknown): ManifestCheck {
   if (x.theme !== undefined) {
     const t = x.theme as Record<string, unknown> | null | undefined;
     if (t === null || typeof t !== 'object' || t.tokensOnly !== true) {
-      warnings.push('theme 形状非法（当前仅 { tokensOnly: true }——词汇完备性校验归 B2）');
+      warnings.push('theme 形状非法（当前仅 { tokensOnly: true }）');
+    } else {
+      // tokensOnly 主题包 = 纯数据模块（B2）：styles 必有（token CSS），
+      // entry/seats/channelImports/isolated:false 均非主题包面——混声明即拒
+      if (!Array.isArray(x.styles) || x.styles.length === 0) warnings.push('theme tokensOnly 缺 styles（token CSS 相对路径）');
+      if (x.entry !== undefined) warnings.push('theme tokensOnly 不携带 entry（纯数据模块）');
+      if (x.seats !== undefined) warnings.push('theme tokensOnly 不携带 seats（无席位贡献）');
+      if (x.channelImports !== undefined) warnings.push('theme tokensOnly 不携带 channelImports');
+      if (x.isolated === false) warnings.push('theme tokensOnly 不携带 isolated:false（纯数据无隔离语义）');
     }
   }
   if (x.isolated !== undefined && typeof x.isolated !== 'boolean') warnings.push('isolated 非布尔');

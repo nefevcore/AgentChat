@@ -1,0 +1,11 @@
+{
+  "name": "midnight",
+  "version": "0.1.0",
+  "platform": "web",
+  "theme": {
+    "tokensOnly": true
+  },
+  "styles": [
+    "tokens.css"
+  ]
+}

@@ -423,7 +423,7 @@ describe('cr-593：agents 垫片词形展开（AgentConfig.rows 行 id → 工�
       const shim = ctx.plugin(makeShimsRow(ROOT, rowTools) as unknown as Plugin);
       fibers.push(shim);
       await shim;
-      const agents = ctx.get('agents') as { get(id: string): { rows: unknown } };
+      const agents = ctx.get('agents') as unknown as { get(id: string): { rows: unknown } };
       // 数组形态：行 id 展开 + 工具名透传（主线 list_tools 等按注册名过滤不再落空）
       expect(agents.get('vocab').rows).toEqual(['read', 'write', 'edit', 'subagent', 'math']);
       // 对象形态：include/exclude 各自展开（'pwsh' 直名与 shell-tools 展开去重）
@@ -436,7 +436,7 @@ describe('cr-593：agents 垫片词形展开（AgentConfig.rows 行 id → 工�
     const shim2 = ctx2.plugin(makeShimsRow(ROOT) as unknown as Plugin);
     await shim2;
     try {
-      const agents2 = ctx2.get('agents') as { get(id: string): { rows: unknown } };
+      const agents2 = ctx2.get('agents') as unknown as { get(id: string): { rows: unknown } };
       expect(agents2.get('vocab').rows).toEqual(['fs-tools', 'subagent', 'math']);
     } finally {
       if (shim2.uid !== null) await shim2.dispose();

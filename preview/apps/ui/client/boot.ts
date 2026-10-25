@@ -28,6 +28,8 @@ import { themeClientPlugin } from 'ac-client-ui-theme/client';
 import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { layoutClientPlugin } from 'ac-client-ui-layout/client';
 import type { BootGraphEntry } from 'ac-webui-core';
+import { auditThemeTokens } from 'ac-webui-core';
+import { registerThemeId } from 'ac-client-ui-theme/client';
 import { makeRpcHostPlugin, type RpcWire } from './rpc-host.ts';
 import { loadIsolatedExtension, type IsolatedExtensionHandle } from '../src/isolated.ts';
 import * as vue from 'vue';
@@ -148,6 +150,11 @@ export interface BootUiResult {
    * 存量第一方通道零 seats 声明 → 生成器补产（本批）。
    */
   seatAudit: Map<string, SeatAuditReport>;
+  /**
+   * 主题包词汇审计（B2 cr-693）：theme 条目 → { 审计结果 }。
+   * 缺项回落缺省（warning 不拒载——ui-tree §2 完备性规则）。
+   */
+  themeAudit: Map<string, { id: string; audit: ReturnType<typeof auditThemeTokens> }>;
 }
 
 /**
@@ -221,6 +228,47 @@ export function loadChannelCss(href: string): void {
   document.head.appendChild(link);
 }
 
+/** 已注入的主题包样式元素（data-ui-theme 去重——graph 重载不重复挂） */
+const themeStylesLoaded = new Set<string>();
+
+/**
+ * 主题包装载（B2 cr-693，design-plugin-client-channel.md §2.2 第一行）：
+ * 纯数据模块——无 entry JS，styles[0] = token CSS。fetch 文本 → 词汇
+ * 完备性审计（缺项回落缺省，warning 不拒载）→ <style data-ui-theme='<id>'>
+ * 注入 → 登记 id（theme 骨架选择轴可选）。
+ *
+ * 级联正确性：主题包选择器恒写 html[data-theme='<id>']（暗极，特异性
+ * 0,2,0 > html.dark 0,1,1）+ html.light[data-theme='<id>']（亮极 0,2,1）
+ * ——缺词天然级联回落 tokens.css 内置缺省；明暗档切换不改 id 轴。
+ */
+async function loadThemeEntry(entry: BootGraphEntry): Promise<{ id: string; audit: ReturnType<typeof auditThemeTokens> }> {
+  if (entry.styles.length === 0) throw new Error('theme 条目缺 styles（tokensOnly 主题包 = token CSS 纯数据，无 entry JS）');
+  const rel = entry.base + entry.styles[0]!.replace(/^\/+/, '');
+  // 相对 URL 规范化（jsdom fetch 无隐式 base——产品面同源等价）
+  const cssHref = new URL(rel, typeof location !== 'undefined' ? location.href : 'http://localhost/').href;
+  const res = await fetch(cssHref);
+  if (!res.ok) throw new Error('主题包 CSS 拉取失败：' + cssHref + ' ' + res.status);
+  const css = await res.text();
+  // data-theme id = 插件名（词汇锚点 = manifest.name——选择器词形契约）
+  const id = entry.name;
+  const audit = auditThemeTokens(css, id);
+  if (audit.missing.dark.length > 0 || audit.missing.light.length > 0) {
+    console.warn(`[ui-boot] 主题包 "${entry.name}" 词汇不完备（缺项回落缺省）：dark 缺 ${audit.missing.dark.length}/${audit.coverage.total}，light 缺 ${audit.missing.light.length}/${audit.coverage.total}`);
+  }
+  if (audit.unknown.dark.length > 0 || audit.unknown.light.length > 0) {
+    console.warn(`[ui-boot] 主题包 "${entry.name}" 含词汇表外令牌（第三方自用）：`, [...audit.unknown.dark, ...audit.unknown.light]);
+  }
+  if (!themeStylesLoaded.has(id)) {
+    themeStylesLoaded.add(id);
+    const style = document.createElement('style');
+    style.setAttribute('data-ui-theme', id);
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+  registerThemeId(id);
+  return { id, audit };
+}
+
 async function defaultLoader(entry: BootGraphEntry): Promise<{ default?: unknown }> {
   const url = entry.base + entry.entry.replace(/^\/+/, '');
   // 通道样式（manifest styles 声明——构建器在有产物 style.css 时注入）
@@ -282,7 +330,19 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
   const channel = new Map<string, 'ok' | 'err'>();
   const isolatedHandles: IsolatedExtensionHandle[] = [];
   const seatAudit = new Map<string, SeatAuditReport>();
+  const themeAudit = new Map<string, { id: string; audit: ReturnType<typeof auditThemeTokens> }>();
   for (const entry of graph) {
+    // 主题包分支（B2）：纯数据条目——不走 JS 装载链（无 default export 可期）
+    if (entry.theme) {
+      try {
+        themeAudit.set(entry.name, await loadThemeEntry(entry));
+        channel.set(entry.name, 'ok');
+      } catch (err) {
+        console.error(`[ui-boot] 主题包 "${entry.name}" 装载失败：`, err);
+        channel.set(entry.name, 'err');
+      }
+      continue;
+    }
     // platform 过滤在 manifest 校验面（checkUiManifest 拦非 web）——装载面零重复闸
     if (entry.isolated) {
       // 隔离档：iframe sandbox 容器（不信任插件——不进宿主 ctx，request/onEvent
@@ -322,5 +382,5 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
     }
   }
 
-  return { ctx, channel, isolated: isolatedHandles, seatAudit };
+  return { ctx, channel, isolated: isolatedHandles, seatAudit, themeAudit };
 }

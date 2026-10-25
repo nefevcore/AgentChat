@@ -41,11 +41,17 @@ describe('M7.4 checkUiManifest', () => {
     expect(checkUiManifest({ ...base, seats: [{ seat: 'tool-card', kind: 'list' }] }).ok).toBe(false);
   });
 
-  it('theme 形状占位校验（B2 批实装词汇完备性）', () => {
+  it('theme 形状 + 纯数据约束（B2：tokensOnly 主题包不得混模块面字段）', () => {
     const base = { name: 'acme-theme', version: '1.0.0' };
-    expect(checkUiManifest({ ...base, theme: { tokensOnly: true } }).ok).toBe(true);
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true }, styles: ['tokens.css'] }).ok).toBe(true);
     expect(checkUiManifest({ ...base, theme: {} }).ok).toBe(false);
     expect(checkUiManifest({ ...base, theme: { tokensOnly: false } }).ok).toBe(false);
+    // 缺 styles / 混 entry / 混 seats / 混 channelImports / isolated:false 全拒
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true } }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true }, styles: ['tokens.css'], entry: 'ui/index.js' }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true }, styles: ['tokens.css'], seats: [{ seat: 'dock' }] }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true }, styles: ['tokens.css'], channelImports: ['vue'] }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true }, styles: ['tokens.css'], isolated: false }).ok).toBe(false);
   });
 });
 

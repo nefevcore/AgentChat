@@ -12,3 +12,4 @@ export const name = 'ac-webui-core';
 export * from './history.ts';
 export * from './manifest.ts';
 export * from './isolated-policy.ts';
+export * from './token-vocab.ts';
