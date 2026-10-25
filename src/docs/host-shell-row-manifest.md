@@ -199,7 +199,7 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
 | 6 | 重工具行按需 boot | ✅ 消解（tag 机制解体连锁）——装载信号 = AgentConfig 引用行即声明，无特例；「默认胖瘦」降格为默认预设模板含哪些行的产品题 → 裁决簿〈tag 机制解体〉 |
 | 7 | patch 机制归属 | ✅ 整体退役，两树同形 boot（清单驱动装配：宿主 = 偏好文件 → 派生，壳 = argv 派生清单）→ 裁决簿〈patch 机制退役〉 |
 | 8 | AgentConfig 变更生效路径 | ✅ 自然生灭（cr-528）——shell-model S5 换版本 = 重启壳；变更在 boot 时点读取（boot 内 config 直读一次，无热重载面）；guardian 不观察指纹变更（主动重拉 = 编排越权——宿主邮局/监护不持 agent 定义知识）；显式换装走 evolve（M6.4 换装编排已有线）。重拉三节拍时 config 新读即生效 |
-| 9 | 插件 client 通道（ui 树装配） | ◐ 框架升格 → ui-tree.md（三树同构 + 骨架=协议持有者 + manifest 三树投影）；执行端 = ac-webui/client/；schema / 注入语义 / 拓扑贡献开放度（③ 级挂拓扑+换壳）/ 存量收敛批次待设计 |
+| 9 | 插件 client 通道（ui 树装配） | ✅ 设计成文（cr-687）→ `preview/docs/design-plugin-client-channel.md`：schema 三词形（`new:` 席位 / `view` 视角 / `theme` 主题包）+ seats 双向对账语义 + 换壳三级裁决（主题本批开 / 渲染管线 ◐ / 形态壳 v2）+ 存量四批 B1-B4（B4 前置 = 物理迁出 + 旧树退役）；上游定调 ui-tree.md §3/§5。实施未开始 |
 
 # R8. 规模盘点与对账
 
