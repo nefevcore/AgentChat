@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build output
 dist/
@@ -98,6 +99,7 @@ desktop/src-tauri/gen/
 # supervisor 单写者锁（supervisor.mjs 运行时产物；根 supervisor 写仓库根）
 src/.runtime
 /.runtime
+preview/apps/host/.runtime
 
 # 历史根级数据根残留规则（/AppData/ /agents/ /files/ /memory/ /sessions/
 # /singles/ /usage/ /archive/ /groups/ /timer/ /.initialized /config.json
