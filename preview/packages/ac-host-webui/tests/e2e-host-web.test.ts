@@ -71,12 +71,19 @@ describe('8.5a 宿主 web 面接线', () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha~alpha'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'agents', 'alpha~alpha', 'config.json'), JSON.stringify({ id: 'alpha~alpha' }), 'utf-8');
     fs.mkdirSync(path.join(ROOT, 'agents', 'sub_1'), { recursive: true });
+    // 派生子身份（cr-674）：物化在 children/ 树，运行期又在顶层留兜底 config
+    //（supervise 预置只含 id）——不得进名册/计数
+    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha', 'children', 'sub-x'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'children', 'sub-x', 'config.json'), JSON.stringify({ id: 'sub-x' }), 'utf-8');
+    fs.mkdirSync(path.join(ROOT, 'agents', 'sub-x'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'sub-x', 'config.json'), JSON.stringify({ id: 'sub-x' }), 'utf-8');
     fs.writeFileSync(path.join(ROOT, 'config.json'), '{}', 'utf-8'); // healthz ok 面
 
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
 
-    // ① agents/list：agents-core 直读 + 全量 config 展开 + 头像版本
+    // ① agents/list：agents-core 直读 + 全量 config 展开 + 头像版本（名册四道
+    // 闸：config 在场/身份词形/非 preset/非派生子身份——子身份不入列）
     const list = await rpc<{ agents: Array<{ id: string; name?: string; description?: string; tags?: string[]; hasAvatar?: boolean; avatarVersion?: string }> }>(ws, 'agents/list', {});
     expect(list.agents.map((a) => a.id)).toEqual(['alpha']);
     expect(list.agents[0]).toMatchObject({ description: '阿尔法', tags: ['full-access'], hasAvatar: true });

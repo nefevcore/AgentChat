@@ -16,7 +16,16 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
 import type { TimerEntry } from 'ac-timer-core';
-import { GLOBAL_TIMER_OWNER, validateTimerEntries, listTemplates, listGroupConfigs, listWorkspaces, workspacePathOf } from 'ac-host-rows';
+import {
+  GLOBAL_TIMER_OWNER,
+  conversationWorkspaceRoot,
+  listGroupConfigs,
+  listTemplates,
+  listWorkspaces,
+  validateTimerEntries,
+  workspacePathOf,
+  workspaceTreeBase,
+} from 'ac-host-rows';
 import { createPoolCredentials, maskSecrets } from './config-face.ts';
 import type { ShellAdminPort } from './face-shell.ts';
 import { SnapshotStore, SNAPSHOT_MAX_BYTES, looksLikeText } from 'ac-file-snapshots/src/store.ts';
@@ -65,10 +74,23 @@ function optStr(v: unknown): string | undefined {
 export async function collectRunning(deps: FaceOpsDeps): Promise<Array<{ agentId: string; conversationId: string; runId: string | null; startedAt: number }>> {
   const running: Array<{ agentId: string; conversationId: string; runId: string | null; startedAt: number }> = [];
   const port = deps.shellPort?.() ?? null;
-  if (port === null || port.handles === undefined) return running;
-  for (const [agentId, handle] of [...port.handles().entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  if (port === null) return running;
+  // 活壳清单 + 控制通道（cr-675）：优先编排面统一入口（盘上活锁壳——宿主换代
+  // 后的孤壳仍在跑 run，活跃面不能因换代而空）；无统一入口时退回句柄池枚举。
+  const unified = port.control;
+  const shells: Array<{ agentId: string; control(frame: Record<string, unknown>): Promise<unknown> }> = [];
+  if (unified !== undefined && port.liveShellIds !== undefined) {
+    for (const agentId of [...port.liveShellIds()].sort()) {
+      shells.push({ agentId, control: (frame) => unified(agentId, frame) });
+    }
+  } else if (port.handles !== undefined) {
+    for (const [agentId, handle] of [...port.handles().entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      shells.push({ agentId, control: (frame) => handle.control(frame) });
+    }
+  }
+  for (const { agentId, control } of shells) {
     try {
-      const st = await handle.control({ ctrl: 'admin', agentId, op: 'run-state' }) as
+      const st = await control({ ctrl: 'admin', agentId, op: 'run-state' }) as
         | { busy?: unknown; conversationId?: unknown; runId?: unknown; startedAt?: unknown }
         | null;
       if (st?.busy !== true || typeof st.conversationId !== 'string' || st.conversationId === '') continue;
@@ -148,28 +170,6 @@ function scanSkills(root: string): Array<{ name: string; description: string; di
   return entries.filter((e) => e.isDirectory()).map((e) => readSkillManifest(path.join(root, e.name), e.name));
 }
 
-/**
- * 会话挂载工作区根（cr-627）：viewer/sessions/<sid>/session.json 的
- * workspaceId → workspaces.json 路径（宿主 owning 形态：顶层数组——
- * ac-host-rows workspaces.ts 单源）。输入弹层快捷键（/ 技能区）与
- * 壳侧 WorkspaceShim 解析链同数据同布局。
- */
-function workspaceRootOf(dataRoot: string, conversationId: string | undefined): string | null {
-  if (conversationId === undefined || conversationId === ''
-    || conversationId.includes('/') || conversationId.includes('\\') || conversationId.includes('..')) return null;
-  let wsId: string | undefined;
-  try {
-    const meta: unknown = JSON.parse(fs.readFileSync(
-      path.join(dataRoot, 'viewer', 'sessions', conversationId, 'session.json'), 'utf-8'));
-    if (meta !== null && typeof meta === 'object' && !Array.isArray(meta)) {
-      const v = (meta as { workspaceId?: unknown }).workspaceId;
-      if (typeof v === 'string' && v !== '') wsId = v;
-    }
-  } catch { /* 缺席/损坏 = 未挂载 */ }
-  if (wsId === undefined) return null;
-  const root = workspacePathOf(dataRoot, wsId);
-  return root;
-}
 
 /**
  * 工作区技能组（主线 ac-skill-core WORKSPACE_SKILL_DIRS 同清单——
@@ -197,7 +197,8 @@ function registerSkills(web: WebFace, deps: FaceOpsDeps): void {
   web.registerRpc('skills/list', (params) => {
     const p = obj(params);
     const agentId = optStr(p.agentId);
-    const wsRoot = workspaceRootOf(deps.dataRoot, optStr(p.conversationId));
+    // 会话挂载工作区根（cr-627 语义，单源 = ac-host-rows workspace-files.ts）
+    const wsRoot = conversationWorkspaceRoot(deps.dataRoot, optStr(p.conversationId));
     return {
       skills: {
         global: scanSkills(path.join(deps.dataRoot, 'skills')),
@@ -401,11 +402,20 @@ function registerWorkspace(web: WebFace, deps: FaceOpsDeps): void {
     return runNativeOpen(file, { select: false });
   });
 
-  // 本地资源管理器：preview 无工作区登记表 → 树基准 = Agent 空间 / 数据根
+  // 本地资源管理器（workspace/open-dir）：workspaceId = 登记工作区；缺席按
+  // 树基准推导（会话挂载工作区 > Agent 空间 > 数据根——与树面板同源，
+  // cr-676；此前恒开 Agent 空间/数据根，登记工作区点了开错文件夹）
   web.registerRpc('workspace/open-dir', async (params) => {
     const p = obj(params);
+    const workspaceId = optStr(p.workspaceId);
+    const registered = workspaceId !== undefined ? workspacePathOf(deps.dataRoot, workspaceId) : null;
+    if (workspaceId !== undefined && registered === null) return { error: '工作区不存在：' + workspaceId };
     const agentId = optStr(p.agentId);
-    const dir = agentId !== undefined ? path.join(deps.dataRoot, 'files', agentId) : deps.dataRoot;
+    const conversationId = optStr(p.conversationId);
+    const dir = registered ?? workspaceTreeBase(deps.dataRoot, {
+      ...(agentId !== undefined ? { agentId } : {}),
+      ...(conversationId !== undefined ? { conversationId } : {}),
+    }).dir;
     try {
       if (!fs.statSync(dir).isDirectory()) return { error: '目标不是文件夹：' + dir };
     } catch {

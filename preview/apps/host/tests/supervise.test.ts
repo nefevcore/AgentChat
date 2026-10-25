@@ -28,8 +28,10 @@ class FakeShell implements AdoptedShellFace {
     { type: 'adopted', agentId: 'a1', bootId: 'boot-1', transportHint: 'pipe\\\\.\\mock-1', fingerprintRoot: 'abc' },
   ];
   private lineCb: ((line: string) => void) | null = null;
-  private exitCb: ((code: number | null) => void) | null = null;
+  private exitCb: ((code: number | null, signal: string | null) => void) | null = null;
   exited = false;
+  /** cr-662 诊断面：退出现场尾行（缺省空——事件不带 stderrTail 字段） */
+  tail: string[] = [];
   constructor(private readonly bootLines: string[]) {}
   emitBoot(): void {
     for (const line of this.bootLines) this.lineCb?.(line);
@@ -39,14 +41,15 @@ class FakeShell implements AdoptedShellFace {
     this.lineCb?.('plugin.load-failed\t' + plugin + '\t' + error);
   }
   control(frame: Record<string, unknown>): Promise<unknown> { void frame; return Promise.resolve(null); }
-  exit(code: number | null): void {
+  exit(code: number | null, signal: string | null = null): void {
     this.exited = true;
-    this.exitCb?.(code);
+    this.exitCb?.(code, signal);
   }
+  stderrTail(): string[] { return [...this.tail]; }
   async shutdown(): Promise<number | null> { return 0; }
   kill(): void {}
   onLine(cb: (line: string) => void): void { this.lineCb = cb; }
-  onExit(cb: (code: number | null) => void): void { this.exitCb = cb; }
+  onExit(cb: (code: number | null, signal: string | null) => void): void { this.exitCb = cb; }
 }
 
 /** 假 adopter：记录拉起次数与当前壳 */
@@ -218,6 +221,28 @@ describe('superviseShell 常驻监护', () => {
       adopter.shells[0].emitLoadFailed('demo', 'entry syntax error');
       await new Promise((r) => setTimeout(r, 20));
       expect(reports).toEqual([{ name: 'demo', error: 'entry syntax error' }]);
+    } finally { h.stop(); }
+  });
+
+  it('cr-662 退出现场：shell-exit 编排事件带 signal + stderr 尾行', async () => {
+    const clock = new ManualClock();
+    const adopter = new FakeAdopter();
+    const reach = new ReachabilityTable();
+    const h = await superviseShell(
+      { agentId: 'a1', dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', reach },
+      { adopt: adopter.fn, now: () => clock.now(), tickIntervalMs: 30_000, respawnDelayMs: 10 },
+    );
+    try {
+      adopter.shells[0].emitBoot();
+      adopter.shells[0].tail = ['Error: boom at run (x.ts:1)'];
+      adopter.shells[0].exit(1, 'SIGKILL');
+      await new Promise((r) => setTimeout(r, 30));
+      const ev = h.superviseEvents.find((e) => e.type === 'shell-exit') as
+        { type: 'shell-exit'; code: number | null; signal?: string | null; stderrTail?: string[] } | undefined;
+      expect(ev?.signal).toBe('SIGKILL');
+      expect(ev?.stderrTail).toEqual(['Error: boom at run (x.ts:1)']);
+      // warden 事件面保持原口径（code 判定用——现场归编排事件）
+      expect(h.events.some((e) => e.type === 'shell-exit' && e.code === 1)).toBe(true);
     } finally { h.stop(); }
   });
 });

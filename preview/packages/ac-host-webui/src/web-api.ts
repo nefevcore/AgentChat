@@ -15,13 +15,26 @@
 // ============================================================
 import type { Plugin, Context } from '@agentchat/cordis';
 import { readdir, readFile } from 'node:fs/promises';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
 import { UserLedger, conversationDirs, deleteConversationRow, readJournal, sessionDir, stepsOfRun, truncateConversation, orphanRunsOf, type JournalLine } from 'ac-ledger';
-import { listAgentIds, readAgentConfig, isAgentIdentity } from 'ac-agents-core';
+import { listAgentIds, readAgentConfig, isAgentIdentity, materializedChildIds } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, collectRunning, type FaceOpsDeps } from './face-ops.ts';
-import { avatarPathOf, listWorkspaces, registerWorkspace, updateWorkspace, removeWorkspace } from 'ac-host-rows';
+import {
+  avatarPathOf,
+  guessContentType,
+  listWorkspaces,
+  readWorkspaceFile,
+  registerWorkspace,
+  removeWorkspace,
+  resolveWorkspaceFile,
+  saveWorkspaceUpload,
+  updateWorkspace,
+  workspaceTree,
+  type WorkspaceContext,
+} from 'ac-host-rows';
 import { registerShellFace, type ShellAdminPort } from './face-shell.ts';
 import {
   backfillPoolMasks,
@@ -75,10 +88,13 @@ function optStr(v: unknown): string | undefined {
 
 /** 名册身份集合（单源——agents/list 载荷与 healthz agents 计数同轴）：
  *  config 在场 ∩ 身份词形（禁 `~`——对键桶会话流域非名册，ensureAgent 兜底
- *  config 在场也不算）∩ 非 preset。裸目录计数会把 pair/群/子域误算进名册。 */
+ *  config 在场也不算）∩ 非 preset ∩ 非派生子身份（cr-674：subagent 子身份
+ *  物化在 children/ 树，顶层兜底 config 会被上一条误放行）。裸目录计数会把
+ *  pair/群/子域误算进名册。 */
 function rosterConfigs(dataRoot: string) {
+  const derived = materializedChildIds(dataRoot);
   return listAgentIds(dataRoot)
-    .filter((id) => isAgentIdentity(id))
+    .filter((id) => isAgentIdentity(id) && !derived.has(id))
     .map((id) => readAgentConfig(dataRoot, id))
     .filter((c): c is NonNullable<typeof c> => c !== null && c.preset !== true);
 }
@@ -309,6 +325,91 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const body = JSON.stringify({ deleted: removeWorkspace(deps.dataRoot, id) });
         call.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
         call.res.end(body);
+      });
+
+      // ---- 工作区文件面（cr-676：树/预览/直链/上传——主线 ac-workspace 四端点同形）----
+      // 消费方 = 主线 ac-client-ui-workspace 行（树面板/预览弹窗）与 ChatInput
+      // 附件上传（preview 通道直接复用现成前端）。此前只有 cr-583 的登记面，
+      // 文件面整面缺席 → 前端打 /api/workspace/* 落 SPA 的 API 404
+      //（「no api route: /api/workspace/tree」）。语义纯函数面住 ac-host-rows。
+      const replyJson = (res: RouteCall['res'], status: number, payload: unknown): void => {
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(payload));
+      };
+      /** 读面上下文（主线 readContext 同形：query 的 agentId/conversationId 可选透传） */
+      const readContextOf = (query: URLSearchParams): WorkspaceContext | undefined => {
+        const agentId = optStr(query.get('agentId'));
+        const conversationId = optStr(query.get('conversationId'));
+        if (agentId === undefined && conversationId === undefined) return undefined;
+        return {
+          ...(agentId !== undefined ? { agentId } : {}),
+          ...(conversationId !== undefined ? { conversationId } : {}),
+        };
+      };
+
+      // 工作区目录树（懒加载；path 相对树基准，空 = 基准根。树基准随会话上下文
+      // 定位：会话挂载工作区 > Agent 专用空间/显式 workdir > 数据根）
+      web.route('GET', '/api/workspace/tree', (call) => {
+        const rel = call.query.get('path') ?? '';
+        try {
+          replyJson(call.res, 200, workspaceTree(deps.dataRoot, rel, readContextOf(call.query)));
+        } catch (err) {
+          replyJson(call.res, 400, { error: err instanceof Error ? err.message : String(err) });
+        }
+      });
+
+      // 文件内容预览（文本直读 / 二进制 base64；files/<bucket>/... 上传引用形
+      // 直通；带 context 时按 Agent/会话工作区基准推导相对引用）
+      web.route('GET', '/api/workspace/file', (call) => {
+        const rel = call.query.get('path');
+        if (rel === null || rel === '') return replyJson(call.res, 400, { error: 'path 缺失' });
+        try {
+          replyJson(call.res, 200, readWorkspaceFile(deps.dataRoot, rel, readContextOf(call.query)));
+        } catch {
+          replyJson(call.res, 404, { error: '文件不存在或不可读' });
+        }
+      });
+
+      // 原始字节直链（HTML 新窗口打开/图片缩略图；语义同 file 面）。缓存 =
+      // no-cache + ETag(size:mtimeMs) 验证（主线 cr-82 同款：重复渲染资源命中
+      // 304 零字节重协商）
+      web.route('GET', '/api/workspace/raw', (call) => {
+        const rel = call.query.get('path');
+        if (rel === null || rel === '') return replyJson(call.res, 400, { error: 'path 缺失' });
+        try {
+          const file = resolveWorkspaceFile(deps.dataRoot, rel, readContextOf(call.query));
+          const st = statSync(file);
+          const etag = "\"wf-" + st.size + '-' + Math.floor(st.mtimeMs) + '\"';
+          if (call.req.headers['if-none-match'] === etag) {
+            call.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+            call.res.end();
+            return;
+          }
+          call.res.writeHead(200, { 'content-type': guessContentType(file), 'cache-control': 'no-cache', etag });
+          call.res.end(readFileSync(file));
+        } catch {
+          replyJson(call.res, 404, { error: '文件不存在或不可读' });
+        }
+      });
+
+      // 附件上传（multipart：file + 可选 agentId/conversationId → files/<bucket>/_tmp/；
+      // conversationId = 独立会话上传的桶推导键——agentId 缺席时经 session.json
+      // 推导承载 Agent）
+      web.route('POST', '/api/upload', (call) => {
+        const body = (call as { body?: MultipartBody }).body;
+        const file = body?.files.file;
+        if (file === undefined) return replyJson(call.res, 400, { error: 'multipart 字段 file 缺失' });
+        try {
+          replyJson(call.res, 200, saveWorkspaceUpload(
+            deps.dataRoot,
+            optStr(body?.fields.agentId),
+            file.filename,
+            file.data,
+            optStr(body?.fields.conversationId),
+          ));
+        } catch (err) {
+          replyJson(call.res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
       });
 
       // ---- 全局配置面（cr-562 读面 / cr-564 写面：设置页 / 模型菜单数据源）----

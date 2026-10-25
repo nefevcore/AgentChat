@@ -20,6 +20,10 @@ interface WebFace {
 /** 编排面最小面（OrchestratorHandle 的结构子集——同 admin-preview 的接缝纪律） */
 export interface ShellAdminPort {
   ensureAgent(agentId: string): Promise<{ control(frame: Record<string, unknown>): Promise<unknown> }>;
+  /** 控制面统一入口（cr-675：池外活壳经 socket manage 通道受控——在则优先） */
+  control?(agentId: string, frame: Record<string, unknown>): Promise<unknown>;
+  /** 盘上活壳清单（含宿主换代前拉起的孤壳；缺席 = 退化为句柄池枚举） */
+  liveShellIds?(): string[];
   /** 活壳清单（jobs / interaction 这类「无 agentId 入参」的面按活壳枚举——
    *  只查已在跑的壳，不因一次查询拉起全部 Agent） */
   handles?(): Map<string, { control(frame: Record<string, unknown>): Promise<unknown> }>;
@@ -48,14 +52,20 @@ function optStr(v: unknown): string | undefined {
 /** 注册壳内服务面（goal / todo / 运行中断） */
 export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDeps): void {
   void ctx;
-  const call = async <T>(agentId: string, frame: Record<string, unknown>): Promise<T> => {
+  /** 控制帧往返（cr-675）：编排面统一入口优先——池外活壳（宿主换代后的
+   *  孤壳）经它自己的 transportHint 答帧；缺此入口才退回「按需拉起 → 句柄
+   *  控制」（壳已在跑时那条链必被单例锁拒）。 */
+  const shellCall = async (agentId: string, frame: Record<string, unknown>): Promise<unknown> => {
     const port = deps.port();
     if (port === null) {
       throw new Error('编排面未就绪（orchestrate:false 或 boot 未完成）——壳内服务面不可用');
     }
+    if (port.control !== undefined) return port.control(agentId, frame);
     const handle = await port.ensureAgent(agentId);
-    return handle.control({ ctrl: 'admin', agentId, ...frame }) as Promise<T>;
+    return handle.control(frame);
   };
+  const call = <T>(agentId: string, frame: Record<string, unknown>): Promise<T> =>
+    shellCall(agentId, { ctrl: 'admin', agentId, ...frame }) as Promise<T>;
 
   web.registerRpc('goal/get', async (params) => {
     const p = obj(params);
@@ -89,13 +99,22 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     const agentId = reqStr(p, 'agentId');
     const port = deps.port();
     if (port === null) throw new Error('编排面未就绪（orchestrate:false 或 boot 未完成）——中断面不可用');
-    const handle = await port.ensureAgent(agentId);
-    return handle.control({ ctrl: 'interrupt' });
+    return shellCall(agentId, { ctrl: 'interrupt' });
   });
 
+  // 活壳枚举（interaction/jobs 这类无 agentId 入参的聚合面）：优先盘上活壳
+  // 清单（cr-675——宿主换代后孤壳不在句柄池，聚合面不能因换代而空），
+  // 无非侵入清单时退回句柄池。
   const liveShells = (): Array<{ agentId: string; control(frame: Record<string, unknown>): Promise<unknown> }> => {
     const port = deps.port();
-    if (port === null || port.handles === undefined) return [];
+    if (port === null) return [];
+    const unified = port.control;
+    if (unified !== undefined && port.liveShellIds !== undefined) {
+      return port.liveShellIds()
+        .map((agentId) => ({ agentId, control: (frame: Record<string, unknown>) => unified(agentId, frame) }))
+        .sort((a, b) => (a.agentId < b.agentId ? -1 : 1));
+    }
+    if (port.handles === undefined) return [];
     return [...port.handles().entries()]
       .map(([agentId, handle]) => ({ agentId, control: (frame: Record<string, unknown>) => handle.control(frame) }))
       .sort((a, b) => (a.agentId < b.agentId ? -1 : 1));
@@ -138,21 +157,41 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
   });
 
   // 后台任务清单/终止：jobs 住壳进程（worker = 壳子进程），按活壳枚举汇总
+  // 聚合面逐壳容错（cr-675）：活壳清单取自盘上锁（含换代前拉起的孤壳以及
+  // 改动前装载的老壳），单只壳不应答不该让整张面板失败——跳过并计数。
+  // jobWire（cr-677）：meta 预览化与主线 ac-web-api 同款（500 字 + 省略号；
+  // jobs/list·kill 共用）——WireJob.meta.output 为预览，全文走 read。
+  const jobWire = (job: Record<string, unknown>): Record<string, unknown> => {
+    const meta = job.meta;
+    if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) return job;
+    const wired: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(meta as Record<string, unknown>)) {
+      wired[k] = typeof v === 'string' && v.length > 500 ? v.slice(0, 500) + '…' : v;
+    }
+    return { ...job, meta: wired };
+  };
   web.registerRpc('jobs/list', async () => {
     const out: unknown[] = [];
+    let skipped = 0;
     for (const shell of liveShells()) {
-      const reply = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'jobs-list' }) as { jobs?: unknown[] } | null;
-      for (const job of reply?.jobs ?? []) out.push({ ...(job as Record<string, unknown>), agentId: shell.agentId });
+      try {
+        const reply = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'jobs-list' }) as { jobs?: unknown[] } | null;
+        for (const job of reply?.jobs ?? []) out.push(jobWire({ ...(job as Record<string, unknown>), agentId: shell.agentId }));
+      } catch { skipped += 1; }
     }
-    return { jobs: out };
+    return { jobs: out, skipped };
   });
 
   web.registerRpc('jobs/kill', async (params) => {
     const id = reqStr(obj(params), 'id');
     for (const shell of liveShells()) {
       try {
-        const reply = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'jobs-kill', id }) as { outcome?: string } | null;
-        if (reply?.outcome !== undefined) return reply;
+        const reply = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'jobs-kill', id }) as
+          | { outcome?: string; job?: Record<string, unknown> }
+          | null;
+        if (reply?.outcome !== undefined) {
+          return { outcome: reply.outcome, ...(reply.job !== undefined ? { job: jobWire(reply.job) } : {}) };
+        }
       } catch { /* 该壳没有这个 job —— 继续找 */ }
     }
     throw new Error('未找到该后台任务：当前没有活壳持有 id ' + id);
@@ -222,6 +261,87 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     if (port === null) throw new Error('编排面未就绪——子 Agent 停止面不可用');
     const handle = await port.ensureAgent(parent);
     return handle.control({ ctrl: 'admin', agentId: parent, op: 'subagents-stop', id });
+  });
+
+  // 子 Agent 持久化清单（cr-677）：跨父盘读聚合——subagents/updated 帧（壳
+  // 旁带桥接）驱动前端 subagentBoard 重拉本面。数据源 = children/ 物化树
+  // （跨重启完整）：与 ShellSubagentService.infoOf 同口径投影（盘上直读——
+  // 会话账本统计 runs/task，config.json 读 name；busy 之类进程内态不进盘读
+  // 面，运行徽章实时性由帧载荷 + 重拉保证）。query/runningOnly 在聚合后过滤。
+  // include_deleted：preview 域 delete = 物理删除（无墓碑），deleted 恒 false
+  // ——参数兼容接受（前端照传），空墓碑集为终态。
+  web.registerRpc('subagents/list', (params) => {
+    const p = obj(params);
+    const query = optStr(p.query);
+    const runningOnly = p.running_only === true;
+    let limit = 50;
+    if (typeof p.limit === 'number' && p.limit > 0) limit = Math.min(Math.floor(p.limit), 100);
+    const subs: Array<Record<string, unknown>> = [];
+    let agents: fs.Dirent[] = [];
+    try { agents = fs.readdirSync(path.join(deps.dataRoot, 'agents'), { withFileTypes: true }); } catch { /* 无 agents 目录 */ }
+    for (const a of agents) {
+      if (!a.isDirectory()) continue;
+      const childrenDir = path.join(deps.dataRoot, 'agents', a.name, 'children');
+      let children: fs.Dirent[] = [];
+      try { children = fs.readdirSync(childrenDir, { withFileTypes: true }); } catch { continue; }
+      for (const c of children) {
+        if (!c.isDirectory()) continue;
+        const root = path.join(childrenDir, c.name);
+        let name = '';
+        try {
+          const raw = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf-8')) as { name?: unknown };
+          if (typeof raw.name === 'string') name = raw.name;
+        } catch { continue; }
+        let task = '';
+        let runs = 0;
+        let createdAt = 0;
+        let updatedAt = 0;
+        let sessions: string[] = [];
+        try { sessions = fs.readdirSync(path.join(root, 'sessions'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { /* 未开跑 */ }
+        for (const s of sessions) {
+          const dir = path.join(root, 'sessions', s);
+          let rows: Array<{ role: string; agent_id?: string; content: string; run?: string }> = [];
+          try {
+            const text = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8');
+            for (const line of text.split('\n')) {
+              if (line.trim() === '') continue;
+              try { rows.push(JSON.parse(line)); } catch { continue; }
+            }
+          } catch { continue; }
+          if (task === '') {
+            // 首条任务行 = 对端写的行（agent_id !== 子——viewer 投影同判据）
+            const first = rows.find((r0) => r0.role === 'agent' && r0.agent_id !== c.name);
+            if (first !== undefined) task = first.content.slice(0, 120);
+          }
+          runs += rows.filter((r0) => r0.role === 'agent' && r0.agent_id === c.name && typeof r0.run === 'string' && r0.run !== '').length;
+          try {
+            const st = fs.statSync(path.join(dir, 'messages.jsonl'));
+            if (createdAt === 0 || st.birthtimeMs < createdAt) createdAt = st.birthtimeMs;
+            if (st.mtimeMs > updatedAt) updatedAt = st.mtimeMs;
+          } catch { /* 账本已读——时间戳缺席保零 */ }
+        }
+        subs.push({
+          id: c.name,
+          parentId: a.name,
+          name,
+          status: 'ready',
+          // 盘读面无进程内 busy 态：终稿在场 = 曾收束（done）；实时运行徽章
+          // 由 subagents/updated 帧驱动重拉保持（帧载荷携带 displayStatus）。
+          displayStatus: runs > 0 ? 'done' : 'idle',
+          task,
+          runs,
+          createdAt,
+          updatedAt,
+          deleted: false,
+        });
+      }
+    }
+    const filtered = subs
+      .filter((s) => query === undefined || String(s.id).includes(query) || String(s.name).includes(query))
+      .filter((s) => !runningOnly || s.displayStatus === 'running')
+      .sort((x, y) => Number(y.updatedAt) - Number(x.updatedAt))
+      .slice(0, limit);
+    return { activeCount: subs.filter((s) => s.displayStatus === 'running').length, total: subs.length, subs: filtered };
   });
 
   // 归档触发（D11 全壳内）：整理 run + 归档重建都在目标壳内执行，宿主只发帧

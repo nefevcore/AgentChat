@@ -45,10 +45,12 @@ export interface AdoptedShellFace {
   kill(): void;
   /** stdout 行订阅（boot.ready 后继续——guardian.ping / run 节拍 / plugin.load-failed） */
   onLine(cb: (line: string) => void): void;
-  /** 进程退出订阅 */
-  onExit(cb: (code: number | null) => void): void;
+  /** 进程退出订阅（signal = 崩溃现场） */
+  onExit(cb: (code: number | null, signal: string | null) => void): void;
   /** 控制帧往返（cr-552 跨进程 dry-run——adoptShell 同面） */
   control(frame: Record<string, unknown>): Promise<unknown>;
+  /** stderr 尾行快照（cr-662 诊断面——crash 退出现场；测试替身可缺） */
+  stderrTail?(): string[];
 }
 
 /** 拉起函数面（adoptShell——经注入破模块环） */
@@ -61,7 +63,7 @@ export type LoadFailureSink = (name: string, error: string) => Promise<void>;
 export type SuperviseEvent =
   | { type: 'adopted'; agentId: string; bootId: string; transportHint: string }
   | { type: 'respawned'; agentId: string; attempt: number; delayMs: number }
-  | { type: 'shell-exit'; agentId: string; code: number | null }
+  | { type: 'shell-exit'; agentId: string; code: number | null; signal?: string | null; stderrTail?: string[] }
   | { type: 'declared-dead'; agentId: string; reason: 'heartbeat-lost' | 'idle-exit' }
   | { type: 'circuit-broken'; agentId: string; consecutiveCrashes: number };
 
@@ -205,10 +207,12 @@ export async function superviseShell(
           });
         }
       });
-      // 壳退出 → warden 判定（respawn / broken / done）
-      shell.onExit((code) => {
+      // 壳退出 → warden 判定（respawn / broken / done）；退出现场
+      //（cr-662：signal + stderr 尾行）随编排事件面上报宿主
+      shell.onExit((code, signal) => {
         events.push({ type: 'shell-exit', agentId: input.agentId, code });
-        pushEvent({ type: 'shell-exit', agentId: input.agentId, code });
+        const tail = shell.stderrTail?.() ?? [];
+        pushEvent({ type: 'shell-exit', agentId: input.agentId, code, signal, ...(tail.length > 0 ? { stderrTail: tail } : {}) });
         input.reach.markGone(input.agentId);
         current = null;
         if (stopped) return;

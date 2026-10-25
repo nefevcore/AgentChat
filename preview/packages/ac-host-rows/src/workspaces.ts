@@ -9,6 +9,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { renameWithRetry } from 'ac-plugin-core';
 
 export interface WorkspaceRegistration {
   id: string;
@@ -40,7 +41,9 @@ function write(dataRoot: string, docs: WorkspaceRegistration[]): void {
   const file = fileOf(dataRoot);
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(docs, null, 2) + '\n', 'utf-8');
-  fs.renameSync(tmp, file);
+  // Windows 瞬时占用（杀软/并发读）会让 rename 抛 EPERM：仓库既有原语退避重试
+  // （ac-plugin-core/fsx —— 全仓 rename 的单一收敛点，cr-676 全量跑出 flake 后并源）
+  renameWithRetry(tmp, file);
 }
 
 export function listWorkspaces(dataRoot: string): WorkspaceRegistration[] {

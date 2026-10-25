@@ -5,14 +5,16 @@
 //（import 主线行包 client/），通道条目按 graph 动态装载。rpcWire 真面
 //（8.5e）= rpc-wire.ts 单 WS 通道（/ws——主线 wire.ts 平移）。
 // ============================================================
-// 全局基础样式层（对齐主线 src/webui/src/main.ts 导入面——cr-577 只补了
-// 令牌层，markdown/布局别名/公共行/下拉四层缺席：消息正文与通道组件的
-// .markdown-body/.ui-row/.ui-dd/var(--radius-*) 全部裸奔。badge.css 零消费不补。）
+// 全局基础样式层（≡ 主线 src/webui/src/main.ts 导入面）：布局别名 + markdown +
+// kit L0 四层——tokens/row/dropdown/badge 正是 kit package.json 的 css 导出全集，
+// 缺任一层即对应整族选择器裸奔（cr-577 漏令牌层、cr-673 漏徽章层同源：入口手工
+// 维护子集，消费面变化无人对账）。tests/styles.test.ts 锁「导出全集 ⊆ 入口导入」。
 import '../../../../src/webui/src/assets/main.css';
 import '../../../../src/webui/src/assets/markdown.css';
 import '@agentchat/webui-kit/tokens.css';
 import '@agentchat/webui-kit/row.css';
 import '@agentchat/webui-kit/dropdown.css';
+import '@agentchat/webui-kit/badge.css';
 import { createApp } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { CLIENT_CONTEXT_KEY, setClientRuntime } from 'ac-client-runtime';

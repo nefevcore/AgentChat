@@ -8,7 +8,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { createOrchestrator } from '../orchestrator.ts';
 import type { AdoptedShellFace } from '../supervise.ts';
-import { PostOffice, ReachabilityTable } from 'ac-post-office';
+import { IpcClient, PostOffice, ReachabilityTable, listenIpc } from 'ac-post-office';
+import { isManageRequest, makeManageReply, isManageReply, makeManageRequest, socketPathFor } from 'ac-envelope-core';
 import type { RouteTarget } from 'ac-post-office';
 
 const ROOT = path.join('preview', 'sandbox', 'test-orchestrator-' + process.pid);
@@ -25,21 +26,21 @@ class FakeShell implements AdoptedShellFace {
     { type: 'adopted', agentId: 'x', bootId: this.bootId, transportHint: this.transportHint },
   ];
   private lineCb: ((line: string) => void) | null = null;
-  private exitCb: ((code: number | null) => void) | null = null;
+  private exitCb: ((code: number | null, signal: string | null) => void) | null = null;
   exited = false;
   constructor(readonly bootLines: string[]) {}
   emitBoot(): void { for (const l of this.bootLines) this.lineCb?.(l); }
-  exit(code: number | null): void { this.exited = true; this.exitCb?.(code); }
+  exit(code: number | null, signal: string | null = null): void { this.exited = true; this.exitCb?.(code, signal); }
   async shutdown(): Promise<number | null> { return 0; }
   kill(): void {}
   onLine(cb: (line: string) => void): void { this.lineCb = cb; }
-  onExit(cb: (code: number | null) => void): void { this.exitCb = cb; }
+  onExit(cb: (code: number | null, signal: string | null) => void): void { this.exitCb = cb; }
   controlFrames: Record<string, unknown>[] = [];
   control(frame: Record<string, unknown>): Promise<unknown> { this.controlFrames.push(frame); return Promise.resolve({ ok: true }); }
 }
 
-describe('撞活锁救援（cr-612 D5 边 2 配套）', () => {
-  it('adopt 撞活锁拒 → 读锁探活回登记可达 + 转投发件箱', async () => {
+describe('撞活锁救援（cr-612 D5 边 2 配套；cr-647 前置化）', () => {
+  it('活壳持锁 → ensureHook 前置探活回登记 + 转投发件箱（不 spawn 必被拒的子壳）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
     const agentDir = path.join(ROOT, 'agents', 'beta');
@@ -52,15 +53,19 @@ describe('撞活锁救援（cr-612 D5 边 2 配套）', () => {
     let flushed = 0;
     const poFlush = po.flushOutbox.bind(po);
     po.flushOutbox = async () => { flushed += 1; return poFlush(); };
+    // cr-647：真链 adoptShell 撞活锁只产「壳进程早退（code=…）」——壳内
+    // 「activation 锁被进程…」永不到宿主，救援不得依赖该错误文本。
+    let spawned = 0;
     const orch = createOrchestrator({
       dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
-      adopt: async () => { throw new Error('activation 锁被进程 ' + process.pid + ' 持有（bootId=b-old）——单例语义拒绝'); },
+      adopt: async () => { spawned += 1; throw new Error('壳进程早退（code=1）——未达 boot.ready'); },
     });
     try {
-      orch.ensureHook('beta'); // 消息路径入口（fire-and-forget——救援在其 catch 面）
+      orch.ensureHook('beta'); // 消息路径入口（fire-and-forget）
       await new Promise((r) => setTimeout(r, 100));
+      expect(spawned).toBe(0); // 前置探活命中——不 spawn
       expect(reach.hintFor('beta')).toBe('pipe\\\\.\\mock-beta-alive');
-      expect(flushed).toBe(1);
+      expect(flushed).toBe(1); // 滞留信即刻转投
     } finally {
       orch.close();
     }
@@ -84,6 +89,44 @@ describe('撞活锁救援（cr-612 D5 边 2 配套）', () => {
       orch.ensureHook('gamma');
       await new Promise((r) => setTimeout(r, 100));
       expect(reach.hintFor('gamma')).toBeUndefined();
+    } finally {
+      orch.close();
+    }
+  });
+});
+
+describe('换代活壳收复（cr-659）', () => {
+  it('rescueLiveShells：活壳可达登记 + re-tap；死锁/无锁跳过', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    // 活壳 beta（本测试进程 pid）+ 陈锁 gamma + 无锁 delta
+    const liveDir = path.join(ROOT, 'agents', 'beta');
+    fs.mkdirSync(liveDir, { recursive: true });
+    fs.writeFileSync(path.join(liveDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-live', acquiredAt: new Date().toISOString(),
+      transportHint: 'pipe\\\\.\\mock-beta-alive',
+    }), 'utf-8');
+    const staleDir = path.join(ROOT, 'agents', 'gamma');
+    fs.mkdirSync(staleDir, { recursive: true });
+    fs.writeFileSync(path.join(staleDir, 'activation.lock'), JSON.stringify({
+      pid: 99999999, bootId: 'b-stale', acquiredAt: new Date().toISOString(),
+      transportHint: 'pipe\\\\.\\mock-gamma-dead',
+    }), 'utf-8');
+    fs.mkdirSync(path.join(ROOT, 'agents', 'delta'), { recursive: true });
+    const taps: Array<{ agentId: string; hint: string }> = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      tap: async (agentId, hint) => { taps.push({ agentId, hint }); },
+      adopt: async () => { throw new Error('收复面不得 spawn'); },
+    });
+    try {
+      expect(orch.rescueLiveShells()).toBe(1);
+      expect(reach.hintFor('beta')).toBe('pipe\\\\.\\mock-beta-alive');
+      expect(reach.hintFor('gamma')).toBeUndefined();
+      expect(reach.hintFor('delta')).toBeUndefined();
+      // re-tap 只打给活壳
+      await new Promise((r) => setTimeout(r, 50));
+      expect(taps).toEqual([{ agentId: 'beta', hint: 'pipe\\\\.\\mock-beta-alive' }]);
     } finally {
       orch.close();
     }
@@ -175,6 +218,123 @@ describe('编排面（orchestrator——按需拉起触发链）', () => {
       expect(taps.length).toBe(2); // re-tap 已触发
     } finally {
       orch.close();
+      await po.close();
+    }
+  });
+});
+describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）', () => {
+  it('池内句柄优先：不打 socket 也不 spawn', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    let spawned = 0;
+    const shells: FakeShell[] = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      adopt: async () => { spawned += 1; const s = new FakeShell([]); shells.push(s); return s; },
+    });
+    try {
+      const h = await orch.ensureAgent('alpha');
+      expect(await orch.control('alpha', { ctrl: 'admin', op: 'goal-get' })).toEqual({ ok: true });
+      expect(h).toBe(orch.handles().get('alpha'));
+      expect(spawned).toBe(1); // 复用句柄，不二拉
+      expect(shells[0]!.controlFrames).toEqual([{ ctrl: 'admin', op: 'goal-get' }]);
+    } finally {
+      orch.close();
+      await po.close();
+    }
+  });
+
+  it('池外活壳（宿主换代后的孤壳）：经其 transportHint 的 manage 通道受控——不 spawn 必被锁拒的子壳', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'beta');
+    const server = await listenIpc(hint, (payload) => {
+      if (!isManageRequest(payload)) return undefined;
+      return makeManageReply(payload.manage.id, { ok: true, value: { echo: payload.manage.frame } });
+    });
+    const agentDir = path.join(ROOT, 'agents', 'beta');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, // 本测试进程恒活（锁内 holder 存活 = 活壳）
+      bootId: 'b-live', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      manageProbeMs: 2_000,
+      adopt: async () => { throw new Error('活壳在跑——不得 spawn'); },
+    });
+    try {
+      expect(orch.liveShellIds()).toEqual(['beta']);
+      const out = await orch.control('beta', { ctrl: 'admin', op: 'goal-get', conversationId: 'c1' }) as
+        { echo: Record<string, unknown> };
+      expect(out.echo.conversationId).toBe('c1');
+      expect(orch.handles().has('beta')).toBe(false); // 控制面接通不等于接管监护
+    } finally {
+      orch.close();
+      await server.close();
+      await po.close();
+    }
+  });
+
+  it('老壳不认 manage 帧（探针超时）：按 bootId 记一次后降级拉起链', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'gamma');
+    // 老壳形态：连接照收，帧静默丢（无回执）
+    const silent = await listenIpc(hint, () => undefined);
+    const agentDir = path.join(ROOT, 'agents', 'gamma');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-old', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    let spawned = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      manageProbeMs: 60,
+      adopt: async () => { spawned += 1; return new FakeShell([]); },
+    });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const notes: string[] = [];
+    process.stderr.write = ((chunk: string) => { notes.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      expect(await orch.control('gamma', { ctrl: 'admin', op: 'run-state' })).toEqual({ ok: true });
+      expect(spawned).toBe(1); // 探针超时 → 降级拉起
+      expect(notes.join('')).toContain('活壳 manage 通道不可用');
+      // 同一 bootId 记过一次：第二次直接走拉起链，不再吃探针超时
+      const t0 = Date.now();
+      await orch.control('gamma', { ctrl: 'admin', op: 'run-state' });
+      expect(Date.now() - t0).toBeLessThan(500);
+    } finally {
+      process.stderr.write = stderrWrite;
+      orch.close();
+      await silent.close();
+      await po.close();
+    }
+  });
+  it('老壳不应答且拉起被锁拒：诊断说清「不认控制帧」而不是「壳进程早退」', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'delta');
+    const silent = await listenIpc(hint, () => undefined);
+    const agentDir = path.join(ROOT, 'agents', 'delta');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-old2', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      manageProbeMs: 60,
+      adopt: async () => { throw new Error('壳进程早退（code=1）——未达 boot.ready'); },
+    });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      await expect(orch.control('delta', { ctrl: 'admin', op: 'run-state' }))
+        .rejects.toThrow(/不认控制帧.*重启该壳后恢复/);
+    } finally {
+      process.stderr.write = stderrWrite;
+      orch.close();
+      await silent.close();
       await po.close();
     }
   });

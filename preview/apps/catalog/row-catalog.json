@@ -118,6 +118,12 @@
       "path": "preview/packages/ac-shell-rows"
     },
     {
+      "id": "auto-title",
+      "tree": "shell",
+      "role": "会话命名（首步后 LLM 一句概括 → 信封请求宿主 singles 行落盘——cr-672）",
+      "path": "preview/packages/ac-shell-rows"
+    },
+    {
       "id": "web-server",
       "tree": "host",
       "role": "传输基座",

@@ -19,7 +19,7 @@ const fakeSpawn: SpawnFn = () => ({
     yield 'boot.ready\tb-1\tpipe-x';
   })(),
   write: () => { /* 测试替身无进程 */ },
-  on: (event: string, cb: (code: number | null) => void) => { void event; void cb; },
+  on: (event: string, cb: (code: number | null, signal: string | null) => void) => { void event; void cb; },
   kill: () => { /* 测试替身无进程 */ },
 });
 

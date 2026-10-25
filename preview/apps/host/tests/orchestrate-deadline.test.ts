@@ -38,7 +38,7 @@ describe('adoptShell stdout 循环常驻性（cr-580）', () => {
         // 到达即循环退出、控制帧永挂
         setTimeout(() => push('ctrl.done\t{}'), 150);
       },
-      on: (event: string, cb: (code: number | null) => void) => { void event; void cb; },
+      on: (event: string, cb: (code: number | null, signal: string | null) => void) => { void event; void cb; },
       kill: () => { /* 测试替身无进程 */ },
     });
     // 数据根用 tmpdir（adoptShell 会物化 agents/a1/config.json——相对路径

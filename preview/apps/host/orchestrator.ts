@@ -14,7 +14,8 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { PostOffice, ReachabilityTable } from 'ac-post-office';
+import { IpcClient, type PostOffice, type ReachabilityTable } from 'ac-post-office';
+import { isManageReply, makeManageRequest, type ManageReply } from 'ac-envelope-core';
 import { adoptShell } from './orchestrate.ts';
 import { superviseShell, type SuperviseHandle, type SuperviseSpawnInput, type SuperviseAdopter } from './supervise.ts';
 
@@ -37,11 +38,25 @@ export interface OrchestratorOptions {
   adopt?: SuperviseAdopter;
   /** supervise 面板注入（测试——退避档/心跳） */
   superviseOptions?: Omit<Partial<import('./supervise.ts').SuperviseOptions>, 'adopt'>;
+  /** socket manage 探活超时（缺省 4s——老壳不认 manage 帧时快速降级拉起链） */
+  manageProbeMs?: number;
+  /** socket manage 控制帧超时（缺省 60s——与 adoptShell.control 同档） */
+  manageFrameMs?: number;
 }
 
 export interface OrchestratorHandle {
   /** 按需拉起（幂等——首次真拉起，后续复用句柄） */
   ensureAgent(agentId: string): Promise<SuperviseHandle>;
+  /** 宿主换代后活壳收复（cr-659）：可达登记 + 旁带流 re-tap，返回收复数 */
+  rescueLiveShells(): number;
+  /**
+   * 控制帧往返（控制面统一入口）：句柄池活壳 → 盘上活锁壳（socket manage 通道）
+   * → 按需拉起。控制面不绑拉起所有权——宿主换代后活壳（stdin 管道已随旧宿主
+   * 消失）仍可受控，不再靠「再 spawn 一只壳」（必被单例锁拒）。
+   */
+  control(agentId: string, frame: Record<string, unknown>): Promise<unknown>;
+  /** 盘上活壳清单（持 activation.lock 且 holder 活着——含换代前拉起的孤壳） */
+  liveShellIds(): string[];
   /** 壳句柄池视图（诊断） */
   handles(): Map<string, SuperviseHandle>;
   /** 邮局 ensure 钩子（boot 接线面——直接作为 setEnsureHook 入参） */
@@ -70,62 +85,193 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
 
   const adopter: SuperviseAdopter = options.adopt ?? ((input) => adoptShell(input));
 
+  // 在飞去重（cr-663 单一仲裁）：并发触发面（ensureHook / restart_shell 信封
+  // 钩子 / boot 标记扫）共享同一次拉起——句柄池在 adopt 完成才登记，此前同
+  // agent 的并发 ensureAgent 会各自 superviseShell → 双 spawn（R3 anomaly 线索）。
+  const inflight = new Map<string, Promise<SuperviseHandle>>();
   const ensureAgent = async (agentId: string): Promise<SuperviseHandle> => {
     const existing = handles.get(agentId);
     if (existing !== undefined) {
       await existing.restart(); // 幂等：死态重拉 / 活态复用
       return existing;
     }
-    const handle = await superviseShell(spawnInputOf(agentId), {
-      adopt: adopter,
-      ...options.superviseOptions,
-      ...{ onPluginLoadFailure: options.superviseOptions?.onPluginLoadFailure },
-    });
-    if (options.tap !== undefined) {
-      handle.onAdopted((hint) => { void options.tap!(agentId, hint); });
-      const hint = handle.superviseEvents.find((e) => e.type === 'adopted')?.transportHint;
-      if (hint !== undefined) await options.tap(agentId, hint);
+    const pending = inflight.get(agentId);
+    if (pending !== undefined) return pending;
+    const start = (async () => {
+      const handle = await superviseShell(spawnInputOf(agentId), {
+        adopt: adopter,
+        ...options.superviseOptions,
+        ...{ onPluginLoadFailure: options.superviseOptions?.onPluginLoadFailure },
+      });
+      if (options.tap !== undefined) {
+        handle.onAdopted((hint) => { void options.tap!(agentId, hint); });
+        const hint = handle.superviseEvents.find((e) => e.type === 'adopted')?.transportHint;
+        if (hint !== undefined) await options.tap(agentId, hint);
+      }
+      handles.set(agentId, handle);
+      return handle;
+    })();
+    inflight.set(agentId, start);
+    try {
+      return await start;
+    } finally {
+      inflight.delete(agentId);
     }
-    handles.set(agentId, handle);
-    return handle;
   };
 
   const reach = options.reach ?? options.postOffice.reach;
 
-  // 撞活锁救援（cr-612 D5 边 2 配套）：宿主被壳复活后可达表空白，旧壳
-  // 持 activation.lock 使 adopt 必拒（单例语义）——救援 = 读锁探活 holder
-  // pid，活着即按锁内 transportHint 回登记可达（消息路径立即恢复；监护面
-  // 降级——idle-exit 收割旧壳后下次拉起回完整 adopt 链）。
-  const rescueReachableFromLock = (agentId: string): boolean => {
+  // 撞活锁探活（cr-612 D5 边 2 / cr-659 共用依据）：读 activation.lock，
+  // holder 活着返回其 transportHint；死锁/缺席 = null。
+  const liveShellLockOf = (agentId: string): { bootId: string; hint: string } | null => {
     try {
       const info = JSON.parse(
         fs.readFileSync(path.join(options.dataRoot, 'agents', agentId, 'activation.lock'), 'utf-8'),
-      ) as { pid: number; transportHint: string };
-      if (typeof info.pid !== 'number' || typeof info.transportHint !== 'string') return false;
-      process.kill(info.pid, 0); // ESRCH = holder 已死（陈锁）——不登记
-      reach.markReachable(agentId, info.transportHint);
-      return true;
+      ) as { pid: number; bootId?: unknown; transportHint: string };
+      if (typeof info.pid !== 'number' || typeof info.transportHint !== 'string') return null;
+      process.kill(info.pid, 0); // ESRCH = holder 已死（陈锁）
+      return { bootId: typeof info.bootId === 'string' ? info.bootId : String(info.pid), hint: info.transportHint };
     } catch {
-      return false;
+      return null;
+    }
+  };
+  const liveShellHintOf = (agentId: string): string | null => liveShellLockOf(agentId)?.hint ?? null;
+
+  // 撞活锁救援（cr-612 D5 边 2 配套）：宿主被壳复活后可达表空白，旧壳
+  // 持 activation.lock 使 adopt 必拒（单例语义）——救援 = 探活 holder
+  // pid，活着即按锁内 transportHint 回登记可达（消息路径立即恢复；监护面
+  // 降级——idle-exit 收割旧壳后下次拉起回完整 adopt 链）。
+  const rescueReachableFromLock = (agentId: string): boolean => {
+    const hint = liveShellHintOf(agentId);
+    if (hint === null) return false;
+    reach.markReachable(agentId, hint);
+    return true;
+  };
+
+  // 宿主换代后活壳收复（cr-659）：restart_host 后新宿主可达表/旁带流
+  // 订阅双空白——re-tap 只挂在 adopted 事件上，活壳（持锁、无 adopt）永不
+  // 触发 → webui 断连重连后直播帧（llm delta / run-settled / queue）恒断供，
+  // 直到该壳恰好重启。boot 扫 agents/*/activation.lock 探活：活壳回登记
+  // 可达 + 旁带流 re-tap（帧面在换代后立即恢复，不依赖下一封信触发
+  // ensureHook）。监护面维持降级语义（完整 adopt 链归下次拉起）。
+  const rescueLiveShells = (): number => {
+    let agentIds: string[] = [];
+    try { agentIds = fs.readdirSync(path.join(options.dataRoot, 'agents')); } catch { return 0; }
+    let rescued = 0;
+    for (const agentId of agentIds) {
+      const hint = liveShellHintOf(agentId);
+      if (hint === null) continue;
+      reach.markReachable(agentId, hint);
+      if (options.tap !== undefined) {
+        void options.tap(agentId, hint).catch((err: unknown) => {
+          process.stderr.write('[orchestrator] 活壳 re-tap 失败（' + agentId + '）：' + String(err) + '\n');
+        });
+      }
+      rescued += 1;
+    }
+    return rescued;
+  };
+
+  // —— 控制面（cr-675）：socket manage 通道 ——
+  // 控制帧此前只经 spawn 管道（stdin/stdout）——通道绑在「谁拉的壳」上，宿主
+  // 换代后活壳的管道已随旧宿主消失，管理面只能靠再 spawn（单例锁必拒，用户
+  // 面 = 「壳进程早退 code=1」）。壳侧把同一个 control() 开在 transportHint 上
+  // （ac-envelope-core/manage.ts），本面按「池内句柄 → 盘上活锁壳 → 按需拉起」
+  // 三级取通道。
+  const manageProbeMs = options.manageProbeMs ?? 4_000;
+  const manageFrameMs = options.manageFrameMs ?? 60_000;
+  // 老壳（改动前装载的进程）不认 manage 帧——入站分流无此分支，帧被静默丢。
+  // 探针失败按 bootId 记一次：该壳生命周期内后续调用直接走拉起链，不吃二次超时。
+  const manageUnsupported = new Set<string>();
+
+  const withDeadline = async <T>(work: Promise<T>, ms: number, what: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        work,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(what + '超时（' + ms + 'ms）')), ms);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   };
 
+  /** socket manage 往返（每次独立连接——cr-656 缓存连接被换代带走的教训） */
+  const manageCall = async (hint: string, frame: Record<string, unknown>, ms: number): Promise<unknown> => {
+    const client = new IpcClient();
+    const id = 'manage-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    await client.connect(hint);
+    try {
+      const reply = await withDeadline(
+        client.request(makeManageRequest(id, frame), (f) => isManageReply(f, id)),
+        ms, 'manage 回执',
+      ) as ManageReply;
+      if (reply.manage.ok !== true) throw new Error(reply.manage.error ?? 'manage 帧执行失败');
+      return reply.manage.value;
+    } finally {
+      client.close();
+    }
+  };
+
+  const liveShellIds = (): string[] => {
+    let ids: string[] = [];
+    try { ids = fs.readdirSync(path.join(options.dataRoot, 'agents')); } catch { return []; }
+    return ids.filter((id) => liveShellLockOf(id) !== null);
+  };
+
+  const control = async (agentId: string, frame: Record<string, unknown>): Promise<unknown> => {
+    const existing = handles.get(agentId);
+    if (existing !== undefined) return existing.control(frame);
+    const lock = liveShellLockOf(agentId);
+    if (lock !== null && !manageUnsupported.has(lock.bootId)) {
+      try {
+        // 探针（run-state 只读）：区分「壳不认 manage 帧」与「壳在退出」——
+        // 探针通过后控制帧自身的错误原样上抛（壳侧真实拒因，重试无意义）。
+        await manageCall(lock.hint, { ctrl: 'admin', op: 'run-state' }, manageProbeMs);
+      } catch (err) {
+        manageUnsupported.add(lock.bootId);
+        process.stderr.write('[orchestrator] 活壳 manage 通道不可用（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err) + '\n');
+        // 降级拉起（壳可能恰在此刻退出——那时新壳拿锁正当）。拉不起 = 锁 holder
+        // 还在跑却不应答控制帧（多为改动前装载的老壳）——把诊断说清楚，别让
+        // 用户看到「壳进程早退 code=1」以为平台坏了。
+        try {
+          const handle = await ensureAgent(agentId);
+          return handle.control(frame);
+        } catch (spawnErr) {
+          const msg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
+          throw new Error('活壳 ' + agentId + ' 不认控制帧（多为改动前装载的壳）且新壳被单例锁拒：' + msg + ' —— 重启该壳后恢复（cr-675）');
+        }
+      }
+      return await manageCall(lock.hint, frame, manageFrameMs);
+    }
+    const handle = await ensureAgent(agentId);
+    return handle.control(frame);
+  };
   const ensureHook = (target: string): void => {
+    // 活壳持锁优先（cr-647）：宿主换代后可达表空白，活壳仍持 activation.lock
+    // ——先读锁探活回登记并转投滞留信（命中即返，不 spawn 必被单例拒的子壳）。
+    // 此前救援只挂在 adopt 失败分支且按错误文本「activation 锁被进程」匹配，
+    // 而真链 adoptShell 只产「壳进程早退（code=…）」（壳内拒绝理由不回流），
+    // 救援恒不触发 → 宿主重启后活壳消息全部滞留 outbox（cr-647 现场 Phase B）。
+    if (rescueReachableFromLock(target)) {
+      void options.postOffice.flushOutbox();
+      return;
+    }
     // 拉起拒绝（熔断/已停）不阻塞投递——信已落箱，恒 at-least-once；
     // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）。
-    // 拒因含撞活锁时先走救援回登记，登记成功即刻转投滞留信。
     void ensureAgent(target).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`[orchestrator] ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}\n`);
-      if (msg.includes('activation 锁被进程') && rescueReachableFromLock(target)) {
-        process.stderr.write(`[orchestrator] ${target} 撞活锁但 holder 活——按锁内 transportHint 回登记可达\n`);
-        void options.postOffice.flushOutbox();
-      }
     });
   };
 
   return {
     ensureAgent,
+    control,
+    liveShellIds,
+    rescueLiveShells,
     handles: () => handles,
     ensureHook,
     close() {

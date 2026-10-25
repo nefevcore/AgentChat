@@ -32,7 +32,9 @@
     "ac-plugin-market": "workspace:*",
     "ac-auth-core": "workspace:*",
     "ac-ledger": "workspace:*",
-    "ac-credentials-core": "workspace:*"
+    "ac-credentials-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
+    "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
     "ac-host-app": "workspace:*",

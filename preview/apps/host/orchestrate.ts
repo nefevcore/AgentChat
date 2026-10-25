@@ -6,7 +6,7 @@
 // boot.ready 携带值）→ 邮局路由可直投。进程 IO 注入（spawn 接口），
 // 编排逻辑纯域可测。
 // ============================================================
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -14,14 +14,23 @@ import { socketPathFor } from 'ac-envelope-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
 
+/**
+ * stderr 行钩子（cr-662 诊断面）：壳 stderr 按行回流——转发宿主 stderr +
+ * 落滚动日志 + 尾行环（退出现场）。缺省（defaultSpawn 之外的测试替身可
+ * 不接）= 丢弃，与此前行为一致。
+ */
+export interface SpawnHooks {
+  onStderrLine?(line: string): void;
+}
+
 /** spawn 注入面（测试替身） */
 export interface SpawnFn {
-  (cmd: string, args: string[]): {
+  (cmd: string, args: string[], hooks?: SpawnHooks): {
     pid: number;
     stdout: AsyncIterable<string>;
     /** 控制帧通道（shutdown 优雅退出——stdin 可写；测试替身可空实现） */
     write(line: string): void;
-    on(event: 'exit', cb: (code: number | null) => void): void;
+    on(event: 'exit', cb: (code: number | null, signal: string | null) => void): void;
     kill(): void;
   };
 }
@@ -57,11 +66,35 @@ function presetConfigOf(agentId: string): Record<string, unknown> | undefined {
  * vitest 数据根多在 tmpdir——品牌面只归产品宿主。 */
 const AGENTCHAT_EXE = (() => {
   const p = fileURLToPath(new URL('../../../bin/AgentChat.exe', import.meta.url));
+  // AGENTCHAT_NO_BRANDED_EXE（cr-669 诊断档）：沙箱环境拒未知镜像 exe 连
+  // named pipe（EPERM——DSH 会话 probe 实锤）时回落 node 本体跑活体验证。
+  if (process.env.AGENTCHAT_NO_BRANDED_EXE === '1') return process.execPath;
   return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
 })();
 
-export const defaultSpawn: SpawnFn = (cmd, args) => {
-  const child: ChildProcess = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+function spawnOpts(): SpawnOptions {
+  return { stdio: ['pipe', 'pipe', 'pipe'], detached: true };
+}
+
+/** 滚动追加一行（cr-662 诊断面）：超 capBytes 即滚成 .1（旧 .1 覆弃）。
+ * 日志面自身失败（磁盘满/权限）静默——诊断写不得反噬监护链。 */
+export function appendRollingLine(file: string, line: string, capBytes: number): void {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      if (fs.statSync(file).size > capBytes) fs.renameSync(file, file + '.1');
+    } catch { /* 文件尚不存在——直接追加 */ }
+    fs.appendFileSync(file, line + '\n', 'utf-8');
+  } catch { /* 诊断面失败不反噬 */ }
+}
+
+export const defaultSpawn: SpawnFn = (cmd, args, hooks) => {
+  // detached（cr-642）：壳独立进程组——宿主 exit 42/崩溃时不被 Windows Job 对象
+  // 连带杀灭（保壳保 run；宿主死后壳经 host-revive/stdio 管道断检测自持存活）。
+  // stdio 仍 pipe：监护面（心跳/控制帧）照常；spawn 返回对象需 unref() 由宿主退出时自然断链。
+  // argv 必达（cr-643 热修）：三参形态——此前 spawn(cmd, opts) 丢 args，壳裸启
+  // 不 boot、零注册，全部投递积压 outbox（前端消息唤不起会话的现场根因）。
+  const child: ChildProcess = spawn(cmd, args, spawnOpts());
   let buffer = '';
   const lines: string[] = [];
   const waiters: Array<(l: string) => void> = [];
@@ -74,6 +107,18 @@ export const defaultSpawn: SpawnFn = (cmd, args) => {
       const w = waiters.shift();
       if (w !== undefined) w(line);
       else lines.push(line);
+    }
+  });
+  // stderr 消费（cr-662 诊断面）：不读会反压（64KB 管道缓冲）——长命壳
+  // 反复报错可致「莫名卡住」；此前崩溃零现场（无退出码/stderr/日志）。
+  let errBuffer = '';
+  child.stderr?.on('data', (chunk: Buffer) => {
+    errBuffer += chunk.toString();
+    let idx: number;
+    while ((idx = errBuffer.indexOf('\n')) >= 0) {
+      const line = errBuffer.slice(0, idx).replace(/\r$/, '');
+      errBuffer = errBuffer.slice(idx + 1);
+      hooks?.onStderrLine?.(line);
     }
   });
   return {
@@ -112,8 +157,10 @@ export interface AdoptResult {
   /** stdout 行订阅（boot.ready 后继续到达——guardian.ping / run 节拍 / plugin.load-failed；
    * 常驻监护面〔supervise.ts〕的数据源。单订阅面——后注册覆盖） */
   onLine(cb: (line: string) => void): void;
-  /** 进程退出订阅（adopt 后有效；单订阅面——后注册覆盖） */
-  onExit(cb: (code: number | null) => void): void;
+  /** 进程退出订阅（adopt 后有效；单订阅面——后注册覆盖；signal 崩溃现场） */
+  onExit(cb: (code: number | null, signal: string | null) => void): void;
+  /** stderr 尾行快照（cr-662 诊断面：最近 50 行——退出现场随 shell-exit 事件上报） */
+  stderrTail(): string[];
   /**
    * 控制帧往返（cr-552 跨进程 dry-run 通道）：stdin JSON 行 → 壳 control()
    * → stdout TSV ctrl.done/ctrl.error 回执。并发安全（帧间串行化——控制
@@ -149,6 +196,16 @@ export async function adoptShell(
   const spawnFn = input.spawnFn ?? defaultSpawn;
   const warden = new ShellWarden(input.agentId);
   const events: GuardianEvent[] = [];
+  // stderr 诊断面（cr-662）：每行转发宿主 stderr（[shell:<agent>] 前缀）+
+  // 滚动落 dataRoot/.runtime/logs/shell-<agent>.log（cap 512KB）+ 尾行环。
+  const stderrLog = path.join(input.dataRoot, '.runtime', 'logs', `shell-${input.agentId}.log`);
+  const stderrTailLines: string[] = [];
+  const reportStderr = (line: string, toConsole: boolean): void => {
+    if (toConsole) process.stderr.write(`[shell:${input.agentId}] ${line}\n`);
+    stderrTailLines.push(line);
+    if (stderrTailLines.length > 50) stderrTailLines.shift();
+    appendRollingLine(stderrLog, line, 512 * 1024);
+  };
   const proc = spawnFn(AGENTCHAT_EXE, [
     '--experimental-strip-types',
     input.bootFile,
@@ -159,7 +216,7 @@ export async function adoptShell(
     ...(input.postOffice !== undefined ? ['--post-office', input.postOffice.listeningAddress] : []),
     ...(input.hostBoot !== undefined ? ['--host-boot', input.hostBoot] : []),
     ...(input.hostPort !== undefined ? ['--host-port', String(input.hostPort)] : []),
-  ]);
+  ], { onStderrLine: (line) => reportStderr(line, true) });
   const timeout = input.timeoutMs ?? 15_000;
   const deadline = Date.now() + timeout;
   // agent 配置预置（壳 boot 读 AgentConfig）——编排面确保在场
@@ -176,7 +233,7 @@ export async function adoptShell(
   // 持续订阅面（cr-550 常驻监护）：adopted 后 stdout 行继续分发（心跳/
   // run 节拍/插件装载失败回报），exit 转发订阅方。单订阅——后注册覆盖。
   let lineCb: ((line: string) => void) | null = null;
-  let exitCb: ((code: number | null) => void) | null = null;
+  let exitCb: ((code: number | null, signal: string | null) => void) | null = null;
   // 控制帧往返面（cr-552）：ctrl.done/ctrl.error TSV 行拦截 → pending 队列
   // FIFO 配对（壳侧串行回执——boot.control 逐帧执行后写回执）。行拦截
   // 优先于 lineCb（控制流量不进监护面）。
@@ -196,16 +253,21 @@ export async function adoptShell(
   };
   return new Promise<AdoptResult>((resolve, reject) => {
     let settled = false;
-    proc.on('exit', (code) => {
+    proc.on('exit', (code, signal) => {
+      // 退出现场（cr-662）：code/signal + 时间戳收口进日志；非正常退出
+      //（含早退）同步转宿主 stderr——崩溃不再零现场。
+      const exitLine = `=== exit code=${code ?? 'null'} signal=${signal ?? ''} at ${new Date().toISOString()} ===`;
+      appendRollingLine(stderrLog, exitLine, 512 * 1024);
+      if (code !== 0 && code !== 42) process.stderr.write(`[shell:${input.agentId}] ${exitLine}\n`);
       if (!settled) {
-        reject(new Error('壳进程早退（code=' + code + '）——未达 boot.ready'));
+        reject(new Error(`壳进程早退（code=${code ?? 'null'} signal=${signal ?? ''}）——未达 boot.ready；尾部 stderr 见 ${stderrLog}`));
         return;
       }
       for (const w of ctrlPending.splice(0)) {
         clearTimeout(w.timer);
         w.reject(new Error('壳进程退出——控制帧无回执'));
       }
-      exitCb?.(code);
+      exitCb?.(code, signal);
     });
     void (async () => {
       for await (const line of proc.stdout) {
@@ -248,6 +310,7 @@ export async function adoptShell(
             kill: () => { proc.kill(); },
             onLine: (cb) => { lineCb = cb; },
             onExit: (cb) => { exitCb = cb; },
+            stderrTail: () => [...stderrTailLines],
             control: (frame) => new Promise((resolve, reject) => {
               // 超时兜底：干跑/评测长任务也不该无限挂（缺省 60s）
               const timer = setTimeout(() => {

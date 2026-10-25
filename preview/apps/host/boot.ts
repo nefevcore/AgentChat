@@ -31,6 +31,7 @@ import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
 import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, TEMPLATE_DIR, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace } from 'ac-host-rows';
 import { readCatalog, deriveHostRowset, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { PostOffice } from 'ac-post-office';
+import { readActivationLock } from 'ac-envelope-core';
 import { assembleWebServer, attachWebSurface, type WebRing } from 'ac-host-webui';
 import { createOrchestrator, type OrchestratorHandle } from './orchestrator.ts';
 import { createAdminPreview } from './admin-preview.ts';
@@ -111,11 +112,43 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   await po.listen();
   // host 端点收信扇出面（cr-545：usage / auth-registry 行共用——邮局 local 通道单 receiver 组合器）
   const inbox = new HostInbox(po);
-  // 宿主重启请求（cr-629 restart_host）：壳工具面 → 邮局信 → 本钩子
-  //（plugin-request 同通道；payload.restartHost 词判别，不与装卸请求撞形）
+  // 编排面迟绑定引用（inbox 钩子先于编排面创建——cr-648 restart_shell 重拉用）
+  const orchestratorRef: { handle: OrchestratorHandle | null } = { handle: null };
+  /**
+   * restart_shell 退出后的重拉请求（cr-648）：宿主换代后活壳只在可达表、不在
+   * 句柄池（撞活锁救援只回登记不接管）→ 壳 exit 42 无人 respawn，在途消息滞留
+   * inbox。壳在退出前发本请求：宿主轮询 activation.lock（最多 ~10s）等 holder
+   * 退净后按需拉起；句柄池已有该 agent（warden 快路已接手）= 不动（幂等）。
+   */
+  const requestShellRespawn = (agentId: string): void => {
+    let tries = 0;
+    const tick = (): void => {
+      const orch = orchestratorRef.handle;
+      if (orch === null || orch.handles().has(agentId)) return; // 无编排面 / warden 已接管
+      const lock = readActivationLock(path.join(dataRoot, 'agents', agentId));
+      if (lock !== null) {
+        let alive = false;
+        try { process.kill(lock.pid, 0); alive = true; } catch { /* holder 已死 */ }
+        if (alive) {
+          if (++tries < 20) setTimeout(tick, 500).unref();
+          return; // 超时放弃——交给下次来件按需拉起
+        }
+      }
+      void orch.ensureAgent(agentId).catch((err: unknown) => {
+        process.stderr.write('[host] restart_shell 重拉失败（' + agentId + '）：' + String(err) + '\n');
+      });
+    };
+    setTimeout(tick, 1_500).unref();
+  };
+  // 安全重启收信面：restart_host（cr-629）/ restart_shell 退出重拉（cr-648）
   inbox.on(async (env) => {
-    if ((env.payload as { restartHost?: unknown } | null)?.restartHost === true) {
+    const payload = env.payload as { restartHost?: unknown; restartShell?: unknown; agentId?: unknown } | null;
+    if (payload?.restartHost === true) {
       options.onRestartRequest?.(env.sender);
+      return;
+    }
+    if (payload?.restartShell === true && typeof payload.agentId === 'string') {
+      requestShellRespawn(payload.agentId);
     }
   });
   inbox.start();
@@ -224,6 +257,21 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   if (supervisors !== null) {
     po.setEnsureHook(supervisors.ensureHook);
     shellPort.port = supervisors; // 壳内服务面端口就绪（惰性 getter 已注入 web 面）
+    orchestratorRef.handle = supervisors; // cr-648：restart_shell 重拉钩子迟绑定
+    // cr-651：restart_host 换代窗口内发出的 restart_shell 重拉请求会随旧宿主
+    // 丢失（壳侧已落复活标记）——boot 扫标记兜底重拉（cr-663 单一仲裁/TTL，
+    // 语义见 sweepRestartShellMarkers）。
+    sweepRestartShellMarkers({
+      dataRoot,
+      ensureAgent: (agentId) => supervisors.ensureAgent(agentId).then(() => undefined),
+    });
+    // cr-659 换代活壳收复：restart_host 后活壳不在新宿主可达表/旁带流
+    // 订阅——boot 扫 activation.lock 探活，可达登记 + re-tap（webui 断连
+    // 重连后直播帧恢复，不依赖下一封信触发 ensureHook）。
+    const rescued = supervisors.rescueLiveShells();
+    if (rescued > 0) {
+      process.stderr.write('[host] 换代活壳收复 ' + rescued + ' 个（可达登记 + 旁带流 re-tap）\n');
+    }
   }
 
   // ④ agent-admin（写侧 RPC 编排——inject ['webServer','agents']：两服务同树才激活）。
@@ -350,4 +398,84 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
     console.error('[host] boot 失败：', err);
     process.exit(1);
   });
+}
+
+/**
+ * restart-shell 复活标记扫描（cr-651 换代窗口兜底 + cr-663 单一仲裁）。
+ * 纯域可测：ensureAgent / 时钟 / 告警面注入；盘上事实（标记、activation.lock）
+ * 用真实 fs（preview/sandbox 数据根）。
+ *
+ * 语义：
+ *   · activation.lock 持有者活 = 已有壳，跳过（锁 = 重拉唯一事实）；
+ *   · 领取原子性：标记 rename 成 <agentId>.<pid>.claimed 再拉起——撞名即
+ *     他宿主已领，跳过；拉起失败回滚原名（回滚失败留 TTL 清扫）；
+ *   · TTL 10min：过期标记丢弃 + 领取者死亡的陈旧 .claimed 清扫（新壳
+ *     永不起来时不再每次 boot 白拉）；
+ *   · 兑现与自清归新壳 boot（认 .json 与 .claimed 两种名形态——cr-658
+ *     conversationId 注入不因领取丢）。
+ */
+export function sweepRestartShellMarkers(input: {
+  dataRoot: string;
+  ensureAgent: (agentId: string) => Promise<unknown>;
+  now?(): number;
+  onError?(msg: string): void;
+}): void {
+  const markerDir = path.join(input.dataRoot, '.runtime', 'restart-shell');
+  const ttlMs = 10 * 60_000;
+  const now = input.now ?? Date.now;
+  const err = input.onError ?? ((msg: string) => { process.stderr.write(msg + '\n'); });
+  let names: string[] = [];
+  try { names = fs.readdirSync(markerDir); } catch { return; /* 无标记目录 */ }
+  for (const name of names) {
+    if (name.endsWith('.claimed')) {
+      // 陈旧领取（领取者宿主死亡）：超 TTL 即删；未超 = 他宿主在拉，不动
+      try {
+        const st = fs.statSync(path.join(markerDir, name));
+        if (now() - st.mtimeMs > ttlMs) fs.rmSync(path.join(markerDir, name), { force: true });
+      } catch { /* 已收 */ }
+      continue;
+    }
+    if (!name.endsWith('.json')) continue;
+    const agentId = name.slice(0, -'.json'.length);
+    const markerPath = path.join(markerDir, name);
+    let markerAgeMs = 0;
+    let markerRaw = '';
+    try {
+      markerRaw = fs.readFileSync(markerPath, 'utf-8');
+      const raw = JSON.parse(markerRaw) as { at?: unknown };
+      const at = typeof raw.at === 'string' ? Date.parse(raw.at) : Number.NaN;
+      if (Number.isFinite(at)) markerAgeMs = now() - at;
+    } catch { /* 坏标记按无时戳处理（不 TTL 丢弃——保守拉一次） */ }
+    if (markerAgeMs > ttlMs) {
+      fs.rmSync(markerPath, { force: true });
+      err('[host] restart_shell 标记超时丢弃（' + agentId + '，age=' + Math.round(markerAgeMs / 1000) + 's）');
+      continue;
+    }
+    const lock = readActivationLock(path.join(input.dataRoot, 'agents', agentId));
+    if (lock !== null) {
+      let alive = false;
+      try { process.kill(lock.pid, 0); alive = true; } catch { /* holder 已死 */ }
+      if (alive) continue;
+    }
+    // O_EXCL 原子领取（cr-663 实测修正）：rename 在 Windows 上并发对同一
+    // 源可双双「成功」（MoveFileExW 竞态——复现脚本 c1-double-pull-repro
+    // 实锤）；wx 独占创建须用**共享领文件名**（<agentId>.claimed，不带 pid
+    // ——各开各名不相斥）才与 activation.lock / host-revive.lock 同款原子。
+    // 领文件承载标记原文（壳 boot 自清读它注入 cr-658 conversationId）。
+    const claimedPath = path.join(markerDir, agentId + '.claimed');
+    try {
+      if (markerRaw === '') markerRaw = fs.readFileSync(markerPath, 'utf-8'); // 已被他者收走则此读抛 ENOENT
+      const fd = fs.openSync(claimedPath, 'wx');
+      fs.writeFileSync(fd, markerRaw, 'utf-8');
+      fs.closeSync(fd);
+    } catch { continue; /* 他宿主已领（EEXIST）/ 标记已收走（ENOENT） */ }
+    fs.rmSync(markerPath, { force: true });
+    void input.ensureAgent(agentId).catch((e: unknown) => {
+      err('[host] restart_shell 标记重拉失败（' + agentId + '）：' + String(e));
+      try {
+        fs.rmSync(claimedPath, { force: true });
+        fs.writeFileSync(markerPath, markerRaw, 'utf-8');
+      } catch { /* 回滚失败留 TTL 清扫 */ }
+    });
+  }
 }

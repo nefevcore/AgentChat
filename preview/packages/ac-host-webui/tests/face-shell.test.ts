@@ -58,6 +58,26 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     await handlers.get('conversation/interrupt')!({ agentId: 'a1' });
     expect(frames).toEqual([{ ctrl: 'interrupt' }]);
   });
+  it('控制面统一入口优先（cr-675）：有 control 即直连，不 ensureAgent', async () => {
+    const { web, handlers } = collect();
+    const calls: Array<{ agentId: string; frame: Record<string, unknown> }> = [];
+    const ensured: string[] = [];
+    const port: ShellAdminPort = {
+      async ensureAgent(agentId: string) {
+        ensured.push(agentId);
+        return { control: async () => ({ ok: true }) };
+      },
+      async control(agentId, frame) { calls.push({ agentId, frame }); return { echo: frame.op }; },
+    };
+    registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
+    await handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'c1' });
+    await handlers.get('conversation/interrupt')!({ agentId: 'a1' });
+    expect(calls).toEqual([
+      { agentId: 'a1', frame: { ctrl: 'admin', agentId: 'a1', op: 'goal-get', conversationId: 'c1' } },
+      { agentId: 'a1', frame: { ctrl: 'interrupt' } },
+    ]);
+    expect(ensured).toEqual([]); // 池外活壳不经拉起链（那链必被单例锁拒）
+  });
 
   it('编排面缺席 fail-loud（bootHostWeb / orchestrate:false）', async () => {
     const { web, handlers } = collect();
@@ -66,6 +86,22 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     await expect(handlers.get('conversation/interrupt')!({ agentId: 'a1' })).rejects.toThrow(/编排面未就绪/);
   });
 
+  it('jobs/list：逐壳容错（cr-675——单只不应答的壳不拖垮整张面板）', async () => {
+    const { web, handlers } = collect();
+    const port: ShellAdminPort = {
+      async ensureAgent() { return { control: async () => ({ jobs: [] }) }; },
+      async control(agentId) {
+        if (agentId === 'stale') throw new Error('活壳 stale 不认控制帧');
+        return { jobs: [{ id: 'j-' + agentId }] };
+      },
+      liveShellIds: () => ['a1', 'stale', 'b2'],
+    };
+    registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
+    expect(await handlers.get('jobs/list')!({})).toEqual({
+      jobs: [{ id: 'j-a1', agentId: 'a1' }, { id: 'j-b2', agentId: 'b2' }],
+      skipped: 1,
+    });
+  });
   it('interaction/reply：按活壳枚举直到命中（not-found 继续，ok 返回）', async () => {
     const { web, handlers } = collect();
     const calls: string[] = [];
@@ -164,6 +200,45 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
       await handlers.get('subagents/stop')!({ id: 'kid1' });
       expect(frames).toEqual([{ ctrl: 'admin', agentId: 'parent1', op: 'subagents-stop', id: 'kid1' }]);
       expect(() => handlers.get('subagents/history')!({ id: 'ghost' })).toThrow(/不存在/);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  // cr-677：子 Agent 持久化清单——跨父盘读聚合（children 树 + 会话账本统计）
+  it('subagents/list：跨父盘读聚合（runs/task 统计 + query 过滤 + limit 截断）；无 children = 空清单', async () => {
+    const rootDir = 'preview/sandbox/test-sub-list-' + process.pid;
+    const childDir = rootDir + '/agents/parent1/children/kid1';
+    fs.mkdirSync(childDir + '/sessions/s1', { recursive: true });
+    fs.writeFileSync(childDir + '/config.json', JSON.stringify({ id: 'kid1', name: '调研员' }), 'utf-8');
+    fs.writeFileSync(childDir + '/sessions/s1/messages.jsonl', [
+      JSON.stringify({ type: 'session-header', version: 1 }),
+      JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '去查证 X' }),
+      JSON.stringify({ role: 'agent', agent_id: 'kid1', content: '收到', run: 'run-1' }),
+    ].join('\n') + '\n', 'utf-8');
+    // 第二父：物化但未开跑（无 sessions）
+    fs.mkdirSync(rootDir + '/agents/parent2/children/kid2', { recursive: true });
+    fs.writeFileSync(rootDir + '/agents/parent2/children/kid2/config.json', JSON.stringify({ id: 'kid2' }), 'utf-8');
+    try {
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => null });
+      const all = await handlers.get('subagents/list')!({ include_deleted: true }) as {
+        activeCount: number; total: number;
+        subs: Array<{ id: string; parentId: string; name: string; task: string; runs: number; displayStatus: string; deleted: boolean }>;
+      };
+      expect(all.total).toBe(2);
+      const kid1 = all.subs.find((s) => s.id === 'kid1')!;
+      expect(kid1).toMatchObject({ parentId: 'parent1', name: '调研员', task: '去查证 X', runs: 1, displayStatus: 'done', deleted: false });
+      expect(all.subs.find((s) => s.id === 'kid2')!).toMatchObject({ parentId: 'parent2', name: '', runs: 0, displayStatus: 'idle' });
+      // query 过滤 + limit 截断
+      const q = await handlers.get('subagents/list')!({ query: 'kid1' }) as { total: number; subs: unknown[] };
+      expect(q.subs).toHaveLength(1);
+      const lim = await handlers.get('subagents/list')!({ limit: 1 }) as { total: number; subs: unknown[] };
+      expect(lim.subs).toHaveLength(1);
+      // 无 children 树的数据根 = 空清单（非错误）
+      const { web: web2, handlers: h2 } = collect();
+      registerShellFace(web2, ctx, { dataRoot: rootDir + '/nonexistent', port: () => null });
+      expect(await h2.get('subagents/list')!({})).toMatchObject({ total: 0, subs: [] });
     } finally {
       fs.rmSync(rootDir, { recursive: true, force: true });
     }

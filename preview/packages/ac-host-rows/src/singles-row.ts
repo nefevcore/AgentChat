@@ -12,18 +12,27 @@
 //（前端 singleBoard 增量合并的单源；断连重连走 list 兜底）。
 //
 // 导入存量兼容：旧根导入的 827 个会话只有 messages.jsonl 无 session.json——
-// 视图按账本派生（agentId = 首条对端行、title = 首条自己行截断、时间 = 目录
-// mtime），首次 update 时才落 session.json（纯增量，不迁移）。
+// 视图按账本派生（agentId = 首条对端行、title = 首条**用户**行截断、时间 =
+// 目录 mtime），首次 update 时才落 session.json（纯增量，不迁移）。
+//
+// 标题生成面（cr-672）：LLM 概括只住壳（llm 行在壳树）而 session.json 写权
+// 在本行——壳侧 auto-title 行经信封（title-request）上报标题，本行
+// write-if-absent 落盘 + singles/updated 广播。派生面仍是兜底：存量会话、
+// 非用户会话（agent↔agent / 机制触发）与生成失败线都走它。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
-import { issueConversationId } from 'ac-envelope-core';
-import { conversationDirs, forkConversation } from 'ac-ledger';
+import { isTitleRequest, issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
+import { conversationDirs, forkConversation, userSessionDir } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
+import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
+import type { HostInbox } from './host-inbox.ts';
 
 export interface SinglesHostRowOptions {
   dataRoot: string;
+  /** host 端点收信扇出面（壳侧命名行标题请求受理——cr-672；缺省 = 只走派生标题） */
+  inbox?: HostInbox;
 }
 
 /** 会话元数据（session.json 形态——模型覆盖不在此，见 conv-settings） */
@@ -61,14 +70,13 @@ interface WebFace {
   broadcast(type: string, data?: unknown): void;
 }
 
-const TITLE_MAX_LEN = 24;
 
 function sessionsDir(dataRoot: string): string {
   return path.join(dataRoot, 'viewer', 'sessions');
 }
 
 function dirOf(dataRoot: string, id: string): string {
-  return path.join(sessionsDir(dataRoot), id);
+  return userSessionDir(dataRoot, id); // viewer 投影轴目录词汇单源（ac-ledger 拥有）
 }
 
 function metaFileOf(dataRoot: string, id: string): string {
@@ -120,7 +128,11 @@ function ledgerSummary(dataRoot: string, id: string): {
     return { count: 0 };
   }
   let agentId: string | undefined;
-  let title: string | undefined;
+  // 标题候选两档：用户自己的首条发言（正解）> 任意首条有内容行（旧会话
+  // 兜底）。旧实现取「首条非空内容行」，对端台词/定时触发词/DSML 残片都会
+  // 变成标题；且按换行符切分不剥 CR 尾（CRLF 会话标题带脏尾，cr-672）。
+  let userTitle: string | undefined;
+  let anyTitle: string | undefined;
   let lastActivity: string | undefined;
   let count = 0;
   for (const raw of text.split('\n')) {
@@ -134,12 +146,23 @@ function ledgerSummary(dataRoot: string, id: string): {
     if (typeof row.agent_id === 'string' && row.agent_id !== '' && row.agent_id !== 'user' && agentId === undefined) {
       agentId = row.agent_id;
     }
-    if (title === undefined && typeof row.content === 'string' && row.content.trim() !== '') {
-      const firstLine = row.content.trim().split('\n')[0] ?? '';
-      title = firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine;
-    }
+    const content = typeof row.content === 'string' ? row.content : '';
+    // 日期快照行（ac-datetime 前缀）不是用户发言；材料行筛选（跳过附件路径 /
+    // @ 引用 / URL 行）、归一与上限走 ac-core-utils 单源（与生成面同口径——
+    // 旧派生面 40 字与其 24 字走散，且路径开头的消息让整列标题同形）
+    if (content.trim() === '' || content.startsWith(DATE_SNAPSHOT_PREFIX)) continue;
+    const candidate = fallbackTitle(content);
+    if (candidate === '') continue;
+    anyTitle ??= candidate;
+    if (userTitle === undefined && row.agent_id === 'user') userTitle = candidate;
   }
-  return { ...(agentId !== undefined ? { agentId } : {}), ...(title !== undefined ? { title } : {}), ...(lastActivity !== undefined ? { lastActivity } : {}), count };
+  const title = userTitle ?? anyTitle;
+  return {
+    ...(agentId !== undefined ? { agentId } : {}),
+    ...(title !== undefined ? { title } : {}),
+    ...(lastActivity !== undefined ? { lastActivity } : {}),
+    count,
+  };
 }
 
 /** 视图组装（list / 变更回执共源） */
@@ -204,6 +227,40 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       const emit = (view: SingleView, kind: 'created' | 'updated' | 'archived' | 'removed'): void => {
         web.broadcast('singles/updated', { args: [view, kind] });
       };
+
+      // ---- 标题请求受理（cr-672：壳侧 auto-title 行 → 信封 → 本行落盘）----
+      // 写权归本行（session.json 单写者）；write-if-absent——用户手改标题 /
+      // fork 继承标题 / 换代壳重复上报一律不覆盖。已有标题 = 幂等成功（不抛
+      // 错：抛错会进邮局重投循环，而本请求没有需要重试的语义）。
+      const titleInbox = options.inbox;
+      if (titleInbox !== undefined) {
+        titleInbox.on(async (env) => {
+          if (!isTitleRequest(env)) return;
+          const payload = env.payload as Partial<TitleRequestPayload>;
+          const issues = validateTitleRequestPayload(payload);
+          if (issues.length > 0) throw new Error('标题请求非法：' + issues.join('；'));
+          const id = String(payload.conversationId);
+          assertId(id);
+          const title = String(payload.title).trim().slice(0, TITLE_MAX_LEN);
+          if (title === '') return;
+          const before = viewOf(dataRoot, id, conv());
+          if (before === null || before.status !== 'active') return;
+          // 判「已存标题」只看 session.json（readMeta）——viewOf 的 title 含
+          // 账本派生兜底值，拿它判会让生成标题永无写入机会
+          if (readMeta(dataRoot, id)?.title !== undefined) return;
+          writeMeta(dataRoot, {
+            id,
+            ...(before.agentId !== '' ? { agentId: before.agentId } : {}),
+            title,
+            ...(before.workspaceId !== undefined ? { workspaceId: before.workspaceId } : {}),
+            status: 'active',
+            createdAt: before.createdAt,
+            updatedAt: new Date().toISOString(),
+          });
+          const view = viewOf(dataRoot, id, conv());
+          if (view !== null) emit(view, 'updated');
+        });
+      }
 
       web.registerRpc('singles/list', () => {
         const out: SingleView[] = [];

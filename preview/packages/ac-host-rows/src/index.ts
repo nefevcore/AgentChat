@@ -109,6 +109,27 @@ export { makeGroupsHostRow, listGroupConfigs, memberStreamKey };
 // 工作区登记表（cr-583）：纯函数直读直写（REST 编排住 web-api 行）
 export { listWorkspaces, registerWorkspace, updateWorkspace, removeWorkspace, workspacePathOf } from './workspaces.ts';
 export type { WorkspaceRegistration } from './workspaces.ts';
+// 工作区文件面（cr-676）：树/预览/直链/上传纯函数（主线 ac-workspace 同语义；
+// HTTP 四端点编排住 web-api 行）
+export {
+  MAX_PREVIEW_BYTES,
+  agentWorkdirOf,
+  conversationAgentId,
+  conversationWorkspaceRoot,
+  guessContentType,
+  readWorkspaceFile,
+  resolveWorkspaceFile,
+  saveWorkspaceUpload,
+  workspaceTree,
+  workspaceTreeBase,
+} from './workspace-files.ts';
+export type {
+  WorkspaceContext,
+  WorkspaceFileResult,
+  WorkspaceNode,
+  WorkspaceTreeResult,
+  WorkspaceUploadResult,
+} from './workspace-files.ts';
 export type { GroupsHostRowOptions, GroupConfig, GroupMessageView } from './groups-row.ts';
 
 // —— 插件治理面（cr-543）：plugin-registry 行（装载裁决 + 熔断闸门 +
@@ -140,7 +161,8 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     // 会话级覆盖目录（conv-settings/<conversationId>.json——宿主单写）
     'conv-settings': { root: opts.dataRoot },
     // 独立会话元数据（viewer/sessions/<sid>/session.json——宿主单写）
-    singles: { dataRoot: opts.dataRoot },
+    // + 标题请求收信面（cr-672：壳侧 auto-title 行生成 → 信封 → 本行落盘）
+    singles: { dataRoot: opts.dataRoot, ...(opts.inbox !== undefined ? { inbox: opts.inbox } : {}) },
     backup: backupOptions,
     'ws-bridge': wsBridgeOptions,
     'remote-link': { root: opts.dataRoot },

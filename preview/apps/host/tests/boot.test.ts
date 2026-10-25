@@ -201,7 +201,10 @@ describe('宿主 boot（单树装配面）', () => {
     expect(listed.dirs.map((d) => d.name)).toContain('agents');
     expect((await web.callRpc('workspace/browse-dirs', { path: 'relative/path' }) as { error?: string }).error).toMatch(/绝对路径/);
     expect((await web.callRpc('workspace/open-local', { path: 'no-such-file.txt' }) as { error?: string }).error).toMatch(/不存在/);
-    expect((await web.callRpc('workspace/open-dir', { agentId: 'no-such-agent' }) as { error?: string }).error).toMatch(/不存在|不可访问/);
+    // open-dir（cr-676 与主线 resolveOpenDir 对齐）：workspaceId 未登记 = error；
+    // 未知 agentId 走 treeBase 语义落数据根（会真开资源管理器，测试面不触达）
+    expect((await web.callRpc('workspace/open-dir', { workspaceId: 'ws-ghost' }) as { error?: string }).error)
+      .toMatch(/工作区不存在/);
     // 插件目录面（cr-568）：builtin = 行集目录（宿主行 assembled），local/pending 空
     const catalog = await web.callRpc('plugin/catalog') as {
       builtin: Array<{ name: string; assembled: boolean; entryId: string }>; local: unknown[]; pending: unknown[]; note?: string;
