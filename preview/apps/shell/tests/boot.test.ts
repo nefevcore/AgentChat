@@ -137,7 +137,7 @@ describe('boot 编排（emit spy）', () => {
   }, 20_000);
 
   it('缺装配器 fail-loud（目录外行 id——seed 不覆盖）', async () => {
-    seedAgent('b2', ['fs_read']);
+    seedAgent('b2', ['read']);
     const r = deriveAndAssertRowset(ROOT, 'b2', CATALOG);
     seedPlaceholderAssemblers(r.catalogRows);
     // 目录外 id 直测 fail-loud 分支（真实场景 = 行集清单引用了不存在的行——

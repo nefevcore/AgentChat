@@ -423,11 +423,7 @@
       "tools": [
         "read",
         "write",
-        "edit",
-        "fs_read",
-        "fs_write",
-        "fs_edit",
-        "file-snapshots"
+        "edit"
       ],
       "bundle": "fs",
       "path": [
@@ -444,9 +440,7 @@
       "role": "文件检索",
       "tools": [
         "glob",
-        "grep",
-        "fs_glob",
-        "fs_grep"
+        "grep"
       ],
       "bundle": "fs",
       "path": "src/ac-fs-search",
