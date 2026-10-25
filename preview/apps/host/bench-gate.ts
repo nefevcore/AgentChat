@@ -17,6 +17,10 @@ import { MOCK_PROVIDER, MOCK_MODEL } from 'ac-bench';
 export interface BenchGateOptions {
   suite?: string;
   limit?: number;
+  /** 真跑档模型（真 LLM 对拍——传入即脱离 scripted mock；如 'glm-5.3-flash'）。 */
+  model?: string;
+  /** 真跑档显式 provider（缺省按 model 路由）。 */
+  provider?: string;
 }
 
 /**
@@ -28,16 +32,25 @@ export async function benchGateCheck(
   options: BenchGateOptions = {},
 ): Promise<{ ok: boolean; reason?: string; report?: BenchReport }> {
   let report: unknown;
+  // model 显式传入 = 真跑档（真 LLM 全量对拍）；缺省 = scripted mock 冒烟档（M8.3 架构轴原语义）。
+  // cr-680 实锤：此前签名无 model 入口，真跑只能绕过本适配器手拼帧——判据跑批面缺产品入口。
+  const real = options.model !== undefined;
   try {
     report = await control({
       ctrl: 'bench',
       suite: options.suite ?? 'bfcl',
-      options: {
-        model: MOCK_MODEL,
-        provider: MOCK_PROVIDER,
-        scripted: true,
-        ...(options.limit !== undefined ? { limit: options.limit } : { limit: 2 }),
-      },
+      options: real
+        ? {
+            model: options.model!,
+            ...(options.provider !== undefined ? { provider: options.provider } : {}),
+            ...(options.limit !== undefined ? { limit: options.limit } : {}),
+          }
+        : {
+            model: MOCK_MODEL,
+            provider: MOCK_PROVIDER,
+            scripted: true,
+            ...(options.limit !== undefined ? { limit: options.limit } : { limit: 2 }),
+          },
     });
   } catch (err) {
     return { ok: false, reason: 'bench 控制帧失败：' + String(err) };
