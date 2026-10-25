@@ -40,6 +40,8 @@ export interface OrchestratorOptions {
   superviseOptions?: Omit<Partial<import('./supervise.ts').SuperviseOptions>, 'adopt'>;
   /** socket manage 探活超时（缺省 4s——老壳不认 manage 帧时快速降级拉起链） */
   manageProbeMs?: number;
+  /** boot 窗口等待（缺省 15s——锁已持有而 ipc 未 listen 的 connect 失败在此窗内重试，cr-681） */
+  manageBootWaitMs?: number;
   /** socket manage 控制帧超时（缺省 60s——与 adoptShell.control 同档） */
   manageFrameMs?: number;
 }
@@ -180,9 +182,21 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
   // 三级取通道。
   const manageProbeMs = options.manageProbeMs ?? 4_000;
   const manageFrameMs = options.manageFrameMs ?? 60_000;
+  // 壳 boot 窗口（cr-681）：activation 锁在壳 boot 早期取得，ipc listen 在
+  // 整段行集装载之后——两事件之间的探针 connect 必 ENOENT。这是窗口内
+  // 常态而非「老壳不认帧」：传输层失败按 holder 探活重试等窗口（cr-675
+  // 的黑名单 + spawn 降级只保留给「连上了但不应答」的真老壳——锁还在时
+  // spawn 必被单例语义拒绝，只会刷屏 + 管理面全挂）。
+  const manageBootWaitMs = options.manageBootWaitMs ?? 15_000;
   // 老壳（改动前装载的进程）不认 manage 帧——入站分流无此分支，帧被静默丢。
   // 探针失败按 bootId 记一次：该壳生命周期内后续调用直接走拉起链，不吃二次超时。
   const manageUnsupported = new Set<string>();
+
+  /** 窗口耗尽（holder 活着但 ipc 一直没起来）——不黑名单（boot 慢≠不支持）、不 spawn（锁在必拒） */
+  class ManageChannelUnreachable extends Error {}
+
+  const isTransportError = (err: unknown): boolean => typeof (err as { code?: unknown }).code === 'string';
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
   const withDeadline = async <T>(work: Promise<T>, ms: number, what: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -221,16 +235,40 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     return ids.filter((id) => liveShellLockOf(id) !== null);
   };
 
+  /** 活壳探针（cr-681 含 boot 窗口重试）。返回 alive=false = 探针期间 holder 已死（拉起链正当）；回执超时原样上抛（真老壳——cr-675 黑名单路径）；窗口耗尽抛 ManageChannelUnreachable。 */
+  const probeLiveShell = async (agentId: string, lock0: { bootId: string; hint: string }): Promise<{ alive: boolean; hint: string }> => {
+    let lock = lock0;
+    const deadline = Date.now() + manageBootWaitMs;
+    for (;;) {
+      try {
+        // 探针（run-state 只读）：区分「壳不认 manage 帧」与「壳在退出」——
+        // 探针通过后控制帧自身的错误原样上抛（壳侧真实拒因，重试无意义）。
+        await manageCall(lock.hint, { ctrl: 'admin', op: 'run-state' }, manageProbeMs);
+        return { alive: true, hint: lock.hint };
+      } catch (err) {
+        if (!isTransportError(err)) throw err; // 回执超时/壳侧错误 → 老壳路径
+        const fresh = liveShellLockOf(agentId);
+        if (fresh === null) return { alive: false, hint: lock.hint }; // holder 已死/锁消失
+        if (fresh.bootId !== lock.bootId) { lock = fresh; continue; } // 壳换代——追新锁
+        if (Date.now() + 300 > deadline) {
+          throw new ManageChannelUnreachable('活壳 ' + agentId + '（bootId=' + lock.bootId + '，pid 活）的 manage 通道 ' + manageBootWaitMs + 'ms 内不可达——ipc 迟未 listen（boot 卡住或 ipc 起不来）');
+        }
+        await sleep(300);
+      }
+    }
+  };
+
   const control = async (agentId: string, frame: Record<string, unknown>): Promise<unknown> => {
     const existing = handles.get(agentId);
     if (existing !== undefined) return existing.control(frame);
     const lock = liveShellLockOf(agentId);
     if (lock !== null && !manageUnsupported.has(lock.bootId)) {
       try {
-        // 探针（run-state 只读）：区分「壳不认 manage 帧」与「壳在退出」——
-        // 探针通过后控制帧自身的错误原样上抛（壳侧真实拒因，重试无意义）。
-        await manageCall(lock.hint, { ctrl: 'admin', op: 'run-state' }, manageProbeMs);
+        const probe = await probeLiveShell(agentId, lock);
+        if (probe.alive) return await manageCall(probe.hint, frame, manageFrameMs);
+        // holder 探针期间死了——锁已放，拉起链正当（落到下方共尾）。
       } catch (err) {
+        if (err instanceof ManageChannelUnreachable) throw err; // 不黑名单（boot 慢≠不支持）、不 spawn（锁在必拒）
         manageUnsupported.add(lock.bootId);
         process.stderr.write('[orchestrator] 活壳 manage 通道不可用（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err) + '\n');
         // 降级拉起（壳可能恰在此刻退出——那时新壳拿锁正当）。拉不起 = 锁 holder
@@ -244,7 +282,6 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
           throw new Error('活壳 ' + agentId + ' 不认控制帧（多为改动前装载的壳）且新壳被单例锁拒：' + msg + ' —— 重启该壳后恢复（cr-675）');
         }
       }
-      return await manageCall(lock.hint, frame, manageFrameMs);
     }
     const handle = await ensureAgent(agentId);
     return handle.control(frame);

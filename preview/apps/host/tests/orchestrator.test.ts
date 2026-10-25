@@ -311,6 +311,81 @@ describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）
       await po.close();
     }
   });
+  it('boot 窗口竞态（cr-681）：锁已在而 ipc 后起——探针重试等到 listen，不黑名单不 spawn', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'epsilon');
+    const agentDir = path.join(ROOT, 'agents', 'epsilon');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-booting', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    // 壳 boot 形态：锁先落盘，ipc 在 700ms 后才开始 listen（行集装载窗口）
+    const lateListener = (async () => {
+      await new Promise((r) => setTimeout(r, 700));
+      return listenIpc(hint, (payload) => {
+        if (!isManageRequest(payload)) return undefined;
+        return makeManageReply(payload.manage.id, { ok: true, value: { echo: payload.manage.frame } });
+      });
+    })();
+    let spawned = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      manageBootWaitMs: 5_000,
+      adopt: async () => { spawned += 1; return new FakeShell([]); },
+    });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const notes: string[] = [];
+    process.stderr.write = ((chunk: string) => { notes.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      const out = await orch.control('epsilon', { ctrl: 'admin', op: 'run-state' }) as { echo: Record<string, unknown> };
+      expect(out.echo.op).toBe('run-state'); // 等到 listen 后受控
+      expect(spawned).toBe(0); // 不 spawn——单例锁在，spawn 必拒（cr-681 现场 spawn 风暴）
+      expect(notes.join('')).not.toContain('活壳 manage 通道不可用'); // 不误记黑名单
+    } finally {
+      process.stderr.write = stderrWrite;
+      orch.close();
+      (await lateListener).close();
+      await po.close();
+    }
+  });
+
+  it('boot 窗口耗尽（holder 活着但 ipc 永不起）：明确报 ipc 不可达——不黑名单（之后 ipc 起来仍可受控）、不 spawn', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'zeta');
+    const agentDir = path.join(ROOT, 'agents', 'zeta');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-stuck', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    let spawned = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      manageBootWaitMs: 400,
+      adopt: async () => { spawned += 1; return new FakeShell([]); },
+    });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    let server: Awaited<ReturnType<typeof listenIpc>> | undefined;
+    try {
+      await expect(orch.control('zeta', { ctrl: 'admin', op: 'run-state' })).rejects.toThrow(/manage 通道.*不可达/);
+      expect(spawned).toBe(0); // 锁在——spawn 必拒，直接说清而不是刷早退日志
+      // 未记黑名单：ipc 事后起来，同一 bootId 仍可受控（不走拉起链）
+      server = await listenIpc(hint, (payload) => {
+        if (!isManageRequest(payload)) return undefined;
+        return makeManageReply(payload.manage.id, { ok: true, value: { recovered: true } });
+      });
+      expect(await orch.control('zeta', { ctrl: 'admin', op: 'run-state' })).toEqual({ recovered: true });
+      expect(spawned).toBe(0);
+    } finally {
+      process.stderr.write = stderrWrite;
+      orch.close();
+      await server?.close();
+      await po.close();
+    }
+  });
+
   it('老壳不应答且拉起被锁拒：诊断说清「不认控制帧」而不是「壳进程早退」', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
