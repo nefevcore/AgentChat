@@ -17,7 +17,7 @@ export interface ShellProcess {
   /** 优雅终止请求 */
   kill(): void;
   /** 退出订阅 */
-  onExit(cb: (code: number | null) => void): void;
+  onExit(cb: (code: number | null, signal: string | null) => void): void;
 }
 
 export type GuardianEvent =

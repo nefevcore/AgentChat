@@ -33,6 +33,13 @@ describe('M7.2 B3 流式旁带', () => {
     // cr-625 上下文注入帧
     expect(isStreamFrame({ stream: 'c1', kind: 'context-injected', source: 'durable-interaction', label: '已收到用户回答' })).toBe(true);
     expect(isStreamFrame({ stream: 'c1', kind: 'context-injected' })).toBe(false); // 缺 source
+    // cr-677 后台任务/子Agent 清单帧
+    expect(isStreamFrame({ stream: 'bash-1', kind: 'job-event', phase: 'started', job: { id: 'bash-1' } })).toBe(true);
+    expect(isStreamFrame({ stream: 'bash-1', kind: 'job-event', phase: 'settled', job: { id: 'bash-1' } })).toBe(true);
+    expect(isStreamFrame({ stream: 'bash-1', kind: 'job-event', phase: 'other', job: {} })).toBe(false); // phase 词表外
+    expect(isStreamFrame({ stream: 'bash-1', kind: 'job-event', phase: 'started' })).toBe(false); // 缺 job
+    expect(isStreamFrame({ stream: 'sub-abc', kind: 'subagents-updated', info: { id: 'sub-abc' }, action: 'spawned' })).toBe(true);
+    expect(isStreamFrame({ stream: 'sub-abc', kind: 'subagents-updated', action: 'spawned' })).toBe(false); // 缺 info
     expect(isStreamFrame({ ack: 'req-1', fresh: true })).toBe(false); // ack 帧
     expect(isStreamFrame({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', kind: 'message', budget: 3, payload: {} })).toBe(false); // 信封
     expect(isStreamFrame(null)).toBe(false);

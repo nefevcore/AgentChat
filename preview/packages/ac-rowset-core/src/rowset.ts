@@ -92,9 +92,11 @@ export function deriveShellRowset(
     // 标签快照推导，装配类行不在标签面 → 全体导入 Agent 的人格与指引块
     // 静默丢失）与 llm-pool（池注册行——主线全局恒装行；无 requires 指向、
     // 不在工具标签面 → 点名形态壳内零 provider 注册 = 一切 run NO_PROVIDER）。
+    // cr-672 auto-title（会话命名）同款恒并：无 tools、无 requires 指向、
+    // 不在工具标签面——不恒并则点名形态壳内零命名 = 会话标题退回首行截断。
     // 用户显式 exclude 由闭包后减法执行（显式排除 = 良定义
     // 降级，boot 装配终检兜底矛盾）。
-    for (const seatId of ['conversation', 'persona', 'system-prompt', 'llm-pool']) {
+    for (const seatId of ['conversation', 'persona', 'system-prompt', 'llm-pool', 'auto-title']) {
       const seatRow = byRow.get(seatId);
       if (seatRow !== undefined) picked.add(seatRow);
     }

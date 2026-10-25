@@ -67,7 +67,15 @@ export type StreamFrame =
   /** 上下文注入通知（cr-625）：主线 session/context-injected 事件旁带——
    * 前端流式运行期注入可见性（feed 事件分隔行：已收到用户回答/技能加载
    * 等 label 直出）。stream = conversationId；宿主直转主线同名帧。 */
-  | { stream: StreamId; kind: 'context-injected'; source: string; label?: string; injectionId?: string; meta?: StreamMeta };
+  | { stream: StreamId; kind: 'context-injected'; source: string; label?: string; injectionId?: string; meta?: StreamMeta }
+  /** 后台任务通知（cr-677）：主线 job/started · job/settled 事件旁带——
+   * 前端 jobBoard（运行跟踪面板后台任务区/会话头 chip）帧驱动刷新唯一源。
+   * stream = job id；job = 主线 JobSnapshot 透传（meta 预览化住宿主面）。 */
+  | { stream: StreamId; kind: 'job-event'; phase: 'started' | 'settled'; job: unknown; meta?: StreamMeta }
+  /** 子Agent 清单变更通知（cr-677）：主线 subagents/updated 事件旁带——
+   * 前端 subagentBoard（运行跟踪面板子Agent 区）帧驱动刷新唯一源。
+   * stream = 子 Agent id；info = 变更后投影（list 口径）；action = 变更词。 */
+  | { stream: StreamId; kind: 'subagents-updated'; info: unknown; action: string; meta?: StreamMeta };
 
 /** 队列快照行（主线 ConversationQueuedItem 同形——前端 useQueuedMessages 直接套用） */
 export interface QueuedItemFrame {
@@ -151,6 +159,8 @@ export function isStreamFrame(payload: unknown): payload is StreamFrame {
   if (f.kind === 'interaction-replied' && 'record' in f) return true;
   if (f.kind === 'interaction-closed' && 'record' in f) return true;
   if (f.kind === 'context-injected' && typeof (f as { source?: unknown }).source === 'string') return true;
+  if (f.kind === 'job-event' && ((f as { phase?: unknown }).phase === 'started' || (f as { phase?: unknown }).phase === 'settled') && 'job' in f) return true;
+  if (f.kind === 'subagents-updated' && 'info' in f) return true;
   return false;
 }
 

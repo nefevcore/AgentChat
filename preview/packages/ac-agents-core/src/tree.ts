@@ -107,6 +107,20 @@ export function listChildIds(dataRoot: string, parentId: string): string[] {
   return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
 }
 
+/**
+ * 全场派生身份集合（children 树的逆查面）：任一顶层身份的 children/<cid>/
+ * 在场者 = 子身份，不是独立身份。名册与计数须排除——子身份运行期会在顶层
+ * 留兜底目录（supervise 预置 config 只含 id），只按「config 在场」判身份
+ * 会把它误当名册条目（cr-674：sub-* 混入 agents/list）。
+ */
+export function materializedChildIds(dataRoot: string): Set<string> {
+  const ids = new Set<string>();
+  for (const parentId of listAgentIds(dataRoot)) {
+    for (const childId of listChildIds(dataRoot, parentId)) ids.add(childId);
+  }
+  return ids;
+}
+
 // —— 影子物化（R-5：spawn = 派生身份新 agent；RSI 候选机制，P2③ 影子不撞锁） ——
 
 /**

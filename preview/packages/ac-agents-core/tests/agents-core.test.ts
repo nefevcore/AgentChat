@@ -11,7 +11,7 @@ import {
 } from '../src/config.ts';
 import {
   readAgentConfig, writeAgentConfig, listAgentIds,
-  readChildConfig, listChildIds, agentDir,
+  readChildConfig, listChildIds, materializedChildIds, agentDir,
 } from '../src/tree.ts';
 
 describe('词汇纯函数（语义平移自 ac-agents）', () => {
@@ -115,5 +115,17 @@ describe('children 嵌套解析（R-5 物化即快照）', () => {
     fs.mkdirSync(cdir, { recursive: true });
     expect(listChildIds(ROOT, 'p2')).toEqual(['c1']);
     expect(listChildIds(ROOT, 'ghost')).toEqual([]);
+  });
+
+  it('materializedChildIds：children 树逆查（顶层兜底目录不算独立身份）', () => {
+    for (const cid of ['c1', 'c2']) {
+      const cdir = path.join(agentDir(ROOT, 'p3'), 'children', cid);
+      fs.mkdirSync(cdir, { recursive: true });
+      fs.writeFileSync(path.join(cdir, 'config.json'), JSON.stringify({ id: cid }), 'utf-8');
+    }
+    // 子身份的顶层兜底目录（运行期 supervise 预置 config 只含 id）+ 真身份
+    writeAgentConfig(ROOT, { id: 'c1' });
+    writeAgentConfig(ROOT, { id: 'plain' });
+    expect([...materializedChildIds(ROOT)].sort()).toEqual(['c1', 'c2']);
   });
 });
