@@ -54,7 +54,7 @@
 ```
 
 - **②** 由装载器调 SlotCore `declare`（tier-1 动态层）并登记「谁声明了本席位」（诊断面）；**仅 isolated:false 允许**（要能拿宿主单例）。
-- **③** 视角条目由 layout 开放 `registerView`——**这是 layout 骨架在本设计内唯一要新增的 API**（现有 mainViews / auxSidebarViews 选举解析面的公开入口）。
+- **③** 视角条目由 layout 开放 `registerView`——**这是 layout 骨架在本设计内唯一要新增的 API**（现有 mainViews / auxSidebarViews 选举解析面的公开入口）。**已落地（B3/cr-694）**：`ac-client-ui-layout/client/registerView.ts`——ViewRegistration { region: main|aux, id, label?, component, order?, active? }；entry id 词形 view.<id>；缺省 order 100 + active 恒真 = 不抢占出厂视图（main 轴与 chat 平局、chat 先注册恒胜；aux 轴让位出厂选区）。隔离档由宿主装载器消费 view 词形代挂容器（boot.ts → isolatedViewComponent → handle.mountTo）。
 - 约束（防走样）：② 声明的席位若无人渲染（无 outlet）= warning 不拒载；③ 的组件承载：非隔离档 = 第三方导出组件，隔离档 = iframe 容器。
 
 ### 2.2 换壳（形态壳 / 主题 / 内容渲染管线）
@@ -71,7 +71,7 @@
 |---|---|---|
 | B1 | seats 对账（§1）+ manifest 校验扩展（`new:` / `view` / `theme` 三词形） | preview 单测 + 29 通道全装对账 |
 | B2 | 主题包通道（§2.2 第一行）：令牌校验纯函数 + 一个示例主题包 | 令牌完整性测试 + CDP 活体（换肤生效） |
-| B3 | 视角挂载（§2.1 ③）：layout `registerView` + 隔离档容器承载 | 三档测试（非隔离组件 / 隔离 iframe / 缺席不毁表面） |
+| B3 | 视角挂载（§2.1 ③）：layout `registerView` + 隔离档容器承载 | 三档测试（非隔离组件 / 隔离 iframe / 缺席不毁表面）——**已落地（cr-694）** |
 | B4 | 宿主树 ui 组终态清空（cordis.yml 撤 `ac-client-ui-*` 行） | **前置 = 通道包物理迁出 + 旧树退役**（见 §6，本批不做） |
 
 ## 4. 与既有裁决的一致性

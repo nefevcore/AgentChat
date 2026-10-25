@@ -356,3 +356,98 @@ describe('B2 · 主题包装载（theme:{tokensOnly}——纯数据条目）', (
   });
 });
 
+describe('B3 · 视角挂载（seats[].view——registerView + 隔离档容器承载）', () => {
+  it('非隔离档：模块 apply 内 registerView 自注册（aux 视角入候选 + rail 资产）+ 对账干净', async () => {
+    setActivePinia(createPinia());
+    const { channel, seatAudit, ctx } = await bootUiClient({
+      fetchGraph: async () => [entry('acme', { seats: [{ seat: 'acme:panel', view: { region: 'aux', id: 'acme', label: 'Acme' } }] })],
+      loadChannel: async (e) => ({
+        default: {
+          name: e.name,
+          inject: ['slots'],
+          apply(c: { slots: { register: (k: string, def: unknown) => () => void } }) {
+            // 非隔离档消费面：apply 内经 layout registerView（channelImports 引
+            // 'ac-client-ui-layout/client'——此处直引同构）或直接 slots.register。
+            c.slots.register('aux-sidebar', {
+              id: 'view.acme',
+              component: { render: () => null } as never,
+              meta: { def: { id: 'acme', active: () => true, component: { render: () => null }, rail: { icon: 'app-window', title: 'Acme' } } },
+            });
+          },
+        },
+      }),
+    });
+    expect(channel.get('acme')).toBe('ok');
+    // 对账干净：view 声明的期望席位（aux-sidebar）被真实贡献抵消
+    expect(seatAudit.get('acme')).toEqual({ declaredNotRegistered: [], registeredNotDeclared: [] });
+    // 候选面真实到位（AuxSidebarPanelDef 形状）
+    expect(ctx.slots.entries('aux-sidebar').some((en) => en.id === 'view.acme')).toBe(true);
+  });
+
+  it('隔离档：宿主代挂 iframe 容器视角（aux 候选 + cleanup 撤销 + 对账干净）', async () => {
+    setActivePinia(createPinia());
+    const { channel, seatAudit, isolated, ctx } = await bootUiClient({
+      fetchGraph: async () => [entry('sandboxed', { isolated: true, seats: [{ seat: 'sandboxed:panel', view: { region: 'aux', id: 'sbx', label: 'SBX' } }] })],
+    });
+    expect(channel.get('sandboxed')).toBe('ok');
+    expect(seatAudit.get('sandboxed')).toEqual({ declaredNotRegistered: [], registeredNotDeclared: [] });
+    // 宿主代挂：aux-sidebar 出现 view.sbx 条目（iframe 容器组件承载）
+    expect(ctx.slots.entries('aux-sidebar').some((en) => en.id === 'view.sbx')).toBe(true);
+    // def 形状：rail 资产（label）+ active 恒真
+    const def = ctx.slots.entries('aux-sidebar').find((en) => en.id === 'view.sbx')?.meta?.def as { rail?: { title?: string } };
+    expect(def?.rail?.title).toBe('SBX');
+    // cleanup 收割视角 disposer（onDestroy 面真实生效）
+    isolated[0]!.cleanup();
+    expect(ctx.slots.entries('aux-sidebar').some((en) => en.id === 'view.sbx')).toBe(false);
+  });
+
+  it('隔离档容器承载：mountTo/unmountFrom 语义（iframe 移入承载 div + 回隐藏态）', async () => {
+    setActivePinia(createPinia());
+    const { isolated } = await bootUiClient({
+      fetchGraph: async () => [entry('framed', { isolated: true })],
+    });
+    const handle = isolated[0]!;
+    const frame = handle.iframe;
+    // 初始隐藏态（屏幕外 + aria-hidden）
+    expect(frame.getAttribute('aria-hidden')).toBe('true');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    handle.mountTo(container);
+    expect(container.contains(frame)).toBe(true);
+    expect(frame.getAttribute('aria-hidden')).toBe('false');
+    expect(frame.style.width).toBe('100%');
+    // 幂等：同容器重复挂载零操作
+    handle.mountTo(container);
+    expect(container.children.length).toBe(1);
+    // 卸载：回 body 寄存 + 隐藏态复位
+    handle.unmountFrom();
+    expect(container.contains(frame)).toBe(false);
+    expect(document.body.contains(frame)).toBe(true);
+    expect(frame.getAttribute('aria-hidden')).toBe('true');
+    handle.cleanup();
+  });
+
+  it('缺席不毁表面：view 声明但模块未注册（非隔离）→ declaredNotRegistered warning + channel ok', async () => {
+    setActivePinia(createPinia());
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...a: unknown[]) => { warns.push(a.join(' ')); };
+    try {
+      const { channel, seatAudit } = await bootUiClient({
+        fetchGraph: async () => [
+          entry('ghost-view', { seats: [{ seat: 'ghost:panel', view: { region: 'main', id: 'ghost' } }] }),
+          entry('after-ghost'),
+        ],
+        loadChannel: async () => ({ default: { name: 'x', apply() { /* 不注册任何席位 */ } } }),
+      });
+      // 逐条隔离语义：漂移是 warning 不是失败，后续条目不受扰
+      expect(channel.get('ghost-view')).toBe('ok');
+      expect(channel.get('after-ghost')).toBe('ok');
+      expect(seatAudit.get('ghost-view')?.declaredNotRegistered).toEqual(['main']);
+      expect(warns.some((w) => w.includes('ghost-view'))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+});
+

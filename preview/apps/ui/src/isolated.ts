@@ -25,6 +25,16 @@ export interface IsolatedExtensionHandle {
   descriptor: IsolatedExtensionDescriptor;
   iframe: HTMLIFrameElement;
   cleanup(): void;
+  /**
+   * 视角承载挂载（B3 隔离档）：iframe 移入宿主 DOM 承载容器并可见
+   * （aria-hidden 摘除 + 0×0 屏幕外定位撤除——设为常规填充流）。
+   * 幂等：同容器重复挂载零操作。
+   */
+  mountTo(container: HTMLElement): void;
+  /** 承载卸载（回到屏幕外隐藏态——B3 承载面的让位形态） */
+  unmountFrom(): void;
+  /** 注册 cleanup 时随 iframe 一并执行的回调（B3 视角 disposer 收割面） */
+  onDestroy(fn: () => void): void;
 }
 
 interface IframeMessage {
@@ -75,6 +85,10 @@ export function loadIsolatedExtension(ctx: ClientContext, descriptor: IsolatedEx
       try { dispose(); } catch { /* ignore */ }
     }
     subscriptions.clear();
+    for (const fn of destroyFns) {
+      try { fn(); } catch { /* ignore */ }
+    }
+    destroyFns.length = 0;
     iframe.remove();
   };
 
@@ -150,6 +164,34 @@ export function loadIsolatedExtension(ctx: ClientContext, descriptor: IsolatedEx
   window.addEventListener('message', onMessage);
   document.body.appendChild(iframe);
 
+  let mountedContainer: HTMLElement | null = null;
+  const destroyFns: Array<() => void> = [];
+  /** 隐藏态定位（cleanup 复位用）：iframe 常驻 body、承载时移入容器 */
+  function mountTo(container: HTMLElement): void {
+    if (mountedContainer === container) return; // 幂等
+    if (mountedContainer) unmountFrom();
+    iframe.setAttribute('aria-hidden', 'false');
+    iframe.style.position = 'static';
+    iframe.style.left = 'auto';
+    iframe.style.top = 'auto';
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.border = '0';
+    container.appendChild(iframe);
+    mountedContainer = container;
+  }
+  function unmountFrom(): void {
+    if (!mountedContainer) return;
+    document.body.appendChild(iframe); // 回 body 寄存（隐藏态基准——cleanup 才真移除）
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.left = '-9999px';
+    iframe.style.top = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    mountedContainer = null;
+  }
+
   const handle: IsolatedExtensionHandle = {
     descriptor,
     iframe,
@@ -157,6 +199,9 @@ export function loadIsolatedExtension(ctx: ClientContext, descriptor: IsolatedEx
       window.removeEventListener('message', onMessage);
       cleanup();
     },
+    mountTo,
+    unmountFrom,
+    onDestroy: (fn: () => void) => { destroyFns.push(fn); },
   };
   return handle;
 }

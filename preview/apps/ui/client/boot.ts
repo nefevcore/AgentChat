@@ -30,8 +30,10 @@ import { layoutClientPlugin } from 'ac-client-ui-layout/client';
 import type { BootGraphEntry } from 'ac-webui-core';
 import { auditThemeTokens } from 'ac-webui-core';
 import { registerThemeId } from 'ac-client-ui-theme/client';
+import { registerView } from 'ac-client-ui-layout/client';
 import { makeRpcHostPlugin, type RpcWire } from './rpc-host.ts';
 import { loadIsolatedExtension, type IsolatedExtensionHandle } from '../src/isolated.ts';
+import { isolatedViewComponent } from './isolatedView.ts';
 import * as vue from 'vue';
 import * as pinia from 'pinia';
 import * as cordis from '@agentchat/cordis';
@@ -173,6 +175,8 @@ export interface SeatAuditReport {
  * 单条目对账：装载前（key → 贡献 id 集）与装载后贡献面 diff——新增
  * 贡献 key 归因本条目；声明集与归因集双向比对。'new:' 声明是席位声明
  * 而非贡献，不参与 declaredNotRegistered（其贡献 = B3 批 registerView）。
+ * view 声明（B3）的期望席位 = region 映射（main → 'main'，aux →
+ * 'aux-sidebar'）——视角贡献挂选举席，seat 字段是承载名非席位名。
  */
 function auditSeats(
   ctx: ClientContext,
@@ -186,13 +190,19 @@ function auditSeats(
     const prev = before.get(key) ?? new Set<string>();
     if ([...ids].some((id) => !prev.has(id))) contributed.push(key);
   }
+  const expectedOf = (s: { seat: string; view?: { region: 'main' | 'aux' } }): string | null => {
+    if (s.seat.startsWith('new:')) return null;
+    if (s.view) return s.view.region === 'main' ? 'main' : 'aux-sidebar';
+    return s.seat;
+  };
   for (const s of entry.seats) {
-    if (!s.seat.startsWith('new:') && !contributed.includes(s.seat)) {
-      report.declaredNotRegistered.push(s.seat);
+    const expected = expectedOf(s);
+    if (expected !== null && !contributed.includes(expected)) {
+      report.declaredNotRegistered.push(expected);
     }
   }
   for (const key of contributed) {
-    if (!entry.seats.some((s) => s.seat === key || s.seat === 'new:' + key)) {
+    if (!entry.seats.some((s) => expectedOf(s) === key || s.seat === key || s.seat === 'new:' + key)) {
       report.registeredNotDeclared.push(key);
     }
   }
@@ -350,7 +360,25 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
       // src/isolated.ts）。装载结果同记 channel 表（ready/error 由 iframe 侧上报，
       // 此处记 ok = iframe 已创建——语义与主线 extensions 宿主一致）。
       try {
-        isolatedHandles.push(loadIsolatedExtension(ctx, { name: entry.name, version: entry.version, entry: entry.base + entry.entry.replace(/^\/+/, '') }));
+        const before = seatContributions(ctx);
+        const handle = loadIsolatedExtension(ctx, { name: entry.name, version: entry.version, entry: entry.base + entry.entry.replace(/^\/+/, '') });
+        isolatedHandles.push(handle);
+        // B3 视角挂载（§1 隔离档粒度）：seats[].view 声明 → 宿主把 iframe
+        // 容器作为该视角的渲染组件挂上选举席（组件在 iframe 内自绘——
+        // 宿主拿不到细粒度，容器整块已是上限）。disposer 随 handle 收割。
+        for (const s of entry.seats) {
+          if (!s.view) continue;
+          const v = s.view;
+          const off = registerView(ctx, { region: v.region, id: v.id, label: v.label, component: isolatedViewComponent(handle) });
+          handle.onDestroy(off);
+        }
+        // seats 对账（view 代挂 = 真实贡献；isolated 普通席位声明无法贡献
+        // 宿主席位——declaredNotRegistered 是真实漂移诊断，warning 不拒载）
+        const report = auditSeats(ctx, entry, before);
+        if (report.declaredNotRegistered.length > 0 || report.registeredNotDeclared.length > 0) {
+          console.warn(`[ui-boot] seats 对账漂移（${entry.name}）：`, report);
+        }
+        seatAudit.set(entry.name, report);
         channel.set(entry.name, 'ok');
       } catch (err) {
         console.error(`[ui-boot] isolated 条目 "${entry.name}" 装载失败：`, err);

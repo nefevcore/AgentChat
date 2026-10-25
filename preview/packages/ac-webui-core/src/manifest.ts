@@ -12,7 +12,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-/** 视角挂载声明（③ 级渲染承载——region/id/label 经 layout registerView 消费，B3 批实装） */
+/**
+ * 视角挂载声明（③ 级渲染承载——B3 批已实装）：非隔离档 = 模块 apply 内
+ * 经 layout registerView 自注册（导出组件）；隔离档 = 宿主装载器把 iframe
+ * 容器作为该视角的渲染组件挂上选举席（§1 隔离档粒度：容器整块承载）。
+ */
 export interface SeatViewDecl {
   /** 挂载区域（main = 主区视角；aux = 辅栏面板） */
   region: 'main' | 'aux';
@@ -34,7 +38,7 @@ export interface SeatContribution {
   seat: string;
   /** 席位内定位（可选——骨架拓扑契约细节） */
   slot?: string;
-  /** 视角挂载声明（与本条 seat 的渲染承载同条——仅 isolated:false） */
+  /** 视角挂载声明（与本条 seat 的渲染承载同条——seat 字段为承载名，贡献挂 main/aux 选举席） */
   view?: SeatViewDecl;
   /** 'new:' 词形随行的席位形态（single | list | chain；缺省 list） */
   kind?: 'single' | 'list' | 'chain';

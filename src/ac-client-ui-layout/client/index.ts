@@ -238,3 +238,4 @@ export const layoutClientPlugin = clientPlugin({
 });
 
 export default layoutClientPlugin;
+export { registerView, type ViewRegistration } from './registerView.ts';
