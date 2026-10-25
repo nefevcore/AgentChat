@@ -1035,6 +1035,9 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     sessionArchivedAt,
     // 交互
     interaction,
+    // 全部待答 ask_questions（会话列表徽标等跨面板消费面——live 帧 +
+    // interaction/list 恢复共源维护，本文件内弹窗路由仍走 interaction computed）
+    pendingInteractions,
     // 提权审批（access-tier §六消费面）
     approval,
     respondApproval,

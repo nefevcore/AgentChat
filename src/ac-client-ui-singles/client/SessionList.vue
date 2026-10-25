@@ -20,6 +20,7 @@ import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
+import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal, Icon, PullToRefresh, BusyRing, Tooltip, toastError } from '@agentchat/webui-kit';
@@ -47,6 +48,14 @@ const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
 const wsBoard = useClientContext()?.workspaceBoard;
 const wsList = computed(() => wsBoard?.workspaces.value ?? []);
 const feedStore = useFeedStore();
+const chatStore = useChatStore();
+
+// 待答徽标（cr-684）：pending ask_questions 挂在哪个会话一眼可见——弹窗
+// 只在所属会话内出现（key 路由），列表无标记时用户不知道去哪答（两次实锤）。
+// 数据共源：chat-core 的 pendingInteractions（live 帧 + interaction/list 恢复维护）。
+function hasPendingAsk(id: string): boolean {
+  return chatStore.pendingInteractions.some((it: { key?: string }) => it.key === id);
+}
 const ui = useUiStore();
 const themeStore = useThemeStore();
 
@@ -554,6 +563,7 @@ onUnmounted(() => {
            <div class="item-name">{{ item.title }}</div>
            <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
          </div>
+         <span v-if="hasPendingAsk(item.id)" class="ui-badge warn pending-ask-badge">待答</span>
          <button class="item-delete" title="重命名会话" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
          <button class="item-delete" title="删除会话（含消息，不可恢复）" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
            <Icon name="trash" :size="13" />
@@ -623,6 +633,7 @@ onUnmounted(() => {
                   <div class="item-info">
                     <div class="item-name">{{ item.title }}</div>
                   </div>
+                  <span v-if="hasPendingAsk(item.id)" class="ui-badge warn pending-ask-badge">待答</span>
                   <button class="item-delete" title="重命名会话" aria-label="重命名会话" @click.stop="startRenameSession(item)"><Icon name="pencil" :size="13" /></button>
                   <button class="item-delete" title="删除会话（含消息，不可恢复）" aria-label="删除会话（含消息，不可恢复）" @click.stop="deleteTarget = { id: item.id, title: item.title }">
                     <Icon name="trash" :size="13" />
@@ -822,6 +833,8 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
    选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
 .item-avatar-wrap{position:relative;flex-shrink:0}
 .item-info{flex:1;min-width:0}
+/* 待答徽标（cr-684）：行内右置，随列表行 flex 排布（gap 8px 已有间距） */
+.pending-ask-badge{flex-shrink:0;align-self:center}
 .item-name{font-size:13px;font-weight:500;line-height:20px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 删除按钮：hover 条目时浮现 */
