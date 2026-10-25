@@ -142,6 +142,64 @@ export interface BootUiResult {
   channel: Map<string, 'ok' | 'err'>;
   /** isolated 条目句柄（iframe 容器——cleanup 逐个收割；宿主进程级可不收） */
   isolated: IsolatedExtensionHandle[];
+  /**
+   * seats 对账报告（cr-690 B1）：manifest.seats 声明 ↔ SlotCore 注册面
+   * 双向 diff（声明未注册 / 注册未声明——均 warning 不拒载，§1 裁决）。
+   * 存量第一方通道零 seats 声明 → 生成器补产（本批）。
+   */
+  seatAudit: Map<string, SeatAuditReport>;
+}
+
+/**
+ * seats 对账（cr-690 B1，design-plugin-client-channel.md §1 裁决）：
+ * 声明 → 实际注册双向 diff，warning 不拒载（「注册未声明」保护第一方
+ * 零 seats 声明的存量语义；「声明未注册」= 写了不注册的漂移诊断面）。
+ */
+export interface SeatAuditReport {
+  /** 声明了该 key 但装载后 SlotCore 无本模块贡献 */
+  declaredNotRegistered: string[];
+  /** 装载后 SlotCore 有贡献但 manifest 未声明的 key */
+  registeredNotDeclared: string[];
+}
+
+/**
+ * 单条目对账：装载前（key → 贡献 id 集）与装载后贡献面 diff——新增
+ * 贡献 key 归因本条目；声明集与归因集双向比对。'new:' 声明是席位声明
+ * 而非贡献，不参与 declaredNotRegistered（其贡献 = B3 批 registerView）。
+ */
+function auditSeats(
+  ctx: ClientContext,
+  entry: BootGraphEntry,
+  before: Map<string, Set<string>>,
+): SeatAuditReport {
+  const report: SeatAuditReport = { declaredNotRegistered: [], registeredNotDeclared: [] };
+  const after = seatContributions(ctx);
+  const contributed: string[] = [];
+  for (const [key, ids] of after) {
+    const prev = before.get(key) ?? new Set<string>();
+    if ([...ids].some((id) => !prev.has(id))) contributed.push(key);
+  }
+  for (const s of entry.seats) {
+    if (!s.seat.startsWith('new:') && !contributed.includes(s.seat)) {
+      report.declaredNotRegistered.push(s.seat);
+    }
+  }
+  for (const key of contributed) {
+    if (!entry.seats.some((s) => s.seat === key || s.seat === 'new:' + key)) {
+      report.registeredNotDeclared.push(key);
+    }
+  }
+  return report;
+}
+
+/** 席位贡献面快照（SlotCore 注册表 key → 贡献 id 集） */
+function seatContributions(ctx: ClientContext): Map<string, Set<string>> {
+  const snap = ctx.slots.snapshot();
+  const out = new Map<string, Set<string>>();
+  for (const [key, entries] of Object.entries(snap.slots)) {
+    out.set(key, new Set(entries.map((e) => e.id)));
+  }
+  return out;
 }
 
 /** 已注入的通道样式表（href 去重——graph 重载不重复挂） */
@@ -223,6 +281,7 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
   const graph = await fetchGraph();
   const channel = new Map<string, 'ok' | 'err'>();
   const isolatedHandles: IsolatedExtensionHandle[] = [];
+  const seatAudit = new Map<string, SeatAuditReport>();
   for (const entry of graph) {
     // platform 过滤在 manifest 校验面（checkUiManifest 拦非 web）——装载面零重复闸
     if (entry.isolated) {
@@ -245,10 +304,17 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
       for (const dep of entry.channelImports) {
         if (!(dep in moduleHost)) throw new Error('moduleHost 缺共享基座键：' + dep);
       }
+      const before = seatContributions(ctx);
       const mod = await loadChannel(entry);
       const plugin = mod.default as { apply?: unknown } | undefined;
       if (!plugin || typeof plugin.apply !== 'function') throw new Error('通道条目缺 default export 插件');
       await ctx.plugin(plugin as unknown as ClientPluginObject);
+      // seats 对账（装载成功后；warning 不拒载——§1 裁决）
+      const report = auditSeats(ctx, entry, before);
+      if (report.declaredNotRegistered.length > 0 || report.registeredNotDeclared.length > 0) {
+        console.warn(`[ui-boot] seats 对账漂移（${entry.name}）：`, report);
+      }
+      seatAudit.set(entry.name, report);
       channel.set(entry.name, 'ok');
     } catch (err) {
       console.error(`[ui-boot] 通道条目 "${entry.name}" 装载失败：`, err);
@@ -256,5 +322,5 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
     }
   }
 
-  return { ctx, channel, isolated: isolatedHandles };
+  return { ctx, channel, isolated: isolatedHandles, seatAudit };
 }

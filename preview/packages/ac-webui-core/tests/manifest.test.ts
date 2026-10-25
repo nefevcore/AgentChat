@@ -22,6 +22,31 @@ describe('M7.4 checkUiManifest', () => {
     expect(checkUiManifest({ name: 'a', version: '1', platform: 'desktop' }).ok).toBe(false);
     expect(checkUiManifest({ name: 'a', version: '1', seats: [{}] }).ok).toBe(false);
   });
+
+  it('seats 三词形（cr-690 B1）：view/kind/scope 形状校验 + kind/scope 仅随 new:', () => {
+    const base = { name: 'acme', version: '1.0.0' };
+    // ① 既有词形不变过验
+    expect(checkUiManifest({ ...base, seats: [{ seat: 'tool-card' }] }).ok).toBe(true);
+    // ② new: 词形 + kind/scope 随行
+    expect(checkUiManifest({ ...base, seats: [{ seat: 'new:acme:panel-body', kind: 'list', scope: 'session' }] }).ok).toBe(true);
+    // ③ 视角挂载（view 声明）
+    expect(checkUiManifest({ ...base, seats: [{ seat: 'acme:panel-body', view: { region: 'aux', id: 'acme' } }] }).ok).toBe(true);
+    // 坏 view：region 越界 / id 词形非法 / label 非串
+    expect(checkUiManifest({ ...base, seats: [{ seat: 's', view: { region: 'sidebar', id: 'a' } }] }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, seats: [{ seat: 's', view: { region: 'aux', id: 'Bad_Id' } }] }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, seats: [{ seat: 's', view: { region: 'aux', id: 'a', label: 3 } }] }).ok).toBe(false);
+    // 坏 kind/scope 词表 + 非 new: 前缀携带 kind/scope
+    expect(checkUiManifest({ ...base, seats: [{ seat: 's', kind: 'grid' }] }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, seats: [{ seat: 's', scope: 'page' }] }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, seats: [{ seat: 'tool-card', kind: 'list' }] }).ok).toBe(false);
+  });
+
+  it('theme 形状占位校验（B2 批实装词汇完备性）', () => {
+    const base = { name: 'acme-theme', version: '1.0.0' };
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: true } }).ok).toBe(true);
+    expect(checkUiManifest({ ...base, theme: {} }).ok).toBe(false);
+    expect(checkUiManifest({ ...base, theme: { tokensOnly: false } }).ok).toBe(false);
+  });
 });
 
 describe('M7.4 assembleBootGraph', () => {

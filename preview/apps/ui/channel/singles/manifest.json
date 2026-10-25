@@ -4,6 +4,17 @@
   "entry": "ui/index.js",
   "platform": "web",
   "isolated": false,
+  "seats": [
+    {
+      "seat": "conversation:header-widget"
+    },
+    {
+      "seat": "main:perspective"
+    },
+    {
+      "seat": "primary-sidebar:domain"
+    }
+  ],
   "channelImports": [
     "vue",
     "pinia",
@@ -13,6 +24,7 @@
     "@agentchat/webui-kit",
     "ac-client-ui-agents/client/rosterAccess.ts",
     "ac-client-ui-conversation/client/ConversationView.vue",
+    "ac-client-ui-conversation/client/chatStore.ts",
     "ac-client-ui-conversation/client/composePrefs.ts",
     "ac-client-ui-conversation/client/feed.ts",
     "ac-client-ui-conversation/client/feedStore.ts",

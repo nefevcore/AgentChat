@@ -4,6 +4,23 @@
   "entry": "ui/index.js",
   "platform": "web",
   "isolated": false,
+  "seats": [
+    {
+      "seat": "aux-sidebar"
+    },
+    {
+      "seat": "conversation:dock-widget"
+    },
+    {
+      "seat": "conversation:header-widget"
+    },
+    {
+      "seat": "main:perspective"
+    },
+    {
+      "seat": "message:final-view"
+    }
+  ],
   "channelImports": [
     "vue",
     "pinia",

@@ -4,6 +4,11 @@
   "entry": "ui/index.js",
   "platform": "web",
   "isolated": false,
+  "seats": [
+    {
+      "seat": "settings:section"
+    }
+  ],
   "channelImports": [
     "vue",
     "pinia",

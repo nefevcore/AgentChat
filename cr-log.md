@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-689**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-690**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -707,3 +707,4 @@
 - 【cr-687 2026-10-25 R7-9 插件 client 通道设计成文（preview/docs/design-plugin-client-channel.md）：seats 对账语义、挂拓扑 new/view 词形、换壳三级阶梯裁决、存量四批；同批记录通道包物理迁出与旧树退役的顺序耦合】
 - 【cr-688 2026-10-25 排队 turn 唤醒消费（cr-685 记档观察兑现）：非链跑收束（reviewRun）后排队 turn 无消费者——滞留到下一封入站信或壳重启；machine 增 takeQueueHead，reviewRun 收束后取队首信封重入 driveRun（其内部链跑自会清完队列），死信/无会话键留恢复面】
 - 【cr-689 2026-10-25 交接：本会话 bench 门判据兑现与 R7-9 通道设计收口，cr-681…688 已入库，三项用户裁决悬置（档位词终态/tools-rows 改名/通道迁出路径），新交接文档 handoff-2026-10-25-cutover-final.md】
+- 【cr-690 2026-10-25 B1 插件 client 通道实施：seats 对账（装载器快照 diff 双向 warning）+ manifest 三词形校验（new:/view/theme）+ 生成器 seats 声明快照 + 29 通道全装对账测试】

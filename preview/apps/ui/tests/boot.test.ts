@@ -101,7 +101,39 @@ describe('8.5b · ui 树 boot 装配序列', () => {
     expect(channel.get('seater')).toBe('ok');
     expect(ctx.slots.entries('overlay').some((en) => en.id === 'seater.card')).toBe(true);
   });
+
+  it('seats 对账（cr-690 B1）：声明未注册/注册未声明双向 warning，new: 词形不误报', async () => {
+    setActivePinia(createPinia());
+    const { channel, seatAudit } = await bootUiClient({
+      fetchGraph: async () => [
+        // ghost：声明 overlay 但 apply 内不注册（声明未注册）
+        entry('ghost', { seats: [{ seat: 'overlay' }] }),
+        // honest：声明 aux-sidebar 且真实注册（干净通过）
+        entry('honest', { seats: [{ seat: 'aux-sidebar' }] }),
+        // stray：不声明但注册 overlay（注册未声明——骨架已声明的席位）
+        entry('stray'),
+        // newseater：new: 词形声明（B1 只过校验不贡献——不误报声明未注册）
+        entry('newseater', { seats: [{ seat: 'new:acme:panel', kind: 'list', scope: 'root' }] }),
+      ],
+      loadChannel: async (e) => ({
+        default: {
+          name: e.name,
+          inject: ['slots'],
+          apply(c: { slots: { register: (k: string, def: { id: string; component: unknown }) => () => void } }) {
+            if (e.name === 'honest') c.slots.register('aux-sidebar', { id: 'honest.panel', component: { render: () => null } });
+            if (e.name === 'stray') c.slots.register('overlay', { id: 'stray.w', component: { render: () => null } });
+          },
+        },
+      }),
+    });
+    expect(channel.get('ghost')).toBe('ok');
+    expect(seatAudit.get('ghost')?.declaredNotRegistered).toEqual(['overlay']);
+    expect(seatAudit.get('honest')).toEqual({ declaredNotRegistered: [], registeredNotDeclared: [] });
+    expect(seatAudit.get('stray')?.registeredNotDeclared).toEqual(['overlay']);
+    expect(seatAudit.get('newseater')).toEqual({ declaredNotRegistered: [], registeredNotDeclared: [] });
+  });
 });
+
 
 describe('8.5b 第二批 · 外部化通道装载（moduleHost + channelImports）', () => {
   it('channelImports 缺键：条目逐条隔离（err），不殃及后续条目', async () => {

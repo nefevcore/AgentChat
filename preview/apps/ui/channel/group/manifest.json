@@ -4,6 +4,17 @@
   "entry": "ui/index.js",
   "platform": "web",
   "isolated": false,
+  "seats": [
+    {
+      "seat": "aux-sidebar"
+    },
+    {
+      "seat": "main:perspective"
+    },
+    {
+      "seat": "overlay"
+    }
+  ],
   "channelImports": [
     "vue",
     "pinia",

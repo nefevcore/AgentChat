@@ -4,6 +4,14 @@
   "entry": "ui/index.js",
   "platform": "web",
   "isolated": false,
+  "seats": [
+    {
+      "seat": "aux-sidebar"
+    },
+    {
+      "seat": "tool-card:result-view"
+    }
+  ],
   "channelImports": [
     "vue",
     "pinia",

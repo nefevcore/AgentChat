@@ -4,6 +4,17 @@
   "entry": "ui/index.js",
   "platform": "web",
   "isolated": false,
+  "seats": [
+    {
+      "seat": "conversation:header-widget"
+    },
+    {
+      "seat": "primary-sidebar:domain"
+    },
+    {
+      "seat": "settings:section"
+    }
+  ],
   "channelImports": [
     "vue",
     "pinia",

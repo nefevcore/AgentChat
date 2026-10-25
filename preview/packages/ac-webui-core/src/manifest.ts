@@ -12,12 +12,34 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+/** 视角挂载声明（③ 级渲染承载——region/id/label 经 layout registerView 消费，B3 批实装） */
+export interface SeatViewDecl {
+  /** 挂载区域（main = 主区视角；aux = 辅栏面板） */
+  region: 'main' | 'aux';
+  /** 视角 id（param-case——选举键） */
+  id: string;
+  /** 显示名（缺省 = id） */
+  label?: string;
+}
+
 /** 席位贡献（ui 树装配拓扑——layout 拓扑契约的消费面词汇） */
 export interface SeatContribution {
-  /** 席位名（tool-card / dock / settings 节等——开放词汇） */
+  /**
+   * 席位名三词形（cr-690 B1，design-plugin-client-channel.md §2.1）：
+   * · 既有席位贡献：'tool-card' 等开放词汇（现行词形，不变）；
+   * · 新开席位：'new:<key>'——装载器调 SlotCore declare（tier-1 动态层，
+   *   仅 isolated:false；B3 批实装，B1 先校验词形）；
+   * · 视角挂载：席位名 + view 声明（渲染承载）。
+   */
   seat: string;
   /** 席位内定位（可选——骨架拓扑契约细节） */
   slot?: string;
+  /** 视角挂载声明（与本条 seat 的渲染承载同条——仅 isolated:false） */
+  view?: SeatViewDecl;
+  /** 'new:' 词形随行的席位形态（single | list | chain；缺省 list） */
+  kind?: 'single' | 'list' | 'chain';
+  /** 'new:' 词形随行的作用域（root | session；缺省 root） */
+  scope?: 'root' | 'session';
 }
 
 /** manifest.ui schema（数据声明——与主线 PluginUiManifest 同语义） */
@@ -34,6 +56,11 @@ export interface UiManifest {
   isolated?: boolean;
   /** 样式表相对路径列 */
   styles?: string[];
+  /**
+   * 主题包声明（§2.2 第一行——纯数据模块，tokensOnly 词汇完备性校验
+   * 在 B2 批实装；B1 先校验形状占位）。
+   */
+  theme?: { tokensOnly: true };
   /**
    * 需共享基座解析的说明符清单（裸包名或子路径——8.5c 深路径扩展；
    * isolated:false 的第一方模块资产用）。通道模块 bundle 外部化这些
@@ -68,7 +95,35 @@ export function checkUiManifest(m: unknown): ManifestCheck {
     else for (const s of x.seats) {
       if (s === null || typeof s !== 'object' || typeof (s as Record<string, unknown>).seat !== 'string' || (s as Record<string, unknown>).seat === '') {
         warnings.push('seats[].seat 缺失或空');
+        continue;
       }
+      const rec = s as unknown as Record<string, unknown>;
+      if (rec.view !== undefined) {
+        const v = rec.view as Record<string, unknown> | null | undefined;
+        if (v === null || typeof v !== 'object'
+          || (v.region !== 'main' && v.region !== 'aux')
+          || typeof v.id !== 'string' || v.id === ''
+          || !/^[a-z0-9-]+$/.test(v.id as string)) {
+          warnings.push('seats[].view 形状非法（region: main|aux + 非空 id 小写连字符词）');
+        } else if (v.label !== undefined && typeof v.label !== 'string') {
+          warnings.push('seats[].view.label 非字符串');
+        }
+      }
+      if (rec.kind !== undefined && !['single', 'list', 'chain'].includes(rec.kind as string)) {
+        warnings.push('seats[].kind 非法（single | list | chain）');
+      }
+      if (rec.scope !== undefined && !['root', 'session'].includes(rec.scope as string)) {
+        warnings.push('seats[].scope 非法（root | session）');
+      }
+      if ((rec.kind !== undefined || rec.scope !== undefined) && !String(rec.seat).startsWith('new:')) {
+        warnings.push('seats[].kind/scope 仅随 new: 词形（其余随席位声明者定义）');
+      }
+    }
+  }
+  if (x.theme !== undefined) {
+    const t = x.theme as Record<string, unknown> | null | undefined;
+    if (t === null || typeof t !== 'object' || t.tokensOnly !== true) {
+      warnings.push('theme 形状非法（当前仅 { tokensOnly: true }——词汇完备性校验归 B2）');
     }
   }
   if (x.isolated !== undefined && typeof x.isolated !== 'boolean') warnings.push('isolated 非布尔');
@@ -111,6 +166,8 @@ export interface BootGraphEntry {
   isolated: boolean;
   /** 共享基座裸包名清单（manifest 原样平移；空数组 = 无） */
   channelImports: string[];
+  /** 主题包声明（manifest 原样平移；未声明 = undefined） */
+  theme?: UiManifest['theme'];
 }
 
 /**
@@ -156,6 +213,7 @@ export function assembleBootGraph(pluginsDir: string): { graph: BootGraphEntry[]
       seats: m.seats ?? [],
       isolated: m.isolated ?? true,
       channelImports: m.channelImports ?? [],
+      theme: m.theme,
     });
   }
   return { graph, warnings };

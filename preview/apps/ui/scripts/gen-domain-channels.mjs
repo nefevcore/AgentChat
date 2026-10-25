@@ -47,6 +47,7 @@ const DEPS = {
   "singles": [
     "ac-client-ui-agents/client/rosterAccess.ts",
     "ac-client-ui-conversation/client/ConversationView.vue",
+    "ac-client-ui-conversation/client/chatStore.ts",
     "ac-client-ui-conversation/client/feedStore.ts",
     "ac-client-ui-layout/client/uiStore.ts",
     "ac-client-ui-theme/client/themeStore.ts",
@@ -213,6 +214,10 @@ const EXPORTS = {
 // 引 @agentchat/webui-kit 的域行（除 skill 全员）
 const KIT_USE = new Set(["runview","todo","jobs","workspace","singles","group","agents","goal","usage","system","timer","shell","fs","web","browser","subagent","run-code","run-nodes","llm-pool","plugin-registry","desktop-storage","search-pool","onboarding","remote"]);
 
+// 域行贡献席位（cr-690 B1：manifest seats 声明——装载器对账数据面；
+// 无内嵌快照：manifest 文件即单源，--check 比对已生成 manifest 与现状
+// 扫描（产物新鲜度）。非字面量 register key（模板串/变量）漏扫 = 漂移可见）
+
 const BASE = ['vue', 'pinia', '@agentchat/cordis', 'ac-client-runtime', 'ac-client-slots'];
 
 // —— 现状重扫（--check 对账用）——
@@ -250,6 +255,54 @@ function walk(dir, specs, deepPkgs, self) {
         if (deepPkgs.has(spec.split('/')[0])) specs.add(spec);
       }
     }
+  }
+}
+
+function scanSeats() {
+  const out = {};
+  const names = readdirSync(srcRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith('ac-client-ui-'))
+    .map((e) => e.name.slice('ac-client-ui-'.length));
+  // 各包 client 面导出的 SLOT_KEY 常量（跨包深路径 import 消费时反查定义）
+  const exportedConsts = new Map(); // 'ac-client-ui-<d>/client/<rel>' → key
+  for (const d of names) {
+    const dir = join(srcRoot, 'ac-client-ui-' + d, 'client');
+    if (!existsSync(dir)) continue;
+    for (const spec of walkFiles(dir)) {
+      const text = readFileSync(spec, 'utf-8');
+      const m = text.match(/export const SLOT_KEY = '([^']+)'/);
+      if (!m) continue;
+      const rel = spec.split(/[\\/]client[\\/]/).pop().replace(/\\/g, '/');
+      exportedConsts.set('ac-client-ui-' + d + '/client/' + rel, m[1]);
+    }
+  }
+  for (const d of names) {
+    const dir = join(srcRoot, 'ac-client-ui-' + d, 'client');
+    if (!existsSync(dir)) continue;
+    const seats = new Set();
+    for (const spec of walkFiles(dir)) {
+      const text = readFileSync(spec, 'utf-8');
+      for (const m of text.matchAll(/slots\.register\(\s*'([^']+)'/g)) seats.add(m[1]);
+      for (const m of text.matchAll(/slots\.register\(\s*SLOT_KEY/g)) {
+        // 本文件定义优先，否则查 import 源
+        const own = text.match(/export const SLOT_KEY = '([^']+)'/);
+        if (own) { seats.add(own[1]); continue; }
+        for (const im of text.matchAll(/import\s*\{[^}]*SLOT_KEY[^}]*\}\s*from\s*'([^']+)'/g)) {
+          const key = exportedConsts.get(im[1].replace(/\.ts$/, ''));
+          if (key) seats.add(key);
+        }
+      }
+    }
+    if (seats.size > 0) out[d] = [...seats].sort();
+  }
+  return out;
+}
+
+function* walkFiles(dir) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) yield* walkFiles(p);
+    else if (/\.(ts|vue)$/.test(e.name)) yield p;
   }
 }
 
@@ -292,6 +345,7 @@ function channelImports(d) {
 
 function generate() {
   refreshSnapshot();
+  const scanSeatsCache = scanSeats();
   const names = Object.keys(EXPORTS);
   for (const d of names) {
     const dir = join(channelRoot, d);
@@ -303,12 +357,14 @@ function generate() {
       '// scripts/gen-domain-channels.mjs（快照漂移先 --check 对账再生成）。' + '\n' +
       "import { " + exp + " } from 'ac-client-ui-" + d + "/client';" + '\n' + '\n' +
       'export default ' + exp + ';' + '\n');
+    const seats = (scanSeatsCache[d] || []).map((seat) => ({ seat }));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
       name: d,
       version: '0.1.0',
       entry: 'ui/index.js',
       platform: 'web',
       isolated: false,
+      ...(seats.length > 0 ? { seats } : {}),
       channelImports: channelImports(d),
     }, null, 2) + '\n');
     const deps = { 'ac-client-runtime': 'workspace:*', ['ac-client-ui-' + d]: 'workspace:*' };
@@ -331,6 +387,23 @@ function check() {
   const drift = [];
   const depsNow = scanDeps();
   const expNow = scanExports();
+  const seatsNow = scanSeats();
+  for (const d of Object.keys(seatsNow).filter((d) => d in EXPORTS)) {
+    const mfile = join(channelRoot, d, 'manifest.json');
+    const want = (seatsNow[d] || []).sort().join('|');
+    if (!existsSync(mfile)) { drift.push(d + ' manifest 缺席——需重跑生成器'); continue; }
+    const cur = JSON.parse(readFileSync(mfile, 'utf-8')).seats || [];
+    const now = cur.map((S) => S.seat).sort().join('|');
+    if (want !== now) drift.push(d + ' SEATS 漂移：manifest ' + cur.length + ' 席位 vs 现状 ' + (seatsNow[d] || []).length + ' 席位');
+  }
+  // 手写骨架通道（不在 EXPORTS 域）同样比对其 seats 新鲜度（归 8/apps/ui 手工域）
+  for (const d of ['conversation', 'tool', 'settings', 'markdown-render']) {
+    const mfile = join(channelRoot, d, 'manifest.json');
+    if (!existsSync(mfile)) continue;
+    const seatsDeclared = (JSON.parse(readFileSync(mfile, 'utf-8')).seats || []).map((S) => S.seat).sort().join('|');
+    const want = (seatsNow[d] || []).sort().join('|');
+    if (seatsDeclared !== want) drift.push(d + '（手写通道）SEATS 漂移：manifest ' + seatsDeclared + ' vs 现状 ' + want);
+  }
   // 对账域 = 25 域行（骨架六包深引归 8.5b 范畴，不在此表）
   const all = new Set([...Object.keys(DEPS), ...Object.keys(EXPORTS), ...Object.keys(depsNow).filter((d) => d in EXPORTS), ...Object.keys(expNow).filter((d) => d in EXPORTS)]);
   for (const d of all) {
