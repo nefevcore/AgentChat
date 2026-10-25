@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-684**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-685**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -702,3 +702,4 @@
 - 【cr-682 2026-10-25 singles/list 性能债收口：每次 RPC 全量重读+解析 919 会话账本（~300ms，随会话数线性劣化）——ledgerSummary 摘要按 messages.jsonl 的 size+mtimeMs 缓存（写者单源同进程，stat 未变即复用）】
 - 【cr-683 2026-10-25 row-catalog 虚胖词对账：行 tools 清单收净（fs_* 别名/bash/datetime/mcp 等——目录数据修正，LLM 面交集收敛已核实不受影响）】
 - 【cr-684 2026-10-25 会话列表待答徽标（UX 缺口第二次实锤：pending 提问只在其所属会话可见，用户不知道去哪答）：chat-core 公开 pendingInteractions（live 帧 + interaction/list 恢复共源维护），SessionList 行挂 .ui-badge.warn「待答」按 key 命中会话】
+- 【cr-685 2026-10-25 链跑队列双丢缺陷（实锤：creator 2 排队 turn 收束点全蒸发、01a1720c 信封孤儿滞留 inbox 零 run）：①takeFromInbox 死信 miss 即 break——出队条目丢且 finally 再移位丢第二条；②finally runSettled(false) 幂等收口在早退路径（重启 break/异常）移位丢弃队头。修 = 死信跳过取下一条 + 收口改 releaseGate 清门不动队列】

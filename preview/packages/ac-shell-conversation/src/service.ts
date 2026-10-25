@@ -421,25 +421,37 @@ export class ConversationService extends Service {
         // runStarted，见方法头注释；takeFromInbox 落空 = 该 turn 无信封可跑，
         // break 后 finally 幂等收口）
         resume = null; // 本轮已收束——链跑下轮按新信封重取
-        const next = this.machine.runSettled(env.sender !== 'user');
-        if (next === null) break;
         // 链跑取信按条目会话键（cr-627）：单机串行化门多会话并发——队列里
         // 可能混有其他会话的转投信（steer 落空/排队），按当前 run 会话取会
         // 永远取不到 → 出队即丢。run 随信封的会话走（historyFor/落账同键）。
-        const nextCid = next.conversationId ?? uuid;
-        const nextEnv = this.takeFromInbox(nextCid, next.requestId);
+        // 死信跳过（cr-685）：出队条目在 inbox 无信封（已被消费的残迹 / 无
+        // 信封的合成轮）不再 break 丢整队——出队下一条直到取到可跑信。
+        let nextEnv: Envelope | null = null;
+        let settledOnce = false;
+        while (nextEnv === null) {
+          const next = this.machine.runSettled(settledOnce ? false : env.sender !== 'user');
+          settledOnce = true;
+          if (next === null) break;
+          const nextCid = next.conversationId ?? uuid;
+          const candidate = this.takeFromInbox(nextCid, next.requestId);
+          this.emitQueueChanged(nextCid); // 队列缩减点（链跑消费 / 死信出队）
+          if (candidate !== null) {
+            nextEnv = candidate;
+            uuid = nextCid;
+            env = nextEnv;
+            runId = 'run-' + env.requestId;
+          }
+        }
         if (nextEnv === null) break;
-        this.emitQueueChanged(nextCid); // 队列缩减点（链跑消费出队）
-        uuid = nextCid;
-        env = nextEnv;
-        runId = 'run-' + env.requestId;
         // 链跑续跑重取（cr-667 R3）：队信自身可能是 defer 悬置的中断 run
         const st = this.ctx.ledger.resumeStateFor(uuid, runId);
         resume = st !== null && st !== 'degraded' ? st : null; // degraded/null → 常规跑
         this.machine.runStarted(runId);
       }
     } finally {
-      this.machine.runSettled(false); // 幂等收口（链跑循环内已逐轮 settled）
+      // 收口清门不动队列（cr-685）：早退路径（restart break / 死信跳空后
+      // break / 异常）下 runSettled 的 shift 会静默丢一条排队 turn。
+      this.machine.releaseGate();
       this.activeRun = null;
       if (this.currentAbort === abort) this.currentAbort = null;
     }
@@ -497,7 +509,9 @@ export class ConversationService extends Service {
       opts.signal?.removeEventListener('abort', onOuterAbort);
       if (this.currentAbort === abort) this.currentAbort = null;
       this.activeRun = null;
-      this.machine.runSettled(false);
+      // reviewRun 非链跑（无收束消费面）——runSettled 的 shift 会静默丢
+      // 排队 turn（cr-685）；清门留队列，待下一封入站信触发链跑。
+      this.machine.releaseGate();
     }
   }
 

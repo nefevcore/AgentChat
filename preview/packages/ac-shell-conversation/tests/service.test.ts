@@ -530,6 +530,63 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     }
   }, 20_000);
 
+  it('链跑死信跳过（cr-685）：队头死信（inbox 无信封残迹）不再丢整队——后续合法 turn 照跑', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { fibers, conv } = await bootTree('alpha', undefined, gate);
+    try {
+      // 会话 A 慢 run 占门
+      const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80));
+      // 两封跨会话信依次转投队列：b1（将被做成死信——inbox 残迹被清）+ b2（合法）
+      await conv.receiveEnvelope(msg('conv-b', 'b1', '第一封'), { fresh: true });
+      await conv.receiveEnvelope(msg('conv-b', 'b2', '第二封'), { fresh: true });
+      expect(conv.queue('conv-b')).toHaveLength(2);
+      // b1 的 inbox 信封文件移除 = 死信形态（已被消费的残迹 / 无信封合成轮）
+      fs.rmSync(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b', 'inbox', 'b1.json'));
+      release();
+      await first;
+      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(conv.isBusy()).toBe(false);
+      // b1 死信被跳过（无 run 轨迹）；b2 照跑——修复前 b1 miss 即 break +
+      // finally 再移位丢 b2，两 turn 全蒸发（creator 实锤现场）
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
+      expect(rows.map((x) => x.content)).toEqual(['第一封', '第二封', '[回复 第二封]']);
+      expect(rows[2]).toMatchObject({ run: 'run-b2' });
+      expect(conv.queue('conv-b')).toHaveLength(0);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  it('restart break 不丢队列（cr-685）：收束点早退后排队 turn 原位保留', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    const restartReady: string[] = [];
+    ctx.on('conversation/restart-ready', (p2: { conversationId?: string }) => { restartReady.push(p2.conversationId ?? ''); });
+    try {
+      const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80));
+      await conv.receiveEnvelope(msg('conv-b', 'b1', '跨会话信'), { fresh: true }); // 排队
+      expect(conv.requestRestart()).toBe(true); // 收束点将 break（restart 兑现）
+      release();
+      await first;
+      expect(restartReady).toEqual(['conv-a']);
+      expect(conv.isBusy()).toBe(false);
+      // 修复前：finally runSettled(false) 移位丢弃队头（b1 静默蒸发）；
+      // 修复后：清门不动队列——b1 原位保留（新代 boot 恢复面/下一封信消费）
+      expect(conv.queue('conv-b')).toHaveLength(1);
+      expect(conv.queue('conv-b')[0]!.id).toBe('b1');
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
 // —— cr-629 安全重启面 + boot 恢复面 ——
 describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
   // cr-658 自然收束语义：不中断、不回队——run 恰好消费一次，重启通知

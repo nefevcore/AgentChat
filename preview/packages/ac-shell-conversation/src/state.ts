@@ -146,6 +146,17 @@ export class ConversationMachine {
     };
   }
 
+  /**
+   * 清门不动队列（cr-685）：runSettled 会 shift 队头——收束点链跑消费它；
+   * 但 finally 收口 / reviewRun 收束等「早退或非链跑」路径若调 runSettled，
+   * 移位即静默丢弃一条排队 turn（实锤：creator 2 排队 turn 全蒸发）。这些
+   * 路径只清 busy/currentRun，队列留给后续链跑/恢复面消费。
+   */
+  releaseGate(): void {
+    this.busy = false;
+    this.currentRun = null;
+  }
+
   // —— next-turn 队列读写（排队 UI 数据面——主线 queue/removeQueued/steerQueued 同语义） ——
 
   /** 排队快照（id = requestId；conversationId 给定时按会话过滤） */
