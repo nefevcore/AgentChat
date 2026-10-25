@@ -194,6 +194,12 @@ export class ConversationMachine {
     this.turnQueue.splice(Math.min(index, this.turnQueue.length), 0, item);
   }
 
+  /** 队首出队（cr-688 唤醒面）：与 runSettled 的 shift 同源但不烧预算、
+   * 不依赖收束链——非链跑消费者（reviewRun 收束后的唤醒）专用。 */
+  takeQueueHead(): QueuedTurn | null {
+    return this.turnQueue.shift() ?? null;
+  }
+
   /**
    * 补入队尾（cr-627）：busy 期 steer 决策落空（活跃 run 属其他会话——
    * 单机串行化门多会话并发常态）的信封转投 next-turn 队列，当前 run

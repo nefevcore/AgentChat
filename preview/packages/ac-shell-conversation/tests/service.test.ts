@@ -587,6 +587,34 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     }
   }, 20_000);
 
+  it('reviewRun 收束唤醒排队 turn（cr-688）：非链跑消费者释放门后队列不再滞留', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { fibers, conv } = await bootTree('alpha', undefined, gate);
+    try {
+      // reviewRun 先占门（首流挂起——整理 run 持有串行化门）
+      const review = conv.reviewRun('conv-a', '整理提示', { runId: 'review-1' });
+      await new Promise((r) => setTimeout(r, 80));
+      expect(conv.isBusy()).toBe(true);
+      // 占门期跨会话信 → steer 落空 → 转投队列（无信再触发 = 修复前滞留现场）
+      const cross = await conv.receiveEnvelope(msg('conv-b', 'b1', '跨会话信'), { fresh: true });
+      expect(cross).toBe('queued');
+      expect(conv.queue('conv-b')).toHaveLength(1);
+      release();
+      await review;
+      // review 收束 → 唤醒消费：conv-b 的 run 真跑并收束（不再等下一封信）
+      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(conv.isBusy()).toBe(false);
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
+      expect(rows.map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
+      expect(conv.queue('conv-b')).toHaveLength(0);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
 // —— cr-629 安全重启面 + boot 恢复面 ——
 describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
   // cr-658 自然收束语义：不中断、不回队——run 恰好消费一次，重启通知

@@ -512,7 +512,27 @@ export class ConversationService extends Service {
       // reviewRun 非链跑（无收束消费面）——runSettled 的 shift 会静默丢
       // 排队 turn（cr-685）；清门留队列，待下一封入站信触发链跑。
       this.machine.releaseGate();
+      // 队列唤醒（cr-688）：收束后队列若仍有 turn，取队首重入 driveRun
+      //（无新信时不再滞留到下次事件）。finally 内 await：门先占后回执；
+      // 唤醒失败不掩 reviewRun 结果（留 boot 恢复面收敛）。
+      try { await this.drainQueuedTurn(); } catch { /* 唤醒失败不掩回执 */ }
     }
+  }
+
+  /** 排队 turn 唤醒消费（cr-688）：非链跑收束（reviewRun）后队列无消费者
+   * ——无新信时滞留到下次事件/壳重启。取队首信封重入 driveRun（信封
+   * 已落账，不重走 receive 面；driveRun 内部链跑自会清完剩余队列）。
+   * 死信 / 无会话键条目不唤醒——留收束链跑与 boot 恢复面收敛。 */
+  private async drainQueuedTurn(): Promise<void> {
+    if (this.machine.state().busy) return;
+    const next = this.machine.takeQueueHead();
+    if (next === null) return;
+    const cid = next.conversationId;
+    if (cid === undefined) return;
+    const env = this.takeFromInbox(cid, next.requestId);
+    this.emitQueueChanged(cid); // 队列缩减点（唤醒消费 / 死信出队）
+    if (env === null) return;
+    await this.driveRun(cid, env, { action: 'run', budgetAfter: 0 });
   }
 
   /** 队列变更权威快照 emit（主线 ac-conversation 同名事件同参序——boot 旁带发射） */
