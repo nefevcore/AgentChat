@@ -44,7 +44,6 @@ const backendDir = app.isPackaged
   ? path.join(process.resourcesPath, 'agentchat')
   : path.join(app.getAppPath(), '..', 'dist');
 const backendEntry = path.join(backendDir, 'agentchat.mjs');
-const catalogManifest = path.join(backendDir, 'plugin-catalog.json');
 const iconPath = path.join(import.meta.dirname, 'build', 'icon.png');
 
 // 数据根锚定：指针读取链（2026-09-16 存储管理裁决）
@@ -155,6 +154,10 @@ function spawnBackend(port) {
       AGENTCHAT_DATA_ROOT: dataRoot,
       AGENTCHAT_PLUGIN_MANIFEST: catalogManifest,
       AGENTCHAT_DESKTOP: '1',
+      // cr-702 发布链换轨：bundle 运行时资产锚（row-catalog/templates/plugins/
+      // webui 静态面/shell.mjs——见 preview/apps/host/anchors.ts）
+      AGENTCHAT_HOME: backendDir,
+      AGENTCHAT_VERSION_JSON: path.join(backendDir, 'version.json'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { socketPathFor } from 'ac-envelope-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
+import { resolveAnchors } from './anchors.ts';
 
 /**
  * stderr 行钩子（cr-662 诊断面）：壳 stderr 按行回流——转发宿主 stderr +
@@ -38,8 +39,8 @@ export interface SpawnFn {
 /** 预设身份词形（__<template_key>__ = 内置模板键） */
 const PRESET_ID = /^__([a-z0-9-]+)__$/;
 
-/** 内置模板目录（ac-host-rows 包内静态配置集——编排面按本文件相对定位，不引依赖） */
-const TEMPLATE_DIR = fileURLToPath(new URL('../../packages/ac-host-rows/templates', import.meta.url));
+/** 内置模板目录（cr-702：随宿主锚走——bundle〔AGENTCHAT_HOME/templates〕/ 仓库双形态） */
+const TEMPLATE_DIR = resolveAnchors(path.dirname(fileURLToPath(import.meta.url))).templatesDir;
 
 /**
  * 预设身份物化配置（cr-615）：模板 config 剥 preset 与模板自身 id 后改写

@@ -9,9 +9,10 @@
 #       生成 manifest.json，后续版本拉回 git 双写（git = sha256 信任锚）。
 #       未配 secrets 时优雅降级：跳过上传，安装包留在 Actions artifact。
 #
-# 依赖顺序：pnpm build:frontend → pnpm build:bundle 产出 dist/（后端单文件
-# bundle + plugin-catalog.json + WebUI 静态产物），extraResources 原样带入
-# resources/agentchat/——与 npm 包同源，插件目录清单随包走。
+# 依赖顺序（cr-702 换轨）：pnpm build:frontend（preview ui dist）→
+# pnpm build:channels（出厂 UI 通道）→ pnpm build:bundle 产出 dist/（宿主 +
+# 壳双 bundle + row-catalog/templates/plugins/webui 资产面），extraResources
+# 原样带入 resources/agentchat/——与 npm 包同源。
 name: desktop
 
 on:
@@ -53,6 +54,9 @@ jobs:
 
       - name: 构建前端
         run: pnpm build:frontend
+
+      - name: 构建出厂 UI 通道
+        run: pnpm build:channels
 
       - name: 构建发布 bundle（dist/）
         run: pnpm build:bundle

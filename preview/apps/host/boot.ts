@@ -28,16 +28,19 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
-import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, TEMPLATE_DIR, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace } from 'ac-host-rows';
+import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace } from 'ac-host-rows';
 import { readCatalog, deriveHostRowset, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
 import { assembleWebServer, attachWebSurface, type WebRing } from 'ac-host-webui';
 import { createOrchestrator, type OrchestratorHandle } from './orchestrator.ts';
 import { createAdminPreview } from './admin-preview.ts';
+import { resolveAnchors, seedFactoryPlugins } from './anchors.ts';
 
 /** 本文件目录（编排面 bootFile 寻址基点） */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** 运行时资产锚（cr-702：bundle〔AGENTCHAT_HOME〕/ 仓库双形态单源） */
+const ANCHORS = resolveAnchors(HERE);
 
 export interface HostBootOptions {
   dataRoot: string;
@@ -86,6 +89,9 @@ export interface HostBootResult {
 export async function bootHost(options: HostBootOptions): Promise<HostBootResult> {
   const dataRoot = path.resolve(options.dataRoot);
   fs.mkdirSync(dataRoot, { recursive: true });
+
+  // ---- 出厂通道播种（bundle 形态：dist/plugins → <dataRoot>/plugins 幂等拷贝）----
+  seedFactoryPlugins(dataRoot, ANCHORS);
 
   // ---- 行集派生（A9：偏好文件 × 目录全集）----
   const catalog: RowsetCatalog = readCatalog(options.catalogFile);
@@ -181,7 +187,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       const f = ctx.plugin(makeAgentsHostRow(
         {
           dataRoot,
-          ...(mounted.has('preset-builtin') ? { templatesDir: TEMPLATE_DIR } : {}),
+          ...(mounted.has('preset-builtin') ? { templatesDir: ANCHORS.templatesDir } : {}),
         },
         (svc) => { agentsEdit = svc; },
       ));
@@ -196,7 +202,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       inbox,
       catalogFile: options.catalogFile,
       agentsEdit,
-      ...(mounted.has('preset-builtin') ? { templatesDir: TEMPLATE_DIR } : {}),
+      ...(mounted.has('preset-builtin') ? { templatesDir: ANCHORS.templatesDir } : {}),
     });
     for (const id of derived.rowIds) {
       // web 面行（web-server/webui/web-api/agent-admin）由 boot 分区装配；
@@ -244,7 +250,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     ? createOrchestrator({
         dataRoot,
         catalogFile: options.catalogFile,
-        bootFile: path.resolve(HERE, '../shell/boot.ts'),
+        bootFile: ANCHORS.shellBoot,
         postOffice: po,
         // D5 边 2 常态化（cr-612）：壳 argv 注入宿主入口/端口——邮局失联时壳侧复活
         hostBoot: path.resolve(HERE, 'boot.ts'),
@@ -321,9 +327,9 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
     const i = args.indexOf('--' + name);
     return i >= 0 ? args[i + 1] : undefined;
   };
-  const dataRoot = argOf('data-root');
+  const dataRoot = argOf('data-root') ?? (process.env.AGENTCHAT_DATA_ROOT !== undefined && process.env.AGENTCHAT_DATA_ROOT !== '' ? process.env.AGENTCHAT_DATA_ROOT : undefined);
   if (dataRoot === undefined) {
-    console.error('用法：node --experimental-strip-types boot.ts --data-root <dir> [--catalog <file>] [--port <n>]');
+    console.error('用法：node --experimental-strip-types boot.ts --data-root <dir> [--catalog <file>] [--port <n>]（或 AGENTCHAT_DATA_ROOT env）');
     process.exit(2);
   }
   // cr-557：换轨后本入口即新宿主——旧布局数据根必须 fail-loud 拒启。
@@ -352,8 +358,9 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
   process.on('SIGTERM', writeStopStamp);
 
   // 静态面（cr-558）：缺省托管本仓 UI 构建产物——旧宿主在 3830 是带 SPA 的，
-  // 新宿主不接静态面就等于「切换后浏览器打不开」。--static-dir 可覆盖。
-  const staticDir = path.resolve(argOf('static-dir') ?? path.join(HERE, '../ui/dist'));
+  // 新宿主不接静态面就等于「切换后浏览器打不开」。--static-dir 可覆盖
+  //（覆盖序：--static-dir > AGENTCHAT_STATIC〔bundle 形态〕> 仓库相对缺省）。
+  const staticDir = path.resolve(argOf('static-dir') ?? ANCHORS.staticDir);
   const hasStatic = fs.existsSync(path.join(staticDir, 'index.html'));
   if (!hasStatic) {
     console.warn('[host] 静态面缺席（' + staticDir + '\index.html 不存在）——只有 WS/RPC，浏览器打开是 404');
@@ -373,7 +380,7 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
   };
   void bootHost({
     dataRoot,
-    catalogFile: argOf('catalog') ?? path.resolve(HERE, '../catalog/row-catalog.json'),
+    catalogFile: argOf('catalog') ?? ANCHORS.catalogFile,
     port: argOf('port') !== undefined ? Number(argOf('port')) : undefined,
     onRestartRequest: (sender) => {
       if (hostRef[0] !== undefined) restartHost(hostRef[0], sender);

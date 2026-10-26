@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
-const src = join(repo, 'src/webui/dist');
+// cr-702 发布链换轨：前端产物源 = preview/apps/ui/dist
+const src = join(repo, 'preview/apps/ui/dist');
 // 双落点（cr-43 真机实锤）：www 是 Capacitor 工具链中转，gradle 实际打包的
 // 是 android/app/src/main/assets/public——只写 www 时 APK 里永远是旧 webui
 // （真机加载旧 chunk、html class 空——首个症状）。两处都写，免踩同坑。

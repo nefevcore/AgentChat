@@ -34,7 +34,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 根 workspace install（webui 在 src/webui 包内，dist 构建依赖根 node_modules）
+      # 根 workspace install（前端在 preview/apps/ui 包内，dist 构建依赖根 node_modules）
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 

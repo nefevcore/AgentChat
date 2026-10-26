@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // AgentChat CLI —— 唯一启动入口
-// · 发布包：dist/agentchat.mjs（esbuild 单文件，TREE 静态行表 + 行偏好层
-//   + 单实例锁；静态 WebUI 产物与 bundle 同在 dist/）
+// · 发布包：dist/agentchat.mjs（cr-702 发布链换轨：宿主 esbuild bundle 入口
+//   preview/apps/host/boot.ts；壳 = dist/shell.mjs 按需 spawn；运行时资产
+//   〔row-catalog/templates/plugins/webui 静态面〕随 dist 走，AGENTCHAT_HOME
+//   注入指路——见 preview/apps/host/anchors.ts）
 // · 仓库检出（无 dist 时）：直跑 preview/apps/host/boot.ts（8.9 cutover，
 //   cr-556——旧主线 boot 退役；Node ≥22.18 原生 strip-only；数据根 = 启动
 //   文件夹 AGENTCHAT_DATA_ROOT 语义不变）
@@ -38,8 +40,12 @@ function tsxImport() {
 
 const distEntry = path.join(root, 'dist', 'agentchat.mjs');
 if (existsSync(distEntry)) {
-  // 发布包：dist 单文件（内联全部后端行与依赖）
-  run(spawn(process.execPath, [distEntry, ...args], { cwd: process.cwd(), stdio: 'inherit' }));
+  // 发布包：宿主 bundle + 资产面（AGENTCHAT_HOME = dist 安装根——anchors 解析）
+  run(spawn(process.execPath, [distEntry, ...args], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+    env: { ...process.env, AGENTCHAT_HOME: path.join(root, 'dist'), AGENTCHAT_VERSION_JSON: path.join(root, 'dist', 'version.json') },
+  }));
 } else {
   // 仓库 dev：与 pnpm dev 同参（preview 宿主 boot——cr-556 换轨）。
   // TS 加载 = Node ≥22.18 原生 strip-only；低版本 Node 无原生 strip 时兜底 tsx。

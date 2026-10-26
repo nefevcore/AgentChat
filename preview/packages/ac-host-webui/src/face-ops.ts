@@ -42,7 +42,8 @@ interface WebFace {
 
 export interface FaceOpsDeps {
   dataRoot: string;
-  /** 仓库根（package.json / CHANGELOG.md 锚点；缺省 = 本包向上四层） */
+  /** 仓库根（package.json / CHANGELOG.md 锚点；缺省 = AGENTCHAT_VERSION_JSON env
+   * 优先〔bundle 形态：dist/version.json 随包走〕，仓库形态 = 本包向上四层） */
   repoRoot?: string;
   /** 行集目录（plugin/catalog 的 builtin 组数据源；缺省 = preview/apps/catalog） */
   catalogFile?: string;
@@ -50,8 +51,11 @@ export interface FaceOpsDeps {
   shellPort?: () => ShellAdminPort | null;
 }
 
-/** 默认仓库根（preview/packages/ac-host-webui/src → 仓库根） */
-const DEFAULT_REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
+/** 仓库根解析：AGENTCHAT_VERSION_JSON（bundle 形态 env 注入）> 包相对缺省。
+ * version.json 邻域即版本锚（readVersion 读 {name,version}——两形态同形）。 */
+const VERSION_ANCHOR = () => process.env.AGENTCHAT_VERSION_JSON
+  ?? fileURLToPath(new URL('../../../../package.json', import.meta.url));
+const DEFAULT_REPO_ROOT = () => path.dirname(VERSION_ANCHOR());
 
 function obj(params: unknown): Record<string, unknown> {
   return params !== null && typeof params === 'object' ? params as Record<string, unknown> : {};
@@ -274,8 +278,10 @@ function registerUsage(web: WebFace, ctx: Context): void {
 /** 版本面：仓库 package.json + CHANGELOG.md（自更新通道 preview 轨道没有 → 显式报告） */
 function registerSystem(web: WebFace, deps: FaceOpsDeps): void {
   const readVersion = (): { current: string; name: string } => {
+    // 版本单源：AGENTCHAT_VERSION_JSON（bundle 形态 env 注入）> repoRoot 显式 > 包相对缺省
+    const anchorFile = deps.repoRoot !== undefined ? path.join(deps.repoRoot, 'package.json') : VERSION_ANCHOR();
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join((deps.repoRoot ?? DEFAULT_REPO_ROOT), 'package.json'), 'utf-8')) as {
+      const pkg = JSON.parse(fs.readFileSync(anchorFile, 'utf-8')) as {
         version?: string; name?: string;
       };
       return { current: typeof pkg.version === 'string' ? pkg.version : '0.0.0', name: typeof pkg.name === 'string' ? pkg.name : 'agentchat' };
@@ -296,7 +302,7 @@ function registerSystem(web: WebFace, deps: FaceOpsDeps): void {
   }));
   web.registerRpc('system/version-changelog', () => {
     try {
-      return { content: fs.readFileSync(path.join((deps.repoRoot ?? DEFAULT_REPO_ROOT), 'CHANGELOG.md'), 'utf-8') };
+      return { content: fs.readFileSync(path.join((deps.repoRoot ?? DEFAULT_REPO_ROOT()), 'CHANGELOG.md'), 'utf-8') };
     } catch {
       return { content: '' };
     }
