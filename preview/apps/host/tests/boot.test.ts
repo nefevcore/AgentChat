@@ -39,13 +39,13 @@ interface WebRpcFace {
 }
 
 describe('宿主 boot（单树装配面）', () => {
-  it('偏好缺省全装：全部宿主行就位对账（48 - 25 ui 域行 = 23，cr-576 后无未就位行）', async () => {
-    // 48 = 23 cordis + 25 ui（manifest）。23 中：web 表面 4 行（web-server/
+  it('偏好缺省全装：全部宿主行就位对账（23 全集，cr-701 B4 后无 ui 分流行）', async () => {
+    // 23 = cr-701 撤 25 ui 域行后的 cordis 全集：web 表面 4 行（web-server/
     // webui/web-api + post-office 编排件）+ guardian / preset-builtin 为编排
     // 与数据面；cordis 直装面 = 导入行 + options 工厂行（usage/timers/agents/
     // plugin-registry/auth-registry/group）+ agent-admin（写侧 RPC 编排）。
     // archive 已改树入壳（cr-546，D11）——宿主数据服务组无 archive 行，
-    // cr-565 conv-settings 改树入宿主、cr-576 group 全新增（48 全就位）。
+    // cr-565 conv-settings 改树入宿主、cr-576 group 全新增（全就位）。
     const dataRoot = ROOT;
     host = await bootHost({
       dataRoot,
@@ -56,10 +56,9 @@ describe('宿主 boot（单树装配面）', () => {
       'remote-link', 'singles', 'timer', 'timers', 'usage',
       'ws-bridge', 'web-server', 'webui', 'web-api',
     ];
-    // 派生集含 ui 域行（25——manifest 声明面）；cordis 直装 + 承担面 = 非 ui 全集
-    expect(host.rowIds.filter((id) => !id.startsWith('ui-')).sort()).toEqual(expected.sort());
-    // ui 域行全量在场（manifest 声明面分流计数）
-    expect(host.rowIds.filter((id) => id.startsWith('ui-')).length).toBe(25);
+    // 派生集即全集（cr-701：ui 域行已撤——通道装载面恒在 webui 行 boot graph）
+    expect(host.rowIds.slice().sort()).toEqual(expected.sort());
+    expect(host.rowIds.every((id) => !id.startsWith('ui-'))).toBe(true);
     expect(host.web.port).toBeGreaterThan(0);
 
     // 装配终检（cr-542）：全部 fiber ACTIVE——无静默半激活面
@@ -238,7 +237,7 @@ describe('宿主 boot（单树装配面）', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     const h = await bootHost({ dataRoot, catalogFile: CATALOG, preferences: [{ id: 'backup', disabled: true }] });
     expect(h.rowIds).not.toContain('backup');
-    expect(h.rowIds.filter((id) => !id.startsWith('ui-')).length).toBe(22);
+    expect(h.rowIds.length).toBe(22); // 23 - disabled backup（cr-701 后无 ui 分流行）
     await h.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });

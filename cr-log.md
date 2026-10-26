@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-700**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-701**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -718,3 +718,4 @@
 - 【cr-698 2026-10-26 viewer 账本派生化：终稿信封降级为通知，宿主从 agent 账本按 run/通知派生 viewer 行（原 ts、requestId 幂等）；锚信通道退役（cr-631/632）；空终稿 run 不落 viewer 行——session/history 读面补 settled-无行 run 的 steps 投影（前端渲染形态自理）；存量双行迁移】
 - 【cr-699 2026-10-26 思考链 run 内连续性豁免：历史 steps 展开行携带 runId，buildTurns 对同 run 相邻消息豁免 solo/平文/时间间隔拆分——中断-续跑长程 run 恒为一条思考链（step#36 中断总结步拆卡消除）】
 - 【cr-700 2026-10-26 conversation 通道件共享基座外部化：ac-client-ui-conversation client 深引加进 channelImports + shared-modules 单例——通道件不再携带 feed/feed-core 内部拷贝（双拷贝漂移致 cr-699 修复两度被旧通道件吞掉），重建面收敛为单一】
+- 【cr-701 2026-10-26 B4 宿主树 ui 组终态清空：catalog 撤 25 ui 域行（86→61，host 48→23）+ 口径断言/注释/manifest R1R2 同步 + 设计文档 B4 落地标注】

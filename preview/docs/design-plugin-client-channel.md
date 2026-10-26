@@ -72,7 +72,7 @@
 | B1 | seats 对账（§1）+ manifest 校验扩展（`new:` / `view` / `theme` 三词形） | preview 单测 + 29 通道全装对账 |
 | B2 | 主题包通道（§2.2 第一行）：令牌校验纯函数 + 一个示例主题包 | 令牌完整性测试 + CDP 活体（换肤生效） |
 | B3 | 视角挂载（§2.1 ③）：layout `registerView` + 隔离档容器承载 | 三档测试（非隔离组件 / 隔离 iframe / 缺席不毁表面）——**已落地（cr-694）** |
-| B4 | 宿主树 ui 组终态清空（cordis.yml 撤 `ac-client-ui-*` 行） | **前置 = 通道包物理迁出 + 旧树退役**（见 §6，本批不做） |
+| B4 | 宿主树 ui 组终态清空（cordis.yml 撤 `ac-client-ui-*` 行） | **已落地（cr-701）**：前置由 cr-696 兑现（31 包物理迁 preview + 旧树退役）；本批撤 catalog 25 ui 域行（86→61，host 48→23）+ 就位性特判/口径断言/manifest R1 同步；通道包装载面（webui 行 boot graph）不变，通道包↔catalog 对账改词表快照 |
 
 ## 4. 与既有裁决的一致性
 

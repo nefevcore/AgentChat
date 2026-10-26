@@ -4,7 +4,9 @@
 // ——dev-tools 行剔除；cr-566 singles 全新增（83 = 47+36）；
 // cr-576 group 全新增（84 = 48+36——宿主群存储行）；cr-629 restart
 // 全新增（85 = 48+37——安全重启双件行）；cr-672 auto-title 全新增
-// （86 = 48+38——会话命名行）。
+// （86 = 48+38——会话命名行）；cr-701 B4 宿主树 ui 组终态清空
+// （61 = 23+38——25 ui 域行撤除：通道包物理迁出后 manifest 声明面
+// 随旧装配口径退役，装载面恒在 webui 行 boot graph）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -16,9 +18,9 @@ const catalog = JSON.parse(
 ) as RowsetCatalog;
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
-  it('总行数 86 = 宿主 48 + 壳 38（cr-672：auto-title 行全新增——会话命名）', () => {
-    expect(catalog.rows).toHaveLength(86);
-    expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(48);
+  it('总行数 61 = 宿主 23 + 壳 38（cr-701：B4 ui 组清空——25 ui 域行撤除）', () => {
+    expect(catalog.rows).toHaveLength(61);
+    expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(23);
     expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(38);
   });
 
@@ -37,7 +39,7 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
   it('目录可派生：壳基础行集与宿主全集均非空', () => {
     expect(deriveShellRowset({}, catalog).rowIds.length).toBeGreaterThan(0);
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
-    expect(deriveHostRowset([], catalog).rowIds).toHaveLength(48);
+    expect(deriveHostRowset([], catalog).rowIds).toHaveLength(23);
     expect(deriveShellRowset({}, catalog).rowIds).toContain('plugin-dev'); // 装卸三件套行在壳基础集
     expect(deriveShellRowset({ rows: [] }, catalog).rowIds).toContain('auto-title'); // cr-672 命名行恒并基座（点名形态也在）
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）

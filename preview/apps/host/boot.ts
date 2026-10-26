@@ -20,9 +20,9 @@
 //   → web 表面（user 桩 + webui + web-api）→ agent-admin（写侧 RPC 编排）
 //   → 装配终检（fiber 排空 + FiberStates.ACTIVE）
 //
-// 46 行口径（cr-544：session-query 改树入壳，47→46）：21 cordis 行 + 25 ui 域行（manifest 通道产物——boot graph
-// 声明面，非 cordis 装配；8.5c 收口）。ui 域行经 webui 行的 pluginsDir
-// 扫描装载。
+// 23 行口径（cr-701 B4：ui 组终态清空，46→21→23 增量后撤 25 ui 域行）：全 cordis
+// 装配行。ui 域行已撤——通道产物装载面恒在 webui 行 boot graph（pluginsDir
+// 扫描），与行集声明面解耦。
 // ============================================================
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -100,9 +100,9 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   }
 
   // ---- 装配面就位性（已实现行覆盖派生集）----
-  // ui 域行（25）= manifest 声明面（webui 行 boot graph 通道产物装载，8.5c）——
-  // 非 cordis 插件装配，不参与就位性检查；其装载面在 webui 行（pluginsDir 扫描）。
-  const missing = derived.rowIds.filter((id) => !id.startsWith('ui-') && !(id in IMPORTED_ROWS) && !(id in HOST_ROW_FACTORIES) && !HOST_OWN_ROWS.has(id) && !WEB_RING_ROWS.has(id));
+  // cr-701 撤 25 ui 域行后派生集即 cordis 全集；通道产物装载面在 webui 行
+  //（pluginsDir 扫描 boot graph），与行集派生解耦。
+  const missing = derived.rowIds.filter((id) => !(id in IMPORTED_ROWS) && !(id in HOST_ROW_FACTORIES) && !HOST_OWN_ROWS.has(id) && !WEB_RING_ROWS.has(id));
   if (missing.length > 0) {
     throw new Error('host rows not yet available: ' + missing.join(', '));
   }
@@ -200,10 +200,9 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     });
     for (const id of derived.rowIds) {
       // web 面行（web-server/webui/web-api/agent-admin）由 boot 分区装配；
-      // ui 域行经 webui 行 boot graph；HOST_OWN_ROWS（guardian = per 壳
-      // ShellWarden 编排件 / preset-builtin = 静态数据面）非 cordis 行装配；
-      // agents 已先行装配（cr-551 capture 面）
-      if (WEB_RING_ROWS.has(id) || id.startsWith('ui-') || HOST_OWN_ROWS.has(id) || id === 'agents') continue;
+      // HOST_OWN_ROWS（guardian = per 壳 ShellWarden 编排件 / preset-builtin =
+      // 静态数据面）非 cordis 行装配；agents 已先行装配（cr-551 capture 面）
+      if (WEB_RING_ROWS.has(id) || HOST_OWN_ROWS.has(id) || id === 'agents') continue;
       const factory = HOST_ROW_FACTORIES[id];
       if (factory !== undefined) {
         fibers.push(ctx.plugin(factory(optionsMap[id] as never)));

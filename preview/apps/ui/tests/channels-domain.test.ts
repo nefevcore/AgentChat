@@ -17,7 +17,6 @@ import { sharedModules } from '../client/shared-modules.ts';
 const here = dirname(fileURLToPath(import.meta.url));
 const uiRoot = join(here, '..');
 const channelRoot = join(uiRoot, 'channel');
-const catalogPath = join(uiRoot, '..', 'catalog', 'row-catalog.json');
 
 const SKELETON4 = ['conversation', 'tool', 'settings', 'markdown-render'];
 const domainDirs = readdirSync(channelRoot, { withFileTypes: true })
@@ -30,11 +29,14 @@ describe('8.5c · 25 域行通道包', () => {
     expect(readdirSync(channelRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).length).toBe(29);
   });
 
-  it('catalog ui 域 25 行 ↔ 通道包同名一一对应', () => {
-    const catalog = JSON.parse(readFileSync(catalogPath, 'utf-8')) as { rows: Array<{ id: string; tree: string }> };
-    const uiRows = catalog.rows.filter((r) => r.tree === 'host' && r.id.startsWith('ui-'))
-      .map((r) => r.id.slice('ui-'.length)).sort();
-    expect(uiRows).toEqual(domainDirs);
+  it('通道包自洽：目录名词表稳定（cr-701 撤 catalog ui 声明行——对账面收敛为通道包自身）', () => {
+    // 25 域词表快照（防通道包增删漂移；装载面恒在 webui 行 boot graph）
+    expect(domainDirs.join(',')).toBe([
+      'agents', 'browser', 'desktop-storage', 'fs', 'goal', 'group', 'jobs', 'llm-pool',
+      'onboarding', 'plugin-registry', 'remote', 'run-code', 'run-nodes', 'runview',
+      'search-pool', 'shell', 'singles', 'skill', 'subagent', 'system',
+      'timer', 'todo', 'usage', 'web', 'workspace',
+    ].join(','));
   });
 
   it('每包 manifest 过校验 + index.ts re-export 主线 clientPlugin', () => {

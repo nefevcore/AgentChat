@@ -36,7 +36,7 @@
 判例五则（锁 / 指纹 / 授权投影 / 群拓扑 / Agent 在场性）与原理：裁决簿
 〈行资格判例〉。tag 机制解体判例（七职能归位）：裁决簿〈tag 机制解体〉。
 
-# R1. 宿主树（48 行 = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 6 + 传输/web 4 + 插件治理 3 + 远程 1 + ui 域行 25）
+# R1. 宿主树（23 行 = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 6 + 传输/web 4 + 插件治理 3 + 远程 1；cr-701 B4 撤 25 ui 域行——通道装载面恒在 webui 行 boot graph）
 
 | 组 | 行 | 包 | 角色 | 来源 |
 |---|---|---|---|---|
@@ -60,7 +60,7 @@
 | 插件治理 | plugin-registry | ac-plugin-registry | 装载裁决 + 熔断闸门 + 动态插件行集条目注入（install = 授权动作 → 壳行集，第三方代码零宿主驻留）+ 宿主行集偏好急救 RPC（写偏好文件，恒冷生效——〈patch 机制退役〉）+ client 半边 manifest 注入（〈插件 client 通道〉）；**preview 侧落地（cr-543，2026-10-19）= ac-host-rows/plugin-registry-row.ts（PluginRegistryHostService：staging 人审复用 ac-plugin-core 纯库 → 批准物化 `<dataRoot>/plugin-rows.json` 插件行集条目 → 壳 boot 合并派生化 → 壳内动态装载；熔断 fail-closed 剔除行集条目 + `rows/*` 急救 RPC 恒冷生效 + `plugin/updated` 变更帧；本行不 import 任何插件代码）** | 改造（吸收 patch-rpc + plugin-gates；patch 热通道与 patch-rpc 形态退役） |
 | 插件治理 | plugin-market / event-policy | ac-plugin-market / ac-event-policy | 市场 + 事件策略（全局治理门）；**plugin-market preview 侧落地（cr-543）= 零改动导入（inject ['webServer','pluginRegistry']——市场安装流= staging 人审入口，装载裁决归 plugin-registry 行）** | 沿用 |
 | 远程 | remote-link | ac-remote-link | 远程链路 | 沿用 |
-| ui | ui 域行 ×25 | ac-client-ui-* | 域卡片行（卸载 → 该域卡片回落文本渲染）；id 清单以 yml 为准（31 − 骨架 6；骨架经 ui 树解构为协议 3 件入 ac-webui，conversation/settings/tool 转模块资产——ui-tree.md §2）；**25 域行已 manifest 声明化上通道（cr-533，2026-10-19）——preview/apps/ui/channel/ 通道包 + channelImports 深路径外部化（共享基座 importmap 单例契约），生成器 --check 对账** | 已声明化（cr-533） |
+| ui | ~~ui 域行 ×25~~（cr-701 B4 撤除） | ac-client-ui-* | 域卡片行曾以 catalog 声明行 + boot graph 双面存在；cr-696 通道包物理迁 preview 后声明面成旧装配口径残留，cr-701 撤除（装载面恒在 webui 行 boot graph——preview/apps/ui/channel/ 25 通道包 + channelImports 深路径外部化不变，生成器 --check 对账不变）；**通道包↔域卡片对账改为通道包词表快照（channels-domain.test）** | 已撤（cr-701） |
 
 # R2. 壳树（38 行 = 基座 2 + 账本会话 3 + 模型编排 3 + 装配链 3 + 任务追踪 2 + 工具面 16 + 域服务 8 + 评测 1）
 
