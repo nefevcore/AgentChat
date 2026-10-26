@@ -6,7 +6,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject } from './records.ts';
+import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject, type ProjectedStep } from './records.ts';
 import type { LlmMessage } from 'ac-llm';
 
 export interface ReadResult {
@@ -69,16 +69,7 @@ export interface ReplayMessage {
   content: string;
 }
 
-/**
- * run 步投影行（webui history steps 带出——主线 SessionStepRecord 的
- * 前端消费最小面）：思考折叠（reasoning）+ 工具卡（toolCalls 含内联
- * result——journal 分列 toolCalls/toolResults 在此合并）。
- */
-export interface ProjectedStep {
-  content: string;
-  reasoning?: string;
-  toolCalls?: Array<{ id: string; name: string; arguments: string; result: unknown; subcall?: boolean }>;
-}
+export type { ProjectedStep };
 
 /**
  * journal → 指定 run 的 steps 投影（D4.2 终稿层带出：「webui 展开对方
@@ -88,6 +79,25 @@ export interface ProjectedStep {
  * （纯终稿 run 不挂 steps 键）。
  */
 export function stepsOfRun(lines: JournalLine[], run: string): { steps: ProjectedStep[]; partial: boolean } | null {
+  const facts = runFacts(lines, run);
+  const steps: ProjectedStep[] = [];
+  for (const line of facts.events) {
+    if (line.type !== 'journal-step') continue;
+    steps.push(projectStep(line, facts));
+  }
+  return steps.length === 0 ? null : { steps, partial: !facts.settled };
+}
+
+/** run 事实收集（stepsOfRun / segmentizeRun 共享）：收束态 + 结果补行索引
+ *  + 子调用档案（按 seq 稳定序）+ 步行/注入行按真序。 */
+interface RunFacts {
+  settled: boolean;
+  events: Array<JournalStep | JournalInject>;
+  results: Map<string, { ok: boolean; output?: unknown; error?: string }>;
+  subcallsByHost: Map<string, Array<{ toolCallId: string; name?: string; arguments?: string; result: unknown; seq?: number }>>;
+}
+
+function runFacts(lines: JournalLine[], run: string): RunFacts {
   // 先收束态 + 结果补行索引（cr-596）：after-step 先于工具执行落步行
   //（副作用前 durable），结果以 journal-tool-result 补行到达——按
   // toolCallId 覆盖。settle 行在步之后，须先扫一遍再投步骤。
@@ -96,6 +106,7 @@ export function stepsOfRun(lines: JournalLine[], run: string): { steps: Projecte
   // 子调用档案（cr-597）：run_code 程序内子调用补行（subcall=true 携带
   // 名/参）——注入宿主 run_code 卡后平铺（主线 injectSubcalls 同义）
   const subcalls: Array<{ toolCallId: string; name?: string; arguments?: string; result: unknown; seq?: number }> = [];
+  const events: Array<JournalStep | JournalInject> = [];
   for (const line of lines) {
     if (line.run !== run) continue;
     if (line.type === 'journal-settled') settled = true;
@@ -105,53 +116,137 @@ export function stepsOfRun(lines: JournalLine[], run: string): { steps: Projecte
         subcalls.push({ toolCallId: line.toolCallId, name: line.name, arguments: line.arguments, result: line.result, seq: line.seq });
       }
     }
+    if (line.type === 'journal-step' || line.type === 'journal-inject') events.push(line);
   }
+  // 真序 = 文件行序（append-only）：seq 在崩溃重启的 journal 里会归零重启
+  //（writer 每实例从 1 起）——按 seq 排序会跨重启段交错，不做。
   // 宿主索引：子调用 toolCallId 形如 <宿主callId>#<seq>——首 # 前段即宿主
-  const byHost = new Map<string, typeof subcalls>();
+  const subcallsByHost = new Map<string, typeof subcalls>();
   for (const k of subcalls) {
     const hash = k.toolCallId.indexOf('#');
     if (hash <= 0) continue;
     const host = k.toolCallId.slice(0, hash);
-    const bucket = byHost.get(host);
+    const bucket = subcallsByHost.get(host);
     if (bucket) bucket.push(k);
-    else byHost.set(host, [k]);
+    else subcallsByHost.set(host, [k]);
   }
-  const steps: ProjectedStep[] = [];
-  for (const line of lines) {
-    if (line.run !== run || line.type !== 'journal-step') continue;
-    steps.push({
-      content: line.content,
-      ...(line.reasoning !== undefined ? { reasoning: line.reasoning } : {}),
-      ...(line.toolCalls !== undefined && line.toolCalls.length > 0 ? {
-        toolCalls: line.toolCalls.flatMap((tc, i) => {
-          // 补行优先；步行自带 toolResults 兜底；已收束 run 两者皆缺 =
-          // cr-596 前的存量步行（结果从未落盘）——合成空成功，不留给
-          // 前端「永恒运行中」的假在途态
-          const result = results.get(tc.id) ?? line.toolResults?.[i]
-            ?? (settled ? { ok: true } : null);
-          const hostCard = {
+  return { settled, events, results, subcallsByHost };
+}
+
+/** 单步行 → ProjectedStep（补行覆盖 / 存量合成 / 子调用平铺 / ts 带出） */
+function projectStep(line: JournalStep, facts: RunFacts): ProjectedStep {
+  return {
+    content: line.content,
+    ...(line.ts !== undefined ? { ts: line.ts } : {}),
+    ...(line.reasoning !== undefined ? { reasoning: line.reasoning } : {}),
+    ...(line.toolCalls !== undefined && line.toolCalls.length > 0 ? {
+      toolCalls: line.toolCalls.flatMap((tc, i) => {
+        // 补行优先；步行自带 toolResults 兜底；已收束 run 两者皆缺 =
+        // cr-596 前的存量步行（结果从未落盘）——合成空成功，不留给
+        // 前端「永恒运行中」的假在途态
+        const result = facts.results.get(tc.id) ?? line.toolResults?.[i]
+          ?? (facts.settled ? { ok: true } : null);
+        const hostCard = {
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+          result,
+        };
+        // 子调用平铺（cr-597）：宿主卡后按提交序（seq）注入子调用卡——
+        // 宿主不在场（步行缺失/被吸收）的子调用如实丢弃（无渲染锚）
+        const kids = facts.subcallsByHost.get(tc.id);
+        if (kids === undefined) return [hostCard];
+        kids.sort((a, b) => (a.seq ?? idTailSeq(a.toolCallId)) - (b.seq ?? idTailSeq(b.toolCallId)));
+        return [hostCard, ...kids.map((k) => ({
+          id: k.toolCallId,
+          name: k.name ?? '(unknown)',
+          arguments: k.arguments ?? '{}',
+          result: k.result,
+          subcall: true as const,
+        }))];
+      }),
+    } : {}),
+  };
+}
+
+/** 物化切段产物（cr-697）：'seg' = 段行 steps；'inj' = 注入行（切段点） */
+export type RunSegment = { kind: 'seg'; steps: ProjectedStep[] } | { kind: 'inj'; content: string; ts?: number };
+
+/**
+ * journal → run 物化切段（cr-697 settlement 段行物化的写侧纯函数）：
+ * 步行/补行按 stepsOfRun 同款合并（结果覆盖、子调用平铺、settled 合成），
+ * **注入行为切段点**（主线 settlement 切段语义）产出 [段, 注入行, 段, …]。
+ * writer.settle / settleOrphan 据此落账段行；journal 随之剔除该 run 步行。
+ */
+export function segmentizeRun(lines: JournalLine[], run: string): RunSegment[] {
+  const facts = runFacts(lines, run);
+  const out: RunSegment[] = [];
+  let cur: ProjectedStep[] = [];
+  const closeSeg = (): void => {
+    if (cur.length > 0) {
+      out.push({ kind: 'seg', steps: cur });
+      cur = [];
+    }
+  };
+  for (const ev of facts.events) {
+    if (ev.type === 'journal-inject') {
+      closeSeg();
+      out.push({ kind: 'inj', content: ev.content, ...(ev.ts !== undefined ? { ts: ev.ts } : {}) });
+      continue;
+    }
+    cur.push(projectStep(ev, facts));
+  }
+  closeSeg();
+  return out;
+}
+
+/**
+ * 账本段行 → run steps（cr-697 读侧：journal 收束即清后，settled run 的
+ * steps 事实源 = 物化段行）。无段行 → null（消费方回落 journal 投影——
+ * 存量会话 / in-flight run）。stepsOfLedger 与 stepsOfRun 同形，消费面零改动。
+ */
+export function stepsOfLedger(rows: LedgerRow[], run: string): { steps: ProjectedStep[]; partial: boolean } | null {
+  // 行序 = 文件序（append-only 真序；seq 跨 writer 重启会归零，不排序）
+  const steps = rows
+    .filter((r) => r.run === run && r.source === 'segment' && Array.isArray(r.steps))
+    .flatMap((r) => r.steps as ProjectedStep[]);
+  return steps.length === 0 ? null : { steps, partial: false };
+}
+
+/**
+ * 账本段行/注入行 → run 模型消息轨迹（cr-697：historyMessagesFor 的物化
+ * 源——journal 收束即清后轨迹从段行重建；注入行 → user 消息）。与
+ * trajectoryOfRun 同形（在途/存量 run 仍走 journal 侧）。无段行 → null。
+ */
+export function trajFromRows(rows: LedgerRow[], run: string): LlmMessage[] | null {
+  // 行序 = 文件序（append-only 真序；seq 跨 writer 重启会归零，不排序）
+  const runRows = rows.filter((r) => r.run === run && (r.source === 'segment' || r.source === 'inject'));
+  if (runRows.length === 0) return null;
+  const out: LlmMessage[] = [];
+  for (const r of runRows) {
+    if (r.source === 'inject') {
+      out.push({ role: 'user', content: r.content });
+      continue;
+    }
+    for (const s of r.steps ?? []) {
+      const calls = (s.toolCalls ?? []).filter((tc) => tc.id || tc.name);
+      out.push({
+        role: 'assistant',
+        content: s.content,
+        ...(calls.length > 0 ? {
+          tool_calls: calls.map((tc) => ({
             id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments,
-            result,
-          };
-          // 子调用平铺（cr-597）：宿主卡后按提交序（seq）注入子调用卡——
-          // 宿主不在场（步行缺失/被吸收）的子调用如实丢弃（无渲染锚）
-          const kids = byHost.get(tc.id);
-          if (kids === undefined) return [hostCard];
-          kids.sort((a, b) => (a.seq ?? idTailSeq(a.toolCallId)) - (b.seq ?? idTailSeq(b.toolCallId)));
-          return [hostCard, ...kids.map((k) => ({
-            id: k.toolCallId,
-            name: k.name ?? '(unknown)',
-            arguments: k.arguments ?? '{}',
-            result: k.result,
-            subcall: true as const,
-          }))];
-        }),
-      } : {}),
-    });
+            type: 'function' as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          })),
+        } : {}),
+      });
+      for (const tc of calls) {
+        out.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(tc.result ?? { ok: true }) });
+      }
+    }
   }
-  return steps.length === 0 ? null : { steps, partial: !settled };
+  return out;
 }
 
 /**
@@ -254,29 +349,6 @@ export function resumeContextOfRun(
 }
 
 /**
- * viewer run 键锚缺口扫描（cr-631/632 持久化补环，链接制）：journal 有步行
- * 的 run 中 viewer 账本行 source=run:<id> 缺席、且为**消息 run** 者——
- * 判别 = run id 形如 run-<requestId> 且该 requestId 在本会话账本有入站行
- *（driveRun 的 runId 恒由此派生；机制 run〔reviewRun 等〕runId 无对应入站
- * 行，天然排除——机制 run 有步行无 viewer 行是设计态，不可锚）。覆盖
- * 「已收口未锚定」存量与「本 boot 收口」两类（壳死时 postReply 未跑
- * = 锚缺失的共同根源）。
- */
-export function anchorableRuns(lines: JournalLine[], viewerRows: LedgerRow[], ledgerRows: LedgerRow[]): string[] {
-  const anchored = new Set(viewerRows
-    .filter((r) => typeof r.source === 'string' && r.source.startsWith('run:'))
-    .map((r) => (r.source as string).slice(4)));
-  const delivered = new Set(ledgerRows.filter((r) => typeof r.requestId === 'string').map((r) => r.requestId as string));
-  const out = new Set<string>();
-  for (const line of lines) {
-    if (line.run === '' || line.type !== 'journal-step' || anchored.has(line.run)) continue;
-    if (!line.run.startsWith('run-')) continue;
-    if (delivered.has(line.run.slice(4))) out.add(line.run);
-  }
-  return [...out];
-}
-
-/**
  * 孤儿 run 扫描（cr-628 web-ui 孤儿投影）：journal 里有步行/注入行但无
  * journal-settled 标记的 run id（壳死于 mid-run——既无 viewer run 键行可
  * 联、又无 settled 可判收束，读侧此前整 run 蒸发）。新壳 boot 的
@@ -311,8 +383,11 @@ export function summaryTextOf(dir: string): string {
 
 export function replayView(rows: LedgerRow[], viewer: string): ReplayMessage[] {
   return rows
-    // 空 content 行不入注入（中断/空收束行——注入与归档估算同源过滤）
-    .filter((r) => r.role === 'agent' && r.content.trim() !== '')
+    // 空 content 行不入注入（中断/空收束行——注入与归档估算同源过滤）；
+    // 段行（content 恒空）/注入行（cr-697 物化产物——归 trajectory 读面按
+    // 步重建）不进文本投影
+    .filter((r) => r.role === 'agent' && r.content.trim() !== ''
+      && r.source !== 'segment' && r.source !== 'inject')
     .map((r) => ({
       role: r.agent_id === viewer ? 'assistant' : 'user',
       content: r.content,

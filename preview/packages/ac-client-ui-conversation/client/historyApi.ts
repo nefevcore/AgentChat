@@ -43,6 +43,8 @@ export interface PSessionRecord {
   steps?: PSessionStep[];
   /** 多模态附件引用（入站消息行；刷新后恢复附件 chips） */
   attachments?: PMediaAttachment[];
+  /** 产生该行的 run 键（web-api 联查投影行；cr-699 步级 runId 透传源） */
+  run?: string;
 }
 
 interface PSessionStep {
@@ -145,6 +147,9 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             content: s.content || '',
             thinking: stepThinking || undefined,
             reasoning_content: stepThinking || undefined,
+            // run 身份键透传（cr-699）：buildTurns sameRun 拆轮豁免——
+            // 中断-续跑 run 的中途总结步不独立成卡
+            ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
             // 步身份键透传（身份贯通）：直播 delta 帧 meta.stepId 与此同值——
             // 历史合并按键配对（mergeHistory 键控快路径）
             ...(typeof s.stepId === 'string' && s.stepId ? { stepId: s.stepId } : {}),
@@ -194,6 +199,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         name: r.name,
         message_id: r.message_id,
         timestamp: r.timestamp,
+        ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
         // reasoning 单份存储读侧投影：行级缺场（新数据）从 steps[].reasoning
         // 拼整轮（replayTrajectory 关闭用户的折叠栏）；存量行级原样透传
         ...(r.reasoning_content !== undefined

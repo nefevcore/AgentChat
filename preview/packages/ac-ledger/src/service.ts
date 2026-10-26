@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
-import { readLedger, readJournal, anchorableRuns, replayView, summaryTextOf, trajectoryOfRun, resumeContextOfRun } from './reader.ts';
+import { readLedger, readJournal, replayView, summaryTextOf, trajectoryOfRun, trajFromRows, resumeContextOfRun } from './reader.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
 import type { LedgerRow, JournalStep, RunUsage } from './records.ts';
 import type { LoopStepRecord, LoopStepEnvelope, LoopRunRequestLike, LoopRunResult } from './loop-events.ts';
@@ -207,12 +207,14 @@ export class LedgerService extends Service {
     return summary !== '' ? [{ role: 'system', content: summary }, ...view] : view;
   }
 
-  /** 会话历史轨迹回放（cr-658 轨迹完整性）：historyFor 文本投影之上，
-   * 凡带 run 键的收束行前置该 run 的 journal 轨迹（assistant/tool 协议对）
-   * ——run 上下文对自己做过的工具工作不再失明（正常终稿 run 同样带出，
-   * 不只中断 run）。读侧重建取代 cr-640/653 写侧段行物化（已退役）；
-   * 存量段行（message_id 前缀 seg-）过滤防双计。归档 compact 重写后
-   * run 键行随 keep 面消失 = 轨迹注入自然有界。 */
+  /** 会话历史轨迹回放（cr-658 轨迹完整性 + cr-697 物化源切换）：
+   * historyFor 文本投影之上，凡带 run 键的收束行前置该 run 的轨迹
+   * （assistant/tool 协议对）——run 上下文对自己做过的工具工作不再失明
+   * （正常终稿 run 同样带出，不只中断 run）。轨迹源 = 物化段行/注入行
+   * （settlement 切段物化产物）优先；journal 兜底存量会话与 in-flight
+   * run（收束即清后 journal 只剩 settled 行）。cr-640 时代的存量文本段行
+   * （message_id 前缀 seg-、无 source 标记）过滤防双计；归档 compact
+   * 重写后 run 键行随 keep 面消失 = 轨迹注入自然有界。 */
   historyMessagesFor(uuid: string): LlmMessage[] {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
     const summary = summaryTextOf(dir);
@@ -221,10 +223,13 @@ export class LedgerService extends Service {
     const out: LlmMessage[] = summary !== '' ? [{ role: 'system', content: summary }] : [];
     const traced = new Set<string>();
     for (const row of rows) {
-      if (row.role !== 'agent' || row.message_id.startsWith('seg-')) continue;
+      if (row.role !== 'agent') continue;
+      // 物化段行/注入行（cr-697）按 run 归口消费；存量文本段行（无 source）
+      // 过滤防双计
+      if (row.source === 'segment' || row.source === 'inject' || row.message_id.startsWith('seg-')) continue;
       if (typeof row.run === 'string' && row.run !== '' && !traced.has(row.run)) {
         traced.add(row.run);
-        const traj = trajectoryOfRun(journal, row.run);
+        const traj = trajFromRows(rows, row.run) ?? trajectoryOfRun(journal, row.run);
         // 末步去重：自然收束 run 的末步 content 即终稿（loop 自然停点），
         // settle 行同文再入 = 终稿双份。轨迹末条 assistant 与终稿行同文时
         // 让位给终稿行（权威投影），其余步全保留。
@@ -312,24 +317,21 @@ export class LedgerService extends Service {
    * 孤儿 run 收口（cr-628，主线 recoverJournal 惰性幂等语义的 preview 形态）：
    * 壳死于 mid-run 时 journal 留下无 journal-settled 的步行——读侧
    * stepsOfRun 恒报 partial（真在途），run 永远「运行中」。boot 期对全部
-   * 会话域扫一遍：有步行/注入行但无 settled 标记的 run 补写
-   * journal-settled(interrupted)（幂等——已收束 run 不动）。
-   * cr-631 持久化补环：收口的 run 同时补投 viewer run 键锚信（壳死时
-   * postReply 未跑、viewer 行从未落——不补则孤儿投影随 settled 让位后
-   * steps 二度消失）。锚信 = 空文本 + run 键（user 壳 writeThrough 落行，
-   * cr-595 同通道）；盘上 viewer 行已锚定的跳过（防重——跨重启幂等）。
-   * 无邮局（CLI 直连）只收口不补锚。返回收口数。
+   * 会话域扫一遍：有步行/注入行但无 settled 标记的 run 经 settleOrphan
+   * 收口（段行物化 + journal-settled(interrupted) + 步行剔除——幂等，
+   * 已收束 run 不动）。
+   * cr-698 锚信通道退役：viewer 侧不再补投锚信（空终稿 run 不落 viewer
+   * 行——「有 steps 无正文」是中断常态，由 session/history 读面的 steps
+   * 盲区投影渲染，显示形态归前端）。
    * cr-667（A1 续跑）：defer = inbox 在途 requestId 集（boot 先取
-   * pendingInboxRequestIds）——命中的 run 不补 interrupted settled（留给
-   * recoverPendingInbox 续跑面原地续跑，续跑收束即落 ok settled）；锚补投
-   * 与收口面解耦，照常执行。
+   * pendingInboxRequestIds）——命中的 run 不收口（留给 recoverPendingInbox
+   * 续跑面原地续跑，续跑收束即落 ok settled）。
    */
   async recoverOrphanRuns(defer?: Set<string>): Promise<number> {
     const sessionsRoot = path.join(this.agentDirOf(), 'sessions');
     let uuids: string[] = [];
     try { uuids = fs.readdirSync(sessionsRoot); } catch { return 0; }
     let settled = 0;
-    const anchors: Array<{ uuid: string; run: string }> = [];
     for (const uuid of uuids) {
       const dir = path.join(sessionsRoot, uuid);
       const lines = readJournal(dir);
@@ -348,47 +350,11 @@ export class LedgerService extends Service {
         // cr-667 defer：inbox 在途信的 run 走续跑面——不补 settled（补了
         // 续跑准入〔无 settled〕即失效，退回 step 0 重跑）。
         if (defer !== undefined && run.startsWith('run-') && defer.has(run.slice(4))) continue;
-        // 收口只补 journal-settled(interrupted)（cr-640 物化已退役——
-        // 步级上下文归 historyMessagesFor 读侧轨迹重建，cr-658）。
-        await this.writerFor(uuid, [this.agentId], 'user').settleMechanism(run, 'interrupted');
+        await this.writerFor(uuid, [this.agentId], 'user').settleOrphan(run, 'interrupted', this.agentId, uuid);
         settled += 1;
       }
-      // viewer 锚缺口（cr-632 链接制——覆盖本 boot 收口与存量已收口两类；
-      // 消息 run 判别排除机制 run）
-      if (this.postOfficeAddress !== undefined) {
-        const viewerDir = path.join(this.dataRoot, 'viewer', 'sessions', uuid);
-        const ledgerRows = readLedger(dir).rows;
-        for (const run of anchorableRuns(lines, readLedger(viewerDir).rows, ledgerRows)) {
-          anchors.push({ uuid, run });
-        }
-      }
-    }
-    for (const a of anchors) {
-      await this.relayRunAnchor(a.uuid, a.run).catch((err: unknown) => {
-        // 补锚失败可容忍：viewer 行缺席下次 boot 仍会重扫重投
-        this.ctx.logger.warn('[ledger] 孤儿锚信补投失败（' + a.run + '）：' + String(err));
-      });
     }
     return settled;
-  }
-
-  /** viewer run 键锚信补投（邮局 → user 壳 writeThrough；失败上抛由调用方记档） */
-  private async relayRunAnchor(uuid: string, run: string): Promise<void> {
-    if (this.usageOutbound === null) {
-      const { IpcClient } = await import('ac-post-office');
-      const client = new IpcClient();
-      await client.connect(this.postOfficeAddress!);
-      this.usageOutbound = { send: (e) => client.send(e) };
-    }
-    await this.usageOutbound.send({
-      uuid,
-      requestId: 'orphan-' + run,
-      sender: this.agentId,
-      to: 'user',
-      kind: 'message',
-      budget: 0,
-      payload: { text: '', run },
-    } as Envelope);
   }
 
   // —— inbox durable（A4：投递未消费消息；队列事实源——收束后链跑消费） ——

@@ -104,6 +104,12 @@ export interface ChatMessage {
    * 宿主定位按键配对（取代位置/内容前缀猜测）；旧行无键回落启发式路径。
    */
   stepId?: string;
+  /**
+   * run 身份键（cr-699 run 内连续性）：历史 steps 展开行由记录 run 透传。
+   * buildTurns 对同 run 相邻消息豁免 solo/平文/时间间隔拆分——中断-续跑
+   * 的长程 run 恒为一条思考链（run 边界（信封/收束行）才是拆轮判据）。
+   */
+  runId?: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
   /** 消息来源 Agent ID */

@@ -13,6 +13,7 @@ export const name = 'ac-ledger';
 export * from './records.ts';
 export * from './writer.ts';
 export * from './reader.ts';
+export * from './derive.ts';
 export * from './archive.ts';
 export * from './user.ts';
 export * from './usage.ts';

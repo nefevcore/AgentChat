@@ -37,12 +37,13 @@ function readReceived(agentId: string): Array<{ requestId: string; fresh: boolea
   }
 }
 
-/** M8.2：账本断言面（messages.jsonl 行——入站行 + settle 终稿行） */
+/** M8.2：账本断言面（messages.jsonl 行——入站行 + settle 终稿行；
+ *  cr-697 物化段行/注入行（source 标记）过滤——终稿层口径） */
 function readLedgerRows(agentId: string, uuid: string): Array<{ role: string; content: string; agent_id: string; requestId?: string }> {
   try {
     return fs.readFileSync(path.join(ROOT, 'agents', agentId, 'sessions', uuid, 'messages.jsonl'), 'utf-8')
       .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l))
-      .filter((r) => r.type !== 'session-header');
+      .filter((r) => r.type !== 'session-header' && r.source !== 'segment' && r.source !== 'inject');
   } catch {
     return [];
   }

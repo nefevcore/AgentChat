@@ -1822,6 +1822,9 @@ export function createFeedCore(
       ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
       // 身份键透传（2026-09-24 身份贯通）：历史行与直播行按键控对齐
       ...(typeof m.stepId === 'string' && m.stepId ? { stepId: m.stepId } : {}),
+      // run 身份键透传（cr-699）：buildTurns sameRun 拆轮豁免判定源
+      //（toHistoryMessages 携带——同 run 步序连续不拆思考链）
+      ...(typeof m.runId === 'string' && m.runId ? { runId: m.runId } : {}),
       // 步级 API 计时/补全 token 透传（链头速率数据源，见 types.ts apiMs 注释）
       ...(typeof m.apiMs === 'number' ? { apiMs: m.apiMs } : {}),
       ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),

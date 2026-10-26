@@ -94,12 +94,13 @@ describe('M3.5 级联验收：CLI 直连多轮会话', () => {
     // —— 账本重读（重开 CLI 续跑——壳死账本在 A5）——
     const { header, rows } = readLedger(sessionDir(ROOT, 'alpha', uuid));
     expect(header?.participants).toEqual(['alpha', 'user']);
-    expect(rows).toHaveLength(4); // 3 入站（含重发 1）+ 2 回复 → 实际 3+2=5？
+    // cr-697：settlement 物化段行（source 标记，content 恒空）过滤——终稿层口径
+    const finalRows = rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
     // 逐行核对：req-1 入站 / 回复 / req-2 入站 / 回复（req-1 重发被准入短路，未落行）
-    expect(rows.map((r) => r.content)).toEqual([
+    expect(finalRows.map((r) => r.content)).toEqual([
       '第一轮', '[alpha 回复 第一轮]', '第二轮', '[alpha 回复 第二轮]',
     ]);
-    expect(rows).toHaveLength(4);
+    expect(finalRows).toHaveLength(4);
     // viewer 投影（user 视角回放）
     expect(replayView(rows, 'user').map((m) => m.role)).toEqual(['assistant', 'user', 'assistant', 'user']);
   }, 20_000);

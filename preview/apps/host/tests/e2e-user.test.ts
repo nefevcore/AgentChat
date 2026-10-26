@@ -78,7 +78,8 @@ describe('M8.4 user 壳半边端到端', () => {
       }
       expect(rows.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
       // agent 侧账本对拍：同会话双视角（D4 视角主义——两账本各自为真）
-      const arows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', uuid)).rows;
+      const arows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', uuid)).rows
+        .filter((r) => r.source !== 'segment' && r.source !== 'inject');
       expect(arows.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
       // run 键盖戳（cr-595）：peer 终稿行 source=run:<id> 与 agent 终稿行
       // run 一致——webui history 按此联查 agent journal 带出思考/工具卡

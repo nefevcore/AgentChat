@@ -9,7 +9,7 @@
 // ============================================================
 import type { Envelope } from 'ac-envelope-core';
 import { issueConversationId, issueRequestId, makeEnvelope } from 'ac-envelope-core';
-import { UserLedger, type UserReplayRow } from 'ac-ledger';
+import { UserLedger, deriveViewerLedger, type UserReplayRow } from 'ac-ledger';
 import type { PostOffice, DispatchResult } from 'ac-post-office';
 
 export interface UserSendOptions {
@@ -71,21 +71,13 @@ export class UserStub {
     return new UserLedger(this.dataRoot, uuid, ['user']).replay();
   }
 
-  /** 收信面（agent 终稿/来信到达 user 端点）：写穿 user 账本 + ack */
+  /** 收信面（agent 终稿/通知到达 user 端点）：cr-698 起信封 = 通知触发器
+   *  ——不直写行，按 sender 域账本派生 viewer 行（requestId 幂等 / run 键
+   *  单行 / 原 ts；空终稿不落行——读面 steps 盲区投影渲染）。 */
   private async receive(env: Envelope): Promise<{ ack: string; fresh: boolean }> {
-    const payload = env.payload as { text?: string; run?: string } | null;
-    const text = typeof payload?.text === 'string' ? payload.text : '';
-    // payload.run（cr-595）：终稿产生 run 的键——盖 source=run:<id> 戳供
-    // webui history 按 run 联查 agent 账本 journal（D4.2 思考/工具卡带出）。
-    const run = typeof payload?.run === 'string' && payload.run !== '' ? payload.run : undefined;
-    const fresh = await this.ledgerFor(env.uuid, env.sender).writeThrough({
-      agentId: env.sender,
-      content: text,
-      uuid: env.uuid,
-      requestId: env.requestId,
-      ...(run !== undefined ? { run } : {}),
-    });
-    return { ack: env.requestId, fresh };
+    const domains = env.uuid.includes('~') ? [...new Set(env.uuid.split('~'))] : [env.sender];
+    await deriveViewerLedger(this.dataRoot, env.uuid, domains);
+    return { ack: env.requestId, fresh: true };
   }
 
   /** per-uuid 账本缓存（同进程同 writer——AdmissionGate 幂等跨信封有效） */

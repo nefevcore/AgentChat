@@ -159,6 +159,8 @@ interface FeedAgentMsg {
   /** 用户附件（final 渲染附件 chips 用；派生时丢失会导致附件不显示） */
   files?: any[];
   agent_id?: string;
+  /** run 身份键（cr-699：历史 steps 展开透传——buildTurns sameRun 拆轮豁免判定源） */
+  runId?: string;
 }
 
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
@@ -351,18 +353,23 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       const senderId = msg.agent_id || '';
       const ts = msg.timestamp || Date.now();
       const lastTurn = cur?.turns.at(-1);
-      const gapTooLong = !!cur && !!lastTurn && (ts - lastTurn.ts) > MERGE_GAP_MS;
+      // run 内连续性豁免（cr-699）：同 run 相邻步（含中断-续跑的中途收束
+      // 总结步）不因时间间隔/平文形态拆轮——run 边界才是拆轮判据。跨 run
+      // 或无 run 键（直播/旧数据）走原规则。
+      const sameRun = !!msg.runId && !!lastTurn?.runId && msg.runId === lastTurn.runId;
+      const gapTooLong = !!cur && !!lastTurn && !sameRun && (ts - lastTurn.ts) > MERGE_GAP_MS;
       // 无思考无工具的纯正文消息（如 send_agent 投递）：若当前轮已有完整正文，
       // 单独成轮 —— 否则它会把上一条正经回复吞进思维链折叠栏（正文被折叠）。
       const isPlainBody = !!msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
       const prevComplete = !!lastTurn && !!lastTurn.content && !lastTurn.tool_calls.length;
-      const plainAfterComplete = isPlainBody && prevComplete;
+      const plainAfterComplete = isPlainBody && prevComplete && !sameRun;
       // 平文中段插行：同 sender 后续还有消息 → 独立成轮（拆轮保位，不被
       // 折叠链吞掉）；其后的下一条同 sender 消息另起一轮（afterSolo）——
       // 否则后续步骤会并入插行所在轮、把插行顶回链内。组尾平文（final
-      // 文本）不拆，正常并入作终稿。
+      // 文本）不拆，正常并入作终稿。同 run 步序连续（sameRun）不拆——
+      // 中断-续跑 run 的中途总结步留在链内。
       const senderContinues = nextSenderOf[k] === senderId;
-      const solo = isPlainBody && senderContinues;
+      const solo = isPlainBody && senderContinues && !sameRun;
       if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete || solo || afterSolo) {
         flush();
         cur = { agent_id: senderId, turns: [] };
@@ -396,6 +403,8 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         content: msg.content || '',
         ts,
         isStreaming: msg.isStreaming,
+        // run 身份键透传（cr-699 sameRun 判定——上法 lastTurn.runId 取源）
+        ...(msg.runId !== undefined ? { runId: msg.runId } : {}),
         // 透传原始 id/附件/身份/锚点：final 沿用（edit/regenerate/delete 按 id 命中、
         // 附件渲染、分支按钮按 persistedMsgId 门控）
         id: msg.id,

@@ -81,6 +81,7 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-agents/client/poolModelCache.ts': agentsPoolModelCache,
     'ac-client-ui-agents/client/rosterAccess.ts': agentsRosterAccess,
     'ac-client-ui-agents/client/rosterApi.ts': agentsRosterApi,
+    'ac-client-ui-conversation/client': convIndex,
     'ac-client-ui-conversation/client/ConversationView.vue': convConversationView,
     'ac-client-ui-conversation/client/TranscriptList.vue': convTranscriptList,
     'ac-client-ui-conversation/client/chatStore.ts': convChatStore,

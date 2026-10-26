@@ -46,7 +46,11 @@ export async function projectUserLedger(targetRoot: string, agentId: string, uui
       content: row.content,
       agent_id: row.agent_id,
       uuid,
-      ...(row.requestId !== undefined ? { requestId: row.requestId } : {}),
+      // cr-698 派生链接锚：幂等键 = 原 requestId，缺席回落原 message_id
+      //（确定性——派生器按此键识别「viewer 已有此行」，随机生成键会让
+      // 派生器把导入终稿重复派生一份）
+      // message_id 恒有值（LedgerRow 必填字段），直接兜底
+      requestId: row.requestId ?? row.message_id,
       ...(row.run !== undefined ? { source: 'run:' + row.run } : {}),
       // message_id/timestamp/seq 是 writer 单写者自生成字段（deliver 契约
       // Omit 掉）——user 账本自有序号；原行时刻由 agent 侧账本承载（恒等门域）

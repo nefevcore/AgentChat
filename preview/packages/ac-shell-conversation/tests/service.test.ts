@@ -98,9 +98,13 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // 账本：header + 4 行（2 入站 + 2 终稿），终稿 mock 回声
       const { header, rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
       expect(header?.participants).toEqual(['alpha', 'user']);
-      expect(rows.map((r) => r.content)).toEqual(['第一问', '[回复 第一问]', '第二问', '[回复 第二问]']);
-      expect(rows[1]).toMatchObject({ agent_id: 'alpha', run: 'run-r1' });
-      // journal：步记录在（settlement 台账）
+      // cr-697：settlement 物化段行（source='segment'，content 恒空）——
+      // 终稿层断言过滤物化行（steps 在场性归 ledger.test）
+      const final = rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
+      expect(final.map((r) => r.content)).toEqual(['第一问', '[回复 第一问]', '第二问', '[回复 第二问]']);
+      expect(final[1]).toMatchObject({ agent_id: 'alpha', run: 'run-r1' });
+      // 步级事实已物化段行在账（journal 收束即清）
+      expect(rows.some((r) => r.source === 'segment' && r.run === 'run-r1')).toBe(true);
       // 第二轮历史延续：mock 回声带最后一问 → 隐含多轮上下文装配
       void ctx;
     } finally {
@@ -166,7 +170,8 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       const dup = await conv.receiveEnvelope(msg(UUID, 'r1', '问（重发）'), { fresh: false });
       expect(dup).toBe('deduped');
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      expect(rows).toHaveLength(2); // 重发未增行
+      // 重发未增行（物化段行不计——幂等只看消息行）
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject')).toHaveLength(2);
     } finally {
       await dispose(fibers);
     }
@@ -279,7 +284,9 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
       expect(rows.filter((r) => r.requestId === 'q2')).toHaveLength(1);
       const journal = readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      expect(journal).toContainEqual(expect.objectContaining({ type: 'journal-inject', run: 'run-q1', content: '排队消息A' }));
+      // cr-697：收束即清——注入行物化进账本（source='inject'），journal 不留
+      expect(rows).toContainEqual(expect.objectContaining({ source: 'inject', run: 'run-q1', content: '排队消息A' }));
+      expect(journal).not.toContainEqual(expect.objectContaining({ type: 'journal-inject', run: 'run-q1' }));
     } finally {
       release();
       await dispose(fibers);
@@ -522,8 +529,9 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       expect(conv.isBusy()).toBe(false);
       // conv-b 账本：入站行 + 终稿行（run 真的跑过——跨会话链跑闭环）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
-      expect(rows[1]).toMatchObject({ agent_id: 'alpha', run: 'run-b1' });
+      const fb = rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
+      expect(fb.map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
+      expect(fb[1]).toMatchObject({ agent_id: 'alpha', run: 'run-b1' });
     } finally {
       release();
       await dispose(fibers);
@@ -552,8 +560,8 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       // b1 死信被跳过（无 run 轨迹）；b2 照跑——修复前 b1 miss 即 break +
       // finally 再移位丢 b2，两 turn 全蒸发（creator 实锤现场）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.map((x) => x.content)).toEqual(['第一封', '第二封', '[回复 第二封]']);
-      expect(rows[2]).toMatchObject({ run: 'run-b2' });
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一封', '第二封', '[回复 第二封]']);
+      expect(rows.filter((r) => r.source !== 'segment')[2]).toMatchObject({ run: 'run-b2' });
       expect(conv.queue('conv-b')).toHaveLength(0);
     } finally {
       release();
@@ -607,7 +615,7 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
       expect(conv.isBusy()).toBe(false);
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
       expect(conv.queue('conv-b')).toHaveLength(0);
     } finally {
       release();
@@ -642,7 +650,7 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       expect(conv.isBusy()).toBe(false);
       // 终稿照常入账（run 自然收束，非 interrupted）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-r'));
-      expect(rows.map((x) => x.content)).toEqual(['慢问题', '[回复 慢问题]']);
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['慢问题', '[回复 慢问题]']);
     } finally {
       release();
       await dispose(fibers);
@@ -835,7 +843,9 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       expect(msgs.filter((m) => m.role === 'user' && m.content === '原任务')).toHaveLength(1);
       // 同 runId 收束恰一次 + resume 标注
       const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f')).rows;
-      expect(rows.filter((r) => r.agent_id === 'alpha' && r.run === 'run-f1')).toHaveLength(1);
+      // 终稿行恰一份（cr-697 物化段行同 run 在场不计）；段行在账
+      expect(rows.filter((r) => r.agent_id === 'alpha' && r.run === 'run-f1' && r.source === undefined)).toHaveLength(1);
+      expect(rows.some((r) => r.source === 'segment' && r.run === 'run-f1')).toBe(true);
       const journal = readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f'));
       expect(journal.filter((l) => l.type === 'journal-settled' && l.run === 'run-f1')).toHaveLength(1);
       expect(injections.some((i) => i.source === 'resume')).toBe(true);

@@ -22,12 +22,30 @@ export interface LedgerRow {
   /** 信封关联（requestId = 投递幂等键；uuid = 会话身份键） */
   requestId?: string;
   uuid?: string;
-  /** context 行来源词（event/error/skill…开放） */
+  /** 行来源词（开放：event/error/skill… 终稿行 = 'run:<id>' 联查键；
+   *  段行 = 'segment' / 注入行 = 'inject'——cr-697 settlement 段行物化产物） */
   source?: string;
   /** 段行 run 关联（导入迁移：settlement 切段物化产物——旧侧 run 键随终稿行保留，供 webui run 键带出） */
   run?: string;
+  /** 段行 steps（source='segment' 行在场）：已合并工具结果（含 run_code 子调用
+   *  平铺）的步序——journal 步行物化的落账形态；journal 随之剔除该 run 步行
+   *  （收束即清，cr-697——journal 回归 run 周期台账本义，治永源膨胀） */
+  steps?: ProjectedStep[];
   /** 单调序号（writer 按文件分配——崩溃检测 + 去重锚） */
   seq?: number;
+}
+
+/**
+ * run 步投影行（webui history steps 带出——主线 SessionStepRecord 的前端
+ * 消费最小面）：思考折叠（reasoning）+ 工具卡（toolCalls 含内联 result——
+ * journal 分列 toolCalls/toolResults 在此合并）。
+ * ts = 落行时刻（cr-697 起 journal 行盖戳、物化随行带出；存量行缺席）。
+ */
+export interface ProjectedStep {
+  content: string;
+  reasoning?: string;
+  ts?: number;
+  toolCalls?: Array<{ id: string; name: string; arguments: string; result: unknown; subcall?: boolean }>;
 }
 
 /** 头行（writer 首建文件时写入） */
@@ -52,6 +70,8 @@ export interface JournalStep {
   toolCalls?: Array<{ id: string; name: string; arguments: string }>;
   /** 工具执行结果（与 tool_calls 一一对应——service.journalStep 落盘；读侧 steps 投影合并进 result） */
   toolResults?: Array<{ ok: boolean; output?: unknown; error?: string }>;
+  /** 落行时刻（epoch ms——cr-697 起盖戳；物化段行/步级 ts 的取源；存量行缺席） */
+  ts?: number;
   seq?: number;
 }
 
@@ -61,6 +81,8 @@ export interface JournalInject {
   run: string;
   content: string;
   requestId?: string;
+  /** 落行时刻（epoch ms——cr-697 起盖戳；物化注入行时间戳取源） */
+  ts?: number;
   seq?: number;
 }
 
@@ -80,6 +102,8 @@ export interface JournalToolResult {
   name?: string;
   /** 参数原始 JSON 串（子调用档案） */
   arguments?: string;
+  /** 落行时刻（epoch ms——cr-697 起盖戳） */
+  ts?: number;
   seq?: number;
 }
 

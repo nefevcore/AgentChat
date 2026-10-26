@@ -468,17 +468,23 @@ describe('8.5a 宿主 web 面接线', () => {
       // stats：running 非空（此前恒空壳）
       const stats = await rpc<{ running: Array<{ agentId: string; conversationId: string }> }>(ws, 'conversation/stats', {});
       expect(stats.running).toEqual([{ agentId: 'alpha', conversationId: conv }]);
-      // history 活投影：run-live 两步各一行 partial；孤儿 run-orphan 不投
+      // history 活投影：run-live 两步各一行 partial；孤儿 run-orphan 经
+      // cr-698 盲区投影带出（有 steps 无 viewer 行的 run 一律投——
+      // 「有思考链无正文」是中断常态，显示形态归前端渲染）
       const h1 = await rpc<{ total: number; records: Array<{ run?: string; content: string; partial?: boolean; steps?: Array<{ reasoning?: string; toolCalls?: unknown[] }> }> }>(ws, 'session/history', { conversationId: conv });
-      expect(h1.records).toHaveLength(2);
+      expect(h1.records).toHaveLength(3);
       expect(h1.records[0]).toMatchObject({ role: 'assistant', run: 'run-live', content: '', partial: true });
       expect(h1.records[0]!.steps![0]).toMatchObject({ reasoning: '第一步思考' });
       expect(h1.records[1]!.steps![0]!.toolCalls).toHaveLength(1);
-      expect(h1.records.every((r) => r.run !== 'run-orphan')).toBe(true);
-      // run 收束（壳转闲）→ 活投影消失（活投影只为在途 run 服务）
+      expect(h1.records[2]).toMatchObject({ run: 'run-orphan', partial: true });
+      expect(h1.records[2]!.steps![0]).toMatchObject({ reasoning: '孤儿残留' });
+      // run 收束（壳转闲）→ 活投影消失；两 run 皆无 viewer 行 → 盲区投影
+      // 留驻（journal 步行仍在——未收束 run 如实 partial）
       busy = false;
-      const h2 = await rpc<{ records: unknown[] }>(ws, 'session/history', { conversationId: conv });
-      expect(h2.records).toHaveLength(0);
+      const h2 = await rpc<{ records: Array<{ run?: string; partial?: boolean }> }>(ws, 'session/history', { conversationId: conv });
+      expect(h2.records).toHaveLength(2);
+      expect(h2.records.map((r) => r.run).sort()).toEqual(['run-live', 'run-orphan']);
+      expect(h2.records.every((r) => r.partial === true)).toBe(true);
       const stats2 = await rpc<{ running: unknown[] }>(ws, 'conversation/stats', {});
       expect(stats2.running).toEqual([]);
     } finally {

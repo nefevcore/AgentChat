@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import type { LedgerRow, LedgerHeader, JournalLine, JournalStep, JournalInject, JournalToolResult, JournalSettled, RunUsage } from './records.ts';
 import { AdmissionGate } from 'ac-envelope-core';
 import { nextSegmentName, writeAnchor, type CompactOptions, type CompactReport } from './archive.ts';
-import { readLedger, readJournal } from './reader.ts';
+import { readLedger, readJournal, segmentizeRun } from './reader.ts';
 
 /** 会话目录：agents/<agentId>/sessions/<uuid>/ */
 export function sessionDir(dataRoot: string, agentId: string, uuid: string): string {
@@ -120,17 +120,22 @@ export class LedgerWriter {
 
   /**
    * 落账入站消息（requestId 幂等准入先行——同键重发短路 deduped，
-   * 不重复写行）。返回 true = 新落账；false = 幂等命中。
+   * 不重复写行）。timestamp 可显式携带（cr-698 viewer 派生行保各自账本
+   * 原时间戳——派生时刻 ≠ 发言时刻）；缺省 = 落行时刻。
+   * 返回 true = 新落账；false = 幂等命中。
    */
-  async deliver(row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>): Promise<boolean> {
+  async deliver(row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'> & { timestamp?: string }): Promise<boolean> {
     const key = row.requestId;
     if (key !== undefined && !this.admission.admit(key)) return false;
+    const ts = row.timestamp ?? new Date().toISOString();
+    const { timestamp: _ts, ...rest } = row;
+    void _ts;
     await this.enqueue(() => {
       this.ensureHeader();
       const full: LedgerRow = {
-        ...row,
+        ...rest,
         message_id: key ?? cryptoRandomId(),
-        timestamp: new Date().toISOString(),
+        timestamp: ts,
         seq: this.allocSeq(),
       };
       this.appendLine(path.join(this.dir, MESSAGES), full);
@@ -142,20 +147,25 @@ export class LedgerWriter {
 
   async journal(line: JournalStep | JournalInject | JournalToolResult | Omit<JournalSettled, 'seq'>): Promise<void> {
     await this.enqueue(() => {
-      const full = { ...line, seq: this.allocSeq() } as JournalLine;
+      // ts 盖戳（cr-697）：物化段行/步级时间戳的取源——写入时不可逆，缺席
+      // 即永久缺席（存量行读侧回落收束时刻）
+      const full = { ...line, ts: Date.now(), seq: this.allocSeq() } as JournalLine;
       this.appendLine(path.join(this.dir, JOURNAL), full);
     });
   }
 
-  // —— settlement 两阶段（run 收束：journal 提升 + 切段物化） ——
+  // —— settlement 两阶段（run 收束：段行物化 + journal 剔除） ——
 
-  // cr-640/653 段行物化已退役（cr-658 轨迹完整性读侧重建取代——
-  // historyMessagesFor 从 journal 重建协议级消息对，上下文不再依赖写侧
-  // 文本降维；「run 做过的推理是会话事实」裁决由读面承接）。
+  // cr-697：恢复主线两阶段语义（推翻 cr-658 的「journal 永源 + 读侧重建」
+  // 裁决——935 行/4MB 的 journal 永不清理致全仓 267MB 膨胀）。收束时把
+  // journal 步行按注入边界切段物化进 messages.jsonl（source='segment'/
+  // 'inject' 行；steps = 补行覆盖 + 子调用平铺后的步序），随 journal 剔除
+  // 该 run 步行（settled 行保留——usage 计量与终态审计面）。读面（steps
+  // 带出 / 轨迹重建）物化行优先、journal 兜底存量与 in-flight。
 
   /**
-   * run 收束：终稿行 append 到 messages.jsonl + journal-settled 标记。
-   * 部分行吸收 = 读侧投影（journal-settled 后部分行失效——与现状同构）。
+   * run 收束：段行物化（注入边界切段）→ 终稿行 → journal-settled 标记
+   * → journal 步行剔除（收束即清——settled 行保留）。
    * meter（cr-538）：run 级用量聚合随 settlement 落账——journal 计量（R2）。
    */
   async settle(
@@ -166,6 +176,7 @@ export class LedgerWriter {
   ): Promise<void> {
     await this.enqueue(() => {
       this.ensureHeader();
+      this.materialize(runId, finalRow.agent_id, finalRow.uuid);
       const full: LedgerRow = {
         ...finalRow,
         message_id: finalRow.requestId ?? cryptoRandomId(),
@@ -178,18 +189,20 @@ export class LedgerWriter {
         ...(meter !== undefined ? { usage: meter.usage, model: meter.model } : {}),
         seq: this.allocSeq(),
       });
+      this.pruneJournal(runId);
     });
   }
 
-  // 孤儿 run 收口（cr-628）归 settleMechanism 同语义：journal-settled(interrupted)
-  // 落账、messages 不落行（viewer 锚归 cr-631/632 补投面；上下文轨迹归
-  // historyMessagesFor 读侧重建——cr-640 物化退役后无孤儿特有写行为）。
+  // 孤儿 run 收口（cr-628）归 settleOrphan：物化段行（无终稿行——壳死于
+  // postReply 前，步级工作是会话事实）+ journal-settled(interrupted) + 剔除。
+  // viewer 侧不再补锚（cr-698 锚信通道退役——空终稿 run 不落 viewer 行，
+  // 前端由 session/history 读面的 steps 盲区投影渲染）。
 
   /**
-   * 机制 run 收束（归档整理等——settle 机制变体）：journal-settled 落账，
-   * messages.jsonl 不落行（机制 run 与会话增长无关——主线 ARCHIVE_REVIEW
-   * 三不语义的账本侧）。finish/interrupted 照常——整理行收尾的完成态事实
-   * 仍在 journal（审计面）。
+   * 机制 run 收束（归档整理等——settle 机制变体）：journal-settled 落账 +
+   * 步行剔除，messages.jsonl 不落行（机制 run 与会话增长无关——主线
+   * ARCHIVE_REVIEW 三不语义的账本侧）。finish 照常——完成态事实仍在
+   * journal（审计面）。
    */
   async settleMechanism(runId: string, finish: 'ok' | 'interrupted' | 'error'): Promise<void> {
     await this.enqueue(() => {
@@ -197,7 +210,62 @@ export class LedgerWriter {
         type: 'journal-settled', run: runId, finish,
         seq: this.allocSeq(),
       });
+      this.pruneJournal(runId);
     });
+  }
+
+  /**
+   * 孤儿 run 收束（boot 期 recoverOrphanRuns 消费）：settle 的无终稿变体
+   * ——段行物化 + journal-settled(interrupted) + 步行剔除。终稿行缺席是
+   * 如实态（壳死于收束回信前）；步级轨迹经物化段行保持上下文/前端可见。
+   */
+  async settleOrphan(runId: string, finish: 'interrupted' | 'error', agentId: string, uuid?: string): Promise<void> {
+    await this.enqueue(() => {
+      this.ensureHeader();
+      this.materialize(runId, agentId, uuid);
+      this.appendLine(path.join(this.dir, JOURNAL), {
+        type: 'journal-settled', run: runId, finish,
+        seq: this.allocSeq(),
+      });
+      this.pruneJournal(runId);
+    });
+  }
+
+  /** journal → 段行/注入行物化（settle/settleOrphan 共用；journal 内调用——
+   *  串行队列内读该 run 全量行，切段落账。时间戳 = 步行落行 ts；存量行
+   *  缺席回落物化时刻） */
+  private materialize(runId: string, agentId: string, uuid?: string): void {
+    const segments = segmentizeRun(readJournal(this.dir), runId);
+    let i = 0;
+    for (const seg of segments) {
+      const isInject = seg.kind === 'inj';
+      const lastTs = isInject ? seg.ts : lastStepTs(seg.steps);
+      this.appendLine(path.join(this.dir, MESSAGES), {
+        role: 'agent',
+        content: isInject ? seg.content : '',
+        agent_id: agentId,
+        ...(uuid !== undefined ? { uuid } : {}),
+        run: runId,
+        source: isInject ? 'inject' : 'segment',
+        ...(isInject ? {} : { steps: seg.steps }),
+        message_id: (isInject ? 'inj-' : 'seg-') + runId + '-' + (i++),
+        timestamp: lastTs !== undefined ? new Date(lastTs).toISOString() : new Date().toISOString(),
+        seq: this.allocSeq(),
+      } satisfies LedgerRow);
+    }
+  }
+
+  /** journal 步行剔除（收束即清）：该 run 的 step/inject/tool-result 行
+   *  物化已完成，journal 只留 settled 行（usage 计量 + 终态审计）与其他
+   *  in-flight run 的行。tmp+rename 原子重写。 */
+  private pruneJournal(runId: string): void {
+    const file = path.join(this.dir, JOURNAL);
+    const lines = readJournal(this.dir);
+    const keep = lines.filter((l) => !(l.run === runId && l.type !== 'journal-settled'));
+    if (keep.length === lines.length) return;
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, keep.map((l) => JSON.stringify(l)).join('\n') + (keep.length > 0 ? '\n' : ''), 'utf-8');
+    fs.renameSync(tmp, file);
   }
 
   // —— 归档重写（D11：archive 行编排调用——物理面归账本 writer） ——
@@ -281,6 +349,13 @@ export class LedgerWriter {
 
 function cryptoRandomId(): string {
   return crypto.randomUUID();
+}
+
+/** 段内最后步级 ts（物化段行时间戳取源；全缺席 = undefined → 回落物化时刻） */
+function lastStepTs(steps: Array<{ ts?: number }>): number | undefined {
+  let out: number | undefined;
+  for (const s of steps) if (s.ts !== undefined) out = s.ts;
+  return out;
 }
 
 import * as crypto from 'node:crypto';

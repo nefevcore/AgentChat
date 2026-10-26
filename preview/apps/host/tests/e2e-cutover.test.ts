@@ -194,7 +194,9 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
         if (rows.length >= 2) {
           // 双账本对拍（D4 视角主义）：user 终稿层 == agent 侧账本
           expect(rows.map((r) => r.content)).toEqual(['壳半边全链问', '[mock 回复 壳半边全链问]']);
-          const arows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', outcome.uuid)).rows;
+          // agent 侧账本 = user 终稿层 + cr-697 物化段行（steps 载体）——对拍过滤
+          const arows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', outcome.uuid)).rows
+            .filter((r) => r.source !== 'segment' && r.source !== 'inject');
           expect(arows.map((r) => r.content)).toEqual(rows.map((r) => r.content));
           break;
         }

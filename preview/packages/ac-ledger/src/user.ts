@@ -57,6 +57,9 @@ export interface UserProjectionRow {
   run?: string;
   /** 投递幂等键（同 requestId 重投不重写） */
   requestId?: string;
+  /** 行时间戳（cr-698 派生行携带各自账本原时间戳——派生时刻 ≠ 发言时刻；
+   *  缺省 = 落行时刻） */
+  timestamp?: string;
 }
 
 /** user 视角回放行（终稿层投影） */
@@ -94,6 +97,7 @@ export class UserLedger {
       requestId: row.requestId,
       uuid: row.uuid,
       source: row.run !== undefined ? 'run:' + row.run : undefined,
+      ...(row.timestamp !== undefined ? { timestamp: row.timestamp } : {}),
     });
   }
 

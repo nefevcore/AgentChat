@@ -19,18 +19,25 @@ import * as path from 'node:path';
 const MESSAGES_FILE = 'messages.jsonl';
 const USER_SESSIONS = ['viewer', 'sessions'];
 
-/** 某会话在数据根内的全部账本目录（存在的才算；agent 侧按 agents/<agentId>/sessions/<id> 扫描） */
-export function conversationDirs(dataRoot: string, conversationId: string): string[] {
+/** 某会话在数据根内的全部账本目录（存在的才算；agent 侧按 agents/<agentId>/sessions/<id> 扫描）。
+ *  includeJournalOnly = 连仅存 journal（messages.jsonl 缺席）的域也带出——
+ *  cr-698 steps 盲区投影的消费形态（崩溃孤儿 run 只有 journal 步行）；
+ *  管理面（删行/截断/分支）维持缺省 messages 档——无行可改。 */
+export function conversationDirs(dataRoot: string, conversationId: string, opts?: { includeJournalOnly?: boolean }): string[] {
   if (!isSafeId(conversationId)) throw new Error('conversationId "' + conversationId + '" 非法（禁路径分隔 / ..）');
   const out: string[] = [];
+  const journalOnly = opts?.includeJournalOnly === true;
+  const has = (dir: string): boolean => journalOnly
+    ? fs.existsSync(dir)
+    : fs.existsSync(path.join(dir, MESSAGES_FILE));
   const userDir = path.join(dataRoot, ...USER_SESSIONS, conversationId);
-  if (fs.existsSync(path.join(userDir, MESSAGES_FILE))) out.push(userDir);
+  if (has(userDir)) out.push(userDir);
   let agents: fs.Dirent[] = [];
   try { agents = fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true }); } catch { /* 无 agents 域 */ }
   for (const a of agents) {
     if (!a.isDirectory()) continue;
     const dir = path.join(dataRoot, 'agents', a.name, 'sessions', conversationId);
-    if (fs.existsSync(path.join(dir, MESSAGES_FILE))) out.push(dir);
+    if (has(dir)) out.push(dir);
   }
   return out;
 }

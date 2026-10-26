@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-696**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-700**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
 
 ## 登记格式
 
@@ -714,3 +714,7 @@
 - 【cr-694 2026-10-25 B3 视角挂载：layout registerView 公开入口 + 隔离档容器承载（design-plugin-client-channel.md §2.1③）】
 - 【cr-695 2026-10-25 ◐c 退役批前置侦察：R6.1 A 类 25 包传递闭包重算（preview 依赖面+源码面双扫描零命中）+ 主线树内 200 边闭环核证 + B 类涟漪 34 文件清单备档——结论固化 design-plugin-client-channel.md §7】
 - 【cr-696 2026-10-25 ◐c 旧树退役批（路径 A）：ac-client-ui-* 31 包物理迁出 preview/packages + A 类 25 包与旧树装配面退役删除 + 双占名回收前置清障】
+- 【cr-697 2026-10-26 settlement 段行物化恢复 + journal 收束即清：settle/orphan 收口把 run 步行（含 subcall 补行合并、注入行）物化进 agent 账本段行（各自原 ts），partial.jsonl 剔除该 run 行——journal 回归 run 周期台账本义，治 267MB 膨胀（推翻 cr-658 读侧永源语义）】
+- 【cr-698 2026-10-26 viewer 账本派生化：终稿信封降级为通知，宿主从 agent 账本按 run/通知派生 viewer 行（原 ts、requestId 幂等）；锚信通道退役（cr-631/632）；空终稿 run 不落 viewer 行——session/history 读面补 settled-无行 run 的 steps 投影（前端渲染形态自理）；存量双行迁移】
+- 【cr-699 2026-10-26 思考链 run 内连续性豁免：历史 steps 展开行携带 runId，buildTurns 对同 run 相邻消息豁免 solo/平文/时间间隔拆分——中断-续跑长程 run 恒为一条思考链（step#36 中断总结步拆卡消除）】
+- 【cr-700 2026-10-26 conversation 通道件共享基座外部化：ac-client-ui-conversation client 深引加进 channelImports + shared-modules 单例——通道件不再携带 feed/feed-core 内部拷贝（双拷贝漂移致 cr-699 修复两度被旧通道件吞掉），重建面收敛为单一】
