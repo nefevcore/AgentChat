@@ -19,6 +19,7 @@
 | 文档 | 说明 |
 |------|------|
 | [../README.md](../README.md) | **根级事实源**：架构、`packages/`+`apps/` 布局、命令、文档地图 |
+| [design/cr-703-followups.md](design/cr-703-followups.md) | **cr-703 收尾清单**：P0/P1/P2 遗留、证据与验收 |
 | [release.md](release.md) | npm 发版流程手册（OIDC / tag 驱动 CI） |
 | [design/](design/) | 设计档案：会话/运行时/行册/Slot 树/标签系统/远程接入/LLM 协议扩展等 |
 | [cutover/](cutover/) | preview 轨历史（规格 `spec.md`、计划 `plan.md`、各批交接） |
