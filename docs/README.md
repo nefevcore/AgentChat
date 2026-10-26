@@ -1,6 +1,6 @@
 # AgentChat 文档中心
 
-> 2026-10-26（cr-703）：全仓重组为单轨布局——活包住 `packages/`、四应用住 `apps/`，旧 `src/` 与 `preview/` 双轨叙事退役（preview 终态以 tag `preview-final` 留档）。
+> 2026-10-26（cr-703）：全仓重组为单轨布局——活包住 `packages/`、四应用住 `apps/`，旧 `src/` 与 `preview/` 双轨叙事退役。
 > 更早的旧轨文档已整体归档至仓库外：`C:\\Users\\xiaofeng\\Documents\\Dev\\Note\\AgentChat`（`docs-pre-refactor-2026-09\\` / `docs-stale-2026-09\\` / `docs-stale-2026-09-18\\`）。
 
 ---

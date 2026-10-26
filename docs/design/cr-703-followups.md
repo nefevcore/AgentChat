@@ -3,26 +3,21 @@
 > 基线：commit `a4282921`（cr-703 全仓重组已提交并 push）。
 > 验证基线：`typecheck` / `webui:typecheck` / `check:deps` / `lint` 全绿；`test:unit` 305 文件 2322 用例、`test:integration` 12 文件 89 用例；`build:frontend → build:channels(29) → build:bundle` 成功；bundle 冒烟 23 行装配 / 29 通道 / HTTP 200。
 > 性质：**待办清单，不是已完成记录**。每条给「证据 → 建议动作 → 验收」。P0 = 发版/正确性阻塞；P1 = 覆盖面或可用性缺口；P2 = 卫生与文档。
-> 登记：cr-703 同批收尾，不另开 CR。
+> 登记：cr-703 主体 + cr-704（归档 tag 裁决）。
 
-## 0. 摘要（建议先做这四件）
+## 0. 摘要（建议先做这三件）
 
-1. **把 `preview-final` tag 推到远端**（归档承诺目前只在本机成立）。
-2. **修连续跑测试的 EPERM**（detached 壳占住 `workspace/test`，第二次跑必挂 global setup）。
-3. **补 bundle 全链 e2e**（现在只验证了宿主 HTTP 面，壳 spawn 链未从 dist 跑过）。
-4. **跑一次发布预检 + CI 验证**（workflow 只由 tag/manual 触发，main push 不验证）。
+1. **修连续跑测试的 EPERM**（detached 壳占住 `workspace/test`，第二次跑必挂 global setup）。
+2. **补 bundle 全链 e2e**（现在只验证了宿主 HTTP 面，壳 spawn 链未从 dist 跑过）。
+3. **跑一次发布预检 + CI 验证**（workflow 只由 tag/manual 触发，main push 不验证）。
+
+> **已裁决（cr-704）：preview 不设归档 tag。** `preview-final` 是 2026-10-26 16:53 由本批开工会话创建的**轻量标签**（无 tagger 元数据，从未推送），现已删除。preview 末态即提交 `3943f5aa`（`a4282921` 的父提交，仍在 main 历史里），不额外占 git tag 命名空间。
 
 ---
 
 ## 1. P0：发版与正确性阻塞
 
-### 1.1 `preview-final` tag 未推送，preview 归档未真正落地
-
-- **证据**：`git rev-parse preview-final` = `3943f5aa`（cr-702 终态，正确）；`git ls-remote --tags origin | grep preview-final` 为空。README 写的「preview 终态以 tag `preview-final` 留档」目前只在本地。
-- **动作**：`git push origin preview-final`。
-- **验收**：远端 tag 存在且指向 `3943f5aa`；`git ls-remote --tags origin` 可查。
-
-### 1.2 连续跑测试会因残留壳 EPERM 失败
+### 1.1 连续跑测试会因残留壳 EPERM 失败
 
 - **现象**：第一次 `pnpm test:unit` 绿；紧接着第二次会在 `scripts/vitest-global-setup.mjs:36` 的 `rmSync(workspace/test)` 报 `EPERM`，随后 `No test files found`。实测两次复现。
 - **根因**：`apps/host/boot.ts:305` 的 `close()` 只调 `supervisors.close()`；而 `apps/host/supervise.ts:114` 的 `stop()` 语义是「停监护循环、**不杀壳**」（detached / host-revive 设计）。`apps/host/tests/e2e-admin-preview.test.ts` 的 `afterEach` 只 `host.close()`，其拉起的壳继续持有 `workspace/test/wN/sandbox/...` 文件句柄。
@@ -33,14 +28,14 @@
   3. global setup 增加「失败前诊断 + 有界重试」：打印占用进程/路径，避免只给 `EPERM` 悬案。
 - **验收**：连续两次 `pnpm test:unit` 均绿；退出后无残留 `apps/shell/boot.ts` 进程。
 
-### 1.3 bundle 全链 e2e 缺失
+### 1.2 bundle 全链 e2e 缺失
 
 - **现状**：已验证 `dist/agentchat.mjs` 启动、静态面 200、23 行装配、29 通道播种；**未验证**从 bundle 派生壳（`dist/shell.mjs`）、投递信封、账本收束。
 - **原因**：cr-702 的 bundle 探针原本住 `preview/sandbox/`（未跟踪），本批已随 preview 删除。
 - **动作**：新增 `scripts/e2e-bundle.mjs`（或 `sandbox/` 下脚本后收编）：隔离 `AGENTCHAT_DATA_ROOT` → 起 `dist/agentchat.mjs --mock-provider` → 建 Agent → user 发一条消息 → 断言壳 boot.ready / 账本终稿 / 进程可退。挂进 `release-preflight` 的 bundle 步之后。
 - **验收**：一条命令在干净 `dist/` 上跑通；失败时非零退出并保留数据根现场。
 
-### 1.4 CI 未验证，发布预检未跑
+### 1.3 CI 未验证，发布预检未跑
 
 - **证据**：`.github/workflows/{publish,desktop,mobile}.yml` 触发条件均为 tag push / `workflow_dispatch`；本次只 push 了 main。`pnpm release:preflight`（含 `--clean` / `--wsl`）未执行。
 - **动作**：发布前跑 `pnpm release:preflight --clean`（Windows 干净档）+ `--wsl`（Linux 大小写敏感档）；CI 用 `workflow_dispatch` 空跑或下一个 tag 验证。注意 `publish` 手动触发可能真的发 npm，先确认 workflow 的 manual 语义。
@@ -105,25 +100,24 @@
 | 3.9 | `docs/cutover` 无 cr-703 收口行 | `docs/cutover/plan.md` 冻结于 preview 期 | 可按「只读历史」保持；若需要，只在 `docs/README.md` 注明冻结 |
 | 3.10 | workflow 注释仍写 preview | `.github/workflows/desktop.yml:12` 等（仅注释） | 顺手改 `apps/ui dist` |
 | 3.11 | `pnpm test` 单次全量未跑 | 本批 unit/integration 分跑（等价），未跑一次 `all` 档 | 发版前跑一次 `pnpm test` 留档 |
-| 3.12 | `release:preflight` 未跑 | 同 1.4 | 见 1.4 |
+| 3.12 | `release:preflight` 未跑 | 同 1.3 | 见 1.3 |
 
 ---
 
 ## 4. 需要你裁决的决策点
 
-1. **`preview-final` 是否现在推送**（P0，一条命令）。
-2. **e2e 壳清理策略**：teardown 收割 vs 数据根移出 `workspace/test`（建议两者都做，先做数据根隔离）。
-3. **两个 supervisor**：合并还是双份 + 注释/回归锁。
-4. **`remote-loopback-host.ts`**：移植（是否给 `bootHost` 加 `rowOptions`）还是删除。
-5. **`src/webui` 测试**：只补 2 个结构锁，还是做一次完整 coverage 差额审计。
-6. **preview 备份**：外置归档还是删除。
-7. **`.dsh` 技能**：继续本地态，还是纳入版本控制。
+1. **e2e 壳清理策略**：teardown 收割 vs 数据根移出 `workspace/test`（建议两者都做，先做数据根隔离）。
+2. **两个 supervisor**：合并还是双份 + 注释/回归锁。
+3. **`remote-loopback-host.ts`**：移植（是否给 `bootHost` 加 `rowOptions`）还是删除。
+4. **`src/webui` 测试**：只补 2 个结构锁，还是做一次完整 coverage 差额审计。
+5. **preview 备份**：外置归档还是删除。
+6. **`.dsh` 技能**：继续本地态，还是纳入版本控制。
 
 ## 5. 建议执行顺序
 
 ```text
-第 1 天  1.1 tag 推送 → 1.2 测试 EPERM → 2.4 CHANGELOG
-第 2 天  1.3 bundle e2e → 1.4 release:preflight（--clean / --wsl）
+第 1 天  1.1 测试 EPERM → 2.4 CHANGELOG
+第 2 天  1.2 bundle e2e → 1.3 release:preflight（--clean / --wsl）
 第 3 天  2.1 两个结构锁 → 2.2 loopback 宿主 → 2.3 supervisor 裁决
 随后     2.5 备份处置 + §3 卫生项（可攒一个 docs/cleanup 小批）
 ```
@@ -131,9 +125,8 @@
 ## 附：核验命令
 
 ```powershell
-git ls-remote --tags origin | Select-String preview-final   # 1.1
-pnpm test:unit; pnpm test:unit                               # 1.2 连跑两次
-pnpm release:preflight --clean                               # 1.4
+pnpm test:unit; pnpm test:unit                               # 1.1 连跑两次
+pnpm release:preflight --clean                               # 1.3
 Select-String -Path CHANGELOG.md -Pattern 'webui/tests' | Select-Object -First 5   # 2.4 看 Unreleased 段
 npx vitest run packages/ac-client-ui-renderer/tests          # 2.1 现状覆盖抽样
 ```

@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-703**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-704**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 
 ## 登记格式
 
@@ -721,3 +721,4 @@
 - 【cr-701 2026-10-26 B4 宿主树 ui 组终态清空：catalog 撤 25 ui 域行（86→61，host 48→23）+ 口径断言/注释/manifest R1R2 同步 + 设计文档 B4 落地标注】
 - 【cr-702 2026-10-26 发布链换轨批：build:bundle 改 preview 宿主双入口（agentchat.mjs+shell.mjs+资产面）+ 三 CI workflow 换轨 + src/webui 退役 + README 深层叙事重写】
 - 【cr-703 2026-10-26 全仓重组批（布局 C）：packages/ 收编全部活包（src 71 + preview 49）、apps/ 收编四应用、src/ 消灭——preview 覆盖正轨终态批；四遗留并入（4 死包删 + 批 C src/webui 退役 + cutover 三脚本 + cordis.yml/supervisor.mjs）；tag preview-final 归档】
+- 【cr-704 2026-10-26 preview 归档不设 git tag 裁决：删除本地轻量标签 preview-final（cr-703 开工会话 16:53 创建、从未推送），README/收尾清单/计划同步为「末态即提交 3943f5aa、不占 tag 命名空间」】

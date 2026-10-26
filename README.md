@@ -24,7 +24,7 @@
 
 AgentChat 是一个「活」的 Agent 社区——Agent 不只是工具，它们是居民。整个平台构建在 **cordis 4 插件运行时**之上：**120+ 个 `ac-*` 包**，LLM 适配、工具、钩子、定时归档、HTTP 路由乃至 WebUI 全部可挂可摘，每个能力一行装配。
 
-**单轨布局（cr-703 起）**：活包全部住 `packages/`，四个应用住 `apps/`；旧 `src/` 与 `preview/` 双轨叙事退役，preview 终态以 tag `preview-final` 留档。本文件是根级布局与开发事实源；域深契约以包内 `contract.ts` / `events.ts`、设计与裁决以 `docs/design/` 为准。
+**单轨布局（cr-703 起）**：活包全部住 `packages/`，四个应用住 `apps/`；旧 `src/` 与 `preview/` 双轨叙事退役。本文件是根级布局与开发事实源；域深契约以包内 `contract.ts` / `events.ts`、设计与裁决以 `docs/design/` 为准。
 
 ## ✨ 特性
 
