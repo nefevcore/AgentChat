@@ -64,7 +64,7 @@ agentchat            # 启动，WebUI 默认在 http://localhost:3830
 git clone https://github.com/nefevcore/AgentChat.git
 cd AgentChat
 pnpm install
-pnpm webui:build        # 构建 WebUI 前端产物（改前端后需重建）
+pnpm webui:build        # 构建 WebUI 前端产物（preview/apps/ui；改前端后需重建）
 pnpm dev                # 启动，http://localhost:3830
 ```
 
@@ -157,37 +157,44 @@ Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新�
 
 ## 🏗️ 架构
 
+宿主-壳双进程模型（cr-556 换轨后正式架构）：
+
 ```text
-WebUI（Vue 3）── HTTP + WebSocket ── ac-web-server / ac-ws-bridge
+WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + 行集装配 + 编排）
+                                              │ 按需 spawn（信封触发）
+                                              ▼
+                                            壳（per-Agent 进程：会话状态机 + ReAct 循环 + 工具）
 
-入口  ac-conversation         会话状态机：串行化门 + inbox 双队列 + 防自激
-L3    ac-router + ac-agents   信封投递（纯转发，零会话状态）；Agent 是数据不是插件
-L2    ac-agent-loop           ReAct 编排：推理 ↔ 工具循环 + steer 注入 + 语义化中断
-L1    ac-llm + ac-llm-pool    模型会话聚合；openai / deepseek / glm 适配薄行
-
-横切  ac-{fs,shell,web,math,collab}-tools · memory · timer · archive · security · plugin-* …
+壳内   conversation           会话状态机：串行化门 + inbox 双队列 + 链跑 + 防自激
+       agent-loop             ReAct 编排：推理 ↔ 工具循环 + steer 注入 + 语义化中断
+       llm / llm-pool         模型会话（协议纯库 + 连接池）
+跨进程 信封投递（邮局 PostOffice）——Agent 是数据不是插件；壳崩不丢账本，
+       宿主换代活壳自持（detached + host-revive）
+横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
-**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。架构事实源（契约归属总表 + 端到端链路 + 装配分层）见 [`src/README.md`](src/README.md)。
+**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。架构事实源（契约归属总表 + 端到端链路 + 装配分层）见 [`src/README.md`](src/README.md) 与 [`preview/docs/spec.md`](preview/docs/spec.md)。
 
 ### 项目结构
 
 ```text
-src/
-├── ac-llm/ + 3 个适配薄行      L1：LLM 纯路由 + openai/deepseek/glm
-├── ac-agent-loop/              L2：ReAct 循环（边界全事件化）
-├── ac-agents/ + ac-router/     L3：Agent 注册中心 + 信封投递
-├── ac-conversation/ · ac-session/ · ac-singles/ · ac-group/   会话域
-├── ac-{fs,shell,web,math,collab,…}-tools/                    工具行族
-├── ac-{persona,memory,skill,datetime,…}/                    扩展行（事件监听）
-├── ac-{config,credentials,usage,timer,archive,backup,…}/    服务域
-├── ac-web-server/ · ac-ws-bridge/ · ac-web-api/ · ac-webui/  传输与 Web 表面
-├── ac-plugin-{registry,gates,market}/ · ac-event-policy/    插件域与治理
+preview/                        宿主-壳架构轨道（现役唯一事实源）
+├── apps/
+│   ├── host/                   宿主 boot（行集装配 + web 面 + 编排面 + 出厂通道播种）
+│   ├── shell/                  壳 boot（per-Agent 进程入口）
+│   ├── catalog/                行集目录（row-catalog.json——宿主/壳共享）
+│   └── ui/                     WebUI（Vue 3 SPA + 29 域通道 + 主题包）
+└── packages/                   envelope/ledger/host-*/shell-*/webui-core 等域包
+
+src/                            主线包（工具域纯库 + vendor cordis 基座）
+├── ac-{fs,shell,web,math,collab,…}-tools/                    工具行族（壳消费）
 ├── ac-*-core/                  纯库（零 cordis 依赖）
-├── ac-app/                     组合根（boot 路径 + 生产 bundle 入口）
-├── webui/                      WebUI 前端（Vue 3）
-├── cordis.yml                  配置驱动装配清单（每行一个插件）
+├── webui-kit/                  UI 组件库（tokens.css + 基础组件）
 └── vendor/                     本地 cordis 生态（loader/logger/timer/hmr/include）
+
+desktop/                        Electron 壳（拉起 dist bundle + 承载 WebUI）
+mobile/                         Android 壳（Capacitor + transport 模块）
+dist/                           发布产物（build:bundle 组装——宿主+壳双 bundle + 资产面）
 ```
 
 ---
@@ -215,15 +222,14 @@ src/
 ## 🔧 开发命令（源码）
 
 ```bash
-pnpm dev                # 官方启动器（cordis.yml 配置驱动；http://localhost:3830）
-pnpm dev:supervised     # supervisor.mjs 宿主监护（退避熔断）
-pnpm dev:demo           # 演示 boot（启用 hmr 热重载）
-pnpm smoke              # 程序化树冒烟
-pnpm chat               # 对话 REPL（真实 provider 手测）
+pnpm dev                # 宿主直跑（preview/apps/host/boot.ts；http://localhost:3830）
+pnpm dev:supervised     # supervisor.mjs 宿主监护（退避熔断 + 崩溃重拉）
 pnpm typecheck          # 后端全量类型检查
 pnpm test               # 全量测试（2500+ 例，CI/发布门）
-pnpm webui              # 前端 dev server（vite 3831 → proxy 3830）
-pnpm webui:build        # 构建前端产物
+pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
+pnpm webui:build        # 构建前端产物（preview/apps/ui → dist）
+pnpm build:channels     # 构建出厂 UI 通道（29 域通道 → workspace/home/plugins）
+pnpm build:bundle       # 组装发布产物 dist/（宿主+壳双 bundle + 资产面）
 ```
 
 > 行级启停走数据根下的 `cordis.patch.yml` 行偏好层（UI 插件库提供急救通道）；常用开关 `AGENTCHAT_DATA_ROOT=<dir>` 显式指定数据根。
