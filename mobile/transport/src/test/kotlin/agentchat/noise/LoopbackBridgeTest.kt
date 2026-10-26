@@ -145,8 +145,8 @@ private class GzFakeUpstream : Upstream {
 class LoopbackBridgeTest {
 
     private val distDir: File? = listOf(
-        File("../../src/webui/dist"),
-        File("src/webui/dist"),
+        File("../../apps/ui/dist"),
+        File("apps/ui/dist"),
     ).firstOrNull { it.isDirectory }
 
     @Test

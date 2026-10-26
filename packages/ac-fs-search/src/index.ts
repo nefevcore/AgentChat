@@ -1,0 +1,808 @@
+// ============================================================
+// ac-fs-search/src/index.ts —— 文件检索工具行（glob/grep）
+//
+// DSH dsh-tool-fs-search 语义（src fs-search 平移，输出形态归一 {ok, output}）：
+//   · glob —— 模式不含 "/" 匹配任意深度文件名；含 "/" 锚定相对搜索根；
+//     只返回文件；mtime 新→旧；内联上限 100
+//   · grep —— pattern 为 JS 正则；path 文件或目录；include 单个正向 glob
+//     过滤器（拒绝逗号列表与否定值）；二进制跳过；内联默认 50（limit 参数
+//     可调，上限 250）/ 硬顶 2000 / 每行预览 2000 字符
+// grep 引擎（cr-678）：spawn ripgrep 主路径（@vscode/ripgrep vendored；
+//     口径对齐详见 rg-core.ts 头注）+ 纯 Node 遍历回退（resolve/spawn 失败）。
+// glob 仍走 ac-glob-core 纯 Node（mtime 排序是刚需——rg 无此能力）。
+// access-tier §9.1/§9.2：检索面读不设防
+// （搜索根脱离工作区沙箱——相对路径仍按锚点解析），敏感面 = 双黑名单
+// **结果过滤**（accessDeny 全档 + readDeny 非 full 档；只查参数拦不住
+// 目录扫描——deny 目录前缀判定覆盖子树）。
+// ============================================================
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import { StringDecoder } from 'node:string_decoder';
+import * as path from 'node:path';
+import type { Context } from '@agentchat/cordis';
+import {
+  createAgentSandboxCache,
+  createDenyListsFactory,
+  isDeniedPath,
+  type DenyRowOptions,
+  type SandboxResolverOptions,
+  type SandboxWorkdirSource,
+} from 'ac-sandbox-core';
+import { effectiveTierOfCall } from 'ac-agents';
+import type { AgentConfig } from 'ac-agents';
+import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, SKIP_DIRS, type WalkEntry } from 'ac-glob-core';
+import { resolveRgPath, runRg, type RgFileGroup } from './rg-core.ts';
+
+export type FsSearchRowOptions = SandboxResolverOptions & DenyRowOptions;
+
+/**
+ * 正则元字符转义建议（2026-09-21 画像 Ⓒ）：模型把函数名/调用式直接当
+ * pattern（async records( 、this.journalStep( ——括号未转义）是高频失配
+ * 形态。判定「pattern 含未转义元字符」→ 给出字面量化建议版本。
+ * 只转义显然是失误的形态：元字符前无反斜杠、且不在字符类内（保守——
+ * 不动用户刻意写的正则语义）。
+ */
+function suggestEscapedPattern(pattern: string): string | undefined {
+  // 字符类内的元字符无需转义——先剥 [...]，只在类外替换
+  let outside = '';
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === '\\' && i + 1 < pattern.length) {
+      outside += c + pattern[i + 1];
+      i++;
+      continue;
+    }
+    if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    if (!inClass) outside += c;
+  }
+  // 类外含未转义元字符才建议（() 是画像实锤的最高频形态，全元字符集判定）
+  const META = /[()[\]{}.|+?*^$\\]/;
+  if (!META.test(outside)) return undefined;
+  // 建议版：类外元字符逐个转义（保守只做全字面量化——不猜意图）
+  let result = '';
+  let cls = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === '\\' && i + 1 < pattern.length) {
+      result += c + pattern[i + 1];
+      i++;
+      continue;
+    }
+    if (c === '[') cls = true;
+    else if (c === ']') cls = false;
+    result += !cls && META.test(c) ? '\\' + c : c;
+  }
+  return result;
+}
+
+/** glob 内联展示上限（与 DSH globMaxResults / Claude Code GlobTool 相同） */
+const GLOB_MAX_RESULTS = 100;
+/** grep 内联展示默认条数（原 250——默认页收敛 token，宽模式场景另行传 limit） */
+const GREP_DEFAULT_LIMIT = 50;
+/** grep 内联匹配上限（limit 参数可调，最大 250——与 DSH grepMaxMatches 相同） */
+const GREP_MAX_MATCHES = 250;
+/** grep 匹配收集硬顶（超出停止扫描并标记 truncated） */
+const GREP_HARD_CAP = 2000;
+/** grep 每行预览字符上限（与 DSH grepMaxLineBytes 同值） */
+const GREP_MAX_LINE_CHARS = 2000;
+/** 二进制探测窗口（前 8KB 含 NUL 即视为二进制跳过） */
+const BINARY_SNIFF_BYTES = 8192;
+/** 流式扫描块大小 */
+const GREP_CHUNK_BYTES = 1 << 18;
+/** 整缓冲+预筛路径的字节上限（更大走流式行扫描，防内存峰值） */
+const GREP_PREFILTER_MAX_BYTES = 1 << 20;
+
+/**
+ * 正则必需字面量（保守提取）：顶层（括号深度 0、字符类外）串联出现的
+ * 字面量运行，且不被 `*`/`?`/`{…}` 修饰掉尾字符。文件全文不含任一运行
+ * ⇒ 正则必不匹配 ⇒ 免正则整文件跳过（includes 预筛远快于逐行 split+test）。
+ * 出现顶层 `|` / 结构异常 → 返回 []（放弃预筛，行为与纯正则一致——
+ * 预筛只允许漏掉「不可能匹配」，不允许放过任何真匹配）。
+ * 提取规则：`\x`（x 标点）计入字面量；`\d` 等预定义类/断言只断开运行；
+ * `(` 前运行保留（组本身必需，除非其后有量词——量词只作用于组不影响
+ * 组前运行）；`)` 于深度 0 = 结构异常，整体放弃。
+ */
+function requiredLiterals(pattern: string): string[] {
+  const runs: string[] = [];
+  let run = '';
+  let depth = 0;
+  let inClass = false;
+  const MIN_LEN = 2; // 短运行区分度低，预筛价值小
+  const flush = (trimTail: boolean): void => {
+    if (trimTail && run.length > 0) run = run.slice(0, -1); // 尾字符被量词转为可选
+    if (run.length >= MIN_LEN) runs.push(run);
+    run = '';
+  };
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (inClass) {
+      if (ch === '\\') i++; // 类内转义：跳过下一字符
+      else if (ch === ']') {
+        inClass = false;
+        flush(false); // 字符类必消费 1 字符，仅断开运行
+      }
+      continue;
+    }
+    if (ch === '\\') {
+      const next = pattern.at(i + 1);
+      if (next === undefined) break; // 尾悬反斜杠：交给 new RegExp 报错
+      if (/[a-zA-Z]/.test(next)) {
+        flush(false); // \d \w \b \n 等：类/断言，非字面量
+      } else {
+        run += next; // \( \. \* 等：标点字面量
+      }
+      i++;
+      continue;
+    }
+    switch (ch) {
+      case '[':
+        inClass = true;
+        flush(false);
+        break;
+      case '(':
+        depth++;
+        flush(false);
+        break;
+      case ')':
+        if (depth === 0) return []; // 结构异常：放弃
+        depth--;
+        flush(false);
+        break;
+      case '|':
+        if (depth === 0) return []; // 顶层交替：无公共必需字面量
+        flush(false);
+        break;
+      case '*':
+      case '?':
+        flush(true); // 前一字符（运行尾或单原子）转为可选
+        break;
+      case '{': {
+        // {m,M}：m===0 时尾字符可选；解析保守——min 0 才截尾
+        flush(/\{\s*0\s*[,}]/.test(pattern.slice(i)) ? true : false);
+        break;
+      }
+      case '.':
+      case '^':
+      case '$':
+      case '+':
+      case '}':
+        flush(false); // 断开运行（不改变已累积字面量的必需性）
+        break;
+      default:
+        run += ch;
+    }
+  }
+  if (depth !== 0) return []; // 未闭合括号：结构异常，放弃
+  flush(false);
+  return runs;
+}
+
+interface LineMatch {
+  line: number;
+  preview: string;
+}
+interface FileGroup {
+  path: string;
+  matches: LineMatch[];
+}
+
+/** 校验 include 参数：单个正向 glob（拒绝顶层逗号列表与 ! 否定；花括号交替内逗号允许） */
+function compileInclude(include: string): RegExp {
+  if (include.startsWith('!')) {
+    throw new Error('include 不支持否定值（!…）；请提供正向 glob，如 "*.ts" 或 "*.{ts,tsx}"');
+  }
+  let depth = 0;
+  for (const ch of include) {
+    if (ch === '{') depth++;
+    else if (ch === '}') depth = Math.max(0, depth - 1);
+    else if (ch === ',' && depth === 0) {
+      throw new Error('include 不支持逗号列表；多后缀请用花括号交替，如 "*.{ts,tsx}"');
+    }
+  }
+  return globToRegExp(normalizeGlobPattern(include));
+}
+
+function previewOf(line: string): string {
+  return line.length > GREP_MAX_LINE_CHARS ? line.slice(0, GREP_MAX_LINE_CHARS) + '…(line truncated)' : line;
+}
+
+/**
+ * path 不存在时的邻近目录建议（09-20 grep 画像 §⑤：packages/ac-skills（实际 packages/ac-skill）、
+ * packages/ac-plugin*（path 不支持通配）等猜名失误）。只对**目录形态**的 path 给建议——
+ * 在 path 父目录的兄弟目录里找近邻：首段编辑距离 ≤2（ac-skills→ac-skill 距离 1）。
+ * 无近邻返回 undefined。保守设计：只建议同层目录（不递归、不建议文件），建议而非自动改写。
+ */
+async function suggestSiblingDir(targetInput: string, targetAbs: string): Promise<string | undefined> {
+  // 拆出最深一段：父目录存在才找兄弟（父也不存在 → 无从建议）
+  const parentAbs = path.dirname(targetAbs);
+  let parentStat: fs.Stats;
+  try {
+    parentStat = await fsp.stat(parentAbs);
+  } catch {
+    return undefined;
+  }
+  if (!parentStat.isDirectory()) return undefined;
+  const last = path.basename(targetAbs);
+  if (!last) return undefined;
+  let siblings: fs.Dirent[];
+  try {
+    siblings = await fsp.readdir(parentAbs, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const dist = (a: string, b: string): number => {
+    // 有界编辑距离（≤3 剪枝）：短目录名场景足够
+    const m = a.length;
+    const n = b.length;
+    if (Math.abs(m - n) > 2) return 3;
+    const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i]![0] = i;
+    for (let j = 0; j <= n; j++) dp[0]![j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i]![j] = Math.min(
+          dp[i - 1]![j]! + 1,
+          dp[i]![j - 1]! + 1,
+          dp[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+        );
+      }
+    }
+    return dp[m]![n]!;
+  };
+  let best: string | undefined;
+  let bestDist = 3; // 阈值 ≤2
+  for (const s of siblings) {
+    if (!s.isDirectory() || s.name === last) continue;
+    const d = dist(s.name, last);
+    if (d < bestDist) {
+      bestDist = d;
+      best = s.name;
+    }
+  }
+  if (best === undefined) return undefined;
+  const parentInput = targetInput.slice(0, targetInput.length - last.length);
+  return parentInput + best;
+}
+
+/**
+ * 在单文件中收集匹配（写入 sink；无匹配则 sink 为空）。
+ * 双轨：小文件（≤1MB）整读 + 必需字面量全文预筛（不含即免正则跳过——
+ * 正则匹配 ⇒ 每个必需字面量都在全文中出现，预筛只加速不减命中）；
+ * 大文件流式行扫描（按需读块，StringDecoder 处理跨块多字节字符；
+ * 文件含 \r\n 时预览带 \r——与整缓冲路径一致）。多行标志（m）不参与
+ * 预筛（$ 按整缓冲语义，预筛按全文口径保守成立）。
+ * budget = 收集上限（调用方剩余硬顶额度），返回实际收集数。
+ * 异步逐块读（同步 IO 会把大扫描压成主线程连续同步块——见 walk.ts 头注）。
+ */
+async function searchFile(
+  abs: string,
+  regex: RegExp,
+  sink: LineMatch[],
+  literals: readonly string[],
+  budget: number,
+): Promise<number> {
+  let size = 0;
+  try {
+    size = (await fsp.stat(abs)).size;
+  } catch {
+    return 0;
+  }
+
+  if (size <= GREP_PREFILTER_MAX_BYTES) {
+    // 小文件：单次整读；探测窗/预筛/逐行全在缓冲上（无二次 IO）
+    let buf: Buffer;
+    try {
+      buf = await fsp.readFile(abs);
+    } catch {
+      return 0;
+    }
+    if (buf.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return 0; // 二进制：跳过
+    const text = buf.toString('utf-8');
+    for (const lit of literals) {
+      if (!text.includes(lit)) return 0; // 必需字面量缺位：正则必不匹配
+    }
+    const lines = text.split('\n');
+    const before = sink.length;
+    for (let i = 0; i < lines.length && sink.length - before < budget; i++) {
+      if (!regex.test(lines[i])) continue;
+      sink.push({ line: i + 1, preview: previewOf(lines[i]) });
+    }
+    return sink.length - before;
+  }
+
+  // 大文件：单个 fd 顺序读；首块兼作二进制探测窗（前 8KB 含 NUL 即弃），
+  // StringDecoder 处理跨块多字节字符；分块字面量预筛——「块解码文本（含
+  // 跨块 pending）不含必需字面量 ⇒ 其中任何完整行都不含 ⇒ 无匹配」，
+  // 免 split+正则只推进行号（大文本文件的主体开销在 split+逐行 test）。
+  // budget 用尽即停（行级粒度）。
+  let collected = 0;
+  try {
+    const handle = await fsp.open(abs, 'r');
+    try {
+      const decoder = new StringDecoder('utf-8');
+      const chunk = Buffer.allocUnsafe(GREP_CHUNK_BYTES);
+      let pending = ''; // 跨块未完结的行
+      let lineNo = 1;
+      let sniffed = false;
+      const useLits = literals.length > 0;
+      const scanLine = (line: string): boolean => {
+        if (collected >= budget) return false;
+        if (regex.test(line)) {
+          sink.push({ line: lineNo, preview: previewOf(line) });
+          collected++;
+        }
+        lineNo++;
+        return true;
+      };
+      for (;;) {
+        const { bytesRead: n } = await handle.read(chunk, 0, chunk.length, null);
+        if (n <= 0) break;
+        const data = chunk.subarray(0, n);
+        if (!sniffed) {
+          sniffed = true;
+          if (data.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return 0; // 二进制
+        }
+        const text = pending + decoder.write(data);
+        if (useLits && !literals.every((lit) => text.includes(lit))) {
+          // 无匹配可能：免 split/正则，仅推进行号与未完结尾段
+          let idx = -1;
+          let last = -1;
+          while ((idx = text.indexOf('\n', idx + 1)) !== -1) {
+            lineNo++;
+            last = idx;
+          }
+          pending = text.slice(last + 1);
+          continue;
+        }
+        const lines = text.split('\n');
+        pending = lines.pop() ?? ''; // 末段可能未完结，留待下块
+        for (const line of lines) {
+          if (!scanLine(line)) {
+            decoder.end();
+            return collected;
+          }
+        }
+      }
+      const tail = pending + decoder.end(); // 末块残余 + 不完整多字节序列
+      scanLine(tail); // 尾行（可能空——与 split('\n') 的末元素口径一致）
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return collected; // 读取中断：保留已收集
+  }
+  return collected;
+}
+
+export const name = 'ac-fs-search';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'fs-search',
+  label: '文件检索',
+  description: '文件检索工具行（glob/grep）',
+};
+
+export const inject = ['tools'];
+
+export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
+  // 沙箱解析基准（M18 反馈 #3）：Agent 专用空间（ac-workspace.sandboxWorkdir
+  // 唯一事实源；缺 → 行缺省）。按基准缓存解析器（共用实现住 ac-sandbox-core）。
+  const sandboxOf = createAgentSandboxCache(options, () =>
+    ctx.get('workspace') as SandboxWorkdirSource | undefined,
+  );
+
+  /** agents 软依赖（档位判定 tierOf 单源） */
+  const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
+    ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
+
+  // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
+  // ——与 fs-tools / str-replace-editor 基线同源不漂移；workspace 缺失时
+  // best-effort 只查追加项并告警一次，ac-security 加严层 fail-closed 兜底）
+  const denyListsOf = createDenyListsFactory(
+    options,
+    {
+      workspaceOf: () => ctx.get('workspace') as { root?: unknown } | undefined,
+      agentsOf: () => agentsOf() as { settingsOf?(id: string, name?: string): unknown } | undefined,
+    },
+    () => ctx.logger.warn(
+      '[fs-search] workspace 服务不可用：检索黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
+    ),
+  );
+
+  /**
+   * 检索面黑名单判定（§9.2 双黑名单结果过滤，glob/grep 共用）：
+   * accessDeny（系统域，全档）+ readDeny（用户域机密，非 full 档）。
+   * 目录前缀判定覆盖子树（agents/ 等持久化域树整树过滤）。
+   */
+  function searchDenyFilterOf(call: { agentId?: string; elevation?: string }): (abs: string) => boolean {
+    const deny = denyListsOf(call);
+    const skipReadDeny = effectiveTierOfCall(call, agentsOf) === 'full-access';
+    return (abs: string): boolean =>
+      isDeniedPath(deny.accessDeny, abs) || (!skipReadDeny && isDeniedPath(deny.readDeny, abs));
+  }
+
+  // ---- glob：按路径模式找文件 ----
+  // fs 标签（2026-09-16 全量标签化）：文件族门禁
+  ctx.tools.register({
+    name: 'glob',
+    requiredTags: ['fs'],
+    description:
+      '按 glob 模式查找文件（如 "**/*.ts"；模式不含 / 时匹配任意深度的文件名）。'
+      + 'output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点（不是搜索根），按修改时间新→旧，内联上限 100；paths 条目可直接作为 read/grep 的相对路径参数（同锚点解析）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: 'glob 模式，如 "**/*.ts"、"*.test.ts"' },
+        path: { type: 'string', description: '搜索根目录（默认当前工作目录）' },
+      },
+      required: ['pattern'],
+    },
+    async execute(args, call) {
+      // 工具体抛错（沙箱越界等）由 ac-tools 统一收敛为 { ok:false, error }
+      const pattern = String(args.pattern ?? '').trim();
+      if (!pattern) return { ok: false, error: '缺少 pattern 参数（不能为空）' };
+
+      const sandbox = sandboxOf(call);
+      const isDenied = searchDenyFilterOf(call);
+      const rootInput = String(args.path ?? '.');
+      // 读不设防（§9.1）：搜索根脱离工作区沙箱——相对路径按锚点解析，
+      // 只过双黑名单（根自身命中即拒；子树由 walk 逐文件过滤）
+      const rootAbs = path.resolve(sandbox.workdir, rootInput);
+      if (isDenied(rootAbs)) {
+        return { ok: false, error: `搜索根被黑名单拒绝（系统域/机密）：${rootInput}` };
+      }
+      let stat: fs.Stats;
+      try {
+        stat = await fsp.stat(rootAbs);
+      } catch {
+        return { ok: false, error: `路径不存在: ${rootInput}` };
+      }
+      if (!stat.isDirectory()) {
+        return { ok: false, error: `path 必须是目录（glob 只按模式发现文件）: ${rootInput}` };
+      }
+
+      const normalized = normalizeGlobPattern(pattern);
+      if (!normalized) return { ok: false, error: 'pattern 不能为空' };
+      const matchBase = !normalized.includes('/');
+      let re: RegExp;
+      try {
+        re = globToRegExp(normalized);
+      } catch (err: unknown) {
+        return { ok: false, error: `无效的 glob 模式 "${pattern}": ${String(err)}` };
+      }
+
+      // 目录剪枝：字面量目录前缀之外的子树整树不进入（如 `packages/ac-*/**` 的
+      // 'src'）。逐段校验（深度对齐——父级已匹配是 descend 的前提，归纳保证
+      // 只查当前段即可）；深于前缀（d ≥ litDirs.length）不剪、自由下探；
+      // matchBase（模式不含 /，按文件名匹配任意深度）不剪。
+      const litDirs = matchBase ? null : literalDirPrefix(normalized);
+      const pruneDir =
+        litDirs === null
+          ? undefined
+          : (name: string, rel: string): boolean => {
+              const d = rel.lastIndexOf('/') + 1; // 0 基段序：rel 深度 d+1
+              return d < litDirs.length && name !== litDirs[d];
+            };
+
+      const { entries, capped, skippedRoots } = await walkFiles(rootAbs, {
+        base: sandbox.workdir,
+        isDenied,
+        ...(pruneDir !== undefined ? { pruneDir } : {}),
+      });
+      const matched = entries.filter((e) =>
+        re.test(matchBase ? e.rel.slice(e.rel.lastIndexOf('/') + 1) : e.rel),
+      );
+      // mtime 惰性补齐：仅对命中条目 stat（排序依据）——walk 不再全量逐文件 stat
+      // （stat 次数 = 匹配数而非总文件数；竞争删除留空按 0 排序）
+      for (const m of matched) {
+        try {
+          m.mtimeMs = (await fsp.stat(m.abs)).mtimeMs;
+        } catch {
+          /* 竞争删除：留空 */
+        }
+      }
+      // 修改时间新→旧；同 mtime 按路径稳定排序
+      matched.sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0) || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+
+      const shown = matched.slice(0, GLOB_MAX_RESULTS);
+      const notes: string[] = [];
+      if (matched.length === 0) notes.push('No files found（未找到匹配文件，可放宽模式或换搜索根）');
+      else if (matched.length > shown.length) {
+        notes.push(`共 ${matched.length} 条匹配，仅展示最新的 ${shown.length} 条（按修改时间）`);
+      }
+      if (capped) notes.push(`扫描在 ${entries.length} 个文件处截断（病态大目录？可用 path 收窄搜索根）`);
+      if (skippedRoots.length > 0) {
+        notes.push(`已跳过构建产物/依赖目录（${skippedRoots.join('、')}）——结果不含其中文件；确需列出产物时 path 直接指向该目录`);
+      }
+
+      return {
+        ok: true,
+        output: {
+          root: rootInput,
+          total: matched.length,
+          shown: shown.length,
+          paths: shown.map((e) => e.rel),
+          ...(notes.length > 0 ? { note: notes.join('；') } : {}),
+        },
+      };
+    },
+  });
+
+  // ---- grep：按内容找文件 ----
+  ctx.tools.register({
+    name: 'grep',
+    requiredTags: ['fs'],
+    description:
+      '按正则表达式搜索文件内容（结果按文件分组，Line N: 预览）。'
+      + 'output: { total, shown, groups: Array<{ path, matches: Array<{ line, preview }> }> }——total 为命中总数；path 相对工作区锚点，可直接作为 read 的相对路径参数。默认内联 50 条（shown 为实际展示数），limit 参数可调（最大 250）。'
+      + '按字面量搜（函数名/调用式，如 close( 、a.b ）传 fixed: true——pattern 原样匹配，不做正则解释。',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: '正则表达式（JS RegExp 语法）；fixed: true 时为字面量文本' },
+        path: { type: 'string', description: '搜索的文件或目录（默认当前工作目录）' },
+        include: { type: 'string', description: '文件名过滤 glob，如 "*.ts"' },
+        fixed: { type: 'boolean', description: '字面量模式：pattern 按原样文本匹配（自动转义全部正则元字符）——搜函数名/调用式时用' },
+        limit: { type: 'number', description: '内联展示条数（默认 50，最大 250）——total 恒报命中总数，超出部分不内联', minimum: 1, maximum: 250 },
+      },
+      required: ['pattern'],
+    },
+    async execute(args, call) {
+      // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+      const pattern = String(args.pattern ?? '');
+      if (!pattern.trim()) return { ok: false, error: '缺少 pattern 参数（不能为空）' };
+
+      const fixed = args.fixed === true;
+      // limit 钳制 [1, GREP_MAX_MATCHES]（缺省 50；NaN/越界回落默认——参数面已声明
+      // 范围，此处兜底防手写 args 直调）
+      const limitRaw = Number(args.limit);
+      const limit = Number.isFinite(limitRaw) && limitRaw >= 1 ? Math.min(GREP_MAX_MATCHES, Math.floor(limitRaw)) : GREP_DEFAULT_LIMIT;
+      let regex: RegExp;
+      try {
+        // fixed 直通（09-20 grep 画像 §①：88% 失败 = 函数调用式当正则——括号/点未
+        // 转义。字面量模式把整条 pattern 按 RegExp 字面量转义，一条参数消灭整类失败）
+        regex = fixed ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : new RegExp(pattern);
+      } catch (err: unknown) {
+        // 画像 Ⓒ（2026-09-21）：函数名当 pattern（async records( 类，括号未
+        // 转义）是高频形态——附转义后的建议 pattern，一条信息修复全部同类失配
+        const escaped = suggestEscapedPattern(pattern);
+        return {
+          ok: false,
+          error:
+            `无效的正则表达式 "${pattern}": ${String(err)}` +
+            (escaped !== undefined && escaped !== pattern ? `\n建议 pattern（已转义元字符）：${escaped}` : ''),
+        };
+      }
+
+      let includeRe: RegExp | undefined;
+      if (args.include !== undefined) {
+        if (typeof args.include !== 'string' || !args.include.trim()) {
+          return { ok: false, error: 'include 必须是非空 glob 字符串' };
+        }
+        try {
+          includeRe = compileInclude(args.include.trim());
+        } catch (err: unknown) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      }
+
+      const sandbox = sandboxOf(call);
+      const isDenied = searchDenyFilterOf(call);
+      const targetInput = String(args.path ?? '.');
+      // 读不设防（§9.1）：目标脱离工作区沙箱——相对路径按锚点解析，
+      // 只过双黑名单（目录走 walk 逐文件过滤）
+      const targetAbs = path.resolve(sandbox.workdir, targetInput);
+      if (isDenied(targetAbs)) {
+        return { ok: false, error: `搜索目标被黑名单拒绝（系统域/机密）：${targetInput}` };
+      }
+      let stat: fs.Stats;
+      try {
+        stat = await fsp.stat(targetAbs);
+      } catch {
+        // 近邻目录建议（画像 §⑤：猜模块名失误 packages/ac-skills→src-ac-skill）——
+        // 一条信息修复，避免下一轮盲试；path 不支持通配（packages/ac-plugin*）同理被覆盖
+        const near = await suggestSiblingDir(targetInput, targetAbs);
+        return {
+          ok: false,
+          error:
+            `路径不存在: ${targetInput}`
+            + (near !== undefined ? `\n最近邻目录（是否想搜）: ${near}` : ''),
+        };
+      }
+
+      // ---- rg 主路径（cr-678）：resolve 可得即 spawn ripgrep；任何失败落 Node 回退 ----
+      const rgEngine = resolveRgPath() !== undefined;
+      if (rgEngine) {
+        const rg = await runRgWithFallbackGuard(call, {
+          pattern,
+          fixed,
+          targetAbs,
+          isFile: stat.isFile(),
+          include: typeof args.include === 'string' && args.include.trim() ? args.include.trim() : undefined,
+          isDenied,
+          sandboxWorkdir: sandbox.workdir,
+        });
+        if (rg !== undefined) {
+          return assembleGrepOutput(rg.groups, rg.total, rg.truncated, limit, pattern, { capped: false, skippedRoots: rgSkippedRoots(targetAbs) });
+        }
+      }
+
+      // ---- Node 回退路径（rg 不可用 / spawn 失败）：原有遍历实现原样 ----
+      // 目标文件集合：单文件直搜（include 不适用）；目录走有界遍历 + include 过滤
+      let targets: WalkEntry[];
+      let capped = false;
+      let skippedRoots: string[] = [];
+      if (stat.isFile()) {
+        const rel = path.relative(sandbox.workdir, targetAbs);
+        targets = [
+          {
+            abs: targetAbs,
+            // toPosix 而非内联 replace：POSIX 下文件名字面反斜杠不被误转（path.sep 按平台切分）
+            rel: rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(targetAbs) : toPosix(rel),
+          },
+        ];
+      } else if (stat.isDirectory()) {
+        const walked = await walkFiles(targetAbs, {
+          base: sandbox.workdir,
+          isDenied,
+        });
+        targets = includeRe
+          ? walked.entries.filter((e) => includeRe!.test(e.rel.slice(e.rel.lastIndexOf('/') + 1)))
+          : walked.entries;
+        capped = walked.capped;
+        skippedRoots = walked.skippedRoots;
+      } else {
+        return { ok: false, error: `path 既不是文件也不是目录: ${targetInput}` };
+      }
+
+      const groups: FileGroup[] = [];
+      let total = 0;
+      let truncated = false;
+      // 必需字面量预筛（小文件轨道；空数组 = 无可提取，等价关闭）
+      const literals = requiredLiterals(pattern);
+      for (const entry of targets) {
+        if (total >= GREP_HARD_CAP) {
+          truncated = true;
+          break; // 硬顶已达：停止扫后续文件
+        }
+        const sink: LineMatch[] = [];
+        const n = await searchFile(entry.abs, regex, sink, literals, GREP_HARD_CAP - total);
+        if (n === 0) continue;
+        total += n;
+        groups.push({ path: entry.rel, matches: sink });
+      }
+      if (total >= GREP_HARD_CAP) truncated = true;
+
+      return assembleGrepOutput(groups, total, truncated, limit, pattern, { capped, skippedRoots, scanned: targets.length });
+    },
+  });
+}
+
+/**
+ * grep 输出组装（rg 与 Node 回退两路共用单源）：note 文案、内联分页、
+ * truncated 透出。capped/scanned 仅 Node 路径有值（rg 无扫描截断概念）。
+ */
+function assembleGrepOutput(
+  groups: FileGroup[],
+  total: number,
+  truncated: boolean,
+  limit: number,
+  pattern: string,
+  meta: { capped: boolean; skippedRoots: string[]; scanned?: number },
+): { ok: true; output: Record<string, unknown> } {
+  const notes: string[] = [];
+  if (groups.length === 0) {
+    notes.push('No matches found（未找到匹配，可调整 pattern / path / include）');
+    const escaped = suggestEscapedPattern(pattern);
+    if (escaped !== undefined && escaped !== pattern) {
+      notes.push(`pattern 含未转义正则元字符——按字面量重搜可传 fixed: true（等价 pattern "${escaped}"）`);
+    }
+  } else if (total > limit) {
+    notes.push(`共 ${total} 条匹配（${groups.length} 个文件），仅内联展示前 ${limit} 条（其余已省略；可传 limit 提高展示数（最大 ${GREP_MAX_MATCHES}），或收窄 path（到具体包/目录）/拆分交替分支 pattern）`);
+  }
+  if (truncated) notes.push(`匹配达到扫描硬顶 ${GREP_HARD_CAP}，结果可能不完整（请收窄搜索范围）`);
+  if (meta.capped && meta.scanned !== undefined) notes.push(`扫描在 ${meta.scanned} 个文件处截断（病态大目录？可用 path 收窄搜索根）`);
+  if (meta.skippedRoots.length > 0) {
+    notes.push(`已跳过构建产物/依赖目录（${meta.skippedRoots.join('、')}）——命中不含其中内容；确需搜产物时 path 直接指向该目录`);
+  }
+
+  // 内联页面：按文件顺序截取前 limit 条（total 恒为命中总数，不受 limit 影响）
+  let budget = limit;
+  const shownGroups: FileGroup[] = [];
+  for (const g of groups) {
+    if (budget <= 0) break;
+    shownGroups.push({ path: g.path, matches: g.matches.slice(0, budget) });
+    budget -= g.matches.length;
+  }
+
+  return {
+    ok: true,
+    output: {
+      total,
+      shown: Math.min(total, limit),
+      ...(truncated ? { truncated: true } : {}),
+      groups: shownGroups,
+      ...(notes.length > 0 ? { note: notes.join('；') } : {}),
+    },
+  };
+}
+
+/**
+ * rg 主路径包装：deny 前置 glob（rg 不进树）+ 输出侧 isDenied 双保险；
+ * include 转译（basename 语义）；失败返回 undefined → 调用方走 Node 回退。
+ * spawn 失败/rg 退出码 2（环境性错误）都按「引擎不可用」处理——回退而非报错，
+ * 用户视角无感（搜索照样出结果，只是慢路径）。
+ */
+async function runRgWithFallbackGuard(
+  call: { signal?: AbortSignal },
+  opts: {
+    pattern: string;
+    fixed: boolean;
+    targetAbs: string;
+    isFile: boolean;
+    include?: string;
+    isDenied: (abs: string) => boolean;
+    sandboxWorkdir: string;
+  },
+): Promise<{ groups: RgFileGroup[]; total: number; truncated: boolean } | undefined> {
+  // 排除 glob（cwd=搜索根基准）：SKIP_DIRS 任意深度 + deny 目录（绝对路径转相对段）
+  const excludeGlobs: string[] = [];
+  for (const dir of SKIP_DIRS) excludeGlobs.push(`!**/${dir}/**`);
+  // deny 目录前缀 → 相对搜索根的排除段（在根外的 deny 目录 rg 天然不会碰到）
+  // 简化：deny 绝对路径若在搜索根内，取其相对段做排除；否则跳过（输出侧兜底）
+  // deny 面完整判定仍在输出侧 isDenied——glob 前置只为性能（rg 不进树）。
+  // include 转译：现状 include 是 basename 语义（includeRe.test(basename)）。
+  // rg glob 无 / 时按 basename 匹配——恰好同语义，含 / 时取末段保 basename 口径。
+  let includeGlob: string | undefined;
+  if (!opts.isFile && opts.include !== undefined) {
+    const seg = opts.include.split('/').pop() ?? opts.include;
+    includeGlob = seg;
+  }
+  try {
+    const result = await runRg({
+      pattern: opts.pattern,
+      fixed: opts.fixed,
+      targetAbs: opts.targetAbs,
+      excludeGlobs,
+      ...(includeGlob !== undefined ? { includeGlob } : {}),
+      hardCap: GREP_HARD_CAP,
+      ...(call.signal !== undefined ? { signal: call.signal } : {}),
+      maxLineChars: GREP_MAX_LINE_CHARS,
+      toPosixRel: (abs: string): string => {
+        const rel = path.relative(opts.sandboxWorkdir, abs);
+        return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(abs) : toPosix(rel);
+      },
+    });
+    // 输出侧黑名单双保险（glob 前置仅为性能；语义判定单源在 isDenied）
+    const groups: RgFileGroup[] = [];
+    let total = 0;
+    for (const g of result.groups) {
+      // rg 输出的 path 已是 rel；isDenied 需要绝对路径——reconstruct
+      const abs = path.resolve(opts.sandboxWorkdir, g.path);
+      if (opts.isDenied(abs)) continue;
+      groups.push(g);
+      total += g.matches.length;
+    }
+    return { groups, total, truncated: result.truncated };
+  } catch {
+    return undefined; // 引擎失败 → Node 回退（用户无感）
+  }
+}
+
+/**
+ * rg 路径的 skippedRoots（note 透出用）：搜索根第一层里命中 SKIP_DIRS 的
+ * 目录名（与 Node 路径 walkFiles 的根层段口径一致；单文件目标恒空）。
+ */
+function rgSkippedRoots(targetAbs: string): string[] {
+  let dirents: import('node:fs').Dirent[];
+  try {
+    dirents = fs.readdirSync(targetAbs, { withFileTypes: true });
+  } catch {
+    return []; // 单文件/不可读：无根层概念
+  }
+  return dirents.filter((d) => d.isDirectory() && SKIP_DIRS.has(d.name)).map((d) => d.name);
+}

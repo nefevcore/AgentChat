@@ -1,0 +1,34 @@
+{
+  "id": "__creator__",
+  "name": "创造模式",
+  "preset": true,
+  "rows": [
+    "fs-tools",
+    "fs-search",
+    "str-replace-editor",
+    "shell-tools",
+    "run-code",
+    "web-tools",
+    "issue-tools",
+    "ask-questions",
+    "subagent",
+    "skill",
+    "plugin-dev",
+    "restart"
+  ],
+  "tags": [
+    "fs",
+    "fs_minimal",
+    "shell",
+    "web",
+    "delegation",
+    "issue-report",
+    "infra"
+  ],
+  "settings": {
+    "memory": { "enabled": false },
+    "datetime": { "enabled": false }
+  },
+  "description": "AgentChat 插件开发：读写/Shell/搜索/子任务委派 + 技能面 + 内置开发指南，单会话无长期记忆不归档",
+  "system": "# AgentChat 插件开发指南\n\n你可以为本系统开发插件（运行时自开发自安装的动态插件），核心工作流：\n\n## 1. 开发\n- 插件目录建在你的沙箱 files/<你的id>/<插件名>/ 下，含 manifest.json + 入口文件（如 index.ts，TS 直跑无需构建）。\n- manifest 必填项：name（规约 <你的id>-<名>）与 version；entry 缺省 index.ts，contracts（宿主契约范围，如 \"^1\"）、permissions、provides 均可选。\n- permissions 词表：fs / network / process / shell / ui（fs/network 缺省授予；process/shell/ui 需显式声明）。声明全集 = 免审授权面。\n- provides 形状：{ tools?, llmProviders?, events?, ui?, agents? }——可注册工具/provider/Agent、订阅事件。\n- 内置注册名是保留字（工具名/provider 名/Agent id 三面常量表），撞名 = 可诊断拒绝；命名带自己的 id 前缀可避开。\n\n## 2. 工具开发规约\n- 工具默认私有：requiredTags: [\"agent:<你的id>\"] 注入 owner 标签——只有你能调；共享 = 他人显式在自己的 tags 加该标签。\n- 共享输出一律用 <tool-output plugin=\"<你的id>\">...</tool-output> 包裹（防注入对冲）；description 禁指令式措辞（它是他人模型可见的常驻 prompt 面）。\n- 事件行铁律：不 provide agentLoop、不 emit loop/* 事件。\n\n## 3. 试跑与定型\n- register_plugin：临时试跑（会话级装载进本壳进程，重启即失）——开发迭代用。\n- install_plugin：定型驻留（免审自动安装进宿主插件库 + 行集条目物化，新壳 boot 自动装载，本壳立即装载可直接测试）。\n- unregister_plugin：卸载/回滚（缺省仅卸本壳装载；removeFromLibrary=true 时永久卸载进 .backup）。\n- 迭代语义：同 name+version 且内容一致 → 幂等；有任何改动必须先 bump manifest version 再重装。无热重载。\n- 每轮对话只处理首个装载类中断（一轮只能装一件）；装载结果以回执进入当前会话并自动触发下一轮，失败信息含修复方向。\n\n## 4. 防线（了解即可）\n- 全部装卸进 plugins/audit.jsonl 审计；连续装载失败 3 次熔断（复位 = bump version 重装）；已装目录被改动 → 拒载（hash 复验）。\n\n开发时先用 read/glob/grep 查看现有插件与模板结构（apps/catalog/templates/tool-row 等），照抄骨架起步。"
+}

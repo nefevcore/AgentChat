@@ -13,7 +13,7 @@
 | 首发 0.7.1 | ✅ 已手动发布 | Trusted Publishing 只能配置在**已存在**的包上，首发必须手动一次 |
 | Trusted Publisher | ✅ 已配置 | npmjs.com → 包页面 → Settings → Trusted Publishing：`nefevcore / AgentChat / publish.yml` / environment 留空 |
 | 发布工作流 | `.github/workflows/publish.yml` | 推送 `v*` 标签触发；`id-token: write` + Node 24（npm ≥ 11.5 支持 OIDC） |
-| 构建脚本 | `pnpm build:bundle`（`scripts/build-bundle.mjs`） | 组装 `dist/`（cr-702 换轨）：宿主 bundle（`agentchat.mjs`，入口 preview/apps/host/boot.ts）+ 壳 bundle（`shell.mjs`，入口 preview/apps/shell/boot.ts）+ worker.mjs + 资产面（webui 静态产物 / row-catalog.json / templates / plugins 出厂通道 29 个——宿主 boot 播种进 dataRoot/plugins）；`AGENTCHAT_HOME` 指向 dist 安装根（运行时资产锚单源） |
+| 构建脚本 | `pnpm build:bundle`（`scripts/build-bundle.mjs`） | 组装 `dist/`（cr-702 换轨）：宿主 bundle（`agentchat.mjs`，入口 apps/host/boot.ts）+ 壳 bundle（`shell.mjs`，入口 apps/shell/boot.ts）+ worker.mjs + 资产面（webui 静态产物 / row-catalog.json / templates / plugins 出厂通道 29 个——宿主 boot 播种进 dataRoot/plugins）；`AGENTCHAT_HOME` 指向 dist 安装根（运行时资产锚单源） |
 
 ## 日常发版流程
 
@@ -30,7 +30,7 @@ git tag v0.7.2
 git push origin main v0.7.2
 ```
 
-CI（Actions → `publish`）自动执行：`pnpm install --frozen-lockfile` → `pnpm check:deps` → `pnpm build:frontend`（vite → `preview/apps/ui/dist`）→ `pnpm build:channels`（出厂 UI 通道）→ `pnpm test` → `pnpm build:bundle`（dist/）→ `npm publish`（OIDC 换取短时令牌，**无需任何 npm token/2FA**）。
+CI（Actions → `publish`）自动执行：`pnpm install --frozen-lockfile` → `pnpm check:deps` → `pnpm build:frontend`（vite → `apps/ui/dist`）→ `pnpm build:channels`（出厂 UI 通道）→ `pnpm test` → `pnpm build:bundle`（dist/）→ `npm publish`（OIDC 换取短时令牌，**无需任何 npm token/2FA**）。
 
 验证：
 
@@ -41,7 +41,7 @@ npm view @nefevcore/agentchat version   # 应输出新版本号
 ## 本地验证发布产物（可选，CI 已覆盖）
 
 ```bash
-pnpm build:frontend   # 前端 → preview/apps/ui/dist
+pnpm build:frontend   # 前端 → apps/ui/dist
 pnpm build:channels   # 出厂 UI 通道 → workspace/home/plugins
 pnpm build:bundle     # 组装 dist/（宿主+壳双 bundle + 资产面）
 npm pack --dry-run    # 预览包内容

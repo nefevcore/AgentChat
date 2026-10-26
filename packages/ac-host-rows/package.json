@@ -1,0 +1,43 @@
+{
+  "name": "ac-host-rows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主行导入装配（8.8 第一批 cr-537）：主线『沿用/零改动』宿主行从 src/ 导入 preview 宿主树；行集清单 R1 按批填实",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/cordis-logger": "workspace:*",
+    "@agentchat/cordis-timer": "workspace:*",
+    "ac-config": "workspace:*",
+    "ac-event-policy": "workspace:*",
+    "ac-remote-link": "workspace:*",
+    "ac-backup": "workspace:*",
+    "ac-backup-core": "workspace:*",
+    "ac-usage": "workspace:*",
+    "ac-post-office": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-timer-core": "workspace:*",
+    "ac-ws-bridge": "workspace:*",
+    "ac-wire-format": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "ac-plugin-core": "workspace:*",
+    "ac-plugin-market": "workspace:*",
+    "ac-auth-core": "workspace:*",
+    "ac-ledger": "workspace:*",
+    "ac-credentials-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
+    "ac-sandbox-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-host-app": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

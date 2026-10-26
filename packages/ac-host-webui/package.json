@@ -1,0 +1,41 @@
+{
+  "name": "ac-host-webui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主 web 面接线（8.5a 建立、8.5b 换 webui 本体行）：宿主 cordis boot 最小面 + preview web-api 薄 RPC 面 + webui 本体行（ac-ui-app——boot graph manifest 单源）",
+  "exports": {
+    ".": "./src/host-web.ts",
+    "./web-api": "./src/web-api.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-web-server": "workspace:*",
+    "ac-ui-app": "workspace:*",
+    "ac-post-office": "workspace:*",
+    "ac-host-app": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
+    "ac-webui-core": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
+    "ac-host-rows": "workspace:*",
+    "ac-file-snapshots": "workspace:*",
+    "ac-timer-core": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "ac-workspace": "workspace:*",
+    "ac-ledger": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-config": "workspace:*",
+    "ac-conv-settings": "workspace:*",
+    "ac-credentials-core": "workspace:*",
+    "ac-text-budget": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,7 +1,7 @@
 // ============================================================
 // ac-noise-transport —— Noise 协议 Kotlin 实现（XK / KK + AEAD 帧）
 //
-// src/ac-noise-core/src/index.ts 的逐函数移植（M3.1）。实现纪律：
+// packages/ac-noise-core/src/index.ts 的逐函数移植（M3.1）。实现纪律：
 //   · 严格照 Noise spec rev34 消息模式表实现，不发明自有步骤；
 //   · DH 输出全零（低阶点）→ 立即终止（spec §7.1）；
 //   · x25519 / ChaCha20-Poly1305 / SHA-256 / HKDF 全部走 JDK 原语。

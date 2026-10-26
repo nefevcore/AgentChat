@@ -15,17 +15,33 @@
     "allowImportingTsExtensions": true,
     "baseUrl": ".",
     "paths": {
-      // @agentchat/protocol 无实包（src 轨自包含垫片住 webui/src/shims——
-      // 与 webui tsconfig/vite/vitest 三处映射同源）；包内 client 文件
+      // @agentchat/protocol 无实包（自包含垫片住 apps/ui/src/shims——
+      // 与 apps/ui tsconfig/vite/vitest 三处映射同源）；包内 client 文件
       //（conversation/types 等）import 它时根 tsc 可解析
-      "@agentchat/protocol": ["src/webui/src/shims/@agentchat/protocol.ts"]
+      "@agentchat/protocol": ["apps/ui/src/shims/@agentchat/protocol.ts"]
     }
   },
-  "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts"],
+  // 服务面程序：包源 + 包测试 + 应用 boot/宿主侧。
+  // apps/ui 的 client 面（.vue + DOM）由 apps/ui/tsconfig.json 单独覆盖；
+  // ac-webui-kit 与 vendor 同样移出本程序（前者随 ui 程序检查）。
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/tests/**/*.ts",
+    "packages/*/client/**/*.d.ts",
+    "apps/host/**/*.ts",
+    "apps/shell/**/*.ts",
+    "apps/catalog/**/*.ts",
+    "apps/ui/env.d.ts",
+    "apps/ui/src/**/*.ts",
+    "apps/ui/tests/**/*.ts",
+    "apps/ui/channel/*/src/**/*.ts"
+  ],
   "exclude": [
-    "src/webui/**",
-    "src/webui-kit/**",
-    "src/vendor/**",
-    "**/node_modules/**"
+    "apps/ui/client/**",
+    "apps/catalog/templates/**",
+    "packages/ac-webui-kit/**",
+    "packages/vendor/**",
+    "**/node_modules/**",
+    "**/dist/**"
   ]
 }

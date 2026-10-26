@@ -46,7 +46,7 @@ jobs:
       # 前端构建先于测试：csp-audit 审计的就是构建产物（dist 缺席会红）
       # 诊断模式（2026-09-24 v0.8.14 三连败均折在此步且匿名 API 拿不到日志）：
       # 构建输出 tee 落盘 + 失败时上传 artifact（匿名可拉），环境信息一并落盘。
-      # cr-702 发布链换轨：前端 = preview/apps/ui（ac-ui-app）；出厂 UI 通道
+      # cr-702 发布链换轨：前端 = apps/ui（ac-ui-app）；出厂 UI 通道
       #（29 通道 + midnight 主题包）随同构建——bundle 资产面消费。
       - name: 构建前端
         run: |
@@ -55,7 +55,7 @@ jobs:
             echo '--- 环境/路径诊断 ---' | tee -a build-frontend.log
             node -p '"node " + process.version + " / " + process.platform' | tee -a build-frontend.log
             { ls -la node_modules/@vue-office
-              ls preview/apps/ui/node_modules/ | head -30
+              ls apps/ui/node_modules/ | head -30
               find node_modules/.pnpm -maxdepth 1 -name '@vue-office*' -o -maxdepth 1 -name 'uplot*'
             } >> build-frontend.log 2>&1 || true
             exit 1

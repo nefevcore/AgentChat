@@ -2,19 +2,19 @@
 /**
  * build-bundle.mjs —— 组装自包含 npm 发布产物 dist/（cr-702 发布链换轨）
  *
- * preview 架构 = 宿主 + 按需 spawn 壳 + 浏览器通道装载。发布产物三面：
+ * 宿主-壳架构 = 宿主 + 按需 spawn 壳 + 浏览器通道装载。发布产物三面：
  *
  * dist/ 布局（AGENTCHAT_HOME 指向此处——运行时资产锚单源，见
- * preview/apps/host/anchors.ts）：
- *   agentchat.mjs        宿主 esbuild bundle（入口 preview/apps/host/boot.ts）
- *   shell.mjs            壳 esbuild bundle（入口 preview/apps/shell/boot.ts）
+ * apps/host/anchors.ts）：
+ *   agentchat.mjs        宿主 esbuild bundle（入口 apps/host/boot.ts）
+ *   shell.mjs            壳 esbuild bundle（入口 apps/shell/boot.ts）
  *   worker.mjs           run_code 程序化模式 worker（ac-run-code 第二入口，
  *                        存在性守卫——包缺席跳过）
- *   webui/               前端静态产物（preview/apps/ui/dist——需先
+ *   webui/               前端静态产物（apps/ui/dist——需先
  *                        pnpm build:frontend 构建 + pnpm build:channels 出厂通道）
  *   plugins/             出厂 UI 通道产物（29 通道 + midnight 主题包——
  *                        宿主 boot 播种进 <dataRoot>/plugins）
- *   row-catalog.json     行集目录（宿主/壳共享——从 preview/apps/catalog 拷贝）
+ *   row-catalog.json     行集目录（宿主/壳共享——从 apps/catalog 拷贝）
  *   templates/           内置 Agent 模板配置集（ac-host-rows/templates）
  *   version.json         版本自述（system/version 锚——AGENTCHAT_VERSION_JSON 指路）
  *   CHANGELOG.md         更新日志（system/version-changelog 源）
@@ -35,12 +35,12 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
-const uiDist = path.join(root, 'preview', 'apps', 'ui', 'dist');
+const uiDist = path.join(root, 'apps', 'ui', 'dist');
 const factoryPlugins = path.join(root, 'workspace', 'home', 'plugins');
 
 // ── 前置检查 ──
 if (!existsSync(uiDist) || !statSync(uiDist).isDirectory() || readdirSync(uiDist).length === 0) {
-  console.error('[build-bundle] 前端产物为空（preview/apps/ui/dist）：请先运行 pnpm build:frontend');
+  console.error('[build-bundle] 前端产物为空（apps/ui/dist）：请先运行 pnpm build:frontend');
   process.exit(1);
 }
 for (const ent of readdirSync(factoryPlugins, { withFileTypes: true })) {
@@ -57,8 +57,8 @@ for (const ent of readdirSync(factoryPlugins, { withFileTypes: true })) {
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 cpSync(uiDist, path.join(dist, 'webui'), { recursive: true });
-cpSync(path.join(root, 'preview', 'apps', 'catalog', 'row-catalog.json'), path.join(dist, 'row-catalog.json'));
-cpSync(path.join(root, 'preview', 'packages', 'ac-host-rows', 'templates'), path.join(dist, 'templates'), { recursive: true });
+cpSync(path.join(root, 'apps', 'catalog', 'row-catalog.json'), path.join(dist, 'row-catalog.json'));
+cpSync(path.join(root, 'packages', 'ac-host-rows', 'templates'), path.join(dist, 'templates'), { recursive: true });
 cpSync(factoryPlugins, path.join(dist, 'plugins'), { recursive: true });
 
 // ── esbuild 双入口 ──
@@ -75,18 +75,18 @@ const banner = { js: "import { createRequire as __createRequire } from 'module';
 const common = { bundle: true, platform: 'node', format: 'esm', target: 'node20', banner, logLevel: 'info' };
 
 await esbuild.build({
-  entryPoints: [path.join(root, 'preview', 'apps', 'host', 'boot.ts')],
+  entryPoints: [path.join(root, 'apps', 'host', 'boot.ts')],
   outfile: path.join(dist, 'agentchat.mjs'),
   ...common,
 });
 await esbuild.build({
-  entryPoints: [path.join(root, 'preview', 'apps', 'shell', 'boot.ts')],
+  entryPoints: [path.join(root, 'apps', 'shell', 'boot.ts')],
   outfile: path.join(dist, 'shell.mjs'),
   ...common,
 });
 
 // 程序化模式 worker（ac-run-code——存在性守卫，包缺席跳过）
-const workerEntry = path.join(root, 'src', 'ac-run-code', 'src', 'worker.ts');
+const workerEntry = path.join(root, 'packages', 'ac-run-code', 'src', 'worker.ts');
 if (existsSync(workerEntry)) {
   await esbuild.build({
     entryPoints: [workerEntry],

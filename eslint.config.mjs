@@ -5,9 +5,9 @@
 //   1. ComputedRef 裸用做真值判定（对象恒真——presetRetired 漏 .value
 //      事故，2026-09-21 ChatInput placeholder 误显退役文案）
 //   2. 函数引用误当调用结果判定；可选链/?? 施加在非空值上
-// 工程归属：根 tsconfig 覆盖服务面 .ts；src/webui/tsconfig 覆盖 client
-// 面 .vue（其 include 含 ../ac-*/client/**）——projectService 按目录就近
-// 找 tsconfig，client .vue 向上找不到含它的工程，故显式 project 数组。
+// 工程归属：根 tsconfig 覆盖服务面 .ts；apps/ui/tsconfig 覆盖 client
+// 面 .vue（其 include 含 packages/ac-client-ui-*/client/**）——projectService
+// 按目录就近找 tsconfig，client .vue 向上找不到含它的工程，故显式 project 数组。
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 import vueParser from 'vue-eslint-parser';
@@ -33,35 +33,32 @@ export default [
       'data/**',
       'bin/**',
       'scripts/**',
-      'src/webui/dist/**',
-      'src/vendor/**',
+      'apps/ui/dist/**',
+      'packages/vendor/**',
       // tests/scripts/templates 面：未纳入任何 tsconfig（类型检查本就不覆盖），
       // 类型感知 lint 无从解析——lint 面与 typecheck 面对齐；后续若纳入
       // typecheck 再同步放开。
-      'src/webui/tests/**',
+      'apps/ui/tests/**',
       // Agent 沙箱（toolchain 带 gradle 发行包内嵌 js；探针脚本亦非 lint 面）
       'sandbox/**',
-      'src/*/tests/**',
-      'src/*/src/tests/**',
-      'src/scripts/**',
-      'src/templates/**',
+      'packages/*/tests/**',
+      'packages/*/src/tests/**',
+      'apps/catalog/templates/**',
       // 设计档案区（md/html 为主；archive/scripts/ 冻结的一次性脚本不入 lint 面）
-      'src/docs/**',
-      'src/webui/vite.config.ts',
-  'preview/apps/ui/vite.config.ts', // config 面不在任何 tsconfig include——主线同款先例
-      // preview vitest 配置（同款先例：config 文件双 vite 版本类型面冲突，不入类型感知 lint）
-      'preview/packages/vitest.config.ts',
+      'docs/design/**',
+      // config 面不在任何 tsconfig include——双 vite 版本类型面冲突，不入类型感知 lint
+      'apps/ui/vite.config.ts',
     ],
   },
   {
-    files: ['src/**/*.{ts,vue}', 'preview/packages/**/*.{ts,vue}', 'preview/apps/**/*.{ts,vue}'],
+    files: ['packages/**/*.{ts,vue}', 'apps/**/*.{ts,vue}'],
     languageOptions: {
       parser: vueParser,
       parserOptions: {
         parser: tsParser,
         sourceType: 'module',
         extraFileExtensions: ['.vue'],
-        project: ['tsconfig.json', 'src/webui/tsconfig.json', 'preview/packages/tsconfig.json', 'preview/apps/ui/tsconfig.json'],
+        project: ['tsconfig.json', 'apps/ui/tsconfig.json'],
       },
     },
     plugins: { '@typescript-eslint': tseslint },

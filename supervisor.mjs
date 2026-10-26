@@ -1,9 +1,9 @@
 // ============================================================
 // supervisor.mjs —— AgentChat 宿主监护进程（8.9 cutover，cr-556）
 //
-// 自 src/supervisor.mjs 换轨（主线 boot 退役——旧文件原样保留于 src/，
-// 终极回滚 = dev:legacy 脚本 + src/supervisor.mjs）：
-//   · worker = preview 宿主 boot（行集目录 + 45 宿主行单树装配）
+// 自旧主线 boot 换轨（cr-556；旧 src/ 宿主与 supervisor 已随 cr-703 全仓
+// 重组删除——本文件是唯一的仓库级 supervisor 入口）：
+//   · worker = apps/host 宿主 boot（行集目录 + 宿主行单树装配）
 //   · 数据根缺省 workspace/home（正式数据根；AGENTCHAT_DATA_ROOT 优先）
 //   · 端口缺省 3830（与旧主线一致——前端/远程书签零改动）
 // 命运隔离铁律不变：不 import 任何业务包、只做 spawn + 退出协议 +
@@ -25,7 +25,7 @@ import {
 } from 'ac-supervisor-core';
 
 const TRACK_DIR = path.dirname(fileURLToPath(import.meta.url));
-const WORKER_ENTRY = path.join(TRACK_DIR, 'preview', 'apps', 'host', 'boot.ts');
+const WORKER_ENTRY = path.join(TRACK_DIR, 'apps', 'host', 'boot.ts');
 const DEFAULT_DATA_ROOT = path.resolve(TRACK_DIR, 'workspace', 'home');
 const DEFAULT_PORT = '3830';
 const RUNTIME_LOCK = runtimeLockPath(TRACK_DIR);
@@ -144,5 +144,5 @@ if (!existsSync(WORKER_ENTRY)) {
   process.exit(78);
 }
 
-log('supervisor 启动（8.9 cutover——preview 宿主树）');
+log('supervisor 启动（8.9 cutover——apps/host 宿主树）');
 startChild();

@@ -1,7 +1,7 @@
 // ============================================================
 // gen-icons.mjs —— 安卓图标资产单源生成（cr-43 ①）
 //
-// 从 src/webui/public/logo.svg 派生安卓全套图标资产：
+// 从 apps/ui/public/logo.svg 派生安卓全套图标资产：
 //   · ic_launcher{,_round}.png     各密度（48 基准）——整标直出
 //   · ic_launcher_foreground.png   各密度（108dp 基准）——前景层（logo 66% 居中，透明底）
 //   · splash_logo.png              各密度（透明底 logo+品牌字卡片）——layer-list 的等比居中层
@@ -20,7 +20,7 @@ import { Resvg } from '@resvg/resvg-js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
-const logoSvg = readFileSync(join(repo, 'src/webui/public/logo.svg'), 'utf8');
+const logoSvg = readFileSync(join(repo, 'apps/ui/public/logo.svg'), 'utf8');
 const resDir = join(repo, 'mobile/app/android/app/src/main/res');
 
 // ---- 尺寸表（与 Capacitor 脚手架 res 同构——直接替换产物） ----

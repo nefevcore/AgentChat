@@ -11,8 +11,8 @@
 //      → 真机 `SyntaxError: Unexpected token '{'`，整个 chunk 不执行。
 //
 // 三处同一份基线，改基线须三处同步：
-//   ① src/webui/public/legacy-runtime.js      运行时垫片（补上即放行）
-//   ② src/webui/vite.config.ts                build.target + esbuild.supported
+//   ① apps/ui/public/legacy-runtime.js      运行时垫片（补上即放行）
+//   ② apps/ui/vite.config.ts                build.target + esbuild.supported
 //   ③ 本文件                                   构建期守门（API 面 + 语法面）
 //
 // 覆盖度判定：某 API「已垫片」= 垫片源码里 grep 得到它的**全名**（垫片里的 feature-detect
@@ -26,7 +26,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(repo, 'src/webui/dist');
+const dist = join(repo, 'apps/ui/dist');
 const indexPath = join(dist, 'index.html');
 const assetsDir = join(dist, 'assets');
 const SHIM = 'legacy-runtime.js';
@@ -54,7 +54,7 @@ const fail = [];
 const shimPath = join(dist, SHIM);
 const shimSrc = existsSync(shimPath) ? readFileSync(shimPath, 'utf8') : '';
 if (shimSrc === '') {
-  fail.push(`垫片缺失：${SHIM} 未进 dist（应为 src/webui/public/${SHIM}）`);
+  fail.push(`垫片缺失：${SHIM} 未进 dist（应为 apps/ui/public/${SHIM}）`);
 } else {
   const html = readFileSync(indexPath, 'utf8');
   const tagAt = html.indexOf(`src="/${SHIM}"`);
@@ -114,7 +114,7 @@ if (existsSync(assetsDir)) {
       if (n > 0) {
         fail.push(
           `超基线 API ${api}（Chrome ${since}+）出现在 ${f} ×${n}——` +
-            `WebView ${BASELINE_WEBVIEW} 上不存在：先在 src/webui/public/${SHIM} 补垫片` +
+            `WebView ${BASELINE_WEBVIEW} 上不存在：先在 apps/ui/public/${SHIM} 补垫片` +
             '（feature-detect 写全名，守门按全名判定覆盖）',
         );
       }

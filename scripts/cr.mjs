@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
 // scripts/cr.mjs —— cr-log 登记/查询 CLI（cr-58）
-// cr-log 事实源（仓库根 cr-log.md，cr-262 自 src/docs/ 提升——登记范围跨
+// cr-log 事实源（仓库根 cr-log.md，cr-262 自 docs/design/ 提升——登记范围跨
 // src/scripts/docs 全仓）的本地管理工具（零依赖）。
 //   append  登记新条目——自动取号（目录最大号 +1）、日期缺省当日真实
 //           日历日（--date 可覆写）、同步头部「当前号」快查行；写前自检
@@ -51,7 +51,7 @@ function parse(text) {
   return { lines, headIdx, entries };
 }
 
-// 写前不变量自检（与守门测试 src/ac-app/tests/cr-log.test.ts 同口径）
+// 写前不变量自检：头部「当前号」行与目录最大号一致（两处手动同步的既有口径）
 function assertInvariant(p) {
   if (p.headIdx === -1) throw new Error('头部引言区缺「> **当前号：cr-N**」快查行');
   if (!p.entries.length) throw new Error('目录区没有任何条目');
@@ -158,7 +158,7 @@ function usage() {
     '用法：',
     "  node scripts/cr.mjs append '一句话描述' [--date YYYY-MM-DD]  登记新条目（自动取号/当日日期/同步头行）",
     '  node scripts/cr.mjs grep <词>... [-n N] [--oneline]         查询条目（多词 AND，整块输出，最新在前）',
-    '事实源：仓库根 cr-log.md（cr-262 自 src/docs 提升）；测试隔离：CR_LOG_FILE 环境变量指向副本。',
+    '事实源：仓库根 cr-log.md（cr-262 自 docs/design 提升）；测试隔离：CR_LOG_FILE 环境变量指向副本。',
   ].join('\n'));
 }
 

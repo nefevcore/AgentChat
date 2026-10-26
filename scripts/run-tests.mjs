@@ -26,14 +26,14 @@ import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 
 const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
-// 显式用仓库根的 vitest 入口：包目录下（如 src/webui 声明 vite ^5）局部
+// 显式用仓库根的 vitest 入口：包目录下（如 apps/ui 声明 vite ^5）局部
 // vitest 会绑到不兼容的 vite 版本（vitest 4 的 peer 要求 vite ^6），
 // 根入口恒定解析到根依赖树。
 const VITEST_ENTRY = join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 
 // 参数形态：run-tests.mjs [档位] [vitest 过滤参数…]
 //   档位：unit | integration | all | watch（缺省 all）
-//   其余 token 透传 vitest 作过滤器（root 相对路径子串，如 src/ac-math）。
+//   其余 token 透传 vitest 作过滤器（root 相对路径子串，如 packages/ac-math）。
 // 包内委派（package.json scripts.test = "node ../../scripts/run-tests.mjs .")：
 //   vitest 的过滤器只认【root 相对路径】的子串匹配（绝对路径/包内相对
 //   路径均不命中）——「.」占位由本脚本换算成 root 相对包路径注入。

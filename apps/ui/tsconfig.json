@@ -1,0 +1,29 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@agentchat/protocol": ["src/shims/@agentchat/protocol.ts"]
+    },
+    "types": ["node"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": [
+    "env.d.ts",
+    "src/**/*.ts",
+    "client/**/*.ts",
+    "tests/**/*.ts",
+    "channel/*/src/**/*.ts",
+    "../../packages/ac-client-ui-*/client/**/*.ts",
+    "../../packages/ac-client-ui-*/client/**/*.d.ts",
+    "../../packages/ac-client-ui-*/client/**/*.vue",
+    "../../packages/ac-webui-kit/src/**/*.ts",
+    "../../packages/ac-webui-kit/src/**/*.d.ts",
+    "../../packages/ac-webui-kit/src/**/*.vue",
+    "../../packages/ac-timer-core/src/**/*.ts",
+    "../../packages/ac-timer-core/src/**/*.d.ts"
+  ],
+  // 覆盖根 tsconfig 的 exclude（extends 会继承；根排除了 apps/ui/client 与
+  // ac-webui-kit，而本程序恰恰要检查它们）
+  "exclude": ["**/node_modules/**", "dist/**"]
+}

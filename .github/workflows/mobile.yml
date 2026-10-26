@@ -34,7 +34,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 根 workspace install（前端在 preview/apps/ui 包内，dist 构建依赖根 node_modules）
+      # 根 workspace install（前端在 apps/ui 包内，dist 构建依赖根 node_modules）
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
@@ -110,7 +110,7 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          scp -i ~/.ssh/deploy_key src/ac-relay-server/scripts/gen-manifest.mjs "${SERVER_USER:-deploy}@$SERVER_HOST:/opt/agentchat-relay/gen-manifest.mjs"
+          scp -i ~/.ssh/deploy_key packages/ac-relay-server/scripts/gen-manifest.mjs "${SERVER_USER:-deploy}@$SERVER_HOST:/opt/agentchat-relay/gen-manifest.mjs"
           ssh -i ~/.ssh/deploy_key "${SERVER_USER:-deploy}@$SERVER_HOST" VER="$VER" BASE="http://$SERVER_HOST/downloads/mobile" bash -s <<'SWAP'
           set -euo pipefail
           STG="/var/www/agentchat/staging/mobile/$VER"

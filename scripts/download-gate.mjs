@@ -13,7 +13,7 @@
 //   · **GET /api/quota**：剩余次数（主页展示用）。
 //
 // 另两件（同 IP 限流 limit_req/limit_conn/limit_rate、账单告警）属 Nginx 与
-// 云监控职责——见 src/docs 的部署段。
+// 云监控职责——见 docs/design 的部署段。
 //
 // 用法：
 //   node scripts/download-gate.mjs --root <静态根> [--port 18080] [--quota 200]

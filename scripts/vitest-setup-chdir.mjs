@@ -57,6 +57,15 @@ if (process.env.AGENTCHAT_SUPERVISED !== undefined) {
 // 孤儿对账清扫默认关闭（cr-382）：测试进程会真枚举/真杀机器上的进程
 // ——非密封动作，测试环境一律不做；生产 boot 路径不受影响。
 process.env.AGENTCHAT_ORPHAN_REAP = 'off';
+// TEMP/TMP 锚定（cr-665）：测试树与测试拉起的子进程不写本机 %TEMP%
+//（Windows 实时防护占用 / 沙箱拒写——同域瞬时 EPERM）。os.tmpdir() 每次
+// 调用现读 env，worker 与 spawn 子进程均生效；锚定失败回落本机 TEMP。
+try {
+  const tmpDir = join(REPO_ROOT, 'sandbox', 'tmp');
+  mkdirSync(tmpDir, { recursive: true });
+  process.env.TEMP = tmpDir;
+  process.env.TMP = tmpDir;
+} catch { /* 锚定失败不阻塞测试 */ }
 
 // 每 worker 独立数据根：并行 worker 同时 boot 服务器（agents 目录 rename /
 // config 写入）会在共享根上竞态（EPERM/丢行）——按 pool id 分桶隔离；

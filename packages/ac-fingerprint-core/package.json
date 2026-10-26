@@ -1,0 +1,17 @@
+{
+  "name": "ac-fingerprint-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "内容指纹纯库（R-7）：Merkle 内容树 + 规范化 + 子指纹——两侧同算法（宿主 guardian verify 节拍 / 壳 boot stdout 自报）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

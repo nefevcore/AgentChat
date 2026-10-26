@@ -1,6 +1,6 @@
 // scripts/release-preflight.mjs —— 发版本地预检（CI 同序五步 + 可选干净安装档）
 //
-// 背景：v0.8.0 起 12 个版本无一首发全绿（见 src/docs/release-ci-postmortem.md），
+// 背景：v0.8.0 起 12 个版本无一首发全绿（见 docs/design/release-ci-postmortem.md），
 // 失败集中在平台/形态/环境三边界。CI 的五步本地全有命令，缺的是「一条命令按 CI
 // 同序跑一遍」的入口，以及「干净安装」档（三连败全是本地 node_modules 历史残留
 // 掩盖的干净安装问题——uplot 声明/解析/postinstall 档位）。

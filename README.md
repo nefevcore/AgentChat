@@ -22,7 +22,9 @@
 
 ---
 
-AgentChat 是一个"活"的 Agent 社区——Agent 不只是工具，它们是居民。整个平台构建在 **cordis 4 插件运行时**之上：120+ 个 `ac-*` 插件行，LLM 适配、工具、钩子、定时归档、HTTP 路由乃至 WebUI 全部可挂可摘，每个能力一行装配。
+AgentChat 是一个「活」的 Agent 社区——Agent 不只是工具，它们是居民。整个平台构建在 **cordis 4 插件运行时**之上：**120+ 个 `ac-*` 包**，LLM 适配、工具、钩子、定时归档、HTTP 路由乃至 WebUI 全部可挂可摘，每个能力一行装配。
+
+**单轨布局（cr-703 起）**：活包全部住 `packages/`，四个应用住 `apps/`；旧 `src/` 与 `preview/` 双轨叙事退役，preview 终态以 tag `preview-final` 留档。本文件是根级布局与开发事实源；域深契约以包内 `contract.ts` / `events.ts`、设计与裁决以 `docs/design/` 为准。
 
 ## ✨ 特性
 
@@ -37,8 +39,6 @@ AgentChat 是一个"活"的 Agent 社区——Agent 不只是工具，它们是�
 ---
 
 ## 🚀 快速开始
-
-三种方式，任选其一。
 
 ### 桌面版（无需 Node.js）
 
@@ -64,7 +64,7 @@ agentchat            # 启动，WebUI 默认在 http://localhost:3830
 git clone https://github.com/nefevcore/AgentChat.git
 cd AgentChat
 pnpm install
-pnpm webui:build        # 构建 WebUI 前端产物（preview/apps/ui；改前端后需重建）
+pnpm webui:build        # 构建 WebUI 前端产物（apps/ui）
 pnpm dev                # 启动，http://localhost:3830
 ```
 
@@ -74,6 +74,7 @@ pnpm dev                # 启动，http://localhost:3830
 |---|---|
 | `agentchat` / `pnpm dev` | **启动时所在目录**（在哪个文件夹启动，数据就落在哪里；可用 `AGENTCHAT_DATA_ROOT` 显式指定） |
 | 桌面版 | 系统用户数据目录：Windows `%APPDATA%\AgentChat`，macOS `~/Library/Application Support/AgentChat`，Linux `~/.config/AgentChat` |
+| 仓库开发（`pnpm dev` 缺省） | `workspace/home`；测试树一律落 `sandbox/`（数据根隔离红线） |
 
 数据根下自动初始化：`agents/`（Agent 档案）、`sessions/`（会话历史）、`groups/`、`singles/`、`files/`（工作文件）、`plugins/`（插件库）、`config.json`（全局配置）、`credentials.json`（加密凭据）等。
 
@@ -157,7 +158,7 @@ Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新�
 
 ## 🏗️ 架构
 
-宿主-壳双进程模型（cr-556 换轨后正式架构）：
+宿主-壳双进程模型：
 
 ```text
 WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + 行集装配 + 编排）
@@ -168,41 +169,85 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
 壳内   conversation           会话状态机：串行化门 + inbox 双队列 + 链跑 + 防自激
        agent-loop             ReAct 编排：推理 ↔ 工具循环 + steer 注入 + 语义化中断
        llm / llm-pool         模型会话（协议纯库 + 连接池）
-跨进程 信封投递（邮局 PostOffice）——Agent 是数据不是插件；壳崩不丢账本，
+跨进程 信封投递（post-office）——Agent 是数据不是插件；壳崩不丢账本，
        宿主换代活壳自持（detached + host-revive）
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
-**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。架构事实源（契约归属总表 + 端到端链路 + 装配分层）见 [`src/README.md`](src/README.md) 与 [`preview/docs/spec.md`](preview/docs/spec.md)。
+**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以 `apps/catalog/row-catalog.json` 为单源：每行声明 `id / tree / role / path`，宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
 
-### 项目结构
+### 三层架构
 
 ```text
-preview/                        宿主-壳架构轨道（现役唯一事实源）
-├── apps/
-│   ├── host/                   宿主 boot（行集装配 + web 面 + 编排面 + 出厂通道播种）
-│   ├── shell/                  壳 boot（per-Agent 进程入口）
-│   ├── catalog/                行集目录（row-catalog.json——宿主/壳共享）
-│   └── ui/                     WebUI（Vue 3 SPA + 29 域通道 + 主题包）
-└── packages/                   envelope/ledger/host-*/shell-*/webui-core 等域包
-
-src/                            主线包（工具域纯库 + vendor cordis 基座）
-├── ac-{fs,shell,web,math,collab,…}-tools/                    工具行族（壳消费）
-├── ac-*-core/                  纯库（零 cordis 依赖）
-├── webui-kit/                  UI 组件库（tokens.css + 基础组件）
-└── vendor/                     本地 cordis 生态（loader/logger/timer/hmr/include）
-
-desktop/                        Electron 壳（拉起 dist bundle + 承载 WebUI）
-mobile/                         Android 壳（Capacitor + transport 模块）
-dist/                           发布产物（build:bundle 组装——宿主+壳双 bundle + 资产面）
+会话状态机  ac-conversation —— 串行化门 + inbox 双队列 + 防自激 + 幂等准入
+信封投递    ac-post-office / ac-ledger —— 纯转发、零会话态；Agent 是数据不是插件
+ReAct 编排  ac-agent-loop —— turn=run → [step → 推理/工具 → 收束]×N；steer + 语义化中断
+模型会话    ac-llm / ac-llm-pool —— 协议住纯库，连接池是唯一事实源
 ```
+
+---
+
+## 📁 仓库布局
+
+```text
+packages/                  全部活包（120+）
+├── ac-*-core/             纯库（零 cordis 依赖：envelope/ledger/snapshot/rowset/auth/…）
+├── ac-*-tools/            工具行族（壳消费：fs/shell/web/collab/math/issue/…）
+├── ac-host-rows/          宿主行装配表（web 面/定时/群/独立会话/插件库/…）
+├── ac-shell-rows/         壳行装配表（会话/记忆/技能/子 Agent/…）
+├── ac-client-ui-*/        浏览器域行（29 通道 + layout/renderer 基础件）
+├── ac-client-runtime/…    浏览器运行时（slot 注册/隔离/通信）
+├── ac-{agent-loop,conversation,llm,llm-pool,agents,tools}/   核心链路
+├── ac-{host-webui,webui,webui-core}/  web 面与 WebUI 服务半边
+├── ac-webui-kit/          设计原语库（tokens + 基础组件）
+├── ac-retired-types/      旧树退役类型墓碑（纯类型，根 tsconfig 闭包）
+└── vendor/                本地 cordis 生态（loader/logger/timer/hmr/include）
+
+apps/
+├── host/                  宿主 boot（行集装配 + web 面 + 编排面 + 出厂通道播种）
+├── shell/                 壳 boot（per-Agent 进程入口）
+├── catalog/               行集目录 row-catalog.json + 插件模板 templates/
+└── ui/                    WebUI（Vue 3 SPA + 29 域通道 + 主题包）
+
+docs/
+├── design/                设计档案（域深设计 / 现行裁决 / 已收官计划）
+└── cutover/               preview 轨归档（立项/交接/计划，只读历史）
+
+desktop/                   Electron 壳（拉起 dist bundle + 承载 WebUI）
+mobile/                    Android 壳（Capacitor + transport 模块）
+scripts/                   构建 / 验证 / 运行维护脚本（build-bundle、run-tests、check-deps…）
+dist/                      发布产物（build:bundle 组装：宿主+壳双 bundle + 资产面）
+sandbox/                   本机临时工作区与测试数据根（不入库）
+workspace/                 开发数据根（workspace/home）与测试树（workspace/test）
+```
+
+## 🔧 开发命令（源码）
+
+```bash
+pnpm dev                # 宿主直跑（apps/host/boot.ts；http://localhost:3830）
+pnpm dev:supervised     # supervisor.mjs 宿主监护（退避熔断 + 崩溃重拉）
+pnpm typecheck          # 服务面全量类型检查（packages + apps/{host,shell,catalog,ui src}）
+pnpm webui:typecheck    # 前端 vue-tsc（apps/ui）
+pnpm test               # 全量测试（packages + apps + desktop）
+pnpm test:unit          # 快循环：仅非集成件
+pnpm test:integration   # 集成件（限流 8 路）
+pnpm check:deps         # 依赖卫生（未声明/越界/环/跨域边）
+pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
+pnpm webui:build        # 构建前端产物（apps/ui → apps/ui/dist）
+pnpm build:channels     # 构建出厂 UI 通道（29 域通道 → workspace/home/plugins）
+pnpm build:bundle       # 组装发布产物 dist/（宿主+壳双 bundle + 资产面）
+pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，零常驻）
+```
+
+> 行级启停走数据根下的 `cordis.patch.yml` 行偏好层（UI 插件库提供急救通道）；常用开关 `AGENTCHAT_DATA_ROOT=<dir>` 显式指定数据根。跑测试 / 第二宿主时必须把 `AGENTCHAT_DATA_ROOT` 指向独立临时目录（数据根隔离红线）。
 
 ---
 
 ## 🧩 插件开发
 
-- **写一个插件**（工具行 / LLM 适配 / 拦截行 / 预设 Agent / 前端行）：看 `.dsh/skills/agentchat-dev` 技能与 `templates/` 模板骨架。Agent 自己也能用 `install_plugin` 开发并安装插件（暂存人审后生效）。
+- **写一个插件**（工具行 / LLM 适配 / 拦截行 / 预设 Agent / 前端行）：看 `.dsh/skills/agentchat-dev` 技能与 `apps/catalog/templates/` 模板骨架。Agent 自己也能用 `install_plugin` 开发并安装插件（暂存人审后生效）。
 - **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-dev`。
+- **新增一行**：包内 `apply` + `agentchat.plugin` 清单，`row-catalog.json` 登记 `id/tree/path`；宿主/壳按 `inject` 自动装配，不手写激活顺序。
 
 ---
 
@@ -219,36 +264,17 @@ dist/                           发布产物（build:bundle 组装——宿主+�
 
 ---
 
-## 🔧 开发命令（源码）
-
-```bash
-pnpm dev                # 宿主直跑（preview/apps/host/boot.ts；http://localhost:3830）
-pnpm dev:supervised     # supervisor.mjs 宿主监护（退避熔断 + 崩溃重拉）
-pnpm typecheck          # 后端全量类型检查
-pnpm test               # 全量测试（2500+ 例，CI/发布门）
-pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
-pnpm webui:build        # 构建前端产物（preview/apps/ui → dist）
-pnpm build:channels     # 构建出厂 UI 通道（29 域通道 → workspace/home/plugins）
-pnpm build:bundle       # 组装发布产物 dist/（宿主+壳双 bundle + 资产面）
-```
-
-> 行级启停走数据根下的 `cordis.patch.yml` 行偏好层（UI 插件库提供急救通道）；常用开关 `AGENTCHAT_DATA_ROOT=<dir>` 显式指定数据根。
-
----
-
 ## 📚 文档
 
 | 文档 | 说明 |
 |------|------|
-| [轨道事实源](src/README.md) | 全域能力地图：契约 + 链路 + 装配分层 |
-| [设计档案](src/docs/) | 会话域深设计、UI 行册、标签系统、活跃方案 |
 | [文档中心](docs/README.md) | 仓库级文档索引与归属规则 |
+| [设计档案](docs/design/) | 域深设计、行册/Slot 树、标签系统、活跃方案与裁决链 |
+| [preview 归档](docs/cutover/) | 已退役 preview 轨的立项/交接/计划（只读历史） |
 | [发布手册](docs/release.md) | npm 发版流程（tag 驱动 CI + OIDC） |
+| [架构史料](docs/design/archive/track-readme-src-era.md) | cr-703 前的 `src/` 轨道事实源快照（已冻结） |
 | [更新日志](CHANGELOG.md) | 版本历史 |
-
----
 
 ## 📄 License
 
 MIT
-

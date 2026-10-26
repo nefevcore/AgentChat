@@ -1,0 +1,63 @@
+{
+  "name": "ac-shell-rows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "壳行导入装配（M8.1 第一批）：主线沿用行 id → cordis Plugin 映射 + 数据根行 options 工厂——boot.ts 消费",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/cordis-logger": "workspace:*",
+    "ac-config": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-datetime": "workspace:*",
+    "ac-persona": "workspace:*",
+    "ac-system-prompt": "workspace:*",
+    "ac-memory": "workspace:*",
+    "ac-skill": "workspace:*",
+    "ac-goal": "workspace:*",
+    "ac-todo": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-auth-core": "workspace:*",
+    "ac-credentials-core": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-llm-pool": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-fs-tools": "workspace:*",
+    "ac-file-snapshots": "workspace:*",
+    "ac-fs-search": "workspace:*",
+    "ac-str-replace-editor": "workspace:*",
+    "ac-run-code": "workspace:*",
+    "ac-math": "workspace:*",
+    "ac-web-tools": "workspace:*",
+    "ac-issue-tools": "workspace:*",
+    "ac-sap-adt": "workspace:*",
+    "ac-mcp": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-conv-settings": "workspace:*",
+    "ac-shell-tools": "workspace:*",
+    "ac-harness-tools": "workspace:*",
+    "ac-durable-interaction": "workspace:*",
+    "ac-ask-questions": "workspace:*",
+    "ac-bench": "workspace:*",
+    "ac-collab-tools": "workspace:*",
+    "ac-archive-core": "workspace:*",
+    "ac-ledger": "workspace:*",
+    "ac-core-utils": "workspace:*",
+    "ac-text-budget": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-plugin-core": "workspace:*",
+    "ac-rowset-core": "workspace:*",
+    "ac-post-office": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-shell-conversation": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

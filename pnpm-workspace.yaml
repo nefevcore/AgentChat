@@ -1,13 +1,10 @@
 packages:
-  - 'src/*'
-  - 'src/vendor/*'
+  - 'packages/*'
+  - 'packages/vendor/*'
+  - 'apps/*'
+  # ui 通道模块（第一方模块资产——manifest 声明 + re-export 主线行包）
+  - 'apps/ui/channel/*'
   - 'desktop'
-  # preview 轨（cr-491，M0.1）：纯库六包——根 tsconfig/vitest include 均不含 preview（不进 CI 门禁）
-  - 'preview/packages/*'
-  # preview 轨（cr-501，M3.2）：壳/宿主 app 骨架
-  - 'preview/apps/*'
-  # preview 轨（cr-531，8.5b 第二批）：ui 通道模块（第一方模块资产——manifest 声明 + re-export 主线行包）
-  - 'preview/apps/ui/channel/*'
 allowBuilds:
   '@vue-office/docx': true
   '@vue-office/excel': true

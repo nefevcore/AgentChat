@@ -4,7 +4,7 @@
 // 背景：@vue-office/{docx,excel,pptx} 是 UMD 单文件产物（excel 1.6MB、
 // pptx 1.3MB，已 minified 无 sourcemap），进 vite 构建图后每次 build 都要
 // 重新 parse + minify，占构建时间约 2/3（33s → 11s 的差距来源）。
-// 方案：把三包 lib/index.js 直拷到 src/webui/public/vendor/（vite public
+// 方案：把三包 lib/index.js 直拷到 apps/ui/public/vendor/（vite public
 // 目录原样直拷零处理），浏览器侧经 client/officeVendor.ts 动态注入
 // <script> 读取全局（UMD 全局名 vue-office-{docx,excel,pptx}）。
 //
@@ -20,8 +20,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const KINDS = ['docx', 'excel', 'pptx'];
-const require_ = createRequire(new URL('../src/ac-client-ui-workspace/package.json', import.meta.url));
-const vendorDir = fileURLToPath(new URL('../src/webui/public/vendor', import.meta.url));
+const require_ = createRequire(new URL('../packages/ac-client-ui-workspace/package.json', import.meta.url));
+const vendorDir = fileURLToPath(new URL('../apps/ui/public/vendor', import.meta.url));
 
 const md5 = (buf) => createHash('md5').update(buf).digest('hex');
 

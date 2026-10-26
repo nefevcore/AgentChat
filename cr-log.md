@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-702**（`cr.mjs append` 自动同步本行——守门测试 `src/ac-app/tests/cr-log.test.ts` 锁两处一致）。
+> **当前号：cr-703**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 
 ## 登记格式
 
@@ -720,3 +720,4 @@
 - 【cr-700 2026-10-26 conversation 通道件共享基座外部化：ac-client-ui-conversation client 深引加进 channelImports + shared-modules 单例——通道件不再携带 feed/feed-core 内部拷贝（双拷贝漂移致 cr-699 修复两度被旧通道件吞掉），重建面收敛为单一】
 - 【cr-701 2026-10-26 B4 宿主树 ui 组终态清空：catalog 撤 25 ui 域行（86→61，host 48→23）+ 口径断言/注释/manifest R1R2 同步 + 设计文档 B4 落地标注】
 - 【cr-702 2026-10-26 发布链换轨批：build:bundle 改 preview 宿主双入口（agentchat.mjs+shell.mjs+资产面）+ 三 CI workflow 换轨 + src/webui 退役 + README 深层叙事重写】
+- 【cr-703 2026-10-26 全仓重组批（布局 C）：packages/ 收编全部活包（src 71 + preview 49）、apps/ 收编四应用、src/ 消灭——preview 覆盖正轨终态批；四遗留并入（4 死包删 + 批 C src/webui 退役 + cutover 三脚本 + cordis.yml/supervisor.mjs）；tag preview-final 归档】

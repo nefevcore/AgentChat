@@ -5,7 +5,7 @@
 // plugin-catalog.json 插件目录清单 + WebUI 静态产物）以纯 Node 进程
 // 拉起，并把窗口指到它的 127.0.0.1 监听地址上。
 //
-// 关键语义（与 npm 包形态同一条路径，见 src/ac-app/src/bootstrap.ts）：
+// 关键语义（与 npm 包形态同一条路径，见 packages/ac-app/src/bootstrap.ts）：
 //   · 后端 = spawn(process.execPath, [agentchat.mjs, --port, N]) +
 //     ELECTRON_RUN_AS_NODE=1 —— 复用 Electron 自带 Node（≥20，满足
 //     engines），不引入第二条运行时；
@@ -155,7 +155,7 @@ function spawnBackend(port) {
       AGENTCHAT_PLUGIN_MANIFEST: catalogManifest,
       AGENTCHAT_DESKTOP: '1',
       // cr-702 发布链换轨：bundle 运行时资产锚（row-catalog/templates/plugins/
-      // webui 静态面/shell.mjs——见 preview/apps/host/anchors.ts）
+      // webui 静态面/shell.mjs——见 apps/host/anchors.ts）
       AGENTCHAT_HOME: backendDir,
       AGENTCHAT_VERSION_JSON: path.join(backendDir, 'version.json'),
     },
@@ -829,7 +829,7 @@ async function setStorageRoot(newRoot, { migrate }) {
 }
 
 // 桥 CORS：桥口与页面口不同源（3831 vs 3830），页面 fetch 桥是跨源请求——
-// 拦截有两层：① CSP connect-src（src/webui/index.html 已放行 http://127.0.0.1:*，
+// 拦截有两层：① CSP connect-src（apps/ui/index.html 已放行 http://127.0.0.1:*，
 // 覆盖 pickedPort+1..+4 候选序列——2026-09-22 修复：此前只有 'self'，CSP 先于
 // CORS 拦死桥探活 → 存储管理节静默降级隐藏）；② 本处 CORS 头，无则浏览器拦死
 // （probe 失败 → 存储节永远隐藏，即便端口没被占）。

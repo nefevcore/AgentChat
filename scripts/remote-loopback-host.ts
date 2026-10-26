@@ -4,7 +4,7 @@
 // bootTree 起完整组合树（skip llm-pool 等重行不必要——照常全起，脚本会话短），
 // remote-link 行注入 relayUrl 指向本地 relay。打印 web-server 端口后待命。
 // ============================================================
-import { bootTree } from '../src/ac-app/src/index.ts';
+import { bootTree } from '../packages/ac-app/src/index.ts';
 
 const RELAY = process.env.LOOPBACK_RELAY ?? 'ws://127.0.0.1:18443';
 

@@ -11,12 +11,18 @@ import { fileURLToPath, URL } from 'node:url';
 //     *.test.ts 天然兼容，无需登记清单，新用例作者自行归类）。
 //   · 档位经 VITEST_PROFILE 选择：unit（快循环）/ integration（限流跑）
 //     / 未设（全量，等价改造前行为）。由 scripts/run-tests.mjs 编排。
+// cr-703 全仓重组后，packages/ 与 apps/ 同属本配置——不再有 preview 轨
+// 独立配置与 preview:* 脚本。
 // ============================================================
 const PROFILE = process.env.VITEST_PROFILE ?? 'all'; // 'all' = 不加 include/exclude 过滤
 // desktop/tests = 桌面壳域测试（main.mjs 桥/更新/树杀回归，cr-481 自
 // ac-client-ui-desktop-storage/tests 归位——被测面在 desktop/，与被测物同住）
-const ALL_TESTS = ['src/**/tests/**/*.test.ts', 'desktop/tests/**/*.test.ts'];
-const INTEGRATION_TESTS = ['src/**/tests/**/*.integration.test.ts', 'desktop/tests/**/*.integration.test.ts'];
+const ALL_TESTS = ['packages/**/tests/**/*.test.ts', 'apps/**/tests/**/*.test.ts', 'desktop/tests/**/*.test.ts'];
+const INTEGRATION_TESTS = [
+  'packages/**/tests/**/*.integration.test.ts',
+  'apps/**/tests/**/*.integration.test.ts',
+  'desktop/tests/**/*.integration.test.ts',
+];
 
 export default defineConfig({
   plugins: [
@@ -27,15 +33,12 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      // webui 前端测试的 @ 别名（与 webui/vite.config.ts 同源映射；
+      // 前端测试的 @ 别名（与 apps/ui/vite.config.ts 同源映射；
       // 后端包测试不使用 @，无碰撞）
-      '@': fileURLToPath(new URL('./src/webui/src', import.meta.url)),
-      // 同源迁移：@agentchat/protocol → 自包含垫片（与 webui/vite.config.ts
-      // 及 webui/tsconfig.json paths 三处同源映射）
-      '@agentchat/protocol': fileURLToPath(new URL('./src/webui/src/shims/@agentchat/protocol.ts', import.meta.url)),
-      // virtual:row-clients（boot graph 静态映射——测试用注入口垫片，
-      // 生产由 webui vite 插件生成真实映射）
-      'virtual:row-clients': fileURLToPath(new URL('./src/webui/src/runtime/virtual-row-clients.ts', import.meta.url)),
+      '@': fileURLToPath(new URL('./apps/ui/src', import.meta.url)),
+      // 同源迁移：@agentchat/protocol → 自包含垫片（与 apps/ui/vite.config.ts
+      // 及 apps/ui/tsconfig.json paths 三处同源映射）
+      '@agentchat/protocol': fileURLToPath(new URL('./apps/ui/src/shims/@agentchat/protocol.ts', import.meta.url)),
       // electron → 桌面壳测试垫片（desktop-bridge.test.ts 驱动 main.mjs 用；
       // 仅测试态生效：生产桌面打包走 electron-builder，不经 vitest resolver）
       electron: fileURLToPath(new URL('./desktop/tests-support/electron-shim.mjs', import.meta.url)),
@@ -64,11 +67,13 @@ export default defineConfig({
     // 凭据加密（PBKDF2 600k 迭代）与磁盘 IO 在全量并行下较慢；冷启动 transform 也耗时
     testTimeout: 15000,
     hookTimeout: 15000,
-    // 集成档限流：这些用例真起子进程/HTTP 服务器/整树 boot——并发过高会
-    // 互相挤占（观察到的形态：子进程冷启动被拖过就绪窗口 → ECONNREFUSED，
-    // 单独跑恒绿）。实测 4 路 36s / 8 路 33s / 12 路 33s：墙钟由最大的
-    // 单文件（shell-tools 自身 ~36s）决定，加并行度不再有收益，故取 8 路
-    // 作为「够用且留出争用余量」的折中。
-    ...(PROFILE === 'integration' ? { maxWorkers: 8 } : {}),
+    // 并发上限 8（20 核机器上缺省会用 19 路）：
+    //   · 集成档：真起子进程/HTTP 服务器/整树 boot，并发过高互相挤占（子进程
+    //     冷启动被拖过就绪窗口 → ECONNREFUSED，单独跑恒绿）；实测 4/8/12 路
+    //     墙钟近似，8 路是够用且留争用余量的折中。
+    //   · 全档：Windows 下 19 路并发对测试数据根的原子写（tmp+rename）出现
+    //     瞬时 EPERM/EBUSY（cr-703 合并套件后实测 ac-config 与
+    //     ac-harness-tools 各中一次，单独跑恒绿）——统一限 8 路。
+    maxWorkers: 8,
   },
 });

@@ -1,5 +1,5 @@
 // ============================================================
-// M3.1 Kotlin Noise 测试——与 src/ac-noise-core/tests/noise.test.ts 对齐：
+// M3.1 Kotlin Noise 测试——与 packages/ac-noise-core/tests/noise.test.ts 对齐：
 //   · RFC 7748 §6.1 x25519 向量 / RFC 8439 §2.8.2 AEAD 向量（双锚定）
 //   · HKDF-SHA256（与 node hkdfSync 对照基准）
 //   · XK/KK 往返、伪冒拒绝、篡改/重放拒绝、SAS 形态、b64u 往返

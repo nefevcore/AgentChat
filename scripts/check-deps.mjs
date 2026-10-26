@@ -22,7 +22,7 @@
 //      @iconify-json/* 的 unplugin-icons 约定消费、工作区依赖的
 //      peerDependencies 供给义务；devDependencies 的 npm 侧不扫——
 //      tsc/vitest/@types 等工具链无 import 消费形态）
-//   R5 运行时循环依赖：工作区包（src/vendor 上游除外）源文件的
+//   R5 运行时循环依赖：工作区包（packages/vendor 上游除外）源文件的
 //      【运行时值导入】构建包级图，Tarjan SCC 检环——环 = 构建期硬失败
 //      （type-only 互相引用是弱依赖，不构成环）。.ts 边进图，.vue 边
 //      不进（bundler 层 .vue 环由 R7 相位守卫按 base→domain 方向覆盖）
@@ -197,7 +197,7 @@ const runtimeImportEntries = (file) => importEntries(file).filter((e) => !e.type
 // R1-R4 声明检查（AST 面：值导入 / 类型导入 / side-effect 一并可见）
 // ============================================================
 for (const [, { pkgDir, pkg }] of workspace) {
-  if (rel(pkgDir).startsWith('src/vendor/')) continue; // 上游按自带声明原样保留
+  if (rel(pkgDir).startsWith('packages/vendor/')) continue; // 上游按自带声明原样保留
   const deps = new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})]);
   const devDeps = new Set(Object.keys(pkg.devDependencies ?? {}));
   const importedAny = new Set(); // 值 + 类型（R4 判「无用」用）
@@ -279,12 +279,12 @@ for (const [, { pkgDir, pkg }] of workspace) {
 }
 
 // ============================================================
-// R5 包级运行时循环依赖（src/ 全工作区包；src/vendor 上游除外）
+// R5 包级运行时循环依赖（src/ 全工作区包；packages/vendor 上游除外）
 // ============================================================
 {
   const graph = new Map(); // pkg → Set<运行时依赖包>
   for (const [name, { pkgDir }] of workspace) {
-    if (rel(pkgDir).startsWith('src/vendor/')) continue;
+    if (rel(pkgDir).startsWith('packages/vendor/')) continue;
     const edges = new Set();
     for (const file of listFiles(pkgDir)) {
       if (isTestFile(file)) continue;
@@ -382,7 +382,7 @@ let whitelistRemaining = 0;
 
   const phaseOf = new Map(); // name → phase（仅 UI 行包入表）
   for (const [name, { pkgDir, pkg }] of workspace) {
-    if (rel(pkgDir).startsWith('src/vendor/')) continue;
+    if (rel(pkgDir).startsWith('packages/vendor/')) continue;
     const phase = pkg?.agentchat?.client?.phase;
     if (phase === 'base' || phase === 'domain') phaseOf.set(name, phase);
   }

@@ -4,7 +4,7 @@
 // remote-client-relay-plan §6 的「原型验证捷径」：M3 之前用 Node 写
 // loopback 客户端在 PC 上对通 relay + Noise 壳 + RPC 全链路。
 //
-// 用法（relay 需可达；本地起 relay：cd src/ac-relay-server && pnpm start）:
+// 用法（relay 需可达；本地起 relay：cd packages/ac-relay-server && pnpm start）:
 //   npx tsx scripts/remote-loopback-client.ts --relay ws://127.0.0.1:8443 \
 //       --rpc ws://127.0.0.1:3830 [--device-name pixel-8] [--reconnect]
 //
@@ -19,7 +19,7 @@
 import WebSocket from 'ws';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
-import { NoiseHandshake, TransportCipher, b64u, unb64u, sasFromHandshakeHash, type StaticIdentity } from '../src/ac-noise-core/src/index.ts';
+import { NoiseHandshake, TransportCipher, b64u, unb64u, sasFromHandshakeHash, type StaticIdentity } from '../packages/ac-noise-core/src/index.ts';
 
 // ---- 参数 ----
 
