@@ -119,8 +119,7 @@ declare module '@agentchat/cordis' {
      * @scope run
      * 改写：`call.messages = [...call.messages, ...]` 后 `return next()`。
      * 注意：改写只影响本步；循环主历史不受影响。
-     * call.agent = 发起 Agent id（M25 §3.1 补齐；宿主直调/子代理 =
-     * undefined）——门控用 agentOfStepCall 读取器（ac-agent-loop 导出）。
+     * call.agent = 发起 Agent id（M25 §3.1 补齐；宿主直调/子代理 = undefined）。
      */
     'loop/before-step'(
       call: LoopStepCall,

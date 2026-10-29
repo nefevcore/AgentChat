@@ -17,7 +17,7 @@ const row = (id: string, tree: 'host' | 'shell', extra: Partial<RowDescriptor> =
 
 const catalog: RowsetCatalog = {
   rows: [
-    row('ac-post-office', 'host', { role: '邮局' }),
+    row('ac-post-office', 'host', { description: '邮局' }),
     row('ac-guardian', 'host'),
     row("ac-ledger", "shell", { tools: [] }),
     row('ac-conversation', 'shell'),

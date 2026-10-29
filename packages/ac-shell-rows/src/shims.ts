@@ -10,22 +10,30 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { readAgentConfig, settingsOf, deepMerge } from 'ac-agents-core';
+import { readAgentConfig, readChildConfig, settingsOf, deepMerge } from 'ac-agents-core';
+import { listGroupConfigs, memberStreamKey, readGroupConfig } from 'ac-core-utils'; // 群配置纯读面（cr-712 下沉单源）
+import { issueRequestId, type Envelope } from 'ac-envelope-core';
 import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT_ID } from 'ac-credentials-core';
 
 /** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list） */
 export class AgentsShim extends Service {
   private dataRoot: string;
+  /** 影子/子域形态的父 id（cr-755）：本壳以 --parent-id 启动时，自身
+   * config 物化在 agents/<parent>/children/<cid>/ 而非顶层——get 顶层
+   * 缺席回落嵌套域（主线 conversation readConfig 同款分支）。垫片
+   * 此前只读顶层 → 影子壳 tags 全丢 → run_code SDK 投影空。 */
+  private parentId: string | undefined;
   /** 行 id → 工具名投影（cr-593）：AgentConfig.rows 盘上词形是行 id，
    * 主线消费面（collab list_tools / read_agent_info 等按 config.rows
    * 过滤注册工具名）拿原词形 = 词形断裂（行 id 落空、恰同名者幸存）。
    * 垫片 = 盘上词汇 → 主线服务词汇的翻译边界（与 conversation 服务
    * toolFaceOf 同展开语义；缺席 = 无目录投影，原样透传）。 */
   private rowTools: Record<string, string[]> | undefined;
-  constructor(ctx: Context, dataRoot: string, rowTools?: Record<string, string[]>) {
+  constructor(ctx: Context, dataRoot: string, rowTools?: Record<string, string[]>, parentId?: string) {
     super(ctx, 'agents');
     this.dataRoot = dataRoot;
     this.rowTools = rowTools;
+    this.parentId = parentId;
   }
 
   /** 条目词形展开：行 id → 行工具名（保序去重；非行 id 原样） */
@@ -34,7 +42,8 @@ export class AgentsShim extends Service {
   }
 
   get(id: string) {
-    const config = readAgentConfig(this.dataRoot, id) ?? undefined;
+    const config = (readAgentConfig(this.dataRoot, id)
+      ?? (this.parentId !== undefined ? readChildConfig(this.dataRoot, this.parentId, id) : null)) ?? undefined;
     if (config === undefined || this.rowTools === undefined) return config;
     const rows = config.rows;
     if (Array.isArray(rows)) return { ...config, rows: this.expandTokens(rows) };
@@ -72,6 +81,14 @@ export class AgentsShim extends Service {
   /** 主线 AgentsService.list 面（collab-tools list_agents 消费——全量配置数组） */
   list(): unknown[] {
     return this.ids().map((id) => this.get(id)).filter((c) => c !== undefined);
+  }
+
+  /** 注册在场判定（cr-712：主线 AgentsService.has 面——collab send_agent
+   * 目标校验消费；此前垫片缺席致工具在壳内恒报 "ctx.agents.has is not
+   * a function"）。'user' 是保留虚拟端点（主线 workspace 恒注册、盘上无
+   * agents/user 目录）——放行，投递面按跨壳直达 user 壳桩。 */
+  has(id: string): boolean {
+    return id === 'user' || this.get(id) !== undefined;
   }
 }
 
@@ -167,6 +184,8 @@ class CredentialsShim extends Service {
  */
 export class WorkspaceShim extends Service {
   private dataRoot: string;
+  /** 已懒建的专用空间（ensureDir 幂等缓存——主线 ensureAgentWorkdir 同款） */
+  private ensuredDirs = new Set<string>();
   constructor(ctx: Context, dataRoot: string) {
     super(ctx, 'workspace');
     this.dataRoot = dataRoot;
@@ -183,11 +202,37 @@ export class WorkspaceShim extends Service {
     const wsRoot = this.conversationWorkspaceRoot(conversationId);
     if (wsRoot !== null) return wsRoot;
     if (agentId === undefined) return this.dataRoot;
-    return path.join(this.dataRoot, 'files', agentId);
+    // 显式 settings['security'].workdir（主线同序第二层）：子 Agent 工作
+    // 区锚点快照（cr-758）经此层生效——子会话键 parent~sub-x 是新对桶，
+    // singles 挂载信息结构上到不了子壳，快照进 config 是唯一通道。
+    const agents = this.ctx.get('agents', false) as
+      | { settingsOf(id: string, name?: string): unknown }
+      | undefined;
+    const security = agents?.settingsOf(agentId, 'security');
+    const explicit = security !== undefined && security !== null && typeof security === 'object'
+      ? (security as { workdir?: unknown }).workdir
+      : undefined;
+    if (typeof explicit === 'string' && explicit !== '') return path.resolve(explicit);
+    // files/<id> 懒建（cr-754）：主线经 ensureAgentWorkdir 首触即建，
+    // 垫片此前纯路径不建——子 Agent 等无人物化目录者基准成幻影路径。
+    return this.ensureDir(path.join(this.dataRoot, 'files', agentId));
   }
 
   agentWorkdir(agentId?: string): string {
     return this.sandboxWorkdir(agentId);
+  }
+
+  /** 懒建 + 幂等缓存（建目录失败由工具侧自然报错——主线同语义） */
+  private ensureDir(dir: string): string {
+    if (!this.ensuredDirs.has(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch {
+        /* 建目录失败由工具侧自然报错 */
+      }
+      this.ensuredDirs.add(dir);
+    }
+    return dir;
   }
 
   /**
@@ -321,6 +366,21 @@ export class SessionShim extends Service {
     super(ctx, 'session');
   }
 
+  /** 会话历史回放（cr-712：主线 SessionService.history 面——collab
+   * send_agent 委托对历史播种消费；此前垫片缺席致工具在壳内抛
+   * "history is not a function"）。转发壳 ledger 读面（replayView 的
+   * viewer 投影单源：viewer 的话 assistant、对端的话 user）；账本行
+   * 缺席 = 空史（首条委托消息）。 */
+  async history(
+    conversationId: string,
+    options: { viewer?: string } = {},
+  ): Promise<Array<{ role: 'assistant' | 'user' | 'system'; content: string }>> {
+    const ledger = this.ctx.get('ledger', false) as
+      | { historyFor(uuid: string, viewer?: string): Array<{ role: 'assistant' | 'user' | 'system'; content: string }> }
+      | undefined;
+    return ledger === undefined ? [] : ledger.historyFor(conversationId, options.viewer);
+  }
+
   recordContext(
     conversationId: string,
     _agentId: string,
@@ -337,17 +397,101 @@ export class SessionShim extends Service {
 }
 
 /**
- * 数据根直读垫片行工厂（cordis Plugin——boot 装配进壳树，提供 agents /
- * agentStore / credentials / workspace / convSettings / session 六服务）。
- * 不进行集目录（非能力行——接缝件，归 boot 编排）。
+ * ctx.group 垫片（cr-712：send_group/list_groups 壳内接通——群是 host 行
+ * （groups/<gid>/group.json 由宿主写），壳侧此前无 group 服务，工具恒报
+ * 「群服务未装载」）。读面 = ac-core-utils 纯读单源；send 面 = 成员流
+ * 广播（方案 A，collab-delivery-gaps 裁决）：发送方自留言 + 逐成员信封
+ * 扇出（经邮局 dispatch——与宿主 group/send 同形），扇出信封带
+ * broadcast 标记，成员终稿只落自己成员流、**不回投发送方**（群是广播
+ * 不是 1v1：串键污染与回声链同因消除，无需群级预算规则）。
  */
-export function makeShimsRow(dataRoot: string, rowTools?: Record<string, string[]>) {
+export class GroupShim extends Service {
+  private dataRoot: string;
+  private postOfficeAddress: string | undefined;
+  constructor(ctx: Context, dataRoot: string, postOfficeAddress?: string) {
+    super(ctx, 'group');
+    this.dataRoot = dataRoot;
+    this.postOfficeAddress = postOfficeAddress;
+  }
+
+  get(groupId: string) {
+    try {
+      return readGroupConfig(this.dataRoot, groupId) ?? undefined;
+    } catch {
+      return undefined; // 非法 gid（路径形态等）按不存在处理（主线 get 同语义）
+    }
+  }
+
+  list() {
+    return listGroupConfigs(this.dataRoot);
+  }
+
+  listForAgent(agentId: string) {
+    return this.list().filter((g) => g.members.includes(agentId));
+  }
+
+  /** 完整参与面（主线 membersWithUser：成员 ∪ user 保留端点） */
+  membersWithUser(groupId: string): string[] {
+    const g = this.get(groupId);
+    return g === undefined ? [] : [...new Set([...g.members, 'user'])];
+  }
+
+  isMember(groupId: string, agentId: string): boolean {
+    return this.get(groupId)?.members.includes(agentId) === true;
+  }
+
+  /** 群内发言（广播扇出——受理即返回；参与者 run 由各自成员流串行化门承担） */
+  async send(groupId: string, from: string, content: string): Promise<{ triggered: string[] }> {
+    const group = this.get(groupId);
+    if (group === undefined) throw new Error('群 "' + groupId + '" 不存在');
+    if (!group.members.includes(from)) throw new Error('发送者 "' + from + '" 不在群内');
+    const conversation = this.ctx.get('conversation', false) as
+      | { sendEnvelope(env: Envelope): Promise<void> }
+      | undefined;
+    if (conversation === undefined || this.postOfficeAddress === undefined) {
+      throw new Error('邮局未装配——群扇出面不可用');
+    }
+    const ledger = this.ctx.get('ledger', false) as
+      | { deliverRow(uuid: string, participants: string[], kind: string, row: Record<string, unknown>): Promise<boolean> }
+      | undefined;
+    const requestId = 'g-' + issueRequestId();
+    // 发送方自留言（自己成员流——群读面 = 全成员流合并，缺此行则自己
+    // 的发言在群聊里不可见）；不触发自己的 run（自己的发言不是自己的入站）
+    if (ledger !== undefined) {
+      await ledger.deliverRow(memberStreamKey(groupId, from), [from, 'user'], 'group', {
+        role: 'agent', content, agent_id: from, requestId, uuid: memberStreamKey(groupId, from),
+      });
+    }
+    const triggered: string[] = [];
+    for (const member of group.members) {
+      if (member === from) continue;
+      await conversation.sendEnvelope({
+        uuid: memberStreamKey(groupId, member),
+        requestId,
+        sender: from,
+        to: member,
+        kind: 'message',
+        budget: 3,
+        payload: { text: content, broadcast: true },
+      });
+      triggered.push(member);
+    }
+    return { triggered };
+  }
+}
+
+/**
+ * 数据根直读垫片行工厂（cordis Plugin——boot 装配进壳树，提供 agents /
+ * agentStore / credentials / workspace / convSettings / session / group
+ * 七服务）。不进行集目录（非能力行——接缝件，归 boot 编排）。
+ */
+export function makeShimsRow(dataRoot: string, rowTools?: Record<string, string[]>, postOfficeAddress?: string, parentId?: string) {
   return {
     name: 'shell-data-root-shims',
     inject: [],
     apply(ctx: Context) {
       ctx.plugin(class extends AgentsShim {
-        constructor(c: Context) { super(c, dataRoot, rowTools); }
+        constructor(c: Context) { super(c, dataRoot, rowTools, parentId); }
       });
       ctx.plugin(class extends AgentStoreShim {
         constructor(c: Context) { super(c, dataRoot); }
@@ -363,6 +507,9 @@ export function makeShimsRow(dataRoot: string, rowTools?: Record<string, string[
       });
       ctx.plugin(class extends SessionShim {
         constructor(c: Context) { super(c); }
+      });
+      ctx.plugin(class extends GroupShim {
+        constructor(c: Context) { super(c, dataRoot, postOfficeAddress); }
       });
     },
   } satisfies Plugin;

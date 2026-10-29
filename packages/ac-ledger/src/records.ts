@@ -27,10 +27,21 @@ export interface LedgerRow {
   source?: string;
   /** 段行 run 关联（导入迁移：settlement 切段物化产物——旧侧 run 键随终稿行保留，供 webui run 键带出） */
   run?: string;
+  /**
+   * run 墙钟耗时（毫秒，cr-772；终稿行在场——LoopRunResult.wallMs 取源）。
+   * 历史链栏「用时」段的持久锚：直播期 runCalibMs 校准对随 run 消失，
+   * 刷新后由此恢复。存量行缺席（前端回落时间戳推导）。
+   */
+  runMs?: number;
   /** 段行 steps（source='segment' 行在场）：已合并工具结果（含 run_code 子调用
    *  平铺）的步序——journal 步行物化的落账形态；journal 随之剔除该 run 步行
    *  （收束即清，cr-697——journal 回归 run 周期台账本义，治永源膨胀） */
   steps?: ProjectedStep[];
+  /** 注入行来源决策词（source='inject' 行的语义来源：durable-interaction /
+   *  skill / memory 等——UI 注入卡 kind；cr-707） */
+  injectSource?: string;
+  /** 注入行 UI 文案（cr-707：与直播帧 label 同源——流式与刷新两路径同形） */
+  label?: string;
   /** 单调序号（writer 按文件分配——崩溃检测 + 去重锚） */
   seq?: number;
 }
@@ -44,8 +55,22 @@ export interface LedgerRow {
 export interface ProjectedStep {
   content: string;
   reasoning?: string;
+  /** 中止步标记（cr-766）——前端据此渲染中断态（部分正文 + 「已中断」） */
+  aborted?: boolean;
+  /** 思考相位时长（毫秒，cr-766——历史回放恢复「已思考 · XmYs」） */
+  reasoningMs?: number;
+  /** 正文相位时长（毫秒，cr-766） */
+  textMs?: number;
+  /** 步身份键（cr-772 落盘透传）——历史合并键控对齐（存量步投影缺席） */
+  stepId?: string;
+  /**
+   * 本步 API 流时间（毫秒，cr-772）+ 步用量——历史链栏速率段数据源。
+   * completion/elapsedMs 成对消费（输出口径速率 = Σcompletion/Σms）。
+   */
+  elapsedMs?: number;
+  usage?: { prompt: number; completion: number; total?: number };
   ts?: number;
-  toolCalls?: Array<{ id: string; name: string; arguments: string; result: unknown; subcall?: boolean }>;
+  toolCalls?: Array<{ id: string; name: string; arguments: string; result: unknown; subcall?: boolean; durationMs?: number }>;
 }
 
 /** 头行（writer 首建文件时写入） */
@@ -65,8 +90,29 @@ export interface JournalStep {
   run: string;
   /** 步序（run 内单调） */
   step: number;
+  /**
+   * 步身份键（cr-772 落盘透传）：= `${runId}:${index}——loop 盖章、直播
+   * delta 帧 meta.stepId 与此同值，历史合并键控对齐（存量行缺席）。
+   */
+  stepId?: string;
   content: string;
   reasoning?: string;
+  /**
+   * 中止步标记（cr-766）：LLM 流被 abort 时的部分聚合步——toolCalls 可能
+   * 不完整，续跑/轨迹重建读侧据此剔除。步记录照常落盘（中断前模型已
+   * 流出的思考/正文是会话事实）。
+   */
+  aborted?: boolean;
+  /** 思考相位时长（毫秒；cr-766 起随步行落盘——历史回放恢复耗时） */
+  reasoningMs?: number;
+  /** 正文相位时长（毫秒；cr-766——步内相位粒度第二段） */
+  textMs?: number;
+  /**
+   * 本步 API 流时间（毫秒，cr-772 落盘透传）+ 步用量——历史链栏速率段
+   * （Σcompletion/ΣelapsedMs）数据源；与直播 after-step 帧同字段面。
+   */
+  elapsedMs?: number;
+  usage?: { prompt: number; completion: number; total?: number };
   toolCalls?: Array<{ id: string; name: string; arguments: string }>;
   /** 工具执行结果（与 tool_calls 一一对应——service.journalStep 落盘；读侧 steps 投影合并进 result） */
   toolResults?: Array<{ ok: boolean; output?: unknown; error?: string }>;
@@ -81,6 +127,12 @@ export interface JournalInject {
   run: string;
   content: string;
   requestId?: string;
+  /** 注入身份键（cr-707：物化注入行 message_id 取源——直播行与刷新行同锚） */
+  injectionId?: string;
+  /** 注入来源决策词（cr-707：物化行 injectSource 取源——UI 注入卡 kind） */
+  injectSource?: string;
+  /** 注入行 UI 文案（cr-707：物化行 label 取源——正文对卡片标题过长） */
+  label?: string;
   /** 落行时刻（epoch ms——cr-697 起盖戳；物化注入行时间戳取源） */
   ts?: number;
   seq?: number;
@@ -96,6 +148,8 @@ export interface JournalToolResult {
   /** 模型侧工具调用 id（tool_calls[].id——run_code 子调用为 <宿主callId>#<seq> 形） */
   toolCallId: string;
   result: { ok: boolean; output?: unknown; error?: string };
+  /** 工具执行耗时（毫秒，cr-766——tool/after-execute 的 ToolTransform.durationMs；历史回放工具卡耗时） */
+  durationMs?: number;
   /** 子调用档案（runCodeSubcall 时携带——宿主步行只有宿主 run_code 调用，
    * 子调用的名/参无处可寻，档案随补行落盘；读侧注入宿主卡后平铺） */
   subcall?: boolean;

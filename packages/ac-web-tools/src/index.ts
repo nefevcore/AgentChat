@@ -381,7 +381,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
         error: 'browser 工具已被本会话禁用（输入框「实验性 → 浏览器」档位）——如需使用请切换档位为跟随或对应层级。',
       };
     }
-    if (!ctx.get('agents', false)) return next(); // 无 agents 服务：无标签面，恒放行（agentGate 同款；disabled 已在上方拦）——能力集合成由 sessionCapsOf 软依赖自理
+    if (!ctx.get('agents', false)) return next(); // 无 agents 服务：无标签面，恒放行——能力集合成由 sessionCapsOf 软依赖自理
 
     const args = (call.args ?? {}) as { action?: unknown; steps?: unknown };
     const stepActions = Array.isArray(args.steps)

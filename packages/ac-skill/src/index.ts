@@ -9,9 +9,9 @@
 //   · 全局技能目录 <root>/skills/<dirName>/SKILL.md（src 为
 //     per-Agent agentDir/skills；preview 全局共享 + per-Agent 白名单——
 //     与"Agent 是数据、技能是共享资产"的注册表哲学一致）；
-//   · settings['skill'] = { enabled?, whitelist? }——whitelist 命中
-//     name 或 dirName；空白名单 = 暴露全部已发现技能（M24 A1 经
-//     settingsOf 合成全局默认层）。
+//   · settings['skill'] = { whitelist? }——whitelist 命中 name 或
+//     dirName；空白名单 = 暴露全部已发现技能（M24 A1 经 settingsOf
+//     合成全局默认层）。
 //   · 本 Agent 专属技能：<数据根>/files/<agentId>/skills/<dirName>/
 //     SKILL.md（workspace.agentWorkdir 同款沙箱定位；无 workspace 行
 //     回落 <数据根>/files/<agentId>/ 约定）。只对该 Agent 注入与加载，
@@ -21,7 +21,7 @@
 //     根下的业界约定技能目录（.claude/skills、.github/skills、skills、
 //     .agents/skills、.dsh/skills——discoverWorkspaceSkills）——Claude Code /
 //     GitHub Copilot 等维护的项目技能直接被会话复用。随会话挂载的
-//     项目资产：不经 enabled/whitelist 门控（__standard__ 等无记忆
+//     项目资产：不经 whitelist 门控（__standard__ 等无记忆
 //     预设同样可见）；同名遮蔽序 = 本 Agent 专属 > 会话工作区 > 全局。
 //   · load_skill 工具（参照 DSH dsh-tool-skill）：目录只给摘要
 //     （name/description/location），模型按需经工具加载完整正文，
@@ -65,17 +65,12 @@ export interface SkillRowOptions {
 
 /** settings['skill'] 配置形状（per-Agent；形状由本插件自定义） */
 export interface SkillSettings {
-  /** 缺省 true；false = 本 Agent 软停用（ADR-4） */
-  enabled?: boolean;
   /** 技能白名单（name 或 dirName 命中皆可；空白名单 = 全部全局技能） */
   whitelist?: string[];
 }
 
 /** 某 Agent 的技能可见态（注入与 load_skill 共用同一合成口） */
 export interface AgentSkillView {
-  /** settings['skill'].enabled=false → 软停用（全局/专属不注入也不可加载；
-   *  会话工作区组不受此门控——工作区技能是随会话挂载的项目资产） */
-  disabled: boolean;
   /** 全局技能（白名单过滤后；该 Agent 可见的共享技能池） */
   global: SkillManifest[];
   /** 本 Agent 专属技能（files/<agentId>/skills；不受全局白名单约束） */
@@ -226,18 +221,16 @@ export class SkillsService extends Service {
     this.ctx.on('loop/before-run', (call, next) => {
       const state = this.agentSkillState(call.request.agent, call.request.conversationId);
       const groups: SkillGroup[] = [];
-      // 工作区组：随 singles 会话挂载的项目资产——不经 enabled/whitelist
+      // 工作区组：随 singles 会话挂载的项目资产——不经 whitelist
       // 门控（与附件同语义：挂了就在，__standard__ 等无记忆预设同样可见）
       for (const g of state.workspace) {
         groups.push({ skills: g.skills, locationPrefix: g.locationPrefix });
       }
-      if (!state.disabled) {
-        if (state.global.length > 0) {
-          groups.push({ skills: state.global, locationPrefix: this.locationPrefix });
-        }
-        if (state.own.length > 0 && state.ownPrefix) {
-          groups.push({ skills: state.own, locationPrefix: state.ownPrefix });
-        }
+      if (state.global.length > 0) {
+        groups.push({ skills: state.global, locationPrefix: this.locationPrefix });
+      }
+      if (state.own.length > 0 && state.ownPrefix) {
+        groups.push({ skills: state.own, locationPrefix: state.ownPrefix });
       }
       const block = buildSkillsBlock(groups);
       if (block) {
@@ -434,19 +427,19 @@ export class SkillsService extends Service {
   listForAgent(agentId: string, conversationId?: string): { global: SkillManifest[]; own: SkillManifest[]; workspace: WorkspaceSkillGroup[] } {
     const state = this.agentSkillState(agentId, conversationId);
     return {
-      global: state.disabled ? [] : state.global,
-      own: state.disabled ? [] : state.own,
+      global: state.global,
+      own: state.own,
       workspace: state.workspace,
     };
   }
 
   /**
-   * 某 Agent（+ 可选会话）的技能可见态：enabled / 全局白名单 / 专属目录
-   * 现扫 / 会话工作区约定目录扫描。注入与 load_skill 共用——各入口看到
-   * 的是同一份清单。工作区组不受 disabled/whitelist 门控（会话挂载资产）。
+   * 某 Agent（+ 可选会话）的技能可见态：全局白名单 / 专属目录现扫 /
+   * 会话工作区约定目录扫描。注入与 load_skill 共用——各入口看到
+   * 的是同一份清单。工作区组不受 whitelist 门控（会话挂载资产）。
    */
   private agentSkillState(agentId: string | undefined, conversationId?: string): AgentSkillView {
-    const state: AgentSkillView = { disabled: false, global: [], own: [], workspace: [] };
+    const state: AgentSkillView = { global: [], own: [], workspace: [] };
     // 会话工作区组（singles 挂载；其余会话形态恒空）——现扫不缓存：
     // 工作区内容随用户编辑演进，弹层/注入按需扫描成本低（约定目录 readdir）
     const wsRoot = this.workspaceOf(conversationId);
@@ -459,10 +452,6 @@ export class SkillsService extends Service {
     let whitelist: string[] | undefined;
     if (cfg !== undefined && cfg !== null && typeof cfg === 'object') {
       const skillSettings = cfg as SkillSettings;
-      if (skillSettings.enabled === false) {
-        state.disabled = true;
-        return state;
-      }
       if (Array.isArray(skillSettings.whitelist)) {
         whitelist = skillSettings.whitelist.filter((s): s is string => typeof s === 'string');
       }
@@ -516,8 +505,7 @@ export class SkillsService extends Service {
     return workspace?.listWorkspaces().find((w) => w.id === wsId)?.path ?? null;
   }
 
-  /** 按名定位技能（优先序 = 特异性：本 Agent 专属 > 会话工作区 > 全局；
-   *  disabled 时全局/专属清单恒空——命中只可能是工作区组） */
+  /** 按名定位技能（优先序 = 特异性：本 Agent 专属 > 会话工作区 > 全局） */
   private locateSkill(name: string, state: AgentSkillView): { hit: SkillManifest; root: string; scope: SkillLoadOutput['scope'] } | null {
     const ownHit = state.own.find((s) => s.name === name);
     if (ownHit) return { hit: ownHit, root: state.ownRoot as string, scope: 'agent' };
@@ -650,11 +638,7 @@ export class SkillsService extends Service {
     const state = this.agentSkillState(agentId, conversationId);
     const located = this.locateSkill(name, state);
     if (!located) {
-      throw new Error(
-        state.disabled
-          ? `技能 "${name}" 不可用（该 Agent settings.skill.enabled=false，全局/专属技能已停用；会话工作区技能不受此门控）`
-          : `技能 "${name}" 不存在或当前不可用（仅目录中列出的技能可加载）`,
-      );
+      throw new Error(`技能 "${name}" 不存在或当前不可用（仅目录中列出的技能可加载）`);
     }
     const dir = assertInside(located.root, located.hit.dirName);
     const file = path.join(dir, 'SKILL.md');
@@ -704,13 +688,12 @@ export const extension: ExtensionMeta = {
   description: '注入 <available_skills>（全局技能目录 + 本 Agent 专属 files/<agent>/skills + 会话工作区约定目录 .claude/.github/skills 等）+ load_skill 按名加载 + /name 用户显式调用确定性注入',
   fields: [
     { name: 'whitelist', type: 'list', description: '全局技能白名单——留空 = 全部全局技能可见；本 Agent 专属技能不受此约束；每行一个技能名' },
-    { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
   listeners: [
-    { event: 'loop/before-run', role: '注入 <available_skills> + /name 手势判定', description: 'Agent 循环启动前拦截：技能目录注入（装配链一环）+ 当前触发消息尾部 user 块的 /<name> 判定——命中落账 context 行（跨 run 永久回放）+ 工作数组双写（每消息一次）', respectsEnabled: true },
-    { event: 'loop/before-step', role: 'run_code 子调用技能驻留注入', description: '本 run 内 load_skill 子调用新登记的技能，指纹首见时经 injectDurable 驻留注入 + context 行切分落账；已落账技能跨 run 不重注', respectsEnabled: true },
-    { event: 'loop/after-run', role: 'run_code 技能收束兜底', description: 'run 收束时 pending 仍有未落账指纹（load 后无下一步的形态）→ 收束行后直落 context 行兜底（正文在场）', respectsEnabled: true },
-    { event: 'tool/after-execute', role: 'run_code 子调用 load_skill 登记', description: 'load_skill 子调用成功后现读正文登记 pending（已落账在场判定——跨 run 重复 load 不再登记）', respectsEnabled: true },
+    { event: 'loop/before-run', role: '注入 <available_skills> + /name 手势判定', description: 'Agent 循环启动前拦截：技能目录注入（装配链一环）+ 当前触发消息尾部 user 块的 /<name> 判定——命中落账 context 行（跨 run 永久回放）+ 工作数组双写（每消息一次）' },
+    { event: 'loop/before-step', role: 'run_code 子调用技能驻留注入', description: '本 run 内 load_skill 子调用新登记的技能，指纹首见时经 injectDurable 驻留注入 + context 行切分落账；已落账技能跨 run 不重注' },
+    { event: 'loop/after-run', role: 'run_code 技能收束兜底', description: 'run 收束时 pending 仍有未落账指纹（load 后无下一步的形态）→ 收束行后直落 context 行兜底（正文在场）' },
+    { event: 'tool/after-execute', role: 'run_code 子调用 load_skill 登记', description: 'load_skill 子调用成功后现读正文登记 pending（已落账在场判定——跨 run 重复 load 不再登记）' },
   ],
 };
 export const inject = ['agents', 'tools'];

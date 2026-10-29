@@ -74,14 +74,14 @@ describe('AgentsService.settingsOf（M24 A1）', () => {
 
   it('preset / 未知 id：回落全局层；get() 保持差异层原样', async () => {
     const { ctx } = await boot(tmpRoot());
-    ctx.config.set('settings', { datetime: { enabled: false } });
-    ctx.agents.register({ id: 'p', model: 'm', preset: true, settings: { skill: { enabled: false } } });
+    ctx.config.set('settings', { demoX: { on: false } });
+    ctx.agents.register({ id: 'p', model: 'm', preset: true, settings: { demoY: { on: false } } });
 
-    expect(ctx.agents.settingsOf('p', 'datetime')).toEqual({ enabled: false }); // 差异层缺该键 → 全局层
-    expect(ctx.agents.settingsOf('ghost', 'datetime')).toEqual({ enabled: false }); // 未知 id 回落全局层
+    expect(ctx.agents.settingsOf('p', 'demoX')).toEqual({ on: false }); // 差异层缺该键 → 全局层
+    expect(ctx.agents.settingsOf('ghost', 'demoX')).toEqual({ on: false }); // 未知 id 回落全局层
     expect(ctx.agents.settingsOf('ghost', 'nope')).toEqual({});
     // get() 恒差异层（不合成——冻结坑守卫的前半）
-    expect(ctx.agents.get('p')?.settings).toEqual({ skill: { enabled: false } });
+    expect(ctx.agents.get('p')?.settings).toEqual({ demoY: { on: false } });
   });
 
   it('冻结坑守卫：合成 → get-config → update-config 回写后差异层不出现仅存于全局层的键', async () => {

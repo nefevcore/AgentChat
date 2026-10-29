@@ -46,18 +46,37 @@ function toTable(v: unknown): Table {
   return out;
 }
 
-/** 记一条（finish=stop 时调用）：读-合-原子写；写失败静默（续接降级为 new） */
+/** Windows 瞬时占用码（同 ac-config/fsx 口径——cr-705） */
+function isTransientRenameError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  return code === 'EACCES' || code === 'EBUSY' || code === 'EPERM';
+}
+
+/** 记一条（finish=stop 时调用）：读-合-原子写（瞬时占用有界重试）。
+ * 写失败 warn 不抛（续接降级为 new——但不再是零诊断的静默吞）。 */
 export function recordSession(agentDir: string, conversationId: string, entry: HarnessSessionEntry): void {
+  const file = fileOf(agentDir);
   try {
-    const file = fileOf(agentDir);
     const table = readSessions(agentDir);
     table[conversationId] = entry;
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = file + '.tmp';
+    const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(table, null, 2), 'utf-8');
-    fs.renameSync(tmp, file);
-  } catch {
-    /* 记录失败不阻断结果回流 */
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          fs.renameSync(tmp, file);
+          return;
+        } catch (err: unknown) {
+          if (!isTransientRenameError(err) || attempt >= 10) throw err;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+        }
+      }
+    } finally {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* rename 已成则 tmp 不在；清理失败不掩盖 */ }
+    }
+  } catch (err: unknown) {
+    process.emitWarning('harness sessions 记录失败（续接将降级为新会话）: ' + file + ' — ' + String(err));
   }
 }
 

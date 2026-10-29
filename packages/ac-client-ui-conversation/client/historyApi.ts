@@ -45,15 +45,23 @@ export interface PSessionRecord {
   attachments?: PMediaAttachment[];
   /** 产生该行的 run 键（web-api 联查投影行；cr-699 步级 runId 透传源） */
   run?: string;
+  /** run 墙钟耗时（毫秒，cr-772）——历史链栏「用时」段持久锚（存量行缺席） */
+  runMs?: number;
 }
 
 interface PSessionStep {
   content?: string;
   reasoning?: string;
   /**
+   * 中止步标记（cr-766）：LLM 流被 abort 时的部分聚合——前端渲染中断态
+   *（部分正文照常展示 + 中断标识）；工具卡无结果（调用未执行）。
+   */
+  aborted?: boolean;
+  /**
    * 步身份键（2026-09-24 身份贯通）：= `${runId}:${index}——与直播流式帧
    * meta.stepId 同源。历史行带此键时，前端历史合并按键控对齐（直播行与
    * journal 行同键 = 同一步，不靠内容前缀猜测）；旧行无键回落启发式。
+   * cr-772 起随 journal-step 落盘透传（此前落盘面漏传——存量行无键）。
    */
   stepId?: string;
   /** 步完成时刻（epoch ms；落盘步级时序锚——收束行展开时恢复中途插行的渲染序） */
@@ -62,6 +70,8 @@ interface PSessionStep {
   textBeforeTools?: boolean;
   /** 思考相位时长（毫秒；落盘透传）：历史回放恢复「已思考 · XmYs」耗时 */
   reasoningMs?: number;
+  /** 正文相位时长（毫秒，cr-766 落盘透传） */
+  textMs?: number;
   /** 本步 API 流时间（毫秒；dispatch 计时）+ 步用量——链头速率（输出口径）
    * 数据源：completion/elapsedMs 成对消费 */
   elapsedMs?: number;
@@ -75,6 +85,8 @@ interface PSessionStep {
     result: unknown;
     /** run_code 子调用标记（session subcalls 投影注入的条目——平铺卡片缩进样式） */
     subcall?: boolean;
+    /** 工具执行耗时（毫秒，cr-766 落盘透传）——历史回放工具卡耗时 */
+    durationMs?: number;
   }>;
 }
 
@@ -141,12 +153,15 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             result: tc.result ?? '',
             label: tc.name,
             ...(tc.subcall === true ? { subcall: true } : {}),
+            ...(tc.durationMs !== undefined ? { durationMs: tc.durationMs } : {}),
           }));
           out.push({
             role: 'agent',
             content: s.content || '',
             thinking: stepThinking || undefined,
             reasoning_content: stepThinking || undefined,
+            // 中止步标记（cr-766）：中断态渲染依据——部分正文 + 中断标识
+            ...(s.aborted === true ? { aborted: true } : {}),
             // run 身份键透传（cr-699）：buildTurns sameRun 拆轮豁免——
             // 中断-续跑 run 的中途总结步不独立成卡
             ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
@@ -154,15 +169,18 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             // 历史合并按键配对（mergeHistory 键控快路径）
             ...(typeof s.stepId === 'string' && s.stepId ? { stepId: s.stepId } : {}),
             // 思考耗时（与直播 closeThinking 同款构造）：<1s 不写（秒级以下
-            // 不显示是既有产品约定）——组件回落「已思考」
+            // 不显示是既有产品约定）——组件回落「已思考」；中止步追加
+            // 「已中断」段（cr-766——历史回放的中断态标识）
             ...(s.reasoningMs !== undefined && s.reasoningMs >= 1000
-              ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` }
-              : {}),
+              ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` + (s.aborted === true ? ' · 已中断' : '') }
+              : s.aborted === true ? { label: '已中断' } : {}),
             ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
             // 步级 API 计时/token（直播/历史同源；成对在场才参与链头速率）
             ...(s.elapsedMs !== undefined && s.usage?.completion !== undefined
               ? { apiMs: s.elapsedMs, apiCompletion: s.usage.completion }
               : {}),
+            // run 墙钟耗时（cr-772）：挂首步——历史链栏「用时」段权威锚
+            ...(r.runMs !== undefined && i === 0 ? { runMs: r.runMs } : {}),
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             agent_id: agentId,
             name: r.name,
@@ -237,11 +255,23 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}),
     });
   }
-  // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻/
-  // 不可解析时刻保持输入序——旧行为兼容）
-  return out
-    .map((m, i) => ({ m, i, t: Date.parse(String(m.timestamp ?? '')) || 0 }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
+  // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻
+  // 保持输入序）。缺时刻行继承前驱时刻（cr-716）：不可解析时刻按 0 排序
+  // 会把这些行整体沉到列表头部——服务端投影丢 ts 的 user 行全部「漂」到
+  // 会话最前（刷新后 user/user/assistant/assistant 乱序形态）；继承前驱
+  // 让缺时刻行留在输入序位置（与真实落盘位一致），前驱缺席则继承后继。
+  const keyed = out.map((m, i) => {
+    const t = Date.parse(String(m.timestamp ?? ''));
+    return { m, i, t: Number.isNaN(t) ? null : t };
+  });
+  for (let k = 1; k < keyed.length; k++) {
+    if (keyed[k].t === null) keyed[k].t = keyed[k - 1].t;
+  }
+  for (let k = keyed.length - 2; k >= 0; k--) {
+    if (keyed[k].t === null) keyed[k].t = keyed[k + 1].t;
+  }
+  return keyed
+    .sort((a, b) => (a.t ?? 0) - (b.t ?? 0) || a.i - b.i)
     .map((e) => e.m);
 }
 
@@ -298,10 +328,14 @@ interface PGroupRecord {
   steps?: Array<{
     content?: string;
     reasoning?: string;
+    /** 中止步标记（cr-766）——群历史展开的中断态渲染依据 */
+    aborted?: boolean;
     /** 步内相位序（落盘透传）：true = 本步正文先于工具调用——步内卡片渲染序 */
     textBeforeTools?: boolean;
     /** 思考相位时长（毫秒；落盘透传）：历史回放恢复「已思考 · XmYs」耗时 */
     reasoningMs?: number;
+    /** 正文相位时长（毫秒，cr-766 落盘透传） */
+    textMs?: number;
     /** 本步 API 流时间（毫秒；dispatch 计时）+ 步用量——链头速率数据源 */
     elapsedMs?: number;
     usage?: { prompt: number; completion: number; total?: number };
@@ -346,10 +380,12 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
       role: 'agent',
       content: s.content || '',
       ...(s.reasoning ? { reasoning_content: s.reasoning } : {}),
-      // 思考耗时（与 1v1 展开同款构造；<1s 不写）
+      // 中止步标记（cr-766）透传
+      ...(s.aborted === true ? { aborted: true } : {}),
+      // 思考耗时（与 1v1 展开同款构造；<1s 不写）；中止步追加「已中断」段
       ...(s.reasoningMs !== undefined && s.reasoningMs >= 1000
-        ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` }
-        : {}),
+        ? { label: `已思考 · ${fmtElapsed(s.reasoningMs / 1000)}` + (s.aborted === true ? ' · 已中断' : '') }
+        : s.aborted === true ? { label: '已中断' } : {}),
       ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(s.elapsedMs !== undefined && s.usage?.completion !== undefined
         ? { apiMs: s.elapsedMs, apiCompletion: s.usage.completion }

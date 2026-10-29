@@ -48,6 +48,12 @@ function endpointOf(id: string) {
 }
 const epA = computed(() => endpointOf(props.a || ''));
 const epB = computed(() => endpointOf(props.b || ''));
+
+/** cr-744：error 类反馈并入会话状态 dock 卡（RunStatusDock）——头部 chip
+ *  只认 info 类瞬时提示（已排队/已插话）；本判定单源，chip 显隐与归档
+ *  提示的压制条件同源（否则 error 在场时归档提示被静默压掉、头部全空） */
+const headerBusyFeedback = computed(() =>
+  chatStore.busyTone === 'error' ? '' : chatStore.busyFeedback);
 </script>
 
 <template>
@@ -126,10 +132,12 @@ const epB = computed(() => endpointOf(props.b || ''));
             />
           </transition>
           <transition name="fade">
+            <!-- cr-744：error 类反馈并入会话状态 dock 卡（RunStatusDock），
+                 此处只留 info 类瞬时提示（已排队/已插话等）——反馈面不双写 -->
             <FeedbackNotice
-              v-if="chatStore.busyFeedback"
+              v-if="headerBusyFeedback"
               class="compress-feedback"
-              :text="chatStore.busyFeedback"
+              :text="headerBusyFeedback"
               :tone="chatStore.busyTone"
             />
           </transition>
@@ -138,7 +146,7 @@ const epB = computed(() => endpointOf(props.b || ''));
                  流式隐藏，此状态条 + 输入框占位是对话面唯一感知。
                  busy tone = loader 旋转 + primary 色（进行中语义，非灰色） -->
             <FeedbackNotice
-              v-if="chatStore.archivePending && !chatStore.compressFeedback && !chatStore.busyFeedback"
+              v-if="chatStore.archivePending && !chatStore.compressFeedback && !headerBusyFeedback"
               class="compress-feedback"
               text="正在归档整理记忆…"
               tone="busy"

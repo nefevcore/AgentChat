@@ -2,16 +2,22 @@
 
 > **2026-10-06 文档治理重写为当前事实态**（逐项源码实测）。原档案起于 2026-09-18 会话裁决链：起点 = load_skill 在 run_code 程序化模式下失效；终点 = 会话存储词汇 v2（role/source/label 三轴）+ 技能注入三通道 + 版本升级数据迁移机制。
 > 本版**保留裁决链**：被后续裁决取代的方案不删结论，逐条标注「谁取代谁、为什么」（§6）——历史裁决不是待办，勿顺手恢复。
-> 关联：`session-design.md`（M21/D13 中性格式）、`tag-system-report.md`（标签域：load_skill 的 infra 门禁）、`src/README.md`（会话行/事件面）。
+> 关联：`session-design.md`（会话设计事实源）、`archive/tag-system-report.md`（标签域历史——tag 机制 cr-484 起退役）、
+> 根 `README.md` + `packages/ac-ledger/src/records.ts`（会话行协议）。
+>
+> **cr-726（2026-10-27）复核**：§1-§4 的注入三通道与词汇 v2 行为仍与现行 `ac-skill` / `ac-ledger` 同拍；
+> §5 存储机制、§7 迁移机制、§11 定位索引已随 cr-697/698/703 大幅漂移——本版已就地校正（标注「cr-726」处）。
 
 ## 1. 结论速览（当前事实态，2026-10-06 实测）
 
 - **存储词汇 v2 三条正交轴**：`role` = 消费通道（`'agent'` / `'context'`，`'event'`/`'error'` 仅存量）/ `source` = context 行的 UI 决策词（`'event'`/`'error'`/`'skill'`/开放）/ `label` = UI 文案（缺省按 source 回落）。
-- **会话三文件分工**（`<root>/sessions/<conversationId>/`）：`messages.jsonl` 定稿流（append-only）/ `partials.jsonl` run 台账（收束即清）/ `subcalls.jsonl` 子调用永久档案。
+- **会话两文件 + journal 子目录**（`agents/<agentId>/sessions/<uuid>/`）：`messages.jsonl` 定稿流（append-only）/
+  `journal/partials.jsonl` run 台账（收束即清）。**无 `subcalls.jsonl`**——子调用档案随 `journal-tool-result` 平铺、随 run 收束剔除（cr-697）。
 - **技能注入三通道**：① 手势 `/name`（before-run 判定 + 落账 + 同字节双写）；② 直调 load_skill；③ run_code 子调用（登记 → run 级驻留注入 → 落账 → after-run 兜底）。
 - **load_skill 返回值已轻量化**：`SkillLoadOutput = { name, scope, baseDir, status: 'injected' }`——正文不随返回值走（防"返回一份 + 注入一份"双份冗余与搬运诱饵）。
 - **UI**：context 注入行渲染为注入卡（`ContextInjectCard.vue`），数据层挂轮（`Turn.injects` / `afterStep`），不走 event 分隔符通道。
-- **数据版本迁移**：执行器 `ac-migration-core`，会话迁移集现为 **v1–v6**（§7），版本标记 `data/meta.json { dataVersion }`。
+- **数据版本迁移**（cr-726 校正）：旧轨执行器 `ac-migration-core` + 迁移集 v1–v6 已随 cr-703 退役（历史见 §7）；
+  现行只有 `ac-import`（cutover 导入）与各域自迁移。
 
 ## 2. 问题链（历史起点，2026-09-18）
 
@@ -21,7 +27,7 @@
 
 ## 3. 注入三通道（裁决 #1 → 现状）
 
-**前提（已实施）**：load_skill **不再返回技能正文**，返回轻量确认 `{ name, scope, baseDir, status: 'injected' }`（契约见 `src/ac-skill/src/index.ts` `SkillLoadOutput`）。程序内分析 SKILL.md 改走 read（baseDir 在返回值）。
+**前提（已实施）**：load_skill **不再返回技能正文**，返回轻量确认 `{ name, scope, baseDir, status: 'injected' }`（契约见 `packages/ac-skill/src/index.ts` `SkillLoadOutput`）。程序内分析 SKILL.md 改走 read（baseDir 在返回值）。
 
 | 路径 | 当前 run 内 | 跨 run 持久化 |
 |---|---|---|
@@ -57,19 +63,23 @@
 - journal 折叠：`context + source:'event'`（含存量 `event` 词）组合判定——技能行（`source:'skill'`）**不折**（正文折叠即语义丢失）；折叠范围还按 `agent_id === viewer` 视点过滤（机制行带投递目标，对端不重复计入）。
 - hint 视点过滤：context/机制行按 `agent_id` 过滤【行为变更：旧 error 行读者无关 → 现按视点过滤，共享桶对端不再看到对方 run 的错误行】。
 - 服务侧活投影（journal → UI）：`'agent'`（steer 等真实发言）或 `'context'` + source/label；前端 `ChatMessage` 词汇仍保留 `event`/`error`（与 `agentchat/protocol` 对齐），注入卡以 `context`/`source` 判别并读 `contextContent` 展开正文。
-- 落盘行词汇（`SessionRecordRole`）= `agent | context | system | tool | error | event`（后两词仅存量读兼容；迁移 M-role-v2 改写后绝迹）；`KNOWN_ROLES` 另收 `user`/`assistant`（baked 旧文件宽容解析）。
+- 落盘行词汇（cr-726 校正）：现行 `LedgerRole = 'agent' | 'context'`（`packages/ac-ledger/src/records.ts`）；
+  旧 `SessionRecordRole` / `KNOWN_ROLES` 常量在现行树零命中（旧文件宽容读由 `ac-import` 投影承担）。
 
 **教训（写入词汇表纪律）**：新词汇必须带着消费者出生。source v1 是「先造字段后找用途」的反例；v2 的 source/label 自带 UI 决策与文案职责。
 
 ## 5. 三文件分工与 run journal（现状）
 
 ```
-messages.jsonl = 会话定稿流（header/user/agent/context 段行/run-settled，append-only；run 期间静默）
-partials.jsonl = run journal（瞬态台账：journal-step 步行 / journal-inject 注入行 / tool-result 直调补行；行序 = 模型消息数组实际序；收束即清）
-subcalls.jsonl = run_code 子调用永久档案（UI 回放数据源，不清理——与 journal 生命周期相反）
+messages.jsonl = 会话定稿流（header / agent 段行 / context 段行 / 注入行 / 终稿行，append-only；run 期间静默）
+journal/partials.jsonl = run journal（瞬态台账：journal-step 步行 / journal-inject 注入行 / journal-tool-result 直调补行；行序 = 模型消息数组实际序；收束即清）
+（无 subcalls.jsonl——子调用随 journal-tool-result 的 subcall/name/arguments 平铺，随 run 收束剔除，cr-697）
 ```
 
-**settlement（收束物化，loop 事件 reply-completed，全终态含 error/interrupted）两阶段**：① 同步入队（事件段内构造提升批——段行 + 注入行 + `run-settled` 判别行；行序锚定，先于后续入站消息）+ 异步 durable flush；② journal 剔除（按行身份 `type|run|seq` / `tool_call_id`）。崩溃窗口（①后②前）由 `recoverJournal` 惰性幂等收口（`records()` / `run-started` 触发；有收束行 → 直接剔除；孤儿 run → 投影为中断形态再剔除；本进程 activeRuns 在册者排除）。
+**settlement（收束物化，现行 = `ac-ledger` writer）**：壳 conversation 收束 → `settle()` → `materialize()`（段行 + 注入行，各带原 ts，append 到 messages）→ 终稿行 → `journal-settled`（写 journal）→ `pruneJournal()`（剔除该 run 的 journal 行）。
+崩溃窗口由壳 boot 的 `settleOrphan()`（`recoverJournal` 幂等）收口——补 `journal-settled(interrupted)`；读侧 `session/history` 的 journal 活投影承担未收束 run 的呈现。
+
+> 原「两阶段 + 异步 durable flush + activeRuns 排除」为旧 ac-session 实现口径，保留作裁决史（cr-726 注）。
 
 **关键裁决细则（现行）**：
 
@@ -96,7 +106,10 @@ subcalls.jsonl = run_code 子调用永久档案（UI 回放数据源，不清理
 | 信封 source（`LoopSource` = 'user' / 'agent' / 'event'） | 不动 | 运行时拓扑，与存储 source 同词不同义，按所在对象区分 |
 | vacuum（主文件死重物理剔除） | 2026-09-21 | 主文件零死重后无清理对象，整个退役（少一个原子重写路径） |
 
-## 7. 数据版本迁移机制（当前 v1–v6）
+## 7. 数据版本迁移机制（**历史：旧 src 轨 v1–v6，已随 cr-703 冻结**）
+
+> cr-726 校正：本节所述执行器与迁移集在现行树已不存在（`ac-migration-core` / `src/ac-app` / `data/meta.json` 均无）。
+> 现行数据迁移 = `ac-import`（cutover 导入）+ 各域自迁移。以下保留原文作历史记录。
 
 - **位置**：`src/ac-app/src/boot.ts`（运行锁后、行装载前）——迁移是顺序敏感的启动逻辑，行激活序（PENDING 等依赖）无法保证先于 session 首写，故非行、非服务。
 - **形态**：纯库 `ac-migration-core`（迁移注册表 + 执行器：按序应用 / 幂等 / 断点续跑）+ 会话迁移体 `src/ac-session/src/migrations.ts`。
@@ -146,10 +159,10 @@ subcalls.jsonl = run_code 子调用永久档案（UI 回放数据源，不清理
 
 | 想看/想改 | 去 |
 |---|---|
-| 会话存储/词汇/三文件/journal/settlement/迁移体 | `src/ac-session/src/index.ts`（词汇与文件约定在文件头注释）、`src/ac-session/src/migrations.ts`、`src/ac-session/src/events.ts` |
-| 迁移执行器（注册表/幂等/快照） | `src/ac-migration-core/src/index.ts`；调用段 `src/ac-app/src/boot.ts` |
-| 技能注入三通道 / load_skill / 手势判定 / 驻留注入 | `src/ac-skill/src/index.ts`（before-run / tool:after-execute / loop:before-step / loop:after-run 四段） |
-| 驻留注入通道（injectDurable / SteerQueue durable 槽） | `src/ac-agent-loop/src/service.ts` |
-| run_code 子调用标记 | `src/ac-run-code/src/tool.ts`（`runCodeSubcall: true`）；子调用档案分流 `src/ac-session/src/index.ts` |
-| 注入卡与挂轮 | `src/ac-client-ui-conversation/client/Message/ContextInjectCard.vue`、`TurnDisplayItem.vue`、`feed.ts`（buildTurns/`turnContentSig`）、`types.ts`（`Turn.injects`） |
-| 相关测试 | `src/ac-session/tests/`（journal-recover / journal-replay-order / insert-split / steer-split / partial-rematerialize / stale-partial-gate / records-cache 等）、`src/ac-skill/tests/skill.test.ts`、`src/ac-client-ui-conversation/tests/inject-card.test.ts` |
+| 会话存储/词汇/两文件+journal/settlement | `packages/ac-ledger/src/{records,writer,reader,service}.ts` |
+| 迁移（历史） | 旧 `ac-migration-core` / `src/ac-session/src/migrations.ts` 已随 cr-703 退役；现行 = `packages/ac-import` |
+| 技能注入三通道 / load_skill / 手势判定 / 驻留注入 | `packages/ac-skill/src/index.ts`（纯库 `ac-skill-core`；before-run / tool:after-execute / loop:before-step / loop:after-run 四段） |
+| 驻留注入通道（injectDurable / SteerQueue durable 槽） | `packages/ac-agent-loop/src/service.ts` |
+| run_code 子调用标记 | `packages/ac-run-code/src/tool.ts`（`runCodeSubcall: true`）；子调用档案随 `journal-tool-result`（`packages/ac-ledger`） |
+| 注入卡与挂轮 | `packages/ac-client-ui-conversation/client/Message/ContextInjectCard.vue`、`TurnDisplayItem.vue`、`feed.ts`（buildTurns/`turnContentSig`） |
+| 相关测试 | `packages/ac-ledger/tests/`、`packages/ac-skill-core/tests/`、`packages/ac-client-ui-conversation/tests/inject-card.test.ts` |

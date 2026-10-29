@@ -104,8 +104,11 @@ export type { SinglesHostRowOptions, SingleMeta, SingleView } from './singles-ro
 
 // —— 群存储行（cr-576）：groups 行（groups/<gid>/group.json 成员表单写者 +
 // group/* RPC 九方法 + 信封扇出 + 成员流合并读面）——
-import { makeGroupsHostRow, listGroupConfigs, memberStreamKey } from './groups-row.ts';
-export { makeGroupsHostRow, listGroupConfigs, memberStreamKey };
+import { makeGroupsHostRow } from './groups-row.ts';
+export { makeGroupsHostRow };
+// 群读词汇（cr-712 下沉 ac-core-utils 单源）——转发出口保消费面 import 路径不变
+export { listGroupConfigs, memberStreamKey } from 'ac-core-utils';
+export type { GroupConfig } from 'ac-core-utils';
 // 工作区登记表（cr-583）：纯函数直读直写（REST 编排住 web-api 行）
 export { listWorkspaces, registerWorkspace, updateWorkspace, removeWorkspace, workspacePathOf } from './workspaces.ts';
 export type { WorkspaceRegistration } from './workspaces.ts';
@@ -130,7 +133,7 @@ export type {
   WorkspaceTreeResult,
   WorkspaceUploadResult,
 } from './workspace-files.ts';
-export type { GroupsHostRowOptions, GroupConfig, GroupMessageView } from './groups-row.ts';
+export type { GroupsHostRowOptions, GroupMessageView } from './groups-row.ts';
 
 // —— 插件治理面（cr-543）：plugin-registry 行（装载裁决 + 熔断闸门 +
 // 行集偏好急救 RPC + client manifest 注入——第三方代码零宿主驻留）——
@@ -158,6 +161,10 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
   // 要求显式锚定（relay 静默待机，不连接）
   const out: Record<string, unknown> = {
     config: configOptions,
+    // logger-console 档位（cr-742 控制台格式化）：label 定宽对齐（长名截断
+    // 不换行）。颜色不显式声明——Node exporter 缺省按 supports-color 检测：
+    // 终端直跑有色、supervisor tee（管道）无色，ANSI 码不落 host-*.log。
+    'logger-console': { label: { width: 20, align: 'left' } },
     // 会话级覆盖目录（conv-settings/<conversationId>.json——宿主单写）
     'conv-settings': { root: opts.dataRoot },
     // 独立会话元数据（viewer/sessions/<sid>/session.json——宿主单写）

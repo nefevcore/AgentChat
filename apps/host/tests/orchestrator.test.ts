@@ -30,6 +30,8 @@ class FakeShell implements AdoptedShellFace {
   exited = false;
   constructor(readonly bootLines: string[]) {}
   emitBoot(): void { for (const l of this.bootLines) this.lineCb?.(l); }
+  /** 模拟壳 stdout 持续行（boot.ready 后——runbeat/心跳面） */
+  emitLine(line: string): void { this.lineCb?.(line); }
   exit(code: number | null, signal: string | null = null): void { this.exited = true; this.exitCb?.(code, signal); }
   async shutdown(): Promise<number | null> { return 0; }
   kill(): void {}
@@ -38,6 +40,39 @@ class FakeShell implements AdoptedShellFace {
   controlFrames: Record<string, unknown>[] = [];
   control(frame: Record<string, unknown>): Promise<unknown> { this.controlFrames.push(frame); return Promise.resolve({ ok: true }); }
 }
+
+describe('run 节拍落盘（cr-740 运维日志）', () => {
+  it('壳 run.started/run.settled TSV 行 → 缺省滚动落 runbeat-<agent>.log（带宿主时标）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const shells: FakeShell[] = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      adopt: async () => {
+        const s = new FakeShell([
+          'boot.lock.acquired	b1	T',
+          'boot.rows.ready	b1	12',
+          'boot.ready	b1	pipe\\\\.\\mock-rb',
+        ]);
+        shells.push(s);
+        return s;
+      },
+    });
+    try {
+      await orch.ensureAgent('rb-agent');
+      shells[0].emitLine('run.started	r-1	conv-1	user	mock');
+      shells[0].emitLine('run.settled	r-1	conv-1	stop	2	340	1200');
+      shells[0].emitLine('guardian.ping	T'); // 非 run 行不落
+      const log = fs.readFileSync(path.join(ROOT, '.runtime', 'logs', 'runbeat-rb-agent.log'), 'utf-8');
+      const lines = log.trim().split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z run\.started\tr-1\tconv-1\tuser\tmock$/);
+      expect(lines[1]).toContain('run.settled	r-1	conv-1	stop	2	340	1200');
+    } finally {
+      orch.close();
+    }
+  });
+});
 
 describe('撞活锁救援（cr-612 D5 边 2 配套；cr-647 前置化）', () => {
   it('活壳持锁 → ensureHook 前置探活回登记 + 转投发件箱（不 spawn 必被拒的子壳）', async () => {

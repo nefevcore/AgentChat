@@ -56,10 +56,12 @@ declare module '@agentchat/cordis' {
     /**
      * 工具执行后通知（审计/持久化/WS 广播订阅；error 非空表示工具体抛错）。
      * 通知的是**变换后**的最终结果（transform-result 之后的值）。
+     * durationMs（cr-766）：工具体执行耗时（ToolTransform.durationMs 同值）
+     * ——持久化（journal 补行）/前端工具卡耗时数据源。
      * @mode emit
      * @scope run
      */
-    'tool/after-execute'(call: ToolCall, result: ToolResult, error?: unknown): void;
+    'tool/after-execute'(call: ToolCall, result: ToolResult, error?: unknown, durationMs?: number): void;
 
     /**
      * 工具流式进度增量（M7 WebUI；src chat.tool_execution.update 的

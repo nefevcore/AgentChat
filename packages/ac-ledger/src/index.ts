@@ -19,3 +19,4 @@ export * from './user.ts';
 export * from './usage.ts';
 export * from './manage.ts';
 export * from './service.ts';
+export * from './view.ts';

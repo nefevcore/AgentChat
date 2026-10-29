@@ -55,7 +55,7 @@ describe('usage 事件信 schema（envelope-core）', () => {
   });
 
   it('缺失面 fail-closed（subject/agent/usage/conversationId）', () => {
-    expect(validateUsagePayload({ ...payload, subject: 'other' })).toContain('subject 非 usage-run');
+    expect(validateUsagePayload({ ...payload, subject: 'other' })).toContain('subject 非 usage-run/usage-step');
     expect(validateUsagePayload({ ...payload, agent: '' })).toContain('agent 缺席');
     expect(validateUsagePayload({ ...payload, usage: undefined })).toContain('usage 聚合字段缺失');
     expect(validateUsagePayload({ ...payload, conversationId: '' })).toContain('conversationId 缺席');
@@ -64,5 +64,15 @@ describe('usage 事件信 schema（envelope-core）', () => {
   it('非 usage 信不误判（升级回执 receipt）', () => {
     const env = { ...makeUsageEnvelope({ requestId: 'x', payload }), payload: { subject: 'upgrade-success' } };
     expect(isUsageReport(env)).toBe(false);
+  });
+
+  it('usage-step 步级缓存信（cr-760）：合法零 issues + fail-closed + 信封识别', () => {
+    const step = { subject: 'usage-step' as const, agent: 'alpha', conversationId: 'user~alpha', runId: 'run-r1', step: 2, ts: 1234, hit: 100, miss: 5 };
+    expect(validateUsagePayload(step)).toEqual([]);
+    const env = makeUsageEnvelope({ requestId: 'usage-step-run-r1-2', payload: step });
+    expect(env).toMatchObject({ kind: 'receipt', budget: 0, to: 'host', sender: 'alpha' });
+    expect(isUsageReport(env)).toBe(true);
+    expect(validateUsagePayload({ ...step, hit: undefined })).toContain('hit 缺席');
+    expect(validateUsagePayload({ ...step, step: undefined })).toContain('step 缺席');
   });
 });

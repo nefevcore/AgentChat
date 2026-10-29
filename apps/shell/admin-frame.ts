@@ -13,7 +13,7 @@ import type { Context } from '@agentchat/cordis';
 /** admin 帧的 op 词表（宿主 RPC 面的壳内半边） */
 export type AdminOp =
   | 'goal-get' | 'goal-update' | 'goal-delete' | 'todo-get'
-  | 'interaction-reply' | 'interaction-list' | 'jobs-list' | 'jobs-kill' | 'session-archive' | 'subagents-stop'
+  | 'interaction-reply' | 'interaction-list' | 'jobs-list' | 'jobs-kill' | 'session-archive' | 'subagents-stop' | 'subagents-list'
   | 'run-state' | 'queue-list' | 'queue-remove' | 'queue-steer'
   | 'tool-defs' | 'tools-catalog';
 
@@ -87,6 +87,12 @@ export function handleAdminFrame(ctx: Context, frame: AdminFrame): unknown {
     const subs = requireService<{ stopOp(childId: string): Promise<{ stopped: boolean }> }>(ctx, 'subagents', 'subagents');
     if (frame.id === undefined || frame.id === '') throw new Error('admin 帧缺 id（subagents-stop）');
     return subs.stopOp(frame.id);
+  }
+  if (frame.op === 'subagents-list') {
+    // 在场清单（含 busy/exited 进程内态——cr-725：宿主 subagents/list 盘读面
+    // 叠加活态的来源；纯路由同上，域规则在 ShellSubagentService.listOp）
+    const subs = requireService<{ listOp(): unknown[] }>(ctx, 'subagents', 'subagents');
+    return { agents: subs.listOp() };
   }
   if (frame.op === 'session-archive') {
     const archive = requireService<{ requestArchive(uuid: string): Promise<void> }>(ctx, 'archive', 'archive');

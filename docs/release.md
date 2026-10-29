@@ -18,6 +18,8 @@
 ## 日常发版流程
 
 ```bash
+# 0.（可选但推荐）本地预检：pnpm release:preflight（scripts/release-preflight.mjs，cr-705 后支持 --clean）
+
 # 1. bump 版本 + 归档 CHANGELOG（[Unreleased] → [x.y.z] + 日期）
 #    改 package.json 的 version 字段
 
@@ -63,4 +65,4 @@ agentchat --port=3902   # 浏览器开 http://localhost:3902
 4. **npm 新界面 2FA 默认主推 Passkey**：验证器 App 的二维码入口可能藏在「use an authenticator app instead」小字里，或根本没有；Windows Hello（Passkey）即可。
 5. **发布后 CDN 有 ~1 分钟传播延迟**：`npm view` 404 不代表失败，等一会再查。
 6. **发布内容自包含**：bundle 已内联全部后端依赖（含 undici 等外部依赖与内置 cordis），`dependencies` 为空是**有意为之**；`dist/` 在 .gitignore 中，CI 每次重建，不要手工提交。
-7. **bundle 内联了 esbuild 本体**（`src/plugins/plugins/src/registry.ts` 的插件 UI 发布期构建用到），属已知情况，仅影响包体积（~1MB），不影响功能。
+7. （历史踩坑，cr-726 审查批注）旧轨 bundle 曾内联 esbuild 本体（~1MB，插件 UI 发布期构建用）；现行架构插件 manifest.ui 要求**预构建产物**（`packages/ac-plugin-core/src/store.ts`），发布链不再内联 esbuild。

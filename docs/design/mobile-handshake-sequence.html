@@ -1,3 +1,10 @@
+<!--
+  勘误注记（2026-10-27 cr-726 文档审查批）：本图为 2026-10 上旬快照，与现行实现有 3 处偏差——
+  ① KK token 表为 cr-64 前的假 KK（[e,es][e,ee]）；现行 = [e,es,s,ss][e,ee]（真 KK，一端安全语义）。
+  ② 「70s 长驻退避」已被 cr-48 改为 15s 顶 + 占座驻留；「7s/轮」现约 8.6s/轮。
+  ③ 其余限额/心跳/握手节拍仍与代码一致。权威口径 = remote-client-relay-plan.md（同目录）。
+  审查底稿：仓库外归档根 docs-review-2026-10-27/findings-E-remote-mobile.md。
+-->
 <!doctype html>
 <html lang="zh-CN">
 <head>

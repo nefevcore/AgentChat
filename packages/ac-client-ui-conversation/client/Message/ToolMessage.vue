@@ -4,6 +4,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import type { ChatMessage } from '../types.ts';
 import { useToolResult } from '../useToolResult.ts';
 import { toolDisplayLabel, toolDiffStat } from 'ac-client-ui-tool/client/toolLabel.ts';
+import { fmtElapsed } from '../feed.ts';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { resolveToolLabelAction } from 'ac-client-ui-tool/client/toolResultViews.ts';
 import { Icon } from '@agentchat/webui-kit';
@@ -87,6 +88,15 @@ const iconName = computed(() => toolIconName(props.message.toolName || props.mes
 /** fs 写类工具的行变更统计（结果 JSON 内 diff_added/diff_removed；旧记录
  *  回落解析 diff 文本）——Label 尾缀 +N -M 数据源。运行中无结果 → null */
 const diffStat = computed(() => toolDiffStat(props.message.content));
+
+/** 工具执行耗时（cr-766，历史展开行 durationMs / 直播 toolCalls 终值）：
+ *  非运行中且 ≥1s 才显示（与「已思考」1s 门槛同款产品约定）——Label 尾缀 */
+const durationText = computed(() => {
+    const ms = (props.message as { durationMs?: number }).durationMs
+        ?? (props.message.toolCalls?.[0] as { durationMs?: number } | undefined)?.durationMs;
+    if (typeof ms !== 'number' || ms < 1000 || isRunning.value) return '';
+    return fmtElapsed(ms / 1000);
+});
 
 /** 行首图标：默认工具图标，hover 换折叠方向箭头（点哪行都知道能展开/收起） */
 const rowIcon = computed(() => {
@@ -212,6 +222,9 @@ watch(isExpanded, (expanded) => {
                     <span v-if="diffStat.added > 0" class="diff-stat-add">+{{ diffStat.added }}</span>
                     <span v-if="diffStat.removed > 0" class="diff-stat-remove">-{{ diffStat.removed }}</span>
                 </span>
+
+                <!-- 执行耗时（cr-766）：历史/收束后的 Label 尾缀，≥1s 才显示 -->
+                <span v-if="durationText" class="tool-diff-stat" aria-hidden="true">· {{ durationText }}</span>
 
                 <!-- write 工具：点击预览图标 -->
                 <span v-if="isWriteTool" class="tool-label-hint" title="点击预览文件">

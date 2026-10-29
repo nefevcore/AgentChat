@@ -32,9 +32,10 @@ import { SnapshotStore, SNAPSHOT_MAX_BYTES, looksLikeText } from 'ac-file-snapsh
 import { runNativePickFolder } from 'ac-workspace/src/native-dialog.ts';
 import { runNativeOpen } from 'ac-workspace/src/native-open.ts';
 import { readCatalog } from 'ac-rowset-core';
-import { UserLedger, conversationDirs, readJournal, readLedger } from 'ac-ledger';
+import { UserLedger, conversationDirs, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
 import { readAgentConfig, settingsOf } from 'ac-agents-core';
 import { estimateTokens } from 'ac-text-budget';
+import { estimateReplayTokens } from 'ac-archive-core';
 
 interface WebFace {
   registerRpc(method: string, handler: (params: unknown) => unknown): void;
@@ -95,15 +96,26 @@ export async function collectRunning(deps: FaceOpsDeps): Promise<Array<{ agentId
   for (const { agentId, control } of shells) {
     try {
       const st = await control({ ctrl: 'admin', agentId, op: 'run-state' }) as
-        | { busy?: unknown; conversationId?: unknown; runId?: unknown; startedAt?: unknown }
+        | { busy?: unknown; conversationId?: unknown; runId?: unknown; startedAt?: unknown; runs?: unknown }
         | null;
-      if (st?.busy !== true || typeof st.conversationId !== 'string' || st.conversationId === '') continue;
-      running.push({
-        agentId,
-        conversationId: st.conversationId,
-        runId: typeof st.runId === 'string' && st.runId !== '' ? st.runId : null,
-        startedAt: typeof st.startedAt === 'number' ? st.startedAt : 0,
-      });
+      // cr-746 per-门后壳可多 run：优先读 runs 数组（每会话一条）；
+      // 旧壳单 run 形状（busy/conversationId 顶层字段）兼容回退。
+      const list = Array.isArray(st?.runs)
+        ? (st.runs as Array<{ conversationId?: unknown; runId?: unknown; startedAt?: unknown }>)
+            .filter((r) => typeof r.conversationId === 'string' && r.conversationId !== '')
+            .map((r) => ({
+              conversationId: r.conversationId as string,
+              runId: typeof r.runId === 'string' && r.runId !== '' ? r.runId : null,
+              startedAt: typeof r.startedAt === 'number' ? r.startedAt : 0,
+            }))
+        : st?.busy === true && typeof st.conversationId === 'string' && st.conversationId !== ''
+          ? [{
+            conversationId: st.conversationId,
+            runId: typeof st.runId === 'string' && st.runId !== '' ? st.runId : null,
+            startedAt: typeof st.startedAt === 'number' ? st.startedAt : 0,
+          }]
+          : [];
+      for (const r of list) running.push({ agentId, ...r });
     } catch { /* 壳在退出——跳过 */ }
   }
   return running;
@@ -455,7 +467,7 @@ function registerPlugin(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       .sort((a, b) => (a.id < b.id ? -1 : 1))
       .map((r) => ({
         name: r.id,
-        ...(r.role !== undefined ? { description: r.role } : {}),
+        ...(r.description !== undefined ? { description: r.description } : {}),
         assembled: r.tree === 'host',
         fibers: 0,
         entryId: r.id,
@@ -606,17 +618,38 @@ function hashFingerprint(s: string): string {
 }
 
 function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
-  /** 会话的承载 Agent（agent 域账本在场者——预算分母与回执归属解析） */
+  /** 会话的承载 Agent（agent 域账本在场者——预算分母与回执归属解析）。
+   *  journal-only 域也认（cr-714）：会话零终稿（崩溃孤儿 run 只有 journal
+   *  步行）时 messages.jsonl 可能缺席——计量与 KV 走势仍在 journal。 */
   const owningAgentOf = (conversationId: string): string | undefined => {
     let agents: fs.Dirent[] = [];
     try { agents = fs.readdirSync(path.join(deps.dataRoot, 'agents'), { withFileTypes: true }); } catch { return undefined; }
     for (const a of agents) {
       if (a.isDirectory()
-        && fs.existsSync(path.join(deps.dataRoot, 'agents', a.name, 'sessions', conversationId, 'messages.jsonl'))) {
+        && fs.existsSync(path.join(deps.dataRoot, 'agents', a.name, 'sessions', conversationId))) {
         return a.name;
       }
     }
     return undefined;
+  };
+
+  /** 回放口径会话估算（cr-714：主线 estimateReplayTokens 同源）：agent 域
+   *  账本 = 完整事实源（入站 user 行 + 自著行含物化段行 steps 轨迹——与
+   *  主线 records() 同形状），viewer = 承载 Agent（自著行按注入形状展开
+   *  工具调用/结果/reasoning）；概要头计入（与归档阈值同口径，会话占用
+   *  单一估算器）。agent 域无行（账本未建/仅 viewer 投影）= 终稿层直估。 */
+  const replayTokensOf = (conversationId: string, agentId: string | undefined): number => {
+    let total = 0;
+    let agentRows = 0;
+    for (const dir of conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })) {
+      if (dir.includes(path.join('viewer', 'sessions'))) continue; // 投影域不计（与 agent 域重复）
+      const { rows } = readLedger(dir);
+      agentRows += rows.length;
+      total += estimateReplayTokens(rows, agentId, { summary: summaryTextOf(dir) });
+    }
+    if (agentRows > 0) return total;
+    return new UserLedger(deps.dataRoot, conversationId, ['user']).replay()
+      .reduce((n, r) => n + estimateTokens(r.content), 0);
   };
 
   /** 归档预算分母（全局 settings ∪ agent 差异层——主线 archive budgetsFor 同口径；缺省 1M） */
@@ -631,32 +664,44 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     return typeof archive?.maxContextTokens === 'number' && archive.maxContextTokens > 0 ? archive.maxContextTokens : 1_000_000;
   };
 
-  // 会话 Token 仪表（主线 sessionTokensPayload 同形）：contextTokens = user
-  // 投影账本逐消息直估（终稿层——agent 域 steps 不入 UI 仪表口径）；cache 面 =
-  // 各 agent 域 journal-settled 的 run 级计量聚合（UsageAggregate 覆盖/累加轨同义）
+  // 会话 Token 仪表（cr-714 根修）：contextTokens = agent 域账本回放口径
+  // 估算（estimateReplayTokens 单源——含物化段行 steps 轨迹/概要头，与归档
+  // 阈值同口径）；cache 面 = ctx.usage 聚合（事件信 reportMeter 入账，覆盖
+  // 轨/累加轨）；缺失时回退 journal-settled 盘读（usage 行缺席的良定义降级）。
   web.registerRpc('session/tokens', (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
-    const rows = new UserLedger(deps.dataRoot, conversationId, ['user']).replay();
-    const promptTokens = rows.reduce((n, r) => n + estimateTokens(r.content), 0);
+    const agentId = optStr(p.agentId) ?? owningAgentOf(conversationId);
+    const promptTokens = replayTokensOf(conversationId, agentId);
     let hit = 0;
     let miss = 0;
     let lastHit = 0;
     let lastMiss = 0;
     let lastRunPrompt = 0;
-    for (const dir of conversationDirs(deps.dataRoot, conversationId)) {
-      for (const line of readJournal(dir)) {
-        if (line.type !== 'journal-settled' || line.usage === undefined) continue;
-        hit += line.usage.cacheHit ?? 0;
-        miss += line.usage.cacheMiss ?? 0;
-        lastHit = line.usage.cacheHit ?? 0;
-        lastMiss = line.usage.cacheMiss ?? 0;
-        lastRunPrompt = line.usage.prompt;
+    const usage = ctx.get('usage') as
+      | { byConversation(): Record<string, { cacheHit?: number; cacheMiss?: number; lastCacheHit?: number; lastCacheMiss?: number; lastContextPrompt?: number }> }
+      | undefined;
+    const bucket = usage?.byConversation()[conversationId];
+    if (bucket !== undefined) {
+      hit = bucket.cacheHit ?? 0;
+      miss = bucket.cacheMiss ?? 0;
+      lastHit = bucket.lastCacheHit ?? 0;
+      lastMiss = bucket.lastCacheMiss ?? 0;
+      lastRunPrompt = bucket.lastContextPrompt ?? 0;
+    } else {
+      for (const dir of conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })) {
+        for (const line of readJournal(dir)) {
+          if (line.type !== 'journal-settled' || line.usage === undefined) continue;
+          hit += line.usage.cacheHit ?? 0;
+          miss += line.usage.cacheMiss ?? 0;
+          lastHit = line.usage.cacheHit ?? 0;
+          lastMiss = line.usage.cacheMiss ?? 0;
+          lastRunPrompt = line.usage.prompt;
+        }
       }
     }
-    const agentId = optStr(p.agentId) ?? owningAgentOf(conversationId);
     const maxContextTokens = archiveBudgetOf(agentId);
-    const messageCount = rows.length;
+    const messageCount = new UserLedger(deps.dataRoot, conversationId, ['user']).replay().length;
     const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
     const usagePercent = Math.min(100, (promptTokens / maxContextTokens) * 100);
     return {
@@ -671,6 +716,23 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       status: usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical',
       ...(agentId !== undefined ? { agentId } : {}),
       cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
+    };
+  });
+
+  // KV 缓存率走势（cr-714 去 stub）：ac-usage timeline 留存的透传面——每点
+  // = 一次有计量的 LLM 调用（步），运行中 run 拼接 pending 尾段（步收束即
+  // 可见，cr-251）；重启由审计流水回放重建。记账户号桶键 = 会话键本身
+  //（usage 自报信 conversationId 原样）。usage 行缺席 = 空序列（前端空态）。
+  // 点带 prompt（cr-761）= 本步请求真实上下文 token——上下文占用的实时
+  // 驱动信号（TokenGauge 运行中以最新步 prompt 展示）。
+  web.registerRpc('session/kv-timeline', (params) => {
+    const conversationId = reqStr(obj(params), 'conversationId');
+    const usage = ctx.get('usage') as
+      | { conversationTimeline(id: string): Array<{ ts: number; hit: number; miss: number; prompt?: number }> }
+      | undefined;
+    return {
+      conversationId,
+      points: usage?.conversationTimeline(conversationId) ?? [],
     };
   });
 
@@ -758,9 +820,6 @@ export function registerOpsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): 
   registerUsage(web, ctx);
   registerSystem(web, deps);
   registerEvents(web, ctx);
-  // 前缀快照时间线（主线 singles 的 M21 能力）：preview 会话面无快照机制——
-  // 空时间线是终态而非缺失（前端 KV 面板据此渲染空态）
-  web.registerRpc('session/kv-timeline', () => ({ entries: [] }));
   registerWorkspace(web, deps);
   registerPlugin(web, ctx, deps);
   registerLlm(web, ctx, deps);

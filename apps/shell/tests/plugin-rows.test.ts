@@ -17,7 +17,7 @@ const CATALOG = path.join('sandbox', 'test-shell-plugin-catalog-' + process.pid 
 function writeCatalog(): void {
   fs.writeFileSync(CATALOG, JSON.stringify({
     version: 1,
-    rows: [{ id: 'ledger', tree: 'shell', role: '账本' }],
+    rows: [{ id: 'ledger', tree: 'shell', description: '账本' }],
   }, null, 2) + '\n', 'utf-8');
 }
 

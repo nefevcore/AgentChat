@@ -85,6 +85,8 @@ describe('ac-agent-loop 循环', () => {
     // 双轨 usage：单步时覆盖轨 = 累加轨（M12 契约）；elapsedMs（API 计时）为正
     expect(result.usage).toMatchObject({ prompt: 1, completion: 1, promptAccumulated: 1, steps: 1 });
     expect(result.usage.elapsedMs).toBeGreaterThanOrEqual(0);
+    // run 墙钟耗时（cr-772）：终稿行 runMs 取源——历史链栏「用时」段持久锚
+    expect(result.wallMs).toBeGreaterThanOrEqual(0);
   });
 
   it('M21/D4 工具字典序：schema 序与注册顺序无关（装卸/时序解耦）', async () => {

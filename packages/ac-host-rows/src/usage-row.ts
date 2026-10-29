@@ -11,7 +11,7 @@
 // ============================================================
 import type { Context, Plugin } from '@agentchat/cordis';
 import { UsageService, type UsageRowOptions } from 'ac-usage';
-import type { Envelope, UsageReportPayload } from 'ac-envelope-core';
+import type { Envelope, UsageReportPayload, UsageStepPayload } from 'ac-envelope-core';
 import { isUsageReport, validateUsagePayload } from 'ac-envelope-core';
 import type { HostInbox } from './host-inbox.ts';
 
@@ -42,8 +42,13 @@ export function makeUsageHostRow(options: UsageHostRowOptions): Plugin {
         if (!isUsageReport(env)) return;
         const issues = validateUsagePayload(env.payload);
         if (issues.length > 0) throw new Error('[usage] 事件信 payload 非法：' + issues.join('；'));
-        const p = env.payload as UsageReportPayload;
+        const p = env.payload as UsageReportPayload | UsageStepPayload;
         if (svc === null) return; // 服务未就绪（理论上不可达——构造先于注册）
+        // 步级缓存信（cr-760）：pending 入账——运行中 run 的 KV 走势实时段
+        if (p.subject === 'usage-step') {
+          svc.reportStepPending(p.conversationId, { ts: p.ts, hit: p.hit, miss: p.miss });
+          return;
+        }
         svc.reportMeter({
           agent: p.agent,
           model: p.model,

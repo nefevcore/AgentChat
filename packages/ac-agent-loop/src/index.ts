@@ -28,15 +28,6 @@ export function apply(ctx: Context) {
 // 消费方直连纯库免拉插件行）——先例同 GROUP_HINT_META，不留 re-export。
 export { AgentLoopService };
 
-// agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家 contract）
-export {
-  agentOfRunCall,
-  agentOfRunRequest,
-  agentOfStepCall,
-  agentOfStepTransform,
-  agentOfRunTransform,
-} from './readers.ts';
-
 // 契约出口：域类型（contract.ts）+ 事件目录类型增强（events.ts）
 export type * from './contract.ts';
 export type {} from './events.ts';

@@ -28,8 +28,8 @@ export interface RowDescriptor {
    *  行集闭包自动并入（cr-521）——装配满足性在派生层断根，不靠装配序；
    *  垫片服务（agents/agentStore/workspace/credentials）非行集行，不标注。 */
   requires?: string[];
-  /** 一句话角色（目录的人类可读面） */
-  role?: string;
+  /** 一句话描述（目录的人类可读面） */
+  description?: string;
 }
 
 /** 全局行集目录（静态全集——两树同源单表） */

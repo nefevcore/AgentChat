@@ -1,6 +1,6 @@
 # 孤儿 shell 子进程事故报告（2026-10-13）
 
-> 报告日期：2026-10-13　|　登记：cr-381　|　状态：**建议 1/2/3/4 已随 cr-382 落地**（2026-10-13；桌面壳无条件树杀、后端台账 + exit 补刀、boot 期指纹对账、kill 未确认告警；建议 5 Job Object 与建议 6 台账落盘暂缓）
+> 报告日期：2026-10-13　|　登记：cr-381　|　状态：**建议 1/2/3/4 已随 cr-382 落地**（2026-10-13；桌面壳无条件树杀、后端台账 + exit 补刀、boot 期指纹对账、kill 未确认告警；建议 5 Job Object 与建议 6 台账落盘暂缓）。建议 3 曾随 ac-app 退役漏迁（2026-10-27 审计发现），**已回迁 apps/host/orphans.ts 并在 bootHost 锁后接线（cr-800，2026-10-29）**
 >
 > 一句话：`ac-shell-tools` 前台执行体的子进程**没有与宿主进程建立任何 OS 级生命周期绑定，也没有跨重启可对账的 pid 台账**——宿主一死，正在跑的 `pwsh` 就变成永久孤儿，重启 AgentChat 也不会被回收，直到有人在任务管理器里发现它占满一个核。
 
@@ -139,6 +139,8 @@ function killBackendTree() {
 **建议 1 + 2 + 3 一起做**才算闭环：1 覆盖「桌面壳退出」、2 覆盖「后端自身退出」、3 覆盖「前两者都没救到」并给出跨重启的兜底与留痕。
 
 > **落地记录（cr-382，2026-10-13）**：建议 1 → `desktop/main.mjs` killBackendTree 无条件树杀 + reap 日志；建议 2/4 → `ac-shell-tools/src/executor.ts` 子进程台账 + `process.on('exit')` 同步补刀 + kill 未确认泄漏告警；建议 3 → `ac-app/src/orphans.ts`（boot.ts / bootstrap.ts 两形态锁后接线，`AGENTCHAT_ORPHAN_REAP=off` 关闭）；工具面收窄 → pwsh 工具描述劝阻 `-Recurse` 管道过滤。回归测试：`ac-app/tests/orphans.test.ts`、`ac-shell-tools/tests/shell-ledger.integration.test.ts`、`desktop/tests/desktop-kill-tree.test.ts`（cr-481 归位壳域）。
+
+> ✅ 裁决（cr-800，2026-10-29）：确认漏迁非有意废除——宿主入口已两轨合一（cr-703，dev 与 supervisor worker 均为 apps/host/boot.ts），孤儿对账回迁 apps/host/orphans.ts（实现原样），并在 bootHost 邮局锁后即扫单点接线；executor.ts 失效注释同步指向新落点。建议 1/2/4 落点复核仍在位。
 
 同时建议**顺手收窄工具面**：在 `ac-system-prompt` / 工具描述里明确「枚举文件优先用 `glob`/`grep` 工具，不要在 shell 里 `Get-ChildItem -Recurse` 后管道过滤」，从源头减少准死循环命令（本次 8 个孤儿有 6 个是这类命令）。
 

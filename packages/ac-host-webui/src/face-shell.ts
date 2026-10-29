@@ -11,6 +11,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pairKey } from 'ac-core-utils';
+import { readJournal, readLedger, stepsOfRun, stepsOfLedger } from 'ac-ledger';
 import type { Context } from '@agentchat/cordis';
 
 interface WebFace {
@@ -222,22 +223,41 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     const latest = convs
       .map((c) => ({ c, m: (() => { try { return fs.statSync(path.join(root, 'sessions', c)).mtimeMs; } catch { return 0; } })() }))
       .sort((a, b) => b.m - a.m)[0]?.c;
-    // 子壳账本是 agent 域文件（不是 user 投影账本）——直接读 messages.jsonl
-    const all: Array<{ role: string; agent_id?: string; content: string }> = [];
+    // 子壳账本是 agent 域文件（不是 user 投影账本）——直接读 messages.jsonl；
+    // 行形状对齐 session/history（role/agent_id/content/timestamp/run + steps）。
+    // 在途 run 的内容只住 journal/partials.jsonl（收束才物化进账本，cr-697）——
+    // cr-725 起按 run 键投影 journal 步行（steps + partial），运行中点开子会话
+    // 不再只见到任务行。口径与 web-api session/history 的活投影同构。
+    const all: Array<Record<string, unknown>> = [];
     if (convs.length > 0) {
-      let text = '';
-      try { text = fs.readFileSync(path.join(root, 'sessions', latest, 'messages.jsonl'), 'utf-8'); } catch { /* 未开跑 */ }
-      for (const raw of text.split('\n')) {
-        if (raw.trim() === '') continue;
-        let row: Record<string, unknown>;
-        try { row = JSON.parse(raw) as Record<string, unknown>; } catch { continue; }
-        if (row.type === 'session-header') continue;
-        const role = row.agent_id === id ? 'assistant' : 'user';
+      const dir = path.join(root, 'sessions', latest);
+      const rows = readLedger(dir).rows;
+      const lines = readJournal(dir);
+      const linkedRuns = new Set<string>();
+      for (const r of rows) {
+        if (r.run !== undefined && r.run !== '') linkedRuns.add(r.run);
+        const projected = r.role === 'agent' && r.agent_id === id && r.run !== undefined && r.run !== ''
+          ? stepsOfLedger(rows, r.run) ?? stepsOfRun(lines, r.run)
+          : null;
         all.push({
-          role,
-          ...(typeof row.agent_id === 'string' ? { agent_id: row.agent_id } : {}),
-          content: typeof row.content === 'string' ? row.content : '',
+          role: r.agent_id === id ? 'assistant' : 'user',
+          ...(r.agent_id !== '' ? { agent_id: r.agent_id } : {}),
+          content: r.content,
+          timestamp: r.timestamp,
+          ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
+          ...(projected !== null ? { steps: projected.steps, ...(projected.partial ? { partial: true } : {}) } : {}),
         });
+      }
+      // journal 步行盲区（在途 run / 收束即清前的存量）：账本无对应行的一律投出
+      const candidates = new Set<string>();
+      for (const l of lines) {
+        if (l.run !== '' && (l.type === 'journal-step' || l.type === 'journal-inject')) candidates.add(l.run);
+      }
+      for (const run of candidates) {
+        if (linkedRuns.has(run)) continue;
+        const p = stepsOfLedger(rows, run) ?? stepsOfRun(lines, run);
+        if (p === null) continue;
+        all.push({ role: 'assistant', agent_id: id, content: '', run, steps: p.steps, ...(p.partial ? { partial: true } : {}) });
       }
     }
     const limit = typeof p.limit === 'number' && p.limit > 0 ? Math.floor(p.limit) : undefined;
@@ -264,13 +284,15 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
   });
 
   // 子 Agent 持久化清单（cr-677）：跨父盘读聚合——subagents/updated 帧（壳
-  // 旁带桥接）驱动前端 subagentBoard 重拉本面。数据源 = children/ 物化树
-  // （跨重启完整）：与 ShellSubagentService.infoOf 同口径投影（盘上直读——
-  // 会话账本统计 runs/task，config.json 读 name；busy 之类进程内态不进盘读
-  // 面，运行徽章实时性由帧载荷 + 重拉保证）。query/runningOnly 在聚合后过滤。
+  // 旁带桥接）驱动前端 subagentBoard 重拉本面（帧载荷仅触发器）。数据源 =
+  // children/ 物化树（跨重启完整）：与 ShellSubagentService.infoOf 同口径投影
+  // （盘上直读——会话账本统计 runs/task，config.json 读 name）。busy/exited
+  // 是父壳进程内态，盘读不可见——cr-725 起叠加活壳清单（subagents-list 管理
+  // 帧只问在跑的壳，不因清单查询拉起壳；壳死/答错跳过，盘读兜底），否则
+  // 运行中徽章恒 idle。query/runningOnly 在叠加后过滤。
   // include_deleted：preview 域 delete = 物理删除（无墓碑），deleted 恒 false
   // ——参数兼容接受（前端照传），空墓碑集为终态。
-  web.registerRpc('subagents/list', (params) => {
+  web.registerRpc('subagents/list', async (params) => {
     const p = obj(params);
     const query = optStr(p.query);
     const runningOnly = p.running_only === true;
@@ -336,6 +358,31 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
         });
       }
     }
+    // 活壳态叠加（cr-725）：对每个在跑壳问 subagents-list，把 busy/exited
+    // 覆盖到对应行（displayStatus 口径与 ShellSubagentService.infoOf 一致：
+    // busy → running；aborted 硬退 → error；exited → stopped；否则盘读值）。
+    const port = deps.port();
+    if (port !== null && port.handles !== undefined) {
+      const byId = new Map(subs.map((s) => [String(s.id), s]));
+      await Promise.all([...port.handles().entries()].map(async ([shellId, handle]) => {
+        let agents: Array<{ childId?: unknown; status?: unknown; busy?: unknown; exit?: { aborted?: unknown } | null }> | undefined;
+        try {
+          const out = await handle.control({ ctrl: 'admin', agentId: shellId, op: 'subagents-list' }) as { agents?: unknown };
+          if (Array.isArray(out.agents)) agents = out.agents as typeof agents;
+        } catch { /* 壳正死于途/答错——盘读值兜底 */ }
+        if (agents === undefined) return;
+        for (const e of agents) {
+          if (typeof e.childId !== 'string') continue;
+          const row = byId.get(e.childId);
+          if (row === undefined) continue;
+          row.status = typeof e.status === 'string' ? e.status : row.status;
+          row.displayStatus = e.busy === true ? 'running'
+            : e.exit?.aborted === true ? 'error'
+            : e.status === 'exited' ? 'stopped'
+            : row.displayStatus;
+        }
+      }));
+    }
     const filtered = subs
       .filter((s) => query === undefined || String(s.id).includes(query) || String(s.name).includes(query))
       .filter((s) => !runningOnly || s.displayStatus === 'running')
@@ -361,10 +408,14 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     for (const shell of liveShells()) {
       try {
         const st = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'run-state' }) as
-          | { busy?: unknown; conversationId?: unknown }
+          | { busy?: unknown; conversationId?: unknown; runs?: unknown }
           | null;
-        if (st?.busy !== true || st.conversationId !== conversationId) continue;
-        const out = await shell.control({ ctrl: 'interrupt' }) as { interrupted?: unknown } | null;
+        // cr-746 per-门：多 run 壳按 runs 数组对拍（旧壳顶层单 run 字段兼容）
+        const hit = Array.isArray(st?.runs)
+          ? (st.runs as Array<{ conversationId?: unknown }>).some((r) => r.conversationId === conversationId)
+          : st?.busy === true && st.conversationId === conversationId;
+        if (!hit) continue;
+        const out = await shell.control({ ctrl: 'interrupt', conversationId }) as { interrupted?: unknown } | null;
         if (out?.interrupted === true) aborted += 1;
       } catch { /* 壳在退出——跳过 */ }
     }

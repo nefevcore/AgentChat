@@ -127,6 +127,29 @@ export function mergeHistoryPage(
   return { merged, userCount };
 }
 
+/**
+ * 时序归并（cr-707）：历史块（按 ts 有序）与直播尾（到达序 = ts 序）按
+ * timestamp 稳定归并。此前首屏合并恒 `[...历史, ...直播尾]`——直播期已上屏
+ * 的注入行会被整体押到历史块之后（每次合并再往后挪一截），用户实测表现
+ * 为「已收到用户回复」挂在倒数第二。同 ts 保持「历史在前、直播在后」的
+ * 输入序（去重已由 persistedMsgId 双键承担，这里只负责次序）。
+ */
+export function mergeTimeOrdered(history: ChatMessage[], live: ChatMessage[]): ChatMessage[] {
+  if (live.length === 0) return history;
+  const out: ChatMessage[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < history.length && j < live.length) {
+    const h = history[i];
+    const l = live[j];
+    if (l.timestamp < h.timestamp) out.push(live[j++]);
+    else out.push(history[i++]);
+  }
+  while (i < history.length) out.push(history[i++]);
+  while (j < live.length) out.push(live[j++]);
+  return out;
+}
+
 // ── Turn 构建（rawMessages → Turn[]）──
 
 /** 流式内部消息形态（thinking + tool_calls + content） */
@@ -161,6 +184,8 @@ interface FeedAgentMsg {
   agent_id?: string;
   /** run 身份键（cr-699：历史 steps 展开透传——buildTurns sameRun 拆轮豁免判定源） */
   runId?: string;
+  /** run 墙钟耗时（cr-772 历史透传——终稿行 runMs；链栏「用时」段权威锚） */
+  runMs?: number;
 }
 
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
@@ -202,22 +227,32 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
       ...(t.textBeforeTools !== undefined ? { textBeforeTools: t.textBeforeTools } : {}),
       ...(t.apiMs !== undefined ? { apiMs: t.apiMs } : {}),
       ...(t.apiCompletion !== undefined ? { apiCompletion: t.apiCompletion } : {}),
+      ...(t.runMs !== undefined ? { runMs: t.runMs } : {}),
       ...(t.runCalibMs !== undefined && t.runCalibAt !== undefined ? { runCalibMs: t.runCalibMs, runCalibAt: t.runCalibAt } : {}),
       ...(t.reasoningStartAt !== undefined ? { reasoningStartAt: t.reasoningStartAt } : {}),
       ...(t.runStartAt !== undefined ? { runStartAt: t.runStartAt } : {}),
       toolCalls: t.tool_calls.map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
       isStreaming: stepStreaming && i === msgs.length - 1, timestamp: ts,
     };
-    const tools: ChatMessage[] = t.tool_calls.map((tc: any) => ({
-      id: `tool-${tc.id}`, role: 'tool', content: tc.result || '',
-      name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || '',
-      // 携带工具参数：让 ToolMessage 在"结果返回前"即可按参数渲染专用卡片
-      // （如 bash 显示命令、edit/read 显示文件路径），无需等结果 JSON。
-      arguments: tc.arguments,
-      ...(tc.subcall === true ? { subcall: true } : {}), // run_code 子调用平铺标记
-      isStreaming: stepStreaming ? (tc.running || !tc.result) : !tc.result,
-      status: stepStreaming && (tc.running || !tc.result) ? 'running' : undefined, timestamp: ts,
-    } as ChatMessage));
+    // 工具卡在途判定与 asst 行 isStreaming 同口径（cr-763）：只在末尾步
+    // 流式期判在途——running 显标记（直播执行窗口）或 result 终值缺席
+    //（undefined/null）。空串 = 空输出工具的合法终值（stringifyToolResult
+    // 空输出 → ''），此前 !tc.result 把空串当未到：收束后/刷新前恒转圈
+    //（中段已收束步同病）；历史路径 projectStep 合成 {ok:true} 不转——
+    // 同一工具两态漂移的根因。
+    const toolsLive = stepStreaming && i === msgs.length - 1;
+    const tools: ChatMessage[] = t.tool_calls.map((tc: any) => {
+      const pending = toolsLive && (tc.running === true || tc.result === undefined || tc.result === null);
+      return {
+        id: `tool-${tc.id}`, role: 'tool', content: tc.result || '',
+        name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || '',
+        // 携带工具参数：让 ToolMessage 在"结果返回前"即可按参数渲染专用卡片
+        // （如 bash 显示命令、edit/read 显示文件路径），无需等结果 JSON。
+        arguments: tc.arguments,
+        ...(tc.subcall === true ? { subcall: true } : {}), // run_code 子调用平铺标记
+        isStreaming: pending, status: pending ? 'running' : undefined, timestamp: ts,
+      } as ChatMessage;
+    });
     return { assistant: asst, tools, isStreaming: stepStreaming && i === msgs.length - 1 };
   });
   // final 的强生命周期语义（loop/after-run）：
@@ -405,6 +440,8 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         isStreaming: msg.isStreaming,
         // run 身份键透传（cr-699 sameRun 判定——上法 lastTurn.runId 取源）
         ...(msg.runId !== undefined ? { runId: msg.runId } : {}),
+        // run 墙钟耗时透传（cr-772 历史首步在场——链栏「用时」段权威锚）
+        ...(typeof (msg as any).runMs === 'number' ? { runMs: (msg as any).runMs } : {}),
         // 透传原始 id/附件/身份/锚点：final 沿用（edit/regenerate/delete 按 id 命中、
         // 附件渲染、分支按钮按 persistedMsgId 门控）
         id: msg.id,
@@ -416,7 +453,10 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
     if (msg.role === 'tool' && cur?.turns.length) {
       const last = cur.turns[cur.turns.length - 1];
       const tc = last.tool_calls.find((t: any) => t.id === msg.tool_call_id);
-      if (tc) { tc.result = msg.content || ''; tc.label = msg.label || msg.name || tc.name; }
+      // running 随 tool 行回填（cr-763）：直播在途信号源 = 工具行 isStreaming
+      //（onToolStart 置位 / onToolEnd 收口）——此前重建只回填 result，派生层
+      // 拿不到在途态，只能靠「result 空」反推（空输出工具被误判永转的根因）。
+      if (tc) { tc.result = msg.content || ''; tc.label = msg.label || msg.name || tc.name; tc.running = msg.isStreaming === true; }
     }
   }
   // run 级流式只归 agent 轮：step-started 已点亮 d.streaming 而首个
@@ -721,6 +761,8 @@ export function pairMessageToChatMessage(m: {
   /** 步级 API 计时/补全 token（历史 steps 展开透传）——链头速率数据源 */
   apiMs?: number;
   apiCompletion?: number;
+  /** run 墙钟耗时（cr-772 历史透传）——链栏「用时」段权威锚 */
+  runMs?: number;
   message_id?: string;
   timestamp?: string;
   attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
@@ -756,6 +798,7 @@ export function pairMessageToChatMessage(m: {
     ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
     ...(m.apiMs !== undefined ? { apiMs: m.apiMs } : {}),
     ...(m.apiCompletion !== undefined ? { apiCompletion: m.apiCompletion } : {}),
+    ...(m.runMs !== undefined ? { runMs: m.runMs } : {}),
     tool_call_id: m.tool_call_id,
     toolCalls: m.tool_calls as any,
     timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),

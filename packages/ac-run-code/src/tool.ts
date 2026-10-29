@@ -751,7 +751,13 @@ export async function executeRunCode(
     ...(done.logsTail !== undefined ? { logsTail: done.logsTail } : {}),
   };
   if (done.interrupted) {
-    return { ok: false, error: done.error ?? '程序中止', interrupt: { type: 'run-code-interrupted', reason: done.error ?? '程序中止' }, output };
+    // 预算耗尽/用户中止是工具级失败反馈，非宿主级行为请求（cr-783）——
+    // M11 interrupt 通道专属 reload/restart/插件装卸（宿主执行动作后
+    // 可续跑）；预算耗尽没有宿主动作可执行，此前误用 interrupt 收束整轮
+    // run（模型不再续步，会话戛然而止）且剥夺模型读 error 自适配的机会
+    // （拆小程序/换路径）。真用户中止由 loop 步边界 signal 检查收束
+    // （run 内 abortCtl 已让 signal 全链贯通），不依赖本通道。
+    return { ok: false, error: done.error ?? '程序中止', output };
   }
   if (!done.ok) {
     // P1（9eaf3f03 复盘 ③④）：失败全量回滚是设计语义（注册表只反映成功程序），

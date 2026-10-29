@@ -55,17 +55,31 @@ describe('cr-662 壳 stderr 诊断面', () => {
       };
     };
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-stderr-'));
-    const adopted = await adoptShell({
-      agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
-      reach: new ReachabilityTable(), spawnFn, timeoutMs: 5_000,
-    });
-    stderrLine!('boom-line-1');
-    stderrLine!('boom-line-2');
-    expect(adopted.stderrTail()).toEqual(['boom-line-1', 'boom-line-2']);
-    exitSink!(1, null); // 崩溃退出
-    const log = fs.readFileSync(path.join(dataRoot, '.runtime', 'logs', 'shell-a1.log'), 'utf-8');
-    expect(log).toContain('boom-line-1');
-    expect(log).toContain('=== exit code=1');
-    fs.rmSync(dataRoot, { recursive: true, force: true });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const consoleLines: string[] = [];
+    process.stderr.write = ((chunk: string) => { consoleLines.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      const adopted = await adoptShell({
+        agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
+        reach: new ReachabilityTable(), spawnFn, timeoutMs: 5_000,
+      });
+      stderrLine!('boom-line-1');
+      stderrLine!('boom-line-2');
+      expect(adopted.stderrTail()).toEqual(['boom-line-1', 'boom-line-2']);
+      // cr-741：生命周期常态行不刷宿主控制台；未知形态行保守转发
+      stderrLine!('[shell] boot 完成：agent=a1 rows=32');
+      stderrLine!('[shell] boot 失败：Error: x');
+      const echoed = consoleLines.filter((l) => l.includes('boot'));
+      expect(echoed).toEqual([]);
+      expect(consoleLines.some((l) => l.includes('boom-line-1'))).toBe(true);
+      exitSink!(1, null); // 崩溃退出
+      const log = fs.readFileSync(path.join(dataRoot, '.runtime', 'logs', 'shell-a1.log'), 'utf-8');
+      // cr-741：落盘行宿主侧盖 ISO 时标（时间线对齐）；exit 收口行保持无时标原格式
+      expect(log).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z boom-line-1\n/);
+      expect(log).toContain('=== exit code=1');
+    } finally {
+      process.stderr.write = stderrWrite;
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
   }, 20_000);
 });

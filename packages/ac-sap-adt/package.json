@@ -15,8 +15,6 @@
     "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-agents": "workspace:*",
-    "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

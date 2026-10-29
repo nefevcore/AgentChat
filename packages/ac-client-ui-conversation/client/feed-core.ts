@@ -29,7 +29,7 @@ import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
   pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
-  mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, closeRunningToolCalls,
+  mergeHistoryPage, mergeTimeOrdered, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, closeRunningToolCalls,
   groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf, splitAttachmentLines,
 } from './feed.ts';
 
@@ -64,8 +64,8 @@ interface DialogFeed {
   streamAgent?: string;
   /** 唯一真相源（append-only；流式消息原地更新对象） */
   rawMessages: ChatMessage[];
-  // 历史分页
-  status: 'idle' | 'loading' | 'ready';
+  // 历史分页。三态见 loadingHistory 投影注释（cr-793）
+  status: 'idle' | 'loading' | 'converging' | 'ready';
   hasMore: boolean;
   offset: number;
   /**
@@ -320,11 +320,18 @@ export function createFeedCore(
   function bump(id: DialogId) {
     _version.value = { ..._version.value, [id]: (_version.value[id] ?? 0) + 1 };
     // 活动 ↔ 存活信号（cr-107 悬挂流探针）：分区任何变更刷新基线；流式中
-    // 的分区顺手挂探针（懒启动——每分区至多一个在途，fire 后按需重排）
+    // 的分区顺手挂探针（懒启动——每分区至多一个在途，fire 后按需重排）。
+    // 在途判据与 runInFlight 同口径（cr-763）：占位在场即 run 在途——
+    // 单押 d.streaming 会漏「run-started 丢失但 delta 已建占位」的分区
+    //（该形态探针不挂，收尾帧再丢即永悬）。
     const d = dialogs.value[id];
     if (d) {
       d.lastStreamAt = Date.now();
-      if (d.streaming) scheduleStaleProbe(id);
+      if (d.streaming || d.rawMessages.some(m => m.isStreaming)) scheduleStaleProbe(id);
+    }
+    // 新帧到达 = 权威 miss 的死行标记作废（本地帧重新自治——cr-756）
+    if (authoritativeRuns.value[id] === false) {
+      delete authoritativeRuns.value[id];
     }
   }
   /** 结构性变更（增删/替换/截断/整体替换）→ 失效增量 turns memo，下次派生全量重建 */
@@ -472,10 +479,10 @@ export function createFeedCore(
       if (kind === 'pair' && !pairHasViewer(key)
         && conversationId && conversationId.includes('~') && conversationId.split('~').length === 2) {
         const [a, b] = conversationId.split('~');
-        void loadPairHistory(dialogId, a, b);
+        void loadPairHistory(dialogId, a, b, true);
         return;
       }
-      loadHistory(dialogId, VIEWER_ID.value, agentKeyOf(dialogId), kind === 'single' ? key : undefined);
+      loadHistory(dialogId, VIEWER_ID.value, agentKeyOf(dialogId), kind === 'single' ? key : undefined, false, true);
     }, delayMs);
   }
 
@@ -486,10 +493,10 @@ export function createFeedCore(
     if (kind === 'group') return; // 群分区内容源 = post 行，无 run 临时态
     if (kind === 'pair' && !pairHasViewer(key)) {
       const [a, b] = key.split('|');
-      void loadPairHistory(id, a, b); // 只读矩阵视角：直接重拉（无写口）
+      void loadPairHistory(id, a, b, true); // 只读矩阵视角：直接重拉（无写口）
       return;
     }
-    loadHistory(id, VIEWER_ID.value, agentKeyOf(id), kind === 'single' ? key : undefined, force);
+    loadHistory(id, VIEWER_ID.value, agentKeyOf(id), kind === 'single' ? key : undefined, force, true);
   }
 
   // ── 悬挂流探针（cr-107 checkpoint-C：「临时态等收束」的逃生口）──
@@ -515,7 +522,9 @@ export function createFeedCore(
   async function onStaleProbeFire(id: DialogId): Promise<void> {
     _staleProbe.delete(id);
     const d = dialogs.value[id];
-    if (!d || !d.streaming) return;
+    // 在途判据与挂载同口径（cr-763）：占位在场即探——run-started 丢失但
+    // delta 已建占位的分区此前在此早退，探针白挂。
+    if (!d || !(d.streaming || d.rawMessages.some(m => m.isStreaming))) return;
     // 排程后又有活动（bump 刷新基线）→ 顺延到活动点起算的满阈值
     const idleFor = Date.now() - (d.lastStreamAt ?? 0);
     if (idleFor < STREAM_STALE_PROBE_MS) {
@@ -536,14 +545,16 @@ export function createFeedCore(
       return; // 后端不可达：不定罪（悬挂与断网不可区分，重连链 owns 恢复）
     }
     const dd = dialogs.value[id];
-    if (!dd || !dd.streaming || dd.lastStreamAt !== baseline) return; // 等待期间已收尾/已新活动
+    if (!dd || !(dd.streaming || dd.rawMessages.some(m => m.isStreaming)) || dd.lastStreamAt !== baseline) return; // 等待期间已收尾/已新活动
     if (live) {
       dd.lastStreamAt = Date.now(); // 慢而活：基线重置，继续静默监听
       scheduleStaleProbe(id);
       return;
     }
-    // 权威判死：关停全部临时态 + 强制收敛到服务端真相
+    // 权威判死：关停全部临时态（消息级占位 + toolCalls 运行标记——探针
+    // 判死后该分区一切运行态都是死行，cr-763）+ 强制收敛到服务端真相
     closeAllStreaming(dd.rawMessages);
+    closeRunningToolCalls(dd.rawMessages);
     dd.streaming = false;
     bump(id);
     convergeDialog(id, true);
@@ -573,7 +584,7 @@ export function createFeedCore(
         if (r.unchanged === true) {
           histReqSentAt.delete(reqId);
           const d = dialogs.value[fpDialogId];
-          if (d && d.status === 'loading') d.status = 'ready';
+          if (d && (d.status === 'loading' || d.status === 'converging')) d.status = 'ready';
           if (d && typeof r.fingerprint === 'string') d.historyFingerprint = r.fingerprint;
           return;
         }
@@ -602,7 +613,7 @@ export function createFeedCore(
         logger.warn('[FeedStore] 历史加载失败', err);
         const dialogId = session ? singleDialog(session) : directDialog(to);
         const d = dialogs.value[dialogId];
-        if (d && d.status === 'loading') d.status = 'ready';
+        if (d && (d.status === 'loading' || d.status === 'converging')) d.status = 'ready';
         // 首屏失败重试一次（2026-09-21 反馈 #3）：静默 ready + 空会话 = 刷新后
         // 「没回放前面 steps」的主要形态（run 进行中 journal 回放全依赖此
         // 请求）。重试复用同 reqId（stale 守卫天然放行）；再失败维持静默
@@ -616,9 +627,9 @@ export function createFeedCore(
       });
   }
 
-  function loadHistory(dialogId: DialogId, from: string, to: string, session?: string, force = false) {
+  function loadHistory(dialogId: DialogId, from: string, to: string, session?: string, force = false, silent = false) {
     const d = ensureById(dialogId);
-    d.status = 'loading';
+    d.status = silent ? 'converging' : 'loading';
     d.hasMore = false;
     d.offset = 0;
     const key = session ?? to;
@@ -631,7 +642,7 @@ export function createFeedCore(
   }
   function loadMoreHistory(dialogId: DialogId) {
     const d = dialogs.value[dialogId];
-    if (!d || d.status === 'loading' || !d.hasMore) return;
+    if (!d || d.status === 'loading' || d.status === 'converging' || !d.hasMore) return;
     const parsed = parseDialogId(dialogId);
     // 寻址与 loadHistory 同词表（session ?? 裸 agentId）——M19 对桶键统一后
     // direct 分区的 parsed.key 是对桶键（alpha|user）：直传会把 conversationId
@@ -751,10 +762,24 @@ export function createFeedCore(
         }
         if (turnFloorTs < 0 && lastUserIdx >= 0) turnFloorTs = d.rawMessages[lastUserIdx].timestamp;
         const liveAgentRowsAll = streamingTail.filter(m => m.role === 'agent');
+        // 同锚注入行吸收（cr-767）：注入行正文的唯一载体 = 历史行（直播帧
+        // 按瘦身纪律不广播 contextContent）——同锚命中不能只丢历史行，须先把
+        // contextContent 补进直播行（否则 run 存续期间注入卡裸 label、点击无反应）。
+        const liveEventById = new Map<string, ChatMessage>();
+        for (const m of streamingTail) {
+          if (m.role === 'event' && m.persistedMsgId) liveEventById.set(m.persistedMsgId, m);
+        }
         msgs = msgs.filter(m => {
           if (m.role === 'event') {
-            // 新链路：同锚即同一份注入事实——直播行是流式载体，历史行丢弃
-            if (m.persistedMsgId && liveEventIds.has(m.persistedMsgId)) return false;
+            // 新链路：同锚即同一份注入事实——直播行承载位次，历史行丢弃；
+            // 正文吸收先行（与 absorbLongerInto 同语义：历史值不回卷直播值）
+            if (m.persistedMsgId && liveEventIds.has(m.persistedMsgId)) {
+              const live = liveEventById.get(m.persistedMsgId);
+              if (live && m.contextContent !== undefined && live.contextContent === undefined) {
+                live.contextContent = m.contextContent;
+              }
+              return false;
+            }
             // 存量兜底：无锚投影行按内容抵扣（等量），带锚行不入场
             if (!m.persistedMsgId) {
               const k = String(m.content);
@@ -845,8 +870,10 @@ export function createFeedCore(
       }
     }
     const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage, VIEWER_ID.value);
+    // 首屏：历史块 + 活跃 run 直播尾按**时间序**归并（cr-707）——原样拼接会把
+    // 直播期已上屏的注入行整体押到历史块之后（注入卡「始终在最下方」的根因）
     const nextRaw = isFirstPage
-      ? (streamingTail.length > 0 && !deduped.some(m => m.isStreaming) ? [...deduped, ...streamingTail] : deduped)
+      ? (streamingTail.length > 0 && !deduped.some(m => m.isStreaming) ? mergeTimeOrdered(deduped, streamingTail) : deduped)
       : deduped;
     if (prevOffset > 0) _historyOffset[agentId] = prevOffset - HISTORY_PAGE_SIZE + userCount;
     d.rawMessages = nextRaw;
@@ -858,7 +885,15 @@ export function createFeedCore(
     return d;
   }
 
-  /** 对外单值：当前活跃 dialog 的加载态（兼容旧接口） */
+  /** 对外单值：当前活跃 dialog 的加载态（兼容旧接口）。加载态三档（cr-793）：
+   *  'loading'     = 用户可见加载（切会话首屏装载/上翻分页）——点亮「加载历史消息」
+   *                 指示器与装载 watch；
+   *  'converging'  = 后台静默收敛（cr-793）——run 收束/settlement/重连/链路重同步
+   *                 的首屏重拉对账。此时消息内容已在屏上，对用户而言没有「正在
+   *                 加载」的事实：不点亮指示器、不触发滚底/自动续拉，行为与
+   *                 ready 等价。互斥锁语义保留（≠'ready' 即挡 loadMoreHistory），
+   *                 收敛在途时上翻分页不与后台对账竞写 offset。
+   *  'idle'/'ready' = 无在途请求。 */
   const loadingHistory = computed(() => activeDialog.value?.status === 'loading');
   const hasMoreHistory = computed<boolean>(() => activeDialog.value?.hasMore ?? false);
 
@@ -909,9 +944,9 @@ export function createFeedCore(
   const PAIR_HISTORY_PAGE_SIZE = 50;
 
   /** 加载会话对历史（首屏：整体替换；a/b 端点任意顺序） */
-  async function loadPairHistory(dialogId: DialogId, a: string, b: string) {
+  async function loadPairHistory(dialogId: DialogId, a: string, b: string, silent = false) {
     const d = ensureById(dialogId);
-    d.status = 'loading';
+    d.status = silent ? 'converging' : 'loading';
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc);
       const msgs = data.messages.map(m => pairMessageToChatMessage(m, a));
@@ -929,7 +964,7 @@ export function createFeedCore(
   /** 上翻加载更早会话对历史：前插并返回新增消息（调用方保持滚动位置） */
   async function loadOlderPairHistory(dialogId: DialogId, a: string, b: string): Promise<ChatMessage[] | null> {
     const d = dialogs.value[dialogId];
-    if (!d || d.status === 'loading' || !d.hasMore) return null;
+    if (!d || d.status === 'loading' || d.status === 'converging' || !d.hasMore) return null;
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc);
       const older = data.messages.map(m => pairMessageToChatMessage(m, a));
@@ -1131,6 +1166,7 @@ export function createFeedCore(
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
+    if ((data as { aborted?: boolean }).aborted === true) asst.aborted = true;
     if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     // 步级 API 计时/补全 token（after-step 透传）：链头速率（Σcompletion/Σms）
     // 的逐步数据源——随消息驻留分区 rawMessages，跨步重建不丢
@@ -1828,6 +1864,8 @@ export function createFeedCore(
       // 步级 API 计时/补全 token 透传（链头速率数据源，见 types.ts apiMs 注释）
       ...(typeof m.apiMs === 'number' ? { apiMs: m.apiMs } : {}),
       ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),
+      // run 墙钟耗时透传（cr-772）：历史链栏「用时」段权威锚（挂首步）
+      ...(typeof m.runMs === 'number' ? { runMs: m.runMs } : {}),
       // 服务端锚点：多步轮步行 = 收束行真实 message_id（同轮同锚——fork/
       // truncate 按整轮命中；2026-09-21 分支锚点修复，此前合成 `-s{i}` 后端不存在）
       persistedMsgId: m.message_id,
@@ -2322,11 +2360,14 @@ export function createFeedCore(
           }
           onMessageEnd(keys.dialogId, {
             content: String(step?.text ?? ''), reasoning: String(step?.reasoning ?? ''),
+            // 中止步标记（cr-766）：中断态渲染依据——直播与历史同形
+            ...(step?.aborted === true ? { aborted: true } : {}),
             // 思考耗时（后端权威 reasoningMs——与直播 closeThinking 同源定义）：
-            // 覆盖前端推定的「已思考 · XmYs」label，消除流式帧延迟误差
+            // 覆盖前端推定的「已思考 · XmYs」label，消除流式帧延迟误差；
+            // 中止步追加「已中断」段（与历史展开同款构造）
             ...(typeof step?.reasoningMs === 'number' && step.reasoningMs >= 1000
-              ? { label: `已思考 · ${fmtElapsed(step.reasoningMs / 1000)}` }
-              : {}),
+              ? { label: `已思考 · ${fmtElapsed(step.reasoningMs / 1000)}` + (step?.aborted === true ? ' · 已中断' : '') }
+              : step?.aborted === true ? { label: '已中断' } : {}),
             // 步级 API 计时（loop 步记录 elapsedMs = dispatch 纯流时间）+
             // 步补全 token（usage.completion——输出口径，见 types.ts 注释）
             ...(typeof step?.elapsedMs === 'number' && step.elapsedMs >= 0 ? { apiMs: step.elapsedMs } : {}),
@@ -2410,8 +2451,16 @@ export function createFeedCore(
         // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
         const anchor = typeof meta?.injectionId === 'string' && meta.injectionId ? meta.injectionId : undefined;
         // 注入型行（source 非机制词）带 source 挂直播行（2026-09-26 注入卡）：
-        // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——settlement 重拉补）
+        // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——延迟重拉补：cr-767
+        // 修复前 run 存续期间直播卡恒裸 label 无从展开，收束重拉对长 run 迟到）。
         showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined);
+        // 注入落账即调度延迟重拉（500ms，cr-767）：权威行带 contextContent，与
+        // 直播行同锚合并（吸收语义）后卡片即可展开。与 settlement 重拉共用同一
+        // 函数（指纹短路 + requestId 守卫天然幂等，不产生风暴）。
+        if (anchor !== undefined) {
+          const rk = routeDialog(frameAgentId(agentId), conversationId);
+          if (rk) scheduleSettlementReload(rk.dialogId, conversationId);
+        }
         return;
       }
       case 'system/restarting': {
@@ -2507,11 +2556,17 @@ export function createFeedCore(
       turnInProgress.value = false;
       for (const d of Object.values(dialogs.value)) {
         if (!d) continue;
-        if (d.status === 'loading') d.status = 'ready';
+        if (d.status === 'loading' || d.status === 'converging') d.status = 'ready';
         // 工具卡收口（cr-660）：断连窗口丢失 after-execute 帧的运行中卡片
         // 在此停转（无论分区是否 streaming——工具执行窗口分区可能尚未置位）
         closeRunningToolCalls(d.rawMessages);
-        if (d.streaming) {
+        // 占位收口不再以 d.streaming 为前提（cr-763）：run-started 帧在冷启动/
+        // 刷新窗口丢失时分区 streaming 未置位而占位在场——按 streaming 门控
+        // 则该形态的占位/工具行永不被收口（转圈不死）。重连 = 直播帧断供的
+        // 确定性事实，任何 isStreaming 残留都是死行；真在跑的 run 由后续新帧
+        //（delta/step-started 原地重建）或 resume 快照自然恢复。
+        const wasStreaming = d.streaming || d.rawMessages.some(m => m.isStreaming);
+        if (wasStreaming) {
           d.streaming = false;
           closeAllStreaming(d.rawMessages);
           bump(d.id);
@@ -2536,9 +2591,35 @@ export function createFeedCore(
     });
   }
 
+  /** 权威在途登记表（cr-756）：dialogId → true（shell conversation/stats
+   *  确认在跑）/ false（权威判死——本地帧残留为死行）。写口归消费方轮询
+   *  （RunStatusDockHost）；读口 runInFlight 优先权威 miss 判死（20s 静默
+   *  豁免窗对齐悬挂探针 STREAM_STALE_PROBE_MS 口径），无记录 = 本地帧自治。
+   *  判死联动消息行收口（cr-763）：settleDeadDialog 由 Dock 在「权威 miss +
+   *  静默超窗」确证时调用——状态卡 hidden 之外，把该分区消息行的运行态
+   *  一并收口（此前只收状态卡，工具卡 running 残留 = 「状态条消失、卡片
+   *  还在转」的割裂形态）。 */
+  const authoritativeRuns = ref<Record<DialogId, boolean>>({});
+
+  /** 权威判死联动消息行收口（cr-763）：分区死行的一切运行态关停（幂等）。
+   *  与 onStaleProbeFire 判死路径同款双收口；不做 convergeDialog（重拉由
+   *  探针/切回路径负责，本原语只管关停——避免 Dock 轮询触发额外 RPC 放大）。 */
+  function settleDeadDialog(id: DialogId): void {
+    const d = dialogs.value[id];
+    if (!d) return;
+    const hadLive = d.streaming || d.rawMessages.some(m => m.isStreaming)
+      || (d.rawMessages as any[]).some(m => (m.toolCalls ?? []).some?.((tc: any) => tc.running === true));
+    if (!hadLive) return;
+    closeAllStreaming(d.rawMessages);
+    closeRunningToolCalls(d.rawMessages);
+    d.streaming = false;
+    bump(id);
+  }
+
   return {
     // state / 派生
     dialogs, activeDialogId, activeDialog, activeAgentId, activeGroupId, activeSingleId,
+    authoritativeRuns, settleDeadDialog,
     setActiveGroup, clearActiveGroup, setActiveSingle, clearActiveSingle,
     activity,
     turnInProgress, lastStepEndAt, archivePending,
@@ -2554,6 +2635,8 @@ export function createFeedCore(
     loadGroupHistory, loadOlderGroupHistory, loadPairHistory, loadOlderPairHistory,
     // 事件
     ingestFrame, init, handleResume: onSessionResume,
+    // 传输面（消费方轮询 RPC 用——cr-756 权威对账；测试独立实例 = offlineRpc）
+    rpc,
   };
 }
 

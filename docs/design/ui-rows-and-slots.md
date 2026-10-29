@@ -1,37 +1,39 @@
 # UI 行册与 Slot 树实装（webui 治理事实源）
 
-> **状态**：实装行册（**源码快照 2026-10-06 复核**——cr-269 webui 文档组治理）。
+> **状态**：实装行册（**源码快照 2026-10-27 复核**——cr-703 单轨布局后首次重写；行/席口径由「行表 + vite 插件发现」改为 **manifest 通道制**）。
 > **事实源**（本文一切数字取自下列四源；与源码冲突时以源码为准）：
-> 1. **行表** = `src/cordis.yml` 的 30 条 `ui-*` 行 + `src/ac-app/src/index.ts` 行集（两表行集一致，有测试锁定）；
-> 2. **装载面** = 各行包 `src/index.ts` 的 `declareClient({name,entry,platform,phase})` + `src/ac-client-ui-*/client/index.ts` 的 `slots.declare / register / inject` 调用面；
-> 3. **边界账本** = `scripts/dep-cycles.yml`（R6/R7 白名单，只减不增）+ `scripts/check-deps.mjs`（守卫；相位表 = 各行包 `package.json` 的 `agentchat.client.phase`）；
-> 4. **装载链路** = `src/webui/vite.config.ts` 的 `rowClientsPlugin`（扫 `src/ac-*/client/index.ts`，行名 = 去 `ac-client-` / `ac-` 前缀）+ `src/webui/src/runtime/bootGraph.ts`（`/api/ui/boot-graph` 图装载；行卸载即回收）。
+> 1. **行集** = `apps/catalog/row-catalog.json`（61 行，**无 ui 行**——ui 域行 cr-701 已撤，86→61 / host 48→23）+ 通道清单 `apps/ui/channel/*/manifest.json`（29 个；校验门 `apps/ui/tests/seats-gate.test.ts` 与 `apps/ui/tests/channels-domain.test.ts`）；
+> 2. **装载面** = `packages/ac-client-ui-*/client/index.ts` 的 `slots.declare / register / inject` 调用面；各行包 `src/index.ts` 的 `ctx.webui.declareClient(...)` 声明在现役装配下不再是装载来源（待处置，见 §1.3 疑点）；
+> 3. **边界账本** = `scripts/dep-cycles.yml`（R6/R7 白名单，只减不增；**当前边表 0 条**）+ `scripts/check-deps.mjs`（守卫；相位表 = 各行包 `package.json` 的 `agentchat.client.phase`——锚点待修，见 §3.4 疑点）；
+> 4. **装载链路** = 宿主 `apps/ui/src/webui-row.ts`（`GET /api/ui/boot-graph`：`assembleBootGraph` 扫 `<dataRoot>/plugins/` 的 manifest 单源）+ 浏览器 `apps/ui/client/boot.ts`（骨架 3 件 in-bundle → `sealFactory()` → 通道逐条 `ctx.plugin`，失败逐条隔离 → `mount`）；通道产物 = `apps/ui/scripts/build-channel.mjs`（`pnpm build:channels`）。
 >
-> **复核命令见 §4 注 12**。本文不改装载语义（yml 行序无装载语义，`phase` 才有）。
+> **复核命令见 §4 注 12**。本文不改装载语义（装配行序无装载语义，`phase` 才有）。
 >
 > **过程档案（已归档，勿当现状读）**：`archive/webui-slot-tree.md`（v1 调研树 + ~230 建议名词表）、`archive/webui-component-tree.md`（前端组件树）、`archive/webui-plugin-ownership.md`（薄层归属地图 v2 / DSH 对照）——其有效结论已压缩为本文附录 A/B/C 并按源码校正。
-> **另档**：`webui-mobile-render-perf-plan.md`（cr-258 立项的待实施计划，独立保留）；`m30-slot-semantics-refinement-plan.md`（M30 席位语义收口实录 = 席位语义裁决原文）。
+> **另档**：`webui-mobile-render-perf-plan.md`（cr-258 立项的待实施计划，独立保留）；`archive/m30-slot-semantics-refinement-plan.md`（M30 席位语义收口实录 = 席位语义裁决原文，已归档）；`archive/first-run-onboarding-plan.md`（首启向导实施记录，已归档）。
+
+> ⚠️ 疑点（2026-10-27 审查）：插件库 / 工具面板 UI 文案仍以「cordis.yml 出厂组合 × cordis.patch.yml」为行集事实源（见 `packages/ac-client-ui-plugin-registry/client/PluginLibraryPane.vue`），而根 `cordis.yml` 现为空 profile（`[]`）、行集单源是 `apps/catalog/row-catalog.json`——是文案待改还是 yml 将恢复为行表，本文不预判。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 ---
 
 ## 0. 阅读指南
 
-- **§1 行册**：30 前端行（base 6 + domain 24）+ 行形态统一契约 + 基建三包 / webui 薄壳边界。
-- **§2 Slot 树**：节点 = 席位（19 席：layout 12 / settings 3 / conversation 3 / tool 1），叶 = `NULL`（扩展位）或具体贡献（组件 + 条目 id + order）。
+- **§1 行册**：31 前端包（base 6 + domain 25）+ 29 通道产物（域 28 + markdown-render）+ 行形态统一契约 + 基建三包 / webui 本体边界。
+- **§2 Slot 树**：节点 = 席位（20 席：layout 13 / settings 3 / conversation 3 / tool 1），叶 = `NULL`（扩展位）或具体贡献（组件 + 条目 id + order）。
 - **§3 归属（换轴视图）**：3.1 声明表 / 3.2 贡献表（行 → 席位#条目）/ 3.3 依赖矩阵 / 3.4 白名单边界（R6/R7）。
 - **§4 注记与裁决链**：14 条注记，含被取代方案的历史裁决（不删结论，只标「谁取代谁、为什么」）；注 12 = 复核命令。
 - **标记约定**（树与表通用）：`k:single` / `k:list` = 席位 kind；`elect` = 选举席（解析面按谓词或显式键选举，不经 SlotOutlet 叠加）；`scope=session` = store 座位实例轴（`entry.store` 工厂 × scopeKey=conversationId）；`pub` = 第三方可声明；`data` = 数据席（宿主渲染条目，贡献只供 `meta.def`）；`(n)` = 条目 order（缺省 100）；`[包]` = 贡献方行包；`〔注 n〕` = §4 注记。
 
 ---
 
-## 1. 行册（30 前端行）
+## 1. 行册（31 前端包 + 29 通道）
 
-**统一形态**：`package.json`（`agentchat.plugin` + `agentchat.client{platform,entry,phase}`）+ `src/index.ts`（宿主半边 = `ctx.webui.declareClient` 声明 boot graph 条目）+ `client/`（插件半边 = `clientPlugin({inject,apply})`）+ `tests/`（宿主半边 node / client 半边 jsdom 分文件 + 双向摘除用例；薄行无独立 tests，覆盖走消费方测试族）。
+**统一形态**：`package.json`（`agentchat.plugin` + `agentchat.client{platform,entry,phase}`）+ `src/index.ts`（宿主半边保留 `ctx.webui.declareClient` 声明——现役装载不经此路，处置待裁）+ `apps/ui/channel/<name>/manifest.json`（通道条目）+ `client/`（插件半边 = `clientPlugin({inject,apply})`）+ `tests/`（宿主半边 node / client 半边 jsdom 分文件 + 双向摘除用例；薄行无独立 tests，覆盖走消费方测试族）。
 
 - **三处同名纪律**：boot graph 条目名 = 行 id = `ExtensionMeta.name` = `ui-<域>`；包名即身份（`ac-client-ui-<域>`，D19）。
-- **「可摘除」的限定语**：**boot graph 层成立**（行停用 → 贡献面消失，席位于宿主不残废）；**物理摘包会断 webui 构建**——base 行现存 5 条 R7 白名单运行时边（§3.4），需先消边。
+- **「可摘除」的限定语**：**boot graph 层成立**（通道停产 → 贡献面消失，席位于宿主不残废）；**物理摘包会断 webui 构建**——base 行 5 条历史 R7 运行时边仍在代码中（§3.4），需先消边。
 - 依赖方向纪律由 `check-deps` 的 R6/R7 强制（base↛domain 新边一律红灯；R6 覆盖 `.ts`/`.vue` 同权重；白名单只减不增）。
-- 行规模（2026-10-06 实测，含 tests）：30 行 client 半边合计 **233 文件 / 106 个 `.vue` / ~2.34MB**；最重 = ui-conversation（包 ~983KB，client 830KB / 56 文件 / 21 `.vue`）。
+- 行规模（2026-10-27 复核 `.vue` 计数）：31 包 client 半边 **113 个 `.vue`**；文件数与体量待按 `packages/` 重算；最重仍为 ui-conversation（体量 / 文件数按 `packages/ac-client-ui-conversation` 重测）。
 
 ### 1.1 基础六件（phase: `base`）
 
@@ -40,13 +42,13 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 | 包 | 行 id | 职责 | 声明席位数 |
 |---|---|---|---|
 | `ac-client-ui-conversation` | ui-conversation | 会话域：ctx.sessions（FeedCore/ChatCore）+ talk 视角 + 会话头 / dock / 消息视图三席声明 + queue·approval·interaction dock 与 token-gauge 头部、System Prompt·文件编辑 aux 选区出厂贡献 + ConversationView 四形态内核族（TranscriptList/ComposerDock） | 3 |
-| `ac-client-ui-layout` | ui-layout | 应用壳：root 席 + AppFrame + 全骨架席位声明（12 席）+ 视角 / 主面板 / 选区选举解析面 + 左栏两壳（活动栏 / 主侧边栏）+ 辅助活动栏 + uiStore | 12 |
+| `ac-client-ui-layout` | ui-layout | 应用壳：root 席 + AppFrame + 全骨架席位声明（13 席）+ 视角 / 主面板 / 选区选举解析面 + 左栏两壳（活动栏 / 主侧边栏）+ 辅助活动栏 + uiStore | 13 |
 | `ac-client-ui-renderer` | ui-renderer | 渲染地基：vueRenderer / slotRender + SlotOutlet / SlotOutletItem 族 + markdown 管线（useMarkdown / abap-hljs）+ logger + ScrollableViewport（零席位贡献） | 0 |
 | `ac-client-ui-settings` | ui-settings | 设置面板纯壳：左树（叶自 `settings:section` 贡献派生）+ 全局配置保存编排 + schema 引擎 + 设置 UI kit（SettingField / ConfirmDialog）+ 3 席声明 + overlay 出厂贡献；外域数据面 import 清零 | 3 |
 | `ac-client-ui-theme` | ui-theme | 主题行：tokens 双主题 + themeStore（零席位贡献） | 0 |
 | `ac-client-ui-tool` | ui-tool | 工具卡席位宿主：`tool-card:result-view` 声明 + toolLabel / toolIcon / toolResultViews 解析面 + 选举语义（零内联卡） | 1 |
 
-### 1.2 域行（phase: `domain`，24 行）
+### 1.2 域行（phase: `domain`，25 行；表内即 25 行，含 ui-onboarding）
 
 | 包 | 行 id | 职责 | 主要贡献（席位#条目） |
 |---|---|---|---|
@@ -76,11 +78,13 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 | `ac-client-ui-web` | ui-web | web 工具卡 + 网络搜索面板 | tool-card:result-view#web_search；aux-sidebar#search(12) |
 | `ac-client-ui-workspace` | ui-workspace | 工作区 / 文件面（fileApi 上传登记） | overlay#file-preview(90)；aux-sidebar#preview(10) / #workspace(40) |
 
-### 1.3 边界与薄壳
+### 1.3 边界与本体（原「薄壳」）
 
-- **基建三包**（纯库 / 运行时，不占行、不可摘除）：`ac-client-slots`（SlotCore 纯核 + SlotStoreAxis）、`ac-client-runtime`（ClientContext / SlotRegistry / clientRuntime）、`@agentchat/webui-kit`（设计原语：50 文件 / 41 个 `.vue`）。
-- **webui 薄壳** = `src/webui/src`（45 文件 / ~124KB：api、core、runtime、settings、shims、types、utils、composables + `main.ts` / `isolated-runtime.ts` / `preview-main.ts` / `env.d.ts`）。装配序列第④步 = `runtime/bootGraph.ts`（图装载 + 热通道）；`stores/` 与域 api 门面已退役（`utils` / `composables` 余 re-export 维持旧路径）。
-- **相关不占行包**：`ac-webui`（宿主行：下发 `/api/ui/boot-graph` + `/ui-plugin/` 静态路由 + `webui/extensions-changed` 帧）、`ac-webui-extensions`（第三方 UI 声明词汇表纯数据包；行已退役，见裁决链）。
+- **基建三包**（纯库 / 运行时，不占行、不可摘除）：`ac-client-slots`（SlotCore 纯核 + SlotStoreAxis）、`ac-client-runtime`（ClientContext / SlotRegistry / clientRuntime）、`@agentchat/webui-kit`（设计原语：46 文件 / 36 个 `.vue`，2026-10-27 复核）。
+- **webui 本体** = `apps/ui`（包名 `ac-ui-app`）：`src/` 服务半边（`webui-row.ts` / `isolated.ts` / `isolated-runtime.ts` + `assets/` + `shims/`）+ `client/`（`boot.ts` / `main.ts` / `rpc-host.ts` / `rpc-wire.ts` / `shared-modules.ts` / `isolatedView.ts`）+ `channel/`（29 通道）+ `themes/`。装配序列第④步 = `client/boot.ts` 的通道装载；旧 `preview-main.ts` / `runtime/bootGraph.ts` / `stores/` 均已不存在。
+- **相关不占行包**：`ac-webui`（`ctx.webui` 面：extensions 清单 + 声明注册表；**现役 boot graph 与 `/ui-plugin/` 静态路由由 `apps/ui/src/webui-row.ts` 提供**，职责重叠待裁）、`ac-webui-extensions`（第三方 UI 声明词汇表纯数据包；行已退役，见裁决链）。
+
+> ⚠️ 疑点（2026-10-27 审查）：31 个 `packages/ac-client-ui-*/src/index.ts` 仍写 `ctx.webui.declareClient(...)`，而现役 `/api/ui/boot-graph` 由 `apps/ui/src/webui-row.ts` 扫 `pluginsDir` manifest 产出、`ac-webui` 行不在 row-catalog——声明半边在当前装配下无消费者（清理还是恢复待裁，本文不预判）。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 ---
 
@@ -196,7 +200,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 
 判定基准：**owning = 声明方**（`slots.declare` 的那一行）；域行贡献多经 `slots.inject(seat, () => register(...))` 声明存活期效应（**席位在场即注册 / 缺席即等待 / 塌缩或卸载即回收**），例外见注 8。
 
-### 3.1 声明表（19 席 → owner 行）
+### 3.1 声明表（20 席 → owner 行）
 
 | 席位 | kind / 修饰 | owner 行 | 渲染 / 解析面 |
 |---|---|---|---|
@@ -219,7 +223,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | `message:final-view` | list·elect·pub | ui-conversation | TurnDisplayItem（match / priority） |
 | `tool-card:result-view` | list·elect·pub | ui-tool | ToolMessage（精确名 → 正则族 → priority） |
 
-### 3.2 贡献表（30 行 → 席位#条目）
+### 3.2 贡献表（31 包 → 席位#条目）
 
 | 行 | 贡献（席位#条目(order)） | 说明 |
 |---|---|---|
@@ -238,6 +242,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-group | overlay#create-dialog(95)；main:perspective#group(30)；aux-sidebar#group(45) | aux 选区 available=群视角有活跃群 |
 | ui-jobs | conversation:header-widget#jobs-chip(10) | 另含 jobBoard 域投影 |
 | ui-llm-pool | settings:section#llmPools(20) | |
+| ui-onboarding | overlay#wizard(98)；activity-bar:more-menu#onboarding(10) | 两处均 `inject`；首启向导 + 更多菜单重播项 |
 | ui-plugin-registry | settings:section#pluginLibrary(40) | |
 | ui-remote | settings:section#remote(95) | |
 | ui-run-code | tool-card:result-view#run_code | |
@@ -249,20 +254,21 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-subagent | tool-card:result-view#subagent；main:perspective#subagent(9) | order 9 显式居 pair(10) 前（互斥置位，防御序） |
 | ui-system | overlay#version-dialog(97) | |
 | ui-timer | aux-sidebar#timers(30) | 定时任务聚合 aux 选区（settings sys.timer 节已撤，见裁决链） |
-| ui-todo | tool-card:result-view#todo；conversation:dock-widget#todo(40) | 裸 register（注 8） |
+| ui-todo | tool-card:result-view#todo；conversation:dock-widget#todo(40) | 经 `slots.inject` 落位（注 8；cr-454 后改） |
 | ui-usage | overlay#panel(96)；aux-sidebar#usage(15) | |
 | ui-web | tool-card:result-view#web_search；aux-sidebar#search(12) | 浏览器族正则 def 已随 daemon 工具名退役（cr-466） |
 | ui-workspace | overlay#file-preview(90)；aux-sidebar#preview(10) / #workspace(40) | 裸 register（注 8）；两选区并存同轴竞争 |
 
 ### 3.3 依赖矩阵（各行包 `package.json` 运行时依赖；只列 `ac-*` / `@agentchat/*` 非 kit 项）
 
-`✓R6` / `✓R7` = 该边在 `scripts/dep-cycles.yml` 白名单内；未标 ✓ 的域名依赖 = 非运行时边（type-only）或同相位依赖。
+`✓R6` / `✓R7` = 该边在 `scripts/dep-cycles.yml` 白名单内（**该册当前边表 0 条，下表标记仅作历史裁决记录，见 §3.4 疑点**）；未标 ✓ 的域名依赖 = 非运行时边（type-only）或同相位依赖。
 
 | 行包 | base 依赖 | domain 依赖 |
 |---|---|---|
-| ui-layout | renderer、theme（+ slots） | system（`✓R7`） |
+| ui-layout | conversation、renderer、theme（+ slots） | system（`✓R7`） |
 | ui-conversation | layout、renderer、tool（+ slots） | agents（`✓R7`）、workspace（`✓R7`）、skill（`✓R7`）、llm-pool（`✓R7`）、singles（仅 `import type`，不计边——注 11） |
 | ui-settings | layout（+ slots）、ac-webui-extensions（纯数据包） | — |
+| ui-onboarding | settings（+ slots） | agents / llm-pool / search-pool（未见白名单条目） |
 | ui-tool / ui-theme / ui-renderer | —（renderer 仅 slots/runtime） | — |
 | ui-agents | conversation、layout、settings、theme | llm-pool（`✓R6`）、plugin-registry（`✓R6`）、timer（`✓R6`） |
 | ui-browser | — | workspace（`✓R6`） |
@@ -283,9 +289,9 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-search-pool / ui-llm-pool | settings | — |
 | ui-desktop-storage / ui-goal / ui-jobs / ui-skill / ui-shell / ui-todo | —（仅 runtime） | — |
 
-### 3.4 白名单边界（`scripts/dep-cycles.yml`，20 边：5 R7 + 15 R6）
+### 3.4 白名单边界（`scripts/dep-cycles.yml`，历史 20 边：5 R7 + 15 R6；**当前边表 0 条**）
 
-**R7（base → domain，5 条）**
+**R7（base → domain，5 条——历史裁决记录）**
 
 | from → to | 判据（M29 P2-1 定谳：RPC 包装 / 纯工具词 / 惰性取用口 = 契约词汇） |
 |---|---|
@@ -295,9 +301,11 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 | ui-conversation → ui-skill | ChatInput skillsApi（@ 提及的技能清单拉取） |
 | ui-conversation → ui-llm-pool | ChatInput 池清单（模型选择数据面） |
 
-**R6（domain → domain，14 条）**：ui-agents → llm-pool / plugin-registry / timer；ui-timer → agents；ui-browser → workspace；ui-group → agents；ui-plugin-registry → workspace；ui-runview → agents / jobs；ui-subagent → agents / jobs；ui-singles → agents / workspace；ui-usage → agents。
+**R6（domain → domain，历史 14 条；与本节的「20 = 5 + 15」自述不符，条目数待定）**：ui-agents → llm-pool / plugin-registry / timer；ui-timer → agents；ui-browser → workspace；ui-group → agents；ui-plugin-registry → workspace；ui-runview → agents / jobs；ui-subagent → agents / jobs；ui-singles → agents / workspace；ui-usage → agents。
 
 **纪律**：白名单**只减不增**（新增边不在册 = 红；边已消化而条目未删 = 红）；每消化一环即删条目，清零即除役白名单机制本身。R6 自 2026-09-11 扩权为 `.ts` / `.vue` 同权重（消 .vue 媒介盲区）。
+
+> ⚠️ 疑点（2026-10-27 审查）：`scripts/check-deps.mjs` 的 `SRC` 仍锚 `ROOT/src`，而仓库根已无 `src/`（cr-703）——`findAllPackages()` 空扫，R1–R7 零输入恒绿；同时 `dep-cycles.yml` 的 `edges:` 之后已无条目。故本节 20 边与 §3.3 的 `✓R6` / `✓R7` 标记当前无法复核（守卫待修还是白名单已清零，本文不预判）。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 ---
 
@@ -309,30 +317,30 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 2. **〔注 2〕overlay 的 order 序 = 视觉序锚**（90 → 95 → 96 → 97 → 100 缺省）：新增弹窗行显式定序即可插队，无序竞争；z-index 配额（modal 1200 / installConfirm 1250 / governance 1280 / entryPicker 1300）与弹窗骨架四态回落见席位 ownerProps。
 3. **〔注 3〕tool-card:result-view 未命中回落文本渲染**：宿主不残废红线的直接体现——卸任一卡行只损失该工具的富卡，消息流完整。
 4. **〔注 4〕settings:main-view / agent-pane:tab 出厂零注册**：出厂节走 settings:section 选举，左树平铺叶亦自其贡献派生（壳零出厂叶硬编码）；两席是第三方扩展页签的别名位。若长期无第三方消费，可评估并席（属「按需开口」纪律，不预裁）。
-5. **声明 / 贡献比观察**：19 席全部由 base 行声明，域行零声明、全贡献——「宿主退化为 slot 提供者」的终态判据已达成：域行摘除不损失任何席位存在性，只损失贡献叶；依赖图层面同样成立（base→domain 仅存 5 条定谳契约边）。
+5. **声明 / 贡献比观察**：20 席全部由 base 行声明，域行零声明、全贡献——「宿主退化为 slot 提供者」的终态判据已达成：域行摘除不损失任何席位存在性，只损失贡献叶；依赖图层面同样成立（base→domain 仅存 5 条定谳契约边）。
 6. **工具卡行粒度**：按「后端域 ↔ 卡行」镜像表判定（fs 三卡同行、web 双 def 同行、shell 双名同行），非按卡数机械拆分；若某卡需独立演进，同 id 重注册替换机制天然支持。
 7. **conversation 仍是最重行**（2026-10-06 实测：包 ~983KB，client 830KB / 56 文件 / 21 个 `.vue`）：sessions 核心 + ConversationView 四形态内核族——composer 不拆的保守裁决仍生效，进一步拆分需新裁决点。
-8. **register 姿势两式（装载时序事实）**：跨包席位贡献多经 `ctx.slots.inject(key, () => register(...))` 声明存活期效应（席位在场即注册 / 缺席即等待 / 声明塌缩或本行卸载即回收）；例外 = **ui-todo / ui-workspace** 用裸 `register`（只消费 base 先行装载已声明的席位，运行时序内安全，但裸 client 测试须先手动 declare 席位）；同包 declare→register（layout / settings / conversation 自家席位）天然时序安全，直 register。
+8. **register 姿势两式（装载时序事实）**：跨包席位贡献多经 `ctx.slots.inject(key, () => register(...))` 声明存活期效应（席位在场即注册 / 缺席即等待 / 声明塌缩或本行卸载即回收）；例外 = **仅 ui-workspace** 用裸 `register`（`packages/ac-client-ui-workspace/client/index.ts` 三处：overlay / aux-sidebar ×2；只消费 base 先行装载已声明的席位，运行时序内安全，但裸 client 测试须先手动 declare 席位）；ui-todo 已于后续批次改为 `inject`（tool-card:result-view / conversation:dock-widget 两处，cr-454）；同包 declare→register（layout / settings / conversation 自家席位）天然时序安全，直 register。
 9. **席位语义轴（M30 收口已实施）**：席位词表 = kind（single / list）+ elect（选举扶正，取代旧 priority 特例语义）+ data（数据席）；旧「keyed presentation / 白名单 UISlotId」词汇退役。**useSeatOccupancy 门控原语已除役**（D3 及其后记：随主区 / aux 语义纯化同批）——占用门控内在于选举，源码仅存注释与测试注记（`ac-client-ui-renderer/tests/renderer-client.test.ts`）。
 10. **服务端注册表退役（M30 D7 已实施）**：`ctx.uiExtensions` + BUILTIN_SLOTS 白名单删除（`ac-webui-extensions` 行退役；词汇表 slotCatalog 留包转纯库）。第三方 UI 链路 = manifest.ui → `ctx.webui.addEntry` → 浏览器 SlotRegistry；`webui` 行只负责 boot graph 下发 + `/ui-plugin/` 静态路由。
 11. **两行的 `agentchat.client` 元数据缺失（遗留项）**：`ac-client-ui-desktop-storage` 与 `ac-client-ui-remote` 的 `package.json` 只有 `agentchat.plugin=true`，无 `agentchat.client{phase}`——其宿主半边 `declareClient` 已正确声明 `phase=domain`，vite 行发现也不依赖该字段，故**运行/装载不受影响**；但 `check-deps` 的相位表（`pkg.agentchat.client.phase`）不含这两行 → 其跨行静态边不受 R6/R7 扫描（当前无违例）。另：`ui-conversation → ui-singles` 仅 `import type`，按纪律不计运行时边（旧组件树文档曾按声明依赖误计 17 条边）。
     > **落地记录（cr-481，2026-10-16）**：desktop-storage 行已补齐 `agentchat.client{platform:'web', entry, phase:'domain'}`（与 skill 行同构）——该行自此入相位表受 R6/R7 扫描。remote 行仍未补，留待其专属审计轮处理。
-12. **〔注 12〕复核命令（2026-10-06 口径）**：
-    - 席位声明面：`grep -rn 'slots.declare(' src/ac-client-ui-*/client`
-    - 贡献面：`grep -rn 'slots.register(' src/ac-client-ui-*/client`（配 `slots.inject(` 判存活期效应）
-    - 行集：比对 `src/cordis.yml` 的 `- id:` 条目与 `src/ac-app/src/index.ts` 行表（测试锁定两表一致）
-    - 行发现：`src/webui/vite.config.ts` 的 `discoverRowClients()`（扫 `src/ac-*/client/index.ts`）
-    - 边界：`node scripts/check-deps.mjs`（R6/R7 + 白名单只减不增）
+12. **〔注 12〕复核命令（2026-10-27 口径）**：
+    - 席位声明面：`grep -rn 'slots.declare(' packages/ac-client-ui-*/client`
+    - 贡献面：`grep -rn 'slots.register(' packages/ac-client-ui-*/client`（配 `slots.inject(` 判存活期效应）
+    - 行集：比对 `apps/catalog/row-catalog.json`（应无 ui 行）与 `apps/ui/channel/*/manifest.json`（29 个通道）
+    - 行发现：宿主 `apps/ui/src/webui-row.ts` 的 `assembleBootGraph(pluginsDir)` + 浏览器 `apps/ui/client/boot.ts`（骨架 3 件 in-bundle → 通道逐条装载）
+    - 边界：`node scripts/check-deps.mjs`（R6/R7 + 白名单只减不增）——**先修锚点再读结果**（见 §3.4 疑点）
 13. **dock 序重排（2026-09-13）已生效**：旧账（todo 10 / goal 20 / queue 30 / interaction 40）作废——现序 = 决策 interaction(10) → 审批 approval(20) → 排队 queue(30) → 任务 todo(40) → 目标 goal(50)（待办行动卡置顶，环境锚点下沉）。
 14. **本次复核对旧版账目的修正**（旧版为治理前快照，数字与叶子已过时）：
-    - 行数：26 → **30 行**（旧版漏 ui-run-code / ui-desktop-storage / ui-remote / ui-run-nodes 等）；域行口径（20 与 21 两处自相矛盾）统一为 24。
+    - 行数：26 → **30 行**（旧版漏 ui-run-code / ui-desktop-storage / ui-remote / ui-run-nodes 等）；域行口径（20 与 21 两处自相矛盾）统一为 24；**2026-10-27 复核：31 包 / 域行 25 / 席位 20**（本次重写，口径见头部事实源）。
     - 席位叶子：dock 序见注 13；会话头补 single-actions(30)；overlay 撤 system-prompt(88)、增 storage(90) / remote(95)；conversation 增 aux 两选区（prompt 35 / file-edits 24）；aux 新增 search(12) / usage(15) / run-nodes(27) / timers(30) / group(45)；main:perspective 增 subagent(9)；tool-card 增 pwsh / run_code；settings:section 撤 sys.timer(50)、增 storage(90) / remote(95)。
     - **primary-sidebar:domain 三条目不带 order**（旧版 10 / 20 / 40 系误读 `meta.def` 字段）：选举键 = `ui.primaryPanel` × `meta.panel`。
-    - 规模数字按 2026-10-06 实测刷新（webui 薄壳 45 文件 ~124KB；client 半边 233 文件 / 106 个 `.vue` / ~2.34MB；webui-kit 41 个 `.vue`）。
+    - 规模数字按 2026-10-27 复核刷新（`apps/ui` 本体 = src 3 文件 + client 7 文件 + 29 通道 + themes；31 包 client 半边 113 个 `.vue`；webui-kit 36 个 `.vue`）。
 
 ### 4.2 裁决链（被取代方案的结论保留——历史裁决不是待办）
 
-1. **薄层形态三轮裁决**：v1「宿主保留聊天骨架 + 各域挂贡献者」被否 → v2（`archive/webui-plugin-ownership.md`，对齐 DSH webui 实证）改为「浏览器跑客户端运行时，可视面 100% 按域拆 client-ui 插件包，webui 瘦到运行时 + slot 基建 + 构建入口」 → **D19 改裁**：域 UI 的物理落点 = **各前端行包 `client/` 半边**（当时基础件定「常驻 webui clients/base、不建独立包」） → **M27.2 再进一步**：基础件同样出包（layout / conversation / renderer / settings / theme / tool）——当前态即此。前两轮的判据（数据面归属 / 跨域聚归宿主 / 可摘除性验收）**继续有效**，仅组织形态被后者取代。
+1. **薄层形态三轮裁决**：v1「宿主保留聊天骨架 + 各域挂贡献者」被否 → v2（`archive/webui-plugin-ownership.md`，对齐 DSH webui 实证）改为「浏览器跑客户端运行时，可视面 100% 按域拆 client-ui 插件包，webui 瘦到运行时 + slot 基建 + 构建入口」 → **D19 改裁**：域 UI 的物理落点 = **各前端行包 `client/` 半边**（当时基础件定「常驻 webui clients/base、不建独立包」） → **M27.2 再进一步**：基础件同样出包（layout / conversation / renderer / settings / theme / tool）——当前态即此。前两轮的判据（数据面归属 / 跨域聚归宿主 / 可摘除性验收）**继续有效**，仅组织形态被后者取代。**终态补充（2026-10-27）**：骨架 3 件 in-bundle（`apps/ui/client/boot.ts` 顶部 import），其余 28 包走 manifest 通道。
 2. **服务端 slot 注册表退役**（M30 D7）：`ctx.uiExtensions` + BUILTIN_SLOTS 六槽白名单删除（生产链路零消费）；第三方 UI 走 manifest.ui → `ctx.webui.addEntry` → 浏览器 SlotRegistry。结论保留：服务端不再有权威 slot 白名单，fail-closed 改由 SlotMap 声明账本 + 装载校验承担。
 3. **占用门控原语除役**（M30 D3 及后记）：`useSeatOccupancy(key)` 退役——占用门控内在于选举（原手码门控有壳残废风险），不再提供独立原语。
 4. **settings `sys.timer` 节撤**（A3）：定时任务聚合 aux 选区是唯一入口（与 aux 面板同组件纯冗余）；`/timer` 快捷命令经 `ui.openTimers` 直达选区。settings:section#sys.timer(50) 条目作废。
@@ -354,7 +362,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 - **装配链**：main.ts AcClientRoot → `renderSlot(root)` → AppFrame → 各区域宿主 → 席位渲染面。
 - **动态挂载点清单**（组件树的「虚线边」；选举 / 排序键以本文 §3.1 与源码为准）：PerspectiveHost / MainViewHost / PrimarySidebarHost / AuxSidebarHost / SettingsPanel / AgentPane / ToolMessage / TurnDisplayItem / ComposerDock / ConversationView / AppFrame / ActivityBar。
 - **跨包复用网**（每边的白名单裁决依据 = 该文 §8 组件复用表 + `dep-cycles.yml` 各条 ruling）：ConversationView（conversation，被 group / singles / runview / subagent async 引用——视角 = 跨包引用内核 + 域 props）；ScrollableViewport（renderer → shell / fs 卡）；SettingField / ConfirmDialog（settings → llm-pool / search-pool / agents / plugin-registry）；EntryPickerModal（workspace → singles / plugin-registry）；TimerPane（timer → agents）；ExtToolsPane / ExtensionSettingsModal（plugin-registry → agents）；toolDisplayLabel / toolIconName（tool → conversation）。
-- **规模校正（2026-10-06 实测）**：行包 client 半边 106 个 `.vue`、webui-kit 41 个 `.vue`（旧版记 79 / 13，已过时）；无 `.vue` 的数据 / 资产行 = ui-theme / ui-tool / ui-skill（ui-renderer 仅 2 个 `.vue` 资产）。
+- **规模校正（2026-10-06 实测；2026-10-27 复核：113 / 36）**：行包 client 半边 106 个 `.vue`、webui-kit 41 个 `.vue`（旧版记 79 / 13，已过时）；无 `.vue` 的数据 / 资产行 = ui-theme / ui-tool / ui-skill（ui-renderer 仅 2 个 `.vue` 资产）。
 
 ## 附录 C. 归属地图与裁决点（`archive/webui-plugin-ownership.md`，v2 / DSH 对照）
 

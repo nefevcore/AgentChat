@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@nefevcore/agentchat"><img src="https://img.shields.io/npm/v/@nefevcore/agentchat?color=cb3837&label=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2022.18-339933" alt="node ≥ 22.18">
-  <img src="https://img.shields.io/badge/tests-2500%2B-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-2400%2B-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-007EC7" alt="MIT">
 </p>
@@ -174,7 +174,7 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
-**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以 `apps/catalog/row-catalog.json` 为单源：每行声明 `id / tree / role / path`，宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
+**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以 `apps/catalog/row-catalog.json` 为单源：每行声明 `id / tree / description / path`，宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
 
 ### 三层架构
 
@@ -200,7 +200,7 @@ packages/                  全部活包（120+）
 ├── ac-{agent-loop,conversation,llm,llm-pool,agents,tools}/   核心链路
 ├── ac-{host-webui,webui,webui-core}/  web 面与 WebUI 服务半边
 ├── ac-webui-kit/          设计原语库（tokens + 基础组件）
-├── ac-retired-types/      旧树退役类型墓碑（纯类型，根 tsconfig 闭包）
+├── ac-retired-types/      旧树退役类型增强声明（ctx.agentStore/session 等类型面，根 tsconfig 闭包）
 └── vendor/                本地 cordis 生态（loader/logger/timer/hmr/include）
 
 apps/

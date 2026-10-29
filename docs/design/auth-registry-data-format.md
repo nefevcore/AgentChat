@@ -1,6 +1,7 @@
 # 授权注册表 · 数据格式（工程规格草稿）
 
-> 性质：工程规格草稿（preview 开工输入），非裁决。2026-10-14。依据：per-agent 档案
+> 性质：**授权注册表数据格式现行事实源**（两层 auth.json / 指纹 / 投影 / F2 六条 auth/* RPC 的数据规格）。
+> 2026-10-14 立稿。依据：per-agent 档案
 > D3 修订（控制面恒为数据面 / 域外 = 授权状态变更）、R-4（授权信）、R-5（spawn ⊆
 > 授权投影）、R-11 ③（凭据直读）、R-12（MCP 归属）；shell-model S3（授权宽度 = 参数）；
 > 协议规格 E 节（grant 事务）。配套：host-shell-row-manifest.md v3（auth-registry 行 + 壳侧
@@ -106,9 +107,9 @@ effective(agent) = { a ∈ 全局层有效条目 ∪ per-agent 内联条目 | a 
 
 | 现状 | 去向 |
 |---|---|---|
-| ac-security requiredTags / needPermission 语义 | C 节投影算法双闸 + 审批信实例化；requiredTags 词汇已随 tag 机制解体退役（cr-484），门禁 = 行集 ∧ 投影 |
+| ~~ac-security~~ requiredTags / needPermission 语义（包已退役，cr-696；语义由 `ac-tools` 门 + `ac-auth-core` 承载） | C 节投影算法双闸 + 审批信实例化；requiredTags 词汇已随 tag 机制解体退役（cr-484），门禁 = 行集 ∧ 投影 |
 | ac-credentials 凭据库 | credentials/ 原位保留（引用制，物理单副本） |
-| ac-workspace agentWorkdir / 授权目录 | 内联字面量资产（InlineAsset { workdir, allowedDirs }）进 per-agent grants |
+| ac-workspace agentWorkdir / 授权目录（cr-696 改判 B 类保留） | 内联字面量资产（InlineAsset { workdir, allowedDirs }）进 per-agent grants |
 | ac-mcp 行 config.servers | mcp.json 迁数据根（R-12：清单 = 授权资产） |
 | AgentConfig.tags（声明面） | 退役——声明面换轨为行集引用（工具点名 ∨ 行名），与授权面双闸形状不变（C1 修订，cr-484） |
 
@@ -127,5 +128,5 @@ effective(agent) = { a ∈ 全局层有效条目 ∪ per-agent 内联条目 | a 
 ## 本档案纪律
 
 - 探索档案（explore/）：规格草稿；schema 字段实现时可微调，投影语义 / 墓碑 / 双闸 /
-  物化快照四条以裁决档案为准。正式立项时随两母档案迁 src/docs/。
+  物化快照四条以裁决档案为准。本档现行住 `docs/design/`（原「立项迁 src/docs/」已随 cr-703 作废，cr-726 注）。
 - 引用规则：裁决依据写 R-n / D-n / S-n；待钉项写 ◐。

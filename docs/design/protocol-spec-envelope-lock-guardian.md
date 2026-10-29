@@ -1,11 +1,20 @@
 # 协议规格 · 信封 / 锁 / 监护（工程规格草稿）
 
-> 性质：工程规格草稿（preview 开工输入），非裁决。2026-10-14；2026-10-15 补
+> 性质：**协议规格现行事实源**（信封 / 锁 / 监护三节的工程规格；`packages/ac-envelope-core` 各文件按章回引本档）。
+> 2026-10-14 立稿；2026-10-15 补
 > A4（inbox 边界）与 F-8（budget 链式语义）。依据：per-agent 档案
 > D2/D4（投递原语与行协议）、R-1/R-3（uuid 签发与确认）、R-7（指纹）、R-4（授权信）；
 > shell-model S2（文件锁 / 监护）、R10 迁移（R-10）。配套：host-shell-row-manifest.md。
 > 现状先例复用：cr-250 requestId 准入短路、MAX_AUTO_WAKES = 3、supervisor 42/78/0、
 > ac-ws-protocol 帧结构。
+
+> ⚠️ **疑点注记（2026-10-27 cr-726 审查）**：
+> ① 本档要求壳输出 `run.started` / `run.settled`，但**全树无对应 emit 调用**——宿主 guardian 的 idle 判定
+>    若依赖这两个事件，长 run 可能被误判 idle 并 markGone（潜在监工误杀）。需人工确认「规格对、代码缺」还是
+>    「代码对、规格过时」。
+> ② A9 断言「`cordis.patch.yml` 全链退役」，但根 `README.md`（行级启停走 patch.yml 行偏好层）与
+>    `packages/ac-plugin-core`（内置目录清单含 patch 层）仍在用该文件——两处口径冲突待收口。
+> 详见 Note 归档根 `docs-review-2026-10-27/suspects-总清单.md`（#1 / #9）。
 
 # A. 信封（envelope）——一切投递的统一载体
 
@@ -205,5 +214,5 @@ payload（grant）: { asset: 凭据引用 | 插件行 id | MCP 服务器名 | �
 ## 本档案纪律
 
 - 探索档案（explore/）：规格草稿；字段名与缺省值在 preview 实现时可能微调，语义
-  （状态机 / 锁生命周期 / 三节拍）以裁决档案为准。正式立项时随两母档案迁 src/docs/。
+  （状态机 / 锁生命周期 / 三节拍）以裁决档案为准。本档现行住 `docs/design/`（原「立项迁 src/docs/」已随 cr-703 作废，cr-726 注）。
 - 引用规则：裁决依据写 R-n / D-n / S-n；待钉参数写 ◐。

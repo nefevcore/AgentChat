@@ -149,12 +149,32 @@ function readJson(file: string): Record<string, unknown> | null {
   }
 }
 
-/** 原子写 JSON：临时文件 + rename（继承 timer 状态文件模式） */
+/** Windows 瞬时占用码（并发测试/防病毒扫描 rename 撞 EACCES/EBUSY/EPERM） */
+function isTransientRenameError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  return code === 'EACCES' || code === 'EBUSY' || code === 'EPERM';
+}
+
+/** 原子写 JSON：临时文件 + rename（瞬时占用有界退避重试——cr-705；
+ * 同款口径住 ac-plugin-core/fsx.ts，owning service 自持写法不跨包 import） */
 function writeJsonAtomic(file: string, data: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmp, file);
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.renameSync(tmp, file);
+        return;
+      } catch (err: unknown) {
+        if (!isTransientRenameError(err) || attempt >= 10) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+      }
+    }
+  } catch (err: unknown) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* 清理失败不掩盖原始错误 */ }
+    throw err;
+  }
 }
 
 declare module '@agentchat/cordis' {

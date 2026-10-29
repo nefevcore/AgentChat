@@ -34,15 +34,13 @@
 //   max_rounds/note 调整；delete 删除当前目标（放弃，不入历史——UI
 //   删除口同款语义）。
 //
-// settings['goal'] = { enabled? }：**门控自主推进**（agentGate——
-// false = 本 Agent 不自动开轮，工具面照常；全局层可写同键）。
+// 停推进留工具 = goal status='paused'（数据面状态流转——cr-794 软门
+// 退役后唯一停轮面；行出集 = 工具与推进一起消失）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import { agentOfRunRequest } from 'ac-agent-loop';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { LoopRunResult } from 'ac-agent-loop';
-import { agentGate } from 'ac-gate-core';
 
 /** 目标状态：active 推进中（开轮）/ paused 已暂停（停轮）/ blocked 受阻 / completed 已达成（终态入 history） */
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'blocked';
@@ -181,10 +179,9 @@ export class GoalsService extends Service {
     super(ctx, 'goals');
 
     // goal-round 驱动：run 收束 → 未达成的 active 目标自动开下一轮。
-    // agentGate：settings['goal'].enabled=false（per-Agent/全局）= 不开轮。
-    this.ctx.on('loop/after-run', agentGate(this.ctx, 'goal', agentOfRunRequest, (request, result) => {
+    this.ctx.on('loop/after-run', (request, result) => {
       void this.maybeContinue(request.agent, request.conversationId, request.meta, result);
-    }), { description: 'goal-round 驱动：未达成目标自动续跑下一轮（异常/上限自动暂停）' });
+    }, { description: 'goal-round 驱动：未达成目标自动续跑下一轮（异常/上限自动暂停）' });
   }
 
   // ============================================================
@@ -223,11 +220,11 @@ export class GoalsService extends Service {
         return;
       }
 
-      const conversation = this.ctx.get('conversation') as ConversationLike | undefined;
-      if (!conversation) {
-        this.ctx.logger.warn('[goals] conversation 服务不可用，goal-round 未投递');
-        return;
-      }
+      // conversation 经行 inject 声明（硬依赖——驱动闭环离开会话机无意义，
+      // cr-765）；运行时经 ctx.get 解析（跨服务方法调用纪律），空判仅防
+      // 卸载竞态窗口，不再是「会话行缺席静默丢轮」的降级口
+      const conversation = this.ctx.get('conversation', false) as ConversationLike | undefined;
+      if (conversation === undefined) return;
       const round = roundsDone + 1;
       this.ctx.logger.info('[goals] goal-round %C/%C → %C（conv=%C）', String(round), String(maxRounds), goal.id, conversationId);
       await conversation.deliver(agentId, renderGoalRoundMessage(goal, round), {
@@ -465,7 +462,7 @@ function err(message: string): ToolResult {
 
 export const name = 'ac-goal';
 
-export const inject = ['tools', 'agentStore'];
+export const inject = ['tools', 'agentStore', 'conversation'];
 
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
 //    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
@@ -474,8 +471,7 @@ export const extension: ExtensionMeta = {
   name: 'goal',
   label: '长期目标（自主推进）',
   description: 'goal 工具登记跨会话目标后宿主自动逐轮推进（goal-round：after-run 续投下一轮，异常/轮次上限自动暂停）；状态经消息面到达模型（不改写 system，KV cache 友好）；桶键 = conversationId ?? agentId',
-  fields: [{ name: 'enabled', type: 'boolean', default: true, description: '自主推进门控（false = 不自动开轮，工具面不变；Agent 可覆盖）' }],
-  listeners: [{ event: 'loop/after-run', role: 'goal-round 驱动', description: 'Agent 循环收束通知（持久化/审计/指标订阅）', respectsEnabled: true }],
+  listeners: [{ event: 'loop/after-run', role: 'goal-round 驱动', description: 'Agent 循环收束通知（持久化/审计/指标订阅）' }],
 };
 
 export function apply(ctx: Context) {

@@ -23,20 +23,18 @@ import { issueRequestId, makeEnvelope } from 'ac-envelope-core';
 import { readLedger, LedgerWriter, sessionDir, type LedgerRow } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import type { PostOffice } from 'ac-post-office';
+// 群配置纯读面（cr-712 下沉 ac-core-utils：壳侧 group 垫片共用读词汇——
+// 垫片 import 本包即壳→宿主反向依赖；本行改为单源消费，写面仍在下方）
+import {
+  assertGid, listGroupConfigs, memberStreamKey, readGroupConfig, type GroupConfig,
+} from 'ac-core-utils';
+
+export type { GroupConfig } from 'ac-core-utils';
 
 export interface GroupsHostRowOptions {
   dataRoot: string;
   /** 邮局（group/send 扇出面 + 成员流预登记）；缺席 = send/预登记 fail-loud */
   postOffice?: PostOffice;
-}
-
-/** 群配置（group.json 形态——主线 GroupConfig 同形） */
-export interface GroupConfig {
-  id: string;
-  name: string;
-  members: string[];
-  description?: string;
-  createdAt: number;
 }
 
 /** 群消息记录（group/history 行——主线 GroupMessageRecord 展示面同形） */
@@ -71,31 +69,6 @@ function groupDir(dataRoot: string, gid: string): string {
   return path.join(dataRoot, 'groups', gid);
 }
 
-function assertGid(gid: string): void {
-  // 主线同规：禁 ~（成员流键分隔）/ 路径分隔 / .. / 空白——与对键桶隔离
-  if (gid === '' || gid.includes('~') || gid.includes('/') || gid.includes('\\') || gid.includes('..') || /\s/.test(gid)) {
-    throw new Error('群 id "' + gid + '" 非法（非空，禁 ~ / 路径分隔 / .. / 空白）');
-  }
-}
-
-function readConfig(dataRoot: string, gid: string): GroupConfig | null {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(groupDir(dataRoot, gid), 'group.json'), 'utf-8'));
-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const g = raw as Partial<GroupConfig>;
-    if (typeof g.id !== 'string' || typeof g.name !== 'string' || !Array.isArray(g.members)) return null;
-    return {
-      id: g.id,
-      name: g.name,
-      members: g.members.filter((m): m is string => typeof m === 'string'),
-      ...(typeof g.description === 'string' ? { description: g.description } : {}),
-      createdAt: typeof g.createdAt === 'number' ? g.createdAt : 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function writeConfig(dataRoot: string, group: GroupConfig): void {
   const dir = groupDir(dataRoot, group.id);
   fs.mkdirSync(dir, { recursive: true });
@@ -103,24 +76,6 @@ function writeConfig(dataRoot: string, group: GroupConfig): void {
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(group, null, 2) + '\n', 'utf-8');
   fs.renameSync(tmp, file);
-}
-
-function listGroupIds(dataRoot: string): string[] {
-  let entries: fs.Dirent[] = [];
-  try { entries = fs.readdirSync(path.join(dataRoot, 'groups'), { withFileTypes: true }); } catch { return []; }
-  return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-}
-
-/** 全群配置扫描（groups/<gid>/group.json；坏文件跳过）——runs/snapshot 群面数据源 */
-export function listGroupConfigs(dataRoot: string): GroupConfig[] {
-  return listGroupIds(dataRoot)
-    .map((gid) => readConfig(dataRoot, gid))
-    .filter((g): g is GroupConfig => g !== null);
-}
-
-/** 成员流键（主线 memberStreamKey 同形：gid~member） */
-export function memberStreamKey(gid: string, member: string): string {
-  return gid + '~' + member;
 }
 
 /**
@@ -144,7 +99,7 @@ async function seedMemberStream(dataRoot: string, group: GroupConfig, member: st
   const merged = [...byKey.values()].sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
   const writer = new LedgerWriter(sessionDir(dataRoot, member, key), { participants: [member, 'user'], kind: 'group' });
   for (const r of merged) {
-    if (readConfig(dataRoot, group.id) === null) return; // 删除窗：种子中止
+    if (readGroupConfig(dataRoot, group.id) === null) return; // 删除窗：种子中止
     await writer.deliver({
       role: r.role,
       content: r.content,
@@ -171,7 +126,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
       };
 
       const mustGroup = (gid: string): GroupConfig => {
-        const group = readConfig(dataRoot, gid);
+        const group = readGroupConfig(dataRoot, gid);
         if (group === null) throw new Error('群不存在：' + gid);
         return group;
       };
@@ -186,15 +141,12 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
       };
 
       // boot 期预登记既有群（宿主重启后 registry 内存态重建）
-      for (const gid of listGroupIds(dataRoot)) {
-        const group = readConfig(dataRoot, gid);
-        if (group !== null) syncRegistry(group);
+      for (const group of listGroupConfigs(dataRoot)) {
+        syncRegistry(group);
       }
 
       web.registerRpc('group/list', () => ({
-        groups: listGroupIds(dataRoot)
-          .map((gid) => readConfig(dataRoot, gid))
-          .filter((g): g is GroupConfig => g !== null),
+        groups: listGroupConfigs(dataRoot),
       }));
 
       web.registerRpc('group/create', (params) => {
@@ -210,7 +162,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         for (const m of members) {
           if (readAgentConfig(dataRoot, m) === null) throw new Error('成员 "' + m + '" 未注册为 Agent');
         }
-        if (readConfig(dataRoot, id) !== null) throw new Error('群 "' + id + '" 已存在');
+        if (readGroupConfig(dataRoot, id) !== null) throw new Error('群 "' + id + '" 已存在');
         const group: GroupConfig = {
           id,
           name: reqStr(p, 'name'),
@@ -226,7 +178,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
 
       web.registerRpc('group/delete', (params) => {
         const gid = reqStr(obj(params), 'groupId');
-        const group = readConfig(dataRoot, gid);
+        const group = readGroupConfig(dataRoot, gid);
         if (group === null) return { deleted: false };
         // 成员流内容（agent 域账本目录）一并清
         for (const m of group.members) {

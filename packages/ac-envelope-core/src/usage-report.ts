@@ -42,8 +42,29 @@ export interface UsageReportPayload {
   conversationId: string;
   /** run id */
   runId: string;
-  /** 步级缓存序列（有缓存数据步；主线 stepCache 同形） */
-  stepCache?: Array<{ ts: number; hit: number; miss: number }>;
+  /** 步级缓存序列（有缓存数据步；主线 stepCache 同形。prompt = 本步请求
+   *  真实上下文 token（cr-761 上下文占用实时驱动） */
+  stepCache?: Array<{ ts: number; hit: number; miss: number; prompt?: number }>;
+}
+
+/** 步级缓存信 payload（cr-760 运行中实时性）：after-step 即发——宿主
+ *  pendingTimelineMap 入账（conversationTimeline 拼接尾段），run 收束信
+ *  （usage-run）到达后由正式记账接管去重（ts 严格大于判重既有语义）。 */
+export interface UsageStepPayload {
+  subject: 'usage-step';
+  /** 计量主体（本壳 agent id） */
+  agent: string;
+  /** 会话键 */
+  conversationId: string;
+  /** run id */
+  runId: string;
+  /** 步序（run 内 0 起——requestId 幂等键组分） */
+  step: number;
+  ts: number;
+  hit: number;
+  miss: number;
+  /** 本步请求真实上下文 token（LlmUsage.prompt——上下文占用实时信号，cr-761） */
+  prompt?: number;
 }
 
 /** usage 计量流键（每 agent 一条流——宿主聚合并合并键） */
@@ -51,10 +72,10 @@ export function usageStreamKey(agentId: string): string {
   return 'usage-' + agentId;
 }
 
-/** 构造 usage 自报信封（壳 → host） */
+/** 构造 usage 自报信封（壳 → host；run 收束信与步级缓存信共用通道） */
 export function makeUsageEnvelope(input: {
   requestId: string;
-  payload: UsageReportPayload;
+  payload: UsageReportPayload | UsageStepPayload;
 }): Envelope {
   return makeEnvelope({
     uuid: usageStreamKey(input.payload.agent),
@@ -70,10 +91,20 @@ export function makeUsageEnvelope(input: {
 /** payload 结构校验（纯函数 fail-closed——宿主收信面用） */
 export function validateUsagePayload(payload: unknown): string[] {
   const issues: string[] = [];
-  const p = payload as Partial<UsageReportPayload> | null;
+  const p = payload as Partial<UsageReportPayload> & Partial<UsageStepPayload> | null;
   if (p === null || typeof p !== 'object') return ['payload 非对象'];
-  if (p.subject !== 'usage-run') issues.push('subject 非 usage-run');
+  const subject: unknown = p.subject;
+  if (subject !== 'usage-run' && subject !== 'usage-step') issues.push('subject 非 usage-run/usage-step');
   if (typeof p.agent !== 'string' || p.agent.length === 0) issues.push('agent 缺席');
+  if (typeof p.conversationId !== 'string' || p.conversationId.length === 0) issues.push('conversationId 缺席');
+  if (typeof p.runId !== 'string' || p.runId.length === 0) issues.push('runId 缺席');
+  if (subject === 'usage-step') {
+    if (typeof p.step !== 'number') issues.push('step 缺席');
+    if (typeof p.ts !== 'number') issues.push('ts 缺席');
+    if (typeof p.hit !== 'number') issues.push('hit 缺席');
+    if (typeof p.miss !== 'number') issues.push('miss 缺席');
+    return issues;
+  }
   if (typeof p.model !== 'string') issues.push('model 缺席');
   if (typeof p.finish !== 'string') issues.push('finish 缺席');
   const u = p.usage as Partial<UsageRunMeter> | undefined;
@@ -82,12 +113,12 @@ export function validateUsagePayload(payload: unknown): string[] {
     || typeof u.promptAccumulated !== 'number' || typeof u.steps !== 'number') {
     issues.push('usage 聚合字段缺失');
   }
-  if (typeof p.conversationId !== 'string' || p.conversationId.length === 0) issues.push('conversationId 缺席');
-  if (typeof p.runId !== 'string' || p.runId.length === 0) issues.push('runId 缺席');
   return issues;
 }
 
-/** 信封是否 usage 自报（宿主收信面分流） */
+/** 信封是否 usage 自报（宿主收信面分流——run 收束信与步级缓存信） */
 export function isUsageReport(env: Envelope): boolean {
-  return env.kind === 'receipt' && (env.payload as { subject?: unknown } | null)?.subject === 'usage-run';
+  if (env.kind !== 'receipt') return false;
+  const s = (env.payload as { subject?: unknown } | null)?.subject;
+  return s === 'usage-run' || s === 'usage-step';
 }

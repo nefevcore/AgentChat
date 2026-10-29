@@ -44,15 +44,27 @@ export interface KvTimelinePoint {
   ts: number;
   hit: number;
   miss: number;
+  /** 本步请求真实上下文 token（cr-761 上下文占用实时驱动；旧宿主/无计量步缺席） */
+  prompt?: number;
 }
 
-/** 会话步级 KV 缓存序列（全量；弹层打开时懒加载） */
+/** 会话步级 KV 缓存序列（全量；弹层打开时懒加载）。points 缺席时回落
+ *  entries 兼容键（cr-714 前旧宿主 stub 形态——session/kv-timeline 曾返回
+ *  { entries: [] }）。 */
 export async function fetchKvTimeline(
   conversationId: string,
   rpc: RpcClientFace,
 ): Promise<KvTimelinePoint[]> {
-  const r = await rpc.call<{ points?: KvTimelinePoint[] }>('session/kv-timeline', { conversationId });
-  return r.points ?? [];
+  const r = await rpc.call<{ points?: KvTimelinePoint[]; entries?: unknown[] }>('session/kv-timeline', { conversationId });
+  if (Array.isArray(r.points)) return r.points;
+  if (Array.isArray(r.entries)) {
+    return r.entries.filter((e): e is KvTimelinePoint =>
+      e !== null && typeof e === 'object'
+      && typeof (e as KvTimelinePoint).ts === 'number'
+      && typeof (e as KvTimelinePoint).hit === 'number'
+      && typeof (e as KvTimelinePoint).miss === 'number');
+  }
+  return [];
 }
 
 /** KV 走势代表点（cr-311 降采样产物）：i = 原始步号（定位/hover 显示），

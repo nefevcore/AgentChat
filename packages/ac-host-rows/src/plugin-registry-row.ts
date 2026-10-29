@@ -99,7 +99,7 @@ export interface PluginRowsView {
 
 /** 宿主行集急救视图（目录 + 偏好合成） */
 export interface HostRowsView {
-  rows: Array<{ id: string; disabled: boolean; role?: string }>;
+  rows: Array<{ id: string; disabled: boolean; description?: string }>;
   file: string;
   warnings: string[];
 }
@@ -392,7 +392,7 @@ export class PluginRegistryHostService extends Service {
       .map((row) => ({
         id: row.id,
         disabled: disabled.has(row.id),
-        ...(row.role !== undefined ? { role: row.role } : {}),
+        ...(row.description !== undefined ? { description: row.description } : {}),
       }));
     return { rows, file: hostPreferenceFile(this.dataRoot), warnings: derived.warnings };
   }

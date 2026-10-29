@@ -95,7 +95,12 @@ R-7 闭环）。裁剪两级：行级 = 装配期（派生清单）；行内工�
 运行时门（tools 门 ∩ auth 投影；conv-settings 会话开关——会话粒度 &lt; 进程粒度）。
 per-agent 软门（enabled 键 / agentGate facet / event-policy 停用）壳内退役，「不装
 即无」取代「装了但门着」；宿主树保留全局治理门。语义变化：软门热切换 → 装配冷
-生效（S5「换版本 = 重启壳」同族；idle-exit 让壳短命 + 200ms 冷启动）。动态插件
+生效（S5「换版本 = 重启壳」同族；idle-exit 让壳短命 + 200ms 冷启动）。（cr-794
+执行：datetime/memory/skill/sap-adt/issue-tools/harness-tools/goal 七行 settings
+enabled 门控退役——门控粒度与行装载粒度对齐者全数走行集 exclude/不点名；ac-gate-core
+包与 ac-agent-loop agentOf readers 随批消亡。persona/system-prompt 的 enabled 保留
+——恒并基座〔点名形态自动并入〕不可 exclude 替代，settings 软停用是其唯一停面；
+mcp 保留 per-server enabled——服务器粒度非行粒度。）动态插件
 （install_plugin = 授权动作）→ 壳行集条目注入：第三方代码进 agent 自己的壳进程，
 零宿主驻留（S2）——隔离从自律规约变物理。
 
@@ -119,7 +124,11 @@ ac-rowset-core 静态目录投影（per-agent 化——目录质量升级：只�
 显示名读配置），在场轴 = guardian 可达表——活注册表无剩余消费者。三机制解体：
 register → 文件即注册（预设行 / agent-store 两个注册方消失）；物化 → 拆
 create-from-template（编辑面从模板写文集，skip-if-present = 用户数据优先的文件版
-语义）+ transient boot（宿主从模板合成 argv 传临时壳，账本住 sessions/&lt;uuid&gt;/
+语义）+ transient boot
+
+> **2026-10-27 cr-721 修订**：物化改为「模板基座 + 盘上差异两层合成」（取代一次性
+> 物化 skip-if-present；cr-720 盘上遗留实体漂移事故驱动）。上文 skip-if-present 为
+> 原裁决口径，保留作裁决史；落地状态见疑点清单（Note 归档根 docs-review-2026-10-27）。（宿主从模板合成 argv 传临时壳，账本住 sessions/&lt;uuid&gt;/
 不落 agents/ 树）；reassign 热更 → 被〈装配期派生〉R7-8 裁向覆盖（模型变了本来
 就该重启壳）。ac-agent-presets 目录静态化（包元数据声明）归并 agents 编辑面行；preset-builtin 残留 ◐（静态声明面承载方式）随之消解（2026-10-16）：内置模板 = 包目录下的静态 Agent 配置文件集，编辑面 create-from-template 直读，无需独立承载机制。
 ac-agents 本体拆三瓣：词汇纯函数 + AgentConfig 契约 + settingsOf 纯函数化 →
@@ -135,13 +144,17 @@ ac-agents-core；注册表服务退役；widenToolsForGating 去 ctx 化（defs 
 非终态设计）；webui = 宿主自有表面（R0a-2），骨架是地基非可摘能力域，「域卡片
 回落」语义对骨架无意义。四案比对：C 维持 = 6 行行政成本；A 并包 = base 集合
 边界二次裁决 + 六件内部依赖（conversation × renderer 边界正是 M28 拆分成果）
-重新粘合；B 并入 = 资产迁 src/webui/，phase 机制无残余消费者（域行装载冷生效
+重新粘合；B 并入 = 资产迁 `apps/ui`（裁决时写 src/webui/，cr-702/703 后落点变更），phase 机制无残余消费者（域行装载冷生效
 已裁〈装配期派生〉）。**扩展面压力测试定案**：第三方自定义四车道（令牌 /
 席位贡献 / 新席位声明 / 换骨架）——①②③车道住 slot 系统（SlotCore +
 SlotRegistry + declareClient 通道），与骨架物理形态正交；④车道对第三方在新
 架构恒死（S2 第三方零宿主驻留），行级换骨架只对仓内开发有意义 = 改 webui 内部
 模块等价。C 多付成本买不到任何第三方能力。迁移工程序沿 M27.2 纪律（件件视觉
 门全绿再迁）。
+
+> **历史标注（cr-726，2026-10-27）**：本段为 2026-10-16 定向；物理落点已被 cr-702/703 改写——
+> 前端半边现住 `apps/ui`（包名 `ac-ui-app`），服务/骨架件住 `packages/ac-*`；
+> `src/webui/` 已消灭、`ac-webui-extensions` 未消融（仍被 slotCatalog 值引用，见疑点清单）。
 
 **webui 表面单包化（同日终态补充定向）**：勘察确认「webui 表面」散在四处
 物理位置——src/webui/（前端壳 137 文件 852 KB）、ac-webui/（服务行）、骨架
@@ -170,6 +183,9 @@ graph diff 热装载（phase 机制退役后单一动态语义——与〈骨架
 数据化形态），ui 域行随通道建成逐批退出宿主树（R1 ui 组行数届时改写；无后端
 行件如 ui-run-nodes 以纯前端包形态同通道）。待设计 ◐：manifest schema、注入
 与安装语义、拓扑贡献开放度、存量 25 域行收敛批次——设计档案另立（R7-9）。
+
+> **已收口（cr-726 校正）**：设计成文 cr-687 → `docs/cutover/design-plugin-client-channel.md`；
+> 实施 B1 cr-690 / B2 cr-693 / B3 cr-694 / B4 cr-701（存量 25 域行已随 cr-701 退出宿主树）。
 
 # 〈ui 树定调〉（2026-10-16，cr-478）
 
@@ -221,8 +237,8 @@ config，删除工具 requiredTags）。
 **patch 机制整体退役，两树同形 boot。** 议题源：R7-7（patch 归属：宿主专属 vs
 两树各持）。初判 A（宿主专属）的两条支柱被「壳可独立拉起，为什么 boot 要是
 cordis.patch.yml」一问拆穿：①「宿主树唯一合法运行时写入口」把机制当必需——宿主
-树要的只是停用行能力，loader patch 只是现状实现；宿主树 = 固定第一方行集（47 行
-无第三方，S2），全部可变性 = 减去用户停用行，与壳行集派生同构；②「急救通道需要
+树要的只是停用行能力，loader patch 只是现状实现；宿主树 = 固定第一方行集（时点
+47 行 / 现行 23 行，无第三方，S2），全部可变性 = 减去用户停用行，与壳行集派生同构；②「急救通道需要
 patch 层」实为需要**带外可写**（级联死后仍可改）——偏好文件人可读手编 + RPC 写
 文件，带外性质不变（webui 本身死 → 手工编辑 = 现状真盲区处置不变）。现状反证：
 cordis.patch.yml 消费者仅两宿主启动器 + 测试；boot.ts 内联官方 bin.js 的唯一理由
@@ -248,7 +264,7 @@ argv 派生清单 → 装配。cordis.patch.yml / loader patches 注入 / 热通
 
 **树归属**：host → shell（R0a 判据 1）。旧 R1 记「数据服务·多根只读搜索」与判据 1
 冲突：grep_history / read_history 是**工具**，工具只能由壳内 agent-loop 执行——宿主
-进程无 loop，注册的 ctx.tools 永不被调用。行集总数 81 不变（宿主 47→46 / 壳 34→35）。
+进程无 loop，注册的 ctx.tools 永不被调用。行集总数 81 不变（宿主 47→46 / 壳 34→35）〔裁决时点口径；现行 61，见 D13 后 cr-701 注〕。
 
 **否决的备选**（拆分为宿主「多根只读搜索服务」行 + 壳工具行，R5 判据 7）：壳→宿主
 请求面在新架构只有信封（单向投递）与 B3 旁带帧（单向），跨进程请求-应答需新增通道；
@@ -273,7 +289,8 @@ context/event 机制行不入回放（台账面，非会话发言）。
 进程（R0a 判据 1，与 D10 session-query 同构——宿主无 loop）；② 归档重建 = 写归属
 agent 的账本，D4「写权 = 账本所有权」——账本写者恒为归属 agent 的壳（会话账本归
 尾段 agent，pair 会话两壳各写自己域的镜像账本，归档各自执行）。行集总数 81 不变
-（宿主 46→45 / 壳 35→36——archive 从宿主数据服务组移壳域服务组）。
+（宿主 46→45 / 壳 35→36——archive 从宿主数据服务组移壳域服务组）。〔裁决时点口径；
+现行 61，见 D13 后 cr-701 注〕
 
 **否决的备选**（B：宿主枚举行 + 壳内整理）：宿主保留 archiveAll 枚举判定（直读
 agents/*/sessions/ 估算达阈 → 拉壳投递），整理归档住壳。否决理由：估算逻辑宿主化
@@ -304,7 +321,8 @@ sender = target 自身（自会话语义）+ budget 1 + `payload.mechTask = 'arc
 写者单源 = 宿主 web RPC（输入框模型菜单、设置面板、`singles/update` 的模型覆盖）；
 壳侧改由数据根垫片 `ConvSettingsShim` 提供只读 `get` / `registerKey` / `listKeys`
 （策略同 credentials 垫片 R-11 ③：物理单副本两侧共用，写口只在一侧）。行集总数 82
-不变（宿主 45→46 / 壳 37→36——从壳域服务组移宿主数据服务组）。
+不变（宿主 45→46 / 壳 37→36——从壳域服务组移宿主数据服务组）。〔裁决时点口径；
+现行 61，见 D13 后 cr-701 注〕
 
 **判据**：① 写入的发起方**恒是用户动作**（webui 输入框 / 设置面板）——旧架构单进程
 时写口自然在 web-api，新架构的 web-api 面住宿主，故写权随动作面走（D4「写权 = 所有权」
@@ -327,7 +345,8 @@ provider（`splitModelRef` 单源）。随信封而非壳内查表：排队 / in
 # 〈D13 会话标题生成归壳、写权归宿主〉（2026-10-24，cr-672 立）
 
 **裁决**：会话标题的**生成**住壳（新行 `auto-title`，壳树域服务组；行集 86 =
-宿主 48 + 壳 38），**写权**归宿主 `singles` 行（`viewer/sessions/<sid>/session.json`
+宿主 48 + 壳 38〔2026-10-24 裁决时点口径；cr-701（2026-10-26）撤 25 ui 域行后
+= **61 = 宿主 23 + 壳 38（现行）**〕），**写权**归宿主 `singles` 行（`viewer/sessions/<sid>/session.json`
 单写者）。链路：`loop/run-started` 暂存（路由终值 + 首条用户消息）→ 首个
 `loop/after-step` 结合 Agent 首步思考/正文 LLM 一句概括 → **标题请求信**
 （`ac-envelope-core/title-request`，uuid = `title-<会话键>` 的 host 请求域独立键，
@@ -366,6 +385,7 @@ conversation / persona / system-prompt / llm-pool）为第五条；`exclude` 仍
 - 「并后宿主 42」算误（cr-474 修正）：R1 组件和（3+3+3+5+4+3+1+25 =
   47）本不含骨架（ui 25 = 31 − 6，对账 −6 已生效），并入不改行数；42 无成立
   读法（A 形态应 +1 = 48、维持 = 53）。
+- 以上均为裁决时点账目；**现行行数 = 61（宿主 23 + 壳 38，cr-701）**。
 
 # 〈批次演进索引〉
 
@@ -391,6 +411,17 @@ conversation / persona / system-prompt / llm-pool）为第五条；`exclude` 仍
   deliver 合并点随信封换轨到壳内 run 装配）。
 - cr-672：D13 会话标题生成归壳、写权归宿主（auto-title 壳行 + title-request 信封 +
   标题词法下沉 ac-core-utils 单源；派生面改用户行优先）。
+- cr-687（2026-10-25）：R7-9 插件 client 通道设计成文（design-plugin-client-channel）。
+- cr-690/693/694（2026-10-25）：B1 seats 对账 / B2 主题包通道 / B3 视角挂载实施。
+- cr-696（2026-10-25）：旧树退役批（ac-client-ui-* 31 包迁出 + A 类 24 包删除）。
+- cr-701（2026-10-26）：B4 宿主树 ui 组终态清空——行集 86→**61**（宿主 48→23）。
+- cr-703（2026-10-26）：全仓单轨重组（packages/ + apps/；src/ 与 preview/ 消灭）。
+- cr-721（2026-10-27）：物化改「模板基座 + 盘上差异两层合成」（取代 skip-if-present）。
+- cr-722（2026-10-27）：行描述字段 role → description（RowDescriptor / row-catalog 61 行）。
+- cr-748（2026-10-28）：状态对账批——runState 增 recentSettled 收束尾巴（壳侧自持
+  最近 8 条收束 run）；宿主 peek() 只读探测（盘锁探活 + socket manage 通道，绝不
+  拉起）+ shell-state-poller 轮询面（订阅门控起停，2s 档）；对账 run-settled 桥接
+  loop/after-run 前端帧补丢帧（B3 瞬态语义不变，对账面 = 观察补投，不承诺持久）。
 
 ## 本档案纪律
 

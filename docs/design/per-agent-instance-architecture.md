@@ -1,8 +1,10 @@
-# Per-Agent 实例架构 —— 设计探索（未裁决）
+# Per-Agent 实例架构 —— 裁决母档（R-1…R-12 / D1–D13）
 
-> 性质：探索草稿，非实施裁决。2026-10-13 会话沉淀（与 cell-runtime 档案同批思路、主线不同：
+> 性质：**本域裁决母档**（R-1…R-12 / D1–D13 的裁决出处；行册、壳模型、协议规格均回引本档）。
+> 2026-10-13 会话沉淀，2026-10-17 起裁决陆续落地并经 cr-703 换轨验证（cr-726 校正原「设计探索/未裁决」标题——
+> 与正文「✓ 裁决」及全仓回引状态不符）。追溯说明（原稿语境）：与 cell-runtime 档案同批思路、主线不同——
 > 那份谈执行面外移，本份谈会话结构的视角主义重构 + 宿主退化为邮局/监护人；两者兼容——
-> cell 是 activation 的物理容器，per-agent 账本是状态层）。状态：留档待议，未过任何评审。
+> cell 是 activation 的物理容器，per-agent 账本是状态层。
 > 2026-10-14 修订：D3 激进化——需授权能力并入子树，信任轴从「能力驻留地」翻转为「授权状态
 > 变更权」（控制面恒为数据面）；连锁标注见 R-4 / R-4b / R-9 / R-11 / D9 / D10 与待裁决
 > 清单。同日修订二：R-5 推翻——subagent 单形态（注册表实体 + 域内嵌套物化
@@ -18,9 +20,9 @@
 > 2026-10-17 修订：壳模型统一裁决（S0 + P2 五条一揽子通过；S-2/S-3 备查搁置）——待裁决清单
 > 收口「cell × activation」与「词汇撞车」两项，见 shell-model-unification.md。
 > 配图（2026-10-13 版）未随修订更新。
-> 仓内相关：cell-runtime-and-architecture-evolution.md（CR-316）、ac-session（writer 队列 +
-> 数据根独占锁）、ac-conversation（inbox 双队列 + steer-stash durable）、ac-group（群转录
-> 流扇出 cr-4）、ac-workspace（agentWorkdir / 授权目录 = workspace 信任域雏形）。
+> 仓内相关：`docs/design/archive/cell-runtime-and-architecture-evolution.md`（CR-316 历史推演）、ac-ledger（writer 队列 +
+> 数据根独占锁）、ac-shell-conversation（inbox 双队列 + durable 投递）、ac-host-rows groups 行（群转录
+> 流扇出 cr-4）、ac-workspace（agentWorkdir / 授权目录 = workspace 信任域雏形；cr-696 改判 B 类保留）。
 > 配图：per-agent-instance-architecture.html（五张图，含裁决依赖图）。
 
 # 第一部分 · 设计
@@ -52,7 +54,7 @@ Agent 实例 = {
 
 - **user = 虚拟 agent**：无 loop、无模型，但有账本（见 D2 写入对称）。user 账本 = webui 数据源。
 - **锁的两层语义**：per-agent 锁 = activation 单例锁（防同 agent 双进程）；run 串行仍 per-
-  conversation（ac-conversation 串行化门语义不变，activation 内多 run 并行）。现状数据根
+  conversation（ac-shell-conversation 串行化门语义不变，activation 内多 run 并行）。现状数据根
   独占锁退役降粒度——多 agent 进程共存从此合法。
 
 ## D2. 通信原语与投递
@@ -89,7 +91,7 @@ boot，执行由授权状态数据裁断。授权状态 = 数据根单副本资�
   差异收敛为**变更权差异**（能否变更授权状态），不再是能力集差异。
 - **域外收敛为唯一动作类：授权状态变更**（新授权 / 吊销 / 装载新代码 = 其特例——装载
   请求 = 授权信，R-4 语义归一，全系统唯一异步语义覆盖全部授权类动作）。
-- 承重行（ac-security / plugin-gates / durable-interaction / usage / credentials）随子树
+- 承重行（注入面：`ac-tools` 门 + `ac-auth-core` / `ac-durable-*` / `ac-usage` / `ac-credentials-core`；原 ac-security / plugin-gates 包名已随 cr-696 退役）随子树
   boot、授权数据根供给——原「不 boot 承重行 + 工具执行恒回宿主（代理 stub + RPC）」
   反转（R-9 修订标注）；两形态无 transport 缝，「同进程退化为直调」形状约束不再必要。
 - 边界不对称性消解：宿主在线（逻辑边界）与 CLI 直连（物理边界）能力面同构。
@@ -150,7 +152,7 @@ a 账本与 b 账本不是同一份数据的两个副本，是两个视角，互
 先例：Matrix federation（每 homeserver 持房间事件自己的副本，房间无单一事实源）、Email/SMS。
 
 - 写权 = 账本所有权：a 的账本只有 a 的进程能写；b 发消息 = 投递进 a 的收件箱，a 侧写入。
-  每账本单写者队列——ac-session writer/journal/settlement 机制实例 ×N，不发明新科学。
+  每账本单写者队列——ac-ledger writer/journal/settlement 机制实例 ×N，不发明新科学。
 - 群从对象降级为端点：group = multicast 地址表，扇出 = 逐成员投递写各自账本。群转录流
   own/peer 投影从群特例推广为全形态通例——最大的一块现状复用。
 - **投影分层**：账本分两层——run 内部记录（思考 / 工具调用参数与结果，字量大头）归产生方
@@ -184,7 +186,7 @@ good，路径有限步终结（retry 环才不收敛）。
 > supervisor，若边 2 只辖自进化失败，普通崩溃在常态入口下零恢复能力。停机戳
 > （`<dataRoot>/.runtime/host-stopped`）区分有意停机（SIGINT/SIGTERM——壳侧 stand down）
 > 与硬崩溃（无戳 → 复活）；多壳并发仲裁 = O_EXCL 复活锁；实现见
-> `preview/apps/shell/host-revive.ts`。rollback-not-retry 语义不变：普通崩溃拉同版本，
+> 壳体 `apps/shell/` 的 host-revive 逻辑（原 `preview/apps/shell/host-revive.ts`，cr-703 后落点已迁）。rollback-not-retry 语义不变：普通崩溃拉同版本，
 > 快照回退仍只在自进化失败时由 evolve 链负责。
 
 ## D6. 逃生门 = 快照链（两原子形态）
@@ -543,7 +545,8 @@ schema 变更——跨 epoch 回退只有这些桥）。**可回滚深度 = 分�
 
 ### R-10 存量迁移 ✓（2026-10-14 裁决；preview 旁路重建模型）
 
-开发模型转向旁路重建：新架构在独立目录（preview/）开发，整体稳定后 cutover 覆盖主线。
+开发模型转向旁路重建：新架构在独立目录（preview/）开发，整体稳定后 cutover 覆盖主线〔**历史：该阶段已于
+2026-10-26 cr-703 收口（preview 覆盖正轨、双轨消灭）**〕。
 迁移语义随之从「就地硬切/双读」改为 **cutover 时导入**：
 
 - **开发期零兼容**：preview 新格式完全自由设计，不背旧账；不阻塞开工（原「落地第一步
@@ -591,7 +594,7 @@ D9 注记（同日）：preview 模型下三步性质从「主线演进阶梯」
 | — | MCP 服务器归属 | ✓ R-12 | 2026-10-14 闭（client = 子树工具行 / 清单 = 授权资产 / stdio 进程 = 拉起方所有，见族二 R-12） |
 | — | cell × activation 映射 | ✓ | 2026-10-17 收口（壳模型 P2 ①②③：壳:activation = 1:1 恒立；无 runtime 字段、锁辖域恒 agent 级；影子不撞锁） |
 | — | 会话账本归属词汇撞车 | ✓ | 2026-10-17 收口（壳模型 P2 ④：账本身份键恒端点（agent），壳 = 临时容器与写者执行体——壳不拥有账本、壳死账本在） |
-| — | 门禁链数据化工程面 | ◐ | 2026-10-14 D3 修订最大前置：ac-security / plugin-gates / durable-interaction / usage / credentials 执行面可由数据根 boot 的路径细化；授权注册表分层（全局 / per-agent）落地 |
+| — | 门禁链数据化工程面 | ✅ 已落地（cr-726 校正） | 2026-10-14 D3 修订最大前置（原记 ac-security / plugin-gates / durable-interaction / usage / credentials 执行面可由数据根 boot 的路径细化；授权注册表分层（全局 / per-agent）落地 |
 
 ## 五步闭环（自进化最小工程量——前置全闭合，余实现件）
 
@@ -612,6 +615,6 @@ D9 注记（同日）：preview 模型下三步性质从「主线演进阶梯」
 
 ## 本档案纪律
 
-- 探索档案（explore/）：非裁决、未评审；立项时迁 src/docs/ 正式目录并过评审。
+- 本档现行住 `docs/design/`（原「探索档案 explore/ + 立项迁 src/docs/」约定已随 cr-703 作废，cr-726 注）。
 - 编号映射：R-n ↔ OPEN-n（讨论稿配图 HTML 用 OPEN-n；本文 R-n 为准，R-4b 为族二追加修正）。
 - 裁决可被后续讨论推翻（附理由与日期），但不删除——保留推理链。

@@ -11,13 +11,8 @@
 //   2. 能力门禁：全部工具 requiredTags ['sap-adt']——只有 tags 里
 //      显式加了 sap-adt 的 Agent 可见/可调（对齐 DSH 侧"默认不加载、
 //      按需启用"的哲学；普通 Agent 的工具列表不被 32 个工具淹没）
-//   3. 启停分层（对齐 mcp 语义——platform 标准词汇）：
-//        · 行 config `enabled:false` = 进程级硬停（boot 不注册工具）
-//        · `settings['sap-adt'].enabled` = 软停用（热生效）：
-//          全局默认层（config.json，插件库弹窗）∪ Agent 差异层
-//          （Agent 页弹窗，settingsOf 合成、差异层键优先）——
-//          停用 Agent 的工具经 loop/before-run 从暴露面移除，
-//          执行期再经 tool/before-execute 收口（含宿主直调）
+//   3. 启停：行 config `enabled:false` = 进程级硬停（boot 不注册工具）；
+//      per-Agent 不装 = 行出集（cr-794 软门退役——「不装即无」）
 //   4. 服务缝：fs → <数据根>/sap-adt/ 子树内的 node:fs 适配器
 //      （快照/导出/本地检查）；credentials → ac-credentials 全局级
 //      （密码引用 ADT_<NAME>_PASSWORD 加密落盘）；host → AgentChat
@@ -115,11 +110,7 @@ const AGENTCHAT_HOST_PROFILE: HostProfile = {
 
 /** 引擎配置形状（= 内核 PluginConfig；`sap-adt:` 顶层段键同形）。 */
 export interface SapAdtRowOptions extends Partial<PluginConfig> {
-  /**
-   * 进程级硬停（缺省启用；false 时本行 boot 不注册任何工具）。
-   * 热启停走 `settings['sap-adt'].enabled`（全局默认层 ∪ Agent 差异层，
-   * 见行头注释第 3 条）——本键只是合成链之外的最后一道装配开关。
-   */
+  /** 进程级硬停（缺省启用；false 时本行 boot 不注册任何工具）。 */
   enabled?: boolean;
 }
 
@@ -154,34 +145,11 @@ export const extension: ExtensionMeta = {
     '32 个 adt_* 工具直连 SAP ADT REST（搜索/读写/激活/单测/ATC/传输/调试器/$batch）；' +
     '需 sap-adt 能力标签；引擎配置走行 config 与 config.json `sap-adt:` 段（热生效）；' +
     'demo 目的地（进程内 mock）默认可用',
-  fields: [
-    {
-      name: 'enabled',
-      type: 'boolean',
-      description:
-        '行为门控（false = 本层生效范围停用 adt_* 工具：暴露面收敛 + 执行拒绝；' +
-        '全局停用可被 Agent 差异层 true 覆盖——settingsOf 合成；config/changed 热生效）',
-      default: true,
-    },
-  ],
   listeners: [
-    {
-      event: 'tool/before-execute',
-      role: 'enforcer',
-      description: 'settings[\'sap-adt\'].enabled 合成为 false 的调用方执行 adt_* 工具 → veto',
-      respectsEnabled: true,
-    },
-    {
-      event: 'loop/before-run',
-      role: 'visibility',
-      description: '停用 Agent 的 run 从 request.tools 移除 adt_* 暴露面（非 adt 工具不动）',
-      respectsEnabled: true,
-    },
     {
       event: 'loop/before-run',
       role: 'guide',
-      description: '生效工具集含 adt_* 且未停用 → system prompt 追加 <sap-adt-tools> 使用规约（先问后建/复用传输请求/删改前确认）',
-      respectsEnabled: true,
+      description: '生效工具集含 adt_* → system prompt 追加 <sap-adt-tools> 使用规约（先问后建/复用传输请求/删改前确认）',
     },
   ],
 };
@@ -220,85 +188,21 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
     },
   };
 
-  // ---- 启停分层 -----------------------------------------------------------
-  // 行 config enabled:false = 进程级硬停（boot 不注册）；settings 域
-  // enabled = 热启停（全局默认层 ∪ Agent 差异层，settingsOf 合成）。
-  // 无 agents/config 服务 = 无 settings 面 → 恒放行（fail-open）。
-  // ------------------------------------------------------------------------
-
-  /** 合成后的 settings['sap-adt'].enabled 是否显式停用（true = 停用）。 */
-  function settingsDisabledFor(agentId: string | undefined): boolean {
-    const agents = ctx.get('agents') as
-      | { settingsOf?(id: string, name: string): unknown }
-      | undefined;
-    let layer: unknown;
-    if (agents?.settingsOf && agentId !== undefined) {
-      layer = agents.settingsOf(agentId, 'sap-adt');
-    } else {
-      // 无身份（宿主直调）或无 agents 服务：读全局默认层
-      const config = ctx.get('config') as { get?(key: string): unknown } | undefined;
-      layer = config?.get?.('settings.sap-adt');
-    }
-    return layer !== null && typeof layer === 'object' && !Array.isArray(layer)
-      ? (layer as { enabled?: unknown }).enabled === false
-      : false;
-  }
-
-  // 进程级硬停：boot 期装配开关（改它需要重载行——文档已注明）
+  // ---- 启停：行 config 硬停（cr-794 settings 软门退役）----
+  // 进程级硬停：boot 期装配开关（改它需要重载行——文档已注明）；
+  // per-Agent 不装 = 行出集（壳行装载替代软门）。
   const rowHardOff = options.enabled === false;
-
-  // 执行期收口（含宿主直调——loop 暴露面收敛之外的防线）：
-  // 合成停用的调用方执行 adt_* 工具 → veto（可读错误指明恢复方式）。
-  ctx.on(
-    'tool/before-execute',
-    (execution, next) => {
-      const call = execution.call as { name?: string; agentId?: string };
-      if (typeof call.name === 'string' && call.name.startsWith('adt_') && settingsDisabledFor(call.agentId)) {
-        return {
-          ok: false as const,
-          error:
-            `sap-adt 工具行已对本调用方停用（settings['sap-adt'].enabled = false，` +
-            'Agent 差异层/全局默认层合成后生效）。在 Agent 配置或全局设置里打开开关后立即恢复' +
-            '（config/changed 热生效，无需重载）。',
-        };
-      }
-      return next();
-    },
-    { description: "sap-adt：settings['sap-adt'].enabled 停用收口（adt_* 执行 veto）" },
-  );
-
-  // 暴露面收敛（对齐 ac-mcp scopeForAgent 形态）：停用 Agent 的 run 从
-  // request.tools 移除 adt_*（非 adt 工具不动；request.tools 未声明时收
-  // 敛为「全量 - adt_*」）。
-  ctx.on(
-    'loop/before-run',
-    (call, next) => {
-      const request = (call as { request?: { agent?: string; tools?: string[] } }).request;
-      if (request && settingsDisabledFor(request.agent)) {
-        const isAdt = (n: string) => n.startsWith('adt_');
-        request.tools = request.tools === undefined ? undefined : request.tools.filter((n) => !isAdt(n));
-        if (request.tools === undefined) {
-          const universe = ctx.get('tools')?.list().map((t) => t.name) ?? [];
-          request.tools = universe.filter((n) => !isAdt(n));
-        }
-      }
-      return next();
-    },
-    { description: 'sap-adt：停用 Agent 的 adt_* 暴露面收敛（非 adt 工具不动）' },
-  );
 
   // ---- 使用规约注入（owner 行条件注入；对齐 ac-fs-tools FILE_MENTION_GUIDE）----
   // 判据 = 生效工具集含 adt_*（request.tools 已声明 → 有 adt 即注入；
-  // 未声明 → 回落全目录，工具行 init 失败/硬停时目录里没有 adt_* 自然不注）
-  // ∧ 调用方未停用（与上方暴露面收敛同一 settingsOf 合成口径——停用方
-  // 的 adt_* 已被移除，双保险判据一致，不产生"工具没了还留指引"的错位）。
+  // 未声明 → 回落全目录，工具行 init 失败/硬停时目录里没有 adt_* 自然不注）。
   // 判据只认 `adt_` 前缀：engine 代际换名（0.8 fs 风格 → 0.9 CRUD 时代）
   // 不影响成立；文案不引用具体工具名，随引擎升级自动跟随。
   ctx.on(
     'loop/before-run',
     (call, next) => {
       const request = (call as { request?: { agent?: string; tools?: string[]; system?: string } }).request;
-      if (!request || settingsDisabledFor(request.agent)) return next();
+      if (!request) return next();
       const names = new Set(request.tools ?? ctx.get('tools')?.list().map((t) => t.name) ?? []);
       const hasAdt = [...names].some((n) => n.startsWith('adt_'));
       if (hasAdt) {
@@ -450,8 +354,7 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
   }
 
   // 全局配置热重载（ac-config config/changed；无 config 服务时静默）：
-  // 引擎域（目的地/策略）重建。settings 域无需订阅——启停在执行期/
-  // run 期实时合成（settingsDisabledFor 每次现读）。
+  // 引擎域（目的地/策略）重建。
   ctx.on('config/changed', () => rebuild('config/changed'), {
     description: 'sap-adt：引擎配置（目的地/策略）热重载',
   });

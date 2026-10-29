@@ -179,6 +179,23 @@ describe('ac-archive-core 回放口径估算', () => {
     expect(replayTokensOf(ev)).toBe(6);
   });
 
+  it('replayTokensOf：subcall 平铺卡不计（cr-760 估算口径 = 注入口径）', () => {
+    // run_code 宿主调用对计入；程序内子调用（subcall 卡）不进回放注入——不计
+    const host: ArchiveMessage = {
+      role: 'agent', agent_id: 'a', content: '',
+      steps: [{
+        content: '',
+        toolCalls: [
+          { id: 'h1', name: 'run_code', arguments: '{}', result: { ok: true, output: 'DONE' } },
+          { id: 'h1#1', name: 'read', arguments: '{}', result: { ok: true, output: '巨长子调用输出'.repeat(50) }, subcall: true },
+        ],
+      }],
+    };
+    const withSub = replayTokensOf(host, 'a');
+    const withoutSub = replayTokensOf({ ...host, steps: [{ ...host.steps![0]!, toolCalls: host.steps![0]!.toolCalls!.slice(0, 1) }] }, 'a');
+    expect(withSub).toBe(withoutSub); // 子调用体积零贡献
+  });
+
   it('estimateReplayTokens：会话合计（viewer 口径 vs content-only）', () => {
     const ms = [msg('user', zh(10)), trajRow];
     expect(estimateReplayTokens(ms, 'a')).toBe(51); // 6 + 45

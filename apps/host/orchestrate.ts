@@ -14,6 +14,7 @@ import { socketPathFor } from 'ac-envelope-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
 import { resolveAnchors } from './anchors.ts';
+import { hostLog } from './host-log.ts';
 
 /**
  * stderr 行钩子（cr-662 诊断面）：壳 stderr 按行回流——转发宿主 stderr +
@@ -197,17 +198,27 @@ export async function adoptShell(
   const spawnFn = input.spawnFn ?? defaultSpawn;
   const warden = new ShellWarden(input.agentId);
   const events: GuardianEvent[] = [];
-  // stderr 诊断面（cr-662）：每行转发宿主 stderr（[shell:<agent>] 前缀）+
-  // 滚动落 dataRoot/.runtime/logs/shell-<agent>.log（cap 512KB）+ 尾行环。
+  // stderr 诊断面（cr-662；cr-741 运维优化）：转发宿主 stderr（[shell:<agent>]
+  // 前缀——生命周期行除外，见 shouldEchoConsole）+ 滚动落
+  // dataRoot/.runtime/logs/shell-<agent>.log（cap 512KB，宿主侧盖 ISO 时标
+  // ——跨日志时间线对齐）+ 尾行环（退出现场，无时标——保持错误原文）。
   const stderrLog = path.join(input.dataRoot, '.runtime', 'logs', `shell-${input.agentId}.log`);
   const stderrTailLines: string[] = [];
-  const reportStderr = (line: string, toConsole: boolean): void => {
-    if (toConsole) process.stderr.write(`[shell:${input.agentId}] ${line}\n`);
+  // 生命周期常态行不刷宿主控制台（每次拉壳一行，纯噪音——现场在日志）；
+  // 未列举行 = 未知形态，保守转发。
+  const shouldEchoConsole = (line: string): boolean =>
+    !(line.startsWith('[shell] boot 完成') || line.startsWith('[shell] boot 失败'));
+  const reportStderr = (line: string): void => {
+    if (shouldEchoConsole(line)) hostLog('E', 'shell:' + input.agentId, line);
     stderrTailLines.push(line);
     if (stderrTailLines.length > 50) stderrTailLines.shift();
-    appendRollingLine(stderrLog, line, 512 * 1024);
+    appendRollingLine(stderrLog, `${new Date().toISOString()} ${line}`, 512 * 1024);
   };
+  // --no-warnings（cr-742 控制台格式化）：消 strip-types ExperimentalWarning
+  // ——每次壳 boot 固定两行（warning + trace 提示），无诊断价值纯噪音；
+  // 壳自身业务错误不受影响（stderr 其余行照常转发）。
   const proc = spawnFn(AGENTCHAT_EXE, [
+    '--no-warnings',
     '--experimental-strip-types',
     input.bootFile,
     '--data-root', path.resolve(input.dataRoot),
@@ -217,7 +228,7 @@ export async function adoptShell(
     ...(input.postOffice !== undefined ? ['--post-office', input.postOffice.listeningAddress] : []),
     ...(input.hostBoot !== undefined ? ['--host-boot', input.hostBoot] : []),
     ...(input.hostPort !== undefined ? ['--host-port', String(input.hostPort)] : []),
-  ], { onStderrLine: (line) => reportStderr(line, true) });
+  ], { onStderrLine: (line) => reportStderr(line) });
   const timeout = input.timeoutMs ?? 15_000;
   const deadline = Date.now() + timeout;
   // agent 配置预置（壳 boot 读 AgentConfig）——编排面确保在场
@@ -259,7 +270,7 @@ export async function adoptShell(
       //（含早退）同步转宿主 stderr——崩溃不再零现场。
       const exitLine = `=== exit code=${code ?? 'null'} signal=${signal ?? ''} at ${new Date().toISOString()} ===`;
       appendRollingLine(stderrLog, exitLine, 512 * 1024);
-      if (code !== 0 && code !== 42) process.stderr.write(`[shell:${input.agentId}] ${exitLine}\n`);
+      if (code !== 0 && code !== 42) hostLog('E', 'shell:' + input.agentId, exitLine);
       if (!settled) {
         reject(new Error(`壳进程早退（code=${code ?? 'null'} signal=${signal ?? ''}）——未达 boot.ready；尾部 stderr 见 ${stderrLog}`));
         return;

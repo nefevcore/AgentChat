@@ -19,8 +19,8 @@ function writeCatalog(root: string): string {
   fs.writeFileSync(file, JSON.stringify({
     version: 1,
     rows: [
-      { id: 'backup', tree: 'host', role: '数据轴备份' },
-      { id: 'usage', tree: 'host', role: '计费聚合' },
+      { id: 'backup', tree: 'host', description: '数据轴备份' },
+      { id: 'usage', tree: 'host', description: '计费聚合' },
     ],
   }, null, 2) + '\n', 'utf-8');
   return file;
@@ -106,7 +106,7 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
   it('staging 人审全链：stage → 暂存清单/只读代理 → approve → 安装态 + 插件行集物化', async () => {
     const h = await boot();
     try {
-      const dir = makePluginDir('demo-plugin', [{ id: 'demo-tools', tools: ['demo_hello'], role: '演示工具行' }]);
+      const dir = makePluginDir('demo-plugin', [{ id: 'demo-tools', tools: ['demo_hello'], description: '演示工具行' }]);
       const staging = await h.registry.stage(dir, 'user');
       expect(staging.manifest.name).toBe('demo-plugin');
       expect(h.registry.stagingRecords().map((r) => r.id)).toEqual([staging.id]);
@@ -124,7 +124,7 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
         id: 'demo-tools',
         tree: 'shell',
         tools: ['demo_hello'],
-        role: '演示工具行',
+        description: '演示工具行',
         path: path.join(path.resolve(ROOT), 'plugins', 'demo-plugin'),
       }]);
       // 物化文件（壳 boot 合并输入）
@@ -208,8 +208,8 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
       const view = h.registry.setRowPreference('backup', true);
       // 全列出（含被停用行——急救面要能重新打开）
       expect(view.rows).toEqual([
-        { id: 'backup', disabled: true, role: '数据轴备份' },
-        { id: 'usage', disabled: false, role: '计费聚合' },
+        { id: 'backup', disabled: true, description: '数据轴备份' },
+        { id: 'usage', disabled: false, description: '计费聚合' },
       ]);
       expect(h.registry.rowPreferences()).toEqual([{ id: 'backup', disabled: true }]);
       expect(fs.existsSync(path.join(ROOT, 'host-rows.json'))).toBe(true);

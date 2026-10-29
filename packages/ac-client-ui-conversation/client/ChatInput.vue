@@ -59,6 +59,11 @@ const wsLoaded = computed(() => wsBoard?.loaded.value ?? false);
 const feed = useFeedStore();
 const uiStore = useUiStore();
 const inputText = ref('');
+/** 输入卡根元素（cr-789：本件是多根 fragment 组件——fresh 顶行 + 输入卡
+ *  两根，$el 是占位文本节点而非元素；父视图测输入卡上缘（ConversationView
+ *  composer 测高）经 defineExpose 显式取，不走 $el） */
+const cardEl = ref<HTMLElement | null>(null);
+defineExpose({ cardEl });
 /** 上次组合偏好（agentId/model 在新建会话处消费；effort/elevation 在此回放） */
 const lastPrefs = loadComposePrefs();
 /** 思考强度：回放上次选择（缺省 high；''=关闭思考；P4：取代独立"深度思考" toggle） */
@@ -1453,7 +1458,7 @@ function onThumbError(i: number) {
 
   <!-- 输入卡（fresh 缺席期本根仍渲染——常规会话的唯一根；fresh 态
        加 fresh-card：限宽 + 水平居中——居中画面下拉满全宽观感失衡） -->
-  <div class="chat-input" :class="{ 'fresh-card': fresh && single }">
+  <div ref="cardEl" class="chat-input" :class="{ 'fresh-card': fresh && single }">
     <!-- 附件预览（图片附件只显缩略图——文件名退 hover 提示；加载失败回退文件名 chip） -->
     <div v-if="attachedFiles.length > 0" class="file-preview-bar">
       <template v-for="(file, i) in attachedFiles" :key="`${i}-${file.hash}`">

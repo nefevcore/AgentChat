@@ -94,6 +94,10 @@ interface RunFacts {
   settled: boolean;
   events: Array<JournalStep | JournalInject>;
   results: Map<string, { ok: boolean; output?: unknown; error?: string }>;
+  /** 工具执行耗时索引（cr-766：journal-tool-result.durationMs——projectStep 合并进 toolCalls） */
+  durations: Map<string, number>;
+  /** 中止步集合（cr-766）：step 序号 → aborted——轨迹/续跑读侧剔除不完整 tool_calls 的判据 */
+  abortedSteps: Set<number>;
   subcallsByHost: Map<string, Array<{ toolCallId: string; name?: string; arguments?: string; result: unknown; seq?: number }>>;
 }
 
@@ -103,6 +107,8 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
   // toolCallId 覆盖。settle 行在步之后，须先扫一遍再投步骤。
   let settled = false;
   const results = new Map<string, { ok: boolean; output?: unknown; error?: string }>();
+  const durations = new Map<string, number>();
+  const abortedSteps = new Set<number>();
   // 子调用档案（cr-597）：run_code 程序内子调用补行（subcall=true 携带
   // 名/参）——注入宿主 run_code 卡后平铺（主线 injectSubcalls 同义）
   const subcalls: Array<{ toolCallId: string; name?: string; arguments?: string; result: unknown; seq?: number }> = [];
@@ -112,10 +118,12 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
     if (line.type === 'journal-settled') settled = true;
     if (line.type === 'journal-tool-result') {
       results.set(line.toolCallId, line.result);
+      if (line.durationMs !== undefined) durations.set(line.toolCallId, line.durationMs);
       if (line.subcall === true) {
         subcalls.push({ toolCallId: line.toolCallId, name: line.name, arguments: line.arguments, result: line.result, seq: line.seq });
       }
     }
+    if (line.type === 'journal-step' && line.aborted === true) abortedSteps.add(line.step);
     if (line.type === 'journal-step' || line.type === 'journal-inject') events.push(line);
   }
   // 真序 = 文件行序（append-only）：seq 在崩溃重启的 journal 里会归零重启
@@ -130,7 +138,7 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
     if (bucket) bucket.push(k);
     else subcallsByHost.set(host, [k]);
   }
-  return { settled, events, results, subcallsByHost };
+  return { settled, events, results, durations, abortedSteps, subcallsByHost };
 }
 
 /** 单步行 → ProjectedStep（补行覆盖 / 存量合成 / 子调用平铺 / ts 带出） */
@@ -138,19 +146,30 @@ function projectStep(line: JournalStep, facts: RunFacts): ProjectedStep {
   return {
     content: line.content,
     ...(line.ts !== undefined ? { ts: line.ts } : {}),
+    ...(line.stepId !== undefined ? { stepId: line.stepId } : {}),
     ...(line.reasoning !== undefined ? { reasoning: line.reasoning } : {}),
+    ...(line.aborted === true ? { aborted: true } : {}),
+    ...(line.reasoningMs !== undefined ? { reasoningMs: line.reasoningMs } : {}),
+    ...(line.textMs !== undefined ? { textMs: line.textMs } : {}),
+    // 步级 API 计时/用量透传（cr-772）——历史链栏速率段数据源
+    ...(line.elapsedMs !== undefined ? { elapsedMs: line.elapsedMs } : {}),
+    ...(line.usage !== undefined ? { usage: line.usage } : {}),
     ...(line.toolCalls !== undefined && line.toolCalls.length > 0 ? {
       toolCalls: line.toolCalls.flatMap((tc, i) => {
         // 补行优先；步行自带 toolResults 兜底；已收束 run 两者皆缺 =
         // cr-596 前的存量步行（结果从未落盘）——合成空成功，不留给
-        // 前端「永恒运行中」的假在途态
+        // 前端「永恒运行中」的假在途态；aborted 步的调用可能不完整
+        // （参数 JSON 截断）——已收束（interrupted）视同合成空结果供 UI
+        // 展示，续跑/轨迹面另经 abortedStepsOf 剔除
         const result = facts.results.get(tc.id) ?? line.toolResults?.[i]
           ?? (facts.settled ? { ok: true } : null);
+        const dur = facts.durations.get(tc.id);
         const hostCard = {
           id: tc.id,
           name: tc.name,
           arguments: tc.arguments,
           result,
+          ...(dur !== undefined ? { durationMs: dur } : {}),
         };
         // 子调用平铺（cr-597）：宿主卡后按提交序（seq）注入子调用卡——
         // 宿主不在场（步行缺失/被吸收）的子调用如实丢弃（无渲染锚）
@@ -170,7 +189,9 @@ function projectStep(line: JournalStep, facts: RunFacts): ProjectedStep {
 }
 
 /** 物化切段产物（cr-697）：'seg' = 段行 steps；'inj' = 注入行（切段点） */
-export type RunSegment = { kind: 'seg'; steps: ProjectedStep[] } | { kind: 'inj'; content: string; ts?: number };
+export type RunSegment =
+  | { kind: 'seg'; steps: ProjectedStep[] }
+  | { kind: 'inj'; content: string; ts?: number; injectionId?: string; injectSource?: string; label?: string; requestId?: string };
 
 /**
  * journal → run 物化切段（cr-697 settlement 段行物化的写侧纯函数）：
@@ -191,7 +212,15 @@ export function segmentizeRun(lines: JournalLine[], run: string): RunSegment[] {
   for (const ev of facts.events) {
     if (ev.type === 'journal-inject') {
       closeSeg();
-      out.push({ kind: 'inj', content: ev.content, ...(ev.ts !== undefined ? { ts: ev.ts } : {}) });
+      out.push({
+        kind: 'inj',
+        content: ev.content,
+        ...(ev.ts !== undefined ? { ts: ev.ts } : {}),
+        ...(ev.requestId !== undefined ? { requestId: ev.requestId } : {}),
+        ...(ev.injectionId !== undefined ? { injectionId: ev.injectionId } : {}),
+        ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}),
+        ...(ev.label !== undefined ? { label: ev.label } : {}),
+      });
       continue;
     }
     cur.push(projectStep(ev, facts));
@@ -229,7 +258,12 @@ export function trajFromRows(rows: LedgerRow[], run: string): LlmMessage[] | nul
       continue;
     }
     for (const s of r.steps ?? []) {
-      const calls = (s.toolCalls ?? []).filter((tc) => tc.id || tc.name);
+      // subcall 平铺卡（run_code 程序内子调用——cr-760）不进回放注入：
+      // 模型真实所见只有宿主 run_code 调用对（返回值摘要），子调用是壳内
+      // 编排细节（主线 injectSubcalls「默认不开——回放面纯净、KV 前缀
+      // 不受污染」裁决同款）。物化段行 steps 的 toolCalls 混有平铺卡，展开
+      // 前过滤。
+      const calls = (s.toolCalls ?? []).filter((tc) => tc.subcall !== true && (tc.id || tc.name));
       out.push({
         role: 'assistant',
         content: s.content,
@@ -274,6 +308,13 @@ export function trajectoryOfRun(lines: JournalLine[], run: string): LlmMessage[]
   for (const ev of events) {
     if (ev.type === 'journal-inject') {
       out.push({ role: 'user', content: ev.content });
+      continue;
+    }
+    // 中止步（cr-766）：tool_calls 可能不完整（参数 JSON 截断）且从未
+    // 执行——整调用剔除（区别于崩溃窗口的 UNCOMMITTED 合成：aborted =
+    // 明确未执行，不是结果未知）；部分正文如实保留。
+    if (ev.aborted === true) {
+      if (ev.content.trim() !== '') out.push({ role: 'assistant', content: ev.content });
       continue;
     }
     const calls = (ev.toolCalls ?? [])
@@ -329,6 +370,13 @@ export function resumeContextOfRun(
   for (const ev of events) {
     if (ev.type === 'journal-inject') {
       out.push({ role: 'user', content: ev.content });
+      continue;
+    }
+    // 中止步（cr-766）：调用从未执行且参数可能截断——整调用剔除（不合成
+    // UNCOMMITTED——那是崩溃窗口「结果未知」的语义；aborted 是明确未
+    // 执行）。部分正文如实保留（携带面），不计入 committedSteps。
+    if (ev.aborted === true) {
+      if (ev.content.trim() !== '') out.push({ role: 'assistant', content: ev.content });
       continue;
     }
     const calls = (ev.toolCalls ?? []).map((tc, i) => ({ tc, result: results.get(tc.id) ?? ev.toolResults?.[i] ?? null }));

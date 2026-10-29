@@ -101,10 +101,11 @@ describe('M8.3 e2e：真子壳 spawn + bench 门', () => {
       // list 在场
       const list = await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'list' } }) as { ok: boolean; output?: { agents: Array<{ childId: string; status: string }> } };
       expect(list.output!.agents.some((a) => a.childId === childId)).toBe(true);
-      // delete 收割：子壳进程退出 + 物化目录移除
+      // delete 收割（cr-712 归档）：子壳进程退出 + 归档标识在场 + 子域账本保留
       const del = await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: childId } }) as { ok: boolean };
       expect(del.ok).toBe(true);
-      expect(fs.existsSync(path.join(ROOT, 'agents', 'mama', 'children', childId))).toBe(false);
+      expect(fs.existsSync(path.join(ROOT, 'agents', 'mama', 'children', childId, 'archived.json'))).toBe(true);
+      expect(readLedger(dir).rows.length).toBeGreaterThanOrEqual(2);
     } finally { await parent.shutdown(); }
   }, 120_000);
 

@@ -1,12 +1,17 @@
 // ============================================================
-// supervisor.mjs —— preview 宿主监护进程（8.9 前置收敛第一批，cr-550；
+// supervisor.mjs —— 测试沙箱宿主监护进程（8.9 前置收敛第一批，cr-550；
 // cr-527 裁定 supervisor 拉起脚本归 8.9——D6 回退通道物理外置件）
 //
-// 与主线 supervisor.mjs 同构（命运隔离铁律 + 退出码协议 42/78/0 +
-// 指数退避熔断 + .runtime 单写者锁——策略纯函数复用 ac-supervisor-core）；
-// 差异：worker = preview 宿主 boot 入口（boot.ts），数据根缺省
-// sandbox/supervised-home（preview 数据根隔离红线——绝不回落
-// 主线数据根；AGENTCHAT_DATA_ROOT 显式指定优先）。
+// 【双 supervisor 布局，cr-706 注明】与仓库根 supervisor.mjs 的分工：
+//   · 根 supervisor.mjs = 产品入口（品牌 exe 自重 exec、读
+//     AGENTCHAT_DATA_ROOT、缺省 workspace/home、stdio inherit）——
+//     pnpm dev:supervised 用；
+//   · 本文件 = 测试沙箱入口（缺省 sandbox/supervised-home、刻意不读
+//     env〔隔离红线——env 随 shell 继承会落到主线数据根〕、stdio tee 落
+//     dataRoot/.runtime/logs/host-<ts>.log〔cr-662 诊断面〕）。
+// 两者的监护策略同源 ac-supervisor-core 纯函数（策略改一处即双入口生效
+// ——该一致性由 apps/host/tests/supervisor-parity.test.ts 回归锁）。
+// worker 均为 boot.ts（cr-703 后两轨合一）。
 //
 // 本文件纯 JS（.mjs 不经 TS strip-only 加载器——supervisor 不能依赖被监护物）。
 // 用法：node apps/host/supervisor.mjs [--data-root <dir>] [--port <n>]

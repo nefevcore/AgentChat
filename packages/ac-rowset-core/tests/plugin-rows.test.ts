@@ -28,13 +28,13 @@ describe('插件行集条目 schema', () => {
       rows: [
         // 插件不得自述 tree / path（判据 1、2）——一律被覆盖
         { id: 'demo-tools', tools: ['demo_hello'], tree: 'host', path: '/etc' },
-        { id: 'demo-extra', bundle: 'demo', requires: ['demo-tools'], role: '演示' },
+        { id: 'demo-extra', bundle: 'demo', requires: ['demo-tools'], description: '演示' },
       ],
     });
     expect(warnings).toEqual([]);
     expect(rows).toEqual([
       { id: 'demo-tools', tree: 'shell', tools: ['demo_hello'], path: INSTALL_DIR },
-      { id: 'demo-extra', tree: 'shell', bundle: 'demo', requires: ['demo-tools'], role: '演示', path: INSTALL_DIR },
+      { id: 'demo-extra', tree: 'shell', bundle: 'demo', requires: ['demo-tools'], description: '演示', path: INSTALL_DIR },
     ]);
   });
 

@@ -2,7 +2,7 @@
 // boot.ts —— ui 树 boot 装配序列（8.5b；可测半边，不碰 mount/DOM）
 //
 // ui 树 = 第三棵装配树（ui-tree.md §1）：boot 编排 = 本文件。与宿主树
-//（ac-app）/壳树（shell boot）同构——固定本体 + N 个模块投影。
+//（apps/host）/壳树（apps/shell boot）同构——固定本体 + N 个模块投影。
 //
 // 装配序列（骨架归并终态——phase:'base' 退役，ui-tree.md §2/§4）：
 //   ① createClient（client runtime——浏览器侧 cordis + slots/objects）
@@ -28,7 +28,7 @@ import { themeClientPlugin } from 'ac-client-ui-theme/client';
 import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { layoutClientPlugin } from 'ac-client-ui-layout/client';
 import type { BootGraphEntry } from 'ac-webui-core';
-import { auditThemeTokens } from 'ac-webui-core';
+import { auditThemeTokens } from 'ac-webui-core/browser';
 import { registerThemeId } from 'ac-client-ui-theme/client';
 import { registerView } from 'ac-client-ui-layout/client';
 import { makeRpcHostPlugin, type RpcWire } from './rpc-host.ts';
@@ -172,24 +172,36 @@ export interface SeatAuditReport {
 }
 
 /**
- * 单条目对账：装载前（key → 贡献 id 集）与装载后贡献面 diff——新增
- * 贡献 key 归因本条目；声明集与归因集双向比对。'new:' 声明是席位声明
- * 而非贡献，不参与 declaredNotRegistered（其贡献 = B3 批 registerView）。
- * view 声明（B3）的期望席位 = region 映射（main → 'main'，aux →
- * 'aux-sidebar'）——视角贡献挂选举席，seat 字段是承载名非席位名。
+ * 单条目对账（cr-798 双轴满足判定）：装载窗口内贡献 key 归因本条目，
+ * 声明集与归因集双向比对。满足面双轴——①即时贡献（注册面 diff，原轴）；
+ * ②窗口内新挂起的 inject 待声明效果（slots.inject 惰性等声明：声明方
+ * 通道在装载序在后 = 合法 deferred，todo 行 cr-454 形态——此前被误判
+ * declaredNotRegistered 假阳性）。
+ * 'new:' 声明是席位声明而非贡献，不参与 declaredNotRegistered（其贡献
+ * = B3 批 registerView）。view 声明（B3）的期望席位 = region 映射
+ * （main → 'main'，aux → 'aux-sidebar'）——视角贡献挂选举席，seat 字段
+ * 是承载名非席位名。
+ * registeredNotDeclared 排除：贡献落位时声明已在本窗口出现（声明方
+ * 后装载、消费者 inject 先行 = deferred 落位，非未声明漂移）。
  */
 function auditSeats(
   ctx: ClientContext,
   entry: BootGraphEntry,
-  before: Map<string, Set<string>>,
+  before: SeatAuditSnapshot,
 ): SeatAuditReport {
   const report: SeatAuditReport = { declaredNotRegistered: [], registeredNotDeclared: [] };
-  const after = seatContributions(ctx);
+  const after = seatAuditSnapshot(ctx);
   const contributed: string[] = [];
-  for (const [key, ids] of after) {
-    const prev = before.get(key) ?? new Set<string>();
+  for (const [key, ids] of after.contributions) {
+    const prev = before.contributions.get(key) ?? new Set<string>();
     if ([...ids].some((id) => !prev.has(id))) contributed.push(key);
   }
+  const newPending = new Set<string>();
+  for (const [key, uids] of after.pendingInjects) {
+    const prevUids = before.pendingInjects.get(key) ?? new Set<number>();
+    for (const u of uids) if (!prevUids.has(u)) newPending.add(key);
+  }
+  const satisfied = (key: string): boolean => contributed.includes(key) || newPending.has(key);
   const expectedOf = (s: { seat: string; view?: { region: 'main' | 'aux' } }): string | null => {
     if (s.seat.startsWith('new:')) return null;
     if (s.view) return s.view.region === 'main' ? 'main' : 'aux-sidebar';
@@ -197,26 +209,40 @@ function auditSeats(
   };
   for (const s of entry.seats) {
     const expected = expectedOf(s);
-    if (expected !== null && !contributed.includes(expected)) {
+    if (expected !== null && !satisfied(expected)) {
       report.declaredNotRegistered.push(expected);
     }
   }
   for (const key of contributed) {
-    if (!entry.seats.some((s) => expectedOf(s) === key || s.seat === key || s.seat === 'new:' + key)) {
+    const declaredHere = entry.seats.some((s) => expectedOf(s) === key || s.seat === key || s.seat === 'new:' + key);
+    // deferred 落位排除：本窗口内该席位首次被声明 + 贡献即刻落位
+    const deferredLanded = !before.declared.has(key) && after.declared.has(key);
+    if (!declaredHere && !deferredLanded) {
       report.registeredNotDeclared.push(key);
     }
   }
   return report;
 }
 
-/** 席位贡献面快照（SlotCore 注册表 key → 贡献 id 集） */
-function seatContributions(ctx: ClientContext): Map<string, Set<string>> {
+/** 对账快照：贡献面 + 待声明 inject 效果 + 已声明席位（cr-798） */
+interface SeatAuditSnapshot {
+  contributions: Map<string, Set<string>>;
+  pendingInjects: Map<string, Set<number>>;
+  declared: Set<string>;
+}
+
+/** 席位对账快照（装载窗口前拍） */
+function seatAuditSnapshot(ctx: ClientContext): SeatAuditSnapshot {
   const snap = ctx.slots.snapshot();
-  const out = new Map<string, Set<string>>();
+  const contributions = new Map<string, Set<string>>();
   for (const [key, entries] of Object.entries(snap.slots)) {
-    out.set(key, new Set(entries.map((e) => e.id)));
+    contributions.set(key, new Set(entries.map((e) => e.id)));
   }
-  return out;
+  return {
+    contributions,
+    pendingInjects: ctx.slots.pendingInjects(),
+    declared: new Set(snap.declarations.map((d) => d.key)),
+  };
 }
 
 /** 已注入的通道样式表（href 去重——graph 重载不重复挂） */
@@ -360,7 +386,7 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
       // src/isolated.ts）。装载结果同记 channel 表（ready/error 由 iframe 侧上报，
       // 此处记 ok = iframe 已创建——语义与主线 extensions 宿主一致）。
       try {
-        const before = seatContributions(ctx);
+        const before = seatAuditSnapshot(ctx);
         const handle = loadIsolatedExtension(ctx, { name: entry.name, version: entry.version, entry: entry.base + entry.entry.replace(/^\/+/, '') });
         isolatedHandles.push(handle);
         // B3 视角挂载（§1 隔离档粒度）：seats[].view 声明 → 宿主把 iframe
@@ -392,7 +418,7 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
       for (const dep of entry.channelImports) {
         if (!(dep in moduleHost)) throw new Error('moduleHost 缺共享基座键：' + dep);
       }
-      const before = seatContributions(ctx);
+      const before = seatAuditSnapshot(ctx);
       const mod = await loadChannel(entry);
       const plugin = mod.default as { apply?: unknown } | undefined;
       if (!plugin || typeof plugin.apply !== 'function') throw new Error('通道条目缺 default export 插件');

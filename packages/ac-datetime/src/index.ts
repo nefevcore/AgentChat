@@ -20,13 +20,11 @@
 // KV cache（M21"仅日期行收尾"本义）：日期真正居尾——每日翻转只失效
 // 日期行自身，不连带失效偶然落在其后的静态块。
 //
-// 门控：无 conversationId（子 Agent / loop 直连）不注入；
-// settings['datetime'].enabled（per-Agent，M24 X1/A1）软停用。日期每 run
+// 门控：无 conversationId（子 Agent / loop 直连）不注入。日期每 run
 // 计算一次（跨日 run 全程旧日期——run 边界本就翻转，语义不变）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // loop/* 事件类型增强（type-only）
-import type {} from 'ac-agents'; // ctx.agents 服务类型增强（type-only）
 
 // KV Cache effect（M21/D9 声明纪律）: 独立会话 = Append-only（每日 user
 // 快照行，尾部追加、日内零失效）；其余会话 = 日内 Prefix-stable、跨日
@@ -42,14 +40,6 @@ export function datetimeLine(now: Date): string {
   return `[当前时间] ${date} ${WEEKDAYS[now.getDay()]}`;
 }
 
-/** settings['datetime'].enabled 软停用判定（缺省 true） */
-function isEnabled(cfg: unknown): boolean {
-  if (cfg !== undefined && cfg !== null && typeof cfg === 'object') {
-    return (cfg as { enabled?: unknown }).enabled !== false;
-  }
-  return true;
-}
-
 /** singles 可选能力形状（ctx.get('singles', false)） */
 type SinglesLike = { get(id: string): unknown };
 
@@ -62,15 +52,11 @@ export const extension: ExtensionMeta = {
   label: '日期注入',
   description:
     'singles 每日 user 快照行（主档信封追加）+ 其余会话 system 尾部仅日期行（尾档 before-run-last 结构性收尾——晚于主档一切装配，与行加载顺序无关；日内稳定，KV cache 友好；无会话键不注入）',
-  fields: [{ name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' }],
   listeners: [
-    { event: 'loop/before-run', role: '独立会话日快照行', description: 'singles 信封尾部插入 user 快照行（每 run 恰一行；system 不动）', respectsEnabled: true },
-    { event: 'loop/before-run-last', role: 'system 日期行收尾（尾档·push 居后）', description: '晚于主档一切装配与尾档 prepend 住户（对话信息块）的仅日期行——绝对收尾；新住户需裁决', respectsEnabled: true },
+    { event: 'loop/before-run', role: '独立会话日快照行', description: 'singles 信封尾部插入 user 快照行（每 run 恰一行；system 不动）' },
+    { event: 'loop/before-run-last', role: 'system 日期行收尾（尾档·push 居后）', description: '晚于主档一切装配与尾档 prepend 住户（对话信息块）的仅日期行——绝对收尾；新住户需裁决' },
   ],
 };
-
-
-export const inject = ['agents'];
 
 export function apply(ctx: Context) {
   // ── 形态一：独立会话（singles）每日 user 快照行（§5.2，per-run 一次）──
@@ -83,9 +69,6 @@ export function apply(ctx: Context) {
     // 尾档收尾，此处早退
     const singles = ctx.get('singles', false) as SinglesLike | undefined;
     if (!singles?.get(convId)) return next();
-    const agentId = call.request.agent;
-    const settings = agentId ? ctx.agents.settingsOf(agentId, 'datetime') : {};
-    if (!isEnabled(settings)) return next();
 
     const line = datetimeLine(new Date());
     const messages = [...call.request.messages];
@@ -107,9 +90,6 @@ export function apply(ctx: Context) {
     // singles 走形态一（user 快照行），system 不动
     const singles = ctx.get('singles', false) as SinglesLike | undefined;
     if (singles?.get(convId)) return next();
-    const agentId = call.request.agent;
-    const settings = agentId ? ctx.agents.settingsOf(agentId, 'datetime') : {};
-    if (!isEnabled(settings)) return next();
 
     const line = datetimeLine(new Date());
     call.request = {

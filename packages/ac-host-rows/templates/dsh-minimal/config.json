@@ -12,10 +12,9 @@
     "shell"
   ],
   "settings": {
-    "memory": { "enabled": false },
-    "skill": { "enabled": false },
-    "datetime": { "enabled": false },
-    "system-prompt": { "enabled": false }
+    "system-prompt": {
+      "enabled": false
+    }
   },
   "description": "仅 edit / pwsh 两件工具面：单工具编辑器 + 跑命令，上下文成本最低"
 }

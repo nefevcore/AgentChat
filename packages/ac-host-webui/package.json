@@ -28,6 +28,7 @@
     "ac-rowset-core": "workspace:*",
     "ac-workspace": "workspace:*",
     "ac-ledger": "workspace:*",
+    "ac-archive-core": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-config": "workspace:*",
     "ac-conv-settings": "workspace:*",

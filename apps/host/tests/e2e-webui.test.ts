@@ -92,7 +92,13 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
     const uled = new UserLedger(ROOT, 'u-e2e-b', ['beta', 'user']);
     await uled.writeThrough({ agentId: 'beta', content: '流式终稿', uuid: 'u-e2e-b', run: 'st-1', requestId: 'rr-b1' });
     const replay = uled.replay();
-    expect(replay[0]).toEqual({ role: 'peer', agentId: 'beta', content: '流式终稿', run: 'st-1' });
+    // toEqual 全等：timestamp（cr-716）/ requestId（cr-739）是 replay 行合法字段，期望补齐
+    expect(replay[0]).toEqual({
+      role: 'peer', agentId: 'beta', content: '流式终稿', run: 'st-1',
+      requestId: 'rr-b1',
+      timestamp: replay[0].timestamp,
+    });
+    expect(typeof replay[0].timestamp).toBe('string');
     // 壳死即丢：关 ipc → emitStream 返回 false（无订阅连接 = 丢弃）
     tap.close();
     await boot.close();

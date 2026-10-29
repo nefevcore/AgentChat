@@ -15,7 +15,8 @@ import type { LoopRunCall, LoopRunResult } from 'ac-agent-loop';
 import { makeLedgerRow, readLedger, readJournal } from 'ac-ledger';
 import * as durableInteractionRow from 'ac-durable-interaction';
 import { makeConversationRow, replyTargetOf, type ConversationService } from 'ac-shell-conversation';
-import { makeEnvelope, type Envelope } from 'ac-envelope-core';
+import { makeEnvelope, socketPathFor, type Envelope } from 'ac-envelope-core';
+import { listenIpc } from 'ac-post-office';
 
 const ROOT = path.join('sandbox', 'test-conv-svc-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -29,8 +30,10 @@ function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
 
 /** 真树 boot：tools → llm → mock provider → loop → ledger → conversation。
  *  chatModels（可选）= 捕获 provider 实收的 model（cr-565 覆盖生效断言面）；
- *  gate（可选）= 慢 mock 闸门（首流挂起直到放行——busy 窗口用，cr-575）。 */
-async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string }>>): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
+ *  gate（可选）= 慢 mock 闸门（首流挂起直到放行——busy 窗口用，cr-575）；
+ *  gates（可选）= 逐调用闸门（第 n 次流调用等 gates[n]——多 run 顺序挂起，
+ *  cr-745 链跑交接面用；与 gate 二选一）。 */
+async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string }>>, postOfficeAddress?: string, gates?: Array<Promise<void>>): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<unknown> = [toolsRow, llmRow, loopRow];
@@ -42,9 +45,11 @@ async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<v
     name: 'mock-provider',
     inject: ['llm'],
     apply(c: Context) {
+      let streamN = 0;
       c.llm.register('mock', () => ({
         stream: async function* (input: { model?: string; messages: Array<{ role: string; content: string }>; tools?: Array<{ function?: { name?: string } }> }) {
-          if (gate !== undefined) await gate;
+          if (gates !== undefined) { const g = gates[streamN++]; if (g !== undefined) await g; }
+          else if (gate !== undefined) await gate;
           if (providerError !== undefined) throw providerError;
           chatModels?.push(input.model ?? '');
           chatTools?.push((input.tools ?? []).map((t) => t.function?.name ?? ''));
@@ -65,6 +70,7 @@ async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<v
   fibers.push(diFiber);
   const convFiber = ctx.plugin(makeConversationRow({
     dataRoot: ROOT, agentId,
+    ...(postOfficeAddress !== undefined ? { postOfficeAddress } : {}),
     // cr-590：行 id → 工具名展开词汇（boot 装配期目录投影——测试注入样例）
     rowTools: { 'fs-tools': ['read', 'write', 'edit'], 'shell-tools': ['pwsh'] },
   }));
@@ -80,8 +86,8 @@ async function dispose(fibers: Fiber[]): Promise<void> {
   }
 }
 
-function msg(uuid: string, requestId: string, text: string, sender = 'user'): Envelope {
-  return makeEnvelope({ uuid, requestId, sender, to: 'alpha', payload: { text } });
+function msg(uuid: string, requestId: string, text: string, sender = 'user', lane?: 'next-step' | 'next-turn'): Envelope {
+  return makeEnvelope({ uuid, requestId, sender, to: 'alpha', payload: { text, ...(lane !== undefined ? { lane } : {}) } });
 }
 
 const UUID = 'u-conv-1';
@@ -194,6 +200,185 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
     }
   }, 15_000);
 
+  // cr-710：回环根因回归——唤醒许可取信封 budget（0 = 只落账）。旧实现
+  // 用机器内存预算（壳代起 3），子 Agent 回信每代重获满额 → 父⇄子自动
+  // 互答跨重启无限续跑（数据根 21:42–21:47 reply- 链实锤）。
+  it('agent 入站 budget=0：只落账不起 run（壳换代重放同款，零 LLM 调用）', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const first = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    try {
+      const zero = makeEnvelope({ uuid: UUID, requestId: 'zero-hop', sender: 'kid1', to: 'alpha', budget: 0, payload: { text: '子 Agent 回信' } });
+      expect(await first.conv.receiveEnvelope(zero, { fresh: true })).toBe('ledger-only');
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
+      expect(rows.filter((r) => r.requestId === 'zero-hop')).toHaveLength(1);
+      expect(rows.some((r) => r.run !== undefined)).toBe(false);
+      expect(chatMessages).toEqual([]); // 零 LLM 调用
+      // 预算之源（R-2）：user 直发 budget=0 也重置满额 → 照常起 run
+      const userZero = makeEnvelope({ uuid: UUID, requestId: 'user-zero', sender: 'user', to: 'alpha', budget: 0, payload: { text: '用户新消息' } });
+      expect(await first.conv.receiveEnvelope(userZero, { fresh: true })).toBe('settled');
+      expect(chatMessages).toHaveLength(1);
+    } finally {
+      await dispose(first.fibers);
+    }
+    // 换代（新 service 实例 = 旧实现的内存预算重置点）：同额度信封重放仍不唤醒
+    const second = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    try {
+      const replay = makeEnvelope({ uuid: UUID, requestId: 'zero-hop-2', sender: 'kid1', to: 'alpha', budget: 0, payload: { text: '回信重放' } });
+      expect(await second.conv.receiveEnvelope(replay, { fresh: true }, { recovered: true })).toBe('ledger-only');
+      expect(chatMessages).toHaveLength(1); // 无新增调用（仅上代 user run）
+    } finally {
+      await dispose(second.fibers);
+    }
+  }, 30_000);
+
+  // cr-710：子 Agent 回信直投——在管子 id 不在宿主可达表，走邮局会拉起
+  // 同 id 顶层幽灵身份；postReply 必须经 subagents 服务直投其 ipc。
+  // cr-711：回信 payload 原样回带 replyConversation（完成回执的发起会话键）。
+  it('postReply：目标是本壳子 Agent → 经 subagents 直投（不触邮局）', async () => {
+    seedAgent('alpha');
+    const deliveries: Envelope[] = [];
+    class FakeChildren extends Service {
+      constructor(c: Context) { super(c, 'subagents'); }
+      ownsChild(id: string): boolean { return id === 'kid1'; }
+      async deliverToChild(_id: string, env: Envelope): Promise<boolean> { deliveries.push(env); return true; }
+    }
+    // postOfficeAddress 故意给不可用值：命中子 Agent 分支就不应尝试连接邮局
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, 'pipe-never-used');
+    const fakeFiber = ctx.plugin({
+      name: 'fake-children',
+      apply(c: Context) { c.plugin(FakeChildren); },
+    } as never, undefined as never);
+    fibers.push(fakeFiber);
+    await fakeFiber;
+    try {
+      // 回信目标 = 子 Agent 由 replyTo 指定（sender 是发起会话的用户——
+      // 子 Agent 自来信已归「完成回执」，不再起 run，见下一用例）
+      const out = await conv.receiveEnvelope(makeEnvelope({
+        uuid: UUID, requestId: 'kid-rep', sender: 'user', to: 'alpha', budget: 1,
+        replyTo: 'kid1',
+        payload: { text: '发起会话消息', replyConversation: 'u-init' },
+      }), { fresh: true });
+      expect(out).toBe('settled');
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]).toMatchObject({
+        to: 'kid1', sender: 'alpha', requestId: 'reply-kid-rep', budget: 0,
+        payload: { replyConversation: 'u-init' },
+      });
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  // cr-711：子 Agent 完成回执落点——父⇄子对桶只落账（不跑 run），结果作为
+  // 一条来自子 Agent 的消息转投**发起会话**（spawn 工具调用所在 user⇄父），
+  // 父以 replyTo=user 回复——不再出现「LLM 有消息必回」的父⇄子互答。
+  it('子 Agent 完成回执：对桶只落账 + 结果转投发起会话（不起父⇄子 run）', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    class FakeChildren extends Service {
+      constructor(c: Context) { super(c, 'subagents'); }
+      ownsChild(id: string): boolean { return id === 'kid1'; }
+      async deliverToChild(): Promise<boolean> { return true; }
+    }
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    const fakeFiber = ctx.plugin({
+      name: 'fake-children',
+      apply(c: Context) { c.plugin(FakeChildren); },
+    } as never, undefined as never);
+    fibers.push(fakeFiber);
+    await fakeFiber;
+    const PAIR = 'alpha~kid1';
+    const INIT = 'u-init~alpha';
+    try {
+      const done = makeEnvelope({
+        uuid: PAIR, requestId: 'reply-sub-1', sender: 'kid1', to: 'alpha', budget: 1,
+        payload: { text: '子 Agent 的结果正文', replyConversation: INIT },
+      });
+      expect(await conv.receiveEnvelope(done, { fresh: true })).toBe('ledger-only');
+      // 对桶：子终稿一行在账；父 run / 父回信都不存在
+      const pairRows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', PAIR)).rows;
+      expect(pairRows.filter((r) => r.role === 'agent' && r.agent_id === 'kid1')).toHaveLength(1);
+      expect(pairRows.some((r) => r.run !== undefined)).toBe(false);
+      // 发起会话：结果注入行（来自子 Agent）+ 父 run（面向用户的一轮）
+      const initRows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', INIT)).rows;
+      expect(initRows.find((r) => r.agent_id === 'kid1')).toMatchObject({
+        content: expect.stringContaining('子 Agent 的结果正文'),
+      });
+      expect(initRows.some((r) => r.agent_id === 'alpha' && typeof r.run === 'string')).toBe(true);
+      expect(chatMessages).toHaveLength(1);
+      // 同一回执重放（壳重启 inbox 重投）：通知 requestId 幂等 → 不再唤醒
+      expect(await conv.receiveEnvelope(done, { fresh: true }, { recovered: true })).toBe('ledger-only');
+      expect(chatMessages).toHaveLength(1);
+      // sync/waitMs 完成（无 replyConversation）：只落账，不二次通知
+      const syncDone = makeEnvelope({
+        uuid: PAIR, requestId: 'reply-sub-2', sender: 'kid1', to: 'alpha', budget: 1,
+        payload: { text: '同步结果' },
+      });
+      expect(await conv.receiveEnvelope(syncDone, { fresh: true })).toBe('ledger-only');
+      expect(chatMessages).toHaveLength(1);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 30_000);
+
+  // cr-713：busy-steer 消息不落入站行——mid-run 到达的完成回执只以注入行
+  // 落账（run 轨迹真实到达位），不再「seq 错位排在 run 块之前 + 与注入行
+  // 同文双份」；重放按注入行/台账同键幂等。
+  it('完成回执 mid-run 到达（busy-steer）：无入站行、注入行单份在位、重放不重复', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    class FakeChildren extends Service {
+      constructor(c: Context) { super(c, 'subagents'); }
+      ownsChild(id: string): boolean { return id === 'kid1'; }
+      async deliverToChild(): Promise<boolean> { return true; }
+    }
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    const fakeFiber = ctx.plugin({
+      name: 'fake-children',
+      apply(c: Context) { c.plugin(FakeChildren); },
+    } as never, undefined as never);
+    fibers.push(fakeFiber);
+    await fakeFiber;
+    const PAIR = 'alpha~kid1';
+    const INIT = 'u-init~alpha';
+    const done = makeEnvelope({
+      uuid: PAIR, requestId: 'reply-sub-9', sender: 'kid1', to: 'alpha', budget: 1,
+      payload: { text: 'mid-run 结果正文', replyConversation: INIT },
+    });
+    try {
+      const first = conv.receiveEnvelope(msg(INIT, 'm1', '发起任务'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80)); // 占门 + runStarted 补登
+      expect(conv.isBusy()).toBe(true);
+      expect(await conv.receiveEnvelope(done, { fresh: true })).toBe('ledger-only');
+      release();
+      await first;
+      const dir = path.join(ROOT, 'agents', 'alpha', 'sessions', INIT);
+      const { rows } = readLedger(dir);
+      // 无独立入站行：发起会话不出现 kid1 的非注入行（修复前 seq 错位行）
+      expect(rows.some((r) => r.agent_id === 'kid1' && r.source !== 'inject')).toBe(false);
+      // 注入行恰一条，携带回执派生 requestId（重放判重锚）
+      const inj = rows.filter((r) => r.source === 'inject');
+      expect(inj).toHaveLength(1);
+      expect(inj[0]).toMatchObject({ content: expect.stringContaining('mid-run 结果正文'), requestId: 'subagent-done-reply-sub-9' });
+      // 注入行落在 run 轨迹位（用户行之后、终稿行之前）——不在 run 块之前
+      const injAt = rows.findIndex((r) => r.source === 'inject');
+      expect(injAt).toBeGreaterThan(rows.findIndex((r) => r.requestId === 'm1'));
+      expect(injAt).toBeLessThan(rows.findIndex((r) => r.requestId === 'reply-m1'));
+      // 轨迹单份（不双喂）：通知正文精确一份（mock 终稿回声含原文属正常回复，
+      // 不计入）——注入行进轨迹，无入站行复读
+      const notice = '[子 Agent kid1 完成]\nmid-run 结果正文';
+      const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
+      expect(ledgerFace.historyMessagesFor(INIT).filter((m) => m.content === notice)).toHaveLength(1);
+      // 重放（壳重启 inbox 重投）：注入行同键判重 → 不再唤醒、不二份
+      expect(await conv.receiveEnvelope(done, { fresh: true }, { recovered: true })).toBe('ledger-only');
+      expect(readLedger(dir).rows.filter((r) => r.source === 'inject')).toHaveLength(1);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 30_000);
   it('deliver 方言叶（collab-tools 消费面）：outcome run 形状 + isBusy', async () => {
     seedAgent('alpha');
     const { fibers, conv } = await bootTree('alpha');
@@ -280,9 +465,12 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       release();
       await first;
       expect(conv.isBusy()).toBe(false);
-      // 账本：入站两行（慢问题 + 排队消息A）+ 终稿一行；steer 注入归 journal
+      // 账本：入站两行（慢问题 + 排队消息A）+ 终稿一行；steer 注入物化行
+      // 携带 requestId（cr-713——queue→steered 双记录，读侧去重防双喂）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      expect(rows.filter((r) => r.requestId === 'q2')).toHaveLength(1);
+      expect(rows.filter((r) => r.requestId === 'q2').map((r) => r.source ?? '')).toEqual(['', 'inject']);
+      const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
+      expect(ledgerFace.historyMessagesFor(UUID).filter((m) => m.content === '排队消息A')).toHaveLength(1);
       const journal = readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
       // cr-697：收束即清——注入行物化进账本（source='inject'），journal 不留
       expect(rows).toContainEqual(expect.objectContaining({ source: 'inject', run: 'run-q1', content: '排队消息A' }));
@@ -293,10 +481,49 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
     }
   }, 15_000);
 
+  // cr-707：上下文注入落账口——注入身份缺省即铸（直播帧与物化行同锚）、
+  // 事件先于落盘（journal IO 不得挡在帧前，否则续跑帧超车致直播注入行漂移）、
+  // label/来源随行落盘（此前只进事件，刷新即丢文案）。
+  it('recordContext：事件带注入身份+label，物化注入行同锚同文案（刷新可回放）', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    const injections: Array<{ source?: string; label?: string; injectionId?: string }> = [];
+    ctx.on('session/context-injected', (_cid: string, _agent: string | undefined, meta: { source?: string; label?: string; injectionId?: string } | undefined) => {
+      if (meta !== undefined) injections.push(meta);
+    });
+    try {
+      const first = conv.receiveEnvelope(msg(UUID, 'rc1', '慢问题'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80)); // 占门 + run 活跃
+      expect(conv.isBusy()).toBe(true);
+      await conv.recordContext(UUID, '[系统通知] 你此前发起的提问已收到用户回答：…', {
+        source: 'durable-interaction', label: '已收到用户回答',
+      });
+      const ev = injections.at(-1)!;
+      expect(ev).toMatchObject({ source: 'durable-interaction', label: '已收到用户回答' });
+      expect(ev.injectionId).toMatch(/^inj-/);
+      release();
+      await first;
+      // 落盘：收束物化后注入行 message_id = 直播帧 injectionId（同锚）+
+      // 来源/文案随行（前端 context 行直出）
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
+      const inj = rows.find((r) => r.source === 'inject');
+      expect(inj).toMatchObject({
+        message_id: ev.injectionId,
+        label: '已收到用户回答',
+        injectSource: 'durable-interaction',
+        run: 'run-rc1',
+      });
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 15_000);
+
   // cr-591（run-error 泛化）：每用户 run 收束 → conversation/run-settled
   // 事件（boot 旁带发射的数据源——前端收束三件套唯一驱动）；reviewRun 机制 run 不发。
-  it('run 收束发 conversation/run-settled（失败带 message；reviewRun 不发）', async () => {
-    seedAgent('alpha');
+  it('run 收束发 conversation/run-settled（失败带 message；reviewRun 不发）', async () => {    seedAgent('alpha');
     const events: Array<{ conversationId: string; runId: string; finish: string; text: string; message?: string; sender: string; source: string }> = [];
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, new Error('连接超时'));
     try {
@@ -503,37 +730,91 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     }
   }, 15_000);
 
-  // cr-627：busy 期跨会话投递（steer 寻址不匹配落空）→ 转投队列 →
-  // 当前 run 收束点链跑消费（按随行会话键取信，run 随信会话走）。
-  it('steer 落空（活跃 run 属其他会话）→ 转投队列 + 收束链跑跨会话消费', async () => {
+  // cr-746 per-门：busy 判定按 runAddress——跨会话信在自己门恒空闲，直接
+  // 开跑（A 的 run 不再阻塞 B）。cr-627 的「跨会话转投 + 链跑消费」语义随
+  // 单门退役；跨会话排队只发生在该会话自己的门 busy 时。
+  it('跨会话并行（cr-746）：A 慢 run 占门期间 B 的信直接开跑——不排队不等 A', async () => {
     seedAgent('alpha');
-    let release!: () => void;
-    const gate = new Promise<void>((r) => { release = r; });
-    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    // 双闸门：A 首流挂起占 A 门；B 首流挂起后断言 B run 在途（A 仍挂）
+    const gates = [0, 1].map(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => { resolve = r; });
+      return { promise, resolve };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, undefined, gates.map((g) => g.promise));
     try {
-      // 会话 A 的慢 run 占门（首流挂起）
+      // 会话 A 慢 run（首流挂起——A 门 busy）
       const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
       await new Promise((r) => setTimeout(r, 80));
       expect(conv.isBusy()).toBe(true);
-      // 会话 B 的 next-step 消息（late-reply / 机制唤醒常态形态）：
-      // busy → plan=steer；steer 按 runAddress 寻址（conv-b~alpha ≠ 活跃
-      // conv-a~alpha）→ 落空。此前只 return——消息静默丢失（run 永不拉起）。
-      const cross = await conv.receiveEnvelope(msg('conv-b', 'b1', '跨会话信'), { fresh: true });
-      expect(cross).toBe('queued'); // 转投队列（不再静默丢）
-      expect(conv.queue('conv-b')).toHaveLength(1);
-      // 放行：会话 A 收束 → 链跑按随行会话键消费 conv-b 的信
-      release();
+      expect(conv.runState().runs.map((r: { conversationId: string }) => r.conversationId)).toEqual(['conv-a']);
+      // 会话 B 的信：B 门空闲 → 直接 run（旧单门：steer 落空 → 转投队列等 A）
+      const second = conv.receiveEnvelope(msg('conv-b', 'b1', '跨会话信'), { fresh: true });
+      // B 的首流入闸 = B run 已在途（与 A 并行）
+      await new Promise((r) => setTimeout(r, 200));
+      const rs = conv.runState().runs;
+      expect(rs.map((r: { conversationId: string }) => r.conversationId).sort()).toEqual(['conv-a', 'conv-b']);
+      expect(rs.find((r: { conversationId: string }) => r.conversationId === 'conv-b')!.runId).toBe('run-b1');
+      // 各自收束互不干扰
+      gates[1]!.resolve(); // 放行 B
+      await second;
+      gates[0]!.resolve(); // 放行 A
       await first;
-      // 链跑的 conv-b run 是异步续跑——等它收束入账
-      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
       expect(conv.isBusy()).toBe(false);
-      // conv-b 账本：入站行 + 终稿行（run 真的跑过——跨会话链跑闭环）
-      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      const fb = rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
-      expect(fb.map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
-      expect(fb[1]).toMatchObject({ agent_id: 'alpha', run: 'run-b1' });
+      // cr-748 收束尾巴：两会话的 run 各入 recentSettled（runId 归属正确）
+      const tail = conv.runState().recentSettled.map((s) => [s.conversationId, s.runId, s.finish]);
+      expect(tail).toContainEqual(['conv-a', 'run-a1', 'ok']);
+      expect(tail).toContainEqual(['conv-b', 'run-b1', 'ok']);
+      // 活跃集已空——尾巴与 runs 独立（收束后仍可读）
+      expect(conv.runState().busy).toBe(false);
+      // 两会话账本各自闭环
+      for (const [cid, text] of [['conv-a', '慢问题'], ['conv-b', '跨会话信']] as const) {
+        const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', cid));
+        expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual([text, `[回复 ${text}]`]);
+      }
     } finally {
-      release();
+      gates[0]!.resolve();
+      gates[1]!.resolve();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-745 语义在 per-门下（cr-746）的同会话形态：next-turn 排队 → 收束点
+  // 链跑消费，runState 的 runs 数组随 run 换届（runId 正确归属会话）。
+  it('同会话链跑交接（cr-745×746）：排队 turn 的 run 在 runState 报正确 runId', async () => {
+    seedAgent('alpha');
+    const gates = [0, 1].map(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => { resolve = r; });
+      return { promise, resolve };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, undefined, gates.map((g) => g.promise));
+    try {
+      // 会话 conv-a 首 run 占门（首流挂起）
+      const first = conv.receiveEnvelope(msg('conv-a', 'a1', '第一问'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80));
+      expect(conv.runState()).toMatchObject({ busy: true, conversationId: 'conv-a', runId: 'run-a1' });
+      // 同会话第二封 next-turn 排队（busy → lane=next-turn 入队）
+      await conv.receiveEnvelope(msg('conv-a', 'a2', '第二问', 'user', 'next-turn'), { fresh: true });
+      expect(conv.queue('conv-a')).toHaveLength(1);
+      // 放行首 run → 收束 → 链跑拉起 a2 run（第二流挂起）
+      gates[0]!.resolve();
+      for (let i = 0; i < 100 && conv.runState().runId !== 'run-a2'; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const st = conv.runState();
+      expect(st.busy).toBe(true);
+      expect(st.conversationId).toBe('conv-a');
+      expect(st.runId).toBe('run-a2'); // runId 随链跑换届（cr-745 交接语义）
+      gates[1]!.resolve();
+      await first;
+      expect(conv.isBusy()).toBe(false);
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-a'));
+      // 行序：a2 入站行在 a1 收束前已落（到达序），a1 终稿在收束时
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一问', '第二问', '[回复 第一问]', '[回复 第二问]']);
+    } finally {
+      gates[0]!.resolve();
+      gates[1]!.resolve();
       await dispose(fibers);
     }
   }, 20_000);
@@ -544,12 +825,12 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     const gate = new Promise<void>((r) => { release = r; });
     const { fibers, conv } = await bootTree('alpha', undefined, gate);
     try {
-      // 会话 A 慢 run 占门
-      const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
+      // 会话 conv-b 慢 run 占门（首流挂起）
+      const first = conv.receiveEnvelope(msg('conv-b', 'a1', '占门问'), { fresh: true });
       await new Promise((r) => setTimeout(r, 80));
-      // 两封跨会话信依次转投队列：b1（将被做成死信——inbox 残迹被清）+ b2（合法）
-      await conv.receiveEnvelope(msg('conv-b', 'b1', '第一封'), { fresh: true });
-      await conv.receiveEnvelope(msg('conv-b', 'b2', '第二封'), { fresh: true });
+      // 同会话两封 next-turn 依次排队：b1（将被做成死信——inbox 残迹被清）+ b2（合法）
+      await conv.receiveEnvelope(msg('conv-b', 'b1', '第一封', 'user', 'next-turn'), { fresh: true });
+      await conv.receiveEnvelope(msg('conv-b', 'b2', '第二封', 'user', 'next-turn'), { fresh: true });
       expect(conv.queue('conv-b')).toHaveLength(2);
       // b1 的 inbox 信封文件移除 = 死信形态（已被消费的残迹 / 无信封合成轮）
       fs.rmSync(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b', 'inbox', 'b1.json'));
@@ -558,10 +839,11 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
       expect(conv.isBusy()).toBe(false);
       // b1 死信被跳过（无 run 轨迹）；b2 照跑——修复前 b1 miss 即 break +
-      // finally 再移位丢 b2，两 turn 全蒸发（creator 实锤现场）
+      // finally 再移位丢 b2，两 turn 全蒸发（creator 实锤现场）。
+      // 行序：排队信入站行在占门 run 收束前已落（到达序），占门终稿在收束时
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一封', '第二封', '[回复 第二封]']);
-      expect(rows.filter((r) => r.source !== 'segment')[2]).toMatchObject({ run: 'run-b2' });
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['占门问', '第一封', '第二封', '[回复 占门问]', '[回复 第二封]']);
+      expect(rows.filter((r) => r.source !== 'segment')[4]).toMatchObject({ run: 'run-b2' });
       expect(conv.queue('conv-b')).toHaveLength(0);
     } finally {
       release();
@@ -579,7 +861,7 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     try {
       const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
       await new Promise((r) => setTimeout(r, 80));
-      await conv.receiveEnvelope(msg('conv-b', 'b1', '跨会话信'), { fresh: true }); // 排队
+      await conv.receiveEnvelope(msg('conv-a', 'b1', '排队信', 'user', 'next-turn'), { fresh: true }); // 同会话排队
       expect(conv.requestRestart()).toBe(true); // 收束点将 break（restart 兑现）
       release();
       await first;
@@ -587,8 +869,8 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       expect(conv.isBusy()).toBe(false);
       // 修复前：finally runSettled(false) 移位丢弃队头（b1 静默蒸发）；
       // 修复后：清门不动队列——b1 原位保留（新代 boot 恢复面/下一封信消费）
-      expect(conv.queue('conv-b')).toHaveLength(1);
-      expect(conv.queue('conv-b')[0]!.id).toBe('b1');
+      expect(conv.queue('conv-a')).toHaveLength(1);
+      expect(conv.queue('conv-a')[0]!.id).toBe('b1');
     } finally {
       release();
       await dispose(fibers);
@@ -605,18 +887,18 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       const review = conv.reviewRun('conv-a', '整理提示', { runId: 'review-1' });
       await new Promise((r) => setTimeout(r, 80));
       expect(conv.isBusy()).toBe(true);
-      // 占门期跨会话信 → steer 落空 → 转投队列（无信再触发 = 修复前滞留现场）
-      const cross = await conv.receiveEnvelope(msg('conv-b', 'b1', '跨会话信'), { fresh: true });
+      // 占门期同会话 next-turn 信 → 入队（无信再触发 = 修复前滞留现场）
+      const cross = await conv.receiveEnvelope(msg('conv-a', 'b1', '排队信', 'user', 'next-turn'), { fresh: true });
       expect(cross).toBe('queued');
-      expect(conv.queue('conv-b')).toHaveLength(1);
+      expect(conv.queue('conv-a')).toHaveLength(1);
       release();
       await review;
-      // review 收束 → 唤醒消费：conv-b 的 run 真跑并收束（不再等下一封信）
+      // review 收束 → 唤醒消费：conv-a 的 run 真跑并收束（不再等下一封信）
       for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
       expect(conv.isBusy()).toBe(false);
-      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['跨会话信', '[回复 跨会话信]']);
-      expect(conv.queue('conv-b')).toHaveLength(0);
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-a'));
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['排队信', '[回复 排队信]']);
+      expect(conv.queue('conv-a')).toHaveLength(0);
     } finally {
       release();
       await dispose(fibers);
@@ -903,6 +1185,48 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
     }
   }, 20_000);
 
+  // cr-747 回归：steer/挂起注入路径消费的答案行是 source='inject' 形态——
+  // replayView 恒过滤 inject 行，旧比对（historyFor 投影）恒失配 → 每次
+  // 重启重放已消费答案（二次唤醒事故现场 dur-mvrrebv9）。新比对扫原始
+  // 账本行，inject 答案行 + 其后终稿行 = 已消费，不重放。
+  it('replayAnsweredInteractions：inject 形态消费（答案行+终稿行）不重放', async () => {
+    seedAgent('alpha');
+    {
+      const { ctx, fibers } = await bootTree('alpha');
+      try {
+        const di = new (await import('ac-durable-interaction')).JsonlDurableInteractionStore(
+          path.join(ROOT, 'agents', 'alpha', 'interactions.jsonl'),
+        );
+        di.open({
+          id: 'dur-inj-1', key: 'conv-inj', kind: 'ask_questions',
+          payload: { questions: [{ question: '继续吗？', options: ['是', '否'] }] },
+          owner: 'alpha',
+        });
+        di.reply('dur-inj-1', { answers: ['是'] });
+        di.dispose();
+        const { answerNotice } = await import('ac-ask-questions');
+        const store2 = new (await import('ac-durable-interaction')).JsonlDurableInteractionStore(
+          path.join(ROOT, 'agents', 'alpha', 'interactions.jsonl'),
+        );
+        const rec = store2.get('dur-inj-1')!;
+        store2.dispose();
+        const ledger = ctx.get('ledger', false) as unknown as { deliverRow(uuid: string, p: string[], kind: string, row: Record<string, unknown>): Promise<boolean> };
+        // 事故现场形态：notice 落 inject 行（steer 注入路径）+ 其后终稿行
+        await ledger.deliverRow('conv-inj', ['alpha', 'user'], 'user', { role: 'agent', content: answerNotice(rec), agent_id: 'alpha', requestId: 'seed-1', uuid: 'conv-inj', source: 'inject' });
+        await ledger.deliverRow('conv-inj', ['alpha', 'user'], 'user', { role: 'agent', content: '[终稿] 已按回答处理', agent_id: 'alpha', requestId: 'seed-2', uuid: 'conv-inj' });
+      } finally {
+        await dispose(fibers);
+      }
+    }
+    const { fibers: f2, conv: conv2 } = await bootTree('alpha');
+    try {
+      expect(await conv2.replayAnsweredInteractions()).toBe(0);
+      expect(conv2.isBusy()).toBe(false);
+    } finally {
+      await dispose(f2);
+    }
+  }, 20_000);
+
   // cr-636 幂等兜底：close 未达（竞态/失败）但转录已消费（答案行 + 终稿行）
   // ——转录比对拦截，不重放（重复 run 防线）。
   it('replayAnsweredInteractions：已消费形态（答案行+终稿行）不重放', async () => {
@@ -995,4 +1319,173 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
   }, 20_000);
 });
 
+});
+
+// ============================================================
+// cr-712：跨壳投递接通（send_agent 断点 #3）+ 完成回执泛化（cr-711
+// 语义推广到跨壳 Agent 委托）+ 群广播不回投（方案 A）+ 失败文案。
+// ============================================================
+describe('cr-712 跨壳投递与完成回执', () => {
+  it('deliver 目标非本壳 agent：信封经邮局外发 + 本侧只落出站行（不自己消费自己）', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const address = socketPathFor(path.resolve(ROOT), 'po-c712a');
+    const frames: Envelope[] = [];
+    const server = await listenIpc(address, (frame) => {
+      frames.push(frame as Envelope);
+      return { dispatched: true };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages, address);
+    try {
+      const out = await conv.deliver('beta', '委托任务', {
+        sender: 'alpha',
+        conversationId: 'alpha~beta',
+        replyConversation: 'user~alpha',
+      });
+      // 受理即返（跨壳异步——run 在对端壳）
+      expect(out).toMatchObject({ kind: 'sent' });
+      // 邮局外发信封：to=目标 / 对桶键 / 发起会话键随 payload
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({
+        to: 'beta', sender: 'alpha', uuid: 'alpha~beta', kind: 'message',
+        payload: { text: '委托任务', replyConversation: 'user~alpha' },
+      });
+      // 本壳只落自己的出站行（对桶 sender 侧投影）——不起 run（修复前
+      // 喂本壳 receiveEnvelope：发送方自己跑一轮、对端永远收不到）
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'alpha~beta'));
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((r) => r.content)).toEqual(['委托任务']);
+      expect(rows.some((r) => r.run !== undefined)).toBe(false);
+      expect(chatMessages).toEqual([]);
+    } finally {
+      await dispose(fibers);
+      await server.close();
+    }
+  }, 15_000);
+
+  it('无邮局形态（CLI 直连）跨壳投递 fail-loud', async () => {
+    seedAgent('alpha');
+    const { fibers, conv } = await bootTree('alpha');
+    try {
+      await expect(conv.deliver('beta', 'x', { sender: 'alpha' })).rejects.toThrow('邮局未装配');
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  it('跨壳 Agent 完成回执（completion 标记）：对桶只落账 + 结果转投发起会话', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    const PAIR = 'alpha~beta';
+    const INIT = 'user~alpha';
+    try {
+      const done = makeEnvelope({
+        uuid: PAIR, requestId: 'reply-x1', sender: 'beta', to: 'alpha', budget: 1,
+        payload: { text: '跨壳终稿正文', replyConversation: INIT, completion: true },
+      });
+      expect(await conv.receiveEnvelope(done, { fresh: true })).toBe('ledger-only');
+      // 对桶：终稿一行在账、无 run
+      const pairRows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', PAIR)).rows;
+      expect(pairRows.filter((r) => r.role === 'agent' && r.agent_id === 'beta')).toHaveLength(1);
+      expect(pairRows.some((r) => r.run !== undefined)).toBe(false);
+      // 发起会话：'[Agent beta 回复]' 通知注入 + alpha 面向用户的一轮 run
+      const initRows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', INIT)).rows;
+      expect(initRows.find((r) => r.agent_id === 'beta')?.content).toContain('[Agent beta 回复]');
+      expect(initRows.find((r) => r.agent_id === 'beta')?.content).toContain('跨壳终稿正文');
+      expect(initRows.some((r) => r.agent_id === 'alpha' && typeof r.run === 'string')).toBe(true);
+      expect(chatMessages).toHaveLength(1);
+      // 重放幂等：不再二次唤醒
+      expect(await conv.receiveEnvelope(done, { fresh: true }, { recovered: true })).toBe('ledger-only');
+      expect(chatMessages).toHaveLength(1);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  it('任务信封（replyConversation 无 completion 标记）不是回执——照常起 run', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    try {
+      const task = makeEnvelope({
+        uuid: 'alpha~beta', requestId: 'task-x1', sender: 'beta', to: 'alpha', budget: 2,
+        payload: { text: '反向委托任务', replyConversation: 'user~beta' },
+      });
+      expect(await conv.receiveEnvelope(task, { fresh: true })).toBe('settled');
+      expect(chatMessages).toHaveLength(1);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  it('群广播扇出（broadcast 标记）：成员 run 收束不回投发送方（无串键/回声）', async () => {
+    seedAgent('alpha');
+    const address = socketPathFor(path.resolve(ROOT), 'po-c712b');
+    const frames: Envelope[] = [];
+    const server = await listenIpc(address, (frame) => {
+      frames.push(frame as Envelope);
+      return { dispatched: true };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, address);
+    try {
+      const groupMsg = makeEnvelope({
+        uuid: 'g1~alpha', requestId: 'g-msg1', sender: 'gamma', to: 'alpha', budget: 3,
+        payload: { text: '群消息', broadcast: true },
+      });
+      expect(await conv.receiveEnvelope(groupMsg, { fresh: true })).toBe('settled');
+      // 终稿只落自己成员流；邮局无回信帧（修复前 postReply 回投 gamma =
+      // 发送方账本多出 g1~alpha 成员流目录 + 群内互答链）
+      expect(frames).toEqual([]);
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'g1~alpha'));
+      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((r) => r.content)).toEqual(['群消息', '[回复 群消息]']);
+    } finally {
+      await dispose(fibers);
+      await server.close();
+    }
+  }, 15_000);
+
+  it('error 收束 + 跨壳 Agent 收信人：回信带失败文案（发起方不再空等）', async () => {
+    seedAgent('alpha');
+    const address = socketPathFor(path.resolve(ROOT), 'po-c712c');
+    const frames: Envelope[] = [];
+    const server = await listenIpc(address, (frame) => {
+      frames.push(frame as Envelope);
+      return { dispatched: true };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, new Error('连接超时'), undefined, undefined, address);
+    try {
+      const task = makeEnvelope({
+        uuid: 'alpha~beta', requestId: 'fail-x1', sender: 'beta', to: 'alpha', budget: 2,
+        payload: { text: '会失败的任务' },
+      });
+      expect(await conv.receiveEnvelope(task, { fresh: true })).toBe('settled');
+      // 回信 beta：空终稿被失败文案取代（修复前空文本跳过 = 对端永不知情）
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ to: 'beta', sender: 'alpha' });
+      expect((frames[0]!.payload as { text?: string }).text).toContain('[执行失败：连接超时]');
+    } finally {
+      await dispose(fibers);
+      await server.close();
+    }
+  }, 15_000);
+});
+
+describe('父侧代答（cr-736）：interactionReply 标记信封 → durableInteraction.reply', () => {
+  it('标记信封不进会话机（ledger-only）——直接落 interaction store', async () => {
+    seedAgent('alpha');
+    const { ctx, fibers, conv } = await bootTree('alpha');
+    try {
+      const rec = (ctx.get('durableInteraction', false) as unknown as { open(i: Record<string, unknown>): { id: string } }).open({
+        key: 'u-conv-1', kind: 'ask_questions', payload: { questions: [{ question: '怎么走？', options: ['A', 'B'] }] },
+      });
+      const outcome = await conv.receiveEnvelope(makeEnvelope({
+        uuid: 'u-conv-1', requestId: 'sub-answer-1', sender: 'papa', to: 'alpha', kind: 'message', budget: 0,
+        payload: { interactionReply: { id: rec.id, answer: { answers: ['A'] } } },
+      }), { fresh: true });
+      expect(outcome).toBe('ledger-only');
+      expect((ctx.get('durableInteraction', false) as { get(id: string): { state: string } }).get(rec.id)?.state).toBe('answered');
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
 });

@@ -141,6 +141,124 @@ describe('journal 面', () => {
   });
 });
 
+
+describe('cr-772 历史耗时落盘：journal-step 计时字段 + 终稿行 runMs', () => {
+  it('journalStep 落 elapsedMs/usage/stepId → stepsOfRun 投影透传；settle 终稿行 runMs 带出', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const root = path.join('sandbox', 'test-ledger-cr772-' + process.pid);
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.mkdirSync(root, { recursive: true });
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: root, agentId: 'dur' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        journalStep(uuid: string, run: string, step: unknown): Promise<void>;
+        settleRun(uuid: string, participants: string[], kind: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
+      };
+      const uid = 'user~dur';
+      await svc.journalStep(uid, 'run-d', {
+        index: 0, stepId: 'run-d:0', text: '步文', reasoning: '思考',
+        toolCalls: [], toolResults: [],
+        reasoningMs: 1234, elapsedMs: 5678, usage: { prompt: 10, completion: 20 },
+      });
+      // journal 投影透传（在途读面）：速率段数据源 + 步身份键
+      const p = stepsOfRun(readJournal(sessionDir(root, 'dur', uid)), 'run-d')!;
+      expect(p.steps[0]).toMatchObject({ stepId: 'run-d:0', reasoningMs: 1234, elapsedMs: 5678, usage: { prompt: 10, completion: 20 } });
+      await svc.settleRun(uid, ['dur', 'user'], 'user', {
+        role: 'agent', content: '终稿', agent_id: 'dur', run: 'run-d', runMs: 4242,
+      }, 'run-d', 'ok');
+      // 终稿行带 runMs（历史链栏「用时」段持久锚）
+      const rows = readLedger(sessionDir(root, 'dur', uid)).rows;
+      expect(rows.find((r) => r.run === 'run-d' && r.source !== 'segment')).toMatchObject({ runMs: 4242 });
+    } finally {
+      await fiber.dispose();
+    }
+  });
+});
+describe('usage 自报 stepCache（cr-714：KV 走势步级粒度）', () => {
+  it('after-run 采集步级缓存序列 → settleRun 信封透传 stepCache', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const root = path.join('sandbox', 'test-ledger-stepcache-' + process.pid);
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.mkdirSync(root, { recursive: true });
+    const ctx = new Context();
+    const sent: Array<Record<string, unknown>> = [];
+    // 邮局出站口打桩：截获 usage 事件信
+    const fakePo = {
+      listen: async () => {},
+      send: async (env: Record<string, unknown>) => { sent.push(env); },
+    };
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: root, agentId: 'sga', postOfficeAddress: 'unused' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        settleRun(uuid: string, participants: string[], kind: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
+        // 测试口：替换邮局出站（构造期惰性连接，此处直接注入桩）
+        usageOutbound: { send(env: Record<string, unknown>): Promise<unknown> } | null,
+      };
+      svc.usageOutbound = fakePo;
+      ctx.emit('loop/after-run', { agent: 'sga', model: 'mock', conversationId: 'user~sga', runId: 'run-k1' } as never, {
+        steps: [
+          { text: '', toolCalls: [], toolResults: [], usage: { prompt: 100, completion: 1, cacheHit: 90, cacheMiss: 10 }, ts: 111 },
+          { text: '', toolCalls: [], toolResults: [], usage: { prompt: 110, completion: 1, cacheHit: 80, cacheMiss: 20 }, ts: 222 },
+          { text: '', toolCalls: [], toolResults: [] }, // 无计量步不入
+        ],
+        text: '', finish: 'stop',
+        usage: { prompt: 210, completion: 2, promptAccumulated: 210, cacheHit: 170, cacheMiss: 30, steps: 2 },
+      } as never);
+      await svc.settleRun('user~sga', ['sga', 'user'], 'user', { role: 'agent', content: 'ok', agent_id: 'sga', requestId: 'reply-k1' }, 'run-k1', 'ok');
+      await new Promise((res) => setTimeout(res, 50)); // reportUsage fire-and-forget
+      expect(sent).toHaveLength(1);
+      const payload = sent[0].payload as Record<string, unknown>;
+      expect(payload.subject).toBe('usage-run');
+      expect(payload.stepCache).toEqual([
+        { ts: 111, hit: 90, miss: 10, prompt: 100 },
+        { ts: 222, hit: 80, miss: 20, prompt: 110 },
+      ]);
+    } finally {
+      await fiber.dispose();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // cr-760/761：after-step 即发步级缓存信（宿主 pending 实时段）——payload 带
+  // 本步 prompt（真实上下文体积）；无缓存数据的步不发。
+  it('after-step 步级缓存信即发（usage-step 信带 prompt）', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const root = path.join('sandbox', 'test-ledger-step-live-' + process.pid);
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.mkdirSync(root, { recursive: true });
+    const ctx = new Context();
+    const sent: Array<Record<string, unknown>> = [];
+    const fakePo = { send: async (env: Record<string, unknown>) => { sent.push(env); } };
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: root, agentId: 'live', postOfficeAddress: 'unused' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as { usageOutbound: { send(env: Record<string, unknown>): Promise<unknown> } | null };
+      svc.usageOutbound = fakePo;
+      ctx.emit('loop/after-step', 'live',
+        { text: '', toolCalls: [], toolResults: [], index: 0, usage: { prompt: 50_000, completion: 3, cacheHit: 900, cacheMiss: 100 }, ts: 777 } as never,
+        { conversationId: 'user~live', runId: 'run-l1' } as never);
+      ctx.emit('loop/after-step', 'live',
+        { text: '', toolCalls: [], toolResults: [], index: 1 } as never, // 无计量步不发
+        { conversationId: 'user~live', runId: 'run-l1' } as never);
+      await new Promise((res) => setTimeout(res, 50));
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        requestId: 'usage-step-run-l1-0',
+        payload: { subject: 'usage-step', agent: 'live', conversationId: 'user~live', runId: 'run-l1', step: 0, ts: 777, hit: 900, miss: 100, prompt: 50_000 },
+      });
+    } finally {
+      await fiber.dispose();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('孤儿 run 收口 + 孤儿扫描（cr-628）', () => {
   it('orphanRunsOf：有步行/注入无 settled 的 run 报孤儿；settled / 仅补行不算', () => {
     const lines = [
@@ -223,6 +341,96 @@ describe('settlement 两阶段', () => {
       ['user', '插话'],
       ['assistant', '步'],
     ]);
+  });
+
+  // cr-760：物化段行 steps 的 toolCalls 混有 subcall 平铺卡（run_code 程序内
+  // 子调用——宿主卡后注入的展示用卡）。回放轨迹（trajFromRows）只展开
+  // 模型真实所见的宿主调用对——子调用不进 provider 上下文（主线
+  // injectSubcalls「默认不开」裁决同款），否则上下文与估算双重膨胀。
+  it('trajFromRows 过滤 subcall 平铺卡（cr-760 回放面纯净）', async () => {
+    const w = mk('delta-sub');
+    await w.journal({
+      type: 'journal-step', run: 'run1', step: 0, content: '',
+      toolCalls: [{ id: 'call-h1', name: 'run_code', arguments: '{"code":"…"}' }],
+    });
+    // 宿主 run_code 调用结果 + 两个子调用补行（toolCallId 形如 <宿主>#<seq>）
+    await w.journal({ type: 'journal-tool-result', run: 'run1', toolCallId: 'call-h1', result: { ok: true, output: 'DONE' } });
+    await w.journal({ type: 'journal-tool-result', run: 'run1', toolCallId: 'call-h1#1', subcall: true, name: 'read', arguments: '{}', result: { ok: true, output: '巨型文件内容' } });
+    await w.journal({ type: 'journal-tool-result', run: 'run1', toolCallId: 'call-h1#2', subcall: true, name: 'pwsh', arguments: '{}', result: { ok: true, output: '巨型命令输出' } });
+    await w.settle({ role: 'agent', content: '终稿', agent_id: 'delta-sub', uuid }, 'run1', 'ok');
+    const { rows } = readLedger(sessionDir(ROOT, 'delta-sub', uuid));
+    const seg = rows.find((r) => r.source === 'segment')!;
+    // 物化段行确实带 subcall 平铺卡（stepsOfRun/stepsOfLedger 展示面保留）
+    const flat = (seg.steps ?? [])[0]!.toolCalls!;
+    expect(flat.map((tc) => tc.subcall ?? false)).toEqual([false, true, true]);
+    // 回放轨迹只有宿主调用对——子调用对不出现
+    const traj = trajFromRows(rows, 'run1')!;
+    expect(traj.map((m) => [m.role, (m as { tool_call_id?: string }).tool_call_id ?? m.content])).toEqual([
+      ['assistant', ''],
+      ['tool', 'call-h1'],
+    ]);
+    expect(JSON.stringify(traj)).not.toContain('巨型');
+  });
+
+  it('注入行身份/文案随物化落盘（cr-707）：message_id = injectionId + label/injectSource/原 ts', async () => {
+    const w = mk('delta-inj');
+    const ts = 1_700_000_000_123;
+    await w.journal({ type: 'journal-step', run: 'run2', step: 0, content: '前步' });
+    await w.journal({
+      type: 'journal-inject', run: 'run2', content: '[系统通知] 已收到用户回答：…',
+      injectionId: 'inj-abc', injectSource: 'durable-interaction', label: '已收到用户回答', ts,
+    });
+    await w.journal({ type: 'journal-step', run: 'run2', step: 1, content: '后步' });
+    await w.settle({ role: 'agent', content: '终稿', agent_id: 'delta-inj', uuid }, 'run2', 'ok');
+    const { rows } = readLedger(sessionDir(ROOT, 'delta-inj', uuid));
+    const inj = rows.find((r) => r.source === 'inject')!;
+    // 身份键 = injectionId（直播行 persistedMsgId 与刷新行 message_id 同锚）、
+    // 文案与来源随行、时间戳取注入时刻（不是物化时刻）
+    expect(inj).toMatchObject({
+      message_id: 'inj-abc',
+      label: '已收到用户回答',
+      injectSource: 'durable-interaction',
+      timestamp: new Date(ts).toISOString(),
+    });
+    // 注入仍在真序位（段行之间），不在末尾
+    expect(rows.map((r) => r.source ?? 'final')).toEqual(['segment', 'inject', 'segment', 'final']);
+  });
+
+  // cr-713：busy-steer 消息的账本记录 = 注入行（无入站行）——requestId 随
+  // 物化带出（重放判重锚跨 settle 存续）；hasInboundRow 认 journal 台账与
+  // 物化行两窗口；queue→steered 双记录（入站行 + 注入行同文）读侧去重防双喂。
+  it('注入行 requestId 随物化落盘 + hasInboundRow 两窗口 + historyMessagesFor 防双喂', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'delta-req' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        deliverRow(uuid2: string, participants: string[], kind: string, row: Record<string, unknown>): Promise<boolean>;
+        journalStep(uuid2: string, run: string, step: unknown): Promise<void>;
+        journalInject(uuid2: string, run: string, content: string, requestId?: string): Promise<void>;
+        settleRun(uuid2: string, participants: string[], kind: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
+        hasInboundRow(uuid2: string, req: string): boolean;
+        historyMessagesFor(uuid2: string): Array<{ content: string }>;
+      };
+      // queue→steerQueued 形态：入站行（排队时）+ 注入行（steer 出队）同 requestId
+      await svc.journalStep(uuid, 'runR', { index: 0, text: '步', toolCalls: [], toolResults: [] });
+      await svc.deliverRow(uuid, ['delta-req', 'user'], 'user', { role: 'agent', content: '插话', agent_id: 'user', requestId: 'rq-1', uuid });
+      await svc.journalInject(uuid, 'runR', '插话', 'rq-1');
+      // 物化前窗口：journal-inject 台账同键判重
+      expect(svc.hasInboundRow(uuid, 'rq-1')).toBe(true);
+      expect(svc.hasInboundRow(uuid, 'rq-none')).toBe(false);
+      await svc.settleRun(uuid, ['delta-req', 'user'], 'user', { role: 'agent', content: '终稿', agent_id: 'delta-req', requestId: 'reply-r', uuid, run: 'runR' }, 'runR', 'ok');
+      const inj = readLedger(sessionDir(ROOT, 'delta-req', uuid)).rows.find((r) => r.source === 'inject')!;
+      expect(inj.requestId).toBe('rq-1');
+      // journal 收束即清后，物化行仍可判重（重放幂等跨 settle 存续）
+      expect(svc.hasInboundRow(uuid, 'rq-1')).toBe(true);
+      // 双记录防双喂：轨迹带注入行一份，入站行文本不再复读
+      expect(svc.historyMessagesFor(uuid).filter((m) => m.content === '插话')).toHaveLength(1);
+    } finally {
+      await fiber.dispose();
+    }
   });
 });
 
@@ -408,6 +616,35 @@ describe('续跑读面（cr-667）', () => {
     ]);
     expect(out.committedSteps).toBe(1); // 步 0 全提交；步 1 未提交不计
     expect(resumeContextOfRun(lines as never[], 'run-无涉')).toBeNull();
+  });
+
+  // cr-766（中止步保真）：aborted 步的部分聚合照常落盘/投影；续跑/轨迹
+  // 读侧剔除其 tool_calls（调用从未执行——区别于崩溃窗口的 UNCOMMITTED
+  // 合成），部分 content 如实保留（续跑携带面）。
+  it('cr-766：aborted 步——stepsOfRun 带出 aborted/相位时长；resume 剔除 tool_calls 保留部分正文', () => {
+    const lines = [
+      { type: 'journal-step', run: 'runA', step: 0, content: '先查', reasoning: '想想', toolCalls: [{ id: 'c1', name: 'read', arguments: '{}' }], seq: 1 },
+      { type: 'journal-tool-result', run: 'runA', toolCallId: 'c1', result: { ok: true, output: '内容' }, durationMs: 1234, seq: 2 },
+      { type: 'journal-step', run: 'runA', step: 1, content: '写到一半', reasoning: '思考中断前', aborted: true, reasoningMs: 5100, textMs: 800, toolCalls: [{ id: 'c2', name: 'write', arguments: '{"file_path":"x' }], seq: 3 },
+    ];
+    // UI 投影：中止步带出 aborted + 相位时长 + 工具耗时（c1）
+    const proj = stepsOfRun(lines as never[], 'runA')!;
+    expect(proj.steps[1].aborted).toBe(true);
+    expect(proj.steps[1].reasoningMs).toBe(5100);
+    expect(proj.steps[1].textMs).toBe(800);
+    expect(proj.steps[0].toolCalls![0].durationMs).toBe(1234);
+    // 续跑：步 0 原样；步 1 剔除 tool_calls（参数截断、从未执行——不合成
+    // UNCOMMITTED），部分 content 保留
+    const out = resumeContextOfRun(lines as never[], 'runA')!;
+    expect(out.messages).toEqual([
+      { role: 'assistant', content: '先查', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: '内容' }) },
+      { role: 'assistant', content: '写到一半' },
+    ]);
+    expect(out.committedSteps).toBe(1);
+    // 轨迹面同款剔除（trajectoryOfRun）
+    const traj = trajectoryOfRun(lines as never[], 'runA');
+    expect(traj.at(-1)).toEqual({ role: 'assistant', content: '写到一半' });
   });
 
   it('recoverOrphanRuns(defer)：defer 命中 run 不补 settled（留给续跑面）；未命中照旧', async () => {

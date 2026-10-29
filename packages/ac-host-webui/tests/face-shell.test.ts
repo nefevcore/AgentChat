@@ -244,6 +244,72 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     }
   });
 
+  // cr-725：busy/exited 是父壳进程内态，盘读不可见——subagents/list 叠加
+  // 活壳 subagents-list 回执（只问在跑的壳；壳答错 = 盘读值兜底）。
+  it('subagents/list 活壳态叠加：busy → running（activeCount 口径同步）；壳死兜底盘读值', async () => {
+    const rootDir = 'sandbox/test-sub-live-' + process.pid;
+    const childDir = rootDir + '/agents/parent1/children/kid1';
+    fs.mkdirSync(childDir + '/sessions/s1', { recursive: true });
+    fs.writeFileSync(childDir + '/config.json', JSON.stringify({ id: 'kid1', name: '调研员' }), 'utf-8');
+    fs.writeFileSync(childDir + '/sessions/s1/messages.jsonl', [
+      JSON.stringify({ type: 'session-header', version: 1 }),
+      JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '去查证 X' }),
+    ].join('\n') + '\n', 'utf-8');
+    try {
+      const port: ShellAdminPort = {
+        async ensureAgent() { throw new Error('不该拉起壳'); },
+        handles() {
+          return new Map([
+            ['parent1', { control: async (f: Record<string, unknown>) => {
+              if (f.op === 'subagents-list') return { agents: [{ childId: 'kid1', status: 'ready', pid: 1, busy: true }] };
+              throw new Error('未知 op');
+            } }],
+            ['dead-shell', { control: async () => { throw new Error('壳已死'); } }],
+          ]);
+        },
+      };
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => port });
+      const out = await handlers.get('subagents/list')!({}) as { activeCount: number; subs: Array<{ displayStatus: string }> };
+      expect(out.activeCount).toBe(1); // 运行中不再是空闲
+      expect(out.subs.find(() => true)!.displayStatus).toBe('running');
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  // cr-725：在途 run 内容只住 journal/partials.jsonl（收束才物化进账本）——
+  // subagents/history 按 run 键投影 journal 步行，运行中点开子会话可见过程。
+  it('subagents/history journal 活投影：在途 run 步行投出（steps + partial）；未知 id fail-loud', async () => {
+    const rootDir = 'sandbox/test-sub-hist-' + process.pid;
+    const sessDir = rootDir + '/agents/parent1/children/kid1/sessions/c1';
+    fs.mkdirSync(sessDir + '/journal', { recursive: true });
+    fs.writeFileSync(rootDir + '/agents/parent1/children/kid1/config.json', JSON.stringify({ id: 'kid1' }), 'utf-8');
+    fs.writeFileSync(sessDir + '/messages.jsonl', [
+      JSON.stringify({ type: 'session-header', version: 1, participants: ['kid1', 'parent1'] }),
+      JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '干活' }),
+    ].join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(sessDir + '/journal/partials.jsonl', [
+      JSON.stringify({ type: 'journal-step', run: 'run-9', step: 1, content: '先查证路径', ts: 1 }),
+      JSON.stringify({ type: 'journal-step', run: 'run-9', step: 2, content: '再读源码', ts: 2 }),
+    ].join('\n') + '\n', 'utf-8');
+    try {
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => null });
+      const out = await handlers.get('subagents/history')!({ id: 'kid1' }) as {
+        total: number;
+        records: Array<{ role: string; content: string; run?: string; partial?: boolean; steps?: Array<{ content: string }> }>;
+      };
+      expect(out.total).toBe(2); // 任务行 + 在途 run 投影行
+      expect(out.records[0]).toMatchObject({ role: 'user', content: '干活' });
+      const inFlight = out.records[1]!;
+      expect(inFlight).toMatchObject({ role: 'assistant', run: 'run-9', content: '', partial: true });
+      expect(inFlight.steps?.map((s) => s.content)).toEqual(['先查证路径', '再读源码']);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('runs/interrupt：按会话键命中活壳在途 run（interrupt 帧）；未命中 = aborted 0', async () => {
     const { web, handlers } = collect();
     const frames: Array<Record<string, unknown>> = [];
@@ -261,7 +327,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     expect(out).toEqual({ aborted: 1 });
     expect(frames).toEqual([
       { ctrl: 'admin', agentId: 'a1', op: 'run-state' },
-      { ctrl: 'interrupt' },
+      { ctrl: 'interrupt', conversationId: 'c1' }, // cr-746：多 run 壳按会话键中止
       { ctrl: 'admin', agentId: 'b1', op: 'run-state' },
     ]);
     expect(await handlers.get('runs/interrupt')!({ conversationId: 'ghost' })).toEqual({ aborted: 0 });

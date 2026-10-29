@@ -33,6 +33,9 @@
 //     fallbackTitle —— 会话标题词法（cr-672 下沉：主线 ac-singles 直写与
 //     preview 壳侧 auto-title 行（生成 → 信封 → 宿主 singles 行落盘）两处
 //     生成面共用长度上限 / 提示词 / 清洗 / 截断回落——两处各写一份必走散）
+//   · GroupConfig / assertGid / readGroupConfig / listGroupConfigs —— 群
+//     配置纯读面（cr-712 下沉：宿主 groups 行写面与壳侧 group 垫片〔send_group
+//     扇出〕两处共用读词汇——垫片 import 宿主行包即壳→宿主反向依赖）
 // 下沉后 session 与 group 互相零 import：协作只经 ctx.get 服务面
 // （D11 跨域读写口），两行可独立停用。
 // ============================================================
@@ -151,3 +154,4 @@ export function normalizeToolSpecs(
 
 export * from './persona.ts';
 export * from './session-title.ts';
+export * from './groups.ts'; // 群配置纯读面（cr-712 下沉——宿主 groups 行与壳侧 group 垫片共用）

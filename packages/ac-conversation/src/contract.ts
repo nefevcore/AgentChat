@@ -90,6 +90,12 @@ export interface ConversationDeliverOptions {
    * `req:`）+ 会话目录 .deliver-seen.json（最近 N 键，FIFO 淘汰）。
    */
   requestId?: string;
+  /**
+   * 完成回执的发起会话键（cr-712 壳侧词汇，主线投递不消费）：跨壳委托
+   * （send_agent）信封携带 → 对端终稿回信原样回带 → 发起方壳据此把
+   * 完成回执转投发起会话（cr-711 子 Agent 回执同语义），不唤醒对桶。
+   */
+  replyConversation?: string;
 }
 
 /** 投递结果 */

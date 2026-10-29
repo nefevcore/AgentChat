@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-704**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-800**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 
 ## 登记格式
 
@@ -722,3 +722,99 @@
 - 【cr-702 2026-10-26 发布链换轨批：build:bundle 改 preview 宿主双入口（agentchat.mjs+shell.mjs+资产面）+ 三 CI workflow 换轨 + src/webui 退役 + README 深层叙事重写】
 - 【cr-703 2026-10-26 全仓重组批（布局 C）：packages/ 收编全部活包（src 71 + preview 49）、apps/ 收编四应用、src/ 消灭——preview 覆盖正轨终态批；四遗留并入（4 死包删 + 批 C src/webui 退役 + cutover 三脚本 + cordis.yml/supervisor.mjs）；tag preview-final 归档】
 - 【cr-704 2026-10-26 preview 归档不设 git tag 裁决：删除本地轻量标签 preview-final（cr-703 开工会话 16:53 创建、从未推送），README/收尾清单/计划同步为「末态即提交 3943f5aa、不占 tag 命名空间」】
+- 【cr-705 2026-10-26 cr-703 收尾 P0 批：测试 EPERM 根修（e2e 数据根移出 workspace/test + host close 收割壳句柄 + global setup EPERM 有界重试与诊断）+ bundle 全链 e2e 脚本（scripts/e2e-bundle.mjs）+ release-preflight --clean 的 src/ 目录扫描 bug 修复（cr-703 布局后失效）】
+- 【cr-706 2026-10-26 cr-703 收尾续批：壳 bundle CLI 门修复（endsWith(boot.ts) 在 dist/shell.mjs 恒假——bundle 壳零输出直退，e2e-bundle 抓到的实锤；改宿主同款 resolve 等价门）+ CHANGELOG Unreleased 路径修正与 cr-703 条目 + 行 client default 出口跨行结构锁补回（packages 布局）】
+- 【cr-707 2026-10-26 上下文注入行（已发起提问/已收到用户回答）双面修复：① 刷新丢失——注入行 label/injectionId/injectSource 随 journal 落盘，宿主 session/history 读面投影为 context 行（原先被 derive 的 inject 过滤整条吞掉）；② 直播漂移——注入帧先发后落盘（不再等 journal IO 让后续 step 帧超车）+ mergeHistory 首屏按时间序归并（不再把直播注入行顶到历史块之后）】
+- 【cr-708 2026-10-26 cr-703 收尾卫生批：supervisor 双布局文件头互注 + supervisor-parity 回归锁；删 remote-loopback-host.ts（ac-app 依赖已亡两月无消费者）与 preview 备份（802MB 比对无差异，用户裁决）；ac-config/ac-harness-tools 原子写瞬时占用重试+诊断；retired-types 判死回滚（模块增强隐式消费——判死纪律注记）；kit 对比度锁补回（contrast-tokens 8 断言组，人为回归红验证）；P2 卫生（徽章 2400+/断链 ../preview 注释/5 处 ac-app 注释/.dsh 本地态注记）；coverage 完整审计落 sandbox/coverage-audit-cr703.md（138 件：PORT 94/COVERED 13/DROP 31）】
+- 【cr-709 2026-10-26 cr-703 收尾卫生批：supervisor 双布局文件头互注 + supervisor-parity 回归锁；删 remote-loopback-host.ts 与 preview 备份（802MB 比对无差异，用户裁决）；ac-config/ac-harness-tools 原子写瞬时占用重试+诊断；retired-types 判死回滚（模块增强隐式消费）；kit 对比度锁补回（8 断言组，人为回归红验证）；P2 卫生（徽章 2400+/断链/5 处 ac-app 注释/.dsh 本地态注记）；coverage 审计落 sandbox/coverage-audit-cr703.md（138 件：PORT 94/COVERED 13/DROP 31）】
+- 【cr-710 2026-10-26 会话防自激预算改由信封携带的 budget 权威裁决（此前内存计数器每壳代重置，agent⇄子Agent 自动互答可跨重启无限续跑）+ 父壳回信对子 Agent 直投 ipc（裸 id 走邮局会拉起同 id 幽灵顶层身份）+ async spawn 忙态随终稿回落（看板不再恒 running）】
+- 【cr-711 2026-10-26 子 Agent 完成回执语义修正（cr-711）：回执不进会话机（父⇄子对桶只落账），结果转投发起会话（replyConversation 随任务信封往返、self 发起 + replyTo=user）——修复「LLM 有消息必回」的父⇄子互答；附带 send_agent/send_group 投递缺口报告（docs/design/collab-delivery-gaps.md）与 makeEnvelope 补 replyTo 入参】
+- 【cr-712 2026-10-26 subagent delete 收割改归档：物理 rmSync 改 archived.json 标识——子域账本（任务/思考/终稿）保留可回放审计，list/看板按标识隐去】
+- 【cr-713 2026-10-26 mid-run 入站消息错位双行根因修复：busy-steer 分支不再 deliverRow——ledger 记录归 journal-inject 单源（settle 物化在位）， Receipt/用户 mid-run 消息同治】
+- 【cr-714 2026-10-27 token 上下文占用弹层修复：session/tokens 估算改 agent 域账本回放口径（estimateReplayTokens 单源、与归档阈值同口径）+ session/kv-timeline 去 stub 接 ctx.usage.conversationTimeline（KV 走势图恢复）+ 壳 usage 自报信补 stepCache 步级缓存序列 + 弹层单点不出空区块】
+- 【cr-715 2026-10-27 RPC 过渡实现审计落盘：docs/design/rpc-transitional-audit.md——前端死链 6（plugin/loaded·dev-scan·extension-catalog·dep-graph·events/policy-list·system/restart 均为旧主线 src/ac-web-api 面、新宿主未移植）+ 后端空桩 3（events/listeners·descriptions·tags/catalog）+ fail-loud 错位 8（patch-*·load·unload 占位 vs 前端 UI 未换面，rows/* 新面零生产消费方）+ timers-row 近似判定注释前提过时 + ~28 文件主线/preview stale 注释】
+- 【cr-716 2026-10-27 修复历史回放乱序：UserLedger.replay 投影丢 timestamp（user/peer 终稿行）+ 前端排序缺时刻行沉底（继承前驱）】
+- 【cr-717 2026-10-27 创造模式 system prompt 重写：对齐新架构（manifest.rows 行集声明 cr-543、三模板骨架、装卸语义细化、自律规约口径）】
+- 【cr-718 2026-10-27 shell-tools 任务日志流 EPERM 崩溃根修：handoff WriteStream 挂 error 吸收面（%TEMP% 瞬时拒写不再 unhandled 带崩壳进程）+ 后台 openLogFd 瞬时占用有界重试】
+- 【cr-719 2026-10-27 创造模式 system prompt 增补 restart_shell/restart_host 使用指引（自主使用导向，语义对齐 cr-629 实体）】
+- 【cr-720 2026-10-27 创造模式盘上物化实体 system 同步模板新文本（cr-717/719 只改了模板；orchestrate skip-if-present 使盘上遗留实体永不更新——前端预览读盘上实体导致漂移）】
+- 【cr-721 2026-10-27 预设身份配置运行时注入架构裁决：模板基座 + 盘上差异两层合成（取代一次性物化 skip-if-present——cr-720 漂移事故的结构性修复）】
+- 【cr-722 2026-10-27 行描述字段 role→description 更名：RowDescriptor/PluginRowDeclaration 契约 + row-catalog 61 行 + 宿主行集视图/安装链/测试/文档同步】
+- 【cr-723 2026-10-27 fs/pwsh 在 NTFS Low 完整性目录树上被 MIC 拦截的取证留档；bash-scan 裸斜杠（除法）误报 Unix 绝对路径；sandbox-access 用 icacls 限制范围的候选需求】
+- 【cr-724 2026-10-27 subagent 双修：子壳 spawn 补 windowsHide（Windows 弹命令行窗，随手关窗=杀子代理）；子壳硬退出时任务在飞无终稿——await 永 pending，改按 onExit 合成异常退出回执】
+- 【cr-725 2026-10-27 子Agent 面板双修：subagents/list 盘读面叠加活壳 busy 态（运行中此前恒显示空闲——busy 是父壳进程内态，盘读不可见；新增 subagents-list 管理帧只查在跑壳）；subagents/history 接 journal 步行活投影（运行中点开子会话只见到任务行、无过程回放——在途 run 内容住 journal/partials.jsonl，收束才物化）】
+- 【cr-726 2026-10-28 文档审查批：6 路并行审查 docs/ 全量（57 活跃 + cutover 16），归档 14 篇（10 入 design/archive、4 出仓库）、修正约 25 篇（行册/架构协议/会话存储/远程/UI 五组），疑点清单落仓库外 Note 归档根】
+- 【cr-727 2026-10-28 subagent 工具等待面遵守 call.signal 根修：run_code 墙钟耗尽/用户中止 abort 已随子调用信封下发，但 awaitReply 只认自身 timeout_s 轮询——worker 停在子调用 Promise 上够不到中止检查点，5s 宽限后 terminate 以「worker 异常退出（code=1）」收场（超时面永见不到『墙钟预算耗尽』真因）】
+- 【cr-728 2026-10-28 subagent 提权继承：任务信封透传 call.elevation（两档白名单窄化）——父的 full-access 是随信临时提权（cr-626），taskEnvelope 此前丢弃致子代理回落 base 底座（父 tags 无 full-access）；子壳 receiveEnvelope 的 env.elevation→loop 链路既有，只缺发送侧。对齐契约『elevation 继承不放大也不缩水』（agent-loop contract），collab send 的 opts.elevation 同步接线】
+- 【cr-729 2026-10-28 subagent ask 死锁闭环：①await 在 pending 时盘读子域 interactions.jsonl，返回 status=asking + 问题载荷（子 ask_questions 挂起对父此前不可见——父永轮 pending、子永等回答）；②subagent 新增 answer action：经既有 stdin 控制帧投 interaction-reply admin op 到子壳（子侧 durableInteraction.reply→replied 事件→三态注入续走，链路全既有），父 Agent 可代用户作答】
+- 【cr-730 2026-10-28 subagent 提问改推送：子域 interactions.jsonl 目录 watch（ac-webui-core watchLedger 同款防抖）发现新 pending ask 即向父会话注入「收到子 Agent 提问」上下文——忙 run steer 步边界注入/空闲 deliver 唤醒（对齐 ask-questions 答案注入三态形态），不再依赖父轮询 await 时盘读（await asking 面保留为查询兜底）；pendingAskOf 改 last-wins（reply 追加行覆盖旧 pending 态）】
+- 【cr-731 2026-10-28 subagent 提问通知改持久可重放：①spawn 把发起会话键 originConversation 物化进子域 config.json（重启后注入目标可恢复——convOf 原为内存态）；②提问通知 deliver 携带 requestId=ask-notice-<id>（cr-250 持久幂等面 .deliver-seen.json 去重）；③服务启动 + 首次工具调用时对账全部物化子的 pending ask 补投漏通知——修「父壳重启 watcher/askNotified/convOf 全蒸发，pending ask 成死信；不开会话父壳不拉起、通知无处安放」的易失推送面（store 仍在子域：reply 语义必须子进程内执行，位置非错误）】
+- 【cr-732 2026-10-28 提问对账注入目标回落链：config.originConversation（cr-731 新物化）缺席时读子域 sessions/*/inbox 任务信封的 payload.replyConversation（cr-711 早已持久化）——修历史子（cr-731 前 spawn）重启对账静默跳过、会话看不到提问注入】
+- 【cr-733 2026-10-28 提问对账重试时序修复：conversation 服务在 subagent 行之后装配（行序依赖）——boot 时对账恒拿不到会话面而静默跳过，此前的兜底只挂首次 subagent 工具调用（无人发消息永不触发）。改为有界重试循环（500ms×120 直到 conversation 可用），deliver 失败落日志不再静默吞】
+- 【cr-734 2026-10-28 待答提问拉壳扫描：宿主 boot 扫 children 域 interactions.jsonl（last-wins 判 pending ask_questions）命中即 ensureAgent(父)——提问通知链全住父壳进程而壳按需拉起，重启后无人发消息父壳永不起、pending ask 成死信；与 restart-shell 标记扫描同族（盘上事实→拉壳），壳起后对账链（cr-731/733）自行投递】
+- 【cr-735 2026-10-28 待答提问拉壳改延迟串行：boot 期拉壳与 rescue 探活并发——慢 boot 壳被 4s manage 探针误判真老壳→降级再拉→并发 ensureAgent 双 spawn（R3 已知竞态）互拒判死，壳 boot 完成前被杀。扫描改纯函数收集父清单，boot 后 15s 串行逐个 ensureAgent（避开启动风暴窗口）】
+- 【cr-736 2026-10-28 subagent 换代缺口双修：①answer 在父壳重启后（children 句柄面空）报不在管理面——改经子 activation.lock transportHint 直投 interactionReply 标记信封（deliverToChild 同款通道），子壳收信面认标记转 durableInteraction.reply（replied 事件三态续走既有）；②提问通知对账路径改 steer 优先（忙 run 步边界注入，不再挤进 QueueDock 排队）】
+- 【cr-737 2026-10-28 ToolResultSubagent 卡片对齐 preview 工具词形：list 读 agents（旧主线 subagents 词形回落，历史回放兼容）+ childId/id 双读 + busy→running/exited→stopped/ready→idle 徽章归一（已停止/已完成的子此前列表恒空「暂无活跃」）；ID 点击守卫认 sub- 连字符（此前 sub_ 单词形点击无效）；await 卡 result.text 展开（对象直渲 bug）】
+- 【cr-738 2026-10-28 subagent list 会话域过滤：子域无发起会话记录，list 为父 agent 全局面——跨会话互相可见。listOp 加 originConversation 投影（config→inbox 信封回落，读缓存）+ 当前会话过滤（无键条目保守显示防孤儿），工具 list 缺省过滤 / all=true 全量，输出带 origin_session；childOf 懒回填 config.originConversation（存量覆盖收敛）】
+- 【cr-739 2026-10-28 session/history 投影：busy-steer 注入行 requestId 关联过滤 viewer 域同键 user 行（插队消息双卡根修）】
+- 【cr-740 2026-10-28 运维日志面补齐：壳侧 run.started/run.settled 节拍 emit + 宿主监护面 runbeat 落盘 + stderr 落盘判定修正（boot 完成行/运维事件不再误判错误面）】
+- 【cr-741 2026-10-28 shell-*.log 运维优化：stderr 落盘行宿主侧盖 ISO 时标（时间线对齐）+ boot 完成行不再刷宿主控制台 + reportStderr 死参数精简】
+- 【cr-742 2026-10-28 控制台输出格式化：cordis logger 档位（label 对齐+颜色）+ 宿主/壳转发高频行统一 HH:mm:ss LVL [src] 格式 + strip-types ExperimentalWarning 消音】
+- 【cr-743 2026-10-28 壳 boot 关键路径插桩测量与 boot.ready 指纹域异步化】
+- 【cr-744 2026-10-28 会话状态 dock 卡（run-status）：发送→首输出的静默空窗前端可视化——connecting/thinking/streaming 三态 + 错误收敛（conversation:dock-widget 贡献 order 5）】
+- 【cr-745 2026-10-28 修复链跑交接 activeRun 会话键不更新：driveRun 链跑循环 runStarted 时同步重设 activeRun——运行跟踪面板（runs/snapshot runState）与 session/history 活投影在链跑 run 期间误报首会话】
+- 【cr-746 2026-10-28 per-conversation 串行化门落地：ConversationMachine 按 runAddress(agent, conversationId) 粒度多实例（Map<uuid, machine>），同 Agent 多会话并行 run——activeRun/currentAbort 多值化，run-state 帧改多 run 形状（宿主 collectRunning/活投影适配），链跑循环改 per-会话驱动，对齐 per-agent-instance-architecture D1 裁决】
+- 【cr-747 2026-10-28 ask-questions 二次唤醒根修：answered 交互消费路径 close 缺席 + boot 重放面比对口径漏 inject 行（steer/挂起注入消费的 notice 恒被 replayView 过滤→比对恒失配→重启必重放）】
+- 【cr-748 2026-10-28 shell 状态对账批：conversation.runState 增 recentSettled 尾巴 + 宿主 shellStatePoller 只读轮询面（快照缓存/收束对拍/可达维持），collectRunning 优先读缓存】
+- 【cr-749 2026-10-28 run-status 相位序根修：载体活跃相位优先——流式输出被历史工具残留（最短转圈延迟窗/参数分片）吞成 tooling/calling 的错位；文案格式改逗号用时】
+- 【cr-750 2026-10-28 webui:build 26 条 node:fs/node:path externalized 警告根因修复：ac-webui-core 增 ./browser 子入口（token-vocab+isolated-policy 浏览器安全面），apps/ui 浏览器侧值导入（client/boot.ts、src/isolated.ts）改走子入口——Node-only 模块不再进 vite 浏览器模块图】
+- 【cr-751 2026-10-28 run-status 状态卡布局：时间前置 + 自绘旋转时钟替代 BusyRing（指针 3s/圈，忙指示豁免 reduce）】
+- 【cr-752 2026-10-28 subagent 子会话视角刷新驱动改挂 subagents/updated 帧：原 watch 押 jobBoard kind=subagent 条目，而 preview 生产链（ShellSubagentService）从不向 jobs 注册表登记——job 恒 undefined，子 Agent 运行中/收束后子会话视角不重拉历史（思考过程要手动刷新才可见）。改经 ctx.subagentBoard（既有 subagents/list RPC + subagents/updated 帧驱动投影）驱动刷新与运行徽章，摘除 jobBoard 依赖】
+- 【cr-753 2026-10-28 subagent 会话设置继承：子 Agent 不继承父会话的 conv-settings 覆盖——父会话键（sid/对桶）上的 toolMode=tc-programmatic、elevation=full-access 等对子不可见（子会话键 parent~sub-x 在 conv-settings 无键，子 run 回落子 config tags = base/tc-base；唯一例外是 cr-728 的 per-call elevation 仅在父 run 自带提权时随任务信封到达）。修复：spawnOp 物化子域时读父会话（call.conversationId）的 conv-settings，把继承面键（elevation→档位词、toolMode→tc-模式词、browserTier/issueSubmit→等效能力词）合入子 config.tags 快照（会话覆盖本就是等效能力标签语义，物化即快照与 R-5 同构）】
+- 【cr-754 2026-10-28 子 Agent 工作区幻影路径修复：WorkspaceShim.sandboxWorkdir 对齐主线 ensureAgentWorkdir 懒建语义（files/<id> 首触即建）；subagent delete 归档时空工作区目录顺手回收】
+- 【cr-755 2026-10-28 run-status 响应式断链根修：流式载体经 feed-core 非 reactive Map（原始引用改属性无 trigger）——thinking 逐帧到达状态卡不重算恒显 calling；Host computed 挂 lastStreamAt 依赖锚（bump 每帧经代理更新）】
+- 【cr-756 2026-10-28 run-status 权威对账：run 在途判定挂 conversation/stats 轮询（活跃期 2s，Host 驱动）——本地帧点亮 + 权威判死（miss 且 20s 无帧 = 死行收束），替代启发式死行判别】
+- 【cr-757 2026-10-28 子壳 AgentsShim.get 顶层缺席回落 children 嵌套域（影子形态 config 读不到 → tags 丢失 → run_code SDK 投影空）：对齐主线 conversation readConfig 的 parentId 分支】
+- 【cr-758 2026-10-28 subagent 工作区锚点继承：发起会话挂载工作区时 spawn 快照进子 config settings.security.workdir，WorkspaceShim.sandboxWorkdir 补显式 workdir 层（主线 ac-workspace 同序）——子 Agent 相对路径/bash cwd/提示词工作目录锚定发起会话工作区】
+- 【cr-759 2026-10-28 subagent 模型继承（cr-758 续）：发起会话 conv-settings 的模型覆盖随 spawn 快照进子 config 的 model/provider（splitModelRef 拆分 name@model）——修复子 Agent 用默认模型而非会话设置模型】
+- 【cr-760 2026-10-28 上下文占用双修：trajFromRows 过滤 subcall 平铺卡（run_code 子调用对不进回放注入/估算——对齐旧架构「回放面纯净」裁决，上下文膨胀与估算高估同根断）+ 壳 after-step 步级缓存事件信（preview 拓扑宿主无 loop 事件源，pending 步流断链——运行中 run 的 KV 走势实时性恢复）】
+- 【cr-761 2026-10-28 上下文占用每 step 实时刷新：usage-step 信与 stepCache 增带步级 prompt（本步请求真实上下文体积），timeline 点透传 prompt，TokenGauge 运行中 run 以最新步 prompt 驱动占用环/头行/堆叠条（盘读估算仍在 run 收束后接管）】
+- 【cr-762 2026-10-28 子壳行集剔除 subagent 行（防子孙无限增长）——deriveAndAssertRowset parentId 形态过滤 + spawnOp ⊆ 投影拒绝显式点名】
+- 【cr-763 2026-10-28 前端工具卡永转根治：空输出工具 result 空串被判在途（feed.ts 派生收窄到末尾步）+ 重连无条件收口 + 权威判死联动消息行收口 + 悬挂探针挂载条件放宽（runInFlight 口径）】
+- 【cr-764 2026-10-28 run_code 程序卡退役卡内「工具调用」时间线段——逐条子调用已由 subcall 平铺卡展示；卡内保留执行摘要徽章行（调用计数/机器耗时/被拒唯一可见面）】
+- 【cr-765 2026-10-29 ctx.get 隐形依赖分析收口：SKILL 插槽-插头约束文案校准为粒度/时机真实语义（激活单元=意义单元；use-time 软取为正典、start-time 硬依赖必须 inject）；ac-goal goal-round 驱动改 inject conversation 硬依赖（消软取 warn 丢轮）】
+- 【cr-766 2026-10-29 中断步保真落盘 + 步内相位 duration 粒度（思考/回复 textMs + 工具执行耗时落盘）：ac-llm abort 返回部分聚合而非丢弃，loop 中断步照发 after-step 并跳过工具执行，journal/投影/续跑读侧全链带出，续跑剔除不完整 tool_calls】
+- 【cr-767 2026-10-29 注入卡展开体修复：inFlight 同锚丢弃改吸收（历史行 contextContent 补进直播行）+ 注入帧调度延迟重拉】
+- 【cr-768 2026-10-29 历史加载读面优化回填：session/history 恢复 lite 视图与 fingerprint 短路 + 读面单次化（cutover 迁移遗漏，cr-52/54/55 优化在新架构静默丢失）】
+- 【cr-769 2026-10-29 run-status dock 焦点化重设计：主色胶囊带 + 活动轨道 SVG 动效（替换时钟指针图标）+ 计时升为 hero 'run-status dock 焦点化重设计：主色胶囊带 + 活动轨道 SVG 动效（替换时钟指针图标）+ 计时升为 hero', 相位化轨迹运动】
+- 【cr-770 2026-10-29 run-status 状态行二次重塑：去壳、自建色板、CSS 呼吸柱列替代 SVG 旋转】
+- 【cr-771 2026-10-29 run-status 状态栏三版：悬浮呼吸胶囊（自建 pill + 相位色相 + 状态点心跳余波）】
+- 【cr-772 2026-10-29 历史耗时落盘透传：journal-step 补 elapsedMs/usage/stepId，LoopRunResult.wallMs 经终稿行 runMs 持久，前端历史链栏耗时/速率段补全】
+- 【cr-773 2026-10-29 run-status 状态栏 cr-772：计时弱化到与文案同级；结构面改走令牌修亮色白字隐形（classic 无 data-theme，改以 html.light 判亮极）】
+- 【cr-774 2026-10-29 run-status 无壳化：去掉胶囊壳，光晕改由状态点向外发散（--halo-a 分主题档）】
+- 【cr-775 2026-10-29 run-status 调优：字号降一级 fs-sm、光晕收小至 31px、整行改左对齐贴消息流基线】
+- 【cr-776 2026-10-29 run-status 容器透明化 + 计时/文案双磨砂色域（相位色底 + backdrop blur）防混读】
+- 【cr-777 2026-10-29 run-status 色域改渐隐底色：对齐 chain-header.expanded 手法，撤掉 backdrop-filter】
+- 【cr-778 2026-10-29 composer 浮层栈：dock 列+输入区脱流贴底，消息区全高+实测底部内边距+顶缘渐隐（修「像被遮挡」的根因）】
+- 【cr-779 2026-10-29 底部留白改内容尾部 spacer 元素（不再吃滚动容器 padding）：避开 border-box 与 scoped 特异性，测高走 prop 数据流】
+- 【cr-780 2026-10-29 run-status 微调：左缩进到头像位对齐正文、撤光晕（色域已承托）、色域左右加 8px mask 淡出】
+- 【cr-781 2026-10-29 composer 渐隐带下移到输入卡上缘（dock 槽抬 z-index）；run-status 色域提浓 0.26/0.16 + 背模糊（翻历史不再与正文混读）】
+- 【cr-782 2026-10-29 run-status 调整顺序：文案在前、计时在后（时间作注脚）；补顺序契约与长文案省略号伸缩约束】
+- 【cr-783 2026-10-29 run_code 墙钟耗尽/用户中止不再返回 tool-interrupt——预算耗尽是资源反馈（模型下一步自适配），用户中止由 loop 步边界 signal 检查收束（原 interrupt 化把它误标 tool-interrupt 且杀死整轮会话）】
+- 【cr-784 2026-10-29 底部留白旋钮澄清：spacer 高度改 calc(栈高 + --composer-extra)；锁 wrapper 不带 padding（会缩小可视区）】
+- 【cr-785 2026-10-29 可视区裁剪到浮层顶：wrapper padding-bottom=栈高（内容不再伸入输入区背后）；渐隐带回迁栈顶；spacer 降级为 --composer-extra 呼吸旋钮】
+- 【cr-786 2026-10-29 run-status 色域收敛：文案区/计时区两块合并为 .rs-line 整行一条，撤掉 backdrop-filter 磨砂】
+- 【cr-787 2026-10-29 ac-todo 补测试：todo 工具 write/read/桶隔离/校验/卸载级联（原包零测试，仅 UI 行覆盖装配面）】
+- 【cr-788 2026-10-29 composer 底边界改为输入卡上缘+16px（真浮层但不穿透输入卡）；撤栈顶渐隐带（真浮层下会成空洞）】
+- 【cr-789 2026-10-29 修复 ChatInput 多根 fragment 致 为文本锚点、ConversationView composer 测高崩溃退位：defineExpose cardEl 替代 取输入卡元素】
+- 【cr-790 2026-10-29 预设模板行集调整：标准移除 session-query/collab-tools；创造与 ABAP 移除 str-replace-editor（ABAP 另移 collab-tools）、新增 browser/goal/todo/mcp/datetime 行并同步 tags；极简不动】
+- 【cr-791 2026-10-29 run-status 色域双层配方：相位色 + 实底色（--rs-base 令牌化，不硬编码 white）；软化宽度变量化】
+- 【cr-792 2026-10-29 run-status 行高 19→25px（--rs-pad-y 变量化）：渐变停点为百分比，行高越高过渡的绝对像素越多】
+- 【cr-793 2026-10-29 收束收敛重拉静默化：区分用户可见加载与后台收敛，settlement 重拉不再点亮加载历史指示器】
+- 【cr-794 2026-10-29 门控退役批：datetime/memory/skill/sap-adt/issue-tools/harness-tools/goal 的 settings enabled 软停用收敛为壳行装载（exclude/不点名）；ac-gate-core 包 + ac-agent-loop agentOf readers + respectsEnabled 声明面随批退役】
+- 【cr-795 2026-10-29 恢复尾部 spacer：高度 = 重叠量 + --composer-extra（修滚到底最后一条贴死输入卡的回归）；overlap 由宿主单源传入】
+- 【cr-796 2026-10-29 --composer-extra 补默认值落点：apps/ui 布局令牌 @layer :root 声明 0px（此前只有 var() 兜底的悬空引用）】
+- 【cr-797 2026-10-29 尾部留白改为含 dock 高度：composerTail = 输入卡上缘 − 栈顶 + overlap（dock 多少张卡都自动算）；回到底部按钮抬升同改】
+- 【cr-798 2026-10-29 seats 对账时序缺陷修复：auditSeats 快照 diff 漏判 slots.inject 声明存活期贡献（todo 行 cr-454 引入的惰性注册形态——声明方通道在装载序后者贡献未即时落注册面），13 域行 declaredNotRegistered 假阳性 + settings 偶发 registeredNotDeclared；修复 = 审计双轴满足判定（即时贡献 diff + 窗口内新挂起的 inject 待声明效果〔SlotsService 新增 pendingInjects 诊断面〕），registeredNotDeclared 排除先行消费者 deferred 落位（声明方窗口内新声明的席位 + 先前挂起效果落位）；新增 29 通道全装运行时对账回归测试】
+- 【cr-799 2026-10-29 会话滚动跟随：贴底自动恢复阈值 BOTTOM_EPS 80→240px（前端反馈：流式期底部持续生长、80px 内难以滚回恢复跟随）；精简 useChatShell——删零调用方的 isNearBottom/isAtBottomEl，内联单用别名 scrollToBottomAndReset（按钮改调 scrollToBottom(true)）】
+- 【cr-800 2026-10-29 孤儿对账清扫补迁收口（cr-696 重组漏迁）：ac-app/src/orphans.ts 随包退役而 boot 期指纹对账丢失——回迁 apps/host/orphans.ts 并在 bootHost 锁后即扫（cr-382 建议 3 复位；指纹与 shells.ts 现行前缀核证一致；executor 失效注释同步修正）】

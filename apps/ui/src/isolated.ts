@@ -13,7 +13,7 @@
 // onEvent（8.5e rpc-wire 事件帧直转——主线 wireRpc.onWireEvent 同位）。
 // ============================================================
 import type { ClientContext } from 'ac-client-runtime';
-import { isAllowedIsolatedEvent, isAllowedIsolatedRequest } from 'ac-webui-core';
+import { isAllowedIsolatedEvent, isAllowedIsolatedRequest } from 'ac-webui-core/browser';
 
 export interface IsolatedExtensionDescriptor {
   name: string;

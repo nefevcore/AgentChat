@@ -92,6 +92,7 @@ export function makeEnvelope(init: {
   budget?: number;
   hop?: number;
   payload?: unknown;
+  replyTo?: EndpointId;
   model?: string;
   elevation?: 'sandbox-access' | 'full-access';
 }): Envelope {
@@ -104,6 +105,7 @@ export function makeEnvelope(init: {
     budget: init.budget ?? DEFAULT_BUDGET,
     hop: init.hop,
     payload: init.payload ?? null,
+    ...(init.replyTo !== undefined ? { replyTo: init.replyTo } : {}),
     ...(init.model !== undefined ? { model: init.model } : {}),
     ...(init.elevation !== undefined ? { elevation: init.elevation } : {}),
   };

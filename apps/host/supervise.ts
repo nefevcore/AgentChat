@@ -59,6 +59,13 @@ export type SuperviseAdopter = (input: SuperviseSpawnInput) => Promise<AdoptedSh
 /** 插件装载失败回报面（生产 = pluginRegistry.reportLoadFailure） */
 export type LoadFailureSink = (name: string, error: string) => Promise<void>;
 
+/**
+ * run 节拍转发面（cr-740 运维日志）：壳 stdout 的 run.started/run.settled
+ * TSV 行原样转发（guardian 消费后旁路一报）。生产接线 = orchestrator 落
+ * dataRoot/.runtime/logs/runbeat-<agent>.log。
+ */
+export type RunbeatSink = (line: string) => void;
+
 /** 监护事件（宿主编排面消费——日志/告警面） */
 export type SuperviseEvent =
   | { type: 'adopted'; agentId: string; bootId: string; transportHint: string }
@@ -71,6 +78,8 @@ export interface SuperviseOptions {
   adopt: SuperviseAdopter;
   /** 插件装载失败回报面（缺席 = 静默丢弃——CLI 直连形态无宿主） */
   onPluginLoadFailure?: LoadFailureSink;
+  /** run 节拍转发面（cr-740；缺席 = 静默丢弃） */
+  onRunbeat?: RunbeatSink;
   config?: Partial<GuardianConfig>;
   now?(): number;
   /** 监护 tick 周期（缺省 = 心跳周期） */
@@ -205,6 +214,10 @@ export async function superviseShell(
           void options.onPluginLoadFailure(failure.plugin, failure.error).catch(() => {
             /* 回报失败不重试——宿主在场时下轮装载失败仍回报（计数以宿主侧档为准） */
           });
+        }
+        // run 节拍转发（cr-740 运维日志）：warden 消费后旁路一报
+        if (options.onRunbeat !== undefined && (line.startsWith('run.started') || line.startsWith('run.settled'))) {
+          options.onRunbeat(line);
         }
       });
       // 壳退出 → warden 判定（respawn / broken / done）；退出现场

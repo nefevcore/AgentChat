@@ -12,7 +12,7 @@ import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { deriveKey, machineMaterial, readCredential } from 'ac-credentials-core';
 import { bootHostWeb, type HostWebResult } from '../src/host-web.ts';
-import { UserLedger, sessionDir } from 'ac-ledger';
+import { UserLedger, LedgerWriter, sessionDir } from 'ac-ledger';
 
 const ROOT = path.join('sandbox', 'test-host-web-' + process.pid);
 let host: HostWebResult | null = null;
@@ -105,11 +105,14 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(typeof outcome.uuid).toBe('string');
 
     // ③ history：user 账本直读——own 行落账即达（写穿在 deliver 内同步完成）
-    const history = await rpc<{ records: Array<{ role: string; content: string }>; total: number }>(ws, 'session/history', {
+    const history = await rpc<{ records: Array<{ role: string; content: string; timestamp?: string }>; total: number }>(ws, 'session/history', {
       conversationId: outcome.uuid,
     });
     expect(history.total).toBe(1);
     expect(history.records[0]).toMatchObject({ role: 'user', content: '第一问' });
+    // 行时间戳在场（cr-716）：前端历史排序事实键——缺席曾致刷新后 user 行沉底乱序
+    expect(typeof history.records[0].timestamp).toBe('string');
+    expect(Date.parse(history.records[0].timestamp as string)).not.toBeNaN();
 
     // 幂等：同 requestId 重发 → user 账本不重复（requestId 准入）
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '第一问', requestId: 'rq-w1', conversationId: outcome.uuid });
@@ -411,6 +414,74 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(cut).toMatchObject({ role: 'assistant', content: '中断回复' });
     expect(cut!.partial).toBe(true);
     expect(cut!.steps![0]!.toolCalls![0]).toMatchObject({ id: 'c2', result: null });
+    ws.close();
+  }, 30_000);
+
+  // 注入行回放（cr-707）：agent 域物化注入行（source:'inject'）→ context 行
+  //（label / 来源词 / message_id = injectionId / 原 ts），投在该 run 步行之前。
+  // 此前注入行被 viewer 终稿层派生过滤——刷新后「已发起提问 / 已收到用户回答」
+  // 整条消失。身份锚与直播行 persistedMsgId 同值（前端去重/归位前提）。
+  it('session/history：注入行投影为 context 行（label/来源/身份锚/真序位）', async () => {
+    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    host = await bootHostWeb({ dataRoot: ROOT });
+    const { ws } = await connect(host.port);
+    const conv = 'inj-row-1';
+    const ts = 1_700_000_000_500;
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.journal({ type: 'journal-step', run: 'run-i', step: 0, content: '前步', reasoning: '想' });
+    await w.journal({
+      type: 'journal-inject', run: 'run-i', content: '[系统通知] …已收到用户回答：…',
+      injectionId: 'inj-e2e', injectSource: 'durable-interaction', label: '已收到用户回答', ts,
+    });
+    await w.journal({ type: 'journal-step', run: 'run-i', step: 1, content: '后步', reasoning: '再想' });
+    await w.settle({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, requestId: 'rq-inj' }, 'run-i', 'ok');
+
+    const history = await rpc<{
+      records: Array<{ role: string; content: string; label?: string; source?: string; message_id?: string; timestamp?: string; steps?: unknown[] }>;
+      total: number;
+    }>(ws, 'session/history', { conversationId: conv });
+    const inj = history.records.find((r) => r.role === 'context')!;
+    expect(inj).toMatchObject({
+      label: '已收到用户回答',
+      source: 'durable-interaction',
+      message_id: 'inj-e2e',
+      timestamp: new Date(ts).toISOString(),
+    });
+    expect(inj.content).toContain('已收到用户回答');
+    // 真序：注入行在该 run 步行块之前（前端按 ts 排序落回段行之间）
+    const injIdx = history.records.indexOf(inj);
+    const stepsIdx = history.records.findIndex((r) => r.role === 'assistant' && Array.isArray(r.steps) && r.steps.length > 0);
+    expect(stepsIdx).toBeGreaterThan(-1);
+    expect(injIdx).toBeLessThan(stepsIdx);
+    ws.close();
+  }, 30_000);
+
+  // cr-739 插队消息双卡根修：busy-steer 注入行带 requestId（cr-713）且
+  // viewer 域有同键 user 行（writeOwn 落账）→ 注入卡不投（用户卡片承载，
+  // 与直播形态一致）；机制注入（viewer 无同键行）照投。
+  it('session/history：插队注入行与 viewer user 行同 requestId → 注入卡不投；机制注入照投', async () => {
+    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    const conv = 'inj-dup-1';
+    const userLedger = new UserLedger(ROOT, conv, ['user']);
+    await userLedger.writeOwn('插队消息', 'send-1');
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.journal({ type: 'journal-step', run: 'run-x', step: 0, content: '步', reasoning: '想' });
+    // busy-steer 注入（带 requestId——shell driveRun steer 分支形态）
+    await w.journal({ type: 'journal-inject', run: 'run-x', content: '插队消息', requestId: 'send-1', ts: 1_700_000_001_000 });
+    // 机制注入（无 requestId——recordContext 形态）
+    await w.journal({ type: 'journal-inject', run: 'run-x', content: '已收到用户回答', injectionId: 'inj-m', injectSource: 'durable-interaction', label: '已收到用户回答', ts: 1_700_000_002_000 });
+    await w.settle({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, requestId: 'rq-x' }, 'run-x', 'ok');
+
+    host = await bootHostWeb({ dataRoot: ROOT });
+    const { ws } = await connect(host.port);
+    const history = await rpc<{ total: number; records: Array<{ role: string; content: string; label?: string; requestId?: string }> }>(ws, 'session/history', { conversationId: conv });
+    // 插队消息只出现一次（user 卡片），无同文 context 行
+    expect(history.records.filter((r) => r.content.includes('插队消息')).length).toBe(1);
+    expect(history.records.find((r) => r.role === 'user' && r.content === '插队消息')).toBeDefined();
+    // 机制注入照投（context 行在场）
+    expect(history.records.find((r) => r.role === 'context' && r.label === '已收到用户回答')).toBeDefined();
     ws.close();
   }, 30_000);
 

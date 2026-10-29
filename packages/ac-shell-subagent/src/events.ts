@@ -38,5 +38,13 @@ declare module '@agentchat/cordis' {
      * @scope subagent
      */
     'subagents/updated'(info: SubagentUpdatedInfo, action: 'spawned' | 'started' | 'settled' | 'timeout' | 'stopped' | 'removed'): void;
+    /**
+     * 子 Agent 发起提问（emit，cr-730）——盘 watch 发现新 pending ask 时
+     * 发射（注入父会话之前）：载荷 = 子域 pending 提问投影。测试/面板徽章
+     * 消费面；正文注入归 ShellSubagentService 自身（steer/deliver）。
+     * @mode emit
+     * @scope subagent
+     */
+    'subagents/ask'(asking: { childId: string; interactionId: string; questions: Array<{ question: string; options: string[]; multi?: true }> }): void;
   }
 }

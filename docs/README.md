@@ -2,6 +2,7 @@
 
 > 2026-10-26（cr-703）：全仓重组为单轨布局——活包住 `packages/`、四应用住 `apps/`，旧 `src/` 与 `preview/` 双轨叙事退役。
 > 更早的旧轨文档已整体归档至仓库外：`C:\\Users\\xiaofeng\\Documents\\Dev\\Note\\AgentChat`（`docs-pre-refactor-2026-09\\` / `docs-stale-2026-09\\` / `docs-stale-2026-09-18\\`）。
+> 2026-10-27（cr-726）：全量文档审查批——12 篇归档（8 篇入 `design/archive/`、4 篇整体过时移仓库外归档根 `docs-archived-2026-10-27\\`），约 25 篇按现行事实修正；审查底稿与疑点清单在仓库外归档根 `docs-review-2026-10-27\\`。
 
 ---
 
@@ -20,10 +21,12 @@
 |------|------|
 | [../README.md](../README.md) | **根级事实源**：架构、`packages/`+`apps/` 布局、命令、文档地图 |
 | [design/cr-703-followups.md](design/cr-703-followups.md) | **cr-703 收尾清单**：P0/P1/P2 遗留、证据与验收 |
+| [design/rpc-transitional-audit.md](design/rpc-transitional-audit.md) | **RPC 过渡实现审计**（cr-715）：前端死链 6 / 空桩 3 / fail-loud 错位 8 / timers-row 近似 / stale 注释——逐项处置清单 |
 | [release.md](release.md) | npm 发版流程手册（OIDC / tag 驱动 CI） |
-| [design/](design/) | 设计档案：会话/运行时/行册/Slot 树/标签系统/远程接入/LLM 协议扩展等 |
+| [design/](design/) | 设计档案：会话/运行时/行册/行集裁决/壳模型/信封协议/远程接入等（标签系统报告已归档——tag 机制 cr-484 起退役） |
 | [cutover/](cutover/) | preview 轨历史（规格 `spec.md`、计划 `plan.md`、各批交接） |
 | [design/archive/track-readme-src-era.md](design/archive/track-readme-src-era.md) | cr-703 前 `src/` 轨道事实源快照（已冻结） |
+| [design/gap-backlog.md](design/gap-backlog.md) | 活动缺口清单（主源：跨域待办/疑点统一登记处） |
 | [../CHANGELOG.md](../CHANGELOG.md) | 版本历史 |
 
 ## 维护规则

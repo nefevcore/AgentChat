@@ -23,19 +23,25 @@ import type { ShellSpec } from './shells.ts';
 /** 后台任务临时日志前缀（>1 小时清理） */
 const BASH_TEMP_PREFIX = 'ac-bash-';
 
-function bashTempLogPath(): string {
-  return path.join(os.tmpdir(), `${BASH_TEMP_PREFIX}${randomBytes(8).toString('hex')}.log`);
+/** 任务日志目录（deps.logDir 缺省回落 os.tmpdir()；行 options 注入数据根
+ * 路径——%TEMP% 被杀软/沙箱持续拒写的环境下后台任务仍可用，cr-718） */
+function logDirOf(deps: ExecutorDeps): string {
+  return deps.logDir ?? os.tmpdir();
+}
+
+function bashTempLogPath(logDir: string): string {
+  return path.join(logDir, `${BASH_TEMP_PREFIX}${randomBytes(8).toString('hex')}.log`);
 }
 
 /** 清理超过 1 小时的旧临时日志（非阻塞） */
-function cleanupOldLogs(): void {
+function cleanupOldLogs(logDir: string): void {
   try {
     const now = Date.now();
-    for (const f of fs.readdirSync(os.tmpdir())) {
+    for (const f of fs.readdirSync(logDir)) {
       if (!f.startsWith(BASH_TEMP_PREFIX)) continue;
       try {
-        const s = fs.statSync(path.join(os.tmpdir(), f));
-        if (now - s.birthtimeMs > 3_600_000) fs.unlinkSync(path.join(os.tmpdir(), f));
+        const s = fs.statSync(path.join(logDir, f));
+        if (now - s.birthtimeMs > 3_600_000) fs.unlinkSync(path.join(logDir, f));
       } catch {
         /* 跳过无法 stat 的文件 */
       }
@@ -43,6 +49,45 @@ function cleanupOldLogs(): void {
   } catch {
     /* 非关键路径 */
   }
+}
+
+/** Windows 瞬时占用码（同 ac-plugin-core/fsx 口径——cr-705/cr-718） */
+function isTransientFileError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  return code === 'EACCES' || code === 'EBUSY' || code === 'EPERM';
+}
+
+/**
+ * 以 append 打开任务日志 fd（瞬时占用有界重试）：%TEMP% 被杀软/沙箱
+ * 瞬时拒写不放大为任务失败（cr-718——cr-665 当时核实「产品路径无
+ * %TEMP% 写点」漏了任务日志这处）。
+ */
+function openLogFd(file: string): number {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return fs.openSync(file, 'a');
+    } catch (err: unknown) {
+      if (!isTransientFileError(err) || attempt >= 5) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+    }
+  }
+}
+
+/**
+ * handoff 日志流：同步预开 fd（失败同步抛——调用方 catch 回退 kill
+ * 语义）+ error 吸收面（日志尽力而为，流级失败停写不崩壳）。
+ * WriteStream 无监听的异步 'error' 是 unhandled event，直接带崩整个
+ * 进程——同步 try/catch 接不住（2026-10-24~27 shell-__creator__ 33 次
+ * EPERM 崩溃现场的根修，cr-718）。
+ */
+export function openHandoffLog(file: string): fs.WriteStream {
+  const fd = openLogFd(file);
+  const stream = fs.createWriteStream(file, { fd });
+  stream.on('error', () => {
+    /* 吸收：日志尽力而为——流已坏，后续 write 自然失效，任务本体不受影响 */
+  });
+  return stream;
 }
 
 /**
@@ -61,7 +106,7 @@ const KILL_CONFIRM_MS = 4000;
 // 每条 spawn 记 {pid, startedAt, command, ownerAgentId}，进程退出时销账。
 // 双用途：①process.on('exit') 同步补刀（taskkill /F /T）兜住「宿主死时
 // 子进程仍在跑」的 OS 无绑定缺口；②内存台账即事后审计面（job list 之外
-// 的活子进程清单）。不落盘——跨重启对账由 boot 期指纹清扫（orphans.ts）负责。
+// 的活子进程清单）。不落盘——跨重启对账由宿主 boot 期指纹清扫（apps/host/orphans.ts）负责。
 const childLedger = new Map<number, { startedAt: number; command: string; ownerAgentId?: string }>();
 
 // ---- 泄漏清单（cr-382 建议 4）：kill 未确认死亡的进程登记于此，宿主退出 ----
@@ -93,6 +138,8 @@ export interface ExecutorDeps {
   family: string;
   /** 工具名（报错引导文案归因用） */
   toolName: string;
+  /** 任务日志目录（缺省 os.tmpdir()；行 options 注入数据根路径，cr-718） */
+  logDir?: string;
 }
 
 /** 命令预处理钩子（pwsh = 翻译+编码前缀；bash = 纯透传） */
@@ -168,8 +215,8 @@ export function executeShellCommand(
   // ---- 后台执行：detached spawn + 日志文件，立即返回 job_id ----
   if (args.background === true) {
     try {
-      const logFile = bashTempLogPath();
-      const fd = fs.openSync(logFile, 'a');
+      const logFile = bashTempLogPath(logDirOf(deps));
+      const fd = openLogFd(logFile);
       const child: ChildProcess = spawn(spec.shell, [...spec.args, commandToRun], {
         cwd: dir,
         env: childEnv,
@@ -226,7 +273,7 @@ export function executeShellCommand(
   }
 
   // ---- 前台执行（流式输出 + 超时 + signal 中止）----
-  cleanupOldLogs();
+  cleanupOldLogs(logDirOf(deps));
   return new Promise<ToolResult>((resolve) => {
     // 分轨收集（stdout/stderr 输出字段对齐 Agent 直觉，2026-09-22）：两流各自
     // 累积 + 合流 output（时序交错价值）三本账；finish 各自清理/截断/汇报
@@ -348,8 +395,8 @@ export function executeShellCommand(
      */
     const handoffToJob = (): void => {
       try {
-        const logFile = bashTempLogPath();
-        const log = fs.createWriteStream(logFile, { flags: 'a' });
+        const logFile = bashTempLogPath(logDirOf(deps));
+        const log = openHandoffLog(logFile);
         // 已累积输出落日志（前台账本此后停更——快照已随结果带走）
         log.write(stdoutRaw + stderrRaw);
         // 改道：摘前台 handler，新 chunk 泵进日志文件（前台 Promise 闭包
@@ -593,7 +640,7 @@ export function noteUnconfirmedKill(pid: number, command: string): void {
 
 // 宿主退出补刀（postmortem §3A 根因）：Windows 上父进程退出不会连带杀
 // 子进程，唯一的生命周期绑定是本钩子 + 桌面壳 taskkill /T。exit 只允许
-// 同步工作——spawnSync 是唯一可用形态（与 ac-app/src/boot.ts 释放数据
+// 同步工作——spawnSync 是唯一可用形态（与 apps/host boot 释放数据
 // 根锁同一姿势）。台账 ∪ 泄漏清单里仍存活的进程一律补刀；泄漏清单的
 // 存在本身说明常规 kill 路径没杀干净，双来源并集兜底。
 process.on('exit', () => {

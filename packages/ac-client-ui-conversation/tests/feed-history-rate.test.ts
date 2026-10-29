@@ -62,6 +62,25 @@ describe('速率持久化：历史回放链路（切走再切回）', () => {
     expect((apiCompletion / (apiMs / 1000)).toFixed(1)).toBe('30.0');
   });
 
+
+  it('cr-772：终稿行 runMs → 挂首步 → buildTurns 透传——历史链栏「用时」段权威锚', () => {
+    const rows = toHistoryMessages([
+      { role: 'user', content: 'q', message_id: 'm1', timestamp: '2026-01-01T00:00:01Z' },
+      {
+        role: 'agent', content: '', message_id: 'm2', timestamp: '2026-01-01T00:00:02Z', agent_id: 'a', runMs: 4242,
+        steps: [
+          { content: '', reasoning: '想', reasoningMs: 1500, toolCalls: [{ id: 't1', name: 'bash', arguments: '{}', result: 'ok' }] },
+          { content: '答', elapsedMs: 3000, usage: { prompt: 200, completion: 90, total: 290 } },
+        ],
+      },
+    ], 'a~user');
+    // 展开挂首步（runMs 是 run 级单值——链栏取轮内任一步消费）
+    const agentSteps = rows.filter((r) => r.role === 'agent');
+    expect(agentSteps.filter((m: any) => m.runMs === 4242)).toHaveLength(1);
+    const turns = buildTurns(rows as any, false);
+    const t = turns.find((x) => x.agent_id === 'a')!;
+    expect((t.steps as any[]).some((s) => s.assistant.runMs === 4242)).toBe(true);
+  });
   it('旧数据（无 elapsedMs/usage）→ 字段缺席，速率段省略（不显示）', () => {
     const rows = toHistoryMessages([
       { role: 'user', content: 'q', message_id: 'm1', timestamp: '2026-01-01T00:00:01Z' },

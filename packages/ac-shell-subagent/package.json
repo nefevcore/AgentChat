@@ -16,9 +16,11 @@
     "ac-agents-core": "workspace:*",
     "ac-auth-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-post-office": "workspace:*",
     "ac-ledger": "workspace:*",
+    "ac-llm": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "devDependencies": {

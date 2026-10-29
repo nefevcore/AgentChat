@@ -1,3 +1,12 @@
+<!--
+  勘误注记（2026-10-27 cr-726 文档审查批）：本图为 2026-10 上旬快照，与现行实现有 9 处卡片偏差——
+  ① REMOTE_DOWNLINK_EVENTS 白名单已随 cr-108 全目录并源退役；
+  ② scopes 闸门 cr-105 退役；③ 「切后台即断」cr-109 改判；④ Ed25519 → X25519（cr-14）；
+  ⑤ 70s 退避 → 15s + 占座驻留（cr-48）；⑥ 未封闭 TTL 5min 已退役；⑦ HTTP 桥 6MB → 4MB；
+  ⑧/⑨ 文内 src/docs/remote-client-relay-plan.md 引用断链（现 = 同目录 remote-client-relay-plan.md）。
+  remote/* RPC 与 mobile/ 模块卡片仍准确。权威口径 = remote-client-relay-plan.md。
+  审查底稿：仓库外归档根 docs-review-2026-10-27/findings-E-remote-mobile.md。
+-->
 <!doctype html>
 <html lang="zh-CN">
 <head>

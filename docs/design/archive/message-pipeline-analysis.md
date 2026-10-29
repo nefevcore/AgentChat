@@ -1,6 +1,6 @@
 # 消息处理链路根因分析（message-pipeline-analysis.md）
 
-> 登记批 cr-87（2026-10-01）。配套图谱：[message-pipeline-graph.html](message-pipeline-graph.html)。
+> 登记批 cr-87（2026-10-01）。配套图谱：[message-pipeline-graph.html](./message-pipeline-graph.html)。
 > 依据：src/README.md 轨道事实源、src/docs/cr-log.md 全部 47 条修复史、ac-session / ac-ws-bridge /
 > ac-wire-format / ac-client-ui-conversation 源码。
 

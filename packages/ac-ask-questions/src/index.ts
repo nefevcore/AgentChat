@@ -117,6 +117,14 @@ function askNotice(qs: Array<{ question: string; options: string[]; multi?: true
 export function apply(ctx: Context) {
   const service = ctx.durableInteraction;
 
+  // 消费对账（cr-747）：答案一旦注入任何路径（steer/idle/late-reply）即
+  // close('consumed')——answered 悬置会让 boot 重放面（cr-636）每次重启
+  // 重投同一条 notice（二次唤醒现场 dur-mvrrebv9：row7 inject 消费 +
+  // row10 重放双投）。close 幂等（applyClose 对 closed 返回 undefined）。
+  const consume = (id: string) => {
+    try { service.close(id, 'consumed'); } catch { /* 尽力对账——重放面比对兜底 */ }
+  };
+
   // ---- 忙态作答即时注入（2026-09-22 steer 对齐）：replied 且 run 仍活着且在忙 ----
   // 答案对齐用户 steer 插话语义——步边界即时注入活跃 run，不再干等自然停点
   // （立案现场 f08798fb：答案 8.7 秒到达，run 连续 39 分钟不停步，答案直到
@@ -149,6 +157,7 @@ export function apply(ctx: Context) {
           source: 'event',
           conversationId: convKey,
         })
+        .then(() => consume(record.id))
         .catch((err: unknown) => {
           ctx.logger.warn(`[ask-questions] late-reply 唤醒 ${owner}（${convKey}）失败: ${String(err)}`);
         });
@@ -179,6 +188,7 @@ export function apply(ctx: Context) {
             source: 'event',
             conversationId: convKey,
           })
+          .then(() => consume(record.id))
           .catch((err: unknown) => {
             ctx.logger.warn(`[ask-questions] steer 落空回落 late-reply ${owner}（${convKey}）失败: ${String(err)}`);
           });
@@ -187,6 +197,7 @@ export function apply(ctx: Context) {
     }
     // steer 注入成功：context 行落账（与 idle 注入同形状——刷新/回放时答案
     // 在转录在场，跨 run 语义不丢）
+    consume(record.id);
     const session = ctx.get('session', false) as SessionLike | undefined;
     if (session) {
       try {
@@ -239,10 +250,13 @@ export function apply(ctx: Context) {
       };
       const observe = (record: DurableInteraction) => {
         if (!want.has(record.id)) return;
+        // 先出队再 consume：close 同步 emit closed 事件会重入 observe（closed
+        // 监听器也在听）——want 先删即幂等闸（cr-747）
+        want.delete(record.id);
         openByRun.delete(record.id); // 消费对账：late-reply 不会再回投
         suspending.delete(record.id); // 已由本半边消费——replied 监听器不再需要
+        if (record.state === 'answered') consume(record.id); // 答案已注入本 run（cr-747）
         out.push({ record, outcome: record.state === 'answered' ? 'answered' : 'closed' });
-        want.delete(record.id);
         if (want.size === 0) finish();
       };
       const disposeListener = ctx.on('durable-interaction/replied', (r) => observe(r), { description: 'ask idle 等待（replied）' });

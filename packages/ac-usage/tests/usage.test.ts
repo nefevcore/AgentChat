@@ -270,6 +270,25 @@ describe('ac-usage conversationTimeline（KV 缓存走势数据源，cr-231/232�
     expect(ctx.usage.conversationTimeline('a~user')[0].hit).toBe(6);
   });
 
+  it('reportStepPending：事件信形态的运行中步流入账（cr-760 宿主面）+ reportMeter 接管清理', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 宿主进程无 loop 事件源——壳步级信经 usage-row 调 reportStepPending
+    ctx.usage.reportStepPending('b~user', { ts: 100, hit: 60, miss: 40, prompt: 50_000 });
+    ctx.usage.reportStepPending('b~user', { ts: 200, hit: 70, miss: 30, prompt: 51_000 });
+    let tl = ctx.usage.conversationTimeline('b~user');
+    expect(tl).toHaveLength(2);
+    expect(tl[1]).toMatchObject({ ts: 200, hit: 70, prompt: 51_000 });
+    // 收束信到达（reportMeter 入正式账）→ pending 接管清理（不重复）
+    ctx.usage.reportMeter({
+      agent: 'b', model: 'mock-1', finish: 'ok', conversationId: 'b~user',
+      usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 2, cacheHit: 130, cacheMiss: 70 },
+      stepCache: [{ ts: 100, hit: 60, miss: 40 }, { ts: 200, hit: 70, miss: 30 }],
+    });
+    tl = ctx.usage.conversationTimeline('b~user');
+    expect(tl).toHaveLength(2); // 正式记账后仍 2 点（pending 未双计）
+  });
+
   it('运行中 run 实时可见（cr-251）：after-step 写 pending，after-run 记账后接管不重复', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);

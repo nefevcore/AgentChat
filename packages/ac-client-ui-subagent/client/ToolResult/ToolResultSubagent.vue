@@ -22,6 +22,10 @@ const STATUS_META: Partial<Record<string, { label: string; cls: string }>> = {
   error:    { label: subStatusLabel('error'),   cls: 'err' },
   timeout:  { label: subStatusLabel('timeout'), cls: 'warn' },
   stopped:  { label: subStatusLabel('stopped'), cls: 'dim' },
+  asking:   { label: '待答提问', cls: 'warn' },   // cr-729 await asking 态
+  created:  { label: '已创建', cls: 'ok' },       // spawn 回执词
+  settled:  { label: '已收束', cls: 'ok' },       // await settle 词
+  pending:  { label: '等待中', cls: 'dim' },      // await pending 词
 };
 
 // send 投递回执徽章（next-run 忙时排队与 queued 同观感）
@@ -64,7 +68,7 @@ const actionLabel: Record<string, string> = {
 // ── ID 点击 → 子会话只读视角（uiStore 缺席时静默不可点） ──
 function openSubagentView(id: unknown) {
   const sid = String(id ?? '');
-  if (!sid || !sid.startsWith('sub_')) return;
+  if (!sid || !/^sub[-_]/.test(sid)) return; // preview 词形 sub-（主线 sub_ 历史回放兼容）
   try {
     useUiStore().openSubagentView(sid, typeof props.data.name === 'string' ? props.data.name : undefined);
   } catch { /* pinia 未装配（裸 boot 测试）——静默 */ }
@@ -76,17 +80,21 @@ const spawnData = computed(() => ({
   name: props.data.name as string | undefined,
   task: props.data.task as string | undefined,
   status: props.data.status as string | undefined,
-  message: props.data.message as string | undefined,
+  message: (props.data.note ?? props.data.message) as string | undefined,
 }));
 
 // ── await 结果（send sync 带结果复用同款结构） ──
-const awaitData = computed(() => ({
-  id: props.data.subagent_id as string | undefined,
-  status: props.data.status as string | undefined,
-  result: props.data.result as string | undefined,
-  error: props.data.error as string | undefined,
-  elapsed: props.data.elapsed_ms as number | undefined,
-}));
+const awaitData = computed(() => {
+  const r = props.data.result;
+  return {
+    id: props.data.subagent_id as string | undefined,
+    status: props.data.status as string | undefined,
+    // preview result 为 {text} 对象（settle/answer 同形）——字符串直传（主线）
+    result: typeof r === 'string' ? r : r && typeof (r as { text?: unknown }).text === 'string' ? (r as { text: string }).text : undefined,
+    error: props.data.error as string | undefined,
+    elapsed: props.data.elapsed_ms as number | undefined,
+  };
+});
 
 // result 折叠（await 与 sync send 两卡共用同一 result 字段——折叠判定/展开
 // 态单源，长结果默认 6 行高度可展开）
@@ -105,18 +113,28 @@ interface SubItem {
   lastResult: string;
 }
 const listData = computed<SubItem[]>(() => {
-  const arr = props.data.subagents;
+  // preview 词形 agents:[{childId,status,busy}]；主线历史回放 subagents:[{id,status}]
+  const arr = props.data.agents ?? props.data.subagents;
   if (!Array.isArray(arr)) return [];
   return arr.map((s: any) => ({
-    id: s.id ?? '',
+    id: String(s.childId ?? s.id ?? ''),
     name: s.name ?? '',
-    status: s.status ?? '',
+    // 徽章归一：busy → running；进程在跑（ready）→ idle；已退出 → stopped
+    status: s.busy === true ? 'running'
+      : s.status === 'exited' ? 'stopped'
+      : s.status === 'ready' ? 'idle'
+      : String(s.status ?? ''),
     task: s.task ?? '',
     runs: Number(s.runs ?? 0),
     lastResult: typeof s.last_result === 'string' ? s.last_result : '',
   }));
 });
-const activeCount = computed(() => Number(props.data.active_count ?? 0));
+const activeCount = computed(() => {
+  const n = Number(props.data.active_count);
+  if (Number.isFinite(n) && props.data.active_count !== undefined) return n;
+  const arr = (props.data.agents ?? props.data.subagents) as Array<Record<string, unknown>> | undefined;
+  return Array.isArray(arr) ? arr.filter((s) => s.busy === true).length : 0;
+});
 const totalCount = computed(() => {
   const t = Number(props.data.total);
   return Number.isFinite(t) ? t : listData.value.length;

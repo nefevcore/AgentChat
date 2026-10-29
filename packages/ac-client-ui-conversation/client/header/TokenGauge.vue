@@ -98,7 +98,11 @@ const tokenPanelOpen = ref(false);
 // 重写会话——无 run 结束）
 watch(() => props.data.agentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
 watch(() => props.data.single?.id, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; });
-watch(() => chatStore.lastStepEndAt, () => { fetchTokenBaseline(); if (tokenPanelOpen.value) fetchKv(); });
+watch(() => chatStore.lastStepEndAt, () => {
+  fetchTokenBaseline();
+  // 实时占用（cr-761）：run 进行中也拉 KV 步流——最新步 prompt 驱动占用环
+  if (tokenPanelOpen.value || chatStore.turnInProgress) fetchKv();
+});
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
 watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
 // 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
@@ -147,14 +151,33 @@ const toolDefsTokens = computed(() =>
   (chatStore.toolDefs as unknown[]).reduce<number>((n, d) => n + estimateTokens(JSON.stringify(d)), 0));
 const overheadLoading = computed(() => chatStore.systemPromptLoading || chatStore.toolDefsLoading);
 
+/** 运行中实时占用（cr-761）：最新步的 prompt = 本步请求真实上下文 token
+ *  （含 system/工具定义/全部历史/在途步——比盘读估算准且每步更新）。run
+ *  进行中在场即用；收束后盘读基线（session/tokens）追上接管——两通道
+ *  每步终值同拍重拉，切换无缝。 */
+const livePrompt = computed(() => {
+  if (!chatStore.turnInProgress) return undefined;
+  for (let i = kvPoints.value.length - 1; i >= 0; i--) {
+    const p = kvPoints.value[i].prompt;
+    if (typeof p === 'number' && p > 0) return p;
+  }
+  return undefined;
+});
+/** 展示用总占用：实时态优先（真实值），否则盘读估算 + 固定开销 */
+const displayTotal = computed(() => {
+  const st = sessionTokens.value;
+  if (!st) return 0;
+  if (livePrompt.value !== undefined) return livePrompt.value;
+  return st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
+});
+
 /** 占用比例（含固定开销）：分子 = 会话净占用 + 系统提示/工具定义实值
  *  估算（未取 = 0）；分母 = maxContextTokens。status 阈值档与后端
  *  session/tokens 的档位判定（<75/<90）同款（cr-122 三档收敛）。 */
 const usageWithOverhead = computed(() => {
   const st = sessionTokens.value;
   if (!st) return { pct: 0, status: 'normal' as const };
-  const total = st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
-  const p = Math.min(100, (total / st.maxContextTokens) * 100);
+  const p = Math.min(100, (displayTotal.value / st.maxContextTokens) * 100);
   const s = p < 75 ? 'normal' : p < 90 ? 'high' : 'critical';
   return { pct: p, status: s as SessionTokens['status'] };
 });
@@ -170,12 +193,16 @@ const usageWithOverhead = computed(() => {
 const stackSegments = computed(() => {
   const st = sessionTokens.value;
   if (!st) return [];
-  const used = st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
-  const rest = Math.max(0, st.maxContextTokens - used);
+  // 实时态（cr-761）：prompt 已含固定开销——context 段 = 总量减固定开销
+  // （clamp ≥0），余量 = 上限减总量；与头行同一 displayTotal 口径。
+  const contextTokens = livePrompt.value !== undefined
+    ? Math.max(0, displayTotal.value - systemPromptTokens.value - toolDefsTokens.value)
+    : st.tokenCount;
+  const rest = Math.max(0, st.maxContextTokens - displayTotal.value);
   return [
     { key: 'tooldefs', label: '工具定义', tokens: toolDefsTokens.value, color: '#ecc59a' },
     { key: 'sysprompt', label: '系统提示词', tokens: systemPromptTokens.value, color: '#c9a7ec' },
-    { key: 'context', label: '会话上下文', tokens: st.tokenCount, color: '#8fb8e6' },
+    { key: 'context', label: '会话上下文', tokens: contextTokens, color: '#8fb8e6' },
     { key: 'rest', label: '余量', tokens: rest, color: '' },
   ];
 });
@@ -316,7 +343,7 @@ const applicable = computed(() =>
         <div class="token-panel__bar-row">
           <div class="token-bar-topline">
             <span class="token-bar-pct">上下文占用 <strong>{{ Math.round(usageWithOverhead.pct) }}%</strong></span>
-            <span class="token-bar-limit">~{{ fmtTokenCount(sessionTokens!.tokenCount + systemPromptTokens + toolDefsTokens) }} / {{ fmtTokenCount(sessionTokens!.maxContextTokens) }}</span>
+            <span class="token-bar-limit">{{ livePrompt !== undefined ? '' : '~' }}{{ fmtTokenCount(displayTotal) }} / {{ fmtTokenCount(sessionTokens!.maxContextTokens) }}</span>
           </div>
           <div
             class="token-stack"
@@ -347,7 +374,7 @@ const applicable = computed(() =>
                  hover 竖线 + 数值气泡（时间/命中率进 meta——步间隔不均，
                  序号等距避免长间隔把最近走势挤扁） -->
             <div v-if="kvLoading" class="kv-spark kv-spark--loading"><BusyRing :size="13" label="正在拉取 KV 缓存走势…" /></div>
-            <div v-else-if="kvSamples.length > 1" class="kv-spark">
+            <div v-else-if="kvSamples.length > 0" class="kv-spark">
               <span class="kv-spark__label">KV 缓存率走势 · 全部 {{ kvPoints.length }} 步<template v-if="kvSamples.length < kvPoints.length">（{{ kvSamples.length }} 代表点）</template></span>
               <Tooltip :text="kvHoverText" placement="bottom">
                 <svg
@@ -360,8 +387,17 @@ const applicable = computed(() =>
                 >
                   <line v-for="g in kvGridY" :key="g.y" class="kv-spark__grid is-base" :x1="0" :y1="g.y" :x2="kvView.W" :y2="g.y" />
                   <polyline v-for="(seg, si) in kvPolyline" :key="si" class="kv-spark__line" :points="seg" />
+                  <!-- 单点圆标记：折线段需 ≥2 点，单计量步无折线可画（cr-235 删点
+                       针对多步走势噪点——此处是唯一视觉表达，不属该裁决辖域） -->
+                  <circle
+                    v-if="kvSamples.length === 1 && !kvSamples[0].empty"
+                    class="kv-spark__dot"
+                    :cx="kvCx(0)"
+                    :cy="kvCy(kvSamples[0].hit / (kvSamples[0].hit + kvSamples[0].miss))"
+                    r="2"
+                  />
 
-                  <line v-if="kvHoverIdx >= 0" class="kv-spark__cursor" :x1="kvCx(kvHoverIdx)" :y1="kvView.padT" :x2="kvCx(kvHoverIdx)" :y2="kvView.H - kvView.padB" />
+                  <line v-if="kvHoverIdx >= 0 && kvSamples[kvHoverIdx]" class="kv-spark__cursor" :x1="kvCx(kvSamples[kvHoverIdx].i)" :y1="kvView.padT" :x2="kvCx(kvSamples[kvHoverIdx].i)" :y2="kvView.H - kvView.padB" />
                 </svg>
               </Tooltip>
             </div>
@@ -448,6 +484,7 @@ const applicable = computed(() =>
 .kv-spark__line { fill: none; stroke: var(--ok-status); stroke-width: 1.5; stroke-linejoin: round; }
 
 .kv-spark__cursor { stroke: var(--primary); stroke-width: 0.8; }
+.kv-spark__dot { fill: var(--ok-status); }
 /* Tooltip 根（.ui-tip inline-flex）随走势块拉满——svg 与提示锚同宽 */
 .kv-spark :deep(.ui-tip) { width: 100%; }
 

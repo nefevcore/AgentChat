@@ -29,9 +29,9 @@ async function cliTurn(
 ): Promise<string> {
   // ① 幂等准入（A2：acquire）
   const admitted = admission.admit(envelope.requestId);
-  // ② 投递决策（A4 双队列 + budget）
+  // ② 投递决策（A4 双队列 + budget：许可随信封——本编排每轮为新信）
   const plan = machine.plan({
-    kind: 'message', sender: envelope.sender, requestId: envelope.requestId, admitted,
+    kind: 'message', sender: envelope.sender, requestId: envelope.requestId, admitted, budget: 3,
   });
   // ③ 落账（delivered 即 ack）
   await writer.deliver({
@@ -48,7 +48,7 @@ async function cliTurn(
       { role: 'agent', content: reply, agent_id: agentId, uuid },
       runId, 'ok',
     );
-    machine.runSettled(envelope.sender !== 'user');
+    machine.runSettled();
     return reply;
   }
   if (plan.action === 'ledger-only' || plan.action === 'deduped') {

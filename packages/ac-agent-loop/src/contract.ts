@@ -140,10 +140,23 @@ export interface LoopStepRecord {
   textBeforeTools?: boolean;
   /**
    * 思考相位时长（毫秒；源自 llm 聚合的 LlmChatResult.reasoningMs）：
-   * 首个 reasoning 片到达 → 首个非 reasoning 片到达的间隔。落盘透传——
-   * 前端历史回放据此恢复「已思考 · XmYs」耗时（与直播同源定义）。
+   * 首个 reasoning 片到达 → 首个非 reasoning 片到达的间隔（中止时以
+   * 最后 reasoning 片收口，cr-766）。落盘透传——前端历史回放据此恢复
+   * 「已思考 · XmYs」耗时（与直播同源定义）。
    */
   reasoningMs?: number;
+  /**
+   * 正文相位时长（毫秒，cr-766；源自 LlmChatResult.textMs）：首个正文
+   * delta → 流末的间隔。与 reasoningMs 同族——步内相位粒度（思考/
+   * 正文/工具参数）的第二段。落盘透传。
+   */
+  textMs?: number;
+  /**
+   * 本步 LLM 流被中止（cr-766）：text/reasoning 是中止时刻的部分聚合
+   * ——工具调用可能不完整（参数 JSON 截断），loop 跳过其执行。落盘
+   * 透传——读侧（续跑/轨迹重建）据此剔除不完整 tool_calls。
+   */
+  aborted?: boolean;
   /**
    * 本步 API 调用耗时（毫秒；源自 llm 的 LlmChatResult.elapsedMs——
    * 请求发起→流末的纯流时间，不含工具执行与编排）。落盘透传，
@@ -244,6 +257,12 @@ export interface LoopRunResult {
   steps: LoopStepRecord[];
   /** 最后一步的文本（无步时为空） */
   text: string;
+  /**
+   * run 墙钟耗时（毫秒，cr-772；execute 起点收束——含步间编排/工具执行）。
+   * 历史耗时锚：随终稿行 runMs 持久化，前端历史链栏「用时」段的权威值
+   * （直播期由 runCalibMs 校准对承担，两路同口径：run 首 user 行时刻 → 收束）。
+   */
+  wallMs?: number;
   /**
    * stop 自然收束 · max-steps 步数预算耗尽 · veto before-run 拦截 ·
    * error 循环异常 · interrupted 外部 signal 中止（ADR-2 最小中断方案）

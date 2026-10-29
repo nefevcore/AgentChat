@@ -37,6 +37,8 @@ PoolManager 删除确认弹窗与改名守门消费——列出引用方清单�
 变可见提示。引用不自动迁移（字面量引用语义保持——迁移需用户确认，留待
 真实诉求）。
 
+> ⚠️ 疑点（2026-10-27 审查）：`llm/pool-references` 在现宿主无注册——全仓仅前端 `packages/ac-client-ui-llm-pool/client/poolApi.ts:44` 调用；旧 `src/ac-web-api` 注册面已随 cr-703 删除，新宿主未补，引用清单恒空。见 Note 归档根 `docs-review-2026-10-27/findings-F-misc.md`（疑点 L-A；与 `docs/design/rpc-transitional-audit.md` 待复核项呼应）。
+
 ### ② 容量元数据（缺口②窄版）
 
 修法：`PoolModelEntry.contextWindow`（手配声明；正整数收）。经 modelMeta →
@@ -53,7 +55,7 @@ stats 透出（观测面）。发现端点容量回写（协议库 listModels �
 
 由脆弱点 C 修复覆盖（字典序 + warn）。
 
-## 遗留（挂 gap-backlog）
+## 遗留（未入活清单——待挂 gap-backlog 或单独立项）
 
 - per-route 重试策略（transientRetry 仍服务级全局量）
 - 发现端点容量回写（listModels 返回对象化）

@@ -124,13 +124,21 @@ const chainLabel = computed(() => {
   const last = steps.at(cnt - 1);
   const firstTs = first?.assistant.timestamp ?? first?.tools.at(0)?.timestamp ?? 0;
   const lastTs = last?.assistant.timestamp ?? last?.tools.at(-1)?.timestamp ?? 0;
-  // 耗时（2026-09-21 计时反馈）：流式期 = 校准锚 + 前端续计（每秒跳动）；
-  // 无锚（首步未收束）回退时间戳推导。校准锚 = 后端 after-step 的
-  // step.ts 权威收束时刻（见 types.ts ChatMessage.runCalibMs）——每步覆盖，
-  // 吸收帧传播延迟；尾段（工具执行/步间静默/末步流式）前端在锚上续跑
+  // 耗时：流式期 = 校准锚 + 前端续计（每秒跳动；锚 = 后端 after-step 的
+  // step.ts 权威收束时刻，见 types.ts ChatMessage.runCalibMs——每步覆盖，
+  // 吸收帧传播延迟）；历史态优先 runMs（cr-772：终稿行 runMs 持久锚）；
+  // 两者皆无回落时间戳推导
   const calib = liveElapsedMs.value;
+  const runMsAnchor = (() => {
+    for (const s of props.turn.steps) {
+      const v = (s.assistant as { runMs?: number }).runMs;
+      if (typeof v === 'number') return v;
+    }
+    return null;
+  })();
   let elapsed = calib !== null
     ? Math.round(calib / 1000)
+    : runMsAnchor !== null ? Math.round(runMsAnchor / 1000)
     : firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
   // 时间戳推导为 0 时，从各 step 的 label（如 "已思考（用时 12 秒）"）中累加
   if (elapsed === 0 && cnt > 0 && calib === null) {

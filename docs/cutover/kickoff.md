@@ -3,6 +3,8 @@
 > 用法：新会话开工时把 §正文 整段发给 Agent（或直接 @ 本文件）。
 > 本文只是入口——事实源在 preview/docs/ 的 spec.md 与 plan.md，不在任何会话记忆里。
 > cr-490（2026-10-17）；cr-604（2026-10-23）刷新至切换后阶段；cr-618（2026-10-23 晚）刷新：标准模式工具面收口 + cutover 余项清单入口。
+>
+> **历史文档（cr-703 后）**：本文是 preview 轨开工提示词，写作于 cr-703 全仓重组之前——文中 `preview/docs/`、`src/docs/` 路径已随单轨布局消灭，对应档案现住 `docs/cutover/`（本目录）与 `docs/design/`；三项用户裁决已落定（档位词 settings X1、requiredTags 迁移 + `tools→rows` 改名 cr-691/692、通道包迁出 cr-695/696）。只读历史，不再更新；现行开工入口 = 根 `README.md` + `docs/design/`。
 
 ---
 

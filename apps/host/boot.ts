@@ -30,12 +30,15 @@ import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
 import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace } from 'ac-host-rows';
 import { readCatalog, deriveHostRowset, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
+import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
 import { assembleWebServer, attachWebSurface, type WebRing } from 'ac-host-webui';
 import { createOrchestrator, type OrchestratorHandle } from './orchestrator.ts';
+import { createShellStatePoller, type ShellStatePoller } from './shell-state-poller.ts';
 import { createAdminPreview } from './admin-preview.ts';
 import { resolveAnchors, seedFactoryPlugins } from './anchors.ts';
+import { reapOrphanProcesses } from './orphans.ts';
 
 /** 本文件目录（编排面 bootFile 寻址基点） */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +80,8 @@ export interface HostBootResult {
   po: PostOffice;
   /** 编排面（壳句柄池——按需拉起/监护/re-tap；orchestrate:false 时缺席） */
   supervisors: OrchestratorHandle | null;
+  /** 壳状态轮询面（cr-748：活壳 run-state 对账——懒起，订阅驱动；orchestrate:false 时缺席） */
+  poller: ShellStatePoller | null;
   /** 装配终检通过后的 fiber 清单（诊断/测试用） */
   fibers: Fiber[];
   close(): Promise<void>;
@@ -116,6 +121,20 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   // ---- 邮局先行（usage 等宿主自有形态行的事件信收信面依赖它；web 表面共用）----
   const po = new PostOffice({ dataRoot });
   await po.listen();
+
+  // ---- 启动期孤儿进程对账清扫（cr-382 建议 3；cr-800 自 ac-app 退役漏迁后回迁）----
+  // 锁后即扫：上一世宿主死亡时未绑定的 shell 子进程（孤儿 pwsh）在此回收
+  // ——指纹 + 双护栏（父已死 & 早于 boot），AGENTCHAT_ORPHAN_REAP=off 关闭
+  //（vitest setup 默认关——测试进程不真杀机器上的进程）。留痕走宿主日志。
+  try {
+    const r = reapOrphanProcesses(Date.now());
+    if (!r.skipped) {
+      for (const o of r.reaped) {
+        hostLog('W', 'host', '清扫上一世孤儿进程 pid=' + o.pid + ': ' + o.cmdline.slice(0, 200));
+      }
+      if (r.reaped.length === 0) hostLog('I', 'host', '孤儿进程对账：无命中');
+    }
+  } catch { /* 尽力面：清扫失败不阻塞 boot（漏网的下一世 boot 自愈再扫） */ }
   // host 端点收信扇出面（cr-545：usage / auth-registry 行共用——邮局 local 通道单 receiver 组合器）
   const inbox = new HostInbox(po);
   // 编排面迟绑定引用（inbox 钩子先于编排面创建——cr-648 restart_shell 重拉用）
@@ -141,7 +160,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
         }
       }
       void orch.ensureAgent(agentId).catch((err: unknown) => {
-        process.stderr.write('[host] restart_shell 重拉失败（' + agentId + '）：' + String(err) + '\n');
+        hostLog('E', 'host', 'restart_shell 重拉失败（' + agentId + '）：' + String(err));
       });
     };
     setTimeout(tick, 1_500).unref();
@@ -175,6 +194,9 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     postOffice: po,
   };
   let web: WebRing;
+  // cr-748 状态对账：poller 惰性创建（orchestrator 就绪后）——订阅驱动起停，
+  // boot 不持有定时器（空闲零定时器纪律）。
+  let poller: ShellStatePoller | null = null;
   try {
     // ① 传输基座先行（无 webServer 时 inject 它的行永 PENDING——cr-542）
     if (mounted.has('web-server')) fibers.push(await assembleWebServer(ctx, ringOptions));
@@ -270,13 +292,46 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       dataRoot,
       ensureAgent: (agentId) => supervisors.ensureAgent(agentId).then(() => undefined),
     });
+    // cr-734/735：待答提问拉壳——提问通知链住父壳，壳不起则 pending ask
+    // 死信。延迟 15s + 串行：boot 期 rescue 探活与并发拉壳会撞出双 spawn
+    // 竞态（慢 boot 壳被 4s manage 探针误判真老壳→降级再拉互拒判死）。
+    const askParents = pendingAskParentIds(dataRoot);
+    if (askParents.length > 0) {
+      const wake = setTimeout(() => {
+        void (async () => {
+          for (const agentId of askParents) {
+            try {
+              await supervisors.ensureAgent(agentId);
+            } catch (e: unknown) {
+              hostLog('E', 'host', '待答提问拉壳失败（' + agentId + '）：' + String(e));
+            }
+          }
+        })();
+      }, 15_000);
+      if (typeof wake.unref === 'function') wake.unref();
+    }
     // cr-659 换代活壳收复：restart_host 后活壳不在新宿主可达表/旁带流
     // 订阅——boot 扫 activation.lock 探活，可达登记 + re-tap（webui 断连
     // 重连后直播帧恢复，不依赖下一封信触发 ensureHook）。
     const rescued = supervisors.rescueLiveShells();
     if (rescued > 0) {
-      process.stderr.write('[host] 换代活壳收复 ' + rescued + ' 个（可达登记 + 旁带流 re-tap）\n');
+      hostLog('I', 'host', '换代活壳收复 ' + rescued + ' 个（可达登记 + 旁带流 re-tap）');
     }
+    // cr-748 状态对账：poller 挂编排面（订阅驱动起停）。对账 run-settled →
+    // loop/after-run 前端帧（ShellStreamBridge 同形映射——丢帧的 run 经对账
+    // 面补投收束三件套：清 busy + 权威行重拉；text 缺席，终稿以重拉的权威行
+    // 为准）；广播无连接时帧丢弃（B3 瞬态语义同款——对账面不承诺持久）。
+    poller = createShellStatePoller(supervisors);
+    poller.onEvent((event) => {
+      if (event.type !== 'run-settled') return;
+      hostLog('I', 'poller', 'run-settled 对账（' + event.agentId + '，' + event.runId + '，finish=' + event.finish + '）');
+      ctx.webServer.broadcast('loop/after-run', {
+        args: [
+          { agent: event.agentId, conversationId: event.conversationId, sender: 'user', source: 'user' },
+          { finish: event.finish === 'ok' ? 'stop' : event.finish, text: '' },
+        ],
+      });
+    }); // 退订面丢弃——订阅随宿主生命周期，dispose 统一收
   }
 
   // ④ agent-admin（写侧 RPC 编排——inject ['webServer','agents']：两服务同树才激活）。
@@ -301,9 +356,20 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     web: { user: web.user, port: web.port, tapAgent: web.tapAgent, untapAgent: web.untapAgent },
     po,
     supervisors,
+    poller,
     fibers,
     async close() {
-      supervisors?.close();
+      // 壳收割（cr-705）：supervisors.close() 只停监护循环不杀壳（detached
+      // /host-revive 设计），但 close() 的调用语义是「宿主进程收面」——测试
+      // teardown 直接 bootHost→close 后壳仍持有数据根句柄，成为 workspace/test
+      // EPERM 残留源。close 时逐句柄优雅停 + 兜底强杀，宿主侧零残留。
+      poller?.dispose(); // cr-748：先停轮询（后续收割不再产生对账事件）
+      if (supervisors !== null) {
+        for (const handle of supervisors.handles().values()) {
+          try { await handle.shutdown(); } catch { try { handle.kill(); } catch { /* 已退出 */ } }
+        }
+        supervisors.close();
+      }
       web.closeTaps();
       for (const fiber of [...fibers].reverse()) {
         if (fiber.uid !== null) await fiber.dispose();
@@ -374,7 +440,7 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
   // 小延迟重拉），活壳探测是兜底；两者竞态由既有防线收敛（O_EXCL 壳间
   // 仲裁 + cr-619 strict EADDRINUSE 后到者可读退出 78）。
   const restartHost = (host: Awaited<ReturnType<typeof bootHost>>, sender: string): void => {
-    console.log('[host] 收到 restart_host 请求（sender=' + sender + '）——graceful 重启（exit 42，活壳/监护拉回）');
+    hostLog('I', 'host', '收到 restart_host 请求（sender=' + sender + '）——graceful 重启（exit 42，活壳/监护拉回）');
     setTimeout(() => process.exit(42), 8_000).unref(); // 收面兜底：close 链异常不吊死重启
     void host.close().finally(() => process.exit(42));
   };
@@ -390,7 +456,7 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
     ...(hasStatic ? { staticDir } : {}),
   }).then((host) => {
     hostRef[0] = host;
-    console.log('[host] boot 完成：' + host.rowIds.length + ' 行装配（cordis 面），web 端口 ' + host.web.port);
+    hostLog('I', 'host', 'boot 完成：' + host.rowIds.length + ' 行装配（cordis 面），web 端口 ' + host.web.port);
   }).catch((err: unknown) => {
     // 数据根单写者（IPC 命名管道）或端口被占 = 这个根上已经有宿主在跑。
     // 裸栈会让人以为「切换坏了」——给可读结论 + 该往哪走（cr-560 现场）。
@@ -484,4 +550,44 @@ export function sweepRestartShellMarkers(input: {
       } catch { /* 回滚失败留 TTL 清扫 */ }
     });
   }
+}
+
+/**
+ * 子 Agent 待答提问拉壳扫描（cr-734）。提问通知链（watch / boot 对账 /
+ * 重试）全住父壳进程，而壳是按需拉起形态——重启后用户不发消息则父壳
+ * 永不 boot，pending ask 成死信。boot 扫 children 域 interactions.jsonl
+ * 的 pending ask_questions（last-wins per id——reply 追加行覆盖旧 pending
+ * 态，同 ac-shell-subagent pendingAskOf 口径），命中即 ensureAgent(父)；
+ * 幂等归 orchestrator（活壳在场即无副作用），壳起后对账链自行投递。
+ * 与 restart-shell 标记扫描同族：盘上事实 → 拉壳。
+ */
+export function pendingAskParentIds(dataRoot: string): string[] {
+  const agentsDir = path.join(dataRoot, 'agents');
+  let agents: fs.Dirent[] = [];
+  try { agents = fs.readdirSync(agentsDir, { withFileTypes: true }); } catch { return []; /* 无 agents 域 */ }
+  const out: string[] = [];
+  for (const a of agents) {
+    if (!a.isDirectory()) continue;
+    const childrenDir = path.join(agentsDir, a.name, 'children');
+    let children: fs.Dirent[] = [];
+    try { children = fs.readdirSync(childrenDir, { withFileTypes: true }); } catch { continue; }
+    for (const c of children) {
+      if (!c.isDirectory()) continue;
+      let text: string;
+      try { text = fs.readFileSync(path.join(childrenDir, c.name, 'interactions.jsonl'), 'utf-8'); } catch { continue; }
+      // last-wins per id（避免旧 pending 行 + 后续 answered 行的假阳性拉壳）
+      const byId = new Map<string, boolean>();
+      for (const line of text.split('\n')) {
+        if (line.trim() === '') continue;
+        try {
+          const r = JSON.parse(line) as { id?: unknown; kind?: unknown; state?: unknown };
+          if (typeof r.id === 'string') byId.set(r.id, r.kind === 'ask_questions' && r.state === 'pending');
+        } catch { /* 撕裂行跳过 */ }
+      }
+      if (![...byId.values()].some(Boolean)) continue;
+      out.push(a.name);
+      break; // 同父多子一份——壳起后对账扫全部物化子
+    }
+  }
+  return out;
 }

@@ -148,8 +148,9 @@ export class LedgerWriter {
   async journal(line: JournalStep | JournalInject | JournalToolResult | Omit<JournalSettled, 'seq'>): Promise<void> {
     await this.enqueue(() => {
       // ts 盖戳（cr-697）：物化段行/步级时间戳的取源——写入时不可逆，缺席
-      // 即永久缺席（存量行读侧回落收束时刻）
-      const full = { ...line, ts: Date.now(), seq: this.allocSeq() } as JournalLine;
+      // 即永久缺席（存量行读侧回落收束时刻）。调用方已带 ts（注入行——
+      // cr-707：与直播帧同一时刻，排序同源）时保留。
+      const full = { ...line, ts: (line as { ts?: number }).ts ?? Date.now(), seq: this.allocSeq() } as JournalLine;
       this.appendLine(path.join(this.dir, JOURNAL), full);
     });
   }
@@ -247,8 +248,17 @@ export class LedgerWriter {
         ...(uuid !== undefined ? { uuid } : {}),
         run: runId,
         source: isInject ? 'inject' : 'segment',
+        // 注入行身份（cr-707）：message_id = injectionId——直播行与刷新行同锚
+        //（前端 mergeHistoryPage 双键去重直接命中）；来源/文案随行携带
+        ...(isInject && seg.injectSource !== undefined ? { injectSource: seg.injectSource } : {}),
+        ...(isInject && seg.label !== undefined ? { label: seg.label } : {}),
+        // 注入行信封关联（cr-713）：busy-steer 消息无入站行——本行即其账本
+        // 记录，requestId 随行带出（重放判重 / 读侧与入站行同键归口）
+        ...(isInject && seg.requestId !== undefined ? { requestId: seg.requestId } : {}),
         ...(isInject ? {} : { steps: seg.steps }),
-        message_id: (isInject ? 'inj-' : 'seg-') + runId + '-' + (i++),
+        message_id: isInject
+          ? (seg.injectionId ?? 'inj-' + runId + '-' + i++)
+          : 'seg-' + runId + '-' + i++,
         timestamp: lastTs !== undefined ? new Date(lastTs).toISOString() : new Date().toISOString(),
         seq: this.allocSeq(),
       } satisfies LedgerRow);

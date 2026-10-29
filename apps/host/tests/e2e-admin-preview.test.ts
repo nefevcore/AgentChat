@@ -12,6 +12,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+// 数据根 = mkdtemp 绝对路径（cr-705）：此前相对路径 sandbox/... 在 vitest
+// setup chdir 后解析为 workspace/test/w<N>/sandbox/...——global setup 每轮
+// rmSync(workspace/test) 撞上 detached 壳持有的句柄必 EPERM（第二次跑测试
+// 必挂）。绝对路径与清理面解耦（e2e-cutover 同款）。
 import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { bootHost, type HostBootResult } from '../boot.ts';
@@ -21,8 +25,7 @@ let tmp: string;
 let host: HostBootResult | null = null;
 
 beforeEach(() => {
-  tmp = path.join('sandbox', 'e2e-admin-preview-' + process.pid + '-' + Date.now().toString(36));
-  fs.mkdirSync(tmp, { recursive: true });
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-e2e-admin-preview-'));
   const agentDir = path.join(tmp, 'agents', 'alpha');
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify({

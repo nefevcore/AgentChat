@@ -8,14 +8,16 @@
 //   subagents/history RPC → toHistoryMessages（steps[] 按步展开：工具卡/
 //   思维链折叠栏/已思考耗时/步级 ts 排序）→ pairMessageToChatMessage →
 //   buildTurns → useTurnDisplayItems → TranscriptList。
-// 刷新驱动：jobBoard 中该 subId 条目状态变化（job/settled 帧已由 jobBoard
-// 订阅）+ 手动刷新钮（WS 断线兜底）。P0 纯历史回放——live 流式见计划 §七 P1。
+// 刷新驱动：ctx.subagentBoard 投影（subagents/list RPC + subagents/updated
+// 帧驱动）——该 subId 条目 displayStatus 变化即重拉历史；手动刷新钮兜底。
+// P0 纯历史回放——live 流式见计划 §七 P1。（cr-752：原押 jobBoard
+// kind=subagent 条目，而 preview 生产链从不向 jobs 注册表登记——watch 永不触发）
 // 上翻分页：limit/offset 从尾部往回取（RPC 形状对齐 session/history）。
 // ============================================================
 import { computed, inject, ref, watch, nextTick } from 'vue';
 import { Icon, StarAvatar, BusyRing, FeedbackNotice, Tooltip } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
-import { useClientContext, clientRuntime } from 'ac-client-runtime';
+import { useClientContext } from 'ac-client-runtime';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
@@ -26,7 +28,7 @@ import {
 import { pairMessageToChatMessage, buildTurns } from 'ac-client-ui-conversation/client/feed.ts';
 import { useTurnDisplayItems } from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
 import TranscriptList from 'ac-client-ui-conversation/client/TranscriptList.vue';
-import { jobIsRunning, jobStatusLabel, subagentMeta, type WireJob } from 'ac-client-ui-jobs/client';
+import { subStatusLabel } from 'ac-client-ui-jobs/client';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type { Turn } from 'ac-client-ui-conversation/client/types.ts';
 
@@ -40,7 +42,10 @@ const ui = useUiStore();
 const themeStore = useThemeStore();
 const roster = useRosterCore();
 const rpc = useClientContext()?.rpc ?? null;
-const jobBoard = useClientContext()?.jobBoard;
+// 刷新/徽章数据源：subagent 域投影（cr-752——jobBoard 无 subagent 条目，
+// preview 生产链不向 jobs 注册表登记；ensureStarted 挂 RPC + updated 帧订阅）
+const subBoard = useClientContext()?.subagentBoard;
+subBoard?.ensureStarted();
 /** 窄屏导航（cr-33）：只读子会话也是 push 页——返回 = closeSubagentView */
 const closeMobileMain = inject<() => void>('closeMobileMain', () => {});
 
@@ -49,10 +54,9 @@ const closeMobileMain = inject<() => void>('closeMobileMain', () => {});
 // 与「运行跟踪 → 点开子会话」的群聊式阅读预期不符
 const viewerId = VIEWER_ID;
 
-// ── 状态徽章（jobBoard 运行态权威；缺席回落 props 名单外的 unknown） ──
-const job = computed<WireJob | undefined>(() =>
-  (jobBoard?.jobs.value ?? []).find((j) => subagentMeta(j).subagentId === props.subId));
-const isRunning = computed(() => job.value !== undefined && jobIsRunning(job.value));
+// ── 状态徽章（subagentBoard.displayStatus——运行中徽章与清单面板同源） ──
+const subEntry = computed(() => (subBoard?.subs.value ?? []).find((s) => s.subId === props.subId));
+const isRunning = computed(() => subEntry.value?.displayStatus === 'running');
 
 function parentName(id: string): string {
   return roster.getAgentName(id) || id;
@@ -118,13 +122,13 @@ const transcript = ref<InstanceType<typeof TranscriptList>>();
 
 function streamingTailLen(): number { return 0; } // P0 纯历史（live 见 P1）
 
-// ── 刷新驱动：jobBoard 该 subId 条目 settled（新 run 收束 → 重拉历史） ──
+// ── 刷新驱动：subagentBoard 该 subId 条目 displayStatus 回落（running →
+//    done/error/…，subagents/updated 帧驱动投影更新）= 新 run 收束——重拉历史 ──
 watch(
-  () => job.value?.status,
+  () => subEntry.value?.displayStatus,
   (cur, prev) => {
-    // 终态变化（running→completed/failed/killed）= 新 run 收束——重拉历史
-    if (prev !== undefined && prev !== 'running' && cur !== 'running') return;
     if (prev !== 'running') return;
+    if (cur === undefined || cur === 'running') return;
     void loadInitial();
   },
 );
@@ -160,7 +164,7 @@ function refresh() { void loadInitial(); }
       </div>
       <div class="header-actions">
         <span v-if="isRunning" class="ui-badge warn st-badge"><Icon name="zap" :size="11" /> 运行中</span>
-        <span v-else-if="job" class="ui-badge dim st-badge">{{ jobStatusLabel(job.status) }}</span>
+        <span v-else-if="subEntry && !subEntry.deleted" class="ui-badge dim st-badge">{{ subStatusLabel(subEntry.displayStatus) }}</span>
         <Tooltip text="刷新（重拉历史）" placement="bottom">
           <button class="refresh-btn" aria-label="刷新（重拉历史）" :disabled="loading" @click="refresh">
             <BusyRing v-if="loading" :size="13" />
@@ -184,6 +188,8 @@ function refresh() { void loadInitial(); }
         empty-text="该子 Agent 暂无会话记录"
         :show-actions="false"
         :settings-agent-id="viewerId"
+        :bottom-inset="0"
+        :bottom-tail="0"
       />
     </div>
   </div>

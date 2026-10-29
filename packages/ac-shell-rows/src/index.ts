@@ -23,7 +23,6 @@
 //   subagent（inject session+注册表面）随 8.2/8.3 落地后续批。
 // ============================================================
 import * as path from 'node:path';
-import * as fs from 'node:fs';
 import type { Plugin } from '@agentchat/cordis';
 import ConsoleExporter from '@agentchat/cordis-logger';
 import * as configRow from 'ac-config';
@@ -127,17 +126,14 @@ export const COMPANION_ROWS: Record<string, { plugin: Plugin; optionsKey: string
  * agentDir = 本壳 agent 域目录（影子 = 物化域；per-agent 域行锚定用——
  * durable-interaction A8 数据化：jsonl 落 agents/<id>/interactions.jsonl，
  * D4 单写者不变式——每实例只写自己域，多壳不共写数据根根）。
- * agentId（cr-589）：pwsh/fs 族的沙箱 workdir 基准 = <dataRoot>/sandbox/
- * <agentId>（主线 workspace Agent 专用空间的 preview 裁形态——壳无
- * workspace 行，缺省回落 process.cwd()〔= 壳进程启动目录〕未声明且
- * 危险；per-agent 专用空间钉住相对路径解析与命令 cwd。缺席 = 不传，
- * 行回落自身缺省）。
+ * agentId（cr-754）：fs/shell 族的沙箱基准已退役注入——shims 行
+ * WorkspaceShim 恒在场且优先（createAgentSandboxCache 先取
+ * workspace.sandboxWorkdir），行 options 的 workdir 恒被遮蔽：cr-589
+ * 的 <dataRoot>/sandbox/<agentId> 注入是死配置（每壳白建一个空目录
+ * 从未被读到）。基准单源 = 垫片 files/<agentId>（懒建，主线
+ * ensureAgentWorkdir 同构）。
  */
-export function rowOptionsFor(dataRoot: string, agentDir?: string, agentId?: string): Record<string, unknown> {
-  // pwsh/fs 族沙箱基准（mkdir：pwsh 以 cwd spawn——目录须存在）
-  const sandboxWorkdir = agentId !== undefined ? path.join(dataRoot, 'sandbox', agentId) : undefined;
-  if (sandboxWorkdir !== undefined) fs.mkdirSync(sandboxWorkdir, { recursive: true });
-  const sandboxOptions = sandboxWorkdir !== undefined ? { workdir: sandboxWorkdir } : {};
+export function rowOptionsFor(dataRoot: string, agentDir?: string): Record<string, unknown> {
   return {
     config: { root: dataRoot },
     memory: { root: dataRoot },
@@ -145,11 +141,9 @@ export function rowOptionsFor(dataRoot: string, agentDir?: string, agentId?: str
     'file-snapshots': { root: path.join(dataRoot, 'file-snapshots') },
     browser: { dataRoot },
     'durable-interaction': { root: agentDir ?? path.join(dataRoot, 'agents', '_shell') },
-    // fs/shell 工具行（cr-589）：相对路径与命令 cwd 锚 per-agent 专用空间
-    'fs-tools': sandboxOptions,
-    'fs-search': sandboxOptions,
-    'str-replace-editor': sandboxOptions,
-    'shell-tools': sandboxOptions,
+    // 任务日志锚数据根（cr-718）：%TEMP% 被杀软/沙箱拒写的环境下后台
+    // 任务恒不可用——落点与 .runtime/logs 同域（leftovers B3 方向）
+    'shell-tools': { logDir: path.join(dataRoot, '.runtime', 'tmp') },
   };
 }
 

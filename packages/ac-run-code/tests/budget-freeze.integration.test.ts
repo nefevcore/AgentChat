@@ -133,6 +133,9 @@ describe('ac-run-code：预算冻结（durable-interaction 挂起期不计预算
     );
     expect(r.ok).toBe(false);
     expect(r.error ?? '').toMatch(/墙钟预算耗尽/);
+    // cr-783：预算耗尽是工具级失败反馈（模型读 error 自适配），不走
+    // M11 interrupt 通道（无宿主级行为；此前误用会收束整轮 run）
+    expect(r.interrupt).toBeUndefined();
   });
 
   it('T2 冻结期墙钟暂停：挂起 400ms 超墙钟 150ms，应答后程序存活', { timeout: 15000 }, async () => {
@@ -166,6 +169,7 @@ describe('ac-run-code：预算冻结（durable-interaction 挂起期不计预算
     );
     expect(rB.ok).toBe(false);
     expect(rB.error ?? '').toMatch(/墙钟预算耗尽/);
+    expect(rB.interrupt).toBeUndefined(); // cr-783：预算耗尽不转 interrupt
     void runA; // 保持引用（收尾由 afterEach 清）
   });
 
@@ -211,5 +215,6 @@ describe('ac-run-code：预算冻结（durable-interaction 挂起期不计预算
     // 720s，send_agent wait 有自己的 timeout_ms 语法糖先行返回）
     expect(r.ok).toBe(false);
     expect(r.error ?? '').toMatch(/墙钟预算耗尽/);
+    expect(r.interrupt).toBeUndefined(); // cr-783：预算耗尽不转 interrupt
   });
 });

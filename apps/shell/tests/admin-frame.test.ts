@@ -69,6 +69,12 @@ describe('admin 控制帧路由（goal / todo）', () => {
       .resolves.toEqual({ stopped: false });
   });
 
+  it('subagents-list 走 subagents.listOp（busy/exited 进程内态出口，cr-725）', () => {
+    const ctx = fakeCtx({ subagents: { listOp: () => [{ childId: 'kid1', status: 'ready', pid: 1, busy: true }] } });
+    expect(handleAdminFrame(ctx, { ctrl: 'admin', op: 'subagents-list', agentId: 'a1' }))
+      .toEqual({ agents: [{ childId: 'kid1', status: 'ready', pid: 1, busy: true }] });
+  });
+
   it('session-archive 返回受理回执（整理 run 后台进行）', async () => {
     const ctx = fakeCtx({ archive: { requestArchive: async () => ({}) } });
     await expect(handleAdminFrame(ctx, { ctrl: 'admin', op: 'session-archive', agentId: 'a1', conversationId: 'c1' }))

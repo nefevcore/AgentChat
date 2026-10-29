@@ -384,9 +384,6 @@ importers:
       ac-fs-tools:
         specifier: workspace:*
         version: link:packages/ac-fs-tools
-      ac-gate-core:
-        specifier: workspace:*
-        version: link:packages/ac-gate-core
       ac-glob-core:
         specifier: workspace:*
         version: link:packages/ac-glob-core
@@ -2076,6 +2073,9 @@ importers:
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
+      pinia:
+        specifier: ^2.1.7
+        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2459,9 +2459,6 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2624,12 +2621,6 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/ac-gate-core:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
-
   packages/ac-gemini-completions:
     dependencies:
       ac-error-core:
@@ -2660,9 +2651,6 @@ importers:
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
-      ac-gate-core:
-        specifier: workspace:*
-        version: link:../ac-gate-core
     devDependencies:
       ac-extension-core:
         specifier: workspace:*
@@ -2795,6 +2783,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-archive-core:
+        specifier: workspace:*
+        version: link:../ac-archive-core
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
@@ -3279,12 +3270,6 @@ importers:
         specifier: workspace:*
         version: link:../ac-sandbox-core
     devDependencies:
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
-      ac-config:
-        specifier: workspace:*
-        version: link:../ac-config
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -3488,12 +3473,18 @@ importers:
       ac-auth-core:
         specifier: workspace:*
         version: link:../ac-auth-core
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
       ac-ledger:
         specifier: workspace:*
         version: link:../ac-ledger
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
       ac-post-office:
         specifier: workspace:*
         version: link:../ac-post-office

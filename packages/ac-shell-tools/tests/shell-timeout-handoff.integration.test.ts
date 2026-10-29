@@ -5,6 +5,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CMD_TOOL, SLEEP_30, exec, tmpRoot, boot, bootRows } from './helpers.ts';
 import * as toolsRow from 'ac-tools';
 import * as jobsRow from 'ac-jobs';
@@ -61,6 +62,21 @@ describe(`ac-shell-tools ${CMD_TOOL} 超时 handoff`, () => {
     const log = String(r.output.log_file);
     expect(fs.existsSync(log)).toBe(true);
     expect(fs.readFileSync(log, 'utf-8')).toContain('before-timeout'); // 落盘点含已累积输出
+    await killAndWait(ctx, r.output.job_id);
+  }, 20000);
+
+  it('logDir 注入（cr-718）：handoff 日志落指定目录而非 %TEMP%——被拒写环境下后台任务仍可用', async () => {
+    const root = tmpRoot();
+    const logDir = path.join(root, 'rt-tmp');
+    const { ctx } = await boot(root, { logDir });
+    const r = await exec(ctx, {
+      name: CMD_TOOL,
+      args: { command: `echo logdir-probe; ${SLEEP_30}`, timeout: 2000 },
+    });
+    expect(r.output.timeout_action).toBe('handoff');
+    expect(String(r.output.log_file).startsWith(logDir)).toBe(true); // 落点在注入目录
+    await new Promise((res) => setTimeout(res, 500));
+    expect(fs.readFileSync(String(r.output.log_file), 'utf-8')).toContain('logdir-probe');
     await killAndWait(ctx, r.output.job_id);
   }, 20000);
 

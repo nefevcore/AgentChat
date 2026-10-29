@@ -26,8 +26,8 @@ export interface PluginRowDeclaration {
   bundle?: string;
   /** 硬依赖行 id 清单（行集闭包） */
   requires?: string[];
-  /** 一句话角色 */
-  role?: string;
+  /** 一句话描述 */
+  description?: string;
 }
 
 const ROW_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -79,7 +79,7 @@ export function readPluginRowDeclarations(manifestRaw: unknown): {
     const requires = stringsOf(obj.requires, 'requires', id, warnings);
     if (requires !== undefined) decl.requires = requires;
     if (typeof obj.bundle === 'string' && obj.bundle !== '') decl.bundle = obj.bundle;
-    if (typeof obj.role === 'string' && obj.role !== '') decl.role = obj.role;
+    if (typeof obj.description === 'string' && obj.description !== '') decl.description = obj.description;
     decls.push(decl);
   }
   return { decls, warnings };
@@ -101,7 +101,7 @@ export function pluginRowsOf(
     ...(decl.tools !== undefined ? { tools: decl.tools } : {}),
     ...(decl.bundle !== undefined ? { bundle: decl.bundle } : {}),
     ...(decl.requires !== undefined ? { requires: decl.requires } : {}),
-    ...(decl.role !== undefined ? { role: decl.role } : {}),
+    ...(decl.description !== undefined ? { description: decl.description } : {}),
     path: installDir,
   }));
   return { rows, warnings: warnings.map((w) => pluginName + '：' + w) };

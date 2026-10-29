@@ -124,7 +124,7 @@ export class ToolsService extends Service {
         payload,
         async () => payload.result,
       );
-      this.ctx.emit('tool/after-execute', finalCall, final, error);
+      this.ctx.emit('tool/after-execute', finalCall, final, error, payload.durationMs);
       return final;
     });
   }

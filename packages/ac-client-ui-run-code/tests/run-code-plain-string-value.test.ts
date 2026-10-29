@@ -2,7 +2,9 @@
 // ============================================================
 // ac-client-ui-run-code/tests/run-code-plain-string-value.test.ts
 // —— 返回值分形渲染验收：run_code return 纯 string 时按普通文本
-// 直显（保留换行、无引号包裹），对象/数组仍走 JSON 代码块。
+// 直显（保留换行、无引号包裹），对象/数组仍走 JSON 代码块；
+// 卡内「工具调用」时间线退役验收（cr-764——逐条子调用由紧随的
+// subcall 平铺卡展示，卡内只留汇总徽章行）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createApp, h, nextTick } from 'vue';
@@ -53,6 +55,47 @@ describe('run_code 卡 · return 纯 string 按普通文本渲染', () => {
     btn.click();
     await nextTick();
     expect(root.querySelector('.rc-value-text')!.textContent!.trim()).toBe(text); // 展开还原
+    unmount();
+  });
+});
+
+describe('run_code 卡 · 工具调用时间线退役（cr-764）', () => {
+  const TRACE_SUMMARY = {
+    ...SUMMARY,
+    calls: 3, ok: 2, failed: 1, serialized: [2],
+    denied: [{ name: 'pwsh', error: '权限拒绝：禁止执行' }],
+    trace: [
+      { seq: 1, name: 'read', ok: true, ms: 5, brief: 'a.ts' },
+      { seq: 2, name: 'edit', ok: true, ms: 8, brief: 'a.ts' },
+      { seq: 3, name: 'grep', ok: false, ms: 3, brief: 'x', error: '无命中' },
+    ],
+  };
+
+  it('逐条时间线不渲染（rc-trace* 全消失）；摘要徽章行在场且含计数/串行/机器耗时', async () => {
+    const { root, unmount } = await mountCard({ summary: TRACE_SUMMARY, programHash: 'ab12cd34' });
+    expect(root.querySelector('.rc-trace')).toBeNull();
+    expect(root.querySelector('.rc-trace-list')).toBeNull();
+    expect(root.querySelector('.rc-trace-row')).toBeNull();
+    const summary = root.querySelector('.rc-summary');
+    expect(summary).toBeTruthy();
+    const badges = Array.from(summary!.querySelectorAll('.ui-badge')).map((b) => b.textContent?.trim());
+    expect(badges).toContain('调用 2/3');
+    expect(badges).toContain('串行 1');
+    expect(badges.some((t) => t?.includes('ms 计算'))).toBe(true);
+    unmount();
+  });
+
+  it('被拒徽章保留——denied 子调用（before-execute 被 veto，无 subcall 卡）唯一前端可见面', async () => {
+    const { root, unmount } = await mountCard({ summary: TRACE_SUMMARY, programHash: 'ab12cd34' });
+    const denied = root.querySelector('.rc-badge-denied');
+    expect(denied?.textContent?.trim()).toBe('被拒 1');
+    unmount();
+  });
+
+  it('无 trace 子调用的纯计算程序：摘要行照常（不再有空态占位文案）', async () => {
+    const { root, unmount } = await mountCard({ summary: SUMMARY, programHash: 'ab12cd34' });
+    expect(root.querySelector('.rc-summary')).toBeTruthy();
+    expect(root.querySelector('.rc-trace-empty')).toBeNull();
     unmount();
   });
 });

@@ -98,6 +98,19 @@
 | `webui-refactor-guide.md` | 迁移指南 | cr-124 立项，五批路线已执行完毕 | 自 src/docs 根冻结（cr-261） |
 | `scripts/`（20 个） | 一次性验证/迁移脚本 | 各自里程碑收官 | m31/m32/m35 验证、relay-e2e、migrate-workspace/migrate-subcalls-split/unify-group-storage、verify-*portb ×7、bench-singles-scan；自 scripts/ 与 src/scripts/ 冻结（cr-261）。注：migrate-hooks-to-settings / migrate-llm-pool-v2 / migrate-session-neutral 有恒等门测试 import，留在 src/scripts/ |
 
+### cr-726 文档审查批收编（2026-10-27）
+
+| 条目 | 类型 | 收官状态 | 备注 |
+|---|---|---|---|
+| `per-agent-instance-architecture.html` | 配图（2026-10-13 版） | 已过时 | 未随六次修订更新：图 1「承重 = stub → RPC 回宿主」已被 D3 激进化推翻；图 4/5 的「缺/待裁」与实现相反。如需配图应重绘（现行文字版 `../per-agent-instance-architecture.md` 留活） |
+| `message-pipeline-graph.html` | 可视化图谱 | 已收官 | 核心结论 F1「双管线无收敛协议」已由 cr-94 `session/run-settled` 关闭（该事件现无发射方，见疑点）；与同批 `message-pipeline-analysis.md` 同处 |
+| `m30-slot-semantics-refinement-plan.md` | 计划 | 已收官 | T1–T9 全部 ✅；D2「唯一 data 席」已过时（`activity-bar:more-menu` 亦为 data 席）；席位现态以 `../ui-rows-and-slots.md` 为准 |
+| `first-run-onboarding-plan.md` | 计划 | 已收官 | 五步、localStorage 键、跳过确认均可核；`AgentCreateForm` 未抽取（未标债） |
+| `subagent-session-view-plan.md` | 计划 | 已收官 | P0 全落地、P1 部分；未实施 P1（live 流式 / 步级 partial / 嵌套导航）已移交 `../gap-backlog.md` F 节 |
+| `kv-prefix-cache-fix-plan.md` | 结案报告 | 已收官 | 主修复 cr-294 已落地（实际落点 = `ac-openai-completions`，非文中所述）；`pnpm wire-diff` / 探针已不可用 |
+| `tag-system-report.md` | 调研报告 | 已整体过时 | tag 目录/词表机制已随 cr-484 全链退役（`ac-tag-registry` 不存在、`tags/catalog` 恒空桩）；`requiredTags` 迁移已于 cr-691 完成 |
+| `collab-delivery-gaps.md` | 缺口报告 | 已收口 | 代码落点（has/history/sendEnvelope/GroupShim）全在；修复批缺 CR 登记（疑点 C-A） |
+
 ## 阅读须知
 
 - 本目录文档中的行号、包体量、席位清单、路径均为**快照时点值**；其中相互

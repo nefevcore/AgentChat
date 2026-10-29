@@ -120,7 +120,6 @@
     "ac-file-snapshots": "workspace:*",
     "ac-fs-search": "workspace:*",
     "ac-fs-tools": "workspace:*",
-    "ac-gate-core": "workspace:*",
     "ac-glob-core": "workspace:*",
     "ac-goal": "workspace:*",
     "ac-harness-tools": "workspace:*",

@@ -17,6 +17,14 @@ import type { AgentConfig } from './config.ts';
 /** 树内文件名常量（读写双面共用单源） */
 export const CONFIG_FILE = 'config.json';
 
+/** 子域归档标识文件名（cr-712 delete 收割改归档——在场 = 已收割） */
+export const ARCHIVED_FILE = 'archived.json';
+
+/** 子域是否已归档收割（cr-712：归档保留子域账本供回放审计，list/看板按此隐去） */
+export function childIsArchived(dataRoot: string, parentId: string, childId: string): boolean {
+  return fs.existsSync(path.join(agentDir(dataRoot, parentId), 'children', childId, ARCHIVED_FILE));
+}
+
 /** agents/<id>/ 目录（数据根下） */
 export function agentDir(dataRoot: string, agentId: string): string {
   assertAgentId(agentId);

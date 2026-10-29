@@ -50,9 +50,8 @@ export const extension: ExtensionMeta = {
   label: 'Harness 委托',
   description: 'run_harness 工具：把完整任务委托给本地 CLI harness（Claude Code/Codex）执行，终稿回流（沙箱两档 + agent 维互斥）',
   automatic: true,
-  // 无 fields：maxConcurrent/defaultTimeoutMs/gateways 是行配置（cordis.yml），
-  // 不走 settings 面——假配置面撤除（sap-adt config-layer-bug 同款裁决）；
-  // settings['harness-tools'].enabled 仍被 execute 自查消费（软停用口径）。
+  // 无 fields：maxConcurrent/defaultTimeoutMs/gateways/enabled 是行配置（cordis.yml），
+  // 不走 settings 面——假配置面撤除（sap-adt config-layer-bug 同款裁决）。
 };
 
 /** 标签目录声明（tag-registry 扫描面；RESERVED 未占——D10 已核） */
@@ -130,13 +129,6 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
       required: ['harness', 'task'],
     },
     async execute(args, call) {
-      // 行全局停用（settings[harness-tools].enabled 约定键自查——respectsEnabled 口径）
-      if (call.agentId !== undefined) {
-        const s = ctx.get('agents')?.settingsOf(call.agentId, 'harness-tools') as { enabled?: boolean } | undefined;
-        if (s && typeof s === 'object' && s.enabled === false) {
-          return { ok: false, error: 'run_harness 已被停用（settings[harness-tools].enabled）' };
-        }
-      }
       if (options.enabled === false) {
         return { ok: false, error: 'run_harness 已被本行配置停用' };
       }

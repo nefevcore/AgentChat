@@ -16,8 +16,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IpcClient, type PostOffice, type ReachabilityTable } from 'ac-post-office';
 import { isManageReply, makeManageRequest, type ManageReply } from 'ac-envelope-core';
-import { adoptShell } from './orchestrate.ts';
-import { superviseShell, type SuperviseHandle, type SuperviseSpawnInput, type SuperviseAdopter } from './supervise.ts';
+import { adoptShell, appendRollingLine } from './orchestrate.ts';
+import { hostLog } from './host-log.ts';
+import { superviseShell, type SuperviseHandle, type SuperviseSpawnInput, type SuperviseAdopter, type RunbeatSink } from './supervise.ts';
 
 /** 编排面装配入参 */
 export interface OrchestratorOptions {
@@ -44,7 +45,24 @@ export interface OrchestratorOptions {
   manageBootWaitMs?: number;
   /** socket manage 控制帧超时（缺省 60s——与 adoptShell.control 同档） */
   manageFrameMs?: number;
+  /**
+   * run 节拍落盘面（cr-740 运维日志；缺省 = 滚动落
+   * dataRoot/.runtime/logs/runbeat-<agent>.log，cap 512KB——shell-<agent>.log
+   * 同机制）。时间戳宿主侧盖（壳 TSV 无时标——行到达即写）。
+   */
+  runbeatSinkOf?: (agentId: string) => RunbeatSink;
+  /**
+   * 状态对账下沉口（cr-748）：活壳 run-state 对拍驱动的宿主侧动作面——
+   * 缺席 = 对账静默（诊断面缺席不反噬）。观察型（emit 语义）：拉起/respawn
+   * 归监护链，本面只投递。
+   */
+  onReconciled?: (event: ReconcileEvent) => void;
 }
+
+/** cr-748 状态对账事件（宿主侧动作面） */
+export type ReconcileEvent =
+  | { type: 'run-settled'; agentId: string; runId: string; conversationId: string; finish: 'ok' | 'interrupted' | 'error'; finishedAt: number }
+  | { type: 'shell-emerged'; agentId: string }; // 盘上出现活锁壳而可达表缺席（多见于宿主换代后的孤壳）
 
 export interface OrchestratorHandle {
   /** 按需拉起（幂等——首次真拉起，后续复用句柄） */
@@ -59,6 +77,13 @@ export interface OrchestratorHandle {
   control(agentId: string, frame: Record<string, unknown>): Promise<unknown>;
   /** 盘上活壳清单（持 activation.lock 且 holder 活着——含换代前拉起的孤壳） */
   liveShellIds(): string[];
+  /**
+   * 只读状态探测（cr-748）：盘上活锁壳逐个经 socket manage 通道取 run-state
+   * 快照。**绝不拉起**——探针失败（锁缺席/holder 死/连不上/超时）= 本拍无
+   * 数据，spawn 恒归信件驱动的拉起链。返回 per-agent 快照（探测失败的壳
+   * 缺席——调用方据此判「壳不在」而非「壳闲」）。
+   */
+  peek(): Promise<Map<string, RunStateSnapshot>>;
   /** 壳句柄池视图（诊断） */
   handles(): Map<string, SuperviseHandle>;
   /** 邮局 ensure 钩子（boot 接线面——直接作为 setEnsureHook 入参） */
@@ -70,8 +95,23 @@ export interface OrchestratorHandle {
 /**
  * 宿主 app 编排面：句柄池 + 按需拉起 + re-tap + 邮局钩子。
  */
+/** 活壳 run-state 快照（壳侧 conversation.runState 投影——cr-748 对账面数据源） */
+export interface RunStateSnapshot {
+  bootId: string;
+  busy: boolean;
+  runs: Array<{ conversationId: string; runId: string | null; startedAt: number }>;
+  recentSettled: Array<{ runId: string; conversationId: string; finishedAt: number; finish: string }>;
+}
+
 export function createOrchestrator(options: OrchestratorOptions): OrchestratorHandle {
   const handles = new Map<string, SuperviseHandle>();
+
+  // run 节拍缺省落盘（cr-740 运维日志）：runbeat-<agent>.log 滚动文件——
+  // 活动量/失败面一眼可读。appendRollingLine 自吞失败（诊断面不反噬监护链）。
+  const runbeatSinkOf = options.runbeatSinkOf ?? ((agentId: string): RunbeatSink => {
+    const file = path.join(options.dataRoot, '.runtime', 'logs', 'runbeat-' + agentId + '.log');
+    return (line: string) => appendRollingLine(file, new Date().toISOString() + ' ' + line, 512 * 1024);
+  });
 
   const spawnInputOf = (agentId: string): SuperviseSpawnInput => ({
     agentId,
@@ -104,6 +144,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
         adopt: adopter,
         ...options.superviseOptions,
         ...{ onPluginLoadFailure: options.superviseOptions?.onPluginLoadFailure },
+        ...{ onRunbeat: options.superviseOptions?.onRunbeat ?? runbeatSinkOf(agentId) },
       });
       if (options.tap !== undefined) {
         handle.onAdopted((hint) => { void options.tap!(agentId, hint); });
@@ -166,7 +207,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       reach.markReachable(agentId, hint);
       if (options.tap !== undefined) {
         void options.tap(agentId, hint).catch((err: unknown) => {
-          process.stderr.write('[orchestrator] 活壳 re-tap 失败（' + agentId + '）：' + String(err) + '\n');
+          hostLog('E', 'orchestrator', '活壳 re-tap 失败（' + agentId + '）：' + String(err));
         });
       }
       rescued += 1;
@@ -258,6 +299,57 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     }
   };
 
+  // —— 只读状态探测（cr-748 状态对账批） ——
+  // 与 control() 的分野：control 尾部语义 = 探不到就拉起（ensureAgent）——那是
+  // 「管理面可用性」的契约；peek 是「状态观测」的契约：任何失败 = 本拍无数据，
+  // 下拍再来。boot 窗口（锁已持有而 ipc 未 listen）在轮询模型下天然消化
+  //（cr-681 的 15s 阻塞重试窗不需要——poller 间隔即重试）。
+  const peek = async (): Promise<Map<string, RunStateSnapshot>> => {
+    const out = new Map<string, RunStateSnapshot>();
+    for (const agentId of liveShellIds()) {
+      const lock = liveShellLockOf(agentId);
+      if (lock === null) continue;
+      // 可达维持（cr-748）：孤壳（宿主换代后不在可达表）回登记——消息路径
+      // 不依赖下一封信触发 ensureHook。活态判定宿主侧无感知，投对账事件。
+      if (reach.hintFor(agentId) !== lock.hint) {
+        reach.markReachable(agentId, lock.hint);
+        options.onReconciled?.({ type: 'shell-emerged', agentId });
+      }
+      try {
+        const st = await manageCall(lock.hint, { ctrl: 'admin', op: 'run-state' }, manageProbeMs) as
+          | { busy?: unknown; runs?: unknown; recentSettled?: unknown }
+          | null
+          | undefined;
+        out.set(agentId, {
+          bootId: lock.bootId,
+          busy: st?.busy === true,
+          runs: Array.isArray(st?.runs)
+            ? (st.runs as Array<Record<string, unknown>>)
+                .filter((r) => typeof r.conversationId === 'string' && r.conversationId !== '')
+                .map((r) => ({
+                  conversationId: r.conversationId as string,
+                  runId: typeof r.runId === 'string' && r.runId !== '' ? r.runId : null,
+                  startedAt: typeof r.startedAt === 'number' ? r.startedAt : 0,
+                }))
+            : [],
+          recentSettled: Array.isArray(st?.recentSettled)
+            ? (st.recentSettled as Array<Record<string, unknown>>)
+                .filter((r) => typeof r.runId === 'string' && typeof r.conversationId === 'string')
+                .map((r) => ({
+                  runId: r.runId as string,
+                  conversationId: r.conversationId as string,
+                  finishedAt: typeof r.finishedAt === 'number' ? r.finishedAt : 0,
+                  finish: typeof r.finish === 'string' ? r.finish : 'ok',
+                }))
+            : [],
+        });
+      } catch {
+        // 探测失败（boot 窗口/老壳/退出中）——本拍无数据，不拉起
+      }
+    }
+    return out;
+  };
+
   const control = async (agentId: string, frame: Record<string, unknown>): Promise<unknown> => {
     const existing = handles.get(agentId);
     if (existing !== undefined) return existing.control(frame);
@@ -270,7 +362,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       } catch (err) {
         if (err instanceof ManageChannelUnreachable) throw err; // 不黑名单（boot 慢≠不支持）、不 spawn（锁在必拒）
         manageUnsupported.add(lock.bootId);
-        process.stderr.write('[orchestrator] 活壳 manage 通道不可用（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err) + '\n');
+        hostLog('W', 'orchestrator', '活壳 manage 通道不可用（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err));
         // 降级拉起（壳可能恰在此刻退出——那时新壳拿锁正当）。拉不起 = 锁 holder
         // 还在跑却不应答控制帧（多为改动前装载的老壳）——把诊断说清楚，别让
         // 用户看到「壳进程早退 code=1」以为平台坏了。
@@ -300,7 +392,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）。
     void ensureAgent(target).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[orchestrator] ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}\n`);
+      hostLog('E', 'orchestrator', `ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}`);
     });
   };
 
@@ -308,6 +400,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     ensureAgent,
     control,
     liveShellIds,
+    peek,
     rescueLiveShells,
     handles: () => handles,
     ensureHook,

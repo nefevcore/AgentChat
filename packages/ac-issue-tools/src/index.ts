@@ -46,7 +46,6 @@ export const extension: ExtensionMeta = {
   description: 'submit_issue 工具：把 ISSUE 发到 GitHub/Gitee 仓库（反馈通道）',
   automatic: true,
   fields: [
-    { name: 'enabled', type: 'boolean', description: '停用 submit_issue 工具（缺省启用）' },
     { name: 'server', type: 'string', enum: ['github', 'gitee'], description: '默认托管台（缺省 github）' },
     { name: 'repo', type: 'string', description: '目标仓库 owner/repo（缺省 = 本产品主仓库）' },
     { name: 'apiBase', type: 'string', description: 'API 前缀覆盖（GitHub 兼容自建台，如 Gitea 的 https://git.example.com/api/v3）' },
@@ -74,7 +73,6 @@ export interface IssueToolsRowOptions {
 
 /** settings[issue-tools] 的 per-Agent 配置形状（令牌不进 settings——统一走凭据链/行配置） */
 interface IssueToolsSettings {
-  enabled?: boolean;
   server?: 'github' | 'gitee';
   repo?: string;
   apiBase?: string;
@@ -192,14 +190,11 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
     },
     async execute(args, call) {
       try {
-        // per-Agent settings[issue-tools]（enabled 约定键自查）
+        // per-Agent settings[issue-tools]（目的地解析用）
         let s: IssueToolsSettings = {};
         if (call.agentId !== undefined) {
           const h = ctx.get('agents')?.settingsOf(call.agentId, 'issue-tools');
           if (h && typeof h === 'object') s = h as IssueToolsSettings;
-        }
-        if (s.enabled === false) {
-          return { ok: false, error: 'submit_issue 已被本 Agent 设置停用（settings[issue-tools].enabled）' };
         }
 
         // 会话开关（cr-41——输入框「实验性 → ISSUE 提交」）：disabled =

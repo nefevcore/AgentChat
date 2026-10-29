@@ -346,26 +346,35 @@ export class LlmService extends Service {
     // reasoningMs 随结果透传——落盘后历史回放恢复「已思考 · XmYs」。
     let reasoningStartAt = 0;
     let reasoningMs: number | undefined;
-    const closeReasoningPhase = () => {
+    let reasoningLastAt = 0;
+    const closeReasoningPhase = (at: number) => {
       if (reasoningStartAt && reasoningMs === undefined) {
-        reasoningMs = Date.now() - reasoningStartAt;
+        reasoningMs = Math.max(1, at - reasoningStartAt);
       }
     };
+    // 正文相位计时（cr-766）：首个正文 delta 到达 → 流末（正常收束/中止）。
+    let textStartAt = 0;
     this.ctx.emit('llm/delta-start', input, input.meta);
+    // 中止收敛（cr-766）：AbortError 不再丢弃已聚合内容上抛——部分聚合
+    // （aborted: true）返回，调用方（loop）据此构造中断步记录。已产出
+    // 任何 chunk 后流被 abort 是用户中断的常态形态，丢弃 = 中断前模型
+    // 已流出的思考/正文整段蒸发。
+    let aborted = false;
     try {
       for await (const chunk of this.run(call)) {
         this.ctx.emit('llm/delta', input, chunk, input.meta);
         if (chunk.delta) {
-          closeReasoningPhase();
-          if (!sawText) { sawText = true; if (textBeforeTools === undefined && sawTools) textBeforeTools = false; }
+          closeReasoningPhase(Date.now());
+          if (!sawText) { sawText = true; if (textBeforeTools === undefined && sawTools) textBeforeTools = false; if (!textStartAt) textStartAt = Date.now(); }
           text += chunk.delta;
         }
         if (chunk.reasoning) {
           if (!reasoningStartAt) reasoningStartAt = Date.now();
+          reasoningLastAt = Date.now();
           reasoning += chunk.reasoning;
         }
         for (const frag of chunk.toolCalls ?? []) {
-          closeReasoningPhase();
+          closeReasoningPhase(Date.now());
           if (!sawTools) { sawTools = true; if (textBeforeTools === undefined && sawText) textBeforeTools = true; }
           const acc = toolCalls.get(frag.index) ?? { id: '', name: '', args: '' };
           if (frag.id) acc.id = frag.id;
@@ -379,12 +388,17 @@ export class LlmService extends Service {
         if (chunk.usage) usage = chunk.usage;
         if (chunk.thinkingSignature !== undefined) thinkingSignature = chunk.thinkingSignature;
       }
+    } catch (err) {
+      if (!(input.signal?.aborted && (err instanceof Error ? err.name === 'AbortError' : String(err).includes('abort')))) throw err;
+      aborted = true;
     } finally {
       this.ctx.emit('llm/delta-end', input, input.meta);
     }
     // 流末仍在思考相位（纯 reasoning 无正文/工具的收束步）：以流结束时刻
-    // 收口——思考确实持续到了最后
-    closeReasoningPhase();
+    // 收口——思考确实持续到了最后（中止形态用最后 reasoning 片时刻，
+    // 不把 abort 往返延迟计入思考时长）
+    if (aborted && reasoningStartAt && reasoningMs === undefined) closeReasoningPhase(reasoningLastAt || Date.now());
+    else closeReasoningPhase(Date.now());
     const calls = [...toolCalls.entries()]
       .sort(([a], [b]) => a - b)
       // 聚合兜底：从未收到 id/name 的分片（provider 空冲洗等）不成为调用——
@@ -397,9 +411,11 @@ export class LlmService extends Service {
       model: call.input.model,
       text,
       ...(reasoning ? { reasoning } : {}),
+      ...(aborted ? { aborted: true } : {}),
       ...(calls.length ? { toolCalls: calls } : {}),
       ...(calls.length && text ? { textBeforeTools: textBeforeTools ?? false } : {}),
       ...(reasoningMs !== undefined ? { reasoningMs } : {}),
+      ...(textStartAt ? { textMs: Math.max(1, Date.now() - textStartAt) } : {}),
       ...(call.elapsedMs !== undefined ? { elapsedMs: call.elapsedMs } : {}),
       ...(finish ? { finish } : {}),
       ...(usage ? { usage } : {}),

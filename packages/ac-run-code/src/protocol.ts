@@ -80,7 +80,12 @@ export interface WorkerDone {
   valueVia?: 'return' | 'logs';
   /** 错误（编译/执行/预算/中止） */
   error?: string;
-  /** 中止（interrupt 语义——loop 收束 interrupted） */
+  /**
+   * 中止标记（预算耗尽/用户中止；error 已含原因文本）。cr-783：main 侧
+   * 按普通失败回填，不再转 ToolResult.interrupt——M11 通道专属宿主级
+   * 行为（reload/restart/插件装卸），预算耗尽不在其列。保留本字段供
+   * UI/摘要区分「被杀」与「程序异常」。
+   */
   interrupted?: boolean;
   /** 失败/中止时程序已收集 log 的末 5 条（诊断线索；成功不带） */
   logsTail?: string[];

@@ -28,7 +28,7 @@
 // overlay 席位（conversation 出厂贡献，开关态住 ui store）。
 // ============================================================
 
-import { ref, computed, inject, watch, type Ref } from 'vue';
+import { ref, computed, inject, watch, onMounted, onBeforeUnmount, type Ref } from 'vue';
 import type { Turn } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { useChatStore } from './chatStore.ts';
@@ -164,6 +164,81 @@ async function forkFromMessage(msgId: string) {
   await clientCtx?.get('singleBoard')?.fork(props.single.id, msgId);
 }
 
+// ── composer 浮层栈测高（cr-778 → 787）──
+// 栈内含数量不定的 dock 卡 + 高度可变的输入卡（多行输入/附件/mention 弹层），
+// 高度必须实测。ResizeObserver 在内容变更时同步回写。
+//
+// cr-788 起量的不再是「栈高」而是「可视区底边」：底边落在输入卡上缘再往下
+// 重叠一段（COMPOSER_OVERLAP）。这样 dock 列是真浮层（消息从状态行背后经过），
+// 但消息不会完全穿过输入卡——只在它上缘露出一条，读得出「下面还有内容」而
+// 不至于把输入框糊满。
+const composerStack = ref<HTMLElement>();
+/** ChatInput 组件实例（取 cardEl 作输入卡元素——它的上缘就是可视区基准；
+ *  cr-789：ChatInput 是多根 fragment 组件，$el 是占位文本节点，元素必须
+ *  经 defineExpose 显式暴露） */
+const composerInput = ref<{ cardEl?: HTMLElement } | null>(null);
+const composerInset = ref(0);
+/** 消息尾部留白（px）：滚到底时最后一条要停在**整个栈之上**，否则 dock 卡
+ *  （排队/审批/任务…，高度随时可变）会盖住它的尾巴（cr-797 用户反馈）。
+ *  = 内容浮在栈后的深度 = 输入卡上缘 − 栈顶 + OVERLAP。dock 列不存在时为
+ *  OVERLAP，与旧行为一致。 */
+const composerTail = ref(0);
+let stackRO: ResizeObserver | null = null;
+
+/** 可视区底边相对输入卡上缘的下沉量（px）：16px ≈ 让出一条「露出内容」的窄缝。
+ *  想调大/调小就改这里——它就是「消息能压进输入框多少」的唯一旋钮。 */
+const COMPOSER_OVERLAP = 16;
+
+/** 实测并回写（nextTick 兜首次渲染，RO 兜后续一切变化；window resize 兜
+ *  视口变化下 dock 卡换行这类 RO 未必捕获的抖动）。
+ *
+ *  两个量的关系（同一份实测的两个侧面）：
+ *    inset 决定「可视区底边在哪」→ 内容能浮到栈后多深（浮层观感的来源）；
+ *    tail  决定「滚到底时最后一条落在哪」→ 必须 ≥ 那个深度，否则被 dock 盖住。
+ *  只算 inset 不算 tail，就是 cr-797 那个 bug：dock 列越高，被盖得越多。 */
+function syncComposerInset() {
+  const stack = composerStack.value;
+  if (!stack) {
+    composerInset.value = 0;
+    composerTail.value = 0;
+    return;
+  }
+  const stackRect = stack.getBoundingClientRect();
+  const inputEl = composerInput.value?.cardEl;
+  if (!inputEl) {
+    // 无输入卡（正常不该发生）：退化为整栈高，等同「完全不重叠」
+    composerInset.value = stack.offsetHeight;
+    composerTail.value = 0;
+    return;
+  }
+  const inputTop = inputEl.getBoundingClientRect().top;
+  composerInset.value = Math.max(0, Math.round(stackRect.bottom - inputTop - COMPOSER_OVERLAP));
+  composerTail.value = Math.max(0, Math.round(inputTop - stackRect.top + COMPOSER_OVERLAP));
+}
+
+watch(composerStack, (el) => {
+  stackRO?.disconnect();
+  stackRO = null;
+  if (!el) {
+    composerInset.value = 0;
+    composerTail.value = 0;
+    return;
+  }
+  stackRO = new ResizeObserver(syncComposerInset);
+  stackRO.observe(el);
+  syncComposerInset();
+}, { flush: 'post' });
+
+function onViewportResize() { syncComposerInset(); }
+onMounted(() => {
+  syncComposerInset();
+  window.addEventListener('resize', onViewportResize);
+});
+onBeforeUnmount(() => {
+  stackRO?.disconnect();
+  window.removeEventListener('resize', onViewportResize);
+});
+
 // ── 消息定位意图消费（cr-230 会话节点面板跳转）：目标在本视图分区 →
 //    reveal（目标多在窗口化首载窗口外，TranscriptList.reveal 负责全量
 //    挂载后定位）；目标在别处分区 → 交选中链切会话后由该视图的 watch
@@ -214,6 +289,8 @@ watch(() => ui.revealIntentSeq, (seq) => {
           :settings-agent-id="settingsAgentId"
           :conversation-id="jobsConversationId ?? undefined"
           :can-fork="isSingle"
+          :bottom-inset="composerInset"
+          :bottom-tail="composerTail"
           @preview-file="handlePreviewFile"
           @regenerate="chatStore.regenerateMessage"
           @delete-message="chatStore.deleteMessage"
@@ -221,30 +298,43 @@ watch(() => ui.revealIntentSeq, (seq) => {
           @fork-from-message="forkFromMessage"
         />
 
-        <!-- 任务 dock 列（composer 上方；群视角隐藏——多成员无单一归属桶；
-             pair 只读无 composer/dock；single 空会话开场居中布局也无 dock）。
-             数据/刷新各卡自理 -->
-        <ComposerDock
-          v-if="!isGroup && !isPair && !isSingleFresh"
-          :agent-id="dockAgentId"
-          :conversation-id="dockConversationId"
-        />
-
-        <!-- 输入区（单实例条件接线：group = RPC 群发路径；direct/single =
-             store.sendMessage 默认路径 + 排队手势；pair 只读无输入）。
-             single 空会话：fresh 模式（顶部工作区|预设选择行 + 输入卡，
-             整体垂直居中；首条消息后回常规底部布局） -->
-        <ChatInput
+        <!-- composer 浮层栈（cr-778）：dock 列 + 输入区脱离布局流，绝对定位
+             贴底覆盖在消息区之上——消息区因此占满全高、内容真的从浮层底下滚过
+             （此前三者同处 flex 列抢同一份高度，消息区底边被物理截断在 dock
+             上缘，dock 透明与否都改变不了「像被遮挡」的观感）。高度由
+             ResizeObserver 实测后写进 --composer-inset，消息区据此留出底部
+             内边距（最后一条能滚出浮层），浮层顶缘另挂渐隐带。
+             群视角 dock 隐藏（多成员无单一归属桶）；pair 只读无 composer。 -->
+        <div
           v-if="!isPair && !isSingleFresh"
-          :disabled="isGroup && groupTurnInProgress"
-          :placeholder="isGroup ? (groupTurnInProgress ? 'Agent 回复中...' : '输入消息发送到群聊...') : undefined"
-          :on-send="isGroup ? sendGroupMessage : undefined"
-          :single="isGroup ? null : (props.single ?? null)"
-          :queued-count="isGroup ? 0 : queuedItems.length"
-          :on-steer-all-queued="isGroup ? undefined : steerAllQueued"
-        />
+          ref="composerStack"
+          class="composer-stack"
+        >
+          <div v-if="!isGroup" class="composer-dock-slot">
+            <ComposerDock
+              :agent-id="dockAgentId"
+              :conversation-id="dockConversationId"
+            />
+          </div>
+
+          <!-- 输入区（单实例条件接线：group = RPC 群发路径；direct/single =
+               store.sendMessage 默认路径 + 排队手势） -->
+          <ChatInput
+            ref="composerInput"
+            class="composer-input"
+            :disabled="isGroup && groupTurnInProgress"
+            :placeholder="isGroup ? (groupTurnInProgress ? 'Agent 回复中...' : '输入消息发送到群聊...') : undefined"
+            :on-send="isGroup ? sendGroupMessage : undefined"
+            :single="isGroup ? null : (props.single ?? null)"
+            :queued-count="isGroup ? 0 : queuedItems.length"
+            :on-steer-all-queued="isGroup ? undefined : steerAllQueued"
+          />
+        </div>
+
+        <!-- single 空会话：fresh 模式（顶部工作区|预设选择行 + 输入卡，
+             整体垂直居中；首条消息后回常规底部布局）——开场无 dock、不浮层 -->
         <ChatInput
-          v-else-if="isSingleFresh"
+          v-else-if="isSingleFresh && !isPair"
           fresh
           :single="props.single ?? null"
           :queued-count="queuedItems.length"
@@ -277,8 +367,32 @@ watch(() => ui.revealIntentSeq, (seq) => {
 .empty-state p { font-size: 15px; }
 
 .chat-body { flex: 1; display: flex; overflow: hidden; }
-.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* 消息区与 composer 浮层栈的包含块（浮层 absolute 的锚）。
+   min-height: 0 是浮层定位的前提：flex 项默认 min-height:auto 会被内容撑高，
+   main 一旦超出父高，absolute bottom:0 的浮层就被锚到「看不见的下方」 */
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
 /* ── 新会话开场居中（single 空会话）：消息区不渲染，composer 区块
    垂直居中——视觉焦点聚在"开始会话"这一步 ── */
 .chat-main.composer-centered { justify-content: center; }
+
+/* ── composer 浮层栈（cr-778）：dock 列 + 输入区脱流贴底，覆盖在消息区之上。
+   消息区不再被压缩（占满全高），内容真的从浮层底下穿过；--composer-inset
+   由 ResizeObserver 实测写入，供消息区尾部留白与回到底部按钮抬升消费。
+   z-index 让浮层恒在消息之上（滚动条/悬浮按钮另行抬升）。 ── */
+.composer-stack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+}
+/* dock 列：相对定位 —— 卡自带 margin 需要包含块，避免外边距向栈外塌陷 */
+.composer-dock-slot {
+  position: relative;
+  display: flow-root;
+}
+/* 渐隐带（cr-781/785/788）：**不要**在栈顶加渐隐带。cr-788 起消息真的从 dock
+   列背后经过（可视区底边落在输入卡上缘 + 16px），带子若留在栈顶会形成一圈
+   「淡出→又满强度」的空洞；浮层边缘的硬切线由浮层自身承担（dock 卡与输入卡
+   都是不透明面），这正是真浮层的正常观感。 */
 </style>

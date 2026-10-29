@@ -93,14 +93,14 @@ B 的架构契合论据：harness 调用本质是**一次可审计的工具执�
 
 ```
 ac-harness-core/     纯库（零 cordis）：HarnessGateway 接口 + 事件归一
-                    + claude-code / codex 两个 exec 适配器 + probe 探测
+                    + claude-code / codex 两个 exec 适配器（probe 面已随 cr-345 退役）
 ac-harness-tools/    行包：run_harness 工具 + harness 委托子代理预设 + settings 面
 ```
 
 - **纯库/行分工**（设计决策 #4 惯例）：spawn/解析/归一算法全部住 core，
   可独立单测（JSONL fixture 矩阵，零真子进程）；行只做注册胶水与权限/
   并发/生命周期编排。
-- **挂载**：`src/cordis.yml` 一行（id: `harness-tools`）+ `ac-app` TREE 同步；
+- **挂载**（cr-726 校正）：`apps/catalog/row-catalog.json` 登记 `harness-tools` 行（path `packages/ac-harness-tools`，壳树工具面）——原 `src/cordis.yml` + `ac-app` TREE 双写已随 cr-696/703 退役；
   行包声明 `"agentchat": { "plugin": true }`；core 纯库不加（fail-closed）。
 - **无新服务键 / 无新事件 / 无 core 改动**：纯工具行 + 预设行形态，零契约
   面变更（形态学对齐 ac-fs-tools）。
@@ -115,7 +115,7 @@ ac-harness-tools/    行包：run_harness 工具 + harness 委托子代理预设
 /** 网关 = 一个本地 harness 的程序化委托面（纯库接口，行侧组合调度） */
 export interface HarnessGateway {
   readonly name: string;                  // 'claude-code' | 'codex'
-  probe(): Promise<{ ok: boolean; version?: string; hint?: string }>;
+  // probe() 已随 cr-345 退役：缺失探测改由 spawn fail-loud 承担（D8 意图保留）
   run(req: HarnessRunRequest, hooks: HarnessRunHooks): Promise<HarnessRunResult>;
 }
 
@@ -158,7 +158,7 @@ export interface HarnessRunResult {
 - 适配器只依赖 exec JSONL 面——Agent SDK / App Server / MCP 等交互式实验
   协议零依赖（版本漂移面最小化，见 D7）；claude 的 thinking 块首期不拆
   （stream-json 暴露不稳定，进 notice 摘要）。
-- `probe()`：`<command> --version` 轻探测（0.5s 超时）；未装/不在 PATH 如实
+- ~~`probe()`：`<command> --version` 轻探测（0.5s 超时）~~（**cr-726 注：面已退役，保留原文作裁决史**；未装/不在 PATH 行为改由 spawn fail-loud 如实
   报错（fail-loud，错误文案带安装提示）。探测时机 = 首次调用（非 boot 期，
   未装不影响宿主启动——D8）。
 
@@ -203,9 +203,8 @@ run_code trace 时间线形态）。
 
 > **实施现状**：子代理预设未随 P1 落地（cr-305 移除 `__harness__` 预设子行时裁决——harnessTier 实验键已覆盖转述协议形态，预设层多余）；「其他 Agent 取用」经 tags 自取 run_harness 成立（D10 + grants 通路），D1「同包两件」收敛为工具单件。
 
-- `ctx.agents.register({ id: 'harness', label: 'harness 委托', tools: [],
-  tags: ['harness'], system: <转述协议>, settings: { harness: { enabled: true } }, ... })`
-  ——预设行形态（对齐 ac-agent-presets-builtin 先例）。
+- ~~`ctx.agents.register({ id: 'harness', ... })` 预设行形态~~（**cr-726 注：未实施——cr-305 改判只留工具单件**；
+  现行交付 = `run_harness` 工具 + `harnessTier` 会话键，无委托子代理预设）。
 - 转述协议（system prompt 固定）：「收到任务 → 原样作为 task 调 run_harness →
   终稿原样回复；不自行扩写」。模型配便宜款（用户可改）——多一次转述调用
   的 token 成本换零新机制（直通形态见 D2）。
@@ -290,7 +289,7 @@ run_harness 归入**实验性工具**：经 conv-settings 注册制实验键出�
 }
 ```
 
-per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
+per-Agent 层（现行，cr-726 校正）：`settings['harness-tools'].enabled` 单键（`ac-harness-tools/src/index.ts` L135）——原 `settings.harness = { enabled, gateways }` 未实施（gateways 白名单收窄无实现）
 （enabled 自查 + respectsEnabled 声明——agentGate 停用口径；gateways 白名单
 收窄该 Agent 可用网关）。
 
@@ -300,9 +299,9 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 
 | 期 | 内容 | 依赖 |
 |---|---|---|
-| P1 ✅ | ac-harness-core（两适配器 + 事件归一 + probe）+ ac-harness-tools（工具 + 子代理 + 权限/并发/生命周期 + settings 面） | 无 |
+| P1 ✅ | ac-harness-core（两适配器 + 事件归一）+ ac-harness-tools（工具 + 权限/并发/生命周期 + 行配置面）——probe / 子代理 / settings 面为历史项（cr-305/345 撤） | 无 |
 | P2 ✅ | 会话续接：runKey 持久化（Agent 专属空间 `harness/sessions.json` 映射 conversationId → {gateway, runKey, ts}，成功即记/失败保留）+ resume 参数（auto/new；claude --resume / codex exec resume） | P1 |
-| P3（观察） | DSH web 桥（需双侧开发）；方案 A provider 形态（PROTOCOLS 注册表实施后） | 外部条件 |
+| P3（观察） | DSH web 桥（需双侧开发）；方案 A provider 形态（PROTOCOLS 注册表实施后） | 外部条件——**已移交 `gap-backlog.md` 跟踪**（cr-726；本文只留指针） |
 
 ---
 
@@ -310,7 +309,7 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 
 | # | 决策 | 裁决/倾向 |
 |---|---|---|
-| D1 | 工具与子代理关系 | 同包两件：子代理只是便利预设（转述层），非必需机制——工具独立成立 |
+| D1 | 工具与子代理关系 | 原裁「同包两件（子代理为便利预设）」——**已改判（cr-305）：工具单件**，预设未落地；工具独立成立的原判不变 |
 | D2 | 子代理直通形态（零转述模型） | 一期转述层（便宜模型 + 固定协议）；直通需 loop 外执行路径（新机制），观察使用量再裁 |
 | D3 | 会话续接策略 | 一期 run 级（每次全量任务书，runKey 只透传）；**会话级映射已随 P2 落地**（cr-279——resume auto 缺省续接，new 强制重开；失败不覆盖上次凭据） |
 | D4 | 并发纪律 | agent 维互斥 + 全局上限；占线报忙不排队 |
@@ -319,7 +318,7 @@ per-Agent 层：`settings.harness = { enabled, gateways: ['claude-code'] }`
 | D7 | 版本漂移防线 | 只依赖文档化 exec JSONL；核心字段缺失 fail-loud；未知事件行丢弃 + 计数（前向兼容） |
 | D8 | 预装探测时机 | 首次调用 probe（非 boot 期——未装不影响宿主启动） |
 | D9 | DSH 桥接 | 显式不做（web 服务无 exec 面、双侧开发、定位重叠）；出现公开 CLI 桥接面再评估 |
-| D10 | 新标签登记 | `harness` 进 tag-registry（实施时查 RESERVED 词表防撞） |
+| D10 | 新标签登记 | 已改判（cr-484 tag 机制解体）：标签改行内 `tagDeclarations` 声明 + 装载即归属——无 `tag-registry` 包（`packages/ac-harness-tools/src/index.ts` L27-61） |
 | D11 | 实验性归属与缺省（cr-277） | run_harness 归输入框「实验性」菜单（conv-settings `harnessTier` 键，grants 通路）；**无键 = enabled 默认启用**——实验性=发现入口归属，非能力开关；会话可显式 disabled（§5.7） |
 
 ---
@@ -365,9 +364,9 @@ src/ac-harness-core/            新纯库（gateway.ts + adapters/claude-code.ts
 src/ac-harness-tools/           新行包（tool.ts + agent.ts + index.ts + tests/；
                                 apply 内 convSettings.registerKey 注册
                                 harnessTier 实验键——§5.7/D11，注册即归属）
-src/cordis.yml                  +1 行（id: harness-tools）
+apps/catalog/row-catalog.json   +1 行（id: harness-tools）
 src/ac-app/src/index.ts         TREE +1 行
 src/README.md                   布局 + 工具行清单；设计档案索引加本文档
-tag-registry                    'harness' 标签登记（查 RESERVED 后）
+（tag-registry 已退役——'harness' 改行内 tagDeclarations 声明，cr-484）
 既有域（core 四层/security/subagent/collab）   零改动
 ```

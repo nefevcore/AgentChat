@@ -87,8 +87,9 @@ export interface UsageTimelinePoint {
   /** 该 run 缓存命中/未命中 token（run 内各步合计，LoopRunUsage 累加语义） */
   cacheHit: number;
   cacheMiss: number;
-  /** 步级行（有数据步；无 stepCache 的旧行 = undefined → 消费方回退合计） */
-  steps?: Array<{ ts: number; hit: number; miss: number }>;
+  /** 步级行（有数据步；无 stepCache 的旧行 = undefined → 消费方回退合计）。
+   *  prompt = 本步请求真实上下文 token（cr-761 上下文占用实时驱动） */
+  steps?: Array<{ ts: number; hit: number; miss: number; prompt?: number }>;
 }
 
 /** 按日 × 端点对交叉聚合（弦图统计范围数据源：by_pair 全量无日期维度，
@@ -230,7 +231,7 @@ export class UsageService extends Service {
   /** 运行中 run 的临时步流（KV 走势实时性，cr-251）：after-step 即写，
    *  conversationTimeline 查询拼接尾段；after-run 正式记账后清空（正式 timeline
    *  接管）。进程崩溃丢失——与现状一致（那部分本来就没落盘）。 */
-  private pendingTimelineMap = new Map<string, Array<{ ts: number; hit: number; miss: number }>>();
+  private pendingTimelineMap = new Map<string, Array<{ ts: number; hit: number; miss: number; prompt?: number }>>();
 
   constructor(ctx: Context, options: UsageRowOptions = {}) {
     super(ctx, 'usage');
@@ -275,6 +276,19 @@ export class UsageService extends Service {
     }, { description: 'KV 走势临时步流（after-run 记账后接管）' });
   }
 
+  /** 运行中 run 的步级缓存入账（cr-760：壳 usage-step 信消费口——宿主进程
+   *  无 loop 事件源，主线 pendingTimelineMap 的 after-step 通道在此空转，
+   *  实时步流经事件信到达）。与 loop/after-step 订阅同款写入（无判重——
+   *  conversationTimeline 拼接时 ts 严格大于判重防步级信与收束信双计）。 */
+  reportStepPending(conversationId: string, step: { ts: number; hit: number; miss: number; prompt?: number }): void {
+    let pending = this.pendingTimelineMap.get(conversationId);
+    if (!pending) {
+      pending = [];
+      this.pendingTimelineMap.set(conversationId, pending);
+    }
+    pending.push(step);
+  }
+
   /**
    * 外部计量入账（cr-538 additive——preview 宿主 usage 行消费事件信入口）：
    * 与 loop/after-run 订阅共用 mergeIntoMaps + 审计流水单源。主线行为
@@ -286,7 +300,7 @@ export class UsageService extends Service {
     finish: string;
     usage: LoopRunUsage;
     conversationId?: string;
-    stepCache?: Array<{ ts: number; hit: number; miss: number }>;
+    stepCache?: Array<{ ts: number; hit: number; miss: number; prompt?: number }>;
   }): void {
     const line: UsageAuditLine = {
       timestamp: new Date().toISOString(),
@@ -298,6 +312,9 @@ export class UsageService extends Service {
       ...(meter.stepCache !== undefined && meter.stepCache.length > 0 ? { stepCache: meter.stepCache } : {}),
     };
     this.mergeIntoMaps(meter.agent, meter.model, meter.conversationId, dayKeyOf(line), line.timestamp, line.stepCache, meter.usage);
+    // 正式 timeline 已接管——清 pending（主线 loop/after-run 订阅同款；宿主
+    // 进程无 loop 事件，事件信形态的清理归此入口，cr-760）
+    this.pendingTimelineMap.delete(meter.conversationId ?? meter.agent);
     try {
       fs.mkdirSync(this.usageDir, { recursive: true });
       fs.appendFileSync(
@@ -322,7 +339,13 @@ export class UsageService extends Service {
     // 流水行同形态，回放/实时同一回退路径）
     const stepCache = result.steps
       .filter((s) => s.usage && (s.usage.cacheHit != null || s.usage.cacheMiss != null))
-      .map((s) => ({ ts: s.ts ?? Date.now(), hit: s.usage!.cacheHit ?? 0, miss: s.usage!.cacheMiss ?? 0 }));
+      .map((s) => ({
+        ts: s.ts ?? Date.now(),
+        hit: s.usage!.cacheHit ?? 0,
+        miss: s.usage!.cacheMiss ?? 0,
+        // 本步真实上下文体积（cr-761 实时占用——与壳侧 usage 信同形）
+        prompt: s.usage!.prompt,
+      }));
     const line: UsageAuditLine = {
       timestamp: new Date().toISOString(),
       agent,
@@ -353,7 +376,7 @@ export class UsageService extends Service {
     conversationId: string | undefined,
     day: string,
     timestamp: string,
-    stepCache: Array<{ ts: number; hit: number; miss: number }> | undefined,
+    stepCache: Array<{ ts: number; hit: number; miss: number; prompt?: number }> | undefined,
     usage: LoopRunUsage,
   ): void {
     mergeAggregate(this.bucket(this.byAgentMap, agent), usage);
@@ -494,11 +517,11 @@ export class UsageService extends Service {
    *  旧 run 回退合计单点；运行中 run 的步拼接尾段（ts 晚于正式尾的
    *  pending 步——严格大于判重：正式记账与 pending 清理间的窗口内两者短暂并存，同
    *  ts 不重复拉入）。时间升序全量返回。 */
-  conversationTimeline(conversationId: string): Array<{ ts: number; hit: number; miss: number }> {
+  conversationTimeline(conversationId: string): Array<{ ts: number; hit: number; miss: number; prompt?: number }> {
     const rows = this.timelineMap.get(conversationId);
     const pending = this.pendingTimelineMap.get(conversationId);
     if ((!rows || rows.length === 0) && (!pending || pending.length === 0)) return [];
-    const steps: Array<{ ts: number; hit: number; miss: number }> = [];
+    const steps: Array<{ ts: number; hit: number; miss: number; prompt?: number }> = [];
     let lastTs = 0;
     for (const run of rows ?? []) {
       if (run.steps !== undefined) {

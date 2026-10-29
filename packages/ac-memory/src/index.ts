@@ -32,8 +32,6 @@ export interface MemoryRowOptions {
 }
 
 export interface MemorySettings {
-  /** 缺省 true；false = 本 Agent 软停用 */
-  enabled?: boolean;
   /** 快照注入 token 预算 */
   maxTokens?: number;
 }
@@ -50,8 +48,7 @@ interface WorkdirSource {
 }
 
 /**
- * system 静态指引（KV 声明纪律：字节恒定——记忆内容与 system 解耦；
- * per-Agent enabled=false 时整块缺席，同为稳定形态）。
+ * system 静态指引（KV 声明纪律：字节恒定——记忆内容与 system 解耦）。
  */
 const MEMORY_GUIDE =
   '<memory-guide>\n' +
@@ -85,7 +82,6 @@ export class MemoryService extends Service {
     this.ctx.on('loop/before-run', (call, next) => {
       const agentId = call.request.agent;
       if (agentId === undefined) return next();
-      if (!this.enabledFor(agentId)) return next();
       call.request = {
         ...call.request,
         system: call.request.system ? `${call.request.system}\n\n${MEMORY_GUIDE}` : MEMORY_GUIDE,
@@ -95,7 +91,6 @@ export class MemoryService extends Service {
 
     // ---- checkpoint/delta 注入协议（before-start seam：history 装配前直落流） ----
     this.ctx.on('conversation/before-start', async (agentId, conversationId) => {
-      if (!this.enabledFor(agentId)) return;
       const session = this.ctx.get('session', false) as
         | { records(id: string): Promise<Array<{ role: string; source?: string; content: string; agent_id?: string }>>; recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string }): string }
         | undefined;
@@ -134,18 +129,6 @@ export class MemoryService extends Service {
       }
       // H === S：正常稳态，不注入
     }, { description: '记忆 checkpoint/delta 注入（锚检测 + 尾部追加 context 行）' });
-  }
-
-  /** settings['memory'] enabled 读取（agents 未装 = 行缺省 true） */
-  private enabledFor(agentId: string): boolean {
-    const agents = this.ctx.get('agents', false) as
-      | { settingsOf(id: string, name?: string): unknown }
-      | undefined;
-    const cfg = agents?.settingsOf(agentId, 'memory');
-    if (cfg !== undefined && cfg !== null && typeof cfg === 'object') {
-      return (cfg as MemorySettings).enabled !== false;
-    }
-    return true;
   }
 
   private maxTokensFor(agentId: string): number {
@@ -354,11 +337,10 @@ export const extension: ExtensionMeta = {
   description: '长期记忆时间线（ctx.memory）：Agent 人格单文件 timeline.md + checkpoint/delta 流式注入（KV 零失效）+ memory_write/memory_grep 工具（memory 标签门禁）',
   fields: [
     { name: 'maxTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_MAX_TOKENS, description: '快照注入 token 预算（整数条截断 + 溢出注记）' },
-    { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用）' },
   ],
   listeners: [
-    { event: 'loop/before-run', role: '静态指引注入', description: '字节恒定的 memory-guide（内容走 context 行协议）', respectsEnabled: true },
-    { event: 'conversation/before-start', role: 'checkpoint/delta 注入', description: '锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 尾部追加 context 行', respectsEnabled: true },
+    { event: 'loop/before-run', role: '静态指引注入', description: '字节恒定的 memory-guide（内容走 context 行协议）' },
+    { event: 'conversation/before-start', role: 'checkpoint/delta 注入', description: '锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 尾部追加 context 行' },
   ],
 };
 

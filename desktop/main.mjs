@@ -5,7 +5,7 @@
 // plugin-catalog.json 插件目录清单 + WebUI 静态产物）以纯 Node 进程
 // 拉起，并把窗口指到它的 127.0.0.1 监听地址上。
 //
-// 关键语义（与 npm 包形态同一条路径，见 packages/ac-app/src/bootstrap.ts）：
+// 关键语义（与 npm 包形态同一条路径，见 bin/agentchat.js + apps/host/anchors.ts）：
 //   · 后端 = spawn(process.execPath, [agentchat.mjs, --port, N]) +
 //     ELECTRON_RUN_AS_NODE=1 —— 复用 Electron 自带 Node（≥20，满足
 //     engines），不引入第二条运行时；

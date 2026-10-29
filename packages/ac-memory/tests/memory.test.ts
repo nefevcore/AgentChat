@@ -252,14 +252,6 @@ describe('ac-memory 注入协议（before-start seam + 锚检测状态机）', (
     expect(session.rows.get('alice~a1')).toBeUndefined();
   });
 
-  it('settings.memory.enabled=false 软停用（不注入指引与内容）', async () => {
-    const root = tmpRoot();
-    const { ctx } = await boot({ withAgents: true, memoryConfig: { root, migrate: false } });
-    ctx.agents.register({ id: 'a1', model: 'mock@mock-1', tags: ['memory'], settings: { memory: { enabled: false } } });
-    ctx.memory.write('a1', { content: '条目' });
-    await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER });
-    expect(systemOf()).not.toContain('memory-guide');
-  });
 });
 
 describe('system 静态指引（字节恒定）', () => {

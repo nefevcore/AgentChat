@@ -2,8 +2,8 @@
 
 > 本文合并 cr-116 提案（2026-10-02 制定）与 cr-157 定案（2026-10-03 落地、
 > DatePicker 增补 cr-254/260 于 2026-10-05）两份文档——两轮已完成，本文转为
-> **已收口的设计裁决存档**（cr-269 文档治理轮合并，2026-10-06）。kit 现状以
-> `src/ac-webui-kit` 源码为准；陈列对照页 `src/webui/design/gallery.html`。
+> **kit 设计契约档（现行有效，勿归档）**（cr-269 文档治理轮合并，2026-10-06；2026-10-27 复核订正事实源指针）。kit 现状以
+> `packages/ac-webui-kit`（包名 `@agentchat/webui-kit`）源码为准；**陈列页 `src/webui/design/gallery.html` 已随旧树退役（全仓 0 命中）**，契约锁 = `apps/ui/tests/contrast-tokens.test.ts`。
 
 ## 一、两轮裁决链（谁取代谁）
 
@@ -19,7 +19,7 @@
 
 ## 二、cr-116 提案（现行有效部分——消费面数据与判定已落地）
 
-### 2.1 webui-kit 出口与消费强度（2026-10-02 实测）
+### 2.1 webui-kit 出口与消费强度（2026-10-02 实测；2026-10-27 复核：kit 现 46 文件 / 36 `.vue`，后加件 Select / Input / DatePicker / Tabs / DocTabs / Segmented / OptionRow / Progress / Breadcrumb / IconAction / ConfirmBody / Chip / FieldRow / SearchInput / PasswordInput / Textarea / Checkbox / Slider 均未入本表）
 
 | 控件 | 消费面 | 判定（已执行） |
 |---|---|---|
@@ -86,9 +86,9 @@
 | PickTag | CreateGroupDialog label-badge、PluginLibraryPane 筛选 | 隐式多选标签钮（cr-327 退役：归一对象未迁移，零消费死件） |
 | Progress | TokenUsage progress-track、AgentList 用量条 | value/tone；细进度条 |
 | Breadcrumb | EntryPickerModal entry-crumbs | items(label/cur) + click emit |
-| IconAction | 9 处 -x / close-x 小关闭钮 | icon=x/chevron-*；视觉 16px、命中 --hit-mini |
+| IconAction | 9 处 -x / close-x 小关闭钮 | icon=x/chevron-*；视觉 16px、命中 `--hit-min`（`tokens.css:46`） |
 | ConfirmBody | 3 处 delete-dialog + Sheet 内容区 | 标题/描述/左钮/右钮语义槽 |
-| TreeRow | WorkspaceTreeNode wtn、runview 树行 | 两级缩进 + 展开钮 + 行内 actions |
+| TreeRow（未成组件） | 归一为 `row.css` 的 `.ui-row--tree` 变体（工作区树 / runview 树行） | 两级缩进；展开钮与行内 actions 住各域组件 |
 | DatePicker | （cr-254/260 新增） | 自建月历弹层：ui-dd 同语言 + Teleport fixed 锚定 + 方向键可达；200px 定宽 7×24 日格、月↔年两级视图 |
 
 （Sheet 增 `side: bottom|right`——右抽屉形态 GroupDrawer 迁此，宽 320、滑入 ≤200ms。）
@@ -101,10 +101,10 @@ member 网格、drawer 分节列表——组合件/域语义，强迁必改行�
 ### 4.3 落地记录（Phase A/B/C 全批 + DatePicker）
 
 - **Phase A**：12 组件 + dropdown.css + row.css --tree/--pool 变体 + Avatar badge + badge.css 角标全局配方 + Sheet side=right 全部落地；index.ts/package.json 出口齐。
-- **Phase B**：画廊新增「7.5 标准件层」（9 陈列格，双主题截图过目）；业务层瘦身为真业务形态；注入清单 14→25 组件 + dropdown.css，preview-kit-sync 测试锁同步。
+- **Phase B**：画廊新增「7.5 标准件层」（9 陈列格，双主题截图过目）；业务层瘦身为真业务形态；注入清单 14→25 组件 + dropdown.css，preview-kit-sync 测试锁同步（该测试已随 gallery 退役删除，cr-703 覆盖审计 DROP）。
 - **Phase C**：conversation（dd 族→ui-dd 配方 65 处、file-chip→Chip、ib-option→OptionRow、user-file-chip→Chip dim）、workspace（wtn→ui-row--tree、fpp-tab→DocTabs、entry-crumbs→Breadcrumb）、agents（agent-tab→Tabs、tc-option→ui-dd 配方、unread-badge→ui-avatar-badge）、usage（tab-bar→Tabs pill、seg-control→Segmented、progress-track→Progress）、runview（range-toggle→Segmented）、web（wsp-tab→DocTabs）、browser（brw-log-tab→Tabs）、group（delete-dialog→ConfirmBody）、singles（archive→ConfirmBody）、desktop-storage（confirm→ConfirmBody left）、layout/jobs（角标→ui-avatar-badge，#ef4444 硬编码 5 处全数退役）。
 - **判定修正**：FileEditsPanel「seg」命中为 diff segment 数据词（非分段器）不迁；PoolManager/SearchPool 池行 cr-125 已迁 ui-row 横排带行内 actions（--pool 纯展示变体为画廊陈列形态，业务无消费者）。
-- **验证**：pnpm typecheck / webui:typecheck / test:unit（2342 passed）/ check:deps / 定向 eslint / contrast 8 契约 / preview-kit-sync / tag-choice 选择器同步 / activity-bar-unread——全绿。
+- **验证**：pnpm typecheck / webui:typecheck / test:unit（2342 passed）/ check:deps / 定向 eslint / contrast 8 契约 / preview-kit-sync / tag-choice 选择器同步 / activity-bar-unread——全绿（历史验证记录；锁的现址：对比度 → `apps/ui/tests/contrast-tokens.test.ts`，preview-kit-sync 已不存在）。
 
 ## 五、裁决链终点与现状
 
@@ -114,8 +114,10 @@ member 网格、drawer 分节列表——组合件/域语义，强迁必改行�
 > 收回 FieldRow 内联）/PickTag/thought 涟漪图标别名 + 7 个零消费图标。
 
 kit 目标形态（底座/反馈/浮层/结构 + 表单层 + 业务层标准件 + 四类契约）已全部落地。
-后续控件演进不再经本文——直接以 kit 源码与 gallery 陈列页为事实源，新控件入 kit
+后续控件演进不再经本文——直接以 kit 源码与 `apps/ui/tests/contrast-tokens.test.ts` 契约锁为事实源，新控件入 kit
 走正常 CR 流程。
+
+> ⚠️ 疑点（2026-10-27 审查）：本文把 gallery 陈列页定为事实源，但 gallery 已删（全仓 0 命中）、`apps/ui/preview/` 仅余 `sandbox/` 目录（无陈列页）、`packages/ac-webui-kit/tests/` 不存在——kit 自身零测试目录，契约仅由 `apps/ui/tests/contrast-tokens.test.ts` 的 8 断言组守色值面。是补陈列页 / kit 测试还是改文档接受现状，待裁。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 ---
 
@@ -123,6 +125,6 @@ kit 目标形态（底座/反馈/浮层/结构 + 表单层 + 业务层标准件 
 
 - `webui-standard-controls-proposal.md`（cr-116 提案，14.9KB）与
   `webui-standard-controls-cr157.md`（cr-157 定案，6.2KB）合并为本文件。
-  两份原件已 `git mv` 至 `src/docs/archive/`（历史可溯）。
+  两份原件已 `git mv` 至 `docs/design/archive/`（历史可溯）。
 - 合并原则：两轮裁决均已落地，过程性「提案 → 评审 → 定案」叙事压缩为裁决链
   一览表 + 现行有效内容分节保留；消费面数据标注实测日期。

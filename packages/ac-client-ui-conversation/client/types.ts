@@ -132,6 +132,12 @@ export interface ChatMessage {
    * 排布（思考恒前；正文/工具卡相对序）。缺省 = 工具在前（常见形态）。
    */
   textBeforeTools?: boolean;
+  /**
+   * 中止步标记（cr-766）：LLM 流被 abort 时的部分聚合步——历史展开行
+   * 透传（journal aborted）。渲染层据此显示中断态（部分正文 + 已中断
+   * 标识）；工具卡无结果（调用未执行）。
+   */
+  aborted?: boolean;
   /** 思考标签（后端推送，含耗时信息） */
   label?: string;
   /**
@@ -174,6 +180,12 @@ export interface ChatMessage {
    */
   runCalibMs?: number;
   runCalibAt?: number;
+  /**
+   * run 墙钟耗时（毫秒，cr-772；历史首步在场——终稿行 runMs 取源）。
+   * 历史链栏「用时」段权威锚：无校准对（非流式回放）时直接消费；
+   * 直播期缺席（校准对承担）。
+   */
+  runMs?: number;
   isStreaming?: boolean;
   status?: 'running' | 'success' | 'error';
   isError?: boolean;

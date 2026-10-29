@@ -40,6 +40,7 @@ import { scriptedBenchRow, type BenchRunOptions, type BenchReport } from 'ac-ben
 import { makeConversationRow } from 'ac-shell-conversation';
 import { makeSubagentRow } from 'ac-shell-subagent';
 import type { LlmStreamChunk } from 'ac-llm';
+import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 // —— stdout TSV 节拍（协议规格 D1——一行一事件，宿主 guardian 消费） ——
 
@@ -164,7 +165,14 @@ export function deriveAndAssertRowset(
   if (derived.warnings.length > 0) {
     throw new Error('行集静态断言失败：\n  ' + derived.warnings.join('\n  '));
   }
-  return { ...derived, catalogRows: catalog.rows };
+  // cr-762：子壳行集恒剔 subagent 行（防子孙无限增长）——子壳没有 spawn 面
+  //（孙辈授权语义未定义；缺省继承/显式点名/存量子 config 三路同断）。子壳仍可
+  // 经 list 查父面板等读面，但永不能再 spawn。恒并基座行不受影响（subagent
+  // 非 require 目标，无行会因闭包缺它而 fail-loud）。
+  const rowIds = parentId !== undefined
+    ? derived.rowIds.filter((id) => id !== 'subagent')
+    : derived.rowIds;
+  return { ...derived, rowIds, catalogRows: catalog.rows };
 }
 
 /**
@@ -291,7 +299,7 @@ export interface ShellBootResult {
 
 /** 控制帧（拉起方控制通道——非信封数据面：动作即刻执行，无 uuid/budget 语义） */
 export type ControlFrame =
-  | { ctrl: 'interrupt' }
+  | { ctrl: 'interrupt'; conversationId?: string }
   | { ctrl: 'bench'; suite: string; options: BenchRunOptions }
   | { ctrl: 'tool'; name: string; args?: Record<string, unknown> }
   /** 装配预览（cr-552 跨进程 dry-run）：system-prompt 三档链干跑 / assembly 工具目录 */
@@ -388,7 +396,7 @@ export async function bootShell(
   for (const row of rowset.catalogRows) {
     if (row.tree === 'shell' && row.tools !== undefined) rowTools[row.id] = row.tools;
   }
-  const shimFiber = ctx.plugin(makeShimsRow(path.resolve(args.dataRoot), rowTools));
+  const shimFiber = ctx.plugin(makeShimsRow(path.resolve(args.dataRoot), rowTools, args.postOffice, args.parentId));
   await shimFiber;
   // M8.2 会话域行（ledger/conversation）经 rowAssemblers 注册面按行集装配
   //（与 IMPORTED_ROWS 两来源互补——catalog 行集清单是装配事实源：点名子集
@@ -446,9 +454,10 @@ export async function bootShell(
   })));
   const { ready: rowsReady, fibers } = await assembleRows(rowset.rowIds, ctx, {
     // durable-interaction 等 per-agent 域行随 agent 域锚定（影子 = 物化域，
-    // 与 ledger agentDirOverride 同源——D4 每实例只写自己域）；agentId 随行
-    // （cr-589：pwsh/fs 族沙箱 workdir = <dataRoot>/sandbox/<agentId>）
-    rowOptions: rowOptionsFor(path.resolve(args.dataRoot), agentDir, args.agentId),
+    // 与 ledger agentDirOverride 同源——D4 每实例只写自己域）；fs/shell 族
+    // 沙箱基准单源 = WorkspaceShim（files/<agentId> 懒建——cr-754 退役
+    // 行 options 注入面）
+    rowOptions: rowOptionsFor(path.resolve(args.dataRoot), agentDir),
   });
   // tools 授权门（M8.6 cr-527，manifest R2 tools 行「授权门」半边）：行集
   // 含 tools 行即挂（无门禁壳非合法降级）——loop/before-run 每 run 前重读
@@ -543,10 +552,10 @@ export async function bootShell(
     if (frame.ctrl === 'admin') return handleAdminFrame(ctx, frame);
     if (frame.ctrl === 'interrupt') {
       const conv = ctx.get('conversation', false) as
-        | { interrupt(): boolean }
+        | { interrupt(conversationId?: string): boolean }
         | undefined;
       if (conv === undefined) throw new Error('conversation 服务缺席——interrupt 无面');
-      return { interrupted: conv.interrupt() };
+      return { interrupted: conv.interrupt(frame.conversationId) };
     }
     if (frame.ctrl === 'tool') {
       const tools = ctx.get('tools', false) as
@@ -910,6 +919,23 @@ export async function bootShell(
       process.stderr.write('[shell] answered 交互重放失败：' + String(err) + '\n');
     });
   }
+  // run 节拍订阅（cr-740 运维面）：loop 事件 → stdout TSV（emit 注入面——纯域
+  // 可测）。字段语义：
+  //   run.started  <runId> <conversationId> <source> <model>
+  //   run.settled  <runId> <conversationId> <finish> <steps> <totalTokens> <elapsedMs> [error]
+  // 机制 run（meta.ARCHIVE_REVIEW_META——归档整理）照发：运维面关心活动量与
+  // 失败率，来源经 source 字段可辨。宿主侧 onRunbeat 落 runbeat 日志。
+  ctx.on('loop/run-started', (request: LoopRunRequest) => {
+    emit('run.started',
+      request.runId ?? '', request.conversationId ?? '', request.source ?? '', request.model);
+  });
+  ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
+    emit('run.settled',
+      request.runId ?? '', request.conversationId ?? '', result.finish,
+      String(result.usage.steps), String(result.usage.totalAccumulated ?? result.usage.prompt),
+      result.usage.elapsedMs !== undefined ? String(result.usage.elapsedMs) : '',
+      ...(result.error !== undefined ? [String(result.error).replaceAll('\t', ' ').replaceAll('\n', ' ').slice(0, 300)] : []));
+  });
   return {
     lockInfo, rowset, rowsReady, ctx, transportHint, fingerprint,
     emitStream: emitStreamFrame,
@@ -1087,8 +1113,11 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-// 直接运行时自举（import as module 时不执行）
-if (process.argv[1].replaceAll('\\', '/').endsWith('boot.ts')) {
+// 直接运行时自举（import as module 时不执行）。路径等价门（cr-705）：
+// 此前 endsWith('boot.ts') 在 bundle 形态（dist/shell.mjs）恒假——壳 bundle
+// 零输出直退 0，spawn 链静默失败（e2e-bundle 抓到的实锤）。宿主 boot 同款
+// resolve 等价比较，双形态通吃。
+if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.meta.url))) {
   const code = await main(process.argv.slice(2));
   process.exit(code);
 }

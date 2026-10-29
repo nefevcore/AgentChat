@@ -76,6 +76,8 @@ export interface ArchiveStep {
     name?: string;
     arguments?: string;
     result?: unknown;
+    /** run_code 程序内子调用平铺卡（cr-760：不进回放注入/估算——展示面专属） */
+    subcall?: boolean;
   }>;
 }
 
@@ -128,6 +130,10 @@ export function replayTokensOf(m: ArchiveMessage, viewer?: string): number {
       // 家族口径，strip 家族剥掉属高估安全向（归档估算宁早勿晚）
       total += estimateTokens(s.reasoning ?? '');
       for (const tc of s.toolCalls ?? []) {
+        // subcall 平铺卡不计（cr-760）：run_code 程序内子调用不进回放注入
+        // （trajFromRows 过滤同源）——估算口径 = 注入口径，上下文占用不再
+        // 随子调用体积膨胀。
+        if (tc.subcall === true) continue;
         total += estimateTokens(`${tc.name ?? ''}${tc.arguments ?? ''}`);
         total += estimateTokens(JSON.stringify(tc.result ?? null));
       }

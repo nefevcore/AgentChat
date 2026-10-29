@@ -310,6 +310,17 @@ export class AgentLoopService extends Service {
         const step = await this.step(request, index, messages, specs, steerQueue);
         steps.push(step);
         if (step.usage) usage = mergeUsage(usage, step.usage, step.elapsedMs);
+        // 中止步保真收束（cr-766）：本步 LLM 流被 abort——步记录（部分
+        // text/reasoning）已照常入 steps 并发 after-step（journal 落盘），
+        // 此处跳过工具执行（toolCalls 可能不完整——参数 JSON 截断）直接
+        // 以 interrupted 收束。abortText 取 signal reason（与步边界检查
+        // 同源）；无 reason 时如实缺省。
+        if (step.aborted === true) {
+          finish = 'interrupted';
+          const text = request.signal ? abortText(request.signal) : undefined;
+          interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
+          break;
+        }
 
         // 自然收束条件：无工具调用且无待消费 steer（末轮 steer 不丢失）。
         // 自然停点拦截（2026-02-00 ask 挂起重构）：break 之前交给 loop/run-idle
@@ -449,6 +460,8 @@ export class AgentLoopService extends Service {
     const result: LoopRunResult = {
       steps,
       text: steps.at(-1)?.text ?? '',
+      // run 墙钟耗时（cr-772）：终稿行 runMs 的取源——历史链栏耗时锚
+      wallMs: Date.now() - startedAt,
       finish,
       ...(error ? { error } : {}),
       ...(interruptReason ? { interruptReason } : {}),
@@ -603,10 +616,14 @@ export class AgentLoopService extends Service {
         stepId,
         text: res.text,
         ...(res.reasoning ? { reasoning: res.reasoning } : {}),
+        // 中止步保真（cr-766）：aborted 标记 + 相位时长透传——中断步的
+        // 部分聚合照常入档（textMs/reasoningMs 均以最后片时刻收口）
+        ...(res.aborted ? { aborted: true } : {}),
         toolCalls: res.toolCalls ?? [],
         toolResults: [] as LoopStepRecord['toolResults'],
         ...(res.textBeforeTools !== undefined ? { textBeforeTools: res.textBeforeTools } : {}),
         ...(res.reasoningMs !== undefined ? { reasoningMs: res.reasoningMs } : {}),
+        ...(res.textMs !== undefined ? { textMs: res.textMs } : {}),
         ...(res.thinkingSignature !== undefined ? { thinkingSignature: res.thinkingSignature } : {}),
         ...(res.elapsedMs !== undefined ? { elapsedMs: res.elapsedMs } : {}),
         ...(res.usage ? { usage: res.usage } : {}),

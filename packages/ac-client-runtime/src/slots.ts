@@ -55,8 +55,9 @@ export class SlotsService extends Service {
   /** 贡献条目 → 注册方 ctx（wrapComponent 隔离 ctx 的数据源，D17） */
   private owners = new WeakMap<SlotEntry, Context>();
   private onEntryError: EntryErrorHandler | undefined;
-  /** inject 面（S1.5-4）：key → 声明存活期效应 */
-  private injectEffects = new Map<string, { effect: () => (() => void) | void; dispose?: () => void }[]>();
+  /** inject 面（S1.5-4）：key → 声明存活期效应（uid = 待声明态 diff 轴，cr-798） */
+  private injectEffects = new Map<string, { uid: number; effect: () => (() => void) | void; dispose?: () => void }[]>();
+  private injectSeq = 0;
 
   constructor(ctx: Context, options: SlotsServiceOptions = {}) {
     super(ctx, 'slots');
@@ -133,7 +134,7 @@ export class SlotsService extends Service {
    * @returns 撤销监听的 disposer
    */
   inject(key: SlotKey, effect: () => (() => void) | void): () => void {
-    const record = { effect, dispose: undefined as (() => void) | undefined };
+    const record = { uid: ++this.injectSeq, effect, dispose: undefined as (() => void) | undefined };
     const off = this.ctx.fiber.effect(() => {
       const list = this.injectEffects.get(key) ?? [];
       this.injectEffects.set(key, list);
@@ -160,6 +161,20 @@ export class SlotsService extends Service {
         record.dispose = undefined;
       }
     }
+  }
+
+  /**
+   * 待声明 inject 效果快照（诊断面，cr-798）：key → 挂起中效果的 uid 集。
+   * seats 对账区分「真不注册」与「slots.inject 惰性等声明」（声明方通道
+   * 装载序在后 = 合法 deferred，非漂移）。
+   */
+  pendingInjects(): Map<string, Set<number>> {
+    const out = new Map<string, Set<number>>();
+    for (const [key, list] of this.injectEffects) {
+      const pending = new Set(list.filter((r) => !r.dispose).map((r) => r.uid));
+      if (pending.size > 0) out.set(key, pending);
+    }
+    return out;
   }
 
   // ---- store 座位实例轴（S1.5-3）----

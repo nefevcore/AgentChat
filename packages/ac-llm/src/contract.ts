@@ -198,6 +198,12 @@ export interface LlmChatResult {
   model: string;
   text: string;
   reasoning?: string;
+  /**
+   * 调用方 signal 中止（cr-766）：流已产出部分内容后被 abort——text/
+   * reasoning 是中止时刻的部分聚合（非完整 turn），消费方（loop）据此
+   * 构造中断步记录而非丢弃。非中止路径缺省。
+   */
+  aborted?: boolean;
   /** 本轮聚合出的工具调用（无则空） */
   toolCalls?: LlmToolCall[];
   /**
@@ -209,10 +215,19 @@ export interface LlmChatResult {
   textBeforeTools?: boolean;
   /**
    * 思考相位时长（毫秒）：首个 reasoning 片到达 → 首个非 reasoning 片
-   * （正文/工具调用分片）到达的间隔。无 reasoning 的步无此键。与前端
-   * 直播「已思考 · XmYs」同源定义——落盘透传，刷新后历史回放恢复耗时。
+   * （正文/工具调用分片）到达的间隔；中止时仍未离开思考相位则以最后
+   * 片到达时刻收口（cr-766——思考确实持续到了中止）。无 reasoning 的
+   * 调用无此键。与前端直播「已思考 · XmYs」同源定义——落盘透传，刷新
+   * 后历史回放恢复耗时。
    */
   reasoningMs?: number;
+  /**
+   * 正文相位时长（毫秒，cr-766）：首个正文 delta 到达 → 流末（正常/
+   * 中止）的间隔。与 reasoningMs 同族互补——思考/正文/工具参数三相位
+   * 中本键补齐第二段；工具参数段 = elapsedMs − reasoningMs − textMs。
+   * 无正文的调用无此键。
+   */
+  textMs?: number;
   /**
    * 本次 API 调用耗时（毫秒；dispatch 层计时：请求发起 → 流末，不含
    * 拦截链/重试退避等待）。token/秒速率统计的数据源——排除一切非 API

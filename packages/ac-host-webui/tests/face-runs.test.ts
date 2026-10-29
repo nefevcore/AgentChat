@@ -75,7 +75,8 @@ describe('session/tokens（宿主聚合）', () => {
       registerOpsFace(web, ctx, { dataRoot: root });
       const out = await handlers.get('session/tokens')!({ conversationId: 'c1' }) as Record<string, unknown>;
       expect(out.messageCount).toBe(2);
-      // estimateTokens：'你好' = 1.2 → 2；'在的' = 1.2 → 2
+      // 回放口径（cr-714）：'你好' = 1.2 → 2；'在的' = 1.2 → 2（agent 域
+      // 终稿行与 viewer 投影行同源直估，无轨迹时两口径等值）
       expect(out.contextTokens).toBe(4);
       expect(out.maxContextTokens).toBe(1_000_000);
       expect(out.status).toBe('normal');
@@ -94,6 +95,34 @@ describe('session/tokens（宿主聚合）', () => {
     }
   });
 
+  it('轨迹展开计入（cr-714）：物化段行 steps 轨迹按注入形状估算——工具型会话不再低估', async () => {
+    const root = tmpRoot('tokens-traj');
+    writeSession(root, 'a1', 't1', [
+      { role: 'agent', agent_id: 'user', content: '查', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z' },
+    ]);
+    // agent 域：物化段行（steps 轨迹——工具调用/结果大头）+ 终稿行
+    const agentDir = path.join(root, 'agents', 'a1', 'sessions', 't1');
+    fs.writeFileSync(path.join(agentDir, 'messages.jsonl'), [
+      JSON.stringify({ role: 'agent', agent_id: 'user', content: '查', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z', requestId: 'q1' }),
+      JSON.stringify({
+        role: 'agent', agent_id: 'a1', content: '', message_id: 'seg-r1-0', run: 'r1', source: 'segment',
+        timestamp: '2026-10-22T01:00:02Z',
+        steps: [{ content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: '{"file_path":"a.ts"}', result: { ok: true, output: '文件内容' } }] }],
+      }),
+      JSON.stringify({ role: 'agent', agent_id: 'a1', content: '结果', message_id: 'm2', run: 'r1', source: 'run:r1', timestamp: '2026-10-22T01:00:03Z' }),
+    ].join('\n') + '\n', 'utf-8');
+    try {
+      const { web, handlers } = collect();
+      registerOpsFace(web, ctx, { dataRoot: root });
+      const out = await handlers.get('session/tokens')!({ conversationId: 't1' }) as Record<string, unknown>;
+      // viewer 终稿（'查' + '结果'）+ agent 自著段行轨迹（工具名+参数+结果
+      // JSON）都计入——旧口径（终稿层直估）只有 viewer 行
+      expect((out.contextTokens as number) > 6).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('无账本会话 = 全零载荷（不抛）', async () => {
     const root = tmpRoot('tokens-empty');
     fs.mkdirSync(root, { recursive: true });
@@ -103,6 +132,38 @@ describe('session/tokens（宿主聚合）', () => {
       const out = await handlers.get('session/tokens')!({ conversationId: 'ghost' }) as Record<string, unknown>;
       expect(out).toMatchObject({ conversationId: 'ghost', messageCount: 0, contextTokens: 0, maxContextTokens: 1_000_000, status: 'normal' });
       expect(out.cache).toEqual({ lastHit: 0, lastMiss: 0, hit: 0, miss: 0, lastRunPrompt: 0 });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('session/kv-timeline（cr-714 去 stub）', () => {
+  it('usage 服务在场 → conversationTimeline 透传（points 键）', async () => {
+    const root = tmpRoot('kv');
+    try {
+      const { web, handlers } = collect();
+      const timeline = [{ ts: 1, hit: 90, miss: 10 }, { ts: 2, hit: 80, miss: 20 }];
+      const ctxUsage = { get: (k: string) => (k === 'usage' ? { conversationTimeline: (id: string) => (id === 'c1' ? timeline : []) } : undefined) } as unknown as Context;
+      registerOpsFace(web, ctxUsage, { dataRoot: root });
+      const out = await handlers.get('session/kv-timeline')!({ conversationId: 'c1' }) as Record<string, unknown>;
+      expect(out).toEqual({ conversationId: 'c1', points: timeline });
+      // 会话键未入账 = 空序列（前端空态）
+      const out2 = await handlers.get('session/kv-timeline')!({ conversationId: 'ghost' }) as Record<string, unknown>;
+      expect(out2).toEqual({ conversationId: 'ghost', points: [] });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('usage 行缺席 = 空序列（不抛、不垫假数）', async () => {
+    const root = tmpRoot('kv-nousage');
+    fs.mkdirSync(root, { recursive: true });
+    try {
+      const { web, handlers } = collect();
+      registerOpsFace(web, ctx, { dataRoot: root });
+      const out = await handlers.get('session/kv-timeline')!({ conversationId: 'c1' }) as Record<string, unknown>;
+      expect(out).toEqual({ conversationId: 'c1', points: [] });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -176,6 +237,40 @@ describe('runs/snapshot（宿主聚合 + digest 短路）', () => {
       const third = await handlers.get('runs/snapshot')!({ digest: snap.digest as string }) as Record<string, unknown>;
       expect(third.unchanged).toBeUndefined();
       expect((third.groups as Array<{ memberCount: number }>)[0].memberCount).toBe(3);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('多 run 壳（cr-746 per-门）：run-state runs 数组逐条入活跃集；旧单 run 形状兼容', async () => {
+    const root = tmpRoot('snap-multirun');
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: 'q1', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z' },
+    ]);
+    writeSession(root, 'a1', 'c2', [
+      { role: 'agent', agent_id: 'user', content: 'q2', message_id: 'm2', timestamp: '2026-10-22T01:00:00Z' },
+    ]);
+    try {
+      const { web, handlers } = collect();
+      const port = fakePort({
+        // 新形状：一壳两会话并行 run
+        a1: {
+          busy: true, conversationId: 'c1', runId: 'r1', startedAt: 10, queuedTurns: 0,
+          runs: [
+            { conversationId: 'c1', runId: 'r1', startedAt: 10, queuedTurns: 0 },
+            { conversationId: 'c2', runId: 'r2', startedAt: 20, queuedTurns: 1 },
+          ],
+        },
+        // 旧形状：单 run 顶层字段（升级壳共存期）
+        a2: { busy: true, conversationId: 'c3', runId: 'r3', startedAt: 30, queuedTurns: 0 },
+      });
+      registerOpsFace(web, ctx, { dataRoot: root, shellPort: () => port });
+      const snap = await handlers.get('runs/snapshot')!({}) as Record<string, unknown>;
+      expect((snap.running as Array<Record<string, unknown>>).sort((x, y) => String(x.startedAt) < String(y.startedAt) ? -1 : 1)).toEqual([
+        { agentId: 'a1', conversationId: 'c1', runId: 'r1', handle: 'c1~a1', startedAt: 10 },
+        { agentId: 'a1', conversationId: 'c2', runId: 'r2', handle: 'c2~a1', startedAt: 20 },
+        { agentId: 'a2', conversationId: 'c3', runId: 'r3', handle: 'c3~a2', startedAt: 30 },
+      ]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

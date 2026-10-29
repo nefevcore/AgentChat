@@ -25,6 +25,8 @@ interface DerivedRow {
   agentId: string;
   content: string;
   run?: string;
+  /** run 墙钟耗时（毫秒，cr-772——agent 域终稿行 runMs 透传） */
+  runMs?: number;
   requestId?: string;
   timestamp: string;
 }
@@ -67,6 +69,7 @@ export async function deriveViewerLedger(dataRoot: string, uuid: string, agentDo
         agentId: domain,
         content: r.content,
         ...(run !== undefined ? { run } : {}),
+        ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
         ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
         timestamp: r.timestamp,
       });

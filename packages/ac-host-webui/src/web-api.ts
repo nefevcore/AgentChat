@@ -6,7 +6,8 @@
 // preview 侧新建：方法名 / 参数 / 返回形状与主线对齐（前端零改动），
 // 服务面换 preview 等价物——
 //   conversation/deliver → UserStub.send（R-2 user 壳桩代签发投递）
-//   session/history      → webui-core readLedgerFrom（历史读纯库直读）
+//   session/history      → ac-ledger assembleSessionView/historyView
+//                          （单次读组装 + lite 投影 + 指纹短路——cr-768）
 //   agents/list          → agents-core listAgentIds + readAgentConfig 直读
 //   config/*             → ctx.config（宿主 config 行 = 配置落盘单源）+
 //                          ac-credentials-core（池 api_key 侧信道，cr-564）
@@ -18,7 +19,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { readFileSync, statSync } from 'node:fs';
 import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
-import { UserLedger, conversationDirs, deleteConversationRow, readLedger, readJournal, sessionDir, stepsOfRun, stepsOfLedger, deriveViewerLedger, truncateConversation, type JournalLine, type LedgerRow } from 'ac-ledger';
+import { assembleSessionView, conversationDirs, deleteConversationRow, deriveViewerLedger, historyView, truncateConversation } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isAgentIdentity, materializedChildIds } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, collectRunning, type FaceOpsDeps } from './face-ops.ts';
@@ -170,119 +171,35 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       web.registerRpc('session/history', async (params) => {
         const p = obj(params);
         const conversationId = reqStr(p, 'conversationId');
+        const limit = typeof p.limit === 'number' && Number.isFinite(p.limit) && p.limit > 0 ? Math.floor(p.limit) : undefined;
+        const offset = typeof p.offset === 'number' && Number.isFinite(p.offset) && p.offset >= 0 ? Math.floor(p.offset) : 0;
+        // 会话视图指纹（cr-768 读面优化回填）：跨域 stat 复合指纹（viewer +
+        // 全部 agent 域账本/journal 文件的 size:mtime 串——append-only 下文件
+        // 未变 = 读面输入未变）。stat 恒先做——短路要它，响应携带也要它。
+        const view = historyView(deps.dataRoot, conversationId);
+        // fingerprint 短路（cr-768 回填，原 2026-09-19 优化）：首屏请求（offset=0）
+        // 带上次响应的 fingerprint，指纹相同 → unchanged 轻载荷返回，跳过
+        // 全读 + 派生 + 投影 + 序列化。切走再切回是纯重入（文件通常没变）。
+        // 误判率为零：任何域任何文件变化（新行/收束/compact 重写/journal 剔除）
+        // 必变 mtime 或 size，短路自动失效。上翻（offset>0）不参与——分页
+        // 语义需要精确 total。
+        const reqFingerprint = typeof p.fingerprint === 'string' ? p.fingerprint : undefined;
+        if (reqFingerprint !== undefined && offset === 0 && reqFingerprint === view.fingerprint) {
+          return { conversationId, unchanged: true, fingerprint: reqFingerprint };
+        }
         // 读前派生（cr-698 viewer 派生化）：agent 域账本自著行（终稿/通知）
         // → viewer 行（requestId 幂等 / run 键单行 / 原 ts）。读时派生兼做
         // 崩溃窗口兜底（终稿通知丢失 → 下次读面补齐）；附带存量双锚行迁移。
-        const domains = conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })
-          .map((d) => path.basename(path.dirname(path.dirname(d))))
-          .filter((d) => d !== 'viewer');
-        await deriveViewerLedger(deps.dataRoot, conversationId, domains);
-        // user 账本（终稿层投影——裁决簿〈webui 读投影〉形态二）：UserLedger
-        // .replay() 即 user 视角投影（UserReplayRow：role 'user'|'peer' +
-        // agentId）。输出名对齐主线 records 形状（role + agent_id）——前端零改动。
-        // 分页（limit/offset 尾部语义）与主线对齐。
-        const ledger = new UserLedger(deps.dataRoot, conversationId, ['user']);
-        // agent 域 journal/账本按端点读一次缓存（D4.2 带出：peer 行按 run 键
-        // 关联 agent 域——思考/工具卡投影进 steps，刷新不丢）。steps 源 =
-        // 物化段行优先（cr-697 收束即清后 settled run 的 steps 事实源）、
-        // journal 兜底存量会话与 in-flight。
-        // 对桶键（a~b）双端并读（cr-611）：迁移直答 pair 的 journal 住尾段
-        // 域（agents/user），运行时 pair 的 journal 住对端自己的域——按
-        // participants 双端取并集，run 键不相交无重。
-        const journalOf = new Map<string, JournalLine[]>();
-        const rowsOf = new Map<string, LedgerRow[]>();
-        const faceFor = (agentId: string): { lines: JournalLine[]; rows: LedgerRow[] } => {
-          let lines = journalOf.get(agentId);
-          let rows = rowsOf.get(agentId);
-          if (lines === undefined || rows === undefined) {
-            lines = readJournal(sessionDir(deps.dataRoot, agentId, conversationId));
-            rows = readLedger(sessionDir(deps.dataRoot, agentId, conversationId)).rows;
-            if (conversationId.includes('~')) {
-              for (const part of conversationId.split('~')) {
-                if (part === agentId) continue;
-                lines = [...lines, ...readJournal(sessionDir(deps.dataRoot, part, conversationId))];
-                rows = [...rows, ...readLedger(sessionDir(deps.dataRoot, part, conversationId)).rows];
-              }
-            }
-            journalOf.set(agentId, lines);
-            rowsOf.set(agentId, rows);
-          }
-          return { lines, rows: rows! };
-        };
-        const stepsFor = (agentId: string, run: string): { steps: Array<{ content: string; reasoning?: string; ts?: number; toolCalls?: Array<{ id: string; name: string; arguments: string; result: unknown; subcall?: boolean }> }>; partial: boolean } | null => {
-          const { lines, rows } = faceFor(agentId);
-          return stepsOfLedger(rows, run) ?? stepsOfRun(lines, run);
-        };
-        const all = ledger.replay().map((r) => {
-          const projected = r.role === 'peer' && r.run !== undefined
-            ? stepsFor(r.agentId, r.run)
-            : null;
-          return {
-            role: r.role === 'peer' ? 'assistant' : 'user',
-            agent_id: r.role === 'peer' ? r.agentId : undefined,
-            content: r.content,
-            ...(r.run !== undefined ? { run: r.run } : {}),
-            ...(projected !== null ? { steps: projected.steps, ...(projected.partial ? { partial: true } : {}) } : {}),
-          };
+        await deriveViewerLedger(deps.dataRoot, conversationId, view.domains);
+        // 会话视图组装：单次读（viewer 终稿层 + 全域 journal/账本——含 steps
+        // 联查、注入行归口、活投影、盲区投影）。此前三层循环各自重读账本
+        //（conversationDirs 枚举 3 次 + ledger.replay() 2 次 + 盲区循环绕过
+        // faceFor 缓存直接重读 journal/账本）——读面单次化（cr-768）后每一
+        // 文件只解析一次，投影逻辑归位数据拥有者 ac-ledger。
+        const all = assembleSessionView(deps.dataRoot, conversationId, {
+          ...(p.view === 'lite' ? { view: 'lite' } : {}),
+          running: await collectRunning(deps),
         });
-        // journal 活投影（cr-598）：run 中刷新恢复——running 集命中的**当前
-        // run**（runId 精确门控）journal 步行按步追加 partial 行（前端 resume
-        // 管线〔stats 命中 → loadHistory〕据此回放已完成步并接续流式）。
-        // runId 门控：同会话崩溃孤儿 journal（未收束但非当前 run）不投——
-        // 不制造永恒在途行。
-        const runningHere = (await collectRunning(deps))
-          .flatMap((r) => r.conversationId === conversationId && r.runId !== null ? [{ agentId: r.agentId, runId: r.runId }] : []);
-        for (const run0 of runningHere) {
-          const p = stepsOfRun(faceFor(run0.agentId).lines, run0.runId);
-          if (p === null || !p.partial) continue;
-          for (const s of p.steps) {
-            all.push({
-              role: 'assistant',
-              agent_id: run0.agentId,
-              content: '',
-              run: run0.runId,
-              steps: [s],
-              partial: true,
-            });
-          }
-        }
-        // steps 盲区投影（cr-628/698）：viewer 无对应行但有 steps 事实的 run
-        // 一律投出——空终稿 run（中断/崩溃——「有思考链无正文」是常态，
-        // 显示形态归前端渲染）+ 壳死于终稿回信前的 settled run（锚信通道
-        // 已退役，不再以空行占位）。事实源 = 物化段行（settled run）∪
-        // journal 步行（in-flight / 收束即清前的存量）；partial 如实。
-        const linkedRuns = new Set(all.flatMap((r) => (r.run !== undefined ? [r.run] : [])));
-        const runningIds = new Set(runningHere.map((r) => r.runId));
-        for (const dir of conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })) {
-          // dir = agents/<agentId>/sessions/<cid>（影子 = agents/<parent>/children/<child>/…）
-          // ——域主 = sessions 段的上一级目录名；viewer 域非 agent 域跳过
-          const agentId = path.basename(path.dirname(path.dirname(dir)));
-          if (agentId === 'viewer') continue;
-          const lines = readJournal(dir);
-          const rows = readLedger(dir).rows;
-          const candidates = new Set<string>();
-          for (const l of lines) {
-            if (l.run !== '' && (l.type === 'journal-step' || l.type === 'journal-inject')) candidates.add(l.run);
-          }
-          for (const r of rows) {
-            if (r.source === 'segment' && r.run !== undefined) candidates.add(r.run);
-          }
-          for (const run of candidates) {
-            if (linkedRuns.has(run) || runningIds.has(run)) continue;
-            const p = stepsOfLedger(rows, run) ?? stepsOfRun(lines, run);
-            if (p === null) continue;
-            all.push({
-              role: 'assistant',
-              agent_id: agentId,
-              content: '',
-              run,
-              steps: p.steps,
-              ...(p.partial ? { partial: true } : {}),
-            });
-          }
-        }
-        const limit = typeof p.limit === 'number' && Number.isFinite(p.limit) && p.limit > 0 ? Math.floor(p.limit) : undefined;
-        const offset = typeof p.offset === 'number' && Number.isFinite(p.offset) && p.offset >= 0 ? Math.floor(p.offset) : 0;
         const page = limit === undefined
           ? all
           : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
@@ -291,6 +208,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
           records: page,
           total: all.length,
           ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
+          ...(offset === 0 ? { fingerprint: view.fingerprint } : {}),
         };
       });
 

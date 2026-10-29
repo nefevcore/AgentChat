@@ -12,7 +12,8 @@
 
 1. ☐ **按 source 降档——Agent 间唆使链路无硬边界**〔安全〕
    - 出处：`archive/security-access-tier-plan.md` L55 / L292 / L416 / L448（该文档 §十 明确「延期」）；原 gap 第 2 项。
-   - 内容：full 档 Agent 被 source='agent' 消息触发的 run 应降档执行——当前只有 prompt 级软缓解（run 边界注入防御提示词），无硬边界；系统整体强度 = 可达 Agent 最高档；`send_agent` 无 requiredTags，任何 Agent 可联系任何 Agent。
+   - 内容：full 档 Agent 被 source='agent' 消息触发的 run 应降档执行——当前只有 prompt 级软缓解（run 边界注入防御提示词），无硬边界；系统整体强度 = 可达 Agent 最高档。
+     ~~`send_agent` 无 requiredTags，任何 Agent 可联系任何 Agent~~（**cr-726 校正**：requiredTags 已随 cr-484/cr-691 tag 机制解体全链退役——现行门禁 = 行集引用 + 会话键 grants，见「装载即归属」；本句为旧词表时期口径）。
    - 现状核实（2026-10-06）：全仓 grep「降档」仅命中「继承不降档」族（`ac-conv-settings/src/contract.ts` L15、`ac-conversation/src/service.ts` L402 + elev-inherit/conversation 集成用例）——那是提权水位继承语义（2026-09-12 反馈修正：降档会使唤醒轮逐工具弹审批卡），与按 source 降档无关；本项未实现。
    - seam 现成：`router/before-deliver` / `loop/before-run`。
    - 注意：`security-access-tier-plan.md` §8.3 表中「prompt 级防御可被话术绕过」为显式接受项，非本条待修。
@@ -22,6 +23,26 @@
    - 事实（2026-10-06 逐点核实）：拦截判定单源 = `isArchiveReviewRun(meta)`（`ac-agent-loop/src/service.ts` L171）；设置面全仓仅两处——`ac-archive/src/service.ts` L407-409 与 `ac-bench/src/service.ts` L170-172（均 `meta: { [ARCHIVE_REVIEW_META]: true }`）；两门 = `ac-conversation/src/service.ts` L465（deliver steer 门）与 L649（steerQueued 门）。
    - 其余 `source: 'event'` 调用点（ac-ask-questions L154/L174、ac-goal L235、ac-job-wakeup L98、ac-collab-tools L98、ac-dev-tools L246）均为「事件触发的普通 run」——回复落盘，steer 不会进黑洞，无需同款拦截。
    - 动作：无代码缺口；维护约定 = 新增「不落盘机制 run」时必须设 ARCHIVE_REVIEW_META（否则两门失效、用户消息注入即"回复掉黑洞"）。
+
+2a. ☐ **bash-scan 把裸 `/` 误判为 Unix 绝对路径**〔bug，2026-10-27 实测复现〕
+   - 出处：cr-723 现场。命令里出现除法（如 `(... ).Sum / 1MB`）即被拒，报「命令包含允许范围外的 Unix 绝对路径（/）访问，被沙箱拦截」。
+   - 根因：`ac-sandbox-core/src/bash-scan.ts` L117 token 正则会捕获裸 `/`；L118 的 `isWindowsSwitch` 豁免面只覆盖 `dir /b`、`date /t` 这类开关，不含除法/纯分隔符形态。
+   - 影响面：正常算术、`+%Y/%m` 日期格式、`1/2` 之类文本都会被误拦，且报错指向「越权」极易误导排查方向。
+   - 动作：捕获后先剔除「裸 `/`（长度 1）」与「两侧为数字/空白」的算术形态，再进 contains 判定；补测试锁定（`$x / 1MB`、`1/2`、`date +%Y/%m` 均不误报）。
+
+2b. ☐ **sandbox-access 档位改用 icacls / 完整性标签限制范围**〔候选需求，缓行待评估，cr-723 记档〕
+   - 现状：档位边界全在软件层（`ac-sandbox-core` 白名单 + bash 词法扫描），属软边界——`..` 变体、变量展开、脚本内二次拼路径、子进程都可绕过（该软边界在 `security-access-tier-plan.md` §八 为显式接受项）。
+   - 候选：对 sandbox 档子进程建立 **Low 完整性作业对象**，或对工作区目录打 Low 标签，让「默认拒绝越界写」下沉到内核 MIC（本次事故正好反向实证了 MIC 的有效性：ACL 全权在手仍写不出去）。
+   - 先评估项：① 平台不可移植（Windows only）；② 标签继承污染与清理责任（本次事故的 `bin\AgentChat.exe` 带 Low 标签即导致整链被压顶，须有自愈/校验）；③ 与 full-access 的语义互斥如何表达；④ 跨数据根/外部工作区的白名单落法。
+   - 结论：只登记不实施，待有实际越权事故或安全评审要求时再启动。
+
+2c. ☐ **full-access 档位未生效复核（会话档位落盘 / 信封投递一致性）**〔待复核，cr-723〕
+   - 用户报告：「本会话是 full-access，但工具调用仍被沙箱拦」——若成立即 bug（设计矩阵：full-access 跳过 bash 扫描与路径复检）。
+   - 已核事实（2026-10-27）：`ac-shell-tools/src/executor.ts` L173 `unrestricted = effectiveTierOfCall(call, deps.agentsOf) === 'full-access'`；档位来源 = `ToolCall.elevation` ?? `AgentConfig.tags`；链路 `conv-settings.elevation` →（前端信封）→ `ac-shell-conversation` L497 → `ac-agent-loop` L385。
+   - 疑点：数据根 `workspace/home/conv-settings/` 下**最新会话文件无 `elevation` 键**（多数历史会话有 `"elevation": "full-access"`），且数据根下不存在 `agents/` 目录 ⇒ `tierOf(agent)` 回落 base。即档位很可能**只存在于前端展示、未落盘或未随信封投递**（cr-626 同类缺口）。
+   - 现场实证（2026-10-27）：同一会话内，应用**重启前**含绝对路径的命令未被软件沙箱拦（只被 NTFS MIC 拦），**重启后**同类命令被软件沙箱拦——唯一变量是重启，指向「会话档位重启后未恢复」。
+   - 动作：前端设 full-access → 校验 ① conv-settings 写入 ② 信封是否带 elevation ③ 工具调用是否 full 档；三处任一断链都按 bug 修。
+
 
 ### B. run_code / DX
 
@@ -41,6 +62,8 @@
 
 ### C. 前端 / UI
 
+5a. ☑ **历史加载读面优化回填**（cr-768，2026-10-29）：cutover 迁移遗漏——lite 视图（cr-54/55）与 fingerprint 短路（2026-09-19）在新 web-api session/history 静默丢失（前端/remote-link 仍发参数、服务端不读）。已回填：ac-ledger view.ts（assembleSessionView 单次读组装 + lite 投影 + historyView 跨域复合指纹〔viewer 域必须入指纹——replay 输入〕），web-api 只透传。前端零改动。测试锁：view.test.ts（lite 语义/零变异/指纹）+ history-opt.test.ts（e2e 短路失效/透传）。
+
 6. ☐ **UI 全量浏览器走查**（原 polish C1）
    - 内容：插件卡片（红绿 toggle / ⚙ 徽章 / 点击弹窗 / 滚动收口）、工具参数表格、事件树、配置弹窗分区（字段描述 / enabled 分区）、还原按钮组——全部经事故链阻隔未经目验（单测/构建已过），需人工浏览器目验。
 
@@ -51,7 +74,7 @@
 
 8. ☐ **真机 WebView 兼容缺口残余**
    - 出处：原 gap 第 5 项；核验清单 `archive/m3-realdevice-checklist.md` §1.1。
-   - 现状核实（2026-10-06）：三份同源副本在档——`mobile/app/www/legacy-runtime.js`、`mobile/app/android/app/src/main/assets/public/legacy-runtime.js`、`src/webui/public/legacy-runtime.js`（另 `src/webui/dist/` 与 android `build/intermediates/` 下两份为构建产物）。
+   - 现状核实（2026-10-06；**cr-726 校正**）：三份同源副本在当时的 src/webui 轨；cr-703 后 `src/webui` 已退役，垫片真实源 = `apps/ui/public/legacy-runtime.js`，经 mobile sync 脚本同步到 android assets（旧 `mobile/app/www/` 为 Capacitor 中转，cr-43 起改双落点）。本条「真机 WebView 兼容」本身仍开放。
    - 动作：对目标真机 WebView 版本跑清单核验；对照 MDN/Chrome 状态更新垫片覆盖面（如 `Object.hasOwn`、`structuredClone`、`Array.prototype.at` 等按真机版本裁剪）。
 
 ### E. 架构演进与缓行（原 polish §三 + DSH 比对增量）
@@ -59,13 +82,20 @@
 9. ☐ **A2 `agentchat.contracts: "^1"`**：声明位已留，等市场/版本门工作启用（勿提前加投机字段）。
 10. ☐ **A3 npm 发布行包 + 市场打通**：`keywords: "agentchat"` / `agentchat.plugin: true` 已就位；发布与 `market/search` 消费是下一步。
 11. ☐ **A5 dep-graph 软依赖盲区**：`ctx.get` 依赖不在图内（已文档化；补齐需静态分析，代价高收益低）。
-12. ☐ **A6 ac-web-api 静态 inject 瘦身**（17 项）：级联易碎根源；非核心 inject 改 `ctx.get` 软依赖（RPC 失败容忍）或拆面。改动面大，需单独立项。
+12. ☑ **A6 ac-web-api 静态 inject 瘦身**（17 项）——**cr-726 判定已随布局变化失效**：`ac-web-api` 包已退役（现 `ac-host-webui` 的 `web-api.ts` 是文件而非包），原「17 项静态 inject」清单无对应实体；如后续 web 面仍需要瘦身，按 `ac-host-webui` 重新盘点后另立。
 13. ☐ **A7 group 配置簇事件并源（缓行）**：created/deleted/renamed/description-set/member-added/member-removed 六事件订阅面完全重合（后端仅 ws-bridge；载荷已统一携带 GroupConfig 终值），可并为 `group/updated(group, action)`。缓行理由 = 前端按 type 分两个刷新作用域（列表态 vs 详情态），合并需前端改按 action 分流。触发条件 = 第三处同形态域出现，或前端群视图重构时顺手并源。
 14. ☑ **ac-config 热更三小件**（DSH 0.2 契约比对增量；2026-10-06 逐条核实：三件均未做）——2026-10-13 cr-377 落地：
     - **P1 `config/changed` 载荷携带变更路径** ✅：签名 `(path, changed?)`——set/merge 载荷 = 写入键（点路径/顶层键），reload = 内容有异的顶层键（changedKeys 粗粒度 diff）；深等价不广播。既有订阅方（7 行）回调签名自适应零改动，ws-bridge `wire: (a) => a` 直转零破坏。
     - **P2 commit 前深等价去重** ✅：`jsonEqual`（JSON 序列化形状比较，ac-agent-admin jsonEq 同款）入口判等，无实质变化静默返回（不写盘不 emit）；reload 内容等价 = true 不广播（返回值语义维持 true=文件存在且已对账），测试锁定（同值 set mtime 不变 + reload 等价零广播）。
     - **P3（候选）快照深冻结替代 structuredClone** ✗ 不做：前置审计（cr-377 逐点核验 14 处 `config.get` 调用点）确认读侧快照隔离无 mutate 场景；改为补写侧对称——`set/merge` 值深拷贝入内存（写侧存引用 = 调用方事后变异静默绕过写盘与事件，读侧隔离承诺被写侧戳穿），测试锁定。冻结替代的 fail-loud 收益在双侧隔离下不存在，不引入。
     - 落点/验证阶梯/原则记档：`archive/dsh-0.2-contract-takeaways-plan.md`（§3 记档见本档 §三）。
+
+
+### F. 外部条件观望与未实施（cr-726 收编，2026-10-27）
+
+15. ☐ **harness P3 观望项**（原 `harness-bridge-plan.md` §七）：① DSH web 桥（需双侧开发）；② 方案 A provider 形态（`llm-protocol-extensibility` 已实施 cr-39，可重新评估）。触发 = 外部条件具备。
+16. ☐ **子 Agent 会话视图未实施 P1**（原 `subagent-session-view-plan.md`，已归档）：① live 流式（子会话运行中实时帧）；② 步级 partial 可视化；③ 嵌套导航（子 Agent 下钻）。
+17. ☐ **文档疑点批（cr-726 审查产出 33 条）**：需人工逐条定责的文档/代码不一致项，清单见仓库外归档根 `docs-review-2026-10-27/suspects-总清单.md`——高优先 8 条（含 `scripts/check-deps.mjs` SRC 指向已消灭 src/ 致检查恒绿、row-catalog restart 行描述与代码相反）建议先行处置。
 
 ## 二、已闭环留档（不再领；原档全文在 `archive/` 或 git 历史）
 

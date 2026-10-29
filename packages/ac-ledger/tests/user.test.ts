@@ -17,10 +17,13 @@ describe('M7.3 user 账本（形态二：仅终稿层）', () => {
     await led.writeOwn('第一问', 'rq-1');
     expect(await led.writeThrough({ agentId: 'alpha', content: '终稿回复', uuid: 'u-777', run: 'run-9', requestId: 'rq-2' })).toBe(true);
     const replay = led.replay();
-    expect(replay).toEqual([
-      { role: 'user', agentId: 'user', content: '第一问', run: undefined },
-      { role: 'peer', agentId: 'alpha', content: '终稿回复', run: 'run-9' },
-    ]);
+    expect(replay).toHaveLength(2);
+    expect(replay[0]).toMatchObject({ role: 'user', agentId: 'user', content: '第一问', run: undefined });
+    expect(replay[1]).toMatchObject({ role: 'peer', agentId: 'alpha', content: '终稿回复', run: 'run-9' });
+    // 行时间戳透传（cr-716）：读面历史排序的事实键——缺席曾致刷新后乱序
+    expect(typeof replay[0].timestamp).toBe('string');
+    expect(Date.parse(replay[0].timestamp)).not.toBeNaN();
+    expect(Date.parse(replay[1].timestamp)).not.toBeNaN();
     // 物理布局：<dataRoot>/viewer/sessions/<uuid>/
     expect(fs.existsSync(path.join(userSessionDir(ROOT, 'u-777'), 'messages.jsonl'))).toBe(true);
   });

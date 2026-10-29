@@ -24,8 +24,11 @@ interface ChatShellOptions {
   signal: () => readonly [number, number];
 }
 
-/** 距底阈值（px）：少于该值视为「在底部」，自动跟随驻留/恢复 */
-const BOTTOM_EPS = 80;
+/** 距底阈值（px）：少于该值视为「在底部」，自动跟随驻留/恢复。
+ *  240 而非直觉小值（cr-799 前端反馈）：流式期底部内容持续生长，用户贴底
+ *  附近停留时距底被增量不断推远——阈值过小则用户「滚回底部附近」永远追不上
+ *  生长速度，自动跟随恢复不了；3× 放宽让常规增量下滚回即恢复。 */
+const BOTTOM_EPS = 240;
 /** 缓动时间常数（ms）：指数追赶的速度衰减；~3τ（240ms）追平 95% */
 const GLIDE_TAU = 80;
 /** 缓动兜底超时（ms）：目标持续增长等极端情况下强制收尾贴底 */
@@ -63,16 +66,7 @@ export function useChatShell(opts: ChatShellOptions) {
   let glideT = 0;
   let lastActivity = 0;
 
-  function isAtBottomEl(el: HTMLElement): boolean {
-    return el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_EPS;
-  }
 
-  /** 判断滚动条是否接近底部（阈值 80px，容纳流式输出时的高度跳动） */
-  function isNearBottom(): boolean {
-    const el = opts.container.value;
-    if (!el) return true;
-    return isAtBottomEl(el);
-  }
 
   /** 程序写 scrollTop（写后回读实际值记账——浏览器可能按最大滚动值钳制） */
   function writeScrollTop(el: HTMLElement, y: number): number {
@@ -190,10 +184,7 @@ export function useChatShell(opts: ChatShellOptions) {
     followRaf = requestAnimationFrame(followTick);
   }
 
-  /** 回到底部按钮：平滑滚动并恢复自动跟随（无论多远都缓动滑下） */
-  function scrollToBottomAndReset() {
-    scrollToBottom(true);
-  }
+
 
   /** 会话切换时重置闭包状态。
    *  isUserScrolledUp / lastScrollTop 跨会话残留的坑：新会话内容不足一屏时
@@ -277,9 +268,7 @@ export function useChatShell(opts: ChatShellOptions) {
 
   return {
     isUserScrolledUp,
-    isNearBottom,
     scrollToBottom,
-    scrollToBottomAndReset,
     reset,
     onScroll,
   };

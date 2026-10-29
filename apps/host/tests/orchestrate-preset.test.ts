@@ -41,11 +41,11 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     expect(cfg.id).toBe('__standard__');
     expect(cfg.preset).toBeUndefined(); // 物化剥 preset（同 transientConfigOf）
     expect(cfg.rows).toContain('browser');
-    expect(cfg.rows).toContain('collab-tools'); // 模板 18 行（含协作面）
+    expect(cfg.rows).toContain('goal'); // 模板 15 行（cr-790：协作面/历史回放移出标准预设）
     expect(cfg.rows).not.toContain('memory');
     // 能力 tags 随模板物化（cr-617：缺 tags = SDK 投影/能力面坍缩到 base 族）
     expect(cfg.tags).toContain('fs');
-    expect(cfg.tags).toContain('collab');
+    expect(cfg.tags).toContain('observe'); // browser 双标签（web+observe——cr-790）
     expect(cfg.description).toBeTruthy();
   });
 

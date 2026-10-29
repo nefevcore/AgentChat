@@ -86,6 +86,58 @@ describe('M6.2 主体指纹自报（R-7 两形态同源）', () => {
   });
 });
 
+describe('run 节拍 emit（cr-740 运维面）', () => {
+  it('loop/run-started + loop/after-run → run.started/run.settled TSV', async () => {
+    seedAgent('rb1');
+    const signals: string[] = [];
+    const boot = await bootShell(
+      { dataRoot: ROOT, agentId: 'rb1', catalogFile: CATALOG },
+      { emit: (s, ...f) => signals.push([s, ...f].join('	')) },
+    );
+    try {
+      boot.ctx.emit('loop/run-started', {
+        runId: 'r1', conversationId: 'conv-1', source: 'user', model: 'mock', messages: [],
+      });
+      boot.ctx.emit('loop/after-run', {
+        runId: 'r1', conversationId: 'conv-1', source: 'user', model: 'mock', messages: [],
+      }, {
+        finish: 'stop', text: '', steps: [],
+        usage: { prompt: 10, completion: 5, promptAccumulated: 10, steps: 2, elapsedMs: 1200 },
+      });
+      const started = signals.find((s) => s.startsWith('run.started'));
+      const settled = signals.find((s) => s.startsWith('run.settled'));
+      expect(started).toBe('run.started	r1	conv-1	user	mock');
+      // settled：runId/conv/finish/steps/tokens/elapsedMs（无 error 字段）
+      expect(settled).toBe('run.settled	r1	conv-1	stop	2	10	1200');
+    } finally {
+      await boot.close();
+    }
+  }, 20_000);
+
+  it('error run → settled 尾带截断的 error 字段（\t/\n 剥除）', async () => {
+    seedAgent('rb2');
+    const signals: string[] = [];
+    const boot = await bootShell(
+      { dataRoot: ROOT, agentId: 'rb2', catalogFile: CATALOG },
+      { emit: (s, ...f) => signals.push([s, ...f].join('	')) },
+    );
+    try {
+      boot.ctx.emit('loop/after-run', {
+        conversationId: 'conv-2', model: 'mock', messages: [],
+      }, {
+        finish: 'error', error: 'boom\tnewline\nhere', text: '', steps: [],
+        usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 1 },
+      });
+      const settled = signals.find((s) => s.startsWith('run.settled'))!;
+      // 字段数 = 7 + error；error 内制表符/换行已压平
+      expect(settled.split('	')).toHaveLength(8);
+      expect(settled.endsWith('boom newline here')).toBe(true);
+    } finally {
+      await boot.close();
+    }
+  }, 20_000);
+});
+
 describe('argv 解析', () => {
   it('必选参数解析 + 可选 catalog', () => {
     const a = parseShellArgs(['--data-root', 'D:/r', '--agent-id', 'alpha', '--catalog', 'c.json']);
@@ -109,6 +161,26 @@ describe('rowset 派生断言', () => {
   });
   it('agent 配置缺席 fail-loud', () => {
     expect(() => deriveAndAssertRowset(ROOT, 'ghost', CATALOG)).toThrow(/配置缺席/);
+  });
+  // cr-762：子壳恒无 subagent 行——缺省继承与显式点名两路同断（防子孙无限增长）
+  it('子壳行集剔除 subagent 行（parentId 形态）', () => {
+    seedAgent('w3');
+    // 物化子 config：rows 缺省（继承父快照语义）+ 显式点名 subagent 两形态
+    let named = false;
+    for (const rows of [undefined, ['subagent', 'math']] as Array<string[] | undefined>) {
+      named = rows !== undefined;
+      const childDir = path.join(ROOT, 'agents', 'w3', 'children', 'w3-k');
+      fs.mkdirSync(childDir, { recursive: true });
+      fs.writeFileSync(path.join(childDir, 'config.json'), JSON.stringify({
+        id: 'w3-k', model: 'mock', ...(rows !== undefined ? { rows } : {}),
+      }), 'utf-8');
+      const r = deriveAndAssertRowset(ROOT, 'w3-k', CATALOG, 'w3');
+      expect(r.rowIds).not.toContain('subagent');
+      if (named) expect(r.rowIds).toContain('math'); // 同批其他行不受波及
+    }
+    // 顶层形态不受影响：subagent 仍在基础壳行集
+    const top = deriveAndAssertRowset(ROOT, 'w3', CATALOG);
+    expect(top.rowIds).toContain('subagent');
   });
 });
 

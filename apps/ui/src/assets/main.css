@@ -21,6 +21,12 @@
     --layout-content-max-width: 840px;
     --layout-header-height: 48px;
     --layout-sidebar-width: 260px;
+    /* 会话消息区尾部「额外呼吸位」（cr-796）：TranscriptList 的 .composer-spacer
+       在「重叠补偿」之外再叠这一层。默认 0 = 刚好不被浮层挡住；调大可让滚到底时
+       最后一条离输入卡更远。声明在此只为「有默认值、DevTools 里看得见」——
+       消费点本身也带 var(--composer-extra, 0px) 兜底，未声明同样成立；
+       @layer 内的值优先级低于无层样式，主题包 / :root 内联覆盖都能盖过它。 */
+    --composer-extra: 0px;
 
     /* ── 间距刻度 (4px 基准) ── */
     --space-xs: 4px;
@@ -124,8 +130,10 @@
        reduce，不豁免则「有指示无动画」（2026-09-04 反馈：
        chain-header dots 静止）。
        cr-149 补：.busy-ring（kit 忙环唯一源——cr-129 归一后所有忙指示
-       走它，静止的忙环同样被读作卡死）/ .ic-spin（v2 预览页图标旋转） */
-    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring):not(.busy-ring):not(.ic-spin),
+       走它，静止的忙环同样被读作卡死）/ .ic-spin（v2 预览页图标旋转）
+       cr-751 补：.rs-hand（run-status 状态卡时钟指针——旋转即「运行中」
+       语义，同忙指示豁免家法） */
+    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring):not(.busy-ring):not(.ic-spin):not(.rs-hand),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;

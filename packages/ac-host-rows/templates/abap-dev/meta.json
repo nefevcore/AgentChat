@@ -1,5 +1,5 @@
 {
+  "order": 4,
   "label": "ABAP开发模式",
-  "description": "SAP ABAP 开发面：adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试）+ Shell 与本地文件，单会话无记忆不归档",
-  "order": 4
+  "description": "SAP ABAP 开发面：adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试）+ 通用开发面（读写/检索/Shell/搜索/浏览器/目标待办），单会话无记忆不归档"
 }

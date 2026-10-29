@@ -136,7 +136,7 @@ export class DurableInteractionService extends Service {
 
   private createStore(config: DurableInteractionConfig): DurableInteractionStore {
     // 缺省 jsonl（2026-09-12 反馈修正：Single 会话 ask_questions 后端重启后
-    // 无法继续回复）：生产装配（cordis.yml / ac-app TREE）裸行无 config，
+    // 无法继续回复）：生产装配（行目录裸行）无 config，
     // 旧缺省 memory 使"durable"挂起交互实际不持久——后端重启 pending 全丢，
     // 前端 interaction/list 恢复链无从恢复。与 ac-session 等持久化行惯例
     // 对齐：缺省落盘（root ?? env ?? './data'，boot.ts 锚定数据根），显式

@@ -1,7 +1,7 @@
 # WebUI 组件树（UI Component Tree）
 
 > **定位**：本文整理**前端 Vue 组件的组合关系**（谁渲染谁、谁复用谁），
-> 与 [`ui-rows-and-slots.md`](ui-rows-and-slots.md) §2 Slot 树分工互补——
+> 与 [`ui-rows-and-slots.md`](../ui-rows-and-slots.md) §2 Slot 树分工互补——
 > slot 树讲「席位/插口的形状与语义」，本文讲「组件本体的父子与引用」。
 > 读代码前先看本文即可建立整张前端的地形图。
 >

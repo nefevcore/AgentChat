@@ -3,8 +3,11 @@
 //
 // 串行化门（handle）：单参与者串行——busy 时入站走 inbox 双队列；
 // 双队列（A4）：next-step = steer 注入活跃 run；next-turn = 跨 run 队列；
-// budget 消费（M1.1）：自动唤醒 -1、0 = 只落账；user 端点桩（R-2）：
-// 激活仪式化——user 在场即重置满额。
+// budget 消费（M1.1；cr-710 改信封权威）：唤醒许可由**信封携带的 budget**
+// 逐跳裁决（协议 A1/F-8/D2：类 TTL/hop-count，0 = 只落账）；机器不自持
+// 计数器——per-conversation 内存计数在壳换代/restart/idle 收割后归零，
+// agent↔agent 互答可跨壳代无限续跑（子 Agent 场景实锤）。
+// user 端点桩（R-2）：预算之源——收信重置满额在 budgetAfterReceive 单源。
 // ============================================================
 
 /** 入站消息走向（消费时机分类——与信封 kind 正交，A4） */
@@ -33,7 +36,6 @@ export interface ConversationState {
   busy: boolean;
   currentRun: string | null;
   queuedTurns: number;
-  budget: number;
 }
 
 /** 投递决策结果（deliver 的纯计算半边——IO 归调用方） */
@@ -41,7 +43,7 @@ export type DeliverPlan =
   | { action: 'run'; budgetAfter: number }
   | { action: 'steer'; runId: string; budgetAfter: number }
   | { action: 'queue'; lane: Lane; budgetAfter: number }
-  | { action: 'ledger-only'; reason: 'budget-exhausted' | 'receipt' | 'control' }
+  | { action: 'ledger-only'; reason: 'budget-exhausted' | 'receipt' | 'control' | 'child-completion' }
   | { action: 'deduped' };
 
 /** 会话机（纯状态——无 IO；持久化经 ledger writer 由调用方接线） */
@@ -49,15 +51,10 @@ export class ConversationMachine {
   private busy = false;
   private currentRun: string | null = null;
   private readonly turnQueue: QueuedTurn[] = [];
-  private budget: number;
   private readonly handle: string;
 
-  constructor(
-    handle: string,
-    initialBudget = 3,
-  ) {
+  constructor(handle: string) {
     this.handle = handle;
-    this.budget = initialBudget;
   }
 
   state(): ConversationState {
@@ -66,7 +63,6 @@ export class ConversationMachine {
       busy: this.busy,
       currentRun: this.currentRun,
       queuedTurns: this.turnQueue.length,
-      budget: this.budget,
     };
   }
 
@@ -74,8 +70,11 @@ export class ConversationMachine {
    * 入站投递决策（决策点 = 门，M8.2 并发缝修复）：
    *   · receipt / grant / revoke / 控制面 → ledger-only（不进 inbox，A4）
    *   · budget = 0 → ledger-only（只落账不激活）
-   *   · user 直发 → run/steer/queue（预算重置满额）
+   *   · user 直发 → run/steer/queue（预算重置满额——调用方经
+   *     budgetAfterReceive 传入，见 service.receiveEnvelope）
    *   · busy → steer（next-step）或 queue（next-turn）；空闲 → run
+   * budget 恒取**信封携带值**（cr-710）：机器不自持计数器——内存态随壳
+   * 换代归零会让互答链每代重获满额（子 Agent 回信链无限续跑实锤）。
    * run 决策即占门（busy 同步置位——plan 与 runStarted 之间的 await
    * 窗口无并发缝；两封并发入站恒一 run 一 steer/queue）。
    */
@@ -84,6 +83,8 @@ export class ConversationMachine {
     sender: string;
     requestId: string;
     admitted: boolean;
+    /** 收信后的剩余自动唤醒预算（budgetAfterReceive 单源；user 已重置满额） */
+    budget: number;
     lane?: Lane;
     placement?: Placement;
     /** 会话键 + 预览（next-turn 入队时随行——队列快照/steer 数据面） */
@@ -95,14 +96,13 @@ export class ConversationMachine {
     if (input.kind !== 'message') {
       return { action: 'ledger-only', reason: input.kind === 'receipt' ? 'receipt' : 'control' };
     }
-    if (input.sender === 'user') this.budget = 3; // user 是预算之源——重置满额
-    if (this.budget <= 0) return { action: 'ledger-only', reason: 'budget-exhausted' };
+    if (input.budget <= 0) return { action: 'ledger-only', reason: 'budget-exhausted' };
     if (this.busy) {
       const lane = input.lane ?? 'next-step';
       if (lane === 'next-step') {
         const placement = input.placement ?? 'steer';
-        if (placement === 'steer') return { action: 'steer', runId: this.currentRun!, budgetAfter: this.budget };
-        return { action: 'queue', lane: 'next-turn', budgetAfter: this.budget };
+        if (placement === 'steer') return { action: 'steer', runId: this.currentRun!, budgetAfter: input.budget };
+        return { action: 'queue', lane: 'next-turn', budgetAfter: input.budget };
       }
       this.turnQueue.push({
         requestId: input.requestId,
@@ -112,11 +112,11 @@ export class ConversationMachine {
         ...(input.source !== undefined ? { source: input.source } : {}),
         queuedAt: Date.now(),
       });
-      return { action: 'queue', lane: 'next-turn', budgetAfter: this.budget };
+      return { action: 'queue', lane: 'next-turn', budgetAfter: input.budget };
     }
     this.busy = true; // 决策即占门（同步）；runId 由调用方随后 runStarted 补登
     this.currentRun = null;
-    return { action: 'run', budgetAfter: this.budget };
+    return { action: 'run', budgetAfter: input.budget };
   }
 
   /** run 开始（runId 补登——busy 已在 plan 决策点置位；直调方未过 plan
@@ -130,12 +130,12 @@ export class ConversationMachine {
   }
 
   /**
-   * run 收束：自动唤醒消耗预算（-1）；队列有货 → 下轮 run 信号。
-   * 返回 queued 项（消费下一 turn——conversationId 随行：单机多会话
-   * 队列的取信寻址键，cr-627）或 null（空闲）。
+   * run 收束：清门 + 队列有货 → 下轮 run 信号。预算不在此扣减（cr-710：
+   * 唤醒许可已随信封逐跳裁决——plan 的 budget 才是承重字段；此处再扣会
+   * 把同一封的许可扣两次）。返回 queued 项（消费下一 turn——conversationId
+   * 随行：单机多会话队列的取信寻址键，cr-627）或 null（空闲）。
    */
-  runSettled(consumedBudget: boolean): { requestId: string; conversationId?: string } | null {
-    if (consumedBudget) this.budget = Math.max(0, this.budget - 1);
+  runSettled(): { requestId: string; conversationId?: string } | null {
     this.busy = false;
     this.currentRun = null;
     const next = this.turnQueue.shift();

@@ -55,6 +55,8 @@ export interface UserProjectionRow {
   uuid: string;
   /** 产生该终稿的 run（run 键关联——agent 账本直读带出用） */
   run?: string;
+  /** run 墙钟耗时（毫秒，cr-772——终稿行 runMs 透传；历史链栏耗时锚） */
+  runMs?: number;
   /** 投递幂等键（同 requestId 重投不重写） */
   requestId?: string;
   /** 行时间戳（cr-698 派生行携带各自账本原时间戳——派生时刻 ≠ 发言时刻；
@@ -68,6 +70,13 @@ export interface UserReplayRow {
   agentId: string;
   content: string;
   run?: string;
+  /** run 墙钟耗时（毫秒，cr-772——终稿行 runMs 透传；历史链栏耗时锚） */
+  runMs?: number;
+  /** 行投递幂等键透传（cr-739：读面跨域关联——busy-steer 插队消息在 agent
+ *  域另有同键注入行，消费方据此去重） */
+  requestId?: string;
+  /** 行时间戳（cr-716：读面历史排序/分组的事实键——缺席曾致 user 行沉底乱序） */
+  timestamp: string;
 }
 
 /**
@@ -97,6 +106,7 @@ export class UserLedger {
       requestId: row.requestId,
       uuid: row.uuid,
       source: row.run !== undefined ? 'run:' + row.run : undefined,
+      ...(row.runMs !== undefined ? { runMs: row.runMs } : {}),
       ...(row.timestamp !== undefined ? { timestamp: row.timestamp } : {}),
     });
   }
@@ -120,6 +130,10 @@ export class UserLedger {
       agentId: r.agent_id,
       content: r.content,
       run: r.source?.startsWith('run:') ? r.source.slice(4) : undefined,
+      // run 墙钟耗时透传（cr-772）：历史链栏「用时」段持久锚
+      ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
+      ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
+      timestamp: r.timestamp,
     }));
   }
 }

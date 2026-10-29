@@ -3,7 +3,7 @@
 //
 // 引擎行为（策略/OCC/$batch/调试器…）由源仓库的 290 项测试锁定，
 // 这里只验证**宿主适配**：注册形状、ToolResult 归一、exec 垫片
-// （工作区锚点）、fs 缝（快照落盘）、凭据缝、软停用。
+// （工作区锚点）、fs 缝（快照落盘）、凭据缝、行 config 硬停。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync } from 'node:fs';
@@ -12,8 +12,6 @@ import { join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
-import * as configRow from 'ac-config';
-import * as agentsRow from 'ac-agents';
 import * as sapAdtRow from '../src/index.ts';
 import { SapAdtFs } from '../src/engine.ts';
 
@@ -30,21 +28,14 @@ async function exec(
   return (await ctx.tools.execute({ name, args, ...(agentId ? { agentId } : {}) } as never)) as ExecRes;
 }
 
-async function boot(options: Record<string, unknown> = {}, dataRoot?: string, withServices = false) {
+async function boot(options: Record<string, unknown> = {}, dataRoot?: string) {
   if (dataRoot) process.env.AGENTCHAT_DATA_ROOT = dataRoot;
   const ctx = new Context();
   const fibers: Fiber[] = [];
-  const rows: Array<[unknown, unknown]> = withServices
-    ? [
-        [configRow, undefined],
-        [agentsRow, undefined],
-        [toolsRow, undefined],
-        [sapAdtRow, { demo: true, demoPort: 0, ...options }],
-      ]
-    : [
-        [toolsRow, undefined],
-        [sapAdtRow, { demo: true, demoPort: 0, ...options }],
-      ];
+  const rows: Array<[unknown, unknown]> = [
+    [toolsRow, undefined],
+    [sapAdtRow, { demo: true, demoPort: 0, ...options }],
+  ];
   for (const [plugin, config] of rows as Array<[unknown, unknown]>) {
     const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
     await fiber;
@@ -83,43 +74,9 @@ describe('ac-sap-adt 行装配', () => {
     expect(adtNames.length).toBeGreaterThanOrEqual(32);
   });
 
-  it('enabled: false 软停用 —— 不注册任何工具', async () => {
+  it('enabled: false 硬停 —— 不注册任何工具', async () => {
     const { ctx } = await boot({ enabled: false });
     expect(ctx.tools.has('adt_search')).toBe(false);
-  });
-});
-
-describe('ac-sap-adt 启停分层（settings[\'sap-adt\'].enabled，settingsOf 合成，热生效）', () => {
-  it('全局默认层 enabled:false → adt_* 执行被 veto（含宿主直调），改回即热恢复', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-settings-'));
-    const { ctx } = await boot({}, root, true);
-    // 基线：可用
-    expect((await exec(ctx, 'adt_list_destinations')).ok).toBe(true);
-    // 全局默认层停用（插件库弹窗写的键）→ 宿主直调（无身份）veto
-    ctx.config.set('settings.sap-adt', { enabled: false });
-    const denied = await exec(ctx, 'adt_list_destinations');
-    expect(denied.ok).toBe(false);
-    expect(String(denied.error)).toContain('停用');
-    // 非 adt 工具不受影响
-    ctx.tools.register({ name: 'probe_x', async execute() { return { ok: true, output: 'x' }; } });
-    expect((await exec(ctx, 'probe_x')).ok).toBe(true);
-    // 改回 true → 立即恢复（config/changed 热生效，无需重载行）
-    ctx.config.set('settings.sap-adt', { enabled: true });
-    expect((await exec(ctx, 'adt_list_destinations')).ok).toBe(true);
-  });
-
-  it('Agent 差异层 enabled:true 覆盖全局 false；无差异层 Agent 沿用全局', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-settings-'));
-    const { ctx } = await boot({}, root, true);
-    ctx.agents.register({ id: 'abap_dev', settings: { 'sap-adt': { enabled: true } } } as never);
-    ctx.config.set('settings.sap-adt', { enabled: false });
-    // 差异层覆盖：abap_dev 可用
-    const dev = await exec(ctx, 'adt_list_destinations', {}, 'abap_dev');
-    expect(dev.ok).toBe(true);
-    // 无差异层 Agent：合成后仍停用
-    const other = await exec(ctx, 'adt_list_destinations', {}, 'someone_else');
-    expect(other.ok).toBe(false);
-    expect(String(other.error)).toContain('停用');
   });
 });
 
@@ -340,16 +297,6 @@ describe('ac-sap-adt 使用规约注入（loop/before-run，owner 行条件注�
     const { ctx } = await boot();
     expect(await systemAfter(ctx, {})).toContain('<sap-adt-tools>');
     expect(await systemAfter(ctx, { tools: ['read', 'write'] })).toBeUndefined();
-  });
-
-  it('停用方不注入（settings 合成 false，与暴露面收敛同口径）；改回热恢复', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ac-sap-adt-guide-'));
-    const { ctx } = await boot({}, root, true);
-    expect(await systemAfter(ctx, { tools: ['adt_search'] })).toContain('<sap-adt-tools>');
-    ctx.config.set('settings.sap-adt', { enabled: false });
-    expect(await systemAfter(ctx, { tools: ['adt_search'] })).toBeUndefined();
-    ctx.config.set('settings.sap-adt', { enabled: true });
-    expect(await systemAfter(ctx, { tools: ['adt_search'] })).toContain('<sap-adt-tools>');
   });
 
   it('硬停（enabled:false，目录无 adt_*）→ 缺省回落目录不含 adt → 不注入', async () => {

@@ -167,7 +167,7 @@ export const conversationClientPlugin = clientPlugin({
       key: 'conversation:dock-widget',
       kind: 'list',
       scope: 'session',
-      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；dock 序重排 2026-09-13：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办行动卡置顶；store 座位实例轴 scope=session）',
+      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；dock 序重排 2026-09-13：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办行动卡置顶；cr-744 增状态(5)置顶；store 座位实例轴 scope=session）',
       ownerProps: {
         // 刷新时机契约（slot-tree §… dock 候选注记）：贡献卡自理数据——
         // 会话切换 + tool/after-execute · loop/after-run 事件模式
@@ -219,6 +219,13 @@ export const conversationClientPlugin = clientPlugin({
       component: defineAsyncComponent(() => import('./QueueDockHost.vue')),
       order: 30,
       store: (handle) => createQueuedDockStore(handle.scopeKey, (ctx as ClientContext).rpc),
+    });
+    // 会话状态卡（cr-744）：发送→首输出静默空窗可视化——connecting/
+    // thinking/streaming 三态 + 错误收敛；order 5 置顶（先于决策卡 10）
+    ctx.slots.register('conversation:dock-widget', {
+      id: 'run-status',
+      component: defineAsyncComponent(() => import('./RunStatusDockHost.vue')),
+      order: 5,
     });
     ctx.slots.register('conversation:dock-widget', {
       id: 'interaction',

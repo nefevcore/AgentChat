@@ -1,6 +1,6 @@
 # 发布 CI 问题复盘（release-ci-postmortem）
 
-> 0.8.14 发版（23 轮 CI）的完整实操录见续篇：release-ci-postmortem-0814.md
+> 0.8.14 发版（23 轮 CI）的完整实操录见续篇：[archive/release-ci-postmortem-0814.md](archive/release-ci-postmortem-0814.md)（续篇已归档）。
 > （传输架构三段演变 + 全部翻车点速查表 + 固化工具清单）。
 
 > 2026-09-24 整理。统计口径：GitHub Actions 工作流 publish.yml（npm 发版）
@@ -148,8 +148,8 @@ git push http://127.0.0.1:34567/nefevcore/AgentChat.git -f vX.Y.Z
 
 ## 五、后续可做（未立项，仅记录）
 
-- **预检脚本化**：把 §4 清单做成 `pnpm release:preflight`，一条命令跑全档；
-- **CI 预演工作流**：push 到 main 即跑与 tag 同路径的构建（不含上传/发布），
+- **预检脚本化**：✅ 已实施（cr-702/705/706）——脚本 `scripts/release-preflight.mjs` 以 `pnpm release:preflight` 驱动，含 `--clean` / `--wsl` 两档；cr-705/706 补 `--clean` 扫描根修正与 bundle 全链 e2e 第 7 步；
+- **CI 预演工作流**：push 到 main 即跑与 tag 同路径的构建（不含上传/发布；⏸ 仍待办，与 `docs/design/cr-703-followups.md` 1.3 同项），
   让「CI 才能暴露的问题」在合并前暴露；
 - **tag 重打状态对齐**：desktop.yml 的 manifest job 已有 sha256 闸，可再加
   「同 tag 重跑时先清服务器旧目录」防新旧产物混排。

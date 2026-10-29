@@ -1,5 +1,7 @@
 # 交接：cutover 终态收尾（2026-10-25，cr-680…689 会话）
 
+> **本文为 cutover 收敛期交接（历史）**：路径口径为当时布局（文中 `preview/`、`src/` 路径已随 cr-703 单轨重组消灭）；现行事实源 = 根 `README.md` + `docs/design/`。只读历史，不再更新。
+
 > 下一个会话的入口。**先加载 agentchat-dev 技能**，再读 preview/docs/plan.md §5 尾部（cr-680…689 行）与本文。
 > 上一代交接：handoff-2026-10-23.md（切换后收敛期）+ handoff-2026-10-24-restart.md（restart 双件）+ handoff-2026-10-24-workspace-files.md——均已被本文取代，细节仍可查。
 

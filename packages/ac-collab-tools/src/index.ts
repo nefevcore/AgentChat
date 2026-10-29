@@ -34,7 +34,7 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { sessionCapsOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
-import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
+import { pairKey, GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 对桶键（cr-318 下沉）+ 群聊行为契约正典（M26——cr-712 复活）
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 
 /** update_agent_profile 允许修改的字段（白名单；其余拒绝） */
@@ -121,6 +121,41 @@ export function apply(ctx: Context) {
     return next();
   }, { description: '注入 @ 名称引用约定（Agent 有 list_agents+send_agent 时）' });
 
+  // ---- 群聊行为契约注入（M26 主线验证有效——cr-712 壳侧接通） ----
+  // 群会话 run（成员流键 gid~member / 本体键 gid）+ send_group 在场时
+  // 注入决策点：成员被群消息唤起后，回复走 send_group 主动发言——直接
+  // 输出文本不送达群聊（方案 A 下这是字面事实）；回声由契约调控（沉默/
+  // 不刷屏——broadcast 标记只切断 R-2 自动回投，不禁成员主动发言）。
+  ctx.on('loop/before-run', (call, next) => {
+    const cid = call.request.conversationId;
+    const agent = call.request.agent;
+    if (cid === undefined || agent === undefined || !cid.includes('~')) return next();
+    const gid = cid.slice(0, cid.indexOf('~'));
+    const group = ctx.get('group', false) as
+      | { get(id: string): { id: string; name: string } | undefined }
+      | undefined;
+    // 判定键 = 群成员流键（gid~自己）或群本体键（gid）；群行未装 = 恒非群会话
+    if (group === undefined || (cid !== gid && cid !== gid + '~' + agent)
+      || group.get(gid) === undefined) {
+      return next();
+    }
+    const names = new Set(widenToolsForGating(ctx, agent, cid, call.request.tools));
+    if (!names.has('send_group')) return next();
+    const info = group.get(gid)!;
+    // per-Agent 覆盖（A/B 文案实验——主线 contractFor 同语义）：
+    // settings['group'].contractText 非空覆盖正典，空/缺省回落
+    const s = ctx.agents.settingsOf(agent, 'group') as { contractText?: unknown };
+    const override = typeof s.contractText === 'string' && s.contractText.trim() !== ''
+      ? s.contractText
+      : GROUP_CONTRACT_TEXT;
+    const block = `[群聊 ${gid}「${info.name}」]\n${override}`;
+    call.request = {
+      ...call.request,
+      system: call.request.system ? `${call.request.system}\n${block}` : block,
+    };
+    return next();
+  }, { description: '注入群聊行为契约（群会话 run 且 send_group 在场——回复走 send_group，沉默不刷屏）' });
+
   // ---- send_agent：投递消息给另一 Agent（经会话状态机） ----
   // collab 标签（2026-09-16 全量标签化）：多 Agent 协作族门禁
   ctx.tools.register({
@@ -193,7 +228,7 @@ export function apply(ctx: Context) {
                   to,
                   subagent: true,
                   delivered: r.delivered,
-                  message: hints[r.delivered],
+                  message: hints[r.delivered] ?? '已投递给该子 Agent（忙时由其会话机注入或排队），完成回执会回到本会话。',
                 },
               };
             } catch (e: unknown) {
@@ -252,6 +287,10 @@ export function apply(ctx: Context) {
           conversationId: convKey,
           ...(history && history.length > 0 ? { history } : {}),
           ...(args.wait === true ? { placement: 'next-run' } : {}),
+          // 完成回执的发起会话键（cr-712）：跨壳投递时随信封携带——对端
+          // 终稿回信据此转投发起会话（cr-711 同语义），不唤醒对桶互答。
+          // 壳内自投（to=self）不携带：发起会话 = 对桶本身。
+          ...(to !== fromForPair && call.conversationId ? { replyConversation: call.conversationId } : {}),
         });
 
         if (args.wait === true) {

@@ -1,12 +1,13 @@
 # 宿主树 × 壳树 · 行集清单 v3（设计规格）
 
-> 性质：设计规格（preview 开工输入），只陈述终态。定向论据 / 判例 / 推演 /
+> 性质：行集设计规格（行集单源；现行装配口径），只陈述终态。定向论据 / 判例 / 推演 /
 > 演进史住裁决簿：host-shell-decisions.md——正文不重复「为什么」。2026-10-15
 > v3（设计 / 裁决分离重写，v2 废弃）。依据：per-agent-instance-architecture.md
-> （R-1…R-12、D1–D10）+ shell-model-unification.md（S0–S5、M1–M6）。现状
-> 事实源：src/cordis.yml（活跃 100 行）与 ac-app TREE（两表锁定一致）。行集
-> 口径：基座行两树各计；拆分件按「面」计。重构期不保持旧行集兼容——行集
-> 按新架构自由重排。
+> （R-1…R-12）+ shell-model-unification.md（S0–S5、M1–M6）。**现状事实源
+> （2026-10-27 cr-726 校正）：`apps/catalog/row-catalog.json`（61 行 = 宿主 23 + 壳 38）
+> + `packages/ac-rowset-core` 派生（deriveHostRowset / deriveShellRowset）**——
+> 原「src/cordis.yml + ac-app TREE」双事实源已随 cr-696/cr-703 退役。行集
+> 口径：基座行两树各计；拆分件按「面」计。
 
 # R0. 分类判据
 
@@ -43,35 +44,36 @@
 | 基座 | logger-console / timer / config | cordis-logger / cordis-timer / ac-config | 日志、fiber 定时（timers 依赖）、配置 | 沿用 |
 | 新增 | post-office | ac-post-office | **邮局**：投递路由 + uuid 登记校验 + 群播扇出（吸收 group 拓扑的执行面）+ 发件箱滞留中继 | **新增**（ac-router 投递面 + ac-group 扇出面承接） |
 | 新增 | guardian | ac-guardian | **监护**：按需拉起（三节拍，verify = 指纹对拍）/ 心跳监视 / idle-exit 收割 / 崩溃退避熔断 / 宿主重启入口 | **新增**（吸收 restart） |
-| 新增 | auth-registry | ac-auth-registry | **授权注册表写者**：全局 + per-agent 两层、children 投影构造、凭据授予 / 轮换、授权目录数据；**preview 侧落地（cr-545，2026-10-19）= ac-host-rows/auth-registry-row.ts（grant 信受理协议 E + 凭据写面 + F2 分立 auth/* 编辑面六方法；写者面纯库 = ac-auth-core write.ts + mcp.ts；HostInbox 收信扇出组合器与 usage 行共存）** | **新增**（ac-security 裁决面 + credentials 写者面 + workspace 授权数据重组） |
-| 编辑面 | agents | ac-agents | 身份编辑面：config / entries / 文档唯一写口 + 模板目录（吸收 agent-store 写引擎 + agents-dir 布局 + agent-presets 目录）；活注册表解体——配置轴 = 文件文集、在场轴 = guardian 可达表；**preview 侧落地（cr-540，2026-10-19）= ac-host-rows/agents-row.ts（AgentsEditService：config/entries/文档/头像唯一写口 + 模板创建 skip-if-present + transient 合成）** | 改造 |
-| 编辑面 | preset-builtin | ac-agent-presets-builtin | 内置模板数据行（包目录静态 Agent 配置文件集）；**preview 侧落地（cr-540）= ac-host-rows/templates/ 静态配置集 + preset-builtin.ts 读面（行缺席 = 模板面良定义降级）** | 改造——裁决簿〈注册表解体〉 |
-| 编辑面 | agent-admin | ac-agent-admin | webui 写侧 RPC 编排（agent CRUD → agents 编辑面）；**preview 侧落地（cr-542，2026-10-19）= ac-host-rows/agent-admin-row.ts（六方法 agents/get-config·create·update-config·delete·save-doc·read-doc——写面词汇住 ac-agents-core/write.ts；cr-552 收口装配面三方法：agents/system-prompt 装配预览〔装配链住壳进程——经编排面控制帧往返壳内三档链干跑，boot control preview 帧〕+ agents/assembly 视图〔壳内工具目录投影 + 宿主 plugins/settings 合成〕+ agents/assembly/update 写口〔applyAssemblyPatch 纯函数住 ac-agents-core/write.ts，宿主本地落盘〕；编排面缺席 = 预览读面 fail-loud、六 CRUD 照常〔良定义降级〕）** | 沿用 |
-| 数据服务 | timers | ac-timer | 定时唤醒（唤醒 = 投递信） | 沿用 |
+| 新增 | auth-registry | ac-host-rows + ac-auth-core + ac-credentials-core + ac-envelope-core | **授权注册表写者**：全局 + per-agent 两层、children 投影构造、凭据授予 / 轮换、授权目录数据；**preview 侧落地（cr-545，2026-10-19）= ac-host-rows/auth-registry-row.ts（grant 信受理协议 E + 凭据写面 + F2 分立 auth/* 编辑面六方法；写者面纯库 = ac-auth-core write.ts + mcp.ts；HostInbox 收信扇出组合器与 usage 行共存）** | **新增**（ac-security 裁决面 + credentials 写者面 + workspace 授权数据重组） |
+| 编辑面 | agents | ac-agents | 身份编辑面：config / entries / 文档唯一写口 + 模板目录（吸收 agent-store 写引擎 + agents-dir 布局 + agent-presets 目录）；活注册表解体——配置轴 = 文件文集、在场轴 = guardian 可达表；**preview 侧落地（cr-540，2026-10-19）= ac-host-rows/agents-row.ts（AgentsEditService：config/entries/文档/头像唯一写口 + 模板创建 + transient 合成）；cr-721（2026-10-27）裁决物化改「模板基座 + 盘上差异两层合成」，取代一次性 skip-if-present（落地状态待核，见裁决簿 cr-721 修订）** | 改造 |
+| 编辑面 | preset-builtin | ac-host-rows（templates/ + preset-builtin.ts 读面） | 内置模板数据行（包目录静态 Agent 配置文件集）；**preview 侧落地（cr-540）= ac-host-rows/templates/ 静态配置集 + preset-builtin.ts 读面（行缺席 = 模板面良定义降级）** | 改造——裁决簿〈注册表解体〉 |
+| 编辑面 | agent-admin | ac-host-rows（agent-admin-row.ts）+ ac-agents-core/write.ts | webui 写侧 RPC 编排（agent CRUD → agents 编辑面）；**preview 侧落地（cr-542，2026-10-19）= ac-host-rows/agent-admin-row.ts（六方法 agents/get-config·create·update-config·delete·save-doc·read-doc——写面词汇住 ac-agents-core/write.ts；cr-552 收口装配面三方法：agents/system-prompt 装配预览〔装配链住壳进程——经编排面控制帧往返壳内三档链干跑，boot control preview 帧〕+ agents/assembly 视图〔壳内工具目录投影 + 宿主 plugins/settings 合成〕+ agents/assembly/update 写口〔applyAssemblyPatch 纯函数住 ac-agents-core/write.ts，宿主本地落盘〕；编排面缺席 = 预览读面 fail-loud、六 CRUD 照常〔良定义降级〕）** | 沿用 |
+| 数据服务 | timers | ac-host-rows + ac-timer-core | 定时唤醒（唤醒 = 投递信） | 沿用 |
 | 数据服务 | usage | ac-usage | 计费聚合（对账 ledger 自报事件信；另收 job 观测快照镜像） | 改造 |
 | 数据服务 | ~~archive~~ | — | **已改树（cr-546，2026-10-19，裁决 D11「全壳内」）**：归档编排（阈值检测/整理 run/归档重建）全链住壳——整理 run = LLM 编排只能住壳（R0a 判据 1，与 session-query 同判据）、归档重建 = 写归属 agent 账本（D4 写权 = 账本所有权）；宿主零 archive 职责，timer 的 archive-all 机制任务改批量唤醒信（宿主只发信——A13/D11）。已移入 R2 域服务（宿主 46→45 / 壳 35→36，总数 81 恒等） | 改树（D11） |
-| 数据服务 | singles | ac-singles（preview 形态 = ac-host-rows/singles-row.ts + ac-ledger 管理面） | **独立会话元数据写面**（cr-566）：owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全）；**cr-672 标题面**：生成归壳（auto-title 行）、写权归本行——标题请求信经 HostInbox 受理，write-if-absent 落盘（用户手改 / fork 继承不覆盖）；派生标题改「用户自己的首条发言」优先（旧实现取首条非空内容行：对端台词 / 定时触发词 / DSML 残片都会变标题），CRLF 剥尾、日期快照行跳过、材料行筛选（附件路径 / @ 引用 / URL 行不是发言）、上限与
+| 数据服务 | singles | ac-host-rows（singles-row.ts）+ ac-ledger | **独立会话元数据写面**（cr-566）：owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全）；**cr-672 标题面**：生成归壳（auto-title 行）、写权归本行——标题请求信经 HostInbox 受理，write-if-absent 落盘（用户手改 / fork 继承不覆盖）；派生标题改「用户自己的首条发言」优先（旧实现取首条非空内容行：对端台词 / 定时触发词 / DSML 残片都会变标题），CRLF 剥尾、日期快照行跳过、材料行筛选（附件路径 / @ 引用 / URL 行不是发言）、上限与
 生成面同源（24 字） |
 | 数据服务 | conv-settings | ac-conv-settings | **会话级覆盖写面**（模型 / 工具档 / 实验键）：写者单源 = 宿主 web RPC（输入框模型菜单、设置面板），壳经数据根垫片只读直取（cr-565，2026-10-22）。模型覆盖经 deliver 合并点随信封投递（显式入参 > 存盘覆盖），壳内 run 装配按信封 model 取 provider/model | 改树（cr-565——写权 = 用户动作面住宿主；读面壳垫片） |
-| 数据服务 | group | ac-group（preview 形态 = ac-host-rows/groups-row.ts + ac-post-office 扇出） | **群存储写面**（cr-576，2026-10-22）：owns `groups/<gid>/group.json`（GroupConfig 成员表 + 名称/简介）；`group/list|create|delete|join|leave|rename|set-description|send|history` 九方法 + 六变更帧广播（group/created 等 → 前端列表刷新）+ group/message-posted；send = **信封扇出**（除发送者外每成员一封，uuid = 成员流键 `gid~<member>`——主线 memberStreamKey 同形；不可达走发件箱 + ensureHook 拉壳转投）；history = 全成员流合并读面（跨流同 requestId 去重 + 成员终稿各留各）；多发送方 uuid 登记 = 群行按全名册（members ∪ user）预登记每条成员流 + registry 子集一致校验（cr-576——conflict 只拦名册外端点） | **新增**（cr-576——group 域 RPC 收口） |
+| 数据服务 | group | ac-host-rows（groups-row.ts）+ ac-post-office | **群存储写面**（cr-576，2026-10-22）：owns `groups/<gid>/group.json`（GroupConfig 成员表 + 名称/简介）；`group/list|create|delete|join|leave|rename|set-description|send|history` 九方法 + 六变更帧广播（group/created 等 → 前端列表刷新）+ group/message-posted；send = **信封扇出**（除发送者外每成员一封，uuid = 成员流键 `gid~<member>`——主线 memberStreamKey 同形；不可达走发件箱 + ensureHook 拉壳转投）；history = 全成员流合并读面（跨流同 requestId 去重 + 成员终稿各留各）；多发送方 uuid 登记 = 群行按全名册（members ∪ user）预登记每条成员流 + registry 子集一致校验（cr-576——conflict 只拦名册外端点） | **新增**（cr-576——group 域 RPC 收口） |
 | 数据服务 | backup | ac-backup | 数据轴备份 + 快照链 GFS（分轴共行） | 改造（吸收 snapshot-chain） |
 | 数据服务 | ~~session-query~~ | — | **已改树（cr-544，2026-10-19）**：会话查询是**工具行**（grep_history / read_history），按 R0a 判据 1 工具执行只能住壳——已移入 R2 工具面（宿主 47→46 / 壳 34→35，总数 81 不变） | 改树 |
-| 传输/web | web-server / ws-bridge / webui / web-api | ac-web-* | 传输基座 + 桥接 + web 表面 + RPC 编排；**webui = 单包表面**（src/ 服务半边 + client/ 前端半边含骨架资产——裁决簿〈骨架归并〉）；会话历史读 = 文件直读，流式 token = 宿主转发（〈webui 读投影〉） | 沿用 |
-| 插件治理 | plugin-registry | ac-plugin-registry | 装载裁决 + 熔断闸门 + 动态插件行集条目注入（install = 授权动作 → 壳行集，第三方代码零宿主驻留）+ 宿主行集偏好急救 RPC（写偏好文件，恒冷生效——〈patch 机制退役〉）+ client 半边 manifest 注入（〈插件 client 通道〉）；**preview 侧落地（cr-543，2026-10-19）= ac-host-rows/plugin-registry-row.ts（PluginRegistryHostService：staging 人审复用 ac-plugin-core 纯库 → 批准物化 `<dataRoot>/plugin-rows.json` 插件行集条目 → 壳 boot 合并派生化 → 壳内动态装载；熔断 fail-closed 剔除行集条目 + `rows/*` 急救 RPC 恒冷生效 + `plugin/updated` 变更帧；本行不 import 任何插件代码）** | 改造（吸收 patch-rpc + plugin-gates；patch 热通道与 patch-rpc 形态退役） |
+| 传输/web | web-server / ws-bridge / webui / web-api | ac-host-webui（web-api/web-server/ws-bridge 面）+ webui 行 path = apps/ui + ac-client-ui-{layout,renderer,theme} | 传输基座 + 桥接 + web 表面 + RPC 编排；**webui 行 = `apps/ui` 应用 + 三骨架包**（服务半边导出 `apps/ui/src/webui-row.ts`；裁决簿〈骨架归并〉的「单包表面」已被 cr-702/703 改写，`packages/ac-webui` 仍在但仅测试深路径消费）；会话历史读 = 文件直读，流式 token = 宿主转发（〈webui 读投影〉） | 沿用 |
+| 插件治理 | plugin-registry | ac-host-rows（plugin-registry-row.ts）+ ac-plugin-core | 装载裁决 + 熔断闸门 + 动态插件行集条目注入（install = 授权动作 → 壳行集，第三方代码零宿主驻留）+ 宿主行集偏好急救 RPC（写偏好文件，恒冷生效——〈patch 机制退役〉）+ client 半边 manifest 注入（〈插件 client 通道〉）；**preview 侧落地（cr-543，2026-10-19）= ac-host-rows/plugin-registry-row.ts（PluginRegistryHostService：staging 人审复用 ac-plugin-core 纯库 → 批准物化 `<dataRoot>/plugin-rows.json` 插件行集条目 → 壳 boot 合并派生化 → 壳内动态装载；熔断 fail-closed 剔除行集条目 + `rows/*` 急救 RPC 恒冷生效 + `plugin/updated` 变更帧；本行不 import 任何插件代码）** | 改造（吸收 patch-rpc + plugin-gates；patch 热通道与 patch-rpc 形态退役） |
 | 插件治理 | plugin-market / event-policy | ac-plugin-market / ac-event-policy | 市场 + 事件策略（全局治理门）；**plugin-market preview 侧落地（cr-543）= 零改动导入（inject ['webServer','pluginRegistry']——市场安装流= staging 人审入口，装载裁决归 plugin-registry 行）** | 沿用 |
 | 远程 | remote-link | ac-remote-link | 远程链路 | 沿用 |
-| ui | ~~ui 域行 ×25~~（cr-701 B4 撤除） | ac-client-ui-* | 域卡片行曾以 catalog 声明行 + boot graph 双面存在；cr-696 通道包物理迁 preview 后声明面成旧装配口径残留，cr-701 撤除（装载面恒在 webui 行 boot graph——preview/apps/ui/channel/ 25 通道包 + channelImports 深路径外部化不变，生成器 --check 对账不变）；**通道包↔域卡片对账改为通道包词表快照（channels-domain.test）** | 已撤（cr-701） |
+| ui | ~~ui 域行 ×25~~（cr-701 B4 撤除） | ac-client-ui-* | 域卡片行曾以 catalog 声明行 + boot graph 双面存在；cr-696 通道包物理迁 preview 后声明面成旧装配口径残留，cr-701 撤除（装载面恒在 webui 行 boot graph——apps/ui/channel/ 25 通道包 + channelImports 深路径外部化不变，生成器 --check 对账不变）；**通道包↔域卡片对账改为通道包词表快照（channels-domain.test）** | 已撤（cr-701） |
 
 # R2. 壳树（38 行 = 基座 2 + 账本会话 3 + 模型编排 3 + 装配链 3 + 任务追踪 2 + 工具面 16 + 域服务 8 + 评测 1）
 
 > cr-520（2026-10-18）勘误：dev-tools 行剔除（宿主开发工具——热重载/日志导出属
-> 宿主运维面，R0a 判据 6 归宿主；壳行集无对应消费面）。工具面 16→15。
+> 宿主运维面，R0a 判据 6 归宿主；壳行集无对应消费面）。工具面 16→15；
+> cr-544（2026-10-19）session-query 改树入壳 +1 → 16（现行）。
 
 | 组 | 行 | 包 | 角色 | 来源 |
 |---|---|---|---|---|
 | 基座 | logger-console / config | cordis-logger / ac-config | 日志、配置（timer 基座不进壳树——裁决簿〈timer 归属〉） | 沿用 |
 | 账本会话 | ledger | ac-ledger | **账本**：messages.jsonl + journal + inbox 消费 + settlement + usage 自报（journal 计量 + 事件信） | **新增**（ac-session 机制改 per-agent 账本语义；吸收 usage-report） |
-| 账本会话 | conversation | ac-conversation | 会话状态机：串行化门 + inbox 双队列（next-step / next-turn）+ 防自激 budget（信封携带）+ user 端点桩（激活仪式化，R-2）+ 信封面 → ctx.agentLoop 全量真身驱动（M8.2/cr-523：preview 侧 ac-shell-conversation 服务面落地；主线 router 的请求装配半边吸收进壳内；M8.4/cr-525：终稿回复恒投回 sender〔R-2 一次普通 send〕——user 终稿经邮局 local 通道回链 user 账本） | 改造 |
+| 账本会话 | conversation | ac-shell-conversation（`ac-conversation` 仅存契约/类型面） | 会话状态机：串行化门 + inbox 双队列（next-step / next-turn）+ 防自激 budget（信封携带）+ user 端点桩（激活仪式化，R-2）+ 信封面 → ctx.agentLoop 全量真身驱动（M8.2/cr-523：preview 侧 ac-shell-conversation 服务面落地；主线 router 的请求装配半边吸收进壳内；M8.4/cr-525：终稿回复恒投回 sender〔R-2 一次普通 send〕——user 终稿经邮局 local 通道回链 user 账本） | 改造 |
 | 账本会话 | tools | ac-tools | 工具注册基座 + **授权门**（ac-auth-core 投影，每 run 前重读；M8.6/cr-527 preview 侧落地：gate.ts 伴生件——loop/before-run 投影缓存失效 + tool/before-execute MCP 服务器资产硬闸 fail-closed；「装了即可见」= 第一方行工具无第二闸〔声明面 = 行集引用，A7〕；children 物化快照域直读） | 改造（吸收 security-exec） |
 | 模型编排 | llm / llm-pool / agent-loop | ac-llm 族 / ac-agent-loop | 模型会话 + 连接池（凭据直读数据根，R-11 ③）+ ReAct 编排 | 沿用 |
 | 装配链 | persona / system-prompt / memory | ac-persona 等 | 装配链（persona 身份数据只读；memory 经验数据本壳写） | 沿用 |
@@ -79,8 +81,8 @@
 | 工具面 | 16 行 | fs-tools（含 file-snapshots 服务并入——cr-520 装配伴生）/ fs-search / str-replace-editor / shell-tools / run-code / math / web-tools / browser（web 同包双行）/ issue-tools / harness-tools / sap-adt / datetime / skill / collab-tools / mcp / **session-query**（cr-544 改树入壳：只搜自己——本 agent 账本只读回放，D10 收口；preview 侧 ac-shell-rows/session-query.ts） | agent 工具面（MCP 照 R-12；issue / harness 令牌链直读 credentials 纯库；sap-adt 吸收 preset 子行；tag 门禁词全链退役——装载 = 行集引用，行内档位 = 行自身词汇，裁决簿〈tag 机制解体〉） | 沿用 |
 | 域服务 | ~~conv-settings~~ | — | **已改树（cr-565，2026-10-22）**：会话覆盖的写权 = 用户动作面（输入框模型菜单 / 设置面板）→ 行移宿主数据服务组；壳侧改由数据根垫片（shims.ts 的 ConvSettingsShim）提供只读 get / registerKey / listKeys——harness-tools 的 harnessTier 注册面照旧，壳不写盘（宿主 45→46 / 壳 37→36，总数 82 恒等） | 改树（cr-565） |
 | 域服务 | archive | ac-archive-core + 壳内编排 | **归档编排**（D11 全壳内，cr-544 前住宿主数据服务组——cr-546 改树）：阈值检测（loop/after-run 订阅 + estimateReplayTokens 回放口径）→ 整理 run（conversation.reviewRun 机制投递面——不落账不进上下文、meta[archive-review] 三不语义、maxSteps 硬闸）→ 归档重建（splitForArchive 分割 + ledger.compactFor——分段 archive/history_N.jsonl + 尾锚 sidecar + B1 窗口基线 + summary.md 概要滚动〔Agent 亲写优先 / 回退回复文本〕）；archive-all = 唤醒信（payload.mechTask 键）触发壳内 archiveAll（枚举本域 sessions/ 逐桶判定）；preview 侧落地 = ac-shell-rows/archive.ts（ArchiveShellService；算法复用主线 ac-archive-core 纯库零改动） | 改树（D11——cr-546） |
-| 域服务 | subagent | ac-subagent | 子 Agent（R-5：children 嵌套物化 + spawn ⊆ 授权投影；M8.3/cr-524：preview 侧 ac-shell-subagent 落地——真子壳进程 + 信封投递多轮 + subagent 工具面，主线行 cutover 退役回收名） | 改造 |
-| 域服务 | plugin-dev | ac-plugin-registry（工具面）+ ac-plugin-core（纯库） | **插件开发三件套**（cr-553，8.9 前置余件②收口——cr-540 遗留②）：register_plugin / install_plugin / unregister_plugin 三工具住壳（R0a 判据 1 工具只能由壳内 agent-loop 执行；主线 ac-plugin-registry 行拆两半——工具面归本行，安装态写者归宿主 plugin-registry 行）。形态：register = 会话级装载壳内自持（ctx.plugin dynamic import——cr-543 assemblePluginRow 同款，重启即失零宿主参与）；install/uninstall 永久档 = M11 语义化中断上报意图 → loop/after-run 收束检测 → plugin-request 信封（envelope-core 新 schema）→ 宿主 HostInbox 受理（免审安装 = stage+approve 主线 installFromDir 文件域语义 + 幂等对账；卸载 = uninstall）→ 回执信（receipt 落原会话）+ 续跑信（message 驱动下一轮——主线 receiptAndRetrigger 同义）；本壳内 install 后立即会话级装载（装好即可测试主线产品语义保住）。preview 侧落地 = ac-shell-rows/plugin-dev.ts + ac-host-rows/plugin-registry-row.ts 受理面；壳 36→37（总数 81→82——全新行） | **新增** |
+| 域服务 | subagent | ac-shell-subagent | 子 Agent（R-5：children 嵌套物化 + spawn ⊆ 授权投影；M8.3/cr-524：preview 侧 ac-shell-subagent 落地——真子壳进程 + 信封投递多轮 + subagent 工具面，主线行 cutover 退役回收名；cr-762：单代派生——子壳行集恒剔 subagent 行 + spawn 投影拒显式点名，防子孙无限增长） | 改造 |
+| 域服务 | plugin-dev | ac-shell-rows（plugin-dev.ts）+ ac-plugin-core | **插件开发三件套**（cr-553，8.9 前置余件②收口——cr-540 遗留②）：register_plugin / install_plugin / unregister_plugin 三工具住壳（R0a 判据 1 工具只能由壳内 agent-loop 执行；主线 ac-plugin-registry 行拆两半——工具面归本行，安装态写者归宿主 plugin-registry 行）。形态：register = 会话级装载壳内自持（ctx.plugin dynamic import——cr-543 assemblePluginRow 同款，重启即失零宿主参与）；install/uninstall 永久档 = M11 语义化中断上报意图 → loop/after-run 收束检测 → plugin-request 信封（envelope-core 新 schema）→ 宿主 HostInbox 受理（免审安装 = stage+approve 主线 installFromDir 文件域语义 + 幂等对账；卸载 = uninstall）→ 回执信（receipt 落原会话）+ 续跑信（message 驱动下一轮——主线 receiptAndRetrigger 同义）；本壳内 install 后立即会话级装载（装好即可测试主线产品语义保住）。preview 侧落地 = ac-shell-rows/plugin-dev.ts + ac-host-rows/plugin-registry-row.ts 受理面；壳 36→37（总数 81→82——全新行） | **新增** |
 | 域服务 | durable-interaction / ask-questions | ac-durable-* | 交互承重（数据化 boot；审批 = user 端点消息） | 改造 |
 | 域服务 | jobs | ac-jobs | 后台任务基座（worker = 壳子进程；完成 = 进程内事件直投 inbox；跨壳走邮局信；观测自报快照信——裁决簿〈jobs 归属〉） | 沿用（吸收 job-wakeup） |
 | 域服务 | restart | ac-shell-rows | **安全重启双件**（cr-629，2026-10-24 补记）：restart_shell（cr-658 自然收束语义——只挂标记不中断 run，收束后 exit 42，宿主重拉 + 新壳注入「已重启」开续跑轮）/ restart_host（信封请求宿主 graceful 重启，保壳保 run）；bundle = creator（创造预设专属） | **新增**（吸收 restart 域工具面；宿主进程生命周期仍归 guardian 行） |
@@ -100,12 +102,10 @@
 | ac-rowset-core | 行集推导器：AgentConfig（tools 点名 + 行引用——tag 展开退役，行集谓词：点名工具 ∨ 引用行名；fs / infra 类捆绑词在派生内消解）× 全局行集目录（cordis.yml 降格为全集目录）→ 壳行集派生清单；+ 行目录静态投影（per-agent 化——目录只出现该 agent 行集内的词，编辑面与壳存活期解耦；承〈tag 目录静态化〉改投影对象）；AgentConfig 入指纹输入 | 宿主 boot 现算（argv 传清单引用）+ CLI 本地派生；tags/catalog RPC 数据源；TagDeclaration 类型随迁 |
 | ac-credentials（降格） | 行降格为注入纯库（R-11 ③ 物理单副本两侧共用） | 两侧共用（写者面 = auth-registry） |
 
-> preview 开发期包名裁决（cr-491，2026-10-17）：主线 src/ac-credentials（插件行）占名且 R-10 要求
-> cutover 前原样保留，而 pnpm workspace 不允许重名——preview 轨纯库以避让名 **ac-credentials-core**
-> 建（与五纯库 -core 后缀族同构），cutover 时随主线旧行退役回收 ac-credentials 名。R-11 ③ 实质
-> 裁决（纯库两侧共用 + 数据根物理单副本）不变。
-> 同族裁决（cr-504，2026-10-17）：壳树 conversation 改造行同理撞名（主线 src/ac-conversation 占
-> 名）——preview 以避让名 **ac-shell-conversation** 建，cutover 随主线退役回收名。
+> 包名避让裁决（cr-491 / cr-504，2026-10-17）**结果**：避让名已固化——cutover 后未做回收，
+> 现行包名即 **ac-credentials-core** / **ac-shell-conversation**（cr-726 校正：原「cutover 时回收名」
+> 未发生，勿按 ac-credentials / ac-conversation 检索活包）。R-11 ③ 实质裁决（纯库两侧共用 +
+> 数据根物理单副本）不变。
 
 ## R3.2 壳 boot 编排骨架（编排代码，非行序）
 
@@ -135,7 +135,7 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 | patch-rpc / plugin-gates / sap-adt-preset | 本体包内 | 包内文件 / 小包 / 子行。patch 机制终态补钉（cr-485）：patch-rpc 形态与热通道整体退役，急救能力转宿主行集偏好 RPC（写偏好文件）——裁决簿〈patch 机制退役〉 |
 | restart | guardian 行内 | 宿主进程生命周期 = 监护职责 |
 | job-wakeup | 壳 jobs 行内（三投递策略随迁） | 唤醒面随 worker 父级走——裁决簿〈jobs 归属〉 |
-| group | 解散：扇出 → 邮局；拓扑 → 数据根；编辑 → webui 卡片 | 群 = multicast 地址表（数据不配行） |
+| ~~group~~ | ~~解散：扇出 → 邮局；拓扑 → 数据根；编辑 → webui 卡片~~ ——**已推翻（cr-576）**：group 立宿主数据服务行（`groups/<gid>/group.json` 单写者 + 九 RPC）；扇出仍归邮局执行面 | 群 = multicast 地址表（数据不配行） |
 | workspace | 解散七面（ui-tree.md §7）：①引导→boot 编排；②沙箱推导→ac-sandbox-core 纯库；③⑤⑥文件/本机交互/类型→ac-files 模块（后端半=宿主行+client 半=ui 树）；④登记→auth-registry（能力语境目录）；⑦能力语境发现→壳行运行时读面 | 行资格三问皆否；工作区=第三输入源（ui-tree.md §6） |
 | tag-registry | 解散：catalog → ac-rowset-core 静态投影；启动断言 → boot 编排；类型随迁。终态补钉：tag 词汇本身全链退役（requiredTags / AgentConfig.tags / AssetRef.tag），行目录投影替代 tag 目录投影——裁决簿〈tag 机制解体〉 | 现算依赖宿主在场——裁决簿〈tag 目录静态化〉+〈tag 机制解体〉 |
 | ac-agents 注册表瓣 | 活注册表退役；物化拆 create-from-template + transient boot；reassign 被 R7-8 裁向覆盖 | 两轴分离——裁决簿〈注册表解体〉 |
@@ -145,27 +145,34 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 
 | 现行 | 壳侧面 | 宿主侧面 |
 |---|---|---|
-| ac-router | （无——壳 inbox 直收） | 邮局行 |
-| ac-session | ledger 行（写者） | webui 只读投影（文件直读，无驻留行） |
-| ac-conversation | 会话状态机 | （无——串行化在 activation 内） |
-| ac-security | tools 门 + ac-auth-core | auth-registry |
+| ac-post-office | （无——壳 inbox 直收） | 邮局行 |
+| ac-ledger | ledger 行（写者） | webui 只读投影（文件直读，无驻留行） |
+| ac-shell-conversation | 会话状态机 | （无——串行化在 activation 内） |
+| ac-auth-core | tools 门 | auth-registry 行 |
 | ac-usage | ledger 自报 | usage 聚合对账 |
-| ac-agents 族 | ac-agents-core 直读 | agents 编辑面（webui 写侧） |
-| ac-credentials | 纯库直读（两侧共用，R-11） | auth-registry 写者面 |
-| ac-timer-tools | 工具面（注册 timer 工具） | timers（任务执行 = 投递信唤醒） |
+| ac-agents-core | 直读 | agents 编辑面（webui 写侧） |
+| ac-credentials-core | 纯库直读（两侧共用，R-11） | auth-registry 写者面 |
+| ac-host-rows（timers 行） | 工具面（注册 timer 工具） | timers（任务执行 = 投递信唤醒） |
 | ac-persona / ac-system-prompt | 装配执行 | 身份数据编辑面（宿主 webui） |
 | ac-conv-settings | 只读垫片（run 装配 / 实验键注册面） | **写面单源**（conv-settings 行 + web RPC；cr-565） |
+
+> cr-726（2026-10-27）校正：「现行」列已按 `row-catalog.json` 当前包实体改写。
+> ac-router / ac-session / ac-security / ac-timer-tools / ac-credentials（旧行包名）
+> 均已于 cr-696 退役，勿再按旧名检索。
 
 # R6. 退役件
 
 | 现行 | 理由 |
 |---|---|
-| ac-singles | 独立会话 = 端点通例（D4：形态进 header 开放词汇） |
+| ~~ac-singles~~ | ~~独立会话 = 端点通例（D4：形态进 header 开放词汇）~~ ——**已推翻（cr-566）**：singles 立宿主数据服务行（元数据 `viewer/sessions/<sid>/session.json`），见 R1 数据服务组 |
 | ac-hello | 样例行（范例归测试资产） |
 | cordis-hmr（已 disabled） | 换版本 = 重启壳（S5） |
 | runtime 字段 / loop-only 过渡方案 | M1 / M5 |
 
 ## R6.1 退役执行台账（2026-10-23 全仓对账，cr-622；**2026-10-25 执行完毕，cr-696**）
+
+> 以下为 2026-10-25（cr-696）执行当日的路径/命令口径，已被 cr-703 单轨布局取代
+> （src/ 与 preview/ 消灭、preview:* 脚本退役）——只作历史台账，勿按其中路径操作（cr-726 注）。
 
 **执行记录（cr-696，◐c 路径 A）**：A 类 24 包删除（ac-webui/ac-webui-extensions 改判 B 类保留——preview 24 个行测试深路径消费 WebUiService + slotCatalog 单源锚点）；ac-client-ui-* 31 包物理迁出 src/ → preview/packages/（保包名，workspace 按名解析全不变）；ac-app 组合根 + cordis.yml + dev:legacy/smoke/chat 脚本退役；B 类 type-only 引用清理（6 空导入删行 + TagDeclaration×3 / AgentPresetDefinition×1 内联）；src/ac-retired-types 墓碑类型包承载被删包的 Context/Events 类型增强（B 类源码可选能力消费面）；旧树语义测试 22 文件退役；白名单 dep-cycles.yml 清零（44 条 ui 边随迁移出扫描面）。验证：主线 typecheck 0 + test:unit 1750 全绿 + check:deps 绿 + preview:typecheck 0 + preview:test 1131 全绿 + 定向 lint 0。**发布链换轨（build:bundle / 三条 tag CI 仍指旧树 webui/app）为发版前独立批**。
 
@@ -201,13 +208,13 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
 | 6 | 重工具行按需 boot | ✅ 消解（tag 机制解体连锁）——装载信号 = AgentConfig 引用行即声明，无特例；「默认胖瘦」降格为默认预设模板含哪些行的产品题 → 裁决簿〈tag 机制解体〉 |
 | 7 | patch 机制归属 | ✅ 整体退役，两树同形 boot（清单驱动装配：宿主 = 偏好文件 → 派生，壳 = argv 派生清单）→ 裁决簿〈patch 机制退役〉 |
 | 8 | AgentConfig 变更生效路径 | ✅ 自然生灭（cr-528）——shell-model S5 换版本 = 重启壳；变更在 boot 时点读取（boot 内 config 直读一次，无热重载面）；guardian 不观察指纹变更（主动重拉 = 编排越权——宿主邮局/监护不持 agent 定义知识）；显式换装走 evolve（M6.4 换装编排已有线）。重拉三节拍时 config 新读即生效 |
-| 9 | 插件 client 通道（ui 树装配） | ✅ 设计成文（cr-687）→ `preview/docs/design-plugin-client-channel.md`：schema 三词形（`new:` 席位 / `view` 视角 / `theme` 主题包）+ seats 双向对账语义 + 换壳三级裁决（主题本批开 / 渲染管线 ◐ / 形态壳 v2）+ 存量四批 B1-B4（B4 前置 = 物理迁出 + 旧树退役）；上游定调 ui-tree.md §3/§5。实施未开始 |
+| 9 | 插件 client 通道（ui 树装配） | ✅ 设计成文（cr-687）→ `docs/cutover/design-plugin-client-channel.md`（cutover 归档，只读）：schema 三词形（`new:` 席位 / `view` 视角 / `theme` 主题包）+ seats 双向对账语义 + 换壳三级裁决（主题本批开 / 渲染管线 ◐ / 形态壳 v2）+ 存量四批 B1-B4；上游定调 ui-tree.md §3/§5。**实施完成：B1 cr-690 / B2 cr-693 / B3 cr-694 / B4 cr-701**（B4 = 宿主树 ui 组清空，86→61） |
 
 # R8. 规模盘点与对账
 
-- 现状 100 行 → **宿主 47 / 壳 34**（基座行两树各计；骨架六件已定向并入 webui
+- **v3 立项时点口径（历史）**：现状 100 行 → 宿主 47 / 壳 34（基座行两树各计；骨架六件已定向并入 webui
   本体——47 组件和不含骨架，对账 −6 生效，「并后 42」系算误已修；壳 35→34 =
-  dev-tools 勘误剔除，cr-520）。
+  dev-tools 勘误剔除，cr-520）。**现行行数见本节末**。
 - **全新行 4**（邮局 / 监护 / 授权注册表 / 账本）；**新纯库 5 + 1 降格**；
   **归并 20 / 退役 3**（另过渡方案 2）。
 - 对账恒等式：100 − 3 退役 − 1 降格 − 11 归并（ac-agents 注册表瓣为行内拆分
@@ -216,7 +223,9 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
   cr-553 起 + 1 全新增（plugin-dev）= 82；cr-565 起 conv-settings 改树入宿主
   = 82 = 宿主 46 + 壳 36；cr-566 起 singles 全新增 = 83 = 宿主 47 + 壳 36；
   cr-576 起 group 全新增 = **84 = 宿主 48 + 壳 36**；cr-629 restart 全新增 =
-85 = 宿主 48 + 壳 37；cr-672 auto-title 全新增 = **86 = 宿主 48 + 壳 38**。
+85 = 宿主 48 + 壳 37；cr-672 auto-title 全新增 = **86 = 宿主 48 + 壳 38**；
+  **cr-701（2026-10-26）B4 撤 25 ui 域行 = 61 = 宿主 23 + 壳 38（现行）**；
+  cr-703（2026-10-26）单轨布局收编（src/preview 消灭、包收编 packages/）不改行数。
 - M8.2（cr-523，2026-10-18）：8.1 收敛完毕——34 壳行全部可装配（collab-tools
   随 conversation 服务面落地导入；subagent 归 8.3 spawn 工具面）。M5 替身
   ac-shell-loop 退役删除（全量 loop = 主线 ac-agent-loop 真身，boot 直装）。
@@ -661,8 +670,9 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
 
 ## 本档案纪律
 
-- 探索档案（explore/）：设计规格，preview 开工输入；行集变更须回写本表（与
-  yml / TREE 锁定测试同批）。正式立项时随两母档案迁 src/docs/。
+- 本档案现行：行集变更须回写本表，并与 `apps/catalog/row-catalog.json` + catalog/boot 锁定测试同批
+  （cr-722 起行描述字段为 `description`）。原「explore/ 目录约定 / 迁 src/docs/」已随 cr-703 单轨布局作废
+  （cr-726 注）。
 - 引用规则：裁决依据写 R-n（per-agent）/ S-n（shell-model）/ D-n；本仓推演
   定向写裁决簿篇名；待钉项写 ◐。
 - 立行流程：先过 R0a 树归属，再过 R0b 行资格——语义概念默认纯库 / 编排 / 数据

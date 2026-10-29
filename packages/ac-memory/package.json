@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "长期记忆时间线（ctx.memory）：Agent 人格单文件 memory/timeline.md（宿主铸造条目头）+ checkpoint/delta 流式注入（before-start seam 直落 context 行，KV 零失效）+ memory_write/memory_grep 工具（memory 标签门禁）；system 侧只剩恒定静态指引；settings['memory'] per-Agent 管控",
+  "description": "长期记忆时间线（ctx.memory）：Agent 人格单文件 memory/timeline.md（宿主铸造条目头）+ checkpoint/delta 流式注入（before-start seam 直落 context 行，KV 零失效）+ memory_write/memory_grep 工具（memory 标签门禁）；system 侧只剩恒定静态指引；快照预算 settings['memory'].maxTokens",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

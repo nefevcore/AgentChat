@@ -1,5 +1,14 @@
 # 本地多端远程接入方案研究（remote-client relay plan）
 
+> **路径校正表（2026-10-27 cr-726 文档审查批）**：本文为域总文档，正文写作于 preview/src 双轨期，
+> 其中 `src/...`、`preview/...` 路径已全部失效（cr-703 单轨重组）。阅读时按此映射：
+> `src/ac-remote-link/**` → `packages/ac-remote-link/**`；`src/ac-relay-server/**` → `packages/ac-relay-server/**`；
+> `src/ac-noise-core/**` → `packages/ac-noise-core/**`；`src/ac-client-ui-remote/**` → `packages/ac-client-ui-remote/**`；
+> `src/docs/remote-client-relay-plan.md`（自引用）→ 本文；`scripts/remote-loopback-host.ts` 已于 cr-708 删除。
+> 另有三处事实漂移需注意：① §4.2 密钥协商实为 **X25519**（非 Ed25519，cr-14）；② 下行事件白名单
+> `REMOTE_DOWNLINK_EVENTS` 已于 cr-108 全目录并源退役；③ §9.3「本机无移动端仓」已被否——`mobile/` 在仓内。
+> 审查底稿：Note 归档根 `docs-review-2026-10-27/findings-E-remote-mobile.md`。
+
 > 研究动机：用户需要一个本地化多端方案——**AgentChat 宿主（harness）只跑在
 > 自己的核心端（PC），绝不部署到云端**；其他端（安卓等）作为客户端经
 > 中转服务器对接核心端。中转服务器要求"仅对接、不存储、不探测"，

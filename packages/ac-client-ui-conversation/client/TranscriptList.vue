@@ -38,6 +38,12 @@ const props = defineProps<{
   conversationId?: string;
   /** 分支能力接线（single 形态传 true；透传 TurnDisplayItem.canFork） */
   canFork?: boolean;
+  /** 可视区裁剪量（px，cr-778/788）——wrapper 的 padding-bottom 与回到底部按钮抬升 */
+  bottomInset: number;
+  /** 尾部留白（px，cr-797）——滚到底时最后一条要停在**整个 composer 栈之上**：
+   *  dock 列（排队/审批/任务…，高度随时可变）会盖住它的尾巴。
+   *  = 内容浮在栈后的深度（宿主实测：输入卡上缘 − 栈顶 + 重叠量）。 */
+  bottomTail: number;
 }>();
 
 const emit = defineEmits<{
@@ -49,6 +55,14 @@ const emit = defineEmits<{
 }>();
 
 const messagesContainer = ref<HTMLElement>();
+
+/** 外壳底部内边距 = composer 浮层实测高度（cr-785）：把滚动可视区裁到浮层顶缘。
+ *  container 的 height:100% 相对 wrapper 的 content box，因此 padding-bottom 一加，
+ *  可视高度就减掉浮层那段——滚到底时最后一条天然停在浮层上方，内容不在输入区
+ *  背后继续移动。副产物：滚动条也只在可视区内，不会伸到浮层后面。 */
+const wrapperStyle = computed(() =>
+  props.bottomInset > 0 ? { paddingBottom: `${props.bottomInset}px` } : undefined,
+);
 
 // ── 滚动外壳（统一四形态；signal = 消息数 + 流式尾长）──
 const shell = useChatShell({
@@ -184,7 +198,11 @@ defineExpose({
 </script>
 
 <template>
-  <div class="messages-wrapper">
+  <!-- 可视区裁剪在 composer 浮层顶缘（cr-785）：wrapper 的 padding-bottom =
+       浮层实测高度，.messages-container（height:100%）因此只到浮层上缘——
+       消息滚到边界即被裁掉，不会在输入区背后继续移动（「遮挡错觉」的来源）。
+       wrapper 的 overflow:hidden 让它成为真正的裁剪边界。 -->
+  <div class="messages-wrapper" :style="wrapperStyle">
     <div ref="messagesContainer" class="messages-container" @scroll="shell.onScroll">
       <div class="messages-content">
         <!-- 空态 gate（首载未回 = 加载占位，不显示「开始对话」） -->
@@ -243,6 +261,20 @@ defineExpose({
           />
           </template>
         </template>
+
+        <!-- 尾部留白（cr-795/796/798）：可视区底边压在输入卡上缘再往下 overlap
+             那一段（浮层观感的来源），所以滚到底时内容会落进 composer 栈里。
+             留白高度 = bottomTail（宿主实测「输入卡上缘 − 栈顶 + overlap」）——
+             **dock 列有多少张卡、多高都自动算进去**，最后一条恒停在栈顶之上。
+             再叠 --composer-extra 作为额外呼吸位：默认值声明在 apps/ui 布局令牌里
+             （:root 0px，可见可覆盖），这里的 var() 第二参是同值兜底——本包被别的
+             宿主装配、没那套令牌时也成立。两者都不受 ResizeObserver 覆盖。 -->
+        <div
+          v-if="bottomInset > 0"
+          class="composer-spacer"
+          aria-hidden="true"
+          :style="{ height: `calc(${bottomTail}px + var(--composer-extra, 0px))` }"
+        />
       </div>
     </div>
 
@@ -251,9 +283,16 @@ defineExpose({
          ——按钮漂出 wrapper 被 overflow:hidden 裁剪。锚 div 独立承担悬浮定位，
          按钮回归文档流。 -->
     <Transition name="scroll-btn">
-      <div v-if="isUserScrolledUp" class="scroll-to-bottom-anchor">
+      <!-- 抬升 = bottomInset + bottomTail（= 整个 composer 栈高，cr-797）：只抬
+            bottomInset 的话按钮会落在「输入卡上缘 + overlap」那条带里，正好被
+            dock 列 / 输入卡盖住点不到；两者相加才是栈顶，按钮恒在可见区之上。 -->
+      <div
+        v-if="isUserScrolledUp"
+        class="scroll-to-bottom-anchor"
+        :style="{ bottom: 12 + bottomInset + bottomTail + 'px' }"
+      >
         <Tooltip text="回到底部" placement="top">
-          <button class="scroll-to-bottom-btn" aria-label="回到底部" @click="shell.scrollToBottomAndReset">
+          <button class="scroll-to-bottom-btn" aria-label="回到底部" @click="shell.scrollToBottom(true)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
           </button>
         </Tooltip>
@@ -263,10 +302,28 @@ defineExpose({
 </template>
 
 <style scoped>
-/* 消息区 */
+/* 消息区外壳：占满 chat-main 剩余高度 + 裁切。padding-bottom 由 inline style 给
+   （cr-785/788）——.messages-container（height:100%）的底边因此落在
+   「输入卡上缘 + overlap」：滚动中的内容会从 dock 列背后经过（真浮层），
+   而**滚到底**时由尾部 .composer-spacer 把最后一条顶回输入卡上缘之上。 */
 .messages-wrapper { flex: 1; position: relative; overflow: hidden; }
-.messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); scrollbar-width: thin; scrollbar-color: transparent transparent; }
+/* 底部留白归内容尾部的 .composer-spacer（cr-778/794）——不放滚动容器的 padding：
+   padding 是「容器自己的」空间，在 border-box + overflow 组合里容易与
+   box-sizing/min-height 相互作用，且 scoped 特异性会压掉 DevTools 手改；
+   做在内容元素上是「内容的一部分」，加大它就必然加长可滚动距离 */
+.messages-container {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-md);
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
 .messages-content { display: flex; flex-direction: column; gap: var(--space-sm); width: 100%; max-width: 100%; margin: 0 auto; min-height: 100%; }
+/* 尾部留白块：基础高度 = bottomTail（inline，= 内容浮在 composer 栈后的深度，
+   dock 高度已含在内），额外呼吸位吃 --composer-extra（默认 0，声明在
+   apps/ui 布局令牌）；flex: none 保证不被压缩 */
+.composer-spacer { flex: none; }
 /* 滚动条仅悬停会话区域时可见：默认拇指透明（6px 槽位常驻，避免悬停时内容宽度跳变） */
 .messages-container:hover { scrollbar-color: var(--line-strong) transparent; }
 .messages-container::-webkit-scrollbar { width: 6px; }
@@ -314,6 +371,6 @@ defineExpose({
 
 @media (max-width: 768px) {
   .messages-container { padding: var(--space-sm); }
-  .scroll-to-bottom-anchor { right: 12px; bottom: 12px; }
+  .scroll-to-bottom-anchor { right: 12px; }
 }
 </style>

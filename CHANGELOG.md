@@ -6,11 +6,69 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Removed（run_code 程序卡内「工具调用」时间线退役，cr-764）
+- 卡内逐条时间线（图标+工具名+简述+相对耗时条，超 8 条折叠）移除——每个子调用已由紧随程序卡的 subcall 平铺卡完整展示（图标/参数/结果/运行态），卡内再列一遍即冗余。卡内保留执行摘要徽章行：调用计数（ok/calls）、串行数、机器耗时（computeMs，title 含墙钟/冻结区间）；「被拒」徽章一并保留——denied 子调用（before-execute 被 veto，无 started/after-execute 帧即无 subcall 卡）的前端唯一可见面。数据面零改动（summary.trace 协议形状与后端收集不变，卡内不再渲染）。
+
+### Added（运维日志面补齐，cr-740）
+- 控制台输出格式化（cr-742）：cordis logger 行 label 20 宽对齐（logger-console 行 options 注入）；宿主/编排面手写诊断行统一 `HH:mm:ss [I|W|E] [src] msg` 格式（新 `host-log.ts` 出口——host/orchestrator/shell:agent 三来源可辨）；壳 spawn 加 `--no-warnings` 消 strip-types ExperimentalWarning 固定噪音（每次 boot 两行）。
+- shell-*.log 运维优化（cr-741）：stderr 落盘行宿主侧盖 ISO 时标（跨日志时间线对齐——neko 锁拒绝刷屏那类现场可直接按时刻排查）；「[shell] boot 完成/失败」生命周期常态行不再刷宿主控制台（每次拉壳一行的噪音——现场已在日志）；reportStderr 死参数（恒 true 的 toConsole）随判定内聚删除。
+- 壳 run 节拍上线：bootShell 订阅 loop/run-started + loop/after-run → stdout TSV run.started / run.settled（guardian 识别的既有信号，此前无生产者——.runtime/logs 里只有进程生死，无任何运行时活动记录）。字段：started = runId/conversationId/source/model；settled = runId/conversationId/finish/steps/totalTokens/elapsedMs（error run 尾带截断压平的 error 文本）。
+- 宿主监护面转发 + 落盘：superviseShell 新增 onRunbeat 钩子（缺省静默丢弃），orchestrator 缺省接线滚动落 dataRoot/.runtime/logs/runbeat-<agent>.log（cap 512KB，宿主侧盖时标）——per-Agent 活动量/失败率/耗时一眼可读。
+- 产品 supervisor（根 supervisor.mjs）宿主 stdio 由 inherit 改 tee：终端照常转发 + 每代宿主落 dataRoot/.runtime/logs/host-<ts>.log（对齐沙箱版先例）——终端关闭/滚屏后宿主诊断现场仍在。
+
+### Fixed（shell-tools 任务日志流 EPERM 崩壳根修，cr-718）
+- 前台命令超时 handoff 转后台时，任务日志 `fs.createWriteStream`（落 `%TEMP%`）未挂 error 监听——本机 `%TEMP%` 被杀软/沙箱瞬时拒写（EPERM）时异步 `'error'` 无监听 = unhandled event，**直接带崩整个壳进程**（10-24~27 `shell-__creator__` 日志 33 次同栈崩溃、94 次 exit=1 的现场根因；cr-665 当时核实「产品路径无 %TEMP% 写点」漏了任务日志这处）。修：`openHandoffLog` 同步预开 fd（打不开同步抛，回退 kill 语义不产生无监听流）+ error 吸收面（日志尽力而为，流级失败停写不崩壳）。
+- 同域加固：后台路径 `openSync` 加瞬时占用（EACCES/EBUSY/EPERM）有界重试——cr-705/fsx 同款口径，同一环境根因的第二写点。
+- 任务日志落点可注入（`ShellToolsRowOptions.logDir`）：壳 boot 装配锚数据根 `.runtime/tmp`（leftovers B3 方向）——%TEMP% 被持续拒写的环境下后台任务恒不可用（本机实测：修复验证期间后台任务因 `%TEMP%` 拒写直接启动失败，logDir 注入后经集成用例验证可用）；缺省仍 `os.tmpdir()`，行为对未注入方零变化。
+- 新增回归锚 `tests/handoff-log.test.ts`：目录当日标在 Windows 上「开成功、写入时异步报错」正是崩溃现场的时序形态，旧实现下该用例直接崩 worker。
+
+### Changed（全仓重组为单轨布局：packages/apps 收编，src/preview 双轨消除，cr-703）
+- 活包全部迁入 `packages/`（src 71 + preview 49），四个应用（host/shell/ui/catalog）迁入 `apps/`；旧 `src/` 与 `preview/` 目录删除，双轨叙事终结。
+- 测试套件合并：unit/integration 同一 vitest 配置（`VITEST_PROFILE` 分档），preview:* 脚本退役。
+- 发布产物三入口（`dist/agentchat.mjs` 宿主 / `dist/shell.mjs` 壳 / `dist/worker.mjs` run_code worker）+ `AGENTCHAT_HOME` 资产锚（`apps/host/anchors.ts` 单源解析）。
+- 遗留清单与裁决见 `docs/design/cr-703-followups.md`（P0/P1/P2 与验收）。
+
+### Fixed（连续跑测试 EPERM 根修 + 宿主 close 壳收割，cr-705）
+- host e2e 数据根从相对路径 `sandbox/`（chdir 后落入 `workspace/test/w<N>/`——global setup 清理面撞 detached 壳句柄必 EPERM）改为 `mkdtemp` 绝对路径（`apps/host/tests/e2e-admin-preview.test.ts`、`e2e-title.test.ts`）。
+- `bootHost().close()` 逐句柄收割 supervisors 拉起的壳（优雅停 + 强杀兜底）——此前 close 只停监护循环不杀壳，测试残留进程持句柄。
+- vitest global setup 的数据根清理加 EPERM/EBUSY 有界重试 + 占用者诊断提示。
+
+### Removed（cr-703 收尾卫生批）
+- preview 数据备份 `sandbox/backup-2026-10-26-from-preview/`（802MB）：逐 agent 与 `workspace/home` 比对无内容差异（38 目录全同），确认无增量信息后删除。
+- `scripts/remote-loopback-host.ts`：import 的 `ac-app` 自 cr-696 已不存在，脚本自那时起不可运行且无消费者——删除（`remote-loopback-client.ts` 保留作为对已部署 relay 的客户端探针；git 历史可找回）。
+
+> 注：`packages/ac-retired-types` 曾在判死名单（静态 grep 零 import），实删后 typecheck 红方知 `ac-workspace` 经**模块增强**（declare module 的 ctx.agentStore/session 类型面）隐式消费——判死回滚，包保留（模块增强不显式 import，「全仓 grep 零消费」对这类形态失效，判死纪律再添一例）。
+
+### Fixed（壳 bundle CLI 门在 .mjs 形态恒假——bundle 壳零输出直退，cr-706）
+- `apps/shell/boot.ts` 的自举门 `endsWith('boot.ts')` 在 `dist/shell.mjs`（esbuild 产物）下永假，壳 bundle 被拉起后静默 exit 0——npm 包/桌面形态的壳 spawn 链从未真正跑通过。改为与宿主同款的 `path.resolve` 等价比较，dev/bundle 双形态通吃。
+- 新增 `scripts/e2e-bundle.mjs` 全链 e2e（dist 宿主 → WS RPC → 建 Agent → 信封投递 → dist 壳 spawn → mock 回执落账 → 优雅退），并挂进 `release:preflight` 末步——CI 无等价面，本地预检是唯一拦截面。
+- `release:preflight --clean` 的 node_modules 清理仍扫已删除的 `src/` 目录（cr-703 布局后直接抛错），改为扫 `packages/`+`apps/`+`desktop/`。
+
+### Fixed（上下文注入行双面修复：刷新后整条消失 + 直播期位置漂移，cr-707）
+- **现象（用户实测）**：① 直播——「已收到用户回复」注入卡在续跑若干步后漂到倒数第二，而不是停在注入时刻的步界；② 刷新——「已发起提问 / 已收到用户回答」两个注入上下文整条不可见。
+- **根因一（刷新丢失）**：注入行只落 agent 域账本（journal → settlement 物化 `source:'inject'`），而 UI 读面 `session/history` 只投影 viewer 终稿层 + steps；`derive.ts` 显式跳过 `segment`/`inject` 行，注入行从未进入前端输入。且 `journalInject` 只写 content——`label`（UI 文案）与 `injectionId`（注入身份）只进事件，刷新即丢，无法与直播行对齐。
+- **根因二（直播漂移）**：`recordContext` 先 `await journalInject`（磁盘 IO）再发事件——续跑帧（step-started/delta）可超车，注入行被后续步顶到后面；叠加 `mergeHistory` 首屏恒 `[...历史块, ...直播尾]`，每次合并把直播期的注入行整体押到历史块之后（逐步后移）。
+- **修复**：① `JournalInject`/物化注入行随行携带 `label`/`injectSource`/`injectionId`，物化 `message_id` = injectionId（与直播行 `persistedMsgId` 同锚）；② 壳侧 `recordContext` 缺省铸 `injectionId`、**事件先发后落盘**、label/来源/ts 同源落账；③ 宿主 `session/history` 把 agent 域注入行（物化行 ∪ 在途 journal 行）投影为 `context` 行（label 文案 + 正文展开体 + 原 ts），插在同 run 终稿/步行之前；④ 前端 `mergeHistory` 首屏改 `mergeTimeOrdered` 时间序归并（`mergeHistoryPage` 双键去重按注入锚吃掉重复）。
+- **验证**：`packages/ac-ledger` +1（物化行身份/文案/原 ts/真序位）、`ac-shell-conversation` +1（事件锚 + 物化同锚同文案）、`ac-host-webui` +1（session/history context 行投影）、`ac-client-ui-conversation` +4（时间序归并 / context 行→注入卡落回段行之间 / 同锚去重）；真实历史会话隔离数据根活体读面复验通过；typecheck / webui:typecheck / test:unit / check:deps / test:integration / `pnpm test` 全量（2430）全绿。
+
 ### Fixed（独立会话整行前端面消失根修：行 client 半边 default 出口被误判死代码删除，cr-487）
 - **现象**：`ui-singles` 行整片前端面静默消失——独立会话列表（主侧边栏 sessions 面板）、独立会话视角（single，order 40）、会话头动作族（归档等）全部不出现；浏览器 console 仅一行 `[boot-graph] 行 "ui-singles" client 模块缺省导出插件（default apply）——跳过`。
 - **根因**：cr-459（10-15）精简按「全仓 grep 零消费」判死，删掉 `ac-client-ui-singles/client/index.ts` 的 `export default singlesClientPlugin;`——全仓 10 个消费点确实全走具名出口。但真正的消费方是 **boot graph 的动态 import 装载面**：`bootGraph.ts` 的 `loadEntry` 只认 `mod.default.apply`，具名出口再全也不算装载面，静态 grep 永远扫不到这条边。全仓 31 个 `ac-client-ui-*` 行 client 半边中，唯此一处缺 default 出口。
-- **修复**：恢复 default 出口（附契约 why 注释：此出口是装载面本体、grep 判死会漏），并补两道回归锁——① `webui/tests/boot-graph.integration.test.ts` 末节：走真装载器路径（fake 图 + 真 `rowClientLoaders` 动态 import）装载 ui-singles，断言 `ctx.singleBoard` 与三处席位真实落位、且无「缺省导出插件」warn（缺 default 时本条实测红）；② 新增 `webui/tests/row-client-default-export.test.ts`：跨 31 行结构锁，逐行断言入口具 `export default <标识符>`（注释剔除后静态扫，零模块求值）。
+- **修复**：恢复 default 出口（附契约 why 注释：此出口是装载面本体、grep 判死会漏），并补两道回归锁——① 真装载器路径回归（fake 图 + 真 `rowClientLoaders` 动态 import 装载 ui-singles，断言 `ctx.singleBoard` 与三处席位真实落位、且无「缺省导出插件」warn——现居 `apps/ui/tests/boot.test.ts`）；② 跨行结构锁（逐行断言行 client 入口具 `export default <标识符>`，注释剔除后静态扫零模块求值——cr-703 布局后由 cr-706 在 `apps/ui/tests` 重建，见下）。
 - **判死纪律补注**：行 client 半边入口的 default 出口属**外部装载契约面**，「全仓 grep 零消费」不构成死代码证据；同类入口（boot graph 动态装载的模块入口）判死前须查动态 import 消费面。
+
+### Fixed（子 Agent 发起后父⇄子自动互答停不下来：防自激预算改信封权威 + 回信直投，cr-710）
+- **现象（用户实测）**：agent 发起 subagent 后，父会话与子 Agent 会话反复跑 run、LLM 调用停不下来；数据根账本可见 `run-reply-` 前缀逐跳累加（`__creator__`⇄`sub-vu8n98` 21:42–21:47 连跑 3 轮/侧）。
+- **根因（两处）**：① `ac-shell-conversation` 的唤醒裁决用的是 `ConversationMachine` **内存计数器**（壳代起 3、run 收束 -1），而信封携带的 `budget`（协议 A1/F-8：类 TTL/hop-count）只用于 inbox 判定——壳换代 / restart / idle 收割后计数归零，互答链每代重获满额；② 子壳以 `<parent>--<child>` 端点注册 ipc，但回信用裸子 id 寻址，宿主可达表恒缺席 → `ensureHook` 为裸 id 自动物化一个同 id 的顶层**幽灵身份**（`agents/sub-*/config.json` 仅 `{id}`），回信误投给幽灵并让互答跨身份延续。
+- **修复**：① 唤醒许可改**信封 budget 权威**（`plan({ budget })` 取 `budgetAfterReceive` 结果，机器不再自持计数器、`runSettled` 不再扣预算）；user 直发重置满额仍走 `budgetAfterReceive` 单源。② `ConversationService.postReply` 命中本壳在管子 Agent（句柄 ∪ 物化清单）时经 `subagents.deliverToChild` 直投其 ipc——在管句柄直投，父壳换代后按子壳 `activation.lock` 的 transportHint 直投；子壳已退出则丢弃并留 stderr，不再投邮局拉起幽灵身份。③ async spawn 的忙态收敛：`markSettled` 在回信直投/`await` 命中新终稿时回落 `busy` 并 emit `settled`——此前只有 sync/stop/exit 清忙，子 Agent 看板常亮 running（会话「看起来不结束」）。
+- **验证**：`state.test`（信封 2→1→0 逐跳收敛 + 新机器重放同额度）+ `ac-shell-conversation/tests/service.test.ts`（budget=0 零 LLM 调用、换代重放同款；子 Agent 回信直投不触邮局）+ `ac-shell-subagent/tests/service.test.ts`（在管句柄直投 / 换代活锁直投）新增回归锁；typecheck / check:deps / test:unit / test:integration 全绿。
+
+### Fixed（子 Agent 完成回执落点修正：不再唤醒父⇄子会话，结果回到发起会话，cr-711）
+- **现象（用户提问）**：subagent 首轮终稿结束后，为什么没有作为回复注入发起的 `agent⇄user` 会话，而是唤起了 `agent⇄subagent` 会话并继续互答？
+- **根因**：子壳终稿走 R-2「终稿回复 = 一次普通 send」，信封 `uuid = parent~child`、`sender = 子`；父壳只认 `env.uuid` 当会话键，于是唤醒对桶并再回信。发起会话键从未被捕获（subagent 工具 `execute` 只取 `args`，丢弃 `call.conversationId`），也没有完成通知通道（对照 `notifyLateReply`/旧 job-wakeup 的正确形态）。
+- **修复**：① 任务信封 `payload.replyConversation` 携带工具调用所在会话键，子壳 `postReply` 原样回带；② 父壳收信识别「本壳在管子 Agent」= **完成回执**，不进会话机（对桶只落账），把终稿作为一条来自子 Agent 的消息转投发起会话（`replyTo=user`，本壳终稿面向用户、不回投子 Agent；通知 requestId 幂等防重启重放）；③ 通知 `entry` 加 `budget`/`notice` 入参，`makeEnvelope` 补 `replyTo` 初始化缺口；④ 工具提示语改为「完成后结果会自动回到本会话」。
+- **验证**：新增回归锁——完成回执对桶零 run + 发起会话一轮 + 重放幂等 + sync/waitMs 不重复通知 + 任务信封 replyConversation 往返；真父壳/子壳/邮局 e2e（`sandbox/repro-subagent-completion.ts`）PASS（子 1 轮 / 对桶父 0 轮 / 发起会话父 1 轮 / 无幽灵身份）。
+- **附带报告**：`docs/design/collab-delivery-gaps.md`——`send_agent`（`agents.has` / `session.history` / deliver 不看 `to` 三处断点）与 `send_group`（壳内无 group 服务 + 成员流串键/回声链）现状与待裁决方案；本轮未改。
 
 ## [0.8.16] - 2026-10-08
 

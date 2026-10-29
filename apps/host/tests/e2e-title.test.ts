@@ -6,18 +6,22 @@
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+// 数据根 = mkdtemp 绝对路径（cr-705）：此前相对路径 sandbox/... 在 vitest
+// setup chdir 后落入 workspace/test/w<N>/——与 global setup 清理面解耦（同批
+// e2e-admin-preview；此前靠 afterEach 先杀壳才没炸）。
 import { fileURLToPath } from 'node:url';
 import { socketPathFor } from 'ac-envelope-core';
 import { bootHost } from '../boot.ts';
 
-const ROOT = path.join('sandbox', 'test-title-e2e-' + process.pid);
+const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-e2e-title-'));
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
 const spawned: ChildProcess[] = [];
 
-beforeEach(() => { fs.rmSync(ROOT, { recursive: true, force: true }); fs.mkdirSync(ROOT, { recursive: true }); });
+beforeEach(() => { /* ROOT 为模块加载时新建的 mkdtemp 目录——无需重建 */ });
 afterEach(() => {
   for (const c of spawned.splice(0)) {
     try { if (c.exitCode === null) c.kill('SIGKILL'); } catch { /* 已退出 */ }

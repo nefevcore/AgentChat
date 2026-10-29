@@ -1,18 +1,20 @@
 <script setup lang="ts">
-// run_code 程序卡（v2 时间线版）：四段式——程序体（TS）· 工具调用时间线
-// （逐条 trace：图标 + 工具名 + 一句话 + 耗时 + 状态；**展示调用了哪些
-// 工具**是本版核心诉求）· 返回值（return 压缩结论；纯 string 按普通
-// 文本直显，其余走 JSON 代码块）· 错误。
+// run_code 程序卡：三段式——程序体（TS）· 执行摘要徽章 · 返回值（return
+// 压缩结论；纯 string 按普通文本直显，其余走 JSON 代码块）/ 错误。
+// 卡内逐条「工具调用」时间线已退役（cr-764）——每个子调用由紧随本卡的
+// subcall 平铺卡完整展示（图标/参数/结果/状态），卡内只留汇总徽章
+// （调用计数、串行数、机器耗时、被拒；被拒徽章是 denied 子调用
+// ——before-execute 被 veto、无 started/after-execute 帧——唯一的前端可见面）。
 // 数据面（useToolResult 三形归一后传入 data）：
-//   调用中：{ code, ... }（参数预览——程序体即时可见；无时间线）
+//   调用中：{ code, ... }（参数预览——程序体即时可见）
 //   完成态：{ summary: { calls, ok, failed, computeMs, wallMs, denied,
 //             serialized, trace: SubcallTrace[], traceTruncated?, frozenMs?,
-//             programHash, value?, error? }
+//             programHash, value?, error? }（trace 数据面保留——协议形状
+//             镜像，卡内不再逐条渲染）
 import { computed, ref, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 import { Icon } from '@agentchat/webui-kit';
-import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { fenceOf } from 'ac-client-ui-renderer/client/codeFence.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
@@ -30,7 +32,7 @@ const renderedCode = computed(() => {
   return render(`${fenceOf(code.value)}typescript\n${code.value}\n${fenceOf(code.value)}`);
 });
 
-// ---- 执行摘要 + 时间线 ----
+// ---- 执行摘要 ----
 // 形状镜像 ac-run-code/src/protocol.ts（RunSummary/SubcallTrace）——RPC 结果
 // 信封不引类型（行独立可摘除），前端卡内注释投影（subagent SubagentInfo 同款惯例）
 interface SubcallTrace {
@@ -43,6 +45,7 @@ interface RunSummaryShape {
   frozenMs?: number;
   denied: Array<{ name: string; error: string }>;
   serialized: number[];
+  /** 逐条子调用轨迹——数据面保留（协议形状镜像），卡内不渲染（cr-764） */
   trace: SubcallTrace[];
   traceTruncated?: number;
 }
@@ -55,21 +58,6 @@ const programHash = computed(() => {
   const h = props.data.programHash;
   return typeof h === 'string' ? h : '';
 });
-const trace = computed<SubcallTrace[]>(() => summary.value?.trace ?? []);
-const serialSet = computed(() => new Set(summary.value?.serialized ?? []));
-const traceTruncated = computed(() => summary.value?.traceTruncated ?? 0);
-/** 耗时条宽度（相对最长调用——并行/串行的相对时长一眼可见） */
-const maxMs = computed(() => Math.max(1, ...trace.value.map((t) => t.ms)));
-function barWidth(t: SubcallTrace): string {
-  return `${Math.max(4, Math.round((t.ms / maxMs.value) * 100))}%`;
-}
-/** 时间线可视化展开态（超过 8 条默认折叠为一行统计） */
-const TRACE_FOLD = 8;
-const traceExpanded = ref(false);
-const traceVisible = computed(() =>
-  traceExpanded.value ? trace.value : trace.value.slice(0, TRACE_FOLD),
-);
-
 /** 汇总徽章 */
 const badges = computed(() => {
   if (!summary.value) return [] as Array<{ text: string; cls: string; title?: string }>;
@@ -162,44 +150,12 @@ async function copyCode() {
       <span class="rc-running-text">{{ code ? '程序执行中…（中间调用不回上下文，仅 return 值返回）' : '程序体生成中…（模型正在写代码/参数）' }}</span>
     </div>
 
-    <!-- ============ ② 工具调用时间线（本卡核心段） ============ -->
-    <div v-if="summary" class="rc-section rc-trace">
-      <div class="rc-trace-head">
-        <span class="rc-trace-title">工具调用</span>
-        <span v-for="b in badges" :key="b.text" class="ui-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
-        <span v-if="deniedList.length" class="ui-badge err rc-badge-denied" :title="deniedList.map(d => `${d.name}: ${d.error}`).join('\n')">
-          <Icon name="ban" :size="11" /> 被拒 {{ deniedList.length }}
-        </span>
-      </div>
-
-      <!-- 逐条时间线 -->
-      <div v-if="trace.length" class="rc-trace-list">
-        <div
-          v-for="t in traceVisible"
-          :key="t.seq"
-          class="rc-trace-row"
-          :class="{ 'rc-trace-fail': !t.ok }"
-          :title="t.ok ? `${t.name} · ${t.ms}ms` : t.error || `${t.name} 失败`"
-        >
-          <!-- 状态点（绿=成功 红=失败） -->
-          <span class="rc-dot" :class="t.ok ? 'rc-dot-ok' : 'rc-dot-fail'"></span>
-          <!-- 工具图标（复用工具卡图标词表——与模型直接调用的卡片同象形） -->
-          <Icon :name="toolIconName(t.name)" :size="13" class="rc-trace-icon" />
-          <!-- 工具名 + 简述 -->
-          <span class="rc-trace-name">{{ t.name }}</span>
-          <span v-if="serialSet.has(t.seq)" class="rc-trace-serial" title="写路径/命令类——按提交序串行执行">串行</span>
-          <span class="rc-trace-brief">{{ t.brief }}</span>
-          <!-- 耗时条 + 毫秒数（相对最长调用的比例条——并行簇里谁慢一眼可见） -->
-          <span class="rc-trace-ms">{{ t.ms }}ms</span>
-          <span class="rc-trace-bar" :style="{ width: barWidth(t) }" :class="t.ok ? 'rc-bar-ok' : 'rc-bar-fail'"></span>
-        </div>
-        <!-- 折叠控制（超 8 条） -->
-        <button v-if="trace.length > TRACE_FOLD" class="rc-trace-toggle" @click="traceExpanded = !traceExpanded">
-          {{ traceExpanded ? '收起时间线' : `展开全部 ${trace.length} 条调用` }}
-        </button>
-        <div v-if="traceTruncated > 0" class="rc-trace-more">另有 {{ traceTruncated }} 条未逐一记录（超出 50 条上限）</div>
-      </div>
-      <div v-else class="rc-trace-empty">（无子调用——纯计算程序）</div>
+    <!-- ============ ② 执行摘要（逐条子调用见紧随本卡的 subcall 平铺卡） ============ -->
+    <div v-if="summary" class="rc-summary">
+      <span v-for="b in badges" :key="b.text" class="ui-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
+      <span v-if="deniedList.length" class="ui-badge err rc-badge-denied" :title="deniedList.map(d => `${d.name}: ${d.error}`).join('\n')">
+        <Icon name="ban" :size="11" /> 被拒 {{ deniedList.length }}
+      </span>
     </div>
 
     <!-- ============ ③ 返回值 / 错误 ============ -->
@@ -336,116 +292,17 @@ async function copyCode() {
 @keyframes rcSpin { to { transform: rotate(360deg); } }
 .rc-running-text { margin-left: 0; }
 
-/* ---- 时间线段 ---- */
-.rc-trace { border: none; background: transparent; }
-.rc-trace-head {
+/* ---- 执行摘要徽章行 ---- */
+/* cr-129 R3：汇总徽章 = ui-badge 族（ok/warn/dim/err；形状与配色归 kit，
+   此处只留专属修饰） */
+.rc-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 5px;
+  padding: 2px 0;
 }
-.rc-trace-title {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-2);
-}
-/* cr-129 R3：汇总徽章 = ui-badge 族（ok/warn/dim/err；形状与配色归 kit，
-   此处只留专属修饰） */
 .rc-badge-denied { cursor: help; }
-
-.rc-trace-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  /* 嵌套竖线与 chain-body / tool-subcall 同款节奏（1px / margin 7 /
-     padding 14）——run_code 卡内时间线与全前端层级视觉统一 */
-  border-left: 1px solid var(--line);
-  padding-left: 14px;
-  margin-left: 7px;
-}
-.rc-trace-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  padding: 2.5px 4px;
-  border-radius: 4px;
-  min-width: 0;
-}
-.rc-trace-row:hover { background: var(--bg-hover); }
-
-.rc-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-/* 状态点＝图形件（cr-123 状态档 3.0 线） */
-.rc-dot-ok { background: var(--ok-status); }
-.rc-dot-fail { background: var(--err-status); }
-
-.rc-trace-icon { color: var(--text-3); flex-shrink: 0; }
-.rc-trace-name {
-  font-family: 'SF Mono', 'Consolas', monospace;
-  font-weight: 600;
-  color: var(--text-1);
-  flex-shrink: 0;
-}
-.rc-trace-serial {
-  font-size: 9.5px;
-  color: var(--warn);
-  border: 1px solid rgba(var(--warn-rgb), 0.4);
-  border-radius: 3px;
-  padding: 0 3px;
-  flex-shrink: 0;
-  cursor: help;
-  user-select: none;
-}
-.rc-trace-brief {
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 0 1 auto;
-}
-.rc-trace-fail .rc-trace-brief { color: var(--err); }
-.rc-trace-ms {
-  margin-left: auto;
-  color: var(--text-3);
-  font-family: 'SF Mono', 'Consolas', monospace;
-  font-size: 10.5px;
-  flex-shrink: 0;
-}
-.rc-trace-bar {
-  height: 3px;
-  border-radius: 2px;
-  flex: 0 0 44px;
-  align-self: center;
-  opacity: 0.55;
-}
-/* 耗时色条＝图形件（cr-123 状态档） */
-.rc-bar-ok { background: var(--ok-status); }
-.rc-bar-fail { background: var(--err-status); }
-
-.rc-trace-toggle {
-  align-self: flex-start;
-  border: none;
-  background: transparent;
-  color: var(--primary-strong);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 3px 4px;
-  border-radius: 4px;
-}
-.rc-trace-toggle:hover { background: var(--bg-hover); }
-.rc-trace-more {
-  font-size: 10.5px;
-  color: var(--text-3);
-  padding: 2px 4px;
-}
-.rc-trace-empty {
-  font-size: 11.5px;
-  color: var(--text-3);
-  font-style: italic;
-  padding-left: 4px;
-}
 
 /* ---- 错误 ---- */
 .rc-error-title {

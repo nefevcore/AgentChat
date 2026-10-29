@@ -9,8 +9,11 @@
 > **核实注记（2026-10-06 文档治理）**：本文为**现行**架构描述，未被取代——已对照源码与 cr-log 逐项核实：
 > cr-106 身份门 + 空载门在场（`ac-client-ui-conversation/client/feed-core.ts` 吸收段）；cr-107 checkpoint-B
 > （live 分区禁指纹短路，`feed-core.ts` requestHistoryPage 双门）与 checkpoint-C（悬挂流探针 180s +
-> `conversation/stats` 权威判死活 + `convergeDialog(id, true)` 强制收敛）在场，回归测试
-> `src/webui/tests/feed-converge-checkpoints.test.ts`。候选 A/D 为 cr-107 已裁决不做项（历史裁决，非待办）。
+> `conversation/stats` 权威判死活 + `convergeDialog(id, true)` 强制收敛）在场。候选 A/D 为 cr-107 已裁决不做项（历史裁决，非待办）。
+> **cr-726（2026-10-27）复核：三处失效已就地校正**——① 原断言「回归测试 `src/webui/tests/feed-converge-checkpoints.test.ts`」
+> 已随 src/webui 退役且未见迁移件（疑点 E-1）；② checkpoint-2 的 `session/run-settled` **全树无发射方**，
+> 现行只剩 `loop/after-run` +500ms 兜底（疑点 E-2/D-3）；③ 指纹短路服务端半边未实现（疑点 P5）。
+> 详见 Note 归档根 `docs-review-2026-10-27/`。
 > 另：run 收束重拉的两驱动为 `session/run-settled`（delay 0，cr-94）+ `loop/after-run` +500ms 兜底（本文
 > 落点行「feed-core」成文于三文件化之前，journal 行读侧合并在 `ac-session` `records()` 内完成——见
 > `session-design.md` §7/§8）。
@@ -58,10 +61,10 @@ sequenceDiagram
     L-->>R: LoopRunResult
     W-->>F: loop/after-run
     Note over F: closeAllStreaming<br/>final 物化（强生命周期）
-    R->>S: reply-completed → settlement
-    Note over S: ①提升批 append（durable）<br/>②journal 剔除
-    S->>W: emit session/run-settled
-    W-->>F: session/run-settled
+    R->>S: reply-completed → settlement（ac-ledger writer）
+    Note over S: ①段行/注入行物化 append（durable）<br/>②journal-settled + journal 剔除
+    S->>W: emit conversation/run-settled（壳侧）
+    W-->>F: loop/after-run（宿主桥；session/run-settled 现行无发射方）
     Note over F: ★checkpoint-2：重拉首屏<br/>权威行整体替换临时态
     F->>S: session/history
     S-->>F: 权威收束行（含 persistedMsgId）
@@ -78,7 +81,7 @@ sequenceDiagram
 | final 悬置（null） | run 开始 | after-run 物化 | 永悬 = 步骤流一直裸露 |
 | 步终值/校准锚（runCalibMs） | after-step | 下一步 after-step / settlement | 定格旧值 |
 | 吸收合并（mergeHistory 对齐产物） | 切回会话首屏 | settlement 重拉 | **永悬**——错误身份永不纠正 |
-| journal 活投影行（partial） | records() 读侧 | settlement 提升/剔除 | 刷新后仍双源在场 |
+| journal 活投影行（partial） | 宿主 `session/history` 读侧（journal 活投影） | settlement 提升/剔除 | 刷新后仍双源在场 |
 | watchdog 30s 兜底 | sendMessage | 到点查无占位即回落 | 有占位恒不触发——**盲区** |
 
 ## 三、现有收敛点与候选 checkpoint
@@ -107,6 +110,7 @@ flowchart LR
 | **C·悬挂流探针 + watchdog 权威化** | 悬挂 run 的永悬临时态 | **已实施**：streaming 分区静默 3min → conversation/stats 权威判死活（判死=关停+强制收敛 / 判活=顺延 / RPC 失败=不定罪）；watchdog 触发即 convergeDialog(force) |
 | D·step 间静默超时 | 更早发现悬挂 | 不做：与 LLM 超时/重试语义纠缠，误伤慢模型 |
 
-> 落点：feed-core（lastStreamAt 基线 / scheduleStaleProbe / convergeDialog / fingerprint 双门）+ chat-core（watchdog 收敛）。
-> 测试：src/webui/tests/feed-converge-checkpoints.test.ts（B 两态 + C 三分支）。
+> 落点：`packages/ac-client-ui-conversation/client/feed-core.ts`（lastStreamAt 基线 / scheduleStaleProbe / convergeDialog / fingerprint 双门）+ chat-core（watchdog 收敛）。
+> 测试（cr-726 校正）：原 `src/webui/tests/feed-converge-checkpoints.test.ts` 已随 src/webui 退役、未见迁移件；
+> 相近现行件 = `packages/ac-client-ui-conversation/tests/{settlement-converge,resync-converge}.test.ts`（B/C 无专属回归，见疑点 E-1）。
 > mergeHistory 对齐猜测保留为纵深防御（B 的重拉到达前仍有一屏窗口）。

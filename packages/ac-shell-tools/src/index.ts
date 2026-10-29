@@ -39,6 +39,11 @@ export interface ShellToolsRowOptions extends SandboxResolverOptions {
    * timed_out 报告）。settings['shell-tools'] 分层覆盖。
    */
   timeoutAction?: 'kill' | 'handoff';
+  /**
+   * 任务日志目录（后台/handoff 日志落点；缺省 os.tmpdir()）。壳 boot 注入
+   * 数据根 .runtime/tmp——%TEMP% 被拒写环境下后台任务仍可用（cr-718）。
+   */
+  logDir?: string;
 }
 
 /** settings['shell-tools'] 配置形状（全局默认层 ∪ Agent 差异层；行 options = 基线） */
@@ -142,6 +147,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
       jobs: ctx.jobs,
       family: spec.family,
       toolName: spec.family,
+      ...(options.logDir !== undefined ? { logDir: options.logDir } : {}),
     };
     const def = {
       name: spec.family,

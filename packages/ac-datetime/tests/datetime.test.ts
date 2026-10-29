@@ -3,7 +3,6 @@
 //
 // · 日期行格式（仅日期 + 星期，一天内稳定——KV cache 友好）
 // · conversationId 缺省（子 Agent / loop 直连）不注入
-// · settings['datetime'].enabled=false 软停用
 // · 收尾档位化（2026-09-05）：尾档 before-run-last 晚于主档一切装配
 //   （与监听器注册顺序无关；首档 body 先于主档执行）；多步 run 恰一条
 //   （尾档 run 级一次写回）
@@ -123,21 +122,6 @@ describe('ac-datetime 日期注入', () => {
     await ctx.agentLoop.run({
       model: 'mock-1',
       system: 'BASE',
-      messages: [{ role: 'user', content: 'hi' }],
-    });
-    expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
-  });
-
-  it("settings['datetime'].enabled=false → 软停用", async () => {
-    captured.length = 0;
-    const ctx = new Context();
-    await boot(ctx, [...standardRows(), datetimeRow]);
-    ctx.agents.register({ id: 'd1', model: 'mock-1', settings: { datetime: { enabled: false } } });
-    await ctx.agentLoop.run({
-      agent: 'd1',
-      model: 'mock-1',
-      system: 'BASE',
-      conversationId: 'c2',
       messages: [{ role: 'user', content: 'hi' }],
     });
     expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
