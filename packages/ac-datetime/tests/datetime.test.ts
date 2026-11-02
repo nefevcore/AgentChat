@@ -189,7 +189,7 @@ describe('ac-datetime 日期注入', () => {
     // 模拟 ac-system-prompt 对话信息块：尾档 prepend（恒 unshift）
     const convBlockRow = (ctx: Context) => {
       ctx.on('loop/before-run-last', (call, next) => {
-        const block = '## 对话信息\n[当前对话对象] user - 风栗';
+        const block = '## 对话信息\n[当前对话对象] 你正在与 风栗（user）对话';
         call.request = {
           ...call.request,
           system: call.request.system ? `${call.request.system}\n\n${block}` : block,

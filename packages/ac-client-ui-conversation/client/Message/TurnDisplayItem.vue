@@ -9,7 +9,7 @@ import { VIEWER_ID } from '../viewer.ts';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
-import ContextInjectCard from './ContextInjectCard.vue';
+import InjectCardHost from './InjectCardHost.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
 import { fmtElapsed } from '../feed.ts';
 import { Avatar, Icon, ThinkingIcon } from '@agentchat/webui-kit';
@@ -319,8 +319,9 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
            只是 display:none 藏着——切换卡 1-2s 的真正主体）。折叠 = 不构建，
            用户展开才付费；流式轮 isExpanded 恒 true，直播路径无变化。 -->
       <div v-if="isExpanded" class="chain-body">
-        <!-- 挂靠注入卡（afterStep=0 组）：链体展开才构建（与步链同款付费策略） -->
-        <ContextInjectCard v-for="c in injectsByStep.get(0)" :key="c.key" :card="c" />
+        <!-- 挂靠注入卡（afterStep=0 组）：链体展开才构建（与步链同款付费策略）——
+             宿主按 kind 查 inject-card:view 席位（cr-765 #4 问答卡） -->
+        <InjectCardHost v-for="c in injectsByStep.get(0)" :key="c.key" :card="c" />
         <template v-for="(step, sIdx) in visibleSteps" :key="stepKey(step, sIdx)">
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }"
@@ -355,8 +356,8 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             </div>
           </template>
           <!-- 挂靠注入卡（afterStep={sIdx+1} 组）：注入时刻落在该步之后的
-               mid-run 注入——原位还原落盘序 -->
-          <ContextInjectCard v-for="c in injectsByStep.get(sIdx + 1)" :key="c.key" :card="c" />
+               mid-run 注入——原位还原落盘序（宿主分流同上） -->
+          <InjectCardHost v-for="c in injectsByStep.get(sIdx + 1)" :key="c.key" :card="c" />
         </template>
       </div>
 

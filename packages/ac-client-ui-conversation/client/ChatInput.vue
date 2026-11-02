@@ -238,6 +238,13 @@ watch(() => feed.activeDialogId, (dialog) => {
   lastDraftKey.value = to;
 }, { immediate: true });
 
+// 输入实时暂存（cr-847 草稿留存）：打字即存——刷新/崩溃任意时刻草稿都在
+// （切换/卸载 park 已有；此 watch 补「正在打字时」的窗口）。空文本同样
+// park（清位）——发送后草稿位即清，幻影 title 随之回落。
+watch([inputText, lastDraftKey], ([text, key]) => {
+  if (key) parkDraft(key, text);
+});
+
 // 卸载兜底：视角切换重挂载（instance 内 inputText 随之销毁）前把当前
 // 草稿存回暂存位——切回该会话（或同视角重建）时可恢复。
 onUnmounted(() => {
@@ -856,9 +863,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 // ---- 发送消息（DSH 忙态语义）----
 // 运行中 Enter 发送 → 排队（lane next-turn，本轮结束后独立投递）；
 // 发送不再隐式打断在途 run——停止是停止按钮的唯一职责。
-function send() {
-  const text = inputText.value.trim();
+async function send() {
+  const text = promptFace.takeText().trim(); // 直读编辑器现势（cr-850：组合定稿未 emit 时 v-model 滞后，读旧值会丢字/遗留）
   if (!text && attachedFiles.value.length === 0) return;
+  // 幻影会话物化（延迟落盘，cr-847）：首条消息出门前把会话落到服务端。
+  // 失败 = 消息不出门（草稿保留）——比「发出去了但会话没建」更可恢复。
+  if (props.single && singlesBoard?.isPhantom(props.single.id)) {
+    try { await singlesBoard.materialize(props.single.id); } catch { return; }
+  }
 
   if (props.onSend) {
     props.onSend(text, attachedFiles.value);
@@ -882,9 +894,13 @@ function send() {
 
 /** 立即发送（忙态 Cmd/Ctrl+Enter）：steer 注入活跃 run 下一步（DSH next-step）；
  *  空闲时等价普通发送。无按钮——点击位在 QueueDock 行级"立即发送"（DSH 同款）。 */
-function sendNow() {
-  const text = inputText.value.trim();
+async function sendNow() {
+  const text = promptFace.takeText().trim(); // 与 send 同款（cr-850）
   if (!text && attachedFiles.value.length === 0) return;
+  // 幻影物化（与 send 同款——空幻影会话的任何首条消息都先落会话）
+  if (props.single && singlesBoard?.isPhantom(props.single.id)) {
+    try { await singlesBoard.materialize(props.single.id); } catch { return; }
+  }
 
   if (props.onSend) {
     props.onSend(text, attachedFiles.value);
@@ -959,7 +975,7 @@ function onKeydown(e: KeyboardEvent) {
   // Cmd/Ctrl+Enter（DSH busy 手势对）：忙态 = 另一种行为——有草稿 = 插话
   // 发送草稿；空草稿 + 有排队 = 整队列 FIFO 插话。空闲 = 等同普通发送。
   if ((e.ctrlKey || e.metaKey) && busySend.value) {
-    if (inputText.value.trim() || attachedFiles.value.length > 0) {
+    if (promptFace.takeText().trim() || attachedFiles.value.length > 0) { // 判空同取现势（cr-850：组合中 v-model 滞后被误判空）
       sendNow();
       return;
     }
@@ -984,6 +1000,8 @@ const promptFaceRef = ref<InstanceType<typeof PromptEditor> | null>(null);
 const promptFace = {
   isReady: computed(() => promptFaceRef.value !== null),
   caret: () => promptFaceRef.value?.caret() ?? 0,
+  /** 现势文本（flush 在途组合变异后直读 doc——cr-850：IME 组合期 v-model 滞后，发送取真值） */
+  takeText: (): string => promptFaceRef.value?.takeText() ?? inputText.value,
   focus: () => promptFaceRef.value?.focus(),
   setCaret: (pos: number) => promptFaceRef.value?.setCaret(pos),
   replaceRange: (start: number, end: number, insert: string) =>

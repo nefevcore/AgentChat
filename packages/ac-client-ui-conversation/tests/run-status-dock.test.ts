@@ -31,6 +31,47 @@ describe('deriveRunStatus（七态推导）', () => {
     expect(deriveRunStatus(d, '', 'info')).toEqual({ kind: 'waking', sinceMs: 42 });
   });
 
+  it('【waking 细分·cr-840】wire 断开 → connecting（连接 host 等待）', () => {
+    const d = dialog({
+      streaming: true,
+      rawMessages: [
+        { role: 'agent', agent_id: 'user', timestamp: 42 },
+      ],
+    });
+    // wire 断开优先于宿主信号——断线窗口 stats 轮询也在等重连，先陈述本地确凿事实
+    expect(deriveRunStatus(d, '', 'info', undefined, Date.now(), { wireConnected: false, spawningAgents: new Set(['alpha']) }))
+      .toEqual({ kind: 'connecting', sinceMs: 42 });
+    // 已连接 + 无宿主信号 → 维持通用 waking
+    expect(deriveRunStatus(d, '', 'info', undefined, Date.now(), { wireConnected: true }))
+      .toEqual({ kind: 'waking', sinceMs: 42 });
+  });
+
+  it('【waking 细分·cr-840】宿主 inflight 含目标 agent → spawning（启动 shell 等待）', () => {
+    const d = dialog({
+      streaming: true,
+      rawMessages: [
+        { role: 'agent', agent_id: 'user', timestamp: 42 },
+      ],
+    });
+    expect(deriveRunStatus(d, '', 'info', undefined, Date.now(), { targetAgent: 'alpha', spawningAgents: new Set(['alpha']) }))
+      .toEqual({ kind: 'spawning', sinceMs: 42 });
+    // inflight 集不含目标 agent（拉的是别人的壳）→ 通用 waking
+    expect(deriveRunStatus(d, '', 'info', undefined, Date.now(), { targetAgent: 'beta', spawningAgents: new Set(['alpha']) }))
+      .toEqual({ kind: 'waking', sinceMs: 42 });
+  });
+
+  it('【waking 细分不越界】载体相位在场时 env 不抢占——细分只在 waking 窗内生效', () => {
+    const d = dialog({
+      streaming: true,
+      rawMessages: [
+        { role: 'agent', agent_id: 'user', timestamp: 42 },
+        { role: 'agent', agent_id: 'alpha', timestamp: 43, isStreaming: true, content: '流式中' },
+      ],
+    });
+    expect(deriveRunStatus(d, '', 'info', undefined, Date.now(), { wireConnected: false, targetAgent: 'alpha', spawningAgents: new Set(['alpha']) }))
+      .toEqual({ kind: 'replying', sinceMs: 42 });
+  });
+
   it('runStartAt 已设但无占位 → calling（run 已启动、step 未到）', () => {
     const d = dialog({
       streaming: true,

@@ -7,7 +7,8 @@
 //   [默认路径] 系统环境 → 术语约定（协作工具门控）→
 //              指引（条目级工具门控）——以上静态块落 loop/before-run 主档；
 //              对话信息（信封 sender/conversationId，群场景经可选 ctx.group
-//              解析成员表；对话对象行 `[当前对话对象] <id> - <显示名>` 格式）
+//              解析成员表；对话对象行 `[当前对话对象] 你正在与
+//              <显示名>（<id>）对话` 方向句格式）
 //              落 loop/before-run-last 尾档（2026-09-05 收尾档位化：静态在
 //              前、会话动态信息收尾——尾档内 prepend 恒 unshift，先于恒
 //              push 的 ac-datetime 日期行（ADR-7 收敛式，注册时序无关））
@@ -374,7 +375,10 @@ function buildConversationBlock(input: AssembleInput): string {
   const lines: string[] = [];
   lines.push('## 对话信息');
 
-  // 对话对象（src 轨道格式：`[当前对话对象] <id> - <显示名><注>`）。
+  // 对话对象（方向句：`[当前对话对象] 你正在与 <显示名>（<id>）对话<注>`）。
+  // 2026-10-30 cr-808：旧式 `<id> - <显示名>` 并排无视角锚点——模型会把
+  // 两侧解析成对话双方，进而把自己代入显示名一侧（实测：Agent 自认
+  // 是「风栗」）；方向句锚定「你」= 本 Agent，对端只剩一个实体。
   // M19：sender 携带端点 id（委托方身份缺失顺带修复）——
   //   · **群场景（input.group）→ 不渲染对象行（M26）**：群内 sender 逐
   //     消息变化（上一条发言者 ≠ 对话对象），渲染 = 诱导模型把群聊当
@@ -401,9 +405,9 @@ function buildConversationBlock(input: AssembleInput): string {
     // 缺注册时如实展示端点 id——无 user 专属路径）
     const shown = labelOf(input.sender);
     if (input.source === 'event' && isSelfPairConversation(input.conversationId)) {
-      lines.push(`[当前对话对象] ${input.sender} - ${shown}（机制触发·自会话）`);
+      lines.push(`[当前对话对象] 你正在与 ${shown}（${input.sender}）对话（机制触发·自会话）`);
     } else {
-      lines.push(`[当前对话对象] ${input.sender} - ${shown}`);
+      lines.push(`[当前对话对象] 你正在与 ${shown}（${input.sender}）对话`);
     }
   } else if (input.conversationId !== undefined) {
     lines.push(`[当前会话] ${input.conversationId}`);

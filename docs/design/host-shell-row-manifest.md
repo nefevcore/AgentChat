@@ -413,7 +413,11 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
   = 预设不进 agents 树本体，名册语义由 preset-builtin 模板集承载）。
   ② creator 模板的 dev/admin 工具面（插件装卸三件套）在新架构 = 宿主
   plugin-registry 行工具面，壳行集内无对应行——模板 system 提示词暂保留原文，
-  工具面收敛归 8.9。③ timers 行 entries 仍自带直读写（同布局、未经 agents
+  工具面收敛归 8.9。（cr-810 补记：人设载体已迁 AGENTS.md 文档 +
+  settings.persona.file，config.system 退役；工具面措辞收敛仍归 8.9。
+  cr-812 补记：模板升级通路落地——物化记 preset-origin 指纹，宿主 boot
+  每启对账，未编辑自动跟随模板新版、已编辑保留+日志提示；三预设活体已
+  重置为当前模板形态并记 pristine 基线。）③ timers 行 entries 仍自带直读写（同布局、未经 agents
   写口）——唯一写者纪律收口归 8.6 清账余件。④ **agents 目录 entries 布局
   换轨需迁移**：主线 agent-store 形态是扁平 `<id>/<key>.json`（timer.json /
   goal.json …），新布局 = `<id>/entries/<key>.json`（本批与 cr-539 timers

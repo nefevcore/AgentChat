@@ -209,7 +209,7 @@ export class LedgerService extends Service {
     run: string,
     content: string,
     requestId?: string,
-    extra?: { injectionId?: string; injectSource?: string; label?: string; ts?: number },
+    extra?: { injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; ts?: number },
   ): Promise<void> {
     if (run === '') return;
     await this.writerFor(uuid, [this.agentId], 'user').journal({
@@ -220,18 +220,47 @@ export class LedgerService extends Service {
       ...(extra?.injectionId !== undefined ? { injectionId: extra.injectionId } : {}),
       ...(extra?.injectSource !== undefined ? { injectSource: extra.injectSource } : {}),
       ...(extra?.label !== undefined ? { label: extra.label } : {}),
+      ...(extra?.payload !== undefined ? { payload: extra.payload } : {}),
       ...(extra?.ts !== undefined ? { ts: extra.ts } : {}),
     } satisfies JournalInject);
   }
 
   /** run 收束：终稿行 + journal-settled（settlement 两阶段）+ 计量落账与
-   * usage 事件信（cr-538——meter 取 after-run 缓存，消费即清）。 */
-  async settleRun(uuid: string, participants: string[], kind: string, row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>, runId: string, finish: 'ok' | 'interrupted' | 'error'): Promise<void> {
+   * usage 事件信（cr-538——meter 取 after-run 缓存，消费即清）。
+   * cr-807：error 收束补落 context+source:error 行（session-design §2.5
+   * 承诺的落盘形态，实现此前缺席）——错误文案只在瞬态帧（run-settled
+   * .message → 前端红条），刷新/错过帧即蒸发。行形与读面既有消费
+   * （historyApi context+source:error → 红条；replay 按 user 喂回）对齐。 */
+  async settleRun(uuid: string, participants: string[], kind: string, row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>, runId: string, finish: 'ok' | 'interrupted' | 'error', errorMessage?: string): Promise<void> {
     const meter = this.runMeters.get(runId);
     this.runMeters.delete(runId);
-    await this.writerFor(uuid, participants, kind).settle(row, runId, finish, meter);
+    await this.writerFor(uuid, participants, kind).settle(row, runId, finish, meter, errorMessage);
     if (meter !== undefined && this.postOfficeAddress !== undefined) {
       void this.reportUsage(runId, meter, finish);
+    }
+  }
+
+  /** 邮局连接获取（cr-842 断链自愈）：宿主重启后旧 named pipe 死连接的
+   *  send 会 reject（IpcClient socket=null 后不重连）——失败即弃缓存重连
+   *  一次再发。连接本身持有在 this.usageOutbound，重连成功换新缓存。 */
+  private async usageEnvelopeSend(envelope: Envelope): Promise<void> {
+    if (this.usageOutbound === null) {
+      const { IpcClient } = await import('ac-envelope-core');
+      const client = new IpcClient();
+      await client.connect(this.postOfficeAddress!);
+      this.usageOutbound = { send: (e) => client.send(e) };
+    }
+    try {
+      await this.usageOutbound.send(envelope);
+    } catch (err) {
+      // 死连接（宿主重启后 pipe 断）：弃缓存重连一次重发（at-least-once，
+      // 宿主 requestId 幂等去重——重发安全）
+      this.usageOutbound = null;
+      const { IpcClient } = await import('ac-envelope-core');
+      const client = new IpcClient();
+      await client.connect(this.postOfficeAddress!);
+      this.usageOutbound = { send: (e) => client.send(e) };
+      await this.usageOutbound.send(envelope);
     }
   }
 
@@ -240,13 +269,7 @@ export class LedgerService extends Service {
     conversationId: string, runId: string, step: number, ts: number, hit: number, miss: number, prompt: number | undefined,
   ): Promise<void> {
     try {
-      if (this.usageOutbound === null) {
-        const { IpcClient } = await import('ac-post-office');
-        const client = new IpcClient();
-        await client.connect(this.postOfficeAddress!);
-        this.usageOutbound = { send: (e) => client.send(e) };
-      }
-      await this.usageOutbound.send(makeUsageEnvelope({
+      await this.usageEnvelopeSend(makeUsageEnvelope({
         requestId: `usage-step-${runId}-${step}`,
         payload: { subject: 'usage-step', agent: this.agentId, conversationId, runId, step, ts, hit, miss, ...(prompt !== undefined ? { prompt } : {}) },
       }));
@@ -255,16 +278,12 @@ export class LedgerService extends Service {
     }
   }
 
-  /** usage 事件信发射（at-least-once——失败不阻塞收束；宿主 requestId 幂等） */
+  /** usage 事件信发射（at-least-once——失败不阻塞收束；宿主 requestId 幂等。
+   *  cr-842：断链自愈重连（usageEnvelopeSend）+ 失败后兜底走宿主 boot 对账
+   *  回填（journal 事实源 → reportMeter 补录，ac-host-rows usage 行）） */
   private async reportUsage(runId: string, meter: { usage: RunUsage; model: string; conversationId: string; stepCache?: Array<{ ts: number; hit: number; miss: number; prompt?: number }> }, finish: string): Promise<void> {
     try {
-      if (this.usageOutbound === null) {
-        const { IpcClient } = await import('ac-post-office');
-        const client = new IpcClient();
-        await client.connect(this.postOfficeAddress!);
-        this.usageOutbound = { send: (e) => client.send(e) };
-      }
-      await this.usageOutbound.send(makeUsageEnvelope({
+      await this.usageEnvelopeSend(makeUsageEnvelope({
         requestId: 'usage-' + runId,
         payload: {
           subject: 'usage-run', agent: this.agentId, model: meter.model, finish,

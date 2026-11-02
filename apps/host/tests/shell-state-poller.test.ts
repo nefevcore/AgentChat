@@ -10,7 +10,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { createOrchestrator, type RunStateSnapshot } from '../orchestrator.ts';
 import { createShellStatePoller, type PollerEvent } from '../shell-state-poller.ts';
-import { PostOffice, ReachabilityTable, listenIpc } from 'ac-post-office';
+import { PostOffice, ReachabilityTable } from 'ac-post-office';
+import { listenIpc } from 'ac-envelope-core';
 import { isManageRequest, makeManageReply, socketPathFor } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-poller-' + process.pid);

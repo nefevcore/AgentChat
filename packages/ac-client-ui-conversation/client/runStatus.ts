@@ -5,7 +5,11 @@
 // 零后端改动）。状态按【分区当前活动】推导而非按帧序推进——任一帧
 // 丢失只影响相邻档位细分，不会卡死（run-started 帧在冷启动场景可能
 // 落在 tap 桥接建立前丢失，delta 到达仍能点亮 thinking/replying）：
-//   waking    streaming 但无任何 run 迹象——投递/boot shell 冷启动窗口
+//   waking    streaming 但无任何 run 迹象——投递/冷启动窗口
+//   connecting waking 窗细分：wire 断开、消息未出门（连接 host 等待——
+//             本地判定，见 deriveRunStatus 的 env.wireConnected）
+//   spawning  waking 窗细分：宿主确认壳拉起在飞（启动 shell 等待——
+//             spawn → boot.ready 窗口，宿主 stats 轮询回填的 inflight 集）
 //   calling   占位已建（或 runStartAt 已设）但全空——模型 API 往返窗口
 //   thinking  流式占位有思考内容——reasoning delta 到达
 //   tooling   有运行中工具（未闭合 tool 行 / running toolCalls）
@@ -21,6 +25,8 @@
 /** 会话状态（hidden = 卡不渲染） */
 export type RunStatus =
   | { kind: 'waking'; sinceMs: number }
+  | { kind: 'connecting'; sinceMs: number }
+  | { kind: 'spawning'; sinceMs: number }
   | { kind: 'calling'; sinceMs: number }
   | { kind: 'thinking'; sinceMs: number }
   | { kind: 'tooling'; sinceMs: number }
@@ -105,13 +111,28 @@ function runInFlight(d: RunStatusDialog): boolean {
   return d.streaming || d.rawMessages.some((m) => m.isStreaming === true);
 }
 
+/** waking 窗外部判据（cr-840）：两等待相位的真源在推导层之外——
+ * connecting 是本地 wire 态（消息还压在 rpc-wire 的 queue 里没出门），
+ * spawning 是宿主编排面 inflight 集（spawn → boot.ready 在飞）。两者
+ * 都是「缺省按无」的可选信号：缺省 waking 不细分，行为与 cr-840 前一致。 */
+export interface WakeEnv {
+  /** wire 连接态（缺省 true = 已连）；waking 窗内 false → connecting */
+  wireConnected?: boolean;
+  /** 会话目标 agent（Host 席位数据）；宿主正在拉它的壳 → spawning */
+  targetAgent?: string;
+  /** 宿主正在拉壳的 agent 集（缺省空）；含目标 agent → spawning */
+  spawningAgents?: ReadonlySet<string>;
+}
+
 /**
- * 状态推导（分区态 + busy 反馈 → 七态）。判据序：
- *   权威判死（cr-756）→ error → 在途组合判据 → 载体相位。
+ * 状态推导（分区态 + busy 反馈 → 九态）。判据序：
+ *   权威判死（cr-756）→ error → 在途组合判据 → 载体相位 → waking 细分。
  * 权威 miss + 20s 静默 = 死行收束（本地帧残留但 shell 说 settled——
  * 后端重启/刷新窗口的权威对账，替代启发式死行判别）；新帧到达
  * （bump 清标记）即恢复本地帧自治。
  * 多步 run 自然流转：唤醒 → API → 思考 → 工具 → API → 思考 → 回复 → … → hidden。
+ * waking 细分优先级（cr-840）：connecting > spawning——wire 断开时宿主
+ * 信号不可达（stats 轮询也在等重连），先陈述本地确凿事实。
  */
 export function deriveRunStatus(
   d: RunStatusDialog | null | undefined,
@@ -119,6 +140,7 @@ export function deriveRunStatus(
   busyTone: 'info' | 'error',
   authoritativeActive: boolean | undefined = undefined,
   nowMs: number = Date.now(),
+  env: WakeEnv = {},
 ): RunStatus {
   if (busyFeedback !== '' && busyTone === 'error') {
     return { kind: 'error', text: busyFeedback };
@@ -139,5 +161,11 @@ export function deriveRunStatus(
   }
   if (hasRunningTool(d)) return { kind: 'tooling', sinceMs }; // 步间工具执行窗口
   if (d.runStartAt !== undefined) return { kind: 'calling', sinceMs }; // run 已启动、step 未到
-  return { kind: 'waking', sinceMs }; // 无任何 run 迹象——投递/冷启动窗口
+  // waking 细分（cr-840）：无任何 run 迹象的静默窗——先看 wire 断开（消息
+  // 未出门），再看宿主拉壳在飞；都不是则维持通用 waking。
+  if (env.wireConnected === false) return { kind: 'connecting', sinceMs };
+  if (env.targetAgent !== undefined && env.spawningAgents?.has(env.targetAgent) === true) {
+    return { kind: 'spawning', sinceMs };
+  }
+  return { kind: 'waking', sinceMs }; // 投递在途/壳已就绪待响应——通用冷启动窗
 }

@@ -207,7 +207,7 @@ const displayUrl = computed(() => {
         <span class="brw-batch-count">{{ batchItems.length }} 步</span>
         <span v-if="batchOk" class="brw-batch-ok"><Icon name="check" :size="11" /> {{ batchOk }}</span>
         <span v-if="batchErr" class="brw-batch-err"><Icon name="x" :size="11" /> {{ batchErr }}</span>
-        <span v-if="failedStep" class="brw-batch-failed">第 {{ failedStep }} 步失败</span>
+        <span v-if="failedStep" class="brw-batch-failed">（第 {{ failedStep }} 步）</span>
       </div>
 
       <div v-if="errorMessage" class="brw-error">{{ errorMessage }}</div>

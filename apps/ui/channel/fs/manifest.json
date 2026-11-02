@@ -16,8 +16,7 @@
     "ac-client-runtime",
     "ac-client-slots",
     "@agentchat/webui-kit",
-    "ac-client-ui-renderer/client/ScrollableViewport.vue",
-    "ac-client-ui-renderer/client/codeFence.ts",
-    "ac-client-ui-renderer/client/useMarkdown.ts"
+    "ac-client-ui-renderer/client/CodeCard.vue",
+    "ac-client-ui-renderer/client/ScrollableViewport.vue"
   ]
 }

@@ -190,6 +190,10 @@ function withoutActivityEcho(fn: () => void): void {
 watch(() => props.modelValue, (v) => {
   const ed = editor.value;
   if (!ed || ed.isDestroyed) return;
+  // 程序性改写前先消费在途组合变异（cr-850）：组合中 DOM 变异未上账时 doc
+  // 是旧的，守门比较与 setContent 都要基于真实现势；不 flush 则发送清空会与
+  // 迟到定稿 emit 竞争，文本遗留在输入框（PM blur/contextmenu 同款语义）
+  flushPendingDom();
   if (ed.getText({ blockSeparator: '\n' }) === v) return;
   withoutActivityEcho(() => {
     // 程序性整体重写不进 undo 栈（addToHistory:false 与官方 focus/blur 事务同款）；
@@ -296,7 +300,29 @@ function focus(): void {
   editor.value?.commands.focus();
 }
 
-defineExpose({ focus, caret, replaceRange, setCaret });
+/** 同步读取编辑器现势文本（发送路径专用，cr-850）：v-model 在 IME 组合期
+ *  是滞后值（组合门拦 emit），发送直读 doc 前先 flush——把在途组合变异同步
+ *  上账（PM contextmenu/blur 同款 forceFlush 语义），读到用户真实所见文本。
+ *  同时作废 pending 补发：定稿文本经返回值交调用方消费，modelValue 随后由
+ *  调用方改写（发送清空），再补发只会把旧组合文本写回已清空的输入框。 */
+/** 同步消费在途 DOM 变异（含组合期）。PM domObserver.flush 未进类型面
+ *  （运行时公开——PM 自身 contextmenu/blur 即直调），经私有断言受控访问
+ *  （view.input 同款先例：compose-final-emit.test 的 setComposing）。 */
+function flushPendingDom(): void {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return;
+  (ed.view as unknown as { domObserver: { flush(): void } }).domObserver.flush();
+}
+
+function takeText(): string {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return '';
+  flushPendingDom();
+  composeEmitPending = false;
+  return ed.getText({ blockSeparator: '\n' });
+}
+
+defineExpose({ focus, caret, replaceRange, setCaret, takeText });
 </script>
 
 <template>
@@ -308,10 +334,10 @@ defineExpose({ focus, caret, replaceRange, setCaret });
 
 <style scoped>
 /* 单层渲染：文字与 token 药丸同 DOM——度量对齐由结构保证，非样式逼近。
- * 度量值与原 textarea 面一致（14px/1.5/63px 三整行/padding 0 2px）。 */
+ * wrap 只做定位壳（placeholder 绝对定位锚）——高度语义全在 .pe-editor
+ * 的 em 规则（行数 × line-height），wrap 不另设基线防两层度量走散。 */
 .pe-wrap {
   position: relative;
-  min-height: 63px;
 }
 
 .pe-wrap :deep(.pe-editor) {
@@ -319,10 +345,10 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
-  /* 高度与原 textarea 面同策略：桌面固定恰好 3 整行（1.5 × 14px × 3），
-     超出内容内滚；滚动条隐藏（经典滚动条占内容宽会改变换行点） */
-  min-height: 63px;
-  max-height: 63px;
+  /* 高度随内容动态变化：默认两行（3em）起步、10 行（15em）封顶，超出内滚；
+     滚动条隐藏（经典滚动条占内容宽会改变换行点） */
+  min-height: 3em;
+  max-height: 15em;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -333,15 +359,10 @@ defineExpose({ focus, caret, replaceRange, setCaret });
   caret-color: var(--text-1);
 }
 
-/* 窄屏默认单行、随内容自增高，上限 3 行（cr-111）：21px = 1.5 × 14px × 1，
-   63px = 3 行上限，超出内滚。原 cr-34 的 min/max 同值（42px = 固定 2 行）
-   令编辑面无法增高——改单值 min-height 后高度由内容撑开，上限仍由 max-height
-   守住。本块必须写在基础规则之后：媒体查询不提升特异性，同特异性时后写的赢
-   （cr-36 同款顺序坑——写在前面会被基础 63px 压过，窄屏不改动）。 */
-@media (max-width: 768px) {
-  .pe-wrap { min-height: 21px; }
-  .pe-wrap :deep(.pe-editor) { min-height: 21px; max-height: 63px; }
-}
+/* 历史注记：窄屏（≤768px）曾有差异化规则——单行起步/3 行上限（cr-111）；
+   2026-10 起基础规则统一动态高度、窄屏不再差异化（媒体查询已移除）；
+   cr-850 起 min/max 由 px 改 em（默认两行起步/10 行封顶——行数语义随
+   字号自动换算，contenteditable 无 rows 概念）。 */
 
 .pe-wrap :deep(.pe-editor)::-webkit-scrollbar {
   display: none;

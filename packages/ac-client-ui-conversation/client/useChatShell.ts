@@ -4,8 +4,9 @@
 // 统一 ChatView(direct) 与 GroupChat(group) 的滚动行为：
 //   · 方向检测暂停自动跟随（一次上滚即可脱离，无需滚多次）
 //   · 滚底引擎：追赶段用 rAF 指数缓动（平滑滑向底部，不再 scrollTop
-//     瞬移跳变）；贴底后逐帧吸收流式增量（增量在折叠线以下生长，
-//     视口视觉静止 = 「驻留底部」）
+//     瞬移跳变）；贴底后逐帧直接吸收流式小增量（每帧几像素，视口读作
+//     连续流）；卡片级大增量（新消息/工具卡整块上屏）切回缓动平滑
+//     揭示——贴底态瞬跳整卡高度是可见跳变
 //   · 程序滚动对账（expectedScrollTop）：自身写入与用户滚动严格区分——
 //     自身滚动的 scroll 回声绝不参与方向判定（不会把 isUserScrolledUp
 //     洗回 false），用户上滚在帧粒度即可察觉（不等 scroll 事件回主线程）
@@ -37,6 +38,11 @@ const GLIDE_TIMEOUT = 800;
 const FOLLOW_IDLE_MS = 1200;
 /** 帧级用户上滚察觉的容差（px）：忽略 1px 级触控板/亚像素噪声 */
 const USER_DELTA_EPS = 2;
+/** 贴底直接吸收的单帧增量上限（px）：低于此值按流式增量直接同步（每帧
+ *  几像素～两行内，视口读作连续流）；超过则视为整卡上屏（新消息/工具卡
+ *  的最小高度也远超两行文本），转 rAF 缓动揭示——贴底态瞬跳整卡高度是
+ *  与发送/回到底部不一致的可见跳变。 */
+const SNAP_ABSORB_MAX = 48;
 /** 远距直达阈值：距底超过 max(1200px, 4×视口高)（如切换会话/首载历史）
  *  时直接贴底不缓动——超远距离的"扫屏式滑过"不可读且易晕，瞬达才是
  *  上下文切换的预期语义；常规距离（发送/回到底部/流式追赶）仍平滑缓动 */
@@ -89,8 +95,8 @@ export function useChatShell(opts: ChatShellOptions) {
    *     绝不与用户争抢滚动条；「恰在最大值」排除内容收缩导致的浏览器钳制）；
    *  ② 缓动段：向实时底部指数逼近（目标随流式增长持续更新，速度随距离
    *     衰减 → 末端平滑收敛，全程无跳变）；用户向下滚时从用户位置续接；
-   *  ③ 贴底段：直接吸收流式增量（增量位于折叠线以下，写入不产生视觉
-   *     位移 = 视口钉在底部）；
+   *  ③ 贴底段：流式小增量（折叠线以下逐帧生长）直接吸收（视口读作
+   *     连续流）；卡片级增量（整块上屏）切入缓动段平滑揭示；
    *  ④ 静默退出：流式停歇且已贴底 → 空转 FOLLOW_IDLE_MS 后停机。 */
   function followTick() {
     const el = opts.container.value;
@@ -133,8 +139,16 @@ export function useChatShell(opts: ChatShellOptions) {
         writeScrollTop(el, target); // 收尾精确贴底
       }
     } else if (el.scrollTop !== target) {
-      // 贴底吸收：任何流式增量（折叠线以下生长）直接同步，视口视觉静止
-      writeScrollTop(el, target);
+      if (target - el.scrollTop > SNAP_ABSORB_MAX) {
+        // 整卡上屏：切入缓动段平滑揭示（本帧只切入，缓动写入自下帧起）
+        gliding = true;
+        glideT0 = now;
+        glideY = el.scrollTop;
+        glideT = now;
+      } else {
+        // 流式增量（折叠线以下生长）：直接同步吸收，视口读作连续流
+        writeScrollTop(el, target);
+      }
     }
 
     if (!gliding && target - el.scrollTop <= 0.5 && now - lastActivity > FOLLOW_IDLE_MS) {
@@ -152,7 +166,7 @@ export function useChatShell(opts: ChatShellOptions) {
     if (!el) return;
     const now = performance.now();
     const dist = el.scrollHeight - el.clientHeight - el.scrollTop;
-    gliding = dist > 1;
+    gliding = dist > SNAP_ABSORB_MAX; // 与贴底段同一分流阈值：小增量直接吸收，整卡缓动
     glideT0 = now;
     glideY = el.scrollTop;
     glideT = now;

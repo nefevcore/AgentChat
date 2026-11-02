@@ -87,7 +87,7 @@ export function makeAutoTitleRow(options: AutoTitleRowOptions): Plugin {
       /** 标题请求信投递（每次调用独立连接、发毕即关——缓存连接会随宿主换代
        *  失效，cr-656 同款） */
       const deliver = async (conversationId: string, title: string): Promise<void> => {
-        const { IpcClient } = await import('ac-post-office');
+        const { IpcClient } = await import('ac-envelope-core');
         const client = new IpcClient();
         try {
           await client.connect(options.postOfficeAddress!);

@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import { assembleSessionView, conversationDirs, deleteConversationRow, deriveViewerLedger, historyView, truncateConversation } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isAgentIdentity, materializedChildIds } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
-import { registerOpsFace, collectRunning, type FaceOpsDeps } from './face-ops.ts';
+import { registerOpsFace, runningOf, type FaceOpsDeps } from './face-ops.ts';
 import {
   avatarPathOf,
   guessContentType,
@@ -69,6 +69,9 @@ export interface WebApiDeps {
   catalogFile?: string;
   /** 编排面惰性端口（壳内服务面；boot 创建 orchestrator 后回填） */
   shellPort?: () => ShellAdminPort | null;
+  /** 宿主壳状态镜像（cr-824 批二——poller.snapshot 惰性端口；boot 创建
+   *  poller 后回填，缺席 = 活跃集退回现探） */
+  pollerSnapshot?: FaceOpsDeps['pollerSnapshot'];
 }
 
 // ---- 参数窄化（主线同款纪律：缺参 → rpc error） ----
@@ -198,7 +201,10 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // 文件只解析一次，投影逻辑归位数据拥有者 ac-ledger。
         const all = assembleSessionView(deps.dataRoot, conversationId, {
           ...(p.view === 'lite' ? { view: 'lite' } : {}),
-          running: await collectRunning(deps),
+          // 观测失败（null，cr-802——仅现探退路可达）= 视同无运行中
+          // （undefined）——活投影门控全关（保守：宁可少显示进行中步，
+          // 不虚假点亮已收束的 run）。
+          running: (await runningOf(deps)) ?? undefined,
         });
         const page = limit === undefined
           ? all
@@ -432,10 +438,17 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       // conversation/stats：前端 chat-core / feed-core 两链消费（cr-598 接真
       // 数据源——此前硬编码空壳曾令 resume 恢复不拉 history、流式静默探针
       //〔feed-core 分区静默超阈查权威〕误判流死拆直播分区 =「流式不稳定」根因）。
-      // 活跃集 = 活壳 run-state 帧（face-ops collectRunning——runs/snapshot 同源）。
-      web.registerRpc('conversation/stats', async () => ({
-        running: (await collectRunning(deps)).map((r) => ({ agentId: r.agentId, conversationId: r.conversationId })),
-      }));
+      // 活跃集 = runningOf（cr-824 批二：poller 镜像优先——stats 的观测抖动
+      // 根因即每次 RPC 现探；镜像无观测失败态，conservative 清空两难自然消解）。
+      // spawning（cr-840）：编排面拉壳在飞集——运行状态卡「正在启动 Agent 壳」
+      // 相位；缺席（旧编排面/无编排面）不带字段，前端按无细分处理。
+      web.registerRpc('conversation/stats', async () => {
+        const spawning = deps.shellPort?.()?.spawningIds?.();
+        return {
+          running: ((await runningOf(deps)) ?? []).map((r) => ({ agentId: r.agentId, conversationId: r.conversationId })),
+          ...(spawning !== undefined ? { spawning } : {}),
+        };
+      });
 
       // ---- 会话级覆盖面（cr-565）----
       // 宿主 conv-settings 行 = 写面单源（壳经垫片只读直取同一数据目录）。
@@ -505,14 +518,20 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
           dataRoot: deps.dataRoot,
           ...(deps.catalogFile !== undefined ? { catalogFile: deps.catalogFile } : {}),
           ...(deps.shellPort !== undefined ? { shellPort: deps.shellPort } : {}),
+          ...(deps.pollerSnapshot !== undefined ? { pollerSnapshot: deps.pollerSnapshot } : {}),
         },
       );
 
       // 壳内服务面（cr-569）：goal / todo / 运行中断——控制帧往返编排面
+      //（goal/todo/interaction 读面已盘直读，cr-824 批一）
       registerShellFace(
         web as unknown as { registerRpc(method: string, handler: (params: unknown) => unknown): void },
         ctx,
-        { dataRoot: deps.dataRoot, port: () => deps.shellPort?.() ?? null },
+        {
+          dataRoot: deps.dataRoot,
+          port: () => deps.shellPort?.() ?? null,
+          ...(deps.catalogFile !== undefined ? { catalogFile: deps.catalogFile } : {}),
+        },
       );
 
     },

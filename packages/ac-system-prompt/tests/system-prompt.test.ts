@@ -367,7 +367,7 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     });
     const content = String(captured[0].messages[0].content);
     expect(content).toContain('## 对话信息');
-    expect(content).toContain('[当前对话对象] user - 用户');
+    expect(content).toContain('[当前对话对象] 你正在与 用户（user）对话');
     // 动态块在最后（KV cache：静态前缀稳定）
     expect(content.lastIndexOf('## 对话信息')).toBeGreaterThan(content.indexOf('## 系统环境'));
   });
@@ -379,7 +379,7 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
       conversationId: 'neko',
       labelOf: (id) => (id === 'user' ? '风栗' : id),
     });
-    expect(blocks.join('\n\n')).toContain('[当前对话对象] user - 风栗');
+    expect(blocks.join('\n\n')).toContain('[当前对话对象] 你正在与 风栗（user）对话');
   });
 
   it('Agent 专用空间缺省：工作目录 = files/<agentId>（M18 #3；显式 security.workdir 仍最优先）', () => {
@@ -457,7 +457,7 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
       labelOf: (id) => (id === 'writer' ? '写作助手' : id),
     });
     const content = blocks.join('\n\n');
-    expect(content).toContain('[当前对话对象] writer - 写作助手');
+    expect(content).toContain('[当前对话对象] 你正在与 写作助手（writer）对话');
   });
 
   it('sender=目标自身 + source=event → 当前对话对象 = 自己（D2 机制触发·自会话）', () => {
@@ -467,7 +467,7 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
       source: 'event',
       conversationId: 'watchdog~watchdog',
     });
-    expect(blocks.join('\n\n')).toContain('[当前对话对象] watchdog - watchdog（机制触发·自会话）');
+    expect(blocks.join('\n\n')).toContain('[当前对话对象] 你正在与 watchdog（watchdog）对话（机制触发·自会话）');
   });
 
   it('source=event 但非自会话桶（1v1/群/singles）→ 不标注，与该 sender 普通轮同渲染（KV 前缀不翻转）', () => {
@@ -485,7 +485,7 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
       source: 'user',
       conversationId: 'admin~user',
     });
-    expect(round.join('\n\n')).toContain('[当前对话对象] user - user');
+    expect(round.join('\n\n')).toContain('[当前对话对象] 你正在与 user（user）对话');
     expect(round.join('\n\n')).not.toContain('机制触发');
     expect(round).toEqual(userTurn);
   });

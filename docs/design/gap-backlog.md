@@ -52,9 +52,10 @@
    - 未做：方向一重量部分（消除模板串在传输层的形状假设）+ 方向三（edit 的 old_string/new_string 允许引用「外部文件片段」路径，复杂编辑不走程序体内嵌字符串）。
    - 关联事故：worker 死锁事故连锁因素②（`archive/run-code-hardening-backlog.md` 事故实录）。
 
-4. ☐ **读结果分层（收束行 steps + subcalls.jsonl 读结果全文）**
+4. ☑ **读结果分层（收束行 steps + subcalls.jsonl 读结果全文）**（cr-803，2026-10-30）
    - 出处：`archive/run-code-usage-profile-2026-09-20.md` 优化线索 ①④（两轮画像同构实证：前支 425KB 收束行 / subcalls 1898KB；后支 messages 1384KB / 21 行、subcalls 1416KB ≈ messages）。
-   - 动作：单独立项权衡——steps 按工具类分层（写操作全量、读操作 result 降为摘要/偏移）、归档压缩或 UI 投影按需加载；动 KV 前缀回放语义，非纯收益。
+   - 已落地（cr-803）：subcall 档案分流独立 `subcalls.jsonl`（段行 steps 不内联子调用卡，读面 `stepsOfLedger` 联查注入——UI 等价、主文件瘦身 68% 实测）；存量迁移脚本 `sandbox/migrate-subcalls-relocate.ts`。
+   - 残余：宿主直调工具 result 全文仍随段行 steps 落盘（KV 前缀保真必需——非纯收益，维持现状）；归档压缩/按需加载未做。
 
 5. ☐ **dev worker 坏态全链路手动验收**
    - 出处：`archive/run-code-hardening-backlog.md` 立项① 遗留项。自动化已落地（2026-09-21）：`ac-run-code/src/tool.ts` L456/L468/L753（bootDegraded 告警 + 引导链三级候选 + 快照回退）、`ac-run-code/src/protocol.ts` L16（PROTOCOL_VERSION 版本闸）、测试钩子 `__runCodeTestHooks`。
@@ -90,6 +91,16 @@
     - **P3（候选）快照深冻结替代 structuredClone** ✗ 不做：前置审计（cr-377 逐点核验 14 处 `config.get` 调用点）确认读侧快照隔离无 mutate 场景；改为补写侧对称——`set/merge` 值深拷贝入内存（写侧存引用 = 调用方事后变异静默绕过写盘与事件，读侧隔离承诺被写侧戳穿），测试锁定。冻结替代的 fail-loud 收益在双侧隔离下不存在，不引入。
     - 落点/验证阶梯/原则记档：`archive/dsh-0.2-contract-takeaways-plan.md`（§3 记档见本档 §三）。
 
+
+### E2. 宿主-壳读面搬迁（cr-822，2026-10-31 立）
+
+1. ☐ **批一：读面换数据源（假依赖根除）**〔架构〕
+   - 出处：`docs/design/host-shell-read-face-audit.md` §五（本轮审计成文）。
+   - 内容：goal/get、todo/get 改 entries/ 盘直读；interaction/list 改 interactions.jsonl 直读；subagents/list 叠加通道 port.handles() 改 liveShells()。零新机制（垫片模式承 conv-settings 先例）。
+2. ☐ **批二：stats/collectRunning 接 poller 镜像（光环根除）**
+   - 内容：conversation/stats、runs/snapshot 活跃集读改 poller.snapshot()（cr-748 已建成、boot 已接线），消灭 web-api.ts 里对 cr-802 三值语义的空集折叠。
+3. ◐ **批三：工具目录静态化（ExtensionMeta.tools 声明面）**
+   - 内容：行包自述工具 schema，tools/list、agents/tool-defs 静态离线算 + 活壳真值覆盖，冷启动不拉代表壳。与 rpc-audit A4/A6/B1/B2（事件/扩展目录数据化）同族，可合并批。风险 = 双源漂移，需静态测试锁。
 
 ### F. 外部条件观望与未实施（cr-726 收编，2026-10-27）
 

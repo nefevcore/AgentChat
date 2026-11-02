@@ -28,6 +28,24 @@ function seed(conv: string): void {
   ].join('\n') + '\n', 'utf-8');
 }
 
+describe('cr-807 error 收束错误行读面透传', () => {
+  it('error run（空终稿）：盲区投 steps 行 + context+error 行紧随——刷新后红条可见', async () => {
+    const conv = 'err-view-1';
+    const { LedgerWriter } = await import('../src/writer.ts');
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '用户问', agent_id: 'user', requestId: 'q1', uuid: conv });
+    await w.journal({ type: 'journal-step', run: 'run-q1', step: 0, content: '半途' });
+    await w.settle({ role: 'agent', content: '', agent_id: 'alpha', requestId: 'reply-q1', uuid: conv, run: 'run-q1' }, 'run-q1', 'error', undefined, 'LLM 响应超时');
+    const out = assembleSessionView(ROOT, conv, {});
+    // 盲区 steps 行（cr-628/698 既有）+ 错误行（cr-807 新增）
+    const errRow = out.find((r) => r.role === 'error');
+    expect(errRow).toMatchObject({ content: 'LLM 响应超时', agent_id: 'alpha', run: 'run-q1' });
+    // 错误行位于盲区 steps 行之后（渲染序：轨迹 → 红条）
+    const stepIdx = out.findIndex((r) => Array.isArray(r.steps));
+    expect(out.indexOf(errRow!)).toBeGreaterThan(stepIdx);
+  });
+});
+
 describe('lite 视图投影（cr-768 回填 cr-54/55）', () => {
   it('超长 reasoning/arguments 截断为摘要，result 换 truncated 摘要对象', () => {
     seed('lite-1');

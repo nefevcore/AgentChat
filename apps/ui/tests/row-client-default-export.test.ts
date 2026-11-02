@@ -7,8 +7,8 @@
 // mod.default.apply；具名出口再全也不是装载面，缺 default 即整行
 // 静默跳过（cr-487：ui-singles 整行前端面消失的根因）。
 // 真装载路径回归在 boot.test.ts（走真 rowClientLoaders）；本锁管
-// 【31 行一个都不能漏】——下次精简再撞同形态时在此红。
-// 形态：静态扫源码（零模块求值——31 入口含 .vue 链）。
+// 【32 行一个都不能漏】——下次精简再撞同形态时在此红。
+// 形态：静态扫源码（零模块求值——32 入口含 .vue 链）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
@@ -38,8 +38,8 @@ function stripComments(src: string): string {
 describe('行 client 半边 default 出口契约（cr-487；cr-706 重建）', () => {
   const entries = rowClientEntries();
 
-  it('发现口径成立（扫到全仓行 client 入口，31 行）', () => {
-    expect(entries.length).toBe(31);
+  it('发现口径成立（扫到全仓行 client 入口，32 行）', () => {
+    expect(entries.length).toBe(32);
     expect(entries.map((e) => e.row)).toContain('singles');
   });
 

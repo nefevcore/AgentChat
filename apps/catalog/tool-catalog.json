@@ -1,0 +1,3325 @@
+{
+  "generatedAt": "2026-10-31T12:50:46.718Z",
+  "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
+  "tools": [
+    {
+      "name": "adt_activate",
+      "description": "Activate ABAP development objects (CLAS, INTF, PROG + includes, FUGR, DDLS, TABL, …) on the system. Returns per-object status; syntax errors block activation. IMPORTANT: activate ALL related objects in ONE call — `objects` accepts a list. Most backends do NOT cascade activation from a PROG main program (or FUGR) to its includes (TOP/SCR/...): a successful result for the main object alone does NOT mean the program is fully active. Pass the main object AND its includes together, and verify leftovers with adt_version_diff (saved vs active). Also note adt_check passing does NOT guarantee activation succeeds — the activation preaudit has a wider scope (cross-object consistency, main program + includes joint check, duplicate declarations). Pass `transport` when the objects' package requires a transport request (see adt_transports).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Objects to process (1..50 per call). Each entry: {objectUri} or {name, type}. Pass ALL related objects in ONE call — e.g. a PROG main program AND its includes (activation does not cascade to includes on most backends). Larger sets: split into consecutive calls.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objectUri": {
+                  "type": "string",
+                  "description": "Exact ADT object URI."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Object name (required unless objectUri is given)."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Object type, e.g. CLAS, PROG, DDLS."
+                },
+                "packageName": {
+                  "type": "string",
+                  "description": "Optional package hint for the permission check (fallback only; backend-reported package wins)."
+                }
+              }
+            }
+          },
+          "transport": {
+            "type": "string",
+            "description": "Transport request number, e.g. S4HK900001."
+          },
+          "checkOnly": {
+            "type": "boolean",
+            "description": "Syntax-check without activating (default false)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "objects"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_atc_runs",
+      "description": "Inspect ATC (ABAP Test Cockpit) runs STORED on the system. WITHOUT `displayId`: list existing runs — each shows its display id, creator, timestamp, state and P1–P4 finding aggregates. Backend support varies: many systems require a filter (the logged-on user is sent by default), but subset implementations accept a PARAMETERLESS query only and reject every filter with HTTP 400 — rejected filters are automatically retried without parameters. When accurate P1–P4 counts matter, prefer the list over re-parsing a single result. WITH `displayId`: fetch that run result — findings with severity, check and source position. POSITION MAPPING: backends often nest ALL findings of a program under the MAIN program name while `line` counts in the INCLUDE the finding really points at — check each finding's `uri` (the object the line belongs to) before jumping to a line in the main program. P1–P4 aggregates come from the result body when it carries them, otherwise they are derived from the finding priorities; the LIST form remains the authoritative source for aggregates.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "displayId": {
+            "type": "string",
+            "description": "One result in full (display id from the list form). Omit to list runs."
+          },
+          "includeExemptedFindings": {
+            "type": "boolean",
+            "description": "One result: include exempted findings (default false)."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "List: filter by the user who created the run (default: logged-on user). Ignored by subset backends."
+          },
+          "ageMin": {
+            "type": "integer",
+            "description": "List: minimum age in days (only runs older than this). Ignored by subset backends."
+          },
+          "ageMax": {
+            "type": "integer",
+            "description": "List: maximum age in days (only runs younger than this). Ignored by subset backends."
+          },
+          "central": {
+            "type": "boolean",
+            "description": "List: central (system-wide) check results instead of local ones. Ignored by subset backends."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "List: active (local) check results. Ignored by subset backends."
+          },
+          "sysId": {
+            "type": "string",
+            "description": "List: filter by system id (with central results). Ignored by subset backends."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_batch",
+      "description": "Execute several ADT requests in ONE HTTP round-trip (protocol-level $batch: multipart embedded HTTP, POST /sap/bc/adt/$batch) — the agent-scale way to fan out READS, e.g. pull the sources of 20 objects (CLAS/INTF/PROG/DDLS/TABL …) or object metadata + versions + lock state together, without N sequential calls. Read-only by design: GET parts always work; POST/PUT parts additionally need allowWrites:true AND the destination policy knob allowBatchWrites (generic embedded writes bypass per-object policy checks — prefer the dedicated write tools). Transport release / deletion paths are always blocked. Each request: {method, path, body?, contentType?, accept?}.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "description": "Embedded ADT requests (max 50). Each: {method: GET|POST|PUT, path: /sap/bc/adt/…, body?, contentType?, accept?}.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST",
+                    "PUT"
+                  ],
+                  "description": "HTTP method (default GET)."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Absolute ADT path, e.g. /sap/bc/adt/oo/classes/zcl_demo/source/main."
+                },
+                "body": {
+                  "type": "string",
+                  "description": "Request body (write parts)."
+                },
+                "contentType": {
+                  "type": "string",
+                  "description": "Content-Type of the body (write parts)."
+                },
+                "accept": {
+                  "type": "string",
+                  "description": "Accept header for the embedded response (default application/xml)."
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          "allowWrites": {
+            "type": "boolean",
+            "description": "Opt in to POST/PUT parts (also requires the destination policy knob allowBatchWrites)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "requests"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_check",
+      "description": "Run a syntax check (without activating) on ABAP objects. Reports per-object errors/warnings (each message carries the object it belongs to). SCOPE WARNING: this checkrun is narrower than the activation preaudit — PASSING here does NOT guarantee adt_activate will succeed (cross-object consistency, main program + includes joint checks and duplicate declarations are only caught at activation). Treat a pass as \"no local syntax errors\", not \"ready\".",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Objects to process (1..50 per call). Each entry: {objectUri} or {name, type}. Pass ALL related objects in ONE call — e.g. a PROG main program AND its includes (activation does not cascade to includes on most backends). Larger sets: split into consecutive calls.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objectUri": {
+                  "type": "string",
+                  "description": "Exact ADT object URI."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Object name (required unless objectUri is given)."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Object type, e.g. CLAS, PROG, DDLS."
+                },
+                "packageName": {
+                  "type": "string",
+                  "description": "Optional package hint for the permission check (fallback only; backend-reported package wins)."
+                }
+              }
+            }
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "objects"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_cochange",
+      "description": "Find what usually changes together with the given ABAP objects (transport co-occurrence, a slice of change-impact analysis): reads each object's version history for the transport requests it was saved into, fetches those requests' item lists, and ranks the objects that shared them by co-occurrence count. Use it to scope regression tests or reviews before a change (CLAS/PROG/DDLS/… that ride the same transports as your object). Read-only. Data face: version feeds + transport items — objects whose save history recorded no transport stay invisible (young objects, pure transports from other systems).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Objects to analyze. Each: {name, type?} — resolve like everywhere else (1..10 per call).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "top": {
+            "type": "integer",
+            "description": "Maximum co-occurring objects to return (default 20, max 50)."
+          },
+          "maxTransports": {
+            "type": "integer",
+            "description": "Maximum transport requests to expand (default 30, max 50) — the oldest are dropped first; the note says when this bound hit."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "objects"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_create_destination",
+      "description": "Create (or update) an ADT destination in the session WORKSPACE file destinations.yaml (in the session workspace anchor) — hot-applies to every following adt_* call in this workspace. Every option left unset is written into the file as a commented line with its default, so the user can hand-edit the file later. Two modes: (1) import a SAP GUI connection — pass `guiUuid` from adt_list_gui_connections (url/client/language/username default from the GUI entry; override any of them explicitly). When the url is DERIVED this way, the common candidates (443<nn>, 443, 80<nn>, 80) are probed credential-lessly and the first responding one is used; when NO candidate shows a working ADT endpoint, the creation is REFUSED with concrete guidance (VPN/firewall; saprouter-only systems need a web-dispatcher url — HTTP cannot ride the GUI's saprouter). force: true saves an unverified destination anyway. With `ping: true` the destination is pinged WITH credentials BEFORE saving: a connect-level failure also refuses (force overrides), while an HTTP-level failure (e.g. 401) proves the url alive and only warns. (2) manual — pass at least `name` and `url`. Permission policy can be set per destination via enableTransports / allowedTransports / allowTransportableEdits / allowedPackages / allowExecution / allowBatchWrites / allowDebugger / allowDebugVariables / blockedTablesProfile / blockedTables / allowedTables (written into the entry `policy:` block; keys not passed fall back to the global config / SAP_* env vars / built-in defaults). The environment tier travels as `profile` (dev default; qa defaults execution/batchWrites/debugger to off; prd hard-denies them). Passwords: pass `password` and it is stored in the AgentChat encrypted credential store (referenced from the file via `passwordEnv` — never written to destinations.yaml); when no credential service is available, or `passwordInFile: true`, the password is written plaintext into destinations.yaml (avoid committing that file). Without `password`, maintain the credential yourself under the ADT_<NAME>_PASSWORD reference. After creating, verify with adt_ping.,",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Destination name (required in manual mode; defaults to a slug of the GUI entry name in import mode)."
+          },
+          "url": {
+            "type": "string",
+            "description": "Base URL of the ABAP frontend, e.g. https://sap.example.com:44301. Required in manual mode; in import mode overrides the URL derived from the GUI entry (use when a web dispatcher serves /sap/bc/adt)."
+          },
+          "client": {
+            "type": "string",
+            "description": "SAP client (mandant). Defaults: GUI entry, else 000."
+          },
+          "description": {
+            "type": "string",
+            "description": "Free-text description of the connection — what this system is for, which project/team/landscape it belongs to (e.g. \"IMPC S/4 财务开发系统, 客户100\"). Shown by adt_list_destinations so the right destination can be picked for a task later; in update mode (overwrite) an omitted description is left unchanged."
+          },
+          "language": {
+            "type": "string",
+            "description": "Logon language (GUI entry, else EN)."
+          },
+          "username": {
+            "type": "string",
+            "description": "ABAP user (GUI shortcut entry when present)."
+          },
+          "password": {
+            "type": "string",
+            "description": "Password for `username`. Stored in the AgentChat encrypted credential store and referenced via passwordEnv — not written to destinations.yaml (unless passwordInFile)."
+          },
+          "passwordEnv": {
+            "type": "string",
+            "description": "Reference name for the password (environment-variable style, e.g. ADT_DEV_PASSWORD). Default: ADT_<NAME>_PASSWORD. AgentChat resolves it layer-wise: AgentChat credential store > process env."
+          },
+          "passwordInFile": {
+            "type": "boolean",
+            "description": "Write the password PLAINTEXT into destinations.yaml instead of the credential store (not recommended; defaults to false and falls back to it automatically when no credential service is mounted)."
+          },
+          "strictSSL": {
+            "type": "boolean",
+            "description": "Verify TLS certificates. GUI imports default to false (intranet self-signed is common); manual mode defaults to true."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "description": "Request timeout in ms (default 60000)."
+          },
+          "enableTransports": {
+            "type": "boolean",
+            "description": "Policy for THIS destination: allow the transport tool family and transport usage (unset falls back to the global config / SAP_ENABLE_TRANSPORTS / default true)."
+          },
+          "allowedTransports": {
+            "type": "string",
+            "description": "Policy for THIS destination: comma-separated glob allowlist of transport request numbers the agent may reference or the backend may auto-assign, e.g. \"D01K96*\" (unset: SAP_ALLOWED_TRANSPORTS / \"*\")."
+          },
+          "allowTransportableEdits": {
+            "type": "boolean",
+            "description": "Policy for THIS destination: allow edits (write/create/delete/activate) in transportable non-$TMP packages (unset: SAP_ALLOW_TRANSPORTABLE_EDITS / default true)."
+          },
+          "allowedPackages": {
+            "type": "string",
+            "description": "Policy for THIS destination: comma-separated glob allowlist of packages that may be edited, e.g. \"Z*,$TMP\" (unset: SAP_ALLOWED_PACKAGES / \"*\")."
+          },
+          "allowExecution": {
+            "type": "boolean",
+            "description": "Policy for THIS destination: allow running programs/classes via adt_execute — set false for read-only destinations (unset: SAP_ALLOW_EXECUTION / default true)."
+          },
+          "allowBatchWrites": {
+            "type": "boolean",
+            "description": "Policy for THIS destination: allow write parts inside adt_batch (unset: SAP_ALLOW_BATCH_WRITES / default false)."
+          },
+          "allowDebugger": {
+            "type": "boolean",
+            "description": "Policy for THIS destination: allow the ABAP debugger family adt_debug_* — holds a stateful session and stops live processes (unset: SAP_ALLOW_DEBUGGER / default false)."
+          },
+          "allowDebugVariables": {
+            "type": "boolean",
+            "description": "Policy for THIS destination: allow changing debuggee variable values — double opt-in next to allowDebugger (unset: SAP_ALLOW_DEBUG_VARIABLES / default false)."
+          },
+          "blockedTablesProfile": {
+            "type": "string",
+            "enum": [
+              "off",
+              "minimal",
+              "standard",
+              "strict"
+            ],
+            "description": "Policy for THIS destination: read-side governance of adt_data_preview row reads (unset: SAP_BLOCKED_TABLES_PROFILE / default off)."
+          },
+          "blockedTables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Policy for THIS destination: extra blocked table names/patterns on top of the catalog (unset: SAP_BLOCKED_TABLES / none)."
+          },
+          "allowedTables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Policy for THIS destination: exemptions from the blocked-table catalog — audited on every use (unset: SAP_ALLOWED_TABLES / none)."
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "dev",
+              "qa",
+              "prd"
+            ],
+            "description": "Environment tier of THIS destination: dev (default) keeps plain knob semantics; qa defaults execution/batchWrites/debugger to off (explicit values still open them); prd HARD-DENIES them."
+          },
+          "guiUuid": {
+            "type": "string",
+            "description": "uuid of a connection from adt_list_gui_connections to import."
+          },
+          "probe": {
+            "type": "boolean",
+            "description": "When the url is DERIVED from the GUI entry: probe the common port candidates and use the first that responds (default true). Explicitly passed urls are never probed — use `ping` for those."
+          },
+          "probeTimeoutMs": {
+            "type": "integer",
+            "description": "Per-candidate probe timeout in ms (default 2500, clamped 250-10000)."
+          },
+          "setDefault": {
+            "type": "boolean",
+            "description": "Also make this the workspace default destination."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "Allow replacing an existing destination of the same name."
+          },
+          "ping": {
+            "type": "boolean",
+            "description": "Verify the destination with credentials BEFORE saving (default false). A connect-level failure (no HTTP response) refuses the creation unless force; an HTTP-level failure (401 etc.) keeps it."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Save even when reachability verification fails (probe found no working endpoint, or ping cannot connect — e.g. the system is only reachable via saprouter, or the VPN is down). The destination is then marked unverified; fix it later with overwrite: true."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_data_preview",
+      "description": "Read rows from a database table / CDS view (SE16/SE16N-style data browser) or run a freestyle SELECT via the ADT Data Preview API. Provide `name` + `kind` (same type codes as everywhere: TABL, VIEW, STRU for DDIC entities, DDLS for CDS views; default TABL) or `sql` (freestyle — SELECT statements only; anything else is rejected). `top`/`offset` page the rows. Read-only. Read governance: destinations may set blockedTablesProfile — reads of sensitive tables (e.g. customer/bank/HR data like KNA1, LFA1, BUT000, USR02) are then refused with the reason BEFORE any request is sent. Note: ABAP Cloud (BTP) blocks direct database-table preview; CDS views and freestyle SQL work there. The sql dialect is ADAPTED automatically: DESC/ASC→DESCENDING/ASCENDING, LIMIT n→the `length` param, alias.col→alias~col, <>→!=, long lines wrapped (every rewrite shows in the note). JOINs, aggregates (COUNT/SUM/MIN/MAX/AVG), GROUP BY/HAVING and IN (SELECT …) are COMPILED client-side: each table is fetched single-table (predicates pushed down) and joined/aggregated locally — exact over small sets, approximate beyond the row cap (noted in the output). OR+LIKE and multiple LIKEs are refused (parser limit; run one SELECT per pattern). No mandt column in the SELECT list. To learn a table's real columns, preview it with name+kind and length=1 and read the `columns` list.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Table or CDS view name (uppercase), e.g. ZCDS_DEMO, T001."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "TABL",
+              "VIEW",
+              "STRU",
+              "DDLS"
+            ],
+            "description": "Entity kind (same type codes as other tools; aligned with the ADT URI namespaces). Default TABL."
+          },
+          "associations": {
+            "type": "boolean",
+            "description": "List the CDS associations of the entity (name+kind, DDLS): name, target and cardinality of each. The JOIN-alternative for CDS views — follow one with the `association` parameter."
+          },
+          "association": {
+            "type": "string",
+            "description": "Follow ONE CDS association of the entity (e.g. '_Bookings') and return the associated rows — the backend-side join over the association. Pair with name+kind (DDLS)."
+          },
+          "sql": {
+            "type": "string",
+            "description": "Freestyle SQL SELECT to run (alternative to name+kind)."
+          },
+          "length": {
+            "type": "integer",
+            "description": "Number of rows to return — the row-range window is offset..offset+length (default 100, clamped to 1–500; alias of the deprecated `top`)."
+          },
+          "top": {
+            "type": "integer",
+            "description": "Deprecated alias of `length`."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip the first N rows (client-side, within the 500-row cap; default 0)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_debug",
+      "description": "Debug ABAP code live over the standard ADT debugger (SE37-style new debugger, /sap/bc/adt/debugger) — one tool, nine actions. Loop: set the breakpoint FIRST (`setBreakpoint` — external scope, fires for the target user; standard-code breakpoints often do NOT trigger because SAP defaults to customer-code-only debugging), trigger the code path, then `listen` (long-poll) for the hit. While stopped: `variables` reads values, `stack` the call stack (absent on BASIS < ~7.51 — reported as unavailable), `step` advances (F5/F6/F7/F8 or terminateDebuggee), `setVariable` overrides a value (DANGEROUS — double opt-in: allowDebugger AND allowDebugVariables). `status` shows the session + backend listener state; `deleteBreakpoint` removes one by id; ALWAYS end with `detach` — one debug session per destination, and after detach you cannot re-attach (a fresh listen gets fresh state). Gated by the allowDebugger policy (off by default — the debugger stops live processes).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "listen",
+              "status",
+              "detach",
+              "setBreakpoint",
+              "deleteBreakpoint",
+              "step",
+              "variables",
+              "stack",
+              "setVariable"
+            ],
+            "description": "listen = wait for a breakpoint hit (long-poll); status = session + listener state; detach = end the session; setBreakpoint / deleteBreakpoint = manage line breakpoints; step = advance the stopped debuggee (with `step`); variables / stack = inspect the stopped debuggee; setVariable = change one variable value."
+          },
+          "username": {
+            "type": "string",
+            "description": "SAP user whose processes to debug (external breakpoints fire for this user; default: the destination user)."
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "description": "listen: server-side wait window, 1–240 s (default 30). Empty answer = no hit in the window."
+          },
+          "objectUri": {
+            "type": "string",
+            "description": "setBreakpoint: ADT object URI (from search/read), e.g. /sap/bc/adt/programs/programs/zprog_demo."
+          },
+          "name": {
+            "type": "string",
+            "description": "setBreakpoint: object name (alternative to objectUri), e.g. ZPROG_DEMO; setVariable: the VARIABLE name (uppercase)."
+          },
+          "type": {
+            "type": "string",
+            "description": "setBreakpoint: object type for name resolution (short form, e.g. PROG, CLAS)."
+          },
+          "line": {
+            "type": "integer",
+            "description": "setBreakpoint: 1-based source line to break at."
+          },
+          "id": {
+            "type": "string",
+            "description": "deleteBreakpoint: breakpoint id returned by setBreakpoint."
+          },
+          "step": {
+            "type": "string",
+            "enum": [
+              "stepInto",
+              "stepOver",
+              "stepReturn",
+              "stepContinue",
+              "terminateDebuggee"
+            ],
+            "description": "stepInto = F5 — step into the called unit; stepOver = F6 — step over the current line; stepReturn = F7 — run until the current unit returns; stepContinue = F8 — run free until the next breakpoint; terminateDebuggee = terminate the debuggee and end the session"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "variables action: variable names to read (uppercase ABAP names)."
+          },
+          "value": {
+            "type": "string",
+            "description": "setVariable: new value as ABAP literal text, e.g. 42 or NEWTEXT."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_dumps",
+      "description": "List ABAP runtime dumps (short dumps, ST22) from the target system, or read one in full. WITHOUT `dumpId`: the filtered feed — filter by user, time range (from/to, YYYYMMDD or YYYYMMDDHHMMSS) and page with top/skip. Use after a program/class/unit run failed with a runtime error to find the exact dump. WITH `dumpId` (from the feed): `view` default = structured sections (error type, program, user, error analysis); summary = HTML overview; formatted = plain-text analysis view. Read-only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dumpId": {
+            "type": "string",
+            "description": "One dump in full (id from a previous feed call — compound key, no slashes). Omit to list."
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "default",
+              "summary",
+              "formatted"
+            ],
+            "description": "Representation for one dump (default: structured sections)."
+          },
+          "user": {
+            "type": "string",
+            "description": "Feed: only dumps of this session user (default: all users)."
+          },
+          "from": {
+            "type": "string",
+            "description": "Feed: time-range start, YYYYMMDD or YYYYMMDDHHMMSS (server-side)."
+          },
+          "to": {
+            "type": "string",
+            "description": "Feed: time-range end, YYYYMMDD or YYYYMMDDHHMMSS (server-side)."
+          },
+          "top": {
+            "type": "integer",
+            "description": "Feed: max dumps to return (default 20, clamped to 1–100)."
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Feed: skip the first N feed entries (server-side paging)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_execute",
+      "description": "Run ABAP code on the SAP system and return its console output. `kind=PROG` runs an executable program (SA38/F8 equivalent); `kind=CLAS` runs a class implementing if_oo_adt_classrun (its main( ) executes; out->write lines come back as text). The write→activate→execute→observe loop is how an agent verifies behavior end-to-end. Execution can change system state — guarded by the `allowExecution` policy knob (see adt_permissions); prd-profile destinations hard-deny it. Output beyond 20k chars is truncated — filter inside the ABAP (write only what you need).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PROG",
+              "CLAS"
+            ],
+            "description": "PROG = executable program, CLAS = if_oo_adt_classrun class."
+          },
+          "name": {
+            "type": "string",
+            "description": "Program or class name (uppercase), e.g. ZPROG_DEMO, ZCL_RUNNER."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_export_objects",
+      "description": "Export the sources of ABAP objects (CLAS, INTF, PROG, FUGR/FUNC, DDLS, TABL, STRU, DOMA, DTEL, TTYP, MSAG — by package DEVC or explicit list) into a local folder as abaplint-compatible .abap files — enabling git-style versioning, offline review and backups. Writes through the DSH filesystem (sandbox-aware).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Explicit objects to export. Each: {name, type}. Deliberately explicit — no whole-package export; build the list with adt_package_content / adt_search first.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "targetDir": {
+            "type": "string",
+            "description": "Local directory to write the exported sources into (absolute path)."
+          },
+          "maxObjects": {
+            "type": "integer",
+            "description": "Cap on exported objects (default 100, clamped to 1–500)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "objects",
+          "targetDir"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_list_destinations",
+      "description": "List the configured ABAP ADT destinations and their connectivity status. Use this first to discover which SAP systems are available and reachable. Destinations come from the session workspace file (destinations.yaml (in the session workspace anchor)) layered over the global config.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_list_gui_connections",
+      "description": "Search the LOCAL SAP GUI (SAP Logon) connection list — SAPUILandscape.xml / saplogon.ini of this machine — for systems to reuse as ADT destinations. Use it when the user wants a connection configured and may already have it in SAP GUI: search by name/system id/client (e.g. query \"impc\"), present the matches, and after the user picks one call adt_create_destination with its uuid. The port-convention adtUrl in each match is an UNVERIFIED guess (the GUI only proves the DIAG port; saprouter entries usually cannot be reached directly), so every match with a host is PROBED: the common candidates (443<nn>, 443, 80<nn>, 80) get a credential-less request and the report says which url actually responded (probe.verifiedUrl — use THAT for importing) or why none did (VPN/firewall/saprouter/web dispatcher — then ask the user for an explicit url). \"group\" entries cannot yield a URL and need an explicit one.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Case-insensitive filter over name, system id, folder, client and stored user. Multiple terms (space-separated) must ALL match — e.g. \"impc qas\". Omit to list everything (up to the limit)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max matches to return (default 25, max 100)."
+          },
+          "probe": {
+            "type": "boolean",
+            "description": "Probe the candidate ADT urls of every match and report reachability (default true). Adds up to one timeout round when hosts are unreachable."
+          },
+          "probeTimeoutMs": {
+            "type": "integer",
+            "description": "Per-candidate probe timeout in ms (default 2500, clamped 250-10000)."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_local_check",
+      "description": "Run abaplint (offline static analysis) over a directory of ABAP sources (.abap). Pairs with adt_export_objects: export a package, check it locally before anything touches SAP, fix findings, then write + activate + transport in one pass. Real ATC lives in the SAP backend and cannot run offline; abaplint is the local stand-in. Note: syntax errors are reported by the `parser_error` rule — a custom .abaplint.json that omits it also silences syntax errors.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "type": "string",
+            "description": "Local directory containing ABAP sources (absolute path, scanned recursively)."
+          },
+          "configPath": {
+            "type": "string",
+            "description": "Absolute path to an .abaplint.json. Default: <dir>/.abaplint.json if present, else abaplint built-in defaults."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "Error",
+              "Warning",
+              "Info"
+            ],
+            "description": "Minimum severity to report (default \"Warning\"). Counts always cover all severities."
+          },
+          "maxFiles": {
+            "type": "integer",
+            "description": "Cap on scanned source files (default 500)."
+          },
+          "maxIssues": {
+            "type": "integer",
+            "description": "Cap on reported issues (default 300)."
+          }
+        },
+        "required": [
+          "dir"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_lock_info",
+      "description": "Read an object's lock state: whether it is locked for editing and by whom. Check before adt_write_object to avoid edit conflicts. Read-only (never acquires a lock). Some backends do not expose lock state in metadata — the tool reports locked=null with a note then, meaning concurrent editors CANNOT be detected there; rely on the post-write `persisted` verification of adt_edit_object / adt_write_object / adt_push_object instead.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objectUri": {
+            "type": "string",
+            "description": "Exact ADT object URI (from search/read results), e.g. /sap/bc/adt/oo/classes/zcl_demo."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZCL_DEMO."
+          },
+          "type": {
+            "type": "string",
+            "description": "Object type (short or ADT form), e.g. CLAS, INTF, PROG, DDLS."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_object_delete",
+      "description": "Delete an ABAP object (irreversible). The delete verb is independent of the write/edit cells: a GUI-only type may still be deletable — the matrix says per row.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Object type short code: DOMA, DOMA_VALUE, DTEL, STRU, TABL, TTYP, DDLS, DCLS, DDLX, PROG, INCL, CLAS, INTF, FUNC, BDEF, SRVD, SRVB, MSAG, DEVC, ENQU, VIEW, SHLP, TYPE, INDX, DRAS, DRTY, DRUL, DSFD, DSFI, DTDC, DTEB (aliases like DOMA.FIXVALUES accepted)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZMY_DOMAIN / ZCL_DEMO / ZPACK_DEMO."
+          },
+          "transport": {
+            "type": "string",
+            "description": "Transport request number (write/edit/delete)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_object_edit",
+      "description": "Modify an EXISTING object (read-then-patch): source types take full new source (or block/method surgery — P2) and require a prior adt_object_read snapshot (OCC); structured types take explicit field patches (properties/fixedValues/labels/messages/description).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Object type short code: DOMA, DOMA_VALUE, DTEL, STRU, TABL, TTYP, DDLS, DCLS, DDLX, PROG, INCL, CLAS, INTF, FUNC, BDEF, SRVD, SRVB, MSAG, DEVC, ENQU, VIEW, SHLP, TYPE, INDX, DRAS, DRTY, DRUL, DSFD, DSFI, DTDC, DTEB (aliases like DOMA.FIXVALUES accepted)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZMY_DOMAIN / ZCL_DEMO / ZPACK_DEMO."
+          },
+          "source": {
+            "type": "string",
+            "description": "Source types: the full new source (OCC-checked against your read snapshot)."
+          },
+          "sourceFile": {
+            "type": "string",
+            "description": "Local file with the new source (same OCC chain)."
+          },
+          "mode": {
+            "type": "string",
+            "description": "'replace' (default) | 'block' | 'method' (P2 surgery modes)."
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Structured types: property patch."
+          },
+          "fixedValues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "DOMA: fixed values (full block replacement; [] clears)."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "DTEL: label patch."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "MSAG: full message list."
+          },
+          "description": {
+            "type": "string",
+            "description": "Description patch (any type)."
+          },
+          "transport": {
+            "type": "string",
+            "description": "Transport request number (write/edit/delete)."
+          },
+          "activate": {
+            "type": "boolean",
+            "description": "DDIC types: activate after the patch (default true)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_object_read",
+      "description": "Read an ABAP object: source types → source (with OCC snapshot), structured types (DOMA/DTEL/TTYP/MSAG) → typed JSON, DEVC → package content. `part:\"textelements\"` (PROG/REPT) returns the program's textpool rows (text symbols / selection texts / list headings). No `name` → the fs capability matrix card (what write/read/edit/delete work per type).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Object type short code: DOMA, DOMA_VALUE, DTEL, STRU, TABL, TTYP, DDLS, DCLS, DDLX, PROG, INCL, CLAS, INTF, FUNC, BDEF, SRVD, SRVB, MSAG, DEVC, ENQU, VIEW, SHLP, TYPE, INDX, DRAS, DRTY, DRUL, DSFD, DSFI, DTDC, DTEB (aliases like DOMA.FIXVALUES accepted)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZMY_DOMAIN / ZCL_DEMO / ZPACK_DEMO."
+          },
+          "part": {
+            "type": "string",
+            "description": "Which face to read: 'source' (default — source/typed JSON/package content by type) or 'textelements' (PROG/REPT: textpool rows I/S/H)."
+          },
+          "version": {
+            "type": "string",
+            "description": "active | inactive | saved | latest."
+          },
+          "context": {
+            "type": "boolean",
+            "description": "CLAS/INTF (P2): dependency-contract prologue."
+          },
+          "method": {
+            "type": "string",
+            "description": "CLAS/INTF (P2): method-level read window."
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "Structured types: include the raw wire XML."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_object_versions",
+      "description": "Read the version history (Atom feed) of a source object. Each version carries the transport request (or open task) it was saved into — a read-only way to map objects to transports without locking. Gated by the enableTransports policy knob (the feed exposes transport request numbers — audit P3).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objectUri": {
+            "type": "string",
+            "description": "Exact ADT object URI (from search/read results), e.g. /sap/bc/adt/oo/classes/zcl_demo."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZCL_DEMO."
+          },
+          "type": {
+            "type": "string",
+            "description": "Object type (short or ADT form), e.g. CLAS, INTF, PROG, DDLS."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_object_write",
+      "description": "Create (or, with override:true, overwrite) an ABAP object in one call: type + name + description/packageName + content (source | fields | properties/fixedValues/labels, by type). Empty content = placeholder. DDIC/CDS types activate in the same call by default. Endpoint resolution is the tool's job — you never pass URIs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Object type short code: DOMA, DOMA_VALUE, DTEL, STRU, TABL, TTYP, DDLS, DCLS, DDLX, PROG, INCL, CLAS, INTF, FUNC, BDEF, SRVD, SRVB, MSAG, DEVC, ENQU, VIEW, SHLP, TYPE, INDX, DRAS, DRTY, DRUL, DSFD, DSFI, DTDC, DTEB (aliases like DOMA.FIXVALUES accepted)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZMY_DOMAIN / ZCL_DEMO / ZPACK_DEMO."
+          },
+          "description": {
+            "type": "string",
+            "description": "Short object description (required for new objects)."
+          },
+          "packageName": {
+            "type": "string",
+            "description": "Target package for new objects ($TMP = local)."
+          },
+          "transport": {
+            "type": "string",
+            "description": "Transport request number (write/edit/delete)."
+          },
+          "override": {
+            "type": "boolean",
+            "description": "false (default): exists → error suggesting override; true: locked overwrite (server-hash checked)."
+          },
+          "activate": {
+            "type": "boolean",
+            "description": "Activate in the same call (DDIC/CDS default true; source types default false)."
+          },
+          "source": {
+            "type": "string",
+            "description": "Source types: full source / DDL text (create + write + activate in one step)."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "TABL/STRU: field list → one-step DDL flow."
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Structured types (DOMA/DTEL/TTYP): technical properties."
+          },
+          "fixedValues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "DOMA: fixed values (full block)."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "DTEL: label patch."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_permissions",
+      "description": "Show the effective ADT permission policy: whether transports are enabled, which transport request numbers are allowed, whether edits of transportable (non-$TMP) packages are permitted, which development packages may be edited, whether program/class execution is allowed, whether write parts inside adt_batch are allowed, whether the ABAP debugger family (adt_debug_*) and debugger variable writes are allowed, the destination environment profile (dev/qa/prd — prd hard-denies execution, batch writes and the debugger), and the read-side governance of adt_data_preview (blockedTablesProfile tiers off/minimal/standard/strict, custom blockedTables, allowedTables exemptions) — as GLOBAL defaults plus the effective values per destination (a destination `policy:` block overrides the globals for that system). Read this before any mutating adt_* call to know what will be denied.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_ping",
+      "description": "Probe an ADT destination: verifies reachability and authentication (uses the discovery service).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_release_gate",
+      "description": "Verify a package or object set before release: runs syntax check + ABAP Unit + ATC over a DEVC package or explicit CLAS/INTF/PROG/DDLS… list in one call and returns a go/no-go verdict. Use it before releasing a transport request (SE10) — \"verify everything, then push\". Read-only (only runs checks; nothing is activated or transported).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "packageName": {
+            "type": "string",
+            "description": "Check every member of this development package."
+          },
+          "objects": {
+            "type": "array",
+            "description": "Alternative: explicit objects to process. Each: {name, type}.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "stages": {
+            "type": "array",
+            "description": "Which checks to run (default: all three).",
+            "items": {
+              "type": "string",
+              "enum": [
+                "syntax",
+                "unit",
+                "atc"
+              ]
+            }
+          },
+          "variant": {
+            "type": "string",
+            "description": "ATC check variant name (backend-defined)."
+          },
+          "maxObjects": {
+            "type": "integer",
+            "description": "Cap on objects checked (default 100)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_run_atc",
+      "description": "Run ABAP Test Cockpit checks (ATC / SLIN-based, transaction ATC) on the given objects. Returns findings with severity, check and source position, plus the result displayId (the run is STORED on the backend — it shows up in adt_atc_runs, usually titled \"External Request + timestamp\" for tool-triggered runs). `durationMs` is the wall-clock time of the whole run. POSITION MAPPING: findings can be reported under the MAIN program name while `line` counts in an INCLUDE — check each finding's `uri` before jumping to a line number. For authoritative P1–P4 aggregates cross-check with adt_atc_runs. Pass `variant` to use a named ATC check variant.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Objects to process (1..50 per call). Each entry: {objectUri} or {name, type}. Pass ALL related objects in ONE call — e.g. a PROG main program AND its includes (activation does not cascade to includes on most backends). Larger sets: split into consecutive calls.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objectUri": {
+                  "type": "string",
+                  "description": "Exact ADT object URI."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Object name (required unless objectUri is given)."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Object type, e.g. CLAS, PROG, DDLS."
+                },
+                "packageName": {
+                  "type": "string",
+                  "description": "Optional package hint for the permission check (fallback only; backend-reported package wins)."
+                }
+              }
+            }
+          },
+          "variant": {
+            "type": "string",
+            "description": "ATC check variant name (backend-defined)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "objects"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_run_unit_tests",
+      "description": "Run ABAP Unit tests (aUnit; ADT \"Run as Unit Test\", transaction SAUNIT/SE80) for the given objects (test classes in CLAS/PROG). Reports per-class and per-method results (passed/failed/skipped) with durations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Objects to process (1..50 per call). Each entry: {objectUri} or {name, type}. Pass ALL related objects in ONE call — e.g. a PROG main program AND its includes (activation does not cascade to includes on most backends). Larger sets: split into consecutive calls.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objectUri": {
+                  "type": "string",
+                  "description": "Exact ADT object URI."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Object name (required unless objectUri is given)."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Object type, e.g. CLAS, PROG, DDLS."
+                },
+                "packageName": {
+                  "type": "string",
+                  "description": "Optional package hint for the permission check (fallback only; backend-reported package wins)."
+                }
+              }
+            }
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "objects"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_search",
+      "description": "Search ABAP development objects and source code on the SAP system (Repository Information System, SE84/SE80-style). Returns objects whose name/description match — classes (CLAS), interfaces (INTF), programs/includes (PROG), CDS views (DDLS), tables (TABL), domains (DOMA), data elements (DTEL), packages (DEVC), … — and (for full-text search) source excerpts. Use `operation` to narrow: \"quickSearch\" (both, default), \"objectSearch\" (names only), \"quickSearchSource\" (source text only); use `packageName` to restrict object hits to one package and `offset`/`maxResults` to page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search term (case-insensitive). Supports * wildcards on the backend."
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "quickSearch",
+              "objectSearch",
+              "quickSearchSource"
+            ],
+            "description": "Search scope. Default: quickSearch."
+          },
+          "packageName": {
+            "type": "string",
+            "description": "Restrict object hits to this package (e.g. ZPACK_DEMO). Source-text hits carry no package and are dropped when set."
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Maximum number of hits per page (default 25, clamped to 1–100)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip the first N hits (client-side paging within the 100-hit backend cap; default 0)."
+          },
+          "objectType": {
+            "type": "string",
+            "description": "Optional object type filter, e.g. \"CLAS\", \"INTF\", \"PROG\", \"DDLS\"."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_selfcheck",
+      "description": "Capability sweep of this destination (READ-ONLY — never writes, never executes code): runs every read-only capability against a probe object and reports a verdict per capability — answered / empty / absent (backend lacks the service) / refused (policy) / dead (returned nothing while an independent oracle says there is something to find) / broken (our error). Use it to verify a new system connection, a plugin upgrade, or to explain why a capability returns nothing. The probe object defaults to the first Z*-class the search finds; pass `name`(+`type`) to probe a specific object. The report also names every registered tool the sweep does NOT cover (mutating/executing tools are out by principle).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Probe object name (default: first class found by search \"Z*\")."
+          },
+          "type": {
+            "type": "string",
+            "description": "Probe object type (short form, e.g. CLAS)."
+          },
+          "packageName": {
+            "type": "string",
+            "description": "Restrict the probe-object search to this package."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_system_info",
+      "description": "Read system information of an ADT destination: SAP system id, release, ABAP Cloud status, feature flags and advertised services.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_transports",
+      "description": "Transport requests (CTO, Transport Organizer / SE10 / SE09). WITHOUT `number`: the list of the current user's requests — number, status, category, owner and (optionally) contained objects. Use `status: \"modifiable\"` (or the backend code \"D\") to show only open (unreleased) requests — the ones still being worked on. Useful before activation or release operations. WITH `number`: one request including its contained objects (items). NOTE: version histories (adt_object_versions) record TASK-level numbers; querying a task number returns its PARENT request — compare `number` in the output with what you asked for and use the returned parent number for follow-ups. Semantic status words are translated to the backend letter codes, and the result is additionally filtered client-side; when a backend rejects the server-side status parameter the list is re-fetched unfiltered and filtered locally — but ALWAYS cross-check with the one-request form / adt_object_versions before concluding a request does not exist.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "description": "One request in full, e.g. S4HK900001. Omit to list the current user's requests."
+          },
+          "allUsers": {
+            "type": "boolean",
+            "description": "List: transports of all users (default false)."
+          },
+          "status": {
+            "type": "string",
+            "description": "List: filter by release state (default \"all\"): \"modifiable\" = open/unreleased requests (alias \"D\"), \"released\" = published (aliases \"R\"/\"L\"), \"all\" = no filter. Other values are forwarded to the backend as the `status` query parameter."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_unlock_all",
+      "description": "Release residual ABAP edit locks held by this user. ADT locks can survive a crashed or interrupted tool call, blocking later edits with HTTP 403 EU510 until removed in SM12. Replays the plugin's persistent lock ledger (every lock this plugin acquired, across sessions) plus any explicit `objects`, unlocking with the recorded handle and falling back to a handle-less unlock where accepted. Locks still not releasable (e.g. held by another user) are reported — those need SM12. Set `dryRun: true` to only LIST the candidate locks without releasing anything.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "description": "Optional explicit objects to unlock. Each entry: {objectUri} or {name, type}. When omitted, every object in the plugin's lock ledger for the destination is attempted.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objectUri": {
+                  "type": "string",
+                  "description": "Exact ADT object URI."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Object name (with type)."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Object type, e.g. CLAS, PROG."
+                }
+              }
+            }
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Only list the candidate locks (ledger + explicit objects) without unlocking anything (default false)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_version_diff",
+      "description": "Compare two versions of an object and return a unified diff. DEFAULT: saved (current source, inactive when one exists) vs active (last activated version) — i.e. exactly the changes that are NOT yet activated; use it to verify activation leftovers after writing/activating (includes of a program too). Pass versionFrom/versionTo (ids from adt_object_versions or this tool's `versions` output; keywords \"saved\" and \"active\") to compare historical versions. Read-only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objectUri": {
+            "type": "string",
+            "description": "Exact ADT object URI (from search/read results), e.g. /sap/bc/adt/oo/classes/zcl_demo."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZCL_DEMO."
+          },
+          "type": {
+            "type": "string",
+            "description": "Object type (short or ADT form), e.g. CLAS, INTF, PROG, DDLS."
+          },
+          "versionFrom": {
+            "type": "string",
+            "description": "Base (old) side: a version id, or \"saved\" for the current source. Default \"saved\"."
+          },
+          "versionTo": {
+            "type": "string",
+            "description": "Compare (new) side: a version id, \"active\" for the last activated version, or \"saved\". Default \"active\"."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "adt_where_used",
+      "description": "Find where an ABAP object is used (where-used list / impact analysis, SE80/ADT Where-Used-In): find objects that reference or depend on the given object — classes (CLAS), interfaces (INTF), programs/includes (PROG), CDS views (DDLS), tables (TABL), data elements (DTEL), domains (DOMA), message classes (MSAG) and more. Run before changing an object to understand the blast radius. Read-only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objectUri": {
+            "type": "string",
+            "description": "Exact ADT object URI (from search/read results), e.g. /sap/bc/adt/oo/classes/zcl_demo."
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name, e.g. ZCL_DEMO."
+          },
+          "type": {
+            "type": "string",
+            "description": "Object type (short or ADT form), e.g. CLAS, INTF, PROG, DDLS."
+          },
+          "enableAllTypes": {
+            "type": "boolean",
+            "description": "Expand the search to all object types (Eclipse \"select all\"). Default false (SAP default scope); can be much slower."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination name (configured in the plugin config). Omit to use the default destination."
+          }
+        }
+      },
+      "owner": "ac-sap-adt",
+      "requiredTags": [
+        "sap-adt"
+      ]
+    },
+    {
+      "name": "ask_questions",
+      "description": "向用户提问并等待回答（发起后本 run 挂起，用户回答到达后自动继续）。用于需要用户决策或确认的场景。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "问题"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "选项（纯字符串数组，如 [\"选项一\",\"选项二\"]，至多 6 个、超出截断；不要发对象）"
+                },
+                "multi": {
+                  "type": "boolean",
+                  "description": "多选（用户可勾选多项，答案为数组）"
+                }
+              },
+              "required": [
+                "question",
+                "options"
+              ]
+            },
+            "description": "选择题列表（最多 5 题；每题可 multi: true 开多选）"
+          },
+          "deadline_ms": {
+            "type": "number",
+            "description": "[已废弃，勿使用] 旧版等待超时参数——不再生效，传了会被忽略（等待无超时，直到用户回答）",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      },
+      "owner": "ac-ask-questions",
+      "requiredTags": [
+        "infra"
+      ],
+      "requiresInteraction": true
+    },
+    {
+      "name": "bash",
+      "description": "在 PowerShell 中执行命令并返回输出（常见 Unix 命令自动 fail-closed 翻译；background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具——shell 里 Get-ChildItem -Recurse 递归整棵目录再管道过滤在本仓库是准死循环（node_modules 照爬、CPU 满载且长时间零输出，cr-382 孤儿事故 8 例中占 6）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "要执行的命令"
+          },
+          "description": {
+            "type": "string",
+            "description": "命令作用的一句话说明"
+          },
+          "workdir": {
+            "type": "string",
+            "description": "工作目录（默认沙箱工作目录）"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "超时毫秒数（单位毫秒：300000 = 5 分钟；30 是 30 毫秒不是 30 秒。0 = 不限；缺省 30000、上限默认 120000，随本 Agent 的 shell-tools 配置生效，超上限自动截断；超时处置缺省转后台继续执行）。background=true 时本参数不适用（后台任务不限时）",
+            "minimum": 0
+          },
+          "background": {
+            "type": "boolean",
+            "description": "后台执行，立即返回 job_id（用 job 工具管理）"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "owner": "ac-shell-tools",
+      "requiredTags": [
+        "shell"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "browser",
+      "description": "操作浏览器（CDP 直连）：open 打开页面、elements 取可交互元素索引（[n] 编号）、click 按 ref 点击、read 抽取正文、scroll 滚动、wait 等待、logs 查控制台/网络日志、response_body 取响应体、tabs 列标签页、type 输入、press 按键、hover 悬停、screenshot 截图、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。需要 web+observe 能力标签；交互动作（click/type/press/hover）另需 manipulate 层级，eval 另需 inject 层级。各动作返回字段：open→{url,title,consoleErrors,failedRequests,marker}；read→{url,title,text,length}；elements→{count,elements,marker}；eval→{result}（result 保留 JS 原生 JSON 类型：数字/布尔/对象直出；返回未调用的函数或未等待的 Promise 会报可读错误）；screenshot→{file,relPath}；wait→{found,text} 或 {waited}；close→{closed}。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "read",
+              "elements",
+              "click",
+              "hover",
+              "type",
+              "press",
+              "scroll",
+              "wait",
+              "screenshot",
+              "logs",
+              "response_body",
+              "tabs",
+              "eval",
+              "close"
+            ],
+            "description": "要执行的动作"
+          },
+          "url": {
+            "type": "string",
+            "description": "[open] 目标 URL"
+          },
+          "ref": {
+            "type": "number",
+            "description": "[click/hover/type] elements 返回的元素编号"
+          },
+          "selector": {
+            "type": "string",
+            "description": "[click/type] CSS 选择器（ref 优先）"
+          },
+          "text": {
+            "type": "string",
+            "description": "[type] 输入文本；[wait] 等待出现的文本"
+          },
+          "key": {
+            "type": "string",
+            "description": "[press] 按键名，如 Enter"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "description": "[scroll] 方向（默认 down）"
+          },
+          "amount": {
+            "type": "number",
+            "description": "[scroll] 像素（默认 600）"
+          },
+          "ms": {
+            "type": "number",
+            "description": "[wait] 等待毫秒（默认 1000，上限 30000）"
+          },
+          "maxLen": {
+            "type": "number",
+            "description": "[read/response_body] 截断长度"
+          },
+          "since": {
+            "type": "number",
+            "description": "[logs] marker 之后（open/elements 结果携带 marker）"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "all",
+              "console",
+              "network",
+              "error"
+            ],
+            "description": "[logs] 日志类别（默认 all）"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "verbose",
+              "info",
+              "warning",
+              "error"
+            ],
+            "description": "[logs] console 最低级别（默认不过滤）"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "[response_body] 请求 ID（logs network 条目）"
+          },
+          "name": {
+            "type": "string",
+            "description": "[screenshot] 截图文件名"
+          },
+          "fullPage": {
+            "type": "boolean",
+            "description": "[screenshot] 整页截图（默认 false 只截视口）"
+          },
+          "js": {
+            "type": "string",
+            "description": "[eval] JS 代码"
+          },
+          "steps": {
+            "type": "array",
+            "description": "批量模式：依次执行的动作序列",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "description": "动作"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "目标 URL"
+                },
+                "ref": {
+                  "type": "number",
+                  "description": "元素编号"
+                },
+                "selector": {
+                  "type": "string",
+                  "description": "CSS 选择器"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "输入文本"
+                },
+                "key": {
+                  "type": "string",
+                  "description": "按键名"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "截图文件名"
+                },
+                "js": {
+                  "type": "string",
+                  "description": "JS 代码"
+                },
+                "repeat": {
+                  "type": "number",
+                  "description": "重复次数（默认 1）",
+                  "minimum": 1,
+                  "maximum": 20
+                },
+                "delay_ms": {
+                  "type": "number",
+                  "description": "执行后等待毫秒（默认 0）",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          },
+          "continue_on_error": {
+            "type": "boolean",
+            "description": "批量模式：某步失败后是否继续（默认 false）"
+          }
+        }
+      },
+      "owner": "ac-web-tools",
+      "requiredTags": [
+        "web",
+        "observe"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "edit",
+      "description": "通过替换文本内容来编辑文本文件（old_string 必须唯一且从 read 输出原样复制，且须与 new_string 不同；行首缩进不同的文本会被拒绝；json/代码文件写回前做语法预检）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "文件路径"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "要替换的原文"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "替换后的文本（须与 old_string 不同）"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ]
+      },
+      "owner": "ac-fs-tools",
+      "requiredTags": [
+        "fs"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "glob",
+      "description": "按 glob 模式查找文件（如 \"**/*.ts\"；模式不含 / 时匹配任意深度的文件名）。output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点（不是搜索根），按修改时间新→旧，内联上限 100；paths 条目可直接作为 read/grep 的相对路径参数（同锚点解析）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "glob 模式，如 \"**/*.ts\"、\"*.test.ts\""
+          },
+          "path": {
+            "type": "string",
+            "description": "搜索根目录（默认当前工作目录）"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      },
+      "owner": "ac-fs-search",
+      "requiredTags": [
+        "fs"
+      ]
+    },
+    {
+      "name": "goal",
+      "description": "管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "get",
+              "update",
+              "delete"
+            ],
+            "description": "操作"
+          },
+          "objective": {
+            "type": "string",
+            "description": "[create] 目标描述；[update] 修改目标文本"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "completed",
+              "blocked"
+            ],
+            "description": "[update] 流转状态（blocked 必填 blocked_reason；completed 收口入历史）"
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "[update status=blocked] 具体阻塞条件（何时能恢复）"
+          },
+          "note": {
+            "type": "string",
+            "description": "[create/update] 进展备注（goal get / UI 可见；空串清除）"
+          },
+          "max_rounds": {
+            "type": "number",
+            "description": "[create/update] 轮次预算（1-200，缺省 20；达到即自动暂停）",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "owner": "ac-goal",
+      "requiredTags": [
+        "infra"
+      ]
+    },
+    {
+      "name": "grep",
+      "description": "按正则表达式搜索文件内容（结果按文件分组，Line N: 预览）。output: { total, shown, groups: Array<{ path, matches: Array<{ line, preview }> }> }——total 为命中总数；path 相对工作区锚点，可直接作为 read 的相对路径参数。默认内联 50 条（shown 为实际展示数），limit 参数可调（最大 250）。按字面量搜（函数名/调用式，如 close( 、a.b ）传 fixed: true——pattern 原样匹配，不做正则解释。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "正则表达式（JS RegExp 语法）；fixed: true 时为字面量文本"
+          },
+          "path": {
+            "type": "string",
+            "description": "搜索的文件或目录（默认当前工作目录）"
+          },
+          "include": {
+            "type": "string",
+            "description": "文件名过滤 glob，如 \"*.ts\""
+          },
+          "fixed": {
+            "type": "boolean",
+            "description": "字面量模式：pattern 按原样文本匹配（自动转义全部正则元字符）——搜函数名/调用式时用"
+          },
+          "limit": {
+            "type": "number",
+            "description": "内联展示条数（默认 50，最大 250）——total 恒报命中总数，超出部分不内联",
+            "minimum": 1,
+            "maximum": 250
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      },
+      "owner": "ac-fs-search",
+      "requiredTags": [
+        "fs"
+      ]
+    },
+    {
+      "name": "grep_history",
+      "description": "按正则表达式检索本 agent 自己的会话历史（回放层，含概要）。缺省查当前会话；传 conversation_id 可查本 agent 名下的其他会话。只读本 agent 账本——其他 agent / user 的账本不在能力面（跨 Agent 历史请直接读文件）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "正则表达式（JS RegExp 语法）"
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "目标会话键（缺省 = 当前会话；须在本 agent 账本内）"
+          },
+          "limit": {
+            "type": "number",
+            "description": "返回条数上限（默认 50，最大 250）",
+            "minimum": 1,
+            "maximum": 250
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      },
+      "owner": "ac-shell-rows/session-query"
+    },
+    {
+      "name": "install_plugin",
+      "description": "永久安装本地插件目录（免审：安装态写入宿主插件库 + 插件行集条目物化，新壳 boot 时自动装载；本壳内立即会话级装载可直接测试）。目录须含 manifest.json，缺省约定在你的沙箱 files/<你的id>/ 下。迭代重装语义：同 name+version 且内容一致 → 幂等返回已装状态；有任何改动必须先 bump manifest.json 的 version 再重装。每轮对话只处理首个装载类中断（一轮只能装一件）。上报安装意图，本轮结束后执行，结果以回执进入当前会话并自动触发你的下一轮（可直接开始测试）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "type": "string",
+            "description": "插件目录（相对你的沙箱 files/<你的id>/ 或绝对路径，须含 manifest.json）"
+          }
+        },
+        "required": [
+          "dir"
+        ]
+      },
+      "owner": "shell-plugin-dev-row"
+    },
+    {
+      "name": "job",
+      "description": "管理后台任务：list 列出、kill 终止、logs 查看输出（pwsh/bash background / subagent 的任务）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "kill",
+              "logs"
+            ],
+            "description": "操作"
+          },
+          "job_id": {
+            "type": "string",
+            "description": "[kill/logs] 任务 id（pwsh/bash background / subagent 返回）"
+          },
+          "limit": {
+            "type": "number",
+            "description": "[logs] 返回尾部行数（默认 50，最大 500）",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "description": {
+            "type": "string",
+            "description": "本次操作意图的一句话说明（用于前端展示）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "owner": "ac-shell-tools",
+      "requiredTags": [
+        "shell"
+      ]
+    },
+    {
+      "name": "list_agents",
+      "description": "列出所有 Agent（含虚拟 Agent 标注）。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "collab"
+      ]
+    },
+    {
+      "name": "list_groups",
+      "description": "列出自己所在的群组。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "collab"
+      ]
+    },
+    {
+      "name": "list_tools",
+      "description": "列出自己可用的全部工具。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "infra"
+      ]
+    },
+    {
+      "name": "load_skill",
+      "description": "按名称加载一个技能的完整指令正文（<available_skills> 中列出的技能：会话工作区、全局与本 Agent 专属均可；加载后按其指令执行，不再重复加载）。注意：注入型工具——返回值只有 name/scope/baseDir/status:\"injected\" 回执，正文不进返回值（由注入机制随后进入上下文）；程序内判定成功看 status 字段，不要把返回值当数据处理。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "技能名（<available_skills> 条目中的 <name>，kebab-case）"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "owner": "SkillsService",
+      "requiredTags": [
+        "infra"
+      ]
+    },
+    {
+      "name": "math",
+      "description": "计算数学表达式（如 \"1+2*3\"、\"sqrt(16)\"、\"(1+2**10)/4\"、\"10n**21n\"；纯数学语法解析求值，非 JS 执行）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "description": "数学表达式（四则/幂/取模 + Math 函数与常量）"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "owner": "ac-math",
+      "requiredTags": [
+        "infra"
+      ]
+    },
+    {
+      "name": "memory_grep",
+      "description": "检索长期记忆时间线（正则 + 时间/对象/标签过滤轴；条目级分组输出）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "JS 正则（匹配正文/origin/tags）"
+          },
+          "since": {
+            "type": "string",
+            "description": "时间下界（ISO 日期，可选）"
+          },
+          "until": {
+            "type": "string",
+            "description": "时间上界（ISO 日期，可选）"
+          },
+          "peer": {
+            "type": "string",
+            "description": "按关联对象过滤（可选）"
+          },
+          "tag": {
+            "type": "string",
+            "description": "按标签过滤（可选）"
+          }
+        }
+      },
+      "owner": "ac-memory",
+      "requiredTags": [
+        "memory"
+      ]
+    },
+    {
+      "name": "memory_write",
+      "description": "向长期记忆时间线追加一条记忆（自动铸 [日期] 前缀；跨会话可用；过时信息不必删改——写新条目自然覆盖）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "记忆正文，以 [标签] 段开头（如 `[约定] 每周五同步`——标签从小词表取：约定/偏好/事实/教训/待办/档案），后接自包含的一句话或短段（未来的你只看这条就能想起来龙去脉）"
+          },
+          "peers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "关联对象（端点/Agent id，可选）"
+          },
+          "date": {
+            "type": "string",
+            "description": "事实发生日 YYYY-MM-DD（可选；缺省=今天。仅历史回填/迁移整理时使用——记录当时日期而非整理日）"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "owner": "ac-memory",
+      "requiredTags": [
+        "memory"
+      ]
+    },
+    {
+      "name": "pwsh",
+      "description": "在 PowerShell 中执行命令并返回输出（常见 Unix 命令自动 fail-closed 翻译；background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具——shell 里 Get-ChildItem -Recurse 递归整棵目录再管道过滤在本仓库是准死循环（node_modules 照爬、CPU 满载且长时间零输出，cr-382 孤儿事故 8 例中占 6）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "要执行的命令"
+          },
+          "description": {
+            "type": "string",
+            "description": "命令作用的一句话说明"
+          },
+          "workdir": {
+            "type": "string",
+            "description": "工作目录（默认沙箱工作目录）"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "超时毫秒数（单位毫秒：300000 = 5 分钟；30 是 30 毫秒不是 30 秒。0 = 不限；缺省 30000、上限默认 120000，随本 Agent 的 shell-tools 配置生效，超上限自动截断；超时处置缺省转后台继续执行）。background=true 时本参数不适用（后台任务不限时）",
+            "minimum": 0
+          },
+          "background": {
+            "type": "boolean",
+            "description": "后台执行，立即返回 job_id（用 job 工具管理）"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "owner": "ac-shell-tools",
+      "requiredTags": [
+        "shell"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "read",
+      "description": "读取文本文件并返回带行号的内容（output: { path, content: \"1:…\\n2:…\", size, total_lines, … }）；file_path 是目录时返回条目清单（output: { path, type: \"directory\", items: Array<{ name, type: \"file\"|\"directory\" }>, count }——目录在前、按名排序，条目是对象数组不是字符串数组）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "文件或目录路径"
+          },
+          "offset": {
+            "type": "number",
+            "description": "起始行号（默认 1）",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "number",
+            "description": "最多返回的行数（默认 2000，最大 5000）",
+            "minimum": 1,
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      },
+      "owner": "ac-fs-tools",
+      "requiredTags": [
+        "fs"
+      ]
+    },
+    {
+      "name": "read_agent_info",
+      "description": "查看一个 Agent 的资料（不传 agent_id 看自己；模型配置仅自查可见）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "目标 Agent ID（可选，默认自己）"
+          }
+        }
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "collab"
+      ]
+    },
+    {
+      "name": "read_history",
+      "description": "分页读取本 agent 自己的会话历史（回放层，含概要头部）。缺省读当前会话；传 conversation_id 可读本 agent 名下的其他会话（#<标题>(<会话 id>) 引用里括号内的 id）。只读本 agent 账本——其他 agent / user 的账本不在能力面。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "目标会话键（缺省 = 当前会话；须在本 agent 账本内）"
+          },
+          "offset": {
+            "type": "number",
+            "description": "起始序号（1 基，默认 1）",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "number",
+            "description": "返回条数（默认 100，最大 500）",
+            "minimum": 1,
+            "maximum": 500
+          }
+        }
+      },
+      "owner": "ac-shell-rows/session-query"
+    },
+    {
+      "name": "register_plugin",
+      "description": "临时试跑本地插件目录（会话级装载：TS 入口直接装载进本壳进程，重启即失；不写入安装态）。目录须含 manifest.json，缺省约定在你的沙箱 files/<你的id>/ 下。与 install_plugin 的分工：本工具用于开发迭代中临时试跑；要永久驻留（重启后仍生效、所有新壳 boot 时装载）必须用 install_plugin。迭代方式 = 改代码 → 再次 register_plugin（无热重载）。每轮对话只处理首个装载类中断（一轮只能装一件）。装载在本轮对话收束后执行，结果以回执进入当前会话并自动触发你的下一轮。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "type": "string",
+            "description": "插件目录（相对你的沙箱 files/<你的id>/ 或绝对路径，须含 manifest.json）"
+          }
+        },
+        "required": [
+          "dir"
+        ]
+      },
+      "owner": "shell-plugin-dev-row"
+    },
+    {
+      "name": "restart_host",
+      "description": "重启宿主进程以重载宿主侧装载的代码与状态——「退出即复活」的无损重载原语，不是停机窗口。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响（继续当前任务即可）；宿主优雅退出（退出码 42）后由活壳探测复活（supervisor 在场时为其快路），webui 短暂断连后恢复，run 终稿在宿主恢复后送达。最高频场景：改了 packages/ 下宿主装载行（读面/行集/宿主侧服务）的源码——宿主进程不热更新，测试全绿 ≠ 已生效，须本工具重启加载新代码后再验证。其余场景：宿主侧状态坏、宿主级行集目录/插件库变更需重载。注意：回执为壳侧送达确认（宿主退出后无法自回响应，crashed/超时类结果不等于失败）——复活证据以回执给出的 healthz 探测地址/事实源文件为准，勿盲猜端口。批处理/迁移不要指望宿主退出期间执行——应在宿主恢复静止后执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "owner": "shell-restart-row"
+    },
+    {
+      "name": "restart_shell",
+      "description": "请求在本轮 run 自然结束后重启本 Agent 的壳进程——「退出即复活」的重载原语，不丢消息、不触发崩溃熔断。时序：调用后重启即排程，但壳仍在运行——行集、内存状态在本轮内不会更新；请立即停止不必要的工具调用、收尾并给出终稿（写明当前进度与重启后的下一步，终稿是重启后的接力上下文）。壳退出后由宿主自动重拉，重启完成你会收到「已重启」通知，届时状态已重载，按终稿继续即可、勿重做已完成步骤。典型场景：① install_plugin 定型后新插件行需新壳装配进直调面；② 壳侧装载行源码改动不热更新（改后需新壳加载）；③ 壳内状态坏自愈。同一轮内只调一次。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "owner": "shell-restart-row"
+    },
+    {
+      "name": "run_code",
+      "description": "以代码编排成批工具调用，大幅降低 token 消耗：写一段 TypeScript 程序（限可擦除语法），经 tools.<name>(args) 组合多步操作，控制流（循环/条件/并行）进代码，最终结论经 return 或 log 回上下文（return 末端一次合成 / log 沿途收集——无 return 值〔含 return null / undefined〕时 log 各行按序合成返回，按任务形态自选）。跨程序复用的函数经 lib.define(名, 函数) 注册（须自包含；存小型函数而非大结果数据——大数据跨程序传递 = 把读取/加工逻辑包成 lib 函数调用时现算），后续程序 lib.resolve(名) 取用（同会话有效；resolve() 无参返回纯静态清单摘要，不执行任何库）。确定性多步编排用本工具；探索性研究用 subagent。调用时带 description 参数写明本次程序意图（工具卡 Label）。只读工具可 Promise.all 并行；写路径（write/edit/str_replace_editor）与命令（pwsh/bash）自动按提交序串行。墙钟预算耗尽或中止时程序被杀并返回失败结果（error 含原因）——拆分程序或换策略续跑即可，已完成子调用的轨迹随 output.summary 保留。前台命令超时自动转后台 job 继续执行（结果带 job_id + 输出快照，job 工具接力）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "本次程序的一句话意图（做什么/要什么结论）——工具卡 Label 用；程序内不必重复书写"
+          },
+          "code": {
+            "type": "string",
+            "description": "可擦除 TS 程序体（类型标注可用；enum/命名空间/参数属性不可用；不允许 import；模板串内嵌反引号须转义，多行文本优先引号串数组 join 拼接）——tools.<name>(args) 调用工具，最终结论经 return 或 log(\"…\") 给出（无 return 值〔含 return null / undefined〕时 log 各行按序合成返回）"
+          },
+          "max_output_bytes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "输出字节上限（return 值与单条 log 共用口径；缺省 64KB；0 = 不限）"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "owner": "ac-run-code",
+      "injection": "mode"
+    },
+    {
+      "name": "run_harness",
+      "description": "把一个完整任务委托给本地 CLI harness（Claude Code / Codex CLI）执行：harness 全权跑自己的 agent 循环（工具/文件/命令），终稿作为本工具结果回流。harness 使用自己的登录凭证（订阅额度），无需 API key。task 必须是自足完整的委托任务书（把背景、目标、产出要求全部写进 task）；同会话非首次委托默认续接上次 harness 会话（resume=auto——上下文已延续，task 只写增量即可）。工作目录缺省为本 Agent 的专属空间 files/<id>/harness/。沙箱两档：plan（只读分析）/ workspace-write（可写工作区，Codex 保持默认禁网）。长任务建议显式放宽 timeout_ms（缺省 10 分钟）。同一 Agent 同时仅一个 harness run（占线报忙）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "harness": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex"
+            ],
+            "description": "目标 harness 网关"
+          },
+          "task": {
+            "type": "string",
+            "description": "完整委托任务书（原样作为 prompt 传入——自足完整，含背景/目标/产出要求）"
+          },
+          "cwd": {
+            "type": "string",
+            "description": "工作目录（相对 Agent 专属空间解析；缺省 files/<agentId>/harness/）"
+          },
+          "sandbox": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "workspace-write"
+            ],
+            "description": "沙箱档（plan=只读分析；workspace-write=可写工作区；无更高档）"
+          },
+          "model": {
+            "type": "string",
+            "description": "harness 侧模型覆盖（可选，走 harness 自己的模型名）"
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "看门狗超时毫秒（缺省 600000；长任务显式放宽）"
+          },
+          "resume": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "new"
+            ],
+            "description": "会话续接（P2）：auto=有本会话上次成功的 runKey 则续接 harness 侧会话（上下文延续，task 可只写增量）；new=强制新会话。续接凭据过期时 harness 报错，改 new 重试即可"
+          }
+        },
+        "required": [
+          "harness",
+          "task"
+        ]
+      },
+      "owner": "ac-harness-tools",
+      "requiredTags": [
+        "harness"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "send_agent",
+      "description": "给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 是异步发送的语法糖——发起后最多等 timeout_ms 拿回复，超时不影响对方的处理（对方继续跑完，回复迟到时以系统通知注入会话）。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "目标 Agent ID（含虚拟端点如 user；已 spawn 子 Agent 的 sub_ id 亦可）"
+          },
+          "message": {
+            "type": "string",
+            "description": "消息内容"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "是否等待回复（默认 false）。语法糖：发起后限时等待（timeout_ms，缺省 60s），超时即返回超时说明——不中断对方的处理，回复迟到会以系统通知送达（含对方执行失败的情形）。对端空闲直跑时随结果带回回复文本（reply 字段）；对端正忙时受理即返（steered/queued），不进入限时等待。"
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "[wait=true] 等待上限毫秒（缺省 60000；超时返回引导说明，不中断对方——其回复迟到时以系统通知送达）。仅对端空闲直跑时生效；对端忙（受理即返）不适用",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "to",
+          "message"
+        ]
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "collab"
+      ]
+    },
+    {
+      "name": "send_group",
+      "description": "在群组里发消息，群内其他成员会自主决定是否回应。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "description": "群组 ID"
+          },
+          "message": {
+            "type": "string",
+            "description": "消息内容"
+          }
+        },
+        "required": [
+          "group_id",
+          "message"
+        ]
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "collab"
+      ]
+    },
+    {
+      "name": "str_replace_editor",
+      "description": "四合一文件编辑器：view 查看文件（带行号）或目录、create 创建文件、str_replace 精确文本替换、insert 按行号插入。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "view",
+              "create",
+              "str_replace",
+              "insert"
+            ],
+            "description": "命令：view / create / str_replace / insert"
+          },
+          "path": {
+            "type": "string",
+            "description": "目标文件或目录路径"
+          },
+          "file_text": {
+            "type": "string",
+            "description": "create：新文件的完整内容"
+          },
+          "old_str": {
+            "type": "string",
+            "description": "str_replace：要替换的原文（须唯一）"
+          },
+          "new_str": {
+            "type": "string",
+            "description": "str_replace：替换后的文本（须与 old_str 不同；空 = 删除）；insert：要插入的文本"
+          },
+          "insert_line": {
+            "type": "integer",
+            "description": "insert：插到第几行之后（与 view 显示的行号一致，0 = 文件开头）"
+          },
+          "view_range": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "view：[起始行, 结束行]，-1 表示到文件尾"
+          }
+        },
+        "required": [
+          "command",
+          "path"
+        ]
+      },
+      "owner": "ac-str-replace-editor",
+      "requiredTags": [
+        "fs_minimal"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "subagent",
+      "description": "派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话——真子进程，不接触任何接收方）。spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。注意：本工具管理的是你私有的子 Agent 看板，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。长输出指引：预期产出长文本（报告/清单/多文件分析等）时，在输出约束里要求子 Agent 把完整产出写入文件（给明确路径），回复只报路径与要点摘要——长回复走回传通道会撞输出体积预算被截断（头尾保留、中段丢失）；需要细节时再 read 该文件（可分页无损读取）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "spawn",
+              "send",
+              "await",
+              "answer",
+              "list",
+              "stop",
+              "delete"
+            ],
+            "description": "操作"
+          },
+          "task": {
+            "type": "string",
+            "description": "[spawn] 首条任务消息，需完整自包含（子 Agent 看不到你的会话）——把内容完整写进本参数，不要请转交式截断。任务的角色定位/专业人设/输出约束放 system 参数（固化人设，勿混进 task）。长文本产出类任务的输出约束建议写明：完整结果写入指定文件、回复只给路径+要点（长回复会被截断）。省略则仅创建不启动，之后用 send 发首条"
+          },
+          "name": {
+            "type": "string",
+            "description": "[spawn] 子 Agent 名称"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤；subagent/run_code 一律拒绝——子 Agent 不能再派子孙/再开编排层）。缺省不传 = 继承你的工具面；传空数组 [] = 纯推理子 Agent"
+          },
+          "system": {
+            "type": "string",
+            "description": "[spawn] 子 Agent 的 system prompt（人设/行为约束）。传入即固化（跨轮/跨重启）并完全接管人格语义——不继承父 Agent 的人设与 persona 配置；缺省 = 继承父"
+          },
+          "subagent_id": {
+            "type": "string",
+            "description": "[send/await/answer/stop/delete] 目标子 Agent ID（spawn 返回的 subagent_id，可 list 查询；勿凭记忆复写）"
+          },
+          "message": {
+            "type": "string",
+            "description": "[send] 给该子 Agent 的消息内容（自包含，或基于该子 Agent 已有进展的追问/补充指示）——不是给其他 Agent 或用户发消息"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "async",
+              "sync",
+              "steer",
+              "next-run"
+            ],
+            "description": "[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）"
+          },
+          "timeout_s": {
+            "type": "number",
+            "description": "[await] 等待上限秒数（0 = 缺省立即查询不等待；正值 = 阻塞等待新终稿，超时返回 pending；子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等）",
+            "minimum": 0
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "array",
+                "null"
+              ]
+            },
+            "description": "[answer] 对子 Agent pending 提问的逐题回答（与提问顺序一一对应；单选 = 选项文本或 null 跳过，多选 = 文本数组）"
+          },
+          "wait_time": {
+            "type": "number",
+            "description": "[spawn] 正值 = 阻塞等首条任务终稿（秒；超时返回已转后台，结果稍后 await 查询）",
+            "minimum": 0
+          },
+          "query": {
+            "type": "string",
+            "description": "[list] 按 id/名称子串过滤"
+          },
+          "all": {
+            "type": "boolean",
+            "description": "[list] true = 列全部子 Agent（跨会话）；缺省只列当前会话派生的（无会话归属的历史条目也会显示，origin_session 字段标注发起会话）"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "owner": "shell-subagent-row"
+    },
+    {
+      "name": "submit_issue",
+      "description": "向 Git 托管台提交 ISSUE（GitHub/Gitee）：把用户反馈或问题以 ISSUE 形式发到仓库，返回链接与编号。注意：ISSUE 是公开可见的——正文只写问题现象与复现步骤，绝不包含密钥、令牌、密码、私人数据、内部地址等敏感信息，不确定的内容先向用户确认。目的地（server/repo）缺省走配置（内置缺省 = 本产品主仓库），调用参数可覆盖；令牌走凭据链（github/gitee）或环境变量 GITHUB_TOKEN/GITEE_TOKEN；未配置令牌时官方台降级返回预填新建链接（mode=prefill-link）——把链接转交用户，由其人工复核后提交。需要 issue-report 能力标签（或本会话实验开关授权）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "ISSUE 标题（一句话概括，≤250 字符）"
+          },
+          "body": {
+            "type": "string",
+            "description": "ISSUE 正文（Markdown：现象、复现步骤、期望结果、环境）"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "标签（如 bug/feature；与配置的附加标签并集，Gitee 上限 5）"
+          },
+          "server": {
+            "type": "string",
+            "enum": [
+              "github",
+              "gitee"
+            ],
+            "description": "托管台覆盖（缺省走配置）"
+          },
+          "repo": {
+            "type": "string",
+            "description": "目标仓库覆盖（owner/repo；缺省走配置）"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "owner": "ac-issue-tools",
+      "requiredTags": [
+        "issue-report"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "todo",
+      "description": "管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空；返回计数摘要——查看完整清单用 read）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed|cancelled（缺省 pending；in_progress 至多 1 项；不再相关标 cancelled）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "write",
+              "read"
+            ],
+            "description": "操作（缺省按携带面推定：带 todos = write、其余 = read）"
+          },
+          "todos": {
+            "type": "array",
+            "description": "[write] 整表（全量替换；上限 50 条）",
+            "items": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "待办内容（祈使句，一条一个动作）"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "cancelled"
+                  ],
+                  "description": "状态（缺省 pending；in_progress 至多 1 项）"
+                }
+              },
+              "required": [
+                "content"
+              ]
+            }
+          }
+        },
+        "required": []
+      },
+      "owner": "ac-todo",
+      "requiredTags": [
+        "infra"
+      ]
+    },
+    {
+      "name": "unregister_plugin",
+      "description": "卸载插件（会话级装载直接卸载；removeFromLibrary=true 时 = 永久卸载：移出宿主插件库，旧版本目录进 .backup）。上报卸载意图，本轮结束后执行，结果以回执进入当前会话。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "插件名（manifest.name）"
+          },
+          "removeFromLibrary": {
+            "type": "boolean",
+            "description": "是否同时移出插件库 = 永久卸载进 .backup（缺省 false 仅卸载本壳会话级装载）"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "owner": "shell-plugin-dev-row"
+    },
+    {
+      "name": "update_agent_profile",
+      "description": "更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "目标 Agent（默认自己；仅 admin 可改他人）"
+          },
+          "fields": {
+            "type": "object",
+            "description": "要更新的字段",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "显示名称（名册/群聊展示；空串 = 清除，回落简介/id）"
+              },
+              "description": {
+                "type": "string",
+                "description": "一句话简介（其他 Agent 与用户可见；不是显示名）"
+              },
+              "system": {
+                "type": "string",
+                "description": "基础系统提示词"
+              },
+              "persona": {
+                "type": "string",
+                "description": "人物设定（写入 Agent 目录 AGENTS.md 并挂载 persona 装载）"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "工具白名单（空数组/缺省 = 全部）"
+              },
+              "maxSteps": {
+                "type": "number",
+                "description": "步数预算（0 = 不限）"
+              },
+              "settings": {
+                "type": "object",
+                "description": "具名扩展设置（settings[具名]——已装插件在该 Agent 的行为）"
+              }
+            }
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
+      "owner": "ac-collab-tools",
+      "requiredTags": [
+        "collab"
+      ]
+    },
+    {
+      "name": "web_search",
+      "description": "搜索互联网，获取最新信息（provider：tavily/deepseek——缺省源由全局设置「搜索引擎」页控制）。需要 web 能力标签。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          },
+          "description": {
+            "type": "string",
+            "description": "搜索目的的一句话说明"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "owner": "ac-web-tools",
+      "requiredTags": [
+        "web"
+      ],
+      "needPermission": true
+    },
+    {
+      "name": "write",
+      "description": "创建或覆盖文本文件。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "文件路径"
+          },
+          "content": {
+            "type": "string",
+            "description": "文件完整内容"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      },
+      "owner": "ac-fs-tools",
+      "requiredTags": [
+        "fs"
+      ],
+      "needPermission": true
+    }
+  ],
+  "events": [
+    {
+      "name": "config/changed",
+      "listeners": [
+        {
+          "owner": "FileSnapshotsService",
+          "row": "ac-file-snapshots",
+          "prepend": false,
+          "global": false,
+          "description": "快照上限热更（settings.fileSnapshots 全局层）"
+        },
+        {
+          "owner": "ac-llm-pool",
+          "prepend": false,
+          "global": false,
+          "description": "池配置热更：diff 重挂 provider 注册"
+        },
+        {
+          "owner": "McpService",
+          "row": "ac-mcp",
+          "prepend": false,
+          "global": false,
+          "description": "MCP 服务器清单热更对账（settings.mcp 全局层）"
+        },
+        {
+          "owner": "ac-sap-adt",
+          "prepend": false,
+          "global": false,
+          "description": "sap-adt：引擎配置（目的地/策略）热重载"
+        }
+      ]
+    },
+    {
+      "name": "conversation/before-start",
+      "listeners": [
+        {
+          "owner": "MemoryService",
+          "row": "ac-memory",
+          "prepend": false,
+          "global": false,
+          "description": "记忆 checkpoint/delta 注入（锚检测 + 尾部追加 context 行）"
+        }
+      ]
+    },
+    {
+      "name": "conversation/queue-changed",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "conversation/run-settled",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "durable-interaction/closed",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "durable-interaction/opened",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "durable-interaction/replied",
+      "listeners": [
+        {
+          "owner": "ac-ask-questions",
+          "prepend": false,
+          "global": false,
+          "description": "作答注入：忙步 steer 即时注入 / 挂起留给 idle 半边 / run 已死 late-reply 回投"
+        },
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "group/deleted",
+      "listeners": [
+        {
+          "owner": "FileSnapshotsService",
+          "row": "ac-file-snapshots",
+          "prepend": false,
+          "global": false,
+          "description": "群删除级联（本体 + 成员流键快照）"
+        }
+      ]
+    },
+    {
+      "name": "job/settled",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "job/started",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "llm/before-chat",
+      "listeners": [
+        {
+          "owner": "ac-llm-pool",
+          "prepend": false,
+          "global": false,
+          "description": "凭据解析：pool:<provider> apiKey 注入 LLM 调用（不落日志）"
+        },
+        {
+          "owner": "ac-llm-pool",
+          "prepend": false,
+          "global": false,
+          "description": "会话亲和头注入：preset 网关按会话派生稳定 session 头（粘性路由/prompt cache）"
+        }
+      ]
+    },
+    {
+      "name": "llm/delta",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "loop/after-run",
+      "listeners": [
+        {
+          "owner": "shell-auto-title-row",
+          "prepend": false,
+          "global": false,
+          "description": "会话命名兜底（after-run）"
+        },
+        {
+          "owner": "shell-ledger-row",
+          "prepend": false,
+          "global": false
+        },
+        {
+          "owner": "shell-plugin-dev-row",
+          "prepend": false,
+          "global": false,
+          "description": "插件装卸意图收束检测 → 壳内执行（register）/ 信封请求宿主（install/uninstall 永久档）"
+        },
+        {
+          "owner": "SkillsService",
+          "row": "ac-skill",
+          "prepend": false,
+          "global": false
+        },
+        {
+          "owner": "ac-goal",
+          "prepend": false,
+          "global": false,
+          "description": "goal-round 驱动：未达成目标自动续跑下一轮（异常/上限自动暂停）"
+        },
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "loop/after-step",
+      "listeners": [
+        {
+          "owner": "shell-auto-title-row",
+          "prepend": false,
+          "global": false,
+          "description": "会话首步后命名"
+        },
+        {
+          "owner": "shell-ledger-row",
+          "prepend": false,
+          "global": false
+        },
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "loop/before-run",
+      "listeners": [
+        {
+          "owner": "ac-persona",
+          "prepend": false,
+          "global": false,
+          "description": "<persona> 人设块前置注入"
+        },
+        {
+          "owner": "ac-system-prompt",
+          "prepend": false,
+          "global": false,
+          "description": "system prompt 静态块装配（系统环境/术语/指引）"
+        },
+        {
+          "owner": "ac-fs-tools",
+          "prepend": false,
+          "global": false,
+          "description": "注入 @ 路径引用约定（Agent 有 read 时）"
+        },
+        {
+          "owner": "ac-run-code",
+          "prepend": false,
+          "global": false,
+          "description": "run_code SDK 投影 + 程序书写纪律注入（程序化互斥形态时）"
+        },
+        {
+          "owner": "ac-sap-adt",
+          "prepend": false,
+          "global": false,
+          "description": "sap-adt：注入 <sap-adt-tools> 使用规约（生效工具集含 adt_* 时）"
+        },
+        {
+          "owner": "McpService",
+          "row": "ac-mcp",
+          "prepend": false,
+          "global": false,
+          "description": "MCP 懒建连 + 工具发现注册 + per-Agent 暴露面收敛"
+        },
+        {
+          "owner": "MemoryService",
+          "row": "ac-memory",
+          "prepend": false,
+          "global": false,
+          "description": "记忆静态指引注入（字节恒定；内容走 context 行协议）"
+        },
+        {
+          "owner": "SkillsService",
+          "row": "ac-skill",
+          "prepend": false,
+          "global": false,
+          "description": "注入 <available_skills> 会话工作区 + 全局 + 本 Agent 专属技能目录"
+        },
+        {
+          "owner": "SkillsService",
+          "row": "ac-skill",
+          "prepend": false,
+          "global": false,
+          "description": "/name 手势 before-run 判定 + context 行持久化注入（每消息一次）"
+        },
+        {
+          "owner": "ac-collab-tools",
+          "prepend": false,
+          "global": false,
+          "description": "注入 @ 名称引用约定（Agent 有 list_agents+send_agent 时）"
+        },
+        {
+          "owner": "ac-collab-tools",
+          "prepend": false,
+          "global": false,
+          "description": "注入群聊行为契约（群会话 run 且 send_group 在场——回复走 send_group，沉默不刷屏）"
+        },
+        {
+          "owner": "shell-tools-gate",
+          "prepend": false,
+          "global": false,
+          "description": "tools 授权门：run 边界投影缓存失效（每 run 前重读）"
+        }
+      ]
+    },
+    {
+      "name": "loop/before-run-last",
+      "listeners": [
+        {
+          "owner": "ac-system-prompt",
+          "prepend": true,
+          "global": false,
+          "description": "system prompt 对话信息块（尾档·prepend 居前）"
+        }
+      ]
+    },
+    {
+      "name": "loop/before-step",
+      "listeners": [
+        {
+          "owner": "SkillsService",
+          "row": "ac-skill",
+          "prepend": false,
+          "global": false,
+          "description": "run_code 子调用技能注入（run 级驻留——进数组一次后续步继承）+ context 行落账"
+        }
+      ]
+    },
+    {
+      "name": "loop/run-idle",
+      "listeners": [
+        {
+          "owner": "ac-ask-questions",
+          "prepend": false,
+          "global": false,
+          "description": "ask_questions 挂起等待：run 自然停点等用户回答，注入续走同 run"
+        }
+      ]
+    },
+    {
+      "name": "loop/run-started",
+      "listeners": [
+        {
+          "owner": "shell-auto-title-row",
+          "prepend": false,
+          "global": false,
+          "description": "会话命名暂存（run-started）"
+        },
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        },
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "loop/step-started",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "session/context-injected",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "singles/updated",
+      "listeners": [
+        {
+          "owner": "FileSnapshotsService",
+          "row": "ac-file-snapshots",
+          "prepend": false,
+          "global": false,
+          "description": "singles 硬删级联（会话快照目录）"
+        }
+      ]
+    },
+    {
+      "name": "subagents/updated",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "tool/after-execute",
+      "listeners": [
+        {
+          "owner": "shell-ledger-row",
+          "prepend": false,
+          "global": false
+        },
+        {
+          "owner": "SkillsService",
+          "row": "ac-skill",
+          "prepend": false,
+          "global": false
+        },
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "tool/before-execute",
+      "listeners": [
+        {
+          "owner": "ac-web-tools",
+          "prepend": false,
+          "global": false,
+          "description": "browser 动作分层门禁（observe/manipulate/inject 层级判定）"
+        },
+        {
+          "owner": "shell-tools-gate",
+          "prepend": false,
+          "global": false,
+          "description": "tools 授权门：MCP 服务器资产投影硬闸"
+        }
+      ]
+    },
+    {
+      "name": "tool/progress",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "tool/started",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    }
+  ],
+  "eventDescs": [
+    {
+      "owner": "datetime",
+      "event": "loop/before-run",
+      "description": "singles 信封尾部插入 user 快照行（每 run 恰一行；system 不动）",
+      "role": "独立会话日快照行",
+      "source": "builtin"
+    },
+    {
+      "owner": "datetime",
+      "event": "loop/before-run-last",
+      "description": "晚于主档一切装配与尾档 prepend 住户（对话信息块）的仅日期行——绝对收尾；新住户需裁决",
+      "role": "system 日期行收尾（尾档·push 居后）",
+      "source": "builtin"
+    },
+    {
+      "owner": "goal",
+      "event": "loop/after-run",
+      "description": "Agent 循环收束通知（持久化/审计/指标订阅）",
+      "role": "goal-round 驱动",
+      "source": "builtin"
+    },
+    {
+      "owner": "mcp",
+      "event": "loop/before-run",
+      "description": "首 run 前完成服务器建连与工具发现注册；按 per-Agent 生效清单收敛 MCP 工具暴露",
+      "role": "MCP 懒建连 + 暴露面收敛",
+      "respectsEnabled": true,
+      "source": "builtin",
+      "automatic": true
+    },
+    {
+      "owner": "memory",
+      "event": "conversation/before-start",
+      "description": "锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 尾部追加 context 行",
+      "role": "checkpoint/delta 注入",
+      "source": "builtin"
+    },
+    {
+      "owner": "memory",
+      "event": "loop/before-run",
+      "description": "字节恒定的 memory-guide（内容走 context 行协议）",
+      "role": "静态指引注入",
+      "source": "builtin"
+    },
+    {
+      "owner": "persona",
+      "event": "loop/before-run",
+      "description": "Agent 循环启动前拦截（人格注入/预算控制/直接否决）",
+      "role": "前置 <persona> 块",
+      "respectsEnabled": true,
+      "source": "builtin"
+    },
+    {
+      "owner": "sap-adt",
+      "event": "loop/before-run",
+      "description": "生效工具集含 adt_* → system prompt 追加 <sap-adt-tools> 使用规约（先问后建/复用传输请求/删改前确认）",
+      "role": "guide",
+      "source": "builtin"
+    },
+    {
+      "owner": "skill",
+      "event": "loop/after-run",
+      "description": "run 收束时 pending 仍有未落账指纹（load 后无下一步的形态）→ 收束行后直落 context 行兜底（正文在场）",
+      "role": "run_code 技能收束兜底",
+      "source": "builtin"
+    },
+    {
+      "owner": "skill",
+      "event": "loop/before-run",
+      "description": "Agent 循环启动前拦截：技能目录注入（装配链一环）+ 当前触发消息尾部 user 块的 /<name> 判定——命中落账 context 行（跨 run 永久回放）+ 工作数组双写（每消息一次）",
+      "role": "注入 <available_skills> + /name 手势判定",
+      "source": "builtin"
+    },
+    {
+      "owner": "skill",
+      "event": "loop/before-step",
+      "description": "本 run 内 load_skill 子调用新登记的技能，指纹首见时经 injectDurable 驻留注入 + context 行切分落账；已落账技能跨 run 不重注",
+      "role": "run_code 子调用技能驻留注入",
+      "source": "builtin"
+    },
+    {
+      "owner": "skill",
+      "event": "tool/after-execute",
+      "description": "load_skill 子调用成功后现读正文登记 pending（已落账在场判定——跨 run 重复 load 不再登记）",
+      "role": "run_code 子调用 load_skill 登记",
+      "source": "builtin"
+    },
+    {
+      "owner": "system-prompt",
+      "event": "loop/before-run",
+      "description": "系统环境/术语约定/指引分块装配（override 可全量覆盖静态块）",
+      "role": "静态块装配",
+      "respectsEnabled": true,
+      "source": "builtin"
+    },
+    {
+      "owner": "system-prompt",
+      "event": "loop/before-run-last",
+      "description": "信封 sender/群成员表装配；prepend 恒 unshift——先于尾档 push 住户（ac-datetime 日期行），静态在前、会话动态收尾",
+      "role": "对话信息块（尾档·prepend）",
+      "respectsEnabled": true,
+      "source": "builtin"
+    }
+  ]
+}

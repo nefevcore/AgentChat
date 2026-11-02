@@ -301,7 +301,7 @@ export interface ShellBootResult {
 export type ControlFrame =
   | { ctrl: 'interrupt'; conversationId?: string }
   | { ctrl: 'bench'; suite: string; options: BenchRunOptions }
-  | { ctrl: 'tool'; name: string; args?: Record<string, unknown> }
+  | { ctrl: 'tool'; name: string; args?: Record<string, unknown>; conversationId?: string }
   /** 装配预览（cr-552 跨进程 dry-run）：system-prompt 三档链干跑 / assembly 工具目录 */
   | { ctrl: 'preview'; what: 'system-prompt'; conversationId?: string }
   | { ctrl: 'preview'; what: 'assembly-tools' }
@@ -559,10 +559,17 @@ export async function bootShell(
     }
     if (frame.ctrl === 'tool') {
       const tools = ctx.get('tools', false) as
-        | { execute(call: { name: string; args: Record<string, unknown> }): Promise<unknown> }
+        | { execute(call: { name: string; args: Record<string, unknown>; conversationId?: string }): Promise<unknown> }
         | undefined;
       if (tools === undefined) throw new Error('tools 服务缺席——行集不含 tools 行');
-      return tools.execute({ name: frame.name, args: frame.args ?? {} });
+      // conversationId 透传（cr-763）：工具的会话身份决定 conv-settings 继承
+      //（subagent spawn 等会话域分支）——控制帧不带键 = 宿主直调形态，
+      // 覆盖不到「发起会话设置 → 子工具面」链路。缺席照旧不传（向后兼容）。
+      return tools.execute({
+        name: frame.name,
+        args: frame.args ?? {},
+        ...(frame.conversationId !== undefined && frame.conversationId !== '' ? { conversationId: frame.conversationId } : {}),
+      });
     }
     // preview（cr-552）：装配链住壳进程——宿主 agent-admin 行经控制帧往返取预览。
     // 干跑只读：不落账、不占串行化门、无 LLM 调用。
@@ -973,7 +980,7 @@ async function notifyHostRestartShell(args: ShellBootArgs, conversationId?: stri
     process.stderr.write('[shell] restart_shell 复活标记写入失败：' + String(err) + '\n');
   }
   try {
-    const { IpcClient } = await import('ac-post-office');
+    const { IpcClient } = await import('ac-envelope-core');
     const client = new IpcClient();
     await client.connect(args.postOffice);
     await client.send(makeEnvelope({
@@ -1049,12 +1056,20 @@ export async function main(argv: string[]): Promise<number> {
           dataRoot: path.resolve(args.dataRoot),
           hostBoot: args.hostBoot,
           ...(args.hostPort !== undefined ? { hostPort: args.hostPort } : {}),
-          // 让路窗（cr-647）：supervised 拓扑下 supervisor 是快路（宿主退出码
-          // 42 → 1.5s 重拉），壳侧宽限 10s 再兜底——否则 stdin EOF kick 抢跑，
-          // supervisor 重拉撞 EADDRINUSE 退出 78（监督栈永久消失，终端拓扑下
-          // 连带全壳死）。AGENTCHAT_SUPERVISED 由 supervisor.mjs 注入宿主，
-          // 宿主拉壳时继承；pnpm dev 前台直跑无此变量 = 宽限 0（即时复活）。
-          ...(process.env.AGENTCHAT_SUPERVISED === '1' ? { reviveGraceMs: 10_000 } : {}),
+          // system 让路（cr-647 宽限 + cr-859 判定基础升级）：system 在场
+          //（仓库根 .runtime 锁内 pid 活 ∧ 数据根心跳新鲜——双证据）时
+          // supervisor 是快路（宿主退出码 42 → 1.5s 重拉），壳侧宽限 10s
+          // 再兜底——否则 stdin EOF kick 抢跑，supervisor 重拉撞
+          // EADDRINUSE 退出 78（监督栈永久消失，终端拓扑下连带全壳死）。
+          // system 缺席（dev:fg 直跑 / bundle 前台直跑 / supervisor 死亡或
+          // 挂起）= 恢复边降级到本壳（即时复活）。判定每拍现探——
+          // AGENTCHAT_SUPERVISED env 继承链退役（第三方重拉壳后失真，§三.1）。
+          // 锚定两形态单源（anchors 同款）：bundle（AGENTCHAT_HOME 安装根）/
+          // 仓库（源码树根）。bundle 形态产品入口暂无 supervisor（§七.3
+          // 开放裁决）——锁缺席 = 恒判缺席 = 恢复边即时，语义正确。
+          systemLockFile: process.env.AGENTCHAT_HOME !== undefined && process.env.AGENTCHAT_HOME !== ''
+            ? path.resolve(process.env.AGENTCHAT_HOME, '.runtime')
+            : path.resolve(fileURLToPath(new URL('../../', import.meta.url)), '.runtime'),
           emit: emitBootSignal,
         })
       : null;

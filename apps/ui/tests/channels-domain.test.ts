@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // ============================================================
-// channels-domain.test.ts —— 25 域行通道包对账（8.5c）
+// channels-domain.test.ts —— 26 域行通道包对账（8.5c）
 //
-// ① catalog ui 域 25 行 ↔ channel/ 25 通道包一一对应；
+// ① catalog ui 域 26 行 ↔ channel/ 26 通道包一一对应；
 // ② 每包 manifest 过 checkUiManifest + 深路径 channelImports 键在
 //    sharedModules() 有对应宿主实例（importmap 可解析）；
 // ③ 生成器快照 vs 仓库现状（gen --check 同逻辑的测试面）。
@@ -23,16 +23,16 @@ const domainDirs = readdirSync(channelRoot, { withFileTypes: true })
   .filter((e) => e.isDirectory() && !SKELETON4.includes(e.name))
   .map((e) => e.name).sort();
 
-describe('8.5c · 25 域行通道包', () => {
-  it('数量对账：channel/ 域包 25 个（+ 骨架 4）', () => {
-    expect(domainDirs.length).toBe(25);
-    expect(readdirSync(channelRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).length).toBe(29);
+describe('8.5c · 26 域行通道包', () => {
+  it('数量对账：channel/ 域包 26 个（+ 骨架 4）', () => {
+    expect(domainDirs.length).toBe(26);
+    expect(readdirSync(channelRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).length).toBe(30);
   });
 
   it('通道包自洽：目录名词表稳定（cr-701 撤 catalog ui 声明行——对账面收敛为通道包自身）', () => {
-    // 25 域词表快照（防通道包增删漂移；装载面恒在 webui 行 boot graph）
+    // 26 域词表快照（cr-765 #4 新增 ask；防通道包增删漂移；装载面恒在 webui 行 boot graph）
     expect(domainDirs.join(',')).toBe([
-      'agents', 'browser', 'desktop-storage', 'fs', 'goal', 'group', 'jobs', 'llm-pool',
+      'agents', 'ask', 'browser', 'desktop-storage', 'fs', 'goal', 'group', 'jobs', 'llm-pool',
       'onboarding', 'plugin-registry', 'remote', 'run-code', 'run-nodes', 'runview',
       'search-pool', 'shell', 'singles', 'skill', 'subagent', 'system',
       'timer', 'todo', 'usage', 'web', 'workspace',

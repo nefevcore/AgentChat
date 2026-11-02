@@ -188,3 +188,9 @@ function isStaleLock(runtimeFile: string): boolean {
 export function runtimeLockPath(root: string): string {
   return join(root, '.runtime');
 }
+
+// ============================================================
+// 配方盘面（§五.1）+ system 心跳面（§五.2）—— cr-859
+// ============================================================
+export * from './recipes.ts';
+export * from './system-heartbeat.ts';

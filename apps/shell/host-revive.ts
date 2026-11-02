@@ -2,9 +2,15 @@
 // host-revive.ts —— D5 边 2 常态化：壳侧邮局失联探测 + 宿主复活
 //
 // 裁决修订（cr-612，2026-10-23 用户裁决）：D5 边 2 触发条件从「宿主自进化
-// 坏」扩为「任意宿主死亡（邮局失联）」——`pnpm dev` 前台直跑形态无
+// 坏」扩为「任意宿主死亡（邮局失联）」——`pnpm dev:fg` 前台直跑形态无
 // supervisor，宿主崩溃时活着的壳是唯一执行者，必须承担常态恢复。
 // 保底 supervisor 仅辖「宿主+壳同死」场景（D5 原裁决不变）。
+//
+// 让路判定（cr-859 §三.1）：system 在场 = 让路（supervisor 是快路——
+// 宿主退出码 42 → 1.5s 重拉）。判定基础从 AGENTCHAT_SUPERVISED env
+// 继承链（第三方重拉壳后失真）升级为**双证据探测**：仓库根 .runtime 锁
+// 内 pid 活 ∧ 数据根心跳文件新鲜（probeSystemAlive）。system 缺席 =
+// 本壳即时承担恢复（§三 恢复边降级语义）。
 //
 // 语义（rollback-not-retry 的常态版——普通崩溃拉同版本，快照回退仍只在
 // 自进化失败时由 evolve 链负责）：
@@ -20,18 +26,21 @@
 //     同源（cr-551）。宿主恢复即复位。idle-exit 15min 收割自然限定复活
 //     窗口（壳死则环无执行者——落保底，D5 原文）。
 //
-// 纯域可测：探测 / 戳 / 锁 / spawn / 时钟全注入（supervise.ts 同款形态）。
+// 纯域可测：探测 / system 探测 / 戳 / 锁 / spawn / 时钟全注入。
 // ============================================================
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { probeSystemAlive } from 'ac-supervisor-core';
 
 /** 注入面（测试替身逐项可换） */
 export interface HostReviveDeps {
   /** 探测邮局管道可达（true = 宿主在） */
   probe(): Promise<boolean>;
+  /** system 在场（true = 让路——supervisor 快路负责恢复；cr-859 双证据） */
+  systemAlive(): boolean;
   /** 停机戳在场（宿主有意停机——stand down） */
   stampPresent(): boolean;
   /** 复活仲裁锁（O_EXCL try——false = 已有壳在拉） */
@@ -51,11 +60,11 @@ export interface HostReviveConfig {
   /** 退避 cap ms（缺省 60_000） */
   respawnCapMs?: number;
   /**
-   * 失联确认后的复活宽限 ms（缺省 0）：supervised 拓扑下 supervisor 是快路
+   * system 在场时的复活让路宽限 ms（缺省 10_000）：supervisor 是快路
    * （退出码 42 → 1.5s 重拉），壳侧必须在宽限内让路——否则 stdin EOF kick
    * 抢在 supervisor 前拉起宿主，supervisor 重拉撞 EADDRINUSE 退出 78，
-   * 监督栈永久消失（cr-647 现场）。非 supervised（pnpm dev 前台直跑）
-   * 无快路，宽限恒 0——复活职责仍即时生效。
+   * 监督栈永久消失（cr-647 现场）。system 缺席（双证据判假——dev:fg
+   * 直跑 / supervisor 挂起或死亡）无快路，宽限不适用——复活职责即时生效。
    */
   reviveGraceMs?: number;
 }
@@ -118,8 +127,12 @@ export async function tickHostRevive(
     return; // 有意停机——不复活（宿主 boot 清戳后探测面自会恢复）
   }
   const now = deps.now();
-  // 让路窗（cr-647）：supervised 快路优先，宽限内不 spawn（探测面恢复即复位）。
-  if (now < state.confirmedDownAt + grace) return;
+  // system 让路判定（cr-859 §三.1）：在场 = 快路负责恢复，本壳宽限等待；
+  // 缺席（双证据假）= 恢复边降级到本壳，宽限不适用（即时复活）。
+  // 每拍现探——system 中途恢复（被拉起）即回到让路语义，中途死亡即时接管。
+  if (deps.systemAlive()) {
+    if (now < state.confirmedDownAt + grace) return; // 快路窗口内让路
+  }
   if (now < state.nextReviveAt) return;
   if (!deps.tryLock()) return; // 另一壳在拉——等探测面恢复
   try {
@@ -138,8 +151,11 @@ export interface HostReviveJobOptions {
   dataRoot: string;
   hostBoot: string;
   hostPort?: number;
+  /** system 层 .runtime 单写者锁路径（cr-859——仓库根 <repo>/.runtime；
+   * 双证据探测之 pid 证据源。缺席 undefined = 恒判 system 缺席） */
+  systemLockFile?: string;
   probeIntervalMs?: number;
-  /** 失联确认后的让路宽限 ms（cr-647——supervised 档非 0；缺省 0） */
+  /** system 在场时的让路宽限 ms（cr-647/cr-859——缺省 10_000） */
   reviveGraceMs?: number;
   emit?: (signal: string, ...fields: string[]) => void;
   tick?: typeof tickHostRevive;
@@ -208,10 +224,15 @@ export function startHostRevive(options: HostReviveJobOptions): { stop(): void; 
   const runtimeDir = path.join(dataRoot, '.runtime');
   fs.mkdirSync(runtimeDir, { recursive: true });
   const emit = options.emit ?? (() => {});
+  const grace = options.reviveGraceMs ?? 10_000;
   const state = createHostReviveState(Date.now());
   let lockFd: number | null = null;
   const deps: HostReviveDeps = {
     probe: () => probePostOffice(postOffice),
+    // 双证据（cr-859 §三.1）：锁内 pid 活 ∧ 心跳新鲜——system 锚点由拉起方
+    // 注入（缺省仓库根 .runtime，见 spawnHostProcess 同族锚定）。
+    systemAlive: () => options.systemLockFile !== undefined
+      && probeSystemAlive(options.systemLockFile, dataRoot).alive,
     stampPresent: () => fs.existsSync(hostStampPath(dataRoot)),
     tryLock: () => {
       try {
@@ -235,13 +256,11 @@ export function startHostRevive(options: HostReviveJobOptions): { stop(): void; 
   const tick = options.tick ?? tickHostRevive;
   const setIntervalFn = options.setIntervalFn ?? setInterval;
   const clearIntervalFn = options.clearIntervalFn ?? clearInterval;
-  const tickConfig: HostReviveConfig = options.reviveGraceMs !== undefined
-    ? { reviveGraceMs: options.reviveGraceMs }
-    : {};
+  const tickConfig: HostReviveConfig = { reviveGraceMs: grace };
   const timer = setIntervalFn(() => { void tick(state, deps, tickConfig); }, options.probeIntervalMs ?? 5_000);
   timer.unref(); // Node Timeout——不阻进程自退（idle-exit 收割面）
   return {
-    kick: () => { void tick(state, deps); },
+    kick: () => { void tick(state, deps, tickConfig); },
     stop: () => {
       clearIntervalFn(timer);
       if (lockFd !== null) {

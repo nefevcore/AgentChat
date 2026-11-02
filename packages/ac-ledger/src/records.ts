@@ -42,6 +42,8 @@ export interface LedgerRow {
   injectSource?: string;
   /** 注入行 UI 文案（cr-707：与直播帧 label 同源——流式与刷新两路径同形） */
   label?: string;
+  /** 结构化载荷（cr-765 #4：问答卡 Q/A 数据面——journal-inject 同形随行物化） */
+  payload?: JournalInject['payload'];
   /** 单调序号（writer 按文件分配——崩溃检测 + 去重锚） */
   seq?: number;
 }
@@ -133,6 +135,9 @@ export interface JournalInject {
   injectSource?: string;
   /** 注入行 UI 文案（cr-707：物化行 label 取源——正文对卡片标题过长） */
   label?: string;
+  /** 结构化载荷（cr-765 #4：问答卡 Q/A 数据面——questions/answers/outcome；
+   *  旧行缺席 → UI 回落纯文本正文，兼容不迁移） */
+  payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
   /** 落行时刻（epoch ms——cr-697 起盖戳；物化注入行时间戳取源） */
   ts?: number;
   seq?: number;

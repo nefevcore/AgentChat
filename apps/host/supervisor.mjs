@@ -5,7 +5,7 @@
 // 【双 supervisor 布局，cr-706 注明】与仓库根 supervisor.mjs 的分工：
 //   · 根 supervisor.mjs = 产品入口（品牌 exe 自重 exec、读
 //     AGENTCHAT_DATA_ROOT、缺省 workspace/home、stdio inherit）——
-//     pnpm dev:supervised 用；
+//     pnpm dev 用（apps/system/supervisor.mjs）；
 //   · 本文件 = 测试沙箱入口（缺省 sandbox/supervised-home、刻意不读
 //     env〔隔离红线——env 随 shell 继承会落到主线数据根〕、stdio tee 落
 //     dataRoot/.runtime/logs/host-<ts>.log〔cr-662 诊断面〕）。
@@ -26,7 +26,11 @@ import {
   acquireRuntimeLock,
   decideOnExit,
   initialSupervisionState,
+  initSystemHeartbeat,
+  removeRecipe,
   runtimeLockPath,
+  touchSystemHeartbeat,
+  writeRecipe,
 } from 'ac-supervisor-core';
 
 const TRACK_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +72,39 @@ try {
 }
 log(`已获取单写者锁: ${RUNTIME_LOCK}`);
 
+// ── system 心跳面 + 配方盘面（cr-859 §五.1/§五.2——产品入口同款接线）──
+// 心跳住数据根 .runtime/（对象侧同根对拍）；本入口不读 env（隔离红线），
+// 数据根解析与 startChild 同链。
+const HB_INTERVAL_MS = 2_000;
+const sandboxDataRoot = () => dataRootOverride ?? DEFAULT_DATA_ROOT;
+initSystemHeartbeat(sandboxDataRoot());
+const heartbeatTimer = setInterval(() => {
+  touchSystemHeartbeat(sandboxDataRoot());
+}, HB_INTERVAL_MS);
+heartbeatTimer.unref();
+
+function writeHostRecipe(dataRoot) {
+  try {
+    writeRecipe(dataRoot, {
+      id: 'host',
+      boot: { cmd: process.execPath, args: ['--experimental-strip-types', WORKER_ENTRY, '--data-root', dataRoot, ...passthrough] },
+      policy: 'crash',
+      residency: 'resident',
+      owner: 'supervisor',
+      mode: 'authoritative',
+      writtenAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    log(`host 配方写失败（盘面退化——本代守护继续）: ${err.code ?? err.message}`);
+  }
+}
+
+function teardownSystemSurface() {
+  clearInterval(heartbeatTimer);
+  try { fs.rmSync(path.join(sandboxDataRoot(), '.runtime', 'system-heartbeat'), { force: true }); } catch { /* 已收 */ }
+  try { removeRecipe(sandboxDataRoot(), 'host'); } catch { /* 已收 */ }
+}
+
 let child = null;
 let shuttingDown = false;
 let restartTimer;
@@ -78,6 +115,7 @@ function startChild() {
   restartAttempts += 1;
   const dataRoot = dataRootOverride ?? DEFAULT_DATA_ROOT;
   const args = ['--experimental-strip-types', WORKER_ENTRY, '--data-root', dataRoot, ...passthrough];
+  writeHostRecipe(dataRoot); // §五.1：argv 落盘
   log(`spawn 宿主: ${process.execPath} ${args.join(' ')}`);
   log(`AGENTCHAT_DATA_ROOT=${dataRoot}（宿主持久化目录——sandbox 红线）`);
   // 监护状态跨代延续（cr-428 同款）：仅更新 childStartedAt
@@ -99,7 +137,8 @@ function startChild() {
   };
   child = spawn(process.execPath, args, {
     cwd: TRACK_DIR,
-    env: { ...process.env, AGENTCHAT_SUPERVISED: '1', AGENTCHAT_DATA_ROOT: dataRoot },
+    // cr-859 §三.1：AGENTCHAT_SUPERVISED env 退役——system 在场判定改双证据探测
+    env: { ...process.env, AGENTCHAT_DATA_ROOT: dataRoot },
     stdio: ['inherit', 'pipe', 'pipe'],
     shell: false,
   });
@@ -119,6 +158,7 @@ function startChild() {
       restartTimer = setTimeout(startChild, ruling.decision.delayMs);
     } else {
       log(`第 ${restartAttempts} 次监护决策 → supervisor 退出 code=${ruling.decision.exitCode}（${ruling.decision.reason}）`);
+      teardownSystemSurface();
       unlock();
       process.exit(ruling.decision.exitCode);
     }
@@ -133,6 +173,7 @@ function handleSignal(signal) {
     shuttingDown = true;
     if (restartTimer) clearTimeout(restartTimer);
     log(`收到 ${signal}，supervisor 退出（无活子进程）`);
+    teardownSystemSurface();
     unlock();
     process.exit(0);
   }
@@ -149,6 +190,7 @@ process.on('SIGTERM', () => handleSignal('SIGTERM'));
 
 if (!fs.existsSync(WORKER_ENTRY)) {
   log(`工作进程入口不存在: ${WORKER_ENTRY}`);
+  teardownSystemSurface();
   unlock();
   process.exit(78);
 }

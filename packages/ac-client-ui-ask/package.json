@@ -1,0 +1,39 @@
+{
+  "name": "ac-client-ui-ask",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ask 域前端行（cr-765 #4）：ask_questions 注入行专用问答卡——inject-card:view 席位贡献（kind: durable-interaction）；与 ac-ask-questions 后端行经注入行 payload 数据面耦合，双向可独立摘除",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-conversation": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -23,6 +23,7 @@ import { bindMessageViews } from 'ac-client-ui-conversation/client/messageViews.
 import { bindToolResultViews } from 'ac-client-ui-tool/client/toolResultViews.ts';
 import { bootUiClient } from './boot.ts';
 import { wireRpcBrowser } from './rpc-wire.ts';
+import { startAutoReload } from './auto-reload.ts';
 
 async function boot(): Promise<void> {
   const pinia = createPinia();
@@ -55,6 +56,9 @@ async function boot(): Promise<void> {
   // 连接拉起：无会话态下 feed 等消费者未启动，wire 惰性连接永不建立而
   // 断连横幅常驻——boot 尾主动探活一次（stats 空调用即拉起 WS）
   void ctx.rpc.call('conversation/stats').catch(() => undefined);
+  // 产物更新自动刷新（cr-846）：restart_host 换代（WS 重连）或产物重建
+  // （指纹轮询差异）→ 自动 reload，免手动刷新
+  startAutoReload();
 }
 
 void boot();

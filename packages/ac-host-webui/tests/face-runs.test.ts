@@ -217,6 +217,83 @@ describe('runs/snapshot（宿主聚合 + digest 短路）', () => {
     }
   });
 
+  it('观测失败（cr-802）：全部壳探测失败 → unchanged 轻载荷（running 不清空）；恢复后正常步进', async () => {
+    const root = tmpRoot('snap-observe-fail');
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: 'q', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z' },
+    ]);
+    // 可切换观测态的 port：fail=true 时全部 run-state 帧抛错（模拟 manage 探针
+    // 超时 / 慢帧挤兑——「偶发光环消失」的宿主侧源）
+    let fail = false;
+    const port: ShellAdminPort = {
+      async ensureAgent() { throw new Error('不该拉起壳'); },
+      liveShellIds: () => ['a1'],
+      async control(_agentId, frame) {
+        if (fail && (frame as { op?: string }).op === 'run-state') throw new Error('manage 回执超时');
+        return { runs: [{ conversationId: 'c1', runId: 'r1', startedAt: 42, queuedTurns: 0 }] };
+      },
+    };
+    try {
+      const { web, handlers } = collect();
+      registerOpsFace(web, ctx, { dataRoot: root, shellPort: () => port });
+      const snap = await handlers.get('runs/snapshot')!({}) as Record<string, unknown>;
+      expect((snap.running as unknown[]).length).toBe(1);
+      // 观测失败拍：unchanged 轻载荷——running 投影不清空（光环不闪）
+      fail = true;
+      const degraded = await handlers.get('runs/snapshot')!({ digest: snap.digest }) as Record<string, unknown>;
+      expect(degraded.unchanged).toBe(true);
+      // 观测恢复：正常投影（run 真收束后 digest 步进、running 清空）
+      fail = false;
+      const settled: ShellAdminPort = {
+        async ensureAgent() { throw new Error('不该拉起壳'); },
+        liveShellIds: () => ['a1'],
+        async control() { return { runs: [] }; },
+      };
+      const { web: w2, handlers: h2 } = collect();
+      registerOpsFace(w2, ctx, { dataRoot: root, shellPort: () => settled });
+      const third = await h2.get('runs/snapshot')!({ digest: snap.digest }) as Record<string, unknown>;
+      expect(third.unchanged).toBeUndefined();
+      expect(third.running).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // cr-824 批二：poller 镜像优先——在场时读镜像（零现探），缺席退回现探。
+  it('runningOf（cr-824 批二）：pollerSnapshot 在场 → 读镜像不走 run-state 帧；缺席 → 现探退路', async () => {
+    const root = tmpRoot('snap-poller');
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: 'q', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z' },
+    ]);
+    // 现探 port 若被走到即抛（证明镜像优先、零现探）
+    const port: ShellAdminPort = {
+      async ensureAgent() { throw new Error('不该拉起壳'); },
+      liveShellIds: () => ['a1'],
+      async control() { throw new Error('镜像在场不得现探'); },
+    };
+    const mirror = new Map([
+      ['a1', { bootId: 'b1', busy: true, runs: [{ conversationId: 'c1', runId: 'r1', startedAt: 42 }], recentSettled: [] }],
+    ]);
+    try {
+      const { web, handlers } = collect();
+      registerOpsFace(web, ctx, { dataRoot: root, shellPort: () => port, pollerSnapshot: () => mirror });
+      const snap = await handlers.get('runs/snapshot')!({}) as Record<string, unknown>;
+      expect(snap.running).toEqual([{ agentId: 'a1', conversationId: 'c1', runId: 'r1', handle: 'c1~a1', startedAt: 42 }]);
+      // 镜像端口返回 null（orchestrate:false 形态）→ 退回现探（port 仍可答）
+      const probe: ShellAdminPort = {
+        async ensureAgent() { throw new Error('不该拉起壳'); },
+        liveShellIds: () => ['a1'],
+        async control() { return { runs: [{ conversationId: 'c1', runId: 'r2', startedAt: 7 }] }; },
+      };
+      const { web: w2, handlers: h2 } = collect();
+      registerOpsFace(w2, ctx, { dataRoot: root, shellPort: () => probe, pollerSnapshot: () => null });
+      const snap2 = await h2.get('runs/snapshot')!({}) as Record<string, unknown>;
+      expect(snap2.running).toEqual([{ agentId: 'a1', conversationId: 'c1', runId: 'r2', handle: 'c1~a1', startedAt: 7 }]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('群面（cr-579）：groups/<gid>/group.json 扫描 → 主线同形载荷 + 入指纹（成员变更 digest 变）', async () => {
     const root = tmpRoot('snap-groups');
     writeSession(root, 'a1', 'c1', [

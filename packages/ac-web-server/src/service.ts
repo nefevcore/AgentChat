@@ -117,8 +117,13 @@ const brotliAsync = promisify(brotliCompress);
 const COMPRESSIBLE_EXTS = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg', '.map', '.txt', '.md']);
 /** 低于此体积不压缩（头开销 + CPU 不值） */
 const MIN_COMPRESS_BYTES = 1024;
-/** 压缩结果缓存条目上限（静态资源集稳定；超限整体清空——最简且无泄漏） */
-const COMPRESS_CACHE_MAX = 64;
+/**
+ * 压缩结果缓存条目上限。稳态工作集 = dist 静态面 + /ui-plugin/ 通道面
+ * （cr-843 实测 131 + 135 文件，可压缩大件 ~100）——上限须覆盖，否则逐次
+ * 整体清空 → 下一阵请求全量重压缩（texmath 649KB 单件 br q5 ~250ms，
+ * 秒级抖动的结构性来源）。超限逐最旧（Map 插入序 = LRU）。
+ */
+const COMPRESS_CACHE_MAX = 256;
 /** brotli 质量：assets 为一次性压缩（结果缓存复用），5 是速度/比率折中 */
 const BROTLI_QUALITY = 5;
 
@@ -491,8 +496,15 @@ export class WebServerService extends Service {
     let entry = compressCache.get(full);
     if (!entry || entry.mtimeMs !== mtimeMs || entry.size !== data.length) {
       // 文件变更（dev 重建 / dist 覆盖）→ 旧压缩结果失效
-      if (compressCache.size >= COMPRESS_CACHE_MAX) compressCache.clear();
+      if (compressCache.size >= COMPRESS_CACHE_MAX) {
+        const oldest = compressCache.keys().next().value;
+        if (oldest !== undefined) compressCache.delete(oldest);
+      }
       entry = { mtimeMs, size: data.length };
+      compressCache.set(full, entry);
+    } else {
+      // 命中即新鲜：重排到 LRU 尾（Map 插入序）
+      compressCache.delete(full);
       compressCache.set(full, entry);
     }
     try {
@@ -522,64 +534,81 @@ export class WebServerService extends Service {
     // 缓存策略（2026-08-30 事故：无任何缓存头 → 浏览器启发式缓存旧
     // index.html → dist 重建后浏览器永远跑旧 bundle，前端修复"不生效"）：
     //   · assets/* = 构建产物内容哈希文件名（vite）→ immutable 长缓存
-    //   · 其余（index.html / SPA fallback / 杂项静态）= no-cache 每次回源
+    //   · 其余（index.html / SPA fallback / 杂项静态）= no-cache 每次协商
     const cacheControl = rel.startsWith('assets/')
       ? 'public, max-age=31536000, immutable'
       : 'no-cache';
-    try {
-      let s = await stat(full);
-      if (s.isDirectory()) {
-        full = join(full, 'index.html');
-        s = await stat(full); // 目录索引：以真实文件 mtime 参与压缩缓存判定
-      }
-      const data = await readFile(full);
-      const { body, encoding } = await this.negotiateEncoding(full, data, s.mtimeMs, acceptEncoding);
-      const ext = extname(full);
-      const headers: Record<string, string | number> = {
-        'content-type': CONTENT_TYPES[ext] ?? 'application/octet-stream',
-        'cache-control': cacheControl,
-        'content-length': body.length,
-      };
-      // 可压缩类型恒声明变体维度：同一 URL 对不同 Accept-Encoding 会返回
-      // 不同字节，缺 Vary 时中间缓存会把 br 结果当 identity 复用
-      if (COMPRESSIBLE_EXTS.has(ext)) headers['vary'] = 'accept-encoding';
-      if (encoding) headers['content-encoding'] = encoding;
-      res.writeHead(200, headers);
-      res.end(head ? undefined : body);
-    } catch {
-      // API 路径不落 SPA fallback（2026-08-30：级联降级期 /api/* 路由不在，
-      // 回退 index.html → 客户端 JSON 解析报 "Unexpected token '<'"——
-      // API 调用方应得 JSON 404）
-      if (rel === 'api' || rel.startsWith('api/')) {
-        this.replyJson(res, 404, { error: `no api route: ${path}` });
-        return;
-      }
-      // assets/* 同理不落 fallback（cr-189：dist 重建后旧页面懒加载旧 hash
-      // chunk，fallback 回 200 text/html 会被当 JS 解析失败——懒组件静默
-      // 不挂，预览等面板点击无反应；直回 404 让浏览器报真实加载错误）
-      if (rel === 'assets' || rel.startsWith('assets/')) {
-        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('not found');
-        return;
-      }
-      // SPA fallback：非文件路径回 index.html（前端路由）
-      try {
-        const index = await readFile(join(root, 'index.html'));
-        res.writeHead(200, {
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': 'no-cache',
-          'content-length': index.length,
-        });
-        res.end(head ? undefined : index);
-      } catch {
-        this.replyJson(res, 404, { error: 'not found' });
-      }
+    // 目录索引展开（/ → /index.html）；缺席返回 false 走降级分支
+    let s = await stat(full).catch(() => undefined);
+    if (s?.isDirectory()) full = join(full, 'index.html');
+    if (await this.serveFileRoute(res, full, { acceptEncoding, cacheControl, head })) return;
+    // API 路径不落 SPA fallback（2026-08-30：级联降级期 /api/* 路由不在，
+    // 回退 index.html → 客户端 JSON 解析报 "Unexpected token '<'"——
+    // API 调用方应得 JSON 404）
+    if (rel === 'api' || rel.startsWith('api/')) {
+      this.replyJson(res, 404, { error: `no api route: ${path}` });
+      return;
+    }
+    // assets/* 同理不落 fallback（cr-189：dist 重建后旧页面懒加载旧 hash
+    // chunk，fallback 回 200 text/html 会被当 JS 解析失败——懒组件静默
+    // 不挂，预览等面板点击无反应；直回 404 让浏览器报真实加载错误）
+    if (rel === 'assets' || rel.startsWith('assets/')) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('not found');
+      return;
+    }
+    // SPA fallback：非文件路径回 index.html（前端路由）
+    if (!(await this.serveFileRoute(res, join(root, 'index.html'), { acceptEncoding, head }))) {
+      this.replyJson(res, 404, { error: 'not found' });
     }
   }
 
   replyJson(res: ServerResponse, status: number, payload: unknown): void {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(payload));
+  }
+
+  /**
+   * 文件应答公共原语（cr-843）：stat + readFile + ETag 协商 + br/gzip 压缩
+   * + content-length。dist 静态面（serveStatic）与 /ui-plugin/ 通道资产面
+   * （webui 行路由）共用同一应答路径——此前通道面裸传原始字节且无任何
+   * 缓存头，浏览器每次刷新全量回源（108 JS 3.4MB + 27 CSS 1.7MB）。
+   * ETag = mtime-size（弱验证子）：If-None-Match 命中 → 304 零字节应答；
+   * 非哈希文件名通道产物经 304 协商免整文件重传。
+   * 文件缺席（stat 失败/非文件）不写任何应答、返回 false——降级策略归
+   * 调用方（dist 面 SPA fallback；通道面 404）。
+   * @param opts.cacheControl 缺省 'no-cache'（每次协商、字节命中免传）；
+   * 内容哈希文件名调用方传 immutable 长缓存。
+   */
+  async serveFileRoute(
+    res: ServerResponse,
+    full: string,
+    opts: { acceptEncoding: string; cacheControl?: string; head?: boolean },
+  ): Promise<boolean> {
+    const s = await stat(full).catch(() => undefined);
+    if (!s?.isFile()) return false;
+    const etag = `W/"${Math.round(s.mtimeMs)}-${s.size}"`;
+    const cacheControl = opts.cacheControl ?? 'no-cache';
+    const headers: Record<string, string | number> = {
+      etag,
+      'cache-control': cacheControl,
+    };
+    const inm = res.req.headers['if-none-match'];
+    if (inm === etag) {
+      res.writeHead(304, headers);
+      res.end();
+      return true;
+    }
+    const data = await readFile(full);
+    const { body, encoding } = await this.negotiateEncoding(full, data, s.mtimeMs, opts.acceptEncoding);
+    const ext = extname(full);
+    headers['content-type'] = CONTENT_TYPES[ext] ?? 'application/octet-stream';
+    headers['content-length'] = body.length;
+    if (COMPRESSIBLE_EXTS.has(ext)) headers['vary'] = 'accept-encoding';
+    if (encoding) headers['content-encoding'] = encoding;
+    res.writeHead(200, headers);
+    res.end(opts.head ? undefined : body);
+    return true;
   }
 
   // ============================================================

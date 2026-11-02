@@ -47,6 +47,9 @@ export interface PSessionRecord {
   run?: string;
   /** run 墙钟耗时（毫秒，cr-772）——历史链栏「用时」段持久锚（存量行缺席） */
   runMs?: number;
+  /** 注入结构化载荷（cr-765 #4 问答卡：context 注入行专用——Q/A 数据面；
+   *  旧行缺席 → UI 回落纯文本正文） */
+  payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
 }
 
 interface PSessionStep {
@@ -252,6 +255,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       message_id: r.message_id,
       timestamp: r.timestamp,
       ...(isInjectionRow ? { contextContent: r.content } : {}),
+      ...(isInjectionRow && r.payload !== undefined ? { payload: r.payload } : {}),
       ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}),
     });
   }

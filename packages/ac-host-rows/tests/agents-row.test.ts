@@ -124,6 +124,13 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
       expect(overridden.provider).toBe('p1');
       expect(overridden.rows).toEqual(['str-replace-editor', 'shell-tools']); // cr-794：datetime 移出模板行集（settings 停用 → 行出集）
       expect(() => h.agents.createFromTemplate('nope', 'x')).toThrow(/模板不存在/);
+      // cr-810：模板自带文档随物化落地（skip-if-present——用户编辑优先）
+      const guide = h.agents.createFromTemplate('creator', 'plug-dev');
+      expect(guide.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
+      expect(h.agents.readDoc('plug-dev', 'AGENTS.md')).toContain('插件开发指南');
+      h.agents.saveDoc('plug-dev', 'AGENTS.md', '# 我的定制\n');
+      h.agents.createFromTemplate('creator', 'plug-dev'); // 重入幂等
+      expect(h.agents.readDoc('plug-dev', 'AGENTS.md')).toBe('# 我的定制\n');
     } finally {
       await h.dispose();
     }
@@ -134,7 +141,8 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
     try {
       const transient = h.agents.transientConfigOf('creator', 'tmp-shell');
       expect(transient.id).toBe('tmp-shell');
-      expect(transient.system).toContain('插件开发指南');
+      expect(transient.system).toBeUndefined(); // cr-810：人设载体迁 AGENTS.md（config.system 退役）
+      expect(transient.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
       expect(fs.existsSync(path.join(ROOT, 'agents', 'tmp-shell'))).toBe(false);
       expect(h.agents.templates().map((t) => t.id)).toEqual(['standard', 'dsh-minimal', 'creator', 'abap-dev']);
     } finally {

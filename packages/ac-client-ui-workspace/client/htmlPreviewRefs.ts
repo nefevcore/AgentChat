@@ -157,6 +157,15 @@ const MD_DOC_STYLES = [
  * webui public（同源托管，CSP self 放行），此处只注入外链标签。 */
 const MD_COPY_SCRIPT_SRC = '/md-preview-copy.js';
 
+/* 正文 script 中和（cr-838）：srcdoc 文档被浏览器当真 HTML 解析（桌面
+ * webui 无 CSP，iframe allow-scripts 即放行）——正文里 html:true 原样
+ * 放行的 script（散文提及，非围栏/行内 code）成了真脚本元素：未闭合
+ * 开标签会把余下整篇文档吞进脚本体（中文即非法 token → SyntaxError，
+ * 预览在提及处截断）。成对整体剥除（含内嵌代码体）、落单开/闭标签剥
+ * 标签——GitHub markdown 渲染同款语义（外链 src 脚本同样不落地，
+ * 预览不是执行面）；壳自带的外链复制脚本另注，不经此。 */
+const BODY_SCRIPT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>|<script\b[^>]*>|<\/script\s*>/gi;
+
 /** Markdown 预览完整文档：内嵌亮/暗调色板（随系统偏好）+ base target
  * （链接外开）+ 受信渲染正文 + 代码块 banner 样式与沙箱内复制脚本。
  * bodyHtml 由消费方先行完成相对引用改写。 */
@@ -167,6 +176,6 @@ export function markdownPreviewDoc(bodyHtml: string): string {
     + '<style>:root{' + MD_PALETTE_LIGHT + '}'
     + ' @media (prefers-color-scheme:dark){:root{' + MD_PALETTE_DARK + '}}'
     + MD_DOC_STYLES + '</style>'
-    + '</head><body><div class="markdown-body">' + bodyHtml + '</div>'
+    + '</head><body><div class="markdown-body">' + bodyHtml.replace(BODY_SCRIPT_RE, '') + '</div>'
     + '<script src="' + MD_COPY_SCRIPT_SRC + '"></scr' + 'ipt></body></html>';
 }

@@ -107,9 +107,8 @@ const DEPS = {
     "ac-client-ui-renderer/client/ScrollableViewport.vue"
   ],
   "fs": [
-    "ac-client-ui-renderer/client/useMarkdown.ts",
     "ac-client-ui-renderer/client/ScrollableViewport.vue",
-    "ac-client-ui-renderer/client/codeFence.ts"
+    "ac-client-ui-renderer/client/CodeCard.vue"
   ],
   "web": [
     "ac-client-ui-layout/client/uiStore.ts",
@@ -133,8 +132,8 @@ const DEPS = {
   "run-code": [
     "ac-client-ui-renderer/client/useMarkdown.ts",
     "ac-client-ui-renderer/client/ScrollableViewport.vue",
-    "ac-client-ui-tool/client/toolIcon.ts",
-    "ac-client-ui-renderer/client/codeFence.ts"
+    "ac-client-ui-renderer/client/codeFence.ts",
+    "ac-client-ui-renderer/client/CodeCard.vue"
   ],
   "run-nodes": [
     "ac-client-ui-layout/client/uiStore.ts",
@@ -179,6 +178,10 @@ const DEPS = {
   ],
   "remote": [
     "ac-client-ui-settings/client/rpcDefault.ts"
+  ],
+  "ask": [
+    "ac-client-ui-conversation/client/injectCardViews.ts",
+    "ac-client-ui-conversation/client/types.ts"
   ]
 };
 
@@ -208,11 +211,12 @@ const EXPORTS = {
   "jobs": "jobsClientPlugin",
   "goal": "goalClientPlugin",
   "skill": "skillClientPlugin",
-  "desktop-storage": "desktopStorageClientPlugin"
+  "desktop-storage": "desktopStorageClientPlugin",
+  "ask": "askClientPlugin"
 };
 
 // 引 @agentchat/webui-kit 的域行（除 skill 全员）
-const KIT_USE = new Set(["runview","todo","jobs","workspace","singles","group","agents","goal","usage","system","timer","shell","fs","web","browser","subagent","run-code","run-nodes","llm-pool","plugin-registry","desktop-storage","search-pool","onboarding","remote"]);
+const KIT_USE = new Set(["runview","todo","jobs","workspace","singles","group","agents","goal","usage","system","timer","shell","fs","web","browser","subagent","run-code","run-nodes","llm-pool","plugin-registry","desktop-storage","search-pool","onboarding","remote","ask"]);
 
 // 域行贡献席位（cr-690 B1：manifest seats 声明——装载器对账数据面；
 // 无内嵌快照：manifest 文件即单源，--check 比对已生成 manifest 与现状

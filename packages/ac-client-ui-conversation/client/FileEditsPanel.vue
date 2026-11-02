@@ -27,11 +27,13 @@
 // 接管存量断链——会话开始前已存在的文件也能完整 diff（快照底 +
 // 会话内编辑链重放）。RPC 缺席/失败 = 回落方案 A 纯重放。
 // ============================================================
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Button, IconAction, Icon, Select, Tooltip, toastError } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { countLineChanges } from 'ac-edit-core/src/diff.ts';
-import { openLocalFile } from 'ac-client-ui-workspace/client/fileApi.ts';
+import { openLocalFile, openWith } from 'ac-client-ui-workspace/client/fileApi.ts';
+import { useOpenWithMenu, optionsFor, effectiveMainChoice } from 'ac-client-ui-workspace/client/openWithMenu.ts';
+import OpenWithButton from 'ac-client-ui-workspace/client/OpenWithButton.vue';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { parseDialogId } from './feed.ts';
 import { useFeedStore } from './feedStore.ts';
@@ -504,13 +506,20 @@ function openStateOf(path: string): 'opening' | 'error' | undefined {
   return openLocalPaths.value.get(path);
 }
 
-async function openLocally(s: FileEditSummary) {
+// 「打开方式」菜单（cr-829）：与预览面板/工作区树共享清单与记住的选择
+const menu = useOpenWithMenu();
+onMounted(() => { if (rpc) void menu.load(rpc); });
+const openOptions = computed(() => optionsFor('file', menu.targets.value));
+const chosenId = computed(() => effectiveMainChoice('file', menu.targets.value, menu.remembered.value));
+
+async function openLocally(s: FileEditSummary, id = chosenId.value) {
   if (!rpc || openStateOf(s.path) === 'opening') return;
   openLocalPaths.value.set(s.path, 'opening');
   let errMsg = '';
   try {
     const agent = agentOfCard(s);
-    const r = await openLocalFile(s.path, { ...readContext.value, ...(agent ? { agentId: agent } : {}) }, rpc);
+    const ctx = { ...readContext.value, ...(agent ? { agentId: agent } : {}) };
+    const r = id === '' ? await openLocalFile(s.path, ctx, rpc) : await openWith(id, s.path, ctx, rpc);
     if (r.error) errMsg = r.error;
     else openLocalPaths.value.delete(s.path);
   } catch (err: any) {
@@ -518,8 +527,13 @@ async function openLocally(s: FileEditSummary) {
   }
   if (errMsg) {
     openLocalPaths.value.set(s.path, 'error');
-    toastError(`本地打开失败：${errMsg}`, { key: 'open-local', duration: 4000 });
+    toastError(`打开失败：${errMsg}`, { key: 'open-local', duration: 4000 });
   }
+}
+
+/** 弹层换默认应用（只持久化选择，不触发打开——dsh 分体语义） */
+function openWithChoice(id: string) {
+  menu.persistChoice(id);
 }
 
 // ── 复制（cr-198，cr-199 语义修正：随视图——复制「下面显示的版本」
@@ -618,29 +632,15 @@ onBeforeUnmount(() => { if (copyTimer) clearTimeout(copyTimer); });
               @click="copyViewContent"
             />
           </Tooltip>
-          <!-- 本地打开（系统默认程序；失败态红色警示可重试） -->
-          <Tooltip
-            v-if="openStateOf(sel.path) !== 'error'"
-            :text="openStateOf(sel.path) === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
-            placement="bottom"
-          >
-            <IconAction
-              :icon="openStateOf(sel.path) === 'opening' ? 'loader-circle' : 'external-link'"
-              label="本地打开（系统默认程序）"
-              :size="14"
-              suppress-title
-              :class="{ spin: openStateOf(sel.path) === 'opening' }"
-              :disabled="openStateOf(sel.path) === 'opening'"
-              @click="openLocally(sel)"
-            />
-          </Tooltip>
-          <IconAction
-            v-else
-            icon="alert-circle"
-            label="本地打开失败（路径不可达或平台不支持）"
-            :size="14"
-            class="error"
-            @click="openLocally(sel)"
+          <!-- 打开方式（cr-829 分体形态）：主按钮 = 用记住的应用立即打开；
+               箭头 = 换默认应用（不触发打开）。首项系统默认 = 原 open-local。 -->
+          <OpenWithButton
+            :options="openOptions"
+            :model-value="chosenId"
+            :state="openStateOf(sel.path) ?? 'idle'"
+            action="打开"
+            @open="openLocally(sel, chosenId)"
+            @select="openWithChoice"
           />
         </div>
 

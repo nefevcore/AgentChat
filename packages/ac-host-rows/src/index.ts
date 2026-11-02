@@ -80,8 +80,13 @@ import { makeAgentsHostRow, AgentsEditService } from './agents-row.ts';
 export { makeAgentsHostRow, AgentsEditService };
 export { avatarPathOf, avatarContentType } from './agents-row.ts';
 export type { AgentsHostRowOptions } from './agents-row.ts';
-export { TEMPLATE_DIR, listTemplates, readTemplate } from './preset-builtin.ts';
-export type { AgentTemplate } from './preset-builtin.ts';
+export { TEMPLATE_DIR, DOC_NAME, listTemplates, readTemplate, materializeConfigOf } from './preset-builtin.ts';
+export type { AgentTemplate, TemplateDoc } from './preset-builtin.ts';
+// —— 预设模板升级通路（cr-812 copy-on-write）：origin 指纹 + reconcile 纯库 ——
+export {
+  PRESET_ID, fingerprintOf, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin,
+} from './preset-origin.ts';
+export type { PresetOrigin, ReconcileResult } from './preset-origin.ts';
 
 // —— 写侧 RPC 编排（cr-542）：agent-admin 行（inject ['webServer','agents']——
 // web 表面装配时随宿主单树 ctx 装；行集含 agent-admin 才挂，摘行 = 管理面下线）——

@@ -6,6 +6,9 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（workspace/open-local 忽略会话上下文，cr-827）
+- 本地打开此前相对路径恒按数据根解析，忽略 agentId/conversationId——挂载工作区的会话里文件编辑卡/预览的「本地打开」全部报「文件不存在」。定位与守卫对齐读面单源 resolveWorkspaceFile（数据根快路径 → 会话挂载工作区/Agent 基准两段推导，与 /api/workspace/raw、workspace/open-dir 同族语义）；绝对路径行为不变。
+
 ### Removed（run_code 程序卡内「工具调用」时间线退役，cr-764）
 - 卡内逐条时间线（图标+工具名+简述+相对耗时条，超 8 条折叠）移除——每个子调用已由紧随程序卡的 subcall 平铺卡完整展示（图标/参数/结果/运行态），卡内再列一遍即冗余。卡内保留执行摘要徽章行：调用计数（ok/calls）、串行数、机器耗时（computeMs，title 含墙钟/冻结区间）；「被拒」徽章一并保留——denied 子调用（before-execute 被 veto，无 started/after-execute 帧即无 subcall 卡）的前端唯一可见面。数据面零改动（summary.trace 协议形状与后端收集不变，卡内不再渲染）。
 

@@ -149,6 +149,7 @@ writer/读侧以 `"type":"…"` 前缀判定，避免全量 JSON.parse；旧版�
 | 技能/材料注入 | `role:'context'` + `source:'skill'` 等 + `label` | 正文即语义（不折叠）；落位 = 正文进入消息数组的位置（§6 注） |
 | run 错误收束（`finish='error'`） | `role:'context'` + `source:'error'` | v2 前是 `role:'error'` 一等行（D12，见 §10）；LLM 回放按 **user** 喂回（不采纳 src 的 `error→tool` 映射——无 tool_call_id 配对的 tool 行有被拒风险） |
 | 机制标记 run（`meta[ARCHIVE_REVIEW_META]` / `GROUP_HINT_META`） | **不入账** | 机制产物非会话事实（三消费方：session 不入账 / usage 不记账 / conversation 不进视图） |
+> **error 行读面透传（cr-807）**：error 收束行落 agent 域账本（settle 终稿行后），不派生 viewer 行（空终稿 run 的 viewer 派生缺席语义不变）；session/history 读面在 steps 盲区投影段从 agent 域行面直读透传为 role:'error' 行（渲染序：该 run 轨迹 → 红条）——错误文案从瞬态帧升级为持久可见。
 
 ### 2.6 回放投影（视角变换，纯函数 `projectRecord`）
 
@@ -210,8 +211,9 @@ role='system'                        → system     （直通，不参与变换�
 └── usage/usage-<date>.jsonl                          用量审计流水（cache hit/miss 在此；KV 走势数据源）
 ```
 
-> cr-726（2026-10-27）校正：本树已按 `ac-ledger` per-agent 账本语义重绘（cr-697/698）。
-> 旧形态（`<root>/sessions/<convId>/` 全局桶、`subcalls.jsonl`、`sessions/singles/` 上架、
+> cr-726（2026-10-27）校正：本树已按 `ac-ledger` per-agent 账本语义重绘（cr-697/698；
+> cr-803 起 `subcalls.jsonl` 以独立档案形态回归——见 §3.2）。
+> 旧形态（`<root>/sessions/<convId>/` 全局桶、`sessions/singles/` 上架、
 > `conversation/steer-stash-*`、`prefix-snapshot.json`）均已退役或未见实现——
 > 其中前缀快照见疑点清单（Note 归档根 docs-review-2026-10-27）。
 
@@ -223,7 +225,7 @@ role='system'                        → system     （直通，不参与变换�
 |---|---|---|
 | `messages.jsonl` | 会话定稿流（header / agent 段行 / context 段行 / 注入行 / 终稿行） | append-only，零死重 |
 | `journal/partials.jsonl` | run 台账：`journal-step` 步行 + `journal-inject` 注入行 + `journal-tool-result` 补行（含 subcall 档案） | **run 收束即清**（settlement 物化后剔除该 run 全部行，cr-697——推翻 cr-658「journal 永源 + 读侧重建」，治 267MB 膨胀） |
-| ~~`subcalls.jsonl`~~ | 已退役：子调用档案随 `journal-tool-result` 的 `subcall`/`name`/`arguments` 平铺，随 run 收束一并剔除；UI 回放靠物化段行的 `steps` | — |
+| `subcalls.jsonl` | 子调用永久档案（cr-803 复活）：run 收束时 subcall 补行**原样分流**至此——不再内联进段行 steps（重度会话 98.7% 体积在子调用全文，主文件热扫描路径被拖垮）；读面 `stepsOfLedger` 联查注入复原 UI 平铺卡，存量内联段行天然防重 | append-only 永久 |
 
 **原「为什么拆三文件」论证（保留为裁决史）**：变体乙（写侧 run 切分）首版实测暴露三缺陷——关闭行终值被误清理、关闭行落盘时点无法保证工具完成、同毫秒 timestamp 归位歧义；解法 = partials 独立成文件 + vacuum 退役。cr-697 后 `echoSeq` 归位锚随「读侧重建」一并退役。
 

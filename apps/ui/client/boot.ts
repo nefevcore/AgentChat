@@ -313,10 +313,23 @@ async function defaultLoader(entry: BootGraphEntry): Promise<{ default?: unknown
 }
 
 async function defaultGraph(): Promise<BootGraphEntry[]> {
-  const res = await fetch('/api/ui/boot-graph');
-  if (!res.ok) return [];
-  const data = await res.json() as { clients?: BootGraphEntry[] };
-  return data.clients ?? [];
+  // 超时 + 一次重试（cr-843）：宿主侧同步扫盘被事件循环阻塞时该 fetch 会
+  // 挂起——此前无限等待 = splash 常驻（「多次刷新才能进页面」的另一半）。
+  // 失败回落空图（骨架面仍可用，逐条隔离语义不变）。
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch('/api/ui/boot-graph', { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error('boot-graph ' + res.status);
+      const data = await res.json() as { clients?: BootGraphEntry[] };
+      return data.clients ?? [];
+    } catch (err) {
+      if (attempt > 0) {
+        console.error('[ui-boot] boot graph 拉取失败（空图降级）：', err);
+        return [];
+      }
+    }
+  }
+  return [];
 }
 
 /** 骨架 3 件（in-bundle——协议持有者；依赖序：theme → renderer → layout） */

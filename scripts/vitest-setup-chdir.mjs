@@ -45,12 +45,13 @@ if (process.env.AGENTCHAT_DATA_ROOT !== undefined) {
   );
   delete process.env.AGENTCHAT_DATA_ROOT;
 }
-// AGENTCHAT_SUPERVISED 同病同防（cr-322）：Supervisor 模式宿主的 shell
-// 渗入 worker 后，system/restart「非 Supervisor fail-closed」用例误判
-// supervised → 真重启路径（dispose 关掉测试自 boot 的 rpc 目标 → 超时红）。
+// AGENTCHAT_SUPERVISED 渗漏防线（cr-322 立、cr-859 env 退役后留观）：
+// 该 env 已无生产注入点（supervisor 改心跳双证据判定 system 在场），
+// 但历史 shell 会话/第三方包装仍可能携带——摘除语义保持（恒无操作化
+// 影响，防旧形态渗入复活）。
 if (process.env.AGENTCHAT_SUPERVISED !== undefined) {
   console.warn(
-    `[vitest-setup-chdir] 摘除渗漏的 AGENTCHAT_SUPERVISED=${process.env.AGENTCHAT_SUPERVISED}（测试进程非 Supervisor 模式）`,
+    `[vitest-setup-chdir] 摘除渗漏的 AGENTCHAT_SUPERVISED=${process.env.AGENTCHAT_SUPERVISED}（该 env 已退役——cr-859 心跳双证据）`,
   );
   delete process.env.AGENTCHAT_SUPERVISED;
 }

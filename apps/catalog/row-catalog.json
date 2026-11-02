@@ -141,6 +141,7 @@
       "description": "web 表面（单包：src 服务半边 + client 前端半边；骨架 3 件 in-bundle）",
       "path": [
         "apps/ui",
+        "packages/ac-client-ui-ask",
         "packages/ac-client-ui-layout",
         "packages/ac-client-ui-renderer",
         "packages/ac-client-ui-theme"
@@ -418,8 +419,7 @@
       "tree": "shell",
       "description": "链路验证/子代理工具",
       "tools": [
-        "run_harness",
-        "hello"
+        "run_harness"
       ],
       "requires": [
         "tools"
@@ -473,9 +473,6 @@
       "id": "datetime",
       "tree": "shell",
       "description": "日期时间",
-      "tools": [
-        "datetime"
-      ],
       "path": "packages/ac-datetime"
     },
     {

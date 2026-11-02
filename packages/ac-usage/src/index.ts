@@ -206,6 +206,7 @@ function dayKeyOf(line: UsageAuditLine): string {
 }
 
 export class UsageService extends Service {
+  private dataRoot: string;
   private usageDir: string;
   private byAgentMap = new Map<string, UsageAggregate>();
   private byModelMap = new Map<string, UsageAggregate>();
@@ -235,7 +236,8 @@ export class UsageService extends Service {
 
   constructor(ctx: Context, options: UsageRowOptions = {}) {
     super(ctx, 'usage');
-    this.usageDir = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'usage');
+    this.dataRoot = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
+    this.usageDir = path.join(this.dataRoot, 'usage');
     this.replayAuditFiles(); // M15：持久聚合回读（重启不丢看板）
 
     this.ctx.on('loop/after-run', (request, result) => {
@@ -301,9 +303,11 @@ export class UsageService extends Service {
     usage: LoopRunUsage;
     conversationId?: string;
     stepCache?: Array<{ ts: number; hit: number; miss: number; prompt?: number }>;
+    /** 计量时刻（ISO——对账回填传历史时间；缺省 = 当前时刻） */
+    timestamp?: string;
   }): void {
     const line: UsageAuditLine = {
-      timestamp: new Date().toISOString(),
+      timestamp: meter.timestamp ?? new Date().toISOString(),
       agent: meter.agent,
       model: meter.model,
       finish: meter.finish,
@@ -445,6 +449,20 @@ export class UsageService extends Service {
     }
   }
 
+  /** viewer 投影在场探测（classifyPair 判据；结果缓存——byPair/byDayPair
+   *  遍历行级留存时同键反复判，一次 stat 后记忆。时序保证负缓存安全：
+   *  user 首条消息投递建投影先于 run 收束记账，记账行落盘时投影必在场；
+   *  负缓存 = 永无投影（子 Agent/内部会话）或已删会话（其历史用量退出
+   *  端点对视图，totals/byDay 总量不受影响）。 */
+  private viewerSessionCache = new Map<string, boolean>();
+  private viewerSessionExists(conversationId: string): boolean {
+    const cached = this.viewerSessionCache.get(conversationId);
+    if (cached !== undefined) return cached;
+    const exists = fs.existsSync(path.join(this.dataRoot, 'viewer', 'sessions', conversationId));
+    this.viewerSessionCache.set(conversationId, exists);
+    return exists;
+  }
+
   private bucket(map: Map<string, UsageAggregate>, key: string): UsageAggregate {
     let acc = map.get(key);
     if (!acc) {
@@ -573,6 +591,13 @@ export class UsageService extends Service {
     } else if (conversationId !== undefined && agents?.has(conversationId)) {
       // 迁移行兜底：旧委托行（counterpart 落在 conversationId）
       [a, b] = [agent, conversationId].sort();
+    } else if (conversationId !== undefined && this.viewerSessionExists(conversationId)) {
+      // 8.9 D4 端点轴：直答/独立会话记账键 = UUID，端点信息不在键里——
+      // viewer 投影在场（<root>/viewer/sessions/<id>/）= user 是会话一端的
+      // 物理证据（D4 布局契约：viewer 投影只在 user 在场时建立）→ user⇄承载
+      // agent。无投影（子 Agent 内部会话等）不进端点对。
+      a = 'user';
+      b = agent;
     }
     if (a === undefined || b === undefined || a === b) return undefined;
     if (group?.list().some((g) => g.id === a || g.id === b)) return undefined;

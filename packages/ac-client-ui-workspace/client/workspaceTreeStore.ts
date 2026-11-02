@@ -20,6 +20,8 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { fetchWorkspaceTree } from './index.ts';
 import { loadExpanded, saveExpanded } from './workspaceTreePrefs.ts';
+import { collectFileExts } from './workspaceTreeIcons.ts';
+import type { RpcClientFace } from 'ac-client-runtime';
 
 /** 树节点（含懒加载运行时态；WorkspaceTreeNode/WorkspaceTree 消费——
  *  本 store 是 shape 单源，避免 .ts 链反向引 .vue）。文件大小不入树
@@ -58,6 +60,37 @@ function registeredState(key: string): TreeContextState {
 
 /** per-path in-flight 守卫（双击同一目录不重复请求） */
 const pendingDirs = new Set<string>();
+
+// ── 原生关联图标（cr-833）：全局共享（跨树基准——同一 ext 图标不分基准）──
+
+/** ext → dataURL（null = 无关联，前端回落静态表；缺席 = 未加载） */
+const extIcons = ref<Record<string, string | null>>({});
+/** 目录行图标（HKCR\Directory 系统文件夹图标 dataURL；null = folder 回落） */
+const dirIcon = ref<string | null>(null);
+/** 已请求过的 ext 集（增量差分——打开新目录才发增量请求） */
+const requestedExts = new Set<string>();
+let iconRpc: Pick<RpcClientFace, 'call'> | null = null;
+/** 增量请求 in-flight 守卫 */
+let iconLoading = false;
+
+/** 树快照内出现的扩展名增量拉取（与已请求集差分；空差 = 零请求） */
+async function ensureTreeIcons(root: readonly TreeNode[]): Promise<void> {
+  if (iconRpc === null) return; // rpc 未注入（组件挂载前）——静态表回落
+  if (iconLoading) return;
+  const missing = [...collectFileExts(root)].filter((e) => !requestedExts.has(e));
+  if (missing.length === 0) return;
+  iconLoading = true;
+  for (const e of missing) requestedExts.add(e);
+  try {
+    const r = await iconRpc.call<{ icons?: Record<string, string | null>; dirIcon?: string | null }>('workspace/assoc-icons', { exts: missing });
+    if (r.icons) extIcons.value = { ...extIcons.value, ...r.icons };
+    if (r.dirIcon) dirIcon.value = r.dirIcon;
+  } catch {
+    for (const e of missing) requestedExts.delete(e); // 失败可重试
+  } finally {
+    iconLoading = false;
+  }
+}
 
 export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
   /** 各树基准状态（key = `${agentId}/${conversationId}` 归一形；'' = 全局） */
@@ -108,6 +141,8 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
         st.root = children; // 根层写回（setContext 不接返回值——数据落 store）
         st.label = d.root?.label ?? '';
       }
+      // 原生图标增量收集（cr-833）：新层 ext 差分拉取；失败静默（静态表回落）
+      void ensureTreeIcons(children);
       return children;
     } catch (err: any) {
       if (isRoot) {
@@ -138,6 +173,11 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
         pendingDirs.delete(dirPath);
       }
     }
+  }
+
+  /** rpc 注入口（WorkspaceTree 挂载时注入——store 不 import rpc 单例，保持纯 store） */
+  function registerIconRpc(rpc: Pick<RpcClientFace, 'call'> | null): void {
+    iconRpc = rpc;
   }
 
   function collapseDir(key: string, dirPath: string): void {
@@ -206,7 +246,8 @@ export const useWorkspaceTreeStore = defineStore('workspaceTree', () => {
   }
 
   return {
-    trees, currentKey, current,
+    trees, currentKey, current, extIcons, dirIcon,
     contextKey, setContext, loadDir, expandDir, collapseDir, toggleDir, saveScroll, setActive, findNode,
+    registerIconRpc, ensureTreeIcons,
   };
 });

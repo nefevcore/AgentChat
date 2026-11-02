@@ -422,6 +422,35 @@ conversation / persona / system-prompt / llm-pool）为第五条；`exclude` 仍
   最近 8 条收束 run）；宿主 peek() 只读探测（盘锁探活 + socket manage 通道，绝不
   拉起）+ shell-state-poller 轮询面（订阅门控起停，2s 档）；对账 run-settled 桥接
   loop/after-run 前端帧补丢帧（B3 瞬态语义不变，对账面 = 观察补投，不承诺持久）。
+- cr-824（2026-10-31）：读面搬迁批一/批二——goal/todo/interaction 读面盘直读
+  （投影复用 owning 包纯函数：goalSnapshotOf/todoListOf 单源）、subagents 叠加
+  通道 liveShells、活跃集 runningOf 单源（poller 镜像优先/现探退路）；〈读面搬迁〉
+  篇随批登记。
+- cr-826（2026-10-31）：读面搬迁批三续（事件目录数据化）——生成器扩展 dump _hooks
+  注册面 + extension.listeners 声明 → events/listeners·descriptions·policy-list
+  三面接真（rpc-audit B1/B2/A3 销账）；快照读口 readCatalogSnapshot 单源导出。
+- cr-825（2026-10-31）：读面搬迁批三——tool-catalog.json 生成器（真装配 dump 快照）
+  + parity 对账锁；tools/list 静态底座∪活壳增量（__standard__ 冷拉起退役）、
+  agents/tool-defs 活壳真值/壳缺席静态算；row-catalog stale 词形修正（hello/datetime）。
+
+# 〈读面搬迁〉（2026-10-31 定向，cr-824 随批一落地）
+
+进程拆分（S2）对每个跨边界 RPC 读面产生一次性搬迁债（审计文档
+host-shell-read-face-audit.md，cr-822/823）。三条结构性根因：进程内瞬态无出壳
+通道（宿主只能拉不能推）、idle-exit 让壳不在场成常态、观测态与事实态混投影。
+判定式 = **truth 住在哪**：盘上（agentStore/ledger/children/jsonl）→ 读面盘直读
+（垫片模式，ConvSettingsShim 同构）；壳内存真瞬态（busy/queue）→ 读宿主内存
+镜像（poller），非盘读。D10 证伪哨兵未触发——全部为读面接线，零新跨进程
+请求-应答通道。不可提升面（提升 = 倒退）：jobs/queue 空集（生命周期归
+activation，空即真相）、archive/stop/interrupt 动作面（拉起即语义）、run-state
+盘快照（peek/poller 已建成，再建是影子状态）。cr-824 落批一（goal/todo/
+interaction 读面盘直读 + subagents 叠加通道 liveShells）+ 批二（活跃集读面
+runningOf 单源：poller 镜像优先、现探退路——stats 观测抖动根因拔除）。
+cr-825 批三（工具目录静态化）：声明面定形「生成器真装配 dump + 入库快照 +
+对账锁」——行包自述（ExtensionMeta.tools）与宿主静态导入两案均否（宿主树
+读不到壳行包声明 / webui 拖入全部工具行包依赖）；tool-catalog.json 生成器
+（bootShell 真装配 dump，注册代码单源派生）+ parity 对账锁，tools/list
+冷面零拉起、tool-defs 壳缺席静态算（ac-agents 收窄纯函数复用）。
 
 ## 本档案纪律
 

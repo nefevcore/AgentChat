@@ -13,7 +13,7 @@ import { BusyRing, Tooltip } from '@agentchat/webui-kit';
 import { useChatShell } from './useChatShell.ts';
 import type { DisplayItem } from './types.ts';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
-import ContextInjectCard from './Message/ContextInjectCard.vue';
+import InjectCardHost from './Message/InjectCardHost.vue';
 
 const props = defineProps<{
   /** 渲染管线产物（useTurnDisplayItems） */
@@ -242,7 +242,7 @@ defineExpose({
           </div>
           <!-- 注入卡独立降级位（前后皆无 agent 轮可挂——会话仅机制行/失败
                run 收尾）：与挂轮卡同组件，占独立一行 -->
-          <ContextInjectCard v-else-if="item.type === 'inject' && item.inject" :card="item.inject" />
+          <InjectCardHost v-else-if="item.type === 'inject' && item.inject" :card="item.inject" degraded />
           <!-- data-item-key 透传组件根 .turn-item = reveal 定位锚（cr-230） -->
           <TurnDisplayItem
             v-else
@@ -314,6 +314,12 @@ defineExpose({
 .messages-container {
   height: 100%;
   overflow-y: auto;
+  /* 自管滚动视口禁浏览器滚动锚定：贴底跟随期间上方内容收缩（思考卡
+     收折/markdown 重排）时锚定会自动下调 scrollTop 补偿锚点，与跟随
+     引擎的写入打架且派发 scroll 事件——在净高度不变的帧被方向判定
+     误读为用户上滚 → 跟随永久死亡（贴底时新卡不上屏滚动）。塌缩
+     补偿由 useChatShell 豁免逻辑自管，锚定是多余的第二引擎。 */
+  overflow-anchor: none;
   overflow-x: hidden;
   padding: var(--space-md);
   scrollbar-width: thin;

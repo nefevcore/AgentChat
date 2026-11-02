@@ -24,4 +24,6 @@ export * from './frame.ts';
 export * from './stream.ts';
 export * from './manage.ts';
 export * from './socket.ts';
+export * from './ipc.ts';
+export * from './deliver.ts';
 export * from './lock.ts';

@@ -13,9 +13,8 @@ import {
   makeEnvelope, socketPathFor,
   acquireActivationLock, readActivationLock,
 } from 'ac-envelope-core';
-import {
-  ConversationRegistry, ReachabilityTable, routeEnvelope, IpcClient,
-} from '../src/index.ts';
+import { ConversationRegistry, ReachabilityTable, routeEnvelope } from '../src/index.ts';
+import { IpcClient } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-xproc-' + process.pid);
 const HELPER = fileURLToPath(new URL('./shell-receiver.helper.ts', import.meta.url));

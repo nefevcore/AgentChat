@@ -49,6 +49,27 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     expect(cfg.description).toBeTruthy();
   });
 
+  it('__creator__ 首启物化 = 人设走 AGENTS.md 文档（config.system 退役，cr-810）', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
+    await adoptShell({
+      agentId: '__creator__',
+      dataRoot,
+      catalogFile: 'C',
+      bootFile: 'B',
+      reach: new ReachabilityTable(),
+      spawnFn: fakeSpawn,
+      timeoutMs: 5_000,
+    });
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(dataRoot, 'agents/__creator__/config.json'), 'utf-8'),
+    ) as { system?: string; rows: string[]; settings?: Record<string, unknown> };
+    expect(cfg.system).toBeUndefined();
+    expect(cfg.rows).toContain('persona'); // persona 行入集——settings.persona 才有消费方
+    expect(cfg.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
+    const doc = fs.readFileSync(path.join(dataRoot, 'agents/__creator__/AGENTS.md'), 'utf-8');
+    expect(doc).toContain('插件开发指南');
+  });
+
   it('非预设身份首启兜底写 = 裸 {id}（cr-561 语义不动）', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
     await adoptShell({

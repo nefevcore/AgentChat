@@ -180,7 +180,7 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
 
 ```text
 会话状态机  ac-conversation —— 串行化门 + inbox 双队列 + 防自激 + 幂等准入
-信封投递    ac-post-office / ac-ledger —— 纯转发、零会话态；Agent 是数据不是插件
+信封投递    ac-envelope-core（deliver 双层会合 + ipc 传输）/ ac-post-office / ac-ledger —— 纯转发、零会话态；Agent 是数据不是插件
 ReAct 编排  ac-agent-loop —— turn=run → [step → 推理/工具 → 收束]×N；steer + 语义化中断
 模型会话    ac-llm / ac-llm-pool —— 协议住纯库，连接池是唯一事实源
 ```
@@ -204,6 +204,7 @@ packages/                  全部活包（120+）
 └── vendor/                本地 cordis 生态（loader/logger/timer/hmr/include）
 
 apps/
+├── system/                system 层入口 supervisor.mjs（宿主监护 + 心跳面 + 配方盘面）
 ├── host/                  宿主 boot（行集装配 + web 面 + 编排面 + 出厂通道播种）
 ├── shell/                 壳 boot（per-Agent 进程入口）
 ├── catalog/               行集目录 row-catalog.json + 插件模板 templates/
@@ -224,8 +225,8 @@ workspace/                 开发数据根（workspace/home）与测试树（wor
 ## 🔧 开发命令（源码）
 
 ```bash
-pnpm dev                # 宿主直跑（apps/host/boot.ts；http://localhost:3830）
-pnpm dev:supervised     # supervisor.mjs 宿主监护（退避熔断 + 崩溃重拉）
+pnpm dev                # 被监护开发形态（apps/system/supervisor.mjs → 宿主 boot；http://localhost:3830）
+pnpm dev:fg             # 前台直跑逃生门（无监护——调 supervisor 自身时用）
 pnpm typecheck          # 服务面全量类型检查（packages + apps/{host,shell,catalog,ui src}）
 pnpm webui:typecheck    # 前端 vue-tsc（apps/ui）
 pnpm test               # 全量测试（packages + apps + desktop）

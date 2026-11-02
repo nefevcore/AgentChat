@@ -1,70 +1,77 @@
-<!-- ToolResultTodo.vue —— todo 工具会话流卡片（DSH todo 行姿势）
-  标题行「任务清单 X/Y 已完成」+ 紧凑清单（状态 glyph + 内容）。
-  数据经 normalizeTodoCard：终值（output.todos）优先、调用中回落
-  args.todos 预览；不可解析 → 空卡（外层 tool-body 已有边框容器）。
-  M27 S3：自 webui components/chat/ToolResult/ 原样迁入 UI 行 client/
-  （零像素迁移）；注册面 = 行 client 插件出厂贡献 tool-card:result-view
-  keyed seat（id 'todo'）——行卸载即卡片回落默认文本渲染。 -->
+<!-- ToolResultTodo.vue —— todo 工具会话流卡片（cr-765 #12 TodoCard 形态）
+  CardFrame(meta = X/Y 已完成 + 细进度条) + 语义图标清单行（§1.7：
+  check-circle 完成 / loader-circle 进行中 / circle 待办；行尾状态词）。
+  折叠态即可读出进度（进度提前到 label）；展开体只有清单行。
+  数据经 normalizeTodoCard：扁平终值优先（cr-765 A-3）、调用中回落
+  args.todos 预览。注册面 = 行 client 插件出厂贡献 tool-card:result-view。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import { BusyRing } from '@agentchat/webui-kit';
-import TodoGlyph from './TodoGlyph.vue';
+import { CardFrame, Icon, Progress } from '@agentchat/webui-kit';
 import { normalizeTodoCard, type TaskTodo } from './tasks.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 const card = computed(() => normalizeTodoCard(props.data));
+const todos = computed(() => card.value?.todos ?? []);
+const done = computed(() => todos.value.filter((t: TaskTodo) => t.status === 'completed').length);
+const summary = computed(() => (card.value ? `${done.value}/${todos.value.length} 已完成` : ''));
+const percent = computed(() => (todos.value.length > 0 ? Math.round((done.value / todos.value.length) * 100) : 0));
 
-const summary = computed(() => {
-  const todos = card.value?.todos ?? [];
-  const done = todos.filter((t: TaskTodo) => t.status === 'completed').length;
-  return card.value ? `${done}/${todos.length} 已完成` : '';
+/** 动作词（反馈 #6：标题携带当次动作语义——read 是查看快照、write 是当次写入，
+ *  卡与卡之间按调用序展示各自时刻的状态，不被误读为「最终进度」） */
+const actionLabel = computed(() => {
+  const a = String(props.data.action ?? '');
+  return a === 'read' ? ' · 读取' : a === 'write' ? ' · 更新' : '';
 });
 
 const STATUS_LABELS: Record<string, string> = {
   pending: '待办',
   in_progress: '进行中',
   completed: '已完成',
+  cancelled: '已取消',
 };
+/** §1.7 行首图标：完成 check-circle / 进行中 loader-circle / 待办 circle / 取消 x-circle */
+const statusIcon = (s: string) => (s === 'completed' ? 'check-circle' : s === 'in_progress' ? 'loader-circle' : s === 'cancelled' ? 'x-circle' : 'circle');
+const statusTone = (s: string) => (s === 'completed' ? 'ok' : s === 'in_progress' ? 'run' : '');
 </script>
 
 <template>
-  <div class="todo-card" :class="{ running: loading }">
-    <template v-if="card">
-      <div class="todo-card-title">
-        任务清单
-        <span class="todo-card-summary">{{ summary }}</span>
-        <span v-if="loading" class="todo-card-pending">更新中…</span>
-      </div>
-      <ul class="todo-card-list">
-        <li v-for="(item, i) in card.todos" :key="i" class="todo-card-item" :data-status="item.status">
-          <span class="todo-card-glyph">
-            <BusyRing v-if="item.status === 'in_progress'" :size="13" />
-            <TodoGlyph v-else :status="item.status === 'completed' ? 'completed' : 'pending'" :size="13" />
-          </span>
-          <span class="todo-card-content">{{ item.content }}</span>
-          <span class="todo-card-status">{{ STATUS_LABELS[item.status] ?? item.status }}</span>
-        </li>
-      </ul>
+  <CardFrame
+    class="todo-card"
+    :title="'任务清单' + actionLabel"
+    icon="clipboard-list"
+    :meta="summary"
+    :running="loading"
+  >
+    <template #meta>
+      <span v-if="loading" class="todo-updating">更新中…</span>
+      <Progress :value="percent" class="todo-progress" />
     </template>
-    <div v-else-if="loading" class="todo-card-pending">正在更新任务清单…</div>
-    <div v-else class="todo-card-empty">（无可解析清单）</div>
-  </div>
+    <div v-if="card" class="todo-list">
+      <div v-for="(item, i) in todos" :key="i" class="todo-item" :data-status="item.status">
+        <Icon :name="statusIcon(item.status)" :size="14" class="todo-icon" :class="'is-' + statusTone(item.status)" />
+        <span class="todo-content">{{ item.content }}</span>
+        <span class="todo-status">{{ STATUS_LABELS[item.status] ?? item.status }}</span>
+      </div>
+    </div>
+    <div v-else-if="loading" class="todo-empty">正在更新任务清单…</div>
+    <div v-else class="todo-empty">（无可解析清单）</div>
+  </CardFrame>
 </template>
 
 <style scoped>
-.todo-card { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-.todo-card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-1); }
-.todo-card-summary { font-weight: 400; color: var(--text-3); }
-.todo-card-pending { font-style: italic; color: var(--text-3); font-weight: 400; }
-.todo-card-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; max-height: var(--card-viewport-max); overflow-y: auto; }
-.todo-card-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-2); line-height: 18px; }
-.todo-card-item[data-status='completed'] .todo-card-content { color: var(--text-3); text-decoration: line-through; }
-.todo-card-glyph { display: grid; place-items: center; flex: none; }
-/* 勾圈/虚线圈色档归 TodoGlyph 单源（cr-454 并源——原工具卡 --ok 墨色档
-   与 dock 卡 --ok-status 状态档走散，图形件统一状态档）；in_progress 用
-   kit BusyRing（cr-129 R2） */
-.todo-card-content { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.todo-card-status { flex: none; font-size: 11px; color: var(--text-3); }
-.todo-card-empty { font-style: italic; color: var(--text-3); }
+.todo-card { width: 100%; }
+.todo-updating { font-size: var(--fs-2xs); color: var(--text-3); font-style: italic; font-family: var(--font-ui); }
+.todo-progress { width: 56px; }
+.todo-list { display: flex; flex-direction: column; gap: 4px; }
+.todo-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-2); line-height: 20px; }
+.todo-item[data-status='completed'] .todo-content,
+.todo-item[data-status='cancelled'] .todo-content { color: var(--text-3); text-decoration: line-through; }
+.todo-icon { flex: none; }
+/* §1.7 着色：成功 --ok-status / 运行 --primary / 默认随行 --text-3 */
+.todo-icon.is-ok { color: var(--ok-status); }
+.todo-icon.is-run { color: var(--primary); }
+.todo-content { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: var(--fs-sm); }
+.todo-status { flex: none; font-size: var(--fs-2xs); color: var(--text-3); }
+.todo-empty { font-style: italic; color: var(--text-3); font-size: var(--fs-sm); }
 </style>

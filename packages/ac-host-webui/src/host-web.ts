@@ -19,6 +19,7 @@ import * as configRow from 'ac-config';
 import * as convSettingsRow from 'ac-conv-settings';
 import { makeSinglesHostRow, makeGroupsHostRow } from 'ac-host-rows';
 import type { ShellAdminPort } from './face-shell.ts';
+import type { FaceOpsDeps } from './face-ops.ts';
 import { WebServerService, type WebServerRowOptions } from 'ac-web-server';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from 'ac-host-app/user-stub';
@@ -65,6 +66,8 @@ export interface HostWebOptions {
   /** 编排面惰性端口（conversation/stats 真源 / history 活投影数据面——cr-598；
    * 缺省 = 无活壳面〔stats 恒闲、无活投影〕） */
   shellPort?: () => ShellAdminPort | null;
+  /** 宿主壳状态镜像（cr-824 批二——poller.snapshot 惰性端口；缺席 = 现探） */
+  pollerSnapshot?: FaceOpsDeps['pollerSnapshot'];
 }
 
 /** web 环装配入参（两段原语共用；邮局恒由调用方持有——收信面单例） */
@@ -79,6 +82,8 @@ export interface WebRingOptions {
   catalogFile?: string;
   /** 编排面惰性端口（壳内服务面——boot 创建 orchestrator 后回填） */
   shellPort?: () => ShellAdminPort | null;
+  /** 宿主壳状态镜像（cr-824 批二——poller.snapshot 惰性端口；缺席 = 现探） */
+  pollerSnapshot?: FaceOpsDeps['pollerSnapshot'];
   postOffice: PostOffice;
 }
 
@@ -126,6 +131,7 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
     dataRoot: options.dataRoot,
     ...(options.catalogFile !== undefined ? { catalogFile: options.catalogFile } : {}),
     ...(options.shellPort !== undefined ? { shellPort: options.shellPort } : {}),
+    ...(options.pollerSnapshot !== undefined ? { pollerSnapshot: options.pollerSnapshot } : {}),
   })));
   for (const fiber of fibers) await fiber;
   const port = await ctx.webServer.ready();

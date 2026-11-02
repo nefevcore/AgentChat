@@ -11,7 +11,7 @@ import * as toolsRow from 'ac-tools';
 import { makeSubagentRow, type ShellProcess, type SpawnShellFn } from '../src/service.ts';
 import { readChildConfig } from 'ac-agents-core';
 import { acquireActivationLock, makeEnvelope, socketPathFor, type Envelope } from 'ac-envelope-core';
-import { listenIpc, type PostOfficeServer } from 'ac-post-office';
+import { listenIpc, type IpcServer } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-subagent-' + process.pid);
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
@@ -364,7 +364,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const childId = 'kid-lock';
     const hint = socketPathFor(path.resolve(ROOT), 'papa--' + childId);
     const received: unknown[] = [];
-    let server: PostOfficeServer | null = null;
+    let server: IpcServer | null = null;
     try {
       server = await listenIpc(hint, (payload) => {
         received.push(payload);
@@ -446,7 +446,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  it('会话设置继承：convSettings 垫片在场——toolMode/browserTier/issueSubmit/水位全映射；水位与 per-call 取高', async () => {
+  it('会话设置继承：convSettings 垫片在场——elevation/browserTier/issueSubmit/水位全映射；tc-* 模式词不继承（cr-763）', async () => {
     const fake = fakeShell();
     const { Service } = await import('@agentchat/cordis');
     const { ctx, dispose } = await makeService(fake.spawn);
@@ -468,10 +468,50 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const cfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', out.childId, 'config.json'), 'utf-8'),
       ) as { tags?: string[] };
-      // 水位 full > per-call sandbox（取高）+ 模式词 + grants 全链
-      for (const t of ['full-access', 'tc-programmatic', 'web', 'observe', 'manipulate', 'inject', 'issue-report']) {
+      // 水位 full > per-call sandbox（取高）+ grants 全链
+      for (const t of ['full-access', 'web', 'observe', 'manipulate', 'inject', 'issue-report']) {
         expect(cfg.tags).toContain(t);
       }
+      // tc-* 是交互形态非授权（cr-763）：会话 toolMode 不快照进子 tags——
+      // 子 rows 由 spawn tools 决定，父会话形态快照过来而子无 run-code 行
+      // 时收窄出空面（工具全丢、子变纯聊天单步收束）。
+      expect(cfg.tags).not.toContain('tc-programmatic');
+      expect(cfg.tags).not.toContain('tc-none');
+    } finally { await dispose(); }
+  });
+
+  // cr-763：子的交互形态由装配结构化合成（形态跟随装配）——父 config/
+  // 会话的 tc-* 词剥除；子 rows 命中 run-code 行（缺省继承父 rows 形态）才
+  // 合成 tc-programmatic。spawn 显式点名 run_code 词被拒（filtered）。
+  it('形态合成：父 tags 的 tc-* 剥除；子 rows 含 run-code 行合成 tc-programmatic；spawn 点名 run_code 被拒', async () => {
+    const fake = fakeShell();
+    const { ctx, dispose } = await makeService(fake.spawn);
+    try {
+      // 父 config 带程序化模式词 + rows 含 run-code（程序化 Agent 形态）
+      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
+        JSON.stringify({ id: 'papa', model: 'mock', tags: ['tc-programmatic', 'full-access'], tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
+      const tools = ctx.get('tools') as unknown as {
+        execute(call: { name: string; args: Record<string, unknown>; conversationId?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string; filtered?: string[]; note?: string } }>;
+      };
+      // ① 缺省继承（不传 tools）：子 rows = 父 rows（含 run-code 行）→ 合成 tc-programmatic；父 full-access 授权词保留
+      const inherit = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '缺省继承' } });
+      const inheritId = (inherit.output as { subagent_id: string }).subagent_id;
+      const inheritCfg = JSON.parse(fs.readFileSync(
+        path.join(ROOT, 'agents', 'papa', 'children', inheritId, 'config.json'), 'utf-8'),
+      ) as { tags?: string[]; rows?: string[] };
+      expect(inheritCfg.rows).toContain('run-code');
+      expect(inheritCfg.tags).toContain('tc-programmatic'); // 形态来自装配而非继承
+      expect(inheritCfg.tags).toContain('full-access'); // 授权词继承面不受影响
+      // ② 显式点名子集（不含 run-code）：无模式词——工具面照常（tc-base）
+      const subset = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '子集', tools: ['read', 'write'] } });
+      const subsetId = ((subset.output as { subagent_id: string })).subagent_id;
+      const subsetCfg = JSON.parse(fs.readFileSync(
+        path.join(ROOT, 'agents', 'papa', 'children', subsetId, 'config.json'), 'utf-8'),
+      ) as { tags?: string[] };
+      expect(subsetCfg.tags).not.toContain('tc-programmatic');
+      // ③ 点名 run_code 词显式拒绝（cr-763：防子域程序化形态自废 spawn 授予面）
+      const rejected = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '拒 run_code', tools: ['run_code', 'read'] } });
+      expect(((rejected.output as { note?: string }).note ?? '')).toContain('run_code');
     } finally { await dispose(); }
   });
 
@@ -700,7 +740,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const childId = 'kid-answer';
     const hint = socketPathFor(path.resolve(ROOT), 'papa--' + childId);
     const received: unknown[] = [];
-    let server: PostOfficeServer | null = null;
+    let server: IpcServer | null = null;
     const fake = fakeShell();
     const { svc, dispose } = await makeService(fake.spawn); // 新实例但不动 spawn——children 面空（模拟换代）
     try {
@@ -774,6 +814,104 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
+  // cr-862 换轨：send 恒走 deliver() 双层会合——活锁直投；死子（无锁/陈锁）
+  // 落子域 inbox（落盘即送达）+ owner 重拉子壳（reviveChild——重拉壳 boot
+  // recoverPendingInbox 消费落盘信）。归档子拒绝（归档即终局）。
+  it('send 换代直投：活锁直投；死子落 inbox + owner 重拉；归档子拒绝', async () => {
+    const childId = 'kid-send';
+    const hint = socketPathFor(path.resolve(ROOT), 'papa--' + childId);
+    const received: unknown[] = [];
+    let server: IpcServer | null = null;
+    const fake = fakeShell();
+    const { svc, dispose } = await makeService(fake.spawn); // 新实例不 spawn——children 面空（模拟换代）
+    try {
+      server = await listenIpc(hint, (payload) => {
+        received.push(payload);
+        return { ack: 'x', fresh: true };
+      });
+      const childRoot = path.join(ROOT, 'agents', 'papa', 'children', childId);
+      fs.mkdirSync(childRoot, { recursive: true });
+      fs.writeFileSync(path.join(childRoot, 'config.json'), JSON.stringify({ id: childId }), 'utf-8');
+      acquireActivationLock(childRoot, {
+        pid: process.pid, bootId: 'b-kid-s', acquiredAt: new Date().toISOString(), transportHint: hint,
+      });
+      // await 换代照常（盘读面——baseline 0、无终稿、无 pending → null 不抛）
+      expect(await svc.awaitOp(childId, 0)).toBeNull();
+      // send：活锁直投，任务信封形状与在管投递一致（budget=2 + replyConversation）
+      const out = await svc.sendOp(childId, '换代续聊', 'async', 0, 'u-init~papa');
+      expect(out.delivered).toBe(true);
+      expect(received).toHaveLength(1);
+      expect(received[0]).toMatchObject({ to: childId, budget: 2, payload: { text: '换代续聊', replyConversation: 'u-init~papa' } });
+      // 死子（无活锁）：任务信封原子落子域 inbox（文件名 = requestId）+ owner
+      // 重拉（spawnShell 替身被调——children 句柄回管）
+      const deadRoot = path.join(ROOT, 'agents', 'papa', 'children', 'kid-dead');
+      fs.mkdirSync(deadRoot, { recursive: true });
+      fs.writeFileSync(path.join(deadRoot, 'config.json'), JSON.stringify({ id: 'kid-dead' }), 'utf-8');
+      const deadOut = await svc.sendOp('kid-dead', 'x', 'async');
+      expect(deadOut.delivered).toBe(true); // 落盘即送达
+      const inboxDir = path.join(deadRoot, 'sessions', 'papa~kid-dead', 'inbox');
+      const stored = fs.readdirSync(inboxDir).filter((n) => n.endsWith('.json'));
+      expect(stored).toHaveLength(1);
+      const envStored = JSON.parse(fs.readFileSync(path.join(inboxDir, stored[0] as string), 'utf-8'));
+      expect(envStored).toMatchObject({ to: 'kid-dead', budget: 2, payload: { text: 'x' } });
+      expect(svc.listOp().find((e) => e.childId === 'kid-dead')?.status).toBe('ready'); // owner 重拉
+    } finally {
+      await dispose();
+      if (server !== null) await server.close();
+    }
+  });
+
+  // cr-862 换轨专项：死子复活链——send 对死子（无活锁）落子域 inbox（落盘
+  // 即送达）+ owner 重拉（spawnShell 再被调、meta.exited 复位、看板 ready）。
+  // 拉起单源 spawnProcess 与 spawnOp 同构——重拉壳 boot 的 recoverPendingInbox
+  // 消费落盘信（真子进程链路归 e2e）。
+  it('死子复活链：send 落 inbox + owner 重拉（exited 复位 + busy 在飞）', async () => {
+    const fake = fakeShell();
+    const { svc, dispose } = await makeService(fake.spawn);
+    try {
+      const a = await svc.spawnOp({ task: '首轮', waitMs: 5_000 });
+      await svc.deleteOp(a.childId); // 模拟子死：句柄移出 + 归档
+      fs.rmSync(path.join(ROOT, 'agents', 'papa', 'children', a.childId, 'archived.json'), { force: true }); // 解除归档（保留死形态）
+      const out = await svc.sendOp(a.childId, '复活任务', 'async');
+      expect(out.delivered).toBe(true); // 落盘即送达
+      const inboxDir = path.join(ROOT, 'agents', 'papa', 'children', a.childId, 'sessions', 'papa~' + a.childId, 'inbox');
+      const stored = fs.readdirSync(inboxDir).filter((n) => n.endsWith('.json'));
+      expect(stored).toHaveLength(1);
+      const envStored = JSON.parse(fs.readFileSync(path.join(inboxDir, stored[0] as string), 'utf-8'));
+      expect(envStored).toMatchObject({ to: a.childId, budget: 2, payload: { text: '复活任务' } });
+      const entry = svc.listOp().find((e) => e.childId === a.childId);
+      expect(entry?.status).toBe('ready'); // owner 重拉——exited 复位
+      expect(entry?.busy).toBe(true); // 复活任务在飞
+      // 崩溃形态（死句柄在管、未 delete）：守卫判活句柄——同样重拉（非句柄存在）
+      const b = await svc.spawnOp({ task: '崩溃前轮', waitMs: 5_000 });
+      (svc as unknown as { children: Map<string, unknown> }).children.delete(b.childId); // 留 meta.exited=false 模拟竞态窗——先造崩溃态：
+      const crashed = svc.listOp().find((e) => e.childId === b.childId);
+      void crashed;
+      // 直接验守卫判据：exited 置位 + 句柄在场（崩溃未 delete 形态）→ send 重拉
+      const svcInner = svc as unknown as { childMeta: Map<string, { exited: boolean; exit?: unknown; busy: boolean; name?: string }>; children: Map<string, unknown> };
+      const bm = svcInner.childMeta.get(b.childId);
+      if (bm !== undefined) { bm.exited = true; bm.exit = { code: 1, signal: null, aborted: false }; }
+      const out2 = await svc.sendOp(b.childId, '崩溃后任务', 'async');
+      expect(out2.delivered).toBe(true);
+      expect(svc.listOp().find((e) => e.childId === b.childId)?.status).toBe('ready');
+    } finally { await dispose(); }
+  });
+
+  // cr-856：归档子拒绝新任务——ownsChild 对归档者维持 true（迟到回信防线），
+  // 但 send 面不再受理（收割语义：归档即终局，不可再 send）。
+  it('归档子拒发：archived.json 在场时 send fail-loud；未归档不受影响', async () => {
+    const fake = fakeShell();
+    const { svc, dispose } = await makeService(fake.spawn);
+    try {
+      const a = await svc.spawnOp({ task: 't', waitMs: 5_000 });
+      // 未归档：正常投递
+      expect((await svc.sendOp(a.childId, '追问', 'sync', 5_000)).delivered).toBe(true);
+      await svc.deleteOp(a.childId);
+      // 归档后：send 拒绝（归档即终局）
+      await expect(svc.sendOp(a.childId, '再追问', 'async')).rejects.toThrow('不在管理面');
+    } finally { await dispose(); }
+  });
+
   // cr-712：主线消费面适配（collab send_agent 的 sub_ 分支）——get 在场
   // 查询 + send 薄包装（conversationId 即完成回执发起会话键）。
   it('get/send 主线消费面：在场投影 + send 挂 replyConversation（cr-711 回执链）', async () => {
@@ -798,6 +936,64 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       expect(fake.envs.at(-1)).toMatchObject({ text: '追加任务', replyConversation: 'u-init~papa' });
       // 不在管理面的 id fail-loud
       await expect(svc.send('sub-ghost', { parentId: 'papa', text: 'x' })).rejects.toThrow('不在管理面');
+    } finally { await dispose(); }
+  });
+
+  // cr-863：childAsk 信封单源——盘 watch / 信封 / boot 对账三通道汇 notifyChildAsk，
+  // 幂等门 + 盘校验（非当前 pending 不通知——滞留 inbox 跨代重放面）。P2：
+  // reconcile 对活锁子重建 watch（换代蒸发面）。service 直调（信封通道由
+  // conversation 拦截面转交——归 conversation 测试）。真子进程链路归 e2e。
+  it('notifyChildAsk：幂等门 + 盘校验（非当前 pending 不通知）', async () => {
+    const fake = fakeShell();
+    const { ctx, svc, dispose } = await makeService(fake.spawn);
+    try {
+      const a = await svc.spawnOp({ task: '提问任务', waitMs: 5_000 });
+      const events: Array<{ childId: string; interactionId: string }> = [];
+      ctx.on('subagents/ask', (p: { childId: string; interactionId: string }) => events.push(p));
+      // 盘上落 pending ask（fakeShell 的 deliver 不产 interaction——手写 store 文件）
+      const writeFile = (id: string, state: string) => {
+        const f = path.join(ROOT, 'agents', 'papa', 'children', a.childId, 'interactions.jsonl');
+        const line = JSON.stringify({ id, kind: 'ask_questions', state, payload: { questions: [{ question: '走哪条?', options: ['A', 'B'] }] }, ts: Date.now() });
+        fs.appendFileSync(f, line + '\n', 'utf-8');
+      };
+      writeFile('ix-1', 'pending');
+      // ① 信封通道形态（notifyChildAsk 直调——conversation 拦截面同款转交）
+      (svc as unknown as { notifyChildAsk(c: string, i: string): void }).notifyChildAsk(a.childId, 'ix-1');
+      expect(events).toHaveLength(1);
+      // ② 同 id 再来（幂等门）
+      (svc as unknown as { notifyChildAsk(c: string, i: string): void }).notifyChildAsk(a.childId, 'ix-1');
+      expect(events).toHaveLength(1);
+      // ③ 盘上非 pending（已答——信封滞留 inbox 跨代重放形态）：不通知
+      writeFile('ix-1', 'answered');
+      (svc as unknown as { notifyChildAsk(c: string, i: string): void }).notifyChildAsk(a.childId, 'ix-1');
+      expect(events).toHaveLength(1);
+      // ④ 新 pending：正常通知
+      writeFile('ix-2', 'pending');
+      (svc as unknown as { notifyChildAsk(c: string, i: string): void }).notifyChildAsk(a.childId, 'ix-2');
+      expect(events).toHaveLength(2);
+    } finally { await dispose(); }
+  });
+
+  it('P2 watch 重建：reconcile 对活锁子建 watch（换代蒸发面）', async () => {
+    const fake = fakeShell();
+    const { svc, dispose } = await makeService(fake.spawn);
+    try {
+      const a = await svc.spawnOp({ task: '挂起任务', waitMs: 5_000 });
+      const svcInner = svc as unknown as { askWatchers: Map<string, unknown>; children: Map<string, unknown>; reconcilePendingAsks(): void };
+      // 模拟换代蒸发：children/askWatchers 全清（内存态蒸发）+ 留活锁（子还活着）
+      svcInner.children.clear();
+      svcInner.askWatchers.clear();
+      acquireActivationLock(path.join(ROOT, 'agents', 'papa', 'children', a.childId), {
+        pid: process.pid, bootId: 'watch-rebuild-test', acquiredAt: new Date().toISOString(), transportHint: 'noop',
+      });
+      svcInner.reconcilePendingAsks();
+      expect(svcInner.askWatchers.has(a.childId)).toBe(true); // 子在管（spawn 句柄）→ watch 在场
+      // 死子（无锁无句柄）不建——消费面无人
+      const dead = 'sub-dead-1';
+      fs.mkdirSync(path.join(ROOT, 'agents', 'papa', 'children', dead), { recursive: true });
+      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'children', dead, 'config.json'), JSON.stringify({ id: dead }), 'utf-8');
+      svcInner.reconcilePendingAsks();
+      expect(svcInner.askWatchers.has(dead)).toBe(false);
     } finally { await dispose(); }
   });
 

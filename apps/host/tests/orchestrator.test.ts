@@ -8,7 +8,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { createOrchestrator } from '../orchestrator.ts';
 import type { AdoptedShellFace } from '../supervise.ts';
-import { IpcClient, PostOffice, ReachabilityTable, listenIpc } from 'ac-post-office';
+import { PostOffice, ReachabilityTable } from 'ac-post-office';
+import { IpcClient, listenIpc } from 'ac-envelope-core';
 import { isManageRequest, makeManageReply, isManageReply, makeManageRequest, socketPathFor } from 'ac-envelope-core';
 import type { RouteTarget } from 'ac-post-office';
 
@@ -226,6 +227,28 @@ describe('编排面（orchestrator——按需拉起触发链）', () => {
     }
   });
 
+  it('【cr-840】spawningIds：拉壳在飞窗可见，adopt 完成即退场', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    let resolveAdopt: ((s: FakeShell) => void) | null = null;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      tap: async () => {},
+      adopt: () => new Promise((res) => { resolveAdopt = res; }),
+    });
+    try {
+      expect(orch.spawningIds()).toEqual([]); // 初始无在飞
+      const p = orch.ensureAgent('alpha');
+      expect(orch.spawningIds()).toEqual(['alpha']); // spawn → boot.ready 窗口在飞
+      resolveAdopt!(new FakeShell(['boot.ready\tb1\tpipe\\\\.\\mock-3\troot3']));
+      await p;
+      expect(orch.spawningIds()).toEqual([]); // adopt 完成、句柄池登记——退场
+    } finally {
+      orch.close();
+      await po.close();
+    }
+  });
+
   it('死态重拉（restart 幂等）：done 退出后来件再拉起', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
@@ -421,6 +444,57 @@ describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）
     }
   });
 
+  it('cr-805：池内句柄 start 失败（幽灵持锁）→ 窗内退避快速失败，不再逐拍 spawn；盘上活锁壳 ipc 可达则借道完成帧', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    // 盘上活锁壳 = 本测试进程持有（pid 恒活），ipc server 应答 manage 帧
+    const hint = socketPathFor(path.resolve(ROOT), 'theta');
+    const server = await listenIpc(hint, (payload) => {
+      if (!isManageRequest(payload)) return undefined;
+      return makeManageReply(payload.manage.id, { ok: true, value: { echo: payload.manage.frame } });
+    });
+    const agentDir = path.join(ROOT, 'agents', 'theta');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-ghost', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    // 池内句柄存在但壳已 idle 退出（current=null）；重拉全部被锁拒（幽灵）。
+    // respawnDelayMs 拉小让退避窗 ~100ms，验证窗内快速失败不 spawn。
+    let spawns = 0;
+    const shells: FakeShell[] = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      superviseOptions: { respawnDelayMs: 100 },
+      adopt: async () => {
+        spawns += 1;
+        const s = new FakeShell([]);
+        shells.push(s);
+        if (spawns === 1) return s; // 首拉成功进池
+        throw new Error('壳进程早退（code=1）——未达 boot.ready；尾部 stderr 见 x'); // 重拉全被幽灵锁拒
+      },
+    });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const h = await orch.ensureAgent('theta');
+      expect(h).toBe(orch.handles().get('theta')); // 池内
+      shells[0]!.exit(0); // 壳 idle 退出——句柄死态
+      await new Promise((r) => setTimeout(r, 30));
+      // 第二帧：start 重拉 → 被锁拒 → 借道盘上活锁壳 ipc 完成帧
+      const out = await orch.control('theta', { ctrl: 'admin', op: 'run-state' }) as { echo: Record<string, unknown> };
+      expect(out.echo.op).toBe('run-state');
+      expect(spawns).toBe(2); // 只 spawn 过一次（被拒）
+      // 退避窗内第三帧：不再 spawn（快速失败 → 借道）
+      const out2 = await orch.control('theta', { ctrl: 'admin', op: 'run-state' }) as { echo: Record<string, unknown> };
+      expect(out2.echo.op).toBe('run-state');
+      expect(spawns).toBe(2); // 风暴根修：窗内零重复 spawn
+    } finally {
+      process.stderr.write = stderrWrite;
+      orch.close();
+      await server.close();
+      await po.close();
+    }
+  });
   it('老壳不应答且拉起被锁拒：诊断说清「不认控制帧」而不是「壳进程早退」', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();

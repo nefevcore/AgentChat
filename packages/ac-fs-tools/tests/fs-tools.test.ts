@@ -170,6 +170,36 @@ describe('ac-fs-search', () => {
     expect(r.output.total).toBe(1);
     expect(r.output.groups[0].path).toBe('ok.txt');
   });
+
+  it('grep include（rg 路径）：SKIP_DIRS 目录不因 include 泄漏进结果（cr-814）', async () => {
+    const root = tmpRoot();
+    fs.writeFileSync(path.join(root, 'normal.ts'), 'LEAKMARK-normal\n');
+    fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.git', 'leaked.ts'), 'LEAKMARK-leaked\n');
+    fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'dist', 'leaked.ts'), 'LEAKMARK-leaked\n');
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, { name: 'grep', args: { pattern: 'LEAKMARK', include: '*.ts' } });
+    expect(r.output.total).toBe(1);
+    expect(r.output.groups.map((g: { path: string }) => g.path)).toEqual(['normal.ts']);
+  });
+
+  it('glob 多段字面前缀：剪枝按段序生效，路径序靠后的目录不丢失（cr-814）', async () => {
+    const root = tmpRoot();
+    // 复刻事故形态：字面前缀指向的目录前有按名序吃满预算的大目录
+    fs.mkdirSync(path.join(root, 'aaa-big'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'pkg', 'tool-smoke'), { recursive: true });
+    for (let i = 0; i < 20005; i++) {
+      fs.writeFileSync(path.join(root, 'aaa-big', `f${i}.ts`), 'x');
+    }
+    fs.writeFileSync(path.join(root, 'pkg', 'tool-smoke', 'a.txt'), 'x');
+    fs.writeFileSync(path.join(root, 'pkg', 'tool-smoke', 'b.txt'), 'x');
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, { name: 'glob', args: { pattern: 'pkg/tool-smoke/*.txt' } });
+    expect(r.ok).toBe(true);
+    expect(r.output.capped ?? false).toBe(false); // 剪枝生效：aaa-big 整树不进入
+    expect(r.output.paths.sort()).toEqual(['pkg/tool-smoke/a.txt', 'pkg/tool-smoke/b.txt']);
+  });
 });
 
 describe('ac-str-replace-editor', () => {

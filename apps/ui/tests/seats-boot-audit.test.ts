@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // ============================================================
-// seats-boot-audit.test.ts —— 29 通道全装运行时对账门（cr-798）
+// seats-boot-audit.test.ts —— 30 通道全装运行时对账门（cr-798）
 //
 // 与 seats-gate.test.ts（静态扫描门）互补的运行时门：全通道按 boot graph
 // 真装载（jsdom），断言 seatAudit 零漂移——锁定 auditSeats 双轴满足判定
@@ -42,10 +42,10 @@ const MAINLINE: Record<string, string> = {
   onboarding: 'ac-client-ui-onboarding/client', remote: 'ac-client-ui-remote/client',
   todo: 'ac-client-ui-todo/client', jobs: 'ac-client-ui-jobs/client',
   goal: 'ac-client-ui-goal/client', skill: 'ac-client-ui-skill/client',
-  'desktop-storage': 'ac-client-ui-desktop-storage/client',
+  'desktop-storage': 'ac-client-ui-desktop-storage/client', ask: 'ac-client-ui-ask/client',
 };
 
-describe('cr-798 · 29 通道全装运行时对账', () => {
+describe('cr-798 · 30 通道全装运行时对账', () => {
   it('全通道真装载 → seatAudit 零漂移零 err', async () => {
     setActivePinia(createPinia());
     const repoRoot = path.resolve(__dirname, '..', '..', '..');

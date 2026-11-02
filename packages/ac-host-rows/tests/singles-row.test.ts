@@ -151,3 +151,75 @@ describe('摘要缓存（cr-682：size+mtimeMs 失效——写者单源同进程
     expect(list.singles.some((s) => s.id === 'c2')).toBe(false); // stat 失败 = count 0
   });
 });
+
+describe('摘要索引落盘（cr-845：跨宿主重启复用）', () => {
+  it('重挂（重启模拟）后指纹未变即复用索引；账本变更后重算', async () => {
+    seedLedger('x1', [{ agent_id: 'user', content: '索引跨重启' }]);
+    await boot(false).handlers.get('singles/list')!({});
+    const indexFile = path.join(ROOT, 'viewer', 'sessions', '.singles-index.json');
+    expect(fs.existsSync(indexFile)).toBe(true); // 首次 list 落盘索引
+    // 重挂 = 新插件实例（宿主重启形态）：索引文件在场 → 命中复用
+    const h2 = boot(false);
+    const list2 = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
+    expect(list2.singles.find((s) => s.id === 'x1')?.title).toBe('索引跨重启');
+    // 账本追加（跨重启后的真实写）：指纹变 → 重算，新行被看见
+    fs.appendFileSync(path.join(sessionDir('x1'), 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', agent_id: 'user', content: '重启后新句', timestamp: '2026-11-01T00:00:00.000Z' }) + '\n', 'utf-8');
+    const h3 = boot(false);
+    const list3 = await h3.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    expect(list3.singles.find((s) => s.id === 'x1')?.lastActivity).toBe('2026-11-01T00:00:00.000Z');
+  });
+
+  it('索引文件损坏（非法 JSON / 形状不对）→ 回落空索引全量重算，不炸 list', async () => {
+    seedLedger('y1', [{ agent_id: 'user', content: '损坏回落' }]);
+    fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-index.json'), '{oops', 'utf-8');
+    const h = boot(false);
+    const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
+    expect(list.singles.find((s) => s.id === 'y1')?.title).toBe('损坏回落');
+    // 损坏索引被重算结果覆写（自愈）
+    const healed = JSON.parse(fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-index.json'), 'utf-8')) as { version: number };
+    expect(healed.version).toBe(1);
+  });
+
+  it('空会话目录（无账本无 meta）不落索引条目；仅 meta 的会话照常列出', async () => {
+    fs.mkdirSync(sessionDir('z-empty'), { recursive: true }); // 空目录：不进列表也不进索引
+    fs.mkdirSync(sessionDir('z-meta'), { recursive: true });
+    fs.writeFileSync(path.join(sessionDir('z-meta'), 'session.json'), JSON.stringify({ id: 'z-meta', title: '仅元数据', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
+    const h = boot(false);
+    const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(list.singles.some((s) => s.id === 'z-empty')).toBe(false);
+    expect(list.singles.some((s) => s.id === 'z-meta')).toBe(true);
+  });
+});
+describe('指定 id 物化（cr-847 延迟落盘链路）', () => {
+  it('带 id 创建 → 落盘同 id；重复带 id 创建 → 幂等返回现状视图（不重写 meta）', async () => {
+    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', name: 'Alpha' }), 'utf-8');
+    const h = boot(false);
+    const created = await h.handlers.get('singles/create')!({ id: 'fixed-1', agentId: 'alpha', workspaceId: 'ws1' }) as { single: { id: string; agentId: string; workspaceId?: string } };
+    expect(created.single.id).toBe('fixed-1');
+    expect(created.single.agentId).toBe('alpha');
+    const metaPath = path.join(sessionDir('fixed-1'), 'session.json');
+    const meta1 = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect(meta1.workspaceId).toBe('ws1');
+    // 幂等重入：已有目录（meta 在场）→ 返回现状视图不重写（updatedAt 不变）
+    const again = await h.handlers.get('singles/create')!({ id: 'fixed-1', agentId: 'alpha' }) as { single: { id: string; updatedAt: string } };
+    expect(again.single.id).toBe('fixed-1');
+    const meta2 = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect(meta2.updatedAt).toBe(meta1.updatedAt);
+  });
+
+  it('仅账本在场的 id（消息先行）→ 幂等路径也能返回视图（meta 兜底落盘不丢消息会话）', async () => {
+    seedLedger('m-only', [{ agent_id: 'user', content: '消息先到' }]);
+    const h = boot(false);
+    const r = await h.handlers.get('singles/create')!({ id: 'm-only' }) as { single: { id: string; title?: string } };
+    expect(r.single.id).toBe('m-only');
+    expect(r.single.title).toBe('消息先到'); // 派生面照常工作
+  });
+
+  it('非法 id（路径分隔）→ fail-loud', async () => {
+    const h = boot(false);
+    await expect(async () => h.handlers.get('singles/create')!({ id: '../evil' })).rejects.toThrow(/非法/);
+  });
+});

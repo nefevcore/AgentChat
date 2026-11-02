@@ -28,8 +28,8 @@
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 
-/** 待办状态：pending 未开始 / in_progress 进行中 / completed 已完成 */
-export type TodoStatus = 'pending' | 'in_progress' | 'completed';
+/** 待办状态：pending 未开始 / in_progress 进行中 / completed 已完成 / cancelled 已取消（不再相关——区别 completed=做完与删除=无痕消失） */
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
 /** 待办条目（顺序即清单序，由模型维护） */
 export interface TodoItem {
@@ -59,7 +59,21 @@ const MAX_ITEMS = 50;
 const MAX_CONTENT = 1000;
 
 function isTodoStatus(v: unknown): v is TodoStatus {
-  return v === 'pending' || v === 'in_progress' || v === 'completed';
+  return v === 'pending' || v === 'in_progress' || v === 'completed' || v === 'cancelled';
+}
+
+/**
+ * 盘读投影（cr-824 读面搬迁批一）：entries/todo.json 原始形态 → 会话桶清单。
+ * 宿主读面（face-shell todo/get 盘直读）与壳内服务共用同一投影——单源禁漂移。
+ * store 缺席/损坏（readEntry 语义）= 空表。
+ */
+export function todoListOf(store: unknown, conversationId: string): TodoItem[] {
+  const buckets = typeof store === 'object' && store !== null
+    ? (store as TodoStore).buckets
+    : undefined;
+  const bucket = typeof buckets === 'object' ? buckets[conversationId] : undefined;
+  if (bucket === undefined || typeof bucket !== 'object' || !Array.isArray(bucket.items)) return [];
+  return bucket.items.map((t) => ({ ...t }));
 }
 
 export class TodosService extends Service {
@@ -101,18 +115,17 @@ export class TodosService extends Service {
   // 查询 / 写 API（域规则违反抛错——工具面由 ac-tools 收敛）
   // ============================================================
 
-  /** 当前清单（只读副本；无清单 = 空表） */
+  /** 当前清单（只读副本；无清单 = 空表）——投影单源 todoListOf（cr-824） */
   list(agentId: string, key: string): TodoItem[] {
     this.assertKey(agentId, key);
-    const bucket = this.loadStore(agentId).buckets[key];
-    if (bucket === undefined || typeof bucket !== 'object' || !Array.isArray(bucket.items)) return [];
-    return bucket.items.map((t) => ({ ...t }));
+    return todoListOf(this.loadStore(agentId), key);
   }
 
   /**
    * 整表全量重写（DSH todo_write 语义：每次发送完整清单替换旧表）。
    * 校验：数组 ≤ 50 条；content 非空（trim）≤ 1000 字符；status 枚举
-   * （缺省 pending）。空数组 = 清单清空。返回归一化后的清单。
+   * （缺省 pending）；in_progress 至多 1 项（Gemini 同款代码级强制——
+   * 同时只做一件事是清单的纪律面）。空数组 = 清单清空。返回归一化后的清单。
    */
   write(agentId: string, key: string, items: unknown): TodoItem[] {
     this.assertKey(agentId, key);
@@ -127,10 +140,14 @@ export class TodosService extends Service {
       if (!content) throw new Error(`todos[${i}].content 不能为空`);
       if (content.length > MAX_CONTENT) throw new Error(`todos[${i}].content 过长（上限 ${MAX_CONTENT} 字符）`);
       if (item.status !== undefined && !isTodoStatus(item.status)) {
-        throw new Error(`todos[${i}].status "${String(item.status)}" 非法（pending/in_progress/completed 之一）`);
+        throw new Error(`todos[${i}].status "${String(item.status)}" 非法（pending/in_progress/completed/cancelled 之一）`);
       }
       return { content, status: item.status !== undefined ? (item.status as TodoStatus) : 'pending' };
     });
+    const doing = normalized.filter((t) => t.status === 'in_progress').length;
+    if (doing > 1) {
+      throw new Error(`in_progress 同时只能有 1 项（收到 ${doing} 项）——先完成或挪出再标新项`);
+    }
     const store = this.loadStore(agentId);
     store.buckets[key] = { items: normalized, updatedAt: new Date().toISOString() };
     this.saveStore(agentId, store);
@@ -174,7 +191,7 @@ export function apply(ctx: Context) {
     name: 'todo',
     requiredTags: ['infra'],
     description:
-      '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed（缺省 pending）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
+      '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空；返回计数摘要——查看完整清单用 read）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed|cancelled（缺省 pending；in_progress 至多 1 项；不再相关标 cancelled）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
     parameters: {
       type: 'object',
       properties: {
@@ -186,7 +203,7 @@ export function apply(ctx: Context) {
             type: 'object',
             properties: {
               content: { type: 'string', description: '待办内容（祈使句，一条一个动作）' },
-              status: { type: 'string', enum: ['pending', 'in_progress', 'completed'], description: '状态（缺省 pending）' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: '状态（缺省 pending；in_progress 至多 1 项）' },
             },
             required: ['content'],
           },
@@ -210,15 +227,20 @@ export function apply(ctx: Context) {
       // ---- write ----（域规则违反由服务抛错，ac-tools 收敛）
       if (action === 'write') {
         if (args.todos === undefined) return err('write 需要 todos 参数（整表数组；空数组 = 清空清单）');
+        // write 回显整表 = 纯冗余（模型刚在参数里发来全量）；read 才是读通道。
+        // 摘要形（OpenCode 式克制）：计数 + 状态分布，需确认全量时显式 read。
         const items = service.write(agentId, key, args.todos);
+        const done = items.filter((t) => t.status === 'completed').length;
+        const doing = items.filter((t) => t.status === 'in_progress').length;
+        const cancelled = items.filter((t) => t.status === 'cancelled').length;
+        const parts = [`${done}/${items.length} 已完成`];
+        if (doing > 0) parts.push(`${doing} 进行中`);
+        if (cancelled > 0) parts.push(`${cancelled} 已取消`);
         return {
           ok: true,
           output: {
             count: items.length,
-            todos: items,
-            message: items.length === 0
-              ? '清单已清空'
-              : `清单已全量重写（${items.length} 条；进行中 ${items.filter((t) => t.status === 'in_progress').length}）`,
+            summary: items.length === 0 ? '清单已清空' : parts.join('，'),
           },
         };
       }

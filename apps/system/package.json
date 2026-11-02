@@ -1,0 +1,10 @@
+{
+  "name": "ac-system-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "system 层入口（supervisor-service-plan §六.1）：supervisor.mjs 根入口纯移动（零 import 变化）+ 心跳面/配方盘面接线",
+  "dependencies": {
+    "ac-supervisor-core": "workspace:*"
+  }
+}

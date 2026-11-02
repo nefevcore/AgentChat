@@ -22,7 +22,11 @@ const emit = defineEmits<{ click: [] }>();
     :aria-label="label" :title="suppressTitle ? undefined : label"
     @click.stop="emit('click')"
   >
-    <Icon :name="icon" :size="size" />
+    <!-- #icon 插槽（cr-830）：自定义图标内容（如真实应用位图）顶替 lucide；
+         钮本体（边框/hover/焦点/命中区）仍归本组件单源 -->
+    <slot name="icon">
+      <Icon :name="icon" :size="size" />
+    </slot>
   </button>
 </template>
 

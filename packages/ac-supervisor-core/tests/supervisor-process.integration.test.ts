@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const SUPERVISOR_SRC = join(REPO_ROOT, 'supervisor.mjs');
+const SUPERVISOR_SRC = join(REPO_ROOT, 'apps', 'system', 'supervisor.mjs');
 
 function parseDelays(out: string): number[] {
   const delays: number[] = [];
@@ -35,9 +35,11 @@ describe('supervisor.mjs 进程层监护接线', () => {
     const dir = await mkdtemp(join(process.cwd(), 'sup-probe-'));
     let child: ReturnType<typeof spawn> | undefined;
     try {
-      // 真身源码 → 临时副本：仅替换 worker 入口（替换命中数=1，上游改行即 fail-loud）
+      // 真身源码 → 临时副本：仅替换 worker 入口（替换命中数=1，上游改行即 fail-loud）。
+      // cr-859：入口移 apps/system/ 后 TRACK_DIR = resolve(dirname, '../..')（锚仓库根）
+      // ——副本在临时目录解析会漂移，故 WORKER_ENTRY 直接注入绝对路径。
       const original = await readFile(SUPERVISOR_SRC, 'utf-8');
-      const probeEntry = "const WORKER_ENTRY = path.join(TRACK_DIR, 'worker.mjs');";
+      const probeEntry = `const WORKER_ENTRY = ${JSON.stringify(join(dir, 'worker.mjs'))};`;
       const from = "const WORKER_ENTRY = path.join(TRACK_DIR, 'apps', 'host', 'boot.ts');";
       if (original.split(from).length !== 2) {
         throw new Error('supervisor.mjs 的 WORKER_ENTRY 行已变动——请同步本测试的替换锚点');

@@ -15,7 +15,7 @@ import type { RpcClientFace } from 'ac-client-runtime';
 /** 待办条目（= src/index.ts TodoItem 的前端视图形） */
 export interface TaskTodo {
   content: string;
-  status: 'pending' | 'in_progress' | 'completed';
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
 }
 
 /** 读取某会话桶的待办清单（服务未装载 → null，dock 静默隐藏） */
@@ -51,7 +51,7 @@ function parseContent(content: unknown): Record<string, unknown> | null {
   }
 }
 
-const TODO_STATUSES = ['pending', 'in_progress', 'completed'];
+const TODO_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
 
 /** 历史回放形信封解包：{ok, output} → output（live 形本就是裸 output，原样过） */
 function unwrapToolResult(parsed: Record<string, unknown> | null): Record<string, unknown> | null {
@@ -91,12 +91,21 @@ export interface TodoCardData {
  */
 export function normalizeTodoCard(data: Record<string, unknown> | undefined): TodoCardData | null {
   const src = data ?? {};
-  // 结果形：output 字段是字符串化 JSON（ToolMessage resultData 约定；
-  // 历史回放为 {ok,output} 信封——unwrapToolResult 解包后同源）
+  // 扁平字段优先（cr-765 A-3）：resultData = {...args, ...output}——todos
+  // 就在顶层；src.output 解析仅作旧形回退（字符串化 output 的历史投影）。
+  // 此前 settled 只看 src.output——扁平形恒 false。
   const output = unwrapToolResult(parseContent(src.output));
-  const fromOutput = todoListOf(output?.todos ?? output);
-  if (fromOutput && fromOutput.length > 0) return { todos: fromOutput, settled: true };
-  const fromArgs = todoListOf(src.todos);
-  if (!fromArgs || fromArgs.length === 0) return null;
-  return { todos: fromArgs, settled: output !== null || src.output !== undefined };
+  // 终值优先序（cr-765 A-3）：① output 信封在场 → 解析它是权威（旧直入
+  // 参形）；② 顶层 todos（resultData 扁平形——output.todos 已覆盖
+  // args.todos，无 output 键残留）；③ args.todos（调用中预览）。
+  // todos 在 args 与 output 同名——settled 证据独立判（output 信封 /
+  // count 等 output 特有字段在场）。
+  if (src.output !== undefined) {
+    const fromOutput = todoListOf(output?.todos ?? output);
+    if (fromOutput && fromOutput.length > 0) return { todos: fromOutput, settled: true };
+  }
+  const settledEvidence = src.count !== undefined;
+  const fromFlat = todoListOf(src.todos);
+  if (fromFlat && fromFlat.length > 0) return { todos: fromFlat, settled: settledEvidence };
+  return null;
 }

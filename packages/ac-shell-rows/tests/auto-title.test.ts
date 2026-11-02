@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context, Service, FiberStates, type Fiber } from '@agentchat/cordis';
 import { makeAutoTitleRow } from '../src/auto-title.ts';
-import { listenIpc, type PostOfficeServer } from 'ac-post-office';
+import { listenIpc, type IpcServer } from 'ac-envelope-core';
 import { socketPathFor, type Envelope } from 'ac-envelope-core';
 
 const ROOT = path.resolve('sandbox', 'test-auto-title-' + process.pid);
@@ -72,7 +72,7 @@ describe('壳侧会话命名行（cr-672）', () => {
   it('首步后生成：素材 = 首条用户消息 + Agent 首步思考 → 标题请求信封送达', async () => {
     const address = socketPathFor(ROOT, 'post-office');
     const frames: unknown[] = [];
-    const server: PostOfficeServer = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const server: IpcServer = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
     const h = await boot(address);
     try {
       h.emit('loop/run-started', runRequest());

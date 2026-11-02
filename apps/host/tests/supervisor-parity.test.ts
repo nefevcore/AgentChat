@@ -30,13 +30,13 @@ function coreImports(file: string): Set<string> {
 
 describe('双 supervisor 布局（cr-706）', () => {
   it('两份 supervisor 的 ac-supervisor-core 导入策略一致', () => {
-    const product = coreImports(join(repoRoot, 'supervisor.mjs'));
+    const product = coreImports(join(repoRoot, 'apps', 'system', 'supervisor.mjs'));
     const sandbox = coreImports(join(repoRoot, 'apps', 'host', 'supervisor.mjs'));
     expect([...sandbox].sort()).toEqual([...product].sort());
   });
 
   it('两份的退出码协议常量同名引用（EXIT_RESTART 在场）', () => {
-    for (const f of ['supervisor.mjs', 'apps/host/supervisor.mjs']) {
+    for (const f of ['apps/system/supervisor.mjs', 'apps/host/supervisor.mjs']) {
       const src = readFileSync(join(repoRoot, f), 'utf8');
       expect(src.includes('EXIT_RESTART'), f).toBe(true);
       expect(src.includes('decideOnExit'), f).toBe(true);

@@ -1,14 +1,16 @@
 // ============================================================
-// ipc.ts —— 邮局 ipc 监听（B1 通道一：本机 unix socket / named pipe）
+// ipc.ts —— ipc socket 传输（协议规格 B1/B2 通道）
 //
-// 监听地址 = socketPathFor(dataRoot, 'post-office')（邮局共享数据根
-// ipc/ 域）；帧 = 长度前缀 JSON（M1.2）。连接 = 每客户端一连接，
-// 帧到达即回调（信封或控制帧——载荷语义归上层）。
+// 监听地址 = socketPathFor(dataRoot, <endpoint>)（数据根内聚 ipc/ 域）；
+// 帧 = 长度前缀 JSON（frame.ts）。连接 = 每客户端一连接，帧到达即回调
+//（信封或控制帧——载荷语义归上层）。cr-861 自 ac-post-office 移入：
+// 传输层是信封协议通道面（B1），deliver 对等投递纯库（deliver.ts）与
+// 邮局同为消费者——归协议库断「deliver → post-office」循环依赖。
 // ============================================================
 import * as net from 'node:net';
-import { encodeFrame, FrameDecoder } from 'ac-envelope-core';
+import { encodeFrame, FrameDecoder } from './frame.ts';
 
-export interface PostOfficeServer {
+export interface IpcServer {
   address: string;
   close(): Promise<void>;
 }
@@ -20,7 +22,7 @@ export interface PostOfficeServer {
 export function listenIpc(
   address: string,
   onFrame: (payload: unknown) => unknown | undefined | Promise<unknown | undefined>,
-): Promise<PostOfficeServer> {
+): Promise<IpcServer> {
   return new Promise((resolve, reject) => {
     // 连接跟踪：close 时强制销毁（对端常驻连接〔壳 postReply 池〕不主动
     // 断——server.close 回调等连接断尽会永挂；关停路径强制断连安全，

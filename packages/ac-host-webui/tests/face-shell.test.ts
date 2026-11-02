@@ -31,24 +31,64 @@ function fakePort(): { port: ShellAdminPort; frames: Array<Record<string, unknow
   };
 }
 
-const ctx = {} as Context;
+/** ctx.get 全 undefined（convSettings 等可选服务缺席 = 良定义降级） */
+const ctx = { get: () => undefined } as unknown as Context;
+
+/** 仓库根（catalogFile 锚点——vitest chdir 后相对路径失效） */
+const REPO = process.env.AGENTCHAT_REPO_ROOT ?? process.cwd();
 
 describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
-  it('goal/* 与 todo/get：帧形逐字段对齐（ctrl=admin + op + agentId + conversationId）', async () => {
+  it('goal/update、goal/delete：帧形逐字段对齐（ctrl=admin + op + agentId + conversationId）', async () => {
     const { web, handlers } = collect();
     const { port, frames, ensured } = fakePort();
     registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
-    await handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'c1' });
     await handlers.get('goal/update')!({ agentId: 'a1', conversationId: 'c1', patch: { status: 'active' } });
     await handlers.get('goal/delete')!({ agentId: 'a1', conversationId: 'c1' });
-    await handlers.get('todo/get')!({ agentId: 'a1', conversationId: 'c1' });
     expect(frames).toEqual([
-      { ctrl: 'admin', agentId: 'a1', op: 'goal-get', conversationId: 'c1' },
       { ctrl: 'admin', agentId: 'a1', op: 'goal-update', conversationId: 'c1', patch: { status: 'active' } },
       { ctrl: 'admin', agentId: 'a1', op: 'goal-delete', conversationId: 'c1' },
-      { ctrl: 'admin', agentId: 'a1', op: 'todo-get', conversationId: 'c1' },
     ]);
-    expect(ensured).toEqual(['a1', 'a1', 'a1', 'a1']); // ensureAgent 每次幂等拉起
+    expect(ensured).toEqual(['a1', 'a1']); // 写面保持拉起（ensureAgent 幂等）
+  });
+
+  // cr-824 批一 1-1/1-2：goal/get、todo/get 盘直读——壳不在场也 100% 可答，
+  // 响应形状与壳内半边逐字段一致（{goal:{current,history}} / {todos:[...]}）。
+  it('goal/get、todo/get：entries 盘直读（零控制帧），损坏/缺席 = 零值', async () => {
+    const rootDir = 'sandbox/test-face-entry-' + process.pid;
+    const entries = rootDir + '/agents/a1/entries';
+    fs.mkdirSync(entries, { recursive: true });
+    fs.writeFileSync(entries + '/goal.json', JSON.stringify({
+      version: 1,
+      buckets: {
+        c1: {
+          current: { id: 'g1', objective: '完成审计', status: 'active', createdAt: 'T1', updatedAt: 'T2' },
+          history: [{ id: 'g0', objective: '旧目标', status: 'completed', createdAt: 'T0', updatedAt: 'T1', completedAt: 'T1' }],
+          updatedAt: 'T2',
+        },
+      },
+    }), 'utf-8');
+    fs.writeFileSync(entries + '/todo.json', JSON.stringify({
+      version: 1,
+      buckets: { c1: { items: [{ content: '干活', status: 'in_progress' }], updatedAt: 'T2' } },
+    }), 'utf-8');
+    try {
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => null }); // 无编排面也照答
+      expect(await handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'c1' })).toEqual({
+        goal: {
+          current: { id: 'g1', objective: '完成审计', status: 'active', createdAt: 'T1', updatedAt: 'T2' },
+          history: [{ id: 'g0', objective: '旧目标', status: 'completed', createdAt: 'T0', updatedAt: 'T1', completedAt: 'T1' }],
+        },
+      });
+      expect(await handlers.get('todo/get')!({ agentId: 'a1', conversationId: 'c1' })).toEqual({
+        todos: [{ content: '干活', status: 'in_progress' }],
+      });
+      // 别桶 / entry 缺席 = 零值（history 空表、todos 空表——不报错不拉起）
+      expect(await handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'other' })).toEqual({ goal: { history: [] } });
+      expect(await handlers.get('todo/get')!({ agentId: 'ghost', conversationId: 'c1' })).toEqual({ todos: [] });
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
   it('conversation/interrupt：走既有 interrupt 帧', async () => {
@@ -70,10 +110,10 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
       async control(agentId, frame) { calls.push({ agentId, frame }); return { echo: frame.op }; },
     };
     registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
-    await handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'c1' });
+    await handlers.get('goal/update')!({ agentId: 'a1', conversationId: 'c1', patch: { note: 'x' } });
     await handlers.get('conversation/interrupt')!({ agentId: 'a1' });
     expect(calls).toEqual([
-      { agentId: 'a1', frame: { ctrl: 'admin', agentId: 'a1', op: 'goal-get', conversationId: 'c1' } },
+      { agentId: 'a1', frame: { ctrl: 'admin', agentId: 'a1', op: 'goal-update', conversationId: 'c1', patch: { note: 'x' } } },
       { agentId: 'a1', frame: { ctrl: 'interrupt' } },
     ]);
     expect(ensured).toEqual([]); // 池外活壳不经拉起链（那链必被单例锁拒）
@@ -82,7 +122,8 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
   it('编排面缺席 fail-loud（bootHostWeb / orchestrate:false）', async () => {
     const { web, handlers } = collect();
     registerShellFace(web, ctx, { dataRoot: 'X', port: () => null });
-    await expect(handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'c1' })).rejects.toThrow(/编排面未就绪/);
+    // goal/get 盘直读不受编排面缺席影响（cr-824 批一——空数据根零值照答）
+    expect(await handlers.get('goal/get')!({ agentId: 'a1', conversationId: 'c1' })).toEqual({ goal: { history: [] } });
     await expect(handlers.get('conversation/interrupt')!({ agentId: 'a1' })).rejects.toThrow(/编排面未就绪/);
   });
 
@@ -120,23 +161,39 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     expect(calls).toEqual(['a1:interaction-reply', 'b1:interaction-reply']);
   });
 
-  // cr-580：待答清单恢复链——活壳聚合 + filter 白名单窄化
-  it('interaction/list：活壳聚合并附 filter（state 白名单）；坏壳跳过不殃及', async () => {
-    const { web, handlers } = collect();
-    const frames: Array<Record<string, unknown>> = [];
-    const port: ShellAdminPort = {
-      async ensureAgent() { throw new Error('不该拉起壳'); },
-      handles() {
-        return new Map([
-          ['a1', { control: async (f: Record<string, unknown>) => { frames.push(f); return { interactions: [{ id: 'i1', kind: 'ask_questions' }] }; } }],
-          ['b1', { control: async () => { throw new Error('壳退出中'); } }],
-        ]);
-      },
+  // cr-580 恢复链 + cr-824 批一 1-3：读面盘聚合——per-agent 域文件
+  //（agents/<id>/ + children 嵌套域）全量聚合，壳不在场照样可读。
+  it('interaction/list：盘聚合（agents 域 + children 域），filter 白名单窄化；坏域跳过不殃及', async () => {
+    const rootDir = 'sandbox/test-face-inter-' + process.pid;
+    const mk = (dir: string, rows: Array<Record<string, unknown>>) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(dir + '/interactions.jsonl', rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
     };
-    registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
-    const out = await handlers.get('interaction/list')!({ state: 'pending', nonsense: 1 }) as { interactions: unknown[] };
-    expect(out.interactions).toEqual([{ id: 'i1', kind: 'ask_questions' }]);
-    expect(frames).toEqual([{ ctrl: 'admin', agentId: 'a1', op: 'interaction-list', filter: { state: 'pending' } }]);
+    const now = Date.now();
+    mk(rootDir + '/agents/a1', [
+      { id: 'i1', key: 'k1', kind: 'ask_questions', payload: {}, state: 'pending', createdAt: now, updatedAt: now },
+      { id: 'i2', key: 'k2', kind: 'ask_questions', payload: {}, state: 'answered', answer: ['A'], createdAt: now - 1, updatedAt: now },
+    ]);
+    mk(rootDir + '/agents/p1/children/kid1', [
+      { id: 'i3', key: 'k3', kind: 'ask_questions', payload: {}, state: 'pending', createdAt: now - 2, updatedAt: now },
+    ]);
+    // 损坏域（非法 JSON 行）——其余域照答
+    fs.mkdirSync(rootDir + '/agents/bad', { recursive: true });
+    fs.writeFileSync(rootDir + '/agents/bad/interactions.jsonl', '{torn line', 'utf-8');
+    try {
+      const { web, handlers } = collect();
+      const port: ShellAdminPort = {
+        async ensureAgent() { throw new Error('不该拉起壳'); },
+        handles: () => new Map(),
+      };
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => port });
+      const all = await handlers.get('interaction/list')!({}) as { interactions: Array<{ id: string }> };
+      expect(all.interactions.map((i) => i.id).sort()).toEqual(['i1', 'i2', 'i3']);
+      const pending = await handlers.get('interaction/list')!({ state: 'pending', nonsense: 1 }) as { interactions: Array<{ id: string }> };
+      expect(pending.interactions.map((i) => i.id).sort()).toEqual(['i1', 'i3']);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
   it('interaction/reply：无活壳 fail-loud', async () => {
@@ -310,6 +367,42 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     }
   });
 
+  // cr-856（cr-803 续）：子 Agent 会话视角的 run_code 编排可见性回归锁——
+  // 段行物化剥离 subcall 卡 + subcalls.jsonl 档案分流后，读面必须联查注入
+  // 复原平铺（漏同步任一调用点 = 「回放看不到 run_code 编排」复发）。
+  it('subagents/history 子域 run_code 编排：subcalls.jsonl 联查平铺复原', async () => {
+    const rootDir = 'sandbox/test-sub-subcall-' + process.pid;
+    const sessDir = rootDir + '/agents/parent1/children/kid1/sessions/parent1~kid1';
+    fs.mkdirSync(sessDir + '/journal', { recursive: true });
+    fs.writeFileSync(rootDir + '/agents/parent1/children/kid1/config.json', JSON.stringify({ id: 'kid1' }), 'utf-8');
+    const header = { type: 'session-header', version: 1, participants: ['kid1', 'parent1'] };
+    const taskRow = { role: 'agent', agent_id: 'parent1', content: '调研任务', requestId: 't1' };
+    const finalRow = { role: 'agent', content: '终稿', agent_id: 'kid1', run: 'run-1', requestId: 'reply-t1', message_id: 'm1', timestamp: new Date().toISOString(), seq: 3 };
+    const hostCard = { id: 'call-h1', name: 'run_code', arguments: 'stub', result: { ok: true } };
+    const segRow = { role: 'agent', content: '', agent_id: 'kid1', run: 'run-1', source: 'segment', message_id: 'seg-run-1-0', timestamp: new Date().toISOString(), seq: 2, steps: [{ content: '', toolCalls: [hostCard] }] };
+    fs.writeFileSync(sessDir + '/messages.jsonl', [header, taskRow, finalRow, segRow].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const sub1 = { type: 'journal-tool-result', run: 'run-1', toolCallId: 'call-h1#1', subcall: true, name: 'read', arguments: '{}', result: { ok: true, output: { path: 'a.ts' } }, seq: 1 };
+    const sub2 = { type: 'journal-tool-result', run: 'run-1', toolCallId: 'call-h1#2', subcall: true, name: 'grep', arguments: '{}', result: { ok: true, output: { total: 3 } }, seq: 2 };
+    fs.writeFileSync(sessDir + '/subcalls.jsonl', [sub1, sub2].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    try {
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => null });
+      const historyRpc = handlers.get('subagents/history');
+      const out = historyRpc !== undefined ? await historyRpc({ id: 'kid1' }) : null;
+      expect(out).not.toBeNull();
+      const records = (out as { records: Array<{ run?: string; steps?: Array<{ toolCalls?: Array<{ name: string; subcall?: boolean }> }> }> }).records;
+      const settled = records.find((r) => r.run === 'run-1' && r.steps !== undefined);
+      expect(settled).toBeDefined();
+      const flat = settled?.steps?.[0]?.toolCalls ?? [];
+      expect(flat.map((tc) => [tc.name, tc.subcall ?? false])).toEqual([
+        ['run_code', false],
+        ['read', true],
+        ['grep', true],
+      ]);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
   it('runs/interrupt：按会话键命中活壳在途 run（interrupt 帧）；未命中 = aborted 0', async () => {
     const { web, handlers } = collect();
     const frames: Array<Record<string, unknown>> = [];
@@ -361,45 +454,68 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     expect(await handlers.get('conversation/queue-remove')!({ agentId: 'zz', id: 'x' })).toEqual({ removed: false });
     expect(await handlers.get('conversation/queue-steer')!({ agentId: 'zz', id: 'x' })).toEqual({ outcome: 'not-found' });
   });
-// cr-582 工具面：估算面经 ensureAgent 往返；目录 = 活壳并集 / 冷启动回落 __standard__
-  it('agents/tool-defs：ensureAgent 往返 + conversationId 可选 + 回显 agentId', async () => {
-    const { web, handlers } = collect();
-    const { port, frames } = fakePort();
-    registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
-    await expect(handlers.get('agents/tool-defs')!({ agentId: 'a1', conversationId: 'c1' })).resolves.toMatchObject({ agentId: 'a1', echo: 'tool-defs' });
-    await expect(handlers.get('agents/tool-defs')!({ agentId: 'a1' })).resolves.toMatchObject({ agentId: 'a1', echo: 'tool-defs' });
-    expect(frames).toEqual([
-      { ctrl: 'admin', agentId: 'a1', op: 'tool-defs', conversationId: 'c1' },
-      { ctrl: 'admin', agentId: 'a1', op: 'tool-defs' },
-    ]);
-    await expect(handlers.get('agents/tool-defs')!({})).rejects.toThrow(/agentId/);
+  // cr-582 工具面 + cr-825 批三：估算面活壳真值优先、壳缺席静态算；目录 = 静态底座 ∪ 活壳增量（零拉起）
+  it('agents/tool-defs：活壳真值往返；壳缺席静态算（mode 收窄 + 行展开），不拉起', async () => {
+    const rootDir = 'sandbox/test-face-tdefs-' + process.pid;
+    const dir = rootDir + '/agents/a1';
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(dir + '/config.json', JSON.stringify({ id: 'a1', model: 'mock', rows: ['fs-tools'] }), 'utf-8');
+    try {
+      // 活壳真值：壳在句柄池 → tool-defs 帧往返（与 run 同口径）
+      const frames: Array<Record<string, unknown>> = [];
+      const live: ShellAdminPort = {
+        async ensureAgent() { throw new Error('活壳在场不走拉起链'); },
+        handles: () => new Map([['a1', { control: async (f: Record<string, unknown>) => { frames.push(f); return { echo: 'tool-defs' }; } }]]),
+      };
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => live });
+      await expect(handlers.get('agents/tool-defs')!({ agentId: 'a1', conversationId: 'c1' })).resolves.toMatchObject({ agentId: 'a1', echo: 'tool-defs' });
+      expect(frames).toEqual([{ ctrl: 'admin', agentId: 'a1', op: 'tool-defs', conversationId: 'c1' }]);
+      // 壳缺席：句柄池空 → 静态算（catalogFile 指向真实快照——行展开 fs-tools → read/write/edit）
+      const ensured: string[] = [];
+      const absent: ShellAdminPort = {
+        async ensureAgent(id) { ensured.push(id); return { control: async () => ({ names: [] }) }; },
+        handles: () => new Map(),
+      };
+      const { web: w2, handlers: h2 } = collect();
+      registerShellFace(w2, ctx, { dataRoot: rootDir, port: () => absent, catalogFile: REPO + '/apps/catalog/row-catalog.json' });
+      const out = await h2.get('agents/tool-defs')!({ agentId: 'a1' }) as { names: string[]; defs: Array<{ name: string }> };
+      expect(out.names.sort()).toEqual(['edit', 'read', 'write']);
+      expect(ensured).toEqual([]); // 读面零拉起（cr-825 批三——估算不 spawn 壳）
+      await expect(h2.get('agents/tool-defs')!({})).rejects.toThrow(/agentId/);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
-  it('tools/list：活壳并集去重排序；冷启动拉起 __standard__；编排面缺席空目录', async () => {
+  it('tools/list：静态底座 ∪ 活壳增量（活壳真值覆盖）；冷启动零拉起', async () => {
     const { web, handlers } = collect();
     const port: ShellAdminPort = {
-      async ensureAgent(agentId) {
-        return { control: async () => ({ tools: [{ name: 'std-tool', owner: agentId }] }) };
-      },
+      async ensureAgent() { throw new Error('冷启动不得拉起壳（cr-825）'); },
       handles() {
         return new Map([
-          ['a1', { control: async () => ({ tools: [{ name: 'read', owner: 'fs-tools' }, { name: 'grep', owner: 'fs-search' }] }) }],
-          ['b1', { control: async () => ({ tools: [{ name: 'read', owner: 'fs-tools' }, { name: 'math', owner: 'math' }] }) }],
+          ['a1', { control: async () => ({ tools: [{ name: 'read', description: '活壳真值' }, { name: 'dyn-plugin-tool', owner: 'x' }] }) }],
         ]);
       },
     };
-    registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
-    const out = await handlers.get('tools/list')!({}) as { tools: Array<{ name: string }> };
-    expect(out.tools.map((t) => t.name)).toEqual(['grep', 'math', 'read']); // 并集去重 + 名序
-    // 冷启动：handles 空 → 拉起 __standard__（缺省全集行集代表目录）
-    const coldPort: ShellAdminPort = { async ensureAgent(agentId) { return { control: async () => ({ tools: [{ name: 'std-tool', owner: agentId }] }) }; } };
-    const { web: web2, handlers: h2 } = collect();
-    registerShellFace(web2, ctx, { dataRoot: 'X', port: () => coldPort });
-    await expect(h2.get('tools/list')!({})).resolves.toEqual({ tools: [{ name: 'std-tool', owner: '__standard__' }] });
-    // 编排面缺席 = 空目录（良定义降级，不抛）
-    const { web: web3, handlers: h3 } = collect();
-    registerShellFace(web3, ctx, { dataRoot: 'X', port: () => null });
-    await expect(h3.get('tools/list')!({})).resolves.toEqual({ tools: [] });
+    registerShellFace(web, ctx, { dataRoot: 'X', port: () => port, catalogFile: REPO + '/apps/catalog/row-catalog.json' });
+    const out = await handlers.get('tools/list')!({}) as { tools: Array<{ name: string; description?: string }> };
+    const byName = new Map(out.tools.map((t) => [t.name, t]));
+    expect(out.tools.length).toBeGreaterThan(50); // 静态底座在场（快照 68 工具）
+    expect(byName.get('read')?.description).toBe('活壳真值'); // 活壳覆盖静态
+    expect(byName.get('dyn-plugin-tool')).toBeDefined(); // 动态增量并入
+    expect(byName.get('goal')).toBeDefined(); // 静态条目（无活壳声明）保留
+    // 冷启动：无活壳 = 纯静态底座，零拉起（ensureAgent 抛错守卫）
+    const cold: ShellAdminPort = { async ensureAgent() { throw new Error('不该拉起'); }, handles: () => new Map() };
+    const { web: w2, handlers: h2 } = collect();
+    registerShellFace(w2, ctx, { dataRoot: 'X', port: () => cold, catalogFile: REPO + '/apps/catalog/row-catalog.json' });
+    const coldOut = await h2.get('tools/list')!({}) as { tools: unknown[] };
+    expect(coldOut.tools.length).toBeGreaterThan(50);
+    // 编排面缺席 = 纯静态底座（良定义降级，不抛不空）
+    const { web: w3, handlers: h3 } = collect();
+    registerShellFace(w3, ctx, { dataRoot: 'X', port: () => null, catalogFile: REPO + '/apps/catalog/row-catalog.json' });
+    const noPort = await h3.get('tools/list')!({}) as { tools: unknown[] };
+    expect(noPort.tools.length).toBeGreaterThan(50);
   });
 });
 

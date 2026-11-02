@@ -14,10 +14,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { conversationDirs } from './manage.ts';
-import { readLedger, readJournal, stepsOfLedger, stepsOfRun } from './reader.ts';
+import { readLedger, readJournal, readSubcalls, stepsOfLedger, stepsOfRun } from './reader.ts';
 import { sessionDir } from './writer.ts';
 import { UserLedger } from './user.ts';
-import type { JournalLine, LedgerRow, ProjectedStep } from './records.ts';
+import type { JournalLine, JournalToolResult, LedgerRow, ProjectedStep } from './records.ts';
 
 /** 活跃 run 聚集行（face-ops collectRunning 形状子集） */
 export interface RunningEntry {
@@ -33,8 +33,8 @@ export interface SessionViewOptions {
   running?: RunningEntry[];
 }
 
-/** 域面（journal + 账本行——每域只解析一次） */
-interface Face { lines: JournalLine[]; rows: LedgerRow[]; }
+/** 域面（journal + 账本行 + 子调用档案——每域只解析一次） */
+interface Face { lines: JournalLine[]; rows: LedgerRow[]; subcalls: JournalToolResult[]; }
 
 const LITE_FIELD_MAX = 2 * 1024;
 
@@ -82,7 +82,7 @@ export function assembleSessionView(
     let f = faceMap.get(domain);
     if (f === undefined) {
       const base = dir ?? sessionDir(dataRoot, domain, conversationId);
-      f = { lines: readJournal(base), rows: readLedger(base).rows };
+      f = { lines: readJournal(base), rows: readLedger(base).rows, subcalls: readSubcalls(base) };
       faceMap.set(domain, f);
     }
     return f;
@@ -104,20 +104,22 @@ export function assembleSessionView(
     } else {
       const lines = [...own.lines];
       const rows = [...own.rows];
+      const subcalls = [...own.subcalls];
       for (const part of conversationId.split('~')) {
         if (part === agentId) continue;
         const pf = ensureFace(part);
         lines.push(...pf.lines);
         rows.push(...pf.rows);
+        subcalls.push(...pf.subcalls);
       }
-      m = { lines, rows };
+      m = { lines, rows, subcalls };
     }
     mergedOf.set(agentId, m);
     return m;
   };
   const stepsFor = (agentId: string, run: string): { steps: ProjectedStep[]; partial: boolean } | null => {
-    const { lines, rows } = faceFor(agentId);
-    return stepsOfLedger(rows, run) ?? stepsOfRun(lines, run);
+    const { lines, rows, subcalls } = faceFor(agentId);
+    return stepsOfLedger(rows, run, subcalls) ?? stepsOfRun(lines, run);
   };
   // viewer 终稿层（单次读，两个消费面共用）
   const replay = new UserLedger(dataRoot, conversationId, ['user']).replay();
@@ -150,6 +152,7 @@ export function assembleSessionView(
         role: 'context',
         content: r.content,
         ...(r.label !== undefined ? { label: r.label } : {}),
+        ...(r.payload !== undefined ? { payload: r.payload } : {}),
         source: r.injectSource ?? 'inject',
         message_id: r.message_id,
         timestamp: r.timestamp,
@@ -164,6 +167,7 @@ export function assembleSessionView(
         role: 'context',
         content: l.content,
         ...(l.label !== undefined ? { label: l.label } : {}),
+        ...(l.payload !== undefined ? { payload: l.payload } : {}),
         source: l.injectSource ?? 'inject',
         message_id: l.injectionId ?? 'jinj-' + l.run + '-' + (l.seq ?? 0),
         timestamp: new Date(l.ts ?? Date.now()).toISOString(),
@@ -211,7 +215,7 @@ export function assembleSessionView(
   // 投出——空终稿 run（中断/崩溃）+ 壳死于终稿回信前的 settled run。
   // 候选与投影都用本域自身事实（非合并面——盲区 run 的归属域明确）。
   const runningIds = new Set(runningHere.map((r) => r.runId));
-  for (const [domain, { lines, rows }] of faceMap) {
+  for (const [domain, { lines, rows, subcalls }] of faceMap) {
     const candidates = new Set<string>();
     for (const l of lines) {
       if (l.run !== '' && (l.type === 'journal-step' || l.type === 'journal-inject')) candidates.add(l.run);
@@ -221,7 +225,7 @@ export function assembleSessionView(
     }
     for (const run of candidates) {
       if (viewerRuns.has(run) || runningIds.has(run)) continue;
-      const p = stepsOfLedger(rows, run) ?? stepsOfRun(lines, run);
+      const p = stepsOfLedger(rows, run, subcalls) ?? stepsOfRun(lines, run);
       if (p === null) continue;
       all.push(...(injectRowsOf.get(run) ?? []));
       all.push({
@@ -231,6 +235,21 @@ export function assembleSessionView(
         run,
         steps: p.steps,
         ...(p.partial ? { partial: true } : {}),
+      });
+    }
+    // cr-807：error 收束错误行透传（context+source:error——session-design
+    // §2.5 落盘形态）。该 run 终稿行已由 viewer 终稿层/盲区投影投出，错误行
+    // 从 agent 域行面直读紧随其后——刷新后前端红条可见（此前错误文案只活
+    // 瞬态帧）。
+    for (const r of rows) {
+      if (r.role !== 'context' || r.source !== 'error') continue;
+      all.push({
+        role: 'error',
+        agent_id: domain,
+        content: r.content,
+        message_id: r.message_id,
+        timestamp: r.timestamp,
+        run: r.run,
       });
     }
   }
@@ -257,7 +276,7 @@ export function historyView(dataRoot: string, conversationId: string): HistoryVi
   for (const dir of conversationDirs(dataRoot, conversationId, { includeJournalOnly: true })) {
     const domain = path.basename(path.dirname(path.dirname(dir)));
     if (domain !== 'viewer') domains.push(domain);
-    for (const file of [path.join(dir, 'messages.jsonl'), path.join(dir, 'journal', 'partials.jsonl')]) {
+    for (const file of [path.join(dir, 'messages.jsonl'), path.join(dir, 'journal', 'partials.jsonl'), path.join(dir, 'subcalls.jsonl')]) {
       try {
         const st = fs.statSync(file);
         parts.push(file + ':' + st.size + ':' + st.mtimeMs);

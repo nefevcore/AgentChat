@@ -1,3 +1,11 @@
+# 换行统一：仓库索引与工作区一律 LF —— 覆盖本机 system gitconfig 的 core.autocrlf=true
+# （不声明时 git 会在 checkout 时写 CRLF，之后 add LF 文件即报 "LF will be replaced by CRLF"）
+* text=auto eol=lf
+
+# Windows 批处理需 CRLF（索引内仍存 LF）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # vendor 二进制产物（UMD 直拷自 node_modules，sync-office-vendor 按 MD5 比对）
 # ——禁止 EOL 归一化：git 的 LF→CRLF 工作区转换会让幂等校验恒不命中
 apps/ui/public/vendor/*.js -text

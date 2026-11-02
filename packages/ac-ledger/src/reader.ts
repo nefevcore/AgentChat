@@ -6,7 +6,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject, type ProjectedStep } from './records.ts';
+import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject, type JournalToolResult, type ProjectedStep } from './records.ts';
 import type { LlmMessage } from 'ac-llm';
 
 export interface ReadResult {
@@ -56,6 +56,29 @@ export function readJournal(dir: string): JournalLine[] {
     if (journalLineType(line) === null) continue;
     try {
       out.push(JSON.parse(line) as JournalLine);
+    } catch {
+      // 撕裂行跳过
+    }
+  }
+  return out;
+}
+
+/**
+ * 读子调用永久档案（subcalls.jsonl——cr-803 分流产物；缺席 = 空）。
+ * 行 = journal-tool-result 补行原样（subcall:true + name/arguments/result）。
+ */
+export function readSubcalls(dir: string): JournalToolResult[] {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(dir, 'subcalls.jsonl'), 'utf-8');
+  } catch {
+    return [];
+  }
+  const out: JournalToolResult[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim().startsWith('{"type":"journal-tool-result"')) continue;
+    try {
+      out.push(JSON.parse(line) as JournalToolResult);
     } catch {
       // 撕裂行跳过
     }
@@ -141,8 +164,11 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
   return { settled, events, results, durations, abortedSteps, subcallsByHost };
 }
 
-/** 单步行 → ProjectedStep（补行覆盖 / 存量合成 / 子调用平铺 / ts 带出） */
-function projectStep(line: JournalStep, facts: RunFacts): ProjectedStep {
+/** 单步行 → ProjectedStep（补行覆盖 / 存量合成 / 子调用平铺 / ts 带出）。
+ *  opts.subcalls = false（cr-803 物化形态）：跳过子调用平铺——段行不含
+ *  subcall 卡（档案分流 subcalls.jsonl），UI 平铺改由读侧 stepsOfLedger
+ *  联查注入。 */
+function projectStep(line: JournalStep, facts: RunFacts, opts: { subcalls?: boolean } = {}): ProjectedStep {
   return {
     content: line.content,
     ...(line.ts !== undefined ? { ts: line.ts } : {}),
@@ -172,8 +198,9 @@ function projectStep(line: JournalStep, facts: RunFacts): ProjectedStep {
           ...(dur !== undefined ? { durationMs: dur } : {}),
         };
         // 子调用平铺（cr-597）：宿主卡后按提交序（seq）注入子调用卡——
-        // 宿主不在场（步行缺失/被吸收）的子调用如实丢弃（无渲染锚）
-        const kids = facts.subcallsByHost.get(tc.id);
+        // 宿主不在场（步行缺失/被吸收）的子调用如实丢弃（无渲染锚）。
+        // cr-803 物化形态关平铺（档案独立落盘，读面联查）
+        const kids = opts.subcalls === false ? undefined : facts.subcallsByHost.get(tc.id);
         if (kids === undefined) return [hostCard];
         kids.sort((a, b) => (a.seq ?? idTailSeq(a.toolCallId)) - (b.seq ?? idTailSeq(b.toolCallId)));
         return [hostCard, ...kids.map((k) => ({
@@ -191,11 +218,12 @@ function projectStep(line: JournalStep, facts: RunFacts): ProjectedStep {
 /** 物化切段产物（cr-697）：'seg' = 段行 steps；'inj' = 注入行（切段点） */
 export type RunSegment =
   | { kind: 'seg'; steps: ProjectedStep[] }
-  | { kind: 'inj'; content: string; ts?: number; injectionId?: string; injectSource?: string; label?: string; requestId?: string };
+  | { kind: 'inj'; content: string; ts?: number; injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; requestId?: string };
 
 /**
  * journal → run 物化切段（cr-697 settlement 段行物化的写侧纯函数）：
- * 步行/补行按 stepsOfRun 同款合并（结果覆盖、子调用平铺、settled 合成），
+ * 步行/补行按 stepsOfRun 同款合并（结果覆盖、settled 合成；**子调用不
+ * 平铺**——cr-803 档案分流 subcalls.jsonl，读面 stepsOfLedger 联查注入），
  * **注入行为切段点**（主线 settlement 切段语义）产出 [段, 注入行, 段, …]。
  * writer.settle / settleOrphan 据此落账段行；journal 随之剔除该 run 步行。
  */
@@ -220,10 +248,13 @@ export function segmentizeRun(lines: JournalLine[], run: string): RunSegment[] {
         ...(ev.injectionId !== undefined ? { injectionId: ev.injectionId } : {}),
         ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}),
         ...(ev.label !== undefined ? { label: ev.label } : {}),
+        ...(ev.payload !== undefined ? { payload: ev.payload } : {}),
       });
       continue;
     }
-    cur.push(projectStep(ev, facts));
+    // cr-803：物化段行不含 subcall 平铺卡（档案分流 subcalls.jsonl，读侧
+    // stepsOfLedger 联查注入）——projectStep 关平铺开关
+    cur.push(projectStep(ev, facts, { subcalls: false }));
   }
   closeSeg();
   return out;
@@ -233,13 +264,55 @@ export function segmentizeRun(lines: JournalLine[], run: string): RunSegment[] {
  * 账本段行 → run steps（cr-697 读侧：journal 收束即清后，settled run 的
  * steps 事实源 = 物化段行）。无段行 → null（消费方回落 journal 投影——
  * 存量会话 / in-flight run）。stepsOfLedger 与 stepsOfRun 同形，消费面零改动。
+ *
+ * subcalls（cr-803）：subcalls.jsonl 档案行在场时联查注入——段行不含
+ * subcall 平铺卡（物化剥离），宿主卡后按提交序复原 UI 平铺。存量段行
+ * （cr-803 前物化、已内联平铺卡）天然防重：宿主已有 subcall 卡即跳过。
  */
-export function stepsOfLedger(rows: LedgerRow[], run: string): { steps: ProjectedStep[]; partial: boolean } | null {
+export function stepsOfLedger(rows: LedgerRow[], run: string, subcalls?: JournalToolResult[]): { steps: ProjectedStep[]; partial: boolean } | null {
   // 行序 = 文件序（append-only 真序；seq 跨 writer 重启会归零，不排序）
-  const steps = rows
-    .filter((r) => r.run === run && r.source === 'segment' && Array.isArray(r.steps))
-    .flatMap((r) => r.steps as ProjectedStep[]);
-  return steps.length === 0 ? null : { steps, partial: false };
+  const segRows = rows.filter((r) => r.run === run && r.source === 'segment' && Array.isArray(r.steps));
+  if (segRows.length === 0) return null;
+  const steps = segRows.flatMap((r) => r.steps as ProjectedStep[]);
+  if (subcalls !== undefined && subcalls.length > 0) injectSubcallCards(steps, subcalls);
+  return { steps, partial: false };
+}
+
+/** 档案子调用卡 → 宿主卡后注入（cr-803 读侧平铺复原；宿主缺席如实丢弃
+ *  ——无渲染锚，与 journal 投影同语义）。存量内联形态防重：宿主卡组内
+ *  已含 subcall 卡即整组跳过。 */
+function injectSubcallCards(steps: ProjectedStep[], subcalls: JournalToolResult[]): void {
+  const byHost = new Map<string, JournalToolResult[]>();
+  for (const k of subcalls) {
+    // 旧轨道存量档案行宽容：toolCallId 缺席/无 # 前缀（无宿主锚）跳过
+    if (typeof k.toolCallId !== 'string') continue;
+    const hash = k.toolCallId.indexOf('#');
+    if (hash <= 0) continue;
+    const host = k.toolCallId.slice(0, hash);
+    const bucket = byHost.get(host);
+    if (bucket !== undefined) bucket.push(k);
+    else byHost.set(host, [k]);
+  }
+  for (const s of steps) {
+    if (s.toolCalls === undefined) continue;
+    for (let i = 0; i < s.toolCalls.length; i++) {
+      const group = [s.toolCalls[i]!];
+      let j = i + 1;
+      while (j < s.toolCalls.length && s.toolCalls[j]!.subcall === true) { group.push(s.toolCalls[j]!); j++; }
+      const kids = byHost.get(s.toolCalls[i]!.id);
+      if (kids === undefined) { i = j - 1; continue; }
+      if (group.length > 1) { i = j - 1; continue; } // 存量内联防重
+      kids.sort((a, b) => (a.seq ?? idTailSeq(a.toolCallId)) - (b.seq ?? idTailSeq(b.toolCallId)));
+      s.toolCalls.splice(i + 1, 0, ...kids.map((k) => ({
+        id: k.toolCallId,
+        name: k.name ?? '(unknown)',
+        arguments: k.arguments ?? '{}',
+        result: k.result,
+        subcall: true as const,
+      })));
+      i += kids.length;
+    }
+  }
 }
 
 /**

@@ -55,4 +55,4 @@ if (copied) {
   });
 }
 console.log('[ok] ' + TARGET);
-console.log('完成：supervisor/宿主/壳 spawn 点已统一引用单映像（缺席回落 node）——重启 pnpm dev:supervised 生效。');
+console.log('完成：supervisor/宿主/壳 spawn 点已统一引用单映像（缺席回落 node）——重启 pnpm dev 生效。');

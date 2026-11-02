@@ -164,6 +164,14 @@ a 账本与 b 账本不是同一份数据的两个副本，是两个视角，互
 
 ## D5. 相互恢复环
 
+> **2026-11-02 降格（supervisor-service-plan §四.1，cr-859）**：环论证（rollback-
+> not-retry 收敛性）**退役**——常态监护是单向树（system→host，host→shells），
+> 无环无需论证收敛。边 1（宿主→agent 升级回退）原样保留；边 2 常态化（cr-612）
+> 降格重述为「system 权威缺席时，活对象按盘面配方执行恢复」（恢复边 = 缺席
+> 降级，§三）。本节 rollback-not-retry 语义仍辖快照回退链（evolve）——那是
+> 树内的升级回退，不是恢复环。保底 supervisor 描述升格为 system 层正身
+> （supervisor ≡ system——见 supervisor-service-plan.md）。
+
 相互重启成环是设计意图。环的处置语义 = **rollback 不是 retry**——每次回退指向 last known
 good，路径有限步终结（retry 环才不收敛）。
 

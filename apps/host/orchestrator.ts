@@ -14,7 +14,8 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { IpcClient, type PostOffice, type ReachabilityTable } from 'ac-post-office';
+import { type PostOffice, type ReachabilityTable } from 'ac-post-office';
+import { IpcClient } from 'ac-envelope-core';
 import { isManageReply, makeManageRequest, type ManageReply } from 'ac-envelope-core';
 import { adoptShell, appendRollingLine } from './orchestrate.ts';
 import { hostLog } from './host-log.ts';
@@ -84,6 +85,12 @@ export interface OrchestratorHandle {
    * 缺席——调用方据此判「壳不在」而非「壳闲」）。
    */
   peek(): Promise<Map<string, RunStateSnapshot>>;
+  /**
+   * 拉壳在飞集（cr-840）：ensureAgent 已发起但 boot.ready 未达的 agent——
+   * spawn → adopt 窗口。前端运行状态卡据此显示「正在启动 Agent 壳」。
+   * 只读快照（新数组），调用方不改内部 Map。
+   */
+  spawningIds(): string[];
   /** 壳句柄池视图（诊断） */
   handles(): Map<string, SuperviseHandle>;
   /** 邮局 ensure 钩子（boot 接线面——直接作为 setEnsureHook 入参） */
@@ -161,6 +168,10 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       inflight.delete(agentId);
     }
   };
+
+  // 拉壳在飞集（cr-840）：快照读面——webui stats 轮询消费（「正在启动
+  // Agent 壳」相位的宿主侧真源）。句柄池已有 = 不在飞（活态复用路径）。 
+  const spawningIds = (): string[] => [...inflight.keys()];
 
   const reach = options.reach ?? options.postOffice.reach;
 
@@ -350,9 +361,35 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     return out;
   };
 
+  /** 盘上活锁壳 socket 兜底（cr-805）：池内句柄 start 失败（锁拒/超时）但
+   * 盘上活锁壳 ipc 可达 = 健康幽灵在跑 run——直接借道完成本帧；不可达 =
+   * 原样上抛（错误现场已含拒因）。 */
+  const controlViaLiveLock = async (agentId: string, frame: Record<string, unknown>, cause: unknown): Promise<unknown> => {
+    const lock = liveShellLockOf(agentId);
+    if (lock === null) throw cause;
+    try {
+      return await manageCall(lock.hint, frame, manageFrameMs);
+    } catch (err) {
+      throw new Error('活壳 ' + agentId + ' 控制帧失败（bootId=' + lock.bootId + '）：' + String(err) + ' —— 池内拉起失败：' + String(cause));
+    }
+  };
+  /** 池内 start 失败形态（cr-805）：supervise 抛「拉起退避中」/「壳已熔断」/
+   * adopt 链错误（锁拒/超时）——与壳自身控制帧错误（60s 回执超时等）区分，
+   * 前者值得探盘上活锁兜底，后者上抛。 */
+  const isStartFailure = (err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg.includes('拉起退避中') || msg.includes('壳已熔断') || msg.includes('壳进程早退') || msg.includes('adopt 超时');
+  };
   const control = async (agentId: string, frame: Record<string, unknown>): Promise<unknown> => {
     const existing = handles.get(agentId);
-    if (existing !== undefined) return existing.control(frame);
+    if (existing !== undefined) {
+      try {
+        return await existing.control(frame);
+      } catch (err) {
+        if (!isStartFailure(err)) throw err;
+        return controlViaLiveLock(agentId, frame, err);
+      }
+    }
     const lock = liveShellLockOf(agentId);
     if (lock !== null && !manageUnsupported.has(lock.bootId)) {
       try {
@@ -401,6 +438,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     control,
     liveShellIds,
     peek,
+    spawningIds,
     rescueLiveShells,
     handles: () => handles,
     ensureHook,

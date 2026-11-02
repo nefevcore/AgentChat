@@ -484,7 +484,10 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
         litDirs === null
           ? undefined
           : (name: string, rel: string): boolean => {
-              const d = rel.lastIndexOf('/') + 1; // 0 基段序：rel 深度 d+1
+              // cr-814：段序 = '/' 分隔段数 - 1（lastIndexOf 偏移是字符偏移，
+              // 当段序用会让第二段起剪枝恒不触发——walk 撑满 MAX_SCAN_FILES，
+              // 路径序在目标之后的目录静默丢失）
+              const d = rel.split('/').length - 1; // 0 基段序：rel 深度 d+1
               return d < litDirs.length && name !== litDirs[d];
             };
 

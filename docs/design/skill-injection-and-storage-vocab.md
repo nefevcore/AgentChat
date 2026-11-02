@@ -12,7 +12,8 @@
 
 - **存储词汇 v2 三条正交轴**：`role` = 消费通道（`'agent'` / `'context'`，`'event'`/`'error'` 仅存量）/ `source` = context 行的 UI 决策词（`'event'`/`'error'`/`'skill'`/开放）/ `label` = UI 文案（缺省按 source 回落）。
 - **会话两文件 + journal 子目录**（`agents/<agentId>/sessions/<uuid>/`）：`messages.jsonl` 定稿流（append-only）/
-  `journal/partials.jsonl` run 台账（收束即清）。**无 `subcalls.jsonl`**——子调用档案随 `journal-tool-result` 平铺、随 run 收束剔除（cr-697）。
+  `journal/partials.jsonl` run 台账（收束即清）。`subcalls.jsonl` 子调用永久档案（cr-803
+  复活——收束时补行分流至此，段行 steps 不再内联，读面 `stepsOfLedger` 联查注入）。
 - **技能注入三通道**：① 手势 `/name`（before-run 判定 + 落账 + 同字节双写）；② 直调 load_skill；③ run_code 子调用（登记 → run 级驻留注入 → 落账 → after-run 兜底）。
 - **load_skill 返回值已轻量化**：`SkillLoadOutput = { name, scope, baseDir, status: 'injected' }`——正文不随返回值走（防"返回一份 + 注入一份"双份冗余与搬运诱饵）。
 - **UI**：context 注入行渲染为注入卡（`ContextInjectCard.vue`），数据层挂轮（`Turn.injects` / `afterStep`），不走 event 分隔符通道。
@@ -73,7 +74,7 @@
 ```
 messages.jsonl = 会话定稿流（header / agent 段行 / context 段行 / 注入行 / 终稿行，append-only；run 期间静默）
 journal/partials.jsonl = run journal（瞬态台账：journal-step 步行 / journal-inject 注入行 / journal-tool-result 直调补行；行序 = 模型消息数组实际序；收束即清）
-（无 subcalls.jsonl——子调用随 journal-tool-result 的 subcall/name/arguments 平铺，随 run 收束剔除，cr-697）
+subcalls.jsonl = 子调用永久档案（cr-803：收束时 subcall 补行分流至此，段行 steps 不内联；读面 stepsOfLedger 联查注入复原 UI 平铺）
 ```
 
 **settlement（收束物化，现行 = `ac-ledger` writer）**：壳 conversation 收束 → `settle()` → `materialize()`（段行 + 注入行，各带原 ts，append 到 messages）→ 终稿行 → `journal-settled`（写 journal）→ `pruneJournal()`（剔除该 run 的 journal 行）。

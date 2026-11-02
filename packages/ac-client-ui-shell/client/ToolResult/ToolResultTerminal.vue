@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
-import { Icon, BusyRing } from '@agentchat/webui-kit';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 // 终端输入（命令工具返回 command）+ 执行环境
 const command = computed(() => String(props.data.command || ''));
 const cwd = computed(() => String(props.data.cwd || ''));
+// 会话工作目录基线与异地判定（cr-765 #8/A-5）：cwd_is_default === false →
+// 渲染「PS <cwd>」提示符行；true/缺席（旧记录）→ 整行省略不猜
+const workdir = computed(() => String(props.data.workdir || ''));
+const cwdIsDefault = computed(() => props.data.cwd_is_default === true || props.data.cwd_is_default === undefined);
+// 目录敏感命令（cd/pushd/chdir 前缀）：即使同目录也渲染 PS 行——该次调用
+// 改变了后续执行上下文
+const dirSensitive = computed(() => /^\s*(cd|pushd|chdir|Set-Location)\b/i.test(command.value));
+const showPrompt = computed(() => !!cwd.value && !cwdIsDefault.value || (!!cwd.value && dirSensitive.value));
 // Unix→PowerShell 翻译产物（pwsh 工具 fail-closed 翻译层）：实际执行的
 // 命令与请求命令不同时展示，归因落回真实执行物（2026-09-16 报错归因对齐）
 const translated = computed(() => String(props.data.translated_command || ''));
@@ -63,13 +71,18 @@ watch([stdout, stderr, () => props.loading], async () => {
     <div class="term-card">
       <ScrollableViewport ref="viewportRef" class="term-scroll" @scroll="onScroll">
         <!-- IN：输入命令；被翻译过 → 下一行展示实际执行的 PowerShell 命令 -->
+        <!-- PS 提示符行（cr-765 #8 第三轮定稿）：异地 workdir 或目录敏感命令时
+             独占一行——不再受 40% 截断，长路径整行可读；同目录普通命令整行省略 -->
+        <div v-if="showPrompt" class="term-row term-prompt">
+          <span class="term-ps">PS</span>
+          <span class="term-path" :title="cwd">{{ cwd }}</span>
+        </div>
         <div v-if="hasCommand" class="term-row term-in">
-          <span class="term-mark term-mark-in">IN:</span>
+          <span class="term-gutter term-gutter-in">&gt;&gt;&gt;</span>
           <code class="term-cmd">{{ command }}</code>
-          <span v-if="cwd" class="term-cwd" :title="cwd">{{ cwd }}</span>
         </div>
         <div v-if="hasCommand && translated" class="term-row term-translated">
-          <span class="term-mark term-mark-in">↳ PS:</span>
+          <span class="term-trans-mark">↳ PS:</span>
           <code class="term-cmd">{{ translated }}</code>
         </div>
 
@@ -82,14 +95,13 @@ watch([stdout, stderr, () => props.loading], async () => {
 
         <!-- OUT：输出结果 -->
         <div v-if="showOut" class="term-row term-out">
-          <span class="term-mark term-mark-out">OUT:</span>
+          <span class="term-gutter term-gutter-out">&gt;&gt;&gt;</span>
           <div class="term-out-body">
             <pre v-if="stdout"><code>{{ stdout }}</code></pre>
             <pre v-if="stderr" class="term-stderr"><code>{{ stderr }}</code></pre>
 
-            <!-- 执行中：输出尚未返回 -->
+            <!-- 执行中（cr-765 #9）：label 行已有琥珀环——卡内只留灰字，不再双环 -->
             <div v-if="loading && !hasOutput" class="term-loading">
-              <BusyRing :size="13" />
               <span class="term-loading-text">正在执行...</span>
             </div>
 
@@ -137,15 +149,45 @@ watch([stdout, stderr, () => props.loading], async () => {
   gap: 8px;
 }
 
-/* IN: / OUT: 文本标记 */
-.term-mark {
+/* >>> 轨道（cr-765 #8 第三轮定稿）：同宽同列 3 字符 mono，左缘成竖线贯穿；
+   IN 绿（=原 IN: 色）、OUT 蓝 ×0.7 透明（=原 OUT: 色弱一档）——方向靠颜色，
+   层级靠透明度 */
+.term-gutter {
   font-weight: 700;
   flex-shrink: 0;
   user-select: none;
   letter-spacing: 0.3px;
+  font-family: inherit;
 }
-.term-mark-in { color: #4ade80; }
-.term-mark-out { color: #38bdf8; }
+.term-gutter-in { color: #4ade80; }
+.term-gutter-out { color: rgba(56, 189, 248, 0.7); }
+
+/* PS 提示符行：PS 粗体 + 路径灰蓝；整行省略号 + title 兜底极端长路径 */
+.term-prompt {
+  margin-bottom: 2px;
+  gap: 6px;
+  align-items: baseline;
+}
+.term-ps {
+  color: #64748b;
+  font-weight: 700;
+  flex-shrink: 0;
+  user-select: none;
+}
+.term-path {
+  color: #94a3b8;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-trans-mark {
+  color: #64748b;
+  font-weight: 700;
+  flex-shrink: 0;
+  user-select: none;
+  font-size: 11px;
+}
 
 /* ---- IN 行 ---- */
 .term-cmd {
@@ -155,18 +197,6 @@ watch([stdout, stderr, () => props.loading], async () => {
   font-family: inherit;
   white-space: pre-wrap;
   word-break: break-all;
-}
-
-.term-cwd {
-  margin-left: auto;
-  flex-shrink: 1;
-  max-width: 40%;
-  color: #64748b;
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  user-select: none;
 }
 
 /* ---- 译文行（IN 与分隔线之间；与 IN 同族但弱一档） ---- */

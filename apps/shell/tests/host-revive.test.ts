@@ -23,23 +23,27 @@ interface Fake {
   lockHeld: boolean;
   lockCalls: number;
   stamp: boolean;
+  /** system 在场（缺省 false——缺席形态，恢复边在本壳） */
+  system: boolean;
   signals: string[];
   clock: number;
 }
 
-function makeFake(overrides: Partial<{ stamp: boolean; lockHeld: boolean }> = {}): Fake {
+function makeFake(overrides: Partial<{ stamp: boolean; lockHeld: boolean; system: boolean }> = {}): Fake {
   const fake: Fake = {
     probes: [],
     spawns: 0,
     lockHeld: overrides.lockHeld === true,
     lockCalls: 0,
     stamp: overrides.stamp === true,
+    system: overrides.system === true,
     signals: [],
     clock: 1_000,
     deps: undefined as unknown as HostReviveDeps,
   };
   fake.deps = {
     probe: () => (fake.probes.length > 0 ? fake.probes.shift()!() : Promise.resolve(true)),
+    systemAlive: () => fake.system,
     stampPresent: () => fake.stamp,
     tryLock: () => { fake.lockCalls += 1; return !fake.lockHeld; },
     unlock: () => { fake.lockHeld = false; },
@@ -111,8 +115,8 @@ describe('tickHostRevive 纯域', () => {
     expect(fake.lockCalls).toBe(1);
   });
 
-  it('supervised 让路窗（cr-647）：失联确认后宽限内不拉起，宽限过才拉', async () => {
-    const fake = makeFake();
+  it('system 在场让路窗（cr-647 + cr-859 双证据）：失联确认后宽限内不拉起，宽限过才拉', async () => {
+    const fake = makeFake({ system: true });
     const state = createHostReviveState(fake.clock);
     const config = { reviveGraceMs: 10_000 };
     fake.probes.push(down);
@@ -128,6 +132,31 @@ describe('tickHostRevive 纯域', () => {
     fake.probes.push(down);
     await tickHostRevive(state, fake.deps, config);
     expect(fake.spawns).toBe(1); // 宽限过 → supervisor 快路未接管才兜底
+  });
+
+  it('system 缺席（cr-859 双证据假）：宽限不适用——失联确认即拉（dev:fg / supervisor 死亡形态）', async () => {
+    const fake = makeFake({ system: false });
+    const state = createHostReviveState(fake.clock);
+    const config = { reviveGraceMs: 10_000 };
+    fake.probes.push(down, down);
+    await tickHostRevive(state, fake.deps, config); // 首败
+    await tickHostRevive(state, fake.deps, config); // 确认失联 → system 缺席即拉
+    expect(fake.spawns).toBe(1);
+  });
+
+  it('system 中途死亡（挂起→双证据假）：下一拍即时接管恢复职责', async () => {
+    const fake = makeFake({ system: true });
+    const state = createHostReviveState(fake.clock);
+    const config = { reviveGraceMs: 10_000 };
+    fake.probes.push(down, down);
+    await tickHostRevive(state, fake.deps, config); // 首败
+    await tickHostRevive(state, fake.deps, config); // system 在场 → 宽限让路
+    expect(fake.spawns).toBe(0);
+    fake.system = false; // supervisor 死亡（pid 证据假）
+    fake.clock += 1_000; // 宽限远未过
+    fake.probes.push(down);
+    await tickHostRevive(state, fake.deps, config);
+    expect(fake.spawns).toBe(1); // 双证据假 → 宽限不适用，即时接管
   });
 
   it('退避指数增长有 cap', () => {
@@ -153,6 +182,7 @@ describe('startHostRevive 真实装配（锁物理面）', () => {
     let spawned = 0;
     const deps: HostReviveDeps = {
       probe: down,
+      systemAlive: () => false, // 缺席形态（恢复边在本壳）
       stampPresent: () => false,
       tryLock: () => { try { fs.openSync(lockPath, 'wx'); return true; } catch { return false; } },
       unlock: () => { fs.rmSync(lockPath, { force: true }); },

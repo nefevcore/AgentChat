@@ -31,7 +31,7 @@ import {
   writeAgentConfig,
   type AgentConfig,
 } from 'ac-agents-core';
-import { listTemplates, readTemplate, type AgentTemplate } from './preset-builtin.ts';
+import { DOC_NAME, listTemplates, materializeConfigOf, readTemplate, type AgentTemplate } from './preset-builtin.ts';
 
 /** 行配置 */
 export interface AgentsHostRowOptions {
@@ -42,8 +42,6 @@ export interface AgentsHostRowOptions {
 
 /** entries 键词法（机制数据 param-case——禁路径分隔/遍历） */
 const ENTRY_KEY = /^[a-z][a-z0-9-]*$/;
-/** 文档名词法（单词 .md 文件名——禁路径分隔/遍历） */
-const DOC_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*\.md$/i;
 /** 头像扩展名（写入口径与探测口径同源） */
 const AVATAR_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'] as const;
 
@@ -245,38 +243,50 @@ export class AgentsEditService extends Service {
   }
 
   /**
-   * 从模板创建身份（create-from-template）：一步写全 config 文集。
-   * skip-if-present（用户数据优先的文件版语义）：已存在 config.json 不覆盖，
-   * 原样返回现值——重入幂等，不吞掉用户编辑。
+   * 从模板创建身份（create-from-template）：一步写全 config 文集 + 模板
+   * 自带 .md 文档（cr-810：人设载体 AGENTS.md 等随物化落地）。
+   * skip-if-present（用户数据优先的文件版语义）：已存在 config.json 或同名
+   * 文档不覆盖，原样返回现值——重入幂等，不吞掉用户编辑。
    */
   createFromTemplate(templateId: string, id: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
     const existing = this.getAgent(id);
     if (existing !== undefined) return existing;
-    const config = this.templateConfigOf(templateId, id, overrides);
+    const { docs = [], ...template } = this.templateOf(templateId);
+    const config = this.templateConfigOf(template, id, overrides);
     this.saveAgent(config);
+    for (const doc of docs) {
+      const file = path.join(this.agentDirOf(id), doc.name);
+      if (!fs.existsSync(file)) writeTextAtomic(file, doc.content);
+    }
     return config;
   }
 
   /**
    * transient boot 合成：宿主从模板合成身份（argv 传临时壳，账本住
-   * sessions/<uuid> 不落 agents/ 树）——纯合成不落盘。
+   * sessions/<uuid> 不落 agents/ 树）——纯合成不落盘（模板文档同样不落地，
+   * 人设 file 指向 agents/<id>/AGENTS.md 缺席时 persona 行按 text 回退/
+   * 不注入——transient 是短命形态，不物化文档）。
    */
   transientConfigOf(templateId: string, id: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
-    return this.templateConfigOf(templateId, id, overrides);
+    return this.templateConfigOf(this.templateOf(templateId), id, overrides);
   }
 
   // ---- 内部 ----
 
-  /** 模板 → 身份：剥 preset 标志与模板自身 id（创建物是真实身份，非预设名册条目） */
-  private templateConfigOf(templateId: string, id: string, overrides: Partial<AgentConfig>): AgentConfig {
+  /** 模板读取（行缺席/模板缺席 fail-loud——与 templateConfigOf 原口径一致） */
+  private templateOf(templateId: string): AgentTemplate {
     if (this.templatesDir === undefined) {
       throw new Error('模板面不可用：行集无 preset-builtin 行');
     }
-    assertAgentId(id);
     const template = readTemplate(templateId, this.templatesDir);
     if (template === undefined) throw new Error(`模板不存在：${templateId}`);
-    const { preset: _preset, id: _templateId, ...body } = template.config;
-    return { ...body, ...overrides, id };
+    return template;
+  }
+
+  /** 模板 → 身份：剥除词法单源 materializeConfigOf（cr-812 三处并源）+ 覆盖项 */
+  private templateConfigOf(template: AgentTemplate, id: string, overrides: Partial<AgentConfig>): AgentConfig {
+    assertAgentId(id);
+    return { ...materializeConfigOf(template.config, id), ...overrides };
   }
 
   private entriesDir(id: string): string {

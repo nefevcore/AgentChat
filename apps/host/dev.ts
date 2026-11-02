@@ -1,7 +1,7 @@
 // ============================================================
 // dev.ts —— preview 宿主 dev 启动器（8.5e 联调一手脚本；cr-551 换轨
-// 生产链：dev 面与 supervisor.mjs 的 worker 同为 bootHost——编排面/监护
-// 面/按需拉起全链一致，dev 联调即生产形态验证）
+// 生产链：dev 面与 apps/system/supervisor.mjs 的 worker 同为 bootHost——
+// 编排面/监护面/按需拉起全链一致，dev 联调即生产形态验证）
 //
 // bootHost（45 行宿主树 + web 表面 + 编排面〔supervise 句柄池 + 邮局
 // ensure 钩子 + re-tap〕）→ 指定 agent 即时拉起（mock provider——dev

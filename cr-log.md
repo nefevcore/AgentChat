@@ -3,7 +3,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-800**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-863**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 
 ## 登记格式
 
@@ -818,3 +818,67 @@
 - 【cr-798 2026-10-29 seats 对账时序缺陷修复：auditSeats 快照 diff 漏判 slots.inject 声明存活期贡献（todo 行 cr-454 引入的惰性注册形态——声明方通道在装载序后者贡献未即时落注册面），13 域行 declaredNotRegistered 假阳性 + settings 偶发 registeredNotDeclared；修复 = 审计双轴满足判定（即时贡献 diff + 窗口内新挂起的 inject 待声明效果〔SlotsService 新增 pendingInjects 诊断面〕），registeredNotDeclared 排除先行消费者 deferred 落位（声明方窗口内新声明的席位 + 先前挂起效果落位）；新增 29 通道全装运行时对账回归测试】
 - 【cr-799 2026-10-29 会话滚动跟随：贴底自动恢复阈值 BOTTOM_EPS 80→240px（前端反馈：流式期底部持续生长、80px 内难以滚回恢复跟随）；精简 useChatShell——删零调用方的 isNearBottom/isAtBottomEl，内联单用别名 scrollToBottomAndReset（按钮改调 scrollToBottom(true)）】
 - 【cr-800 2026-10-29 孤儿对账清扫补迁收口（cr-696 重组漏迁）：ac-app/src/orphans.ts 随包退役而 boot 期指纹对账丢失——回迁 apps/host/orphans.ts 并在 bootHost 锁后即扫（cr-382 建议 3 复位；指纹与 shells.ts 现行前缀核证一致；executor 失效注释同步修正）】
+- 【cr-801 2026-10-30 移除 RunStatusDockHost 临时诊断日志（cr-756 排查期 console.log [run-status]）——排查已收束，清理调试输出】
+- 【cr-802 2026-10-30 光环偶发消失根修：llm/delta 到达时重点亮分区 streaming（帧驱动即时性——重连/重启/边界帧丢失窗口光环不再消失）+ collectRunning 观测失败降级为跳过 digest 步进（peek poller 已有权威快照，观测抖动不再把 running 清空）——观测失败≠没在跑】
+- 【cr-803 2026-10-30 subcall 档案剥离出 messages.jsonl：settlement 物化段行不再内联子调用平铺卡，恢复独立 subcalls.jsonl 永久档案（旧轨道三文件裁决语义），读面联查注入保 UI 等价】
+- 【cr-804 2026-10-30 textBeforeTools 落盘透传缺失修复：journal/投影/物化链路补字段 + 直播 step-started 丢帧时相位标志跨步泄漏】
+- 【cr-805 2026-10-30 壳拉起风暴三修：adopt 超时杀拉起中进程（断幽灵持锁源头）+ supervise adopt 失败退避门（窗内快速失败不逐拍 spawn）+ control 池内失败盘上活锁 socket 兜底】
+- 【cr-806 2026-10-30 restart 双件使用引导优化（Agent 反馈四条）：description 补代码重载第一场景与非停机窗口语义 + 宿主 boot 落盘 host-facts.json（pid/port/bootAt）+ restart_host 回执结构化（oldPid/webuiUrl/healthz 探测指引，ack 语义写明壳侧合成）+ creator 预设 system 第 4 节同步】
+- 【cr-807 2026-10-30 error 收束错误行落账缺失：settle 链应按 session-design §2.5 落 role:context+source:error 行（UI 红条/LLM 喂回），实现缺席——错误文案只活瞬态帧，刷新/错过帧即不可见；补 settle 侧落账 + session/history 读面盲区附带透传（role:'error' 行），单测锁写侧（ledger）/调用侧（shell-conversation）/读面（view）三层】
+- 【cr-808 2026-10-30 对话对象行防身份误认：id-显示名并排改方向性谓语句（你正在与 <id>（显示名） 对话），锚定自身视角】
+- 【cr-809 2026-10-30 .gitattributes 声明全仓 LF（* text=auto eol=lf，*.bat/*.cmd 保持 CRLF），消除 core.autocrlf=true 下的 LF-will-be-CRLF 警告】
+- 【cr-810 2026-10-30 预设身份人设载体迁移：creator 模板 config.system 改走 settings.persona.file=AGENTS.md + persona 行入集（模板文档随物化落地——adoptShell/createFromTemplate 双路径 skip-if-present），活体 __creator__ 同步迁移】
+- 【cr-811 2026-10-30 贴底跟随丢失排查：自管滚动视口关浏览器滚动锚定（overflow-anchor:none，主容器/思考卡/工具卡三处）——锚定补偿与跟随引擎打架致 scrollTop 被下调误判用户上滚】
+- 【cr-812 2026-10-30 预设模板升级通路（cr-810 后续，copy-on-write）：物化记 origin 指纹（preset-origin），未编辑自动跟随模板新版、已编辑保留+日志提示；剥除词法 materializeConfigOf 三处并源；三预设活体重置为当前模板形态（pristine 基线）】
+- 【cr-813 2026-10-30 restart_host 保壳保 run 回归修复（cr-705 壳收割面误伤）：host.close() 增 reapShells 选项，restartHost 换代路径跳过壳收割——保壳承诺自 cr-705 后被 close() 无差别收割破坏（活体实锤 2026-10-30 两次：run 以 This operation was aborted 误标 error 收束 + 壳 exit 0 非预期 42）】
+- 【cr-814 2026-10-31 fs 检索双缺陷修复：grep include 泄漏（rg --glob 后者胜——include 应先于排除入参）+ glob 深层目录静默丢失（walk 剪枝把字符偏移当段序——第二段起剪枝失效致 MAX_SCAN_FILES 预算被路径序在前的大目录吃满）】
+- 【cr-815 2026-10-31 会话流卡片优化实施（方案 sandbox/cards-gallery/optimization.md）：批次A骨架 CardFrame+五类基准卡+JsonCard/RawCard兜底】
+- 【cr-816 2026-10-31 会话流卡片优化批次B：注入卡族（#2 图标语义化 #3 Markdown渲染 #4 问答卡席位 #5 直播载入态 #6 尾挂归属）】
+- 【cr-817 2026-10-31 会话流卡片优化批次C：工具卡+数据面（A-1~A-5 修复 + #7~#15 视觉优化）】
+- 【cr-818 2026-10-31 会话流卡片优化批次D：代码卡统一（#17A 三卡并 CodeCard #17B controls 插槽 #17C 换行开关）】
+- 【cr-819 2026-10-31 卡片优化首轮测试反馈修复：CodeCard 滚动条/默认换行/return 全展开+KB 计量/JsonCard 换 CodeCard/行号滚动条位/edit 卡换壳/todo-goal 按次快照核查】
+- 【cr-820 2026-10-31 todo/goal 工具返回值优化：write 计数摘要、cancelled 第四态、in_progress at-most-one 校验、goal delete 去复述、前端配套】
+- 【cr-821 2026-10-31 subagent 子 Agent 工具面蒸发修复：tc-* 模式词不再随会话设置/父 config 继承进子 tags（词义错位——子注册面无 run-code 行时 tc-programmatic 使 LLM 面收窄为空集，spawn 授予的工具全丢、子变纯聊天单步收束）；子的交互形态改为结构化合成：子 rows 含 run-code 行 ⇔ 子 tags 合成 tc-programmatic（形态跟随装配），父级 tc-* 词物化时剥除】
+- 【cr-822 2026-10-31 读面搬迁审计：宿主-壳独立后读接口分类盘点与盘直读/poller 镜像/静态化三批改造实施文档（host-shell-read-face-audit.md）】
+- 【cr-823 2026-10-31 读面审计实施文档评审回填：E 类 stats 空集定性修正（已裁决缓冲）+ 批一形状兼容验收项 + 2-1 补 poller 注入桥 + 零壳侧口径修正 + 工时总账】
+- 【cr-824 2026-10-31 读面搬迁实施：批一 goal/todo/interaction 读面盘直读 + subagents 叠加通道 liveShells；批二 stats 接 poller.snapshot】
+- 【cr-825 2026-10-31 读面搬迁批三：tool-catalog 生成器（真装配 dump 入库快照）+ tools/list 冷面零拉起 + agents/tool-defs 静态派生退路】
+- 【cr-826 2026-10-31 读面搬迁批三续：events/listeners·descriptions·policy-list 目录数据化（tool-catalog 生成器扩展 dump 监听器注册面 + aggregate 聚合接线）】
+- 【cr-827 2026-10-31 修复 workspace/open-local 忽略会话/Agent 上下文——相对路径一律按数据根解析致挂载工作区文件打不开；对齐读面 resolveWorkspaceFile 单源（与 open-dir 同款上下文推导）】
+- 【cr-828 2026-10-31 落「打开方式」功能调研与实施计划文档（dsh open-in-app 两轮调研结论 + AgentChat 落地方案，下会话实施）】
+- 【cr-829 2026-10-31 「打开方式」P0：预置应用目录探测 + open-targets/open-with RPC + 前端下拉（open-with-app-plan.md）】
+- 【cr-830 2026-10-31 「打开方式」真实应用图标：exe ExtractAssociatedIcon 提取 + open-target-icons RPC + 前端 img 渲染（lucide 回落）】
+- 【cr-831 2026-11-01 「打开方式」加文件资源管理器条目：fileArgs 扩展（文件=定位选中/目录=打开）+ 图标回落 folder】
+- 【cr-832 2026-11-01 工作区树原生应用图标实施计划文档（workspace-tree-native-icons-plan.md，cr-831 后续 P0 设计稿）】
+- 【cr-833 2026-11-01 工作区树文件节点原生应用图标：file-assoc-icons 纯模块（DefaultIcon 两跳+提取上提）+ workspace/assoc-icons RPC + 树 store 增量收集 + 节点三分支渲染】
+- 【cr-834 2026-11-01 cr-833 微调：目录行改用 HKCR\Directory 文件夹图标（shell32.dll,3）+ 移除树头部打开方式按钮】
+- 【cr-835 2026-11-01 superagent 增量设计档案：Source 行 + Eval/Ticket 域包 + 任务级 Watchdog + superagent 面板入口（依据 dsh-superagent-prototype 调研）】
+- 【cr-836 2026-11-01 cr-835：WorkspaceTree 标题图标改用文件资源管理器原生图标（复用 openWithMenu explorer 条目，线性 SVG 回落）】
+- 【cr-837 2026-11-01 cr-837：修复「打开方式」窗口被藏——runOpenWith spawn 去掉 windowsHide（Win11 stub 转发链继承 CREATE_NO_WINDOW，Store 版 notepad/explorer 桌面进程窗口一并被藏→opened:true 但无窗口）】
+- 【cr-838 2026-11-01 fix(preview): markdown 预览正文散文裸写的 <script 经 html:true 原样进 srcdoc，浏览器当真脚本解析——未闭合开标签把余下整篇文档吞进脚本体（中文即非法 token → about:srcdoc SyntaxError + 预览在提及处截断；桌面 webui 无 CSP 不拦）。修法 = markdownPreviewDoc 文档壳统一中和正文 script 元素（成对连内容剥除、落单开/闭标签剥标签，GitHub markdown 同款语义；壳自带外链复制脚本另注不经此）+ 单测】
+- 【cr-839 2026-11-01 cr-839：face-ops-open-local 测试 mock runNativeOpen——真派发会在跑测试的机器上弹系统默认程序打开沙箱临时文件（文件随 afterEach 删除=打开不存在的文件）；mock 后断言升级为验证定位绝对路径】
+- 【cr-840 2026-11-01 运行状态 dock 细分两个等待相位：connecting（连接 host——wire 断开窗口本地判定）与 spawning（启动 shell——宿主 inflight 拉壳集经 stats 对账面带出），从 waking 窗口拆分】
+- 【cr-841 2026-11-01 usage 弦图会话流量修复：classifyPair 键词表失配 8.9 D4 端点轴——直答/独立会话记账键变 UUID 后 87.5% 用量进不了端点对视图；补 viewer 投影在场判据（user 是会话一端的物理证据）归类 user⇄承载 agent】
+- 【cr-842 2026-11-01 usage 面板柱状图丢计量根因修复：壳 IpcClient 宿主重启后死连接永不重连+ledger 缓存死 client——长活壳 usage 事件信静默丢失（timer 新进程壳正常、直答/singles 长活壳 10-24 起大量丢）；①ledger 发信失败重连重试 ②宿主 usage 行 boot 对账回填（journal 计量 vs audit 流水逐桶差额，reportMeter 补差支持历史时间戳）】
+- 【cr-843 2026-11-01 webui 偶发刷新慢根因修复：/ui-plugin/ 通道静态面（108JS 3.4MB+27CSS 1.7MB）无缓存头无压缩每次全量回源裸传——传输层补 serveFile 公共应答（ETag 协商+br/gzip+content-length）；压缩缓存 64 条上限 vs 实际 ~270 文件整体清空抖动升 LRU；前端 boot-graph fetch 补超时重试】
+- 【cr-844 2026-11-01 fix: feed-core turns 派生的 _version 整对象替换使 bump 跨分区失效（多会话并行流式时活跃视图被无关 delta 逐帧弄脏 → 前端卡顿）——改为 per-dialog ref 字典，bump 只动本分区】
+- 【cr-845 2026-11-01 singles/list 冷启动全量账本扫描慢（1018 会话冷读 12.8s）：摘要索引落盘跨重启复用 + list 分批让出事件循环】
+- 【cr-846 2026-11-01 webui 前端产物更新自动刷新：指纹三源（index ETag+boot-graph body+通道 ETag）WS 重连+轮询双轨校验，流式/后台推迟】
+- 【cr-847 2026-11-01 新会话延迟落盘：新建不再立即写盘（本地幻影会话，首条消息发送时物化落盘）；输入草稿持久化留存（localStorage，跨刷新/重启保留）】
+- 【cr-848 2026-11-01 edit 卡 diff 体两修：CodeCard 默认插槽体撑满卡身宽（flex item 缺省 auto 宽）+ edit-diff-body 滚动条对齐全局标准配方】
+- 【cr-849 2026-11-01 dsh 系统提示词分析：对照 ac-system-prompt 逐条裁决，产出提示词调整文档 docs/design/dsh-system-prompt-analysis.md（不动代码）】
+- 【cr-850 2026-11-01 修复发送后输入框遗留文本：IME 组合定稿 emit 与发送清空竞态——迟到定稿 emit 覆盖已清空 modelValue 且等值守门误判 echo 短路 setContent，PromptEditor 暴露同步 clear()（作废 pending 补发+迟到 emit 抑制窗）断根】
+- 【cr-851 2026-11-01 dsh 分析勘误：输入文件实为组装快照，dsh 是 PromptSection 注册组装架构（官方文档核实）——修正文档背景认知与三处不采纳理由，新增 §7 架构对照】
+- 【cr-852 2026-11-01 dsh 分析二轮：用户四点输入裁决落档——忙轮询/睡眠缺口实锤（用户实测+措辞盲区）、环境锚撞 v3 framework 退役旧案、格式审计结论维持、web 防注入用户确认 P0】
+- 【cr-853 2026-11-01 harness 提示词扩展调研：Codex CLI 全系 + opencode 全系原文抓取入库，逐家对照 ac-system-prompt 裁决落档 docs/design/harness-prompts-survey.md】
+- 【cr-854 2026-11-01 harness 调研补完 Claude Code 2.0.0 全文：四家横向对比落档（关键发现——prompt 层 web 防注入仅 dsh 独有），新增反向清单/不越权等 P2 项】
+- 【cr-855 2026-11-01 提示词调整总方案：四轮调研（dsh/Codex/opencode/Claude Code）收敛为分批实施文档 docs/design/prompt-adjustment-plan.md（不动代码）】
+- 【cr-856 2026-11-01 subagent 三症状根修批：①send/await 换代缺口（sendViaLock 单源抽取，sendOp 对齐 cr-736 锁直投、awaitOp 放宽 ownsChild、send 补归档守卫与 ask watch 重挂）②子壳 spawn 补 detached（对齐 cr-642 orchestrate——R-5 owner 失活子存活不再靠运气）③子域回放 run_code 编排可见性排查与测试锁定④继承面单源收敛（spawn 物化六处写入收拢纯函数）】
+- 【cr-857 2026-11-02 subagent 恢复面预研：崩溃窗口边界矩阵落盘 docs/design/subagent-recovery-matrix.md（九恢复面×判据×缝隙清单——S1 boot 链 replayAnsweredInteractions 未兜 inbox 恢复后竞态双投/S2 换代活子 ask watcher 不重建+S3 asking 永挂无超时兜底 复合成 busy 永真/S4-S5 低危项；裁决建议：不做大一统合并，P1 一行修+P2 活锁扫描重挂 watcher+P3 提醒注入，矩阵文档即统一对账面）】
+- 【cr-858 2026-11-02 subagent 设计批档落盘：①盘面会合通信设计（脱离 host 的 parent↔subagent 与 agent 间通信——锁即路由/信箱即兜底/账本即回音，宿主降级加速器，deliver 对等投递纯库裁决）②post-office 独立进程预研（顺序敏感裁决：盘面化是硬前置，data/control plane 分离，同映像 argv 形态+账本对账重建 registry，三触发线缓行）——docs/design/ 两档案】
+- 【cr-859 2026-11-02 supervisor system 层落地（supervisor-service-plan §五.1/§五.2/§六.1/§六.2）：配方盘面 recipes + system 心跳双证据（AGENTCHAT_SUPERVISED env 退役）+ 根入口纯移动 apps/system/ + pnpm dev 统一 supervised（dev:fg 逃生门）】
+- 【cr-860 2026-11-02 移除 pnpm dev:supervised 别名（cr-859 统一后 dev 已是 supervised，别名无存在价值；历史档案与 CHANGELOG 记录不改）】
+- 【cr-861 2026-11-02 deliver 对等投递纯库（盘面会合 §六.1）：双层会合（锁直投→失败落接收方 inbox 直投）——ipc 传输（IpcClient/listenIpc）从 ac-post-office 移入 ac-envelope-core 断循环依赖；subagent 换轨与 router 拆分的共同前置】
+- 【cr-862 2026-11-02 subagent 投递换轨盘面会合（cr-861 deliver 纯库转正）：sendViaLock/answerOp/deliverToChild 三处内联锁直投退役统一走 deliver()（children 域路径代数）；死子语义从 fail-loud 升级为落 inbox + owner 重拉（信等人→拉起消费，cr-856 换代缺口收口）；修复 deliver.ts DeliverAck 未定义类型（cr-861 遗留 typecheck 红）】
+- 【cr-863 2026-11-02 subagent 通知信封化（盘面会合 §六.3，cr-861/862 第 3 步）：①子壳终稿回执换轨——postReply 对 to=parentId 走 deliver() 双层会合（活锁直投/陈锁落父 inbox 由 recoverPendingInbox 消费），子形态无邮局也回执（hostless 回执断链补全）②子域提问推送双通道——子壳订阅 durable-interaction/opened 主动推 childAsk 信封（断 S2 换代 watcher 蒸发窗），父侧 receiveEnvelope 拦截转 notifyChildAsk 单源（askNotified 门+emit+注入），盘 watch 降级兜底；reconcile 对话锁子顺带 watch 重建（P2）】
+

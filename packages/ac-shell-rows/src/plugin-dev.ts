@@ -69,7 +69,7 @@ export function makePluginDevRow(options: PluginDevRowOptions): Plugin {
       /** 惰性邮局连接（install/uninstall 永久档） */
       const connect = async (): Promise<Uplink> => {
         if (uplink === null) {
-          const { IpcClient } = await import('ac-post-office');
+          const { IpcClient } = await import('ac-envelope-core');
           const client = new IpcClient();
           await client.connect(options.postOfficeAddress!);
           uplink = {

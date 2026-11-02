@@ -45,6 +45,13 @@ export interface InjectCard {
   label: string;
   content?: string;
   kind?: string;
+  /** 注入归属 agent（cr-765 #6）：挂轮按归属匹配轮次，群聊不挂错轮 */
+  agent_id?: string;
+  /** 结构化载荷（cr-765 #4：问答卡 Q/A——questions/answers/outcome；
+   *  旧行缺席 → UI 回落纯文本） */
+  payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
+  /** 注入体字节数（cr-765 #5：直播行载入态 meta——content 缺席窗口期显示「载入中 · N KB」） */
+  bytes?: number;
   ts?: number;
   afterStep?: number;
   key: string;
@@ -147,6 +154,17 @@ export interface ChatMessage {
    * 行缺席（帧不广播正文——瘦身纪律），settlement 重拉权威行后在场。
    */
   contextContent?: string;
+  /**
+   * 注入结构化载荷（cr-765 #4 问答卡：context 注入行专用）——Q/A 数据面
+   *（questions/answers/outcome）；旧行缺席 → UI 回落纯文本正文。
+   */
+  payload?: InjectCard['payload'];
+  /**
+   * 注入体字节数（cr-765 #5：context 注入行专用——直播帧轻量 meta）。
+   * content 缺席窗口期（落账 → settlement 重拉完成）卡片显示
+   * 「载入中 · N KB」，不再「点击无反应」。
+   */
+  injectBytes?: number;
   /**
    * 思考相位起点（epoch ms；直播首个 reasoning 片到达时驻留消息——与
    * StreamState.reasoningStartAt 同源）：「思考中 · Xs」实时计时与收束

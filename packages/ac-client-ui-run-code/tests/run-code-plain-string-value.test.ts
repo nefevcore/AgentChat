@@ -45,17 +45,24 @@ describe('run_code 卡 · return 纯 string 按普通文本渲染', () => {
     unmount();
   });
 
-  it('多行 string 超长折叠：截断 + 展开按钮还原全文', async () => {
+  it('多行 string 超长护栏（cr-765 反馈 #3/#4：默认全量直出，仅 50KB 极端值折叠）', async () => {
+    // 常规文本（< 50KB）：默认全量直出，无折叠按钮
     const text = Array.from({ length: 40 }, (_, i) => '行' + i + '：' + '内容文本段落'.repeat(5)).join('\n');
     const { root, unmount } = await mountCard({ summary: SUMMARY, programHash: 'ab12cd34', value: text });
-    const pre = root.querySelector('.rc-value-text')!;
-    expect(pre.textContent!.length).toBeLessThan(text.length); // 折叠截断
-    const btn = root.querySelector('.rc-expand-btn') as HTMLButtonElement;
+    expect(root.querySelector('.rc-value-text')!.textContent!.trim()).toBe(text); // 全量
+    expect(root.querySelector('.rc-expand-btn')).toBeNull(); // 无折叠
+    unmount();
+    // 极端值（> 50KB）：折叠 + 展开还原
+    const huge = Array.from({ length: 3000 }, (_, i) => '行' + i + '：' + '内容文本段落'.repeat(10)).join('\n');
+    const m2 = await mountCard({ summary: SUMMARY, programHash: 'ab12cd34', value: huge });
+    const pre = m2.root.querySelector('.rc-value-text')!;
+    expect(pre.textContent!.length).toBeLessThan(huge.length); // 护栏截断
+    const btn = m2.root.querySelector('.rc-expand-btn') as HTMLButtonElement;
     expect(btn).toBeTruthy();
     btn.click();
     await nextTick();
-    expect(root.querySelector('.rc-value-text')!.textContent!.trim()).toBe(text); // 展开还原
-    unmount();
+    expect(m2.root.querySelector('.rc-value-text')!.textContent!.trim()).toBe(huge); // 展开还原
+    m2.unmount();
   });
 });
 
@@ -71,28 +78,28 @@ describe('run_code 卡 · 工具调用时间线退役（cr-764）', () => {
     ],
   };
 
-  it('逐条时间线不渲染（rc-trace* 全消失）；摘要徽章行在场且含计数/串行/机器耗时', async () => {
+  it('逐条时间线不渲染（rc-trace* 全消失）；调用徽章在程序体卡头（cr-765 #10 下沉），机器耗时在 return 段卡头', async () => {
     const { root, unmount } = await mountCard({ summary: TRACE_SUMMARY, programHash: 'ab12cd34' });
     expect(root.querySelector('.rc-trace')).toBeNull();
     expect(root.querySelector('.rc-trace-list')).toBeNull();
     expect(root.querySelector('.rc-trace-row')).toBeNull();
-    const summary = root.querySelector('.rc-summary');
-    expect(summary).toBeTruthy();
-    const badges = Array.from(summary!.querySelectorAll('.ui-badge')).map((b) => b.textContent?.trim());
-    expect(badges).toContain('调用 2/3');
-    expect(badges).toContain('串行 1');
-    expect(badges.some((t) => t?.includes('ms 计算'))).toBe(true);
+    // 程序体缺席分支：调用/串行徽章独立行（程序体在场时在卡头——rc-head-badges）
+    const badges = root.querySelector('.rc-summary');
+    expect(badges).toBeTruthy();
+    const texts = Array.from(badges!.querySelectorAll('.ui-badge')).map((b) => b.textContent?.trim());
+    expect(texts).toContain('调用 2/3');
+    expect(texts).toContain('串行 1');
     unmount();
   });
 
-  it('被拒徽章保留——denied 子调用（before-execute 被 veto，无 subcall 卡）唯一前端可见面', async () => {
+  it('被拒徽章保留在程序体卡头——denied 子调用（before-execute 被 veto，无 subcall 卡）唯一前端可见面', async () => {
     const { root, unmount } = await mountCard({ summary: TRACE_SUMMARY, programHash: 'ab12cd34' });
-    const denied = root.querySelector('.rc-badge-denied');
+    const denied = root.querySelector('.rc-summary .rc-badge-denied');
     expect(denied?.textContent?.trim()).toBe('被拒 1');
     unmount();
   });
 
-  it('无 trace 子调用的纯计算程序：摘要行照常（不再有空态占位文案）', async () => {
+  it('无 trace 子调用的纯计算程序：调用徽章照常（程序体缺席分支独立行；无空态占位文案）', async () => {
     const { root, unmount } = await mountCard({ summary: SUMMARY, programHash: 'ab12cd34' });
     expect(root.querySelector('.rc-summary')).toBeTruthy();
     expect(root.querySelector('.rc-trace-empty')).toBeNull();

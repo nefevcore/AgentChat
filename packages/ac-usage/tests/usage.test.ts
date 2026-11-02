@@ -188,16 +188,22 @@ describe('ac-usage byPair（端点对分类）', () => {
     // ④ 群 gid / 未知名（singles sid）：不进端点对
     await ctx.agentLoop.run({ agent: 'alpha', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'g-111' });
     await ctx.agentLoop.run({ agent: 'alpha', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: 'sid-uuid' });
+    // ⑤ 8.9 D4 端点轴：UUID 记账键——viewer 投影在场 = user 是会话一端
+    //    （直答/独立会话）→ user⇄承载 agent；无投影（子 Agent 内部）不进
+    const sid = '01a17121-9d98-7f58-9d0a-0c5f7381fdf9';
+    fs.mkdirSync(path.join(root, 'viewer', 'sessions', sid), { recursive: true });
+    await ctx.agentLoop.run({ agent: 'alpha', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: sid });
+    await ctx.agentLoop.run({ agent: 'alpha', model: 'mock-1', messages: [{ role: 'user', content: 'q' }], conversationId: '0f0f0f0f-1111-2222-3333-444444444444' });
 
     const pairs = ctx.usage.byPair();
     // 端点对规范序 a ≤ b（classifyPair 单源；'alpha' < 'user'）
     const userPair = pairs.find((p) => p.a === 'alpha' && p.b === 'user');
     expect(userPair).toBeDefined();
-    expect(userPair!.runs).toBe(1); // ①（③ 是 beta↔alpha 不并入 user 弦）
+    expect(userPair!.runs).toBe(2); // ① + ⑤投影在场（无投影 UUID 不并入）
     const ab = pairs.find((p) => (p.a === 'alpha' && p.b === 'beta'));
     expect(ab).toBeDefined();
     expect(ab!.runs).toBe(2); // ②（对键）+ ③（迁移行）合并同一端点对
-    // ④ 群/未知名无端点对
+    // ④ 群/未知名/无投影 UUID 无端点对（⑤投影 UUID 并入 user⇄alpha——总对数不变）
     expect(pairs.some((p) => p.a === 'g-111' || p.b === 'g-111')).toBe(false);
     expect(pairs.some((p) => p.a === 'sid-uuid' || p.b === 'sid-uuid')).toBe(false);
     expect(pairs.length).toBe(2);

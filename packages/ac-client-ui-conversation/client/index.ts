@@ -52,6 +52,8 @@ const BUILTIN_MESSAGE_VIEWS: MessageViewDef[] = [
   { id: 'assistant', match: () => true }, // 兜底：其他一律 assistant 视图
 ];
 
+import { INJECT_VIEW_SLOT, bindInjectCardViews } from './injectCardViews.ts';
+
 // ------------------------------------------------------------
 // SlotMap 类型化声明（S3）：composer 上方任务追踪 dock 卡列席位
 //（slot-tree chat:composer-docks 收编首例；M30 D5 改名
@@ -90,6 +92,10 @@ declare module 'ac-client-slots' {
     };
     /** final 消息整卡视图（keyed final-view——D9/S2；M30 D1 elect 扶正） */
     'message:final-view': { kind: 'list'; elect: true };
+    /** 注入卡视图（cr-765 #4/§1.8：keyed by kind——conversation 出厂通用卡
+     *  兜底，域行注册专用卡（问答卡第一例：ac-client-ui-ask 注册
+     *  durable-interaction）。未命中回落通用 ContextInjectCard。 */
+    'inject-card:view': { kind: 'list'; elect: true };
   }
 }
 
@@ -190,6 +196,16 @@ export const conversationClientPlugin = clientPlugin({
         fourStateFallback: true,
       },
     });
+    // 注入卡视图席位（cr-765 #4/§1.8 内置清点结论：唯一值得开席的注入面
+    // ——conversation 出厂通用卡兜底，域行按 kind 注册专用卡）
+    ctx.slots.declare({
+      key: INJECT_VIEW_SLOT,
+      kind: 'list',
+      elect: true,
+      public: true,
+      description: '注入卡专用视图（keyed by kind——注入行 UI 决策词；未命中回落通用 ContextInjectCard；cr-765 #4 问答卡第一例）',
+    });
+    bindInjectCardViews();
     // 会话头动作区席位（会话区重构开席：list，order 序——头部按钮族
     // 域行贡献化。ownerProps data = { form, agentId, conversationId,
     // single }——贡献按形态自取自gate；三态契约同 dock：null/空 = 不渲染）

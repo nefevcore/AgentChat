@@ -11,6 +11,8 @@
 //   · 显式文件参数不受 glob 过滤（现状：include 不适用于单文件目标）；
 //   · include 按 basename 匹配（现状口径）。rg glob 含 / 时按相对 cwd 的
 //     路径匹配，basename 语义需自转：*.ts → **/*.ts。
+//   · include glob 先于排除 glob 入参——rg --glob 后匹配者胜，排除在后
+//     才能兜住（顺序反了 include 会覆盖 !**/.git/**，SKIP_DIRS 内容泄漏）。
 // 子进程纪律：流式计数到 hardCap 即 kill（rg 无总量上限参数）；AbortSignal
 // 中止同 kill——不留孤儿（shell-orphan 红线）。JSON 事件流逐行解析。
 // ============================================================
@@ -127,8 +129,10 @@ export async function runRg(opts: RunRgOptions): Promise<RunRgResult> {
   if (rgPath === undefined) throw new Error('rg-not-available');
   const args: string[] = ['--json', '--hidden', '--no-ignore', '-e', opts.pattern];
   if (opts.fixed) args.push('-F');
-  for (const g of opts.excludeGlobs) args.push('--glob', g);
+  // cr-814：include glob 必须先于排除 glob 入参——rg --glob 后匹配者胜
+  //（gitignore 语义），include 在后会覆盖 !**/.git/** 等排除，SKIP_DIRS 泄漏。
   if (opts.includeGlob !== undefined) args.push('--glob', opts.includeGlob);
+  for (const g of opts.excludeGlobs) args.push('--glob', g);
   const isFile = fileExistsNonDir(opts.targetAbs);
   args.push(isFile ? opts.targetAbs : '.');
   return await new Promise<RunRgResult>((resolve, reject) => {

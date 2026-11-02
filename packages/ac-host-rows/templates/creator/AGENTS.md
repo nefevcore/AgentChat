@@ -1,0 +1,38 @@
+# AgentChat 插件开发指南
+
+你可以为本系统开发插件（运行时自开发自安装的动态插件）。核心闭环：开发 → register_plugin 试跑 → install_plugin 定型驻留。
+
+## 1. 开发
+- 插件目录建在你的沙箱 files/<你的id>/<插件名>/ 下，含 manifest.json + 入口文件（index.ts，TS 直跑无需构建）。
+- 起步照抄骨架：apps/catalog/templates/ 下有 tool-row（工具行）/ provider-row（LLM provider）/ event-row（事件行）三种模板，复制后全局替换 PLACEHOLDER-AGENTID 为你的 id。
+- manifest：必填 name（规约 <你的id>-<名>——内置注册名是保留字，工具/provider/Agent id 三面撞名 = 可诊断拒绝，带自己 id 前缀可避开）与 version（semver）；entry 缺省 index.ts；contracts / permissions / provides / rows 均可选。
+- permissions 词表：fs / network / process / shell / ui——fs / network 缺省授予，process / shell / ui 需显式声明；免审安装的授权面 = manifest 声明全集。
+- provides 形状：{ tools?, llmProviders?, events?, ui?, agents? }——装载后对账到注册面。
+- rows 是行集声明：[{ id, tools?, requires?, description? }]——id 为行 id（param-case），tools 列出本行工具名。install 后宿主把它物化进全局行集目录，新壳 boot 据此装载该插件。
+
+## 2. 试跑与定型
+- register_plugin：会话级试跑——装载进本壳进程，重启即失，不写安装态。
+- install_plugin：定型驻留——宿主写安装态 + 物化行集条目（新壳 boot 自动装载）；本壳内同时立即装载，装好即可测试。
+- unregister_plugin：缺省仅卸本壳会话级装载；removeFromLibrary=true 永久卸载（旧版本目录进 .backup）。
+- 三者都是上报意图、本轮对话收束后执行；结果以回执进入当前会话并自动触发下一轮，失败信息含修复方向。每轮只处理首个装载类中断（一轮只能装一件）。
+- 迭代铁律（无热重载）：改代码后 install 必先 bump manifest version（同 name+version 且内容一致 → 幂等；不一致 → 拒绝重装）；register 重装前先 unregister（同名已装载时再 register 幂等返回，不会重载新代码）。
+
+## 3. 装好之后（可见性）
+- 本壳注册面已含新工具：程序化模式会话经 run_code 子调用立即可测；直调面由你的行集点名决定（点名工具名或行 id 均可）——本模式行集是显式清单，新工具默认不在其中，交付时告知用户把它加进你的行集。
+- 新壳 boot：插件行已并入全局目录，行集点名含该行 id 才装配；行集缺省的 Agent 自动含基础行集，无需动作。
+
+## 4. 安全重启（需要时自主调用，勿用杀进程替代）
+你自带 restart_shell / restart_host——重启是「退出即复活」的无损重载原语，不是停机窗口：需要时自主发起，不必等用户动手，也不必担心影响正在用的服务（宿主只在 run 收束时写盘，不存在要抢的停机窗口）；直接杀进程会丢在途消息并触发崩溃熔断，禁止。
+- restart_shell：本轮 run 自然结束后重启本壳。调用后重启即排程、壳仍在运行（行集/内存本轮内不会更新）——立即停止不必要的工具调用、收尾给出终稿（写明进度与重启后的下一步，终稿是重启后的接力上下文）；宿主自动重拉，重启后收到「已重启」通知，按终稿继续、勿重做已完成步骤。同一轮只调一次。
+- restart_host：请求宿主优雅重启——本壳与当前 run 不受影响（模型调用不经过宿主），继续当前任务即可；webui 短暂断连，终稿在宿主恢复后送达。回执是壳侧送达确认（宿主退出后无法自回响应——后续若收到 crashed/超时类结果不等于失败，复活证据以回执给出的 healthz 探测地址 / host-facts.json pid 变化为准，勿盲猜端口）。
+- 典型场景：① 宿主侧代码重载——改了 packages/ 下宿主装载行（读面/行集/宿主侧服务）的源码后，宿主进程不热更新、测试全绿 ≠ 已生效，须 restart_host 加载新代码后再验证（改宿主代码 → 重启验证是常规链路，主动走、无需请示）；② 定型装载——install_plugin 成功且用户已把插件行加进你的行集 → 自主 restart_shell，新壳装配后插件工具进直调面，收到通知直接验证；③ 壳态自愈——工具行为或行集不可解释地异常，先排查，确诊壳内状态坏 → restart_shell；④ 宿主重载——宿主侧状态坏、宿主级行集目录/插件库变更需宿主重载 → restart_host。
+- 批处理/迁移不要指望宿主退出期间执行——应在宿主恢复静止后执行（无 hot journal / 在途 run 再动手）。
+
+## 5. 规约
+- 工具默认私有：requiredTags: [\"agent:<你的id>\"]（tool-row 模板 agentTool() helper 自动注入）——只有你能调；共享 = 他人显式在自己的 tags 加该标签。
+- 共享输出一律用 <tool-output plugin=\"<你的id>\">...</tool-output> 包裹（防注入对冲）；description 禁指令式措辞（它是他人模型可见的常驻 prompt 面）。
+- 事件行：waterfall 观察型监听必须 return next()（不调 = 静默吞掉下游默认行为）；不 provide agentLoop、不 emit loop/* 事件（usage 双记账）。
+- provider 行：复用 ac-openai-completions 纯库换 baseUrl，不手写协议；密钥读 process.env，不落 manifest（安装时会被复制进插件库）。
+
+## 6. 防线（了解即可）
+- 全部装卸进 plugins/audit.jsonl 审计；连续装载失败 3 次熔断（该插件行集条目剔除，复位 = bump version 重装）；已装目录被改动 → 拒载（hash 复验）。

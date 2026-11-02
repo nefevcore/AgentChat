@@ -7,7 +7,7 @@
   可选项由 previewModeOptions 能力检查先行过滤（该文件不允许的格式
   不出现在下拉里）。 -->
 <script setup lang="ts">
-import { computed, ref, onBeforeUnmount } from 'vue';
+import { computed, ref, onBeforeUnmount, onMounted } from 'vue';
 import { BusyRing, Icon, IconAction, Select, Tooltip, toastError } from '@agentchat/webui-kit';
 import {
   useFilePreviewContent,
@@ -16,7 +16,9 @@ import {
   PREVIEW_MODE_LABELS,
   type PreviewViewMode,
 } from './filePreviewContent.ts';
-import { openLocalFile } from './fileApi.ts';
+import { openLocalFile, openWith } from './fileApi.ts';
+import { useOpenWithMenu, optionsFor, effectiveMainChoice } from './openWithMenu.ts';
+import OpenWithButton from './OpenWithButton.vue';
 import OfficeView from './OfficeView.vue';
 import { useClientContext } from 'ac-client-runtime';
 
@@ -94,24 +96,40 @@ onBeforeUnmount(() => {
   invalidate(); // 作废在途请求
 });
 
-// ── 本地打开（系统默认程序）──
+// ── 本地打开（cr-829 升级「打开方式」：下拉选应用；首项 = 系统默认程序）──
 const rpc = useClientContext()?.rpc ?? null;
 const openLocalState = ref<'idle' | 'opening' | 'error'>('idle');
+const menu = useOpenWithMenu();
+onMounted(() => { if (rpc) void menu.load(rpc); });
+
+/** 菜单选项（文件目标；首项系统默认）与记住的选择回落 */
+const openOptions = computed(() => optionsFor('file', menu.targets.value));
+const chosenId = computed(() => effectiveMainChoice('file', menu.targets.value, menu.remembered.value));
 
 /** 失败经全局 toast 呈现（错误按钮仅标记位，title 兜底） */
 function flashOpenLocalError(msg: string) {
   openLocalState.value = 'error';
-  toastError(`本地打开失败：${msg}`, { key: 'open-local', duration: 4000 });
+  toastError(`打开失败：${msg}`, { key: 'open-local', duration: 4000 });
 }
 
-async function openLocally() {
+/** 弹层换默认应用（只持久化选择，不触发打开——dsh 分体语义） */
+function openWithChoice(id: string) {
+  menu.persistChoice(id);
+}
+
+async function doOpen(id: string) {
   if (!rpc || openLocalState.value === 'opening') return;
   openLocalState.value = 'opening';
   try {
-    const r = await openLocalFile(props.path, {
-      agentId: props.fallbackAgentId || undefined,
-      conversationId: props.conversationId || undefined,
-    }, rpc);
+    const r = id === ''
+      ? await openLocalFile(props.path, {
+          agentId: props.fallbackAgentId || undefined,
+          conversationId: props.conversationId || undefined,
+        }, rpc)
+      : await openWith(id, props.path, {
+          agentId: props.fallbackAgentId || undefined,
+          conversationId: props.conversationId || undefined,
+        }, rpc);
     if (r.error) flashOpenLocalError(r.error);
     else openLocalState.value = 'idle';
   } catch (err: any) {
@@ -148,30 +166,15 @@ async function openLocally() {
         <Tooltip v-if="wrapApplies" :text="wrap ? '自动换行：开 · 点击关闭' : '自动换行：关 · 点击开启'" placement="bottom">
           <IconAction icon="wrap-text" label="自动换行" :size="14" suppress-title :class="{ on: wrap }" @click="onToggleWrap" />
         </Tooltip>
-        <!-- 本地打开（系统默认程序；icon 按钮 + tooltip；失败经全局
-             toast 呈现，此处仅错误标记位） -->
-        <Tooltip
-          v-if="openLocalState !== 'error'"
-          :text="openLocalState === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
-          placement="bottom"
-        >
-          <IconAction
-            :icon="openLocalState === 'opening' ? 'loader-circle' : 'external-link'"
-            label="本地打开（系统默认程序）"
-            :size="14"
-            suppress-title
-            :class="{ spin: openLocalState === 'opening' }"
-            :disabled="openLocalState === 'opening'"
-            @click="openLocally"
-          />
-        </Tooltip>
-        <IconAction
-          v-else
-          icon="alert-circle"
-          label="本地打开失败（详见全局提示）"
-          :size="14"
-          class="error"
-          @click="openLocally"
+        <!-- 打开方式（cr-829 分体形态）：主按钮 = 用记住的应用立即打开；
+             箭头 = 换默认应用（不触发打开）。首项系统默认 = 原 open-local。 -->
+        <OpenWithButton
+          :options="openOptions"
+          :model-value="chosenId"
+          :state="openLocalState"
+          action="打开"
+          @open="doOpen(chosenId)"
+          @select="openWithChoice"
         />
         <Tooltip v-if="fileData && !fileData.binary" :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制内容'" placement="bottom">
           <IconAction

@@ -8,8 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context, Service, FiberStates, type Fiber } from '@agentchat/cordis';
 import { makeRestartRow } from '../src/restart.ts';
-import { listenIpc } from 'ac-post-office';
-import { socketPathFor } from 'ac-envelope-core';
+import { listenIpc, socketPathFor } from 'ac-envelope-core';
 
 const ROOT = path.resolve('sandbox', 'test-restart-' + process.pid);
 
@@ -86,11 +85,23 @@ describe('安全重启行（cr-629）', () => {
     try {
       const tool = h.tools.tools.get('restart_host')!;
       const call = { agentId: 'alpha', conversationId: 'c1' };
-      expect(((await tool.execute!({}, call)) as { ok: boolean }).ok).toBe(true);
+      // cr-806：数据根预置事实源 → 回执结构化（oldPid/webuiPort/healthzUrl）
+      fs.mkdirSync(path.join(ROOT, '.runtime'), { recursive: true });
+      fs.writeFileSync(path.join(ROOT, '.runtime', 'host-facts.json'),
+        JSON.stringify({ pid: 4321, port: 3830, bootAt: '2026-10-30T00:00:00Z' }), 'utf-8');
+      const receipt = await tool.execute!({}, call) as { ok: boolean; output?: { oldPid?: number; webuiPort?: number; healthzUrl?: string; ackBy?: string; note?: string } };
+      expect(receipt.ok).toBe(true);
+      expect(receipt.output).toMatchObject({ ackBy: 'shell', oldPid: 4321, webuiPort: 3830, healthzUrl: 'http://127.0.0.1:3830/api/healthz' });
+      expect(receipt.output!.note).toContain('壳侧送达确认');
       // 宿主换代：旧监听关闭（本壳持有的旧连接随旧宿主一起失效）→ 同地址新宿主接管
       await server.close();
       server = await listen();
-      expect(((await tool.execute!({}, call)) as { ok: boolean }).ok).toBe(true);
+      // cr-806：事实源缺席（换代窗口/旧宿主代）→ 回执降级（无 oldPid 但不失败、指引读日志）
+      fs.rmSync(path.join(ROOT, '.runtime', 'host-facts.json'), { force: true });
+      const degraded = await tool.execute!({}, call) as { ok: boolean; output?: { oldPid?: number; note?: string } };
+      expect(degraded.ok).toBe(true);
+      expect(degraded.output!.oldPid).toBeUndefined();
+      expect(degraded.output!.note).toContain('host-facts.json');
       expect(frames).toHaveLength(2);
     } finally {
       for (const f of h.fibers) if (f.uid !== null) await f.dispose();

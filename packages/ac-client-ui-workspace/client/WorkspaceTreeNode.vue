@@ -4,10 +4,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
-import type { TreeNode } from './workspaceTreeStore.ts';
+import { useWorkspaceTreeStore, type TreeNode } from './workspaceTreeStore.ts';
+import { extOf } from './workspaceTreeIcons.ts';
 
 // 递归自引用：通过 import 自身模块
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue';
+
+// 原生关联图标（cr-833）：store 全局共享（ext → dataURL；null = 无关联回落）
+const treeStore = useWorkspaceTreeStore();
 
 const props = defineProps<{
   node: TreeNode;
@@ -81,12 +85,25 @@ function getFileIcon(name: string): { icon: string; color: string } {
 }
 
 const fileIcon = computed(() => getFileIcon(props.node.name));
+
+/** 本节点 ext 的原生图标（undefined = 未加载/无扩展名 → 静态表；null = 无关联 → 静态表） */
+const nativeIcon = computed(() => {
+  if (props.node.type !== 'file') return undefined;
+  const ext = extOf(props.node.name);
+  return ext === null ? undefined : treeStore.extIcons[ext];
+});
+
+/** 目录行图标（HKCR\Directory 系统文件夹 dataURL——cr-834；null = folder 线性图标回落） */
+const dirIcon = computed(() => treeStore.dirIcon);
 </script>
 
 <template>
   <div class="wtn-node">
     <div v-if="node.type === 'dir'" class="wtn-row ui-row ui-row--tree wtn-dir" @click="onToggle">
-      <span class="wtn-icon"><Icon :name="isOpen ? 'folder-open' : 'folder'" :size="14" /></span>
+      <span class="wtn-icon">
+        <img v-if="dirIcon" :src="dirIcon" alt="" class="wtn-app-icon" draggable="false" />
+        <Icon v-else :name="isOpen ? 'folder-open' : 'folder'" :size="14" />
+      </span>
       <span class="wtn-name">{{ node.name }}</span>
     </div>
     <div
@@ -96,7 +113,10 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
       @click="emit('file-click', node, parentPath)"
       :title="full"
     >
-      <span class="wtn-icon" :style="fileIcon.color ? { color: fileIcon.color } : undefined"><Icon :name="fileIcon.icon" :size="14" /></span>
+      <span class="wtn-icon" :style="nativeIcon ? undefined : fileIcon.color ? { color: fileIcon.color } : undefined">
+        <img v-if="nativeIcon" :src="nativeIcon" alt="" class="wtn-app-icon" draggable="false" />
+        <Icon v-else :name="fileIcon.icon" :size="14" />
+      </span>
       <span class="wtn-name">{{ node.name }}</span>
     </div>
     <div v-else class="wtn-row ui-row ui-row--tree wtn-more"><span class="wtn-name">{{ node.name }}</span></div>
@@ -124,6 +144,8 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
 .wtn-dir { color: var(--text-1); font-weight: 500; }
 .wtn-file { color: var(--text-2); }
 .wtn-icon { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 16px; }
+/* 原生应用图标（提取端已缩 16px——owb-app-icon 同形态） */
+.wtn-app-icon { width: 16px; height: 16px; object-fit: contain; display: block; }
 .wtn-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .wtn-children { margin-left: 12px; border-left: 1px solid var(--line); padding-left: 4px; }
 .wtn-more { color: var(--text-3); font-style: italic; cursor: default; }

@@ -99,7 +99,8 @@ export async function runNativeOpen(
     try {
       child = spawn(command.cmd, command.args, {
         stdio: 'ignore',
-        windowsHide: true,
+        // windowsHide 禁用（cr-837 同款）：CREATE_NO_WINDOW 沿转发链继承会藏掉
+        // 目标 GUI 窗口（Store 版 notepad/explorer 桌面进程实测）；派发器无控制台可闪
         detached: true,
       });
     } catch (err) {

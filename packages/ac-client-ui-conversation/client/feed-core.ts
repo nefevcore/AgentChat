@@ -9,7 +9,7 @@
 // M27.2-2：rpc 传输参数化（RpcClientFace 契约面注入——包不 import
 // webui wire 胶水；onOpen 可选面 = 重连恢复链）。
 // ============================================================
-import { ref, computed, type ComputedRef } from 'vue';
+import { ref, computed, type ComputedRef, type Ref } from 'vue';
 import type { RpcClientFace } from 'ac-client-runtime';
 import type { ChatMessage, Turn } from './types.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
@@ -130,8 +130,17 @@ export function createFeedCore(
   const persistUnread = options.persistUnread === true;
   // ── State ──
   const dialogs = ref<Partial<Record<DialogId, DialogFeed>>>({});
-  /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算 */
-  const _version = ref<Record<DialogId, number>>({});
+  /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算。
+   *  per-dialog 独立 ref（cr-844）：单一 Record ref 时 bump 整对象替换会
+   *  把依赖「整本 _version」的所有分区 turns computed 一并弄脏——多会话
+   *  并行流式时，后台会话每个 delta 都触发活跃视图全列表签名重算（跨分区
+   *  放大 = 多开会话前端卡顿的根因）。字典化后 bump 只失效本分区。 */
+  const _version = new Map<DialogId, Ref<number>>();
+  function versionOf(id: DialogId): Ref<number> {
+    let v = _version.get(id);
+    if (!v) { v = ref(0); _version.set(id, v); }
+    return v;
+  }
 
   // ── 未读持久化（persistUnread 开时生效）：工厂期水合 + 变更写穿 ──
   // 水合：恢复的分区只设 unread（不动 rawMessages/status——历史仍懒加载，
@@ -318,7 +327,7 @@ export function createFeedCore(
     return dialogs.value[id]!;
   }
   function bump(id: DialogId) {
-    _version.value = { ..._version.value, [id]: (_version.value[id] ?? 0) + 1 };
+    versionOf(id).value += 1;
     // 活动 ↔ 存活信号（cr-107 悬挂流探针）：分区任何变更刷新基线；流式中
     // 的分区顺手挂探针（懒启动——每分区至多一个在途，fire 后按需重排）。
     // 在途判据与 runInFlight 同口径（cr-763）：占位在场即 run 在途——
@@ -350,7 +359,7 @@ export function createFeedCore(
     let c = _turnsCache.get(id);
     if (!c) {
       c = computed<Turn[]>(() => {
-        void _version.value[id];
+        void versionOf(id).value; // 依赖登记：仅本分区版本（跨分区 bump 不失效——cr-844）
         const d = dialogs.value[id];
         if (!d) return [];
         // run 级流式态参与派生（d.streaming 跨步边界不熄灭，覆盖步间
@@ -2070,7 +2079,7 @@ export function createFeedCore(
   /** 机制通知上屏（source='event' 入站——message-received 空闲路径与
    *  steered 忙路径共用）：系统事件行（分隔符渲染），与落盘 role:'event' /
    *  刷新历史同形。群分区同样不进（内容源 = post 行；群历史无 event 行）。 */
-  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string, injectSource?: string): void {
+  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string, injectSource?: string, injectBytes?: number, payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' }): void {
     const keys = routeDialog(agent, conversationId, agent);
     if (!keys) return;
     const dialogId = keys.dialogId;
@@ -2083,8 +2092,11 @@ export function createFeedCore(
       id: anchor ?? uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
       ...(anchor !== undefined ? { persistedMsgId: anchor } : {}),
       // 注入型行（source 非机制词）挂 source meta（2026-09-26 注入卡）：
-      // useTurnDisplayItems 读 kind 判卡片化 + 挂轮
+      // useTurnDisplayItems 读 kind 判卡片化 + 挂轮；bytes/payload 随行
+      //（cr-765 #4/#5：载入态与问答卡数据面）
       ...(injectSource !== undefined ? { source: { kind: injectSource, summary: '' } as never } : {}),
+      ...(injectBytes !== undefined ? { injectBytes } : {}),
+      ...(payload !== undefined ? { payload } : {}),
     });
     touch(dialogId, 'system', content, Date.now());
     bump(dialogId);
@@ -2149,6 +2161,17 @@ export function createFeedCore(
         const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys || !isForCurrentUser(keys)) return;
         noteStreamAgent(keys);
+        // run 级流式态重点亮（cr-802 光环偶发消失根修）：delta 到达 = run
+        // 确凿在流。断连 onOpen 清场 / 前端刷新撞边界帧丢失 / 发送看门狗
+        // 误判回落之后，此前只等 run-started/step-started 重建分区态——新
+        // 架构 B3 旁带为瞬态语义，run 边界帧一丢即无帧可落，光环熄到收束。
+        // delta 是最高频最确凿的在场证据，路由成功即点亮（幂等）；收束仍归
+        // 自然收束步/after-run/onOpen——边界语义不变。
+        const d = ensureById(keys.dialogId);
+        if (!d.streaming) {
+          d.streaming = true;
+          bump(keys.dialogId);
+        }
         const st = streamOf(streams, keys.dialogId);
         // 身份贯通：stepId/runId 提取（旧后端帧缺席 → undefined，回落启发式）
         const stepKeys = stepKeysOf({
@@ -2442,10 +2465,13 @@ export function createFeedCore(
         // toHistoryMessages 的 r.label ?? r.content 同源同形（2026-09-21 前端
         // 反馈：此前 skill 行再拼「已注入技能上下文：」前缀，落账 label 本身
         // 已是完整文案，流式与刷新文本不一致）；label 缺席回落摘要词。
-        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown; injectionId?: unknown } | undefined];
+        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown; injectionId?: unknown; bytes?: unknown; payload?: unknown } | undefined];
         if (!conversationId) return;
         const source = typeof meta?.source === 'string' ? meta.source : '';
         const label = typeof meta?.label === 'string' && meta.label ? meta.label : '';
+        // 轻量 meta（cr-765 #4/#5）：bytes = 载入态显示；payload = 问答卡数据面
+        const injectBytes = typeof meta?.bytes === 'number' && meta.bytes > 0 ? meta.bytes : undefined;
+        const payload = (meta?.payload && typeof meta.payload === 'object' ? meta.payload : undefined) as { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } | undefined;
         const text = label || (source === 'skill' ? '已注入技能上下文' : '已注入上下文');
         // injectionId（注入身份键）：直播行带锚——与刷新后的活投影行/提升行
         // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
@@ -2453,7 +2479,7 @@ export function createFeedCore(
         // 注入型行（source 非机制词）带 source 挂直播行（2026-09-26 注入卡）：
         // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——延迟重拉补：cr-767
         // 修复前 run 存续期间直播卡恒裸 label 无从展开，收束重拉对长 run 迟到）。
-        showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined);
+        showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined, injectBytes, payload);
         // 注入落账即调度延迟重拉（500ms，cr-767）：权威行带 contextContent，与
         // 直播行同锚合并（吸收语义）后卡片即可展开。与 settlement 重拉共用同一
         // 函数（指纹短路 + requestId 守卫天然幂等，不产生风暴）。

@@ -72,7 +72,7 @@ interface ConversationLike {
  * 缺席，跨 run 语义丢失；见 idle 监听器注释）。
  */
 interface SessionLike {
-  recordContext(conversationId: string, agentId: string, content: string, extra: { source: string; label?: string }): string;
+  recordContext(conversationId: string, agentId: string, content: string, extra: { source: string; label?: string; payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } }): string;
 }
 
 /**
@@ -103,6 +103,22 @@ export function answerNotice(record: DurableInteraction): string {
     return `- ${label}: ${formatAnswer(answers[i])}`;
   });
   return `[系统通知] 你此前发起的提问（interaction ${record.id}）已收到用户回答：\n${lines.join('\n')}\n请基于以上回答继续之前的任务。`;
+}
+
+/** 交互记录 → 问题列表（问答卡 Q 段数据面——cr-765 #4） */
+function askQuestionsOf(record: DurableInteraction): Array<{ question: string; options?: string[]; multi?: boolean }> {
+  const payload = record.payload as { questions?: Array<{ question: string; options?: string[]; multi?: boolean }> } | null;
+  return Array.isArray(payload?.questions) ? payload!.questions! : [];
+}
+
+/** 交互记录 → 问答卡结构化载荷（Q + A + 终态——正文仍单源 answerNotice） */
+function askPayload(record: DurableInteraction, outcome: 'answered' | 'timeout'): { questions: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome: 'answered' | 'timeout' } {
+  const answer = record.answer as { answers?: Array<string | string[] | null> } | null;
+  return {
+    questions: askQuestionsOf(record),
+    ...(Array.isArray(answer?.answers) ? { answers: answer!.answers } : {}),
+    outcome,
+  };
 }
 
 /** 发起时给会话流看的展示文本（context 行正文——UI 按 source 呈现，LLM 回放 user 语义位） */
@@ -204,6 +220,8 @@ export function apply(ctx: Context) {
         session.recordContext(entry.conversationId, entry.agent, answerNotice(record), {
           source: 'durable-interaction',
           label: '已收到用户回答',
+          // 问答卡数据面（cr-765 #4）：Q/A 结构化——UI 分 Q/A 段渲染
+          payload: askPayload(record, 'answered'),
         });
       } catch (err) {
         ctx.logger.warn(`[ask-questions] 答案 context 行落账失败（${record.id}）: ${String(err)}`);
@@ -301,6 +319,7 @@ export function apply(ctx: Context) {
           // label = UI 文案（流式 session/context-injected 事件与刷新历史
           // 两路径同源直出——正文整段对事件分隔行过长）
           label: settled[i].outcome === 'answered' ? '已收到用户回答' : '提问未获响应',
+          payload: settled[i].outcome === 'answered' ? askPayload(settled[i].record, 'answered') : { questions: askQuestionsOf(settled[i].record), outcome: 'timeout' },
         });
       } catch (err) {
         ctx.logger.warn(`[ask-questions] 答案 context 行落账失败（${settled[i].record.id}）: ${String(err)}`);
@@ -481,6 +500,7 @@ export function apply(ctx: Context) {
             // label = UI 文案（流式事件与刷新历史两路径同源直出——正文整段
             // 对事件分隔行过长）。
             label: '已发起提问，等待用户回答',
+            payload: { questions: qs },
           });
         } catch (err) {
           ctx.logger.warn(`[ask-questions] context 行落账失败（${record.id}）: ${String(err)}`);

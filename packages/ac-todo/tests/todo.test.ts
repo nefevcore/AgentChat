@@ -5,7 +5,7 @@
 // · write 整表全量重写 / read 查看（经 ctx.tools.execute 真注册面）
 // · action 缺省推定（带 todos = write——程序化直传漏 action 实测高频）
 // · 桶隔离（conversationId ?? agentId——桶互不串扰）
-// · 域校验（非数组 / 空条目 / 非法 status / 上限 / 缺身份）
+// · 域校验（非数组 / 空条目 / 非法 status / 上限 / in_progress 至多 1 / 缺身份）
 // · agentStore 落盘形状；卸载级联回收工具
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -26,7 +26,7 @@ class MemoryAgentStore extends Service {
   }
 }
 
-interface TodoOut { count?: number; todos?: Array<{ content: string; status: string }>; message?: string }
+interface TodoOut { count?: number; todos?: Array<{ content: string; status: string }>; summary?: string }
 interface ExecRes extends ToolResult { output?: TodoOut }
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -56,7 +56,7 @@ afterEach(async () => {
 });
 
 describe('todo 工具 · write/read 全链路', () => {
-  it('write 整表重写 → read 回读一致；message 含进行中计数', async () => {
+  it('write 返回计数摘要（无整表回显）→ read 回读全量一致', async () => {
     const ctx = await boot();
     const w = await exec(ctx, { action: 'write', todos: [
       { content: '写测试', status: 'in_progress' },
@@ -64,7 +64,8 @@ describe('todo 工具 · write/read 全链路', () => {
     ] }, { agentId: 'a1', conversationId: 'c1' });
     expect(w.ok).toBe(true);
     expect(w.output?.count).toBe(2);
-    expect(w.output?.message).toContain('进行中 1');
+    expect(w.output?.summary).toBe('0/2 已完成，1 进行中');
+    expect(w.output?.todos).toBeUndefined(); // write 不回显整表——read 才是读通道
 
     const r = await exec(ctx, { action: 'read' }, { agentId: 'a1', conversationId: 'c1' });
     expect(r.ok).toBe(true);
@@ -77,7 +78,8 @@ describe('todo 工具 · write/read 全链路', () => {
     const ctx = await boot();
     const w = await exec(ctx, { action: 'write', todos: [{ content: '  任务  ' }] }, { agentId: 'a1' });
     expect(w.ok).toBe(true);
-    expect(w.output?.todos?.[0]).toEqual({ content: '任务', status: 'pending' });
+    const r = await exec(ctx, { action: 'read' }, { agentId: 'a1' });
+    expect(r.output?.todos?.[0]).toEqual({ content: '任务', status: 'pending' });
   });
 
   it('空数组 = 清空清单（read 回到 0 条）', async () => {
@@ -85,7 +87,7 @@ describe('todo 工具 · write/read 全链路', () => {
     await exec(ctx, { action: 'write', todos: [{ content: 'x' }] }, { agentId: 'a1', conversationId: 'c1' });
     const w = await exec(ctx, { action: 'write', todos: [] }, { agentId: 'a1', conversationId: 'c1' });
     expect(w.ok).toBe(true);
-    expect(w.output?.message).toBe('清单已清空');
+    expect(w.output?.summary).toBe('清单已清空');
     const r = await exec(ctx, { action: 'read' }, { agentId: 'a1', conversationId: 'c1' });
     expect(r.output?.count).toBe(0);
   });
@@ -161,6 +163,29 @@ describe('todo 工具 · 域校验与边界', () => {
     const r = await exec(ctx, { action: 'write', todos: [{ content: 'x', status: 'done' }] }, { agentId: 'a1' });
     expect(r.ok).toBe(false);
     expect(r.error).toContain('done');
+  });
+
+  it('cancelled 第四态：写入/回读/摘要计数（不再相关 ≠ completed ≠ 删除）', async () => {
+    const ctx = await boot();
+    const w = await exec(ctx, { action: 'write', todos: [
+      { content: '做完的', status: 'completed' },
+      { content: '不再做', status: 'cancelled' },
+      { content: '继续的' },
+    ] }, { agentId: 'a1', conversationId: 'c1' });
+    expect(w.ok).toBe(true);
+    expect(w.output?.summary).toBe('1/3 已完成，1 已取消');
+    const r = await exec(ctx, { action: 'read' }, { agentId: 'a1', conversationId: 'c1' });
+    expect(r.output?.todos?.[1]).toEqual({ content: '不再做', status: 'cancelled' });
+  });
+
+  it('in_progress 超过 1 项 → 报错（at-most-one 代码级强制）', async () => {
+    const ctx = await boot();
+    const r = await exec(ctx, { action: 'write', todos: [
+      { content: '甲', status: 'in_progress' },
+      { content: '乙', status: 'in_progress' },
+    ] }, { agentId: 'a1' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('in_progress');
   });
 
   it('超 50 条上限 → 报错', async () => {

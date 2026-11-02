@@ -12,7 +12,7 @@ import { makeEnvelope, socketPathFor, type Envelope } from 'ac-envelope-core';
 import { ConversationRegistry, ReachabilityTable } from '../src/registry.ts';
 import { routeEnvelope, inboxDecision } from '../src/router.ts';
 import { Outbox } from '../src/outbox.ts';
-import { listenIpc, IpcClient } from '../src/ipc.ts';
+import { listenIpc, IpcClient } from 'ac-envelope-core';
 import { PostOffice } from '../src/post-office.ts';
 
 const ROOT = path.join('sandbox', 'test-po-' + process.pid);

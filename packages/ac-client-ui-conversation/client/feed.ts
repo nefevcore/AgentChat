@@ -202,12 +202,17 @@ function isInjectEvent(m: ChatMessage): boolean {
   return !!kind && kind !== 'event' && kind !== 'error';
 }
 
-/** 注入 event 消息 → 注入卡（afterStep 由调用方按挂靠时刻补） */
+/** 注入 event 消息 → 注入卡（afterStep 由调用方按挂靠时刻补）。
+ *  agent_id 透传（cr-765 #6）：注入行自带归属——挂轮按 agent 归属匹配，
+ *  而非「当前 cur 是哪个」（群聊/多 agent 会话注入曾被挂到别人的轮上）。 */
 function toInjectCard(m: ChatMessage): InjectCard {
   return {
     label: m.content || m.source?.summary || '',
     ...(m.contextContent !== undefined ? { content: m.contextContent } : {}),
     ...(m.source?.kind !== undefined ? { kind: m.source.kind as string } : {}),
+    ...(m.agent_id ? { agent_id: m.agent_id } : {}),
+    ...(m.payload !== undefined ? { payload: m.payload } : {}),
+    ...(m.injectBytes !== undefined ? { bytes: m.injectBytes } : {}),
     ts: m.timestamp,
     key: `inj-${m.id}`,
   };
@@ -347,13 +352,19 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
     if (isEventMsg && isInjectEvent(msg)) {
       // cur 在场（注入时刻有进行中/已收束的 agent 轮）→ 原位挂入：
       // afterStep = 已积步数（消息序 = ts 序——历史路径 toHistoryMessages
-      // 已稳定排序；直播路径 append 尾部即当前轮），挂靠时刻即落盘位
-      if (cur && cur.agent_id !== VIEWER_ID.value) {
-        curInjects.push({ ...toInjectCard(msg), afterStep: cur.turns.length });
+      // 已稳定排序；直播路径 append 尾部即当前轮），挂靠时刻即落盘位。
+      // 归属匹配（cr-765 #6）：注入行自带 agent_id 时只挂同归属轮——
+      // 群聊/多 agent 会话里「cur 是谁」≠「注入给谁」。
+      const card = toInjectCard(msg);
+      const curOwner = cur && cur.agent_id !== VIEWER_ID.value ? cur : null;
+      // 归属可挂：无归属标记（agent_id 缺席）或 'system'（直播行恒系值——
+      // showEventNotice 写死，不代表归属）或与轮主同归——只拦真归属异轮
+      const ownedByCur = !card.agent_id || card.agent_id === 'system' || card.agent_id === curOwner?.agent_id;
+      if (curOwner && ownedByCur) {
+        curInjects.push({ ...card, afterStep: curOwner.turns.length });
       } else {
-        // cur 为空 / viewer 轮在场（pre-run 手势注入落在用户消息后）→
-        // 暂存挂下一 agent 轮头部
-        pendingInjects.push(toInjectCard(msg));
+        // cur 为空 / viewer 轮 / 归属不匹配 → 暂存挂下一同归属 agent 轮头部
+        pendingInjects.push(card);
       }
       continue;
     }
@@ -409,9 +420,15 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         flush();
         cur = { agent_id: senderId, turns: [] };
         // 暂存注入卡落地：本轮即其服务对象（注入行在本轮之前落账——
-        // pre-run 手势注入 / 前一轮结束后的收束注入），挂头部 afterStep=0
+        // pre-run 手势注入 / 前一轮结束后的收束注入），挂头部 afterStep=0。
+        // 归属匹配（cr-765 #6）：只落同归属（或无归属/system 标记）的注入卡
         if (pendingInjects.length && senderId !== VIEWER_ID.value) {
-          curInjects = pendingInjects.splice(0).map((c) => ({ ...c, afterStep: 0 }));
+          const ownable = (c: InjectCard) => !c.agent_id || c.agent_id === 'system' || c.agent_id === senderId;
+          const mine = pendingInjects.filter(ownable);
+          if (mine.length) {
+            pendingInjects.splice(0, pendingInjects.length, ...pendingInjects.filter((c) => !ownable(c)));
+            curInjects = mine.map((c) => ({ ...c, afterStep: 0 }));
+          }
         }
       }
       afterSolo = solo;
@@ -463,10 +480,19 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   // thinking token 未到时（空占位被跳过），末尾轮仍是用户轮——不得悬置
   // 用户消息的 final（否则用户气泡误走 assistant 分支）
   flush(streaming && !!cur && cur.agent_id !== VIEWER_ID.value);
-  // 无轮可挂的注入卡（前后皆非 agent 轮）：合成 system 空轮承载——
-  // useTurnDisplayItems 转独立降级卡 item
+  // 无轮可挂的注入卡处置（cr-765 #6）：尾挂优先——最后一条在场是
+  // agent 轮时挂其尾部（afterStep = steps.length，链尾注入不再降级成
+  // 独立卡割裂读序：run 收束后的 after-run 兜底落账、收束后记忆写入
+  // 等常见形态）；仅「整个会话无任何 agent 轮」（首条即注入）保留降级
+  // system 空轮（useTurnDisplayItems 转独立卡）。
   if (pendingInjects.length) {
-    allTurns.push({ agent_id: 'system', steps: [], final: null, injects: pendingInjects });
+    const lastTurn = allTurns.length > 0 ? allTurns[allTurns.length - 1]! : null;
+    if (lastTurn !== null && lastTurn.agent_id !== 'system' && lastTurn.agent_id !== VIEWER_ID.value && lastTurn.steps.length) {
+      const tail = lastTurn.injects ?? [];
+      lastTurn.injects = [...tail, ...pendingInjects.map((c) => ({ ...c, afterStep: lastTurn.steps.length }))];
+    } else {
+      allTurns.push({ agent_id: 'system', steps: [], final: null, injects: pendingInjects });
+    }
   }
   return allTurns;
 }

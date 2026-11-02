@@ -44,7 +44,7 @@ export {
   DurableInteractionSerializationError,
   DurableInteractionCorruptionError,
 } from './types.ts';
-export { MemoryDurableInteractionStore, JsonlDurableInteractionStore } from './store.ts';
+export { MemoryDurableInteractionStore, JsonlDurableInteractionStore, ReadOnlyJsonlDurableInteractionStore } from './store.ts';
 export type { JsonlDurableInteractionStoreOptions } from './store.ts';
 export { DurableInteractionService } from './service.ts';
 export type { DurableInteractionConfig } from './service.ts';

@@ -11,8 +11,10 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { socketPathFor } from 'ac-envelope-core';
+import { writeRecipe } from 'ac-supervisor-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
+import { DOC_NAME, readTemplate, materializeConfigOf, PRESET_ID, templateFingerprint, originOf, writeOrigin, type AgentTemplate } from 'ac-host-rows';
 import { resolveAnchors } from './anchors.ts';
 import { hostLog } from './host-log.ts';
 
@@ -37,30 +39,27 @@ export interface SpawnFn {
   };
 }
 
-/** 预设身份词形（__<template_key>__ = 内置模板键） */
-const PRESET_ID = /^__([a-z0-9-]+)__$/;
-
 /** 内置模板目录（cr-702：随宿主锚走——bundle〔AGENTCHAT_HOME/templates〕/ 仓库双形态） */
 const TEMPLATE_DIR = resolveAnchors(path.dirname(fileURLToPath(import.meta.url))).templatesDir;
 
 /**
- * 预设身份物化配置（cr-615）：模板 config 剥 preset 与模板自身 id 后改写
- * id（同 agents 行 transientConfigOf 口径）——预设身份与出厂模板同源，不走
- * 裸 {id} 兜底（裸兜底 = 基础壳行集 90 工具词，非模板行全集）。非预设身份
- * 或模板缺席 = undefined。
+ * 预设身份模板读取（cr-615/cr-812）：config + 自带文档全量。非预设身份或
+ * 模板缺席 = undefined。
  */
-function presetConfigOf(agentId: string): Record<string, unknown> | undefined {
+function presetTemplateOf(agentId: string): AgentTemplate | undefined {
   const key = PRESET_ID.exec(agentId)?.[1];
   if (key === undefined) return undefined;
-  try {
-    const template = JSON.parse(
-      fs.readFileSync(path.join(TEMPLATE_DIR, key, 'config.json'), 'utf-8'),
-    ) as Record<string, unknown>;
-    const { preset: _preset, id: _templateId, ...body } = template;
-    return { ...body, id: agentId };
-  } catch {
-    return undefined;
-  }
+  return readTemplate(key, TEMPLATE_DIR) ?? undefined;
+}
+
+/**
+ * 预设身份物化配置：模板剥除词法单源 materializeConfigOf（cr-812 三处并源）
+ * ——预设身份与出厂模板同源，不走裸 {id} 兜底（裸兜底 = 基础壳行集 90 工具
+ * 词，非模板行全集）。
+ */
+function presetConfigOf(agentId: string): Record<string, unknown> | undefined {
+  const template = presetTemplateOf(agentId);
+  return template === undefined ? undefined : materializeConfigOf(template.config, agentId) as unknown as Record<string, unknown>;
 }
 
 /** 品牌单映像 exe（cr-620/624：bin/AgentChat.exe——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）。
@@ -217,7 +216,7 @@ export async function adoptShell(
   // --no-warnings（cr-742 控制台格式化）：消 strip-types ExperimentalWarning
   // ——每次壳 boot 固定两行（warning + trace 提示），无诊断价值纯噪音；
   // 壳自身业务错误不受影响（stderr 其余行照常转发）。
-  const proc = spawnFn(AGENTCHAT_EXE, [
+  const shellArgs = [
     '--no-warnings',
     '--experimental-strip-types',
     input.bootFile,
@@ -228,7 +227,22 @@ export async function adoptShell(
     ...(input.postOffice !== undefined ? ['--post-office', input.postOffice.listeningAddress] : []),
     ...(input.hostBoot !== undefined ? ['--host-boot', input.hostBoot] : []),
     ...(input.hostPort !== undefined ? ['--host-port', String(input.hostPort)] : []),
-  ], { onStderrLine: (line) => reportStderr(line) });
+  ];
+  // 配方盘面（cr-859 §五.1）：拉壳 argv 单源落盘——填 cr-648 监护真空
+  // （宿主换代后壳的重启知识只在旧宿主内存）。写失败不反噬拉起
+  // （盘面退化 = 该配方缺席，恢复执行者回落自身知识）。
+  try {
+    writeRecipe(path.resolve(input.dataRoot), {
+      id: 'shell:' + input.agentId,
+      boot: { cmd: AGENTCHAT_EXE, args: shellArgs },
+      policy: 'business',
+      residency: 'on-demand',
+      owner: 'supervisor',
+      mode: 'authoritative',
+      writtenAt: new Date().toISOString(),
+    });
+  } catch { /* 盘面退化不反噬拉起链 */ }
+  const proc = spawnFn(AGENTCHAT_EXE, shellArgs, { onStderrLine: (line) => reportStderr(line) });
   const timeout = input.timeoutMs ?? 15_000;
   const deadline = Date.now() + timeout;
   // agent 配置预置（壳 boot 读 AgentConfig）——编排面确保在场
@@ -237,10 +251,24 @@ export async function adoptShell(
   const configFile = path.join(agentDir, 'config.json');
   if (!fs.existsSync(configFile)) {
     // 预设身份（__<template_key>__）→ 出厂模板物化（tools/description 等
-    // 全量写入，preset 剥除）；其余身份只写 id：model 缺省由壳侧按全局池
-    // 默认连接回落（cr-561——此前写死 'mock' 让新 agent 一定跑在 mock
-    // 模型上，正式宿主无该 provider）
-    fs.writeFileSync(configFile, JSON.stringify(presetConfigOf(input.agentId) ?? { id: input.agentId }), 'utf-8');
+    // 全量写入，preset 剥除）+ origin 指纹记录（cr-812 copy-on-write 升级
+    // 通路：未编辑自动跟随模板新版）；其余身份只写 id：model 缺省由壳侧按
+    // 全局池默认连接回落（cr-561——此前写死 'mock' 让新 agent 一定跑在
+    // mock 模型上，正式宿主无该 provider）
+    const template = presetTemplateOf(input.agentId);
+    const config = template === undefined
+      ? { id: input.agentId }
+      : presetConfigOf(input.agentId) as Record<string, unknown>;
+    fs.writeFileSync(configFile, JSON.stringify(config), 'utf-8');
+    if (template !== undefined) {
+      // 模板自带 .md 文档随物化落地（cr-810 人设载体；skip-if-present——
+      // 已存在不覆盖，用户编辑优先，与 config 兜底写同语义）
+      const docs = (template.docs ?? []).filter((d) => !fs.existsSync(path.join(agentDir, d.name)));
+      for (const doc of docs) fs.writeFileSync(path.join(agentDir, doc.name), doc.content, 'utf-8');
+      const presetKey = PRESET_ID.exec(input.agentId)![1];
+      writeOrigin(input.dataRoot, input.agentId,
+        originOf(presetKey, templateFingerprint(template), config as never, docs));
+    }
   }
   // 持续订阅面（cr-550 常驻监护）：adopted 后 stdout 行继续分发（心跳/
   // run 节拍/插件装载失败回报），exit 转发订阅方。单订阅——后注册覆盖。
@@ -286,8 +314,12 @@ export async function adoptShell(
         // adopt deadline 只辖拉起窗（cr-580 根因修复：此前 adopted 后仍检查，
         // 15s 后下一行 stdout 即退出本循环——ctrl.done/心跳行永无人分发，
         // 控制帧恒 60s 超时、监护面失流。adopted 后循环必须常驻。）
+        // cr-805：超时即杀拉起中进程——壳在 boot 早期已持有 activation.lock，
+        // 留活 = 幽灵持有者（无人监护、单例语义拒绝一切重拉，直到 15min idle
+        // 自杀；冷启 boot 慢场景曾批量产生，与 2s 控制帧轮询叠加成 spawn 风暴）。
         if (!settled && Date.now() > deadline) {
-          reject(new Error('adopt 超时（' + timeout + 'ms）'));
+          proc.kill();
+          reject(new Error('adopt 超时（' + timeout + 'ms）——已终止拉起中的壳进程'));
           return;
         }
         if (settled) {

@@ -48,6 +48,27 @@ describe('markdownPreviewDoc', () => {
   it('空正文 → 空串（组件分支回落 loading/空态）', () => {
     expect(markdownPreviewDoc('')).toBe('');
   });
+
+  // cr-838：正文裸 <script 中和——srcdoc 文档被浏览器当真 HTML 解析，未闭合
+  // 开标签会把余下整篇文档吞进脚本体（中文即非法 token → SyntaxError +
+  // 预览在提及处截断）；html:true 渲染的散文提及（不在 code 内）原样落地。
+  it('正文成对 script 整体剥除（含内嵌代码体）', () => {
+    const doc = markdownPreviewDoc('<p>a</p><script>alert(1)</scr' + 'ipt><p>b</p>');
+    expect(doc).toContain('<p>a</p>');
+    expect(doc).toContain('<p>b</p>');
+    expect(doc).not.toContain('alert(1)');
+  });
+  it('正文落单开标签（prose 提及 <script setup> 形）剥除——吞文档根因', () => {
+    const doc = markdownPreviewDoc('<p>在 <script setup> 内、每实例一份</p>');
+    expect(doc).toContain('在  内');
+    expect(doc).not.toMatch(/<script(?![^>]*src=)/);
+  });
+  it('正文落单闭标签剥除', () => {
+    const doc = markdownPreviewDoc('<p>x</p></scr' + 'ipt>');
+    // 正文闭标签剥除后紧跟 div 收口（文档内唯一 </script> = 壳自带外链复制脚本）
+    expect(doc).toContain('<p>x</p></div>');
+    expect(doc.match(/<\/script/g)?.length).toBe(1);
+  });
 });
 
 describe('renderTrusted（renderer 受信实例）', () => {

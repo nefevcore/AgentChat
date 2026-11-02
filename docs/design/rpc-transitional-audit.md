@@ -11,8 +11,8 @@
 
 | 类 | 数量 | 性质 | 优先级 |
 |---|---|---|---|
-| A. 前端死链（调用无注册） | 6 方法 | **功能缺陷**——旧主线 `src/ac-web-api` 有、新宿主未移植、前端留软兜底或无兜底 | P0/P1 |
-| B. 后端空桩（注册返回空） | 3 方法 | 自认待接入的占位 | P1/P2 |
+| A. 前端死链（调用无注册） | 5 方法（A3 已接真，cr-826） | **功能缺陷**——旧主线 `src/ac-web-api` 有、新宿主未移植、前端留软兜底或无兜底 | P0/P1 |
+| B. 后端空桩（注册返回空） | 1 方法（B1/B2 已接真，cr-826；余 tags/catalog B3） | 自认待接入的占位 | P1/P2 |
 | C. fail-loud 错位（占位合法、前端未换面） | 8 方法 | 语义终态 vs 旧 UI 残留 | P0（换面） |
 | D. 逻辑级过渡（近似判定） | 1 处 | 注释前提已过时、算法可升级 | P2 |
 | E. 注释级 stale（主线/preview 词汇失义） | ~28 文件 | 可读性债务 | P2 |
@@ -27,7 +27,7 @@
 |---|---|---|---|---|---|
 | A1 | `plugin/loaded` | `ac-client-ui-plugin-registry/client/pluginApi.ts:43`（getCatalog 五源合成之一）、`:298`（getSessionPlugins） | **无**（getCatalog 的 Promise.all 整体 reject） | 插件面板「工具/扩展目录」视图恒空、会话插件区恒空 | P0：目录合成改 `plugin/catalog` 单源；会话插件改壳内 plugin-dev 面或补注册 |
 | A2 | `system/restart` | `ac-client-ui-settings/client/useSettings.ts:97`（SettingsPanel.vue:168 重启按钮） | `.catch(()=>undefined)` fire-and-forget | **重启按钮静默无效** | P0：注册真实现（宿主 graceful 重启语义已有——restart_host 同源）或摘除按钮 |
-| A3 | `events/policy-list` | `ac-client-ui-settings/client/api.ts:286` | `.catch` 空对象 | 治理停用集视图恒空（写面 policy-set 真实存在，读不回来） | P1：补读面透传（EventPolicyService 已有状态，一行直通） |
+| A3 | ~~`events/policy-list`~~ ✅cr-826 | `ac-client-ui-settings/client/api.ts:286` | `.catch` 空对象 | ~~治理停用集视图恒空~~ 已接真（EventPolicyService.disabledKeys + 两树 live 交叉） | 已落地 |
 | A4 | `plugin/dep-graph` | pluginApi.ts:367 | `.catch` 空 | 反依赖图恒空（注释自认「旧后端无此面 → 容忍为空」） | P1：补注册（ac-rowset-core 有 requires 闭包数据）或前端裁剪 |
 | A5 | `plugin/dev-scan` | pluginApi.ts:152 | `.catch` 空 | dev 插件扫描区恒空 | P2：随目录面重构一并处置 |
 | A6 | `plugin/extension-catalog` | pluginApi.ts:49 | `.catch` 空 | 扩展配置弹窗数据源恒空 | P2：补聚合注册（`ac-extension-core` 声明扫描机制已就位——各行包 `export const extension: ExtensionMeta` 自述都在）或裁剪 |
@@ -38,8 +38,8 @@
 
 | # | 方法 | 位置 | 声明的原因 | 处置建议 |
 |---|---|---|---|---|
-| B1 | `events/listeners` | :334 | 「宿主侧不做行包自述聚合——待**事件目录数据化**批接入，避免半真数据」 | P1：与 A3/A6 合并为「事件/扩展目录数据化」一批——扫描 `runtime.callback.extension` + EventPolicyService aggregate.ts（`computeRowAglegates` 已导出但零消费方） |
-| B2 | `events/descriptions` | :335 | 同上 | 同上 |
+| B1 | ~~`events/listeners`~~ ✅cr-826 | :377 | ~~「宿主侧不做行包自述聚合」~~ | 已落地：tool-catalog.json 生成器扩展（bootShell 真装配 dump _hooks 注册面 + computeRowAggregates 聚合行名）∪ 宿主树活态并集 |
+| B2 | ~~`events/descriptions`~~ ✅cr-826 | :378 | ~~同上~~ | 已落地：行包顶层 `extension.listeners` 声明目录（生成器按 row path 动态 import 收集） |
 | B3 | `tags/catalog` | :156 | tag 机制已解体（恒 `{tags: []}`） | P2：与前端消费面一并退役——`ac-client-ui-agents/client/rosterApi.ts:225`（调用+TagCatalogItem 词汇）、`AgentPane.vue:362`（兜底注释） |
 
 ## C. fail-loud 错位——后端是终态裁决，前端还挂旧 UI（8 方法）

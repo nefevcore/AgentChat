@@ -1,17 +1,26 @@
 // ============================================================
 // face-shell.ts —— 壳内服务面的宿主 RPC 半边（cr-569）
 //
-// 这些状态只能由壳进程答（R0a 判据 1）：goal/todo 的会话桶、工具目录、
-// 运行队列。通道 = 控制帧（cr-552 同一条：stdin 行协议 → 壳 control() →
-// ctrl.done 回执），编排面按需拉起壳（ensureAgent 幂等）。
+// 读面分类（cr-824 读面搬迁批一）：
+//   · goal/get、todo/get、interaction/list = **盘直读**（truth 在盘上：
+//     entries/{goal,todo}.json / interactions.jsonl——壳不在场 100% 可靠，
+//     读操作不拉起壳）；投影复用 owning 包导出的纯函数，禁 webui 重写第二份。
+//   · 其余（写动作 / 真壳内瞬态）仍走控制帧（cr-552：stdin 行协议 → 壳
+//     control() → ctrl.done 回执），编排面按需拉起壳（ensureAgent 幂等）。
 //
 // 时序：web 面先装配、orchestrator 后创建 → 端口经**惰性 getter**注入
 //（boot 在创建编排面后回填），此处只按调用时刻取。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { agentDir, readAgentConfig, resolveToolNames } from 'ac-agents-core';
+import { effectiveToolMode, narrowToolsByMode } from 'ac-agents';
 import { pairKey } from 'ac-core-utils';
-import { readJournal, readLedger, stepsOfRun, stepsOfLedger } from 'ac-ledger';
+import { goalSnapshotOf } from 'ac-goal';
+import { todoListOf } from 'ac-todo';
+import { ReadOnlyJsonlDurableInteractionStore } from 'ac-durable-interaction';
+import { readJournal, readLedger, readSubcalls, stepsOfRun, stepsOfLedger } from 'ac-ledger';
 import type { Context } from '@agentchat/cordis';
 
 interface WebFace {
@@ -28,12 +37,18 @@ export interface ShellAdminPort {
   /** 活壳清单（jobs / interaction 这类「无 agentId 入参」的面按活壳枚举——
    *  只查已在跑的壳，不因一次查询拉起全部 Agent） */
   handles?(): Map<string, { control(frame: Record<string, unknown>): Promise<unknown> }>;
+  /** 拉壳在飞集（cr-840）：spawn → boot.ready 窗口——前端「正在启动 Agent 壳」
+   *  相位的宿主侧真源；缺席 = 旧编排面，stats 不带 spawning 字段 */
+  spawningIds?(): string[];
 }
 
 export interface ShellFaceDeps {
   dataRoot: string;
   /** 编排面惰性端口（boot 创建后回填；null = 编排面缺失） */
   port: () => ShellAdminPort | null;
+  /** 行集目录（cr-825 批三：tool-catalog.json 快照与 row-catalog.json 同目录；
+   *  缺省 = 本包相对 apps/catalog） */
+  catalogFile?: string;
 }
 
 function obj(params: unknown): Record<string, unknown> {
@@ -48,6 +63,140 @@ function reqStr(source: Record<string, unknown>, key: string): string {
 
 function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
+}
+
+/** entries/<key>.json 直读（cr-824 批一）：agentStore readEntry 同语义——
+ *  损坏/缺席 = undefined；路径经 agents-core agentDir（词法防线单源）。 */
+function readEntryRaw(dataRoot: string, agentId: string, key: string): unknown {
+  const file = path.join(agentDir(dataRoot, agentId), 'entries', key + '.json');
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    return undefined;
+  }
+}
+
+/** 工具/事件目录静态快照（cr-825/826 批三）：tool-catalog.json 直读（真装配
+ *  dump 产物——对账锁 tool-catalog-parity.test 守护；mtime 缓存：进程内
+ *  不重读，重生成为新文件即失效）。缺席/损坏 = 空底座（活壳增量仍在）。
+ *  face-ops events 目录面共用本读口（单缓存单源）。 */
+export interface CatalogSnapshot {
+  tools: Array<Record<string, unknown>>;
+  events: Array<{ name: string; listeners: Array<Record<string, unknown>> }>;
+  eventDescs: Array<Record<string, unknown>>;
+}
+let snapshotCache: { file: string; at: number; snap: CatalogSnapshot } | null = null;
+export function readCatalogSnapshot(catalogFile: string | undefined): CatalogSnapshot {
+  const file = catalogFile !== undefined
+    ? path.join(path.dirname(catalogFile), 'tool-catalog.json')
+    : fileURLToPath(new URL('../../../apps/catalog/tool-catalog.json', import.meta.url));
+  try {
+    const st = fs.statSync(file);
+    if (snapshotCache !== null && snapshotCache.file === file && snapshotCache.at === st.mtimeMs) {
+      return snapshotCache.snap;
+    }
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      tools?: unknown; events?: unknown; eventDescs?: unknown;
+    };
+    const snap: CatalogSnapshot = {
+      tools: Array.isArray(parsed.tools) ? parsed.tools.filter((t) => typeof t === 'object' && t !== null) as Array<Record<string, unknown>> : [],
+      events: Array.isArray(parsed.events) ? parsed.events.filter((e) => typeof e === 'object' && e !== null) as CatalogSnapshot['events'] : [],
+      eventDescs: Array.isArray(parsed.eventDescs) ? parsed.eventDescs.filter((d) => typeof d === 'object' && d !== null) as Array<Record<string, unknown>> : [],
+    };
+    snapshotCache = { file, at: st.mtimeMs, snap };
+    return snap;
+  } catch {
+    return { tools: [], events: [], eventDescs: [] };
+  }
+}
+function staticToolCatalog(deps: ShellFaceDeps): Array<Record<string, unknown>> {
+  return readCatalogSnapshot(deps.catalogFile).tools;
+}
+
+/** tool-defs 静态算（cr-825 批三）：壳内 ConversationService.llmToolFace
+ *  同口径的静态数据源版——config.rows 盘读（readAgentConfig）× tool-catalog
+ *  快照；mode 收窄复用 ac-agents 纯函数（估算与真实 run 同口径的既定
+ *  纪律）。caps 门禁/form 终滤不在本面（llmToolFace 同口径——那是 router
+ *  执行面）。行展开词形映射 = row-catalog row.tools（与壳内 rowTools 同源）。 */
+function staticToolDefs(
+  ctx: Context,
+  deps: ShellFaceDeps,
+  agentId: string,
+  conversationId: string | undefined,
+): { names: string[]; defs: Array<{ name: string; description: string; parameters: Record<string, unknown> }> } {
+  const defs = staticToolCatalog(deps);
+  const visible = defs.filter((t) => (t as { injection?: unknown }).injection !== 'mode');
+  const config = readAgentConfig(deps.dataRoot, agentId) ?? undefined;
+  // 行 id → 工具名展开（壳内 rowTools 同源数据 = row-catalog row.tools）
+  const rowTools = readRowTools(deps);
+  const resolved = resolveToolNames(config?.rows);
+  const names = resolved === undefined
+    ? visible.map((t) => String(t.name))
+    : [...new Set(resolved.flatMap((token) => rowTools[token] ?? [token]))]
+      .filter((n) => visible.some((t) => String(t.name) === n));
+  const mode = effectiveToolMode(config, conversationId, {
+    convSettings: ctx.get('convSettings', false) as
+      | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+      | undefined,
+  });
+  const narrowed = narrowToolsByMode(names, defs as Array<{ name: string; injection?: 'capability' | 'mode' }>, mode);
+  const byName = new Map(defs.map((t) => [String(t.name), t]));
+  return {
+    names: narrowed,
+    defs: narrowed
+      .map((n) => byName.get(n))
+      .filter((t): t is Record<string, unknown> => t !== undefined)
+      .map((t) => ({ name: String(t.name), description: String(t.description ?? ''), parameters: (t.parameters ?? {}) as Record<string, unknown> })),
+  };
+}
+
+/** row-catalog 行 id → 工具名清单（壳内 rowTools 同源；目录缺席 = 空映射） */
+let rowToolsCache: { file: string; at: number; map: Record<string, string[]> } | null = null;
+function readRowTools(deps: ShellFaceDeps): Record<string, string[]> {
+  const file = deps.catalogFile !== undefined
+    ? deps.catalogFile
+    : fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url));
+  try {
+    const st = fs.statSync(file);
+    if (rowToolsCache !== null && rowToolsCache.file === file && rowToolsCache.at === st.mtimeMs) return rowToolsCache.map;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { rows?: Array<{ id?: unknown; tree?: unknown; tools?: unknown }> };
+    const map: Record<string, string[]> = {};
+    for (const r of parsed.rows ?? []) {
+      if (r.tree !== 'shell' || typeof r.id !== 'string' || !Array.isArray(r.tools)) continue;
+      map[r.id] = r.tools.filter((t): t is string => typeof t === 'string');
+    }
+    rowToolsCache = { file, at: st.mtimeMs, map };
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/** interactions.jsonl 域文件枚举（cr-824 批一 1-3）：全部 agents/<id>/ 顶层
+ *  域 + children 嵌套域（子 Agent 待答提问住父域树——pendingAskParentIds
+ *  同款扫描布局）。缺席域跳过；目录结构异常静默空面。 */
+function interactionFiles(dataRoot: string): string[] {
+  const out: string[] = [];
+  const collect = (dir: string): void => {
+    let entries: fs.Dirent[] = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const file = path.join(dir, e.name, 'interactions.jsonl');
+      if (fs.existsSync(file)) out.push(file);
+    }
+  };
+  const agentsDir = path.join(dataRoot, 'agents');
+  let agents: fs.Dirent[] = [];
+  try { agents = fs.readdirSync(agentsDir, { withFileTypes: true }); } catch { return out; }
+  for (const a of agents) {
+    if (!a.isDirectory()) continue;
+    const dir = path.join(agentsDir, a.name);
+    const file = path.join(dir, 'interactions.jsonl');
+    if (fs.existsSync(file)) out.push(file);
+    collect(path.join(dir, 'children'));
+  }
+  return out;
 }
 
 /** 注册壳内服务面（goal / todo / 运行中断） */
@@ -68,10 +217,14 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
   const call = <T>(agentId: string, frame: Record<string, unknown>): Promise<T> =>
     shellCall(agentId, { ctrl: 'admin', agentId, ...frame }) as Promise<T>;
 
+  // 读面盘直读（cr-824 批一 1-1）：entries/goal.json（readEntry 语义：损坏/
+  // 缺席 = 零值）；投影 = ac-goal 导出的 goalSnapshotOf（与壳内服务同源）。
+  // goal-update/delete 保持控制帧——写口在壳内 agentStore（拉起即语义）。
   web.registerRpc('goal/get', async (params) => {
     const p = obj(params);
     const agentId = reqStr(p, 'agentId');
-    return call(agentId, { op: 'goal-get', conversationId: reqStr(p, 'conversationId') });
+    const conversationId = reqStr(p, 'conversationId');
+    return { goal: goalSnapshotOf(readEntryRaw(deps.dataRoot, agentId, 'goal'), conversationId) };
   });
 
   web.registerRpc('goal/update', async (params) => {
@@ -88,10 +241,13 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     return call(agentId, { op: 'goal-delete', conversationId: reqStr(p, 'conversationId') });
   });
 
+  // 读面盘直读（cr-824 批一 1-2）：entries/todo.json——形状与壳内半边一致
+  //（{ todos: [...] }，admin-frame todo-get 同键名）。
   web.registerRpc('todo/get', async (params) => {
     const p = obj(params);
     const agentId = reqStr(p, 'agentId');
-    return call(agentId, { op: 'todo-get', conversationId: reqStr(p, 'conversationId') });
+    const conversationId = reqStr(p, 'conversationId');
+    return { todos: todoListOf(readEntryRaw(deps.dataRoot, agentId, 'todo'), conversationId) };
   });
 
   // 运行中断（stop 按钮）：壳 conversation 服务的中止面（ADR-2 步边界检查）
@@ -137,22 +293,24 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     return last;
   });
 
-  // 待答清单（cr-580 前端恢复链——chat-core 启动/断连重拉 interaction/list
-  // {state:'pending'}；活壳聚合：壳内 durable store 是唯一权威面，只读不拉起）
+  // 待答清单（cr-580 前端恢复链）——盘直读（cr-824 批一 1-3）：durable
+  // 落盘 per-agent 域（agents/<id>/interactions.jsonl + children 嵌套域，
+  // A8 数据化），聚合全部域文件即全量；壳不在场照样可读（此前按活壳枚举，
+  // pending 提问在壳死/换代窗口不可见）。filter 白名单窄化沿用。
   web.registerRpc('interaction/list', async (params) => {
     const p = obj(params);
-    const state = optStr(p.state);
+    const raw = optStr(p.state);
+    const state: 'pending' | 'answered' | 'closed' | undefined = raw === 'pending' || raw === 'answered' || raw === 'closed' ? raw : undefined;
     const filter = {
       ...(optStr(p.key) !== undefined ? { key: optStr(p.key) } : {}),
       ...(optStr(p.owner) !== undefined ? { owner: optStr(p.owner) } : {}),
-      ...(state === 'pending' || state === 'answered' || state === 'closed' ? { state } : {}),
+      ...(state !== undefined ? { state } : {}),
     };
     const interactions: unknown[] = [];
-    for (const shell of liveShells()) {
+    for (const file of interactionFiles(deps.dataRoot)) {
       try {
-        const out = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'interaction-list', filter }) as { interactions?: unknown[] } | null;
-        if (Array.isArray(out?.interactions)) interactions.push(...out.interactions);
-      } catch { /* 壳在退出——跳过（活壳枚举的瞬态语义） */ }
+        interactions.push(...new ReadOnlyJsonlDurableInteractionStore(file).list(filter));
+      } catch { /* 单域损坏不殃及整面——其余域照答 */ }
     }
     return { interactions };
   });
@@ -233,11 +391,12 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
       const dir = path.join(root, 'sessions', latest);
       const rows = readLedger(dir).rows;
       const lines = readJournal(dir);
+      const subcalls = readSubcalls(dir);
       const linkedRuns = new Set<string>();
       for (const r of rows) {
         if (r.run !== undefined && r.run !== '') linkedRuns.add(r.run);
         const projected = r.role === 'agent' && r.agent_id === id && r.run !== undefined && r.run !== ''
-          ? stepsOfLedger(rows, r.run) ?? stepsOfRun(lines, r.run)
+          ? stepsOfLedger(rows, r.run, subcalls) ?? stepsOfRun(lines, r.run)
           : null;
         all.push({
           role: r.agent_id === id ? 'assistant' : 'user',
@@ -255,7 +414,7 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
       }
       for (const run of candidates) {
         if (linkedRuns.has(run)) continue;
-        const p = stepsOfLedger(rows, run) ?? stepsOfRun(lines, run);
+        const p = stepsOfLedger(rows, run, subcalls) ?? stepsOfRun(lines, run);
         if (p === null) continue;
         all.push({ role: 'assistant', agent_id: id, content: '', run, steps: p.steps, ...(p.partial ? { partial: true } : {}) });
       }
@@ -361,28 +520,27 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     // 活壳态叠加（cr-725）：对每个在跑壳问 subagents-list，把 busy/exited
     // 覆盖到对应行（displayStatus 口径与 ShellSubagentService.infoOf 一致：
     // busy → running；aborted 硬退 → error；exited → stopped；否则盘读值）。
-    const port = deps.port();
-    if (port !== null && port.handles !== undefined) {
-      const byId = new Map(subs.map((s) => [String(s.id), s]));
-      await Promise.all([...port.handles().entries()].map(async ([shellId, handle]) => {
-        let agents: Array<{ childId?: unknown; status?: unknown; busy?: unknown; exit?: { aborted?: unknown } | null }> | undefined;
-        try {
-          const out = await handle.control({ ctrl: 'admin', agentId: shellId, op: 'subagents-list' }) as { agents?: unknown };
-          if (Array.isArray(out.agents)) agents = out.agents as typeof agents;
-        } catch { /* 壳正死于途/答错——盘读值兜底 */ }
-        if (agents === undefined) return;
-        for (const e of agents) {
-          if (typeof e.childId !== 'string') continue;
-          const row = byId.get(e.childId);
-          if (row === undefined) continue;
-          row.status = typeof e.status === 'string' ? e.status : row.status;
-          row.displayStatus = e.busy === true ? 'running'
-            : e.exit?.aborted === true ? 'error'
-            : e.status === 'exited' ? 'stopped'
-            : row.displayStatus;
-        }
-      }));
-    }
+    // 叠加通道 = liveShells()（cr-824 批一 1-4——与 jobs/interaction 对齐：
+    // 优先盘上活锁清单 + 统一控制入口，宿主换代后孤壳不丢；无则退句柄池）。
+    const byId = new Map(subs.map((s) => [String(s.id), s]));
+    await Promise.all(liveShells().map(async (shell) => {
+      let agents: Array<{ childId?: unknown; status?: unknown; busy?: unknown; exit?: { aborted?: unknown } | null }> | undefined;
+      try {
+        const out = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'subagents-list' }) as { agents?: unknown };
+        if (Array.isArray(out.agents)) agents = out.agents as typeof agents;
+      } catch { /* 壳正死于途/答错——盘读值兜底 */ }
+      if (agents === undefined) return;
+      for (const e of agents) {
+        if (typeof e.childId !== 'string') continue;
+        const row = byId.get(e.childId);
+        if (row === undefined) continue;
+        row.status = typeof e.status === 'string' ? e.status : row.status;
+        row.displayStatus = e.busy === true ? 'running'
+          : e.exit?.aborted === true ? 'error'
+          : e.status === 'exited' ? 'stopped'
+          : row.displayStatus;
+      }
+    }));
     const filtered = subs
       .filter((s) => query === undefined || String(s.id).includes(query) || String(s.name).includes(query))
       .filter((s) => !runningOnly || s.displayStatus === 'running')
@@ -449,40 +607,37 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     return shell.control({ ctrl: 'admin', agentId, op: 'queue-remove', conversationId: queueConvOf(p, agentId), id: reqStr(p, 'id') });
   });
 
-  // outcome：steered = 已注入活跃 run；requeued = 窗口已关放回原位（收敛竞态不报失败）
   // 生效工具集（cr-582，agents/tool-defs）：Token 仪表固定开销估算的唯一
-  // 消费面——投影住壳内（与 run 同口径），经控制帧往返；会话覆盖可选。
+  // 消费面。活壳在场 → 壳内真值（与 run 同口径，会话覆盖生效）；壳缺席
+  // → 静态算（cr-825 批三：config.rows 盘读 × tool-catalog 快照 + mode/
+  // 交互收窄纯函数——估算面不需要活壳，读操作不拉起）。
   web.registerRpc('agents/tool-defs', async (params) => {
     const p = obj(params);
     const agentId = reqStr(p, 'agentId');
     const conversationId = optStr(p.conversationId);
-    const out = await call(agentId, {
-      op: 'tool-defs',
-      ...(conversationId !== undefined ? { conversationId } : {}),
-    }) as Record<string, unknown>;
-    return { agentId, ...out };
+    const shell = shellOf(agentId);
+    if (shell !== null) {
+      const out = await shell.control({
+        ctrl: 'admin', agentId, op: 'tool-defs',
+        ...(conversationId !== undefined ? { conversationId } : {}),
+      }) as Record<string, unknown>;
+      return { agentId, ...out };
+    }
+    return { agentId, ...staticToolDefs(ctx, deps, agentId, conversationId) };
   });
 
-  // 全量工具目录（cr-582，tools/list）：注册面住各壳（行集 per-agent）——
-  // 活壳并集去重（同名工具同一注册方，首个胜）；冷启动无活壳时拉起
-  // __standard__（缺省全集行集）取代表目录，ExtToolsPane 冷面不空白。
+  // 全量工具目录（cr-582，tools/list；cr-825 批三静态化）：底座 = 静态快照
+  // tool-catalog.json（真装配 dump——冷面零拉起，__standard__ 拉起链退役）；
+  // 活壳在场时 tools-catalog 真值覆盖（动态插件/会话装载工具增量并入）。
   web.registerRpc('tools/list', async () => {
-    let shells = liveShells();
-    if (shells.length === 0) {
-      const port = deps.port();
-      if (port === null) return { tools: [] };
-      shells = [{
-        agentId: '__standard__',
-        control: (frame) => port.ensureAgent('__standard__').then((h) => h.control(frame)),
-      }];
-    }
     const byName = new Map<string, Record<string, unknown>>();
-    for (const shell of shells) {
+    for (const t of staticToolCatalog(deps)) byName.set(String(t.name), t);
+    for (const shell of liveShells()) {
       try {
         const out = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'tools-catalog' }) as { tools?: unknown[] } | null;
         for (const t of out?.tools ?? []) {
           const name = (t as { name?: unknown }).name;
-          if (typeof name === 'string' && !byName.has(name)) byName.set(name, t as Record<string, unknown>);
+          if (typeof name === 'string') byName.set(name, t as Record<string, unknown>);
         }
       } catch { /* 壳在退出——跳过 */ }
     }

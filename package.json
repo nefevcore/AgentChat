@@ -27,8 +27,8 @@
   },
   "scripts": {
     "start": "node ./bin/agentchat.js",
-    "dev": "node --experimental-strip-types apps/host/boot.ts --data-root workspace/home --port 3830",
-    "dev:supervised": "node supervisor.mjs",
+    "dev": "node apps/system/supervisor.mjs",
+    "dev:fg": "node --experimental-strip-types apps/host/boot.ts --data-root workspace/home --port 3830",
     "bench": "node packages/ac-bench/src/cli.ts",
     "cr": "node scripts/cr.mjs",
     "sync:office-vendor": "node scripts/sync-office-vendor.mjs",

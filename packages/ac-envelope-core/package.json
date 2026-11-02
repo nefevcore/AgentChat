@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "信封协议纯库（协议规格 A/B2）：信封 schema（uuid/requestId/sender/to/kind/budget）+ requestId 幂等准入（cr-250 语义）+ budget 语义（user 直发重置满额、每自动唤醒 -1、0=只落账）+ 确认状态机（落账即确认）+ ipc 长度前缀帧（B2）",
+  "description": "信封协议纯库（协议规格 A/B2）：信封 schema + requestId 幂等准入 + budget 语义 + 确认状态机 + ipc 传输（帧/通道，cr-861 自邮局移入）+ deliver 对等投递双层会合（盘面会合 §一——锁直投/落 inbox，零进程假设）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

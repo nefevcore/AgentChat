@@ -35,6 +35,15 @@ export { default as Tabs } from './base/Tabs.vue';
 export { default as DocTabs } from './base/DocTabs.vue';
 export { default as BusyRing } from './base/BusyRing.vue';
 export { default as CollapseRow } from './base/CollapseRow.vue';
+// CardFrame（cr-765 批次A）：CollapseRow 升级形态——icon/tone/canExpand/controls
+// 契约扩展；CollapseRow 兼容别名保留至消费点全量迁移
+export { default as CardFrame } from './base/CardFrame.vue';
+// 基准卡（cr-765 批次A §1.3）：纯展示内容渲染体——kit 两个无 markdown 依赖
+//（JsonCard 已删：测试反馈 #5——树状展开效果一般且数组不可点，兜底分支改
+//  CodeCard json 高亮直渲，renderer 侧单源）
+export { default as RawCard } from './base/RawCard.vue';
+export { default as ListCard } from './base/ListCard.vue';
+export type { ListCardItem } from './base/listCardTypes.ts';
 export { default as DockCard } from './base/DockCard.vue';
 export { default as Avatar } from './base/Avatar.vue';
 export { default as Modal } from './base/Modal.vue';

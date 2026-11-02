@@ -1,21 +1,25 @@
 // ============================================================
-// supervisor.mjs —— AgentChat 宿主监护进程（8.9 cutover，cr-556）
+// supervisor.mjs —— system 层入口（supervisor-service-plan；cr-859 自仓库根
+// 纯移动至 apps/system/——§六.1 允许的妥协：零 import 变化，cordis 不行）
 //
-// 【产品入口】pnpm dev:supervised 用。测试沙箱形态见
-// apps/host/supervisor.mjs（缺省数据根/env 读取差异——cr-706 双布局注明；
-// stdio tee 已对齐（cr-740 宿主日志留档）；监护策略同源
-// ac-supervisor-core，一致性由 apps/host/tests/supervisor-parity.test.ts
-// 回归锁）。
+// 【产品入口】pnpm dev（cr-859 §六.2 统一 supervised）/ node apps/system/supervisor.mjs。
+// 测试沙箱形态见 apps/host/supervisor.mjs（缺省数据根/env 读取差异——cr-706
+// 双布局注明；监护策略同源 ac-supervisor-core，一致性由
+// apps/host/tests/supervisor-parity.test.ts 回归锁）。
 //
-// 自旧主线 boot 换轨（cr-556；旧 src/ 宿主与 supervisor 已随 cr-703 全仓
-// 重组删除——本文件是唯一的仓库级 supervisor 入口）：
-//   · worker = apps/host 宿主 boot（行集目录 + 宿主行单树装配）
-//   · 数据根缺省 workspace/home（正式数据根；AGENTCHAT_DATA_ROOT 优先）
-//   · 端口缺省 3830（与旧主线一致——前端/远程书签零改动）
-// 命运隔离铁律不变：不 import 任何业务包、只做 spawn + 退出协议 +
-// .runtime 单写者锁（42 主动重拉 / 78 启动失败不拉 / 0 正常退出 /
-// 其他 = 指数退避 + 熔断；策略纯函数住 ac-supervisor-core）。
-// 用法：pnpm dev:supervised / node supervisor.mjs [--data-root <dir>] [--port <n>]
+// system 层增量面（§五，cr-859）：
+//   · 心跳面（§五.2）：锁获取后 init 心跳文件 + 周期 touch——对象侧
+//     （壳/host-revive）以「锁内 pid 活 ∧ 心跳新鲜」双证据判定 system
+//     在场（取代 AGENTCHAT_SUPERVISED env 继承链——第三方重拉壳后失真）。
+//   · 配方盘面（§五.1）：锁获取后写 host resident 配方——宿主 argv 落盘，
+//     system 缺席时任何活进程可按盘面执行恢复（§三恢复边降级语义）。
+//
+// 自旧主线 boot 换轨（cr-556）：worker = apps/host 宿主 boot；数据根缺省
+// workspace/home（AGENTCHAT_DATA_ROOT 优先）；端口缺省 3830。命运隔离
+// 铁律不变：不 import 任何业务包（ac-supervisor-core 纯库除外——零 cordis）。
+// 退出码协议：42 主动重拉 / 78 启动失败不拉 / 0 正常退出 / 其他 = 指数退避
+// + 熔断（策略纯函数住 ac-supervisor-core）。
+// 用法：pnpm dev / node apps/system/supervisor.mjs [--data-root <dir>] [--port <n>]
 // ============================================================
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -28,10 +32,16 @@ import {
   acquireRuntimeLock,
   decideOnExit,
   initialSupervisionState,
+  initSystemHeartbeat,
+  removeRecipe,
   runtimeLockPath,
+  touchSystemHeartbeat,
+  writeRecipe,
 } from 'ac-supervisor-core';
 
-const TRACK_DIR = path.dirname(fileURLToPath(import.meta.url));
+// 锚仓库根（cr-859 §六.1 纯移动）：.runtime 锁 / 缺省数据根 / worker 路径
+// 全部保持移动前坐标——锁不换代、双 supervisor 仲裁语义不变。
+const TRACK_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const WORKER_ENTRY = path.join(TRACK_DIR, 'apps', 'host', 'boot.ts');
 const DEFAULT_DATA_ROOT = path.resolve(TRACK_DIR, 'workspace', 'home');
 const DEFAULT_PORT = '3830';
@@ -82,16 +92,56 @@ try {
 }
 log(`已获取单写者锁: ${RUNTIME_LOCK}`);
 
+// ── system 心跳面（§五.2）+ 配方盘面（§五.1，cr-859）──
+// 心跳：锁获取即 init + 周期 touch（2s 周期、新鲜窗 10s——探侧
+// SYSTEM_HEARTBEAT_FRESH_MS 的 1/5，容忍调度抖动）。心跳文件住数据根
+// .runtime/（对象侧探测同根对拍）；锁文件住仓库根 .runtime（双 supervisor
+// 仲裁面——两文件两个坐标，见 system-heartbeat.ts 头注释）。
+const HB_INTERVAL_MS = 2_000;
+const SUPERVISED_DATA_ROOT = dataRootOverride ?? process.env.AGENTCHAT_DATA_ROOT ?? DEFAULT_DATA_ROOT;
+initSystemHeartbeat(SUPERVISED_DATA_ROOT);
+const heartbeatTimer = setInterval(() => {
+  touchSystemHeartbeat(SUPERVISED_DATA_ROOT);
+}, HB_INTERVAL_MS);
+heartbeatTimer.unref();
+// 配方：host resident（argv 落盘——system 缺席时活进程按盘面恢复宿主）。
+// 每代 startChild 前重写（argv 可能换——data-root/port passthrough）。
+function writeHostRecipe(dataRoot) {
+  try {
+    writeRecipe(dataRoot, {
+      id: 'host',
+      boot: { cmd: AGENTCHAT_EXE, args: ['--experimental-strip-types', WORKER_ENTRY, '--data-root', dataRoot, '--port', port, ...passthrough] },
+      policy: 'crash',
+      residency: 'resident',
+      owner: 'supervisor',
+      mode: 'authoritative',
+      writtenAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    log(`host 配方写失败（盘面退化——本代守护继续，缺席恢复知识回落宿主内存）: ${err.code ?? err.message}`);
+  }
+}
+
 let child = null;
 let shuttingDown = false;
 let restartTimer;
 let policyState = null;
 let restartAttempts = 0;
 
+/** 有意退场收面：心跳停 + 盘面清（心跳文件删除——mtime 不再续期本来
+ * 就会出局，但删面让「system 从未运行」与「system 退场后」对探侧同形；
+ * host 配方移除——宿主恢复边随守护面一并退场）。 */
+function teardownSystemSurface() {
+  clearInterval(heartbeatTimer);
+  try { fs.rmSync(path.join(SUPERVISED_DATA_ROOT, '.runtime', 'system-heartbeat'), { force: true }); } catch { /* 已收 */ }
+  try { removeRecipe(SUPERVISED_DATA_ROOT, 'host'); } catch { /* 已收 */ }
+}
+
 function startChild() {
   restartAttempts += 1;
   const dataRoot = dataRootOverride ?? process.env.AGENTCHAT_DATA_ROOT ?? DEFAULT_DATA_ROOT;
   const args = ['--experimental-strip-types', WORKER_ENTRY, '--data-root', dataRoot, '--port', port, ...passthrough];
+  writeHostRecipe(dataRoot); // §五.1：argv 落盘（system 缺席恢复的盘面知识）
   log(`spawn 宿主: ${AGENTCHAT_EXE} ${args.join(' ')}`);
   log(`AGENTCHAT_DATA_ROOT=${dataRoot}（宿主持久化目录）`);
   // 监护状态跨代延续：仅更新 childStartedAt（退避的存活基准）
@@ -113,7 +163,9 @@ function startChild() {
   };
   child = spawn(AGENTCHAT_EXE, args, {
     cwd: TRACK_DIR,
-    env: { ...process.env, AGENTCHAT_SUPERVISED: '1', AGENTCHAT_DATA_ROOT: dataRoot },
+    // cr-859 §三.1：AGENTCHAT_SUPERVISED env 退役（第三方重拉壳后失真）
+    // ——system 在场判定改双证据探测（probeSystemAlive）。env 仅留数据根。
+    env: { ...process.env, AGENTCHAT_DATA_ROOT: dataRoot },
     stdio: ['inherit', 'pipe', 'pipe'],
     shell: false,
   });
@@ -133,6 +185,7 @@ function startChild() {
       restartTimer = setTimeout(startChild, ruling.decision.delayMs);
     } else {
       log(`第 ${restartAttempts} 次监护决策 → supervisor 退出 code=${ruling.decision.exitCode}（${ruling.decision.reason}）`);
+      teardownSystemSurface();
       unlock();
       process.exit(ruling.decision.exitCode);
     }
@@ -147,6 +200,7 @@ function handleSignal(signal) {
     shuttingDown = true;
     if (restartTimer) clearTimeout(restartTimer);
     log(`收到 ${signal}，supervisor 退出（无活子进程）`);
+    teardownSystemSurface();
     unlock();
     process.exit(0);
   }
@@ -163,9 +217,10 @@ process.on('SIGTERM', () => handleSignal('SIGTERM'));
 
 if (!existsSync(WORKER_ENTRY)) {
   log(`工作进程入口不存在: ${WORKER_ENTRY}`);
+  teardownSystemSurface();
   unlock();
   process.exit(78);
 }
 
-log('supervisor 启动（8.9 cutover——apps/host 宿主树）');
+log('supervisor 启动（system 层——apps/host 宿主树）');
 startChild();

@@ -10,7 +10,10 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 
-/** admin 帧的 op 词表（宿主 RPC 面的壳内半边） */
+/** admin 帧的 op 词表（宿主 RPC 面的壳内半边）。
+ *  cr-824 读面搬迁：goal-get / todo-get / interaction-list 的宿主侧读面
+ *  已改盘直读（truth 在盘上），新宿主不再发这三个帧——词表保留（老壳
+ *  回执兼容 + 路由测试在验），交互/reply 写面照走帧。 */
 export type AdminOp =
   | 'goal-get' | 'goal-update' | 'goal-delete' | 'todo-get'
   | 'interaction-reply' | 'interaction-list' | 'jobs-list' | 'jobs-kill' | 'session-archive' | 'subagents-stop' | 'subagents-list'

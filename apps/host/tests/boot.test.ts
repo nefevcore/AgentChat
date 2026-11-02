@@ -63,6 +63,14 @@ describe('宿主 boot（单树装配面）', () => {
 
     // 装配终检（cr-542）：全部 fiber ACTIVE——无静默半激活面
     for (const fiber of host.fibers) expect(fiber.state).toBe(FiberStates.ACTIVE);
+
+    // cr-806：宿主事实源落盘（restart_host 回执探测锚点——pid/port/bootAt）
+    const facts = JSON.parse(fs.readFileSync(path.join(dataRoot, '.runtime', 'host-facts.json'), 'utf-8')) as {
+      pid: number; port: number; bootAt: string;
+    };
+    expect(facts.pid).toBe(process.pid);
+    expect(facts.port).toBe(host.web.port);
+    expect(Number.isNaN(Date.parse(facts.bootAt))).toBe(false);
     // 回归锁：webServer 消费者在单树形态下必须真激活（双 ctx 形态恒 PENDING）
     const names = host.fibers.map((fiber) => fiber.name);
     for (const name of ['ac-ws-bridge', 'ac-remote-link', 'ac-host-rows/agent-admin']) {
@@ -186,8 +194,14 @@ describe('宿主 boot（单树装配面）', () => {
     const policy = await web.callRpc('events/policy-set', { key: 'logger-console::config/changed', disabled: true }) as { set: boolean; disabledList: string[] };
     expect(policy.set).toBe(true);
     expect(policy.disabledList).toContain('logger-console::config/changed');
-    // 事件目录面：本批显式空态（目录数据化另批）
-    expect((await web.callRpc('events/listeners') as { events: unknown[] }).events).toEqual([]);
+    // 事件目录面（cr-826 接真）：宿主树活态 ≥ eventPolicy 自己的注册面
+    //（快照底座 + 宿主 _hooks 并——bootHost 无 catalogFile 传参时快照走
+    // 包相对缺省，仍非空）；policy-list 同源可读
+    const listeners = await web.callRpc('events/listeners') as { events: Array<{ name: string }> };
+    expect(listeners.events.length).toBeGreaterThan(0);
+    const policyView = await web.callRpc('events/policy-list') as { disabled: string[]; live: string[] };
+    expect(policyView.disabled).toContain('logger-console::config/changed');
+    expect(policyView.live.length).toBeGreaterThan(0);
     const after = JSON.parse(fs.readFileSync(path.join(dataRoot, 'config.json'), 'utf-8')) as Record<string, unknown>;
     expect(after.llmProviders).toBeUndefined();
     // 工作区域（cr-568）：本机目录浏览（原生选择/系统打开只在真机手动验证——

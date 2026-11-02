@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { readLedger, readJournal, replayView, stepsOfRun, stepsOfLedger, trajFromRows, orphanRunsOf, trajectoryOfRun, resumeContextOfRun, UNCOMMITTED_TOOL_ERROR } from '../src/reader.ts';
+import { readLedger, readJournal, readSubcalls, replayView, stepsOfRun, stepsOfLedger, trajFromRows, orphanRunsOf, trajectoryOfRun, resumeContextOfRun, UNCOMMITTED_TOOL_ERROR } from '../src/reader.ts';
 
 const ROOT = path.join('sandbox', 'test-ledger-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -343,11 +343,46 @@ describe('settlement 两阶段', () => {
     ]);
   });
 
-  // cr-760：物化段行 steps 的 toolCalls 混有 subcall 平铺卡（run_code 程序内
-  // 子调用——宿主卡后注入的展示用卡）。回放轨迹（trajFromRows）只展开
-  // 模型真实所见的宿主调用对——子调用不进 provider 上下文（主线
-  // injectSubcalls「默认不开」裁决同款），否则上下文与估算双重膨胀。
-  it('trajFromRows 过滤 subcall 平铺卡（cr-760 回放面纯净）', async () => {
+  // cr-807：error 收束错误行落账（session-design §2.5 承诺形态——实现此前
+  // 缺席，错误文案只活瞬态帧，刷新/错过帧即蒸发）。终稿行后追加
+  // context+source:error；ok/interrupted 收束不落。
+  it('cr-807 error 收束落 context+source:error 行（终稿行后）', async () => {
+    const w = mk('err-row');
+    await w.journal({ type: 'journal-step', run: 'run1', step: 0, content: '半途' });
+    await w.settle(
+      { role: 'agent', content: '', agent_id: 'err-row', uuid },
+      'run1', 'error', undefined, 'LLM 响应超时（180s 无进展）',
+    );
+    const { rows } = readLedger(sessionDir(ROOT, 'err-row', uuid));
+    const err = rows.at(-1)!;
+    expect(err).toMatchObject({
+      role: 'context', source: 'error',
+      content: 'LLM 响应超时（180s 无进展）',
+      agent_id: 'err-row', run: 'run1', uuid,
+    });
+    // errorMessage 缺席回落通用文案（loop result.error 缺席形态）
+    await w.settle(
+      { role: 'agent', content: '', agent_id: 'err-row', uuid },
+      'run2', 'error',
+    );
+    const rows2 = readLedger(sessionDir(ROOT, 'err-row', uuid)).rows;
+    expect(rows2.at(-1)).toMatchObject({ role: 'context', source: 'error', content: 'run 以 error 收束', run: 'run2' });
+    // ok 收束不落错误行（读面红条只该出现在 error run）
+    await w.settle(
+      { role: 'agent', content: '终稿', agent_id: 'err-row', uuid },
+      'run3', 'ok',
+    );
+    const rows3 = readLedger(sessionDir(ROOT, 'err-row', uuid)).rows;
+    expect(rows3.filter((r) => r.source === 'error')).toHaveLength(2);
+    expect(rows3.at(-1)).toMatchObject({ role: 'agent', content: '终稿' });
+  });
+
+  // cr-803：subcall 档案分流——物化段行不再内联子调用平铺卡（重度会话
+  // 98.7% 体积在子调用全文，主文件热扫描路径被拖垮）。补行原样分流
+  // subcalls.jsonl 永久档案；读面 stepsOfLedger 联查注入复原 UI 平铺。
+  // 回放轨迹（trajFromRows）只展开模型真实所见的宿主调用对——子调用不进
+  // provider 上下文（主线 injectSubcalls「默认不开」裁决同款，cr-760 沿袭）。
+  it('cr-803 subcall 档案分流：段行剥离 + subcalls.jsonl + 读侧联查注入', async () => {
     const w = mk('delta-sub');
     await w.journal({
       type: 'journal-step', run: 'run1', step: 0, content: '',
@@ -358,11 +393,26 @@ describe('settlement 两阶段', () => {
     await w.journal({ type: 'journal-tool-result', run: 'run1', toolCallId: 'call-h1#1', subcall: true, name: 'read', arguments: '{}', result: { ok: true, output: '巨型文件内容' } });
     await w.journal({ type: 'journal-tool-result', run: 'run1', toolCallId: 'call-h1#2', subcall: true, name: 'pwsh', arguments: '{}', result: { ok: true, output: '巨型命令输出' } });
     await w.settle({ role: 'agent', content: '终稿', agent_id: 'delta-sub', uuid }, 'run1', 'ok');
-    const { rows } = readLedger(sessionDir(ROOT, 'delta-sub', uuid));
+    const dir = sessionDir(ROOT, 'delta-sub', uuid);
+    const { rows } = readLedger(dir);
     const seg = rows.find((r) => r.source === 'segment')!;
-    // 物化段行确实带 subcall 平铺卡（stepsOfRun/stepsOfLedger 展示面保留）
-    const flat = (seg.steps ?? [])[0]!.toolCalls!;
-    expect(flat.map((tc) => tc.subcall ?? false)).toEqual([false, true, true]);
+    // 段行剥离：steps 只含宿主卡——subcall 全文不进 messages.jsonl
+    expect((seg.steps ?? [])[0]!.toolCalls!.map((tc) => tc.subcall ?? false)).toEqual([false]);
+    expect(JSON.stringify(seg)).not.toContain('巨型');
+    // 档案分流：subcalls.jsonl 收补行原样（run/name/arguments/result/seq）
+    const sub = readSubcalls(dir);
+    expect(sub.map((l) => l.toolCallId)).toEqual(['call-h1#1', 'call-h1#2']);
+    expect(sub[0]).toMatchObject({ run: 'run1', subcall: true, name: 'read', result: { ok: true, output: '巨型文件内容' } });
+    // 读侧联查注入：UI 平铺复原（宿主卡后按 seq 序）
+    const restored = stepsOfLedger(rows, 'run1', sub)!;
+    const flat = restored.steps[0]!.toolCalls!;
+    expect(flat.map((tc) => [tc.name, tc.subcall ?? false])).toEqual([
+      ['run_code', false],
+      ['read', true],
+      ['pwsh', true],
+    ]);
+    // 存量段行（已内联）+ 档案在场 → 防重不双注入
+    expect(stepsOfLedger(rows, 'run1', sub)!.steps[0]!.toolCalls).toHaveLength(3);
     // 回放轨迹只有宿主调用对——子调用对不出现
     const traj = trajFromRows(rows, 'run1')!;
     expect(traj.map((m) => [m.role, (m as { tool_call_id?: string }).tool_call_id ?? m.content])).toEqual([

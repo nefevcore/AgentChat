@@ -19,7 +19,7 @@ import type {} from './events.ts';
 import { readAgentConfig, readChildConfig, resolveToolNames, type AgentConfig } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import type { Envelope, StreamFrame } from 'ac-envelope-core';
-import { budgetAfterReceive, entersInbox, isBudgetSource } from 'ac-envelope-core';
+import { budgetAfterReceive, deliver, entersInbox, isBudgetSource, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
 import { effectiveToolMode, narrowToolsByMode } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径——主线三处共用同源引用）
@@ -81,6 +81,8 @@ export function replyTargetOf(env: Envelope, agentId: string): string | null {
 interface OwnedChildFace {
   ownsChild?(childId: string): boolean;
   deliverToChild?(childId: string, env: Envelope): Promise<boolean>;
+  /** 子域提问信封转交（cr-863）：盘校验 + 幂等门 + emit + 注入（subagent 行单源） */
+  notifyChildAsk?(childId: string, interactionId: string): void;
 }
 
 /** 完成回执的发起会话键（任务信封 payload 原样往返；缺席 = 宿主直调/旧版子壳） */
@@ -142,6 +144,17 @@ export class ConversationService extends Service {
     // 驻留面收割（注册即归属——主线 web-server 同款）：outbound 常驻 ipc
     // 连接随 fiber dispose 关闭，不关则壳进程 close 链永挂。
     this.ctx.fiber.effect(() => () => { this.outbound?.close(); }, 'conversation.outbound');
+    // 子域提问信封推送（cr-863 盘面会合双通道之二）：opened 事件 →
+    // childAsk 信封 deliver() 给父——父壳换代后盘 watch 面蒸发（recovery-
+    // matrix S2）也有本通道兜底；盘 watch（父侧 spawn 时建）保持第一通道。
+    if (this.parentId !== undefined) {
+      this.ctx.on('durable-interaction/opened', (record) => {
+        if (record.kind !== 'ask_questions') return;
+        void this.pushChildAsk(record.id).catch((err: unknown) => {
+          process.stderr.write('[shell] 子域提问信封推送失败（' + record.id + '）：' + String(err) + '\n');
+        });
+      });
+    }
   }
 
   /** 信封入站（boot 收信面唯一入口）：幂等 → 落账 → 决策 → 驱动。
@@ -189,6 +202,22 @@ export class ConversationService extends Service {
         | undefined;
       if (durable === undefined) throw new Error('durableInteraction 服务缺席——代答无落点');
       durable.reply(iReply.id, iReply.answer ?? null);
+      return 'ledger-only';
+    }
+    // 子域提问信封（cr-863 双通道之二——子壳 opened 推送）：不作会话行
+    //（同 interactionReply 的通道信任面），转 subagent 行 notifyChildAsk
+    // 单源处理（幂等门 + emit + 注入发起会话 + watch 面重建）。发送方非
+    // 本壳子（冒用/错投）= 丢弃——不进会话机（空文本 run 无意义）。
+    const childAsk = env.kind === 'message'
+      ? (env.payload as { childAsk?: { interactionId?: unknown } } | null)?.childAsk
+      : undefined;
+    if (childAsk !== undefined && typeof childAsk.interactionId === 'string' && childAsk.interactionId !== '') {
+      const face = this.ctx.get('subagents', false) as OwnedChildFace | undefined;
+      if (face?.ownsChild?.(env.sender) === true) {
+        face.notifyChildAsk?.(env.sender, childAsk.interactionId);
+      } else {
+        process.stderr.write('[shell] childAsk 信封发送方非本壳子 Agent（' + env.sender + '）——已丢弃\n');
+      }
       return 'ledger-only';
     }
     // kind 词汇面：receipt/grant/revoke = ledger-only（A4——不进 inbox 不激活）
@@ -545,7 +574,7 @@ export class ConversationService extends Service {
           run: runId,
           // run 墙钟耗时（cr-772）：终稿行持久锚——历史链栏「用时」段取源
           ...(result.wallMs !== undefined ? { runMs: result.wallMs } : {}),
-        }, runId, finish);
+        }, runId, finish, finish === 'error' ? result.error : undefined);
         // 在途标记收束即清（cr-639）：run 已 settle = 消息已消费。此后任何
         // 失败（postReply 断链等）不重跑整轮——run 锚缺口归 cr-628
         // anchorableRuns boot 补投面，不归消息重投面。
@@ -582,7 +611,10 @@ export class ConversationService extends Service {
           ? '[执行失败：' + (result.error ?? '未知错误') + ']'
           : '';
         const replyText = result.text !== '' ? result.text : failText;
-        if (this.postOfficeAddress !== undefined && replyTo !== null && (replyText !== '' || replyTo === 'user')) {
+        // 子→父回程换轨（cr-863）：目标是父 = deliver() 双层会合——无邮局
+        //（hostless/CLI 直连）也回执，断「无邮局形态回执整体跳过」缺口。
+        const childReply = replyTo === this.parentId;
+        if (replyTo !== null && (childReply || this.postOfficeAddress !== undefined) && (replyText !== '' || replyTo === 'user')) {
           await this.postReply(replyTo, uuid, replyText, env, runId);
         }
         // 安全重启收口（cr-629/658 自然收束语义）：restart_shell 只挂起
@@ -1017,14 +1049,19 @@ export class ConversationService extends Service {
   async recordContext(
     conversationId: string,
     content: string,
-    extra: { source: string; label?: string; injectionId?: string },
+    extra: { source: string; label?: string; injectionId?: string; payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } },
   ): Promise<void> {
     const injectionId = extra.injectionId ?? 'inj-' + crypto.randomUUID();
     const ts = Date.now();
+    // 帧带轻量 meta（cr-765 #5）：bytes = 注入体字节数（载入态显示用）——
+    // 正文仍不广播（瘦身纪律），几十字节 meta 不破例。payload 随帧透传
+    //（#4 问答卡直播行数据面）。
     this.ctx.emit('session/context-injected', conversationId, this.agentId, {
       source: extra.source,
       injectionId,
       ...(extra.label !== undefined ? { label: extra.label } : {}),
+      bytes: content.length,
+      ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
     });
     const run = this.machines.get(this.gateKey(conversationId))?.state().currentRun ?? '';
     if (run === '') return;
@@ -1032,6 +1069,7 @@ export class ConversationService extends Service {
       injectionId,
       injectSource: extra.source,
       ...(extra.label !== undefined ? { label: extra.label } : {}),
+      ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
       ts,
     });
   }
@@ -1237,6 +1275,15 @@ export class ConversationService extends Service {
         ...(replyConversation !== undefined ? { replyConversation, completion: true } : {}),
       },
     };
+    // 回程对称换轨（cr-863 盘面会合）：本壳是子壳、回信目标 = 父——
+    // deliver() 双层会合：活父直投（父锁 → ipc），父缺席/陈锁落其会话
+    // inbox（父 boot 的 recoverPendingInbox 消费——R2 既有面，requestId
+    // 幂等）。直投竞态失败落 inbox = 信等人（父换代窗口的合法延迟而非
+    // 丢失——矩阵「owner 缺位产生延迟」原则）。
+    if (to === this.parentId) {
+      await deliver(this.parentPaths, reply);
+      return;
+    }
     // 子 Agent 回信直投（cr-710）：子壳注册的端点是 `<parent>--<child>`
     //（boot 影子形态），裸子 id 在宿主可达表恒缺席——投邮局会触发宿主
     // ensureHook 按需拉起一个同 id 的顶层幽灵身份（空 config），回信即误投
@@ -1251,6 +1298,35 @@ export class ConversationService extends Service {
       return;
     }
     await this.sendEnvelope(reply);
+  }
+
+  /** 回程会合寻址（cr-863）：子壳 → 父的主线 agent 域路径代数（目标恒为
+   *  父——agents/<parent>/ 顶层域，无幽灵面；与 host/orchestrate 拉壳
+   *  寻址同款代数）。 */
+  private get parentPaths(): RendezvousPaths {
+    return {
+      agentDirOf: (id) => path.join(this.dataRoot, 'agents', id),
+      sessionDirOf: (id, conv) => path.join(this.dataRoot, 'agents', id, 'sessions', conv),
+    };
+  }
+
+  /**
+   * 子域提问信封（cr-863）：ask_questions opened → 推父。载荷只带
+   * interactionId——提问正文以父侧盘读为准（pendingAskOf 单源；信封携带
+   * 跨代重放时即陈旧面）。requestId = ask-<interactionId>：直投幂等与
+   * inbox 文件名同键，父侧 notifyChildAsk 的 askNotified 门再兜一层。
+   */
+  private async pushChildAsk(interactionId: string): Promise<void> {
+    const env: Envelope = {
+      uuid: this.parentId + '~' + this.agentId,
+      requestId: 'ask-' + interactionId,
+      sender: this.agentId,
+      to: this.parentId!,
+      kind: 'message',
+      budget: 1,
+      payload: { childAsk: { interactionId } },
+    };
+    await deliver(this.parentPaths, env);
   }
 
   /** 跨壳信封发送（邮局 dispatch——deliver 跨壳面 / 群扇出 / postReply
@@ -1279,7 +1355,7 @@ export class ConversationService extends Service {
   /** 邮局连接惰性建立（postReply / 断链重连共用半边） */
   private async ensureOutbound(): Promise<void> {
     if (this.outbound !== null) return;
-    const { IpcClient } = await import('ac-post-office');
+    const { IpcClient } = await import('ac-envelope-core');
     const client = new IpcClient();
     await client.connect(this.postOfficeAddress!);
     this.outbound = {

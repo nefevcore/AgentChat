@@ -6,10 +6,10 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useClientContext } from 'ac-client-runtime';
-import { BusyRing, Tooltip, toastError } from '@agentchat/webui-kit';
+import { Tooltip } from '@agentchat/webui-kit';
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue';
 import { useWorkspaceTreeStore, type TreeNode } from './workspaceTreeStore.ts';
-import { openLocalDir } from './fileApi.ts';
+import { useOpenWithMenu } from './openWithMenu.ts';
 
 const emit = defineEmits<{
   (e: 'previewFile', filePath: string, agentId: string, conversationId: string): void;
@@ -76,55 +76,30 @@ function onFileClick(node: TreeNode, parentPath: string) {
   emit('previewFile', full, agentId, conversationId);
 }
 
-// ── 本地资源管理器（头部按钮：系统文件管理器打开当前树基准文件夹——
-//    服务端按同基准推导〔会话挂载工作区 > Agent 基准 > 数据根〕）──
+// ── 原生关联图标（cr-833）：rpc 注入 store，树加载/展开后增量拉取 ──
 const rpc = ctx?.rpc ?? null;
-const openDirState = ref<'idle' | 'opening' | 'error'>('idle');
+// 标题图标（cr-836）：文件资源管理器原生图标（openWithMenu explorer 条目
+// 复用——cr-831 已提取，零新请求；null = 线性 SVG 回落）
+const menu = useOpenWithMenu();
+const headerIcon = computed(() => menu.targets.value.find((t) => t.id === 'explorer')?.icon ?? null);
 
-async function openInExplorer() {
-  if (!rpc || openDirState.value === 'opening') return;
-  openDirState.value = 'opening';
-  let errMsg = '';
-  try {
-    const r = await openLocalDir(rpc, {
-      agentId: treeKey.value.startsWith('a:') ? treeKey.value.slice(2) : undefined,
-      conversationId: treeKey.value.startsWith('c:') ? treeKey.value.slice(2) : undefined,
-    });
-    if (r.error) errMsg = r.error;
-  } catch (err: any) {
-    errMsg = err?.message ?? String(err);
-  }
-  if (errMsg) {
-    openDirState.value = 'error';
-    toastError(`打开文件夹失败：${errMsg}`, { key: 'open-dir', duration: 4000 });
-  } else {
-    openDirState.value = 'idle';
-  }
-}
+onMounted(() => {
+  store.registerIconRpc(rpc);
+  if (rpc) void menu.load(rpc); // explorer 图标随目标清单一次取到
+});
 </script>
 
 <template>
   <div class="workspace-tree">
     <div class="wt-header">
       <span class="wt-title" :title="rootLabel">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <img v-if="headerIcon" :src="headerIcon" alt="" class="wt-title-icon" draggable="false" />
+        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
         </svg>
         {{ rootLabel }}
       </span>
       <span class="wt-header-actions">
-        <!-- 本地资源管理器：打开当前树基准文件夹（失败经全局 toast 呈现） -->
-        <Tooltip v-if="openDirState !== 'error'" :text="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" placement="bottom">
-          <button class="wt-open-dir" :aria-label="openDirState === 'opening' ? '正在打开…' : '在本地资源管理器中打开'" @click="openInExplorer">
-            <BusyRing v-if="openDirState === 'opening'" :size="13" />
-            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-          </button>
-        </Tooltip>
-        <Tooltip v-else text="打开失败（详见全局提示）" placement="bottom">
-          <button class="wt-open-dir error" aria-label="打开失败（详见全局提示）" @click="openInExplorer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          </button>
-        </Tooltip>
         <Tooltip text="关闭" placement="bottom">
           <button class="wt-close" aria-label="关闭" @click="emit('close')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -171,16 +146,8 @@ async function openInExplorer() {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .wt-title svg { color: var(--text-2); flex-shrink: 0; }
+.wt-title-icon { width: 16px; height: 16px; object-fit: contain; display: block; flex-shrink: 0; }
 .wt-header-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-.wt-open-dir {
-  display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px;
-  border: none; background: none; cursor: pointer;
-  color: var(--text-2); border-radius: 6px;
-}
-.wt-open-dir:hover { background: var(--bg-surface); color: var(--text-1); }
-.wt-open-dir.error { color: var(--err); }
-/* 打开中忙指示归 kit BusyRing（cr-127；原自建 .wt-spin 旋转 SVG 与 @keyframes 已退役） */
 .wt-close {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px;

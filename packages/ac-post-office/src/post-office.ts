@@ -13,7 +13,7 @@ import { socketPathFor } from 'ac-envelope-core';
 import { ConversationRegistry, ReachabilityTable } from './registry.ts';
 import { routeEnvelope, type MulticastTable, type RouteTarget } from './router.ts';
 import { Outbox, type OutboxEntry } from './outbox.ts';
-import { listenIpc, IpcClient, type PostOfficeServer } from './ipc.ts';
+import { listenIpc, IpcClient, type IpcServer } from 'ac-envelope-core';
 
 /** 端点收信面（进程内直调通道——hint local:<endpointId> 的落点） */
 export type LocalReceiver = (envelope: Envelope) => Promise<{ ack: string; fresh: boolean }>;
@@ -55,7 +55,7 @@ export class PostOffice {
   private readonly locals = new Map<string, LocalReceiver>();
   private readonly pool = new Map<string, IpcClient>();
   private ensureHook: ((target: RouteTarget) => void) | undefined;
-  private server: PostOfficeServer | null = null;
+  private server: IpcServer | null = null;
 
   constructor(options: PostOfficeOptions) {
     this.outbox = new Outbox(options.dataRoot);
@@ -171,7 +171,7 @@ export class PostOffice {
   }
 
   /** ipc 监听（外部发送方帧投递面——壳 postReply 回链用）：信封帧 → dispatch → 回执帧 */
-  async listen(): Promise<PostOfficeServer> {
+  async listen(): Promise<IpcServer> {
     this.server = await listenIpc(this.address, async (payload) => {
       const env = payload as Envelope | null;
       if (typeof env !== 'object' || env === null

@@ -68,6 +68,50 @@ describe('ac-web-server 静态资源压缩', () => {
     expect(r.body.length).toBeLessThan(BIG_JS.length);
   });
 
+  it('serveFileRoute：ETag 304 + br 压缩 + 重建失效 + 缺席 false（cr-843 通道面应答原语）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ac-web-etag-'));
+    const file = join(dir, 'chan.js');
+    await writeFile(file, BIG_JS);
+    const ctx = new Context();
+    const svc = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
+    servers.push(svc);
+    const port = await svc.ready();
+    // webui 行通道资产路由同款用法（/ui-plugin/:name/* → serveFileRoute）
+    svc.route('GET', '/chan.js', (call) => {
+      void svc.serveFileRoute(call.res, file, {
+        acceptEncoding: call.req.headers['accept-encoding'] ?? '',
+      }).then((hit) => {
+        if (!hit) {
+          call.res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          call.res.end('not found');
+        }
+      });
+    });
+
+    const ae = { 'accept-encoding': 'gzip, deflate, br' };
+    const first = await rawGet(port, '/chan.js', ae);
+    expect(first.status).toBe(200);
+    expect(first.headers.etag).toMatch(/^W\//);
+    expect(first.headers['content-encoding']).toBe('br');
+    expect(brotliDecompressSync(first.body).toString('utf-8')).toBe(BIG_JS);
+
+    // If-None-Match 命中 → 304 零字节（刷新时通道产物免整文件重传）
+    const revalidate = await rawGet(port, '/chan.js', { ...ae, 'if-none-match': first.headers.etag! });
+    expect(revalidate.status).toBe(304);
+    expect(revalidate.body.length).toBe(0);
+
+    // 文件重建（mtime/size 变）→ etag 失效 → 200 新字节
+    await new Promise((r) => setTimeout(r, 5)); // mtime ms 可分辨
+    await writeFile(file, BIG_JS + '\nexport const v2 = 1;\n');
+    const renewed = await rawGet(port, '/chan.js', { ...ae, 'if-none-match': first.headers.etag! });
+    expect(renewed.status).toBe(200);
+    expect(brotliDecompressSync(renewed.body).toString('utf-8')).toContain('v2');
+
+    // 缺席文件返回 false（降级归调用方——404 由路由面写）
+    const res = new http.ServerResponse(new http.IncomingMessage(null as never));
+    await expect(svc.serveFileRoute(res, join(dir, 'nope.js'), { acceptEncoding: '' })).resolves.toBe(false);
+  });
+
   it('gzip 回退（客户端不支持 br）', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ac-web-gz-'));
     await writeFile(join(dir, 'app.js'), BIG_JS);

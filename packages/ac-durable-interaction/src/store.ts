@@ -137,6 +137,39 @@ export class MemoryDurableInteractionStore implements DurableInteractionStore {
 // JSONL 后端
 // ============================================================
 
+/**
+ * 只读盘读形态（cr-824 读面搬迁批一）：宿主 RPC 读面（interaction/list）经
+ * 它读壳侧落盘的 interactions.jsonl——零写面（不 sweep、不 compact、不动
+ * 文件），构造即读（与写侧 store 同一折叠语义：按行序 last-write-wins、
+ * 忽略 torn tail），盘上无文件 = 空投影。文件锁态对读侧只影响一致性瞬态
+ * （rename 窗口读到旧文件），不构成失败。
+ */
+export class ReadOnlyJsonlDurableInteractionStore {
+  private readonly records = new Map<string, DurableInteraction>();
+
+  constructor(file: string) {
+    if (!fs.existsSync(file)) return;
+    let text: string;
+    try { text = fs.readFileSync(file, 'utf-8'); } catch { return; }
+    for (const line of text.split('\n')) {
+      if (line.trim() === '') continue;
+      let record: DurableInteraction;
+      try { record = JSON.parse(line) as DurableInteraction; } catch { continue; }
+      if (typeof record.id !== 'string' || record.id === '') continue;
+      const previous = this.records.get(record.id);
+      if (previous !== undefined && previous.updatedAt > record.updatedAt) continue;
+      this.records.set(record.id, record);
+    }
+  }
+
+  /** 过滤清单（createdAt 升序——写侧 store.list 同口径） */
+  list(filter?: DurableInteractionFilter): DurableInteraction[] {
+    return [...this.records.values()]
+      .filter((record) => matchesFilter(record, filter))
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+}
+
 export interface JsonlDurableInteractionStoreOptions {
   /** 每次 append 后 fsync；缺省 true（崩溃安全的等待语义） */
   fsync?: boolean;

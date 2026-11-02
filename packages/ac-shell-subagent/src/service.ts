@@ -20,14 +20,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { materializeChild, listChildIds, readAgentConfig, childIsArchived, ARCHIVED_FILE, TIER_RANK, type AccessTier } from 'ac-agents-core';
+import { materializeChild, listChildIds, readAgentConfig, childIsArchived, ARCHIVED_FILE } from 'ac-agents-core';
 import { readGlobalAuth, readAgentAuth, deriveChildAuth } from 'ac-auth-core';
 import { deriveShellRowset, readCatalog } from 'ac-rowset-core';
-import { makeEnvelope, readActivationLock, type Envelope } from 'ac-envelope-core';
+import { filterSpawnTools, convInheritTagsOf, spawnChildConfigOf } from './inherit.ts';
+import { makeEnvelope, deliver, readActivationLock, IpcClient, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
 import { runAddress } from 'ac-core-utils';
-import { IpcClient } from 'ac-post-office';
 import { readLedger } from 'ac-ledger';
-import { splitModelRef } from 'ac-llm';
+
 import type { ToolResult } from 'ac-tools';
 
 /**
@@ -146,10 +146,11 @@ export class ShellSubagentService extends Service {
     return this.children.has(childId) || listChildIds(this.dataRoot, this.agentId).includes(childId);
   }
 
-  /** 子 Agent 回信直投：在管句柄走既有 ipc 连接；父壳换代后句柄面为空，
-   * 子壳按 R-5 仍可存活——按物化域 activation.lock 的 transportHint 直投
-   *（活锁在场 = 子壳在跑）；都不可达 = false（调用方丢弃，不走邮局，防
-   * 宿主按裸子 id 拉起同 id 的幽灵顶层身份）。 */
+  /** 子 Agent 回信直投（cr-862 盘面会合）：在管句柄走既有 ipc 连接；
+   * 句柄面空（父壳换代）走 deliver()——活锁直投，锁缺席/陈锁落子域 inbox
+   *（信等人，不拉起——cr-710 防幽灵语义：回信面不做 owner 重拉）。
+   * 都不可达 = false（调用方丢弃，不走邮局，防宿主按裸子 id 拉起同 id
+   * 的幽灵顶层身份）。 */
   async deliverToChild(childId: string, env: Envelope): Promise<boolean> {
     const proc = this.children.get(childId);
     if (proc !== undefined) {
@@ -157,19 +158,24 @@ export class ShellSubagentService extends Service {
       this.markSettled(childId); // 父回信 = 子壳上一轮已终稿（忙态随帧回落）
       return true;
     }
-    const lock = readActivationLock(path.join(this.dataRoot, 'agents', this.agentId, 'children', childId));
-    if (lock === null) return false;
-    const client = new IpcClient();
-    try {
-      await client.connect(lock.transportHint);
-      await client.send(env);
-    } catch {
-      return false;
-    } finally {
-      client.close();
-    }
+    const out = await deliver(this.childPaths, env);
+    if (out.channel !== 'direct') return false; // 离线信封已落子域 inbox（信等人）——回信直投面不拉起（cr-710 防幽灵语义）
     this.markSettled(childId);
     return true;
+  }
+
+  /** 子域目录（物化域单源——boot 影子形态同款路径代数） */
+  private childDirOf(childId: string): string {
+    return path.join(this.dataRoot, 'agents', this.agentId, 'children', childId);
+  }
+
+  /** 会合寻址面（盘面会合 §一）：children 域路径代数——锁在物化域根，
+   *  inbox 落 sessions/<parent~child>/（对桶目录，与子壳账本同址域）。 */
+  private get childPaths(): RendezvousPaths {
+    return {
+      agentDirOf: (childId) => this.childDirOf(childId),
+      sessionDirOf: (childId) => path.join(this.childDirOf(childId), 'sessions', this.agentId + '~' + childId),
+    };
   }
 
   /** 子 id 铸造（主线同款词表） */
@@ -225,44 +231,15 @@ export class ShellSubagentService extends Service {
    * SubagentsService.send 同形）：sendOp 薄包装。conversationId 即完成
    * 回执的发起会话键（cr-711）；elevation 两档白名单窄化后随任务信封下发
    *（提权继承，cr-728）。delivered 词形：fresh → 'started'，
-   * 重投 → 'deduped'（任务信封 requestId 每发新铸，常态恒 started）。 */
+   * 重投 → 'deduped'（任务信封 requestId 每发新铸，常态恒 started）。
+   * 归档子拒绝（cr-856：ownsChild 对归档者维持 true 是迟到回信防线，
+   * 非任务受理面）。 */
   async send(id: string, opts: { parentId: string; text: string; mode?: string; conversationId?: string; elevation?: string }): Promise<{ delivered: string; info: SubagentChangeInfo }> {
-    if (!this.ownsChild(id)) throw new Error('子 Agent 不在管理面：' + id);
+    if (!this.ownsChild(id) || childIsArchived(this.dataRoot, this.agentId, id)) throw new Error('子 Agent 不在管理面：' + id);
     const mode = opts.mode === 'steer' || opts.mode === 'next-run' || opts.mode === 'sync' ? opts.mode : 'async';
     const elevation = opts.elevation === 'sandbox-access' || opts.elevation === 'full-access' ? opts.elevation : undefined;
     const out = await this.sendOp(id, opts.text, mode, 0, opts.conversationId, undefined, elevation);
     return { delivered: out.delivered ? 'started' : 'deduped', info: this.infoOf(id) };
-  }
-
-  /**
-   * 会话设置继承面（cr-753）：发起会话 conv-settings 覆盖值 → 子 config
-   * 等效能力词。映射与 conv-settings BUILTIN_KEYS 的 grants / 档位轴同源
-   * （elevation/toolMode 是 tags 轴词汇；browserTier/issueSubmit 的 grants
-   * 等效词就地映射——壳内垫片 listKeys 只含注册键，内置键 grants 拿不到）。
-   * per-call elevation（cr-728 信封提权）兜底并入：水位继承语义（只升不降
-   * ——full > sandbox，已持高档不降）。
-   */
-  private convInheritTagsOf(conversationId: string | undefined, callElevation: 'sandbox-access' | 'full-access' | undefined): string[] {
-    const convSettings = this.ctx.get('convSettings', false) as
-      | { get(id: string): Record<string, string> }
-      | undefined;
-    const s = conversationId !== undefined && convSettings !== undefined
-      ? convSettings.get(conversationId)
-      : {};
-    const tags = new Set<string>();
-    // 档位轴（tierOf 单源词）：水位 elevation 与 per-call elevation 取高者
-    const tier = TIER_RANK[(s.elevation as AccessTier | undefined) ?? 'base-access'] >= TIER_RANK[callElevation ?? 'base-access']
-      ? s.elevation
-      : callElevation;
-    if (tier === 'full-access' || tier === 'sandbox-access') tags.add(tier);
-    // 模式轴（toolModeOf 单源词）：仅收窄词可继承——tc-base 是缺省无词可加
-    if (s.toolMode === 'tc-programmatic' || s.toolMode === 'tc-none') tags.add(s.toolMode);
-    // grants 轴（sessionCapsOf 消费的能力词——BUILTIN_KEYS.grants 同步维护）
-    if (s.browserTier === 'observe') { tags.add('web'); tags.add('observe'); }
-    else if (s.browserTier === 'manipulate') for (const t of ['web', 'observe', 'manipulate']) tags.add(t);
-    else if (s.browserTier === 'inject') for (const t of ['web', 'observe', 'manipulate', 'inject']) tags.add(t);
-    if (s.issueSubmit === 'enabled') tags.add('issue-report');
-    return [...tags];
   }
 
   /** 物化 + 拉起（R-5：物化即快照——父此后改配置不传播）。
@@ -279,31 +256,22 @@ export class ShellSubagentService extends Service {
     if (parent === null) throw new Error('父 agent 配置缺席：' + this.agentId);
     const catalog = readCatalog(this.catalogFile);
     const parentRowset = deriveShellRowset({ rows: parent.rows }, catalog);
-    // spawn ⊆ 授权投影（工具 schema 承诺「越权名会被过滤」）：未命中目录或
-    // 不属父行集的词在此过滤——不过滤会让子壳行集静态断言 fail-loud 早退，
-    // spawn 面只见 boot.ready 超时、真实拒因被吞（cr-616，cr-615 实测暴露）。
-    // 过滤后空集 = 纯推理子 Agent（schema 同义）。
+    // spawn ⊆ 授权投影：过滤词表单源（inherit.ts——cr-616/762/763 判据收拢）
     let tools: string[] | undefined;
     let filtered: string[] | undefined;
     if (input.tools !== undefined) {
-      const parentIds = new Set(parentRowset.rowIds);
-      const granted: string[] = [];
-      const rejected: string[] = [];
-      for (const token of input.tools) {
-        const derived = deriveShellRowset({ rows: [token] }, catalog);
-        // cr-762：spawn 工具词显式拒绝——子壳行集恒无 subagent 行（防子孙无限
-        // 增长），此处不拒会物化出「点名 subagent 的子 config」然后被 boot 行
-        // 集合成面静默剥离（spawn 面只见 boot.ready 超时——同 cr-616 病理）。
-        if (derived.rowIds.includes('subagent') || derived.warnings.length > 0 || !derived.rowIds.every((id) => parentIds.has(id))) {
-          rejected.push(token);
-        } else {
-          granted.push(token);
-        }
-      }
+      const { granted, rejected } = filterSpawnTools(input.tools, new Set(parentRowset.rowIds), catalog);
       tools = granted;
       if (rejected.length > 0) filtered = rejected;
     }
-    const inheritTags = this.convInheritTagsOf(input.replyConversation, input.elevation);
+    // 会话设置继承面（cr-753 单源化）：ctx 解析在服务层，映射判据在 inherit.ts
+    const convSettings = this.ctx.get('convSettings', false) as
+      | { get(id: string): Record<string, string> }
+      | undefined;
+    const convOf = input.replyConversation !== undefined && convSettings !== undefined
+      ? convSettings.get(input.replyConversation)
+      : {};
+    const inheritTags = convInheritTagsOf(convOf, input.elevation);
     // cr-758 工作区锚点继承：发起会话挂载工作区时（singles「挂载即基准」），
     // 子会话键 parent~sub-x 是新对桶——singles 无记录，锚点结构上到不了
     // 子壳（相对路径/bash cwd/提示词 [工作目录] 回落 files/<sub-id>）。快照
@@ -314,37 +282,19 @@ export class ShellSubagentService extends Service {
       | { conversationWorkspaceRoot?(cid?: string): string | null | undefined }
       | undefined;
     const anchor = workspace?.conversationWorkspaceRoot?.(input.replyConversation);
-    const settings = { ...(parent.settings ?? {}) };
-    if (typeof anchor === 'string' && anchor !== '') {
-      const prior = settings.security as Record<string, unknown> | undefined;
-      settings.security = { ...(prior ?? {}), workdir: anchor };
-    }
-    // 模型继承（cr-758 续）：发起会话的生效模型不在父 config（deliver 合并点
-    // 产物——conv-settings 覆盖 ?? 父静态配置），spawn 只继承父静态 model 会让
-    // 子回落默认模型。会话模型覆盖（'name@model' 或裸名——与信封 env.model 同
-    // 词形）快照进子 config：splitModelRef 拆分写入 model/provider，物化即快照。
-    const convSettings = this.ctx.get('convSettings', false) as
-      | { get(id: string): Record<string, string> }
-      | undefined;
-    const modelOverride = input.replyConversation !== undefined && convSettings !== undefined
-      ? convSettings.get(input.replyConversation).model
-      : undefined;
-    const modelRef = typeof modelOverride === 'string' && modelOverride !== ''
-      ? splitModelRef(modelOverride)
-      : undefined;
-    materializeChild(this.dataRoot, this.agentId, childId, {
-      ...parent,
-      ...(modelRef !== undefined ? { model: modelRef.model, ...(modelRef.provider !== undefined ? { provider: modelRef.provider } : {}) } : {}),
+    // 模型继承（cr-759）：生效模型覆盖 = 同一份 conv-settings 读取
+    const modelOverride = typeof convOf.model === 'string' && convOf.model !== '' ? convOf.model : undefined;
+    // 子 config 快照单源（inherit.ts——六处内联拼装收拢，cr-856）
+    const childConfig = spawnChildConfigOf({
+      parent,
+      ...(tools !== undefined ? { tools } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.system !== undefined ? { system: input.system } : {}),
-      ...(tools !== undefined ? { rows: tools } : {}),
-      // cr-753 会话设置继承：发起会话（replyConversation）的 conv-settings
-      // 覆盖对子不可见（子会话键 parent~sub-x 无键——子的 tierOf/toolModeOf/
-      // sessionCapsOf 全部回落子 config）。父会话覆盖值 → 等效能力词合入
-      // tags 快照（会话覆盖本就是等效标签语义；物化即快照与 R-5 同构）。
-      ...(inheritTags.length > 0 ? { tags: [...(parent.tags ?? []), ...inheritTags] } : {}),
-      ...(Object.keys(settings).length > 0 ? { settings } : {}),
-    });
+      inheritTags,
+      ...(typeof anchor === 'string' && anchor !== '' ? { workdirAnchor: anchor } : {}),
+      ...(modelOverride !== undefined ? { modelOverride } : {}),
+    }, catalog);
+    materializeChild(this.dataRoot, this.agentId, childId, childConfig);
     // 子授权层物化（R-5 物化即快照 + spawn ⊆ 投影）：父投影快照内联 grants，
     // 此后父授权变更不传播（M6.5 deriveChildAuth 接线——cr-527）。子壳门读
     // 自己域 auth.json（children 不做运行时投影）。
@@ -370,24 +320,7 @@ export class ShellSubagentService extends Service {
         fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
       } catch { /* 物化失败——盘读面自然缺席，注入回落 convOf */ }
     }
-    const proc = this.spawnShell({
-      dataRoot: this.dataRoot, parentId: this.agentId, childId,
-      bootFile: this.bootFile, catalogFile: this.catalogFile,
-      mockProvider: true,
-      ...(this.postOfficeAddress !== undefined ? { postOffice: this.postOfficeAddress } : {}),
-    });
-    this.children.set(childId, proc);
-    this.childMeta.set(childId, { name: input.name, busy: false, exited: false });
-    this.watchAsksOf(childId); // cr-730：子域提问推送面
-    proc.onExit((code, signal) => {
-      const meta = this.childMeta.get(childId);
-      // 硬退出（被杀/崩溃）时任务可能在飞且永无终稿行——记录 aborted 供
-      // awaitReply 合成失败回执（cr-724：否则 await 永远 pending、看板无事发生）。
-      const aborted = meta?.busy === true;
-      if (meta !== undefined) { meta.exited = true; meta.busy = false; meta.exit = { code, signal, aborted }; }
-      this.closeAskWatch(childId); // 子壳已死——提问面随进程消亡（盘上 pending 仍可 await 可见）
-      this.notify(childId, 'settled');
-    });
+    this.spawnProcess(childId, input.name); // 拉起单源（cr-862——与 owner 重拉同构）
     this.notify(childId, 'spawned');
     if (input.replyConversation !== undefined) this.convOf.set(childId, input.replyConversation);
     if (input.task === '') return { childId, ...(filtered !== undefined ? { filtered } : {}) };
@@ -419,25 +352,82 @@ export class ShellSubagentService extends Service {
    * ——busy 自动的 steer，空闲即 run；本面不做二次裁决）。
    * replyConversation 只挂在「完成后需要唤醒发起会话」的异步任务上：
    * sync / waitMs 由返回值交付结果，不再重复通知（否则同轮双份）。
+   *
+   * 投递换轨（cr-862 盘面会合）：任务信封恒走 deliver() 双层会合——活体
+   * 直投（在管句柄 = 常态；换代后按物化域活锁）失败或无锁 = 落子域 inbox
+   *（信等人）+ owner 重拉子壳（父 owns 子——对齐「宿主 owns agent」；
+   * 重拉壳 boot 的 recoverPendingInbox 自动消费落盘信，续会话不丢上下文）。
    */
   async sendOp(
     childId: string, message: string, mode: 'async' | 'sync' | 'steer' | 'next-run', waitMs = 0,
     replyConversation?: string, signal?: AbortSignal, elevation?: 'sandbox-access' | 'full-access',
   ): Promise<{ delivered: boolean; reply?: SubagentReply }> {
-    const proc = this.children.get(childId);
-    if (proc === undefined) throw new Error('子 Agent 不在管理面：' + childId + '（list 查询在场清单）');
+    if (!this.ownsChild(childId) || childIsArchived(this.dataRoot, this.agentId, childId)) {
+      throw new Error('子 Agent 不在管理面：' + childId + '（list 查询在场清单）');
+    }
     const baseline = this.settledCount(childId);
     const meta = this.childMeta.get(childId);
+    const proc = meta?.exited === true ? undefined : this.children.get(childId);
+    const syncWait = mode === 'sync' || waitMs > 0;
+    const envelope = this.taskEnvelope(childId, message, syncWait ? undefined : replyConversation, elevation);
+    const deliverP = (async (): Promise<DeliverResult> => {
+      if (proc !== undefined) {
+        try { return { channel: 'direct', fresh: (await proc.deliver(envelope)).fresh }; }
+        catch { /* 死链（boot.ready 超时/连接断）——降级盘面会合 */ }
+      }
+      return deliver(this.childPaths, envelope);
+    })();
     if (meta !== undefined) meta.busy = true;
     this.notify(childId, 'started');
-    const syncWait = mode === 'sync' || waitMs > 0;
-    const ack = await proc.deliver(this.taskEnvelope(childId, message, syncWait ? undefined : replyConversation, elevation));
+    const ack = await deliverP;
+    if (ack.channel === 'inbox') this.reviveChild(childId); // 落盘即送达——owner 拉起子壳消费（cr-862）
     if (syncWait) {
       const reply = await this.awaitReply(childId, waitMs > 0 ? waitMs : 60_000, baseline, signal);
       this.markSettled(childId);
-      return { delivered: ack.fresh, ...(reply !== null ? { reply } : {}) };
+      return { delivered: true, ...(reply !== null ? { reply } : {}) };
     }
-    return { delivered: ack.fresh };
+    return { delivered: true };
+  }
+
+  /**
+   * owner 重拉（cr-862）：deliver 落 inbox = 子壳不在跑（无锁/陈锁）。父是
+   * 子的生命周期 owner——按物化域 respawn 子进程（不重物化：config/auth
+   * 在盘，续会话不丢上下文）；与 spawnOp 的拉起段同构（句柄/meta/watch/
+   * onExit 全套）。单飞次序（重拉 → 消费 inbox → 终稿回信）由子壳 boot 链
+   * 自治——本面 fire-and-forget，sync 等待面照常轮询终稿。
+   */
+  private reviveChild(childId: string): void {
+    const meta = this.childMeta.get(childId);
+    // 守卫判活句柄（非句柄存在）：崩溃子的死句柄仍在 children map——须让位重拉，
+    // 否则 inbox 落盘信无人消费（守卫误判「在管」）。活句柄在场 = 直投刚失败的
+    // 竞态窗，不双拉。
+    if (meta?.exited !== true && this.children.has(childId)) return;
+    this.children.delete(childId); // 死句柄出管
+    if (meta !== undefined) { meta.exited = false; meta.exit = undefined; meta.busy = true; }
+    this.spawnProcess(childId, meta?.name);
+    this.notify(childId, 'started');
+  }
+
+  /** 子壳进程拉起单源（spawnOp 首拉 / reviveChild 重拉同构）——句柄/meta/
+   *  提问 watch/退出钩子全套接线。 */
+  private spawnProcess(childId: string, name?: string): ShellProcess {
+    const proc = this.spawnShell({
+      dataRoot: this.dataRoot, parentId: this.agentId, childId,
+      bootFile: this.bootFile, catalogFile: this.catalogFile,
+      mockProvider: true,
+      ...(this.postOfficeAddress !== undefined ? { postOffice: this.postOfficeAddress } : {}),
+    });
+    this.children.set(childId, proc);
+    if (!this.childMeta.has(childId)) this.childMeta.set(childId, { name, busy: false, exited: false });
+    this.watchAsksOf(childId);
+    proc.onExit((code, signal) => {
+      const m = this.childMeta.get(childId);
+      const aborted = m?.busy === true;
+      if (m !== undefined) { m.exited = true; m.busy = false; m.exit = { code, signal, aborted }; }
+      this.closeAskWatch(childId);
+      this.notify(childId, 'settled');
+    });
+    return proc;
   }
 
   /**
@@ -453,11 +443,12 @@ export class ShellSubagentService extends Service {
   }
 
   /** 等新终稿（baseline = 投递时的终稿数；超时 = null）。不在场 = 抛错
-   *（fail-loud——同主线 await 对未知 id 的早期校验语义）。
+   *（fail-loud——同主线 await 对未知 id 的早期校验语义；换代后句柄面空
+   * 但物化域仍在管，cr-856 放宽 ownsChild——盘读面照常可用）。
    * 无终稿但子域有 pending 提问（cr-729）→ 返回 asking 载荷——子的
    * ask_questions 挂起对父此前不可见（父永轮 pending、子永等回答）。 */
   async awaitOp(childId: string, timeoutMs: number, signal?: AbortSignal): Promise<SubagentReply | SubagentAsking | null> {
-    if (!this.children.has(childId)) {
+    if (!this.ownsChild(childId)) {
       throw new Error('子 Agent 不在管理面：' + childId + '（list 查询在场清单）');
     }
     const reply = await this.awaitReply(childId, timeoutMs, this.settledCount(childId), signal);
@@ -501,38 +492,32 @@ export class ShellSubagentService extends Service {
     return { childId, interactionId: pending.id, questions };
   }
 
-  /** 代答子 Agent 的 pending 提问（cr-729）：经既有 stdin 控制帧投
-   * interaction-reply admin op 到子壳——子侧 durableInteraction.reply →
-   * replied 事件 → 三态注入（忙步 steer / idle 挂起半边 / late-reply）
-   * 全在子进程内闭环，父零感知恢复语义。 */
+  /** 代答子 Agent 的 pending 提问（cr-729）：在管子壳走 stdin 控制帧
+   * interaction-reply admin op——子侧 durableInteraction.reply → replied
+   * 事件 → 三态注入（忙步 steer / idle 挂起半边 / late-reply）全在子进程
+   * 内闭环，父零感知恢复语义。换管外子（cr-862）：deliver() 双层会合直投
+   * interactionReply 标记信封（收信面转 store.reply 同链）。落 inbox =
+   * 挂起方（子进程）已死、代答无消费面——fail-loud（对齐 cr-736 文案面）。 */
   async answerOp(childId: string, answers: Array<string | string[] | null>, interactionId?: string): Promise<{ interactionId: string; status: string }> {
     const asking = this.pendingAskOf(childId);
     const id = interactionId !== undefined && interactionId !== '' ? interactionId : asking?.interactionId;
     if (id === undefined) throw new Error('子 Agent 无待答提问（answer 前可 await 查看 asking 状态）');
-    // 父壳换代后（cr-736）：在管句柄面空——子被 orchestrator 独立拉活时经
-    // activation.lock transportHint 直投 interactionReply 标记信封（子壳收信
-    // 面转 durableInteraction.reply，续走链全既有）；无活锁（子也没起）则
-    // fail-loud 提示重生路径。
     const proc = this.children.get(childId);
     if (proc === undefined) {
-      const lock = readActivationLock(path.join(this.dataRoot, 'agents', this.agentId, 'children', childId));
-      if (lock === null) {
+      if (readActivationLock(this.childDirOf(childId)) === null) {
         throw new Error('子 Agent 不在管理面且无活锁（' + childId + '）——父壳换代后子未拉起：先 spawn 新子或 delete 收割');
       }
-      const client = new IpcClient();
-      try {
-        await client.connect(lock.transportHint);
-        await client.send(makeEnvelope({
-          uuid: this.agentId + '~' + childId,
-          requestId: 'sub-answer-' + crypto.randomUUID(),
-          sender: this.agentId,
-          to: childId,
-          kind: 'message',
-          budget: 0,
-          payload: { interactionReply: { id, answer: { answers } } },
-        }));
-      } finally {
-        client.close();
+      const out = await deliver(this.childPaths, makeEnvelope({
+        uuid: this.agentId + '~' + childId,
+        requestId: 'sub-answer-' + crypto.randomUUID(),
+        sender: this.agentId,
+        to: childId,
+        kind: 'message',
+        budget: 0,
+        payload: { interactionReply: { id, answer: { answers } } },
+      }));
+      if (out.channel !== 'direct') {
+        throw new Error('子 Agent 活锁不可达（' + childId + '）——陈锁：先 spawn 新子或 delete 收割');
       }
       return { interactionId: id, status: 'answered' };
     }
@@ -558,6 +543,25 @@ export class ShellSubagentService extends Service {
   /** 对账重试链在场标记（防 execute 兜底与 boot 链叠加） */
   private reconcileChain = false;
 
+  /**
+   * 子域提问通知单源（cr-863）：盘 watch / childAsk 信封 / boot 对账三
+   * 通道汇入——askNotified 幂等门 → emit subagents/ask → 注入发起会话
+   * （steer 忙步 / deliver 空闲唤醒）。childAsk 信封（子壳 opened 事件
+   * 推送）断父壳换代后 watch 面蒸发窗（recovery-matrix S2）：事件比盘
+   * watch 快（opened 落盘即发 vs fs.watch 防抖 200ms），两通道同门不双发。
+   */
+  notifyChildAsk(childId: string, interactionId: string): void {
+    // 盘校验（cr-863）：childAsk 信封可能滞留 inbox 跨代重放——盘上非当前
+    // pending（已答/关闭/陈代提问）不通知；watch 通道同源恒过。提问载荷
+    // 以盘读为准（pendingAskOf 单源），信封不携带正文格式化职责。
+    const asking = this.pendingAskOf(childId);
+    if (asking === null || asking.interactionId !== interactionId) return;
+    if (this.askNotified.has(interactionId)) return;
+    this.askNotified.add(interactionId);
+    this.ctx.emit('subagents/ask', asking);
+    this.injectAskNotice(childId, asking);
+  }
+
   /** 开启子域提问 watch（目录 watch——interactions.jsonl 首建与追加都触发；
    * 防抖对齐 ac-webui-core watchLedger 同款形态）。幂等。 */
   private watchAsksOf(childId: string): void {
@@ -571,10 +575,8 @@ export class ShellSubagentService extends Service {
         timer = setTimeout(() => {
           timer = null;
           const asking = this.pendingAskOf(childId);
-          if (asking === null || this.askNotified.has(asking.interactionId)) return;
-          this.askNotified.add(asking.interactionId);
-          this.ctx.emit('subagents/ask', asking);
-          this.injectAskNotice(childId, asking);
+          if (asking === null) return;
+          this.notifyChildAsk(childId, asking.interactionId);
         }, 200);
       });
     } catch { /* 目录缺席（未物化即退出）——无 watch 面 */ return; }
@@ -665,6 +667,15 @@ export class ShellSubagentService extends Service {
     const conversation = this.ctx.get('conversation', false);
     for (const childId of listChildIds(this.dataRoot, this.agentId)) {
       if (childIsArchived(this.dataRoot, this.agentId, childId)) continue;
+      // S2 断根（recovery-matrix P2，cr-863）：活锁在场且不在管（换代后活子
+      // 形态——askWatchers 蒸发，此后子的新提问对父不可见直到再次重启）
+      // → watch 重建（watch 只读盘 + emit，不依赖 conversation 就绪；注入
+      // 面缺席自然回落对账重试）。死子（无锁）不建——消费面无人，
+      // reviveChild 时 spawnProcess 会补建。
+      if (this.children.has(childId) === false
+        && readActivationLock(this.childDirOf(childId)) !== null) {
+        this.watchAsksOf(childId);
+      }
       const asking = this.pendingAskOf(childId);
       if (asking === null) continue;
       if (!this.askNotified.has(asking.interactionId)) {
@@ -846,7 +857,7 @@ export class ShellSubagentService extends Service {
           action: { type: 'string', enum: ['spawn', 'send', 'await', 'answer', 'list', 'stop', 'delete'], description: '操作' },
           task: { type: 'string', description: '[spawn] 首条任务消息，需完整自包含（子 Agent 看不到你的会话）——把内容完整写进本参数，不要请转交式截断。任务的角色定位/专业人设/输出约束放 system 参数（固化人设，勿混进 task）。长文本产出类任务的输出约束建议写明：完整结果写入指定文件、回复只给路径+要点（长回复会被截断）。省略则仅创建不启动，之后用 send 发首条' },
           name: { type: 'string', description: '[spawn] 子 Agent 名称' },
-          tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤；subagent 一律拒绝——子 Agent 不能再派子孙）。缺省不传 = 继承你的工具面；传空数组 [] = 纯推理子 Agent' },
+          tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤；subagent/run_code 一律拒绝——子 Agent 不能再派子孙/再开编排层）。缺省不传 = 继承你的工具面；传空数组 [] = 纯推理子 Agent' },
           system: { type: 'string', description: '[spawn] 子 Agent 的 system prompt（人设/行为约束）。传入即固化（跨轮/跨重启）并完全接管人格语义——不继承父 Agent 的人设与 persona 配置；缺省 = 继承父' },
           subagent_id: { type: 'string', description: '[send/await/answer/stop/delete] 目标子 Agent ID（spawn 返回的 subagent_id，可 list 查询；勿凭记忆复写）' },
           message: { type: 'string', description: '[send] 给该子 Agent 的消息内容（自包含，或基于该子 Agent 已有进展的追问/补充指示）——不是给其他 Agent 或用户发消息' },
@@ -894,6 +905,7 @@ export class ShellSubagentService extends Service {
               output: {
                 subagent_id: out.childId,
                 status: 'created',
+                action: 'spawn',
                 ...(notes.length > 0 ? { note: notes.join('；') } : {}),
                 ...(out.reply !== undefined ? { result: { text: out.reply.text } } : {}),
               },
@@ -908,6 +920,7 @@ export class ShellSubagentService extends Service {
             return {
               ok: true,
               output: {
+                action: 'send',
                 delivered: out.delivered,
                 ...(out.reply !== undefined ? { result: { text: out.reply.text } } : {}),
               },
@@ -916,11 +929,12 @@ export class ShellSubagentService extends Service {
           case 'await': {
             const timeoutS = Math.max(0, Number(args.timeout_s ?? 0));
             const reply = await this.awaitOp(childOf(), timeoutS * 1000, call.signal);
-            if (reply === null) return { ok: true, output: { status: 'pending', note: '尚无新终稿——稍后再查（或 timeout_s > 0 阻塞等待）' } };
+            if (reply === null) return { ok: true, output: { action: 'await', status: 'pending', note: '尚无新终稿——稍后再查（或 timeout_s > 0 阻塞等待）' } };
             if ('interactionId' in reply && 'questions' in reply) {
               return {
                 ok: true,
                 output: {
+                  action: 'await',
                   status: 'asking',
                   interaction_id: reply.interactionId,
                   questions: reply.questions,
@@ -928,7 +942,7 @@ export class ShellSubagentService extends Service {
                 },
               };
             }
-            return { ok: true, output: { status: 'settled', result: { text: reply.text } } };
+            return { ok: true, output: { action: 'await', status: 'settled', result: { text: reply.text } } };
           }
           case 'answer': {
             if (!Array.isArray(args.answers)) return { ok: false, error: 'answer 缺少 answers（与子 Agent 提问逐题对应的回答数组）' };
@@ -938,7 +952,7 @@ export class ShellSubagentService extends Service {
               childOf(), answers as Array<string | string[] | null>,
               typeof args.interaction_id === 'string' && args.interaction_id !== '' ? args.interaction_id : undefined,
             );
-            return { ok: true, output: { ...out, note: '已作答——子 Agent 将自动继续（忙时步边界注入/挂起中即时续走）；终稿稍后 await 收取' } };
+            return { ok: true, output: { action: 'answer', ...out, note: '已作答——子 Agent 将自动继续（忙时步边界注入/挂起中即时续走）；终稿稍后 await 收取' } };
           }
           case 'list': {
             const query = typeof args.query === 'string' ? args.query : '';
@@ -957,15 +971,15 @@ export class ShellSubagentService extends Service {
               ...(e.exit !== undefined ? { exit: e.exit } : {}),
               ...(e.originConversation !== undefined ? { origin_session: e.originConversation } : {}),
             }));
-            return { ok: true, output: { agents, total: entries.length } };
+            return { ok: true, output: { action: 'list', agents, total: entries.length } };
           }
           case 'stop': {
             const out = await this.stopOp(childOf());
-            return { ok: true, output: { stopped: out.stopped, note: out.stopped ? '已请求中止当前 run（收束 interrupted，实体保留）' : '无活跃 run（或子壳已退出）' } };
+            return { ok: true, output: { action: 'stop', stopped: out.stopped, note: out.stopped ? '已请求中止当前 run（收束 interrupted，实体保留）' : '无活跃 run（或子壳已退出）' } };
           }
           case 'delete': {
             const out = await this.deleteOp(childOf());
-            return { ok: true, output: { deleted: out.deleted } };
+            return { ok: true, output: { action: 'delete', deleted: out.deleted } };
           }
           default:
             return { ok: false, error: '未知 action：' + String(args.action) };
@@ -1003,7 +1017,10 @@ const defaultSpawnShell: SpawnShellFn = (a) => {
   if (a.postOffice !== undefined) args.push('--post-office', a.postOffice);
   // windowsHide（cr-724）：Windows 上 GUI 宿主 spawn 控制台映像会弹独立命令行
   // 窗——用户随手关窗即杀子代理且无任何回执；仓库其余 spawn 点均已带，此处补齐。
-  const child = childSpawn(AGENTCHAT_EXE, args, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
+  // detached（cr-856，对齐 cr-642 orchestrate）：父壳退出（restart_shell/崩溃）
+  // 时不被 Windows Job 对象/控制台组连带杀灭——R-5「owner 失活子存活」不再
+  // 靠运气；stdio 仍 pipe（ipc/控制帧监护面照常），壳退出自然断链。
+  const child = childSpawn(AGENTCHAT_EXE, args, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true, detached: true });
   const lines: string[] = [];
   child.stdout!.on('data', (c: Buffer) => {
     for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l);

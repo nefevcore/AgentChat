@@ -107,7 +107,7 @@ const renameSessionBusy = ref(false);
 const renameSessionError = ref('');
 
 function startRenameSession(s: { id: string; title: string }) {
-  const raw = singlesBoard?.singles.value.find(x => x.id === s.id);
+  const raw = singlesBoard?.allSingles.value.find(x => x.id === s.id);
   renameSessionTarget.value = { id: s.id, title: s.title };
   renameSessionValue.value = raw?.title ?? '';
   renameSessionError.value = '';
@@ -261,57 +261,28 @@ function bucketHiddenOf(group: WorkspaceGroup, bucket: TimeBucket<SessionItem>):
 function timeOf(ts: number): string { return formatRelativeTime(ts); }
 
 // ── 新建会话：顶部按钮 = 未分组空会话；工作区节点 + = 挂该工作区 ──
-// 上次组合偏好（输入栏四项选择的 localStorage 记录）随创建透传：
-// Agent/模型作为创建参数（服务端校验，失效抛错→回退空会话创建——
-// 偏好过期〔Agent 已删/provider 未注册〕不应阻断新建）；effort/
-// elevation 由 ChatInput 挂载时回放（不属会话元数据）。
-// agentId/model 的 '' = 明确选回默认（2026-09-15 修复）——不透传创建参数
-// （缺省即默认预设/默认模型），走原路径；否则会残留旧模式（用户选回
-// 默认后新会话仍带旧 Agent）。
-// 工作区上下文（2026-09-18 会话开场重设计）：新建即固化——顶部按钮也
-// 透传当前激活工作区（若有）；「新会话开场卡」内改选工作区经
-// singles/update 即时生效（开场后工具栏隐藏工作区入口）。
-const creatingSession = ref(false);
-async function createSession(workspaceId?: string) {
-  if (creatingSession.value) return; // 双击守卫：快速双击会创建两个空会话
-  creatingSession.value = true;
-  // 工作区上下文：显式参数 > 激活工作区（新建动作从哪个工作区发起就挂哪个）
+// 延迟落盘（cr-847）：新建 = 本地幻影会话（零 RPC 零落盘），首条消息
+// 发送时物化。未发送的新会话全局唯一（cr-848）——已有幻影时点新增 =
+// 跳回继续写。工作区上下文：显式参数 > 激活工作区；Agent/模型偏好由
+// ChatInput 挂载时回放（幻影元数据跟随，物化时落盘）。
+function createSession(workspaceId?: string) {
   const wsCtx = workspaceId ?? activeWorkspaceIdOfSelected();
+  // 组合偏好透传（与旧 create 链同语义，cr-850）：Agent/模型随幻影元数据
+  // 继承（显示 + 物化时落盘）；模式（toolMode）不经此——挂载 watch 按
+  // 会话键回放偏好并写 conv-settings（幻影 id 即会话键，链路天然覆盖）
   const prefs = loadComposePrefs();
-  const carry = {
+  singlesBoard?.createPhantom({
     ...(wsCtx ? { workspaceId: wsCtx } : {}),
     ...(prefs?.agentId ? { agentId: prefs.agentId } : {}),
     ...(prefs?.model ? { model: prefs.model } : {}),
-  };
-  const carryEmpty = !('agentId' in carry || 'model' in carry);
-  try {
-    if (carryEmpty) {
-      if (wsCtx) await singlesBoard?.create({ workspaceId: wsCtx });
-      else await singlesBoard?.createQuick(); // 未分组：reuse 复用空白会话
-    } else {
-      // 有 Agent/模型偏好：带参创建（校验失败回退空会话——过期偏好不阻断）
-      try {
-        await singlesBoard?.create(carry);
-      } catch (err: any) {
-        console.warn('[SessionList] 按上次偏好创建失败，回退空会话:', err?.message ?? err);
-        if (wsCtx) await singlesBoard?.create({ workspaceId: wsCtx });
-        else await singlesBoard?.createQuick();
-      }
-    }
-  } catch (err: any) {
-    // 创建链路任何失败都可见（此前 carryEmpty 分支无 catch——RPC 失败静默 unhandled，用户感知「点击无反应」）
-    console.error('[SessionList] 新建会话失败:', err);
-    toastError(`新建会话失败：${err?.message ?? err}`, { key: 'create-session', duration: 4000 });
-  } finally {
-    creatingSession.value = false;
-  }
+  });
 }
 
 /** 选中会话所在工作区 id（未选中/未挂 = ''——新建落在未分组） */
 function activeWorkspaceIdOfSelected(): string {
   const sid = activeSingleId.value;
   if (!sid) return '';
-  return singlesBoard?.singles.value.find(s => s.id === sid)?.workspaceId || '';
+  return singlesBoard?.allSingles.value.find(s => s.id === sid)?.workspaceId || '';
 }
 
 /** 进入独立会话：清 Agent/群组选中（互斥），列表只切上下文，历史由 ConversationView 加载。
@@ -528,7 +499,7 @@ onUnmounted(() => {
   <div class="session-list">
     <!-- 1. 新增按钮（新建会话，占满一行） -->
     <div class="create-row">
-      <button class="create-btn" aria-label="新建会话（已有空会话时复用）" @click="createSession()">
+      <button class="create-btn" aria-label="新建会话（未发送的新会话唯一——已有则跳回继续）" @click="createSession()">
         <Icon name="plus" :size="15" />
         <span>新增</span>
       </button>

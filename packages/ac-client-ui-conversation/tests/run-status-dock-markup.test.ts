@@ -54,6 +54,15 @@ describe('RunStatusDock 视觉契约', () => {
     expect(signal?.querySelector('.rs-dot')?.getAttribute('aria-hidden')).toBe('true');
   });
 
+  it('【cr-840】waiting 相位对：connecting/spawning 各有相位类与文案', () => {
+    const conn = mount({ kind: 'connecting', sinceMs: Date.now() - 3000 });
+    expect(conn.querySelector('.run-signal')?.classList.contains('phase-connecting')).toBe(true);
+    expect(conn.querySelector('[role="status"]')?.textContent).toBe('正在连接服务器…');
+    const spn = mount({ kind: 'spawning', sinceMs: Date.now() - 3000 });
+    expect(spn.querySelector('.run-signal')?.classList.contains('phase-spawning')).toBe(true);
+    expect(spn.querySelector('[role="status"]')?.textContent).toBe('正在启动 Agent 壳…');
+  });
+
   it('顺序 = 文案在前、计时在后（cr-782：时间只是注脚）', () => {
     const root = mount({ kind: 'replying', sinceMs: Date.now() - 8000 });
     const kids = Array.from(root.querySelector('.rs-line')?.children ?? []);

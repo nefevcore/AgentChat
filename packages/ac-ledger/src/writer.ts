@@ -25,6 +25,7 @@ export function sessionDir(dataRoot: string, agentId: string, uuid: string): str
 
 const MESSAGES = 'messages.jsonl';
 const JOURNAL = path.join('journal', 'partials.jsonl');
+const SUBCALLS = 'subcalls.jsonl';
 const INBOX = 'inbox';
 
 
@@ -174,6 +175,7 @@ export class LedgerWriter {
     runId: string,
     finish: 'ok' | 'interrupted' | 'error',
     meter?: { usage: RunUsage; model: string },
+    errorMessage?: string,
   ): Promise<void> {
     await this.enqueue(() => {
       this.ensureHeader();
@@ -185,6 +187,22 @@ export class LedgerWriter {
         seq: this.allocSeq(),
       };
       this.appendLine(path.join(this.dir, MESSAGES), full);
+      // cr-807：error 收束错误行（session-design §2.5 落盘形态）——终稿
+      // 行后追加 context+source:error（UI 红条 / LLM 回放按 user 喂回），
+      // 文案经 settleRun 从 loop result.error 带入。
+      if (finish === 'error') {
+        this.appendLine(path.join(this.dir, MESSAGES), {
+          role: 'context',
+          source: 'error',
+          content: errorMessage ?? 'run 以 error 收束',
+          agent_id: finalRow.agent_id,
+          uuid: finalRow.uuid,
+          run: runId,
+          message_id: cryptoRandomId(),
+          timestamp: new Date().toISOString(),
+          seq: this.allocSeq(),
+        } satisfies LedgerRow);
+      }
       this.appendLine(path.join(this.dir, JOURNAL), {
         type: 'journal-settled', run: runId, finish,
         ...(meter !== undefined ? { usage: meter.usage, model: meter.model } : {}),
@@ -234,9 +252,19 @@ export class LedgerWriter {
 
   /** journal → 段行/注入行物化（settle/settleOrphan 共用；journal 内调用——
    *  串行队列内读该 run 全量行，切段落账。时间戳 = 步行落行 ts；存量行
-   *  缺席回落物化时刻） */
+   *  缺席回落物化时刻）。
+   *  cr-803 子调用档案分流：subcall 补行不内联进段行 steps（重度会话
+   *  98.7% 体积在子调用全文——主文件热扫描路径被拖垮），原样追加独立
+   *  subcalls.jsonl 永久档案（旧轨道三文件裁决语义）；读面 stepsOfLedger
+   *  联查注入复原 UI 平铺卡。 */
   private materialize(runId: string, agentId: string, uuid?: string): void {
-    const segments = segmentizeRun(readJournal(this.dir), runId);
+    const journalLines = readJournal(this.dir);
+    for (const line of journalLines) {
+      if (line.run === runId && line.type === 'journal-tool-result' && line.subcall === true) {
+        this.appendLine(path.join(this.dir, SUBCALLS), line);
+      }
+    }
+    const segments = segmentizeRun(journalLines, runId);
     let i = 0;
     for (const seg of segments) {
       const isInject = seg.kind === 'inj';
@@ -252,6 +280,7 @@ export class LedgerWriter {
         //（前端 mergeHistoryPage 双键去重直接命中）；来源/文案随行携带
         ...(isInject && seg.injectSource !== undefined ? { injectSource: seg.injectSource } : {}),
         ...(isInject && seg.label !== undefined ? { label: seg.label } : {}),
+      ...(isInject && seg.payload !== undefined ? { payload: seg.payload } : {}),
         // 注入行信封关联（cr-713）：busy-steer 消息无入站行——本行即其账本
         // 记录，requestId 随行带出（重放判重 / 读侧与入站行同键归口）
         ...(isInject && seg.requestId !== undefined ? { requestId: seg.requestId } : {}),

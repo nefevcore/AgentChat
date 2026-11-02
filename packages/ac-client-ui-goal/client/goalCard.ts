@@ -90,11 +90,15 @@ export interface GoalCardData {
  */
 export function normalizeGoalCard(data: Record<string, unknown> | undefined): GoalCardData | null {
   const src = data ?? {};
+  // 扁平字段优先（cr-765 A-4）：resultData = {...args, ...output}——goal/
+  // current/message 就在顶层；src.output 解析仅作旧形回退（信封未扁平的
+  // 历史行）。此前只读 src.output → 恒 undefined → 阶段恒「进行中」、
+  // 受阻原因/备注全丢（实景 R-15 可复现）。
   const output = unwrapToolResult(parseContent(src.output));
-  const settled = output !== null || src.output !== undefined;
-  const fromOutput = goalOf(output?.goal) ?? goalOf(output?.current);
+  const settled = output !== null || src.output !== undefined || src.goal !== undefined || src.current !== undefined;
+  const fromOutput = goalOf(src.goal) ?? goalOf(src.current) ?? goalOf(output?.goal) ?? goalOf(output?.current);
   if (fromOutput) {
-    const message = typeof output?.message === 'string' ? output.message : undefined;
+    const message = typeof src.message === 'string' ? src.message : typeof output?.message === 'string' ? output.message : undefined;
     return { goal: fromOutput, ...(message ? { message } : {}), settled: true };
   }
   const fromArgs = goalOf({ objective: src.objective, status: src.status });

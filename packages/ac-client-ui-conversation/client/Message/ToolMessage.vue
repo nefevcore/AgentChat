@@ -7,7 +7,8 @@ import { toolDisplayLabel, toolDiffStat } from 'ac-client-ui-tool/client/toolLab
 import { fmtElapsed } from '../feed.ts';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { resolveToolLabelAction } from 'ac-client-ui-tool/client/toolResultViews.ts';
-import { Icon } from '@agentchat/webui-kit';
+import { Icon, RawCard } from '@agentchat/webui-kit';
+import CodeCard from 'ac-client-ui-renderer/client/CodeCard.vue';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
 const props = defineProps<{
@@ -117,6 +118,13 @@ const resultTitle = computed(() => {
     return parsed.value?.title || null;
 });
 
+/** 错误文案统一下发（cr-765 A-1）：信封错误（parsed.message）不在 data 里——
+ *  卡片从 data.error 恒读不到（run_code rc-error 分支曾是死代码）。
+ * 所有结果卡经本 prop 读错误面；run_code 将其作为 return 区状态渲染（#11）。 */
+const errorText = computed(() =>
+    parsed.value?.status === 'error' ? (parsed.value.message || '') : ''
+);
+
 const resultData = computed(() => {
     const args = parseArgs(props.message.arguments);
     // 已有结构化结果 → 结果数据渲染；工具参数层并入（结果字段优先）——
@@ -131,8 +139,21 @@ const resultData = computed(() => {
     return preview;
 });
 
-const hasContent = computed(() => {
-    return !!props.message.content;
+/** 无输出卡（cr-765 #7）：结果终态无内容（content 空 + 非 running）——
+ *  label 标黄尾缀「无输出」，展开体不渲染（有 error/note 不算无输出——
+ *  那属于有内容）。isRunning 期间仍可展开看流式。 */
+const hasContent = computed(() => !!props.message.content);
+
+/** 兜底分支的 json 文本（反馈 #5）：CodeCard 需要 string——stringify 失败回落 RawCard */
+const fallbackJson = computed(() => {
+    try { return JSON.stringify(parsed.value?.data ?? null, null, 2); } catch { return ''; }
+});
+// 无输出判定收窄：有专用结果卡且参数携带可展示内容（run_code 的 code——程序体已流式到场、
+// 结果未回的窗口）→ 允许展开看程序写了什么，不落「无输出」锁死。
+const noOutput = computed(() => {
+    if (hasContent.value || isRunning.value || parsed.value?.message) return false;
+    if (ResultComponent.value && Object.keys(parseArgs(props.message.arguments)).some(k => k === 'code')) return false;
+    return true;
 });
 
 function handleLabelClick() {
@@ -153,6 +174,7 @@ function handleLabelClick() {
   toggleExpand();
 }
 function toggleExpand() {
+    if (noOutput.value) return; // #7：无输出卡不响应展开（点开只有一句话占位）
     isExpanded.value = !isExpanded.value;
 }
 
@@ -203,7 +225,7 @@ watch(isExpanded, (expanded) => {
                  失败（error/blocked）label 整行红字，不再渲染 OK/ERR 状态徽章 -->
             <div
                 class="tool-label"
-                :class="{ 'is-failed': isFailed }"
+                :class="{ 'is-failed': isFailed, 'is-no-output': noOutput }"
                 @click="handleLabelClick()"
                 @mouseenter="rowHover = true"
                 @mouseleave="rowHover = false"
@@ -214,7 +236,7 @@ watch(isExpanded, (expanded) => {
                 <span v-if="isRunning && !rowHover" class="tool-spin-ring" aria-hidden="true"></span>
                 <Icon v-else :name="rowIcon" :size="14" class="tool-label-icon" />
                 <!-- 单行截断（容器窄时尾部省略不换行），title 悬浮看全文 -->
-                <span class="tool-label-name" :title="displayName">{{ displayName }}</span>
+                <span class="tool-label-name" :title="displayName">{{ noOutput ? displayName + ' · 无输出' : displayName }}</span>
 
                 <!-- fs 写类工具：行变更统计 +N -M（增绿删红，GitHub 风格；
                      结果返回后出现——运行中不显示） -->
@@ -240,21 +262,24 @@ watch(isExpanded, (expanded) => {
                 </span>
             </div>
 
-            <!-- 内容体 -->
-            <div v-show="isExpanded" class="tool-body">
+            <!-- 内容体（#7：无输出时不渲染） -->
+            <div v-show="isExpanded && !noOutput" class="tool-body">
                 <!-- JSON 结构化结果 -->
                 <template v-if="isJson && parsed">
-                    <!-- 错误 -->
-                    <div v-if="parsed.status === 'error'" class="tool-json-error">
-                        {{ parsed.message || parsed.data?.message || '(命令执行失败，见下方输出)' }}
+                    <!-- 状态条（cr-765 #15：三态统一——图标 + 短语 + 正文，语义分层：
+                         error=执行了但报错（err）；blocked=未执行（err 语义更重）；
+                         warning=执行了但需注意（warn） -->
+                    <div v-if="parsed.status === 'error'" class="tool-status-note is-error">
+                        <Icon name="alert-circle" :size="12" class="tsn-icon" />
+                        <span class="tsn-flow"><span class="tsn-word">失败</span><span class="tsn-text">{{ parsed.message || parsed.data?.message || '(命令执行失败，见下方输出)' }}</span></span>
                     </div>
-                    <!-- 警告 -->
-                    <div v-else-if="parsed.status === 'warning'" class="tool-json-warning">
-                        {{ parsed.message || parsed.data?.message }}
+                    <div v-else-if="parsed.status === 'blocked'" class="tool-status-note is-blocked">
+                        <Icon name="ban" :size="12" class="tsn-icon" />
+                        <span class="tsn-flow"><span class="tsn-word">已拦截</span><span class="tsn-text">{{ parsed.message || parsed.data?.message }}</span></span>
                     </div>
-                    <!-- 阻止 -->
-                    <div v-else-if="parsed.status === 'blocked'" class="tool-json-blocked">
-                        <Icon name="ban" :size="12" class="tool-json-blocked-icon" />{{ parsed.message || parsed.data?.message }}
+                    <div v-else-if="parsed.status === 'warning'" class="tool-status-note is-warning">
+                        <Icon name="alert-circle" :size="12" class="tsn-icon" />
+                        <span class="tsn-flow"><span class="tsn-word">需要注意</span><span class="tsn-text">{{ parsed.message || parsed.data?.message }}</span></span>
                     </div>
                     <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
                     <!-- 注意：bash/pwsh 的 status=error 仍需渲染 terminal（输出信息在 data.output 中——pwsh 系 2026-09-16 工具拆分双名，cr-464 补）；browser 批量部分失败也需渲染（展示已成功 steps）；run_code 程序失败也需渲染（错误与执行摘要在卡内——实测复盘后确立）；subagent 的错误带近似候选 id/护栏指路（卡内 error 分支渲染） -->
@@ -265,10 +290,15 @@ watch(isExpanded, (expanded) => {
                             :is="ResultComponent"
                             :data="resultData"
                             :loading="false"
+                            :error-text="errorText"
                             :tool-name="message.name"
                             :agent-id="message.agent_id"
                             :conversation-id="conversationId"
                         />
+                        <!-- 无专用卡兜底（A-6 + 反馈 #5）：可解析结果走 CodeCard json 高亮
+                             （自定义树状 JsonCard 效果一般且数组不可展开——直接 json 文本渲染
+                             更实用；信封已由 useToolResult 剥掉），原始载荷值喂 RawCard -->
+                        <CodeCard v-else-if="parsed.data && fallbackJson" :code="fallbackJson" lang="json" title="output" />
                         <pre v-else ref="outputEl" class="tool-output" @scroll="syncOutputScrollState"><code>{{ message.content }}</code></pre>
                     </template>
                 </template>
@@ -280,14 +310,15 @@ watch(isExpanded, (expanded) => {
                         :is="ResultComponent"
                         :data="resultData"
                         :loading="isRunning"
+                        :error-text="errorText"
                         :tool-name="message.name"
                         :agent-id="message.agent_id"
                         :conversation-id="conversationId"
                     />
                 </template>
 
-                <!-- 非 JSON 原始文本（未知工具） -->
-                <pre v-else-if="hasContent" ref="outputEl" class="tool-output" @scroll="syncOutputScrollState"><code>{{ message.content }}</code></pre>
+                <!-- 非 JSON 原始文本（未知工具）——RawCard 兜底（A-6，流式吸底归卡内） -->
+                <RawCard v-else-if="hasContent" :text="message.content" />
 
                 <div v-else-if="isRunning" class="tool-loading">
                     <span class="loading-text">正在执行...</span>
@@ -347,6 +378,12 @@ watch(isExpanded, (expanded) => {
 
 .tool-label:hover {
     color: var(--text-1);
+}
+
+/* 无输出（#7）：label 标黄——与失败红区分（执行了但空手而归 vs 报错） */
+.tool-label.is-no-output,
+.tool-label.is-no-output:hover {
+    color: var(--warn);
 }
 
 /* 失败（error/blocked）：label 整行红字（替代原 OK/ERR/BLK 徽章） */
@@ -452,6 +489,8 @@ watch(isExpanded, (expanded) => {
        增长时底部附近自动吸底（见 script） */
     max-height: var(--card-viewport-max);
     overflow-y: auto;
+    /* 同主容器（TranscriptList）：自管跟随引擎的视口禁锚定 */
+    overflow-anchor: none;
     overscroll-behavior: contain;
     /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */
     scrollbar-gutter: stable;
@@ -488,24 +527,41 @@ watch(isExpanded, (expanded) => {
     font-style: italic;
 }
 
-.tool-json-error {
-    color: var(--err);
-    font-size: 12px;
-}
-
-.tool-json-warning {
-    color: var(--warn);
-    font-size: 12px;
-}
-
-.tool-json-blocked {
+/* 状态条（#15）：底色 + 描边分层——err 底 8%；blocked 底 10%（未执行比
+   error 更重）；warn 底 8%。文字走墨色档（4.5 线）。
+   反馈 #2 对齐：首行整体基线对齐（图标与首行文字同高），文本换行悬挂
+   缩进到词后——icon 居中 + 文本顶对齐的旧组合在长文本下错位。 */
+.tool-status-note {
     display: flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--warn);
+    align-items: flex-start;
+    gap: 6px;
     font-size: 12px;
+    padding: 5px 8px;
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
+    min-width: 0;
 }
-.tool-json-blocked-icon { flex-shrink: 0; }
+/* 图标随首行（top 对齐 + 半行下移居中于首行文字高度）——长文本换行不再错位 */
+.tool-status-note .tsn-icon { flex-shrink: 0; align-self: flex-start; margin-top: 2px; }
+/* 词 + 文本同行流式（display:inline 包裹）——文本换行从词右侧续排 */
+.tool-status-note .tsn-flow { min-width: 0; overflow-wrap: anywhere; }
+.tool-status-note .tsn-word { font-weight: 600; margin-right: 2px; }
+.tool-status-note .tsn-text { }
+.tool-status-note.is-error {
+    color: var(--err);
+    background: color-mix(in srgb, var(--err) 8%, transparent);
+    border-color: color-mix(in srgb, var(--err) 24%, transparent);
+}
+.tool-status-note.is-blocked {
+    color: var(--err);
+    background: color-mix(in srgb, var(--err) 10%, transparent);
+    border-color: color-mix(in srgb, var(--err) 28%, transparent);
+}
+.tool-status-note.is-warning {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+    border-color: color-mix(in srgb, var(--warn) 24%, transparent);
+}
 
 .tool-json-title {
     font-size: 12px;

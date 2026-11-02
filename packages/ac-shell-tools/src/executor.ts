@@ -497,7 +497,7 @@ export function executeShellCommand(
           settle({
             ok: false,
             error: `命令超时（${effectiveTimeout}ms${clamped ? `，传入 ${timeout}ms 已按上限 ${limits.maxTimeout}ms 截断——增大 timeout 无效，需调大本 Agent 的 maxTimeout 配置` : ''}）。建议增大 timeout 参数或改用 background 后台执行。`,
-            output: { command, cwd: dir, timed_out: true, ...(clamped ? { timeout_clamped: { requested: timeout, effective: effectiveTimeout, max: limits.maxTimeout } } : {}) },
+            output: { command, cwd: dir, workdir: sandbox.workdir, cwd_is_default: dir === sandbox.workdir, timed_out: true, ...(clamped ? { timeout_clamped: { requested: timeout, effective: effectiveTimeout, max: limits.maxTimeout } } : {}) },
           });
         }
         return;
@@ -570,6 +570,8 @@ export function executeShellCommand(
             command,
             ...(translatedCommand ? { translated_command: translatedCommand } : {}),
             cwd: dir,
+            workdir: sandbox.workdir,
+            cwd_is_default: dir === sandbox.workdir,
             output: displayed.text || '(无输出)',
             stdout: stdoutView.text,
             stderr: stderrView.text,
@@ -588,6 +590,8 @@ export function executeShellCommand(
           command,
           ...(translatedCommand ? { translated_command: translatedCommand } : {}),
           cwd: dir,
+          workdir: sandbox.workdir,
+          cwd_is_default: dir === sandbox.workdir,
           output: displayed.text || '(无输出)',
           stdout: stdoutView.text,
           stderr: stderrView.text,
@@ -611,7 +615,7 @@ export function executeShellCommand(
       armCloseFallback(code);
     });
     child.on('error', (err) => {
-      settle({ ok: false, error: err.message, output: { command, cwd: dir } });
+      settle({ ok: false, error: err.message, output: { command, cwd: dir, workdir: sandbox.workdir, cwd_is_default: dir === sandbox.workdir } });
     });
   });
 }

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
     "highlight.js": "^11.11.1",

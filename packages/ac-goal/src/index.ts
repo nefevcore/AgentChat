@@ -148,8 +148,27 @@ function renderGoalRoundMessage(goal: GoalRecord, round: number): string {
 }
 
 /**
+ * 盘读投影（cr-824 读面搬迁批一）：entries/goal.json 原始形态 → 会话桶快照。
+ * 宿主读面（face-shell goal/get 盘直读）与壳内服务共用同一投影——单源禁漂移。
+ * store 缺席/损坏（readEntry 语义）= 空快照（history: []，无 current）。
+ */
+export function goalSnapshotOf(store: unknown, conversationId: string): GoalSnapshot {
+  const buckets = typeof store === 'object' && store !== null
+    ? (store as GoalStore).buckets
+    : undefined;
+  const bucket = typeof buckets === 'object' ? buckets[conversationId] : undefined;
+  if (bucket === undefined || typeof bucket !== 'object' || !Array.isArray(bucket.history)) {
+    return { history: [] };
+  }
+  return {
+    ...(bucket.current ? { current: { ...bucket.current } } : {}),
+    history: bucket.history.map((g) => ({ ...g })),
+  };
+}
+
+/**
  * goal-round 的 sender = 桶对端（2026-09-03 KV cache 实测修正）：对话信息
- * 块渲染 `[当前对话对象] <sender>` 进 system——sender 若取 Agent 自身，
+ * 块的 [当前对话对象] 行随 sender 变化进 system——sender 若取 Agent 自身，
  * 用户轮（sender=user）与轮次轮（sender=admin）交替即翻转 system → 每次
  * 边界 ~94k 全量前缀 miss。取对端使两种轮的 system 字节一致：
  *   · 对键 a~b → ≠agentId 的一侧（1v1 = user；委托桶 = 委托方）；
@@ -284,15 +303,6 @@ export class GoalsService extends Service {
     this.ctx.agentStore.saveEntry(agentId, GOAL_ENTRY_KEY, store);
   }
 
-  private bucketOf(agentId: string, key: string): GoalBucket {
-    const store = this.loadStore(agentId);
-    const bucket = store.buckets[key];
-    if (bucket === undefined || typeof bucket !== 'object' || !Array.isArray(bucket.history)) {
-      return { history: [], updatedAt: new Date().toISOString() };
-    }
-    return bucket;
-  }
-
   /** 桶键校验（空键拒绝；键为 JSON 字段非文件名，无路径词法约束） */
   private assertKey(agentId: string, key: string): void {
     if (!agentId) throw new Error('缺少 agentId（goal 状态按 Agent × 会话桶归属）');
@@ -303,21 +313,16 @@ export class GoalsService extends Service {
   // 查询 API
   // ============================================================
 
-  /** 桶快照（current + history；只读副本） */
+  /** 桶快照（current + history；只读副本）——投影单源 goalSnapshotOf（cr-824） */
   snapshot(agentId: string, key: string): GoalSnapshot {
     this.assertKey(agentId, key);
-    const bucket = this.bucketOf(agentId, key);
-    return {
-      ...(bucket.current ? { current: { ...bucket.current } } : {}),
-      history: bucket.history.map((g) => ({ ...g })),
-    };
+    return goalSnapshotOf(this.loadStore(agentId), key);
   }
 
-  /** 当前未完成目标（无 → undefined） */
+  /** 当前未完成目标（无 → undefined）——同投影单源 */
   currentOf(agentId: string, key: string): GoalRecord | undefined {
     this.assertKey(agentId, key);
-    const current = this.bucketOf(agentId, key).current;
-    return current ? { ...current } : undefined;
+    return goalSnapshotOf(this.loadStore(agentId), key).current;
   }
 
 
@@ -546,8 +551,9 @@ export function apply(ctx: Context) {
           output: {
             goal,
             completed: goal.status === 'completed',
+            // message 只承载状态转换语义——objective 已在快照里，不复述
             message: goal.status === 'completed'
-              ? `目标 "${goal.objective}" 已达成收口（入历史；可开新目标）`
+              ? '已达成收口（入历史；可开新目标）'
               : `目标已更新（status=${goal.status}${goal.status === 'active' ? '，恢复逐轮推进' : '，停止开轮'}）`,
           },
         };
@@ -561,7 +567,7 @@ export function apply(ctx: Context) {
           output: {
             goal,
             deleted: true,
-            message: `目标 "${goal.objective}" 已删除（放弃，不入历史）——可 goal(action="create") 登记新目标`,
+            message: '已删除（放弃，不入历史；可 goal(action="create") 登记新目标）',
           },
         };
       }

@@ -28,6 +28,46 @@ describe('normalizeTodoCard（todo 工具消息 → 卡片数据）', () => {
     expect(card!.todos).toEqual([{ content: '收尾', status: 'completed' }]);
   });
 
+  it('扁平终值形（resultData = {...args, ...output}，cr-765 A-3）：顶层 todos 直读且 settled=true', () => {
+    const card = normalizeTodoCard({
+      action: 'write',
+      todos: [{ content: '第一步', status: 'completed' }, { content: '第二步', status: 'in_progress' }],
+      count: 2,
+    });
+    expect(card!.settled).toBe(true);
+    expect(card!.todos).toEqual([
+      { content: '第一步', status: 'completed' },
+      { content: '第二步', status: 'in_progress' },
+    ]);
+  });
+
+  it('write 摘要形（write 返回值无 todos，count+summary）：回落 args 展示当次写入的清单', () => {
+    // 扁平形：output 覆盖后顶层 todos 仍是 args 投影（同名键未被 output 消除）
+    const flat = normalizeTodoCard({
+      action: 'write',
+      todos: [{ content: '第一步', status: 'completed' }, { content: '第二步', status: 'in_progress' }],
+      count: 2,
+      summary: '1/2 已完成，1 进行中',
+    });
+    expect(flat!.settled).toBe(true);
+    expect(flat!.todos).toEqual([
+      { content: '第一步', status: 'completed' },
+      { content: '第二步', status: 'in_progress' },
+    ]);
+    // live 字符串形：output 信封在场但无 todos → 同样回落 args
+    const live = normalizeTodoCard({
+      action: 'write',
+      todos: [{ content: '第一步', status: 'completed' }],
+      output: JSON.stringify({ count: 1, summary: '1/1 已完成' }),
+    });
+    expect(live!.todos).toEqual([{ content: '第一步', status: 'completed' }]);
+  });
+
+  it('cancelled 态归一（不再相关——保留条目，非完成非删除）', () => {
+    const card = normalizeTodoCard({ todos: [{ content: '放弃项', status: 'cancelled' }] });
+    expect(card!.todos).toEqual([{ content: '放弃项', status: 'cancelled' }]);
+  });
+
   it('调用中（无 output）：回落 args.todos 预览，settled=false', () => {
     const card = normalizeTodoCard({
       action: 'write',

@@ -638,6 +638,9 @@ onBeforeUnmount(() => {
        裁掉（无法滚到顶部），故移除 */
     max-height: var(--card-viewport-max);
     overflow-y: auto;
+    /* 同主容器（TranscriptList）：自管跟随引擎的视口禁锚定——锚定
+       补偿下调 scrollTop 会与贴底吸收写入打架并误触发让位逻辑 */
+    overflow-anchor: none;
     overscroll-behavior: contain;
     /* 槽位常驻：滚动条出现/消失时内容宽度不跳变 */
     scrollbar-gutter: stable;

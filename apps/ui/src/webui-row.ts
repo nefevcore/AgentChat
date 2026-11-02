@@ -13,7 +13,7 @@
 // phase:'base' 随骨架归并退役——骨架 3 件 in-bundle（client/ 装配序列），
 // 本端点只发通道条目（模块资产），单一动态语义。
 // ============================================================
-import { readFile } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { assembleBootGraph, resolveUiAsset } from 'ac-webui-core';
 // webServer 契约增强（declare module 全局合并靠 include src 面闭合——本 tsconfig 已含）
@@ -35,15 +35,27 @@ export function makeWebuiRow(options: WebuiRowOptions): Plugin {
     apply(ctx: Context) {
       const web = ctx.webServer;
 
-      // boot graph（通道条目清单——manifest 扫描单源；坏 manifest fail-loud 记 warning）
+      // boot graph（通道条目清单——manifest 扫描单源；坏 manifest fail-loud 记 warning）。
+      // mtime 缓存（cr-843）：目录 mtime 在插件安装/卸载（目录增删）时必然变化，
+      // 不变即复用上次扫描结果——此前每次请求同步扫 30 个插件目录的 manifest。
+      let cachedGraph: { mtimeMs: number | null; body: string } | null = null;
       web.route('GET', '/api/ui/boot-graph', (call) => {
-        const { graph, warnings } = assembleBootGraph(options.pluginsDir);
-        if (warnings.length > 0) console.warn('[webui] boot graph 扫描警告：', warnings.join('；'));
+        // 目录缺席（stat ENOENT）= 空图（assembleBootGraph 同语义）；mtime null 恒不匹配缓存——目录出现即入图
+        const mtimeMs = statSync(options.pluginsDir, { throwIfNoEntry: false })?.mtimeMs ?? null;
+        if (cachedGraph?.mtimeMs !== mtimeMs) {
+          const { graph, warnings } = assembleBootGraph(options.pluginsDir);
+          if (warnings.length > 0) console.warn('[webui] boot graph 扫描警告：', warnings.join('；'));
+          cachedGraph = { mtimeMs, body: JSON.stringify({ clients: graph }) };
+        }
         call.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-        call.res.end(JSON.stringify({ clients: graph }));
+        call.res.end(cachedGraph.body);
       });
 
-      // 通道静态资产（/ui-plugin/<name>/<rel> → pluginsDir/<name>/<rel>；逃逸/缺失 → 404/403）
+      // 通道静态资产（/ui-plugin/<name>/<rel> → pluginsDir/<name>/<rel>；逃逸/缺失 → 404）。
+      // 应答走 webServer.serveFileRoute（cr-843）：br/gzip 压缩 + ETag 协商 +
+      // content-length——此前裸传原始字节且无缓存头，浏览器刷新全量回源
+      //（108 JS 3.4MB + 27 CSS 1.7MB），偶发刷新慢的主因。通道产物非内容
+      // 哈希文件名 → no-cache + 304 协商（字节不变免传，重建后 etag 变化即重拉）。
       web.route('GET', '/ui-plugin/:name/*', async (call) => {
         const asset = resolveUiAsset(options.pluginsDir, call.params.name, call.params['*']);
         if (asset === null) {
@@ -51,9 +63,9 @@ export function makeWebuiRow(options: WebuiRowOptions): Plugin {
           call.res.end('not found');
           return;
         }
-        const buf = await readFile(asset.file);
-        call.res.writeHead(200, { 'content-type': asset.contentType });
-        call.res.end(buf);
+        await ctx.webServer.serveFileRoute(call.res, asset.file, {
+          acceptEncoding: call.req.headers['accept-encoding'] ?? '',
+        });
       });
     },
   };

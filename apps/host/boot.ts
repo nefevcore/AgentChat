@@ -14,6 +14,7 @@
 // 让行集完整性可验证；装配失败逆序收割（不留半态端口/监听）。
 //
 // 装配序：
+//   预设模板升级对账（cr-812 copy-on-write：origin 指纹比对——未编辑跟随）
 //   邮局先行（PostOffice——usage 行等宿主自有形态行的事件信收信面）
 //   → web-server（传输基座；其余行的 inject 面靠它满足）
 //   → 导入行 + 宿主自有形态行（usage / timers / agents 编辑面 / plugin-registry）
@@ -28,7 +29,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
-import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace } from 'ac-host-rows';
+import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, PRESET_ID, readTemplate, materializeConfigOf, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
 import { readCatalog, deriveHostRowset, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
@@ -68,6 +69,8 @@ export interface HostBootOptions {
    * 信时回调（CLI 形态接 graceful exit 42；缺省 = 无消费者——信封落账即弃）。
    */
   onRestartRequest?: (sender: string) => void;
+  /** 拉起链注入（测试替身——透传编排面 adopt；缺省 = adoptShell 真链） */
+  adopt?: import('./supervise.ts').SuperviseAdopter;
 }
 
 export interface HostBootResult {
@@ -84,7 +87,9 @@ export interface HostBootResult {
   poller: ShellStatePoller | null;
   /** 装配终检通过后的 fiber 清单（诊断/测试用） */
   fibers: Fiber[];
-  close(): Promise<void>;
+  /** 宿主进程收面；reapShells:false = 宿主换代路径——跳过壳收割（保壳保
+   * run，cr-813），缺省收割（cr-705 测试 teardown 零残留语义）。 */
+  close(opts?: { reapShells?: boolean }): Promise<void>;
 }
 
 /**
@@ -97,6 +102,11 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
 
   // ---- 出厂通道播种（bundle 形态：dist/plugins → <dataRoot>/plugins 幂等拷贝）----
   seedFactoryPlugins(dataRoot, ANCHORS);
+
+  // ---- 预设模板升级对账（cr-812 copy-on-write）----
+  // 首启物化记 origin 指纹；boot 时模板指纹已变 → 未编辑项自动跟随新版，
+  // 已编辑项保留 + 日志提示（用户数据优先）。
+  reconcilePresets(dataRoot, ANCHORS.templatesDir);
 
   // ---- 行集派生（A9：偏好文件 × 目录全集）----
   const catalog: RowsetCatalog = readCatalog(options.catalogFile);
@@ -184,6 +194,8 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   const mounted = new Set<string>(derived.rowIds);
   // 壳内服务面端口持有器（web 面先装配、orchestrator 后创建——惰性回填，cr-569）
   const shellPort: { port: OrchestratorHandle | null } = { port: null };
+  // cr-824 批二：poller 惰性容器（poller 创建晚于 web 表面装配——同 shellPort 回填模式）
+  const pollerRef: { snap: (() => Map<string, { runs: Array<{ conversationId: string; runId: string | null; startedAt: number }> }> | null) | null } = { snap: null };
   const ringOptions = {
     dataRoot,
     ...(options.port !== undefined ? { port: options.port } : {}),
@@ -191,6 +203,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
     catalogFile: options.catalogFile,
     shellPort: () => shellPort.port,
+    pollerSnapshot: () => pollerRef.snap?.() ?? null,
     postOffice: po,
   };
   let web: WebRing;
@@ -279,6 +292,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
         hostPort: web.port,
         tap: (agentId, hint) => web.tapAgent(agentId, hint),
         ...(options.mockProvider === true ? { mockProvider: true } : {}),
+        ...(options.adopt !== undefined ? { adopt: options.adopt } : {}),
       })
     : null;
   if (supervisors !== null) {
@@ -322,6 +336,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     // 面补投收束三件套：清 busy + 权威行重拉；text 缺席，终稿以重拉的权威行
     // 为准）；广播无连接时帧丢弃（B3 瞬态语义同款——对账面不承诺持久）。
     poller = createShellStatePoller(supervisors);
+    pollerRef.snap = () => poller?.snapshot() ?? null; // cr-824 批二：镜像端口回填
     poller.onEvent((event) => {
       if (event.type !== 'run-settled') return;
       hostLog('I', 'poller', 'run-settled 对账（' + event.agentId + '，' + event.runId + '，finish=' + event.finish + '）');
@@ -350,6 +365,18 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     }
   }
 
+  // cr-806：宿主事实源落盘（pid/port/bootAt）——restart_host 回执的探测锚点。
+  // 写在 return 前（装配终检通过 = web 端口已定）；换代后新 pid 覆写同文件，
+  // Agent 读 pid 变化即知换代完成。尽力面：写失败不阻塞 boot。
+  try {
+    fs.mkdirSync(path.join(dataRoot, '.runtime'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dataRoot, '.runtime', 'host-facts.json'),
+      JSON.stringify({ pid: process.pid, port: web.port, bootAt: new Date().toISOString() }, null, 2),
+      'utf-8',
+    );
+  } catch { /* 尽力面：写失败不阻塞 boot */ }
+
   return {
     ctx,
     rowIds: derived.rowIds,
@@ -358,11 +385,26 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     supervisors,
     poller,
     fibers,
-    async close() {
+    async close(opts: { reapShells?: boolean } = {}) {
       // 壳收割（cr-705）：supervisors.close() 只停监护循环不杀壳（detached
       // /host-revive 设计），但 close() 的调用语义是「宿主进程收面」——测试
       // teardown 直接 bootHost→close 后壳仍持有数据根句柄，成为 workspace/test
       // EPERM 残留源。close 时逐句柄优雅停 + 兜底强杀，宿主侧零残留。
+      // reapShells:false（cr-813）：宿主换代路径（restart_host）专用——收割
+      // 会打断在途 run（provider dispose 裸 abort → mid-run 被杀、终态误标
+      // error「This operation was aborted」）+ 壳退码 0 使 warden 判 done
+      // 不重拉，双重破坏 restart_host 的保壳保 run 语义。换代靠活壳
+      // host-revive 探测复活 + 新宿主 rescueLiveShells 收复，壳不随宿主死。
+      if (opts.reapShells === false) {
+        poller?.dispose();
+        supervisors?.close(); // 仅停监护循环——detached 壳交活壳复活链
+        web.closeTaps();
+        for (const fiber of [...fibers].reverse()) {
+          if (fiber.uid !== null) await fiber.dispose();
+        }
+        await po.close();
+        return;
+      }
       poller?.dispose(); // cr-748：先停轮询（后续收割不再产生对账事件）
       if (supervisors !== null) {
         for (const handle of supervisors.handles().values()) {
@@ -442,7 +484,9 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
   const restartHost = (host: Awaited<ReturnType<typeof bootHost>>, sender: string): void => {
     hostLog('I', 'host', '收到 restart_host 请求（sender=' + sender + '）——graceful 重启（exit 42，活壳/监护拉回）');
     setTimeout(() => process.exit(42), 8_000).unref(); // 收面兜底：close 链异常不吊死重启
-    void host.close().finally(() => process.exit(42));
+    // reapShells:false（cr-813）：换代不收割壳——收割会打断在途 run 且壳退 0
+    // 不重拉，破坏保壳保 run（restart_host 核心语义，cr-629）。
+    void host.close({ reapShells: false }).finally(() => process.exit(42));
   };
   void bootHost({
     dataRoot,
@@ -464,7 +508,7 @@ if (path.resolve(process.argv[1] ?? '') === path.resolve(fileURLToPath(import.me
     if (code === 'EADDRINUSE') {
       console.error('[host] 这个数据根已经有宿主在跑（IPC 管道或端口被占）：' + path.resolve(dataRoot));
       console.error('[host] 一个数据根只允许一个宿主——先停掉旧实例（3830 端口 / supervisor 那个控制台），或换 --data-root 指向别处。');
-      console.error('[host] 监护入口是 pnpm dev:supervised；pnpm dev 是前台直跑（无崩溃重拉），两者只能开一个。');
+      console.error('[host] pnpm dev 已是被监护形态（supervisor 快路重拉）；dev:fg 是无监护前台直跑，两者只能开一个。');
       process.exit(78); // 启动期失败：supervisor 协议里 78 = 不重拉
     }
     console.error('[host] boot 失败：', err);
@@ -549,6 +593,59 @@ export function sweepRestartShellMarkers(input: {
         fs.writeFileSync(markerPath, markerRaw, 'utf-8');
       } catch { /* 回滚失败留 TTL 清扫 */ }
     });
+  }
+}
+
+function reconcilePresets(dataRoot: string, templatesDir: string): void {
+  const agentsDir = path.join(dataRoot, 'agents');
+  let dirs: fs.Dirent[] = [];
+  try { dirs = fs.readdirSync(agentsDir, { withFileTypes: true }); } catch { return; }
+  for (const d of dirs) {
+    const key = PRESET_ID.exec(d.name)?.[1];
+    if (key === undefined) continue;
+    const dir = path.join(agentsDir, d.name);
+    let liveConfig: Record<string, unknown> | null = null;
+    try {
+      liveConfig = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as Record<string, unknown>;
+    } catch { /* config 缺席——reconcile 内部按重建处理 */ }
+    const liveDocs: Record<string, string> = {};
+    const template = readTemplate(key, templatesDir);
+    const names = new Set<string>((template?.docs ?? []).map((doc) => doc.name));
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        if (DOC_NAME.test(f)) { names.add(f); }
+      }
+    } catch { /* 目录缺席 = 无文档 */ }
+    for (const name of names) {
+      try { liveDocs[name] = fs.readFileSync(path.join(dir, name), 'utf-8'); } catch { /* 缺席即不在 */ }
+    }
+    const result = reconcilePresetOrigin({
+      agentId: d.name,
+      templateKey: key,
+      liveConfig: liveConfig as never,
+      liveDocs,
+      origin: readOrigin(dataRoot, d.name),
+      currentTemplate: template,
+    });
+    if ('baseline' in result) {
+      writeOrigin(dataRoot, d.name, result.baseline);
+    } else if ('follow' in result) {
+      const follow = result.follow;
+      const configTmp = path.join(dir, 'config.json') + '.' + process.pid + '.tmp';
+      fs.writeFileSync(configTmp, JSON.stringify(follow.config, null, 2), 'utf-8');
+      fs.renameSync(configTmp, path.join(dir, 'config.json'));
+      for (const doc of follow.overwriteDocs) {
+        const docFile = path.join(dir, doc.name);
+        const docTmp = docFile + '.tmp';
+        fs.writeFileSync(docTmp, doc.content, 'utf-8');
+        fs.renameSync(docTmp, docFile);
+      }
+      writeOrigin(dataRoot, d.name, follow.nextOrigin);
+      const docCount = String(follow.overwriteDocs.length);
+      hostLog('I', 'host', '预设模板升级跟随：' + d.name + ' ← ' + key + '（config 重物化 + ' + docCount + ' 文档覆盖）');
+    } else if ('notice' in result) {
+      hostLog('W', 'host', '预设模板升级提示：' + result.notice);
+    }
   }
 }
 

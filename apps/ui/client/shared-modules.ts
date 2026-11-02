@@ -24,6 +24,7 @@ import * as convComposePrefs from 'ac-client-ui-conversation/client/composePrefs
 import * as convFeed from 'ac-client-ui-conversation/client/feed.ts';
 import * as convFeedStore from 'ac-client-ui-conversation/client/feedStore.ts';
 import * as convHistoryApi from 'ac-client-ui-conversation/client/historyApi.ts';
+import * as convInjectCardViews from 'ac-client-ui-conversation/client/injectCardViews.ts';
 import * as convSwitchTrace from 'ac-client-ui-conversation/client/switchTrace.ts';
 import * as convTypes from 'ac-client-ui-conversation/client/types.ts';
 import * as convUseTurnDisplayItems from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
@@ -36,6 +37,7 @@ import * as layoutUiStore from 'ac-client-ui-layout/client/uiStore.ts';
 import * as llmPoolPoolEntryForm from 'ac-client-ui-llm-pool/client/PoolEntryForm.vue';
 import * as llmPoolPoolApi from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import * as pluginRegistryExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
+import * as rendererCodeCard from 'ac-client-ui-renderer/client/CodeCard.vue';
 import * as rendererScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 import * as rendererSlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import * as rendererCodeFence from 'ac-client-ui-renderer/client/codeFence.ts';
@@ -90,6 +92,7 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-conversation/client/feed.ts': convFeed,
     'ac-client-ui-conversation/client/feedStore.ts': convFeedStore,
     'ac-client-ui-conversation/client/historyApi.ts': convHistoryApi,
+    'ac-client-ui-conversation/client/injectCardViews.ts': convInjectCardViews,
     'ac-client-ui-conversation/client/switchTrace.ts': convSwitchTrace,
     'ac-client-ui-conversation/client/types.ts': convTypes,
     'ac-client-ui-conversation/client/useTurnDisplayItems.ts': convUseTurnDisplayItems,
@@ -102,6 +105,7 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-llm-pool/client/PoolEntryForm.vue': llmPoolPoolEntryForm,
     'ac-client-ui-llm-pool/client/poolApi.ts': llmPoolPoolApi,
     'ac-client-ui-plugin-registry/client/ExtToolsPane.vue': pluginRegistryExtToolsPane,
+    'ac-client-ui-renderer/client/CodeCard.vue': rendererCodeCard,
     'ac-client-ui-renderer/client/ScrollableViewport.vue': rendererScrollableViewport,
     'ac-client-ui-renderer/client/SlotOutlet.vue': rendererSlotOutlet,
     'ac-client-ui-renderer/client/codeFence.ts': rendererCodeFence,

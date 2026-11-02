@@ -25,12 +25,16 @@ import {
   validateTimerEntries,
   workspacePathOf,
   workspaceTreeBase,
+  resolveWorkspaceFile,
 } from 'ac-host-rows';
 import { createPoolCredentials, maskSecrets } from './config-face.ts';
 import type { ShellAdminPort } from './face-shell.ts';
+import { readCatalogSnapshot } from './face-shell.ts';
 import { SnapshotStore, SNAPSHOT_MAX_BYTES, looksLikeText } from 'ac-file-snapshots/src/store.ts';
 import { runNativePickFolder } from 'ac-workspace/src/native-dialog.ts';
 import { runNativeOpen } from 'ac-workspace/src/native-open.ts';
+import { resolveOpenTargets, refreshTarget, runOpenWith, targetIconOf } from 'ac-workspace/src/open-targets.ts';
+import { assocIconOfExt, folderIconOf } from 'ac-workspace/src/file-assoc-icons.ts';
 import { readCatalog } from 'ac-rowset-core';
 import { UserLedger, conversationDirs, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
 import { readAgentConfig, settingsOf } from 'ac-agents-core';
@@ -50,6 +54,10 @@ export interface FaceOpsDeps {
   catalogFile?: string;
   /** 编排面惰性端口（runs/snapshot 活跃集——活壳 run-state 帧；缺席 = 无活跃面） */
   shellPort?: () => ShellAdminPort | null;
+  /** 宿主壳状态镜像（cr-824 批二：poller 每拍 peek 的宿主内存镜像——
+   *  在场时活跃集读它（零现探、无观测失败态——永阻塞不了）；缺席 = 退回
+   *  collectRunning 现探（独立形态/旧接线兼容）。 */
+  pollerSnapshot?: () => Map<string, { runs: Array<{ conversationId: string; runId: string | null; startedAt: number }> }> | null;
 }
 
 /** 仓库根解析：AGENTCHAT_VERSION_JSON（bundle 形态 env 注入）> 包相对缺省。
@@ -75,11 +83,35 @@ function optStr(v: unknown): string | undefined {
 /** 活跃 run 聚集（活壳逐个 run-state 帧——busy 壳才成条，闲壳在跑不算）。
  * cr-598 提为共享件：runs/snapshot 与 conversation/stats / session/history
  * 活投影同源（stats 曾硬编码空壳——前端 resume 与流式静默探针两链全断）。
- * port 缺席 / 壳退出 / 熔断在途 → 该壳视无 run。 */
-export async function collectRunning(deps: FaceOpsDeps): Promise<Array<{ agentId: string; conversationId: string; runId: string | null; startedAt: number }>> {
+ * 观测态三值（cr-802 光环偶发消失根修）：port 缺席 = []（无编排面是稳定部署
+ * 形态——确定无活跃面）；探测全部失败（有壳在场但一帧未答）= null（本拍无
+ * 活跃面数据——观测失败≠没在跑；此前聚成空集会让 runs/snapshot digest 步进，
+ * 前端把运行中条目清掉 = 光环消失，下一拍观测恢复才回来——「偶发」形态的
+ * 宿主侧源头）。部分失败 = 精确集（成功壳照答，退出中壳本拍缺席）。 */
+export type RunningProjection = Array<{ agentId: string; conversationId: string; runId: string | null; startedAt: number }> | null;
+
+/** 活跃集读面单源（cr-824 批二）：poller 镜像在场 → 读它（宿主内存，零现探、
+ *  无观测失败态——cr-802 的 null 两难随失败态一起消解：镜像不会 null）；
+ *  缺席 → collectRunning 现探（独立形态/旧接线）。runs/snapshot、
+ *  conversation/stats、session/history 三消费点共用本口。 */
+export function runningOf(deps: FaceOpsDeps): Promise<RunningProjection> {
+  if (deps.pollerSnapshot !== undefined) {
+    const snap = deps.pollerSnapshot();
+    if (snap !== null) {
+      const running: Array<{ agentId: string; conversationId: string; runId: string | null; startedAt: number }> = [];
+      for (const [agentId, s] of snap) {
+        for (const r of s.runs) running.push({ agentId, ...r });
+      }
+      return Promise.resolve(running);
+    }
+  }
+  return collectRunning(deps);
+}
+
+export async function collectRunning(deps: FaceOpsDeps): Promise<RunningProjection> {
   const running: Array<{ agentId: string; conversationId: string; runId: string | null; startedAt: number }> = [];
   const port = deps.shellPort?.() ?? null;
-  if (port === null) return running;
+  if (port === null) return [];
   // 活壳清单 + 控制通道（cr-675）：优先编排面统一入口（盘上活锁壳——宿主换代
   // 后的孤壳仍在跑 run，活跃面不能因换代而空）；无统一入口时退回句柄池枚举。
   const unified = port.control;
@@ -93,11 +125,13 @@ export async function collectRunning(deps: FaceOpsDeps): Promise<Array<{ agentId
       shells.push({ agentId, control: (frame) => handle.control(frame) });
     }
   }
+  let probed = 0;
   for (const { agentId, control } of shells) {
     try {
       const st = await control({ ctrl: 'admin', agentId, op: 'run-state' }) as
         | { busy?: unknown; conversationId?: unknown; runId?: unknown; startedAt?: unknown; runs?: unknown }
         | null;
+      probed += 1;
       // cr-746 per-门后壳可多 run：优先读 runs 数组（每会话一条）；
       // 旧壳单 run 形状（busy/conversationId 顶层字段）兼容回退。
       const list = Array.isArray(st?.runs)
@@ -116,8 +150,10 @@ export async function collectRunning(deps: FaceOpsDeps): Promise<Array<{ agentId
           }]
           : [];
       for (const r of list) running.push({ agentId, ...r });
-    } catch { /* 壳在退出——跳过 */ }
+    } catch { /* 壳在退出/本拍不可观测——跳过（观测失败≠没在跑） */ }
   }
+  // 有壳在场但一帧未答 = 本拍无活跃面数据（null）——调用方沿用上一拍投影
+  if (shells.length > 0 && probed === 0) return null;
   return running;
 }
 
@@ -310,7 +346,7 @@ function registerSystem(web: WebFace, deps: FaceOpsDeps): void {
     hasUpdate: false,
     latestUrl: null,
     checkFailed: true,
-    note: 'preview 轨道无自更新通道：更新 = git pull + 重启 dev:supervised',
+    note: 'preview 轨道无自更新通道：更新 = git pull + 重启 pnpm dev（supervised）',
   }));
   web.registerRpc('system/version-changelog', () => {
     try {
@@ -320,12 +356,15 @@ function registerSystem(web: WebFace, deps: FaceOpsDeps): void {
     }
   });
   web.registerRpc('system/version-update', () => {
-    throw new Error('preview 轨道无自更新通道：更新 = git pull + 重启 dev:supervised');
+    throw new Error('preview 轨道无自更新通道：更新 = git pull + 重启 pnpm dev（supervised）');
   });
 }
 
-/** 事件治理面（events/policy-set = ctx.eventPolicy 写口；目录面见下） */
-function registerEvents(web: WebFace, ctx: Context): void {
+/** 事件治理面（cr-826 目录数据化）：policy 写口 + 目录三面。
+ *  目录数据源 = tool-catalog.json 快照（生成器真装配 dump——壳树注册面
+ *  单源派生）∪ 宿主树活态（宿主自有行现算——两树并集，同名事件
+ *  listeners 追加）。治理键 owner 原文两侧一致（fiber 名）。 */
+function registerEvents(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   web.registerRpc('events/policy-set', async (params) => {
     const p = obj(params);
     const policy = ctx.get('eventPolicy') as { setPolicy(key: string, disabled: boolean): Promise<string[]> } | undefined;
@@ -340,10 +379,59 @@ function registerEvents(web: WebFace, ctx: Context): void {
         : '启用已写入——重启进程后恢复注册。',
     };
   });
-  // 目录面：宿主侧不做行包自述聚合（那是装饰/治理视图）——返回空清单让前端渲染空态，
-  // 待「事件目录数据化」批接入（不在本批范围，避免半真数据）
-  web.registerRpc('events/listeners', () => ({ events: [] }));
-  web.registerRpc('events/descriptions', () => ({ descriptions: [] }));
+
+  /** 宿主树活态注册面（_hooks 私有读——与 ac-event-policy 同款立场；
+   *  过滤 internal/* 与快照同口径） */
+  const liveHostEvents = (): Array<{ name: string; listeners: Array<{ owner: string; prepend: boolean; global: boolean; description?: string }> }> => {
+    const out: Array<{ name: string; listeners: Array<{ owner: string; prepend: boolean; global: boolean; description?: string }> }> = [];
+    const hooksTable = ctx.events as unknown as { _hooks: Record<string, Array<{ ctx?: { fiber?: { name?: string } }; prepend?: unknown; global?: unknown; description?: unknown }>> };
+    for (const [name, hooks] of Object.entries(hooksTable._hooks)) {
+      if (name.startsWith('internal/')) continue;
+      if (!Array.isArray(hooks) || hooks.length === 0) continue;
+      out.push({
+        name,
+        listeners: hooks.map((h) => ({
+          owner: h.ctx?.fiber?.name ?? '(anonymous)',
+          prepend: h.prepend === true,
+          global: h.global === true,
+          ...(typeof h.description === 'string' && h.description !== '' ? { description: h.description } : {}),
+        })),
+      });
+    }
+    return out;
+  };
+
+  web.registerRpc('events/listeners', () => {
+    const byName = new Map<string, { name: string; listeners: Array<Record<string, unknown>> }>();
+    for (const e of readCatalogSnapshot(deps.catalogFile).events) {
+      byName.set(e.name, { name: e.name, listeners: [...e.listeners] });
+    }
+    for (const e of liveHostEvents()) {
+      const merged = byName.get(e.name);
+      if (merged === undefined) byName.set(e.name, { name: e.name, listeners: [...e.listeners] });
+      else merged.listeners.push(...e.listeners);
+    }
+    return { events: [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : 1)) };
+  });
+
+  web.registerRpc('events/descriptions', () => {
+    // 静态声明目录（builtin 源）∪ 动态插件（session 源——宿主侧无装载面，
+    // 动态行卸载即失，快照不含；此处仅 builtin 面，与生成器口径一致）
+    return { descriptions: readCatalogSnapshot(deps.catalogFile).eventDescs };
+  });
+
+  web.registerRpc('events/policy-list', () => {
+    const policy = ctx.get('eventPolicy') as { disabledKeys(): Set<string> } | undefined;
+    const disabled = policy !== undefined ? [...policy.disabledKeys()].sort() : [];
+    const live = new Set<string>();
+    for (const e of readCatalogSnapshot(deps.catalogFile).events) {
+      for (const l of e.listeners) live.add(String(l.owner) + '::' + e.name);
+    }
+    for (const e of liveHostEvents()) {
+      for (const l of e.listeners) live.add(l.owner + '::' + e.name);
+    }
+    return { disabled, live: [...live].sort() };
+  });
 }
 
 
@@ -406,18 +494,101 @@ function registerWorkspace(web: WebFace, deps: FaceOpsDeps): void {
   // 原生文件夹选择（系统对话框；结果三态 path / cancelled / error——与主线同形）
   web.registerRpc('workspace/pick-folder', async (params) => runNativePickFolder({ title: optStr(obj(params).title) }));
 
-  // 本地打开文件（系统默认程序）：绝对路径直用，相对路径按数据根解析
+  // 本地打开文件（系统默认程序）：定位与守卫同读面单源 resolveWorkspaceFile
+  //（数据根快路径 → 会话挂载工作区/Agent 基准推导——与 /api/workspace/raw
+  //  同源；前端文件编辑卡传的相对路径按挂载工作区解析，此前恒按数据根
+  // 解析致挂载工作区文件打不开，cr-827）
   web.registerRpc('workspace/open-local', async (params) => {
     const p = obj(params);
     const raw = reqStr(p, 'path');
-    const file = path.isAbsolute(raw) ? raw : path.resolve(deps.dataRoot, raw);
+    const agentId = optStr(p.agentId);
+    const conversationId = optStr(p.conversationId);
+    let file: string;
     try {
-      const st = fs.statSync(file);
-      if (!st.isFile()) return { error: '目标不是文件：' + file };
+      file = resolveWorkspaceFile(
+        deps.dataRoot,
+        raw,
+        agentId !== undefined || conversationId !== undefined
+          ? { ...(agentId !== undefined ? { agentId } : {}), ...(conversationId !== undefined ? { conversationId } : {}) }
+          : undefined,
+      );
     } catch {
-      return { error: '文件不存在：' + file };
+      return { error: '文件不存在或不可读：' + raw };
     }
     return runNativeOpen(file, { select: false });
+  });
+
+  // 「打开方式」目标清单（cr-829）：解析 map 投影（每进程一次惰性解析，
+  // 点击不重探测——纯模块行为面由 open-targets.test.ts 锁）；前端按 kind
+  // 过滤（notepad 只能开文件、terminal 只能开目录）
+  web.registerRpc('workspace/open-targets', async () => {
+    const map = await resolveOpenTargets();
+    const targets = await Promise.all([...map.values()].map(async (t) => ({
+      id: t.id,
+      label: t.label,
+      kind: t.kind,
+      // 真实应用图标（win exe 提取 dataURL；null = 无——前端回落线性图标）
+      icon: await targetIconOf(t),
+    })));
+    return { targets };
+  });
+
+  // 文件关联图标批量查询（cr-833）：树内出现的扩展名清单 → 原生关联图标
+  // dataURL（null = 无关联/非 win——前端回落静态表）。ext 白名单拒键注入；
+  // 每扩展名一次注册表决议 + 提取，进程内缓存（树刷新零重复查询）。
+  web.registerRpc('workspace/assoc-icons', async (params) => {
+    const p = obj(params);
+    const extsRaw = Array.isArray(p.exts) ? p.exts : [];
+    const exts = [...new Set(extsRaw.filter((e): e is string => typeof e === 'string' && /^[a-z0-9]{1,16}$/i.test(e)))].slice(0, 64);
+    const icons: Record<string, string | null> = {};
+    const dirIcon = await folderIconOf().catch(() => null);
+    await Promise.all(exts.map(async (ext) => {
+      icons[ext.toLowerCase()] = await assocIconOfExt(ext.toLowerCase()).catch(() => null);
+    }));
+    return { icons, dirIcon };
+  });
+
+  // 指定应用打开（cr-829）：id = 目录表条目；路径定位同 open-local 单源
+  // （文件 resolveWorkspaceFile / 目录 = 树基准推导——与 open-dir 同源）。
+  // 启动遇 ENOENT 重解析该条目一次（自愈），证不出 → error。
+  web.registerRpc('workspace/open-with', async (params) => {
+    const p = obj(params);
+    const id = reqStr(p, 'id');
+    const agentId = optStr(p.agentId);
+    const conversationId = optStr(p.conversationId);
+    const context = agentId !== undefined || conversationId !== undefined
+      ? { ...(agentId !== undefined ? { agentId } : {}), ...(conversationId !== undefined ? { conversationId } : {}) }
+      : undefined;
+    // 定位：dir:true = 目录目标（树基准推导，path 缺席合法——open-dir 同源）；
+    // 否则按文件定位（resolveWorkspaceFile 单源）
+    let absPath: string;
+    if (p.dir === true) {
+      absPath = workspaceTreeBase(deps.dataRoot, context).dir;
+      try {
+        if (!fs.statSync(absPath).isDirectory()) return { error: '目标不是文件夹：' + absPath };
+      } catch {
+        return { error: '文件夹不存在或不可访问：' + absPath };
+      }
+    } else {
+      const raw = reqStr(p, 'path');
+      try {
+        absPath = resolveWorkspaceFile(deps.dataRoot, raw, context);
+      } catch {
+        return { error: '文件不存在或不可读：' + raw };
+      }
+    }
+    const map = await resolveOpenTargets();
+    const target = map.get(id);
+    if (target === undefined) return { error: '应用不可用：' + id };
+    if (p.dir === true && target.kind === 'file') return { error: target.label + ' 不能打开目录' };
+    if (p.dir !== true && target.kind === 'dir') return { error: target.label + ' 不能打开文件' };
+    const first = await runOpenWith(target, absPath, { isDir: p.dir === true });
+    if (first.error !== undefined && /ENOENT/i.test(first.error)) {
+      const fresh = await refreshTarget(id);
+      if (fresh !== null) return runOpenWith(fresh, absPath, { isDir: p.dir === true });
+      return { error: '应用已不可用（启动器失效）：' + target.label };
+    }
+    return first;
   });
 
   // 本地资源管理器（workspace/open-dir）：workspaceId = 登记工作区；缺席按
@@ -754,8 +925,15 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       });
     // 群面（cr-579）：groups/<gid>/group.json 扫描（主线 ctx.group.list 同源形状）
     const groups = listGroupConfigs(deps.dataRoot);
-    // 活跃 run 集（cr-598 提为共享件 collectRunning——stats/history 活投影同源）
-    const running: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }> = (await collectRunning(deps)).map((r) => ({
+    // 活跃 run 集（cr-598 共享件；cr-824 批二改 runningOf——poller 镜像
+    // 优先，现探仅退路）。观测失败（null，cr-802——仅现探退路可达）= 本拍
+    // 无活跃面数据：跳过 digest 步进、响应沿用上次 running 投影——观测抖动
+    // 不得表现成「运行中条目清空再回来」的光环闪烁。
+    const runningRaw = await runningOf(deps);
+    if (runningRaw === null) {
+      return { unchanged: true, digest: lastRunsDigest ?? '', generatedAt: Date.now() };
+    }
+    const running: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }> = runningRaw.map((r) => ({
       ...r,
       handle: r.conversationId === r.agentId ? r.agentId : r.conversationId + '~' + r.agentId,
     }));
@@ -819,7 +997,7 @@ export function registerOpsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): 
   registerSnapshots(web, ctx, deps);
   registerUsage(web, ctx);
   registerSystem(web, deps);
-  registerEvents(web, ctx);
+  registerEvents(web, ctx, deps);
   registerWorkspace(web, deps);
   registerPlugin(web, ctx, deps);
   registerLlm(web, ctx, deps);

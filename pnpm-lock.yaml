@@ -594,6 +594,9 @@ importers:
       ac-snapshot-core:
         specifier: workspace:*
         version: link:../../packages/ac-snapshot-core
+      ac-supervisor-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-supervisor-core
       ac-webui-core:
         specifier: workspace:*
         version: link:../../packages/ac-webui-core
@@ -649,10 +652,19 @@ importers:
       ac-shell-subagent:
         specifier: workspace:*
         version: link:../../packages/ac-shell-subagent
+      ac-supervisor-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-supervisor-core
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  apps/system:
+    dependencies:
+      ac-supervisor-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-supervisor-core
 
   apps/ui:
     dependencies:
@@ -801,6 +813,15 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../../../../packages/ac-client-ui-agents
+
+  apps/ui/channel/ask:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../../../../packages/ac-client-runtime
+      ac-client-ui-ask:
+        specifier: workspace:*
+        version: link:../../../../packages/ac-client-ui-ask
 
   apps/ui/channel/browser:
     dependencies:
@@ -1329,6 +1350,34 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  packages/ac-client-ui-ask:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../ac-webui-kit
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/ac-client-ui-browser:
     dependencies:
       '@agentchat/cordis':
@@ -1745,6 +1794,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../ac-webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
@@ -2768,6 +2820,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-ws-bridge
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-host-app:
         specifier: workspace:*
         version: link:../../apps/host
@@ -2780,6 +2835,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
@@ -2798,12 +2856,18 @@ importers:
       ac-credentials-core:
         specifier: workspace:*
         version: link:../ac-credentials-core
+      ac-durable-interaction:
+        specifier: workspace:*
+        version: link:../ac-durable-interaction
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
       ac-file-snapshots:
         specifier: workspace:*
         version: link:../ac-file-snapshots
+      ac-goal:
+        specifier: workspace:*
+        version: link:../ac-goal
       ac-host-app:
         specifier: workspace:*
         version: link:../../apps/host
@@ -2825,6 +2889,9 @@ importers:
       ac-timer-core:
         specifier: workspace:*
         version: link:../ac-timer-core
+      ac-todo:
+        specifier: workspace:*
+        version: link:../ac-todo
       ac-ui-app:
         specifier: workspace:*
         version: link:../../apps/ui

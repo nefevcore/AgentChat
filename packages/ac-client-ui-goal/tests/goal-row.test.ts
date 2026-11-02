@@ -51,6 +51,19 @@ describe('M28 P1 · goalCard 数据管线（纯函数，随域自 tool 迁入）
     expect(card!.goal.status).toBe('paused');
   });
 
+  it('normalizeGoalCard：扁平终值形（resultData = {...args, ...output}，cr-765 A-4）→ 顶层 goal 直读（受阻原因/备注不丢）', async () => {
+    const { normalizeGoalCard } = await import('../client/goalCard.ts');
+    const card = normalizeGoalCard({
+      action: 'update', status: 'blocked', blocked_reason: 'x',
+      goal: { id: 'g3', objective: '发布应用', status: 'blocked', blockedReason: '签名证书过期', note: '等运维续期', roundsDone: 3, maxRounds: 20 },
+      message: '已更新目标',
+    });
+    expect(card!.goal.status).toBe('blocked');
+    expect(card!.goal.blockedReason).toBe('签名证书过期');
+    expect(card!.goal.note).toBe('等运维续期');
+    expect(card!.settled).toBe(true);
+  });
+
   it('normalizeGoalCard：不可解析 → null（卡片隐藏）', async () => {
     const { normalizeGoalCard } = await import('../client/goalCard.ts');
     expect(normalizeGoalCard({ action: 'create' })).toBeNull();

@@ -60,3 +60,34 @@ describe('adoptShell stdout 循环常驻性（cr-580）', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
   }, 20_000);
 });
+
+describe('adopt 超时终止拉起中进程（cr-805 幽灵持锁根修）', () => {
+  it('deadline 超时 → kill 子进程 + 拒绝（不留持 activation.lock 的幽灵）', async () => {
+    let killed = false;
+    const spawnFn: SpawnFn = () => ({
+      pid: 9999,
+      stdout: {
+        async *[Symbol.asyncIterator]() {
+          // 慢 boot：只吐非 boot 节拍行（驱动 deadline 检查——检查点在每行 stdout）
+          for (;;) {
+            await new Promise((r) => setTimeout(r, 20));
+            yield 'guardian.ping\tT';
+          }
+        },
+      },
+      write: () => {},
+      on: (event: string, cb: (code: number | null, signal: string | null) => void) => { void event; void cb; },
+      kill: () => { killed = true; },
+    });
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-adopt-timeout-'));
+    try {
+      await expect(adoptShell({
+        agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
+        reach: new ReachabilityTable(), spawnFn, timeoutMs: 60,
+      })).rejects.toThrow(/adopt 超时.*已终止拉起中的壳进程/);
+      expect(killed).toBe(true); // 幽灵源头消灭
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  }, 10_000);
+});

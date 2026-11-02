@@ -15,8 +15,7 @@ import type { LoopRunCall, LoopRunResult } from 'ac-agent-loop';
 import { makeLedgerRow, readLedger, readJournal } from 'ac-ledger';
 import * as durableInteractionRow from 'ac-durable-interaction';
 import { makeConversationRow, replyTargetOf, type ConversationService } from 'ac-shell-conversation';
-import { makeEnvelope, socketPathFor, type Envelope } from 'ac-envelope-core';
-import { listenIpc } from 'ac-post-office';
+import { makeEnvelope, socketPathFor, listenIpc, type Envelope } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-conv-svc-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -28,12 +27,19 @@ function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock-1', ...extra }), 'utf-8');
 }
 
+/** 子域物化 fixture（cr-863）：readChildConfig 读 agents/<parent>/children/<id>/config.json */
+function seedChild(parentId: string, childId: string): void {
+  const dir = path.join(ROOT, 'agents', parentId, 'children', childId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: childId, model: 'mock-1' }), 'utf-8');
+}
+
 /** 真树 boot：tools → llm → mock provider → loop → ledger → conversation。
  *  chatModels（可选）= 捕获 provider 实收的 model（cr-565 覆盖生效断言面）；
  *  gate（可选）= 慢 mock 闸门（首流挂起直到放行——busy 窗口用，cr-575）；
  *  gates（可选）= 逐调用闸门（第 n 次流调用等 gates[n]——多 run 顺序挂起，
  *  cr-745 链跑交接面用；与 gate 二选一）。 */
-async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string }>>, postOfficeAddress?: string, gates?: Array<Promise<void>>): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
+async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string }>>, postOfficeAddress?: string, gates?: Array<Promise<void>>, parentId?: string): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<unknown> = [toolsRow, llmRow, loopRow];
@@ -62,14 +68,21 @@ async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<v
     },
   });
   fibers.push(mockFiber);
-  const ledgerFiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId }));
+  // 子形态（cr-863）：ledger/durable-interaction/conversation 全部锚定物化域
+  // agents/<parent>/children/<id>/（boot.ts 影子形态同款 agentDirOverride）。
+  const childDir = parentId !== undefined ? path.join(ROOT, 'agents', parentId, 'children', agentId) : undefined;
+  const ledgerFiber = ctx.plugin(makeLedgerRow({
+    dataRoot: ROOT, agentId,
+    ...(childDir !== undefined ? { agentDirOverride: childDir } : {}),
+  }));
   fibers.push(ledgerFiber);
   // durable-interaction 行（cr-636 恢复面测试——壳行集第四批同款零改动导入；
   // apply(ctx, options) 惯例——options 第二参直达行 options）
-  const diFiber = ctx.plugin(durableInteractionRow as never, { root: path.join(ROOT, 'agents', agentId) } as never);
+  const diFiber = ctx.plugin(durableInteractionRow as never, { root: childDir ?? path.join(ROOT, 'agents', agentId) } as never);
   fibers.push(diFiber);
   const convFiber = ctx.plugin(makeConversationRow({
     dataRoot: ROOT, agentId,
+    ...(parentId !== undefined ? { parentId } : {}),
     ...(postOfficeAddress !== undefined ? { postOfficeAddress } : {}),
     // cr-590：行 id → 工具名展开词汇（boot 装配期目录投影——测试注入样例）
     rowTools: { 'fs-tools': ['read', 'write', 'edit'], 'shell-tools': ['pwsh'] },
@@ -544,9 +557,15 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       const review = await conv.reviewRun(UUID, '整理提示', { runId: 'review-1' });
       expect(review.finish).toBe('error');
       expect(events.length).toBe(before);
-      // 终稿行如实落账（空文本 + finish error——账本仍是权威收束记录）
+      // 终稿行如实落账（空文本 + finish error——账本仍是权威收束记录）；
+      // cr-807：error 文案落 context+source:error 行（终稿行后）——刷新后
+      // 前端红条仍可见（此前只活瞬态帧）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      expect(rows.at(-1)).toMatchObject({ requestId: 'reply-f1', run: 'run-f1' });
+      expect(rows.at(-2)).toMatchObject({ requestId: 'reply-f1', run: 'run-f1' });
+      expect(rows.at(-1)).toMatchObject({
+        role: 'context', source: 'error', run: 'run-f1',
+        content: expect.stringContaining('连接超时'),
+      });
     } finally {
       await dispose(fibers);
     }
@@ -1468,6 +1487,142 @@ describe('cr-712 跨壳投递与完成回执', () => {
       await server.close();
     }
   }, 15_000);
+});
+
+describe('cr-863 盘面会合第 3 步：子壳回执换轨 deliver() + childAsk 信封', () => {
+  // 子壳回执换轨：postReply 对 to=parentId 走 deliver() 双层会合（父活锁
+  // 直投 ipc；父缺席/陈锁落父 sessions inbox——父 boot recoverPendingInbox
+  // 消费）。无邮局（hostless/CLI 直连）也回执——断「无邮局形态回执整体
+  // 跳过」缺口（post-office 拆分先修课，rendezvous §六.3）。
+  it('子壳终稿回执：无邮局形态对父活锁直投（不依赖邮局装配）', async () => {
+    seedAgent('papa'); // 父 agent 域在场（deliver 落 inbox 路径代数用）
+    const parentFrames: Envelope[] = [];
+    const parentAddr = socketPathFor(path.resolve(ROOT), 'parent-po');
+    const parentSrv = await listenIpc(parentAddr, (frame) => {
+      parentFrames.push(frame as Envelope);
+      return { fresh: true } as never;
+    });
+    try {
+      // 父活锁：父域 activation.lock 指向测试 ipc 服务端（deliver 第 1 层命中）
+      const { acquireActivationLock } = await import('ac-envelope-core');
+      acquireActivationLock(path.join(ROOT, 'agents', 'papa'), { pid: process.pid, bootId: 'test-boot-' + Date.now(), acquiredAt: new Date().toISOString(), transportHint: parentAddr });
+      seedChild('papa', 'kiddo');
+      const { fibers, conv } = await bootTree('kiddo', undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'papa');
+      try {
+        const task = makeEnvelope({
+          uuid: 'papa~kiddo', requestId: 'cr863-r1', sender: 'papa', to: 'kiddo', budget: 2,
+          payload: { text: '任务甲', replyConversation: 'u-init~papa' },
+        });
+        expect(await conv.receiveEnvelope(task, { fresh: true })).toBe('settled');
+        // 回执直投父 ipc：completion 标记 + replyConversation 回带 + run 键
+        await vi.waitFor(() => expect(parentFrames.length).toBe(1));
+        expect(parentFrames[0]).toMatchObject({ to: 'papa', sender: 'kiddo', requestId: 'reply-cr863-r1' });
+        const payload = parentFrames[0]!.payload as { text: string; run: string; completion: true; replyConversation: string };
+        expect(payload.completion).toBe(true);
+        expect(payload.replyConversation).toBe('u-init~papa');
+        expect(payload.text).toContain('任务甲');
+        expect(payload.run).toBe('run-cr863-r1');
+      } finally {
+        await dispose(fibers);
+      }
+    } finally {
+      await parentSrv.close();
+    }
+  }, 20_000);
+
+  it('子壳终稿回执：父陈锁/缺席 → 落父 inbox（信等人，父 boot 恢复面消费）', async () => {
+    seedAgent('papa');
+    seedChild('papa', 'kiddo');
+    // 不建父锁：deliver 第 1 层跳过 → 第 2 层落 sessions/<uuid>/inbox/
+    const { fibers, conv } = await bootTree('kiddo', undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'papa');
+    try {
+      const task = makeEnvelope({
+        uuid: 'papa~kiddo', requestId: 'cr863-r2', sender: 'papa', to: 'kiddo', budget: 2,
+        payload: { text: '任务乙', replyConversation: 'u-init~papa' },
+      });
+      expect(await conv.receiveEnvelope(task, { fresh: true })).toBe('settled');
+      // 回执落父 inbox：文件名 = reply-<requestId>.json
+      const inboxDir = path.join(ROOT, 'agents', 'papa', 'sessions', 'papa~kiddo', 'inbox');
+      expect(fs.existsSync(path.join(inboxDir, 'reply-cr863-r2.json'))).toBe(true);
+      const stored = JSON.parse(fs.readFileSync(path.join(inboxDir, 'reply-cr863-r2.json'), 'utf-8')) as Envelope;
+      expect(stored).toMatchObject({ to: 'papa', sender: 'kiddo' });
+      expect((stored.payload as { completion?: unknown }).completion).toBe(true);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  it('子壳 ask_questions opened → childAsk 信封推父（deliver 双层会合）', async () => {
+    seedAgent('papa');
+    seedChild('papa', 'kiddo');
+    const parentFrames: Envelope[] = [];
+    const parentAddr = socketPathFor(path.resolve(ROOT), 'parent-po2');
+    const parentSrv = await listenIpc(parentAddr, (frame) => {
+      parentFrames.push(frame as Envelope);
+      return { fresh: true } as never;
+    });
+    try {
+      const { acquireActivationLock } = await import('ac-envelope-core');
+      acquireActivationLock(path.join(ROOT, 'agents', 'papa'), { pid: process.pid, bootId: 'test-boot-' + Date.now(), acquiredAt: new Date().toISOString(), transportHint: parentAddr });
+      seedChild('papa', 'kiddo');
+      const { ctx, fibers, conv } = await bootTree('kiddo', undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'papa');
+      try {
+        void conv;
+        const di = ctx.get('durableInteraction', false) as unknown as { open(i: Record<string, unknown>): { id: string } };
+        const rec = di.open({
+          key: 'papa~kiddo', kind: 'ask_questions', owner: 'kiddo',
+          payload: { questions: [{ question: '路线?', options: ['A', 'B'] }] },
+        });
+        await vi.waitFor(() => expect(parentFrames.length).toBe(1));
+        expect(parentFrames[0]).toMatchObject({ to: 'papa', sender: 'kiddo', requestId: 'ask-' + rec.id });
+        expect((parentFrames[0]!.payload as { childAsk?: { interactionId?: string } }).childAsk?.interactionId).toBe(rec.id);
+      } finally {
+        await dispose(fibers);
+      }
+    } finally {
+      await parentSrv.close();
+    }
+  }, 20_000);
+
+  it('父侧 childAsk 信封拦截：转 notifyChildAsk（subagent 行单源），非本壳子丢弃', async () => {
+    seedAgent('alpha');
+    const seen: Array<{ childId: string; interactionId: string }> = [];
+    const { ctx, fibers, conv } = await bootTree('alpha');
+    try {
+      // 假 subagent 行：只提供 ownsChild/notifyChildAsk 面（测试替身）
+      const fakeSub = ctx.plugin({
+        name: 'fake-subagents',
+        apply(c: Context) {
+          class Fake extends Service {
+            static inject = [];
+            constructor(cc: Context) { super(cc, 'subagents'); }
+            ownsChild(id: string): boolean { return id === 'kid-1'; }
+            notifyChildAsk(childId: string, interactionId: string): void { seen.push({ childId, interactionId }); }
+          }
+          c.plugin(Fake as never, undefined as never);
+        },
+      });
+      await fakeSub;
+      try {
+        // ① 本壳子：转交单源面
+        expect(await conv.receiveEnvelope(makeEnvelope({
+          uuid: 'alpha~kid-1', requestId: 'ask-i1', sender: 'kid-1', to: 'alpha', kind: 'message', budget: 1,
+          payload: { childAsk: { interactionId: 'i-001' } },
+        }), { fresh: true })).toBe('ledger-only');
+        expect(seen).toEqual([{ childId: 'kid-1', interactionId: 'i-001' }]);
+        // ② 非本壳子（冒用/错投）：丢弃
+        expect(await conv.receiveEnvelope(makeEnvelope({
+          uuid: 'alpha~stranger', requestId: 'ask-i2', sender: 'stranger', to: 'alpha', kind: 'message', budget: 1,
+          payload: { childAsk: { interactionId: 'i-002' } },
+        }), { fresh: true })).toBe('ledger-only');
+        expect(seen).toHaveLength(1);
+      } finally {
+        if (fakeSub.uid !== null) await fakeSub.dispose();
+      }
+    } finally {
+      await dispose(fibers);
+    }
+  }, 20_000);
 });
 
 describe('父侧代答（cr-736）：interactionReply 标记信封 → durableInteraction.reply', () => {

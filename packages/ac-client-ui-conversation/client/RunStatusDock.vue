@@ -34,6 +34,8 @@
 
   相位 = 色相 × 呼吸周期（读文案之前先读颜色与节律）：
     waking    冷灰 3.6s 慢呼吸——投递/冷启动窗
+    connecting 冰蓝 4.0s 极慢——连接 host 等待（wire 断开窗）
+    spawning  靛青 3.2s——启动 shell 等待（拉壳 → boot.ready）
     calling   蓝   2.8s——模型往返等待
     thinking  紫   2.4s——推理流
     tooling   琥珀 1.6s 急促——工具执行
@@ -64,6 +66,8 @@ const kind = computed(() => props.status.kind);
 /** 状态文案（人性化短句） */
 const PHRASES: Record<string, string> = {
   waking: '收到消息，正在唤醒中…',
+  connecting: '正在连接服务器…',
+  spawning: '正在启动 Agent 壳…',
   calling: '正在等待模型响应…',
   thinking: '正在深度思考…',
   tooling: '正在执行工具…',
@@ -237,6 +241,10 @@ const phrase = computed(() => {
 
 /* ── 相位：色相 × 呼吸周期 ── */
 .phase-waking { --tone: 148, 163, 184; --breath: 3.6s; }
+/* connecting/spawning（cr-840）：等待相位——同族冷色阶但更慢更深。冰蓝与
+   calling 的蓝同族不同档（更暗 = 更「远」）；靛青取 primary 族偏冷档。 */
+.phase-connecting { --tone: 125, 155, 190; --breath: 4s; }
+.phase-spawning { --tone: 129, 140, 248; --breath: 3.2s; }
 .phase-calling { --tone: 96, 165, 250; --breath: 2.8s; }
 .phase-thinking { --tone: 167, 139, 250; --breath: 2.4s; }
 .phase-tooling { --tone: 251, 191, 36; --breath: 1.6s; }
@@ -248,6 +256,8 @@ const phrase = computed(() => {
 /* 亮极一律以 html.light 触发（明暗 class 与色板 id 正交：内置主题与主题包都带；
    data-theme 属性只在非 classic 主题包存在——不可作为明暗判据） */
 :global(html.light) .phase-waking { --tone: 100, 116, 139; }
+:global(html.light) .phase-connecting { --tone: 87, 117, 144; }
+:global(html.light) .phase-spawning { --tone: 109, 40, 217; }
 :global(html.light) .phase-calling { --tone: 37, 99, 235; }
 :global(html.light) .phase-thinking { --tone: 124, 58, 237; }
 :global(html.light) .phase-tooling { --tone: 180, 83, 9; }

@@ -1,0 +1,8 @@
+root = true
+
+# 换行统一走仓库 .gitattributes（* text=auto eol=lf）：编辑器新写文件也按 LF 落盘
+[*]
+end_of_line = lf
+
+[*.{bat,cmd}]
+end_of_line = crlf

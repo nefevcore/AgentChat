@@ -124,6 +124,77 @@ describe('M8.3 e2e：真子壳 spawn + bench 门', () => {
   }, 120_000);
 });
 
+describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）', () => {
+  // 事故形态复现（cr-763）：发起会话 conv-settings toolMode=tc-programmatic +
+  // spawn 点名工具子集（不含 run_code）——修复前 tc-* 词被快照进子 tags，
+  // 子壳 narrowToolsByMode 把 LLM 工具面收窄为空集（子 Agent 拿不到任何工具，
+  // 纯聊天单步收束）。断言面 = 子壳 admin tool-defs（conversation.toolDefs ——
+  // 与真实 run 的 llmToolFace 单源），经子壳 transportHint socket manage 帧直读。
+  it('子壳 LLM 工具面非空：tc-programmatic 会话 spawn 不再蒸发工具', async () => {
+    seedAgent('coder', { rows: ['run-code', 'fs-tools', 'web-tools', 'subagent'], tags: ['tc-programmatic'] });
+    // 发起会话覆盖（宿主直调形态的键——control 帧带 conversationId 即可命中）
+    fs.mkdirSync(path.join(ROOT, 'conv-settings'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'conv-settings', 'user~coder.json'),
+      JSON.stringify({ toolMode: 'tc-programmatic', elevation: 'full-access' }), 'utf-8');
+    const parent = await startParent('coder');
+    try {
+      const spawnOut = await parent.control({ ctrl: 'tool', name: 'subagent', conversationId: 'user~coder',
+        args: { action: 'spawn', task: '调工具任务' } }) as { ok: boolean; output?: { subagent_id: string }; error?: string };
+      expect(spawnOut.ok, spawnOut.error).toBe(true);
+      const childId = spawnOut.output!.subagent_id!;
+      // 子 config：无 tc-* 词（形态跟随装配——子 rows 缺省继承父 rows 含
+      // run-code 行 → 合成 tc-programmatic；这里验证缺省继承分支）
+      const childCfg = JSON.parse(fs.readFileSync(
+        path.join(ROOT, 'agents', 'coder', 'children', childId, 'config.json'), 'utf-8'),
+      ) as { tags?: string[]; rows?: string[] };
+      expect(childCfg.rows).toContain('run-code');
+      expect(childCfg.tags ?? []).toContain('tc-programmatic'); // 形态来自装配
+      expect(childCfg.tags ?? []).toContain('full-access'); // 授权词继承面不受影响
+      // 子壳 LLM 工具面（toolDefs —— 与真实 run 单源）：mode 集 = ['run_code']，
+      // 非空且不再把授予工具全丢
+      const defs = await childToolDefs(childId);
+      expect(defs.names).toEqual(['run_code']);
+      await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: childId } });
+      // 对照组：spawn 点名工具子集（不含 run_code）——修复前的蒸发形态。
+      // 无 tc-* 词 → resolved 面直出（web_search 等授予词在场）。
+      const subsetOut = await parent.control({ ctrl: 'tool', name: 'subagent', conversationId: 'user~coder',
+        args: { action: 'spawn', task: '子集', tools: ['web_search', 'read', 'write'] } }) as { ok: boolean; output?: { subagent_id: string }; error?: string };
+      expect(subsetOut.ok, subsetOut.error).toBe(true);
+      const subsetId = subsetOut.output!.subagent_id!;
+      const subsetDefs = await childToolDefs(subsetId);
+      // 工具名点名透传语义（resolveToolNames）：授予词原样生效（保点名序），
+      // edit 未点名不在面。修复前此形态 = 空集（tc-* 继承把面收窄没了）。
+      expect(subsetDefs.names).toEqual(['web_search', 'read', 'write']);
+      const subsetCfg = JSON.parse(fs.readFileSync(
+        path.join(ROOT, 'agents', 'coder', 'children', subsetId, 'config.json'), 'utf-8'),
+      ) as { tags?: string[] };
+      expect(subsetCfg.tags ?? []).not.toContain('tc-programmatic');
+      await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: subsetId } });
+    } finally { await parent.shutdown(); }
+  }, 120_000);
+
+  /** 子壳 admin tool-defs：经 transportHint socket manage 帧直读（子壳 LLM 工具面单源） */
+  async function childToolDefs(childId: string): Promise<{ names: string[]; defs: unknown[] }> {
+    const { IpcClient } = await import('ac-envelope-core');
+    const { makeManageRequest, isManageReply } = await import('ac-envelope-core');
+    const lock = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'agents', 'coder', 'children', childId, 'activation.lock'), 'utf-8'),
+    ) as { transportHint: string };
+    const client = new IpcClient();
+    try {
+      await client.connect(lock.transportHint);
+      const reply = await client.request(
+        makeManageRequest('e2e-tooldefs-' + childId, { ctrl: 'admin', op: 'tool-defs', agentId: childId }),
+        (frame: unknown) => isManageReply(frame, 'e2e-tooldefs-' + childId),
+      ) as { manage: { ok: boolean; value?: { names?: string[]; defs?: unknown[] }; error?: string } };
+      if (!reply.manage.ok) throw new Error('tool-defs 失败：' + reply.manage.error);
+      return { names: reply.manage.value?.names ?? [], defs: reply.manage.value?.defs ?? [] };
+    } finally {
+      client.close();
+    }
+  }
+});
+
 describe('M8.3 e2e：evolve bench-gate 验收线', () => {
   it('bench 控制帧全链 → 门过（scripted 报告全过）', async () => {
     const { benchGateCheck } = await import('../bench-gate.ts');

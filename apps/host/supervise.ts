@@ -156,6 +156,10 @@ export async function superviseShell(
   const bootOkMs = options.bootOkMs ?? 30_000;
   let backoffStreak = 0;
   let adoptedAt = 0;
+  // adopt 失败退避窗（cr-805）：窗内的按需 start() 快速失败不再 spawn——
+  // 此前控制帧每拍轮询都重新 spawn 再被单例锁拒（幽灵持锁期叠加成风暴）。
+  // 窗长 = 退避基档（首次档，不指数）；拉起成功即复位——正常拉起不受罚。
+  let adoptFailedUntil = 0;
   const warden = new ShellWarden(input.agentId, config);
   const events: GuardianEvent[] = [];
   const superviseEvents: SuperviseEvent[] = [];
@@ -189,10 +193,14 @@ export async function superviseShell(
   // —— 拉起 + 接线（重拉同链） ——
   const start = async (): Promise<void> => {
     if (starting || current !== null) return;
+    if (now() < adoptFailedUntil) {
+      throw new Error('拉起退避中（adopt 刚失败，' + (adoptFailedUntil - now()) + 'ms 后放开）');
+    }
     starting = true;
     try {
       attempt++;
       const shell = await options.adopt(input);
+      adoptFailedUntil = 0; // 拉起成功复位——后续按需拉起不受罚
       current = shell;
       events.push(...shell.events);
       const adopted = shell.events.find((e) => e.type === 'adopted');
@@ -254,6 +262,9 @@ export async function superviseShell(
         }
         // done = 正常退出（idle 自杀 / shutdown）——不重拉（来件按需拉起）
       });
+    } catch (err) {
+      adoptFailedUntil = now() + backoffDelay(0); // 拉起失败退避门（cr-805）
+      throw err;
     } finally {
       starting = false;
     }

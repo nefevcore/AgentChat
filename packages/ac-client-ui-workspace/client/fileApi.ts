@@ -75,6 +75,23 @@ export function openLocalDir(
   });
 }
 
+/** workspace/open-with：「打开方式」指定应用打开（cr-829）。path 尾 / 或
+ * dir:true = 目录目标（树基准推导定位）；opened/error 二态同 open-local */
+export function openWith(
+  id: string,
+  path: string,
+  opts: { dir?: boolean; agentId?: string; conversationId?: string },
+  rpc: Rpc,
+): Promise<OpenLocalResult> {
+  return rpc.call<OpenLocalResult>('workspace/open-with', {
+    id,
+    path,
+    ...(opts.dir ? { dir: true } : {}),
+    ...(opts.agentId ? { agentId: opts.agentId } : {}),
+    ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+  });
+}
+
 /** 本机系统原生文件夹选择（阻塞至用户在系统对话框完成操作——10 分钟长
  *  超时与服务端兜底对齐，另加 5s 网络余量；缺省 60s 会中途掐断） */
 export function pickFolder(rpc: Rpc, title?: string): Promise<PickFolderResult> {

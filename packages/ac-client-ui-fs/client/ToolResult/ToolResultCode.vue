@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onBeforeUnmount } from 'vue';
-import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
+import { computed } from 'vue';
 import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 import { BusyRing, Tooltip } from '@agentchat/webui-kit';
-import { fenceOf } from 'ac-client-ui-renderer/client/codeFence.ts';
+import CodeCard from 'ac-client-ui-renderer/client/CodeCard.vue';
 
 // ---- 语言检测（fs Code 卡专属词条：扩展名 → fence 语言名/显示名） ----
 const EXT_LANGS: Record<string, string> = {
@@ -47,8 +46,6 @@ interface DirItem {
   type: 'file' | 'directory';
 }
 
-const { render } = useMarkdown();
-
 const isDirectory = computed(() => props.data.type === 'directory');
 
 // ---- 文件名（从路径提取；调用阶段参数里即有 path/filePath/file_path——
@@ -82,34 +79,15 @@ const startLine = computed(() => Number(props.data.start_line || 0));
 const endLine = computed(() => Number(props.data.end_line || 0));
 const isRange = computed(() => startLine.value > 0 && endLine.value > 0);
 
-// ---- 复制 ----
-const copyState = ref<'idle' | 'copied'>('idle');
-let copyTimer: ReturnType<typeof setTimeout> | null = null;
-onBeforeUnmount(() => { if (copyTimer) clearTimeout(copyTimer); });
-async function copyContent() {
-  try {
-    await navigator.clipboard.writeText(content.value);
-    copyState.value = 'copied';
-    if (copyTimer) clearTimeout(copyTimer);
-    copyTimer = setTimeout(() => { copyState.value = 'idle'; }, 2000);
-  } catch { /* ignore */ }
-}
-
-const renderedContent = computed(() => {
-  const fence = fenceOf(content.value);
-  return render(`${fence}${lang.value || ''}\n${content.value}\n${fence}`);
-});
-
-// ---- 元信息行 ----
-const metaItems = computed(() => {
+// ---- 卡头补充 meta（cr-765 #17A：并进 CodeCard 头；行数 CodeCard 自带） ----
+const metaText = computed(() => {
   const items: string[] = [];
   const sz = Number(props.data.size);
   if (sz > 0) items.push(formatSize(sz));
-  if (totalLines.value > 0) items.push(`${totalLines.value} 行`);
   if (isRange.value) items.push(`L${startLine.value}-L${endLine.value}`);
   if (props.data.version) items.push(`v${props.data.version}`);
   if (props.data.author) items.push(`作者: ${props.data.author}`);
-  return items;
+  return items.join(' · ');
 });
 </script>
 
@@ -157,65 +135,20 @@ const metaItems = computed(() => {
       </div>
     </template>
 
-    <!-- ==================== 文件内容 ==================== -->
+    <!-- ==================== 文件内容（cr-765 #17A：CodeCard 统一形态） ==================== -->
     <template v-else>
-      <!-- 头部信息栏 -->
-      <div class="code-header">
-        <div class="code-header-left">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="code-file-icon">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-          <span class="code-file-name">{{ fileName }}</span>
-          <span v-if="lang" class="ui-badge kind code-lang-badge">{{ langDisplay }}</span>
-        </div>
-        <div class="code-header-right">
-          <span v-for="item in metaItems" :key="item" class="ui-badge dim code-meta-badge">{{ item }}</span>
-          <Tooltip :text="copyState === 'copied' ? '已复制' : '复制全部内容'" placement="top">
-            <button
-              class="code-copy-btn"
-              :class="{ copied: copyState === 'copied' }"
-              :aria-label="copyState === 'copied' ? '已复制' : '复制全部内容'"
-              @click="copyContent"
-            >
-              <svg v-if="copyState !== 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-              <span>{{ copyState === 'copied' ? '已复制' : '复制' }}</span>
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-
       <!-- 执行中：文件已定位，内容未返回 -->
       <div v-if="loading && !content" class="code-loading">
         <BusyRing :size="13" />
         <span class="code-loading-text">正在读取...</span>
       </div>
 
-      <!-- 代码正文 -->
-      <ScrollableViewport v-else class="code-viewport">
-        <div class="code-area-wrapper">
-          <div class="code-area" v-html="renderedContent" />
-        </div>
-      </ScrollableViewport>
-
-      <!-- 截断提示 -->
-      <div v-if="truncated" class="code-truncated-banner">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-        <span>内容已截断，仅显示前 {{ formatSize(content.length) }}（原始 {{ formatSize(totalBytes) }}）</span>
-      </div>
+      <!-- 代码卡（卡头标题/语言徽记/行数/meta + wrap 开关 + 复制 + 截断徽章控件） -->
+      <CodeCard v-else :code="content" :lang="lang" :title="fileName" :meta-text="metaText" :line-numbers="isRange" :start-line="startLine || 1">
+        <template #controls>
+          <span v-if="truncated" class="ui-badge warn cc-truncated-badge" title="内容已截断，仅显示前 {{ formatSize(content.length) }}（原始 {{ formatSize(totalBytes) }}）">已截断</span>
+        </template>
+      </CodeCard>
     </template>
   </div>
 </template>

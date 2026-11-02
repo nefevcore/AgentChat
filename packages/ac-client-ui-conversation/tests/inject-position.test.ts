@@ -9,6 +9,7 @@
 //      按 injectionId 同锚去重）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+// cr-765 #6 回归（尾部注入 / 首条注入降级 / 归属透传——见末段 describe）
 import { mergeTimeOrdered, mergeHistoryPage, buildTurns } from 'ac-client-ui-conversation/client/feed.ts';
 import { toHistoryMessages } from 'ac-client-ui-conversation/client/historyApi.ts';
 
@@ -78,5 +79,40 @@ describe('刷新回放：context 行 → 注入卡（真序位 + label 直出）
     const live = [liveInject('inj-1', 3000)] as never[];
     const { merged } = mergeHistoryPage(hist, live, false);
     expect(merged.filter((m) => m.role === 'event')).toHaveLength(1);
+  });
+});
+
+describe('cr-765 #6：注入挂轮归属与尾挂', () => {
+  it('尾挂：收尾时 pendingInjects 挂最后 agent 轮尾部（afterStep = steps.length）——不再降级 system 空轮', () => {
+    // 一个 agent 轮（2 步）已收束，之后注入落账（无后续 agent 轮）
+    const msgs = [
+      step('h1', 1000), step('h2', 2000),
+      { id: 'inj-tail', role: 'event', content: '记忆写入', agent_id: 'a', timestamp: 3000, source: { kind: 'memory' } } as never,
+    ];
+    const turns = buildTurns(msgs as never);
+    // 尾挂：注入卡在 agent 轮上（afterStep=2 = 链尾），无 system 空轮
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.injects?.[0]).toMatchObject({ afterStep: 2, kind: 'memory' });
+    expect(turns[0]!.agent_id).toBe('a');
+  });
+
+  it('降级保留：整个会话无任何 agent 轮（首条即注入）→ system 空轮独立卡', () => {
+    const msgs = [
+      { id: 'inj-first', role: 'event', content: '已加载技能', agent_id: 'system', timestamp: 1000, source: { kind: 'skill' } } as never,
+    ];
+    const turns = buildTurns(msgs as never);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.agent_id).toBe('system');
+    expect(turns[0]!.injects?.[0]?.kind).toBe('skill');
+  });
+
+  it('归属透传：注入行 agent_id 随卡携带（群聊跨 agent 挂轮判据）', () => {
+    const msgs = [
+      { id: 'inj-owned', role: 'event', content: '技能注入', agent_id: 'beta', timestamp: 3000, source: { kind: 'skill' } } as never,
+    ];
+    const turns = buildTurns(msgs as never);
+    const card = turns[0]!.injects?.[0];
+    // 无 agent 轮在场：降级 system 空轮承载，但卡上保留归属 agent_id
+    expect(card?.agent_id).toBe('beta');
   });
 });
