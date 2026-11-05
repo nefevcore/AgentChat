@@ -3,9 +3,8 @@
 //
 // · 日期行格式（仅日期 + 星期，一天内稳定——KV cache 友好）
 // · conversationId 缺省（子 Agent / loop 直连）不注入
-// · 收尾档位化（2026-09-05）：尾档 before-run-last 晚于主档一切装配
-//   （与监听器注册顺序无关；首档 body 先于主档执行）；多步 run 恰一条
-//   （尾档 run 级一次写回）
+// · 段注册制（cr-881）：DATETIME 段（SECTION_ORDER 表尾）绝对收尾，
+//   与行加载/注册顺序无关；多步 run 恰一条（run 级一次组装）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -143,31 +142,15 @@ describe('ac-datetime 日期注入', () => {
     expect(system).toContain('[当前时间] ');
   });
 
-  it('三档装配链：尾档日期行晚于主档一切装配（与注册顺序无关）', async () => {
+  it('DATETIME 段绝对收尾：晚于任意低 order 段（与注册顺序无关）', async () => {
     captured.length = 0;
     const ctx = new Context();
     await boot(ctx, [...standardRows(), datetimeRow]);
-    // 竞争者：主档追加静态块（模拟 引用约定/memory/skill 各行）。
-    // 晚于 datetime 注册 + prepend 两种形态都试——日期行必须仍居尾。
-    const appendRef = (label: string, prepend?: boolean) => {
-      ctx.on('loop/before-run', (call, next) => {
-        call.request = {
-          ...call.request,
-          system: `${call.request.system}\n\n[引用约定] ${label}`,
-        };
-        return next();
-      }, prepend);
-    };
-    appendRef('REF-EARLY', true); // prepend（主档链首）
-    appendRef('REF-LATE'); // push（主档链尾，注册最晚）
-    // 首档对照：body 先于主档执行（追加内容落在主档块之前）
-    ctx.on('loop/before-run-first', (call, next) => {
-      call.request = {
-        ...call.request,
-        system: `${call.request.system}\n\n[首档] FIRST`,
-      };
-      return next();
-    });
+    // 竞争者：GUIDELINES 段（低 order）——晚于 datetime 注册也要排在它前面
+    ctx.agentLoop.registerPromptSection({
+      name: 'GUIDELINES_FS',
+      text: '[指引] REF-LATE',
+    }, 'test');
     await ctx.agentLoop.run({
       model: 'mock-1',
       system: 'BASE',
@@ -175,58 +158,32 @@ describe('ac-datetime 日期注入', () => {
       messages: [{ role: 'user', content: 'hi' }],
     });
     const system = String(captured[0].messages[0].content);
-    // 三档 body 执行序：首档 → 主档（EARLY/LATE 互序不定）→ 尾档日期
-    const posFirst = system.indexOf('[首档] FIRST');
-    const posRef = system.indexOf('[引用约定] REF-');
+    const posRef = system.indexOf('[指引] REF-LATE');
     const posDate = system.lastIndexOf('[当前时间]');
-    expect(posFirst).toBeGreaterThan(0);
-    expect(posFirst).toBeLessThan(posRef);
-    expect(posDate).toBeGreaterThan(system.lastIndexOf('[引用约定]'));
+    expect(posRef).toBeGreaterThan(0);
+    expect(posDate).toBeGreaterThan(posRef);
     expect(system).toMatch(/\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
   });
 
-  it('尾档收敛：对话信息块（prepend 恒 unshift）先于日期行（push）——两种注册时序同序', async () => {
-    // 模拟 ac-system-prompt 对话信息块：尾档 prepend（恒 unshift）
-    const convBlockRow = (ctx: Context) => {
-      ctx.on('loop/before-run-last', (call, next) => {
-        const block = '## 对话信息\n[当前对话对象] 你正在与 风栗（user）对话';
-        call.request = {
-          ...call.request,
-          system: call.request.system ? `${call.request.system}\n\n${block}` : block,
-        };
-        return next();
-      }, true);
-    };
-    const assertOrder = (system: string) => {
-      expect(system.indexOf('## 对话信息')).toBeGreaterThan(0);
-      expect(system.indexOf('## 对话信息')).toBeLessThan(system.indexOf('[当前时间]'));
-    };
-
-    // 序 A：datetime 先注册，对话信息块后注册（unshift 到链首）
+  it('对话信息段（CONVERSATION）先于日期段（DATETIME）——具名位定序', async () => {
     captured.length = 0;
-    const ctxA = new Context();
-    await boot(ctxA, [...standardRows(), datetimeRow]);
-    convBlockRow(ctxA);
-    await ctxA.agentLoop.run({
+    const ctx = new Context();
+    await boot(ctx, [...standardRows(), datetimeRow]);
+    // 晚注册的 CONVERSATION 段（order 900 < 910）仍居日期行之前
+    ctx.agentLoop.registerPromptSection({
+      name: 'CONVERSATION',
+      text: '[当前对话对象] 你正在与 风栗（user）对话',
+    }, 'test');
+    await ctx.agentLoop.run({
       model: 'mock-1', system: 'BASE', conversationId: 'c6',
       messages: [{ role: 'user', content: 'hi' }],
     });
-    assertOrder(String(captured[0].messages[0].content));
-
-    // 序 B：对话信息块先注册，datetime 后注册（push 到链尾）
-    captured.length = 0;
-    const ctxB = new Context();
-    await boot(ctxB, standardRows());
-    convBlockRow(ctxB);
-    await boot(ctxB, [datetimeRow]);
-    await ctxB.agentLoop.run({
-      model: 'mock-1', system: 'BASE', conversationId: 'c7',
-      messages: [{ role: 'user', content: 'hi' }],
-    });
-    assertOrder(String(captured[0].messages[0].content));
+    const system = String(captured[0].messages[0].content);
+    expect(system.indexOf('[当前对话对象]')).toBeGreaterThan(0);
+    expect(system.indexOf('[当前对话对象]')).toBeLessThan(system.indexOf('[当前时间]'));
   });
 
-  it('多步 run 恰一条日期行：尾档 run 级一次写回，不随步重注入', async () => {
+  it('多步 run 恰一条日期行：run 级一次组装，不随步重注入', async () => {
     captured.length = 0;
     const ctx = new Context();
     const rows = standardRows();

@@ -4,6 +4,8 @@
 // 真子壳进程链路归 rows-import + e2e（本文件零子进程）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context, Service } from '@agentchat/cordis';
@@ -58,6 +60,10 @@ async function makeService(spawn: SpawnShellFn) {
   const ctx = new Context();
   const toolsFiber = ctx.plugin(toolsRow as unknown as Parameters<Context['plugin']>[0]);
   await toolsFiber;
+  const llmFiber = ctx.plugin(llmRow as unknown as Parameters<Context['plugin']>[0]);
+  await llmFiber;
+  const loopFiber = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
+  await loopFiber;
   const fiber = ctx.plugin(makeSubagentRow({
     dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: spawn,
   }));
@@ -74,6 +80,8 @@ async function makeService(spawn: SpawnShellFn) {
   };
   return { ctx, svc, dispose: async () => {
     if (fiber.uid !== null) await fiber.dispose();
+    if (loopFiber.uid !== null) await loopFiber.dispose();
+    if (llmFiber.uid !== null) await llmFiber.dispose();
     if (toolsFiber.uid !== null) await toolsFiber.dispose();
   } };
 }
@@ -636,6 +644,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     });
     const toolsFiber = ctx.plugin(toolsRow as unknown as Parameters<Context['plugin']>[0]);
     await toolsFiber;
+    const llmFiber2 = ctx.plugin(llmRow as unknown as Parameters<Context['plugin']>[0]);
+    await llmFiber2;
+    const loopFiber2 = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
+    await loopFiber2;
     const fiber = ctx.plugin(makeSubagentRow({
       dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: fakeShell().spawn,
     }));
@@ -680,6 +692,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     });
     const toolsFiber = ctx.plugin(toolsRow as unknown as Parameters<Context['plugin']>[0]);
     await toolsFiber;
+    const llmFiber3 = ctx.plugin(llmRow as unknown as Parameters<Context['plugin']>[0]);
+    await llmFiber3;
+    const loopFiber3 = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
+    await loopFiber3;
     const fiber = ctx.plugin(makeSubagentRow({
       dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: fakeShell().spawn,
     }));
@@ -709,6 +725,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const ctx = new Context();
     const toolsFiber = ctx.plugin(toolsRow as unknown as Parameters<Context['plugin']>[0]);
     await toolsFiber;
+    const llmFiber4 = ctx.plugin(llmRow as unknown as Parameters<Context['plugin']>[0]);
+    await llmFiber4;
+    const loopFiber4 = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
+    await loopFiber4;
     // conversation 此刻缺席（模拟行序后装）——subagent 行先起，对账空转
     const fiber = ctx.plugin(makeSubagentRow({
       dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: fakeShell().spawn,

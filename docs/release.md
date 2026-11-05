@@ -13,7 +13,7 @@
 | 首发 0.7.1 | ✅ 已手动发布 | Trusted Publishing 只能配置在**已存在**的包上，首发必须手动一次 |
 | Trusted Publisher | ✅ 已配置 | npmjs.com → 包页面 → Settings → Trusted Publishing：`nefevcore / AgentChat / publish.yml` / environment 留空 |
 | 发布工作流 | `.github/workflows/publish.yml` | 推送 `v*` 标签触发；`id-token: write` + Node 24（npm ≥ 11.5 支持 OIDC） |
-| 构建脚本 | `pnpm build:bundle`（`scripts/build-bundle.mjs`） | 组装 `dist/`（cr-702 换轨）：宿主 bundle（`agentchat.mjs`，入口 apps/host/boot.ts）+ 壳 bundle（`shell.mjs`，入口 apps/shell/boot.ts）+ worker.mjs + 资产面（webui 静态产物 / row-catalog.json / templates / plugins 出厂通道 29 个——宿主 boot 播种进 dataRoot/plugins）；`AGENTCHAT_HOME` 指向 dist 安装根（运行时资产锚单源） |
+| 构建脚本 | `pnpm build:bundle`（`scripts/build-bundle.mjs`） | 组装 `dist/`（cr-702 换轨）：宿主 bundle（`agentchat.mjs`，入口 apps/host/boot.ts）+ 壳 bundle（`shell.mjs`，入口 apps/shell/boot.ts）+ worker.mjs + 资产面（webui 静态产物 / row-catalog.json + **profile/ 基座源文档〔cr-902：host/shell/webui + installed 部署链〕** / templates / plugins 出厂通道 29 个——宿主 boot 播种进 dataRoot/plugins）；`AGENTCHAT_HOME` 指向 dist 安装根（运行时资产锚单源）；CLI 别名 `ac`（cr-907 作者工具链） |
 
 ## 日常发版流程
 

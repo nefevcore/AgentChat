@@ -16,10 +16,11 @@
 // 状态文件 <dataRoot>/timer/state.json（临时文件+rename 原子写，同主线）。
 // ============================================================
 import * as fs from 'node:fs';
+import { currentHostFace } from 'ac-host-face';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { listAgentIds, readAgentConfig, settingsOf } from 'ac-agents-core';
+import { listAgentIds, readAgentConfig, settingsOf, isPresetId } from 'ac-agents-core';
 
 /** entries 写口插槽（agents 编辑面服务键 'agents'——cr-551 单写者收口） */
 export interface EntriesEditFace {
@@ -38,6 +39,7 @@ import {
   parseInterval,
   randomDelay,
   renderHint,
+  validateTimerEntries,
   withinActiveHours,
   type TimerEntry,
 } from 'ac-timer-core';
@@ -45,27 +47,7 @@ import {
 /** 全局条目 owner（sys.timer；target '*' = 全部常规 Agent） */
 export const GLOBAL_TIMER_OWNER = '__global__';
 
-/**
- * 定时条目形状校验（timer/save 入站；非法抛错——防脏配置落盘）。
- * 主线 ac-web-api 的 validateTimerEntries 同源平移（宿主 timers 行 = owning）。
- */
-export function validateTimerEntries(raw: unknown): TimerEntry[] {
-  if (!Array.isArray(raw)) throw new Error('参数 entries 须为 TimerEntry 数组');
-  return raw.map((item, i) => {
-    if (item === null || typeof item !== 'object') throw new Error('entries[' + i + '] 非对象');
-    const e = item as Record<string, unknown>;
-    if (typeof e.id !== 'string' || e.id === '') throw new Error('entries[' + i + '].id 缺失');
-    if (e.mode !== 'time' && e.mode !== 'delay' && e.mode !== 'random' && e.mode !== 'workday' && e.mode !== 'holiday') {
-      throw new Error('entries[' + i + '].mode 非法（' + String(e.mode) + '）');
-    }
-    if (typeof e.hint !== 'string') throw new Error('entries[' + i + '].hint 须为字符串');
-    if (e.enabled !== undefined && typeof e.enabled !== 'boolean') throw new Error('entries[' + i + '].enabled 须为 boolean');
-    if (e.conversationId !== undefined && (typeof e.conversationId !== 'string' || !e.conversationId)) {
-      throw new Error('entries[' + i + '].conversationId 须为非空字符串');
-    }
-    return e as unknown as TimerEntry;
-  });
-}
+// validateTimerEntries 已 cr-886 下沉 ac-timer-core（宿主能力面消费成环解法）
 
 /** 行配置 */
 export interface TimersHostRowOptions {
@@ -360,6 +342,8 @@ export class HostTimersService extends Service {
     }
     this.saveState();
     for (const entry of enabled) this.arm(owner, entry);
+    // cr-886：条目变更 → 宿主能力面失效通知（在连壳重拉契约——timer 代理面刷新）
+    currentHostFace()?.invalidate();
   }
 
   /** 手动触发（测试/诊断；不记账） */
@@ -620,7 +604,7 @@ isWin ? ['/d', '/s', '/c', command] : ['-c', command],
           // 唤醒信，壳内 archiveAll 自行枚举本域会话判定执行）。
           const targets = listAgentIds(this.dataRoot)
             .map((id) => readAgentConfig(this.dataRoot, id))
-            .filter((a): a is NonNullable<typeof a> => a !== null && !a.virtual && !a.preset && a.model !== undefined)
+            .filter((a): a is NonNullable<typeof a> => a !== null && !a.virtual && !isPresetId(a.id) && a.model !== undefined)
             .map((a) => a.id);
           for (const target of targets) {
             const env: Envelope = makeEnvelope({
@@ -648,7 +632,7 @@ isWin ? ['/d', '/s', '/c', command] : ['-c', command],
           ? (entry.target || '*') === '*'
             ? listAgentIds(this.dataRoot)
                 .map((id) => readAgentConfig(this.dataRoot, id))
-                .filter((a): a is NonNullable<typeof a> => a !== null && !a.virtual && !a.preset && a.model !== undefined)
+                .filter((a): a is NonNullable<typeof a> => a !== null && !a.virtual && !isPresetId(a.id) && a.model !== undefined)
                 .map((a) => a.id)
             : entry.target!.split(',').map((t) => t.trim()).filter(Boolean)
           : [owner];
@@ -824,11 +808,15 @@ isWin ? ['/d', '/s', '/c', command] : ['-c', command],
 export function makeTimersHostRow(options: TimersHostRowOptions): Plugin {
   return {
     name: 'host-timers-row',
-    inject: [],
     apply(ctx: Context) {
       ctx.plugin(class extends HostTimersService {
         constructor(c: Context) { super(c, options); }
       });
+      // GUIDELINES_TIMER 段（cr-881 自 ac-system-prompt 迁）已随 cr-883 回退：
+      // agentLoop 住壳进程——宿主行集不含 agent-loop 行（boot 终检 PENDING），
+      // 且跨进程注册到不了壳 prompt；当前出厂壳亦无 timer 工具注册面
+      //（BUILTIN 占名超集，ac-timer-tools 已随旧树退役）→ 注册恒空串。
+      // 待 shell 侧 timer 工具行落地时由其 owner 注册。
     },
   } satisfies Plugin;
 }

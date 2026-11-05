@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount, onUnmounted } from 'vue';
 import { useChatStore } from './chatStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
@@ -247,9 +247,14 @@ watch([inputText, lastDraftKey], ([text, key]) => {
 
 // 卸载兜底：视角切换重挂载（instance 内 inputText 随之销毁）前把当前
 // 草稿存回暂存位——切回该会话（或同视角重建）时可恢复。
-onUnmounted(() => {
+// onBeforeUnmount + 读编辑器现势（cr-867）：onUnmounted 时子组件已卸载，
+// 编辑器已销毁（takeText 短路空串）；组合期 v-model 又是被组合门拦滞的
+// 旧值——两者都会把草稿存成空，组合中打了一半的字丢失（fresh 首条发送
+// 后重挂载即触发）。beforeUnmount 先于子组件卸载，编辑器仍活，flush
+// 在途组合变异（endComposition 语义：终结组合、定稿上账）后读 doc 现势。
+onBeforeUnmount(() => {
   const key = lastDraftKey.value;
-  if (key) parkDraft(key, inputText.value);
+  if (key) parkDraft(key, promptFace.takeText());
 });
 
 /** 单开原则：任一下拉打开时关闭其余 */
@@ -866,10 +871,11 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 async function send() {
   const text = promptFace.takeText().trim(); // 直读编辑器现势（cr-850：组合定稿未 emit 时 v-model 滞后，读旧值会丢字/遗留）
   if (!text && attachedFiles.value.length === 0) return;
-  // 幻影会话物化（延迟落盘，cr-847）：首条消息出门前把会话落到服务端。
-  // 失败 = 消息不出门（草稿保留）——比「发出去了但会话没建」更可恢复。
-  if (props.single && singlesBoard?.isPhantom(props.single.id)) {
-    try { await singlesBoard.materialize(props.single.id); } catch { return; }
+  // 草稿发送（延迟落盘，cr-894）：首条消息出门前把会话落到服务端（id
+  // 首次签发，失败重试同 id 幂等）。失败 = 消息不出门（草稿保留）——比
+  // 「发出去了但会话没建」更可恢复。
+  if (props.single && singlesBoard?.isPending()) {
+    try { await singlesBoard.dispatchDraft(); } catch { return; }
   }
 
   if (props.onSend) {
@@ -888,7 +894,7 @@ async function send() {
     });
   }
 
-  inputText.value = '';
+  promptFace.clear();
   attachedFiles.value = [];
 }
 
@@ -897,9 +903,9 @@ async function send() {
 async function sendNow() {
   const text = promptFace.takeText().trim(); // 与 send 同款（cr-850）
   if (!text && attachedFiles.value.length === 0) return;
-  // 幻影物化（与 send 同款——空幻影会话的任何首条消息都先落会话）
-  if (props.single && singlesBoard?.isPhantom(props.single.id)) {
-    try { await singlesBoard.materialize(props.single.id); } catch { return; }
+  // 草稿发送（与 send 同款——草稿位的任何首条消息都先落会话）
+  if (props.single && singlesBoard?.isPending()) {
+    try { await singlesBoard.dispatchDraft(); } catch { return; }
   }
 
   if (props.onSend) {
@@ -918,7 +924,7 @@ async function sendNow() {
     });
   }
 
-  inputText.value = '';
+  promptFace.clear();
   attachedFiles.value = [];
 }
 
@@ -1002,6 +1008,8 @@ const promptFace = {
   caret: () => promptFaceRef.value?.caret() ?? 0,
   /** 现势文本（flush 在途组合变异后直读 doc——cr-850：IME 组合期 v-model 滞后，发送取真值） */
   takeText: (): string => promptFaceRef.value?.takeText() ?? inputText.value,
+  /** 发送出口同步清 doc（cr-867：v-model 清空赋值在组合滞后下空转，watch 不触发 doc 不清） */
+  clear: () => { promptFaceRef.value?.clear(); inputText.value = ''; },
   focus: () => promptFaceRef.value?.focus(),
   setCaret: (pos: number) => promptFaceRef.value?.setCaret(pos),
   replaceRange: (start: number, end: number, insert: string) =>

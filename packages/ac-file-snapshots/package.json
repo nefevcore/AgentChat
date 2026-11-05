@@ -16,6 +16,8 @@
     "ac-core-utils": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-fs-tools": "workspace:*",

@@ -42,10 +42,17 @@ class StubAgentStoreService extends Service {
   constructor(ctx: Context) { super(ctx, 'agentStore'); }
 }
 
+/** agentLoop 段注册面桩（cr-881：todo 行 inject ['agentLoop'] 的最小满足） */
+class StubAgentLoopService extends Service {
+  constructor(ctx: Context) { super(ctx, 'agentLoop'); }
+  registerPromptSection(): () => void { return () => undefined; }
+}
+
 async function bootWithBackend() {
   const ctx = await boot();
   new StubToolsService(ctx);
   new StubAgentStoreService(ctx);
+  new StubAgentLoopService(ctx);
   const backend = await import('ac-todo/src/index.ts');
   const plug = ctx.plugin as unknown as (p: unknown, c?: unknown) => Promise<Fiber> & Fiber;
   const backendFiber = await plug(backend, undefined);

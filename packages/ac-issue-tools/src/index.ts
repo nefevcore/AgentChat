@@ -166,9 +166,22 @@ async function createIssue(
   return { number: data.number, url, title: data.title ?? issue.title };
 }
 
-export const inject = ['tools'];
+import { widenToolsForGating } from 'ac-agents';
+
+export const inject = ['tools', 'agentLoop'];
 
 export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
+  // ---- GUIDELINES_ISSUE 段（cr-881，自 ac-system-prompt 指引迁）：问题反馈
+  //      （"主动上报系统层面问题"是工具描述不载的行为决策）；门控 = submit_issue 在场 ----
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_ISSUE',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (!names.has('submit_issue')) return '';
+      return '问题反馈：发现系统层面的问题（平台自身的 bug、异常行为、体验缺陷）时，主动用 submit_issue 提交到官方仓库帮助改进，不必等用户指示；告知用户已上报及链接。仅报系统层面的问题——用户工作内容自身的毛病（代码 bug、方案缺陷等）直接向用户反馈即可，不上报。ISSUE 是公开的，提交前逐行自审正文与标题：密钥、令牌、密码、凭据、私人数据、内部地址、未公开的商业信息等敏感内容一律不得出现——只写问题现象与复现信息；拿不准是否敏感就先问用户，不要先提交再补救。';
+    },
+  }, 'ac-issue-tools');
+
   ctx.tools.register({
     name: 'submit_issue',
     requiredTags: ['issue-report'],

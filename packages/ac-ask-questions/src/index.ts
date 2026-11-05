@@ -55,7 +55,7 @@ export const extension: ExtensionMeta = {
   description: 'ask_questions 工具（发起体 + loop/run-idle 挂起等待 + late-reply 唤醒；基于 durable-interaction 核，kind=ask_questions）',
 };
 
-export const inject = ['tools', 'durableInteraction'];
+export const inject = ['tools', 'durableInteraction', 'agentLoop'];
 
 /** conversation 可选能力面（行未装 = 无唤醒，作答只落记录不回投——组合可选惯例） */
 interface ConversationLike {
@@ -130,8 +130,21 @@ function askNotice(qs: Array<{ question: string; options: string[]; multi?: true
   return `[用户提问] 已发起提问（interaction ${interactionId}），等待用户回答：\n${lines.join('\n')}`;
 }
 
+import { widenToolsForGating } from 'ac-agents';
+
 export function apply(ctx: Context) {
   const service = ctx.durableInteraction;
+
+  // ---- GUIDELINES_ASK 段（cr-881，自 ac-system-prompt 指引迁）：不可逆
+  //      操作前询问 + 主动但不越权；门控 = ask_questions 在场 ----
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_ASK',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (!names.has('ask_questions')) return '';
+      return '不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作（含 git push --force / reset --hard / checkout -- 等破坏性命令与递归删除），先 ask_questions 征求确认，不要擅自替用户决定。主动但不越权：允许在任务范围内主动推进（含合理的后续动作），但超出用户要求范围的动作（新建文件外的产出、对外发布、扩大改动面）先问再动。工作中收到用户新消息，默认理解为补充/纠正当前任务（继续推进），除非明确取消或要求换目标。';
+    },
+  }, 'ac-ask-questions');
 
   // 消费对账（cr-747）：答案一旦注入任何路径（steer/idle/late-reply）即
   // close('consumed')——answered 悬置会让 boot 重放面（cr-636）每次重启
@@ -437,7 +450,6 @@ export function apply(ctx: Context) {
           },
           description: '选择题列表（最多 5 题；每题可 multi: true 开多选）',
         },
-        deadline_ms: { type: 'number', description: '[已废弃，勿使用] 旧版等待超时参数——不再生效，传了会被忽略（等待无超时，直到用户回答）', minimum: 0 },
       },
       required: ['questions'],
     },

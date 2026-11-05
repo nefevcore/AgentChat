@@ -156,29 +156,9 @@ function subcallKey(agentId: string | undefined, conversationId: string | undefi
   return agentId + '|' + conversationId;
 }
 
-/** [引用约定] 词形锚点（ac-fs-tools @路径 / ac-session-query #会话 /
- *  ac-collab-tools @名称 三条 owner 行注入的共同前缀） */
-const REFERENCE_GUIDE_ANCHOR = '[引用约定]';
-
-/**
- * 收敛式定序插入：技能块恒居 [引用约定] 组之前。Loader 路径（官方 boot）
- * 行并发创建（行序 ≠ 激活序），主档 append 序不可依赖；技能块锚定
- * [引用约定] 词形插到首条引用约定所在行之前，使任意激活顺序收敛到同一
- * 形态（技能块在前、引用约定组聚齐在后）——与尾档「system-prompt 恒
- * unshift / datetime 恒 push」同族的收敛式定序。锚点不存在 = 追加末尾
- * （保持既有 append 语义）。
- */
-function insertSkillsBlock(base: string | undefined, block: string): string {
-  if (base === undefined || base === '') return block;
-  const anchor = base.indexOf(REFERENCE_GUIDE_ANCHOR);
-  if (anchor < 0) return `${base}\n\n${block}`;
-  // 锚点回退到所在行行首并剥掉 head 尾部换行（统一以 \n\n 重接，防空洞/粘连）
-  let cut = anchor;
-  while (cut > 0 && (base[cut - 1] === '\n' || base[cut - 1] === '\r')) cut--;
-  const head = base.slice(0, cut).replace(/[\r\n]+$/, '');
-  const tail = base.slice(cut);
-  return head ? `${head}\n\n${block}\n\n${tail}` : `${block}\n\n${tail}`;
-}
+/** [引用约定] 词形锚点与 insertSkillsBlock 收敛式插入已随 cr-881 段注册制
+ * 退役——技能块 = SKILLS 段（SECTION_ORDER 具名位），与 [引用约定] 组的
+ * 相对次序由排序键承载（30 < 110），不再扫 system 文本找锚点。 */
 
 /** 技能名 → 目录定位的越界守卫（load 面路径白名单） */
 function assertInside(root: string, dirName: string): string {
@@ -216,31 +196,27 @@ export class SkillsService extends Service {
     this.locationPrefix =
       options.locationPrefix ?? `${root.replace(/\\/g, '/').replace(/\/+$/, '')}/skills`;
 
-    // ---- before-run 注入 <available_skills>：会话工作区（约定目录） +
+    // ---- SKILLS 段（cr-881）：<available_skills> 会话工作区（约定目录） +
     //      全局（白名单过滤）+ 本 Agent 专属 ----
-    this.ctx.on('loop/before-run', (call, next) => {
-      const state = this.agentSkillState(call.request.agent, call.request.conversationId);
-      const groups: SkillGroup[] = [];
-      // 工作区组：随 singles 会话挂载的项目资产——不经 whitelist
-      // 门控（与附件同语义：挂了就在，__standard__ 等无记忆预设同样可见）
-      for (const g of state.workspace) {
-        groups.push({ skills: g.skills, locationPrefix: g.locationPrefix });
-      }
-      if (state.global.length > 0) {
-        groups.push({ skills: state.global, locationPrefix: this.locationPrefix });
-      }
-      if (state.own.length > 0 && state.ownPrefix) {
-        groups.push({ skills: state.own, locationPrefix: state.ownPrefix });
-      }
-      const block = buildSkillsBlock(groups);
-      if (block) {
-        call.request = {
-          ...call.request,
-          system: insertSkillsBlock(call.request.system, block),
-        };
-      }
-      return next();
-    }, { description: '注入 <available_skills> 会话工作区 + 全局 + 本 Agent 专属技能目录' });
+    this.ctx.agentLoop.registerPromptSection({
+      name: 'SKILLS',
+      text: (request) => {
+        const state = this.agentSkillState(request.agent, request.conversationId);
+        const groups: SkillGroup[] = [];
+        // 工作区组：随 singles 会话挂载的项目资产——不经 whitelist
+        // 门控（与附件同语义：挂了就在，__standard__ 等无记忆预设同样可见）
+        for (const g of state.workspace) {
+          groups.push({ skills: g.skills, locationPrefix: g.locationPrefix });
+        }
+        if (state.global.length > 0) {
+          groups.push({ skills: state.global, locationPrefix: this.locationPrefix });
+        }
+        if (state.own.length > 0 && state.ownPrefix) {
+          groups.push({ skills: state.own, locationPrefix: state.ownPrefix });
+        }
+        return buildSkillsBlock(groups);
+      },
+    }, 'ac-skill');
 
     // ---- /name 用户显式调用：before-run 判定 + 持久化注入（存储词汇 v2，
     //      skill-injection-and-storage-vocab §1）——只判「当前触发消息」=
@@ -442,7 +418,7 @@ export class SkillsService extends Service {
     const state: AgentSkillView = { global: [], own: [], workspace: [] };
     // 会话工作区组（singles 挂载；其余会话形态恒空）——现扫不缓存：
     // 工作区内容随用户编辑演进，弹层/注入按需扫描成本低（约定目录 readdir）
-    const wsRoot = this.workspaceOf(conversationId);
+    const wsRoot = this.workspaceOf(conversationId, agentId);
     if (wsRoot) state.workspace = discoverWorkspaceSkills(wsRoot);
     if (agentId === undefined) {
       state.global = filterSkills(this.list());
@@ -484,25 +460,49 @@ export class SkillsService extends Service {
    * workspace.conversationWorkspaceRoot 唯一事实源（与沙箱基准/允许根、
    * 提示词 [工作目录] 展示同源不漂移）；workspace 行未装时回落自带链
    * （singles 记录 → listWorkspaces——技能行不因此硬依赖 workspace）。
+   *
+   * cr-865 workdir 锚点回落：子会话键 parent~sub-x 是 agent⇄agent 对桶，
+   * singles 记录结构上到不了（cr-758 同因）——挂载 miss 时读 agents 服务
+   * settings.security.workdir（spawn 快照的父挂载工作区锚点，与
+   * sandboxWorkdir 第二层同源同序：挂载 > 显式 workdir > files/<id>）。
+   * 子 Agent 由此继承父挂载工作区的技能可见性；常规 singles 会话真未
+   * 挂载时无该锚点，不受影响。
    */
-  private workspaceOf(conversationId: string | undefined): string | null {
+  private workspaceOf(conversationId: string | undefined, agentId?: string): string | null {
     if (!conversationId) return null;
     const ws = this.ctx.get('workspace') as
       | { conversationWorkspaceRoot?(cid: string): string | null }
       | undefined;
     if (typeof ws?.conversationWorkspaceRoot === 'function') {
-      return ws.conversationWorkspaceRoot(conversationId);
+      const root = ws.conversationWorkspaceRoot(conversationId);
+      return root !== null ? root : this.workdirAnchorOf(agentId);
     }
     const singles = this.ctx.get('singles') as
       | { get(sid: string): { workspaceId?: string } | null }
       | undefined;
     const record = singles?.get(conversationId);
     const wsId = typeof record?.workspaceId === 'string' ? record.workspaceId : '';
-    if (!wsId) return null;
-    const workspace = this.ctx.get('workspace') as
-      | { listWorkspaces(): Array<{ id: string; path: string }> }
+    if (wsId) {
+      const workspace = this.ctx.get('workspace') as
+        | { listWorkspaces(): Array<{ id: string; path: string }> }
+        | undefined;
+      return workspace?.listWorkspaces().find((w) => w.id === wsId)?.path ?? null;
+    }
+    return this.workdirAnchorOf(agentId);
+  }
+
+  /** cr-865：settings.security.workdir 锚点（agents 合并面——子 Agent spawn 快照层）；无身份/无服务/无锚点 = null */
+  private workdirAnchorOf(agentId: string | undefined): string | null {
+    if (agentId === undefined) return null;
+    const agents = this.ctx.get('agents', false) as
+      | { settingsOf?(id: string, name?: string): unknown }
       | undefined;
-    return workspace?.listWorkspaces().find((w) => w.id === wsId)?.path ?? null;
+    if (typeof agents?.settingsOf !== 'function') return null;
+    const security = agents.settingsOf(agentId, 'security');
+    const v = security !== undefined && security !== null && typeof security === 'object'
+      ? (security as { workdir?: unknown }).workdir
+      : undefined;
+    return typeof v === 'string' && v !== '' ? path.resolve(v) : null;
   }
 
   /** 按名定位技能（优先序 = 特异性：本 Agent 专属 > 会话工作区 > 全局） */
@@ -638,7 +638,15 @@ export class SkillsService extends Service {
     const state = this.agentSkillState(agentId, conversationId);
     const located = this.locateSkill(name, state);
     if (!located) {
-      throw new Error(`技能 "${name}" 不存在或当前不可用（仅目录中列出的技能可加载）`);
+      // 可见目录为空时给结构性线索（cr-865）：三源全空 vs 目录有货但没这个名字，
+      // 修复成本天差地别——空态明说，模型不再盲试。
+      const visible = [...state.own, ...state.workspace.flatMap((g) => g.skills), ...state.global].map((s) => s.name);
+      const suffix = visible.length === 0
+        ? '（当前无任何可见技能：Agent 专属/会话工作区/全局三源均空——子 Agent 会话需父在任务中指路或自带技能）'
+        : visible.length <= 8
+          ? `——当前可见：${visible.join('、')}`
+          : `——当前可见 ${visible.length} 个技能（目录前 8：${visible.slice(0, 8).join('、')}）`;
+      throw new Error(`技能 "${name}" 不存在或当前不可用（仅目录中列出的技能可加载）${suffix}`);
     }
     const dir = assertInside(located.root, located.hit.dirName);
     const file = path.join(dir, 'SKILL.md');
@@ -696,7 +704,7 @@ export const extension: ExtensionMeta = {
     { event: 'tool/after-execute', role: 'run_code 子调用 load_skill 登记', description: 'load_skill 子调用成功后现读正文登记 pending（已落账在场判定——跨 run 重复 load 不再登记）' },
   ],
 };
-export const inject = ['agents', 'tools'];
+export const inject = ['agents', 'tools', 'agentLoop'];
 export function apply(ctx: Context, options: SkillRowOptions = {}) {
   ctx.plugin(SkillsService, options);
 }

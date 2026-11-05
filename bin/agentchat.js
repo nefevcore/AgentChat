@@ -38,6 +38,16 @@ function tsxImport() {
   }
 }
 
+// 作者工具链子命令（cr-907 批5）：ac plugin init/publish/finalize——不进
+// boot 链，scripts/plugin-cli.mjs 独立进程（TS 源直载同 boot 链形态）。
+if (args[0] === 'plugin') {
+  const cli = path.join(root, 'scripts', 'plugin-cli.mjs');
+  run(spawn(process.execPath, [cli, ...args.slice(1)], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+    env: { ...process.env, TSX_TSCONFIG_PATH: path.join(root, 'tsconfig.json') },
+  }));
+} else
 const distEntry = path.join(root, 'dist', 'agentchat.mjs');
 if (existsSync(distEntry)) {
   // 发布包：宿主 bundle + 资产面（AGENTCHAT_HOME = dist 安装根——anchors 解析）

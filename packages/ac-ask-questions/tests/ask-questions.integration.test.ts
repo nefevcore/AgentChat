@@ -10,6 +10,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as diRow from 'ac-durable-interaction';
 import * as askRow from '../src/index.ts';
 
@@ -26,6 +28,8 @@ async function boot(diOptions: Record<string, unknown> = {}) {
   const fibers: Fiber[] = [];
   for (const [plugin, config] of [
     [toolsRow, undefined],
+    [llmRow, undefined],
+    [loopRow, undefined], // cr-881：ask 行段注册面 inject ['agentLoop']
     [diRow, diOptions],
     [askRow, undefined],
   ] as Array<[unknown, unknown]>) {
@@ -107,6 +111,8 @@ describe('ask_questions 发起体（write-ahead + 即返 awaiting + context 行�
     const ctx = new Context();
     const fibers = [
       ctx.plugin(toolsRow as any),
+      ctx.plugin(llmRow as any),
+      ctx.plugin(loopRow as any), // cr-881：ask 行段注册面 inject ['agentLoop']
       ctx.plugin(SessionStub as any),
       ctx.plugin(diRow as any, { backend: 'memory' }),
       ctx.plugin(askRow as any),
@@ -344,6 +350,8 @@ describe('late-reply 唤醒（run 已死时的作答回投——登记表缺席�
     const ctx = new Context();
     const fibers = [
       ctx.plugin(toolsRow as any),
+      ctx.plugin(llmRow as any),
+      ctx.plugin(loopRow as any), // cr-881：ask 行段注册面 inject ['agentLoop']
       ctx.plugin(ConvStub as any),
       ctx.plugin(diRow as any, { backend: 'memory' }),
       ctx.plugin(askRow as any),

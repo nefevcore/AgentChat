@@ -111,6 +111,22 @@ function runInFlight(d: RunStatusDialog): boolean {
   return d.streaming || d.rawMessages.some((m) => m.isStreaming === true);
 }
 
+/** 权威在途判定（cr-887 唯一定活口径）：stats 应答里 running 命中（会话
+ * 级——run 已诞生）∪ spawning 命中（agent 级——spawn→boot.ready 拉壳窗，
+ * run 尚未诞生）。「宿主仍在为这个会话工作」的完整事实是两者并集：
+ * 只认 running 会把 spawning 窗判成权威 miss——切走再切回即被 20s 静默
+ * 判死误杀（cr-887 根因）。消费点：dock 对账（pollAuthoritative）、悬挂
+ * 探针（onStaleProbeFire）、发送看门狗先问后杀；stats 缺 spawning 字段
+ * （旧后端）按空集，行为同 cr-840 前。 */
+export function agentInFlight(
+  stats: { running?: Array<{ agentId?: unknown; conversationId?: unknown }>; spawning?: unknown },
+  agentId: string,
+  conversationId: string,
+): boolean {
+  const runHit = (stats.running ?? []).some((r) => r.agentId === agentId && r.conversationId === conversationId);
+  return runHit || (Array.isArray(stats.spawning) && (stats.spawning as unknown[]).includes(agentId));
+}
+
 /** waking 窗外部判据（cr-840）：两等待相位的真源在推导层之外——
  * connecting 是本地 wire 态（消息还压在 rpc-wire 的 queue 里没出门），
  * spawning 是宿主编排面 inflight 集（spawn → boot.ready 在飞）。两者

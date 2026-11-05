@@ -331,6 +331,13 @@ export class LedgerService extends Service {
       if (row.source === 'inject' && typeof row.requestId === 'string' && row.requestId !== '') injected.add(row.requestId);
     }
     for (const row of rows) {
+      // cr-888 会话设置变化通知行（context+event）：按 user 回放——落账先于
+      // history 读（run 入口对账），本 run 消息天然自带；行持久在场，后续
+      // run 照常复读（append-only，前缀稳定）。
+      if (row.role === 'context' && row.source === 'event' && row.content.trim() !== '') {
+        out.push({ role: 'user', content: row.content });
+        continue;
+      }
       if (row.role !== 'agent') continue;
       // 物化段行/注入行（cr-697）按 run 归口消费；存量文本段行（无 source）
       // 过滤防双计
@@ -496,6 +503,18 @@ declare module '@agentchat/cordis' {
   interface Context {
     /** 账本服务（preview 壳 ledger 行提供——writer 面 + journal 计量） */
     ledger: LedgerService;
+  }
+  interface Events {
+    /**
+     * user 投影账本（viewer/sessions/<uuid>/messages.jsonl）追加行（纯通知：
+     * user 发言 writeOwn / 终稿派生落行——宿主单进程写者面全量覆盖，cr-870）。
+     * 消费方：singles 行清单注册表条目失效（消灭 list 的全表 stat 探测）。
+     *
+     * @mode emit
+     * @scope host（viewer 投影写入只发生在宿主进程）
+     * @param conversationId 会话 id（viewer 投影轴键）
+     */
+    'ledger/viewer-appended'(conversationId: string): void;
   }
 }
 

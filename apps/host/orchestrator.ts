@@ -322,9 +322,14 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       if (lock === null) continue;
       // 可达维持（cr-748）：孤壳（宿主换代后不在可达表）回登记——消息路径
       // 不依赖下一封信触发 ensureHook。活态判定宿主侧无感知，投对账事件。
+      // cr-885：可达恢复 = 通道恢复（协议 D2 节拍 2）——同步转投 outbox 滞留
+      // 信。此前只登记不冲刷，滞留信要等「下一个任何 agent 的壳 adopted」的
+      // 全量 flush 顺带救出（现场：creator 壳 boot 后滞留 18 分钟，靠 news 定
+      // 时信间接触发才送达——poller 周期冲刷兜底见 boot.ts）。
       if (reach.hintFor(agentId) !== lock.hint) {
         reach.markReachable(agentId, lock.hint);
         options.onReconciled?.({ type: 'shell-emerged', agentId });
+        void options.postOffice.flushOutbox().catch(() => { /* 转投失败留箱重试 */ });
       }
       try {
         const st = await manageCall(lock.hint, { ctrl: 'admin', op: 'run-state' }, manageProbeMs) as

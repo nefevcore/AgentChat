@@ -7,6 +7,8 @@
 // no-op；跨会话独立；无 conversationId（宿主直调）不触发。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -38,6 +40,8 @@ async function boot(root: string, snapRoot: string, snapOpts: Record<string, unk
   const fibers: Fiber[] = [];
   const rows: Array<[unknown, unknown]> = [
     [toolsRow, undefined],
+    [llmRow, undefined],
+    [loopRow, undefined],
     [configRow, { root }], // settings 层热更测试用（config.json 落临时根）
     [snapshotsRow, { root: snapRoot, ...snapOpts }],
     [fsToolsRow, { workdir: root }],
@@ -238,6 +242,8 @@ describe('方案 C 挂点 —— 工具写路径 × 快照服务', () => {
     const fibers: Fiber[] = [];
     for (const [plugin, config] of [
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined],
       [fsToolsRow, { workdir: root }],
     ] as Array<[unknown, unknown]>) {
       const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);

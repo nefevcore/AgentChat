@@ -39,6 +39,8 @@ export interface PostOfficeOptions {
    * D2 节拍 2 转投）。拒绝/缺钩子不阻塞投递。
    */
   ensureHook?: (target: RouteTarget) => void;
+  /** 诊断日志面（cr-885：滞留/转投事件此前零日志面——现场只能盘上物证反推） */
+  onLog?: (level: 'W' | 'E', message: string) => void;
 }
 
 /**
@@ -52,6 +54,8 @@ export class PostOffice {
   private readonly outbox: Outbox;
   private readonly address: string;
   private readonly multicast: MulticastTable | undefined;
+  /** 诊断日志面（cr-885：转投/出箱失败此前全静默——盘上无痕，滞留排查只能物证反推） */
+  private readonly onLog: ((level: 'W' | 'E', message: string) => void) | undefined;
   private readonly locals = new Map<string, LocalReceiver>();
   private readonly pool = new Map<string, IpcClient>();
   private ensureHook: ((target: RouteTarget) => void) | undefined;
@@ -61,6 +65,7 @@ export class PostOffice {
     this.outbox = new Outbox(options.dataRoot);
     this.address = options.address ?? socketPathFor(path.resolve(options.dataRoot), 'post-office');
     this.multicast = options.multicast;
+    this.onLog = options.onLog;
   }
 
   /** 进程内端点注册（user 壳桩等）：可达表同步标记 local:<endpointId> */
@@ -155,7 +160,12 @@ export class PostOffice {
     return out;
   }
 
-  /** 发件箱转投（通道恢复节拍）：ack 到手即出箱；失败留箱重试 */
+  /**
+   * 发件箱转投（通道恢复节拍）：ack 到手即出箱；失败留箱重试。
+   * cr-885：转投失败摘陈旧可达项（与 dispatch 直投失败同语义——hint 连
+   * 不上即端点已死，不摘则后续 flush 恒撞死 pipe 且不触发按需拉起）；
+   * 失败记诊断日志（此前全静默——滞留现场只能盘上物证反推）。
+   */
   async flushOutbox(): Promise<Array<{ entry: OutboxEntry; ack: { ack: string; fresh: boolean } }>> {
     const delivered: Array<{ entry: OutboxEntry; ack: { ack: string; fresh: boolean } }> = [];
     for (const { entry, transportHint } of this.outbox.flush((id) => this.reach.hintFor(id))) {
@@ -163,8 +173,10 @@ export class PostOffice {
         const ack = await this.deliverVia(transportHint, entry.envelope);
         this.outbox.remove(entry.seq, entry.envelope.requestId);
         delivered.push({ entry, ack });
-      } catch {
-        // 留箱（下次 flush 重试）
+      } catch (err) {
+        if (!transportHint.startsWith(LOCAL_PREFIX)) this.reach.markGone(entry.envelope.to);
+        this.onLog?.('W', 'outbox 转投失败（' + entry.envelope.requestId + ' → ' + entry.envelope.to
+          + '，已摘可达项，留箱待通道恢复）：' + String(err instanceof Error ? err.message : err));
       }
     }
     return delivered;

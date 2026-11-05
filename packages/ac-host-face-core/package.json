@@ -1,0 +1,23 @@
+{
+  "name": "ac-host-face-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主能力面契约纯库（cr-886）：HostFaceContract 词汇 + corrId 多路复用 ipc client/server 帧——零 cordis 依赖",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "ac-envelope-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

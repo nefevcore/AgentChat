@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
 import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
+import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import { createRootsContainment } from 'ac-sandbox-core';
 import type { AgentConfig } from 'ac-agents';
 import { runNativePickFolder, type NativePickOutcome } from './native-dialog.ts';
@@ -167,10 +168,10 @@ export class WorkspaceService extends Service {
   // 文件/命令工具行（解析）都经它取基准，三处永不漂移。
   // ============================================================
 
-  /** Agent 专用空间目录（纯路径，不建目录）：常规 = files/<id>；预设/未知 = 工作区根 */
+  /** Agent 专用空间目录（纯路径，不建目录）：常规 = files/<id>；预设（词形判定）/未知 = 工作区根 */
   agentWorkdir(agentId: string): string {
     const agent = this.ctx.agents.get(agentId);
-    if (!agent || agent.preset || agent.virtual) return this.root;
+    if (!agent || isPresetId(agentId) || agent.virtual) return this.root;
     return path.join(this.root, 'files', agentId);
   }
 
@@ -227,7 +228,7 @@ export class WorkspaceService extends Service {
         : undefined;
     if (typeof explicit === 'string' && explicit) return path.resolve(explicit);
     if (!agent) return undefined;
-    if (agent.preset) return this.root;
+    if (isPresetId(agentId)) return this.root;
     if (agent.virtual) return undefined;
     return this.ensureAgentWorkdir(agentId);
   }
@@ -355,7 +356,7 @@ export class WorkspaceService extends Service {
       // 未知 Agent = undefined → 数据根兜底）
       if (context.agentId) {
         const agent = this.ctx.agents.get(context.agentId);
-        if (agent && !agent.preset && !agent.virtual) {
+        if (agent && !isPresetId(context.agentId) && !agent.virtual) {
           const workdir = this.sandboxWorkdir(context.agentId);
           if (workdir && workdir !== this.root) {
             return { dir: workdir, label: `Agent/${context.agentId}` };
@@ -538,10 +539,10 @@ export class WorkspaceService extends Service {
     };
   }
 
-  /** 上传桶 Agent 的预设形态判定（预设/虚拟 → 不走专用空间事实源） */
+  /** 上传桶 Agent 的预设形态判定（词形（cr-880）/虚拟/未注册 → 不走专用空间事实源） */
   private isPresetLike(agentId: string): boolean {
     const agent = this.ctx.agents.get(agentId);
-    return !agent || agent.preset === true || agent.virtual === true;
+    return !agent || isPresetId(agentId) || agent.virtual === true;
   }
 
   /**
@@ -870,7 +871,32 @@ export const extension: ExtensionMeta = {
 };
 
 
+export const inject = ['agents', 'agentLoop'];
+
 export function apply(ctx: Context, options: WorkspaceRowOptions = {}) {
   // 纯后端行（M27.1，D19 改裁）：前端半边 = ac-client-ui-workspace 独立 UI 行
   ctx.plugin(WorkspaceService, options);
+  // ---- ENV_WORKDIR 段（cr-881，自 ac-system-prompt buildEnvBlock 迁）：
+  //      [工作目录]（恒完整路径）+ [路径穿透白名单]（工作目录之外的额外
+  //      允许路径）。基准/白名单与沙箱同源（sandboxWorkdir/sandboxAllowedPaths
+  //      唯一事实源——展示与执行永不漂移）。----
+  ctx.agentLoop.registerPromptSection({
+    name: 'ENV_WORKDIR',
+    text: (request) => {
+      // use-time 取本服务实例（apply 同步段注册时 Service fiber 尚未就绪）
+      const ws = ctx.get('workspace');
+      if (ws === undefined) return '';
+      const agentId = request.agent;
+      const base = ws.sandboxWorkdir(agentId, request.conversationId) ?? ws.root;
+      const lines = [`[工作目录] ${path.resolve(base)}`];
+      const extras = ws
+        .sandboxAllowedPaths(agentId, request.conversationId)
+        .map((a) => (path.isAbsolute(a) ? a : path.resolve(ws.root, a)))
+        .filter((a) => a !== path.resolve(base));
+      if (extras.length > 0) {
+        lines.push(`[路径穿透白名单] ${extras.join('；')} — 工作目录之外允许读写的额外路径`);
+      }
+      return lines.join('\n');
+    },
+  }, 'ac-workspace');
 }

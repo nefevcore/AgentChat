@@ -49,7 +49,10 @@ import {
   rejectStaging,
   reservedConflictError,
   stagePlugin,
-  uninstallPlugin,
+  installPackage,
+  uninstallPackage,
+  registerInstalled,
+  pluginHealthz,
   type ApproveResult,
   type InstalledPluginRecord,
   type PluginAuditEntry,
@@ -63,6 +66,7 @@ import type { Envelope } from 'ac-envelope-core';
 import {
   isPluginRequest,
   makePluginReceiptEnvelope,
+  readActivationLock,
   validatePluginRequestPayload,
   type PluginReceiptPayload,
 } from 'ac-envelope-core';
@@ -167,6 +171,14 @@ export class PluginRegistryHostService extends Service {
   /** 人审批准：安装落盘 → 清熔断记录 → 刷新插件行集 → 审计入账 */
   async approve(id: string, grants?: unknown): Promise<{ approved: ApproveResult; rows: RowDescriptor[]; warnings: string[] }> {
     const approved = await approveStaging(this.dataRoot, id, grants);
+    // installed.patch.yml 登记（cr-903 批2：市场人审路径与免审路径同登记面）
+    registerInstalled(this.dataRoot, {
+      id: approved.manifest.name,
+      name: 'link:' + path.join(this.root(), approved.manifest.name),
+      // 人签安装（webui 审批）= 全体候选——owner 锚留空（§4.3：owner 行
+      // 仅进 owner Agent 候选集；市场公共插件不设锚）
+      scope: 'shell',
+    });
     const installedDir = path.join(this.root(), approved.manifest.name);
     const rows = this.refreshRows();
     await this.audit({
@@ -206,6 +218,8 @@ export class PluginRegistryHostService extends Service {
       idempotent: boolean;
       backupDir?: string;
       warnings: string[];
+      /** 生效轴（cr-903 两轴回执：live / restart-required / …——壳侧续跑提示用） */
+      effective?: 'live' | 'restart-required' | 'overridden' | 'blocked-by-live-process';
     }
   > {
     const resolved = path.resolve(sourceDir);
@@ -234,46 +248,54 @@ export class PluginRegistryHostService extends Service {
         error: '插件 "' + manifest.name + '@' + manifest.version + '" 已安装且内容哈希不一致——同版本改动必须先在 manifest.json bump version 再重装',
       };
     }
-    // stage → 自动批准（免审快照 = manifest permissions 全集——主线 F14/L5）
-    let stagingId: string;
-    try {
-      stagingId = (await this.stage(resolved, owner)).id;
-    } catch (err: unknown) {
-      return { status: 'rejected', name: manifest.name, error: '暂存失败：' + (err instanceof Error ? err.message : String(err)) };
-    }
-    let approved: ApproveResult;
-    try {
-      approved = await approveStaging(this.dataRoot, stagingId, manifest.permissions ?? []);
-    } catch (err: unknown) {
-      await this.reject(stagingId).catch(() => undefined);
-      return { status: 'rejected', name: manifest.name, error: err instanceof Error ? err.message : String(err) };
+    // v2 统一安装器（cr-903 批2 切片四）：门禁（engines 自求值/保留字/
+    // 权限边界）→ stage→approve 补偿事务 → installed.patch.yml 登记 →
+    // 两轴回执。免审快照 = manifest permissions 全集（主线 F14/L5）。
+    const receipt = await installPackage({
+      root: this.dataRoot,
+      sourceDir: resolved,
+      owner,
+      grants: manifest.permissions ?? [],
+      liveProcesses: liveShellProcesses(this.dataRoot),
+    });
+    if (receipt.result !== 'applied') {
+      return { status: 'rejected', name: receipt.name, error: (receipt.reasons ?? []).join('；') };
     }
     const rows = this.refreshRows();
     await this.audit({
-      event: 'install', name: approved.manifest.name, version: approved.manifest.version, owner,
-      sourceDir: path.join(this.root(), approved.manifest.name), hash: approved.hash,
-      grants: approved.permissions,
-      outcome: approved.replaced !== undefined ? 'installed+replaced' : 'installed',
+      event: 'install', name: receipt.name, version: receipt.version, owner,
+      sourceDir: receipt.installedDir, hash: receipt.hash,
+      grants: manifest.permissions ?? [],
+      outcome: receipt.replaced !== undefined ? 'installed+replaced' : 'installed',
     });
     return {
-      status: 'installed', name: approved.manifest.name, version: approved.manifest.version,
-      installedDir: approved.installedDir, hash: approved.hash, idempotent: false, warnings: rows.warnings,
-      ...(approved.replaced !== undefined ? { backupDir: approved.replaced.backupDir } : {}),
+      status: 'installed', name: receipt.name, version: receipt.version,
+      installedDir: receipt.installedDir!, hash: receipt.hash!, idempotent: false, warnings: rows.warnings,
+      effective: receipt.effective,
+      ...(receipt.replaced !== undefined ? { backupDir: receipt.replaced.backupDir } : {}),
     };
   }
 
-  /** 永久卸载：移出安装态 + 旧版本进 .backup + 刷新插件行集 */
+  /** 永久卸载：移出安装态 + 旧版本进 .backup + installed.patch.yml 撤销 + 刷新插件行集 */
   async uninstall(name: string): Promise<{ name: string; backupDir?: string; rows: RowDescriptor[]; warnings: string[] }> {
-    const result = await uninstallPlugin(this.dataRoot, name);
+    // v2 统一安装器卸载面（cr-903 切片四）：事务 + 登记撤销 + 两轴回执
+    const receipt = await uninstallPackage({
+      root: this.dataRoot,
+      name,
+      liveProcesses: liveShellProcesses(this.dataRoot),
+    });
+    if (receipt.result !== 'applied') {
+      throw new Error((receipt.reasons ?? []).join('；'));
+    }
     const rows = this.refreshRows();
     await this.audit({
       event: 'uninstall',
       name,
       owner: 'host',
       outcome: 'uninstalled',
-      ...(result.backupDir !== undefined ? { backupDir: result.backupDir } : {}),
+      ...(receipt.replaced !== undefined ? { backupDir: receipt.replaced.backupDir } : {}),
     });
-    return { ...result, rows: rows.rows, warnings: rows.warnings };
+    return { name, ...(receipt.replaced !== undefined ? { backupDir: receipt.replaced.backupDir } : {}), rows: rows.rows, warnings: rows.warnings };
   }
 
   /** 权限词汇表（前端 grants 勾选源——形状与主线 plugin/permissions 恒等） */
@@ -369,6 +391,11 @@ export class PluginRegistryHostService extends Service {
   /** 熔断档案视图（webui 徽章数据源） */
   loadHealth(): ReturnType<typeof readLoadHealth> {
     return readLoadHealth(this.dataRoot);
+  }
+
+  /** 安装态健康对账（cr-903 批2：installed/registry/物化三方一致性 + 恢复钩子 + 熔断） */
+  healthz(): ReturnType<typeof pluginHealthz> {
+    return pluginHealthz(this.dataRoot);
   }
 
   // ---- ③ 行集偏好急救（A9：偏好文件恒冷生效） ----
@@ -477,9 +504,12 @@ async function applyPluginRequest(
       payload: {
         subject: 'plugin-installed', agent, ok: true, name: result.name, version: result.version,
         installedDir: result.installedDir, idempotent: false, warnings: result.warnings,
+        effective: result.effective,
         ...(result.backupDir !== undefined ? { backupDir: result.backupDir } : {}),
       },
-      nextPrompt: '[plugin] 你安装的 ' + result.name + '@' + result.version + ' 已写入安装态（宿主零代码装载——plugin-rows.json 已刷新，本壳重启或新壳 boot 时装载）。要立即测试请用 register_plugin（会话级装载）。',
+      nextPrompt: '[plugin] 你安装的 ' + result.name + '@' + result.version + ' 已写入安装态（宿主零代码装载——installed.patch.yml/plugin-rows.json 已刷新，本壳重启或新壳 boot 时装载'
+        + (result.effective === 'restart-required' ? '；当前有活壳在场，生效轴 = restart-required' : '')
+        + '）。要立即测试请用 register_plugin（会话级装载）。',
     };
   }
   const result = await svc.uninstall(p.name!);
@@ -604,6 +634,7 @@ export function makePluginRegistryRow(options: PluginRegistryHostRowOptions): Pl
       web.registerRpc('plugin/rows', () => svc.pluginRows());
 
       web.registerRpc('plugin/load-health', () => svc.loadHealth());
+  web.registerRpc('plugin/healthz', () => svc.healthz());
 
       web.registerRpc('plugin/load-failure', async (params) => {
         const p = obj(params);
@@ -636,4 +667,28 @@ export function makePluginRegistryRow(options: PluginRegistryHostRowOptions): Pl
       });
     },
   };
+}
+
+/** 活壳清单（两轴回执求值输入，cr-903 批2）：扫 agents 下各 Agent 的
+ * activation.lock 探活——pid 0 信号探测（与宿主 boot 活锁救援同判据）。 */
+function liveShellProcesses(dataRoot: string): Array<{ kind: 'shell'; pid: number }> {
+  const agentsDir = path.join(dataRoot, 'agents');
+  let ids: string[];
+  try {
+    ids = fs.readdirSync(agentsDir);
+  } catch {
+    return []; // 无 agents 目录 = 无活壳
+  }
+  const out: Array<{ kind: 'shell'; pid: number }> = [];
+  for (const id of ids) {
+    const lock = readActivationLock(path.join(agentsDir, id));
+    if (lock === null) continue;
+    try {
+      process.kill(lock.pid, 0);
+      out.push({ kind: 'shell', pid: lock.pid });
+    } catch {
+      /* holder 已死 */
+    }
+  }
+  return out;
 }

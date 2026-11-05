@@ -2,8 +2,9 @@
 // singles-row.ts —— 宿主独立会话行（cr-566）
 //
 // owns：viewer/sessions/<sid>/session.json（元数据：agentId / title /
-// workspaceId / status / 时间戳）+ viewer/sessions/.singles-index.json
-//（读侧派生索引，cr-845）。消息流归 user 终稿账本（UserStub 写，
+// workspaceId / status / 时间戳）+ viewer/sessions/.singles-registry.json
+//（清单注册表，cr-869：整表视图驻留内存，写点同步维护，list 零读——
+// cr-845 摘要索引的延伸）。消息流归 user 终稿账本（UserStub 写，
 // messages.jsonl——同一端点目录，文件分家）；模型覆盖归 conv-settings
 //（D12 单源，本行只经服务方法读写真值，不落 session.json）。
 //
@@ -123,77 +124,108 @@ interface LedgerSummary {
   agentId?: string; title?: string; lastActivity?: string; count: number;
 }
 
-// 摘要索引（cr-682 进程内缓存 → cr-845 落盘索引）：冷启动全量读+解析全部
-// 账本是同步阻塞（实测 1018 会话冷 OS 缓存 12.8s，期间宿主事件循环停摆——
-// 前端 boot-graph/history 全部 RPC 排队）。索引按 messages.jsonl 的
-// size+mtimeMs 逐条目失效：stat 未变即复用（跨重启），变即重算单条目；
-// 文件级 stat 与会话目录 readdir 单源读侧可见，不需写者配合。
-// 并发面：宿主单进程单写者（本行 RPC 串行处理）；索引文件读取失败/形状
-// 不合法 = 回落空索引（全量重算后覆写，正确性永不依赖索引内容）。
-interface SummaryIndexEntry { size: number; mtimeMs: number; summary: LedgerSummary }
-interface SummaryIndexFile { version: 1; entries: Record<string, SummaryIndexEntry> }
+// 清单注册表（cr-682 进程内缓存 → cr-845 落盘摘要索引 → cr-869 全视图清单 →
+// cr-870 事件失效）：list 载荷整表驻留内存——装载时盘对账重建一次（唯一
+// 全量读），此后 list 热路径 = 直吐 + 每条目 1 次 stat 指纹复验（失配/stale
+// 条目才读账本重算）。全部写点同步
+// 维护条目 + 落盘；账本追加经 ledger/viewer-appended 事件标记条目 stale
+//（写者通知面 = UserStub send/receive + web-api 读前派生/账本管理面——宿主
+// 单进程全覆盖），装载对账保留为跨进程写兜底。
+// 防线（承 cr-845）：正确性永不依赖注册表内容——条目形状逐项窄化校验，
+// 损坏/漂移即整表重建覆写；写点维护恒先写 session.json 真值、再同步注册表
+//（读路径探测差异亦回源重算——缓存自愈，无双源漂移窗口）。
 
 
-function indexFileOf(dataRoot: string): string {
-  return path.join(sessionsDir(dataRoot), '.singles-index.json');
+function registryFileOf(dataRoot: string): string {
+  return path.join(sessionsDir(dataRoot), '.singles-registry.json');
 }
 
-/** 索引文件内容运行时校验（JSON 可为任意形状——边界一次窄化到 Map） */
-function readIndex(dataRoot: string): Map<string, SummaryIndexEntry> {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(fs.readFileSync(indexFileOf(dataRoot), 'utf-8'));
-  } catch {
-    return new Map();
-  }
-  if (typeof raw !== 'object' || raw === null) return new Map();
-  const { version, entries } = raw as Record<string, unknown>;
-  if (version !== 1 || typeof entries !== 'object' || entries === null) return new Map();
-  const out = new Map<string, SummaryIndexEntry>();
-  for (const [id, e] of Object.entries(entries)) {
-    if (typeof e !== 'object' || e === null) continue;
-    const { size, mtimeMs, summary } = e as Record<string, unknown>;
-    if (typeof size !== 'number' || typeof mtimeMs !== 'number' || typeof summary !== 'object' || summary === null) continue;
-    out.set(id, { size, mtimeMs, summary: summary as LedgerSummary });
-  }
-  return out;
+interface RegistryEntry {
+  /** messages.jsonl 指纹（装载对账/写点维护——事件通知后按 stale 惰性重算取新值） */
+  size: number;
+  mtimeMs: number;
+  /** session.json 指纹（装载复验——手工改元数据/外部写后该条目回源重算） */
+  metaMtimeMs: number;
+  /** 账本有追加事件未重算（cr-870：ledger/viewer-appended 标记，list 时该条目回源） */
+  stale?: boolean;
+  /** count>0 时的账本摘要（派生 title/agentId/lastActivity——session.json 缺席时兜底） */
+  summary: LedgerSummary;
+  /** 装载对账时的完整视图（写点维护后的现状——list 直吐） */
+  view: SingleView | null;
+}
+interface RegistryFile { version: 2; entries: Record<string, RegistryEntry> }
+
+/** 条目窄化（shape 损坏条目整表丢弃重建——正确性不依赖缓存内容） */
+function validEntry(e: unknown): e is RegistryEntry {
+  if (typeof e !== 'object' || e === null) return false;
+  const { size, mtimeMs, metaMtimeMs, summary } = e as Record<string, unknown>;
+  return typeof size === 'number' && typeof mtimeMs === 'number' && typeof metaMtimeMs === 'number'
+    && typeof summary === 'object' && summary !== null && typeof (summary as { count?: unknown }).count === 'number'
+    && ('view' in e);
 }
 
-function writeIndex(dataRoot: string, entries: Map<string, SummaryIndexEntry>): void {
-  const file = indexFileOf(dataRoot);
+function writeRegistry(dataRoot: string, entries: Map<string, RegistryEntry>): void {
+  fs.mkdirSync(sessionsDir(dataRoot), { recursive: true });
+  const file = registryFileOf(dataRoot);
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries: Object.fromEntries(entries) } satisfies SummaryIndexFile), 'utf-8');
+  fs.writeFileSync(tmp, JSON.stringify({ version: 2, entries: Object.fromEntries(entries) } satisfies RegistryFile), 'utf-8');
   fs.renameSync(tmp, file);
 }
 
-/** 会话行共享的索引载入器（首次访问读盘，之后驻留内存；RPC 处理器闭包持有） */
-function makeSummaryIndex(dataRoot: string): {
-  /** 无账本（st null）恒 count 0 且不落索引；指纹命中即返回缓存摘要，miss 重算 */
-  get(id: string, st: fs.Stats | null): LedgerSummary;
-  /** 落盘索引（仅在有变更时写） */
-  flush(): void;
-} {
-  let entries = readIndex(dataRoot);
-  let dirty = false;
-  return {
-    get(id: string, st: fs.Stats | null): LedgerSummary {
-      if (st === null) return { count: 0 };
-      const hit = entries.get(id);
-      if (hit !== undefined && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.summary;
-      const summary = computeLedgerSummary(dataRoot, id);
-      entries.set(id, { size: st.size, mtimeMs: st.mtimeMs, summary });
-      dirty = true;
-      return summary;
-    },
-    flush(): void {
-      if (!dirty) return;
-      // 护栏：条目数远超现存会话目录数（多测试根残留/目录被清）→ 重建式覆写，
-      // 防陈旧条目无限累积
-      if (entries.size > 4_096) entries = new Map();
-      writeIndex(dataRoot, entries);
-      dirty = false;
-    },
-  };
+function metaMtimeOf(dataRoot: string, id: string): number {
+  try { return fs.statSync(metaFileOf(dataRoot, id)).mtimeMs; } catch { return 0; }
+}
+
+/** 单会话条目回源重建（盘真值 → 视图 + 摘要指纹；null = 盘上已无此会话） */
+function buildEntry(dataRoot: string, id: string, conv: ConvSettingsFace | undefined): RegistryEntry | null {
+  const ledgerSt = ledgerStat(dataRoot, id);
+  const summary = ledgerSt === null ? { count: 0 } : computeLedgerSummary(dataRoot, id);
+  const view = viewOf(dataRoot, id, conv, summary);
+  if (view === null) return null; // meta 与账本双空 = 不是会话
+  return { size: ledgerSt?.size ?? 0, mtimeMs: ledgerSt?.mtimeMs ?? 0, metaMtimeMs: metaMtimeOf(dataRoot, id), summary, view };
+}
+
+/** 冷对账：目录 id 集 × 注册表条目集 → 差异逐 id 回源重建（装载期唯一全量读） */
+function reconcile(dataRoot: string, conv: () => ConvSettingsFace | undefined, diskIds: string[], entries: Map<string, RegistryEntry>): void {
+  for (const id of diskIds) {
+    if (entries.has(id)) continue;
+    const e = buildEntry(dataRoot, id, conv());
+    if (e !== null) entries.set(id, e);
+  }
+  for (const id of [...entries.keys()]) {
+    if (!diskIds.includes(id)) entries.delete(id);
+  }
+}
+
+/** 注册表装载：盘上文件读入（损坏 = 空表）→ 留存条目 meta 指纹复验（session.json
+ *  被外部改 → 该条目回源重算）→ 与目录对账（新目录补建/已删目录摘除）→ 落盘一次。
+ *  conv-settings 文件级外部改不在此复验——运行期写点已由 conv-settings/updated
+ *  订阅维护，装载信任条目（成本折衷：每条目省一次 conv.get 的文件读）。 */
+function loadRegistry(dataRoot: string, conv: () => ConvSettingsFace | undefined): Map<string, RegistryEntry> {
+  let entries = new Map<string, RegistryEntry>();
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(registryFileOf(dataRoot), 'utf-8'));
+    if (typeof raw === 'object' && raw !== null) {
+      const { version, entries: fileEntries } = raw as Record<string, unknown>;
+      if (version === 2 && typeof fileEntries === 'object' && fileEntries !== null) {
+        for (const [id, e] of Object.entries(fileEntries)) {
+          if (validEntry(e)) entries.set(id, e);
+        }
+      }
+    }
+  } catch { /* 缺席/损坏 = 空表重建 */ }
+  const diskIds = listIds(dataRoot);
+  // 留存条目 meta 指纹复验：session.json 手工改/外部写（mtime 变）→ 回源重算
+  for (const id of [...entries.keys()]) {
+    if (entries.get(id)!.metaMtimeMs !== metaMtimeOf(dataRoot, id)) {
+      const rebuilt = buildEntry(dataRoot, id, conv());
+      if (rebuilt === null) entries.delete(id);
+      else entries.set(id, rebuilt);
+    }
+  }
+  reconcile(dataRoot, conv, diskIds, entries);
+  writeRegistry(dataRoot, entries);
+  return entries;
 }
 
 function ledgerStat(dataRoot: string, id: string): fs.Stats | null {
@@ -249,19 +281,16 @@ function computeLedgerSummary(dataRoot: string, id: string): LedgerSummary {
   };
 }
 
-/** 视图组装（list / 变更回执共源；idx+ledgerSt 可选——list 批量路径传入省重复 stat，
- *  单会话变更回执缺省走无索引直读） */
-function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined, idx?: { get(id: string, st: fs.Stats | null): LedgerSummary }, ledgerSt?: fs.Stats | null): SingleView | null {
+/** 视图组装（回执/单点路径：直读盘真值——注册表条目由 buildEntry/写点维护） */
+function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined, summary?: LedgerSummary): SingleView | null {
   const meta = readMeta(dataRoot, id);
-  const summary = idx !== undefined
-    ? idx.get(id, ledgerSt !== undefined ? ledgerSt : ledgerStat(dataRoot, id))
-    : (ledgerStat(dataRoot, id) === null ? { count: 0 } : computeLedgerSummary(dataRoot, id));
-  if (meta === null && summary.count === 0) return null;
+  const sum = summary ?? (ledgerStat(dataRoot, id) === null ? { count: 0 } : computeLedgerSummary(dataRoot, id));
+  if (meta === null && sum.count === 0) return null;
   let iso = meta?.updatedAt ?? new Date(0).toISOString();
   try { iso = fs.statSync(dirOf(dataRoot, id)).mtime.toISOString(); } catch { /* 目录缺席：用元数据时刻 */ }
   const model = conv?.get(id).model;
-  const title = meta?.title ?? summary.title;
-  const agentId = meta?.agentId ?? summary.agentId;
+  const title = meta?.title ?? sum.title;
+  const agentId = meta?.agentId ?? sum.agentId;
   return {
     id,
     agentId: agentId ?? '',
@@ -274,7 +303,7 @@ function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined
     // lastActivity 仅在有消息时携带（主线 ac-singles 同义：无消息空会话
     // 不带该键——前端 isSingleFresh 据此呈现新会话开场居中态，创建时刻
     // 兜底会把空会话钉成「非开场」形态，cr-601）
-    ...(summary.lastActivity !== undefined ? { lastActivity: summary.lastActivity } : {}),
+    ...(sum.lastActivity !== undefined ? { lastActivity: sum.lastActivity } : {}),
   };
 }
 
@@ -314,8 +343,36 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       const emit = (view: SingleView, kind: 'created' | 'updated' | 'archived' | 'removed'): void => {
         web.broadcast('singles/updated', { args: [view, kind] });
       };
-      // 摘要索引（cr-845）：跨宿主重启复用，落盘收口在 list 的 flush
-      const summaryIdx = makeSummaryIndex(dataRoot);
+      // 清单注册表（cr-869）：装载对账一次驻留，写点 upsert + 落盘；list 直吐
+      const registry = loadRegistry(dataRoot, conv);
+      /** 写点收口：emit 后同步注册表条目（真值已落盘，条目 = 回执视图 + 现指纹；
+       *  账本指纹未变复用旧摘要——写点改的是 session.json/conv，不碰消息流）+ 落盘 */
+      const upsertEntry = (id: string, view: SingleView | null): void => {
+        const st = ledgerStat(dataRoot, id);
+        const prev = registry.get(id);
+        const summary = st === null ? { count: 0 }
+          : (prev !== undefined && prev.size === st.size && prev.mtimeMs === st.mtimeMs ? prev.summary : computeLedgerSummary(dataRoot, id));
+        if (view === null && summary.count === 0) { registry.delete(id); }
+        else registry.set(id, { size: st?.size ?? 0, mtimeMs: st?.mtimeMs ?? 0, metaMtimeMs: metaMtimeOf(dataRoot, id), summary, view });
+        writeRegistry(dataRoot, registry);
+      };
+      // conv-settings 外部写点对账（web-api conv-settings/set RPC——model 字段
+      // 第二写者）：本行 RPC 之外的设置变更 → 该会话条目视图回源刷新。
+      // 纯观察（emit 事件），无 veto/改写语义。
+      ctx.on('conv-settings/updated', (conversationId: string) => {
+        if (!registry.has(conversationId)) return; // 非独立会话（对桶/群）不在册
+        const e = registry.get(conversationId)!;
+        registry.set(conversationId, { ...e, view: viewOf(dataRoot, conversationId, conv(), e.summary) });
+        writeRegistry(dataRoot, registry);
+      });
+      // 账本追加通知（cr-870）：条目标记 stale——list 时该条目回源重算（摘要在
+      // 追加后重取新 lastActivity/count；重算面收口在 list 而非事件内，通知零
+      // 读盘开销）。不在册 id 忽略：追加可先于会话物化（首条消息触发 create）。
+      ctx.on('ledger/viewer-appended', (conversationId: string) => {
+        const e = registry.get(conversationId);
+        if (e === undefined) return;
+        registry.set(conversationId, { ...e, stale: true });
+      });
 
       // ---- 标题请求受理（cr-672：壳侧 auto-title 行 → 信封 → 本行落盘）----
       // 写权归本行（session.json 单写者）；write-if-absent——用户手改标题 /
@@ -347,24 +404,34 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
             updatedAt: new Date().toISOString(),
           });
           const view = viewOf(dataRoot, id, conv());
-          if (view !== null) emit(view, 'updated');
+          if (view !== null) { emit(view, 'updated'); upsertEntry(id, view); }
         });
       }
 
-      // 全量 list：索引命中路径 = 每 id 一次 stat + readMeta + conv.get（百会话
-      // ~数十 ms）；冷 miss 才读账本重算。分批让出事件循环（每 32 会话
-      // setImmediate 一拍——冷路径下宿主侧其他 RPC 不被饿死，cr-843 同款教训）。
+      // list（cr-869/870）：驻留快照直吐。每条目 1 次 ledgerStat 指纹复验
+      //（兜底事件丢失——绕过通知的外部写/删除仍被看见），失配或 stale（追加
+      // 事件标记）才读账本重算（cr-870 前是全条目三重 stat + meta 读）。
+      // 分批让出事件循环（重算读账本时不饿死其他 RPC，cr-843 同款教训）。
       web.registerRpc('singles/list', async () => {
         const out: SingleView[] = [];
-        const ids = listIds(dataRoot);
+        let dirty = false;
+        const ids = [...registry.keys()];
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i]!;
-          const ledgerSt = ledgerStat(dataRoot, id);
-          const view = viewOf(dataRoot, id, conv(), summaryIdx, ledgerSt);
-          if (view !== null && view.status === 'active') out.push(view);
+          const e = registry.get(id)!;
+          const st = ledgerStat(dataRoot, id);
+          const gone = st === null && e.size !== 0; // 账本曾存在、现已消失
+          if (e.stale === true || gone || (st !== null && (st.size !== e.size || st.mtimeMs !== e.mtimeMs))) {
+            const rebuilt = buildEntry(dataRoot, id, conv());
+            if (rebuilt === null) registry.delete(id);
+            else registry.set(id, rebuilt);
+            dirty = true;
+          }
+          const cur = registry.get(id);
+          if (cur?.view != null && cur.view.status === 'active') out.push(cur.view);
           if (i % 32 === 31) await new Promise<void>((r) => setImmediate(r));
         }
-        summaryIdx.flush();
+        if (dirty) writeRegistry(dataRoot, registry);
         return { singles: out };
       });
 
@@ -376,11 +443,10 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         }
         // reuse：复用同 Agent 的空会话（列表「新增」不刷屏——主线同义）
         if (p.reuse === true) {
-          for (const id of listIds(dataRoot)) {
-            const view = viewOf(dataRoot, id, conv());
-            if (view === null || view.status !== 'active') continue;
-            if (agentId !== undefined && view.agentId !== agentId) continue;
-            if (summaryIdx.get(id, ledgerStat(dataRoot, id)).count === 0) return { single: view, reused: true };
+          for (const [id, e] of registry) {
+            if (e.view === null || e.view.status !== 'active') continue;
+            if (agentId !== undefined && e.view.agentId !== agentId) continue;
+            if (e.summary.count === 0) return { single: e.view, reused: true };
           }
         }
         // 指定 id 物化（延迟落盘链路——前端幻影会话首条消息发送时带本地
@@ -409,6 +475,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         const view = viewOf(dataRoot, id, conv());
         if (view === null) throw new Error('会话创建失败：' + id);
         emit(view, 'created');
+        upsertEntry(id, view);
         return { single: view };
       });
 
@@ -432,7 +499,9 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         if (p.agentId !== undefined) {
           const next = String(p.agentId);
           if (next === '') {
-            if (summaryIdx.get(id, ledgerStat(dataRoot, id)).count > 0) throw new Error('会话已有消息，不能清空 Agent');
+            const known = registry.get(id)?.summary.count;
+            const count = known !== undefined ? known : (ledgerStat(dataRoot, id) === null ? 0 : computeLedgerSummary(dataRoot, id).count);
+            if (count > 0) throw new Error('会话已有消息，不能清空 Agent');
             delete meta.agentId;
           } else {
             if (readAgentConfig(dataRoot, next) === null) throw new Error('Agent 不存在：' + next);
@@ -459,6 +528,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         const view = viewOf(dataRoot, id, conv());
         if (view === null) throw new Error('会话读取失败：' + id);
         emit(view, 'updated');
+        upsertEntry(id, view);
         return { single: view };
       });
 
@@ -486,7 +556,9 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         if (from.model !== undefined) conv()?.set(nextId, { model: from.model });
         const view = viewOf(dataRoot, nextId, conv());
         if (view === null) throw new Error('会话分支创建失败：' + nextId);
-        emit({ ...view, lastActivity: now }, 'created');
+        const created = { ...view, lastActivity: now };
+        emit(created, 'created');
+        upsertEntry(nextId, created);
         return { single: view };
       });
 
@@ -508,6 +580,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         const view = viewOf(dataRoot, id, conv());
         if (view === null) throw new Error('会话读取失败：' + id);
         emit(view, 'archived');
+        upsertEntry(id, view);
         return { single: view };
       });
 
@@ -522,6 +595,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         fs.rmSync(dirOf(dataRoot, id), { recursive: true, force: true });
         conv()?.set(id, { model: null });
         emit(before ?? { id, agentId: '', status: 'archived', createdAt: '', updatedAt: '' }, 'removed');
+        upsertEntry(id, null);
         return { deleted: true };
       });
 

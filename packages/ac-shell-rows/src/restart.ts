@@ -99,7 +99,7 @@ export function makeRestartRow(options: RestartRowOptions): Plugin {
       const restartHostTool = {
         name: 'restart_host',
         description:
-          '重启宿主进程以重载宿主侧装载的代码与状态——「退出即复活」的无损重载原语，不是停机窗口。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响（继续当前任务即可）；宿主优雅退出（退出码 42）后由活壳探测复活（supervisor 在场时为其快路），webui 短暂断连后恢复，run 终稿在宿主恢复后送达。最高频场景：改了 packages/ 下宿主装载行（读面/行集/宿主侧服务）的源码——宿主进程不热更新，测试全绿 ≠ 已生效，须本工具重启加载新代码后再验证。其余场景：宿主侧状态坏、宿主级行集目录/插件库变更需重载。注意：回执为壳侧送达确认（宿主退出后无法自回响应，crashed/超时类结果不等于失败）——复活证据以回执给出的 healthz 探测地址/事实源文件为准，勿盲猜端口。批处理/迁移不要指望宿主退出期间执行——应在宿主恢复静止后执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。',
+          '重启宿主进程以重载宿主侧装载的代码与状态——「退出即复活」的无损重载原语，不是停机窗口。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响（继续当前任务即可）；宿主优雅退出（退出码 42）后由活壳探测复活（supervisor 在场时为其快路），webui 短暂断连后恢复，run 终稿在宿主恢复后送达。最高频场景（仅当运行在 AgentChat 开发仓库——工作目录即仓库源码树）：改了宿主装载行（packages/ 下读面/行集/宿主侧服务）的源码——宿主进程不热更新，测试全绿 ≠ 已生效，须本工具重启加载新代码后再验证。其余场景：宿主侧状态坏、宿主级行集目录/插件库变更需重载。注意：回执为壳侧送达确认（宿主退出后无法自回响应，crashed/超时类结果不等于失败）——复活证据以回执给出的 healthz 探测地址/事实源文件为准，勿盲猜端口。批处理/迁移不要指望宿主退出期间执行——应在宿主恢复静止后执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。',
         parameters: { type: 'object', properties: {}, required: [] },
         execute: async (_args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> => {
           if (options.postOfficeAddress === undefined) {

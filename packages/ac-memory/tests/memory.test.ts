@@ -319,7 +319,7 @@ describe('存量迁移（幂等 marker）', () => {
         return { kind: 'run' };
       }
     }
-    for (const row of [toolsRow, agentsRow, FakeConversation]) {
+    for (const row of [toolsRow, llmRow, loopRow, agentsRow, FakeConversation]) {
       const fiber = ctx.plugin(row as any);
       await fiber;
       fibers.push(fiber);
@@ -346,7 +346,7 @@ describe('存量迁移（幂等 marker）', () => {
       }
     };
     void delivered;
-    for (const row of [toolsRow, agentsRow, Conversation2, memoryRow]) {
+    for (const row of [toolsRow, llmRow, loopRow, agentsRow, Conversation2, memoryRow]) {
       const fiber = ctx2.plugin(row as any, row === memoryRow ? { root } : undefined);
       await fiber;
       fibers2.push(fiber);
@@ -377,13 +377,13 @@ describe('存量迁移（幂等 marker）', () => {
       constructor(c: Context) { super(c, 'agentStore'); }
       saveAgent(config: Record<string, unknown>) { saved.push(config); }
     }
-    for (const row of [toolsRow, agentsRow, FakeConversation, FakeAgentStore, memoryRow]) {
+    for (const row of [toolsRow, llmRow, loopRow, agentsRow, FakeConversation, FakeAgentStore, memoryRow]) {
       const fiber = ctx.plugin(row as any, row === memoryRow ? { root } : undefined);
       await fiber;
       fibers.push(fiber);
     }
     ctx.agents.register({ id: 'ia', model: 'mock@mock-1', tags: ['infra'] } as never);
-    ctx.agents.register({ id: '__preset__', model: 'mock@mock-1', tags: ['infra'], preset: true } as never);
+    ctx.agents.register({ id: '__preset__', model: 'mock@mock-1', tags: ['infra'] } as never);
     booted.push({ ctx, fibers });
     await ctx.memory.migrateLegacyBuckets();
     // infra Agent：补 tag + 投递
@@ -393,7 +393,7 @@ describe('存量迁移（幂等 marker）', () => {
     expect((saved[0].tags as string[]).includes('memory')).toBe(true);
     // 注册表热更新：memory_write 可见性生效（tags 含 memory）
     expect((ctx.agents.get('ia')?.tags ?? []).includes('memory')).toBe(true);
-    // 预设（preset: true）不迁移不补 tag——不为其建档（agentStore 无它）
+    // 预设（词形判定）不迁移不补 tag——不为其建档（agentStore 无它）
     expect(saved.every((s) => s.id !== '__preset__')).toBe(true);
     expect(existsSync(join(root, 'files', 'ia', 'memory', '.migrated'))).toBe(true);
   });
@@ -414,7 +414,7 @@ describe('存量迁移（幂等 marker）', () => {
         return { kind: 'run' };
       }
     }
-    for (const row of [toolsRow, agentsRow, FakeConversation, memoryRow]) {
+    for (const row of [toolsRow, llmRow, loopRow, agentsRow, FakeConversation, memoryRow]) {
       const fiber = ctx.plugin(row as any, row === memoryRow ? { root } : undefined);
       await fiber;
       fibers.push(fiber);

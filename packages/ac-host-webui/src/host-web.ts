@@ -121,7 +121,10 @@ export async function assembleWebServer(ctx: Context, options: WebRingOptions): 
  * 前置：ctx 内 webServer 服务已在位（assembleWebServer）。
  */
 export async function attachWebSurface(ctx: Context, options: WebRingOptions): Promise<WebRing> {
-  const user = new UserStub(options.postOffice, options.dataRoot);
+  // viewer 账本追加通知 → 事件（cr-870：singles 行订阅做注册表条目失效）
+  const user = new UserStub(options.postOffice, options.dataRoot, (uuid) => {
+    ctx.emit('ledger/viewer-appended', uuid);
+  });
   user.start();
 
   const fibers: Fiber[] = [];

@@ -20,6 +20,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
+import { widenToolsForGating } from 'ac-agents';
 import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
 import { bashSpec, prepareBash, preparePwsh, pwshSpec, type ShellSpec } from './shells.ts';
 import { executeShellCommand, type ExecLimits } from './executor.ts';
@@ -75,7 +76,7 @@ export const extension: ExtensionMeta = {
   ],
 };
 
-export const inject = ['tools', 'jobs'];
+export const inject = ['tools', 'jobs', 'agentLoop'];
 
 /** 命令工具参数 schema（pwsh/bash 共用形状） */
 const COMMAND_TOOL_PARAMETERS = {
@@ -139,6 +140,44 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   // 档位门兜底——sandbox 软边界内自由，base 有人桶询问/无人桶拒绝）。
   const spec: ShellSpec | null =
     process.platform === 'win32' ? pwshSpec() : bashSpec();
+
+  // ---- ENV_HOST 段 + GUIDELINES_SHELL 段（cr-881，自 ac-system-prompt 迁）----
+  // [宿主环境] 行 = 命令工具的宿主事实（翻译面/分轨/进程清理纪律——
+  // 2026-09-16 收拢：宿主事实归环境段，指引只留响应纪律）；门控 =
+  // widenToolsForGating 展开面按平台名判「本平台 shell 工具在场」。
+  ctx.agentLoop.registerPromptSection({
+    name: 'ENV_HOST',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (spec?.family === 'pwsh' && names.has('pwsh')) {
+        return '[宿主环境] 命令实际由 PowerShell 执行；简单 Unix 命令（ls/cat/grep/head/tail 等）会自动翻译为等价写法（结果里的 translated_command 字段是实际执行的命令），复杂或不确定的命令直接写 PowerShell 原生语法（Get-ChildItem / Select-String / Get-Content 等）最可靠。结果分轨汇报：output 为两流按时序的合流，stdout / stderr 为各自流的分轨视图（空流为空串）。命令工具（pwsh）只做文件工具办不到的事（组合命令、进程、环境）。路径分隔符用 \\ 或 / 均可。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
+      }
+      if (spec?.family === 'bash' && names.has('bash')) {
+        return '[宿主环境] 命令实际由 bash 执行。结果分轨汇报：output 为两流按时序的合流，stdout / stderr 为各自流的分轨视图（空流为空串）。命令工具（bash）只做文件工具办不到的事（组合命令、进程、环境）。清理进程请勿终止宿主进程——即 AgentChat 后端本身（承载所有会话，含当前对话；它同为 node 进程，按进程名杀 node/pnpm 会将其连带终止）。';
+      }
+      return '';
+    },
+  }, 'ac-shell-tools');
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_SHELL',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (!names.has('bash') && !names.has('pwsh')) return '';
+      return '命令执行：命令以非零退出码结束时，先读输出定位原因，修正后再继续（原样重跑大概率再次失败）；被中断的命令按已终止处理，不代表命令本身有错。长输出会被截断，需要完整输出时先重定向到文件再 read。';
+    },
+  }, 'ac-shell-tools');
+  // GUIDELINES_JOBS 段住本行（cr-881：指引主体是后台命令生命周期；job 工具是
+  // shell 家族伴生面——requiredTags 同族；owner 在此避免 ac-jobs 纯服务行
+  // 被迫拉循环依赖树）；门控 = job/bash/pwsh 任一在场
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_JOBS',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (!names.has('job') && !names.has('bash') && !names.has('pwsh')) return '';
+      return '后台任务：后台命令会返回 job_id，记住 id 即可——任务完成时通知会自动送达，不要用轮询命令或睡眠等待（sleep / Start-Sleep / ping -n 等都是等待，一样浪费）；确需等待完成时，用前台命令工具配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。后台任务在跑时继续推进不依赖它的独立步骤，不要重复执行正在运行任务的工作。';
+    },
+  }, 'ac-shell-tools');
+
   if (spec) {
     const isWin = spec.family === 'pwsh';
     const deps = {

@@ -70,9 +70,10 @@ import { makeUsageHostRow } from './usage-row.ts';
 export { makeUsageHostRow };
 export type { UsageHostRowOptions } from './usage-row.ts';
 
-import { makeTimersHostRow, HostTimersService, GLOBAL_TIMER_OWNER, validateTimerEntries } from './timers-row.ts';
+import { makeTimersHostRow, HostTimersService, GLOBAL_TIMER_OWNER } from './timers-row.ts';
 import type { EntriesEditFace } from './timers-row.ts';
-export { makeTimersHostRow, HostTimersService, GLOBAL_TIMER_OWNER, validateTimerEntries };
+// validateTimerEntries 已 cr-886 下沉 ac-timer-core（宿主能力面消费成环解法）
+export { makeTimersHostRow, HostTimersService, GLOBAL_TIMER_OWNER };
 export type { TimersHostRowOptions, EntriesEditFace } from './timers-row.ts';
 
 // —— 身份编辑面（cr-540）：agents 编辑面行（写口）+ preset-builtin 模板读面 ——
@@ -80,13 +81,13 @@ import { makeAgentsHostRow, AgentsEditService } from './agents-row.ts';
 export { makeAgentsHostRow, AgentsEditService };
 export { avatarPathOf, avatarContentType } from './agents-row.ts';
 export type { AgentsHostRowOptions } from './agents-row.ts';
-export { TEMPLATE_DIR, DOC_NAME, listTemplates, readTemplate, materializeConfigOf } from './preset-builtin.ts';
-export type { AgentTemplate, TemplateDoc } from './preset-builtin.ts';
-// —— 预设模板升级通路（cr-812 copy-on-write）：origin 指纹 + reconcile 纯库 ——
+export { TEMPLATE_DIR, DOC_NAME, listTemplates, readTemplate, materializeConfigOf, agentSkillsRoot, materializeTemplateSkills, readAgentSkills } from './preset-builtin.ts';
+export type { AgentTemplate, TemplateDoc, TemplateSkill } from './preset-builtin.ts';
+// —— 预设模板升级通路（cr-812 copy-on-write；cr-879 skills 纳入）：origin 指纹 + reconcile 纯库 ——
 export {
-  PRESET_ID, fingerprintOf, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin,
+  fingerprintOf, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin,
 } from './preset-origin.ts';
-export type { PresetOrigin, ReconcileResult } from './preset-origin.ts';
+export type { PresetOrigin, ReconcileResult, TemplateCorpus } from './preset-origin.ts';
 
 // —— 写侧 RPC 编排（cr-542）：agent-admin 行（inject ['webServer','agents']——
 // web 表面装配时随宿主单树 ctx 装；行集含 agent-admin 才挂，摘行 = 管理面下线）——
@@ -146,10 +147,16 @@ import { makePluginRegistryRow, PluginRegistryHostService } from './plugin-regis
 export { makePluginRegistryRow, PluginRegistryHostService };
 export type { PluginRegistryHostRowOptions, PluginRowsView, HostRowsView, InstalledView } from './plugin-registry-row.ts';
 
+// —— 宿主能力面行（cr-886）：ipc 契约端点（timer/update_agent_profile 远程
+//    工具 + 远程段 + facts 声明 + invalidate 广播）——
+import { makeHostFaceRow } from 'ac-host-face';
+export type { HostFaceRowOptions } from 'ac-host-face';
+
 /** 行 id → options 形工厂（宿主 boot 按 rowOptionsFor 产物分流装配） */
 export const HOST_ROW_FACTORIES: Record<string, ((options: never) => Plugin) | undefined> = {
   usage: makeUsageHostRow as unknown as (options: never) => Plugin,
   timers: makeTimersHostRow as unknown as (options: never) => Plugin,
+  'host-face': makeHostFaceRow as unknown as (options: never) => Plugin,
   agents: makeAgentsHostRow as unknown as (options: never) => Plugin,
   'plugin-registry': makePluginRegistryRow as unknown as (options: never) => Plugin,
   'auth-registry': makeAuthRegistryRow as unknown as (options: never) => Plugin,
@@ -178,6 +185,8 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     backup: backupOptions,
     'ws-bridge': wsBridgeOptions,
     'remote-link': { root: opts.dataRoot },
+    // 宿主能力面（cr-886）：数据根锚定（ipc 端点 + agents 树执行面）
+    'host-face': { dataRoot: opts.dataRoot },
   };
   // usage 行（cr-538 宿主自有形态）：UsageHostRowOptions = 数据根 + 收信扇出面
   if (opts.inbox !== undefined) {

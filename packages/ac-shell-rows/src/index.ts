@@ -29,7 +29,8 @@ import * as configRow from 'ac-config';
 import * as toolsRow from 'ac-tools';
 import * as datetimeRow from 'ac-datetime';
 import * as personaRow from 'ac-persona';
-import * as systemPromptRow from 'ac-system-prompt';
+import * as conductRow from 'ac-conduct';
+import * as artifactsRow from 'ac-artifacts';
 import * as memoryRow from 'ac-memory';
 import * as skillRow from 'ac-skill';
 import * as goalRow from 'ac-goal';
@@ -72,7 +73,9 @@ export const IMPORTED_ROWS: Record<string, Plugin> = {
   'tools': toolsRow as unknown as Plugin,
   'datetime': datetimeRow as unknown as Plugin,
   'persona': personaRow as unknown as Plugin,
-  'system-prompt': systemPromptRow as unknown as Plugin,
+  // cr-881：system-prompt 行退役——分块装配拆散至各 owner 包的 PromptSection 段
+  'conduct': conductRow as unknown as Plugin,
+  'artifacts': artifactsRow as unknown as Plugin,
   'memory': memoryRow as unknown as Plugin,
   'skill': skillRow as unknown as Plugin,
   'goal': goalRow as unknown as Plugin,
@@ -156,7 +159,7 @@ export type { SessionQueryRowOptions } from './session-query.ts';
 export { makeArchiveRow, ArchiveShellService } from './archive.ts';
 export type { ArchiveRowOptions } from './archive.ts';
 // 插件开发行（cr-553：creator 模板装卸三件套——register 壳内会话级装载 /
-// install·uninstall 永久档信封请求宿主受理）
+// install·uninstall 永久档信封请求宿主受理；cr-866 改 execute 内即时执行）
 export { makePluginDevRow } from './plugin-dev.ts';
 export type { PluginDevRowOptions } from './plugin-dev.ts';
 // 安全重启行（cr-629）：restart_shell（中止回队续跑）/ restart_host（信封

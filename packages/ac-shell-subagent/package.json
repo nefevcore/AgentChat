@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-agents-core": "workspace:*",
     "ac-auth-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
@@ -24,6 +26,8 @@
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
     "vitest": "^4.1.10"
   }
 }

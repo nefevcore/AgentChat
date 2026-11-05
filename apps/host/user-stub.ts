@@ -33,10 +33,13 @@ export class UserStub {
   private readonly ledgers = new Map<string, UserLedger>();
   private readonly po: PostOffice;
   private readonly dataRoot: string;
+  /** viewer 账本追加通知（cr-870：writeOwn/派生落行后触发——宿主装配点连 ctx.emit） */
+  private readonly onAppend?: (uuid: string) => void;
 
-  constructor(po: PostOffice, dataRoot: string) {
+  constructor(po: PostOffice, dataRoot: string, onAppend?: (uuid: string) => void) {
     this.po = po;
     this.dataRoot = dataRoot;
+    this.onAppend = onAppend;
   }
 
   /** 起桩：user 端点注册进邮局 local 通道 */
@@ -53,6 +56,7 @@ export class UserStub {
     const uuid = options.uuid ?? issueConversationId();
     const requestId = options.requestId ?? 'u-' + issueRequestId();
     await this.ledgerFor(uuid, agentId).writeOwn(text, requestId);
+    this.onAppend?.(uuid);
     const dispatched = await this.po.dispatch(makeEnvelope({
       uuid, requestId, sender: 'user', to: agentId,
       payload: {
@@ -76,7 +80,8 @@ export class UserStub {
    *  单行 / 原 ts；空终稿不落行——读面 steps 盲区投影渲染）。 */
   private async receive(env: Envelope): Promise<{ ack: string; fresh: boolean }> {
     const domains = env.uuid.includes('~') ? [...new Set(env.uuid.split('~'))] : [env.sender];
-    await deriveViewerLedger(this.dataRoot, env.uuid, domains);
+    const derived = await deriveViewerLedger(this.dataRoot, env.uuid, domains);
+    if (derived > 0) this.onAppend?.(env.uuid); // 空终稿不落行——无行不通知
     return { ack: env.requestId, fresh: true };
   }
 

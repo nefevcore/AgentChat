@@ -29,10 +29,11 @@ import {
 import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
-import { deriveShellRowset, mergeRowsetCatalog, readCatalog, readPluginRows, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
+import { deriveShellRowset, mergeRowsetCatalog, readCatalog, readPluginRows, installedRowDescriptors, readCustomLayer, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
 import { readAgentConfig, readChildConfig } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
+import { makeHostFaceClientRow } from 'ac-host-face-client';
 import { handleAdminFrame, type AdminFrame } from './admin-frame.ts';
 import { startHostRevive } from './host-revive.ts';
 import { makeLedgerRow } from 'ac-ledger';
@@ -136,6 +137,34 @@ export function parseShellArgs(argv: string[]): ShellBootArgs {
 
 // —— rowset 派生 + 静态断言 ——
 
+/** 快照落盘（原子写；审计视图——装配链快照非承重面，写失败仅警告） */
+function writeBootGraphSnapshot(
+  dataRoot: string,
+  agentId: string,
+  parentId: string | undefined,
+  rowset: DerivedRowset & { catalogRows: RowDescriptor[] },
+): void {
+  try {
+    const dir = parentId !== undefined
+      ? path.join(dataRoot, 'agents', parentId, 'children', agentId)
+      : path.join(dataRoot, 'agents', agentId);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'boot-graph.json');
+    const body = JSON.stringify({
+      agentId,
+      ...(parentId !== undefined ? { parentId } : {}),
+      at: new Date().toISOString(),
+      rows: rowset.rowIds,
+      tools: rowset.toolNames,
+      catalogRows: rowset.catalogRows.map((r) => ({ id: r.id, tree: r.tree, ...(r.tools !== undefined ? { tools: r.tools } : {}) })),
+    }, null, 2) + '\n';
+    const tmp = file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, body, 'utf-8');
+    fs.renameSync(tmp, file);
+  } catch (err: unknown) {
+    process.stderr.write('[shell] boot-graph 快照写失败（审计面，不阻断）：' + String(err) + '\n');
+  }
+}
 /**
  * 行集静态断言（R3.2：行引用存在性——纯函数；warnings 非空 = fail-loud）。
  */
@@ -145,13 +174,29 @@ export function deriveAndAssertRowset(
   catalogFile: string | undefined,
   parentId?: string,
 ): DerivedRowset & { catalogRows: RowDescriptor[] } {
-  // 目录 = 出厂目录 ∪ 插件行集（cr-543：install = 授权动作——宿主 plugin-registry
-  // 行批准安装后物化 <dataRoot>/plugin-rows.json，壳侧合并即得可用行集；
-  // 撞名出厂行在合并层丢弃——保留字护栏）
-  const merged = mergeRowsetCatalog(
-    readCatalog(catalogFile ?? path.join(dataRoot, 'row-catalog.json')),
-    readPluginRows(path.resolve(dataRoot)),
-  );
+  // 目录 = 出厂目录 ∪ 插件行集（cr-543 窗口镜像）∪ installed.patch.yml 菜单
+  //（cr-908 批6：装配菜单合流——安装器代写登记进派生，owner 锚过滤 +
+  // 点名缺席降级语义；plugin-rows.json 转纯镜像窗口，拆旧收口件）。
+  // 撞名出厂行在合并层丢弃——保留字护栏（后到丢弃：installed 行让位于
+  // 镜像行——两者同源于统一安装器，正常不并存）
+  const catalogBase = readCatalog(catalogFile ?? path.join(dataRoot, 'row-catalog.json'));
+  const mirrorRows = readPluginRows(path.resolve(dataRoot));
+  const installed = installedRowDescriptors(path.resolve(dataRoot), agentId);
+  const merged = mergeRowsetCatalog(mergeRowsetCatalog(catalogBase, mirrorRows).catalog, installed.rows);
+  if (installed.warnings.length > 0) {
+    process.stderr.write('[shell] installed 菜单对账警告：' + installed.warnings.join('；') + '\n');
+  }
+  // shell-custom 偏好层（cr-909 批6 切片三）：基座壳行停用（用户减法——
+  // 点名不在菜单 = 警告 + 跳过，非基座行〔installed/镜像〕不动）
+  const shellCustom = readCustomLayer(path.join(path.resolve(dataRoot), 'profile'), 'shell');
+  if (shellCustom.disabled.size > 0) {
+    const known = new Set(merged.catalog.rows.filter((row) => row.tree === 'shell').map((row) => row.id));
+    const filtered = merged.catalog.rows.filter((row) => row.tree !== 'shell' || !shellCustom.disabled.has(row.id));
+    for (const id of shellCustom.disabled) {
+      if (!known.has(id)) process.stderr.write('[shell] shell-custom 点名不在菜单（跳过）：' + id + '\n');
+    }
+    merged.catalog.rows = filtered;
+  }
   const catalog = merged.catalog;
   const config = parentId !== undefined
     ? readChildConfig(dataRoot, parentId, agentId)
@@ -365,6 +410,10 @@ export async function bootShell(
   } catch { /* 无标记目录 */ }
 
   const rowset = deriveAndAssertRowset(args.dataRoot, args.agentId, args.catalogFile, args.parentId);
+  // 编译产物快照（cr-909 批6 切片四 / cr-901 §4.3 审计视图）：派生终态
+  // 落盘「这个 Agent 实际装了什么」——行集 + 目录行摘要 + 警告，主壳
+  // agents/<id>/ 与子壳 children/<parentId>/<id>/ 分域；每 boot 覆写。
+  writeBootGraphSnapshot(path.resolve(args.dataRoot), args.agentId, args.parentId, rowset);
   seedPlaceholderAssemblers(rowset.catalogRows);
   // 插件行装配器（cr-543）：行集内出现的插件行（安装态注入、非出厂目录行）
   // 按安装目录动态装载——插件行 id 由宿主 plugin-registry 行物化。
@@ -372,7 +421,10 @@ export async function bootShell(
   // 归宿主裁决（阈值 3 → 行集条目剔除），壳自身 boot 不被第三方插件拖死
   //（fail-closed 对插件：该行缺席即其工具面缺席；宿主回报面由常驻监护
   // supervise 消费本节拍转发 pluginRegistry.reportLoadFailure）。
-  for (const pluginRow of readPluginRows(path.resolve(args.dataRoot))) {
+  const menuRows = readPluginRows(path.resolve(args.dataRoot)).concat(
+    installedRowDescriptors(path.resolve(args.dataRoot), args.agentId).rows,
+  );
+  for (const pluginRow of menuRows) {
     if (!rowset.rowIds.includes(pluginRow.id)) continue;
     registerRowAssembler(pluginRow.id, async (c) => {
       try {
@@ -444,6 +496,12 @@ export async function bootShell(
   registerRowAssembler('auto-title', (c) => (c as Context).plugin(makeAutoTitleRow({
     dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
     ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
+  })));
+  // 宿主能力面壳侧行（cr-886）：discover 宿主契约 → 代理工具（timer/
+  // update_agent_profile）+ 远程段 + singles/group Shim；invalidate 重拉；
+  // 宿主缺席软降级（零装配——CLI 直连形态现状不变）
+  registerRowAssembler('host-face-client', (c) => (c as Context).plugin(makeHostFaceClientRow({
+    dataRoot: path.resolve(args.dataRoot),
   })));
   // subagent 行（M8.3）：子壳 boot 入口/catalog 显式注入（本文件与同树 catalog
   // ——import.meta.url 相对定位；父壳拉子壳的标准链）。

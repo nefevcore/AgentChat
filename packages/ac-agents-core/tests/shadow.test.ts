@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { materializeChild, deriveChildConfig, readChildConfig, listChildIds } from '../src/tree.ts';
+import { isPresetId } from '../src/config.ts';
 import type { AgentConfig } from '../src/config.ts';
 
 const ROOT = path.join('sandbox', 'test-shadow-' + process.pid);
@@ -13,19 +14,19 @@ beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 const parent: AgentConfig = {
-  id: 'w', model: 'mock', preset: true,
+  id: 'w', model: 'mock',
   rows: ['fs-tools'],
   name: '现任',
 };
 
 describe('M6.5 影子物化（R-5）', () => {
-  it('物化即快照：child config 落盘 + preset 剥除 + id 换新', () => {
+  it('物化即快照：child config 落盘 + id 换新', () => {
     const dir = materializeChild(ROOT, 'w', 'w-shadow-1', parent);
     expect(dir).toBe(path.join(ROOT, 'agents', 'w', 'children', 'w-shadow-1'));
     const child = readChildConfig(ROOT, 'w', 'w-shadow-1');
     // 会话基座并入已单源化到行集派生层（cr-548）——物化快照保持父词形
     expect(child).toMatchObject({ id: 'w-shadow-1', model: 'mock', rows: ['fs-tools'] });
-    expect(child?.preset).toBeUndefined(); // 名册语义不继承
+    expect(isPresetId(child!.id)).toBe(false); // 子身份无 __x__ 词形 = 非预设（cr-880）
     expect(listChildIds(ROOT, 'w')).toEqual(['w-shadow-1']);
   });
 
@@ -45,7 +46,7 @@ describe('M6.5 影子物化（R-5）', () => {
   it('deriveChildConfig 纯函数剥减', () => {
     const c = deriveChildConfig(parent, 'x1');
     expect(c.id).toBe('x1');
-    expect(c.preset).toBeUndefined();
+    expect(isPresetId(c.id)).toBe(false); // cr-880：子身份无 __x__ 词形 = 非预设
     expect(c.name).toBe('现任'); // 其余身份原样
   });
 });

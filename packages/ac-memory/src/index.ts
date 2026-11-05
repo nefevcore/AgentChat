@@ -17,6 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { grepEntries, mintEntry, parseTimeline, renderDelta, renderGrepResult, renderSnapshot, type MemoryEntry } from 'ac-memory-core';
+import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import type {} from 'ac-agents'; // ctx.agents 可选能力类型（type-only）
 
 /** 行配置（cordis.yml config / 构造直传） */
@@ -78,16 +79,7 @@ export class MemoryService extends Service {
       this.ctx.fiber.effect(() => () => clearTimeout(timer), 'memory.migrate');
     }
 
-    // ---- system 静态指引（主档：字节恒定） ----
-    this.ctx.on('loop/before-run', (call, next) => {
-      const agentId = call.request.agent;
-      if (agentId === undefined) return next();
-      call.request = {
-        ...call.request,
-        system: call.request.system ? `${call.request.system}\n\n${MEMORY_GUIDE}` : MEMORY_GUIDE,
-      };
-      return next();
-    }, { description: '记忆静态指引注入（字节恒定；内容走 context 行协议）' });
+
 
     // ---- checkpoint/delta 注入协议（before-start seam：history 装配前直落流） ----
     this.ctx.on('conversation/before-start', async (agentId, conversationId) => {
@@ -214,7 +206,7 @@ export class MemoryService extends Service {
    */
   async migrateLegacyBuckets(): Promise<void> {
     const agents = this.ctx.get('agents', false) as
-      | { list(): Array<Record<string, unknown> & { id: string; tags?: string[]; preset?: boolean }> }
+      | { list(): Array<Record<string, unknown> & { id: string; tags?: string[] }> }
       | undefined;
     const conversation = this.ctx.get('conversation', false) as
       | { deliver(agentId: string, inbound: string, options: Record<string, unknown>): Promise<unknown> }
@@ -240,8 +232,8 @@ export class MemoryService extends Service {
         // 默认——只作用于有存量记忆的 infra Agent，不做常规读边补齐）：
         // infra = 会话基础设施能力面，视为 memory_write 等价已授权——补
         // memory tag（档案持久化 + 注册表热更新）后迁移。预设不迁移
-        // （preset: true 不入 agentStore 档案、且预设软停用记忆）。
-        if (agent.preset === true || !(agent.tags ?? []).includes('infra') || agentStore === undefined) {
+        // （词形判定 cr-880——不入 agentStore 档案、且预设软停用记忆）。
+        if (isPresetId(agent.id) || !(agent.tags ?? []).includes('infra') || agentStore === undefined) {
           this.ctx.logger.warn(`[memory] Agent ${agent.id} 无 memory/infra 标签（或无 agentStore 行），跳过记忆迁移（补标签后重启/手动重发）`);
           continue;
         }
@@ -348,10 +340,15 @@ export const extension: ExtensionMeta = {
  * 工具行注入：memory_write / memory_grep（requiredTags ['memory']——与 fs
  * 正交；needPermission false——写口有界，落自身专用空间）。
  */
-export const inject = ['tools'];
+export const inject = ['tools', 'agentLoop'];
 
 export function apply(ctx: Context, options: MemoryRowOptions = {}) {
   ctx.plugin(MemoryService, options);
+  // ---- system 静态指引（MEMORY 段，cr-881：字节恒定；内容走 context 行协议） ----
+  ctx.agentLoop.registerPromptSection({
+    name: 'MEMORY',
+    text: (request) => (request.agent === undefined ? '' : MEMORY_GUIDE),
+  }, 'ac-memory');
   ctx.tools.register({
     name: 'memory_write',
     requiredTags: ['memory'],

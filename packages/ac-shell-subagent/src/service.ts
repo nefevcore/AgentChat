@@ -15,6 +15,7 @@
 // M5 会话裁同款）。
 // ============================================================
 import { spawn as childSpawn } from 'node:child_process';
+import { widenToolsForGating } from 'ac-agents';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -1090,11 +1091,21 @@ const defaultSpawnShell: SpawnShellFn = (a) => {
 export function makeSubagentRow(options: SubagentRowOptions): Plugin {
   return {
     name: 'shell-subagent-row',
-    inject: ['tools'],
+    inject: ['tools', 'agentLoop'],
     apply(ctx: Context) {
       ctx.plugin(class extends ShellSubagentService {
         constructor(c: Context) { super(c, options); }
       });
+      // ---- GUIDELINES_SUBAGENT 段（cr-881，自 ac-system-prompt 指引迁）：
+      //      并行子任务（派发克制/续用优先/mode 决策/止损清理）；门控 = subagent 在场 ----
+      ctx.agentLoop.registerPromptSection({
+        name: 'GUIDELINES_SUBAGENT',
+        text: (request) => {
+          const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+          if (!names.has('subagent')) return '';
+          return '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；任务需要专业角色定位（如代码审查员/数据分析助手）或输出约束时给 system 参数（固化人设，跨轮生效），任务本身写 task；同时活跃的子 Agent 保持少数（先派一个看质量与进度，确有需要再逐步补派），不要一次性铺开多个；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。审查/评审类任务先报发现（按严重度排序、带文件行号），无发现时明说并报残余风险，再给综述。读特定文件/小范围搜索不起 subagent，直接用 read/glob/grep 更快。';
+        },
+      }, 'ac-shell-subagent');
     },
   } satisfies Plugin;
 }

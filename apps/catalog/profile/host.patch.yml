@@ -1,0 +1,111 @@
+# ac-base-version: 1
+# host 进程基座源文档（cr-902 / cr-901 v2.1 批1）——行→包映射单一事实源。
+# 顶层 = cordis-plugin-loader 官方方言条目数组（DSH 同款顶层数组约束）；
+# tree 字段由所在文档隐含（id 仅基座内唯一，跨基座同名合法）；
+# name = link: 仓库相对路径（多包行 packs 全列——指纹面）；tools/bundle/requires
+# 为行集派生词汇（ac-rowset-core）。apps/catalog/row-catalog.json 是本档的
+# 生成投影（scripts/gen-row-catalog.mjs），禁止手改。
+- id: logger-console
+  name: link:packages/vendor/logger
+  description: 日志基座
+- id: timer
+  name: link:packages/vendor/timer
+  description: fiber 定时（timers 依赖）
+- id: config
+  name: link:packages/ac-config
+  description: 配置
+- id: post-office
+  name: link:packages/ac-post-office
+  description: 邮局：投递路由 + uuid 登记校验 + 群播扇出 + 发件箱滞留中继
+- id: guardian
+  name: link:packages/ac-guardian
+  description: 监护：拉起三节拍 / 心跳 / idle-exit 收割 / 崩溃退避 / 宿主重启入口
+- id: auth-registry
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-auth-core
+    - packages/ac-credentials-core
+    - packages/ac-envelope-core
+  description: 授权注册表写者：两层 + children 投影 + 凭据授予轮换 + 授权目录
+- id: agents
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-agents-core
+  description: 身份编辑面：config/entries/文档唯一写口 + 模板目录（活注册表解体）
+- id: preset-builtin
+  name: link:packages/ac-host-rows
+  description: 内置模板数据行
+- id: agent-admin
+  name: link:packages/ac-host-rows
+  description: webui 写侧 RPC 编排（agent CRUD 六方法——装配预览/装配视图面归 8.9）
+- id: host-face
+  name: link:packages/ac-host-face
+  description: 宿主能力面（ipc 契约：timer/update_agent_profile 远程工具 + 远程段 + facts）
+- id: timers
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-timer-core
+  description: 定时唤醒（唤醒 = 投递信）
+- id: usage
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-usage
+  description: 计费聚合（对账 ledger 自报 + job 观测快照镜像）
+- id: backup
+  name: link:packages/ac-backup
+  packs:
+    - packages/ac-backup
+    - packages/ac-backup-core
+  description: 数据轴备份 + 快照链 GFS（分轴共行）
+- id: web-server
+  name: link:packages/ac-web-server
+  description: 传输基座
+- id: ws-bridge
+  name: link:packages/ac-ws-bridge
+  description: 桥接（emit 面 → WS 帧转发前端；8.5d preview 形态 = ShellStreamBridge 旁带半边）
+- id: webui
+  name: link:apps/ui
+  packs:
+    - apps/ui
+    - packages/ac-client-ui-ask
+    - packages/ac-client-ui-layout
+    - packages/ac-client-ui-renderer
+    - packages/ac-client-ui-theme
+  description: web 表面（单包：src 服务半边 + client 前端半边；骨架 3 件 in-bundle）
+- id: web-api
+  name: link:packages/ac-host-webui
+  description: RPC 编排
+- id: plugin-registry
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-plugin-core
+  description: 装载裁决 + 熔断闸门 + 动态行集注入 + 急救 RPC + client manifest 注入
+- id: plugin-market
+  name: link:packages/ac-plugin-market
+  description: 市场
+- id: event-policy
+  name: link:packages/ac-event-policy
+  description: 事件策略（全局治理门）
+- id: remote-link
+  name: link:packages/ac-remote-link
+  description: 远程链路
+- id: singles
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-ledger
+  description: 独立会话元数据（session.json 单写者 + singles/* RPC + 事件广播）
+- id: group
+  name: link:packages/ac-host-rows
+  packs:
+    - packages/ac-host-rows
+    - packages/ac-post-office
+  description: 群存储（groups/<gid>/group.json 成员表单写者 + group/* RPC + 信封扇出 + 成员流合并读面）
+- id: conv-settings
+  name: link:packages/ac-conv-settings
+  description: 会话级覆盖（模型/工具档/实验键）——宿主单写，壳经垫片只读

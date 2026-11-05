@@ -111,9 +111,9 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
     try {
       const created = h.agents.createFromTemplate('standard', 'helper');
       expect(created.id).toBe('helper');
-      expect(created.preset).toBeUndefined(); // 创建物是真实身份，不进预设名册
+      expect('preset' in created).toBe(false); // 创建物是真实身份（cr-880：字段退役，词形判类属）
       expect(created.name).toBe('标准模式');
-      expect(h.agents.getAgent('helper')?.preset).toBeUndefined();
+      expect('preset' in h.agents.getAgent('helper')!).toBe(false);
       // 用户改过之后重入：不覆盖（幂等 skip-if-present）
       h.agents.saveAgent({ ...h.agents.getAgent('helper')!, name: '我的助手' });
       const again = h.agents.createFromTemplate('standard', 'helper');
@@ -127,10 +127,13 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
       // cr-810：模板自带文档随物化落地（skip-if-present——用户编辑优先）
       const guide = h.agents.createFromTemplate('creator', 'plug-dev');
       expect(guide.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
-      expect(h.agents.readDoc('plug-dev', 'AGENTS.md')).toContain('插件开发指南');
-      h.agents.saveDoc('plug-dev', 'AGENTS.md', '# 我的定制\n');
+      expect(h.agents.readDoc('plug-dev', 'AGENTS.md')).toContain('load_skill');
+      // cr-879：模板自带技能落地 files/<id>/skills/（skip-if-present 同语义）
+      const skillFile = path.join(ROOT, 'files', 'plug-dev', 'skills', 'plugin-dev', 'SKILL.md');
+      expect(fs.readFileSync(skillFile, 'utf-8')).toContain('name: plugin-dev');
+      fs.writeFileSync(skillFile, '# 我的定制技能\n', 'utf-8');
       h.agents.createFromTemplate('creator', 'plug-dev'); // 重入幂等
-      expect(h.agents.readDoc('plug-dev', 'AGENTS.md')).toBe('# 我的定制\n');
+      expect(fs.readFileSync(skillFile, 'utf-8')).toBe('# 我的定制技能\n');
     } finally {
       await h.dispose();
     }

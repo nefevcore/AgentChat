@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
     "ac-durable-interaction": "workspace:*",
     "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"

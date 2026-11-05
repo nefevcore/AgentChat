@@ -13,7 +13,8 @@
     "access": "public"
   },
   "bin": {
-    "agentchat": "bin/agentchat.js"
+    "agentchat": "bin/agentchat.js",
+    "ac": "bin/agentchat.js"
   },
   "main": "./dist/agentchat.mjs",
   "files": [
@@ -146,7 +147,6 @@
     "ac-skill-core": "workspace:*",
     "ac-str-replace-editor": "workspace:*",
     "ac-supervisor-core": "workspace:*",
-    "ac-system-prompt": "workspace:*",
     "ac-text-budget": "workspace:*",
     "ac-timer-core": "workspace:*",
     "ac-todo": "workspace:*",

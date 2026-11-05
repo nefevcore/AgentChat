@@ -4,7 +4,7 @@
 //
 // 形态依据（gr-540 遗留② + cr-543 插件治理面）：新架构装载 = 授权动作
 //（A7/A10）——安装态唯一写者 = 宿主 plugin-registry 行，壳侧工具只有
-// 上报意图（M11 语义化中断——ToolResult.interrupt）。install（定型驻留）
+// 插件装卸请求信封（工具 execute 内即时投递——cr-866 起不经语义化中断）。install（定型驻留）
 // 与 uninstall（永久卸载）走本信封：壳 → 邮局 → 宿主 HostInbox 受理
 //（grant 同构）；register（会话级试跑）零宿主参与——壳进程内 ctx.plugin，
 // 重启即失天然成立，不走信封。
@@ -48,6 +48,9 @@ export interface PluginReceiptPayload {
   installedDir?: string;
   /** 幂等返回标记（同 name+version 且内容一致 → 不重装载） */
   idempotent?: boolean;
+  /** 生效轴（cr-903 两轴回执：live / restart-required / overridden /
+   * blocked-by-live-process——装了但没生效不可能静默） */
+  effective?: 'live' | 'restart-required' | 'overridden' | 'blocked-by-live-process';
   /** uninstall 成功线：备份目录 */
   backupDir?: string;
   /** 拒收/失败线：原因 */

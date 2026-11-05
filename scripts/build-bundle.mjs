@@ -15,6 +15,7 @@
  *   plugins/             出厂 UI 通道产物（29 通道 + midnight 主题包——
  *                        宿主 boot 播种进 <dataRoot>/plugins）
  *   row-catalog.json     行集目录（宿主/壳共享——从 apps/catalog 拷贝）
+ *   profile/             基座源文档 {host,shell}.patch.yml（cr-902 批1）
  *   templates/           内置 Agent 模板配置集（ac-host-rows/templates）
  *   version.json         版本自述（system/version 锚——AGENTCHAT_VERSION_JSON 指路）
  *   CHANGELOG.md         更新日志（system/version-changelog 源）
@@ -58,6 +59,10 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 cpSync(uiDist, path.join(dist, 'webui'), { recursive: true });
 cpSync(path.join(root, 'apps', 'catalog', 'row-catalog.json'), path.join(dist, 'row-catalog.json'));
+// 基座源文档（cr-902 / cr-901 v2.1 批1）：profile/ 与 row-catalog.json 同目录
+// ——readCatalog 双读按 catalogFile 同目录 profile/ 寻基座；host boot 部署链
+// 以其为源物化进数据根。
+cpSync(path.join(root, 'apps', 'catalog', 'profile'), path.join(dist, 'profile'), { recursive: true });
 cpSync(path.join(root, 'packages', 'ac-host-rows', 'templates'), path.join(dist, 'templates'), { recursive: true });
 cpSync(factoryPlugins, path.join(dist, 'plugins'), { recursive: true });
 

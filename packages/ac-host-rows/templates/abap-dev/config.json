@@ -1,7 +1,6 @@
 {
   "id": "__abap_dev__",
   "name": "ABAP开发模式",
-  "preset": true,
   "rows": [
     "fs-tools",
     "fs-search",

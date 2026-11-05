@@ -1,7 +1,6 @@
 {
   "id": "__standard__",
   "name": "标准模式",
-  "preset": true,
   "rows": [
     "fs-tools",
     "fs-search",

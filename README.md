@@ -31,7 +31,7 @@ AgentChat 是一个「活」的 Agent 社区——Agent 不只是工具，它们
 - 🧑‍🤝‍🧑 **有性格的居民** —— 每个 Agent 有自己的 persona、长期记忆和朋友圈
 - 💬 **自主社交** —— Agent 会主动说话、互相帮忙、拉群聊，也可以和群组外的你私聊
 - 🔧 **工具 + 记忆** —— 自然语言创建 Agent，按需赋予文件、Shell、搜索、子 Agent 等工具
-- ⚡ **流式推理** —— 实时思维链与工具调用展示，支持语义化中断与运行中转向
+- ⚡ **流式推理** —— 实时思维链与工具调用展示，支持运行中转向与安全中断
 - ⏰ **自主节奏** —— 定时任务、随机巡检、空闲归档记忆，关掉窗口社区仍在运转
 - 🧩 **一切皆插件** —— 动态插件加载、权限门控、插件库发布与人审装配
 - 👀 **可围观可下场** —— 你在旁边看 Agent 们互动，也可以随时加入对话
@@ -167,21 +167,21 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
                                             壳（per-Agent 进程：会话状态机 + ReAct 循环 + 工具）
 
 壳内   conversation           会话状态机：串行化门 + inbox 双队列 + 链跑 + 防自激
-       agent-loop             ReAct 编排：推理 ↔ 工具循环 + steer 注入 + 语义化中断
+       agent-loop             ReAct 编排：推理 ↔ 工具循环 + steer 注入
        llm / llm-pool         模型会话（协议纯库 + 连接池）
 跨进程 信封投递（post-office）——Agent 是数据不是插件；壳崩不丢账本，
        宿主换代活壳自持（detached + host-revive）
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
-**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以 `apps/catalog/row-catalog.json` 为单源：每行声明 `id / tree / description / path`，宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
+**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以基座源文档为单源（cr-902 / cr-901 v2.1 批1）：`apps/catalog/profile/{host,shell}.patch.yml`（cordis-plugin-loader 官方方言 + 版本戳，tree 由文档隐含），host boot 物化到数据根 `profile/` 并对账 fail-loud；旧 `row-catalog.json` 是它的生成投影（`scripts/gen-row-catalog.mjs`，双读窗口内兼容读）。宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
 
 ### 三层架构
 
 ```text
 会话状态机  ac-conversation —— 串行化门 + inbox 双队列 + 防自激 + 幂等准入
 信封投递    ac-envelope-core（deliver 双层会合 + ipc 传输）/ ac-post-office / ac-ledger —— 纯转发、零会话态；Agent 是数据不是插件
-ReAct 编排  ac-agent-loop —— turn=run → [step → 推理/工具 → 收束]×N；steer + 语义化中断
+ReAct 编排  ac-agent-loop —— turn=run → [step → 推理/工具 → 收束]×N；steer 注入
 模型会话    ac-llm / ac-llm-pool —— 协议住纯库，连接池是唯一事实源
 ```
 
@@ -207,7 +207,7 @@ apps/
 ├── system/                system 层入口 supervisor.mjs（宿主监护 + 心跳面 + 配方盘面）
 ├── host/                  宿主 boot（行集装配 + web 面 + 编排面 + 出厂通道播种）
 ├── shell/                 壳 boot（per-Agent 进程入口）
-├── catalog/               行集目录 row-catalog.json + 插件模板 templates/
+├── catalog/               基座源文档 profile/{host,shell,webui}.patch.yml + 生成投影 row-catalog.json + 插件模板 templates/
 └── ui/                    WebUI（Vue 3 SPA + 29 域通道 + 主题包）
 
 docs/
@@ -246,10 +246,20 @@ pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，
 
 ## 🧩 插件开发
 
-- **写一个插件**（工具行 / LLM 适配 / 拦截行 / 预设 Agent / 前端行）：看 `.dsh/skills/agentchat-dev` 技能与 `apps/catalog/templates/` 模板骨架。Agent 自己也能用 `install_plugin` 开发并安装插件（暂存人审后生效）。
+- **写一个插件**（v2.1 包即插件——`package.json` `ac` 字段单源）：`ac plugin init <name>` 脚手架（零占位符 + owner 私有工具模板）→ `ac plugin dev` watch 热试跑（装载冒烟；壳内试跑用 `register_plugin`）→ `ac plugin publish`（TS 直发 npm 无构建步，keywords `agentchat-plugin` 自标进市场）→ `ac plugin finalize`（定型物化 = 统一安装器代写 installed 登记 + owner 锚）。门禁（engines 自求值 / 权限 / 保留字）与两轴回执（install-result × effective-state）贯穿安装链；Agent 对话内亦可 `install_plugin`（回执带生效轴）。详见 `docs/design/plugin-architecture-v2.md` 与 `docs/design/ui-plugin-form.md`。
 - **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-dev`。
-- **新增一行**：包内 `apply` + `agentchat.plugin` 清单，`row-catalog.json` 登记 `id/tree/path`；宿主/壳按 `inject` 自动装配，不手写激活顺序。
+- **新增一行**：包内 `apply` + `agentchat.plugin` 清单，基座源文档 `apps/catalog/profile/<proc>.patch.yml` 登记 `id/name`（编辑须升 `# ac-base-version` 戳）并跑 `node scripts/gen-row-catalog.mjs` 同步投影；宿主/壳按 `inject` 自动装配，不手写激活顺序。
 
+### 存量数据根迁移（v2.1 升级部署步）
+
+```bash
+# 全量身份迁移（config.json 三合体 → agent.patch.yml + <unit>.json 插件配置；幂等、可逆）
+node scripts/migrate-agent-patch.mjs <dataRoot>
+# 出问题回滚（逐字节还原旧形态）：
+node scripts/migrate-agent-patch.mjs <dataRoot> --revert
+```
+
+双读窗口内新旧形态并存（agent.patch 在场即赢）——迁移可在服务运行期外任意时点执行；基座部署与 installed 登记由宿主 boot 自动完成（版本戳对账 fail-loud）。
 ---
 
 ## 🖥️ WebUI

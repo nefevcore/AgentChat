@@ -23,6 +23,18 @@ export function listenIpc(
   address: string,
   onFrame: (payload: unknown) => unknown | undefined | Promise<unknown | undefined>,
 ): Promise<IpcServer> {
+  return listenIpcConns(address, onFrame).then((r) => r.server);
+}
+
+/**
+ * listenIpc 的连接集形态（cr-886）：宿主能力面需要 server 侧主动推帧
+ * （invalidate 广播）——返回在连 socket 集（帧写入经 encodeFrame）。
+ * listenIpc 语义不变（内部委托本函数）。
+ */
+export function listenIpcConns(
+  address: string,
+  onFrame: (payload: unknown) => unknown | undefined | Promise<unknown | undefined>,
+): Promise<{ server: IpcServer; conns: Set<net.Socket> }> {
   return new Promise((resolve, reject) => {
     // 连接跟踪：close 时强制销毁（对端常驻连接〔壳 postReply 池〕不主动
     // 断——server.close 回调等连接断尽会永挂；关停路径强制断连安全，
@@ -58,11 +70,14 @@ export function listenIpc(
     server.listen(address, () => {
       server.removeListener('error', reject);
       resolve({
-        address,
-        close: () => {
-          for (const s of conns) s.destroy();
-          return new Promise<void>((res) => server.close(() => res()));
+        server: {
+          address,
+          close: () => {
+            for (const s of conns) s.destroy();
+            return new Promise<void>((res) => server.close(() => res()));
+          },
         },
+        conns,
       });
     });
   });

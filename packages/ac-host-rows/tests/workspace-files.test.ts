@@ -31,7 +31,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(ROOT, 'files', 'neko'), { recursive: true });
   fs.mkdirSync(path.join(WS, 'src'), { recursive: true });
   writeJson(path.join(ROOT, 'agents', 'neko', 'config.json'), { id: 'neko', name: 'neko' });
-  writeJson(path.join(ROOT, 'agents', '__standard__', 'config.json'), { id: '__standard__', preset: true });
+  writeJson(path.join(ROOT, 'agents', '__standard__', 'config.json'), { id: '__standard__' });
   writeJson(path.join(ROOT, 'workspaces.json'), [
     { id: 'ws-1', name: '演示', path: path.resolve(WS), createdAt: '', updatedAt: '' },
   ]);
@@ -53,7 +53,7 @@ describe('树基准（会话挂载工作区 > Agent 级基准 > 数据根）', (
     expect(workspaceTreeBase(ROOT, { conversationId: 'conv-a' })).toEqual({ dir: path.resolve(WS), label: '演示' });
     expect(workspaceTreeBase(ROOT, { agentId: 'neko' })).toEqual({ dir: path.resolve(ROOT, 'files', 'neko'), label: 'Agent/neko' });
     expect(conversationWorkspaceRoot(ROOT, 'conv-a')).toBe(path.resolve(WS));
-    // 预设 Agent 无专用空间 → 数据根兜底（主线 treeBase 的 !preset && !virtual 门）
+    // 预设 Agent 无专用空间 → 数据根兜底（词形判定单源——cr-880）
     expect(workspaceTreeBase(ROOT, { agentId: '__standard__' })).toEqual({ dir: path.resolve(ROOT), label: '' });
     expect(agentWorkdirOf(ROOT, '__standard__')).toBeUndefined();
     expect(workspaceTreeBase(ROOT)).toEqual({ dir: path.resolve(ROOT), label: '' });

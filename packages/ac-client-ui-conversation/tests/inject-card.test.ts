@@ -28,13 +28,36 @@ describe('toHistoryMessages：注入行正文透传', () => {
     expect(ev.content).toBe('已加载技能 demo');
   });
 
-  it('机制行（source:event）与错误行不带——维持分隔符通道', () => {
+  it('机制行（source:event 无 label）与错误行不带——维持分隔符通道', () => {
     const rows = [
       { role: 'context', content: '定时触发', source: 'event', agent_id: 'a', message_id: 'e1', timestamp: new Date(1000).toISOString(), seq: 1 },
       { role: 'context', content: 'LLM 失败', source: 'error', agent_id: 'a', message_id: 'e2', timestamp: new Date(1100).toISOString(), seq: 2 },
     ];
     const out = toHistoryMessages(rows as never, 'a~user');
     for (const m of out) expect((m as Record<string, unknown>).contextContent).toBeUndefined();
+  });
+
+  it('会话设置变更通知行（cr-889：source:event + label/content 双在场）卡片化——正文透传 contextContent', () => {
+    const rows = [{
+      role: 'context',
+      content: '[会话设置] 工具调用模式已切换：程序化——一切工具调用经 run_code 编排完成，不再逐个直调。',
+      source: 'event', label: '会话设置变更', agent_id: 'a', message_id: 'e3',
+      timestamp: new Date(1000).toISOString(), seq: 3,
+    }];
+    const out = toHistoryMessages(rows as never, 'a~user');
+    const ev = out.find((m) => m.role === 'event') as Record<string, unknown>;
+    expect(ev).toBeTruthy();
+    expect(ev.contextContent).toBe(rows[0].content);
+    expect(ev.content).toBe('会话设置变更');
+    // 经 buildTurns + useTurnDisplayItems → 注入卡（与 skill 行同通道）
+    const turns = buildTurns([{ ...ev, id: 'live-1' } as never]);
+    const deg = turns.find((t) => t.agent_id === 'system');
+    expect(deg?.injects?.length).toBe(1);
+    expect(deg?.injects?.[0].content).toBe(rows[0].content);
+    expect(deg?.injects?.[0].label).toBe('会话设置变更');
+    // 机制 event 行（无注载体）维持分隔符轮，不卡片化
+    const mech = buildTurns([{ id: 't1', role: 'event', content: '定时触发', agent_id: 'system', timestamp: 1000, source: { kind: 'event' } } as never]);
+    expect(mech[0].final?.role).toBe('event');
   });
 });
 

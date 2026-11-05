@@ -74,7 +74,7 @@ function rpc<T>(ws: WebSocket, method: string, params: Record<string, unknown>):
 }
 
 describe('agent-admin 跨进程 dry-run（cr-552 e2e）', () => {
-  it('system-prompt：RPC → 编排面按需拉壳 → 控制帧三档链干跑 → 回执', async () => {
+  it('system-prompt：RPC → 编排面按需拉壳 → 控制帧段组装干跑 → 回执', async () => {
     host = await bootHost({ dataRoot: tmp, catalogFile: CATALOG, mockProvider: true });
     const ws = await connect(host.web.port);
     try {

@@ -65,15 +65,20 @@ export interface SinglesTrackOpts {
   track?: (id: string, removed?: boolean) => void;
 }
 
-// ---- 幻影会话（延迟落盘，cr-847）----
-// 新建会话不再立即 RPC 落盘：本地签发 id + 草稿暂存成「幻影」——列表
-// 可见可进入可编辑草稿，服务端零痕迹；首条消息发送时物化（singles/create
-// 带同 id + conversation/deliver），上下文/帧路由/草稿键全程同一 id，
-// 用户全程无感。localStorage 留存（刷新/重启后幻影仍在——草稿不丢）。
+// ---- 单例草稿态（cr-894 幻影壳层退役）----
+// 未发送的新会话全局唯一（cr-848 裁决）且不再占列表行：服务端零痕迹、
+// 无会话 id——挂 single 视角用哨兵 __pending__。id 在首次发送时签发
+//（cr-894：作为 singles/create 的幂等锚——失败重试必须同 id，否则失败
+// 窗口里每次重试给服务端留一个空会话目录，延迟落盘的初衷即失效）。
+// 草稿正文住通用草稿层（draftParking，键 = 哨兵），身份字段（Agent/
+// 模型/工作区）留存在本层——「未发送草稿不因刷新丢失」由两层各守一半。
+// 待发 id（pendingId）只在「create 已发出、落盘未确认」的失败窗口存在。
 
-/** 留存键（独立于草稿层：草稿键 single:<id> 与幻影 id 一一对应，但幻影
- *  集是列表态（要不要显示该行）、草稿是输入态（行内正文），两层分离） */
-const PHANTOM_KEY = 'agentchat.phantomSingles';
+/** 留存键（身份字段面；草稿正文住 draftParking——两层各守一半） */
+const PENDING_KEY = 'agentchat.pendingSingle';
+
+/** single 视角哨兵（未发送草稿的会话位——feed 分区恒空，历史装载天然跳过） */
+export const PENDING_SINGLE_ID = '__pending__';
 
 /** UUIDv7（与 ac-envelope-core issue.ts 同构——前端无 node:crypto，用 getRandomValues） */
 function issueLocalConversationId(): string {
@@ -92,13 +97,13 @@ function issueLocalConversationId(): string {
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20, 32)].join('-');
 }
 
-/** 幻影元数据（SingleSession 形状的本地子集 + 留存时间戳） */
-interface PhantomMeta {
-  id: string;
+/** 草稿身份字段（未发送会话的 Agent/模型/工作区选择；正文住 draftParking） */
+interface PendingMeta {
   agentId: string;
   model?: string;
   workspaceId?: string;
-  createdAt: string;
+  /** 待发会话 id（create 发出后留存——失败重试同 id 幂等；落盘确认即清） */
+  pendingId?: string;
 }
 
 /** localStorage 面（jsdom/node 缺省 undefined——全兜底；与 lastContext 同款姿势） */
@@ -109,29 +114,60 @@ interface StorageLike {
 }
 const lsStore: StorageLike | undefined = (globalThis as { localStorage?: StorageLike }).localStorage;
 
-/** 留存序列化（损坏整份丢弃）——导出供测试 */
-export function savePhantoms(list: PhantomMeta[]): void {
-  try { lsStore?.setItem(PHANTOM_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+/** 留存序列化（损坏视为无草稿）——导出供测试 */
+export function savePending(meta: PendingMeta | null): void {
+  try { lsStore?.setItem(PENDING_KEY, JSON.stringify(meta)); } catch { /* ignore */ }
 }
-export function loadPhantoms(): PhantomMeta[] {
+export function loadPending(): PendingMeta | null {
   try {
-    const raw = lsStore?.getItem(PHANTOM_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
-    const out: PhantomMeta[] = [];
-    for (const e of arr) {
-      if (typeof e?.id === 'string' && e.id !== '' && typeof e.agentId === 'string' && typeof e.createdAt === 'string') {
-        out.push({
-          id: e.id, agentId: e.agentId,
-          ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}),
-          ...(typeof e.workspaceId === 'string' && e.workspaceId !== '' ? { workspaceId: e.workspaceId } : {}),
-          createdAt: e.createdAt,
-        });
-      }
+    const raw = lsStore?.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const e = JSON.parse(raw);
+    if (e === null || typeof e !== 'object' || typeof e.agentId !== 'string') return null;
+    return {
+      agentId: e.agentId,
+      ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}),
+      ...(typeof e.workspaceId === 'string' && e.workspaceId !== '' ? { workspaceId: e.workspaceId } : {}),
+      ...(typeof e.pendingId === 'string' && e.pendingId !== '' ? { pendingId: e.pendingId } : {}),
+    };
+  } catch { return null; }
+}
+
+/** 迁移：cr-847~850 幻影留存（agentchat.phantomSingles 数组）→ 单例草稿态。
+ *  壳行的草稿正文键是 single:<id>——迁移进草稿层（键改哨兵），身份字段
+ *  进草稿态；旧键随手清除。无迁移面（无留存/已是新形状）= 无操作。 */
+function migratePhantomStore(): void {
+  try {
+    const raw = lsStore?.getItem('agentchat.phantomSingles');
+    if (!raw) return;
+    lsStore?.removeItem('agentchat.phantomSingles');
+    if (loadPending() !== null) return; // 新层已有草稿：旧壳行不再抢位
+    const arr: unknown = JSON.parse(raw);
+    if (!Array.isArray(arr) || arr.length === 0) return;
+    const first = arr[0] as Record<string, unknown> | null;
+    if (first === null || typeof first !== 'object' || typeof first.agentId !== 'string') return;
+    const meta: PendingMeta = {
+      agentId: first.agentId,
+      ...(typeof first.model === 'string' && first.model !== '' ? { model: first.model } : {}),
+      ...(typeof first.workspaceId === 'string' && first.workspaceId !== '' ? { workspaceId: first.workspaceId } : {}),
+    };
+    savePending(meta);
+    if (typeof first.id === 'string' && first.id !== '') {
+      // 正文迁移：旧键 single:<id> → 哨兵键（草稿层为通用层，不 import 本件）
+      try {
+        const draftsRaw = lsStore?.getItem('agentchat.drafts');
+        if (draftsRaw) {
+          const entries: unknown = JSON.parse(draftsRaw);
+          if (Array.isArray(entries)) {
+            const hit = entries.find((x) => Array.isArray(x) && x[0] === 'single:' + first.id);
+            if (Array.isArray(hit) && typeof hit[1] === 'string' && hit[1] !== '') {
+              lsStore?.setItem('agentchat.drafts', JSON.stringify([...entries.filter((x) => !(Array.isArray(x) && x[0] === 'single:' + first.id)), ['single:' + PENDING_SINGLE_ID, hit[1]]]));
+            }
+          }
+        }
+      } catch { /* 草稿层迁移尽力而为 */ }
     }
-    return out;
-  } catch { return []; }
+  } catch { /* 旧留存损坏 = 视为无迁移面 */ }
 }
 
 function seen(track: SinglesTrackOpts['track'], meta: { id?: string } | undefined, removed = false): void {
@@ -213,50 +249,53 @@ export class SingleBoardService extends Service {
   readonly singles: Ref<SingleSession[]> = ref([]);
   readonly loaded: Ref<boolean> = ref(false);
 
-  // ---- 幻影会话集（延迟落盘，cr-847）----
-  // 与已物化列表分源：singles = 服务端真值，phantoms = 本地未落盘态。
-  // 消费面（activeSingle/activeSingles/titleOf…）经 allSingles 并入——
-  // 列表/视角/选择链零改动地看见幻影。物化后从幻影集移除、由真值接管。
-  /** 幻影集（服务端会话目录尚不存在——id 已定、草稿/元数据本地） */
-  readonly phantoms: Ref<PhantomMeta[]> = ref([]);
-  /** 幻影 → SingleSession 形状（title 由草稿派生——列表可见「正在写什么」；
-   *  draftsVersion 为响应锚：清草稿/改草稿时派生 title 即时重算） */
-  private phantomView(p: PhantomMeta): SingleSession {
+  // ---- 单例草稿态（cr-894）----
+  // singles = 服务端真值；pending = 未发送草稿的身份字段（可空——无草稿
+  // 即 null）。草稿只在编辑面存在：不占列表行（activeSingles = 真值），
+  // 经 pendingView 以哨兵 id 挂 single 视角（activeSingle 专用）。
+  /** 未发送草稿身份（null = 无草稿） */
+  readonly pending: Ref<PendingMeta | null> = ref(null);
+  /** 草稿 → SingleSession 形状（哨兵 id——feed 分区恒空，isSingleFresh
+   *  天然成立居中开场；title 由草稿派生供会话头显示「正在写什么」） */
+  private pendingView(p: PendingMeta): SingleSession {
     void draftsVersion.value;
-    const draft = takeDraft('single:' + p.id);
+    const draft = takeDraft('single:' + PENDING_SINGLE_ID);
+    const now = new Date().toISOString();
     return {
-      id: p.id,
+      id: PENDING_SINGLE_ID,
       agentId: p.agentId,
       ...(p.model !== undefined ? { model: p.model } : {}),
       ...(draft ? { title: draft.replace(/\n[\s\S]*$/, '').slice(0, 24) + (draft.length > 24 ? '…' : '') } : {}),
       ...(p.workspaceId !== undefined ? { workspaceId: p.workspaceId } : {}),
       status: 'active',
-      createdAt: p.createdAt,
-      updatedAt: p.createdAt,
+      createdAt: now,
+      updatedAt: now,
     };
   }
-  /** 全量 = 已物化 ∪ 幻影（幻影排最前——最新创建） */
-  readonly allSingles: ComputedRef<SingleSession[]> = computed(() =>
-    [...this.phantoms.value.map(p => this.phantomView(p)), ...this.singles.value],
-  );
-  private savePhantoms(): void { savePhantoms(this.phantoms.value); }
+  /** 全量 = 已物化真值（草稿不占行——列表只看这条） */
+  readonly allSingles: ComputedRef<SingleSession[]> = computed(() => this.singles.value);
+  private savePending(): void { savePending(this.pending.value); }
 
   /** 活跃独立会话 id（派生自 feed 活跃分区——会话上下文的唯一事实源在会话服务） */
   readonly activeSingleId: ComputedRef<string> = computed(() => this.own.sessions.feed.activeSingleId.value);
+  /** 活跃会话：哨兵 → 草稿视图；否则真值行 */
   readonly activeSingle: ComputedRef<SingleSession | null> = computed(() =>
-    this.activeSingleId.value ? this.allSingles.value.find(s => s.id === this.activeSingleId.value) ?? null : null,
+    this.activeSingleId.value === PENDING_SINGLE_ID
+      ? (this.pending.value !== null ? this.pendingView(this.pending.value) : null)
+      : (this.activeSingleId.value ? this.singles.value.find(s => s.id === this.activeSingleId.value) ?? null : null),
   );
-  /** 列表只显示未归档 */
+  /** 列表只显示未归档（草稿不在列——未发送不占行） */
   readonly activeSingles: ComputedRef<SingleSession[]> = computed(() => this.allSingles.value.filter(s => s.status === 'active'));
 
   /** 构造期 ctx = 本域插件 fiber（帧订阅绑定于此——卸载即回收，D5） */
   private readonly own: ClientContext;
-  /** 幻影留存已恢复标记（一次性——refresh 重复调用不重放） */
-  private phantomsRestored = false;
+  /** 草稿留存已恢复标记（一次性——refresh 重复调用不重放） */
+  private pendingRestored = false;
 
   constructor(ctx: Context) {
     super(ctx, 'singleBoard');
     this.own = ctx as ClientContext;
+    migratePhantomStore(); // cr-847~850 旧幻影留存 → 单例草稿态（一次性）
     // wire singles/updated → 增量合并（mergeUpdate，零 RPC；全量 refresh 只留
     // 重连兜底与显式调用方）
     this.own.fiber.effect(() => this.own.rpc.onEvent((type, args) => {
@@ -280,23 +319,19 @@ export class SingleBoardService extends Service {
       const d = await fetchSingles(this.own.rpc, { track: (id, removed) => this.track(id, removed) });
       this.singles.value = d.singles;
       this.loaded.value = true;
-      // 幻影对账：服务端已出现同 id（别端/前次会话物化）→ 幻影退役（真值接管）
-      // 留存恢复（首启/重载）：草稿层先行，幻影随后——恢复必须先于对账：
-      // 残留幻影（上次会话物化后因刷新丢失摘除事件的）只有经过真值校验
-      // 才能退役，否则永久躲过对账 = 列表双行 + 新增恒复用（cr-849）
+      // 草稿恢复（首启/重载）：草稿层先行（正文），草稿身份随后——顺序
+      // 承 cr-849：pendingView 的 title 派生要读草稿层。
       restoreDrafts();
-      if (!this.phantomsRestored) {
-        if (this.phantoms.value.length === 0) this.phantoms.value = loadPhantoms();
-        this.phantomsRestored = true;
+      if (!this.pendingRestored) {
+        if (this.pending.value === null) this.pending.value = loadPending();
+        this.pendingRestored = true;
       }
-      // 幻影对账：服务端已出现同 id（物化/别端创建）→ 幻影退役（真值接管）
-      if (this.phantoms.value.length > 0) {
-        const live = new Set(d.singles.map(s => s.id));
-        const keep = this.phantoms.value.filter(p => !live.has(p.id));
-        if (keep.length !== this.phantoms.value.length) {
-          this.phantoms.value = keep;
-          this.savePhantoms();
-        }
+      // 真值接管清理（cr-849 同义收敛）：待发 id 已被服务端确认（上次 create
+      // 实际成功但响应丢失/刷新抢跑）→ 草稿态退役（会话已是真值行）
+      const pid = this.pending.value?.pendingId;
+      if (pid !== undefined && d.singles.some(s => s.id === pid)) {
+        this.pending.value = null;
+        this.savePending();
       }
       // single 未读对账（cr-290）：active 集外分区的未读 = 会话已删/归档——
       // 无行可点无清除路径（tab 聚合徽章永久残留），顺手清 + 写穿
@@ -322,11 +357,11 @@ export class SingleBoardService extends Service {
     // 未装载不合并（首次全量负责）——仅对外部帧：本端 RPC 返回值是权威数据
     //（create 在冷启动路径 makeClient 等场景 board 尚未 fetch，列表合并仍须生效）
     if (!opts.local && !this.loaded.value) return;
-    // 真值到达（created/updated）= 幻影退役——任何服务端真值帧都证明该
-    // 会话已落盘（物化回执/created 帧/auto-title 的 updated 帧）
-    if ((action === 'created' || action === 'updated') && this.phantoms.value.some(p => p.id === meta.id)) {
-      this.phantoms.value = this.phantoms.value.filter(p => p.id !== meta.id);
-      this.savePhantoms();
+    // 真值到达（created/updated）= 草稿态退役——待发 id 已被服务端确认
+    //（物化回执/created 帧/auto-title 的 updated 帧），会话由真值行接管
+    if ((action === 'created' || action === 'updated') && this.pending.value?.pendingId === meta.id) {
+      this.pending.value = null;
+      this.savePending();
     }
     this.track(meta.id, action === 'removed');
     const list = this.singles.value;
@@ -349,82 +384,81 @@ export class SingleBoardService extends Service {
     }
   }
 
-  /** 快速创建空会话（P4：无 Agent；已有空会话时复用，避免堆积空白条目）
-   *  常规新建入口已改 createPhantom（延迟落盘）；本方法留作旧路径兜底。 */
+  /** 快速创建空会话（P4：无 Agent；已有空会话时复用，避免堆积空白条目）。
+   *  延迟落盘主入口已改 startDraft（cr-894）；本方法留作旧路径兜底。 */
   async createQuick(): Promise<SingleSession | null> {
     return this.create({ reuse: true });
   }
 
   /**
-   * 新建幻影会话（延迟落盘主入口，cr-847）：本地签发 id + 草稿位就绪，
-   * 立即激活进入——服务端零往返零落盘。首条消息发送时经 materialize
-   * 物化（同一 id）。
-   * 单幻影约束（cr-848）：未发送的新会话全局唯一——已有幻影时一律
-   * 复用（不比较配置：幻影的 Agent/模型/工作区可随后在会话里改，按
-   * 配置匹配会让「写了半截换过 Agent」的旧幻影漏网、连点新增堆积成串）；
-   * 显式从某工作区发起时只更新挂载（重挂不改 id——草稿/上下文零迁移）。
+   * 进入草稿位（新建会话入口，cr-894）：无草稿即建（身份字段就地），
+   * 有草稿 = 回到它——服务端零往返零落盘，id 延迟到首次发送签发。
+   * 不比较配置回到唯一草稿（cr-848 裁决沿用）：草稿的 Agent/模型/工作区
+   * 可随后在会话里改，按配置匹配会让「写了半截换过 Agent」的草稿漏网。
    */
-  createPhantom(payload: { agentId?: string; model?: string; workspaceId?: string } = {}): SingleSession {
-    const existing = this.phantoms.value.at(0);
+  startDraft(payload: { agentId?: string; model?: string; workspaceId?: string } = {}): SingleSession {
+    // 已有草稿 = 回到它（偏好补位同 cr-850 语义：显式工作区重挂；Agent/
+    // 模型只在草稿尚无显式选择时补——用户改过则尊重不回跳）
+    const existing = this.pending.value;
+    const next: PendingMeta = existing ?? { agentId: payload.agentId ?? '', ...(payload.model ? { model: payload.model } : {}), ...(payload.workspaceId ? { workspaceId: payload.workspaceId } : {}) };
     if (existing) {
-      // 复用 + 偏好补位（cr-850）：显式工作区参数重挂；Agent/模型只在幻影
-      // 尚无显式选择时从偏好补（用户在会话里改过则尊重，不回跳）
       const ws = payload.workspaceId;
-      const next: PhantomMeta = {
-        ...existing,
+      Object.assign(next, {
         ...(ws !== undefined && ws !== '' ? { workspaceId: ws } : {}),
         ...(existing.agentId === '' && payload.agentId ? { agentId: payload.agentId } : {}),
         ...(existing.model === undefined && payload.model ? { model: payload.model } : {}),
-      };
-      if (next !== existing) {
-        this.phantoms.value = this.phantoms.value.with(0, next);
-        this.savePhantoms();
-      }
-      const view = this.phantomView(next);
-      this.selectSingleBy(view);
-      return view;
+      });
     }
-    const now = new Date().toISOString();
-    const p: PhantomMeta = {
-      id: issueLocalConversationId(),
-      agentId: payload.agentId ?? '',
-      ...(payload.model ? { model: payload.model } : {}),
-      ...(payload.workspaceId ? { workspaceId: payload.workspaceId } : {}),
-      createdAt: now,
-    };
-    this.phantoms.value = [p, ...this.phantoms.value];
-    this.savePhantoms();
-    const view = this.phantomView(p);
-    this.selectSingleBy(view);
+    this.pending.value = next;
+    this.savePending();
+    const view = this.pendingView(next);
+    this.selectPending();
     return view;
   }
 
   /**
-   * 物化幻影会话（首条消息发送前调用——ChatInput 侧）：singles/create 带
-   * 同 id 落盘 + 更新真值列表 + 摘除幻影。幂等：非幻影 id 直接返回（已
-   * 物化/常规会话——重复调用无害）。
+   * 发送草稿（首条消息出门前调用——ChatInput 侧）：首次签发 id（留存作
+   * 幂等锚）→ singles/create → 真值接管（草稿态清空 + 上下文重建）。
+   * 失败 = id 留存不动，重试同 id（create 幂等）——失败窗口不产生孤儿
+   * 空会话。落盘确认后 pendingId 无用即清（整个草稿态退役）。
    */
-  async materialize(phantomId: string): Promise<SingleSession | null> {
-    const p = this.phantoms.value.find(x => x.id === phantomId);
-    if (!p) return this.singles.value.find(s => s.id === phantomId) ?? null;
+  async dispatchDraft(): Promise<SingleSession | null> {
+    const p = this.pending.value;
+    if (p === null) return null;
+    const id = p.pendingId ?? issueLocalConversationId();
+    if (p.pendingId === undefined) {
+      this.pending.value = { ...p, pendingId: id };
+      this.savePending();
+    }
     try {
-      const session = await this.create({ id: p.id, ...(p.agentId ? { agentId: p.agentId } : {}), ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}) });
-      this.phantoms.value = this.phantoms.value.filter(x => x.id !== phantomId);
-      this.savePhantoms();
-      if (p.model !== undefined) await this.updateSession(phantomId, { model: p.model }).catch(() => undefined);
-      // 上下文重建（物化视图带服务端时间戳——feed 身份映射刷新）
+      const session = await this.create({ id, ...(p.agentId ? { agentId: p.agentId } : {}), ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}) });
+      if (p.model !== undefined) await this.updateSession(id, { model: p.model }).catch(() => undefined);
+      // 真值接管：草稿态清空 + 上下文切到真值行（feed 身份映射刷新）
+      this.pending.value = null;
+      this.savePending();
       this.selectSingleBy(session);
       return session;
     } catch (err: unknown) {
-      // 物化失败 fail-loud：幻影保留（用户草稿/上下文不动），发送层会收到异常
-      console.warn('[SingleBoard] 会话物化失败:', (err as { message?: string }).message ?? String(err));
+      // 失败 fail-loud：pendingId 留存（重试同 id），发送层会收到异常
+      console.warn('[SingleBoard] 草稿发送失败（重试将复用会话 id）:', (err as { message?: string }).message ?? String(err));
       throw err;
     }
   }
 
-  /** 幻影态判定（ChatInput 发送前物化的判据——非幻影即常规会话） */
-  isPhantom(id: string): boolean {
-    return this.phantoms.value.some(p => p.id === id);
+  /** 草稿态判定（ChatInput 发送前 dispatchDraft 的判据） */
+  isPending(): boolean {
+    return this.pending.value !== null;
+  }
+
+  /** 激活草稿视角（哨兵 id 挂 single 视角——上下文目标 = 草稿 Agent/默认预设） */
+  private selectPending(): void {
+    const p = this.pending.value;
+    if (p === null) return;
+    this.own.sessions.chat.setSingleContext(
+      PENDING_SINGLE_ID,
+      p.agentId || this.own.roster.defaultPresetId.value,
+      typeof p.model === 'string' && p.model ? p.model : undefined,
+    );
   }
 
   /** 创建并立即进入会话 */
@@ -470,7 +504,12 @@ export class SingleBoardService extends Service {
   restoreLastSingle(): string | null {
     const last = loadLastContext();
     if (last?.kind !== 'single') return null;
-    // 幻影行同样可恢复（lastContext 指向幻影 = 上次刷新前正在编辑未发送）
+    // 草稿位同样可恢复（lastContext 指向哨兵 = 上次刷新前正在编辑未发送）
+    if (last.id === PENDING_SINGLE_ID) {
+      if (this.pending.value !== null) { this.selectPending(); return last.id; }
+      clearLastContextIf('single');
+      return null;
+    }
     const session = this.allSingles.value.find(s => s.id === last.id);
     if (!session || session.status !== 'active') {
       clearLastContextIf('single');
@@ -484,20 +523,18 @@ export class SingleBoardService extends Service {
    * 启动进入 single 会话（首启体验：开箱即会话页）。三级回落：
    *   ① lastContext 有 single 记录 → 恢复上次选中（restoreLastSingle 原语义）；
    *   ② 无任何上下文记录（首次启动）→ 选中最近活跃的独立会话；
-   *   ③ 列表为空 → 新建本地幻影会话并进入（延迟落盘，cr-847）。
+   *   ③ 列表为空 → 草稿位开局（延迟落盘：偏好在 ChatInput 挂载时回放）。
    * lastContext 有 agent/group 记录（上次不在独立会话）→ 不动，沿用户
-   * 上次所在的上下文恢复。
+   * 上次所在的上下文恢复。草稿优先于最近会话（未发送的草稿比「上次的
+   * 对话」更要紧——用户刷新前正在写的那个会话应原位回来）。
    */
   async openDefaultSingle(): Promise<string | null> {
     const restored = this.restoreLastSingle();
     if (restored) return restored;
     if (loadLastContext()) return null; // 上次在 agent/group：尊重既有恢复链
-    // 幻影优先于最近会话（未发送的草稿会话比「上次的对话」更要紧——
-    // 用户刷新前正在写的那个会话应原位回来）
-    const phantom = this.phantoms.value.at(0);
-    if (phantom) {
-      this.selectSingle(phantom.id);
-      return phantom.id;
+    if (this.pending.value !== null) {
+      this.selectPending();
+      return PENDING_SINGLE_ID;
     }
     const recent = [...this.activeSingles.value].sort((a, b) =>
       Date.parse(b.lastActivity ?? b.updatedAt) - Date.parse(a.lastActivity ?? a.updatedAt)).at(0);
@@ -505,10 +542,8 @@ export class SingleBoardService extends Service {
       this.selectSingle(recent.id);
       return recent.id;
     }
-    // 列表为空 → 本地幻影会话（延迟落盘：偏好在 ChatInput 挂载时回放——
-    // 此处不透传，物化时以幻影元数据为准）
-    const fresh = this.createPhantom();
-    return fresh.id;
+    // 列表为空 → 草稿位开局（偏好在 ChatInput 挂载时回放，发送时以草稿为准）
+    return this.startDraft().id;
   }
 
   /**
@@ -517,24 +552,23 @@ export class SingleBoardService extends Service {
    * 换 Agent 时同步刷新会话上下文（feed 消息身份映射 + 后续投递目标）。
    */
   async updateSession(sessionId: string, payload: SingleUpdatePayload): Promise<SingleSession | null> {
-    // 幻影态：设置本地生效（agentId/model/workspaceId 记入幻影元数据），
-    // 物化时随创建落盘——服务端此刻还没有这个会话
-    const pi = this.phantoms.value.findIndex(p => p.id === sessionId);
-    if (pi >= 0) {
-      const prev = this.phantoms.value[pi]!;
-      const next: PhantomMeta = {
+    // 草稿态：设置本地生效（agentId/model/workspaceId 记入草稿身份），
+    // 发送时随创建落盘——服务端此刻还没有这个会话
+    if (sessionId === PENDING_SINGLE_ID && this.pending.value !== null) {
+      const prev = this.pending.value;
+      const next: PendingMeta = {
         ...prev,
         ...(payload.agentId !== undefined ? { agentId: payload.agentId } : {}),
         ...(payload.model !== undefined ? { model: payload.model === null || typeof payload.model !== 'string' ? undefined : payload.model } : {}),
         ...(payload.workspaceId !== undefined ? { workspaceId: payload.workspaceId === '' ? undefined : payload.workspaceId } : {}),
       };
-      this.phantoms.value = this.phantoms.value.with(pi, next);
-      this.savePhantoms();
-      if ((payload.agentId !== undefined || payload.model !== undefined) && this.activeSingleId.value === sessionId) {
-        this.own.sessions.chat.setSingleContext(sessionId, next.agentId || this.own.roster.defaultPresetId.value,
+      this.pending.value = next;
+      this.savePending();
+      if (payload.agentId !== undefined || payload.model !== undefined) {
+        this.own.sessions.chat.setSingleContext(PENDING_SINGLE_ID, next.agentId || this.own.roster.defaultPresetId.value,
           typeof next.model === 'string' && next.model ? next.model : undefined);
       }
-      return this.phantomView(next);
+      return this.pendingView(next);
     }
     const d = await updateSingle(sessionId, payload, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
     // 帧增量合并（updated 帧同值到达时幂等）；上下文重建直接用服务端回显值
@@ -565,13 +599,10 @@ export class SingleBoardService extends Service {
     }
   }
 
-  /** 归档（软删）：若正打开则先退出。幻影 = 本地清除（服务端无此会话） */
+  /** 归档（软删）：若正打开则先退出。草稿位 = 本地清除（服务端无此会话） */
   async archive(sessionId: string): Promise<void> {
-    if (this.isPhantom(sessionId)) {
-      this.phantoms.value = this.phantoms.value.filter(p => p.id !== sessionId);
-      this.savePhantoms();
-      parkDraft('single:' + sessionId, '');
-      if (this.activeSingleId.value === sessionId) this.deselectSingle();
+    if (sessionId === PENDING_SINGLE_ID) {
+      this.discardDraft();
       return;
     }
     const d = await archiveSingle(sessionId, this.own.rpc);
@@ -580,13 +611,10 @@ export class SingleBoardService extends Service {
     this.mergeUpdate(d.session, 'archived', { local: true });
   }
 
-  /** 删除（硬删：元数据+消息）：若正打开则先退出。幻影 = 本地清除（服务端无此会话） */
+  /** 删除（硬删：元数据+消息）：若正打开则先退出。草稿位 = 本地清除（服务端无此会话） */
   async remove(sessionId: string): Promise<void> {
-    if (this.isPhantom(sessionId)) {
-      this.phantoms.value = this.phantoms.value.filter(p => p.id !== sessionId);
-      this.savePhantoms();
-      parkDraft('single:' + sessionId, '');
-      if (this.activeSingleId.value === sessionId) this.deselectSingle();
+    if (sessionId === PENDING_SINGLE_ID) {
+      this.discardDraft();
       return;
     }
     await deleteSingle(sessionId, this.own.rpc, { track: (id, removed) => this.track(id, removed) });
@@ -595,10 +623,24 @@ export class SingleBoardService extends Service {
     this.mergeUpdate({ id: sessionId } as SingleSession, 'removed', { local: true });
   }
 
-  /** Agent 名（列表展示用；经 agents 名册解析（含预设目录）；空 = 默认预设） */
+  /** 丢弃草稿（归档/删除入口对草稿位的语义）：身份清空 + 草稿正文清位 +
+   *  退出草稿视角。清正文经草稿层通用写口（parkDraft 空串 = 删键）。 */
+  discardDraft(): void {
+    this.pending.value = null;
+    this.savePending();
+    parkDraft('single:' + PENDING_SINGLE_ID, '');
+    if (this.activeSingleId.value === PENDING_SINGLE_ID) this.deselectSingle();
+  }
+
+  /** 列表展示标题（经 agents 名册解析（含预设目录）；空 = 默认预设）。
+   *  空会话（lastActivity 缺席——isSingleFresh 同源口径）恒「新会话」：
+   *  切换预设 agentId 从空变非空不改变回落形状（cr-891——旧形状以 agentId
+   *  为界，空会话标题从「新会话」跳成「Agent · 创建时间」）。有消息无标题
+   *  回落 = Agent 名（cr-892：与 identity 头部 cr-33 同形状——回落窗口只在
+   *  auto-title 未落盘的片刻，创建时间无信息量）。 */
   titleOf(s: SingleSession, agentName: (id: string) => string): string {
-    if (!s.agentId) return s.title || '新会话';
-    return s.title || `${agentName(s.agentId)} · ${new Date(s.createdAt).toLocaleString()}`;
+    if (!s.lastActivity || !s.agentId) return s.title || '新会话';
+    return s.title || agentName(s.agentId);
   }
 }
 

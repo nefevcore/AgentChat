@@ -16,6 +16,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as agentsRow from 'ac-agents';
 import * as diRow from 'ac-durable-interaction';
 import * as runCodeRow from '../src/index.ts';
@@ -26,7 +28,7 @@ const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 async function boot(maxWallMs?: number) {
   const ctx = new Context();
   const fibers: Fiber[] = [];
-  for (const row of [toolsRow, agentsRow, diRow] as unknown[]) {
+  for (const row of [toolsRow, llmRow, loopRow, agentsRow, diRow] as unknown[]) {
     fibers.push(await ctx.plugin(row as any));
   }
   ctx.agents.register({ id: 'tester', model: 'm', tags: ['fs', 'infra'] });

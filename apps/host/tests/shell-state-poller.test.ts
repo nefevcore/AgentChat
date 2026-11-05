@@ -138,6 +138,36 @@ describe('收束对拍（poller 事件面）', () => {
     }
   });
 
+  it('cr-885：peek 可达恢复（孤壳回登记）→ 滞留信经 flushOutbox 救出', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const server = await seedLiveShell('alpha', () => ({ busy: false, runs: [] }));
+    const hint = socketPathFor(path.resolve(ROOT), 'alpha');
+    // 验证因果链：peek 恢复可达登记（shell-emerged 分支）→ flushOutbox 被触发
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      adopt: async () => { throw new Error('peek 不得拉起'); },
+    });
+    let flushCalls = 0;
+    const origFlush = po.flushOutbox.bind(po);
+    po.flushOutbox = async () => { flushCalls += 1; return origFlush(); };
+    try {
+      // 孤壳在盘（seedLiveShell 已写 activation.lock）但可达表空白（宿主换代现场）
+      expect(reach.hintFor('alpha')).toBeUndefined();
+      await orch.peek();
+      // 可达恢复 = 通道恢复（cr-885）：peek 的 shell-emerged 分支触发转投
+      expect(reach.hintFor('alpha')).toBe(hint);
+      expect(flushCalls).toBe(1);
+      // 再拍（可达已登记）不重复 flush
+      await orch.peek();
+      expect(flushCalls).toBe(1);
+    } finally {
+      orch.close();
+      await server.close();
+      await po.close();
+    }
+  });
+
   it('订阅门控：首订阅起泵、末位退订停泵（同步驱动面）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();

@@ -29,9 +29,14 @@ export const inject = ['router', 'agentLoop'];
 
 export function apply(ctx: Context, options: ConversationRowOptions = {}) {
   ctx.plugin(ConversationService, options);
+  // CONVERSATION 段（cr-881：对话信息块自 ac-system-prompt 迁入——
+  // 信封事实渲染是会话域职责）
+  registerConversationSection(ctx);
 }
 
 export { ConversationService } from './service.ts';
+import { registerConversationSection } from './conversation-block.ts';
+export { registerConversationSection } from './conversation-block.ts';
 export type { ConversationRowOptions } from './service.ts';
 
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家事件签名）

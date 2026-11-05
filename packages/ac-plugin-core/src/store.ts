@@ -29,6 +29,7 @@ import {
   type PluginStagingRecord,
 } from './manifest.ts';
 import { atomicWriteFile, renameWithRetry, withRootLock } from './fsx.ts';
+import { readPluginPackage, packageToManifest } from './pkg.ts';
 
 const REGISTRY_FILE = 'registry.json';
 const STAGING_DIR = '.staging';
@@ -53,6 +54,12 @@ export function pluginsRoot(root: string): string {
 export function loadManifestFromDir(dir: string): PluginManifest {
   const manifestPath = path.join(dir, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
+    // package 形态回退（cr-903 批2：包即插件——manifest.json 缺席时由
+    // package.json ac 字段逆投影；两者皆缺才 fail）
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      return packageToManifest(readPluginPackage(dir));
+    }
     throw new Error(`插件目录缺少 manifest.json: ${dir}`);
   }
   let raw: unknown;

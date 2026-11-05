@@ -12,6 +12,8 @@ import { afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as jobsRow from 'ac-jobs';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 
 export type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
 
@@ -46,6 +48,8 @@ const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 export async function boot(root: string, options: Record<string, unknown> = {}) {
   return bootRows([
     [toolsRow, undefined],
+    [llmRow, undefined],
+    [loopRow, undefined], // cr-881：shell 行段注册面 inject ['agentLoop']
     [jobsRow, undefined],
     [await import('../src/index.ts'), { workdir: root, ...options }],
   ]);

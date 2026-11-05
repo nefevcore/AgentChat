@@ -20,62 +20,22 @@ import type {
 declare module '@agentchat/cordis' {
   interface Events {
     /**
-     * Agent 循环启动前拦截——装配**首档**（先于主档 before-run 全体执行）。
+     * Agent 循环启动前拦截（人格注入/预算控制/直接否决）。
      * @mode waterfall
      * @scope run
-     * 三档装配链：`before-run-first → before-run（主档）→ before-run-last`
-     * （同一 LoopRunCall 载体贯穿，body 执行序即此序；任一档 veto 即否决
-     * 下游全部含 execute 与 run-started）。姿势与主档相同：
-     *   · 改写请求：`call.request = { ...call.request, system: '...' }` 后 `return next()`
-     *   · veto：不调 `next`，自返回 LoopRunResult（finish:'veto'，LLM 不被调用）
-     *   · 包裹观察：`const result = await next(); ...; return result`
-     * 观察/标注型监听器必须调 `next()`。
-     *
-     * 【档位契约（2026-09-05 裁决）】**由于当前 cordis 架构 waterfall
-     * 事件无法支持优先度处理，因此拆分三个事件**（EventOptions 仅
-     * prepend/global，无优先度；治理面另有"监听器优先度/重排不做"裁决
-     * ——档位是"用事件词汇表达次序"，不是优先度旋钮）。三档封顶——
-     * 词汇表不再增档；档内次序仍是注册序，需要"绝对居前/居后"的装配
-     * 才进首/尾档。首档现无住户，为对称词汇预留；新档住户需裁决。
-     */
-    'loop/before-run-first'(
-      call: LoopRunCall,
-      next: () => Promise<LoopRunResult>,
-    ): Promise<LoopRunResult>;
-
-    /**
-     * Agent 循环启动前拦截（人格注入/预算控制/直接否决）——装配**主档**
-     * （默认档：系统提示词装配的常规落点）。
-     * @mode waterfall
-     * @scope run
+     * 【cr-881 三档退役】系统提示词装配**不再**走本事件——段贡献经
+     * ctx.agentLoop.registerPromptSection 注册（SECTION_ORDER 具名位
+     * 定序，run() 入口组装先于本链）。本事件保留为通用 run 边界 seam：
+     * veto / 预算 / messages 改写 / 懒准备（mcp 连接、gate 缓存失效）。
      * `next()` 不携带参数，三种姿势：
      *   · 改写请求：`call.request = { ...call.request, system: '...' }` 后 `return next()`
+     *     （system 已是段组装终值——拦截器改写即覆盖终值，向后兼容存量
+     *      非段装配监听器）
      *   · veto：不调 `next`，自返回 LoopRunResult（finish:'veto'，LLM 不被调用）
      *   · 包裹观察：`const result = await next(); ...; return result`
      * 观察/标注型监听器必须调 `next()`（不调 = 静默吞下游默认行为）。
-     * 档位语义见 before-run-first（三档契约）与 before-run-last（尾档住户
-     * 约定）。
      */
     'loop/before-run'(
-      call: LoopRunCall,
-      next: () => Promise<LoopRunResult>,
-    ): Promise<LoopRunResult>;
-
-    /**
-     * Agent 循环启动前拦截——装配**尾档**（晚于主档 before-run 全体执行，
-     * 先于 execute/run-started；此刻 request.messages 尚未构建，system
-     * 改写即终值）。姿势与主档相同（改写/veto/包裹观察）。
-     * @mode waterfall
-     * @scope run
-     * 【尾档住户约定（2026-09-05 裁决）】尾档 = "结构性收尾"的装配位
-     * （主档监听器相互次序 = 依赖驱动激活序，无契约可依——收尾需求在主
-     * 档内无法稳定满足）。当前两住户，相对次序靠 **prepend 收敛式**锁定
-     * （ADR-7 同款：一者恒 unshift、一者恒 push，两种注册时序收敛同一链序）：
-     *   · ac-system-prompt（对话信息块）——prepend: true（恒 unshift，居前）
-     *   · ac-datetime（仅日期行）——push（居后，绝对收尾）
-     * 档内更多住户时次序仍是注册序——新住户进尾档需要显式裁决，防收尾位稀释。
-     */
-    'loop/before-run-last'(
       call: LoopRunCall,
       next: () => Promise<LoopRunResult>,
     ): Promise<LoopRunResult>;

@@ -35,6 +35,7 @@ import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { sessionCapsOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
 import { pairKey, GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 对桶键（cr-318 下沉）+ 群聊行为契约正典（M26——cr-712 复活）
+import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 
 /** update_agent_profile 允许修改的字段（白名单；其余拒绝） */
@@ -58,11 +59,30 @@ function hasAdminCapability(ctx: Context, agentId: string): boolean {
 
 export const name = 'ac-collab-tools';
 
-export const inject = ['tools', 'agents', 'conversation'];
+export const inject = ['tools', 'agents', 'conversation', 'agentLoop'];
 
 /** @ 名称引用约定（@ 路径约定归 ac-fs-tools；此处为 Agent 对象语义）：
  *  list_agents/send_agent 的 owner 行教语法——条件安装（生效工具集同时含
  *  解析与投递两工具才注入）；只依赖工具集 → KV 前缀稳定。 */
+/** 术语约定段门控：协作工具清单（自 ac-system-prompt 迁入，cr-881） */
+const COLLAB_TOOLS = [
+  'send_agent',
+  'list_agents',
+  'send_group',
+  'list_groups',
+  'list_tools',
+  'read_agent_info',
+  'update_agent_profile',
+];
+
+/** 独立会话判定（singles 注册表命中 = 用户与单 Agent 专注对话——多 Agent
+ *  会话知识不注入；工具面不裁剪，仅不教） */
+function isSingleConversation(ctx: Pick<Context, 'get'>, conversationId: string | undefined): boolean {
+  if (conversationId === undefined) return false;
+  const singles = ctx.get('singles', false) as { get(id: string): unknown } | undefined;
+  return !!(singles && singles.get(conversationId));
+}
+
 const AGENT_MENTION_GUIDE =
   '[引用约定] 用户消息中的 @<名称>（非路径形态）是用户提到的其他 Agent：'
   + '用 list_agents 按名称解析出 id 后可经 send_agent 联系；解析不到时如实说明，不要虚构。';
@@ -107,54 +127,79 @@ function notifyLateReply(
 }
 
 export function apply(ctx: Context) {
-  // ---- @ 名称引用指引（list_agents/send_agent 的 owner 行条件注入）----
-  ctx.on('loop/before-run', (call, next) => {
-    // PTC 门控面（widenToolsForGating 单源）：程序化 run 的 request.tools
-    // 已收窄成 ['run_code']——按能力面展开判协作工具在场
-    const names = new Set(widenToolsForGating(ctx, call.request.agent, call.request.conversationId, call.request.tools));
-    if (names.has('list_agents') && names.has('send_agent')) {
-      call.request = {
-        ...call.request,
-        system: call.request.system ? `${call.request.system}\n${AGENT_MENTION_GUIDE}` : AGENT_MENTION_GUIDE,
-      };
-    }
-    return next();
-  }, { description: '注入 @ 名称引用约定（Agent 有 list_agents+send_agent 时）' });
+  // ---- REFERENCE_AGENT 段：@ 名称引用（list_agents/send_agent 的 owner 行条件注入）----
+  ctx.agentLoop.registerPromptSection({
+    name: 'REFERENCE_AGENT',
+    text: (request) => {
+      // PTC 门控面（widenToolsForGating 单源）：程序化 run 的 request.tools
+      // 已收窄成 ['run_code']——按能力面展开判协作工具在场
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      return names.has('list_agents') && names.has('send_agent') ? AGENT_MENTION_GUIDE : '';
+    },
+  }, 'ac-collab-tools');
 
-  // ---- 群聊行为契约注入（M26 主线验证有效——cr-712 壳侧接通） ----
+  // ---- GROUP_CONTRACT 段：群聊行为契约（M26 主线验证有效——cr-712 壳侧接通） ----
   // 群会话 run（成员流键 gid~member / 本体键 gid）+ send_group 在场时
   // 注入决策点：成员被群消息唤起后，回复走 send_group 主动发言——直接
   // 输出文本不送达群聊（方案 A 下这是字面事实）；回声由契约调控（沉默/
   // 不刷屏——broadcast 标记只切断 R-2 自动回投，不禁成员主动发言）。
-  ctx.on('loop/before-run', (call, next) => {
-    const cid = call.request.conversationId;
-    const agent = call.request.agent;
-    if (cid === undefined || agent === undefined || !cid.includes('~')) return next();
-    const gid = cid.slice(0, cid.indexOf('~'));
-    const group = ctx.get('group', false) as
-      | { get(id: string): { id: string; name: string } | undefined }
-      | undefined;
-    // 判定键 = 群成员流键（gid~自己）或群本体键（gid）；群行未装 = 恒非群会话
-    if (group === undefined || (cid !== gid && cid !== gid + '~' + agent)
-      || group.get(gid) === undefined) {
-      return next();
-    }
-    const names = new Set(widenToolsForGating(ctx, agent, cid, call.request.tools));
-    if (!names.has('send_group')) return next();
-    const info = group.get(gid)!;
-    // per-Agent 覆盖（A/B 文案实验——主线 contractFor 同语义）：
-    // settings['group'].contractText 非空覆盖正典，空/缺省回落
-    const s = ctx.agents.settingsOf(agent, 'group') as { contractText?: unknown };
-    const override = typeof s.contractText === 'string' && s.contractText.trim() !== ''
-      ? s.contractText
-      : GROUP_CONTRACT_TEXT;
-    const block = `[群聊 ${gid}「${info.name}」]\n${override}`;
-    call.request = {
-      ...call.request,
-      system: call.request.system ? `${call.request.system}\n${block}` : block,
-    };
-    return next();
-  }, { description: '注入群聊行为契约（群会话 run 且 send_group 在场——回复走 send_group，沉默不刷屏）' });
+  ctx.agentLoop.registerPromptSection({
+    name: 'GROUP_CONTRACT',
+    text: (request) => {
+      const cid = request.conversationId;
+      const agent = request.agent;
+      if (cid === undefined || agent === undefined || !cid.includes('~')) return '';
+      const gid = cid.slice(0, cid.indexOf('~'));
+      const group = ctx.get('group', false) as
+        | { get(id: string): { id: string; name: string } | undefined }
+        | undefined;
+      // 判定键 = 群成员流键（gid~自己）或群本体键（gid）；群行未装 = 恒非群会话
+      if (group === undefined || (cid !== gid && cid !== gid + '~' + agent)
+        || group.get(gid) === undefined) {
+        return '';
+      }
+      const names = new Set(widenToolsForGating(ctx, agent, cid, request.tools));
+      if (!names.has('send_group')) return '';
+      const info = group.get(gid)!;
+      // per-Agent 覆盖（A/B 文案实验——主线 contractFor 同语义）：
+      // settings['group'].contractText 非空覆盖正典，空/缺省回落
+      const s = ctx.agents.settingsOf(agent, 'group') as { contractText?: unknown };
+      const override = typeof s.contractText === 'string' && s.contractText.trim() !== ''
+        ? s.contractText
+        : GROUP_CONTRACT_TEXT;
+      return `[群聊 ${gid}「${info.name}」]\n${override}`;
+    },
+  }, 'ac-collab-tools');
+
+  // ---- TERMINOLOGY 段：术语约定（协作工具在场 + 非独立会话才注入——多
+  //      Agent 会话知识对专注对话是噪音；协作工具面不裁剪，仅不教）----
+  ctx.agentLoop.registerPromptSection({
+    name: 'TERMINOLOGY',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      const hasCollab = COLLAB_TOOLS.some((n) => names.has(n));
+      if (!hasCollab) return '';
+      if (isSingleConversation(ctx, request.conversationId)) return '';
+      return '术语约定：Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。send_agent、list_agents、read_agent_info 均可操作任意 Agent；update_agent_profile 默认更新自己，具备 admin 能力可更新其他 Agent。';
+    },
+  }, 'ac-collab-tools');
+
+  // ---- GUIDELINES_COLLAB 段：多Agent协作 + 群聊协作指引（同门控）----
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_COLLAB',
+    text: (request) => {
+      if (isSingleConversation(ctx, request.conversationId)) return '';
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      const parts: string[] = [];
+      if (names.has('list_agents') && names.has('send_agent')) {
+        parts.push('多Agent协作：先 list_agents 找对象，再 send_agent 发消息。对端空闲时回复文本随结果直返（reply 字段）；对端正忙时消息注入或排队，回复会作为新消息到达。wait=true 用于明确要求对方忙时也排队独立 run 等回复。');
+      }
+      if (names.has('list_groups') && names.has('send_group')) {
+        parts.push('群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。');
+      }
+      return parts.join('\n');
+    },
+  }, 'ac-collab-tools');
 
   // ---- send_agent：投递消息给另一 Agent（经会话状态机） ----
   // collab 标签（2026-09-16 全量标签化）：多 Agent 协作族门禁
@@ -236,8 +281,8 @@ export function apply(ctx: Context) {
             }
           }
           // sub_ 前缀但 subagents 行未装/无此条目：落入下方常规注册校验。
-          // agents 表有该 id（subagent 行注册的派生条目 preset:true）→ 走预设
-          // 拒绝文案；无条目 → "未注册"（报错口径随事实源，不在此双份维护）
+          // agents 表有该 id（subagent 派生条目）→ 走预设拒绝文案；无条目
+          // → "未注册"（报错口径随事实源，不在此双份维护）
         }
 
         const target = ctx.agents.get(to);
@@ -264,8 +309,9 @@ export function apply(ctx: Context) {
           };
         }
         // 预设 Agent（__standard__ 等）是独立会话的路由目标，不是协作对象
-        // （src 防幽灵会话语义——send_agent 委托会制造无主 pair 会话）
-        if (target?.preset) return err(`Agent "${to}" 是预设 Agent（独立会话路由目标，不接收协作消息）`);
+        // （src 防幽灵会话语义——send_agent 委托会制造无主 pair 会话）。
+        // cr-880：词形判定——此前三预设（字段被 cr-812 剥除）守卫已失效
+        if (isPresetId(to)) return err(`Agent "${to}" 是预设 Agent（独立会话路由目标，不接收协作消息）`);
 
         // 委托对会话键（agent⇄agent 共享桶，双方视角同键）：pairKey 排序
         // 双向一致——发送方/接收方在会话流与用量弦图里对得上。
@@ -450,8 +496,9 @@ export function apply(ctx: Context) {
     description: '列出所有 Agent（含虚拟 Agent 标注）。',
     parameters: { type: 'object', properties: {} },
     async execute(): Promise<ToolResult> {
-      // 预设 Agent 不进协作清单（单会话路由目标，不是协作对象——src 同款过滤）
-      const list = ctx.agents.list().filter((a) => a.preset !== true);
+      // 预设 Agent 不进协作清单（单会话路由目标，不是协作对象——src 同款
+      // 过滤；cr-880 词形判定单源）
+      const list = ctx.agents.list().filter((a) => !isPresetId(a.id));
       return {
         ok: true,
         output: {
@@ -576,142 +623,7 @@ export function apply(ctx: Context) {
     },
   });
 
-  // ---- update_agent_profile：更新档案（admin 可改他人） ----
-  ctx.tools.register({
-    name: 'update_agent_profile',
-    requiredTags: ['collab'],
-    description:
-      '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。',
-    parameters: {
-      type: 'object',
-      properties: {
-        agent_id: { type: 'string', description: '目标 Agent（默认自己；仅 admin 可改他人）' },
-        fields: {
-          type: 'object',
-          description: '要更新的字段',
-          properties: {
-            name: { type: 'string', description: '显示名称（名册/群聊展示；空串 = 清除，回落简介/id）' },
-            description: { type: 'string', description: '一句话简介（其他 Agent 与用户可见；不是显示名）' },
-            system: { type: 'string', description: '基础系统提示词' },
-            persona: { type: 'string', description: '人物设定（写入 Agent 目录 AGENTS.md 并挂载 persona 装载）' },
-            tools: { type: 'array', items: { type: 'string' }, description: '工具白名单（空数组/缺省 = 全部）' },
-            maxSteps: { type: 'number', description: '步数预算（0 = 不限）' },
-            settings: { type: 'object', description: '具名扩展设置（settings[具名]——已装插件在该 Agent 的行为）' },
-          },
-        },
-      },
-      required: ['fields'],
-    },
-    async execute(args, call): Promise<ToolResult> {
-      try {
-        const selfId = call.agentId;
-        if (selfId === undefined) return err('缺少执行身份（agentId）');
-        const targetId =
-          typeof args.agent_id === 'string' && args.agent_id.trim() ? args.agent_id.trim() : selfId;
-        const fields = (args.fields ?? {}) as Record<string, unknown>;
-        const keys = Object.keys(fields);
-        if (keys.length === 0) return err('fields 参数不能为空');
-
-        const invalid = keys.filter((k) => !(PROFILE_ALLOWED_FIELDS as readonly string[]).includes(k));
-        if (invalid.length > 0) {
-          return err(
-            `不允许修改：${invalid.join(', ')}。只能修改：${PROFILE_ALLOWED_FIELDS.join(', ')}。`,
-          );
-        }
-
-        const current = ctx.agents.get(targetId);
-        if (!current) return err(`Agent "${targetId}" 未找到`);
-        // 预设/派生身份不可编辑（与 send_agent 拒投预设同口径）：子 Agent
-        // 派生条目（preset:true）若可自助改 tags 加回 delegation/admin，
-        // 会突破 spawn 时的剥减防线（递归 spawn / 宿主级动作）。
-        if (current.preset) return err(`Agent "${targetId}" 是预设/派生身份（运行时物化），不可经 update_agent_profile 修改`);
-        if (targetId !== selfId && !hasAdminCapability(ctx, selfId)) {
-          return err(`仅具备 admin 能力的 Agent 可修改他人档案（目标 "${targetId}"）`);
-        }
-
-        const store = ctx.get('agentStore');
-        const persisted = store ? store.getAgent(targetId) : undefined;
-
-        // 合并目标配置：持久化态（全量）优先，否则内存态
-        const base: AgentConfig = persisted ?? { ...current };
-        const next: AgentConfig = { ...base };
-        const changed: string[] = [];
-
-        if (fields.name !== undefined) {
-          const name = String(fields.name).trim();
-          // 清空 = 回落显示链 description ?? id（与 description 可独立清除）
-          if (!name) delete next.name;
-          else next.name = name;
-          changed.push('name');
-        }
-        if (fields.description !== undefined) {
-          next.description = String(fields.description);
-          changed.push('description');
-        }
-        if (fields.system !== undefined) {
-          next.system = String(fields.system);
-          changed.push('system');
-        }
-        if (fields.tools !== undefined) {
-          const tools = Array.isArray(fields.tools)
-            ? fields.tools.filter((t): t is string => typeof t === 'string')
-            : undefined;
-          if (tools === undefined) return err('tools 字段须为字符串数组');
-          if (tools.length === 0) delete next.tools;
-          else next.tools = tools;
-          changed.push('tools');
-        }
-        if (fields.maxSteps !== undefined) {
-          const maxSteps = Number(fields.maxSteps);
-          if (!Number.isFinite(maxSteps) || maxSteps < 0) return err('maxSteps 须为非负整数');
-          if (maxSteps === 0) delete next.maxSteps;
-          else next.maxSteps = Math.floor(maxSteps);
-          changed.push('maxSteps');
-        }
-        if (fields.settings !== undefined) {
-          if (fields.settings === null || typeof fields.settings !== 'object' || Array.isArray(fields.settings)) {
-            return err('settings 字段须为对象（settings[具名] 配置）');
-          }
-          next.settings = { ...(base.settings ?? {}), ...(fields.settings as Record<string, unknown>) };
-          changed.push('settings');
-        }
-
-        // persona：写 Agent 目录 AGENTS.md（文档唯一写口；2026-09-16 对齐生态
-        // 事实标准 AGENTS.md——ac-persona 装载侧读 AGENTS.md 优先、AGENT.md
-        // 存量回退，旧名文档不遮蔽新写内容）+ 挂载人设装载
-        if (fields.persona !== undefined) {
-          const persona = String(fields.persona ?? '').trim();
-          if (!persona) return err('persona 不能为空');
-          if (!store) return err('持久化档案更新需要 ac-agent-store 行（persona 写 AGENTS.md）');
-          store.saveDoc(targetId, 'AGENTS.md', `# 人物设定\n\n${persona}\n`);
-          const settings = { ...(next.settings ?? {}) };
-          const existing = settings['persona'];
-          const shape =
-            existing !== undefined && existing !== null && typeof existing === 'object'
-              ? (existing as Record<string, unknown>)
-              : {};
-          settings['persona'] = { ...shape, file: 'AGENTS.md' };
-          next.settings = settings;
-          changed.push('persona');
-        }
-
-        // 落盘（持久化 Agent）+ 内存覆盖注册（M15：reassign——不挂本行 fiber，
-        // 改档案的生命周期归持久化数据，不随工具行卸载连带删除）
-        if (store && persisted) store.saveAgent(next);
-        ctx.agents.reassign(next);
-
-        return {
-          ok: true,
-          output: {
-            agent_id: targetId,
-            changed,
-            persisted: Boolean(store && persisted),
-            ...(store && persisted ? {} : { note: '该 Agent 无持久化目录——仅内存生效（重启丢失）' }),
-          },
-        };
-      } catch (e: unknown) {
-        return err(e instanceof Error ? e.message : String(e));
-      }
-    },
-  });
+  // update_agent_profile 已 cr-886 迁宿主能力面（注册表写口收敛——agents-core 纯库
+  // 读改写盘，与宿主编辑面同源；壳侧同名代理工具由 host-face-client 行注册，
+  // 双闸：壳 requiredTags 门禁 + 宿主 admin 复查。）
 }

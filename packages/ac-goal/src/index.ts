@@ -465,9 +465,11 @@ function err(message: string): ToolResult {
   return { ok: false, error: message };
 }
 
+import { widenToolsForGating } from 'ac-agents';
+
 export const name = 'ac-goal';
 
-export const inject = ['tools', 'agentStore', 'conversation'];
+export const inject = ['tools', 'agentStore', 'conversation', 'agentLoop'];
 
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
 //    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
@@ -484,12 +486,23 @@ export function apply(ctx: Context) {
   // + 驱动监听同 fiber 归属，摘行整体回收
   const service = new GoalsService(ctx);
 
+  // ---- GUIDELINES_GOAL 段（cr-881，自 ac-system-prompt 指引拆分——goal/todo
+  //      各教各的）；门控 = goal 在场 ----
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_GOAL',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (!names.has('goal')) return '';
+      return '目标与待办：承担跨会话的长期任务时，用 goal(action="create") 登记目标——登记后宿主自动逐轮推进直至完成/受阻；达成即 goal(action="update", status="completed") 收口，确认无法推进则 status="blocked" 并给 blocked_reason——blocked 会停止自动推进，仅在同一阻塞条件连续多轮仍无法绕开时才标（困难、不确定、还有可做的事都不是 blocked）。';
+    },
+  }, 'ac-goal');
+
   // infra 标签（2026-09-16 全量标签化）：任务追踪属会话基础设施
   ctx.tools.register({
     name: 'goal',
     requiredTags: ['infra'],
     description:
-      '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。',
+      '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason；同一阻塞条件连续多个轮次仍无法绕开才标，困难或不确定不算受阻，仍有可推进的工作时继续推进而不是 blocked]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。',
     parameters: {
       type: 'object',
       properties: {

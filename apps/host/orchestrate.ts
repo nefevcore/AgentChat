@@ -14,7 +14,8 @@ import { socketPathFor } from 'ac-envelope-core';
 import { writeRecipe } from 'ac-supervisor-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
-import { DOC_NAME, readTemplate, materializeConfigOf, PRESET_ID, templateFingerprint, originOf, writeOrigin, type AgentTemplate } from 'ac-host-rows';
+import { isPresetId, presetTemplateKeyOf } from 'ac-agents-core';
+import { DOC_NAME, readTemplate, materializeConfigOf, materializeTemplateSkills, templateFingerprint, originOf, writeOrigin, type AgentTemplate } from 'ac-host-rows';
 import { resolveAnchors } from './anchors.ts';
 import { hostLog } from './host-log.ts';
 
@@ -43,12 +44,12 @@ export interface SpawnFn {
 const TEMPLATE_DIR = resolveAnchors(path.dirname(fileURLToPath(import.meta.url))).templatesDir;
 
 /**
- * 预设身份模板读取（cr-615/cr-812）：config + 自带文档全量。非预设身份或
- * 模板缺席 = undefined。
+ * 预设身份模板读取（cr-615/cr-812；cr-880 词形单源）：config + 自带文档
+ * 全量。非预设身份（isPresetId 判定）或模板缺席 = undefined。
  */
 function presetTemplateOf(agentId: string): AgentTemplate | undefined {
-  const key = PRESET_ID.exec(agentId)?.[1];
-  if (key === undefined) return undefined;
+  if (!isPresetId(agentId)) return undefined;
+  const key = presetTemplateKeyOf(agentId)!;
   return readTemplate(key, TEMPLATE_DIR) ?? undefined;
 }
 
@@ -265,9 +266,12 @@ export async function adoptShell(
       // 已存在不覆盖，用户编辑优先，与 config 兜底写同语义）
       const docs = (template.docs ?? []).filter((d) => !fs.existsSync(path.join(agentDir, d.name)));
       for (const doc of docs) fs.writeFileSync(path.join(agentDir, doc.name), doc.content, 'utf-8');
-      const presetKey = PRESET_ID.exec(input.agentId)![1];
+      // 模板自带技能随物化落地 files/<id>/skills/（cr-879；skip-if-present
+      // 同语义）——origin 记账只记实际写入集
+      const skills = materializeTemplateSkills(input.dataRoot, input.agentId, template.skills ?? []);
+      const presetKey = presetTemplateKeyOf(input.agentId)!;
       writeOrigin(input.dataRoot, input.agentId,
-        originOf(presetKey, templateFingerprint(template), config as never, docs));
+        originOf(presetKey, templateFingerprint(template), config as never, docs, skills));
     }
   }
   // 持续订阅面（cr-550 常驻监护）：adopted 后 stdout 行继续分发（心跳/

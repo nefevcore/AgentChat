@@ -31,7 +31,7 @@ import {
   writeAgentConfig,
   type AgentConfig,
 } from 'ac-agents-core';
-import { DOC_NAME, listTemplates, materializeConfigOf, readTemplate, type AgentTemplate } from './preset-builtin.ts';
+import { DOC_NAME, listTemplates, materializeConfigOf, materializeTemplateSkills, readTemplate, type AgentTemplate } from './preset-builtin.ts';
 
 /** 行配置 */
 export interface AgentsHostRowOptions {
@@ -244,20 +244,21 @@ export class AgentsEditService extends Service {
 
   /**
    * 从模板创建身份（create-from-template）：一步写全 config 文集 + 模板
-   * 自带 .md 文档（cr-810：人设载体 AGENTS.md 等随物化落地）。
-   * skip-if-present（用户数据优先的文件版语义）：已存在 config.json 或同名
-   * 文档不覆盖，原样返回现值——重入幂等，不吞掉用户编辑。
+   * 自带 .md 文档（cr-810）与技能（cr-879：skills/ 落地 files/<id>/skills/）。
+   * skip-if-present（用户数据优先的文件版语义）：已存在 config.json、同名
+   * 文档或同名技能不覆盖，原样返回现值——重入幂等，不吞掉用户编辑。
    */
   createFromTemplate(templateId: string, id: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
     const existing = this.getAgent(id);
     if (existing !== undefined) return existing;
-    const { docs = [], ...template } = this.templateOf(templateId);
+    const { docs = [], skills = [], ...template } = this.templateOf(templateId);
     const config = this.templateConfigOf(template, id, overrides);
     this.saveAgent(config);
     for (const doc of docs) {
       const file = path.join(this.agentDirOf(id), doc.name);
       if (!fs.existsSync(file)) writeTextAtomic(file, doc.content);
     }
+    materializeTemplateSkills(this.dataRoot, id, skills);
     return config;
   }
 

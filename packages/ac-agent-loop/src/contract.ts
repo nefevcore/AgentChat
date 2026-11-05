@@ -14,7 +14,20 @@
 //     拦截链 —— 循环不重新实现工具拦截。
 // ============================================================
 import type { LlmMessage, LlmToolCall, LlmUsage } from 'ac-llm';
-import type { ToolInterrupt, ToolResult } from 'ac-tools';
+import type { ToolResult } from 'ac-tools';
+
+/**
+ * 物化段（cr-888 快照正文条目）：PromptSection 注册面求值结果的冻结——
+ * text 恒静态串，段序由快照内 order 承载（SECTION_ORDER 具名位同源）。
+ */
+export interface FrozenPromptSection {
+  /** SECTION_ORDER 具名段位名 */
+  name: string;
+  /** 具名 order（快照内承载段序） */
+  order: number;
+  /** 求值后的静态文本 */
+  text: string;
+}
 
 /**
  * 发送方拓扑类（信封：'user' 直答 / 'agent' 委托 / 'event' 机制触发）。
@@ -38,8 +51,16 @@ export interface LoopRunRequest {
   provider?: string;
   /** 完整会话历史（含最新 user 消息；system 建议放 request.system） */
   messages: LlmMessage[];
-  /** 系统提示词（人设/框架块/记忆由扩展插件经 before-run 组装进本字段） */
+  /** 系统提示词（段贡献经 agentLoop.registerPromptSection 注册，run() 入口
+   *  按 SECTION_ORDER 组装进本字段；调用方直传值作前缀段保留） */
   system?: string;
+  /**
+   * 物化段集（cr-888 singles 前缀快照）：在场时 run() 入口跳过 PromptSection
+   * 注册面求值，直接按本数组组装 system——快照 = 求值结果的冻结，正文跨
+   * run 字节恒定。调用方 = ac-shell-conversation（singles 物化对账）；其余
+   * 调用方恒缺席。与 system 并存时 system 作前缀段照常拼接。
+   */
+  frozenSections?: FrozenPromptSection[];
   /** 暴露给模型的工具名清单；缺省 = 全部已注册工具 */
   tools?: string[];
   /**
@@ -98,17 +119,12 @@ export interface LoopRunRequest {
 
 /**
  * 中断原因（finish='interrupted' 时必带）。
- * type 是开放词汇，已知值：'user-abort'（request.signal 中止）、
- * 'tool-interrupt'（工具体返回 ToolResult.interrupt，M11 通道——
- * interruptReason.toolInterrupt 携带工具请求原文，宿主据此执行
- * reload/restart/插件装卸后可续跑）。
+ * type 是开放词汇，已知值：'user-abort'（request.signal 中止）。
  */
 export interface LoopInterruptReason {
   type: string;
   /** 人类可读细节（如 signal.reason 的 message） */
   reason?: string;
-  /** type='tool-interrupt' 时：工具的中断请求原文（宿主动作依据） */
-  toolInterrupt?: ToolInterrupt;
 }
 
 /** run 的可变载体（loop/before-run waterfall 的事实对象） */

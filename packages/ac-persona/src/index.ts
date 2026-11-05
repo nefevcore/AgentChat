@@ -23,7 +23,8 @@
 //
 // 经 request.agent 查 ctx.agents——人设是 Agent 数据，不进 LoopRunRequest
 // 专属参数，也不进信封；本插件注入后 persona 直接成为 system prompt 的
-// 一部分（<persona> 块前置，框架块/记忆块追加其后）。
+// 一部分（<persona> 块 = PERSONA 段，SECTION_ORDER 次低位——静态知识区
+// 首位，头部前置 hack 随 cr-881 段注册制拆除）。
 // request.agent 缺省（直连 loop）不注入。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
@@ -47,24 +48,20 @@ export const extension: ExtensionMeta = {
     { name: 'file', type: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENTS.md，AGENT.md 旧名兼容），路径走文件系统；frontmatter 自动剥离；可点「浏览…」选择' },
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
-  listeners: [{ event: 'loop/before-run', role: '前置 <persona> 块', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
+  listeners: [],
 };
 
-export const inject = ['agents'];
+export const inject = ['agents', 'agentLoop'];
 
 export function apply(ctx: Context) {
-  ctx.on('loop/before-run', (call, next) => {
-    const agentId = call.request.agent;
-    // M24 A1：settingsOf 合成全局默认层 ∪ Agent 差异层
-    const settings = agentId ? ctx.agents.settingsOf(agentId, 'persona') : {};
-    const persona = resolvePersonaText(ctx.get('agentStore'), agentId, settings);
-    if (persona) {
-      const block = `<persona>\n${persona}\n</persona>`;
-      call.request = {
-        ...call.request,
-        system: call.request.system ? `${block}\n\n${call.request.system}` : block,
-      };
-    }
-    return next();
-  }, { description: '<persona> 人设块前置注入' });
+  ctx.agentLoop.registerPromptSection({
+    name: 'PERSONA',
+    text: (request) => {
+      const agentId = request.agent;
+      // M24 A1：settingsOf 合成全局默认层 ∪ Agent 差异层
+      const settings = agentId ? ctx.agents.settingsOf(agentId, 'persona') : {};
+      const persona = resolvePersonaText(ctx.get('agentStore'), agentId, settings);
+      return persona ? `<persona>\n${persona}\n</persona>` : '';
+    },
+  }, 'ac-persona');
 }

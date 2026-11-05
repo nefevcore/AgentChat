@@ -10,14 +10,10 @@
 //   handle = runAddress(agent, conversationId)，ac-conversation 的串行化门
 //   与本方法共用同一寻址词汇）。
 // 边界全部事件化（./events.ts）：
-//   · loop/before-run-first → loop/before-run（主档）→ loop/before-run-last
-//     （waterfall 三档装配链，2026-09-05 裁决：**由于当前 cordis 架构
-//     waterfall 事件无法支持优先度处理，因此拆分三个事件**；同一载体贯穿、
-//     body 执行序即档序、任一档 veto 否决下游全部；三档封顶不再增档——
-//     档内次序仍是注册序，首/尾档服务"结构性居前/居后"的装配位；尾档
-//     住户：ac-system-prompt 对话信息块（prepend 恒 unshift 居前）+
-//     ac-datetime 仅日期行（push 居后，绝对收尾）——prepend 收敛式锁
-//     定相对次序，新住户需裁决）—— 改写请求 / veto / 包裹观察
+//   · loop/before-run（waterfall；cr-881 三档退役后为唯一 run 前事件——
+//     通用 run 边界 seam：veto/预算/messages 改写/懒准备；系统提示词
+//     装配走 PromptSection 注册制（./sections.ts），run() 入口按具名
+//     order 组装，先于本链）—— 改写请求 / veto / 包裹观察
 //   · loop/run-started（emit）—— run 开始通知（三档全过后）
 //   · loop/after-run（emit）—— 持久化/审计/指标订阅
 //   · loop/before-step（waterfall）—— 改写本步消息
@@ -38,6 +34,7 @@ import { describeError } from 'ac-error-core';
 import { normalizeToolSpecs, runAddress } from 'ac-core-utils';
 import type { LlmMessage, LlmToolCall, LlmToolSpec, LlmUsage } from 'ac-llm';
 import type {
+  FrozenPromptSection,
   LoopInterruptReason,
   LoopRunCall,
   LoopRunRequest,
@@ -48,6 +45,14 @@ import type {
   LoopStepRecord,
   LoopStepTransform,
 } from './contract.ts';
+import {
+  assembleSystemPrompt,
+  SECTION_ORDER,
+  sectionOrder,
+  type RegisteredSection,
+  type SectionContribution,
+  type SectionName,
+} from './sections.ts';
 
 /** 工具调用 arguments（JSON 字符串）→ 参数对象；解析失败透传原文 */
 function parseArgs(tc: LlmToolCall): Record<string, unknown> {
@@ -161,30 +166,111 @@ export class AgentLoopService extends Service {
   /** 活跃 run 的 steer 队列（runAddress → 队列）；随 run 生灭 */
   private steerQueues = new Map<string, SteerQueue>();
 
+  /** system prompt 段注册表（cr-881 PromptSection 注册制）：具名段 → 贡献。
+   *  注册随 fiber 归属自动回收（ctx.fiber.effect）；同名重复注册抛错。 */
+  private promptSections = new Map<SectionName, RegisteredSection>();
+
   constructor(ctx: Context) {
     super(ctx, 'agentLoop');
+    // ---- ENV_MODEL 段（cr-881，自 ac-system-prompt 迁）：[模型能力] 行 ----
+    // 注册住本服务构造器而非行 apply：本行 inject ['llm','tools']，自注册
+    // 场景 apply 里走 ctx.agentLoop 即 "cannot get property without inject"
+    //（cr-538 先例：同 fiber 自注册经服务实例直引）；visionOf 仍 use-time
+    // 软取（段 provider 执行时 llm 服务在场——本行 inject ['llm'] 已保证）。
+    // 防两类实测高频幻觉：视觉模型自认"看不了图"、文本模型硬猜图片内容。
+    this.registerPromptSection({
+      name: 'ENV_MODEL',
+      text: (request) => {
+        const llm = ctx.get('llm', false) as
+          | { visionOf?(model: string, provider?: string): boolean | undefined }
+          | undefined;
+        if (typeof llm?.visionOf !== 'function') return '';
+        const vision = llm.visionOf(request.model, request.provider);
+        if (vision === true) {
+          return `[模型能力] 当前对话模型 ${request.model} 支持图片输入（多模态）——用户消息中的附件图片会直接送达，请直接基于图片内容回答，不要声称无法查看图片`;
+        }
+        if (vision === false) {
+          return `[模型能力] 当前对话模型 ${request.model} 为纯文本模型——附件以 [附件] 路径行提供，图片内容不可见（read 工具可读文本类附件）；涉及图片内容时如实说明这一限制，不要猜测或虚构图片`;
+        }
+        return ''; // 无能力元数据（undefined）零噪音
+      },
+    }, 'ac-agent-loop');
   }
 
   /**
-   * 三档装配链（2026-09-05 裁决）：before-run-first → before-run（主档）
-   * → before-run-last → start。同一 LoopRunCall 载体贯穿三档，body 执行
-   * 序即档序；任一档 veto 即否决下游全部（含 execute 与 run-started——
-   * run-started 在 execute 内发射）。档位契约见 ./events.ts。
+   * system prompt 组装预览（cr-881）：与 run() 入口同源（同一注册面 + 同一
+   * assembleSystemPrompt 纯函数），供 previewSystemPrompt 等干跑面镜像
+   * 真实 run 的装配结果。纯读——不改注册面、不发 run。
+   */
+  assemblePreview(request: LoopRunRequest): string | undefined {
+    // cr-888：frozenSections 分支与 run() 入口同源（快照段直组装，跳过注册面）
+    return request.frozenSections !== undefined
+      ? assembleSystemPrompt(request.frozenSections, request.system, request)
+      : assembleSystemPrompt(this.promptSections.values(), request.system, request);
+  }
+
+  /**
+   * 全段求值物化（cr-888 singles 前缀快照 ① 物化 / ③ 重算）：注册面按
+   * request 逐段求值 → 静态段数组（快照正文 = 求值结果的冻结）。initial
+   * 进 CALLER 段（order 0）；空串段不落（组装面本就跳过）。
+   */
+  materializeSections(request: LoopRunRequest, initial?: string): FrozenPromptSection[] {
+    const out: FrozenPromptSection[] = [];
+    if (initial !== undefined && initial !== '') {
+      out.push({ name: 'CALLER', order: SECTION_ORDER.CALLER, text: initial });
+    }
+    const sorted = [...this.promptSections.values()]
+      .sort((a, b) => a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const s of sorted) {
+      const text = typeof s.text === 'function' ? s.text(request) : s.text;
+      if (text !== '') out.push({ name: s.name, order: s.order, text });
+    }
+    return out;
+  }
+
+  /**
+   * 单段当前求值文本（cr-888 指纹键面——PTC_SDK 投影漂移检测）；
+   * 段缺席 = ''（注册面漂移本身即指纹变化）。
+   */
+  sectionText(name: SectionName, request: LoopRunRequest): string {
+    const s = this.promptSections.get(name);
+    if (s === undefined) return '';
+    return typeof s.text === 'function' ? s.text(request) : s.text;
+  }
+
+  /**
+   * 注册一条 system prompt 段（cr-881：次序数据化——三档装配链与各收敛式
+   * 定序 hack 退役，段按 SECTION_ORDER 具名位拼接）。
+   * @param section 具名段位 + 文本/provider + 自述
+   * @returns 注销函数（显式注销可选；行卸载由 fiber 归属自动回收）
+   */
+  registerPromptSection(section: SectionContribution, owner: string): () => void {
+    const order = sectionOrder(section.name);
+    if (this.promptSections.has(section.name)) {
+      throw new Error('[prompt-section] 段名已注册: ' + String(section.name));
+    }
+    const entry: RegisteredSection = { ...section, order, owner };
+    this.promptSections.set(section.name, entry);
+    return this.ctx.fiber.effect(() => {
+      this.promptSections.set(section.name, entry);
+      return () => {
+        // 同名再注册后的旧注销不得误删新条目
+        if (this.promptSections.get(section.name) === entry) this.promptSections.delete(section.name);
+      };
+    }, `agentLoop.registerPromptSection(${String(section.name)})`);
+  }
+
+  /**
+   * run 前拦截链（cr-881 三档退役后）：loop/before-run 单事件 waterfall
+   * ——通用 run 边界 seam（veto/预算/messages 改写/懒准备），不再承载
+   * 系统提示词装配语义（提示词组装走 PromptSection 注册制，run() 入口
+   * 组装先于本链）。任一 veto 即否决下游全部（含 execute 与 run-started）。
    */
   private beforeRunChain(
     call: LoopRunCall,
     start: () => Promise<LoopRunResult>,
   ): Promise<LoopRunResult> {
-    return this.ctx.waterfall(
-      'loop/before-run-first',
-      call,
-      () =>
-        this.ctx.waterfall(
-          'loop/before-run',
-          call,
-          () => this.ctx.waterfall('loop/before-run-last', call, start),
-        ),
-    );
+    return this.ctx.waterfall('loop/before-run', call, start);
   }
 
   /**
@@ -198,6 +284,16 @@ export class AgentLoopService extends Service {
     if (request.runId === undefined) {
       request.runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     }
+    // system prompt 组装（cr-881）：PromptSection 注册制——run() 入口按
+    // SECTION_ORDER 具名位拼装（排序确定性 = 字节确定性），先于 before-run
+    // 拦截链（拦截器读到的是组装后的终值；拦截器仍可改写 request.system）。
+    const initial = request.system;
+    // cr-888：物化段集在场 = singles 快照装配面——跳过注册面求值（快照 =
+    // 求值结果的冻结），段序由快照 order 承载；initial 前缀照常拼首。
+    const assembled = request.frozenSections !== undefined
+      ? assembleSystemPrompt(request.frozenSections, initial, request)
+      : assembleSystemPrompt(this.promptSections.values(), initial, request);
+    if (assembled !== undefined) request.system = assembled;
     const call: LoopRunCall = { request };
     // steer 注册先于 before-run（同步）：run 受理即可被注入；
     // veto / 异常路径经 finally 回收。同地址并发 run 由 ac-conversation
@@ -415,19 +511,6 @@ export class AgentLoopService extends Service {
             tool_call_id: step.toolCalls[i].id,
             content: JSON.stringify(toolResults[i]),
           });
-        }
-        // 语义化中断收束检测（M11，ADR-2）：工具体请求宿主级行为 →
-        // 本 run 到此收束（interrupt 结果如实入步记录，模型不再续步）
-        const interruptIndex = toolResults.findIndex((r) => r.interrupt);
-        if (interruptIndex >= 0) {
-          const toolInterrupt = toolResults[interruptIndex].interrupt!;
-          finish = 'interrupted';
-          interruptReason = {
-            type: 'tool-interrupt',
-            reason: `工具 ${step.toolCalls[interruptIndex].name} 请求 ${toolInterrupt.type}`,
-            toolInterrupt,
-          };
-          break;
         }
       }
     } catch (err) {

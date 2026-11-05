@@ -83,7 +83,7 @@ describe('8.5a 宿主 web 面接线', () => {
     const { ws } = await connect(host.port);
 
     // ① agents/list：agents-core 直读 + 全量 config 展开 + 头像版本（名册四道
-    // 闸：config 在场/身份词形/非 preset/非派生子身份——子身份不入列）
+    // 闸：config 在场/身份词形/非预设词形/非派生子身份——子身份不入列）
     const list = await rpc<{ agents: Array<{ id: string; name?: string; description?: string; tags?: string[]; hasAvatar?: boolean; avatarVersion?: string }> }>(ws, 'agents/list', {});
     expect(list.agents.map((a) => a.id)).toEqual(['alpha']);
     expect(list.agents[0]).toMatchObject({ description: '阿尔法', tags: ['full-access'], hasAvatar: true });

@@ -1,0 +1,29 @@
+{
+  "name": "ac-artifacts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "产出物引用指引行：GUIDELINES_ARTIFACTS 段——创建/修改文件后列出产出文件、优先改既有文件、<file> 标注教学（写面工具在场才注入）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

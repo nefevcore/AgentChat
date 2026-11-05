@@ -1,7 +1,7 @@
 // ============================================================
 // M7.4 插件 client 通道单测：schema 校验 / graph 组装 / 静态路由
 // ============================================================
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { checkUiManifest, assembleBootGraph, resolveUiAsset } from '../src/manifest.ts';
@@ -114,3 +114,55 @@ describe('M7.4 resolveUiAsset', () => {
 });
 
 afterAll(cleanup);
+
+describe('checkUiManifest 词法放宽（cr-905 批3）', () => {
+  it('@scope/name npm 词形合法；param-case 原样合法；大写/下划线仍非法', () => {
+    const ok = (name: string) => checkUiManifest({ name, version: '1.0.0', entry: 'ui/index.js' }).ok;
+    expect(ok('@scope/name')).toBe(true);
+    expect(ok('plain-name')).toBe(true);
+    expect(ok('Bad_Name')).toBe(false);
+    expect(ok('@Scope/name2')).toBe(false);
+  });
+});
+
+describe('包形态装载（cr-905 批3 切片四）', () => {
+  const ROOT = path.join('sandbox', 'test-pkg-web-' + process.pid);
+  afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+
+  it('package.json ac.faces.web → boot graph（seats 字符串投影 + isolated 缺省 true）', () => {
+    const dir = path.join(ROOT, 'ac-plugin-webdemo');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'ac-plugin-webdemo', version: '2.0.0',
+      ac: { faces: { web: { entry: 'ui/index.js', seats: ['tool-card'] } } },
+    }));
+    const { graph, warnings } = assembleBootGraph(ROOT);
+    expect(warnings).toEqual([]);
+    expect(graph).toHaveLength(1);
+    expect(graph[0]).toMatchObject({ name: 'ac-plugin-webdemo', version: '2.0.0', isolated: true });
+    expect(graph[0].seats).toEqual([{ seat: 'tool-card' }]);
+  });
+
+  it('node-only 包（无 web 面）不进 graph 且零警告；manifest.json 优先于 package 投影', () => {
+    const nodeOnly = path.join(ROOT, 'node-only-pkg');
+    fs.mkdirSync(nodeOnly, { recursive: true });
+    fs.writeFileSync(path.join(nodeOnly, 'package.json'), JSON.stringify({
+      name: 'node-only-pkg', version: '1.0.0', ac: { faces: { node: { entry: './src/index.ts' } } },
+    }));
+    const both = path.join(ROOT, 'both-forms');
+    fs.mkdirSync(both, { recursive: true });
+    fs.writeFileSync(path.join(both, 'package.json'), JSON.stringify({
+      name: 'both-forms', version: '9.9.9',
+      ac: { faces: { web: { entry: 'pkg.js' } } },
+    }));
+    fs.writeFileSync(path.join(both, 'manifest.json'), JSON.stringify({
+      name: 'both-forms', version: '1.0.0', entry: 'ui/index.js', platform: 'web', isolated: false,
+    }));
+    const { graph, warnings } = assembleBootGraph(ROOT);
+    expect(warnings).toEqual([]);
+    const both2 = graph.find((e) => e.name === 'both-forms');
+    expect(both2?.version).toBe('1.0.0'); // manifest 赢（迁移期投影优先既有声明）
+    expect(both2?.isolated).toBe(false);
+    expect(graph.find((e) => e.name === 'node-only-pkg')).toBeUndefined();
+  });
+});

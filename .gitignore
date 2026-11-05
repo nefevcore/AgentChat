@@ -50,6 +50,8 @@ workspace/
 
 # Agent 沙箱（项目根；临时工作区 + 测试数据根 + 历史数据根归档，cr-264）
 /sandbox/
+# 嵌套测试沙箱（apps/host/sandbox 等——cr-910：vitest chdir 漂移产物，不入库）
+**/sandbox/
 
 # 本地临时残留（news-timer 备份等）
 /_tmp/

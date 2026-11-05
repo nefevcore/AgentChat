@@ -15,8 +15,6 @@ export interface AgentConfig {
   model?: string;
   /** 虚拟 Agent 标志：不驱动 LLM 循环的会话参与方（如 user） */
   virtual?: boolean;
-  /** 预设 Agent 标志：独立会话选用目标；不进名册、不收协作消息、不可管理面改 */
-  preset?: boolean;
   provider?: string;
   system?: string;
   /**
@@ -37,6 +35,14 @@ export interface AgentConfig {
   /** 一句话简介（LLM 工具面词汇；不是显示名） */
   description?: string;
   /**
+   * 行内插件档位（cr-906 批4 切片四 / X1 回滚：档位词全部归装配——
+   * settings.browser.{observe,manipulate,inject} / collab.admin /
+   * dev-tools.enabled 上提装配面；键 = 插件单元名，值 = 档位词或布尔）。
+   * 运行时档位合成 levels 赢，settings 行内档位为回滚兼容线（与 X1
+   * 换轨时 tags 兜底同语义——批 6 拆旧收口）。
+   */
+  levels?: Record<string, string | boolean>;
+  /**
    * 能力标签：档位词（full-access / sandbox-access，缺省 base-access）与
    * 模式词（tc-none / tc-programmatic，缺省 tc-base）——tierOf / toolModeOf
    * 单源判定。能力 tag 语义已随 tag 机制解体退役（行集引用替代）。
@@ -44,6 +50,29 @@ export interface AgentConfig {
   tags?: string[];
   /** 具名扩展设置：键 = 稳定单元名，值 = 该插件在本 Agent 上的配置 */
   settings?: Record<string, unknown>;
+}
+
+/**
+ * 预设身份词形（保留字）：__<模板键>__——id 即类属（cr-880 判定单源：模板
+ * 物化到保留字 id = 预设；同一模板物化到用户 id = 普通身份。类属出生定型
+ * 终身不变，不随 config 可变字段漂移——cr-812 重置事故的断根）。历史 id
+ * 冻结下划线键（__dsh_minimal__），字符类吃 _。
+ */
+const PRESET_ID = /^__([a-z0-9_-]+)__$/;
+
+/** 预设身份判定单源：名册/协作/调度/工作区/记忆全消费面经此（cr-880）。 */
+export function isPresetId(id: string): boolean {
+  return PRESET_ID.test(id);
+}
+
+/**
+ * 预设 id → 模板键（_ 归一为 -——历史 id __dsh_minimal__ ↔ 模板目录
+ * dsh-minimal；cr-880 修复下划线 miss 暗坑：首启物化与 boot 升级通路的
+ * 模板查找口）。非预设 id = undefined。
+ */
+export function presetTemplateKeyOf(id: string): string | undefined {
+  const key = PRESET_ID.exec(id)?.[1];
+  return key === undefined ? undefined : key.replaceAll('_', '-');
 }
 
 /** 端点显示名单源解析（回退链 name ?? description；空白视同缺省） */

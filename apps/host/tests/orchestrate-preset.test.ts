@@ -1,7 +1,7 @@
 // ============================================================
 // orchestrate-preset.test.ts —— 预设身份模板物化回归锁（cr-615）：
-// adoptShell 兜底写对 __<template_key>__ 身份物化出厂模板（preset 剥除、
-// tools 全量），其余身份维持裸 {id}——此前裸兜底让 __standard__ 落到
+// adoptShell 兜底写对 __<template_key>__ 身份物化出厂模板（cr-880：preset
+// 字段退役，词形判类属；tools 全量），其余身份维持裸 {id}——此前裸兜底让 __standard__ 落到
 // 基础壳行集（90 工具词）而非模板行全集。
 // ============================================================
 import { describe, it, expect } from 'vitest';
@@ -37,9 +37,9 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     });
     const cfg = JSON.parse(
       fs.readFileSync(path.join(dataRoot, 'agents/__standard__/config.json'), 'utf-8'),
-    ) as { id: string; preset?: boolean; tags?: string[]; rows: string[]; description?: string };
+    ) as { id: string; tags?: string[]; rows: string[]; description?: string };
     expect(cfg.id).toBe('__standard__');
-    expect(cfg.preset).toBeUndefined(); // 物化剥 preset（同 transientConfigOf）
+    expect('preset' in cfg).toBe(false); // cr-880：字段退役——预设类属由 id 词形承载
     expect(cfg.rows).toContain('browser');
     expect(cfg.rows).toContain('goal'); // 模板 15 行（cr-790：协作面/历史回放移出标准预设）
     expect(cfg.rows).not.toContain('memory');
@@ -49,7 +49,7 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     expect(cfg.description).toBeTruthy();
   });
 
-  it('__creator__ 首启物化 = 人设走 AGENTS.md 文档（config.system 退役，cr-810）', async () => {
+  it('__creator__ 首启物化 = 人设指路 AGENTS.md + 技能落地 files/<id>/skills（cr-810/879）', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
     await adoptShell({
       agentId: '__creator__',
@@ -65,9 +65,16 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     ) as { system?: string; rows: string[]; settings?: Record<string, unknown> };
     expect(cfg.system).toBeUndefined();
     expect(cfg.rows).toContain('persona'); // persona 行入集——settings.persona 才有消费方
+    expect(cfg.rows).toContain('skill'); // skill 行入集——own 技能目录才有消费方
     expect(cfg.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
+    // 人设收缩为指路残句（cr-879：知识本体迁技能面）
     const doc = fs.readFileSync(path.join(dataRoot, 'agents/__creator__/AGENTS.md'), 'utf-8');
-    expect(doc).toContain('插件开发指南');
+    expect(doc).toContain('load_skill');
+    expect(doc.length).toBeLessThan(400);
+    // 技能本体随物化落地 Agent 专属技能目录
+    const skill = fs.readFileSync(path.join(dataRoot, 'files/__creator__/skills/plugin-dev/SKILL.md'), 'utf-8');
+    expect(skill).toContain('name: plugin-dev');
+    expect(skill).toContain('迭代铁律');
   });
 
   it('非预设身份首启兜底写 = 裸 {id}（cr-561 语义不动）', async () => {

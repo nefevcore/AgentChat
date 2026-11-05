@@ -88,9 +88,8 @@ export function deriveShellRowset(
   } else {
     // 装配基座恒并（cr-548 会话基座 + cr-602 提示装配行 + cr-610 池注册行）：
     // 点名形态恒含 conversation（收信面——「点名 ≠ 裁基座」，消灭能 boot 不能
-    // 收信的静默半激活）、persona / system-prompt（提示装配组成件——主线形态
-    // 两行全局恒装，per-agent 差异走 settings 软停用，如极简模式
-    // settings['system-prompt'].enabled=false；行缺席面 = 导入行集按工具
+    // 收信的静默半激活）、persona / conduct（提示装配组成件——cr-881 段注册制
+    // 后指引面拆散至各 owner 行，恒并保底座行为段；行缺席面 = 导入行集按工具
     // 标签快照推导，装配类行不在标签面 → 全体导入 Agent 的人格与指引块
     // 静默丢失）与 llm-pool（池注册行——主线全局恒装行；无 requires 指向、
     // 不在工具标签面 → 点名形态壳内零 provider 注册 = 一切 run NO_PROVIDER）。
@@ -98,7 +97,10 @@ export function deriveShellRowset(
     // 不在工具标签面——不恒并则点名形态壳内零命名 = 会话标题退回首行截断。
     // 用户显式 exclude 由闭包后减法执行（显式排除 = 良定义
     // 降级，boot 装配终检兜底矛盾）。
-    for (const seatId of ['conversation', 'persona', 'system-prompt', 'llm-pool', 'auto-title']) {
+    // cr-886 host-face-client（宿主能力面）同款恒并：无 tools、无 requires 指向、
+    // 不在工具标签面——不恒并则点名形态壳内零代理 = timer/update_agent_profile
+    // 与远程段静默丢失；宿主缺席时该行软降级（零装配），恒并无害。
+    for (const seatId of ['conversation', 'persona', 'conduct', 'llm-pool', 'auto-title', 'host-face-client']) {
       const seatRow = byRow.get(seatId);
       if (seatRow !== undefined) picked.add(seatRow);
     }

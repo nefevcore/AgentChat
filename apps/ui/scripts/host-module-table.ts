@@ -1,0 +1,88 @@
+// ============================================================
+// host-module-table.mjs —— 宿主模块表（构建面单源，cr-905 / cr-901 v2.1
+// 批3 切片二，docs/design/ui-plugin-form.md §三）
+//
+// 键集 = skeletonModuleHost()（boot.ts——骨架 9 键）∪ sharedModules()
+//（shared-modules.ts——深路径共享面）∪ '@agentchat/protocol'。构建面
+// （build-channel rollup external）恒等消费全表；装载面（importmap）
+// 由 boot.ts 运行时同源注入。两侧对账由 apps/ui/tests/host-module-table
+// .test.ts 锁定（本表漂移 = 红）。
+//
+// **破坏面声明**：增项安全（下游新 bundle 打表外说明符才破坏）；删项 /
+// 改名 = 破坏性——须升 webui 基座版本戳 + 全量重建通道产物。
+// ============================================================
+
+export const HOST_MODULE_SPECS = Object.freeze([
+  "@agentchat/cordis",
+  "@agentchat/protocol",
+  "@agentchat/webui-kit",
+  "ac-client-runtime",
+  "ac-client-slots",
+  "ac-client-ui-agents/client",
+  "ac-client-ui-agents/client/index.ts",
+  "ac-client-ui-agents/client/poolModelCache.ts",
+  "ac-client-ui-agents/client/rosterAccess.ts",
+  "ac-client-ui-agents/client/rosterApi.ts",
+  "ac-client-ui-conversation/client",
+  "ac-client-ui-conversation/client/ConversationView.vue",
+  "ac-client-ui-conversation/client/TranscriptList.vue",
+  "ac-client-ui-conversation/client/chatStore.ts",
+  "ac-client-ui-conversation/client/composePrefs.ts",
+  "ac-client-ui-conversation/client/feed.ts",
+  "ac-client-ui-conversation/client/feedStore.ts",
+  "ac-client-ui-conversation/client/historyApi.ts",
+  "ac-client-ui-conversation/client/index.ts",
+  "ac-client-ui-conversation/client/injectCardViews.ts",
+  "ac-client-ui-conversation/client/switchTrace.ts",
+  "ac-client-ui-conversation/client/types.ts",
+  "ac-client-ui-conversation/client/useTurnDisplayItems.ts",
+  "ac-client-ui-conversation/client/useUnreadBadges.ts",
+  "ac-client-ui-conversation/client/viewer.ts",
+  "ac-client-ui-jobs/client",
+  "ac-client-ui-layout/client",
+  "ac-client-ui-layout/client/auxSidebarViews.ts",
+  "ac-client-ui-layout/client/mainViews.ts",
+  "ac-client-ui-layout/client/uiStore.ts",
+  "ac-client-ui-llm-pool/client/PoolEntryForm.vue",
+  "ac-client-ui-llm-pool/client/poolApi.ts",
+  "ac-client-ui-plugin-registry/client/ExtToolsPane.vue",
+  "ac-client-ui-renderer/client",
+  "ac-client-ui-renderer/client/CodeCard.vue",
+  "ac-client-ui-renderer/client/ScrollableViewport.vue",
+  "ac-client-ui-renderer/client/SlotOutlet.vue",
+  "ac-client-ui-renderer/client/codeFence.ts",
+  "ac-client-ui-renderer/client/hljs-languages.ts",
+  "ac-client-ui-renderer/client/logger.ts",
+  "ac-client-ui-renderer/client/markdownMath.ts",
+  "ac-client-ui-renderer/client/useMarkdown.ts",
+  "ac-client-ui-search-pool/client/SearchEntryForm.vue",
+  "ac-client-ui-search-pool/client/searchPoolApi.ts",
+  "ac-client-ui-settings/client/api.ts",
+  "ac-client-ui-settings/client/components/ConfirmDialog.vue",
+  "ac-client-ui-settings/client/components/SettingField.vue",
+  "ac-client-ui-settings/client/extensionTabs.ts",
+  "ac-client-ui-settings/client/rpcDefault.ts",
+  "ac-client-ui-settings/client/schema.ts",
+  "ac-client-ui-settings/client/slotCatalog.ts",
+  "ac-client-ui-settings/client/types.ts",
+  "ac-client-ui-settings/client/useSettings.ts",
+  "ac-client-ui-singles/client",
+  "ac-client-ui-skill/client/skillsApi.ts",
+  "ac-client-ui-subagent/client/board.ts",
+  "ac-client-ui-system/client/systemApi.ts",
+  "ac-client-ui-theme/client",
+  "ac-client-ui-theme/client/themeStore.ts",
+  "ac-client-ui-timer/client/TimerPane.vue",
+  "ac-client-ui-timer/client/timerApi.ts",
+  "ac-client-ui-tool/client/toolIcon.ts",
+  "ac-client-ui-tool/client/toolLabel.ts",
+  "ac-client-ui-tool/client/toolResultViews.ts",
+  "ac-client-ui-workspace/client",
+  "ac-client-ui-workspace/client/EntryPickerModal.vue",
+  "ac-client-ui-workspace/client/fileApi.ts",
+  "ac-client-ui-workspace/client/filePreviewContent.ts",
+  "ac-client-ui-workspace/client/workspaceFile.ts",
+  "pinia",
+  "vue",
+]);
+

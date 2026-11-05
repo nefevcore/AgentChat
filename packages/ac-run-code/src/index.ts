@@ -37,10 +37,10 @@ export const extension: ExtensionMeta = {
   ],
 };
 
-// agentLoop 不进 inject（硬依赖会让本行在 loop 行缺席时 PENDING——工具
-// 行与 loop 行独立装配是既有语义）：prompt.ts 的 loop/before-run 订阅
-// 经 ctx.on 挂载，loop 行在场时事件自然可达，缺席时零效果。
-export const inject = ['tools'];
+// agentLoop 进 inject（cr-881 起 SDK 投影 = PTC_SDK 段，start-time 注册面
+// 需要服务在场；run_code 的 run 通道本就经 agentLoop——loop 缺席时本行
+// 无法工作，PENDING 是诚实状态）。
+export const inject = ['tools', 'agentLoop'];
 
 export function apply(ctx: Context, options: RunCodeRowOptions = {}) {
   // SDK 投影 + 程序书写纪律注入（实测复盘 #A1/#A2：投影必须进模型

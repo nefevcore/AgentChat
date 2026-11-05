@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "processes": [
+    {
+      "id": "host",
+      "bootEntry": "apps/host/boot.ts",
+      "spawn": [
+        "node",
+        "--experimental-strip-types",
+        "{bootEntry}",
+        "--data-root",
+        "{dataRoot}"
+      ],
+      "surfaces": [
+        "web-server(3830 缺省)",
+        "post-office ipc"
+      ],
+      "approval": "宿主进程零第三方代码（R0a 判据 1）——无插件审批面"
+    },
+    {
+      "id": "shell",
+      "bootEntry": "apps/shell/boot.ts",
+      "spawn": [
+        "node",
+        "--experimental-strip-types",
+        "{bootEntry}",
+        "--data-root",
+        "{dataRoot}",
+        "--agent-id",
+        "{agentId}"
+      ],
+      "surfaces": [
+        "transportHint socket",
+        "activation.lock 单例"
+      ],
+      "approval": "node 面装载（安装审批卡——两轴回执）"
+    },
+    {
+      "id": "webui",
+      "form": "前端产物（可独立部署——断连降级）",
+      "surfaces": [
+        "/api/ui/boot-graph",
+        "/ui-plugin/:name/*"
+      ],
+      "approval": "web 面免审（ui 权限显式授予 + 高危席位评审）"
+    }
+  ]
+}

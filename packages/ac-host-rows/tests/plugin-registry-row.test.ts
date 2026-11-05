@@ -229,7 +229,7 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
     const h = await boot();
     try {
       expect([...h.web.handlers.keys()].sort()).toEqual([
-        'plugin/approve', 'plugin/installed', 'plugin/load-failure', 'plugin/load-health',
+        'plugin/approve', 'plugin/healthz', 'plugin/installed', 'plugin/load-failure', 'plugin/load-health',
         'plugin/load-health-clear', 'plugin/permissions', 'plugin/reject', 'plugin/rows',
         'plugin/stage', 'plugin/staging-file', 'plugin/staging-files', 'plugin/staging-list',
         'plugin/uninstall', 'rows/list', 'rows/reset', 'rows/set',
@@ -254,6 +254,36 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
       expect(health.disabled).toEqual({});
       const cleared = await h.web.call('rows/reset') as { state: string };
       expect(cleared.state).toBe('reset');
+    } finally {
+      await h.dispose();
+    }
+  });
+});
+
+describe('v2 统一安装器换轨（cr-903 批2 切片四）', () => {
+  it('installFromDir：installed.patch.yml 登记 + 回执带生效轴；healthz 对账零 issue；卸载对称', async () => {
+    const h = await boot();
+    try {
+      const svc = h.registry;
+      const src = path.join(ROOT, 'src-v2-pkg');
+      fs.mkdirSync(src, { recursive: true });
+      fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify({
+        name: 'ac-plugin-v2', version: '1.0.0',
+        engines: { node: '>=20', agentchat: '^2' },
+        ac: { permissions: ['fs'], provides: { tools: ['v2-tool'] } },
+      }, null, 2));
+      fs.writeFileSync(path.join(src, 'index.ts'), 'export const apply = () => {};');
+      const result = await svc.installFromDir(src, 'agent-v2');
+      expect(result.status).toBe('installed');
+      if (result.status === 'installed') {
+        expect(result.effective).toBe('live'); // 测试数据根无活壳
+      }
+      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), 'utf-8')).toContain('ac-plugin-v2');
+      const hz = (await h.web.call('plugin/healthz') as ReturnType<typeof svc.healthz>);
+      const entry = hz.entries.find((e) => e.name === 'ac-plugin-v2');
+      expect(entry?.issues).toEqual([]);
+      await svc.uninstall('ac-plugin-v2');
+      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), 'utf-8')).not.toContain('ac-plugin-v2');
     } finally {
       await h.dispose();
     }

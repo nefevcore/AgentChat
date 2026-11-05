@@ -1,0 +1,32 @@
+{
+  "name": "ac-host-face",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主能力面行（cr-886）：ipc host-face 端点——facts（singles/group 数据根直读）+ 远程工具（timer/update_agent_profile，双闸）+ 远程段（五段）；invalidate 推送",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-host-face-core": "workspace:*",
+    "ac-timer-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

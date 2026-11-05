@@ -64,6 +64,12 @@
       "path": "packages/ac-host-rows"
     },
     {
+      "id": "host-face",
+      "tree": "host",
+      "description": "宿主能力面（ipc 契约：timer/update_agent_profile 远程工具 + 远程段 + facts）",
+      "path": "packages/ac-host-face"
+    },
+    {
       "id": "timers",
       "tree": "host",
       "description": "定时唤醒（唤醒 = 投递信）",
@@ -82,20 +88,6 @@
       ]
     },
     {
-      "id": "archive",
-      "tree": "shell",
-      "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；timer archive-all 改批量唤醒信）",
-      "path": [
-        "packages/ac-shell-rows",
-        "packages/ac-archive-core"
-      ],
-      "requires": [
-        "ledger",
-        "conversation",
-        "agent-loop"
-      ]
-    },
-    {
       "id": "backup",
       "tree": "host",
       "description": "数据轴备份 + 快照链 GFS（分轴共行）",
@@ -103,25 +95,6 @@
         "packages/ac-backup",
         "packages/ac-backup-core"
       ]
-    },
-    {
-      "id": "session-query",
-      "tree": "shell",
-      "description": "会话查询（只搜自己：本 agent 账本只读回放——D10 收敛，cr-544）",
-      "tools": [
-        "grep_history",
-        "read_history"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-shell-rows"
-    },
-    {
-      "id": "auto-title",
-      "tree": "shell",
-      "description": "会话命名（首步后 LLM 一句概括 → 信封请求宿主 singles 行落盘——cr-672）",
-      "path": "packages/ac-shell-rows"
     },
     {
       "id": "web-server",
@@ -181,6 +154,63 @@
       "path": "packages/ac-remote-link"
     },
     {
+      "id": "singles",
+      "tree": "host",
+      "description": "独立会话元数据（session.json 单写者 + singles/* RPC + 事件广播）",
+      "path": [
+        "packages/ac-host-rows",
+        "packages/ac-ledger"
+      ]
+    },
+    {
+      "id": "group",
+      "tree": "host",
+      "description": "群存储（groups/<gid>/group.json 成员表单写者 + group/* RPC + 信封扇出 + 成员流合并读面）",
+      "path": [
+        "packages/ac-host-rows",
+        "packages/ac-post-office"
+      ]
+    },
+    {
+      "id": "conv-settings",
+      "tree": "host",
+      "description": "会话级覆盖（模型/工具档/实验键）——宿主单写，壳经垫片只读",
+      "path": "packages/ac-conv-settings"
+    },
+    {
+      "id": "archive",
+      "tree": "shell",
+      "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；timer archive-all 改批量唤醒信）",
+      "requires": [
+        "ledger",
+        "conversation",
+        "agent-loop"
+      ],
+      "path": [
+        "packages/ac-shell-rows",
+        "packages/ac-archive-core"
+      ]
+    },
+    {
+      "id": "session-query",
+      "tree": "shell",
+      "description": "会话查询（只搜自己：本 agent 账本只读回放——D10 收敛，cr-544）",
+      "tools": [
+        "grep_history",
+        "read_history"
+      ],
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-shell-rows"
+    },
+    {
+      "id": "auto-title",
+      "tree": "shell",
+      "description": "会话命名（首步后 LLM 一句概括 → 信封请求宿主 singles 行落盘——cr-672）",
+      "path": "packages/ac-shell-rows"
+    },
+    {
       "id": "logger-console",
       "tree": "shell",
       "description": "日志基座（两树各计）",
@@ -202,11 +232,11 @@
       "id": "conversation",
       "tree": "shell",
       "description": "会话状态机：串行化门 + inbox 双队列 + budget + user 端点桩 + 全量 loop 驱动（M8.2）",
-      "path": "packages/ac-shell-conversation",
       "requires": [
         "agent-loop",
         "ledger"
-      ]
+      ],
+      "path": "packages/ac-shell-conversation"
     },
     {
       "id": "tools",
@@ -227,21 +257,21 @@
       "id": "llm-pool",
       "tree": "shell",
       "description": "连接池（凭据直读数据根）",
-      "path": "packages/ac-llm-pool",
       "requires": [
         "llm",
         "config"
-      ]
+      ],
+      "path": "packages/ac-llm-pool"
     },
     {
       "id": "agent-loop",
       "tree": "shell",
       "description": "ReAct 编排",
-      "path": "packages/ac-agent-loop",
       "requires": [
         "llm",
         "tools"
-      ]
+      ],
+      "path": "packages/ac-agent-loop"
     },
     {
       "id": "persona",
@@ -250,10 +280,16 @@
       "path": "packages/ac-persona"
     },
     {
-      "id": "system-prompt",
+      "id": "host-face-client",
       "tree": "shell",
-      "description": "系统提示装配",
-      "path": "packages/ac-system-prompt"
+      "description": "宿主能力面（壳侧：代理工具 timer/update_agent_profile + 远程段 + singles/group Shim——运行时懒装配面，非静态注册）",
+      "path": "packages/ac-host-face-client"
+    },
+    {
+      "id": "conduct",
+      "tree": "shell",
+      "description": "行为基线（专业客观段）",
+      "path": "packages/ac-conduct"
     },
     {
       "id": "memory",
@@ -263,10 +299,10 @@
         "memory_grep",
         "memory_write"
       ],
-      "path": "packages/ac-memory",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-memory"
     },
     {
       "id": "goal",
@@ -275,10 +311,10 @@
       "tools": [
         "goal"
       ],
-      "path": "packages/ac-goal",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-goal"
     },
     {
       "id": "todo",
@@ -287,10 +323,10 @@
       "tools": [
         "todo"
       ],
-      "path": "packages/ac-todo",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-todo"
     },
     {
       "id": "fs-tools",
@@ -302,12 +338,12 @@
         "edit"
       ],
       "bundle": "fs",
+      "requires": [
+        "tools"
+      ],
       "path": [
         "packages/ac-fs-tools",
         "packages/ac-file-snapshots"
-      ],
-      "requires": [
-        "tools"
       ]
     },
     {
@@ -319,10 +355,10 @@
         "grep"
       ],
       "bundle": "fs",
-      "path": "packages/ac-fs-search",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-fs-search"
     },
     {
       "id": "str-replace-editor",
@@ -332,10 +368,10 @@
         "str_replace_editor"
       ],
       "bundle": "fs",
-      "path": "packages/ac-str-replace-editor",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-str-replace-editor"
     },
     {
       "id": "shell-tools",
@@ -361,10 +397,10 @@
         "run_code"
       ],
       "bundle": "infra",
-      "path": "packages/ac-run-code",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-run-code"
     },
     {
       "id": "math",
@@ -373,10 +409,16 @@
       "tools": [
         "math"
       ],
-      "path": "packages/ac-math",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-math"
+    },
+    {
+      "id": "artifacts",
+      "tree": "shell",
+      "description": "产出物引用指引段",
+      "path": "packages/ac-artifacts"
     },
     {
       "id": "web-tools",
@@ -385,10 +427,10 @@
       "tools": [
         "web_search"
       ],
-      "path": "packages/ac-web-tools",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-web-tools"
     },
     {
       "id": "browser",
@@ -397,10 +439,10 @@
       "tools": [
         "browser"
       ],
-      "path": "packages/ac-web-tools",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-web-tools"
     },
     {
       "id": "issue-tools",
@@ -409,10 +451,10 @@
       "tools": [
         "submit_issue"
       ],
-      "path": "packages/ac-issue-tools",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-issue-tools"
     },
     {
       "id": "harness-tools",
@@ -430,10 +472,6 @@
       "id": "sap-adt",
       "tree": "shell",
       "description": "SAP ADT 工具（吸收 preset 子行）",
-      "path": "packages/ac-sap-adt",
-      "requires": [
-        "tools"
-      ],
       "tools": [
         "adt_activate",
         "adt_atc_runs",
@@ -467,7 +505,11 @@
         "adt_unlock_all",
         "adt_version_diff",
         "adt_where_used"
-      ]
+      ],
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-sap-adt"
     },
     {
       "id": "datetime",
@@ -482,10 +524,10 @@
       "tools": [
         "load_skill"
       ],
-      "path": "packages/ac-skill",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-skill"
     },
     {
       "id": "collab-tools",
@@ -497,47 +539,22 @@
         "list_agents",
         "list_groups",
         "list_tools",
-        "read_agent_info",
-        "update_agent_profile"
+        "read_agent_info"
       ],
-      "path": "packages/ac-collab-tools",
       "requires": [
         "tools",
         "conversation"
-      ]
+      ],
+      "path": "packages/ac-collab-tools"
     },
     {
       "id": "mcp",
       "tree": "shell",
       "description": "MCP client 行（R-12）",
-      "path": "packages/ac-mcp",
       "requires": [
         "tools"
-      ]
-    },
-    {
-      "id": "singles",
-      "tree": "host",
-      "description": "独立会话元数据（session.json 单写者 + singles/* RPC + 事件广播）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-ledger"
-      ]
-    },
-    {
-      "id": "group",
-      "tree": "host",
-      "description": "群存储（groups/<gid>/group.json 成员表单写者 + group/* RPC + 信封扇出 + 成员流合并读面）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-post-office"
-      ]
-    },
-    {
-      "id": "conv-settings",
-      "tree": "host",
-      "description": "会话级覆盖（模型/工具档/实验键）——宿主单写，壳经垫片只读",
-      "path": "packages/ac-conv-settings"
+      ],
+      "path": "packages/ac-mcp"
     },
     {
       "id": "subagent",
@@ -546,17 +563,17 @@
       "tools": [
         "subagent"
       ],
-      "path": "packages/ac-shell-subagent",
       "requires": [
         "tools"
-      ]
+      ],
+      "path": "packages/ac-shell-subagent"
     },
     {
       "id": "durable-interaction",
       "tree": "shell",
       "description": "交互承重（数据化 boot）",
-      "path": "packages/ac-durable-interaction",
-      "requires": []
+      "requires": [],
+      "path": "packages/ac-durable-interaction"
     },
     {
       "id": "ask-questions",
@@ -565,11 +582,11 @@
       "tools": [
         "ask_questions"
       ],
-      "path": "packages/ac-ask-questions",
       "requires": [
         "tools",
         "durable-interaction"
-      ]
+      ],
+      "path": "packages/ac-ask-questions"
     },
     {
       "id": "jobs",
@@ -581,11 +598,11 @@
       "id": "bench",
       "tree": "shell",
       "description": "评测域（影子壳跑 bench 门）",
-      "path": "packages/ac-bench",
       "requires": [
         "tools",
         "agent-loop"
-      ]
+      ],
+      "path": "packages/ac-bench"
     },
     {
       "id": "plugin-dev",
@@ -606,11 +623,11 @@
       "id": "restart",
       "tree": "shell",
       "description": "安全重启双件（restart_shell 中止回队续跑 / restart_host 信封请求宿主 graceful 重启——cr-629；创造预设专属 cr-635）",
-      "bundle": "creator",
       "tools": [
         "restart_shell",
         "restart_host"
       ],
+      "bundle": "creator",
       "requires": [
         "tools",
         "conversation"

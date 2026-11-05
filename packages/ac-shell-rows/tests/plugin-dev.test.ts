@@ -1,7 +1,7 @@
 // ============================================================
-// 壳内插件开发行单测（cr-553）：三工具注册 + register 会话级装载全链
-//（ctx.plugin 真装载 + 收束检测回执）+ unregister 两档。数据根恒
-// sandbox（红线）。
+// 壳内插件开发行单测（cr-553；cr-866 即时执行形态）：三工具注册 +
+// register 会话级装载全链（ctx.plugin 真装载 + 装载即时生效）+
+// unregister 两档。数据根恒 sandbox（红线）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -13,7 +13,7 @@ const ROOT = path.resolve('sandbox', 'test-plugin-dev-' + process.pid);
 const AGENT = 'creator-1';
 
 /** tools 基座桩（本行 inject [tools]）——主线 ac-tools 最小面 */
-interface ToolDef { name: string; description?: string; parameters?: unknown; execute?: (args: unknown) => Promise<unknown> }
+interface ToolDef { name: string; description?: string; parameters?: unknown; execute?: (args: unknown, call?: unknown) => Promise<unknown> }
 class StubToolsService extends Service {
   readonly tools = new Map<string, ToolDef>();
   constructor(ctx: Context) { super(ctx, 'tools'); }
@@ -28,16 +28,7 @@ class StubToolsService extends Service {
   execute(name: string, args: unknown) {
     const tool = this.tools.get(name);
     if (tool === undefined) throw new Error('unknown tool: ' + name);
-    return tool.execute!(args);
-  }
-}
-
-/** ledger 桩（回执落账面——deliverRow 捕获） */
-class StubLedger extends Service {
-  readonly rows: Array<{ uuid: string; content: string }> = [];
-  constructor(ctx: Context) { super(ctx, 'ledger'); }
-  async deliverRow(uuid: string, _participants: string[], _kind: string, row: { content: string }) {
-    this.rows.push({ uuid, content: row.content });
+    return tool.execute!(args, { toolCallId: 'tc-' + name });
   }
 }
 
@@ -64,8 +55,6 @@ async function boot() {
   const ctx = new Context();
   const toolsFiber = ctx.plugin(class extends StubToolsService { constructor(c: Context) { super(c); } });
   await toolsFiber;
-  const ledgerFiber = ctx.plugin(class extends StubLedger { constructor(c: Context) { super(c); } });
-  await ledgerFiber;
   const fiber = ctx.plugin(makePluginDevRow({
     dataRoot: ROOT,
     agentId: AGENT,
@@ -82,10 +71,9 @@ async function boot() {
   return {
     ctx,
     tools: (ctx as unknown as { tools: StubToolsService }).tools,
-    ledger: (ctx as unknown as { ledger: StubLedger }).ledger,
-    fibers: [fiber, ledgerFiber, toolsFiber] as Fiber[],
+    fibers: [fiber, toolsFiber] as Fiber[],
     async dispose() {
-      for (const f of [fiber, ledgerFiber, toolsFiber]) if (f.uid !== null) await f.dispose();
+      for (const f of [fiber, toolsFiber]) if (f.uid !== null) await f.dispose();
     },
   };
 }
@@ -105,13 +93,6 @@ function makePluginDir(name: string): string {
   return dir;
 }
 
-/** 触发收束检测（模拟 loop/after-run 事件——finish=interrupted + toolInterrupt） */
-function emitInterrupt(ctx: Context, ti: Record<string, unknown>): void {
-  void ctx.emit('loop/after-run',
-    { agent: AGENT, conversationId: 'user~' + AGENT } as never,
-    { finish: 'interrupted', interruptReason: { type: 'tool-interrupt', toolInterrupt: ti } } as never);
-}
-
 beforeEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
   fs.mkdirSync(ROOT, { recursive: true });
@@ -120,7 +101,7 @@ afterEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
-describe('壳内插件开发行（cr-553）', () => {
+describe('壳内插件开发行（cr-553 / cr-866 即时执行）', () => {
   it('三工具在册（register/install/unregister_plugin）', async () => {
     const h = await boot();
     expect([...h.tools.tools.keys()].sort()).toContain('install_plugin');
@@ -129,66 +110,66 @@ describe('壳内插件开发行（cr-553）', () => {
     await h.dispose();
   });
 
-  it('工具上报意图不执行（interrupt 载荷——M11 语义化中断）', async () => {
+  it('register 即时装载：execute 返回时工具已在注册面、可直接调用', async () => {
     const h = await boot();
-    const out = await h.tools.execute('register_plugin', { dir: 'dev-hello' }) as { ok: boolean; interrupt?: { type: string; dir?: string } };
+    makePluginDir('dev-hello');
+    const out = await h.tools.execute('register_plugin', { dir: 'dev-hello' }) as {
+      ok: boolean; output?: { loaded?: string; tools?: string[] };
+    };
     expect(out.ok).toBe(true);
-    expect(out.interrupt?.type).toBe('register-plugin');
-    expect(out.interrupt?.dir).toBe('dev-hello');
+    expect(out.output?.loaded).toBe('dev-hello');
+    expect(out.output?.tools).toContain('dev-hello_tool');
+    // 装载即时性：同轮即可调用插件工具
+    expect([...h.tools.tools.keys()]).toContain('dev-hello_tool');
+    const r = await h.tools.execute('dev-hello_tool', {}) as { ok: boolean; output?: { from?: string } };
+    expect(r.output?.from).toBe('plugin');
     await h.dispose();
   });
 
-  it('register 消费：会话级装载全链——插件工具真注册 + 回执落账', async () => {
+  it('register 幂等：同名已装载 → 幂等返回不重载', async () => {
     const h = await boot();
     makePluginDir('dev-hello');
-    emitInterrupt(h.ctx, { type: 'register-plugin', dir: 'dev-hello' });
-    await new Promise((r) => setTimeout(r, 500)); // 收束检测异步链（含 dynamic import）
-    expect([...h.tools.tools.keys()]).toContain('dev-hello_tool');
-    const receipt = h.ledger.rows.at(-1);
-    expect(receipt?.content).toContain('已装载 dev-hello');
-    expect(receipt?.uuid).toBe('user~' + AGENT);
+    await h.tools.execute('register_plugin', { dir: 'dev-hello' });
+    const again = await h.tools.execute('register_plugin', { dir: 'dev-hello' }) as { ok: boolean; output?: { loaded?: string } };
+    expect(again.ok).toBe(true);
+    expect(again.output?.loaded).toBe('dev-hello');
     await h.dispose();
   });
 
-  it('register 失败线：manifest 缺席 → 修复方向回执', async () => {
+  it('register 失败线：目录缺席 → ok:false 带修复方向', async () => {
     const h = await boot();
-    emitInterrupt(h.ctx, { type: 'register-plugin', dir: 'no-such' });
-    await new Promise((r) => setTimeout(r, 500));
-    const receipt = h.ledger.rows.at(-1);
-    expect(receipt?.content).toContain('装载失败');
-    expect(receipt?.content).toContain('manifest');
+    const out = await h.tools.execute('register_plugin', { dir: 'no-such' }) as { ok: boolean; error?: string };
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('装载失败');
+    expect(out.error).toContain('manifest');
     await h.dispose();
   });
 
-  it('unregister 缺省档：仅卸会话级装载（插件工具摘除）', async () => {
+  it('unregister 缺省档：立即卸会话级装载（插件工具即刻摘除）', async () => {
     const h = await boot();
     makePluginDir('dev-hello');
-    emitInterrupt(h.ctx, { type: 'register-plugin', dir: 'dev-hello' });
-    await new Promise((r) => setTimeout(r, 500));
+    await h.tools.execute('register_plugin', { dir: 'dev-hello' });
     expect([...h.tools.tools.keys()]).toContain('dev-hello_tool');
-    emitInterrupt(h.ctx, { type: 'unregister-plugin', name: 'dev-hello' });
-    await new Promise((r) => setTimeout(r, 500));
+    const out = await h.tools.execute('unregister_plugin', { name: 'dev-hello' }) as { ok: boolean; output?: { unloaded?: boolean } };
+    expect(out.output?.unloaded).toBe(true);
     expect([...h.tools.tools.keys()]).not.toContain('dev-hello_tool');
-    const receipt = h.ledger.rows.at(-1);
-    expect(receipt?.content).toContain('已卸载 dev-hello');
     await h.dispose();
   });
 
-  it('unregister 缺省档未装载线：无需卸载回执', async () => {
+  it('unregister 缺省档未装载线：unloaded:false 提示', async () => {
     const h = await boot();
-    emitInterrupt(h.ctx, { type: 'unregister-plugin', name: 'ghost' });
-    await new Promise((r) => setTimeout(r, 500));
-    const receipt = h.ledger.rows.at(-1);
-    expect(receipt?.content).toContain('未在会话级装载中');
+    const out = await h.tools.execute('unregister_plugin', { name: 'ghost' }) as { ok: boolean; output?: { unloaded?: boolean; note?: string } };
+    expect(out.output?.unloaded).toBe(false);
+    expect(out.output?.note).toContain('未在会话级装载中');
     await h.dispose();
   });
 
-  it('install 消费（无邮局形态）：CLI 直连 fail-loud 回执', async () => {
+  it('install 无邮局形态：CLI 直连 fail-loud', async () => {
     const h = await boot();
-    emitInterrupt(h.ctx, { type: 'install-plugin', dir: 'dev-hello' });
-    await new Promise((r) => setTimeout(r, 500));
-    const receipt = h.ledger.rows.at(-1);
-    expect(receipt?.content).toContain('无邮局连接');
+    makePluginDir('dev-hello');
+    const out = await h.tools.execute('install_plugin', { dir: 'dev-hello' }) as { ok: boolean; error?: string };
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('无邮局连接');
     await h.dispose();
   });
 });

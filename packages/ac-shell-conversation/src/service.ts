@@ -22,10 +22,12 @@ import type { Envelope, StreamFrame } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, isBudgetSource, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
-import { effectiveToolMode, narrowToolsByMode } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径——主线三处共用同源引用）
+import { effectiveToolMode, narrowToolsByMode, tierOf } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 档位判定单源（cr-888 指纹键面）
 import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
+import { diffFingerprints, readPrefixSnapshot, writePrefixSnapshot, type PrefixSnapshot } from './prefix-snapshot.ts'; // cr-888 singles 前缀物化
+import type { FrozenPromptSection, LoopRunRequest } from 'ac-agent-loop';
 
 export interface ConversationRowOptions {
   dataRoot: string;
@@ -534,6 +536,12 @@ export class ConversationService extends Service {
         if (entersInbox(env.kind, budgetAfterReceive(env.budget, env.sender))) {
           this.ctx.ledger.inboxStore(uuid, env);
         }
+        // cr-888 singles 前缀快照对账（②diff 在 run 入口、history 派生之前）：
+        // 变化通知行先落账——本 run messages 复读即自带（无需 splice 注入）。
+        let frozen: FrozenPromptSection[] | undefined;
+        if (this.isSingles(uuid)) {
+          frozen = await this.syncPrefixSnapshot(uuid, config, env, runId);
+        }
         // 上下文单源 = 账本（cr-639/658）：轨迹读面——含各 run 的
         // assistant/tool 协议对（tool_calls + 结果），不再对既往工具工作
         // 失明。receiveEnvelope 已 deliverRow 落了本条 user 行（recovered
@@ -550,6 +558,8 @@ export class ConversationService extends Service {
           ...this.effectiveModelRef(config, env.model),
           ...(config.system !== undefined ? { system: config.system } : {}),
           tools: this.llmToolFace(config, uuid),
+          // cr-888：快照段集在场 = singles 冻结装配面（run() 入口跳过注册面求值）
+          ...(frozen !== undefined ? { frozenSections: frozen } : {}),
           ...(config.maxSteps !== undefined && config.maxSteps > 0
             ? { maxSteps: resume !== null ? Math.max(1, config.maxSteps - resume.committedSteps) : config.maxSteps }
             : {}),
@@ -1103,40 +1113,170 @@ export class ConversationService extends Service {
   }
 
   /**
-   * System Prompt 装配预览（cr-552 跨进程 dry-run 的壳内半边）：以干跑
-   * 请求过三档装配链（before-run-first → before-run → before-run-last，
-   * 主线 agent-admin systemPromptPreview 同构）——persona/system-prompt/
-   * memory 等全部组装器真实生效，但不发 run（不落账、不占串行化门、
-   * 无 LLM 调用）。virtual 身份无系统提示词 fail-loud。
+   * System Prompt 装配预览（cr-552 跨进程 dry-run 的壳内半边；cr-881 段
+   * 注册制）：干跑请求过 PromptSection 组装 + before-run 拦截链（persona/
+   * memory/skill 等全部段贡献真实生效，但不发 run——不落账、不占串行化
+   * 门、无 LLM 调用）。virtual 身份无系统提示词 fail-loud。
    * 请求装配口径与 driveRun 同源（readConfig/toolFaceOf/sender=user/
    * 缺省键 pairKey('user', agent)）——预览 = 真实 run 的装配面镜像。
    */
   async previewSystemPrompt(conversationId?: string): Promise<string> {
     const config = this.readConfig();
     if (config.virtual === true) throw new Error('Agent "' + this.agentId + '" 是 virtual（无系统提示词）');
+    const cid = conversationId ?? pairKey('user', this.agentId);
+    // cr-888：singles 快照在读——预览 = 真实 run 装配面镜像：快照在场即
+    // 读冻结段（模型取快照指纹域），不走注册面求值。首 run 前无快照 =
+    // 按未来首 run 的注册面预览。
+    const snap = this.isSingles(cid) ? readPrefixSnapshot(this.dataRoot, cid) : null;
     // 工具面与 driveRun 同源走 llmToolFace（cr-590 行 id 展开 + cr-593
     // 模式收窄——tc-programmatic 会话干跑请求面 = ['run_code']，run_code
-    // 行的 SDK 投影注入（isModeToolFace 判定）随之到达；直读
-    // resolveToolNames/toolFaceOf 是未收窄全量面，投影块永不注入 =
-    // 前端 SystemPromptPanel 看不到程序化 SDK 的根因）。
-    const tools = this.llmToolFace(config, conversationId);
+    // 行的 SDK 投影注入（isModeToolFace 判定）随之到达）。
+    const tools = this.llmToolFace(config, cid);
+    const modelRef = snap !== null
+      ? {
+        model: snap.settingsFingerprint.model,
+        ...(snap.settingsFingerprint.provider !== ''
+          ? { provider: snap.settingsFingerprint.provider }
+          : {}),
+      }
+      : this.modelRefOf(config);
     const request = {
       agent: this.agentId,
-      ...this.modelRefOf(config),
+      ...modelRef,
       ...(config.system !== undefined ? { system: config.system } : {}),
       tools,
       sender: 'user',
       source: 'user' as const,
-      conversationId: conversationId ?? pairKey('user', this.agentId),
+      conversationId: cid,
+      messages: [],
+      ...(snap !== null ? { frozenSections: snap.sections } : {}),
+    };
+    // 段组装（cr-881）：与 run() 入口同源（assemblePreview）——先组装后过
+    // 拦截链（拦截器读到组装终值，与真实 run 时序一致）
+    const assembled = this.ctx.get('agentLoop')!.assemblePreview(request);
+    if (assembled !== undefined) request.system = assembled;
+    const call = { request };
+    await this.ctx.waterfall('loop/before-run', call, async () =>
+      ({ steps: [], text: '', finish: 'stop', usage: null }) as never);
+    // 读载体 call.request（拦截器以替换 request 的方式变异载体——本地别名仍是旧对象）
+    return call.request.system ?? '';
+  }
+
+  // —— cr-888 singles 前缀快照四机制（docs/design/single-system-prompt-materialization-plan.md）——
+
+  /** singles 判定（ctx.get('singles') 消费口——壳内 SinglesShim，ac-host-face-client 提供；行缺席 = 恒 false） */
+  private isSingles(conversationId: string): boolean {
+    const singles = this.ctx.get('singles', false) as { get(id: string): unknown } | undefined;
+    return singles?.get(conversationId) !== undefined;
+  }
+
+  /** 快照求值请求（物化段求值 + 指纹段求值共用——与真实 run 装配口径同源：tools 经 llmToolFace 收窄、sender=user） */
+  private snapshotRequest(sid: string, config: AgentConfig, modelRef: { provider?: string; model: string }): LoopRunRequest {
+    return {
+      agent: this.agentId,
+      ...(modelRef.provider !== undefined ? { provider: modelRef.provider } : {}),
+      model: modelRef.model,
+      ...(config.system !== undefined ? { system: config.system } : {}),
+      tools: this.llmToolFace(config, sid),
+      sender: 'user',
+      source: 'user',
+      conversationId: sid,
       messages: [],
     };
-    const call = { request };
-    await this.ctx.waterfall('loop/before-run-first', call, () =>
-      this.ctx.waterfall('loop/before-run', call, () =>
-        this.ctx.waterfall('loop/before-run-last', call, async () =>
-          ({ steps: [], text: '', finish: 'stop', usage: null }) as never)));
-    // 读载体 call.request（组装器以替换 request 的方式变异载体——本地别名仍是旧对象）
-    return call.request.system ?? '';
+  }
+
+  /**
+   * §3 diff 指纹键面（§4 十类的超集）：provider/model | 生效工具名清单 |
+   * toolMode | browserTier | issueSubmit | workspace | tier | elevation |
+   * ptcSdk 文本 hash | 技能结构化名清单 | ext.<扩展键>。技能用名清单比、不做
+   * 文本 diff（描述性小改不触发）；PTC_SDK 存文本 hash（SDK 投影漂移检测）。
+   */
+  private fingerprintOf(sid: string, config: AgentConfig, modelRef: { provider?: string; model: string }, env: Envelope | null): Record<string, string> {
+    const convSettings = this.ctx.get('convSettings', false) as
+      | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+      | undefined;
+    const settings = convSettings?.get(sid) as Record<string, string> | undefined ?? {};
+    const ws = this.ctx.get('workspace', false) as
+      | { conversationWorkspaceRoot?(cid: string): string | null }
+      | undefined;
+    const skillView = (this.ctx.get('skills', false) as
+      | { listForAgent(agentId: string, conversationId?: string): { global: Array<{ name: string }>; own: Array<{ name: string }>; workspace: Array<{ skills: Array<{ name: string }> }> } }
+      | undefined)?.listForAgent(this.agentId, sid);
+    const fp: Record<string, string> = {
+      provider: modelRef.provider ?? '',
+      model: modelRef.model,
+      tools: this.llmToolFace(config, sid).join(','),
+      toolMode: effectiveToolMode(config, sid, { convSettings }),
+      // #3/#4 语义：knob 值（清除 = '' 静默——语义在 §4 注入模板处）
+      browserTier: settings.browserTier as string | undefined ?? '',
+      issueSubmit: settings.issueSubmit as string | undefined ?? '',
+      workspace: ws?.conversationWorkspaceRoot?.(sid) ?? '',
+      tier: tierOf(config),
+      elevation: env?.elevation ?? '',
+      ptcSdk: crypto.createHash('sha256')
+        .update(this.ctx.agentLoop.sectionText('PTC_SDK', this.snapshotRequest(sid, config, modelRef)))
+        .digest('hex').slice(0, 16),
+      skills: skillView !== undefined
+        ? [...skillView.workspace.flatMap((g) => g.skills.map((s) => s.name)), ...skillView.global.map((s) => s.name), ...skillView.own.map((s) => s.name)].sort().join(',')
+        : '',
+    };
+    // 生态扩展键（conv-settings registerKey）：非内置键全量进指纹（值变 → 通用注入模板）
+    for (const [k, v] of Object.entries(settings)) {
+      if (k === 'model' || k === 'elevation' || k === 'toolMode' || k === 'browserTier' || k === 'issueSubmit') continue;
+      fp['ext.' + k] = v;
+    }
+    return fp;
+  }
+
+  /** #5 通知的回落路径（工作区移除后的默认工作目录——sandboxWorkdir 单源） */
+  private defaultWorkdirOf(): string {
+    const ws = this.ctx.get('workspace', false) as
+      | { sandboxWorkdir?(agentId: string, conversationId?: string): string | null; root: string }
+      | undefined;
+    if (ws !== undefined) return ws.sandboxWorkdir?.(this.agentId) ?? ws.root;
+    return this.dataRoot;
+  }
+
+  /**
+   * 快照对账（run 入口）：① 无快照 → 全段求值物化；③ 仅 provider/model
+   * 变化 → 重算（唯一快照重写通道——缓存域必死时重建基线，白纸无代价）；
+   * ④ 其余指纹键变化 → 通知行落账 + 指纹更新。快照正文永不重写（指纹
+   * 字段更新 ≠ 重写正文）。崩溃顺序：先落账（await）后更新指纹——落账后
+   * 崩 → 重复落同内容行（requestId 幂等键收敛，冗余但如实）；反序则漏通知。
+   * env = null（干跑）→ 只读：不落通知、不更新指纹。
+   */
+  private async syncPrefixSnapshot(sid: string, config: AgentConfig, env: Envelope | null, runId: string): Promise<FrozenPromptSection[]> {
+    const modelRef = env !== null ? this.effectiveModelRef(config, env.model) : this.modelRefOf(config);
+    const nextFp = this.fingerprintOf(sid, config, modelRef, env);
+    const snap = readPrefixSnapshot(this.dataRoot, sid);
+    if (snap === null
+      || snap.settingsFingerprint.model !== nextFp.model
+      || (snap.settingsFingerprint.provider as string | undefined ?? '') !== nextFp.provider) {
+      const created: PrefixSnapshot = {
+        version: 1,
+        createdAt: new Date().toISOString(),
+        sections: this.ctx.agentLoop.materializeSections(this.snapshotRequest(sid, config, modelRef), config.system),
+        settingsFingerprint: nextFp,
+      };
+      writePrefixSnapshot(this.dataRoot, sid, created);
+      return created.sections;
+    }
+    if (env === null) return snap.sections;
+    const d = diffFingerprints(snap.settingsFingerprint, nextFp, { defaultWorkdir: this.defaultWorkdirOf() });
+    if (d.notices.length > 0) {
+      await this.ctx.ledger.deliverRow(sid, [this.agentId], 'user', {
+        role: 'context',
+        source: 'event',
+        label: '会话设置变更',
+        content: d.notices.join('\n'),
+        agent_id: this.agentId,
+        requestId: d.requestId,
+        uuid: sid,
+        run: runId,
+      });
+      writePrefixSnapshot(this.dataRoot, sid, { ...snap, settingsFingerprint: nextFp });
+    }
+    return snap.sections;
   }
 
   /**

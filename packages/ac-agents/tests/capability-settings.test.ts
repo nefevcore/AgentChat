@@ -97,3 +97,30 @@ describe('capabilitySetOf 行内档位 settings 合成（◐a cr-691）', () => 
     expect(c0.has('observe')).toBe(false);
   });
 });
+
+describe('levels 档位归装配（cr-906 批4 切片四 / X1 回滚：levels 赢）', () => {
+  it('levels.browser 档位词 → web + 层级词（高层含低层）；levels 赢过 settings 同键', async () => {
+    const { ctx } = await boot(tmpRoot());
+    ctx.agents.register({
+      id: 'L1',
+      model: 'm',
+      levels: { browser: 'manipulate' },
+      settings: { browser: { observe: true } }, // levels 赢：manipulate 档（非 observe 档）
+    });
+    const c = capabilitySetOf(ctx, 'L1');
+    expect(c.has('web')).toBe(true);
+    expect(c.has('observe')).toBe(true);
+    expect(c.has('manipulate')).toBe(true);
+    expect(c.has('inject')).toBe(false);
+  });
+
+  it('levels.collab admin / dev-tools 布尔；settings 行内档位回滚线仍生效（无 levels 时）', async () => {
+    const { ctx } = await boot(tmpRoot());
+    ctx.agents.register({ id: 'L2', model: 'm', levels: { collab: 'admin', 'dev-tools': true } });
+    const c2 = capabilitySetOf(ctx, 'L2');
+    expect(c2.has('admin')).toBe(true);
+    expect(c2.has('dev')).toBe(true);
+    ctx.agents.register({ id: 'L3', model: 'm', settings: { collab: { admin: true } } }); // 旧线
+    expect(capabilitySetOf(ctx, 'L3').has('admin')).toBe(true);
+  });
+});

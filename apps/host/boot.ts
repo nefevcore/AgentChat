@@ -29,8 +29,9 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
-import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, PRESET_ID, readTemplate, materializeConfigOf, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
-import { readCatalog, deriveHostRowset, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
+import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
+import { isPresetId, presetTemplateKeyOf } from 'ac-agents-core';
+import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readCustomLayer, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
@@ -103,6 +104,12 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   // ---- 出厂通道播种（bundle 形态：dist/plugins → <dataRoot>/plugins 幂等拷贝）----
   seedFactoryPlugins(dataRoot, ANCHORS);
 
+  // ---- 基座部署链（cr-902 / cr-901 v2.1 批1）：repo 基座源文档 →
+  // <dataRoot>/profile/{host,shell}.patch.yml 物化 + 版本戳对账（fail-loud
+  // ——旧应用压新数据根 / 编辑未升戳 / 写后读回不符均拒启）。源目录锚
+  // catalogFile 同目录 profile/（repo 形态 = apps/catalog/profile）。
+  materializeBaseDocs(profileDirOf(options.catalogFile), dataRoot);
+
   // ---- 预设模板升级对账（cr-812 copy-on-write）----
   // 首启物化记 origin 指纹；boot 时模板指纹已变 → 未编辑项自动跟随新版，
   // 已编辑项保留 + 日志提示（用户数据优先）。
@@ -115,9 +122,16 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   if (options.preferences === undefined && fs.existsSync(prefPath)) {
     preferences = JSON.parse(fs.readFileSync(prefPath, 'utf-8')) as HostRowPreference[];
   }
-  const derived = deriveHostRowset(preferences, catalog);
-  if (derived.warnings.length > 0) {
-    throw new Error('host rowset warnings: ' + derived.warnings.join('; '));
+  // host-custom 偏好层（cr-909 批6 切片三）：custom 停用 ∪ host-rows.json
+  // 镜像窗口（急救 RPC 写者不变）——两源并集后派生。custom 是用户域
+  // 文件（数据根 profile/——repo 不部署，与基座源文档分域）
+  const custom = readCustomLayer(path.join(dataRoot, 'profile'), 'host');
+  const mergedPrefs = custom.disabled.size > 0
+    ? [...preferences, ...[...custom.disabled].map((id) => ({ id, disabled: true }) as HostRowPreference)]
+    : preferences;
+  const derived = deriveHostRowset(mergedPrefs, catalog);
+  if (derived.warnings.length > 0 || custom.warnings.length > 0) {
+    throw new Error('host rowset warnings: ' + [...derived.warnings, ...custom.warnings].join('; '));
   }
 
   // ---- 装配面就位性（已实现行覆盖派生集）----
@@ -129,7 +143,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   }
 
   // ---- 邮局先行（usage 等宿主自有形态行的事件信收信面依赖它；web 表面共用）----
-  const po = new PostOffice({ dataRoot });
+  const po = new PostOffice({ dataRoot, onLog: (level, message) => hostLog(level, 'post-office', message) });
   await po.listen();
 
   // ---- 启动期孤儿进程对账清扫（cr-382 建议 3；cr-800 自 ac-app 退役漏迁后回迁）----
@@ -337,6 +351,12 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     // 为准）；广播无连接时帧丢弃（B3 瞬态语义同款——对账面不承诺持久）。
     poller = createShellStatePoller(supervisors);
     pollerRef.snap = () => poller?.snapshot() ?? null; // cr-824 批二：镜像端口回填
+    // cr-885 周期兜底：poller 惰性节拍顺带冲刷 outbox（非空即 flush——重投由
+    // 壳侧 requestId 幂等去重 cr-250 承载，安全）。转投触发面此前只挂 adopted
+    // 事件，peek 可达恢复（shell-emerged）与投递失败的恢复链都不冲刷——滞留
+    // 信要等偶然事件救出（现场：creator 滞留 18 分钟靠 news 定时信顺带 flush）。
+    // flushOutbox 自摘死端点可达项，空箱快路径 = list() 一次 readdir，开销可忽略。
+    poller.onEvent(() => { void po.flushOutbox(); });
     poller.onEvent((event) => {
       if (event.type !== 'run-settled') return;
       hostLog('I', 'poller', 'run-settled 对账（' + event.agentId + '，' + event.runId + '，finish=' + event.finish + '）');
@@ -601,8 +621,8 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
   let dirs: fs.Dirent[] = [];
   try { dirs = fs.readdirSync(agentsDir, { withFileTypes: true }); } catch { return; }
   for (const d of dirs) {
-    const key = PRESET_ID.exec(d.name)?.[1];
-    if (key === undefined) continue;
+    if (!isPresetId(d.name)) continue;
+    const key = presetTemplateKeyOf(d.name)!;
     const dir = path.join(agentsDir, d.name);
     let liveConfig: Record<string, unknown> | null = null;
     try {
@@ -619,11 +639,14 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
     for (const name of names) {
       try { liveDocs[name] = fs.readFileSync(path.join(dir, name), 'utf-8'); } catch { /* 缺席即不在 */ }
     }
+    // 活体技能现状（盘上全量扫描——cr-879 reconcile 判定输入）
+    const liveSkills = readAgentSkills(dataRoot, d.name);
     const result = reconcilePresetOrigin({
       agentId: d.name,
       templateKey: key,
       liveConfig: liveConfig as never,
       liveDocs,
+      liveSkills,
       origin: readOrigin(dataRoot, d.name),
       currentTemplate: template,
     });
@@ -640,9 +663,12 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
         fs.writeFileSync(docTmp, doc.content, 'utf-8');
         fs.renameSync(docTmp, docFile);
       }
+      // 技能跟随（cr-879）：判定已确证未编辑 → overwrite 落盘
+      materializeTemplateSkills(dataRoot, d.name, follow.overwriteSkills, true);
       writeOrigin(dataRoot, d.name, follow.nextOrigin);
       const docCount = String(follow.overwriteDocs.length);
-      hostLog('I', 'host', '预设模板升级跟随：' + d.name + ' ← ' + key + '（config 重物化 + ' + docCount + ' 文档覆盖）');
+      const skillCount = String(follow.overwriteSkills.length);
+      hostLog('I', 'host', '预设模板升级跟随：' + d.name + ' ← ' + key + '（config 重物化 + ' + docCount + ' 文档 + ' + skillCount + ' 技能覆盖）');
     } else if ('notice' in result) {
       hostLog('W', 'host', '预设模板升级提示：' + result.notice);
     }

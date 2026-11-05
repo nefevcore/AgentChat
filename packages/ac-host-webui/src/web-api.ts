@@ -20,7 +20,7 @@ import { readFileSync, statSync } from 'node:fs';
 import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
 import { assembleSessionView, conversationDirs, deleteConversationRow, deriveViewerLedger, historyView, truncateConversation } from 'ac-ledger';
-import { listAgentIds, readAgentConfig, isAgentIdentity, materializedChildIds } from 'ac-agents-core';
+import { listAgentIds, readAgentConfig, isAgentIdentity, isPresetId, materializedChildIds } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, runningOf, type FaceOpsDeps } from './face-ops.ts';
 import {
@@ -92,7 +92,7 @@ function optStr(v: unknown): string | undefined {
 
 /** 名册身份集合（单源——agents/list 载荷与 healthz agents 计数同轴）：
  *  config 在场 ∩ 身份词形（禁 `~`——对键桶会话流域非名册，ensureAgent 兜底
- *  config 在场也不算）∩ 非 preset ∩ 非派生子身份（cr-674：subagent 子身份
+ *  config 在场也不算）∩ 非预设词形 ∩ 非派生子身份（cr-674：subagent 子身份
  *  物化在 children/ 树，顶层兜底 config 会被上一条误放行）。裸目录计数会把
  *  pair/群/子域误算进名册。 */
 function rosterConfigs(dataRoot: string) {
@@ -100,7 +100,7 @@ function rosterConfigs(dataRoot: string) {
   return listAgentIds(dataRoot)
     .filter((id) => isAgentIdentity(id) && !derived.has(id))
     .map((id) => readAgentConfig(dataRoot, id))
-    .filter((c): c is NonNullable<typeof c> => c !== null && c.preset !== true);
+    .filter((c): c is NonNullable<typeof c> => c !== null && !isPresetId(c.id));
 }
 
 /** 数据根画像（healthz 的真实性来源：数得出来的东西，不是常量 200） */
@@ -193,7 +193,9 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // 读前派生（cr-698 viewer 派生化）：agent 域账本自著行（终稿/通知）
         // → viewer 行（requestId 幂等 / run 键单行 / 原 ts）。读时派生兼做
         // 崩溃窗口兜底（终稿通知丢失 → 下次读面补齐）；附带存量双锚行迁移。
-        await deriveViewerLedger(deps.dataRoot, conversationId, view.domains);
+        if (await deriveViewerLedger(deps.dataRoot, conversationId, view.domains) > 0) {
+          ctx.emit('ledger/viewer-appended', conversationId); // 补齐落行同通知（cr-870）
+        }
         // 会话视图组装：单次读（viewer 终稿层 + 全域 journal/账本——含 steps
         // 联查、注入行归口、活投影、盲区投影）。此前三层循环各自重读账本
         //（conversationDirs 枚举 3 次 + ledger.replay() 2 次 + 盲区循环绕过
@@ -496,6 +498,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const messageId = reqStr(p, 'messageId');
         let deleted = 0;
         for (const dir of conversationDirs(deps.dataRoot, conversationId)) deleted += deleteConversationRow(dir, messageId);
+        if (deleted > 0) ctx.emit('ledger/viewer-appended', conversationId); // 账本改写同通知（cr-870）
         return { deleted: deleted > 0 };
       });
 
@@ -506,6 +509,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const messageId = reqStr(p, 'messageId');
         let removed = 0;
         for (const dir of conversationDirs(deps.dataRoot, conversationId)) removed += truncateConversation(dir, messageId);
+        if (removed > 0) ctx.emit('ledger/viewer-appended', conversationId); // 账本改写同通知（cr-870）
         return { removed };
       });
 

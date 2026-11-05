@@ -276,3 +276,35 @@ describe('M8.4 PostOffice 投递执行器', () => {
     await po.close();
   });
 });
+
+// —— cr-885：转投失败诊断面 + 陈旧可达项摘除 ——
+
+describe('cr-885 flushOutbox 失败面', () => {
+  it('转投失败：摘陈旧可达项 + onLog 留痕 + 留箱重试', async () => {
+    const logs: Array<[string, string]> = [];
+    const po = new PostOffice({ dataRoot: ROOT, onLog: (level, message) => { logs.push([level, message]); } });
+    // 现场形态：dispatch 直投失败已摘可达项（cr-648）+ 落箱；随后可达面
+    // 被外部回登记（rescue/peek 壳探活）但端点 pipe 实际无人监听——flush
+    // 撞死连接（此前的现场：转投失败静默留箱、可达项不摘，每拍重撞）
+    const ghostAddr = socketPathFor(path.resolve(ROOT), 'ghost-shell');
+    po.reach.markReachable('alpha', ghostAddr);
+    const dispatched = await po.dispatch(msg({ requestId: 'stuck-1' }));
+    expect(dispatched[0]).toMatchObject({ channel: 'outbox', ack: null });
+    po.reach.markReachable('alpha', ghostAddr); // 外部回登记（壳探活面）
+    const delivered = await po.flushOutbox();
+    expect(delivered).toHaveLength(0);
+    expect(po.reach.hintFor('alpha')).toBeUndefined(); // 陈旧项已摘——后续 flush 不再撞死 pipe
+    expect(logs).toHaveLength(1);
+    expect(logs[0][0]).toBe('W');
+    expect(logs[0][1]).toContain('stuck-1');
+    expect(fs.existsSync(path.join(ROOT, 'outbox', '1-stuck-1.json'))).toBe(true); // at-least-once 留箱
+    // 端点真上线后（可达恢复）flush 转投成功——残留信救出
+    const got: string[] = [];
+    po.registerLocal('alpha', async (env) => { got.push(env.requestId); return { ack: env.requestId, fresh: true }; });
+    const delivered2 = await po.flushOutbox();
+    expect(delivered2).toHaveLength(1);
+    expect(got).toEqual(['stuck-1']);
+    expect(fs.existsSync(path.join(ROOT, 'outbox', '1-stuck-1.json'))).toBe(false);
+    await po.close();
+  });
+});

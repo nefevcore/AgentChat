@@ -8,6 +8,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as fsToolsRow from 'ac-fs-tools';
 import * as fsSearchRow from 'ac-fs-search';
 import * as sreRow from 'ac-str-replace-editor';
@@ -30,6 +32,8 @@ async function boot(root: string) {
   const fibers: Fiber[] = [];
   const rows: Array<[unknown, unknown]> = [
     [toolsRow, undefined],
+    [llmRow, undefined],
+    [loopRow, undefined],
     [fsToolsRow, { workdir: root }],
     [fsSearchRow, { workdir: root }],
     [sreRow, { workdir: root }],
@@ -199,7 +203,7 @@ describe('ac-fs-search', () => {
     expect(r.ok).toBe(true);
     expect(r.output.capped ?? false).toBe(false); // 剪枝生效：aaa-big 整树不进入
     expect(r.output.paths.sort()).toEqual(['pkg/tool-smoke/a.txt', 'pkg/tool-smoke/b.txt']);
-  });
+  }, 50_000); // 写 2 万文件的重型用例：并行 IO 慢化下默认超时不够（单跑 ~19s）
 });
 
 describe('ac-str-replace-editor', () => {
@@ -302,6 +306,8 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const fibers: Fiber[] = [];
     const rows: Array<[unknown, unknown]> = [
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined],
       [FakeWorkspaceService, { agents, sessions }],
       [fsToolsRow, { workdir: root }],
     ];
@@ -407,6 +413,8 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const fibers: Fiber[] = [];
     const rows: Array<[unknown, unknown]> = [
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined],
       [FakeWorkspaceService, { agents: { neko: { base } } }],
       [fsToolsRow, { workdir: root, accessDenyPaths: [path.join(root, 'vault')] }],
     ];
@@ -529,11 +537,12 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const root = tmpRoot();
     const { ctx } = await bootWs(root, {});
 
-    /** 直接驱动 before-run waterfall（不经 loop——只验本行监听器） */
+    /** 段制观测（cr-881）：@引用约定 = REFERENCE_FS 段，经 assemblePreview 组装面验 */
     async function runWithTools(tools?: string[]): Promise<string | undefined> {
-      const call = { request: { tools, messages: [] as unknown[] } };
-      await ctx.waterfall('loop/before-run', call as never, async () => ({ finish: 'stop' }) as never);
-      return (call.request as { system?: string }).system;
+      const loop = ctx.get('agentLoop') as {
+        assemblePreview(req: unknown): string | undefined;
+      };
+      return loop.assemblePreview({ tools, messages: [] });
     }
 
     // tools 白名单含 read → 注入一句话约定
@@ -555,6 +564,8 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const fibers: Fiber[] = [];
     const rows: Array<[unknown, unknown]> = [
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined],
       [(await import('ac-agents')).AgentsService, undefined],
       [fsToolsRow, { workdir: root }],
     ];
@@ -573,16 +584,16 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     } as any));
     booted.push({ ctx, fibers });
 
-    // PTC run：请求面 = 恰好 [run_code]（router 收窄后的终值形态）
-    const call = { request: { agent: 'prog', tools: ['run_code'], messages: [] as unknown[] } };
-    await ctx.waterfall('loop/before-run', call as never, async () => ({ finish: 'stop' }) as never);
-    // 修复前：names 只有 run_code → read 不在场 → @ 约定丢失
-    expect((call.request as { system?: string }).system).toContain('[引用约定]');
-    expect((call.request as { system?: string }).system).toContain('@<路径>');
+    // PTC run：请求面 = 恰好 [run_code]（router 收窄后的终值形态）——段制观测
+    // （cr-881：@引用约定 = REFERENCE_FS 段，经 assemblePreview 验；widenToolsForGating
+    //  展开逻辑不变——修复前 names 只有 run_code → read 不在场 → @ 约定丢失）
+    const loop = ctx.get('agentLoop') as { assemblePreview(req: unknown): string | undefined };
+    const system = loop.assemblePreview({ agent: 'prog', tools: ['run_code'], messages: [] });
+    expect(system).toContain('[引用约定]');
+    expect(system).toContain('@<路径>');
     // 对照：无 fs 标签的 Agent（能力面无 read）→ 不注入
     ctx.agents.register({ id: 'nofs', model: 'm' });
-    const call2 = { request: { agent: 'nofs', tools: ['run_code'], messages: [] as unknown[] } };
-    await ctx.waterfall('loop/before-run', call2 as never, async () => ({ finish: 'stop' }) as never);
-    expect((call2.request as { system?: string }).system).toBeUndefined();
+    const system2 = loop.assemblePreview({ agent: 'nofs', tools: ['run_code'], messages: [] });
+    expect(system2).toBeUndefined();
   });
 });

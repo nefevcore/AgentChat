@@ -1,0 +1,28 @@
+{
+  "name": "ac-conduct",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "行为基线行：CONDUCT 段——技术准确与事实正确优先于迎合（恒注入）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

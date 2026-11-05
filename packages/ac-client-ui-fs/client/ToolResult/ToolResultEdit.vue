@@ -34,7 +34,7 @@ const diffText = computed(() => String(props.data.diff || ''));
 
 const diffLines = computed(() => {
   const text = diffText.value;
-  return text ? text.split('\\n') : [];
+  return text ? text.split('\n') : [];
 });
 
 const hasDiffMarkers = computed(() =>
@@ -59,7 +59,9 @@ function lineClass(line: string) {
       <span class="ui-badge dim">{{ summary }}</span>
       <span v-if="data.first_changed_line" class="ui-badge dim">L{{ data.first_changed_line }}</span>
     </template>
-    <div class="edit-diff-body">
+    <!-- default slot 接 CodeCard 下发的 wrap（#17C 折行开关对 diff 体同样生效） -->
+    <template #default="{ wrap }">
+    <div class="edit-diff-body" :class="{ wrap }">
       <!-- 执行中（调用阶段即可看到文件卡） -->
       <div v-if="loading && !diffText" class="edit-loading">
         <BusyRing :size="13" />
@@ -80,6 +82,7 @@ function lineClass(line: string) {
       <pre v-else-if="diffText" class="edit-plain-text">{{ diffText }}</pre>
       <div v-else class="edit-no-diff">（无变更）</div>
     </div>
+    </template>
   </CodeCard>
 </template>
 
@@ -117,17 +120,29 @@ function lineClass(line: string) {
   flex: 1;
 }
 
+/* 折行态（cr-897）：CodeCard #17C 开关经 slot prop 到达——软换行替代横向滚动
+   （同 FileEditsPanel .fe-diff-line.wrap 配方：pre-wrap + anywhere，长 token
+   无空格也可断）；diff-content 收回 min-width 使折行生效 */
+.edit-diff-body.wrap { overflow-x: hidden; }
+.edit-diff-body.wrap .diff-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
 /* ── diff 行颜色（cr-147 对齐 FileEditsPanel 方案 B）：语义由行底 tint 承载，
-   正文用 code-text——大段红绿文字是色噪 */
+   正文用 code-text——大段红绿文字是色噪。
+   cr-893 α 提档 0.18 对齐 FileEditsPanel（cr-224「行底偏淡」档）——
+   同语义两处同档，工具卡不再偏淡 */
 .diff-del {
-  background: rgba(var(--err-rgb), 0.12);
+  background: rgba(var(--err-rgb), 0.18);
 }
 .diff-del .diff-content {
   color: var(--code-text);
 }
 
 .diff-add {
-  background: rgba(var(--ok-rgb), 0.1);
+  background: rgba(var(--ok-rgb), 0.18);
 }
 .diff-add .diff-content {
   color: var(--code-text);

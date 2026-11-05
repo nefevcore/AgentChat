@@ -168,7 +168,9 @@ function err(message: string): ToolResult {
 
 export const name = 'ac-todo';
 
-export const inject = ['tools', 'agentStore'];
+import { widenToolsForGating } from 'ac-agents';
+
+export const inject = ['tools', 'agentStore', 'agentLoop'];
 
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
 //    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
@@ -185,6 +187,17 @@ export function apply(ctx: Context) {
   // 同 fiber 归属，摘行整体回收。前端半边 = ac-client-ui-todo 独立 UI 行
   //（M27.1，D19 改裁：前端插件一律 ac-client-ui-* 包——本行回归纯后端）
   const service = new TodosService(ctx);
+
+  // ---- GUIDELINES_TODO 段（cr-881，自 ac-system-prompt 指引拆分——goal/todo
+  //      各教各的）；门控 = todo 在场 ----
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_TODO',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (!names.has('todo')) return '';
+      return '目标与待办：多步工作先写 todo(action="write") 清单，随做随更新状态（开工标 in_progress、完成即标）；单步/琐碎任务不写 todo，直接做。';
+    },
+  }, 'ac-todo');
 
   // infra 标签（2026-09-16 全量标签化）：任务追踪属会话基础设施
   ctx.tools.register({

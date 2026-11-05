@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   tierOf, toolModeOf, displayNameOf, resolveToolNames, settingsOf, deepMerge,
+  isPresetId, presetTemplateKeyOf,
   type AgentConfig,
 } from '../src/config.ts';
 import {
@@ -66,11 +67,15 @@ describe('agents/<id>/ 树直读', () => {
     expect(readAgentConfig(ROOT, 'alpha')).toEqual(cfg);
   });
 
-  it('id 不符 / 缺席 / 损坏 → null（未注册语义）', () => {
+  it('id 不符 / 缺席 / 损坏 → null（未注册语义；cr-906 批4：patch 在场即赢）', () => {
     const cfg: AgentConfig = { id: 'beta' };
+    fs.mkdirSync(agentDir(ROOT, 'beta'), { recursive: true });
+    fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
+    expect(readAgentConfig(ROOT, 'beta')).toBeNull(); // 旧路径：id 不符
+    // 双读窗口：patch 在场即赢（config.json 镜像坏不拖累 patch 读面）
     writeAgentConfig(ROOT, cfg);
     fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
-    expect(readAgentConfig(ROOT, 'beta')).toBeNull();
+    expect(readAgentConfig(ROOT, 'beta')).toEqual(cfg);
     expect(readAgentConfig(ROOT, 'ghost')).toBeNull();
     fs.mkdirSync(agentDir(ROOT, 'broken'), { recursive: true });
     fs.writeFileSync(path.join(agentDir(ROOT, 'broken'), 'config.json'), '{nope', 'utf-8');
@@ -127,5 +132,26 @@ describe('children 嵌套解析（R-5 物化即快照）', () => {
     writeAgentConfig(ROOT, { id: 'c1' });
     writeAgentConfig(ROOT, { id: 'plain' });
     expect([...materializedChildIds(ROOT)].sort()).toEqual(['c1', 'c2']);
+  });
+});
+
+describe('预设词形判定（cr-880 单源）', () => {
+  it('isPresetId：连字符/下划线键命中；普通 id/子身份/会话域不命中', () => {
+    expect(isPresetId('__standard__')).toBe(true);
+    expect(isPresetId('__dsh_minimal__')).toBe(true); // 历史 id 冻结下划线（cr-812 漏网之鱼的断根）
+    expect(isPresetId('__abap_dev__')).toBe(true);
+    expect(isPresetId('standard')).toBe(false);
+    expect(isPresetId('sub-abc')).toBe(false);
+    expect(isPresetId('a~b')).toBe(false);
+    expect(isPresetId('')).toBe(false);
+    expect(isPresetId('__x')).toBe(false); // 尾界不闭合不命中
+  });
+
+  it('presetTemplateKeyOf：_ → - 归一化（模板目录查找口）', () => {
+    expect(presetTemplateKeyOf('__dsh_minimal__')).toBe('dsh-minimal');
+    expect(presetTemplateKeyOf('__abap_dev__')).toBe('abap-dev');
+    expect(presetTemplateKeyOf('__standard__')).toBe('standard');
+    expect(presetTemplateKeyOf('standard')).toBeUndefined();
+    expect(presetTemplateKeyOf('sub-x')).toBeUndefined();
   });
 });

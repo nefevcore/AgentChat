@@ -8,6 +8,7 @@
     ".": "./boot.ts"
   },
   "dependencies": {
+    "ac-host-face-client": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
     "ac-supervisor-core": "workspace:*",

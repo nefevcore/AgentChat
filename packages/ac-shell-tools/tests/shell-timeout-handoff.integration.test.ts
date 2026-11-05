@@ -4,6 +4,8 @@
 // kill 旧行为的回归在 lifecycle/quota 件（显式传 timeoutAction）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CMD_TOOL, SLEEP_30, exec, tmpRoot, boot, bootRows } from './helpers.ts';
@@ -84,6 +86,8 @@ describe(`ac-shell-tools ${CMD_TOOL} 超时 handoff`, () => {
     const root = tmpRoot();
     const { ctx } = await bootRows([
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined], // cr-881：shell 行段注册面 inject ['agentLoop']
       [jobsRow, undefined],
       [agentsRow, undefined],
       [shellRow, { workdir: root }],
@@ -122,6 +126,8 @@ describe(`ac-shell-tools ${CMD_TOOL} 超时 handoff`, () => {
     const root = tmpRoot();
     const { ctx } = await bootRows([
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined], // cr-881：shell 行段注册面 inject ['agentLoop']
       [jobsRow, undefined],
       [agentsRow, undefined],
       [shellRow, { workdir: root, maxTimeout: 3000 }],

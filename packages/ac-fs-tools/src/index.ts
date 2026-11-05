@@ -56,11 +56,11 @@ export const extension: ExtensionMeta = {
   description: '文件读写工具行（read/write/edit 等）',
 };
 
-export const inject = ['tools'];
+export const inject = ['tools', 'agentLoop'];
 
 /** @ 路径引用约定（DSH FILE_REFERENCE_PROMPT 同族）：read 的 owner 行
  *  教语法——条件安装（Agent 生效工具集含 read 才注入，不教做不到的事）；
- *  只依赖工具集 → KV 前缀随工具集稳定。 */
+ *  只依赖工具集 → KV 前缀随工具集稳定。cr-881 起 = REFERENCE_FS 段。 */
 const FILE_MENTION_GUIDE =
   '[引用约定] 用户消息中的 @<路径>（含空格形如 @"路径"，目录以尾斜杠标识）是用户明确引用的文件/目录：'
   + '需要内容时用 read 读取（read 目录即列表）；未读取前不要声称已查看其内容。';
@@ -136,20 +136,30 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     return undefined;
   }
 
-  // ---- @ 路径引用指引（read 的 owner 行条件注入；见 FILE_MENTION_GUIDE）----
-  ctx.on('loop/before-run', (call, next) => {
-    // PTC 门控面（widenToolsForGating 单源）：程序化 run 的 request.tools
-    // 已收窄成 ['run_code']——按能力面展开判「read 在场」，否则 @ 引用
-    // 约定整段丢失（模型能 tools.read 却不识 @ 语法）
-    const names = new Set(widenToolsForGating(ctx, call.request.agent, call.request.conversationId, call.request.tools));
-    if (names.has('read')) {
-      call.request = {
-        ...call.request,
-        system: call.request.system ? `${call.request.system}\n${FILE_MENTION_GUIDE}` : FILE_MENTION_GUIDE,
-      };
-    }
-    return next();
-  }, { description: '注入 @ 路径引用约定（Agent 有 read 时）' });
+  // ---- REFERENCE_FS 段：@ 路径引用约定 + GUIDELINES_FS 段：文件操作指引 ----
+  // （cr-881：read 的 owner 行条件注入；门控 = widenToolsForGating 展开面，
+  //  PTC 下 request.tools 收窄成 ['run_code']——按能力面展开判「read 在场」，
+  //  否则 @ 引用约定整段丢失（模型能 tools.read 却不识 @ 语法））
+  ctx.agentLoop.registerPromptSection({
+    name: 'REFERENCE_FS',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      return names.has('read') ? FILE_MENTION_GUIDE : '';
+    },
+  }, 'ac-fs-tools');
+  ctx.agentLoop.registerPromptSection({
+    name: 'GUIDELINES_FS',
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      if (names.has('read') && names.has('write') && names.has('edit')) {
+        return '文件操作：改现有文件用 edit，old_string 从 read 的输出中原样复制（自拟文本会匹配失败；连续编辑同一文件段落时必须重新 read 获取——上次编辑的产物 ≠ 记忆中的文本）；同一文件有多处独立修改时，并行发多个 edit 调用。write 是整文件覆盖，只用于新建文件。找文件用 glob，搜内容用 grep；不确定文件位置时先用 glob 确认，不要凭记忆拼路径。文件存在重复/相似文本块时优先用命令工具或 write 整段重写而非 edit。改动前发现文件已存在非本会话产物的未预期内容（他人/其他 Agent 的在途工作），先停下询问而非直接覆盖——宁可中断也不要毁掉别人的工作。';
+      }
+      if (names.has('read') && names.has('write') && !names.has('edit')) {
+        return '文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。';
+      }
+      return '';
+    },
+  }, 'ac-fs-tools');
 
   // ---- read：文件（行号分页 + token 预算截断）或目录列表 ----
   // fs 标签（2026-09-16 全量标签化）：文件族门禁——存量 Agent 由

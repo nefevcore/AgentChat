@@ -261,17 +261,17 @@ function bucketHiddenOf(group: WorkspaceGroup, bucket: TimeBucket<SessionItem>):
 function timeOf(ts: number): string { return formatRelativeTime(ts); }
 
 // ── 新建会话：顶部按钮 = 未分组空会话；工作区节点 + = 挂该工作区 ──
-// 延迟落盘（cr-847）：新建 = 本地幻影会话（零 RPC 零落盘），首条消息
-// 发送时物化。未发送的新会话全局唯一（cr-848）——已有幻影时点新增 =
-// 跳回继续写。工作区上下文：显式参数 > 激活工作区；Agent/模型偏好由
-// ChatInput 挂载时回放（幻影元数据跟随，物化时落盘）。
+// 延迟落盘（cr-894）：新建 = 进入草稿位（零 RPC 零落盘），首条消息发送
+// 时才落会话。未发送草稿全局唯一——已有草稿时点新增 = 跳回继续写。工作
+// 区上下文：显式参数 > 激活工作区；Agent/模型偏好由 ChatInput 挂载时
+// 回放（草稿身份跟随，发送时落盘）。
 function createSession(workspaceId?: string) {
   const wsCtx = workspaceId ?? activeWorkspaceIdOfSelected();
-  // 组合偏好透传（与旧 create 链同语义，cr-850）：Agent/模型随幻影元数据
-  // 继承（显示 + 物化时落盘）；模式（toolMode）不经此——挂载 watch 按
-  // 会话键回放偏好并写 conv-settings（幻影 id 即会话键，链路天然覆盖）
+  // 组合偏好透传（与旧 create 链同语义，cr-850）：Agent/模型随草稿身份
+  // 继承（显示 + 发送时落盘）；模式（toolMode）不经此——挂载 watch 按
+  // 会话键回放偏好并写 conv-settings（草稿哨兵即会话键，链路天然覆盖）
   const prefs = loadComposePrefs();
-  singlesBoard?.createPhantom({
+  singlesBoard?.startDraft({
     ...(wsCtx ? { workspaceId: wsCtx } : {}),
     ...(prefs?.agentId ? { agentId: prefs.agentId } : {}),
     ...(prefs?.model ? { model: prefs.model } : {}),

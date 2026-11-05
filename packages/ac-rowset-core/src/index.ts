@@ -10,4 +10,7 @@ export const name = 'ac-rowset-core';
 
 export * from './rowset.ts';
 export * from './disk.ts';
+export * from './base-docs.ts';
+export * from './installed-rows.ts';
+export * from './custom-layer.ts';
 export * from './plugin-rows.ts';

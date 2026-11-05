@@ -26,14 +26,6 @@ export interface AgentConfig {
    * （入站入账），不投 loop、不发 reply-completed。
    */
   virtual?: boolean;
-  /**
-   * 预设 Agent 标志（src preset 平移，ac-agent-presets 物化）：独立会话
-   * （singles）的选用目标与空 Agent 会话的默认路由目标（如 __standard__）。
-   * 不出现在 Agent 名册（agents/list RPC 过滤）、不接收协作消息
-   * （send_agent 拒绝——src 防幽灵会话语义）、不可经管理面修改
-   * （ac-agent-admin 写口拦截）。
-   */
-  preset?: boolean;
   provider?: string;
   system?: string;
   /**
@@ -100,6 +92,11 @@ export interface AgentConfig {
    * 全局默认层 ∪ 本差异层合成；直读差异层用 ctx.agents.get(id)?.settings）。
    */
   settings?: Record<string, unknown>;
+  /**
+   * 行内插件档位（cr-906 批4 X1 回滚：档位词归装配——unit → 档位词/
+   * 布尔；levels 赢，settings 行内档位为回滚兼容线）。
+   */
+  levels?: Record<string, string | boolean>;
 }
 
 /**
@@ -428,19 +425,37 @@ export function capabilitySetOf(
       ? (merged as Record<string, unknown>)
       : undefined;
   };
-  const browser = settingsOf('browser');
-  if (browser !== undefined) {
-    // 层级布尔：任一 true 即含 web + 全部低层（AND 地板 ['web','observe']
-    // 要求——与 conv-settings browserTier grants 同形）
-    if (browser.observe === true || browser.manipulate === true || browser.inject === true) {
+  // 行内档位合成（cr-906 批4 X1 回滚：levels 赢——档位词归装配；
+  // settings 行内档位为回滚兼容线，settingsOf 两层合成口）
+  const levels = agent?.levels ?? {};
+  const browserLevel = levels.browser;
+  if (typeof browserLevel === 'string') {
+    // 装配档位词（层级：observe < manipulate < inject——高层含全部低层 + web）
+    if (browserLevel === 'observe' || browserLevel === 'manipulate' || browserLevel === 'inject') {
       caps.add('web');
       caps.add('observe');
+      if (browserLevel !== 'observe') caps.add('manipulate');
+      if (browserLevel === 'inject') caps.add('inject');
     }
-    if (browser.manipulate === true) caps.add('manipulate');
-    if (browser.inject === true) caps.add('inject');
+  } else {
+    const browser = settingsOf('browser');
+    if (browser !== undefined) {
+      // 层级布尔：任一 true 即含 web + 全部低层（AND 地板 ['web','observe']
+      // 要求——与 conv-settings browserTier grants 同形）
+      if (browser.observe === true || browser.manipulate === true || browser.inject === true) {
+        caps.add('web');
+        caps.add('observe');
+      }
+      if (browser.manipulate === true) caps.add('manipulate');
+      if (browser.inject === true) caps.add('inject');
+    }
   }
-  if (settingsOf('collab')?.admin === true) caps.add('admin');
-  if (settingsOf('dev-tools')?.enabled === true) caps.add('dev');
+  const collabLevel = levels.collab;
+  if (collabLevel === 'admin' || collabLevel === true) caps.add('admin');
+  else if (settingsOf('collab')?.admin === true) caps.add('admin');
+  const devLevel = levels['dev-tools'];
+  if (devLevel === true || devLevel === 'dev') caps.add('dev');
+  else if (settingsOf('dev-tools')?.enabled === true) caps.add('dev');
   return caps;
 }
 
@@ -641,7 +656,7 @@ export class AgentsService extends Service {
    * 差异层键优先）。
    *   · config.json `settings` 域 = 全局默认层（`{ '<行名>': { …默认 } }`，
    *     `enabled` 合法——全局软停用，Agent 差异层可覆盖回 true）；
-   *   · preset / 未知 id：回落全局层（差异层取空）；
+   *   · 预设 / 未知 id：回落全局层（差异层取空）；
    *   · `get()` 保持差异层原样（本方法不改变 get 语义）；
    *   · 未装 config 行 / 未给 name：差异层直读（接口同形——name 缺省
    *     等价全局层恒空）。

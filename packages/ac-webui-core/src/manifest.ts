@@ -90,7 +90,9 @@ export function checkUiManifest(m: unknown): ManifestCheck {
   if (m === null || typeof m !== 'object') return { ok: false, warnings: ['manifest 非对象'] };
   const x = m as Record<string, unknown>;
   if (typeof x.name !== 'string' || x.name.length === 0) warnings.push('name 缺失或空');
-  else if (!/^[a-z0-9-]+$/.test(x.name)) warnings.push('name 词汇非法（小写字母/数字/连字符）：' + x.name);
+  // cr-905 批3 词法放宽：接受 @scope/name npm 词形（批 5 publish 分发前提；
+  // 存量 param-case 原样合法——非破坏放宽，asset 路由按 URL 编码名单段）
+  else if (!/^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9-]*$/.test(x.name)) warnings.push('name 词汇非法（param-case 或 @scope/name）：' + x.name);
   if (typeof x.version !== 'string' || x.version.length === 0) warnings.push('version 缺失或空');
   if (x.entry !== undefined && typeof x.entry !== 'string') warnings.push('entry 非字符串');
   if (x.platform !== undefined && x.platform !== 'web') warnings.push('platform 仅支持 web');
@@ -183,6 +185,49 @@ export interface BootGraphEntry {
 }
 
 /**
+ * 读通道目录声明（cr-905 批3 切片四：包形态装载）：manifest.json 优先
+ *（迁移期投影——批 6 拆旧目标形）；缺席时读 package.json 的 ac.faces.web
+ *（包即插件唯一格式的 web 面——entry + seats 字符串词形投影为
+ * SeatContribution；isolated 缺省 true：第三方浏览器面安全缺省）。
+ * 两者皆缺/无 web 面 → null（非 web 插件不进 boot graph）。
+ */
+export function readChannelManifest(dir: string): { manifest: UiManifest; form: 'manifest' | 'package' } | null {
+  const mfile = path.join(dir, 'manifest.json');
+  if (fs.existsSync(mfile)) {
+    const parsed = JSON.parse(fs.readFileSync(mfile, 'utf-8'));
+    return { manifest: parsed as UiManifest, form: 'manifest' };
+  }
+  const pfile = path.join(dir, 'package.json');
+  let pkg: Record<string, unknown> | null = null;
+  try {
+    pkg = JSON.parse(fs.readFileSync(pfile, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const ac = pkg.ac !== null && typeof pkg.ac === 'object' && !Array.isArray(pkg.ac) ? pkg.ac as Record<string, unknown> : null;
+  const faces = ac !== null && ac.faces !== null && typeof ac.faces === 'object' && !Array.isArray(ac.faces)
+    ? ac.faces as Record<string, unknown> : null;
+  const web = faces !== null && faces.web !== null && typeof faces.web === 'object' && !Array.isArray(faces.web)
+    ? faces.web as Record<string, unknown> : null;
+  if (web === null || typeof web.entry !== 'string' || web.entry === '') return null;
+  const seats: SeatContribution[] = Array.isArray(web.seats)
+    ? web.seats
+      .filter((s): s is string => typeof s === 'string' && s !== '')
+      .map((s) => ({ seat: s }))
+    : [];
+  return {
+    manifest: {
+      name: String(pkg.name),
+      version: String(pkg.version),
+      entry: web.entry,
+      platform: 'web',
+      seats,
+      isolated: web.isolated === false ? false : true,
+    },
+    form: 'package',
+  };
+}
+/**
  * 组装 boot graph（宿主侧）：扫插件目录列（manifest.json 逐个校验
  * ——坏 manifest fail-loud 跳过并记 warning），产出前端装载清单。
  * graph 变更 = 通知帧（前端重拉 diff——安装/卸载语义）。
@@ -201,20 +246,22 @@ export function assembleBootGraph(pluginsDir: string): { graph: BootGraphEntry[]
   }
   for (const e of entries) {
     const dir = path.join(pluginsDir, e.name);
-    const mfile = path.join(dir, 'manifest.json');
-    let parsed: unknown;
+    let read: ReturnType<typeof readChannelManifest>;
     try {
-      parsed = JSON.parse(fs.readFileSync(mfile, 'utf-8'));
+      read = readChannelManifest(dir);
     } catch {
-      warnings.push('插件 ' + e.name + ' manifest 缺席或坏 JSON——跳过');
+      warnings.push('插件 ' + e.name + ' manifest/package 声明坏 JSON——跳过');
       continue;
     }
-    const check = checkUiManifest(parsed);
+    if (read === null) {
+      continue; // 无 web 面声明（node-only 插件）——不进 boot graph，非警告
+    }
+    const check = checkUiManifest(read.manifest);
     if (!check.ok) {
-      warnings.push('插件 ' + e.name + ' manifest 校验失败：' + check.warnings.join('；'));
+      warnings.push('插件 ' + e.name + '（' + read.form + ' 形态）校验失败：' + check.warnings.join('；'));
       continue;
     }
-    const m = parsed as UiManifest;
+    const m = read.manifest;
     graph.push({
       name: m.name,
       version: m.version,

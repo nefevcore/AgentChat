@@ -21,6 +21,9 @@ export const inject = ['llm', 'tools'];
 
 export function apply(ctx: Context) {
   ctx.plugin(AgentLoopService);
+  // ENV_MODEL 段（cr-881 迁）注册住 AgentLoopService 构造器：本行 inject
+  // ['llm','tools']，apply 里走 ctx.agentLoop 即 "cannot get property without
+  // inject"（自注册场景——cr-538 先例服务实例直引）。
 }
 
 // runAddress / pairKey / ARCHIVE_REVIEW_META / isArchiveReviewRun /
@@ -31,3 +34,7 @@ export { AgentLoopService };
 // 契约出口：域类型（contract.ts）+ 事件目录类型增强（events.ts）
 export type * from './contract.ts';
 export type {} from './events.ts';
+
+// PromptSection 注册制契约（cr-881）：具名 order 单源 + 段类型 + 组装纯函数
+export { SECTION_ORDER, sectionOrder, assembleSystemPrompt } from './sections.ts';
+export type { SectionContribution, SectionName, RegisteredSection } from './sections.ts';

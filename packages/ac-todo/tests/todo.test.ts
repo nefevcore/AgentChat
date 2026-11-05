@@ -12,6 +12,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import * as toolsRow from 'ac-tools';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as todoRow from '../src/index.ts';
 
 /** 内存 agentStore 桩（接口对齐 ac-retired-types 墓碑面） */
@@ -34,7 +36,7 @@ const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 async function boot(): Promise<Context> {
   const ctx = new Context();
   const fibers: Fiber[] = [];
-  for (const row of [toolsRow, MemoryAgentStore, todoRow]) {
+  for (const row of [toolsRow, llmRow, loopRow, MemoryAgentStore, todoRow]) {
     const fiber = ctx.plugin(row as any);
     await fiber;
     fibers.push(fiber);
@@ -218,13 +220,13 @@ describe('todo 工具 · 持久化与卸载', () => {
   it('卸载级联：dispose todo 行 → 工具从注册面消失', async () => {
     const ctx = new Context();
     const fibers: Fiber[] = [];
-    for (const row of [toolsRow, MemoryAgentStore, todoRow]) {
+    for (const row of [toolsRow, llmRow, loopRow, MemoryAgentStore, todoRow]) {
       const fiber = ctx.plugin(row as any);
       await fiber;
       fibers.push(fiber);
     }
     expect(ctx.tools.has('todo')).toBe(true);
-    await fibers[2].dispose(); // 摘 todo 行
+    await fibers[4].dispose(); // 摘 todo 行
     expect(ctx.tools.has('todo')).toBe(false);
     await fibers[0].dispose();
     await fibers[1].dispose();

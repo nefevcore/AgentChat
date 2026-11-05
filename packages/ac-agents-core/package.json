@@ -15,6 +15,10 @@
     "ac-auth-core": "workspace:*",
     "ac-credentials-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "@types/js-yaml": "^4.0.9"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
   }
 }

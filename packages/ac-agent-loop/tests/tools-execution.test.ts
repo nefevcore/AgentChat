@@ -1,11 +1,10 @@
 // ============================================================
 // ac-agent-loop M11 工具执行面：执行身份装配 + 并发执行（mapLimit 5）
-// + 语义化中断收束（ToolResult.interrupt → finish='interrupted'）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
-import type { ToolCall, ToolResult } from 'ac-tools';
+import type { ToolCall } from 'ac-tools';
 import * as llmRow from 'ac-llm';
 import * as loopRow from '../src/index.ts';
 import * as toolsRow from 'ac-tools';
@@ -175,57 +174,5 @@ describe('M11 并发工具执行（mapLimit 5）', () => {
     await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q') });
     expect(maxActive).toBeLessThanOrEqual(5);
     expect(maxActive).toBeGreaterThan(1);
-  });
-});
-
-describe('M11 语义化中断通道', () => {
-  it('ToolResult.interrupt → finish interrupted + interruptReason.toolInterrupt；模型不再续步', async () => {
-    const s1: Script = { calls: [], chunks: () => toolCallChunks({ id: 'c1', name: 'reload', args: '{}' }) };
-    const s2: Script = { calls: [], chunks: () => textChunks('不应出现的续步') };
-    const { ctx } = await boot([s1, s2]);
-    ctx.tools.register({
-      name: 'reload',
-      execute: (): ToolResult => ({
-        ok: true,
-        output: '请求热重载',
-        interrupt: { type: 'reload', reason: '插件清单变更' },
-      }),
-    });
-    const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('重载') });
-    expect(result.finish).toBe('interrupted');
-    expect(result.interruptReason).toMatchObject({
-      type: 'tool-interrupt',
-      toolInterrupt: { type: 'reload', reason: '插件清单变更' },
-    });
-    expect(result.interruptReason?.reason).toContain('reload');
-    // 中断结果如实入步记录；模型未被再次调用
-    expect(result.steps).toHaveLength(1);
-    expect(result.steps[0].toolResults[0]).toMatchObject({ interrupt: { type: 'reload' } });
-    expect(s2.calls).toHaveLength(0);
-    // 步级时序锚（2026-09-02 顺序反馈）：步收束时盖章 epoch ms——落盘
-    // steps[].ts 据此恢复 run 中途插行的渲染序
-    expect(typeof result.steps[0].ts).toBe('number');
-  });
-
-  it('多工具并发下任一 interrupt 即收束', async () => {
-    const s1: Script = {
-      calls: [],
-      chunks: () =>
-        toolCallChunks(
-          { id: 'a', name: 'plain', args: '{}' },
-          { id: 'b', name: 'restart', args: '{}' },
-        ),
-    };
-    const { ctx } = await boot([s1]);
-    ctx.tools.register({ name: 'plain', execute: () => ({ ok: true }) });
-    ctx.tools.register({
-      name: 'restart',
-      execute: (): ToolResult => ({ ok: true, interrupt: { type: 'system-restart' } }),
-    });
-    const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('重启') });
-    expect(result.finish).toBe('interrupted');
-    expect(result.interruptReason?.toolInterrupt).toMatchObject({ type: 'system-restart' });
-    // 两个结果都如实入档
-    expect(result.steps[0].toolResults).toHaveLength(2);
   });
 });

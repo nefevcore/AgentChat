@@ -13,15 +13,39 @@
 // phase:'base' 随骨架归并退役——骨架 3 件 in-bundle（client/ 装配序列），
 // 本端点只发通道条目（模块资产），单一动态语义。
 // ============================================================
-import { statSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
+import { join as joinPath, resolve as resolvePath } from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
-import { assembleBootGraph, resolveUiAsset } from 'ac-webui-core';
+import { assembleBootGraph, resolveUiAsset, synthesizeWebuiGraph } from 'ac-webui-core';
 // webServer 契约增强（declare module 全局合并靠 include src 面闭合——本 tsconfig 已含）
 import type {} from 'ac-web-server';
+
+/** 插件目录签名（父目录 mtime + 各子目录 mtime 排序串）——任一变化 = 重扫 */
+function dirSignature(pluginsDir: string, profileDir: string): string | null {
+  const self = statSync(pluginsDir, { throwIfNoEntry: false });
+  if (!self) return null;
+  const parts: string[] = [String(self.mtimeMs)];
+  // webui 装配文档签名（cr-905 批3：分层文档变化 = graph 变化——基座/
+  // custom/installed 任一 mtime 进签名，文档编辑后缓存即失效）
+  for (const doc of ['webui.patch.yml', 'webui-custom.patch.yml', 'installed.patch.yml']) {
+    const st = statSync(joinPath(profileDir, doc), { throwIfNoEntry: false });
+    parts.push(doc + ':' + (st ? st.mtimeMs : 'x'));
+  }
+  try {
+    for (const ent of readdirSync(pluginsDir, { withFileTypes: true })) {
+      if (!ent.isDirectory() || ent.name.startsWith('.')) continue;
+      const st = statSync(`${pluginsDir}/${ent.name}`, { throwIfNoEntry: false });
+      parts.push(ent.name + ':' + (st ? st.mtimeMs : 'x'));
+    }
+  } catch { /* 读失败 = 空图语义（assembleBootGraph 同容错） */ }
+  return parts.sort().join('|');
+}
 
 export interface WebuiRowOptions {
   /** 插件目录（manifest 扫描根 = graph 与静态资产同源目录） */
   pluginsDir: string;
+  /** webui 装配文档目录（<dataRoot>/profile——分层合成输入；缺省 = pluginsDir 同级 profile） */
+  profileDir?: string;
 }
 
 /**
@@ -36,16 +60,20 @@ export function makeWebuiRow(options: WebuiRowOptions): Plugin {
       const web = ctx.webServer;
 
       // boot graph（通道条目清单——manifest 扫描单源；坏 manifest fail-loud 记 warning）。
-      // mtime 缓存（cr-843）：目录 mtime 在插件安装/卸载（目录增删）时必然变化，
-      // 不变即复用上次扫描结果——此前每次请求同步扫 30 个插件目录的 manifest。
-      let cachedGraph: { mtimeMs: number | null; body: string } | null = null;
+      // mtime 缓存（cr-843）：父目录 mtime 覆盖子目录增删（安装/卸载），各子目录
+      // mtime 覆盖内容替换（cr-893：build-channel 重建产物不改父目录 mtime，
+      // 只看父目录时 version bump 永不进 graph——旧图常驻）。stat×N 远低于
+      // 此前每次请求 30×readdir+readFile+JSON.parse 的扫描成本。
+      const profileDir = options.profileDir ?? resolvePath(options.pluginsDir, '../profile');
+      let cachedGraph: { sig: string | null; body: string } | null = null;
       web.route('GET', '/api/ui/boot-graph', (call) => {
-        // 目录缺席（stat ENOENT）= 空图（assembleBootGraph 同语义）；mtime null 恒不匹配缓存——目录出现即入图
-        const mtimeMs = statSync(options.pluginsDir, { throwIfNoEntry: false })?.mtimeMs ?? null;
-        if (cachedGraph?.mtimeMs !== mtimeMs) {
-          const { graph, warnings } = assembleBootGraph(options.pluginsDir);
-          if (warnings.length > 0) console.warn('[webui] boot graph 扫描警告：', warnings.join('；'));
-          cachedGraph = { mtimeMs, body: JSON.stringify({ clients: graph }) };
+        const dirSig = dirSignature(options.pluginsDir, profileDir);
+        if (cachedGraph?.sig !== dirSig) {
+          // 分层合成（cr-905 批3：基座 − custom disabled ∪ installed(scope:webui)，
+          // 目录扫描对账——文档点名而物化缺席 = 警告 + 跳过）
+          const { graph, warnings } = synthesizeWebuiGraph(options.pluginsDir, profileDir);
+          if (warnings.length > 0) console.warn('[webui] boot graph 分层警告：', warnings.join('；'));
+          cachedGraph = { sig: dirSig, body: JSON.stringify({ clients: graph, warnings }) };
         }
         call.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
         call.res.end(cachedGraph.body);

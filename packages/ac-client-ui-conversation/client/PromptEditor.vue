@@ -322,7 +322,25 @@ function takeText(): string {
   return ed.getText({ blockSeparator: '\n' });
 }
 
-defineExpose({ focus, caret, replaceRange, setCaret, takeText });
+/** 发送出口同步清空（cr-867）：v-model 赋值 '' 空转（组合期滞后——旧值
+ *  本就是 ''）时 watch 不触发、doc 不被清，文本遗留输入框；发送路径
+ *  在赋值外显式清 doc 断根。含 takeText 同款作废（flush 后 doc 已上账，
+ *  清空即终值；pending/迟到 emit 只会把旧文本写回已清空的输入框）。 */
+function clear(): void {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return;
+  flushPendingDom();
+  composeEmitPending = false;
+  withoutActivityEcho(() => {
+    ed.chain().command(({ tr }) => {
+      tr.setMeta('addToHistory', false);
+      return true;
+    }).setContent('<p></p>', { emitUpdate: false }).run();
+    clearChatHistory(ed);
+  });
+}
+
+defineExpose({ focus, caret, replaceRange, setCaret, takeText, clear });
 </script>
 
 <template>

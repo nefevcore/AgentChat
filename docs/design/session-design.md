@@ -298,7 +298,8 @@ collab-tools `send_agent`（委托桶）、timer（自会话桶）、web-api（�
 
 请求前缀的易变件现状：
 
-- **datetime**：其余会话 = system 尾部日期行（`loop/before-run-last` 尾档——序与装配顺序无关，跨日只失效日期行自身）；独立会话 = 每日 user 快照行（进 history 不进 system）；
+- **datetime**：其余会话 = system 尾部日期行（DATETIME 段——SECTION_ORDER 表尾，序与装配顺序无关，跨日只失效日期行自身）；独立会话 = 每日 user 快照行（进 history 不进 system）；
+- **singles system 整体**（cr-888）：首 run 物化 `prefix-snapshot.json`（段数组 + 指纹），跨 run 跨重启字节恒定；变化不回写 system——十类清单变化走 ledger context 通知行（§5.2）；
 - **memory**：cr-4 起**彻底出 system**——记忆内容走会话流 context 行（checkpoint 快照 + delta 尾部追加，KV 零失效），system 侧只剩恒定静态指引；
 - **技能注入**：不再每 run 尾部重付——手势 pre-run 落 context 行、run_code 子调用收束落账（一次落账、跨 run 永久回放，成为前缀的一部分）；
 - **归档 rewrite**：显式 replace（§3.4），低频可审计。
@@ -315,22 +316,22 @@ collab-tools `send_agent`（委托桶）、timer（自会话桶）、web-api（�
 消息流归 `ac-ledger`（`conversationId = sid`，规约 2 零新写路径；agent 侧 `agents/<id>/sessions/<sid>/`、user 侧 `viewer/sessions/<sid>/`）。规则：**有消息即锁 Agent**（未选 Agent 的空会话经默认预设 `__standard__` 路由）；
 空白会话全局唯一（reuse）；模型覆盖随投递信封透传。自动标题：首 run 后 LLM 一句话标题（失败回落首条消息截断）。
 
-### 5.2 system + tools 前缀快照（旧轨已落地：修订键锚点 + 终态核验；**现行树未见实现，见疑点**）
+### 5.2 system + tools 前缀快照（cr-888 物化已落地；旧轨修订键方案由其取代）
 
-> ⚠️ **疑点（2026-10-27 cr-726 审查）**：本节所述 `prefix-snapshot.json`、修订键锚点、终态核验告警
-> 在现行 `packages/` 全树零命中（仅 `ac-persona` / `ac-core-utils` 注释提及旧设计）。可能随 per-agent
-> 账本换代被取消（文档未跟），也可能迁移时漏移植。详见 Note 归档根 `docs-review-2026-10-27/suspects-总清单.md`。
+> cr-726 疑点收口：旧轨 `prefix-snapshot.json` 修订键方案随 per-agent 账本换代消失；cr-888 重新定稿并已实施
+>（`docs/design/single-system-prompt-materialization-plan.md`——设计定稿 + 实施清单，实施完成后为裁决存档）。
+> 现行实现：`ac-shell-conversation/src/prefix-snapshot.ts` + driveRun 对账接线。
 
 singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域恒定），是前缀绝对稳定的最佳试点位。
-落点（旧轨）`<root>/singles/<sid>/prefix-snapshot.json`（旧 ac-singles owning），快照 = `{ system 全文, 规范化后 tools schema 全集, 修订键 }`：
+落点 `viewer/sessions/<sid>/prefix-snapshot.json`（ac-shell-conversation owning），快照 = `{ 求值后段数组, settingsFingerprint }`——存**段数组**而非拼好的文本，组装复用 `assembleSystemPrompt` 纯函数（cr-881 段注册制零改动）。四机制：
 
-- **机制（M5-lite「请求可重建」轻量版）**：`loop/before-run` gate（零变异、位置无关）按**装配输入全集**计算修订键——
-  persona/system/settings/生效工具集 schema/模型/llmParams/memory 哈希（白名单显式枚举，漏键 = 快照静默失效）；
-  键未变 → **verify**（run 终态比对 system/tools 字节，漂移即告警「KV 前缀可能失效」）；键变/无快照 → **capture**（重拍覆盖）。
-- **为什么不是运行时覆盖**：装配链是顺序敏感的监听器组合，强行末位置覆盖需行序保证；输入确定 + 修订键覆盖 + 字节对拍告警达成同一不变量。
-- **残余失效清单**（显式枚举接受）：Agent 档案/人设编辑、生效工具集变化、模型覆盖修改（换缓存域）、记忆修订。
-- **易变件出 system、追加化**：datetime → 每日一条 user 快照行（追加，日内幂等不再注入）；memory → cr-4 起走会话流 context 行（不再进 system，§4.4）。
-- 上下文回放/视图与对桶同一套派生路径（sid 桶只是单读者特例）；归档照常走显式 replace。
+- **① 物化**（首 run）：全段求值落盘（段数组 + 指纹）；**② diff**（每 run 入口）：指纹对比（§3 键面：provider+model/生效工具名清单/toolMode/browserTier/issueSubmit/workspace/tier/elevation/PTC_SDK hash/技能名清单/扩展键），零缓存代价；
+- **③ 重算**（仅 provider/model 变化）：全量重组装落盘 + 指纹更新——**唯一快照重写通道，只在缓存域必死时动快照**（换缓存域 = 白纸，无代价）。「配置变了就重拍」被否——那会在缓存仍有效时打断前缀，与物化目的自相矛盾；
+- **④ 注入**（十类清单变化）：ledger 落一条 context 通知行（role='context'、source='event'、label=`会话设置变更`、requestId 幂等键）+ 指纹更新。快照正文（人格层）**永不重写**——连「用户主动想刷新人格」也不提供入口（想换人格 = 开新会话）；指纹字段更新 ≠ 重写正文。
+- **崩溃顺序**：先落账（await）后更新指纹——落账后崩 → 重复落同内容行（requestId 幂等键收敛冗余，冗余但如实）；反序则漏通知。
+- **明确不注入**（裁决存档）：模型切换（③ 重算自明）/ persona / memory / Agent system 编辑（冻结即隔离——通知泄露「你被改过」破坏连续性）/ GUIDELINES 措辞漂移（散文引导无行为先验）/ maxSteps / llmParams / 归档（S5 显式 replace）/ agentId 变化（409 锁定后恒定）。
+- **易变件出 system、追加化**：datetime → singles 走每日 user 快照行（不变——DATETIME 段对 singles 恒空）；memory → cr-4 起走会话流 context 行（不再进 system，§4.4）。
+- 上下文回放/视图与对桶同一套派生路径（sid 桶只是单读者特例）；归档照常走显式 replace。previewSystemPrompt（壳内干跑面）同步读快照——预览 = 真实 run 装配面镜像不破。
 
 ---
 

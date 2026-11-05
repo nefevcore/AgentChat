@@ -4,8 +4,10 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { listTemplates, readTemplate, TEMPLATE_DIR } from '../src/preset-builtin.ts';
+import { listTemplates, readTemplate, TEMPLATE_DIR, materializeTemplateSkills, readAgentSkills } from '../src/preset-builtin.ts';
+import { isPresetId } from 'ac-agents-core';
 import { readCatalog, deriveShellRowset } from 'ac-rowset-core';
 
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
@@ -18,7 +20,9 @@ describe('内置模板静态配置集（preset-builtin 行数据面）', () => {
     expect(templates.filter((t) => t.default === true).map((t) => t.id)).toEqual(['standard']);
     expect(templates.map((t) => t.config.id)).toEqual(['__standard__', '__dsh_minimal__', '__creator__', '__abap_dev__']);
     for (const template of templates) {
-      expect(template.config.preset).toBe(true); // 模板 = 预设名册语义（创建时剥除）
+      // cr-880：模板 config 不再携带 preset 字段——类属由物化目标 id 词形承载
+      expect('preset' in template.config).toBe(false);
+      expect(isPresetId(template.config.id)).toBe(true); // 模板 id 恒保留字词形
       expect(Array.isArray(template.config.rows)).toBe(true);
     }
   });
@@ -43,5 +47,32 @@ describe('内置模板静态配置集（preset-builtin 行数据面）', () => {
     expect(readTemplate('nope')).toBeUndefined();
     expect(readTemplate('../standard')).toBeUndefined();
     expect(readTemplate('')).toBeUndefined();
+  });
+
+  it('cr-879 模板 skills/ 扫描 + 物化/读取往返', () => {
+    const creator = readTemplate('creator');
+    expect(creator?.skills?.map((s) => s.dirName)).toEqual(['plugin-dev']);
+    expect(creator?.skills?.[0]?.content).toContain('迭代铁律');
+    // 无技能模板 = 空表
+    expect(readTemplate('standard')?.skills).toBeUndefined();
+    // 物化（skip-if-present）+ 全量读取往返（临时数据根）
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-tpl-skills-'));
+    try {
+      const written = materializeTemplateSkills(root, '__x__', creator?.skills ?? []);
+      expect(written.map((s) => s.dirName)).toEqual(['plugin-dev']);
+      expect(fs.readFileSync(path.join(root, 'files/__x__/skills/plugin-dev/SKILL.md'), 'utf-8')).toContain('迭代铁律');
+      // 已在场不覆盖（用户编辑优先）
+      fs.writeFileSync(path.join(root, 'files/__x__/skills/plugin-dev/SKILL.md'), '# 用户版\n', 'utf-8');
+      expect(materializeTemplateSkills(root, '__x__', creator?.skills ?? [])).toEqual([]);
+      // overwrite = true 无条件覆盖（reconcile follow 专用）
+      materializeTemplateSkills(root, '__x__', creator?.skills ?? [], true);
+      expect(fs.readFileSync(path.join(root, 'files/__x__/skills/plugin-dev/SKILL.md'), 'utf-8')).toContain('迭代铁律');
+      // readAgentSkills：点名读取 + 全量扫描（缺省）
+      expect(readAgentSkills(root, '__x__', ['plugin-dev'])['plugin-dev']).toContain('迭代铁律');
+      expect(Object.keys(readAgentSkills(root, '__x__'))).toEqual(['plugin-dev']);
+      expect(readAgentSkills(root, '__none__')).toEqual({});
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

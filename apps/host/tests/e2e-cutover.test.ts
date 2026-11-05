@@ -135,7 +135,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     host = await bootHost({ dataRoot: targetRoot, catalogFile: CATALOG });
     const ws = await connect(host.web.port);
 
-    // ① agents/list：换轨身份可读（name 直读；preset 无 = 进名册）
+    // ① agents/list：换轨身份可读（name 直读；普通词形 = 进名册）
     const list = await rpc<{ agents: Array<{ id: string; name?: string }> }>(ws, 'agents/list', {});
     expect(list.agents.map((a) => a.id)).toContain('alpha');
     expect(list.agents.find((a) => a.id === 'alpha')?.name).toBe('甲');

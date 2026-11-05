@@ -3,6 +3,8 @@
 // 全为快命令（echo/exit/cat 拦截），无真实等待——本文件墙钟 ~5s。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -158,6 +160,8 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     // 带 agents 行的 boot（档位判定 tierOf 单源需要注册表）
     const { ctx } = await bootRows([
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined], // cr-881：shell 行段注册面 inject ['agentLoop']
       [await import('ac-jobs'), undefined],
       [agentsRow, undefined],
       [shellRow, { workdir: root }],

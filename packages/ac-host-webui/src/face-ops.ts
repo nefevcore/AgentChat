@@ -22,11 +22,11 @@ import {
   listGroupConfigs,
   listTemplates,
   listWorkspaces,
-  validateTimerEntries,
   workspacePathOf,
   workspaceTreeBase,
   resolveWorkspaceFile,
 } from 'ac-host-rows';
+import { validateTimerEntries } from 'ac-timer-core'; // cr-886 下沉单源
 import { createPoolCredentials, maskSecrets } from './config-face.ts';
 import type { ShellAdminPort } from './face-shell.ts';
 import { readCatalogSnapshot } from './face-shell.ts';

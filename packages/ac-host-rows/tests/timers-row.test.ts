@@ -105,7 +105,7 @@ describe('宿主 timers 行（数据面换轨）', () => {
   it("全局条目 target='*' 广播：preset/virtual/无 model 过滤", async () => {
     seedAgent('alpha', [], { id: 'alpha', model: 'mock' });
     seedAgent('beta', [], { id: 'beta', model: 'mock' });
-    seedAgent('preset-x', [], { id: 'preset-x', model: 'mock', preset: true });
+    seedAgent('__preset_x__', [], { id: '__preset_x__', model: 'mock' });
     seedAgent('virt', [], { id: 'virt', virtual: true });
     seedAgent('nomodel', [], { id: 'nomodel' });
     const h = await boot(['alpha', 'beta']);
@@ -114,7 +114,7 @@ describe('宿主 timers 行（数据面换轨）', () => {
       h.timers.triggerNow(GLOBAL_TIMER_OWNER, 'g1');
       await new Promise((r) => setTimeout(r, 150));
       const tos = h.received.map((r) => (r.env as Record<string, unknown>).to).sort();
-      expect(tos).toEqual(['alpha', 'beta']); // preset/virtual/无 model 出局
+      expect(tos).toEqual(['alpha', 'beta']); // 预设/virtual/无 model 出局
     } finally {
       await h.dispose();
     }

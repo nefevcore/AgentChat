@@ -52,7 +52,7 @@ describe('宿主 boot（单树装配面）', () => {
       catalogFile: CATALOG,
     });
     const expected = ['agent-admin', 'agents', 'auth-registry', 'backup', 'config', 'conv-settings', 'event-policy', 'group', 'guardian',
-      'logger-console', 'post-office', 'plugin-market', 'plugin-registry', 'preset-builtin',
+      'host-face', 'logger-console', 'post-office', 'plugin-market', 'plugin-registry', 'preset-builtin',
       'remote-link', 'singles', 'timer', 'timers', 'usage',
       'ws-bridge', 'web-server', 'webui', 'web-api',
     ];
@@ -251,7 +251,7 @@ describe('宿主 boot（单树装配面）', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     const h = await bootHost({ dataRoot, catalogFile: CATALOG, preferences: [{ id: 'backup', disabled: true }] });
     expect(h.rowIds).not.toContain('backup');
-    expect(h.rowIds.length).toBe(22); // 23 - disabled backup（cr-701 后无 ui 分流行）
+    expect(h.rowIds.length).toBe(23); // 24 - disabled backup（cr-886 增 host-face 行）
     await h.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });
@@ -268,4 +268,24 @@ describe('宿主 boot（单树装配面）', () => {
     })).rejects.toThrow(/未激活/);
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });
+});
+
+describe('host-custom 偏好层（cr-909 批6 切片三）', () => {
+  it('custom 停用一行 = 派生行集少一行（∪ host-rows 镜像窗口）', async () => {
+    const dataRoot = path.join('sandbox', 'test-host-custom-' + process.pid);
+    try {
+      const all = await bootHost({ dataRoot: dataRoot + '-a', catalogFile: CATALOG, orchestrate: false });
+      const base = all.rowIds.length;
+      await all.close();
+      fs.mkdirSync(path.join(dataRoot + '-b', 'profile'), { recursive: true });
+      fs.writeFileSync(path.join(dataRoot + '-b', 'profile', 'host-custom.patch.yml'),
+        '- id: plugin-market' + String.fromCharCode(10) + '  disabled: true' + String.fromCharCode(10));
+      const cut = await bootHost({ dataRoot: dataRoot + '-b', catalogFile: CATALOG, orchestrate: false });
+      expect(cut.rowIds).toHaveLength(base - 1);
+      expect(cut.rowIds).not.toContain('plugin-market');
+      await cut.close();
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  }, 30000);
 });

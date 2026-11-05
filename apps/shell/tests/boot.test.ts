@@ -258,3 +258,19 @@ describe('进程级冒烟（真起 boot.ts）', () => {
     expect(stderr).toContain('单例语义拒绝');
   }, 30_000);
 });
+
+describe('编译产物快照（cr-910 批6 切片四：审计视图）', () => {
+  it('boot 后 agents/<id>/boot-graph.json 落盘（行集 + 目录行摘要）', async () => {
+    fs.mkdirSync(path.join(ROOT, 'agents', 'snap1'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'snap1', 'config.json'), JSON.stringify({ id: 'snap1', model: 'mock' }));
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'snap1', catalogFile: CATALOG }, { emit: () => {} });
+    const snapPath = path.join(ROOT, 'agents', 'snap1', 'boot-graph.json');
+    expect(fs.existsSync(snapPath)).toBe(true);
+    const snap = JSON.parse(fs.readFileSync(snapPath, 'utf-8'));
+    expect(snap.agentId).toBe('snap1');
+    expect(Array.isArray(snap.rows)).toBe(true);
+    expect(snap.rows.length).toBeGreaterThan(0);
+    expect(snap.catalogRows.some((r: { id: string }) => r.id === 'tools')).toBe(true);
+    await boot.close();
+  });
+});

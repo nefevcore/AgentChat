@@ -1,22 +1,16 @@
 # 变更登记目录（CR log）
-
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-863**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
-
+> **当前号：cr-910**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
-
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
 ```
-
 - cr 号为正整数、单调递增、永不复用（不固定位数，前导零禁止）；日期 = 登记当日真实日期。
 - 描述一句话说清改了什么；细节写对应设计文档或 CHANGELOG，目录行保持一行。
 - 一次会话内的一组关联小改可合并为一条 CR。
-
 ## 目录
-
 - 【cr-1 2026-09-27 日期语义重定义：批次代号退役、存量月份标记 blame 分层还原为真实日期（史前/不可考 → `-00`）、外部归档目录改名、规约重写并建立 CR 登记】
 - 【cr-2 2026-09-27 cr 号位数约定修订：三位改「正整数单调递增、不固定位数、前导零禁止」】
 - 【cr-3 2026-09-27 CR 目录自 epoch-marking-convention.md §三迁出为独立文件 cr-log.md】
@@ -881,4 +875,50 @@
 - 【cr-861 2026-11-02 deliver 对等投递纯库（盘面会合 §六.1）：双层会合（锁直投→失败落接收方 inbox 直投）——ipc 传输（IpcClient/listenIpc）从 ac-post-office 移入 ac-envelope-core 断循环依赖；subagent 换轨与 router 拆分的共同前置】
 - 【cr-862 2026-11-02 subagent 投递换轨盘面会合（cr-861 deliver 纯库转正）：sendViaLock/answerOp/deliverToChild 三处内联锁直投退役统一走 deliver()（children 域路径代数）；死子语义从 fail-loud 升级为落 inbox + owner 重拉（信等人→拉起消费，cr-856 换代缺口收口）；修复 deliver.ts DeliverAck 未定义类型（cr-861 遗留 typecheck 红）】
 - 【cr-863 2026-11-02 subagent 通知信封化（盘面会合 §六.3，cr-861/862 第 3 步）：①子壳终稿回执换轨——postReply 对 to=parentId 走 deliver() 双层会合（活锁直投/陈锁落父 inbox 由 recoverPendingInbox 消费），子形态无邮局也回执（hostless 回执断链补全）②子域提问推送双通道——子壳订阅 durable-interaction/opened 主动推 childAsk 信封（断 S2 换代 watcher 蒸发窗），父侧 receiveEnvelope 拦截转 notifyChildAsk 单源（askNotified 门+emit+注入），盘 watch 降级兜底；reconcile 对话锁子顺带 watch 重建（P2）】
-
+- 【cr-864 2026-11-02 三份设计文档人工验证清单落盘 docs/design/verify-checklist-supervisor-rendezvous.md（发起会话视角：supervisor system 层 B1-B6 / 盘面会合 C1-C4，观察点数值经源码与活体采样实证）】
+- 【cr-865 2026-11-02 修复子 Agent 工作区技能可见性缺口：ac-skill workspaceOf 在 singles 挂载 miss 时回落 settings.security.workdir 锚点（cr-758 同构，子 Agent 继承父挂载工作区的技能可见性）；load_skill 未命中错误信息附三源清单；ask_questions 清除 deadline_ms 废弃参数；测试报告勘误（SDK 声明不含 subagent 等）】
+- 【cr-866 2026-11-02 移除 ToolResult.interrupt 语义化中断通道——插件装卸三件套改即时执行（对齐 restart_shell/restart_host 即时副作用形态），plugin-dev 收束检测/writeReceipt 面退役】
+- 【cr-867 2026-11-02 修复发送后输入框遗留文本（cr-850 残口）：IME 组合滞后下 v-model 仍为旧空值，发送清空赋值空转不触发 watch、doc 不被清——PromptEditor 暴露同步 clear()，send/sendNow 发送出口显式清 doc 断根】
+- 【cr-868 2026-11-02 fresh 场景补充（cr-867 续）：组合期卸载草稿暂存读滞后 v-model 存空丢半截草稿、onUnmounted 时编辑器已销毁——改 onBeforeUnmount 读 flush 现势；补 fresh 重挂载链路测试（真挂 PromptEditor 契约段 + 同构 draftParking 段）】
+- 【cr-869 2026-11-02 singles/list 热路径零读：摘要索引升级清单注册表——装载对账+写点同步维护，list 直吐内存快照（cr-845 延伸第一步；lastActivity 仍 stat 探测，写路径通知留第二步）】
+- 【cr-870 2026-11-02 singles list 消灭全表 stat 活指纹探测：ac-ledger 新增 ledger/viewer-appended 纯通知事件（声明住 service.ts 装配面；UserStub 构造回调 onAppend——send/receive 派生落行后触发；web-api 读前派生与账本管理面同发），singles 行订阅 → 注册表条目摘要惰性失效，list 热路径零 IO（cr-869 第二步）】
+- 【cr-871 2026-11-03 usage 行 cr-842 对账回填改水位线增量扫描——boot 同步全量扫账本（42agent×1175session×282MB 实测 87.6s 卡死事件循环，listen 回调积压 62s）改 journal mtime 水位跳过已覆盖 session + messages.jsonl 懒读（仅补录行取时间戳），稳态 boot 对账零全读】
+- 【cr-872 2026-11-03 system-prompt+goal+web-tools：网络结果防注入条目 + goal blocked 判定防抖 + 后台任务条目改写（prompt-adjustment-plan 第一批 P0）】
+- 【cr-873 2026-11-03 system-prompt：意外改动防护（E_FILE）+ 破坏性命令例举（E_ASK）+ review 心智 findings first（E_SUB 尾句）——prompt-adjustment-plan 第二批 P1】
+- 【cr-874 2026-11-03 system-prompt：第三批 P2 行为策略——todo/subagent 反向清单 + 主动但不越权 + 优先改既有文件（含 <file> 标签教学，dsh §6.4）+ 专业客观 + steering 语义】
+- 【cr-875 2026-11-03 ac-system-prompt：删除指引「系统管理」死码条目——门控词形 system_restart 是 cr-629 工具拆分（restart_shell/restart_host）前旧名，条目自拆分起永不注入（真装配导出证实）；文本引用的 reload 工具亦不存在；语义已被 restart_host 工具描述完整覆盖（分工红线），同步测试基线】
+- 【cr-876 2026-11-03 cr-876 追记：决定性实验实锤用户态裸包名 import 缺口——数据根下插件目录 import 'ac-openai-completions' 必败（Node 向上找不到 node_modules；宿主单文件 bundle 模块已内联不可寻址；全仓无 resolve hook）。AGENTS.md provider 行规约改双形态如实陈述（开发仓库态纯库优先/用户态 fetch 直写 SSE）；A2 留档：宿主 resolve hook 工程项】
+- 【cr-877 2026-11-03 creator 模板人设通用化 A1 落地（用户反馈：开发态/用户态两世界——普通用户在数据根下启动，仓库相对路径必然失效）：AGENTS.md 重写为自包含教学（最小 manifest+apply 骨架，删 apps/catalog/templates 照抄引导）；§4 重启场景通用化（packages/ 特指降为开发仓库条件句）；修 JSON 转义残留 2 处；E_FILE 死词 pwsh 改通用措辞。cr-876 为本批追记】
+- 【cr-878 2026-11-03 creator AGENTS.md 按工具描述覆盖面精简重写：删与 plugin-dev/restart 工具描述逐字重复段（试跑定型/重启场景，-45%），补三处缺失（strip-only 语法边界/provider models 路由清单/ctx.on 订阅形状）；restart_host 工具描述最高频场景开发仓库条件化（用户态两世界收口）】
+- 【cr-879 2026-11-03 creator 插件开发知识技能化：模板携带 skills/（preset-builtin 读面扩展 TemplateSkill + 三物化点写 files/<id>/skills/ skip-if-present + preset-origin 指纹纳入）+ AGENTS.md 收缩为指路残句】
+- 【cr-880 2026-11-03 预设身份判定收敛：词形单源 isPresetId（ac-agents-core）+ preset 字段全链退役 + 创建口保留字闸门 + 词形归一化修正】
+- 【cr-881 2026-11-03 system prompt 去中心化：PromptSection 注册制（具名 order 单源 + agent-loop 组装）+ 三档装配链退役 + 内容拆散至各 owner 包】
+- 【cr-882 2026-11-03 修复 cr-881 残留：根 package.json 漏删 ac-system-prompt 依赖声明致 pnpm install 失败、新行依赖链接缺失】
+- 【cr-883 2026-11-03 cr-881 修正：GUIDELINES_TIMER 注册从宿主 timers 行回退——agentLoop 住壳进程（宿主行集不含 agent-loop 行致 boot 终检 PENDING，且跨进程注册到不了壳 prompt）；当前出厂壳无 timer 工具注册面（恒空串死代码），待 shell 侧 timer 行落地时由 owner 注册】
+- 【cr-884 2026-11-03 cr-881 修正：ENV_MODEL 段注册从 ac-agent-loop 行 apply 挪进 AgentLoopService 构造器——自注册场景 apply 里走 ctx.agentLoop 抛 cannot get property without inject（cr-538 先例：服务实例直引），壳 boot 早退修复】
+- 【cr-885 2026-11-04 outbox 转投触发面修复：poller 周期冲刷 + 转投/出箱失败日志面（滞留信死等偶然事件问题）】
+- 【cr-886 2026-11-04 宿主能力面（host-capability-face）：ipc 契约通道——facts（singles/group）+ collab×7/timer 工具宿主化（双闸）+ 远程段（TERMINOLOGY/COLLAB/REFERENCE_AGENT/GROUP_CONTRACT/TIMER）+ 壳侧 client 代理装配（失效帧刷新）】
+- 【cr-887 2026-11-04 判活单源化：agentInFlight（running ∪ spawning）统一 dock 对账/悬挂探针/发送看门狗判活——切会话 spawning 窗状态卡被权威 miss 误杀的根修】
+- 【cr-888 2026-11-04 singles system prompt 物化设计定稿（四机制：物化/段轴+设置轴 diff/模型切换重算/变化注入）——接力文档 docs/design/single-system-prompt-materialization-plan.md】
+- 【cr-889 2026-11-04 singles system prompt 物化落地（cr-888 方案实施）：快照物化/指纹 diff/模型切换重算/十类变化注入四机制——prefix-snapshot.ts 新文件 + driveRun 接线 + previewSystemPrompt 读快照 + agent-loop sectionsFrozen/materializeSections + ledger context 行回放】
+- 【cr-890 2026-11-04 会话设置变更通知行（cr-889 context+event+label）前端注入卡化——historyApi isInjectionRow 扩判据（带 label+content 的机制行透传 contextContent）+ feed isInjectEvent 同步扩（contextContent 在场即卡片）——十类注入正文此前被分隔符通道丢弃】
+- 【cr-891 2026-11-04 空会话标题回落统一：预设切换不改「新会话」显示（titleOf/identity/header 三处回落以 lastActivity 缺席为统一切面）】
+- 【cr-892 2026-11-04 titleOf 有消息无标题回落去掉「· 创建时间」段（与 identity 头部 cr-33 形状一致；回落窗口创建时间无信息量）】
+- 【cr-893 2026-11-04 工具卡 diff 行底色对齐 FileEditsPanel cr-224 档位（α 0.18）——修 cr-147 漂移】
+- 【cr-894 2026-11-04 幻影壳层退役为单例草稿态（cr-847/848/849/850 四连击的终局收敛）：未发送会话不占列表行、无 id（哨兵 __pending__ 挂 single 视角）；id 改为首次发送时签发并作 create 幂等锚（失败重试同 id）】
+- 【cr-895 2026-11-04 cr-893 续：boot-graph mtime 缓存键只看父目录——build-channel 重建产物不失效（version bump 不进 graph，旧图常驻）。根修：webui-row 目录签名=父+子目录 mtime；build-channel 收尾 touch 输出目录；fs 通道 bump 0.1.1】
+- 【cr-896 2026-11-05 ToolResultEdit split 字面 \\n 双重转义修复——cr-465 CRLF→LF 清理误转义致 diff 恒单行整卡染红（原始 422ea9ab 正确，8748948b 弄坏）；根修 split(\ \n\) + 渲染测试锁分行行为】
+- 【cr-897 2026-11-05 CodeCard 折行态对默认插槽体（diff 卡）不生效——#17C 开关只覆盖内置 cc-code 路径。根修：default slot 下发 wrap slot prop，ToolResultEdit diff 体消费（wrap 态 pre-wrap 软换行）；fs bump 0.1.3 + 行为锁测试】
+- 【cr-898 2026-11-05 插件装载面统一设计档——UI 通道与壳侧行双路径认知负担问题与统一方案】
+- 【cr-899 2026-11-05 插件开发范式重设计设计档（参考 DSH：迭代回路即时化/表达梯度/护栏机械化）】
+- 【cr-900 2026-11-05 插件体系 v2 推翻重设计：包即插件/pnpm 落位/组合树单源/审批与回执治理（取代 cr-898/899 补丁路线）】
+- 【cr-901 2026-11-05 插件体系 v2.1 重写：并入 23 条审计裁决（多物化形态落位/分层合成装配/基座源码化/配置消灭/回执两轴/启动注册表住应用侧）】
+- 【cr-902 2026-11-05 插件体系 v2.1 批1（cr-901 计划）：row-catalog 单表退役起步——host/shell 基座源文档（cordis-plugin-loader 官方方言 + 版本戳头注释）+ row-catalog.json 转生成物 + readCatalog 双读（基座赢）+ host boot 版本戳部署链与对账 fail-loud，行为等价由 e2e 全量锁定】
+- 【cr-903 2026-11-05 插件体系 v2.1 批2 切片一（cr-901 §4.1/4.2）：包即插件描述符层——package.json ac 字段读取（faces/permissions/provides）+ engines 自求值（node/agentchat 双轴，复用 contracts semver 求值器）+ 旧 manifest.json/contracts 字段迁移投影 + installed.patch.yml 读写（name 定位 + owner 锚 + scope）】
+- 【cr-904 2026-11-05 插件体系 v2.1 批2 余项（cr-901 §4.2）：npm 形态落位——profile/ pnpm 根（pnpm add --ignore-scripts 强制）+ 锁文件树指纹定格 + lock diff 审批卡面 + installed.patch.yml 词形分轨（npm 形态 = 裸包名、目录形态 = link:<dir>）；装载接线随批 3/4 分层编译】
+- 【cr-905 2026-11-05 插件体系 v2.1 批3 起批（cr-901 §4.3/批3）：UI 插件形态设计文档（ui-plugin-form.md——web 面包即插件 ac.faces.web 对齐 / 宿主模块表单源与 channelImports 退役 / webui 基座装配文档与分层 / 词法放宽）+ webui 基座源文档 v0（通道清单生成 + 版本戳）】
+- 【cr-906 2026-11-05 插件体系 v2.1 批4 切片一（cr-901 §4.4）：agent.patch.yml 装配 overlay 读写层——AgentConfig 投影（rows/tier/tool-mode/档案面/origin 块；tags 由档位词重建）+ readAgentConfig 双读（patch 在场即赢，config.json 旧读窗口兼容）+ writeAgentConfig 双落（镜像 config.json 保旧读者）；settings 随行窗口（切片二拆 plugin-config/）】
+- 【cr-907 2026-11-05 插件体系 v2.1 批5 切片一（cr-901 §4.6）：作者工具链——ac plugin init（零 PLACEHOLDER 包形态脚手架：ac 字段 + owner 私有工具模板 + keywords 自标）/ publish（门禁复用 admissionOf + npm publish 无构建步 + --dry）/ finalize（定型物化 = 统一安装器代写 installed 行 owner 锚）；agentchat CLI plugin 子命令拦截 + ac 别名】
+- 【cr-908 2026-11-05 插件体系 v2.1 批6 切片一（cr-901 §七.6 前置）：装配菜单合流——installed.patch.yml 进壳行集派生（installedRowDescriptors：owner 锚过滤 + link:/npm 裸名词形解析 + manifest.rows/package provides.tools 投影 + 点名缺席降级语义）+ shell boot 双层合并与装配器注册 + market 人签安装 owner 锚留空（全体候选）；plugin-rows.json 转纯镜像窗口】
+- 【cr-909 2026-11-05 插件体系 v2.1 批6 切片三（cr-901 §4.3）：host/shell-custom.patch.yml 用户偏好层——基座行停用面（custom 层语义：disable；写者 = 设置 UI/用户）+ host boot 派生合流（host-rows.json 镜像窗口 ∪ custom 停用）+ shell boot 基座行减法（点名不在菜单 = 警告跳过）；presets/<name>.patch.yml 变体层裁决：现模板层承担、无行为缺口，登记后继（体量克制）】
+- 【cr-910 2026-11-05 插件体系 v2.1 批6 切片四（cr-901 §4.3/§4.7）：①编译产物快照——shell boot 派生后落 boot-graph.json（审计视图「这个 Agent 实际装了什么」：行集/目录行摘要/warnings，主壳与子壳分域）②进程种类注册表——repo 声明式清单 profile/processes.json（boot 入口/argv 契约/IPC 面/审批归属）+ 部署链随行 + installed scope 词与 DEPLOY 面消费】

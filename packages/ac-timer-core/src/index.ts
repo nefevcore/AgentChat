@@ -13,6 +13,29 @@
 // ============================================================
 import * as lunar from 'chinese-lunar';
 
+/**
+ * 定时条目形状校验（timer/save 入站；非法抛错——防脏配置落盘）。
+ * cr-886 自 ac-host-rows/timers-row 下沉（宿主能力面消费成环解法——词法
+ * 本属 timer 域纯函数；timers-row re-export 不留，消费方直连）。
+ */
+export function validateTimerEntries(raw: unknown): TimerEntry[] {
+  if (!Array.isArray(raw)) throw new Error('参数 entries 须为 TimerEntry 数组');
+  return raw.map((item, i) => {
+    if (item === null || typeof item !== 'object') throw new Error('entries[' + i + '] 非对象');
+    const e = item as Record<string, unknown>;
+    if (typeof e.id !== 'string' || e.id === '') throw new Error('entries[' + i + '].id 缺失');
+    if (e.mode !== 'time' && e.mode !== 'delay' && e.mode !== 'random' && e.mode !== 'workday' && e.mode !== 'holiday') {
+      throw new Error('entries[' + i + '].mode 非法（' + String(e.mode) + '）');
+    }
+    if (typeof e.hint !== 'string') throw new Error('entries[' + i + '].hint 须为字符串');
+    if (e.enabled !== undefined && typeof e.enabled !== 'boolean') throw new Error('entries[' + i + '].enabled 须为 boolean');
+    if (e.conversationId !== undefined && (typeof e.conversationId !== 'string' || !e.conversationId)) {
+      throw new Error('entries[' + i + '].conversationId 须为非空字符串');
+    }
+    return e as unknown as TimerEntry;
+  });
+}
+
 /** 定时任务条目（5 模式；持久化形态归 ac-agent-store entry 'timer'） */
 export interface TimerEntry {
   id: string;

@@ -247,7 +247,11 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     // 非 event/error）另行卡片化（2026-09-26 注入卡——原 label 条二期裁决落地）：
     // 注入体原文（r.content，<system-reminder>…）随行透传 contextContent，
     // 卡片展开体渲染之（展示期正文不再丢弃）；label 缺席按正文头行回落。
-    const isInjectionRow = r.source !== undefined && r.source !== 'event' && r.source !== 'error';
+    // cr-890：会话设置变更通知行（cr-889，source:event + label + content 双在场
+    // ——机制行恒无 label，content 即文案）同样卡片化——十类注入正文此前被
+    // 分隔符通道丢弃（只透传 label「会话设置变更」五字）。
+    const isInjectionRow = (r.source !== undefined && r.source !== 'event' && r.source !== 'error')
+      || (r.source === 'event' && r.label !== undefined && r.label !== '' && r.content.trim() !== '');
     out.push({
       role: 'event',
       content: r.label ?? r.content,

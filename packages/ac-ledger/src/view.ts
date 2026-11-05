@@ -147,7 +147,10 @@ export function assembleSessionView(
     if (domain === 'viewer') continue;
     const { lines, rows } = ensureFace(domain, dir);
     for (const r of rows) {
-      if (r.source !== 'inject' || r.run === undefined) continue;
+      // cr-888：会话设置变化通知行（context+event，run 锚定）与 inject 行
+      // 同投注入卡（label 卡片；source 取 injectSource）
+      const isInjectCard = r.source === 'inject' || (r.source === 'event' && r.role === 'context');
+      if (!isInjectCard || r.run === undefined) continue;
       projectInject(r.run, {
         role: 'context',
         content: r.content,

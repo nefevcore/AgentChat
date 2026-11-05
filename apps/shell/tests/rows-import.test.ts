@@ -16,8 +16,7 @@ import { bootShell } from '../boot.ts';
 import { Context, FiberStates, type Plugin } from '@agentchat/cordis';
 import { IMPORTED_ROWS, makeShimsRow } from 'ac-shell-rows';
 import type { BenchRunOptions, BenchReport } from 'ac-bench';
-import type {} from 'ac-agent-loop'; // loop/* 事件目录类型增强（type-only）
-import type { LoopRunResult } from 'ac-agent-loop';
+import type {} from 'ac-agent-loop'; // loop/* 事件目录 + 段注册面类型（type-only）
 
 const ROOT = path.join('sandbox', 'test-rows-' + process.pid);
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
@@ -63,17 +62,15 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
       const agents = boot.ctx.get('agents') as { settingsOf(id: string, name: string): unknown } | undefined;
       expect(agents).toBeDefined();
       expect(agents!.settingsOf('beta', 'persona')).toMatchObject({ text: '你是测试人格' });
-      // 主线 persona 行监听 loop/before-run（ctx.on waterfall）——收尾监听器读改写终值
-      const captured: Array<{ system?: string }> = [];
-      boot.ctx.on('loop/before-run', (call: { request: { system?: string } }, next: () => Promise<LoopRunResult>) => {
-        captured.push({ system: call.request.system });
-        return next();
-      });
-      await boot.ctx.waterfall('loop/before-run', {
-        request: { agent: 'beta', model: 'mock', messages: [] },
-      } as never, async () => ({ finish: 'stop' }) as LoopRunResult);
-      expect(captured[0]?.system ?? '').toContain('<persona>');
-      expect(captured[0]?.system ?? '').toContain('你是测试人格');
+      // cr-881 段注册制：persona 行 = PERSONA 段（run() 入口组装），
+      // before-run 事件不再承载提示词装配——经 assemblePreview 观测（与
+      // run() 入口同源的组装面）
+      const loop = boot.ctx.get('agentLoop') as {
+        assemblePreview(req: { agent?: string; model: string; messages: unknown[] }): string | undefined;
+      };
+      const system = loop.assemblePreview({ agent: 'beta', model: 'mock', messages: [] }) ?? '';
+      expect(system).toContain('<persona>');
+      expect(system).toContain('你是测试人格');
     } finally {
       await boot.close();
     }
@@ -198,16 +195,21 @@ describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools�
       // 乱序装配：harness-tools 先行（tools 缺——convSettings 由垫片就位）→
       // PENDING；依赖行到位后 cordis notify 唤醒——await 排空后全部 ACTIVE。
       const shims = ctx.plugin(makeShimsRow(ROOT) as unknown as Plugin);
+      // cr-881：shell-tools 段注册面 inject ['agentLoop']——llm/loop 先行
+      const l = ctx.plugin(IMPORTED_ROWS['llm']!);
+      const lp = ctx.plugin(IMPORTED_ROWS['agent-loop']!);
       const h = ctx.plugin(IMPORTED_ROWS['harness-tools']!);
       const s = ctx.plugin(IMPORTED_ROWS['shell-tools']!);
-      fibers.push(shims, h, s);
-      await Promise.all([shims, h, s]);
-      expect(h.state).toBe(FiberStates.PENDING); // await 不报错的静默面（终检的动因）
+      fibers.push(shims, l, lp, h, s);
+      await Promise.all([shims, l, lp, h, s]);
+      expect(h.state).toBe(FiberStates.PENDING); // await 不报错的静默面（终检的动因）——tools 尚缺
       const t = ctx.plugin(IMPORTED_ROWS['tools']!);
       const j = ctx.plugin(IMPORTED_ROWS['jobs']!);
       fibers.push(t, j);
-      await Promise.all([h, s, t, j]);
-      for (const f of [shims, h, s, j, t]) expect(f.state).toBe(FiberStates.ACTIVE);
+      // 排空两轮：依赖行（tools/jobs）就位唤醒等待者，等待者 ACTIVE 需再一拍
+      await Promise.all([t, j]);
+      await Promise.all([h, s, t, j, l, lp]);
+      for (const f of [shims, h, s, j, t, l, lp]) expect(f.state).toBe(FiberStates.ACTIVE);
       const csSvc = ctx.get('convSettings') as { listKeys(): Array<{ key: string }> };
       expect(csSvc.listKeys().map((k) => k.key)).toContain('harnessTier');
     } finally {

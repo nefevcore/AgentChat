@@ -33,7 +33,8 @@ const applicable = computed(() => props.data.form === 'single' && !!single.value
 const title = computed(() => {
   const s = single.value;
   if (!s) return '';
-  if (!s.agentId) return s.title || '新会话';
+  // 空会话（lastActivity 缺席）或未选预设 = 恒「新会话」——切换预设不改回落形状（cr-891）
+  if (!s.lastActivity || !s.agentId) return s.title || '新会话';
   const name = roster.getAgentName(s.agentId) || s.agentId;
   return s.title || `${name} · 独立会话`;
 });

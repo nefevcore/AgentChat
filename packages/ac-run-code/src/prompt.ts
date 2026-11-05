@@ -6,7 +6,7 @@
 // 因 read 目录返回类型猜错失败）；返回值压缩纪律也没送达（第二轮
 // 12.7KB 原样包回）。
 //
-// 修复：loop/before-run 主档注入 system 块（系统提示词装配常规落点）：
+// 修复：PTC_SDK 段注入 system 块（cr-881 段注册制）：
 //   · SDK 投影声明（buildSdkProjection——字典序稳定，工具集不变则
 //     字节不变，KV cache 前缀友好）；
 //   · 程序书写纪律（DEFAULT_GUIDANCE 基线）。
@@ -17,7 +17,8 @@
 // resolveEffectiveTools——不缓存，防装卸窗口漂移）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import type { LoopRunCall } from 'ac-agent-loop';
+import type {} from 'ac-agent-loop'; // ctx.agentLoop 段注册面类型（type-only）
+import type { LoopRunRequest } from 'ac-agent-loop';
 import { buildSdkProjection, DEFAULT_GUIDANCE } from 'ac-run-code-core';
 import { isModeToolFace } from 'ac-agents';
 import { resolveEffectiveTools } from './tool.ts';
@@ -34,24 +35,18 @@ const INTRO = [
 ].join('');
 
 /**
- * 挂 loop/before-run 注入（ac-run-code/src/index.ts apply 调用）。
- * 观察/标注型监听器——恒调 next()。
+ * PTC_SDK 段注册（cr-881；ac-run-code/src/index.ts apply 调用）。
+ * 非程序化调用（LLM 面非单 run_code）→ 空串不贡献。
  */
 export function registerProjectionInjection(ctx: Context): void {
-  ctx.on('loop/before-run', (call: LoopRunCall, next) => {
-    const block = projectionBlock(ctx, call);
-    if (block === undefined) return next();
-    call.request = {
-      ...call.request,
-      system: call.request.system ? `${call.request.system}\n\n${block}` : block,
-    };
-    return next();
-  }, { description: 'run_code SDK 投影 + 程序书写纪律注入（程序化互斥形态时）' });
+  ctx.agentLoop.registerPromptSection({
+    name: 'PTC_SDK',
+    text: (request) => projectionBlock(ctx, request) ?? '',
+  }, 'ac-run-code');
 }
 
 /** 组装注入块；非程序化调用（LLM 面非单 run_code）→ undefined（不注入） */
-function projectionBlock(ctx: Context, call: LoopRunCall): string | undefined {
-  const request = call.request;
+function projectionBlock(ctx: Context, request: LoopRunRequest): string | undefined {
   // LLM 面判定（run 级请求面优先）：request.tools 是 router 合成后的
   // 终值——含程序化开关收窄（开关化后收窄不落在 Agent 配置里，Agent
   // tools 复算看不见开关，2026-09-21 research §十）。判定单源化（2026-09-21

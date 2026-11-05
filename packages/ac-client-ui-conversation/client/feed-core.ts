@@ -24,6 +24,7 @@ import {
   type StreamState,
 } from './chatOps.ts';
 import { loadUnreadSnapshot, saveUnreadSnapshot } from './unreadStore.ts';
+import { agentInFlight } from './runStatus.ts';
 import { notifyUser, pageHidden } from './notifyBridge.ts';
 import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
@@ -546,10 +547,11 @@ export function createFeedCore(
     const baseline = d.lastStreamAt; // stats 往返期间新活动 → 放弃本次定罪
     let live = false;
     try {
-      const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }> }>('conversation/stats');
+      const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
       const { kind, key } = parseDialogId(id);
       const conv = kind === 'single' ? key : key.split('|').join('~'); // 对桶 tilde 形（pairDialog 构造时已排序）
-      live = (stats.running ?? []).some(r => r.agentId === agentKeyOf(id) && r.conversationId === conv);
+      // 定活口径单源（cr-887）：running ∪ spawning——超长拉壳窗不被探针补刀
+      live = agentInFlight(stats, agentKeyOf(id), conv);
     } catch {
       return; // 后端不可达：不定罪（悬挂与断网不可区分，重连链 owns 恢复）
     }

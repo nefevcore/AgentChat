@@ -13,6 +13,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
+import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, agentPatchFile, readPluginConfigs, writePluginConfig } from './patch-doc.ts';
 
 /** 树内文件名常量（读写双面共用单源） */
 export const CONFIG_FILE = 'config.json';
@@ -51,11 +52,21 @@ export function isAgentIdentity(id: string): boolean {
 }
 
 /**
- * 直读 config.json（缺席/损坏 = null——调用方按未注册语义处理）。
+ * 直读 Agent 定义（cr-906 批4 双读：agent.patch.yml 在场即赢——投影回
+ * AgentConfig 形状；缺席走 config.json 旧路径，窗口兼容未迁移存量）。
  * ◐b cr-691 键归一：盘上旧键 tools → rows（读时兼容已迁数据；写恒 rows
  * ——writeAgentConfig 落盘的恒为归一后形态，旧键只在读时出现一次）。
  */
 export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig | null {
+  const patch = readAgentPatch(dataRoot, agentId);
+  if (patch !== null) {
+    // 插件配置合成（cr-906 切片二）：单元文件赢——拆分后 patch 不再随行
+    // settings（窗口期 patch 内联 settings 为未拆分存量兜底）
+    const config = patchToConfig(agentId, patch);
+    const unitFiles = readPluginConfigs(dataRoot, agentId);
+    if (Object.keys(unitFiles).length === 0) return config;
+    return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
+  }
   const file = path.join(agentDir(dataRoot, agentId), CONFIG_FILE);
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AgentConfig> & { tools?: unknown };
@@ -70,11 +81,21 @@ export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig 
   }
 }
 
-/** 写 config.json（宿主编辑面 / 物化 spawn 面；原子写 temp+rename） */
+/** 写 Agent 定义（cr-906 批4 双落：agent.patch.yml 主写 + config.json
+ * 镜像——旧读者不断链；回滚 = 删 patch 即回旧形态） */
 export function writeAgentConfig(dataRoot: string, config: AgentConfig): void {
   assertAgentId(config.id);
   const dir = agentDir(dataRoot, config.id);
   fs.mkdirSync(dir, { recursive: true });
+  const prevPatch = fs.existsSync(agentPatchFile(dataRoot, config.id))
+    ? readAgentPatch(dataRoot, config.id) : null;
+  // 插件配置拆分（cr-906 切片二）：settings → agents/<id>/<unit>.json（各插件
+  // 自定自读）；patch 不随行 settings；config.json 镜像仍含（旧读者窗口）
+  for (const [unit, value] of Object.entries(config.settings ?? {})) {
+    writePluginConfig(dataRoot, config.id, unit, value);
+  }
+  const { settings: _split, ...withoutSettings } = configToPatch(config, prevPatch?.origin);
+  writeAgentPatch(dataRoot, config.id, withoutSettings);
   const file = path.join(dir, CONFIG_FILE);
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf-8');
@@ -140,12 +161,13 @@ export function materializedChildIds(dataRoot: string): Set<string> {
 // —— 影子物化（R-5：spawn = 派生身份新 agent；RSI 候选机制，P2③ 影子不撞锁） ——
 
 /**
- * 物化剥减（身份面）：父身份剥掉在场性词汇（preset 名册语义不继承），
- * 其余原样快照——子身份重读不依赖父目录。会话基座（conversation/ledger
- * 行）由行集派生层单源并入（cr-548——派生层恒并，本函数不再改写 tools）。
+ * 物化剥减（身份面）：改写 id，其余原样快照——子身份重读不依赖父目录。
+ * （cr-880：preset 字段全链退役——预设类属由 id 词形承载，子 id 无 __x__
+ * 词形即天然非预设，无物可剥。）会话基座（conversation/ledger 行）由行集
+ * 派生层单源并入（cr-548——派生层恒并，本函数不再改写 tools）。
  */
 export function deriveChildConfig(parent: AgentConfig, childId: string): AgentConfig {
-  return { ...parent, id: childId, preset: undefined };
+  return { ...parent, id: childId };
 }
 
 /** 物化子身份到 agents/<parentId>/children/<childId>/（物化即快照——

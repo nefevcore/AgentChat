@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { socketPathFor } from 'ac-envelope-core';
+import { socketPathFor, makeEnvelope } from 'ac-envelope-core';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from '../user-stub.ts';
 import { readLedger } from 'ac-ledger';
@@ -136,4 +136,52 @@ describe('M8.4 user 壳半边端到端', () => {
       await po.close();
     }
   }, 45_000);
+});
+
+describe('viewer 账本追加通知（cr-870：onAppend 回调——宿主装配点连 ctx.emit）', () => {
+  it('writeOwn 落行后触发（uuid 载荷）；重复构造无回调 = 无通知', async () => {
+    seedConfig('alpha');
+    const po = new PostOffice({ dataRoot: ROOT });
+    await po.listen();
+    const seen: string[] = [];
+    const user = new UserStub(po, ROOT, (uuid) => { seen.push(uuid); });
+    user.start();
+    try {
+      const { uuid } = await user.send('alpha', '通知问');
+      expect(seen).toEqual([uuid]); // own 落行 → 通知一次
+      // 无对端壳在场：dispatch 无 ack 也无终稿回链——仅 own 通知
+    } finally {
+      user.stop();
+      await po.close();
+    }
+  });
+
+  it('终稿派生落行后触发（receive → deriveViewerLedger 新行 > 0）', async () => {
+    seedConfig('beta');
+    const po = new PostOffice({ dataRoot: ROOT });
+    await po.listen();
+    const seen: string[] = [];
+    const user = new UserStub(po, ROOT, (uuid) => { seen.push(uuid); });
+    user.start();
+    try {
+      const { uuid } = await user.send('beta', '首问');
+      seen.length = 0; // 排除 own 落行通知
+      // agent 域账本手工落终稿行（模拟壳写者）→ 直投终稿通知信封给 user 端点
+      const adir = path.join(ROOT, 'agents', 'beta', 'sessions', uuid);
+      fs.mkdirSync(adir, { recursive: true });
+      fs.writeFileSync(path.join(adir, 'messages.jsonl'), [
+        JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-11-02T00:00:00.000Z', participants: ['beta', 'user'], kind: 'agent' }),
+        JSON.stringify({ role: 'agent', message_id: uuid + '-f1', agent_id: 'beta', content: '终稿回复', timestamp: '2026-11-02T00:00:01.000Z' }),
+      ].join('\n') + '\n', 'utf-8');
+      const ack = await po.dispatch(makeEnvelope({
+        uuid, requestId: 'fin-' + uuid, sender: 'beta', to: 'user',
+        payload: { text: '终稿回复' },
+      }));
+      expect(ack[0]).toMatchObject({ to: 'user', channel: 'local' });
+      expect(seen).toEqual([uuid]); // 派生新行 → 通知一次
+    } finally {
+      user.stop();
+      await po.close();
+    }
+  });
 });

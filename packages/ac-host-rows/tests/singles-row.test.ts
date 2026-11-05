@@ -40,7 +40,8 @@ function boot(withInbox: boolean) {
     broadcast: (type: string, data?: unknown) => { frames.push({ type, ...(data as { args?: unknown }) }); },
   };
   const plugin = makeSinglesHostRow({ dataRoot: ROOT, ...(withInbox ? { inbox } : {}) }) as unknown as { apply(ctx: unknown): void };
-  plugin.apply({ webServer: web, get: () => undefined });
+  // 桩 ctx：webServer + get + 最小事件面（conv-settings/updated 订阅——cordis on 形状）
+  plugin.apply({ webServer: web, get: () => undefined, on: () => {} });
   const send = (env: Envelope) => {
     if (receiver === null) throw new Error('收信面未注册');
     return receiver(env);
@@ -152,12 +153,12 @@ describe('摘要缓存（cr-682：size+mtimeMs 失效——写者单源同进程
   });
 });
 
-describe('摘要索引落盘（cr-845：跨宿主重启复用）', () => {
-  it('重挂（重启模拟）后指纹未变即复用索引；账本变更后重算', async () => {
+describe('清单注册表落盘（cr-845 摘要索引 → cr-869 全视图清单：跨宿主重启复用）', () => {
+  it('重挂（重启模拟）后指纹未变即复用注册表；账本变更后重算', async () => {
     seedLedger('x1', [{ agent_id: 'user', content: '索引跨重启' }]);
     await boot(false).handlers.get('singles/list')!({});
-    const indexFile = path.join(ROOT, 'viewer', 'sessions', '.singles-index.json');
-    expect(fs.existsSync(indexFile)).toBe(true); // 首次 list 落盘索引
+    const indexFile = path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json');
+    expect(fs.existsSync(indexFile)).toBe(true); // 装载对账即落盘注册表
     // 重挂 = 新插件实例（宿主重启形态）：索引文件在场 → 命中复用
     const h2 = boot(false);
     const list2 = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
@@ -173,13 +174,13 @@ describe('摘要索引落盘（cr-845：跨宿主重启复用）', () => {
   it('索引文件损坏（非法 JSON / 形状不对）→ 回落空索引全量重算，不炸 list', async () => {
     seedLedger('y1', [{ agent_id: 'user', content: '损坏回落' }]);
     fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-index.json'), '{oops', 'utf-8');
+    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json'), '{oops', 'utf-8');
     const h = boot(false);
     const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
     expect(list.singles.find((s) => s.id === 'y1')?.title).toBe('损坏回落');
-    // 损坏索引被重算结果覆写（自愈）
-    const healed = JSON.parse(fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-index.json'), 'utf-8')) as { version: number };
-    expect(healed.version).toBe(1);
+    // 损坏注册表被重算结果覆写（自愈）
+    const healed = JSON.parse(fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json'), 'utf-8')) as { version: number };
+    expect(healed.version).toBe(2);
   });
 
   it('空会话目录（无账本无 meta）不落索引条目；仅 meta 的会话照常列出', async () => {
@@ -192,6 +193,55 @@ describe('摘要索引落盘（cr-845：跨宿主重启复用）', () => {
     expect(list.singles.some((s) => s.id === 'z-meta')).toBe(true);
   });
 });
+describe('清单注册表（cr-869：写点维护 + list 零读）', () => {
+  it('create/update/delete 写点同步注册表——list 直吐且与盘一致；delete 后重启不复活', async () => {
+    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', name: 'Alpha' }), 'utf-8');
+    const h = boot(false);
+    await h.handlers.get('singles/create')!({ id: 'r1', agentId: 'alpha' }) as { single: { id: string } };
+    await h.handlers.get('singles/update')!({ id: 'r1', title: '注册表标题' });
+    let list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
+    expect(list.singles.find((s) => s.id === 'r1')?.title).toBe('注册表标题');
+    // delete → 条目摘除；新 boot（装载对账）不复活
+    await h.handlers.get('singles/delete')!({ id: 'r1' });
+    list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(list.singles.some((s) => s.id === 'r1')).toBe(false);
+    const h2 = boot(false);
+    const list2 = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(list2.singles.some((s) => s.id === 'r1')).toBe(false);
+  });
+
+  it('跨 boot 复用：装载后条目在场，外部账本追加（UserStub 形态）list 仍看见新行', async () => {
+    seedLedger('k1', [{ agent_id: 'user', content: '首句' }]);
+    await boot(false).handlers.get('singles/list')!({});
+    const h2 = boot(false); // 重启模拟：注册表复用
+    fs.appendFileSync(path.join(sessionDir('k1'), 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', agent_id: 'user', content: '第二句', timestamp: '2026-11-02T00:00:00.000Z' }) + '\n', 'utf-8');
+    const list = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    expect(list.singles.find((s) => s.id === 'k1')?.lastActivity).toBe('2026-11-02T00:00:00.000Z');
+  });
+
+  it('手工改 session.json（meta 指纹变）→ 装载复验回源重算，标题不驻留旧值', async () => {
+    seedLedger('w1', [{ agent_id: 'user', content: '派生标题' }]);
+    await boot(false).handlers.get('singles/list')!({});
+    // 外部手改（绕过本行写点）
+    fs.writeFileSync(path.join(sessionDir('w1'), 'session.json'), JSON.stringify({ id: 'w1', title: '手改', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }), 'utf-8');
+    const h2 = boot(false);
+    const list = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
+    expect(list.singles.find((s) => s.id === 'w1')?.title).toBe('手改');
+  });
+
+  it('旧版索引文件（version 1 / .singles-index.json）在场 → 被新注册表取代（遗留文件不影响）', async () => {
+    seedLedger('v1', [{ agent_id: 'user', content: '旧版在场' }]);
+    fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-index.json'), JSON.stringify({ version: 1, entries: {} }), 'utf-8');
+    const h = boot(false);
+    const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
+    expect(list.singles.find((s) => s.id === 'v1')?.title).toBe('旧版在场');
+    expect(fs.existsSync(path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json'))).toBe(true);
+  });
+});
+
 describe('指定 id 物化（cr-847 延迟落盘链路）', () => {
   it('带 id 创建 → 落盘同 id；重复带 id 创建 → 幂等返回现状视图（不重写 meta）', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });

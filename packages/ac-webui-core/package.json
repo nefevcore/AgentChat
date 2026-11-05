@@ -13,9 +13,11 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "ac-ledger": "workspace:*"
+    "ac-ledger": "workspace:*",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "@types/js-yaml": "^4.0.9"
   }
 }

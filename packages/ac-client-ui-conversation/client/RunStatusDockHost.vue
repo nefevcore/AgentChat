@@ -14,7 +14,7 @@ import RunStatusDock from './RunStatusDock.vue';
 import { useChatStore } from './chatStore.ts';
 import { useFeedStore } from './feedStore.ts';
 import { directDialog, singleDialog, type DialogId } from './feed.ts';
-import { deriveRunStatus } from './runStatus.ts';
+import { agentInFlight, deriveRunStatus } from './runStatus.ts';
 
 const props = defineProps<{
   /** 席位 owner 透传（ComposerDock data）：会话桶归属 */
@@ -49,7 +49,9 @@ async function pollAuthoritative() {
     const { kind, key } = parseId(id);
     const conv = kind === 'single' ? key : key.split('|').join('~');
     const agent = props.data.agentId ?? '';
-    const active = (stats.running ?? []).some((r) => r.agentId === agent && r.conversationId === conv);
+    // 定活口径单源（cr-887）：running 命中 ∪ spawning 命中——只认 running 会
+    // 把拉壳窗判成权威 miss，切走再切回被静默判死误杀（本 CR 根因）
+    const active = agentInFlight(stats, agent, conv);
     feed.authoritativeRuns[id] = active;
     spawningAgents.value = new Set(Array.isArray(stats.spawning) ? stats.spawning : []);
     // 权威判死联动消息行（cr-763）：权威 miss 且状态卡已按「静默超窗」判

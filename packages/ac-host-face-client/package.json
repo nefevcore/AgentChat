@@ -1,0 +1,32 @@
+{
+  "name": "ac-host-face-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主能力面壳侧行（cr-886）：discover 契约 → 代理工具注册（双闸之壳闸）+ 远程段注册（具名位）+ singles/group Shim 装配 + invalidate 重拉",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-host-face-core": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -196,10 +196,17 @@ const MERGE_GAP_MS = 10 * 60 * 1000;
  *  原位挂进当前在场轮。机制行（timer 触发等）与无 source 行维持
  *  event 分隔符通道。kind 收窄 string 再比：toHistoryMessages 把存储
  *  source 决策词原样塞进 source.kind，运行时值域宽于 MessageSourceKind
- *  枚举（仅收窄比较，不改数据）。 */
+ *  枚举（仅收窄比较，不改数据）。
+ *  cr-890：会话设置变更通知行（cr-889，source:event + label/content
+ *  双在场）同卡片化——判据与 toHistoryMessages.isInjectionRow 单源对齐
+ *  （该层已把正文透传 contextContent）：contextContent 在场（历史投影
+ *  已判注入）或直播行带注载体（contextContent/injectBytes/payload）
+ *  即注入卡；纯机制 event 行（无载体）维持分隔符。 */
 function isInjectEvent(m: ChatMessage): boolean {
   const kind = m.source?.kind as string | undefined;
-  return !!kind && kind !== 'event' && kind !== 'error';
+  if (!!kind && kind !== 'event' && kind !== 'error') return true;
+  if (kind !== 'event' && kind !== 'error') return false;
+  return m.contextContent !== undefined || m.injectBytes !== undefined || m.payload !== undefined;
 }
 
 /** 注入 event 消息 → 注入卡（afterStep 由调用方按挂靠时刻补）。

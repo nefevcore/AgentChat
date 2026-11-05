@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
+    "ac-host-face": "workspace:*",
     "ac-host-app": "workspace:*",
     "vitest": "^4.1.10"
   }

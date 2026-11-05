@@ -2,6 +2,7 @@
 // 宿主 usage 行单测（cr-538）：host 端点收信 → 聚合并入账 →
 // requestId 幂等 / 非法 payload 拒收不崩 / 非 usage 信直过。
 // cr-842：boot 对账回填——journal 计量（事实源）vs audit 对拍补差。
+// cr-871：水位增量——已覆盖 session 跳过，新 session 照常补录。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -133,6 +134,48 @@ describe('宿主 usage 行（事件信收信面）', () => {
       }
     } finally {
       // h1 已 dispose（重启段内）
+    }
+  });
+
+  it('cr-871 水位增量：已覆盖 session 跳过（不补不读）；回拨水位 → 照常补录且幂等', async () => {
+    // s1：丢失计量 → 首次 boot 全量对账补录 + 落水位
+    const s1 = path.join(ROOT, 'agents', 'alpha', 'sessions', 's1');
+    fs.mkdirSync(path.join(s1, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(s1, 'journal', 'partials.jsonl'), JSON.stringify({
+      type: 'journal-settled', run: 'run-l1', finish: 'ok', model: 'mock',
+      usage: { prompt: 10, completion: 2, promptAccumulated: 30, totalAccumulated: 32, steps: 1 },
+    }) + '\n');
+    const po0 = new PostOffice({ dataRoot: ROOT });
+    const h0 = await boot(po0);
+    await h0.dispose();
+    const wm = path.join(ROOT, 'usage', 'reconcile-watermark.json');
+    expect(fs.existsSync(wm)).toBe(true);
+
+    // s2：新丢失行，但水位拨到未来 → s1/s2 全部视为已覆盖 → 不补（跳过实证）
+    const s2 = path.join(ROOT, 'agents', 'alpha', 'sessions', 's2');
+    fs.mkdirSync(path.join(s2, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(s2, 'journal', 'partials.jsonl'), JSON.stringify({
+      type: 'journal-settled', run: 'run-l2', finish: 'ok', model: 'mock',
+      usage: { prompt: 20, completion: 4, promptAccumulated: 60, totalAccumulated: 64, steps: 2 },
+    }) + '\n');
+    fs.writeFileSync(wm, JSON.stringify({ at: new Date(Date.now() + 3600_000).toISOString() }));
+    const po1 = new PostOffice({ dataRoot: ROOT });
+    const h1 = await boot(po1);
+    try {
+      expect(h1.ctx.usage.byConversation()['s2']).toBeUndefined(); // 水位前跳过
+    } finally {
+      await h1.dispose();
+    }
+
+    // 水位回拨（等价首次 boot）→ s2 补录；s1 已在 audit（幂等不重复）
+    fs.writeFileSync(wm, JSON.stringify({ at: new Date(0).toISOString() }));
+    const po2 = new PostOffice({ dataRoot: ROOT });
+    const h2 = await boot(po2);
+    try {
+      expect(h2.ctx.usage.byConversation()['s2']?.runs).toBe(1);
+      expect(h2.ctx.usage.byConversation()['s1']?.runs).toBe(1);
+    } finally {
+      await h2.dispose();
     }
   });
 

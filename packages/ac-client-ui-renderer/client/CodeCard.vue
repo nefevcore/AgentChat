@@ -92,8 +92,10 @@ async function copyCode() {
       </span>
     </div>
     <div class="cc-body">
-      <!-- 自定义体（diff 卡等非 hljs 渲染形态——#17A 差异化插槽） -->
-      <slot v-if="$slots.default" />
+      <!-- 自定义体（diff 卡等非 hljs 渲染形态——#17A 差异化插槽）。
+           wrap 经 slot props 下发：自定义体与内置代码路径共享同一折行开关
+           （#17C）——此前只覆盖 cc-code，diff 体恒 nowrap，开关对其无效 -->
+      <slot v-if="$slots.default" :wrap="wrapOn" />
       <!-- 反馈 #7：行号列与代码同容器——横向滚动条恒贴卡右缘（行号 flex 独列时
            滚动容器会被挤到中间位）。行号 sticky 左锚：横滚时行号恒可见 -->
       <div v-else class="cc-scroll">

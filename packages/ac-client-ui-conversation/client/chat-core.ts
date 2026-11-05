@@ -17,10 +17,11 @@ import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions, pickApproval, uid } from './chatOps.ts';
-import { directDialog, singleDialog, bucketKey, parseDialogId, splitAttachmentLines, type DialogId } from './feed.ts';
+import { directDialog, singleDialog, bucketKey, parseDialogId, splitAttachmentLines, pairPartnerOf, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
 import { loadComposePrefs } from './composePrefs.ts';
 import { settleToolMode } from './toolModeInherit.ts';
+import { agentInFlight } from './runStatus.ts';
 import type { FeedView } from './feed-core.ts';
 
 /** deliver RPC 等整轮 run 收束才返回（web-api 语义）——长 run 专属超时
@@ -95,13 +96,17 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    * 失败时界面 = 空会话 + 转圈，「没回放前面 steps」）。历史响应经
    * feed.onHistory 常规管线（journal 步行展开 + resume 快照补合），失败
    * 回落最小空壳快照（保底：至少点亮流式占位与忙态）。空闲 → active:false。
+   * 拉壳窗（仅 spawning 命中，cr-887）：run 尚未诞生、无帧可并——不定罪
+   * 也不造空快照，本地 streaming 已撑住「正在启动 Agent 壳」显示；壳起
+   * 来 run-started 直播帧自然接管。定活口径 = agentInFlight（唯一定源）。
    */
   async function subscribeResume(agentId: string, session?: string): Promise<void> {
     try {
-      const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }> }>('conversation/stats');
-      const hit = (stats.running ?? []).find((r) =>
-        r.agentId === agentId && (session ? r.conversationId === session : r.conversationId === bucketKey(VIEWER_ID.value, agentId)));
+      const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
+      const conv = session ?? bucketKey(VIEWER_ID.value, agentId);
+      const hit = (stats.running ?? []).find((r) => r.agentId === agentId && r.conversationId === conv);
       if (!hit) {
+        if (agentInFlight(stats, agentId, conv)) return; // 拉壳在飞：无事可恢复，等帧
         feed.handleResume({ active: false, agentId, ...(session ? { session } : {}) });
         return;
       }
@@ -360,15 +365,27 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
 
   /** 发送后流式态看门狗：后端重启/事件丢失时无 stepStart/stepEnd/chatEnd，
    *  分区 streaming 永真 → contextBusy 永久卡"停止"态。到期检查：
-   *  分区里已无任何流式占位仍标记 streaming → 判定事件链断裂，回落并提示。
+   *  分区里已无任何流式占位仍标记 streaming → 先问权威（cr-887：本地静默
+   *  不再单独定罪——spawning/慢 run 由 stats 澄清）；权威也说不在跑才回落
+   *  并提示；RPC 失败（后端不可达与死行不可区分）维持原杀——投递确实断了。
    *  在途判据含未闭合工具行（content 空）：streaming 升格 run 级后，工具
    *  执行窗口（after-step 已关占位、结果未回）run 仍活着——长工具不误报。 */
   function armSendWatchdog(dialogId: DialogId) {
-    setTimeout(() => {
+    setTimeout(() => void (async () => {
       const d = feed.getDialog(dialogId);
       if (!d || !d.streaming) return;
       const hasLive = d.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content));
       if (!hasLive) {
+        const { kind, key } = parseDialogId(dialogId);
+        const agent = kind === 'single' ? (feed.activeAgentId || key) : pairPartnerOf(key);
+        const conv = kind === 'single' ? key : key.split('|').join('~');
+        try {
+          const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
+          if (agentInFlight(stats, agent, conv)) {
+            armSendWatchdog(dialogId); // 权威说在跑（含拉壳窗）——重新武装下一轮
+            return;
+          }
+        } catch { /* 后端不可达：按断链处理（与原路径一致） */ }
         d.streaming = false;
         turnInProgress.value = false;
         // 收敛（cr-107 checkpoint-C）：看门狗触发 = 事件链断裂确证——关停
@@ -379,7 +396,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
         if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
         busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 6000);
       }
-    }, 30_000);
+    })(), 30_000);
   }
 
   /** 投递（Port B，M19/D3）：requestId 直达传输层幂等键（重连 flush 重发同 id → 后端 deduped ack）。

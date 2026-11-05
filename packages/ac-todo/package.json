@@ -12,9 +12,13 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

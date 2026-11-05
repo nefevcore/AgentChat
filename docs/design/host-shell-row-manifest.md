@@ -153,7 +153,7 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 | ac-agents-core | 直读 | agents 编辑面（webui 写侧） |
 | ac-credentials-core | 纯库直读（两侧共用，R-11） | auth-registry 写者面 |
 | ac-host-rows（timers 行） | 工具面（注册 timer 工具） | timers（任务执行 = 投递信唤醒） |
-| ac-persona / ac-system-prompt | 装配执行 | 身份数据编辑面（宿主 webui） |
+| ac-persona / ac-conduct | 装配执行（cr-881：system-prompt 行退役，段注册制拆散至各 owner 行） | 身份数据编辑面（宿主 webui） |
 | ac-conv-settings | 只读垫片（run 装配 / 实验键注册面） | **写面单源**（conv-settings 行 + web RPC；cr-565） |
 
 > cr-726（2026-10-27）校正：「现行」列已按 `row-catalog.json` 当前包实体改写。
@@ -633,6 +633,7 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
   → 转投 → 壳收信落账 → ack 出箱全链过。preview 395/395 绿 + typecheck
   0 错 + lint 清零，主线 typecheck/check:deps 零扰动。
 - 8.9 前置第四批（cr-553，2026-10-20）：**creator 模板工具面收敛——插件装卸三件套 preview 形态**（cr-540 遗留②收口，8.9 前置余件清 2）。主线 ac-plugin-registry 行按 R0a 判据 1 拆两半：工具面 → 壳树**新行 plugin-dev**（ac-shell-rows/plugin-dev.ts：register_plugin / install_plugin / unregister_plugin 三工具——M11 语义化中断上报意图，loop/after-run 收束检测消费 toolInterrupt）；安装态写者 → 宿主 plugin-registry 行既有面扩展。通道分档：register = 会话级装载壳内自持（ctx.plugin dynamic import——assemblePluginRow 同款链，重启即失零宿主参与，主线「宿主进程装载」形态在新架构自然消解）；install / uninstall 永久档 = plugin-request 信封（ac-envelope-core 新 schema plugin-request.ts：payload {action, dir?, name?, conversationId} + 回执 payload 三 subject + 免审面校验）→ 宿主 HostInbox 受理（plugin-registry-row：applyPluginRequest 编排——installFromDir 免审三态〔stage → 自动批准 manifest permissions 全集 + hash 幂等对账——主线 G8/F14 语义〕/ uninstall 永久卸载）→ 回执信（receipt → ledger-only 落原会话经验流）+ 续跑信（message → budget 1 驱动下一轮——主线 receiptAndRetrigger 同义）；壳内 install 后立即会话级装载（「装好即可测试」主线产品语义保住——宿主回执线与壳内装载线独立，装载失败不阻断安装态）。行集：壳 36→37（plugin-dev 新行，总数 81→82 全新增）——catalog / 本档案 R2 / spec 同批回填；creator 模板 tools 增 plugin-dev + system 提示词第 3 节机制描述换新架构语义（模板防漂移测试恒过——词形命中目录）。宿主行 options 增 inbox + postOffice（缺席 = 信封面下线良定义降级，RPC 照常）。
+- 语义化中断通道退役（cr-866，2026-11-02）：**ToolResult.interrupt 通道整体移除**。盘点实锤：生产代码唯一生产者 = plugin-dev 三件套（契约宣称五类里 reload/reload_modules/system_restart 无工具实体——保留字表占名而已），唯一消费者 = plugin-dev 的 loop/after-run 收束检测；且该链路在程序化模式断链（run_code 桥接 WorkerInvokeResult 不透传 interrupt，桥接修复成本 ≥ 通道残值）。裁决：插件装卸三件套改 execute 内即时执行（restart_shell/restart_host 同款即时副作用形态）——register/unregister 会话级档当场装载/卸载（run_code 投影面每调用现算，装载后子调用即刻可测；loop dynamicFace cr-5 已覆盖 run 中途进面），install/永久卸载即时投递 plugin-request 信封、回执与续跑信经邮局回投；「一轮一件」约束随通道退役（它存在只因一个 run 只能 interrupted 一次）。移除面：ac-tools 契约 ToolInterrupt/ToolResult.interrupt、loop 收束检测与 interruptReason.toolInterrupt 词汇（user-abort 变体保留）、plugin-dev 收束检测与 writeReceipt。README 三处「语义化中断」措辞同步。
 - 8.9 前置第三批（cr-552，2026-10-20）：**agent-admin 跨进程 dry-run 收口**
   （cr-540/542 遗留——装配链住壳进程，R0a 判据 1）。通道定向 = boot 控制帧
   （stdin JSON 行 → 壳 control() → stdout TSV ctrl.done/ctrl.error 回执，

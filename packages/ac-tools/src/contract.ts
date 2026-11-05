@@ -10,10 +10,6 @@
 //     per-Agent 沙箱、ask_questions 对账（correlationId=toolCallId）、
 //     job owner 隔离、settings 查询全部依赖它。身份由调用方（loop /
 //     直接调用者）装配；工具行与安全行只读取。
-//   · 语义化中断通道——ToolResult.interrupt：reload / reload_modules /
-//     register_plugin / unregister_plugin / system_restart 五类工具的
-//     "请求 → loop 收尾 → 宿主执行 → 续跑"闭环。工具体不执行宿主级
-//     行为，只上报意图；loop 收束检测负责 finish='interrupted'。
 //   · AbortSignal + 流式输出——bash 超时/取消、长任务进度上报。
 // ============================================================
 
@@ -137,31 +133,10 @@ export interface ToolCall {
   [key: string]: unknown;
 }
 
-/**
- * 语义化中断请求（M11，ADR-2）。
- * 工具体返回 interrupt 字段 = 请求宿主级行为（reload / restart /
- * 插件装卸），本 run 到此收束（finish='interrupted'，
- * interruptReason.type='tool-interrupt'），宿主执行动作后可续跑。
- * type 是开放词汇，已知值：'reload' | 'reload-modules' |
- * 'register-plugin' | 'unregister-plugin' | 'system-restart'。
- */
-export interface ToolInterrupt {
-  type: string;
-  /** 人类可读理由 */
-  reason?: string;
-  /** 工具提供的补充载荷（如插件 manifest 摘要） */
-  [key: string]: unknown;
-}
-
 export interface ToolResult {
   ok: boolean;
   output?: unknown;
   error?: string;
-  /**
-   * 语义化中断请求（M11）：工具体不执行宿主级行为，只上报意图。
-   * loop 收束检测消费本字段；带 interrupt 的结果仍如实入步记录。
-   */
-  interrupt?: ToolInterrupt;
   [key: string]: unknown;
 }
 

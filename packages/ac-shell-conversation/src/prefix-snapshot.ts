@@ -1,0 +1,187 @@
+// ============================================================
+// prefix-snapshot.ts —— singles system prompt 前缀物化（cr-888）
+//
+// 目标不变量：singles 的 [system] 块跨 run 跨重启字节恒定——首 run 把
+// PromptSection 注册面的求值结果（段数组 + 指纹）冻结落盘；此后 run 不再
+// 现场求值，直接喂快照段给 assembleSystemPrompt（段序由 order 承载）。
+//
+// 四机制（docs/design/single-system-prompt-materialization-plan.md）：
+//   ① 物化（首 run）/ ② diff（每 run 指纹对比）/ ③ 重算（仅 provider+
+//   model 变化——唯一快照重写通道，缓存域必死时重建基线）/ ④ 注入（十类
+//   清单变化 → ledger context 通知行 + 指纹更新）。
+// 快照正文（人格层）永不重写；指纹字段更新 ≠ 重写正文。
+// 崩溃窗口：先落账（await）后更新指纹——落账后崩 → 重复落同内容行
+//（requestId 幂等键收敛冗余，冗余但如实）；反序则漏通知。
+//
+// 本文件 = 纯 IO/纯函数（编排住 service.ts driveRun）；落点
+// viewer/sessions/<sid>/prefix-snapshot.json（会话本体目录，与 session.json
+// 同目录——文件级 owning：本文件归 ac-shell-conversation）。
+// ============================================================
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { userSessionDir } from 'ac-ledger';
+
+/** 物化段（求值后的静态文本；order = SECTION_ORDER 具名位） */
+export interface SnapshotSection {
+  name: string;
+  order: number;
+  text: string;
+}
+
+/** 前缀快照（wire 形 = 持久形态） */
+export interface PrefixSnapshot {
+  version: 1;
+  createdAt: string;
+  sections: SnapshotSection[];
+  /** §3 diff 指纹键面（model/tools/toolMode/browserTier/issueSubmit/
+   * workspace/tier/elevation/ptcSdk/skills + ext.<扩展键>） */
+  settingsFingerprint: Record<string, string>;
+}
+
+export function snapshotFileOf(dataRoot: string, sid: string): string {
+  // 路径守卫：sid 由 singles 域生成（uuid 形），防御性拒绝路径词形
+  if (sid === '' || sid.includes('/') || sid.includes('\\') || sid.includes('..')) {
+    throw new Error('会话 id "' + sid + '" 非法（非空，禁路径分隔 / ..）');
+  }
+  return path.join(userSessionDir(dataRoot, sid), 'prefix-snapshot.json');
+}
+
+/** 读快照（缺席/损坏/形状非法 → null = 按 ① 重新物化，fail-safe） */
+export function readPrefixSnapshot(dataRoot: string, sid: string): PrefixSnapshot | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(snapshotFileOf(dataRoot, sid), 'utf-8'));
+  } catch {
+    return null;
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as { version?: unknown; createdAt?: unknown; sections?: unknown; settingsFingerprint?: unknown };
+  if (r.version !== 1) return null;
+  if (typeof r.createdAt !== 'string') return null;
+  if (!Array.isArray(r.sections)) return null;
+  const sections: SnapshotSection[] = [];
+  for (const s of r.sections) {
+    if (s === null || typeof s !== 'object') return null;
+    const sec = s as { name?: unknown; order?: unknown; text?: unknown };
+    if (typeof sec.name !== 'string' || typeof sec.order !== 'number' || typeof sec.text !== 'string') return null;
+    sections.push({ name: sec.name, order: sec.order, text: sec.text });
+  }
+  const fp = r.settingsFingerprint;
+  if (fp === null || typeof fp !== 'object' || Array.isArray(fp)) return null;
+  const settingsFingerprint: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fp as Record<string, unknown>)) {
+    if (typeof v !== 'string') return null;
+    settingsFingerprint[k] = v;
+  }
+  return { version: 1, createdAt: r.createdAt, sections, settingsFingerprint };
+}
+
+/** 原子写（tmp + rename，同 singles session.json 惯例） */
+export function writePrefixSnapshot(dataRoot: string, sid: string, snap: PrefixSnapshot): void {
+  const file = snapshotFileOf(dataRoot, sid);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(snap, null, 2) + '\n', 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
+/** 指纹规范化（幂等键的输入——键序稳定防同内容异序哈希） */
+function canonicalFp(fp: Record<string, string>): string {
+  return JSON.stringify(Object.keys(fp).sort().map((k) => [k, fp[k]]));
+}
+
+/**
+ * §4 十类变化注入（纯函数）：逐键 diff → 通知句清单 + 幂等键。
+ * 合并规则：一次 diff 检出多项 → 多句并列（调用方合并一条 context 行）；
+ * toolMode 连带的清单变化归 toolMode 一句，不重复报。措辞按方案 §4 表
+ * 逐条锁定（对齐 system-prompt 按条目锁措辞先例，防渐进膨胀）。
+ */
+export function diffFingerprints(
+  oldFp: Record<string, string>,
+  nextFp: Record<string, string>,
+  opts: { defaultWorkdir: string },
+): { notices: string[]; requestId: string } {
+  const notices: string[] = [];
+  const val = (s: string): string => (s === '' ? '默认' : s);
+  // #2 toolMode（先判——收窄连带的清单变化归此句）
+  const modeChanged = oldFp.toolMode !== nextFp.toolMode;
+  if (modeChanged) {
+    if (nextFp.toolMode === 'tc-programmatic') {
+      notices.push('[会话设置] 工具调用模式已切换：程序化——一切工具调用经 run_code 编排完成，不再逐个直调。');
+    } else if (nextFp.toolMode === 'tc-none') {
+      notices.push('[会话设置] 工具调用模式已切换：工具已全部停用，纯对话。');
+    } else {
+      notices.push('[会话设置] 工具调用模式已恢复工具直调。');
+    }
+  }
+  // #1 工具集
+  if (!modeChanged && oldFp.tools !== nextFp.tools) {
+    const oldNames = oldFp.tools === '' ? [] : oldFp.tools.split(',');
+    const nextNames = nextFp.tools === '' ? [] : nextFp.tools.split(',');
+    const added = nextNames.filter((n) => !oldNames.includes(n)).map((n) => '+' + n);
+    const removed = oldNames.filter((n) => !nextNames.includes(n)).map((n) => '-' + n);
+    const parts = [...added, ...removed];
+    if (parts.length > 0) notices.push('[会话设置] 生效工具集已变化：' + parts.join('、') + '。');
+  }
+  // #3 browserTier：降档/停用/从停用恢复都通知；observe→'' 等 knob 清除 = 回落
+  // tags——若 Agent 本有 browser 档标签则档位静默变化，无法区分，静默
+  if (oldFp.browserTier !== nextFp.browserTier) {
+    if (nextFp.browserTier === 'disabled') {
+      notices.push('[会话设置] 浏览器工具本会话已停用。');
+    } else if (oldFp.browserTier === 'disabled') {
+      notices.push('[会话设置] 浏览器工具已恢复可用（档位 ' + val(nextFp.browserTier) + '）。');
+    } else if (nextFp.browserTier !== '') {
+      notices.push('[会话设置] 浏览器能力档位已调整：' + val(oldFp.browserTier) + ' → ' + nextFp.browserTier + (nextFp.browserTier === 'observe' ? '（交互动作不再可用）' : '') + '。');
+    }
+  }
+  // #4 issueSubmit：disabled → enabled/清除（清除 = 回落 tags）都算启用；
+  // enabled → 清除 = 回落 tags——若 Agent 本就有 issue-report 标签则静默（无法区分，不通知）
+  if (oldFp.issueSubmit !== nextFp.issueSubmit) {
+    if (nextFp.issueSubmit === 'disabled') {
+      notices.push('[会话设置] ISSUE 提交已停用。');
+    } else if (oldFp.issueSubmit === 'disabled') {
+      notices.push('[会话设置] ISSUE 提交已启用。');
+    }
+  }
+  // #5 workspace（挂载根路径）
+  if (oldFp.workspace !== nextFp.workspace) {
+    if (nextFp.workspace === '') {
+      notices.push('[会话设置] 工作区已移除，回到默认工作目录 ' + opts.defaultWorkdir + '。');
+    } else if (oldFp.workspace === '') {
+      notices.push('[会话设置] 工作区已挂载：' + nextFp.workspace + '。');
+    } else {
+      notices.push('[会话设置] 工作区已切换：' + oldFp.workspace + ' → ' + nextFp.workspace + '。');
+    }
+  }
+  // #6 技能卸载（装载不注入——技能注入机制本身落 context 行已自明）
+  if (oldFp.skills !== nextFp.skills) {
+    const oldNames = oldFp.skills === '' ? [] : oldFp.skills.split(',');
+    const nextSet = new Set(nextFp.skills === '' ? [] : nextFp.skills.split(','));
+    const removed = oldNames.filter((n) => !nextSet.has(n));
+    if (removed.length > 0) notices.push('[会话设置] 技能 ' + removed.join('、') + ' 已卸载，其指引不再适用。');
+  }
+  // #7 权限档位
+  if (oldFp.tier !== nextFp.tier) {
+    notices.push('[会话设置] 权限档位已调整：' + oldFp.tier + ' → ' + nextFp.tier + '，部分工具调用将需要授权。');
+  }
+  // #8 提权水位
+  if (oldFp.elevation !== nextFp.elevation) {
+    notices.push('[会话设置] 会话提权水位已调整：' + val(oldFp.elevation) + ' → ' + val(nextFp.elevation) + '。');
+  }
+  // #9 PTC_SDK 漂移
+  if (oldFp.ptcSdk !== nextFp.ptcSdk) {
+    notices.push('[会话设置] run_code SDK 已更新，以当前工具 schema 与运行报错为准。');
+  }
+  // #10 生态扩展键
+  const extKeys = [...new Set([...Object.keys(oldFp), ...Object.keys(nextFp)].filter((k) => k.startsWith('ext.')))].sort();
+  for (const k of extKeys) {
+    const ov = oldFp[k] ?? '';
+    const nv = nextFp[k] ?? '';
+    if (ov === nv) continue;
+    notices.push('[会话设置] ' + k.slice(4) + ' 已变化：' + (ov === '' ? '无' : ov) + ' → ' + (nv === '' ? '无' : nv) + '。');
+  }
+  const requestId = notices.length === 0 ? '' : 'conv-notice-' + crypto.createHash('sha256')
+    .update(canonicalFp(oldFp) + '|' + canonicalFp(nextFp)).digest('hex').slice(0, 16);
+  return { notices, requestId };
+}

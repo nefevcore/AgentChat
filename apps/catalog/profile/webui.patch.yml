@@ -1,0 +1,140 @@
+# ac-base-version: 1
+# webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = apps/ui/channel/*，
+# 由 scripts/gen-webui-base.mjs 生成，禁止手改（漂移由 ac-rowset-core
+# tests/webui-base.test.ts 锁定）。分层合成与前端侧求值见 docs/design/ui-plugin-form.md。
+- id: agents
+  name: link:apps/ui/channel/agents
+  seats:
+    - seat: conversation:header-widget
+    - seat: primary-sidebar:domain
+    - seat: settings:section
+- id: ask
+  name: link:apps/ui/channel/ask
+  seats:
+    - seat: inject-card:view
+- id: browser
+  name: link:apps/ui/channel/browser
+  seats:
+    - seat: tool-card:result-view
+- id: conversation
+  name: link:apps/ui/channel/conversation
+  seats:
+    - seat: aux-sidebar
+    - seat: conversation:dock-widget
+    - seat: conversation:header-widget
+    - seat: main:perspective
+    - seat: message:final-view
+- id: desktop-storage
+  name: link:apps/ui/channel/desktop-storage
+  seats:
+    - seat: settings:section
+- id: fs
+  name: link:apps/ui/channel/fs
+  seats:
+    - seat: tool-card:result-view
+- id: goal
+  name: link:apps/ui/channel/goal
+  seats:
+    - seat: conversation:dock-widget
+    - seat: tool-card:result-view
+- id: group
+  name: link:apps/ui/channel/group
+  seats:
+    - seat: aux-sidebar
+    - seat: main:perspective
+    - seat: overlay
+- id: jobs
+  name: link:apps/ui/channel/jobs
+  seats:
+    - seat: conversation:header-widget
+- id: llm-pool
+  name: link:apps/ui/channel/llm-pool
+  seats:
+    - seat: settings:section
+- id: markdown-render
+  name: link:apps/ui/channel/markdown-render
+- id: onboarding
+  name: link:apps/ui/channel/onboarding
+  seats:
+    - seat: activity-bar:more-menu
+    - seat: overlay
+- id: plugin-registry
+  name: link:apps/ui/channel/plugin-registry
+  seats:
+    - seat: settings:section
+- id: remote
+  name: link:apps/ui/channel/remote
+  seats:
+    - seat: settings:section
+- id: run-code
+  name: link:apps/ui/channel/run-code
+  seats:
+    - seat: tool-card:result-view
+- id: run-nodes
+  name: link:apps/ui/channel/run-nodes
+  seats:
+    - seat: aux-sidebar
+- id: runview
+  name: link:apps/ui/channel/runview
+  seats:
+    - seat: aux-sidebar
+    - seat: main
+    - seat: main:perspective
+    - seat: primary-sidebar:domain
+- id: search-pool
+  name: link:apps/ui/channel/search-pool
+  seats:
+    - seat: settings:section
+- id: settings
+  name: link:apps/ui/channel/settings
+  seats:
+    - seat: overlay
+- id: shell
+  name: link:apps/ui/channel/shell
+  seats:
+    - seat: tool-card:result-view
+- id: singles
+  name: link:apps/ui/channel/singles
+  seats:
+    - seat: conversation:header-widget
+    - seat: main:perspective
+    - seat: primary-sidebar:domain
+- id: skill
+  name: link:apps/ui/channel/skill
+- id: subagent
+  name: link:apps/ui/channel/subagent
+  seats:
+    - seat: main:perspective
+    - seat: tool-card:result-view
+- id: system
+  name: link:apps/ui/channel/system
+  seats:
+    - seat: overlay
+- id: timer
+  name: link:apps/ui/channel/timer
+  seats:
+    - seat: aux-sidebar
+- id: todo
+  name: link:apps/ui/channel/todo
+  seats:
+    - seat: conversation:dock-widget
+    - seat: tool-card:result-view
+- id: tool
+  name: link:apps/ui/channel/tool
+  seats:
+    - seat: tool-card:result-view
+- id: usage
+  name: link:apps/ui/channel/usage
+  seats:
+    - seat: aux-sidebar
+    - seat: overlay
+- id: web
+  name: link:apps/ui/channel/web
+  seats:
+    - seat: aux-sidebar
+    - seat: tool-card:result-view
+- id: workspace
+  name: link:apps/ui/channel/workspace
+  seats:
+    - seat: aux-sidebar
+    - seat: overlay

@@ -15,6 +15,11 @@
 //     组合变异同步上账进 doc，守门与 setContent 基于真实现势；
 //   · 发送路径经 takeText()：flush + 作废 pending 补发 + 直读 doc——
 //     定稿文本经返回值交调用方消费，不再有迟到的异步 emit 写回。
+// cr-867 残口：组合期 v-model 滞后在「旧值本就是空」时（如会话首条消息），
+// 发送清空赋值 ''→'' 空转不触发 watch、setContent 不执行、doc 不被清——
+// 文本遗留输入框（下方变体①②的父侧都直调 applyExternalValue，恰好绕过
+// 了这一环）。修复 = PromptEditor.clear()：发送出口显式清 doc（ChatInput
+// 经 promptFace.clear() 调用，不再依赖 v-model 赋值触发）。
 // 被测链路 = makeEditor 内的 v-model 同构实现（与 compose-final-emit.test
 // 同款移植法；setComposing 操纵 PM 私有组合态的先例亦出自该文件）。
 // ============================================================
@@ -73,8 +78,14 @@ function makeEditor() {
     composeEmitPending = false;
     return ed.getText({ blockSeparator: "\n" });
   };
+  /** PromptEditor clear 同构（cr-867 发送出口：flush + 作废 pending + 清 doc 不 emit） */
+  const clear = () => {
+    flushPendingDom(ed);
+    composeEmitPending = false;
+    ed.commands.setContent("<p></p>", { emitUpdate: false });
+  };
   return {
-    ed, emitted, applyExternalValue, takeText,
+    ed, emitted, applyExternalValue, takeText, clear,
     getModel: () => modelValue, setModel: (v: string) => { modelValue = v; },
   };
 }
@@ -154,6 +165,41 @@ describe('发送清空 vs 迟到 IME 组合定稿（cr-850）', () => {
     t.applyExternalValue("草稿");
     expect(t.ed.getText({ blockSeparator: "\n" })).toBe("草稿");
     expect(t.emitted).toEqual([]); // 程序性改写不 emit（emitUpdate:false + flush 无变异）
+    t.ed.destroy();
+  });
+});
+
+describe('发送清空赋值空转缺口（cr-867：组合滞后下 v-model 旧值本就是空）', () => {
+  it('缺口锁定（无 clear）：清空赋值 \'\'→\'\' 空转不触发 watch → doc 遗留组合文本', async () => {
+    const t = makeEditor();
+    setComposing(t.ed, true);
+    t.ed.view.dispatch(t.ed.state.tr.insertText("你好", 1)); // 组合中间态（emit 被门拦，modelValue 停留 ""）
+    const sent = t.takeText(); // send 读真值（cr-850）——消息正常出门
+    expect(sent).toBe("你好");
+    t.setModel(""); // 父侧清空赋值——''→'' 空转，watch 不触发（不产生 applyExternalValue 调用）
+    setComposing(t.ed, false);
+    t.ed.view.dom.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    await tick(6);
+    // cr-850 仍生效：无迟到 emit 写回 modelValue——但 doc 无人清，文本遗留输入框
+    expect(t.emitted).toEqual([]);
+    expect(t.ed.getText({ blockSeparator: "\n" })).toBe("你好"); // ← 遗留坐实（cr-850 测试盲区）
+    t.ed.destroy();
+  });
+
+  it('修复：clear() 发送出口显式清 doc，迟到 compositionend 无写回', async () => {
+    const t = makeEditor();
+    setComposing(t.ed, true);
+    t.ed.view.dispatch(t.ed.state.tr.insertText("你好", 1));
+    const sent = t.takeText();
+    expect(sent).toBe("你好");
+    t.setModel("");
+    t.clear(); // cr-867：发送出口同步清 doc（不再依赖 v-model 赋值触发 watch）
+    setComposing(t.ed, false);
+    t.ed.view.dom.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    await tick(6);
+    expect(t.emitted).toEqual([]); // 迟到定稿无 emit（pending 已作废）
+    expect(t.ed.getText({ blockSeparator: "\n" })).toBe(""); // doc 干净
+    expect(t.getModel()).toBe(""); // v-model 同步为空
     t.ed.destroy();
   });
 });

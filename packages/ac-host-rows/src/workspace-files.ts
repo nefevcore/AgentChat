@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRootsContainment } from 'ac-sandbox-core';
-import { readAgentConfig, settingsOf } from 'ac-agents-core';
+import { readAgentConfig, settingsOf, isPresetId } from 'ac-agents-core';
 import { listWorkspaces, workspacePathOf } from './workspaces.ts';
 
 /** 读面上下文（主线 readContext 同形：agentId/conversationId 可选透传） */
@@ -139,7 +139,7 @@ function globalAgentSettings(dataRoot: string): Record<string, unknown> {
  */
 export function agentWorkdirOf(dataRoot: string, agentId: string): string | undefined {
   const agent = readAgentConfig(dataRoot, agentId);
-  if (agent === null || agent.preset === true || agent.virtual === true) return undefined;
+  if (agent === null || isPresetId(agentId) || agent.virtual === true) return undefined;
   const security = settingsOf(globalAgentSettings(dataRoot), agent.settings, 'security');
   const explicit = security !== null && typeof security === 'object'
     ? (security as { workdir?: unknown }).workdir

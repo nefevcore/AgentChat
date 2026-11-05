@@ -2,6 +2,8 @@
 // 沙箱面与 per-Agent 限额（拆分自单文件版 ④/4）
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Fiber } from '@agentchat/cordis';
@@ -51,6 +53,8 @@ describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', ()
   ) {
     return bootRows([
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined], // cr-881：shell 行段注册面 inject ['agentLoop']
       [jobsRow, undefined],
       [FakeWorkspaceService, { agents, sessions }],
       [shellRow, { workdir: root }],
@@ -119,6 +123,8 @@ describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () 
   async function bootQuota(root: string) {
     return bootRows([
       [toolsRow, undefined],
+      [llmRow, undefined],
+      [loopRow, undefined], // cr-881：shell 行段注册面 inject ['agentLoop']
       [jobsRow, undefined],
       [agentsRow, undefined],
       [shellRow, { workdir: root }],
