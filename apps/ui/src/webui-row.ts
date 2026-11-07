@@ -46,6 +46,8 @@ export interface WebuiRowOptions {
   pluginsDir: string;
   /** webui 装配文档目录（<dataRoot>/profile——分层合成输入；缺省 = pluginsDir 同级 profile） */
   profileDir?: string;
+  /** 宿主应用版本（hello 端点 hostVersion 回报面；缺省 'dev'——测试/联调形态） */
+  hostVersion?: string;
 }
 
 /**
@@ -58,6 +60,20 @@ export function makeWebuiRow(options: WebuiRowOptions): Plugin {
     inject: ['webServer'],
     apply(ctx: Context) {
       const web = ctx.webServer;
+
+      // hello 握手端点（webui-standalone-protocol §3.2，cr-917）：独立部署
+      // 的 webui 连接前探测宿主在场 + 协议轴协商。协议轴 major 不匹配由
+      // 前端判 fail-loud（本端点只如实回报）。
+      web.route('GET', '/api/ui/hello', (call) => {
+        const body = JSON.stringify({
+          protocol: 1,
+          hostVersion: options.hostVersion ?? 'dev',
+          engines: { agentchat: '^2' },
+          surfaces: { bootGraph: true, assets: true, ws: true },
+        });
+        call.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        call.res.end(body);
+      });
 
       // boot graph（通道条目清单——manifest 扫描单源；坏 manifest fail-loud 记 warning）。
       // mtime 缓存（cr-843）：父目录 mtime 覆盖子目录增删（安装/卸载），各子目录

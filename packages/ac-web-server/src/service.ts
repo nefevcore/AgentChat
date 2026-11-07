@@ -346,6 +346,21 @@ export class WebServerService extends Service {
         this.replyJson(res, 403, { error: denied });
         return;
       }
+      // 跨源放行回显（webui-standalone-protocol §3.3，cr-917）：白名单命中的
+      // 跨源请求（独立部署 webui 的 fetch 面）补 CORS 应答头；预检直答 204。
+      // 回环 Origin（同源/本机联调）无需 CORS——现状零变化。
+      const origin = req.headers.origin;
+      if (typeof origin === 'string' && !isLoopbackHostname(originHostname(origin))) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
+        if (req.method === 'OPTIONS' && req.headers['access-control-request-method'] !== undefined) {
+          res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE');
+          res.setHeader('Vary', 'Origin');
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+      }
       const url = new URL(req.url ?? '/', 'http://localhost');
       const path = url.pathname;
       const hit = this.matchRoute(req.method ?? 'GET', path);
@@ -604,7 +619,12 @@ export class WebServerService extends Service {
     const ext = extname(full);
     headers['content-type'] = CONTENT_TYPES[ext] ?? 'application/octet-stream';
     headers['content-length'] = body.length;
-    if (COMPRESSIBLE_EXTS.has(ext)) headers['vary'] = 'accept-encoding';
+    if (COMPRESSIBLE_EXTS.has(ext)) {
+      // 既有 Vary（跨源 CORS 面 cr-917 setHeader 的 Origin）合并——writeHead 值
+      // 覆盖 setHeader，维度丢失会让中间缓存按 Origin 混发错版
+      const prev = res.getHeader('vary');
+      headers['vary'] = prev !== undefined ? 'accept-encoding, ' + String(prev) : 'accept-encoding';
+    }
     if (encoding) headers['content-encoding'] = encoding;
     res.writeHead(200, headers);
     res.end(opts.head ? undefined : body);

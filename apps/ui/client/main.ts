@@ -24,8 +24,23 @@ import { bindToolResultViews } from 'ac-client-ui-tool/client/toolResultViews.ts
 import { bootUiClient } from './boot.ts';
 import { wireRpcBrowser } from './rpc-wire.ts';
 import { startAutoReload } from './auto-reload.ts';
+import { browserHostEndpoint, helloHandshake, showProtocolConflictPage } from './host-endpoint.ts';
 
 async function boot(): Promise<void> {
+  // 独立部署握手（cr-917 切片一）：跨源形态连接前 hello 探测——协议轴
+  // major 不匹配 = fail-loud 版本冲突页（boot 到此为止）；不可达交后续
+  // 断连降级态（切片三接线，此刻只如实回报）。同源形态零行为变化。
+  const endpoint = browserHostEndpoint();
+  if (endpoint.crossOrigin) {
+    const hello = await helloHandshake(endpoint);
+    if (hello.kind === 'protocol-conflict') {
+      showProtocolConflictPage(endpoint.origin, hello.remote);
+      return;
+    }
+    if (hello.kind === 'unreachable') {
+      console.warn('[host-endpoint] 宿主握手不可达（' + endpoint.origin + '）：' + hello.error);
+    }
+  }
   const pinia = createPinia();
   setActivePinia(pinia);
 

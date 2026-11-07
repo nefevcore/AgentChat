@@ -156,6 +156,17 @@ describe('8.5a 宿主 web 面接线', () => {
     ws.close();
   }, 30_000);
 
+  it('GET /api/ui/hello：协议轴 + surfaces 回报（cr-917 独立部署握手面）', async () => {
+    host = await bootHostWeb({ dataRoot: ROOT });
+    const res = await fetch('http://127.0.0.1:' + host.port + '/api/ui/hello');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      protocol: 1,
+      engines: { agentchat: '^2' },
+      surfaces: { bootGraph: true, assets: true, ws: true },
+    });
+  }, 30_000);
+
   // 配置写面（cr-564）：真凭据加密落盘 + 真 config.json + 真 WS rpc。
   // 不变式：api_key 明文永不进 config.json，只进 credentials/<credentialKey>.enc。
   it('config 写面：池 api_key 侧信道落 credentials/ → config.json 无 key → 掩码回读', async () => {

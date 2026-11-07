@@ -21,6 +21,14 @@
       "phase": "domain"
     }
   },
+  "ac": {
+    "faces": {
+      "web": {
+        "entry": "./client/index.ts",
+        "isolated": false
+      }
+    }
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-client-runtime": "workspace:*",

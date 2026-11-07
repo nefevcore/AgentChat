@@ -45,6 +45,7 @@ import * as clientUiRenderer from 'ac-client-ui-renderer/client';
 import * as clientUiLayout from 'ac-client-ui-layout/client';
 import * as webuiKit from '@agentchat/webui-kit';
 import { sharedModules } from './shared-modules.ts';
+import { hostUrl } from './host-endpoint.ts';
 
 /** 通道装载器（URL → 模块；浏览器 = 动态 import，测试注入） */
 export type ChannelLoader = (entry: BootGraphEntry) => Promise<{ default?: unknown }>;
@@ -280,8 +281,9 @@ const themeStylesLoaded = new Set<string>();
 async function loadThemeEntry(entry: BootGraphEntry): Promise<{ id: string; audit: ReturnType<typeof auditThemeTokens> }> {
   if (entry.styles.length === 0) throw new Error('theme 条目缺 styles（tokensOnly 主题包 = token CSS 纯数据，无 entry JS）');
   const rel = entry.base + entry.styles[0]!.replace(/^\/+/, '');
-  // 相对 URL 规范化（jsdom fetch 无隐式 base——产品面同源等价）
-  const cssHref = new URL(rel, typeof location !== 'undefined' ? location.href : 'http://localhost/').href;
+  // 相对 URL 规范化（jsdom fetch 无隐式 base——产品面同源等价）；独立部署
+  // 形态 hostUrl 已前缀化（绝对 URL 经 new URL 原样通过）
+  const cssHref = new URL(hostUrl(rel), typeof location !== 'undefined' ? location.href : 'http://localhost/').href;
   const res = await fetch(cssHref);
   if (!res.ok) throw new Error('主题包 CSS 拉取失败：' + cssHref + ' ' + res.status);
   const css = await res.text();
@@ -306,9 +308,9 @@ async function loadThemeEntry(entry: BootGraphEntry): Promise<{ id: string; audi
 }
 
 async function defaultLoader(entry: BootGraphEntry): Promise<{ default?: unknown }> {
-  const url = entry.base + entry.entry.replace(/^\/+/, '');
+  const url = hostUrl(entry.base + entry.entry.replace(/^\/+/, ''));
   // 通道样式（manifest styles 声明——构建器在有产物 style.css 时注入）
-  for (const st of entry.styles) loadChannelCss(entry.base + st.replace(/^\/+/, ''));
+  for (const st of entry.styles) loadChannelCss(hostUrl(entry.base + st.replace(/^\/+/, '')));
   return import(/* @vite-ignore */ url) as Promise<{ default?: unknown }>;
 }
 
@@ -318,7 +320,7 @@ async function defaultGraph(): Promise<BootGraphEntry[]> {
   // 失败回落空图（骨架面仍可用，逐条隔离语义不变）。
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch('/api/ui/boot-graph', { signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(hostUrl('/api/ui/boot-graph'), { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) throw new Error('boot-graph ' + res.status);
       const data = await res.json() as { clients?: BootGraphEntry[] };
       return data.clients ?? [];
@@ -400,7 +402,7 @@ export async function bootUiClient(options: BootUiOptions = {}): Promise<BootUiR
       // 此处记 ok = iframe 已创建——语义与主线 extensions 宿主一致）。
       try {
         const before = seatAuditSnapshot(ctx);
-        const handle = loadIsolatedExtension(ctx, { name: entry.name, version: entry.version, entry: entry.base + entry.entry.replace(/^\/+/, '') });
+        const handle = loadIsolatedExtension(ctx, { name: entry.name, version: entry.version, entry: hostUrl(entry.base + entry.entry.replace(/^\/+/, '')) });
         isolatedHandles.push(handle);
         // B3 视角挂载（§1 隔离档粒度）：seats[].view 声明 → 宿主把 iframe
         // 容器作为该视角的渲染组件挂上选举席（组件在 iframe 内自绘——

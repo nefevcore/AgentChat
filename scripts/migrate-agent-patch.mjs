@@ -4,9 +4,9 @@
 // v2.1 批4 切片三：config.json（rows+tags+settings+system 三合体）→
 // agent.patch.yml（装配+档位+origin）+ <unit>.json 插件配置。
 //
-// 语义：writeAgentConfig 双落承担迁移本体（patch 主写 + config.json
-// 镜像 + settings 拆单元文件——旧读者不断链）；preset-origin.json 并入
-// patch origin 块后转 .migrated（可逆）。system 不迁（退役面——平台
+// 语义：本脚本直写承担迁移本体（patch 主写 + settings 拆单元文件；
+// config.json 原样保留——存量旧读者窗口，cr-918 起新写不再落镜像）；
+// preset-origin.json 并入 patch origin 块后转 .migrated（可逆）。system 不迁（退役面——平台
 // 行分权组装；config.json 镜像仍含，旧读者窗口）。
 //
 // 可逆（--revert）：恢复 .migrated → preset-origin.json、删 agent.patch.yml、

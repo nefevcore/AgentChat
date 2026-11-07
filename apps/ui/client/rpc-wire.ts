@@ -12,6 +12,7 @@
 // client/ 半边（cutover 收编本文件——ui-tree §4）。
 // ============================================================
 import { unpackWireFrames } from 'ac-wire-format';
+import { hostUrl } from './host-endpoint.ts';
 import { RPC_CALL, RPC_RESULT, WS_ACK } from 'ac-ws-protocol';
 
 type SocketCtor = typeof WebSocket;
@@ -93,8 +94,11 @@ class WireRpcClient {
     if (existing && existing.readyState === WebSocket.OPEN) return Promise.resolve(existing);
     if (this.connecting) return this.connecting;
     const Ctor = socketFactory ?? WebSocket;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new Ctor(proto + '//' + location.host + '/ws');
+    // 独立部署形态（cr-917）：宿主端点非同源时 WS 指向宿主 origin
+    //（hostUrl 同源返回相对路径——现状 URL 逐字节等价）；协议随宿主 origin
+    const target = new URL(hostUrl('/ws'), location.href);
+    const wsUrl = (target.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + target.host + target.pathname;
+    const ws = new Ctor(wsUrl);
     this.ws = ws;
     // 身份守卫（主线同款——2026-09-26 前端流式叠词根因）：被顶替连接的
     // 迟到生命周期回调/帧一律不分发（防双连接双投递）

@@ -11,6 +11,7 @@
 // 静默（探活噪声不刷——刷新只由指纹差异驱动）。
 // ============================================================
 import { wireRpcBrowser } from './rpc-wire.ts';
+import { hostUrl } from './host-endpoint.ts';
 
 interface ReloadGuard {
   /** 流式中 = true（推迟刷新） */
@@ -38,10 +39,10 @@ function defaultHidden(): boolean {
 /** 默认指纹：index ETag + boot-graph body 合并（任一变化即指纹变） */
 async function defaultFingerprint(): Promise<string> {
   const parts: string[] = [];
-  const head = await fetch('/', { method: 'HEAD', cache: 'no-store' }).catch(() => null);
+  const head = await fetch(hostUrl('/'), { method: 'HEAD', cache: 'no-store' }).catch(() => null);
   if (head) parts.push('index:' + (head.headers.get('etag') ?? head.headers.get('last-modified') ?? head.status));
   try {
-    const res = await fetch('/api/ui/boot-graph', { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(hostUrl('/api/ui/boot-graph'), { signal: AbortSignal.timeout(8000) });
     if (res.ok) parts.push('graph:' + (await res.text()));
   } catch { /* 探活失败不构成指纹面 */ }
   return parts.join('|');

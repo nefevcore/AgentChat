@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // ============================================================
-// seats-boot-audit.test.ts —— 30 通道全装运行时对账门（cr-798）
+// seats-boot-audit.test.ts —— 30 通道全装运行时对账门（cr-798；cr-920 声明源迁包）
 //
 // 与 seats-gate.test.ts（静态扫描门）互补的运行时门：全通道按 boot graph
 // 真装载（jsdom），断言 seatAudit 零漂移——锁定 auditSeats 双轴满足判定
@@ -12,10 +12,11 @@
 import { describe, it, expect } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { bootUiClient } from '../client/boot.ts';
+import { readChannelManifest } from 'ac-webui-core';
 import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { settingsClientPlugin } from 'ac-client-ui-settings/client';
-import { markdownRenderPlugin } from '../channel/markdown-render/src/index.ts';
+import { markdownRenderPlugin } from 'ac-client-ui-markdown-render/client';
 import type { BootGraphEntry } from 'ac-webui-core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -49,11 +50,13 @@ describe('cr-798 · 30 通道全装运行时对账', () => {
   it('全通道真装载 → seatAudit 零漂移零 err', async () => {
     setActivePinia(createPinia());
     const repoRoot = path.resolve(__dirname, '..', '..', '..');
-    const channelRoot = path.join(repoRoot, 'apps', 'ui', 'channel');
+    const pkgRoot = path.join(repoRoot, 'packages');
     const graph: BootGraphEntry[] = [];
-    for (const e of fs.readdirSync(channelRoot, { withFileTypes: true }).filter((x) => x.isDirectory())) {
-      const m = JSON.parse(fs.readFileSync(path.join(channelRoot, e.name, 'manifest.json'), 'utf-8'));
-      graph.push(entry(m.name, { seats: m.seats ?? [] }));
+    for (const e of fs.readdirSync(pkgRoot, { withFileTypes: true }).filter((x) => x.isDirectory() && x.name.startsWith('ac-client-ui-'))) {
+      const read = readChannelManifest(path.join(pkgRoot, e.name));
+      if (read === null) continue; // 无 web 面（node-only 包）不进图
+      const short = e.name.slice('ac-client-ui-'.length);
+      graph.push(entry(short, { seats: read.manifest.seats ?? [], isolated: read.manifest.isolated ?? true }));
     }
     const builtin: Record<string, unknown> = {
       conversation: conversationClientPlugin,

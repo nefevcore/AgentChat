@@ -11,8 +11,9 @@
 //                                  #（约多 2-4 分钟；发布前建议至少跑一次）
 //   pnpm release:preflight --wsl    # Linux 真环境档：WSL Ubuntu 里跑 install/check:deps/
 //                                  # build:frontend（大小写敏感等平台边界问题的唯一拦截面）
-// 六步与 .github/workflows/publish.yml 完全同序（cr-702 换轨后含通道构建）：
-//   install(--frozen-lockfile) → check:deps → build:frontend → build:channels →
+// 六步与 .github/workflows/publish.yml 完全同序（cr-921 起通道由 bundle
+// 自构，独立 build:channels 步退役）：
+//   install(--frozen-lockfile) → check:deps → build:frontend →
 //   test → build:bundle
 // 末步 bundle 全链 e2e（cr-705）：dist 宿主→RPC→信封→dist 壳→账本终稿——
 // CI 无等价面，本地预检是唯一拦截面。
@@ -73,10 +74,9 @@ if (WSL) {
   run('1/6 安装依赖（frozen，与 CI 同参）', pm, ['install', '--frozen-lockfile']);
   run('2/6 依赖卫生检查', pm, ['check:deps']);
   run('3/6 构建前端', pm, ['build:frontend']);
-  run('4/6 构建出厂 UI 通道', pm, ['build:channels']);
-  run('5/7 全量测试', pm, ['test']);
-  run('6/7 构建发布 bundle', pm, ['build:bundle']);
-  run('7/7 bundle 全链 e2e', 'node', [path.join('scripts', 'e2e-bundle.mjs')]);
+  run('4/6 全量测试', pm, ['test']);
+  run('5/6 构建发布 bundle', pm, ['build:bundle']);
+  run('6/6 bundle 全链 e2e', 'node', [path.join('scripts', 'e2e-bundle.mjs')]);
 }
 
 console.log('\n[preflight] ✓ 全部通过——CI 的构建/测试面已本地验证，可以推 tag 了');

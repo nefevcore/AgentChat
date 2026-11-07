@@ -33,8 +33,7 @@
     "apps/catalog/**/*.ts",
     "apps/ui/env.d.ts",
     "apps/ui/src/**/*.ts",
-    "apps/ui/tests/**/*.ts",
-    "apps/ui/channel/*/src/**/*.ts"
+    "apps/ui/tests/**/*.ts"
   ],
   "exclude": [
     "apps/ui/client/**",

@@ -77,7 +77,7 @@ function hostSideRoot(dataRoot: string, agentId: string): string {
   const rows = catalog.rows
     .filter((r) => r.tree === 'shell' && derived.rowIds.includes(r.id) && r.path !== undefined);
   const fp = subjectFingerprint({
-    configJson: fs.readFileSync(path.join(dataRoot, 'agents', agentId, 'config.json'), 'utf-8'),
+    configJson: JSON.stringify(readAgentConfig(dataRoot, agentId)), // cr-918：与 shell boot 同读面（patch 赢）
     catalogJson: fs.readFileSync(CATALOG, 'utf-8'),
     // path 数组适配与 boot.ts 同口径（一行跨多包 = 多指纹项）
     rows: rows.flatMap((r) => (Array.isArray(r.path) ? r.path : [r.path!])

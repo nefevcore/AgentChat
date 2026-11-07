@@ -108,7 +108,8 @@ async function main() {
   });
   const hostLines = [];
   host.stdout.on('data', (c) => { const s = String(c); hostLines.push(s); process.stdout.write('[host] ' + s); });
-  host.stderr.on('data', (c) => process.stderr.write('[host:err] ' + String(c)));
+  // hostLog 面走 stderr（boot 完成行含端口）——扫描集并集，回显仍分流
+  host.stderr.on('data', (c) => { const s = String(c); hostLines.push(s); process.stderr.write('[host:err] ' + s); });
   const bootLine = await waitFor(hostLines, (l) => /boot 完成：\d+ 行装配/.test(l), 60_000, '宿主 boot 完成');
   const port = Number(/web 端口 (\d+)/.exec(bootLine)?.[1] ?? 0);
   if (port === 0) throw new Error('未能从 boot 输出解析 web 端口：' + bootLine);

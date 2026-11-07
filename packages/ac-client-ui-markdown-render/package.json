@@ -1,0 +1,24 @@
+{
+  "name": "ac-client-ui-markdown-render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "markdown-render 骨架前端行（cr-920 通道壳退役迁入）：消息内容渲染策略模块——owning 声明（本包）+ 资产 re-export 主线 renderer（零副本）",
+  "exports": {
+    ".": "./client/index.ts",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "ac": {
+    "faces": {
+      "web": {
+        "entry": "./client/index.ts",
+        "isolated": false
+      }
+    }
+  },
+  "dependencies": {
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*"
+  }
+}

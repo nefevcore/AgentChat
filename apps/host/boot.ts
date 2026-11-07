@@ -30,7 +30,7 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
 import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
-import { isPresetId, presetTemplateKeyOf } from 'ac-agents-core';
+import { isPresetId, presetTemplateKeyOf, readAgentConfig, writeAgentConfig } from 'ac-agents-core';
 import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readCustomLayer, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
@@ -624,10 +624,9 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
     if (!isPresetId(d.name)) continue;
     const key = presetTemplateKeyOf(d.name)!;
     const dir = path.join(agentsDir, d.name);
-    let liveConfig: Record<string, unknown> | null = null;
-    try {
-      liveConfig = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as Record<string, unknown>;
-    } catch { /* config 缺席——reconcile 内部按重建处理 */ }
+    // 活体 config 读面 = readAgentConfig（patch 赢——cr-918 后写口恒 patch
+    // 形态；缺席 = reconcile 内部按重建处理）
+    const liveConfig = readAgentConfig(dataRoot, d.name);
     const liveDocs: Record<string, string> = {};
     const template = readTemplate(key, templatesDir);
     const names = new Set<string>((template?.docs ?? []).map((doc) => doc.name));
@@ -644,7 +643,7 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
     const result = reconcilePresetOrigin({
       agentId: d.name,
       templateKey: key,
-      liveConfig: liveConfig as never,
+      liveConfig,
       liveDocs,
       liveSkills,
       origin: readOrigin(dataRoot, d.name),
@@ -654,9 +653,7 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
       writeOrigin(dataRoot, d.name, result.baseline);
     } else if ('follow' in result) {
       const follow = result.follow;
-      const configTmp = path.join(dir, 'config.json') + '.' + process.pid + '.tmp';
-      fs.writeFileSync(configTmp, JSON.stringify(follow.config, null, 2), 'utf-8');
-      fs.renameSync(configTmp, path.join(dir, 'config.json'));
+      writeAgentConfig(dataRoot, follow.config); // cr-918：写口单源（patch 主写）
       for (const doc of follow.overwriteDocs) {
         const docFile = path.join(dir, doc.name);
         const docTmp = docFile + '.tmp';

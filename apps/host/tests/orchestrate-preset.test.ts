@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { adoptShell, type SpawnFn } from '../orchestrate.ts';
+import { readAgentConfig } from 'ac-agents-core';
 import { ReachabilityTable } from 'ac-post-office';
 
 const fakeSpawn: SpawnFn = () => ({
@@ -35,9 +36,7 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = JSON.parse(
-      fs.readFileSync(path.join(dataRoot, 'agents/__standard__/config.json'), 'utf-8'),
-    ) as { id: string; tags?: string[]; rows: string[]; description?: string };
+    const cfg = readAgentConfig(dataRoot, '__standard__') as { id: string; tags?: string[]; rows: string[]; description?: string };
     expect(cfg.id).toBe('__standard__');
     expect('preset' in cfg).toBe(false); // cr-880：字段退役——预设类属由 id 词形承载
     expect(cfg.rows).toContain('browser');
@@ -60,9 +59,7 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = JSON.parse(
-      fs.readFileSync(path.join(dataRoot, 'agents/__creator__/config.json'), 'utf-8'),
-    ) as { system?: string; rows: string[]; settings?: Record<string, unknown> };
+    const cfg = readAgentConfig(dataRoot, '__creator__') as { system?: string; rows: string[]; settings?: Record<string, unknown> };
     expect(cfg.system).toBeUndefined();
     expect(cfg.rows).toContain('persona'); // persona 行入集——settings.persona 才有消费方
     expect(cfg.rows).toContain('skill'); // skill 行入集——own 技能目录才有消费方
@@ -88,9 +85,7 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = JSON.parse(
-      fs.readFileSync(path.join(dataRoot, 'agents/alpha/config.json'), 'utf-8'),
-    ) as Record<string, unknown>;
+    const cfg = readAgentConfig(dataRoot, 'alpha') as unknown as Record<string, unknown>;
     expect(cfg).toEqual({ id: 'alpha' });
   });
 });

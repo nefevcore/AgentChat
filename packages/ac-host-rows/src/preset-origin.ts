@@ -1,7 +1,8 @@
 // ============================================================
 // preset-origin.ts —— 预设模板升级通路（cr-812 copy-on-write）
 //
-// 物化记 origin（agents/<id>/preset-origin.json）：
+// 物化记 origin（agent.patch.yml origin 块主写；preset-origin.json =
+// 存量镜像读窗口——cr-918 退役写面，随迁移收口自然消亡）：
 //   { template: 模板键, hash: 模板指纹, configHash: 物化 config 指纹,
 //     docs: { 文档名: 内容指纹 } }
 // 升级判定（reconcilePresetOrigin，宿主 boot 每启执行）：
@@ -69,8 +70,13 @@ export function originOf(templateKey: string, hash: string, config: AgentConfig,
   };
 }
 
-/** 读 origin（缺席/损坏 = undefined） */
+/** 读 origin（patch origin 块赢；patch 缺席/无块回落存量 preset-origin.json；
+ * 损坏/缺席 = undefined） */
 export function readOrigin(dataRoot: string, agentId: string): PresetOrigin | undefined {
+  try {
+    const origin = readAgentPatch(dataRoot, agentId)?.origin as PresetOrigin | undefined;
+    if (origin !== undefined && typeof origin.template === 'string' && typeof origin.hash === 'string') return origin;
+  } catch { /* patch 损坏 = 落 json 读窗口 */ }
   try {
     const parsed = JSON.parse(fs.readFileSync(originFile(dataRoot, agentId), 'utf-8')) as PresetOrigin;
     return typeof parsed.template === 'string' && typeof parsed.hash === 'string' ? parsed : undefined;
@@ -79,18 +85,18 @@ export function readOrigin(dataRoot: string, agentId: string): PresetOrigin | un
   }
 }
 
-/** 写 origin（原子写） */
+/** 写 origin（原子写）：patch 在场 = origin 块 read-modify-write 主写
+ * （cr-918 起唯一主写面）；patch 缺席/损坏（未迁移存量根）=
+ * preset-origin.json 镜像兜底 */
 export function writeOrigin(dataRoot: string, agentId: string, origin: PresetOrigin): void {
-  // 双写窗口（cr-906 批4 切片三）：agent.patch.yml origin 块主写（在场时
-  // read-modify-write——不覆盖 patch 其余字段）+ preset-origin.json 镜像
-  //（旧读者兼容；拆旧批 6 退役）。patch 缺席（未迁移存量）只写镜像。
   try {
     const patch = readAgentPatch(dataRoot, agentId);
     if (patch !== null) {
       writeAgentPatch(dataRoot, agentId, { ...patch, origin });
+      return;
     }
   } catch {
-    // patch 损坏 = 只写镜像（fail 语义归 readAgentPatch 调用方）
+    // patch 损坏 = 落镜像兜底（fail 语义归 readAgentPatch 调用方）
   }
   const file = originFile(dataRoot, agentId);
   fs.mkdirSync(path.dirname(file), { recursive: true });

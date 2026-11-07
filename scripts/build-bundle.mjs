@@ -11,9 +11,11 @@
  *   worker.mjs           run_code 程序化模式 worker（ac-run-code 第二入口，
  *                        存在性守卫——包缺席跳过）
  *   webui/               前端静态产物（apps/ui/dist——需先
- *                        pnpm build:frontend 构建 + pnpm build:channels 出厂通道）
- *   plugins/             出厂 UI 通道产物（29 通道 + midnight 主题包——
- *                        宿主 boot 播种进 <dataRoot>/plugins）
+ *                        pnpm build:frontend 构建）
+ *   plugins/             出厂 UI 通道产物（cr-920：build-channel 直构
+ *                        packages/ac-client-ui-* 真身包 30 通道 +
+ *                        apps/ui/themes/ 数据面主题包——宿主 boot 播种
+ *                        进 <dataRoot>/plugins；不依赖任何数据根预置态）
  *   row-catalog.json     行集目录（宿主/壳共享——从 apps/catalog 拷贝）
  *   profile/             基座源文档 {host,shell}.patch.yml（cr-902 批1）
  *   templates/           内置 Agent 模板配置集（ac-host-rows/templates）
@@ -29,6 +31,7 @@
  * 用法：node scripts/build-bundle.mjs（通常经 pnpm build:bundle 调用；
  *       pnpm release:preflight 与 CI 同序五步的一部分）
  */
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -37,21 +40,12 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const uiDist = path.join(root, 'apps', 'ui', 'dist');
-const factoryPlugins = path.join(root, 'workspace', 'home', 'plugins');
+const themesDir = path.join(root, 'apps', 'ui', 'themes');
 
 // ── 前置检查 ──
 if (!existsSync(uiDist) || !statSync(uiDist).isDirectory() || readdirSync(uiDist).length === 0) {
   console.error('[build-bundle] 前端产物为空（apps/ui/dist）：请先运行 pnpm build:frontend');
   process.exit(1);
-}
-for (const ent of readdirSync(factoryPlugins, { withFileTypes: true })) {
-  if (ent.isDirectory()) {
-    const mf = path.join(factoryPlugins, ent.name, 'manifest.json');
-    if (!existsSync(mf)) {
-      console.error('[build-bundle] 出厂通道目录缺 manifest.json：' + ent.name + '——先运行 pnpm build:channels');
-      process.exit(1);
-    }
-  }
 }
 
 // ── 组装 dist/ ──
@@ -64,9 +58,28 @@ cpSync(path.join(root, 'apps', 'catalog', 'row-catalog.json'), path.join(dist, '
 // 以其为源物化进数据根。
 cpSync(path.join(root, 'apps', 'catalog', 'profile'), path.join(dist, 'profile'), { recursive: true });
 cpSync(path.join(root, 'packages', 'ac-host-rows', 'templates'), path.join(dist, 'templates'), { recursive: true });
-cpSync(factoryPlugins, path.join(dist, 'plugins'), { recursive: true });
+// 出厂通道（cr-920：真身包直构进发布产物——斩断对数据根/预置产物目录的依赖）
+const r = spawnSync(process.execPath, [path.join(root, 'apps', 'ui', 'scripts', 'build-channel.mjs'), '--out', path.join(dist, 'plugins')], { stdio: 'inherit' });
+if (r.status !== 0) {
+  console.error('[build-bundle] 出厂通道构建失败（build-channel）');
+  process.exit(1);
+}
+// 数据面主题包（apps/ui/themes/<name>——纯资产零装载，manifest 同通道词形）
+if (existsSync(themesDir)) {
+  for (const ent of readdirSync(themesDir, { withFileTypes: true })) {
+    if (ent.isDirectory()) cpSync(path.join(themesDir, ent.name), path.join(dist, 'plugins', ent.name), { recursive: true });
+  }
+}
 
 // ── esbuild 双入口 ──
+// Windows TEMP 重定向（cr-558 同族处置：%TEMP% 被实时防护占用时 esbuild
+// 写产物/临时文件偶发 Access denied——包内临时目录规避，构建后自清）
+const tmpDir = path.join(root, '.tmp-bundle');
+if (process.platform === 'win32') {
+  mkdirSync(tmpDir, { recursive: true });
+  process.env.TEMP = tmpDir;
+  process.env.TMP = tmpDir;
+}
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 let esbuild;
 try {
@@ -77,27 +90,26 @@ try {
 }
 
 const banner = { js: "import { createRequire as __createRequire } from 'module'; const require = __createRequire(import.meta.url);" };
-const common = { bundle: true, platform: 'node', format: 'esm', target: 'node20', banner, logLevel: 'info' };
+// write:false + node 终写（cr-920：esbuild.exe 在受实时防护约束的机器上被拒
+// 直接写产物文件（cr-558 同族——彼时拦 TEMP 临时文件，本机拦终写）——产物
+// 从内存 outputFiles 取出，由本进程落盘（node 写不受限），esbuild 零直写。
+const common = { bundle: true, platform: 'node', format: 'esm', target: 'node20', banner, logLevel: 'info', write: false };
 
-await esbuild.build({
-  entryPoints: [path.join(root, 'apps', 'host', 'boot.ts')],
-  outfile: path.join(dist, 'agentchat.mjs'),
-  ...common,
-});
-await esbuild.build({
-  entryPoints: [path.join(root, 'apps', 'shell', 'boot.ts')],
-  outfile: path.join(dist, 'shell.mjs'),
-  ...common,
-});
+async function buildEntry(entry, outfile) {
+  const r = await esbuild.build({ entryPoints: [entry], ...common });
+  const out = r.outputFiles?.[0];
+  if (out === undefined) throw new Error('[build-bundle] 无产物面：' + entry);
+  writeFileSync(outfile, out.contents);
+  console.log('[build-bundle] ' + path.relative(root, outfile) + '  ' + (out.contents.length / 1024).toFixed(0) + 'kb');
+}
+
+await buildEntry(path.join(root, 'apps', 'host', 'boot.ts'), path.join(dist, 'agentchat.mjs'));
+await buildEntry(path.join(root, 'apps', 'shell', 'boot.ts'), path.join(dist, 'shell.mjs'));
 
 // 程序化模式 worker（ac-run-code——存在性守卫，包缺席跳过）
 const workerEntry = path.join(root, 'packages', 'ac-run-code', 'src', 'worker.ts');
 if (existsSync(workerEntry)) {
-  await esbuild.build({
-    entryPoints: [workerEntry],
-    outfile: path.join(dist, 'worker.mjs'),
-    ...common,
-  });
+  await buildEntry(workerEntry, path.join(dist, 'worker.mjs'));
 } else {
   console.log('[build-bundle] ac-run-code worker 入口缺席——跳过（独立插件形态）');
 }
@@ -109,5 +121,6 @@ if (existsSync(path.join(root, 'CHANGELOG.md'))) {
   cpSync(path.join(root, 'CHANGELOG.md'), path.join(dist, 'CHANGELOG.md'));
 }
 
+if (process.platform === 'win32') rmSync(tmpDir, { recursive: true, force: true });
 console.log('[build-bundle] dist/ 就绪：', readdirSync(dist).join(', '));
 console.log('[build-bundle] 出厂通道：' + readdirSync(path.join(dist, 'plugins')).filter((n) => !n.startsWith('.')).length + ' 个（宿主 boot 播种进 dataRoot/plugins）');

@@ -12,6 +12,17 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "faces": {
+      "web": {
+        "entry": "./client/index.ts",
+        "seats": [
+          "settings:section"
+        ],
+        "isolated": false
+      }
+    }
+  },
   "dependencies": {
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",

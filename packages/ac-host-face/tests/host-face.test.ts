@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import { HostFaceClient } from 'ac-host-face-core';
+import { readAgentConfig } from 'ac-agents-core';
 import { makeHostFaceRow, currentHostFace } from '../src/index.ts';
 
 const tmps: string[] = [];
@@ -80,8 +81,7 @@ describe('宿主能力面（cr-886）', () => {
     await client.connect(pipeOf(root));
     const self = await client.execute('update_agent_profile', { fields: { name: '新名字' } }, { agentId: 'a1' });
     expect(self.ok).toBe(true);
-    const saved = JSON.parse(fs.readFileSync(path.join(root, 'agents', 'a1', 'config.json'), 'utf-8'));
-    expect(saved.name).toBe('新名字');
+    expect(readAgentConfig(root, 'a1')?.name).toBe('新名字'); // patch 主写读回（cr-918）
     // 宿主闸：非 admin 改他人 → 拒绝
     const other = await client.execute('update_agent_profile', { agent_id: 'a2', fields: { name: '越权' } }, { agentId: 'a1' });
     expect(other.ok).toBe(false);

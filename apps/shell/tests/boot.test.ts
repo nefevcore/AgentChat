@@ -12,6 +12,7 @@ import {
   parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers,
 } from '../boot.ts';
 import { subjectFingerprint } from 'ac-fingerprint-core';
+import { readAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-shell-' + process.pid);
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
@@ -72,7 +73,7 @@ describe('M6.2 主体指纹自报（R-7 两形态同源）', () => {
     expect(ready.split('\t')[3]).toBe(boot.fingerprint.root);
     // 宿主侧 verify：同输入同函数（config + catalog + 有 path 的行）
     const hostSide = subjectFingerprint({
-      configJson: fs.readFileSync(path.join(ROOT, 'agents', 'fp1', 'config.json'), 'utf-8'),
+      configJson: JSON.stringify(readAgentConfig(ROOT, 'fp1')), // cr-918：与 boot.ts 同读面（patch 赢）
       catalogJson: fs.readFileSync(CATALOG, 'utf-8'),
       rows: boot.rowset.rowIds
         // 树限定：基座行跨树双计（host 版无 path），壳行集只认 shell 版——与 boot.ts 同口径

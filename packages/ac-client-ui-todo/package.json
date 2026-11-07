@@ -21,6 +21,18 @@
       "phase": "domain"
     }
   },
+  "ac": {
+    "faces": {
+      "web": {
+        "entry": "./client/dist/index.js",
+        "seats": [
+          "conversation:dock-widget",
+          "tool-card:result-view"
+        ],
+        "isolated": false
+      }
+    }
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
@@ -35,5 +47,9 @@
   },
   "keywords": [
     "agentchat"
+  ],
+  "files": [
+    "src",
+    "client/dist"
   ]
 }

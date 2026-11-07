@@ -81,7 +81,7 @@ describe('宿主 boot（单树装配面）', () => {
     const agents = (host.ctx as unknown as { agents: HostAgentsFace }).agents;
     expect(agents.templates().map((t) => t.id)).toEqual(['standard', 'dsh-minimal', 'creator', 'abap-dev']);
     agents.saveAgent({ id: 'wired', model: 'mock' });
-    expect(fs.existsSync(path.join(dataRoot, 'agents', 'wired', 'config.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dataRoot, 'agents', 'wired', 'agent.patch.yml'))).toBe(true); // cr-918 patch 主写
     expect(agents.agentIds()).toContain('wired');
 
     // agent-admin 写侧 RPC 面（cr-542）：六方法在册 + 全链真跑（写口单源落盘）

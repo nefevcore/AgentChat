@@ -14,7 +14,7 @@ import { socketPathFor } from 'ac-envelope-core';
 import { writeRecipe } from 'ac-supervisor-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
-import { isPresetId, presetTemplateKeyOf } from 'ac-agents-core';
+import { isPresetId, presetTemplateKeyOf, readAgentConfig, writeAgentConfig, type AgentConfig } from 'ac-agents-core';
 import { DOC_NAME, readTemplate, materializeConfigOf, materializeTemplateSkills, templateFingerprint, originOf, writeOrigin, type AgentTemplate } from 'ac-host-rows';
 import { resolveAnchors } from './anchors.ts';
 import { hostLog } from './host-log.ts';
@@ -247,10 +247,11 @@ export async function adoptShell(
   const timeout = input.timeoutMs ?? 15_000;
   const deadline = Date.now() + timeout;
   // agent 配置预置（壳 boot 读 AgentConfig）——编排面确保在场
+  // （cr-918：在场探测/写口走 readAgentConfig/writeAgentConfig——patch
+  // 主写，config.json 镜像退役）
   const agentDir = path.join(input.dataRoot, 'agents', input.agentId);
   fs.mkdirSync(agentDir, { recursive: true });
-  const configFile = path.join(agentDir, 'config.json');
-  if (!fs.existsSync(configFile)) {
+  if (readAgentConfig(input.dataRoot, input.agentId) === null) {
     // 预设身份（__<template_key>__）→ 出厂模板物化（tools/description 等
     // 全量写入，preset 剥除）+ origin 指纹记录（cr-812 copy-on-write 升级
     // 通路：未编辑自动跟随模板新版）；其余身份只写 id：model 缺省由壳侧按
@@ -260,7 +261,7 @@ export async function adoptShell(
     const config = template === undefined
       ? { id: input.agentId }
       : presetConfigOf(input.agentId) as Record<string, unknown>;
-    fs.writeFileSync(configFile, JSON.stringify(config), 'utf-8');
+    writeAgentConfig(input.dataRoot, config as unknown as AgentConfig);
     if (template !== undefined) {
       // 模板自带 .md 文档随物化落地（cr-810 人设载体；skip-if-present——
       // 已存在不覆盖，用户编辑优先，与 config 兜底写同语义）

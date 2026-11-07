@@ -2,6 +2,7 @@
 
 > **状态**：实装行册（**源码快照 2026-10-27 复核**——cr-703 单轨布局后首次重写；行/席口径由「行表 + vite 插件发现」改为 **manifest 通道制**）。
 > **事实源**（本文一切数字取自下列四源；与源码冲突时以源码为准）：
+> （cr-920 注记：通道清单事实源已迁 packages/ac-client-ui-*/package.json `ac.faces.web`，`apps/ui/channel/` 已退役——下文 channel 口径为历史时点记录。）
 > 1. **行集** = `apps/catalog/row-catalog.json`（61 行，**无 ui 行**——ui 域行 cr-701 已撤，86→61 / host 48→23）+ 通道清单 `apps/ui/channel/*/manifest.json`（29 个；校验门 `apps/ui/tests/seats-gate.test.ts` 与 `apps/ui/tests/channels-domain.test.ts`）；
 > 2. **装载面** = `packages/ac-client-ui-*/client/index.ts` 的 `slots.declare / register / inject` 调用面；各行包 `src/index.ts` 的 `ctx.webui.declareClient(...)` 声明在现役装配下不再是装载来源（待处置，见 §1.3 疑点）；
 > 3. **边界账本** = `scripts/dep-cycles.yml`（R6/R7 白名单，只减不增；**当前边表 0 条**）+ `scripts/check-deps.mjs`（守卫；相位表 = 各行包 `package.json` 的 `agentchat.client.phase`——锚点待修，见 §3.4 疑点）；

@@ -7,6 +7,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { Context, FiberStates, Service, type Fiber } from '@agentchat/cordis';
+import { readAgentConfig } from 'ac-agents-core';
 import { makeAgentAdminRow } from '../src/agent-admin-row.ts';
 import { makeAgentsHostRow } from '../src/agents-row.ts';
 
@@ -158,8 +159,8 @@ describe('agent-admin 行（写侧 RPC 编排）', () => {
       config: { name: 'Admin Row', model: 'mock@deepseek-chat', tags: ['full-access'] },
     }) as { config: { id: string; model: string; provider: string } };
     expect(created.config).toMatchObject({ id: 'admin-row', model: 'deepseek-chat', provider: 'mock' });
-    const file = path.join(ROOT, 'agents', 'admin-row', 'config.json');
-    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).id).toBe('admin-row');
+    const file = path.join(ROOT, 'agents', 'admin-row', 'agent.patch.yml'); // cr-918 patch 主写
+    expect(readAgentConfig(ROOT, 'admin-row')?.id).toBe('admin-row');
 
     const read = await web.call('agents/get-config', { agentId: 'admin-row' }) as { config: { id: string } };
     expect(read.config.id).toBe('admin-row');
@@ -170,7 +171,7 @@ describe('agent-admin 行（写侧 RPC 编排）', () => {
     }) as { config: Record<string, unknown>; changed: string[] };
     expect(updated.changed.sort()).toEqual(['description', 'model']);
     expect('model' in updated.config).toBe(false); // 清除词形 = 删键
-    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).model).toBeUndefined();
+    expect(readAgentConfig(ROOT, 'admin-row')?.model).toBeUndefined();
 
     const removed = await web.call('agents/delete', { agentId: 'admin-row' }) as { removed: boolean };
     expect(removed.removed).toBe(true);
@@ -180,7 +181,7 @@ describe('agent-admin 行（写侧 RPC 编排）', () => {
   it('零变更不落盘（文件 mtime 不动）', async () => {
     const { web } = await boot();
     await web.call('agents/create', { config: { id: 'same', name: '同名' } });
-    const file = path.join(ROOT, 'agents', 'same', 'config.json');
+    const file = path.join(ROOT, 'agents', 'same', 'agent.patch.yml');
     const before = fs.statSync(file).mtimeMs;
     const result = await web.call('agents/update-config', { agentId: 'same', patch: { name: '同名' } }) as { changed: string[] };
     expect(result.changed).toEqual([]);
@@ -237,11 +238,11 @@ describe('agent-admin 装配面（cr-552 跨进程 dry-run 编排）', () => {
       patch: { rows: { include: ['math', 'fs'] }, settings: { persona: { enabled: false } } },
     }) as { changed: string[] };
     expect(up.changed.sort()).toEqual(['rows', 'settings']);
-    const after = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'w', 'config.json'), 'utf-8'));
-    expect(after.rows).toEqual({ include: ['math', 'fs'] });
-    expect(after.settings.persona).toEqual({ enabled: false, maxTokens: 9 }); // 浅合并保字段
+    const after = readAgentConfig(ROOT, 'w');
+    expect(after?.rows).toEqual({ include: ['math', 'fs'] });
+    expect(after?.settings?.persona).toEqual({ enabled: false, maxTokens: 9 }); // 浅合并保字段
     // 零变更不落盘
-    const file = path.join(ROOT, 'agents', 'w', 'config.json');
+    const file = path.join(ROOT, 'agents', 'w', 'agent.patch.yml');
     const before = fs.statSync(file).mtimeMs;
     const zero = await web.call('agents/assembly/update', { agentId: 'w', patch: { settings: { persona: { enabled: false } } } }) as { changed: string[] };
     expect(zero.changed).toEqual([]);

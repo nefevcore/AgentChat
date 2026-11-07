@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-910**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-929**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -922,3 +922,27 @@
 - 【cr-908 2026-11-05 插件体系 v2.1 批6 切片一（cr-901 §七.6 前置）：装配菜单合流——installed.patch.yml 进壳行集派生（installedRowDescriptors：owner 锚过滤 + link:/npm 裸名词形解析 + manifest.rows/package provides.tools 投影 + 点名缺席降级语义）+ shell boot 双层合并与装配器注册 + market 人签安装 owner 锚留空（全体候选）；plugin-rows.json 转纯镜像窗口】
 - 【cr-909 2026-11-05 插件体系 v2.1 批6 切片三（cr-901 §4.3）：host/shell-custom.patch.yml 用户偏好层——基座行停用面（custom 层语义：disable；写者 = 设置 UI/用户）+ host boot 派生合流（host-rows.json 镜像窗口 ∪ custom 停用）+ shell boot 基座行减法（点名不在菜单 = 警告跳过）；presets/<name>.patch.yml 变体层裁决：现模板层承担、无行为缺口，登记后继（体量克制）】
 - 【cr-910 2026-11-05 插件体系 v2.1 批6 切片四（cr-901 §4.3/§4.7）：①编译产物快照——shell boot 派生后落 boot-graph.json（审计视图「这个 Agent 实际装了什么」：行集/目录行摘要/warnings，主壳与子壳分域）②进程种类注册表——repo 声明式清单 profile/processes.json（boot 入口/argv 契约/IPC 面/审批归属）+ 部署链随行 + installed scope 词与 DEPLOY 面消费】
+- 【cr-911 2026-11-05 v2.1 验收阻断修复：patch-doc configToPatch 档位词类型谓词窄化（tier/tool-mode string→union，typecheck 红）+ apps/ui 显式声明 ac-client-ui-ask 依赖（seats-boot-audit ask 通道装载失败——依赖声明红线违例）】
+- 【cr-912 2026-11-05 v2.1 收口余项三件：persona 文件选择权核实收口（既有机制全覆盖零码改+定向测试）/ 存量数据根迁移实测执行（67 身份幂等+镜像等价核验）/ webui 独立部署连接协议立档（webui-standalone-protocol.md）——台账勾销、README 指针同步】
+- 【cr-913 2026-11-05 数据根退役窗口件清理：删空镜像 plugin-rows.json（读者缺席=fail-soft 空集已核）+ 4 份 preset-origin.json.migrated（迁移已收口、origin 已并入 patch，--revert 的 origin 还原面随之 forfeit）+ 19 个陈旧 activation.lock（宿主零进程核验后删）】
+- 【cr-914 2026-11-05 数据根整理（用户确认口径）：删陈旧锁 24（含 .stale-* 回收残留与 22:39 短暂启动的死锁）/ .runtime/tmp / exp 实验残留 / 旧开发笔记（note·summary·DONE·TODO——webui P6 时代已收口）/ viewer 渲染快照（可再生）；会话历史与归档 children 按用户选择全保留】
+- 【cr-915 2026-11-05 数据根整理续：sandbox/ 45 个空工作目录清空重建、screenshots/ 开发验证截图 8 张清除；核验保留 memory(groups·remote·timer·usage·conv-settings·credentials·profile·outbox——活跃职责面)与 plugins/(工厂播种可再生+ask 通道为合法 UI 通道非残留)】
+- 【cr-916 2026-11-05 数据根非项目产物甄别清理（代码消费面对照法）：memory/（零代码消费——真实路径 files/<id>/memory，内容为 cr-4 迁移期错位排障笔记）/ sandbox/（代码注释定性死配置产物）/ screenshots/（兜底路径 dev 残留）/ files/_tmp、files/restart-lab（dev 实验遗留）；确认 files/shared 为项目共享桶保留。同轮披露：cr-914 误删 viewer/（实为 ac-ledger singles 会话投影域而非可再生快照——singles 账本 ~1057 条不可恢复，代码侧 fail-soft 自愈，文件编辑史仍存 file-snapshots）】
+- 【cr-917 2026-11-05 webui 独立部署切片一（webui-standalone-protocol §3.1/§3.2）：宿主端点四层发现（?host→localStorage ac.host→__AC_HOST__→location.origin）+ /api/ui/hello 握手端点（协议轴 1 + hostVersion + surfaces）+ 非同源请求前缀化（boot-graph/通道资产/WS/auto-reload；同源逐字节等价）+ web-server 跨源 CORS 放行回显（allowedOrigins 命中）】
+- 【cr-918 2026-11-06 退役窗口件收口：writeAgentConfig 双落 config.json 镜像退役 + preset-origin 并入 origin 块】
+- 【cr-919 2026-11-06 webui 自持通道立档：插件包自管 client 产物、原位服务、数据根免拷贝（探索文档）】
+- 【cr-920 2026-11-06 通道壳退役：build-channel 直构 packages 真身包（ac.faces.web 声明归包），channel/ 生成壳与 gen-domain-channels 退役】
+- 【cr-921 2026-11-06 发布链修复：build-bundle 自构通道（斩数据根依赖）+ esbuild write:false 终写 + e2e-bundle stderr 扫描 + 壳指纹读面迁移 readAgentConfig（cr-918 回归收口）】
+- 【cr-922 2026-11-06 脚本精简：判死/合并/删除（全仓引用求证后收口）】
+- 【cr-923 2026-11-06 webui 装载模型重造立档（webui-v3.md）：推翻裁决——boot graph 锚点从文件系统部署态改宿主活装配态（fiber 打脏/flush 对账 + wire 注入 + SSE，DSH client-modules 实测同构），浏览器装载改 lazy CJS 模块表 + 种子词（退役 importmap/全局注册表/shared-modules），壳重做为最小壳；承继 cr-919 产物裁决（唯一构建器/entry 显式词形/realpath 囚笼/revision URL）；ui-plugin-selfhost.md 归档被取代】
+- 【cr-923 补 2026-11-06 webui-v3 裁决六：wire 获取统一 = GET /api/ui/wire + SSE（同源内联仅为预载优化），壳零宿主假设；独立部署 = 部署选项（静态壳 + 宿主地址单来源 + CORS 放行）非模式非协议，standalone 概念退役——webui-standalone-protocol.md（cr-912/917）归档被取代，四层发现/hello 握手随 cutover 缩水或退役，断连降级态不承诺】
+- 【cr-923 续 2026-11-06 webui-v3.md 规范化重写：拆分架构设计（组件职责/wire schema 与构建流程/模块运行时四支解析序/产物/渲染档/部署形态/裁决与退役清单）、实施流程（三切片+验收判据）、注意事项（风险红线）、参考来源（DSH 行级证据对照表）；整合同日裁决六与 wire/解析序/构建必要性讨论结论】
+- 【cr-923 续 2026-11-06 webui-v3 §4.2 装载域澄清：web 面行经 webui 基座文档装载成宿主进程内独立 webui fiber 域（与 host 基座零混杂，打脏/flush 扫描面收窄）；服务进程不拆（单页需 wire+资产+RPC 三面，独立 webui 宿主=第二 origin 或纯反代，纯 webui 服务场景由裁决六独立部署覆盖）】
+- 【cr-923 续 2026-11-06 webui-v3 自查修订五处：wire schema 补 warnings 域（降级/fail-loud/撞名的上报承载）；壳 v3 职责与总图补 RPC/WS 客户端；flush 步3 落撞名防御（装配层门禁为主 + flush 层防御警告）；退役清单补 build-bundle dist/plugins 拷贝链】
+- 【cr-923 续 2026-11-06 webui-v3 评审反馈六条收口：切片⓪ 分叉决策迷你 CR（SSE/WS 合并与 isolated 种子代理——架构分叉禁止边做边决）；回滚演练提前为切片②前置（无双读窗下唯一安全网先验证）；种子词版本治理（wire 顶层 seeds 表 + 行声明区间对拍，flush 警告 + 物化 throw，跨大版本禁静默炸）；打脏/flush 穿透测试切片一最先写；首版仅 GET 单送达路径（内联预载后继）；__ModuleLoader__ 防御姿态定界（装载协议面非安全边界）；切片②立项单列受影响测试清单】
+- 【cr-924 2026-11-06 webui-v3 slice-0 fork decisions: merge notify channel into existing /ws (wire/graph + wire/rebuilt frames, no SSE endpoint); isolated iframe = independent module table + self-contained bundle. Doc fixes: 30 channel packages count, isolated default flip note, seeds declared at ac.faces.web.seeds; cr-log tail EOL normalized (cr-923 batch left bare LF)】
+- 【cr-925 2026-11-06 webui-v3 slice-1 start: wire schema + synthesis pure functions in ac-webui-core (checkWebFace admission gate, duplicate-id defense, seed major-version parity, inject topo order + cycle/absent degrade, FNV rev hash) with unit tests】
+- 【cr-926 2026-11-06 webui-v3 切片①打脏/flush 穿透：apps/ui webui-graph 注册面——internal/plugin 订阅 → 脏集 microtask flush → loader entries 活态对账（fiber 在场且未停用）→ nearestPackage 定位 ac.faces.web + client/dist manifest → synthesizeWire；装载/卸载/停用三动作 → wire 增删行穿透测试先行】
+- 【cr-927 2026-11-07 webui-v3 切片①构建器 v3 形态：build-channel 缺省产出 factory 注册 bundle（window.__ModuleLoader__.load + CJS 闭包）+ revision 清单（rev=内容哈希/files/seeds 版本区间）落包内 client/dist；isolated:true 自含档（不外部化种子）；--out 旧 ES 形态仅存出厂链（切片③ §4.9 退役）；ac-client-ui-todo entry 词形先切 ./client/dist/index.js（全仓切换属切片②）】
+- 【cr-928 2026-11-07 webui-v3 切片①基座文档接线与行 v3：apps/ui webui-doc（分层求值→loader 行名单：基座−custom 停用∪installed(scope:webui)，link: 词形→模块说明符）+ webui-row-v3（直构 Loader 成 webui fiber 域 + WebuiWireGraph + GET /api/ui/wire + /ui-asset/:id/:rev/* realpath 囚笼路由 + WS wire/graph·rebuilt 帧 + dist stat-poll 懒定时器）——与旧行并存至切片②全量切换】
+- 【cr-929 2026-11-07 webui-v3 切片①壳模块运行时：apps/ui client/module-system——lazy CJS 模块表（①种子词→壳活实例 ②memo ③wire 行→revision URL 取 bundle 注册 factory ④物化；其余 throw loud）+ window.__ModuleLoader__ 装载协议面（load 注册工厂，副作用延迟首物化）；脚本到达经注入点（浏览器 <script>/测试 eval），依赖链按 wire 拓扑序自组织】

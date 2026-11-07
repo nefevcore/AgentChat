@@ -14,3 +14,4 @@ export * from './manifest.ts';
 export * from './webui-layer.ts';
 export * from './isolated-policy.ts';
 export * from './token-vocab.ts';
+export * from './wire.ts';

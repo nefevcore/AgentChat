@@ -567,7 +567,10 @@ export async function bootShell(
   // 主体指纹自报（R-7：入指纹 = 行集推导一切——config + catalog + 行包内容；
   // 无 path 的占位行不入行集指纹面〔未实现 = 未生效〕）。boot.ready 第四域。
   const fingerprint = subjectFingerprint({
-    configJson: fs.readFileSync(path.join(agentDir, 'config.json'), 'utf-8'),
+    // cr-918/920：身份源 = readAgentConfig（patch 赢 + 单元文件合成——
+    // config.json 镜像退役后裸读必 ENOENT；指纹值随身份形态换代漂移一次
+    // 属预期，R-7 自报漂移即信号）
+    configJson: JSON.stringify(readAgentConfig(path.resolve(args.dataRoot), args.agentId)),
     catalogJson: fs.readFileSync(args.catalogFile ?? path.join(args.dataRoot, 'row-catalog.json'), 'utf-8'),
     rows: rowset.catalogRows
       // 树限定：基座行双计（host 版与 shell 版同 id），壳指纹只认 shell 版——

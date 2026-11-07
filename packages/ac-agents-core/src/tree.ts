@@ -4,7 +4,7 @@
 // 快照，子身份重读不依赖父目录）
 //
 // agents/<id>/ 树布局（D4.1 + 授权草稿 A 节）：
-//   config.json      AgentConfig（身份：人格/模型引用/档案）
+//   agent.patch.yml  装配 overlay 主写面（cr-906/918）；config.json = 存量旧读窗口
 //   auth.json        per-agent 授权层（M2.2 消费，此处只透传路径）
 //   sessions/<uuid>/ 账本（D4）
 //   children/<cid>/  子树（物化快照——同构嵌套，不回溯父目录）
@@ -81,8 +81,8 @@ export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig 
   }
 }
 
-/** 写 Agent 定义（cr-906 批4 双落：agent.patch.yml 主写 + config.json
- * 镜像——旧读者不断链；回滚 = 删 patch 即回旧形态） */
+/** 写 Agent 定义（cr-906 批4 patch 主写；cr-918 镜像双落退役——读路径
+ * 存量窗口保留：仅 config.json 的旧根仍可读） */
 export function writeAgentConfig(dataRoot: string, config: AgentConfig): void {
   assertAgentId(config.id);
   const dir = agentDir(dataRoot, config.id);
@@ -96,10 +96,6 @@ export function writeAgentConfig(dataRoot: string, config: AgentConfig): void {
   }
   const { settings: _split, ...withoutSettings } = configToPatch(config, prevPatch?.origin);
   writeAgentPatch(dataRoot, config.id, withoutSettings);
-  const file = path.join(dir, CONFIG_FILE);
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf-8');
-  fs.renameSync(tmp, file);
 }
 
 /** 列 agents/ 下全部 agent id（缺席 = 空数组） */

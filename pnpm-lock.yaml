@@ -683,6 +683,9 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../../packages/ac-client-ui-agents
+      ac-client-ui-ask:
+        specifier: workspace:*
+        version: link:../../packages/ac-client-ui-ask
       ac-client-ui-browser:
         specifier: workspace:*
         version: link:../../packages/ac-client-ui-browser
@@ -779,6 +782,9 @@ importers:
       ac-ws-protocol:
         specifier: workspace:*
         version: link:../../packages/ac-ws-protocol
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.3.1
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
@@ -786,9 +792,18 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      '@agentchat/cordis-loader':
+        specifier: workspace:*
+        version: link:../../packages/vendor/loader
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@vitejs/plugin-vue':
         specifier: ^5.0.0
         version: 5.2.4(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))(vue@3.5.41(typescript@5.9.3))
+      ac-client-ui-markdown-render:
+        specifier: workspace:*
+        version: link:../../packages/ac-client-ui-markdown-render
       jsdom:
         specifier: ^25.0.0
         version: 25.0.1(canvas@3.2.3)(supports-color@10.2.2)
@@ -804,279 +819,6 @@ importers:
       vue-tsc:
         specifier: ^2.0.0
         version: 2.2.12(typescript@5.9.3)
-
-  apps/ui/channel/agents:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-agents:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-agents
-
-  apps/ui/channel/ask:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-ask:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-ask
-
-  apps/ui/channel/browser:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-browser:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-browser
-
-  apps/ui/channel/conversation:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-conversation:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-conversation
-
-  apps/ui/channel/desktop-storage:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-desktop-storage:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-desktop-storage
-
-  apps/ui/channel/fs:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-fs:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-fs
-
-  apps/ui/channel/goal:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-goal:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-goal
-
-  apps/ui/channel/group:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-group:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-group
-
-  apps/ui/channel/jobs:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-jobs:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-jobs
-
-  apps/ui/channel/llm-pool:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-llm-pool:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-llm-pool
-
-  apps/ui/channel/markdown-render:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../../../packages/vendor/cordis
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-renderer:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-renderer
-
-  apps/ui/channel/onboarding:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-onboarding:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-onboarding
-
-  apps/ui/channel/plugin-registry:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-plugin-registry:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-plugin-registry
-
-  apps/ui/channel/remote:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-remote:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-remote
-
-  apps/ui/channel/run-code:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-run-code:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-run-code
-
-  apps/ui/channel/run-nodes:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-run-nodes:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-run-nodes
-
-  apps/ui/channel/runview:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-runview:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-runview
-
-  apps/ui/channel/search-pool:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-search-pool:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-search-pool
-
-  apps/ui/channel/settings:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-settings:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-settings
-
-  apps/ui/channel/shell:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-shell:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-shell
-
-  apps/ui/channel/singles:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-singles:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-singles
-
-  apps/ui/channel/skill:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-skill:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-skill
-
-  apps/ui/channel/subagent:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-subagent:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-subagent
-
-  apps/ui/channel/system:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-system:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-system
-
-  apps/ui/channel/timer:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-timer:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-timer
-
-  apps/ui/channel/todo:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-todo:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-todo
-
-  apps/ui/channel/tool:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-tool:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-tool
-
-  apps/ui/channel/usage:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-usage:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-usage
-
-  apps/ui/channel/web:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-web:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-web
-
-  apps/ui/channel/workspace:
-    dependencies:
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-runtime
-      ac-client-ui-workspace:
-        specifier: workspace:*
-        version: link:../../../../packages/ac-client-ui-workspace
 
   desktop:
     devDependencies:
@@ -1356,6 +1098,9 @@ importers:
       ac-client-ui-timer:
         specifier: workspace:*
         version: link:../ac-client-ui-timer
+      ac-timer-core:
+        specifier: workspace:*
+        version: link:../ac-timer-core
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1366,9 +1111,6 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-      ac-timer-core:
-        specifier: workspace:*
-        version: link:../ac-timer-core
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1715,6 +1457,15 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/ac-client-ui-markdown-render:
+    dependencies:
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      ac-client-ui-renderer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-renderer
 
   packages/ac-client-ui-onboarding:
     dependencies:

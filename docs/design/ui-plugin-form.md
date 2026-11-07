@@ -1,6 +1,10 @@
 # UI 插件形态与 web 面统一通道（ui-plugin-form）
 
 > cr-905（2026-11-05）批 3 设计文档——plugin-architecture-v2（cr-901）§4.1
+> （cr-920 注记：通道事实源已迁 packages/ac-client-ui-* 真身包——
+> channel/ 生成壳与 gen-domain-channels.mjs 退役，build-channel 直构
+> 包源，web 面声明归 package.json ac.faces.web；后继方向见
+> ui-plugin-selfhost.md）
 > web 面 / §4.3 webui 分层 / §七 批 3 的落地规范。参照系 = DSH UI 插件
 > 实物（app.asar 出厂技能 `sandbox/dsh-plugin-skill/` + 桌面 profile）。
 > 规范用语同 cr-901：**必须 / 禁止 / 仅可** = 强制；裁决条目记录结构性
@@ -14,7 +18,7 @@
   `pluginsDir`（`<dataRoot>/plugins/`）manifest 扫描 → boot graph 端点
   （`/api/ui/boot-graph`）→ 资产路由（`/ui-plugin/:name/*`，压缩 +
   ETag 协商）。零特权路径——第一方模块资产与第三方同通道。
-- **工厂播种**：`build-channel.mjs` 构建 `apps/ui/channel/*` →
+- **工厂播种**（cr-920 已改：build-channel 直构 packages/ac-client-ui-* 真身包，channel/ 壳退役；下文通道目录口径为 cr-905 时点记录）：`build-channel.mjs` 构建 `apps/ui/channel/*` →
   `dist/plugins` → 宿主 boot `seedFactoryPlugins` 幂等拷贝进数据根。
 - **宿主模块表雏形**：`boot.ts skeletonModuleHost + sharedModules()` +
   importmap 注入（`installChannelImportmap`）——外部化 bundle 经全局
@@ -80,7 +84,7 @@
 ```
 
 - 基座源 = `apps/catalog/profile/webui.patch.yml`（行 = 工厂通道）。
-  **裁决：生成而非手写**——工厂通道清单的事实源是 `apps/ui/channel/*`
+  **裁决：生成而非手写**（cr-920 起事实源 = packages/ac-client-ui-* 的 `ac.faces.web` 声明，name 词形 `link:packages/<包>`）——原 cr-905 时点事实源是 `apps/ui/channel/*`
   目录（增删通道 = 增删行），手抄必漂移。`scripts/gen-webui-base.mjs`
   从通道 manifest 生成（id = 通道名；name = `link:apps/ui/channel/<名>`；
   seats/isolated 随行；版本戳 = 内容变化时自动 +1）。

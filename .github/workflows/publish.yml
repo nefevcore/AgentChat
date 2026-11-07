@@ -61,8 +61,6 @@ jobs:
             exit 1
           }
 
-      - name: 构建出厂 UI 通道
-        run: pnpm build:channels
       - name: 上传构建诊断（仅失败时）
         if: failure()
         uses: actions/upload-artifact@v4

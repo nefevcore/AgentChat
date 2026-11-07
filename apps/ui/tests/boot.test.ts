@@ -13,7 +13,7 @@ import { bootUiClient, skeletonPlugins, loadChannelCss } from '../client/boot.ts
 import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { settingsClientPlugin } from 'ac-client-ui-settings/client';
-import { markdownRenderPlugin } from '../channel/markdown-render/src/index.ts';
+import { markdownRenderPlugin } from 'ac-client-ui-markdown-render/client';
 import type { BootGraphEntry } from 'ac-webui-core';
 import { isAllowedIsolatedEvent, isAllowedIsolatedRequest } from 'ac-webui-core';
 

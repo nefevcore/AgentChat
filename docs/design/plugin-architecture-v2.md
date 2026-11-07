@@ -330,7 +330,7 @@ agents/<agent-id>/
    ignore-scripts 强制对冲；批 2 前安全复查。
 2. TS 直发的 npm 惯例代价（包体含 TS、strip-only 语法红线约束第三方
    作者）——若生态反馈受阻，批 5 可加可选构建档（不回退统一形态）。
-3. UI 插件形态与 webui 独立部署连接协议：批 3 单独文档。
+3. UI 插件形态（ui-plugin-form.md，cr-905）；webui 独立部署连接协议（webui-standalone-protocol.md，cr-912 立档——实施切片随后继批）；web 产物随包自持与原位服务（ui-plugin-selfhost.md，cr-919 探索立档——播种/部署拷贝退役方向）。
 4. npm scope 与既有 asset/manifest 词法冲突的收敛（放宽正则 or 命名
    约定）：批 3 定。
 5. Windows link 跨盘；离线/私域 registry；安装 30 秒实测（批 2 验收项）。
@@ -360,7 +360,9 @@ agents/<agent-id>/
 | profile/presets/<name>.patch.yml 命名组合变体 | 裁决：现模板层（preset-builtin）承担、无行为缺口——v2 形态随创建流改版一并落（体量克制，防提前抽象） |
 | ~~boot-graph 编译产物快照~~ ✅ cr-910（shell boot 派生终态落 agents/<id>/boot-graph.json——主壳/子壳分域、审计不承重） | 已落 |
 | ~~§4.7 进程种类注册表~~ ✅ cr-910（repo 声明式清单 profile/processes.json + 部署链随行 + installed scope 词单源消费；argv/spawn 契约深接线随创建流/新进程种落地） | 已落（声明面） |
-| persona 插件文件选择权（patch 直写或指定文件——persona 行现消费不变） | 收口件 |
-| 存量数据根迁移实测（migrate-agent-patch 执行） | 部署动作（需停机窗口——用户决策） |
-| 旧物物理退役评估（cr-910 收口）：顶层 cordis.patch.example.yml 已删（指向已消灭 src/ 轨道、零引用）；row-catalog JSON（生成物——fixtures/测试仍消费）、plugin-rows/host-rows 镜像（存量数据根旧读者）、staging manifest 模板（plugin-dev 自开发窗口）、preset-origin.json 镜像与 X1 settings 兜底（迁移后可清）——**均属数据根退役窗口件，随迁移完成后清理** | 已评估 |
-| webui 独立部署连接协议单独设计文档（开放问题 #3） | 后继设计 |
+| ~~persona 插件文件选择权（patch 直写或指定文件——persona 行现消费不变）~~ ✅ cr-912（核实既有机制全覆盖：persona.json 单元文件赢 / patch 内联 settings 窗口兜底 / file 任意文档名裸名走 Agent 目录——readAgentConfig 合成链即收口本体，零码改，定向测试 82 例锁定） | 已落 |
+| ~~存量数据根迁移实测（migrate-agent-patch 执行）~~ ✅ cr-912（2026-11-05 停机窗口执行：67 身份幂等重写、patch↔config 镜像逐字节等价核验 0 漂移、dry 复验稳定；回滚点 = --revert 在位） | 已落 |
+| 旧物物理退役评估（cr-910 收口）：顶层 cordis.patch.example.yml 已删（指向已消灭 src/ 轨道、零引用）；row-catalog JSON（生成物——fixtures/测试仍消费）、plugin-rows/host-rows 镜像（存量数据根旧读者）、staging manifest 模板（plugin-dev 自开发窗口）、preset-origin.json 镜像与 X1 settings 兜底（迁移后可清）——**均属数据根退役窗口件，随迁移完成后清理**（config.json 镜像 / preset-origin 镜像 / plugins 旧通道副本已清，cr-918） | 已评估 |
+| ~~通道壳退役：web 面声明归 packages/ac-client-ui-* `ac.faces.web`，build-channel 直构包源 + 外部化不变量门，channel/ 壳与 gen-domain-channels 退役~~ ✅ cr-920（selfhost 切片一前置——见 ui-plugin-selfhost.md） | 已落 |
+| ~~退役窗口件收口：writeAgentConfig config.json 镜像双落退役 + preset-origin 并入 origin 块~~ ✅ cr-918（单写 patch；readOrigin/writeOrigin patch 主写 + 存量 json 兜底读窗；orchestrate 物化与 reconcile 写口随迁 readAgentConfig/writeAgentConfig；数据根 67 config.json 镜像 + 4 preset-origin 清毕，后者并入 patch 后转 .migrated 可逆） | 已落 |
+| ~~webui 独立部署连接协议单独设计文档（开放问题 #3）~~ ✅ cr-912 立档（webui-standalone-protocol.md：地址发现四层 / hello 握手协议轴 / Bearer 跨源鉴权 / 断连两轴降级 / 四实施切片）；实施切片一 ✅ cr-917（端点发现 + hello 端点 + 非同源前缀化 + CORS 放行回显——同源逐字节等价锁定；切片二至四后继） | 已立档（切片 1/4 已落） |

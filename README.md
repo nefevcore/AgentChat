@@ -235,7 +235,7 @@ pnpm test:integration   # 集成件（限流 8 路）
 pnpm check:deps         # 依赖卫生（未声明/越界/环/跨域边）
 pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
 pnpm webui:build        # 构建前端产物（apps/ui → apps/ui/dist）
-pnpm build:channels     # 构建出厂 UI 通道（29 域通道 → workspace/home/plugins）
+pnpm build:channels     # 构建出厂 UI 通道（packages/ac-client-ui-* 直构 → sandbox/ui-plugins）
 pnpm build:bundle       # 组装发布产物 dist/（宿主+壳双 bundle + 资产面）
 pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，零常驻）
 ```
@@ -246,7 +246,7 @@ pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，
 
 ## 🧩 插件开发
 
-- **写一个插件**（v2.1 包即插件——`package.json` `ac` 字段单源）：`ac plugin init <name>` 脚手架（零占位符 + owner 私有工具模板）→ `ac plugin dev` watch 热试跑（装载冒烟；壳内试跑用 `register_plugin`）→ `ac plugin publish`（TS 直发 npm 无构建步，keywords `agentchat-plugin` 自标进市场）→ `ac plugin finalize`（定型物化 = 统一安装器代写 installed 登记 + owner 锚）。门禁（engines 自求值 / 权限 / 保留字）与两轴回执（install-result × effective-state）贯穿安装链；Agent 对话内亦可 `install_plugin`（回执带生效轴）。详见 `docs/design/plugin-architecture-v2.md` 与 `docs/design/ui-plugin-form.md`。
+- **写一个插件**（v2.1 包即插件——`package.json` `ac` 字段单源）：`ac plugin init <name>` 脚手架（零占位符 + owner 私有工具模板）→ `ac plugin dev` watch 热试跑（装载冒烟；壳内试跑用 `register_plugin`）→ `ac plugin publish`（TS 直发 npm 无构建步，keywords `agentchat-plugin` 自标进市场）→ `ac plugin finalize`（定型物化 = 统一安装器代写 installed 登记 + owner 锚）。门禁（engines 自求值 / 权限 / 保留字）与两轴回执（install-result × effective-state）贯穿安装链；Agent 对话内亦可 `install_plugin`（回执带生效轴）。详见 `docs/design/plugin-architecture-v2.md` 与 `docs/design/ui-plugin-form.md`；webui 独立部署（断连降级、宿主连接协议）见 `docs/design/webui-standalone-protocol.md`。
 - **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-dev`。
 - **新增一行**：包内 `apply` + `agentchat.plugin` 清单，基座源文档 `apps/catalog/profile/<proc>.patch.yml` 登记 `id/name`（编辑须升 `# ac-base-version` 戳）并跑 `node scripts/gen-row-catalog.mjs` 同步投影；宿主/壳按 `inject` 自动装配，不手写激活顺序。
 

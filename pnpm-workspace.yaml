@@ -2,8 +2,6 @@ packages:
   - 'packages/*'
   - 'packages/vendor/*'
   - 'apps/*'
-  # ui 通道模块（第一方模块资产——manifest 声明 + re-export 主线行包）
-  - 'apps/ui/channel/*'
   - 'desktop'
 allowBuilds:
   '@vue-office/docx': true

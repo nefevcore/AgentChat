@@ -21,6 +21,19 @@
       "phase": "domain"
     }
   },
+  "ac": {
+    "faces": {
+      "web": {
+        "entry": "./client/index.ts",
+        "seats": [
+          "conversation:header-widget",
+          "primary-sidebar:domain",
+          "settings:section"
+        ],
+        "isolated": false
+      }
+    }
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
@@ -32,7 +45,8 @@
     "ac-client-ui-settings": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
     "ac-client-ui-timer": "workspace:*",
-    "vue": "^3.4.0"
+    "vue": "^3.4.0",
+    "ac-timer-core": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",

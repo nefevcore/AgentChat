@@ -21,12 +21,12 @@ const cfg: AgentConfig = {
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-describe('agent.patch.yml 双读/双落（cr-906 批4）', () => {
-  it('写双落：patch + config.json 镜像；patch 读面投影回 AgentConfig（tags 重建）', () => {
+describe('agent.patch.yml 读写（cr-906 批4；cr-918 镜像退役）', () => {
+  it('写单落：仅 patch（config.json 镜像 cr-918 退役）；读面投影回 AgentConfig（tags 重建）', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
     expect(fs.existsSync(path.join(dir, PATCH_FILE))).toBe(true);
-    expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(true); // 旧读者镜像
+    expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(false); // 镜像退役
     const reread = readAgentConfig(ROOT, ID);
     expect(reread).toEqual(cfg); // patch 赢 + 投影等价（system 除外——退役面）
   });
@@ -37,10 +37,10 @@ describe('agent.patch.yml 双读/双落（cr-906 批4）', () => {
     expect(readAgentConfig(ROOT, ID)).toEqual(cfg);
   });
 
-  it('回滚可逆：删 patch 即回 config.json 旧形态', () => {
+  it('镜像退役后删 patch = 身份缺席（回滚窗口已关闭——存量 config.json 根仍走旧读路径）', () => {
     writeAgentConfig(ROOT, cfg);
     fs.rmSync(path.join(agentDir(ROOT, ID), PATCH_FILE));
-    expect(readAgentConfig(ROOT, ID)).toEqual(cfg); // config.json 镜像承担回滚
+    expect(readAgentConfig(ROOT, ID)).toBeNull();
   });
 
   it('档位词映射：tags 档位轴 ↔ tier/tool-mode；settings 随行；system 不迁', () => {

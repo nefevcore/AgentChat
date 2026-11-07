@@ -1,23 +1,23 @@
-# ac-base-version: 1
-# webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = apps/ui/channel/*，
+# ac-base-version: 2
+# webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = packages/ac-client-ui-*（ac.faces.web），
 # 由 scripts/gen-webui-base.mjs 生成，禁止手改（漂移由 ac-rowset-core
 # tests/webui-base.test.ts 锁定）。分层合成与前端侧求值见 docs/design/ui-plugin-form.md。
 - id: agents
-  name: link:apps/ui/channel/agents
+  name: link:packages/ac-client-ui-agents
   seats:
     - seat: conversation:header-widget
     - seat: primary-sidebar:domain
     - seat: settings:section
 - id: ask
-  name: link:apps/ui/channel/ask
+  name: link:packages/ac-client-ui-ask
   seats:
     - seat: inject-card:view
 - id: browser
-  name: link:apps/ui/channel/browser
+  name: link:packages/ac-client-ui-browser
   seats:
     - seat: tool-card:result-view
 - id: conversation
-  name: link:apps/ui/channel/conversation
+  name: link:packages/ac-client-ui-conversation
   seats:
     - seat: aux-sidebar
     - seat: conversation:dock-widget
@@ -25,116 +25,116 @@
     - seat: main:perspective
     - seat: message:final-view
 - id: desktop-storage
-  name: link:apps/ui/channel/desktop-storage
+  name: link:packages/ac-client-ui-desktop-storage
   seats:
     - seat: settings:section
 - id: fs
-  name: link:apps/ui/channel/fs
+  name: link:packages/ac-client-ui-fs
   seats:
     - seat: tool-card:result-view
 - id: goal
-  name: link:apps/ui/channel/goal
+  name: link:packages/ac-client-ui-goal
   seats:
     - seat: conversation:dock-widget
     - seat: tool-card:result-view
 - id: group
-  name: link:apps/ui/channel/group
+  name: link:packages/ac-client-ui-group
   seats:
     - seat: aux-sidebar
     - seat: main:perspective
     - seat: overlay
 - id: jobs
-  name: link:apps/ui/channel/jobs
+  name: link:packages/ac-client-ui-jobs
   seats:
     - seat: conversation:header-widget
 - id: llm-pool
-  name: link:apps/ui/channel/llm-pool
+  name: link:packages/ac-client-ui-llm-pool
   seats:
     - seat: settings:section
 - id: markdown-render
-  name: link:apps/ui/channel/markdown-render
+  name: link:packages/ac-client-ui-markdown-render
 - id: onboarding
-  name: link:apps/ui/channel/onboarding
+  name: link:packages/ac-client-ui-onboarding
   seats:
     - seat: activity-bar:more-menu
     - seat: overlay
 - id: plugin-registry
-  name: link:apps/ui/channel/plugin-registry
+  name: link:packages/ac-client-ui-plugin-registry
   seats:
     - seat: settings:section
 - id: remote
-  name: link:apps/ui/channel/remote
+  name: link:packages/ac-client-ui-remote
   seats:
     - seat: settings:section
 - id: run-code
-  name: link:apps/ui/channel/run-code
+  name: link:packages/ac-client-ui-run-code
   seats:
     - seat: tool-card:result-view
 - id: run-nodes
-  name: link:apps/ui/channel/run-nodes
+  name: link:packages/ac-client-ui-run-nodes
   seats:
     - seat: aux-sidebar
 - id: runview
-  name: link:apps/ui/channel/runview
+  name: link:packages/ac-client-ui-runview
   seats:
     - seat: aux-sidebar
     - seat: main
     - seat: main:perspective
     - seat: primary-sidebar:domain
 - id: search-pool
-  name: link:apps/ui/channel/search-pool
+  name: link:packages/ac-client-ui-search-pool
   seats:
     - seat: settings:section
 - id: settings
-  name: link:apps/ui/channel/settings
+  name: link:packages/ac-client-ui-settings
   seats:
     - seat: overlay
 - id: shell
-  name: link:apps/ui/channel/shell
+  name: link:packages/ac-client-ui-shell
   seats:
     - seat: tool-card:result-view
 - id: singles
-  name: link:apps/ui/channel/singles
+  name: link:packages/ac-client-ui-singles
   seats:
     - seat: conversation:header-widget
     - seat: main:perspective
     - seat: primary-sidebar:domain
 - id: skill
-  name: link:apps/ui/channel/skill
+  name: link:packages/ac-client-ui-skill
 - id: subagent
-  name: link:apps/ui/channel/subagent
+  name: link:packages/ac-client-ui-subagent
   seats:
     - seat: main:perspective
     - seat: tool-card:result-view
 - id: system
-  name: link:apps/ui/channel/system
+  name: link:packages/ac-client-ui-system
   seats:
     - seat: overlay
 - id: timer
-  name: link:apps/ui/channel/timer
+  name: link:packages/ac-client-ui-timer
   seats:
     - seat: aux-sidebar
 - id: todo
-  name: link:apps/ui/channel/todo
+  name: link:packages/ac-client-ui-todo
   seats:
     - seat: conversation:dock-widget
     - seat: tool-card:result-view
 - id: tool
-  name: link:apps/ui/channel/tool
+  name: link:packages/ac-client-ui-tool
   seats:
     - seat: tool-card:result-view
 - id: usage
-  name: link:apps/ui/channel/usage
+  name: link:packages/ac-client-ui-usage
   seats:
     - seat: aux-sidebar
     - seat: overlay
 - id: web
-  name: link:apps/ui/channel/web
+  name: link:packages/ac-client-ui-web
   seats:
     - seat: aux-sidebar
     - seat: tool-card:result-view
 - id: workspace
-  name: link:apps/ui/channel/workspace
+  name: link:packages/ac-client-ui-workspace
   seats:
     - seat: aux-sidebar
     - seat: overlay

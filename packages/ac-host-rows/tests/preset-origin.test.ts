@@ -10,7 +10,7 @@ import {
   templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin,
 } from '../src/preset-origin.ts';
 import { materializeConfigOf } from '../src/preset-builtin.ts';
-import { isPresetId, presetTemplateKeyOf } from 'ac-agents-core';
+import { isPresetId, presetTemplateKeyOf, readAgentPatch, writeAgentPatch } from 'ac-agents-core';
 import type { AgentConfig } from 'ac-agents-core';
 
 const tplConfig = { id: '__creator__', name: '创造模式', rows: ['fs-tools', 'persona'] } as unknown as AgentConfig;
@@ -99,13 +99,27 @@ describe('reconcilePresetOrigin 四态', () => {
     if ('baseline' in r) expect(r.baseline.skills?.['plugin-dev']).toBeTruthy();
   });
 
-  it('readOrigin/writeOrigin 落盘往返（缺席 = undefined）', () => {
+  it('readOrigin/writeOrigin 落盘往返（缺席 = undefined；无 patch 根 = 镜像兜底分支）', () => {
     const root = mkDir();
     try {
       expect(readOrigin(root, '__creator__')).toBeUndefined();
       const origin = originOf('creator', 'deadbeef', materializeConfigOf(tplConfig, '__creator__'), tplDocs);
       writeOrigin(root, '__creator__', origin);
       expect(readOrigin(root, '__creator__')).toEqual(origin);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('patch 在场 = origin 块主写（cr-918 镜像退役）；读面 patch 赢过存量 json', () => {
+    const root = mkDir();
+    try {
+      writeAgentPatch(root, '__creator__', { rows: ['fs-tools'] });
+      // 存量镜像在场 + patch 无 origin 块 → 读回落 json
+      fs.writeFileSync(path.join(root, 'agents/__creator__/preset-origin.json'), JSON.stringify({ template: 'creator', hash: 'old' }));
+      expect(readOrigin(root, '__creator__')?.hash).toBe('old');
+      const origin = originOf('creator', 'deadbeef', materializeConfigOf(tplConfig, '__creator__'), tplDocs);
+      writeOrigin(root, '__creator__', origin);
+      expect(readAgentPatch(root, '__creator__')?.origin).toEqual(origin); // 块主写
+      expect(readOrigin(root, '__creator__')).toEqual(origin); // patch 赢过陈旧 json
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -380,3 +380,53 @@ describe('ac-web-server A1 信任边界：Origin / Host 校验', () => {
     ).toBe('open');
   });
 });
+
+describe('跨源 CORS 放行回显（cr-917 webui 独立部署 §3.3）', () => {
+  it('白名单 Origin：应答回显 ACAO；预检 OPTIONS 204 + 放行头', async () => {
+    const { svc, port } = await boot({ allowedOrigins: ['https://chat.example.com'] });
+    svc.route('GET', '/probe', (call) => {
+      call.res.writeHead(200, { 'content-type': 'text/plain' });
+      call.res.end('ok');
+    });
+    const res = await fetch(`http://127.0.0.1:${port}/probe`, {
+      headers: { origin: 'https://chat.example.com' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://chat.example.com');
+
+    const pre = await fetch(`http://127.0.0.1:${port}/probe`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'https://chat.example.com',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'authorization',
+      },
+    });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-origin')).toBe('https://chat.example.com');
+    expect(pre.headers.get('access-control-allow-methods')).toContain('GET');
+    expect(pre.headers.get('access-control-allow-headers')).toContain('authorization');
+  });
+
+  it('未放行跨源 Origin 仍 403（CORS 不弱化信任边界）', async () => {
+    const { port } = await boot({ allowedOrigins: ['https://chat.example.com'] });
+    const res = await fetch(`http://127.0.0.1:${port}/probe`, {
+      headers: { origin: 'https://evil.example.net' },
+    });
+    expect(res.status).toBe(403);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('回环 Origin（同源/本机联调）不加 CORS 头——现状零变化', async () => {
+    const { svc, port } = await boot();
+    svc.route('GET', '/probe2', (call) => {
+      call.res.writeHead(200);
+      call.res.end('ok');
+    });
+    const res = await fetch(`http://127.0.0.1:${port}/probe2`, {
+      headers: { origin: 'http://localhost:5173' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
+});

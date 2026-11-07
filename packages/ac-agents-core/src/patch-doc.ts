@@ -9,11 +9,10 @@
 // description）+ origin 块（创建来源 preset + 指纹——取代
 // preset-origin.json，随切片三接入）。system 退役（平台行分权组装）。
 //
-// 双读窗口（批4）：readAgentConfig 读 agent.patch.yml 在场即赢，
+// 读写形态（批4 + cr-918）：readAgentConfig 读 agent.patch.yml 在场即赢，
 // 投影回 AgentConfig 形状（tags 由档位词重建——消费面 tierOf/
-// toolModeOf 零改动）；config.json 旧读路径窗口兼容（迁移脚本切片三）。
-// writeAgentConfig 双落：patch + config.json 镜像（旧读者不断链，
-// 回滚 = 删 patch 即回旧形态——迁移可逆）。
+// toolModeOf 零改动）；config.json 旧读路径窗口兼容（存量未迁移根）。
+// writeAgentConfig 单写 patch（cr-918 镜像双落退役）。
 // ============================================================
 
 import * as fs from 'node:fs';
@@ -145,8 +144,8 @@ export function patchToConfig(agentId: string, doc: AgentPatchDoc): AgentConfig 
 export function configToPatch(config: AgentConfig, origin?: PatchOrigin): AgentPatchDoc {
   const TIER_WORDS = ['full-access', 'sandbox-access'] as const;
   const MODE_WORDS = ['tc-none', 'tc-programmatic'] as const;
-  const tier = config.tags?.find((t) => (TIER_WORDS as readonly string[]).includes(t));
-  const toolMode = config.tags?.find((t) => (MODE_WORDS as readonly string[]).includes(t));
+  const tier = config.tags?.find((t): t is (typeof TIER_WORDS)[number] => (TIER_WORDS as readonly string[]).includes(t));
+  const toolMode = config.tags?.find((t): t is (typeof MODE_WORDS)[number] => (MODE_WORDS as readonly string[]).includes(t));
   // 余词保真：只剔「被选中」的档位词——存量脏数据双档位并存时冗余词随
   // 余词保留（迁移零丢弃；tierOf 判定序不受影响）
   const tagRemainder = (config.tags ?? []).filter((t) => t !== tier && t !== toolMode);

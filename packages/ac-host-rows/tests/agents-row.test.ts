@@ -33,9 +33,10 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
       expect(h.agents.agentIds()).toEqual(['alpha', 'beta']);
       expect(h.agents.getAgent('alpha')?.name).toBe('甲');
       expect(h.agents.listAgents().map((c) => c.id)).toEqual(['alpha', 'beta']);
-      // 落盘布局单源：agents/<id>/config.json（无临时文件残留）
+      // 落盘布局单源：agent.patch.yml（cr-918 patch 主写；无临时文件残留）
       const dir = path.join(ROOT, 'agents', 'alpha');
-      expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')).model).toBe('mock');
+      expect(fs.existsSync(path.join(dir, 'agent.patch.yml'))).toBe(true);
+      expect(h.agents.getAgent('alpha')?.model).toBe('mock');
       expect(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
       // 删身份 = 删整树（含 entries / 文档）
       h.agents.saveEntry('beta', 'timer', { entries: [] });

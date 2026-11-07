@@ -8,8 +8,8 @@
 //
 // 物理形态：宿主 bundle 静态 import 源文件（与骨架件同源装载——同一
 // vite 模块图，无二次拷贝）。键 = 完整说明符（含子路径与后缀）。
-// 清单维护：apps/ui/scripts/gen-domain-channels.mjs --check
-// 对账漂移后同步本表（深引集合变化 = 共享面变化）。
+// 清单维护：build-channel.mjs 外部化不变量门（产物 import 说明符 ⊆
+// 宿主模块表）+ channels-domain.test 对账锁（深引集合变化 = 共享面变化）。
 // ============================================================
 import * as agentsClient from 'ac-client-ui-agents/client';
 import * as agentsIndex from 'ac-client-ui-agents/client/index.ts';
