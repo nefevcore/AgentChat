@@ -32,6 +32,8 @@ export interface ClientModuleSystemOptions {
   seeds: Record<string, unknown>;
   /** wire 行查询（装载支 ③ 的行寻址） */
   rowOf: (id: string) => WireRow | undefined;
+  /** 深路径 → 行 id 归一面（<pkg>/client... → <pkg>；缺省 = 仅精确行 id） */
+  rowsOf?: (spec: string) => string | undefined;
   /** bundle 到达注入点 */
   loadScript: ScriptLoader;
   /** 装载失败监听（console 面缺省） */
@@ -53,6 +55,7 @@ export class ClientModuleSystem {
   private readonly factories = new Map<string, FactoryRegistration['factory']>();
   private readonly memo = new Map<string, unknown>();
   private readonly loading = new Map<string, Promise<void>>();
+  private readonly materializing = new Set<string>();
 
   constructor(private options: ClientModuleSystemOptions) {
     const self = this;
@@ -72,23 +75,54 @@ export class ClientModuleSystem {
     const seed = (this.options.seeds as Record<string, unknown | undefined>)[spec];
     if (seed !== undefined || spec in this.options.seeds) return seed;
     if (this.memo.has(spec)) return this.memo.get(spec);
+    const row = this.normalize(spec);
+    if (row !== undefined && row !== spec) {
+      // 深路径说明符 → 行级物化（<id>/client 子路径族；cr-930 跨行共享裁决）
+      const rowExports = this.require(row) as { __deep?: Record<string, unknown> } | undefined;
+      const deep = (rowExports as { __deep?: Record<string, unknown> } | undefined)?.__deep;
+      const mod = deep?.[spec];
+      if (mod === undefined) throw new Error('行深路径缺席（__deep 面未导出——构建器深清单漂移）：' + spec);
+      this.memo.set(spec, mod);
+      return mod;
+    }
     const factory = this.factories.get(spec);
     if (factory === undefined) {
       throw new Error('模块不可解析（种子词/factory 双缺席——装载序或纯度门违例）：' + spec);
     }
-    const exports = factory((dep) => this.require(dep));
-    this.memo.set(spec, exports);
-    return exports;
+    if (this.materializing.has(spec)) {
+      throw new Error('模块环（A require B require A）——CJS 部分导出不可靠，须拆懒用：' + spec);
+    }
+    this.materializing.add(spec);
+    try {
+      const exports = factory((dep) => this.require(dep));
+      this.memo.set(spec, exports);
+      return exports;
+    } finally {
+      this.materializing.delete(spec);
+    }
+  }
+
+  /** 深路径 → 行 id 归一（<id>/client[/...] → <id>；非行说明符原样） */
+  private normalize(spec: string): string | undefined {
+    const hit = this.options.rowsOf?.(spec);
+    if (hit !== undefined) return hit;
+    return undefined;
   }
 
   /** 异步 import：③ 装载支在场（wire 行 → bundle 到达 → 注册 → 物化） */
   async import(spec: string): Promise<unknown> {
+    const row = this.options.rowOf(this.normalize(spec) ?? spec);
+    if (row !== undefined && row.entry !== undefined) await this.ensure(row.id);
+    return this.require(spec);
+  }
+
+  /** bundle 到达支（仅注册 factory 不物化——boot 两段装载：全到达→按序物化） */
+  async ensure(spec: string): Promise<void> {
     const seed = (this.options.seeds as Record<string, unknown | undefined>)[spec];
-    if (seed !== undefined || spec in this.options.seeds) return seed;
-    if (this.memo.has(spec)) return this.memo.get(spec);
-    if (this.factories.has(spec)) return this.require(spec);
+    if (seed !== undefined || spec in this.options.seeds) return;
+    if (this.factories.has(spec)) return;
     const row = this.options.rowOf(spec);
-    if (row?.entry === undefined) return this.require(spec); // 无 entry 行（纯样式）→ loud throw
+    if (row?.entry === undefined) return;
     let pending = this.loading.get(spec);
     if (pending === undefined) {
       pending = this.options.loadScript(row.entry).catch((error: unknown) => {
@@ -98,7 +132,6 @@ export class ClientModuleSystem {
       this.loading.set(spec, pending);
     }
     await pending;
-    return this.require(spec);
   }
 
   /** 物化失效（wire/rebuilt 帧——bundle 重建后弃 memo 重物化） */

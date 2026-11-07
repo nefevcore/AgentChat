@@ -24,7 +24,7 @@
   "ac": {
     "faces": {
       "web": {
-        "entry": "./client/index.ts",
+        "entry": "./client/dist/index.js",
         "seats": [
           "aux-sidebar",
           "main",
@@ -54,5 +54,9 @@
   },
   "keywords": [
     "agentchat"
+  ],
+  "files": [
+    "src",
+    "client/dist"
   ]
 }

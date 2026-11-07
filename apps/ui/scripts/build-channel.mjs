@@ -17,7 +17,7 @@ import vue from '@vitejs/plugin-vue';
 import Icons from 'unplugin-icons/vite';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOST_MODULE_SPECS } from './host-module-table.ts';
@@ -75,7 +75,11 @@ if (outDir !== null) {
     const target = join(outDir, short);
     mkdirSync(join(target, 'ui'), { recursive: true });
     console.log('[build-channel] ' + short + ' → ' + target + '（旧 ES 形态，external: 宿主模块表 ' + HOST_MODULE_SPECS.length + ' 键）');
-    await build({ ...viteCommon(resolve(dir, web.entry)), outDir: join(target, 'ui'), emptyOutDir: true });
+    // 源入口恒 client/index.ts（web.entry 已切 ./client/dist/index.js 产物词形——
+    // 词形是装载声明，构建源不随走）
+    const srcEntry = join(dir, 'client', 'index.ts');
+    if (!existsSync(srcEntry)) { console.error('[build-channel] ' + short + '：client/index.ts 缺席'); process.exit(1); }
+    await build({ ...viteCommon(srcEntry), outDir: join(target, 'ui'), emptyOutDir: true });
     const bundle = readFileSync(join(target, 'ui', 'index.js'), 'utf-8');
     const specs = new Set();
     for (const m of bundle.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) specs.add(m[1]);
@@ -107,6 +111,16 @@ if (outDir !== null) {
 
 // ---------------- v3 形态（缺省：factory 注册 + revision 清单） ----------------
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+
+/** 通道行包判定（有 ac.faces.web 的 ac-client-ui-*——wire 行而非种子） */
+function isChannelPkg(root) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(pkgRoot, root, 'package.json'), 'utf-8'));
+    return pkg.ac?.faces?.web !== undefined;
+  } catch {
+    return false;
+  }
+}
 
 /** 产物 require 说明符（cjs 形）——纯度门与 seeds 记录的输入 */
 function requireSpecs(text) {
@@ -155,6 +169,20 @@ for (const { short, dir } of modules) {
     process.exit(1);
   }
   const selfContained = web.isolated === true; // 裁决八：isolated 档不外部化种子
+
+  // 跨行深路径共享面（cr-930 裁决）：本包在宿主模块表的深说明符 →
+  // bundle 附加 __deep 面（namespace 表）。消费行经模块系统深路径归一化
+  // 解析到本行物化实例——单例契约不破（importmap 时代 shared-modules 的
+  // v3 对位物；深路径子模块随行 bundle 物化一次）。
+  const deepSpecs = HOST_MODULE_SPECS.filter((x) => rootSpec(x) === pkg.name && x !== pkg.name && x !== pkg.name + '/client');
+  const tmpEntry = join(distDir, '..' , '__v3-entry.mjs');
+  const entryCode = deepSpecs.length === 0
+    ? 'import plugin from ' + JSON.stringify(srcEntry) + ';\nexport default plugin;\n'
+    : 'import plugin from ' + JSON.stringify(srcEntry) + ';\n'
+      + deepSpecs.map((x, i) => 'import * as m' + i + ' from ' + JSON.stringify(x) + ';').join('\n')
+      + '\nexport default plugin;\n'
+      + 'export const __deep = { ' + deepSpecs.map((x, i) => JSON.stringify(x) + ': m' + i).join(', ') + ' };\n';
+  writeFileSync(tmpEntry, entryCode, 'utf8');
   console.log('[build-channel] ' + short + ' → client/dist（' + (selfContained ? 'isolated 自含档' : '外部化宿主模块表 ' + HOST_MODULE_SPECS.length + ' 键') + '）');
   await build({
     configFile: false,
@@ -167,13 +195,15 @@ for (const { short, dir } of modules) {
       emptyOutDir: true,
       target: 'esnext',
       minify: false,
-      lib: { entry: srcEntry, formats: ['cjs'], fileName: () => 'index.js' },
+      lib: { entry: tmpEntry, formats: ['cjs'], fileName: () => 'index.js' },
       rollupOptions: {
         ...(selfContained ? {} : { external: isExternal }),
         output: { inlineDynamicImports: true },
       },
     },
   });
+
+  rmSync(tmpEntry, { force: true });
 
   // factory 注册包裹：模块体副作用全延迟到首物化（§4.4 lazy CJS——bundle
   // 执行只注册工厂，CSS 注入等随物化）
@@ -211,8 +241,11 @@ for (const { short, dir } of modules) {
   for (const [name, meta] of Object.entries(files)) {
     hash.update(String(meta.size) + ':' + name + ':' + meta.hash);
   }
+  // 种子面收窄（cr-930）：仅真种子词（非通道行包——通道行词经 wire 行③支
+  // 解析，入 seeds 反而对拍降级）；跨行 require 走行深导出面
   const seeds = {};
   for (const spec of new Set(specs.map(rootSpec))) {
+    if (isChannelPkg(spec)) continue;
     const range = seedRange(repoUiDir, spec);
     if (range !== undefined) seeds[spec] = range;
   }

@@ -15,9 +15,11 @@
 // + warnings [出厂] 标记（切片②全量构建就位后升格 throw——发布链 bug 面）。
 // 与旧 webui-row 并存至切片②全量切换（cutover 删旧链 §4.9）。
 // ============================================================
-import { realpathSync } from 'node:fs';
-import { statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { HOST_MODULE_SPECS } from '../scripts/host-module-table.ts';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { Loader } from '@agentchat/cordis-loader';
 import { WebuiWireGraph } from './webui-graph.ts';
@@ -37,6 +39,49 @@ const ASSET_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.wasm': 'application/wasm',
 };
+
+
+/** 说明符根包名 */
+const rootSpecOf = (s: string): string => s.startsWith('@') ? s.split('/').slice(0, 2).join('/') : s.split('/')[0]!;
+
+/**
+ * 缺省种子词表（cr-930）：宿主模块表词根 ∈ 非通道行包（无 ac.faces.web
+ * ——骨架 3 件/基座库）→ 种子词（版本区间 = 壳在位 ^major.minor）；
+ * 通道行包根 → wire 行（跨行经行深导出面解析，不作种子）。壳 = apps/ui。
+ */
+export function deriveShellSeeds(pkgRoot: string, shellDir: string): Record<string, string> {
+  const seeds: Record<string, string> = {};
+  const skip = new Set<string>();
+  for (const spec of HOST_MODULE_SPECS) {
+    const root = rootSpecOf(spec);
+    if (skip.has(root)) continue;
+    skip.add(root);
+    try {
+      const pkg = JSON.parse(readFileSync(join(pkgRoot, root, 'package.json'), 'utf8'));
+      if (pkg.ac?.faces?.web !== undefined) continue; // 通道行 = wire 行，非种子
+    } catch { /* 非工作区包（vue/pinia 等）——种子 */ }
+    try {
+      const req = createRequire(join(shellDir, 'package.json'));
+      let pkgPath: string | undefined;
+      try {
+        pkgPath = req.resolve(root + '/package.json');
+      } catch {
+        let dir = req.resolve(root);
+        for (;;) {
+          const c = join(dir, 'package.json');
+          if (existsSync(c)) { pkgPath = c; break; }
+          const p = dirname(dir);
+          if (p === dir) throw new Error('not found');
+          dir = p;
+        }
+      }
+      const v = String(JSON.parse(readFileSync(pkgPath, 'utf8')).version ?? '');
+      const m = /^(\d+)\.(\d+)/.exec(v);
+      seeds[root] = m === null ? '^' + v : '^' + m[1] + '.' + m[2];
+    } catch { /* 解析失败（缺依赖）——词缺席，行声明该词时对拍降级 */ }
+  }
+  return seeds;
+}
 
 export interface WebuiRowV3Options {
   /** 装载解析基址（link: 相对说明符锚——repo 根 / 数据根） */
@@ -72,11 +117,21 @@ export function makeWebuiRowV3(options: WebuiRowV3Options): Plugin {
       const web = ctx.webServer;
 
       // ---- webui 基座 fiber 域（直构 Loader——注册即归属本行 fiber）----
+      // 缺省种子表推导仅 file: 形态可用（jsdom 测试 http: 形 → 显式传参或空表）
+      let shellSeeds = options.shellSeeds;
+      if (shellSeeds === undefined) {
+        try {
+          const here = fileURLToPath(new URL('..', import.meta.url));
+          shellSeeds = deriveShellSeeds(join(here, '..', '..', 'packages'), here);
+        } catch {
+          shellSeeds = {};
+        }
+      }
       const loader = new Loader(ctx, { baseUrl: options.baseUrl });
       const { rows, warnings: docWarnings } = deriveWebuiRows(options.profileDir);
       for (const w of docWarnings) ctx.logger.warn('[webui-v3] ' + w);
       const factoryIds = new Set(rows.filter((r) => r.factory).map((r) => r.id));
-      const graph = new WebuiWireGraph(ctx, loader, { shellSeeds: options.shellSeeds });
+      const graph = new WebuiWireGraph(ctx, loader, { shellSeeds });
 
       // 分层行装载（异步面——点名缺席/解析失败 = 降级 + 上报）。
       // setImmediate：apply 进行中创建 entry 会把 entry ctx 原型链打成环

@@ -61,8 +61,10 @@ beforeAll(async () => {
     shellSeeds: { vue: '^3.5', 'ac-client-runtime': '^0.1', '@agentchat/webui-kit': '^0.1' },
     handle,
   }));
-  // 装载趟排空（setImmediate 让 apply 返回后再起装载）
-  await new Promise<void>((resolve) => { setImmediate(() => resolve()); });
+  // 装载趟排空：apply 就位（webServer 激活时序非确定——轮询至句柄填充）
+  for (let i = 0; i < 100 && handle.loader === undefined; i++) {
+    await new Promise<void>((resolve) => { setImmediate(() => resolve()); });
+  }
   await handle.loader!.await();
   await new Promise<void>((resolve) => { setImmediate(() => resolve()); });
 });

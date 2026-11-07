@@ -12,7 +12,7 @@
   "ac": {
     "faces": {
       "web": {
-        "entry": "./client/index.ts",
+        "entry": "./client/dist/index.js",
         "isolated": false
       }
     }
@@ -20,5 +20,9 @@
   "dependencies": {
     "ac-client-runtime": "workspace:*",
     "ac-client-ui-renderer": "workspace:*"
-  }
+  },
+  "files": [
+    "src",
+    "client/dist"
+  ]
 }

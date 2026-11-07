@@ -15,7 +15,7 @@
   "ac": {
     "faces": {
       "web": {
-        "entry": "./client/index.ts",
+        "entry": "./client/dist/index.js",
         "seats": [
           "settings:section"
         ],
@@ -41,5 +41,9 @@
     "ac-extension-core": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
-  }
+  },
+  "files": [
+    "src",
+    "client/dist"
+  ]
 }
