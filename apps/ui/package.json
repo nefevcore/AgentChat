@@ -8,7 +8,8 @@
     ".": "./src/webui-row.ts",
     "./src/*": "./src/*",
     "./client": "./client/main.ts",
-    "./client/*": "./client/*"
+    "./client/*": "./client/*",
+    "./v3": "./src/webui-row-v3.ts"
   },
   "scripts": {
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",

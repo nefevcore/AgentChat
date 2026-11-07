@@ -13,7 +13,6 @@
 // 邮局 + 两段原语 + close 收割。宿主全树 boot 走 apps/host/boot.ts 单树形态
 //（同一 ctx 装全部 cordis 行——8.8 装配面收敛的物理形态）。
 // ============================================================
-import { join } from 'node:path';
 import { Context, type Fiber, type Plugin } from '@agentchat/cordis';
 import * as configRow from 'ac-config';
 import * as convSettingsRow from 'ac-conv-settings';
@@ -24,7 +23,9 @@ import { WebServerService, type WebServerRowOptions } from 'ac-web-server';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from 'ac-host-app/user-stub';
 import { makeWebApiRow } from './web-api.ts';
-import { makeWebuiRow } from 'ac-ui-app';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { makeWebuiRowV3 } from 'ac-ui-app/v3';
 import { tapShellStream, ShellStreamBridge, type StreamTapHandle } from 'ac-post-office';
 
 /** 旁带流出口（8.5d：tap 收到旁带帧后的下行——webServer.broadcast 面） */
@@ -128,7 +129,13 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
   user.start();
 
   const fibers: Fiber[] = [];
-  fibers.push(ctx.plugin(makeWebuiRow({ pluginsDir: options.pluginsDir ?? join(options.dataRoot, 'plugins') })));
+  // webui v3 行（cr-932 cutover）：装配态锚——分层文档（<dataRoot>/profile
+  // 物化副本）→ loader fiber 域 → wire；baseUrl = catalog 锚定的仓库根
+  //（link:packages/... 解析基）。旧 boot-graph/pluginsDir 扫描链退役。
+  const baseUrl = options.catalogFile !== undefined
+    ? pathToFileURL(resolve(options.catalogFile, '..', '..', '..')).href + '/'
+    : pathToFileURL(process.cwd()).href + '/';
+  fibers.push(ctx.plugin(makeWebuiRowV3({ baseUrl, profileDir: join(options.dataRoot, 'profile') })));
   fibers.push(ctx.plugin(makeWebApiRow({
     user,
     dataRoot: options.dataRoot,
