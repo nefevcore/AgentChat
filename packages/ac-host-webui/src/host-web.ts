@@ -23,6 +23,7 @@ import { WebServerService, type WebServerRowOptions } from 'ac-web-server';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from 'ac-host-app/user-stub';
 import { makeWebApiRow } from './web-api.ts';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
@@ -132,9 +133,15 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
   // webui v3 行（cr-932 cutover）：装配态锚——分层文档（<dataRoot>/profile
   // 物化副本）→ loader fiber 域 → wire；baseUrl = catalog 锚定的仓库根
   //（link:packages/... 解析基）。旧 boot-graph/pluginsDir 扫描链退役。
-  const baseUrl = options.catalogFile !== undefined
-    ? pathToFileURL(resolve(options.catalogFile, '..', '..', '..')).href + '/'
-    : pathToFileURL(process.cwd()).href + '/';
+  // baseUrl = 含 packages/ 的锚目录（link:packages/... 解析基）：repo 形态
+  // = catalog 上三级；bundle 形态 = catalog 同级（dist/packages 随产物发布）
+  const baseUrl = (() => {
+    const candidates = options.catalogFile !== undefined
+      ? [resolve(options.catalogFile, '..', '..', '..'), resolve(options.catalogFile, '..')]
+      : [process.cwd()];
+    const hit = candidates.find((dir) => existsSync(join(dir, 'packages', 'ac-client-ui-todo')));
+    return pathToFileURL(hit ?? candidates[0]!).href + '/';
+  })();
   fibers.push(ctx.plugin(makeWebuiRowV3({ baseUrl, profileDir: join(options.dataRoot, 'profile') })));
   fibers.push(ctx.plugin(makeWebApiRow({
     user,

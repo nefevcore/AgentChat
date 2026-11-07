@@ -122,49 +122,22 @@ describe('8.5a 宿主 web 面接线', () => {
     ws.close();
   }, 30_000);
 
-  it('GET /api/ui/boot-graph：manifest 单源（8.5b——空目录空图；种 manifest 条目出现；静态资产同源可取）', async () => {
+  it('GET /api/ui/wire：装配态投影（cr-932 v3——boot-graph 端点/hello 握手退役）', async () => {
     host = await bootHostWeb({ dataRoot: ROOT });
-    // 空目录（缺省 <dataRoot>/plugins）→ 空 graph
-    const res1 = await fetch('http://127.0.0.1:' + host.port + '/api/ui/boot-graph');
-    expect(res1.status).toBe(200);
-    const body1 = await res1.json() as { clients?: unknown[] };
-    expect(body1.clients).toEqual([]);
-
-    // 种一个 manifest 插件 → graph 条目 + 静态资产同源可取
-    const pdir = path.join(ROOT, 'plugins');
-    fs.mkdirSync(path.join(pdir, 'demo', 'ui'), { recursive: true });
-    fs.writeFileSync(path.join(pdir, 'demo', 'manifest.json'), JSON.stringify({
-      name: 'demo', version: '1.0.0', entry: 'ui/index.js', platform: 'web',
-    }));
-    fs.writeFileSync(path.join(pdir, 'demo', 'ui', 'index.js'), 'export default { apply() {} }');
-    const res2 = await fetch('http://127.0.0.1:' + host.port + '/api/ui/boot-graph');
-    const body2 = await res2.json() as { clients?: Array<{ name: string; base: string; entry: string }> };
-    expect(body2.clients?.map((c) => c.name)).toEqual(['demo']);
-    expect(body2.clients?.[0].base).toBe('/ui-plugin/demo/');
-
-    const asset = await fetch('http://127.0.0.1:' + host.port + '/ui-plugin/demo/ui/index.js');
-    expect(asset.status).toBe(200);
-    expect(await asset.text()).toContain('apply');
-    const miss = await fetch('http://127.0.0.1:' + host.port + '/ui-plugin/demo/../escape.js');
-    expect(miss.status).toBe(404);
+    const res = await fetch('http://127.0.0.1:' + host.port + '/api/ui/wire');
+    expect(res.status).toBe(200);
+    const wire = await res.json() as { rows: unknown[]; seeds: Record<string, string>; warnings: string[] };
+    expect(Array.isArray(wire.rows)).toBe(true);
+    expect(wire.warnings).toEqual([]);
+    // 退役端点 fail-loud：boot-graph / hello 不再存在
+    expect((await fetch('http://127.0.0.1:' + host.port + '/api/ui/boot-graph')).status).toBe(404);
+    expect((await fetch('http://127.0.0.1:' + host.port + '/api/ui/hello')).status).toBe(404);
   }, 30_000);
-
   it('缺参 fail：deliver 无 agentId → rpc error', async () => {
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
     await expect(rpc(ws, 'conversation/deliver', { message: 'x' })).rejects.toThrow(/agentId/);
     ws.close();
-  }, 30_000);
-
-  it('GET /api/ui/hello：协议轴 + surfaces 回报（cr-917 独立部署握手面）', async () => {
-    host = await bootHostWeb({ dataRoot: ROOT });
-    const res = await fetch('http://127.0.0.1:' + host.port + '/api/ui/hello');
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      protocol: 1,
-      engines: { agentchat: '^2' },
-      surfaces: { bootGraph: true, assets: true, ws: true },
-    });
   }, 30_000);
 
   // 配置写面（cr-564）：真凭据加密落盘 + 真 config.json + 真 WS rpc。

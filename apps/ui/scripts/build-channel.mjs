@@ -9,8 +9,6 @@
 //     isolated:true 自含档（不外部化种子——bundle 自带 vue 等依赖，
 //     §4.6 裁决八）；缺省外部化宿主模块表（纯度门：产物剩余 require ⊆
 //     宿主模块表，违例 fail-loud）。
-//   旧 ES 形态（--out，切片③ §4.9 退役）：沙箱/出厂拷贝链投影——dev 数据
-//     根隔离红线恒 sandbox/ 下；仅 build-bundle 出厂链在用。
 // ============================================================
 import { build } from 'vite';
 import vue from '@vitejs/plugin-vue';
@@ -29,12 +27,7 @@ const repoUiDir = fileURLToPath(new URL('..', import.meta.url)); // apps/ui（�
 const PKG_PREFIX = 'ac-client-ui-';
 
 const args = process.argv.slice(2);
-let outDir = null; // null = v3 形态（包内 client/dist）
-const only = [];
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--out') outDir = resolve(repoRoot, args[++i]);
-  else only.push(args[i]);
-}
+const only = args.filter((a) => !a.startsWith('--'));
 
 const webFaceOf = (dir) => {
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
@@ -67,47 +60,6 @@ const viteCommon = (entry) => ({
     rollupOptions: { external: isExternal },
   },
 });
-
-if (outDir !== null) {
-  // ---------------- 旧 ES 形态（--out：出厂/沙箱拷贝链投影；切片③退役） ----------------
-  for (const { short, dir } of modules) {
-    const { pkg, web } = webFaceOf(dir);
-    const target = join(outDir, short);
-    mkdirSync(join(target, 'ui'), { recursive: true });
-    console.log('[build-channel] ' + short + ' → ' + target + '（旧 ES 形态，external: 宿主模块表 ' + HOST_MODULE_SPECS.length + ' 键）');
-    // 源入口恒 client/index.ts（web.entry 已切 ./client/dist/index.js 产物词形——
-    // 词形是装载声明，构建源不随走）
-    const srcEntry = join(dir, 'client', 'index.ts');
-    if (!existsSync(srcEntry)) { console.error('[build-channel] ' + short + '：client/index.ts 缺席'); process.exit(1); }
-    await build({ ...viteCommon(srcEntry), outDir: join(target, 'ui'), emptyOutDir: true });
-    const bundle = readFileSync(join(target, 'ui', 'index.js'), 'utf-8');
-    const specs = new Set();
-    for (const m of bundle.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) specs.add(m[1]);
-    for (const m of bundle.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]/g)) specs.add(m[1]);
-    const offenders = [...specs].filter((s) => !s.startsWith('.') && !s.startsWith('/') && !isExternal(s));
-    if (offenders.length > 0) {
-      console.error('[build-channel] ' + short + ' 外部化门违例（宿主模块表未覆盖，已被打包进产物或不可解析）：\n  ' + offenders.join('\n  '));
-      process.exit(1);
-    }
-    const out = {
-      name: short,
-      version: String(pkg.version ?? '0.0.0'),
-      entry: 'ui/index.js',
-      platform: 'web',
-      ...(Array.isArray(web.seats) && web.seats.length > 0 ? { seats: web.seats.map((s) => ({ seat: s })) } : {}),
-      isolated: web.isolated !== false,
-    };
-    if (existsSync(join(target, 'ui', 'style.css'))) out.styles = ['ui/style.css'];
-    writeFileSync(join(target, 'manifest.json'), JSON.stringify(out, null, 2) + '\n', 'utf-8');
-  }
-  // 触发宿主 boot-graph 缓存失效（cr-893）：touch 目录 mtime
-  const now = new Date();
-  for (const { short } of modules) {
-    try { utimesSync(join(outDir, short), now, now); } catch { /* 首建由 mkdir 落 mtime */ }
-  }
-  console.log('[build-channel] 完成（旧形态）' + modules.length + ' 模块 → ' + outDir);
-  process.exit(0);
-}
 
 // ---------------- v3 形态（缺省：factory 注册 + revision 清单） ----------------
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');

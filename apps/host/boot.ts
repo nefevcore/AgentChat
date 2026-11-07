@@ -39,7 +39,7 @@ import { assembleWebServer, attachWebSurface, type WebRing } from 'ac-host-webui
 import { createOrchestrator, type OrchestratorHandle } from './orchestrator.ts';
 import { createShellStatePoller, type ShellStatePoller } from './shell-state-poller.ts';
 import { createAdminPreview } from './admin-preview.ts';
-import { resolveAnchors, seedFactoryPlugins } from './anchors.ts';
+import { resolveAnchors } from './anchors.ts';
 import { reapOrphanProcesses } from './orphans.ts';
 
 /** 本文件目录（编排面 bootFile 寻址基点） */
@@ -101,8 +101,6 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   const dataRoot = path.resolve(options.dataRoot);
   fs.mkdirSync(dataRoot, { recursive: true });
 
-  // ---- 出厂通道播种（bundle 形态：dist/plugins → <dataRoot>/plugins 幂等拷贝）----
-  seedFactoryPlugins(dataRoot, ANCHORS);
 
   // ---- 基座部署链（cr-902 / cr-901 v2.1 批1）：repo 基座源文档 →
   // <dataRoot>/profile/{host,shell}.patch.yml 物化 + 版本戳对账（fail-loud

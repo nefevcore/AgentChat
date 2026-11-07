@@ -97,11 +97,15 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
   // ④ wire 装载：模块表逐行物化（拓扑序 = wire 行序）→ ctx.plugin → 席位渲染。
   // 附加样式（styles 声明）走 link 注入（revision URL——重载不重复挂）。
   const channel = new Map<string, 'ok' | 'err'>();
+  // 附加样式面（纯样式行含 theme 类——revision URL，重载不重复挂）
+  for (const row of wire.rows) {
+    if (row.isolated) continue;
+    for (const st of row.styles ?? []) loadChannelCss(hostUrl(st));
+  }
   const loadable = wire.rows.filter((row) => !row.isolated && row.entry !== undefined);
   // 两段装载（cr-930）：先全到达（仅注册 factory——跨行 require 在物化期
   // 同步解析，届时全部 factory 已注册）；再按 wire 行序逐行物化
   for (const row of loadable) {
-    for (const st of row.styles ?? []) loadChannelCss(hostUrl(st)); // 附加样式（revision URL——重载不重复挂）
     try {
       await modules.ensure(row.id);
     } catch (error) {

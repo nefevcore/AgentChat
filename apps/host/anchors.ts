@@ -45,51 +45,6 @@ export function resolveAnchors(here: string): HostAnchors {
   };
 }
 
-/**
- * 出厂通道播种（bundle 形态）：dist/plugins → <dataRoot>/plugins 一次性拷贝。
- *
- * 语义：
- *   · 指纹戳（.factory-stamp.json 记 version + 出厂目录名集）幂等——同代跳过；
- *   · 只动出厂名册内的目录（同名覆盖 = 出厂赢，与行集合并「保留字护栏」同语义）；
- *     用户自装目录（名册外）零触碰；
- *   · 播种失败 warn 不炸 boot（通道缺席 = 前端降级，核心 RPC 面不受影响），
- *     戳不写——下次 boot 重试。
- */
-export function seedFactoryPlugins(
-  dataRoot: string,
-  anchors: HostAnchors = resolveAnchors(path.dirname(fileURLToPathSafe())),
-): void {
-  const src = anchors.factoryPluginsDir;
-  if (src === null) return; // 仓库形态：无播种面
-  try {
-    let names: string[] = [];
-    try { names = fs.readdirSync(src, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); }
-    catch { return; /* 安装根无 plugins——无播种面 */ }
-    if (names.length === 0) return;
-    let version = 'unknown';
-    try {
-      version = String(JSON.parse(fs.readFileSync(path.join(anchors.home ?? src, 'version.json'), 'utf-8')).version ?? 'unknown');
-    } catch { /* version.json 缺席——用 unknown 档 */ }
-    const dest = path.join(dataRoot, 'plugins');
-    const stampPath = path.join(dest, '.factory-stamp.json');
-    const sig = JSON.stringify({ version, names: [...names].sort() });
-    try {
-      const prev = fs.readFileSync(stampPath, 'utf-8');
-      if (JSON.parse(prev).sig === sig) return; // 同代已播种
-    } catch { /* 无戳/坏戳——重播 */ }
-    fs.mkdirSync(dest, { recursive: true });
-    for (const name of names) {
-      const target = path.join(dest, name);
-      fs.rmSync(target, { recursive: true, force: true });
-      fs.cpSync(path.join(src, name), target, { recursive: true });
-    }
-    fs.writeFileSync(stampPath, JSON.stringify({ sig }, null, 2) + '\n', 'utf-8');
-    process.stderr.write('[host] 出厂通道播种 ' + names.length + ' 个 → ' + dest + '\n');
-  } catch (err) {
-    process.stderr.write('[host] 出厂通道播种失败（通道面降级，RPC 不受影响）：' + String(err) + '\n');
-  }
-}
-
 // import.meta.url 的安全取值（测试替身经 cwd 注入时仍以本模块真身定位缺省基点）
 function fileURLToPathSafe(): string {
   return import.meta.url;

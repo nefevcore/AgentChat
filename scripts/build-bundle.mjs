@@ -58,13 +58,27 @@ cpSync(path.join(root, 'apps', 'catalog', 'row-catalog.json'), path.join(dist, '
 // 以其为源物化进数据根。
 cpSync(path.join(root, 'apps', 'catalog', 'profile'), path.join(dist, 'profile'), { recursive: true });
 cpSync(path.join(root, 'packages', 'ac-host-rows', 'templates'), path.join(dist, 'templates'), { recursive: true });
-// 出厂通道（cr-920：真身包直构进发布产物——斩断对数据根/预置产物目录的依赖）
-const r = spawnSync(process.execPath, [path.join(root, 'apps', 'ui', 'scripts', 'build-channel.mjs'), '--out', path.join(dist, 'plugins')], { stdio: 'inherit' });
+// 出厂通道 v3（cr-932 cutover）：v3 factory 产物直构进各包 client/dist，
+// 发布产物携带通道包真身（package.json + src node 半 + client/dist web 半——
+// TS 源直载，Node 24 strip-only）。link:packages/... 经 catalog 同级 packages/ 解析。
+const r = spawnSync(process.execPath, [path.join(root, 'apps', 'ui', 'scripts', 'build-channel.mjs')], { stdio: 'inherit' });
 if (r.status !== 0) {
   console.error('[build-bundle] 出厂通道构建失败（build-channel）');
   process.exit(1);
 }
-// 数据面主题包（apps/ui/themes/<name>——纯资产零装载，manifest 同通道词形）
+const pkgOut = path.join(dist, 'packages');
+mkdirSync(pkgOut, { recursive: true });
+for (const ent of readdirSync(path.join(root, 'packages'), { withFileTypes: true })) {
+  if (!ent.isDirectory() || !ent.name.startsWith('ac-client-ui-')) continue;
+  const pkgJson = JSON.parse(readFileSync(path.join(root, 'packages', ent.name, 'package.json'), 'utf8'));
+  if (pkgJson.ac?.faces?.web === undefined) continue;
+  const dest = path.join(pkgOut, ent.name);
+  mkdirSync(dest, { recursive: true });
+  cpSync(path.join(root, 'packages', ent.name, 'package.json'), path.join(dest, 'package.json'));
+  cpSync(path.join(root, 'packages', ent.name, 'src'), path.join(dest, 'src'), { recursive: true });
+  cpSync(path.join(root, 'packages', ent.name, 'client', 'dist'), path.join(dest, 'client', 'dist'), { recursive: true });
+}
+// 数据面主题包（apps/ui/themes/<name>——v3 打包形态后继〔cr-932 记〕：installed 行 styles-only 通道）
 if (existsSync(themesDir)) {
   for (const ent of readdirSync(themesDir, { withFileTypes: true })) {
     if (ent.isDirectory()) cpSync(path.join(themesDir, ent.name), path.join(dist, 'plugins', ent.name), { recursive: true });

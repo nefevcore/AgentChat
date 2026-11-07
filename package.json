@@ -46,7 +46,6 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "build": "pnpm -r build",
     "build:frontend": "pnpm --filter ac-ui-app build",
-    "build:channels": "node apps/ui/scripts/build-channel.mjs --out workspace/home/plugins",
     "build:bundle": "node scripts/build-bundle.mjs"
   },
   "devDependencies": {
