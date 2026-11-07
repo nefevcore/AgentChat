@@ -41,6 +41,7 @@ import { createShellStatePoller, type ShellStatePoller } from './shell-state-pol
 import { createAdminPreview } from './admin-preview.ts';
 import { resolveAnchors } from './anchors.ts';
 import { reapOrphanProcesses } from './orphans.ts';
+import { cleanupLegacyFactoryPlugins } from './legacy-plugins-cleanup.ts';
 
 /** 本文件目录（编排面 bootFile 寻址基点） */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -102,19 +103,11 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   fs.mkdirSync(dataRoot, { recursive: true });
 
 
-  // ---- 出厂件迁移清理（cr-933，cr-918 手法）：旧链 <dataRoot>/plugins 的
-  // 出厂播种痕迹（.factory-stamp.json 名册内目录 = 纯出厂拷贝）一次性物理
-  // 清除；名册外目录（用户自装 v1 存量）零触碰——v3 恒不读该目录。
-  try {
-    const legacyPlugins = path.join(dataRoot, 'plugins');
-    const stampFile = path.join(legacyPlugins, '.factory-stamp.json');
-    const stampRaw = fs.readFileSync(stampFile, 'utf-8');
-    const names = (JSON.parse(stampRaw)?.sig ? JSON.parse(JSON.parse(stampRaw).sig)?.names : null) as string[] | null;
-    if (Array.isArray(names)) {
-      for (const name of names) fs.rmSync(path.join(legacyPlugins, name), { recursive: true, force: true });
-    }
-    fs.rmSync(stampFile, { force: true });
-  } catch { /* 无出厂痕迹（新数据根/已清）——无操作 */ }
+  // ---- 出厂件迁移清理（cr-933 落地 / cr-935 提纯函数化）：旧链
+  // <dataRoot>/plugins 出厂播种痕迹一次性物理清除（名册内 = 纯出厂拷贝；
+  // 名册外用户存量零触碰——v3 恒不读该目录）。
+  const removedLegacy = cleanupLegacyFactoryPlugins(dataRoot);
+  if (removedLegacy.length > 0) hostLog('I', 'host', '旧链出厂件清理：' + removedLegacy.join(', '));
   // ---- 基座部署链（cr-902 / cr-901 v2.1 批1）：repo 基座源文档 →
   // <dataRoot>/profile/{host,shell}.patch.yml 物化 + 版本戳对账（fail-loud
   // ——旧应用压新数据根 / 编辑未升戳 / 写后读回不符均拒启）。源目录锚
