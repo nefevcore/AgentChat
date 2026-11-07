@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -134,5 +135,17 @@ describe('webui-v3 切片② · 全量通（真基座文档 30 行）', () => {
     const errs = [...result.channel.entries()].filter(([, v]) => v === 'err');
     if (errs.length > 0) console.error('[e2e-v3 全量] err 行：', errs.map(([id]) => id).join(','));
     expect(ok).toBe(loadable);
+
+    // 等值验收（cr-930：SHA-256 清单对账——服务字节 = 构建期清单哈希）
+    for (const row of wire.rows.slice(0, 3)) {
+      const entryUrl = new URL(row.entry!, base);
+      const manifestUrl = entryUrl.pathname.replace(/index\.js$/, 'manifest.json');
+      const manifestRes = await fetch(base + manifestUrl);
+      expect(manifestRes.status).toBe(200);
+      const manifest = await manifestRes.json() as { files: Record<string, { hash: string }> };
+      const res = await fetch(base + row.entry!);
+      const buf = Buffer.from(await res.arrayBuffer());
+      expect(createHash('sha256').update(buf).digest('hex').slice(0, 16)).toBe(manifest.files['index.js']!.hash);
+    }
   }, 240_000);
 });

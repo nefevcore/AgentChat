@@ -39,6 +39,12 @@ export interface BootV3Result {
   /** 模块系统（wire/rebuilt 帧消费面——invalidate + importWire） */
   modules: ReturnType<typeof createClientModuleSystem>;
   wire: Wire;
+  /**
+   * wire/graph 帧消费（§4.3.3 断连/更新语义：重拉全量 wire → 差分行
+   * 重物化）：新行与 rev 变化行 invalidate → ensure → 物化 → ctx.plugin；
+   * 行移除的卸载面归席位回收（本批不拆件——CR 注记）。重载后 wire 更新。
+   */
+  reload: () => Promise<void>;
 }
 
 async function defaultFetchWire(): Promise<Wire> {
@@ -115,5 +121,32 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
       channel.set(row.id, 'err');
     }
   }
-  return { ctx, channel, modules, wire };
+  const reload = async (): Promise<void> => {
+    const next = await fetchWire();
+    const prevById = new Map(wire.rows.map((r) => [r.id, r]));
+    const changed = next.rows.filter((row) => {
+      if (row.isolated || row.entry === undefined) return false;
+      const prev = prevById.get(row.id);
+      return prev === undefined || prev.entry !== row.entry;
+    });
+    if (changed.length === 0) { Object.assign(wire, next); return; }
+    for (const row of changed) modules.invalidate(row.id);
+    rowsById.clear();
+    for (const row of next.rows) rowsById.set(row.id, row);
+    for (const row of changed) {
+      try {
+        await modules.ensure(row.id);
+        const mod = await modules.import(row.id) as { default?: unknown };
+        const plugin = (mod as Record<string, unknown>)['default'] ?? mod;
+        await ctx.plugin(plugin as ClientPluginObject);
+        channel.set(row.id, 'ok');
+      } catch (error) {
+        console.error(`[boot-v3] 行重载失败（跳过）"${row.id}"：`, error);
+        channel.set(row.id, 'err');
+      }
+    }
+    Object.assign(wire, next);
+  };
+
+  return { ctx, channel, modules, wire, reload };
 }

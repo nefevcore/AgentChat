@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-930**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-931**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -947,3 +947,4 @@
 - 【cr-928 2026-11-07 webui-v3 切片①基座文档接线与行 v3：apps/ui webui-doc（分层求值→loader 行名单：基座−custom 停用∪installed(scope:webui)，link: 词形→模块说明符）+ webui-row-v3（直构 Loader 成 webui fiber 域 + WebuiWireGraph + GET /api/ui/wire + /ui-asset/:id/:rev/* realpath 囚笼路由 + WS wire/graph·rebuilt 帧 + dist stat-poll 懒定时器）——与旧行并存至切片②全量切换】
 - 【cr-929 2026-11-07 webui-v3 切片①壳模块运行时：apps/ui client/module-system——lazy CJS 模块表（①种子词→壳活实例 ②memo ③wire 行→revision URL 取 bundle 注册 factory ④物化；其余 throw loud）+ window.__ModuleLoader__ 装载协议面（load 注册工厂，副作用延迟首物化）；脚本到达经注入点（浏览器 <script>/测试 eval），依赖链按 wire 拓扑序自组织】
 - 【cr-930 2026-11-07 webui-v3 切片②立项（前置回滚演练已过：整批 revert 后旧链 7 文件 55 用例绿）：30 通道包 entry 词形全量切 ./client/dist/index.js + gitignore/files + v3 产物全量构建；壳侧 wire 帧消费（重连重拉 + memo 失效）；isolated 档 iframe 对接。受影响测试清单：apps/ui boot.test / apps/host e2e-webui / apps/shell boot 快照 / packages/ac-webui manifest 断言——cutover 批重写】
+- 【cr-931 2026-11-07 webui-v3 切片②收口：等值验收（服务字节 = 构建期 SHA-256 清单哈希对账，e2e 内嵌）+ 独立部署冒烟（非回环放行源预检 204/wire 200/未放行源 403——CORS 预检即版本面）+ 壳侧 wire/graph 帧消费（boot-v3 reload：重拉全量→差分行失效重物化；行移除卸载面本批不拆件）；isolated 档对接延后裁决：全仓无 isolated:true 行，构建器自含档就位，iframe 运行时对接随首个消费行立项】
