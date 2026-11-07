@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 文档编号 | cr-923（2026-11-06 立档，同日吸收裁决六） |
-| 状态 | 方向锁；切片①②已落（cr-925..931：切片②含回滚演练、30 包产物切换、浏览器侧全量通 30/30、等值验收 SHA-256 对账、独立部署冒烟、wire 帧消费 reload；跨行深路径共享中间态裁决 = 壳 in-bundle 种子〔sharedModules 并入 v3 种子表，全惰性化登记为包结构债务〕；isolated 对接延后〔无消费行〕）；切片③ cutover 待施 |
+| 状态 | 方向锁；切片①②③主体已落（cr-925..932）：③ cutover = 宿主行 v3 接线 + 壳 main 切 boot-v3 + wire 帧消费 + hello/auto-reload/出厂拷贝链/build:channels 退役 + 出厂 v3 打包（dist/packages 真身）+ 旧端点测试重写 + 全量 test:unit 绿（380 文件 2801 用例）+ 回滚演练。延后裁决（各 CR 记）：isolated iframe 对接〔无消费行〕、bootUiClient 旧客户端装载序列与 importmap 物理删除〔客户端死代码，测试锁定中〕、数据根出厂副本物理清理〔不再读写，残留待清〕、数据面主题包 v3 打包、seat 审计面 v3 承接 |
 | 取代 | ui-plugin-selfhost.md（cr-919，含同日修订）；ui-plugin-form.md（cr-905）装载实现部分；webui-standalone-protocol.md（cr-912/917） |
 | 上游裁决 | plugin-architecture-v2（cr-901）§4.3 web 面统一通道——零特权路径不动，装载机制本档再升级 |
 | 参照系 | DSH 实物（行级实测，见 §8 参考来源） |
