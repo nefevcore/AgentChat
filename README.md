@@ -235,7 +235,7 @@ pnpm test:integration   # 集成件（限流 8 路）
 pnpm check:deps         # 依赖卫生（未声明/越界/环/跨域边）
 pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
 pnpm webui:build        # 构建前端产物（apps/ui → apps/ui/dist）
-pnpm build:channels     # 构建出厂 UI 通道（packages/ac-client-ui-* 直构 → sandbox/ui-plugins）
+pnpm build:channel      # 构建 UI 通道 v3 产物（packages/ac-client-ui-* → 各包 client/dist：factory bundle + revision 清单）
 pnpm build:bundle       # 组装发布产物 dist/（宿主+壳双 bundle + 资产面）
 pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，零常驻）
 ```

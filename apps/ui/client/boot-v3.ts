@@ -134,7 +134,7 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
       return prev === undefined || prev.entry !== row.entry;
     });
     if (changed.length === 0) { Object.assign(wire, next); return; }
-    for (const row of changed) modules.invalidate(row.id);
+    for (const row of changed) modules.forget(row.id); // rev 变化 = 新 bundle：三清重装载
     rowsById.clear();
     for (const row of next.rows) rowsById.set(row.id, row);
     for (const row of changed) {

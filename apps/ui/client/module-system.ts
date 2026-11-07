@@ -134,6 +134,13 @@ export class ClientModuleSystem {
     await pending;
   }
 
+  /** 全弃（wire rev 变化行——factory/memo/loading 三清，重装载重物化） */
+  forget(id: string): void {
+    this.factories.delete(id);
+    this.memo.delete(id);
+    this.loading.delete(id);
+  }
+
   /** 物化失效（wire/rebuilt 帧——bundle 重建后弃 memo 重物化） */
   invalidate(id?: string): void {
     if (id === undefined) {
