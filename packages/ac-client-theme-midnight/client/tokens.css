@@ -1,5 +1,6 @@
 /* ============================================================
-   midnight · B2 示例主题包（cr-693）——纯数据模块（theme:{tokensOnly}）
+   midnight · 示例主题包（cr-693；cr-936 迁 v3 形态）——纯样式行
+   （ac.faces.web theme+styles 声明；apps/ui/themes 旧链位迁本包）
    深海色板：暗极深蓝黑 + 青主色；亮极冷纸白 + teal。52 词两极全覆盖
    （TOKEN_VOCAB 对账测试锁）；选择器词形契约：暗极 html[data-theme='midnight']
    （特异性 0,2,0 > html.dark）+ 亮极 html.light[data-theme='midnight']（0,2,1）。

@@ -25,6 +25,12 @@ export interface WireRow {
   seats: string[];
   /** 执行档：true = sandbox iframe（v3 缺省 false——语义翻转注记见 §4.6） */
   isolated: boolean;
+  /**
+   * 色板主题 id（cr-936 主题包 v3）：theme 行（ac.faces.web.theme 声明）
+   * 的投影——壳据此 registerThemeId（登记面开放词汇的单源）；纯样式行
+   * 无脚本面，恒非隔离（styles 直入文档，无物化档）。
+   */
+  themeId?: string;
 }
 
 /** wire 文档（GET /api/ui/wire 应答体） */
@@ -52,6 +58,8 @@ export interface WireRowInput {
   isolated?: boolean;
   /** 行种子兼容区间声明（ac.faces.web.seeds——§4.4 版本治理） */
   seeds?: Record<string, string>;
+  /** 色板主题 id（ac.faces.web.theme——cr-936 主题包；纯样式行投影） */
+  themeId?: string;
 }
 
 /** 声明校验结果（与 manifest.ts ManifestCheck 同风格） */
@@ -74,12 +82,29 @@ export function checkWebFace(web: unknown): WebFaceCheck {
     return { ok: false, warnings: ['ac.faces.web 非对象'] };
   }
   const x = web as Record<string, unknown>;
-  if (typeof x.entry !== 'string' || !x.entry.startsWith('./client/dist/') || x.entry.includes('..')) {
+  // entry 词形门：非 theme 行必带 entry（factory bundle 面）；theme 行 =
+  // 纯样式行（entry 缺席合法，约束随 theme 块）
+  if (x.theme === undefined && (typeof x.entry !== 'string' || !x.entry.startsWith('./client/dist/') || x.entry.includes('..'))) {
     warnings.push('entry 词形非法（须 ./client/dist/<file> 显式指产物）：' + String(x.entry));
   }
   if (x.seats !== undefined) {
     if (!Array.isArray(x.seats) || x.seats.some((s) => typeof s !== 'string' || s === '')) {
       warnings.push('seats 非字符串数组');
+    }
+  }
+  // theme 行（cr-936 主题包 v3）：theme = 色板主题 id（旧链 theme:{tokensOnly}
+  // 的 v3 声明面等价词——由 ac.faces.web 直接表达）。纯样式行：entry/seats
+  // 均非主题面（无脚本、无席位贡献），styles 必有且为产物显式词形
+  if (x.theme !== undefined) {
+    if (typeof x.theme !== 'string' || !/^[a-z0-9-]+$/.test(x.theme)) {
+      warnings.push('theme 非合法主题 id（小写连字符词）：' + String(x.theme));
+    } else {
+      if (x.entry !== undefined) warnings.push('theme 行不携带 entry（纯样式）');
+      if (x.seats !== undefined) warnings.push('theme 行不携带 seats（无席位贡献）');
+      if (!Array.isArray(x.styles) || x.styles.length === 0
+        || x.styles.some((s) => typeof s !== 'string' || !String(s).startsWith('./client/dist/') || String(s).includes('..'))) {
+        warnings.push('theme 行 styles 必有（./client/dist/<file> 显式指产物）');
+      }
     }
   }
   if (x.isolated !== undefined && typeof x.isolated !== 'boolean') warnings.push('isolated 非布尔');
@@ -165,6 +190,17 @@ export function synthesizeWire(inputs: WireRowInput[], shellSeeds: Record<string
       warnings.push(row.id + '：styles 产物词形非法');
       continue;
     }
+    // theme 行约束（声明门已拦 ac.faces.web 面；合成面同拦 WireRowInput
+    // 直构面）：纯样式无 entry、无席位贡献；styles 必有
+    if (row.themeId !== undefined && !/^[a-z0-9-]+$/.test(row.themeId)) {
+      warnings.push(row.id + '：themeId 词形非法 ' + row.themeId);
+      continue;
+    }
+    if (row.themeId !== undefined) {
+      if (row.entry !== undefined) { warnings.push(row.id + '：theme 行不携带 entry'); continue; }
+      if (row.seats.length > 0) { warnings.push(row.id + '：theme 行不携带 seats'); continue; }
+      if (row.styles === undefined || row.styles.length === 0) { warnings.push(row.id + '：theme 行缺 styles'); continue; }
+    }
     // 种子对拍：行声明区间 × 壳活实例区间（§4.4——不匹配跳过，安装态可见）
     let seedOk = true;
     for (const [word, range] of Object.entries(row.seeds ?? {})) {
@@ -213,7 +249,9 @@ export function synthesizeWire(inputs: WireRowInput[], shellSeeds: Record<string
     ...(r.styles !== undefined && r.styles.length > 0 ? { styles: r.styles.map((s) => assetUrl(r.id, r.revision, s)) } : {}),
     ...(r.inject !== undefined && r.inject.length > 0 ? { inject: r.inject } : {}),
     seats: r.seats,
-    isolated: r.isolated === true,
+    // theme 行恒非隔离（纯数据无隔离语义——styles 直入文档，无脚本可沙箱）
+    isolated: r.themeId !== undefined ? false : r.isolated === true,
+    ...(r.themeId !== undefined ? { themeId: r.themeId } : {}),
   }));
   const revOf = new Map(kept.map((k) => [k.id, k.revision]));
   const rev = fnv1a(rows.map((r) => r.id + '@' + (revOf.get(r.id) ?? '')).sort().join(';'));

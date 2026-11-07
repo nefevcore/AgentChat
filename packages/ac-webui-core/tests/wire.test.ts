@@ -22,6 +22,14 @@ describe('checkWebFace 声明校验门', () => {
     expect(checkWebFace({}).ok).toBe(false);
     expect(checkWebFace(null).ok).toBe(false);
   });
+  it('theme 行：theme+styles 声明过验；携带 entry/seats、styles 缺席/词形非法全拦', () => {
+    expect(checkWebFace({ theme: 'midnight', styles: ['./client/dist/tokens.css'] }).ok).toBe(true);
+    expect(checkWebFace({ theme: 'midnight', styles: ['./client/dist/tokens.css'], entry: './client/dist/index.js' }).ok).toBe(false);
+    expect(checkWebFace({ theme: 'midnight', styles: ['./client/dist/tokens.css'], seats: ['aux-sidebar'] }).ok).toBe(false);
+    expect(checkWebFace({ theme: 'midnight' }).ok).toBe(false);
+    expect(checkWebFace({ theme: 'midnight', styles: ['./client/tokens.css'] }).ok).toBe(false);
+    expect(checkWebFace({ theme: 'Bad_Id', styles: ['./client/dist/tokens.css'] }).ok).toBe(false);
+  });
   it('seats/inject 非字符串数组、isolated 非布尔、seeds 非区间表均拦', () => {
     expect(checkWebFace({ entry: './client/dist/index.js', seats: 'x' }).ok).toBe(false);
     expect(checkWebFace({ entry: './client/dist/index.js', inject: [1] }).ok).toBe(false);
@@ -97,6 +105,33 @@ describe('synthesizeWire 合成', () => {
     const w = synthesizeWire([row({ id: 'theme', entry: undefined, styles: ['tokens.css'] })], SEEDS);
     expect(w.rows[0].entry).toBeUndefined();
     expect(w.rows[0].styles).toEqual([assetUrl('theme', 'r1', 'tokens.css')]);
+  });
+  it('theme 行：themeId 投影 + styles revision URL + 恒非隔离（cr-936）', () => {
+    const w = synthesizeWire([
+      row({ id: 'ac-client-theme-x', entry: undefined, seats: [], styles: ['tokens.css'], themeId: 'midnight' }),
+    ], SEEDS);
+    expect(w.warnings).toEqual([]);
+    expect(w.rows[0]).toMatchObject({
+      id: 'ac-client-theme-x',
+      themeId: 'midnight',
+      isolated: false,
+      styles: [assetUrl('ac-client-theme-x', 'r1', 'tokens.css')],
+    });
+    expect(w.rows[0]!.entry).toBeUndefined();
+  });
+  it('theme 行约束：携带 entry/seats、缺 styles、themeId 词形非法 = 警告跳过', () => {
+    const withEntry = synthesizeWire([row({ id: 't1', seats: [], styles: ['tokens.css'], themeId: 't1' })], SEEDS);
+    expect(withEntry.rows).toHaveLength(0);
+    expect(withEntry.warnings.some((x) => x.includes('theme 行不携带 entry'))).toBe(true);
+    const withSeats = synthesizeWire([row({ id: 't2', entry: undefined, styles: ['tokens.css'], themeId: 't2' })], SEEDS);
+    expect(withSeats.rows).toHaveLength(0);
+    expect(withSeats.warnings.some((x) => x.includes('theme 行不携带 seats'))).toBe(true);
+    const noStyles = synthesizeWire([row({ id: 't3', entry: undefined, seats: [], themeId: 't3' })], SEEDS);
+    expect(noStyles.rows).toHaveLength(0);
+    expect(noStyles.warnings.some((x) => x.includes('theme 行缺 styles'))).toBe(true);
+    const badId = synthesizeWire([row({ id: 't4', entry: undefined, seats: [], styles: ['tokens.css'], themeId: 'Bad' })], SEEDS);
+    expect(badId.rows).toHaveLength(0);
+    expect(badId.warnings.some((x) => x.includes('themeId 词形非法'))).toBe(true);
   });
   it('entry/styles 产物词形与 isolated 缺省（v3 = false）', () => {
     const w = synthesizeWire([

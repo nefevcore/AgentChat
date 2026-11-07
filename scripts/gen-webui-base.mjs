@@ -20,17 +20,23 @@ import path from 'node:path';
 const PKG_DIR = fileURLToPath(new URL('../packages/', import.meta.url));
 const OUT = fileURLToPath(new URL('../apps/catalog/profile/webui.patch.yml', import.meta.url));
 const STAMP_RE = /^#\s*ac-base-version:\s*(\d+)\s*$/m;
-const PKG_PREFIX = 'ac-client-ui-';
+// 包族前缀 = 行类型词形（build-channel 同款约定）：ac-client-ui-* = 前端行；
+// ac-client-theme-* = 主题包（纯样式行——theme+styles 声明，无 entry，cr-936）
+const PKG_PREFIXES = ['ac-client-ui-', 'ac-client-theme-'];
 
 const rows = [];
 for (const ent of fs.readdirSync(PKG_DIR, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-  if (!ent.isDirectory() || !ent.name.startsWith(PKG_PREFIX)) continue;
+  const prefix = PKG_PREFIXES.find((p) => ent.name.startsWith(p));
+  if (!ent.isDirectory() || prefix === undefined) continue;
   const pkg = JSON.parse(fs.readFileSync(path.join(PKG_DIR, ent.name, 'package.json'), 'utf-8'));
   const web = pkg.ac?.faces?.web;
-  if (web === undefined || typeof web.entry !== 'string' || web.entry === '') continue;
+  // web 面两形态：entry 行（factory bundle）或 theme 行（纯样式——theme 声明）
+  const hasFace = web !== undefined
+    && ((typeof web.entry === 'string' && web.entry !== '') || typeof web.theme === 'string');
+  if (!hasFace) continue;
   const seats = (Array.isArray(web.seats) ? web.seats : []).filter((s) => typeof s === 'string' && s !== '');
   rows.push({
-    id: ent.name.slice(PKG_PREFIX.length),
+    id: ent.name.slice(prefix.length),
     name: 'link:packages/' + ent.name,
     ...(seats.length > 0 ? { seats: seats.map((s) => ({ seat: s })) } : {}),
     ...(web.isolated === true ? { isolated: true } : {}),
@@ -44,7 +50,7 @@ const prevBody = prev.slice(prev.indexOf('- id:'));
 const version = prevBody === body && prevStamped ? Number(prevStamped[1]) : (prevStamped ? Number(prevStamped[1]) + 1 : 1);
 const header =
   '# ac-base-version: ' + version + '\n' +
-  '# webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = packages/ac-client-ui-*（ac.faces.web），\n' +
+  '# webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = packages/ac-client-ui-* / ac-client-theme-*（ac.faces.web），\n' +
   '# 由 scripts/gen-webui-base.mjs 生成，禁止手改（漂移由 ac-rowset-core\n' +
   '# tests/webui-base.test.ts 锁定）。分层合成与前端侧求值见 docs/design/ui-plugin-form.md。\n';
 const next = header + body;

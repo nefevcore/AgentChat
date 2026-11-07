@@ -15,7 +15,7 @@ import vue from '@vitejs/plugin-vue';
 import Icons from 'unplugin-icons/vite';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOST_MODULE_SPECS } from './host-module-table.ts';
@@ -24,7 +24,12 @@ const pkgRoot = fileURLToPath(new URL('../../../packages', import.meta.url));
 // 仓库根（脚本在 <root>/apps/ui/scripts/——CWD 无关锚点；3 级上行）
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const repoUiDir = fileURLToPath(new URL('..', import.meta.url)); // apps/ui（壳）
-const PKG_PREFIX = 'ac-client-ui-';
+// 包族前缀 = 行类型词形（仓库既有约定，gen-webui-base / seats-audit 同款）：
+// ac-client-ui-* = 前端行（factory bundle）；ac-client-theme-* = 主题包
+//（纯样式行，cr-936）。判定取舍：按声明（ac.faces.web 在场）全扫包根亦可，
+// 但前缀族是各消费面的同一约定——沿用前缀，避免把种子/宿主类包的其他
+// ac 声明误纳入构建面
+const PKG_PREFIXES = ['ac-client-ui-', 'ac-client-theme-'];
 
 const args = process.argv.slice(2);
 const only = args.filter((a) => !a.startsWith('--'));
@@ -32,14 +37,21 @@ const only = args.filter((a) => !a.startsWith('--'));
 const webFaceOf = (dir) => {
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
   const web = pkg.ac?.faces?.web;
-  return web !== undefined && typeof web.entry === 'string' && web.entry !== ''
-    ? { pkg, web } : null;
+  // v3 两形态（cr-936）：entry 行（factory bundle）或 theme 行（纯样式——
+  // theme id + styles 声明，无 entry）
+  const hasFace = web !== undefined && web !== null && typeof web === 'object'
+    && ((typeof web.entry === 'string' && web.entry !== '') || typeof web.theme === 'string');
+  return hasFace ? { pkg, web } : null;
 };
 
 const modules = readdirSync(pkgRoot, { withFileTypes: true })
-  .filter((e) => e.isDirectory() && e.name.startsWith(PKG_PREFIX))
-  .map((e) => ({ short: e.name.slice(PKG_PREFIX.length), dir: join(pkgRoot, e.name) }))
+  .filter((e) => e.isDirectory() && PKG_PREFIXES.some((p) => e.name.startsWith(p)))
+  .map((e) => {
+    const prefix = PKG_PREFIXES.find((p) => e.name.startsWith(p));
+    return { short: e.name.slice(prefix.length), dir: join(pkgRoot, e.name), pureStyle: prefix === 'ac-client-theme-' };
+  })
   .filter(({ short, dir }) => webFaceOf(dir) !== null && (only.length === 0 || only.includes(short)));
+const builtModules = modules.filter((m) => !m.pureStyle);
 
 if (modules.length === 0) { console.error('[build-channel] 无匹配通道包（ac.faces.web 声明缺席）'); process.exit(1); }
 
@@ -112,9 +124,50 @@ function seedRange(shellDir, spec) {
   }
 }
 
+// ---- 纯样式档（cr-936 主题包）：源样式拷贝产物位 + 同款哈希框式 revision 清单 ----
+// 产物 = client/dist 内声明样式文件的拷贝（无 bundle 构建面）；声明词形
+// ./client/dist/<name>，源 = client/<name> 同名（与 entry 行 client/index.ts
+// → client/dist/index.js 的源/产物位约定同构）
+for (const { short, dir } of modules.filter((m) => m.pureStyle)) {
+  const { web } = webFaceOf(dir);
+  const distDir = join(dir, 'client', 'dist');
+  rmSync(distDir, { recursive: true, force: true });
+  mkdirSync(distDir, { recursive: true });
+  console.log('[build-channel] ' + short + ' → client/dist（纯样式拷贝档）');
+  const styleNames = [];
+  for (const declared of web.styles ?? []) {
+    const name = String(declared).replace(/^\.\/client\/dist\//, '');
+    if (!existsSync(join(dir, 'client', name))) {
+      console.error('[build-channel] ' + short + ' 样式源缺席：client/' + name);
+      process.exit(1);
+    }
+    copyFileSync(join(dir, 'client', name), join(distDir, name));
+    styleNames.push(name);
+  }
+  // revision 清单：与 factory 档同款哈希框式（files 表在 manifest.json 落盘前
+  // 计算——表内天然只含样式产物）；entry 缺席 = 纯样式行（wire 合成面词）
+  const files = {};
+  for (const name of readdirSync(distDir).sort()) {
+    const buf = readFileSync(join(distDir, name));
+    files[name] = { hash: sha256(buf).slice(0, 16), size: buf.length };
+  }
+  const hash = createHash('sha256').update(String(webFaceOf(dir).pkg.name));
+  for (const [name, meta] of Object.entries(files)) {
+    hash.update(String(meta.size) + ':' + name + ':' + meta.hash);
+  }
+  writeFileSync(join(distDir, 'manifest.json'), JSON.stringify({
+    rev: hash.digest('hex').slice(0, 16),
+    builtAt: Date.now(),
+    ...(styleNames.length > 0 ? { styles: styleNames } : {}),
+    files,
+  }, null, 2) + String.fromCharCode(10), 'utf-8');
+  const now = new Date();
+  try { utimesSync(distDir, now, now); } catch { /* 首建由 mkdir 落 mtime */ }
+}
+
 // ---- 第一遍：裸构建（无深导出）+ 全局 require 词收集 ----
 const globalRequires = new Map(); // 根包名 -> Set<深说明符>（他行对本包的深引）
-for (const { dir } of modules) {
+for (const { dir } of builtModules) {
   const distDir = join(dir, 'client', 'dist');
   const srcEntry = join(dir, 'client', 'index.ts');
   if (!existsSync(srcEntry)) { console.error('[build-channel] ' + dir + '：client/index.ts 源入口缺席'); process.exit(1); }
@@ -137,7 +190,7 @@ for (const { dir } of modules) {
 }
 
 // ---- 第二遍：深导出合成 entry 重建 ----
-for (const { short, dir } of modules) {
+for (const { short, dir } of builtModules) {
   const { pkg, web } = webFaceOf(dir);
   const distDir = join(dir, 'client', 'dist');
   const srcEntry = join(dir, 'client', 'index.ts');
@@ -226,4 +279,4 @@ for (const { short, dir } of modules) {
   const now = new Date();
   try { utimesSync(distDir, now, now); } catch { /* 首建由 mkdir 落 mtime */ }
 }
-console.log('[build-channel] 完成（v3 factory 形态）' + modules.length + ' 模块 → 各包 client/dist');
+console.log('[build-channel] 完成（v3 形态：factory ' + builtModules.length + ' + 纯样式 ' + (modules.length - builtModules.length) + '）→ 各包 client/dist');

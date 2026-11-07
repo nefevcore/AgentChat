@@ -314,9 +314,11 @@ export class WebuiWireGraph {
     const entryRel: string | undefined = typeof manifest.entry === 'string'
       ? manifest.entry
       : typeof web.entry === 'string' ? web.entry.replace(/^\.\/client\/dist\//, '') : undefined;
+    // theme 行声明位 styles = ./client/dist/<file> 显式词形（checkWebFace 门）
+    // ——回退位剥前缀归产物相对名（与 entry 同款）
     const styles: string[] | undefined = Array.isArray(manifest.styles)
       ? manifest.styles
-      : Array.isArray(web.styles) ? web.styles : undefined;
+      : Array.isArray(web.styles) ? web.styles.map((s: string) => s.replace(/^\.\/client\/dist\//, '')) : undefined;
     const seeds: Record<string, string> | undefined = web.seeds !== null && typeof web.seeds === 'object'
       ? web.seeds
       : manifest.seeds !== null && typeof manifest.seeds === 'object' ? manifest.seeds : undefined;
@@ -330,6 +332,8 @@ export class WebuiWireGraph {
       ...(styles !== undefined ? { styles } : {}),
       ...(Array.isArray(web.inject) ? { inject: web.inject } : {}),
       seats: Array.isArray(web.seats) ? web.seats : [],
+      // theme 行 id 投影（cr-936 主题包——壳 registerThemeId 消费）
+      ...(typeof web.theme === 'string' ? { themeId: web.theme } : {}),
       ...(typeof web.isolated === 'boolean' ? { isolated: web.isolated } : {}),
       ...(seeds !== undefined ? { seeds } : {}),
     };

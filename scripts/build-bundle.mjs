@@ -14,7 +14,8 @@
  *                        pnpm build:frontend 构建）
  *   plugins/             出厂 UI 通道产物（cr-920：build-channel 直构
  *                        packages/ac-client-ui-* 真身包 30 通道 +
- *                        apps/ui/themes/ 数据面主题包——宿主 boot 播种
+ *                        packages/ac-client-theme-* 主题包（cr-936 迁 v3
+ *                        形态——apps/ui/themes 旧链位已退役）——宿主 boot 播种
  *                        进 <dataRoot>/plugins；不依赖任何数据根预置态）
  *   row-catalog.json     行集目录（宿主/壳共享——从 apps/catalog 拷贝）
  *   profile/             基座源文档 {host,shell}.patch.yml（cr-902 批1）
@@ -40,7 +41,6 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const uiDist = path.join(root, 'apps', 'ui', 'dist');
-const themesDir = path.join(root, 'apps', 'ui', 'themes');
 
 // ── 前置检查 ──
 if (!existsSync(uiDist) || !statSync(uiDist).isDirectory() || readdirSync(uiDist).length === 0) {
@@ -69,7 +69,8 @@ if (r.status !== 0) {
 const pkgOut = path.join(dist, 'packages');
 mkdirSync(pkgOut, { recursive: true });
 for (const ent of readdirSync(path.join(root, 'packages'), { withFileTypes: true })) {
-  if (!ent.isDirectory() || !ent.name.startsWith('ac-client-ui-')) continue;
+  // 包族词形与 build-channel/gen-webui-base 同款（cr-936）：前端行 + 主题包
+  if (!ent.isDirectory() || !(ent.name.startsWith('ac-client-ui-') || ent.name.startsWith('ac-client-theme-'))) continue;
   const pkgJson = JSON.parse(readFileSync(path.join(root, 'packages', ent.name, 'package.json'), 'utf8'));
   if (pkgJson.ac?.faces?.web === undefined) continue;
   const dest = path.join(pkgOut, ent.name);
@@ -77,12 +78,6 @@ for (const ent of readdirSync(path.join(root, 'packages'), { withFileTypes: true
   cpSync(path.join(root, 'packages', ent.name, 'package.json'), path.join(dest, 'package.json'));
   cpSync(path.join(root, 'packages', ent.name, 'src'), path.join(dest, 'src'), { recursive: true });
   cpSync(path.join(root, 'packages', ent.name, 'client', 'dist'), path.join(dest, 'client', 'dist'), { recursive: true });
-}
-// 数据面主题包（apps/ui/themes/<name>——v3 打包形态后继〔cr-932 记〕：installed 行 styles-only 通道）
-if (existsSync(themesDir)) {
-  for (const ent of readdirSync(themesDir, { withFileTypes: true })) {
-    if (ent.isDirectory()) cpSync(path.join(themesDir, ent.name), path.join(dist, 'plugins', ent.name), { recursive: true });
-  }
 }
 
 // ── esbuild 双入口 ──

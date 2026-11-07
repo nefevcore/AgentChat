@@ -4,7 +4,8 @@
 // 与主线 apps/ui/vite.config.ts 的差异（preview 形态定向）：
 //   · dev proxy → 宿主缺省 3830（8.9 cutover cr-556——正式端口，dev.ts
 //     独立联调面仍 3840，两者经 --port 区分）；
-//   · 单入口（preview 无 iframe isolated 档——isolated 接线归后续批）；
+//   · 单入口（isolated 档 iframe = srcdoc 自举〔isolated-host-v3〕，
+//     不再需要第二构建入口——cr-934 单入口化）；
 //   · 通道条目不在本入口构建图内（channel/ 经 build-channel.mjs 独立
 //     构建，产物落 pluginsDir——运行时 boot graph 动态装载）；
 //   · chrome92 降级同主线（esbuild supported 声明 + target；Windows
@@ -44,8 +45,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
-        // iframe isolated 档运行时（sandbox 插件容器——8.5 收尾批接线）
-        'ui-plugin-iframe': fileURLToPath(new URL('./ui-plugin-iframe.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {

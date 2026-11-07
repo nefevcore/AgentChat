@@ -9,16 +9,18 @@
 //      installChannelImportmap 全部退役（裁决二）——种子词即解析面。
 //   更新 = WS wire/graph·wire/rebuilt 帧（rpc-wire 同通道）→ 重拉全量
 //      wire + 失效 memo 重物化（断连重拉语义，切片①后续接线）。
-// 骨架 3 件仍 in-bundle 直载（协议持有者）；isolated 行对接归切片②
-//（裁决八：独立模块表 + 自含产物——不进主文档物化面）。
+// 骨架 3 件仍 in-bundle 直载（协议持有者）；isolated 行走 isolated-host-v3
+//（裁决八：sandbox iframe 独立模块表 + 自含产物——不进主文档物化面）。
 // ============================================================
 import type { ClientContext, ClientPluginObject } from 'ac-client-runtime';
 import { createClient } from 'ac-client-runtime';
 import type { Wire, WireRow } from 'ac-webui-core';
 import { makeRpcHostPlugin, type RpcWire } from './rpc-host.ts';
 import { skeletonPlugins, loadChannelCss } from './boot.ts';
+import { registerThemeId } from 'ac-client-ui-theme/client';
 import { skeletonSeedsV3 } from './seeds-v3.ts';
 import { createClientModuleSystem, type ScriptLoader } from './module-system.ts';
+import { loadIsolatedRowV3, type IsolatedRowHandle } from './isolated-host-v3.ts';
 import { hostUrl } from './host-endpoint.ts';
 
 export interface BootV3Options {
@@ -97,11 +99,17 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
   // ④ wire 装载：模块表逐行物化（拓扑序 = wire 行序）→ ctx.plugin → 席位渲染。
   // 附加样式（styles 声明）走 link 注入（revision URL——重载不重复挂）。
   const channel = new Map<string, 'ok' | 'err'>();
-  // 附加样式面（纯样式行含 theme 类——revision URL，重载不重复挂）
-  for (const row of wire.rows) {
-    if (row.isolated) continue;
-    for (const st of row.styles ?? []) loadChannelCss(hostUrl(st));
-  }
+  // 附加样式面（纯样式行含 theme 类——revision URL，重载不重复挂）+ theme 行
+  // id 登记（registerThemeId——登记面 'classic' 缺省外词汇的单源；幂等）。
+  // 独立小函数：boot 与 reload 同一应用面（新 theme 行经 reload 也能到达）。
+  // isolated 行的 styles 仍注入主文档——隔离的是脚本执行，不是样式面
+  const applyStylesAndThemes = (doc: Wire): void => {
+    for (const row of doc.rows) {
+      if (row.themeId !== undefined) registerThemeId(row.themeId);
+      for (const st of row.styles ?? []) loadChannelCss(hostUrl(st));
+    }
+  };
+  applyStylesAndThemes(wire);
   const loadable = wire.rows.filter((row) => !row.isolated && row.entry !== undefined);
   // 两段装载（cr-930）：先全到达（仅注册 factory——跨行 require 在物化期
   // 同步解析，届时全部 factory 已注册）；再按 wire 行序逐行物化
@@ -125,15 +133,45 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
       channel.set(row.id, 'err');
     }
   }
+  // ④b isolated 档（裁决八）：sandbox iframe 自含装载 + 席位占位
+  //（不进模块表/种子面——独立于主文档物化面）
+  // entry 行判型（属性检查不收窄整对象——hostIsolatedRow 需要 entry 非空）
+  const hasEntry = (row: WireRow): row is WireRow & { entry: string } => row.entry !== undefined;
+  const isolatedHandles = new Map<string, IsolatedRowHandle>();
+  const hostIsolatedRow = (row: WireRow & { entry: string }): boolean => {
+    try {
+      isolatedHandles.set(row.id, loadIsolatedRowV3(ctx, row));
+      return true;
+    } catch (error) {
+      console.error(`[boot-v3] isolated 行装载失败（跳过）"${row.id}"：`, error);
+      return false;
+    }
+  };
+  for (const row of wire.rows) {
+    if (!row.isolated || !hasEntry(row)) continue;
+    channel.set(row.id, hostIsolatedRow(row) ? 'ok' : 'err');
+  }
+
   const reload = async (): Promise<void> => {
     const next = await fetchWire();
     const prevById = new Map(wire.rows.map((r) => [r.id, r]));
-    const changed = next.rows.filter((row) => {
-      if (row.isolated || row.entry === undefined) return false;
+    const entryChanged = (row: WireRow): boolean => {
+      if (row.entry === undefined) return false;
       const prev = prevById.get(row.id);
       return prev === undefined || prev.entry !== row.entry;
-    });
-    if (changed.length === 0) { Object.assign(wire, next); return; }
+    };
+    // isolated 行 rev 变化 = 重建 iframe（独立模块表无失效面——整档重建）
+    for (const row of next.rows) {
+      if (!row.isolated || !hasEntry(row) || !entryChanged(row)) continue;
+      isolatedHandles.get(row.id)?.cleanup();
+      isolatedHandles.delete(row.id);
+      channel.set(row.id, hostIsolatedRow(row) ? 'ok' : 'err');
+    }
+    const changed = next.rows.filter((row) => !row.isolated && entryChanged(row));
+    if (changed.length === 0) {
+      applyStylesAndThemes(next); // 无 entry 变化也可能有新 theme 行（纯样式）
+      Object.assign(wire, next); return;
+    }
     for (const row of changed) modules.forget(row.id); // rev 变化 = 新 bundle：三清重装载
     rowsById.clear();
     for (const row of next.rows) rowsById.set(row.id, row);
@@ -149,6 +187,7 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
         channel.set(row.id, 'err');
       }
     }
+    applyStylesAndThemes(next); // 纯样式行（theme 类）不在 changed 面——样式/登记在此应用
     Object.assign(wire, next);
   };
 

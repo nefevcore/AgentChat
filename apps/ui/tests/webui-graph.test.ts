@@ -157,6 +157,25 @@ describe('WebuiWireGraph 打脏/flush 穿透', () => {
     expect(warnings).not.toContain('plain-row');
   });
 
+  it('纯样式 theme 行（cr-936）：无 entry 进 wire，themeId 投影 + 恒非隔离', async () => {
+    const { root, ctx } = await makeRoot();
+    await writePkg(root, {
+      name: 'ac-client-theme-x',
+      web: { theme: 'midnight', styles: ['./client/dist/tokens.css'] },
+      manifest: { rev: 'r1', builtAt: 1, styles: ['tokens.css'], files: { 'tokens.css': { hash: 'x', size: 1 } } },
+    });
+    const graph = new WebuiWireGraph(ctx, ctx.loader as any);
+    await (ctx.loader as any).create({ name: './ac-client-theme-x/src/index.mjs' });
+    await settle(ctx);
+    expect(rowIds(graph)).toEqual(['ac-client-theme-x']);
+    const row = graph.wire().rows[0]!;
+    expect(row.entry).toBeUndefined();
+    expect(row.themeId).toBe('midnight');
+    expect(row.styles).toEqual(['/ui-asset/ac-client-theme-x/r1/tokens.css']);
+    expect(row.isolated).toBe(false);
+    expect(graph.wire().warnings).toEqual([]);
+  });
+
   it('同名包重建（卸载→装载）行回归位；产物 rev 变化 → entry URL 随之', async () => {
     const { root, ctx } = await makeRoot();
     await writePkg(root, { name: 'plug-a', web: { entry: './client/dist/index.js', seats: [] }, manifest: { rev: 'r1', builtAt: 1, files: {} } });

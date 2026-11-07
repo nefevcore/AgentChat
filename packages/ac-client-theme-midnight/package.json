@@ -1,0 +1,24 @@
+{
+  "name": "ac-client-theme-midnight",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "midnight 示例主题包（cr-936 主题包 v3 形态）：纯样式行——ac.faces.web { theme, styles } 声明（无 entry 无席位），tokens.css 源住 client/，构建器拷贝产物位 client/dist/；node 半零功能（link: 装载锚，样式送达走 wire 行 styles + themeId）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client/*": "./client/*"
+  },
+  "ac": {
+    "faces": {
+      "web": {
+        "theme": "midnight",
+        "styles": ["./client/dist/tokens.css"]
+      }
+    }
+  },
+  "files": [
+    "src",
+    "client/dist"
+  ]
+}

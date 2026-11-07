@@ -42,7 +42,7 @@ describe('webui-v3 · 壳装配序列（boot-v3）', () => {
     expect(ctx.slots.single('root')?.id).toBe('webui-base-layout.app-frame');
   });
 
-  it('wire 行物化 → ctx.plugin；坏行逐条隔离不毁表面；isolated/纯样式行跳过', async () => {
+  it('wire 行物化 → ctx.plugin；坏行逐条隔离不毁表面；isolated/纯样式行走 iframe 宿主', async () => {
     setActivePinia(createPinia());
     // 真 factory bundle（经 loadScript 注入 eval——与构建器产物同形）
     const okBundle = 'globalThis.__ModuleLoader__.load({ id: "ok-row", factory: (require) => '
@@ -62,7 +62,7 @@ describe('webui-v3 · 壳装配序列（boot-v3）', () => {
     });
     expect(channel.get('ok-row')).toBe('ok');
     expect(channel.get('boom-row')).toBe('err');
-    expect(channel.has('iso-row')).toBe(false); // isolated 档延后（无消费行）
+    expect(channel.get('iso-row')).toBe('ok'); // isolated 档 = iframe 宿主（isolated-host-v3.test 细测）
     expect(channel.has('style-row')).toBe(false); // 纯样式行不走物化
     expect(ctx.slots.declOf('main')).toBeDefined(); // 表面存活（骨架未受坏行影响）
   });

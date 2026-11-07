@@ -82,7 +82,7 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 ### 1.3 边界与本体（原「薄壳」）
 
 - **基建三包**（纯库 / 运行时，不占行、不可摘除）：`ac-client-slots`（SlotCore 纯核 + SlotStoreAxis）、`ac-client-runtime`（ClientContext / SlotRegistry / clientRuntime）、`@agentchat/webui-kit`（设计原语：46 文件 / 36 个 `.vue`，2026-10-27 复核）。
-- **webui 本体** = `apps/ui`（包名 `ac-ui-app`）：`src/` 服务半边（`webui-row.ts` / `isolated.ts` / `isolated-runtime.ts` + `assets/` + `shims/`）+ `client/`（`boot.ts` / `main.ts` / `rpc-host.ts` / `rpc-wire.ts` / `shared-modules.ts` / `isolatedView.ts`）+ `channel/`（29 通道）+ `themes/`。装配序列第④步 = `client/boot.ts` 的通道装载；旧 `preview-main.ts` / `runtime/bootGraph.ts` / `stores/` 均已不存在。
+- **webui 本体** = `apps/ui`（包名 `ac-ui-app`）：`src/` 服务半边（`webui-row.ts` / `webui-graph.ts` + `assets/` + `shims/`）+ `client/`（`boot-v3.ts` / `isolated-host-v3.ts`（isolated 档 srcdoc 宿主，cr-934）/ `module-system.ts` / `seeds-v3.ts` / `main.ts` / `rpc-host.ts` / `rpc-wire.ts`）+ `themes/`。装配序列第④步 = `client/boot-v3.ts` 的 wire 装载（webui-v3 cutover）；旧 `isolated.ts` / `isolated-runtime.ts` / `isolatedView.ts` / `ui-plugin-iframe.html` 已随 cr-934 物理删除。
 - **相关不占行包**：`ac-webui`（`ctx.webui` 面：extensions 清单 + 声明注册表；**现役 boot graph 与 `/ui-plugin/` 静态路由由 `apps/ui/src/webui-row.ts` 提供**，职责重叠待裁）、`ac-webui-extensions`（第三方 UI 声明词汇表纯数据包；行已退役，见裁决链）。
 
 > ⚠️ 疑点（2026-10-27 审查）：31 个 `packages/ac-client-ui-*/src/index.ts` 仍写 `ctx.webui.declareClient(...)`，而现役 `/api/ui/boot-graph` 由 `apps/ui/src/webui-row.ts` 扫 `pluginsDir` manifest 产出、`ac-webui` 行不在 row-catalog——声明半边在当前装配下无消费者（清理还是恢复待裁，本文不预判）。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md

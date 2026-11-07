@@ -136,8 +136,9 @@ describe('webui-v3 切片② · 全量通（真基座文档 30 行）', () => {
     if (errs.length > 0) console.error('[e2e-v3 全量] err 行：', errs.map(([id]) => id).join(','));
     expect(ok).toBe(loadable);
 
-    // 等值验收（cr-930：SHA-256 清单对账——服务字节 = 构建期清单哈希）
-    for (const row of wire.rows.slice(0, 3)) {
+    // 等值验收（cr-930：SHA-256 清单对账——服务字节 = 构建期清单哈希）。
+    // 采样面 = entry 行（cr-936 起 wire 含纯样式 theme 行——无 entry 不在物化面）
+    for (const row of wire.rows.filter((row2) => row2.entry !== undefined).slice(0, 3)) {
       const entryUrl = new URL(row.entry!, base);
       const manifestUrl = entryUrl.pathname.replace(/index\.js$/, 'manifest.json');
       const manifestRes = await fetch(base + manifestUrl);

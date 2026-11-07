@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 文档编号 | cr-923（2026-11-06 立档，同日吸收裁决六） |
-| 状态 | 方向锁；切片①②③主体已落（cr-925..932）：③ cutover = 宿主行 v3 接线 + 壳 main 切 boot-v3 + wire 帧消费 + hello/auto-reload/出厂拷贝链/build:channels 退役 + 出厂 v3 打包（dist/packages 真身）+ 旧端点测试重写 + 全量 test:unit 绿（380 文件 2801 用例）+ 回滚演练。延后裁决（各 CR 记）：isolated iframe 对接〔无消费行〕、bootUiClient 旧客户端装载序列与 importmap 物理删除〔客户端死代码，测试锁定中〕、数据根出厂副本物理清理〔不再读写，残留待清〕、数据面主题包 v3 打包、seat 审计面 v3 承接 |
+| 状态 | 方向锁；切片①②③全落（cr-925..932）+ 延后裁决五项收尾全清（cr-934..937，2026-11-07）：isolated iframe v3 对接〔壳侧独立模块表沙盒宿主 + 席位占位 + 白名单代理（cr-934）；旧 ui-plugin-iframe.html/isolated-runtime 物理删除〕、bootUiClient 旧序列与 importmap 物理删除〔cr-933/934 完结〕、数据根出厂副本物理清理〔提纯函数化 + 契约锁（cr-935）〕、数据面主题包 v3 打包〔midnight 迁 v3 纯样式行 + wire themeId 面 + 构建器纯样式档（cr-936）〕、seat 审计面 v3 承接〔seats-audit-v3 三轴运行时门（cr-937）〕；全量 test:unit 绿（382 文件）。余留后继项（非本档收尾面）：combo 合并路由/chunks 优化、行移除不拆件〔卸载面归席位回收〕、种子深词全惰性化〔包结构债务〕 |
 | 取代 | ui-plugin-selfhost.md（cr-919，含同日修订）；ui-plugin-form.md（cr-905）装载实现部分；webui-standalone-protocol.md（cr-912/917） |
 | 上游裁决 | plugin-architecture-v2（cr-901）§4.3 web 面统一通道——零特权路径不动，装载机制本档再升级 |
 | 参照系 | DSH 实物（行级实测，见 §8 参考来源） |
@@ -124,7 +124,12 @@ flowchart LR
     "styles": ["/ui-asset/<id>/<rev>/tokens.css"],  // 附加 CSS（theme 行仅此）
     "inject": ["ac-client-ui-layout"],  // 依赖行——预取序 + 拓扑排序输入
     "seats": ["conversation:dock-widget"],  // 席位声明——渲染挂点
-    "isolated": false               // 执行档：true = sandbox iframe
+    "isolated": false,              // 执行档：true = sandbox iframe
+    "themeId": "midnight"           // 可选——theme 行（ac.faces.web.theme 声明）
+                                    // 投影的色板主题 id；壳装载时 registerThemeId。
+                                    // theme 行 = 纯样式行：无 entry/seats，styles 必有，
+                                    // 恒非隔离（cr-936 主题包 v3；旧链 theme:{tokensOnly}
+                                    // 的 v3 声明面等价词）
   }],
   "seeds": { "vue": "^3.4", … },    // 种子词→版本区间（壳构建期生成）；行声明位 = 包 ac.faces.web.seeds（同词形区间）
   "warnings": ["…"]               // 降级/失败上报面（承接旧 boot-graph warnings 域：
@@ -134,7 +139,8 @@ flowchart LR
 
 字段处置（相对现行 BootGraphEntry）：保留 id/version/entry/styles/seats/
 isolated；**退役** platform（单值无信息量）、base（被 revision URL 取代）、
-channelImports（cr-905 已退役，双读窗到期即删）；**新增** inject、warnings。
+channelImports（cr-905 已退役，双读窗到期即删）；**新增** inject、warnings、
+themeId（cr-936 主题包——可选，仅 theme 行）。
 
 #### 4.3.2 构建流程（宿主侧）
 

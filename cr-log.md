@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-933**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-937**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -950,3 +950,7 @@
 - 【cr-931 2026-11-07 webui-v3 切片②收口：等值验收（服务字节 = 构建期 SHA-256 清单哈希对账，e2e 内嵌）+ 独立部署冒烟（非回环放行源预检 204/wire 200/未放行源 403——CORS 预检即版本面）+ 壳侧 wire/graph 帧消费（boot-v3 reload：重拉全量→差分行失效重物化；行移除卸载面本批不拆件）；isolated 档对接延后裁决：全仓无 isolated:true 行，构建器自含档就位，iframe 运行时对接随首个消费行立项】
 - 【cr-932 2026-11-07 webui-v3 切片③ cutover：宿主 boot 切 webui 行 v3（装配态锚）；壳 main 切 boot-v3 + WS 帧接线；§4.9 退役分批执行（boot-graph 端点/dirSignature/importmap/__ac_channel_modules__/auto-reload/hello 握手/出厂拷贝链——sharedModules 按中间态裁决保留为 v3 种子源）；受影响测试重写；数据根出厂副本清理；全量 e2e + 回滚演练】
 - 【cr-933 2026-11-07 webui-v3 切片③收尾：bootUiClient 旧客户端装载序列退役（defaultLoader/defaultGraph/installChannelImportmap/loadThemeEntry/auditSeats/isolated 装载链删除；骨架件/样式/模块表保留件归 boot-v3 消费）；boot.test.ts 重写为 boot-v3 面；seats-boot-audit 旧链测试随装载序列退役（席位审计面 v3 承接后继立项）；boot 数据根出厂件迁移清理（factory-stamp 名册内目录——cr-918 手法）；README 事实源同步】
+- 【cr-934 2026-11-07 webui-v3 收尾①②——isolated iframe v3 对接（壳侧独立模块表沙盒宿主 + 席位占位）+ 旧 ui-plugin-iframe.html/isolated-runtime 物理删除】
+- 【cr-935 2026-11-07 webui-v3 收尾③——数据根出厂副本清理提纯函数化 + 单测锁定】
+- 【cr-936 2026-11-07 webui-v3 收尾④——数据面主题包 v3 打包（midnight 迁 v3 纯样式行 + 构建器支持）】
+- 【cr-937 2026-11-07 webui-v3 收尾⑤——seat 审计面 v3 承接（全通道 wire 真装载对账门重建）】

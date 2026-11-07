@@ -133,6 +133,46 @@ describe('webui v3 行（wire + 资产面）', () => {
     expect((await fetch(`http://127.0.0.1:${port}/ui-asset/plug-todo/r1/secret.txt`)).status).toBe(404);
   });
 
+  it('theme 纯样式行（cr-936）：themeId 投影 + tokens.css 资产原位服务', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-webui-v3-'));
+    roots.push(root);
+    await writeProfile(root, [{ id: 'theme-x', name: 'link:packages/ac-client-theme-x' }]);
+    await writePkg(root, {
+      name: 'ac-client-theme-x',
+      web: { theme: 'midnight', styles: ['./client/dist/tokens.css'] },
+      distFiles: { 'tokens.css': "html[data-theme='midnight'] { --bg-base: #0d1220; }\n" },
+      manifest: { rev: 'r1', builtAt: 1, styles: ['tokens.css'], files: { 'tokens.css': { hash: 'h', size: 1 } } },
+    });
+    const ctx = new Context();
+    const svc = new WebServerService(ctx, { port: 0, heartbeatMs: 0 } as never);
+    servers.push(svc);
+    const port = await svc.ready();
+    const handle: import('../src/webui-row-v3.ts').WebuiRowV3Handle = {};
+    ctx.plugin(makeWebuiRowV3({
+      baseUrl: pathToFileURL(root).href + '/',
+      profileDir: join(root, 'profile'),
+      handle,
+    }));
+    await settle(handle);
+
+    const wire = await (await fetch(`http://127.0.0.1:${port}/api/ui/wire`)).json() as {
+      rows: { id: string; entry?: string; styles?: string[]; themeId?: string; isolated: boolean }[];
+    };
+    expect(wire.rows).toHaveLength(1);
+    expect(wire.rows[0]).toMatchObject({
+      id: 'ac-client-theme-x',
+      themeId: 'midnight',
+      styles: ['/ui-asset/ac-client-theme-x/r1/tokens.css'],
+      isolated: false,
+    });
+    expect(wire.rows[0]!.entry).toBeUndefined();
+
+    const cssRes = await fetch(`http://127.0.0.1:${port}${wire.rows[0]!.styles![0]}`);
+    expect(cssRes.status).toBe(200);
+    expect(cssRes.headers.get('content-type')).toContain('text/css');
+    expect(await cssRes.text()).toContain('--bg-base');
+  });
+
   it('点名缺席（文档点名而包不可解析）→ wire 空 + 不拒启；停用行不装载', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-webui-v3-'));
     roots.push(root);
