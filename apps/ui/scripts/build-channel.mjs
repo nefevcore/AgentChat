@@ -160,41 +160,57 @@ function seedRange(shellDir, spec) {
   }
 }
 
+// ---- 第一遍：裸构建（无深导出）+ 全局 require 词收集 ----
+const globalRequires = new Map(); // 根包名 -> Set<深说明符>（他行对本包的深引）
+for (const { dir } of modules) {
+  const distDir = join(dir, 'client', 'dist');
+  const srcEntry = join(dir, 'client', 'index.ts');
+  if (!existsSync(srcEntry)) { console.error('[build-channel] ' + dir + '：client/index.ts 源入口缺席'); process.exit(1); }
+  await build({
+    configFile: false,
+    plugins: [vue(), Icons({ compiler: 'vue3' })],
+    resolve: { alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) } },
+    build: {
+      outDir: distDir, emptyOutDir: true, target: 'esnext', minify: false,
+      lib: { entry: srcEntry, formats: ['cjs'], fileName: () => 'index.js' },
+      rollupOptions: { external: isExternal, output: { inlineDynamicImports: true } },
+    },
+  });
+  for (const spec of requireSpecs(readFileSync(join(distDir, 'index.js'), 'utf-8'))) {
+    const root = rootSpec(spec);
+    if (root === spec || !isChannelPkg(root)) continue;
+    if (!globalRequires.has(root)) globalRequires.set(root, new Set());
+    globalRequires.get(root).add(spec);
+  }
+}
+
+// ---- 第二遍：深导出合成 entry 重建 ----
 for (const { short, dir } of modules) {
   const { pkg, web } = webFaceOf(dir);
   const distDir = join(dir, 'client', 'dist');
   const srcEntry = join(dir, 'client', 'index.ts');
-  if (!existsSync(srcEntry)) {
-    console.error('[build-channel] ' + short + '：client/index.ts 源入口缺席（v3 形态源约定）');
-    process.exit(1);
-  }
   const selfContained = web.isolated === true; // 裁决八：isolated 档不外部化种子
-
-  // 跨行深路径共享面（cr-930 裁决）：本包在宿主模块表的深说明符 →
-  // bundle 附加 __deep 面（namespace 表）。消费行经模块系统深路径归一化
-  // 解析到本行物化实例——单例契约不破（importmap 时代 shared-modules 的
-  // v3 对位物；深路径子模块随行 bundle 物化一次）。
-  const deepSpecs = HOST_MODULE_SPECS.filter((x) => rootSpec(x) === pkg.name && x !== pkg.name && x !== pkg.name + '/client');
-  const tmpEntry = join(distDir, '..' , '__v3-entry.mjs');
-  const entryCode = deepSpecs.length === 0
-    ? 'import plugin from ' + JSON.stringify(srcEntry) + ';\nexport default plugin;\n'
-    : 'import plugin from ' + JSON.stringify(srcEntry) + ';\n'
-      + deepSpecs.map((x, i) => 'import * as m' + i + ' from ' + JSON.stringify(x) + ';').join('\n')
-      + '\nexport default plugin;\n'
-      + 'export const __deep = { ' + deepSpecs.map((x, i) => JSON.stringify(x) + ': m' + i).join(', ') + ' };\n';
-  writeFileSync(tmpEntry, entryCode, 'utf8');
   console.log('[build-channel] ' + short + ' → client/dist（' + (selfContained ? 'isolated 自含档' : '外部化宿主模块表 ' + HOST_MODULE_SPECS.length + ' 键') + '）');
+  // 深导出面（cr-930 裁决）：宿主模块表深词 ∪ 全局他行深引词（前缀外部化
+  // 的显式对账——裸构建扫描防清单漂移）→ __deep 面
+  const deepSpecs = [...new Set([
+    ...HOST_MODULE_SPECS.filter((x) => rootSpec(x) === pkg.name && x !== pkg.name && x !== pkg.name + '/client'),
+    ...(globalRequires.get(pkg.name) ?? []),
+  ])];
+  const tmpEntry = join(distDir, '..', '__v3-entry.mjs');
+  const entryCode = deepSpecs.length === 0
+    ? 'import plugin from ' + JSON.stringify(srcEntry) + ';' + String.fromCharCode(10) + 'export default plugin;' + String.fromCharCode(10)
+    : 'import plugin from ' + JSON.stringify(srcEntry) + ';' + String.fromCharCode(10)
+      + deepSpecs.map((x, i) => 'import * as m' + i + ' from ' + JSON.stringify(x) + ';').join(String.fromCharCode(10))
+      + String.fromCharCode(10) + 'export default plugin;' + String.fromCharCode(10)
+      + 'export const __deep = { ' + deepSpecs.map((x, i) => JSON.stringify(x) + ': m' + i).join(', ') + ' };' + String.fromCharCode(10);
+  writeFileSync(tmpEntry, entryCode, 'utf-8');
   await build({
     configFile: false,
     plugins: [vue(), Icons({ compiler: 'vue3' })],
-    resolve: {
-      alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) },
-    },
+    resolve: { alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) } },
     build: {
-      outDir: distDir,
-      emptyOutDir: true,
-      target: 'esnext',
-      minify: false,
+      outDir: distDir, emptyOutDir: true, target: 'esnext', minify: false,
       lib: { entry: tmpEntry, formats: ['cjs'], fileName: () => 'index.js' },
       rollupOptions: {
         ...(selfContained ? {} : { external: isExternal }),
@@ -202,32 +218,31 @@ for (const { short, dir } of modules) {
       },
     },
   });
-
   rmSync(tmpEntry, { force: true });
 
   // factory 注册包裹：模块体副作用全延迟到首物化（§4.4 lazy CJS——bundle
   // 执行只注册工厂，CSS 注入等随物化）
   const raw = readFileSync(join(distDir, 'index.js'), 'utf-8');
-  const wrapped = 'window.__ModuleLoader__.load({\n'
-    + '  id: ' + JSON.stringify(pkg.name) + ',\n'
-    + '  factory: (require) => {\n'
-    + '    const module = { exports: {} };\n'
-    + '    (function (module, exports, require) {\n'
+  const wrapped = 'window.__ModuleLoader__.load({' + String.fromCharCode(10)
+    + '  id: ' + JSON.stringify(pkg.name) + ',' + String.fromCharCode(10)
+    + '  factory: (require) => {' + String.fromCharCode(10)
+    + '    const module = { exports: {} };' + String.fromCharCode(10)
+    + '    (function (module, exports, require) {' + String.fromCharCode(10)
     + raw
-    + '\n    })(module, module.exports, require);\n'
-    + '    return module.exports && typeof module.exports === \'object\' && \'default\' in module.exports\n'
-    + '      ? module.exports : { default: module.exports };\n'
-    + '  },\n'
-    + '});\n';
+    + String.fromCharCode(10) + '    })(module, module.exports, require);' + String.fromCharCode(10)
+    + '    return module.exports && typeof module.exports === ' + JSON.stringify('object') + ' && ' + JSON.stringify('default') + ' in module.exports' + String.fromCharCode(10)
+    + '      ? module.exports : { default: module.exports };' + String.fromCharCode(10)
+    + '  },' + String.fromCharCode(10)
+    + '});' + String.fromCharCode(10);
   writeFileSync(join(distDir, 'index.js'), wrapped, 'utf-8');
 
   // 纯度门（cjs 面）：产物剩余 require ⊆ 宿主模块表；isolated 自含档 = 空
   const specs = requireSpecs(wrapped);
   const offenders = selfContained
-    ? specs.filter((s) => !s.startsWith('node:'))
-    : specs.filter((s) => !isExternal(s));
+    ? specs.filter((x) => !x.startsWith('node:'))
+    : specs.filter((x) => !isExternal(x));
   if (offenders.length > 0) {
-    console.error('[build-channel] ' + short + ' 外部化门违例（宿主模块表未覆盖）：\n  ' + offenders.join('\n  '));
+    console.error('[build-channel] ' + short + ' 外部化门违例（宿主模块表未覆盖）：' + String.fromCharCode(10) + '  ' + offenders.join(String.fromCharCode(10) + '  '));
     process.exit(1);
   }
 
@@ -241,8 +256,6 @@ for (const { short, dir } of modules) {
   for (const [name, meta] of Object.entries(files)) {
     hash.update(String(meta.size) + ':' + name + ':' + meta.hash);
   }
-  // 种子面收窄（cr-930）：仅真种子词（非通道行包——通道行词经 wire 行③支
-  // 解析，入 seeds 反而对拍降级）；跨行 require 走行深导出面
   const seeds = {};
   for (const spec of new Set(specs.map(rootSpec))) {
     if (isChannelPkg(spec)) continue;
@@ -257,8 +270,7 @@ for (const { short, dir } of modules) {
     ...(Object.keys(seeds).length > 0 ? { seeds } : {}),
     files,
   };
-  writeFileSync(join(distDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
-  // 触发宿主 wire/rebuilt 探测面（stat-poll 读 mtime——清单位不必参与）
+  writeFileSync(join(distDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + String.fromCharCode(10), 'utf-8');
   const now = new Date();
   try { utimesSync(distDir, now, now); } catch { /* 首建由 mkdir 落 mtime */ }
 }

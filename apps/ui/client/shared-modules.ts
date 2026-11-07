@@ -19,6 +19,7 @@ import * as agentsRosterApi from 'ac-client-ui-agents/client/rosterApi.ts';
 import * as convConversationView from 'ac-client-ui-conversation/client/ConversationView.vue';
 import * as convTranscriptList from 'ac-client-ui-conversation/client/TranscriptList.vue';
 import * as convChatStore from 'ac-client-ui-conversation/client/chatStore.ts';
+import * as convDraftParking from 'ac-client-ui-conversation/client/draftParking.ts';
 import * as convIndex from 'ac-client-ui-conversation/client/index.ts';
 import * as convComposePrefs from 'ac-client-ui-conversation/client/composePrefs.ts';
 import * as convFeed from 'ac-client-ui-conversation/client/feed.ts';
@@ -38,6 +39,7 @@ import * as llmPoolPoolEntryForm from 'ac-client-ui-llm-pool/client/PoolEntryFor
 import * as llmPoolPoolApi from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import * as pluginRegistryExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
 import * as rendererCodeCard from 'ac-client-ui-renderer/client/CodeCard.vue';
+import * as rendererMarkdownCard from 'ac-client-ui-renderer/client/MarkdownCard.vue';
 import * as rendererScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 import * as rendererSlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import * as rendererCodeFence from 'ac-client-ui-renderer/client/codeFence.ts';
@@ -71,6 +73,8 @@ import * as workspaceEntryPickerModal from 'ac-client-ui-workspace/client/EntryP
 import * as workspaceFileApi from 'ac-client-ui-workspace/client/fileApi.ts';
 import * as workspaceFilePreviewContent from 'ac-client-ui-workspace/client/filePreviewContent.ts';
 import * as workspaceWorkspaceFile from 'ac-client-ui-workspace/client/workspaceFile.ts';
+import * as workspaceOpenWithMenu from 'ac-client-ui-workspace/client/openWithMenu.ts';
+import * as workspaceOpenWithButton from 'ac-client-ui-workspace/client/OpenWithButton.vue';
 // @agentchat/protocol（类型 + isBackgroundRunSource 唯一运行时值——走主线
 // 垫片与 vite alias 同源；settings 等 8.5b 四包外部化依赖它）
 import * as agentchatProtocol from '@agentchat/protocol';
@@ -87,6 +91,7 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-conversation/client/ConversationView.vue': convConversationView,
     'ac-client-ui-conversation/client/TranscriptList.vue': convTranscriptList,
     'ac-client-ui-conversation/client/chatStore.ts': convChatStore,
+  'ac-client-ui-conversation/client/draftParking.ts': convDraftParking,
     'ac-client-ui-conversation/client/index.ts': convIndex,
     'ac-client-ui-conversation/client/composePrefs.ts': convComposePrefs,
     'ac-client-ui-conversation/client/feed.ts': convFeed,
@@ -106,6 +111,7 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-llm-pool/client/poolApi.ts': llmPoolPoolApi,
     'ac-client-ui-plugin-registry/client/ExtToolsPane.vue': pluginRegistryExtToolsPane,
     'ac-client-ui-renderer/client/CodeCard.vue': rendererCodeCard,
+  'ac-client-ui-renderer/client/MarkdownCard.vue': rendererMarkdownCard,
     'ac-client-ui-renderer/client/ScrollableViewport.vue': rendererScrollableViewport,
     'ac-client-ui-renderer/client/SlotOutlet.vue': rendererSlotOutlet,
     'ac-client-ui-renderer/client/codeFence.ts': rendererCodeFence,
@@ -139,6 +145,8 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-workspace/client/fileApi.ts': workspaceFileApi,
     'ac-client-ui-workspace/client/filePreviewContent.ts': workspaceFilePreviewContent,
     'ac-client-ui-workspace/client/workspaceFile.ts': workspaceWorkspaceFile,
+  'ac-client-ui-workspace/client/openWithMenu.ts': workspaceOpenWithMenu,
+  'ac-client-ui-workspace/client/OpenWithButton.vue': workspaceOpenWithButton,
     '@agentchat/protocol': agentchatProtocol,
   };
 }

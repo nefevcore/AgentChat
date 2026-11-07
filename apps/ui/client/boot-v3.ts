@@ -16,7 +16,8 @@ import type { ClientContext, ClientPluginObject } from 'ac-client-runtime';
 import { createClient } from 'ac-client-runtime';
 import type { Wire, WireRow } from 'ac-webui-core';
 import { makeRpcHostPlugin, type RpcWire } from './rpc-host.ts';
-import { skeletonPlugins, skeletonModuleHost, loadChannelCss } from './boot.ts';
+import { skeletonPlugins, loadChannelCss } from './boot.ts';
+import { skeletonSeedsV3 } from './seeds-v3.ts';
 import { createClientModuleSystem, type ScriptLoader } from './module-system.ts';
 import { hostUrl } from './host-endpoint.ts';
 
@@ -27,7 +28,7 @@ export interface BootV3Options {
   fetchWire?: () => Promise<Wire>;
   /** bundle 到达注入点（缺省 <script>；测试 fetch+eval） */
   loadScript?: ScriptLoader;
-  /** 种子词表（缺省 skeletonModuleHost()——壳活实例单源） */
+  /** 种子词表（缺省 skeletonSeedsV3()——壳活实例单源，v3 形态） */
   seeds?: Record<string, unknown>;
 }
 
@@ -55,9 +56,17 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
   const fetchWire = options.fetchWire ?? defaultFetchWire;
   const wire = await fetchWire();
   const rowsById = new Map<string, WireRow>(wire.rows.map((r) => [r.id, r]));
+  // 深路径归一（<pkg>/client... → <pkg> 行）：仅命中 wire 行 id 的前缀词
+  const rowsOf = (spec: string): string | undefined => {
+    for (const id of rowsById.keys()) {
+      if (spec === id || spec.startsWith(id + '/client')) return id;
+    }
+    return undefined;
+  };
   const modules = createClientModuleSystem({
-    seeds: options.seeds ?? skeletonModuleHost(),
+    seeds: options.seeds ?? skeletonSeedsV3(),
     rowOf: (id) => rowsById.get(id),
+    rowsOf,
     ...(options.loadScript !== undefined ? { loadScript: options.loadScript } : {}),
   });
 
@@ -82,14 +91,20 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
   // ④ wire 装载：模块表逐行物化（拓扑序 = wire 行序）→ ctx.plugin → 席位渲染。
   // 附加样式（styles 声明）走 link 注入（revision URL——重载不重复挂）。
   const channel = new Map<string, 'ok' | 'err'>();
-  for (const row of wire.rows) {
-    for (const st of row.styles ?? []) loadChannelCss(hostUrl(st));
-    if (row.isolated) {
-      // 裁决八：isolated 行 = iframe 独立模块表 + 自含产物——切片②对接。
-      // 主文档跳过物化（占位视图归席位渲染面，本批不上报 err）。
-      continue;
+  const loadable = wire.rows.filter((row) => !row.isolated && row.entry !== undefined);
+  // 两段装载（cr-930）：先全到达（仅注册 factory——跨行 require 在物化期
+  // 同步解析，届时全部 factory 已注册）；再按 wire 行序逐行物化
+  for (const row of loadable) {
+    for (const st of row.styles ?? []) loadChannelCss(hostUrl(st)); // 附加样式（revision URL——重载不重复挂）
+    try {
+      await modules.ensure(row.id);
+    } catch (error) {
+      console.error(`[boot-v3] 行 bundle 到达失败（跳过）"${row.id}"：`, error);
+      channel.set(row.id, 'err');
     }
-    if (row.entry === undefined) continue; // 纯样式行（theme 类）
+  }
+  for (const row of loadable) {
+    if (channel.get(row.id) === 'err') continue;
     try {
       const mod = await modules.import(row.id) as { default?: unknown };
       const plugin = (mod as Record<string, unknown>)['default'] ?? mod;
@@ -100,6 +115,5 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
       channel.set(row.id, 'err');
     }
   }
-
   return { ctx, channel, modules, wire };
 }

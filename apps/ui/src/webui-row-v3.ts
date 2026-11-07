@@ -120,12 +120,22 @@ export function makeWebuiRowV3(options: WebuiRowV3Options): Plugin {
       // 缺省种子表推导仅 file: 形态可用（jsdom 测试 http: 形 → 显式传参或空表）
       let shellSeeds = options.shellSeeds;
       if (shellSeeds === undefined) {
+        // 锚点解析：file: 形态（宿主）直接用；http: 形态（jsdom 测试）从
+        // cwd 上溯找 pnpm-workspace.yaml（数据根恒在仓库内）
+        let uiDir: string | undefined;
         try {
-          const here = fileURLToPath(new URL('..', import.meta.url));
-          shellSeeds = deriveShellSeeds(join(here, '..', '..', 'packages'), here);
-        } catch {
-          shellSeeds = {};
+          uiDir = fileURLToPath(new URL('..', import.meta.url));
+        } catch { /* jsdom 形态 */ }
+        if (uiDir === undefined) {
+          let dir = process.cwd();
+          for (;;) {
+            if (existsSync(join(dir, 'pnpm-workspace.yaml'))) { uiDir = join(dir, 'apps', 'ui'); break; }
+            const parent = dirname(dir);
+            if (parent === dir) break;
+            dir = parent;
+          }
         }
+        shellSeeds = uiDir !== undefined ? deriveShellSeeds(join(uiDir, '..', '..', 'packages'), uiDir) : {};
       }
       const loader = new Loader(ctx, { baseUrl: options.baseUrl });
       const { rows, warnings: docWarnings } = deriveWebuiRows(options.profileDir);
