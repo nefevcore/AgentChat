@@ -20,7 +20,7 @@ import { computed, defineAsyncComponent, ref, type ComputedRef, type Ref } from 
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-agents） ----
 
-/** Agent 名册条目（webui types.ts / api/roster.ts re-export 维持旧路径） */
+/** Agent 名册条目（owning = ac-client-ui-agents；历史自 webui types.ts/api/roster.ts 迁入） */
 export interface AgentInfo {
   id: string;
   name: string;

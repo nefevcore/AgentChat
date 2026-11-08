@@ -37,8 +37,7 @@ const FileEditsPanelHostAsync = defineAsyncComponent(() => import('./FileEditsPa
 
 // ------------------------------------------------------------
 // message:final-view 契约词表（SLOT_KEY/MessageViewDef 单源住
-// messageViews.ts 解析面；解析面 = resolveMessageView/registerMessageView，
-// webui core/registry/messageViews.ts re-export 维持旧路径）
+// messageViews.ts 解析面；解析面 = resolveMessageView/registerMessageView）
 // ------------------------------------------------------------
 
 import { SLOT_KEY, type MessageViewDef } from './messageViews.ts';

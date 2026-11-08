@@ -4,8 +4,7 @@
 //
 // 自 webui api/runs.ts（toHistoryMessages/parseToolArgs/
 // PMediaAttachment/PSessionRecord/fetchPairHistory）与 api/groups.ts
-//（fetchGroupHistory/expandGroupRecord）迁入；webui 两侧 re-export
-// 维持旧路径。rpc 契约面注入（webui 包装传 wireRpc 缺省）。
+//（fetchGroupHistory/expandGroupRecord）迁入。rpc 契约面注入（包装传 wireRpc 缺省）。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 import { fmtElapsed } from './feed.ts';

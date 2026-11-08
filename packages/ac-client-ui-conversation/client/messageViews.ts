@@ -8,9 +8,7 @@
 // M27 D9 收编（S2）：数据面经 SlotRegistry（message:final-view keyed
 // seat——席位声明 + 内置出厂批次住本包 client/index.ts）。本模块 =
 // 【解析面】（register → slots / resolve ← slots.entries 的 meta.def；
-// runtime 未装配回落旧数组——既有测试零改动）。webui
-// core/registry/messageViews.ts re-export 维持旧路径（bridge 注册面/
-// main.ts bind 面/测试导入面零改动——同一模块实例）。
+// runtime 未装配回落旧数组——既有测试零改动）。
 // ============================================================
 
 import { ref, type Component } from 'vue';

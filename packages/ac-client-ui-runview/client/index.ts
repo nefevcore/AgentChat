@@ -503,8 +503,7 @@ export const runviewClientPlugin = clientPlugin({
 
 export default runviewClientPlugin;
 
-// ---- 运行动作面（M27.2-2 sidebar 面板壳随件迁；webui api/runs.ts
-//      薄包装补 wireRpc 缺省维持旧路径） ----
+// ---- 运行动作面（M27.2-2 sidebar 面板壳随件迁自 webui api/runs.ts） ----
 
 /** src convKey（chat~a~b / group~g~a / single~s）→ preview conversationId（M19：
  *  chat 对键双向保留——'chat~a~b' → 'a~b'，不再剥 user 特判） */

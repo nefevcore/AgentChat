@@ -7,8 +7,7 @@
 // 文件夹选择对话框——主路径，error 时调用方降级回 browseDirs 弹窗）；
 // uploadFile = /api/upload multipart（HTTP 直连，非 RPC）。
 // 纯数据面（零 conversation 依赖）：上传指纹的 chatPresence 路径登记
-// 是会话域行为，留消费方（conversation 侧薄包装 + webui api/files
-// 门面 re-export 维持旧路径）。
+// 是会话域行为，留消费方（conversation 侧薄包装）。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 import { jsonFetch, type ReadContext } from './workspaceFile.ts';

@@ -13,8 +13,7 @@
 //     语义原样进选举）；runtime 未装配（pre-boot/单测）→ 旧数组；
 //   · resolveToolResultView ← ctx.slots.entries 的 meta.def（版本计数
 //     响应式；无 runtime 回落旧数组——既有测试零改动）。
-// webui core/registry/toolResultViews.ts re-export 维持旧路径（bridge/
-// main.ts/测试导入面零改动——同一模块实例）。SLOT_KEY/def 类型在
+// SLOT_KEY/def 类型在
 // index.ts 与本模块间单源住本模块（index re-export）——node 测试链
 // 引入本模块不触 .vue 组件。
 // ============================================================

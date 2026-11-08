@@ -5,8 +5,7 @@
 // 职责 = 工具结果视图域宿主（席位 + 解析面 + 选举语义，零卡）：
 //   · tool-card:result-view 席位声明（keyed presentation——精确名/
 //     正则族/priority 选举；M27.2-1 自 hostLedger 代持转正）；
-//   · 解析面 toolResultViews（resolve/registerToolResultView——
-//     webui core/registry re-export 维持旧路径）+ toolLabel/toolIcon
+//   · 解析面 toolResultViews（resolve/registerToolResultView）+ toolLabel/toolIcon
 //     展示词条（T9：per-tool 词条随卡行走留 P3 数据注册表化批次）。
 // 内置卡批次 M28 P2 全部退役随域行（§2.2 镜像表）：bash → ui-shell、
 // read/write/edit → ui-fs、web_search+浏览器族 → ui-web、browser →

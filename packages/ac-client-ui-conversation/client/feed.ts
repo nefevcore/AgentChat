@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-conversation/client/feed.ts —— 统一信息流纯函数层
-//（M27.2-2 随 conversation 件迁入；webui utils/feed re-export 维持旧路径）
+//（M27.2-2 随 conversation 件自 webui utils/feed 迁入）
 //
 // 单一真相源原则：
 //   rawMessages（append-only 事件流） → buildTurns() 纯函数 → Turn[]

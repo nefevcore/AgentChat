@@ -4,7 +4,7 @@
 //
 // 装配序列（main.ts/webuiBoot ①）写入；包内模块（门面/解析面等
 // 非组件上下文）经 clientRuntime() 读取——包不 import webui 胶水
-// 的结构性前提。webui 侧同名模块 re-export 维持旧路径。
+// 的结构性前提。
 // ============================================================
 import type { ClientContext } from './context.ts';
 

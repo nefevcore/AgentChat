@@ -1,7 +1,6 @@
 // ============================================================
 // ac-client-ui-layout/client/perspectives.ts —— 视角注册表 ★顶层扩展点
-//（M27.2-2 layout 件出包随件迁——main:perspective 席位 owning 件的
-// 解析面；webui core/registry/perspectives.ts re-export 维持旧路径）
+//（M27.2-2 layout 件出包随件迁——main:perspective 席位 owning 件的解析面）
 //
 // 设计哲学："视图即筛选" —— 主界面是统一状态下的视角容器，
 // 每个视角 = { active 判定 + 渲染组件 + props }。
