@@ -10,7 +10,7 @@
 //       rpc/call    入站：显式注册的 RPC 调用（弃 src 反射全量）
 //       rpc/result  出站：RPC 应答（ok/result | error）
 //       ws/ack      出站：投递回执（deduped / busy / parked）
-//       ws/ready    出站：握手就绪（服务端广播、前端静默）
+//       ws/ready    出站：握手就绪（epoch = 宿主代数）
 //
 // ack 语义（src WSHandler 的 preview 归位，地图 §2）：
 //   · deduped —— 传输层幂等去重命中（同 requestId 短窗重发不重复投递；
@@ -44,6 +44,14 @@ export interface RpcCallPayload {
 
 /** ws/ack 的回执种类 */
 export type WsAckKind = 'deduped' | 'busy' | 'parked';
+
+/** ws/ready 载荷（cr-948）：epoch = 宿主代数（宿主形态注入 host-facts bootAt 单源），
+ *  同一宿主进程的每次连接恒定；变化 = 宿主已换代重启。 */
+export interface WsReadyPayload {
+  protocol: number;
+  connId: string;
+  epoch: string;
+}
 
 /** ws/ack 载荷（与 ac-web-server 的 ws/ack 事件载荷同形） */
 export interface WsAckPayload {

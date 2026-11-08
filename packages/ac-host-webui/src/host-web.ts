@@ -23,7 +23,7 @@ import { WebServerService, type WebServerRowOptions } from 'ac-web-server';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from 'ac-host-app/user-stub';
 import { makeWebApiRow } from './web-api.ts';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
@@ -106,10 +106,21 @@ export interface WebRing {
  * 单树宿主 boot 先行调用——其余行的 inject ['webServer'] 由此满足。
  */
 export async function assembleWebServer(ctx: Context, options: WebRingOptions): Promise<Fiber> {
+  // 宿主代数（cr-948）：host-facts bootAt 单源（boot 尾落盘，读到即注入；
+  // 旧代数据根/写失败缺席 = 服务构造时刻——同代恒定语义不变）。WS_READY
+  // epoch 与 restart_host 回执的 oldPid 探测锚同源，前端由此识别换代重启。
+  let epoch: string | undefined;
+  try {
+    const facts = JSON.parse(readFileSync(
+      join(options.dataRoot, '.runtime', 'host-facts.json'), 'utf-8',
+    )) as { bootAt?: unknown };
+    if (typeof facts.bootAt === 'string' && facts.bootAt) epoch = facts.bootAt;
+  } catch { /* 缺席/坏文件 = 服务内缺省（构造时刻） */ }
   const serverOptions: WebServerRowOptions = {
     port: options.port ?? 0,
     host: options.host ?? '127.0.0.1',
     strict: true, // 宿主形态端口 = 身份（cr-619）：被占 fail-fast，杜绝无头第二宿主
+    ...(epoch !== undefined ? { epoch } : {}),
     ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
   };
   const fiber = ctx.plugin(WebServerService, serverOptions);

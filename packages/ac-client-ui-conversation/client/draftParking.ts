@@ -12,13 +12,8 @@
 // 上限兜底防长会话漂移（LRU 式淘汰：超出即删最旧——两层同步淘汰，
 // 留存层不无限增长）。
 // ============================================================
-import { ref } from 'vue';
-
 const MAX_PARKED = 100;
 const STORE_KEY = 'agentchat.drafts';
-
-/** 草稿位版本（park 即 bump——幻影 title 等派生面的响应式依赖锚） */
-export const draftsVersion = ref(0);
 
 /** 结构化 localStorage 面（jsdom/node 环境缺省 undefined——存取全兜底） */
 interface StorageLike {
@@ -38,7 +33,6 @@ function persist(): void {
 
 /** 暂存草稿（空文本 = 清位——发送后/清空后调用同接口） */
 export function parkDraft(key: string, text: string): void {
-  draftsVersion.value++;
   if (!text) {
     if (parked.delete(key)) persist();
     return;

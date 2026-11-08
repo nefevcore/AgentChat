@@ -73,6 +73,9 @@ export interface WebServerRowOptions {
   heartbeatMs?: number;
   /** JSON 请求体上限字节（缺省 10 MiB） */
   maxBodyBytes?: number;
+  /** 宿主代数（cr-948）：WS_READY epoch 字段源——恒定标识宿主进程代。
+   *  宿主 boot 注入 host-facts bootAt 单源；缺省 = 服务构造时刻。 */
+  epoch?: string;
   /**
    * 监听失败 fail-fast 档（cr-619，缺省 false = 主线既有降级继续）。宿主 boot
    * 形态传 true：端口 = 产品身份，EADDRINUSE 即reject——降级继续会产生无头
@@ -168,6 +171,8 @@ export class WebServerService extends Service {
   /** requestId 幂等缓存：`${method}|${requestId}` → 最近处理时刻 */
   private readonly recentCalls = new Map<string, number>();
   private connSeq = 0;
+  /** 宿主代数（cr-948）：WS_READY epoch——进程生命周期内恒定 */
+  private readonly epoch: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private readonly listening: Promise<number>;
   private stopped = false;
@@ -183,6 +188,7 @@ export class WebServerService extends Service {
       ...(options.strict === true ? { strict: true } : {}),
     };
     this.staticDir = options.staticDir;
+    this.epoch = options.epoch ?? new Date().toISOString();
     this.allowedOrigins = new Set(options.allowedOrigins ?? []);
     this.allowedHosts = new Set(options.allowedHosts ?? []);
     this.strictHost = isLoopbackHostname(this.options.host) || this.options.host === '::';
@@ -209,6 +215,13 @@ export class WebServerService extends Service {
       this.ctx.logger.warn(`[webServer] 传输层错误（降级继续）: ${err.message}`);
     });
 
+    // 传输基座探活（cr-948）：前端断连后重连快路探测点——服务构造期
+    // 即在路由表（宿主 web-api 行的 /api/healthz 带数据根计数，装配后段
+    // 才注册；boot 窗口只有本端点在听）。
+    this.route('GET', '/healthz', async (call) => {
+      call.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      call.res.end(JSON.stringify({ ok: true, epoch: this.epoch }));
+    });
     this.listening = new Promise<number>((resolve, reject) => {
       const onListenError = (err: Error) => {
         if (this.options.strict === true) {
@@ -647,7 +660,7 @@ export class WebServerService extends Service {
       this.connections.delete(connId);
       this.ctx.emit('ws/connection-closed', connId, code, reason.toString());
     });
-    ws.send(buildFrame(WS_READY, { protocol: 1, connId, serverStartedAt: Date.now() }));
+    ws.send(buildFrame(WS_READY, { protocol: 1, connId, epoch: this.epoch }));
     this.ctx.emit('ws/connection-opened', connId);
   }
 

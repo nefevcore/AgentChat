@@ -10,7 +10,7 @@
 // webui wire 胶水；onOpen 可选面 = 重连恢复链）。
 // ============================================================
 import { ref, computed, type ComputedRef, type Ref } from 'vue';
-import type { RpcClientFace } from 'ac-client-runtime';
+import { resyncRetry, type RpcClientFace } from 'ac-client-runtime';
 import type { ChatMessage, Turn } from './types.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import type { RosterCore } from 'ac-client-ui-agents/client';
@@ -2768,9 +2768,12 @@ export function createFeedCore(
       const resume = activeDialogId.value;
       if (resume) {
         const { kind, key } = parseDialogId(resume);
-        if (kind === 'single') loadHistory(resume, VIEWER_ID.value, key, key);
-        else if (kind === 'group') void loadGroupHistory(resume, key);
-        else if (pairHasViewer(key)) loadHistory(resume, VIEWER_ID.value, pairPartnerOf(key));
+        // resyncRetry（cr-948）：restart_host 后首连常撞宿主 boot 早期窗口，
+        // 一次性拉取失败即静默——历史对账失败退避重试（loadGroupHistory 自带
+        //  requestId 守卫，重复触发安全）
+        if (kind === 'single') resyncRetry('feed.reconnect', () => { loadHistory(resume, VIEWER_ID.value, key, key); return Promise.resolve(); });
+        else if (kind === 'group') resyncRetry('feed.reconnect', () => loadGroupHistory(resume, key));
+        else if (pairHasViewer(key)) resyncRetry('feed.reconnect', () => { loadHistory(resume, VIEWER_ID.value, pairPartnerOf(key)); return Promise.resolve(); });
         // 非 viewer 对桶（只读视角）无写口——重连恢复只覆盖 viewer 主路径
       }
     });

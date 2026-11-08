@@ -16,8 +16,8 @@
 //     → 独立会话列表/视角消费面消失，宿主不残废。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
-import { takeDraft, parkDraft, restoreDrafts, draftsVersion } from 'ac-client-ui-conversation/client/draftParking.ts';
+import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf, resyncRetry } from 'ac-client-runtime';
+import { takeDraft, parkDraft, restoreDrafts } from 'ac-client-ui-conversation/client/draftParking.ts';
 import { loadComposePrefs } from 'ac-client-ui-conversation/client/composePrefs.ts';
 import { defineAsyncComponent, ref, computed, type ComputedRef, type Ref } from 'vue';
 
@@ -265,16 +265,16 @@ export class SingleBoardService extends Service {
   /** 未发送草稿身份（null = 无草稿） */
   readonly pending: Ref<PendingMeta | null> = ref(null);
   /** 草稿 → SingleSession 形状（哨兵 id——feed 分区恒空，isSingleFresh
-   *  天然成立居中开场；title 由草稿派生供会话头显示「正在写什么」） */
+   *  天然成立居中开场）。title 不从草稿正文派生：会话头/列表对空会话
+   *  恒回落「新会话」（useConversationIdentity/titleOf 同口径），正文
+   *  预览顶掉「新会话」是 cr-937 修的体验缺陷——草稿正文的舞台只在
+   *  输入框本身。draftsVersion 依赖随之退役（无派生面消费）。 */
   private pendingView(p: PendingMeta): SingleSession {
-    void draftsVersion.value;
-    const draft = takeDraft('single:' + PENDING_SINGLE_ID);
     const now = new Date().toISOString();
     return {
       id: PENDING_SINGLE_ID,
       agentId: p.agentId,
       ...(p.model !== undefined ? { model: p.model } : {}),
-      ...(draft ? { title: draft.replace(/\n[\s\S]*$/, '').slice(0, 24) + (draft.length > 24 ? '…' : '') } : {}),
       ...(p.workspaceId !== undefined ? { workspaceId: p.workspaceId } : {}),
       status: 'active',
       createdAt: now,
@@ -284,6 +284,17 @@ export class SingleBoardService extends Service {
   /** 全量 = 已物化真值（草稿不占行——列表只看这条） */
   readonly allSingles: ComputedRef<SingleSession[]> = computed(() => this.singles.value);
   private savePending(): void { savePending(this.pending.value); }
+
+  /** 草稿态退役（发送成功/真值帧对账）：身份清空之外，哨兵正文位同步
+   *  清键。不清的后果 = 串台（cr-937）：发送后 ChatInput 草稿转场 watcher
+   *  会把残留 inputText 回写哨兵键（watcher flush 先于发送链 clear），
+   *  下一个新会话 takeDraft 哨兵键即取到上一会话的已发正文。清键走
+   *  parkDraft 空串（= 删键，两层同步）。 */
+  private retireDraft(): void {
+    this.pending.value = null;
+    this.savePending();
+    parkDraft('single:' + PENDING_SINGLE_ID, '');
+  }
 
   /** 活跃独立会话 id（派生自 feed 活跃分区——会话上下文的唯一事实源在会话服务） */
   readonly activeSingleId: ComputedRef<string> = computed(() => this.own.sessions.feed.activeSingleId.value);
@@ -312,10 +323,17 @@ export class SingleBoardService extends Service {
     }), 'singleBoard.wire');
     // 重连即刷：断连期间 singles/updated 帧丢失（新建/改名/归档不可见）
     // ——WS 恢复后补拉一次（feed-core/runview 同款恢复位；onOpen 可选
-    // 成员，测试桩缺席时跳过）
-    this.own.fiber.effect(() => this.own.rpc.onOpen?.(() => {
-      if (this.loaded.value) void this.refresh();
-    }) ?? (() => {}), 'singleBoard.reconnect');
+    // 成员，测试桩缺席时跳过）。onEpoch = 宿主换代（cr-948）：无条件全刷；
+    // resyncRetry = restart_host 后首连撞 boot 早期窗口的失败退避重试。
+    this.own.fiber.effect(() => {
+      const offOpen = this.own.rpc.onOpen?.(() => {
+        if (this.loaded.value) resyncRetry('singleBoard', () => this.refresh());
+      }) ?? (() => {});
+      const offEpoch = this.own.rpc.onEpoch?.(() => {
+        resyncRetry('singleBoard', () => this.refresh());
+      }) ?? (() => {});
+      return () => { offOpen(); offEpoch(); };
+    }, 'singleBoard.reconnect');
   }
 
   /** presence 同步面（帧路由 single~sid 判别——sessions 协调面） */
@@ -329,7 +347,7 @@ export class SingleBoardService extends Service {
       this.singles.value = d.singles;
       this.loaded.value = true;
       // 草稿恢复（首启/重载）：草稿层先行（正文），草稿身份随后——顺序
-      // 承 cr-849：pendingView 的 title 派生要读草稿层。
+      // 承 cr-849：hasPendingSubstance 判「有实义」要读草稿层正文。
       restoreDrafts();
       if (!this.pendingRestored) {
         if (this.pending.value === null) this.pending.value = loadPending();
@@ -339,8 +357,7 @@ export class SingleBoardService extends Service {
       // 实际成功但响应丢失/刷新抢跑）→ 草稿态退役（会话已是真值行）
       const pid = this.pending.value?.pendingId;
       if (pid !== undefined && d.singles.some(s => s.id === pid)) {
-        this.pending.value = null;
-        this.savePending();
+        this.retireDraft(); // 真值接管：哨兵正文位同步清键（cr-937 串台防线）
       }
       // single 未读对账（cr-290）：active 集外分区的未读 = 会话已删/归档——
       // 无行可点无清除路径（tab 聚合徽章永久残留），顺手清 + 写穿
@@ -369,8 +386,7 @@ export class SingleBoardService extends Service {
     // 真值到达（created/updated）= 草稿态退役——待发 id 已被服务端确认
     //（物化回执/created 帧/auto-title 的 updated 帧），会话由真值行接管
     if ((action === 'created' || action === 'updated') && this.pending.value?.pendingId === meta.id) {
-      this.pending.value = null;
-      this.savePending();
+      this.retireDraft(); // 真值接管：哨兵正文位同步清键（cr-937 串台防线）
     }
     this.track(meta.id, action === 'removed');
     const list = this.singles.value;
@@ -442,9 +458,13 @@ export class SingleBoardService extends Service {
     try {
       const session = await this.create({ id, ...(p.agentId ? { agentId: p.agentId } : {}), ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}) });
       if (p.model !== undefined) await this.updateSession(id, { model: p.model }).catch(() => undefined);
-      // 真值接管：草稿态清空 + 上下文切到真值行（feed 身份映射刷新）
-      this.pending.value = null;
-      this.savePending();
+      // 真值接管：草稿态清空 + 上下文切到真值行（feed 身份映射刷新）。
+      // cr-937 串台防线：create 内 selectSingleBy 已切 activeSingleId，
+      // 若下方 model 覆盖的 await 窗口让 ChatInput 转场 watcher 抢先
+      // flush，残留 inputText 会被回写哨兵键（from 键此刻仍是哨兵）——
+      // 本清键在收尾同步段执行，晚于任何回写，哨兵位终值恒空，下一个
+      // 新会话 takeDraft 哨兵键不再命中旧正文。
+      this.retireDraft();
       this.selectSingleBy(session);
       return session;
     } catch (err: unknown) {

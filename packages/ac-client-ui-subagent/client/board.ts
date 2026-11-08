@@ -16,6 +16,7 @@
 import { Service, type Context } from '@agentchat/cordis';
 import type { ClientContext, RpcClientFace } from 'ac-client-runtime';
 import { ref, type Ref } from 'vue';
+import { resyncRetry } from 'ac-client-runtime';
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-subagent） ----
 
@@ -125,9 +126,22 @@ export class SubagentBoardService extends Service {
     this.started = true;
     void this.refresh();
     const rpc = this.ctx.get('rpc') as ClientContext['rpc'];
-    this.own.fiber.effect(() => rpc.onEvent((type) => {
-      if (type === 'subagents/updated') void this.refresh();
-    }), 'subagentBoard.wire');
+    this.own.fiber.effect(() => {
+      const off = rpc.onEvent((type) => {
+        if (type === 'subagents/updated') void this.refresh();
+      });
+      // 重连即刷（cr-948）：断连窗口 subagents/updated 帧丢失（新建/停止/
+      // 状态迁移不可见）——onOpen 补拉；RPC 失败经 resyncRetry 退避重试
+      //（restart_host 后首连常撞宿主 boot 早期窗口）。onOpen/onEpoch 均
+      // 可选成员（测试桩缺席时跳过）。
+      const offOpen = rpc.onOpen?.(() => {
+        if (this.subs.value !== null) resyncRetry('subagentBoard', () => this.refresh());
+      }) ?? (() => {});
+      const offEpoch = rpc.onEpoch?.(() => {
+        resyncRetry('subagentBoard', () => this.refresh());
+      }) ?? (() => {});
+      return () => { off(); offOpen(); offEpoch(); };
+    }, 'subagentBoard.wire');
   }
 }
 

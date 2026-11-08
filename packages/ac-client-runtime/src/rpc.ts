@@ -43,6 +43,13 @@ export interface RpcClientFace {
    * @returns 撤销订阅的 disposer
    */
   onClose?(handler: () => void): () => void;
+  /**
+   * 宿主换代重启回调（cr-948：WS_READY epoch 变化的重连——区别于普通
+   * onOpen；断连窗口的帧全部不可追，订阅方须全量对账而非增量 resync）。
+   * 可选成员（旧 wire/桩实现无需提供）。
+   * @returns 撤销订阅的 disposer
+   */
+  onEpoch?(handler: () => void): () => void;
 }
 
 declare module './context.ts' {

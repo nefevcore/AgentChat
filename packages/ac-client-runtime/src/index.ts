@@ -14,6 +14,8 @@ export { setClientRuntime, clientRuntime, resetClientRuntime } from './runtime.t
 export type { SlotRenderer } from './slots.ts';
 export { CLIENT_CONTEXT_KEY, SLOT_OWNER_KEY, useContext, useClientContext, wrapComponent } from './vue.ts';
 export type { RpcClientFace } from './rpc.ts';
+// 重连恢复钩子的退避重试（cr-948——各域 onOpen/onEpoch 恢复位共用）
+export { resyncRetry, type ResyncRetryHandle } from './resyncRetry.ts';
 // 会话服务契约面（conversation 基础件实现；行 client/门面消费——子接口
 // feed/chat 由实现侧深路径取用）
 export type { SessionsClientFace } from './sessions.ts';

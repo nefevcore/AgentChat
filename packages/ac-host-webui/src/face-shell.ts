@@ -393,11 +393,43 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
       const lines = readJournal(dir);
       const subcalls = readSubcalls(dir);
       const linkedRuns = new Set<string>();
+      // steps 按 run 单锚挂载（重复 step 修复）：stepsOfLedger/stepsOfRun 返回
+      // **整 run 全量** steps，而收束 run 在账本是多行形态（段行×N + 注入行
+      // + 终稿行——settlement 物化产物）——逐行挂载会把全量步行重复投 N 遍
+      //（前端 = 每个 step 渲染 N 次）。改为：段行折叠、首段位置作锚挂一次；
+      // 注入行投 context 注入卡（对齐主投影 assembleSessionView 的
+      // injectRowsOf 语义——注入正文进卡片而非 assistant 气泡）；终稿行仅
+      // 在 run 尚无锚时挂载（纯终稿 run 无段行，保持原路径）。settleOrphan
+      // 物化的无终稿 run 由首段行作锚，不再依赖下方盲区循环。
+      const steppedRuns = new Set<string>();
       for (const r of rows) {
         if (r.run !== undefined && r.run !== '') linkedRuns.add(r.run);
-        const projected = r.role === 'agent' && r.agent_id === id && r.run !== undefined && r.run !== ''
-          ? stepsOfLedger(rows, r.run, subcalls) ?? stepsOfRun(lines, r.run)
-          : null;
+        if (r.source === 'segment') {
+          if (steppedRuns.has(String(r.run ?? ''))) continue;
+          const p = stepsOfLedger(rows, r.run ?? '', subcalls) ?? stepsOfRun(lines, r.run ?? '');
+          if (p === null) continue;
+          steppedRuns.add(r.run ?? '');
+          all.push({ role: 'assistant', agent_id: id, content: '', run: r.run, steps: p.steps, ...(p.partial ? { partial: true } : {}) });
+          continue;
+        }
+        if (r.source === 'inject') {
+          all.push({
+            role: 'context',
+            content: r.content,
+            source: typeof r.injectSource === 'string' && r.injectSource !== '' ? r.injectSource : 'inject',
+            ...(r.label !== undefined ? { label: r.label } : {}),
+            ...(r.payload !== undefined ? { payload: r.payload } : {}),
+            message_id: r.message_id,
+            timestamp: r.timestamp,
+            ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
+          });
+          continue;
+        }
+        const projected = steppedRuns.has(String(r.run ?? '')) ? null
+          : r.role === 'agent' && r.agent_id === id && r.run !== undefined && r.run !== ''
+            ? stepsOfLedger(rows, r.run, subcalls) ?? stepsOfRun(lines, r.run)
+            : null;
+        if (projected !== null) steppedRuns.add(r.run ?? '');
         all.push({
           role: r.agent_id === id ? 'assistant' : 'user',
           ...(r.agent_id !== '' ? { agent_id: r.agent_id } : {}),

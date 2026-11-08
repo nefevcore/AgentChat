@@ -151,6 +151,7 @@ for (const { short, dir } of modules.filter((m) => m.pureStyle)) {
   // 计算——表内天然只含样式产物）；entry 缺席 = 纯样式行（wire 合成面词）
   const files = {};
   for (const name of readdirSync(distDir).sort()) {
+    if (!statSync(join(distDir, name)).isFile()) continue; // cr-938：目录不入清单（EISDIR 防御）
     const buf = readFileSync(join(distDir, name));
     files[name] = { hash: sha256(buf).slice(0, 16), size: buf.length };
   }
@@ -176,6 +177,10 @@ for (const { dir } of builtModules) {
   if (!existsSync(srcEntry)) { console.error('[build-channel] ' + dir + '：client/index.ts 源入口缺席'); process.exit(1); }
   await build({
     configFile: false,
+    // publicDir:false（cr-938）：vite 缺省从 CWD 拷 public/ 壳资产进包 dist
+    //（从 apps/ui 跑即污染 + revision 清单 EISDIR 崩）——库构建零公共资产，
+    // CWD 无关化在此关闭（顶层键，放 build 子层会被静默忽略）
+    publicDir: false,
     plugins: [vue(), Icons({ compiler: 'vue3' })],
     resolve: { alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) } },
     build: {
@@ -215,6 +220,7 @@ for (const { short, dir } of builtModules) {
   writeFileSync(tmpEntry, entryCode, 'utf-8');
   await build({
     configFile: false,
+    publicDir: false, // cr-938 同第一遍：CWD 无关化（顶层键）
     plugins: [vue(), Icons({ compiler: 'vue3' })],
     resolve: { alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) } },
     build: {
@@ -280,6 +286,7 @@ for (const { short, dir } of builtModules) {
   // revision 清单：rev = files 哈希的框式聚合（跨文件边界不可移字节）
   const files = {};
   for (const name of readdirSync(distDir).sort()) {
+    if (!statSync(join(distDir, name)).isFile()) continue; // cr-938：目录不入清单（EISDIR 防御）
     const buf = readFileSync(join(distDir, name));
     files[name] = { hash: sha256(buf).slice(0, 16), size: buf.length };
   }

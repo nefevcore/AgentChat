@@ -17,6 +17,7 @@ export interface RpcWire {
   onOpen(handler: () => void): () => void;
   onAck(handler: (ack: unknown) => void): () => void;
   onClose(handler: () => void): () => void;
+  onEpoch?(handler: () => void): () => void;
   connected(): boolean;
 }
 
@@ -50,6 +51,10 @@ export class RpcHostService extends Service {
 
   onClose(handler: () => void): () => void {
     return this.wire.onClose(handler);
+  }
+
+  onEpoch(handler: () => void): () => void {
+    return this.wire.onEpoch?.(handler) ?? (() => {});
   }
 }
 

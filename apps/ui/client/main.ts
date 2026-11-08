@@ -35,6 +35,13 @@ async function boot(): Promise<void> {
   wireRpcBrowser.onEvent((type: string) => {
     if (type === 'wire/graph') void reload();
   });
+  // 宿主换代重启（cr-948）：WS_READY epoch 变化 = 断连窗口的 wire/graph 帧
+  // 丢失（rev 变化帧随旧宿主进程蒸发）——换代钩子无条件重拉 wire（rev 不变
+  // 则幂等零开销），同时名册全量重取（agents/updated 帧同理丢失）。
+  wireRpcBrowser.onEpoch(() => {
+    void reload();
+    void ctx.rpc.call('agents/list').then(() => undefined, () => undefined);
+  });
   // 装配序列对齐（主线 main.ts 同款——缺此三步则解析面读不到 runtime：
   // perspectives/messageViews/toolResultViews 的 defs() 经 clientRuntime()
   // 取注册表，未 set 时回落空 legacyViews → PerspectiveHost 恒 null（主区空白）；

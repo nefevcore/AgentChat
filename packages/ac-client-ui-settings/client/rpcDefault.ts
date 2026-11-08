@@ -28,4 +28,7 @@ export const defaultRpc: RpcClientFace = {
   onClose(handler: () => void): () => void {
     return clientRuntime()?.rpc.onClose?.(handler) ?? (() => undefined);
   },
+  onEpoch(handler: () => void): () => void {
+    return clientRuntime()?.rpc.onEpoch?.(handler) ?? (() => undefined);
+  },
 };

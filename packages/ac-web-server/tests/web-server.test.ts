@@ -204,6 +204,15 @@ describe('ac-web-server WS：rpc 显式注册 + dedup + ack', () => {
     expect(svc.listConnections()).toHaveLength(1);
   });
 
+  it('cr-948 · ws/ready 载荷带 epoch（同服务恒定）+ /healthz 传输基座探活在听', async () => {
+    const { url } = await boot({ epoch: 'boot-2026-11-08T00:00:00Z' });
+    const { ready } = await connect(new URL(url).port);
+    expect((ready as { epoch?: unknown }).epoch).toBe('boot-2026-11-08T00:00:00Z');
+    const hz = await fetch(url + '/healthz', { method: 'GET' });
+    expect(hz.status).toBe(200);
+    expect(await hz.json()).toMatchObject({ ok: true, epoch: 'boot-2026-11-08T00:00:00Z' });
+  });
+
   it('rpc/call → 显式注册的 handler → rpc/result 回源连接', async () => {
     const { svc, port } = await boot();
     svc.registerRpc('chat.send', (params) => ({ delivered: params }));

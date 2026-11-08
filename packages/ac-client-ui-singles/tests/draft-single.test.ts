@@ -13,6 +13,7 @@ let SingleBoardService: typeof import('../client/index.ts').SingleBoardService;
 let PENDING_SINGLE_ID: typeof import('../client/index.ts').PENDING_SINGLE_ID;
 let loadPending: typeof import('../client/index.ts').loadPending;
 let parkDraft: typeof import('ac-client-ui-conversation/client/draftParking.ts').parkDraft;
+let takeDraft: typeof import('ac-client-ui-conversation/client/draftParking.ts').takeDraft;
 let restoreDrafts: typeof import('ac-client-ui-conversation/client/draftParking.ts').restoreDrafts;
 let clearParked: typeof import('ac-client-ui-conversation/client/draftParking.ts').__clearParkedForTest;
 
@@ -63,6 +64,7 @@ beforeAll(async () => {
   loadPending = idx.loadPending;
   const dp = await import('ac-client-ui-conversation/client/draftParking.ts');
   parkDraft = dp.parkDraft;
+  takeDraft = dp.takeDraft;
   restoreDrafts = dp.restoreDrafts;
   clearParked = dp.__clearParkedForTest;
   restoreDrafts();
@@ -91,12 +93,13 @@ describe('单例草稿态（cr-894）', () => {
     expect(board.pending.value!.agentId).toBe('beta');
   });
 
-  it('草稿不占列表行（activeSingles = 真值）；activeSingle 经哨兵可见（title 派生自草稿）', () => {
+  it('草稿不占列表行（activeSingles = 真值）；activeSingle 经哨兵可见；title 不从草稿正文派生（cr-937：正文预览不得顶掉「新会话」）', () => {
     const { board } = makeBoard();
     parkDraft('single:' + PENDING_SINGLE_ID, '第一行草稿');
     board.startDraft();
     expect(board.activeSingles.value).toHaveLength(0); // 不占行
-    expect(board.activeSingle.value!.title).toBe('第一行草稿'); // 派生可见
+    expect(board.activeSingle.value).not.toBeNull(); // 哨兵视图可见
+    expect(board.activeSingle.value!.title ?? '').toBe(''); // 无派生 title——会话头回落「新会话」
   });
 
   it('dispatchDraft：首发签发 id；create 带同 id；成功后草稿退役 + 切到真值行', async () => {
@@ -168,6 +171,32 @@ describe('单例草稿态（cr-894）', () => {
     await board.updateSession(PENDING_SINGLE_ID, { agentId: 'alpha', model: 'gpt-x' });
     expect(rpcCalls).toHaveLength(0); // 草稿期零 RPC
     expect(board.pending.value).toMatchObject({ agentId: 'alpha', model: 'gpt-x' });
+  });
+
+  it('cr-937 串台防线：dispatchDraft 成功退役时清哨兵正文位——下一个新会话 takeDraft 哨兵键取空', async () => {
+    const { board, activeSingleId } = makeBoard();
+    board.startDraft();
+    parkDraft('single:' + PENDING_SINGLE_ID, '会话 1 的首发正文'); // 模拟发送链 watcher/兜底回写哨兵键
+    await board.dispatchDraft();
+    expect(board.pending.value).toBeNull();
+    expect(takeDraft('single:' + PENDING_SINGLE_ID)).toBe(''); // 哨兵位已清——新会话 2 不再串台
+    expect(JSON.parse(storage.getItem('agentchat.drafts')!)).toEqual([]); // 留存层同步清
+    expect(activeSingleId.value).toMatch(/^[0-9a-f]{8}-/); // 已切真值行
+  });
+
+  it('cr-937 串台防线：真值帧对账（mergeUpdate created）同样清哨兵正文位', async () => {
+    const { board } = makeBoard();
+    await board.refresh(); // 外部帧路径有未装载守卫（!loaded 提前返回）——真世界 board 恒已装载
+    board.startDraft();
+    const pid = (board.pending.value!.pendingId = '11111111-2222-3333-4444-555555555555'); // 模拟失败窗口留存
+    parkDraft('single:' + PENDING_SINGLE_ID, '失败窗口的半截正文');
+    // created 帧到达（create 实际成功但响应丢失的恢复路径）
+    (board as unknown as { mergeUpdate: (m: unknown, a: string) => void }).mergeUpdate(
+      { id: pid, status: 'active', agentId: '', createdAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z' },
+      'created',
+    );
+    expect(board.pending.value).toBeNull();
+    expect(takeDraft('single:' + PENDING_SINGLE_ID)).toBe(''); // 哨兵位已清
   });
 
   it('留存：刷新形态（新 board 实例）后 loadPending 恢复', () => {

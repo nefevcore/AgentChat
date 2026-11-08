@@ -74,4 +74,20 @@ describe('cr-586 · rpc-wire 批帧解包', () => {
   it('RECONNECT_BASE_MS 导出面维持（重连语义未动）', () => {
     expect(RECONNECT_BASE_MS).toBe(2000);
   });
+
+  it('cr-948 · WS_READY epoch 变化触发换代钩子（同代不触发）', async () => {
+    const fired: number[] = [];
+    const off = wireRpcBrowser.onEpoch(() => fired.push(1));
+    const ws = currentSocket();
+    // 首连基线（lastEpoch 空 → 记录不触发）
+    ws.feed({ type: 'ws/ready', data: { protocol: 1, connId: 'c1', epoch: 'e1' } });
+    expect(fired).toHaveLength(0);
+    // 同代重连（网络闪断）→ 不触发
+    ws.feed({ type: 'ws/ready', data: { protocol: 1, connId: 'c2', epoch: 'e1' } });
+    expect(fired).toHaveLength(0);
+    // 宿主换代 → 触发
+    ws.feed({ type: 'ws/ready', data: { protocol: 1, connId: 'c3', epoch: 'e2' } });
+    expect(fired).toHaveLength(1);
+    off();
+  });
 });

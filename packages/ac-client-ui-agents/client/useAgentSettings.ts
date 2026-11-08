@@ -16,6 +16,7 @@ import { getAssembly, saveAssembly, getLlmSchemas, getPools } from 'ac-client-ui
 import { fetchAgents, createAgent as createAgentRpc } from './index.ts';
 import { deleteAgent as deleteAgentRpc, getAgentConfig, saveAgentConfig } from './rosterApi.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import { resyncRetry } from 'ac-client-runtime';
 
 /** 定时任务数据面注入口（M29 P1-3c：timerApi 归 ui-timer——本包 .ts 不直连
  *  domain 行数据面〔R6〕，由宿主 .vue 注入 ui-timer 的 timerApi） */
@@ -362,6 +363,24 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
       if (agentId.value) void refreshAssembly(agentId.value);
     }
   });
+  // 重连恢复位（cr-948）：断连窗口 agents/updated / plugin/updated 帧丢失
+  //  → 装配视图停在旧态。onOpen（普通闪断）按需刷当前 Agent；onEpoch（宿主
+  //  换代——插件装载面可能整体变化）元数据 + 装配全刷。失败退避重试。
+  //  loadMeta 内部 allSettled 不外抛——重试链需显式失败信号，包一层判 error。
+  const resync = (meta: boolean): void => {
+    if (meta) void resyncRetry('agentSettings.meta', async () => {
+      await loadMeta();
+      if (error.value) throw new Error(error.value);
+    });
+    // refreshAssembly 吞错写 agentAssemblyError（已有视图时保留旧数据）——
+    // 重试链经该标志感知失败
+    if (agentId.value) void resyncRetry('agentSettings.assembly', async () => {
+      await refreshAssembly(agentId.value);
+      if (agentAssemblyError.value) throw new Error(agentAssemblyError.value);
+    });
+  };
+  const disposeOpen = defaultRpc.onOpen?.(() => resync(false)) ?? (() => undefined);
+  const disposeEpoch = defaultRpc.onEpoch?.(() => resync(true)) ?? (() => undefined);
 
   return {
     // 状态
@@ -375,6 +394,6 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
     loadMeta, loadAgent,
     saveAgent, saveTimers, resetAgent,
     createAgent, removeAgent,
-    disposeWs,
+    disposeWs, disposeOpen, disposeEpoch,
   };
 }

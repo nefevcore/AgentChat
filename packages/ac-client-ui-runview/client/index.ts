@@ -11,7 +11,7 @@
 //（running 非空时缩至 1/10），非 3s——见 RunsClientService。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { clientPlugin, clientRuntime, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
+import { clientPlugin, clientRuntime, resyncRetry, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
 import { defineAsyncComponent, ref, watch, type Ref } from 'vue';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import type { MainViewDef } from 'ac-client-ui-layout/client/mainViews.ts';
@@ -227,14 +227,21 @@ export class RunsClientService extends Service {
       }, 500);
       if (typeof refreshDebounce.unref === 'function') refreshDebounce.unref();
     };
+    // 重连恢复（cr-948）：失败退避重试——restart_host 后首连撞 boot 早期
+    // 窗口的一次性 refresh 会静默失败，矩阵投影停在断连时刻。
+    const resilientRefresh = (): void => {
+      resyncRetry('runs.reconnect', () => this.refresh());
+    };
     this.ctx.fiber.effect(() => {
       // 单 handler 判事件名集合（每帧只过一次——三个订阅各挂一个会让每帧
       // 被判三遍）；onEvent 可选（测试桩可能缺省）——缺席退化纯兜底轮询
       const off = this.own.rpc.onEvent((type) => {
         if (triggerEvents.includes(type)) scheduleEventRefresh();
       });
-      // 重连即刷：断连期间丢失的帧由 onOpen 补齐（feed-core 同款恢复位）
-      const offOpen = this.own.rpc.onOpen?.(() => scheduleEventRefresh()) ?? (() => {});
+      // 重连即刷：断连期间丢失的帧由 onOpen 补齐（feed-core 同款恢复位）；
+      // 换代重启（onEpoch）同链全刷（cr-948）
+      const offOpen = this.own.rpc.onOpen?.(() => resilientRefresh()) ?? (() => {});
+      const offEpoch = this.own.rpc.onEpoch?.(() => resilientRefresh()) ?? (() => {});
       // 前台化即刷：兜底 tick 的相位不随可见性变化——切回后下一 tick
       // 最坏还要等一个 interval（空闲态 60s）。visible 立即刷新消死区；
       // 刷后首个 tick 由顺延逻辑（ensurePolling）把相位锚回前台时刻。
@@ -244,7 +251,7 @@ export class RunsClientService extends Service {
       };
       if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
       return () => {
-        off(); offOpen();
+        off(); offOpen(); offEpoch();
         if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
       };
     }, 'runs.event-refresh');

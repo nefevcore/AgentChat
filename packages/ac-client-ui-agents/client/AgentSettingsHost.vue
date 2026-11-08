@@ -51,6 +51,8 @@ void settings.loadMeta();
 // 清壳层 dirty 发布（设置壳关闭守护消费此标志——卸载后无编辑在场）
 onUnmounted(() => {
   settings.disposeWs();
+  settings.disposeOpen();
+  settings.disposeEpoch();
   settings.resetAgent();
   ui.agentEditorDirty = false;
 });
