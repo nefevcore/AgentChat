@@ -23,12 +23,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 const requireShim = createRequire(import.meta.url);
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
 import { formDeniedBy, sessionCapsOf, toolAllowedFor } from 'ac-agents';
-import { validateInvoke } from 'ac-run-code-core';
+import { validateInvoke, lexicalRegionEnd } from 'ac-run-code-core';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
 
@@ -194,7 +194,7 @@ export function resolveEffectiveTools(
  * 时效性闸 = 协议版本：快照文件名含 PROTOCOL_VERSION，ready 握手互认——
  * 版本错配即拒用该快照并告警（宁可重试坏 dev 也让错误可见）。
  */
-/** 进程内最新快照（擦除后 JS 源码；null = 本进程尚无成功引导） */
+/** 进程内最新快照（strip + import 绝对化后的 TS 源码；null = 本进程尚无成功引导） */
 let lastGoodWorkerJs: string | null = null;
 
 /** worker 候选入口点（单点收敛——测试钩子可覆写以模拟部署形态：
@@ -213,7 +213,7 @@ function workerSnapshotDir(): string {
 /** entry 绝对路径 → 稳定短名（快照文件名；含协议版本——版本闸的一半） */
 function workerSnapshotFile(entry: string): string {
   const h = createHash('sha256').update(entry).digest('hex').slice(0, 16);
-  return joinPath(workerSnapshotDir(), `v${PROTOCOL_VERSION}-${h}.mjs`);
+  return joinPath(workerSnapshotDir(), `v${PROTOCOL_VERSION}-${h}.ts`);
 }
 
 /** 极简 path.join（免 node:path 依赖形态——本文件既有 import 面窄） */
@@ -227,12 +227,8 @@ function joinPath(a: string, b: string): string {
  * 缓存）。hash-gated：读盘比较，内容未变不重复写（省 tmpdir 写放大）。
  */
 function refreshWorkerSnapshot(devEntry: string, source: string): void {
-  let js: string;
-  try {
-    js = stripWorkerTypes(source);
-  } catch {
-    return; // 擦除失败不缓存（此时 worker 明明跑成了——文件刚被改；保守跳过）
-  }
+  const js = buildWorkerSnapshotJs(devEntry, source);
+  if (js === undefined) return; // 擦除失败不缓存（此时 worker 明明跑成了——文件刚被改；保守跳过）
   lastGoodWorkerJs = js;
   const file = workerSnapshotFile(devEntry);
   try {
@@ -254,6 +250,59 @@ function stripWorkerTypes(source: string): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = (requireShim('node:module') as any);
   return m.stripTypeScriptTypes(source, { mode: 'strip' }) as string;
+}
+
+/**
+ * 快照源码 import 说明符绝对化（降级链修复核心——自锁事故实测证伪）：
+ * 快照是单文件源码落 tmpdir，相对（'./protocol.ts'）与裸包名
+ * （'ac-run-code-core'）导入从快照位置无法解析——须指回真实源入口方能
+ * 加载。走查共享词法骨架（与归一化层同判定单源）跳过字符串/模板/注释；
+ * node:/file:/data:/# 说明符放行；副作用导入同样处理；裸名解析失败留原样
+ * （spawn 报错可见）。export-from 形态不处理（worker 入口源无此形态）。
+ */
+export function absolutizeSnapshotImports(js: string, baseUrl: string): string {
+  let out = '';
+  let pos = 0;
+  let i = 0;
+  while (i < js.length) {
+    const end = lexicalRegionEnd(js, i);
+    if (end > i) { i = end; continue; }
+    const atImport = js.startsWith('import', i) && (i === 0 || /[ \t\r\n;{)]/.test(js[i - 1] ?? ''));
+    if (atImport) {
+      const nl = js.indexOf('\n', i);
+      const segEnd = nl === -1 ? js.length : nl;
+      const seg = js.slice(i, segEnd);
+      const m = /^(import\s+(?:type\s+)?(?:[^'";]*?from\s*)?)(['"])([^'"]+)\2(\s*;?[ \t\r]*)$/.exec(seg);
+      if (m !== null) {
+        const spec = m[3];
+        let abs: string | undefined;
+        try {
+          if (spec.startsWith('./') || spec.startsWith('../')) abs = new URL(spec, baseUrl).href;
+          else if (!/^(?:node:|file:|data:|#)/.test(spec)) abs = pathToFileURL(requireShim.resolve(spec)).href;
+        } catch { /* 解析失败留裸名——spawn 期报错可见 */ }
+        if (abs !== undefined && abs !== spec) {
+          out += js.slice(pos, i) + m[1] + `'${abs}'` + m[4];
+          pos = i + seg.length;
+        }
+      }
+      i = segEnd;
+      continue;
+    }
+    i += 1;
+  }
+  return pos === 0 ? js : out + js.slice(pos);
+}
+
+/**
+ * 快照源码构建（strip + import 绝对化）——refresh 落盘与测试种快照单源。
+ * 返回 undefined = strip 失败（源码语法坏——不缓存）。
+ */
+export function buildWorkerSnapshotJs(devEntry: string, source: string): string | undefined {
+  try {
+    return absolutizeSnapshotImports(stripWorkerTypes(source), pathToFileURL(devEntry).href);
+  } catch {
+    return undefined;
+  }
 }
 
 /** 读磁盘快照（无/坏/版本不符 → undefined） */
@@ -297,9 +346,11 @@ export async function executeRunCode(
   // ExperimentalWarning（experimental 类警告无视 'warning' 监听器仍直写
   // stderr——实测；进程级 flag 是唯一干净路径。worker 是受控执行体，
   // 顺带静默其一切运行时警告可接受）。
-  const execArgv = process.execArgv.includes('--no-warnings')
-    ? process.execArgv
-    : [...process.execArgv, '--no-warnings'];
+  // strip-types 补齐：快照候选是 .ts 真源（加载需 flag）；dev 候选父进程通常已带（显式补齐作无害防御）
+  const STRIP_FLAG = '--experimental-strip-types';
+  const withStrip = (argv: string[]): string[] => argv.includes(STRIP_FLAG) ? argv : [...argv, STRIP_FLAG];
+  const noWarn = process.execArgv.includes('--no-warnings') ? process.execArgv : [...process.execArgv, '--no-warnings'];
+  const execArgv = withStrip(noWarn);
 
   // —— worker 引导链（立项①防退化护栏）——
   // 候选序：dev worker.ts → 内存快照 → 磁盘快照。快速路径：spawn 前对 dev
@@ -379,7 +430,7 @@ export async function executeRunCode(
     });
   /** 内存快照落盘到临时文件再 spawn（ESM 静态 import 需真文件路径） */
   const spawnMemSnapshot = (js: string): Promise<{ worker: Worker } | { fail: string }> => {
-    const file = joinPath(workerSnapshotDir(), `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.mjs`);
+    const file = joinPath(workerSnapshotDir(), `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.ts`);
     try {
       mkdirSync(workerSnapshotDir(), { recursive: true });
       writeFileSync(file, js, 'utf8');
