@@ -10,6 +10,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { FiberStates } from '@agentchat/cordis';
+import { LedgerWriter } from 'ac-ledger';
 import { bootHost } from '../boot.ts';
 import type { HostBootResult } from '../boot.ts';
 
@@ -268,6 +269,29 @@ describe('宿主 boot（单树装配面）', () => {
     })).rejects.toThrow(/未激活/);
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });
+});
+
+describe('boot viewer 投影对账自愈（数据分层 cr）', () => {
+  it('agent 账本缺席 viewer 投影 → boot 补建；重复 boot 幂等不重写', async () => {
+    const dataRoot = path.join(SANDBOX, 'host-boot-projection-test');
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+    // 第一层真值在场、第三层投影缺席（清 viewer/ 事故形态）
+    const uuid = 'proj-1';
+    const w = new LedgerWriter(path.join(dataRoot, 'agents', 'helper', 'sessions', uuid),
+      { participants: ['helper', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '你好，投影对账', agent_id: 'helper', uuid, requestId: 'r1' });
+    const h = await bootHost({ dataRoot, catalogFile: CATALOG, orchestrate: false });
+    const proj = path.join(dataRoot, 'viewer', 'sessions', uuid, 'messages.jsonl');
+    expect(fs.existsSync(proj)).toBe(true);
+    expect(fs.readFileSync(proj, 'utf-8')).toContain('你好，投影对账');
+    await h.close();
+    // 二次 boot：幂等跳过（不重复投影）
+    const h2 = await bootHost({ dataRoot, catalogFile: CATALOG, orchestrate: false });
+    const hits = fs.readFileSync(proj, 'utf-8').split('\n').filter((l) => l.includes('你好，投影对账'));
+    expect(hits).toHaveLength(1);
+    await h2.close();
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }, 60000);
 });
 
 describe('host-custom 偏好层（cr-909 批6 切片三）', () => {

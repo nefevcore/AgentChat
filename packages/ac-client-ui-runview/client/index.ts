@@ -17,12 +17,14 @@ import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import type { MainViewDef } from 'ac-client-ui-layout/client/mainViews.ts';
 import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarViews.ts';
 
-// pair 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
-// ConversationView 内核经 domain→base 跨包引用，浏览器首渲染时装载。
-// 会话区重构 A 路线并入：原 PairDialogView 独立组件退役，pair =
-// 内核 readonly 形态（a/b 端点 + readonly:true——仅阅读消息，禁止
-// 编辑类操作；与 talk/group/single 同组件原地切换，语义统一）
-const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/ConversationView.vue'));
+// pair 视角组件（静态跨包引用——ConversationView 内核经 domain→base
+// 引用：v3 构建期外部化为 require，物化期命中壳种子表单例；vitest
+// 全局 vue 插件下 node 求值安全。会话区重构 A 路线并入：原
+// PairDialogView 独立组件退役，pair = 内核 readonly 形态（a/b 端点 +
+// readonly:true——仅阅读消息，禁止编辑类操作；与 talk/group/single
+// 同组件原地切换，语义统一）〔旧裸 import 异步词形随 crash-hardening 退役〕
+import * as ConversationViewNS from 'ac-client-ui-conversation/client/ConversationView.vue';
+const ConversationView = ConversationViewNS.default;
 // 运行矩阵大画布 + 运行跟踪面板（M28 P1-3 随域迁入；异步——node 环境
 // 消费本模块不求值 .vue 视图链）
 const RunTrackingAsync = defineAsyncComponent(() => import('./RunTracking.vue'));
@@ -474,13 +476,13 @@ export const runviewClientPlugin = clientPlugin({
     ctx.slots.inject('main:perspective', () =>
       ctx.slots.register('main:perspective', {
         id: 'pair',
-        component: ConversationViewAsync,
+        component: ConversationView,
         order: 10,
         meta: {
           def: {
             id: 'pair', label: '会话对', icon: 'message-circle', order: 10,
             active: () => !!pairViewState(),
-            component: ConversationViewAsync,
+            component: ConversationView,
             props: () => {
               const p = pairViewState();
               return { a: p?.a ?? '', b: p?.b ?? '', readonly: true };

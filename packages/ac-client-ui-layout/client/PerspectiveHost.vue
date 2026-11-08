@@ -53,8 +53,10 @@ const viewCrash = ref<{ id: string; message: string } | null>(null);
 
 onErrorCaptured((err, _instance, info) => {
   // 仅截停渲染期错误（render/setup/生命周期/组件更新——视图树已不可
-  // 用）；事件处理器/watcher 回调等运行期错误不降级视图
-  if (!/render|setup|lifecycle|component update/i.test(info)) return;
+  // 用）；事件处理器/watcher 回调等运行期错误不降级视图。async
+  // component loader 同属视图不可用类（Vue 的 info 标签词形——crash
+  // incident：裸 import 拒解析曾因此漏过本边界直穿 root 退位）
+  if (!/render|setup|lifecycle|component update|async component loader/i.test(info)) return;
   const id = active.value?.id ?? '(未知视角)';
   viewCrash.value = { id, message: err instanceof Error ? err.message : String(err) };
   console.error(`[perspectives] 视角 "${id}" 渲染崩溃——就地降级错误卡（不退位壳条目；${info}）`, err);

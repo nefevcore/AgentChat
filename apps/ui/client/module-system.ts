@@ -40,6 +40,32 @@ export interface ClientModuleSystemOptions {
   onError?: (error: unknown) => void;
 }
 
+/** ESM 命名空间标注（CJS interop 协议面——crash-hardening 批）：模块表
+ *  值（种子/深导出/memo）是 ESM 命名空间（import * 形），但规范命名空间
+ *  不带 __esModule 旗标；rollup CJS 产物的默认导入解包依赖它
+ *  （_interopDefault: e => e.__esModule ? e : { default: e }）。缺旗标 =
+ *  命名空间整体被当作 default → 跨包 .vue 组件静默空渲染（2026-11-07
+ *  会话面板空白事故根因的协议半边——另半边是构建器 interop:'auto'）。
+ *  冻结命名空间（rollup 生产构建 Object.freeze 产物——vitest 态不冻结，
+ *  真机才踩）：不可加旗标 → 可写浅拷贝替身（可枚举导出面全量复制 +
+ *  旗标）；替身经 WeakMap 记忆——require 恒等性（module 单例契约）保持）。 */
+const esmMarked = new WeakMap<object, unknown>();
+export function markEsmNamespace(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if ((value as { __esModule?: boolean }).__esModule === true) return value;
+  const cached = esmMarked.get(value);
+  if (cached !== undefined) return cached;
+  let marked: object;
+  try {
+    Object.defineProperty(value, '__esModule', { value: true, enumerable: false, configurable: true });
+    marked = value;
+  } catch {
+    marked = { ...(value as Record<string, unknown>), __esModule: true };
+  }
+  esmMarked.set(value, marked);
+  return marked;
+}
+
 /** 浏览器缺省：<script> 注入（classic script——factory 注册 bundle 非 ESM） */
 function defaultScriptLoader(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -70,11 +96,11 @@ export class ClientModuleSystem {
     };
   }
 
-  /** 同步 require：①②④（③ 装载支缺席——未注册 wire 行 = loud） */
+/** 同步 require：①②④（③ 装载支缺席——未注册 wire 行 = loud） */
   require(spec: string): unknown {
     const seed = (this.options.seeds as Record<string, unknown | undefined>)[spec];
-    if (seed !== undefined || spec in this.options.seeds) return seed;
-    if (this.memo.has(spec)) return this.memo.get(spec);
+    if (seed !== undefined || spec in this.options.seeds) return markEsmNamespace(seed);
+    if (this.memo.has(spec)) return markEsmNamespace(this.memo.get(spec));
     const row = this.normalize(spec);
     if (row !== undefined && row !== spec) {
       // 深路径说明符 → 行级物化（<id>/client 子路径族；cr-930 跨行共享裁决）
@@ -83,7 +109,7 @@ export class ClientModuleSystem {
       const mod = deep?.[spec];
       if (mod === undefined) throw new Error('行深路径缺席（__deep 面未导出——构建器深清单漂移）：' + spec);
       this.memo.set(spec, mod);
-      return mod;
+      return markEsmNamespace(mod);
     }
     const factory = this.factories.get(spec);
     if (factory === undefined) {
@@ -96,7 +122,7 @@ export class ClientModuleSystem {
     try {
       const exports = factory((dep) => this.require(dep));
       this.memo.set(spec, exports);
-      return exports;
+      return markEsmNamespace(exports);
     } finally {
       this.materializing.delete(spec);
     }

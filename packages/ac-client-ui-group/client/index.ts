@@ -18,11 +18,12 @@ import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
 import { defineAsyncComponent, ref, type Ref } from 'vue';
 
-// group 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
-// defineAsyncComponent 跨包引用 ConversationView 内核〔会话区重构更名：
-// DialogView → ConversationView〕——node 环境消费本模块不求值 .vue
-// 视图链，浏览器首渲染时装载）
-const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/ConversationView.vue'));
+// group 视角组件（静态跨包引用 ConversationView 内核〔会话区重构更名：
+// DialogView → ConversationView〕——v3 构建期外部化为 require，物化期
+// 命中壳种子表单例；vitest 全局 vue 插件下 node 求值安全〔旧裸 import
+// 异步词形随 crash-hardening 退役〕）
+import * as ConversationViewNS from 'ac-client-ui-conversation/client/ConversationView.vue';
+const ConversationView = ConversationViewNS.default;
 // 建群弹窗宿主（异步：node 环境消费本模块不求值 .vue 链——webui-kit
 // Modal 等浏览器面组件，浏览器首渲染时装载）
 const CreateGroupHostAsync = defineAsyncComponent(() => import('./CreateGroupHost.vue'));
@@ -242,13 +243,13 @@ export const groupClientPlugin = clientPlugin({
     ctx.slots.inject('main:perspective', () =>
       ctx.slots.register('main:perspective', {
         id: 'group',
-        component: ConversationViewAsync,
+        component: ConversationView,
         order: 30,
         meta: {
           def: {
             id: 'group', label: '群聊', icon: 'users', order: 30,
             active: () => !!ctx.get('groups')?.activeGroupId.value,
-            component: ConversationViewAsync,
+            component: ConversationView,
             props: () => {
               const svc = ctx.get('groups');
               return {

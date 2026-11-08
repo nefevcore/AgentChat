@@ -164,6 +164,11 @@ export class WebuiWireGraph {
     return join(record.pkgDir, 'client', 'dist', file);
   }
 
+  /** 装载行名集（audit 面——sourceKey 名段，与装配文档行 spec 同轴） */
+  names(): Set<string> {
+    return new Set([...this.table.values()].map((r) => r.sourceKey.split('\0')[1]!));
+  }
+
   /** 行包目录清单（stat-poll 探测面——wire/rebuilt 帧的输入） */
   pkgDirs(): Map<string, string> {
     return new Map([...this.table].map(([id, r]) => [id, r.pkgDir]));

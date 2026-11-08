@@ -16,6 +16,8 @@
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { createVueRenderer, type VueSlotRenderer } from './vueRenderer';
+// 选举渲染面共用（layout MainViewHost 等——崩溃边界/退位身份单源）
+export { entryVNode, deadCellFace } from './slotRender';
 
 export interface RendererClientOptions {
   /** 预留（对齐 cordis Service 构造签名形态） */

@@ -22,7 +22,7 @@ import { CLIENT_CONTEXT_KEY, type ClientContext } from 'ac-client-runtime';
 import type { SlotEntry } from 'ac-client-slots';
 import { DEFAULT_SLOT_ORDER } from 'ac-client-slots';
 import { SlotOutletItem } from './SlotOutletItem';
-import { orderedExternal, entryVNode } from './slotRender';
+import { orderedExternal, entryVNode, deadCellFace } from './slotRender';
 
 export default defineComponent({
   name: 'SlotOutlet',
@@ -96,11 +96,15 @@ export default defineComponent({
       if (hostResolved.value) return [];
       const ext = external.value;
       if (kind.value === 'single') {
-        // single（S1.5 cell 选举）：有贡献 → 选举赢家；无贡献 → 默认插槽原样回落（D16-②）
+        // single 三态契约（DSH 对位）：有条目 → 选举赢家；全退位（dead
+        // cell）→ 出口崩溃面（不再空白——root 退位 = 白屏事故的收口）；
+        // 无任何贡献 → 默认插槽原样回落（D16-②）
         if (ext.length > 0) {
           const winner = ctx ? ctx.slots.single(props.name) : undefined;
           return winner ? [entryVNode(ctx, props.name, winner, props.data)] : [];
         }
+        const dead = ctx ? ctx.slots.abdicatedOf(props.name) : [];
+        if (dead.length > 0) return [deadCellFace(props.name, ctx?.slots.lastErrorOf(props.name))];
         return slots.default?.() ?? [];
       }
       // list / chain：内外同轴 order 合并（chain 逐条消费序由注册表 priority 轴给出）

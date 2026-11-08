@@ -160,13 +160,21 @@ export function makeWebuiRowV3(options: WebuiRowV3Options): Plugin {
         }
         // 装载趟收口对账（fiber 激活窗的兜底——wire 在 boot 终态前成形）
         graph.rescan();
+        auditArmed = true;
+        auditFactoryRows();
       })());
 
-      // 出厂行 fail-loud 分类：激活对账后基座点名的行缺席 wire = error 上报
+      // 出厂行 fail-loud 分类：激活对账后基座点名的行缺席 wire = error 上报。
+      // 对账轴 = loader 行名（spec）——wire 行 id 是包全名（ac-client-*），
+      // 与装配文档短 id（midnight/agents/…）不同轴，直接对拍恒假阳性。
+      // 审计窗 = 装载趟收口后（装载中行缺席是时序假象，非缺陷）。
+      let auditArmed = false;
       const auditFactoryRows = () => {
-        const present = new Set(graph.wire().rows.map((r) => r.id));
-        for (const id of factoryIds) {
-          if (!present.has(id)) ctx.logger.error('[webui-v3][出厂] 行缺席 wire（产物未构建或装载失败）：' + id);
+        if (!auditArmed) return;
+        const present = graph.names();
+        for (const row of rows) {
+          if (!row.factory || present.has(row.spec)) continue;
+          ctx.logger.error('[webui-v3][出厂] 行缺席 wire（产物未构建或装载失败）：' + row.id);
         }
       };
 

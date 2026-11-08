@@ -106,6 +106,18 @@ export class SlotsService extends Service {
     return this.core.entries(key);
   }
 
+  /** 退位条目（渲染面三态契约 dead-cell 判据——出口崩溃面的输入） */
+  abdicatedOf(key: SlotKey): readonly SlotEntry[] {
+    return this.core.abdicatedOf(key);
+  }
+
+  /** 席位最近一次条目崩溃（dead-cell 崩溃面的诊断面：错误详情随崩溃面
+   *  上屏 + 控制台——退位只说『谁走了』，这里说『为什么走』） */
+  lastErrorOf(key: SlotKey): unknown {
+    return this.lastErrors.get(key);
+  }
+  private readonly lastErrors = new Map<SlotKey, unknown>();
+
   /** single 型选举（cell shadow；无贡献 → undefined——回落交渲染面默认插槽，D16-②） */
   single(key: SlotKey): SlotEntry | undefined {
     return this.core.single(key);
@@ -228,7 +240,10 @@ export class SlotsService extends Service {
       return;
     }
     const abdicated = this.core.abdicate(key, entry.id);
-    if (abdicated) this.bump(key);
+    if (abdicated) {
+      this.lastErrors.set(key, error);
+      this.bump(key);
+    }
     if (this.onEntryError) {
       this.onEntryError(key, entry, error);
     } else {

@@ -18,6 +18,7 @@
 
 import { ref, type Component } from 'vue';
 import { clientRuntime } from 'ac-client-runtime';
+import type { SlotEntry } from 'ac-client-slots';
 
 /** 主区视图定义（main 席位条目 meta.def 契约形状） */
 export interface MainViewDef {
@@ -72,12 +73,20 @@ export function safeMainViewProps(def: MainViewDef): Record<string, unknown> {
 
 /** 候选清单（order 升序——SlotRegistry entries 轴；无 runtime = 空） */
 export function mainViewDefs(): MainViewDef[] {
+  return mainViewEntries().map((x) => x.def);
+}
+
+/** 候选清单（def + 来源条目——选举渲染面经 entryVNode 承接条目的崩溃
+ *  边界/退位身份；MainViewHost 消费） */
+export interface MainViewCandidate { def: MainViewDef; entry: SlotEntry }
+
+export function mainViewEntries(): MainViewCandidate[] {
   void mainViewVersion.value; // 依赖锚（组件内经 computed 消费时建立响应）
   const ctx = clientRuntime();
   if (!ctx) return [];
   return ctx.slots.entries(MAIN_VIEW_SLOT)
-    .map((e) => e.meta?.def as MainViewDef | undefined)
-    .filter((d): d is MainViewDef => !!d && typeof d.active === 'function' && !!d.component);
+    .map((e) => ({ def: e.meta?.def as MainViewDef | undefined, entry: e }))
+    .filter((x): x is MainViewCandidate => !!x.def && typeof x.def.active === 'function' && !!x.def.component);
 }
 
 /** 当前当选的主区视图（第一个 active 候选；无 = null——主区空态） */

@@ -87,7 +87,11 @@ function applyTheme(isDark: boolean) {
   ensureThemeStyle().textContent = isDark ? darkTheme : lightTheme;
 }
 
-// 初始化主题
+// 初始化主题 + DOM 事件监听：惰性装配（crash-hardening 批）——模块顶层
+// 访问 document/window 会在 node 求值环境（vitest 默认 env / 行包宿主半）
+// 直接 ReferenceError；视图链静态导入后 node 消费面真实存在（singles
+// draft/title 测试即此前车）。首次 useMarkdown()/render 求值时装配，幂等。
+let domWired = false;
 function getIsDark(): boolean {
   const html = document.documentElement;
   if (html.classList.contains('dark')) return true;
@@ -95,55 +99,56 @@ function getIsDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-applyTheme(getIsDark());
-
-// 监听系统偏好变化
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-darkQuery.addEventListener('change', (e) => {
-  // 仅在未手动设置主题时跟随系统
-  const html = document.documentElement;
-  if (!html.classList.contains('dark') && !html.classList.contains('light')) {
-    applyTheme(e.matches);
-  }
-});
-
-// 监听手动主题切换事件
-window.addEventListener('theme-changed', ((e: CustomEvent) => {
-  applyTheme(e.detail.theme === 'dark');
-}) as EventListener);
-
-// ---- 代码块复制按钮：document 级事件委托 ----
-// 复制按钮由 fence 渲染规则注入 v-html（模板上无法挂 @click），消费方
-// 又众多（聊天消息/文件预览/工具卡/版本对话框……）——在渲染方统一委托
-// 处理：任何以 v-html 渲染本管线输出的容器，复制按钮即点即用；消费方
-// 不各自挂监听（重复挂载会双触发 writeText）。
-document.addEventListener('click', (e: Event) => {
-  const copyBtn = (e.target as HTMLElement).closest(
-    '.md-code-block-btn[data-action="copy"]',
-  ) as HTMLElement | null;
-  if (!copyBtn) return;
-
-  const block = copyBtn.closest('.md-code-block');
-  const codeEl = block?.querySelector('pre code');
-  if (!codeEl) return;
-
-  const text = codeEl.textContent || '';
-  navigator.clipboard.writeText(text).then(() => {
-    copyBtn.classList.add('copied');
-    const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
-    if (textSpan) textSpan.textContent = '已复制';
-    setTimeout(() => {
-      copyBtn.classList.remove('copied');
-      if (textSpan) textSpan.textContent = '复制';
-    }, 2000);
-  }).catch(() => {
-    const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
-    if (textSpan) textSpan.textContent = '失败';
-    setTimeout(() => {
-      if (textSpan) textSpan.textContent = '复制';
-    }, 1500);
+function wireThemeDom(): void {
+  if (domWired || typeof document === 'undefined') return;
+  domWired = true;
+  applyTheme(getIsDark());
+  // 监听系统偏好变化
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    // 仅在未手动设置主题时跟随系统
+    const html = document.documentElement;
+    if (!html.classList.contains('dark') && !html.classList.contains('light')) {
+      applyTheme(e.matches);
+    }
   });
-});
+  // 监听手动主题切换事件
+  window.addEventListener('theme-changed', ((e: CustomEvent) => {
+    applyTheme(e.detail.theme === 'dark');
+  }) as EventListener);
+  // 代码块复制按钮：document 级事件委托（同批惰性化——模块顶层
+  // document 访问同罪）。复制按钮由 fence 渲染规则注入 v-html（模板
+  // 上无法挂 @click），消费方又众多（聊天消息/文件预览/工具卡/版本
+  // 对话框……）——在渲染方统一委托处理：任何以 v-html 渲染本管线输出
+  // 的容器，复制按钮即点即用；消费方不各自挂监听（重复挂载会双触发
+  // writeText）。
+  document.addEventListener('click', (e: Event) => {
+    const copyBtn = (e.target as HTMLElement).closest(
+      '.md-code-block-btn[data-action="copy"]',
+    ) as HTMLElement | null;
+    if (!copyBtn) return;
+
+    const block = copyBtn.closest('.md-code-block');
+    const codeEl = block?.querySelector('pre code');
+    if (!codeEl) return;
+
+    const text = codeEl.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+      copyBtn.classList.add('copied');
+      const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
+      if (textSpan) textSpan.textContent = '已复制';
+      setTimeout(() => {
+        copyBtn.classList.remove('copied');
+        if (textSpan) textSpan.textContent = '复制';
+      }, 2000);
+    }).catch(() => {
+      const textSpan = copyBtn.querySelector('.md-code-block-btn-text');
+      if (textSpan) textSpan.textContent = '失败';
+      setTimeout(() => {
+        if (textSpan) textSpan.textContent = '复制';
+      }, 1500);
+    });
+  });
+}
 
 // ---- YAML frontmatter（文档首部 --- 围合的元数据块）----
 // 背景：markdown-it 无 frontmatter 概念，首行 --- 落入 hr/setext 规则——
@@ -527,6 +532,7 @@ function linkifyFilePaths(html: string): string {
 }
 
 export function useMarkdown() {
+    wireThemeDom(); // 惰性 DOM 装配（node 求值安全——见 wireThemeDom 注）
     const md = getMarkdownInstance();
     const mdPlain = getMarkdownPlainInstance();
     const mdTrusted = getMarkdownTrustedInstance();

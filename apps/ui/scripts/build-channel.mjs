@@ -86,10 +86,13 @@ function isChannelPkg(root) {
   }
 }
 
-/** 产物 require 说明符（cjs 形）——纯度门与 seeds 记录的输入 */
+/** 产物 require 说明符（cjs 形）——纯度门与 seeds 记录的输入。
+ *  原生动态 import('X') 同收（cr-930 补丁面）：外部化深词的动态引用
+ *  在第二遍才归一为 require——词收集须两形同源，否则他行 __deep 面漏词。 */
 function requireSpecs(text) {
   const specs = new Set();
   for (const m of text.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) specs.add(m[1]);
+  for (const m of text.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)) specs.add(m[1]);
   return [...specs].filter((s) => !s.startsWith('.') && !s.startsWith('/'));
 }
 
@@ -219,7 +222,13 @@ for (const { short, dir } of builtModules) {
       lib: { entry: tmpEntry, formats: ['cjs'], fileName: () => 'index.js' },
       rollupOptions: {
         ...(selfContained ? {} : { external: isExternal }),
-        output: { inlineDynamicImports: true },
+        // interop: 'auto'（crash-hardening 批实锤修复）：外部化说明符的默认
+        // 导入（跨包 .vue 组件词）须生成 .default 读取——运行时模块表深词
+        // 存的是命名空间对象（ESM 形）。缺省（'default' 档）rollup 视外部
+        // 模块为 CJS 直接透传 require 结果 = 命名空间当组件用 →
+        // "Component is missing template or render function" 静默空渲染
+        //（2026-11-07 会话面板空白事故根因）。
+        output: { inlineDynamicImports: true, interop: 'auto' },
       },
     },
   });
@@ -227,7 +236,19 @@ for (const { short, dir } of builtModules) {
 
   // factory 注册包裹：模块体副作用全延迟到首物化（§4.4 lazy CJS——bundle
   // 执行只注册工厂，CSS 注入等随物化）
-  const raw = readFileSync(join(distDir, 'index.js'), 'utf-8');
+  let raw = readFileSync(join(distDir, 'index.js'), 'utf-8');
+  // 原生动态 import 归一（cr-930 补丁面）：rollup 对外部化说明符的动态
+  // import 保留原生 import('X') 词形——浏览器经典 script 无 importmap（裁
+  // 决二退役），裸说明符 native import 必炸（defineAsyncComponent 跨行
+  // 深引即此形）。v3 唯一解析面 = 模块系统 require（种子①支/深导出面）
+  // ——产物级改写为 require 的 Promise 面（require 在 factory 包裹器作用域）。
+  raw = raw.replace(
+    /import\(\s*(["'])([^"'\n]+)\1\s*\)/g,
+    (all, _q, spec) => (spec.startsWith('.') || spec.startsWith('/')) ? all
+      : isExternal(spec)
+        ? 'Promise.resolve().then(function () { return require(' + JSON.stringify(spec) + '); })'
+        : all,
+  );
   const wrapped = 'window.__ModuleLoader__.load({' + String.fromCharCode(10)
     + '  id: ' + JSON.stringify(pkg.name) + ',' + String.fromCharCode(10)
     + '  factory: (require) => {' + String.fromCharCode(10)
@@ -241,11 +262,16 @@ for (const { short, dir } of builtModules) {
     + '});' + String.fromCharCode(10);
   writeFileSync(join(distDir, 'index.js'), wrapped, 'utf-8');
 
-  // 纯度门（cjs 面）：产物剩余 require ⊆ 宿主模块表；isolated 自含档 = 空
+  // 纯度门（cjs 面）：产物剩余 require ⊆ 宿主模块表；isolated 自含档 = 空。
+  // 动态 import 同门（cr-930 补丁面）：改写后残留的裸说明符 native import
+  //（非外部化词 = 归一失败）= 违例——防漂移。
   const specs = requireSpecs(wrapped);
+  const nativeImports = [...wrapped.matchAll(/import\(\s*(["'])([^"'\n]+)\1\s*\)/g)]
+    .map((m) => m[2])
+    .filter((x) => !x.startsWith('.') && !x.startsWith('/'));
   const offenders = selfContained
-    ? specs.filter((x) => !x.startsWith('node:'))
-    : specs.filter((x) => !isExternal(x));
+    ? [...specs.filter((x) => !x.startsWith('node:')), ...nativeImports]
+    : [...specs.filter((x) => !isExternal(x)), ...nativeImports];
   if (offenders.length > 0) {
     console.error('[build-channel] ' + short + ' 外部化门违例（宿主模块表未覆盖）：' + String.fromCharCode(10) + '  ' + offenders.join(String.fromCharCode(10) + '  '));
     process.exit(1);

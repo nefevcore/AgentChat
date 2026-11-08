@@ -21,10 +21,12 @@ import { takeDraft, parkDraft, restoreDrafts, draftsVersion } from 'ac-client-ui
 import { loadComposePrefs } from 'ac-client-ui-conversation/client/composePrefs.ts';
 import { defineAsyncComponent, ref, computed, type ComputedRef, type Ref } from 'vue';
 
-// single 视角组件（异步：node 环境消费本模块〔portb-e2e〕不求值 .vue
-// 视图链——ConversationView 内核经 domain→base 跨包引用，浏览器首渲染时
-// 装载。会话区重构更名：DialogView → ConversationView）
-const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/ConversationView.vue'));
+// single 视角组件（静态跨包引用——v3 模块系统同源单例：构建期外部化
+// 为 require，物化期命中壳种子表 sharedModules 的 in-bundle 实例；
+// vitest 全局 vue 插件下 node 求值安全〔旧 defineAsyncComponent 裸
+// import 词形已随 crash-hardening 退役——native import 无解析面必炸〕）
+import * as ConversationViewNS from 'ac-client-ui-conversation/client/ConversationView.vue';
+const ConversationView = ConversationViewNS.default;
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-singles） ----
 
@@ -172,6 +174,13 @@ function migratePhantomStore(): void {
 
 function seen(track: SinglesTrackOpts['track'], meta: { id?: string } | undefined, removed = false): void {
   if (track && meta?.id) track(meta.id, removed);
+}
+
+/** 草稿「有实义」判定：正文非空，或已签发服务端续发 id（发送中断的续发
+ *  位——须原位回来）。空正文 + 无续发 id 的残留草稿不构成「正在写」，
+ *  不得劫持启动落点（落最近会话；草稿仍列在列表草稿位可继续）。 */
+function hasPendingSubstance(meta: PendingMeta): boolean {
+  return meta.pendingId !== undefined || takeDraft('single:' + PENDING_SINGLE_ID) !== '';
 }
 
 export async function fetchSingles(rpc: Pick<RpcClientFace, 'call'>, opts: SinglesTrackOpts = {}): Promise<{ singles: SingleSession[] }> {
@@ -504,9 +513,14 @@ export class SingleBoardService extends Service {
   restoreLastSingle(): string | null {
     const last = loadLastContext();
     if (last?.kind !== 'single') return null;
-    // 草稿位同样可恢复（lastContext 指向哨兵 = 上次刷新前正在编辑未发送）
+    // 草稿位同样可恢复（lastContext 指向哨兵 = 上次刷新前正在编辑未发送）。
+    // 空正文草稿不抢位（crash-hardening 批收口：残留空草稿会把启动落点
+    // 永久劫持到空白会话——「正在写」的事实以正文/续发 id 为准）
     if (last.id === PENDING_SINGLE_ID) {
-      if (this.pending.value !== null) { this.selectPending(); return last.id; }
+      if (this.pending.value !== null && hasPendingSubstance(this.pending.value)) {
+        this.selectPending();
+        return last.id;
+      }
       clearLastContextIf('single');
       return null;
     }
@@ -532,7 +546,7 @@ export class SingleBoardService extends Service {
     const restored = this.restoreLastSingle();
     if (restored) return restored;
     if (loadLastContext()) return null; // 上次在 agent/group：尊重既有恢复链
-    if (this.pending.value !== null) {
+    if (this.pending.value !== null && hasPendingSubstance(this.pending.value)) {
       this.selectPending();
       return PENDING_SINGLE_ID;
     }
@@ -676,13 +690,13 @@ export const singlesClientPlugin = clientPlugin({
     ctx.slots.inject('main:perspective', () =>
       ctx.slots.register('main:perspective', {
         id: 'single',
-        component: ConversationViewAsync,
+        component: ConversationView,
         order: 40,
         meta: {
           def: {
             id: 'single', label: '独立会话', icon: 'edit-3', order: 40,
             active: () => !!ctx.get('singleBoard')?.activeSingleId.value,
-            component: ConversationViewAsync,
+            component: ConversationView,
             props: () => ({ group: null, single: ctx.get('singleBoard')?.activeSingle.value ?? null }),
           },
         },

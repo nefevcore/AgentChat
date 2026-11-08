@@ -35,12 +35,14 @@ import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readC
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
+import { projectUserLedgers } from 'ac-import/src/user-projection.ts';
 import { assembleWebServer, attachWebSurface, type WebRing } from 'ac-host-webui';
 import { createOrchestrator, type OrchestratorHandle } from './orchestrator.ts';
 import { createShellStatePoller, type ShellStatePoller } from './shell-state-poller.ts';
 import { createAdminPreview } from './admin-preview.ts';
 import { resolveAnchors } from './anchors.ts';
 import { reapOrphanProcesses } from './orphans.ts';
+import { auditDataRootLayers } from 'ac-host-rows';
 import { cleanupLegacyFactoryPlugins } from './legacy-plugins-cleanup.ts';
 
 /** 本文件目录（编排面 bootFile 寻址基点） */
@@ -294,6 +296,25 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     }
     await po.close();
     throw err;
+  }
+
+  // ---- 数据根分层 doctor（契约 = docs/design/data-root-layers.md）：顶层
+  // 未知项 warn——「清投影连源数据一起清」类事故的前置哨兵。只 warn 不拒启。
+  for (const name of auditDataRootLayers(dataRoot)) {
+    hostLog('W', 'host', '数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/data-root-layers.md）');
+  }
+
+  // ---- viewer 投影对账自愈（数据分层 cr：第三层纯派生、boot 幂等补缺席）----
+  // projectUserLedgers 只补缺席（viewer 侧已有 messages.jsonl 即跳过）——
+  // 清 viewer/ 整树后重启宿主即自愈回放数据，降级为「丢属性不丢消息」。
+  // 尽力面：对账失败不阻塞 boot（投影幂等，下次 boot 再试）。
+  try {
+    const stats = await projectUserLedgers(dataRoot);
+    if (stats.sessions > 0 || stats.rows > 0) {
+      hostLog('I', 'host', 'viewer 投影对账：补建 ' + stats.sessions + ' 会话 / ' + stats.rows + ' 行（幂等跳过 ' + stats.skipped + ' 会话）');
+    }
+  } catch (err) {
+    hostLog('W', 'host', 'viewer 投影对账失败（下次 boot 再试）：' + String(err));
   }
 
   // ---- 编排面（cr-551）：supervise 句柄池 + 按需拉起 + re-tap ----

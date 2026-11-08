@@ -288,6 +288,12 @@ export class SlotCore {
     return this.decls.has(key);
   }
 
+  /** 退位条目（三态契约 dead-cell 判据：席位曾有贡献且已全退位——
+   *  渲染面据此显示出口崩溃面而非空渲染。活态判定与选举不受影响） */
+  abdicatedOf(key: string): SlotEntry[] {
+    return (this.slots.get(key) ?? []).filter((s) => s.abdicated).map((s) => s.entry);
+  }
+
   /** 声明账本读取（未声明 → undefined） */
   declOf(key: string): Readonly<SlotDecl> | undefined {
     return this.decls.get(key);
