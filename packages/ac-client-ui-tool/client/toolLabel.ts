@@ -34,7 +34,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   goal: '目标管理',
   send_agent: '发送给 Agent',
   send_group: '发送到群组',
-  ask_questions: '询问用户',
+  ask_questions: '向用户提问',
   math: '数学',
   skill: '技能',
   load_skill: '加载技能',

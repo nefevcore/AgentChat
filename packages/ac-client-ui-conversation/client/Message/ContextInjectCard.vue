@@ -24,7 +24,7 @@ const INJECT_ICONS: Record<string, string> = {
   skill: 'book-open',            // 技能正文
   memory: 'scroll-text',         // 记忆材料（增量）
   'memory-timeline': 'history',  // 记忆时间线
-  'ask-question': 'help-circle', // 询问用户（发起）
+  'ask-question': 'help-circle', // 向用户提问（发起）
   'durable-interaction': 'messages-square', // 用户答复/交互回执
   event: 'info',                 // 机制通知
   error: 'alert-circle',         // 错误语义

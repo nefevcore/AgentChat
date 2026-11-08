@@ -1999,6 +1999,9 @@ export function createFeedCore(
       source: m.source,
       // 注入行透传（2026-09-26 注入卡）：展开体数据源（toHistoryMessages 携带）
       ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
+      // 注入结构化载荷（问答卡 outcome 判据）：历史链丢失会让回执卡退化成
+      // pending「向用户提问」——发起卡与回执卡同标题的根因，随行透传
+      ...(m.payload !== undefined ? { payload: m.payload } : {}),
       // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
       ...(split.files ? { files: split.files } : {}),
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),

@@ -6,7 +6,7 @@
 // 行注册；payload 缺席（旧会话）→ 全量回落通用 ContextInjectCard
 //（InjectCardHost 分流，本组件只在有 payload 时接手）。
 // 形态（方案 §2 #4）:
-//   卡头：help-circle/messages-square + 「询问用户」/「提问回执」；
+//   卡头：help-circle/messages-square + 「向用户提问」/「用户已回答」/「提问未获响应」；
 //   meta = 状态词（等待中/已回答/未响应）+ 题数；
 //   体：Q 段（序号 + 灰底左条，选项缩进 ◻）+ A 段（✓ 前缀 + ok 底）。
 // ============================================================
@@ -30,7 +30,11 @@ const statusText = computed(() => ({
   answered: '已回答',
   timeout: '未响应',
 } as Record<string, string>)[outcome.value] ?? '');
-const title = computed(() => (outcome.value === 'pending' ? '询问用户' : '提问回执'));
+const title = computed(() => ({
+  pending: '向用户提问',
+  answered: '用户已回答',
+  timeout: '提问未获响应',
+} as Record<string, string>)[outcome.value] ?? '向用户提问');
 const icon = computed(() => (outcome.value === 'pending' ? 'help-circle' : 'messages-square'));
 const questions = computed(() => props.card.payload?.questions ?? []);
 const answers = computed(() => props.card.payload?.answers ?? []);

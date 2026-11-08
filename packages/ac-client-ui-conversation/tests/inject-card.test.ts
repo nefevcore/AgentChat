@@ -152,4 +152,22 @@ describe('真实管线回归：pairMessageToChatMessage 透传', () => {
     expect(turns.filter((t) => t.steps.length > 0).length).toBe(1);
     expect(turns.find((t) => t.steps.length > 0)?.injects?.length).toBe(1);
   });
+
+  it('问答卡载荷经 toHistoryMessages → pair 转换保留 payload（outcome 判据链——回执卡标题不退化为发起态）', () => {
+    const rows = [{
+      role: 'context', content: '[系统通知] 已收到用户回答…', source: 'durable-interaction', label: '已收到用户回答',
+      agent_id: 'a', message_id: 'ctx-ans', timestamp: new Date(1000).toISOString(), seq: 1,
+      payload: { questions: [{ question: '选哪个？', options: ['A', 'B'] }], answers: ['A'], outcome: 'answered' },
+    }];
+    const out = toHistoryMessages(rows as never, 'a~user');
+    const ev = out.find((m) => m.role === 'event') as Record<string, unknown>;
+    expect(ev.payload).toMatchObject({ outcome: 'answered' });
+    // pair 转换（子代理视图路径）不丢 payload——AskCard outcome 判据
+    const cm = pairMessageToChatMessage(ev as never, 'a');
+    expect(cm.payload).toMatchObject({ outcome: 'answered', answers: ['A'] });
+    // buildTurns 注入卡携带 payload（InjectCard 数据面完整）
+    const turns = buildTurns([cm, stepMsg('s1', 2000)]);
+    const inj = turns.find((t) => t.steps.length > 0)?.injects?.[0];
+    expect(inj?.payload?.outcome).toBe('answered');
+  });
 });

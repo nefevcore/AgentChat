@@ -802,6 +802,8 @@ export function pairMessageToChatMessage(m: {
   /** 注入行透传（2026-09-26 注入卡；见返回对象注释） */
   source?: unknown;
   contextContent?: string;
+  /** 注入结构化载荷（问答卡 outcome 判据——与 historyMsgToChatMessage 同款透传） */
+  payload?: InjectCard['payload'];
 }, fallbackAgentId: string): ChatMessage {
   const id = `pair-${m.message_id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`}`;
   const role = (m.role === 'tool' ? 'tool'
@@ -824,9 +826,10 @@ export function pairMessageToChatMessage(m: {
     label: m.label,
     // 注入行透传（2026-09-26 注入卡）：source 供挂轮判定、contextContent 供
     // 展开体（toHistoryMessages 对注入型行携带）——与 historyMsgToChatMessage
-    // 同款词汇
+    // 同款词汇；payload = 问答卡 outcome 判据（cr-765 #4 数据面同源透传）
     ...(m.source !== undefined ? { source: m.source } : {}),
     ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
+    ...(m.payload !== undefined ? { payload: m.payload } : {}),
     reasoning_content: (m.reasoning_content ?? '') || undefined,
     ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
     ...(m.apiMs !== undefined ? { apiMs: m.apiMs } : {}),
