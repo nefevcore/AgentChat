@@ -222,13 +222,14 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   });
 
   /** ask_questions 载荷入列（两形归一见 chat-ops）：按 interaction_id upsert
-   *  （同 id 重放仅刷新剩余倒计时），列表恒按 created_at 降序（最新优先）。 */
+   *  （同 id 重放仅刷新剩余倒计时），列表恒按 created_at 升序（先问先答——
+   *  多条并存时旧提问优先展示，新提问排队队尾，不打断正在作答的卡）。 */
   function applyAskQuestions(r: Record<string, unknown> | null | undefined): void {
     const state = pickAskQuestions(r);
     if (!state) return;
     const rest = pendingInteractions.value.filter((it) => it.interaction_id !== state.interaction_id);
     rest.push(state);
-    rest.sort((a, b) => b.created_at - a.created_at);
+    rest.sort((a, b) => a.created_at - b.created_at);
     pendingInteractions.value = rest;
     turnInProgress.value = true;
   }
@@ -330,7 +331,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       const inFlightAdds = pendingInteractions.value.filter((it) =>
         !before.has(it.interaction_id) && !snapshot.some((s) => s.interaction_id === it.interaction_id));
       const merged = [...snapshot, ...inFlightAdds];
-      merged.sort((a, b) => b.created_at - a.created_at);
+      merged.sort((a, b) => a.created_at - b.created_at); // 先问先答（与 applyAskQuestions 同口径）
       pendingInteractions.value = merged;
     } catch { /* 恢复尽力而为（后端不可达/旧后端无该 RPC） */ }
   }
@@ -752,11 +753,11 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    * 残留、Agent 永久等待，表现为"答了没反应/刷新后无法继续回答"）。现改为：
    * 成功后才出列；失败重试（后端 reply 幂等——duplicate 语义，重试无副作用）；
    * 超上限提示重试——弹窗未出列，用户作答入口不失联。
+   * id 由调用点传入（绑定用户看到并作答的那张卡）：提交瞬间全局 interaction
+   * computed 可能已被新到达的提问顶换（同会话双 ask 场景），取现值会把
+   * 答案提交到另一条 interaction 上——「后续提问被前面回答直接回复」的根因。
    */
-  function respondInteraction(answers: Array<string | string[] | null>) {
-    const current = interaction.value;
-    if (!current) return;
-    const id = current.interaction_id;
+  function respondInteraction(id: string, answers: Array<string | string[] | null>) {
     let attempts = 0;
     const attempt = () => {
       attempts++;

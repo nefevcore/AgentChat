@@ -9,7 +9,10 @@
   · 一次只看一题：点选项即选中并自动翻到下一题；末题点选后由主按钮提交；
   · 每题可改选、可输入其他回答（与选项互斥）、可跳过（提交 null）；
   · 收起（点 header 整体折叠）只留头部条不遮挡会话；关闭（×）收起卡片（后端工具
-    仍在等待，late-reply 对账由后端负责）；超时自动关闭。 -->
+    仍在等待，late-reply 对账由后端负责）；超时自动关闭；
+  · 同会话多条 pending 时 FIFO（先问先答）：显示最早一条，其余排队（footer
+    计数）；提交绑定当前卡的 interaction_id——顶换窗口内不串卡（作答草稿
+    亦按卡 id 保留，切走再回不丢）。 -->
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { DockCard, FeedbackNotice, Icon, OptionRow, Tooltip } from '@agentchat/webui-kit';
@@ -20,12 +23,34 @@ const interaction = computed(() => chatStore.interaction);
 
 /** 当前题页码；多题逐题作答（DSH 分页模型），单题即 0/1 */
 const index = ref(0);
-/** 作答草稿：selected（勾选项数组，单选题提交时取首项）/custom 互斥；skipped 为显式跳过（提交 null） */
-const drafts = ref<Array<{ selected: string[]; custom: string; skipped: boolean }>>([]);
+/**
+ * 全部待答卡的作答草稿：interaction_id → 每题 {selected, custom, skipped}。
+ * 以 interaction_id 为键持久（不再随当前卡切换清空）——同会话双 ask 顶换
+ * 场景：用户对前一张卡的作答进度在卡切换/回切后保留，静默清空会逼用户
+ * 重答且易在错位窗口提交（「后续提问被前面回答直接回复」事故面）。
+ */
+const draftsByCard = new Map<string, Array<{ selected: string[]; custom: string; skipped: boolean }>>();
+/** 当前卡的草稿（无草稿时按当前题集现建——形状恒定，渲染读安全） */
+const drafts = computed(() => {
+  const it = interaction.value;
+  const init = (it?.questions ?? []).map(() => ({ selected: [] as string[], custom: '', skipped: false }));
+  if (!it) return init;
+  let d = draftsByCard.get(it.interaction_id);
+  if (!d) { d = init; draftsByCard.set(it.interaction_id, d); }
+  return d;
+});
 /** 收起态：只留头部条（问题仍可见，作答区折叠不遮挡会话流） */
 const minimized = ref(false);
 /** 底部反馈文案（未答就翻页/提交时提示，随任意作答清除） */
 const feedback = ref('');
+/** 同会话待答队列长度（当前卡之外还有几张——排队中的新提问不打断本卡） */
+const queueBehind = computed(() => {
+  const it = interaction.value;
+  if (!it || !it.key) return 0;
+  return chatStore.pendingInteractions.filter(
+    (p) => p.key === it.key && p.interaction_id !== it.interaction_id,
+  ).length;
+});
 
 /** 会话归属门控：store 的 interaction 已按当前上下文会话键路由（多 Agent
  *  并发提问时各答各的，不再全局单槽串台），此处仅防御性复核——带 key 的
@@ -54,15 +79,16 @@ let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
  *  挂载时 interaction 已非空，watch 缺 immediate 会让 drafts 恒空 → 渲染读
  *  drafts[index].custom 崩溃 → slot 错误边界把 interaction 卡永久退位，
  *  表现为"刷新后弹窗不出现 + 后续所有提问都不弹"〔2026-09-12 反馈根因〕）。 */
-function syncDrafts(val: typeof interaction.value): void {
-  index.value = 0;
-  feedback.value = '';
-  minimized.value = false;
-  drafts.value = (val?.questions ?? []).map(() => ({ selected: [] as string[], custom: '', skipped: false }));
-}
-watch(interaction, (val) => {
+watch(interaction, (val, old) => {
   if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
-  syncDrafts(val);
+  // 卡切换只重置页码/反馈/收起态——作答草稿以 interaction_id 为键在
+  // draftsByCard 存活（切走再切回不丢进度）；drafts computed 恒返回与
+  // 当前题集同长的数组，渲染读 drafts[index] 安全。
+  if (val?.interaction_id !== old?.interaction_id) {
+    index.value = 0;
+    feedback.value = '';
+    minimized.value = false;
+  }
   if (!val) return;
   if (val.timeout_ms) {
     timeoutTimer = setTimeout(() => {
@@ -155,7 +181,14 @@ function submitAll() {
     if (d.selected.length) return q.multi ? d.selected : d.selected[0];
     return null;
   });
-  chatStore.respondInteraction(answers as Array<string | string[] | null>);
+  // 提交绑定本卡的 interaction_id（作答目标在用户看到题目时即锁定）：
+  // 同会话双 ask 顶换窗口内，store 全局 interaction 可能已切到新卡——
+  // 提交瞬间取现值会把答案送到另一条 interaction（错位事故根因）。
+  const target = interaction.value?.interaction_id;
+  if (target) {
+    chatStore.respondInteraction(target, answers as Array<string | string[] | null>);
+    draftsByCard.delete(target);
+  }
 }
 
 /** 自定义输入 Enter = 翻页/提交（Shift+Enter 换行；输入法组合中不触发） */
@@ -238,6 +271,8 @@ function step(delta: number) {
               </button>
             </Tooltip>
           </div>
+          <!-- 同会话排队中的其他提问（FIFO：先问先答，新提问不顶换本卡） -->
+          <div v-if="queueBehind > 0" class="ib-queue">还有 {{ queueBehind }} 条提问排队</div>
           <!-- 作答校验反馈：kit FeedbackNotice（error tone；文案仍由本组件持有） -->
         <div class="ib-feedback"><FeedbackNotice :text="feedback" tone="error" /></div>
           <div class="ib-actions">
@@ -352,6 +387,14 @@ function step(delta: number) {
   padding: 0 10px 8px 12px;
 }
 .ib-pager { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+/* 同会话排队指示（多条 pending 时的次要信息，不与分页器抢位） */
+.ib-queue {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 22px;
+  padding-left: 4px;
+}
 .ib-progress {
   color: var(--text-2);
   font-size: 12px;
