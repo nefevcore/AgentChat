@@ -26,9 +26,9 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 /** 内存替身子壳：deliver 落账真文件（验终稿读面），control/interrupt 记录 */
-function fakeShell(): { spawn: SpawnShellFn; frames: Array<Record<string, unknown>>; envs: Array<{ requestId: string; text: string; budget: number; replyConversation?: string; elevation?: string }> } {
+function fakeShell(): { spawn: SpawnShellFn; frames: Array<Record<string, unknown>>; envs: Array<{ requestId: string; text: string; budget: number; replyConversation?: string; access?: string }> } {
   const frames: Array<Record<string, unknown>> = [];
-  const envs: Array<{ requestId: string; text: string; budget: number; replyConversation?: string; elevation?: string }> = [];
+  const envs: Array<{ requestId: string; text: string; budget: number; replyConversation?: string; access?: string }> = [];
   let n = 0;
   const spawn: SpawnShellFn = (a) => {
     const proc: ShellProcess = {
@@ -36,7 +36,7 @@ function fakeShell(): { spawn: SpawnShellFn; frames: Array<Record<string, unknow
       deliver: async (env) => {
         const text = (env.payload as { text?: string }).text ?? '';
         const replyConversation = (env.payload as { replyConversation?: string }).replyConversation;
-        envs.push({ requestId: env.requestId, text, budget: env.budget, ...(replyConversation !== undefined ? { replyConversation } : {}), ...(env.elevation !== undefined ? { elevation: env.elevation } : {}) });
+        envs.push({ requestId: env.requestId, text, budget: env.budget, ...(replyConversation !== undefined ? { replyConversation } : {}), ...(env.access !== undefined ? { access: env.access } : {}) });
         // 模拟子壳 conversation：落账入站行 + 终稿行（run 键——终稿判定面）
         const dir = path.join(a.dataRoot, 'agents', a.parentId, 'children', a.childId, 'sessions', a.parentId + '~' + a.childId);
         fs.mkdirSync(dir, { recursive: true });
@@ -428,18 +428,18 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  // cr-753：会话设置继承——发起会话 conv-settings（elevation/toolMode/
-  // browserTier/issueSubmit）→ 子 config tags 等效词快照；per-call elevation
+  // cr-753：会话设置继承——发起会话 conv-settings（access/toolMode/
+  // browserTier/issueSubmit）→ 子 config tags 等效词快照；per-call access
   // 与水位取高；tc-base/base 不产生词（缺省无词可加）。
   it('会话设置继承：父会话覆盖值合入子 config.tags（物化即快照）', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
-      // 壳内 convSettings 垫片缺席场景先行验证：makeService 的裸 ctx 无 convSettings → 继承面只余 per-call elevation
+      // 壳内 convSettings 垫片缺席场景先行验证：makeService 的裸 ctx 无 convSettings → 继承面只余 per-call access
       const tools = ctx.get('tools') as unknown as {
-        execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; elevation?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string } }>;
+        execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; access?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string } }>;
       };
-      const out = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '继承任务' }, conversationId: 'user~papa', elevation: 'full-access' });
+      const out = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '继承任务' }, conversationId: 'user~papa', access: 'full-access' });
       const childId = (out.output as { subagent_id: string }).subagent_id;
       const cfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', childId, 'config.json'), 'utf-8'),
@@ -454,7 +454,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  it('会话设置继承：convSettings 垫片在场——elevation/browserTier/issueSubmit/水位全映射；tc-* 模式词不继承（cr-763）', async () => {
+  it('会话设置继承：convSettings 垫片在场——access/browserTier/issueSubmit/水位全映射；tc-* 模式词不继承（cr-763）', async () => {
     const fake = fakeShell();
     const { Service } = await import('@agentchat/cordis');
     const { ctx, dispose } = await makeService(fake.spawn);
@@ -464,15 +464,15 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
         constructor(c: unknown) { super(c as never, 'convSettings'); }
         get(id: string): Record<string, string> {
           return id === 'user~papa'
-            ? { elevation: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }
+            ? { access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }
             : {};
         }
       }
       await ctx.plugin(ConvStub);
       const svc = ctx.get('subagents', false) as unknown as {
-        spawnOp(i: { task: string; replyConversation?: string; elevation?: string }): Promise<{ childId: string }>;
+        spawnOp(i: { task: string; replyConversation?: string; access?: string }): Promise<{ childId: string }>;
       };
-      const out = await svc.spawnOp({ task: '全设置继承', replyConversation: 'user~papa', elevation: 'sandbox-access' });
+      const out = await svc.spawnOp({ task: '全设置继承', replyConversation: 'user~papa', access: 'sandbox-access' });
       const cfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', out.childId, 'config.json'), 'utf-8'),
       ) as { tags?: string[] };
@@ -523,21 +523,21 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  // cr-728：提权继承——call.elevation 随任务信封下发（两档白名单窄化），
+  // cr-728：提权继承——call.access 随任务信封下发（两档白名单窄化），
   // 子壳 receiveEnvelope → loop 既有链路生效；无提权不携带。
-  it('任务信封携带 elevation：call.elevation=full-access 下发；非法档位/无提权不携带', async () => {
+  it('任务信封携带 access：call.access=full-access 下发；非法档位/无提权不携带', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
       const tools = ctx.get('tools') as unknown as {
-        execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; elevation?: string }): Promise<{ ok: boolean }>;
+        execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; access?: string }): Promise<{ ok: boolean }>;
       };
-      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '提权任务' }, elevation: 'full-access' });
-      expect(fake.envs.at(-1)).toMatchObject({ budget: 2, elevation: 'full-access' });
+      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '提权任务' }, access: 'full-access' });
+      expect(fake.envs.at(-1)).toMatchObject({ budget: 2, access: 'full-access' });
       await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '无提权任务' } });
-      expect(fake.envs.at(-1)!.elevation).toBeUndefined();
-      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '坏档位' }, elevation: 'root' as string });
-      expect(fake.envs.at(-1)!.elevation).toBeUndefined();
+      expect(fake.envs.at(-1)!.access).toBeUndefined();
+      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '坏档位' }, access: 'root' as string });
+      expect(fake.envs.at(-1)!.access).toBeUndefined();
     } finally { await dispose(); }
   });
 

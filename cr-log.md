@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-946**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-947**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -963,4 +963,5 @@
 - 【cr-944 2026-11-08 system prompt 段位生态开放与快照漂移修复方案起草（P1 扩展段区+sap-adt hack 退役、P2 指纹段名清单+物化时序、P3 群契约静态化、P4 术语段归位）】
 - 【cr-945 2026-11-08 cr-944 实施完成：PromptSection 动态注册（name 开放+order∈[0,900)+保留名 owner 白名单+900 上界豁免）；sap-adt before-run hack 退役→sap-adt-guide@500；prepare 缝（run 入口第一拍）；指纹三键 sectionSet/Orders/Texts+diff #11+order 漂移走③重算；段位重排 PTC_SDK 150→450/词汇聚簇 110-122；GROUP_CONTRACT 静态化；TIMER 去 notSingle。验证：typecheck+unit 2858+test 全量 2948+integration 90 全绿】
 - 【cr-946 2026-11-08 会话投影顺序三修：① 壳重启「已重启」通知按机制行（context+event）落账并按事件分隔符投影（新写面 payload.mechanism + 读面存量 restarted-* 兼容）；② buildTurns 增「已出终稿的纯文本步 + run 切换」拆轮判据，防合轮吞掉完整回答；③ 链体承载纯正文中间步（原来只保留思考/工具步）；④ textBeforeTools 补进账本契约与 journal/投影/物化链路（cr-804 回退回归）；⑤ viewer 账本 seq 分配前对账尾行，消除双写者重号】
+- 【cr-947 2026-11-08 安全档位迁移 conv-settings：elevation/tier 词面统一为 access（键、字段、类型、指纹合并单键）】
 

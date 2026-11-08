@@ -21,7 +21,7 @@ import { isImageRef, filePreviewUrl, contentHash12, maybeCompressImage } from '.
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
 import { detectMention, replaceMentionToken, mentionMatches, formatFileMention, buildSessionMentionCandidates, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
-import { loadComposePrefs, saveComposePrefs, type ComposeEffort, type ComposeElevation } from './composePrefs.ts';
+import { loadComposePrefs, saveComposePrefs, type ComposeEffort, type ComposeAccess } from './composePrefs.ts';
 
 import { persistToolMode } from './toolModeInherit.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
@@ -64,7 +64,7 @@ const inputText = ref('');
  *  composer 测高）经 defineExpose 显式取，不走 $el） */
 const cardEl = ref<HTMLElement | null>(null);
 defineExpose({ cardEl });
-/** 上次组合偏好（agentId/model 在新建会话处消费；effort/elevation 在此回放） */
+/** 上次组合偏好（agentId/model 在新建会话处消费；effort/access 在此回放） */
 const lastPrefs = loadComposePrefs();
 /** 思考强度：回放上次选择（缺省 high；''=关闭思考；P4：取代独立"深度思考" toggle） */
 const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort ?? 'high') as ComposeEffort);
@@ -72,11 +72,11 @@ const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort ?? '
  *  持续生效——保持武装直到手动改回（武装态警示色常显）；不随发送复位
  *  （2026-09-13 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
  *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
-const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation ?? '') as ComposeElevation);
+const access = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.access ?? '') as ComposeAccess);
 /** 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构——
  *  Agent tags 定默认档、conv-settings.toolMode 会话覆盖）：'' = 跟随
  *  Agent（tags 档，缺省 tc-base）；'tc-base' | 'tc-programmatic' |
- *  'tc-none' = 会话覆盖。选择即写会话 conv-settings（键面同 elevation
+ *  'tc-none' = 会话覆盖。选择即写会话 conv-settings（键面同 access
  *  口径，全形态生效）。旧 programmatic 布尔开关与「新会话继承写」
  *  （toolModeInherit）已随重构退役——持久程序化 = 给 Agent 配
  *  tc-programmatic 标签。退役预设防御见 presetRetired。 */
@@ -94,7 +94,7 @@ const uploading = ref(false);
 // ══ 会话模型选择（P6）：独立会话 = singles 覆盖；1v1 直答 = conv-settings ══
 const agentMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
-const elevMenuOpen = ref(false);
+const accessMenuOpen = ref(false);
 const toolModeMenuOpen = ref(false);
 const experimentalMenuOpen = ref(false);
 /** 实验性菜单下钻面板（root = 实验项入口列表；键名 = 该键档位二级——browserTier 内置 + 注册扩展键） */
@@ -240,7 +240,7 @@ watch(() => feed.activeDialogId, (dialog) => {
 
 // 输入实时暂存（cr-847 草稿留存）：打字即存——刷新/崩溃任意时刻草稿都在
 // （切换/卸载 park 已有；此 watch 补「正在打字时」的窗口）。空文本同样
-// park（清位）——发送后草稿位即清，幻影 title 随之回落。
+// park（清位）——发送后草稿位即清。
 watch([inputText, lastDraftKey], ([text, key]) => {
   if (key) parkDraft(key, text);
 });
@@ -261,7 +261,7 @@ onBeforeUnmount(() => {
 function closeMenus(except?: 'agent' | 'model' | 'elev' | 'toolmode' | 'experimental') {
   if (except !== 'agent') { agentMenuOpen.value = false; agentPanel.value = 'root'; }
   if (except !== 'model') { modelMenuOpen.value = false; modelPanel.value = 'root'; }
-  if (except !== 'elev') elevMenuOpen.value = false;
+  if (except !== 'elev') accessMenuOpen.value = false;
   if (except !== 'toolmode') toolModeMenuOpen.value = false;
   if (except !== 'experimental') { experimentalMenuOpen.value = false; experimentalPanel.value = 'root'; }
 }
@@ -307,9 +307,9 @@ function toggleModelMenu() {
   if (next) void loadPools().then(() => ensureDiscovered());
 }
 function toggleElevMenu() {
-  const next = !elevMenuOpen.value;
+  const next = !accessMenuOpen.value;
   closeMenus('elev');
-  elevMenuOpen.value = next;
+  accessMenuOpen.value = next;
 }
 function toggleToolModeMenu() {
   const next = !toolModeMenuOpen.value;
@@ -518,9 +518,9 @@ const ELEV_OPTIONS: Array<{
   { value: 'full-access', label: '完全访问', icon: 'shield-off', detail: '不受限', title: '后续消息驱动的 run 按 full-access 执行：跳过路径复检与命令扫描（系统域黑名单仍生效）。持续生效直到改回；持久授权请改 Agent 配置 tags；自有档位更高时按自有档位执行' },
 ];
 
-function selectElevation(v: '' | 'sandbox-access' | 'full-access') {
-  elevation.value = v;
-  saveComposePrefs({ elevation: v });
+function selectAccess(v: '' | 'sandbox-access' | 'full-access') {
+  access.value = v;
+  saveComposePrefs({ access: v });
   // 菜单保持开——扁平选项列表可连续调整
 }
 
@@ -796,17 +796,17 @@ const toolModeTitle = computed(() => {
 });
 
 const elevTitle = computed(() => {
-  if (!elevation.value) {
+  if (!access.value) {
     return `快捷提权：未武装——消息按 Agent 自有档位执行（当前：${agentTierLabel.value}）；高于自有档位可临时提权（持续生效直到改回）`;
   }
-  const armed = elevation.value === 'sandbox-access' ? 'sandbox-access（至少沙箱访问档）' : 'full-access（完全访问档）';
+  const armed = access.value === 'sandbox-access' ? 'sandbox-access（至少沙箱访问档）' : 'full-access（完全访问档）';
   return `已武装 ${armed}：后续消息均按此执行（持续生效直到改回；不低于 Agent 自有档位——只升不降）`;
 });
 
 /** 提权按钮显示：直取档位名（图标随档分化）；警示色由类承担 */
 const elevBtn = computed(() => {
-  if (elevation.value === 'full-access') return { icon: 'shield-off', label: '完全访问' };
-  if (elevation.value === 'sandbox-access') return { icon: 'shield-half', label: '沙箱访问' };
+  if (access.value === 'full-access') return { icon: 'shield-off', label: '完全访问' };
+  if (access.value === 'sandbox-access') return { icon: 'shield-half', label: '沙箱访问' };
   return { icon: 'shield', label: '默认权限' };
 });
 
@@ -885,11 +885,11 @@ async function send() {
     const effort = reasoningEffort.value;
     // 提权随消息透传（持续武装——不随发送复位）；忙态 Enter 排队时随
     // 消息入队，本轮结束后按本条档位开 run
-    const elev = elevation.value;
+    const acc = access.value;
     store.sendMessage(text, undefined, {
       deepThink: effort !== '',
       ...(effort ? { reasoningEffort: effort } : {}),
-      ...(elev ? { elevation: elev } : {}),
+      ...(acc ? { access: acc } : {}),
       files: attachedFiles.value,
     });
   }
@@ -912,13 +912,13 @@ async function sendNow() {
     props.onSend(text, attachedFiles.value);
   } else {
     const effort = reasoningEffort.value;
-    // steer 注入不改在途 run 档位（run 的 elevation 在开跑时已定）——
+    // steer 注入不改在途 run 档位（run 的档位在开跑时已定）——
     // 提权参数随信封送达但不生效；空闲时等价普通发送（生效）
-    const elev = elevation.value;
+    const acc = access.value;
     store.sendMessage(text, undefined, {
       deepThink: effort !== '',
       ...(effort ? { reasoningEffort: effort } : {}),
-      ...(elev ? { elevation: elev } : {}),
+      ...(acc ? { access: acc } : {}),
       files: attachedFiles.value,
       mode: 'steer',
     });
@@ -1647,28 +1647,28 @@ function onThumbError(i: number) {
           <button
             type="button"
             class="select-btn"
-            :class="{ open: elevMenuOpen, armed: !!elevation, 'armed-full': elevation === 'full-access' }"
+            :class="{ open: accessMenuOpen, armed: !!access, 'armed-full': access === 'full-access' }"
             @click.stop="toggleElevMenu"
             title="快捷提权（权限档位）"
           >
             <Icon :name="elevBtn.icon" :size="15" />
             <span class="select-text">{{ elevBtn.label }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: accessMenuOpen }" />
           </button>
           <Transition name="menu-fade">
-            <div v-if="elevMenuOpen" class="ui-dd-menu up" @click.stop>
+            <div v-if="accessMenuOpen" class="ui-dd-menu up" @click.stop>
               <button
                 v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
-                class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: elevation === opt.value }"
+                class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: access === opt.value }"
                 :title="opt.title"
-                @click="selectElevation(opt.value)"
+                @click="selectAccess(opt.value)"
               >
                 <span class="ui-dd-opt-icon"><Icon :name="opt.icon" :size="16" /></span>
                 <span class="ui-dd-opt-body">
                   <span class="ui-dd-opt-name">{{ opt.label }}</span>
                   <span class="ui-dd-opt-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
                 </span>
-                <Icon v-if="elevation === opt.value" name="check" :size="15" class="ui-dd-opt-check" />
+                <Icon v-if="access === opt.value" name="check" :size="15" class="ui-dd-opt-check" />
               </button>
             </div>
           </Transition>

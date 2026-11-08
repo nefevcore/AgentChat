@@ -7,7 +7,7 @@
 //
 // 四机制（docs/design/single-system-prompt-materialization-plan.md）：
 //   ① 物化（首 run）/ ② diff（每 run 指纹对比）/ ③ 重算（仅 provider+
-//   model 变化——唯一快照重写通道，缓存域必死时重建基线）/ ④ 注入（十类
+//   model 变化——唯一快照重写通道，缓存域必死时重建基线）/ ④ 注入（变化
 //   清单变化 → ledger context 通知行 + 指纹更新）。
 // 快照正文（人格层）永不重写；指纹字段更新 ≠ 重写正文。
 // 崩溃窗口：先落账（await）后更新指纹——落账后崩 → 重复落同内容行
@@ -35,7 +35,8 @@ export interface PrefixSnapshot {
   createdAt: string;
   sections: SnapshotSection[];
   /** §3 diff 指纹键面（model/tools/toolMode/browserTier/issueSubmit/
-   * workspace/tier/elevation/ptcSdk/skills + ext.<扩展键>） */
+   * workspace/access（cr-947 合并旧 tier+elevation）/ptcSdk/skills +
+   * ext.<扩展键>） */
   settingsFingerprint: Record<string, string>;
 }
 
@@ -86,13 +87,16 @@ export function writePrefixSnapshot(dataRoot: string, sid: string, snap: PrefixS
   fs.renameSync(tmp, file);
 }
 
+/** 档位强度序（diff #7 降档判定用；与 ac-agents ACCESS_RANK 同值——纯 IO 件不 import 服务包） */
+const ACCESS_RANK_OF: Record<string, number> = { 'base-access': 0, 'sandbox-access': 1, 'full-access': 2 };
+
 /** 指纹规范化（幂等键的输入——键序稳定防同内容异序哈希） */
 function canonicalFp(fp: Record<string, string>): string {
   return JSON.stringify(Object.keys(fp).sort().map((k) => [k, fp[k]]));
 }
 
 /**
- * §4 十类变化注入（纯函数）：逐键 diff → 通知句清单 + 幂等键。
+ * §4 变化注入清单（cr-947 起 tier/elevation 合并为 access 单类）：逐键 diff → 通知句清单 + 幂等键。
  * 合并规则：一次 diff 检出多项 → 多句并列（调用方合并一条 context 行）；
  * toolMode 连带的清单变化归 toolMode 一句，不重复报。措辞按方案 §4 表
  * 逐条锁定（对齐 system-prompt 按条目锁措辞先例，防渐进膨胀）。
@@ -161,13 +165,17 @@ export function diffFingerprints(
     const removed = oldNames.filter((n) => !nextSet.has(n));
     if (removed.length > 0) notices.push('[会话设置] 技能 ' + removed.join('、') + ' 已卸载，其指引不再适用。');
   }
-  // #7 权限档位
-  if (oldFp.tier !== nextFp.tier) {
-    notices.push('[会话设置] 权限档位已调整：' + oldFp.tier + ' → ' + nextFp.tier + '，部分工具调用将需要授权。');
-  }
-  // #8 提权水位
-  if (oldFp.elevation !== nextFp.elevation) {
-    notices.push('[会话设置] 会话提权水位已调整：' + val(oldFp.elevation) + ' → ' + val(nextFp.elevation) + '。');
+  // #7 安全档位（cr-947 合并旧 #7 tier + #8 elevation 两类：行为面只看
+  // 合成终值——底座/信封/会话覆盖任一变化都体现为 access 键变；降档
+  // 附授权提示，升档只报事实）。存量快照读兼容：旧两键（tier/elevation）
+  // 取 rank 高者作旧值——旧 tier 含 base 值、旧 elevation 只有两档。
+  const oldAccess = oldFp.access ?? [
+    oldFp.tier, oldFp.elevation,
+  ].filter((v): v is string => v !== undefined && v !== '')
+    .reduce((hi, cur) => (ACCESS_RANK_OF[cur] ?? 0) >= (ACCESS_RANK_OF[hi] ?? 0) ? cur : hi, 'base-access');
+  if (oldAccess !== nextFp.access) {
+    const down = (ACCESS_RANK_OF[nextFp.access] ?? 0) < (ACCESS_RANK_OF[oldAccess] ?? 0);
+    notices.push('[会话设置] 安全档位已调整：' + val(oldAccess) + ' → ' + val(nextFp.access) + (down ? '，部分工具调用将需要授权。' : '。'));
   }
   // #11 段集增删（cr-944 §3）：新增/移除注册段——行为面变化（模型按旧段集
   // 认知 system），对齐 #1 精神注入通知；sectionTexts 纯文本漂移不通知

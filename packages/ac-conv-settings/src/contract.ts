@@ -9,15 +9,15 @@
 //     - 独立会话（sid）的模型覆盖恒走 ac-singles（session.json 自包含
 //       语义），本域不收 sid 键（防双源）；
 //     - 对桶 `a~b`（user⇄agent 直答）/ 群 gid 的覆盖归本域。
-//   · elevation：会话提权水位（2026-09-12 设计：机制唤醒继承）——用户
-//     run 的快捷提权档位留痕，同会话后续机制唤醒（job 回投/timer/
-//     late-reply/插件回执等 source='event' 信封）deliver 未显式带
-//     档位时自动继承（ac-conversation deliver 边界消费；继承不降档
-//     ——full 水位原样继承 full，见 deliver 注释）。**水位键面比 model
-//     宽**：deliver 对一切会话形态（含 singles sid）写水位——sid 键
-//     的 elevation 合法在库（只有 model 分流到 singles；实测 sid 键
-//     已在写，此注释如实记录）。单次审批（ac-security approval）
-//     不写水位——它是"本次调用"授权，非会话级武装。
+//   · access：会话安全档位（cr-947：前名 elevation「提权水位」——三档
+//     化统一 access 词汇，与 browserTier 同款会话覆盖形态）。值域
+//     'base-access' | 'sandbox-access' | 'full-access'；无键 = 跟随
+//     Agent tags 档位（accessOf 单源）。用户输入框选档随消息投递并写
+//     本键；run 装配点合成「信封 access ?? 本键 ?? Agent 底座（只升不
+//     降）」。读兼容：存量 elevation 旧值回读映射进 access（写恒新键；
+//     sid 键同前水位语义合法在库——只有 model 分流 singles）。单次审批
+//     注入（ac-security approval）不写本键——它是"本次调用"授权，非
+//     会话级武装。机制唤醒继承语义不变（deliver sanitizeAccess 上限）。
 // 持久化：<root>/conv-settings/<conversationId>.json（规约 2：文件名即
 // conversationId；`~` 已被 assertAgentId 挡在路径危险字符外）。
 // ============================================================
@@ -38,18 +38,22 @@
 export interface ConvSettings {
   /** 会话级模型覆盖：`name@model` 引用或裸模型名（清除 = 删键） */
   model?: string;
-  /** 会话提权水位：用户最近一次快捷提权档位（机制唤醒继承用；清除 = 删键） */
-  elevation?: 'sandbox-access' | 'full-access';
   /**
-   * 工具调用模式覆盖（2026-09-17 统一重构：tc-* 标签轴——与提权档位
-   * elevation 同构的会话级覆盖；取代旧 programmatic 布尔键，存量键不
+   * 会话安全档位（cr-947——前名 elevation 提权水位，三档化）：值域
+   * 'base-access' | 'sandbox-access' | 'full-access'；无键 = 跟随 Agent
+   * tags 档位。读兼容存量 elevation 旧值（两档映射）；写恒本键。
+   */
+  access?: 'base-access' | 'sandbox-access' | 'full-access';
+  /**
+   * 工具调用模式覆盖（2026-09-17 统一重构：tc-* 标签轴——与安全档位
+   * access 同构的会话级覆盖；取代旧 programmatic 布尔键，存量键不
    * 迁移直接失效、回落跟随 Agent tags）：值域 'tc-base' | 'tc-programmatic'
    * | 'tc-none'（三值全暴露）；无键 = 跟随 Agent tags（toolModeOf 单源
    * 判定，缺省 tc-base）。router execute 按「本键 ?? toolModeOf(agent)」
    * 收窄 LLM 工具面：tc-programmatic ⇒ ['run_code']、tc-none ⇒ 空面纯
    * 聊天、tc-base ⇒ 不收窄。tc-programmatic 覆盖但 Agent 无该标签
    * （run_code 不可见）时惰性 warn 并忽略（回落 tags 档）。键面同
-   * elevation 口径：全形态会话（含 singles sid——model 才分流 singles）。
+   * access 口径：全形态会话（含 singles sid——model 才分流 singles）。
    */
   toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none';
   /**

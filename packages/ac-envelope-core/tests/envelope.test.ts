@@ -46,10 +46,10 @@ describe('schema：makeEnvelope 与 validateEnvelope', () => {
     const bad4 = { ...makeEnvelope(base), hop: -2 };
     expect(validateEnvelope(bad4).map((i) => i.field)).toEqual(['hop']);
     // cr-626 提权档位：两合法词过、非法词拦
-    expect(validateEnvelope(makeEnvelope({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', elevation: 'full-access' }))).toEqual([]);
-    expect(validateEnvelope(makeEnvelope({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', elevation: 'sandbox-access' }))).toEqual([]);
+    expect(validateEnvelope(makeEnvelope({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', access: 'full-access' }))).toEqual([]);
+    expect(validateEnvelope(makeEnvelope({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', access: 'sandbox-access' }))).toEqual([]);
     const badElev = makeEnvelope({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a' });
-    expect(validateEnvelope({ ...badElev, elevation: 'root' as never }).map((i) => i.field)).toEqual(['elevation']);
+    expect(validateEnvelope({ ...badElev, access: 'root' as never }).map((i) => i.field)).toEqual(['access']);
   });
 });
 

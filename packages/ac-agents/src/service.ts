@@ -74,7 +74,8 @@ export interface AgentConfig {
    * （ac-tools 注册的 requires + ac-security 等门禁行消费），UI 侧驱动
    * 徽章与工具启停（canAddTool）。'base' 为内建基础标签（UI 恒视作具备）。
    * 2026-09-13（access-tier §四）新增档位词汇：'full-access' /
-   * 'sandbox-access'（缺省 = base-access）——tierOf 单源判定，驱动权限轴
+   * 'sandbox-access'（缺省 = base-access）——accessOf（cr-947 前名 tierOf）
+   * 单源判定，驱动权限轴
    * 门禁（needPermission 工具的档位矩阵）；档位标签不进任何工具的
    * requiredTags（AND 语义天然不误匹配）。
    */
@@ -193,13 +194,13 @@ export function resolveToolNames(
  * `full-access` / `sandbox-access`；缺省（无任一档位标签）= base-access。
  * 档位只认 tags（人工书写、无合成空间）；编辑面 = agentAdmin 管理面。
  */
-export type AccessTier = 'full-access' | 'sandbox-access' | 'base-access';
+export type AccessLevel = 'full-access' | 'sandbox-access' | 'base-access';
 
 /**
- * 档位强度序（唆使防御梯度判定用：tierOf(sender) 严格低于 tierOf(接收方)
+ * 档位强度序（唆使防御梯度判定用：accessOf(sender) 严格低于 accessOf(接收方)
  * 才注入 notice）。base < sandbox < full。
  */
-export const TIER_RANK: Record<AccessTier, number> = {
+export const ACCESS_RANK: Record<AccessLevel, number> = {
   'base-access': 0,
   'sandbox-access': 1,
   'full-access': 2,
@@ -212,7 +213,7 @@ export const TIER_RANK: Record<AccessTier, number> = {
  * fail-closed 方向）。纯函数住 AgentConfig owning 包——ac-security 加严层
  * 与工具行基线共用，防复检与基线漂移。
  */
-export function tierOf(agent: AgentConfig | undefined): AccessTier {
+export function accessOf(agent: AgentConfig | undefined): AccessLevel {
   const tags = agent?.tags;
   if (!tags) return 'base-access';
   if (tags.includes('full-access')) return 'full-access';
@@ -221,32 +222,33 @@ export function tierOf(agent: AgentConfig | undefined): AccessTier {
 }
 
 /**
- * effectiveTier（access-tier §3.2）：call.elevation（机制分支临时提权/
- * 有人桶审批注入）?? tierOf(agent)。工具行基线与 ac-security 加严层共用
+ * effectiveAccess（access-tier §3.2）：call.elevation（机制分支临时提权/
+ * 有人桶审批注入）?? accessOf(agent)。工具行基线与 ac-security 加严层共用
  * 本单源——防"复检与基线漂移"（同 agentSpaceRoots 的纪律）。
  */
-export function effectiveTierOf(
+export function effectiveAccessOf(
   agent: AgentConfig | undefined,
   elevation: 'sandbox-access' | 'full-access' | undefined,
-): AccessTier {
+): AccessLevel {
   if (elevation === 'full-access' || elevation === 'sandbox-access') return elevation;
-  return tierOf(agent);
+  return accessOf(agent);
 }
 
 /**
  * per-call 档位判定（工具行基线共用单源，cr-363 收编四处同构）：
- * agents 注册表软依赖读取 + ToolCall.elevation 归一化 + effectiveTierOf
+ * agents 注册表软依赖读取 + ToolCall.access 归一化 + effectiveAccessOf
  * 一体——fs-search / fs-tools / str-replace-editor / shell-tools 原各持
- * 一份 elevation 归一化三行，换新档位词时四处同改。elevation 类型宽于
- * 契约（unknown 透传容错，见 effectiveTierOf 宽容缺省 base）。
+ * 一份档位归一化三行，换新档位词时四处同改。access 类型宽于契约
+ * （unknown 透传容错，见 effectiveAccessOf 宽容缺省 base）；旧字段名
+ * elevation 读兼容（cr-947 前名——过渡期双读，全链换净后拆）。
  */
-export function effectiveTierOfCall(
-  call: { agentId?: string; elevation?: unknown },
+export function effectiveAccessOfCall(
+  call: { agentId?: string; access?: unknown; elevation?: unknown },
   agentsOf: () => { get(id: string): AgentConfig | undefined } | undefined,
-): AccessTier {
+): AccessLevel {
   const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
-  const raw = call.elevation;
-  return effectiveTierOf(
+  const raw = call.access ?? call.elevation;
+  return effectiveAccessOf(
     agent,
     raw === 'full-access' ? 'full-access' : raw === 'sandbox-access' ? 'sandbox-access' : undefined,
   );
@@ -268,7 +270,7 @@ export function effectiveTierOfCall(
 export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
 
 /**
- * 工具调用模式判定单源（对标 tierOf）：tags 含 'tc-none' → none；
+ * 工具调用模式判定单源（对标 accessOf）：tags 含 'tc-none' → none；
  * 含 'tc-programmatic' → programmatic；否则 base（none 优先——无工具
  * 是最强约束，fail-closed 方向）。未注册 Agent（undefined，如存量
  * sub_* 合成身份）→ base。纯函数住 AgentConfig owning 包，router /

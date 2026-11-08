@@ -11,7 +11,7 @@
 // 的过滤（cr-616/762/763 拒绝词）同源在此，越权词不进子 config。
 // ============================================================
 import type { AgentConfig } from 'ac-agents-core';
-import { TIER_RANK, type AccessTier } from 'ac-agents-core';
+import { ACCESS_RANK, type AccessLevel } from 'ac-agents-core';
 import { deriveShellRowset, type RowsetCatalog } from 'ac-rowset-core';
 import { splitModelRef } from 'ac-llm';
 
@@ -45,17 +45,17 @@ export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, ca
  * 会话设置继承映射表（cr-753 收窄至授权词 + cr-763 模式词除外）：
  * 发起会话 conv-settings 覆盖值 → 子 config 等效能力词。新增设置键的
  * 继承面在此登记（映射与 conv-settings BUILTIN_KEYS 的 grants 档位轴
- * 同源维护）。elevation 与 per-call elevation 取水位（只升不降）。
- * tc-* 不继承：交互形态非授权——子形态由装配结构化合成。
+ * 同源维护）。access（cr-947 前名 elevation）与 per-call access 取高者
+ * （只升不降）。tc-* 不继承：交互形态非授权——子形态由装配结构化合成。
  */
 export function convInheritTagsOf(
   settings: Record<string, string>,
-  callElevation: 'sandbox-access' | 'full-access' | undefined,
+  callAccess: 'sandbox-access' | 'full-access' | undefined,
 ): string[] {
   const tags = new Set<string>();
-  const tier = TIER_RANK[(settings.elevation as AccessTier | undefined) ?? 'base-access'] >= TIER_RANK[callElevation ?? 'base-access']
-    ? settings.elevation
-    : callElevation;
+  const tier = ACCESS_RANK[(settings.access as AccessLevel | undefined) ?? 'base-access'] >= ACCESS_RANK[callAccess ?? 'base-access']
+    ? settings.access
+    : callAccess;
   if (tier === 'full-access' || tier === 'sandbox-access') tags.add(tier);
   if (settings.browserTier === 'observe') { tags.add('web'); tags.add('observe'); }
   else if (settings.browserTier === 'manipulate') for (const t of ['web', 'observe', 'manipulate']) tags.add(t);

@@ -265,16 +265,16 @@ export class ShellSubagentService extends Service {
 
   /** 主线消费面适配（cr-712：collab send_agent 的 sub_ 分支——retired
    * SubagentsService.send 同形）：sendOp 薄包装。conversationId 即完成
-   * 回执的发起会话键（cr-711）；elevation 两档白名单窄化后随任务信封下发
-   *（提权继承，cr-728）。delivered 词形：fresh → 'started'，
+   * 回执的发起会话键（cr-711）；access 两档白名单窄化后随任务信封下发
+   *（档位继承，cr-728；cr-947 前名 elevation）。delivered 词形：fresh → 'started'，
    * 重投 → 'deduped'（任务信封 requestId 每发新铸，常态恒 started）。
    * 归档子拒绝（cr-856：ownsChild 对归档者维持 true 是迟到回信防线，
    * 非任务受理面）。 */
-  async send(id: string, opts: { parentId: string; text: string; mode?: string; conversationId?: string; elevation?: string }): Promise<{ delivered: string; info: SubagentChangeInfo }> {
+  async send(id: string, opts: { parentId: string; text: string; mode?: string; conversationId?: string; access?: string }): Promise<{ delivered: string; info: SubagentChangeInfo }> {
     if (!this.ownsChild(id) || childIsArchived(this.dataRoot, this.agentId, id)) throw new Error('子 Agent 不在管理面：' + id);
     const mode = opts.mode === 'steer' || opts.mode === 'next-run' || opts.mode === 'sync' ? opts.mode : 'async';
-    const elevation = opts.elevation === 'sandbox-access' || opts.elevation === 'full-access' ? opts.elevation : undefined;
-    const out = await this.sendOp(id, opts.text, mode, 0, opts.conversationId, undefined, elevation);
+    const access = opts.access === 'sandbox-access' || opts.access === 'full-access' ? opts.access : undefined;
+    const out = await this.sendOp(id, opts.text, mode, 0, opts.conversationId, undefined, access);
     return { delivered: out.delivered ? 'started' : 'deduped', info: this.infoOf(id) };
   }
 
@@ -285,7 +285,7 @@ export class ShellSubagentService extends Service {
    * waitMs 的调用不设——结果由工具返回值直接交付，无需二次唤醒。 */
   async spawnOp(input: {
     name?: string; system?: string; task: string;
-    tools?: string[]; waitMs?: number; replyConversation?: string; signal?: AbortSignal; elevation?: 'sandbox-access' | 'full-access';
+    tools?: string[]; waitMs?: number; replyConversation?: string; signal?: AbortSignal; access?: 'sandbox-access' | 'full-access';
   }): Promise<{ childId: string; reply?: SubagentReply; filtered?: string[] }> {
     const childId = this.newChildId();
     const parent = readAgentConfig(this.dataRoot, this.agentId);
@@ -307,7 +307,7 @@ export class ShellSubagentService extends Service {
     const convOf = input.replyConversation !== undefined && convSettings !== undefined
       ? convSettings.get(input.replyConversation)
       : {};
-    const inheritTags = convInheritTagsOf(convOf, input.elevation);
+    const inheritTags = convInheritTagsOf(convOf, input.access);
     // cr-758 工作区锚点继承：发起会话挂载工作区时（singles「挂载即基准」），
     // 子会话键 parent~sub-x 是新对桶——singles 无记录，锚点结构上到不了
     // 子壳（相对路径/bash cwd/提示词 [工作目录] 回落 files/<sub-id>）。快照
@@ -361,15 +361,16 @@ export class ShellSubagentService extends Service {
     if (input.replyConversation !== undefined) this.convOf.set(childId, input.replyConversation);
     if (input.task === '') return { childId, ...(filtered !== undefined ? { filtered } : {}) };
     const waitMs = input.waitMs ?? 0;
-    const out = await this.sendOp(childId, input.task, waitMs > 0 ? 'sync' : 'async', waitMs, input.replyConversation, input.signal, input.elevation);
+    const out = await this.sendOp(childId, input.task, waitMs > 0 ? 'sync' : 'async', waitMs, input.replyConversation, input.signal, input.access);
     return { childId, ...(out.reply !== undefined ? { reply: out.reply } : {}), ...(filtered !== undefined ? { filtered } : {}) };
   }
 
   /** 任务信封（budget = 2：子 run 一次 + 回信线余量；replyConversation
    * 随 payload 往返——子壳 postReply 原样回带，父壳据此把完成回执投回
-   * 发起会话，cr-711；elevation = 提权继承——父的随信临时提权随任务信封
-   * 下发，子壳 receiveEnvelope → loop 既有链路生效，cr-728） */
-  private taskEnvelope(childId: string, text: string, replyConversation?: string, elevation?: 'sandbox-access' | 'full-access'): Envelope {
+   * 发起会话，cr-711；access = 档位继承——父的随信档位随任务信封
+   * 下发，子壳 receiveEnvelope → loop 既有链路生效，cr-728；cr-947 前名
+   * elevation） */
+  private taskEnvelope(childId: string, text: string, replyConversation?: string, access?: 'sandbox-access' | 'full-access'): Envelope {
     return makeEnvelope({
       uuid: this.agentId + '~' + childId,
       requestId: 'sub-' + crypto.randomUUID(),
@@ -378,7 +379,7 @@ export class ShellSubagentService extends Service {
       kind: 'message',
       budget: 2,
       payload: { text, ...(replyConversation !== undefined ? { replyConversation } : {}) },
-      ...(elevation !== undefined ? { elevation } : {}),
+      ...(access !== undefined ? { access } : {}),
     });
   }
 
@@ -396,7 +397,7 @@ export class ShellSubagentService extends Service {
    */
   async sendOp(
     childId: string, message: string, mode: 'async' | 'sync' | 'steer' | 'next-run', waitMs = 0,
-    replyConversation?: string, signal?: AbortSignal, elevation?: 'sandbox-access' | 'full-access',
+    replyConversation?: string, signal?: AbortSignal, access?: 'sandbox-access' | 'full-access',
   ): Promise<{ delivered: boolean; reply?: SubagentReply }> {
     if (!this.ownsChild(childId) || childIsArchived(this.dataRoot, this.agentId, childId)) {
       throw new Error('子 Agent 不在管理面：' + childId + '（list 查询在场清单）');
@@ -405,7 +406,7 @@ export class ShellSubagentService extends Service {
     const meta = this.childMeta.get(childId);
     const proc = meta?.exited === true ? undefined : this.children.get(childId);
     const syncWait = mode === 'sync' || waitMs > 0;
-    const envelope = this.taskEnvelope(childId, message, syncWait ? undefined : replyConversation, elevation);
+    const envelope = this.taskEnvelope(childId, message, syncWait ? undefined : replyConversation, access);
     const deliverP = (async (): Promise<DeliverResult> => {
       if (proc !== undefined) {
         try { return { channel: 'direct', fresh: (await proc.deliver(envelope)).fresh }; }
@@ -1011,7 +1012,7 @@ export class ShellSubagentService extends Service {
               ...(Number(args.wait_time) > 0 ? { waitMs: Math.round(Number(args.wait_time) * 1000) } : {}),
               ...(replyConversation !== undefined ? { replyConversation } : {}),
               ...(call.signal !== undefined ? { signal: call.signal } : {}),
-              ...(call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? { elevation: call.elevation } : {}),
+              ...(call.access === 'sandbox-access' || call.access === 'full-access' ? { access: call.access } : {}),
             });
             const notes: string[] = [];
             if (out.filtered !== undefined) notes.push('以下 tools 词未命中目录或不属你的行集，已过滤：' + out.filtered.join(', '));
@@ -1033,7 +1034,7 @@ export class ShellSubagentService extends Service {
             const mode = (args.mode === 'sync' || args.mode === 'steer' || args.mode === 'next-run') ? args.mode : 'async';
             const childId = childOf();
             const out = await this.sendOp(childId, message, mode, 0, replyConversation, call.signal,
-              call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? call.elevation : undefined);
+              call.access === 'sandbox-access' || call.access === 'full-access' ? call.access : undefined);
             // 无回执（async 立返 / sync 超时）：附子状态快照引导（调用方不猜状态）
             const brief = out.reply === undefined ? this.childBriefOf(childId) : undefined;
             return {

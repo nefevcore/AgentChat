@@ -2,7 +2,8 @@
 // config.ts —— AgentConfig 契约 + 词汇纯函数（M2.1）
 //
 // AgentConfig 契约 owning 迁 preview 轨（现状 owning = packages/ac-agents；
-// cutover 时随行集归并退役）。词汇函数语义平移：tierOf / toolModeOf /
+// cutover 时随行集归并退役）。词汇函数语义平移：accessOf（cr-947 前名
+// tierOf）/ toolModeOf /
 // displayNameOf / resolveToolNames —— 唯一换轨：tools 条目词 = 精确工具名
 // ∨ 行引用（A9/A10：tag 词汇全链退役；'tag:<t>' 不再是合法词形）。
 // settingsOf 纯函数化：全局默认层 ∪ 本差异层合成（deepMerge 语义见注释）。
@@ -83,18 +84,18 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
   return undefined;
 }
 
-/** 访问档位（access-tier §四）：tags 档位词判定 */
-export type AccessTier = 'full-access' | 'sandbox-access' | 'base-access';
+/** 访问档位（access-tier §四）：tags 档位词判定。cr-947 词面统一 access——类型名 AccessLevel（tier/elevation 词退役）。 */
+export type AccessLevel = 'full-access' | 'sandbox-access' | 'base-access';
 
 /** 档位强度序（base < sandbox < full） */
-export const TIER_RANK: Record<AccessTier, number> = {
+export const ACCESS_RANK: Record<AccessLevel, number> = {
   'base-access': 0,
   'sandbox-access': 1,
   'full-access': 2,
 };
 
-/** 档位判定单源：full 优先；未注册 → base（fail-closed 方向） */
-export function tierOf(agent: AgentConfig | undefined): AccessTier {
+/** 档位判定单源：full 优先；未注册 → base（fail-closed 方向）。cr-947 更名 tierOf→accessOf。 */
+export function accessOf(agent: AgentConfig | undefined): AccessLevel {
   const tags = agent?.tags;
   if (!tags) return 'base-access';
   if (tags.includes('full-access')) return 'full-access';

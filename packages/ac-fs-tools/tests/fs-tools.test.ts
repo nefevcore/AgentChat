@@ -403,7 +403,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     expect(out.error).toContain('沙箱');
   });
 
-  it('基线层档位感知：elevation=full 越界写放行（跳过沙箱白名单）；accessDeny 不随档位跳过（域规则与档位正交）', async () => {
+  it('基线层档位感知：access=full 越界写放行（跳过沙箱白名单）；accessDeny 不随档位跳过（域规则与档位正交）', async () => {
     const root = tmpRoot();
     const base = path.join(root, 'files', 'neko');
     const secret = path.join(root, 'vault', 's.txt');
@@ -425,17 +425,17 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     }
     booted.push({ ctx, fibers });
 
-    // 无 elevation：沙箱内相对路径可写；沙箱外（vault）越界拦
+    // 无 access：沙箱内相对路径可写；沙箱外（vault）越界拦
     const inside = await exec(ctx, { name: 'write', agentId: 'neko', args: { file_path: 'ok.txt', content: 'x' } });
     expect(inside.ok).toBe(true);
     const outside = await exec(ctx, { name: 'write', agentId: 'neko', args: { file_path: secret, content: 'x' } });
     expect(outside.ok).toBe(false);
 
-    // elevation=full-access（审批/机制提权）：跳过沙箱白名单——沙箱外放行…
+    // access=full-access（审批/机制提权）：跳过沙箱白名单——沙箱外放行…
     const elevated = await exec(ctx, {
       name: 'write',
       agentId: 'neko',
-      elevation: 'full-access',
+      access: 'full-access',
       args: { file_path: path.join(root, 'outside-elev', 'w.txt'), content: 'x' },
     });
     expect(elevated.ok).toBe(true);
@@ -443,7 +443,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const denied = await exec(ctx, {
       name: 'write',
       agentId: 'neko',
-      elevation: 'full-access',
+      access: 'full-access',
       args: { file_path: secret, content: 'x' },
     });
     expect(denied.ok).toBe(false);

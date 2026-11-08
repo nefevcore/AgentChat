@@ -9,7 +9,7 @@
 //     非 full 档）；目录列表 = 发现面，条目过滤对齐 glob/grep 结果过滤
 //     （敏感条目名不外显）；
 //   · write/edit 写侧防线不动：沙箱白名单 + denyPatterns（full 档/
-//     审批 elevation 跳过白名单，accessDeny 不跳过）。
+//     审批 access 跳过白名单，accessDeny 不跳过）。
 // M18 起 per-call 基准经 ac-workspace.sandboxWorkdir（Agent 专用空间
 // files/<id>；行缺省 cwd 仅在无执行身份/未装 workspace 行时兜底）。
 // per-Agent 档位门/询问提权归 ac-security 行（needPermission 标注：
@@ -27,7 +27,7 @@ import {
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveTierOfCall, widenToolsForGating } from 'ac-agents';
+import { effectiveAccessOfCall, widenToolsForGating } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
@@ -90,10 +90,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     void svc?.ensure(call.conversationId, file);
   }
 
-  /** effectiveTier（§3.2）：call.elevation（机制提权/审批注入）?? tierOf(agent)
-   *  ——ac-agents 导出的 per-call 单源（effectiveTierOfCall），防基线与复检漂移 */
-  function tierOfCall(call: { agentId?: string; elevation?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
-    return effectiveTierOfCall(call, agentsOf);
+  /** effectiveAccess（§3.2）：call.access（机制提权/审批注入）?? accessOf(agent)
+   *  ——ac-agents 导出的 per-call 单源（effectiveAccessOfCall），防基线与复检漂移 */
+  function accessOfCall(call: { agentId?: string; access?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
+    return effectiveAccessOfCall(call, agentsOf);
   }
 
   // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
@@ -113,10 +113,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   /** 读面双黑名单命中判定（read 路径判定与目录列表条目过滤共用单源；
    * accessDeny 全档 + readDeny 非 full 档——与 fs-search 检索结果过滤同口径） */
   function readDenyHitOf(
-    call: { agentId?: string; elevation?: string },
+    call: { agentId?: string; access?: string },
   ): (abs: string) => 'access' | 'read' | undefined {
     const deny = denyListsOf(call);
-    const skipReadDeny = tierOfCall(call) === 'full-access';
+    const skipReadDeny = accessOfCall(call) === 'full-access';
     return (abs: string): 'access' | 'read' | undefined => {
       if (isDeniedPath(deny.accessDeny, abs)) return 'access';
       if (!skipReadDeny && isDeniedPath(deny.readDeny, abs)) return 'read';
@@ -126,7 +126,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
 
   /** 读路径黑名单判定（read/glob/grep 共用口径）：命中类别 → 面向模型的消息 */
   function readDeniedMessage(
-    call: { agentId?: string; elevation?: string },
+    call: { agentId?: string; access?: string },
     file: string,
     raw: string,
   ): string | undefined {
@@ -265,10 +265,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
         if (typeof content !== 'string') {
           return { ok: false, error: '缺少 content 参数（文件完整内容）' };
         }
-        // 写基线 tierOf 感知（§9.3）：full 档/审批 elevation 跳过沙箱白名单
+        // 写基线档位感知（§9.3）：full 档/审批 access 跳过沙箱白名单
         // （accessDeny 不跳过——域规则与档位正交）；base/sandbox 沙箱内
         const sandbox = sandboxOf(call);
-        const file = tierOfCall(call) === 'full-access'
+        const file = accessOfCall(call) === 'full-access'
           ? path.resolve(sandbox.workdir, p)
           : sandbox.resolve(p);
         const deny = denyListsOf(call);
@@ -337,10 +337,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
           return { ok: false, error: '缺少 new_string 参数（替换后的新文本；传空字符串表示删除 old_string）。' };
         }
 
-        // 写基线 tierOf 感知（§9.3，与 write 同款）：full/审批 elevation
+        // 写基线档位感知（§9.3，与 write 同款）：full/审批 access
         // 跳过沙箱白名单；accessDeny 不随档位跳过
         const sandbox = sandboxOf(call);
-        const file = tierOfCall(call) === 'full-access'
+        const file = accessOfCall(call) === 'full-access'
           ? path.resolve(sandbox.workdir, filePath)
           : sandbox.resolve(filePath);
         const deny = denyListsOf(call);

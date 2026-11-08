@@ -548,20 +548,20 @@ describe('relay-connection pong watchdog（cr-48：盲发 ping 对半开连接�
 });
 
 describe('远程大应答分页（cr-51：session/history 全量回读在移动网络必炸）', () => {
-  it('deliver 类转发强制 sender/source=user（cr-78）；elevation 放行（cr-112：cr-105 配对即信任补全）', async () => {
+  it('deliver 类转发强制 sender/source=user（cr-78）；access 放行（cr-112：cr-105 配对即信任补全）', async () => {
     await boot();
     const calls: Array<{ method: string; params: any }> = [];
     (ctx.get('webServer') as { callRpc: (m: string, p?: unknown) => Promise<unknown> }).callRpc =
       async (method, params) => { calls.push({ method, params }); return {}; };
     const svcAny = svc as unknown as { forwardRpc(device: { id: string; scopes: string[] }, method: string, params: unknown): Promise<unknown> };
-    // 设备伪造 sender=其他端点——须被强制覆盖；elevation 保留透传（两档白名单
+    // 设备伪造 sender=其他端点——须被强制覆盖；access 保留透传（两档白名单
     // 窄化在 web-api deliver 边界，deliver 侧只升不降约束不变）
     await svcAny.forwardRpc({ id: 'd1', scopes: ['read', 'chat'] }, 'conversation/deliver', {
-      agentId: 'a', message: 'hi', sender: 'some-agent', source: 'agent', elevation: 'full-access',
+      agentId: 'a', message: 'hi', sender: 'some-agent', source: 'agent', access: 'full-access',
     });
     expect(calls[0].method).toBe('conversation/deliver');
     expect(calls[0].params).toMatchObject({ sender: 'user', source: 'user' });
-    expect(calls[0].params.elevation).toBe('full-access');
+    expect(calls[0].params.access).toBe('full-access');
   });
 
   it('远程 session/history 未指定 limit → forwardRpc 注入 limit=50', async () => {

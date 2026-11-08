@@ -58,9 +58,13 @@ assembleSystemPrompt）。任何段内容变化 = system 字节变 = 前缀从�
 
 ## 3. diff 指纹键面（§4 的超集）
 
+> cr-947 变更：tier + elevation 两键合并为 **access** 单键（有效安全档位——
+> Agent 底座/信封覆盖/会话覆盖三分量取 rank 最高的合成终值；conv-settings
+> 会话键 access 三档取代旧 elevation 两档水位键）。
+
 ```
 provider+model | 生效工具名清单（llmToolFace）| toolMode | browserTier | issueSubmit
-| workspaceId | tier（权限档位）| elevation | PTC_SDK 文本 hash | 技能名清单
+| workspaceId | access（有效安全档位，cr-947 合并 tier+elevation）| PTC_SDK 文本 hash | 技能名清单
 ```
 
 - 技能用**结构化名清单**比，不做文本 diff（描述性小改不触发）。
@@ -83,8 +87,7 @@ provider+model | 生效工具名清单（llmToolFace）| toolMode | browserTier 
 | 4 | issueSubmit 开关 | 成功提交 ISSUE 轨迹 | `[会话设置] ISSUE 提交已停用/已启用。` |
 | 5 | workspaceId 切换 | 成功读写旧路径轨迹，会继续引用旧绝对路径 | `[会话设置] 工作区已切换：/old/path → /new/path。` / 移除：`[会话设置] 工作区已移除，回到默认工作目录 /path。` |
 | 6 | 技能卸载 | load_skill 回执+正文在 history，仍按旧指引行事 | `[会话设置] 技能 x 已卸载，其指引不再适用。`（装载不注入——技能注入机制本身落 context 行已自明） |
-| 7 | 权限档位（tier）变化 | 免授权直跑轨迹，降档后要授权/被拒 | `[会话设置] 权限档位已调整：full-access → base-access，部分工具调用将需要授权。` |
-| 8 | elevation 变化 | 同 7 的机制唤醒面 | `[会话设置] 会话提权水位已调整：full-access → sandbox-access。` |
+| 7 | 安全档位（access）变化 | 免授权直跑轨迹，降档后要授权/被拒 | `[会话设置] 安全档位已调整：full-access → base-access，部分工具调用将需要授权。`（cr-947 合并原 7/8 两类——tier 与 elevation 的行为面等价：都体现为有效档位变化） |
 | 9 | PTC_SDK 漂移 | 按旧 SDK 签名写 run_code 程序的轨迹，行更新后必然报错 | `[会话设置] run_code SDK 已更新，以当前工具 schema 与运行报错为准。` |
 | 10 | 生态扩展键 | 视键语义 | `[会话设置] <键名> 已变化：<旧值> → <新值>。`（留 per-key 模板 hook） |
 
@@ -117,8 +120,8 @@ provider+model | 生效工具名清单（llmToolFace）| toolMode | browserTier 
 - **KV Cache effect**：快照 = Prefix-stable by construction（重算恰是 S5 白名单「快照重拍」
   项）；通知行 = Append-only。
 - **设置域键面事实**（ac-conv-settings/src/contract.ts）：model 分流 singles session.json
-  （自包含），toolMode/browserTier/elevation/issueSubmit/扩展键全形态含 sid——diff 读
-  convSettings.get(sid) + session.json.model 合成全键面。
+  （自包含），toolMode/browserTier/access（cr-947 前名 elevation）/issueSubmit/扩展键
+  全形态含 sid——diff 读 convSettings.get(sid) + session.json.model 合成全键面。
 
 ## 7. 实施顺序（动手前逐条对齐本文）
 

@@ -135,7 +135,7 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
     // 发起会话覆盖（宿主直调形态的键——control 帧带 conversationId 即可命中）
     fs.mkdirSync(path.join(ROOT, 'conv-settings'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'conv-settings', 'user~coder.json'),
-      JSON.stringify({ toolMode: 'tc-programmatic', elevation: 'full-access' }), 'utf-8');
+      JSON.stringify({ toolMode: 'tc-programmatic', access: 'full-access' }), 'utf-8');
     const parent = await startParent('coder');
     try {
       const spawnOut = await parent.control({ ctrl: 'tool', name: 'subagent', conversationId: 'user~coder',

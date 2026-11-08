@@ -64,7 +64,7 @@ interface SubagentInfo {
 
 interface SubagentsService {
   get(id: string): SubagentInfo | undefined;
-  send(id: string, opts: { parentId: string; text: string; mode?: string; conversationId?: string; elevation?: string }): { delivered: string; info: SubagentInfo; settled?: Promise<unknown> };
+  send(id: string, opts: { parentId: string; text: string; mode?: string; conversationId?: string; access?: string }): { delivered: string; info: SubagentInfo; settled?: Promise<unknown> };
 }
 
 /** 插件注册中心（原 ac-plugin-registry） */

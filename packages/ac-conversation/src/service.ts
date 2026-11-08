@@ -47,7 +47,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { runAddress, pairKey, isArchiveReviewRun } from 'ac-core-utils'; // 寻址/对桶键/机制标记——cr-318 下沉纯库
-import { TIER_RANK, tierOf, type AgentConfig } from 'ac-agents';
+import { ACCESS_RANK, accessOf, type AgentConfig } from 'ac-agents';
 import { securityNoticeText, wrapWithSecurityNotice } from 'ac-sandbox-core';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
@@ -95,13 +95,13 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  *   · source='event' → 上限 'sandbox-access'（机制分支永远不需要 full）
  *   · 其余（'agent' 等）→ 恒剥除
  */
-function sanitizeElevation(
+function sanitizeAccess(
   source: LoopSource,
-  elevation: 'sandbox-access' | 'full-access' | undefined,
+  access: 'sandbox-access' | 'full-access' | undefined,
 ): 'sandbox-access' | 'full-access' | undefined {
-  if (elevation === undefined) return undefined;
-  if (source === 'user') return elevation;
-  if (source === 'event' && elevation === 'sandbox-access') return 'sandbox-access';
+  if (access === undefined) return undefined;
+  if (source === 'user') return access;
+  if (source === 'event' && access === 'sandbox-access') return 'sandbox-access';
   return undefined;
 }
 
@@ -127,10 +127,11 @@ interface QueuedTurn {
   /** 入队时间（epoch ms；快照展示用） */
   queuedAt: number;
   /**
-   * 本条消息的临时提权（随消息消费生效——链跑 run 按"驱动它的那条
-   * 消息"的档位执行；缺省 = 无提权）。入队前已经 deliver 边界判定。
+   * 本条消息的安全档位（cr-947 前名 elevation；随消息消费生效——链跑
+   * run 按"驱动它的那条消息"的档位执行；缺省 = 无覆盖）。入队前已经
+   * deliver 边界判定。
    */
-  elevation?: 'sandbox-access' | 'full-access';
+  access?: 'sandbox-access' | 'full-access';
   /**
    * 瘦通知替换形态（cr-295）：非空时链跑消费轮的信封末位改投本文本
    * （message 原文仅保留在队列/steerQueued 插话路径——若在消费前被
@@ -175,7 +176,9 @@ interface PendingLine {
   sender: string;
   /** 入队时间（epoch ms；旧文件缺省 → 回放时取当前） */
   queuedAt?: number;
-  /** 本条提权（user 快捷提权语义；旧文件缺省 → 无提权） */
+  /** 本条安全档位（cr-947 前名 elevation；user 选档语义；旧文件缺省 → 无覆盖） */
+  access?: 'sandbox-access' | 'full-access';
+  /** 旧字段名读兼容（cr-947 前名——恢复时映射进 access；写恒新键） */
   elevation?: 'sandbox-access' | 'full-access';
 }
 
@@ -320,15 +323,17 @@ export class ConversationService extends Service {
           try {
             const parsed = JSON.parse(line) as PendingLine;
             if (typeof parsed.message.role === 'string') {
+              // 档位随落盘行恢复（user 选档语义跨重启保持；旧行缺省 = 无。
+              // cr-947 旧字段名 elevation 读兼容——恢复时映射进 access）
+              const legacyAccess = (parsed as { access?: unknown }).access ?? parsed.elevation;
               queue.push({
                 id: typeof parsed.id === 'string' && parsed.id ? parsed.id : nextQueuedId(),
                 message: parsed.message,
                 sender: typeof parsed.sender === 'string' && parsed.sender ? parsed.sender : DEFAULT_SENDER,
                 source: 'user',
                 queuedAt: typeof parsed.queuedAt === 'number' && parsed.queuedAt > 0 ? parsed.queuedAt : Date.now(),
-                // 提权随落盘行恢复（user 快捷提权语义跨重启保持；旧行缺省 = 无）
-                ...(parsed.elevation === 'sandbox-access' || parsed.elevation === 'full-access'
-                  ? { elevation: parsed.elevation }
+                ...(legacyAccess === 'sandbox-access' || legacyAccess === 'full-access'
+                  ? { access: legacyAccess }
                   : {}),
               });
             }
@@ -367,7 +372,7 @@ export class ConversationService extends Service {
             message: q.message,
             sender: q.sender,
             queuedAt: q.queuedAt,
-            ...(q.elevation ? { elevation: q.elevation } : {}),
+            ...(q.access ? { access: q.access } : {}),
           } satisfies PendingLine),
         )
         .join('\n');
@@ -404,60 +409,64 @@ export class ConversationService extends Service {
     // 群/独立/委托/机制路径由调用方显式传键（web-api 边界显式算直答键，D3）。
     //（水位读写都要用 conversationId——先算键再做提权判定。）
     const conversationId0 = options.conversationId ?? pairKey(sender, agentId);
-    // ---- 会话提权水位（2026-09-12 设计：机制唤醒继承）----
-    // 用户 run 的快捷提权档位留痕 conv-settings（持久化），同会话后续机制
-    // 唤醒（job 回投/timer/late-reply/插件回执等 source='event' 信封）
-    // 未显式带档位时自动继承——否则重启/唤醒后的 run 落回 base 档，逐工具
-    // 审批疲劳。防伪造不变量不变：继承也走 sanitizeElevation（event 信封
-    // 上限 sandbox-access）；单次审批（ac-security）不写水位。
+    // ---- 会话安全档位（cr-947：前名 elevation「提权水位」，键名 access）----
+    // 用户在输入框选档随消息投递并留痕 conv-settings.access（持久化），
+    // 同会话后续机制唤醒（job 回投/timer/late-reply/插件回执等
+    // source='event' 信封）未显式带档位时自动继承——否则重启/唤醒后的
+    // run 落回 base 档，逐工具审批疲劳。防伪造不变量不变：继承也走
+    // sanitizeAccess（event 信封上限 sandbox-access）；单次审批
+    // （ac-security）不写本键。写值三档：用户选 base-access（明确跟随
+    // Agent 底座）= 删键（无键即跟随语义，两档词面无 base 值可投）。
     const convSettings = this.ctx.get('convSettings', false) as
-      | { get(id: string): { elevation?: 'sandbox-access' | 'full-access' }; set(id: string, patch: Record<string, string | null | undefined>): unknown }
+      | { get(id: string): { access?: 'base-access' | 'sandbox-access' | 'full-access' }; set(id: string, patch: Record<string, string | null | undefined>): unknown }
       | undefined;
     if (source === 'user' && convSettings) {
-      const current = convSettings.get(conversationId0).elevation;
-      if (options.elevation !== current) {
-        // 写水位（含清除：用户收起快捷提权 = 下次机制唤醒不再继承）
+      const current = convSettings.get(conversationId0).access;
+      // 信封两档 → 写同值；无信封 → 删键（跟随 Agent 底座）。信封无
+      // base-access 值（Envelope.access 两档域），跟随态经删键表达。
+      const next: string | null = options.access ?? null;
+      if (next !== (current ?? null)) {
         try {
-          convSettings.set(conversationId0, { elevation: options.elevation ?? null });
-        } catch { /* convSettings 行未装/写失败：水位尽力而为（不影响投递） */ }
+          convSettings.set(conversationId0, { access: next });
+        } catch { /* convSettings 行未装/写失败：档位留痕尽力而为（不影响投递） */ }
       }
     }
     const inherited =
-      source === 'event' && options.elevation === undefined
-        ? convSettings?.get(conversationId0).elevation
+      source === 'event' && options.access === undefined
+        ? convSettings?.get(conversationId0).access
         : undefined;
-    // 继承不降档（2026-09-12 反馈修正：goal-round 等机制唤醒继承水位被
+    // 继承不降档（2026-09-12 反馈修正：goal-round 等机制唤醒继承档位被
     // 裁到 sandbox → 唤醒轮写 D: 盘逐文件弹审批卡，单会话实测 24 次）：
-    // 水位 full-access 原样继承 full——用户在本会话武装过 full，机制
-    // 唤醒是同一授权意图的延续；sanitizeElevation 对 source='event'
+    // 档位 full-access 原样继承 full——用户在本会话武装过 full，机制
+    // 唤醒是同一授权意图的延续；sanitizeAccess 对 source='event'
     // 的防伪造上限（sandbox）只约束**不可信调用方显式携带**的档位，
-    // 水位继承是 deliver 边界自己合成（等价 source='user' 直达路径），
-    // 不在防伪造威胁面内。水位 sandbox 原样。
-    const inheritedTier: 'sandbox-access' | 'full-access' | undefined =
+    // 会话档位继承是 deliver 边界自己合成（等价 source='user' 直达
+    // 路径），不在防伪造威胁面内。档位 sandbox 原样。
+    const inheritedAccess: 'sandbox-access' | 'full-access' | undefined =
       inherited === 'full-access' || inherited === 'sandbox-access' ? inherited : undefined;
-    // deliver 边界提权判定（access-tier §7.2 防伪造不变量，单源
-    // sanitizeElevation）：'user' 两档直达（宿主 API 人工快捷提权）、
+    // deliver 边界档位判定（access-tier §7.2 防伪造不变量，单源
+    // sanitizeAccess）：'user' 两档直达（宿主 API 人工选档）、
     // 'event' 上限 sandbox（防伪造：不可信调用方显式携带的档位被裁）、
-    // 'agent' 恒剥除。**水位继承例外**：继承档位绕过 event 上限（见上——
-    // 水位是 deliver 边界自己合成，非调用方输入，不在威胁面内），
-    // 但仍走底座判定（只升不降）。
-    // 提权只升不降：Agent 自有 tags 档位恒为底座——信封 elevation 不高于
+    // 'agent' 恒剥除。**会话档位继承例外**：继承档位绕过 event 上限
+    // （见上——会话档位是 deliver 边界自己合成，非调用方输入，不在
+    // 威胁面内），但仍走底座判定（只升不降）。
+    // 只升不降：Agent 自有 tags 档位恒为底座——信封 access 不高于
     // 目标 Agent 自有档位时剥除（武装低档绝不把高档 Agent 降级执行；
     // 未注册/agents 行未装 = base 底座，判定不阻断投递）。
-    let effElevation = inheritedTier ?? sanitizeElevation(source, options.elevation);
-    if (effElevation !== undefined) {
+    let effAccess = inheritedAccess ?? sanitizeAccess(source, options.access);
+    if (effAccess !== undefined) {
       const agents = this.ctx.get('agents', false) as
         | { get(id: string): AgentConfig | undefined }
         | undefined;
-      if (TIER_RANK[tierOf(agents?.get(agentId))] >= TIER_RANK[effElevation]) {
-        effElevation = undefined;
+      if (ACCESS_RANK[accessOf(agents?.get(agentId))] >= ACCESS_RANK[effAccess]) {
+        effAccess = undefined;
       }
     }
-    // 剥除 = 显式覆盖为 undefined（展开 options 会保留原 elevation——必须
+    // 剥除 = 显式覆盖为 undefined（展开 options 会保留原 access——必须
     // 覆写，否则 agent 信封剥除/低档剥除语义回归为"保留原值"）。
     const effOptions: ConversationDeliverOptions =
-      options.elevation !== undefined || inheritedTier !== undefined
-        ? { ...options, elevation: effElevation }
+      options.access !== undefined || inheritedAccess !== undefined
+        ? { ...options, access: effAccess }
         : options;
     // 对桶缺省（M19）：直答 = pairKey(sender, agentId)——user 只是端点之一；
     // 群/独立/委托/机制路径由调用方显式传键（web-api 边界显式算直答键，D3）。
@@ -501,7 +510,7 @@ export class ConversationService extends Service {
           queuedAt: Date.now(),
           // 提权随消息：链跑消费时按本条档位开 run（webui 快捷提权在
           // 忙态排队下不丢失）
-          ...(effOptions.elevation ? { elevation: effOptions.elevation } : {}),
+          ...(effOptions.access ? { access: effOptions.access } : {}),
           ...(effOptions.wakeNotice !== undefined ? { wakeNotice: effOptions.wakeNotice } : {}),
         });
         this.persistQueue(handle); // 先记账后受理（M15 待投持久化）
@@ -549,7 +558,7 @@ export class ConversationService extends Service {
 
   /**
    * 唆使防御 notice 包装（access-tier §8.2 落点 B）：source='agent' 且
-   * tierOf(sender) 严格低于 tierOf(接收方) 时把 <security-notice> 块包装
+   * accessOf(sender) 严格低于 accessOf(接收方) 时把 <security-notice> 块包装
    * 进消息内容（system 已装配不可中途加块——包装进尾部追加的 user 消息，
    * 前缀零改动）。同 run 同 sender 去重（首条包装，后续裸投）。
    * 未注册 sender（agents.get 不到，如存量 sub_* 身份）视作 base——
@@ -569,8 +578,8 @@ export class ConversationService extends Service {
       | { get(id: string): AgentConfig | undefined }
       | undefined;
     if (agents === undefined) return message;
-    const senderTier = tierOf(agents.get(sender));
-    if (TIER_RANK[senderTier] >= TIER_RANK[tierOf(agents.get(agentId))]) return message;
+    const senderTier = accessOf(agents.get(sender));
+    if (ACCESS_RANK[senderTier] >= ACCESS_RANK[accessOf(agents.get(agentId))]) return message;
     const entry = this.runs.get(handle);
     if (entry === undefined) return message;
     if (entry.noticedSenders?.has(sender)) return message;
@@ -738,9 +747,9 @@ export class ConversationService extends Service {
     let sender = options.sender ?? DEFAULT_SENDER;
     let source: LoopSource = options.source ?? 'user';
     // 提权随消息（webui 快捷提权）：每个链跑 run 按"驱动它的那条消息"
-    // 的档位执行——首条 = deliver 边界判定后的 options.elevation，
+    // 的档位执行——首条 = deliver 边界判定后的 options.access，
     // next-turn 消费取该条入队时携带的档位。
-    let elevation = options.elevation;
+    let access = options.access;
     let autoWakes = 0;
     let first: LoopRunResult | undefined;
     // 群桶判定（M26 行为对齐）：群名册经可选 group 服务（root-traced 解析，
@@ -775,7 +784,7 @@ export class ConversationService extends Service {
           ...(options.model ? { model: options.model } : {}),
           ...(options.maxSteps != null ? { maxSteps: options.maxSteps } : {}),
           ...(options.meta ? { meta: options.meta } : {}),
-          ...(elevation ? { elevation } : {}),
+          ...(access ? { access } : {}),
           signal: controller.signal,
         });
         if (first === undefined) first = result;
@@ -813,7 +822,7 @@ export class ConversationService extends Service {
           : next.message;
         sender = next.sender;
         source = next.source;
-        elevation = next.elevation;
+        access = next.access;
       }
     } finally {
       if (this.runs.get(handle) === entry) this.runs.delete(handle);

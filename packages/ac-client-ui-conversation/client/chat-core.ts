@@ -406,10 +406,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    *  busyMode（DSH 忙态语义）：'queue' = lane next-turn（排队等本轮结束
    *  后独立 run 投递）；'steer' = placement steer（立即注入活跃 run 的
    *  下一步）；undefined = 空闲普通发送（后端缺省路径）。
-   *  elevation（webui 快捷提权）：随消息透传——后端 deliver 边界按
-   *  source='user' 判定两档直达，且只升不降（Agent 自有 tags 档位恒为
-   *  底座，武装低档被剥除）；steer 注入活跃 run 时不生效（run 档位
-   *  在开跑时已定），排队路径随消息入队、消费时生效。 */
+   *  access（webui 档位选择，cr-947 前名 elevation）：随消息透传——后端
+   *  deliver 边界按 source='user' 判定两档直达，且只升不降（Agent 自有
+   *  tags 档位恒为底座，武装低档被剥除）；steer 注入活跃 run 时不生效
+   *  （run 档位在开跑时已定），排队路径随消息入队、消费时生效。 */
   async function deliver(
     ctx: ChatContext | null,
     target: string,
@@ -417,7 +417,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     files: import('./types.ts').FileAttachment[] | undefined,
     requestId?: string,
     busyMode?: 'queue' | 'steer',
-    elevation?: 'sandbox-access' | 'full-access',
+    access?: 'sandbox-access' | 'full-access',
   ): Promise<void> {
     const composed = composeContent(content, files);
     const attachments = imageAttachmentsOf(files);
@@ -432,7 +432,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       ...(requestId ? { requestId } : {}),
       ...(busyMode === 'queue' ? { lane: 'next-turn' as const } : {}),
       ...(busyMode === 'steer' ? { placement: 'steer' as const } : {}),
-      ...(elevation ? { elevation } : {}),
+      ...(access ? { access } : {}),
       ...(ctx && ctx.kind === 'single' && ctx.sessionId
         ? { conversationId: ctx.sessionId, ...(ctx.model ? { model: ctx.model } : {}) }
         : {}),
@@ -510,10 +510,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
      *  本轮结束后独立投递——不再打断在途 run）；'steer' = 立即注入
      *  活跃 run 下一步。空闲时两者等价（普通发送）。 */
     mode?: 'steer';
-    /** 本条消息的临时提权（webui 快捷提权按钮；UI 侧持续武装直到手动
-     *  改回）：透传 deliver → 后端信封 elevation → run 内每步
-     *  ToolCall.elevation（只升不降——Agent 自有 tags 档位恒为底座）。 */
-    elevation?: 'sandbox-access' | 'full-access';
+    /** 本条消息的安全档位（webui 档位选择；UI 侧持续武装直到手动改回，
+     *  cr-947 前名 elevation）：透传 deliver → 后端信封 access → run 内每步
+     *  ToolCall.access（只升不降——Agent 自有 tags 档位恒为底座）。 */
+    access?: 'sandbox-access' | 'full-access';
   }) {
     const ctx = resolveContext();
     const target = to ?? ctx?.agentId;
@@ -546,17 +546,17 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     if (!to && ctx?.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
     // 异步（继承写等待）——失败已在 deliver 内部收敛为红条反馈，不抛
-    void deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode, options?.elevation);
+    void deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode, options?.access);
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理/编辑重发。
-   *  提权取当前组合偏好（composePrefs 是"持续武装"语义单一事实源——
-   *  ChatInput 的 elevation ref 与之同步；regenerate/edit 不该丢武装态）。 */
+   *  档位取当前组合偏好（composePrefs 是"持续武装"语义单一事实源——
+   *  ChatInput 的 access ref 与之同步；regenerate/edit 不该丢武装态）。 */
   function _sendRaw(ctx: ChatContext, content: string, files: import('./types.ts').FileAttachment[]) {
-    const elev = loadComposePrefs()?.elevation;
+    const acc = loadComposePrefs()?.access;
     turnInProgress.value = true;
     void deliver(ctx, ctx.agentId, content, files, uid('send'), undefined,
-      elev === 'sandbox-access' || elev === 'full-access' ? elev : undefined);
+      acc === 'sandbox-access' || acc === 'full-access' ? acc : undefined);
   }
 
   /** 插话本地上屏（QueueDock 行级 steer 成功后调用）：conversation/steered

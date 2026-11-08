@@ -51,20 +51,20 @@ describe('composePrefs：上次会话选择持久化', () => {
   it('save 键级合并写：逐项写回互不覆盖，load 全量带回', () => {
     storage.clear();
     prefs.saveComposePrefs({ agentId: 'helper', effort: 'low' });
-    prefs.saveComposePrefs({ model: 'deepseek@deepseek-chat', elevation: 'full-access' });
+    prefs.saveComposePrefs({ model: 'deepseek@deepseek-chat', access: 'full-access' });
     expect(prefs.loadComposePrefs()).toEqual({
       agentId: 'helper',
       model: 'deepseek@deepseek-chat',
       effort: 'low',
-      elevation: 'full-access',
+      access: 'full-access',
     });
   });
 
-  it('合法关闭态：effort ""/elevation "" 是可记录值（回放保持，非缺省值才覆写）', () => {
+  it('合法关闭态：effort ""/access "" 是可记录值（回放保持，非缺省值才覆写）', () => {
     storage.clear();
-    prefs.saveComposePrefs({ effort: 'max', elevation: 'sandbox-access' });
-    prefs.saveComposePrefs({ effort: '', elevation: '' });
-    expect(prefs.loadComposePrefs()).toEqual({ effort: '', elevation: '' });
+    prefs.saveComposePrefs({ effort: 'max', access: 'sandbox-access' });
+    prefs.saveComposePrefs({ effort: '', access: '' });
+    expect(prefs.loadComposePrefs()).toEqual({ effort: '', access: '' });
   });
 
   it('agentId/model 的 "" 同为合法记录值：明确选回默认覆盖旧记录（2026-09-15 修复——选回默认后新会话跟随，不残留旧模式）', () => {
@@ -79,7 +79,7 @@ describe('composePrefs：上次会话选择持久化', () => {
 
   it('wire 宽容：非法档位值/未知键忽略，损坏 JSON → null', () => {
     storage.clear();
-    prefs.saveComposePrefs({ effort: 'ultra' as never, elevation: 'root' as never });
+    prefs.saveComposePrefs({ effort: 'ultra' as never, access: 'root' as never });
     prefs.saveComposePrefs({ agentId: '', model: '' }); // '' = 明确选回默认（合法记录值）
     expect(prefs.loadComposePrefs()).toEqual({ agentId: '', model: '' });
     storage.setItem('agentchat.composePrefs', '{broken json');

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  tierOf, toolModeOf, displayNameOf, resolveToolNames, settingsOf, deepMerge,
+  accessOf, toolModeOf, displayNameOf, resolveToolNames, settingsOf, deepMerge,
   isPresetId, presetTemplateKeyOf,
   type AgentConfig,
 } from '../src/config.ts';
@@ -18,11 +18,11 @@ import {
 describe('词汇纯函数（语义平移自 ac-agents）', () => {
   const base: AgentConfig = { id: 'a' };
 
-  it('tierOf：full 优先 / sandbox / 缺省 base / 未注册 base（fail-closed）', () => {
-    expect(tierOf(undefined)).toBe('base-access');
-    expect(tierOf({ ...base, tags: [] })).toBe('base-access');
-    expect(tierOf({ ...base, tags: ['sandbox-access'] })).toBe('sandbox-access');
-    expect(tierOf({ ...base, tags: ['full-access', 'sandbox-access'] })).toBe('full-access');
+  it('accessOf：full 优先 / sandbox / 缺省 base / 未注册 base（fail-closed）', () => {
+    expect(accessOf(undefined)).toBe('base-access');
+    expect(accessOf({ ...base, tags: [] })).toBe('base-access');
+    expect(accessOf({ ...base, tags: ['sandbox-access'] })).toBe('sandbox-access');
+    expect(accessOf({ ...base, tags: ['full-access', 'sandbox-access'] })).toBe('full-access');
   });
 
   it('toolModeOf：none 优先（无工具是最强约束）/ programmatic / 缺省 base', () => {

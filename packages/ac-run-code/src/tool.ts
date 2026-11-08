@@ -620,7 +620,7 @@ export async function executeRunCode(
             // 子调用按键归属到宿主 run 的步载体（前缀匹配升格为判据）
             ...(call.runId !== undefined ? { runId: call.runId } : {}),
             signal: abortCtl.signal,
-            ...(call.elevation ? { elevation: call.elevation } : {}),
+            ...(call.access ? { access: call.access } : {}),
             // 子调用标记（实测复盘 #B）：ToolCall 开放词汇面——UI/审计
             // 据此区分「run_code 程序内子调用」与「模型直接调用」
             runCodeSubcall: true,

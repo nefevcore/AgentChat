@@ -27,7 +27,7 @@ describe('cr-856 spawn 物化单源（inherit.ts）', () => {
   });
 
   it('convInheritTagsOf：水位取高 + grants 全链映射；tc-* 不产生', () => {
-    const full = convInheritTagsOf({ elevation: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }, 'sandbox-access');
+    const full = convInheritTagsOf({ access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }, 'sandbox-access');
     for (const t of ['full-access', 'web', 'observe', 'manipulate', 'inject', 'issue-report']) {
       expect(full).toContain(t);
     }

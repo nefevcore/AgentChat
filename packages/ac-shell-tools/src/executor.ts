@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import { bashCommandViolation, hostKillViolation, type SandboxResolver } from 'ac-sandbox-core';
-import { effectiveTierOfCall } from 'ac-agents';
+import { effectiveAccessOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { buildErrorMessage, isProcessAlive, killProcessTree, looksLikeInvocationError, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
 import { spawnSync } from 'node:child_process';
@@ -161,16 +161,16 @@ export function executeShellCommand(
     conversationId?: string;
     signal?: AbortSignal;
     onProgress?: (chunk: string) => void;
-    elevation?: string;
+    access?: string;
   },
   limits: ExecLimits,
 ): Promise<ToolResult> {
   const command = args.command == null ? '' : String(args.command);
   const wd = (args.workdir ?? args.cwd) as string | undefined;
   const sandbox = deps.sandboxOf(call);
-  // 基线 tierOf 感知（full "不做任何限制"的字面义）：workdir 只锚定不设
+  // 基线档位感知（full "不做任何限制"的字面义）：workdir 只锚定不设
   // 白名单；命令级扫描跳过（软边界语义只约束 base/sandbox）
-  const unrestricted = effectiveTierOfCall(call, deps.agentsOf) === 'full-access';
+  const unrestricted = effectiveAccessOfCall(call, deps.agentsOf) === 'full-access';
   let dir: string;
   if (unrestricted) {
     dir = wd ? path.resolve(sandbox.workdir, String(wd)) : sandbox.workdir;

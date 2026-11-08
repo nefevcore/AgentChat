@@ -155,15 +155,15 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // 不传 conversationId 时边界显式计算）。覆盖随信投递：壳无从查表也生效。
         const model = optStr(p.model)
           ?? storedModelOf(conversationId ?? pairKey('user', agentId));
-        // 单次投递提权档位（cr-626，主线 web-api deliver 同款白名单窄化）：
-        // 输入框档位选择随信投递——主线 loop request.elevation 同词汇。
-        const elevRaw = optStr(p.elevation);
-        const elevation = elevRaw === 'sandbox-access' || elevRaw === 'full-access' ? elevRaw : undefined;
+        // 单次投递安全档位（cr-626；cr-947 前名 elevation——词面统一 access）：
+        // 输入框档位选择随信投递——主线 loop request.access 同词汇。
+        const elevRaw = optStr(p.access);
+        const access = elevRaw === 'sandbox-access' || elevRaw === 'full-access' ? elevRaw : undefined;
         const result = await deps.user.send(agentId, text, {
           ...(conversationId !== undefined ? { uuid: conversationId } : {}),
           ...(requestId !== undefined ? { requestId } : {}),
           ...(model !== undefined ? { model } : {}),
-          ...(elevation !== undefined ? { elevation } : {}),
+          ...(access !== undefined ? { access } : {}),
           ...(lane !== undefined ? { lane } : {}),
           ...(placement !== undefined ? { placement } : {}),
         });
@@ -493,7 +493,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
 
       // 实验性键目录（输入框「实验性」菜单数据源——注册制：壳内扩展行经垫片
       // 注册的键不回传，宿主侧键集单源 = conv-settings 行）。group 过滤 =
-      // 主线同款（cr-613：移植时丢失致 model/elevation/toolMode 纯消费键
+      // 主线同款（cr-613：移植时丢失致 model/access/toolMode 纯消费键
       // 混入实验性菜单——只回 UI 组键）
       web.registerRpc('conv-settings/keys', () => ({
         keys: convSettings().listKeys().filter((k) => k.group === 'experimental'),

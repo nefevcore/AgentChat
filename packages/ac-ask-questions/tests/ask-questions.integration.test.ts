@@ -297,7 +297,7 @@ describe('ask_questions 发起体（write-ahead + 即返 awaiting + context 行�
     expect(qs[0].options).toEqual(['A', 'B']);
   });
 
-  it('提权档位留痕（2026-09-12 反馈）：call.elevation 进 payload；无提权无字段', async () => {
+  it('提权档位留痕（2026-09-12 反馈）：call.access 进 payload；无提权无字段', async () => {
     const { ctx } = await boot({ backend: 'memory' });
     await exec(ctx, {
       name: 'ask_questions',
@@ -305,10 +305,10 @@ describe('ask_questions 发起体（write-ahead + 即返 awaiting + context 行�
       agentId: 'helper',
       conversationId: 'helper',
       toolCallId: 'call-elev-1',
-      elevation: 'full-access',
+      access: 'full-access',
     });
     const open = ctx.durableInteraction.listOpen({ key: 'helper' })[0];
-    expect((open.payload as { elevation?: string }).elevation).toBe('full-access');
+    expect((open.payload as { access?: string }).access).toBe('full-access');
     await exec(ctx, {
       name: 'ask_questions',
       args: { questions: [{ question: 'q2', options: ['x'] }] },
@@ -317,7 +317,7 @@ describe('ask_questions 发起体（write-ahead + 即返 awaiting + context 行�
       toolCallId: 'call-elev-2',
     });
     const open2 = ctx.durableInteraction.listOpen({ key: 'helper' }).find((r) => r.correlationId === 'call-elev-2');
-    expect((open2!.payload as { elevation?: string }).elevation).toBeUndefined();
+    expect((open2!.payload as { access?: string }).access).toBeUndefined();
   });
 
   it('deadline 已移除（2026-09-21）：open 不带 deadline——等待无超时，直到用户回答', async () => {

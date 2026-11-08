@@ -99,15 +99,15 @@ export interface LoopRunRequest {
    */
   meta?: Record<string, unknown>;
   /**
-   * 机制分支临时提权（access-tier §七，仅可信装配方）：
+   * run 安全档位（cr-947 前名 elevation；access-tier §七，仅可信装配方）：
    *   · deliver 路径（source='event'，上限 'sandbox-access'——归档整理
    *     run；deliver 边界剥除非 event 信封）；
-   *   · 子 Agent 档位继承（ac-subagent 直调本服务装配
-   *     elevation = tierOf(parentId)——继承不放大也不缩水）。
-   * loop 每步装配进 ToolCall.elevation（与 agentId/signal 同纪律：
+   *   · 子 Agent 档位继承（ac-shell-subagent 直调本服务装配
+   *     access = accessOf(parentId)——继承不放大也不缩水）。
+   * loop 每步装配进 ToolCall.access（与 agentId/signal 同纪律：
    * 身份由调用方装配，工具行与安全行只读取）。
    */
-  elevation?: 'sandbox-access' | 'full-access';
+  access?: 'sandbox-access' | 'full-access';
   /**
    * 外部中止信号：循环在每个 step 边界检查（含首步之前）——已中止即
    * finish='interrupted' + interruptReason{type:'user-abort'}，已完成的步保留。

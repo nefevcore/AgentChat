@@ -28,7 +28,7 @@ import {
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveTierOfCall } from 'ac-agents';
+import { effectiveAccessOfCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, SKIP_DIRS, type WalkEntry } from 'ac-glob-core';
 import { resolveRgPath, runRg, type RgFileGroup } from './rg-core.ts';
@@ -418,9 +418,9 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
    * accessDeny（系统域，全档）+ readDeny（用户域机密，非 full 档）。
    * 目录前缀判定覆盖子树（agents/ 等持久化域树整树过滤）。
    */
-  function searchDenyFilterOf(call: { agentId?: string; elevation?: string }): (abs: string) => boolean {
+  function searchDenyFilterOf(call: { agentId?: string; access?: string }): (abs: string) => boolean {
     const deny = denyListsOf(call);
-    const skipReadDeny = effectiveTierOfCall(call, agentsOf) === 'full-access';
+    const skipReadDeny = effectiveAccessOfCall(call, agentsOf) === 'full-access';
     return (abs: string): boolean =>
       isDeniedPath(deny.accessDeny, abs) || (!skipReadDeny && isDeniedPath(deny.readDeny, abs));
   }

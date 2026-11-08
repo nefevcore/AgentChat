@@ -62,7 +62,13 @@ export interface ConvSettingsKeyDef {
 
 const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
   { key: 'model', description: '会话级模型覆盖（name@model 引用或裸模型名）' },
-  { key: 'elevation', enum: ['sandbox-access', 'full-access'], description: '会话提权水位（机制唤醒继承）' },
+  {
+    // cr-947：前名 elevation（提权水位，两档）——三档化改名 access。存量
+    // elevation 旧值经 readSettings 兼容窗映射进本键（写恒新键）。
+    key: 'access',
+    enum: ['base-access', 'sandbox-access', 'full-access'],
+    description: '会话安全档位（base/sandbox/full；缺省跟随 Agent tags 档位）',
+  },
   { key: 'toolMode', enum: ['tc-base', 'tc-programmatic', 'tc-none'], description: '工具调用模式覆盖（tc-* 标签轴）' },
   {
     key: 'browserTier',
@@ -161,6 +167,13 @@ export class ConvSettingsService extends Service {
       const parsed: unknown = JSON.parse(text);
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
       const raw = parsed as Record<string, unknown>;
+      // cr-947 旧键兼容窗：elevation（两档）读时映射进 access（三档）；
+      // access 键在场恒胜出（写恒新键，旧键物理保留不迁移）。
+      if (raw.elevation !== undefined && raw.access === undefined) {
+        const legacy = raw.elevation;
+        if (legacy === 'sandbox-access' || legacy === 'full-access') raw.access = legacy;
+        delete raw.elevation;
+      }
       const out: Record<string, string> = {};
       for (const [k, v] of Object.entries(raw)) {
         // 回读同校验：注册面回收后的存量值仍受值域把关（枚举变更 → 旧值静默清）

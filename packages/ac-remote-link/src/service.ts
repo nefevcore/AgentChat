@@ -7,8 +7,8 @@
 //   · 配对会话状态机（二维码 URI 生成 → XK 握手 → SAS 确认 → 注册）；
 //   · 出站 relay 连接管理（断线重连指数退避；常驻心跳懒拉起）；
 //   · 远程 RPC 转发（cr-105 起 scopes 逐方法闸门退役——全放行；保留 deliver 强制
-//     sender/user 改写：防伪造端点，非自我限制。elevation 自 cr-112 起放行——
-//     两档白名单窄化在 web-api deliver 边界）；
+//     sender/user 改写：防伪造端点，非自我限制。access（cr-947 前名 elevation）
+//     自 cr-112 起放行——两档白名单窄化在 web-api deliver 边界；
 //   · 事件下行（emit 面白名单订阅 → 加密单播在线设备）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
@@ -675,11 +675,11 @@ export class RemoteLinkService extends Service {
       // 桶（裁决：docs/design/remote-deliver-sender-ruling.md）。
       p.sender = 'user';
       p.source = 'user';
-      // elevation 放行（cr-112，cr-105「配对即信任」补全）：两档白名单窄化在
-      // web-api deliver RPC 边界（'sandbox-access'|'full-access' 之外丢弃），
-      // deliver 边界仍有只升不降与 Agent 自有档位底座约束——手机快捷提权与
-      // 桌面同语义。旧剥除是真机「明明设了完全访问仍弹提权审批」的根因：
-      // 手机的提权武装态从未到达任何 run，会话水位也从未写过。
+      // access 放行（cr-112，cr-105「配对即信任」补全；cr-947 前名 elevation）：
+      // 两档白名单窄化在 web-api deliver RPC 边界（'sandbox-access'|
+      // 'full-access' 之外丢弃），deliver 边界仍有只升不降与 Agent 自有档位
+      // 底座约束——手机选档与桌面同语义。旧剥除是真机「明明设了完全访问仍
+      // 弹提权审批」的根因：手机的档位武装态从未到达任何 run，会话档位也从未写过。
       forwardParams = p;
     }
     // 经注册中心转发（webServer.callRpc——M1 对 ac-web-server 的唯一新增公共面）。

@@ -212,12 +212,12 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     });
     expect(fullCmd.error ?? '').not.toMatch(/沙箱/);
 
-    // 审批 elevation（base + call.elevation=full）同款跳过
+    // 审批 access（base + call.access=full）同款跳过
     const elevated = await exec(ctx, {
       name: CMD_TOOL,
       args: { command: 'cat /etc/passwd', workdir: outside },
       agentId: 'basea',
-      elevation: 'full-access',
+      access: 'full-access',
     });
     expect(elevated.error ?? '').not.toMatch(/沙箱/);
   });

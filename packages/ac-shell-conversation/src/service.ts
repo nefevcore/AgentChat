@@ -22,7 +22,7 @@ import type { Envelope, StreamFrame } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, isBudgetSource, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
-import { effectiveToolMode, narrowToolsByMode, tierOf } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 档位判定单源（cr-888 指纹键面）
+import { effectiveToolMode, narrowToolsByMode, accessOf, ACCESS_RANK, type AccessLevel } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）
 import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -530,6 +530,8 @@ export class ConversationService extends Service {
         if (this.isSingles(uuid)) {
           frozen = await this.syncPrefixSnapshot(uuid, config, env, runId);
         }
+        // run 有效档位单次求值（cr-947：信封 ?? 会话键——装配与下文同源）
+        const runAccess = this.effectiveAccessOfEnv(uuid, env);
         // 上下文单源 = 账本（cr-639/658）：轨迹读面——含各 run 的
         // assistant/tool 协议对（tool_calls + 结果），不再对既往工具工作
         // 失明。receiveEnvelope 已 deliverRow 落了本条 user 行（recovered
@@ -555,9 +557,10 @@ export class ConversationService extends Service {
           source: env.sender === 'user' ? 'user' : 'agent',
           conversationId: uuid,
           messages: resume !== null ? [...history, ...resume.messages] : history,
-          // 单次投递提权（cr-626）：信封 elevation → loop request（主线每步
-          // 装配进 ToolCall.elevation——full-access 档工具行跳过沙箱白名单）。
-          ...(env.elevation !== undefined ? { elevation: env.elevation } : {}),
+          // run 安全档位（cr-626/cr-947）：信封 access ?? conv-settings 会话
+          // access 合成（主线 deliver 边界已做只升不降与 sanitize——壳侧信封
+          // 值即终值；无信封档位时按会话键补齐，每步装配进 ToolCall.access）。
+          ...(runAccess !== undefined ? { access: runAccess } : {}),
           signal: abort.signal,
         });
         // settle（终稿 + journal-settled；error 文本如实入账）
@@ -1195,10 +1198,26 @@ export class ConversationService extends Service {
   }
 
   /**
-   * §3 diff 指纹键面（§4 十类的超集）：provider/model | 生效工具名清单 |
-   * toolMode | browserTier | issueSubmit | workspace | tier | elevation |
-   * ptcSdk 文本 hash | 技能结构化名清单 | ext.<扩展键>。技能用名清单比、不做
-   * 文本 diff（描述性小改不触发）；PTC_SDK 存文本 hash（SDK 投影漂移检测）。
+   * run 有效档位合成（cr-947）：信封 access ?? conv-settings 会话 access。
+   * 壳侧信封值已经是主线 deliver 边界（sanitize + 只升不降）的产物；无信封
+   * 档位（机制唤醒等）时按会话键补齐——与 run 装配/指纹同一单源。
+   */
+  private effectiveAccessOfEnv(sid: string, env: Envelope | null): 'sandbox-access' | 'full-access' | undefined {
+    if (env !== null && env.access !== undefined) return env.access;
+    const convSettings = this.ctx.get('convSettings', false) as
+      | { get(conversationId: string): { access?: 'base-access' | 'sandbox-access' | 'full-access' } }
+      | undefined;
+    const access = convSettings?.get(sid).access;
+    return access === 'sandbox-access' || access === 'full-access' ? access : undefined;
+  }
+
+  /**
+   * §3 diff 指纹键面（§4 注入清单的超集）：provider/model | 生效工具名清单 |
+   * toolMode | browserTier | issueSubmit | workspace | access（有效安全档位
+   * ——cr-947 合并旧 tier/elevation 两键：行为面只看「本 run 实际跑什么档」，
+   * Agent 底座/信封覆盖/会话覆盖三分量的合成终值）| ptcSdk 文本 hash | 技能
+   * 结构化名清单 | ext.<扩展键>。技能用名清单比、不做文本 diff（描述性小改
+   * 不触发）；PTC_SDK 存文本 hash（SDK 投影漂移检测）。
    */
   private fingerprintOf(sid: string, config: AgentConfig, modelRef: { provider?: string; model: string }, env: Envelope | null): Record<string, string> {
     const convSettings = this.ctx.get('convSettings', false) as
@@ -1220,8 +1239,12 @@ export class ConversationService extends Service {
       browserTier: settings.browserTier as string | undefined ?? '',
       issueSubmit: settings.issueSubmit as string | undefined ?? '',
       workspace: ws?.conversationWorkspaceRoot?.(sid) ?? '',
-      tier: tierOf(config),
-      elevation: env?.elevation ?? '',
+      // cr-947 单键：有效档位（Agent 底座 ∪ 信封 ∪ 会话覆盖 的合成终值——
+      // 取 rank 最高者；底座与覆盖合成与 effectiveAccessOf 同源，但含
+      // base-access 值：快照需区分「跟随底座」与「覆盖降/升档」）。
+      access: [accessOf(config), env?.access, settings.access as AccessLevel | undefined]
+        .filter((v): v is AccessLevel => v !== undefined)
+        .reduce((hi, cur) => ACCESS_RANK[cur] >= ACCESS_RANK[hi] ? cur : hi, accessOf(config)),
       ptcSdk: crypto.createHash('sha256')
         .update(this.ctx.agentLoop.sectionText('PTC_SDK', this.snapshotRequest(sid, config, modelRef)))
         .digest('hex').slice(0, 16),
@@ -1237,7 +1260,7 @@ export class ConversationService extends Service {
     };
     // 生态扩展键（conv-settings registerKey）：非内置键全量进指纹（值变 → 通用注入模板）
     for (const [k, v] of Object.entries(settings)) {
-      if (k === 'model' || k === 'elevation' || k === 'toolMode' || k === 'browserTier' || k === 'issueSubmit') continue;
+      if (k === 'model' || k === 'access' || k === 'toolMode' || k === 'browserTier' || k === 'issueSubmit') continue;
       fp['ext.' + k] = v;
     }
     return fp;

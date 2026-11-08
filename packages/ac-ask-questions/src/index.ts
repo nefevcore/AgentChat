@@ -61,7 +61,7 @@ export const inject = ['tools', 'durableInteraction', 'agentLoop'];
 interface ConversationLike {
   deliver(agentId: string, message: string | Record<string, unknown>, options?: {
     sender?: string; source?: string; conversationId?: string;
-    elevation?: 'sandbox-access' | 'full-access';
+    access?: 'sandbox-access' | 'full-access';
   }): Promise<unknown>;
 }
 
@@ -486,10 +486,11 @@ export function apply(ctx: Context) {
         kind: 'ask_questions',
         payload: {
           questions: qs,
-          // 原 run 提权档位留痕（2026-09-12 反馈：重启后 late-reply 唤醒的
-          // 新 run 丢权限 → 逐工具审批疲劳）——回投时透传恢复原档位。
-          // 放 payload（types 契约的展示/处理数据区，加字段免迁移）。
-          ...(call.elevation ? { elevation: call.elevation } : {}),
+          // 原 run 档位留痕（2026-09-12 反馈：重启后 late-reply 唤醒的
+          // 新 run 丢权限 → 逐工具审批疲劳）。cr-947 起回投不再透传——
+          // 继承走 conv-settings access 会话键（deliver 边界合成）；
+          // 留痕仅作诊断。放 payload（types 契约的展示/处理数据区）。
+          ...(call.access ? { access: call.access } : {}),
         },
         ...(call.toolCallId !== undefined ? { correlationId: call.toolCallId } : {}),
         ...(agentId !== undefined ? { owner: agentId } : {}),

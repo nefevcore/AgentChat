@@ -112,17 +112,18 @@ export interface ToolCall {
    */
   onProgress?: (chunk: string) => void;
   /**
-   * 机制分支临时提权（access-tier §七）：effectiveTier = call.elevation ??
-   * tierOf(agentId)。合法来源仅三处（防伪造不变量）：
+   * 调用安全档位（cr-947 前名 elevation；access-tier §七）：
+   * effectiveAccess = call.access ?? accessOf(agentId)。合法来源仅三处
+   * （防伪造不变量）：
    *   1. deliver 路径 source='event' 信封（上限 sandbox-access——归档
    *      整理等机制 run；loop 装配，deliver 边界剥除非 event 信封）；
-   *   2. 子 Agent 档位继承（ac-subagent 直调 agentLoop.run 装配
-   *      elevation = tierOf(parentId)——继承不放大也不缩水）；
+   *   2. 子 Agent 档位继承（ac-shell-subagent 直调 agentLoop.run 装配
+   *      access = accessOf(parentId)——继承不放大也不缩水）；
    *   3. 有人桶询问提权的单次审批注入（ac-security 批准后置
    *      'full-access' 本次调用有效）。
    * 身份由调用方（loop / 直连编排方）装配；工具行与安全行只读取。
    */
-  elevation?: 'sandbox-access' | 'full-access';
+  access?: 'sandbox-access' | 'full-access';
   /**
    * run_code 子调用标记（2026-09-17 程序化模式）：本调用由 run_code
    * 程序内桥接发起（非模型直接 tool_call）。开放词汇面（结构化标记

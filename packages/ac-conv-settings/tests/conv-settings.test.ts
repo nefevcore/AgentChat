@@ -137,7 +137,7 @@ describe('ac-conv-settings', () => {
     next = ctx.convSettings.set('user~helper', { toolMode: 'tc-foo' as never });
     expect(next).toEqual({});
     expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'))).toBe(false);
-    // 与 model/elevation 共存（键级独立）
+    // 与 model/access 共存（键级独立）
     ctx.convSettings.set('user~helper', { model: 'glm@glm-5.3', toolMode: 'tc-none' });
     expect(ctx.convSettings.get('user~helper')).toEqual({ model: 'glm@glm-5.3', toolMode: 'tc-none' });
     // 盘上损坏值（toolMode: 'programmatic'——旧开关词不迁移，读侧丢弃）→ 宽容面
@@ -154,6 +154,33 @@ describe('ac-conv-settings', () => {
       'utf-8',
     );
     expect(ctx.convSettings.get('legacy')).toEqual({});
+  });
+
+  it('access 三档键：写入/枚举校验/旧 elevation 值读兼容（cr-947）', async () => {
+    const root = tmpRoot();
+    const ctx = await boot(root);
+    // 三档全可写
+    ctx.convSettings.set('a~b', { access: 'base-access' });
+    expect(ctx.convSettings.get('a~b').access).toBe('base-access');
+    ctx.convSettings.set('a~b', { access: 'sandbox-access' });
+    expect(ctx.convSettings.get('a~b').access).toBe('sandbox-access');
+    ctx.convSettings.set('a~b', { access: 'full-access' });
+    expect(ctx.convSettings.get('a~b').access).toBe('full-access');
+    // 非法值删键
+    expect(ctx.convSettings.set('a~b', { access: 'root-access' as never })).toEqual({});
+    // 盘上旧 elevation 两档值 → 读时映射进 access（access 在场恒胜出）
+    fs.writeFileSync(
+      path.join(root, 'meta', 'conv-settings', 'legacy-elev.json'),
+      JSON.stringify({ elevation: 'full-access' }),
+      'utf-8',
+    );
+    expect(ctx.convSettings.get('legacy-elev')).toEqual({ access: 'full-access' });
+    fs.writeFileSync(
+      path.join(root, 'meta', 'conv-settings', 'both.json'),
+      JSON.stringify({ elevation: 'sandbox-access', access: 'full-access' }),
+      'utf-8',
+    );
+    expect(ctx.convSettings.get('both')).toEqual({ access: 'full-access' });
   });
 
   it('迁居兼容窗：旧位置 <root>/conv-settings/<id>.json 可读；清除删双位置', async () => {
