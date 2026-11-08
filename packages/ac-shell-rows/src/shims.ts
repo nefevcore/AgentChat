@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { readAgentConfig, readChildConfig, settingsOf, deepMerge } from 'ac-agents-core';
 import { listGroupConfigs, memberStreamKey, readGroupConfig } from 'ac-core-utils'; // 群配置纯读面（cr-712 下沉单源）
+import { readUserMetaObject } from 'ac-ledger';
 import { issueRequestId, type Envelope } from 'ac-envelope-core';
 import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT_ID } from 'ac-credentials-core';
 
@@ -269,17 +270,20 @@ export class WorkspaceShim extends Service {
     if (conversationId === undefined || conversationId === '') return null;
     if (conversationId.includes('/') || conversationId.includes('\\') || conversationId.includes('..')) return null;
     let wsId: string | undefined;
-    try {
-      const raw: unknown = JSON.parse(fs.readFileSync(
-        path.join(this.dataRoot, 'viewer', 'sessions', conversationId, 'session.json'), 'utf-8'));
-      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
-        const v = (raw as { workspaceId?: unknown }).workspaceId;
-        if (typeof v === 'string' && v !== '') wsId = v;
-      }
-    } catch { /* 缺席/损坏 = 未挂载 */ }
+    // 元数据已迁第二层（meta/sessions/<id>.json）——读面单源 readUserMetaObject
+    //（新路径优先，兼容窗回落旧位置 viewer/sessions/<id>/session.json）
+    const meta = readUserMetaObject(this.dataRoot, conversationId);
+    if (meta !== null) {
+      const v = meta.workspaceId;
+      if (typeof v === 'string' && v !== '') wsId = v;
+    }
     if (wsId === undefined) return null;
     try {
-      const raw: unknown = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'workspaces.json'), 'utf-8'));
+      // 登记表已迁第二层（meta/workspaces.json）；兼容窗回落旧位置
+      const wsFile = fs.existsSync(path.join(this.dataRoot, 'meta', 'workspaces.json'))
+        ? path.join(this.dataRoot, 'meta', 'workspaces.json')
+        : path.join(this.dataRoot, 'workspaces.json');
+      const raw: unknown = JSON.parse(fs.readFileSync(wsFile, 'utf-8'));
       // cr-627：盘上形态 = 宿主 owning 写者（ac-host-rows workspaces.ts——顶层
       // 数组）；旧测试数据的 {workspaces:[...]} 包装形态一并兼容（读面宽进）。
       const list = Array.isArray(raw)
@@ -337,11 +341,16 @@ class ConvSettingsShim extends Service {
     if (conversationId.includes('/') || conversationId.includes('\\') || conversationId.includes('..')) {
       throw new Error('conversationId "' + conversationId + '" 非法（禁路径分隔 / ..）');
     }
+    // 元数据已迁第二层（meta/conv-settings/<id>.json）；兼容窗回落旧位置
     let raw: unknown;
     try {
-      raw = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'conv-settings', conversationId + '.json'), 'utf-8'));
+      try {
+        raw = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'meta', 'conv-settings', conversationId + '.json'), 'utf-8'));
+      } catch {
+        raw = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'conv-settings', conversationId + '.json'), 'utf-8'));
+      }
     } catch {
-      return {}; // 缺席/损坏 = 无覆盖
+      return {}; // 双位置缺席/损坏 = 无覆盖
     }
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
     const out: Record<string, string> = {};

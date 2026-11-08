@@ -21,6 +21,11 @@ function sessionDir(id: string): string {
   return path.join(ROOT, 'viewer', 'sessions', id);
 }
 
+/** 元数据新落点（数据分层第二层：meta/sessions/<sid>.json） */
+function metaFile(id: string): string {
+  return path.join(ROOT, 'meta', 'sessions', id + '.json');
+}
+
 function seedLedger(id: string, rows: Array<Record<string, unknown>>): void {
   const dir = sessionDir(id);
   fs.mkdirSync(dir, { recursive: true });
@@ -63,7 +68,7 @@ describe('标题请求受理（cr-672）', () => {
     const h = boot(true);
     const out = await h.send(titleRequest('s1', '重建会话标题面'));
     expect(out.fresh).toBe(true);
-    const meta = JSON.parse(fs.readFileSync(path.join(sessionDir('s1'), 'session.json'), 'utf-8')) as Record<string, unknown>;
+    const meta = JSON.parse(fs.readFileSync(metaFile('s1'), 'utf-8')) as Record<string, unknown>;
     expect(meta).toMatchObject({ id: 's1', title: '重建会话标题面', status: 'active', agentId: 'alpha' });
     expect(h.frames.at(-1)).toMatchObject({ type: 'singles/updated' });
     expect((h.frames.at(-1)!.args as unknown[])[1]).toBe('updated');
@@ -93,6 +98,39 @@ describe('标题请求受理（cr-672）', () => {
     const h = boot(false);
     const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
     expect(list.singles.find((s) => s.id === 's4')?.title).toBe('首条用户消息');
+  });
+});
+
+describe('session.json 迁居 meta/sessions/（数据分层）', () => {
+  it('写侧只写新位置 meta/sessions/<sid>.json，viewer 目录不再落 session.json', async () => {
+    seedLedger('mv-1', [{ agent_id: 'user', content: '迁居会话' }]);
+    const h = boot(true);
+    await h.send(titleRequest('mv-1', '迁居标题'));
+    expect(JSON.parse(fs.readFileSync(metaFile('mv-1'), 'utf-8'))).toMatchObject({ id: 'mv-1', title: '迁居标题' });
+    expect(fs.existsSync(path.join(sessionDir('mv-1'), 'session.json'))).toBe(false);
+  });
+
+  it('兼容窗读旧位置：viewer/sessions/<sid>/session.json 照常生效，写入升级到新位置', async () => {
+    seedLedger('mv-2', [{ agent_id: 'user', content: '存量会话' }]);
+    fs.writeFileSync(path.join(sessionDir('mv-2'), 'session.json'), JSON.stringify({ id: 'mv-2', title: '旧位标题', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
+    const h = boot(false);
+    // 读面：旧位置标题可见（list 直吐装载对账结果）
+    const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
+    expect(list.singles.find((s) => s.id === 'mv-2')?.title).toBe('旧位标题');
+    // 写面：update 落新位置（旧文件不动——兼容窗不迁移）
+    await h.handlers.get('singles/update')!({ id: 'mv-2', title: '新位标题' });
+    expect(JSON.parse(fs.readFileSync(metaFile('mv-2'), 'utf-8'))).toMatchObject({ id: 'mv-2', title: '新位标题' });
+    expect(JSON.parse(fs.readFileSync(path.join(sessionDir('mv-2'), 'session.json'), 'utf-8'))).toMatchObject({ title: '旧位标题' });
+  });
+
+  it('delete 摘除双位置（新位置元数据 + 兼容窗旧文件）', async () => {
+    seedLedger('mv-3', [{ agent_id: 'user', content: '待删' }]);
+    fs.writeFileSync(path.join(sessionDir('mv-3'), 'session.json'), JSON.stringify({ id: 'mv-3', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
+    const h = boot(false);
+    await h.handlers.get('singles/delete')!({ id: 'mv-3' });
+    expect(fs.existsSync(metaFile('mv-3'))).toBe(false);
+    expect(fs.existsSync(path.join(sessionDir('mv-3'), 'session.json'))).toBe(false);
+    expect(fs.existsSync(sessionDir('mv-3'))).toBe(false);
   });
 });
 
@@ -250,7 +288,7 @@ describe('指定 id 物化（cr-847 延迟落盘链路）', () => {
     const created = await h.handlers.get('singles/create')!({ id: 'fixed-1', agentId: 'alpha', workspaceId: 'ws1' }) as { single: { id: string; agentId: string; workspaceId?: string } };
     expect(created.single.id).toBe('fixed-1');
     expect(created.single.agentId).toBe('alpha');
-    const metaPath = path.join(sessionDir('fixed-1'), 'session.json');
+    const metaPath = metaFile('fixed-1');
     const meta1 = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
     expect(meta1.workspaceId).toBe('ws1');
     // 幂等重入：已有目录（meta 在场）→ 返回现状视图不重写（updatedAt 不变）

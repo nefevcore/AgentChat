@@ -66,6 +66,14 @@ export interface ProjectedStep {
   /** 步身份键（cr-772 落盘透传）——历史合并键控对齐（存量步投影缺席） */
   stepId?: string;
   /**
+   * 步行 journal seq（B2 步级 seq 保留）：物化时随步透传——直播帧携带
+   * runId+seq 后按步配对/去重的锚（「journal 步行 seq A → messages 段行
+   * 重新 allocSeq 拿 seq B」的原 seq 在此保全；存量行缺席回落启发式）。
+   * 跨 run 边界用 runId 分段；tool-result 补行仍按 toolCallId 合并、
+   * 永不按 seq 排序（现状保持）。
+   */
+  seq?: number;
+  /**
    * 本步 API 流时间（毫秒，cr-772）+ 步用量——历史链栏速率段数据源。
    * completion/elapsedMs 成对消费（输出口径速率 = Σcompletion/Σms）。
    */

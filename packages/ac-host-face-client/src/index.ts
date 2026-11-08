@@ -56,15 +56,18 @@ class GroupShim extends Service {
     this.dataRoot = dataRoot;
   }
   get(gid: string): { id: string; name: string; members: string[] } | undefined {
-    try {
-      const raw = JSON.parse(fs.readFileSync(path.join(this.dataRoot, 'groups', gid, 'group.json'), 'utf-8')) as {
-        id?: string; name?: string; members?: unknown;
-      };
-      if (typeof raw.name !== 'string' || !Array.isArray(raw.members)) return undefined;
-      return { id: gid, name: raw.name, members: raw.members.filter((m): m is string => typeof m === 'string') };
-    } catch {
-      return undefined;
+    // 元数据已迁第二层（meta/groups/<gid>/group.json）；兼容窗回落旧位置
+    for (const file of [path.join(this.dataRoot, 'meta', 'groups', gid, 'group.json'),
+      path.join(this.dataRoot, 'groups', gid, 'group.json')]) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+          id?: string; name?: string; members?: unknown;
+        };
+        if (typeof raw.name !== 'string' || !Array.isArray(raw.members)) return undefined;
+        return { id: gid, name: raw.name, members: raw.members.filter((m): m is string => typeof m === 'string') };
+      } catch { /* 试下一位置 */ }
     }
+    return undefined;
   }
 }
 

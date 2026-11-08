@@ -41,7 +41,7 @@ describe('ac-conv-settings 注册制扩展键（生态行贡献会话覆盖键�
     ctx.convSettings.registerKey({ key: 'pluginMode', enum: ['pm-a', 'pm-b'], description: '某插件模式' });
     const next = ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' });
     expect(next).toMatchObject({ pluginMode: 'pm-a' });
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'conv-settings', 'user~helper.json'), 'utf-8'))).toMatchObject({ pluginMode: 'pm-a' });
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'), 'utf-8'))).toMatchObject({ pluginMode: 'pm-a' });
     // 非法枚举 → 清除
     expect(ctx.convSettings.set('user~helper', { pluginMode: 'pm-x' })).toEqual({});
     // null 删键
@@ -90,16 +90,16 @@ describe('ac-conv-settings', () => {
     // set：name@model 引用原样存
     const next = ctx.convSettings.set('user~helper', { model: 'deepseek@deepseek-v4-pro' });
     expect(next).toEqual({ model: 'deepseek@deepseek-v4-pro' });
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'conv-settings', 'user~helper.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'), 'utf-8'))).toEqual({
       model: 'deepseek@deepseek-v4-pro',
     });
     // get 回读
     expect(ctx.convSettings.get('user~helper')).toEqual({ model: 'deepseek@deepseek-v4-pro' });
     // 盘上无 .tmp 残留（原子写）
-    expect(fs.readdirSync(path.join(root, 'conv-settings')).filter((f) => f.includes('.tmp'))).toEqual([]);
+    expect(fs.readdirSync(path.join(root, 'meta', 'conv-settings')).filter((f) => f.includes('.tmp'))).toEqual([]);
     // null = 删键 → 全空 = 删文件
     ctx.convSettings.set('user~helper', { model: null });
-    expect(fs.existsSync(path.join(root, 'conv-settings', 'user~helper.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'))).toBe(false);
     expect(ctx.convSettings.get('user~helper')).toEqual({});
   });
 
@@ -114,7 +114,7 @@ describe('ac-conv-settings', () => {
       ['room-1', { model: 'glm@glm-5.3' }, 'set'],
       ['room-1', {}, 'cleared'],
     ]);
-    expect(fs.existsSync(path.join(root, 'conv-settings', 'room-1.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'room-1.json'))).toBe(false);
   });
 
   it(`toolMode 键（工具调用模式覆盖，tc-* 标签轴）：合法枚举写/读、其余清、盘上损坏值丢弃`, async () => {
@@ -124,7 +124,7 @@ describe('ac-conv-settings', () => {
     // 合法枚举（wire 字符串原样）→ 持久同值
     let next = ctx.convSettings.set('user~helper', { toolMode: 'tc-programmatic' });
     expect(next).toEqual({ toolMode: 'tc-programmatic' });
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'conv-settings', 'user~helper.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'), 'utf-8'))).toEqual({
       toolMode: 'tc-programmatic',
     });
     expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-programmatic');
@@ -136,24 +136,47 @@ describe('ac-conv-settings', () => {
     // 非法值（'tc-foo'/'false'/null）→ 删键（全空 = 删文件）
     next = ctx.convSettings.set('user~helper', { toolMode: 'tc-foo' as never });
     expect(next).toEqual({});
-    expect(fs.existsSync(path.join(root, 'conv-settings', 'user~helper.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'))).toBe(false);
     // 与 model/elevation 共存（键级独立）
     ctx.convSettings.set('user~helper', { model: 'glm@glm-5.3', toolMode: 'tc-none' });
     expect(ctx.convSettings.get('user~helper')).toEqual({ model: 'glm@glm-5.3', toolMode: 'tc-none' });
     // 盘上损坏值（toolMode: 'programmatic'——旧开关词不迁移，读侧丢弃）→ 宽容面
     fs.writeFileSync(
-      path.join(root, 'conv-settings', 'bad.json'),
+      path.join(root, 'meta', 'conv-settings', 'bad.json'),
       JSON.stringify({ toolMode: 'programmatic' }),
       'utf-8',
     );
     expect(ctx.convSettings.get('bad')).toEqual({});
     // 盘上旧 programmatic 布尔键（存量不迁移）→ 读侧直接失效（不映射）
     fs.writeFileSync(
-      path.join(root, 'conv-settings', 'legacy.json'),
+      path.join(root, 'meta', 'conv-settings', 'legacy.json'),
       JSON.stringify({ programmatic: true }),
       'utf-8',
     );
     expect(ctx.convSettings.get('legacy')).toEqual({});
+  });
+
+  it('迁居兼容窗：旧位置 <root>/conv-settings/<id>.json 可读；清除删双位置', async () => {
+    const root = tmpRoot();
+    const ctx = await boot(root);
+    // 旧位置存量（寄居期文件）
+    fs.mkdirSync(path.join(root, 'conv-settings'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'conv-settings', 'legacy~user.json'), JSON.stringify({ model: 'glm@glm-5.3' }), 'utf-8');
+    expect(ctx.convSettings.get('legacy~user')).toEqual({ model: 'glm@glm-5.3' });
+    // 写侧升级到新位置（旧文件不动）
+    ctx.convSettings.set('legacy~user', { model: 'deepseek@deepseek-flash' });
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'meta', 'conv-settings', 'legacy~user.json'), 'utf-8')))
+      .toEqual({ model: 'deepseek@deepseek-flash' });
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'conv-settings', 'legacy~user.json'), 'utf-8')))
+      .toEqual({ model: 'glm@glm-5.3' });
+    // 新位置在场恒胜出（旧位置不复活）
+    expect(ctx.convSettings.get('legacy~user')).toEqual({ model: 'deepseek@deepseek-flash' });
+    // 全空删键：双位置一并清
+    ctx.convSettings.set('legacy~user', { model: null });
+    // 全空删键：双位置一并清（只清新位置会让旧文件复活旧值）
+    expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'legacy~user.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'conv-settings', 'legacy~user.json'))).toBe(false);
+    expect(ctx.convSettings.get('legacy~user')).toEqual({});
   });
 
   it('conversationId 词法校验：路径分隔/../空白 拒绝（对桶 ~ 合法）', async () => {

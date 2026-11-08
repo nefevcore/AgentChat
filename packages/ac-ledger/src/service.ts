@@ -197,7 +197,20 @@ export class LedgerService extends Service {
         })),
       } : {}),
     };
-    await this.writerFor(uuid, [this.agentId], 'user').journal(line);
+    const seq = await this.writerFor(uuid, [this.agentId], 'user').journal(line);
+    // B2 帧携带：步行落盘完成后补发 journal 锚事件——刻意晚于落盘（不反转
+    // cr-707「事件先于落盘」：本事件的语义就是「seq 已 durable」），供
+    // ws-bridge 直转前端维护步级 seq 水位（st.lastStepSeq）与直播行 seq
+    // 身份锚（settlement 前直播行即获稳定身份，B3 供料）。agent 随载荷
+    // 携带（前端 routeDialog 路由键）。
+    this.ctx.emit('ledger/step-journaled', {
+      agent: this.agentId,
+      conversationId: uuid,
+      runId: run,
+      step: step.index,
+      seq,
+      ...(step.stepId !== undefined ? { stepId: step.stepId } : {}),
+    });
   }
 
   /** steer 注入行（journal-inject——按消费点真序落）。extra（cr-707）：
@@ -515,6 +528,16 @@ declare module '@agentchat/cordis' {
      * @param conversationId 会话 id（viewer 投影轴键）
      */
     'ledger/viewer-appended'(conversationId: string): void;
+    /**
+     * journal 步行落盘完成（B2 帧携带）：seq 已 durable 的步级身份锚补发
+     * 面——刻意晚于落盘（cr-707「事件先于落盘」不反转：本事件语义即
+     * 「该 seq 已可引用」）。ws-bridge 直转前端（步级 seq 水位 + 直播行
+     * seq 锚）。
+     *
+     * @mode emit
+     * @param payload 会话/run/步身份 + 落盘行分配的 seq
+     */
+    'ledger/step-journaled'(payload: { agent: string; conversationId: string; runId: string; step: number; seq: number; stepId?: string }): void;
   }
 }
 

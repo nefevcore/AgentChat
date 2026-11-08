@@ -36,6 +36,10 @@
 //   · GroupConfig / assertGid / readGroupConfig / listGroupConfigs —— 群
 //     配置纯读面（cr-712 下沉：宿主 groups 行写面与壳侧 group 垫片〔send_group
 //     扇出〕两处共用读词汇——垫片 import 宿主行包即壳→宿主反向依赖）
+//   · WorkspaceRegistration / listWorkspaces / registerWorkspace / …
+//     updateWorkspace / removeWorkspace / workspacePathOf —— 工作区登记表
+//     读写面（meta/workspaces.json 读旧写新；宿主行直读直写与主线
+//     WorkspaceService（ctx.workspace）两处共用——各写一份兼容窗必走散）
 // 下沉后 session 与 group 互相零 import：协作只经 ctx.get 服务面
 // （D11 跨域读写口），两行可独立停用。
 // ============================================================
@@ -155,3 +159,4 @@ export function normalizeToolSpecs(
 export * from './persona.ts';
 export * from './session-title.ts';
 export * from './groups.ts'; // 群配置纯读面（cr-712 下沉——宿主 groups 行与壳侧 group 垫片共用）
+export * from './workspaces.ts'; // 工作区登记表读写面（数据分层第二批下沉——宿主行与主线 WorkspaceService 共用，防「读旧写新」两处走散）

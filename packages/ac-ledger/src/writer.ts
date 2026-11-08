@@ -29,11 +29,37 @@ const SUBCALLS = 'subcalls.jsonl';
 const INBOX = 'inbox';
 
 
+/** 尾行 seq 扫描（B1 行级 seq 持久化）：读文件末 ~32KB，取各行 seq 最大值。
+ *  * 尾部窗口足够——续接只关心「已分配到的最大值」，而 append-only 下它
+ *  * 恒在文件末尾（32KB 覆盖数百行；极端长行/大窗口 miss 时取到偏小值，
+ *  * seq 仍单调不回退——只是留空洞，无害）。文件缺席/空 = 0。 */
+function tailMaxSeq(file: string): number {
+  let size = 0;
+  try { size = fs.statSync(file).size; } catch { return 0; }
+  if (size === 0) return 0;
+  const CHUNK = 32 * 1024;
+  const start = Math.max(0, size - CHUNK);
+  const buf = Buffer.alloc(size - start);
+  const fd = fs.openSync(file, 'r');
+  try { fs.readSync(fd, buf, 0, buf.length, start); } finally { fs.closeSync(fd); }
+  let max = 0;
+  for (const line of buf.toString('utf8').split('\n')) {
+    const t = line.trim();
+    if (t === '') continue;
+    try {
+      const seq = (JSON.parse(t) as { seq?: unknown }).seq;
+      if (typeof seq === 'number' && seq > max) max = seq;
+    } catch { /* 截断的首行（窗口切在行中间）跳过 */ }
+  }
+  return max;
+}
+
 /** 单 writer（一 run 一实例——activation 单写者语义 A5） */
 export class LedgerWriter {
   private queue: Array<() => void> = [];
   private draining = false;
   private nextSeq = 1;
+  private seqSeeded = false;
   private headerWritten = false;
   private readonly admission: AdmissionGate;
 
@@ -114,6 +140,18 @@ export class LedgerWriter {
   }
 
   private allocSeq(): number {
+    // B1 行级 seq 持久化：首分配前扫三文件尾行取 max(seq) 续接——消灭
+    // 「每实例从 1 重来」（此前 admin~admin 38 行 13 处回退边）。messages /
+    // journal partials / subcalls 共用计数器，续接面同宽。此后同目录 seq
+    // 跨 writer 实例单调不回退（成为稳定身份锚——B3 依赖）。
+    if (!this.seqSeeded) {
+      this.seqSeeded = true;
+      this.nextSeq = Math.max(
+        tailMaxSeq(path.join(this.dir, MESSAGES)),
+        tailMaxSeq(path.join(this.dir, JOURNAL)),
+        tailMaxSeq(path.join(this.dir, SUBCALLS)),
+      ) + 1;
+    }
     return this.nextSeq++;
   }
 
@@ -146,13 +184,18 @@ export class LedgerWriter {
 
   // —— journal 面（run 周期台账） ——
 
-  async journal(line: JournalStep | JournalInject | JournalToolResult | Omit<JournalSettled, 'seq'>): Promise<void> {
-    await this.enqueue(() => {
+  /** 落盘完成后 resolve 该行分配到的 seq（B2 帧携带：调用方据此补发
+   *  journal 锚事件——seq 的分配就在本串行队列内，返回它零额外成本；
+   *  既有调用方忽略返回值不受影响）。 */
+  async journal(line: JournalStep | JournalInject | JournalToolResult | Omit<JournalSettled, 'seq'>): Promise<number> {
+    return this.enqueue(() => {
       // ts 盖戳（cr-697）：物化段行/步级时间戳的取源——写入时不可逆，缺席
       // 即永久缺席（存量行读侧回落收束时刻）。调用方已带 ts（注入行——
       // cr-707：与直播帧同一时刻，排序同源）时保留。
-      const full = { ...line, ts: (line as { ts?: number }).ts ?? Date.now(), seq: this.allocSeq() } as JournalLine;
+      const seq = this.allocSeq();
+      const full = { ...line, ts: (line as { ts?: number }).ts ?? Date.now(), seq } as JournalLine;
       this.appendLine(path.join(this.dir, JOURNAL), full);
+      return seq;
     });
   }
 

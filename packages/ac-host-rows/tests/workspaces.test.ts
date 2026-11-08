@@ -40,3 +40,33 @@ describe('工作区登记表（cr-583：主线 ac-workspace 四方法语义）',
     expect(listWorkspaces(ROOT)).toEqual([]);
   });
 });
+
+describe('数据分层第二批（meta/workspaces.json 读旧写新——单源 ac-core-utils）', () => {
+  it('写侧恒新位置 meta/；旧位置文件不动', () => {
+    const legacy = path.join(ROOT, 'workspaces.json');
+    fs.writeFileSync(legacy, JSON.stringify([{ id: 'ws-old', name: '旧', path: 'C:\\old', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }]), 'utf-8');
+    const ws = registerWorkspace(ROOT, 'C:\\proj\\new');
+    // 新登记落新位置
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'workspaces.json'))).toBe(true);
+    expect(fs.readFileSync(legacy, 'utf-8')).toContain('ws-old'); // 旧文件不迁移不改写
+    // 读侧经兼容窗先见旧登记，首写把旧档合并进新位置（不迁移不丢数据）
+    const ids = listWorkspaces(ROOT).map((w) => w.id);
+    expect(ids).toContain(ws.id);
+    expect(ids).toContain('ws-old');
+  });
+
+  it('新位置缺席 → 回落旧位置读（寄居期文件不迁移）', () => {
+    const legacy = path.join(ROOT, 'workspaces.json');
+    fs.writeFileSync(legacy, JSON.stringify([{ id: 'ws-legacy', name: '旧档', path: 'C:\\legacy', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }]), 'utf-8');
+    expect(listWorkspaces(ROOT).map((w) => w.id)).toEqual(['ws-legacy']);
+    expect(workspacePathOf(ROOT, 'ws-legacy')).toBe('C:\\legacy');
+  });
+
+  it('旧位置坏文件 = 留档 .corrupt 后空登记（防写口以空表覆写唯一副本）', () => {
+    const legacy = path.join(ROOT, 'workspaces.json');
+    fs.writeFileSync(legacy, '{"oops":true}', 'utf-8');
+    expect(listWorkspaces(ROOT)).toEqual([]);
+    expect(fs.existsSync(legacy + '.corrupt')).toBe(true);
+  });
+});
+

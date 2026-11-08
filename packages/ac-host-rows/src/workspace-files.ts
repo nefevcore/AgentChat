@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { createRootsContainment } from 'ac-sandbox-core';
 import { readAgentConfig, settingsOf, isPresetId } from 'ac-agents-core';
 import { listWorkspaces, workspacePathOf } from './workspaces.ts';
+import { readUserMetaObject } from 'ac-ledger';
 
 /** 读面上下文（主线 readContext 同形：agentId/conversationId 可选透传） */
 export interface WorkspaceContext {
@@ -88,24 +89,19 @@ function usableConversationId(id: string): boolean {
   return id !== '' && !id.includes('/') && !id.includes('\\') && !id.includes('..');
 }
 
-/** 会话元数据（viewer/sessions/<sid>/session.json——宿主 singles 行单写；缺席/损坏 = 空对象） */
+/** 会话元数据（meta/sessions/<sid>.json 第二层——宿主 singles 行单写；读侧
+ *  兼容窗回落旧位置 viewer/sessions/<sid>/session.json；缺席/损坏 = 空对象） */
 function sessionMetaOf(
   dataRoot: string,
   conversationId: string | undefined,
 ): { agentId?: string; workspaceId?: string } {
   if (conversationId === undefined || !usableConversationId(conversationId)) return {};
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(
-      path.join(dataRoot, 'viewer', 'sessions', conversationId, 'session.json'), 'utf-8'));
-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    const m = raw as { agentId?: unknown; workspaceId?: unknown };
-    return {
-      ...(typeof m.agentId === 'string' && m.agentId !== '' ? { agentId: m.agentId } : {}),
-      ...(typeof m.workspaceId === 'string' && m.workspaceId !== '' ? { workspaceId: m.workspaceId } : {}),
-    };
-  } catch {
-    return {};
-  }
+  const m = readUserMetaObject(dataRoot, conversationId) as { agentId?: unknown; workspaceId?: unknown } | null;
+  if (m === null) return {};
+  return {
+    ...(typeof m.agentId === 'string' && m.agentId !== '' ? { agentId: m.agentId } : {}),
+    ...(typeof m.workspaceId === 'string' && m.workspaceId !== '' ? { workspaceId: m.workspaceId } : {}),
+  };
 }
 
 /** 会话挂载工作区根（workspaceId → 登记路径；未挂载/未登记 = null） */

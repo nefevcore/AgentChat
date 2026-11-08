@@ -1,7 +1,8 @@
 // ============================================================
 // groups-row.ts —— 宿主群存储行（cr-576）
 //
-// owns：groups/<gid>/group.json（GroupConfig：成员表 + 名称/简介）。
+// owns：meta/groups/<gid>/group.json（GroupConfig：成员表 + 名称/简介——数据
+// 分层第二层；读面兼容窗回落旧位置 groups/<gid>/group.json）。
 // 会话内容不在本行——群消息经**信封扇出**直达各成员的 agent 域账本
 //（agents/<m>/sessions/<gid>~<m>/messages.jsonl——成员流键 gid~<m>，
 // 与主线 memberStreamKey 同形）；group/history = 全成员流合并去重。
@@ -65,8 +66,10 @@ function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
+/** 群配置落点（数据分层第二层：meta/groups/<gid>/——写侧恒新位置；
+ *  读面 readGroupConfig/listGroupConfigs 兼容窗回落旧位置 groups/<gid>/） */
 function groupDir(dataRoot: string, gid: string): string {
-  return path.join(dataRoot, 'groups', gid);
+  return path.join(dataRoot, 'meta', 'groups', gid);
 }
 
 function writeConfig(dataRoot: string, group: GroupConfig): void {
@@ -185,6 +188,8 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
           fs.rmSync(path.join(dataRoot, 'agents', m, 'sessions', memberStreamKey(gid, m)), { recursive: true, force: true });
         }
         fs.rmSync(groupDir(dataRoot, gid), { recursive: true, force: true });
+        // 兼容窗旧位置残留一并摘除（防旧 group.json 复活已删群）
+        fs.rmSync(path.join(dataRoot, 'groups', gid), { recursive: true, force: true });
         emit('group/deleted', gid, group);
         return { deleted: true };
       });

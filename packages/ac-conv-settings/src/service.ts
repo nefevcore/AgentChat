@@ -4,7 +4,8 @@
 // 本包是会话设置域契约的 owning package：域类型见 ./contract.ts，
 // convSettings/* 事件目录见 ./events.ts。
 //
-// 持久化（规约 1：本服务 owns <root>/conv-settings/<conversationId>.json）：
+// 持久化（规约 1：本服务 owns <root>/meta/conv-settings/<conversationId>.json
+// ——数据分层第二层；读侧兼容窗回落旧位置 <root>/conv-settings/<id>.json）：
 //   · 文件名即 conversationId（规约 2）——对桶 `a~b` / 群 gid 均文件系统
 //     安全（Agent id 禁 `~`/路径分隔/`..`，M19 承重墙；gid/sid 由各域
 //     生成器保证无路径字符）；
@@ -96,15 +97,18 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
 
 export class ConvSettingsService extends Service {
   private readonly settingsDir: string;
+  /** 兼容窗旧目录（<root>/conv-settings——读侧回落，写侧恒新目录） */
+  private readonly legacyDir: string;
   /** 键目录：内置 + 生态行注册（注册即归属——卸载自动回收） */
   private keys = new Map<string, ConvSettingsKeyDef>();
 
   constructor(ctx: Context, options: ConvSettingsRowOptions = {}) {
     super(ctx, 'convSettings');
-    this.settingsDir = path.resolve(
-      options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data',
-      'conv-settings',
-    );
+    const root = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
+    // 数据分层第二层：会话设置是小而珍贵、不可重建的用户域源数据，
+    // 迁入 meta/（此前在数据根顶层）
+    this.settingsDir = path.join(root, 'meta', 'conv-settings');
+    this.legacyDir = path.join(root, 'conv-settings');
     for (const def of BUILTIN_KEYS) this.keys.set(def.key, def);
   }
 
@@ -135,14 +139,26 @@ export class ConvSettingsService extends Service {
     return def.enum.includes(value);
   }
 
-  /** 设置文件：<root>/conv-settings/<conversationId>.json */
+  /** 设置文件：meta/conv-settings/<conversationId>.json（兼容窗旧位置回落） */
   private fileOf(conversationId: string): string {
     return path.join(this.settingsDir, conversationId + '.json');
   }
 
+  /** 兼容窗旧文件（<root>/conv-settings/<id>.json——只读不写，不物理迁移） */
+  private legacyFileOf(conversationId: string): string {
+    return path.join(this.legacyDir, conversationId + '.json');
+  }
+
   private readSettings(conversationId: string): ConvSettings {
     try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(this.fileOf(conversationId), 'utf-8'));
+      // 新位置缺席 → 回落旧位置（寄居期文件不迁移；新文件在场恒胜出）
+      let text: string;
+      try {
+        text = fs.readFileSync(this.fileOf(conversationId), 'utf-8');
+      } catch {
+        text = fs.readFileSync(this.legacyFileOf(conversationId), 'utf-8');
+      }
+      const parsed: unknown = JSON.parse(text);
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
       const raw = parsed as Record<string, unknown>;
       const out: Record<string, string> = {};
@@ -183,7 +199,11 @@ export class ConvSettingsService extends Service {
       else delete next[key]; // null/undefined/非法值/未注册键 = 清除
     }
     if (Object.keys(next).length > 0) this.writeSettings(conversationId, next);
-    else fs.rmSync(this.fileOf(conversationId), { force: true });
+    else {
+      // 全空 = 删文件：新旧两位置一并清（只清新位置会让旧文件复活旧值）
+      fs.rmSync(this.fileOf(conversationId), { force: true });
+      fs.rmSync(this.legacyFileOf(conversationId), { force: true });
+    }
     this.ctx.emit('conv-settings/updated', conversationId, next, Object.keys(next).length > 0 ? 'set' : 'cleared');
     return next as unknown as ConvSettings;
   }

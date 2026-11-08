@@ -206,7 +206,7 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(set.settings).toEqual({ model: 'deepseek@deepseek-flash' });
     const readBack = await rpc<{ settings: Record<string, string> }>(ws, 'conv-settings/get', { conversationId: conv });
     expect(readBack.settings.model).toBe('deepseek@deepseek-flash');
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'conv-settings', conv + '.json'), 'utf-8')))
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'conv-settings', conv + '.json'), 'utf-8')))
       .toEqual({ model: 'deepseek@deepseek-flash' });
     // 非法会话键 fail-closed（词法闸在 owning service）
     await expect(rpc(ws, 'conv-settings/get', { conversationId: '../escape' })).rejects.toThrow(/非法/);
@@ -251,11 +251,11 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(list.singles.find((s) => s.id === delivered.uuid)?.model).toBe('deepseek@deepseek-v4-pro');
     const cleared = await rpc<{ single: { model?: string } }>(ws, 'singles/update', { id: delivered.uuid, model: null });
     expect(cleared.single.model).toBeUndefined();
-    expect(fs.existsSync(path.join(ROOT, 'conv-settings', delivered.uuid + '.json'))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'conv-settings', delivered.uuid + '.json'))).toBe(false);
     // 元数据面（cr-566）：改名走 session.json——与模型覆盖分文件、同时生效
     const renamed = await rpc<{ single: { title?: string } }>(ws, 'singles/update', { id: delivered.uuid, title: '改名' });
     expect(renamed.single.title).toBe('改名');
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', delivered.uuid, 'session.json'), 'utf-8')).title)
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'sessions', delivered.uuid + '.json'), 'utf-8')).title)
       .toBe('改名');
 
     ws.close();
@@ -303,7 +303,7 @@ describe('8.5a 宿主 web 面接线', () => {
     });
     expect(updated.single.title).toBe('改过的标题');
     expect(updated.single.model).toBe('deepseek@deepseek-flash');
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'conv-settings', created.single.id + '.json'), 'utf-8')).model)
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'conv-settings', created.single.id + '.json'), 'utf-8')).model)
       .toBe('deepseek@deepseek-flash');
     // 已有消息时不许换/清 Agent（上下文语义）
     await expect(rpc(ws, 'singles/update', { id: created.single.id, agentId: '' })).rejects.toThrow(/已有消息/);
@@ -326,7 +326,7 @@ describe('8.5a 宿主 web 面接线', () => {
     // delete：硬删（目录 + 覆盖文件一并清）
     await rpc(ws, 'singles/delete', { id: created.single.id });
     expect(fs.existsSync(path.join(ROOT, 'viewer', 'sessions', created.single.id))).toBe(false);
-    expect(fs.existsSync(path.join(ROOT, 'conv-settings', created.single.id + '.json'))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'conv-settings', created.single.id + '.json'))).toBe(false);
 
     // 事件帧：四种 kind 各至少一次（前端列表增量合并的输入）
     const kinds = events.map((args) => args[1]);

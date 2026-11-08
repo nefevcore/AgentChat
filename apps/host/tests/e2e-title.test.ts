@@ -59,7 +59,7 @@ describe('会话标题生成端到端（cr-672）', () => {
       const hint = await spawnShell('alpha');
       host.po.reach.markReachable('alpha', hint);
       const sent = await host.web.user.send('alpha', '第一问');
-      const metaFile = path.join(ROOT, 'viewer', 'sessions', sent.uuid, 'session.json');
+      const metaFile = path.join(ROOT, 'meta', 'sessions', sent.uuid + '.json');
       const deadline = Date.now() + 20_000;
       let meta: Record<string, unknown> | null = null;
       while (Date.now() < deadline) {

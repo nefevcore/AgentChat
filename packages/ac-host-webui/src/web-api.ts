@@ -211,10 +211,20 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const page = limit === undefined
           ? all
           : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
+        // B1 行级 seq：页区间 [firstSeq, lastSeq]（页内行 seq 最小/最大值；
+        // 存量行无 seq 时缺席——多域 seq 空间各自单调，区间仅作水位参考锚，
+        // 不承担跨域全序）。行级 seq 随 records 逐行携带。
+        const pageSeqs = page
+          .map((r) => (r as { seq?: unknown }).seq)
+          .filter((s): s is number => typeof s === 'number');
+        const seqSpan = pageSeqs.length > 0
+          ? { firstSeq: Math.min(...pageSeqs), lastSeq: Math.max(...pageSeqs) }
+          : {};
         return {
           conversationId,
           records: page,
           total: all.length,
+          ...seqSpan,
           ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
           ...(offset === 0 ? { fingerprint: view.fingerprint } : {}),
         };

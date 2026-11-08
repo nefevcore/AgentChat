@@ -106,6 +106,7 @@ export type { AuthRegistryRowOptions } from './auth-registry-row.ts';
 // singles/* RPC 六方法 + singles/updated 帧广播；模型覆盖仍走 conv-settings）——
 import { makeSinglesHostRow } from './singles-row.ts';
 export { makeSinglesHostRow };
+export { auditDataRootLayers } from './data-root-audit.ts';
 export type { SinglesHostRowOptions, SingleMeta, SingleView } from './singles-row.ts';
 
 // —— 群存储行（cr-576）：groups 行（groups/<gid>/group.json 成员表单写者 +

@@ -16,10 +16,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
-import { pairKey } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库
+import { pairKey, listWorkspaces, registerWorkspace, updateWorkspace, removeWorkspace } from 'ac-core-utils'; // 对桶键——cr-318 下沉纯库；登记表读写面——数据分层第二批单源（meta/workspaces.json 读旧写新）
 import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import { createRootsContainment } from 'ac-sandbox-core';
 import type { AgentConfig } from 'ac-agents';
+import type { WorkspaceRegistration } from 'ac-core-utils';
 import { runNativePickFolder, type NativePickOutcome } from './native-dialog.ts';
 import { runNativeOpen, type NativeOpenOutcome } from './native-open.ts';
 
@@ -561,45 +562,27 @@ export class WorkspaceService extends Service {
     return typeof sid === 'string' && sid ? sid : undefined;
   }
 
-  // ---- 工作区登记（<root>/workspaces.json；owning 持久化） ----
+  // ---- 工作区登记（<root>/meta/workspaces.json；数据分层第二层 ----
+  // 读旧写新单源住 ac-core-utils/workspaces：此前本服务读写根级旧位置，
+  // 而宿主 web-api CRUD 已写 meta/ 新位置——两写口走散会让本服务面
+  //（ac-skill 工作区挂载解析等 ctx.workspace 读方）看不到新登记。
+  // 四方法语义不变，仅持久化落点对齐（兼容窗回落旧位置读）。
 
   /** 登记工作区（本机文件夹；沙箱白名单根与文件树根分组锚点） */
   registerWorkspace(wsPath: string, name?: string): WorkspaceRegistration {
-    const docs = this.readWorkspaces();
-    const id = `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const item: WorkspaceRegistration = {
-      id,
-      name: name?.trim() || path.basename(wsPath) || wsPath,
-      path: wsPath,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    docs.push(item);
-    this.writeWorkspaces(docs);
-    return item;
+    return registerWorkspace(this.root, wsPath, name);
   }
 
   listWorkspaces(): WorkspaceRegistration[] {
-    return this.readWorkspaces();
+    return listWorkspaces(this.root);
   }
 
   updateWorkspace(id: string, patch: { name?: string; path?: string }): WorkspaceRegistration | undefined {
-    const docs = this.readWorkspaces();
-    const item = docs.find((w) => w.id === id);
-    if (!item) return undefined;
-    if (patch.name !== undefined) item.name = patch.name;
-    if (patch.path !== undefined) item.path = patch.path;
-    item.updatedAt = new Date().toISOString();
-    this.writeWorkspaces(docs);
-    return item;
+    return updateWorkspace(this.root, id, patch);
   }
 
   removeWorkspace(id: string): boolean {
-    const docs = this.readWorkspaces();
-    const next = docs.filter((w) => w.id !== id);
-    if (next.length === docs.length) return false;
-    this.writeWorkspaces(next);
-    return true;
+    return removeWorkspace(this.root, id);
   }
 
   private resolveIn(root: string, relPath: string): string {
@@ -766,52 +749,11 @@ export class WorkspaceService extends Service {
     return runNativePickFolder({ title });
   }
 
-  private workspacesFile(): string {
-    return path.join(this.root, 'workspaces.json');
-  }
-
-  private readWorkspaces(): WorkspaceRegistration[] {
-    let raw: string;
-    try {
-      raw = fs.readFileSync(this.workspacesFile(), 'utf-8');
-    } catch {
-      return []; // 缺文件 = 首启合法空态
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed as WorkspaceRegistration[];
-      throw new Error('非 array 形态');
-    } catch (err: unknown) {
-      // 损坏不静默（防后续写口以空表覆写唯一副本——凭据域 B2 同款防线）：
-      // 留档 .corrupt 后从空档开始
-      try {
-        fs.renameSync(this.workspacesFile(), `${this.workspacesFile()}.corrupt`);
-      } catch {
-        /* 留档失败不阻塞启动 */
-      }
-      this.ctx.logger.warn(
-        `[workspace] workspaces.json 损坏（${err instanceof Error ? err.message : String(err)}）——已留档 .corrupt，从空档重新开始`,
-      );
-      return [];
-    }
-  }
-
-  private writeWorkspaces(docs: WorkspaceRegistration[]): void {
-    fs.mkdirSync(this.root, { recursive: true });
-    const tmp = `${this.workspacesFile()}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(docs, null, 2), 'utf-8');
-    fs.renameSync(tmp, this.workspacesFile());
-  }
 }
 
-/** 工作区登记记录（<root>/workspaces.json 行形状） */
-export interface WorkspaceRegistration {
-  id: string;
-  name: string;
-  path: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// 工作区登记记录——单源 ac-core-utils/workspaces（数据分层第二批下沉）；
+// 再导出维持本包既有消费方 import 路径不变。
+export type { WorkspaceRegistration } from 'ac-core-utils';
 
 /** 工作区节点（树读取投影） */
 export interface WorkspaceNode {

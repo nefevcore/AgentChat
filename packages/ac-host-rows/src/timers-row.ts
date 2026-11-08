@@ -137,7 +137,8 @@ export class HostTimersService extends Service {
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
     this.gateTimeoutMs = options.gateTimeoutMs ?? GATE_TIMEOUT_MS;
     this.agentsEdit = options.agentsEdit;
-    this.stateFile = path.join(this.dataRoot, 'timer', 'state.json');
+    // 数据分层第二层：排程状态文件迁 meta/timer/（读侧兼容窗回落旧位置）
+    this.stateFile = path.join(this.dataRoot, 'meta', 'timer', 'state.json');
     // 卸载收尾（fiber effect——随行卸载自动回收）
     ctx.fiber.effect(() => () => this.stopAll(), 'host-timers.stop');
     this.reload();
@@ -693,8 +694,12 @@ isWin ? ['/d', '/s', '/c', command] : ['-c', command],
 
   private loadState(): void {
     try {
-      if (fs.existsSync(this.stateFile)) {
-        const raw = JSON.parse(fs.readFileSync(this.stateFile, 'utf-8')) as Record<string, TimerPersistedState>;
+      // 新位置缺席 → 兼容窗回落旧位置 timer/state.json（读旧写新，不迁移）
+      const file = fs.existsSync(this.stateFile)
+        ? this.stateFile
+        : path.join(this.dataRoot, 'timer', 'state.json');
+      if (fs.existsSync(file)) {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, TimerPersistedState>;
         this.persisted = new Map(Object.entries(raw));
       }
     } catch {

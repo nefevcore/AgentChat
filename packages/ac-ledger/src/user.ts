@@ -25,19 +25,48 @@ export function userSessionDir(dataRoot: string, uuid: string): string {
 }
 
 /**
- * 会话标题读取（<dir>/session.json 由宿主 singles 行单写——本函数只读）。
+ * 独立会话元数据路径（数据分层第二层：<dataRoot>/meta/sessions/<uuid>.json
+ * ——宿主 singles 行单写）。此前寄居 viewer 投影目录（第三层），「清投影」
+ * 会连源数据一起清——迁出后 viewer 整树可删（boot 投影对账自愈）。
+ */
+export function userMetaFile(dataRoot: string, uuid: string): string {
+  if (uuid.length === 0 || /[/\\]/.test(uuid) || uuid === '.' || uuid === '..') {
+    throw new Error('user 会话路径组件非法：' + uuid);
+  }
+  return path.join(dataRoot, 'meta', 'sessions', uuid + '.json');
+}
+
+/** 独立会话元数据旧路径（viewer 投影寄居期形态——读侧兼容窗，写侧恒新路径） */
+export function legacyUserMetaFile(dataRoot: string, uuid: string): string {
+  return path.join(userSessionDir(dataRoot, uuid), 'session.json');
+}
+
+/**
+ * 独立会话元数据读取（新路径优先，回落旧路径——兼容窗内旧文件不迁移）。
+ * 缺席/损坏/非法路径组件 = null。读面单源：singles 行 / workspace 面 /
+ * 壳侧垫片共用（防四处各写一份 fallback 走散）。
+ */
+export function readUserMetaObject(dataRoot: string, uuid: string): Record<string, unknown> | null {
+  if (uuid.length === 0 || /[/\\]/.test(uuid) || uuid === '.' || uuid === '..') return null;
+  for (const file of [userMetaFile(dataRoot, uuid), legacyUserMetaFile(dataRoot, uuid)]) {
+    try {
+      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+    } catch { /* 该路径缺席/损坏 → 试下一处 */ }
+  }
+  return null;
+}
+
+/**
+ * 会话标题读取（session.json 由宿主 singles 行单写——本函数只读）。
  * 壳侧命名行据此跳过已命名会话（壳 idle-exit/restart 频繁，重算标题是
  * 纯浪费），宿主派生面亦据此判定「已有标题」——路径与字段口径单源（cr-672）。
  */
 export function readSessionTitle(dataRoot: string, uuid: string): string | undefined {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(userSessionDir(dataRoot, uuid), 'session.json'), 'utf-8'));
-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-    const title = (raw as { title?: unknown }).title;
-    return typeof title === 'string' && title.trim() !== '' ? title : undefined;
-  } catch {
-    return undefined; // 无 session.json（存量会话/未命名）
-  }
+  const raw = readUserMetaObject(dataRoot, uuid);
+  if (raw === null) return undefined;
+  const title = raw.title;
+  return typeof title === 'string' && title.trim() !== '' ? title : undefined;
 }
 
 /**

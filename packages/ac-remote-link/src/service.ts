@@ -14,6 +14,7 @@
 import { Service, type Context } from '@agentchat/cordis';
 import type {} from './events.ts';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import { gzip as gzipCb } from 'node:zlib';
 import { promisify } from 'node:util';
@@ -91,7 +92,17 @@ export class RemoteLinkService extends Service {
       root: options.root,
     };
     const root = this.options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data';
-    const remoteDir = path.resolve(root, 'remote');
+    // 数据分层第二层：配对身份/设备绑定迁 meta/remote/（删了静默丢功能——
+    // 配对失联）。identity/known_devices 是单写者原子文件，构造（boot 期、
+    // 任何写前）一次性 rename 整目录迁移；新目录已在 = 新位置胜出，旧目录不动。
+    const remoteDir = path.resolve(root, 'meta', 'remote');
+    const legacyDir = path.resolve(root, 'remote');
+    try {
+      if (fs.existsSync(legacyDir) && !fs.existsSync(remoteDir)) {
+        fs.mkdirSync(path.dirname(remoteDir), { recursive: true });
+        fs.renameSync(legacyDir, remoteDir);
+      }
+    } catch { /* 迁移失败：按新位置空档起（identity 会重新生成） */ }
     this.identity = loadOrCreateIdentity(remoteDir);
     this.registry = new DeviceRegistry(remoteDir);
     // 全局设置层（settings.remoteLink.relayUrl）热更：config/set 落 settings →

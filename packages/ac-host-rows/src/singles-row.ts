@@ -1,12 +1,14 @@
 // ============================================================
 // singles-row.ts —— 宿主独立会话行（cr-566）
 //
-// owns：viewer/sessions/<sid>/session.json（元数据：agentId / title /
-// workspaceId / status / 时间戳）+ viewer/sessions/.singles-registry.json
+// owns：meta/sessions/<sid>.json（元数据：agentId / title / workspaceId /
+// status / 时间戳——数据分层第二层，自 viewer 投影目录迁出；读侧兼容窗
+// 回落旧位置 viewer/sessions/<sid>/session.json，写侧恒新路径）
+// + viewer/sessions/.singles-registry.json
 //（清单注册表，cr-869：整表视图驻留内存，写点同步维护，list 零读——
-// cr-845 摘要索引的延伸）。消息流归 user 终稿账本（UserStub 写，
-// messages.jsonl——同一端点目录，文件分家）；模型覆盖归 conv-settings
-//（D12 单源，本行只经服务方法读写真值，不落 session.json）。
+// cr-845 摘要索引的延伸——注册表是派生缓存，留投影树不动）。消息流归
+// user 终稿账本（UserStub 写，messages.jsonl——viewer 端点目录）；模型
+// 覆盖归 conv-settings（D12 单源，不落 session.json）。
 //
 // RPC 面与主线 ac-web-api 同形（前端零改动）：
 //   singles/list | create | update | fork | archive | delete
@@ -26,7 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { isTitleRequest, issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
-import { conversationDirs, forkConversation, userSessionDir } from 'ac-ledger';
+import { conversationDirs, forkConversation, userSessionDir, userMetaFile, legacyUserMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
 import type { HostInbox } from './host-inbox.ts';
@@ -81,8 +83,11 @@ function dirOf(dataRoot: string, id: string): string {
   return userSessionDir(dataRoot, id); // viewer 投影轴目录词汇单源（ac-ledger 拥有）
 }
 
+/** 元数据落点（数据分层第二层）：meta/sessions/<sid>.json——写侧恒新路径；
+ *  读侧兼容窗回落旧位置（viewer/sessions/<sid>/session.json，legacyUserMetaFile），
+ *  旧文件不物理迁移（等版本后清理）。 */
 function metaFileOf(dataRoot: string, id: string): string {
-  return path.join(dirOf(dataRoot, id), 'session.json');
+  return userMetaFile(dataRoot, id);
 }
 
 function assertId(id: string): void {
@@ -92,28 +97,32 @@ function assertId(id: string): void {
 }
 
 function readMeta(dataRoot: string, id: string): SingleMeta | null {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(metaFileOf(dataRoot, id), 'utf-8'));
-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const m = raw as Partial<SingleMeta>;
-    return {
-      id,
-      ...(typeof m.agentId === 'string' ? { agentId: m.agentId } : {}),
-      ...(typeof m.title === 'string' ? { title: m.title } : {}),
-      ...(typeof m.workspaceId === 'string' ? { workspaceId: m.workspaceId } : {}),
-      status: m.status === 'archived' ? 'archived' : 'active',
-      createdAt: typeof m.createdAt === 'string' ? m.createdAt : new Date(0).toISOString(),
-      updatedAt: typeof m.updatedAt === 'string' ? m.updatedAt : new Date(0).toISOString(),
-    };
-  } catch {
-    return null;
+  // 兼容窗读面：新路径缺席/损坏 → 回落旧位置（寄居期文件不迁移）
+  let m: Partial<SingleMeta> | null = null;
+  for (const file of [metaFileOf(dataRoot, id), legacyUserMetaFile(dataRoot, id)]) {
+    try {
+      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) { m = raw as Partial<SingleMeta>; break; }
+    } catch { /* 试下一处 */ }
   }
+  if (m === null) return null;
+  return {
+    id,
+    ...(typeof m.agentId === 'string' ? { agentId: m.agentId } : {}),
+    ...(typeof m.title === 'string' ? { title: m.title } : {}),
+    ...(typeof m.workspaceId === 'string' ? { workspaceId: m.workspaceId } : {}),
+    status: m.status === 'archived' ? 'archived' : 'active',
+    createdAt: typeof m.createdAt === 'string' ? m.createdAt : new Date(0).toISOString(),
+    updatedAt: typeof m.updatedAt === 'string' ? m.updatedAt : new Date(0).toISOString(),
+  };
 }
 
 function writeMeta(dataRoot: string, meta: SingleMeta): void {
-  const dir = dirOf(dataRoot, meta.id);
-  fs.mkdirSync(dir, { recursive: true });
+  // 会话身份目录（viewer 侧）照常物化——目录即身份（listIds 以它为全集），
+  // 消息流也落这里；元数据本体落第二层 meta/sessions/。
+  fs.mkdirSync(dirOf(dataRoot, meta.id), { recursive: true });
   const file = metaFileOf(dataRoot, meta.id);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(meta, null, 2) + '\n', 'utf-8');
   fs.renameSync(tmp, file);
@@ -172,8 +181,14 @@ function writeRegistry(dataRoot: string, entries: Map<string, RegistryEntry>): v
   fs.renameSync(tmp, file);
 }
 
+/** 元数据指纹（装载复验）：新位置 + 兼容窗旧位置双 mtime 合计——
+ *  任一位置被外部手改（新旧写点之外的路径）都会被看见。 */
 function metaMtimeOf(dataRoot: string, id: string): number {
-  try { return fs.statSync(metaFileOf(dataRoot, id)).mtimeMs; } catch { return 0; }
+  let sum = 0;
+  for (const file of [metaFileOf(dataRoot, id), legacyUserMetaFile(dataRoot, id)]) {
+    try { sum += fs.statSync(file).mtimeMs; } catch { /* 该位置缺席 */ }
+  }
+  return sum;
 }
 
 /** 单会话条目回源重建（盘真值 → 视图 + 摘要指纹；null = 盘上已无此会话） */
@@ -593,6 +608,9 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
           fs.rmSync(dir, { recursive: true, force: true });
         }
         fs.rmSync(dirOf(dataRoot, id), { recursive: true, force: true });
+        // 元数据在第二层（meta/sessions/）——连带摘除（含兼容窗旧位置残留）
+        fs.rmSync(metaFileOf(dataRoot, id), { force: true });
+        fs.rmSync(legacyUserMetaFile(dataRoot, id), { force: true });
         conv()?.set(id, { model: null });
         emit(before ?? { id, agentId: '', status: 'archived', createdAt: '', updatedAt: '' }, 'removed');
         upsertEntry(id, null);

@@ -39,8 +39,10 @@ export function assertGid(gid: string): void {
 
 export function readGroupConfig(dataRoot: string, gid: string): GroupConfig | null {
   assertGid(gid);
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(dataRoot, 'groups', gid, 'group.json'), 'utf-8'));
+  // 数据分层第二层：meta/groups/<gid>/group.json（写侧恒新位置）；
+  // 兼容窗读旧位置 groups/<gid>/group.json（寄居期文件不迁移）
+  const parse = (file: string): GroupConfig | null => {
+    const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const g = raw as Partial<GroupConfig>;
     if (typeof g.id !== 'string' || typeof g.name !== 'string' || !Array.isArray(g.members)) return null;
@@ -51,18 +53,29 @@ export function readGroupConfig(dataRoot: string, gid: string): GroupConfig | nu
       ...(typeof g.description === 'string' ? { description: g.description } : {}),
       createdAt: typeof g.createdAt === 'number' ? g.createdAt : 0,
     };
+  };
+  try {
+    return parse(path.join(dataRoot, 'meta', 'groups', gid, 'group.json'));
+  } catch { /* 新位置缺席 → 回落旧位置 */ }
+  try {
+    return parse(path.join(dataRoot, 'groups', gid, 'group.json'));
   } catch {
     return null;
   }
 }
 
-/** 全群配置扫描（groups/<gid>/group.json；坏文件跳过）——宿主 runs/snapshot
- * 与壳侧 list_groups 共用数据源 */
+/** 全群配置扫描（meta/groups/ 新位置 ∪ 兼容窗旧 groups/，gid 冲突新位置胜出；
+ *  坏文件跳过）——宿主 runs/snapshot 与壳侧 list_groups 共用数据源 */
 export function listGroupConfigs(dataRoot: string): GroupConfig[] {
-  let entries: fs.Dirent[] = [];
-  try { entries = fs.readdirSync(path.join(dataRoot, 'groups'), { withFileTypes: true }); } catch { return []; }
-  return entries
-    .filter((e) => e.isDirectory())
-    .map((e) => readGroupConfig(dataRoot, e.name))
-    .filter((g): g is GroupConfig => g !== null);
+  const byId = new Map<string, GroupConfig>();
+  // 兼容窗旧位置先入表（新位置同 gid 覆盖）
+  for (const base of [path.join(dataRoot, 'groups'), path.join(dataRoot, 'meta', 'groups')]) {
+    let entries: fs.Dirent[] = [];
+    try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries.filter((d) => d.isDirectory())) {
+      const g = readGroupConfig(dataRoot, e.name); // 双位置读面（新优先）
+      if (g !== null) byId.set(g.id, g);
+    }
+  }
+  return [...byId.values()];
 }

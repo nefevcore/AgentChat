@@ -115,6 +115,9 @@ export function stepsOfRun(lines: JournalLine[], run: string): { steps: Projecte
  *  + 子调用档案（按 seq 稳定序）+ 步行/注入行按真序。 */
 interface RunFacts {
   settled: boolean;
+  /** 收束形态（C3 合成收尾）：journal-settled.finish——interrupted 时无结果
+   *  调用按 aborted 步（未开始）/ 完整步（结果未知）合成确定性终态 */
+  finish?: 'ok' | 'interrupted' | 'error';
   events: Array<JournalStep | JournalInject>;
   results: Map<string, { ok: boolean; output?: unknown; error?: string }>;
   /** 工具执行耗时索引（cr-766：journal-tool-result.durationMs——projectStep 合并进 toolCalls） */
@@ -136,9 +139,13 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
   // 名/参）——注入宿主 run_code 卡后平铺（主线 injectSubcalls 同义）
   const subcalls: Array<{ toolCallId: string; name?: string; arguments?: string; result: unknown; seq?: number }> = [];
   const events: Array<JournalStep | JournalInject> = [];
+  let finish: RunFacts['finish'];
   for (const line of lines) {
     if (line.run !== run) continue;
-    if (line.type === 'journal-settled') settled = true;
+    if (line.type === 'journal-settled') {
+      settled = true;
+      finish = line.finish;
+    }
     if (line.type === 'journal-tool-result') {
       results.set(line.toolCallId, line.result);
       if (line.durationMs !== undefined) durations.set(line.toolCallId, line.durationMs);
@@ -149,8 +156,10 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
     if (line.type === 'journal-step' && line.aborted === true) abortedSteps.add(line.step);
     if (line.type === 'journal-step' || line.type === 'journal-inject') events.push(line);
   }
-  // 真序 = 文件行序（append-only）：seq 在崩溃重启的 journal 里会归零重启
-  //（writer 每实例从 1 起）——按 seq 排序会跨重启段交错，不做。
+  // 真序 = 文件行序（append-only）。B1 起 writer 打开时扫尾行续接 max(seq)，
+  // seq 已跨 writer 实例单调不回退（「每实例从 1 起」的归零段不复存在）；
+  // 行序仍是权威——seq 只作身份锚/水位用，不承担重排职责（历史文件里
+  // 存量归零段仍在，按 seq 排序对存量会交错，继续不做）。
   // 宿主索引：子调用 toolCallId 形如 <宿主callId>#<seq>——首 # 前段即宿主
   const subcallsByHost = new Map<string, typeof subcalls>();
   for (const k of subcalls) {
@@ -161,7 +170,7 @@ function runFacts(lines: JournalLine[], run: string): RunFacts {
     if (bucket) bucket.push(k);
     else subcallsByHost.set(host, [k]);
   }
-  return { settled, events, results, durations, abortedSteps, subcallsByHost };
+  return { settled, finish, events, results, durations, abortedSteps, subcallsByHost };
 }
 
 /** 单步行 → ProjectedStep（补行覆盖 / 存量合成 / 子调用平铺 / ts 带出）。
@@ -173,6 +182,8 @@ function projectStep(line: JournalStep, facts: RunFacts, opts: { subcalls?: bool
     content: line.content,
     ...(line.ts !== undefined ? { ts: line.ts } : {}),
     ...(line.stepId !== undefined ? { stepId: line.stepId } : {}),
+    // B2 步级 seq 保留：journal 步行 seq 随步透传（存量行缺席）
+    ...(line.seq !== undefined ? { seq: line.seq } : {}),
     ...(line.reasoning !== undefined ? { reasoning: line.reasoning } : {}),
     ...(line.aborted === true ? { aborted: true } : {}),
     ...(line.reasoningMs !== undefined ? { reasoningMs: line.reasoningMs } : {}),
@@ -182,13 +193,24 @@ function projectStep(line: JournalStep, facts: RunFacts, opts: { subcalls?: bool
     ...(line.usage !== undefined ? { usage: line.usage } : {}),
     ...(line.toolCalls !== undefined && line.toolCalls.length > 0 ? {
       toolCalls: line.toolCalls.flatMap((tc, i) => {
-        // 补行优先；步行自带 toolResults 兜底；已收束 run 两者皆缺 =
-        // cr-596 前的存量步行（结果从未落盘）——合成空成功，不留给
-        // 前端「永恒运行中」的假在途态；aborted 步的调用可能不完整
-        // （参数 JSON 截断）——已收束（interrupted）视同合成空结果供 UI
-        // 展示，续跑/轨迹面另经 abortedStepsOf 剔除
+        // 补行优先；步行自带 toolResults 兜底；已收束 run 两者皆缺——
+        // C3 合成收尾（对齐 DSH repair 思想：「合不上」从运行时竞态变成
+        // 恢复时确定性计算）：
+        //   · finish=ok（含 cr-596 前存量步行）→ 合成空成功，不留给前端
+        //     「永恒运行中」的假在途态；
+        //   · finish=interrupted + aborted 步 → 调用未开始，合成
+        //     TOOL_NOT_STARTED（LLM 流被 abort，参数可能截断、从未执行）；
+        //   · finish=interrupted + 完整步 → 工具已发出但结果未回，合成
+        //     TOOL_OUTCOME_UNKNOWN（副作用是否已产生不确定——与
+        //     resumeContextOfRun 的 UNCOMMITTED_TOOL_ERROR 同语义的 UI 面）。
+        // UI 兜底链（spinHold/悬挂探针）对此降级为纯保险。
+        const synth = facts.finish === 'interrupted'
+          ? (facts.abortedSteps.has(line.step)
+              ? { ok: false, error: 'TOOL_NOT_STARTED' }
+              : { ok: false, error: 'TOOL_OUTCOME_UNKNOWN' })
+          : { ok: true };
         const result = facts.results.get(tc.id) ?? line.toolResults?.[i]
-          ?? (facts.settled ? { ok: true } : null);
+          ?? (facts.settled ? synth : null);
         const dur = facts.durations.get(tc.id);
         const hostCard = {
           id: tc.id,

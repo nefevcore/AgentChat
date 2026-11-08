@@ -77,8 +77,8 @@ describe('journal 面', () => {
 
     const a = stepsOfRun(j, 'runA')!;
     expect(a.partial).toBe(false);
-    // 步级 ts 由 journal 行盖戳（cr-697）——比对剥 ts 键
-    const strip = (steps: Array<{ ts?: number }>): unknown[] => steps.map(({ ts: _ts, ...s }) => { void _ts; return s; });
+    // 步级 ts 由 journal 行盖戳（cr-697）——比对剥 ts/seq 键（B2 起步行 seq 随步透传）
+    const strip = (steps: Array<{ ts?: number; seq?: number }>): unknown[] => steps.map(({ ts: _ts, seq: _seq, ...s }) => { void _ts; void _seq; return s; });
     expect(strip(a.steps)).toEqual([{
       content: '想',
       reasoning: '思考中',

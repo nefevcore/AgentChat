@@ -162,6 +162,7 @@ export function assembleSessionView(
         agent_id: r.agent_id,
         run: r.run,
         ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
+        ...(r.seq !== undefined ? { seq: r.seq } : {}), // B1 行级 seq 透传
       });
     }
     for (const l of lines) {
@@ -177,6 +178,7 @@ export function assembleSessionView(
         agent_id: domain,
         run: l.run,
         ...(l.requestId !== undefined ? { requestId: l.requestId } : {}),
+        ...(l.seq !== undefined ? { seq: l.seq } : {}), // B1 行级 seq 透传
       });
     }
   }
@@ -198,6 +200,8 @@ export function assembleSessionView(
       ...(r.run !== undefined ? { run: r.run } : {}),
       // run 墙钟耗时透传（cr-772）——历史链栏「用时」段持久锚
       ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
+      // B1 行级 seq 透传（viewer 终稿层行）
+      ...(r.seq !== undefined ? { seq: r.seq } : {}),
       ...(projected !== null ? { steps: projected.steps, ...(projected.partial ? { partial: true } : {}) } : {}),
     });
   }
@@ -253,6 +257,7 @@ export function assembleSessionView(
         message_id: r.message_id,
         timestamp: r.timestamp,
         run: r.run,
+        ...(r.seq !== undefined ? { seq: r.seq } : {}), // B1 行级 seq 透传
       });
     }
   }

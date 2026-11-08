@@ -51,7 +51,7 @@ afterEach(async () => {
 describe('身份密钥', () => {
   it('首次生成落盘、重启加载同钥', async () => {
     await boot();
-    const f1 = join(tmpRoot, 'remote', 'identity');
+    const f1 = join(tmpRoot, 'meta', 'remote', 'identity');
     expect(existsSync(f1)).toBe(true);
     const raw1 = readFileSync(f1, 'utf8');
     const svc2 = new RemoteLinkService(new Context(), { root: tmpRoot, relayUrl: 'wss://x' });
