@@ -23,6 +23,18 @@ export interface ProjectedToolDef {
 }
 
 /** 投影选项 */
+export {
+  normalizeSource,
+  normalizeStringNewlines,
+  normalizeHashComments,
+  lexicalRegionEnd,
+  indexCodeHash,
+  findBannedModuleSyntax,
+  scanFreeVariables,
+  snippetAt,
+  HASH_HINT,
+} from './normalize.ts';
+
 export interface ProjectionOptions {
   /** 头部附加指引（程序书写纪律；缺省用内置文案） */
   guidance?: string;
