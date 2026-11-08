@@ -119,6 +119,12 @@ export interface ChatMessage {
   runId?: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
+  /**
+   * 行级单调序号（B1 行级 seq 持久化）：历史行随 session/history 行携带
+   *（writer 跨实例续接后单调；存量行缺席）。直播帧侧配对/去重的水位锚
+   *（B2 帧携带 runId+seq 后启用过滤）。
+   */
+  seq?: number;
   /** 消息来源 Agent ID */
   agent_id?: string;
   /** 事件/入站消息来源元数据（event 分隔符渲染用） */

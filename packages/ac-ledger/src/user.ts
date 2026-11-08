@@ -106,6 +106,8 @@ export interface UserReplayRow {
   requestId?: string;
   /** 行时间戳（cr-716：读面历史排序/分组的事实键——缺席曾致 user 行沉底乱序） */
   timestamp: string;
+  /** 行级单调序号（B1 行级 seq 持久化——透传 session/history 行；存量行缺席） */
+  seq?: number;
 }
 
 /**
@@ -163,6 +165,7 @@ export class UserLedger {
       ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
       ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
       timestamp: r.timestamp,
+      ...(r.seq !== undefined ? { seq: r.seq } : {}),
     }));
   }
 }

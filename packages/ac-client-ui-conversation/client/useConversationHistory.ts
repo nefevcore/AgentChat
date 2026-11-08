@@ -13,6 +13,7 @@ import { traceSwitch } from './switchTrace.ts';
 import { useChatStore } from './chatStore.ts';
 import { useFeedStore } from './feedStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
+import { parkView, takeParkedView, clearParkedView, captureViewAnchor } from './viewParking.ts';
 import type { ConversationViewProps, ConversationIdentity } from './useConversationIdentity.ts';
 
 /** TranscriptList expose 面的结构化声明（.ts 不导 .vue 组件类型）
@@ -42,6 +43,11 @@ export function useConversationHistory(opts: {
 
   // ── 历史加载（三路径：direct 续拉 / group 前插 / pair 前插）──
   const isLoadingMore = ref(false);
+
+  /** A1 视图停靠：本次切换已按泊位原位复位的会话（抑制首载完成后的自动
+   * 滚底——复位位优先于「新会话默认滚底」；direct 首载完成时清空，下次
+   * 切换重新判定）。 */
+  const restoredFor = ref<string | null>(null);
 
   /** direct：触发加载更多历史并保持滚动位置（新消息插入顶部，scrollTop 同步下移） */
   async function triggerLoadMore() {
@@ -171,10 +177,35 @@ export function useConversationHistory(opts: {
    *  useChatShell 的 isUserScrolledUp/lastScrollTop 是闭包状态，不重置会
    *  跨会话残留：新会话不足一屏时 scroll 事件不触发，残留的"用户上翻"
    *  标志会停掉自动滚底并悬浮"回到底部"按钮） */
-  watch(dialogId, () => {
+  watch(dialogId, (newId, oldId) => {
     traceSwitch('view-switch', `${dialogId.value}（DOM 更新前的 watch）`);
+    // A1 视图停靠：切走先泊位。本 watch flush:'pre'——DOM 仍是旧会话内容，
+    // 锚点此刻可捕获；分区条数须显式取旧 dialogId（dialogId 已变，rawMessages
+    // computed 已指向新分区）。
+    if (oldId) {
+      const c = transcript.value?.container();
+      const anchor = c ? captureViewAnchor(c) : null;
+      const oldCount = feed.getRaw(oldId).length;
+      if (anchor && oldCount > 0) parkView(oldId, { ...anchor, msgCount: oldCount });
+      else clearParkedView(oldId); // 容器缺席/空会话：不驻留旧位
+    }
     transcript.value?.reset();
-    transcript.value?.scrollToBottom();
+    // 切回复位：泊位在场且切走期间无新消息（msgCount 相等 = fingerprint
+    // unchanged 短路的视图侧等价判据——后台分区若收到直播帧，条数已变）
+    // → reveal 原位复位不滚底；否则滚底读新。restoredFor 抑制首载完成后的
+    // 自动滚底（loadingHistory watch），否则复位被后到的滚底覆盖。
+    const parked = newId ? takeParkedView(newId) : undefined;
+    if (newId && parked && parked.msgCount === rawMessages.value.length && rawMessages.value.length > 0) {
+      restoredFor.value = newId;
+      void nextTick(async () => {
+        const ok = await transcript.value?.reveal(parked.anchorKey);
+        const c = transcript.value?.container();
+        if (ok && c && dialogId.value === newId) c.scrollTop = parked.scrollTop; // 像素级复位（reveal 只保证入屏）
+      });
+    } else {
+      restoredFor.value = null;
+      transcript.value?.scrollToBottom();
+    }
     nextTick(() => {
       traceSwitch('dom-updated', `${dialogId.value} → ${rawMessages.value.length} 条消息上屏`);
     });
@@ -217,7 +248,10 @@ export function useConversationHistory(opts: {
     traceSwitch('loading(false)', `${dialogId.value} 首屏=${isInitialHistoryLoad.value} hasMore=${chatStore.hasMoreHistory}`);
     if (isInitialHistoryLoad.value) {
       isInitialHistoryLoad.value = false;
-      nextTick(() => transcript.value?.scrollToBottom());
+      // A1 停靠：已按泊位复位的会话不被首载滚底覆盖（复位发生在 DOM 更新
+      // 后、首载完成前——晚到的滚底会把它冲掉）；消费即清空。
+      if (restoredFor.value === dialogId.value) restoredFor.value = null;
+      else nextTick(() => transcript.value?.scrollToBottom());
     }
     if (chatStore.hasMoreHistory) {
       nextTick(() => {

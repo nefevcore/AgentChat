@@ -163,6 +163,12 @@ export function createBridgeCatalog(deps: CatalogDeps): BridgeCatalog {
       clearRun(r?.agent, r?.conversationId);
       return [request, result]; // 边界事件：隐藏 run 也广播
     } },
+    // ── ledger：journal 步行锚（B2 帧携带——落盘后补发，载荷单对象；与
+    // loop/after-step 同款隐藏面判定：机制 run 的步锚不进前端流） ──
+    { name: 'ledger/step-journaled', wire: (a) => {
+      const p = a[0] as { agent?: string; conversationId?: string } | undefined;
+      return hiddenOf(p?.agent, p?.conversationId, undefined) ? undefined : a;
+    } },
     // ── L3 router / conversation / group ──
     { name: 'router/message-received', wire: ([agentId, message, conversationId, sender, source, meta]) =>
       (deps.isGroupHint(meta as Record<string, unknown> | undefined) ? undefined : [agentId, message, conversationId, sender, source]) },

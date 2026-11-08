@@ -247,6 +247,7 @@ defineExpose({
           <TurnDisplayItem
             v-else
             :data-item-key="item.key"
+            :item-key="item.key"
             :turn="item.turn!"
             :settings-agent-id="settingsAgentId"
             :show-actions="showActions"

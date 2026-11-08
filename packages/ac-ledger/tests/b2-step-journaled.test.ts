@@ -1,0 +1,57 @@
+// ============================================================
+// b2-step-journaled.test.ts —— B2 帧携带 ledger 半边：
+//   · writer.journal() 返回分配的 seq（分配在串行队列内，零额外成本）
+//   · journalStep 落盘完成后补发 ledger/step-journaled 锚事件（刻意晚于
+//     落盘——cr-707「事件先于落盘」不反转，事件语义即「seq 已 durable」）
+// ============================================================
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { LedgerWriter, sessionDir } from '../src/writer.ts';
+import { readJournal } from '../src/reader.ts';
+
+const ROOT = path.join('sandbox', 'test-ledger-b2-' + process.pid);
+beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+
+const uuid = '0192aaaa-bbbb-7ccc-8ddd-eeeeffff1001';
+
+describe('B2 帧携带：journal seq 返回 + 落盘后锚事件', () => {
+  it('writer.journal() 返回该行分配的 seq（与落盘行一致、单调）', async () => {
+    const w = new LedgerWriter(sessionDir(ROOT, 'b2a', uuid), { participants: ['b2a', 'user'], kind: 'user' });
+    const s1 = await w.journal({ type: 'journal-step', run: 'run-b', step: 0, content: '第一步' });
+    const s2 = await w.journal({ type: 'journal-inject', run: 'run-b', content: '注入' });
+    expect(typeof s1).toBe('number');
+    expect(s2).toBeGreaterThan(s1);
+    const j = readJournal(sessionDir(ROOT, 'b2a', uuid));
+    expect(j.find((l) => l.type === 'journal-step')?.seq).toBe(s1);
+    expect(j.find((l) => l.type === 'journal-inject')?.seq).toBe(s2);
+  });
+
+  it('journalStep 落盘后 emit ledger/step-journaled（载荷 seq 与落盘行一致）', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'b2b' }));
+    await fiber;
+    try {
+      const got: Array<Record<string, unknown>> = [];
+      ctx.on('ledger/step-journaled', (p: Record<string, unknown>) => { got.push(p); });
+      await (ctx.ledger as unknown as { journalStep(u: string, r: string, s: unknown): Promise<void> })
+        .journalStep(uuid, 'run-j', { index: 2, stepId: 'run-j:2', text: '想', toolCalls: [], toolResults: [] });
+      await (ctx.ledger as unknown as { journalStep(u: string, r: string, s: unknown): Promise<void> })
+        .journalStep(uuid, 'run-j', { index: 3, text: '无 stepId 旧形', toolCalls: [], toolResults: [] });
+      expect(got).toHaveLength(2);
+      expect(got[0]).toMatchObject({ agent: 'b2b', conversationId: uuid, runId: 'run-j', step: 2, stepId: 'run-j:2' });
+      expect(typeof got[0]!.seq).toBe('number');
+      // stepId 缺席（旧形步记录）不带 stepId 键——前端回落不变
+      expect(got[1]).toMatchObject({ agent: 'b2b', conversationId: uuid, runId: 'run-j', step: 3 });
+      expect('stepId' in got[1]!).toBe(false);
+      // 锚事件携带的 seq 即落盘行 seq（已 durable 的身份锚）
+      const line = readJournal(sessionDir(ROOT, 'b2b', uuid)).find((l) => l.type === 'journal-step' && l.step === 2);
+      expect(line?.seq).toBe(got[0]!.seq);
+    } finally {
+      await fiber.dispose();
+    }
+  });
+});

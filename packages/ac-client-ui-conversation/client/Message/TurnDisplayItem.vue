@@ -11,6 +11,7 @@ import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
 import InjectCardHost from './InjectCardHost.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
+import { noteChainExpanded, chainExpandInit } from '../viewParking.ts';
 import { fmtElapsed } from '../feed.ts';
 import { Avatar, Icon, ThinkingIcon } from '@agentchat/webui-kit';
 import type { InjectCard, Turn, ChatMessage } from '../types.ts';
@@ -26,6 +27,9 @@ const props = defineProps<{
   /** 分支能力接线（single 形态传 true——按钮实际可见性还需 final 行有
    *  服务端锚点 persistedMsgId，见 showFork computed） */
   canFork?: boolean;
+  /** 渲染管线稳定轮键（A1 视图停靠：折叠位按它登记/取回——切会话重挂载
+   *  后用户手动展开的链栏不再弹回默认折叠） */
+  itemKey?: string;
 }>();
 
 const emit = defineEmits<{
@@ -201,7 +205,9 @@ const finalIsStreaming = computed(() => !hasChain.value && isStreaming.value && 
 // 折叠不受流式过程控制（整链显隐由全局思维链开关承担）：流式中创建的
 // 轮默认展开（实时阅读思考过程——链内工具卡/思考消息各自默认折叠），
 // 历史轮默认折叠；此后仅用户手动切换，收束时不再自动折叠。
-const isExpanded = ref(isStreaming.value);
+// A1 停靠：初始折叠态先取停靠位（用户手动切换过的值），缺席回落默认
+// （流式轮展开/历史轮折叠）。
+const isExpanded = ref(chainExpandInit(props.itemKey ?? '', isStreaming.value));
 
 // 行首图标位：hover 换折叠方向箭头，平时保持脑电波图标；链活动中且
 // 非 hover 时整位让给旋转环（chain-spin-ring，模板 v-if 优先）。
@@ -220,7 +226,11 @@ function isThinkingStreamingNow(sIdx: number) {
   const a = visibleSteps.value[sIdx].assistant;
   return !a.content.trim() && !a.toolCalls?.length;
 }
-function toggleExpand() { isExpanded.value = !isExpanded.value; }
+function toggleExpand() {
+  isExpanded.value = !isExpanded.value;
+  // A1 停靠：登记用户手动切换（重挂载/切回时 chainExpandInit 取回）
+  if (props.itemKey) noteChainExpanded(props.itemKey, isExpanded.value);
+}
 
 // 挂靠注入卡（turn.injects——buildTurns 数据层归位）：按 afterStep 分组——
 // 渲染时插在步循环 {afterStep} 步之后（缺省 0 = 链头；= steps.length = 链尾）

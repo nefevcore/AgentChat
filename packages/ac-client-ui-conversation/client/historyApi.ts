@@ -47,6 +47,8 @@ export interface PSessionRecord {
   run?: string;
   /** run 墙钟耗时（毫秒，cr-772）——历史链栏「用时」段持久锚（存量行缺席） */
   runMs?: number;
+  /** 行级单调序号（B1 行级 seq 持久化——writer 跨实例续接后单调；存量行缺席） */
+  seq?: number;
   /** 注入结构化载荷（cr-765 #4 问答卡：context 注入行专用——Q/A 数据面；
    *  旧行缺席 → UI 回落纯文本正文） */
   payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
@@ -121,6 +123,9 @@ interface PairHistoryMessage {
 export function toHistoryMessages(records: PSessionRecord[], conversationId: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const r of records) {
+    // B1 行级 seq 透传：本记录展开的所有行带同一 seq（水位锚随行携带；
+    // 存量行无 seq → 不带，前端回落现有行为）
+    const seqStart = out.length;
     if (r.role === 'user') {
       out.push({ role: 'agent', content: r.content, agent_id: r.agent_id ?? r.name ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
       continue;
@@ -262,6 +267,10 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       ...(isInjectionRow && r.payload !== undefined ? { payload: r.payload } : {}),
       ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}),
     });
+    // B1 行级 seq 透传：本记录展开的全部行统一打标（展开前记录了 seqStart）
+    if (r.seq !== undefined) {
+      for (let i = seqStart; i < out.length; i++) out[i].seq = r.seq;
+    }
   }
   // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻
   // 保持输入序）。缺时刻行继承前驱时刻（cr-716）：不可解析时刻按 0 排序

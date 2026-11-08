@@ -76,6 +76,12 @@ interface DialogFeed {
    * resetDialog/归档重载时清空（强制全量）。
    */
   historyFingerprint?: string;
+  /**
+   * 已见行级 seq 水位（B1）：mergeHistory 时取页内 max(seq) 维护——多域
+   * seq 空间各自单调（单会话域固定），max 跨域取最大恒安全（只增不减）。
+   * B2 帧携带 runId+seq 后作重放帧过滤水位；resetDialog/淘汰时清零。
+   */
+  historySeqHigh?: number;
   // 元数据（供列表/社区流/星图）
   lastActivity: number;
   lastMessage: { role: string; content: string; agentId: string; ts: number } | null;
@@ -117,6 +123,10 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
  *  单键 agentchat.unread 恢复；测试默认关——独立实例隔离，不互写快照。 */
 export interface FeedCoreOptions {
   persistUnread?: boolean;
+  /** 热集 LRU 上限（A2；缺省 30 个非空分区）——测试可注入小值 */
+  lruMaxDialogs?: number;
+  /** 热集字节预算（A2；缺省 ~30MB，按 rawMessages 内容长度估算） */
+  lruByteBudget?: number;
 }
 
 /** 信息流核心工厂（每次调用 = 独立状态实例；rpc = 宿主传输面——webui
@@ -129,8 +139,12 @@ export function createFeedCore(
   options: FeedCoreOptions = {},
 ) {
   const persistUnread = options.persistUnread === true;
+  const lruMaxDialogs = options.lruMaxDialogs ?? 30;
+  const lruByteBudget = options.lruByteBudget ?? 30 * 1024 * 1024;
   // ── State ──
   const dialogs = ref<Partial<Record<DialogId, DialogFeed>>>({});
+  /** A2 热集 LRU 新鲜度序（声明须早于 persistUnread 水合的 ensureById 调用） */
+  const _lru = new Map<DialogId, void>();
   /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算。
    *  per-dialog 独立 ref（cr-844）：单一 Record ref 时 bump 整对象替换会
    *  把依赖「整本 _version」的所有分区 turns computed 一并弄脏——多会话
@@ -318,6 +332,7 @@ export function createFeedCore(
 
   // ── Dialog 基础工具 ──
   function ensureById(id: DialogId): DialogFeed {
+    noteLru(id); // A2 热集新鲜度（访问 = 最近使用）
     if (!dialogs.value[id]) {
       const { kind, key } = parseDialogId(id);
       dialogs.value = {
@@ -328,6 +343,7 @@ export function createFeedCore(
     return dialogs.value[id]!;
   }
   function bump(id: DialogId) {
+    noteLru(id); // A2 热集新鲜度（变更 = 最近使用；每 delta O(1) 重插）
     versionOf(id).value += 1;
     // 活动 ↔ 存活信号（cr-107 悬挂流探针）：分区任何变更刷新基线；流式中
     // 的分区顺手挂探针（懒启动——每分区至多一个在途，fire 后按需重排）。
@@ -353,6 +369,69 @@ export function createFeedCore(
     if (!d) return;
     if (ts > d.lastActivity) d.lastActivity = ts;
     d.lastMessage = { role: 'agent', content: content.slice(0, 80), agentId, ts };
+  }  
+  // ── 热集 LRU + 字节预算（session-cache-and-frame-ordering-plan A2）──
+  // dialogs 字典多会话保留（切走不清空）但无上界——多开长会话时 rawMessages
+  // + turns memo 无限增长。淘汰策略：
+  //   · 新鲜度：ensureById / bump 时 delete+set 重插（Map 迭代序 = LRU 序）；
+  //   · 触发：非空分区数 > lruMaxDialogs 或热集估算字节 > lruByteBudget；
+  //   · 永不淘汰：活跃分区、流式中分区（streaming / 占位在场）、加载中分区
+  //     （loading / converging——在途响应的 merge 需要落点）；
+  //   · 淘汰 = resetDialog（清 rawMessages/水位/指纹，保留 unread/lastMessage
+  //     壳——徽章/列表元数据不丢）+ 丢弃 _version / _turnsCache / _turnsMemo
+  //     派生态。切回走正常首载（指纹已清 → 全量，fingerprint 短路不误命中）。
+  function noteLru(id: DialogId): void {
+    _lru.delete(id);
+    _lru.set(id, undefined);
+  }
+  /** 分区驻留字节估算：内容长度求和 ×2（对象化开销近似；量级对齐实测
+   *  rawMessages 对象化 ×1.5 + turns memo +10-20% 的保守上界）。 */
+  function estimateDialogBytes(d: DialogFeed): number {
+    let n = 0;
+    for (const m of d.rawMessages) {
+      n += m.content?.length ?? 0;
+      n += (m as { thinking?: string }).thinking?.length ?? 0;
+      n += (m as { reasoning_content?: string }).reasoning_content?.length ?? 0;
+    }
+    return n * 2;
+  }
+  /** 淘汰单个分区（壳保留，内容/水位/派生态全弃） */
+  function evictDialog(id: DialogId): number {
+    const d = dialogs.value[id];
+    if (!d) return 0;
+    const freed = estimateDialogBytes(d);
+    resetDialog(id);          // 清 rawMessages/水位/指纹（unread/lastMessage 壳保留）
+    _turnsCache.delete(id);   // 派生 computed 弃置——下次 getTurns 重建
+    _turnsMemo.delete(id);
+    _version.delete(id);      // 版本 ref 弃置（仍被引用的旧 computed 自洽存活）
+    return freed;
+  }
+  /** 热集对账：超限（条数/字节）时从 LRU 最冷端逐个淘汰可淘汰分区。 */
+  function maybeEvict(): void {
+    const active = activeDialogId.value;
+    const candidates: DialogId[] = [];
+    let nonEmpty = 0;
+    let totalBytes = 0;
+    for (const id of Object.keys(dialogs.value) as DialogId[]) {
+      const d = dialogs.value[id];
+      if (!d || d.rawMessages.length === 0) continue;
+      nonEmpty++;
+      totalBytes += estimateDialogBytes(d);
+      if (id === active) continue; // 活跃分区永不淘汰
+      if (d.streaming || d.status === 'loading' || d.status === 'converging') continue;
+      if (d.rawMessages.some(m => m.isStreaming)) continue; // 占位在场 = run 可能仍在途
+      candidates.push(id);
+    }
+    if (nonEmpty <= lruMaxDialogs && totalBytes <= lruByteBudget) return;
+    // LRU 序：按 _lru 迭代序（最冷在前）过滤候选
+    const ordered = [..._lru.keys()].filter(id => candidates.includes(id));
+    const fallback = candidates.filter(id => !ordered.includes(id)); // 未登记（理论不达）兜底
+    for (const id of [...ordered, ...fallback]) {
+      if (nonEmpty <= lruMaxDialogs && totalBytes <= lruByteBudget) break;
+      const before = dialogs.value[id]?.rawMessages.length ?? 0;
+      totalBytes -= evictDialog(id);
+      if (before > 0) nonEmpty--;
+    }
   }
 
   // ── 派生 turns（memo：仅该 dialog 版本变化时重算；增量复用完成轮次对象身份）──
@@ -421,6 +500,7 @@ export function createFeedCore(
     d.status = 'idle';
     d.streaming = false;
     d.historyFingerprint = undefined; // 重置（归档 compact/编辑后）：下次首屏强制全量
+    d.historySeqHigh = undefined; // B1 水位同清（compact 重写后 seq 空间可能重排）
     invalidateTurns(id);
     bump(id);
   }
@@ -482,7 +562,21 @@ export function createFeedCore(
   // 无条件重拉（两驱动同覆盖面）：一直开着的会话直播行未经历过历史合并，
   // 不重拉就永远换不成权威收束行（persistedMsgId 缺失 → 分支/编辑/删除
   // 按钮要刷新页面才出现，2026-09-21 分支功能反馈）。
+  //
+  // B3 缩面（不整除役——服务端锚点操作 singles/fork、session/truncate 按
+  // message_id 定位，权威行仍须重拉换取；行级 seq 只是身份锚不是服务端
+  // 寻址键）：durable 确证驱动（run-settled，delay=0）刚触发过的分区，
+  // after-run 的 500ms 兜底重拉跳过——兜底只服务「run-settled 事件丢失 /
+  // 旧后端」的形态，durable 驱动已到场时它是纯冗余往返（fingerprint
+  // 短路虽省读，RPC 往返与 requestId 竞态窗口仍在）。
+  const _durableReloadAt = new Map<DialogId, number>();
   function scheduleSettlementReload(dialogId: DialogId, conversationId: string | undefined, delayMs = 500) {
+    if (delayMs > 0) {
+      const last = _durableReloadAt.get(dialogId);
+      if (last !== undefined && Date.now() - last < 2000) return; // durable 驱动刚到：兜底冗余
+    } else {
+      _durableReloadAt.set(dialogId, Date.now());
+    }
     setTimeout(() => {
       const { kind, key } = parseDialogId(dialogId);
       if (kind === 'group') return;
@@ -888,10 +982,18 @@ export function createFeedCore(
       : deduped;
     if (prevOffset > 0) _historyOffset[agentId] = prevOffset - HISTORY_PAGE_SIZE + userCount;
     d.rawMessages = nextRaw;
+    // B1 行级 seq 水位维护：页内 max(seq) 只增不减（重放/回退页不拉低水位）
+    for (const m of nextRaw) {
+      if (typeof (m as { seq?: unknown }).seq === 'number') {
+        const s = (m as { seq: number }).seq;
+        if (d.historySeqHigh === undefined || s > d.historySeqHigh) d.historySeqHigh = s;
+      }
+    }
     // 首屏整体替换：重置 resume 合并标记（切走再切回/刷新竞态后允许按快照重新合并）
     if (isFirstPage) resumeMerged.delete(dialogId);
     invalidateTurns(dialogId);
     bump(dialogId);
+    maybeEvict(); // A2：热集增长主路径——首屏/续拉合并后对账淘汰
     traceSwitch('merge', `${dialogId} ${isFirstPage ? '首屏' : '续拉'} → ${nextRaw.length} 条，merge 耗时 ${(performance.now() - mergeT0).toFixed(1)}ms`);
     return d;
   }
@@ -927,6 +1029,7 @@ export function createFeedCore(
       d.status = 'ready';
       invalidateTurns(dialogId);
       bump(dialogId);
+      maybeEvict(); // A2：群历史整页装载同样计入热集
     } catch {
       d.status = 'ready';
     }
@@ -1242,9 +1345,12 @@ export function createFeedCore(
   // 修复（两件）：
   //   A. 参数阶段占位：首个工具分片到达即建 preparing 卡（2026-09-04
   //     同名并行调用错位的教训——preparing 升级按 name 匹配最后一条流式
-  //     tool 会抢错；本次占位本身仍按 index 建/升级，id 形如 prep-<idx>-<ts>，
-  //      delta-end 按 preparing 标记 + name 精确配对升级为真 tool_call_id，
-  //      幻影分片（id/name 空冲洗片）不建卡）；
+  //     tool 会抢错；本次占位本身仍按 index 建/升级。id 判定改累积式（对齐
+  //     chat() 聚合器）：id/name 分片各自到达即记，双全才建卡——provider
+  //     拆片（id 先于 name 到达或反之）也能建卡，幻影分片（id/name 空
+  //     冲洗片）不建卡。分片已带 provider 真 id 时卡片直接用真 id（无
+  //     "prep 占位 → delta-end 升级"窗口）；占位 id 仅作无早期 id provider
+  //     的兜底，升级按 id 精确配对优先、name 配对兜底）；
   //   B. 最短转圈：onToolEnd 若距占位建立不足 TOOL_MIN_SPIN_MS 则延迟关闭
   //      （保证 dots 至少可见一瞬——快工具的终态不再瞬间吞掉运行态）。
   //      数据先落（content/running 即写），只延迟视觉关停；after-step /
@@ -1262,7 +1368,7 @@ export function createFeedCore(
    * label = "正在调用工具: X"（显式 label 优先，展示层 toolDisplayLabel
    * 认它）；isStreaming = true → 转圈 dots 立即可见。
    */
-  function prepareToolCall(id: DialogId, st: StreamState, idx: number, name: string) {
+  function prepareToolCall(id: DialogId, st: StreamState, idx: number, name: string, realId?: string) {
     if (st.preps.has(idx)) return;
     markActive();
     const d = ensureById(id);
@@ -1270,7 +1376,11 @@ export function createFeedCore(
     const asst = lastStreaming(msgs, 'agent');
     if (!asst) return; // 无流式载体（step-started 丢失等）：不标记，后续分片重试
     st.preps.add(idx);
-    const prepId = `prep-${idx}-${Date.now()}`;
+    // provider 真 id 全链路已到前端（mapChunk → llm/delta chunk.toolCalls[].id
+    // → ws-bridge 原样转发）：分片带 id 时卡片直接用真 id——onToolEnd /
+    // onToolUpdate 的 tool_call_id 精确匹配立即命中，无占位升级窗口；
+    // prep- 占位 id 仅作无早期 id provider 的兜底路径。
+    const prepId = realId || `prep-${idx}-${Date.now()}`;
     toolCallsOf(asst).push({
       id: prepId, name, arguments: {}, result: '',
       label: `正在调用工具: ${name}`, preparing: true, running: true, startTime: Date.now(),
@@ -1324,7 +1434,11 @@ export function createFeedCore(
     // 升级 prepareToolCall 建立的占位（参数流式阶段已显示"正在调用工具"）：
     // 同名并行只认【未被认领】的 preparing 条目（find 不回头）——已被升级的
     // 条目 preparing=false，不会二次认领（旧按 name 全查会抢已升级的）。
-    const prep = toolCallsOf(asst).find((tc: any) => tc.preparing && tc.name === data.tool_name);
+    // 真 id 占位（C1）按 id 精确配对优先——同名并行调用不靠 name 也能对上；
+    // name 配对仅作 prep- 占位（无早期 id provider）的兜底。
+    const tcsPrep = toolCallsOf(asst);
+    const prep = tcsPrep.find((tc: any) => tc.preparing && tc.id === data.tool_call_id)
+      ?? tcsPrep.find((tc: any) => tc.preparing && tc.name === data.tool_name);
     if (prep) {
       const prepRowId = prep.id; // prep-… 原始占位 id（重命名前捕获——占位行按它精确配对）
       prep.id = data.tool_call_id;
@@ -1877,6 +1991,8 @@ export function createFeedCore(
       ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),
       // run 墙钟耗时透传（cr-772）：历史链栏「用时」段权威锚（挂首步）
       ...(typeof m.runMs === 'number' ? { runMs: m.runMs } : {}),
+      // B1 行级 seq 透传：历史行水位锚（存量行缺席 → 不带）
+      ...(typeof m.seq === 'number' ? { seq: m.seq } : {}),
       // 服务端锚点：多步轮步行 = 收束行真实 message_id（同轮同锚——fork/
       // truncate 按整轮命中；2026-09-21 分支锚点修复，此前合成 `-s{i}` 后端不存在）
       persistedMsgId: m.message_id,
@@ -2163,6 +2279,25 @@ export function createFeedCore(
         const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys || !isForCurrentUser(keys)) return;
         noteStreamAgent(keys);
+        const st = streamOf(streams, keys.dialogId);
+        // 身份贯通：stepId/runId 提取（旧后端帧缺席 → undefined，回落启发式）
+        const stepKeys = stepKeysOf({
+          runId: meta?.runId ?? input?.meta?.runId,
+          stepId: meta?.stepId ?? input?.meta?.stepId,
+        });
+        // B2 步级 seq 配对去重：帧携带 meta.seq 且 stepId 在场时按步记水位
+        //（st.lastStepSeq）——同 stepId 的回退帧（seq < 已见：重放/迟到旧批）
+        // 整帧丢弃（重放不回退），且先于下方 streaming 重点亮（过期帧不得
+        // 复活光环）。stepId 前缀已含 runId——水位天然按 run 分段，跨 run
+        // 永不混比。帧无 seq（旧后端）不记不丢，行为与现状完全一致（缺席
+        // 回落）。
+        const frameSeq = meta?.seq ?? input?.meta?.seq;
+        if (typeof frameSeq === 'number' && stepKeys?.stepId !== undefined) {
+          if (st.lastStepSeq === undefined) st.lastStepSeq = new Map();
+          const seen = st.lastStepSeq.get(stepKeys.stepId);
+          if (seen !== undefined && frameSeq < seen) return;
+          st.lastStepSeq.set(stepKeys.stepId, frameSeq);
+        }
         // run 级流式态重点亮（cr-802 光环偶发消失根修）：delta 到达 = run
         // 确凿在流。断连 onOpen 清场 / 前端刷新撞边界帧丢失 / 发送看门狗
         // 误判回落之后，此前只等 run-started/step-started 重建分区态——新
@@ -2174,12 +2309,6 @@ export function createFeedCore(
           d.streaming = true;
           bump(keys.dialogId);
         }
-        const st = streamOf(streams, keys.dialogId);
-        // 身份贯通：stepId/runId 提取（旧后端帧缺席 → undefined，回落启发式）
-        const stepKeys = stepKeysOf({
-          runId: meta?.runId ?? input?.meta?.runId,
-          stepId: meta?.stepId ?? input?.meta?.stepId,
-        });
         const reasoning = typeof chunk?.reasoning === 'string' ? chunk.reasoning : '';
         if (reasoning) {
           if (!st.sawReasoning) {
@@ -2219,21 +2348,21 @@ export function createFeedCore(
           if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st, stepKeys);
           for (const tc of chunk.toolCalls) {
             const idx = typeof tc?.index === 'number' ? tc.index : 0;
+            // 累积式判定（C2，对齐 chat() 聚合器的 if (frag.id) acc.id = frag.id）：
+            // id/name 分片各自到达即记、双全才建卡——消灭"provider 拆片则
+            // 永不建卡"的脆弱点。provider 的空冲洗片（"" id/name）不成为调用。
+            if (!st.tools.has(idx)) st.tools.set(idx, { buf: '' });
+            const acc = st.tools.get(idx)!;
+            if (typeof tc?.id === 'string' && tc.id && !acc.id) acc.id = tc.id;
+            if (typeof tc?.name === 'string' && tc.name && !acc.name) acc.name = tc.name;
+            if (typeof tc?.argumentsDelta === 'string') acc.buf += tc.argumentsDelta;
             // 参数流式阶段即建 preparing 占位卡（2026-09-13 反馈：此前只累积，
             // 模型打参数的数秒里界面纯静默）。按 index 去重（st.preps）；
-            // 幻影分片（id/name 空）不建卡。
-            if (typeof tc?.id === 'string' && tc.id && typeof tc?.name === 'string' && tc.name) {
-              prepareToolCall(keys.dialogId, st, idx, tc.name);
+            // 双全（id+name）即建；分片带真 id 时卡片直接用真 id（C1），
+            // 无占位升级窗口。
+            if (acc.id && acc.name) {
+              prepareToolCall(keys.dialogId, st, idx, acc.name, acc.id);
             }
-            // 只累积（id/name 首见建条目、argumentsDelta 拼接）——真 id 占位
-            // 由 delta-end 统一按 index 序升级（onToolStart 按 preparing
-            // 标记 + name 精确配对，多工具并存不抢位）。
-            // id/name 须非空：provider 的空冲洗片（"" id/name）不成为调用
-            if (typeof tc?.id === 'string' && tc.id && typeof tc?.name === 'string' && tc.name && !st.tools.has(idx)) {
-              st.tools.set(idx, { id: tc.id, name: tc.name, buf: '' });
-            }
-            const acc = st.tools.get(idx);
-            if (acc && typeof tc?.argumentsDelta === 'string') acc.buf += tc.argumentsDelta;
             // run_code 参数草稿（2026-09-21 前端反馈 #1）：code 字段可达数 KB，
             // 参数流式全程（数十秒）占位卡只有裸 spinner——粗提取已生成部分
             // 同步进 prep 条目与占位行，程序卡边生成边可见。终值由 delta-end
@@ -2277,8 +2406,10 @@ export function createFeedCore(
         const toolAccs = [...st.tools.entries()].sort((x, y) => x[0] - y[0]);
         st.tools.clear();
         st.preps.clear();
-        // 工具参数完成 → tool_execution.start 语义（升级 preparing 占位为真 id）
+        // 工具参数完成 → tool_execution.start 语义（升级 preparing 占位为真 id；
+        // 累积式判定下 id/name 未双全的是幻影/中断残片，跳过不升级）
         for (const [, acc] of toolAccs) {
+          if (!acc.id || !acc.name) continue;
           onToolStart(keys.dialogId, {
             tool_call_id: acc.id, tool_name: acc.name,
             arguments: parseArgs(acc.buf), label: acc.name,
@@ -2404,6 +2535,29 @@ export function createFeedCore(
         // 步终值时刻：仅活跃 Agent 的 run 置位（TokenGauge 等派生数据重取
         // 驱动——工具步在工具执行前到达，长工具运行中仪表即可刷新占用）
         if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }
+        return;
+      }
+      case 'ledger/step-journaled': {
+        // B2 帧携带：journal 步行落盘完成（seq 已 durable）——步级 seq 水位
+        // 补记 + 直播行 seq 身份锚。事件刻意晚于本步全部 delta 与 after-step
+        //（后端落盘后补发），到达时载体多已收束出 carrier 索引——先查索引、
+        // 再按 stepId 扫消息尾定位。仅记水位与锚，不改变任何合并/去重行为
+        //（去重只消费 llm/delta 自带的 meta.seq；本帧缺席时一切照旧）。
+        const [p] = args as [{ agent?: string; conversationId?: string; runId?: string; stepId?: string; seq?: number } | undefined];
+        const agent = frameAgentId(p?.agent);
+        if (!isUserConversation(agent, p?.conversationId)) return;
+        const keys = routeDialog(agent, p?.conversationId);
+        if (!keys || !isForCurrentUser(keys) || typeof p?.seq !== 'number' || typeof p.stepId !== 'string' || !p.stepId) return;
+        const st = streamOf(streams, keys.dialogId);
+        // 水位补记（只进不退）：重放的旧锚不得拉低已见 seq
+        if (st.lastStepSeq === undefined) st.lastStepSeq = new Map();
+        const seen = st.lastStepSeq.get(p.stepId);
+        if (seen === undefined || p.seq > seen) st.lastStepSeq.set(p.stepId, p.seq);
+        // seq 锚到本步流式载体（settlement 前直播行即获稳定身份——B3 供料）；
+        // 缺席（载体已收束清除/旧后端无 stepId）回落不变，不新建不报错
+        const anchored = st.carrier.get(p.stepId)
+          ?? [...dialogs.value[keys.dialogId]?.rawMessages ?? []].reverse().find((m: any) => m.stepId === p.stepId);
+        if (anchored) anchored.seq = p.seq;
         return;
       }
       case 'loop/after-run': {
@@ -2655,6 +2809,7 @@ export function createFeedCore(
     getDialog, getRaw, getTurns,
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,
+    maybeEvict, // A2：热集对账（宿主可在大批量注入后显式调用；测试面同)
     clearUnread, pruneSingleUnread, touch, bump,
     // busy 排队发送回显登记（chat store 排队路径专用）
     registerQueuedSend, dropQueuedSend,

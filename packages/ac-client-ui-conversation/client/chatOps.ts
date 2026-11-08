@@ -96,8 +96,9 @@ export function isUserConversation(agent: string | undefined, conversationId: st
 // ---- 工具调用参数累积（llm/delta toolCalls 分片 → 完整调用） ----
 
 interface ToolCallAcc {
-  id: string;
-  name: string;
+  /** 累积式（对齐 chat() 聚合器）：id/name 分片各自到达即记，双全才成调用 */
+  id?: string;
+  name?: string;
   buf: string;
 }
 
@@ -114,7 +115,7 @@ export interface StreamState {
   sawToolCall?: boolean;
   /** 已见正文 delta（相位判定只在首见时刻做一次） */
   sawText?: boolean;
-  /** index → 累积（id/name 首见建条目；argumentsDelta 拼接） */
+  /** index → 累积（id/name 分片各自到达即记、双全才成调用；argumentsDelta 拼接） */
   tools: Map<number, ToolCallAcc>;
   /**
    * 参数流式阶段已建 preparing 占位的 index 集合（2026-09-13 反馈：模型生成
@@ -130,6 +131,14 @@ export interface StreamState {
   carrier: Map<string, ChatMessage>;
   /** 相位标志所属步的 stepId（onStepStart 换步即重置——见 feed-core） */
   phaseStepId?: string;
+  /**
+   * 步级 seq 已见水位（B2 帧有序性）：stepId → 该步已见最大 seq。llm/delta
+   * 帧携带 meta.seq 时按步配对去重——同 stepId 的回退帧（seq < 已见，
+   * 重放/迟到旧批）整帧丢弃（重放不回退）。stepId 前缀已含 runId，水位
+   * 天然按 run 分段（跨 run 永不混比）；帧无 seq（旧后端）索引空置，
+   * 行为与现状完全一致（缺席回落）。
+   */
+  lastStepSeq?: Map<string, number>;
 }
 
 export function streamOf(streams: Map<string, StreamState>, dialogId: string): StreamState {
