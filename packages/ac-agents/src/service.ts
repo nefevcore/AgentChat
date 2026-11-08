@@ -1,8 +1,10 @@
 // ============================================================
 // ac-agents/src/service.ts —— Agent 注册中心（cordis Service）
 //
-// 本包同时是 Agent 域契约的 owning package：AgentConfig 定义在
-// 本文件并随服务导出（谁提供 ctx.agents，谁声明 AgentConfig）。
+// 本包是 Agent 域服务的 owning package：AgentsService 注册中心 +
+// 门禁词汇纯函数。AgentConfig 契约 owning 在 ac-agents-core（cr-953
+// 起单源 re-export——本包历史双份定义已随 tags 退役批并源，消灭
+// tools/tags 旧词形漂移面）。
 //
 // 关键认知：Agent 是【数据】不是插件（迁移研究映射表 #12/#15）。
 // ctx.agents 只做注册表；两类注册方：
@@ -11,228 +13,36 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { deepMerge } from 'ac-config-merge';
+import {
+  ACCESS_RANK,
+  type AccessLevel,
+  type AgentConfig,
+  type ToolMode,
+  accessOf,
+  displayNameOf,
+  effectiveAccessOf,
+  toolModeOf,
+} from 'ac-agents-core';
 
-/** Agent 配置（Agent 是数据：注册进注册表，而非挂成插件行） */
-export interface AgentConfig {
-  id: string;
-  /**
-   * 模型名。virtual Agent（如 user）可省略——router 遇 virtual 只记事件
-   * 不跑 loop，model 永不被消费；非 virtual 缺 model 由消费方抛错。
-   */
-  model?: string;
-  /**
-   * 虚拟 Agent 标志（M12，src virtual 平移）：不驱动 LLM 循环的会话参与方
-   * （如 user）。router.send 对 virtual Agent 只发 router/message-received
-   * （入站入账），不投 loop、不发 reply-completed。
-   */
-  virtual?: boolean;
-  provider?: string;
-  system?: string;
-  /**
-   * 暴露给模型的工具名清单；缺省 = 全部已注册工具。两种形态（M15 对账：
-   * src include/exclude 对象形态收编）：
-   *   · string[]            —— 白名单（原形态）
-   *   · {include?, exclude?} —— include 白名单 / exclude 增量停用；
-   *     同给 = include 再减 exclude；均缺省 = 全部
-   * 条目词形（两形态通用）：精确工具名，或 **tag 引用** `'tag:<tag>'`
-   * ——展开为 requiredTags 含该 tag 的全部工具（resolveToolNames 信封构建
-   * 时按注册面展开；工具集增删自动跟随，预设/Agent 不必点名）。tag 引用
-   * 与精确名可混排；无 defs 的消费面（纯名字数组）不展开，引用条目静默
-   * 落空。信封构建（router）时解析为 string[]——loop 契约不变。
-   */
-  tools?: string[] | { include?: string[]; exclude?: string[] };
-  /**
-   * LLM 采样参数（M15 对账：src LLMConfig 的 per-Agent 调参面收编）。
-   * 白名单键透传给每次模型调用（temperature/max_tokens/top_p/
-   * response_format/stop/reasoning_effort/thinking/logprobs/top_logprobs/
-   * tool_choice）；无法覆盖 model/messages/tools 等保留键。
-   * 推理档位词汇（filterLlmParams 归一）：`reasoning_effort` 收
-   * 'none'|'low'|'high'|'max'——'none' 在投递边界翻译为
-   * `thinking:{type:'disabled'}`（关闭思考输出）。
-   */
-  llmParams?: Record<string, unknown>;
-  /** 最大步数（>0 = trigger 上限；缺省/0 = receive 不限；对齐 loop 契约） */
-  maxSteps?: number;
-  /**
-   * 显示名（单源）：名册 / 群聊 / 对话信息等一切显示点的 Agent 名称。
-   * 与 description（一句话简介）分工——Agent 经 update_agent_profile 改
-   * description 不再连带改显示名（历史缺陷：description 曾兼任显示名，
-   * UI 创建/昵称编辑均写入 description；src 轨道本有独立 name 字段，
-   * 迁移时被压进 description）。存量档由 ac-agent-store 读边界惰性拷贝
-   * description → name 物化。显示名解析一律经 displayNameOf（回退链
-   * name ?? description——未物化的内存注册/预设兼容）。
-   */
-  name?: string;
-  /**
-   * 一句话简介：给其他 Agent 与用户看的自我/他人描述（LLM 工具面
-   * list_agents / read_agent_info / update_agent_profile 词汇）。
-   * 不是显示名——显示名单源是 name。
-   */
-  description?: string;
-  /**
-   * 能力标签（src tags 平移；Port B P6）：工具 requires 门禁的判定词表
-   * （ac-tools 注册的 requires + ac-security 等门禁行消费），UI 侧驱动
-   * 徽章与工具启停（canAddTool）。'base' 为内建基础标签（UI 恒视作具备）。
-   * 2026-09-13（access-tier §四）新增档位词汇：'full-access' /
-   * 'sandbox-access'（缺省 = base-access）——accessOf（cr-947 前名 tierOf）
-   * 单源判定，驱动权限轴
-   * 门禁（needPermission 工具的档位矩阵）；档位标签不进任何工具的
-   * requiredTags（AND 语义天然不误匹配）。
-   */
-  tags?: string[];
-  /**
-   * 具名扩展设置（settings[具名]，M24 X1——src 轨道 hooks/命名空间配置
-   * 的 preview 形态，词汇全链退役为 settings）：键 = 稳定单元名（行名 /
-   * 动态插件 manifest.name，如 'persona' / 'memory'），值 = 该插件在本
-   * Agent 上的配置（启用开关/参数皆由插件自定义形状——容器零本体承诺）。
-   *
-   * 分工：行组合（cordis.yml/TREE）决定【装哪些插件】；settings 决定
-   * 【已装插件在本 Agent 上的行为】——核心 AgentConfig 不为任何扩展插件
-   * 增加专属字段，防提前耦合。扩展插件经 loop/before-run 等事件按
-   * request.agent 查询：ctx.agents.settingsOf(id, '<name>')（M24 A1：
-   * 全局默认层 ∪ 本差异层合成；直读差异层用 ctx.agents.get(id)?.settings）。
-   */
-  settings?: Record<string, unknown>;
-  /**
-   * 行内插件档位（cr-906 批4 X1 回滚：档位词归装配——unit → 档位词/
-   * 布尔；levels 赢，settings 行内档位为回滚兼容线）。
-   */
-  levels?: Record<string, string | boolean>;
-}
+export type { AgentConfig, AccessLevel, ToolMode } from 'ac-agents-core';
 
-/**
- * 端点显示名单源解析（回退链 name ?? description；空白视同缺省）：
- * 一切后端显示点（对话信息 labelOf、群成员显示名、预设目录）共用本函数，
- * 未注册/两者皆无 → undefined，由调用方回退端点 id。
- * description 回退仅服务未物化的存量/内存注册——读边界
- * （ac-agent-store.getAgent）已把存量 description 拷贝进 name。
- */
-export function displayNameOf(config: AgentConfig | undefined): string | undefined {
-  if (config === undefined) return undefined;
-  if (typeof config.name === 'string' && config.name.trim() !== '') return config.name;
-  if (typeof config.description === 'string' && config.description.trim() !== '') return config.description;
-  return undefined;
-}
+export {
+  ACCESS_RANK,
+  accessOf,
+  displayNameOf,
+  effectiveAccessOf,
+  toolModeOf,
+  isPresetId,
+  presetTemplateKeyOf,
+  normalizeLegacyTags,
+  resolveToolNames,
+  settingsOf as settingsOfPure,
+} from 'ac-agents-core';
 
-/**
- * 基础族标签语义存档（全量标签化 2026-09-16 终态；词表本体已随 cr-351
- * 删除——运行时零消费，创建面预选词各自声明：AgentList
- * NEW_AGENT_DEFAULT_TAGS / sap-adt 预设 tags）。历史上基础族是导出常量
- * UNIVERSAL_TAGS = ['fs', 'collab', 'infra']，且读边界曾有自动补齐迁移
- * （normalizeUniversalTags，含一次性标记 _migratedUniversalTags），后经
- * 用户裁决**整体移除**：tags 完全以用户/预设配置为准，框架不做任何自动
- * 补齐——新建 Agent 由创建面（UI/预设）负责声明基础族；存量 Agent 由
- * 用户手工补（用户基数小，明确知情优于隐式改写）。此注释是移除后的
- * 语义存档，防止后人"顺手恢复"。
- */
-
-/**
- * 解析 AgentConfig.tools 为生效工具名清单（router 构建 LoopRunRequest /
- * list_tools 展示实际生效集共用）。
- *   · undefined      → undefined（= 全部已注册；调用方语义）
- *   · string[]       → 原样白名单（tag 引用见下）
- *   · {include}      → include 白名单
- *   · {exclude}      → all 减 exclude（增量停用）
- *   · {include,exclude} → include 减 exclude
- * tag 引用（条目词形 `'tag:<tag>'`，两形态通用）：universe 传工具定义
- * （{name, requiredTags?}）时展开为 requiredTags 含该 tag 的全部工具名
- * ——工具集增删自动跟随（预设不必点名工具）。universe 传纯名字数组时
- * 无 tag 信息，引用条目展开为空（不落字面名——它不是合法工具名）。
- * 空展开告警（2026-09-16，fail-fast；前置修复 #2 扩展）：universe 有
- * defs 时两类落空都回调——
- *   · tag: 引用展开为空 = 点名了不存在的标签（拼写错/标签未注册/工具行
- *     未装载）——静默落空正是 tag:fs 事故的形态；
- *   · 字面名不在 universe = 点名了不可见/不存在/已改名的工具（如平台
- *     拆分后 Windows 上的存量 'bash'，或拼写错）。
- * 回调由调用方挂 logger（纯函数不持 ctx）。字面名透传不变（留待执行
- * 面报「未知工具」——可见性判定不在此层），但配置错误从静默变可观测。
- */
-export function resolveToolNames(
-  tools: AgentConfig['tools'],
-  all: readonly (string | { name: string; requiredTags?: string[] })[],
-  onEmptyTagExpand?: (tag: string) => void,
-  onUnknownLiteral?: (name: string) => void,
-): string[] | undefined {
-  if (tools === undefined) return undefined;
-  // tag 展开表：tag → requiredTags 含该 tag 的工具名（仅 defs 条目贡献）
-  const byTag = new Map<string, string[]>();
-  const known = new Set<string>();
-  let hasDefs = false;
-  for (const entry of all) {
-    if (typeof entry === 'string') {
-      known.add(entry);
-      continue;
-    }
-    hasDefs = true;
-    known.add(entry.name);
-    for (const t of entry.requiredTags ?? []) {
-      const list = byTag.get(t);
-      if (list) list.push(entry.name);
-      else byTag.set(t, [entry.name]);
-    }
-  }
-  const expand = (names: readonly string[]): string[] =>
-    names.flatMap((n) => {
-      if (!n.startsWith('tag:')) {
-        if (hasDefs && !known.has(n) && onUnknownLiteral) onUnknownLiteral(n);
-        return [n];
-      }
-      const tag = n.slice(4);
-      const expanded = byTag.get(tag) ?? [];
-      if (expanded.length === 0 && hasDefs && onEmptyTagExpand) onEmptyTagExpand(tag);
-      return expanded;
-    });
-  if (Array.isArray(tools)) return expand(tools);
-  const include = Array.isArray(tools.include) ? expand(tools.include) : undefined;
-  const exclude = Array.isArray(tools.exclude) ? new Set(expand(tools.exclude)) : new Set<string>();
-  const base = include ?? all.map((e) => (typeof e === 'string' ? e : e.name));
-  return base.filter((name) => !exclude.has(name));
-}
-
-/**
- * 访问档位（access-tier §四）：AgentConfig.tags 新增词汇
- * `full-access` / `sandbox-access`；缺省（无任一档位标签）= base-access。
- * 档位只认 tags（人工书写、无合成空间）；编辑面 = agentAdmin 管理面。
- */
-export type AccessLevel = 'full-access' | 'sandbox-access' | 'base-access';
-
-/**
- * 档位强度序（唆使防御梯度判定用：accessOf(sender) 严格低于 accessOf(接收方)
- * 才注入 notice）。base < sandbox < full。
- */
-export const ACCESS_RANK: Record<AccessLevel, number> = {
-  'base-access': 0,
-  'sandbox-access': 1,
-  'full-access': 2,
-};
-
-/**
- * 档位判定单源（access-tier §四）：tags 含 'full-access' → full；含
- * 'sandbox-access' → sandbox；否则 base（full 优先）。未注册 Agent
- * （undefined，如存量 sub_* 合成身份）→ base（唆使防御"宁多注不漏注"的
- * fail-closed 方向）。纯函数住 AgentConfig owning 包——ac-security 加严层
- * 与工具行基线共用，防复检与基线漂移。
- */
-export function accessOf(agent: AgentConfig | undefined): AccessLevel {
-  const tags = agent?.tags;
-  if (!tags) return 'base-access';
-  if (tags.includes('full-access')) return 'full-access';
-  if (tags.includes('sandbox-access')) return 'sandbox-access';
-  return 'base-access';
-}
-
-/**
- * effectiveAccess（access-tier §3.2）：call.elevation（机制分支临时提权/
- * 有人桶审批注入）?? accessOf(agent)。工具行基线与 ac-security 加严层共用
- * 本单源——防"复检与基线漂移"（同 agentSpaceRoots 的纪律）。
- */
-export function effectiveAccessOf(
-  agent: AgentConfig | undefined,
-  elevation: 'sandbox-access' | 'full-access' | undefined,
-): AccessLevel {
-  if (elevation === 'full-access' || elevation === 'sandbox-access') return elevation;
-  return accessOf(agent);
-}
+// ============================================================
+// 门禁词汇（cr-953：requiredTags 能力词门禁退役——授权 = 行装载
+// 单闸；档位/模式判定换轨结构化字段；levels 行内档位唯一载体）
+// ============================================================
 
 /**
  * per-call 档位判定（工具行基线共用单源，cr-363 收编四处同构）：
@@ -255,161 +65,11 @@ export function effectiveAccessOfCall(
 }
 
 /**
- * 工具调用模式（tc-* 标签轴——与提权档位 access-tier 同构的第三条轴）：
- * AgentConfig.tags 新增词汇 tc-none / tc-programmatic；缺省（无任一
- * 模式词）= tc-base。模式词经 toolModeOf 单源判定，router / ac-subagent
- * 按「会话覆盖（conv-settings toolMode）?? toolModeOf(agent)」收窄 LLM
- * 工具面：tc-programmatic ⇒ mode 工具集（injection:'mode' 声明的工具，
- * 与 tags 无关）、tc-none ⇒ 空面纯聊天、tc-base ⇒ 常规工具面。
- *
- * 与档位词同款：tc-* 全部是纯模式词，不进任何 requiredTags（tag-registry
- * assert 白名单外的非能力词禁入）。mode 工具的注入通道见 ToolDefinition.
- * injection（2026-09-21 注入轴重构：run_code 挂 injection:'mode'，不挂
- * requiredTags、不进常规工具面——早先「授权词 = infra」语义随之退役）。
- */
-export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
-
-/**
- * 工具调用模式判定单源（对标 accessOf）：tags 含 'tc-none' → none；
- * 含 'tc-programmatic' → programmatic；否则 base（none 优先——无工具
- * 是最强约束，fail-closed 方向）。未注册 Agent（undefined，如存量
- * sub_* 合成身份）→ base。纯函数住 AgentConfig owning 包，router /
- * ac-subagent / 前端展示共用。
- */
-export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
-  const tags = agent?.tags;
-  if (!tags) return 'tc-base';
-  if (tags.includes('tc-none')) return 'tc-none';
-  if (tags.includes('tc-programmatic')) return 'tc-programmatic';
-  return 'tc-base';
-}
-
-/**
- * 生效工具调用模式：会话覆盖（conv-settings toolMode）?? toolModeOf(agent)。
- * 单源合成（2026-09-18 估算失真修复）：router / system-prompt 干跑 /
- * agents/tool-defs 估算面三处共用——「LLM 面按模式收窄」的判定输入
- * 必须与真实 run 同口径，否则估算（工具 schema 数 + 系统提示词门控块
- * + run_code SDK 投影块）随会话开关漂移。
- */
-export interface EffectiveToolModeEnv {
-  /** conv-settings 会话覆盖读取（ctx.get('convSettings', false) 面） */
-  convSettings?: { get(conversationId: string): { toolMode?: ToolMode } } | undefined;
-}
-export function effectiveToolMode(
-  agent: AgentConfig | undefined,
-  conversationId: string | undefined,
-  env: EffectiveToolModeEnv = {},
-): ToolMode {
-  const override = conversationId ? env.convSettings?.get(conversationId).toolMode : undefined;
-  return override ?? toolModeOf(agent);
-}
-
-/**
- * 工具调用模式收窄（形态轴合成，injection:'mode' 工具的注入点）：
- *   · tc-programmatic → mode 工具集（defs 中 injection==='mode' 的工具，
- *     与 tags 无关——行在装即合成）；无 mode 工具（对应行未装）= 空面
- *     （warn 归调用方——形同 tc-none，不回落常规面：程序化档悄悄变
- *     常规档是语义突变）；
- *   · tc-none → []；
- *   · tc-base → 原面（mode 工具不进常规工具面——router/估算面在能力面
- *     过滤时按 injection 分流排除，本函数的原面里天然无 mode 工具）。
- * 入参 defs = 注册面全量（只读 injection 标记）；tools = 已过能力面/
- * include/形态面的名字清单——mode 工具不经 tools 过滤（它们不在常规面），
- * 直接从 defs 合成。
- * 消费方：router dispatch（真实 run）+ system-prompt 干跑 /
- * agents/tool-defs（估算面——与真实 run 同口径的修复点）。
- */
-export function narrowToolsByMode(
-  tools: string[],
-  defs: ReadonlyArray<{ name: string; injection?: 'capability' | 'mode' }>,
-  mode: ToolMode,
-): string[] {
-  if (mode === 'tc-programmatic') {
-    return defs.filter((d) => d.injection === 'mode').map((d) => d.name);
-  }
-  if (mode === 'tc-none') return [];
-  return tools;
-}
-
-/**
- * 请求面是否恰为 mode 工具集（程序化互斥形态判定——run_code SDK 投影
- * 注入的既有口径，2026-09-21 提升为单源）：request.tools 与注册面
- * injection:'mode' 工具集互为子集且非空。系统提示各门控行
- * （system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
- * collab-tools @名称）在 PTC 模式下请求面已被 router 收窄成 ['run_code']，
- * 若按请求面判「工具在场」会误伤全部基线段——本函数是「这是程序化
- * run 吗」的判别入口。
- */
-export function isModeToolFace(
-  requested: ReadonlyArray<string> | undefined,
-  modeToolNames: ReadonlyArray<string>,
-): boolean {
-  if (requested === undefined || modeToolNames.length === 0) return false;
-  if (requested.length === 0) return false;
-  const mode = new Set(modeToolNames);
-  const req = new Set(requested);
-  if (req.size !== requested.length) return false; // 重复 = 非合成面
-  return requested.every((n) => mode.has(n)) && modeToolNames.every((n) => req.has(n));
-}
-
-/**
- * 门控用工具名合成（请求面 → 能力面展开，2026-09-21 PTC 基线段丢失修复）：
- * 系统提示门控行按「工具能力在场」注入指引，但 PTC 模式下 request.tools
- * 已收窄为 ['run_code']——直读会让模型明明能经 tools.read 调 read 却
- * 学不到对应基线（@/# 引用约定、宿主环境、产出物引用等）。本函数在
- * 程序化 run（isModeToolFace 判定）时把门控依据换成能力面直取的展开
- * 面（capabilitySetOf ∩ toolAllowedFor，形态面终滤——与 run_code 投影
- * 源同口径，跳过 include/exclude 的 LLM 直调面收窄）；常规面照旧原样
- * 返回请求面。消费方只做「有没有某工具」的成员判定，不消费执行面
- * 语义——门控宽度 fail-safe（声明了没授权的工具顶多多教一段指引）。
- */
-export function widenToolsForGating(
-  ctx: Pick<Context, 'get'>,
-  agentId: string | undefined,
-  conversationId: string | undefined,
-  requested: ReadonlyArray<string> | undefined,
-): string[] {
-  // ctx.get 走 root-traced 无限制解析（受限调用方纪律：消费方插件行不
-  // inject tools 也能取；缺席 = 空注册面）
-  const tools = ctx.get('tools', false) as
-    | { list(): Array<{ name: string; injection?: 'capability' | 'mode'; requiredTags?: string[]; requiresInteraction?: boolean }> }
-    | undefined;
-  const all = tools ? tools.list() : [];
-  const modeToolNames = all.filter((d) => d.injection === 'mode').map((d) => d.name);
-  if (!isModeToolFace(requested, modeToolNames)) {
-    // 常规面：request.tools ?? 注册面全量（原门控口径不变）
-    return requested !== undefined ? [...requested] : all.map((t) => t.name);
-  }
-  // 程序化 run：能力面直取（与 run_code 投影源同链：caps ∩ tags 门禁，
-  // mode 工具自身与 requiresInteraction 终滤一起排除——门控只关心能力）
-  const agents = ctx.get('agents', false) as
-    | { get(id: string): AgentConfig | undefined }
-    | undefined;
-  const caps = new Set<string>(['base']);
-  if (agentId !== undefined) {
-    caps.add(`agent:${agentId}`);
-    for (const t of agents?.get(agentId)?.tags ?? []) caps.add(t);
-  }
-  return all
-    .filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps))
-    .filter((t) => !formDeniedBy(ctx, t, conversationId))
-    .map((t) => t.name);
-}
-
-/**
- * 有效能力集（与 ac-security 执行门禁同款合成——工具【可见面】过滤的
- * 单源，2026-09-02 反馈 #1：requiredTags 缺标签的工具此前只在执行时 veto，
- * LLM 仍能在工具清单里看到并浪费一轮调用）：
- *   {'base', 'agent:<id>'} ∪ AgentConfig.tags ∪ 行内档位 settings 合成词
- * （◐a 2026-10-26 settings X1 单源：browser/collab/dev-tools 的行内档位
- *   从 tags 换轨 settings——capabilities 覆盖层已随 access-tier §9.4
- *   删除；合成 = 并集，未迁移旧数据 tags 仍在 = 回滚线兼容，与
- *   web-tools 会话 grants「只升不降」同语义）：
- *   · settings.browser.{observe,manipulate,inject} 层级布尔——高层含全部
- *     低层 + 'web'（与 conv-settings browserTier grants 同形）；
- *   · settings.collab.admin === true → 'admin'；
- *   · settings['dev-tools'].enabled === true → 'dev'。
- * 无身份（宿主直调）= {'base'}。
+ * 有效能力集（cr-953 缩减：能力词门禁退役——tags 轴整段删除；合成 =
+ * {'base', 'agent:<id>'} ∪ levels 行内档位合成词（browser 层级 / collab
+ * admin / dev-tools）∪ settings 行内档位回滚兼容线。无身份（宿主直调）
+ * = {'base'}。工具可见性门禁随 requiredTags 退役——本函数仅剩 browser
+ * 分层门禁（web-tools 行内）与 UI 诊断面消费）。
  */
 export function capabilitySetOf(
   ctx: Pick<Context, 'agents'>,
@@ -419,21 +79,19 @@ export function capabilitySetOf(
   if (agentId === undefined) return caps;
   caps.add(`agent:${agentId}`);
   const agent = ctx.agents.get(agentId);
-  for (const t of agent?.tags ?? []) caps.add(t);
-  // 行内档位 settings 合成（settingsOf 两层合成口——全局默认层 ∪ 差异层）
+  // 行内档位合成（cr-906 批4 X1 回滚 + cr-953：levels 赢——行内档位唯一
+  // 载体；settings 行内档位为回滚兼容线，settingsOf 两层合成口）
   const settingsOf = (name: string): Record<string, unknown> | undefined => {
     const merged = ctx.agents.settingsOf(agentId, name);
     return merged !== null && typeof merged === 'object' && !Array.isArray(merged)
       ? (merged as Record<string, unknown>)
       : undefined;
   };
-  // 行内档位合成（cr-906 批4 X1 回滚：levels 赢——档位词归装配；
-  // settings 行内档位为回滚兼容线，settingsOf 两层合成口）
   const levels = agent?.levels ?? {};
   const browserLevel = levels.browser;
   if (typeof browserLevel === 'string') {
     // 装配档位词（层级：observe < manipulate < inject——高层含全部低层 + web）
-    if (browserLevel === 'observe' || browserLevel === 'manipulate' || browserLevel === 'inject') {
+    if (levelQuotaOk(browserLevel)) {
       caps.add('web');
       caps.add('observe');
       if (browserLevel !== 'observe') caps.add('manipulate');
@@ -442,8 +100,7 @@ export function capabilitySetOf(
   } else {
     const browser = settingsOf('browser');
     if (browser !== undefined) {
-      // 层级布尔：任一 true 即含 web + 全部低层（AND 地板 ['web','observe']
-      // 要求——与 conv-settings browserTier grants 同形）
+      // 层级布尔：任一 true 即含 web + 全部低层
       if (browser.observe === true || browser.manipulate === true || browser.inject === true) {
         caps.add('web');
         caps.add('observe');
@@ -461,17 +118,21 @@ export function capabilitySetOf(
   return caps;
 }
 
+function levelQuotaOk(level: string): boolean {
+  return level === 'observe' || level === 'manipulate' || level === 'inject';
+}
+
 /**
  * 会话维度的有效能力集（capabilitySetOf + 会话覆盖授权注入）。
  * 2026-09-26 browserTier 可见性事故：会话实验档（conv-settings 注册键的
- * grants 声明）此前只作用于 web-tools 动作门禁——无 tags 的 Agent 在
+ * grants 声明）此前只作用于 web-tools 动作门禁——无层级的 Agent 在
  * 工具可见面就看不到 browser，会话授权到不了执行层。此包装在【可见性
  * 合成点】统一注入：settings 覆盖值 → 键定义 grants 标签并入 caps。
  * 受限调用方兼容：agents/convSettings 均经 ctx.get(name, false) 软取
  * （受限 ctx 上直接属性访问会抛 without-inject——run_code 等工具行
  * 场景）；面缺席 = 退化为 base 集（与 capabilitySetOf 等价或更窄）。
  * LLM 工具面的决定点（router execute / agents tool-defs / list_tools /
- * run_code 投影 / ac-security 执行门禁 / subagent 装配）统一换用本函数。
+ * run_code 投影 / subagent 装配）统一换用本函数。
  */
 export function sessionCapsOf(
   ctx: { get?: (name: string, strict?: boolean) => unknown },
@@ -480,8 +141,6 @@ export function sessionCapsOf(
 ): Set<string> {
   const softGet = (name: string): unknown =>
     typeof ctx.get === 'function' ? ctx.get(name, false) : undefined;
-  // base + agent:<id> + tags（与 capabilitySetOf 同源合成——agents 面软取，
-  // 受限 ctx 兼容）
   const agents = softGet('agents') as Context['agents'] | undefined;
   const caps = agentId === undefined || !agents
     ? new Set<string>(['base'])
@@ -499,18 +158,15 @@ export function sessionCapsOf(
 }
 
 /**
- * 工具定义对能力集的可见性判定（requiredTags AND；无 requiredTags 恒可见）。
- * 2026-09-16 全量标签化：无 requiredTags 显式等价为 ['base'] 门禁（caps
- * 恒含 base，行为不变）——契约从"默认开放"改写为"base 解锁"，幽灵标签
- * 变真实锚点。出厂工具已全量挂标签（fs/collab/infra/shell/...），此分支
- * 仅覆盖动态插件等未声明 requiredTags 的注册面。
+ * 工具对能力集的可见性判定（cr-953：requiredTags 门禁退役——授权 =
+ * 行装载单闸，工具面已由行集派生收口；本函数恒 true，仅保消费面
+ * 零改动的过渡期形状。随消费面清零后一并删除）。
  */
 export function toolAllowedFor(
-  def: { requiredTags?: string[] } | undefined,
-  caps: Set<string>,
+  _def: { requiredTags?: string[] } | undefined,
+  _caps: Set<string>,
 ): boolean {
-  const required = def?.requiredTags?.length ? def.requiredTags : ['base'];
-  return required.every((t) => caps.has(t));
+  return true;
 }
 
 /**
@@ -597,9 +253,9 @@ export function filterLlmParams(
 
 /**
  * Agent id 词法校验（M19 承重墙）：对键桶模型下 conversationId 含 `~`
- * （pairKey(a,b) 排序连接），Agent id 若也含 `~` 会与对键撞键、破坏
+ *（pairKey(a,b) 排序连接），Agent id 若也含 `~` 会与对键撞键、破坏
  * runAddress 从右解析的歧义性——故 id 禁 `~`、路径分隔/遍历与空白
- * （预设 id 如 `__standard__` 合法）。注册中心唯一执法点。
+ *（预设 id 如 `__standard__` 合法）。注册中心唯一执法点。
  */
 export function assertAgentId(id: string): void {
   if (!id || id.includes('~') || id.includes('/') || id.includes('\\') || id.includes('..') || /\s/.test(id)) {
@@ -607,6 +263,112 @@ export function assertAgentId(id: string): void {
       `Agent id "${id}" 非法（非空，禁 ~ / 路径分隔 / .. / 空白——对键桶模型承重墙）`,
     );
   }
+}
+
+/**
+ * 生效工具调用模式：会话覆盖（conv-settings toolMode）?? toolModeOf(agent)。
+ * 单源合成（2026-09-18 估算失真修复）：router / system-prompt 干跑 /
+ * agents/tool-defs 估算面三处共用——「LLM 面按模式收窄」的判定输入
+ * 必须与真实 run 同口径，否则估算（工具 schema 数 + 系统提示词门控块
+ * + run_code SDK 投影块）随会话开关漂移。
+ */
+export interface EffectiveToolModeEnv {
+  /** conv-settings 会话覆盖读取（ctx.get('convSettings', false) 面） */
+  convSettings?: { get(conversationId: string): { toolMode?: ToolMode } } | undefined;
+}
+export function effectiveToolMode(
+  agent: AgentConfig | undefined,
+  conversationId: string | undefined,
+  env: EffectiveToolModeEnv = {},
+): ToolMode {
+  const override = conversationId ? env.convSettings?.get(conversationId).toolMode : undefined;
+  return override ?? toolModeOf(agent);
+}
+
+/**
+ * 工具调用模式收窄（形态轴合成，injection:'mode' 工具的注入点）：
+ *   · tc-programmatic → mode 工具集（defs 中 injection==='mode' 的工具，
+ *     行在装即合成）；无 mode 工具（对应行未装）= 空面
+ *     （warn 归调用方——形同 tc-none，不回落常规面：程序化档悄悄变
+ *     常规档是语义突变）；
+ *   · tc-none → []；
+ *   · tc-base → 原面（mode 工具不进常规工具面——router/估算面在能力面
+ *     过滤时按 injection 分流排除，本函数的原面里天然无 mode 工具）。
+ * 入参 defs = 注册面全量（只读 injection 标记）；tools = 已过能力面/
+ * include/形态面的名字清单——mode 工具不经 tools 过滤（它们不在常规面），
+ * 直接从 defs 合成。
+ * 消费方：router dispatch（真实 run）+ system-prompt 干跑 /
+ * agents/tool-defs（估算面——与真实 run 同口径的修复点）。
+ */
+export function narrowToolsByMode(
+  tools: string[],
+  defs: ReadonlyArray<{ name: string; injection?: 'capability' | 'mode' }>,
+  mode: ToolMode,
+): string[] {
+  if (mode === 'tc-programmatic') {
+    return defs.filter((d) => d.injection === 'mode').map((d) => d.name);
+  }
+  if (mode === 'tc-none') return [];
+  return tools;
+}
+
+/**
+ * 请求面是否恰为 mode 工具集（程序化互斥形态判定——run_code SDK 投影
+ * 注入的既有口径，2026-09-21 提升为单源）：request.tools 与注册面
+ * injection:'mode' 工具集互为子集且非空。系统提示各门控行
+ *（system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
+ * collab-tools @名称）在 PTC 模式下请求面已被 router 收窄成 ['run_code']，
+ * 若按请求面判「工具在场」会误伤全部基线段——本函数是「这是程序化
+ * run 吗」的判别入口。
+ */
+export function isModeToolFace(
+  requested: ReadonlyArray<string> | undefined,
+  modeToolNames: ReadonlyArray<string>,
+): boolean {
+  if (requested === undefined || modeToolNames.length === 0) return false;
+  if (requested.length === 0) return false;
+  const mode = new Set(modeToolNames);
+  const req = new Set(requested);
+  if (req.size !== requested.length) return false; // 重复 = 非合成面
+  return requested.every((n) => mode.has(n)) && modeToolNames.every((n) => req.has(n));
+}
+
+/**
+ * 门控用工具名合成（请求面 → 能力面展开，2026-09-21 PTC 基线段丢失修复）：
+ * 系统提示门控行按「工具能力在场」注入指引，但 PTC 模式下 request.tools
+ * 已收窄为 ['run_code']——直读会让模型明明能经 tools.read 调 read 却
+ * 学不到对应基线（@/# 引用约定、宿主环境、产出物引用等）。本函数在
+ * 程序化 run（isModeToolFace 判定）时把门控依据换成能力面直取的展开
+ * 面（形态面终滤——与 run_code 投影源同口径，跳过 include/exclude 的
+ * LLM 直调面收窄）；常规面照旧原样返回请求面。消费方只做「有没有某
+ * 工具」的成员判定，不消费执行面语义——门控宽度 fail-safe（声明了
+ * 没授权的工具顶多多教一段指引）。
+ * cr-953：requiredTags 门禁退役——能力面 = 注册面（行装载单闸），
+ * toolAllowedFor 恒 true，caps 仅用于 browser 分层门禁（web-tools
+ * 行内）与会话 grants 注入，不再过滤工具可见性。
+ */
+export function widenToolsForGating(
+  ctx: Pick<Context, 'get'>,
+  agentId: string | undefined,
+  conversationId: string | undefined,
+  requested: ReadonlyArray<string> | undefined,
+): string[] {
+  // ctx.get 走 root-traced 无限制解析（受限调用方纪律：消费方插件行不
+  // inject tools 也能取；缺席 = 空注册面）
+  const tools = ctx.get('tools', false) as
+    | { list(): Array<{ name: string; injection?: 'capability' | 'mode'; requiresInteraction?: boolean }> }
+    | undefined;
+  const all = tools ? tools.list() : [];
+  const modeToolNames = all.filter((d) => d.injection === 'mode').map((d) => d.name);
+  if (!isModeToolFace(requested, modeToolNames)) {
+    // 常规面：request.tools ?? 注册面全量（原门控口径不变）
+    return requested !== undefined ? [...requested] : all.map((t) => t.name);
+  }
+  // 程序化 run：注册面直取（行装载单闸——与 run_code 投影源同链；
+  // mode 工具自身与 requiresInteraction 终滤一起排除——门控只关心能力）
+  return all
+    .filter((t) => t.injection !== 'mode' && !formDeniedBy(ctx, t, conversationId))
+    .map((t) => t.name);
 }
 
 export class AgentsService extends Service {
@@ -620,8 +382,8 @@ export class AgentsService extends Service {
    * 双向名册校验（cr-4 撞形防线②反向卡位）：Agent id 撞已存在群 id →
    * 拒（gid~member 成员流键会与 1v1 对桶争用同一会话桶）。group 为可选
    * 能力——未装载时无群可撞。register（插件行/目录扫描）与 reassign
-   * （管理面写/预设热更）共用——写口归一，防第三口绕过
-   * （cr-351：管理面 create/update 走 reassign 此前不校验）。
+   *（管理面写/预设热更）共用——写口归一，防第三口绕过
+   *（cr-351：管理面 create/update 走 reassign 此前不校验）。
    */
   private assertNoGroupCollision(id: string): void {
     const group = this.ctx.get('group', false) as { get(id: string): unknown } | undefined;

@@ -18,17 +18,28 @@ import {
 describe('词汇纯函数（语义平移自 ac-agents）', () => {
   const base: AgentConfig = { id: 'a' };
 
-  it('accessOf：full 优先 / sandbox / 缺省 base / 未注册 base（fail-closed）', () => {
+  it('accessOf：结构化 access 字段 / 缺省 base / 未注册 base（fail-closed）', () => {
     expect(accessOf(undefined)).toBe('base-access');
-    expect(accessOf({ ...base, tags: [] })).toBe('base-access');
-    expect(accessOf({ ...base, tags: ['sandbox-access'] })).toBe('sandbox-access');
-    expect(accessOf({ ...base, tags: ['full-access', 'sandbox-access'] })).toBe('full-access');
+    expect(accessOf({ ...base })).toBe('base-access');
+    expect(accessOf({ ...base, access: 'sandbox-access' })).toBe('sandbox-access');
+    expect(accessOf({ ...base, access: 'full-access' })).toBe('full-access');
   });
 
-  it('toolModeOf：none 优先（无工具是最强约束）/ programmatic / 缺省 base', () => {
+  it('toolModeOf：结构化 toolMode 字段 / 缺省 base', () => {
     expect(toolModeOf(undefined)).toBe('tc-base');
-    expect(toolModeOf({ ...base, tags: ['tc-programmatic'] })).toBe('tc-programmatic');
-    expect(toolModeOf({ ...base, tags: ['tc-none', 'tc-programmatic'] })).toBe('tc-none');
+    expect(toolModeOf({ ...base, toolMode: 'tc-programmatic' })).toBe('tc-programmatic');
+    expect(toolModeOf({ ...base, toolMode: 'tc-none' })).toBe('tc-none');
+  });
+
+  it('normalizeLegacyTags：存量 tags 词归一（档位/模式结构化、admin/browser 入 levels、能力词丢弃）', async () => {
+    const { normalizeLegacyTags } = await import('../src/config.ts');
+    expect(normalizeLegacyTags({ id: 'a', tags: ['full-access', 'tc-programmatic'] } as never))
+      .toEqual({ id: 'a', access: 'full-access', toolMode: 'tc-programmatic' });
+    expect(normalizeLegacyTags({ id: 'a', tags: ['admin', 'observe'] } as never))
+      .toEqual({ id: 'a', levels: { collab: 'admin', browser: 'observe' } });
+    expect(normalizeLegacyTags({ id: 'a', tags: ['fs', 'shell', 'web', 'delegation', 'infra'] } as never))
+      .toEqual({ id: 'a' }); // 能力词丢弃——无消费面
+    expect(normalizeLegacyTags({ id: 'a' })).toEqual({ id: 'a' }); // 无 tags 原样
   });
 
   it('displayNameOf：回退链 name ?? description；空白视同缺省', () => {
@@ -61,10 +72,17 @@ describe('agents/<id>/ 树直读', () => {
   beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
   afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-  it('写读往返：config.json 原样还原（id 一致性校验）', () => {
-    const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', tags: ['sandbox-access'], settings: { memory: { depth: 2 } } };
+  it('写读往返：agent.patch.yml 原样还原（id 一致性校验）', () => {
+    const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', access: 'sandbox-access', settings: { memory: { depth: 2 } } };
     writeAgentConfig(ROOT, cfg);
     expect(readAgentConfig(ROOT, 'alpha')).toEqual(cfg);
+  });
+
+  it('存量 config.json 带 tags：读侧归一（档位词结构化、能力词丢弃）', () => {
+    fs.mkdirSync(agentDir(ROOT, 'legacy'), { recursive: true });
+    fs.writeFileSync(path.join(agentDir(ROOT, 'legacy'), 'config.json'),
+      JSON.stringify({ id: 'legacy', model: 'm', tags: ['full-access', 'fs', 'admin'] }), 'utf-8');
+    expect(readAgentConfig(ROOT, 'legacy')).toEqual({ id: 'legacy', model: 'm', access: 'full-access', levels: { collab: 'admin' } });
   });
 
   it('id 不符 / 缺席 / 损坏 → null（未注册语义；cr-906 批4：patch 在场即赢）', () => {

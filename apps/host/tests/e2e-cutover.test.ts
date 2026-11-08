@@ -45,7 +45,7 @@ function seedLegacy(): void {
     // model 'mock' = legacy 已配 mock 连接的 agent 形态（导入恒等保留——
     // 壳侧 mock provider 按此路由命中）
     id: 'alpha', name: '甲', model: 'mock',
-    tags: ['shell', 'infra', 'full-access', 'observe'],
+    tags: ['shell', 'infra', 'full-access', 'observe'], // 存量旧词形（导入换轨面）
   }));
   fs.writeFileSync(path.join(agentDir, 'todo.json'), '{"items":[]}');
   fs.writeFileSync(path.join(agentDir, 'AGENT.md'), '# 甲');
@@ -121,9 +121,10 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(report.skipped).toEqual([]);
     // agents 树：config 换轨 + entries 归拢 + 身份文件
     expect(report.agentsTreeResults).toEqual([{ agentId: 'alpha', configConverted: true, entriesMoved: 1, identityFilesCopied: 1 }]);
-    const cfg = JSON.parse(fs.readFileSync(path.join(targetRoot, 'agents/alpha/config.json'), 'utf-8')) as { rows?: string[]; tags?: string[] };
+    const cfg = JSON.parse(fs.readFileSync(path.join(targetRoot, 'agents/alpha/config.json'), 'utf-8')) as { rows?: string[]; access?: string; levels?: Record<string, string> };
     expect(cfg.rows).toEqual(expect.arrayContaining(['shell-tools', 'math', 'todo', 'datetime']));
-    expect(cfg.tags).toEqual(['full-access']);
+    expect(cfg.access).toBe('full-access');
+    expect(cfg.levels?.browser).toBe('observe');
     expect(fs.existsSync(path.join(targetRoot, 'agents/alpha/entries/todo.json'))).toBe(true);
     // user 投影：两 singles 会话各落 user 账本
     expect(report.userProjectionStats?.sessions).toBe(2);

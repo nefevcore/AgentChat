@@ -202,7 +202,6 @@ export function apply(ctx: Context) {
   // infra 标签（2026-09-16 全量标签化）：任务追踪属会话基础设施
   ctx.tools.register({
     name: 'todo',
-    requiredTags: ['infra'],
     description:
       '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空；返回计数摘要——查看完整清单用 read）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed|cancelled（缺省 pending；in_progress 至多 1 项；不再相关标 cancelled）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
     parameters: {

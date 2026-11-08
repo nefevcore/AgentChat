@@ -5,11 +5,6 @@
     "str-replace-editor",
     "shell-tools"
   ],
-  "tags": [
-    "fs",
-    "fs_minimal",
-    "shell"
-  ],
   "settings": {
     "system-prompt": {
       "enabled": false

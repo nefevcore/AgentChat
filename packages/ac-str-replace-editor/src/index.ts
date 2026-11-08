@@ -244,7 +244,6 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     name: 'str_replace_editor',
     // fs_minimal：极简文件面标签——默认不启用（与 read/write/edit 重叠），
     // 仅显式声明该标签的 Agent（如 __dsh_minimal__）可用
-    requiredTags: ['fs_minimal'],
     // 权限轴（access-tier §3.3）：写面工具——无人审时需要档位门
     needPermission: true,
     description:

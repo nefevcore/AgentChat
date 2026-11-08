@@ -33,7 +33,6 @@ export const HOST_FACE_TOOLS: HostFaceToolSpec[] = [
       },
       required: ['action'],
     },
-    requiredTags: ['infra'],
   },
   {
     name: 'update_agent_profile',
@@ -59,7 +58,6 @@ export const HOST_FACE_TOOLS: HostFaceToolSpec[] = [
       },
       required: ['fields'],
     },
-    requiredTags: ['collab'],
   },
 ];
 
@@ -163,10 +161,14 @@ function executeProfile(
   const current = readAgentConfig(dataRoot, targetId);
   if (current === null) return err(`Agent "${targetId}" 未找到`);
   if (isPresetId(targetId)) return err(`Agent "${targetId}" 是预设身份（不可经 update_agent_profile 修改）`);
-  // 宿主闸：admin 复查（壳闸只管 collab 可见性——越权在此拦）
+  // 宿主闸：admin 复查（壳闸只管 collab 可见性——越权在此拦）。cr-953：
+  // admin 判定换轨 levels.collab（tags 退役；settings.collab.admin 回滚兼容）
   if (targetId !== selfId) {
     const self = readAgentConfig(dataRoot, selfId);
-    if (!((self?.tags ?? []).includes('admin'))) {
+    if (self?.levels?.collab === 'admin' || self?.levels?.collab === true
+      || (self?.settings as { collab?: { admin?: unknown } } | undefined)?.collab?.admin === true) {
+      // admin 在场
+    } else {
       return err(`仅具备 admin 能力的 Agent 可修改他人档案（目标 "${targetId}"）`);
     }
   }

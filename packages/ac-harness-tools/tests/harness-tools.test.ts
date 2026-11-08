@@ -43,11 +43,10 @@ afterEach(async () => {
 });
 
 describe('ac-harness-tools run_harness', () => {
-  it('工具注册四轴：name/requiredTags/needPermission（injection 缺省 capability）', async () => {
+  it('工具注册三轴：name/needPermission（injection 缺省 capability；requiredTags 随 cr-953 门禁退役）', async () => {
     const ctx = await boot([[toolsRow, undefined], [convSettingsRow, {}], [harnessRow, {}]]);
     const def = ctx.tools.get('run_harness');
     expect(def).toBeDefined();
-    expect(def?.requiredTags).toEqual(['harness']);
     expect(def?.needPermission).toBe(true);
     expect(def?.injection).toBeUndefined();
   });

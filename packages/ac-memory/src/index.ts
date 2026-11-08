@@ -201,24 +201,18 @@ export class MemoryService extends Service {
   /**
    * 存量桶迁移（boot 延迟触发；public 供测试/手动重发）：逐 Agent 投递
    * 迁移 run（指路提示词——不内嵌旧记忆内容，见 migratePrompt 裁决注）；
-   * marker 落盘幂等；旧桶文件保留不删（供回查），不再注入。前置检查：
-   * 无 memory tag → 跳过并告警（memory_write 不可见，迁移必然失败）。
+   * marker 落盘幂等；旧桶文件保留不删（供回查），不再注入。cr-953：tags
+   * 门退役——本行在场 = 本壳全体 Agent 有记忆能力面（行装载单闸），infra
+   * 等价授予与补标签通路随之退役；预设仍不迁移（软停用）。
    */
   async migrateLegacyBuckets(): Promise<void> {
     const agents = this.ctx.get('agents', false) as
-      | { list(): Array<Record<string, unknown> & { id: string; tags?: string[] }> }
+      | { list(): Array<Record<string, unknown> & { id: string }> }
       | undefined;
     const conversation = this.ctx.get('conversation', false) as
       | { deliver(agentId: string, inbound: string, options: Record<string, unknown>): Promise<unknown> }
       | undefined;
     if (agents === undefined || conversation === undefined) return;
-    // agentStore 可选解析（补 tag 持久化用；未装则无法补——按无标签路径跳过告警）
-    const agentStore = this.ctx.get('agentStore', false) as
-      | { saveAgent(config: Record<string, unknown>): void }
-      | undefined;
-    const reassign = (config: Record<string, unknown>): void => {
-      (this.ctx.get('agents') as { reassign(config: unknown): void }).reassign(config);
-    };
     for (const agent of agents.list()) {
       const markerFile = path.join(path.dirname(this.timelineFileOf(agent.id)), '.migrated');
       if (fs.existsSync(markerFile)) continue;
@@ -227,25 +221,9 @@ export class MemoryService extends Service {
         this.writeMarker(markerFile);
         continue;
       }
-      if (!(agent.tags ?? []).includes('memory')) {
-        // 迁移等价授予（用户裁决 2026-09-27，一次性覆盖 2026-09-16「存量手工补」
-        // 默认——只作用于有存量记忆的 infra Agent，不做常规读边补齐）：
-        // infra = 会话基础设施能力面，视为 memory_write 等价已授权——补
-        // memory tag（档案持久化 + 注册表热更新）后迁移。预设不迁移
-        // （词形判定 cr-880——不入 agentStore 档案、且预设软停用记忆）。
-        if (isPresetId(agent.id) || !(agent.tags ?? []).includes('infra') || agentStore === undefined) {
-          this.ctx.logger.warn(`[memory] Agent ${agent.id} 无 memory/infra 标签（或无 agentStore 行），跳过记忆迁移（补标签后重启/手动重发）`);
-          continue;
-        }
-        const patched = { ...agent, tags: [...(agent.tags ?? []), 'memory'] };
-        try {
-          agentStore.saveAgent(patched as unknown as Record<string, unknown>);
-          reassign(patched);
-          this.ctx.logger.info(`[memory] Agent ${agent.id} 含 infra 标签，已补 memory 标签（一次性迁移授予）并开始迁移`);
-        } catch (err: unknown) {
-          this.ctx.logger.warn(`[memory] Agent ${agent.id} 补 memory 标签失败（跳过迁移）: ${String(err)}`);
-          continue;
-        }
+      if (isPresetId(agent.id)) {
+        this.ctx.logger.warn(`[memory] 预设 Agent ${agent.id} 不迁移记忆（预设软停用）`);
+        continue;
       }
       const prompt = this.migratePrompt();
       try {
@@ -351,7 +329,6 @@ export function apply(ctx: Context, options: MemoryRowOptions = {}) {
   }, 'ac-memory');
   ctx.tools.register({
     name: 'memory_write',
-    requiredTags: ['memory'],
     description: '向长期记忆时间线追加一条记忆（自动铸 [日期] 前缀；跨会话可用；过时信息不必删改——写新条目自然覆盖）',
     parameters: {
       type: 'object',
@@ -379,7 +356,6 @@ export function apply(ctx: Context, options: MemoryRowOptions = {}) {
   });
   ctx.tools.register({
     name: 'memory_grep',
-    requiredTags: ['memory'],
     description: '检索长期记忆时间线（正则 + 时间/对象/标签过滤轴；条目级分组输出）',
     parameters: {
       type: 'object',

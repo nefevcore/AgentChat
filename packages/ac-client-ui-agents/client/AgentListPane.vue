@@ -30,8 +30,7 @@ const filteredAgents = computed(() => {
   if (!q) return props.agents;
   return props.agents.filter(a =>
     (a.name || '').toLowerCase().includes(q) ||
-    a.id.toLowerCase().includes(q) ||
-    (a.tags || []).some(t => t.toLowerCase().includes(q))
+    a.id.toLowerCase().includes(q)
   );
 });
 
@@ -121,23 +120,19 @@ watch(
   },
 );
 
-/** 内置 tag 的说明文案（base/agent 已退役——全量标签化 2026-09-16） */
-const TAG_HINTS: Record<string, string> = {
-  fs: '文件读写',
-  collab: '多 Agent 协作',
-  infra: '会话基础设施',
-  history: '会话历史回放（read/grep_history）',
-  admin: '系统管理工具',
-  dev: '开发工具',
-  shell: '命令执行',
-  delegation: '任务委派（subagent）',
-  web: 'Web 浏览（browser）',
-  observe: '观察层级（只读浏览）',
-  manipulate: '交互层级（点击/输入）',
-  inject: '注入层级（JS 执行）',
+/** 档位/模式徽章（cr-953：能力 tags 退役——列表只示档位与模式） */
+const TIER_HINTS: Record<string, string> = {
+  'sandbox-access': '沙箱档（工作区白名单内自由执行）',
+  'full-access': '完全访问（无档位门）',
+  'tc-programmatic': '程序化模式（run_code 单入口）',
+  'tc-none': '无工具模式（纯聊天）',
 };
-function tagHint(t: string): string {
-  return TAG_HINTS[t] || `领域标签：${t}`;
+/** Agent 档位徽章清单（access/toolMode 非缺省时显示） */
+function tierBadgesOf(a: AgentBrief): string[] {
+  const out: string[] = [];
+  if (a.access === 'sandbox-access' || a.access === 'full-access') out.push(a.access);
+  if (a.toolMode === 'tc-programmatic' || a.toolMode === 'tc-none') out.push(a.toolMode);
+  return out;
 }
 </script>
 
@@ -168,11 +163,11 @@ function tagHint(t: string): string {
             {{ a.id }}
             <span v-if="a.virtual" class="ui-badge dim agent-pool-badge">虚拟</span>
           </span>
-          <div v-if="a.tags && a.tags.length > 0" class="agent-pool-tags">
+          <div v-if="tierBadgesOf(a).length > 0" class="agent-pool-tags">
             <span
-              v-for="t in a.tags" :key="t"
+              v-for="t in tierBadgesOf(a)" :key="t"
               class="agent-pool-tag" :class="'tag-' + t"
-              :title="tagHint(t)"
+              :title="TIER_HINTS[t] ?? t"
             >{{ t }}</span>
           </div>
         </div>

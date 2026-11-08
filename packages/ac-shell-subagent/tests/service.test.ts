@@ -428,10 +428,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  // cr-753：会话设置继承——发起会话 conv-settings（access/toolMode/
-  // browserTier/issueSubmit）→ 子 config tags 等效词快照；per-call access
-  // 与水位取高；tc-base/base 不产生词（缺省无词可加）。
-  it('会话设置继承：父会话覆盖值合入子 config.tags（物化即快照）', async () => {
+  // cr-753：会话设置继承——发起会话 conv-settings（access/browserTier）
+  // → 子 config 结构化字段快照；per-call access 与水位取高；tc-base/
+  // base 不产生键（缺省无键）。
+  it('会话设置继承：父会话覆盖值合入子 config 结构化字段（物化即快照）', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
@@ -443,18 +443,18 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const childId = (out.output as { subagent_id: string }).subagent_id;
       const cfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', childId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[] };
-      expect(cfg.tags).toContain('full-access'); // per-call 兜底并入（无 convSettings 面）
+      ) as { access?: string };
+      expect(cfg.access).toBe('full-access'); // per-call 兜底并入（无 convSettings 面）
       const plain = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '无设置' }, conversationId: 'user~papa' });
       const plainId = ((plain.output as { subagent_id: string })).subagent_id;
       const plainCfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', plainId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[] };
-      expect(plainCfg.tags ?? []).not.toContain('full-access'); // 无任何来源不产生词（父无 tags 时键缺席）
+      ) as { access?: string };
+      expect(plainCfg.access ?? 'base-access').toBe('base-access'); // 无任何来源不产生键（父 base 时键缺席）
     } finally { await dispose(); }
   });
 
-  it('会话设置继承：convSettings 垫片在场——access/browserTier/issueSubmit/水位全映射；tc-* 模式词不继承（cr-763）', async () => {
+  it('会话设置继承：convSettings 垫片在场——access/browserTier 水位映射进结构化字段；tc-* 模式词不继承（cr-763）', async () => {
     const fake = fakeShell();
     const { Service } = await import('@agentchat/cordis');
     const { ctx, dispose } = await makeService(fake.spawn);
@@ -475,29 +475,27 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const out = await svc.spawnOp({ task: '全设置继承', replyConversation: 'user~papa', access: 'sandbox-access' });
       const cfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', out.childId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[] };
-      // 水位 full > per-call sandbox（取高）+ grants 全链
-      for (const t of ['full-access', 'web', 'observe', 'manipulate', 'inject', 'issue-report']) {
-        expect(cfg.tags).toContain(t);
-      }
-      // tc-* 是交互形态非授权（cr-763）：会话 toolMode 不快照进子 tags——
+      ) as { access?: string; levels?: Record<string, string>; toolMode?: string };
+      // 水位 full > per-call sandbox（取高）+ browserTier → levels.browser
+      expect(cfg.access).toBe('full-access');
+      expect(cfg.levels?.browser).toBe('inject');
+      // tc-* 是交互形态非授权（cr-763）：会话 toolMode 不快照——
       // 子 rows 由 spawn tools 决定，父会话形态快照过来而子无 run-code 行
       // 时收窄出空面（工具全丢、子变纯聊天单步收束）。
-      expect(cfg.tags).not.toContain('tc-programmatic');
-      expect(cfg.tags).not.toContain('tc-none');
+      expect(cfg.toolMode).toBeUndefined();
     } finally { await dispose(); }
   });
 
   // cr-763：子的交互形态由装配结构化合成（形态跟随装配）——父 config/
   // 会话的 tc-* 词剥除；子 rows 命中 run-code 行（缺省继承父 rows 形态）才
   // 合成 tc-programmatic。spawn 显式点名 run_code 词被拒（filtered）。
-  it('形态合成：父 tags 的 tc-* 剥除；子 rows 含 run-code 行合成 tc-programmatic；spawn 点名 run_code 被拒', async () => {
+  it('形态合成：父 toolMode 不继承；子 rows 含 run-code 行合成 toolMode=tc-programmatic；spawn 点名 run_code 被拒', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
-      // 父 config 带程序化模式词 + rows 含 run-code（程序化 Agent 形态）
+      // 父 config 带程序化形态 + rows 含 run-code（程序化 Agent 形态）
       fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
-        JSON.stringify({ id: 'papa', model: 'mock', tags: ['tc-programmatic', 'full-access'], tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
+        JSON.stringify({ id: 'papa', model: 'mock', toolMode: 'tc-programmatic', access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
       const tools = ctx.get('tools') as unknown as {
         execute(call: { name: string; args: Record<string, unknown>; conversationId?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string; filtered?: string[]; note?: string } }>;
       };
@@ -506,17 +504,17 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const inheritId = (inherit.output as { subagent_id: string }).subagent_id;
       const inheritCfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', inheritId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[]; rows?: string[] };
+      ) as { access?: string; rows?: string[]; toolMode?: string };
       expect(inheritCfg.rows).toContain('run-code');
-      expect(inheritCfg.tags).toContain('tc-programmatic'); // 形态来自装配而非继承
-      expect(inheritCfg.tags).toContain('full-access'); // 授权词继承面不受影响
+      expect(inheritCfg.toolMode).toBe('tc-programmatic'); // 形态来自装配而非继承
+      expect(inheritCfg.access).toBe('full-access'); // 档位继承面不受影响
       // ② 显式点名子集（不含 run-code）：无模式词——工具面照常（tc-base）
       const subset = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '子集', tools: ['read', 'write'] } });
       const subsetId = ((subset.output as { subagent_id: string })).subagent_id;
       const subsetCfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'papa', 'children', subsetId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[] };
-      expect(subsetCfg.tags).not.toContain('tc-programmatic');
+      ) as { toolMode?: string };
+      expect(subsetCfg.toolMode).toBeUndefined();
       // ③ 点名 run_code 词显式拒绝（cr-763：防子域程序化形态自废 spawn 授予面）
       const rejected = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '拒 run_code', tools: ['run_code', 'read'] } });
       expect(((rejected.output as { note?: string }).note ?? '')).toContain('run_code');

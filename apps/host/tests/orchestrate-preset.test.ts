@@ -36,15 +36,14 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = readAgentConfig(dataRoot, '__standard__') as { id: string; tags?: string[]; rows: string[]; description?: string };
+    const cfg = readAgentConfig(dataRoot, '__standard__') as { id: string; rows: string[]; levels?: Record<string, string>; description?: string };
     expect(cfg.id).toBe('__standard__');
     expect('preset' in cfg).toBe(false); // cr-880：字段退役——预设类属由 id 词形承载
     expect(cfg.rows).toContain('browser');
     expect(cfg.rows).toContain('goal'); // 模板 15 行（cr-790：协作面/历史回放移出标准预设）
     expect(cfg.rows).not.toContain('memory');
-    // 能力 tags 随模板物化（cr-617：缺 tags = SDK 投影/能力面坍缩到 base 族）
-    expect(cfg.tags).toContain('fs');
-    expect(cfg.tags).toContain('observe'); // browser 双标签（web+observe——cr-790）
+    // browser 层级随模板物化（cr-953：能力 tags 退役——levels.browser 单源）
+    expect(cfg.levels?.browser).toBe('observe');
     expect(cfg.description).toBeTruthy();
   });
 

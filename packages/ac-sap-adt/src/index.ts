@@ -67,7 +67,6 @@ import { SapAdtFs, credentialsServiceOf } from './engine.ts';
 export const name = 'ac-sap-adt';
 
 /** 能力标签：Agent 的 tags 须包含它才能看到/调用 adt_* 工具 */
-export const CAPABILITY_TAG = 'sap-adt';
 
 /**
  * ADT 工具使用规约（生效工具集含 adt_* 时注入 system prompt；对齐
@@ -269,7 +268,6 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
         name: tool.name,
         description: tool.description,
         parameters: tool.parameters as Record<string, unknown>,
-        requiredTags: [CAPABILITY_TAG],
         async execute(args, call) {
           try {
             const agentId = (call as { agentId?: string }).agentId;
@@ -282,7 +280,7 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
         },
       });
     }
-    logger.info(`${catalog.length} adt_* tools registered (capability tag: ${CAPABILITY_TAG})`);
+    logger.info(`${catalog.length} adt_* tools registered`);
   }
 
   async function init(): Promise<void> {

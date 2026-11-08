@@ -46,13 +46,13 @@ function err(message: string): ToolResult {
 }
 
 /**
- * admin 能力判定（◐a 2026-10-26 settings X1 单源）：settings.collab.admin
- * 直读（settingsOf 两层合成口）∪ tags 兼容旧词——capabilitySetOf 同款
- * 并集（未迁移旧数据回滚线兼容）。capabilities 覆盖层已随 access-tier
- * §9.4 删除。
+ * admin 能力判定（cr-953：tags 轴退役——levels.collab 行内档位单源，
+ * settings.collab.admin 为回滚兼容线；levels 赢（与 capabilitySetOf
+ * 同款合成））。
  */
 function hasAdminCapability(ctx: Context, agentId: string): boolean {
-  if ((ctx.agents.get(agentId)?.tags ?? []).includes('admin')) return true;
+  const agent = ctx.agents.get(agentId);
+  if (agent?.levels?.collab === 'admin' || agent?.levels?.collab === true) return true;
   const s = ctx.agents.settingsOf(agentId, 'collab');
   return typeof s === 'object' && s !== null && (s as { admin?: unknown }).admin === true;
 }
@@ -207,7 +207,6 @@ export function apply(ctx: Context) {
   // collab 标签（2026-09-16 全量标签化）：多 Agent 协作族门禁
   ctx.tools.register({
     name: 'send_agent',
-    requiredTags: ['collab'],
     description:
       '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 是异步发送的语法糖——发起后最多等 timeout_ms 拿回复，超时不影响对方的处理（对方继续跑完，回复迟到时以系统通知注入会话）。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。',
     parameters: {
@@ -447,7 +446,6 @@ export function apply(ctx: Context) {
   // ---- send_group：群内发言（可选 ctx.group） ----
   ctx.tools.register({
     name: 'send_group',
-    requiredTags: ['collab'],
     description: '在群组里发消息，群内其他成员会自主决定是否回应。',
     parameters: {
       type: 'object',
@@ -494,7 +492,6 @@ export function apply(ctx: Context) {
   // ---- list_agents：Agent 清单 ----
   ctx.tools.register({
     name: 'list_agents',
-    requiredTags: ['collab'],
     description: '列出所有 Agent（含虚拟 Agent 标注）。',
     parameters: { type: 'object', properties: {} },
     async execute(): Promise<ToolResult> {
@@ -519,7 +516,6 @@ export function apply(ctx: Context) {
   // ---- list_groups：自己所在的群 ----
   ctx.tools.register({
     name: 'list_groups',
-    requiredTags: ['collab'],
     description: '列出自己所在的群组。',
     parameters: { type: 'object', properties: {} },
     async execute(args, call): Promise<ToolResult> {
@@ -557,7 +553,6 @@ export function apply(ctx: Context) {
   // 查自己的工具面，挂 collab 会让无协作标签的 Agent 失去自省能力）
   ctx.tools.register({
     name: 'list_tools',
-    requiredTags: ['infra'],
     description: '列出自己可用的全部工具。',
     parameters: { type: 'object', properties: {} },
     async execute(args, call): Promise<ToolResult> {
@@ -570,8 +565,8 @@ export function apply(ctx: Context) {
       const all = ctx.tools.list().filter(
         (t) => t.injection !== 'mode' && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, call.conversationId),
       );
-      // 解析传 defs（tag 引用 'tag:<tag>' 展开——与 router 同口径）
-      const effectiveNames = resolveToolNames(self?.tools, all);
+      // rows 词形归一（cr-953：resolveToolNames 单参——行集展开在垫片层）
+      const effectiveNames = resolveToolNames(self?.rows);
       const effective =
         effectiveNames === undefined ? all : all.filter((t) => effectiveNames.includes(t.name));
       return {
@@ -591,7 +586,6 @@ export function apply(ctx: Context) {
   // ---- read_agent_info：读取 Agent 资料（不传 agent_id 看自己） ----
   ctx.tools.register({
     name: 'read_agent_info',
-    requiredTags: ['collab'],
     description: '查看一个 Agent 的资料（不传 agent_id 看自己；模型配置仅自查可见）。',
     parameters: {
       type: 'object',
@@ -617,7 +611,7 @@ export function apply(ctx: Context) {
       if (isSelf) {
         output.model = info.model ?? '(未配置)';
         if (info.provider) output.provider = info.provider;
-        if (info.tools) output.tools = info.tools;
+        if (info.rows) output.rows = info.rows;
         if (info.maxSteps != null) output.max_steps = info.maxSteps;
         if (info.settings) output.settings_keys = Object.keys(info.settings);
       }

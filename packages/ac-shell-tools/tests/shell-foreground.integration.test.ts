@@ -23,7 +23,7 @@ describe('ac-shell-tools 平台注入（2026-09-16 工具拆分）', () => {
     expect(names).toEqual(process.platform === 'win32' ? ['job', 'pwsh'] : ['bash', 'job']);
     // 门禁元数据随平台工具
     const def = ctx.tools.get(CMD_TOOL);
-    expect(def?.requiredTags).toEqual(['shell']);
+    expect(def?.needPermission).toBe(true); // cr-953：requiredTags 声明随门禁退役
     expect(def?.needPermission).toBe(true);
   });
 
@@ -166,9 +166,9 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
       [agentsRow, undefined],
       [shellRow, { workdir: root }],
     ]);
-    ctx.agents.register({ id: 'basea', model: 'm', tags: ['shell'] });
-    ctx.agents.register({ id: 'sandboxa', model: 'm', tags: ['shell', 'sandbox-access'] });
-    ctx.agents.register({ id: 'fulla', model: 'm', tags: ['shell', 'full-access'] });
+    ctx.agents.register({ id: 'basea', model: 'm' });
+    ctx.agents.register({ id: 'sandboxa', model: 'm', access: 'sandbox-access' });
+    ctx.agents.register({ id: 'fulla', model: 'm', access: 'full-access' });
     const outside = registerTmp(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-shell-out-')));
 
     // base：越界 workdir 被白名单拦

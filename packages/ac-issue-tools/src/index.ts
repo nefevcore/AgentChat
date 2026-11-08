@@ -184,7 +184,6 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
 
   ctx.tools.register({
     name: 'submit_issue',
-    requiredTags: ['issue-report'],
     // 权限轴（access-tier §3.3 同款）：对外发布是非 LLM 出口通道——
     // base 档审批放行、sandbox+ 档自由
     needPermission: true,

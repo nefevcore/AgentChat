@@ -13,7 +13,7 @@ const ID = 'helper';
 const cfg: AgentConfig = {
   id: ID, model: 'deepseek-chat', provider: 'deepseek',
   rows: { include: ['fs', 'web-tools'], exclude: ['sap-adt'] },
-  tags: ['full-access', 'tc-programmatic'],
+  access: 'full-access', toolMode: 'tc-programmatic',
   llmParams: { temperature: 0.5 }, maxSteps: 40,
   name: 'Helper', description: '演示',
   settings: { 'run-code': { mode: 'observe' } },
@@ -22,7 +22,7 @@ beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 describe('agent.patch.yml 读写（cr-906 批4；cr-918 镜像退役）', () => {
-  it('写单落：仅 patch（config.json 镜像 cr-918 退役）；读面投影回 AgentConfig（tags 重建）', () => {
+  it('写单落：仅 patch（config.json 镜像 cr-918 退役）；读面投影回 AgentConfig（结构化档位）', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
     expect(fs.existsSync(path.join(dir, PATCH_FILE))).toBe(true);
@@ -43,16 +43,24 @@ describe('agent.patch.yml 读写（cr-906 批4；cr-918 镜像退役）', () => 
     expect(readAgentConfig(ROOT, ID)).toBeNull();
   });
 
-  it('档位词映射：tags 档位轴 ↔ tier/tool-mode；settings 随行；system 不迁', () => {
+  it('档位映射：结构化 access/toolMode ↔ tier/tool-mode；settings 随行；system 不迁', () => {
     const doc = configToPatch({ ...cfg, system: 'legacy prompt' });
     expect(doc.tier).toBe('full-access');
     expect(doc['tool-mode']).toBe('tc-programmatic');
     expect(doc.settings).toEqual({ 'run-code': { mode: 'observe' } });
     expect((doc as Record<string, unknown>).system).toBeUndefined();
+    expect((doc as Record<string, unknown>).tags).toBeUndefined(); // tags 不再写
     const back = patchToConfig(ID, doc);
-    expect(tier(back)).toBe('full-access');
+    expect(back.access).toBe('full-access');
+    expect(back.toolMode).toBe('tc-programmatic');
     expect(back.settings).toEqual(cfg.settings);
-    function tier(c: AgentConfig): string { return c.tags?.[0] ?? 'base-access'; }
+  });
+
+  it('存量 patch doc.tags 余词：读侧归一（admin/browser 入 levels、能力词丢弃）', () => {
+    const back = patchToConfig(ID, { tier: 'full-access', tags: ['admin', 'fs', 'observe'] });
+    expect(back.access).toBe('full-access');
+    expect(back.levels).toEqual({ collab: 'admin', browser: 'observe' });
+    expect((back as { tags?: unknown }).tags).toBeUndefined();
   });
 
   it('origin 块保留（写透传既有 origin——preset 对账面切片三接入）', () => {

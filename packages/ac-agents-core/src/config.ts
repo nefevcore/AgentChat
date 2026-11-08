@@ -3,10 +3,14 @@
 //
 // AgentConfig 契约 owning 迁 preview 轨（现状 owning = packages/ac-agents；
 // cutover 时随行集归并退役）。词汇函数语义平移：accessOf（cr-947 前名
-// tierOf）/ toolModeOf /
-// displayNameOf / resolveToolNames —— 唯一换轨：tools 条目词 = 精确工具名
-// ∨ 行引用（A9/A10：tag 词汇全链退役；'tag:<t>' 不再是合法词形）。
-// settingsOf 纯函数化：全局默认层 ∪ 本差异层合成（deepMerge 语义见注释）。
+// tierOf）/ toolModeOf / displayNameOf / resolveToolNames —— 唯一换轨：
+// tools 条目词 = 精确工具名 ∨ 行引用（A9/A10：tag 词汇全链退役；
+// 'tag:<t>' 不再是合法词形）。settingsOf 纯函数化：全局默认层 ∪ 本差异
+// 层合成（deepMerge 语义见注释）。
+// cr-953：AgentConfig.tags 退役（cr-484 终态收口）——档位/模式词换轨
+// 结构化 access / toolMode 字段；能力词门禁随 requiredTags 全链退役
+//（授权 = 行装载单闸），browser 层级与 collab admin 归 levels 行内档位；
+// 存量 tags 由 readAgentConfig 读侧归一（normalizeLegacyTags 单源）。
 // ============================================================
 
 /** Agent 配置（Agent 是数据：注册进注册表，而非挂成插件行） */
@@ -19,14 +23,24 @@ export interface AgentConfig {
   provider?: string;
   system?: string;
   /**
-   * 暴露给模型的工具面声明（A10 声明面 = 行集引用；◐b cr-691 字段更名
-   * tools→rows——词形以行引用为主，名实相符）：
-   *   · string[] —— 点名清单（精确工具名 ∨ 行名——行集谓词：点名工具 ∨ 引用行）
-   *   · {include?, exclude?} —— include 白名单 / exclude 增量停用
-   * 缺省 = 行集全集。tag 引用（'tag:<t>'）已随 tag 机制解体退役（cr-484）。
-   * 盘上旧键 tools 由 readAgentConfig 归一（读时兼容，写恒 rows）。
-   */
+  * 暴露给模型的工具面声明（A10 声明面 = 行集引用；◐b cr-691 字段更名
+  * tools→rows——词形以行引用为主，名实相符）：
+  *   · string[] —— 点名清单（精确工具名 ∨ 行名——行集谓词：点名工具 ∨ 引用行）
+  *   · {include?, exclude?} —— include 白名单 / exclude 增量停用
+  * 缺省 = 行集全集。tag 引用（'tag:<t>'）已随 tag 机制解体退役（cr-484）。
+  * 盘上旧键 tools 由 readAgentConfig 归一（读时兼容，写恒 rows）。
+  */
   rows?: string[] | { include?: string[]; exclude?: string[] };
+  /**
+  * 访问档位（cr-953 结构化——tags 档位词换轨；缺省/缺席 = base-access）。
+  * accessOf 单源判定；patch 面 = tier 键。
+  */
+  access?: AccessLevel;
+  /**
+  * 工具调用模式（cr-953 结构化；缺省/缺席 = tc-base）。toolModeOf 单源
+  * 判定；patch 面 = tool-mode 键。
+  */
+  toolMode?: ToolMode;
   /** LLM 采样参数白名单透传（temperature/max_tokens/…——无法覆盖保留键） */
   llmParams?: Record<string, unknown>;
   /** 最大步数（>0 = trigger 上限；缺省/0 = 不限） */
@@ -36,19 +50,12 @@ export interface AgentConfig {
   /** 一句话简介（LLM 工具面词汇；不是显示名） */
   description?: string;
   /**
-   * 行内插件档位（cr-906 批4 切片四 / X1 回滚：档位词全部归装配——
-   * settings.browser.{observe,manipulate,inject} / collab.admin /
-   * dev-tools.enabled 上提装配面；键 = 插件单元名，值 = 档位词或布尔）。
-   * 运行时档位合成 levels 赢，settings 行内档位为回滚兼容线（与 X1
-   * 换轨时 tags 兜底同语义——批 6 拆旧收口）。
-   */
+  * 行内插件档位（cr-906 批4 切片四 / X1 回滚：档位词全部归装配——
+  * levels.browser.{observe,manipulate,inject} / levels.collab('admin') /
+  * levels['dev-tools']；键 = 插件单元名，值 = 档位词或布尔）。能力词
+  * 门禁退役（cr-953）后 levels 是行内档位唯一载体。
+  */
   levels?: Record<string, string | boolean>;
-  /**
-   * 能力标签：档位词（full-access / sandbox-access，缺省 base-access）与
-   * 模式词（tc-none / tc-programmatic，缺省 tc-base）——tierOf / toolModeOf
-   * 单源判定。能力 tag 语义已随 tag 机制解体退役（行集引用替代）。
-   */
-  tags?: string[];
   /** 具名扩展设置：键 = 稳定单元名，值 = 该插件在本 Agent 上的配置 */
   settings?: Record<string, unknown>;
 }
@@ -84,7 +91,7 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
   return undefined;
 }
 
-/** 访问档位（access-tier §四）：tags 档位词判定。cr-947 词面统一 access——类型名 AccessLevel（tier/elevation 词退役）。 */
+/** 访问档位（access-tier §四）。cr-947 词面统一 access——类型名 AccessLevel（tier/elevation 词退役）。 */
 export type AccessLevel = 'full-access' | 'sandbox-access' | 'base-access';
 
 /** 档位强度序（base < sandbox < full） */
@@ -94,24 +101,72 @@ export const ACCESS_RANK: Record<AccessLevel, number> = {
   'full-access': 2,
 };
 
-/** 档位判定单源：full 优先；未注册 → base（fail-closed 方向）。cr-947 更名 tierOf→accessOf。 */
+/** 档位判定单源（cr-953 结构化读取；未注册 → base（fail-closed 方向）。cr-947 更名 tierOf→accessOf。 */
 export function accessOf(agent: AgentConfig | undefined): AccessLevel {
-  const tags = agent?.tags;
-  if (!tags) return 'base-access';
-  if (tags.includes('full-access')) return 'full-access';
-  if (tags.includes('sandbox-access')) return 'sandbox-access';
-  return 'base-access';
+  return agent?.access ?? 'base-access';
 }
 
-/** 工具调用模式（tc-* 标签轴）：none 优先（无工具是最强约束，fail-closed） */
+/**
+ * effectiveAccess（access-tier §3.2）：call.access（机制分支临时提权/
+ * 有人桶审批注入）?? accessOf(agent)。工具行基线与加严层共用本单源
+ * ——防"复检与基线漂移"。
+ */
+export function effectiveAccessOf(
+  agent: AgentConfig | undefined,
+  elevation: 'sandbox-access' | 'full-access' | undefined,
+): AccessLevel {
+  if (elevation === 'full-access' || elevation === 'sandbox-access') return elevation;
+  return accessOf(agent);
+}
+
+/** 工具调用模式（tc-* 轴）：none 优先（无工具是最强约束，fail-closed） */
 export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
 
 export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
-  const tags = agent?.tags;
-  if (!tags) return 'tc-base';
-  if (tags.includes('tc-none')) return 'tc-none';
-  if (tags.includes('tc-programmatic')) return 'tc-programmatic';
-  return 'tc-base';
+  return agent?.toolMode ?? 'tc-base';
+}
+
+/**
+ * 存量 tags 词 → 结构化字段归一（cr-953 单源；读侧一次性——readAgentConfig
+ * 的 config.json 旧路径与 patch doc.tags 余词共用）：
+ *   · 档位词 full-access/sandbox-access → access（取高，结构化字段赢）；
+ *   · 模式词 tc-none/tc-programmatic → toolMode（none 优先，结构化赢）；
+ *   · admin → levels.collab='admin'（levels 键缺席时补位）；
+ *   · observe/manipulate/inject → levels.browser（取最高，缺席补位）；
+ *   · 其余能力词（fs/shell/web/delegation/issue-report/infra/sap-adt/
+ *     memory/fs_minimal/harness…）丢弃——requiredTags 门禁随 cr-953 退役，
+ *     授权 = 行装载，词无消费面。
+ * 纯函数（返回新对象；无 legacy 词可归 = 原样返回）。
+ */
+export function normalizeLegacyTags(config: AgentConfig): AgentConfig {
+  const tags = (config as { tags?: unknown }).tags;
+  if (!Array.isArray(tags)) return config;
+  const { tags: _retired, levels: levelsPrior, ...rest } = config as AgentConfig & { tags?: unknown };
+  let access = rest.access;
+  let toolMode = rest.toolMode;
+  const levels = { ...(levelsPrior ?? {}) } as Partial<Record<string, string | boolean>>;
+  for (const raw of tags) {
+    const tag: string = typeof raw === 'string' ? raw : String(raw);
+    if (tag === 'full-access' || tag === 'sandbox-access') {
+      if (access === undefined || ACCESS_RANK[tag as AccessLevel] > ACCESS_RANK[access]) access = tag as AccessLevel;
+    } else if (tag === 'tc-none' || tag === 'tc-programmatic') {
+      if (toolMode === undefined || (toolMode !== 'tc-none' && tag === 'tc-none')) toolMode = tag as ToolMode;
+    } else if (tag === 'admin' && levels.collab === undefined) {
+      levels.collab = 'admin';
+    } else if (tag === 'observe' || tag === 'manipulate' || tag === 'inject') {
+      const order = { observe: 0, manipulate: 1, inject: 2 } as Record<string, number>;
+      const prior = levels.browser;
+      if (prior === undefined || (typeof prior === 'string' && (order[tag] ?? -1) > (order[prior] ?? -1))) {
+        levels.browser = tag;
+      }
+    }
+  }
+  const next: AgentConfig = { ...rest } as AgentConfig;
+  if (access !== undefined) next.access = access;
+  if (toolMode !== undefined) next.toolMode = toolMode;
+  if (Object.keys(levels).length > 0) next.levels = { ...levels } as Record<string, string | boolean>;
+  else delete next.levels;
+  return next;
 }
 
 /**
@@ -119,9 +174,9 @@ export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
  * = 精确工具名 ∨ 行名——行名由 ac-rowset-core 换行集清单再展工具，
  * 本函数只做词形归一与 include/exclude 合成）。
  *   · undefined → undefined（= 行集全集；调用方语义）
-   *   · string[]  → 原样清单
-   *   · {include} → include；{exclude} → undefined（全集减法由调用方持全集）
-   *   · {include,exclude} → include 减 exclude
+ *   · string[]  → 原样清单
+ *   · {include} → include；{exclude} → undefined（全集减法由调用方持全集）
+ *   · {include,exclude} → include 减 exclude
  */
 export function resolveToolNames(
   tools: AgentConfig['rows'],

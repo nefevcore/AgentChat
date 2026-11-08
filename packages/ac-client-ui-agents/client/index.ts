@@ -37,8 +37,10 @@ export interface AgentInfo {
   } | null;
   virtual?: boolean;
   hasActiveSession?: boolean;
-  /** 能力标签（AgentListPane 徽章 / 搜索过滤） */
-  tags?: string[];
+  /** 档位/模式/行内档位（cr-953 结构化——徽章与 ChatInput 跟随态） */
+  access?: string;
+  toolMode?: string;
+  levels?: Record<string, unknown>;
   /** 模型配置透传（"未配置模型"警示态判定用） */
   model?: string;
   provider?: string;
@@ -51,8 +53,6 @@ export interface AgentPresetInfo {
   label: string;
   description: string;
   default: boolean;
-  /** 授权面（2026-09-17 tc-* 标签轴）——程序化覆盖可用性判定（tc-programmatic） */
-  tags?: string[];
 }
 
 interface PAgentConfig {
@@ -63,7 +63,9 @@ interface PAgentConfig {
   system?: string;
   name?: string;
   description?: string;
-  tags?: string[];
+  access?: string;
+  toolMode?: string;
+  levels?: Record<string, unknown>;
   llmParams?: Record<string, unknown>;
   tools?: unknown;
   settings?: Record<string, unknown>;
@@ -132,7 +134,9 @@ export function toAgentList(
         virtual: c.virtual,
         hasActiveSession: runningAgents.has(c.id),
         ...(c.model ? { model: c.model, ...(c.provider ? { provider: c.provider } : {}) } : {}),
-        ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
+        ...(c.access !== undefined ? { access: c.access } : {}),
+        ...(c.toolMode !== undefined ? { toolMode: c.toolMode } : {}),
+        ...(c.levels !== undefined ? { levels: c.levels } : {}),
         ...(conv?.updatedAt ? { lastActivity: conv.updatedAt } : {}),
         ...(last
           ? {
@@ -178,11 +182,10 @@ export async function fetchAgentPresets(rpc: Pick<RpcClientFace, 'call'>): Promi
 // ---- 名册写面 + Provider 注册面（M27.2-2 sidebar 面板壳随件迁；
 //      原 webui api/roster.ts 门面已退役〔M28 §4.2〕） ----
 
-/** 创建 Agent（src 形状 → preview AgentConfig 白名单）。tags 显式透传
- *  （2026-09-16：写口不再静默补基础族——基础族预选由创建面显式传入）；
- *  system 可选透传（cr-300 首启向导第 4 步人格字段——白名单键） */
+/** 创建 Agent（src 形状 → preview AgentConfig 白名单）。cr-953：tags 透传
+ *  退役——授权 = 行装载；system 可选透传（cr-300 首启向导第 4 步人格字段） */
 export async function createAgent(
-  payload: { id?: string; name?: string; provider?: string; llm?: Record<string, unknown>; tools?: unknown; tags?: string[]; system?: string },
+  payload: { id?: string; name?: string; provider?: string; llm?: Record<string, unknown>; tools?: unknown; system?: string },
   rpc: Pick<RpcClientFace, 'call'>,
 ): Promise<{ success?: boolean; agentId?: string; error?: string }> {
   const config: Record<string, unknown> = {};
@@ -192,7 +195,6 @@ export async function createAgent(
   const model = (payload.llm as Record<string, unknown> | undefined)?.model;
   if (typeof model === 'string' && model) config.model = model;
   if (payload.tools !== undefined) config.tools = payload.tools;
-  if (Array.isArray(payload.tags)) config.tags = payload.tags;
   if (payload.system && payload.system.trim()) config.system = payload.system;
   const r = await rpc.call<{ config?: { id?: string } }>('agents/create', { config });
   return { success: true, agentId: r.config?.id ?? payload.id };

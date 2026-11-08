@@ -257,7 +257,7 @@ describe('ac-memory 注入协议（before-start seam + 锚检测状态机）', (
 describe('system 静态指引（字节恒定）', () => {
   it('注入 memory-guide 块（不含记忆内容）', async () => {
     const { ctx } = await boot({ withAgents: true });
-    ctx.agents.register({ id: 'a1', model: 'mock@mock-1', tags: ['memory'] });
+    ctx.agents.register({ id: 'a1', model: 'mock@mock-1' });
     ctx.memory.write('a1', { content: '秘密内容不应进 system' });
     await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER });
     const sys = systemOf();
@@ -274,7 +274,7 @@ describe('system 静态指引（字节恒定）', () => {
 describe('工具面（memory 标签门禁）', () => {
   it('memory_write 写入 + 返回 seq；无标签 Agent 不可见', async () => {
     const { ctx } = await boot({ withAgents: true });
-    ctx.agents.register({ id: 'a1', model: 'mock@mock-1', tags: ['memory'] });
+    ctx.agents.register({ id: 'a1', model: 'mock@mock-1' });
     const defs = ctx.tools.list();
     expect(defs.map((d) => d.name)).toContain('memory_write');
     expect(defs.map((d) => d.name)).toContain('memory_grep');
@@ -287,7 +287,7 @@ describe('工具面（memory 标签门禁）', () => {
 
   it('memory_grep 输出条目级分组', async () => {
     const { ctx } = await boot({ withAgents: true });
-    ctx.agents.register({ id: 'a1', model: 'mock@mock-1', tags: ['memory'] });
+    ctx.agents.register({ id: 'a1', model: 'mock@mock-1' });
     ctx.memory.write('a1', { content: '查找我' });
     const grep = ctx.tools.list().find((d) => d.name === 'memory_grep')!;
     const r = await grep.execute({ pattern: '查找' }, { name: 'memory_grep', agentId: 'a1' });
@@ -324,7 +324,7 @@ describe('存量迁移（幂等 marker）', () => {
       await fiber;
       fibers.push(fiber);
     }
-    ctx.agents.register({ id: 'a1', model: 'mock@mock-1', tags: ['memory'] });
+    ctx.agents.register({ id: 'a1', model: 'mock@mock-1' });
     booted.push({ ctx, fibers });
     await mk(); // 第一次：投递 + marker
     expect(delivered).toHaveLength(1);
@@ -351,13 +351,13 @@ describe('存量迁移（幂等 marker）', () => {
       await fiber;
       fibers2.push(fiber);
     }
-    ctx2.agents.register({ id: 'a1', model: 'mock@mock-1', tags: ['memory'] });
+    ctx2.agents.register({ id: 'a1', model: 'mock@mock-1' });
     booted.push({ ctx: ctx2, fibers: fibers2 });
     await new Promise((r) => setTimeout(r, 250));
     expect(delivered2).toHaveLength(0);
   });
 
-  it('infra 等价授予（用户裁决 2026-09-27）：有存量桶 + infra tag + 无 memory → 自动补 tag（持久化 + reassign）后迁移；预设不迁', async () => {
+  it('行装载单闸（cr-953）：有存量桶的普通 Agent 全迁（无标签门）；预设不迁', async () => {
     const root = tmpRoot();
     mkdirSync(join(root, 'files', 'ia', 'memory'), { recursive: true });
     writeFileSync(join(root, 'files', 'ia', 'memory', 'u~ia.md'), 'infra Agent 的旧记忆', 'utf-8');
@@ -382,23 +382,19 @@ describe('存量迁移（幂等 marker）', () => {
       await fiber;
       fibers.push(fiber);
     }
-    ctx.agents.register({ id: 'ia', model: 'mock@mock-1', tags: ['infra'] } as never);
-    ctx.agents.register({ id: '__preset__', model: 'mock@mock-1', tags: ['infra'] } as never);
+    ctx.agents.register({ id: 'ia', model: 'mock@mock-1' });
+    ctx.agents.register({ id: '__preset__', model: 'mock@mock-1' });
     booted.push({ ctx, fibers });
     await ctx.memory.migrateLegacyBuckets();
-    // infra Agent：补 tag + 投递
+    // 普通 Agent：投递迁移（无标签门——行装载单闸）
     expect(delivered).toHaveLength(1);
     expect(delivered[0].agentId).toBe('ia');
-    expect(saved).toHaveLength(1);
-    expect((saved[0].tags as string[]).includes('memory')).toBe(true);
-    // 注册表热更新：memory_write 可见性生效（tags 含 memory）
-    expect((ctx.agents.get('ia')?.tags ?? []).includes('memory')).toBe(true);
-    // 预设（词形判定）不迁移不补 tag——不为其建档（agentStore 无它）
-    expect(saved.every((s) => s.id !== '__preset__')).toBe(true);
+    expect(saved).toHaveLength(0); // 补标签通路随 tags 退役
+    // 预设（词形判定）不迁移
     expect(existsSync(join(root, 'files', 'ia', 'memory', '.migrated'))).toBe(true);
   });
 
-  it('无 memory tag → 跳过投递并告警（不落 marker——补标签后重启重试）', async () => {
+  it('投递失败不落 marker（重试语义——补：投递成功才 writeMarker）', async () => {
     const root = tmpRoot();
     mkdirSync(join(root, 'files', 'a2', 'memory'), { recursive: true });
     writeFileSync(join(root, 'files', 'a2', 'memory', 'b~a2.md'), '内容', 'utf-8');
@@ -411,7 +407,7 @@ describe('存量迁移（幂等 marker）', () => {
       }
       async deliver(agentId: string, inbound: string) {
         delivered.push({ agentId, inbound });
-        return { kind: 'run' };
+        throw new Error('deliver 失败');
       }
     }
     for (const row of [toolsRow, llmRow, loopRow, agentsRow, FakeConversation, memoryRow]) {
@@ -419,10 +415,10 @@ describe('存量迁移（幂等 marker）', () => {
       await fiber;
       fibers.push(fiber);
     }
-    ctx.agents.register({ id: 'a2', model: 'mock@mock-1', tags: [] });
+    ctx.agents.register({ id: 'a2', model: 'mock@mock-1' });
     booted.push({ ctx, fibers });
-    await new Promise((r) => setTimeout(r, 250));
-    expect(delivered).toHaveLength(0);
+    await ctx.memory.migrateLegacyBuckets().catch(() => {});
+    expect(delivered).toHaveLength(1);
     expect(existsSync(join(root, 'files', 'a2', 'memory', '.migrated'))).toBe(false);
   });
 });

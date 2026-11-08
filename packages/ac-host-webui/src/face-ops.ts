@@ -188,7 +188,7 @@ function registerTimers(web: WebFace, ctx: Context): void {
   });
 }
 
-/** 身份目录面：预设清单 + 能力标签目录（标签轴 cr-484 已退役 → 空目录是终态） */
+/** 身份目录面：预设清单（标签轴 cr-484 已退役、tags 目录随 cr-953 退役） */
 function registerIdentity(web: WebFace): void {
   web.registerRpc('agents/presets', () => ({
     presets: listTemplates().map((t) => ({
@@ -197,10 +197,8 @@ function registerIdentity(web: WebFace): void {
       label: t.label,
       description: t.description ?? '',
       default: t.default === true,
-      ...(Array.isArray(t.config.tags) ? { tags: t.config.tags } : {}),
     })),
   }));
-  web.registerRpc('tags/catalog', () => ({ tags: [] }));
 }
 
 /** SKILL.md 前置元数据（name / description 两行；缺省回落目录名） */

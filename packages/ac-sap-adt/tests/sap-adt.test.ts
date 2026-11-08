@@ -78,7 +78,7 @@ describe('ac-sap-adt 行装配', () => {
     expect(ctx.tools.has('adt_object_read')).toBe(true);
     expect(ctx.tools.has('adt_object_write')).toBe(true);
     const def = (ctx as any).tools.get('adt_search');
-    expect(def?.requiredTags).toEqual(['sap-adt']);
+    expect(def?.name).toBe('adt_search'); // cr-953：requiredTags 声明已随门禁退役
     // 参数 schema 是标准 JSON Schema（引擎 defineTool 已转换）
     expect(def?.parameters?.type).toBe('object');
     expect(def?.parameters?.required).toContain('query');

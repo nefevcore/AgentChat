@@ -2,8 +2,6 @@
 // packages/ac-client-ui-onboarding/tests/onboarding-dom.test.ts ——
 // 组件编排面回归锁（cr-479/480 深审补测试）。
 //
-// · DEFAULT_TAGS 与 __standard__ 预设的镜像 parity（后端改词 → CI 即红，
-//   防双处走散——LLM_SAMPLING_KEYS cr-329 同款形态）。
 // · ProfileStep 头像 file input 必须嵌在 <label> 内（cr-480：无 for 关联，
 //   在 label 外则点击头像永不唤起文件选择器）。
 // · requestSkip 的 -1 哨兵契约（cr-479：探测失败静默降级不弹确认——
@@ -12,7 +10,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 import { createApp, h, nextTick } from 'vue';
-import { DEFAULT_TAGS, shouldConfirmSkip } from '../client/onboardingState.ts';
+import { shouldConfirmSkip } from '../client/onboardingState.ts';
 import ProfileStep from '../client/steps/ProfileStep.vue';
 
 const mounted: Array<() => void> = [];

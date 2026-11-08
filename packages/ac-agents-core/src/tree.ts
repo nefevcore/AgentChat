@@ -13,6 +13,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
+import { normalizeLegacyTags } from './config.ts';
 import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, agentPatchFile, readPluginConfigs, writePluginConfig } from './patch-doc.ts';
 
 /** 树内文件名常量（读写双面共用单源） */
@@ -75,7 +76,8 @@ export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig 
       (parsed as Record<string, unknown>).rows = parsed.tools;
       delete (parsed as Record<string, unknown>).tools;
     }
-    return parsed as AgentConfig;
+    // cr-953：存量 tags 读侧归一（档位/模式/levels 词结构化，能力词丢弃）
+    return normalizeLegacyTags(parsed as AgentConfig);
   } catch {
     return null;
   }

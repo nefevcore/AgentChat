@@ -1,11 +1,11 @@
 // ============================================================
-// ac-agents/tests/capability-settings.test.ts —— ◐a 行内档位
-// settings 合成（cr-691）：capabilitySetOf = tags ∪ settings 合成词
-//   · settings.browser.{observe,manipulate,inject} 层级布尔 → web+层级词
+// ac-agents/tests/capability-settings.test.ts —— 行内档位合成
+// （cr-953：tags 轴退役——capabilitySetOf = levels 行内档位单源 +
+// settings 回滚兼容线）
+//   · levels.browser.{observe,manipulate,inject} 档位词 → web+层级词
 //     （高层含低层——与 conv-settings browserTier grants 同形）
-//   · settings.collab.admin === true → admin
-//   · settings['dev-tools'].enabled === true → dev
-//   · 并集语义：旧 tags 词仍生效（未迁移数据回滚线兼容）
+//   · levels.collab === 'admin' → admin；levels['dev-tools'] === true → dev
+//   · settings.* 同键形状 = 回滚兼容线（levels 赢）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -66,23 +66,16 @@ describe('capabilitySetOf 行内档位 settings 合成（◐a cr-691）', () => 
     for (const t of ['web', 'observe', 'manipulate', 'inject']) expect(c3.has(t)).toBe(true);
   });
 
-  it('settings.collab.admin / dev-tools.enabled → admin / dev；并集语义旧 tags 词仍生效', async () => {
+  it('settings.collab.admin / dev-tools.enabled → admin / dev（回滚兼容线）', async () => {
     const { ctx } = await boot(tmpRoot());
     ctx.agents.register({
       id: 's1',
       model: 'm',
       settings: { collab: { admin: true }, 'dev-tools': { enabled: true } },
     });
-    ctx.agents.register({
-      id: 's2',
-      model: 'm',
-      tags: ['admin'],
-    });
     const c1 = capabilitySetOf(ctx, 's1');
     expect(c1.has('admin')).toBe(true);
     expect(c1.has('dev')).toBe(true);
-    const c2 = capabilitySetOf(ctx, 's2');
-    expect(c2.has('admin')).toBe(true);
   });
 
   it('全 false / 缺席 browser = 无合成词（不误授）', async () => {

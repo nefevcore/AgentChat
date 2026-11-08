@@ -433,7 +433,8 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       web.registerRpc('agents/list', () => ({
         // 名册 = rosterConfigs 单源（cr-607：`~` 会话流域与 preset 不进名册）。
         // 载荷 = 全量 config 展开（主线 ...a 同形——前端消费 description 回退
-        // 显示名 / tags 徽章 / provider 警示态）+ hasAvatar/avatarVersion
+        // 显示名 / access·toolMode 徽章（cr-953 结构化）/ provider 警示态）
+        // + hasAvatar/avatarVersion
         //（主线 cr-82：真有头像才置位 + 版本号 size:mtimeMs——版本化 URL）。
         agents: rosterConfigs(deps.dataRoot).map((c) => {
             const file = avatarPathOf(deps.dataRoot, c.id);

@@ -431,7 +431,6 @@ export function apply(ctx: Context) {
 
   ctx.tools.register({
     name: 'ask_questions',
-    requiredTags: ['infra'],
     requiresInteraction: true, // 交互轴：self 会话（机制 run）自动排除（formDeniedBy 单源）
     description: '向用户提问并等待回答（发起后本 run 挂起，用户回答到达后自动继续）。用于需要用户决策或确认的场景。',
     parameters: {

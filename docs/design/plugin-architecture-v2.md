@@ -286,6 +286,7 @@ agents/<agent-id>/
 3. **web 面统一通道**：UI 插件形态文档（DSH 式模块表，channelImports
    退役）+ webui 基座 + 工厂 web 件出 SPA（cr-474 恢复）+ 词法放宽。
    > **实施注记（cr-906，2026-11-05 切片一落地）**：agent.patch.yml 读写层——AgentConfig 投影（rows/tier/tool-mode/档案面/settings 随行/origin 块；tags 由档位词重建、消费面零改动；system 不迁=退役面）+ readAgentConfig 双读（patch 在场即赢，config.json 旧读窗口兼容）+ writeAgentConfig 双落（patch 主写 + config.json 镜像——旧读者不断链、回滚 = 删 patch 即回旧形态）。切片二（已落）：settings → agents/<id>/<unit>.json 拆分（单元文件赢、patch 内联为窗口兜底；保留字只锁文件占位名——目录域与 <unit>.json 无文件系统冲突；preset-origin 留待并入 origin 块）。余项：（preset-origin.json 并入）+ system 退役、update_agent_profile IPC 兼容 + X1 档位回滚盘点。
+   > **实施注记（cr-953，2026-11-08 tags 终态收口）**：AgentConfig.tags 全链退役（cr-484 裁决落地）——档位/模式词换轨结构化 access/toolMode 字段（patch 面 tier/tool-mode 投影直读，不再重建 tags）；browser/admin 行内档位归 levels；requiredTags 门禁退役（授权 = 行装载单闸——toolAllowedFor 恒 true 过渡期形状）；存量 config.json/patch doc.tags 读侧归一（normalizeLegacyTags 单源：admin/observe 族入 levels、能力词丢弃）；写面白名单 tags 出、access/toolMode 进；tags/catalog RPC 退役；UI 编辑面换结构化三抉择（AgentPane），能力徽章区随门禁退役删除。
 4. **Agent 定义重构**：身份全量迁移（12+）——AgentConfig → agent.patch
    （rows+档位+origin）+ 插件配置拆分 + system 退役 + settings 档位
    回滚（X1）+ update_agent_profile IPC 兼容 + persona 文件选择权。

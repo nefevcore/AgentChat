@@ -257,7 +257,6 @@ export class SkillsService extends Service {
     // infra 标签（2026-09-16 全量标签化）：技能加载属会话基础设施
     this.ctx.tools.register({
       name: 'load_skill',
-      requiredTags: ['infra'],
       description:
         '按名称加载一个技能的完整指令正文（<available_skills> 中列出的技能：会话工作区、全局与本 Agent 专属均可；加载后按其指令执行，不再重复加载）。注意：注入型工具——返回值只有 name/scope/baseDir/status:"injected" 回执，正文不进返回值（由注入机制随后进入上下文）；程序内判定成功看 status 字段，不要把返回值当数据处理。',
       parameters: {

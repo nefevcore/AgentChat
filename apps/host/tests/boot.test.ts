@@ -167,8 +167,8 @@ describe('宿主 boot（单树装配面）', () => {
     const presets = await web.callRpc('agents/presets') as { presets: Array<{ id: string }> };
     // id = 预设 Agent 身份（物化时用的 __name__ 形式——独立会话可选用）
     expect(presets.presets.map((t) => t.id).sort()).toEqual(['__abap_dev__', '__creator__', '__dsh_minimal__', '__standard__']);
-    // 标签轴已退役（cr-484）→ 目录空集是终态
-    expect((await web.callRpc('tags/catalog') as { tags: unknown[] }).tags).toEqual([]);
+    // tags/catalog RPC 已随 cr-953 退役（目录消费面拆除）——方法不在册
+    await expect(web.callRpc('tags/catalog')).rejects.toThrow();
     // 技能目录 = 数据根 <root>/skills 直读（frontmatter name/description）
     fs.mkdirSync(path.join(dataRoot, 'skills', 'demo-skill'), { recursive: true });
     fs.writeFileSync(path.join(dataRoot, 'skills', 'demo-skill', 'SKILL.md'), '---\nname: demo\ndescription: 演示技能\n---\n正文', 'utf-8');

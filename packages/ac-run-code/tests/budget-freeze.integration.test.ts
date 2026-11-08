@@ -31,7 +31,7 @@ async function boot(maxWallMs?: number) {
   for (const row of [toolsRow, llmRow, loopRow, agentsRow, diRow] as unknown[]) {
     fibers.push(await ctx.plugin(row as any));
   }
-  ctx.agents.register({ id: 'tester', model: 'm', tags: ['fs', 'infra'] });
+  ctx.agents.register({ id: 'tester', model: 'm' });
   // 探针：echo（即回）+ slow（30ms——墙钟测试的耗时源）+ hang（挂起
   // 在 durable-interaction 上等人应答——冻结机制的载体）+ waitpeer（长等待，
   // 模拟 send_agent wait 对端 run 在途）

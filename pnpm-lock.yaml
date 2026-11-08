@@ -862,6 +862,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
       ac-config-merge:
         specifier: workspace:*
         version: link:../ac-config-merge

@@ -63,7 +63,9 @@ export async function getAgentConfig(agentId: string, rpc: Rpc): Promise<AgentCo
     agent_id: String(c.id ?? agentId),
     name: c.name ?? c.description ?? c.id ?? agentId,
     virtual: c.virtual,
-    ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
+    ...(c.access !== undefined ? { access: c.access } : {}),
+    ...(c.toolMode !== undefined ? { toolMode: c.toolMode } : {}),
+    ...(c.levels !== undefined ? { levels: c.levels } : {}),
     llm: {
       provider: c.provider ?? '',
       ...(c.model ? { model: c.model } : {}),
@@ -107,8 +109,11 @@ export async function saveAgentConfig(
   }
   if (Object.keys(lp).length) patch.llmParams = lp;
   if (bodyCfg.max_steps !== undefined) patch.maxSteps = bodyCfg.max_steps;
-  // 能力标签（P6）：AgentPane 徽章编辑写 raw.tags → AgentConfig.tags
-  if (bodyCfg.tags !== undefined) patch.tags = bodyCfg.tags;
+  // cr-953：tags 编辑面退役——档位/模式/行内档位走 access/toolMode/levels
+  //（AgentPane 抉择组直写）；此处不再透传 tags。
+  if (bodyCfg.access !== undefined) patch.access = bodyCfg.access || null;
+  if (bodyCfg.toolMode !== undefined) patch.toolMode = bodyCfg.toolMode || null;
+  if (bodyCfg.levels !== undefined) patch.levels = bodyCfg.levels;
   // 路径穿透白名单（settings.security.allowedPaths）不在此映射（原「安全」
   // 页签已移除）：唯一写口 = 插件配置页 security 扩展卡片，走 assembly 契约
   await rpc.call('agents/update-config', { agentId, patch });

@@ -51,7 +51,7 @@ async function boot() {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   for (const row of [toolsRow, llmRow, loopRow, agentsRow, diRow] as unknown[]) fibers.push(await ctx.plugin(row as any));
-  ctx.agents.register({ id: 'tester', model: 'm', tags: [] });
+  ctx.agents.register({ id: 'tester', model: 'm' });
   fibers.push(await ctx.plugin({
     name: 'probe-row', inject: ['tools'],
     apply(c: Context) {

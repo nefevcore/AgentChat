@@ -17,23 +17,11 @@ import { Button, FeedbackNotice, Input, Select, Textarea } from '@agentchat/webu
 import { loadPoolModelCache } from 'ac-client-ui-agents/client/poolModelCache.ts';
 import { createAgent } from 'ac-client-ui-agents/client/index.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
-import { DEFAULT_TAGS } from '../onboardingState.ts';
-
 const emit = defineEmits<{ (e: 'agent-created'): void }>();
 
-const TAG_OPTIONS: Array<{ tag: string; label: string; hint: string }> = [
-  { tag: 'fs', label: 'fs', hint: '文件读写' },
-  { tag: 'shell', label: 'shell', hint: '命令执行' },
-  { tag: 'web', label: 'web', hint: 'Web 浏览（含搜索）' },
-  { tag: 'delegation', label: 'delegation', hint: '任务委派（子 Agent）' },
-  { tag: 'dev', label: 'dev', hint: '开发工具' },
-  { tag: 'admin', label: 'admin', hint: '系统管理工具' },
-];
-
-// ── 表单状态 ──
+// ── 表单状态 ──（cr-953：能力标签选择退役——授权 = 行装载，Agent 装配走预设模板 rows）
 const name = ref('');
 const system = ref('');
-const selectedTags = ref<string[]>([...DEFAULT_TAGS]);
 const provider = ref('');
 const model = ref('');
 
@@ -62,12 +50,6 @@ function onProviderChange(p: string) {
   model.value = (poolModels.value[p] ?? [])[0] ?? '';
 }
 
-function toggleTag(tag: string) {
-  const idx = selectedTags.value.indexOf(tag);
-  if (idx >= 0) selectedTags.value = selectedTags.value.filter((t) => t !== tag);
-  else selectedTags.value = [...selectedTags.value, tag];
-}
-
 // ── 创建 ──
 const creating = ref(false);
 const feedback = ref<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -82,7 +64,6 @@ async function submit(): Promise<void> {
     await createAgent({
       name: trimmed,
       ...(provider.value ? { provider: provider.value, llm: { provider: provider.value, ...(model.value ? { model: model.value } : {}) } } : {}),
-      tags: [...selectedTags.value],
       ...(system.value.trim() ? { system: system.value.trim() } : {}),
     }, defaultRpc);
     createdName.value = trimmed;
@@ -125,20 +106,6 @@ async function submit(): Promise<void> {
       <div class="ag-field">
         <label class="ag-label" for="ag-system">人格（可选）</label>
         <Textarea id="ag-system" v-model="system" :rows="4" placeholder="用一段话告诉它你是谁、它该怎么帮你——这就是它的人格。" :disabled="creating" />
-      </div>
-
-      <div class="ag-field">
-        <label class="ag-label">能力标签</label>
-        <div class="ag-tags">
-          <button
-            v-for="t in TAG_OPTIONS" :key="t.tag"
-            type="button"
-            class="ag-tag" :class="{ on: selectedTags.includes(t.tag) }"
-            :title="t.hint"
-            @click="toggleTag(t.tag)"
-          >{{ t.label }}</button>
-        </div>
-        <p class="ag-hint">默认勾选出厂标准档最小可用集；这些标签决定它能用哪些工具，之后可在 Agent 设置里细调。</p>
       </div>
 
       <FeedbackNotice v-if="feedback" :tone="feedback.tone" :text="feedback.text" />

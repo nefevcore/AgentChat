@@ -137,7 +137,7 @@ fiber dispose、不钉事件循环）；持久定时唤醒恒宿主 timers 投�
 | job-wakeup | 壳 jobs 行内（三投递策略随迁） | 唤醒面随 worker 父级走——裁决簿〈jobs 归属〉 |
 | ~~group~~ | ~~解散：扇出 → 邮局；拓扑 → 数据根；编辑 → webui 卡片~~ ——**已推翻（cr-576）**：group 立宿主数据服务行（`groups/<gid>/group.json` 单写者 + 九 RPC）；扇出仍归邮局执行面 | 群 = multicast 地址表（数据不配行） |
 | workspace | 解散七面（ui-tree.md §7）：①引导→boot 编排；②沙箱推导→ac-sandbox-core 纯库；③⑤⑥文件/本机交互/类型→ac-files 模块（后端半=宿主行+client 半=ui 树）；④登记→auth-registry（能力语境目录）；⑦能力语境发现→壳行运行时读面 | 行资格三问皆否；工作区=第三输入源（ui-tree.md §6） |
-| tag-registry | 解散：catalog → ac-rowset-core 静态投影；启动断言 → boot 编排；类型随迁。终态补钉：tag 词汇本身全链退役（requiredTags / AgentConfig.tags / AssetRef.tag），行目录投影替代 tag 目录投影——裁决簿〈tag 机制解体〉 | 现算依赖宿主在场——裁决簿〈tag 目录静态化〉+〈tag 机制解体〉 |
+| tag-registry | 解散：catalog → ac-rowset-core 静态投影；启动断言 → boot 编排；类型随迁。终态已收口（cr-953，2026-11-08）：tag 词汇全链退役落地——requiredTags 门禁退役（授权 = 行装载单闸）+ AgentConfig.tags 退役（档位/模式词换轨结构化 access/toolMode 字段、browser/admin 归 levels）+ 存量读侧归一（normalizeLegacyTags）——裁决簿〈tag 机制解体〉 | 现算依赖宿主在场——裁决簿〈tag 目录静态化〉+〈tag 机制解体〉 |
 | ac-agents 注册表瓣 | 活注册表退役；物化拆 create-from-template + transient boot；reassign 被 R7-8 裁向覆盖 | 两轴分离——裁决簿〈注册表解体〉 |
 | ac-agent-presets | 目录静态化归并 agents 编辑面行 | 模板目录 = 静态数据 |
 

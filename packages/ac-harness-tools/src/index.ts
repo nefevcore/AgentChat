@@ -111,7 +111,6 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
 
   ctx.tools.register({
     name: 'run_harness',
-    requiredTags: ['harness'],
     needPermission: true,
     description:
       '把一个完整任务委托给本地 CLI harness（Claude Code / Codex CLI）执行：harness 全权跑自己的 agent 循环（工具/文件/命令），终稿作为本工具结果回流。harness 使用自己的登录凭证（订阅额度），无需 API key。task 必须是自足完整的委托任务书（把背景、目标、产出要求全部写进 task）；同会话非首次委托默认续接上次 harness 会话（resume=auto——上下文已延续，task 只写增量即可）。工作目录缺省为本 Agent 的专属空间 files/<id>/harness/。沙箱两档：plan（只读分析）/ workspace-write（可写工作区，Codex 保持默认禁网）。长任务建议显式放宽 timeout_ms（缺省 10 分钟）。同一 Agent 同时仅一个 harness run（占线报忙）。',

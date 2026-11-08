@@ -166,7 +166,6 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // agent-store 读边界归一补 'fs'；程序化模式 include 用 tag:fs 引用
   ctx.tools.register({
     name: 'read',
-    requiredTags: ['fs'],
     description:
       '读取文本文件并返回带行号的内容（output: { path, content: "1:…\\n2:…", size, total_lines, … }）；'
       + 'file_path 是目录时返回条目清单（output: { path, type: "directory", items: Array<{ name, type: "file"|"directory" }>, count }——目录在前、按名排序，条目是对象数组不是字符串数组）。',
@@ -245,7 +244,6 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // ---- write：创建/覆盖文件（同文件经突变队列串行化） ----
   ctx.tools.register({
     name: 'write',
-    requiredTags: ['fs'],
     needPermission: true,
     description: '创建或覆盖文本文件。',
     parameters: {
@@ -299,7 +297,6 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // ---- edit：old_string/new_string 文本匹配编辑（编辑引擎住 ac-edit-core） ----
   ctx.tools.register({
     name: 'edit',
-    requiredTags: ['fs'],
     needPermission: true,
     description: '通过替换文本内容来编辑文本文件（old_string 必须唯一且从 read 输出原样复制，且须与 new_string 不同；行首缩进不同的文本会被拒绝；json/代码文件写回前做语法预检）。',
     parameters: {

@@ -11,12 +11,9 @@
 // 的过滤（cr-616/762/763 拒绝词）同源在此，越权词不进子 config。
 // ============================================================
 import type { AgentConfig } from 'ac-agents-core';
-import { ACCESS_RANK, type AccessLevel } from 'ac-agents-core';
+import { ACCESS_RANK, accessOf, type AccessLevel } from 'ac-agents-core';
 import { deriveShellRowset, type RowsetCatalog } from 'ac-rowset-core';
 import { splitModelRef } from 'ac-llm';
-
-/** 交互形态词（不随继承传播——形态跟随装配，cr-763/821） */
-const MODE_TAGS = new Set(['tc-programmatic', 'tc-none']);
 
 /**
  * spawn 工具词过滤（spawn ⊆ 父授权投影）：
@@ -42,26 +39,29 @@ export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, ca
 }
 
 /**
- * 会话设置继承映射表（cr-753 收窄至授权词 + cr-763 模式词除外）：
- * 发起会话 conv-settings 覆盖值 → 子 config 等效能力词。新增设置键的
- * 继承面在此登记（映射与 conv-settings BUILTIN_KEYS 的 grants 档位轴
- * 同源维护）。access（cr-947 前名 elevation）与 per-call access 取高者
- * （只升不降）。tc-* 不继承：交互形态非授权——子形态由装配结构化合成。
+ * 会话设置继承面（cr-953 结构化换轨——tags 退役）：发起会话 conv-settings
+ * 覆盖值 → 子 config 结构化字段。新增设置键的继承面在此登记（映射与
+ * conv-settings BUILTIN_KEYS 的 grants 档位轴同源维护）。access（cr-947
+ * 前名 elevation）与 per-call access 取高者（只升不降）。tc-* 不继承：
+ * 交互形态非授权——子形态由装配结构化合成。browserTier → levels.browser
+ *（取高者——父级更高时保父）。issueSubmit 无结构化继承面（授权 = 行
+ * 装载，无标签轴）。
  */
-export function convInheritTagsOf(
+export function convInheritOf(
   settings: Record<string, string>,
   callAccess: 'sandbox-access' | 'full-access' | undefined,
-): string[] {
-  const tags = new Set<string>();
-  const tier = ACCESS_RANK[(settings.access as AccessLevel | undefined) ?? 'base-access'] >= ACCESS_RANK[callAccess ?? 'base-access']
+): { access?: AccessLevel; browserLevel?: 'observe' | 'manipulate' | 'inject' } {
+  const access = ACCESS_RANK[(settings.access as AccessLevel | undefined) ?? 'base-access'] >= ACCESS_RANK[callAccess ?? 'base-access']
     ? settings.access
     : callAccess;
-  if (tier === 'full-access' || tier === 'sandbox-access') tags.add(tier);
-  if (settings.browserTier === 'observe') { tags.add('web'); tags.add('observe'); }
-  else if (settings.browserTier === 'manipulate') for (const t of ['web', 'observe', 'manipulate']) tags.add(t);
-  else if (settings.browserTier === 'inject') for (const t of ['web', 'observe', 'manipulate', 'inject']) tags.add(t);
-  if (settings.issueSubmit === 'enabled') tags.add('issue-report');
-  return [...tags];
+  const BROWSER_ORDER = { observe: 0, manipulate: 1, inject: 2 } as const;
+  const browserLevel = settings.browserTier === 'observe' || settings.browserTier === 'manipulate' || settings.browserTier === 'inject'
+    ? settings.browserTier
+    : undefined;
+  return {
+    ...(access === 'full-access' || access === 'sandbox-access' ? { access: access as AccessLevel } : {}),
+    ...(browserLevel !== undefined ? { browserLevel } : {}),
+  };
 }
 
 /** 会话继承面输入（spawnOp 解析 ctx 服务后的产物——本文件零 cordis） */
@@ -71,8 +71,8 @@ export interface SpawnInheritInput {
   tools?: string[];
   name?: string;
   system?: string;
-  /** convInheritTagsOf 产物（等效能力词） */
-  inheritTags?: string[];
+  /** convInheritOf 产物（结构化继承面） */
+  inherit?: { access?: AccessLevel; browserLevel?: 'observe' | 'manipulate' | 'inject' };
   /** 发起会话工作区锚点（缺席 = 不写——子保持专用空间） */
   workdirAnchor?: string;
   /** 发起会话模型覆盖（'name@model'/裸名；缺席 = 父静态） */
@@ -80,18 +80,32 @@ export interface SpawnInheritInput {
 }
 
 /**
- * 子 config 快照合成（单源）：父 tags 剥交互形态词 + 继承面合入 +
- * rows 含 run-code 行时合成 tc-programmatic（形态跟随装配）+ workdir /
- * model 覆盖快照。产物经 materializeChild 落盘（其剥减层补 id/preset）。
+ * 子 config 快照合成（单源）：父 access/levels 继承 + 会话继承面取高合入
+ * + rows 含 run-code 行时合成 toolMode='tc-programmatic'（形态跟随装配）
+ * + workdir / model 覆盖快照。产物经 materializeChild 落盘（其剥减层补
+ * id/preset）。cr-953：tags 轴删除——授权继承 = access 字段与 levels。
  */
 export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCatalog): AgentConfig {
-  const { parent, tools, name, system, inheritTags, workdirAnchor, modelOverride } = input;
+  const { parent, tools, name, system, inherit, workdirAnchor, modelOverride } = input;
   // 形态合成（cr-821）：子的 toolMode 由子 rows 是否含 run-code 行结构化
-  // 决定——父级 tc-* 全剥除，缺省继承（父 rows）或显式点名命中才合成。
+  // 决定——父级 tc-* 不继承，缺省继承（父 rows）或显式点名命中才合成。
   const childRowIds = new Set(deriveShellRowset({ rows: tools ?? parent.rows ?? [] }, catalog).rowIds);
-  const childTags = [...(parent.tags ?? []).filter((t) => !MODE_TAGS.has(t)), ...(inheritTags ?? [])]
-    .filter((t) => !MODE_TAGS.has(t));
-  if (childRowIds.has('run-code')) childTags.push('tc-programmatic');
+  // 档位继承：会话覆盖与父 access 取高（只升不降）
+  const parentAccess = accessOf(parent);
+  const inheritedAccess = inherit?.access !== undefined && ACCESS_RANK[inherit.access] > ACCESS_RANK[parentAccess]
+    ? inherit.access
+    : parentAccess !== 'base-access' ? parentAccess : undefined;
+  // browser 层级继承：会话覆盖与父 levels.browser 取高
+  const BROWSER_ORDER = { observe: 0, manipulate: 1, inject: 2 } as const;
+  const parentBrowser = parent.levels?.browser;
+  const parentBrowserLevel = parentBrowser === 'observe' || parentBrowser === 'manipulate' || parentBrowser === 'inject'
+    ? parentBrowser : undefined;
+  const browserLevel = inherit?.browserLevel !== undefined && parentBrowserLevel !== undefined
+    ? (BROWSER_ORDER[inherit.browserLevel] >= BROWSER_ORDER[parentBrowserLevel] ? inherit.browserLevel : parentBrowserLevel)
+    : inherit?.browserLevel ?? parentBrowserLevel;
+  const levels = { ...(parent.levels ?? {}) } as Record<string, string | boolean>;
+  if (browserLevel !== undefined) levels.browser = browserLevel;
+  else delete levels.browser;
   // workdir 锚点（cr-758）：子会话键是新对桶——singles 记录结构上到不了
   // 子壳，快照是唯一通道（挂载即基准语义）。
   const settings = { ...(parent.settings ?? {}) } as Record<string, unknown>;
@@ -108,9 +122,15 @@ export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCata
     ...(name !== undefined ? { name } : {}),
     ...(system !== undefined ? { system } : {}),
     ...(tools !== undefined ? { rows: tools } : {}),
-    tags: childTags,
+    ...(inheritedAccess !== undefined ? { access: inheritedAccess } : {}),
+    // 形态跟随装配（cr-821/cr-953）：父 toolMode 不继承——恒按子 rows 重算
+    ...(childRowIds.has('run-code') ? { toolMode: 'tc-programmatic' as const } : {}),
   } as AgentConfig;
+  if (!childRowIds.has('run-code')) delete (child as { toolMode?: unknown }).toolMode;
+  if (Object.keys(levels).length > 0) (child as { levels?: Record<string, string | boolean> }).levels = levels;
+  else delete (child as { levels?: Record<string, string | boolean> }).levels;
   if (Object.keys(settings).length > 0) (child as { settings?: Record<string, unknown> }).settings = settings;
   else delete (child as { settings?: Record<string, unknown> }).settings;
+  delete (child as { tags?: unknown }).tags; // cr-953：tags 轴退役
   return child;
 }

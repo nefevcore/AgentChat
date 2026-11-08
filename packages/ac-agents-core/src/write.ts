@@ -23,7 +23,7 @@ import type { AgentConfig } from './config.ts';
  *  已随各域 owning 化退役；连接凭据归 provider 定义，身份面不可覆盖） */
 export const AGENT_CONFIG_FIELDS: ReadonlySet<string> = new Set([
   'id', 'model', 'provider', 'virtual', 'system', 'rows', 'llmParams',
-  'maxSteps', 'name', 'description', 'tags', 'settings',
+  'maxSteps', 'name', 'description', 'access', 'toolMode', 'levels', 'settings',
 ]);
 
 /** sanitize 选项 */
@@ -62,9 +62,8 @@ export function sanitizeAgentInput(
     if (!isAgentIdentity(agentId)) throw new Error(`Agent id "${agentId}" 非法（禁 ~——对键桶会话键词形，非身份词）`);
     if (isPresetId(agentId)) throw new Error(`Agent id "${agentId}" 非法（__<key>__ 词形为预设保留，不可用于普通身份）`);
   }
-  if (rest.tags !== undefined
-    && (!Array.isArray(rest.tags) || rest.tags.some((tag) => typeof tag !== 'string'))) {
-    throw new Error('tags 须为字符串数组（档位词/模式词——能力 tag 已退役）');
+  if (rest.tags !== undefined) {
+    throw new Error('tags 已退役（cr-953）——档位/模式词换轨 access/toolMode 字段，行内档位归 levels');
   }
   let nextProvider = typeof provider === 'string' && provider !== '' ? provider : undefined;
   const clearProvider = provider === null || provider === '';

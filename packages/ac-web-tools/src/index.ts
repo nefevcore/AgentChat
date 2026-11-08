@@ -247,7 +247,6 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
   // ---- web_search：provider 解析 + key 三源链 ----
   ctx.tools.register({
     name: 'web_search',
-    requiredTags: ['web'],
     // 权限轴（access-tier §3.3 D2）：非 LLM 出口通道（查询词即外泄面）
     // ——无人审时需要档位门
     needPermission: true,
@@ -429,7 +428,6 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
   // ---- browser：真实 Chromium 操作（ctx.browser CDP 直连会话）----
   ctx.tools.register({
     name: 'browser',
-    requiredTags: ['web', 'observe'],
     // 权限轴（access-tier §3.3）：browser 族 = 非 LLM 出口通道（页面交互
     // 即外泄面）——无人审时需要档位门
     needPermission: true,

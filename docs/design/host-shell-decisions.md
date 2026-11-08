@@ -432,6 +432,10 @@ conversation / persona / system-prompt / llm-pool）为第五条；`exclude` 仍
 - cr-825（2026-10-31）：读面搬迁批三——tool-catalog.json 生成器（真装配 dump 快照）
   + parity 对账锁；tools/list 静态底座∪活壳增量（__standard__ 冷拉起退役）、
   agents/tool-defs 活壳真值/壳缺席静态算；row-catalog stale 词形修正（hello/datetime）。
+- cr-953（2026-11-08）：〈tag 机制解体〉终态收口——AgentConfig.tags 全链退役
+  （档位/模式词换轨结构化 access/toolMode 字段、browser/admin 归 levels；
+  requiredTags 门禁退役、授权 = 行装载单闸；存量读侧归一 normalizeLegacyTags；
+  tags/catalog RPC 退役、UI 编辑面换结构化三抉择；预设模板与导入换轨同步）。
 
 # 〈读面搬迁〉（2026-10-31 定向，cr-824 随批一落地）
 

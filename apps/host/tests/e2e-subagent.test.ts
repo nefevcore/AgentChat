@@ -131,7 +131,7 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
   // 纯聊天单步收束）。断言面 = 子壳 admin tool-defs（conversation.toolDefs ——
   // 与真实 run 的 llmToolFace 单源），经子壳 transportHint socket manage 帧直读。
   it('子壳 LLM 工具面非空：tc-programmatic 会话 spawn 不再蒸发工具', async () => {
-    seedAgent('coder', { rows: ['run-code', 'fs-tools', 'web-tools', 'subagent'], tags: ['tc-programmatic'] });
+    seedAgent('coder', { rows: ['run-code', 'fs-tools', 'web-tools', 'subagent'], toolMode: 'tc-programmatic' });
     // 发起会话覆盖（宿主直调形态的键——control 帧带 conversationId 即可命中）
     fs.mkdirSync(path.join(ROOT, 'conv-settings'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'conv-settings', 'user~coder.json'),
@@ -146,10 +146,10 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       // run-code 行 → 合成 tc-programmatic；这里验证缺省继承分支）
       const childCfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'coder', 'children', childId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[]; rows?: string[] };
+      ) as { toolMode?: string; access?: string; rows?: string[] };
       expect(childCfg.rows).toContain('run-code');
-      expect(childCfg.tags ?? []).toContain('tc-programmatic'); // 形态来自装配
-      expect(childCfg.tags ?? []).toContain('full-access'); // 授权词继承面不受影响
+      expect(childCfg.toolMode).toBe('tc-programmatic'); // 形态来自装配
+      expect(childCfg.access).toBe('full-access'); // 会话 access 继承（水位取高）
       // 子壳 LLM 工具面（toolDefs —— 与真实 run 单源）：mode 集 = ['run_code']，
       // 非空且不再把授予工具全丢
       const defs = await childToolDefs(childId);
@@ -167,8 +167,8 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       expect(subsetDefs.names).toEqual(['web_search', 'read', 'write']);
       const subsetCfg = JSON.parse(fs.readFileSync(
         path.join(ROOT, 'agents', 'coder', 'children', subsetId, 'config.json'), 'utf-8'),
-      ) as { tags?: string[] };
-      expect(subsetCfg.tags ?? []).not.toContain('tc-programmatic');
+      ) as { toolMode?: string };
+      expect(subsetCfg.toolMode).toBeUndefined();
       await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: subsetId } });
     } finally { await parent.shutdown(); }
   }, 120_000);

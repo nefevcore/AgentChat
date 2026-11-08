@@ -4,14 +4,15 @@
 //
 // Agent 定义 = 装配（装了什么 × 什么档位）+ 插件配置（各插件自定
 // 自读）+ 人格（persona 插件消费的数据）。agent.patch.yml = 装配
-// overlay：rows + 档位词（tier / tool-mode——X1 回滚：settings 行内
-// 档位归装配）+ 档案面（model/provider/llm-params/max-steps/name/
+// overlay：rows + 档位（tier / tool-mode——X1 回滚：settings 行内
+// 档位归装配；cr-953 起投影结构化 access/toolMode 字段，不再重建
+// tags）+ 档案面（model/provider/llm-params/max-steps/name/
 // description）+ origin 块（创建来源 preset + 指纹——取代
 // preset-origin.json，随切片三接入）。system 退役（平台行分权组装）。
 //
 // 读写形态（批4 + cr-918）：readAgentConfig 读 agent.patch.yml 在场即赢，
-// 投影回 AgentConfig 形状（tags 由档位词重建——消费面 accessOf/
-// toolModeOf 零改动）；config.json 旧读路径窗口兼容（存量未迁移根）。
+// 投影回 AgentConfig 形状；config.json 旧读路径窗口兼容（存量未迁移根，
+// 含存量 tags——读侧经 normalizeLegacyTags 归一）。
 // writeAgentConfig 单写 patch（cr-918 镜像双落退役）。
 // ============================================================
 
@@ -19,6 +20,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import yaml from 'js-yaml';
 import type { AgentConfig } from './config.ts';
+import { accessOf, normalizeLegacyTags, toolModeOf } from './config.ts';
 import { agentDir, assertAgentId } from './tree.ts';
 
 /** agent.patch.yml 文件名（agents/<id>/ 内） */
@@ -44,12 +46,15 @@ export interface AgentPatchDoc {
   origin?: PatchOrigin;
   /** 装配点名/排除（语义同 AgentConfig.rows 双形态） */
   rows?: string[] | { include?: string[]; exclude?: string[] };
-  /** 访问档位（缺省 base-access） */
+  /** 访问档位（缺省 base-access；投影 AgentConfig.access） */
   tier?: 'base-access' | 'sandbox-access' | 'full-access';
-  /** 工具调用模式（缺省 tc-base） */
+  /** 工具调用模式（缺省 tc-base；投影 AgentConfig.toolMode） */
   'tool-mode'?: 'tc-none' | 'tc-base' | 'tc-programmatic';
-  /** 能力标签余词（tier/tool-mode 之外的工具 requires 门禁判定词——fs/web/
-   * observe/delegation 等；档位词不在此，归 tier/tool-mode 专属字段） */
+  /**
+   * 能力标签余词（cr-953 退役面：requiredTags 门禁已退役、余词无消费面
+   * ——读侧经 normalizeLegacyTags 归一〔admin/browser 层级词入 levels〕
+   * 后丢弃，writeAgentConfig 不再写本键。字段保留以容忍存量文档）
+   */
   tags?: string[];
   model?: string;
   provider?: string;
@@ -119,13 +124,16 @@ export function readAgentPatch(dataRoot: string, agentId: string): AgentPatchDoc
   return data as AgentPatchDoc;
 }
 
-/** patch 文档 → AgentConfig 投影（tags 由档位词重建；system 恒缺席） */
+/**
+ * patch 文档 → AgentConfig 投影（cr-953：tier/tool-mode → 结构化
+ * access/toolMode；doc.tags 余词经 normalizeLegacyTags 归一〔admin/
+ * browser 层级词入 levels〕；system 恒缺席）
+ */
 export function patchToConfig(agentId: string, doc: AgentPatchDoc): AgentConfig {
-  const tags: string[] = [...(doc.tags ?? [])];
-  if (doc.tier !== undefined && doc.tier !== 'base-access') tags.push(doc.tier);
-  if (doc['tool-mode'] !== undefined && doc['tool-mode'] !== 'tc-base') tags.push(doc['tool-mode']);
-  return {
+  return normalizeLegacyTags({
     id: agentId,
+    ...(doc.tier !== undefined ? { access: doc.tier } : {}),
+    ...(doc['tool-mode'] !== undefined ? { toolMode: doc['tool-mode'] } : {}),
     ...(doc.model !== undefined ? { model: doc.model } : {}),
     ...(doc.provider !== undefined ? { provider: doc.provider } : {}),
     ...(doc.rows !== undefined ? { rows: doc.rows } : {}),
@@ -136,25 +144,23 @@ export function patchToConfig(agentId: string, doc: AgentPatchDoc): AgentConfig 
     ...(doc.virtual === true ? { virtual: true } : {}),
     ...(doc.levels !== undefined ? { levels: doc.levels } : {}),
     ...(doc.settings !== undefined ? { settings: doc.settings } : {}),
-    ...(tags.length > 0 ? { tags } : {}),
-  };
+    ...(doc.tags !== undefined ? { tags: doc.tags } : {}),
+  });
 }
 
-/** AgentConfig → patch 文档（档位词归位；settings 随行；system 不迁——退役面） */
+/**
+ * AgentConfig → patch 文档（cr-953：结构化 access/toolMode → tier/
+ * tool-mode 键；tags 不再写——余词无消费面；settings 随行；system
+ * 不迁——退役面）
+ */
 export function configToPatch(config: AgentConfig, origin?: PatchOrigin): AgentPatchDoc {
-  const TIER_WORDS = ['full-access', 'sandbox-access'] as const;
-  const MODE_WORDS = ['tc-none', 'tc-programmatic'] as const;
-  const tier = config.tags?.find((t): t is (typeof TIER_WORDS)[number] => (TIER_WORDS as readonly string[]).includes(t));
-  const toolMode = config.tags?.find((t): t is (typeof MODE_WORDS)[number] => (MODE_WORDS as readonly string[]).includes(t));
-  // 余词保真：只剔「被选中」的档位词——存量脏数据双档位并存时冗余词随
-  // 余词保留（迁移零丢弃；accessOf 判定序不受影响）
-  const tagRemainder = (config.tags ?? []).filter((t) => t !== tier && t !== toolMode);
+  const access = accessOf(config);
+  const toolMode = toolModeOf(config);
   return {
     ...(origin !== undefined ? { origin } : {}),
     ...(config.rows !== undefined ? { rows: config.rows } : {}),
-    ...(tier !== undefined ? { tier } : {}),
-    ...(toolMode !== undefined ? { 'tool-mode': toolMode } : {}),
-    ...(tagRemainder.length > 0 ? { tags: tagRemainder } : {}),
+    ...(access !== 'base-access' ? { tier: access } : {}),
+    ...(toolMode !== 'tc-base' ? { 'tool-mode': toolMode } : {}),
     ...(config.model !== undefined ? { model: config.model } : {}),
     ...(config.provider !== undefined ? { provider: config.provider } : {}),
     ...(config.llmParams !== undefined ? { 'llm-params': config.llmParams } : {}),

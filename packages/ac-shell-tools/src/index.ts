@@ -190,7 +190,6 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     };
     const def = {
       name: spec.family,
-      requiredTags: ['shell'],
       needPermission: true,
       description: isWin
         ? '在 PowerShell 中执行命令并返回输出（常见 Unix 命令自动 fail-closed 翻译；background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具——shell 里 Get-ChildItem -Recurse 递归整棵目录再管道过滤在本仓库是准死循环（node_modules 照爬、CPU 满载且长时间零输出，cr-382 孤儿事故 8 例中占 6）。'
@@ -208,7 +207,6 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   // 与 pwsh/bash 同族授权（有 shell 才有后台命令管理）
   ctx.tools.register({
     name: 'job',
-    requiredTags: ['shell'],
     description: '管理后台任务：list 列出、kill 终止、logs 查看输出（pwsh/bash background / subagent 的任务）。',
     parameters: {
       type: 'object',

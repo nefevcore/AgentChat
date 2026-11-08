@@ -429,7 +429,6 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   // fs 标签（2026-09-16 全量标签化）：文件族门禁
   ctx.tools.register({
     name: 'glob',
-    requiredTags: ['fs'],
     description:
       '按 glob 模式查找文件（如 "**/*.ts"；模式不含 / 时匹配任意深度的文件名）。'
       + 'output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点（不是搜索根），按修改时间新→旧，内联上限 100；paths 条目可直接作为 read/grep 的相对路径参数（同锚点解析）。',
@@ -538,7 +537,6 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
   // ---- grep：按内容找文件 ----
   ctx.tools.register({
     name: 'grep',
-    requiredTags: ['fs'],
     description:
       '按正则表达式搜索文件内容（结果按文件分组，Line N: 预览）。'
       + 'output: { total, shown, groups: Array<{ path, matches: Array<{ line, preview }> }> }——total 为命中总数；path 相对工作区锚点，可直接作为 read 的相对路径参数。默认内联 50 条（shown 为实际展示数），limit 参数可调（最大 250）。'

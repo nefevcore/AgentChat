@@ -26,7 +26,7 @@ export interface AgentTimerFace {
 }
 
 /** Agent 基本信息（树节点/列表用——settings useSettings 旧词汇原样） */
-export interface AgentBrief { id: string; name: string; virtual?: boolean; avatar?: string | null; tags?: string[] }
+export interface AgentBrief { id: string; name: string; virtual?: boolean; avatar?: string | null; access?: string; toolMode?: string }
 
 function strArrayOf(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -160,8 +160,8 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
   }
 
   function applyAgentViews(data: AgentConfigViews): void {
-    agentRaw.value = normalizeLegacyTags(data.raw);
-    agentEffective.value = normalizeLegacyTags(data.effective);
+    agentRaw.value = data.raw;
+    agentEffective.value = data.effective;
     sysContent.value = data.sysContent;
     sysEnabled.value = data.sysContent.trim().length > 0;
     agentContent.value = data.agentContent;
@@ -169,20 +169,6 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
     agentSaved.value = agentStateKey();
   }
 
-  /** 旧能力标签归一：agent/base 退役词剔除、conductor → delegation
-   *  （只归一化内存 raw；写盘时由后端保存——base 全量标签化后无门禁语义） */
-  function normalizeLegacyTags(raw: Record<string, any>): Record<string, any> {
-    if (!Array.isArray(raw.tags)) return raw;
-    const RETIRED = new Set(['agent', 'base']);
-    const seen = new Set<string>();
-    const tags: string[] = [];
-    for (const tag of raw.tags) {
-      if (RETIRED.has(tag)) continue;
-      const canonical = tag === 'conductor' ? 'delegation' : tag;
-      if (!seen.has(canonical)) { seen.add(canonical); tags.push(canonical); }
-    }
-    return JSON.stringify(tags) === JSON.stringify(raw.tags) ? raw : { ...raw, tags };
-  }
 
   /** 加载装配视图（agents/assembly）；把 tools/settings 同步进 raw。 */
   async function loadAssembly(id: string, seq?: number): Promise<void> {

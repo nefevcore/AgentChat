@@ -57,40 +57,43 @@ const TAG_TO_ROWS = new Map<string, readonly string[]>([
   ['harness', ['harness-tools']],
 ]);
 
-/** 档位词（tierOf / toolModeOf 消费——留 tags） */
-const TIER_TAGS = new Set(['full-access', 'sandbox-access', 'tc-programmatic', 'tc-none', 'tc-base']);
+/** 档位词 → 结构化字段（cr-953：access/toolMode 换轨——tags 键输出恒删） */
+const ACCESS_TAGS = new Map([['full-access', 'full-access'], ['sandbox-access', 'sandbox-access']]);
+const MODE_TAGS = new Map([['tc-none', 'tc-none'], ['tc-programmatic', 'tc-programmatic']]);
 
-/** 行内档位词 → settings 键（七职能③：行自治词汇归 settings） */
-const ROW_LEVEL_TAGS = new Map<string, { settingsKey: string; value: string }>([
-  ['observe', { settingsKey: 'browser', value: 'observe' }],
-  ['manipulate', { settingsKey: 'browser', value: 'manipulate' }],
-  ['inject', { settingsKey: 'browser', value: 'inject' }],
-  ['dev', { settingsKey: 'dev-tools', value: 'enabled' }],
-  ['admin', { settingsKey: 'collab', value: 'admin' }],
+/** 行内档位词 → levels 键（七职能③ + cr-953：levels 是行内档位唯一载体） */
+const ROW_LEVEL_TAGS = new Map<string, string>([
+  ['observe', 'browser'],
+  ['manipulate', 'browser'],
+  ['inject', 'browser'],
+  ['dev', 'dev-tools'],
+  ['admin', 'collab'],
 ]);
 
 /**
- * 单 agent config 换轨（纯函数——tags→tools + 行内档位→settings）。
+ * 单 agent config 换轨（纯函数——tags→rows + 档位→结构化 + 行内档位→levels）。
  * tags 装载词展开为行引用并入 rows（旧 tools/rows 均缺席 = 行集全集
- * 语义 → 换轨后 rows = 装载行集，档位词留 tags；◐b cr-691 输出恒 rows
- * 键）。未知词 fail-loud（不静默丢弃——映射表漂移即中止）。
+ * 语义 → 换轨后 rows = 装载行集）；档位词换轨 access/toolMode 字段
+ *（cr-953 后 tags 键恒删）；未知词 fail-loud（映射表漂移即中止）。
  */
 export function convertConfig(agentId: string, old: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...old };
   const tags = Array.isArray(old.tags) ? old.tags as string[] : [];
   const rows: string[] = [];
-  const keepTags: string[] = [];
-  const settingsPatch: Record<string, Record<string, unknown>> = {};
   const unknown: string[] = [];
+  let access: string | undefined;
+  let toolMode: string | undefined;
+  const levels: Record<string, string | boolean> = {};
   for (const t of tags) {
     const rowList = TAG_TO_ROWS.get(t);
     if (rowList !== undefined) { for (const r of rowList) if (!rows.includes(r)) rows.push(r); continue; }
-    if (TIER_TAGS.has(t)) { keepTags.push(t); continue; }
-    const level = ROW_LEVEL_TAGS.get(t);
-    if (level !== undefined) {
-      const cur = settingsPatch[level.settingsKey] ?? {};
-      cur[level.value] = true;
-      settingsPatch[level.settingsKey] = cur;
+    if (ACCESS_TAGS.has(t)) { access = ACCESS_TAGS.get(t); continue; }
+    if (MODE_TAGS.has(t)) { if (toolMode !== 'tc-none') toolMode = MODE_TAGS.get(t); continue; }
+    const levelKey = ROW_LEVEL_TAGS.get(t);
+    if (levelKey !== undefined) {
+      if (levelKey === 'browser') levels.browser = t;
+      else if (levelKey === 'dev-tools') levels['dev-tools'] = true;
+      else if (levelKey === 'collab') levels.collab = 'admin';
       continue;
     }
     unknown.push(t);
@@ -105,12 +108,13 @@ export function convertConfig(agentId: string, old: Record<string, unknown>): Re
     if (rows.length > 0 || prior.length > 0) out.rows = [...new Set([...prior, ...rows])];
     else delete out.rows;
   }
-  // 档位词只剩 tier 轴（空 = 删键——tags 非必填）
-  if (keepTags.length > 0) out.tags = keepTags; else delete out.tags;
-  // 行内档位归 settings（与既有 settings 深合并——旧值优先（用户配置））
-  if (Object.keys(settingsPatch).length > 0) {
-    const oldSettings = (old.settings ?? {}) as Record<string, unknown>;
-    out.settings = { ...settingsPatch, ...oldSettings };
+  delete out.tags; // cr-953：tags 键输出恒删（结构化字段已承载全部语义）
+  delete out.tools;
+  if (access !== undefined) out.access = access;
+  if (toolMode !== undefined) out.toolMode = toolMode;
+  if (Object.keys(levels).length > 0) {
+    // 与既有 levels 合并（旧值优先——用户配置）
+    out.levels = { ...levels, ...((old.levels ?? {}) as Record<string, string | boolean>) };
   }
   return out;
 }

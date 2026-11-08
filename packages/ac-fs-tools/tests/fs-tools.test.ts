@@ -574,7 +574,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
       await fiber;
       fibers.push(fiber);
     }
-    ctx.agents.register({ id: 'prog', model: 'm', tags: ['fs'] });
+    ctx.agents.register({ id: 'prog', model: 'm' });
     fibers.push(await ctx.plugin({
       name: 'fake-run-code-row',
       inject: ['tools'],
@@ -591,9 +591,9 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     const system = loop.assemblePreview({ agent: 'prog', tools: ['run_code'], messages: [] });
     expect(system).toContain('[引用约定]');
     expect(system).toContain('@<路径>');
-    // 对照：无 fs 标签的 Agent（能力面无 read）→ 不注入
+    // 对照（cr-953 行装载单闸）：注册面恒含 read——@ 约定注入不再按标签分层
     ctx.agents.register({ id: 'nofs', model: 'm' });
     const system2 = loop.assemblePreview({ agent: 'nofs', tools: ['run_code'], messages: [] });
-    expect(system2).toBeUndefined();
+    expect(system2).toContain('[引用约定]');
   });
 });

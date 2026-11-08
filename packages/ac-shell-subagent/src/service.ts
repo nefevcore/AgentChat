@@ -24,7 +24,7 @@ import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { materializeChild, listChildIds, readAgentConfig, childIsArchived, ARCHIVED_FILE } from 'ac-agents-core';
 import { readGlobalAuth, readAgentAuth, deriveChildAuth } from 'ac-auth-core';
 import { deriveShellRowset, readCatalog } from 'ac-rowset-core';
-import { filterSpawnTools, convInheritTagsOf, spawnChildConfigOf } from './inherit.ts';
+import { filterSpawnTools, convInheritOf, spawnChildConfigOf } from './inherit.ts';
 import { makeEnvelope, deliver, readActivationLock, IpcClient, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
 import { runAddress } from 'ac-core-utils';
 import { readLedger, readJournal } from 'ac-ledger';
@@ -307,7 +307,7 @@ export class ShellSubagentService extends Service {
     const convOf = input.replyConversation !== undefined && convSettings !== undefined
       ? convSettings.get(input.replyConversation)
       : {};
-    const inheritTags = convInheritTagsOf(convOf, input.access);
+    const inherit = convInheritOf(convOf, input.access);
     // cr-758 工作区锚点继承：发起会话挂载工作区时（singles「挂载即基准」），
     // 子会话键 parent~sub-x 是新对桶——singles 无记录，锚点结构上到不了
     // 子壳（相对路径/bash cwd/提示词 [工作目录] 回落 files/<sub-id>）。快照
@@ -326,7 +326,7 @@ export class ShellSubagentService extends Service {
       ...(tools !== undefined ? { tools } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.system !== undefined ? { system: input.system } : {}),
-      inheritTags,
+      inherit,
       ...(typeof anchor === 'string' && anchor !== '' ? { workdirAnchor: anchor } : {}),
       ...(modelOverride !== undefined ? { modelOverride } : {}),
     }, catalog);

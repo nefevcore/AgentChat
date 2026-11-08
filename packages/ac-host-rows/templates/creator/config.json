@@ -19,15 +19,9 @@
     "restart",
     "persona"
   ],
-  "tags": [
-    "fs",
-    "shell",
-    "web",
-    "observe",
-    "delegation",
-    "issue-report",
-    "infra"
-  ],
+  "levels": {
+    "browser": "observe"
+  },
   "description": "AgentChat 插件开发：读写/检索/Shell/搜索/浏览器/子任务委派 + 技能面 + 插件开发三件套与安全重启，单会话无长期记忆不归档",
   "settings": {
     "persona": {

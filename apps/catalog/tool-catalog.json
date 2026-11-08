@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-08T04:45:39.511Z",
+  "generatedAt": "2026-11-08T14:17:21.692Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -51,10 +51,7 @@
           "objects"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_atc_runs",
@@ -100,10 +97,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_batch",
@@ -162,10 +156,7 @@
           "requests"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_check",
@@ -208,10 +199,7 @@
           "objects"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_cochange",
@@ -255,10 +243,7 @@
           "objects"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_create_destination",
@@ -405,10 +390,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_data_preview",
@@ -460,10 +442,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_debug",
@@ -545,10 +524,7 @@
           "action"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_dumps",
@@ -595,10 +571,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_execute",
@@ -628,10 +601,7 @@
           "name"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_export_objects",
@@ -676,10 +646,7 @@
           "targetDir"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_list_destinations",
@@ -688,10 +655,7 @@
         "type": "object",
         "properties": {}
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_list_gui_connections",
@@ -717,10 +681,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_local_check",
@@ -758,10 +719,7 @@
           "dir"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_lock_info",
@@ -787,10 +745,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_object_delete",
@@ -816,10 +771,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_object_edit",
@@ -891,10 +843,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_object_read",
@@ -936,10 +885,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_object_versions",
@@ -965,10 +911,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_object_write",
@@ -1040,10 +983,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_permissions",
@@ -1052,10 +992,7 @@
         "type": "object",
         "properties": {}
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_ping",
@@ -1069,10 +1006,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_release_gate",
@@ -1129,10 +1063,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_run_atc",
@@ -1179,10 +1110,7 @@
           "objects"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_run_unit_tests",
@@ -1225,10 +1153,7 @@
           "objects"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_search",
@@ -1274,10 +1199,7 @@
           "query"
         ]
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_selfcheck",
@@ -1303,10 +1225,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_system_info",
@@ -1320,10 +1239,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_transports",
@@ -1349,10 +1265,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_unlock_all",
@@ -1392,10 +1305,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_version_diff",
@@ -1429,10 +1339,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "adt_where_used",
@@ -1462,10 +1369,7 @@
           }
         }
       },
-      "owner": "ac-sap-adt",
-      "requiredTags": [
-        "sap-adt"
-      ]
+      "owner": "ac-sap-adt"
     },
     {
       "name": "ask_questions",
@@ -1507,9 +1411,6 @@
         ]
       },
       "owner": "ac-ask-questions",
-      "requiredTags": [
-        "infra"
-      ],
       "requiresInteraction": true
     },
     {
@@ -1545,9 +1446,6 @@
         ]
       },
       "owner": "ac-shell-tools",
-      "requiredTags": [
-        "shell"
-      ],
       "needPermission": true
     },
     {
@@ -1719,10 +1617,6 @@
         }
       },
       "owner": "ac-web-tools",
-      "requiredTags": [
-        "web",
-        "observe"
-      ],
       "needPermission": true
     },
     {
@@ -1751,9 +1645,6 @@
         ]
       },
       "owner": "ac-fs-tools",
-      "requiredTags": [
-        "fs"
-      ],
       "needPermission": true
     },
     {
@@ -1775,10 +1666,7 @@
           "pattern"
         ]
       },
-      "owner": "ac-fs-search",
-      "requiredTags": [
-        "fs"
-      ]
+      "owner": "ac-fs-search"
     },
     {
       "name": "goal",
@@ -1829,10 +1717,7 @@
           "action"
         ]
       },
-      "owner": "ac-goal",
-      "requiredTags": [
-        "infra"
-      ]
+      "owner": "ac-goal"
     },
     {
       "name": "grep",
@@ -1867,10 +1752,7 @@
           "pattern"
         ]
       },
-      "owner": "ac-fs-search",
-      "requiredTags": [
-        "fs"
-      ]
+      "owner": "ac-fs-search"
     },
     {
       "name": "grep_history",
@@ -1950,10 +1832,7 @@
           "action"
         ]
       },
-      "owner": "ac-shell-tools",
-      "requiredTags": [
-        "shell"
-      ]
+      "owner": "ac-shell-tools"
     },
     {
       "name": "list_agents",
@@ -1962,10 +1841,7 @@
         "type": "object",
         "properties": {}
       },
-      "owner": "ac-collab-tools",
-      "requiredTags": [
-        "collab"
-      ]
+      "owner": "ac-collab-tools"
     },
     {
       "name": "list_groups",
@@ -1974,10 +1850,7 @@
         "type": "object",
         "properties": {}
       },
-      "owner": "ac-collab-tools",
-      "requiredTags": [
-        "collab"
-      ]
+      "owner": "ac-collab-tools"
     },
     {
       "name": "list_tools",
@@ -1986,10 +1859,7 @@
         "type": "object",
         "properties": {}
       },
-      "owner": "ac-collab-tools",
-      "requiredTags": [
-        "infra"
-      ]
+      "owner": "ac-collab-tools"
     },
     {
       "name": "load_skill",
@@ -2006,10 +1876,7 @@
           "name"
         ]
       },
-      "owner": "SkillsService",
-      "requiredTags": [
-        "infra"
-      ]
+      "owner": "SkillsService"
     },
     {
       "name": "math",
@@ -2026,10 +1893,7 @@
           "expression"
         ]
       },
-      "owner": "ac-math",
-      "requiredTags": [
-        "infra"
-      ]
+      "owner": "ac-math"
     },
     {
       "name": "memory_grep",
@@ -2059,10 +1923,7 @@
           }
         }
       },
-      "owner": "ac-memory",
-      "requiredTags": [
-        "memory"
-      ]
+      "owner": "ac-memory"
     },
     {
       "name": "memory_write",
@@ -2090,10 +1951,7 @@
           "content"
         ]
       },
-      "owner": "ac-memory",
-      "requiredTags": [
-        "memory"
-      ]
+      "owner": "ac-memory"
     },
     {
       "name": "pwsh",
@@ -2128,9 +1986,6 @@
         ]
       },
       "owner": "ac-shell-tools",
-      "requiredTags": [
-        "shell"
-      ],
       "needPermission": true
     },
     {
@@ -2159,10 +2014,7 @@
           "file_path"
         ]
       },
-      "owner": "ac-fs-tools",
-      "requiredTags": [
-        "fs"
-      ]
+      "owner": "ac-fs-tools"
     },
     {
       "name": "read_agent_info",
@@ -2176,10 +2028,7 @@
           }
         }
       },
-      "owner": "ac-collab-tools",
-      "requiredTags": [
-        "collab"
-      ]
+      "owner": "ac-collab-tools"
     },
     {
       "name": "read_history",
@@ -2323,9 +2172,6 @@
         ]
       },
       "owner": "ac-harness-tools",
-      "requiredTags": [
-        "harness"
-      ],
       "needPermission": true
     },
     {
@@ -2357,10 +2203,7 @@
           "message"
         ]
       },
-      "owner": "ac-collab-tools",
-      "requiredTags": [
-        "collab"
-      ]
+      "owner": "ac-collab-tools"
     },
     {
       "name": "send_group",
@@ -2382,10 +2225,7 @@
           "message"
         ]
       },
-      "owner": "ac-collab-tools",
-      "requiredTags": [
-        "collab"
-      ]
+      "owner": "ac-collab-tools"
     },
     {
       "name": "str_replace_editor",
@@ -2437,9 +2277,6 @@
         ]
       },
       "owner": "ac-str-replace-editor",
-      "requiredTags": [
-        "fs_minimal"
-      ],
       "needPermission": true
     },
     {
@@ -2574,9 +2411,6 @@
         ]
       },
       "owner": "ac-issue-tools",
-      "requiredTags": [
-        "issue-report"
-      ],
       "needPermission": true
     },
     {
@@ -2622,10 +2456,7 @@
         },
         "required": []
       },
-      "owner": "ac-todo",
-      "requiredTags": [
-        "infra"
-      ]
+      "owner": "ac-todo"
     },
     {
       "name": "unregister_plugin",
@@ -2668,9 +2499,6 @@
         ]
       },
       "owner": "ac-web-tools",
-      "requiredTags": [
-        "web"
-      ],
       "needPermission": true
     },
     {
@@ -2694,9 +2522,6 @@
         ]
       },
       "owner": "ac-fs-tools",
-      "requiredTags": [
-        "fs"
-      ],
       "needPermission": true
     }
   ],
@@ -2917,12 +2742,6 @@
       "name": "loop/before-run",
       "listeners": [
         {
-          "owner": "ac-sap-adt",
-          "prepend": false,
-          "global": false,
-          "description": "sap-adt：注入 <sap-adt-tools> 使用规约（生效工具集含 adt_* 时）"
-        },
-        {
           "owner": "McpService",
           "row": "ac-mcp",
           "prepend": false,
@@ -3139,13 +2958,6 @@
       "event": "loop/before-run",
       "description": "字节恒定的 memory-guide（内容走 context 行协议）",
       "role": "静态指引注入",
-      "source": "builtin"
-    },
-    {
-      "owner": "sap-adt",
-      "event": "loop/before-run",
-      "description": "生效工具集含 adt_* → system prompt 追加 <sap-adt-tools> 使用规约（先问后建/复用传输请求/删改前确认）",
-      "role": "guide",
       "source": "builtin"
     },
     {

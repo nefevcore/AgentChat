@@ -11,17 +11,19 @@ beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-import-tree-'));
 });
 
-describe('convertConfig（tags→tools 换轨）', () => {
-  it('装载词展开为行引用；档位词留 tags；行内档位归 settings', () => {
+describe('convertConfig（tags→rows + 结构化档位换轨）', () => {
+  it('装载词展开为行引用；档位词换轨 access/toolMode；行内档位归 levels', () => {
     const out = convertConfig('a', {
       id: 'a',
       tags: ['shell', 'web', 'fs', 'full-access', 'tc-programmatic', 'observe', 'manipulate', 'admin'],
     });
     expect(out.rows).toEqual(expect.arrayContaining(['shell-tools', 'web-tools', 'fs-tools', 'fs-search']));
-    expect(out.tags).toEqual(['full-access', 'tc-programmatic']);
-    expect(out.settings).toEqual({
-      browser: { observe: true, manipulate: true },
-      collab: { admin: true },
+    expect(out.access).toBe('full-access');
+    expect(out.toolMode).toBe('tc-programmatic');
+    expect(out.tags).toBeUndefined(); // cr-953：tags 键输出恒删
+    expect(out.levels).toEqual({
+      browser: 'manipulate', // 层级取最高
+      collab: 'admin',
     });
   });
 

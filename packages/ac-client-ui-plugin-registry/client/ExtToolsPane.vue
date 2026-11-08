@@ -286,54 +286,33 @@ const filteredDynPlugins = computed(() =>
     .filter((p) => matchesQuery(extQuery.value, p.name, p.label, p.description)),
 );
 
-// ── 工具区（include/exclude 单一意图覆盖；四态徽章） ──
-// gated = 已列入清单但能力标签不足：模型可见（schema 照常注入），调用会被
-// ac-security 安全行 veto——不得显示为绿色"启用"，防误导（enabled 是
-// include/exclude 解析集，标签盲；门禁判定在前端按 requiredTags 推演）。
-type ToolStatus = 'auto' | 'explicit' | 'off' | 'gated';
-// P2：调用方能力集 = base ∪ 显式 tags ∪ agent:<自己的id>（与后端门禁语义
-// 同步合成；'agent' 旧标签归一为 base 全等匹配保持现状）
+// ── 工具区（include/exclude 单一意图覆盖；三态徽章） ──
+// cr-953：requiredTags 门禁退役（授权 = 行装载单闸）——gated 态与
+// canAddTool/hasTag 门禁推演删除；include/exclude 意图覆盖语义不变。
+type ToolStatus = 'auto' | 'explicit' | 'off';
 function toolDisabled(name: string): boolean {
   return (props.decl?.tools.exclude ?? []).includes(name);
 }
 function toolStatus(name: string): ToolStatus {
   if (toolDisabled(name)) return 'off';
-  // 标签门禁先行：缺标签时无论 include 显式还是默认纳入，都不算"可用"
-  const t = props.tools.catalog.find(x => x.name === name);
-  if (t && !canAddTool(t)) return 'gated';
   if ((props.decl?.tools.include ?? props.tools.include).includes(name)) return 'explicit';
   if (props.tools.enabled.includes(name)) return 'auto';
-  // 本地已把停用工具重新打开：后端 enabled 快照尚未更新，按标签推演默认启用状态
-  if (t && (t.requiredTags?.length ?? 0) > 0 && canAddTool(t)) return 'auto';
   return 'off';
 }
-function canAddTool(t: AgentToolInfo): boolean {
-  if (!t.requiredTags || t.requiredTags.length === 0) return true;
-  const tags = new Set(['base', ...(props.tags ?? []).map(tag => tag === 'agent' ? 'base' : tag), ...(props.agentId ? ['agent:' + props.agentId] : [])]);
-  return t.requiredTags.every(r => tags.has(r));
-}
-function hasTag(r: string): boolean {
-  const tags = new Set(['base', ...(props.tags ?? []).map(tag => tag === 'agent' ? 'base' : tag), ...(props.agentId ? ['agent:' + props.agentId] : [])]);
-  return tags.has(r);
-}
-/** 工具开关是否可用：能力标签不足时不可手动打开 */
-function toolToggleDisabled(t: AgentToolInfo): boolean {
-  if (!isEditable.value) return true;
-  if (toolStatus(t.name) !== 'off') return false;
-  return !canAddTool(t);
+/** 工具开关是否可用（cr-953 后无标签门——纯编辑态判定） */
+function toolToggleDisabled(_t: AgentToolInfo): boolean {
+  return !isEditable.value;
 }
 function toggleTool(name: string, on: boolean): void {
   if (!isEditable.value) return;
   const t = props.tools.catalog.find(x => x.name === name);
   if (!t) return;
-  if (on && !canAddTool(t)) return;
-
   let include = [...(props.decl?.tools.include ?? [])];
   let exclude = [...(props.decl?.tools.exclude ?? [])];
   if (on) {
     exclude = exclude.filter(n => n !== name);
-    // requiredTags 为空的工具无默认启用：必须写入 include 显式开启
-    if ((!t.requiredTags || t.requiredTags.length === 0) && !include.includes(name)) include = [...include, name];
+    // 无默认启用的工具（不在 enabled 快照）须写入 include 显式开启
+    if (!props.tools.enabled.includes(name) && !include.includes(name)) include = [...include, name];
   } else {
     include = include.filter(n => n !== name);
     exclude = exclude.includes(name) ? exclude : [...exclude, name];
@@ -360,21 +339,12 @@ function toolOwnerLabel(owner: string): string {
 }
 
 interface ToolGroupView { owner: string; label: string; tools: AgentToolInfo[] }
-/** 组内工具要求而本 Agent 缺的能力标签（组头提示用） */
-function groupMissingTags(g: ToolGroupView): string[] {
-  const miss = new Set<string>();
-  for (const t of g.tools) for (const r of t.requiredTags ?? []) if (!hasTag(r)) miss.add(r);
-  return [...miss];
-}
-/** 整组标签不足（每个成员都开不了——默认收起，避免 47 个"标签不足"卡刷屏） */
-function groupAllGated(g: ToolGroupView): boolean {
-  return g.tools.length > 0 && g.tools.every((t) => !canAddTool(t));
-}
+
 const toolGroupState = ref(new Map<string, boolean>());
 const toolSearchActive = computed(() => toolQuery.value.trim() !== '');
 function toolGroupExpanded(g: ToolGroupView): boolean {
   if (toolSearchActive.value) return true; // 搜索时展开——命中项直接可见
-  return toolGroupState.value.get(g.owner) ?? (g.tools.length < TOOL_GROUP_COLLAPSE && !groupAllGated(g));
+  return toolGroupState.value.get(g.owner) ?? (g.tools.length < TOOL_GROUP_COLLAPSE);
 }
 function toggleToolGroup(g: ToolGroupView): void {
   const next = new Map(toolGroupState.value);
@@ -549,11 +519,6 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
             >
               <span class="evt-caret"><Icon :name="toolGroupExpanded(row.group) ? 'chevron-down' : 'chevron-right'" :size="14" /></span>
               <span class="tool-group-name">{{ row.group.label }}</span>
-              <span
-                v-for="r in groupMissingTags(row.group)" :key="r"
-                class="ui-badge tag miss" :class="'tt-' + r"
-                :title="`整组缺此能力标签（补标签 = Agent tags）；组内 ${row.group.tools.length} 个工具均不可启用`"
-              >{{ r }}</span>
               <span class="evt-row-count">{{ row.group.tools.length }}</span>
             </div>
             <div
@@ -566,22 +531,17 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
                 <div class="plugin-title-row">
                   <span class="plugin-name">{{ row.tool.label || row.tool.name }}</span>
                   <span v-if="row.tool.label && row.tool.label !== row.tool.name" class="plugin-alias" :title="`工具 ID（注册名，config.tools 引用的名字）：${row.tool.name}`">{{ row.tool.name }}</span>
-                  <span
-                    v-for="r in row.tool.requiredTags ?? []" :key="r"
-                    class="ui-badge tag" :class="['tt-' + r, { miss: !hasTag(r) }]"
-                    :title="hasTag(r) ? '已具备此能力标签' : '缺少此能力标签，无法启用（补标签 = Agent tags）'"
-                  >{{ r }}</span>
                   <span v-if="toolDisabled(row.tool.name)" class="ui-badge dim" title="已停用（tools.exclude，本 Agent 差异层）">已停用</span>
-                  <span v-else-if="toolStatus(row.tool.name) === 'gated'" class="ui-badge warn" title="已列入本 Agent 清单，但缺少所需能力标签——模型可见，调用会被安全行拦截（补标签 = 基本信息 · 能力标签）">标签不足</span>
-                  <span v-else-if="toolStatus(row.tool.name) === 'auto'" class="ui-badge dim" title="默认启用（能力标签门禁通过）">默认</span>
+                  <span v-else-if="toolStatus(row.tool.name) === 'auto'" class="ui-badge dim" title="默认启用（行装载）">默认</span>
+                  <span v-else-if="toolStatus(row.tool.name) === 'explicit'" class="ui-badge ok" title="已在 tools.include 显式启用">显式</span>                  <span v-else-if="toolStatus(row.tool.name) === 'auto'" class="ui-badge dim" title="默认启用（能力标签门禁通过）">默认</span>
                   <span v-else-if="toolStatus(row.tool.name) === 'explicit'" class="ui-badge ok" title="已在 tools.include 显式启用">显式</span>
                 </div>
                 <div class="plugin-desc">{{ row.tool.description }}</div>
               </div>
               <div class="plugin-actions" @click.stop>
                 <label
-                  class="ui-switch" :class="{ gated: toolStatus(row.tool.name) === 'gated' }"
-                  :title="!isEditable ? '' : toolStatus(row.tool.name) === 'off' ? (!canAddTool(row.tool) ? '缺少所需能力标签' : '启用工具') : toolStatus(row.tool.name) === 'gated' ? '缺少所需能力标签（调用会被安全行拦截）；关闭 = 写入 tools.exclude' : '停用工具（写入 tools.exclude）'"
+                  class="ui-switch"
+                  :title="!isEditable ? '' : toolStatus(row.tool.name) === 'off' ? '启用工具' : '停用工具（写入 tools.exclude）'"
                 >
                   <input
                     type="checkbox"
@@ -667,22 +627,14 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
     <Modal :visible="!!toolDetail" :title="toolDetail ? (toolDetail.label || toolDetail.name) + ' · 工具详情' : ''" :width="560" :z-index="1200" @close="toolDetail = null">
       <div class="ext-modal-body">
         <div class="ext-modal-desc">{{ toolDetail?.description }}</div>
-        <div v-if="toolDetail?.requiredTags?.length" class="tool-meta-row">
-          <span class="tool-meta-label">能力标签</span>
-          <span
-            v-for="r in toolDetail.requiredTags" :key="r"
-            class="ui-badge tag" :class="['tt-' + r, { miss: !hasTag(r) }]"
-            :title="hasTag(r) ? '已具备此能力标签' : '缺少此能力标签（调用方能力集 base ∪ tags ∪ agent:<id> 须全含）'"
-          >{{ r }}</span>
-        </div>
         <div v-if="toolDetail?.owner" class="tool-meta-row">
           <span class="tool-meta-label">来源行</span>
           <span class="plugin-alias" :title="`注册方装配行：${toolDetail.owner}`">{{ toolOwnerLabel(toolDetail.owner) }}</span>
         </div>
         <div class="tool-meta-row">
           <span class="tool-meta-label">本 Agent 状态</span>
-          <span class="ui-badge" :class="toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'ok' : toolStatus(toolDetail?.name ?? '') === 'gated' ? 'warn' : 'dim'">
-            {{ toolStatus(toolDetail?.name ?? '') === 'auto' ? '默认启用（能力标签门禁通过）' : toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'tools.include 显式启用' : toolStatus(toolDetail?.name ?? '') === 'gated' ? '已列入清单，但缺少能力标签——调用会被安全行拦截' : '未启用（tools.exclude 或未开启）' }}
+          <span class="ui-badge" :class="toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'ok' : 'dim'">
+            {{ toolStatus(toolDetail?.name ?? '') === 'auto' ? '默认启用（行装载）' : toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
           </span>
         </div>
         <template v-if="toolParamRows">

@@ -13,7 +13,7 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const ROOT = path.join('sandbox', 'test-migrate-script-' + process.pid);
 const SCRIPT = path.join(REPO, 'scripts/migrate-agent-patch.mjs');
 
-const alpha = { id: 'alpha', model: 'mock', rows: ['fs'], tags: ['full-access'], system: '旧提示', settings: { memory: { depth: 2 } } };
+const alpha = { id: 'alpha', model: 'mock', rows: ['fs'], access: 'full-access', system: '旧提示', settings: { memory: { depth: 2 } } };
 
 beforeEach(() => {
   fs.mkdirSync(path.join(ROOT, 'agents/alpha'), { recursive: true });
@@ -35,7 +35,7 @@ describe('身份迁移脚本（cr-906 批4 切片三）', () => {
     expect(fs.existsSync(path.join(dir, 'preset-origin.json.migrated'))).toBe(true);
     const reread = readAgentConfig(ROOT, 'alpha');
     expect(reread?.model).toBe('mock');
-    expect(reread?.tags).toEqual(['full-access']);
+    expect(reread?.access).toBe('full-access');
     expect(reread?.settings).toEqual({ memory: { depth: 2 } });
     expect(reread?.system).toBeUndefined();
     expect(readAgentPatch(ROOT, 'alpha')?.origin).toEqual({ template: 'standard', hash: 'h1' });

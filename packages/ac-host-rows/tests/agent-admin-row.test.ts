@@ -156,7 +156,7 @@ describe('agent-admin 行（写侧 RPC 编排）', () => {
   it('create → get-config → update → delete 全链（落盘经编辑面单源）', async () => {
     const { web } = await boot();
     const created = await web.call('agents/create', {
-      config: { name: 'Admin Row', model: 'mock@deepseek-chat', tags: ['full-access'] },
+      config: { name: 'Admin Row', model: 'mock@deepseek-chat', access: 'full-access' },
     }) as { config: { id: string; model: string; provider: string } };
     expect(created.config).toMatchObject({ id: 'admin-row', model: 'deepseek-chat', provider: 'mock' });
     const file = path.join(ROOT, 'agents', 'admin-row', 'agent.patch.yml'); // cr-918 patch 主写

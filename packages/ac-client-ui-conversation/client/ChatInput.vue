@@ -418,38 +418,21 @@ const toolModeConvKey = computed(() => {
   return agentId ? [VIEWER_ID.value, agentId].sort().join('~') : null;
 });
 
-/** 目标 Agent 的 tags 工具调用模式档（toolModeOf 同款判定——前端复刻；
+/** 目标 Agent 的工具调用模式档（cr-953 结构化——toolMode 字段直读；
  *  single = 会话登记 Agent/默认预设；1v1 = 激活 Agent/默认预设）。
- *  名册/presets 目录均无 tags 数据 = 视为 tc-base（缺席宽容——不误伤
- *  旧后端）。用于跟随态的实际生效档显示。 */
+ *  名册无数据 = 视为 tc-base（缺席宽容——不误伤旧后端）。 */
 const agentToolMode = computed<'tc-base' | 'tc-programmatic' | 'tc-none'>(() => {
   const targetId = props.single
     ? (selAgent.value || roster.defaultPresetId.value)
     : (roster.activeAgentId.value || roster.defaultPresetId.value);
   if (!targetId) return 'tc-base';
-  const tags = roster.agents.value.find(a => a.id === targetId)?.tags
-    ?? roster.presets.value.find(p => p.id === targetId)?.tags;
-  if (!tags) return 'tc-base';
-  if (tags.includes('tc-none')) return 'tc-none';
-  if (tags.includes('tc-programmatic')) return 'tc-programmatic';
+  const mode = roster.agents.value.find(a => a.id === targetId)?.toolMode;
+  if (mode === 'tc-none' || mode === 'tc-programmatic') return mode;
   return 'tc-base';
 });
-/** 程序化可用性：Agent 工具面含 run_code（infra 能力族——2026-09-17
- *  优化裁决：程序化是形态选择非授权门槛，选「程序化」= 临时程序化档）。
- *  无 infra（或 run-code 行未装）时覆盖惰性——router warn 忽略，UI
- *  禁选并说明，防「勾了不生效」的静默落差（实测 3a8ea4f7 坑）。名册/
- *  presets 目录均无 tags 数据 = 视为可用（缺席宽容——不误伤旧后端）。 */
-const programmaticAvailable = computed(() => {
-  if (agentToolMode.value === 'tc-none') return false; // 无工具档：程序化无意义
-  const targetId = props.single
-    ? (selAgent.value || roster.defaultPresetId.value)
-    : (roster.activeAgentId.value || roster.defaultPresetId.value);
-  if (!targetId) return true;
-  const tags = roster.agents.value.find(a => a.id === targetId)?.tags
-    ?? roster.presets.value.find(p => p.id === targetId)?.tags;
-  if (!tags) return true; // 两目录均无 tags（旧后端/未拉取）——宽容不拦截
-  return tags.includes('infra');
-});
+/** 程序化可用性（cr-953：行装载单闸——前端不再按 infra 标签推演，恒可
+ *  选：形态是选择非授权门槛；行未装时覆盖由 router 惰性 warn 兜底）。 */
+const programmaticAvailable = computed(() => agentToolMode.value !== 'tc-none');
 
 /** 挂载/会话切换：回读会话工具调用模式覆盖（conv-settings toolMode）。
  *  会话有显式键 = 存储为准（用户在该会话的覆盖）；无键（新会话）=
@@ -576,19 +559,14 @@ function selectBrowserTier(v: '' | 'observe' | 'manipulate' | 'inject' | 'disabl
     });
 }
 
-/** Agent tags 的 browser 档（跟随态实际生效档显示——observe ⊂ manipulate
- *  ⊂ inject 单源序；无 browser 标签 = browser 工具不可见〔地板 requiredTags
- *  含 web+observe〕）。 */
+/** Agent 的 browser 档（跟随态实际生效档显示——cr-953 结构化 levels.browser；
+ *  缺席 = browser 行未配层级〔不可用〕）。 */
 const agentBrowserTier = computed<'' | 'observe' | 'manipulate' | 'inject'>(() => {
   const targetId = props.single
     ? (selAgent.value || roster.defaultPresetId.value)
     : (roster.activeAgentId.value || roster.defaultPresetId.value);
-  const tags = roster.agents.value.find(a => a.id === targetId)?.tags
-    ?? roster.presets.value.find(p => p.id === targetId)?.tags;
-  if (!tags) return '';
-  if (tags.includes('inject')) return 'inject';
-  if (tags.includes('manipulate')) return 'manipulate';
-  if (tags.includes('observe')) return 'observe';
+  const level = roster.agents.value.find(a => a.id === targetId)?.levels?.browser;
+  if (level === 'observe' || level === 'manipulate' || level === 'inject') return level;
   return '';
 });
 const agentBrowserTierLabel = computed(() =>
@@ -701,17 +679,15 @@ const TIER_LABEL: Record<'sandbox-access' | 'full-access', string> = {
   'sandbox-access': '沙箱访问',
   'full-access': '完全访问',
 };
-/** 会话目标 Agent 的自有档位（tags 判定，底座——未武装即按此执行）：
+/** 会话目标 Agent 的自有档位（cr-953 结构化 access 字段——未武装即按此执行）：
  *  single = 会话登记 Agent（空 = 默认预设）；1v1 = 激活 Agent。
- *  名册无 tags 数据（预设/未同步）= 基础档。 */
+ *  名册无数据（预设/未同步）= 基础档。 */
 const agentTier = computed<'' | 'sandbox-access' | 'full-access'>(() => {
   const targetId = props.single
     ? (selAgent.value || roster.defaultPresetId.value)
     : (roster.activeAgentId.value || roster.defaultPresetId.value);
-  const tags = roster.agents.value.find(a => a.id === targetId)?.tags;
-  if (!tags) return '';
-  if (tags.includes('full-access')) return 'full-access';
-  if (tags.includes('sandbox-access')) return 'sandbox-access';
+  const access = roster.agents.value.find(a => a.id === targetId)?.access;
+  if (access === 'full-access' || access === 'sandbox-access') return access;
   return '';
 });
 /** 底座档位显示（默认项 detail + 未武装 title） */

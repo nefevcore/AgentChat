@@ -86,17 +86,16 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
   },
   {
     // cr-41：submit_issue 会话开关（用户 2）——输入框「实验性」目录驱动
-    // 出现（group experimental，零前端改动）。enabled 值走 grants 注入
-    // issue-report（无 tags Agent 的 LLM 可见面通路——sessionCapsOf），
+    // 出现（group experimental，零前端改动）。enabled = 跟随装载
+    //（issue-tools 行在装即可用——cr-953 后授权 = 行装载单闸），
     // disabled = 执行前置拦截（issue-tools execute 自查）。
     key: 'issueSubmit',
     enum: ['enabled', 'disabled'],
-    description: '跟随 Agent tags（issue-report 标签）',
+    description: '跟随装载（issue-tools 行）',
     group: 'experimental',
     label: 'ISSUE 提交',
     order: 2,
     options: { enabled: '本会话启用', disabled: '禁用（防敏感信息外发）' },
-    grants: { enabled: ['issue-report'] },
   },
 ];
 

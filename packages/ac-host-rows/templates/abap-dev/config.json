@@ -15,15 +15,8 @@
     "todo",
     "sap-adt"
   ],
-  "tags": [
-    "fs",
-    "shell",
-    "web",
-    "observe",
-    "delegation",
-    "issue-report",
-    "infra",
-    "sap-adt"
-  ],
+  "levels": {
+    "browser": "observe"
+  },
   "description": "SAP ABAP 开发面：adt_* 工具（搜索/读写/激活/单测/ATC/传输/调试）+ 通用开发面（读写/检索/Shell/搜索/浏览器/目标待办），单会话无记忆不归档"
 }

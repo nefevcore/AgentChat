@@ -84,9 +84,9 @@ describe('8.5a 宿主 web 面接线', () => {
 
     // ① agents/list：agents-core 直读 + 全量 config 展开 + 头像版本（名册四道
     // 闸：config 在场/身份词形/非预设词形/非派生子身份——子身份不入列）
-    const list = await rpc<{ agents: Array<{ id: string; name?: string; description?: string; tags?: string[]; hasAvatar?: boolean; avatarVersion?: string }> }>(ws, 'agents/list', {});
+    const list = await rpc<{ agents: Array<{ id: string; name?: string; description?: string; access?: string; hasAvatar?: boolean; avatarVersion?: string }> }>(ws, 'agents/list', {});
     expect(list.agents.map((a) => a.id)).toEqual(['alpha']);
-    expect(list.agents[0]).toMatchObject({ description: '阿尔法', tags: ['full-access'], hasAvatar: true });
+    expect(list.agents[0]).toMatchObject({ description: '阿尔法', access: 'full-access', hasAvatar: true }); // cr-953：tags 归一为结构化
     expect(list.agents[0]!.avatarVersion).toMatch(/^\d+:\d+$/);
 
     // ①b healthz agents 计数与名册同轴（cr-607——裸目录计数会把 pair/子域误算）

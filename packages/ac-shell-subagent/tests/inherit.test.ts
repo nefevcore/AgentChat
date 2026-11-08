@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentConfig } from 'ac-agents-core';
 import { readCatalog, deriveShellRowset } from 'ac-rowset-core';
-import { filterSpawnTools, convInheritTagsOf, spawnChildConfigOf } from '../src/inherit.ts';
+import { filterSpawnTools, convInheritOf, spawnChildConfigOf } from '../src/inherit.ts';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,32 +26,30 @@ describe('cr-856 spawn 物化单源（inherit.ts）', () => {
     expect(out.rejected).toContain('browser'); // 不属父行集
   });
 
-  it('convInheritTagsOf：水位取高 + grants 全链映射；tc-* 不产生', () => {
-    const full = convInheritTagsOf({ access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }, 'sandbox-access');
-    for (const t of ['full-access', 'web', 'observe', 'manipulate', 'inject', 'issue-report']) {
-      expect(full).toContain(t);
-    }
-    expect(full).not.toContain('tc-programmatic'); // 形态词非授权——不继承
+  it('convInheritOf：access 水位取高 + browserTier 层级映射；tc-*/issueSubmit 无继承面', () => {
+    const full = convInheritOf({ access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }, 'sandbox-access');
+    expect(full.access).toBe('full-access');
+    expect(full.browserLevel).toBe('inject');
     // 无设置 + per-call 提权兜底
-    expect(convInheritTagsOf({}, 'full-access')).toEqual(['full-access']);
+    expect(convInheritOf({}, 'full-access')).toEqual({ access: 'full-access' });
     // 空面无词
-    expect(convInheritTagsOf({}, undefined)).toEqual([]);
+    expect(convInheritOf({}, undefined)).toEqual({});
   });
 
-  it('spawnChildConfigOf：tc-* 剥除 + rows 含 run-code 合成形态 + model/workdir 快照', () => {
+  it('spawnChildConfigOf：toolMode 结构化合成 + rows 含 run-code 合成形态 + model/workdir 快照', () => {
     const parent: AgentConfig = {
       id: 'papa', model: 'mock',
       rows: ['run-code', 'fs-tools'],
-      tags: ['tc-programmatic', 'full-access'],
+      access: 'full-access',
       settings: { other: { flag: 1 } },
     } as AgentConfig;
-    // ① 缺省继承（rows 含 run-code）：形态合成 + 授权词保留
+    // ① 缺省继承（rows 含 run-code）：形态合成 + 档位继承
     const inheritRun = spawnChildConfigOf({ parent }, CATALOG);
-    expect(inheritRun.tags).toContain('tc-programmatic');
-    expect(inheritRun.tags).toContain('full-access');
+    expect(inheritRun.toolMode).toBe('tc-programmatic');
+    expect(inheritRun.access).toBe('full-access');
     // ② 显式子集（无 run-code）：无形态词
     const subset = spawnChildConfigOf({ parent, tools: ['read'] }, CATALOG);
-    expect(subset.tags).not.toContain('tc-programmatic');
+    expect(subset.toolMode).toBeUndefined();
     expect(subset.rows).toEqual(['read']);
     // ③ workdir 快照并入 security（其余 settings 保留）；model 覆盖拆分
     const withAnchor = spawnChildConfigOf({ parent, tools: ['read'], workdirAnchor: 'D:/ws', modelOverride: 'poolB@glm-5.3' }, CATALOG);

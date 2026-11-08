@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-952**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-953**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -969,4 +969,5 @@
 - 【cr-950 2026-11-08 run_code 擦除容错：字符串字面量内嵌裸换行的确定性归一（\n 转义救活）+ 词法归一层整体迁 ac-run-code-core（worker 纯函数零单测的结构性修复）】
 - 【cr-951 2026-11-08 ac-web-server 存量 typecheck 堵门修复：cr-948 测试 connect(new URL(url).port) 传 string 给 number 参数——Number() 收口（解锁全仓 typecheck 验证门）】
 - 【cr-952 2026-11-08 run_code worker 快照降级链修复：快照源码 import 绝对化（相对/裸包名 → file URL，node: 不动）+ 快照后缀 .ts + execArgv 补 strip-types——修复 strip 单文件快照在 tmpdir 无法解析模块依赖、降级候选形同虚设的潜伏 bug（开发会话自锁事故实测证伪）】
+- 【cr-953 2026-11-08 AgentConfig.tags 全链退役（cr-484 终态收口）：档位/模式词换轨结构化 access/toolMode 字段 + requiredTags 门禁退役（授权 = 行装载单闸）+ caps 合成缩减（browser/admin 走 levels）+ 预设模板与消费面换轨 + 存量读侧归一】
 

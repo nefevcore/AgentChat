@@ -16,14 +16,11 @@ import { Button, Checkbox, FieldRow, Icon, IconAction, Input, Select, StatusDot,
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
-import TagChoice from './TagChoice.vue';
 // 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）；
 // 模型发现/池模型归一化经 ui-llm-pool（2026-09-11 语义归位：池域词汇，
 // Agent 面消费 = domain→domain 契约词汇边，白名单显式裁决）
 import { fetchPoolModels, poolModelEntries, modelOnProviderSwitch, poolDefaultModel } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { uploadAvatar, deleteAvatar, fetchLlmProviders, avatarUrl, type LlmProviderStat } from './index.ts';
-import { fetchTagCatalog, type TagCatalogItem } from './rosterApi.ts';
-import { collectExclusiveGroups, currentExclusiveTag, applyExclusiveChoice, type ExclusiveGroup } from './tagExclusive.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { sortedAgentSettingsTabs, resolveTabProps } from 'ac-client-ui-settings/client/extensionTabs.ts';
 
@@ -356,251 +353,56 @@ const llmEffectiveSummary = computed(() => {
   const fallback = globalDefaultModel.value;
   return { provider: fallback?.provider ?? '', model: fallback?.model ?? '', source: '默认（跟随模型池）' };
 });
-// ── 能力标签 ──
-/** 工具 requires 可能用到的标签 → 中文说明（base 已退役——全量标签化
- *  2026-09-16：一切出厂工具挂具体标签，隐式基础层不再呈现）。
- *  目录（tags/catalog RPC）可用时仅作 label 兜底；行未装配时是唯一徽章来源 */
-const TOOL_TAG_LABELS: Partial<Record<string, string>> = {
-  fs: '文件读写',
-  collab: '多 Agent 协作',
-  infra: '会话基础设施',
-  history: '历史回放',
-  admin: '系统管理',
-  dev: '开发工具',
-  shell: '命令执行',
-  delegation: '任务委派',
-  web: 'Web 浏览',
-  observe: '观察',
-  manipulate: '交互',
-  inject: '注入',
-  fs_minimal: '极简文件面',
-  // 档位标签（access-tier §四：tierOf 单源判定，缺省 = base-access——
-  // 驱动 needPermission 工具的权限轴门；base-access 2026-09-21 进目录——
-  // 抉择组下拉需要显式缺省项）。label = 短名，语义细节在目录
-  // description（胶囊关闭态文案/弹层二行/tooltip 单源）
-  'base-access': '基础档',
-  'sandbox-access': '沙箱档',
-  'full-access': '完全访问',
-  // 工具调用模式词（2026-09-17 tc-* 标签轴：toolModeOf 单源判定，缺省 =
-  // tc-base——tc-programmatic 同时是 run_code 的授权词：标签即模式）
-  'tc-programmatic': '程序化',
-  'tc-none': '无工具',
-  'tc-base': '标准',
+
+// ── 档位编辑（cr-953：AgentConfig.tags 退役——编辑面 = 结构化三抉择：
+//    访问档位 access / 工具调用模式 toolMode / 浏览器层级 levels.browser。
+//    本地目录（原 tags/catalog RPC 随 tag-registry 解体退役）；能力徽章区
+//    随 requiredTags 门禁退役删除——授权 = 装配视图的行级启停） ──
+const TIER_LABELS: Record<string, string> = {
+  'base-access': '基础档', 'sandbox-access': '沙箱档', 'full-access': '完全访问',
 };
-/** 目录条目的展示名：label 表优先 → description 冒号前段（短名约定）→ tag 本名 */
-function tagLabelOf(item: { tag: string; description?: string }): string {
-  const short = TOOL_TAG_LABELS[item.tag];
-  if (short) return short;
-  const desc = item.description;
-  if (!desc) return item.tag;
-  const colon = desc.search(/[：:]/);
-  return colon > 0 ? desc.slice(0, colon) : desc;
-}
+const TIER_TITLES: Record<string, string> = {
+  'base-access': '基础档：只有不需要档位门的工具（读面/协作面）',
+  'sandbox-access': '沙箱档：工作区白名单内自由执行写文件/命令等敏感工具',
+  'full-access': '完全访问：无档位门（写文件/命令执行全部放行）',
+};
+const MODE_LABELS: Record<string, string> = {
+  'tc-base': '标准', 'tc-programmatic': '程序化', 'tc-none': '无工具',
+};
+const MODE_TITLES: Record<string, string> = {
+  'tc-base': '标准档：常规工具面（逐工具 schema 直调）',
+  'tc-programmatic': '程序化档：LLM 面收窄为 run_code 单入口（程序化编排子调用）',
+  'tc-none': '无工具档：纯聊天（不出任何工具 schema）',
+};
+const BROWSER_LABELS: Record<string, string> = {
+  observe: '只读浏览', manipulate: '交互操作', inject: 'JS 注入',
+};
+const BROWSER_TITLES: Record<string, string> = {
+  observe: '观察层：打开/读取/等待页面（不能点击/输入/注入）',
+  manipulate: '交互层：含观察层 + 点击/输入/按键等页面交互',
+  inject: '注入层：含交互层 + 页面内执行 JS（eval）',
+};
 
-/** 标签目录（tag-registry P1）：行装配时 = 后端单源（分类 + 解锁工具清单）；
- *  未装配/拉取失败 = null（回落下方本地徽章表——既有行为不变） */
-const tagCatalog = ref<TagCatalogItem[] | null>(null);
-async function refreshTagCatalog(): Promise<void> {
-  try {
-    tagCatalog.value = await fetchTagCatalog(defaultRpc);
-  } catch {
-    tagCatalog.value = null; // 行未装配：静默回退本地表
-  }
-}
-refreshTagCatalog();
-
-// ── 抉择组（2026-09-21 标签配置语义升级）：exclusive 同名词聚合为下拉
-// 单选——access-tier（base/sandbox/full-access）/ tool-mode（tc-none/
-// tc-base/tc-programmatic）/ browser-tier（observe/manipulate/inject）。
-// 目录组内条目分流：抉择词进下拉、普通词照常徽章。判定面（tierOf /
-// toolModeOf / browser 层级门禁）不动——落词规则保证同组至多一词
-// （applyExclusiveChoice 单源），判定即语义等价。──
-const exclusiveGroups = computed<ExclusiveGroup[]>(() =>
-  tagCatalog.value ? collectExclusiveGroups(tagCatalog.value) : [],
-);
-/** 抉择组词全集（分组条目分流用） */
-const exclusiveTagSet = computed(() => new Set(exclusiveGroups.value.flatMap((g) => [...g.tags])));
-/**
- * browser-tier 组的行内档位换轨（◐a 2026-10-26 settings X1 单源）：
- * 装配视图在场 = 读写 settings.browser 层级布尔（capabilitySetOf 同义
- * 合成）；缺席（行不在/拉取失败）= 回落旧 tags 落词（回滚线兼容）。
- * 读写两头同步剔 tags 组内残留词——并集合成下双写不一致会以高档侧生效。
- */
-const BROWSER_TIER_KEY = 'browser-tier';
-/** settings.browser 层级布尔 → 当前档词（最高 true 层；全 false/缺席 = ''） */
-function browserTierOfSettings(): string {
-  const s = (props.raw.settings ?? {}) as Record<string, unknown>;
-  const b = s.browser;
-  if (!b || typeof b !== 'object' || Array.isArray(b)) return '';
-  const tier = b as { observe?: unknown; manipulate?: unknown; inject?: unknown };
-  if (tier.inject === true) return 'inject';
-  if (tier.manipulate === true) return 'manipulate';
-  if (tier.observe === true) return 'observe';
-  return '';
-}
-/** browser-tier 走 settings（装配在场）；其余组恒 tags 反解 */
-const browserTierViaSettings = computed(() =>
-  props.assembly !== null && exclusiveGroups.value.some((g) => g.key === BROWSER_TIER_KEY));
-/** 抉择组当前值（browser-tier·settings 态 = settings.browser 反解；
- *  其余 = Agent tags 反解；'' = 真「都不选」——组无 exclusiveNone 词时） */
-function exclusiveValueOf(group: ExclusiveGroup): string {
-  if (group.key === BROWSER_TIER_KEY && browserTierViaSettings.value) return browserTierOfSettings();
-  return currentExclusiveTag(group, props.raw.tags ?? [])?.tag ?? '';
-}
-/** 抉择组词 → 展示短名：label 表优先 → description 冒号前段（目录
- *  description 约定首段 = 短名，如「沙箱档：工作区白名单内自由」）→
- *  tag 本名。语义全文走 exclusiveTitleOf（弹层二行/胶囊关闭态） */
-function exclusiveLabelOf(tag: string): string {
-  const short = TOOL_TAG_LABELS[tag];
-  if (short) return short;
-  const desc = tagCatalog.value?.find((t) => t.tag === tag)?.description;
-  if (!desc) return tag;
-  const colon = desc.search(/[：:]/);
-  return colon > 0 ? desc.slice(0, colon) : desc;
-}
-/** 抉择组词 → 悬浮提示（功能说明，弹层二行用） */
-function exclusiveTitleOf(tag: string): string {
-  const item = tagCatalog.value?.find((t) => t.tag === tag);
-  return item ? (item.description ?? item.tag) : tag;
-}
-/** 抉择组色相词（组内当前值词驱动 --tag-hue；TagChoice 胶囊着色）。
- *  入参可空（模板 v-if 已保证非空——类型面收窄兜底） */
-function exclusiveHueTag(group: ExclusiveGroup | undefined): string {
-  if (!group) return 'primary';
-  return exclusiveValueOf(group) || group.items[0]?.tag || group.key;
-}
-/** 抉择换档/启停（TagChoice on-choose 回调）：applyExclusiveChoice 单源
- *  落词（互斥剔除 + exclusiveNone 缺省不写 + tier 地板连带）——与普通
- *  徽章共用 emitTags 写通道。browser-tier·settings 态改写 settings.browser
- *  层级布尔（关闭 = 删键），并同步剔 tags 组内残留词（并集合成双写
- *  收口——tags 恒无档位词是迁移终态） */
-function selectExclusive(group: ExclusiveGroup | undefined, nextTag: string | null): void {
-  if (!group) return; // 模板 v-if 已保证非空——类型面收窄兜底
-  if (group.key === BROWSER_TIER_KEY && browserTierViaSettings.value) {
-    const rest = (props.raw.tags ?? []).filter((t: string) => !group.tags.has(t));
-    const next: Record<string, unknown> = { ...(props.raw.settings ?? {}) };
-    if (nextTag === 'inject') next.browser = { observe: true, manipulate: true, inject: true };
-    else if (nextTag === 'manipulate') next.browser = { observe: true, manipulate: true, inject: false };
-    else if (nextTag === 'observe') next.browser = { observe: true, manipulate: false, inject: false };
-    else delete next.browser; // 关闭（都不选）= 删键
-    emit('update:raw', { ...props.raw, tags: rest, settings: next });
-    return;
-  }
-  emitTags(applyExclusiveChoice(group, props.raw.tags ?? [], nextTag));
-}
-
-/** 目录分组（渲染序）：访问档位 → 声明方自组（动态，按组名序）→
- *  能力标签（通用）。组内排序：order 提示（分层族按层级）优先，缺省 50；
- *  其余按 tag 字典序稳定输出。声明组条目从通用组剔除（同词不双现）——
- *  owner/unknown 类别不来自目录；unknown = raw.tags 中目录没有的词，
- *  走自定义区呈现。抉择组条目分流：组内 exclusive 词聚合为下拉单选
- * （tagExclusive），普通词留徽章区 */
-interface TagGroup { key: string; label: string; items: TagCatalogItem[]; exclusive?: ExclusiveGroup }
-const tagGroups = computed<TagGroup[]>(() => {
-  const cat = tagCatalog.value;
-  if (!cat) return [];
-  const excl = exclusiveGroups.value;
-  const exSet = exclusiveTagSet.value;
-  const sortItems = (list: TagCatalogItem[]) =>
-    [...list].sort((a, b) => (a.order ?? 50) - (b.order ?? 50) || a.tag.localeCompare(b.tag));
-  /** 组装配：与组条目有交集的首个抉择组挂载（browser-tier 在声明组内）；
-   *  抉择词从徽章区剔除（下拉单选呈现） */
-  const assemble = (key: string, label: string, items: TagCatalogItem[]): TagGroup => {
-    const exclusive = excl.find((g) => items.some((i) => g.tags.has(i.tag))) ?? undefined;
-    const plain = sortItems(items.filter((t) => !exSet.has(t.tag)));
-    return exclusive ? { key, label, items: plain, exclusive } : { key, label, items: plain };
-  };
-  // 声明方自组（group 字段聚合；组名序稳定）
-  const groups = new Map<string, TagCatalogItem[]>();
-  for (const t of cat) {
-    if (t.category !== 'capability' || !t.group) continue;
-    const list = groups.get(t.group) ?? [];
-    list.push(t);
-    groups.set(t.group, list);
-  }
-  const fixed: TagGroup[] = [
-    // base 分组随 base 退役（全量标签化 2026-09-16）——目录不再有该类别条目
-    assemble('access-tier', '访问档位（权限轴）', cat.filter((t) => t.category === 'access-tier')),
-    // 工具调用模式（2026-09-17 tc-* 标签轴：与档位同构——标签定默认档，会话可覆盖）
-    assemble('tool-mode', '工具调用模式（tc-* 轴）', cat.filter((t) => t.category === 'tool-mode')),
-  ];
-  const declared: TagGroup[] = [...groups.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, items]) => assemble(`declared:${name}`, name, items));
-  // 通用组：capability 且无 group 的词（有 group 的已在声明组呈现）
-  const groupedTags = new Set([...groups.values()].flat().map((i) => i.tag));
-  const capability: TagGroup = assemble(
-    'capability',
-    '能力标签（工具门禁）',
-    cat.filter((t) => t.category === 'capability' && !groupedTags.has(t.tag)),
-  );
-  return [...fixed, ...declared, capability].filter((g) => g.items.length > 0 || g.exclusive);
+/** 当前访问档位（raw.access；缺席 = base-access） */
+const accessValue = computed<string>(() => (props.raw.access as string | undefined) ?? 'base-access');
+/** 当前工具模式（raw.toolMode；缺席 = tc-base） */
+const modeValue = computed<string>(() => (props.raw.toolMode as string | undefined) ?? 'tc-base');
+const browserValue = computed<string>(() => {
+  const level = (props.raw.levels as Record<string, unknown> | undefined)?.browser;
+  return typeof level === 'string' ? level : '';
 });
-
-/** 目录条目的悬浮提示：功能说明 + 解锁工具清单（预注册能力族起
- *  2026-09-16 也如实带工具计数——后端采集面已并入）；分层族附「含低层级能力」语义 */
-function tagTooltip(item: TagCatalogItem): string {
-  const desc = TOOL_TAG_LABELS[item.tag] ?? item.description;
-  // 档位/模式组：纯描述（无解锁清单——它们不进工具门禁）；base 分支随
-  // 类别退役已清（cr-390：目录产出面不再有该类别条目）
-  if (item.category === 'access-tier' || item.category === 'tool-mode') return desc ?? item.tag;
-  const lines: string[] = [];
-  if (desc) lines.push(desc);
-  if (item.tier === true) lines.push('分层标签：勾选本层级自动覆盖低层级（无需重复勾选）');
-  const tools = item.tools.map((t) => t.name);
-  if (tools.length > 0) lines.push(`解锁 ${tools.length} 个工具：${tools.join('、')}`);
-  return lines.join('\n');
+function setAccess(v: string): void {
+  emit('update:raw', { ...props.raw, access: v === 'base-access' ? null : v });
 }
-/** 第一行徽章：fs/collab/infra/admin/dev/shell/delegation/web/observe/manipulate/inject/档位 固定顺序 + 工具 requiredTags 用到的其他标签排后（base 退役——不再呈现隐式基础层） */
-const toolTagBadges = computed(() => {
-  const order = ['fs', 'collab', 'infra', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject', 'sandbox-access', 'full-access', 'tc-programmatic', 'tc-none'];
-  const found = new Set<string>(order);
-  for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
-  const rest = Array.from(found).filter(t => !order.includes(t)).sort();
-  return [...order, ...rest]
-    .map(tag => ({ tag, label: TOOL_TAG_LABELS[tag] ?? tag }));
-});
-const toolBadgeSet = computed(() => new Set(toolTagBadges.value.map(b => b.tag)));
-const customTagInput = ref('');
-/** 退役词（agent 旧词 / base——全量标签化后无门禁语义）不落入自定义标签区。
- *  目录在场时：自定义区只收目录外的词（目录词全在分组区管理）——owner
- *  自声明词（agent:<id> 共享）与外部拼错词都在此可见可删 */
-const RETIRED_TAGS = new Set(['agent', 'base']);
-const catalogTagSet = computed(() => new Set(tagCatalog.value?.map(t => t.tag) ?? []));
-const customTags = computed(() =>
-  (props.raw.tags ?? []).filter((t: string) =>
-    !RETIRED_TAGS.has(t) && !toolBadgeSet.value.has(t) && !(tagCatalog.value && catalogTagSet.value.has(t)),
-  ),
-);
-
-// tags 单源（access-tier §9.4 收官：capabilities 覆盖层已删除——后端有效
-// 能力集 = base ∪ tags ∪ agent:<自己的id>）。共享标签只写 tags；
-// 档位标签（full-access/sandbox-access）也住此处——tierOf 单源判定。
-function emitTags(nextTags: string[]): void {
-  emit('update:raw', { ...props.raw, tags: nextTags });
+function setToolMode(v: string): void {
+  emit('update:raw', { ...props.raw, toolMode: v === 'tc-base' ? null : v });
 }
-function toggleTag(tag: string, on: boolean): void {
-  const tags: string[] = props.raw.tags ?? [];
-  emitTags(on ? [...tags.filter(t => t !== tag), tag] : tags.filter(t => t !== tag));
+function setBrowserLevel(v: string): void {
+  const levels = { ...((props.raw.levels as Record<string, unknown> | undefined) ?? {}) };
+  if (v === '') delete levels.browser;
+  else levels.browser = v;
+  emit('update:raw', { ...props.raw, levels: Object.keys(levels).length > 0 ? levels : null });
 }
-/** 徽章点击：切换该标签（on 态与落盘 tags 一致——reserved 目录词不再
- *  恒亮，2026-09-16 教训：reserved=「目录恒有此词」≠「该 Agent 恒有此标签」，
- *  恒亮展示曾让管理员误判存量 Agent 都有 collab，掩盖协作工具静默消失。
- *  fixed「基础标签恒亮」参数已随 base 退役收口——恒 false 字段无信息量） */
-function toggleToolTag(tag: string): void {
-  toggleTag(tag, !(props.raw.tags ?? []).includes(tag));
-}
-function addCustomTag(): void {
-  const t = customTagInput.value.trim().toLowerCase();
-  if (!t) return;
-  const tags = props.raw.tags ?? [];
-  if (!tags.includes(t)) emitTags([...tags, t]);
-  customTagInput.value = '';
-}
-function removeTag(tag: string): void {
-  emitTags((props.raw.tags ?? []).filter((t: string) => t !== tag));
-}
-
 // ── 头像 ──
 const avatarPreview = ref('');
 /** 当前预览 URL 是否加载失败（无头像 404 / 破图）——响应式卸载 <img> 回退首字。
@@ -703,50 +505,28 @@ async function removeAvatar() {
           <div v-if="avatarError" class="info-error">{{ avatarError }}</div>
         </div>
 
-        <!-- 能力标签 -->
+
+        <!-- 档位（cr-953 结构化：access / toolMode / levels.browser 三抉择） -->
         <div class="info-item">
-          <div class="info-label">能力标签</div>
-          <div class="info-desc">组合式能力声明（工具按 requires 匹配）：按分组勾选启用；悬浮徽章可见「将解锁的工具」</div>
-          <!-- 目录在场：分组勾选目录（tag-registry 单源）。抉择组
-               （exclusive）聚合为三段胶囊 [tag-name | tag-label | 下拉]
-               （TagChoice：左中段启停、右段弹层换档）；组内普通词为两段
-               徽章 [tag | label]（如 browser-tier 组的 web 入口词） -->
-          <template v-if="tagGroups.length">
-            <div v-for="g in tagGroups" :key="g.key" class="tag-group">
-              <div class="tag-group-title">{{ g.label }}</div>
-              <TagChoice
-                v-if="g.exclusive"
-                :class="'tb-' + exclusiveHueTag(g.exclusive)"
-                :group="g.exclusive"
-                :label-of="exclusiveLabelOf"
-                :title-of="exclusiveTitleOf"
-                :value="exclusiveValueOf(g.exclusive)"
-                :on-choose="(next: string | null) => selectExclusive(g.exclusive, next)"
-              />
-              <div v-if="g.items.length" class="tag-badges">
-                <button
-                  v-for="item in g.items" :key="item.tag" type="button"
-                  class="tag-badge" :class="[{ on: (raw.tags ?? []).includes(item.tag) }, 'tb-' + item.tag]"
-                  :title="tagTooltip(item)"
-                  @click="toggleToolTag(item.tag)"
-                ><span class="tag-name">{{ item.tag }}</span><span v-if="tagLabelOf(item) !== item.tag" class="tag-badge-label">{{ tagLabelOf(item) }}</span><span v-if="item.tools.length" class="tag-tool-count" :title="`解锁 ${item.tools.length} 个工具`">{{ item.tools.length }}</span></button>
-              </div>
-            </div>
-          </template>
-          <!-- 行未装配/拉取失败：回落既有单排徽章表（行为不变） -->
-          <div v-else class="tag-badges">
-            <button
-              v-for="b in toolTagBadges" :key="b.tag" type="button"
-              class="tag-badge" :class="[{ on: (raw.tags ?? []).includes(b.tag) }, 'tb-' + b.tag]"
-              :title="(raw.tags ?? []).includes(b.tag) ? '点击移除' : '点击启用'"
-              @click="toggleToolTag(b.tag)"
-            ><span class="tag-name">{{ b.tag }}</span><span v-if="b.label !== b.tag" class="tag-badge-label">{{ b.label }}</span></button>
+          <div class="info-label">访问档位</div>
+          <div class="info-desc">权限轴：无人审核时敏感工具（写文件/命令执行等）的档位门</div>
+          <div class="tier-choice">
+            <button v-for="(label, key) in TIER_LABELS" :key="key" type="button" class="tier-opt" :class="[{ on: accessValue === key }, 'tb-' + key]" :title="TIER_TITLES[key]" @click="setAccess(key)">{{ label }}</button>
           </div>
-          <div class="tag-custom">
-            <Input v-model="customTagInput" placeholder="自定义领域标签（如 sap / math / qa），回车添加" @keyup.enter="addCustomTag" />
-            <div v-if="customTags.length" class="tag-chips">
-              <span v-for="t in customTags" :key="t" class="tag-chip">{{ t }}<button type="button" class="tag-chip-x" @click="removeTag(t)"><Icon name="x" :size="10" /></button></span>
-            </div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">工具调用模式</div>
+          <div class="info-desc">LLM 工具面形态：标准直调 / 程序化编排 / 纯聊天（会话可临时覆盖）</div>
+          <div class="tier-choice">
+            <button v-for="(label, key) in MODE_LABELS" :key="key" type="button" class="tier-opt" :class="[{ on: modeValue === key }, 'tb-' + key]" :title="MODE_TITLES[key]" @click="setToolMode(key)">{{ label }}</button>
+          </div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">浏览器层级</div>
+          <div class="info-desc">browser 工具的能力面：观察 ⊂ 交互 ⊂ 注入（关闭 = browser 工具不可用）</div>
+          <div class="tier-choice">
+            <button type="button" class="tier-opt" :class="{ on: browserValue === '' }" title="关闭：browser 工具不可用" @click="setBrowserLevel('')">关闭</button>
+            <button v-for="(label, key) in BROWSER_LABELS" :key="key" type="button" class="tier-opt" :class="[{ on: browserValue === key }, 'tb-' + key]" :title="BROWSER_TITLES[key]" @click="setBrowserLevel(key)">{{ label }}</button>
           </div>
         </div>
 
@@ -828,7 +608,6 @@ async function removeAvatar() {
           :decl="decl"
           :on-decl="patchDecl"
           :tools="assembly ? { catalog: assembly.tools.catalog, enabled: assembly.tools.enabled, include: assembly.tools.include, exclude: assembly.tools.exclude } : { catalog: [], enabled: [], include: [], exclude: [] }"
-          :tags="raw.tags"
           :agent-id="agentId"
         />
       </div>
@@ -899,90 +678,42 @@ async function removeAvatar() {
 .identity-fields { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; padding-top: 6px; }
 .identity-id { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
 
-/* Tags：能力标签徽章（现代柔和——off 幽灵态中性微底；on 按标签色系轻染：
-   8% 底 + 20% 细描边 + 75% 柔字色，色相由 --tag-hue 驱动）+ 自定义 chips */
-.tag-badges { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-badge {
+/* 档位抉择组（cr-953：三组单选胶囊——off 幽灵态中性微底；on 按色系轻染） */
+.tier-choice { display: flex; flex-wrap: wrap; gap: 6px; }
+.tier-opt {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px; border-radius: var(--r-full); font-size: 11px; cursor: pointer;
+  padding: 3px 12px; border-radius: var(--r-full); font-size: 11px; cursor: pointer;
   background: rgba(var(--text-3-rgb), 0.06);
   border: 1px solid rgba(var(--text-3-rgb), 0.14);
   color: var(--text-3);
   transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
-/* 两段形式 [tag | label]：raw 词名（mono）+ 展示短名（段界 = 细分隔
-   线；无目录描述的词 label === tag，只显名段不空挂分隔线） */
-.tag-badge .tag-name {
-  font-family: var(--font-mono); font-size: 10px;
-  max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.tag-badge .tag-badge-label {
-  padding-left: 7px; border-left: 1px solid rgba(var(--text-3-rgb), 0.18);
-  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.tag-badge.on .tag-badge-label { border-left-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.22); }
-.tag-badge:hover {
+.tier-opt:hover {
   background: rgba(var(--text-3-rgb), 0.11);
   border-color: rgba(var(--text-3-rgb), 0.22);
   color: var(--text-2);
 }
-.tag-badge.on {
+.tier-opt.on {
   background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.08);
   border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.2);
-  color: var(--tag-hue, var(--primary)); /* 回退（cr-32） */
+  color: var(--tag-hue, var(--primary));
   color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1));
   font-weight: 500;
 }
-.tag-badge.on:hover {
+.tier-opt.on:hover {
   background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.14);
   border-color: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.28);
 }
-/* 标签色相表（与 AgentListPane 徽章同源；base 已退役）——能力标签 = 分类色板
-   （每词一色，非语义档），按指南 R1「分类色板保持独立色板」保留字面色值；
-   待裁决（与 badge.css tt-* 双档色相类并存是否收编）见 P2 报告。 */
-.tb-fs { --tag-hue: var(--primary); }
-.tb-collab { --tag-hue: #6366f1; }
-.tb-infra { --tag-hue: #0891b2; }
-.tb-admin { --tag-hue: #dc2626; }
-.tb-dev { --tag-hue: #059669; }
-.tb-shell { --tag-hue: #b45309; }
-.tb-delegation { --tag-hue: #7c3aed; }
-.tb-web { --tag-hue: #2563eb; }
+/* 档位色相（沿用标签色相表语义：访问档 = 权限梯度色、模式 = 形态色、browser = 层级色） */
+.tb-base-access { --tag-hue: #64748b; }
+.tb-sandbox-access { --tag-hue: #0891b2; }
+.tb-full-access { --tag-hue: #dc2626; }
+.tb-tc-base { --tag-hue: #2563eb; }
+.tb-tc-programmatic { --tag-hue: #7c3aed; }
+.tb-tc-none { --tag-hue: #64748b; }
 .tb-observe { --tag-hue: #0d9488; }
 .tb-manipulate { --tag-hue: #ea580c; }
 .tb-inject { --tag-hue: #be123c; }
-.tb-sandbox-access { --tag-hue: #0891b2; }
-.tb-full-access { --tag-hue: #dc2626; }
-/* 抉择胶囊组色相（当前值词驱动；base-access 缺省态中性青灰） */
-.tb-base-access { --tag-hue: #64748b; }
-.tb-tc-none { --tag-hue: #64748b; }
-.tb-tc-base { --tag-hue: #2563eb; }
-.tb-tc-programmatic { --tag-hue: #7c3aed; }
-.tb-fs_minimal { --tag-hue: #65a30d; }
-.tag-custom { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-/* 标签分组（tag-registry 目录视图）：分组标题 + 组内徽章 */
-.tag-group { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.tag-group-title {
-  font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: .02em;
-  padding-left: 2px;
-}
-.tag-tool-count {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 14px; height: 14px; margin-left: 5px; padding: 0 3px;
-  border-radius: var(--r-full); font-size: 9px; line-height: 1;
-  background: rgba(var(--tag-hue-rgb, var(--primary-rgb)), 0.16);
-  color: var(--tag-hue, var(--primary)); /* 回退（cr-32） */
-  color: color-mix(in srgb, var(--tag-hue, var(--primary)) 70%, var(--text-1));
-}
-.tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-chip {
-  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-full);
-  background: rgba(var(--text-2-rgb), 0.07);
-  border: 1px solid rgba(var(--text-2-rgb), 0.15);
-  font-size: 11px; color: var(--text-1);
-}
-.tag-chip-x { border: none; background: none; cursor: pointer; color: var(--text-2); padding: 0 2px; display: inline-flex; align-items: center; }
-.tag-chip-x:hover { color: var(--err); }
 
 /* LLM（cr-169：字段行已归 kit FieldRow，下拉/复位钮归 Select/IconAction） */
 .llm-pane { display: flex; flex-direction: column; gap: 12px; }
