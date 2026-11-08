@@ -31,17 +31,19 @@
 // 源，不再有第二套切分逻辑）。快照/导出的 fs 子树是独立的
 // <数据根>/sap-adt/。demo 目的地（进程内 mock ADT 服务器）默认
 // 开启——零 SAP 系统即可端到端体验。
-//   6. 使用规约注入（loop/before-run，对齐 ac-fs-tools FILE_MENTION_GUIDE
-//      形态）：生效工具集含 adt_* 且调用方未停用 → 向 request.system 追加
-//      一块静态规约（先问后建/复用已有传输请求/删改前确认/先读后写）。
-//      判据只看工具名前缀 `adt_`（代际无关——引擎换名不换前缀，0.8 fs
-//      风格 → 0.9+ 整合收敛两代都成立）；文案同样不引用具体工具名，
+//   6. 使用规约注入（cr-944：PromptSection 段注册 sap-adt-guide@500，原
+//      loop/before-run 尾部 append 退役——hack 落 DATETIME 之后破坏收尾不变量）：
+//      生效工具集（widenToolsForGating 展开面）含 adt_* → 注入静态规约
+//      （先问后建/复用已有传输请求/删改前确认/先读后写）。
+//      判据只看工具名前缀 `adt_`（代际无关）；文案不引用具体工具名，
 //      引擎升级后指引自动跟随。
 // ============================================================
 import * as fs from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
+import type {} from 'ac-agent-loop'; // ctx.agentLoop 段注册面类型增强（type-only）
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only）
+import { widenToolsForGating } from 'ac-agents';
 import z from '@agentchat/schemastery';
 import {
   AdtRegistry,
@@ -146,15 +148,11 @@ export const extension: ExtensionMeta = {
     '需 sap-adt 能力标签；引擎配置走行 config 与 config.json `sap-adt:` 段（热生效）；' +
     'demo 目的地（进程内 mock）默认可用',
   listeners: [
-    {
-      event: 'loop/before-run',
-      role: 'guide',
-      description: '生效工具集含 adt_* → system prompt 追加 <sap-adt-tools> 使用规约（先问后建/复用传输请求/删改前确认）',
-    },
+    // cr-944：规约注入已迁段注册制（sap-adt-guide@500）——listeners 无事件面
   ],
 };
 
-export const inject = ['tools'];
+export const inject = ['tools', 'agentLoop'];
 
 /** config.json 顶层 `sap-adt:` 段（引擎配置域：destinations/policy/configFile）。 */
 function globalSectionOf(ctx: Context): Partial<PluginConfig> | undefined {
@@ -193,25 +191,20 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
   // per-Agent 不装 = 行出集（壳行装载替代软门）。
   const rowHardOff = options.enabled === false;
 
-  // ---- 使用规约注入（owner 行条件注入；对齐 ac-fs-tools FILE_MENTION_GUIDE）----
-  // 判据 = 生效工具集含 adt_*（request.tools 已声明 → 有 adt 即注入；
-  // 未声明 → 回落全目录，工具行 init 失败/硬停时目录里没有 adt_* 自然不注）。
-  // 判据只认 `adt_` 前缀：engine 代际换名（0.8 fs 风格 → 0.9 CRUD 时代）
-  // 不影响成立；文案不引用具体工具名，随引擎升级自动跟随。
-  ctx.on(
-    'loop/before-run',
-    (call, next) => {
-      const request = (call as { request?: { agent?: string; tools?: string[]; system?: string } }).request;
-      if (!request) return next();
-      const names = new Set(request.tools ?? ctx.get('tools')?.list().map((t) => t.name) ?? []);
-      const hasAdt = [...names].some((n) => n.startsWith('adt_'));
-      if (hasAdt) {
-        request.system = request.system ? `${request.system}\n\n${ADT_TOOLS_GUIDE}` : ADT_TOOLS_GUIDE;
-      }
-      return next();
+  // ---- 使用规约段（cr-944 §2.3：before-run 尾部 append hack 退役 → 段注册制。
+  // 原 hack 落在 DATETIME 之后破「日期行绝对收尾」；且判据 request.tools ?? 全目录
+  // 在 tc-programmatic 下（面收窄为 ['run_code']）静默漏注入——改用
+  // widenToolsForGating 展开面判定（与 collab-tools/fs-tools 各段同源单例：程序化
+  // run 按能力面展开，模型经 run_code SDK 能调 adt_* 即教）。
+  // 判据只认 `adt_` 前缀：engine 代际换名不影响成立；文案不引用具体工具名。----
+  ctx.agentLoop.registerPromptSection({
+    name: 'sap-adt-guide',
+    order: 500,
+    text: (request) => {
+      const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
+      return [...names].some((n) => n.startsWith('adt_')) ? ADT_TOOLS_GUIDE : '';
     },
-    { description: 'sap-adt：注入 <sap-adt-tools> 使用规约（生效工具集含 adt_* 时）' },
-  );
+  }, 'ac-sap-adt');
 
   // ---- 引擎配置分层与热重载 ----
   async function currentEffective(): Promise<{ config: EffectiveConfig; warnings: string[] }> {

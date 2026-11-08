@@ -169,9 +169,11 @@ describe('ac-datetime 日期注入', () => {
     captured.length = 0;
     const ctx = new Context();
     await boot(ctx, [...standardRows(), datetimeRow]);
-    // 晚注册的 CONVERSATION 段（order 900 < 910）仍居日期行之前
+    // 晚注册的高位段（动态名 order 890 < 910）仍居日期行之前（cr-944：
+    // CONVERSATION/DATETIME 为保留名，测试用动态段名验证同一定序语义）
     ctx.agentLoop.registerPromptSection({
-      name: 'CONVERSATION',
+      name: 'test-conversation',
+      order: 890,
       text: '[当前对话对象] 你正在与 风栗（user）对话',
     }, 'test');
     await ctx.agentLoop.run({

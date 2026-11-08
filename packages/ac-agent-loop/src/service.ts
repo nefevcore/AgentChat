@@ -47,11 +47,12 @@ import type {
 } from './contract.ts';
 import {
   assembleSystemPrompt,
+  RESERVED_SECTION_NAMES,
   SECTION_ORDER,
-  sectionOrder,
+  validateSectionName,
+  validateSectionOrder,
   type RegisteredSection,
   type SectionContribution,
-  type SectionName,
 } from './sections.ts';
 
 /** 工具调用 arguments（JSON 字符串）→ 参数对象；解析失败透传原文 */
@@ -166,9 +167,14 @@ export class AgentLoopService extends Service {
   /** 活跃 run 的 steer 队列（runAddress → 队列）；随 run 生灭 */
   private steerQueues = new Map<string, SteerQueue>();
 
-  /** system prompt 段注册表（cr-881 PromptSection 注册制）：具名段 → 贡献。
+  /** system prompt 段注册表（cr-881 注册制；cr-944 动态化）：段名 → 贡献。
    *  注册随 fiber 归属自动回收（ctx.fiber.effect）；同名重复注册抛错。 */
-  private promptSections = new Map<SectionName, RegisteredSection>();
+  private promptSections = new Map<string, RegisteredSection>();
+
+  /** 段装配前置缝（cr-944 P2b）：owner → 就绪回调。run() 入口第一拍 await
+   *  全部回调（懒装配行在此完成段注册——如 host-face-client 远程段），先于
+   *  singles 物化与 system 组装。回调抛错/超时放行（不得 veto run）。 */
+  private sectionPrepares = new Map<string, () => Promise<void> | void>();
 
   constructor(ctx: Context) {
     super(ctx, 'agentLoop');
@@ -232,20 +238,30 @@ export class AgentLoopService extends Service {
    * 单段当前求值文本（cr-888 指纹键面——PTC_SDK 投影漂移检测）；
    * 段缺席 = ''（注册面漂移本身即指纹变化）。
    */
-  sectionText(name: SectionName, request: LoopRunRequest): string {
+  sectionText(name: string, request: LoopRunRequest): string {
     const s = this.promptSections.get(name);
     if (s === undefined) return '';
     return typeof s.text === 'function' ? s.text(request) : s.text;
   }
 
   /**
-   * 注册一条 system prompt 段（cr-881：次序数据化——三档装配链与各收敛式
-   * 定序 hack 退役，段按 SECTION_ORDER 具名位拼接）。
-   * @param section 具名段位 + 文本/provider + 自述
+   * 注册一条 system prompt 段（cr-881 次序数据化；cr-944 动态注册——name 任意
+   * 非空串（CONVERSATION/DATETIME 核心保留）、order 自报 [0,900)，无词表审批）。
+   * @param section 段名 + 段位 + 文本/provider + 自述
    * @returns 注销函数（显式注销可选；行卸载由 fiber 归属自动回收）
    */
   registerPromptSection(section: SectionContribution, owner: string): () => void {
-    const order = sectionOrder(section.name);
+    validateSectionName(section.name, owner);
+    // 段位解析（cr-944）：显式 order 优先；缺省回落 SECTION_ORDER 核心惯例表
+    //（核心行零改动——表值即单一来源）；既非显式又非惯例名 = fail-loud。
+    const CORE_ORDER: Record<string, number | undefined> = SECTION_ORDER;
+    const order = section.order ?? CORE_ORDER[section.name];
+    if (order === undefined) {
+      throw new Error('[prompt-section] 段位未声明且非核心惯例名（动态段须显式 order）: ' + section.name);
+    }
+    // 核心保留名 owner（CONVERSATION/DATETIME）豁免 900 上界（位在惯例表 900/910）
+    const reserved = RESERVED_SECTION_NAMES.has(section.name);
+    validateSectionOrder(order, reserved);
     if (this.promptSections.has(section.name)) {
       throw new Error('[prompt-section] 段名已注册: ' + String(section.name));
     }
@@ -258,6 +274,46 @@ export class AgentLoopService extends Service {
         if (this.promptSections.get(section.name) === entry) this.promptSections.delete(section.name);
       };
     }, `agentLoop.registerPromptSection(${String(section.name)})`);
+  }
+
+  /**
+   * 注册段装配前置回调（cr-944 P2b）：懒装配行声明「run 组装前需要完成的
+   * 注册动作」（如 host-face-client 远程段契约应用）。回调在 run() 入口第一拍
+   * 执行——先于调用方的 singles 物化读面与 system 组装。
+   * @returns 注销函数（fiber 归属自动回收）
+   */
+  registerSectionPrepare(fn: () => Promise<void> | void, owner: string): () => void {
+    if (this.sectionPrepares.has(owner)) {
+      throw new Error('[prompt-section] prepare 已注册: ' + owner);
+    }
+    this.sectionPrepares.set(owner, fn);
+    return this.ctx.fiber.effect(() => {
+      this.sectionPrepares.set(owner, fn);
+      return () => {
+        if (this.sectionPrepares.get(owner) === fn) this.sectionPrepares.delete(owner);
+      };
+    }, `agentLoop.registerSectionPrepare(${owner})`);
+  }
+
+  /**
+   * 段装配前置拍（cr-944 P2b）：await 全部 prepare 回调。故障策略 = 放行：
+   * 单回调抛错 warn 后继续、1500ms 超时放行——宿主离线/装配失败不得
+   * veto run（段缺席走 §3 指纹 diff 的「新增段落」通知兜底，下 run 自愈）。
+   */
+  private async prepareSections(): Promise<void> {
+    if (this.sectionPrepares.size === 0) return;
+    await Promise.all([...this.sectionPrepares.values()].map(async (fn) => {
+      try {
+        await Promise.race([
+          Promise.resolve(fn()).then(() => undefined, (err) => {
+            this.ctx.logger.warn('[prompt-section] prepare 回调失败（放行）: ' + String(err instanceof Error ? err.message : err));
+          }),
+          new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+        ]);
+      } catch {
+        // race 已吸收回调异常——防御性兜底
+      }
+    }));
   }
 
   /**
@@ -277,15 +333,20 @@ export class AgentLoopService extends Service {
    * 执行一轮 Agent 循环（拦截链内环）。
    * 拦截器 veto（不调 next）时直接返回拦截器提供的 LoopRunResult。
    */
-  run(request: LoopRunRequest): Promise<LoopRunResult> {
+  async run(request: LoopRunRequest): Promise<LoopRunResult> {
     // run 身份键（2026-09-24 身份贯通）：缺省铸造并塞回 request——此后
     // run-started/after-run 载荷、步级 envelope、llm 流式 meta、ToolCall
     // 全系携带同一值（before-run 档可读到；调用方自带则原样沿用）
     if (request.runId === undefined) {
       request.runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     }
+    // 段装配前置缝（cr-944 P2b）：懒装配行（远程段代理等）在此完成注册——
+    // 先于 singles 物化（调用方在 run() 之前的快照对账）与 system 组装，
+    // 「物化 = 全段求值」不变量由此成立。单回调抛错/超时放行（warn，不得
+    // veto run——宿主离线不是会话错误）。
+    await this.prepareSections();
     // system prompt 组装（cr-881）：PromptSection 注册制——run() 入口按
-    // SECTION_ORDER 具名位拼装（排序确定性 = 字节确定性），先于 before-run
+    // (order, name) 升序拼装（排序确定性 = 字节确定性），先于 before-run
     // 拦截链（拦截器读到的是组装后的终值；拦截器仍可改写 request.system）。
     const initial = request.system;
     // cr-888：物化段集在场 = singles 快照装配面——跳过注册面求值（快照 =

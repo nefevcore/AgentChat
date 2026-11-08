@@ -1219,6 +1219,12 @@ export class ConversationService extends Service {
       skills: skillView !== undefined
         ? [...skillView.workspace.flatMap((g) => g.skills.map((s) => s.name)), ...skillView.global.map((s) => s.name), ...skillView.own.map((s) => s.name)].sort().join(',')
         : '',
+      // cr-944 §3 段集维度三键（求值口径与 ptcSdk 同——snapshotRequest 现算）：
+      // sectionSet = 段名集（增删段检测）；sectionOrders = 名+位序列（段位漂移
+      // 检测——order 变 = system 字节变 = 缓存域必死，diff 分流走 ③ 重算）；
+      // sectionTexts = 名+位+文本 hash 序列（文本漂移检测——裁决 B：不通知）。
+      // CALLER 排除（调用方前缀非注册面，已由快照正文承载）。
+      ...this.sectionFingerprintKeys(sid, config, modelRef),
     };
     // 生态扩展键（conv-settings registerKey）：非内置键全量进指纹（值变 → 通用注入模板）
     for (const [k, v] of Object.entries(settings)) {
@@ -1226,6 +1232,30 @@ export class ConversationService extends Service {
       fp['ext.' + k] = v;
     }
     return fp;
+  }
+
+  /**
+   * cr-944 §3 段集指纹三键：对 PromptSection 注册面按 snapshotRequest 口径现算
+   * 求值（与 ptcSdk 同链），产出 sectionSet / sectionOrders / sectionTexts。
+   * 求值时 CALLER 段排除（初始前缀非注册面）；空串段仍计入（门控缺席是快照
+   * 该段的缺席事实——重算/通知判定需要名集完整）。
+   */
+  private sectionFingerprintKeys(
+    sid: string,
+    config: AgentConfig,
+    modelRef: { provider?: string; model: string },
+  ): Record<string, string> {
+    const snapReq = this.snapshotRequest(sid, config, modelRef);
+    const sections = this.ctx.agentLoop.materializeSections(snapReq, undefined)
+      .filter((s) => s.name !== 'CALLER');
+    const byName = new Map(sections.map((s) => [s.name, s]));
+    const names = [...byName.keys()].sort();
+    const hash = (input: string): string => crypto.createHash('sha256').update(input).digest('hex').slice(0, 16);
+    return {
+      sectionSet: hash(names.join(',')),
+      sectionOrders: hash(names.map((n) => `${n}=${byName.get(n)!.order}`).join(';')),
+      sectionTexts: hash(names.map((n) => `${n}=${byName.get(n)!.order}:${hash(byName.get(n)!.text)}`).join(';')),
+    };
   }
 
   /** #5 通知的回落路径（工作区移除后的默认工作目录——sandboxWorkdir 单源） */
@@ -1238,20 +1268,28 @@ export class ConversationService extends Service {
   }
 
   /**
-   * 快照对账（run 入口）：① 无快照 → 全段求值物化；③ 仅 provider/model
-   * 变化 → 重算（唯一快照重写通道——缓存域必死时重建基线，白纸无代价）；
-   * ④ 其余指纹键变化 → 通知行落账 + 指纹更新。快照正文永不重写（指纹
-   * 字段更新 ≠ 重写正文）。崩溃顺序：先落账（await）后更新指纹——落账后
-   * 崩 → 重复落同内容行（requestId 幂等键收敛，冗余但如实）；反序则漏通知。
+   * 快照对账（run 入口）：① 无快照 → 全段求值物化；③ provider/model 变化或
+   * 段位漂移（cr-944 §3：sectionOrders 键变 = system 字节变 = 缓存域必死）→
+   * 重算（唯一快照重写通道——缓存域必死时重建基线，白纸无代价）；④ 其余
+   * 指纹键变化 → 通知行落账 + 指纹更新。快照正文不因 ④ 重写（指纹字段更新
+   * ≠ 重写正文）。崩溃顺序：先落账（await）后更新指纹——落账后崩 → 重复落
+   * 同内容行（requestId 幂等键收敛，冗余但如实）；反序则漏通知。
    * env = null（干跑）→ 只读：不落通知、不更新指纹。
    */
   private async syncPrefixSnapshot(sid: string, config: AgentConfig, env: Envelope | null, runId: string): Promise<FrozenPromptSection[]> {
     const modelRef = env !== null ? this.effectiveModelRef(config, env.model) : this.modelRefOf(config);
     const nextFp = this.fingerprintOf(sid, config, modelRef, env);
     const snap = readPrefixSnapshot(this.dataRoot, sid);
+    // ③ 重算触发：无快照 / model 域变 / 段位漂移。段位漂移判据 = 名集相等但
+    // 名+位序列变（名集增删走 ④ 通知——快照正文不含新段，system 不变，缓存
+    // 不死；仅既有段位变 = 快照正文序变 = 缓存域必死）。
+    const orderDrift = snap !== null
+      && snap.settingsFingerprint.sectionSet === nextFp.sectionSet
+      && snap.settingsFingerprint.sectionOrders !== nextFp.sectionOrders;
     if (snap === null
       || snap.settingsFingerprint.model !== nextFp.model
-      || (snap.settingsFingerprint.provider as string | undefined ?? '') !== nextFp.provider) {
+      || (snap.settingsFingerprint.provider as string | undefined ?? '') !== nextFp.provider
+      || orderDrift) {
       const created: PrefixSnapshot = {
         version: 1,
         createdAt: new Date().toISOString(),

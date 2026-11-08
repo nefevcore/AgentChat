@@ -7,7 +7,7 @@
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
-import { assembleSystemPrompt, sectionOrder, type RegisteredSection } from '../src/sections.ts';
+import { assembleSystemPrompt, sectionOrder, validateSectionName, validateSectionOrder, type RegisteredSection } from '../src/sections.ts';
 import * as loopRow from '../src/index.ts';
 import * as toolsRow from 'ac-tools';
 import * as llmRow from 'ac-llm';
@@ -25,19 +25,30 @@ afterEach(async () => {
 const sec = (name: RegisteredSection['name'], order: number, text: string): RegisteredSection =>
   ({ name, order, text, owner: 'test' });
 
-describe('SECTION_ORDER 具名分配', () => {
-  it('已知名解析出数值；未知名抛错', () => {
+describe('SECTION_ORDER 核心惯例表（cr-944 动态化后为惯例单源，非注册白名单）', () => {
+  it('已知名解析出数值（未知名抛错闸已随动态注册退役——见 validateSectionName）', () => {
     expect(sectionOrder('PERSONA')).toBe(10);
     expect(sectionOrder('DATETIME')).toBeGreaterThan(sectionOrder('CONVERSATION'));
-    expect(() => sectionOrder('NO_SUCH' as never)).toThrow();
   });
 
-  it('段位语义分组：知识(0-99) < 引用/投影(100-199) < 环境(200-299) < 指引(300-499) < 会话动态(900+)', () => {
+  it('段位语义分层（判据 v2）：身份(0-99) < 词汇聚簇(110-122) < 环境(200-299) < 指引(300-410) < 参考材料(450) < 会话动态(900+)', () => {
     expect(sectionOrder('PERSONA')).toBeLessThan(sectionOrder('REFERENCE_FS'));
-    expect(sectionOrder('PTC_SDK')).toBeLessThan(sectionOrder('ENV_WORKDIR'));
-    expect(sectionOrder('TERMINOLOGY')).toBeLessThan(sectionOrder('GUIDELINES_FS'));
+    expect(sectionOrder('TERMINOLOGY')).toBeLessThan(sectionOrder('ENV_WORKDIR'));
+    expect(sectionOrder('TERMINOLOGY')).toBeGreaterThan(sectionOrder('REFERENCE_SESSION'));
+    expect(sectionOrder('PTC_SDK')).toBeGreaterThan(sectionOrder('CONDUCT'));
+    expect(sectionOrder('PTC_SDK')).toBeLessThan(sectionOrder('CONVERSATION'));
     expect(sectionOrder('CONDUCT')).toBeLessThan(sectionOrder('CONVERSATION'));
     expect(sectionOrder('CONVERSATION')).toBeLessThan(sectionOrder('DATETIME'));
+  });
+
+  it('cr-944 动态校验：非法名/保留名生态注册/越界 order 抛错；动态段名+order 合法', () => {
+    expect(() => validateSectionName('bad name', 'x')).not.toThrow(); // 空格在中间合法（仅首尾空白与空串非法）
+    expect(() => validateSectionName('  x', 'x')).toThrow();
+    expect(() => validateSectionName('DATETIME', 'x')).toThrow();
+    expect(() => validateSectionName('DATETIME', 'ac-datetime')).not.toThrow();
+    expect(() => validateSectionOrder(899)).not.toThrow();
+    expect(() => validateSectionOrder(900)).toThrow();
+    expect(() => validateSectionOrder(-1)).toThrow();
   });
 });
 
@@ -104,7 +115,7 @@ describe('registerPromptSection 注册面', () => {
     }
     booted.push({ ctx, fibers });
     ctx.agentLoop.registerPromptSection({ name: 'PERSONA', text: 'P' }, 'test');
-    ctx.agentLoop.registerPromptSection({ name: 'DATETIME', text: 'D' }, 'test');
+    ctx.agentLoop.registerPromptSection({ name: 'test-tail', order: 800, text: 'D' }, 'test');
     let seen: string | undefined;
     ctx.on('loop/before-run', (call, next) => {
       seen = call.request.system;

@@ -134,6 +134,21 @@ provider+model | 生效工具名清单（llmToolFace）| toolMode | browserTier 
 验证阶梯（契约/持久化/会话链路全动）：pnpm typecheck && pnpm test:unit &&
 pnpm check:deps + 定向 lint + pnpm test 全量 + pnpm test:integration。
 
+## 8.bis cr-944 增补：段集指纹三键与重算分流
+
+§3 键面新增三键（求值口径与 ptcSdk 同——snapshotRequest 现算，CALLER 排除）：
+
+- `sectionSet`（段名集 hash）：增删段检测 → ④ 通知（`[会话设置] 系统提示词
+  段落构成已变化…以当前会话为准。`——hash 不可逆不定名）；
+- `sectionOrders`（名+位序列 hash）：**名集相等但位变** → ③ 重算（快照正文序
+  变 = system 字节变 = 缓存域必死）；名集增删不触发 ③（快照不含新段，system
+  不变，缓存不死——走 ④）；
+- `sectionTexts`（名+位+文本 hash）：纯文本漂移 → 不通知（cr-944 裁决 B：
+  行为面变化已由十类键覆盖，残余是散文），键值进指纹 = 漂移只报一次。
+
+§4 十类清单增第 11 类（段落构成变化）。原 §5「GUIDELINES_*/TERMINOLOGY/
+CONDUCT 措辞漂移不注入」裁决维持——sectionTexts 键只做指纹对齐不做通知源。
+
 ## 8. 残余风险（显式接受）
 
 - 段漂移累积窗口：技能/指引更新到下次模型切换之间，快照停留旧文本——靠 ④ 注入

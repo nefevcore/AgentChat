@@ -169,6 +169,14 @@ export function diffFingerprints(
   if (oldFp.elevation !== nextFp.elevation) {
     notices.push('[会话设置] 会话提权水位已调整：' + val(oldFp.elevation) + ' → ' + val(nextFp.elevation) + '。');
   }
+  // #11 段集增删（cr-944 §3）：新增/移除注册段——行为面变化（模型按旧段集
+  // 认知 system），对齐 #1 精神注入通知；sectionTexts 纯文本漂移不通知
+  //（裁决 B：散文不产生可执行先验——键值仍进指纹，漂移只报一次即指纹对齐）。
+  if (oldFp.sectionSet !== nextFp.sectionSet) {
+    // 段名集为不可逆 hash——通知只报事实不定名（名集差异由注册面对账，重算/下一
+    // 物化自然收编；此处通知引导模型以当前 system 为准）。
+    notices.push('[会话设置] 系统提示词段落构成已变化（新增/移除了指引段落），以当前会话为准。');
+  }
   // #9 PTC_SDK 漂移
   if (oldFp.ptcSdk !== nextFp.ptcSdk) {
     notices.push('[会话设置] run_code SDK 已更新，以当前工具 schema 与运行报错为准。');

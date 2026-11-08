@@ -24,10 +24,12 @@ export interface HostFaceToolSpec {
   needPermission?: boolean;
 }
 
-/** 远程段贡献（只引用具名段位——位次单源住壳 ac-agent-loop sections.ts） */
+/** 远程段贡献（cr-944 动态段位：核心惯例名可缺省 order 回落表值；动态段名+order 自报） */
 export interface HostFaceSectionSpec {
-  /** SECTION_ORDER 键名（未知名壳侧拒装——fail-loud 防宿主拼错位） */
+  /** 段名（SECTION_ORDER 核心惯例名 → 壳侧回落表值；任意名须配 order——壳侧校验后拒装 fail-loud） */
   name: string;
+  /** 段位（核心惯例名可缺省；动态段必填——[0,900)） */
+  order?: number;
   /** 静态文本（段主体）；门控逻辑以 gate 声明式表达 */
   text: string;
   /** 声明式门控（AND 语义；缺省 = 恒注入） */

@@ -160,14 +160,16 @@ export function apply(ctx: Context) {
       }
       const names = new Set(widenToolsForGating(ctx, agent, cid, request.tools));
       if (!names.has('send_group')) return '';
-      const info = group.get(gid)!;
+      // cr-944 P3：段文去群名头（`[群聊 gid「名」]`）——动态内容坐静态区致群改名
+      // 失效 355 后全部缓存，且群身份与 CONVERSATION(900) `[当前群聊]` 双写。
+      // 契约静态化为纯行为规则；群身份单源住 CONVERSATION。
       // per-Agent 覆盖（A/B 文案实验——主线 contractFor 同语义）：
       // settings['group'].contractText 非空覆盖正典，空/缺省回落
       const s = ctx.agents.settingsOf(agent, 'group') as { contractText?: unknown };
       const override = typeof s.contractText === 'string' && s.contractText.trim() !== ''
         ? s.contractText
         : GROUP_CONTRACT_TEXT;
-      return `[群聊 ${gid}「${info.name}」]\n${override}`;
+      return override;
     },
   }, 'ac-collab-tools');
 

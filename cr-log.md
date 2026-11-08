@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-941**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-945**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -958,3 +958,8 @@
 - 【cr-939 2026-11-08 数据根分层落地（meta/ 第二层迁移批）：会话元数据迁 meta/sessions/<sid>.json（userMetaFile 单源 + 兼容窗回落 viewer 旧位置）；conv-settings 迁 meta/conv-settings/；groups 元数据迁 meta/groups/（读侧双回落）；remote 配对身份 rename 整目录迁移 meta/remote/；data-root-layers.md 分层契约（裁决面）+ data-root-layering-handoff.md 交接档 + data-root-audit boot doctor（顶层未知项 warn）；ac-core-utils workspaces.ts 新增 + package 依赖补登】
 - 【cr-940 2026-11-08 会话缓存与帧有序性改造（B/C 批）：C1/C2 卡片真 id + 累积式建卡门槛；A1 视图停靠 viewParking（滚动锚点泊位 + 思维链折叠位）；A2 feed-core 热集 LRU + 字节预算；B1 行级 seq 持久化（allocSeq 跨实例续接 + 行/页区间携带 + 前端水位）；B2 ledger/step-journaled 落盘后补发（bridge-events 直转 + feed-core 水位补记 + delta 帧去重）；B3 锚点操作按 message_id + durable 确证驱动重拉；C3 中断 run 合成终态（TOOL_NOT_STARTED/OUTCOME_UNKNOWN）；session-cache-and-frame-ordering-plan.md 进展同步】
 - 【cr-941 2026-11-08 subagent 子状态快照引导批：SubagentChildBrief 七态（running/asking/idle/exited/aborted/detached/archived）+ progress 进度统计（journal 现算 steps/tokens/tool_calls/最近步龄）+ hint 下一步；await 落空/send(sync) 无回执附加快照；status 新 action 零等待查单个子状态；注册面 description 补 status 文案（catalog 重生成对账绿）】
+- 【cr-942 2026-11-08 通道产物漂移对账：build-channel 修 publicDir/EISDIR 缺陷 + apps/ui 新增产物对源码一致性门测试（防 cr-938 类混装崩溃）】
+- 【cr-943 2026-11-08 system prompt 段位生态开放与快照漂移修复方案起草（P1 扩展段区+sap-adt hack 退役、P2 指纹段名清单+物化时序、P3 群契约静态化、P4 术语段归位）】
+- 【cr-944 2026-11-08 system prompt 段位生态开放与快照漂移修复方案起草（P1 扩展段区+sap-adt hack 退役、P2 指纹段名清单+物化时序、P3 群契约静态化、P4 术语段归位）】
+- 【cr-945 2026-11-08 cr-944 实施完成：PromptSection 动态注册（name 开放+order∈[0,900)+保留名 owner 白名单+900 上界豁免）；sap-adt before-run hack 退役→sap-adt-guide@500；prepare 缝（run 入口第一拍）；指纹三键 sectionSet/Orders/Texts+diff #11+order 漂移走③重算；段位重排 PTC_SDK 150→450/词汇聚簇 110-122；GROUP_CONTRACT 静态化；TIMER 去 notSingle。验证：typecheck+unit 2858+test 全量 2948+integration 90 全绿】
+

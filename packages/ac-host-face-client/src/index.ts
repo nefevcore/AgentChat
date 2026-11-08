@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { socketPathFor } from 'ac-envelope-core';
 import { HostFaceClient, type HostFaceContract, type HostFaceSectionSpec } from 'ac-host-face-core';
-import { sectionOrder, type SectionName } from 'ac-agent-loop';
+import { SECTION_ORDER, validateSectionOrder } from 'ac-agent-loop';
 import { widenToolsForGating } from 'ac-agents';
 
 export const name = 'ac-host-face-client';
@@ -71,11 +71,14 @@ class GroupShim extends Service {
   }
 }
 
-/** 段位名校验（未知名拒装——fail-loud 防宿主拼错位） */
-function knownSectionName(name: string): SectionName | null {
+/** 段名校验+段位解析（cr-944 动态段位）：核心惯例名回落表值，动态段名读 spec.order；
+ * 词形非法/越界/动态段缺 order → null 拒装（fail-loud 防宿主拼错位） */
+function resolveSectionPlacement(name: string, order: number | undefined): number | null {
+  const core: Record<string, number | undefined> = SECTION_ORDER;
+  const resolved = core[name] ?? order;
+  if (resolved === undefined) return null;
   try {
-    sectionOrder(name as SectionName);
-    return name as SectionName;
+    return validateSectionOrder(resolved);
   } catch {
     return null;
   }
@@ -146,14 +149,15 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
         console.log('[face-diag] 工具段完成');
         // sections → 远程段（本地段优先：同名已注册跳过——宿主段是补位面）
         for (const spec of contract.sections) {
-          const sectionName = knownSectionName(spec.name);
-          if (sectionName === null) {
-            ctx.logger.warn('[host-face-client] 契约段位未知，拒装: ' + spec.name);
+          const order = resolveSectionPlacement(spec.name, spec.order);
+          if (order === null) {
+            ctx.logger.warn('[host-face-client] 契约段位无法解析（词形/越界/缺 order），拒装: ' + spec.name);
             continue;
           }
           try {
             const d = ctx.agentLoop.registerPromptSection({
-              name: sectionName,
+              name: spec.name,
+              order,
               text: sectionProvider(ctx, spec),
             }, 'ac-host-face-client');
             disposers.push(d);
@@ -202,9 +206,18 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
       // invalidate / 重连成功 → 置脏，下一 run 边界重建（不在通知链里注册——fiber 域外）
       client.onInvalidate = () => { dirty = true; };
 
+      // cr-944 P2b：prepare 缝——run() 入口第一拍（singles 物化之前）完成装配。
+      // await pending（已在途的 discover）→ ensureAssembled（同步段：staged 应用，
+      // 本调用链即 run() 执行链，fiber 域特征与 before-run 回调一致）。宿主离线
+      // 时 prepare 抛错由 agentLoop 放行（软降级），本地 ensureAssembled 兜底幂等。
+      ctx.agentLoop.registerSectionPrepare(async () => {
+        if (pending !== null) await pending;
+        ensureAssembled();
+      }, 'ac-host-face-client');
+
       ctx.on('loop/before-run', (_call, next) => {
-        // 同步段装配：staged 应用（fiber 域内注册）；契约未到时不阻断 run——
-        // 下一 run 边界应用（首个 run 装配、次 run 起可见的时序取舍）
+        // 同步段装配：staged 应用（fiber 域内注册）——prepare 已是主通道，此处
+        // 兜底防旧代 host 直接调 run 的旁路（幂等，staged 空则零开销）
         ensureAssembled();
         return next();
       }, { description: '宿主能力面懒装配（首 run / invalidate 后重建）' });

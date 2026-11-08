@@ -35,6 +35,12 @@ export { AgentLoopService };
 export type * from './contract.ts';
 export type {} from './events.ts';
 
-// PromptSection 注册制契约（cr-881）：具名 order 单源 + 段类型 + 组装纯函数
-export { SECTION_ORDER, sectionOrder, assembleSystemPrompt } from './sections.ts';
-export type { SectionContribution, SectionName, RegisteredSection } from './sections.ts';
+// PromptSection 注册制契约（cr-881 注册制；cr-944 动态化）：核心惯例位 + 校验 + 组装纯函数
+export {
+  SECTION_ORDER,
+  sectionOrder,
+  validateSectionName,
+  validateSectionOrder,
+  assembleSystemPrompt,
+} from './sections.ts';
+export type { SectionContribution, CoreSectionName, RegisteredSection, AssembleSection } from './sections.ts';

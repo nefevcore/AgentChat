@@ -32,6 +32,6 @@ export const HOST_FACE_SECTIONS: HostFaceSectionSpec[] = [
   {
     name: 'GUIDELINES_TIMER',
     text: '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。',
-    gate: { toolsAny: ['timer'], notSingle: true },
+    gate: { toolsAny: ['timer'] }, // cr-944 C：去 notSingle（cr-886 三段统一门形惯性，TIMER 无语义理由；主动提醒恰在 singles 最有用；依赖 P2b prepare 缝）
   },
 ];

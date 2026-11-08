@@ -1,5 +1,13 @@
 // 目标读者：实现本方案的人/Agent。事实源：本文件 + packages/ac-agent-loop/src/sections.ts。
 // 迁移完成后本文件转为裁决存档（历史裁决不是待办）。
+//
+// cr-944 增补（2026-11-08，docs/design/prompt-section-ecosystem-fix.md 为新事实源）：
+// §1 机制升级——SECTION_ORDER 从注册闸门降级为核心惯例表；name 开放任意非空串、
+// order 自报 [0,900)（CONVERSATION/DATETIME 保留名 + 900+ 动态区核心保留）；
+// §3 表新增 sap-adt-guide@500（ac-sap-adt，原 before-run append hack 退役）；
+// GUIDELINES_TIMER 去 notSingle 门（singles 亦注入，远程段 cr-944 C）；
+// 段位重排（判据 v2）：TERMINOLOGY 250→122（词汇聚簇）、PTC_SDK 150→450
+//（参考材料让出认知链框架位）、REFERENCE_AGENT/SESSION 111/112→114/118（留缝）。
 
 # system prompt 去中心化（cr-881，2026-11-03）
 

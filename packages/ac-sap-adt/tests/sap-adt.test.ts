@@ -12,8 +12,25 @@ import { join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as llmRow from 'ac-llm';
+import * as loopRow from 'ac-agent-loop';
 import * as sapAdtRow from '../src/index.ts';
 import { SapAdtFs } from '../src/engine.ts';
+
+/** agentLoop 真 boot 脚手架（cr-944 段注册制）：tools + llm + mock provider +
+ * loop 行——sap-adt 段真注册，assemblePreview 直验（sections.test 同款）。 */
+const loopRows = (): Array<unknown> => [
+  toolsRow,
+  llmRow,
+  {
+    name: 'mock-provider',
+    inject: ['llm'],
+    apply(c: Context) {
+      c.llm.register('mock', () => ({ stream: async function* () { yield { delta: 'ok', finish: 'stop' as const, usage: { prompt: 1, completion: 1 } }; } }), { models: ['mock-1'] });
+    },
+  },
+  loopRow,
+];
 
 type ExecRes = { ok: boolean; output: any; error?: string };
 
@@ -33,7 +50,7 @@ async function boot(options: Record<string, unknown> = {}, dataRoot?: string) {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<[unknown, unknown]> = [
-    [toolsRow, undefined],
+    ...loopRows().map((r) => [r, undefined] as [unknown, unknown]),
     [sapAdtRow, { demo: true, demoPort: 0, ...options }],
   ];
   for (const [plugin, config] of rows as Array<[unknown, unknown]>) {
@@ -274,17 +291,14 @@ describe('SapAdtFs 路径守卫：别名词形（大小写/junction·symlink）�
   });
 });
 
-describe('ac-sap-adt 使用规约注入（loop/before-run，owner 行条件注入）', () => {
-  /** 直接驱动 before-run waterfall（不经 loop——只验本行监听器） */
-  async function systemAfter(ctx: Context, request: Record<string, unknown>): Promise<string | undefined> {
-    const call = { request: { messages: [], ...request } };
-    await ctx.waterfall('loop/before-run', call as never, async () => ({ finish: 'stop' }) as never);
-    return (call.request as { system?: string }).system;
-  }
+describe('ac-sap-adt 使用规约段（cr-944 段注册制 sap-adt-guide@500）', () => {
+  /** 组装预览（真注册面——段贡献经 assemblePreview 求值，与 run() 入口同源） */
+  const guideOf = (ctx: Context, request: Record<string, unknown>): string | undefined =>
+    ctx.agentLoop.assemblePreview({ model: 'm', messages: [], ...request } as never);
 
-  it('生效工具集含 adt_* → system 追加 <sap-adt-tools> 规约块（保留既有正文）', async () => {
+  it('生效工具集含 adt_* → 注入 <sap-adt-tools> 规约块（system 前缀保留）', async () => {
     const { ctx } = await boot();
-    const system = await systemAfter(ctx, { tools: ['adt_search', 'read'], system: '你是 ABAP 助手' });
+    const system = guideOf(ctx, { tools: ['adt_search', 'read'], system: '你是 ABAP 助手' });
     expect(system).toContain('你是 ABAP 助手');
     expect(system).toContain('<sap-adt-tools>');
     expect(system).toContain('[ADT 使用规约]');
@@ -295,13 +309,13 @@ describe('ac-sap-adt 使用规约注入（loop/before-run，owner 行条件注�
 
   it('tools 未声明 → 回落全目录（demo boot 含 adt_*）→ 注入；无 adt 前缀的工具集不注入', async () => {
     const { ctx } = await boot();
-    expect(await systemAfter(ctx, {})).toContain('<sap-adt-tools>');
-    expect(await systemAfter(ctx, { tools: ['read', 'write'] })).toBeUndefined();
+    expect(guideOf(ctx, {})).toContain('<sap-adt-tools>');
+    expect(guideOf(ctx, { tools: ['read', 'write'] })).toBeUndefined();
   });
 
   it('硬停（enabled:false，目录无 adt_*）→ 缺省回落目录不含 adt → 不注入', async () => {
     const { ctx } = await boot({ enabled: false });
-    expect(await systemAfter(ctx, {})).toBeUndefined();
-    expect(await systemAfter(ctx, { tools: ['read'] })).toBeUndefined();
+    expect(guideOf(ctx, {})).toBeUndefined();
+    expect(guideOf(ctx, { tools: ['read'] })).toBeUndefined();
   });
 });
