@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-04T02:53:45.318Z",
+  "generatedAt": "2026-11-08T04:45:39.511Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -2444,7 +2444,7 @@
     },
     {
       "name": "subagent",
-      "description": "派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话——真子进程，不接触任何接收方）。spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。注意：本工具管理的是你私有的子 Agent 看板，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。长输出指引：预期产出长文本（报告/清单/多文件分析等）时，在输出约束里要求子 Agent 把完整产出写入文件（给明确路径），回复只报路径与要点摘要——长回复走回传通道会撞输出体积预算被截断（头尾保留、中段丢失）；需要细节时再 read 该文件（可分页无损读取）。",
+      "description": "派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话——真子进程，不接触任何接收方）。spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复〔超时无回执返回 status=no_reply_yet + 子状态快照〕/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果（落空时返回 pending + 子状态快照 state〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄——journal 现算零成本，直观确认子确实在前进〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置）；status 零等待查单个子 Agent 状态快照（同款 state + progress + hint，随时可查不打扰子运行）；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。注意：本工具管理的是你私有的子 Agent 看板，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。长输出指引：预期产出长文本（报告/清单/多文件分析等）时，在输出约束里要求子 Agent 把完整产出写入文件（给明确路径），回复只报路径与要点摘要——长回复走回传通道会撞输出体积预算被截断（头尾保留、中段丢失）；需要细节时再 read 该文件（可分页无损读取）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2455,11 +2455,12 @@
               "send",
               "await",
               "answer",
+              "status",
               "list",
               "stop",
               "delete"
             ],
-            "description": "操作"
+            "description": "操作（status = 零等待查单个子 Agent 状态快照：state + progress 进度 + hint）"
           },
           "task": {
             "type": "string",
@@ -2496,11 +2497,11 @@
               "steer",
               "next-run"
             ],
-            "description": "[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）"
+            "description": "[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果（超时无回执返回 status=no_reply_yet + 子状态快照）；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）"
           },
           "timeout_s": {
             "type": "number",
-            "description": "[await] 等待上限秒数（0 = 缺省立即查询不等待；正值 = 阻塞等待新终稿，超时返回 pending；子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等）",
+            "description": "[await] 等待上限秒数（0 = 缺省立即查询不等待；正值 = 阻塞等待新终稿，超时返回 pending；子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等；pending/超时落空时附带 state 状态快照〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置）",
             "minimum": 0
           },
           "answers": {

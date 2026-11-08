@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-937**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-941**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -954,3 +954,7 @@
 - 【cr-935 2026-11-07 webui-v3 收尾③——数据根出厂副本清理提纯函数化 + 单测锁定】
 - 【cr-936 2026-11-07 webui-v3 收尾④——数据面主题包 v3 打包（midnight 迁 v3 纯样式行 + 构建器支持）】
 - 【cr-937 2026-11-07 webui-v3 收尾⑤——seat 审计面 v3 承接（全通道 wire 真装载对账门重建）】
+- 【cr-938 2026-11-08 会话面板空白事故修复批（crash-hardening）：markEsmNamespace __esModule 旗标（冻结命名空间浅拷贝替身 + WeakMap 记忆）+ build-channel interop:'auto' + 动态 import() 词形同收 requireSpecs——跨包 .vue 静态引用三视角（single/group/runview）切静态 import；useMarkdown DOM 监听惰性装配；MainViewHost entryVNode 渲染函数化（条目级崩溃边界 + 退位重选举 + deadCellFace 出口崩溃面）+ slots abdicatedOf/lastErrorOf 诊断面；boot.ts 数据根出厂副本清理接线 + auditArmed 门闩与 spec 轴对拍（行名短 id 恒假阳性修复）】
+- 【cr-939 2026-11-08 数据根分层落地（meta/ 第二层迁移批）：会话元数据迁 meta/sessions/<sid>.json（userMetaFile 单源 + 兼容窗回落 viewer 旧位置）；conv-settings 迁 meta/conv-settings/；groups 元数据迁 meta/groups/（读侧双回落）；remote 配对身份 rename 整目录迁移 meta/remote/；data-root-layers.md 分层契约（裁决面）+ data-root-layering-handoff.md 交接档 + data-root-audit boot doctor（顶层未知项 warn）；ac-core-utils workspaces.ts 新增 + package 依赖补登】
+- 【cr-940 2026-11-08 会话缓存与帧有序性改造（B/C 批）：C1/C2 卡片真 id + 累积式建卡门槛；A1 视图停靠 viewParking（滚动锚点泊位 + 思维链折叠位）；A2 feed-core 热集 LRU + 字节预算；B1 行级 seq 持久化（allocSeq 跨实例续接 + 行/页区间携带 + 前端水位）；B2 ledger/step-journaled 落盘后补发（bridge-events 直转 + feed-core 水位补记 + delta 帧去重）；B3 锚点操作按 message_id + durable 确证驱动重拉；C3 中断 run 合成终态（TOOL_NOT_STARTED/OUTCOME_UNKNOWN）；session-cache-and-frame-ordering-plan.md 进展同步】
+- 【cr-941 2026-11-08 subagent 子状态快照引导批：SubagentChildBrief 七态（running/asking/idle/exited/aborted/detached/archived）+ progress 进度统计（journal 现算 steps/tokens/tool_calls/最近步龄）+ hint 下一步；await 落空/send(sync) 无回执附加快照；status 新 action 零等待查单个子状态；注册面 description 补 status 文案（catalog 重生成对账绿）】

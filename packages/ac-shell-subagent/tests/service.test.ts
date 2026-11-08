@@ -589,6 +589,89 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
+  // 引导返回：await 落空 / send(sync) 无回执不再只报 pending——附子状态
+  // 快照（state + settled_runs + hint；asking 带 interaction_id 与问题载荷），
+  // 调用方据 hint 决策而非猜测子运行状态。
+  it('引导返回：await 落空报 running/asking 快照；send(sync) 无回执报 no_reply_yet + 快照', async () => {
+    const fake = fakeShell();
+    // deliver 不落终稿行 = run 永不收束（busy 常驻、无新终稿）
+    const spawn: SpawnShellFn = (a) => ({ ...fake.spawn(a), deliver: async () => ({ fresh: true }) });
+    const { ctx, dispose } = await makeService(spawn);
+    try {
+      const tools = ctx.get('tools') as unknown as {
+        execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; signal?: AbortSignal }): Promise<{ ok: boolean; output?: Record<string, unknown> }>;
+      };
+      const spawned = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '长任务' } });
+      const id = (spawned.output as { subagent_id: string }).subagent_id;
+      // ① await 落空：running 快照（busy 常驻）+ settled_runs=0 + hint 引导
+      const pending = await tools.execute({ name: 'subagent', args: { action: 'await', subagent_id: id, timeout_s: 0 } });
+      expect(pending.output).toMatchObject({ action: 'await', status: 'pending', state: 'running', settled_runs: 0 });
+      expect(String(pending.output!.hint)).toContain('正在执行');
+      // ② 子域落 pending 提问 → asking 快照（优先于 running；带问题载荷）
+      fs.mkdirSync(path.join(ROOT, 'agents', 'papa', 'children', id), { recursive: true });
+      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'children', id, 'interactions.jsonl'), JSON.stringify({
+        id: 'dur-b1', kind: 'ask_questions', state: 'pending',
+        payload: { questions: [{ question: '格式？', options: ['Markdown', '纯文本'] }] },
+      }) + '\n', 'utf-8');
+      const asking = await tools.execute({ name: 'subagent', args: { action: 'await', subagent_id: id, timeout_s: 0 } });
+      expect(asking.output).toMatchObject({ status: 'asking', interaction_id: 'dur-b1' });
+      expect((asking.output!.questions as Array<{ question: string }>)[0]!.question).toBe('格式？');
+      expect(String(asking.output!.note)).toContain('answer');
+      // ③ send(sync) 中止（无回执）：status=no_reply_yet + 状态快照（asking 仍在盘）
+      const ctl = new AbortController();
+      setTimeout(() => ctl.abort(), 100);
+      const t0 = Date.now();
+      const sync = await tools.execute({ name: 'subagent', args: { action: 'send', subagent_id: id, message: '追问', mode: 'sync' }, signal: ctl.signal });
+      expect(Date.now() - t0).toBeLessThan(5_000); // 中止即返，不是 60s 超时
+      expect(sync.output).toMatchObject({ action: 'send', status: 'no_reply_yet', state: 'asking' });
+      expect(sync.output!.result).toBeUndefined();
+    } finally { await dispose(); }
+  });
+
+  // status action：零等待状态查询——childBriefOf 七态快照 + progress 进度
+  // 统计（journal 现算）。fakeShell 不落 journal（deliver 只写 messages.jsonl），
+  // 无 journal = progress 全零值——另用手写 journal 文件验统计正确性。
+  it('status：零等待快照（state/progress/hint）+ journal 统计正确', async () => {
+    const fake = fakeShell();
+    const spawn: SpawnShellFn = (a) => ({ ...fake.spawn(a), deliver: async () => ({ fresh: true }) });
+    const { ctx, dispose } = await makeService(spawn);
+    try {
+      const tools = ctx.get('tools') as unknown as {
+        execute(call: { name: string; args: Record<string, unknown> }): Promise<{ ok: boolean; output?: Record<string, unknown> }>;
+      };
+      const spawned = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '跑任务' } });
+      const id = (spawned.output as { subagent_id: string }).subagent_id;
+      // ① 无 journal：running 态 + progress 零值（不误报停滞）
+      const s1 = await tools.execute({ name: 'subagent', args: { action: 'status', subagent_id: id } });
+      expect(s1.output).toMatchObject({ action: 'status', subagent_id: id, state: 'running' });
+      expect(s1.output!.progress).toMatchObject({ steps: 0, tokens: 0, tool_calls: 0 });
+      expect(String(s1.output!.hint)).toContain('正在执行');
+      // ② 手写 journal：settled run（2 步 100 tokens）+ 当前 run 已 1 步 40 tokens + 2 工具调用
+      const jdir = path.join(ROOT, 'agents', 'papa', 'children', id, 'sessions', 'papa~' + id, 'journal');
+      fs.mkdirSync(jdir, { recursive: true });
+      const jlines = [
+        { type: 'journal-step', run: 'run-1', step: 0, content: 's0', usage: { prompt: 30, completion: 20, total: 50 }, ts: Date.now() - 60_000 },
+        { type: 'journal-step', run: 'run-1', step: 1, content: 's1', usage: { prompt: 30, completion: 20, total: 50 }, ts: Date.now() - 59_000 },
+        { type: 'journal-settled', run: 'run-1', finish: 'ok', usage: { prompt: 60, completion: 40, steps: 2, total: 100 } },
+        { type: 'journal-step', run: 'run-2', step: 0, content: 'r0', usage: { prompt: 25, completion: 15, total: 40 }, toolCalls: [{ id: 't1', name: 'read', arguments: '{}' }, { id: 't2', name: 'grep', arguments: '{}' }], ts: Date.now() - 5_000 },
+      ];
+      fs.writeFileSync(path.join(jdir, 'partials.jsonl'), jlines.map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
+      const s2 = await tools.execute({ name: 'subagent', args: { action: 'status', subagent_id: id } });
+      expect(s2.output!.progress).toMatchObject({
+        steps: 1,           // 当前 run（run-2，最后 settled 之后）
+        total_steps: 3,     // run-1 的 2 步 + run-2 的 1 步
+        tokens: 40,         // run-2 步行 usage
+        total_tokens: 140,  // run-1 settled 100 + run-2 40
+        tool_calls: 2,      // run-2 步行 toolCalls
+      });
+      const prog = s2.output!.progress as { steps: number; tokens: number; tool_calls: number; total_steps: number; total_tokens: number; since_last_step_ms?: number };
+      expect(prog.since_last_step_ms).toBeGreaterThanOrEqual(0);
+      // ③ 未知 id fail-loud（execute 包裹层吞异常转 ok:false）
+      const ghost = await tools.execute({ name: 'subagent', args: { action: 'status', subagent_id: 'sub-ghost' } });
+      expect(ghost.ok).toBe(false);
+    } finally { await dispose(); }
+  });
+
   // cr-730：子域提问推送——interactions.jsonl 落 pending ask 后 watch 触发，
   // subagents/ask 事件发射 + 注入面被调（本测试环境无 agentLoop/conversation
   // 服务——注入静默降级，事件面断言链路）；已通知 id 不重投。

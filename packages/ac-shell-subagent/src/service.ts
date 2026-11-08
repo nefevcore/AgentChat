@@ -27,7 +27,7 @@ import { deriveShellRowset, readCatalog } from 'ac-rowset-core';
 import { filterSpawnTools, convInheritTagsOf, spawnChildConfigOf } from './inherit.ts';
 import { makeEnvelope, deliver, readActivationLock, IpcClient, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
 import { runAddress } from 'ac-core-utils';
-import { readLedger } from 'ac-ledger';
+import { readLedger, readJournal } from 'ac-ledger';
 
 import type { ToolResult } from 'ac-tools';
 
@@ -105,6 +105,41 @@ export interface SubagentAsking {
   childId: string;
   interactionId: string;
   questions: Array<{ question: string; options: string[]; multi?: true }>;
+}
+
+/** 子状态快照（引导返回）：await 落空 / send(sync) 无回执时的引导载荷——
+ *  七态 + hint 下一步，调用方据此决策而非猜测子运行状态。判据单源
+ *  childBriefOf（全复用既有信号，无新状态源）。 */
+export interface SubagentChildBrief {
+  state: 'running' | 'asking' | 'idle' | 'exited' | 'aborted' | 'detached' | 'archived';
+  /** 已收束 run 数（0 = 从未出终稿） */
+  settled_runs: number;
+  /** 下一步引导（据 state 生成） */
+  hint: string;
+  /** [asking] 待答交互 id */
+  interaction_id?: string;
+  /** [asking] 问题载荷（与 answer 的 answers 顺序一致） */
+  questions?: Array<{ question: string; options: string[]; multi?: true }>;
+  /** [aborted/exited] 死因投影 */
+  exit?: { code: number | null; signal: string | null; aborted: boolean };
+  /** 进度统计（零性能成本：全部从子域既有落盘现算——journal 步行/收束行
+   *  usage 聚合；让调用方直观看到子确实在前进，防「假 running」误判） */
+  progress?: {
+    /** 当前 run 已落步行数（运行中实时增长） */
+    steps: number;
+    /** 会话累计步数（全部 run） */
+    total_steps: number;
+    /** 当前 run 累计 token（Σ步行 usage；未计量步缺席时为 0） */
+    tokens: number;
+    /** 会话累计 token（Σ全部 journal-settled.usage + 当前 run 步行） */
+    total_tokens: number;
+    /** 当前 run 工具调用次数 */
+    tool_calls: number;
+    /** 最近一次步行落盘时刻（epoch ms） */
+    last_step_at?: number;
+    /** 距最近步的毫秒数（= 快照时刻 - last_step_at；长的 = 疑似停滞） */
+    since_last_step_ms?: number;
+  };
 }
 
 function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
@@ -493,6 +528,86 @@ export class ShellSubagentService extends Service {
     return { childId, interactionId: pending.id, questions };
   }
 
+  /** 子状态快照单源（引导返回）：await 落空 / send(sync) 步/超时等「无终稿」
+   *  返回的引导载荷——七态合成（优先级 archived > aborted > exited/detached
+   *  > asking > running > idle），各态带 hint 下一步。asking 先于 running：
+   *  挂起提问期间 busy 不回落（run 未收束），但「等回答」才是真状态。
+   *  各态附 progress 进度统计（journal 现算——steps/tokens/工具调用/
+   *  最近步龄），直观展示子确实在前进（防假 running 误判）。 */
+  private childBriefOf(childId: string): SubagentChildBrief {
+    const progress = this.progressOf(childId);
+    const base = { settled_runs: this.settledCount(childId), progress };
+    if (childIsArchived(this.dataRoot, this.agentId, childId)) {
+      return { state: 'archived', ...base, hint: '子 Agent 已被 delete 收割（账本归档）——不可再 send/await；需要继续其工作请 spawn 新子。' };
+    }
+    const meta = this.childMeta.get(childId);
+    if (meta?.exit?.aborted === true) {
+      return { state: 'aborted', ...base, exit: meta.exit, hint: '子壳带任务异常退出（exit code=' + String(meta.exit.code) + ' signal=' + String(meta.exit.signal) + '）——任务未完成、无终稿；可 send 重发任务（自动重拉续会话）。' };
+    }
+    if (meta?.exited === true || this.children.get(childId) === undefined) {
+      if (readActivationLock(this.childDirOf(childId)) !== null) {
+        return { state: 'detached', ...base, hint: '父壳换代后子未接管（子可能仍在跑）——send/answer 会按活锁重连或 owner 重拉接管；确认无用可 delete 收割。' };
+      }
+      return { state: 'exited', ...base, ...(meta?.exit !== undefined ? { exit: meta.exit } : {}), hint: '子壳已退出（正常结束或空闲自退）——await 不会再等到新终稿；send 会自动重拉子壳续会话（上下文在盘不丢）。' };
+    }
+    const asking = this.pendingAskOf(childId);
+    if (asking !== null) {
+      return { state: 'asking', ...base, interaction_id: asking.interactionId, questions: asking.questions, hint: '子 Agent 已发起提问并挂起等待——用 action=answer 代答（answers 与 questions 顺序一致；单选传选项文本、多选传文本数组），不答它不会继续。' };
+    }
+    if (meta?.busy === true) {
+      // 步龄告警（假 running 识别）：运行中但距最近步行 >3min——疑似停滞
+      const sinceMs = progress?.since_last_step_ms;
+      const stalling = sinceMs !== undefined && sinceMs > 180_000
+        ? '注意：距最近一步已 ' + Math.round(sinceMs / 1000) + 's 无新步——疑似停滞（长工具调用也可能），可 stop 中止后重发或 delete 收割。' : '';
+      return { state: 'running', ...base, hint: '子 Agent 正在执行 run（尚未产出新终稿）——可加大 timeout_s 续等或等完成通知自动到达；运行中勿 delete 收割（会中止未完成工作）。' + stalling };
+    }
+    return { state: 'idle', ...base, hint: '子 Agent 空闲（无活跃 run）——await 等不到新终稿；要继续工作用 send 派新任务，不再需要时 delete 收割。' };
+  }
+
+  /** 进度统计（子域 journal 现算——零新增记录通道）：当前 run = 最后一条
+   *  journal-settled 之后的步行（运行中实时增长，abort 无 settled 行时全量
+   *  步行归属当前 run）；会话累计 = Σ全部 settled.usage + 当前 run 步行。
+   *  token 取 total（缺席回落 prompt+completion）。 */
+  private progressOf(childId: string): SubagentChildBrief['progress'] {
+    const lines = readJournal(this.sessionDirOf(childId));
+    const now = Date.now();
+    let lastSettledIdx = -1;
+    let totalTokens = 0;
+    let totalSteps = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (l.type === 'journal-settled') {
+        lastSettledIdx = i;
+        const u = l.usage;
+        if (u !== undefined) {
+          totalTokens += u.total ?? (u.prompt + u.completion);
+          totalSteps += u.steps;
+        }
+      }
+    }
+    let steps = 0;
+    let tokens = 0;
+    let toolCalls = 0;
+    let lastStepAt: number | undefined;
+    for (let i = lastSettledIdx + 1; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (l.type !== 'journal-step') continue;
+      steps++;
+      const u = l.usage;
+      if (u !== undefined) tokens += u.total ?? (u.prompt + u.completion);
+      toolCalls += Array.isArray(l.toolCalls) ? l.toolCalls.length : 0;
+      if (typeof l.ts === 'number') lastStepAt = l.ts;
+    }
+    return {
+      steps,
+      total_steps: totalSteps + steps,
+      tokens,
+      total_tokens: totalTokens + tokens,
+      tool_calls: toolCalls,
+      ...(lastStepAt !== undefined ? { last_step_at: lastStepAt, since_last_step_ms: Math.max(0, now - lastStepAt) } : {}),
+    };
+  }
+
   /** 代答子 Agent 的 pending 提问（cr-729）：在管子壳走 stdin 控制帧
    * interaction-reply admin op——子侧 durableInteraction.reply → replied
    * 事件 → 三态注入（忙步 steer / idle 挂起半边 / late-reply）全在子进程
@@ -849,21 +964,21 @@ export class ShellSubagentService extends Service {
       name: 'subagent',
       description:
         '派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话——真子进程，不接触任何接收方）。'
-        + 'spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。'
+        + 'spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复〔超时无回执返回 status=no_reply_yet + 子状态快照〕/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果（落空时返回 pending + 子状态快照 state〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄——journal 现算零成本，直观确认子确实在前进〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置）；status 零等待查单个子 Agent 状态快照（同款 state + progress + hint，随时可查不打扰子运行）；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。'
         + '注意：本工具管理的是你私有的子 Agent 看板，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。'
         + '长输出指引：预期产出长文本（报告/清单/多文件分析等）时，在输出约束里要求子 Agent 把完整产出写入文件（给明确路径），回复只报路径与要点摘要——长回复走回传通道会撞输出体积预算被截断（头尾保留、中段丢失）；需要细节时再 read 该文件（可分页无损读取）。',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['spawn', 'send', 'await', 'answer', 'list', 'stop', 'delete'], description: '操作' },
+          action: { type: 'string', enum: ['spawn', 'send', 'await', 'answer', 'status', 'list', 'stop', 'delete'], description: '操作（status = 零等待查单个子 Agent 状态快照：state + progress 进度 + hint）' },
           task: { type: 'string', description: '[spawn] 首条任务消息，需完整自包含（子 Agent 看不到你的会话）——把内容完整写进本参数，不要请转交式截断。任务的角色定位/专业人设/输出约束放 system 参数（固化人设，勿混进 task）。长文本产出类任务的输出约束建议写明：完整结果写入指定文件、回复只给路径+要点（长回复会被截断）。省略则仅创建不启动，之后用 send 发首条' },
           name: { type: 'string', description: '[spawn] 子 Agent 名称' },
           tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 子 Agent 可用的工具名清单（须是你有权分派的能力的子集，越权名会被过滤；subagent/run_code 一律拒绝——子 Agent 不能再派子孙/再开编排层）。缺省不传 = 继承你的工具面；传空数组 [] = 纯推理子 Agent' },
           system: { type: 'string', description: '[spawn] 子 Agent 的 system prompt（人设/行为约束）。传入即固化（跨轮/跨重启）并完全接管人格语义——不继承父 Agent 的人设与 persona 配置；缺省 = 继承父' },
           subagent_id: { type: 'string', description: '[send/await/answer/stop/delete] 目标子 Agent ID（spawn 返回的 subagent_id，可 list 查询；勿凭记忆复写）' },
           message: { type: 'string', description: '[send] 给该子 Agent 的消息内容（自包含，或基于该子 Agent 已有进展的追问/补充指示）——不是给其他 Agent 或用户发消息' },
-          mode: { type: 'string', enum: ['async', 'sync', 'steer', 'next-run'], description: '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）' },
-          timeout_s: { type: 'number', description: '[await] 等待上限秒数（0 = 缺省立即查询不等待；正值 = 阻塞等待新终稿，超时返回 pending；子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等）', minimum: 0 },
+          mode: { type: 'string', enum: ['async', 'sync', 'steer', 'next-run'], description: '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果（超时无回执返回 status=no_reply_yet + 子状态快照）；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）' },
+          timeout_s: { type: 'number', description: '[await] 等待上限秒数（0 = 缺省立即查询不等待；正值 = 阻塞等待新终稿，超时返回 pending；子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等；pending/超时落空时附带 state 状态快照〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置）', minimum: 0 },
           answers: { type: 'array', items: { type: ['string', 'array', 'null'] }, description: '[answer] 对子 Agent pending 提问的逐题回答（与提问顺序一一对应；单选 = 选项文本或 null 跳过，多选 = 文本数组）' },
           wait_time: { type: 'number', description: '[spawn] 正值 = 阻塞等首条任务终稿（秒；超时返回已转后台，结果稍后 await 查询）', minimum: 0 },
           query: { type: 'string', description: '[list] 按 id/名称子串过滤' },
@@ -916,27 +1031,34 @@ export class ShellSubagentService extends Service {
             const message = String(args.message ?? '');
             if (message.trim() === '') return { ok: false, error: 'send 缺少 message（给子 Agent 的消息内容——给用户/其他 Agent 发消息用 send_agent）' };
             const mode = (args.mode === 'sync' || args.mode === 'steer' || args.mode === 'next-run') ? args.mode : 'async';
-            const out = await this.sendOp(childOf(), message, mode, 0, replyConversation, call.signal,
+            const childId = childOf();
+            const out = await this.sendOp(childId, message, mode, 0, replyConversation, call.signal,
               call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? call.elevation : undefined);
+            // 无回执（async 立返 / sync 超时）：附子状态快照引导（调用方不猜状态）
+            const brief = out.reply === undefined ? this.childBriefOf(childId) : undefined;
             return {
               ok: true,
               output: {
                 action: 'send',
                 delivered: out.delivered,
                 ...(out.reply !== undefined ? { result: { text: out.reply.text } } : {}),
+                ...(brief !== undefined ? { ...(mode === 'sync' ? { status: 'no_reply_yet' } : {}), ...brief } : {}),
               },
             };
           }
           case 'await': {
             const timeoutS = Math.max(0, Number(args.timeout_s ?? 0));
-            const reply = await this.awaitOp(childOf(), timeoutS * 1000, call.signal);
-            if (reply === null) return { ok: true, output: { action: 'await', status: 'pending', note: '尚无新终稿——稍后再查（或 timeout_s > 0 阻塞等待）' } };
+            const childId = childOf();
+            const reply = await this.awaitOp(childId, timeoutS * 1000, call.signal);
+            // 落空（超时/中止）：附子状态快照引导（running/asking/exited 等 + hint），不让调用方猜
+            if (reply === null) return { ok: true, output: { action: 'await', status: 'pending', waited_seconds: timeoutS, ...this.childBriefOf(childId) } };
             if ('interactionId' in reply && 'questions' in reply) {
               return {
                 ok: true,
                 output: {
                   action: 'await',
                   status: 'asking',
+                  settled_runs: this.settledCount(childId),
                   interaction_id: reply.interactionId,
                   questions: reply.questions,
                   note: '子 Agent 已发起提问并挂起等待——用 action=answer 逐题作答（answers 与 questions 顺序一致）；不答它不会继续',
@@ -954,6 +1076,23 @@ export class ShellSubagentService extends Service {
               typeof args.interaction_id === 'string' && args.interaction_id !== '' ? args.interaction_id : undefined,
             );
             return { ok: true, output: { action: 'answer', ...out, note: '已作答——子 Agent 将自动继续（忙时步边界注入/挂起中即时续走）；终稿稍后 await 收取' } };
+          }
+          case 'status': {
+            // 主动查状态（零等待）：childBriefOf 七态快照 + 进度统计 + name/pid
+            //——await 落空/send 无回执的附属面独立成 action，随时可查不打扰。
+            const childId = childOf();
+            if (!this.ownsChild(childId)) throw new Error('子 Agent 不在管理面：' + childId + '（list 查询在场清单）');
+            const meta = this.childMeta.get(childId);
+            return {
+              ok: true,
+              output: {
+                action: 'status',
+                subagent_id: childId,
+                ...(meta?.name !== undefined ? { name: meta.name } : {}),
+                ...(this.children.get(childId) !== undefined ? { pid: this.children.get(childId)!.pid } : {}),
+                ...this.childBriefOf(childId),
+              },
+            };
           }
           case 'list': {
             const query = typeof args.query === 'string' ? args.query : '';
