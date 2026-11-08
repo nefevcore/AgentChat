@@ -253,13 +253,7 @@ export class ConversationService extends Service {
     // 盘面按 requestId 查重（inject 行/注入台账同键——cr-713 steer 记录），
     // 缺席才补写（在场 = 幂等短路，同旧语义）。
     if (plan.action !== 'steer' && (opts.recovered !== true || !ledger.hasInboundRow(uuid, env.requestId))) {
-      await ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), {
-        role: 'agent',
-        content: text,
-        agent_id: env.sender,
-        requestId: env.requestId,
-        uuid,
-      });
+      await ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), this.inboundRowOf(env, text));
     }
     // 完成回执收束（cr-711 子 Agent / cr-712 跨壳委托同款）：对桶只落账
     //（子/委托会话保留任务与终稿事实），结果转投发起会话——不占串行化门、
@@ -489,13 +483,7 @@ export class ConversationService extends Service {
       // + 本会话 turnQueue 补入队尾，当前 run 收束点链跑消费。
       // cr-713：入站行在转投点补落（steer 分支不再预落）——队信消费靠
       // historyMessagesFor 复读当前消息，行缺席 = 模型失明当前消息。
-      await this.ctx.ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), {
-        role: 'agent',
-        content: this.textOf(env),
-        agent_id: env.sender,
-        requestId: env.requestId,
-        uuid,
-      });
+      await this.ctx.ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), this.inboundRowOf(env, this.textOf(env)));
       const afterBudget = budgetAfterReceive(env.budget, env.sender);
       if (entersInbox(env.kind, afterBudget)) this.ctx.ledger.inboxStore(uuid, env);
       this.machineFor(uuid).requeue({
@@ -1088,6 +1076,27 @@ export class ConversationService extends Service {
    * receiveEnvelope 与 steer 落空转投点共用单源） */
   private ledgerKindOf(env: Envelope): string {
     return env.to.includes('~') ? 'group' : env.sender === 'user' ? 'user' : 'agent';
+  }
+
+  /**
+   * 入站落账行形态（cr-946）：常规会话信 = 发言行（role:agent，归属 sender）；
+   * 机制通知（payload.mechanism，壳自身合成的催办信——如重启后的「已重启」
+   * 续跑通知）= 机制行（role:context + source:event）。
+   *
+   * 为什么必须是机制行：投成发言行时 viewer 投影对它恒盲（派生器只派生
+   * agent 域自著行），webui 读面看不到这条边界 → 相邻两个 run 被前端并成
+   * 一轮、前一段终稿降级成链内中间步而整段丢失。机制行在 repo 既有口径内
+   * 两件事都对：LLM 回放仍作 user 上下文（historyMessagesFor 同款分支），
+   * webui 读面投为事件分隔符（并因此成为轮边界）。
+   */
+  private inboundRowOf(
+    env: Envelope,
+    text: string,
+  ): { role: 'agent' | 'context'; content: string; agent_id: string; requestId: string; uuid: string; source?: string } {
+    const mechanism = (env.payload as { mechanism?: unknown } | null)?.mechanism === true;
+    return mechanism
+      ? { role: 'context', source: 'event', content: text, agent_id: this.agentId, requestId: env.requestId, uuid: env.uuid }
+      : { role: 'agent', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid };
   }
 
   /** steer 寻址（主线 runAddress 词汇：conversationId ≠ agent → `<uuid>~<agent>`） */

@@ -122,7 +122,9 @@ export class UserLedger {
   constructor(dataRoot: string, uuid: string, participants: string[]) {
     this.dir = userSessionDir(dataRoot, uuid);
     this.uuid = uuid;
-    this.writer = new LedgerWriter(this.dir, { participants, kind: 'user' });
+    // reseedSeqPerWrite（cr-946）：viewer 账本多写者（user 桩 writeOwn +
+    // 派生器每次新建）——每分配前对账尾行，防 seq 重号。
+    this.writer = new LedgerWriter(this.dir, { participants, kind: 'user' }, undefined, { reseedSeqPerWrite: true });
   }
 
   /**

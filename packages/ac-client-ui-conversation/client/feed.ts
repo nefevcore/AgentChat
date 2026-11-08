@@ -302,6 +302,25 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
 }
 
 /**
+ * 思维链承载的步（cr-946 纯函数——TurnDisplayItem 与回归测试共用）：
+ *   · 有思考/工具活动的步恒入链；
+ *   · 纯正文步只在本轮**另有活动**时入链（中间口述：合轮/续跑场景下，前
+ *     一段 run 的终稿在此位置只是链内一步）；
+ *   · 纯正文轮（全轮无活动）返回空数组——维持 final 气泡路径。
+ * 此前只收思考/工具步：非 final 的纯正文步被整段吞掉（一次完整回答凭空
+ * 消失）。终稿由模板侧「正文 == final 正文」去重，不会双投。
+ */
+export function chainSteps(steps: TurnStep[]): TurnStep[] {
+  const hasActivity = steps.some((s) =>
+    (s.assistant.thinking || s.assistant.reasoning_content || '').trim() !== '' || s.tools.length > 0);
+  if (!hasActivity) return [];
+  return steps.filter((s) =>
+    (s.assistant.thinking || s.assistant.reasoning_content || '').trim() !== ''
+    || s.tools.length > 0
+    || (s.assistant.content || '').trim() !== '');
+}
+
+/**
  * 由原始消息流构建 Turn[]（原 _buildAgentTurnsForHistory）。
  * - event 消息（定时/归档/继续/重启等系统事件）→ 独立 system turn（渲染为分隔符）
  * - agent/user 消息按 sender 分组为 turn 链；同 sender 但间隔过长 → 拆分为独立轮次
@@ -416,6 +435,13 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       const isPlainBody = !!msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
       const prevComplete = !!lastTurn && !!lastTurn.content && !lastTurn.tool_calls.length;
       const plainAfterComplete = isPlainBody && prevComplete && !sameRun;
+      // run 切换即轮边界（cr-946）：上一轮已给出终稿（末尾是纯正文、无工具
+      // 的收束步），本步却属另一个 run → 必拆。缺此判据时（边界行缺席 /
+      // 机制通知没投成事件行），两段 run 会并入同一「轮」——前一段终稿降级
+      // 成链内中间步，被「中间口述不进链」的呈现规则整段吞掉（会话
+      // 01a1ba12 「你说得对——复盘…」整段消失的形态）。
+      const runCut = prevComplete && !sameRun
+        && !!msg.runId && !!lastTurn.runId && msg.runId !== lastTurn.runId;
       // 平文中段插行：同 sender 后续还有消息 → 独立成轮（拆轮保位，不被
       // 折叠链吞掉）；其后的下一条同 sender 消息另起一轮（afterSolo）——
       // 否则后续步骤会并入插行所在轮、把插行顶回链内。组尾平文（final
@@ -423,7 +449,7 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       // 中断-续跑 run 的中途总结步留在链内。
       const senderContinues = nextSenderOf[k] === senderId;
       const solo = isPlainBody && senderContinues && !sameRun;
-      if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete || solo || afterSolo) {
+      if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete || runCut || solo || afterSolo) {
         flush();
         cur = { agent_id: senderId, turns: [] };
         // 暂存注入卡落地：本轮即其服务对象（注入行在本轮之前落账——

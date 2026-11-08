@@ -1,0 +1,137 @@
+// ============================================================
+// cr946-projection.test.ts —— 会话投影顺序三修（cr-946）读写面回归锁
+//
+// ① textBeforeTools 落盘链路：LoopStepRecord → journalStep → journal-step
+//    → projectStep/segmentizeRun → settle 物化段行（cr-804 曾修、后被重构
+//    整体回退：账本层零引用 → 所有历史步只剩「工具在前、正文在后」）。
+// ② 机制通知行读面投影：壳自身合成的催办信（重启「已重启」）按机制行
+//    （context+event、无 run 锚）投为事件分隔符；存量「按入站 user 行落账」
+//    形态同样按机制行投影（账本 append-only，不改写历史）。
+// ③ viewer 账本 seq：两个 writer 实例交替写同一文件 → seq 严格单调不重号
+//    （user 桩常驻 writer + 派生器每次新建 writer 的多写者形态）。
+// ============================================================
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { assembleSessionView } from '../src/view.ts';
+import { UserLedger } from '../src/user.ts';
+import { readJournal, readLedger, segmentizeRun, stepsOfRun } from '../src/index.ts';
+import { sessionDir } from '../src/writer.ts';
+
+const ROOT = path.join('sandbox', 'test-ledger-cr946-' + process.pid);
+beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+
+describe('cr-946 ① textBeforeTools 落盘链路', () => {
+  it('journalStep 落 textBeforeTools → journal 读面/物化切段/settle 段行全程透传', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'alpha' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        journalStep(uuid: string, run: string, step: unknown): Promise<void>;
+        settleRun(uuid: string, participants: string[], kind: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
+      };
+      const uid = 'alpha~user';
+      await svc.journalStep(uid, 'run-p', {
+        index: 0,
+        stepId: 'run-p:0',
+        text: '先口述再调工具：',
+        textBeforeTools: true,
+        reasoning: '想',
+        reasoningMs: 13000,
+        toolCalls: [{ id: 'c1', name: 'run_code', arguments: '{}' }],
+        toolResults: [],
+      });
+      const dir = sessionDir(ROOT, 'alpha', uid);
+      // journal 读面（在途）透传
+      const inFlight = stepsOfRun(readJournal(dir), 'run-p')!;
+      expect(inFlight.steps[0]).toMatchObject({ content: '先口述再调工具：', textBeforeTools: true });
+      // 物化切段（写侧纯函数）透传
+      const seg = segmentizeRun(readJournal(dir), 'run-p');
+      expect((seg[0] as { steps: Array<{ textBeforeTools?: boolean }> }).steps[0]!.textBeforeTools).toBe(true);
+      // settle 物化段行（落盘形态）透传
+      await svc.settleRun(uid, ['alpha', 'user'], 'user', {
+        role: 'agent', content: '终稿', agent_id: 'alpha', requestId: 'reply-p', uuid: uid, run: 'run-p',
+      }, 'run-p', 'ok');
+      const segRow = readLedger(dir).rows.find((r) => r.source === 'segment');
+      expect(segRow?.steps?.[0]).toMatchObject({ textBeforeTools: true });
+      // 读面组装（view → 前端）仍带该标记
+      const view = assembleSessionView(ROOT, uid).find((r) => Array.isArray(r.steps));
+      expect((view!.steps as Array<{ textBeforeTools?: boolean }>)[0]!.textBeforeTools).toBe(true);
+    } finally {
+      await fiber.dispose();
+    }
+  });
+});
+
+describe('cr-946 ② 机制通知行读面投影（事件分隔符 + 轮边界）', () => {
+  /** 种一段存量对话：用户问 + 两段 run 终稿（viewer 行） */
+  async function seedRuns(conv: string): Promise<void> {
+    const ul = new UserLedger(ROOT, conv, ['user']);
+    await ul.writeOwn('问', 'q-1');
+    await ul.writeThrough({ agentId: 'alpha', content: '前一段终稿', uuid: conv, run: 'run-a', requestId: 'rq-a' });
+    await ul.writeThrough({ agentId: 'alpha', content: '后一段终稿', uuid: conv, run: 'run-b', requestId: 'rq-b' });
+  }
+
+  it('新写面（context+event、无 run）：投为 event 行，正文/时间/锚点透传', async () => {
+    const conv = 'mech-new';
+    await seedRuns(conv);
+    const { LedgerWriter } = await import('../src/writer.ts');
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({
+      role: 'context', source: 'event',
+      content: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。',
+      agent_id: 'alpha', requestId: 'restarted-n1', uuid: conv,
+    });
+    const out = assembleSessionView(ROOT, conv);
+    const ev = out.find((r) => r.role === 'event');
+    expect(ev).toMatchObject({
+      content: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。',
+      agent_id: 'alpha',
+      source: 'event',
+      message_id: 'restarted-n1',
+    });
+    expect(typeof ev!.timestamp).toBe('string');
+  });
+
+  it('存量形态（按入站发言行落账、requestId restarted-*）：读面同投 event 行', async () => {
+    const conv = 'mech-legacy';
+    await seedRuns(conv);
+    const { LedgerWriter } = await import('../src/writer.ts');
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({
+      role: 'agent', content: '壳已重启完成（存量形态）',
+      agent_id: 'user', requestId: 'restarted-legacy-1', uuid: conv,
+    });
+    const out = assembleSessionView(ROOT, conv);
+    const ev = out.find((r) => r.role === 'event');
+    expect(ev).toMatchObject({ content: '壳已重启完成（存量形态）', source: 'event' });
+  });
+
+  it('负例：普通用户发言/agent 终稿不会被误投为事件行', async () => {
+    const conv = 'mech-neg';
+    await seedRuns(conv);
+    const out = assembleSessionView(ROOT, conv);
+    expect(out.some((r) => r.role === 'event')).toBe(false);
+  });
+});
+
+describe('cr-946 ③ viewer 账本 seq 多写者单调', () => {
+  it('两个 UserLedger 实例交替写同一文件 → seq 无重号且严格递增', async () => {
+    const conv = 'seq-1';
+    const a = new UserLedger(ROOT, conv, ['user']);
+    const b = new UserLedger(ROOT, conv, ['user']);
+    await a.writeOwn('a1', 'r1');
+    await b.writeThrough({ agentId: 'alpha', content: 'b1', uuid: conv, run: 'run-1', requestId: 'r2' });
+    await a.writeOwn('a2', 'r3');
+    await b.writeThrough({ agentId: 'alpha', content: 'b2', uuid: conv, run: 'run-2', requestId: 'r4' });
+    const rows = readLedger(path.join(ROOT, 'viewer', 'sessions', conv)).rows;
+    const seqs = rows.map((r) => r.seq!);
+    expect(seqs).toHaveLength(4);
+    expect(new Set(seqs).size).toBe(4); // 无重号
+    expect([...seqs].sort((x, y) => x - y)).toEqual(seqs); // 严格递增
+  });
+});

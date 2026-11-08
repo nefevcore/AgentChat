@@ -972,7 +972,12 @@ export async function bootShell(
         to: args.agentId,
         kind: 'message',
         budget: 1,
-        payload: { text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。' },
+        // cr-946：机制通知标记——壳自身合成的催办信不是会话发言：壳按机制行
+        //（context+event）落账，webui 投为事件分隔符（同时是两轮 run 的边界）。
+        payload: {
+          text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。',
+          mechanism: true,
+        },
       }), { fresh: true }))
       .catch((err: unknown) => {
         process.stderr.write('[shell] 「已重启」注入失败：' + String(err) + '\n');

@@ -138,6 +138,8 @@ writer/读侧以 `"type":"…"` 前缀判定，避免全量 JSON.parse；旧版�
 `{ id?, name?, arguments: 原始 JSON 串, result: ToolResult | null, content?, reasoning?/thinking? 等 }`——每步含正文/思考与工具调用对。
 `history()` 的 LLM 回放只在 `replayTrajectory=true` 且 `agent_id === viewer` 时消费本字段（§2.6）；records/UI 展示始终消费。
 
+> **步内相位序必落盘（cr-946）**：`textBeforeTools`（true = 本步正文分片先于工具调用到达）随步落 journal 与物化段行——前端「正文 / 工具卡」相对渲染序的唯一契约。直播期由前端按 delta 先见序自判，历史回放/刷新/收束重拉只能读落盘值：**丢掉该字段 = 所有「先口述再调工具」的步在重放后正文与工具卡对调**（cr-804 修后曾在账本层被整体回退）。
+
 ### 2.5 入账规则（谁写什么行）
 
 `source`（信封触发来源）是唯一的类别判据，忙（`conversation/steered`）/闲（`router/message-received`）两条入账路径同形：
@@ -150,6 +152,8 @@ writer/读侧以 `"type":"…"` 前缀判定，避免全量 JSON.parse；旧版�
 | run 错误收束（`finish='error'`） | `role:'context'` + `source:'error'` | v2 前是 `role:'error'` 一等行（D12，见 §10）；LLM 回放按 **user** 喂回（不采纳 src 的 `error→tool` 映射——无 tool_call_id 配对的 tool 行有被拒风险） |
 | 机制标记 run（`meta[ARCHIVE_REVIEW_META]` / `GROUP_HINT_META`） | **不入账** | 机制产物非会话事实（三消费方：session 不入账 / usage 不记账 / conversation 不进视图） |
 > **error 行读面透传（cr-807）**：error 收束行落 agent 域账本（settle 终稿行后），不派生 viewer 行（空终稿 run 的 viewer 派生缺席语义不变）；session/history 读面在 steps 盲区投影段从 agent 域行面直读透传为 role:'error' 行（渲染序：该 run 轨迹 → 红条）——错误文案从瞬态帧升级为持久可见。
+
+> **壳侧合成催办信 = 机制行（cr-946）**：信封带 `payload.mechanism` 时（现行唯一来源：restart_shell 兑现后新壳注入的「已重启」续跑通知）按上表「机制触发」行落账（`context+event`、`agent_id=目标自身`）——它仍开续跑 run、LLM 回放按 user 喂回，但**不是会话发言**：投成发言行会让 viewer 投影对它恒盲（派生器只派生 agent 域自著行），读面因此丢掉两段 run 之间的轮边界（相邻 run 被并成一轮、前一段终稿降级成链内中间步而整段消失）。读面同时兼容存量形态（cr-946 前按发言行落账、`requestId` 前缀 `restarted-*` 的行）——账本 append-only，不改写历史行，只改投影。
 
 ### 2.6 回放投影（视角变换，纯函数 `projectRecord`）
 

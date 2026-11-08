@@ -1644,3 +1644,50 @@ describe('父侧代答（cr-736）：interactionReply 标记信封 → durableIn
     }
   }, 15_000);
 });
+
+describe('cr-946 机制通知信封（壳重启「已重启」续跑通知）', () => {
+  it('payload.mechanism → 按机制行（context+event）落账，仍开续跑 run 且模型上下文可见', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string }>> = [];
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    try {
+      const out = await conv.receiveEnvelope(makeEnvelope({
+        uuid: 'u-mech-1', requestId: 'restarted-r1', sender: 'user', to: 'alpha', kind: 'message', budget: 1,
+        payload: { text: '壳已重启完成（restart_shell 已兑现）', mechanism: true },
+      }), { fresh: true });
+      // 机制通知不是「只落账」——它仍要驱动续跑 run
+      expect(out).toBe('settled');
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'u-mech-1'));
+      const note = rows.find((r) => r.requestId === 'restarted-r1')!;
+      // 落账形态 = 机制行（不是会话发言行）
+      expect(note).toMatchObject({
+        role: 'context',
+        source: 'event',
+        content: '壳已重启完成（restart_shell 已兑现）',
+        agent_id: 'alpha',
+      });
+      // LLM 回放仍作 user 上下文（historyMessagesFor 的 context+event 分支）——
+      // mock 回声证明模型收到了这条通知
+      const lastUser = chatMessages[0]!.filter((m) => m.role === 'user').at(-1);
+      expect(lastUser?.content).toBe('壳已重启完成（restart_shell 已兑现）');
+      // 终稿行照常落账（run 键随 requestId 派生）
+      expect(rows.some((r) => r.run === 'run-restarted-r1' && r.role === 'agent')).toBe(true);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  it('常规信不受影响：仍按发言行落账（role=agent、归属 sender）', async () => {
+    seedAgent('alpha');
+    const { fibers, conv } = await bootTree('alpha');
+    try {
+      await conv.receiveEnvelope(msg('u-plain-1', 'rq-1', '普通消息'), { fresh: true });
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'u-plain-1'));
+      const row = rows.find((r) => r.requestId === 'rq-1')!;
+      expect(row).toMatchObject({ role: 'agent', agent_id: 'user', content: '普通消息' });
+      expect((row as { source?: string }).source).toBeUndefined();
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+});

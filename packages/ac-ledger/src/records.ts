@@ -57,6 +57,12 @@ export interface LedgerRow {
 export interface ProjectedStep {
   content: string;
   reasoning?: string;
+  /**
+   * 步内相位序（cr-946 / cr-804 回归修复）：true = 正文分片先于工具调用
+   * 到达。渲染序契约（正文/工具卡相对序）由本标记定——缺省 = 工具先行。
+   * 直播由前端自判，历史/刷新/收束重拉只能靠落盘值，故必须随步透传。
+   */
+  textBeforeTools?: boolean;
   /** 中止步标记（cr-766）——前端据此渲染中断态（部分正文 + 「已中断」） */
   aborted?: boolean;
   /** 思考相位时长（毫秒，cr-766——历史回放恢复「已思考 · XmYs」） */
@@ -107,6 +113,12 @@ export interface JournalStep {
   stepId?: string;
   content: string;
   reasoning?: string;
+  /**
+   * 步内相位序（cr-946 / cr-804 回归修复）：LoopStepRecord 同名字段原样
+   * 落盘（ac-agent-loop 产出）——读面 projectStep 随步透传，前端据此决定
+   * 步内「正文 / 工具卡」相对渲染序。
+   */
+  textBeforeTools?: boolean;
   /**
    * 中止步标记（cr-766）：LLM 流被 abort 时的部分聚合步——toolCalls 可能
    * 不完整，续跑/轨迹重建读侧据此剔除。步记录照常落盘（中断前模型已

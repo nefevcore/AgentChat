@@ -177,6 +177,9 @@ export class LedgerService extends Service {
       ...(step.stepId !== undefined ? { stepId: step.stepId } : {}),
       content: step.text,
       ...(step.reasoning !== undefined && step.reasoning !== '' ? { reasoning: step.reasoning } : {}),
+      // 步内相位序（cr-946 / cr-804 回归）：正文先于工具调用的步——不落
+      // 则历史/刷新/收束重拉后正文与工具卡序对调（直播自判值只活在内存）。
+      ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
       // 中止步保真（cr-766）：部分聚合步照常落盘——读侧据此剔除不完整
       // tool_calls（续跑/轨迹重建），前端渲染中断态
       ...(step.aborted === true ? { aborted: true } : {}),

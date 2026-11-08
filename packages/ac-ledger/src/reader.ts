@@ -185,6 +185,9 @@ function projectStep(line: JournalStep, facts: RunFacts, opts: { subcalls?: bool
     // B2 步级 seq 保留：journal 步行 seq 随步透传（存量行缺席）
     ...(line.seq !== undefined ? { seq: line.seq } : {}),
     ...(line.reasoning !== undefined ? { reasoning: line.reasoning } : {}),
+    // 步内相位序（cr-946 / cr-804 回归）：物化段行与读面同步透传——前端
+    // 历史回放的「正文/工具卡」相对序契约。
+    ...(line.textBeforeTools !== undefined ? { textBeforeTools: line.textBeforeTools } : {}),
     ...(line.aborted === true ? { aborted: true } : {}),
     ...(line.reasoningMs !== undefined ? { reasoningMs: line.reasoningMs } : {}),
     ...(line.textMs !== undefined ? { textMs: line.textMs } : {}),

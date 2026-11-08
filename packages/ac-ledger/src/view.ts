@@ -260,6 +260,33 @@ export function assembleSessionView(
         ...(r.seq !== undefined ? { seq: r.seq } : {}), // B1 行级 seq 透传
       });
     }
+    // 机制通知行（cr-946）：壳自身合成的催办信（payload.mechanism——如重启
+    // 后的「已重启」续跑通知）按机制行落账（context+event、无 run 锚），投为
+    // **事件分隔符**——前端 buildTurns 对 event 行 flush，两段 run 才是两轮、
+    // 各有自己的终稿气泡（此前这条边界在 viewer 投影里恒缺席：相邻 run 被并成
+    // 一轮，前一段终稿降级为链内中间步而整段消失）。位置由前端稳定时间排序按
+    // timestamp 还原，push 位次不敏感。
+    for (const r of rows) {
+      const mechanism = r.role === 'context' && r.source === 'event' && r.run === undefined;
+      // 存量兼容（cr-946 前）：同一通知曾按入站发言行落账（agent_id='user'、
+      // requestId 前缀 restarted-*）——读面按机制行投影。账本 append-only，
+      // 不改写历史行。
+      const legacy = r.role === 'agent' && r.agent_id === 'user'
+        && typeof r.requestId === 'string' && r.requestId.startsWith('restarted-');
+      if (!mechanism && !legacy) continue;
+      all.push({
+        role: 'event',
+        agent_id: domain,
+        // 只投正文（不带 label）：带 label 会被前端判成注入卡（不 flush 轮），
+        // 边界语义丢失。
+        content: r.content,
+        message_id: r.message_id,
+        timestamp: r.timestamp,
+        source: 'event',
+        ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
+        ...(r.seq !== undefined ? { seq: r.seq } : {}),
+      });
+    }
   }
   return opts.view === 'lite' ? all.map(liteRow) : all;
 }

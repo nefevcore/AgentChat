@@ -12,7 +12,7 @@ import UserMessage from './UserMessage.vue';
 import InjectCardHost from './InjectCardHost.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
 import { noteChainExpanded, chainExpandInit } from '../viewParking.ts';
-import { fmtElapsed } from '../feed.ts';
+import { chainSteps, fmtElapsed } from '../feed.ts';
 import { Avatar, Icon, ThinkingIcon } from '@agentchat/webui-kit';
 import type { InjectCard, Turn, ChatMessage } from '../types.ts';
 
@@ -67,12 +67,10 @@ const finalRenderer = computed(() => {
   return id ? resolveMessageViewRenderer(id) : null;
 });
 
-const meaningfulSteps = computed(() =>
-  props.turn.steps.filter(s =>
-    (s.assistant.thinking || s.assistant.reasoning_content || '').trim()
-    || s.tools.length > 0
-  )
-);
+// 链体承载的步（cr-946）：纯函数住 feed.ts（chainSteps）——有思考/工具的步
+// 恒入链；纯正文步只在本轮另有活动时入链（中间口述：否则前一段 run 的终稿
+// 被整段吞掉）。纯正文轮返回空 → 维持 final 气泡路径。
+const meaningfulSteps = computed(() => chainSteps(props.turn.steps));
 
 // ── 思维链全局可见性（会话头部 switch）：关闭时链体（思考文本/工具卡）不
 //    渲染，但保留 chain-header 摘要（步数/耗时）+ 行首旋转环——隐藏模式下
